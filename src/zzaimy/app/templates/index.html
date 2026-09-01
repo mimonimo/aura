@@ -49,6 +49,8 @@
   </div>
   {% if active_project %}{% for pj in projects if pj.id == active_project %}
   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:10px 0 0 26px;">
+    <a href="/project/{{ pj.id }}" class="btn-ghost">
+      <iconify-icon icon="solar:folder-open-linear"></iconify-icon>프로젝트 페이지 (지침·기준 연결)</a>
     <form action="/projects/{{ pj.id }}/rename" method="post" style="display:inline-flex; gap:6px;">
       <input type="text" name="name" value="{{ pj.name }}" required
              style="border:1.5px solid var(--line); border-radius:18px; padding:4px 14px;

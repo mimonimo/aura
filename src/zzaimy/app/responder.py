@@ -9,7 +9,10 @@ from __future__ import annotations
 from zzaimy.app.db import Database
 from zzaimy.app.regulations import compose_review_context
 
-_SYSTEM = """당신은 영남이공대학교 행정 담당자를 돕는 AI 에이전트입니다.
+_SYSTEM = """당신은 영남이공대학교 행정 담당자(교직원)를 돕는 AI 에이전트입니다.
+사용자는 학생이 아니라 업무를 처리하는 교직원입니다. 학생 관련 규정을 물어도
+그것은 담당자가 민원·서류를 처리하기 위한 것이므로, 처리 절차·확인 사항·근거 조항
+중심의 업무 관점으로 답합니다.
 
 답변 원칙:
 - 참고 규정이 주어지면 그 내용을 근거로 답하고, 출처(규정명·조항)를 자연스럽게 언급합니다.
@@ -21,6 +24,24 @@ _SYSTEM = """당신은 영남이공대학교 행정 담당자를 돕는 AI 에�
   어떤 규정·기준 문서를 등록하면 도움이 될지 한 문장으로 안내합니다.
 - 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다. 같은 문장을 반복하지 않습니다.
 - 최종 판단은 담당자의 몫이라는 전제를 지킵니다."""
+
+
+def compose_system(profile: dict) -> str:
+    """기본 시스템 프롬프트에 담당자 프로필·지침을 얹는다 (설정 화면에서 저장)."""
+    parts = [_SYSTEM]
+    call_me = (profile.get("call_me") or "").strip()
+    dept = (profile.get("dept") or "").strip()
+    if call_me or dept:
+        who = []
+        if call_me:
+            who.append(f'담당자를 "{call_me}"(으)로 부릅니다')
+        if dept:
+            who.append(f"담당자는 {dept} 소속입니다 — 그 부서 업무 맥락을 우선 고려합니다")
+        parts.append("담당자 정보:\n- " + "\n- ".join(who))
+    instructions = (profile.get("instructions") or "").strip()
+    if instructions:
+        parts.append(f"담당자가 등록한 지침 — 답변과 검토 의견 작성 시 따릅니다:\n{instructions}")
+    return "\n\n".join(parts)
 
 
 class AgentResponder:
@@ -48,7 +69,7 @@ class AgentResponder:
         else:
             context = compose_review_context(db, attachment_text or question)
         history = db.list_chats(session_id, limit=6) if session_id else []
-        messages: list[dict] = [{"role": "system", "content": _SYSTEM}]
+        messages: list[dict] = [{"role": "system", "content": compose_system(db.all_settings())}]
         for m in history:
             messages.append({"role": m["role"], "content": m["content"][:2000]})
         user_content = question

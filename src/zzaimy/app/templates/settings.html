@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}설정 — YNC 행정 에이전트{% endblock %}
+{% block pagetitle %}설정{% endblock %}
+{% block content %}
+
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:user-id-linear"></iconify-icon>담당자 프로필</h2>
+    <form action="/settings" method="post">
+      <div style="display:grid; grid-template-columns:140px 1fr; gap:14px 16px; align-items:center; max-width:640px;">
+        <label class="muted" for="s-name">성명</label>
+        <input id="s-name" type="text" name="name" value="{{ s.get('name', '') }}"
+               placeholder="예: 김미몬"
+               style="border:1.5px solid var(--line); border-radius:12px; padding:9px 14px; font-family:inherit; font-size:14px;">
+        <label class="muted" for="s-call">에이전트가 부를 호칭</label>
+        <input id="s-call" type="text" name="call_me" value="{{ s.get('call_me', '') }}"
+               placeholder="예: 미몬님, 선생님"
+               style="border:1.5px solid var(--line); border-radius:12px; padding:9px 14px; font-family:inherit; font-size:14px;">
+        <label class="muted" for="s-dept">소속 부서</label>
+        <input id="s-dept" type="text" name="dept" value="{{ s.get('dept', '') }}"
+               placeholder="예: 산학협력단"
+               style="border:1.5px solid var(--line); border-radius:12px; padding:9px 14px; font-family:inherit; font-size:14px;">
+      </div>
+
+      <h2 style="margin-top:26px;"><iconify-icon icon="solar:notes-linear"></iconify-icon>에이전트 지침</h2>
+      <p class="muted" style="margin:0 0 10px;">채팅 답변과 문서 검토 의견을 만들 때 항상 따르는
+        지침입니다. 프로젝트별 지침은 각 프로젝트 페이지에서 따로 둘 수 있습니다.</p>
+      <textarea name="instructions" style="min-height:130px; max-width:760px;"
+                placeholder="예: 검토 의견은 개조식으로 쓴다. 반려 사유에는 근거 조항을 명시한다.">{{ s.get('instructions', '') }}</textarea>
+      <div style="margin-top:14px;"><button type="submit">저장</button></div>
+    </form>
+    <p class="notice"><iconify-icon icon="solar:shield-check-linear"></iconify-icon><span>설정은
+      이 장비의 데이터베이스에만 저장되며 외부로 나가지 않습니다.</span></p>
+  </div>
+</div>
+{% endblock %}

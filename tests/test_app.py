@@ -430,3 +430,71 @@ def test_upload_ignores_unknown_project_id(client):
                 files={"file": ("지원서.pdf", b"%PDF", "application/pdf")})
     docs = client.app.state.db.list_documents(doc_type="recruit")  # type: ignore[attr-defined]
     assert docs[0]["project_id"] is None
+
+
+def test_settings_save_and_profile_in_topbar(client):
+    assert client.get("/settings").status_code == 200
+    r = client.post("/settings", data={
+        "name": "김미몬", "call_me": "미몬님", "dept": "산학협력단",
+        "instructions": "검토 의견은 개조식으로 작성한다.",
+    }, follow_redirects=False)
+    assert r.status_code == 303
+    assert "김미몬" in client.get("/").text            # 탑바 사용자 칩
+    page = client.get("/settings").text
+    assert "검토 의견은 개조식으로 작성한다." in page   # 저장값 재표시
+
+
+def test_responder_system_prompt_reflects_profile():
+    from zzaimy.app.responder import compose_system
+
+    s = compose_system({
+        "call_me": "미몬님", "dept": "산학협력단",
+        "instructions": "반려 사유에는 근거 조항을 명시한다.",
+    })
+    assert "미몬님" in s and "산학협력단" in s
+    assert "반려 사유에는 근거 조항을 명시한다." in s
+    assert compose_system({}) .startswith("당신은")      # 프로필 없으면 기본 프롬프트
+
+
+def test_project_page_meta_and_criteria(client):
+    client.post("/projects", data={"sector": "recruit", "name": "2026 교원 채용"})
+    client.post("/criteria/upload", data={"sector": "recruit"},
+                files={"file": ("채용공고.pdf", b"%PDF", "application/pdf")})
+    # 프로젝트 페이지 열림
+    assert "2026 교원 채용" in client.get("/project/1").text
+    # 지침·메모 저장
+    r = client.post("/project/1/meta", data={
+        "instructions": "경력 3년 미만은 반려.", "memo": "상반기 3명 채용."},
+        follow_redirects=False)
+    assert r.status_code == 303
+    page = client.get("/project/1").text
+    assert "경력 3년 미만은 반려." in page and "상반기 3명 채용." in page
+    # 기준 연결 (criteria doc id=1)
+    client.post("/project/1/criteria", data={"criteria": ["1"]})
+    db = client.app.state.db
+    assert db.get_project_criteria_ids(1) == [1]
+    # 사이드바에 프로젝트 표시
+    assert "2026 교원 채용" in client.get("/chat").text
+
+
+def test_guidance_block_combines_global_and_project(tmp_path):
+    from zzaimy.app.pipeline import _guidance_block
+
+    db = Database(tmp_path / "t.db")
+    db.set_setting("instructions", "개조식으로 쓴다.")
+    pid = db.create_project("recruit", "채용 A")
+    db.update_project_meta(pid, instructions="어학 유효기간 확인.", memo="3명 채용.")
+    block = _guidance_block(db, db.get_project(pid))
+    assert "개조식으로 쓴다." in block
+    assert "어학 유효기간 확인." in block and "3명 채용." in block
+    assert _guidance_block(db, None).count("[") == 1  # 전역 지침만
+
+
+def test_chat_status_endpoint(tmp_path):
+    app = create_app(
+        db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+        processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder(),
+    )
+    c = TestClient(app)
+    c.post("/chat/send", data={"question": "휴학 기준?"})
+    assert c.get("/chat/1/status").json()["waiting"] is False  # Fake는 즉시 응답

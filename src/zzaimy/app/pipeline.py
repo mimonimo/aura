@@ -64,6 +64,22 @@ def pick_review_prompt(doc_type: str) -> str:
     return _GRANT_PROMPT
 
 
+def _guidance_block(db: Database, project: dict | None) -> str:
+    """담당자 전역 지침 + 프로젝트 지침·메모를 검토 입력 뒤에 붙인다."""
+    parts = []
+    global_inst = db.get_setting("instructions").strip()
+    if global_inst:
+        parts.append(f"[담당자 지침 — 검토 의견 작성 시 따르라]\n{global_inst}")
+    if project:
+        p_inst = (project.get("instructions") or "").strip()
+        if p_inst:
+            parts.append(f"[프로젝트 「{project['name']}」 지침]\n{p_inst}")
+        p_memo = (project.get("memo") or "").strip()
+        if p_memo:
+            parts.append(f"[프로젝트 메모 — 참고 맥락]\n{p_memo}")
+    return ("\n\n" + "\n\n".join(parts)) if parts else ""
+
+
 class DocumentProcessor:
     """실제 처리기. 테스트에서는 FakeProcessor로 대체된다."""
 
@@ -197,10 +213,19 @@ class DocumentProcessor:
 
             from zzaimy.app.regulations import compose_review_context
 
+            # 프로젝트 소속이면 프로젝트 지침·메모·연결 기준을 검토에 반영한다
+            project = None
+            if doc is not None and doc.get("project_id"):
+                project = db.get_project(int(doc["project_id"]))
+            project_criteria = (
+                db.get_project_criteria_ids(project["id"]) if project else []
+            )
+
             related_id = (doc or {}).get("related_criteria_id")
-            if related_id:
-                # 담당자가 지정한 공고·기준을 우선 근거로 사용
-                rel_chunks = db.chunks_for_docs([int(related_id)])
+            if related_id or project_criteria:
+                # 담당자가 지정한 공고·기준(문서 지정 우선, 없으면 프로젝트 연결분)
+                use_ids = [int(related_id)] if related_id else project_criteria
+                rel_chunks = db.chunks_for_docs(use_ids)
                 parts, budget = [], 6000
                 for c in rel_chunks:
                     piece = f"《{c['reg_title']} · {c['heading']}》\n{c['content'][:800]}"
@@ -217,6 +242,7 @@ class DocumentProcessor:
             review_input = masked.text
             if reg_context:
                 review_input = f"{masked.text}\n\n{reg_context}"
+            review_input += _guidance_block(db, project)
             ai_review = self._review(review_input, doc_type)
 
             db.update_document(
@@ -240,6 +266,10 @@ class DocumentProcessor:
             text = doc["masked_text"]
             if opinions:
                 text += f"\n\n[담당자 보완 요청사항 — 재검토 시 반드시 반영하라]\n{opinions}"
+            project = (
+                db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
+            )
+            text += _guidance_block(db, project)
             ai_review = self._review(text, doc.get("doc_type", "auto"))
             # 재검토 완료 → 다시 판정 대기 상태로
             db.update_document(doc_id, status="reviewed", ai_review=ai_review, decision="pending")

@@ -48,6 +48,15 @@ CREATE TABLE IF NOT EXISTS projects (
   name       TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_criteria (
+  project_id      INTEGER NOT NULL REFERENCES projects(id),
+  criteria_doc_id INTEGER NOT NULL REFERENCES documents(id),
+  PRIMARY KEY (project_id, criteria_doc_id)
+);
 CREATE TABLE IF NOT EXISTS regulation_chunks (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id     INTEGER NOT NULL REFERENCES documents(id),
@@ -75,6 +84,8 @@ class Database:
         "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
         "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
         "ALTER TABLE documents ADD COLUMN project_id INTEGER",
+        "ALTER TABLE projects ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE projects ADD COLUMN memo TEXT NOT NULL DEFAULT ''",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -248,6 +259,68 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def set_setting(self, key: str, value: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
+    def get_setting(self, key: str, default: str = "") -> str:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+            return row["value"] if row else default
+
+    def all_settings(self) -> dict[str, str]:
+        with self._conn() as conn:
+            rows = conn.execute("SELECT key, value FROM settings").fetchall()
+            return {r["key"]: r["value"] for r in rows}
+
+    def list_all_projects(self) -> list[dict]:
+        """사이드바용 — 섹터 구분 없이 전체 프로젝트 (문서 수 포함)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT p.*, (SELECT COUNT(*) FROM documents d WHERE d.project_id = p.id)"
+                " AS n_docs FROM projects p ORDER BY p.id DESC LIMIT 20",
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def update_project_meta(
+        self, project_id: int, instructions: str | None = None, memo: str | None = None
+    ) -> None:
+        with self._conn() as conn:
+            if instructions is not None:
+                conn.execute(
+                    "UPDATE projects SET instructions = ? WHERE id = ?",
+                    (instructions[:4000], project_id),
+                )
+            if memo is not None:
+                conn.execute(
+                    "UPDATE projects SET memo = ? WHERE id = ?", (memo[:4000], project_id)
+                )
+
+    def set_project_criteria(self, project_id: int, criteria_doc_ids: list[int]) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM project_criteria WHERE project_id = ?", (project_id,)
+            )
+            conn.executemany(
+                "INSERT OR IGNORE INTO project_criteria (project_id, criteria_doc_id)"
+                " VALUES (?, ?)",
+                [(project_id, cid) for cid in criteria_doc_ids],
+            )
+
+    def get_project_criteria_ids(self, project_id: int) -> list[int]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT criteria_doc_id FROM project_criteria WHERE project_id = ?",
+                (project_id,),
+            ).fetchall()
+            return [r["criteria_doc_id"] for r in rows]
+
     def rename_project(self, project_id: int, name: str) -> bool:
         with self._conn() as conn:
             cur = conn.execute(
@@ -261,6 +334,9 @@ class Database:
             conn.execute(
                 "UPDATE documents SET project_id = NULL WHERE project_id = ?",
                 (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM project_criteria WHERE project_id = ?", (project_id,)
             )
             cur = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             return cur.rowcount > 0
