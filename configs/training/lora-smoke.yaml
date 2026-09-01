@@ -1,0 +1,31 @@
+# LoRA 1-step 스모크 테스트 (W1-W2 TASK-03)
+# 목적: aarch64 + sm_121에서 역전파가 도는지 확인. 학습 자체가 목적이 아니다.
+# 실행: .venv-train/bin/llamafactory-cli train configs/training/lora-smoke.yaml
+# 데이터는 configs/training/data/의 합성 4쌍 — 실제 문서를 쓰지 않는다.
+
+model_name_or_path: Qwen/Qwen3-0.6B
+trust_remote_code: false
+
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_target: all
+lora_rank: 8
+
+dataset: smoke
+dataset_dir: configs/training/data
+template: qwen3
+cutoff_len: 256
+max_samples: 4
+overwrite_cache: true
+
+output_dir: /tmp/zzaimy-lora-smoke
+overwrite_output_dir: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 1
+max_steps: 1
+learning_rate: 1.0e-4
+logging_steps: 1
+save_steps: 999999
+bf16: true
+report_to: none
