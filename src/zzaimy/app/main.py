@@ -159,6 +159,9 @@ def create_app(
             "pending_by_type": by_type,
             "failed_docs": failed,
             "alert_count": len(pending) + len(failed),
+            "side_projects": db.list_all_projects(),
+            "profile_name": db.get_setting("name"),
+            "profile_dept": db.get_setting("dept"),
             **extra,
         }
 
@@ -223,6 +226,18 @@ def create_app(
                 "waiting": waiting, "session_id": session_id,
             }),
         )
+
+    @app.get("/doc/{doc_id}/status")
+    def doc_status(doc_id: int):
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        return {"processing": doc["status"] in ("received", "processing")}
+
+    @app.get("/chat/{session_id}/status")
+    def chat_status(session_id: int):
+        messages = db.list_chats(session_id)
+        return {"waiting": bool(messages) and messages[-1]["role"] == "user"}
 
     def _answer_task(
         session_id: int, q: str, stored: Path | None, criteria: list[int]
@@ -316,6 +331,65 @@ def create_app(
             raise HTTPException(400, "프로젝트 이름이 필요하다")
         db.create_project(sector, name.strip())
         return RedirectResponse(f"/?type={sector}", status_code=303)
+
+    @app.get("/settings", response_class=HTMLResponse)
+    def settings_page(request: Request):
+        return templates.TemplateResponse(
+            request, "settings.html", ctx({"s": db.all_settings(), "active_tab": "all"})
+        )
+
+    @app.post("/settings")
+    def settings_save(
+        name: str = Form(""),
+        call_me: str = Form(""),
+        dept: str = Form(""),
+        instructions: str = Form(""),
+    ):
+        for key, val in (
+            ("name", name), ("call_me", call_me),
+            ("dept", dept), ("instructions", instructions),
+        ):
+            db.set_setting(key, val.strip()[:4000])
+        return RedirectResponse("/settings", status_code=303)
+
+    @app.get("/project/{project_id}", response_class=HTMLResponse)
+    def project_page(request: Request, project_id: int):
+        proj = db.get_project(project_id)
+        if proj is None:
+            raise HTTPException(404)
+        docs = [
+            d for d in db.list_documents(proj["sector"], project_id=project_id)
+            if d["doc_type"] != "regulation"
+        ]
+        linked = set(db.get_project_criteria_ids(project_id))
+        sector_criteria = [
+            d for d in db.list_documents("regulation")
+            if d["status"] == "reviewed" and d["sector"] in (proj["sector"], "common")
+        ]
+        return templates.TemplateResponse(
+            request,
+            "project.html",
+            ctx({
+                "project": proj, "documents": docs, "active_tab": proj["sector"],
+                "linked_criteria": linked, "sector_criteria": sector_criteria,
+            }),
+        )
+
+    @app.post("/project/{project_id}/meta")
+    def project_meta(
+        project_id: int, instructions: str = Form(""), memo: str = Form("")
+    ):
+        if db.get_project(project_id) is None:
+            raise HTTPException(404)
+        db.update_project_meta(project_id, instructions=instructions, memo=memo)
+        return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+    @app.post("/project/{project_id}/criteria")
+    def project_criteria(project_id: int, criteria: list[int] = Form([])):
+        if db.get_project(project_id) is None:
+            raise HTTPException(404)
+        db.set_project_criteria(project_id, criteria)
+        return RedirectResponse(f"/project/{project_id}", status_code=303)
 
     @app.post("/projects/{project_id}/rename")
     def rename_project(project_id: int, name: str = Form(...)):

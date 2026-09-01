@@ -2,7 +2,19 @@
 {% block title %}에이전트 채팅 — YNC 행정 에이전트{% endblock %}
 {% block pagetitle %}에이전트 채팅{% endblock %}
 {% block head %}
-  {% if waiting %}<meta http-equiv="refresh" content="2">{% endif %}
+  {% if waiting %}
+  <script>
+    // 전체 리로드 폴링은 화면이 깜빡인다 — 답이 준비된 순간에만 한 번 리로드
+    (function poll() {
+      fetch("/chat/{{ session_id }}/status")
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.waiting) { location.reload(); } else { setTimeout(poll, 2000); }
+        })
+        .catch(function () { setTimeout(poll, 4000); });
+    })();
+  </script>
+  {% endif %}
   <style>
     /* 메시지 버블 */
     .msg { max-width: 78%; padding: 12px 16px; border-radius: 16px; font-size: 14.5px;

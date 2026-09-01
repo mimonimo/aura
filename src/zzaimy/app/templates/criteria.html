@@ -11,6 +11,16 @@
     <input type="search" id="criteriaSearch" placeholder="기준 문서 검색 (문서명·섹터)"
            style="width:100%; font-size:14.5px;" autofocus>
   </div>
+  {% set sec_counts = {} %}
+  {% for d in documents %}{% if sec_counts.update({d.sector: sec_counts.get(d.sector, 0) + 1}) %}{% endif %}{% endfor %}
+  <div id="sectorPills" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:16px;">
+    <button type="button" class="pill" data-sector="" style="cursor:pointer; border:0; background:#1E6B4F; color:#fff;">전체 {{ documents|length }}</button>
+    {% for sec, label in [("common", "공통"), ("grant", "국고사업"), ("recruit", "채용"), ("admission", "입학"), ("auto", "일반 행정")] %}
+    {% if sec_counts.get(sec) %}
+    <button type="button" class="pill" data-sector="{{ sec }}" style="cursor:pointer; border:0;">{{ label }} {{ sec_counts[sec] }}</button>
+    {% endif %}
+    {% endfor %}
+  </div>
 </div>
 
 <div class="card reveal"><div class="card-in">
@@ -20,7 +30,7 @@
   <div class="table-scroll"><table id="criteriaTable">
     <tr><th>번호</th><th>문서명</th><th>적용 섹터</th><th>상태</th><th>조각 수</th><th>등록 시각</th></tr>
     {% for d in documents %}
-    <tr data-search="{{ d.filename }} {{ sector_labels.get(d.sector, d.sector) }}">
+    <tr data-search="{{ d.filename }} {{ sector_labels.get(d.sector, d.sector) }}" data-sector="{{ d.sector }}">
       <td>{{ d.id }}</td>
       <td><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td>
       <td><span class="pill type">{{ sector_labels.get(d.sector, d.sector) }}</span></td>
@@ -61,21 +71,36 @@
 
 <script>
   var input = document.getElementById("criteriaSearch");
-  if (input) {
-    input.addEventListener("input", function () {
-      var q = input.value.trim().toLowerCase();
-      var rows = document.querySelectorAll("#criteriaTable tr[data-search]");
-      var shown = 0;
-      rows.forEach(function (tr) {
-        var hit = !q || tr.dataset.search.toLowerCase().indexOf(q) !== -1;
-        tr.style.display = hit ? "" : "none";
-        if (hit) shown++;
-      });
-      var count = document.getElementById("criteriaCount");
-      if (count) count.textContent = shown + "건";
-      var empty = document.getElementById("noResult");
-      if (empty) empty.style.display = shown ? "none" : "";
+  var activeSector = "";
+
+  function applyFilter() {
+    var q = input ? input.value.trim().toLowerCase() : "";
+    var rows = document.querySelectorAll("#criteriaTable tr[data-search]");
+    var shown = 0;
+    rows.forEach(function (tr) {
+      var hitQ = !q || tr.dataset.search.toLowerCase().indexOf(q) !== -1;
+      var hitS = !activeSector || tr.dataset.sector === activeSector;
+      var hit = hitQ && hitS;
+      tr.style.display = hit ? "" : "none";
+      if (hit) shown++;
     });
+    var count = document.getElementById("criteriaCount");
+    if (count) count.textContent = shown + "건";
+    var empty = document.getElementById("noResult");
+    if (empty) empty.style.display = shown ? "none" : "";
   }
+
+  if (input) input.addEventListener("input", applyFilter);
+  document.querySelectorAll("#sectorPills .pill").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      activeSector = btn.dataset.sector;
+      document.querySelectorAll("#sectorPills .pill").forEach(function (b) {
+        var on = b === btn;
+        b.style.background = on ? "#1E6B4F" : "";
+        b.style.color = on ? "#fff" : "";
+      });
+      applyFilter();
+    });
+  });
 </script>
 {% endblock %}
