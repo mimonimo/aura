@@ -1,33 +1,58 @@
 {% extends "base.html" %}
 {% block content %}
+
+<div class="tiles">
+  <div class="tile"><div class="ico blue">📥</div><b>{{ documents|length }}</b><span>접수 문서</span></div>
+  <div class="tile"><div class="ico orange">⏳</div>
+    <b>{{ documents|selectattr("status", "equalto", "processing")|list|length }}</b><span>처리 중</span></div>
+  <div class="tile"><div class="ico green">✓</div>
+    <b>{{ documents|selectattr("status", "equalto", "reviewed")|list|length }}</b><span>검토 완료</span></div>
+  <div class="tile"><div class="ico navy">📝</div>
+    <b>{{ documents|selectattr("draft")|list|length }}</b><span>초안 생성됨</span></div>
+</div>
+
 <div class="card">
   <h2>문서 접수</h2>
   <form action="/upload" method="post" enctype="multipart/form-data"
-        style="display:flex; gap:12px; align-items:center;">
+        style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+    <select name="doc_type">
+      <option value="auto">일반 행정 문서</option>
+      <option value="grant">국고사업 (공고·계획서·보고서)</option>
+      <option value="recruit">채용 접수 서류</option>
+    </select>
     <input type="file" name="file" required>
     <button type="submit">접수</button>
   </form>
   <p class="notice">PDF, HWP/HWPX, 워드·엑셀, 스캔 이미지(PNG/JPG/TIFF)를 받습니다.
-    업로드된 문서는 이 장비 밖으로 나가지 않으며, 개인정보는 자동 마스킹 후 처리됩니다.</p>
+    문서는 이 장비 밖으로 나가지 않으며, 개인정보는 자동 마스킹 후 처리됩니다.</p>
 </div>
 
 <div class="card">
-  <h2>접수 문서 {{ documents|length }}건</h2>
+  <h2>문서함</h2>
+  <p style="margin:0 0 14px; display:flex; gap:8px;">
+    {% for key, label in [("all", "전체"), ("grant", "국고사업"), ("recruit", "채용"), ("auto", "일반 행정")] %}
+      <a href="{{ '/' if key == 'all' else '/?type=' + key }}" class="pill"
+         style="text-decoration:none; padding:6px 16px; font-size:13.5px;
+                {% if active_tab == key %}background:#1E6B4F; color:#fff;{% endif %}">
+        {{ label }}</a>
+    {% endfor %}
+  </p>
   {% if documents %}
   <table>
-    <tr><th>번호</th><th>파일명</th><th>계열</th><th>상태</th><th>접수 시각</th></tr>
+    <tr><th>번호</th><th>파일명</th><th>유형</th><th>상태</th><th>담당자 판정</th><th>접수 시각</th></tr>
     {% for d in documents %}
     <tr>
       <td>{{ d.id }}</td>
       <td><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td>
-      <td>{{ d.series or "—" }}</td>
-      <td><span class="badge {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
+      <td><span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span></td>
+      <td><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
+      <td><span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span></td>
       <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
     </tr>
     {% endfor %}
   </table>
   {% else %}
-  <p class="muted">아직 접수된 문서가 없습니다.</p>
+  <p class="muted">아직 접수된 문서가 없습니다. 위에서 첫 문서를 올려보세요.</p>
   {% endif %}
 </div>
 {% endblock %}
