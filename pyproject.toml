@@ -11,6 +11,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "presidio-analyzer>=2.2",
+    "pydantic>=2.7",
 ]
 
 [project.optional-dependencies]
