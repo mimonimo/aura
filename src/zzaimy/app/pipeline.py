@@ -33,6 +33,7 @@ _RECRUIT_PROMPT = """다음은 채용 접수 서류에서 추출한 본문이다
 
 지원자 서류 요약: (2~3문장)
 기재된 학력·경력·자격: (항목별로. 서류에 적힌 것만)
+적합성 판단: (참고 기준이 있으면 자격요건·제출서류 항목별 충족/미충족/확인 필요)
 확인 필요 사항: (누락 서류, 증빙 필요 항목, 기재 불일치)
 검토 의견: (담당자가 참고할 정리. 최종 판단은 담당자 몫임을 전제로)
 
@@ -147,6 +148,14 @@ class DocumentProcessor:
         )
         return (resp.choices[0].message.content or "").strip()
 
+    def extract_text(self, file_path: Path) -> str:
+        """채팅 첨부용 — 파싱 + PII 마스킹까지만 하고 결과 텍스트를 돌려준다."""
+        raw = self._parse(file_path)
+        if self._masker is None:
+            self._masker = PiiMasker()
+        masked, _ = self._masker.mask(RawDocument(doc_id="chat", text=raw))
+        return masked.text
+
     def process(self, db: Database, doc_id: int, file_path: Path) -> None:
         db.update_document(doc_id, status="processing")
         try:
@@ -169,7 +178,9 @@ class DocumentProcessor:
 
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
                 chunks = split_regulation(masked.text)
-                db.add_regulation_chunks(doc_id, title, chunks)
+                db.add_regulation_chunks(
+                    doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
+                )
                 db.update_document(
                     doc_id,
                     status="reviewed",
@@ -184,7 +195,7 @@ class DocumentProcessor:
 
             from zzaimy.app.regulations import compose_review_context
 
-            reg_context = compose_review_context(db, masked.text)
+            reg_context = compose_review_context(db, masked.text, sector=doc_type)
             review_input = masked.text
             if reg_context:
                 review_input = f"{masked.text}\n\n{reg_context}"

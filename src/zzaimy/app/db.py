@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS reviews (
   opinion    TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  role       TEXT NOT NULL,      -- user | assistant
+  content    TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS regulation_chunks (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id     INTEGER NOT NULL REFERENCES documents(id),
@@ -50,6 +56,8 @@ class Database:
         "ALTER TABLE documents ADD COLUMN draft TEXT",
         "ALTER TABLE documents ADD COLUMN coverage TEXT",
         "ALTER TABLE documents ADD COLUMN decision TEXT NOT NULL DEFAULT 'pending'",
+        "ALTER TABLE regulation_chunks ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
+        "ALTER TABLE documents ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -68,12 +76,14 @@ class Database:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def add_document(self, filename: str, stored_path: str, doc_type: str = "auto") -> int:
+    def add_document(
+        self, filename: str, stored_path: str, doc_type: str = "auto", sector: str = "common"
+    ) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO documents (filename, stored_path, doc_type, created_at)"
-                " VALUES (?, ?, ?, ?)",
-                (filename, stored_path, doc_type, _now()),
+                "INSERT INTO documents (filename, stored_path, doc_type, sector, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (filename, stored_path, doc_type, sector, _now()),
             )
             return int(cur.lastrowid or 0)
 
@@ -96,28 +106,83 @@ class Database:
             row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
             return dict(row) if row else None
 
-    def list_documents(self, doc_type: str | None = None) -> list[dict]:
+    def list_documents(self, doc_type: str | None = None, q: str | None = None) -> list[dict]:
+        sql = "SELECT * FROM documents"
+        cond, params = [], []
+        if doc_type:
+            cond.append("doc_type = ?")
+            params.append(doc_type)
+        if q:
+            cond.append("filename LIKE ?")
+            params.append(f"%{q}%")
+        if cond:
+            sql += " WHERE " + " AND ".join(cond)
+        sql += " ORDER BY id DESC"
         with self._conn() as conn:
-            if doc_type:
-                rows = conn.execute(
-                    "SELECT * FROM documents WHERE doc_type = ? ORDER BY id DESC", (doc_type,)
-                ).fetchall()
-            else:
-                rows = conn.execute("SELECT * FROM documents ORDER BY id DESC").fetchall()
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def pending_documents(self, limit: int = 8) -> list[dict]:
+        """판정 대기 — 검토는 끝났는데 담당자 판정이 없는 문서."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE status = 'reviewed' AND decision = 'pending'"
+                " AND doc_type != 'regulation' ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
             return [dict(r) for r in rows]
 
-    def add_regulation_chunks(self, doc_id: int, reg_title: str, chunks) -> None:
+    def chunks_for_docs(self, doc_ids: list[int]) -> list[dict]:
+        if not doc_ids:
+            return []
+        marks = ",".join("?" for _ in doc_ids)
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM regulation_chunks WHERE doc_id IN ({marks}) ORDER BY id",
+                doc_ids,
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def add_chat(self, role: str, content: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
+                (role, content, _now()),
+            )
+
+    def list_chats(self, limit: int = 50) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM chat_messages ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in reversed(rows)]
+
+    def add_regulation_chunks(
+        self, doc_id: int, reg_title: str, chunks, sector: str = "common"
+    ) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
             conn.executemany(
-                "INSERT INTO regulation_chunks (doc_id, reg_title, heading, content)"
-                " VALUES (?, ?, ?, ?)",
-                [(doc_id, reg_title, c.heading, c.content) for c in chunks],
+                "INSERT INTO regulation_chunks (doc_id, reg_title, heading, content, sector)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [(doc_id, reg_title, c.heading, c.content, sector) for c in chunks],
             )
 
-    def list_regulation_chunks(self) -> list[dict]:
+    def regulation_chunk_counts(self) -> dict[int, int]:
         with self._conn() as conn:
-            rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
+            rows = conn.execute(
+                "SELECT doc_id, COUNT(*) FROM regulation_chunks GROUP BY doc_id"
+            ).fetchall()
+            return {r[0]: r[1] for r in rows}
+
+    def list_regulation_chunks(self, sector: str | None = None) -> list[dict]:
+        with self._conn() as conn:
+            if sector:
+                rows = conn.execute(
+                    "SELECT * FROM regulation_chunks WHERE sector IN (?, 'common') ORDER BY id",
+                    (sector,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
             return [dict(r) for r in rows]
 
     def add_review(self, doc_id: int, opinion: str) -> None:
