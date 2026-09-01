@@ -239,9 +239,11 @@ def test_regulation_docs_are_separated_from_inbox(client):
 
 
 class FakeResponder:
-    def answer(self, db, question, attachment_text=None, criteria_ids=None, session_id=None):
+    def answer(self, db, question, attachment_text=None, criteria_ids=None, session_id=None,
+               project=None):
         tail = f" / 첨부:{attachment_text}" if attachment_text else ""
         tail += f" / 기준:{sorted(criteria_ids)}" if criteria_ids else ""
+        tail += f" / 프로젝트:{project['name']}" if project else ""
         return f"합성 답변: {question[:20]}{tail}"
 
 
@@ -498,3 +500,24 @@ def test_chat_status_endpoint(tmp_path):
     c = TestClient(app)
     c.post("/chat/send", data={"question": "휴학 기준?"})
     assert c.get("/chat/1/status").json()["waiting"] is False  # Fake는 즉시 응답
+
+
+def test_project_chat_uses_linked_criteria(tmp_path):
+    app = create_app(
+        db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+        processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder(),
+    )
+    c = TestClient(app)
+    c.post("/projects", data={"sector": "recruit", "name": "교원 채용"})
+    c.post("/criteria/upload", data={"sector": "recruit"},
+           files={"file": ("공고.pdf", b"%PDF", "application/pdf")})
+    c.post("/project/1/criteria", data={"criteria": ["1"]})
+    r = c.post("/chat/send", data={"question": "자격 요건 정리해줘", "project_id": "1"},
+               follow_redirects=False)
+    assert r.status_code == 303
+    sid = int(r.headers["location"].rsplit("/", 1)[-1])
+    msgs = app.state.db.list_chats(sid)
+    assert "기준:[1]" in msgs[-1]["content"]        # 연결 기준이 근거로 전달됨
+    assert "프로젝트:교원 채용" in msgs[-1]["content"]  # 프로젝트 맥락 전달
+    # 세션 제목에 프로젝트 표시 + 프로젝트 페이지에 채팅 목록
+    assert "[교원 채용]" in c.get("/project/1").text

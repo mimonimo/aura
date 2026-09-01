@@ -86,6 +86,7 @@ class Database:
         "ALTER TABLE documents ADD COLUMN project_id INTEGER",
         "ALTER TABLE projects ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN memo TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE chat_sessions ADD COLUMN project_id INTEGER",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -211,13 +212,29 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def create_chat_session(self, title: str) -> int:
+    def create_chat_session(self, title: str, project_id: int | None = None) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO chat_sessions (title, created_at) VALUES (?, ?)",
-                (title[:60], _now()),
+                "INSERT INTO chat_sessions (title, created_at, project_id)"
+                " VALUES (?, ?, ?)",
+                (title[:60], _now(), project_id),
             )
             return int(cur.lastrowid or 0)
+
+    def get_chat_session(self, session_id: int) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_project_chat_sessions(self, project_id: int) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM chat_sessions WHERE project_id = ? ORDER BY id DESC LIMIT 8",
+                (project_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def list_chat_sessions(self, limit: int = 12) -> list[dict]:
         with self._conn() as conn:

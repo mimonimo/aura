@@ -3,23 +3,23 @@
 {% block pagetitle %}{{ sector_labels.get(project.sector, project.sector) }} · 프로젝트{% endblock %}
 {% block content %}
 
-<div class="card reveal" style="background:linear-gradient(120deg,#16223A,#1B3B75); border:0;">
+<div class="card" style="background:linear-gradient(120deg,#16223A,#1B3B75); border:0;">
   <div style="display:flex; align-items:center; gap:16px; padding:20px 24px; color:#fff;">
     <iconify-icon icon="solar:folder-2-linear" style="font-size:32px; opacity:.9;"></iconify-icon>
     <div>
       <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ project.name }}</div>
       <div style="font-size:13px; color:#B9C6DA; margin-top:3px;">
         {{ sector_labels.get(project.sector, project.sector) }} 섹터 · 문서 {{ documents|length }}건
-        · 만든 날 {{ project.created_at[:10] }}</div>
+        · 연결 기준 {{ linked_criteria|length }}건 · 만든 날 {{ project.created_at[:10] }}</div>
     </div>
     <a href="/?type={{ project.sector }}" class="btn-ghost on-dark" style="margin-left:auto;">섹터로</a>
   </div>
 </div>
 
-<div style="display:grid; grid-template-columns: 1fr 340px; gap:20px; align-items:start;">
-<div>
+<div style="display:grid; grid-template-columns: minmax(0, 1fr) 360px; gap:20px; align-items:start;">
+<div style="min-width:0;">
 
-<div class="card reveal">
+<div class="card">
   <div class="card-in">
     <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
     {% if documents %}
@@ -37,12 +37,10 @@
         {% endfor %}
       </table>
     </div>
-    {% else %}
-    <p class="muted">아직 접수된 문서가 없습니다. 아래에서 올려보세요.</p>
     {% endif %}
 
     <form action="/upload" method="post" enctype="multipart/form-data"
-          style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:16px;">
+          style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:{{ '16px' if documents else '4px' }};">
       <input type="hidden" name="doc_type" value="{{ project.sector }}">
       <input type="hidden" name="project_id" value="{{ project.id }}">
       <label class="file-field">
@@ -52,55 +50,115 @@
         <span class="file-name">선택된 파일 없음</span>
       </label>
       <button type="submit">접수</button>
+      <span class="muted">접수된 문서는 연결 기준·프로젝트 지침을 반영해 검토됩니다.</span>
     </form>
-    <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>이
-      프로젝트로 접수된 문서는 오른쪽에 연결한 공고·기준과 프로젝트 지침을 반영해 검토됩니다.
-      검토 후 문서 화면에서 초안 작성과 재작성 요청도 할 수 있습니다.</span></p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>프로젝트 채팅</h2>
+    <p class="muted" style="margin:0 0 12px;">이 프로젝트의 지침·메모·연결 기준을 근거로 답하는
+      에이전트 채팅입니다. 접수 문서에 대한 질문도 여기서 하세요.</p>
+    <form action="/chat/send" method="post" style="display:flex; gap:10px;">
+      <input type="hidden" name="project_id" value="{{ project.id }}">
+      <input type="text" name="question" required
+             placeholder="예: 이번 공고의 지원 자격 요건을 정리해줘"
+             style="flex:1; border:1.5px solid var(--line); border-radius:22px; padding:11px 18px;
+                    font-family:inherit; font-size:14px;">
+      <button type="submit">보내기</button>
+    </form>
+    {% if project_chats %}
+    <div style="margin-top:14px; display:flex; flex-direction:column; gap:4px;">
+      {% for cs in project_chats %}
+      <a class="side-item" style="padding:7px 10px;" href="/chat/{{ cs.id }}" title="{{ cs.title }}">
+        <iconify-icon icon="solar:chat-line-linear"></iconify-icon>{{ cs.title }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 </div>
 
 </div>
-<div>
+<div style="min-width:0;">
 
-<div class="card reveal">
+<div class="card">
   <div class="card-in">
     <h2><iconify-icon icon="solar:notes-linear"></iconify-icon>프로젝트 지침·메모</h2>
     <form action="/project/{{ project.id }}/meta" method="post">
-      <p class="muted" style="margin:0 0 6px;">지침 — 이 프로젝트 문서를 검토·작성할 때 따릅니다</p>
-      <textarea name="instructions" style="min-height:90px;"
+      <p class="muted" style="margin:0 0 6px;">지침 — 검토·작성·채팅에서 따릅니다</p>
+      <textarea name="instructions" style="min-height:84px;"
                 placeholder="예: 경력 3년 미만은 반려. 어학 성적은 유효기간을 확인한다.">{{ project.instructions or "" }}</textarea>
       <p class="muted" style="margin:12px 0 6px;">메모 — 에이전트가 참고할 프로젝트 맥락</p>
-      <textarea name="memo" style="min-height:70px;"
+      <textarea name="memo" style="min-height:64px;"
                 placeholder="예: 2026 상반기 계약직 3명 채용. 서류 마감 3/15.">{{ project.memo or "" }}</textarea>
       <div style="margin-top:10px;"><button type="submit" class="secondary">저장</button></div>
     </form>
   </div>
 </div>
 
-<div class="card reveal">
+<div class="card">
   <div class="card-in">
     <h2><iconify-icon icon="solar:library-linear"></iconify-icon>연결된 공고·기준</h2>
-    <p class="muted" style="margin:0 0 10px;">체크한 문서가 이 프로젝트 검토·작성의 판단 근거가 됩니다.</p>
+    <p class="muted" style="margin:0 0 10px;">체크한 문서가 검토·작성·채팅의 판단 근거가 됩니다.</p>
+    {% if sector_criteria %}
+    <div class="searchbox" style="margin-bottom:10px; padding:8px 14px;">
+      <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
+      <input type="search" id="criteriaFilter" placeholder="기준 문서 검색" style="width:100%;">
+    </div>
     <form action="/project/{{ project.id }}/criteria" method="post">
-      <div style="max-height:260px; overflow-y:auto; display:flex; flex-direction:column; gap:6px;">
+      <div id="criteriaList" style="max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;">
         {% for c in sector_criteria %}
-        <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;">
+        <label data-name="{{ c.filename }}" data-linked="{{ '1' if c.id in linked_criteria else '' }}"
+               style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;
+                      padding:6px 8px; border-radius:8px;">
           <input type="checkbox" name="criteria" value="{{ c.id }}"
                  {% if c.id in linked_criteria %}checked{% endif %}>
-          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ c.filename }}</span>
+          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ c.filename }}</span>
+          <span class="pill" style="flex:none; font-size:11px; padding:2px 8px;
+                {% if c.sector == project.sector %}background:#E8EFFC; color:var(--navy);{% endif %}">
+            {{ sector_labels.get(c.sector, c.sector) }}</span>
         </label>
-        {% else %}
-        <span class="muted">이 섹터에 등록된 기준 문서가 없습니다.
-          <a href="/criteria">기준 문서</a>에서 공고를 먼저 등록하세요.</span>
         {% endfor %}
       </div>
-      {% if sector_criteria %}
-      <div style="margin-top:10px;"><button type="submit" class="secondary">연결 저장</button></div>
-      {% endif %}
+      <div style="margin-top:10px; display:flex; align-items:center; gap:10px;">
+        <button type="submit" class="secondary">연결 저장</button>
+        <span class="muted" id="linkedCount">{{ linked_criteria|length }}건 연결됨</span>
+      </div>
     </form>
+    {% else %}
+    <span class="muted">이 섹터에 등록된 기준 문서가 없습니다.
+      <a href="/criteria">기준 문서</a>에서 공고를 먼저 등록하세요.</span>
+    {% endif %}
   </div>
 </div>
 
 </div>
 </div>
+
+<script>
+  // 연결된 항목을 위로, 그다음 이 섹터 전용 문서를 위로 정렬
+  var list = document.getElementById("criteriaList");
+  if (list) {
+    Array.from(list.children)
+      .sort(function (a, b) { return (b.dataset.linked || "").length - (a.dataset.linked || "").length; })
+      .forEach(function (el) { list.appendChild(el); });
+  }
+  var filter = document.getElementById("criteriaFilter");
+  if (filter) {
+    filter.addEventListener("input", function () {
+      var q = filter.value.trim().toLowerCase();
+      Array.from(list.children).forEach(function (el) {
+        el.style.display = !q || el.dataset.name.toLowerCase().indexOf(q) !== -1 ? "" : "none";
+      });
+    });
+  }
+  if (list) {
+    list.addEventListener("change", function () {
+      var n = list.querySelectorAll("input:checked").length;
+      var c = document.getElementById("linkedCount");
+      if (c) c.textContent = n + "건 선택됨 (저장 필요)";
+    });
+  }
+</script>
 {% endblock %}
