@@ -35,6 +35,10 @@ Phase 0 리서치 원본은 [mrgrit/zzaimy](https://github.com/mrgrit/zzaimy)에
 | [research/00-summary.md](research/00-summary.md) | 기술 스택 추천 — 여기부터 읽을 것 |
 | [research/02-system-overview.md](research/02-system-overview.md) | 시스템 조감도·유즈케이스 |
 
+[docs/workflow.md](docs/workflow.md) — 명세(교수님)와 구현(본 저장소)의 분업 규칙, 업스트림 동기화, 보고 주기
+
+[docs/decisions/](docs/decisions/) — 결정 기록(ADR). 브리프 12장 이행이자 모델 카드·논문 방법론의 재료
+
 P1 산출물(작성 예정): `architecture.md` · `model-plan.md` · `eval-plan.md` · `pilot-plan.md` · `risks.md`
 
 ## 디렉터리 구조
