@@ -92,7 +92,7 @@ def main() -> None:
         "# 검색 미니 베이스라인 (규정 코퍼스 · 합성 질의)",
         "",
         f"측정일 {date.today().isoformat()} · 조각 {len(valid_ids)}개 · "
-        f"질의 {counts.get('하이브리드', 0)}건 · 임베딩 KURE-v1 · 어휘 Kiwi 명사+IDF",
+        f"질의 {counts.get('하이브리드(동가중)', 0)}건 · 임베딩 KURE-v1 · 어휘 Kiwi 명사+IDF",
         "",
         "합성 질의 자가 검색이므로 절대치는 낙관적 — 방식 간 비교·회귀 감지용.",
         "",
