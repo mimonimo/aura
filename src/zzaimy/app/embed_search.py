@@ -71,10 +71,17 @@ def embed_search(query: str, top_k: int = 12) -> list[tuple[int, float]]:
     return _index.search(query, top_k)
 
 
-def rrf_merge(ranked_a: list[int], ranked_b: list[int], k: int = 60) -> list[int]:
-    """두 랭킹의 Reciprocal Rank Fusion — id 순위 병합."""
+def rrf_merge(
+    ranked_a: list[int], ranked_b: list[int], k: int = 60,
+    w_a: float = 1.0, w_b: float = 1.0,
+) -> list[int]:
+    """두 랭킹의 가중 Reciprocal Rank Fusion — id 순위 병합.
+
+    미니 베이스라인 실측(2026-09-01)에서 임베딩 단독(MRR .808)이 동가중
+    하이브리드(.780)보다 나아, 기본 가중은 호출부에서 임베딩 우세로 준다.
+    """
     scores: dict[int, float] = {}
-    for ranking in (ranked_a, ranked_b):
+    for ranking, w in ((ranked_a, w_a), (ranked_b, w_b)):
         for rank, cid in enumerate(ranking):
-            scores[cid] = scores.get(cid, 0.0) + 1.0 / (k + rank + 1)
+            scores[cid] = scores.get(cid, 0.0) + w / (k + rank + 1)
     return sorted(scores, key=lambda c: -scores[c])
