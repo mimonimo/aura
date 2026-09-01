@@ -9,7 +9,9 @@ description = "영남이공대학교 국고사업 계획서 작성 지원 시스
 readme = "README.md"
 # Spark 실기 확인값: Python 3.12.3 (spark-1397, 2026-09-01)
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "presidio-analyzer>=2.2",
+]
 
 [project.optional-dependencies]
 dev = [
