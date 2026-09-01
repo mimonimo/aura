@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}기준 문서 — YNC 행정 에이전트{% endblock %}
+{% block pagetitle %}기준 문서 (규정·지침·매뉴얼·공고문){% endblock %}
+{% block content %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:library-linear"></iconify-icon>기준 문서 등록</h2>
+  <form action="/criteria/upload" method="post" enctype="multipart/form-data"
+        style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+    <select name="sector">
+      <option value="common">공통 (전 업무 적용)</option>
+      <option value="grant">국고사업 전용</option>
+      <option value="recruit">채용 전용</option>
+      <option value="admission">입학 전용</option>
+      <option value="auto">일반 행정 전용</option>
+    </select>
+    <label class="file-field">
+      <span class="file-btn"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 선택</span>
+      <input type="file" name="file" required>
+      <span class="file-name">선택된 파일 없음</span>
+    </label>
+    <button type="submit">기준으로 등록</button>
+  </form>
+  <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>여기 올린 문서는 검토 대상이 아니라 <b>판단 기준</b>입니다.
+    학칙, 규정, 지침, 운영 매뉴얼, 채용·모집 공고문을 등록하면 조각 단위로 저장되고,
+    문서 검토함에 새 문서가 들어올 때 에이전트가 관련 기준을 찾아 근거로 인용합니다.</span></p>
+</div>
+
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:folder-check-linear"></iconify-icon>등록된 기준 {{ documents|length }}건</h2>
+  {% if documents %}
+  <table>
+    <tr><th>번호</th><th>문서명</th><th>적용 섹터</th><th>상태</th><th>조각 수</th><th>등록 시각</th></tr>
+    {% for d in documents %}
+    <tr>
+      <td>{{ d.id }}</td>
+      <td><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td>
+      <td><span class="pill type">{{ sector_labels.get(d.sector, d.sector) }}</span></td>
+      <td><span class="pill {{ d.status }}">{{ "등록됨" if d.status == "reviewed" else status_labels.get(d.status, d.status) }}</span></td>
+      <td>{{ d.n_chunks }}</td>
+      <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">등록된 기준 문서가 없습니다.</p>
+  {% endif %}
+</div>
+</div></div>
+{% endblock %}

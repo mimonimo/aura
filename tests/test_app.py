@@ -30,6 +30,9 @@ class FakeProcessor:
             doc_id, status="reviewed", ai_review="재검토 의견: 담당자 요청 반영."
         )
 
+    def extract_text(self, file_path: Path) -> str:
+        return "합성 첨부 본문"
+
 
 class FakeDrafter:
     """실제 초안 생성(스키마→섹션 생성→검증) 대신 즉시 완료 처리."""
@@ -173,8 +176,9 @@ def test_sector_tab_filters_documents(client):
     all_page = client.get("/").text
     assert "공고문.pdf" in all_page and "이력서.pdf" in all_page
     recruit_page = client.get("/?type=recruit").text
-    assert "이력서.pdf" in recruit_page
-    assert "공고문.pdf" not in recruit_page
+    # 표(문서함 목록) 기준으로 확인 — 사이드바 판정 대기 목록에는 둘 다 뜰 수 있다
+    assert '<td><a href="/doc/2">이력서.pdf' in recruit_page
+    assert '<td><a href="/doc/1">공고문.pdf' not in recruit_page
 
 
 def test_password_protection_requires_auth(tmp_path):
@@ -219,3 +223,64 @@ def test_hwpx_parsing_extracts_text(tmp_path):
     assert "합성 학칙 제1조 목적" in text
     assert "본문이다" in text
     assert "<hp:t>" not in text
+
+
+def test_regulation_docs_are_separated_from_inbox(client):
+    client.post("/upload", data={"doc_type": "grant"},
+                files={"file": ("계획서.pdf", b"%PDF", "application/pdf")})
+    client.post("/criteria/upload",
+                files={"file": ("학칙.pdf", b"%PDF", "application/pdf")})
+    inbox = client.get("/").text
+    assert "계획서.pdf" in inbox
+    assert "학칙.pdf" not in inbox  # 기준 문서는 문서함에 안 섞인다
+    criteria = client.get("/criteria").text
+    assert "학칙.pdf" in criteria
+    assert "등록된 기준 1건" in criteria  # 접수 문서는 기준 목록에 안 들어간다
+
+
+class FakeResponder:
+    def answer(self, db, question, attachment_text=None, criteria_ids=None):
+        tail = f" / 첨부:{attachment_text}" if attachment_text else ""
+        tail += f" / 기준:{sorted(criteria_ids)}" if criteria_ids else ""
+        return f"합성 답변: {question[:20]}{tail}"
+
+
+def test_chat_send_and_history(tmp_path):
+    from zzaimy.app.main import create_app as _create
+
+    app = _create(
+        db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+        processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder(),
+    )
+    c = TestClient(app)
+    r = c.get("/chat")
+    assert r.status_code == 200
+    r = c.post("/chat/send", data={"question": "휴학 처리 기준 알려줘"}, follow_redirects=False)
+    assert r.status_code == 303
+    page = c.get("/chat").text
+    assert "휴학 처리 기준 알려줘" in page
+    assert "합성 답변" in page
+
+
+def test_chat_with_attachment_and_criteria(tmp_path):
+    from zzaimy.app.main import create_app as _create
+
+    app = _create(
+        db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+        processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder(),
+    )
+    c = TestClient(app)
+    # 기준 문서 하나 등록
+    c.post("/criteria/upload", data={"sector": "recruit"},
+           files={"file": ("채용공고.pdf", b"%PDF", "application/pdf")})
+    r = c.post(
+        "/chat/send",
+        data={"question": "이 이력서 검토해줘", "criteria": "1"},
+        files={"attachment": ("이력서.pdf", b"%PDF fake", "application/pdf")},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    page = c.get("/chat").text
+    assert "이력서.pdf" in page            # 첨부 표시
+    assert "첨부:합성 첨부 본문" in page    # 첨부 텍스트가 응답기로 전달됨
+    assert "기준:[1]" in page              # 선택한 기준이 전달됨
