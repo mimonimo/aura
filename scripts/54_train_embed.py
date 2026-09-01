@@ -119,6 +119,7 @@ def main() -> None:
         model=model,
         args=SentenceTransformerTrainingArguments(
             output_dir="/tmp/zzaimy-embed-train",
+            use_cpu=(device == "cpu"),  # vLLM이 GPU 점유 중 — 트레이너의 GPU 자동 사용 차단
             num_train_epochs=EPOCHS,
             per_device_train_batch_size=BATCH,
             learning_rate=2e-5,

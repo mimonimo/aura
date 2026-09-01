@@ -27,10 +27,31 @@ SECTOR_RULES = [
     (re.compile(r"예산|결산|재정"), "grant"),
 ]
 KEEP_PAGE = re.compile(
-    r"학사|규정|안내|장학|등록금|수강|성적|졸업|휴학|복학|증명|채용|입학|예산|결산"
+    r"학사|규정|장학|등록금|수강|성적|졸업|휴학|복학|증명서|채용|입학|예산|결산|편입|전과"
 )
+DROP = re.compile(r"홍보대사|체험단|컬처데이|이벤트|SNS|유튜브|페이스북|인스타")
 MIN_PAGE_CHARS = 800
 FILE_EXTS = (".pdf", ".hwp", ".hwpx")
+
+
+def _peek_text(f: Path) -> str:
+    """파일 첫 부분 텍스트 미리보기 — 해시 파일명 대신 내용으로 선별·명명한다."""
+    try:
+        if f.suffix.lower() == ".pdf":
+            from pypdf import PdfReader
+
+            reader = PdfReader(str(f))
+            return (reader.pages[0].extract_text() or "")[:600]
+        if f.suffix.lower() == ".hwp":
+            import subprocess
+            import sys
+
+            cli = Path(sys.executable).parent / "hwp5txt"
+            out = subprocess.run([str(cli), str(f)], capture_output=True, text=True, timeout=60)
+            return out.stdout[:600]
+    except Exception:
+        return ""
+    return ""
 
 
 def sector_of(name: str) -> str:
@@ -83,11 +104,23 @@ def main() -> None:
     for f in sorted(FILES.iterdir()):
         if f.suffix.lower() not in FILE_EXTS or f.stat().st_size < 10_000:
             continue
-        name = f.name if len(f.name) < 80 else f.name[-80:]
-        candidates.append((f, name, sector_of(f.name)))
+        peek = _peek_text(f)
+        if not peek or not KEEP_PAGE.search(peek):
+            continue  # 내용을 못 읽거나 무관한 파일은 제외
+        title = re.sub(r"\s+", " ", peek).strip()[:50]
+        name = re.sub(r"[^\w가-힣]+", "_", title)[:60] + f.suffix.lower()
+        candidates.append((f, name, sector_of(peek[:300])))
 
-    candidates = candidates[: args.max_items]
-    print(f"등록 후보 {len(candidates)}건")
+    # 이름 중복 제거(첫 항목 유지) + 노이즈 배제
+    seen: set[str] = set()
+    uniq = []
+    for path, name, sector in candidates:
+        if name in seen or DROP.search(name):
+            continue
+        seen.add(name)
+        uniq.append((path, name, sector))
+    candidates = uniq[: args.max_items]
+    print(f"등록 후보 {len(candidates)}건 (중복·노이즈 제거 후)")
 
     done = skip = fail = 0
     for path, name, sector in candidates:
