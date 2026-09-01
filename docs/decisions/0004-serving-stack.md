@@ -47,9 +47,13 @@ sLLM 목표(로컬 최대 성능)에 따라 주 서빙을 Qwen3-4B → Qwen3-30B
 | Qwen3-4B (dense) | 47ms | 23.0 tok/s |
 | Qwen3-30B-A3B (MoE, 활성 3B) | 73ms | 30.7 tok/s |
 
-MoE가 dense 4B보다 빠르면서 품질은 30B급 — 대역폭 제약 장비에서 MoE를
-우선하라는 브리프 4장의 판단이 실측으로 확인됐다. 기동 파라미터는
-serving.yaml(--gpu-memory-utilization 0.72, max-model-len 16384).
+| Qwen3.5-35B-A3B (MoE, 활성 3B) | 87ms | 30.8 tok/s |
+
+MoE가 dense 4B보다 빠르면서 품질은 상위 체급 — 대역폭 제약 장비에서 MoE를
+우선하라는 브리프 4장의 판단이 실측으로 확인됐다. 최종 주 서빙은 리서치 1안
+그대로 Qwen3.5-35B-A3B (2026-09-02 교체. 전날 "저장소 없음" 판단은 구 CLI
+오류 로그를 오독한 것으로 정정한다). FP8 변형은 다운로드 후 A/B 예정.
+기동 파라미터는 serving.yaml.
 
 ## 결과와 되돌리기 비용
 
