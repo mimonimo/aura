@@ -20,18 +20,23 @@ import urllib.request
 from collections import deque
 from pathlib import Path
 
-ALLOWED_HOSTS = {"www.ync.ac.kr", "onestop.ync.ac.kr"}
+ALLOWED_HOSTS = {"www.ync.ac.kr", "onestop.ync.ac.kr", "iacf.ync.ac.kr"}
 SEEDS = [
     "https://www.ync.ac.kr/kor/Main.do",
     "https://www.ync.ac.kr/kor/CMS/Contents/Contents.do?mCode=MN281",  # 학칙·학사 규정
     "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN144",  # 예·결산 공고
     "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN213",  # 채용 공고
+    "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN213&page=2",
+    "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN213&page=3",
+    "https://iacf.ync.ac.kr/document/law",  # 산단 규정
     "https://onestop.ync.ac.kr/oneStop/index.jsp",
 ]
 FOLLOW_PATTERNS = (
     "/kor/CMS/Board/Board.do",
     "/kor/CMS/Contents/Contents.do",
     "/oneStop/",
+    "/download/",
+    "/document/",
 )
 FILE_EXTS = (".pdf", ".hwp", ".hwpx", ".xlsx", ".xls", ".docx")
 UA = {"User-Agent": "Mozilla/5.0 (YNC-capstone internal crawler; contact: admin)"}
