@@ -127,6 +127,7 @@ def create_app(
         name="static",
     )
     db = Database(db_path)
+    app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
     inbox_dir.mkdir(parents=True, exist_ok=True)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     templates.env.globals["status_labels"] = STATUS_LABELS
@@ -350,6 +351,8 @@ def create_app(
             raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
         if doc_type not in INBOX_TYPES:
             raise HTTPException(400, f"알 수 없는 문서 유형: {doc_type}")
+        if project_id and db.get_project(project_id) is None:
+            project_id = None  # 삭제됐거나 잘못된 프로젝트 — 연결 없이 접수한다
         stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
         with stored.open("wb") as out:
             shutil.copyfileobj(file.file, out)
