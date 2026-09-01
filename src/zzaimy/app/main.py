@@ -49,6 +49,8 @@ DOC_TYPE_LABELS = {
     "auto": "일반 행정",
     "grant": "국고사업",
     "recruit": "채용",
+    "admission": "입학",
+    "regulation": "규정·지침",
 }
 
 DECISION_LABELS = {

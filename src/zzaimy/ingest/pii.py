@@ -164,7 +164,11 @@ class _BlankKoreanNlpEngine(SpacyNlpEngine):
         super().__init__(models=[{"lang_code": "ko", "model_name": "blank"}])
 
     def load(self) -> None:
-        self.nlp = {"ko": spacy.blank("xx")}  # type: ignore[assignment]  # 상위 클래스가 None으로 선언
+        nlp = spacy.blank("xx")
+        # 파서·NER 없는 빈 파이프라인이라 길이 제한을 올려도 안전하다.
+        # (기본 100만 자 — 대형 행정 문서에서 초과 사례 실측됨)
+        nlp.max_length = 4_000_000
+        self.nlp = {"ko": nlp}  # type: ignore[assignment]  # 상위 클래스가 None으로 선언
 
 
 # --- 마스커 ---

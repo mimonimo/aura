@@ -19,6 +19,8 @@
       <option value="auto">일반 행정 문서</option>
       <option value="grant">국고사업 (공고·계획서·보고서)</option>
       <option value="recruit">채용 접수 서류</option>
+      <option value="admission">입학 접수 서류</option>
+      <option value="regulation">규정·지침 등록 (검토 근거로 사용)</option>
     </select>
     <input type="file" name="file" required>
     <button type="submit">접수</button>
@@ -30,7 +32,7 @@
 <div class="card">
   <h2>문서함</h2>
   <p style="margin:0 0 14px; display:flex; gap:8px;">
-    {% for key, label in [("all", "전체"), ("grant", "국고사업"), ("recruit", "채용"), ("auto", "일반 행정")] %}
+    {% for key, label in [("all", "전체"), ("grant", "국고사업"), ("recruit", "채용"), ("admission", "입학"), ("auto", "일반 행정"), ("regulation", "규정·지침")] %}
       <a href="{{ '/' if key == 'all' else '/?type=' + key }}" class="pill"
          style="text-decoration:none; padding:6px 16px; font-size:13.5px;
                 {% if active_tab == key %}background:#1E6B4F; color:#fff;{% endif %}">
