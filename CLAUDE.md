@@ -83,6 +83,9 @@ src/zzaimy/
 
 ## 지금 할 일 (W1~W2)
 
+작업 지시서: `docs/instructions/W1-W2.md` — 태스크 9건, 실행 순서와 완료 기준 포함.
+
+
 1. **DGX Spark 환경 검증** — aarch64 + sm_121 빌드 이슈 조기 확인.
    vLLM 검증 이미지 태그 고정, LLaMA-Factory/Unsloth 스모크 테스트.
    승인 불필요, 즉시 착수 가능
