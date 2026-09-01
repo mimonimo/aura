@@ -317,17 +317,17 @@
         {% if alert_count %}<span class="badge-n">{{ alert_count }}</span>{% endif %}
       </button>
       <div class="popover" id="bellPop">
-        <h5>검토 완료 — 판정을 기다립니다 ({{ pending_count }})</h5>
+        <h5>판정 대기 {{ pending_count }}</h5>
         {% for d in pending_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}">
           <iconify-icon icon="solar:check-circle-linear" style="color:var(--green);"></iconify-icon>
           <span>{{ d.filename }}</span>
         </a>
         {% else %}
-        <div class="pop-empty">대기 중인 판정이 없습니다</div>
+        <div class="pop-empty">새 알림이 없습니다</div>
         {% endfor %}
         {% if failed_docs %}
-        <h5 style="margin-top:10px;">처리 실패 — 확인 필요 ({{ failed_docs|length }})</h5>
+        <h5 style="margin-top:10px;">처리 실패 {{ failed_docs|length }}</h5>
         {% for d in failed_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}">
           <iconify-icon icon="solar:danger-triangle-linear" style="color:var(--red);"></iconify-icon>
