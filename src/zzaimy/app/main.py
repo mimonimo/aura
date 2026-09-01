@@ -90,6 +90,7 @@ class Responder(Protocol):
         question: str,
         attachment_text: str | None = None,
         criteria_ids: list[int] | None = None,
+        session_id: int | None = None,
     ) -> str: ...
 
 
@@ -133,9 +134,32 @@ def create_app(
     templates.env.globals["decision_labels"] = DECISION_LABELS
     templates.env.globals["sector_labels"] = SECTOR_LABELS
 
+    import re as _re
+
+    from markupsafe import Markup, escape
+
+    def md_lite(text: str) -> Markup:
+        """이스케이프 후 **볼드**만 살리는 최소 마크다운."""
+        escaped = str(escape(text))
+        return Markup(_re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped))
+
+    templates.env.filters["md_lite"] = md_lite
+
     def ctx(extra: dict) -> dict:
-        pending = db.pending_documents()
-        return {"pending_docs": pending, "pending_count": len(pending), **extra}
+        pending = db.pending_documents(limit=50)
+        by_type: dict[str, int] = {}
+        for d in pending:
+            by_type[d["doc_type"]] = by_type.get(d["doc_type"], 0) + 1
+        failed = db.failed_documents()
+        return {
+            "chat_sessions": db.list_chat_sessions(),
+            "pending_docs": pending[:8],
+            "pending_count": len(pending),
+            "pending_by_type": by_type,
+            "failed_docs": failed,
+            "alert_count": len(pending) + len(failed),
+            **extra,
+        }
 
     @app.get("/", response_class=HTMLResponse)
     def index(request: Request, type: str | None = None, q: str | None = None):
@@ -143,37 +167,95 @@ def create_app(
         docs = [
             d for d in db.list_documents(doc_type, q=q) if d["doc_type"] != "regulation"
         ]
+        # 섹터 화면에서는 그 섹터의 기준 문서(공고 등)를 접수 대상 선택지로 제공
+        sector_criteria = []
+        if doc_type:
+            sector_criteria = [
+                d for d in db.list_documents("regulation")
+                if d["status"] == "reviewed" and d["sector"] == doc_type
+            ]
         return templates.TemplateResponse(
             request,
             "index.html",
-            ctx({"documents": docs, "active_tab": doc_type or "all", "q": q or ""}),
+            ctx({
+                "documents": docs, "active_tab": doc_type or "all", "q": q or "",
+                "sector_criteria": sector_criteria,
+            }),
         )
 
-    @app.get("/chat", response_class=HTMLResponse)
-    def chat(request: Request):
+    def _criteria_docs() -> list[dict]:
         counts = db.regulation_chunk_counts()
-        criteria_docs = [
+        return [
             d | {"n_chunks": counts.get(d["id"], 0)}
             for d in db.list_documents("regulation")
             if d["status"] == "reviewed"
         ]
+
+    @app.get("/chat", response_class=HTMLResponse)
+    def chat_new(request: Request):
         return templates.TemplateResponse(
             request,
             "chat.html",
-            ctx({"messages": db.list_chats(), "criteria_docs": criteria_docs}),
+            ctx({
+                "messages": [], "criteria_docs": _criteria_docs(),
+                "waiting": False, "session_id": None,
+            }),
         )
+
+    @app.get("/chat/{session_id}", response_class=HTMLResponse)
+    def chat_session(request: Request, session_id: int):
+        messages = db.list_chats(session_id)
+        waiting = bool(messages) and messages[-1]["role"] == "user"
+        return templates.TemplateResponse(
+            request,
+            "chat.html",
+            ctx({
+                "messages": messages, "criteria_docs": _criteria_docs(),
+                "waiting": waiting, "session_id": session_id,
+            }),
+        )
+
+    def _answer_task(
+        session_id: int, q: str, stored: Path | None, criteria: list[int]
+    ) -> None:
+        # 전송 직후 화면을 돌려주기 위해 무거운 단계(첨부 파싱·LLM)는 백그라운드에서
+        attachment_text = None
+        if stored is not None:
+            try:
+                attachment_text = processor.extract_text(stored)
+            except Exception as e:
+                log_note = f"(첨부 처리 실패: {type(e).__name__})"
+                db.add_chat(session_id, "assistant", f"첨부 문서를 읽지 못했습니다 {log_note}")
+                return
+        r = responder or _default_responder()
+        try:
+            answer = r.answer(
+                db, q, attachment_text=attachment_text, criteria_ids=criteria,
+                session_id=session_id,
+            )
+        except Exception as e:
+            answer = f"응답 생성에 실패했습니다: {type(e).__name__}"
+        db.add_chat(session_id, "assistant", answer)
 
     @app.post("/chat/send")
     def chat_send(
+        background: BackgroundTasks,
         question: str = Form(...),
+        session_id: int | None = Form(None),
         criteria: list[int] = Form([]),
         attachment: UploadFile | None = File(None),
     ):
         q = question.strip()
         if not q:
             return RedirectResponse("/chat", status_code=303)
+        if session_id is None:
+            session_id = db.create_chat_session(title=q)
+        # 응답 대기 중 중복 전송 방지 — 마지막 메시지가 아직 답변 전이면 무시
+        last = db.list_chats(session_id, limit=1)
+        if last and last[-1]["role"] == "user":
+            return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
-        attachment_text = None
+        stored: Path | None = None
         shown = q
         if attachment is not None and attachment.filename:
             suffix = Path(attachment.filename).suffix.lower()
@@ -182,21 +264,11 @@ def create_app(
             stored = inbox_dir / f"chat_{uuid.uuid4().hex}{suffix}"
             with stored.open("wb") as out:
                 shutil.copyfileobj(attachment.file, out)
-            try:
-                attachment_text = processor.extract_text(stored)
-            except Exception as e:
-                attachment_text = None
-                shown += f"\n(첨부 처리 실패: {type(e).__name__})"
-            shown = f"📎 {attachment.filename}\n{shown}"
+            shown = f"📎 {attachment.filename}\n{q}"
 
-        db.add_chat("user", shown)
-        r = responder or _default_responder()
-        try:
-            answer = r.answer(db, q, attachment_text=attachment_text, criteria_ids=criteria)
-        except Exception as e:
-            answer = f"응답 생성에 실패했습니다: {type(e).__name__}"
-        db.add_chat("assistant", answer)
-        return RedirectResponse("/chat", status_code=303)
+        db.add_chat(session_id, "user", shown)
+        background.add_task(_answer_task, session_id, q, stored, criteria)
+        return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
     @app.get("/criteria", response_class=HTMLResponse)
     def criteria(request: Request):
@@ -232,6 +304,7 @@ def create_app(
         background: BackgroundTasks,
         file: UploadFile = File(...),
         doc_type: str = Form("auto"),
+        related_criteria_id: int | None = Form(None),
     ):
         name = file.filename or "이름없음"
         suffix = Path(name).suffix.lower()
@@ -242,9 +315,13 @@ def create_app(
         stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
         with stored.open("wb") as out:
             shutil.copyfileobj(file.file, out)
-        doc_id = db.add_document(filename=name, stored_path=str(stored), doc_type=doc_type)
+        doc_id = db.add_document(
+            filename=name, stored_path=str(stored), doc_type=doc_type,
+            related_criteria_id=related_criteria_id,
+        )
         background.add_task(processor.process, db, doc_id, stored)
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(f"/?type={doc_type}" if related_criteria_id else "/",
+                                status_code=303)
 
     @app.post("/doc/{doc_id}/draft")
     def make_draft(background: BackgroundTasks, doc_id: int):
@@ -258,8 +335,13 @@ def create_app(
         doc = db.get_document(doc_id)
         if doc is None:
             raise HTTPException(404)
+        related = None
+        if doc.get("related_criteria_id"):
+            related = db.get_document(doc["related_criteria_id"])
         return templates.TemplateResponse(
-            request, "doc.html", ctx({"doc": doc, "reviews": db.get_reviews(doc_id)})
+            request,
+            "doc.html",
+            ctx({"doc": doc, "reviews": db.get_reviews(doc_id), "related": related}),
         )
 
     @app.post("/doc/{doc_id}/decision")

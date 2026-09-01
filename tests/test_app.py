@@ -239,7 +239,7 @@ def test_regulation_docs_are_separated_from_inbox(client):
 
 
 class FakeResponder:
-    def answer(self, db, question, attachment_text=None, criteria_ids=None):
+    def answer(self, db, question, attachment_text=None, criteria_ids=None, session_id=None):
         tail = f" / 첨부:{attachment_text}" if attachment_text else ""
         tail += f" / 기준:{sorted(criteria_ids)}" if criteria_ids else ""
         return f"합성 답변: {question[:20]}{tail}"
@@ -257,9 +257,12 @@ def test_chat_send_and_history(tmp_path):
     assert r.status_code == 200
     r = c.post("/chat/send", data={"question": "휴학 처리 기준 알려줘"}, follow_redirects=False)
     assert r.status_code == 303
-    page = c.get("/chat").text
+    session_url = r.headers["location"]
+    page = c.get(session_url).text
     assert "휴학 처리 기준 알려줘" in page
     assert "합성 답변" in page
+    # 사이드바 채팅 기록에 세션 제목 노출
+    assert "휴학 처리 기준" in c.get("/").text
 
 
 def test_chat_with_attachment_and_criteria(tmp_path):
@@ -280,7 +283,44 @@ def test_chat_with_attachment_and_criteria(tmp_path):
         follow_redirects=False,
     )
     assert r.status_code == 303
-    page = c.get("/chat").text
+    page = c.get(r.headers["location"]).text
     assert "이력서.pdf" in page            # 첨부 표시
     assert "첨부:합성 첨부 본문" in page    # 첨부 텍스트가 응답기로 전달됨
     assert "기준:[1]" in page              # 선택한 기준이 전달됨
+
+
+def test_sector_upload_binds_related_criteria(client):
+    # 채용 공고를 기준으로 등록
+    client.post("/criteria/upload", data={"sector": "recruit"},
+                files={"file": ("채용공고A.pdf", b"%PDF", "application/pdf")})
+    # 채용 섹터에서 해당 공고를 지정해 서류 접수
+    client.post(
+        "/upload",
+        data={"doc_type": "recruit", "related_criteria_id": "1"},
+        files={"file": ("지원서.pdf", b"%PDF", "application/pdf")},
+    )
+    page = client.get("/doc/2").text
+    assert "채용공고A.pdf" in page  # 대상 공고가 문서 화면에 표시된다
+
+
+def test_sector_page_offers_sector_criteria_options(client):
+    client.post("/criteria/upload", data={"sector": "recruit"},
+                files={"file": ("채용공고B.pdf", b"%PDF", "application/pdf")})
+    client.post("/criteria/upload", data={"sector": "grant"},
+                files={"file": ("국고공고.pdf", b"%PDF", "application/pdf")})
+    page = client.get("/?type=recruit").text
+    assert "채용공고B.pdf" in page       # 채용 섹터 접수 폼에 채용 공고 옵션
+    assert "국고공고.pdf" not in page    # 다른 섹터 기준은 안 나온다
+
+
+def test_receipt_number_scheme(client):
+    client.post("/upload", data={"doc_type": "recruit"},
+                files={"file": ("a.pdf", b"%PDF", "application/pdf")})
+    client.post("/upload", data={"doc_type": "recruit"},
+                files={"file": ("b.pdf", b"%PDF", "application/pdf")})
+    client.post("/upload", data={"doc_type": "grant"},
+                files={"file": ("c.pdf", b"%PDF", "application/pdf")})
+    page = client.get("/").text
+    assert "2026-채용-0001" in page
+    assert "2026-채용-0002" in page
+    assert "2026-국고-0001" in page  # 섹터별 독립 일련번호

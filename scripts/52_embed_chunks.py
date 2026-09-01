@@ -28,6 +28,8 @@ PROBES = [
 
 
 def main() -> None:
+    import os
+
     import numpy as np
     from sentence_transformers import SentenceTransformer
 
@@ -36,7 +38,9 @@ def main() -> None:
     rows = [dict(r) for r in conn.execute("SELECT * FROM regulation_chunks ORDER BY id")]
     print(f"조각 {len(rows)}개 임베딩 시작 ({MODEL})", flush=True)
 
-    model = SentenceTransformer(MODEL)
+    # vLLM이 GPU 메모리를 점유 중이라 기본은 CPU (546조각이면 CPU로 충분)
+    device = os.environ.get("ZZAIMY_EMBED_DEVICE", "cpu")
+    model = SentenceTransformer(MODEL, device=device)
     texts = [f"{r['reg_title']} {r['heading']}\n{r['content'][:1200]}" for r in rows]
     vecs = model.encode(texts, batch_size=16, show_progress_bar=False, normalize_embeddings=True)
 

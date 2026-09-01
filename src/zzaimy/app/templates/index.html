@@ -55,10 +55,10 @@
     {% if documents %}
     <div class="table-scroll">
       <table>
-        <tr><th>번호</th><th>파일명</th><th>유형</th><th>상태</th><th>담당자 판정</th><th>접수 시각</th></tr>
+        <tr><th>접수번호</th><th>파일명</th><th>유형</th><th>상태</th><th>담당자 판정</th><th>접수 시각</th></tr>
         {% for d in documents %}
         <tr>
-          <td>{{ d.id }}</td>
+          <td class="muted">{{ d.receipt_no or d.id }}</td>
           <td><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td>
           <td><span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span></td>
           <td><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
@@ -76,15 +76,34 @@
 
 <div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 접수</h2>
+    {% set upload_titles = {
+      "grant": "국고사업 문서 접수", "recruit": "채용 서류 접수",
+      "admission": "입학 서류 접수", "auto": "행정 문서 접수",
+    } %}
+    {% set target_labels = {
+      "grant": "대상 사업 공고", "recruit": "대상 채용 공고", "admission": "대상 모집 전형",
+    } %}
+    <h2><iconify-icon icon="solar:upload-linear"></iconify-icon>{{ upload_titles.get(active_tab, "문서 접수") }}</h2>
     <form action="/upload" method="post" enctype="multipart/form-data"
           style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      {% if active_tab != "all" %}
+      <input type="hidden" name="doc_type" value="{{ active_tab }}">
+        {% if active_tab in target_labels %}
+        <select name="related_criteria_id">
+          <option value="">{{ target_labels[active_tab] }} 선택 (선택 안 함 가능)</option>
+          {% for c in sector_criteria %}
+          <option value="{{ c.id }}">{{ c.filename }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
+      {% else %}
       <select name="doc_type">
-        <option value="auto" {% if active_tab == "auto" %}selected{% endif %}>일반 행정 문서</option>
-        <option value="grant" {% if active_tab == "grant" %}selected{% endif %}>국고사업 (공고·계획서·보고서)</option>
-        <option value="recruit" {% if active_tab == "recruit" %}selected{% endif %}>채용 접수 서류</option>
-        <option value="admission" {% if active_tab == "admission" %}selected{% endif %}>입학 접수 서류</option>
+        <option value="auto">일반 행정 문서</option>
+        <option value="grant">국고사업 (공고·계획서·보고서)</option>
+        <option value="recruit">채용 접수 서류</option>
+        <option value="admission">입학 접수 서류</option>
       </select>
+      {% endif %}
       <label class="file-field">
         <span class="file-btn"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 선택</span>
         <input type="file" name="file" required>

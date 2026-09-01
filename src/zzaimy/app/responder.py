@@ -26,6 +26,7 @@ class AgentResponder:
         question: str,
         attachment_text: str | None = None,
         criteria_ids: list[int] | None = None,
+        session_id: int | None = None,
     ) -> str:
         from zzaimy.generate.client import VllmClient
 
@@ -42,7 +43,7 @@ class AgentResponder:
             context = "[선택된 기준 문서 — 이 기준으로 판단하고 인용하라]\n\n" + "\n\n".join(parts)
         else:
             context = compose_review_context(db, attachment_text or question)
-        history = db.list_chats(limit=6)
+        history = db.list_chats(session_id, limit=6) if session_id else []
         messages: list[dict] = [{"role": "system", "content": _SYSTEM}]
         for m in history:
             messages.append({"role": m["role"], "content": m["content"][:2000]})

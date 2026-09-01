@@ -29,8 +29,14 @@ CREATE TABLE IF NOT EXISTS reviews (
   opinion    TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  title      TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS chat_messages (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER,
   role       TEXT NOT NULL,      -- user | assistant
   content    TEXT NOT NULL,
   created_at TEXT NOT NULL
@@ -58,6 +64,9 @@ class Database:
         "ALTER TABLE documents ADD COLUMN decision TEXT NOT NULL DEFAULT 'pending'",
         "ALTER TABLE regulation_chunks ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
         "ALTER TABLE documents ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
+        "ALTER TABLE documents ADD COLUMN related_criteria_id INTEGER",
+        "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
+        "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -76,14 +85,33 @@ class Database:
         conn.row_factory = sqlite3.Row
         return conn
 
+    _TYPE_CODES = {
+        "grant": "국고", "recruit": "채용", "admission": "입학",
+        "auto": "행정", "regulation": "기준",
+    }
+
     def add_document(
-        self, filename: str, stored_path: str, doc_type: str = "auto", sector: str = "common"
+        self,
+        filename: str,
+        stored_path: str,
+        doc_type: str = "auto",
+        sector: str = "common",
+        related_criteria_id: int | None = None,
     ) -> int:
+        now = _now()
+        year = now[:4]
+        code = self._TYPE_CODES.get(doc_type, "문서")
         with self._conn() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM documents WHERE doc_type = ? AND created_at LIKE ?",
+                (doc_type, f"{year}%"),
+            ).fetchone()
+            receipt_no = f"{year}-{code}-{int(row[0]) + 1:04d}"
             cur = conn.execute(
-                "INSERT INTO documents (filename, stored_path, doc_type, sector, created_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (filename, stored_path, doc_type, sector, _now()),
+                "INSERT INTO documents (filename, stored_path, doc_type, sector,"
+                " related_criteria_id, receipt_no, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (filename, stored_path, doc_type, sector, related_criteria_id, receipt_no, now),
             )
             return int(cur.lastrowid or 0)
 
@@ -142,17 +170,42 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def add_chat(self, role: str, content: str) -> None:
-        with self._conn() as conn:
-            conn.execute(
-                "INSERT INTO chat_messages (role, content, created_at) VALUES (?, ?, ?)",
-                (role, content, _now()),
-            )
-
-    def list_chats(self, limit: int = 50) -> list[dict]:
+    def failed_documents(self, limit: int = 5) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM chat_messages ORDER BY id DESC LIMIT ?", (limit,)
+                "SELECT * FROM documents WHERE status = 'failed' ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_chat_session(self, title: str) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO chat_sessions (title, created_at) VALUES (?, ?)",
+                (title[:60], _now()),
+            )
+            return int(cur.lastrowid or 0)
+
+    def list_chat_sessions(self, limit: int = 12) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM chat_sessions ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def add_chat(self, session_id: int, role: str, content: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO chat_messages (session_id, role, content, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (session_id, role, content, _now()),
+            )
+
+    def list_chats(self, session_id: int, limit: int = 100) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM chat_messages WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                (session_id, limit),
             ).fetchall()
             return [dict(r) for r in reversed(rows)]
 

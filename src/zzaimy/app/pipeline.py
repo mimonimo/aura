@@ -195,7 +195,23 @@ class DocumentProcessor:
 
             from zzaimy.app.regulations import compose_review_context
 
-            reg_context = compose_review_context(db, masked.text, sector=doc_type)
+            related_id = (doc or {}).get("related_criteria_id")
+            if related_id:
+                # 담당자가 지정한 공고·기준을 우선 근거로 사용
+                rel_chunks = db.chunks_for_docs([int(related_id)])
+                parts, budget = [], 6000
+                for c in rel_chunks:
+                    piece = f"《{c['reg_title']} · {c['heading']}》\n{c['content'][:800]}"
+                    if budget - len(piece) < 0:
+                        break
+                    budget -= len(piece)
+                    parts.append(piece)
+                reg_context = (
+                    "[대상 공고·기준 — 이 기준으로 적합성을 판단하고 인용하라]\n\n"
+                    + "\n\n".join(parts)
+                )
+            else:
+                reg_context = compose_review_context(db, masked.text, sector=doc_type)
             review_input = masked.text
             if reg_context:
                 review_input = f"{masked.text}\n\n{reg_context}"
