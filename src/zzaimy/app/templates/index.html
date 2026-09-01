@@ -17,7 +17,7 @@
       <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ sector_meta[active_tab][1] }} 섹터</div>
       <div style="font-size:13px; color:#B9C6DA; margin-top:3px;">{{ sector_meta[active_tab][2] }}</div>
     </div>
-    <a href="/" style="margin-left:auto; color:#B9C6DA; font-size:12.5px; text-decoration:none;">전체 문서함 보기</a>
+    <a href="/" class="btn-ghost on-dark" style="margin-left:auto;">전체 문서함 보기</a>
   </div>
 </div>
 {% endif %}
@@ -46,11 +46,11 @@
     <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
     {% if active_tab != "all" %}
     <p class="muted" style="margin:0 0 12px;">{{ doc_type_labels.get(active_tab, active_tab) }}
-      섹터의 문서만 보고 있습니다 — <a href="/">전체 보기</a></p>
+      섹터의 문서만 보고 있습니다 <a href="/" class="btn-ghost" style="margin-left:8px;">전체 보기</a></p>
     {% endif %}
     {% if q %}
-    <p class="muted" style="margin:0 0 12px;">"{{ q }}" 검색 결과 {{ documents|length }}건 —
-      <a href="/">전체 보기</a></p>
+    <p class="muted" style="margin:0 0 12px;">"{{ q }}" 검색 결과 {{ documents|length }}건
+      <a href="/" class="btn-ghost" style="margin-left:8px;">전체 보기</a></p>
     {% endif %}
     {% if documents %}
     <div class="table-scroll">
