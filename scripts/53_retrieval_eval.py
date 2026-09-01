@@ -71,7 +71,11 @@ def main() -> None:
             lex = lexical_rank(db, query)
             den = [cid for cid, _ in embed_search(query, top_k=TOP_K)]
             hyb = rrf_merge(lex, den)[:TOP_K]
-            for name, ranking in (("어휘(Kiwi)", lex), ("임베딩(KURE)", den), ("하이브리드", hyb)):
+            hyw = rrf_merge(lex, den, w_a=0.4, w_b=1.0)[:TOP_K]
+            for name, ranking in (
+                ("어휘(Kiwi)", lex), ("임베딩(KURE)", den),
+                ("하이브리드(동가중)", hyb), ("하이브리드(임베딩 우세)", hyw),
+            ):
                 counts[name] += 1
                 if gold in ranking:
                     rank = ranking.index(gold) + 1
@@ -95,7 +99,7 @@ def main() -> None:
         "| 방식 | Recall@1 | Recall@5 | Recall@10 | MRR@10 |",
         "|---|---|---|---|---|",
     ]
-    for name in ("어휘(Kiwi)", "임베딩(KURE)", "하이브리드"):
+    for name in ("어휘(Kiwi)", "임베딩(KURE)", "하이브리드(동가중)", "하이브리드(임베딩 우세)"):
         n = max(counts[name], 1)
         m = metrics[name]
         lines.append(

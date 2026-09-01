@@ -132,7 +132,7 @@ def find_relevant(
     allowed = {c["id"] for c in chunks}
     dense_ids = [cid for cid, _ in embed_search(query_text, top_k=12) if cid in allowed]
     by_id = {c["id"]: c for c in chunks}
-    merged = rrf_merge(lexical_ids[:12], dense_ids)
+    merged = rrf_merge(lexical_ids[:12], dense_ids, w_a=0.4, w_b=1.0)
     return [by_id[cid] for cid in merged if cid in by_id][:top_k]
 
 
