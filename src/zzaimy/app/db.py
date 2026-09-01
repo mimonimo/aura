@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content    TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS projects (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  sector     TEXT NOT NULL,
+  name       TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS regulation_chunks (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id     INTEGER NOT NULL REFERENCES documents(id),
@@ -67,6 +73,7 @@ class Database:
         "ALTER TABLE documents ADD COLUMN related_criteria_id INTEGER",
         "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
         "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
+        "ALTER TABLE documents ADD COLUMN project_id INTEGER",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -97,6 +104,7 @@ class Database:
         doc_type: str = "auto",
         sector: str = "common",
         related_criteria_id: int | None = None,
+        project_id: int | None = None,
     ) -> int:
         now = _now()
         year = now[:4]
@@ -109,9 +117,10 @@ class Database:
             receipt_no = f"{year}-{code}-{int(row[0]) + 1:04d}"
             cur = conn.execute(
                 "INSERT INTO documents (filename, stored_path, doc_type, sector,"
-                " related_criteria_id, receipt_no, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (filename, stored_path, doc_type, sector, related_criteria_id, receipt_no, now),
+                " related_criteria_id, project_id, receipt_no, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (filename, stored_path, doc_type, sector, related_criteria_id,
+                 project_id, receipt_no, now),
             )
             return int(cur.lastrowid or 0)
 
@@ -134,15 +143,24 @@ class Database:
             row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
             return dict(row) if row else None
 
-    def list_documents(self, doc_type: str | None = None, q: str | None = None) -> list[dict]:
+    def list_documents(
+        self,
+        doc_type: str | None = None,
+        q: str | None = None,
+        project_id: int | None = None,
+    ) -> list[dict]:
         sql = "SELECT * FROM documents"
-        cond, params = [], []
+        cond: list[str] = []
+        params: list[str | int] = []
         if doc_type:
             cond.append("doc_type = ?")
             params.append(doc_type)
         if q:
             cond.append("filename LIKE ?")
             params.append(f"%{q}%")
+        if project_id:
+            cond.append("project_id = ?")
+            params.append(project_id)
         if cond:
             sql += " WHERE " + " AND ".join(cond)
         sql += " ORDER BY id DESC"
@@ -208,6 +226,23 @@ class Database:
                 (session_id, limit),
             ).fetchall()
             return [dict(r) for r in reversed(rows)]
+
+    def create_project(self, sector: str, name: str) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO projects (sector, name, created_at) VALUES (?, ?, ?)",
+                (sector, name[:80], _now()),
+            )
+            return int(cur.lastrowid or 0)
+
+    def list_projects(self, sector: str) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT p.*, (SELECT COUNT(*) FROM documents d WHERE d.project_id = p.id)"
+                " AS n_docs FROM projects p WHERE p.sector = ? ORDER BY p.id DESC",
+                (sector,),
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def delete_document(self, doc_id: int) -> None:
         """문서와 파생물(검토 의견·규정 조각)을 함께 지운다. 저장 파일은 호출부에서."""
