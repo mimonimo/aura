@@ -1,26 +1,75 @@
 {% extends "base.html" %}
 {% block title %}{{ doc.filename }} — 검토{% endblock %}
+{% block head %}
+  {% if doc.status == "processing" or doc.status == "received" %}
+  <meta http-equiv="refresh" content="5">
+  {% endif %}
+{% endblock %}
 {% block content %}
-<p><a href="/">← 목록으로</a></p>
+<p><a href="/">← 문서함으로</a></p>
 
 <div class="card">
-  <h2>{{ doc.filename }}
-    <span class="badge {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
-  </h2>
-  <p class="muted">접수 {{ doc.created_at[:16].replace("T", " ") }}
-    {% if doc.series %} · 계열: {{ doc.series }}{% endif %}</p>
+  <h2>{{ doc.filename }}</h2>
+  <p>
+    <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
+    <span class="pill {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
+    {% if doc.series %}<span class="pill">{{ doc.series }}</span>{% endif %}
+    <span class="muted" style="margin-left:8px;">접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
+  </p>
   {% if doc.status == "failed" %}
     <p class="notice">처리 실패: {{ doc.error }}</p>
   {% elif doc.status != "reviewed" %}
-    <p class="notice">처리 중입니다. 잠시 후 새로고침하세요.</p>
+    <p class="notice">처리 중입니다. 이 화면은 5초마다 자동 갱신됩니다.</p>
+  {% endif %}
+  {% if doc.status == "reviewed" and doc.doc_type != "recruit" %}
+  <form action="/doc/{{ doc.id }}/draft" method="post" style="margin-top:10px;">
+    <button type="submit" class="secondary">이 공고로 계획서 초안 생성</button>
+    <span class="muted" style="margin-left:8px;">공고 문서일 때 사용하세요. 1~2분 걸립니다.</span>
+  </form>
   {% endif %}
 </div>
 
+{% if doc.draft %}
+<div class="card accent">
+  <h2>계획서 초안</h2>
+  {% if doc.coverage %}<p class="notice">{{ doc.coverage }}</p>{% endif %}
+  <pre class="doc-text">{{ doc.draft }}</pre>
+  <p class="notice">근거 없는 수치 자리는 (근거 없음)으로 비워 둡니다. 70% 초안이며 최종 검토·수정은 담당자가 합니다.</p>
+</div>
+{% elif doc.coverage %}
+<div class="card accent">
+  <h2>계획서 초안</h2>
+  <p class="notice">{{ doc.coverage }}</p>
+</div>
+{% endif %}
+
 {% if doc.ai_review %}
 <div class="card">
-  <h2>모델 검토 의견</h2>
+  <h2>에이전트 검토 의견
+    <span class="pill {{ doc.decision }}" style="margin-left:6px;">
+      {{ decision_labels.get(doc.decision, doc.decision) }}</span>
+  </h2>
   <pre class="doc-text">{{ doc.ai_review }}</pre>
-  <p class="notice">자동 생성된 참고 의견입니다. 최종 판단은 담당자가 합니다.</p>
+  <p class="notice">에이전트가 문서를 읽고 정리한 의견입니다. 아래에서 피드백을 주면
+    다음 검토에 반영됩니다. 최종 판단은 담당자가 합니다.</p>
+  {% if doc.status == "reviewed" %}
+  <div style="display:flex; gap:10px; margin-top:12px;">
+    <form action="/doc/{{ doc.id }}/decision" method="post">
+      <input type="hidden" name="decision" value="approved">
+      <button type="submit">검토 확인 (충분함)</button>
+    </form>
+    <form action="/doc/{{ doc.id }}/decision" method="post">
+      <input type="hidden" name="decision" value="rework">
+      <button type="submit" class="secondary">재검토 요청 (아래 의견 반영)</button>
+    </form>
+    <form action="/doc/{{ doc.id }}/decision" method="post">
+      <input type="hidden" name="decision" value="rejected">
+      <button type="submit" class="secondary">반려</button>
+    </form>
+  </div>
+  <p class="muted" style="margin-top:8px;">재검토 요청 전에 담당자 의견을 먼저 남겨두면
+    에이전트가 그 내용을 반영해 다시 검토합니다.</p>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -40,7 +89,7 @@
   {% endfor %}
   <form action="/doc/{{ doc.id }}/review" method="post" style="margin-top:10px;">
     <textarea name="opinion" required placeholder="검토 의견을 입력하세요"></textarea>
-    <div style="margin-top:8px;"><button type="submit">의견 저장</button></div>
+    <div style="margin-top:10px;"><button type="submit">의견 저장</button></div>
   </form>
 </div>
 {% endblock %}
