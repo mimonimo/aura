@@ -60,3 +60,23 @@ def test_compose_review_context_cites_regulation(tmp_path):
 def test_compose_review_context_empty_when_no_regulations(tmp_path):
     db = Database(tmp_path / "t.db")
     assert compose_review_context(db, "아무 문서") == ""
+
+
+def test_find_relevant_respects_sector(tmp_path):
+    db = Database(tmp_path / "t.db")
+    d1 = db.add_document(filename="채용규정.pdf", stored_path="/x", doc_type="regulation")
+    db.add_regulation_chunks(d1, "채용규정", split_regulation(ARTICLE_STYLE), sector="recruit")
+    d2 = db.add_document(filename="공통규정.pdf", stored_path="/y", doc_type="regulation")
+    db.add_regulation_chunks(
+        d2, "공통규정",
+        split_regulation("제1조(공통) 평가위원 회피 의무는 모든 업무에 공통 적용된다."),
+        sector="common",
+    )
+    # 입학 섹터 검토 → 채용 전용 규정은 빠지고 공통만 잡힌다
+    hits = find_relevant(db, "평가위원 회피 의무 검토", sector="admission")
+    assert hits
+    assert all(h["sector"] == "common" for h in hits)
+    # 채용 섹터 검토 → 채용 + 공통 둘 다 후보
+    hits2 = find_relevant(db, "평가위원 회피 의무 검토", sector="recruit")
+    assert {h["sector"] for h in hits2} <= {"recruit", "common"}
+    assert any(h["sector"] == "recruit" for h in hits2)

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}에이전트 채팅 — YNC 행정 에이전트{% endblock %}
+{% block pagetitle %}에이전트 채팅{% endblock %}
+{% block content %}
+
+<div class="chat-wrap">
+  {% if not messages %}
+  <div class="card reveal"><div class="card-in" style="text-align:center; padding:38px 24px;">
+    <iconify-icon icon="solar:chat-round-line-linear"
+      style="font-size:34px; color:var(--navy);"></iconify-icon>
+    <h2 style="justify-content:center; margin-top:10px;">무엇을 도와드릴까요?</h2>
+    <p class="muted" style="line-height:1.8;">등록된 기준 문서(학칙·규정·매뉴얼·공고문)를 근거로 답합니다.<br>
+      검토할 파일을 첨부하고 적용할 기준을 골라 물어보세요.<br>
+      예: "일반휴학 처리 기준 알려줘" · "이 이력서, 채용공고 기준으로 검토해줘"</p>
+  </div></div>
+  {% endif %}
+
+  {% for m in messages %}
+    <div class="msg {{ m.role }}">{{ m.content }}</div>
+  {% endfor %}
+
+  <form class="chat-dock" action="/chat/send" method="post" enctype="multipart/form-data">
+    <div class="chat-row">
+      <input type="text" name="question" placeholder="메시지를 입력하세요" required
+             autofocus autocomplete="off">
+      <button type="submit">
+        <iconify-icon icon="solar:plain-2-linear"></iconify-icon>보내기</button>
+    </div>
+    <div class="chat-tools">
+      <label class="file-field tool-chip">
+        <iconify-icon icon="solar:paperclip-linear"></iconify-icon>
+        검토할 파일 첨부
+        <input type="file" name="attachment">
+        <span class="file-name"></span>
+      </label>
+      <details class="criteria-pick">
+        <summary class="tool-chip" style="display:inline-flex;">
+          <iconify-icon icon="solar:library-linear"></iconify-icon>
+          적용할 기준 선택 ({{ criteria_docs|length }}건 등록됨)
+        </summary>
+        <div class="pick-list">
+          {% for c in criteria_docs %}
+          <label class="pick-item">
+            <input type="checkbox" name="criteria" value="{{ c.id }}">
+            {{ c.filename }} <span class="muted">({{ sector_labels.get(c.sector, c.sector) }} · {{ c.n_chunks }}조각)</span>
+          </label>
+          {% else %}
+          <span class="pick-item muted">등록된 기준이 없습니다 — <a href="/criteria">기준 문서</a>에서 등록하세요</span>
+          {% endfor %}
+        </div>
+      </details>
+    </div>
+  </form>
+  <p class="muted" style="text-align:center;">기준을 선택하지 않으면 질문과 관련된 기준을 자동으로 찾아 씁니다.
+    에이전트 답변은 참고용이며 최종 판단은 담당자가 합니다.</p>
+</div>
+{% endblock %}

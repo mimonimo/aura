@@ -1,0 +1,64 @@
+"""에이전트 채팅 응답기 — 기준 문서 저장소를 근거로 질문에 답한다.
+
+담당자가 "휴학 처리 기준이 뭐지" 같은 질문을 하면 등록된 규정·지침에서
+관련 조각을 찾아 인용하며 답한다. 근거가 없으면 없다고 말한다.
+"""
+
+from __future__ import annotations
+
+from zzaimy.app.db import Database
+from zzaimy.app.regulations import compose_review_context
+
+_SYSTEM = """당신은 영남이공대학교 행정 담당자를 돕는 AI 에이전트입니다.
+
+답변 원칙:
+- 참고 규정이 주어지면 그 내용을 근거로 답하고, 출처(규정명·조항)를 자연스럽게 언급합니다.
+- 근거가 없는 내용은 추측하지 않습니다. 근거가 없으면 정중하게 그 사실을 알리고,
+  어떤 규정·기준 문서를 등록하면 도움이 될지 한 문장으로 안내합니다.
+- 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다. 같은 문장을 반복하지 않습니다.
+- 최종 판단은 담당자의 몫이라는 전제를 지킵니다."""
+
+
+class AgentResponder:
+    def answer(
+        self,
+        db: Database,
+        question: str,
+        attachment_text: str | None = None,
+        criteria_ids: list[int] | None = None,
+    ) -> str:
+        from zzaimy.generate.client import VllmClient
+
+        if criteria_ids:
+            # 담당자가 기준을 직접 고른 경우 — 그 기준의 조각들을 우선 사용
+            chunks = db.chunks_for_docs(criteria_ids)
+            budget, parts = 6000, []
+            for c in chunks:
+                piece = f"《{c['reg_title']} · {c['heading']}》\n{c['content'][:800]}"
+                if budget - len(piece) < 0:
+                    break
+                budget -= len(piece)
+                parts.append(piece)
+            context = "[선택된 기준 문서 — 이 기준으로 판단하고 인용하라]\n\n" + "\n\n".join(parts)
+        else:
+            context = compose_review_context(db, attachment_text or question)
+        history = db.list_chats(limit=6)
+        messages: list[dict] = [{"role": "system", "content": _SYSTEM}]
+        for m in history:
+            messages.append({"role": m["role"], "content": m["content"][:2000]})
+        user_content = question
+        if attachment_text:
+            user_content += f"\n\n[첨부 문서 본문 — 개인정보 마스킹됨]\n{attachment_text[:8000]}"
+        if context:
+            user_content += f"\n\n{context}"
+        messages.append({"role": "user", "content": user_content})
+
+        client = VllmClient()
+        resp = client.client.chat.completions.create(
+            model=client.model,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=1024,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        )
+        return (resp.choices[0].message.content or "").strip()

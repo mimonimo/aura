@@ -27,6 +27,7 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from zzaimy.app.db import Database
@@ -45,12 +46,21 @@ STATUS_LABELS = {
     "failed": "실패",
 }
 
-DOC_TYPE_LABELS = {
+# 문서함(검토 대상) 유형 — 기준 문서(regulation)는 별도 공간에서 다룬다
+INBOX_TYPES = {
     "auto": "일반 행정",
     "grant": "국고사업",
     "recruit": "채용",
     "admission": "입학",
-    "regulation": "규정·지침",
+}
+DOC_TYPE_LABELS = {**INBOX_TYPES, "regulation": "기준 문서"}
+
+SECTOR_LABELS = {
+    "common": "공통",
+    "grant": "국고사업",
+    "recruit": "채용",
+    "admission": "입학",
+    "auto": "일반 행정",
 }
 
 DECISION_LABELS = {
@@ -66,9 +76,21 @@ class Processor(Protocol):
 
     def reprocess(self, db: Database, doc_id: int) -> None: ...
 
+    def extract_text(self, file_path: Path) -> str: ...
+
 
 class Drafter(Protocol):
     def generate(self, db: Database, doc_id: int) -> None: ...
+
+
+class Responder(Protocol):
+    def answer(
+        self,
+        db: Database,
+        question: str,
+        attachment_text: str | None = None,
+        criteria_ids: list[int] | None = None,
+    ) -> str: ...
 
 
 def create_app(
@@ -76,6 +98,7 @@ def create_app(
     inbox_dir: Path,
     processor: Processor,
     drafter: Drafter,
+    responder: Responder | None = None,
     password: str | None = None,
 ) -> FastAPI:
     """password를 주면 전 라우트에 HTTP Basic 인증(사용자명 zzaimy)이 걸린다.
@@ -97,21 +120,112 @@ def create_app(
         dependencies = [Depends(check_auth)]
 
     app = FastAPI(title="YNC 행정문서 검토 플랫폼", dependencies=dependencies)
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(Path(__file__).parent / "static")),
+        name="static",
+    )
     db = Database(db_path)
     inbox_dir.mkdir(parents=True, exist_ok=True)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     templates.env.globals["status_labels"] = STATUS_LABELS
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
     templates.env.globals["decision_labels"] = DECISION_LABELS
+    templates.env.globals["sector_labels"] = SECTOR_LABELS
+
+    def ctx(extra: dict) -> dict:
+        pending = db.pending_documents()
+        return {"pending_docs": pending, "pending_count": len(pending), **extra}
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request, type: str | None = None):
-        doc_type = type if type in DOC_TYPE_LABELS else None
+    def index(request: Request, type: str | None = None, q: str | None = None):
+        doc_type = type if type in INBOX_TYPES else None
+        docs = [
+            d for d in db.list_documents(doc_type, q=q) if d["doc_type"] != "regulation"
+        ]
         return templates.TemplateResponse(
             request,
             "index.html",
-            {"documents": db.list_documents(doc_type), "active_tab": doc_type or "all"},
+            ctx({"documents": docs, "active_tab": doc_type or "all", "q": q or ""}),
         )
+
+    @app.get("/chat", response_class=HTMLResponse)
+    def chat(request: Request):
+        counts = db.regulation_chunk_counts()
+        criteria_docs = [
+            d | {"n_chunks": counts.get(d["id"], 0)}
+            for d in db.list_documents("regulation")
+            if d["status"] == "reviewed"
+        ]
+        return templates.TemplateResponse(
+            request,
+            "chat.html",
+            ctx({"messages": db.list_chats(), "criteria_docs": criteria_docs}),
+        )
+
+    @app.post("/chat/send")
+    def chat_send(
+        question: str = Form(...),
+        criteria: list[int] = Form([]),
+        attachment: UploadFile | None = File(None),
+    ):
+        q = question.strip()
+        if not q:
+            return RedirectResponse("/chat", status_code=303)
+
+        attachment_text = None
+        shown = q
+        if attachment is not None and attachment.filename:
+            suffix = Path(attachment.filename).suffix.lower()
+            if suffix not in ALLOWED_EXTENSIONS:
+                raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+            stored = inbox_dir / f"chat_{uuid.uuid4().hex}{suffix}"
+            with stored.open("wb") as out:
+                shutil.copyfileobj(attachment.file, out)
+            try:
+                attachment_text = processor.extract_text(stored)
+            except Exception as e:
+                attachment_text = None
+                shown += f"\n(첨부 처리 실패: {type(e).__name__})"
+            shown = f"📎 {attachment.filename}\n{shown}"
+
+        db.add_chat("user", shown)
+        r = responder or _default_responder()
+        try:
+            answer = r.answer(db, q, attachment_text=attachment_text, criteria_ids=criteria)
+        except Exception as e:
+            answer = f"응답 생성에 실패했습니다: {type(e).__name__}"
+        db.add_chat("assistant", answer)
+        return RedirectResponse("/chat", status_code=303)
+
+    @app.get("/criteria", response_class=HTMLResponse)
+    def criteria(request: Request):
+        docs = db.list_documents("regulation")
+        counts = db.regulation_chunk_counts()
+        for d in docs:
+            d["n_chunks"] = counts.get(d["id"], 0)
+        return templates.TemplateResponse(request, "criteria.html", ctx({"documents": docs}))
+
+    @app.post("/criteria/upload")
+    def criteria_upload(
+        background: BackgroundTasks,
+        file: UploadFile = File(...),
+        sector: str = Form("common"),
+    ):
+        name = file.filename or "이름없음"
+        suffix = Path(name).suffix.lower()
+        if suffix not in ALLOWED_EXTENSIONS:
+            raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+        if sector not in SECTOR_LABELS:
+            raise HTTPException(400, f"알 수 없는 섹터: {sector}")
+        stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
+        with stored.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+        doc_id = db.add_document(
+            filename=name, stored_path=str(stored), doc_type="regulation", sector=sector
+        )
+        background.add_task(processor.process, db, doc_id, stored)
+        return RedirectResponse("/criteria", status_code=303)
 
     @app.post("/upload")
     def upload(
@@ -123,7 +237,7 @@ def create_app(
         suffix = Path(name).suffix.lower()
         if suffix not in ALLOWED_EXTENSIONS:
             raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
-        if doc_type not in DOC_TYPE_LABELS:
+        if doc_type not in INBOX_TYPES:
             raise HTTPException(400, f"알 수 없는 문서 유형: {doc_type}")
         stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
         with stored.open("wb") as out:
@@ -145,7 +259,7 @@ def create_app(
         if doc is None:
             raise HTTPException(404)
         return templates.TemplateResponse(
-            request, "doc.html", {"doc": doc, "reviews": db.get_reviews(doc_id)}
+            request, "doc.html", ctx({"doc": doc, "reviews": db.get_reviews(doc_id)})
         )
 
     @app.post("/doc/{doc_id}/decision")
@@ -168,6 +282,12 @@ def create_app(
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
     return app
+
+
+def _default_responder():
+    from zzaimy.app.responder import AgentResponder
+
+    return AgentResponder()
 
 
 def main() -> None:
@@ -196,6 +316,7 @@ def main() -> None:
         inbox_dir=Path("data/platform/inbox"),
         processor=DocumentProcessor(),
         drafter=SliceDrafter(),
+        responder=None,  # 지연 생성 (vLLM 연결은 첫 질문 때)
         password=password,
     )
     uvicorn.run(app, host=host, port=port, ssl_certfile=certfile, ssl_keyfile=keyfile)

@@ -17,6 +17,31 @@ _ARTICLE = re.compile(r"(?=제\d+[조장절])")
 _TOKEN = re.compile(r"[가-힣A-Za-z0-9]{2,}")
 _CHUNK_SIZE = 700
 
+_kiwi = None
+_noun_cache: dict[int, frozenset[str]] = {}
+
+
+def _get_kiwi():
+    global _kiwi
+    if _kiwi is None:
+        from kiwipiepy import Kiwi
+
+        _kiwi = Kiwi()
+    return _kiwi
+
+
+def extract_nouns(text: str) -> frozenset[str]:
+    """형태소 분석으로 명사만 추출 — 조사·어미에 흔들리지 않는 검색 키."""
+    try:
+        kiwi = _get_kiwi()
+        return frozenset(
+            t.form
+            for t in kiwi.tokenize(text[:4000])
+            if t.tag.startswith("NN") and len(t.form) >= 2
+        )
+    except Exception:
+        return frozenset(_TOKEN.findall(text[:4000]))
+
 
 @dataclass(frozen=True)
 class RegulationChunk:
@@ -65,27 +90,46 @@ def _tokens(text: str) -> set[str]:
 
 
 def find_relevant(
-    db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2
+    db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2,
+    sector: str | None = None,
 ) -> list[dict]:
-    """검토 대상 텍스트와 키워드가 겹치는 규정 조각 top-k.
+    """검토 대상 텍스트와 명사가 겹치는 규정 조각 top-k (Kiwi 형태소 기반).
 
-    한국어 조사 때문에 토큰 완전일치는 빗나가기 쉬워, 질의 토큰이 조각 본문에
-    부분문자열로 등장하는 개수로 센다. (형태소 기반 검색은 P3에서 Kiwi로 교체)
+    점수 = 겹친 명사의 길이 합 (긴 명사가 더 정보량이 크다). 조각 명사는
+    프로세스 내 캐시로 재계산을 피한다.
     """
-    query = _tokens(query_text)
-    scored: list[tuple[int, dict]] = []
-    for chunk in db.list_regulation_chunks():
-        content = chunk["content"]
-        overlap = sum(1 for t in query if t in content)
-        if overlap >= min_overlap:
-            scored.append((overlap, chunk))
-    scored.sort(key=lambda x: -x[0])
-    return [c for _, c in scored[:top_k]]
+    import math
+
+    query = extract_nouns(query_text)
+    if not query:
+        return []
+    chunks = db.list_regulation_chunks(sector=sector)
+    for chunk in chunks:
+        cid = chunk["id"]
+        if cid not in _noun_cache:
+            _noun_cache[cid] = extract_nouns(chunk["content"])
+    # 희소성 가중치 — 어디에나 나오는 명사(기준·처리 등)는 정보량이 낮다
+    n = max(len(chunks), 1)
+    df = {t: sum(1 for c in chunks if t in _noun_cache[c["id"]]) for t in query}
+    idf = {t: math.log(1 + n / (1 + df[t])) for t in query}
+
+    # 희귀 명사(전체 조각의 10% 이하에서만 등장)가 질의의 실질 주제다 —
+    # "휴학"이 "기준·처리" 같은 범용 명사에 밀리지 않게 1순위 정렬키로 쓴다
+    rare_cut = max(3, int(n * 0.1))
+    scored: list[tuple[int, float, int, dict]] = []
+    for chunk in chunks:
+        matched = query & _noun_cache[chunk["id"]]
+        if len(matched) >= min_overlap:
+            rare_hits = sum(1 for t in matched if df[t] <= rare_cut)
+            score = sum(min(len(t), 4) * idf[t] for t in matched)
+            scored.append((rare_hits, score, len(matched), chunk))
+    scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
+    return [c for _, _, _, c in scored[:top_k]]
 
 
-def compose_review_context(db: Database, masked_text: str) -> str:
-    """검토 프롬프트에 붙일 '참고 규정' 블록. 관련 규정이 없으면 빈 문자열."""
-    hits = find_relevant(db, masked_text)
+def compose_review_context(db: Database, masked_text: str, sector: str | None = None) -> str:
+    """검토 프롬프트에 붙일 '참고 규정' 블록. 섹터 전용 + 공통 기준만 후보."""
+    hits = find_relevant(db, masked_text, sector=sector)
     if not hits:
         return ""
     lines = ["[참고 규정 — 검토 의견에서 관련 조항을 근거로 인용하라]"]
