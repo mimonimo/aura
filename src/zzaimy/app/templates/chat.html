@@ -4,6 +4,19 @@
 {% block head %}
   {% if waiting %}<meta http-equiv="refresh" content="2">{% endif %}
   <style>
+    /* 메시지 버블 */
+    .msg { max-width: 78%; padding: 12px 16px; border-radius: 16px; font-size: 14.5px;
+           line-height: 1.75; white-space: pre-wrap; animation: rise .5s var(--ease); }
+    .msg.user { background: var(--navy); color: #fff; border-bottom-right-radius: 5px;
+           box-shadow: 0 4px 14px rgba(27,59,117,.18); }
+    .msg.assistant { background: #fff; border: 1px solid var(--line);
+           border-bottom-left-radius: 5px; box-shadow: 0 3px 12px rgba(27,59,117,.05); }
+    [hidden] { display: none !important; }
+
+    /* 입력 독 컨테이너 */
+    .chat-dock { background: #fff; border: 1px solid var(--line); border-radius: 20px;
+           box-shadow: 0 10px 34px rgba(27,59,117,.12); }
+
     /* 메신저형 고정 레이아웃 — 페이지가 길어지지 않는다 */
     main { display: flex; flex-direction: column; height: calc(100vh - 63px);
            padding-bottom: 18px; overflow: hidden; }
