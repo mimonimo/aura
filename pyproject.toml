@@ -15,6 +15,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 파서 bake-off (TASK-04) — 무겁다. Spark에서만 설치해도 된다
+parsers = [
+    "docling>=2.0",
+    "mineru[core]>=2.0",
+    "reportlab>=4.0",  # 합성 표본 생성
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
