@@ -29,7 +29,16 @@ SECTOR_RULES = [
 KEEP_PAGE = re.compile(
     r"학사|규정|장학|등록금|수강|성적|졸업|휴학|복학|증명서|채용|입학|예산|결산|편입|전과"
 )
-DROP = re.compile(r"홍보대사|체험단|컬처데이|이벤트|SNS|유튜브|페이스북|인스타")
+# 판단 기준이 될 수 없는 홍보·소개·시설성 페이지 (2026-09-02 품질 정리에서 확대)
+DROP = re.compile(
+    r"홍보대사|체험단|컬처데이|이벤트|SNS|유튜브|페이스북|인스타"
+    r"|홍보영상|CF|신문광고|언론에서|교가|캐릭터|상징물|개교50주년|디자인메뉴얼"
+    r"|총장|인사말|비전|창학|교육_목표|중장기발전|조직도|연혁|찾아오시는길|캠퍼스"
+    r"|알림마당|공지사항|자주하는_질문|질문과_답변|건의사항|구내식당|입찰공고"
+    r"|업체등록|이메일무단수집|학생회|동아리|활동_및_모집|복지_편의|자매결연"
+    r"|해외연수|적립금|업무추진비|이사회|평의원회|자체평가|정보공개|등록금심의"
+    r"|예_결산공고|주요성과|국제적_수준|든든한_장학제도|^영남이공대학교|^학과|^CI"
+)
 MIN_PAGE_CHARS = 800
 FILE_EXTS = (".pdf", ".hwp", ".hwpx")
 
@@ -82,7 +91,11 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--max-items", type=int, default=60)
+    ap.add_argument("--pages-dir", default=str(PAGES), help="페이지 텍스트 디렉터리 (56 정제본 지정 가능)")
+    ap.add_argument("--pages-only", action="store_true", help="파일(FILES) 등록은 건너뛴다")
+    ap.add_argument("--min-chars", type=int, default=MIN_PAGE_CHARS)
     args = ap.parse_args()
+    pages_dir = Path(args.pages_dir)
 
     pw = os.environ.get("ZZAIMY_PASSWORD", "")
     if not pw and not args.dry_run:
@@ -92,16 +105,16 @@ def main() -> None:
 
     candidates: list[tuple[Path, str, str]] = []  # (경로, 표시이름, 섹터)
 
-    for f in sorted(PAGES.glob("*.txt")):
+    for f in sorted(pages_dir.glob("*.txt")):
         text = f.read_text(encoding="utf-8", errors="replace")
         title_line = text.splitlines()[0].lstrip("# ").strip() if text else ""
         title = title_line.split(">")[0].strip() or f.stem
-        if len(text) < MIN_PAGE_CHARS or not KEEP_PAGE.search(title + text[:2000]):
+        if len(text) < args.min_chars or not KEEP_PAGE.search(title + text[:2000]):
             continue
         name = re.sub(r"[^\w가-힣]+", "_", title)[:60] + ".txt"
         candidates.append((f, name, sector_of(title)))
 
-    for f in sorted(FILES.iterdir()):
+    for f in [] if args.pages_only else sorted(FILES.iterdir()):
         if f.suffix.lower() not in FILE_EXTS or f.stat().st_size < 10_000:
             continue
         peek = _peek_text(f)
