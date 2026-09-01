@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zzaimy"
+version = "0.1.0"
+description = "영남이공대학교 국고사업 계획서 작성 지원 시스템"
+readme = "README.md"
+# Spark 실기 확인값: Python 3.12.3 (spark-1397, 2026-09-01)
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+# 느슨하게 시작한다 (W1-W2 TASK-01). 필요해지면 규칙을 추가한다.
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["zzaimy"]
+mypy_path = "src"
+# 느슨하게 시작한다. 파이프라인 타입 강제(PII 등)가 들어오는 시점에 조인다.
+ignore_missing_imports = true
