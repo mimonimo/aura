@@ -8,7 +8,8 @@ platform: linux/arm64  # DGX Spark (aarch64, GB10 sm_121)
 # 탈락: v0.11.0 릴리스 (digest 014a95f2…) — 동봉 triton ptxas가 sm_121a 미지원
 # ("ptxas fatal: Value 'sm_121a' is not defined for option 'gpu-name'"). ADR-0004 참조.
 
-smoke_model: Qwen/Qwen3-4B  # Extract 베이스 1안과 동일 — 이중 활용
+model: Qwen/Qwen3-30B-A3B-Instruct-2507  # 주 서빙 (MoE, 활성 3B — 실측 30.7 tok/s로 4B dense(23.0)보다 빠름)
+smoke_model: Qwen/Qwen3-4B  # Extract 베이스 1안 — 배치 추출용 후보
 
 # 기동 전 필수: 페이지 캐시 정리 (통합 메모리 — 아래 notes 참조)
 pre_start: sudo sysctl vm.drop_caches=3
@@ -19,9 +20,9 @@ run: |
     -v ~/.cache/huggingface:/root/.cache/huggingface \
     -p 127.0.0.1:8000:8000 \
     vllm/vllm-openai@sha256:df6c5814eadd5b5c9e388e7093dfd811f900539619fcf07c65bb637f607898ff \
-    --model Qwen/Qwen3-4B \
-    --max-model-len 8192 \
-    --gpu-memory-utilization 0.5
+    --model Qwen/Qwen3-30B-A3B-Instruct-2507 \
+    --max-model-len 16384 \
+    --gpu-memory-utilization 0.72
 
 notes:
   - "보안 (실측 2026-09-01): 공인 IP 장비라 -p 8000:8000은 인증 없는 LLM 엔드포인트를
