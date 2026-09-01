@@ -347,3 +347,25 @@ def test_regulation_delete_removes_chunks(tmp_path):
     db.delete_document(doc_id)
     assert db.list_regulation_chunks() == []
     assert db.get_document(doc_id) is None
+
+
+def test_project_create_and_filter(client):
+    # 채용 섹터에 프로젝트 생성
+    r = client.post("/projects", data={"sector": "recruit", "name": "2026 상반기 계약직"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    # 프로젝트 지정 접수
+    client.post("/upload", data={"doc_type": "recruit", "project_id": "1"},
+                files={"file": ("지원서A.pdf", b"%PDF", "application/pdf")})
+    client.post("/upload", data={"doc_type": "recruit"},
+                files={"file": ("지원서B.pdf", b"%PDF", "application/pdf")})
+    page = client.get("/?type=recruit").text
+    assert "2026 상반기 계약직" in page           # 프로젝트 캡슐 표시
+    filtered = client.get("/?type=recruit&project=1").text
+    # 표(문서 목록) 기준 확인 — 사이드바 등에는 B가 보일 수 있다
+    assert ">지원서A.pdf</a>" in filtered
+    assert ">지원서B.pdf</a>" not in filtered
+
+
+def test_project_requires_valid_sector(client):
+    assert client.post("/projects", data={"sector": "??", "name": "x"}).status_code == 400

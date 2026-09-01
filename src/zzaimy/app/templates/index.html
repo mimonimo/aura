@@ -9,6 +9,12 @@
   "auto": ("solar:document-text-linear", "일반 행정", "그 밖의 행정 문서를 접수하고 검토 의견을 받는 공간입니다."),
 } %}
 
+{% set project_hints = {
+  "grant": "사업 단위로 묶어 관리하세요 (예: 혁신지원사업 2026)",
+  "recruit": "공고 단위로 묶어 관리하세요 (예: 2026 상반기 계약직)",
+  "admission": "학년도·전형·학과 단위로 묶어 관리하세요 (예: 2026 수시 자동차과)",
+  "auto": "업무 단위로 묶어 관리하세요",
+} %}
 {% if active_tab != "all" and active_tab in sector_meta %}
 <div class="card reveal" style="background:linear-gradient(120deg,#16223A,#1B3B75); border:0;">
   <div style="display:flex; align-items:center; gap:16px; padding:20px 24px; color:#fff;">
@@ -20,6 +26,29 @@
     <a href="/" class="btn-ghost on-dark" style="margin-left:auto;">전체 문서함 보기</a>
   </div>
 </div>
+{% endif %}
+
+{% if active_tab != "all" %}
+<div class="card reveal"><div class="card-in" style="padding:14px 20px;">
+  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <iconify-icon icon="solar:folder-2-linear" style="color:var(--navy); font-size:18px;"></iconify-icon>
+    <a href="/?type={{ active_tab }}" class="pill"
+       style="text-decoration:none; {% if not active_project %}background:#1E6B4F; color:#fff;{% endif %}">전체</a>
+    {% for pj in projects %}
+    <a href="/?type={{ active_tab }}&project={{ pj.id }}" class="pill"
+       style="text-decoration:none; {% if active_project == pj.id %}background:#1E6B4F; color:#fff;{% endif %}">
+      {{ pj.name }} <span style="opacity:.7;">{{ pj.n_docs }}</span></a>
+    {% endfor %}
+    <form action="/projects" method="post" style="display:inline-flex; gap:6px; margin-left:auto;">
+      <input type="hidden" name="sector" value="{{ active_tab }}">
+      <input type="text" name="name" placeholder="새 프로젝트 이름" required
+             style="border:1.5px solid var(--line); border-radius:18px; padding:5px 14px;
+                    font-size:13px; font-family:inherit; width:170px;">
+      <button type="submit" class="secondary" style="padding:5px 14px; font-size:12.5px;">추가</button>
+    </form>
+  </div>
+  <p class="muted" style="margin:8px 0 0 26px;">{{ project_hints.get(active_tab, "") }}</p>
+</div></div>
 {% endif %}
 
 <div class="tiles">
@@ -88,6 +117,14 @@
           style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
       {% if active_tab != "all" %}
       <input type="hidden" name="doc_type" value="{{ active_tab }}">
+        {% if projects %}
+        <select name="project_id">
+          <option value="">프로젝트 선택 안 함</option>
+          {% for pj in projects %}
+          <option value="{{ pj.id }}" {% if active_project == pj.id %}selected{% endif %}>{{ pj.name }}</option>
+          {% endfor %}
+        </select>
+        {% endif %}
         {% if active_tab in target_labels %}
         <select name="related_criteria_id">
           <option value="">{{ target_labels[active_tab] }} 선택 (선택 안 함 가능)</option>

@@ -162,11 +162,18 @@ def create_app(
         }
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request, type: str | None = None, q: str | None = None):
+    def index(
+        request: Request,
+        type: str | None = None,
+        q: str | None = None,
+        project: int | None = None,
+    ):
         doc_type = type if type in INBOX_TYPES else None
         docs = [
-            d for d in db.list_documents(doc_type, q=q) if d["doc_type"] != "regulation"
+            d for d in db.list_documents(doc_type, q=q, project_id=project)
+            if d["doc_type"] != "regulation"
         ]
+        projects = db.list_projects(doc_type) if doc_type else []
         # 섹터 화면에서는 그 섹터의 기준 문서(공고 등)를 접수 대상 선택지로 제공
         sector_criteria = []
         if doc_type:
@@ -180,6 +187,7 @@ def create_app(
             ctx({
                 "documents": docs, "active_tab": doc_type or "all", "q": q or "",
                 "sector_criteria": sector_criteria,
+                "projects": projects, "active_project": project,
             }),
         )
 
@@ -299,12 +307,22 @@ def create_app(
         background.add_task(processor.process, db, doc_id, stored)
         return RedirectResponse("/criteria", status_code=303)
 
+    @app.post("/projects")
+    def create_project(sector: str = Form(...), name: str = Form(...)):
+        if sector not in INBOX_TYPES:
+            raise HTTPException(400, f"알 수 없는 섹터: {sector}")
+        if not name.strip():
+            raise HTTPException(400, "프로젝트 이름이 필요하다")
+        db.create_project(sector, name.strip())
+        return RedirectResponse(f"/?type={sector}", status_code=303)
+
     @app.post("/upload")
     def upload(
         background: BackgroundTasks,
         file: UploadFile = File(...),
         doc_type: str = Form("auto"),
         related_criteria_id: int | None = Form(None),
+        project_id: int | None = Form(None),
     ):
         name = file.filename or "이름없음"
         suffix = Path(name).suffix.lower()
@@ -317,7 +335,7 @@ def create_app(
             shutil.copyfileobj(file.file, out)
         doc_id = db.add_document(
             filename=name, stored_path=str(stored), doc_type=doc_type,
-            related_criteria_id=related_criteria_id,
+            related_criteria_id=related_criteria_id, project_id=project_id,
         )
         background.add_task(processor.process, db, doc_id, stored)
         return RedirectResponse(f"/?type={doc_type}" if related_criteria_id else "/",
