@@ -217,6 +217,24 @@
               padding: 6px 8px; border-radius: 8px; }
   .pick-item:hover { background: var(--panel); }
 
+  /* 팝오버 (알림·사용자 메뉴) */
+  .menu-wrap { position: relative; }
+  .popover { position: absolute; top: 46px; right: 0; width: 300px; background: #fff;
+             border: 1px solid var(--line); border-radius: 16px; padding: 10px;
+             box-shadow: 0 14px 40px rgba(27,59,117,.16); z-index: 60; display: none;
+             animation: rise .35s var(--ease); }
+  .popover.open { display: block; }
+  .popover h5 { margin: 4px 8px 8px; font-size: 12.5px; color: var(--faint);
+             font-weight: 700; letter-spacing: .04em; }
+  .pop-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px;
+             border-radius: 10px; font-size: 13.5px; color: var(--ink);
+             text-decoration: none; transition: background .3s var(--ease); }
+  .pop-item:hover { background: var(--panel); }
+  .pop-item iconify-icon { color: var(--faint); font-size: 16px; flex: none; }
+  .pop-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pop-item.disabled { color: var(--faint); cursor: default; }
+  .pop-empty { padding: 14px 10px; color: var(--faint); font-size: 13px; text-align: center; }
+
   @keyframes rise { from { opacity: 0; transform: translateY(10px); }
                     to { opacity: 1; transform: translateY(0); } }
   .reveal { animation: rise .6s var(--ease) both; }
@@ -270,16 +288,55 @@
       <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
       <input type="search" name="q" placeholder="문서 검색" value="{{ q if q is defined else '' }}">
     </form>
-    <a class="icon-btn" href="/" title="판정 대기 알림">
-      <iconify-icon icon="solar:bell-linear"></iconify-icon>
-      {% if pending_count %}<span class="badge-n">{{ pending_count }}</span>{% endif %}
-    </a>
-    <span class="user-chip"><span class="avatar">
-      <iconify-icon icon="solar:user-linear"></iconify-icon></span>담당자</span>
+    <div class="menu-wrap">
+      <button type="button" class="icon-btn" data-pop="bellPop" title="알림">
+        <iconify-icon icon="solar:bell-linear"></iconify-icon>
+        {% if pending_count %}<span class="badge-n">{{ pending_count }}</span>{% endif %}
+      </button>
+      <div class="popover" id="bellPop">
+        <h5>판정 대기 {{ pending_count }}건</h5>
+        {% for d in pending_docs %}
+        <a class="pop-item" href="/doc/{{ d.id }}">
+          <iconify-icon icon="solar:clock-circle-linear"></iconify-icon>
+          <span>{{ d.filename }}</span>
+        </a>
+        {% else %}
+        <div class="pop-empty">확인할 알림이 없습니다</div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="menu-wrap">
+      <button type="button" class="user-chip" data-pop="userPop">
+        <span class="avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
+        담당자 <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
+      </button>
+      <div class="popover" id="userPop">
+        <h5>담당자 계정</h5>
+        <span class="pop-item disabled"><iconify-icon icon="solar:user-id-linear"></iconify-icon><span>프로필 · 준비 중</span></span>
+        <span class="pop-item disabled"><iconify-icon icon="solar:settings-linear"></iconify-icon><span>알림 설정 · 준비 중</span></span>
+        <span class="pop-item disabled"><iconify-icon icon="solar:logout-2-linear"></iconify-icon><span>로그아웃 · 계정 기능 도입 예정</span></span>
+      </div>
+    </div>
   </div>
   <main>{% block content %}{% endblock %}</main>
 </div>
 <script>
+  document.querySelectorAll("[data-pop]").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var pop = document.getElementById(btn.dataset.pop);
+      document.querySelectorAll(".popover.open").forEach(function (p) {
+        if (p !== pop) p.classList.remove("open");
+      });
+      pop.classList.toggle("open");
+    });
+  });
+  document.addEventListener("click", function () {
+    document.querySelectorAll(".popover.open").forEach(function (p) { p.classList.remove("open"); });
+  });
+  document.querySelectorAll(".popover").forEach(function (p) {
+    p.addEventListener("click", function (e) { e.stopPropagation(); });
+  });
   document.querySelectorAll(".file-field input[type=file]").forEach(function (inp) {
     inp.addEventListener("change", function () {
       var span = inp.closest(".file-field").querySelector(".file-name");
