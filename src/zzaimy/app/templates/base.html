@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}YNC 행정문서 검토 플랫폼{% endblock %}</title>
+<style>
+  :root {
+    --navy: #14325a; --navy-light: #1d4a85; --bg: #f5f6f8;
+    --line: #e2e5ea; --text: #23272e; --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: "Apple SD Gothic Neo", "Malgun Gothic", Pretendard, sans-serif; }
+  header { background: var(--navy); color: #fff; padding: 14px 28px;
+           display: flex; align-items: baseline; gap: 12px; }
+  header a { color: #fff; text-decoration: none; font-size: 18px; font-weight: 600; }
+  header .sub { color: #b9c6da; font-size: 13px; }
+  main { max-width: 960px; margin: 28px auto; padding: 0 20px; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 8px;
+          padding: 20px 24px; margin-bottom: 20px; }
+  h2 { font-size: 16px; margin: 0 0 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  tr:hover td { background: #f8fafc; }
+  a { color: var(--navy-light); }
+  .badge { display: inline-block; padding: 2px 9px; border-radius: 10px;
+           font-size: 12px; background: #eef1f5; color: var(--muted); }
+  .badge.reviewed { background: #e6f4ea; color: #1c7c3c; }
+  .badge.processing { background: #fff4dc; color: #97640a; }
+  .badge.failed { background: #fdeaea; color: #b3312f; }
+  button { background: var(--navy); color: #fff; border: 0; border-radius: 6px;
+           padding: 8px 18px; font-size: 14px; cursor: pointer; }
+  button:hover { background: var(--navy-light); }
+  input[type=file], textarea { font-size: 14px; width: 100%; }
+  textarea { border: 1px solid var(--line); border-radius: 6px; padding: 10px;
+             min-height: 90px; resize: vertical; }
+  pre.doc-text { white-space: pre-wrap; font-family: inherit; font-size: 14px;
+                 line-height: 1.7; background: #fafbfc; border: 1px solid var(--line);
+                 border-radius: 6px; padding: 14px 16px; max-height: 420px; overflow-y: auto; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .notice { font-size: 13px; color: var(--muted); border-left: 3px solid var(--navy);
+            padding-left: 10px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">YNC 행정문서 검토 플랫폼</a>
+  <span class="sub">문서 접수 · 자동 검토 · 담당자 확인</span>
+</header>
+<main>{% block content %}{% endblock %}</main>
+</body>
+</html>
