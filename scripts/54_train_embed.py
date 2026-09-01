@@ -14,6 +14,10 @@ from __future__ import annotations
 
 import json
 import os
+
+# CPU 학습이 전 코어를 잡으면 sshd까지 굶는다(실측 사고) — 스레드를 제한한다
+os.environ.setdefault("OMP_NUM_THREADS", "10")
+os.environ.setdefault("MKL_NUM_THREADS", "10")
 import sqlite3
 from datetime import date
 from pathlib import Path
