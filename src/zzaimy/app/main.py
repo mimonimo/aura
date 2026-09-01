@@ -356,6 +356,18 @@ def create_app(
             background.add_task(processor.reprocess, db, doc_id)
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
+    @app.post("/doc/{doc_id}/delete")
+    def delete_doc(doc_id: int):
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        db.delete_document(doc_id)
+        stored = Path(doc["stored_path"])
+        if stored.exists():
+            stored.unlink()
+        dest = "/criteria" if doc["doc_type"] == "regulation" else "/"
+        return RedirectResponse(dest, status_code=303)
+
     @app.post("/doc/{doc_id}/review")
     def add_review(doc_id: int, opinion: str = Form(...)):
         if db.get_document(doc_id) is None:

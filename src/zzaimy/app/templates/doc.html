@@ -29,6 +29,10 @@
     {% elif doc.status != "reviewed" %}
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>처리 중입니다. 이 화면은 5초마다 자동 갱신됩니다.</span></p>
     {% endif %}
+    <form action="/doc/{{ doc.id }}/delete" method="post" style="margin-top:10px;"
+          onsubmit="return confirm('이 문서와 관련 기록을 삭제할까요?');">
+      <button type="submit" class="secondary" style="border-color:#E7B9B8; color:var(--red);">삭제</button>
+    </form>
     {% if doc.status == "reviewed" and doc.doc_type == "grant" %}
     <form action="/doc/{{ doc.id }}/draft" method="post" style="margin-top:10px;">
       <button type="submit" class="secondary">이 공고로 계획서 초안 생성</button>

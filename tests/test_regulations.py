@@ -80,3 +80,13 @@ def test_find_relevant_respects_sector(tmp_path):
     hits2 = find_relevant(db, "평가위원 회피 의무 검토", sector="recruit")
     assert {h["sector"] for h in hits2} <= {"recruit", "common"}
     assert any(h["sector"] == "recruit" for h in hits2)
+
+
+def test_user_dictionary_keeps_domain_terms_whole():
+    from zzaimy.app.regulations import extract_nouns
+
+    nouns = extract_nouns("산학협력단 전공심화과정과 일학습병행 공동훈련센터 운영")
+    assert "산학협력단" in nouns
+    assert "전공심화과정" in nouns
+    assert "일학습병행" in nouns
+    assert "공동훈련센터" in nouns

@@ -324,3 +324,26 @@ def test_receipt_number_scheme(client):
     assert "2026-채용-0001" in page
     assert "2026-채용-0002" in page
     assert "2026-국고-0001" in page  # 섹터별 독립 일련번호
+
+
+def test_document_delete_removes_everything(client, tmp_path):
+    client.post("/upload", files={"file": ("지울문서.pdf", b"%PDF", "application/pdf")})
+    client.post("/doc/1/review", data={"opinion": "메모"})
+    r = client.post("/doc/1/delete", follow_redirects=False)
+    assert r.status_code == 303
+    assert client.get("/doc/1").status_code == 404
+    assert "지울문서.pdf" not in client.get("/").text
+
+
+def test_regulation_delete_removes_chunks(tmp_path):
+    db = Database(tmp_path / "t.db")
+    doc_id = db.add_document(filename="규정.pdf", stored_path="/tmp/x", doc_type="regulation")
+    from zzaimy.app.regulations import split_regulation
+    db.add_regulation_chunks(
+        doc_id, "규정",
+        split_regulation("제1조(목적) 합성. 제2조(정의) 합성. 제3조(기타) 합성."),
+    )
+    assert db.list_regulation_chunks()
+    db.delete_document(doc_id)
+    assert db.list_regulation_chunks() == []
+    assert db.get_document(doc_id) is None
