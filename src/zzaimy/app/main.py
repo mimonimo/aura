@@ -316,6 +316,26 @@ def create_app(
         db.create_project(sector, name.strip())
         return RedirectResponse(f"/?type={sector}", status_code=303)
 
+    @app.post("/projects/{project_id}/rename")
+    def rename_project(project_id: int, name: str = Form(...)):
+        proj = db.get_project(project_id)
+        if proj is None:
+            raise HTTPException(404, "프로젝트를 찾을 수 없다")
+        if not name.strip():
+            raise HTTPException(400, "프로젝트 이름이 필요하다")
+        db.rename_project(project_id, name.strip())
+        return RedirectResponse(
+            f"/?type={proj['sector']}&project={project_id}", status_code=303
+        )
+
+    @app.post("/projects/{project_id}/delete")
+    def delete_project(project_id: int):
+        proj = db.get_project(project_id)
+        if proj is None:
+            raise HTTPException(404, "프로젝트를 찾을 수 없다")
+        db.delete_project(project_id)
+        return RedirectResponse(f"/?type={proj['sector']}", status_code=303)
+
     @app.post("/upload")
     def upload(
         background: BackgroundTasks,

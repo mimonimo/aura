@@ -369,3 +369,45 @@ def test_project_create_and_filter(client):
 
 def test_project_requires_valid_sector(client):
     assert client.post("/projects", data={"sector": "??", "name": "x"}).status_code == 400
+
+
+def test_project_rename_and_delete(client):
+    client.post("/projects", data={"sector": "recruit", "name": "임시 이름"})
+    client.post("/upload", data={"doc_type": "recruit", "project_id": "1"},
+                files={"file": ("지원서.pdf", b"%PDF", "application/pdf")})
+    # 이름 수정
+    r = client.post("/projects/1/rename", data={"name": "2026 하반기 조교"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    page = client.get("/?type=recruit").text
+    assert "2026 하반기 조교" in page and "임시 이름" not in page
+    # 삭제 — 프로젝트는 사라지고 문서는 남는다(연결만 해제)
+    r = client.post("/projects/1/delete", follow_redirects=False)
+    assert r.status_code == 303
+    page = client.get("/?type=recruit").text
+    assert "2026 하반기 조교" not in page
+    assert ">지원서.pdf</a>" in page
+
+
+def test_project_rename_unknown_returns_404(client):
+    assert client.post("/projects/99/rename", data={"name": "x"}).status_code == 404
+    assert client.post("/projects/99/delete").status_code == 404
+
+
+def test_regulation_registration_skips_pii_masking(tmp_path, monkeypatch):
+    """기준 문서는 판단 근거이지 개인 문서가 아니다 — 마스킹 없이 원문 등록."""
+    import zzaimy.app.pipeline as pl
+
+    class BoomMasker:
+        def __init__(self):
+            raise AssertionError("기준 문서 등록에서 마스커가 호출되면 안 된다")
+
+    monkeypatch.setattr(pl, "PiiMasker", BoomMasker)
+    db = Database(tmp_path / "t.db")
+    f = tmp_path / "규정.txt"
+    f.write_text("제1조(목적) 담당자 연락처는 053-123-4567이다.", encoding="utf-8")
+    doc_id = db.add_document(filename="규정.txt", stored_path=str(f), doc_type="regulation")
+    pl.DocumentProcessor().process(db, doc_id, f)
+    doc = db.get_document(doc_id)
+    assert doc["status"] == "reviewed"
+    assert "053-123-4567" in doc["masked_text"]  # 원문 그대로

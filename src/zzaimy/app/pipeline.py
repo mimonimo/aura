@@ -161,30 +161,24 @@ class DocumentProcessor:
         try:
             raw_text = self._parse(file_path)
 
-            if self._masker is None:
-                self._masker = PiiMasker()
-            masked, events = self._masker.mask(
-                RawDocument(doc_id=str(doc_id), text=raw_text)
-            )
-            log.info("doc %d: PII %d건 마스킹", doc_id, len(events))
-
             series = classify_series(file_path.name)
             doc = db.get_document(doc_id)
             doc_type = (doc or {}).get("doc_type", "auto")
 
             if doc_type == "regulation":
-                # 규정 등록 모드 — 검토 대신 조각화해 규정 저장소에 적재
+                # 규정 등록 모드 — 판단 근거이지 개인 문서가 아니므로 마스킹하지
+                # 않고 원문 그대로 조각화해 규정 저장소에 적재한다
                 from zzaimy.app.regulations import split_regulation
 
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
-                chunks = split_regulation(masked.text)
+                chunks = split_regulation(raw_text)
                 db.add_regulation_chunks(
                     doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
                 )
                 db.update_document(
                     doc_id,
                     status="reviewed",
-                    masked_text=masked.text,
+                    masked_text=raw_text,
                     series=series.value if series else None,
                     ai_review=(
                         f"규정 등록 완료 — {len(chunks)}개 조각으로 분해되어 저장소에"
@@ -192,6 +186,14 @@ class DocumentProcessor:
                     ),
                 )
                 return
+
+            # 인풋 문서 — 개인식별 정보가 들어올 수 있으므로 여기서만 마스킹한다
+            if self._masker is None:
+                self._masker = PiiMasker()
+            masked, events = self._masker.mask(
+                RawDocument(doc_id=str(doc_id), text=raw_text)
+            )
+            log.info("doc %d: PII %d건 마스킹", doc_id, len(events))
 
             from zzaimy.app.regulations import compose_review_context
 

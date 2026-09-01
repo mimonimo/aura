@@ -244,6 +244,30 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def rename_project(self, project_id: int, name: str) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE projects SET name = ? WHERE id = ?", (name[:80], project_id)
+            )
+            return cur.rowcount > 0
+
+    def delete_project(self, project_id: int) -> bool:
+        """프로젝트만 지운다 — 소속 문서는 연결 해제 후 그대로 남는다."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE documents SET project_id = NULL WHERE project_id = ?",
+                (project_id,),
+            )
+            cur = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+            return cur.rowcount > 0
+
+    def get_project(self, project_id: int) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM projects WHERE id = ?", (project_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
     def delete_document(self, doc_id: int) -> None:
         """문서와 파생물(검토 의견·규정 조각)을 함께 지운다. 저장 파일은 호출부에서."""
         with self._conn() as conn:
