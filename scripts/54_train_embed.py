@@ -108,6 +108,11 @@ def main() -> None:
                 pairs["anchor"].append(q)
                 pairs["positive"].append(pos)
     print(f"학습 쌍 {len(pairs['anchor'])}건, device={device}", flush=True)
+    if not pairs["anchor"] or not hold:
+        raise SystemExit(
+            "학습 쌍 또는 홀드아웃이 0건 — 합성 질의(51)가 현재 규정 조각과 맞지"
+            " 않는다. 코퍼스 재구축 후에는 51부터 다시 돌려야 한다."
+        )
 
     base = SentenceTransformer(BASE_MODEL, device=device)
     print("베이스 홀드아웃 평가 중…", flush=True)
