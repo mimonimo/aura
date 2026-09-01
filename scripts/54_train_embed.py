@@ -28,7 +28,9 @@ QUERIES = Path("data/interim/synth_queries.jsonl")
 OUT_DIR = Path("models/zzaimy-embed-v0")
 REPORT = Path("docs/embed-v0-report.md")
 HOLDOUT_RATIO = 0.2
-EPOCHS = 2
+# 2026-09-02 새벽 2에폭(220스텝) 실행이 두 번 모두 후반부에서 SIGKILL —
+# 장시간 CPU 학습 중 메모리 증가 정황. 리허설 목적상 1에폭이면 충분하다.
+EPOCHS = int(os.environ.get("ZZAIMY_EMBED_EPOCHS", "1"))
 BATCH = 16
 TOP_K = 10
 
@@ -86,6 +88,9 @@ def eval_model(model, chunks: dict, hold_rows: list[dict]) -> dict[str, float]:
 
 
 def main() -> None:
+    # 메모리 증가 추적 — SIGKILL 사후 분석용 (60초마다 RSS를 남긴다)
+    import threading
+
     from datasets import Dataset
     from sentence_transformers import (
         SentenceTransformer,
@@ -93,6 +98,22 @@ def main() -> None:
         SentenceTransformerTrainingArguments,
     )
     from sentence_transformers.losses import MultipleNegativesRankingLoss
+
+    def _rss_logger() -> None:
+        import time as _t
+
+        while True:
+            try:
+                with open("/proc/self/status") as fh:
+                    for ln in fh:
+                        if ln.startswith("VmRSS"):
+                            print(f"[rss] {ln.split()[1]} kB", flush=True)
+                            break
+            except OSError:
+                return
+            _t.sleep(60)
+
+    threading.Thread(target=_rss_logger, daemon=True).start()
 
     device = os.environ.get("ZZAIMY_EMBED_DEVICE", "cpu")
     chunks, train, hold, holdout_titles = load_data()
