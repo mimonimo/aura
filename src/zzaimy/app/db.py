@@ -37,27 +37,44 @@ def _now() -> str:
 
 
 class Database:
+    # 스키마 추가분 — 기존 DB에 없으면 붙인다 (개발 단계 간이 마이그레이션)
+    _MIGRATIONS = [
+        "ALTER TABLE documents ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'auto'",
+        "ALTER TABLE documents ADD COLUMN draft TEXT",
+        "ALTER TABLE documents ADD COLUMN coverage TEXT",
+        "ALTER TABLE documents ADD COLUMN decision TEXT NOT NULL DEFAULT 'pending'",
+    ]
+
     def __init__(self, path: Path | str) -> None:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+            for stmt in self._MIGRATIONS:
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # 이미 있는 컬럼
 
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         return conn
 
-    def add_document(self, filename: str, stored_path: str) -> int:
+    def add_document(self, filename: str, stored_path: str, doc_type: str = "auto") -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO documents (filename, stored_path, created_at) VALUES (?, ?, ?)",
-                (filename, stored_path, _now()),
+                "INSERT INTO documents (filename, stored_path, doc_type, created_at)"
+                " VALUES (?, ?, ?, ?)",
+                (filename, stored_path, doc_type, _now()),
             )
             return int(cur.lastrowid or 0)
 
     def update_document(self, doc_id: int, **fields: str | None) -> None:
-        allowed = {"status", "series", "masked_text", "ai_review", "error"}
+        allowed = {
+            "status", "series", "masked_text", "ai_review",
+            "error", "draft", "coverage", "decision",
+        }
         unknown = set(fields) - allowed
         if unknown:
             raise ValueError(f"허용되지 않은 필드: {unknown}")
@@ -72,9 +89,14 @@ class Database:
             row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
             return dict(row) if row else None
 
-    def list_documents(self) -> list[dict]:
+    def list_documents(self, doc_type: str | None = None) -> list[dict]:
         with self._conn() as conn:
-            rows = conn.execute("SELECT * FROM documents ORDER BY id DESC").fetchall()
+            if doc_type:
+                rows = conn.execute(
+                    "SELECT * FROM documents WHERE doc_type = ? ORDER BY id DESC", (doc_type,)
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM documents ORDER BY id DESC").fetchall()
             return [dict(r) for r in rows]
 
     def add_review(self, doc_id: int, opinion: str) -> None:
