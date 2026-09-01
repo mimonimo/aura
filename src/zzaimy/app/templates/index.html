@@ -47,7 +47,23 @@
       <button type="submit" class="secondary" style="padding:5px 14px; font-size:12.5px;">추가</button>
     </form>
   </div>
+  {% if active_project %}{% for pj in projects if pj.id == active_project %}
+  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:10px 0 0 26px;">
+    <form action="/projects/{{ pj.id }}/rename" method="post" style="display:inline-flex; gap:6px;">
+      <input type="text" name="name" value="{{ pj.name }}" required
+             style="border:1.5px solid var(--line); border-radius:18px; padding:4px 14px;
+                    font-size:12.5px; font-family:inherit; width:200px;">
+      <button type="submit" class="secondary" style="padding:4px 12px; font-size:12px;">이름 저장</button>
+    </form>
+    <form action="/projects/{{ pj.id }}/delete" method="post" style="display:inline-flex;"
+          onsubmit="return confirm('프로젝트를 삭제할까요? 소속 문서는 남고 연결만 해제됩니다.');">
+      <button type="submit" class="secondary"
+              style="padding:4px 12px; font-size:12px; border-color:#E7B9B8; color:var(--red);">프로젝트 삭제</button>
+    </form>
+  </div>
+  {% endfor %}{% else %}
   <p class="muted" style="margin:8px 0 0 26px;">{{ project_hints.get(active_tab, "") }}</p>
+  {% endif %}
 </div></div>
 {% endif %}
 

@@ -22,5 +22,5 @@ echo "코드 동기화 완료 (data/ 제외)"
 
 if [ "${1:-}" = "--restart" ]; then
   ssh -o BatchMode=yes "$HOST" \
-    'pkill -f "[z]zaimy.app.main"; sleep 1; (nohup ~/start-platform.sh > /tmp/platform.log 2>&1 &); sleep 5; PASS=$(cat ~/.zzaimy-pass); curl -sk -u "zzaimy:$PASS" -o /dev/null -w "대시보드: %{http_code}\n" https://localhost:8800/'
+    'pkill -f "[z]zaimy.app.main"; sleep 1; (nohup ~/start-platform.sh > /tmp/platform.log 2>&1 &); sleep 5; PASS=$(cat ~/.zzaimy-pass); for i in 1 2 3 4 5 6; do code=$(curl -sk -u "zzaimy:$PASS" -o /dev/null -w "%{http_code}" https://localhost:8800/); [ "$code" = 200 ] && break; sleep 3; done; echo "대시보드: $code"; [ "$code" = 200 ]'
 fi

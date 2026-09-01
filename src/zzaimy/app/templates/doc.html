@@ -103,7 +103,7 @@
 {% if doc.masked_text %}
 <div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 본문 (개인정보 마스킹됨)</h2>
+    <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 본문{{ "" if doc.doc_type == "regulation" else " (개인정보 마스킹됨)" }}</h2>
     <pre class="doc-text">{{ doc.masked_text }}</pre>
   </div>
 </div>
