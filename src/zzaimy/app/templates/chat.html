@@ -17,6 +17,12 @@
       .msg.user { margin-right: 0; } .msg.assistant { margin-left: 0; }
     }
     .chat-dock { position: static; margin: 0; }
+    .chat-tools { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    details.criteria-pick { position: relative; width: auto; }
+    details.criteria-pick .pick-list { position: absolute; bottom: calc(100% + 10px);
+        left: 0; width: 360px; max-height: 240px; overflow-y: auto; background: #fff;
+        border: 1px solid var(--line); border-radius: 14px; padding: 8px;
+        box-shadow: 0 12px 36px rgba(27,59,117,.16); z-index: 30; }
   </style>
 {% endblock %}
 {% block content %}
