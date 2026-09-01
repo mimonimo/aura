@@ -17,7 +17,7 @@
   <h2><iconify-icon icon="solar:folder-check-linear"></iconify-icon>등록된 기준
     <span class="muted" id="criteriaCount" style="font-weight:500;">{{ documents|length }}건</span></h2>
   {% if documents %}
-  <table id="criteriaTable">
+  <div class="table-scroll"><table id="criteriaTable">
     <tr><th>번호</th><th>문서명</th><th>적용 섹터</th><th>상태</th><th>조각 수</th><th>등록 시각</th></tr>
     {% for d in documents %}
     <tr data-search="{{ d.filename }} {{ sector_labels.get(d.sector, d.sector) }}">
@@ -29,7 +29,7 @@
       <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
     </tr>
     {% endfor %}
-  </table>
+  </table></div>
   <p class="pop-empty" id="noResult" style="display:none;">검색 결과가 없습니다</p>
   {% else %}
   <p class="muted">등록된 기준 문서가 없습니다. 아래에서 첫 기준을 등록하세요.</p>
