@@ -21,12 +21,25 @@ _kiwi = None
 _noun_cache: dict[int, frozenset[str]] = {}
 
 
+# 교내·행정 도메인 용어 사전 — 형태소 분석기가 쪼개지 않게 통단어로 등록.
+# 실물 문서가 들어오면 자주 등장하는 용어를 여기에 계속 추가한다 (리서치 G영역 과제).
+_USER_WORDS = [
+    "산학협력단", "전공심화과정", "일학습병행", "공동훈련센터", "지역밀착형",
+    "재정지원사업", "국고사업", "평가위원", "열람등급", "휴학원", "복학원",
+    "학사경고", "계절학기", "편입학", "산업체위탁교육", "혁신지원사업",
+    "취업규칙", "임용내규", "사무분장", "지식재산권", "메이커스페이스",
+    "영남이공대학교", "결과보고서", "사업계획서", "공고문", "모집요강",
+]
+
+
 def _get_kiwi():
     global _kiwi
     if _kiwi is None:
         from kiwipiepy import Kiwi
 
         _kiwi = Kiwi()
+        for w in _USER_WORDS:
+            _kiwi.add_user_word(w, "NNP")
     return _kiwi
 
 

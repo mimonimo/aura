@@ -209,6 +209,13 @@ class Database:
             ).fetchall()
             return [dict(r) for r in reversed(rows)]
 
+    def delete_document(self, doc_id: int) -> None:
+        """문서와 파생물(검토 의견·규정 조각)을 함께 지운다. 저장 파일은 호출부에서."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM reviews WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+
     def add_regulation_chunks(
         self, doc_id: int, reg_title: str, chunks, sector: str = "common"
     ) -> None:
