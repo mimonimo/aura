@@ -91,7 +91,9 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--max-items", type=int, default=60)
-    ap.add_argument("--pages-dir", default=str(PAGES), help="페이지 텍스트 디렉터리 (56 정제본 지정 가능)")
+    ap.add_argument(
+        "--pages-dir", default=str(PAGES), help="페이지 텍스트 디렉터리 (56 정제본 지정 가능)"
+    )
     ap.add_argument("--pages-only", action="store_true", help="파일(FILES) 등록은 건너뛴다")
     ap.add_argument("--min-chars", type=int, default=MIN_PAGE_CHARS)
     args = ap.parse_args()

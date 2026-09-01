@@ -1,7 +1,8 @@
 """플랫폼 저장 계층 — SQLite.
 
 문서 접수 이력, 처리 상태, 모델 검토 의견, 담당자 의견을 담는다.
-원문 텍스트는 마스킹본만 저장한다. 마스킹 전 텍스트는 DB에 넣지 않는다.
+인풋 문서의 본문은 마스킹본만 저장한다. 기준(regulation) 문서는 판단 근거라
+개인 문서가 아니므로 원문 그대로 저장한다 (2026-09-02 결정).
 """
 
 from __future__ import annotations
@@ -149,21 +150,24 @@ class Database:
         q: str | None = None,
         project_id: int | None = None,
     ) -> list[dict]:
-        sql = "SELECT * FROM documents"
+        sql = (
+            "SELECT d.*, p.name AS project_name FROM documents d"
+            " LEFT JOIN projects p ON p.id = d.project_id"
+        )
         cond: list[str] = []
         params: list[str | int] = []
         if doc_type:
-            cond.append("doc_type = ?")
+            cond.append("d.doc_type = ?")
             params.append(doc_type)
         if q:
-            cond.append("filename LIKE ?")
+            cond.append("d.filename LIKE ?")
             params.append(f"%{q}%")
         if project_id:
-            cond.append("project_id = ?")
+            cond.append("d.project_id = ?")
             params.append(project_id)
         if cond:
             sql += " WHERE " + " AND ".join(cond)
-        sql += " ORDER BY id DESC"
+        sql += " ORDER BY d.id DESC"
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 

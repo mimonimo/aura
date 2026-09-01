@@ -411,3 +411,22 @@ def test_regulation_registration_skips_pii_masking(tmp_path, monkeypatch):
     doc = db.get_document(doc_id)
     assert doc["status"] == "reviewed"
     assert "053-123-4567" in doc["masked_text"]  # 원문 그대로
+
+
+def test_document_table_shows_project_name(client):
+    client.post("/projects", data={"sector": "recruit", "name": "간호학과 채용"})
+    client.post("/upload", data={"doc_type": "recruit", "project_id": "1"},
+                files={"file": ("이력서.pdf", b"%PDF", "application/pdf")})
+    page = client.get("/?type=recruit").text
+    table = page.split("<table>", 1)[-1].split("</table>", 1)[0]
+    row = next(
+        ln.split("</tr>")[0] for ln in table.split("<tr>") if "이력서.pdf" in ln
+    )
+    assert "간호학과 채용" in row  # 문서 행에 프로젝트명이 보인다
+
+
+def test_upload_ignores_unknown_project_id(client):
+    client.post("/upload", data={"doc_type": "recruit", "project_id": "77"},
+                files={"file": ("지원서.pdf", b"%PDF", "application/pdf")})
+    docs = client.app.state.db.list_documents(doc_type="recruit")  # type: ignore[attr-defined]
+    assert docs[0]["project_id"] is None
