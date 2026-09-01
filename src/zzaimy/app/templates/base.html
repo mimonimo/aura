@@ -83,7 +83,7 @@
               color: var(--muted); text-decoration: none; font-size: 18px;
               transition: all .35s var(--ease); }
   .icon-btn:hover { background: #E8EFFC; color: var(--navy);
-              transform: scale(1.04); }
+            }
   .icon-btn .badge-n { position: absolute; top: -4px; right: -5px; background: #E5484D;
               color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 9px;
               min-width: 17px; height: 17px; display: flex; align-items: center;
@@ -94,7 +94,7 @@
                font-size: 13.5px; font-weight: 700; cursor: default;
                box-shadow: 0 4px 14px rgba(27,59,117,.25);
                transition: all .35s var(--ease); }
-  .user-chip:hover { transform: scale(1.02); }
+
   .user-chip .avatar { width: 26px; height: 26px; border-radius: 50%;
                background: linear-gradient(135deg, var(--blue), var(--navy));
                display: flex; align-items: center; justify-content: center;
@@ -118,7 +118,7 @@
           padding: 18px 16px; display: flex; align-items: center; gap: 13px;
           box-shadow: 0 4px 18px rgba(27,59,117,.05);
           transition: all .45s var(--ease); }
-  .tile:hover { transform: translateY(-2px); box-shadow: 0 8px 26px rgba(27,59,117,.09); }
+  .tile:hover { box-shadow: 0 8px 26px rgba(27,59,117,.09); }
   .tile .ico { width: 42px; height: 42px; border-radius: 12px; flex: none;
                display: flex; align-items: center; justify-content: center;
                font-size: 21px; }
@@ -152,9 +152,9 @@
            font-family: inherit; text-decoration: none;
            box-shadow: 0 4px 14px rgba(27,59,117,.22);
            transition: all .45s var(--ease); }
-  button:hover, .btn:hover { background: var(--blue); transform: scale(1.02);
+  button:hover, .btn:hover { background: var(--blue);
            box-shadow: 0 6px 20px rgba(73,123,251,.3); }
-  button:active, .btn:active { transform: scale(0.98); }
+
   button.secondary { background: #fff; color: var(--navy);
            border: 1.5px solid #C9D7F0; box-shadow: none; }
   button.secondary:hover { background: #E8EFFC; border-color: var(--navy); }
@@ -216,10 +216,8 @@
 
   @keyframes rise { from { opacity: 0; transform: translateY(10px); }
                     to { opacity: 1; transform: translateY(0); } }
-  .reveal { animation: rise .6s var(--ease) both; }
-  .reveal:nth-child(2) { animation-delay: 60ms; }
-  .reveal:nth-child(3) { animation-delay: 120ms; }
-  .reveal:nth-child(4) { animation-delay: 180ms; }
+  /* 페이지 로드마다 카드가 움직이면 이동할 때마다 화면이 움찔거린다(실사용 지적)
+     — 등장 애니메이션은 두지 않는다. rise는 팝오버(클릭 시 열림)에만 쓴다 */
 </style>
 {% block head %}{% endblock %}
 </head>
@@ -271,16 +269,6 @@
   <div class="side-bottom side-nav">
     <a href="/criteria" class="{{ 'active' if request.url.path.startswith('/criteria') else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>기준 문서 (규정·지침)</a>
-    <a href="/settings" class="{{ 'active' if request.url.path == '/settings' else '' }}"
-       style="align-items:center;">
-      <span style="width:26px; height:26px; border-radius:50%; flex:none;
-                   background:linear-gradient(135deg, var(--blue), var(--navy));
-                   display:flex; align-items:center; justify-content:center; color:#fff;">
-        <iconify-icon icon="solar:user-linear" style="font-size:14px;"></iconify-icon></span>
-      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-        {{ profile_name or "프로필 설정" }}</span>
-      {% if profile_dept %}<span class="muted" style="margin-left:auto; font-size:11.5px;">{{ profile_dept }}</span>{% endif %}
-    </a>
   </div>
 </aside>
 
@@ -323,7 +311,7 @@
         {{ profile_name or "담당자" }} <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
       </button>
       <div class="popover" id="userPop">
-        <h5>담당자 계정</h5>
+        <h5>{{ profile_name or "담당자" }}{% if profile_dept %} · {{ profile_dept }}{% endif %}</h5>
         <a class="pop-item" href="/settings"><iconify-icon icon="solar:user-id-linear"></iconify-icon><span>프로필·에이전트 지침 설정</span></a>
         <span class="pop-item disabled"><iconify-icon icon="solar:logout-2-linear"></iconify-icon><span>로그아웃 · 계정 기능 도입 예정</span></span>
       </div>
