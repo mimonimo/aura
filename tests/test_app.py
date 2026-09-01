@@ -235,7 +235,7 @@ def test_regulation_docs_are_separated_from_inbox(client):
     assert "학칙.pdf" not in inbox  # 기준 문서는 문서함에 안 섞인다
     criteria = client.get("/criteria").text
     assert "학칙.pdf" in criteria
-    assert "등록된 기준 1건" in criteria  # 접수 문서는 기준 목록에 안 들어간다
+    assert ">1건</span>" in criteria  # 등록 건수 1건 — 접수 문서는 기준 목록에 안 들어간다
 
 
 class FakeResponder:

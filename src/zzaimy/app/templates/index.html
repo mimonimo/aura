@@ -1,6 +1,25 @@
 {% extends "base.html" %}
-{% block pagetitle %}문서 검토함{% endblock %}
+{% block pagetitle %}{{ doc_type_labels.get(active_tab, "문서 검토함") if active_tab != "all" else "문서 검토함" }}{% endblock %}
 {% block content %}
+
+{% set sector_meta = {
+  "grant": ("solar:buildings-2-linear", "국고사업", "공고 분석과 계획서 초안, 실적 근거 검토를 처리하는 공간입니다."),
+  "recruit": ("solar:users-group-rounded-linear", "채용", "접수 서류를 채용공고·임용 규정과 대조해 확인 사항을 정리합니다."),
+  "admission": ("solar:square-academic-cap-linear", "입학", "입학 접수 서류를 모집요강·학칙 기준으로 대조합니다."),
+  "auto": ("solar:document-text-linear", "일반 행정", "그 밖의 행정 문서를 접수하고 검토 의견을 받는 공간입니다."),
+} %}
+{% if active_tab != "all" and active_tab in sector_meta %}
+<div class="card reveal" style="background:linear-gradient(120deg,#16223A,#1B3B75); border:0;">
+  <div style="display:flex; align-items:center; gap:16px; padding:20px 24px; color:#fff;">
+    <iconify-icon icon="{{ sector_meta[active_tab][0] }}" style="font-size:34px; opacity:.9;"></iconify-icon>
+    <div>
+      <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ sector_meta[active_tab][1] }} 섹터</div>
+      <div style="font-size:13px; color:#B9C6DA; margin-top:3px;">{{ sector_meta[active_tab][2] }}</div>
+    </div>
+    <a href="/" style="margin-left:auto; color:#B9C6DA; font-size:12.5px; text-decoration:none;">전체 문서함 보기</a>
+  </div>
+</div>
+{% endif %}
 
 <div class="tiles">
   <div class="tile reveal"><div class="ico blue"><iconify-icon icon="solar:inbox-archive-linear"></iconify-icon></div><div><b>{{ documents|length }}</b><span>접수 문서</span></div></div>
@@ -17,10 +36,10 @@
   <form action="/upload" method="post" enctype="multipart/form-data"
         style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
     <select name="doc_type">
-      <option value="auto">일반 행정 문서</option>
-      <option value="grant">국고사업 (공고·계획서·보고서)</option>
-      <option value="recruit">채용 접수 서류</option>
-      <option value="admission">입학 접수 서류</option>
+      <option value="auto" {% if active_tab == "auto" %}selected{% endif %}>일반 행정 문서</option>
+      <option value="grant" {% if active_tab == "grant" %}selected{% endif %}>국고사업 (공고·계획서·보고서)</option>
+      <option value="recruit" {% if active_tab == "recruit" %}selected{% endif %}>채용 접수 서류</option>
+      <option value="admission" {% if active_tab == "admission" %}selected{% endif %}>입학 접수 서류</option>
     </select>
     <label class="file-field">
       <span class="file-btn"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 선택</span>
