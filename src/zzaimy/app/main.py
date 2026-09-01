@@ -45,13 +45,36 @@ STATUS_LABELS = {
     "failed": "실패",
 }
 
+DOC_TYPE_LABELS = {
+    "auto": "일반 행정",
+    "grant": "국고사업",
+    "recruit": "채용",
+}
+
+DECISION_LABELS = {
+    "pending": "판정 대기",
+    "approved": "승인",
+    "rejected": "반려",
+    "rework": "재검토 중",
+}
+
 
 class Processor(Protocol):
     def process(self, db: Database, doc_id: int, file_path: Path) -> None: ...
 
+    def reprocess(self, db: Database, doc_id: int) -> None: ...
+
+
+class Drafter(Protocol):
+    def generate(self, db: Database, doc_id: int) -> None: ...
+
 
 def create_app(
-    db_path: Path, inbox_dir: Path, processor: Processor, password: str | None = None
+    db_path: Path,
+    inbox_dir: Path,
+    processor: Processor,
+    drafter: Drafter,
+    password: str | None = None,
 ) -> FastAPI:
     """password를 주면 전 라우트에 HTTP Basic 인증(사용자명 zzaimy)이 걸린다.
 
@@ -76,25 +99,43 @@ def create_app(
     inbox_dir.mkdir(parents=True, exist_ok=True)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     templates.env.globals["status_labels"] = STATUS_LABELS
+    templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
+    templates.env.globals["decision_labels"] = DECISION_LABELS
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request):
+    def index(request: Request, type: str | None = None):
+        doc_type = type if type in DOC_TYPE_LABELS else None
         return templates.TemplateResponse(
-            request, "index.html", {"documents": db.list_documents()}
+            request,
+            "index.html",
+            {"documents": db.list_documents(doc_type), "active_tab": doc_type or "all"},
         )
 
     @app.post("/upload")
-    def upload(background: BackgroundTasks, file: UploadFile = File(...)):
+    def upload(
+        background: BackgroundTasks,
+        file: UploadFile = File(...),
+        doc_type: str = Form("auto"),
+    ):
         name = file.filename or "이름없음"
         suffix = Path(name).suffix.lower()
         if suffix not in ALLOWED_EXTENSIONS:
             raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+        if doc_type not in DOC_TYPE_LABELS:
+            raise HTTPException(400, f"알 수 없는 문서 유형: {doc_type}")
         stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
         with stored.open("wb") as out:
             shutil.copyfileobj(file.file, out)
-        doc_id = db.add_document(filename=name, stored_path=str(stored))
+        doc_id = db.add_document(filename=name, stored_path=str(stored), doc_type=doc_type)
         background.add_task(processor.process, db, doc_id, stored)
         return RedirectResponse("/", status_code=303)
+
+    @app.post("/doc/{doc_id}/draft")
+    def make_draft(background: BackgroundTasks, doc_id: int):
+        if db.get_document(doc_id) is None:
+            raise HTTPException(404)
+        background.add_task(drafter.generate, db, doc_id)
+        return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
     @app.get("/doc/{doc_id}", response_class=HTMLResponse)
     def detail(request: Request, doc_id: int):
@@ -104,6 +145,18 @@ def create_app(
         return templates.TemplateResponse(
             request, "doc.html", {"doc": doc, "reviews": db.get_reviews(doc_id)}
         )
+
+    @app.post("/doc/{doc_id}/decision")
+    def decide(background: BackgroundTasks, doc_id: int, decision: str = Form(...)):
+        if db.get_document(doc_id) is None:
+            raise HTTPException(404)
+        if decision not in ("approved", "rejected", "rework"):
+            raise HTTPException(400, f"알 수 없는 판정: {decision}")
+        db.update_document(doc_id, decision=decision)
+        if decision == "rework":
+            db.update_document(doc_id, status="processing")
+            background.add_task(processor.reprocess, db, doc_id)
+        return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
     @app.post("/doc/{doc_id}/review")
     def add_review(doc_id: int, opinion: str = Form(...)):
@@ -120,6 +173,7 @@ def main() -> None:
 
     import uvicorn
 
+    from zzaimy.app.drafter import SliceDrafter
     from zzaimy.app.pipeline import DocumentProcessor
 
     # 외부 접속 모드: ZZAIMY_PASSWORD와 인증서가 있을 때만 0.0.0.0 바인딩 허용.
@@ -139,6 +193,7 @@ def main() -> None:
         db_path=Path("data/platform/platform.db"),
         inbox_dir=Path("data/platform/inbox"),
         processor=DocumentProcessor(),
+        drafter=SliceDrafter(),
         password=password,
     )
     uvicorn.run(app, host=host, port=port, ssl_certfile=certfile, ssl_keyfile=keyfile)
