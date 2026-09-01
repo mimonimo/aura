@@ -52,6 +52,7 @@ class AgentResponder:
         attachment_text: str | None = None,
         criteria_ids: list[int] | None = None,
         session_id: int | None = None,
+        project: dict | None = None,
     ) -> str:
         from zzaimy.generate.client import VllmClient
 
@@ -69,7 +70,15 @@ class AgentResponder:
         else:
             context = compose_review_context(db, attachment_text or question)
         history = db.list_chats(session_id, limit=6) if session_id else []
-        messages: list[dict] = [{"role": "system", "content": compose_system(db.all_settings())}]
+        system = compose_system(db.all_settings())
+        if project:
+            lines = [f"이 대화는 프로젝트 「{project['name']}」 업무 맥락입니다."]
+            if (project.get("instructions") or "").strip():
+                lines.append(f"프로젝트 지침: {project['instructions'].strip()}")
+            if (project.get("memo") or "").strip():
+                lines.append(f"프로젝트 메모: {project['memo'].strip()}")
+            system += "\n\n" + "\n".join(lines)
+        messages: list[dict] = [{"role": "system", "content": system}]
         for m in history:
             messages.append({"role": m["role"], "content": m["content"][:2000]})
         user_content = question

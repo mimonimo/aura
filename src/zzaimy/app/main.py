@@ -91,6 +91,7 @@ class Responder(Protocol):
         attachment_text: str | None = None,
         criteria_ids: list[int] | None = None,
         session_id: int | None = None,
+        project: dict | None = None,
     ) -> str: ...
 
 
@@ -252,10 +253,17 @@ def create_app(
                 db.add_chat(session_id, "assistant", f"첨부 문서를 읽지 못했습니다 {log_note}")
                 return
         r = responder or _default_responder()
+        # 프로젝트에 묶인 세션이면 지침·메모를 맥락으로, 연결 기준을 기본 근거로 쓴다
+        session = db.get_chat_session(session_id)
+        project = None
+        if session and session.get("project_id"):
+            project = db.get_project(int(session["project_id"]))
+            if project and not criteria:
+                criteria = db.get_project_criteria_ids(project["id"])
         try:
             answer = r.answer(
                 db, q, attachment_text=attachment_text, criteria_ids=criteria,
-                session_id=session_id,
+                session_id=session_id, project=project,
             )
         except Exception as e:
             answer = f"응답 생성에 실패했습니다: {type(e).__name__}"
@@ -268,12 +276,18 @@ def create_app(
         session_id: int | None = Form(None),
         criteria: list[int] = Form([]),
         attachment: UploadFile | None = File(None),
+        project_id: int | None = Form(None),
     ):
         q = question.strip()
         if not q:
             return RedirectResponse("/chat", status_code=303)
         if session_id is None:
-            session_id = db.create_chat_session(title=q)
+            title = q
+            if project_id and (proj := db.get_project(project_id)):
+                title = f"[{proj['name'][:14]}] {q}"
+            else:
+                project_id = None
+            session_id = db.create_chat_session(title=title, project_id=project_id)
         # 응답 대기 중 중복 전송 방지 — 마지막 메시지가 아직 답변 전이면 무시
         last = db.list_chats(session_id, limit=1)
         if last and last[-1]["role"] == "user":
@@ -366,12 +380,15 @@ def create_app(
             d for d in db.list_documents("regulation")
             if d["status"] == "reviewed" and d["sector"] in (proj["sector"], "common")
         ]
+        # 이 섹터 전용 기준을 공통보다 위에 보여준다
+        sector_criteria.sort(key=lambda d: d["sector"] != proj["sector"])
         return templates.TemplateResponse(
             request,
             "project.html",
             ctx({
                 "project": proj, "documents": docs, "active_tab": proj["sector"],
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
+                "project_chats": db.list_project_chat_sessions(project_id),
             }),
         )
 
