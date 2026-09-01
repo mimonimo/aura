@@ -29,6 +29,13 @@ CREATE TABLE IF NOT EXISTS reviews (
   opinion    TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS regulation_chunks (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id     INTEGER NOT NULL REFERENCES documents(id),
+  reg_title  TEXT NOT NULL,
+  heading    TEXT NOT NULL,
+  content    TEXT NOT NULL
+);
 """
 
 
@@ -97,6 +104,20 @@ class Database:
                 ).fetchall()
             else:
                 rows = conn.execute("SELECT * FROM documents ORDER BY id DESC").fetchall()
+            return [dict(r) for r in rows]
+
+    def add_regulation_chunks(self, doc_id: int, reg_title: str, chunks) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
+            conn.executemany(
+                "INSERT INTO regulation_chunks (doc_id, reg_title, heading, content)"
+                " VALUES (?, ?, ?, ?)",
+                [(doc_id, reg_title, c.heading, c.content) for c in chunks],
+            )
+
+    def list_regulation_chunks(self) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
             return [dict(r) for r in rows]
 
     def add_review(self, doc_id: int, opinion: str) -> None:
