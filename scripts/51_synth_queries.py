@@ -10,7 +10,6 @@
 from __future__ import annotations
 
 import json
-import time
 from pathlib import Path
 
 from zzaimy.app.db import Database
@@ -60,42 +59,68 @@ def main() -> None:
     client = VllmClient()
     OUT.parent.mkdir(parents=True, exist_ok=True)
     ok = fail = 0
-    with OUT.open("a", encoding="utf-8") as f:
-        for i, c in enumerate(todo):
-            if STOP.exists():
-                print("stop 파일 감지 — 종료", flush=True)
+
+    # vLLM은 연속 배칭이 되므로 동시 요청으로 처리량을 올린다 (순차는 ~5시간)
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    write_lock = threading.Lock()
+
+    def gen_one(c: dict) -> tuple[int, dict | None, str | None]:
+        try:
+            resp = client.client.chat.completions.create(
+                model=client.model,
+                messages=[{
+                    "role": "user",
+                    "content": _PROMPT.format(
+                        title=c["reg_title"], heading=c["heading"],
+                        content=c["content"][:1500],
+                    ),
+                }],
+                temperature=0.7,
+                max_tokens=300,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {"name": "queries", "schema": _SCHEMA},
+                },
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            data = json.loads(_strip_fences(resp.choices[0].message.content or ""))
+            return c["id"], data, None
+        except Exception as e:
+            return c["id"], None, type(e).__name__
+
+    with OUT.open("a", encoding="utf-8") as f, ThreadPoolExecutor(max_workers=6) as pool:
+        pending = iter(todo)
+        futures = []
+        stopped = False
+        while True:
+            while len(futures) < 6 and not stopped:
+                if STOP.exists():
+                    print("stop 파일 감지 — 종료", flush=True)
+                    stopped = True
+                    break
+                c = next(pending, None)
+                if c is None:
+                    stopped = True
+                    break
+                futures.append(pool.submit(gen_one, c))
+            if not futures:
                 break
-            try:
-                resp = client.client.chat.completions.create(
-                    model=client.model,
-                    messages=[{
-                        "role": "user",
-                        "content": _PROMPT.format(
-                            title=c["reg_title"], heading=c["heading"],
-                            content=c["content"][:1500],
-                        ),
-                    }],
-                    temperature=0.7,
-                    max_tokens=300,
-                    response_format={
-                        "type": "json_schema",
-                        "json_schema": {"name": "queries", "schema": _SCHEMA},
-                    },
-                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-                )
-                data = json.loads(_strip_fences(resp.choices[0].message.content or ""))
-                if not any(str(v).strip() for v in data.values()):
-                    ok += 1  # 실질 내용 없음 — 정상 스킵
-                    continue
-                f.write(json.dumps({"chunk_id": c["id"], **data}, ensure_ascii=False) + "\n")
-                f.flush()
-                ok += 1
-            except Exception as e:
+            fut = futures.pop(0)
+            cid, data, err = fut.result()
+            if err:
                 fail += 1
-                print(f"조각 {c['id']} 실패: {type(e).__name__}", flush=True)
-                time.sleep(2)
-            if (i + 1) % 25 == 0:
-                print(f"진행 {i + 1}/{len(todo)} (성공 {ok}, 실패 {fail})", flush=True)
+                print(f"조각 {cid} 실패: {err}", flush=True)
+                continue
+            ok += 1
+            if data is None or not any(str(v).strip() for v in data.values()):
+                continue  # 실질 내용 없음 — 정상 스킵
+            with write_lock:
+                f.write(json.dumps({"chunk_id": cid, **data}, ensure_ascii=False) + "\n")
+                f.flush()
+            if ok % 50 == 0:
+                print(f"진행 {ok}/{len(todo)} (실패 {fail})", flush=True)
     print(f"완료: 성공 {ok}, 실패 {fail}", flush=True)
 
 
