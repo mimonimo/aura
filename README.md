@@ -1,83 +1,78 @@
-# 「짜이미」 ZZAIMY — 캡스톤디자인 구현
+# ZZAIMY (짜이미)
 
-> **공고를 날실로, 우리의 실적을 씨실로.**
+영남이공대학교 행정업무 자동화 캡스톤디자인 프로젝트. 첫 번째 적용 대상은
+국고사업 계획서 작성 지원이고, 같은 파이프라인을 채용 서류 검토 같은 다른
+행정 업무로 넓히는 것까지가 큰 그림이다.
 
-영남이공대학교 국고사업 계획서 작성 지원 시스템의 캡스톤 구현 저장소.
-기준 문서는 [`PROJECT_BRIEF.md`](PROJECT_BRIEF.md)이며, 모든 판단은 여기서 출발한다.
-Phase 0 리서치 원본은 [mrgrit/zzaimy](https://github.com/mrgrit/zzaimy)에서 가져왔다.
+새 공고가 나올 때마다 담당자가 과거 문서 수만 장을 뒤져가며 계획서를 처음부터
+다시 쓰는 문제를 풀려고 한다. 공고를 분석해서 요구사항과 배점을 뽑고, 교내에
+쌓여 있는 과거 실적 문서에서 근거를 찾아와 초안을 만들어 주는 방식이다.
+어디까지나 초안이고, 최종 검토는 사람이 한다.
 
-## ⚠️ 커밋 전 반드시 확인
+개인정보가 든 교내 문서를 다루기 때문에 외부 API는 쓰지 않는다. 모든 처리는
+교내 DGX Spark 장비에서 로컬 모델로 돌린다.
 
-이 저장소는 **개인정보와 기관 내부정보가 포함된 문서**를 다루는 시스템의 코드를 담는다.
+전체 배경과 설계 원칙은 [PROJECT_BRIEF.md](PROJECT_BRIEF.md)에 있다.
+리서치 원본은 [mrgrit/zzaimy](https://github.com/mrgrit/zzaimy)에서 가져왔다.
 
-- **저장소는 Private으로 유지한다.**
-- 실제 문서·파싱 결과·실적 카드는 `data/` 아래에만 두며 `.gitignore`로 차단돼 있다.
-- 한 번 커밋된 파일은 이후 삭제해도 git 이력에 남는다. `git add` 전에 `git status`를 확인할 것.
-- 발표·시연에는 비식별화를 통과한 `data/demo/` 세트만 사용한다.
+## 커밋하면 안 되는 것
 
-## 현재 상태
+이 저장소가 다루는 문서에는 개인정보와 기관 내부정보가 들어 있다.
 
-| 단계 | 내용 | 상태 |
-|---|---|---|
-| P0 | 기술 리서치 17건 | ✅ 완료 (upstream) |
-| P1 | 아키텍처 설계 5종 | 🔨 작성 중 |
-| P2~ | 구현 | ⏸ 대기 |
+- 저장소는 private으로 유지한다.
+- 실제 문서, 파싱 결과, 실적 카드는 전부 `data/` 아래에만 둔다. gitignore로
+  막혀 있긴 하지만 커밋 전에 `git status`를 한 번 보는 습관이 필요하다.
+  한 번 커밋되면 지워도 이력에 남는다.
+- 발표나 시연에는 비식별화를 거친 `data/demo/` 세트만 쓴다.
 
-일정은 [`docs/capstone-plan.md`](docs/capstone-plan.md) — 13주 압축안(2026-09-01 ~ 11-30).
+## 어떻게 돌아가나
 
-## 문서
+```
+공고 PDF → 파싱 → 요구사항·배점 추출
+                          ↓
+과거 문서 → 파싱 → PII 마스킹 → 검색 인덱스 + 실적 카드 DB
+                          ↓
+          섹션별로: 근거 검색 → 초안 생성 → 수치 검증
+                          ↓
+          배점 누락 검사 → 예산 검산 → 출처 달린 초안
+```
 
-| 문서 | 내용 |
-|---|---|
-| [PROJECT_BRIEF.md](PROJECT_BRIEF.md) | **기준 문서** — 목표·제약·설계 원칙·금지사항 |
-| [docs/capstone-plan.md](docs/capstone-plan.md) | 캡스톤 13주 실행계획, 삭감 범위, 블로커 |
-| [docs/business-plan.md](docs/business-plan.md) | 사업기획서 (원안 10개월 계획) |
-| [research/00-summary.md](research/00-summary.md) | 기술 스택 추천 — 여기부터 읽을 것 |
-| [research/02-system-overview.md](research/02-system-overview.md) | 시스템 조감도·유즈케이스 |
+원칙 몇 가지. 수치는 모델이 지어내지 못하게 하고(근거에 있는 것만 사용,
+없으면 빈칸), 예산 계산에는 LLM을 쓰지 않고, PII 마스킹은 인덱싱 전에 끝낸다.
+자세한 건 [docs/architecture.md](docs/architecture.md).
 
-[docs/workflow.md](docs/workflow.md) — 명세(교수님)와 구현(본 저장소)의 분업 규칙, 업스트림 동기화, 보고 주기
-
-[docs/decisions/](docs/decisions/) — 결정 기록(ADR). 브리프 12장 이행이자 모델 카드·논문 방법론의 재료
-
-P1 산출물(작성 예정): `architecture.md` · `model-plan.md` · `eval-plan.md` · `pilot-plan.md` · `risks.md`
-
-## 디렉터리 구조
+## 디렉터리
 
 ```
 src/zzaimy/
-  ingest/     파싱·OCR → PII 마스킹 → 계열 분류·메타데이터
-  index/      청킹 → 이중 벡터화(dense + Kiwi sparse) → Qdrant 적재
-  extract/    실적 카드 구조화 추출 (xgrammar + 원문 대조)
-  retrieve/   하이브리드 검색(RRF) + 리랭킹
-  generate/   공고 스키마 추출 + 섹션별 생성 루프
-  verify/     검증기 3종 — 수치 대조 · 배점 커버리지 · 예산 계산
-  eval/       평가 하네스 (베이스라인 대비 개선폭)
+  ingest/     파싱, PII 마스킹, 문서 분류
+  index/      청킹과 벡터화
+  extract/    실적 카드 추출
+  retrieve/   하이브리드 검색
+  generate/   공고 스키마 추출, 섹션 생성
+  verify/     수치 대조, 배점 커버리지, 예산 계산
+  eval/       평가 하네스
 
-configs/      모델·파이프라인 설정 (학습 YAML = 모델 카드 재료)
-scripts/      배치 실행 진입점
-models/cards/ 모델 카드 (가중치는 커밋하지 않음)
-data/         전부 gitignore — 실제 문서는 여기서 나가지 않는다
+configs/      서빙·학습 설정 (재현용으로 버전을 고정해 둔다)
+scripts/      실행 진입점 (번호 순서가 대략 파이프라인 순서)
+docs/         설계 문서와 결정 기록(decisions/)
+data/         전부 gitignore. 실제 문서는 여기서 나가지 않는다
 ```
 
-## 모델 산출물 (축 B)
+## 만들 모델
 
-| 모델 | 베이스(1안) | 역할 |
-|---|---|---|
-| `ZZAIMY-Embed` | KURE-v1 | 도메인 특화 임베딩 |
-| `ZZAIMY-Rerank` | bge-reranker-v2-m3 | 리랭킹 |
-| `ZZAIMY-Writer` | Qwen3.5-35B-A3B (MoE) | 섹션 생성 (QLoRA SFT) |
-| `ZZAIMY-Extract` | Qwen3-4B | 실적 카드 추출 |
+베이스 모델을 교내 문서로 파인튜닝해서 넷을 만든다. 검색용 임베딩(ZZAIMY-Embed),
+리랭커(ZZAIMY-Rerank), 섹션 생성기(ZZAIMY-Writer), 실적 추출기(ZZAIMY-Extract).
+베이스와 학습 계획은 [docs/model-plan.md](docs/model-plan.md)에 있고,
+베이스라인을 먼저 재고 나서 학습을 시작한다는 순서를 지킨다.
 
-**절대 규칙**: 지식 주입 금지(능력 학습만) · P3 베이스라인 측정 후에만 학습 시작.
+표현에 대한 주의 하나. 이건 오픈웨이트 모델의 도메인 적응이지 "자체 개발 LLM"이
+아니다. 발표나 논문에서도 그렇게 부르지 않는다.
 
-## 대외 표현 지침 (브리프 7.6)
+## 일정과 진행 상황
 
-- 사용 가능: "국고사업 문서 도메인 특화 모델 개발", "오픈웨이트 기반 도메인 적응", "검색 정확도 N%p 개선"
-- 사용 금지: "자체 개발 LLM", "독자 파운데이션 모델", "from scratch 학습"
+13주(2026-09-01 ~ 11-30) 계획은 [docs/capstone-plan.md](docs/capstone-plan.md).
+주요 결정은 [docs/decisions/](docs/decisions/)에 ADR로 남기고 있다.
 
-발표 자료와 논문 문구에도 동일하게 적용한다.
-
-## 명명 규칙
-
-「짜임」 + 「이」 → [짜이미]. Y는 영남이공대학교의 이니셜을 겸한다.
-`ZZAIMY` / `zzaimy` 외의 표기는 사용하지 않는다.
+이름은 「짜임」에 '-이'를 붙인 것이다. 계획서는 없는 걸 지어내는 게 아니라
+있는 실을 엮어 짜는 것이라는 뜻이고, Y는 학교 이니셜이다.
