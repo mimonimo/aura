@@ -124,7 +124,16 @@ def find_relevant(
             score = sum(min(len(t), 4) * idf[t] for t in matched)
             scored.append((rare_hits, score, len(matched), chunk))
     scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
-    return [c for _, _, _, c in scored[:top_k]]
+    lexical_ids = [c["id"] for _, _, _, c in scored]
+
+    # 임베딩(KURE) 랭킹과 RRF 융합 — 임베딩이 비활성이면 키위 단독
+    from zzaimy.app.embed_search import embed_search, rrf_merge
+
+    allowed = {c["id"] for c in chunks}
+    dense_ids = [cid for cid, _ in embed_search(query_text, top_k=12) if cid in allowed]
+    by_id = {c["id"]: c for c in chunks}
+    merged = rrf_merge(lexical_ids[:12], dense_ids)
+    return [by_id[cid] for cid in merged if cid in by_id][:top_k]
 
 
 def compose_review_context(db: Database, masked_text: str, sector: str | None = None) -> str:

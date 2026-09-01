@@ -20,7 +20,8 @@
       <span class="pill {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
       <span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>
     {% endif %}
-    <span class="muted" style="margin-left:8px;">접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
+    {% if related %}<span class="pill">대상: {{ related.filename }}</span>{% endif %}
+    <span class="muted" style="margin-left:8px;">{{ doc.receipt_no or "" }} · 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
   </p>
   {% if doc.status == "failed" %}
     <p class="notice">처리 실패: {{ doc.error }}</p>
