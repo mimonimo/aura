@@ -15,15 +15,19 @@ pre_start: sudo sysctl vm.drop_caches=3
 
 run: |
   docker run -d --name vllm-smoke \
-    --gpus all --ipc=host \
+    --gpus all --shm-size=16g \
     -v ~/.cache/huggingface:/root/.cache/huggingface \
-    -p 8000:8000 \
+    -p 127.0.0.1:8000:8000 \
     vllm/vllm-openai@sha256:df6c5814eadd5b5c9e388e7093dfd811f900539619fcf07c65bb637f607898ff \
     --model Qwen/Qwen3-4B \
     --max-model-len 8192 \
     --gpu-memory-utilization 0.5
 
 notes:
+  - "보안 (실측 2026-09-01): 공인 IP 장비라 -p 8000:8000은 인증 없는 LLM 엔드포인트를
+    인터넷에 노출시켰다 (외부 접속 실측 확인 후 차단). 반드시 127.0.0.1 바인딩.
+    외부 접근이 필요해지면 SSH 터널 또는 --api-key + 방화벽으로만"
+  - "--ipc=host 대신 --shm-size=16g 사용 — 호스트 IPC 네임스페이스 공유 회피"
   - "통합 메모리 함정 (실측 2026-09-01): 파일 캐시가 차 있으면 vLLM이 보는 여유
     메모리가 급감해 기동 실패 (관측: 6.56/119.67 GiB free < 요구 107.7 GiB).
     기본 gpu-memory-utilization 0.9는 이 장비에서 다른 워크로드와 공존 불가 —
