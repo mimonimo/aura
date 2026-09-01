@@ -80,6 +80,22 @@ def test_upload_rejects_disallowed_extension(client):
     assert r.status_code == 400
 
 
+def test_password_protection_requires_auth(tmp_path):
+    app = create_app(
+        db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+        processor=FakeProcessor(), password="secret-1234",
+    )
+    c = TestClient(app)
+    assert c.get("/").status_code == 401  # 인증 없이 거부
+    assert c.get("/", auth=("zzaimy", "wrong")).status_code == 401
+    assert c.get("/", auth=("zzaimy", "secret-1234")).status_code == 200
+
+
+def test_no_password_means_open_localhost_mode(client):
+    # password=None(기본)이면 로컬 전용 모드 — 인증 없이 동작 (기존 테스트와 동일)
+    assert client.get("/").status_code == 200
+
+
 def test_db_status_flow(tmp_path):
     db = Database(tmp_path / "t.db")
     doc_id = db.add_document(filename="x.pdf", stored_path="/tmp/x.pdf")

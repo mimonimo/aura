@@ -9,13 +9,24 @@
 
 from __future__ import annotations
 
+import secrets
 import shutil
 import uuid
 from pathlib import Path
 from typing import Protocol
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
 from zzaimy.app.db import Database
@@ -39,8 +50,28 @@ class Processor(Protocol):
     def process(self, db: Database, doc_id: int, file_path: Path) -> None: ...
 
 
-def create_app(db_path: Path, inbox_dir: Path, processor: Processor) -> FastAPI:
-    app = FastAPI(title="YNC 행정문서 검토 플랫폼")
+def create_app(
+    db_path: Path, inbox_dir: Path, processor: Processor, password: str | None = None
+) -> FastAPI:
+    """password를 주면 전 라우트에 HTTP Basic 인증(사용자명 zzaimy)이 걸린다.
+
+    비밀번호 없이 외부 바인딩(0.0.0.0)하는 조합은 main()에서 거부한다.
+    """
+    dependencies = []
+    if password is not None:
+        basic = HTTPBasic()
+
+        def check_auth(cred: HTTPBasicCredentials = Depends(basic)) -> None:
+            # 바이트 비교 — compare_digest는 비ASCII 문자열을 받지 못한다
+            ok = secrets.compare_digest(
+                cred.username.encode(), b"zzaimy"
+            ) and secrets.compare_digest(cred.password.encode(), password.encode())
+            if not ok:
+                raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
+
+        dependencies = [Depends(check_auth)]
+
+    app = FastAPI(title="YNC 행정문서 검토 플랫폼", dependencies=dependencies)
     db = Database(db_path)
     inbox_dir.mkdir(parents=True, exist_ok=True)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
@@ -85,17 +116,32 @@ def create_app(db_path: Path, inbox_dir: Path, processor: Processor) -> FastAPI:
 
 
 def main() -> None:
+    import os
+
     import uvicorn
 
     from zzaimy.app.pipeline import DocumentProcessor
+
+    # 외부 접속 모드: ZZAIMY_PASSWORD와 인증서가 있을 때만 0.0.0.0 바인딩 허용.
+    # 공인 IP 장비에서 무인증·무암호화 외부 노출 금지 (risks.md §8 — 실사고 이력).
+    password = os.environ.get("ZZAIMY_PASSWORD") or None
+    host = os.environ.get("ZZAIMY_HOST", "127.0.0.1")
+    port = int(os.environ.get("ZZAIMY_PORT", "8800"))
+    certfile = os.environ.get("ZZAIMY_TLS_CERT")
+    keyfile = os.environ.get("ZZAIMY_TLS_KEY")
+
+    if host != "127.0.0.1" and not (password and certfile and keyfile):
+        raise SystemExit(
+            "외부 바인딩에는 ZZAIMY_PASSWORD, ZZAIMY_TLS_CERT, ZZAIMY_TLS_KEY가 전부 필요하다"
+        )
 
     app = create_app(
         db_path=Path("data/platform/platform.db"),
         inbox_dir=Path("data/platform/inbox"),
         processor=DocumentProcessor(),
+        password=password,
     )
-    # 공인 IP 장비 — 반드시 localhost 바인딩 (risks.md §8)
-    uvicorn.run(app, host="127.0.0.1", port=8800)
+    uvicorn.run(app, host=host, port=port, ssl_certfile=certfile, ssl_keyfile=keyfile)
 
 
 if __name__ == "__main__":
