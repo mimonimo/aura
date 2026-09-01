@@ -196,6 +196,24 @@
             border-radius: 10px; padding: 11px 14px; margin-top: 12px; line-height: 1.65; }
   .notice iconify-icon { flex: none; font-size: 16px; color: var(--faint); margin-top: 1px; }
 
+  /* 팝오버 (알림·사용자 메뉴) */
+  .menu-wrap { position: relative; }
+  .popover { position: absolute; top: 46px; right: 0; width: 300px; background: #fff;
+             border: 1px solid var(--line); border-radius: 16px; padding: 10px;
+             box-shadow: 0 14px 40px rgba(27,59,117,.16); z-index: 60; display: none;
+             animation: rise .35s var(--ease); }
+  .popover.open { display: block; }
+  .popover h5 { margin: 4px 8px 8px; font-size: 12.5px; color: var(--faint);
+             font-weight: 700; letter-spacing: .04em; }
+  .pop-item { display: flex; align-items: center; gap: 9px; padding: 9px 10px;
+             border-radius: 10px; font-size: 13.5px; color: var(--ink);
+             text-decoration: none; transition: background .3s var(--ease); }
+  .pop-item:hover { background: var(--panel); }
+  .pop-item iconify-icon { color: var(--faint); font-size: 16px; flex: none; }
+  .pop-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pop-item.disabled { color: var(--faint); cursor: default; }
+  .pop-empty { padding: 14px 10px; color: var(--faint); font-size: 13px; text-align: center; }
+
   @keyframes rise { from { opacity: 0; transform: translateY(10px); }
                     to { opacity: 1; transform: translateY(0); } }
   .reveal { animation: rise .6s var(--ease) both; }
