@@ -202,3 +202,20 @@ def test_db_status_flow(tmp_path):
     assert db.get_document(doc_id)["status"] == "processing"
     db.add_review(doc_id, opinion="의견1")
     assert [r["opinion"] for r in db.get_reviews(doc_id)] == ["의견1"]
+
+
+def test_hwpx_parsing_extracts_text(tmp_path):
+    import zipfile
+
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    hwpx = tmp_path / "합성.hwpx"
+    with zipfile.ZipFile(hwpx, "w") as zf:
+        zf.writestr(
+            "Contents/section0.xml",
+            "<hp:p><hp:t>합성 학칙 제1조 목적</hp:t></hp:p><hp:p><hp:t>본문이다</hp:t></hp:p>",
+        )
+    text = DocumentProcessor._parse_hwpx(hwpx)
+    assert "합성 학칙 제1조 목적" in text
+    assert "본문이다" in text
+    assert "<hp:t>" not in text
