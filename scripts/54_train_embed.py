@@ -31,7 +31,10 @@ HOLDOUT_RATIO = 0.2
 # 2026-09-02 새벽 2에폭(220스텝) 실행이 두 번 모두 후반부에서 SIGKILL —
 # 장시간 CPU 학습 중 메모리 증가 정황. 리허설 목적상 1에폭이면 충분하다.
 EPOCHS = int(os.environ.get("ZZAIMY_EMBED_EPOCHS", "1"))
-BATCH = 16
+BATCH = int(os.environ.get("ZZAIMY_EMBED_BATCH", "8"))
+# KURE(BGE-M3) 기본 max_seq_length 8192 — CPU 학습에서 긴 배치가 메모리
+# 스파이크(커널 OOM 킬 정황)를 만든다. 규정 조각은 512토큰이면 충분.
+MAX_SEQ = int(os.environ.get("ZZAIMY_EMBED_MAXLEN", "512"))
 TOP_K = 10
 
 
@@ -136,11 +139,14 @@ def main() -> None:
         )
 
     base = SentenceTransformer(BASE_MODEL, device=device)
+    base.max_seq_length = MAX_SEQ
     print("베이스 홀드아웃 평가 중…", flush=True)
     base_m = eval_model(base, chunks, hold)
     print("베이스:", base_m, flush=True)
+    del base  # 학습 전 베이스 사본 해제 — 메모리 이중 점유 방지
 
     model = SentenceTransformer(BASE_MODEL, device=device)
+    model.max_seq_length = MAX_SEQ
     trainer = SentenceTransformerTrainer(
         model=model,
         args=SentenceTransformerTrainingArguments(
