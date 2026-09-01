@@ -69,6 +69,22 @@ data/         전부 gitignore. 실제 문서는 여기서 나가지 않는다
 표현에 대한 주의 하나. 이건 오픈웨이트 모델의 도메인 적응이지 "자체 개발 LLM"이
 아니다. 발표나 논문에서도 그렇게 부르지 않는다.
 
+## 검토 플랫폼 실행
+
+문서를 접수하고 모델 검토 의견을 확인하는 웹 대시보드가 있다. Spark에서 띄우고
+보안상 localhost에만 바인딩하므로 SSH 터널로 접속한다.
+
+```
+# Spark에서
+.venv/bin/python -m zzaimy.app.main
+
+# 내 컴퓨터에서 (터널 열기)
+ssh -N -L 8800:localhost:8800 jun@<spark-ip>
+# 그 다음 브라우저에서 http://localhost:8800
+```
+
+업로드된 문서는 장비 밖으로 나가지 않고, 개인정보는 마스킹된 뒤에야 모델에 전달된다.
+
 ## 일정과 진행 상황
 
 13주(2026-09-01 ~ 11-30) 계획은 [docs/capstone-plan.md](docs/capstone-plan.md).
