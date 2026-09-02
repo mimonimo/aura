@@ -12,7 +12,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from zzaimy.app.db import Database
 from zzaimy.ingest.pii import PiiMasker, RawDocument
@@ -151,13 +151,18 @@ class DocumentProcessor:
             return self._parse_hwpx(file_path)
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
             # PDF 기본 파서는 MinerU — 표 구조·2단 레이아웃·읽기 순서 보존.
-            # 텍스트 레이어가 있는 디지털 PDF는 txt 모드로 강제해 OCR 오인식을
-            # 원천 차단한다 (auto가 디지털 문서를 OCR로 오판한 실사고 대응)
-            method = "txt" if self._pdf_has_text_layer(file_path) else "auto"
-            text = self._parse_mineru(file_path, method=method)
-            if (text is None or len(text.strip()) < 200) and method == "txt":
-                text = self._parse_mineru(file_path, method="auto")
+            # 디지털 PDF(텍스트 레이어 있음)는 MinerU 구조 위에 원본 레이어의
+            # 글자를 좌표로 떠와 그대로 얹는다 — OCR 오인식 원천 차단,
+            # 원본 텍스트 무손실 (사용자 원칙: 굳이 품질을 낮추지 않는다)
+            text = self._parse_mineru(file_path, method="auto")
             if text is not None and len(text.strip()) >= 200:
+                if self._pdf_has_text_layer(file_path):
+                    overlaid = self._overlay_text_layer(file_path)
+                    if overlaid:
+                        self._last_parse_note = self._last_parse_note.replace(
+                            "구조 추출 (MinerU)", "원문 보존 구조 추출"
+                        )
+                        return overlaid
                 return text
         # 이미지·오피스 문서(및 MinerU 실패 PDF)는 docling이 처리
         from zzaimy.ingest.parsers.docling import DoclingParser
@@ -547,6 +552,80 @@ class DocumentProcessor:
             cv2.imwrite(str(dest), warped)
             return dest
         except Exception:
+            return None
+
+    def _overlay_text_layer(self, file_path: Path) -> str | None:
+        """MinerU 구조(항목·bbox)에 원본 PDF 텍스트 레이어의 글자를 얹는다.
+
+        문단·제목의 글자를 좌표 사각형에서 원문 그대로 추출해 교체한다.
+        표 셀은 셀 좌표가 없어 v1에서는 MinerU 결과를 유지한다.
+        """
+        parsed = self._last_result
+        if parsed is None or not parsed.entries:
+            return None
+        try:
+            from dataclasses import replace as dc_replace
+
+            import pypdfium2 as pdfium
+
+            doc = pdfium.PdfDocument(str(file_path))
+            try:
+                sizes = {
+                    i + 1: (doc[i].get_width(), doc[i].get_height())
+                    for i in range(len(doc))
+                }
+                # 페이지별 좌표계 보정 계수 (bbox가 렌더 픽셀이면 축소)
+                fits: dict[int, float] = {}
+                for e in parsed.entries:
+                    if e.bbox and e.page_no in sizes:
+                        pw, ph = sizes[e.page_no]
+                        f = max(e.bbox[2] / pw, e.bbox[3] / ph)
+                        fits[e.page_no] = max(fits.get(e.page_no, 1.0), f)
+
+                new_entries = []
+                replaced = 0
+                textpages: dict[int, Any] = {}
+                for e in parsed.entries:
+                    if (
+                        e.kind in ("text", "heading")
+                        and e.bbox
+                        and e.page_no in sizes
+                    ):
+                        pw, ph = sizes[e.page_no]
+                        fit = max(fits.get(e.page_no, 1.0), 1.0)
+                        x0, y0, x1, y1 = (v / fit for v in e.bbox)
+                        if e.page_no not in textpages:
+                            textpages[e.page_no] = doc[e.page_no - 1].get_textpage()
+                        tp = textpages[e.page_no]
+                        raw = tp.get_text_bounded(
+                            left=x0, bottom=ph - y1, right=x1, top=ph - y0
+                        )
+                        raw = (raw or "").strip()
+                        if len(raw) >= 2:
+                            new_entries.append(dc_replace(e, text=raw))
+                            replaced += 1
+                            continue
+                    new_entries.append(e)
+                for tp in textpages.values():
+                    tp.close()
+                if replaced == 0:
+                    return None
+                self._last_result = dc_replace(parsed, entries=new_entries)
+                # 본문 텍스트도 교체된 항목 기준으로 재구성
+                parts = []
+                for e in new_entries:
+                    if e.kind in ("text", "heading") and e.text.strip():
+                        parts.append(e.text.strip())
+                for t in parsed.tables:
+                    parts.append("\n".join(
+                        " | ".join(c.text for c in t.cells if c.row == r)
+                        for r in range(t.n_rows)
+                    ))
+                return "\n\n".join(parts)
+            finally:
+                doc.close()
+        except Exception as e:
+            log.warning("텍스트 레이어 오버레이 실패(%s)", type(e).__name__)
             return None
 
     @staticmethod
