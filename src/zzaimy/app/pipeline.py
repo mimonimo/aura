@@ -150,9 +150,13 @@ class DocumentProcessor:
         if suffix == ".hwpx":
             return self._parse_hwpx(file_path)
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
-            # PDF 기본 파서는 MinerU(auto) — 표 구조·2단 레이아웃·읽기 순서 보존
-            # (bake-off 승자, ADR-0007). 실패하면 docling으로 폴백한다
-            text = self._parse_mineru(file_path, method="auto")
+            # PDF 기본 파서는 MinerU — 표 구조·2단 레이아웃·읽기 순서 보존.
+            # 텍스트 레이어가 있는 디지털 PDF는 txt 모드로 강제해 OCR 오인식을
+            # 원천 차단한다 (auto가 디지털 문서를 OCR로 오판한 실사고 대응)
+            method = "txt" if self._pdf_has_text_layer(file_path) else "auto"
+            text = self._parse_mineru(file_path, method=method)
+            if (text is None or len(text.strip()) < 200) and method == "txt":
+                text = self._parse_mineru(file_path, method="auto")
             if text is not None and len(text.strip()) >= 200:
                 return text
         # 이미지·오피스 문서(및 MinerU 실패 PDF)는 docling이 처리
@@ -544,6 +548,28 @@ class DocumentProcessor:
             return dest
         except Exception:
             return None
+
+    @staticmethod
+    def _pdf_has_text_layer(file_path: Path, sample_pages: int = 3) -> bool:
+        """디지털 PDF 판별 — 앞쪽 페이지에 텍스트 레이어가 충분하면 참."""
+        try:
+            import pypdfium2 as pdfium
+
+            doc = pdfium.PdfDocument(str(file_path))
+            try:
+                n = min(len(doc), sample_pages)
+                if n == 0:
+                    return False
+                chars = 0
+                for i in range(n):
+                    tp = doc[i].get_textpage()
+                    chars += len(tp.get_text_bounded() or "")
+                    tp.close()
+                return chars / n >= 200
+            finally:
+                doc.close()
+        except Exception:
+            return False
 
     @staticmethod
     def _pdf_to_images(file_path: Path, max_pages: int = 4) -> list[tuple[int, Path]]:
