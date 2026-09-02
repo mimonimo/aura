@@ -110,8 +110,38 @@ def create_app(
     비밀번호 없이 외부 바인딩(0.0.0.0)하는 조합은 main()에서 거부한다.
     """
     dependencies = []
-    # 세션 토큰 — 앱이 뜰 때마다 새로 만든다 (재시작하면 재로그인)
-    session_token = secrets.token_hex(32)
+    # 세션 비밀키는 디스크에 영속화 — 앱을 재시작(배포)해도 로그인이 유지된다
+    import hashlib
+    import hmac as _hmac
+    import time as _time
+
+    secret_path = Path(db_path).parent / ".session_secret"
+    try:
+        session_secret = secret_path.read_text().strip()
+        if len(session_secret) < 32:
+            raise ValueError
+    except (OSError, ValueError):
+        session_secret = secrets.token_hex(32)
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+        secret_path.write_text(session_secret)
+        secret_path.chmod(0o600)
+
+    def _make_session(days: int = 7) -> str:
+        exp = str(int(_time.time()) + days * 86400)
+        sig = _hmac.new(
+            session_secret.encode(), exp.encode(), hashlib.sha256
+        ).hexdigest()
+        return f"{exp}.{sig}"
+
+    def _session_valid(token: str) -> bool:
+        exp, _, sig = token.partition(".")
+        if not exp.isdigit() or not sig:
+            return False
+        good = _hmac.new(
+            session_secret.encode(), exp.encode(), hashlib.sha256
+        ).hexdigest()
+        return secrets.compare_digest(sig, good) and int(exp) > _time.time()
+
     if password is not None:
         basic = HTTPBasic(auto_error=False)
 
@@ -122,9 +152,7 @@ def create_app(
             # 브라우저는 로그인 페이지의 세션 쿠키로, 스크립트·API는 Basic으로
             if request.url.path == "/login" or request.url.path.startswith("/static"):
                 return
-            if secrets.compare_digest(
-                request.cookies.get("zz_session", ""), session_token
-            ):
+            if _session_valid(request.cookies.get("zz_session", "")):
                 return
             if cred is not None:
                 # 바이트 비교 — compare_digest는 비ASCII 문자열을 받지 못한다
@@ -453,8 +481,8 @@ def create_app(
             return RedirectResponse("/login?err=1", status_code=303)
         resp = RedirectResponse("/", status_code=303)
         resp.set_cookie(
-            "zz_session", session_token, httponly=True, samesite="lax",
-            max_age=60 * 60 * 12,
+            "zz_session", _make_session(), httponly=True, samesite="lax",
+            max_age=7 * 24 * 3600,
         )
         return resp
 
