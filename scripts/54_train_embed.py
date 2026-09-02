@@ -65,9 +65,13 @@ def eval_model(model, chunks: dict, hold_rows: list[dict]) -> dict[str, float]:
     vecs = model.encode(
         [chunk_text(chunks[i]) for i in ids], batch_size=16, normalize_embeddings=True
     )
+    # 지표는 정본 구현(zzaimy.eval.retrieval)으로 계산 — 논문 표와 동일 코드
+    from zzaimy.eval.retrieval import mrr as _mrr
+    from zzaimy.eval.retrieval import recall_at_k
+
     id_pos = {cid: i for i, cid in enumerate(ids)}
-    m = {"r1": 0.0, "r5": 0.0, "r10": 0.0, "mrr": 0.0}
-    n = 0
+    ranked_lists: list[list[int]] = []
+    gold_sets: list[set[int]] = []
     for r in hold_rows:
         for qt in ("practical", "requirement", "keyword"):
             q = (r.get(qt) or "").strip()
@@ -76,18 +80,15 @@ def eval_model(model, chunks: dict, hold_rows: list[dict]) -> dict[str, float]:
             qv = model.encode([q], normalize_embeddings=True)[0]
             sims = vecs @ qv
             order = np.argsort(sims)[-TOP_K:][::-1]
-            n += 1
-            gold_pos = id_pos[r["chunk_id"]]
-            ranked = list(order)
-            if gold_pos in ranked:
-                rank = ranked.index(gold_pos) + 1
-                m["mrr"] += 1.0 / rank
-                if rank <= 1:
-                    m["r1"] += 1
-                if rank <= 5:
-                    m["r5"] += 1
-                m["r10"] += 1
-    return {k: v / max(n, 1) for k, v in m.items()} | {"n": n}
+            ranked_lists.append([int(x) for x in order])
+            gold_sets.append({id_pos[r["chunk_id"]]})
+    return {
+        "r1": recall_at_k(ranked_lists, gold_sets, 1),
+        "r5": recall_at_k(ranked_lists, gold_sets, 5),
+        "r10": recall_at_k(ranked_lists, gold_sets, 10),
+        "mrr": _mrr(ranked_lists, gold_sets),
+        "n": len(ranked_lists),
+    }
 
 
 def main() -> None:
