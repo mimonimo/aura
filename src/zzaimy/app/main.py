@@ -716,10 +716,26 @@ def create_app(
                     )
             except Exception:
                 page_sizes = {}
-        layout = (
-            layout_pages(chunks, doc_id, asset_by_name, page_sizes or None)
-            if chunks else None
-        )
+        layout = None
+        if page_sizes:
+            # 디지털 PDF는 글자 좌표를 원본에서 직독 — 잘림·중복·위치 오차 없음
+            try:
+                from zzaimy.app.pdf_lines import pdf_line_boxes
+                from zzaimy.app.pipeline import DocumentProcessor
+
+                if DocumentProcessor._pdf_has_text_layer(Path(doc["stored_path"])):
+                    line_pages = pdf_line_boxes(Path(doc["stored_path"]))
+                    if line_pages:
+                        precise = [
+                            ln for pg in sorted(line_pages) for ln in line_pages[pg]
+                        ]
+                        layout = layout_pages(
+                            precise, doc_id, asset_by_name, page_sizes
+                        )
+            except Exception:
+                layout = None
+        if layout is None and chunks:
+            layout = layout_pages(chunks, doc_id, asset_by_name, page_sizes or None)
         import json as _json
 
         try:

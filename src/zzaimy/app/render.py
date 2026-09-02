@@ -252,12 +252,25 @@ def layout_pages(
                     default=1.0,
                 )
                 fs = max(4.5, min(fs, bw / max(widest, 1.0) * 0.96))
-                weight = "700" if c["kind"] == "heading" else "400"
-                color = "var(--navy)" if c["kind"] == "heading" else "inherit"
+                weight = "700" if c["kind"] == "heading" or c.get("bold") else "400"
+                if c.get("color"):
+                    r, g, b = c["color"]
+                    color = f"rgb({r},{g},{b})"
+                else:
+                    color = "var(--navy)" if c["kind"] == "heading" else "inherit"
+                # 정밀 줄(한 줄 상자)은 글자 사이를 고르게 벌려 박스 폭에 맞춘다
+                # — 한글 공문서 양쪽정렬 방식. 웹 글꼴이 원본보다 좁아 생기는
+                # 줄 중간 빈 틈을 없앤다. 과도한 벌림은 글자 크기의 90%로 제한
+                spacing = ""
+                if "justify" in c and n_lines == 1 and len(c["content"]) >= 4:
+                    est = widest * fs
+                    extra = (bw - est) / max(len(c["content"]) - 1, 1)
+                    if extra > 0.3:
+                        spacing = f" letter-spacing:{min(extra, fs * 0.9):.2f}px;"
                 inner = Markup(
                     '<span style="font-size:{:.1f}px; font-weight:{}; color:{};'
-                    ' line-height:1.32; display:block;">{}</span>'
-                ).format(fs, weight, color, _rich(c["content"]))
+                    ' line-height:1.32; display:block;{}">{}</span>'
+                ).format(fs, weight, color, Markup(spacing), _rich(c["content"]))
             parts.append(
                 Markup('<div class="layout-box" style="{}">{}</div>').format(
                     Markup(style), inner
