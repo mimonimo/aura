@@ -784,7 +784,10 @@ def create_app(
             for a in db.list_doc_assets(doc_id)
             if Path(a["path"]).exists()
         }
-        payload = build_docx(doc["filename"], chunks, asset_paths)
+        payload = build_docx(
+            doc["filename"], chunks, asset_paths,
+            extra_images=list(asset_paths.values()),
+        )
         fname = quote(f"{Path(doc['filename']).stem}_복원.docx")
         return Response(
             payload,
