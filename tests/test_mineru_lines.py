@@ -67,3 +67,20 @@ def test_scale_ocr_lines_to_page_points():
     assert abs(x0 - 180.0 * 595 / 720) < 0.2
     assert abs(y1 - 180.0 * 842 / 540) < 0.2
     assert out[0]["justify"] is True
+
+
+def test_image_layout_from_lines():
+    """사진 문서 — 줄 좌표 payload를 그대로 배치 항목·페이지 치수로 변환."""
+    from zzaimy.app.pdf_lines import image_layout_from_lines
+
+    payload = {
+        "page_sizes": {"1": [1600.0, 1200.0]},
+        "lines": [
+            {"page_no": 1, "kind": "text", "content": "행사 안내",
+             "bbox": "100.0,80.0,700.0,140.0"},
+        ],
+    }
+    items, sizes = image_layout_from_lines(payload)
+    assert sizes == {1: (1600.0, 1200.0)}
+    assert len(items) == 1 and items[0]["justify"] is True
+    assert items[0]["bbox"] == "100.0,80.0,700.0,140.0"
