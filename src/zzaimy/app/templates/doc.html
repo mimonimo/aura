@@ -66,8 +66,8 @@
   {% if doc.ai_review or doc.coverage %}
   <div class="card reveal">
     <div class="card-in">
-      {% set is_summary = doc.ai_review and doc.ai_review.startswith("추출 완료") %}
-      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>{{ "기준 등록 결과" if doc.doc_type == "regulation" else ("추출 요약" if is_summary else "맥락 분석") }}</h2>
+      {% set is_summary = doc.ai_review and (doc.ai_review.startswith("추출 완료") or doc.ai_review.startswith("규정 등록 완료")) %}
+      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>{{ ("기준 등록 결과" if is_summary else "AI 문서 요약") if doc.doc_type == "regulation" else ("추출 요약" if is_summary else "맥락 분석") }}</h2>
       {% if analyzing %}
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>{{ doc.coverage }} — 끝나면 자동 갱신됩니다.</span></p>
       {% elif doc.coverage and doc.coverage.startswith("맥락 분석 실패") %}
@@ -80,10 +80,15 @@
       <pre class="doc-text">{{ doc.ai_review | md_lite }}</pre>
       {% endif %}
       {% endif %}
-      {% if doc.doc_type == "ocr" and doc.status == "reviewed" and not analyzing %}
+      {% if doc.doc_type in ("ocr", "regulation") and doc.status == "reviewed" and not analyzing %}
       <form action="/doc/{{ doc.id }}/analyze" method="post" style="margin-top:12px;">
+        {% if doc.doc_type == "regulation" %}
+        <button type="submit" class="secondary">{{ "다시 요약" if not is_summary and doc.ai_review else "AI 문서 요약" }}</button>
+        <span class="muted" style="margin-left:8px;">이 기준이 무엇을 다루고 어디에 쓰이는지 정리합니다.</span>
+        {% else %}
         <button type="submit" class="secondary">{{ "다시 분석" if not is_summary and doc.ai_review else "맥락 분석" }}</button>
         <span class="muted" style="margin-left:8px;">추출 결과를 근거로 문서 유형·핵심 정보·활용처를 정리합니다.</span>
+        {% endif %}
       </form>
       {% endif %}
     </div>

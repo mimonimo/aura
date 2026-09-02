@@ -380,20 +380,30 @@ class DocumentProcessor:
     )
 
     def _llm_correct_chunks(self, chunks: list[dict]) -> bool:
-        """MinerU 텍스트 조각의 OCR 오타를 LLM으로 교정한다 (마스킹 후 호출).
+        """MinerU 텍스트 조각의 OCR 오타를 LLM으로 교정한다 (마스킹 후 호출)."""
+        targets = [c for c in chunks if c["kind"] in ("text", "heading")]
+        fixed = self._correct_texts([c["content"] for c in targets])
+        if fixed is None:
+            return False
+        for c, f in zip(targets, fixed):
+            c["content"] = f[:2000]
+        return True
 
-        구분자 개수가 어긋나면 그 배치는 원문을 유지한다. 성공 여부를 돌려준다.
+    def _correct_texts(self, texts: list[str]) -> list[str] | None:
+        """텍스트 목록의 OCR 오타 교정 — 실패·훼손 배치는 원문 유지, 전체 실패면 None.
+
+        구분자 개수가 어긋나면 그 배치는 원문을 유지한다.
         """
         try:
             from zzaimy.generate.client import VllmClient
 
             client = VllmClient()
         except Exception:
-            return False
+            return None
 
-        targets = [c for c in chunks if c["kind"] in ("text", "heading")]
+        targets = [{"content": t} for t in texts]
         if not targets:
-            return False
+            return None
         SEP = "\n<<<>>>\n"
         batches: list[list[dict]] = [[]]
         size = 0
@@ -425,11 +435,11 @@ class DocumentProcessor:
                 for c, fixed in zip(batch, parts):
                     # 교정은 보수적으로 — 길이가 크게 변하면 지어낸 것으로 보고 버린다
                     if fixed and 0.6 <= len(fixed) / max(len(c["content"]), 1) <= 1.5:
-                        c["content"] = fixed[:2000]
+                        c["content"] = fixed
                         corrected_any = True
             except Exception:
                 continue
-        return corrected_any
+        return [c["content"] for c in targets] if corrected_any else None
 
     @staticmethod
     def _crop_document_region(image_path: Path) -> Path | None:
@@ -683,13 +693,50 @@ class DocumentProcessor:
 
             if doc_type == "regulation":
                 # 규정 등록 모드 — 판단 근거이지 개인 문서가 아니므로 마스킹하지
-                # 않고 원문 그대로 조각화해 규정 저장소에 적재한다
+                # 않고 원문 그대로 조각화해 규정 저장소에 적재한다.
+                # 스캔본·사진도 문서 추출과 같은 고품질 경로(비전·오타 교정)를 탄다
                 from zzaimy.app.regulations import split_regulation
+
+                reg_vision_chunks: list[dict] | None = None
+                vp = self._pdf_to_images(file_path, max_pages=4)
+                if not vp and file_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
+                    area = self._crop_document_region(file_path)
+                    vp = [(1, area or file_path)]
+                if vp:
+                    reg_mds: list[str] = []
+                    vc: list[dict] = []
+                    for pg_no, img_p in vp:
+                        md = self._vlm_transcribe(img_p)
+                        if md:
+                            reg_mds.append(md)
+                            vc += self._md_to_chunks(md, lambda x: x, page_no=pg_no)
+                    if reg_mds:
+                        raw_text = "\n\n".join(reg_mds)
+                        reg_vision_chunks = vc
+                        self._last_parse_note = "AI 비전 판독 (Qwen3.5)"
 
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
                 chunks = split_regulation(raw_text)
+                if reg_vision_chunks is None and self._last_parse_note.startswith("스캔"):
+                    # MinerU 스캔 경로 — 조문 텍스트의 오인식을 보수적으로 교정
+                    fixed = self._correct_texts([c.content for c in chunks])
+                    if fixed:
+                        chunks = [
+                            type(c)(heading=c.heading, content=f[: len(f)])
+                            for c, f in zip(chunks, fixed)
+                        ]
+                        self._last_parse_note += " · AI 오타 교정"
                 db.add_regulation_chunks(
                     doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
+                )
+                db.replace_doc_chunks(
+                    doc_id,
+                    reg_vision_chunks
+                    or self._structured_chunks(do_mask=False)
+                    or [
+                        {"kind": "text", "content": c.content[:2000]}
+                        for c in chunks if len(c.content) >= 2
+                    ],
                 )
                 db.replace_doc_assets(
                     doc_id,
@@ -866,8 +913,22 @@ class DocumentProcessor:
 추출 내용:
 {text}"""
 
+    _SUMMARY_PROMPT = """다음은 기준 문서(규정·지침·공고문)에서 추출한 내용이다.
+행정 담당자를 위해 요약하라.
+
+문서 성격: (규정/지침/매뉴얼/공고문 — 한 줄)
+무엇을 다루나: (2~3문장)
+적용 대상·범위: (내용에 있는 것만)
+핵심 조항·항목: (조항 번호나 항목명과 함께 5개 이내)
+검토 활용 포인트: (문서 검토 시 이 기준에서 주로 대조하게 될 것 2~3개)
+
+내용에 없는 것은 추정하지 말고 "확인 필요"로 표시하라.
+
+추출 내용:
+{text}"""
+
     def analyze(self, db: Database, doc_id: int) -> None:
-        """추출된 조각을 근거로 문서 맥락 분석 — OCR 도구의 후속 단계."""
+        """추출된 조각을 근거로 문서 맥락 분석/요약 — OCR 도구·기준 문서 공용."""
         doc = db.get_document(doc_id)
         if doc is None:
             return
@@ -892,6 +953,11 @@ class DocumentProcessor:
 
             from zzaimy.generate.client import VllmClient
 
+            prompt = (
+                self._SUMMARY_PROMPT
+                if doc.get("doc_type") == "regulation"
+                else self._ANALYZE_PROMPT
+            )
             client = VllmClient()
             resp = client.client.chat.completions.create(
                 model=client.model,
@@ -899,7 +965,7 @@ class DocumentProcessor:
                 max_tokens=1200,
                 messages=[{
                     "role": "user",
-                    "content": self._ANALYZE_PROMPT.format(text=text),
+                    "content": prompt.format(text=text),
                 }],
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )

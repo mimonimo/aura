@@ -297,8 +297,8 @@ def create_app(
         doc = db.get_document(doc_id)
         if doc is None:
             raise HTTPException(404)
-        if doc["doc_type"] != "ocr":
-            raise HTTPException(400, "맥락 분석은 문서 추출 도구의 문서에서 지원한다")
+        if doc["doc_type"] not in ("ocr", "regulation"):
+            raise HTTPException(400, "맥락 분석은 문서 추출·기준 문서에서 지원한다")
         db.update_document(doc_id, coverage="분석 중입니다 (30초~1분)")
         background.add_task(processor.analyze, db, doc_id)
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
