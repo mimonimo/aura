@@ -221,6 +221,14 @@
   table.extract th { background: #EEF3FA; color: var(--navy); font-weight: 700;
                   font-size: 12px; }
 
+  /* 지침·메모 목록 — 조용한 행, 호버 시 삭제 */
+  .note-row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px;
+              padding: 9px 4px; border-bottom: 1px solid #EFF3F8; }
+  .note-row:last-child { border-bottom: 0; }
+  .note-time { flex: none; font-size: 11px; margin-top: 2px; }
+  .note-row .note-del { opacity: 0; transition: opacity .2s; }
+  .note-row:hover .note-del { opacity: 1; }
+
   /* 우측 패널 탭 — 세그먼트 컨트롤 */
   .tabbar { display: flex; gap: 3px; background: #E9EEF5; border-radius: 11px;
             padding: 3px; margin-bottom: 16px; }

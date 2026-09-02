@@ -58,10 +58,9 @@
     </div>
     {% endif %}
 
-    <p class="muted" style="margin-top:{{ '14px' if documents else '4px' }};">
-      {{ flow_hints.get(project.sector, "") }}
-      문서 접수는 아래 채팅 입력줄의 클립(📎 모양) 버튼으로 합니다 — 스캔본·사진도
-      자동 OCR 처리됩니다.</p>
+    {% if not documents %}
+    <p class="muted" style="margin-top:4px;">아직 접수된 문서가 없습니다.</p>
+    {% endif %}
   </div>
 </div>
 
@@ -115,32 +114,38 @@
     </div>
 
     <div id="paneGuide" class="tab-pane on">
-    <p class="muted" style="margin:0 0 10px;">검토·작성·채팅이 따르는 지침과 참고 맥락입니다.
-      한 줄씩 남기세요 (최근 10개 반영). 채팅으로 말해도 됩니다.</p>
-    <form action="/project/{{ project.id }}/notes" method="post"
-          style="display:flex; gap:8px; margin-bottom:10px;">
-      <input type="text" name="content" required
-             placeholder="예: 경력 3년 미만은 반려 / 서류 마감 3.15"
-             style="flex:1; border:1px solid #D8E1ED; border-radius:10px; padding:9px 12px;
-                    font-family:inherit; font-size:13px;">
-      <button type="submit" class="secondary" style="padding:8px 14px; font-size:12.5px;">추가</button>
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+      <span class="muted" style="font-size:12.5px;">에이전트의 응답을 맞춤화하는 지침과 맥락</span>
+      <button type="button" id="noteAddBtn" class="icon-btn" title="지침·메모 추가"
+              style="width:30px; height:30px; font-size:15px;">
+        <iconify-icon icon="solar:add-circle-linear"></iconify-icon></button>
+    </div>
+    <form action="/project/{{ project.id }}/notes" method="post" id="noteAddForm" hidden
+          style="margin-bottom:12px;">
+      <textarea name="content" required rows="3"
+                placeholder="예: 경력 3년 미만은 반려. 어학 성적은 유효기간을 확인한다."
+                style="min-height:72px;"></textarea>
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+        <button type="button" class="secondary" id="noteAddCancel"
+                style="padding:6px 14px; font-size:12.5px;">취소</button>
+        <button type="submit" style="padding:6px 16px; font-size:12.5px;">저장</button>
+      </div>
     </form>
-    <div style="display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto;">
+    <div id="noteList" style="display:flex; flex-direction:column; max-height:260px; overflow-y:auto;">
       {% for n in project_notes %}
-      <div style="display:flex; gap:8px; align-items:flex-start; background:var(--panel);
-                  border:1px solid #EDF2F7; border-radius:10px; padding:8px 10px; font-size:13px;">
-        <div style="flex:1; line-height:1.55;">{{ n.content }}
-          <div class="muted" style="font-size:11px; margin-top:2px;">{{ n.created_at[:16].replace("T", " ") }}</div>
-        </div>
-        <form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post" style="flex:none;">
+      <div class="note-row">
+        <span style="flex:1; line-height:1.6;">{{ n.content }}</span>
+        <span class="muted note-time">{{ n.created_at[5:10] }}</span>
+        <form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post"
+              class="note-del" style="flex:none; margin:0;">
           <button type="submit" title="삭제" style="background:none; border:0; box-shadow:none;
                   color:var(--faint); padding:2px; cursor:pointer; font-size:14px;">
-            <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+            <iconify-icon icon="solar:trash-bin-minimalistic-linear"></iconify-icon></button>
         </form>
       </div>
       {% else %}
-      <span class="muted" style="font-size:12.5px;">아직 없습니다. 반려 기준, 마감,
-        확인 사항 같은 걸 남기면 이 프로젝트의 검토·작성·채팅이 따릅니다.</span>
+      <p class="muted" style="font-size:12.5px; margin:6px 0;">아직 없습니다.
+        오른쪽 + 버튼이나 채팅으로 남기면 검토·작성·채팅이 따릅니다.</p>
       {% endfor %}
     </div>
     </div>
@@ -294,6 +299,18 @@
 </div>
 
 <script>
+  var noteBtn = document.getElementById("noteAddBtn");
+  var noteForm = document.getElementById("noteAddForm");
+  if (noteBtn && noteForm) {
+    noteBtn.addEventListener("click", function () {
+      noteForm.hidden = false;
+      noteForm.querySelector("textarea").focus();
+    });
+    document.getElementById("noteAddCancel").addEventListener("click", function () {
+      noteForm.hidden = true;
+    });
+  }
+
   var intakeFile = document.getElementById("intakeFile");
   if (intakeFile) {
     intakeFile.addEventListener("change", function () {

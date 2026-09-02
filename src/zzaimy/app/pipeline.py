@@ -147,7 +147,13 @@ class DocumentProcessor:
             return self._parse_hwp(file_path)
         if suffix == ".hwpx":
             return self._parse_hwpx(file_path)
-        # PDF·이미지·오피스 문서는 docling이 처리 (OCR 자동 선택)
+        if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
+            # PDF 기본 파서는 MinerU(auto) — 표 구조·2단 레이아웃·읽기 순서 보존
+            # (bake-off 승자, ADR-0007). 실패하면 docling으로 폴백한다
+            text = self._parse_mineru(file_path, method="auto")
+            if text is not None and len(text.strip()) >= 200:
+                return text
+        # 이미지·오피스 문서(및 MinerU 실패 PDF)는 docling이 처리
         from zzaimy.ingest.parsers.docling import DoclingParser
 
         parsed = DoclingParser().parse(file_path)
@@ -165,15 +171,18 @@ class DocumentProcessor:
                 return ocr_text
         return text
 
-    def _parse_mineru(self, file_path: Path) -> str | None:
-        """MinerU OCR 경로 — 실패해도 기본 파싱 결과로 진행할 수 있게 None을 준다."""
+    def _parse_mineru(self, file_path: Path, method: str = "ocr") -> str | None:
+        """MinerU 경로 — 실패해도 기본 파싱 결과로 진행할 수 있게 None을 준다.
+
+        method="auto"는 디지털·스캔을 스스로 판별한다(표 구조·2단 레이아웃 보존).
+        """
         import tempfile
 
         from zzaimy.ingest.parsers.mineru import MineruNotInstalled, MineruParser
 
         try:
             with tempfile.TemporaryDirectory(prefix="zz-mineru-") as tmp:
-                parsed = MineruParser(method="ocr").parse(file_path, work_dir=Path(tmp))
+                parsed = MineruParser(method=method).parse(file_path, work_dir=Path(tmp))
                 self._last_result = parsed
                 text = self._result_to_text(parsed)
                 # 그림은 임시 디렉터리가 사라지기 전에 밖으로 복사한다
@@ -190,9 +199,12 @@ class DocumentProcessor:
                     shutil.copyfile(img.path, dest)
                     images.append((img.page_no, dest))
                 self._last_images = images
+                label = (
+                    "구조 추출 (MinerU)" if method == "auto"
+                    else "스캔 문서 OCR 처리 (MinerU)"
+                )
                 self._last_parse_note = (
-                    f"스캔 문서 OCR 처리 (MinerU) · 표 {len(parsed.tables)}개"
-                    f" · 그림 {len(images)}장"
+                    f"{label} · 표 {len(parsed.tables)}개 · 그림 {len(images)}장"
                 )
                 log.info(
                     "%s: MinerU OCR 재파싱 — %d자, 표 %d, 그림 %d",
