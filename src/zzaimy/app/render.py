@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
+from collections.abc import Callable
 
 from markupsafe import Markup, escape
 
@@ -178,8 +179,13 @@ def layout_pages(
     doc_id: int | None = None,
     asset_by_name: dict[str, int] | None = None,
     page_sizes: dict[int, tuple[float, float]] | None = None,
+    page_image_url: Callable[[int], str] | None = None,
 ) -> list[Markup] | None:
     """bbox로 원본 배치를 재구성 — 실제 페이지 치수 기준, 픽셀 고정 캔버스.
+
+    page_image_url이 주어지면 원본 페이지 렌더를 배경으로 깔고 텍스트는
+    투명 레이어로 얹는다 — 디자인은 원본 그대로, 글자는 선택·복사·검색 가능
+    (구글 OCR PDF와 같은 방식). 없으면 텍스트를 직접 그린다.
 
     글자 크기는 박스 높이·줄 수에서 계산해 원본 밀도에 가깝게 맞춘다.
     좌표가 있는 조각이 충분치 않으면 None.
@@ -221,9 +227,16 @@ def layout_pages(
                 for c, x0, y0, x1, y1 in boxes
             ]
         scale = CANVAS_W / pw
+        bg = ""
+        ghost = bool(page_image_url)
+        if page_image_url:
+            bg = (
+                f" background-image:url('{page_image_url(pg)}');"
+                " background-size:100% 100%; background-repeat:no-repeat;"
+            )
         parts = [
             f'<div class="layout-page" style="width:{CANVAS_W:.0f}px;'
-            f' height:{ph * scale:.0f}px;">',
+            f' height:{ph * scale:.0f}px;{bg}">',
             f'<span class="layout-pageno">{pg}쪽</span>',
         ]
         for c, x0, y0, x1, y1 in boxes:
@@ -234,6 +247,8 @@ def layout_pages(
                 f" width:{bw:.1f}px; height:{bh:.1f}px;"
             )
             if c["kind"] == "image":
+                if ghost:
+                    continue  # 배경이 원본 렌더이므로 그림은 이미 보인다
                 aid = (asset_by_name or {}).get(c["content"])
                 inner = (
                     Markup('<img src="/doc/{}/asset/{}" style="width:100%; height:100%;'
@@ -241,6 +256,8 @@ def layout_pages(
                     if doc_id is not None and aid else Markup("")
                 )
             elif c["kind"] == "table":
+                if ghost:
+                    continue  # 표 괘선·음영도 배경에 있다 — 글자는 텍스트 조각이 덮는다
                 inner = table_html(c["content"])
             else:
                 n_lines = max(c["content"].count("\n") + 1, 1)
@@ -267,6 +284,9 @@ def layout_pages(
                     extra = (bw - est) / max(len(c["content"]) - 1, 1)
                     if extra > 0.3:
                         spacing = f" letter-spacing:{min(extra, fs * 0.9):.2f}px;"
+                if ghost:
+                    # 원본 렌더가 배경 — 텍스트는 보이지 않게 얹어 선택·검색만
+                    color = "transparent"
                 inner = Markup(
                     '<span style="font-size:{:.1f}px; font-weight:{}; color:{};'
                     ' line-height:1.32; display:block;{}">{}</span>'

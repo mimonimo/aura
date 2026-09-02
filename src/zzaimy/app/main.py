@@ -730,12 +730,21 @@ def create_app(
                             ln for pg in sorted(line_pages) for ln in line_pages[pg]
                         ]
                         layout = layout_pages(
-                            precise, doc_id, asset_by_name, page_sizes
+                            precise, doc_id, asset_by_name, page_sizes,
+                            page_image_url=(
+                                lambda pg: f"/doc/{doc_id}/page/{pg}.png"
+                            ),
                         )
             except Exception:
                 layout = None
         if layout is None and chunks:
-            layout = layout_pages(chunks, doc_id, asset_by_name, page_sizes or None)
+            layout = layout_pages(
+                chunks, doc_id, asset_by_name, page_sizes or None,
+                page_image_url=(
+                    (lambda pg: f"/doc/{doc_id}/page/{pg}.png")
+                    if page_sizes else None
+                ),
+            )
         import json as _json
 
         try:
@@ -768,6 +777,41 @@ def create_app(
             doc["stored_path"], filename=doc["filename"],
             content_disposition_type="inline",
         )
+
+    @app.get("/doc/{doc_id}/page/{page_no}.png")
+    def doc_page_image(doc_id: int, page_no: int):
+        """원본 PDF 페이지 렌더 — 복원 뷰(원본 배치)의 배경. 디스크 캐시."""
+        from fastapi.responses import FileResponse
+
+        doc = db.get_document(doc_id)
+        if (
+            doc is None
+            or not Path(doc["stored_path"]).exists()
+            or Path(doc["stored_path"]).suffix.lower() != ".pdf"
+            or not (1 <= page_no <= 500)
+        ):
+            raise HTTPException(404)
+        cache_dir = Path(db_path).parent / "pagecache"
+        cache_dir.mkdir(exist_ok=True)
+        out = cache_dir / f"{doc_id}-{page_no}.png"
+        if not out.exists():
+            try:
+                import pypdfium2 as pdfium
+
+                pdf = pdfium.PdfDocument(doc["stored_path"])
+                try:
+                    if page_no > len(pdf):
+                        raise HTTPException(404)
+                    page = pdf[page_no - 1]
+                    scale = min(1520.0 / max(page.get_width(), 1.0), 2.2)
+                    page.render(scale=scale).to_pil().save(out)
+                finally:
+                    pdf.close()
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(404) from exc
+        return FileResponse(out, media_type="image/png")
 
     @app.get("/doc/{doc_id}/asset/{asset_id}")
     def doc_asset(doc_id: int, asset_id: int, dl: int = 0):

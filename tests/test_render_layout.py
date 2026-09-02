@@ -16,3 +16,21 @@ def test_layout_font_shrinks_to_box_width():
     sizes = [float(m) for m in re.findall(r"font-size:([0-9.]+)px", html)]
     # 첫 박스: 폭 383px에 60자 → 폭 기준이면 7px 미만이어야 함 (높이 기준이면 15px)
     assert sizes[0] < 8.0, f"긴 줄 글자 크기가 폭을 무시함: {sizes[0]}px"
+
+
+def test_layout_pages_with_background_image():
+    """원본 배치 뷰 — 원본 페이지 렌더를 배경으로 깔고 텍스트는 투명 레이어."""
+    from zzaimy.app.render import layout_pages
+
+    chunks = [
+        {"kind": "text", "content": "사업 목적", "bbox": "10,10,200,40", "page_no": 1},
+        {"kind": "text", "content": "지원 내용", "bbox": "10,60,200,90", "page_no": 1},
+    ]
+    out = layout_pages(
+        chunks, page_sizes={1: (595.0, 842.0)},
+        page_image_url=lambda pg: f"/doc/7/page/{pg}.png",
+    )
+    html = str(out[0])
+    assert "background-image:url('/doc/7/page/1.png')" in html
+    assert "color:transparent" in html          # 겹침 방지 — 원본 글자가 보인다
+    assert "사업 목적" in html                    # 선택·복사·검색은 가능
