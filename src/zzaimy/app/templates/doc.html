@@ -187,8 +187,40 @@
       <embed src="/doc/{{ doc.id }}/original" type="application/pdf"
              style="width:100%; height:560px; border:1px solid var(--line); border-radius:12px;">
       {% elif original_kind == "image" %}
-      <div style="max-height:560px; overflow-y:auto; border:1px solid var(--line); border-radius:12px;">
-        <img src="/doc/{{ doc.id }}/original" alt="원본" style="width:100%; display:block;">
+      <div style="min-width:0;">
+        {% if scan_asset %}
+        <div class="tabbar" style="max-width:240px; margin-bottom:10px;">
+          <button type="button" class="on" data-otab="oScan">보정 스캔본</button>
+          <button type="button" data-otab="oRaw">원본 사진</button>
+        </div>
+        {% endif %}
+        <div style="max-height:560px; overflow-y:auto; border:1px solid var(--line); border-radius:12px;">
+          {% if scan_asset %}
+          <img id="oScanImg" src="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}" alt="보정 스캔본"
+               style="width:100%; display:block;">
+          <img id="oRawImg" src="/doc/{{ doc.id }}/original" alt="원본" hidden
+               style="width:100%; display:block;">
+          {% else %}
+          <img src="/doc/{{ doc.id }}/original" alt="원본" style="width:100%; display:block;">
+          {% endif %}
+        </div>
+        {% if scan_asset %}
+        <p class="muted" style="margin:6px 0 0; font-size:11.5px;">기울기·조명을 보정한
+          스캔본입니다 · <a href="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}?dl=1">내려받기</a></p>
+        <script>
+          document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll("[data-otab]").forEach(function (btn) {
+              btn.addEventListener("click", function () {
+                document.querySelectorAll("[data-otab]").forEach(function (b) {
+                  b.classList.toggle("on", b === btn);
+                });
+                document.getElementById("oScanImg").hidden = btn.dataset.otab !== "oScan";
+                document.getElementById("oRawImg").hidden = btn.dataset.otab !== "oRaw";
+              });
+            });
+          });
+        </script>
+        {% endif %}
       </div>
       {% endif %}
       {% if extract_blocks %}
