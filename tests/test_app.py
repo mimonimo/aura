@@ -781,7 +781,11 @@ def test_ocr_analyze_flow(tmp_path):
 def test_structured_chunks_use_entries_with_bbox():
     from zzaimy.app.pipeline import DocumentProcessor
     from zzaimy.ingest.parsers.base import (
-        ParsedEntry, ParsedPage, ParsedTable, ParseResult, TableCell,
+        ParsedEntry,
+        ParsedPage,
+        ParsedTable,
+        ParseResult,
+        TableCell,
     )
 
     proc = DocumentProcessor()
