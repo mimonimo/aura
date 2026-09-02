@@ -485,13 +485,14 @@ def test_project_page_meta_and_criteria(client):
                 files={"file": ("채용공고.pdf", b"%PDF", "application/pdf")})
     # 프로젝트 페이지 열림
     assert "2026 교원 채용" in client.get("/project/1").text
-    # 지침·메모 저장
+    # 지침·메모 통합 노트 — API로 넣은 구버전 값도 노트로 이관돼 보인다
     r = client.post("/project/1/meta", data={
         "instructions": "경력 3년 미만은 반려.", "memo": "상반기 3명 채용."},
         follow_redirects=False)
     assert r.status_code == 303
     page = client.get("/project/1").text
     assert "경력 3년 미만은 반려." in page and "상반기 3명 채용." in page
+    assert len(client.app.state.db.list_project_notes(1)) == 2  # 노트로 이관됨
     # 기준 연결 (criteria doc id=1)
     client.post("/project/1/criteria", data={"criteria": ["1"]})
     db = client.app.state.db

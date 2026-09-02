@@ -529,11 +529,15 @@ def create_app(
         ]
         # 이 섹터 전용 기준을 공통보다 위에 보여준다
         sector_criteria.sort(key=lambda d: d["sector"] != proj_sector)
-        # 구버전 단일 메모는 노트로 한 번만 이관한다
+        # 구버전 단일 지침·메모는 노트로 한 번만 이관한다 (지침·메모 통합)
         legacy_memo = (proj.get("memo") or "").strip()
-        if legacy_memo:
-            db.add_project_note(project_id, legacy_memo)
-            db.update_project_meta(project_id, memo="")
+        legacy_inst = (proj.get("instructions") or "").strip()
+        if legacy_memo or legacy_inst:
+            if legacy_inst:
+                db.add_project_note(project_id, legacy_inst)
+            if legacy_memo:
+                db.add_project_note(project_id, legacy_memo)
+            db.update_project_meta(project_id, instructions="", memo="")
             proj = db.get_project(project_id) or proj
         return templates.TemplateResponse(
             request,

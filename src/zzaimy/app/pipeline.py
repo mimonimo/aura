@@ -100,10 +100,13 @@ def _guidance_block(db: Database, project: dict | None) -> str:
         p_memo = (project.get("memo") or "").strip()
         if p_memo:
             parts.append(f"[프로젝트 메모 — 참고 맥락]\n{p_memo}")
-        notes = db.list_project_notes(int(project["id"]))[:5]
+        notes = db.list_project_notes(int(project["id"]))[:10]
         if notes:
             joined = "\n".join(f"- ({n['created_at'][:10]}) {n['content']}" for n in notes)
-            parts.append(f"[프로젝트 메모 — 참고 맥락]\n{joined}")
+            parts.append(
+                f"[프로젝트 「{project['name']}」 지침·메모 — 검토·작성 시 따르고 참고하라]"
+                f"\n{joined}"
+            )
     return ("\n\n" + "\n\n".join(parts)) if parts else ""
 
 

@@ -58,20 +58,10 @@
     </div>
     {% endif %}
 
-    <form action="/upload" method="post" enctype="multipart/form-data"
-          style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:{{ '16px' if documents else '4px' }};">
-      <input type="hidden" name="doc_type" value="{{ project.sector }}">
-      <input type="hidden" name="project_id" value="{{ project.id }}">
-      <label class="file-field">
-        <input type="file" name="file" required
-               accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md">
-        <span class="file-btn"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 선택</span>
-        <span class="file-name">선택된 파일 없음</span>
-      </label>
-      <button type="submit">접수</button>
-      <span class="muted">{{ flow_hints.get(project.sector, "") }}
-        스캔본·사진(PDF·JPG·PNG)도 그대로 올리면 자동으로 OCR 처리되어 글·표·그림을 추출합니다.</span>
-    </form>
+    <p class="muted" style="margin-top:{{ '14px' if documents else '4px' }};">
+      {{ flow_hints.get(project.sector, "") }}
+      문서 접수는 아래 채팅 입력줄의 클립(📎 모양) 버튼으로 합니다 — 스캔본·사진도
+      자동 OCR 처리됩니다.</p>
   </div>
 </div>
 
@@ -80,14 +70,29 @@
     <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>프로젝트 채팅</h2>
     <p class="muted" style="margin:0 0 12px;">이 프로젝트의 지침·메모·연결 기준을 근거로 답하는
       에이전트 채팅입니다. 접수 문서에 대한 질문도 여기서 하세요.</p>
-    <form action="/chat/send" method="post" style="display:flex; gap:10px;">
-      <input type="hidden" name="project_id" value="{{ project.id }}">
-      <input type="text" name="question" required
-             placeholder="{{ chat_hints.get(project.sector, '무엇이든 물어보세요') }}"
-             style="flex:1; border:1.5px solid var(--line); border-radius:22px; padding:11px 18px;
-                    font-family:inherit; font-size:14px;">
-      <button type="submit">보내기</button>
-    </form>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <form id="intakeForm" action="/upload" method="post" enctype="multipart/form-data"
+            style="flex:none; margin:0;">
+        <input type="hidden" name="doc_type" value="{{ project.sector }}">
+        <input type="hidden" name="project_id" value="{{ project.id }}">
+        <label class="icon-btn" title="문서 접수 — 파일을 고르면 바로 접수됩니다"
+               style="cursor:pointer; width:42px; height:42px;">
+          <input type="file" name="file" id="intakeFile" style="display:none;"
+                 accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md">
+          <iconify-icon icon="solar:paperclip-linear" style="font-size:18px;"></iconify-icon>
+        </label>
+      </form>
+      <form action="/chat/send" method="post" style="display:flex; gap:10px; flex:1; margin:0;">
+        <input type="hidden" name="project_id" value="{{ project.id }}">
+        <input type="text" name="question" required
+               placeholder="{{ chat_hints.get(project.sector, '무엇이든 물어보세요') }}"
+               style="flex:1; border:1.5px solid var(--line); border-radius:22px; padding:11px 18px;
+                      font-family:inherit; font-size:14px;">
+        <button type="submit">보내기</button>
+      </form>
+    </div>
+    <p class="muted" id="intakeStatus" style="margin:8px 0 0; font-size:12px;" hidden>
+      문서를 접수하는 중입니다…</p>
     {% if project_chats %}
     <div style="margin-top:14px; display:flex; flex-direction:column; gap:4px;">
       {% for cs in project_chats %}
@@ -110,22 +115,12 @@
     </div>
 
     <div id="paneGuide" class="tab-pane on">
-    <form action="/project/{{ project.id }}/meta" method="post">
-      <div class="form-row">
-        <span class="muted">지침 — 검토·작성·채팅에서 따릅니다</span>
-        <textarea name="instructions" style="min-height:96px;"
-                  placeholder="예: 경력 3년 미만은 반려. 어학 성적은 유효기간을 확인한다.">{{ project.instructions or "" }}</textarea>
-      </div>
-      <button type="submit" class="secondary">지침 저장</button>
-    </form>
-
-    <div style="border-top:1px solid var(--line); margin:16px 0 14px;"></div>
-    <p class="muted" style="margin:0 0 8px; font-size:12px; font-weight:600; color:#5B6B82;">
-      메모 — 에이전트가 참고할 프로젝트 맥락 (최근 5개 반영)</p>
+    <p class="muted" style="margin:0 0 10px;">검토·작성·채팅이 따르는 지침과 참고 맥락입니다.
+      한 줄씩 남기세요 (최근 10개 반영). 채팅으로 말해도 됩니다.</p>
     <form action="/project/{{ project.id }}/notes" method="post"
           style="display:flex; gap:8px; margin-bottom:10px;">
       <input type="text" name="content" required
-             placeholder="예: 서류 마감 3/15. 이번엔 경력자 우대."
+             placeholder="예: 경력 3년 미만은 반려 / 서류 마감 3.15"
              style="flex:1; border:1px solid #D8E1ED; border-radius:10px; padding:9px 12px;
                     font-family:inherit; font-size:13px;">
       <button type="submit" class="secondary" style="padding:8px 14px; font-size:12.5px;">추가</button>
@@ -144,8 +139,8 @@
         </form>
       </div>
       {% else %}
-      <span class="muted" style="font-size:12.5px;">메모가 없습니다. 마감·인원·특이사항을
-        남기면 검토·작성·채팅에 반영됩니다.</span>
+      <span class="muted" style="font-size:12.5px;">아직 없습니다. 반려 기준, 마감,
+        확인 사항 같은 걸 남기면 이 프로젝트의 검토·작성·채팅이 따릅니다.</span>
       {% endfor %}
     </div>
     </div>
@@ -299,6 +294,17 @@
 </div>
 
 <script>
+  var intakeFile = document.getElementById("intakeFile");
+  if (intakeFile) {
+    intakeFile.addEventListener("change", function () {
+      if (intakeFile.files.length) {
+        var st = document.getElementById("intakeStatus");
+        if (st) st.hidden = false;
+        document.getElementById("intakeForm").submit();
+      }
+    });
+  }
+
   document.querySelectorAll(".tabbar [data-tab]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       document.querySelectorAll(".tabbar [data-tab]").forEach(function (b) {

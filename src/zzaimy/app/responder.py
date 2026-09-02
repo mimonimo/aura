@@ -77,9 +77,9 @@ class AgentResponder:
                 lines.append(f"프로젝트 지침: {project['instructions'].strip()}")
             if (project.get("memo") or "").strip():
                 lines.append(f"프로젝트 메모: {project['memo'].strip()}")
-            notes = db.list_project_notes(int(project["id"]))[:5]
+            notes = db.list_project_notes(int(project["id"]))[:10]
             for n in notes:
-                lines.append(f"프로젝트 메모({n['created_at'][:10]}): {n['content']}")
+                lines.append(f"프로젝트 지침·메모({n['created_at'][:10]}): {n['content']}")
             system += "\n\n" + "\n".join(lines)
         messages: list[dict] = [{"role": "system", "content": system}]
         for m in history:
