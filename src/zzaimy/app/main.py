@@ -689,7 +689,9 @@ def create_app(
             else "image" if suffix in (".png", ".jpg", ".jpeg") else None
         )
 
-        assets = db.list_doc_assets(doc_id)
+        all_assets = db.list_doc_assets(doc_id)
+        scan_asset = next((a for a in all_assets if a["kind"] == "scan"), None)
+        assets = [a for a in all_assets if a["kind"] != "scan"]
         asset_by_name = {Path(a["path"]).name: a["id"] for a in assets}
         blocks = chunk_blocks(chunks, doc_id, asset_by_name) if chunks else None
         if blocks is not None and assets and not any(
@@ -714,6 +716,7 @@ def create_app(
                 "doc": doc, "reviews": db.get_reviews(doc_id), "related": related,
                 "assets": assets,
                 "extract_blocks": blocks, "layout_pages": layout,
+                "scan_asset": scan_asset,
                 "original_kind": original_kind,
                 "suggested_criteria": suggested,
                 "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),

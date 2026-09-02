@@ -918,3 +918,19 @@ def test_layout_pages_reconstruct_positions():
     assert "left:" in str(pages[0]) and "top:" in str(pages[0])
     # 좌표 조각이 너무 적으면 배치 보기를 만들지 않는다
     assert layout_pages([{"kind": "text", "page_no": 1, "content": "x"}] * 5) is None
+
+
+def test_scan_asset_separated_from_figures(client):
+    db = client.app.state.db
+    doc_id = db.add_document(filename="사진.jpg", stored_path="/tmp/x.jpg", doc_type="ocr")
+    db.update_document(doc_id, status="reviewed", masked_text="본문입니다 충분히 길게")
+    db.replace_doc_chunks(doc_id, [
+        {"kind": "text", "page_no": 1, "content": "본문 조각입니다 충분히 길게 씁니다"},
+    ])
+    db.replace_doc_assets(doc_id, [
+        {"kind": "scan", "page_no": 1, "path": "/tmp/scan.png"},
+        {"kind": "image", "page_no": 1, "path": "/tmp/fig.png"},
+    ])
+    page = client.get(f"/doc/{doc_id}").text
+    assert "보정 스캔본" in page                      # 원본 패널 토글
+    assert page.count("추출 그림") == 1                # 그림 섹션엔 figure만

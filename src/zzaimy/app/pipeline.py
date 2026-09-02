@@ -119,6 +119,7 @@ class DocumentProcessor:
         self._last_parse_note = ""
         self._last_result: ParseResult | None = None  # 표 구조 보존용
         self._last_attrs: list[str] = []  # 손글씨·도장 등 문서 속성
+        self._last_scan: Path | None = None  # 보정 스캔본
 
     # 파싱 결과 상한 — 인쇄용 PDF 등에서 파서가 비정상적으로 긴 텍스트를 뽑는
     # 사례가 실측됨(26p 문서에서 950만 자). 상한 초과분은 잘라내고 경고를 남긴다.
@@ -140,6 +141,7 @@ class DocumentProcessor:
         self._last_parse_note = ""
         self._last_result = None
         self._last_attrs = []
+        self._last_scan = None
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
@@ -475,6 +477,27 @@ class DocumentProcessor:
             except Exception:
                 continue
         return [c["content"] for c in targets] if corrected_any else None
+
+    @staticmethod
+    def _enhance_scan(image_path: Path) -> Path | None:
+        """사진을 스캐너 앱 결과물처럼 보정 — CLAHE 조명 정규화 + 언샤프 마스크."""
+        try:
+            import cv2
+
+            img = cv2.imread(str(image_path))
+            if img is None:
+                return None
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+            l_ch, a_ch, b_ch = cv2.split(lab)
+            l_ch = cv2.createCLAHE(clipLimit=2.2, tileGridSize=(8, 8)).apply(l_ch)
+            img = cv2.cvtColor(cv2.merge((l_ch, a_ch, b_ch)), cv2.COLOR_LAB2BGR)
+            blur = cv2.GaussianBlur(img, (0, 0), 2.0)
+            img = cv2.addWeighted(img, 1.35, blur, -0.35, 0)
+            dest = image_path.parent / f"{image_path.stem}_scan.png"
+            cv2.imwrite(str(dest), img)
+            return dest
+        except Exception:
+            return None
 
     @staticmethod
     def _crop_document_region(image_path: Path) -> Path | None:
@@ -878,7 +901,10 @@ class DocumentProcessor:
                     # 사진은 비전 모델(Qwen3.5) 판독이 우선 — 손글씨·도장 문구까지.
                     # 배경 속 문서(종이) 영역이 따로 있으면 자동으로 찾아 펴서 읽는다
                     doc_area = self._crop_document_region(file_path)
-                    vlm_md = self._vlm_transcribe(doc_area or file_path)
+                    scan = self._enhance_scan(doc_area or file_path)
+                    if scan is not None:
+                        self._last_scan = scan
+                    vlm_md = self._vlm_transcribe(scan or doc_area or file_path)
                     if vlm_md:
                         parsed_chunks = self._md_to_chunks(vlm_md, self._mask_str)
                         n_t = sum(1 for c in parsed_chunks if c["kind"] == "table")
@@ -904,13 +930,15 @@ class DocumentProcessor:
                             (self._last_parse_note or "일반 파싱") + " · AI 오타 교정"
                         )
                 db.replace_doc_chunks(doc_id, parsed_chunks)
-                db.replace_doc_assets(
-                    doc_id,
-                    [
-                        {"kind": "image", "page_no": pg, "path": str(p)}
-                        for pg, p in self._last_images
-                    ],
-                )
+                asset_rows = [
+                    {"kind": "image", "page_no": pg, "path": str(p)}
+                    for pg, p in self._last_images
+                ]
+                if self._last_scan is not None:
+                    asset_rows.append(
+                        {"kind": "scan", "page_no": 1, "path": str(self._last_scan)}
+                    )
+                db.replace_doc_assets(doc_id, asset_rows)
                 n_tables = sum(1 for c in parsed_chunks if c["kind"] == "table")
                 db.update_document(
                     doc_id,
