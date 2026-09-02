@@ -70,8 +70,13 @@ def build_searchable_pdf(original: Path, chunks: list[dict]) -> bytes | None:
                 float(c["bbox"].split(",")[3])
                 for c in items if c.get("bbox")
             ]
-            sx = pw / max(xs) if xs and max(xs) > pw * 1.05 else 1.0
-            sy = ph / max(ys) if ys and max(ys) > ph * 1.05 else 1.0
+            # 렌더 픽셀 좌표계면 균일 축소 (가로·세로 따로 늘리지 않는다)
+            fit = max(
+                (max(xs) / pw) if xs else 1.0,
+                (max(ys) / ph) if ys else 1.0,
+                1.0,
+            )
+            sx = sy = (1.0 / fit) if fit > 1.08 else 1.0
 
             margin_y = ph - 20
             for c in items:

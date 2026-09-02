@@ -920,9 +920,11 @@ def test_layout_pages_reconstruct_positions():
     assert layout_pages([{"kind": "text", "page_no": 1, "content": "x"}] * 5) is None
 
 
-def test_scan_asset_separated_from_figures(client):
+def test_scan_asset_separated_from_figures(client, tmp_path):
+    src = tmp_path / "사진.jpg"
+    src.write_bytes(b"\xff\xd8\xfffake")
     db = client.app.state.db
-    doc_id = db.add_document(filename="사진.jpg", stored_path="/tmp/x.jpg", doc_type="ocr")
+    doc_id = db.add_document(filename="사진.jpg", stored_path=str(src), doc_type="ocr")
     db.update_document(doc_id, status="reviewed", masked_text="본문입니다 충분히 길게")
     db.replace_doc_chunks(doc_id, [
         {"kind": "text", "page_no": 1, "content": "본문 조각입니다 충분히 길게 씁니다"},
@@ -960,3 +962,17 @@ def test_searchable_pdf_export(client, tmp_path):
     from pypdf import PdfReader
     text = PdfReader(io.BytesIO(r.content)).pages[0].extract_text()
     assert "입찰 공고" in text and "검색가능텍스트" in text  # 보이지 않는 레이어가 검색됨
+
+
+def test_layout_pages_corrects_pixel_coordinates():
+    from zzaimy.app.render import layout_pages
+
+    # 좌표가 페이지(595x842pt)의 2배 픽셀 기준인 경우 — 균일 축소되어야 한다
+    chunks = [
+        {"kind": "text", "page_no": 1, "content": "오른쪽 아래 항목", "bbox": "900,1500,1150,1560"},
+        {"kind": "text", "page_no": 1, "content": "왼쪽 위 항목", "bbox": "100,120,400,180"},
+    ]
+    html = str(layout_pages(chunks, page_sizes={1: (595.0, 842.0)})[0])
+    import re
+    lefts = [float(m) for m in re.findall(r"left:([0-9.]+)px", html)]
+    assert max(lefts) > 400  # 우측 요소가 우측 절반에 실제로 놓인다 (사분면 압축 해소)

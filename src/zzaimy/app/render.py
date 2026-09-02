@@ -211,6 +211,15 @@ def layout_pages(
             ph = max(y1 for *_, y1 in boxes) * 1.03
         if pw <= 0 or ph <= 0:
             continue
+        # 좌표계 보정 — bbox가 렌더 픽셀 기준(페이지의 2배 등)이면 균일 축소
+        max_x = max(x1 for *_, x1, _ in boxes)
+        max_y = max(y1 for *_, y1 in boxes)
+        fit = max(max_x / pw, max_y / ph, 1.0)
+        if fit > 1.08:
+            boxes = [
+                (c, x0 / fit, y0 / fit, x1 / fit, y1 / fit)
+                for c, x0, y0, x1, y1 in boxes
+            ]
         scale = CANVAS_W / pw
         parts = [
             f'<div class="layout-page" style="width:{CANVAS_W:.0f}px;'
