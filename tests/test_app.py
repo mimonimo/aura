@@ -837,3 +837,13 @@ def test_project_notes_flow(client):
     nid = db.list_project_notes(1)[0]["id"]
     client.post(f"/project/1/notes/{nid}/delete")
     assert len(db.list_project_notes(1)) == 1
+
+
+def test_restore_spacing_only_when_needed():
+    from zzaimy.app.regulations import restore_spacing
+
+    dense = "파일을열어보는것만으로도비록의도하지는않았어도파일속성이변경된다"
+    fixed = restore_spacing(dense)
+    assert " " in fixed and "파일" in fixed          # 공백 복원됨
+    normal = "이미 공백이 정상인 문장은 그대로 둔다 왜냐하면 원본이 맞기 때문이다"
+    assert restore_spacing(normal) == normal          # 정상 텍스트는 불변
