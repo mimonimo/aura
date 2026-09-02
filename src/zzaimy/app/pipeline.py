@@ -169,7 +169,12 @@ class DocumentProcessor:
                 # 그림은 임시 디렉터리가 사라지기 전에 밖으로 복사한다
                 keep_dir = file_path.parent / f"{file_path.stem}_imgs"
                 images: list[tuple[int, Path]] = []
-                for img in parsed.images[:20]:
+                seen_hash: set[str] = set()
+                for img in parsed.images:
+                    if len(images) >= 20:
+                        break
+                    if not self._is_meaningful_image(img.path, seen_hash):
+                        continue  # 체크박스·불릿 같은 장식 아이콘, 중복은 걸러낸다
                     keep_dir.mkdir(parents=True, exist_ok=True)
                     dest = keep_dir / img.path.name
                     shutil.copyfile(img.path, dest)
@@ -192,7 +197,8 @@ class DocumentProcessor:
 
     _VLM_PROMPT = (
         "이 이미지는 행정 문서(스캔·사진)다. 보이는 내용을 읽기 순서대로 정확히"
-        " 전사하라.\n- 큰 제목은 '## '로 시작하는 줄로\n- 표는 마크다운 표로\n"
+        " 전사하라.\n- 큰 제목은 '## '로 시작하는 줄로\n- 굵거나 큰 글씨는"
+        " **굵게**로\n- 표는 마크다운 표로\n"
         "- 날짜, 문서번호, 서명, 직인(도장)에 새겨진 글자도 보이는 대로 옮겨라"
         " (도장은 '(직인: ...)' 형태로)\n- 이미지에 없는 내용은 절대 지어내지 마라."
         " 읽을 수 없는 부분은 (판독 불가)로 표시하라."
@@ -323,6 +329,51 @@ class DocumentProcessor:
             return saved
         except Exception:
             return []
+
+    @staticmethod
+    def _pdf_to_images(file_path: Path, max_pages: int = 4) -> list[tuple[int, Path]]:
+        """작은 PDF를 쪽별 PNG로 — 비전 판독용. 조건 밖이거나 실패하면 빈 목록."""
+        if file_path.suffix.lower() != ".pdf":
+            return []
+        try:
+            import pypdfium2 as pdfium
+
+            doc = pdfium.PdfDocument(str(file_path))
+            try:
+                if len(doc) == 0 or len(doc) > max_pages:
+                    return []
+                out_dir = file_path.parent / f"{file_path.stem}_pages"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                pages: list[tuple[int, Path]] = []
+                for i in range(len(doc)):
+                    bmp = doc[i].render(scale=2.0)
+                    dest = out_dir / f"page_{i + 1}.png"
+                    bmp.to_pil().save(dest)
+                    pages.append((i + 1, dest))
+                return pages
+            finally:
+                doc.close()
+        except Exception:
+            return []
+
+    @staticmethod
+    def _is_meaningful_image(path: Path, seen_hash: set[str]) -> bool:
+        """장식 아이콘(작은 그림)과 중복 그림을 걸러낸다."""
+        import hashlib
+
+        try:
+            digest = hashlib.md5(path.read_bytes()).hexdigest()
+            if digest in seen_hash:
+                return False
+            seen_hash.add(digest)
+            from PIL import Image
+
+            with Image.open(path) as im:
+                w, h = im.size
+            # 한 변 120px 미만이거나 넓이가 아이콘 수준이면 본문 그림이 아니다
+            return min(w, h) >= 120 and w * h >= 40000
+        except Exception:
+            return True  # 판별 실패 시엔 남긴다
 
     def _mask_str(self, s: str) -> str:
         if self._masker is None:
@@ -516,7 +567,28 @@ class DocumentProcessor:
                     self._masker = PiiMasker()
 
                 parsed_chunks: list[dict] | None = None
-                if file_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
+                vlm_pages = self._pdf_to_images(file_path, max_pages=4)
+                if vlm_pages:
+                    # 4쪽 이하 PDF는 페이지째 비전 판독 (오인식이 훨씬 적다)
+                    all_chunks: list[dict] = []
+                    mds: list[str] = []
+                    for pg_no, img_path in vlm_pages:
+                        md = self._vlm_transcribe(img_path)
+                        if md:
+                            mds.append(md)
+                            all_chunks += self._md_to_chunks(
+                                md, self._mask_str, page_no=pg_no
+                            )
+                    if all_chunks:
+                        parsed_chunks = all_chunks
+                        n_t = sum(1 for c in parsed_chunks if c["kind"] == "table")
+                        self._last_parse_note = (
+                            f"AI 비전 판독 (Qwen3.5) · {len(vlm_pages)}쪽 · 표 {n_t}개"
+                        )
+                        raw_text = "\n\n".join(mds)
+                if parsed_chunks is None and file_path.suffix.lower() in (
+                    ".png", ".jpg", ".jpeg",
+                ):
                     # 사진은 비전 모델(Qwen3.5) 판독이 우선 — 손글씨·도장 문구까지.
                     vlm_md = self._vlm_transcribe(file_path)
                     if vlm_md:
