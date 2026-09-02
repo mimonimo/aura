@@ -100,3 +100,44 @@ def test_budget_ratio_uses_decimal():
     items = [BudgetItem(name="a", unit_price_krw=1, quantity=3)]
     table = compute_budget(items, limit_krw=9)
     assert table.usage_ratio == Decimal("3") / Decimal("9")
+
+
+# --- 1b. 수치 대조 강화 — 한국어 단위 동치·위반 맥락 ---
+
+
+def test_korean_unit_equivalence_passes():
+    """'6천만 원'과 '60,000,000원'은 같은 수치 — 표기가 달라도 통과해야 한다."""
+    from zzaimy.verify.numbers import verify_numbers
+
+    result = verify_numbers(
+        "총 예산은 6천만 원이며 학기당 250만 원을 지원한다.",
+        ["예산 60,000,000원 규모", "학기당 2,500,000원 지원"],
+    )
+    assert result.ok, result.violations
+
+
+def test_korean_composite_unit_value():
+    """'3억 5천만'은 350,000,000 하나의 값."""
+    from zzaimy.verify.numbers import canonical_values
+
+    vals = canonical_values("사업비 3억 5천만 원")
+    assert "350000000" in vals
+
+
+def test_korean_unit_mismatch_still_flags():
+    from zzaimy.verify.numbers import verify_numbers
+
+    result = verify_numbers("총 예산은 7천만 원이다.", ["예산 60,000,000원"])
+    assert not result.ok
+
+
+def test_violation_contexts_for_ui():
+    """위반 수치마다 초안 속 맥락 조각을 제공 — 담당자가 바로 찾도록."""
+    from zzaimy.verify.numbers import verify_numbers
+
+    result = verify_numbers(
+        "참여율은 92.5%로 집계되었다.", ["참여인원 120명"]
+    )
+    assert not result.ok
+    assert result.contexts and "92.5" in result.contexts[0]
+    assert "참여율" in result.contexts[0]
