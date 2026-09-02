@@ -107,6 +107,9 @@ class SliceDrafter:
                 ]
 
             audit = verify_numbers(full_text, all_evidence)
+            from zzaimy.verify.budget import audit_budget_lines
+
+            budget_issues = audit_budget_lines(full_text)
             coverage = check_coverage(
                 [
                     {"name": c.name, "points": c.points, "keywords": c.keywords or [c.name]}
@@ -123,6 +126,10 @@ class SliceDrafter:
                        len(audit.violations),
                        " / ".join(audit.contexts[:3])
                        + (" 외" if len(audit.contexts) > 3 else ""),
+                   ))
+                + ("" if not budget_issues
+                   else " · 예산 검산 불일치 {}건 — {}".format(
+                       len(budget_issues), " / ".join(budget_issues[:2])
                    ))
             )
             db.update_document(doc_id, draft="\n\n".join(parts), coverage=summary)

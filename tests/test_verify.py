@@ -141,3 +141,25 @@ def test_violation_contexts_for_ui():
     assert not result.ok
     assert result.contexts and "92.5" in result.contexts[0]
     assert "참여율" in result.contexts[0]
+
+
+# --- 3b. 예산 줄 검산 — 초안 속 곱셈식 결정론 재계산 (절대 규칙 5) ---
+
+
+def test_budget_line_audit_catches_wrong_multiplication():
+    from zzaimy.verify.budget import audit_budget_lines
+
+    draft = (
+        "생활비 장학금: 750백만 원(250만 원 × 24명 × 1개 학기)\n"  # 250만×24=6,000만 ≠ 750백만
+        "운영비: 500만 원(50만 원 × 10회)\n"                        # 정확
+    )
+    issues = audit_budget_lines(draft)
+    assert len(issues) == 1
+    assert "750" in issues[0] and "6,000" in issues[0].replace("6000", "6,000")
+
+
+def test_budget_line_audit_passes_correct_lines():
+    from zzaimy.verify.budget import audit_budget_lines
+
+    assert audit_budget_lines("총 6,000만 원(250만 원 × 24명)") == []
+    assert audit_budget_lines("예산 개요만 있고 계산식 없음") == []
