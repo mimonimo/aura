@@ -25,6 +25,44 @@ from zzaimy.ingest.parsers.base import (
 from zzaimy.ingest.parsers.html_table import parse_html_table
 
 
+def extract_middle_lines(
+    middle: dict, min_score: float = 0.5
+) -> tuple[list[dict], dict[int, tuple[float, float]]]:
+    """MinerU middle.json에서 줄 단위 OCR 좌표를 뽑는다.
+
+    스캔 문서의 복원 뷰(원본 배치 투명 레이어)와 검색 가능 PDF의 재료.
+    좌표는 middle.json의 page_size 좌표계(top 기준) 그대로 둔다.
+    """
+    lines: list[dict] = []
+    sizes: dict[int, tuple[float, float]] = {}
+    for info in middle.get("pdf_info") or []:
+        page_no = int(info.get("page_idx", 0)) + 1
+        ps = info.get("page_size") or []
+        if len(ps) == 2:
+            sizes[page_no] = (float(ps[0]), float(ps[1]))
+        for block in info.get("preproc_blocks") or []:
+            for ln in block.get("lines") or []:
+                bb = ln.get("bbox")
+                if not (isinstance(bb, (list, tuple)) and len(bb) == 4):
+                    continue
+                spans = [
+                    sp for sp in ln.get("spans") or []
+                    if sp.get("type") == "text"
+                    and str(sp.get("content") or "").strip()
+                    and float(sp.get("score") or 1.0) >= min_score
+                ]
+                if not spans:
+                    continue
+                text = " ".join(str(sp["content"]).strip() for sp in spans)
+                lines.append({
+                    "page_no": page_no,
+                    "kind": "text",
+                    "content": text,
+                    "bbox": ",".join(f"{float(v):.1f}" for v in bb),
+                })
+    return lines, sizes
+
+
 class MineruNotInstalled(RuntimeError):
     pass
 
@@ -137,7 +175,18 @@ class MineruParser:
             ParsedPage(page_no=i, text="\n\n".join(page_texts.get(i, [])))
             for i in range(1, max_page + 1)
         ]
+        ocr_lines: list[dict] = []
+        ocr_sizes: dict[int, tuple[float, float]] = {}
+        middles = sorted(base_dir.glob("*_middle.json"))
+        if middles:
+            try:
+                ocr_lines, ocr_sizes = extract_middle_lines(
+                    json.loads(middles[0].read_text(encoding="utf-8"))
+                )
+            except (json.JSONDecodeError, TypeError, ValueError):
+                warnings.append("middle.json 줄 좌표 추출 실패")
         return ParseResult(
             parser=self.name, elapsed_s=elapsed, pages=pages,
             tables=tables, images=images, entries=entries, warnings=warnings,
+            ocr_lines=ocr_lines, ocr_page_sizes=ocr_sizes,
         )

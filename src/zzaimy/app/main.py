@@ -737,6 +737,27 @@ def create_app(
                         )
             except Exception:
                 layout = None
+        if layout is None and page_sizes:
+            # 스캔 PDF — 파이프라인이 저장한 줄 단위 OCR 좌표로 투명 레이어
+            lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+            if lines_file.exists():
+                try:
+                    import json as _ljson
+
+                    from zzaimy.app.pdf_lines import scale_ocr_lines
+
+                    items = scale_ocr_lines(
+                        _ljson.loads(lines_file.read_text()), page_sizes
+                    )
+                    if len(items) >= 4:
+                        layout = layout_pages(
+                            items, doc_id, asset_by_name, page_sizes,
+                            page_image_url=(
+                                lambda pg: f"/doc/{doc_id}/page/{pg}.png"
+                            ),
+                        )
+                except Exception:
+                    layout = None
         if layout is None and chunks:
             layout = layout_pages(
                 chunks, doc_id, asset_by_name, page_sizes or None,

@@ -554,6 +554,28 @@ class DocumentProcessor:
         except Exception:
             return None
 
+    def _save_ocr_lines(self, db: Database, doc_id: int) -> None:
+        """줄 단위 OCR 좌표를 문서별 JSON으로 — 스캔 복원 뷰의 투명 레이어 재료."""
+        import json
+
+        parsed = self._last_result
+        if parsed is None or not getattr(parsed, "ocr_lines", None):
+            return
+        try:
+            out_dir = Path(db.path).parent / "lines"
+            out_dir.mkdir(exist_ok=True)
+            payload = {
+                "page_sizes": {
+                    str(k): list(v) for k, v in parsed.ocr_page_sizes.items()
+                },
+                "lines": parsed.ocr_lines,
+            }
+            (out_dir / f"{doc_id}.json").write_text(
+                json.dumps(payload, ensure_ascii=False)
+            )
+        except Exception:
+            log.warning("OCR 줄 좌표 저장 실패 (doc %s)", doc_id, exc_info=True)
+
     def _overlay_text_layer(self, file_path: Path) -> str | None:
         """MinerU 구조(항목·bbox)에 원본 PDF 텍스트 레이어의 글자를 얹는다.
 
@@ -899,6 +921,7 @@ class DocumentProcessor:
                 raw_text = self._parse_mineru(file_path) or self._parse(file_path)
             else:
                 raw_text = self._parse(file_path)
+            self._save_ocr_lines(db, doc_id)
 
             series = classify_series(file_path.name)
 
