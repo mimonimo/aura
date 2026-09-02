@@ -877,3 +877,29 @@ def test_recent_activity_on_dashboard(client):
     page = client.get("/").text
     assert "최근 활동" in page
     assert "이력서R.pdf" in page and "규정R.pdf" in page
+
+
+def test_docx_restoration_export(client):
+    import io
+    import json
+
+    from docx import Document
+
+    db = client.app.state.db
+    doc_id = db.add_document(filename="복원대상.pdf", stored_path="/tmp/x", doc_type="ocr")
+    db.update_document(doc_id, status="reviewed", masked_text="본문")
+    db.replace_doc_chunks(doc_id, [
+        {"kind": "heading", "page_no": 1, "content": "상 장"},
+        {"kind": "text", "page_no": 1, "content": "위 사람은 **우수한** 성적으로 입상하였음"},
+        {"kind": "table", "page_no": 1, "content": json.dumps({
+            "n_rows": 2, "n_cols": 2,
+            "cells": [[0, 0, 1, 2, 1, "구분"], [1, 0, 1, 1, 0, "성명"],
+                      [1, 1, 1, 1, 0, "홍길동(마스킹)"]],
+        }, ensure_ascii=False)},
+    ])
+    r = client.get(f"/doc/{doc_id}/export.docx")
+    assert r.status_code == 200 and r.content[:2] == b"PK"
+    d = Document(io.BytesIO(r.content))
+    texts = "\n".join(p.text for p in d.paragraphs)
+    assert "상 장" in texts and "우수한" in texts
+    assert len(d.tables) == 1 and d.tables[0].cell(0, 0).text == "구분"
