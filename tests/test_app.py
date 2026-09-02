@@ -724,3 +724,15 @@ def test_md_to_chunks_parses_headings_and_tables():
     import json
     data = json.loads(chunks[2]["content"])
     assert data["n_rows"] == 2 and data["cells"][0][5] == "구분"
+
+
+def test_md_to_chunks_parses_html_table_with_spans():
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    md = ("본문 앞줄입니다.\n\n<table>\n<tr><th colspan=\"2\">구분</th></tr>\n"
+          "<tr><td>인건비</td><td>1,000</td></tr>\n</table>")
+    chunks = DocumentProcessor._md_to_chunks(md, lambda s: s)
+    assert [c["kind"] for c in chunks] == ["text", "table"]
+    import json
+    data = json.loads(chunks[1]["content"])
+    assert data["cells"][0][3] == 2 and data["cells"][0][4] == 1  # colspan=2, th

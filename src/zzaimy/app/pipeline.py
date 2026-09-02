@@ -198,7 +198,8 @@ class DocumentProcessor:
     _VLM_PROMPT = (
         "이 이미지는 행정 문서(스캔·사진)다. 보이는 내용을 읽기 순서대로 정확히"
         " 전사하라.\n- 큰 제목은 '## '로 시작하는 줄로\n- 굵거나 큰 글씨는"
-        " **굵게**로\n- 표는 마크다운 표로\n"
+        " **굵게**로\n- 표는 HTML <table>로: 병합 셀은 rowspan/colspan,"
+        " 머리글(음영·강조된 행이나 열)은 <th>로 원본 구조 그대로\n"
         "- 날짜, 문서번호, 서명, 직인(도장)에 새겨진 글자도 보이는 대로 옮겨라"
         " (도장은 '(직인: ...)' 형태로)\n- 이미지에 없는 내용은 절대 지어내지 마라."
         " 읽을 수 없는 부분은 (판독 불가)로 표시하라."
@@ -255,6 +256,38 @@ class DocumentProcessor:
 
         while i < len(lines):
             ln = lines[i].strip()
+            if ln.lower().startswith("<table"):
+                flush_para()
+                html_lines = []
+                while i < len(lines):
+                    html_lines.append(lines[i])
+                    if "</table>" in lines[i].lower():
+                        i += 1
+                        break
+                    i += 1
+                try:
+                    from zzaimy.ingest.parsers.html_table import parse_html_table
+
+                    t = parse_html_table("\n".join(html_lines), page_no=page_no)
+                    cells_json = [
+                        [c.row, c.col, c.row_span, c.col_span,
+                         1 if c.is_header else 0, mk(c.text)]
+                        for c in t.cells
+                    ]
+                    out.append({
+                        "kind": "table", "page_no": page_no,
+                        "content": _json.dumps(
+                            {"n_rows": t.n_rows, "n_cols": t.n_cols,
+                             "cells": cells_json},
+                            ensure_ascii=False,
+                        ),
+                    })
+                except Exception:
+                    out.append({
+                        "kind": "text", "page_no": page_no,
+                        "content": mk("\n".join(html_lines))[:2000],
+                    })
+                continue
             if ln.startswith("|") and ln.count("|") >= 2:
                 flush_para()
                 rows = []
