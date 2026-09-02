@@ -250,8 +250,9 @@ def test_regulation_docs_are_separated_from_inbox(client):
     client.post("/criteria/upload",
                 files={"file": ("학칙.pdf", b"%PDF", "application/pdf")})
     inbox = client.get("/").text
-    assert "계획서.pdf" in inbox
-    assert "학칙.pdf" not in inbox  # 기준 문서는 문서함에 안 섞인다
+    table = inbox.split("접수 문서", 1)[-1].split("</table>", 1)[0]
+    assert "계획서.pdf" in table
+    assert "학칙.pdf" not in table  # 기준 문서는 접수 표에 안 섞인다 (최근 활동에는 보임)
     criteria = client.get("/criteria").text
     assert "학칙.pdf" in criteria
     assert ">1건</span>" in criteria  # 등록 건수 1건 — 접수 문서는 기준 목록에 안 들어간다
@@ -647,8 +648,10 @@ def test_ocr_tool_page_and_upload(client):
                     follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/ocr"
     assert "스캔.pdf" in client.get("/ocr").text
-    # 추출 전용 문서는 검토함·판정 대기에 섞이지 않는다
-    assert "스캔.pdf" not in client.get("/").text
+    # 추출 전용 문서는 접수 표·판정 대기에 섞이지 않는다 (최근 활동에는 보임)
+    home = client.get("/").text
+    table = home.split("접수 문서", 1)[-1].split("</table>", 1)[0]
+    assert "스캔.pdf" not in table
     assert client.app.state.db.pending_documents() == []
 
 
@@ -863,3 +866,13 @@ def test_session_survives_app_restart(tmp_path):
     c2 = TestClient(create_app(**kwargs))
     c2.cookies.set("zz_session", cookie)
     assert c2.get("/").status_code == 200
+
+
+def test_recent_activity_on_dashboard(client):
+    client.post("/upload", data={"doc_type": "recruit"},
+                files={"file": ("이력서R.pdf", b"%PDF", "application/pdf")})
+    client.post("/criteria/upload", data={"sector": "common"},
+                files={"file": ("규정R.pdf", b"%PDF", "application/pdf")})
+    page = client.get("/").text
+    assert "최근 활동" in page
+    assert "이력서R.pdf" in page and "규정R.pdf" in page

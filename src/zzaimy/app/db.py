@@ -346,6 +346,25 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def recent_activity(self, limit: int = 12) -> list[dict]:
+        """대시보드 최근 활동 — 접수·기준 등록·추출·채팅을 시간 역순으로 합친다."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM (
+                  SELECT created_at, filename AS title, id AS ref_id,
+                         CASE doc_type WHEN 'regulation' THEN 'criteria'
+                              WHEN 'ocr' THEN 'ocr' ELSE 'intake' END AS kind
+                  FROM documents
+                  UNION ALL
+                  SELECT created_at, title, id AS ref_id, 'chat' AS kind
+                  FROM chat_sessions
+                ) ORDER BY created_at DESC LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def set_setting(self, key: str, value: str) -> None:
         with self._conn() as conn:
             conn.execute(
