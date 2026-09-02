@@ -840,6 +840,65 @@ class DocumentProcessor:
             log.exception("doc %d 처리 실패", doc_id)
             db.update_document(doc_id, status="failed", error=f"{type(e).__name__}: {e}")
 
+    _ANALYZE_PROMPT = """다음은 문서에서 추출한 내용이다(제목·문단·표 순서 유지, 개인정보 마스킹됨).
+행정 담당자를 위해 이 문서의 맥락을 분석하라.
+
+문서 유형: (공문/공고/계획서/증명서/서식/기타 — 근거와 함께)
+핵심 정보: (기관명, 날짜, 문서번호, 금액, 대상 등 — 추출 내용에 있는 것만)
+표 요약: (표가 있으면 각 표가 무엇을 담는지 한 줄씩)
+맥락 정리: (이 문서가 어떤 업무 흐름의 무엇인지 2~3문장)
+활용 제안: (검토 기준으로 등록/특정 업무 접수/참고자료 중 무엇에 적합한지)
+
+추출 내용에 없는 것은 추정하지 말고 "확인 필요"로 표시하라.
+
+추출 내용:
+{text}"""
+
+    def analyze(self, db: Database, doc_id: int) -> None:
+        """추출된 조각을 근거로 문서 맥락 분석 — OCR 도구의 후속 단계."""
+        doc = db.get_document(doc_id)
+        if doc is None:
+            return
+        try:
+            chunks = db.list_doc_chunks(doc_id)
+            parts: list[str] = []
+            budget = 8000
+            for c in chunks:
+                if c["kind"] == "heading":
+                    piece = f"\n## {c['content']}"
+                elif c["kind"] == "table":
+                    piece = f"\n[표] {c['content'][:800]}"
+                elif c["kind"] == "image":
+                    piece = "\n[그림]"
+                else:
+                    piece = f"\n{c['content']}"
+                if budget - len(piece) < 0:
+                    break
+                budget -= len(piece)
+                parts.append(piece)
+            text = "".join(parts) or (doc.get("masked_text") or "")[:8000]
+
+            from zzaimy.generate.client import VllmClient
+
+            client = VllmClient()
+            resp = client.client.chat.completions.create(
+                model=client.model,
+                temperature=0.2,
+                max_tokens=1200,
+                messages=[{
+                    "role": "user",
+                    "content": self._ANALYZE_PROMPT.format(text=text),
+                }],
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            analysis = (resp.choices[0].message.content or "").strip()
+            db.update_document(doc_id, ai_review=analysis, coverage=None)
+        except Exception as e:
+            log.exception("doc %d 맥락 분석 실패", doc_id)
+            db.update_document(
+                doc_id, coverage=f"맥락 분석 실패: {type(e).__name__}"
+            )
+
     def reprocess(self, db: Database, doc_id: int) -> None:
         """담당자 재검토 요청 — 남긴 의견을 반영해 검토 의견을 다시 생성한다."""
         doc = db.get_document(doc_id)

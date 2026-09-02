@@ -78,6 +78,8 @@ class Processor(Protocol):
 
     def extract_text(self, file_path: Path) -> str: ...
 
+    def analyze(self, db: Database, doc_id: int) -> None: ...
+
 
 class Drafter(Protocol):
     def generate(self, db: Database, doc_id: int) -> None: ...
@@ -258,8 +260,19 @@ def create_app(
             raise HTTPException(404)
         return {
             "processing": doc["status"] in ("received", "processing"),
-            "drafting": (doc.get("coverage") or "").startswith("초안 작성 중"),
+            "drafting": (doc.get("coverage") or "").startswith(("초안 작성 중", "분석 중")),
         }
+
+    @app.post("/doc/{doc_id}/analyze")
+    def doc_analyze(background: BackgroundTasks, doc_id: int):
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        if doc["doc_type"] != "ocr":
+            raise HTTPException(400, "맥락 분석은 문서 추출 도구의 문서에서 지원한다")
+        db.update_document(doc_id, coverage="분석 중입니다 (30초~1분)")
+        background.add_task(processor.analyze, db, doc_id)
+        return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
     @app.get("/chat/{session_id}/status")
     def chat_status(session_id: int):

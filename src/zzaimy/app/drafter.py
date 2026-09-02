@@ -50,13 +50,28 @@ class SliceDrafter:
             # 인풋 서류(신청서 등)가 공고와 다른 문서면 그 내용을 작성 재료로 쓴다
             materials: list[Evidence] = []
             if ref_name != doc["filename"]:
-                paras = [
-                    p.strip() for p in doc["masked_text"].split("\n\n") if len(p.strip()) > 60
+                # 구조 조각(문단·표)이 있으면 그것을 재료로 — 표 내용까지 근거가 된다
+                chunks = [
+                    c for c in db.list_doc_chunks(doc_id)
+                    if c["kind"] in ("text", "table") and len(c["content"]) > 60
                 ]
-                materials = [
-                    Evidence(text=p[:600], source_doc=doc["filename"], source_page=i + 1)
-                    for i, p in enumerate(paras[:8])
-                ]
+                if chunks:
+                    materials = [
+                        Evidence(
+                            text=c["content"][:600], source_doc=doc["filename"],
+                            source_page=c.get("page_no") or i + 1,
+                        )
+                        for i, c in enumerate(chunks[:10])
+                    ]
+                else:
+                    paras = [
+                        p.strip() for p in doc["masked_text"].split("\n\n")
+                        if len(p.strip()) > 60
+                    ]
+                    materials = [
+                        Evidence(text=p[:600], source_doc=doc["filename"], source_page=i + 1)
+                        for i, p in enumerate(paras[:8])
+                    ]
 
             # 작성 방향: 기본 방향 + 담당자·프로젝트 지침 + 재작성 의견 반영
             project = (
