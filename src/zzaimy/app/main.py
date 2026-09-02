@@ -806,7 +806,8 @@ def create_app(
             )
         if payload is None:
             raise HTTPException(400, "이 문서 형식은 PDF 레이어를 만들 수 없다")
-        fname = quote(f"{src.stem if doc['filename'] is None else Path(doc['filename']).stem}_OCR.pdf")
+        stem = Path(doc["filename"] or src.name).stem
+        fname = quote(f"{stem}_OCR.pdf")
         return Response(
             payload, media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
