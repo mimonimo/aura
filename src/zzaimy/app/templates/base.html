@@ -17,11 +17,16 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
-  html { scroll-behavior: smooth; }
+  /* 페이지 간 목록 길이 차이로 스크롤바가 생겼다 사라지면 가운데 정렬이 좌우로
+     튄다(실사용 지적) — 스크롤바 자리를 항상 확보한다 */
+  html { scroll-behavior: smooth; overflow-y: scroll; }
   body { background: var(--bg); color: var(--ink); font-size: 15px;
          font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif;
          word-break: keep-all; }
-  iconify-icon { display: inline-block; vertical-align: -0.15em; }
+  /* 아이콘이 비동기 로드되기 전 폭이 0이면 로드 순간 레이아웃이 밀린다 —
+     로드 전에도 1em 정사각 자리를 확보한다 */
+  iconify-icon { display: inline-block; vertical-align: -0.15em;
+                 width: 1em; height: 1em; }
 
   /* ── 사이드바 ── */
   .sidebar { width: 248px; background: #fff; border-right: 1px solid var(--line);
@@ -173,23 +178,28 @@
            background: #fff; color: var(--ink); font-size: 14px; font-weight: 600;
            font-family: inherit; transition: border-color .35s var(--ease); }
   select:focus { border-color: var(--blue); outline: none; }
-  textarea { border: 1.5px solid var(--line); background: var(--panel);
-             border-radius: 12px; padding: 12px 14px; width: 100%; min-height: 88px;
-             resize: vertical; font-size: 13.5px; line-height: 1.65; color: var(--ink);
-             font-family: inherit;
-             transition: border-color .35s var(--ease), background .35s var(--ease); }
-  textarea::placeholder, input::placeholder { color: var(--faint); }
-  textarea:focus { border-color: var(--blue); background: #fff; outline: none;
+  textarea { border: 1px solid #D8E1ED; background: #fff;
+             border-radius: 10px; padding: 11px 13px; width: 100%; min-height: 88px;
+             resize: none; font-size: 13.5px; line-height: 1.65; color: var(--ink);
+             font-family: inherit; transition: border-color .35s var(--ease); }
+  textarea::placeholder, input::placeholder { color: #A6B3C5; }
+  textarea:focus { border-color: var(--blue); outline: none;
              box-shadow: 0 0 0 3px rgba(73,123,251,.1); }
+  .form-row > .muted { font-size: 12px; font-weight: 600; color: #5B6B82;
+             letter-spacing: 0.01em; }
 
-  /* 우측 패널 탭 */
-  .tabbar { display: flex; gap: 4px; background: var(--panel); border-radius: 12px;
-            padding: 4px; margin-bottom: 16px; }
-  .tabbar button { flex: 1; background: transparent; color: var(--muted); box-shadow: none;
-            border-radius: 9px; padding: 8px 6px; font-size: 13px; font-weight: 600; }
-  .tabbar button:hover { background: #E8EFFC; color: var(--navy); box-shadow: none; }
-  .tabbar button.on { background: #fff; color: var(--navy);
-            box-shadow: 0 1px 4px rgba(27,59,117,.12); }
+  /* 우측 패널 탭 — 세그먼트 컨트롤 */
+  .tabbar { display: flex; gap: 3px; background: #E9EEF5; border-radius: 11px;
+            padding: 3px; margin-bottom: 16px; }
+  .tabbar button { flex: 1 1 0; min-width: 0; justify-content: center;
+            background: transparent; color: var(--muted); box-shadow: none; border: 0;
+            border-radius: 9px; padding: 8px 4px; font-size: 13px; font-weight: 600;
+            transition: background .25s var(--ease), color .25s var(--ease); }
+  .tabbar button:hover { background: rgba(255,255,255,.6); color: var(--navy);
+            box-shadow: none; }
+  .tabbar button:focus { outline: none; }
+  .tabbar button.on, .tabbar button.on:hover { background: #fff; color: var(--navy);
+            box-shadow: 0 1px 3px rgba(27,59,117,.15); }
   .tab-pane { display: none; }
   .tab-pane.on { display: block; }
   pre.doc-text { white-space: pre-wrap; font-family: inherit; font-size: 14px;
