@@ -260,6 +260,7 @@ def create_app(
         else:
             flt = None
         projects = db.list_projects(doc_type) if doc_type else []
+        recent = db.recent_activity() if doc_type is None else []
         # 섹터 화면에서는 그 섹터의 기준 문서(공고 등)를 접수 대상 선택지로 제공
         sector_criteria = []
         if doc_type:
@@ -274,7 +275,7 @@ def create_app(
                 "documents": docs, "active_tab": doc_type or "all", "q": q or "",
                 "sector_criteria": sector_criteria,
                 "projects": projects, "active_project": project,
-                "stats": stats, "active_flt": flt,
+                "stats": stats, "active_flt": flt, "recent_activity": recent,
             }),
         )
 

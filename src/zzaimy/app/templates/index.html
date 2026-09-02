@@ -112,6 +112,33 @@
   {% endfor %}
 </div>
 
+{% if active_tab == "all" and recent_activity %}
+{% set act_meta = {
+  "intake": ("solar:inbox-archive-linear", "접수", "/doc/"),
+  "criteria": ("solar:library-linear", "기준 등록", "/doc/"),
+  "ocr": ("solar:scanner-linear", "문서 추출", "/doc/"),
+  "chat": ("solar:chat-line-linear", "채팅", "/chat/"),
+} %}
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:history-linear"></iconify-icon>최근 활동</h2>
+    <div style="display:flex; flex-direction:column;">
+      {% for a in recent_activity %}
+      {% set m = act_meta.get(a.kind) %}
+      <a href="{{ m[2] }}{{ a.ref_id }}" style="display:flex; align-items:center; gap:10px;
+         padding:8px 6px; border-bottom:1px solid #EDF2F7; text-decoration:none;
+         color:var(--ink); font-size:13.5px;">
+        <iconify-icon icon="{{ m[0] }}" style="color:var(--faint); flex:none;"></iconify-icon>
+        <span class="pill" style="flex:none; font-size:11px; padding:2px 9px;">{{ m[1] }}</span>
+        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ a.title }}</span>
+        <span class="muted" style="flex:none; font-size:12px;">{{ a.created_at[:16].replace("T", " ") }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="card reveal">
   <div class="card-in">
     <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
