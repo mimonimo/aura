@@ -892,7 +892,38 @@ def create_app(
         suffix = src.suffix.lower()
         payload: bytes | None = None
         if suffix == ".pdf" and src.exists():
-            payload = build_searchable_pdf(src, chunks)
+            # 줄 단위 좌표가 있으면 그것으로 — 선택·검색 위치가 정확하다
+            line_items: list[dict] = []
+            try:
+                from zzaimy.app.pdf_lines import pdf_line_boxes, scale_ocr_lines
+                from zzaimy.app.pipeline import DocumentProcessor
+
+                if DocumentProcessor._pdf_has_text_layer(src):
+                    lp = pdf_line_boxes(src)
+                    line_items = [
+                        ln for pg in sorted(lp) for ln in lp[pg]
+                    ]
+                else:
+                    lf = Path(db_path).parent / "lines" / f"{doc_id}.json"
+                    if lf.exists():
+                        import json as _ej
+
+                        from pypdf import PdfReader
+
+                        sizes = {
+                            i: (float(p.mediabox.width), float(p.mediabox.height))
+                            for i, p in enumerate(
+                                PdfReader(str(src)).pages, start=1
+                            )
+                        }
+                        line_items = scale_ocr_lines(
+                            _ej.loads(lf.read_text()), sizes
+                        )
+            except Exception:
+                line_items = []
+            payload = build_searchable_pdf(
+                src, line_items if len(line_items) >= 4 else chunks
+            )
         elif suffix in (".png", ".jpg", ".jpeg") and src.exists():
             scan = next(
                 (a for a in db.list_doc_assets(doc_id)
