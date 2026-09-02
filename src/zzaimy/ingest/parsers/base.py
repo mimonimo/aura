@@ -51,12 +51,28 @@ class ParsedImage:
 
 
 @dataclass(frozen=True)
+class ParsedEntry:
+    """읽기 순서상의 한 항목 — 원본 좌표(bbox)까지 보존한다.
+
+    kind: text | heading | table | image. table/image는 ref로
+    ParseResult.tables / images 목록의 인덱스를 가리킨다.
+    """
+
+    page_no: int
+    kind: str
+    text: str = ""
+    ref: int = -1
+    bbox: tuple[float, float, float, float] | None = None
+
+
+@dataclass(frozen=True)
 class ParseResult:
     parser: str
     elapsed_s: float
     pages: list[ParsedPage] = field(default_factory=list)
     tables: list[ParsedTable] = field(default_factory=list)
     images: list[ParsedImage] = field(default_factory=list)
+    entries: list[ParsedEntry] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 

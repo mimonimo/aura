@@ -108,6 +108,8 @@ class Database:
         "ALTER TABLE chat_sessions ADD COLUMN project_id INTEGER",
         "ALTER TABLE projects ADD COLUMN due_date TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN parse_note TEXT",
+        "ALTER TABLE doc_chunks ADD COLUMN bbox TEXT",
+        "ALTER TABLE doc_assets ADD COLUMN bbox TEXT",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -303,10 +305,11 @@ class Database:
         with self._conn() as conn:
             conn.execute("DELETE FROM doc_chunks WHERE doc_id = ?", (doc_id,))
             conn.executemany(
-                "INSERT INTO doc_chunks (doc_id, seq, kind, page_no, content)"
-                " VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO doc_chunks (doc_id, seq, kind, page_no, content, bbox)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
                 [
-                    (doc_id, i, c.get("kind", "text"), c.get("page_no"), c["content"])
+                    (doc_id, i, c.get("kind", "text"), c.get("page_no"),
+                     c["content"], c.get("bbox"))
                     for i, c in enumerate(chunks)
                 ],
             )

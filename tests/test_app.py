@@ -776,3 +776,28 @@ def test_ocr_analyze_flow(tmp_path):
     c.post("/upload", data={"doc_type": "auto"},
            files={"file": ("b.pdf", b"%PDF", "application/pdf")})
     assert c.post("/doc/2/analyze").status_code == 400
+
+
+def test_structured_chunks_use_entries_with_bbox():
+    from zzaimy.app.pipeline import DocumentProcessor
+    from zzaimy.ingest.parsers.base import (
+        ParsedEntry, ParsedPage, ParsedTable, ParseResult, TableCell,
+    )
+
+    proc = DocumentProcessor()
+    proc._last_result = ParseResult(
+        parser="fake", elapsed_s=0.1,
+        pages=[ParsedPage(page_no=1, text="무시됨")],
+        tables=[ParsedTable(page_no=1, n_rows=1, n_cols=1,
+                            cells=(TableCell(row=0, col=0, text="셀"),))],
+        entries=[
+            ParsedEntry(page_no=1, kind="heading", text="제1장 총칙",
+                        bbox=(10.0, 20.0, 300.0, 40.0)),
+            ParsedEntry(page_no=1, kind="text", text="본문 내용입니다"),
+            ParsedEntry(page_no=1, kind="table", ref=0, bbox=(10.0, 50.0, 300.0, 90.0)),
+        ],
+    )
+    chunks = proc._structured_chunks(do_mask=False)
+    assert [c["kind"] for c in chunks] == ["heading", "text", "table"]
+    assert chunks[0]["bbox"] == "10.0,20.0,300.0,40.0"   # 원본 좌표 보존
+    assert chunks[2]["bbox"] == "10.0,50.0,300.0,90.0"
