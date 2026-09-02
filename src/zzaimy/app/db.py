@@ -87,6 +87,7 @@ class Database:
         "ALTER TABLE projects ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN memo TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE chat_sessions ADD COLUMN project_id INTEGER",
+        "ALTER TABLE projects ADD COLUMN due_date TEXT NOT NULL DEFAULT ''",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -259,11 +260,12 @@ class Database:
             ).fetchall()
             return [dict(r) for r in reversed(rows)]
 
-    def create_project(self, sector: str, name: str) -> int:
+    def create_project(self, sector: str, name: str, due_date: str = "") -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO projects (sector, name, created_at) VALUES (?, ?, ?)",
-                (sector, name[:80], _now()),
+                "INSERT INTO projects (sector, name, created_at, due_date)"
+                " VALUES (?, ?, ?, ?)",
+                (sector, name[:80], _now(), due_date[:10]),
             )
             return int(cur.lastrowid or 0)
 
@@ -306,9 +308,18 @@ class Database:
             return [dict(r) for r in rows]
 
     def update_project_meta(
-        self, project_id: int, instructions: str | None = None, memo: str | None = None
+        self,
+        project_id: int,
+        instructions: str | None = None,
+        memo: str | None = None,
+        due_date: str | None = None,
     ) -> None:
         with self._conn() as conn:
+            if due_date is not None:
+                conn.execute(
+                    "UPDATE projects SET due_date = ? WHERE id = ?",
+                    (due_date[:10], project_id),
+                )
             if instructions is not None:
                 conn.execute(
                     "UPDATE projects SET instructions = ? WHERE id = ?",

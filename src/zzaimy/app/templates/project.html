@@ -22,7 +22,9 @@
       <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ project.name }}</div>
       <div style="font-size:13px; color:#B9C6DA; margin-top:3px;">
         {{ sector_labels.get(project.sector, project.sector) }} 섹터 · 문서 {{ documents|length }}건
-        · 연결 기준 {{ linked_criteria|length }}건 · 만든 날 {{ project.created_at[:10] }}</div>
+        · 연결 기준 {{ linked_criteria|length }}건
+        {% if project.due_date %} · <b style="color:#FBD38D;">마감 {{ project.due_date }}</b>{% endif %}
+        · 만든 날 {{ project.created_at[:10] }}</div>
     </div>
     <a href="/?type={{ project.sector }}" class="btn-ghost on-dark" style="margin-left:auto;">섹터로</a>
   </div>
@@ -142,6 +144,30 @@
     <span class="muted">이 섹터에 등록된 기준 문서가 없습니다.
       <a href="/criteria">기준 문서</a>에서 공고를 먼저 등록하세요.</span>
     {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:settings-linear"></iconify-icon>프로젝트 관리</h2>
+    <form action="/projects/{{ project.id }}/rename" method="post">
+      <div class="form-row">
+        <span class="muted">이름</span>
+        <input type="text" name="name" value="{{ project.name }}" required>
+      </div>
+      <div class="form-row">
+        <span class="muted">마감일</span>
+        <input type="date" name="due_date" value="{{ project.due_date or '' }}"
+               style="border:1.5px solid var(--line); border-radius:12px; padding:10px 14px;
+                      font-family:inherit; font-size:14px;">
+      </div>
+      <button type="submit" class="secondary">저장</button>
+    </form>
+    <form action="/projects/{{ project.id }}/delete" method="post" style="margin-top:12px;"
+          onsubmit="return confirm('프로젝트를 삭제할까요? 소속 문서는 남고 연결만 해제됩니다.');">
+      <button type="submit" class="secondary"
+              style="border-color:#E7B9B8; color:var(--red);">프로젝트 삭제</button>
+    </form>
   </div>
 </div>
 

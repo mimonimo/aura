@@ -172,12 +172,34 @@ def create_app(
         type: str | None = None,
         q: str | None = None,
         project: int | None = None,
+        flt: str | None = None,
     ):
         doc_type = type if type in INBOX_TYPES else None
-        docs = [
+        all_docs = [
             d for d in db.list_documents(doc_type, q=q, project_id=project)
             if d["doc_type"] != "regulation"
         ]
+        stats = {
+            "total": len(all_docs),
+            "processing": sum(1 for d in all_docs if d["status"] in ("received", "processing")),
+            "reviewed": sum(1 for d in all_docs if d["status"] == "reviewed"),
+            "pending": sum(
+                1 for d in all_docs
+                if d["status"] == "reviewed" and d["decision"] == "pending"
+            ),
+        }
+        docs = all_docs
+        if flt == "processing":
+            docs = [d for d in all_docs if d["status"] in ("received", "processing")]
+        elif flt == "reviewed":
+            docs = [d for d in all_docs if d["status"] == "reviewed"]
+        elif flt == "pending":
+            docs = [
+                d for d in all_docs
+                if d["status"] == "reviewed" and d["decision"] == "pending"
+            ]
+        else:
+            flt = None
         projects = db.list_projects(doc_type) if doc_type else []
         # 섹터 화면에서는 그 섹터의 기준 문서(공고 등)를 접수 대상 선택지로 제공
         sector_criteria = []
@@ -193,6 +215,7 @@ def create_app(
                 "documents": docs, "active_tab": doc_type or "all", "q": q or "",
                 "sector_criteria": sector_criteria,
                 "projects": projects, "active_project": project,
+                "stats": stats, "active_flt": flt,
             }),
         )
 
@@ -233,7 +256,10 @@ def create_app(
         doc = db.get_document(doc_id)
         if doc is None:
             raise HTTPException(404)
-        return {"processing": doc["status"] in ("received", "processing")}
+        return {
+            "processing": doc["status"] in ("received", "processing"),
+            "drafting": (doc.get("coverage") or "").startswith("초안 작성 중"),
+        }
 
     @app.get("/chat/{session_id}/status")
     def chat_status(session_id: int):
@@ -342,13 +368,15 @@ def create_app(
         return RedirectResponse("/criteria", status_code=303)
 
     @app.post("/projects")
-    def create_project(sector: str = Form(...), name: str = Form(...)):
+    def create_project(
+        sector: str = Form(...), name: str = Form(...), due_date: str = Form("")
+    ):
         if sector not in INBOX_TYPES:
             raise HTTPException(400, f"알 수 없는 섹터: {sector}")
         if not name.strip():
             raise HTTPException(400, "프로젝트 이름이 필요하다")
-        db.create_project(sector, name.strip())
-        return RedirectResponse(f"/?type={sector}", status_code=303)
+        pid = db.create_project(sector, name.strip(), due_date=due_date.strip())
+        return RedirectResponse(f"/project/{pid}", status_code=303)
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request):
@@ -413,16 +441,18 @@ def create_app(
         return RedirectResponse(f"/project/{project_id}", status_code=303)
 
     @app.post("/projects/{project_id}/rename")
-    def rename_project(project_id: int, name: str = Form(...)):
+    def rename_project(
+        project_id: int, name: str = Form(...), due_date: str | None = Form(None)
+    ):
         proj = db.get_project(project_id)
         if proj is None:
             raise HTTPException(404, "프로젝트를 찾을 수 없다")
         if not name.strip():
             raise HTTPException(400, "프로젝트 이름이 필요하다")
         db.rename_project(project_id, name.strip())
-        return RedirectResponse(
-            f"/?type={proj['sector']}&project={project_id}", status_code=303
-        )
+        if due_date is not None:
+            db.update_project_meta(project_id, due_date=due_date.strip())
+        return RedirectResponse(f"/project/{project_id}", status_code=303)
 
     @app.post("/projects/{project_id}/delete")
     def delete_project(project_id: int):
@@ -467,6 +497,8 @@ def create_app(
         if doc["doc_type"] != "grant":
             # 목적별 플로우: 초안 작성은 국고사업 계열, 나머지는 검토·판정
             raise HTTPException(400, "초안 작성은 국고사업 문서에서만 지원한다")
+        # 진행 표시를 먼저 남긴다 — 생성이 끝나면 drafter가 결과로 덮어쓴다
+        db.update_document(doc_id, coverage="초안 작성 중입니다 (1~2분 걸립니다)")
         background.add_task(drafter.generate, db, doc_id)
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
