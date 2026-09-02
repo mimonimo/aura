@@ -250,7 +250,7 @@ def test_regulation_docs_are_separated_from_inbox(client):
     client.post("/criteria/upload",
                 files={"file": ("학칙.pdf", b"%PDF", "application/pdf")})
     inbox = client.get("/").text
-    table = inbox.split("접수 문서", 1)[-1].split("</table>", 1)[0]
+    table = inbox.split("<th>접수번호</th>", 1)[-1].split("</table>", 1)[0]
     assert "계획서.pdf" in table
     assert "학칙.pdf" not in table  # 기준 문서는 접수 표에 안 섞인다 (최근 활동에는 보임)
     criteria = client.get("/criteria").text
@@ -650,7 +650,8 @@ def test_ocr_tool_page_and_upload(client):
     assert "스캔.pdf" in client.get("/ocr").text
     # 추출 전용 문서는 접수 표·판정 대기에 섞이지 않는다 (최근 활동에는 보임)
     home = client.get("/").text
-    table = home.split("접수 문서", 1)[-1].split("</table>", 1)[0]
+    _, sep, rest = home.partition("<th>접수번호</th>")
+    table = rest.split("</table>", 1)[0] if sep else ""  # 접수 문서가 없으면 표도 없다
     assert "스캔.pdf" not in table
     assert client.app.state.db.pending_documents() == []
 
