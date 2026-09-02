@@ -691,6 +691,16 @@ def create_app(
 
         assets = db.list_doc_assets(doc_id)
         asset_by_name = {Path(a["path"]).name: a["id"] for a in assets}
+        blocks = chunk_blocks(chunks, doc_id, asset_by_name) if chunks else None
+        if blocks is not None and assets and not any(
+            c["kind"] == "image" for c in chunks
+        ):
+            from zzaimy.app.render import trailing_image_blocks
+
+            blocks = blocks + trailing_image_blocks(doc_id, assets)
+        from zzaimy.app.render import layout_pages
+
+        layout = layout_pages(chunks, doc_id, asset_by_name) if chunks else None
         import json as _json
 
         try:
@@ -703,9 +713,7 @@ def create_app(
             ctx({
                 "doc": doc, "reviews": db.get_reviews(doc_id), "related": related,
                 "assets": assets,
-                "extract_blocks": (
-                    chunk_blocks(chunks, doc_id, asset_by_name) if chunks else None
-                ),
+                "extract_blocks": blocks, "layout_pages": layout,
                 "original_kind": original_kind,
                 "suggested_criteria": suggested,
                 "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),

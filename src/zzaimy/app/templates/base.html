@@ -221,6 +221,23 @@
   table.extract th { background: #EEF3FA; color: var(--navy); font-weight: 700;
                   font-size: 12px; }
 
+  /* 원본 배치 재구성 — bbox 좌표대로 놓인 페이지 캔버스 */
+  .layout-page { position: relative; background: #fff; border: 1px solid var(--line);
+                 border-radius: 10px; margin-bottom: 16px; width: 100%;
+                 overflow: hidden; }
+  .layout-pageno { position: absolute; top: 6px; right: 10px; font-size: 10.5px;
+                 color: var(--faint); font-weight: 700; z-index: 2; }
+  .layout-box { position: absolute; overflow: hidden; font-size: 10.5px;
+                line-height: 1.45; padding: 1px 2px; white-space: pre-wrap;
+                border: 1px dashed transparent; }
+  .layout-box:hover { border-color: #C9D7F0; background: #F6FAFF; overflow: auto;
+                z-index: 3; }
+  .layout-box .table-scroll { margin: 0; }
+  .layout-box table.extract { font-size: 9px; margin: 0; }
+  .layout-box table.extract th, .layout-box table.extract td { padding: 1px 3px;
+                min-width: 0; }
+  .layout-h { color: var(--navy); font-size: 12px; }
+
   /* 지침·메모 목록 — 조용한 행, 호버 시 삭제 */
   .note-row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px;
               padding: 9px 4px; border-bottom: 1px solid #EFF3F8; }

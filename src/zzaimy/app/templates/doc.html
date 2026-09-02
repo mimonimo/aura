@@ -18,6 +18,23 @@
   {% endif %}
 {% endblock %}
 {% block content %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("[data-vtab]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        document.querySelectorAll("[data-vtab]").forEach(function (b) {
+          b.classList.toggle("on", b === btn);
+        });
+        var flow = document.getElementById("viewFlow");
+        var lay = document.getElementById("viewLayout");
+        if (flow && lay) {
+          flow.hidden = btn.dataset.vtab !== "viewFlow";
+          lay.hidden = btn.dataset.vtab !== "viewLayout";
+        }
+      });
+    });
+  });
+</script>
 <p><a href="{{ '/criteria' if doc.doc_type == 'regulation' else ('/ocr' if doc.doc_type == 'ocr' else '/') }}" class="btn-ghost">
   ← {{ "기준 문서로" if doc.doc_type == "regulation" else ("문서 추출로" if doc.doc_type == "ocr" else "문서 검토함으로") }}</a></p>
 
@@ -175,26 +192,27 @@
       </div>
       {% endif %}
       {% if extract_blocks %}
-      <div class="extract-doc" style="max-height:560px; overflow-y:auto;">
-        {% for b in extract_blocks %}{{ b }}{% endfor %}
+      <div style="min-width:0;">
+        {% if layout_pages %}
+        <div class="tabbar" style="max-width:280px; margin-bottom:10px;">
+          <button type="button" class="on" data-vtab="viewFlow">읽기 순서</button>
+          <button type="button" data-vtab="viewLayout">원본 배치</button>
+        </div>
+        {% endif %}
+        <div id="viewFlow" class="extract-doc" style="max-height:560px; overflow-y:auto;">
+          {% for b in extract_blocks %}{{ b }}{% endfor %}
+        </div>
+        {% if layout_pages %}
+        <div id="viewLayout" hidden style="max-height:560px; overflow-y:auto;">
+          {% for pgv in layout_pages %}{{ pgv }}{% endfor %}
+        </div>
+        {% endif %}
       </div>
       {% else %}
       <pre class="doc-text" style="max-height:560px;">{{ doc.masked_text }}</pre>
       {% endif %}
     </div>
-    {% if assets %}
-    <p class="muted" style="margin:14px 0 6px; font-size:12.5px; font-weight:600;">추출된 그림 {{ assets|length }}장</p>
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      {% for a in assets %}
-      <figure style="margin:0; width:150px;">
-        <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="p{{ a.page_no }} 그림"
-             style="width:100%; border:1px solid var(--line); border-radius:10px;">
-        <figcaption class="muted" style="font-size:11px; margin-top:2px;">p{{ a.page_no }}
-          · <a href="/doc/{{ doc.id }}/asset/{{ a.id }}?dl=1">내려받기</a></figcaption>
-      </figure>
-      {% endfor %}
-    </div>
-    {% endif %}
+
   </div>
 </div>
 {% endif %}
