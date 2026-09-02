@@ -7,9 +7,16 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 
 from markupsafe import Markup, escape
+
+
+def _rich(text: str) -> Markup:
+    """이스케이프 후 **굵게**만 살린다 — 비전 판독의 강조 보존."""
+    escaped = str(escape(text))
+    return Markup(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped))
 
 
 def table_html(content: str) -> Markup:
@@ -121,7 +128,7 @@ def chunk_blocks(
                 ).format(doc_id, c["id"])
             blocks.append(block)
         elif c["kind"] == "heading":
-            blocks.append(Markup('<h4 class="extract-h">{}</h4>').format(c["content"]))
+            blocks.append(Markup('<h4 class="extract-h">{}</h4>').format(_rich(c["content"])))
         else:
-            blocks.append(Markup('<p class="extract-p">{}</p>').format(c["content"]))
+            blocks.append(Markup('<p class="extract-p">{}</p>').format(_rich(c["content"])))
     return blocks
