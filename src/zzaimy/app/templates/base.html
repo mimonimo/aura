@@ -4,9 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}YNC 행정 에이전트{% endblock %}</title>
-<link rel="stylesheet" as="style" crossorigin
-  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
-<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"></script>
+<link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+  integrity="sha384-GIdEBaqGN9mNkDkMkzMHW8EKUqtpPIe/sLj1X7DIrnc9uPtLROJgmuDlh+3rBw0j" crossorigin="anonymous">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"
+  integrity="sha384-GPb5RlngihS9H0z1D137JsvzmeZ7tCpWEF4t5YDoTZyMsPP8S7h7vFDh4XhheU83" crossorigin="anonymous"></script>
 <style>
   :root {
     --navy: #1B3B75; --navy-deep: #14325A; --blue: #497BFB;
@@ -372,7 +374,12 @@
       <div class="popover" id="userPop">
         <h5>{{ profile_name or "담당자" }}{% if profile_dept %} · {{ profile_dept }}{% endif %}</h5>
         <a class="pop-item" href="/settings"><iconify-icon icon="solar:user-id-linear"></iconify-icon><span>프로필·에이전트 지침 설정</span></a>
-        <span class="pop-item disabled"><iconify-icon icon="solar:logout-2-linear"></iconify-icon><span>로그아웃 · 계정 기능 도입 예정</span></span>
+        <form action="/logout" method="post" style="margin:0;">
+          <button type="submit" class="pop-item" style="width:100%; background:none; border:0;
+                  box-shadow:none; color:var(--ink); font-weight:400; font-size:13.5px;
+                  padding:9px 10px; cursor:pointer; justify-content:flex-start; gap:9px;">
+            <iconify-icon icon="solar:logout-2-linear"></iconify-icon>로그아웃</button>
+        </form>
       </div>
     </div>
   </div>

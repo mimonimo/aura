@@ -110,20 +110,49 @@ def create_app(
     비밀번호 없이 외부 바인딩(0.0.0.0)하는 조합은 main()에서 거부한다.
     """
     dependencies = []
+    # 세션 토큰 — 앱이 뜰 때마다 새로 만든다 (재시작하면 재로그인)
+    session_token = secrets.token_hex(32)
     if password is not None:
-        basic = HTTPBasic()
+        basic = HTTPBasic(auto_error=False)
 
-        def check_auth(cred: HTTPBasicCredentials = Depends(basic)) -> None:
-            # 바이트 비교 — compare_digest는 비ASCII 문자열을 받지 못한다
-            ok = secrets.compare_digest(
-                cred.username.encode(), b"zzaimy"
-            ) and secrets.compare_digest(cred.password.encode(), password.encode())
-            if not ok:
+        def check_auth(
+            request: Request,
+            cred: HTTPBasicCredentials | None = Depends(basic),
+        ) -> None:
+            # 브라우저는 로그인 페이지의 세션 쿠키로, 스크립트·API는 Basic으로
+            if request.url.path == "/login" or request.url.path.startswith("/static"):
+                return
+            if secrets.compare_digest(
+                request.cookies.get("zz_session", ""), session_token
+            ):
+                return
+            if cred is not None:
+                # 바이트 비교 — compare_digest는 비ASCII 문자열을 받지 못한다
+                ok = secrets.compare_digest(
+                    cred.username.encode(), b"zzaimy"
+                ) and secrets.compare_digest(cred.password.encode(), password.encode())
+                if ok:
+                    return
                 raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
+            # 인증 정보가 아예 없는 브라우저 요청 — 로그인 페이지로
+            raise HTTPException(401, detail="login-required")
 
         dependencies = [Depends(check_auth)]
 
     app = FastAPI(title="YNC 행정문서 검토 플랫폼", dependencies=dependencies)
+
+    from fastapi import status as _status
+    from fastapi.responses import JSONResponse
+
+    @app.exception_handler(HTTPException)
+    async def _auth_redirect(request: Request, exc: HTTPException):
+        # 세션 없는 브라우저 접근은 로그인 페이지로 보낸다
+        if exc.status_code == 401 and exc.detail == "login-required":
+            return RedirectResponse("/login", status_code=_status.HTTP_303_SEE_OTHER)
+        return JSONResponse(
+            {"detail": exc.detail}, status_code=exc.status_code,
+            headers=getattr(exc, "headers", None),
+        )
     app.mount(
         "/static",
         StaticFiles(directory=str(Path(__file__).parent / "static")),
@@ -404,6 +433,36 @@ def create_app(
             raise HTTPException(400, "프로젝트 이름이 필요하다")
         pid = db.create_project(sector, name.strip(), due_date=due_date.strip())
         return RedirectResponse(f"/project/{pid}", status_code=303)
+
+    @app.get("/login", response_class=HTMLResponse)
+    def login_page(request: Request, err: int = 0):
+        if password is None:
+            return RedirectResponse("/", status_code=303)
+        return templates.TemplateResponse(
+            request, "login.html", {"err": err, "request": request}
+        )
+
+    @app.post("/login")
+    def login_submit(username: str = Form(""), pw: str = Form("")):
+        if password is None:
+            return RedirectResponse("/", status_code=303)
+        ok = secrets.compare_digest(username.strip().encode(), b"zzaimy") and (
+            secrets.compare_digest(pw.encode(), password.encode())
+        )
+        if not ok:
+            return RedirectResponse("/login?err=1", status_code=303)
+        resp = RedirectResponse("/", status_code=303)
+        resp.set_cookie(
+            "zz_session", session_token, httponly=True, samesite="lax",
+            max_age=60 * 60 * 12,
+        )
+        return resp
+
+    @app.post("/logout")
+    def logout():
+        resp = RedirectResponse("/login" if password is not None else "/", status_code=303)
+        resp.delete_cookie("zz_session")
+        return resp
 
     @app.get("/ocr", response_class=HTMLResponse)
     def ocr_page(request: Request, err: str | None = None):
