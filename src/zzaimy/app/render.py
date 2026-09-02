@@ -177,44 +177,52 @@ def layout_pages(
     chunks: list[dict],
     doc_id: int | None = None,
     asset_by_name: dict[str, int] | None = None,
+    page_sizes: dict[int, tuple[float, float]] | None = None,
 ) -> list[Markup] | None:
-    """bbox로 원본 배치를 재구성 — 페이지 캔버스 위에 요소를 좌표대로 놓는다.
+    """bbox로 원본 배치를 재구성 — 실제 페이지 치수 기준, 픽셀 고정 캔버스.
 
-    좌표가 있는 조각이 충분치 않으면 None (읽기 순서 보기만 제공).
+    글자 크기는 박스 높이·줄 수에서 계산해 원본 밀도에 가깝게 맞춘다.
+    좌표가 있는 조각이 충분치 않으면 None.
     """
+    CANVAS_W = 760.0
     with_bbox = [c for c in chunks if c.get("bbox")]
     if len(with_bbox) < max(2, len(chunks) // 3):
         return None
 
-    pages: dict[int, list[dict]] = defaultdict(list)
+    pages: dict[int, list] = defaultdict(list)
     for c in chunks:
-        pages[c.get("page_no") or 1].append(c)
+        if not c.get("bbox"):
+            continue
+        try:
+            x0, y0, x1, y1 = (float(v) for v in c["bbox"].split(","))
+        except ValueError:
+            continue
+        if x1 <= x0 or y1 <= y0:
+            continue
+        pages[c.get("page_no") or 1].append((c, x0, y0, x1, y1))
 
     out: list[Markup] = []
     for pg in sorted(pages):
-        items = pages[pg]
-        boxes = []
-        for c in items:
-            if not c.get("bbox"):
-                continue
-            try:
-                x0, y0, x1, y1 = (float(v) for v in c["bbox"].split(","))
-                boxes.append((c, x0, y0, x1, y1))
-            except ValueError:
-                continue
-        if not boxes:
+        boxes = pages[pg]
+        if page_sizes and pg in page_sizes:
+            pw, ph = page_sizes[pg]
+        else:
+            pw = max(x1 for *_, x1, _ in boxes) * 1.02
+            ph = max(y1 for *_, y1 in boxes) * 1.03
+        if pw <= 0 or ph <= 0:
             continue
-        w = max(x1 for *_, x1, _ in boxes) * 1.02 or 1
-        h = max(y1 for *_, y1 in boxes) * 1.03 or 1
+        scale = CANVAS_W / pw
         parts = [
-            f'<div class="layout-page" style="aspect-ratio:{w:.0f}/{h:.0f};">',
+            f'<div class="layout-page" style="width:{CANVAS_W:.0f}px;'
+            f' height:{ph * scale:.0f}px;">',
             f'<span class="layout-pageno">{pg}쪽</span>',
         ]
         for c, x0, y0, x1, y1 in boxes:
+            left, top = x0 * scale, y0 * scale
+            bw, bh = (x1 - x0) * scale, (y1 - y0) * scale
             style = (
-                f"left:{100 * x0 / w:.2f}%; top:{100 * y0 / h:.2f}%;"
-                f" width:{100 * (x1 - x0) / w:.2f}%;"
-                f" height:{100 * (y1 - y0) / h:.2f}%;"
+                f"left:{left:.1f}px; top:{top:.1f}px;"
+                f" width:{bw:.1f}px; height:{bh:.1f}px;"
             )
             if c["kind"] == "image":
                 aid = (asset_by_name or {}).get(c["content"])
@@ -225,10 +233,15 @@ def layout_pages(
                 )
             elif c["kind"] == "table":
                 inner = table_html(c["content"])
-            elif c["kind"] == "heading":
-                inner = Markup('<b class="layout-h">{}</b>').format(c["content"])
             else:
-                inner = _rich(c["content"])
+                n_lines = max(c["content"].count("\n") + 1, 1)
+                fs = max(7.0, min(15.0, bh / n_lines * 0.72))
+                weight = "700" if c["kind"] == "heading" else "400"
+                color = "var(--navy)" if c["kind"] == "heading" else "inherit"
+                inner = Markup(
+                    '<span style="font-size:{:.1f}px; font-weight:{}; color:{};'
+                    ' line-height:1.32; display:block;">{}</span>'
+                ).format(fs, weight, color, _rich(c["content"]))
             parts.append(
                 Markup('<div class="layout-box" style="{}">{}</div>').format(
                     Markup(style), inner
