@@ -28,6 +28,10 @@ SEEDS = [
     "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN213",  # 채용 공고
     "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN213&page=2",
     "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN213&page=3",
+    "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN218",  # 입찰 공고
+    "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN218&page=2",
+    "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN218&mode=view&mgr_seq=27&board_seq=104914",
+    "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN213&mode=view&board_seq=104996&mgr_seq=214",
     "https://iacf.ync.ac.kr/document/law",  # 산단 규정
     "https://onestop.ync.ac.kr/oneStop/index.jsp",
 ]
