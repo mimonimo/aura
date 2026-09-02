@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>로그인 — YNC 행정 에이전트</title>
+<link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+  integrity="sha384-GIdEBaqGN9mNkDkMkzMHW8EKUqtpPIe/sLj1X7DIrnc9uPtLROJgmuDlh+3rBw0j" crossorigin="anonymous">
+<script src="https://code.iconify.design/iconify-icon/2.1.0/iconify-icon.min.js"
+  integrity="sha384-GPb5RlngihS9H0z1D137JsvzmeZ7tCpWEF4t5YDoTZyMsPP8S7h7vFDh4XhheU83" crossorigin="anonymous"></script>
+<style>
+  :root { --navy: #1B3B75; --blue: #497BFB; --ink: #1F2937; --muted: #64748B;
+          --bg: #F1F5F9; --line: #E2E8F0; --red: #B3312F; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: linear-gradient(160deg, #F1F5F9 60%, #E3ECFB);
+         font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif;
+         color: var(--ink); display: flex; align-items: center; justify-content: center;
+         min-height: 100vh; word-break: keep-all; }
+  iconify-icon { display: inline-block; vertical-align: -0.15em; width: 1em; height: 1em; }
+  .login-card { background: rgba(255,255,255,.8); border: 1px solid rgba(226,232,240,.9);
+                border-radius: 22px; padding: 8px; width: 400px; max-width: 92vw;
+                box-shadow: 0 20px 60px rgba(27,59,117,.12); }
+  .login-in { background: #fff; border-radius: 16px; padding: 38px 34px 30px; }
+  .brand { text-align: center; margin-bottom: 26px; }
+  .brand img { height: 40px; }
+  .brand span { display: inline-block; margin-top: 12px; background: #E8EFFC;
+                color: var(--navy); font-size: 11.5px; font-weight: 700;
+                letter-spacing: .04em; padding: 5px 14px; border-radius: 13px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #5B6B82;
+          margin: 0 0 6px 2px; }
+  input { width: 100%; border: 1px solid #D8E1ED; border-radius: 11px;
+          padding: 12px 14px; font-size: 14.5px; font-family: inherit;
+          margin-bottom: 14px; transition: border-color .3s; }
+  input:focus { border-color: var(--blue); outline: none;
+          box-shadow: 0 0 0 3px rgba(73,123,251,.1); }
+  button { width: 100%; background: var(--navy); color: #fff; border: 0;
+           border-radius: 12px; padding: 13px; font-size: 15px; font-weight: 700;
+           font-family: inherit; cursor: pointer; margin-top: 4px;
+           box-shadow: 0 4px 14px rgba(27,59,117,.22); transition: background .3s; }
+  button:hover { background: var(--blue); }
+  .err { display: flex; gap: 8px; align-items: center; background: #FDECEC;
+         color: var(--red); border-radius: 10px; padding: 10px 13px;
+         font-size: 13px; margin-bottom: 14px; }
+  .foot { text-align: center; color: var(--muted); font-size: 11.5px; margin-top: 20px;
+          line-height: 1.6; }
+</style>
+</head>
+<body>
+  <div class="login-card"><div class="login-in">
+    <div class="brand">
+      <img src="/static/ync-logo.png" alt="영남이공대학교">
+      <br><span>행정 에이전트 플랫폼</span>
+    </div>
+    {% if err %}
+    <div class="err"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon>
+      아이디 또는 비밀번호가 올바르지 않습니다.</div>
+    {% endif %}
+    <form action="/login" method="post">
+      <label for="l-id">아이디</label>
+      <input id="l-id" type="text" name="username" value="zzaimy" required autocomplete="username">
+      <label for="l-pw">비밀번호</label>
+      <input id="l-pw" type="password" name="pw" required autofocus autocomplete="current-password">
+      <button type="submit">로그인</button>
+    </form>
+    <p class="foot">교내 담당자 전용 시스템입니다.<br>
+      문서와 데이터는 이 장비 밖으로 나가지 않습니다.</p>
+  </div></div>
+</body>
+</html>

@@ -190,9 +190,25 @@ def test_password_protection_requires_auth(tmp_path):
         processor=FakeProcessor(), drafter=FakeDrafter(), password="secret-1234",
     )
     c = TestClient(app)
-    assert c.get("/").status_code == 401  # 인증 없이 거부
-    assert c.get("/", auth=("zzaimy", "wrong")).status_code == 401
-    assert c.get("/", auth=("zzaimy", "secret-1234")).status_code == 200
+    # 브라우저(인증 없음)는 로그인 페이지로
+    r = c.get("/", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/login"
+    assert "로그인" in c.get("/login").text
+    # 틀린 로그인 → 오류 표시, 맞으면 세션 쿠키로 통과
+    r = c.post("/login", data={"username": "zzaimy", "pw": "wrong"}, follow_redirects=False)
+    assert "err=1" in r.headers["location"]
+    r = c.post("/login", data={"username": "zzaimy", "pw": "secret-1234"},
+               follow_redirects=False)
+    assert r.headers["location"] == "/" and "zz_session" in r.headers.get("set-cookie", "")
+    assert c.get("/").status_code == 200  # TestClient가 쿠키 유지
+    # 스크립트·API 경로: Basic 인증 병행
+    c2 = TestClient(app)
+    assert c2.get("/", auth=("zzaimy", "wrong")).status_code == 401
+    assert c2.get("/", auth=("zzaimy", "secret-1234")).status_code == 200
+    # 로그아웃 → 다시 로그인 페이지로
+    r = c.post("/logout", follow_redirects=False)
+    assert r.headers["location"] == "/login"
+    assert c.get("/", follow_redirects=False).status_code == 303
 
 
 def test_no_password_means_open_localhost_mode(client):
