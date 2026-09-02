@@ -59,8 +59,12 @@ def main() -> None:
     rows = [r for r in rows if r["chunk_id"] in valid_ids]
     print(f"평가 질의 소스 {len(rows)}조각", flush=True)
 
-    metrics: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    counts: dict[str, int] = defaultdict(int)
+    # 지표는 정본 구현(zzaimy.eval.retrieval)으로 계산 — 논문 표와 동일 코드
+    from zzaimy.eval.retrieval import mrr as _mrr
+    from zzaimy.eval.retrieval import recall_at_k
+
+    runs: dict[str, list[list]] = defaultdict(list)
+    golds: dict[str, list[set]] = defaultdict(list)
 
     for i, r in enumerate(rows):
         gold = r["chunk_id"]
@@ -76,15 +80,8 @@ def main() -> None:
                 ("어휘(Kiwi)", lex), ("임베딩(KURE)", den),
                 ("하이브리드(동가중)", hyb), ("하이브리드(임베딩 우세)", hyw),
             ):
-                counts[name] += 1
-                if gold in ranking:
-                    rank = ranking.index(gold) + 1
-                    metrics[name]["mrr"] += 1.0 / rank
-                    if rank <= 1:
-                        metrics[name]["r1"] += 1
-                    if rank <= 5:
-                        metrics[name]["r5"] += 1
-                    metrics[name]["r10"] += 1
+                runs[name].append(list(ranking))
+                golds[name].append({gold})
         if (i + 1) % 100 == 0:
             print(f"진행 {i + 1}/{len(rows)}", flush=True)
 
@@ -92,7 +89,7 @@ def main() -> None:
         "# 검색 미니 베이스라인 (규정 코퍼스 · 합성 질의)",
         "",
         f"측정일 {date.today().isoformat()} · 조각 {len(valid_ids)}개 · "
-        f"질의 {counts.get('하이브리드(동가중)', 0)}건 · 임베딩 KURE-v1 · 어휘 Kiwi 명사+IDF",
+        f"질의 {len(runs.get('하이브리드(동가중)', []))}건 · 임베딩 KURE-v1 · 어휘 Kiwi 명사+IDF",
         "",
         "합성 질의 자가 검색이므로 절대치는 낙관적 — 방식 간 비교·회귀 감지용.",
         "",
@@ -100,11 +97,10 @@ def main() -> None:
         "|---|---|---|---|---|",
     ]
     for name in ("어휘(Kiwi)", "임베딩(KURE)", "하이브리드(동가중)", "하이브리드(임베딩 우세)"):
-        n = max(counts[name], 1)
-        m = metrics[name]
+        rl, gs = runs[name], golds[name]
         lines.append(
-            f"| {name} | {m['r1'] / n:.3f} | {m['r5'] / n:.3f} |"
-            f" {m['r10'] / n:.3f} | {m['mrr'] / n:.3f} |"
+            f"| {name} | {recall_at_k(rl, gs, 1):.3f} | {recall_at_k(rl, gs, 5):.3f} |"
+            f" {recall_at_k(rl, gs, 10):.3f} | {_mrr(rl, gs):.3f} |"
         )
     report = "\n".join(lines) + "\n"
     REPORT.write_text(report, encoding="utf-8")
