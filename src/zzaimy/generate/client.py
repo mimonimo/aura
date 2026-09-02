@@ -16,9 +16,15 @@ from zzaimy.retrieve.stub import Evidence
 
 _SCHEMA_PROMPT = """다음은 국고사업 공고문 본문이다. 공고에서 아래 정보를 추출해 JSON으로 답하라.
 - title: 사업명
-- sections: 계획서 목차 (name, requirements)
-- criteria: 평가지표 (name, points 배점, keywords 핵심 키워드 목록)
+- sections: 계획서에 써야 할 목차. 공고에 작성 항목·제출 목차가 있으면 항목별로
+  나눠라(하나로 뭉치지 마라). 목차가 없으면 사업 개요/추진 계획/성과 관리/예산처럼
+  공고 내용에서 유추되는 3~6개 항목으로 나눠라
+- criteria: 평가지표. 반드시 배점표·심사기준에 적힌 것만 쓰고, points는 그 표의
+  배점 숫자만 넣어라. 사업비·지원 금액·인원수 같은 수치를 배점으로 넣지 마라.
+  배점표가 아예 없으면 criteria는 빈 배열로 둬라
 - budget_limit_krw: 예산 상한 (원 단위 정수, 명시 없으면 null)
+
+공고 본문에 없는 내용은 만들지 마라.
 
 공고 본문:
 {announcement}"""
