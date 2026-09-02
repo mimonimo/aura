@@ -25,6 +25,7 @@ SECTOR_RULES = [
     (re.compile(r"채용|임용|응시|모집공고"), "recruit"),
     (re.compile(r"입학|모집요강|전형"), "admission"),
     (re.compile(r"예산|결산|재정"), "grant"),
+    (re.compile(r"입찰|계약|조달|구매"), "auto"),
 ]
 KEEP_PAGE = re.compile(
     r"학사|규정|장학|등록금|수강|성적|졸업|휴학|복학|증명서|채용|입학|예산|결산|편입|전과"
@@ -38,9 +39,15 @@ DROP = re.compile(
     r"|업체등록|이메일무단수집|학생회|동아리|활동_및_모집|복지_편의|자매결연"
     r"|해외연수|적립금|업무추진비|이사회|평의원회|자체평가|정보공개|등록금심의"
     r"|예_결산공고|주요성과|국제적_수준|든든한_장학제도|^영남이공대학교|^학과|^CI"
+    r"|건의_사항|강의계획서"
 )
 MIN_PAGE_CHARS = 800
 FILE_EXTS = (".pdf", ".hwp", ".hwpx")
+# 파일(첨부)용 채택 기준 — 게시판 첨부는 업무 문서 비중이 높아 페이지보다 넓게 본다
+KEEP_FILE = re.compile(
+    r"학사|규정|장학|등록금|수강|성적|졸업|휴학|복학|증명서|채용|임용|입학|모집"
+    r"|예산|결산|편입|전과|입찰|계약|공고|지침|매뉴얼|업무처리|처리기준|계획|보고서|신청"
+)
 
 
 def _peek_text(f: Path) -> str:
@@ -51,6 +58,16 @@ def _peek_text(f: Path) -> str:
 
             reader = PdfReader(str(f))
             return (reader.pages[0].extract_text() or "")[:600]
+        if f.suffix.lower() == ".hwpx":
+            import re as _re
+            import zipfile
+
+            with zipfile.ZipFile(f) as zf:
+                for n in sorted(zf.namelist()):
+                    if n.startswith("Contents/section"):
+                        xml = zf.read(n).decode("utf-8", errors="replace")
+                        return _re.sub(r"<[^>]+>", " ", xml)[:600]
+            return ""
         if f.suffix.lower() == ".hwp":
             import subprocess
             import sys
@@ -120,7 +137,7 @@ def main() -> None:
         if f.suffix.lower() not in FILE_EXTS or f.stat().st_size < 10_000:
             continue
         peek = _peek_text(f)
-        if not peek or not KEEP_PAGE.search(peek):
+        if not peek or not KEEP_FILE.search(peek):
             continue  # 내용을 못 읽거나 무관한 파일은 제외
         title = re.sub(r"\s+", " ", peek).strip()[:50]
         name = re.sub(r"[^\w가-힣]+", "_", title)[:60] + f.suffix.lower()
