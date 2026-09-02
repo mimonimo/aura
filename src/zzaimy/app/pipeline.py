@@ -247,11 +247,21 @@ class DocumentProcessor:
     def process(self, db: Database, doc_id: int, file_path: Path) -> None:
         db.update_document(doc_id, status="processing")
         try:
-            raw_text = self._parse(file_path)
-
-            series = classify_series(file_path.name)
             doc = db.get_document(doc_id)
             doc_type = (doc or {}).get("doc_type", "auto")
+
+            if doc_type == "ocr" and file_path.suffix.lower() in (
+                ".pdf", ".png", ".jpg", ".jpeg",
+            ):
+                # 문서 추출 도구 — 명시적 OCR 요청이므로 MinerU를 바로 쓴다
+                # (표는 구조로, 그림은 파일로). 실패 시 기본 파서로 진행
+                self._last_images = []
+                self._last_parse_note = ""
+                raw_text = self._parse_mineru(file_path) or self._parse(file_path)
+            else:
+                raw_text = self._parse(file_path)
+
+            series = classify_series(file_path.name)
 
             if doc_type == "regulation":
                 # 규정 등록 모드 — 판단 근거이지 개인 문서가 아니므로 마스킹하지
@@ -279,6 +289,35 @@ class DocumentProcessor:
                     ai_review=(
                         f"규정 등록 완료 — {len(chunks)}개 조각으로 분해되어 저장소에"
                         " 들어갔습니다. 이제 문서 검토 시 이 규정이 근거로 인용됩니다."
+                    ),
+                )
+                return
+
+            if doc_type == "ocr":
+                # 문서 추출 도구 — 검토 없이 파싱·마스킹·구조화 저장까지만
+                if self._masker is None:
+                    self._masker = PiiMasker()
+                masked, _ = self._masker.mask(
+                    RawDocument(doc_id=str(doc_id), text=raw_text)
+                )
+                parsed_chunks = _split_chunks(masked.text)
+                db.replace_doc_chunks(doc_id, parsed_chunks)
+                db.replace_doc_assets(
+                    doc_id,
+                    [
+                        {"kind": "image", "page_no": pg, "path": str(p)}
+                        for pg, p in self._last_images
+                    ],
+                )
+                n_tables = sum(1 for c in parsed_chunks if c["kind"] == "table")
+                db.update_document(
+                    doc_id,
+                    status="reviewed",
+                    masked_text=masked.text,
+                    parse_note=self._last_parse_note or None,
+                    ai_review=(
+                        f"추출 완료 — 본문 {len(parsed_chunks) - n_tables}조각, 표 {n_tables}개,"
+                        f" 그림 {len(self._last_images)}장을 옮겼습니다."
                     ),
                 )
                 return

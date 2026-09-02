@@ -53,7 +53,7 @@ INBOX_TYPES = {
     "recruit": "채용",
     "admission": "입학",
 }
-DOC_TYPE_LABELS = {**INBOX_TYPES, "regulation": "기준 문서"}
+DOC_TYPE_LABELS = {**INBOX_TYPES, "regulation": "기준 문서", "ocr": "문서 추출"}
 
 SECTOR_LABELS = {
     "common": "공통",
@@ -177,7 +177,7 @@ def create_app(
         doc_type = type if type in INBOX_TYPES else None
         all_docs = [
             d for d in db.list_documents(doc_type, q=q, project_id=project)
-            if d["doc_type"] != "regulation"
+            if d["doc_type"] not in ("regulation", "ocr")
         ]
         stats = {
             "total": len(all_docs),
@@ -391,6 +391,33 @@ def create_app(
             raise HTTPException(400, "프로젝트 이름이 필요하다")
         pid = db.create_project(sector, name.strip(), due_date=due_date.strip())
         return RedirectResponse(f"/project/{pid}", status_code=303)
+
+    @app.get("/ocr", response_class=HTMLResponse)
+    def ocr_page(request: Request):
+        docs = db.list_documents("ocr")
+        return templates.TemplateResponse(
+            request, "ocr.html", ctx({"documents": docs, "active_tab": "all"})
+        )
+
+    @app.post("/ocr/upload")
+    def ocr_upload(
+        background: BackgroundTasks,
+        file: list[UploadFile] = File(...),
+    ):
+        for f in file:
+            suffix = Path(f.filename or "이름없음").suffix.lower()
+            if suffix not in ALLOWED_EXTENSIONS:
+                raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+        for f in file:
+            name = f.filename or "이름없음"
+            stored = inbox_dir / f"{uuid.uuid4().hex}{Path(name).suffix.lower()}"
+            with stored.open("wb") as out:
+                shutil.copyfileobj(f.file, out)
+            doc_id = db.add_document(
+                filename=name, stored_path=str(stored), doc_type="ocr"
+            )
+            background.add_task(processor.process, db, doc_id, stored)
+        return RedirectResponse("/ocr", status_code=303)
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request):

@@ -618,3 +618,15 @@ def test_criteria_upload_links_to_project(client):
     assert db.get_project_criteria_ids(1) == [1]   # 등록과 동시에 연결
     client.post("/project/1/criteria/unlink", data={"criteria_doc_id": "1"})
     assert db.get_project_criteria_ids(1) == []
+
+
+def test_ocr_tool_page_and_upload(client):
+    assert "문서 추출" in client.get("/ocr").text
+    r = client.post("/ocr/upload",
+                    files=[("file", ("스캔.pdf", b"%PDF", "application/pdf"))],
+                    follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/ocr"
+    assert "스캔.pdf" in client.get("/ocr").text
+    # 추출 전용 문서는 검토함·판정 대기에 섞이지 않는다
+    assert "스캔.pdf" not in client.get("/").text
+    assert client.app.state.db.pending_documents() == []
