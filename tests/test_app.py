@@ -33,6 +33,9 @@ class FakeProcessor:
     def extract_text(self, file_path: Path) -> str:
         return "합성 첨부 본문"
 
+    def analyze(self, db: Database, doc_id: int) -> None:
+        db.update_document(doc_id, ai_review="합성 맥락 분석", coverage=None)
+
 
 class FakeDrafter:
     """실제 초안 생성(스키마→섹션 생성→검증) 대신 즉시 완료 처리."""
@@ -736,3 +739,24 @@ def test_md_to_chunks_parses_html_table_with_spans():
     import json
     data = json.loads(chunks[1]["content"])
     assert data["cells"][0][3] == 2 and data["cells"][0][4] == 1  # colspan=2, th
+
+
+def test_ocr_analyze_flow(tmp_path):
+    class FakeAnalyzer(FakeProcessor):
+        def analyze(self, db, doc_id):
+            db.update_document(doc_id, ai_review="문서 유형: 공문 (합성 분석)", coverage=None)
+
+    app = create_app(
+        db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+        processor=FakeAnalyzer(), drafter=FakeDrafter(),
+    )
+    c = TestClient(app)
+    c.post("/ocr/upload", files=[("file", ("공문.pdf", b"%PDF", "application/pdf"))])
+    r = c.post("/doc/1/analyze", follow_redirects=False)
+    assert r.status_code == 303
+    page = c.get("/doc/1").text
+    assert "문서 유형: 공문" in page and "맥락 분석" in page
+    # 검토함 문서에는 분석 라우트가 막혀 있다
+    c.post("/upload", data={"doc_type": "auto"},
+           files={"file": ("b.pdf", b"%PDF", "application/pdf")})
+    assert c.post("/doc/2/analyze").status_code == 400

@@ -2,7 +2,7 @@
 {% block title %}{{ doc.filename }} — 검토{% endblock %}
 {% block pagetitle %}{{ "기준 문서" if doc.doc_type == "regulation" else "문서 검토" }}{% endblock %}
 {% block head %}
-  {% set drafting = doc.coverage and doc.coverage.startswith("초안 작성 중") %}
+  {% set drafting = doc.coverage and (doc.coverage.startswith("초안 작성 중") or doc.coverage.startswith("분석 중")) %}
   {% if doc.status in ("processing", "received") or drafting %}
   <script>
     (function poll() {
@@ -62,11 +62,30 @@
 </div>
 
 {% if doc.doc_type in ("regulation", "ocr") %}
-  {% if doc.ai_review %}
+  {% set analyzing = doc.coverage and doc.coverage.startswith("분석 중") %}
+  {% if doc.ai_review or doc.coverage %}
   <div class="card reveal">
     <div class="card-in">
-      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>{{ "기준 등록 결과" if doc.doc_type == "regulation" else "추출 요약" }}</h2>
+      {% set is_summary = doc.ai_review and doc.ai_review.startswith("추출 완료") %}
+      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>{{ "기준 등록 결과" if doc.doc_type == "regulation" else ("추출 요약" if is_summary else "맥락 분석") }}</h2>
+      {% if analyzing %}
+      <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>{{ doc.coverage }} — 끝나면 자동 갱신됩니다.</span></p>
+      {% elif doc.coverage and doc.coverage.startswith("맥락 분석 실패") %}
+      <p class="notice"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>{{ doc.coverage }}</span></p>
+      {% endif %}
+      {% if doc.ai_review %}
+      {% if is_summary %}
       <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ doc.ai_review }}</span></p>
+      {% else %}
+      <pre class="doc-text">{{ doc.ai_review | md_lite }}</pre>
+      {% endif %}
+      {% endif %}
+      {% if doc.doc_type == "ocr" and doc.status == "reviewed" and not analyzing %}
+      <form action="/doc/{{ doc.id }}/analyze" method="post" style="margin-top:12px;">
+        <button type="submit" class="secondary">{{ "다시 분석" if not is_summary and doc.ai_review else "맥락 분석" }}</button>
+        <span class="muted" style="margin-left:8px;">추출 결과를 근거로 문서 유형·핵심 정보·활용처를 정리합니다.</span>
+      </form>
+      {% endif %}
     </div>
   </div>
   {% endif %}
