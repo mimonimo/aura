@@ -254,19 +254,21 @@
 
     {% if extract_blocks %}
     <div id="modeRestored">
-      {% if layout_pages %}
+      {% if restored_pdf %}
       <div class="tabbar" style="max-width:280px; margin-bottom:10px;">
-        <button type="button" class="on" data-vtab="viewLayout">원본 배치</button>
-        <button type="button" data-vtab="viewFlow">읽기 순서</button>
+        <button type="button" class="on" data-vtab="viewLayout">복원 문서</button>
+        <button type="button" data-vtab="viewFlow">AI 읽기</button>
       </div>
       {% endif %}
-      <div id="viewFlow" class="extract-doc" {% if layout_pages %}hidden{% endif %}
+      <div id="viewFlow" class="extract-doc" {% if restored_pdf %}hidden{% endif %}
            style="max-height:680px; overflow-y:auto;">
         {% for b in extract_blocks %}{{ b }}{% endfor %}
       </div>
-      {% if layout_pages %}
-      <div id="viewLayout" class="layout-wrap" style="max-height:680px; overflow-y:auto;">
-        {% for pgv in layout_pages %}{{ pgv }}{% endfor %}
+      {% if restored_pdf %}
+      {# OCR 레이어가 입혀진 PDF — 크롬 내장 뷰어에서 드래그 복사·검색 #}
+      <div id="viewLayout">
+        <embed src="/doc/{{ doc.id }}/restored.pdf" type="application/pdf"
+               style="width:100%; height:680px; border:1px solid var(--line); border-radius:12px;">
       </div>
       {% endif %}
     </div>

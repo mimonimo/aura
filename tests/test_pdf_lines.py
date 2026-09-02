@@ -82,3 +82,31 @@ def test_same_line_runs_stay_separate(tmp_path):
     assert all(ln.get("justify") for ln in same_line)
     assert not any("사업목적" in t and "심사요건" in t
                    for t in (ln["content"] for ln in lines)), "단이 병합됨"
+
+
+def test_build_restored_pdf_scan(tmp_path):
+    """스캔 PDF → 보정 페이지 이미지 + 투명 텍스트 레이어의 복원 PDF."""
+    # 이미지 기반(텍스트 레이어 없는) PDF 흉내
+    from PIL import Image
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    from zzaimy.app.pdf_layer import build_restored_scan_pdf
+    img = tmp_path / "page.png"
+    Image.new("RGB", (700, 500), "#eeeeec").save(img)
+    src = tmp_path / "scan.pdf"
+    cv = rl_canvas.Canvas(str(src), pagesize=(700, 500))
+    cv.drawImage(str(img), 0, 0, width=700, height=500)
+    cv.save()
+
+    lines = [{
+        "page_no": 1, "kind": "text", "content": "긁히는 스캔 문장",
+        "bbox": "50.0,60.0,400.0,90.0", "justify": True,
+    }]
+    out = build_restored_scan_pdf(src, lines, {1: (700.0, 500.0)})
+    assert out is not None
+    import io
+
+    from pypdf import PdfReader
+    r = PdfReader(io.BytesIO(out))
+    assert len(r.pages) == 1
+    assert "긁히는 스캔 문장" in r.pages[0].extract_text()
