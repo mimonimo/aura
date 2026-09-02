@@ -411,6 +411,26 @@
   document.querySelectorAll(".popover").forEach(function (p) {
     p.addEventListener("click", function (e) { e.stopPropagation(); });
   });
+  // 파일 폼 제출 시 무반응처럼 보이지 않게 — 버튼을 잠그고 진행 표시
+  document.querySelectorAll("form").forEach(function (form) {
+    if (!form.querySelector("input[type=file]")) return;
+    form.addEventListener("submit", function () {
+      var btn = form.querySelector("button[type=submit]");
+      if (btn) {
+        btn.dataset.origText = btn.textContent;
+        btn.textContent = "올리는 중…";
+        btn.disabled = true;
+        btn.style.opacity = "0.7";
+      }
+    });
+  });
+  window.addEventListener("pageshow", function () {
+    document.querySelectorAll("button[data-orig-text]").forEach(function (btn) {
+      btn.textContent = btn.dataset.origText;
+      btn.disabled = false;
+      btn.style.opacity = "";
+    });
+  });
   document.querySelectorAll(".file-field input[type=file]").forEach(function (inp) {
     inp.addEventListener("change", function () {
       var span = inp.closest(".file-field").querySelector(".file-name");

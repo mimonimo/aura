@@ -190,6 +190,140 @@ class DocumentProcessor:
             log.warning("MinerU OCR 실패(%s) — 기본 파싱 결과로 진행", type(e).__name__)
         return None
 
+    _VLM_PROMPT = (
+        "이 이미지는 행정 문서(스캔·사진)다. 보이는 내용을 읽기 순서대로 정확히"
+        " 전사하라.\n- 큰 제목은 '## '로 시작하는 줄로\n- 표는 마크다운 표로\n"
+        "- 날짜, 문서번호, 서명, 직인(도장)에 새겨진 글자도 보이는 대로 옮겨라"
+        " (도장은 '(직인: ...)' 형태로)\n- 이미지에 없는 내용은 절대 지어내지 마라."
+        " 읽을 수 없는 부분은 (판독 불가)로 표시하라."
+    )
+
+    def _vlm_transcribe(self, image_path: Path) -> str | None:
+        """비전 모델(Qwen3.5)로 사진 속 문서 전사 — 손글씨·도장 문구까지 읽는다."""
+        import base64
+
+        try:
+            from zzaimy.generate.client import VllmClient
+
+            mime = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
+            b64 = base64.b64encode(image_path.read_bytes()).decode()
+            client = VllmClient()
+            resp = client.client.chat.completions.create(
+                model=client.model,
+                temperature=0.0,
+                max_tokens=2500,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                        {"type": "text", "text": self._VLM_PROMPT},
+                    ],
+                }],
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            text = (resp.choices[0].message.content or "").strip()
+            return text or None
+        except Exception as e:
+            log.warning("비전 판독 실패(%s) — OCR 결과로 진행", type(e).__name__)
+            return None
+
+    @staticmethod
+    def _md_to_chunks(md: str, mk, page_no: int = 1) -> list[dict]:
+        """비전 판독 마크다운을 조각으로 — '## ' 제목, 파이프 표, 문단."""
+        import json as _json
+
+        out: list[dict] = []
+        lines = md.splitlines()
+        i = 0
+        para: list[str] = []
+
+        def flush_para() -> None:
+            if para:
+                blk = "\n".join(para).strip()
+                if len(blk) >= 2:
+                    out.append(
+                        {"kind": "text", "page_no": page_no, "content": mk(blk)[:2000]}
+                    )
+                para.clear()
+
+        while i < len(lines):
+            ln = lines[i].strip()
+            if ln.startswith("|") and ln.count("|") >= 2:
+                flush_para()
+                rows = []
+                while i < len(lines) and lines[i].strip().startswith("|"):
+                    cells = [c.strip() for c in lines[i].strip().strip("|").split("|")]
+                    if not all(set(c) <= set("-: ") for c in cells):  # 구분선 제외
+                        rows.append(cells)
+                    i += 1
+                if rows:
+                    n_cols = max(len(r) for r in rows)
+                    cells_json = [
+                        [ri, ci, 1, 1, 1 if ri == 0 else 0, mk(val)]
+                        for ri, row in enumerate(rows)
+                        for ci, val in enumerate(row)
+                    ]
+                    out.append({
+                        "kind": "table", "page_no": page_no,
+                        "content": _json.dumps(
+                            {"n_rows": len(rows), "n_cols": n_cols, "cells": cells_json},
+                            ensure_ascii=False,
+                        ),
+                    })
+                continue
+            if ln.startswith("#"):
+                flush_para()
+                out.append({
+                    "kind": "heading", "page_no": page_no,
+                    "content": mk(ln.lstrip("# ").strip())[:300],
+                })
+            elif not ln:
+                flush_para()
+            else:
+                para.append(ln)
+            i += 1
+        flush_para()
+        return out
+
+    def _extract_stamps(self, image_path: Path) -> list[Path]:
+        """빨간 직인(도장) 영역을 찾아 잘라낸다 — OpenCV 색 분리, 없으면 빈 목록."""
+        try:
+            import cv2
+            import numpy as np
+
+            img = cv2.imread(str(image_path))
+            if img is None:
+                return []
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            m1 = cv2.inRange(hsv, (0, 60, 60), (10, 255, 255))
+            m2 = cv2.inRange(hsv, (160, 60, 60), (180, 255, 255))
+            mask = cv2.dilate(m1 | m2, np.ones((9, 9), np.uint8))
+            contours, _ = cv2.findContours(
+                mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            h_img, w_img = img.shape[:2]
+            out_dir = image_path.parent / f"{image_path.stem}_imgs"
+            saved: list[Path] = []
+            for idx, c in enumerate(sorted(contours, key=cv2.contourArea, reverse=True)):
+                x, y, w, h = cv2.boundingRect(c)
+                area_ratio = (w * h) / float(w_img * h_img)
+                # 도장 크기 범위(전체의 0.2~15%)와 형태(정사각형에 가까움)만
+                if not (0.002 <= area_ratio <= 0.15 and 0.5 <= w / max(h, 1) <= 2.0):
+                    continue
+                pad = int(max(w, h) * 0.12)
+                x0, y0 = max(0, x - pad), max(0, y - pad)
+                x1, y1 = min(w_img, x + w + pad), min(h_img, y + h + pad)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                dest = out_dir / f"stamp_{idx}.png"
+                cv2.imwrite(str(dest), img[y0:y1, x0:x1])
+                saved.append(dest)
+                if len(saved) >= 3:
+                    break
+            return saved
+        except Exception:
+            return []
+
     def _mask_str(self, s: str) -> str:
         if self._masker is None:
             self._masker = PiiMasker()
@@ -216,38 +350,37 @@ class DocumentProcessor:
 
         out: list[dict] = []
         for pg in parsed.pages:
-            buf = ""
-
-            def flush(pg_no: int = pg.page_no) -> None:
-                nonlocal buf
-                if len(buf) >= 15:
-                    out.append(
-                        {"kind": "text", "page_no": pg_no, "content": mk(buf)[:2000]}
-                    )
-                buf = ""
-
-            for line in pg.text.splitlines():
-                ln = line.strip()
-                if not ln:
-                    continue
-                if ln.startswith("[[h]]"):
-                    flush()
+            # 파서가 남긴 블록 경계(빈 줄)를 그대로 따른다 — 원본 양식 보존.
+            # 경계가 없으면(줄글 파서) 500자 단위로 묶는다
+            blocks = [b.strip() for b in pg.text.split("\n\n") if b.strip()]
+            if len(blocks) <= 1:
+                merged, buf = [], ""
+                for line in pg.text.splitlines():
+                    ln = line.strip()
+                    if not ln:
+                        continue
+                    buf += ("\n" if buf else "") + ln
+                    if len(buf) >= 500:
+                        merged.append(buf)
+                        buf = ""
+                if buf:
+                    merged.append(buf)
+                blocks = merged
+            for blk in blocks:
+                if blk.startswith("[[h]]"):
                     out.append({
                         "kind": "heading", "page_no": pg.page_no,
-                        "content": mk(ln[5:].strip())[:300],
+                        "content": mk(blk[5:].strip())[:300],
                     })
-                    continue
-                if ln.startswith("[[img]]"):
-                    flush()
+                elif blk.startswith("[[img]]"):
                     out.append({
                         "kind": "image", "page_no": pg.page_no,
-                        "content": ln[7:].strip(),  # 추출 그림 파일명 (마스킹 불필요)
+                        "content": blk[7:].strip(),  # 추출 그림 파일명 (마스킹 불필요)
                     })
-                    continue
-                buf += ("\n" if buf else "") + ln
-                if len(buf) >= 500:
-                    flush()
-            flush()
+                elif len(blk) >= 2:
+                    out.append(
+                        {"kind": "text", "page_no": pg.page_no, "content": mk(blk)[:2000]}
+                    )
             for t in tables_by_page.get(pg.page_no, []):
                 cells = [
                     [c.row, c.col, c.row_span, c.col_span,
@@ -381,10 +514,29 @@ class DocumentProcessor:
                 # 문서 추출 도구 — 검토 없이 파싱·마스킹·구조화 저장까지만
                 if self._masker is None:
                     self._masker = PiiMasker()
+
+                parsed_chunks: list[dict] | None = None
+                if file_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
+                    # 사진은 비전 모델(Qwen3.5) 판독이 우선 — 손글씨·도장 문구까지.
+                    vlm_md = self._vlm_transcribe(file_path)
+                    if vlm_md:
+                        parsed_chunks = self._md_to_chunks(vlm_md, self._mask_str)
+                        n_t = sum(1 for c in parsed_chunks if c["kind"] == "table")
+                        self._last_parse_note = (
+                            f"AI 비전 판독 (Qwen3.5) · 표 {n_t}개"
+                        )
+                        raw_text = vlm_md
+                    # 빨간 직인(도장) 영역은 별도 이미지로 잘라 보관한다
+                    for i, stamp in enumerate(self._extract_stamps(file_path)):
+                        self._last_images.append((1, stamp))
+                        if self._last_parse_note:
+                            self._last_parse_note += " · 직인" if i == 0 else ""
+
                 masked, _ = self._masker.mask(
                     RawDocument(doc_id=str(doc_id), text=raw_text)
                 )
-                parsed_chunks = self._structured_chunks() or _split_chunks(masked.text)
+                if parsed_chunks is None:
+                    parsed_chunks = self._structured_chunks() or _split_chunks(masked.text)
                 db.replace_doc_chunks(doc_id, parsed_chunks)
                 db.replace_doc_assets(
                     doc_id,
