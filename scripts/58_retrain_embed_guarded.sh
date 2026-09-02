@@ -16,7 +16,7 @@ echo 3 | sudo -n tee /proc/sys/vm/drop_caches > /dev/null 2>&1 || echo "drop_cac
 free -g | sed -n 2p
 
 echo "[$(date +%T)] 학습 시작"
-MALLOC_ARENA_MAX=2 ZZAIMY_EMBED_DEVICE=cpu .venv-train/bin/python scripts/54_train_embed.py \
+MALLOC_ARENA_MAX=2 PYTHONPATH=src ZZAIMY_EMBED_DEVICE=cpu .venv-train/bin/python scripts/54_train_embed.py \
   > /tmp/train-embed2.log 2>&1
 rc=$?
 echo "[$(date +%T)] 학습 종료 rc=$rc"
