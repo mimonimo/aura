@@ -521,3 +521,22 @@ def test_project_chat_uses_linked_criteria(tmp_path):
     assert "프로젝트:교원 채용" in msgs[-1]["content"]  # 프로젝트 맥락 전달
     # 세션 제목에 프로젝트 표시 + 프로젝트 페이지에 채팅 목록
     assert "[교원 채용]" in c.get("/project/1").text
+
+
+def test_draft_only_for_grant_docs(client):
+    client.post("/upload", data={"doc_type": "recruit"},
+                files={"file": ("지원서.pdf", b"%PDF", "application/pdf")})
+    assert client.post("/doc/1/draft").status_code == 400  # 채용 서류는 검토·판정 플로우
+    page = client.get("/doc/1").text
+    assert "초안" not in page  # 채용 문서 화면에는 초안 버튼이 없다
+
+
+def test_criteria_bulk_upload(client):
+    r = client.post("/criteria/upload", data={"sector": "recruit"}, files=[
+        ("file", ("공고A.pdf", b"%PDF", "application/pdf")),
+        ("file", ("공고B.pdf", b"%PDF", "application/pdf")),
+        ("file", ("내규C.pdf", b"%PDF", "application/pdf")),
+    ], follow_redirects=False)
+    assert r.status_code == 303
+    page = client.get("/criteria").text
+    assert "공고A.pdf" in page and "공고B.pdf" in page and "내규C.pdf" in page

@@ -339,7 +339,9 @@
   document.querySelectorAll(".file-field input[type=file]").forEach(function (inp) {
     inp.addEventListener("change", function () {
       var span = inp.closest(".file-field").querySelector(".file-name");
-      if (span) span.textContent = inp.files.length ? inp.files[0].name : "선택된 파일 없음";
+      if (span) span.textContent = !inp.files.length ? "선택된 파일 없음"
+        : inp.files.length === 1 ? inp.files[0].name
+        : inp.files[0].name + " 외 " + (inp.files.length - 1) + "건";
     });
   });
 </script>

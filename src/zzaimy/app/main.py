@@ -319,22 +319,26 @@ def create_app(
     @app.post("/criteria/upload")
     def criteria_upload(
         background: BackgroundTasks,
-        file: UploadFile = File(...),
+        file: list[UploadFile] = File(...),
         sector: str = Form("common"),
     ):
-        name = file.filename or "이름없음"
-        suffix = Path(name).suffix.lower()
-        if suffix not in ALLOWED_EXTENSIONS:
-            raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
         if sector not in SECTOR_LABELS:
             raise HTTPException(400, f"알 수 없는 섹터: {sector}")
-        stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
-        with stored.open("wb") as out:
-            shutil.copyfileobj(file.file, out)
-        doc_id = db.add_document(
-            filename=name, stored_path=str(stored), doc_type="regulation", sector=sector
-        )
-        background.add_task(processor.process, db, doc_id, stored)
+        # 일괄 등록 — 형식 검사를 전부 통과해야 하나라도 저장한다
+        for f in file:
+            suffix = Path(f.filename or "이름없음").suffix.lower()
+            if suffix not in ALLOWED_EXTENSIONS:
+                raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+        for f in file:
+            name = f.filename or "이름없음"
+            stored = inbox_dir / f"{uuid.uuid4().hex}{Path(name).suffix.lower()}"
+            with stored.open("wb") as out:
+                shutil.copyfileobj(f.file, out)
+            doc_id = db.add_document(
+                filename=name, stored_path=str(stored),
+                doc_type="regulation", sector=sector,
+            )
+            background.add_task(processor.process, db, doc_id, stored)
         return RedirectResponse("/criteria", status_code=303)
 
     @app.post("/projects")
@@ -457,8 +461,12 @@ def create_app(
 
     @app.post("/doc/{doc_id}/draft")
     def make_draft(background: BackgroundTasks, doc_id: int):
-        if db.get_document(doc_id) is None:
+        doc = db.get_document(doc_id)
+        if doc is None:
             raise HTTPException(404)
+        if doc["doc_type"] != "grant":
+            # 목적별 플로우: 초안 작성은 국고사업 계열, 나머지는 검토·판정
+            raise HTTPException(400, "초안 작성은 국고사업 문서에서만 지원한다")
         background.add_task(drafter.generate, db, doc_id)
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
