@@ -683,11 +683,14 @@ def create_app(
         chunks = db.list_doc_chunks(doc_id)
         from zzaimy.app.render import chunk_blocks
 
-        suffix = Path(doc["stored_path"]).suffix.lower()
-        original_kind = (
-            "pdf" if suffix == ".pdf"
-            else "image" if suffix in (".png", ".jpg", ".jpeg") else None
-        )
+        src_path = Path(doc["stored_path"])
+        suffix = src_path.suffix.lower()
+        original_kind = None
+        if src_path.exists():
+            original_kind = (
+                "pdf" if suffix == ".pdf"
+                else "image" if suffix in (".png", ".jpg", ".jpeg") else None
+            )
 
         all_assets = db.list_doc_assets(doc_id)
         scan_asset = next((a for a in all_assets if a["kind"] == "scan"), None)
@@ -702,7 +705,21 @@ def create_app(
             blocks = blocks + trailing_image_blocks(doc_id, assets)
         from zzaimy.app.render import layout_pages
 
-        layout = layout_pages(chunks, doc_id, asset_by_name) if chunks else None
+        page_sizes: dict[int, tuple[float, float]] = {}
+        if chunks and Path(doc["stored_path"]).suffix.lower() == ".pdf":
+            try:
+                from pypdf import PdfReader
+
+                for i, pg in enumerate(PdfReader(doc["stored_path"]).pages, start=1):
+                    page_sizes[i] = (
+                        float(pg.mediabox.width), float(pg.mediabox.height)
+                    )
+            except Exception:
+                page_sizes = {}
+        layout = (
+            layout_pages(chunks, doc_id, asset_by_name, page_sizes or None)
+            if chunks else None
+        )
         import json as _json
 
         try:
