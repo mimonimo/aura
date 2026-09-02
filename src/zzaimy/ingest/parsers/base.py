@@ -43,11 +43,20 @@ class ParsedPage:
 
 
 @dataclass(frozen=True)
+class ParsedImage:
+    """문서에서 추출된 그림 한 장 — path는 파서 산출물 디렉터리의 파일."""
+
+    page_no: int  # 1부터
+    path: Path
+
+
+@dataclass(frozen=True)
 class ParseResult:
     parser: str
     elapsed_s: float
     pages: list[ParsedPage] = field(default_factory=list)
     tables: list[ParsedTable] = field(default_factory=list)
+    images: list[ParsedImage] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 

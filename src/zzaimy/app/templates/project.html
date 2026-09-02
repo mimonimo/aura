@@ -21,12 +21,17 @@
     <div>
       <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ project.name }}</div>
       <div style="font-size:13px; color:#B9C6DA; margin-top:3px;">
-        {{ sector_labels.get(project.sector, project.sector) }} 섹터 · 문서 {{ documents|length }}건
+        {{ sector_labels.get(project.sector, project.sector) }} 업무 · 문서 {{ documents|length }}건
         · 연결 기준 {{ linked_criteria|length }}건
         {% if project.due_date %} · <b style="color:#FBD38D;">마감 {{ project.due_date }}</b>{% endif %}
         · 만든 날 {{ project.created_at[:10] }}</div>
     </div>
-    <a href="/?type={{ project.sector }}" class="btn-ghost on-dark" style="margin-left:auto;">섹터로</a>
+    <div style="margin-left:auto; display:flex; gap:8px;">
+      <button type="button" class="btn-ghost on-dark" data-modal-open="#manageModal"
+              style="font-family:inherit; cursor:pointer;">
+        <iconify-icon icon="solar:settings-linear"></iconify-icon>관리</button>
+      <a href="/?type={{ project.sector }}" class="btn-ghost on-dark">{{ sector_labels.get(project.sector, project.sector) }} 업무로</a>
+    </div>
   </div>
 </div>
 
@@ -98,83 +103,187 @@
 
 <div class="card">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:notes-linear"></iconify-icon>프로젝트 지침·메모</h2>
-    <form action="/project/{{ project.id }}/meta" method="post">
-      <p class="muted" style="margin:0 0 6px;">지침 — 검토·작성·채팅에서 따릅니다</p>
-      <textarea name="instructions" style="min-height:84px;"
-                placeholder="예: 경력 3년 미만은 반려. 어학 성적은 유효기간을 확인한다.">{{ project.instructions or "" }}</textarea>
-      <p class="muted" style="margin:12px 0 6px;">메모 — 에이전트가 참고할 프로젝트 맥락</p>
-      <textarea name="memo" style="min-height:64px;"
-                placeholder="예: 2026 상반기 계약직 3명 채용. 서류 마감 3/15.">{{ project.memo or "" }}</textarea>
-      <div style="margin-top:10px;"><button type="submit" class="secondary">저장</button></div>
-    </form>
-  </div>
-</div>
-
-<div class="card">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:library-linear"></iconify-icon>연결된 공고·기준</h2>
-    <p class="muted" style="margin:0 0 10px;">체크한 문서가 검토·작성·채팅의 판단 근거가 됩니다.</p>
-    {% if sector_criteria %}
-    <div class="searchbox" style="margin-bottom:10px; padding:8px 14px;">
-      <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
-      <input type="search" id="criteriaFilter" placeholder="기준 문서 검색" style="width:100%;">
+    <div class="tabbar">
+      <button type="button" class="on" data-tab="paneGuide">지침·메모</button>
+      <button type="button" data-tab="paneCriteria">연결 기준 {{ linked_criteria|length }}</button>
     </div>
-    <form action="/project/{{ project.id }}/criteria" method="post">
-      <div id="criteriaList" style="max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;">
-        {% for c in sector_criteria %}
-        <label data-name="{{ c.filename }}" data-linked="{{ '1' if c.id in linked_criteria else '' }}"
-               style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;
-                      padding:6px 8px; border-radius:8px;">
-          <input type="checkbox" name="criteria" value="{{ c.id }}"
-                 {% if c.id in linked_criteria %}checked{% endif %}>
-          <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ c.filename }}</span>
-          <span class="pill" style="flex:none; font-size:11px; padding:2px 8px;
-                {% if c.sector == project.sector %}background:#E8EFFC; color:var(--navy);{% endif %}">
-            {{ sector_labels.get(c.sector, c.sector) }}</span>
-        </label>
-        {% endfor %}
-      </div>
-      <div style="margin-top:10px; display:flex; align-items:center; gap:10px;">
-        <button type="submit" class="secondary">연결 저장</button>
-        <span class="muted" id="linkedCount">{{ linked_criteria|length }}건 연결됨</span>
-      </div>
-    </form>
-    {% else %}
-    <span class="muted">이 섹터에 등록된 기준 문서가 없습니다.
-      <a href="/criteria">기준 문서</a>에서 공고를 먼저 등록하세요.</span>
-    {% endif %}
-  </div>
-</div>
 
-<div class="card">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:settings-linear"></iconify-icon>프로젝트 관리</h2>
-    <form action="/projects/{{ project.id }}/rename" method="post">
+    <div id="paneGuide" class="tab-pane on">
+    <form action="/project/{{ project.id }}/meta" method="post">
       <div class="form-row">
-        <span class="muted">이름</span>
-        <input type="text" name="name" value="{{ project.name }}" required>
+        <span class="muted">지침 — 검토·작성·채팅에서 따릅니다</span>
+        <textarea name="instructions" style="min-height:96px;"
+                  placeholder="예: 경력 3년 미만은 반려. 어학 성적은 유효기간을 확인한다.">{{ project.instructions or "" }}</textarea>
       </div>
       <div class="form-row">
-        <span class="muted">마감일</span>
-        <input type="date" name="due_date" value="{{ project.due_date or '' }}"
-               style="border:1.5px solid var(--line); border-radius:12px; padding:10px 14px;
-                      font-family:inherit; font-size:14px;">
+        <span class="muted">메모 — 에이전트가 참고할 프로젝트 맥락</span>
+        <textarea name="memo" style="min-height:72px;"
+                  placeholder="예: 2026 상반기 계약직 3명 채용. 서류 마감 3/15.">{{ project.memo or "" }}</textarea>
       </div>
       <button type="submit" class="secondary">저장</button>
     </form>
-    <form action="/projects/{{ project.id }}/delete" method="post" style="margin-top:12px;"
-          onsubmit="return confirm('프로젝트를 삭제할까요? 소속 문서는 남고 연결만 해제됩니다.');">
-      <button type="submit" class="secondary"
-              style="border-color:#E7B9B8; color:var(--red);">프로젝트 삭제</button>
-    </form>
+    </div>
+
+    <div id="paneCriteria" class="tab-pane">
+    <p class="muted" style="margin:0 0 12px;">연결된 공고·기준이 이 프로젝트 검토·작성·채팅의
+      판단 근거가 됩니다.</p>
+    {% set linked_docs = sector_criteria | selectattr("id", "in", linked_criteria) | list %}
+    {% if linked_docs %}
+    <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;">
+      {% for c in linked_docs %}
+      <div style="display:flex; align-items:center; gap:8px; font-size:13.5px;
+                  background:var(--panel); border:1px solid var(--line);
+                  border-radius:10px; padding:8px 10px;">
+        <iconify-icon icon="solar:document-text-linear" style="color:var(--navy); flex:none;"></iconify-icon>
+        <a href="/doc/{{ c.id }}" style="overflow:hidden; text-overflow:ellipsis;
+           white-space:nowrap; flex:1; text-decoration:none;">{{ c.filename }}</a>
+        <form action="/project/{{ project.id }}/criteria/unlink" method="post" style="flex:none;">
+          <input type="hidden" name="criteria_doc_id" value="{{ c.id }}">
+          <button type="submit" title="연결 해제" style="background:none; border:0; box-shadow:none;
+                  color:var(--faint); padding:2px; cursor:pointer; font-size:15px;">
+            <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted" style="margin:0 0 14px;">아직 연결된 공고·기준이 없습니다.
+      공고문이나 심사 기준을 연결하면 검토 품질이 크게 좋아집니다.</p>
+    {% endif %}
+    <div style="display:flex; gap:8px;">
+      <button type="button" class="secondary" data-modal-open="#linkModal"
+              style="padding:8px 16px; font-size:13px;">
+        <iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>기준 선택</button>
+      <button type="button" class="secondary" data-modal-open="#criteriaUploadModal"
+              style="padding:8px 16px; font-size:13px;">
+        <iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 첨부</button>
+    </div>
+    </div>
+
   </div>
 </div>
 
 </div>
 </div>
 
+<div id="linkModal" class="modal-back">
+  <div class="card">
+    <div class="card-in">
+      <div class="modal-head">
+        <h2><iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>공고·기준 선택</h2>
+        <button type="button" data-modal-close class="icon-btn" title="닫기"
+                style="width:32px; height:32px; font-size:15px;">
+          <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+      </div>
+      {% if sector_criteria %}
+      <div class="searchbox" style="margin-bottom:10px; padding:8px 14px;">
+        <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
+        <input type="search" id="criteriaFilter" placeholder="기준 문서 검색" style="width:100%;">
+      </div>
+      <form action="/project/{{ project.id }}/criteria" method="post">
+        <div id="criteriaList" style="max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;">
+          {% for c in sector_criteria %}
+          <label data-name="{{ c.filename }}" data-linked="{{ '1' if c.id in linked_criteria else '' }}"
+                 style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;
+                        padding:6px 8px; border-radius:8px;">
+            <input type="checkbox" name="criteria" value="{{ c.id }}"
+                   {% if c.id in linked_criteria %}checked{% endif %}>
+            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ c.filename }}</span>
+            <span class="pill" style="flex:none; font-size:11px; padding:2px 8px;
+                  {% if c.sector == project.sector %}background:#E8EFFC; color:var(--navy);{% endif %}">
+              {{ sector_labels.get(c.sector, c.sector) }}</span>
+          </label>
+          {% endfor %}
+        </div>
+        <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:10px; align-items:center;">
+          <span class="muted" id="linkedCount" style="margin-right:auto;">{{ linked_criteria|length }}건 연결됨</span>
+          <button type="button" data-modal-close class="secondary">닫기</button>
+          <button type="submit">연결 저장</button>
+        </div>
+      </form>
+      {% else %}
+      <p class="muted">등록된 기준 문서가 없습니다. 파일 첨부로 바로 올리거나
+        <a href="/criteria">기준 문서</a>에서 등록하세요.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div id="criteriaUploadModal" class="modal-back">
+  <div class="card">
+    <div class="card-in">
+      <div class="modal-head">
+        <h2><iconify-icon icon="solar:paperclip-linear"></iconify-icon>공고·기준 파일 첨부</h2>
+        <button type="button" data-modal-close class="icon-btn" title="닫기"
+                style="width:32px; height:32px; font-size:15px;">
+          <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+      </div>
+      <form action="/criteria/upload" method="post" enctype="multipart/form-data">
+        <input type="hidden" name="sector" value="{{ project.sector }}">
+        <input type="hidden" name="link_project_id" value="{{ project.id }}">
+        <div class="form-row">
+          <span class="muted">공고문·심사 기준 등 — 등록과 동시에 이 프로젝트에 연결됩니다</span>
+          <label class="file-field">
+            <span class="file-btn"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 선택 (여러 개 가능)</span>
+            <input type="file" name="file" required multiple>
+            <span class="file-name">선택된 파일 없음</span>
+          </label>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+          <button type="button" data-modal-close class="secondary">닫기</button>
+          <button type="submit">등록·연결</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="manageModal" class="modal-back">
+  <div class="card">
+    <div class="card-in">
+      <div class="modal-head">
+        <h2><iconify-icon icon="solar:settings-linear"></iconify-icon>프로젝트 관리</h2>
+        <button type="button" data-modal-close class="icon-btn" title="닫기"
+                style="width:32px; height:32px; font-size:15px;">
+          <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+      </div>
+      <form action="/projects/{{ project.id }}/rename" method="post">
+        <div class="form-row">
+          <span class="muted">이름</span>
+          <input type="text" name="name" value="{{ project.name }}" required>
+        </div>
+        <div class="form-row">
+          <span class="muted">마감일</span>
+          <input type="date" name="due_date" value="{{ project.due_date or '' }}"
+                 style="border:1.5px solid var(--line); border-radius:12px; padding:10px 14px;
+                        font-family:inherit; font-size:14px; background:var(--panel);">
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+          <button type="button" data-modal-close class="secondary">닫기</button>
+          <button type="submit">저장</button>
+        </div>
+      </form>
+      <form action="/projects/{{ project.id }}/delete" method="post" style="margin-top:14px;"
+            onsubmit="return confirm('프로젝트를 삭제할까요? 소속 문서는 남고 연결만 해제됩니다.');">
+        <button type="submit" class="secondary"
+                style="border-color:#E7B9B8; color:var(--red);">프로젝트 삭제</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
+  document.querySelectorAll(".tabbar [data-tab]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll(".tabbar [data-tab]").forEach(function (b) {
+        b.classList.toggle("on", b === btn);
+      });
+      document.querySelectorAll(".tab-pane").forEach(function (p) {
+        p.classList.toggle("on", p.id === btn.dataset.tab);
+      });
+    });
+  });
+
   // 연결된 항목을 위로, 그다음 이 섹터 전용 문서를 위로 정렬
   var list = document.getElementById("criteriaList");
   if (list) {

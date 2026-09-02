@@ -57,6 +57,25 @@ CREATE TABLE IF NOT EXISTS project_criteria (
   criteria_doc_id INTEGER NOT NULL REFERENCES documents(id),
   PRIMARY KEY (project_id, criteria_doc_id)
 );
+-- 인풋 문서의 파싱 결과 구조화 저장 (마스킹본 기준) — 문서 간 연관성 분석과
+-- 초안 작성 시 재료 인출의 원천. kind: text | table
+CREATE TABLE IF NOT EXISTS doc_chunks (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id   INTEGER NOT NULL REFERENCES documents(id),
+  seq      INTEGER NOT NULL,
+  kind     TEXT NOT NULL DEFAULT 'text',
+  page_no  INTEGER,
+  content  TEXT NOT NULL
+);
+-- 문서에서 추출된 그림 — 파일은 assets 디렉터리에, 여기엔 경로만.
+-- 원본과 같은 장비 안에만 머문다 (마스킹 대상 아님, 열람은 인증 뒤에서만)
+CREATE TABLE IF NOT EXISTS doc_assets (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id   INTEGER NOT NULL REFERENCES documents(id),
+  kind     TEXT NOT NULL DEFAULT 'image',
+  page_no  INTEGER,
+  path     TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS regulation_chunks (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id     INTEGER NOT NULL REFERENCES documents(id),
@@ -278,6 +297,44 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def replace_doc_chunks(self, doc_id: int, chunks: list[dict]) -> None:
+        """파싱 산출 조각 교체 저장 — {kind, page_no, content} 목록."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM doc_chunks WHERE doc_id = ?", (doc_id,))
+            conn.executemany(
+                "INSERT INTO doc_chunks (doc_id, seq, kind, page_no, content)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [
+                    (doc_id, i, c.get("kind", "text"), c.get("page_no"), c["content"])
+                    for i, c in enumerate(chunks)
+                ],
+            )
+
+    def list_doc_chunks(self, doc_id: int) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM doc_chunks WHERE doc_id = ? ORDER BY seq", (doc_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def replace_doc_assets(self, doc_id: int, assets: list[dict]) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM doc_assets WHERE doc_id = ?", (doc_id,))
+            conn.executemany(
+                "INSERT INTO doc_assets (doc_id, kind, page_no, path) VALUES (?, ?, ?, ?)",
+                [
+                    (doc_id, a.get("kind", "image"), a.get("page_no"), a["path"])
+                    for a in assets
+                ],
+            )
+
+    def list_doc_assets(self, doc_id: int) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM doc_assets WHERE doc_id = ? ORDER BY id", (doc_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def set_setting(self, key: str, value: str) -> None:
         with self._conn() as conn:
             conn.execute(
@@ -341,6 +398,21 @@ class Database:
                 [(project_id, cid) for cid in criteria_doc_ids],
             )
 
+    def add_project_criteria(self, project_id: int, criteria_doc_ids: list[int]) -> None:
+        with self._conn() as conn:
+            conn.executemany(
+                "INSERT OR IGNORE INTO project_criteria (project_id, criteria_doc_id)"
+                " VALUES (?, ?)",
+                [(project_id, cid) for cid in criteria_doc_ids],
+            )
+
+    def remove_project_criterion(self, project_id: int, criteria_doc_id: int) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM project_criteria WHERE project_id = ? AND criteria_doc_id = ?",
+                (project_id, criteria_doc_id),
+            )
+
     def get_project_criteria_ids(self, project_id: int) -> list[int]:
         with self._conn() as conn:
             rows = conn.execute(
@@ -381,6 +453,8 @@ class Database:
         with self._conn() as conn:
             conn.execute("DELETE FROM reviews WHERE doc_id = ?", (doc_id,))
             conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM doc_chunks WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM doc_assets WHERE doc_id = ?", (doc_id,))
             conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
     def add_regulation_chunks(

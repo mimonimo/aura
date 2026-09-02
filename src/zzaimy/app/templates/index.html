@@ -20,7 +20,7 @@
   <div style="display:flex; align-items:center; gap:16px; padding:20px 24px; color:#fff;">
     <iconify-icon icon="{{ sector_meta[active_tab][0] }}" style="font-size:34px; opacity:.9;"></iconify-icon>
     <div>
-      <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ sector_meta[active_tab][1] }} 섹터</div>
+      <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ sector_meta[active_tab][1] }} 업무</div>
       <div style="font-size:13px; color:#B9C6DA; margin-top:3px;">{{ sector_meta[active_tab][2] }}</div>
     </div>
     <a href="/" class="btn-ghost on-dark" style="margin-left:auto;">전체 문서함 보기</a>
@@ -117,7 +117,7 @@
     <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
     {% if active_tab != "all" %}
     <p class="muted" style="margin:0 0 12px;">{{ doc_type_labels.get(active_tab, active_tab) }}
-      섹터의 문서만 보고 있습니다 <a href="/" class="btn-ghost" style="margin-left:8px;">전체 보기</a></p>
+      업무의 문서만 보고 있습니다 <a href="/" class="btn-ghost" style="margin-left:8px;">전체 보기</a></p>
     {% endif %}
     {% if q %}
     <p class="muted" style="margin:0 0 12px;">"{{ q }}" 검색 결과 {{ documents|length }}건
@@ -144,7 +144,7 @@
     {% else %}
     <p class="muted">접수된 문서가 없습니다.
       {% if active_tab != "all" %}문서 접수는 프로젝트 안에서 합니다 — 위에서 프로젝트를
-      만들거나 열어 접수하세요.{% else %}각 업무 섹터의 프로젝트에서 접수하세요.{% endif %}</p>
+      만들거나 열어 접수하세요.{% else %}각 업무 영역의 프로젝트에서 접수하세요.{% endif %}</p>
     {% endif %}
     <p class="notice"><iconify-icon icon="solar:shield-check-linear"></iconify-icon><span>문서
       접수·검토·작성은 각 프로젝트 페이지에서 진행합니다. 규정·지침·매뉴얼·공고문 같은
