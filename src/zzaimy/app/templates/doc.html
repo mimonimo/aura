@@ -256,15 +256,16 @@
     <div id="modeRestored">
       {% if layout_pages %}
       <div class="tabbar" style="max-width:280px; margin-bottom:10px;">
-        <button type="button" class="on" data-vtab="viewFlow">읽기 순서</button>
-        <button type="button" data-vtab="viewLayout">원본 배치</button>
+        <button type="button" class="on" data-vtab="viewLayout">원본 배치</button>
+        <button type="button" data-vtab="viewFlow">읽기 순서</button>
       </div>
       {% endif %}
-      <div id="viewFlow" class="extract-doc" style="max-height:680px; overflow-y:auto;">
+      <div id="viewFlow" class="extract-doc" {% if layout_pages %}hidden{% endif %}
+           style="max-height:680px; overflow-y:auto;">
         {% for b in extract_blocks %}{{ b }}{% endfor %}
       </div>
       {% if layout_pages %}
-      <div id="viewLayout" hidden class="layout-wrap" style="max-height:680px; overflow-y:auto;">
+      <div id="viewLayout" class="layout-wrap" style="max-height:680px; overflow-y:auto;">
         {% for pgv in layout_pages %}{{ pgv }}{% endfor %}
       </div>
       {% endif %}
