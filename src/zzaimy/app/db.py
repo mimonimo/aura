@@ -107,6 +107,7 @@ class Database:
         "ALTER TABLE projects ADD COLUMN memo TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE chat_sessions ADD COLUMN project_id INTEGER",
         "ALTER TABLE projects ADD COLUMN due_date TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN parse_note TEXT",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -160,7 +161,7 @@ class Database:
     def update_document(self, doc_id: int, **fields: str | None) -> None:
         allowed = {
             "status", "series", "masked_text", "ai_review",
-            "error", "draft", "coverage", "decision",
+            "error", "draft", "coverage", "decision", "parse_note",
         }
         unknown = set(fields) - allowed
         if unknown:

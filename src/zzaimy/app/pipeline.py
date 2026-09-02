@@ -104,6 +104,7 @@ class DocumentProcessor:
     def __init__(self) -> None:
         self._masker: PiiMasker | None = None
         self._last_images: list[tuple[int, Path]] = []
+        self._last_parse_note = ""
 
     # 파싱 결과 상한 — 인쇄용 PDF 등에서 파서가 비정상적으로 긴 텍스트를 뽑는
     # 사례가 실측됨(26p 문서에서 950만 자). 상한 초과분은 잘라내고 경고를 남긴다.
@@ -120,8 +121,9 @@ class DocumentProcessor:
         return text
 
     def _parse_inner(self, file_path: Path) -> str:
-        # 파싱 부산물(그림 등)은 호출 사이에 남지 않게 매번 초기화한다
+        # 파싱 부산물(그림·파싱 방식 메모)은 호출 사이에 남지 않게 매번 초기화한다
         self._last_images = []
+        self._last_parse_note = ""
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
@@ -165,6 +167,10 @@ class DocumentProcessor:
                     shutil.copyfile(img.path, dest)
                     images.append((img.page_no, dest))
                 self._last_images = images
+                self._last_parse_note = (
+                    f"스캔 문서 OCR 처리 (MinerU) · 표 {len(parsed.tables)}개"
+                    f" · 그림 {len(images)}장"
+                )
                 log.info(
                     "%s: MinerU OCR 재파싱 — %d자, 표 %d, 그림 %d",
                     file_path.name, len(text), len(parsed.tables), len(images),
@@ -268,6 +274,7 @@ class DocumentProcessor:
                     doc_id,
                     status="reviewed",
                     masked_text=raw_text,
+                    parse_note=self._last_parse_note or None,
                     series=series.value if series else None,
                     ai_review=(
                         f"규정 등록 완료 — {len(chunks)}개 조각으로 분해되어 저장소에"
@@ -334,6 +341,7 @@ class DocumentProcessor:
                 masked_text=masked.text,
                 series=series.value if series else None,
                 ai_review=ai_review,
+                parse_note=self._last_parse_note or None,
             )
         except Exception as e:  # 실패도 기록이 남아야 화면에서 보인다
             log.exception("doc %d 처리 실패", doc_id)
