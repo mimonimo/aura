@@ -934,3 +934,29 @@ def test_scan_asset_separated_from_figures(client):
     page = client.get(f"/doc/{doc_id}").text
     assert "보정 스캔본" in page                      # 원본 패널 토글
     assert page.count("추출 그림") == 1                # 그림 섹션엔 figure만
+
+
+def test_searchable_pdf_export(client, tmp_path):
+    # 합성 원본 PDF 1쪽 생성
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    src = tmp_path / "원본.pdf"
+    cv = rl_canvas.Canvas(str(src), pagesize=(595, 842))
+    cv.rect(50, 700, 200, 60)
+    cv.showPage()
+    cv.save()
+
+    db = client.app.state.db
+    doc_id = db.add_document(filename="원본.pdf", stored_path=str(src), doc_type="ocr")
+    db.update_document(doc_id, status="reviewed", masked_text="본문")
+    db.replace_doc_chunks(doc_id, [
+        {"kind": "heading", "page_no": 1, "content": "입찰 공고", "bbox": "50,80,400,110"},
+        {"kind": "text", "page_no": 1, "content": "검색가능텍스트 레이어 확인용 문장"},
+    ])
+    r = client.get(f"/doc/{doc_id}/export.pdf")
+    assert r.status_code == 200 and r.content[:4] == b"%PDF"
+    import io
+
+    from pypdf import PdfReader
+    text = PdfReader(io.BytesIO(r.content)).pages[0].extract_text()
+    assert "입찰 공고" in text and "검색가능텍스트" in text  # 보이지 않는 레이어가 검색됨
