@@ -52,6 +52,12 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS project_notes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  content    TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS project_criteria (
   project_id      INTEGER NOT NULL REFERENCES projects(id),
   criteria_doc_id INTEGER NOT NULL REFERENCES documents(id),
@@ -110,6 +116,7 @@ class Database:
         "ALTER TABLE documents ADD COLUMN parse_note TEXT",
         "ALTER TABLE doc_chunks ADD COLUMN bbox TEXT",
         "ALTER TABLE doc_assets ADD COLUMN bbox TEXT",
+        "ALTER TABLE documents ADD COLUMN suggested_criteria TEXT",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -163,7 +170,7 @@ class Database:
     def update_document(self, doc_id: int, **fields: str | None) -> None:
         allowed = {
             "status", "series", "masked_text", "ai_review",
-            "error", "draft", "coverage", "decision", "parse_note",
+            "error", "draft", "coverage", "decision", "parse_note", "suggested_criteria",
         }
         unknown = set(fields) - allowed
         if unknown:
@@ -402,6 +409,30 @@ class Database:
                 [(project_id, cid) for cid in criteria_doc_ids],
             )
 
+    def add_project_note(self, project_id: int, content: str) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO project_notes (project_id, content, created_at)"
+                " VALUES (?, ?, ?)",
+                (project_id, content[:2000], _now()),
+            )
+            return int(cur.lastrowid or 0)
+
+    def list_project_notes(self, project_id: int) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM project_notes WHERE project_id = ? ORDER BY id DESC",
+                (project_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_project_note(self, project_id: int, note_id: int) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "DELETE FROM project_notes WHERE project_id = ? AND id = ?",
+                (project_id, note_id),
+            )
+
     def add_project_criteria(self, project_id: int, criteria_doc_ids: list[int]) -> None:
         with self._conn() as conn:
             conn.executemany(
@@ -441,6 +472,9 @@ class Database:
             )
             conn.execute(
                 "DELETE FROM project_criteria WHERE project_id = ?", (project_id,)
+            )
+            conn.execute(
+                "DELETE FROM project_notes WHERE project_id = ?", (project_id,)
             )
             cur = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
             return cur.rowcount > 0

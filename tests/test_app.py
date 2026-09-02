@@ -805,3 +805,35 @@ def test_structured_chunks_use_entries_with_bbox():
     assert [c["kind"] for c in chunks] == ["heading", "text", "table"]
     assert chunks[0]["bbox"] == "10.0,20.0,300.0,40.0"   # 원본 좌표 보존
     assert chunks[2]["bbox"] == "10.0,50.0,300.0,90.0"
+
+
+def test_toc_table_renders_as_list():
+    import json
+
+    from zzaimy.app.render import table_html
+
+    content = json.dumps({
+        "n_rows": 2, "n_cols": 2,
+        "cells": [
+            [0, 0, 1, 1, 0, "I. 사업 개요 ········ 1"],
+            [0, 1, 1, 1, 0, "II. 장학금 신청 ······· 8"],
+            [1, 0, 1, 1, 0, "1. 사업목적 ····· 1"],
+            [1, 1, 1, 1, 0, "2. 학생 신청 ····· 8"],
+        ],
+    }, ensure_ascii=False)
+    html = str(table_html(content))
+    assert "extract-toc" in html and "<table" not in html
+    # 2단 목차는 왼쪽 열 먼저 (I → 1. → II → 2.)
+    assert html.index("사업 개요") < html.index("사업목적") < html.index("장학금 신청")
+
+
+def test_project_notes_flow(client):
+    client.post("/projects", data={"sector": "grant", "name": "혁신 2026"})
+    client.post("/project/1/notes", data={"content": "서류 마감 3/15"})
+    client.post("/project/1/notes", data={"content": "경력자 우대"})
+    page = client.get("/project/1").text
+    assert "서류 마감 3/15" in page and "경력자 우대" in page
+    db = client.app.state.db
+    nid = db.list_project_notes(1)[0]["id"]
+    client.post(f"/project/1/notes/{nid}/delete")
+    assert len(db.list_project_notes(1)) == 1

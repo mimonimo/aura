@@ -116,13 +116,38 @@
         <textarea name="instructions" style="min-height:96px;"
                   placeholder="예: 경력 3년 미만은 반려. 어학 성적은 유효기간을 확인한다.">{{ project.instructions or "" }}</textarea>
       </div>
-      <div class="form-row">
-        <span class="muted">메모 — 에이전트가 참고할 프로젝트 맥락</span>
-        <textarea name="memo" style="min-height:72px;"
-                  placeholder="예: 2026 상반기 계약직 3명 채용. 서류 마감 3/15.">{{ project.memo or "" }}</textarea>
-      </div>
-      <button type="submit" class="secondary">저장</button>
+      <button type="submit" class="secondary">지침 저장</button>
     </form>
+
+    <div style="border-top:1px solid var(--line); margin:16px 0 14px;"></div>
+    <p class="muted" style="margin:0 0 8px; font-size:12px; font-weight:600; color:#5B6B82;">
+      메모 — 에이전트가 참고할 프로젝트 맥락 (최근 5개 반영)</p>
+    <form action="/project/{{ project.id }}/notes" method="post"
+          style="display:flex; gap:8px; margin-bottom:10px;">
+      <input type="text" name="content" required
+             placeholder="예: 서류 마감 3/15. 이번엔 경력자 우대."
+             style="flex:1; border:1px solid #D8E1ED; border-radius:10px; padding:9px 12px;
+                    font-family:inherit; font-size:13px;">
+      <button type="submit" class="secondary" style="padding:8px 14px; font-size:12.5px;">추가</button>
+    </form>
+    <div style="display:flex; flex-direction:column; gap:6px; max-height:220px; overflow-y:auto;">
+      {% for n in project_notes %}
+      <div style="display:flex; gap:8px; align-items:flex-start; background:var(--panel);
+                  border:1px solid #EDF2F7; border-radius:10px; padding:8px 10px; font-size:13px;">
+        <div style="flex:1; line-height:1.55;">{{ n.content }}
+          <div class="muted" style="font-size:11px; margin-top:2px;">{{ n.created_at[:16].replace("T", " ") }}</div>
+        </div>
+        <form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post" style="flex:none;">
+          <button type="submit" title="삭제" style="background:none; border:0; box-shadow:none;
+                  color:var(--faint); padding:2px; cursor:pointer; font-size:14px;">
+            <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+        </form>
+      </div>
+      {% else %}
+      <span class="muted" style="font-size:12.5px;">메모가 없습니다. 마감·인원·특이사항을
+        남기면 검토·작성·채팅에 반영됩니다.</span>
+      {% endfor %}
+    </div>
     </div>
 
     <div id="paneCriteria" class="tab-pane">

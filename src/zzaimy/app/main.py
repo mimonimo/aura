@@ -517,17 +517,24 @@ def create_app(
         proj = db.get_project(project_id)
         if proj is None:
             raise HTTPException(404)
+        proj_sector = proj["sector"]
         docs = [
-            d for d in db.list_documents(proj["sector"], project_id=project_id)
+            d for d in db.list_documents(proj_sector, project_id=project_id)
             if d["doc_type"] != "regulation"
         ]
         linked = set(db.get_project_criteria_ids(project_id))
         sector_criteria = [
             d for d in db.list_documents("regulation")
-            if d["status"] == "reviewed" and d["sector"] in (proj["sector"], "common")
+            if d["status"] == "reviewed" and d["sector"] in (proj_sector, "common")
         ]
         # 이 섹터 전용 기준을 공통보다 위에 보여준다
-        sector_criteria.sort(key=lambda d: d["sector"] != proj["sector"])
+        sector_criteria.sort(key=lambda d: d["sector"] != proj_sector)
+        # 구버전 단일 메모는 노트로 한 번만 이관한다
+        legacy_memo = (proj.get("memo") or "").strip()
+        if legacy_memo:
+            db.add_project_note(project_id, legacy_memo)
+            db.update_project_meta(project_id, memo="")
+            proj = db.get_project(project_id) or proj
         return templates.TemplateResponse(
             request,
             "project.html",
@@ -535,6 +542,7 @@ def create_app(
                 "project": proj, "documents": docs, "active_tab": proj["sector"],
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "project_chats": db.list_project_chat_sessions(project_id),
+                "project_notes": db.list_project_notes(project_id),
             }),
         )
 
@@ -545,6 +553,21 @@ def create_app(
         if db.get_project(project_id) is None:
             raise HTTPException(404)
         db.update_project_meta(project_id, instructions=instructions, memo=memo)
+        return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+    @app.post("/project/{project_id}/notes")
+    def project_note_add(project_id: int, content: str = Form(...)):
+        if db.get_project(project_id) is None:
+            raise HTTPException(404)
+        if content.strip():
+            db.add_project_note(project_id, content.strip())
+        return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+    @app.post("/project/{project_id}/notes/{note_id}/delete")
+    def project_note_delete(project_id: int, note_id: int):
+        if db.get_project(project_id) is None:
+            raise HTTPException(404)
+        db.delete_project_note(project_id, note_id)
         return RedirectResponse(f"/project/{project_id}", status_code=303)
 
     @app.post("/project/{project_id}/criteria")
@@ -635,6 +658,12 @@ def create_app(
 
         assets = db.list_doc_assets(doc_id)
         asset_by_name = {Path(a["path"]).name: a["id"] for a in assets}
+        import json as _json
+
+        try:
+            suggested = _json.loads(doc.get("suggested_criteria") or "[]")
+        except _json.JSONDecodeError:
+            suggested = []
         return templates.TemplateResponse(
             request,
             "doc.html",
@@ -645,6 +674,7 @@ def create_app(
                     chunk_blocks(chunks, doc_id, asset_by_name) if chunks else None
                 ),
                 "original_kind": original_kind,
+                "suggested_criteria": suggested,
                 "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),
                 "n_table_chunks": sum(1 for c in chunks if c["kind"] == "table"),
             }),
