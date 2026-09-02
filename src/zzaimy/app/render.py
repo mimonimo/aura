@@ -19,6 +19,38 @@ def _rich(text: str) -> Markup:
     return Markup(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped))
 
 
+_TOC_LINE = re.compile(r"[·.…]{3,}\s*\d{1,3}")
+
+
+def _toc_html(rows: dict[int, list], n_rows: int) -> Markup:
+    """목차 표 → 항목·쪽번호 목록. 2단 목차는 열 우선(왼쪽 열 먼저)으로 읽는다."""
+    cols: dict[int, list[str]] = defaultdict(list)
+    for r in range(n_rows):
+        for c, _rs, _cs, _hd, txt in sorted(rows.get(r, [])):
+            if str(txt).strip():
+                cols[c].append(str(txt))
+    items: list[tuple[str, str]] = []
+    for c in sorted(cols):
+        for cell in cols[c]:
+            # 셀 안에 여러 항목이 붙어 있으면 '제목 ···· 쪽수' 단위로 자른다
+            for m in re.finditer(r"(.+?)[·.…]{3,}\s*(\d{1,3})", cell):
+                title = m.group(1).strip(" ·.…-")
+                if title:
+                    items.append((title, m.group(2)))
+    if not items:
+        return Markup('<pre class="doc-text">{}</pre>').format(
+            "\n".join(t for col in cols.values() for t in col)
+        )
+    parts = ['<div class="extract-toc"><div class="extract-toc-title">목차</div>']
+    for title, page in items:
+        parts.append(
+            f'<div class="toc-row"><span class="toc-t">{escape(title)}</span>'
+            f'<span class="toc-p">{escape(page)}</span></div>'
+        )
+    parts.append("</div>")
+    return Markup("".join(parts))
+
+
 def table_html(content: str) -> Markup:
     try:
         data = json.loads(content)
@@ -29,21 +61,16 @@ def table_html(content: str) -> Markup:
         return Markup('<pre class="doc-text">{}</pre>').format(content)
 
     rows: dict[int, list] = defaultdict(list)
-    col_len: dict[int, int] = defaultdict(int)
     for r, c, rs, cs, hd, txt in cells:
         rows[int(r)].append((int(c), int(rs), int(cs), bool(hd), str(txt)))
-        if int(cs) == 1:
-            col_len[int(c)] = max(col_len[int(c)], len(str(txt)))
+
+    # 목차 표 감지 — 점선 리더(····)+쪽번호 셀이 많으면 표 대신 목차로 그린다
+    all_texts = [str(t) for *_, t in cells if str(t).strip()]
+    n_toc = sum(1 for t in all_texts if _TOC_LINE.search(t))
+    if all_texts and n_toc * 2 >= len(all_texts):
+        return _toc_html(rows, int(data["n_rows"]))
+
     parts = ['<div class="table-scroll"><table class="extract">']
-    n_cols = int(data.get("n_cols") or 0)
-    if n_cols > 1 and col_len:
-        # 원본 표 비율 근사 — 열 내용 길이에 비례한 폭 힌트
-        weights = [max(col_len.get(i, 1), 3) for i in range(n_cols)]
-        total = sum(weights)
-        parts.append("<colgroup>")
-        for wgt in weights:
-            parts.append(f'<col style="width:{max(6, round(100 * wgt / total))}%">')
-        parts.append("</colgroup>")
     for r in range(n_rows):
         parts.append("<tr>")
         for c, rs, cs, hd, txt in sorted(rows.get(r, [])):

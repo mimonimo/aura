@@ -149,6 +149,21 @@ def find_relevant(
     return [by_id[cid] for cid in merged if cid in by_id][:top_k]
 
 
+def suggest_criteria_docs(
+    db: Database, masked_text: str, sector: str | None = None, top_k: int = 3
+) -> list[dict]:
+    """검토 대상과 연관성 높은 기준 '문서' 추천 — 조각 점수를 문서로 집계한다."""
+    hits = find_relevant(db, masked_text, top_k=12, sector=sector)
+    agg: dict[int, dict] = {}
+    for rank, h in enumerate(hits):
+        d = agg.setdefault(
+            h["doc_id"], {"doc_id": h["doc_id"], "title": h["reg_title"], "score": 0.0}
+        )
+        d["score"] += 1.0 / (rank + 1)  # 상위 조각일수록 가중
+    ranked = sorted(agg.values(), key=lambda d: -d["score"])
+    return ranked[:top_k]
+
+
 def compose_review_context(db: Database, masked_text: str, sector: str | None = None) -> str:
     """검토 프롬프트에 붙일 '참고 규정' 블록. 섹터 전용 + 공통 기준만 후보."""
     hits = find_relevant(db, masked_text, sector=sector)

@@ -100,6 +100,10 @@ def _guidance_block(db: Database, project: dict | None) -> str:
         p_memo = (project.get("memo") or "").strip()
         if p_memo:
             parts.append(f"[프로젝트 메모 — 참고 맥락]\n{p_memo}")
+        notes = db.list_project_notes(int(project["id"]))[:5]
+        if notes:
+            joined = "\n".join(f"- ({n['created_at'][:10]}) {n['content']}" for n in notes)
+            parts.append(f"[프로젝트 메모 — 참고 맥락]\n{joined}")
     return ("\n\n" + "\n\n".join(parts)) if parts else ""
 
 
@@ -938,6 +942,20 @@ class DocumentProcessor:
                 )
             else:
                 reg_context = compose_review_context(db, masked.text, sector=doc_type)
+                # 연관성 기반 기준 추천 — 어떤 기준과 대조했는지 화면에 보여준다
+                import json as _json
+
+                from zzaimy.app.regulations import suggest_criteria_docs
+
+                sugg = suggest_criteria_docs(db, masked.text, sector=doc_type)
+                if sugg:
+                    db.update_document(
+                        doc_id,
+                        suggested_criteria=_json.dumps(
+                            [{"id": x["doc_id"], "title": x["title"]} for x in sugg],
+                            ensure_ascii=False,
+                        ),
+                    )
             review_input = masked.text
             if reg_context:
                 review_input = f"{masked.text}\n\n{reg_context}"

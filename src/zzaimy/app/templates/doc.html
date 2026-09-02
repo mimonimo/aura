@@ -37,6 +37,11 @@
         <span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>
       {% endif %}
       {% if related %}<span class="pill">대상: {{ related.filename }}</span>{% endif %}
+      {% for sc in suggested_criteria or [] %}
+      <a class="pill" href="/doc/{{ sc.id }}" style="text-decoration:none; background:#EEF7F1; color:var(--green);"
+         title="연관성으로 자동 연결된 기준">
+        <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}</a>
+      {% endfor %}
       <span class="muted" style="margin-left:6px;">{{ doc.receipt_no or "" }} · 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
     </p>
     {% if doc.status == "failed" %}
