@@ -11,9 +11,13 @@ import logging
 import os
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from zzaimy.app.db import Database
 from zzaimy.ingest.pii import PiiMasker, RawDocument
+
+if TYPE_CHECKING:
+    from zzaimy.ingest.parsers.base import ParseResult
 from zzaimy.ingest.schema import classify_series
 
 log = logging.getLogger(__name__)
@@ -105,6 +109,7 @@ class DocumentProcessor:
         self._masker: PiiMasker | None = None
         self._last_images: list[tuple[int, Path]] = []
         self._last_parse_note = ""
+        self._last_result: ParseResult | None = None  # 표 구조 보존용
 
     # 파싱 결과 상한 — 인쇄용 PDF 등에서 파서가 비정상적으로 긴 텍스트를 뽑는
     # 사례가 실측됨(26p 문서에서 950만 자). 상한 초과분은 잘라내고 경고를 남긴다.
@@ -121,9 +126,10 @@ class DocumentProcessor:
         return text
 
     def _parse_inner(self, file_path: Path) -> str:
-        # 파싱 부산물(그림·파싱 방식 메모)은 호출 사이에 남지 않게 매번 초기화한다
+        # 파싱 부산물(그림·표 구조·파싱 방식 메모)은 호출 사이에 남지 않게 초기화한다
         self._last_images = []
         self._last_parse_note = ""
+        self._last_result = None
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
@@ -135,6 +141,7 @@ class DocumentProcessor:
         from zzaimy.ingest.parsers.docling import DoclingParser
 
         parsed = DoclingParser().parse(file_path)
+        self._last_result = parsed
         text = self._result_to_text(parsed)
 
         # 스캔 문서 감지 — 페이지당 텍스트가 빈약하면 MinerU OCR로 재파싱한다.
@@ -157,6 +164,7 @@ class DocumentProcessor:
         try:
             with tempfile.TemporaryDirectory(prefix="zz-mineru-") as tmp:
                 parsed = MineruParser(method="ocr").parse(file_path, work_dir=Path(tmp))
+                self._last_result = parsed
                 text = self._result_to_text(parsed)
                 # 그림은 임시 디렉터리가 사라지기 전에 밖으로 복사한다
                 keep_dir = file_path.parent / f"{file_path.stem}_imgs"
@@ -181,6 +189,74 @@ class DocumentProcessor:
         except Exception as e:
             log.warning("MinerU OCR 실패(%s) — 기본 파싱 결과로 진행", type(e).__name__)
         return None
+
+    def _mask_str(self, s: str) -> str:
+        if self._masker is None:
+            self._masker = PiiMasker()
+        masked, _ = self._masker.mask(RawDocument(doc_id="chunk", text=s))
+        return masked.text
+
+    def _structured_chunks(
+        self, do_mask: bool = True, max_chunks: int = 400
+    ) -> list[dict] | None:
+        """파서 구조(페이지·표)를 유지한 조각 목록 — 표는 병합 셀까지 JSON으로.
+
+        구조 정보가 없으면(텍스트·HWP 경로) None을 주고 문단 분할로 폴백한다.
+        """
+        import json as _json
+        from collections import defaultdict
+
+        parsed = self._last_result
+        if parsed is None or not parsed.pages:
+            return None
+        mk = self._mask_str if do_mask else (lambda s: s)
+        tables_by_page: dict[int, list] = defaultdict(list)
+        for t in getattr(parsed, "tables", []):
+            tables_by_page[t.page_no].append(t)
+
+        out: list[dict] = []
+        for pg in parsed.pages:
+            buf = ""
+
+            def flush(pg_no: int = pg.page_no) -> None:
+                nonlocal buf
+                if len(buf) >= 15:
+                    out.append(
+                        {"kind": "text", "page_no": pg_no, "content": mk(buf)[:2000]}
+                    )
+                buf = ""
+
+            for line in pg.text.splitlines():
+                ln = line.strip()
+                if not ln:
+                    continue
+                if ln.startswith("[[h]]"):
+                    flush()
+                    out.append({
+                        "kind": "heading", "page_no": pg.page_no,
+                        "content": mk(ln[5:].strip())[:300],
+                    })
+                    continue
+                buf += ("\n" if buf else "") + ln
+                if len(buf) >= 500:
+                    flush()
+            flush()
+            for t in tables_by_page.get(pg.page_no, []):
+                cells = [
+                    [c.row, c.col, c.row_span, c.col_span,
+                     1 if c.is_header else 0, mk(c.text)]
+                    for c in t.cells
+                ]
+                out.append({
+                    "kind": "table", "page_no": pg.page_no,
+                    "content": _json.dumps(
+                        {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells},
+                        ensure_ascii=False,
+                    ),
+                })
+            if len(out) >= max_chunks:
+                break
+        return out[:max_chunks]
 
     @staticmethod
     def _result_to_text(parsed) -> str:
@@ -301,7 +377,7 @@ class DocumentProcessor:
                 masked, _ = self._masker.mask(
                     RawDocument(doc_id=str(doc_id), text=raw_text)
                 )
-                parsed_chunks = _split_chunks(masked.text)
+                parsed_chunks = self._structured_chunks() or _split_chunks(masked.text)
                 db.replace_doc_chunks(doc_id, parsed_chunks)
                 db.replace_doc_assets(
                     doc_id,
@@ -331,8 +407,10 @@ class DocumentProcessor:
             )
             log.info("doc %d: PII %d건 마스킹", doc_id, len(events))
 
-            # 파싱 결과 DB화 — 마스킹본을 문단·표 조각으로 저장 (연관성 분석·작성 재료)
-            db.replace_doc_chunks(doc_id, _split_chunks(masked.text))
+            # 파싱 결과 DB화 — 구조(페이지·표) 보존 조각, 없으면 문단 분할 (연관성·작성 재료)
+            db.replace_doc_chunks(
+                doc_id, self._structured_chunks() or _split_chunks(masked.text)
+            )
             db.replace_doc_assets(
                 doc_id,
                 [

@@ -23,7 +23,11 @@
 
 <div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ doc.filename }}</h2>
+    <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>
+      <a href="/doc/{{ doc.id }}/original" target="_blank"
+         style="text-decoration:none; color:inherit;" title="원본 파일 열기">{{ doc.filename }}
+        <iconify-icon icon="solar:square-top-up-linear"
+                      style="font-size:14px; color:var(--faint);"></iconify-icon></a></h2>
     <p style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
       <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
       {% if doc.doc_type in ("regulation", "ocr") %}
@@ -124,20 +128,35 @@
         {% if n_text_chunks %}본문 {{ n_text_chunks }}조각{% endif %}
         {% if n_table_chunks %} · 표 {{ n_table_chunks }}{% endif %}
         {% if assets %} · 그림 {{ assets|length }}{% endif %}</span></h2>
-    <div style="display:grid; grid-template-columns:{{ 'minmax(0,1fr) 260px' if assets else '1fr' }}; gap:16px; align-items:start;">
-      <pre class="doc-text" style="max-height:520px;">{{ doc.masked_text }}</pre>
-      {% if assets %}
-      <div style="display:flex; flex-direction:column; gap:10px; max-height:520px; overflow-y:auto;">
-        {% for a in assets %}
-        <figure style="margin:0;">
-          <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="p{{ a.page_no }} 그림"
-               style="width:100%; border:1px solid var(--line); border-radius:10px;">
-          <figcaption class="muted" style="font-size:11.5px; margin-top:3px;">p{{ a.page_no }} 추출 그림</figcaption>
-        </figure>
-        {% endfor %}
+    <div style="display:grid; grid-template-columns:{{ 'minmax(0,1fr) minmax(0,1fr)' if original_kind else '1fr' }}; gap:16px; align-items:start;">
+      {% if original_kind == "pdf" %}
+      <embed src="/doc/{{ doc.id }}/original" type="application/pdf"
+             style="width:100%; height:560px; border:1px solid var(--line); border-radius:12px;">
+      {% elif original_kind == "image" %}
+      <div style="max-height:560px; overflow-y:auto; border:1px solid var(--line); border-radius:12px;">
+        <img src="/doc/{{ doc.id }}/original" alt="원본" style="width:100%; display:block;">
       </div>
       {% endif %}
+      {% if extract_blocks %}
+      <div class="extract-doc" style="max-height:560px; overflow-y:auto;">
+        {% for b in extract_blocks %}{{ b }}{% endfor %}
+      </div>
+      {% else %}
+      <pre class="doc-text" style="max-height:560px;">{{ doc.masked_text }}</pre>
+      {% endif %}
     </div>
+    {% if assets %}
+    <p class="muted" style="margin:14px 0 6px; font-size:12.5px; font-weight:600;">추출된 그림 {{ assets|length }}장</p>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      {% for a in assets %}
+      <figure style="margin:0; width:150px;">
+        <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="p{{ a.page_no }} 그림"
+             style="width:100%; border:1px solid var(--line); border-radius:10px;">
+        <figcaption class="muted" style="font-size:11px; margin-top:2px;">p{{ a.page_no }}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 </div>
 {% endif %}

@@ -630,3 +630,62 @@ def test_ocr_tool_page_and_upload(client):
     # 추출 전용 문서는 검토함·판정 대기에 섞이지 않는다
     assert "스캔.pdf" not in client.get("/").text
     assert client.app.state.db.pending_documents() == []
+
+
+def test_table_chunk_renders_as_html_table(client):
+    import json
+
+    db = client.app.state.db
+    doc_id = db.add_document(filename="표문서.pdf", stored_path="/tmp/x", doc_type="ocr")
+    db.update_document(doc_id, status="reviewed", masked_text="본문")
+    db.replace_doc_chunks(doc_id, [
+        {"kind": "text", "page_no": 1, "content": "머리 문단"},
+        {"kind": "table", "page_no": 1, "content": json.dumps({
+            "n_rows": 2, "n_cols": 2,
+            "cells": [[0, 0, 1, 2, 1, "제목<b>셀"], [1, 0, 1, 1, 0, "값1"],
+                      [1, 1, 1, 1, 0, "값2"]],
+        }, ensure_ascii=False)},
+    ])
+    page = client.get(f"/doc/{doc_id}").text
+    assert '<table class="extract">' in page
+    assert 'colspan="2"' in page and "<th" in page
+    assert "제목&lt;b&gt;셀" in page          # 셀 내용 이스케이프
+    assert page.index("머리 문단") < page.index('<table class="extract">')  # 순서 유지
+
+
+def test_structured_chunks_preserve_table_structure():
+    from zzaimy.app.pipeline import DocumentProcessor
+    from zzaimy.ingest.parsers.base import (
+        ParsedPage,
+        ParsedTable,
+        ParseResult,
+        TableCell,
+    )
+
+    proc = DocumentProcessor()
+    proc._last_result = ParseResult(
+        parser="fake", elapsed_s=0.1,
+        pages=[ParsedPage(page_no=1, text="첫 페이지 본문 줄입니다 충분히 길게 씁니다")],
+        tables=[ParsedTable(page_no=1, n_rows=1, n_cols=2, cells=(
+            TableCell(row=0, col=0, text="구분", is_header=True),
+            TableCell(row=0, col=1, text="내용", col_span=1),
+        ))],
+    )
+    chunks = proc._structured_chunks(do_mask=False)
+    assert [c["kind"] for c in chunks] == ["text", "table"]
+    import json
+    data = json.loads(chunks[1]["content"])
+    assert data["n_rows"] == 1 and data["cells"][0][5] == "구분"
+
+
+def test_original_file_served_and_bad_ext_redirect(client, tmp_path):
+    r = client.post("/ocr/upload",
+                    files=[("file", ("사진.heic", b"x", "image/heic"))],
+                    follow_redirects=False)
+    assert r.status_code == 303 and "err=.heic" in r.headers["location"]
+    assert "지원하지 않는 파일 형식" in client.get("/ocr?err=.heic").text
+    body = "%PDF-원본".encode()
+    client.post("/upload", data={"doc_type": "auto"},
+                files={"file": ("원본.pdf", body, "application/pdf")})
+    r = client.get("/doc/1/original")
+    assert r.status_code == 200 and r.content == body

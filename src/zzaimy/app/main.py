@@ -393,10 +393,11 @@ def create_app(
         return RedirectResponse(f"/project/{pid}", status_code=303)
 
     @app.get("/ocr", response_class=HTMLResponse)
-    def ocr_page(request: Request):
+    def ocr_page(request: Request, err: str | None = None):
         docs = db.list_documents("ocr")
         return templates.TemplateResponse(
-            request, "ocr.html", ctx({"documents": docs, "active_tab": "all"})
+            request, "ocr.html",
+            ctx({"documents": docs, "active_tab": "all", "err_ext": err}),
         )
 
     @app.post("/ocr/upload")
@@ -407,7 +408,7 @@ def create_app(
         for f in file:
             suffix = Path(f.filename or "이름없음").suffix.lower()
             if suffix not in ALLOWED_EXTENSIONS:
-                raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+                return RedirectResponse(f"/ocr?err={suffix or 'none'}", status_code=303)
         for f in file:
             name = f.filename or "이름없음"
             stored = inbox_dir / f"{uuid.uuid4().hex}{Path(name).suffix.lower()}"
@@ -552,15 +553,37 @@ def create_app(
         if doc.get("related_criteria_id"):
             related = db.get_document(doc["related_criteria_id"])
         chunks = db.list_doc_chunks(doc_id)
+        from zzaimy.app.render import chunk_blocks
+
+        suffix = Path(doc["stored_path"]).suffix.lower()
+        original_kind = (
+            "pdf" if suffix == ".pdf"
+            else "image" if suffix in (".png", ".jpg", ".jpeg") else None
+        )
+
         return templates.TemplateResponse(
             request,
             "doc.html",
             ctx({
                 "doc": doc, "reviews": db.get_reviews(doc_id), "related": related,
                 "assets": db.list_doc_assets(doc_id),
+                "extract_blocks": chunk_blocks(chunks) if chunks else None,
+                "original_kind": original_kind,
                 "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),
                 "n_table_chunks": sum(1 for c in chunks if c["kind"] == "table"),
             }),
+        )
+
+    @app.get("/doc/{doc_id}/original")
+    def doc_original(doc_id: int):
+        from fastapi.responses import FileResponse
+
+        doc = db.get_document(doc_id)
+        if doc is None or not Path(doc["stored_path"]).exists():
+            raise HTTPException(404)
+        return FileResponse(
+            doc["stored_path"], filename=doc["filename"],
+            content_disposition_type="inline",
         )
 
     @app.get("/doc/{doc_id}/asset/{asset_id}")
