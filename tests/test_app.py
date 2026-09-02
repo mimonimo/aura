@@ -567,3 +567,54 @@ def test_draft_shows_progress_immediately(client):
     r = client.post("/doc/1/draft", follow_redirects=False)
     assert r.status_code == 303
     assert client.get("/doc/1/status").json().get("drafting") in (True, False)
+
+
+def test_split_chunks_marks_tables():
+    from zzaimy.app.pipeline import _split_chunks
+
+    text = ("첫 문단입니다. 사업 개요를 설명하는 충분히 긴 본문 단락이며 "
+            "사십 자를 확실히 넘깁니다.\n\n"
+            "구분 | 금액 | 비고\n인건비 | 1,000 | 내부\n재료비 | 500 | 외부\n\n짧음")
+    chunks = _split_chunks(text)
+    assert [c["kind"] for c in chunks] == ["text", "table"]  # 짧은 조각은 버림
+
+
+def test_parse_stores_chunks_and_assets(tmp_path, monkeypatch):
+    import zzaimy.app.pipeline as pl
+
+    db = Database(tmp_path / "t.db")
+    img = tmp_path / "fig.png"
+    img.write_bytes(b"\x89PNG fake")
+    proc = pl.DocumentProcessor()
+
+    def fake_parse(self, path):
+        self._last_images = [(2, img)]
+        return "본문 문단입니다. 스캔 문서에서 추출된 충분히 긴 텍스트 단락이며 " \
+               "사십 자를 넘습니다.\n\n" \
+               "항목 | 금액(천원) | 비고\n인건비 | 1,000 | 내부 인건비 산정 기준\n" \
+               "재료비 | 500 | 외부 구매 기준 적용"
+    monkeypatch.setattr(pl.DocumentProcessor, "_parse", fake_parse)
+    monkeypatch.setattr(pl.DocumentProcessor, "_review", lambda self, t, d: "의견")
+    f = tmp_path / "스캔.pdf"
+    f.write_bytes(b"%PDF")
+    doc_id = db.add_document(filename="스캔.pdf", stored_path=str(f), doc_type="auto")
+    proc.process(db, doc_id, f)
+    kinds = [c["kind"] for c in db.list_doc_chunks(doc_id)]
+    assert kinds == ["text", "table"]
+    assets = db.list_doc_assets(doc_id)
+    assert len(assets) == 1 and assets[0]["page_no"] == 2
+    db.delete_document(doc_id)
+    assert db.list_doc_chunks(doc_id) == [] and db.list_doc_assets(doc_id) == []
+
+
+def test_criteria_upload_links_to_project(client):
+    client.post("/projects", data={"sector": "recruit", "name": "공고1"})
+    r = client.post("/criteria/upload",
+                    data={"sector": "recruit", "link_project_id": "1"},
+                    files={"file": ("채용공고.pdf", b"%PDF", "application/pdf")},
+                    follow_redirects=False)
+    assert r.headers["location"] == "/project/1"   # 프로젝트로 복귀
+    db = client.app.state.db
+    assert db.get_project_criteria_ids(1) == [1]   # 등록과 동시에 연결
+    client.post("/project/1/criteria/unlink", data={"criteria_doc_id": "1"})
+    assert db.get_project_criteria_ids(1) == []

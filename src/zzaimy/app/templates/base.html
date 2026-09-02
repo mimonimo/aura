@@ -173,11 +173,25 @@
            background: #fff; color: var(--ink); font-size: 14px; font-weight: 600;
            font-family: inherit; transition: border-color .35s var(--ease); }
   select:focus { border-color: var(--blue); outline: none; }
-  textarea { border: 1.5px solid var(--line); border-radius: 12px; padding: 12px;
-             width: 100%; min-height: 88px; resize: vertical; font-size: 14px;
-             font-family: inherit; transition: border-color .35s var(--ease); }
-  textarea:focus { border-color: var(--blue); outline: none;
+  textarea { border: 1.5px solid var(--line); background: var(--panel);
+             border-radius: 12px; padding: 12px 14px; width: 100%; min-height: 88px;
+             resize: vertical; font-size: 13.5px; line-height: 1.65; color: var(--ink);
+             font-family: inherit;
+             transition: border-color .35s var(--ease), background .35s var(--ease); }
+  textarea::placeholder, input::placeholder { color: var(--faint); }
+  textarea:focus { border-color: var(--blue); background: #fff; outline: none;
              box-shadow: 0 0 0 3px rgba(73,123,251,.1); }
+
+  /* 우측 패널 탭 */
+  .tabbar { display: flex; gap: 4px; background: var(--panel); border-radius: 12px;
+            padding: 4px; margin-bottom: 16px; }
+  .tabbar button { flex: 1; background: transparent; color: var(--muted); box-shadow: none;
+            border-radius: 9px; padding: 8px 6px; font-size: 13px; font-weight: 600; }
+  .tabbar button:hover { background: #E8EFFC; color: var(--navy); box-shadow: none; }
+  .tabbar button.on { background: #fff; color: var(--navy);
+            box-shadow: 0 1px 4px rgba(27,59,117,.12); }
+  .tab-pane { display: none; }
+  .tab-pane.on { display: block; }
   pre.doc-text { white-space: pre-wrap; font-family: inherit; font-size: 14px;
                  line-height: 1.8; background: var(--panel); border: 1px solid #EDF2F7;
                  border-radius: 12px; padding: 15px 17px; max-height: 440px;
@@ -247,7 +261,7 @@
     <a href="/" class="{{ 'active' if request.url.path == '/' and (active_tab is not defined or active_tab == 'all') else '' }}">
       <iconify-icon icon="solar:inbox-archive-linear"></iconify-icon>전체 문서함</a>
   </nav>
-  <div class="side-label">업무 섹터</div>
+  <div class="side-label">업무 영역</div>
   <nav class="side-nav">
     <a href="/?type=grant" class="{{ 'active' if active_tab is defined and active_tab == 'grant' else '' }}">
       <iconify-icon icon="solar:buildings-2-linear"></iconify-icon>국고사업{% if pending_by_type.get("grant") %}<span class="count-pill">{{ pending_by_type["grant"] }}</span>{% endif %}</a>
@@ -372,6 +386,27 @@
       if (span) span.textContent = !inp.files.length ? "선택된 파일 없음"
         : inp.files.length === 1 ? inp.files[0].name
         : inp.files[0].name + " 외 " + (inp.files.length - 1) + "건";
+    });
+    // 드래그앤드랍 — 파일 버튼을 감싼 폼 전체가 드롭 영역이 된다
+    var zone = inp.closest("form") || inp.closest(".file-field");
+    var btn = inp.closest(".file-field").querySelector(".file-btn");
+    ["dragenter", "dragover"].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) {
+        e.preventDefault();
+        if (btn) { btn.style.background = "#E8EFFC"; btn.style.borderColor = "var(--navy)"; }
+      });
+    });
+    ["dragleave", "drop"].forEach(function (ev) {
+      zone.addEventListener(ev, function (e) {
+        e.preventDefault();
+        if (btn) { btn.style.background = ""; btn.style.borderColor = ""; }
+      });
+    });
+    zone.addEventListener("drop", function (e) {
+      if (e.dataTransfer && e.dataTransfer.files.length) {
+        inp.files = e.dataTransfer.files;
+        inp.dispatchEvent(new Event("change"));
+      }
     });
   });
 </script>

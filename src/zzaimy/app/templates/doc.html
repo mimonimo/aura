@@ -118,8 +118,25 @@
 {% if doc.masked_text %}
 <div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 본문{{ "" if doc.doc_type == "regulation" else " (개인정보 마스킹됨)" }}</h2>
-    <pre class="doc-text">{{ doc.masked_text }}</pre>
+    <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>추출 결과{{ "" if doc.doc_type == "regulation" else " (개인정보 마스킹됨)" }}
+      <span class="muted" style="font-weight:500; font-size:12.5px;">
+        {% if n_text_chunks %}본문 {{ n_text_chunks }}조각{% endif %}
+        {% if n_table_chunks %} · 표 {{ n_table_chunks }}{% endif %}
+        {% if assets %} · 그림 {{ assets|length }}{% endif %}</span></h2>
+    <div style="display:grid; grid-template-columns:{{ 'minmax(0,1fr) 260px' if assets else '1fr' }}; gap:16px; align-items:start;">
+      <pre class="doc-text" style="max-height:520px;">{{ doc.masked_text }}</pre>
+      {% if assets %}
+      <div style="display:flex; flex-direction:column; gap:10px; max-height:520px; overflow-y:auto;">
+        {% for a in assets %}
+        <figure style="margin:0;">
+          <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="p{{ a.page_no }} 그림"
+               style="width:100%; border:1px solid var(--line); border-radius:10px;">
+          <figcaption class="muted" style="font-size:11.5px; margin-top:3px;">p{{ a.page_no }} 추출 그림</figcaption>
+        </figure>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
   </div>
 </div>
 {% endif %}

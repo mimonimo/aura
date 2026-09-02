@@ -347,14 +347,16 @@ def create_app(
         background: BackgroundTasks,
         file: list[UploadFile] = File(...),
         sector: str = Form("common"),
+        link_project_id: int | None = Form(None),
     ):
         if sector not in SECTOR_LABELS:
-            raise HTTPException(400, f"알 수 없는 섹터: {sector}")
+            raise HTTPException(400, f"알 수 없는 업무 영역: {sector}")
         # 일괄 등록 — 형식 검사를 전부 통과해야 하나라도 저장한다
         for f in file:
             suffix = Path(f.filename or "이름없음").suffix.lower()
             if suffix not in ALLOWED_EXTENSIONS:
                 raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+        new_ids: list[int] = []
         for f in file:
             name = f.filename or "이름없음"
             stored = inbox_dir / f"{uuid.uuid4().hex}{Path(name).suffix.lower()}"
@@ -364,15 +366,27 @@ def create_app(
                 filename=name, stored_path=str(stored),
                 doc_type="regulation", sector=sector,
             )
+            new_ids.append(doc_id)
             background.add_task(processor.process, db, doc_id, stored)
+        # 프로젝트에서 올린 경우 — 등록과 동시에 그 프로젝트에 연결한다
+        if link_project_id and db.get_project(link_project_id):
+            db.add_project_criteria(link_project_id, new_ids)
+            return RedirectResponse(f"/project/{link_project_id}", status_code=303)
         return RedirectResponse("/criteria", status_code=303)
+
+    @app.post("/project/{project_id}/criteria/unlink")
+    def project_criteria_unlink(project_id: int, criteria_doc_id: int = Form(...)):
+        if db.get_project(project_id) is None:
+            raise HTTPException(404)
+        db.remove_project_criterion(project_id, criteria_doc_id)
+        return RedirectResponse(f"/project/{project_id}", status_code=303)
 
     @app.post("/projects")
     def create_project(
         sector: str = Form(...), name: str = Form(...), due_date: str = Form("")
     ):
         if sector not in INBOX_TYPES:
-            raise HTTPException(400, f"알 수 없는 섹터: {sector}")
+            raise HTTPException(400, f"알 수 없는 업무 영역: {sector}")
         if not name.strip():
             raise HTTPException(400, "프로젝트 이름이 필요하다")
         pid = db.create_project(sector, name.strip(), due_date=due_date.strip())
@@ -510,11 +524,28 @@ def create_app(
         related = None
         if doc.get("related_criteria_id"):
             related = db.get_document(doc["related_criteria_id"])
+        chunks = db.list_doc_chunks(doc_id)
         return templates.TemplateResponse(
             request,
             "doc.html",
-            ctx({"doc": doc, "reviews": db.get_reviews(doc_id), "related": related}),
+            ctx({
+                "doc": doc, "reviews": db.get_reviews(doc_id), "related": related,
+                "assets": db.list_doc_assets(doc_id),
+                "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),
+                "n_table_chunks": sum(1 for c in chunks if c["kind"] == "table"),
+            }),
         )
+
+    @app.get("/doc/{doc_id}/asset/{asset_id}")
+    def doc_asset(doc_id: int, asset_id: int):
+        from fastapi.responses import FileResponse
+
+        asset = next(
+            (a for a in db.list_doc_assets(doc_id) if a["id"] == asset_id), None
+        )
+        if asset is None or not Path(asset["path"]).exists():
+            raise HTTPException(404)
+        return FileResponse(asset["path"])
 
     @app.post("/doc/{doc_id}/decision")
     def decide(background: BackgroundTasks, doc_id: int, decision: str = Form(...)):

@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 from pathlib import Path
 
 from zzaimy.app.db import Database
@@ -64,6 +66,22 @@ def pick_review_prompt(doc_type: str) -> str:
     return _GRANT_PROMPT
 
 
+def _split_chunks(text: str, max_chunks: int = 400) -> list[dict]:
+    """마스킹본을 문단 단위 조각으로 나눈다. ' | ' 줄이 과반이면 표 조각으로 표시."""
+    chunks: list[dict] = []
+    for para in text.split("\n\n"):
+        p = para.strip()
+        if len(p) < 40:
+            continue
+        lines = [ln for ln in p.splitlines() if ln.strip()]
+        n_table = sum(1 for ln in lines if " | " in ln)
+        kind = "table" if lines and n_table * 2 >= len(lines) else "text"
+        chunks.append({"kind": kind, "content": p[:2000]})
+        if len(chunks) >= max_chunks:
+            break
+    return chunks
+
+
 def _guidance_block(db: Database, project: dict | None) -> str:
     """담당자 전역 지침 + 프로젝트 지침·메모를 검토 입력 뒤에 붙인다."""
     parts = []
@@ -85,6 +103,7 @@ class DocumentProcessor:
 
     def __init__(self) -> None:
         self._masker: PiiMasker | None = None
+        self._last_images: list[tuple[int, Path]] = []
 
     # 파싱 결과 상한 — 인쇄용 PDF 등에서 파서가 비정상적으로 긴 텍스트를 뽑는
     # 사례가 실측됨(26p 문서에서 950만 자). 상한 초과분은 잘라내고 경고를 남긴다.
@@ -101,6 +120,8 @@ class DocumentProcessor:
         return text
 
     def _parse_inner(self, file_path: Path) -> str:
+        # 파싱 부산물(그림 등)은 호출 사이에 남지 않게 매번 초기화한다
+        self._last_images = []
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
@@ -112,6 +133,51 @@ class DocumentProcessor:
         from zzaimy.ingest.parsers.docling import DoclingParser
 
         parsed = DoclingParser().parse(file_path)
+        text = self._result_to_text(parsed)
+
+        # 스캔 문서 감지 — 페이지당 텍스트가 빈약하면 MinerU OCR로 재파싱한다.
+        # MinerU(오픈소스, PaddleOCR 계열)는 표를 구조로, 그림을 파일로 뽑아준다
+        n_pages = max(len(parsed.pages), 1)
+        if len(text.strip()) < max(400, 60 * n_pages) and not os.environ.get(
+            "ZZAIMY_NO_OCR_FALLBACK"
+        ):
+            ocr_text = self._parse_mineru(file_path)
+            if ocr_text is not None and len(ocr_text.strip()) > len(text.strip()):
+                return ocr_text
+        return text
+
+    def _parse_mineru(self, file_path: Path) -> str | None:
+        """MinerU OCR 경로 — 실패해도 기본 파싱 결과로 진행할 수 있게 None을 준다."""
+        import tempfile
+
+        from zzaimy.ingest.parsers.mineru import MineruNotInstalled, MineruParser
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="zz-mineru-") as tmp:
+                parsed = MineruParser(method="ocr").parse(file_path, work_dir=Path(tmp))
+                text = self._result_to_text(parsed)
+                # 그림은 임시 디렉터리가 사라지기 전에 밖으로 복사한다
+                keep_dir = file_path.parent / f"{file_path.stem}_imgs"
+                images: list[tuple[int, Path]] = []
+                for img in parsed.images[:20]:
+                    keep_dir.mkdir(parents=True, exist_ok=True)
+                    dest = keep_dir / img.path.name
+                    shutil.copyfile(img.path, dest)
+                    images.append((img.page_no, dest))
+                self._last_images = images
+                log.info(
+                    "%s: MinerU OCR 재파싱 — %d자, 표 %d, 그림 %d",
+                    file_path.name, len(text), len(parsed.tables), len(images),
+                )
+                return text
+        except MineruNotInstalled:
+            log.warning("MinerU 미설치 — OCR 폴백 생략")
+        except Exception as e:
+            log.warning("MinerU OCR 실패(%s) — 기본 파싱 결과로 진행", type(e).__name__)
+        return None
+
+    @staticmethod
+    def _result_to_text(parsed) -> str:
         text = "\n".join(p.text for p in parsed.pages)
         for t in parsed.tables:
             text += "\n" + "\n".join(
@@ -191,6 +257,13 @@ class DocumentProcessor:
                 db.add_regulation_chunks(
                     doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
                 )
+                db.replace_doc_assets(
+                    doc_id,
+                    [
+                        {"kind": "image", "page_no": pg, "path": str(p)}
+                        for pg, p in self._last_images
+                    ],
+                )
                 db.update_document(
                     doc_id,
                     status="reviewed",
@@ -210,6 +283,16 @@ class DocumentProcessor:
                 RawDocument(doc_id=str(doc_id), text=raw_text)
             )
             log.info("doc %d: PII %d건 마스킹", doc_id, len(events))
+
+            # 파싱 결과 DB화 — 마스킹본을 문단·표 조각으로 저장 (연관성 분석·작성 재료)
+            db.replace_doc_chunks(doc_id, _split_chunks(masked.text))
+            db.replace_doc_assets(
+                doc_id,
+                [
+                    {"kind": "image", "page_no": pg, "path": str(p)}
+                    for pg, p in self._last_images
+                ],
+            )
 
             from zzaimy.app.regulations import compose_review_context
 

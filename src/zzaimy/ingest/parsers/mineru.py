@@ -15,7 +15,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from zzaimy.ingest.parsers.base import ParsedPage, ParsedTable, ParseResult
+from zzaimy.ingest.parsers.base import ParsedImage, ParsedPage, ParsedTable, ParseResult
 from zzaimy.ingest.parsers.html_table import parse_html_table
 
 
@@ -71,7 +71,9 @@ class MineruParser:
 
         page_texts: dict[int, list[str]] = defaultdict(list)
         tables: list[ParsedTable] = []
+        images: list[ParsedImage] = []
         warnings: list[str] = []
+        base_dir = content_lists[0].parent
         max_page = 0
         for e in entries:
             page_no = int(e.get("page_idx", 0)) + 1
@@ -83,6 +85,14 @@ class MineruParser:
                     tables.append(parse_html_table(body, page_no=page_no))
                 else:
                     warnings.append(f"p{page_no}: table_body 없는 표 항목")
+            elif kind == "image":
+                img = e.get("img_path") or ""
+                img_file = (base_dir / img).resolve() if img else None
+                if img_file and img_file.exists():
+                    images.append(ParsedImage(page_no=page_no, path=img_file))
+                # 그림 캡션 텍스트도 본문에 남긴다
+                for cap in e.get("img_caption") or []:
+                    page_texts[page_no].append(cap)
             elif kind == "text":
                 page_texts[page_no].append(e.get("text", ""))
 
@@ -91,5 +101,6 @@ class MineruParser:
             for i in range(1, max_page + 1)
         ]
         return ParseResult(
-            parser=self.name, elapsed_s=elapsed, pages=pages, tables=tables, warnings=warnings
+            parser=self.name, elapsed_s=elapsed, pages=pages,
+            tables=tables, images=images, warnings=warnings,
         )
