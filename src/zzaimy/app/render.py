@@ -244,7 +244,14 @@ def layout_pages(
                 inner = table_html(c["content"])
             else:
                 n_lines = max(c["content"].count("\n") + 1, 1)
-                fs = max(7.0, min(15.0, bh / n_lines * 0.72))
+                fs = min(15.0, bh / n_lines * 0.72)
+                # 폭 기준 상한 — 가장 긴 줄이 박스 폭을 넘지 않게 (CJK≈1em, 그 외≈0.55em)
+                widest = max(
+                    (sum(1.0 if ord(ch) > 0x2E80 else 0.55 for ch in ln)
+                     for ln in c["content"].splitlines() if ln.strip()),
+                    default=1.0,
+                )
+                fs = max(4.5, min(fs, bw / max(widest, 1.0) * 0.96))
                 weight = "700" if c["kind"] == "heading" else "400"
                 color = "var(--navy)" if c["kind"] == "heading" else "inherit"
                 inner = Markup(
