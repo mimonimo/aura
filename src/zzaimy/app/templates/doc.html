@@ -20,6 +20,17 @@
 {% block content %}
 <script>
   document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("[data-mtab]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        document.querySelectorAll("[data-mtab]").forEach(function (b) {
+          b.classList.toggle("on", b === btn);
+        });
+        var orig = document.getElementById("modeOriginal");
+        var rest = document.getElementById("modeRestored");
+        if (orig) orig.hidden = btn.dataset.mtab !== "modeOriginal";
+        if (rest) rest.hidden = btn.dataset.mtab !== "modeRestored";
+      });
+    });
     document.querySelectorAll("[data-vtab]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         document.querySelectorAll("[data-vtab]").forEach(function (b) {
@@ -190,19 +201,27 @@
           <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
       </span>
       {% endif %}</h2>
-    <div style="display:grid; grid-template-columns:{{ 'minmax(0,1fr) minmax(0,1fr)' if original_kind else '1fr' }}; gap:16px; align-items:start;">
+    {# 좌우 대조 없이 단일 뷰어 — 원본 모드 / 복원 모드 전환 #}
+    {% if original_kind and extract_blocks %}
+    <div class="tabbar" style="max-width:280px; margin-bottom:12px;">
+      <button type="button" data-mtab="modeOriginal">원본 모드</button>
+      <button type="button" class="on" data-mtab="modeRestored">복원 모드</button>
+    </div>
+    {% endif %}
+
+    {% if original_kind %}
+    <div id="modeOriginal" {% if extract_blocks %}hidden{% endif %}>
       {% if original_kind == "pdf" %}
       <embed src="/doc/{{ doc.id }}/original" type="application/pdf"
-             style="width:100%; height:560px; border:1px solid var(--line); border-radius:12px;">
-      {% elif original_kind == "image" %}
-      <div style="min-width:0;">
+             style="width:100%; height:680px; border:1px solid var(--line); border-radius:12px;">
+      {% else %}
         {% if scan_asset %}
         <div class="tabbar" style="max-width:240px; margin-bottom:10px;">
           <button type="button" class="on" data-otab="oScan">보정 스캔본</button>
           <button type="button" data-otab="oRaw">원본 사진</button>
         </div>
         {% endif %}
-        <div style="max-height:560px; overflow-y:auto; border:1px solid var(--line); border-radius:12px;">
+        <div style="max-height:680px; overflow-y:auto; border:1px solid var(--line); border-radius:12px;">
           {% if scan_asset %}
           <img id="oScanImg" src="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}" alt="보정 스캔본"
                style="width:100%; display:block;">
@@ -229,29 +248,30 @@
           });
         </script>
         {% endif %}
-      </div>
-      {% endif %}
-      {% if extract_blocks %}
-      <div style="min-width:0;">
-        {% if layout_pages %}
-        <div class="tabbar" style="max-width:280px; margin-bottom:10px;">
-          <button type="button" class="on" data-vtab="viewFlow">읽기 순서</button>
-          <button type="button" data-vtab="viewLayout">원본 배치</button>
-        </div>
-        {% endif %}
-        <div id="viewFlow" class="extract-doc" style="max-height:560px; overflow-y:auto;">
-          {% for b in extract_blocks %}{{ b }}{% endfor %}
-        </div>
-        {% if layout_pages %}
-        <div id="viewLayout" hidden class="layout-wrap" style="max-height:560px; overflow-y:auto;">
-          {% for pgv in layout_pages %}{{ pgv }}{% endfor %}
-        </div>
-        {% endif %}
-      </div>
-      {% else %}
-      <pre class="doc-text" style="max-height:560px;">{{ doc.masked_text }}</pre>
       {% endif %}
     </div>
+    {% endif %}
+
+    {% if extract_blocks %}
+    <div id="modeRestored">
+      {% if layout_pages %}
+      <div class="tabbar" style="max-width:280px; margin-bottom:10px;">
+        <button type="button" class="on" data-vtab="viewFlow">읽기 순서</button>
+        <button type="button" data-vtab="viewLayout">원본 배치</button>
+      </div>
+      {% endif %}
+      <div id="viewFlow" class="extract-doc" style="max-height:680px; overflow-y:auto;">
+        {% for b in extract_blocks %}{{ b }}{% endfor %}
+      </div>
+      {% if layout_pages %}
+      <div id="viewLayout" hidden class="layout-wrap" style="max-height:680px; overflow-y:auto;">
+        {% for pgv in layout_pages %}{{ pgv }}{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% elif not original_kind %}
+    <pre class="doc-text" style="max-height:680px;">{{ doc.masked_text }}</pre>
+    {% endif %}
 
   </div>
 </div>
