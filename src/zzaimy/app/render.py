@@ -173,6 +173,89 @@ def chunk_blocks(
     return blocks
 
 
+def layout_pages(
+    chunks: list[dict],
+    doc_id: int | None = None,
+    asset_by_name: dict[str, int] | None = None,
+) -> list[Markup] | None:
+    """bbox로 원본 배치를 재구성 — 페이지 캔버스 위에 요소를 좌표대로 놓는다.
+
+    좌표가 있는 조각이 충분치 않으면 None (읽기 순서 보기만 제공).
+    """
+    with_bbox = [c for c in chunks if c.get("bbox")]
+    if len(with_bbox) < max(2, len(chunks) // 3):
+        return None
+
+    pages: dict[int, list[dict]] = defaultdict(list)
+    for c in chunks:
+        pages[c.get("page_no") or 1].append(c)
+
+    out: list[Markup] = []
+    for pg in sorted(pages):
+        items = pages[pg]
+        boxes = []
+        for c in items:
+            if not c.get("bbox"):
+                continue
+            try:
+                x0, y0, x1, y1 = (float(v) for v in c["bbox"].split(","))
+                boxes.append((c, x0, y0, x1, y1))
+            except ValueError:
+                continue
+        if not boxes:
+            continue
+        w = max(x1 for *_, x1, _ in boxes) * 1.02 or 1
+        h = max(y1 for *_, y1 in boxes) * 1.03 or 1
+        parts = [
+            f'<div class="layout-page" style="aspect-ratio:{w:.0f}/{h:.0f};">',
+            f'<span class="layout-pageno">{pg}쪽</span>',
+        ]
+        for c, x0, y0, x1, y1 in boxes:
+            style = (
+                f"left:{100 * x0 / w:.2f}%; top:{100 * y0 / h:.2f}%;"
+                f" width:{100 * (x1 - x0) / w:.2f}%;"
+                f" height:{100 * (y1 - y0) / h:.2f}%;"
+            )
+            if c["kind"] == "image":
+                aid = (asset_by_name or {}).get(c["content"])
+                inner = (
+                    Markup('<img src="/doc/{}/asset/{}" style="width:100%; height:100%;'
+                           ' object-fit:contain;">').format(doc_id, aid)
+                    if doc_id is not None and aid else Markup("")
+                )
+            elif c["kind"] == "table":
+                inner = table_html(c["content"])
+            elif c["kind"] == "heading":
+                inner = Markup('<b class="layout-h">{}</b>').format(c["content"])
+            else:
+                inner = _rich(c["content"])
+            parts.append(
+                Markup('<div class="layout-box" style="{}">{}</div>').format(
+                    Markup(style), inner
+                )
+            )
+        parts.append("</div>")
+        out.append(Markup("".join(str(x) for x in parts)))
+    return out or None
+
+
+def trailing_image_blocks(doc_id: int, assets: list[dict]) -> list[Markup]:
+    """위치 정보가 없는 추출 그림을 프리뷰 말미 섹션으로 — 복원 문서와 동일 구성."""
+    if not assets:
+        return []
+    blocks = [Markup('<h4 class="extract-h">추출 그림</h4>')]
+    for a in assets:
+        blocks.append(Markup(
+            '<figure style="margin:6px 0 16px;">'
+            '<img src="/doc/{d}/asset/{a}" style="max-width:70%; border:1px solid'
+            ' var(--line); border-radius:10px; display:block;">'
+            '<figcaption class="muted" style="font-size:11px; margin-top:3px;">'
+            'p{p} · <a href="/doc/{d}/asset/{a}?dl=1">내려받기</a>'
+            '</figcaption></figure>'
+        ).format(d=doc_id, a=a["id"], p=a.get("page_no") or "?"))
+    return blocks
+
+
 def build_docx(
     filename: str,
     chunks: list[dict],

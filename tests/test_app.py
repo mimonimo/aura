@@ -903,3 +903,18 @@ def test_docx_restoration_export(client):
     texts = "\n".join(p.text for p in d.paragraphs)
     assert "상 장" in texts and "우수한" in texts
     assert len(d.tables) == 1 and d.tables[0].cell(0, 0).text == "구분"
+
+
+def test_layout_pages_reconstruct_positions():
+    from zzaimy.app.render import layout_pages
+
+    chunks = [
+        {"kind": "heading", "page_no": 1, "content": "제목", "bbox": "50,30,500,60"},
+        {"kind": "text", "page_no": 1, "content": "본문 내용", "bbox": "50,80,500,200"},
+        {"kind": "text", "page_no": 1, "content": "좌표 없음"},
+    ]
+    pages = layout_pages(chunks)
+    assert pages and "layout-page" in str(pages[0])
+    assert "left:" in str(pages[0]) and "top:" in str(pages[0])
+    # 좌표 조각이 너무 적으면 배치 보기를 만들지 않는다
+    assert layout_pages([{"kind": "text", "page_no": 1, "content": "x"}] * 5) is None
