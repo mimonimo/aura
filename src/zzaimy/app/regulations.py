@@ -102,6 +102,26 @@ def _tokens(text: str) -> set[str]:
     return set(_TOKEN.findall(text))
 
 
+def restore_spacing(text: str) -> str:
+    """OCR이 떨어뜨린 어절 공백을 Kiwi로 복원한다.
+
+    이미 공백이 정상인 텍스트(공백 비율 8% 이상)는 건드리지 않는다 —
+    원본 양식의 디지털 재구성이 목적이지 재작성이 아니다.
+    """
+    t = text.strip()
+    if len(t) < 20:
+        return text
+    ratio = t.count(" ") / len(t)
+    if ratio >= 0.08:
+        return text
+    try:
+        kiwi = _get_kiwi()
+        fixed = kiwi.space(t)
+        return fixed if fixed else text
+    except Exception:
+        return text
+
+
 def find_relevant(
     db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2,
     sector: str | None = None,

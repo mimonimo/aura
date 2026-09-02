@@ -574,7 +574,16 @@ class DocumentProcessor:
         parsed = self._last_result
         if parsed is None or not parsed.pages:
             return None
-        mk = self._mask_str if do_mask else (lambda s: s)
+        base_mk = self._mask_str if do_mask else (lambda s: s)
+        spacing_needed = getattr(parsed, "parser", "") == "mineru"
+
+        def mk(t: str) -> str:
+            if spacing_needed:
+                # OCR이 떨어뜨린 어절 공백 복원 후 마스킹 — 원본의 디지털 재구성
+                from zzaimy.app.regulations import restore_spacing
+
+                t = restore_spacing(t)
+            return base_mk(t)
 
         entries = getattr(parsed, "entries", None)
         if entries:
@@ -777,7 +786,13 @@ class DocumentProcessor:
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
                 chunks = split_regulation(raw_text)
                 if reg_vision_chunks is None and self._last_parse_note.startswith("스캔"):
-                    # MinerU 스캔 경로 — 조문 텍스트의 오인식을 보수적으로 교정
+                    # MinerU 스캔 경로 — 공백 복원 후 오인식을 보수적으로 교정
+                    from zzaimy.app.regulations import restore_spacing
+
+                    chunks = [
+                        type(c)(heading=c.heading, content=restore_spacing(c.content))
+                        for c in chunks
+                    ]
                     fixed = self._correct_texts([c.content for c in chunks])
                     if fixed:
                         chunks = [
@@ -811,8 +826,8 @@ class DocumentProcessor:
                     parse_note=self._last_parse_note or None,
                     series=series.value if series else None,
                     ai_review=(
-                        f"규정 등록 완료 — {len(chunks)}개 조각으로 분해되어 저장소에"
-                        " 들어갔습니다. 이제 문서 검토 시 이 규정이 근거로 인용됩니다."
+                        "기준 등록 완료 — 이제 문서 검토와 채팅에서 이 문서가"
+                        " 근거로 인용됩니다."
                     ),
                 )
                 return
