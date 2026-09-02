@@ -177,6 +177,7 @@ def build_docx(
     filename: str,
     chunks: list[dict],
     asset_paths: dict[str, str] | None = None,
+    extra_images: list[str] | None = None,
 ) -> bytes:
     """추출 조각을 편집 가능한 워드 문서로 복원 — 제목·문단·병합 표·그림.
 
@@ -233,6 +234,16 @@ def build_docx(
             for i, part in enumerate(re.split(r"\*\*(.+?)\*\*", c["content"])):
                 run = para.add_run(part)
                 run.bold = i % 2 == 1
+
+    # 본문에 그림 위치가 없는 경우(비전 전사 등) — 추출 그림을 끝에 첨부한다
+    placed = any(c["kind"] == "image" for c in chunks)
+    if not placed and extra_images:
+        doc.add_heading("추출 그림", level=2)
+        for path in extra_images[:20]:
+            try:
+                doc.add_picture(path, width=Inches(5.2))
+            except Exception:
+                continue
 
     buf = io.BytesIO()
     doc.save(buf)
