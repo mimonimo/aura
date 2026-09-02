@@ -214,6 +214,20 @@
   .pop-item.disabled { color: var(--faint); cursor: default; }
   .pop-empty { padding: 14px 10px; color: var(--faint); font-size: 13px; text-align: center; }
 
+  /* 공용 모달 — data-modal-open="#id" 버튼으로 연다 */
+  .modal-back { display: none; position: fixed; inset: 0; z-index: 70;
+                background: rgba(15,23,42,.45); align-items: center; justify-content: center; }
+  .modal-back.open { display: flex; }
+  .modal-back > .card { width: 500px; max-width: 92vw; margin: 0;
+                        max-height: 88vh; overflow-y: auto; animation: rise .35s var(--ease); }
+  .modal-head { display: flex; align-items: center; justify-content: space-between;
+                margin-bottom: 14px; }
+  .modal-head h2 { margin: 0; }
+  .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .form-row > .muted { font-size: 12.5px; }
+  .form-row select, .form-row input[type=text] { width: 100%; border: 1.5px solid var(--line);
+                border-radius: 12px; padding: 10px 14px; font-family: inherit; font-size: 14px; }
+
   @keyframes rise { from { opacity: 0; transform: translateY(10px); }
                     to { opacity: 1; transform: translateY(0); } }
   /* 페이지 로드마다 카드가 움직이면 이동할 때마다 화면이 움찔거린다(실사용 지적)
@@ -320,6 +334,22 @@
   <main>{% block content %}{% endblock %}</main>
 </div>
 <script>
+  document.querySelectorAll("[data-modal-open]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var m = document.querySelector(btn.dataset.modalOpen);
+      if (m) { m.classList.add("open"); var f = m.querySelector("input,select,textarea"); if (f) f.focus(); }
+    });
+  });
+  document.querySelectorAll(".modal-back").forEach(function (m) {
+    m.addEventListener("click", function (e) { if (e.target === m) m.classList.remove("open"); });
+    m.querySelectorAll("[data-modal-close]").forEach(function (b) {
+      b.addEventListener("click", function () { m.classList.remove("open"); });
+    });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") document.querySelectorAll(".modal-back.open")
+      .forEach(function (m) { m.classList.remove("open"); });
+  });
   document.querySelectorAll("[data-pop]").forEach(function (btn) {
     btn.addEventListener("click", function (e) {
       e.stopPropagation();

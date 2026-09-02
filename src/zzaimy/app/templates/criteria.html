@@ -1,18 +1,30 @@
 {% extends "base.html" %}
 {% block title %}기준 문서 — YNC 행정 에이전트{% endblock %}
 {% block pagetitle %}기준 문서{% endblock %}
+{% block head %}
+<style>
+  /* 섹터 필 버튼 — 전역 button 스타일(그림자·호버 남색)을 물려받지 않게 초기화 */
+  #sectorPills .pill { box-shadow: none; font-weight: 600; font-size: 12.5px;
+                       padding: 6px 14px; }
+  #sectorPills .pill:not(.on):hover { background: #E2E8F0; color: var(--ink); }
+  #sectorPills .pill.on { background: #1E6B4F; color: #fff; }
+  .hero-row { display: flex; gap: 10px; justify-content: center; align-items: stretch; }
+  .hero-row .searchbox { width: 520px; max-width: 60vw; padding: 0 20px; }
+  .hero-row button { padding: 0 22px; height: 48px; }
+</style>
+{% endblock %}
 {% block content %}
 
 <div style="text-align:center; padding:26px 0 20px;">
   <h1 style="margin:0 0 6px; font-size:22px; letter-spacing:-0.02em;">규정 · 지침 · 매뉴얼 · 공고문</h1>
   <p class="muted" style="margin:0 0 18px;">에이전트가 문서를 검토할 때 근거로 쓰는 판단 기준입니다.</p>
-  <div style="display:flex; gap:10px; justify-content:center; align-items:center;">
-    <div class="searchbox" style="width:520px; max-width:70vw; padding:12px 20px;">
+  <div class="hero-row">
+    <div class="searchbox">
       <iconify-icon icon="solar:magnifer-linear" style="font-size:18px;"></iconify-icon>
       <input type="search" id="criteriaSearch" placeholder="기준 문서 검색 (문서명·섹터)"
              style="width:100%; font-size:14.5px;" autofocus>
     </div>
-    <button type="button" id="openUpload" style="padding:11px 22px;">
+    <button type="button" data-modal-open="#uploadModal">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>기준 등록</button>
   </div>
   {% set sec_counts = {} %}
@@ -50,31 +62,38 @@
   {% endif %}
 </div></div>
 
-<div id="uploadModal" style="display:none; position:fixed; inset:0; z-index:70;
-     background:rgba(15,23,42,.45); align-items:center; justify-content:center;">
-  <div class="card" style="width:520px; max-width:92vw; margin:0;">
+<div id="uploadModal" class="modal-back">
+  <div class="card">
     <div class="card-in">
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-        <h2 style="margin:0;"><iconify-icon icon="solar:library-linear"></iconify-icon>기준 등록</h2>
-        <button type="button" id="closeUpload" class="icon-btn" title="닫기"
+      <div class="modal-head">
+        <h2><iconify-icon icon="solar:library-linear"></iconify-icon>기준 등록</h2>
+        <button type="button" data-modal-close class="icon-btn" title="닫기"
                 style="width:32px; height:32px; font-size:15px;">
           <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
       </div>
-      <form action="/criteria/upload" method="post" enctype="multipart/form-data"
-            style="display:flex; flex-direction:column; gap:12px;">
-        <select name="sector">
+      <form action="/criteria/upload" method="post" enctype="multipart/form-data">
+        <div class="form-row">
+          <span class="muted">적용 섹터</span>
+          <select name="sector">
           <option value="common">공통 (전 업무 적용)</option>
           <option value="grant">국고사업 전용</option>
           <option value="recruit">채용 전용</option>
           <option value="admission">입학 전용</option>
           <option value="auto">일반 행정 전용</option>
-        </select>
-        <label class="file-field">
+          </select>
+        </div>
+        <div class="form-row">
+          <span class="muted">문서 파일 — 여러 개를 한 번에 올릴 수 있습니다</span>
+          <label class="file-field">
           <span class="file-btn"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 선택 (여러 개 가능)</span>
           <input type="file" name="file" required multiple>
           <span class="file-name">선택된 파일 없음</span>
-        </label>
-        <div><button type="submit">등록</button></div>
+          </label>
+        </div>
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+          <button type="button" data-modal-close class="secondary">닫기</button>
+          <button type="submit">등록</button>
+        </div>
       </form>
       <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>여기 올린
         문서는 검토 대상이 아니라 판단 기준입니다. 여러 파일을 한 번에 올리면 순서대로
@@ -84,15 +103,6 @@
 </div>
 
 <script>
-  var modal = document.getElementById("uploadModal");
-  var openBtn = document.getElementById("openUpload");
-  var closeBtn = document.getElementById("closeUpload");
-  if (openBtn) openBtn.addEventListener("click", function () { modal.style.display = "flex"; });
-  if (closeBtn) closeBtn.addEventListener("click", function () { modal.style.display = "none"; });
-  if (modal) modal.addEventListener("click", function (e) {
-    if (e.target === modal) modal.style.display = "none";
-  });
-
   var input = document.getElementById("criteriaSearch");
   var activeSector = "";
 

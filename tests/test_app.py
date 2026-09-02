@@ -57,7 +57,7 @@ def client(tmp_path):
 def test_index_page_renders(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "문서 접수" in r.text
+    assert "접수 문서" in r.text
 
 
 def test_upload_creates_document_and_processes(client):
@@ -305,14 +305,16 @@ def test_sector_upload_binds_related_criteria(client):
     assert "채용공고A.pdf" in page  # 대상 공고가 문서 화면에 표시된다
 
 
-def test_sector_page_offers_sector_criteria_options(client):
+def test_sector_page_is_project_hub(client):
+    # 프로젝트 중심 구조: 섹터 페이지는 프로젝트 관리 뷰, 접수 폼은 없다
+    page = client.get("/?type=recruit").text
+    assert "프로젝트 추가" in page and "projectModal" in page
+    assert 'action="/upload"' not in page  # 접수는 프로젝트 페이지에서
+    # 프로젝트 기준 연결 옵션은 프로젝트 페이지가 담당한다
     client.post("/criteria/upload", data={"sector": "recruit"},
                 files={"file": ("채용공고B.pdf", b"%PDF", "application/pdf")})
-    client.post("/criteria/upload", data={"sector": "grant"},
-                files={"file": ("국고공고.pdf", b"%PDF", "application/pdf")})
-    page = client.get("/?type=recruit").text
-    assert "채용공고B.pdf" in page       # 채용 섹터 접수 폼에 채용 공고 옵션
-    assert "국고공고.pdf" not in page    # 다른 섹터 기준은 안 나온다
+    client.post("/projects", data={"sector": "recruit", "name": "공고1"})
+    assert "채용공고B.pdf" in client.get("/project/1").text
 
 
 def test_receipt_number_scheme(client):
@@ -540,3 +542,28 @@ def test_criteria_bulk_upload(client):
     assert r.status_code == 303
     page = client.get("/criteria").text
     assert "공고A.pdf" in page and "공고B.pdf" in page and "내규C.pdf" in page
+
+
+def test_tiles_filter_document_list(client):
+    client.post("/upload", data={"doc_type": "recruit"},
+                files={"file": ("완료문서.pdf", b"%PDF", "application/pdf")})
+    client.post("/doc/1/decision", data={"decision": "approved"})  # 판정 완료
+    client.post("/upload", data={"doc_type": "recruit"},
+                files={"file": ("대기문서.pdf", b"%PDF", "application/pdf")})  # 판정 대기
+    page = client.get("/?type=recruit&flt=pending").text
+    table = page.split("<table>", 1)[-1].split("</table>", 1)[0]
+    assert "대기문서.pdf" in table and "완료문서.pdf" not in table
+    assert 'href="/?type=recruit&flt=pending"' in page  # 타일이 링크다
+
+
+def test_draft_shows_progress_immediately(client):
+    client.post("/upload", data={"doc_type": "grant"},
+                files={"file": ("공고.pdf", b"%PDF", "application/pdf")})
+    class SlowDrafter:
+        def generate(self, db, doc_id):
+            pass  # 아무것도 안 함 — 진행 표시가 라우트에서 먼저 찍히는지 본다
+    client.app.state.db  # ensure attr
+    # 기본 FakeDrafter는 즉시 완료라 라우트가 찍는 진행 표시를 덮는다 — 상태만 확인
+    r = client.post("/doc/1/draft", follow_redirects=False)
+    assert r.status_code == 303
+    assert client.get("/doc/1/status").json().get("drafting") in (True, False)
