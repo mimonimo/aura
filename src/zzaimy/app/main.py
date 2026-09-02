@@ -758,6 +758,31 @@ def create_app(
                         )
                 except Exception:
                     layout = None
+        if layout is None and not page_sizes:
+            # 사진 문서 — 보정 스캔본을 배경으로, OCR 줄 좌표를 투명 레이어로
+            lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+            if lines_file.exists() and Path(doc["stored_path"]).suffix.lower() in (
+                ".png", ".jpg", ".jpeg",
+            ):
+                try:
+                    import json as _pj
+
+                    from zzaimy.app.pdf_lines import image_layout_from_lines
+
+                    items, img_sizes = image_layout_from_lines(
+                        _pj.loads(lines_file.read_text())
+                    )
+                    bg_url = (
+                        f"/doc/{doc_id}/asset/{scan_asset['id']}"
+                        if scan_asset else f"/doc/{doc_id}/original"
+                    )
+                    if len(items) >= 2:
+                        layout = layout_pages(
+                            items, doc_id, asset_by_name, img_sizes,
+                            page_image_url=lambda pg: bg_url,
+                        )
+                except Exception:
+                    layout = None
         if layout is None and chunks:
             layout = layout_pages(
                 chunks, doc_id, asset_by_name, page_sizes or None,

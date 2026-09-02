@@ -554,6 +554,32 @@ class DocumentProcessor:
         except Exception:
             return None
 
+    def _photo_ocr_lines(self, db: Database, doc_id: int, image_path: Path) -> None:
+        """사진 문서의 줄 좌표만 MinerU OCR로 확보해 저장한다 (내용은 비전 판독)."""
+        import json
+        import tempfile
+
+        try:
+            from zzaimy.ingest.parsers.mineru import MineruParser
+
+            with tempfile.TemporaryDirectory(prefix="zz-photo-lines-") as tmp:
+                parsed = MineruParser(method="ocr").parse(
+                    image_path, work_dir=Path(tmp)
+                )
+            if not parsed.ocr_lines:
+                return
+            out_dir = Path(db.path).parent / "lines"
+            out_dir.mkdir(exist_ok=True)
+            (out_dir / f"{doc_id}.json").write_text(json.dumps({
+                "page_sizes": {
+                    str(k): list(v) for k, v in parsed.ocr_page_sizes.items()
+                },
+                "lines": parsed.ocr_lines,
+                "source": "photo",
+            }, ensure_ascii=False))
+        except Exception:
+            log.info("사진 줄 좌표 확보 실패 (doc %s) — 비전 판독만 사용", doc_id)
+
     def _save_ocr_lines(self, db: Database, doc_id: int) -> None:
         """줄 단위 OCR 좌표를 문서별 JSON으로 — 스캔 복원 뷰의 투명 레이어 재료."""
         import json
@@ -1032,6 +1058,9 @@ class DocumentProcessor:
                     scan = self._enhance_scan(doc_area or file_path)
                     if scan is not None:
                         self._last_scan = scan
+                    # 보정 스캔본에서 줄 단위 OCR 좌표도 확보 — 복원 뷰(원본 배치)
+                    # 투명 레이어 재료. 내용 판독은 아래 비전 모델이 담당한다
+                    self._photo_ocr_lines(db, doc_id, scan or doc_area or file_path)
                     vlm_md = self._vlm_transcribe(scan or doc_area or file_path)
                     if vlm_md:
                         parsed_chunks = self._md_to_chunks(vlm_md, self._mask_str)

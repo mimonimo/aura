@@ -88,6 +88,26 @@ def scale_ocr_lines(
     return out
 
 
+def image_layout_from_lines(
+    payload: dict,
+) -> tuple[list[dict], dict[int, tuple[float, float]]]:
+    """사진 문서 — 줄 좌표 payload를 배치 항목·페이지 치수로 변환.
+
+    사진은 좌표계 변환이 필요 없다(배경 스캔본과 같은 픽셀 공간).
+    """
+    sizes = {
+        int(k): (float(v[0]), float(v[1]))
+        for k, v in (payload.get("page_sizes") or {}).items()
+        if isinstance(v, (list, tuple)) and len(v) == 2
+    }
+    items = [
+        {**ln, "justify": True}
+        for ln in payload.get("lines") or []
+        if int(ln.get("page_no") or 0) in sizes
+    ]
+    return items, sizes
+
+
 def pdf_line_boxes(
     file_path: Path, max_pages: int = 120
 ) -> dict[int, list[dict]]:
