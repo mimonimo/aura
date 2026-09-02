@@ -848,3 +848,18 @@ def test_restore_spacing_only_when_needed():
     assert " " in fixed and "파일" in fixed          # 공백 복원됨
     normal = "이미 공백이 정상인 문장은 그대로 둔다 왜냐하면 원본이 맞기 때문이다"
     assert restore_spacing(normal) == normal          # 정상 텍스트는 불변
+
+
+def test_session_survives_app_restart(tmp_path):
+    kwargs = dict(
+        db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+        processor=FakeProcessor(), drafter=FakeDrafter(), password="pw-1234",
+    )
+    c1 = TestClient(create_app(**kwargs))
+    r = c1.post("/login", data={"username": "zzaimy", "pw": "pw-1234"},
+                follow_redirects=False)
+    cookie = r.headers["set-cookie"].split("zz_session=")[1].split(";")[0]
+    # 재시작(새 앱 인스턴스)에도 같은 쿠키로 통과해야 한다
+    c2 = TestClient(create_app(**kwargs))
+    c2.cookies.set("zz_session", cookie)
+    assert c2.get("/").status_code == 200
