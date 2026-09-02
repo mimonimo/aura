@@ -119,7 +119,11 @@ class SliceDrafter:
                 + (f" · 누락: {', '.join(m.name for m in coverage.missing)}"
                    if coverage.missing else " · 누락 없음")
                 + (" · 수치 검증 통과" if audit.ok
-                   else f" · 근거 없는 수치 {len(audit.violations)}건: {audit.violations}")
+                   else " · 근거 없는 수치 {}건 — {}".format(
+                       len(audit.violations),
+                       " / ".join(audit.contexts[:3])
+                       + (" 외" if len(audit.contexts) > 3 else ""),
+                   ))
             )
             db.update_document(doc_id, draft="\n\n".join(parts), coverage=summary)
             log.info("doc %d: 초안 생성 완료 (%d 섹션)", doc_id, len(schema.sections))
