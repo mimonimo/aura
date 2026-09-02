@@ -176,8 +176,12 @@
         {% if assets %} · 그림 {{ assets|length }}{% endif %}</span>
       {% if extract_blocks %}
       <span style="margin-left:auto; display:flex; gap:8px;">
+        {% if doc.stored_path.lower().endswith((".pdf", ".png", ".jpg", ".jpeg")) %}
+        <a href="/doc/{{ doc.id }}/export.pdf" class="btn-ghost" style="font-weight:600;">
+          <iconify-icon icon="solar:file-check-linear"></iconify-icon>검색 가능 PDF</a>
+        {% endif %}
         <a href="/doc/{{ doc.id }}/export.docx" class="btn-ghost" style="font-weight:600;">
-          <iconify-icon icon="solar:document-add-linear"></iconify-icon>전자 문서 복원 (.docx)</a>
+          <iconify-icon icon="solar:document-add-linear"></iconify-icon>편집본 (.docx)</a>
         <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost" style="font-weight:600;">
           <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
       </span>

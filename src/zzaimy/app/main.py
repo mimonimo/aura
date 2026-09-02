@@ -776,6 +776,42 @@ def create_app(
                      f'attachment; filename="table_{doc_id}_{chunk_id}.csv"'},
         )
 
+    @app.get("/doc/{doc_id}/export.pdf")
+    def doc_export_pdf(doc_id: int):
+        from urllib.parse import quote
+
+        from fastapi.responses import Response
+
+        from zzaimy.app.pdf_layer import build_scan_pdf, build_searchable_pdf
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        chunks = db.list_doc_chunks(doc_id)
+        if not chunks:
+            raise HTTPException(404, "추출 조각이 없다")
+        src = Path(doc["stored_path"])
+        suffix = src.suffix.lower()
+        payload: bytes | None = None
+        if suffix == ".pdf" and src.exists():
+            payload = build_searchable_pdf(src, chunks)
+        elif suffix in (".png", ".jpg", ".jpeg") and src.exists():
+            scan = next(
+                (a for a in db.list_doc_assets(doc_id)
+                 if a["kind"] == "scan" and Path(a["path"]).exists()),
+                None,
+            )
+            payload = build_scan_pdf(
+                Path(scan["path"]) if scan else src, chunks
+            )
+        if payload is None:
+            raise HTTPException(400, "이 문서 형식은 PDF 레이어를 만들 수 없다")
+        fname = quote(f"{src.stem if doc['filename'] is None else Path(doc['filename']).stem}_OCR.pdf")
+        return Response(
+            payload, media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
+        )
+
     @app.get("/doc/{doc_id}/export.docx")
     def doc_export_docx(doc_id: int):
         from urllib.parse import quote
