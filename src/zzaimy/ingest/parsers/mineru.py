@@ -103,7 +103,8 @@ class MineruParser:
                 page_texts[page_no].append(txt)
 
         pages = [
-            ParsedPage(page_no=i, text="\n".join(page_texts.get(i, [])))
+            # 블록(문단·제목·캡션) 경계를 빈 줄로 남긴다 — 구조화 저장이 블록 단위가 된다
+            ParsedPage(page_no=i, text="\n\n".join(page_texts.get(i, [])))
             for i in range(1, max_page + 1)
         ]
         return ParseResult(

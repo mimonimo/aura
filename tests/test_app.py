@@ -711,3 +711,16 @@ def test_table_csv_and_markdown_export(client):
     md = client.get(f"/doc/{doc_id}/export.md").text
     assert "### 1. 사업 개요" in md
     assert "| 구분 | 금액 |" in md and "| 인건비 |" in md
+
+
+def test_md_to_chunks_parses_headings_and_tables():
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    md = ("## 상 장\n\n입상\n영남이공대학교 사이버보안과\n\n"
+          "| 구분 | 값 |\n|---|---|\n| 인건비 | 1,000 |\n\n(직인: 영남이공대학교)")
+    chunks = DocumentProcessor._md_to_chunks(md, lambda s: s)
+    kinds = [c["kind"] for c in chunks]
+    assert kinds == ["heading", "text", "table", "text"]
+    import json
+    data = json.loads(chunks[2]["content"])
+    assert data["n_rows"] == 2 and data["cells"][0][5] == "구분"
