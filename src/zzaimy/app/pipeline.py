@@ -212,8 +212,17 @@ class DocumentProcessor:
         try:
             from zzaimy.generate.client import VllmClient
 
-            mime = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
-            b64 = base64.b64encode(image_path.read_bytes()).decode()
+            send_path = image_path
+            if image_path.stat().st_size > 3_500_000:
+                # 대용량 사진은 줄여서 보낸다 — 요청 한도 초과 방지
+                from PIL import Image
+
+                with Image.open(image_path) as im:
+                    im.thumbnail((2000, 2000))
+                    send_path = image_path.parent / f"{image_path.stem}_vlm.jpg"
+                    im.convert("RGB").save(send_path, quality=88)
+            mime = "image/png" if send_path.suffix.lower() == ".png" else "image/jpeg"
+            b64 = base64.b64encode(send_path.read_bytes()).decode()
             client = VllmClient()
             resp = client.client.chat.completions.create(
                 model=client.model,
@@ -485,8 +494,11 @@ class DocumentProcessor:
                 pages: list[tuple[int, Path]] = []
                 for i in range(len(doc)):
                     bmp = doc[i].render(scale=2.0)
-                    dest = out_dir / f"page_{i + 1}.png"
-                    bmp.to_pil().save(dest)
+                    im = bmp.to_pil()
+                    # 비전 모델 요청 한도를 넘지 않게 긴 변 2000px로 제한
+                    im.thumbnail((2000, 2000))
+                    dest = out_dir / f"page_{i + 1}.jpg"
+                    im.convert("RGB").save(dest, quality=88)
                     pages.append((i + 1, dest))
                 return pages
             finally:
