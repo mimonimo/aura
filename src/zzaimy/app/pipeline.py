@@ -186,7 +186,8 @@ class DocumentProcessor:
     def _result_to_text(parsed) -> str:
         text = "\n".join(p.text for p in parsed.pages)
         for t in parsed.tables:
-            text += "\n" + "\n".join(
+            # 표마다 빈 줄로 구분해야 조각 저장 시 표 단위로 나뉜다
+            text += "\n\n" + "\n".join(
                 " | ".join(c.text for c in t.cells if c.row == r) for r in range(t.n_rows)
             )
         return text
