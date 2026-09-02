@@ -90,6 +90,8 @@ class MineruParser:
                 img_file = (base_dir / img).resolve() if img else None
                 if img_file and img_file.exists():
                     images.append(ParsedImage(page_no=page_no, path=img_file))
+                    # 본문 흐름 속 그림 위치 마커 — 구조화 저장에서 제자리에 배치된다
+                    page_texts[page_no].append(f"[[img]]{img_file.name}")
                 # 그림 캡션 텍스트도 본문에 남긴다
                 for cap in e.get("img_caption") or []:
                     page_texts[page_no].append(cap)

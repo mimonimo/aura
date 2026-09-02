@@ -561,13 +561,17 @@ def create_app(
             else "image" if suffix in (".png", ".jpg", ".jpeg") else None
         )
 
+        assets = db.list_doc_assets(doc_id)
+        asset_by_name = {Path(a["path"]).name: a["id"] for a in assets}
         return templates.TemplateResponse(
             request,
             "doc.html",
             ctx({
                 "doc": doc, "reviews": db.get_reviews(doc_id), "related": related,
-                "assets": db.list_doc_assets(doc_id),
-                "extract_blocks": chunk_blocks(chunks) if chunks else None,
+                "assets": assets,
+                "extract_blocks": (
+                    chunk_blocks(chunks, doc_id, asset_by_name) if chunks else None
+                ),
                 "original_kind": original_kind,
                 "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),
                 "n_table_chunks": sum(1 for c in chunks if c["kind"] == "table"),
@@ -587,7 +591,7 @@ def create_app(
         )
 
     @app.get("/doc/{doc_id}/asset/{asset_id}")
-    def doc_asset(doc_id: int, asset_id: int):
+    def doc_asset(doc_id: int, asset_id: int, dl: int = 0):
         from fastapi.responses import FileResponse
 
         asset = next(
@@ -595,7 +599,58 @@ def create_app(
         )
         if asset is None or not Path(asset["path"]).exists():
             raise HTTPException(404)
+        if dl:
+            doc = db.get_document(doc_id) or {}
+            stem = Path(doc.get("filename", "문서")).stem
+            name = f"{stem}_그림{asset_id}{Path(asset['path']).suffix}"
+            return FileResponse(asset["path"], filename=name)
         return FileResponse(asset["path"])
+
+    @app.get("/doc/{doc_id}/table/{chunk_id}.csv")
+    def doc_table_csv(doc_id: int, chunk_id: int):
+        from fastapi.responses import Response
+
+        from zzaimy.app.render import table_csv
+
+        chunk = next(
+            (c for c in db.list_doc_chunks(doc_id)
+             if c["id"] == chunk_id and c["kind"] == "table"),
+            None,
+        )
+        if chunk is None:
+            raise HTTPException(404)
+        try:
+            csv_text = table_csv(chunk["content"])
+        except Exception:
+            raise HTTPException(404, "표 구조를 읽을 수 없다") from None
+        return Response(
+            "\ufeff" + csv_text,  # BOM — 엑셀에서 한글 깨짐 방지
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition":
+                     f'attachment; filename="table_{doc_id}_{chunk_id}.csv"'},
+        )
+
+    @app.get("/doc/{doc_id}/export.md")
+    def doc_export_md(doc_id: int):
+        from urllib.parse import quote
+
+        from fastapi.responses import Response
+
+        from zzaimy.app.render import export_markdown
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        chunks = db.list_doc_chunks(doc_id)
+        if not chunks:
+            raise HTTPException(404, "추출 조각이 없다")
+        md = export_markdown(doc["filename"], chunks)
+        fname = quote(f"{Path(doc['filename']).stem}_추출결과.md")
+        return Response(
+            md, media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition":
+                     f"attachment; filename*=UTF-8''{fname}"},
+        )
 
     @app.post("/doc/{doc_id}/decision")
     def decide(background: BackgroundTasks, doc_id: int, decision: str = Form(...)):
