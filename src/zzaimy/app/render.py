@@ -29,9 +29,21 @@ def table_html(content: str) -> Markup:
         return Markup('<pre class="doc-text">{}</pre>').format(content)
 
     rows: dict[int, list] = defaultdict(list)
+    col_len: dict[int, int] = defaultdict(int)
     for r, c, rs, cs, hd, txt in cells:
         rows[int(r)].append((int(c), int(rs), int(cs), bool(hd), str(txt)))
+        if int(cs) == 1:
+            col_len[int(c)] = max(col_len[int(c)], len(str(txt)))
     parts = ['<div class="table-scroll"><table class="extract">']
+    n_cols = int(data.get("n_cols") or 0)
+    if n_cols > 1 and col_len:
+        # 원본 표 비율 근사 — 열 내용 길이에 비례한 폭 힌트
+        weights = [max(col_len.get(i, 1), 3) for i in range(n_cols)]
+        total = sum(weights)
+        parts.append("<colgroup>")
+        for wgt in weights:
+            parts.append(f'<col style="width:{max(6, round(100 * wgt / total))}%">')
+        parts.append("</colgroup>")
     for r in range(n_rows):
         parts.append("<tr>")
         for c, rs, cs, hd, txt in sorted(rows.get(r, [])):

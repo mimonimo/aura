@@ -363,6 +363,111 @@ class DocumentProcessor:
         except Exception:
             return []
 
+    _CORRECT_PROMPT = (
+        "다음은 스캔 문서의 OCR 텍스트다. 오인식된 글자와 붙어버린 띄어쓰기만 고쳐라.\n"
+        "규칙: 문장을 추가·삭제·요약하지 마라. 순서를 바꾸지 마라. 원문에 없는 내용을"
+        " 만들지 마라. 확신이 없으면 그대로 둬라. 구분자 <<<>>> 는 그대로 유지하라.\n"
+        "고친 전문만 출력하라.\n\n{text}"
+    )
+
+    def _llm_correct_chunks(self, chunks: list[dict]) -> bool:
+        """MinerU 텍스트 조각의 OCR 오타를 LLM으로 교정한다 (마스킹 후 호출).
+
+        구분자 개수가 어긋나면 그 배치는 원문을 유지한다. 성공 여부를 돌려준다.
+        """
+        try:
+            from zzaimy.generate.client import VllmClient
+
+            client = VllmClient()
+        except Exception:
+            return False
+
+        targets = [c for c in chunks if c["kind"] in ("text", "heading")]
+        if not targets:
+            return False
+        SEP = "\n<<<>>>\n"
+        batches: list[list[dict]] = [[]]
+        size = 0
+        for c in targets:
+            if size + len(c["content"]) > 2600 and batches[-1]:
+                batches.append([])
+                size = 0
+            batches[-1].append(c)
+            size += len(c["content"])
+
+        corrected_any = False
+        for batch in batches:
+            joined = SEP.join(c["content"] for c in batch)
+            try:
+                resp = client.client.chat.completions.create(
+                    model=client.model,
+                    temperature=0.0,
+                    max_tokens=4000,
+                    messages=[{
+                        "role": "user",
+                        "content": self._CORRECT_PROMPT.format(text=joined),
+                    }],
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                )
+                out = (resp.choices[0].message.content or "").strip()
+                parts = [p.strip() for p in out.split("<<<>>>")]
+                if len(parts) != len(batch):
+                    continue  # 구분자 훼손 — 이 배치는 원문 유지
+                for c, fixed in zip(batch, parts):
+                    # 교정은 보수적으로 — 길이가 크게 변하면 지어낸 것으로 보고 버린다
+                    if fixed and 0.6 <= len(fixed) / max(len(c["content"]), 1) <= 1.5:
+                        c["content"] = fixed[:2000]
+                        corrected_any = True
+            except Exception:
+                continue
+        return corrected_any
+
+    @staticmethod
+    def _crop_document_region(image_path: Path) -> Path | None:
+        """사진 속 문서(종이) 영역을 찾아 원근 보정해 펴낸다 — 실패하면 None."""
+        try:
+            import cv2
+            import numpy as np
+
+            img = cv2.imread(str(image_path))
+            if img is None:
+                return None
+            h, w = img.shape[:2]
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            edges = cv2.Canny(cv2.GaussianBlur(gray, (5, 5), 0), 50, 150)
+            edges = cv2.dilate(edges, np.ones((5, 5), np.uint8))
+            contours, _ = cv2.findContours(
+                edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+            best = None
+            for c in sorted(contours, key=cv2.contourArea, reverse=True)[:5]:
+                peri = cv2.arcLength(c, True)
+                approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+                if len(approx) == 4 and cv2.contourArea(approx) > 0.3 * w * h:
+                    best = approx.reshape(4, 2).astype("float32")
+                    break
+            if best is None:
+                return None
+            # 문서가 화면 대부분이면 굳이 펴지 않는다
+            if cv2.contourArea(best.astype("int32")) > 0.93 * w * h:
+                return None
+            ssum = best.sum(axis=1)
+            diff = np.diff(best, axis=1).ravel()
+            tl, br = best[ssum.argmin()], best[ssum.argmax()]
+            tr, bl = best[diff.argmin()], best[diff.argmax()]
+            wd = int(max(np.linalg.norm(br - bl), np.linalg.norm(tr - tl)))
+            ht = int(max(np.linalg.norm(tr - br), np.linalg.norm(tl - bl)))
+            m = cv2.getPerspectiveTransform(
+                np.array([tl, tr, br, bl], dtype="float32"),
+                np.array([[0, 0], [wd, 0], [wd, ht], [0, ht]], dtype="float32"),
+            )
+            warped = cv2.warpPerspective(img, m, (wd, ht))
+            dest = image_path.parent / f"{image_path.stem}_docarea.png"
+            cv2.imwrite(str(dest), warped)
+            return dest
+        except Exception:
+            return None
+
     @staticmethod
     def _pdf_to_images(file_path: Path, max_pages: int = 4) -> list[tuple[int, Path]]:
         """작은 PDF를 쪽별 PNG로 — 비전 판독용. 조건 밖이거나 실패하면 빈 목록."""
@@ -623,7 +728,9 @@ class DocumentProcessor:
                     ".png", ".jpg", ".jpeg",
                 ):
                     # 사진은 비전 모델(Qwen3.5) 판독이 우선 — 손글씨·도장 문구까지.
-                    vlm_md = self._vlm_transcribe(file_path)
+                    # 배경 속 문서(종이) 영역이 따로 있으면 자동으로 찾아 펴서 읽는다
+                    doc_area = self._crop_document_region(file_path)
+                    vlm_md = self._vlm_transcribe(doc_area or file_path)
                     if vlm_md:
                         parsed_chunks = self._md_to_chunks(vlm_md, self._mask_str)
                         n_t = sum(1 for c in parsed_chunks if c["kind"] == "table")
@@ -642,6 +749,10 @@ class DocumentProcessor:
                 )
                 if parsed_chunks is None:
                     parsed_chunks = self._structured_chunks() or _split_chunks(masked.text)
+                    if self._llm_correct_chunks(parsed_chunks):
+                        self._last_parse_note = (
+                            (self._last_parse_note or "일반 파싱") + " · AI 오타 교정"
+                        )
                 db.replace_doc_chunks(doc_id, parsed_chunks)
                 db.replace_doc_assets(
                     doc_id,
