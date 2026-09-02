@@ -111,6 +111,7 @@ class DocumentProcessor:
         self._last_images: list[tuple[int, Path]] = []
         self._last_parse_note = ""
         self._last_result: ParseResult | None = None  # 표 구조 보존용
+        self._last_attrs: list[str] = []  # 손글씨·도장 등 문서 속성
 
     # 파싱 결과 상한 — 인쇄용 PDF 등에서 파서가 비정상적으로 긴 텍스트를 뽑는
     # 사례가 실측됨(26p 문서에서 950만 자). 상한 초과분은 잘라내고 경고를 남긴다.
@@ -131,6 +132,7 @@ class DocumentProcessor:
         self._last_images = []
         self._last_parse_note = ""
         self._last_result = None
+        self._last_attrs = []
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
@@ -197,6 +199,8 @@ class DocumentProcessor:
         return None
 
     _VLM_PROMPT = (
+        "첫 줄에 반드시 `[[속성]] 손글씨:예/아니오, 도장:예/아니오, 표:예/아니오`"
+        " 형식으로 문서 속성을 적어라. 둘째 줄부터 본문 전사를 시작한다.\n"
         "이 이미지는 행정 문서(스캔·사진)다. 보이는 내용을 읽기 순서대로 정확히"
         " 전사하라.\n- 큰 제목은 '## '로 시작하는 줄로\n- 굵거나 큰 글씨는"
         " **굵게**로\n- 표는 HTML <table>로: 병합 셀은 rowspan/colspan,"
@@ -240,6 +244,17 @@ class DocumentProcessor:
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
             )
             text = (resp.choices[0].message.content or "").strip()
+            # 속성 줄 분리 — 하드케이스 분류용 (손글씨·도장 여부)
+            first, _, rest = text.partition("\n")
+            if first.startswith("[[속성]]"):
+                attrs = []
+                if "손글씨:예" in first:
+                    attrs.append("손글씨")
+                if "도장:예" in first:
+                    attrs.append("도장")
+                if attrs:
+                    self._last_attrs = attrs
+                text = rest.strip()
             return text or None
         except Exception as e:
             log.warning("비전 판독 실패(%s) — OCR 결과로 진행", type(e).__name__)
@@ -836,6 +851,8 @@ class DocumentProcessor:
                         self._last_parse_note = (
                             f"AI 비전 판독 (Qwen3.5) · 표 {n_t}개"
                         )
+                        if self._last_attrs:
+                            self._last_parse_note += " · " + "·".join(self._last_attrs)
                         raw_text = vlm_md
                     # 빨간 직인(도장) 영역은 별도 이미지로 잘라 보관한다
                     for i, stamp in enumerate(self._extract_stamps(file_path)):
