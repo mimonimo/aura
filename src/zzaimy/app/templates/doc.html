@@ -127,7 +127,12 @@
       <span class="muted" style="font-weight:500; font-size:12.5px;">
         {% if n_text_chunks %}본문 {{ n_text_chunks }}조각{% endif %}
         {% if n_table_chunks %} · 표 {{ n_table_chunks }}{% endif %}
-        {% if assets %} · 그림 {{ assets|length }}{% endif %}</span></h2>
+        {% if assets %} · 그림 {{ assets|length }}{% endif %}</span>
+      {% if extract_blocks %}
+      <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost"
+         style="margin-left:auto; font-weight:600;">
+        <iconify-icon icon="solar:download-linear"></iconify-icon>추출 결과 내려받기 (.md)</a>
+      {% endif %}</h2>
     <div style="display:grid; grid-template-columns:{{ 'minmax(0,1fr) minmax(0,1fr)' if original_kind else '1fr' }}; gap:16px; align-items:start;">
       {% if original_kind == "pdf" %}
       <embed src="/doc/{{ doc.id }}/original" type="application/pdf"
@@ -152,7 +157,8 @@
       <figure style="margin:0; width:150px;">
         <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="p{{ a.page_no }} 그림"
              style="width:100%; border:1px solid var(--line); border-radius:10px;">
-        <figcaption class="muted" style="font-size:11px; margin-top:2px;">p{{ a.page_no }}</figcaption>
+        <figcaption class="muted" style="font-size:11px; margin-top:2px;">p{{ a.page_no }}
+          · <a href="/doc/{{ doc.id }}/asset/{{ a.id }}?dl=1">내려받기</a></figcaption>
       </figure>
       {% endfor %}
     </div>

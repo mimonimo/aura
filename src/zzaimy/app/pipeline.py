@@ -237,6 +237,13 @@ class DocumentProcessor:
                         "content": mk(ln[5:].strip())[:300],
                     })
                     continue
+                if ln.startswith("[[img]]"):
+                    flush()
+                    out.append({
+                        "kind": "image", "page_no": pg.page_no,
+                        "content": ln[7:].strip(),  # 추출 그림 파일명 (마스킹 불필요)
+                    })
+                    continue
                 buf += ("\n" if buf else "") + ln
                 if len(buf) >= 500:
                     flush()

@@ -38,12 +38,88 @@ def table_html(content: str) -> Markup:
     return Markup("".join(parts))
 
 
-def chunk_blocks(chunks: list[dict]) -> list[Markup]:
-    """조각 목록을 순서대로 HTML 블록으로 — 본문 문단과 표가 원래 순서로 흐른다."""
-    blocks: list[Markup] = []
+def table_csv(content: str) -> str:
+    """표 JSON → CSV (엑셀 호환, 병합 셀은 좌상단 셀에만 값)."""
+    import csv
+    import io
+
+    data = json.loads(content)
+    grid = [["" for _ in range(int(data["n_cols"]))] for _ in range(int(data["n_rows"]))]
+    for r, c, _rs, _cs, _hd, txt in data["cells"]:
+        if int(r) < len(grid) and int(c) < len(grid[0]):
+            grid[int(r)][int(c)] = str(txt)
+    buf = io.StringIO()
+    csv.writer(buf).writerows(grid)
+    return buf.getvalue()
+
+
+def export_markdown(filename: str, chunks: list[dict]) -> str:
+    """추출 결과 전체를 마크다운으로 — 소제목·문단·표(파이프 그리드)."""
+    lines = [f"# {filename} — 추출 결과", ""]
     for c in chunks:
+        if c["kind"] == "heading":
+            lines += [f"### {c['content']}", ""]
+        elif c["kind"] == "table":
+            try:
+                data = json.loads(c["content"])
+            except (json.JSONDecodeError, TypeError):
+                lines += [c["content"], ""]
+                continue
+            grid = [
+                ["" for _ in range(int(data["n_cols"]))]
+                for _ in range(int(data["n_rows"]))
+            ]
+            for r, col, _rs, _cs, _hd, txt in data["cells"]:
+                if int(r) < len(grid) and int(col) < len(grid[0]):
+                    grid[int(r)][int(col)] = str(txt).replace("\n", " ")
+            if grid:
+                lines.append("| " + " | ".join(grid[0]) + " |")
+                lines.append("|" + "---|" * len(grid[0]))
+                for row in grid[1:]:
+                    lines.append("| " + " | ".join(row) + " |")
+                lines.append("")
+        else:
+            lines += [c["content"], ""]
+    return "\n".join(lines)
+
+
+def chunk_blocks(
+    chunks: list[dict],
+    doc_id: int | None = None,
+    asset_by_name: dict[str, int] | None = None,
+) -> list[Markup]:
+    """조각 목록을 순서대로 HTML 블록으로 — 문단·표·그림이 원래 순서·페이지대로 흐른다."""
+    blocks: list[Markup] = []
+    last_page: int | None = None
+    for c in chunks:
+        pg = c.get("page_no")
+        if pg and pg != last_page:
+            if last_page is not None:
+                blocks.append(
+                    Markup('<div class="extract-page">{}쪽</div>').format(pg)
+                )
+            last_page = pg
+        if c["kind"] == "image":
+            aid = (asset_by_name or {}).get(c["content"])
+            if doc_id is not None and aid:
+                blocks.append(Markup(
+                    '<figure style="margin:6px 0 16px;">'
+                    '<img src="/doc/{d}/asset/{a}" style="max-width:70%; border:1px solid'
+                    ' var(--line); border-radius:10px; display:block;">'
+                    '<figcaption class="muted" style="font-size:11px; margin-top:3px;">'
+                    '추출 그림 · <a href="/doc/{d}/asset/{a}?dl=1">내려받기</a>'
+                    '</figcaption></figure>'
+                ).format(d=doc_id, a=aid))
+            continue
         if c["kind"] == "table":
-            blocks.append(table_html(c["content"]))
+            block = table_html(c["content"])
+            if doc_id is not None and c.get("id"):
+                block += Markup(
+                    '<p style="margin:-10px 0 14px; text-align:right;">'
+                    '<a href="/doc/{}/table/{}.csv" class="muted"'
+                    ' style="font-size:11.5px;">표 CSV 내려받기</a></p>'
+                ).format(doc_id, c["id"])
+            blocks.append(block)
         elif c["kind"] == "heading":
             blocks.append(Markup('<h4 class="extract-h">{}</h4>').format(c["content"]))
         else:

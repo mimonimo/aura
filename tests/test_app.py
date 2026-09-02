@@ -689,3 +689,25 @@ def test_original_file_served_and_bad_ext_redirect(client, tmp_path):
                 files={"file": ("원본.pdf", body, "application/pdf")})
     r = client.get("/doc/1/original")
     assert r.status_code == 200 and r.content == body
+
+
+def test_table_csv_and_markdown_export(client):
+    import json
+
+    db = client.app.state.db
+    doc_id = db.add_document(filename="표문서2.pdf", stored_path="/tmp/x", doc_type="ocr")
+    db.update_document(doc_id, status="reviewed", masked_text="본문")
+    db.replace_doc_chunks(doc_id, [
+        {"kind": "heading", "page_no": 1, "content": "1. 사업 개요"},
+        {"kind": "table", "page_no": 1, "content": json.dumps({
+            "n_rows": 2, "n_cols": 2,
+            "cells": [[0, 0, 1, 1, 1, "구분"], [0, 1, 1, 1, 1, "금액"],
+                      [1, 0, 1, 1, 0, "인건비"], [1, 1, 1, 1, 0, "1,000"]],
+        }, ensure_ascii=False)},
+    ])
+    chunk_id = db.list_doc_chunks(doc_id)[1]["id"]
+    r = client.get(f"/doc/{doc_id}/table/{chunk_id}.csv")
+    assert r.status_code == 200 and "인건비" in r.text and r.text.startswith("﻿")
+    md = client.get(f"/doc/{doc_id}/export.md").text
+    assert "### 1. 사업 개요" in md
+    assert "| 구분 | 금액 |" in md and "| 인건비 |" in md
