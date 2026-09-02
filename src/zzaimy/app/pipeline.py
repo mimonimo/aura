@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -555,6 +556,42 @@ class DocumentProcessor:
         if parsed is None or not parsed.pages:
             return None
         mk = self._mask_str if do_mask else (lambda s: s)
+
+        entries = getattr(parsed, "entries", None)
+        if entries:
+            # 파서가 읽기 순서·좌표를 정식으로 넘긴 경우 — 마커 없이 그대로 쓴다
+            out2: list[dict] = []
+            for e in entries:
+                bbox = ",".join(f"{v:.1f}" for v in e.bbox) if e.bbox else None
+                if e.kind in ("text", "heading"):
+                    if len(e.text) < 2:
+                        continue
+                    out2.append({
+                        "kind": e.kind, "page_no": e.page_no,
+                        "content": mk(e.text)[:2000], "bbox": bbox,
+                    })
+                elif e.kind == "table" and 0 <= e.ref < len(parsed.tables):
+                    t = parsed.tables[e.ref]
+                    cells = [
+                        [c.row, c.col, c.row_span, c.col_span,
+                         1 if c.is_header else 0, mk(c.text)]
+                        for c in t.cells
+                    ]
+                    out2.append({
+                        "kind": "table", "page_no": e.page_no, "bbox": bbox,
+                        "content": _json.dumps(
+                            {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells},
+                            ensure_ascii=False,
+                        ),
+                    })
+                elif e.kind == "image" and 0 <= e.ref < len(parsed.images):
+                    out2.append({
+                        "kind": "image", "page_no": e.page_no, "bbox": bbox,
+                        "content": parsed.images[e.ref].path.name,
+                    })
+                if len(out2) >= max_chunks:
+                    break
+            return out2
         tables_by_page: dict[int, list] = defaultdict(list)
         for t in getattr(parsed, "tables", []):
             tables_by_page[t.page_no].append(t)
@@ -612,6 +649,9 @@ class DocumentProcessor:
     @staticmethod
     def _result_to_text(parsed) -> str:
         text = "\n".join(p.text for p in parsed.pages)
+        # 내부 마커는 본문·LLM 입력에 남기지 않는다
+        text = re.sub(r"^\[\[img\]\].*$", "[그림]", text, flags=re.M)
+        text = text.replace("[[h]]", "")
         for t in parsed.tables:
             # 표마다 빈 줄로 구분해야 조각 저장 시 표 단위로 나뉜다
             text += "\n\n" + "\n".join(

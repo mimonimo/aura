@@ -15,7 +15,13 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from zzaimy.ingest.parsers.base import ParsedImage, ParsedPage, ParsedTable, ParseResult
+from zzaimy.ingest.parsers.base import (
+    ParsedEntry,
+    ParsedImage,
+    ParsedPage,
+    ParsedTable,
+    ParseResult,
+)
 from zzaimy.ingest.parsers.html_table import parse_html_table
 
 
@@ -67,15 +73,25 @@ class MineruParser:
         content_lists = sorted(out_dir.rglob("*_content_list.json"))
         if not content_lists:
             raise RuntimeError(f"content_list.json이 {out_dir} 아래에 없다")
-        entries = json.loads(content_lists[0].read_text(encoding="utf-8"))
+        raw_entries = json.loads(content_lists[0].read_text(encoding="utf-8"))
 
         page_texts: dict[int, list[str]] = defaultdict(list)
         tables: list[ParsedTable] = []
         images: list[ParsedImage] = []
+        entries: list[ParsedEntry] = []
         warnings: list[str] = []
+
+        def _bbox(e: dict):
+            bb = e.get("bbox")
+            if isinstance(bb, (list, tuple)) and len(bb) == 4:
+                try:
+                    return tuple(float(v) for v in bb)
+                except (TypeError, ValueError):
+                    return None
+            return None
         base_dir = content_lists[0].parent
         max_page = 0
-        for e in entries:
+        for e in raw_entries:
             page_no = int(e.get("page_idx", 0)) + 1
             max_page = max(max_page, page_no)
             kind = e.get("type")
@@ -83,6 +99,10 @@ class MineruParser:
                 body = e.get("table_body") or ""
                 if body:
                     tables.append(parse_html_table(body, page_no=page_no))
+                    entries.append(ParsedEntry(
+                        page_no=page_no, kind="table",
+                        ref=len(tables) - 1, bbox=_bbox(e),
+                    ))
                 else:
                     warnings.append(f"p{page_no}: table_body 없는 표 항목")
             elif kind == "image":
@@ -90,13 +110,23 @@ class MineruParser:
                 img_file = (base_dir / img).resolve() if img else None
                 if img_file and img_file.exists():
                     images.append(ParsedImage(page_no=page_no, path=img_file))
-                    # 본문 흐름 속 그림 위치 마커 — 구조화 저장에서 제자리에 배치된다
+                    entries.append(ParsedEntry(
+                        page_no=page_no, kind="image",
+                        ref=len(images) - 1, bbox=_bbox(e),
+                    ))
+                    # 본문 흐름 속 그림 위치 마커 — 구조 항목이 없는 소비자용 폴백
                     page_texts[page_no].append(f"[[img]]{img_file.name}")
                 # 그림 캡션 텍스트도 본문에 남긴다
                 for cap in e.get("img_caption") or []:
                     page_texts[page_no].append(cap)
             elif kind == "text":
                 txt = e.get("text", "")
+                if txt.strip():
+                    entries.append(ParsedEntry(
+                        page_no=page_no,
+                        kind="heading" if e.get("text_level") else "text",
+                        text=txt.strip(), bbox=_bbox(e),
+                    ))
                 # 제목 수준(text_level)은 마커로 남겨 구조화 저장에서 소제목이 된다
                 if e.get("text_level"):
                     txt = f"[[h]]{txt}"
@@ -109,5 +139,5 @@ class MineruParser:
         ]
         return ParseResult(
             parser=self.name, elapsed_s=elapsed, pages=pages,
-            tables=tables, images=images, warnings=warnings,
+            tables=tables, images=images, entries=entries, warnings=warnings,
         )
