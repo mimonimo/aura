@@ -943,6 +943,14 @@ class DocumentProcessor:
 
     def process(self, db: Database, doc_id: int, file_path: Path) -> None:
         db.update_document(doc_id, status="processing")
+        # 재처리 시 파생 캐시(복원 PDF·페이지 렌더)를 비운다
+        try:
+            base = Path(db.path).parent
+            (base / "restored" / f"{doc_id}.pdf").unlink(missing_ok=True)
+            for p in (base / "pagecache").glob(f"{doc_id}-*.png"):
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
         try:
             doc = db.get_document(doc_id)
             doc_type = (doc or {}).get("doc_type", "auto")

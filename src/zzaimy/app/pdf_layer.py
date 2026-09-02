@@ -115,6 +115,143 @@ def build_searchable_pdf(original: Path, chunks: list[dict]) -> bytes | None:
         return None
 
 
+def _enhance_page(img):
+    """스캔 페이지 화질 보정 — 대비(CLAHE)·선명도. 실패하면 원본 그대로."""
+    try:
+        import cv2
+        import numpy as np
+
+        arr = np.array(img.convert("RGB"))[:, :, ::-1]
+        lab = cv2.cvtColor(arr, cv2.COLOR_BGR2LAB)
+        lab[:, :, 0] = cv2.createCLAHE(
+            clipLimit=2.0, tileGridSize=(8, 8)
+        ).apply(lab[:, :, 0])
+        arr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+        blur = cv2.GaussianBlur(arr, (0, 0), 1.2)
+        arr = cv2.addWeighted(arr, 1.35, blur, -0.35, 0)
+        from PIL import Image
+
+        return Image.fromarray(arr[:, :, ::-1])
+    except Exception:
+        return img
+
+
+def build_restored_scan_pdf(
+    original: Path,
+    lines: list[dict],
+    page_sizes: dict[int, tuple[float, float]],
+    enhance: bool = True,
+    scale: float = 2.0,
+) -> bytes | None:
+    """스캔 PDF → 보정(업스케일) 페이지 이미지 + 투명 텍스트 레이어.
+
+    크롬 내장 뷰어에서 원본 모습 그대로 보이면서 드래그 복사·검색이 된다.
+    좌표는 PDF 포인트 기준의 줄 항목(scale_ocr_lines 결과)을 쓴다.
+    """
+    try:
+        from collections import defaultdict
+
+        import pypdfium2 as pdfium
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas as rl_canvas
+
+        _register_font()
+        by_page: dict[int, list[dict]] = defaultdict(list)
+        for ln in lines:
+            by_page[int(ln.get("page_no") or 1)].append(ln)
+
+        doc = pdfium.PdfDocument(str(original))
+        buf = io.BytesIO()
+        cv = None
+        try:
+            for i in range(len(doc)):
+                page = doc[i]
+                pw, ph = page.get_width(), page.get_height()
+                if cv is None:
+                    cv = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+                else:
+                    cv.setPageSize((pw, ph))
+                img = page.render(scale=scale).to_pil()
+                if enhance:
+                    img = _enhance_page(img)
+                jpg = io.BytesIO()  # 무손실 임베드는 페이지당 2MB+ — JPEG로 압축
+                img.convert("RGB").save(jpg, format="JPEG", quality=82)
+                jpg.seek(0)
+                cv.drawImage(
+                    ImageReader(jpg), 0, 0, width=pw, height=ph
+                )
+                for ln in by_page.get(i + 1, []):
+                    text = str(ln.get("content") or "").strip()
+                    if not text:
+                        continue
+                    try:
+                        x0, y0, x1, y1 = (
+                            float(v) for v in str(ln["bbox"]).split(",")
+                        )
+                    except (KeyError, ValueError):
+                        continue
+                    size = max(4.0, min(18.0, (y1 - y0) * 0.82))
+                    t = cv.beginText()
+                    t.setTextRenderMode(3)  # 보이지 않는 텍스트
+                    t.setFont(_FONT, size)
+                    t.setTextOrigin(x0, ph - y1 + (y1 - y0 - size) / 2)
+                    t.textLine(text)
+                    cv.drawText(t)
+                cv.showPage()
+            if cv is not None:
+                cv.save()
+        finally:
+            doc.close()
+        return buf.getvalue() if cv is not None else None
+    except Exception:
+        return None
+
+
+def build_restored_photo_pdf(image_path: Path, lines_payload: dict) -> bytes | None:
+    """사진 → 한 장짜리 복원 PDF (보정 스캔 + 위치 맞춘 투명 레이어)."""
+    try:
+        from PIL import Image
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas as rl_canvas
+
+        _register_font()
+        with Image.open(image_path) as im:
+            w, h = im.size
+        s = min(595.0 / w, 842.0 / h)
+        pw, ph = w * s, h * s
+        # 줄 좌표는 middle.json의 page_size 좌표계 — 이미지와 다르면 따로 보정
+        ps = (lines_payload.get("page_sizes") or {}).get("1")
+        if ps and float(ps[0]) > 0 and float(ps[1]) > 0:
+            sx, sy = pw / float(ps[0]), ph / float(ps[1])
+        else:
+            sx = sy = s
+
+        buf = io.BytesIO()
+        cv = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+        cv.drawImage(ImageReader(str(image_path)), 0, 0, width=pw, height=ph)
+        for ln in lines_payload.get("lines") or []:
+            text = str(ln.get("content") or "").strip()
+            if not text:
+                continue
+            try:
+                x0, y0, x1, y1 = (float(v) for v in str(ln["bbox"]).split(","))
+            except (KeyError, ValueError):
+                continue
+            x0, y0, x1, y1 = x0 * sx, y0 * sy, x1 * sx, y1 * sy
+            size = max(4.0, min(18.0, (y1 - y0) * 0.82))
+            t = cv.beginText()
+            t.setTextRenderMode(3)
+            t.setFont(_FONT, size)
+            t.setTextOrigin(x0, ph - y1 + (y1 - y0 - size) / 2)
+            t.textLine(text)
+            cv.drawText(t)
+        cv.showPage()
+        cv.save()
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
 def build_scan_pdf(image_path: Path, chunks: list[dict]) -> bytes | None:
     """사진·스캔 이미지 → 한 장짜리 검색 가능한 PDF (보정 스캔본 + 텍스트 레이어)."""
     try:

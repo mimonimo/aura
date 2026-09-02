@@ -804,6 +804,8 @@ def create_app(
                 "doc": doc, "reviews": db.get_reviews(doc_id), "related": related,
                 "assets": assets,
                 "extract_blocks": blocks, "layout_pages": layout,
+                "restored_pdf": Path(doc["stored_path"]).suffix.lower()
+                in (".pdf", ".png", ".jpg", ".jpeg"),
                 "scan_asset": scan_asset,
                 "original_kind": original_kind,
                 "suggested_criteria": suggested,
@@ -858,6 +860,87 @@ def create_app(
             except Exception as exc:
                 raise HTTPException(404) from exc
         return FileResponse(out, media_type="image/png")
+
+    @app.get("/doc/{doc_id}/restored.pdf")
+    def doc_restored_pdf(doc_id: int):
+        """복원 문서 — OCR 레이어가 입혀진 PDF를 크롬 내장 뷰어로 바로 연다.
+
+        디지털 PDF는 원본 그대로(이미 완전한 텍스트 레이어), 스캔 PDF는
+        보정 페이지 + OCR 줄 레이어로 재조립, 사진은 보정 스캔 + 레이어.
+        """
+        import json as _rj
+
+        from fastapi.responses import FileResponse, Response
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        src = Path(doc["stored_path"])
+        if not src.exists():
+            raise HTTPException(404)
+        suffix = src.suffix.lower()
+
+        if suffix == ".pdf":
+            try:
+                from zzaimy.app.pipeline import DocumentProcessor
+
+                if DocumentProcessor._pdf_has_text_layer(src):
+                    return FileResponse(  # 원본이 이미 완전한 전자 문서다
+                        src, media_type="application/pdf",
+                        content_disposition_type="inline",
+                    )
+            except Exception:
+                pass
+
+        cache_dir = Path(db_path).parent / "restored"
+        cache_dir.mkdir(exist_ok=True)
+        cache = cache_dir / f"{doc_id}.pdf"
+        if not cache.exists():
+            payload: bytes | None = None
+            lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+            lines_payload = (
+                _rj.loads(lines_file.read_text()) if lines_file.exists() else None
+            )
+            if suffix == ".pdf":
+                from zzaimy.app.pdf_layer import (
+                    build_restored_scan_pdf,
+                    build_searchable_pdf,
+                )
+
+                if lines_payload:
+                    from pypdf import PdfReader
+
+                    from zzaimy.app.pdf_lines import scale_ocr_lines
+
+                    sizes = {
+                        i: (float(p.mediabox.width), float(p.mediabox.height))
+                        for i, p in enumerate(PdfReader(str(src)).pages, start=1)
+                    }
+                    payload = build_restored_scan_pdf(
+                        src, scale_ocr_lines(lines_payload, sizes), sizes
+                    )
+                if payload is None:
+                    payload = build_searchable_pdf(src, db.list_doc_chunks(doc_id))
+            elif suffix in (".png", ".jpg", ".jpeg"):
+                from zzaimy.app.pdf_layer import build_restored_photo_pdf, build_scan_pdf
+
+                scan = next(
+                    (a for a in db.list_doc_assets(doc_id)
+                     if a["kind"] == "scan" and Path(a["path"]).exists()),
+                    None,
+                )
+                img = Path(scan["path"]) if scan else src
+                if lines_payload:
+                    payload = build_restored_photo_pdf(img, lines_payload)
+                if payload is None:
+                    payload = build_scan_pdf(img, db.list_doc_chunks(doc_id))
+            if payload is None:
+                raise HTTPException(400, "복원 PDF를 만들 수 없는 형식이다")
+            cache.write_bytes(payload)
+        return Response(
+            cache.read_bytes(), media_type="application/pdf",
+            headers={"Content-Disposition": "inline; filename=restored.pdf"},
+        )
 
     @app.get("/doc/{doc_id}/asset/{asset_id}")
     def doc_asset(doc_id: int, asset_id: int, dl: int = 0):
