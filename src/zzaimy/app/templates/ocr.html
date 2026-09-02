@@ -17,6 +17,12 @@
 <div class="card">
   <div class="card-in">
     <h2><iconify-icon icon="solar:upload-linear"></iconify-icon>파일 올리기</h2>
+    {% if err_ext %}
+    <p class="notice" style="border-color:#E7B9B8;"><iconify-icon icon="solar:danger-triangle-linear"
+       style="color:var(--red);"></iconify-icon><span>지원하지 않는 파일 형식({{ err_ext }})입니다.
+       PDF·HWP/HWPX·워드·JPG·PNG·TIF를 올려주세요. 아이폰 사진(HEIC)은 JPG로 변환 후
+       올려야 합니다.</span></p>
+    {% endif %}
     <form action="/ocr/upload" method="post" enctype="multipart/form-data"
           style="border:2px dashed #B9C9E4; border-radius:16px; padding:28px 20px;
                  display:flex; flex-direction:column; align-items:center; gap:12px;

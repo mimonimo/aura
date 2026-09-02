@@ -94,7 +94,11 @@ class MineruParser:
                 for cap in e.get("img_caption") or []:
                     page_texts[page_no].append(cap)
             elif kind == "text":
-                page_texts[page_no].append(e.get("text", ""))
+                txt = e.get("text", "")
+                # 제목 수준(text_level)은 마커로 남겨 구조화 저장에서 소제목이 된다
+                if e.get("text_level"):
+                    txt = f"[[h]]{txt}"
+                page_texts[page_no].append(txt)
 
         pages = [
             ParsedPage(page_no=i, text="\n".join(page_texts.get(i, [])))

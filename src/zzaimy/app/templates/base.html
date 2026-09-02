@@ -188,6 +188,21 @@
   .form-row > .muted { font-size: 12px; font-weight: 600; color: #5B6B82;
              letter-spacing: 0.01em; }
 
+  /* 추출 결과 — 문서처럼 흐르는 본문·표 */
+  .extract-doc { background: var(--panel); border: 1px solid #EDF2F7;
+                 border-radius: 12px; padding: 18px 20px; }
+  .extract-p { margin: 0 0 12px; font-size: 13.5px; line-height: 1.75;
+               white-space: pre-wrap; }
+  .extract-h { margin: 18px 0 8px; font-size: 14.5px; font-weight: 800;
+               color: var(--navy); letter-spacing: -0.01em; }
+  .extract-h:first-child { margin-top: 0; }
+  table.extract { margin: 6px 0 16px; background: #fff; border-collapse: collapse;
+                  font-size: 12.5px; }
+  table.extract th, table.extract td { border: 1px solid #DCE4EF; padding: 6px 9px;
+                  text-align: left; vertical-align: top; }
+  table.extract th { background: #EEF3FA; color: var(--navy); font-weight: 700;
+                  font-size: 12px; }
+
   /* 우측 패널 탭 — 세그먼트 컨트롤 */
   .tabbar { display: flex; gap: 3px; background: #E9EEF5; border-radius: 11px;
             padding: 3px; margin-bottom: 16px; }
