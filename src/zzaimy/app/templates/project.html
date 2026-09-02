@@ -2,6 +2,18 @@
 {% block title %}{{ project.name }} — 프로젝트{% endblock %}
 {% block pagetitle %}{{ sector_labels.get(project.sector, project.sector) }} · 프로젝트{% endblock %}
 {% block content %}
+{% set flow_hints = {
+  "grant": "검토가 끝나면 문서 화면에서 공고 요구 항목에 맞춘 계획서 초안 작성·재작성까지 이어집니다.",
+  "recruit": "지원자 서류를 채용 공고·임용 규정과 대조해 적합성 검토 의견을 만들고, 판정(확인·재검토·반려)으로 마무리합니다.",
+  "admission": "입학 서류를 모집 요강·기준과 대조해 확인 사항을 정리하고, 판정으로 마무리합니다.",
+  "auto": "행정 문서를 관련 규정과 대조해 검토 의견을 만들고, 판정으로 마무리합니다.",
+} %}
+{% set chat_hints = {
+  "grant": "예: 이 공고의 배점표와 필수 제출 서류를 정리해줘",
+  "recruit": "예: 이번 공고의 지원 자격 요건을 정리해줘",
+  "admission": "예: 이 전형의 제출 서류와 확인 사항을 정리해줘",
+  "auto": "예: 이 업무에 적용되는 규정을 찾아줘",
+} %}
 
 <div class="card" style="background:linear-gradient(120deg,#16223A,#1B3B75); border:0;">
   <div style="display:flex; align-items:center; gap:16px; padding:20px 24px; color:#fff;">
@@ -50,7 +62,7 @@
         <span class="file-name">선택된 파일 없음</span>
       </label>
       <button type="submit">접수</button>
-      <span class="muted">접수된 문서는 연결 기준·프로젝트 지침을 반영해 검토됩니다.</span>
+      <span class="muted">{{ flow_hints.get(project.sector, "") }}</span>
     </form>
   </div>
 </div>
@@ -63,7 +75,7 @@
     <form action="/chat/send" method="post" style="display:flex; gap:10px;">
       <input type="hidden" name="project_id" value="{{ project.id }}">
       <input type="text" name="question" required
-             placeholder="예: 이번 공고의 지원 자격 요건을 정리해줘"
+             placeholder="{{ chat_hints.get(project.sector, '무엇이든 물어보세요') }}"
              style="flex:1; border:1.5px solid var(--line); border-radius:22px; padding:11px 18px;
                     font-family:inherit; font-size:14px;">
       <button type="submit">보내기</button>

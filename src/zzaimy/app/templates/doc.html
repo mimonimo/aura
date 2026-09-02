@@ -42,9 +42,10 @@
           onsubmit="return confirm('이 문서와 관련 기록을 삭제할까요?');">
       <button type="submit" class="secondary" style="border-color:#E7B9B8; color:var(--red);">삭제</button>
     </form>
-    {% if doc.status == "reviewed" and doc.doc_type != "regulation" %}
+    {% if doc.status == "reviewed" and doc.doc_type == "grant" %}
+    {# 목적별 플로우 — 국고사업: 초안 작성·재작성 / 채용·입학: 서류 검토·판정 #}
     <form action="/doc/{{ doc.id }}/draft" method="post" style="margin-top:10px;">
-      <button type="submit" class="secondary">{{ "초안 재작성" if doc.draft else "초안 작성" }}</button>
+      <button type="submit" class="secondary">{{ "계획서 초안 재작성" if doc.draft else "계획서 초안 작성" }}</button>
       <span class="muted" style="margin-left:8px;">
         {{ "아래 담당자 의견을 반영해 다시 작성합니다." if doc.draft
            else "연결된 공고·기준의 요구 항목에 맞춰 이 서류를 재료로 초안을 만듭니다. 1~2분 걸립니다." }}</span>
