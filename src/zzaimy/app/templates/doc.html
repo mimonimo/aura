@@ -158,9 +158,12 @@
         {% if n_table_chunks %} · 표 {{ n_table_chunks }}{% endif %}
         {% if assets %} · 그림 {{ assets|length }}{% endif %}</span>
       {% if extract_blocks %}
-      <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost"
-         style="margin-left:auto; font-weight:600;">
-        <iconify-icon icon="solar:download-linear"></iconify-icon>추출 결과 내려받기 (.md)</a>
+      <span style="margin-left:auto; display:flex; gap:8px;">
+        <a href="/doc/{{ doc.id }}/export.docx" class="btn-ghost" style="font-weight:600;">
+          <iconify-icon icon="solar:document-add-linear"></iconify-icon>전자 문서 복원 (.docx)</a>
+        <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost" style="font-weight:600;">
+          <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
+      </span>
       {% endif %}</h2>
     <div style="display:grid; grid-template-columns:{{ 'minmax(0,1fr) minmax(0,1fr)' if original_kind else '1fr' }}; gap:16px; align-items:start;">
       {% if original_kind == "pdf" %}

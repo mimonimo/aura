@@ -765,6 +765,34 @@ def create_app(
                      f'attachment; filename="table_{doc_id}_{chunk_id}.csv"'},
         )
 
+    @app.get("/doc/{doc_id}/export.docx")
+    def doc_export_docx(doc_id: int):
+        from urllib.parse import quote
+
+        from fastapi.responses import Response
+
+        from zzaimy.app.render import build_docx
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        chunks = db.list_doc_chunks(doc_id)
+        if not chunks:
+            raise HTTPException(404, "추출 조각이 없다")
+        asset_paths = {
+            Path(a["path"]).name: a["path"]
+            for a in db.list_doc_assets(doc_id)
+            if Path(a["path"]).exists()
+        }
+        payload = build_docx(doc["filename"], chunks, asset_paths)
+        fname = quote(f"{Path(doc['filename']).stem}_복원.docx")
+        return Response(
+            payload,
+            media_type=("application/vnd.openxmlformats-officedocument"
+                        ".wordprocessingml.document"),
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
+        )
+
     @app.get("/doc/{doc_id}/export.md")
     def doc_export_md(doc_id: int):
         from urllib.parse import quote

@@ -25,6 +25,7 @@ parsers = [
 app = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
+    "python-docx>=1.1",  # 추출 결과 전자 문서(.docx) 복원
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
     "openai>=1.40",

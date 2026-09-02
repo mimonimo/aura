@@ -171,3 +171,69 @@ def chunk_blocks(
         else:
             blocks.append(Markup('<p class="extract-p">{}</p>').format(_rich(c["content"])))
     return blocks
+
+
+def build_docx(
+    filename: str,
+    chunks: list[dict],
+    asset_paths: dict[str, str] | None = None,
+) -> bytes:
+    """추출 조각을 편집 가능한 워드 문서로 복원 — 제목·문단·병합 표·그림.
+
+    전자 문서 복원이 이 파이프라인의 최종 목표다 (ADR-0007).
+    """
+    import io
+
+    from docx import Document
+    from docx.shared import Inches, Pt
+
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.size = Pt(10.5)
+
+    for c in chunks:
+        kind = c["kind"]
+        if kind == "heading":
+            doc.add_heading(c["content"], level=2)
+        elif kind == "table":
+            try:
+                data = json.loads(c["content"])
+                n_rows, n_cols = int(data["n_rows"]), int(data["n_cols"])
+                if n_rows < 1 or n_cols < 1:
+                    continue
+                t = doc.add_table(rows=n_rows, cols=n_cols)
+                t.style = "Table Grid"
+                for r, col, rs, cs, hd, txt in data["cells"]:
+                    r, col, rs, cs = int(r), int(col), int(rs), int(cs)
+                    if r >= n_rows or col >= n_cols:
+                        continue
+                    cell = t.cell(r, col)
+                    end_r = min(r + rs - 1, n_rows - 1)
+                    end_c = min(col + cs - 1, n_cols - 1)
+                    if (end_r, end_c) != (r, col):
+                        cell = cell.merge(t.cell(end_r, end_c))
+                    cell.text = str(txt)
+                    if hd:
+                        for para in cell.paragraphs:
+                            for run in para.runs:
+                                run.bold = True
+                doc.add_paragraph("")
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                doc.add_paragraph(c["content"])
+        elif kind == "image":
+            path = (asset_paths or {}).get(c["content"])
+            if path:
+                try:
+                    doc.add_picture(path, width=Inches(5.2))
+                except Exception:
+                    pass
+        else:
+            # **굵게** 강조를 워드 굵기로 옮긴다
+            para = doc.add_paragraph()
+            for i, part in enumerate(re.split(r"\*\*(.+?)\*\*", c["content"])):
+                run = para.add_run(part)
+                run.bold = i % 2 == 1
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
