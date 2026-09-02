@@ -33,6 +33,7 @@ SEEDS = [
     "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN218&mode=view&mgr_seq=27&board_seq=104914",
     "https://www.ync.ac.kr/kor/CMS/Board/Board.do?mCode=MN213&mode=view&board_seq=104996&mgr_seq=214",
     "https://iacf.ync.ac.kr/document/law",  # 산단 규정
+    "https://iacf.ync.ac.kr/",  # 산단 메인 (공지·자료 게시판 링크 탐색)
     "https://onestop.ync.ac.kr/oneStop/index.jsp",
 ]
 FOLLOW_PATTERNS = (
