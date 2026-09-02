@@ -57,6 +57,37 @@ def _char_style(tp_raw, i: int) -> tuple[tuple[int, int, int] | None, bool]:
     return color, bold
 
 
+def scale_ocr_lines(
+    payload: dict, page_sizes: dict[int, tuple[float, float]]
+) -> list[dict]:
+    """스캔 OCR 줄 좌표(middle.json 좌표계)를 PDF 포인트 좌표계로 변환한다.
+
+    payload는 파이프라인이 저장한 {"page_sizes": {"1": [w,h]}, "lines": [...]}.
+    실제 페이지 치수를 모르는 쪽의 줄은 버린다 (좌표를 보정할 수 없다).
+    """
+    sizes = {int(k): v for k, v in (payload.get("page_sizes") or {}).items()}
+    out: list[dict] = []
+    for ln in payload.get("lines") or []:
+        pg = int(ln.get("page_no") or 0)
+        if pg not in sizes or pg not in page_sizes:
+            continue
+        mw, mh = float(sizes[pg][0]), float(sizes[pg][1])
+        pw, ph = page_sizes[pg]
+        if mw <= 0 or mh <= 0:
+            continue
+        try:
+            x0, y0, x1, y1 = (float(v) for v in str(ln["bbox"]).split(","))
+        except (KeyError, ValueError):
+            continue
+        fx, fy = pw / mw, ph / mh
+        out.append({
+            **ln,
+            "bbox": f"{x0 * fx:.1f},{y0 * fy:.1f},{x1 * fx:.1f},{y1 * fy:.1f}",
+            "justify": True,
+        })
+    return out
+
+
 def pdf_line_boxes(
     file_path: Path, max_pages: int = 120
 ) -> dict[int, list[dict]]:

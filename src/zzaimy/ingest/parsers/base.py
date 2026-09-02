@@ -74,6 +74,9 @@ class ParseResult:
     images: list[ParsedImage] = field(default_factory=list)
     entries: list[ParsedEntry] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # 줄 단위 OCR 좌표 (MinerU middle.json) — 스캔 복원 뷰의 투명 레이어 재료
+    ocr_lines: list[dict] = field(default_factory=list)
+    ocr_page_sizes: dict[int, tuple[float, float]] = field(default_factory=dict)
 
 
 class DocumentParser(Protocol):
