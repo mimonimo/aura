@@ -209,7 +209,7 @@ class Database:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT * FROM documents WHERE status = 'reviewed' AND decision = 'pending'"
-                " AND doc_type != 'regulation' ORDER BY id DESC LIMIT ?",
+                " AND doc_type NOT IN ('regulation', 'ocr') ORDER BY id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
             return [dict(r) for r in rows]

@@ -281,6 +281,8 @@
       <iconify-icon icon="solar:square-academic-cap-linear"></iconify-icon>입학{% if pending_by_type.get("admission") %}<span class="count-pill">{{ pending_by_type["admission"] }}</span>{% endif %}</a>
     <a href="/?type=auto" class="{{ 'active' if active_tab is defined and active_tab == 'auto' else '' }}">
       <iconify-icon icon="solar:document-text-linear"></iconify-icon>일반 행정{% if pending_by_type.get("auto") %}<span class="count-pill">{{ pending_by_type["auto"] }}</span>{% endif %}</a>
+    <a href="/ocr" class="{{ 'active' if request.url.path == '/ocr' else '' }}">
+      <iconify-icon icon="solar:scanner-linear"></iconify-icon>문서 추출 (OCR)</a>
   </nav>
   {% if side_projects %}
   <div class="side-label">프로젝트</div>

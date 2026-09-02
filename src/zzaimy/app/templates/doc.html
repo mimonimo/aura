@@ -18,16 +18,16 @@
   {% endif %}
 {% endblock %}
 {% block content %}
-<p><a href="{{ '/criteria' if doc.doc_type == 'regulation' else '/' }}" class="btn-ghost">
-  ← {{ "기준 문서로" if doc.doc_type == "regulation" else "문서 검토함으로" }}</a></p>
+<p><a href="{{ '/criteria' if doc.doc_type == 'regulation' else ('/ocr' if doc.doc_type == 'ocr' else '/') }}" class="btn-ghost">
+  ← {{ "기준 문서로" if doc.doc_type == "regulation" else ("문서 추출로" if doc.doc_type == "ocr" else "문서 검토함으로") }}</a></p>
 
 <div class="card reveal">
   <div class="card-in">
     <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ doc.filename }}</h2>
     <p style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
       <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
-      {% if doc.doc_type == "regulation" %}
-        <span class="pill reviewed">{{ "등록됨" if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
+      {% if doc.doc_type in ("regulation", "ocr") %}
+        <span class="pill reviewed">{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
       {% else %}
         <span class="pill {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
         <span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>
@@ -57,11 +57,11 @@
   </div>
 </div>
 
-{% if doc.doc_type == "regulation" %}
+{% if doc.doc_type in ("regulation", "ocr") %}
   {% if doc.ai_review %}
   <div class="card reveal">
     <div class="card-in">
-      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>기준 등록 결과</h2>
+      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>{{ "기준 등록 결과" if doc.doc_type == "regulation" else "추출 요약" }}</h2>
       <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ doc.ai_review }}</span></p>
     </div>
   </div>
@@ -142,7 +142,7 @@
 </div>
 {% endif %}
 
-{% if doc.doc_type != "regulation" %}
+{% if doc.doc_type not in ("regulation", "ocr") %}
 <div class="card reveal">
   <div class="card-in">
     <h2><iconify-icon icon="solar:pen-linear"></iconify-icon>담당자 의견</h2>
