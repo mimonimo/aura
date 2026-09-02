@@ -588,13 +588,23 @@ class DocumentProcessor:
         if parsed is None or not getattr(parsed, "ocr_lines", None):
             return
         try:
+            lines = parsed.ocr_lines
+            # 투명 레이어에서 긁는 텍스트도 본문 조각과 같은 오타 교정을 거친다
+            # (교정 실패·훼손 배치는 원문 유지 — _correct_texts의 가드 그대로).
+            # 디지털 PDF는 뷰가 원본 레이어를 직독하므로 교정 호출을 아낀다
+            if "OCR" in (self._last_parse_note or ""):
+                fixed = self._correct_texts([ln["content"] for ln in lines])
+                if fixed is not None:
+                    lines = [
+                        {**ln, "content": f[:500]} for ln, f in zip(lines, fixed)
+                    ]
             out_dir = Path(db.path).parent / "lines"
             out_dir.mkdir(exist_ok=True)
             payload = {
                 "page_sizes": {
                     str(k): list(v) for k, v in parsed.ocr_page_sizes.items()
                 },
-                "lines": parsed.ocr_lines,
+                "lines": lines,
             }
             (out_dir / f"{doc_id}.json").write_text(
                 json.dumps(payload, ensure_ascii=False)
@@ -940,11 +950,15 @@ class DocumentProcessor:
             if doc_type == "ocr" and file_path.suffix.lower() in (
                 ".pdf", ".png", ".jpg", ".jpeg",
             ):
-                # 문서 추출 도구 — 명시적 OCR 요청이므로 MinerU를 바로 쓴다
-                # (표는 구조로, 그림은 파일로). 실패 시 기본 파서로 진행
+                # 문서 추출 도구 — PDF는 기본 경로(_parse)로: 텍스트 레이어가
+                # 있으면 원문을 그대로 쓰고(굳이 품질을 낮추지 않는다), 스캔만
+                # OCR을 탄다. 이미지(사진)만 MinerU OCR을 바로 시도한다
                 self._last_images = []
                 self._last_parse_note = ""
-                raw_text = self._parse_mineru(file_path) or self._parse(file_path)
+                if file_path.suffix.lower() == ".pdf":
+                    raw_text = self._parse(file_path)
+                else:
+                    raw_text = self._parse_mineru(file_path) or self._parse(file_path)
             else:
                 raw_text = self._parse(file_path)
             self._save_ocr_lines(db, doc_id)
