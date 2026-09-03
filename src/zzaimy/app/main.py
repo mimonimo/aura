@@ -1366,6 +1366,11 @@ def create_app(
             raise HTTPException(404, "초안이 없다")
         stem = Path(doc["filename"] or "draft").stem
         title = f"{stem} 계획서 초안"
+        # 자료 문서의 추출 그림을 붙임으로 — 표·도표 근거를 파일에 동봉한다
+        images = [
+            a["path"] for a in db.list_doc_assets(doc_id)
+            if a["kind"] == "image" and Path(a["path"]).exists()
+        ][:6]
         if fmt == "md":
             payload: bytes | None = (
                 f"# {title}\n\n{doc['draft']}\n"
@@ -1374,18 +1379,18 @@ def create_app(
         elif fmt == "docx":
             from zzaimy.app.draft_export import build_draft_docx
 
-            payload = build_draft_docx(title, doc["draft"])
+            payload = build_draft_docx(title, doc["draft"], images=images)
             media = ("application/vnd.openxmlformats-officedocument"
                      ".wordprocessingml.document")
         elif fmt == "hwpx":
             from zzaimy.app.draft_export import build_draft_hwpx
 
-            payload = build_draft_hwpx(title, doc["draft"])
+            payload = build_draft_hwpx(title, doc["draft"], images=images)
             media = "application/hwp+zip"
         elif fmt == "pdf":
             from zzaimy.app.draft_export import build_draft_pdf
 
-            payload = build_draft_pdf(title, doc["draft"])
+            payload = build_draft_pdf(title, doc["draft"], images=images)
             media = "application/pdf"
         else:
             raise HTTPException(404)

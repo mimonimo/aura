@@ -64,3 +64,48 @@ def test_draft_hwpx_opens_and_contains_content():
     ).decode("utf-8", errors="ignore")
     assert "사업 개요" in xml and "지역 인재 양성" in xml
     assert "6,000만 원" in xml  # 표 셀
+
+
+def _make_img(tmp_path, name="fig.png"):
+    from PIL import Image
+    p = tmp_path / name
+    Image.new("RGB", (400, 240), "#3355aa").save(p)
+    return p
+
+
+def test_draft_docx_with_images(tmp_path):
+    from docx import Document
+
+    from zzaimy.app.draft_export import build_draft_docx
+
+    img = _make_img(tmp_path)
+    payload = build_draft_docx("계획서", DRAFT, images=[str(img)])
+    doc = Document(io.BytesIO(payload))
+    assert any("붙임 그림" in p.text for p in doc.paragraphs)
+    assert len(doc.inline_shapes) == 1
+
+
+def test_draft_hwpx_with_images(tmp_path):
+    import zipfile
+
+    from zzaimy.app.draft_export import build_draft_hwpx
+
+    img = _make_img(tmp_path)
+    payload = build_draft_hwpx("계획서", DRAFT, images=[str(img)])
+    assert payload is not None
+    names = zipfile.ZipFile(io.BytesIO(payload)).namelist()
+    assert any("BinData" in n or n.lower().endswith(".png") for n in names), names
+
+
+def test_draft_pdf_with_images(tmp_path):
+    from pypdf import PdfReader
+
+    from zzaimy.app.draft_export import build_draft_pdf
+
+    img = _make_img(tmp_path)
+    payload = build_draft_pdf("계획서", DRAFT, images=[str(img)])
+    r = PdfReader(io.BytesIO(payload))
+    has_img = any(
+        "/XObject" in (p.get("/Resources") or {}) for p in r.pages
+    )
+    assert has_img
