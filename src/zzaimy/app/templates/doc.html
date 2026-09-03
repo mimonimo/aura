@@ -89,10 +89,14 @@
           and not (doc.coverage and doc.coverage.startswith("초안 작성 중")) %}
     {# 목적별 플로우 — 국고사업: 초안 작성·재작성 / 채용·입학: 서류 검토·판정 #}
     <form action="/doc/{{ doc.id }}/draft" method="post" style="margin-top:10px;">
-      <button type="submit" class="secondary">{{ "계획서 초안 재작성" if doc.draft else "계획서 초안 작성" }}</button>
-      <span class="muted" style="margin-left:8px;">
-        {{ "아래 담당자 의견을 반영해 다시 작성합니다." if doc.draft
-           else "연결된 공고·기준의 요구 항목에 맞춰 이 서류를 재료로 초안을 만듭니다. 1~2분 걸립니다." }}</span>
+      <textarea name="sections" rows="3" placeholder="작성 항목을 직접 지정하려면 한 줄에 하나씩 (비우면 공고의 목차를 따릅니다)&#10;예) 사업 개요&#10;    추진 계획&#10;    예산 계획"
+                style="width:100%; max-width:560px; font-size:12.5px;">{{ doc.draft_spec or "" }}</textarea>
+      <div style="margin-top:8px;">
+        <button type="submit" class="secondary">{{ "계획서 초안 재작성" if doc.draft else "계획서 초안 작성" }}</button>
+        <span class="muted" style="margin-left:8px;">
+          {{ "아래 담당자 의견을 반영해 다시 작성합니다." if doc.draft
+             else "지정 항목(없으면 공고 목차)에 맞춰 이 서류를 재료로 초안을 만듭니다. 1~2분 걸립니다." }}</span>
+      </div>
     </form>
     {% endif %}
   </div>
@@ -135,7 +139,15 @@
   {% if doc.draft %}
   <div class="card accent reveal">
     <div class="card-in">
-      <h2><iconify-icon icon="solar:document-add-linear"></iconify-icon>계획서 초안</h2>
+      <h2><iconify-icon icon="solar:document-add-linear"></iconify-icon>계획서 초안
+        <span style="margin-left:auto; display:flex; gap:8px;">
+          <a href="/doc/{{ doc.id }}/draft.docx" class="btn-ghost" style="font-weight:600;">
+            <iconify-icon icon="solar:document-add-linear"></iconify-icon>.docx</a>
+          <a href="/doc/{{ doc.id }}/draft.pdf" class="btn-ghost" style="font-weight:600;">
+            <iconify-icon icon="solar:file-check-linear"></iconify-icon>.pdf</a>
+          <a href="/doc/{{ doc.id }}/draft.md" class="btn-ghost" style="font-weight:600;">
+            <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
+        </span></h2>
       {% if doc.coverage %}<p class="notice"><iconify-icon icon="solar:chart-linear"></iconify-icon><span>{{ doc.coverage }}</span></p>{% endif %}
       <pre class="doc-text">{{ doc.draft }}</pre>
       <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>근거가

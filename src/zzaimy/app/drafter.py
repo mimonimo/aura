@@ -45,6 +45,17 @@ class SliceDrafter:
             # 공고문 참조: 연결된 공고·기준이 있으면 그 스키마로, 없으면 문서 자신
             ref_text, ref_name = _reference_text(db, doc)
             schema = client.extract_schema(ref_text[:12000])
+
+            # 담당자가 요구한 작성 항목(한 줄에 하나)이 있으면 공고 목차보다 우선
+            spec = (doc.get("draft_spec") or "").strip()
+            if spec:
+                from zzaimy.generate.schema import SectionSpec
+
+                names = [
+                    ln.strip(" -•·\t") for ln in spec.splitlines() if ln.strip()
+                ]
+                if names:
+                    schema.sections = [SectionSpec(name=n) for n in names[:12]]
             retriever = StubRetriever()
 
             # 인풋 서류(신청서 등)가 공고와 다른 문서면 그 내용을 작성 재료로 쓴다
