@@ -126,21 +126,49 @@ def create_app(
         secret_path.write_text(session_secret)
         secret_path.chmod(0o600)
 
-    def _make_session(days: int = 7) -> str:
-        exp = str(int(_time.time()) + days * 86400)
-        sig = _hmac.new(
-            session_secret.encode(), exp.encode(), hashlib.sha256
-        ).hexdigest()
-        return f"{exp}.{sig}"
+    # 계정 저장소 — data/platform/accounts.json (0600).
+    # 부트스트랩: zzaimy(담당자)=기존 비밀번호, zzdev(개발자)=초기 devpass.
+    # 개발자 전용 화면(/dev)은 dev 역할만 접근한다.
+    import json as _aj
 
-    def _session_valid(token: str) -> bool:
-        exp, _, sig = token.partition(".")
-        if not exp.isdigit() or not sig:
-            return False
-        good = _hmac.new(
-            session_secret.encode(), exp.encode(), hashlib.sha256
+    accounts_path = Path(db_path).parent / "accounts.json"
+    accounts: dict[str, dict] = {}
+    if password is not None:
+        try:
+            accounts = _aj.loads(accounts_path.read_text())
+        except (OSError, ValueError):
+            accounts = {
+                "zzaimy": {"pw": password, "role": "staff"},
+                "zzdev": {"pw": "devpass", "role": "dev"},
+            }
+            accounts_path.write_text(_aj.dumps(accounts, ensure_ascii=False))
+            accounts_path.chmod(0o600)
+
+    def _save_accounts() -> None:
+        accounts_path.write_text(_aj.dumps(accounts, ensure_ascii=False))
+        accounts_path.chmod(0o600)
+
+    def _make_session(user: str, days: int = 7) -> str:
+        exp = str(int(_time.time()) + days * 86400)
+        base = f"{exp}.{user}"
+        sig = _hmac.new(
+            session_secret.encode(), base.encode(), hashlib.sha256
         ).hexdigest()
-        return secrets.compare_digest(sig, good) and int(exp) > _time.time()
+        return f"{base}.{sig}"
+
+    def _session_user(token: str) -> str | None:
+        parts = token.split(".")
+        if len(parts) != 3:
+            return None
+        exp, user, sig = parts
+        if not exp.isdigit() or user not in accounts:
+            return None
+        good = _hmac.new(
+            session_secret.encode(), f"{exp}.{user}".encode(), hashlib.sha256
+        ).hexdigest()
+        if secrets.compare_digest(sig, good) and int(exp) > _time.time():
+            return user
+        return None
 
     if password is not None:
         basic = HTTPBasic(auto_error=False)
@@ -150,22 +178,33 @@ def create_app(
             cred: HTTPBasicCredentials | None = Depends(basic),
         ) -> None:
             # 브라우저는 로그인 페이지의 세션 쿠키로, 스크립트·API는 Basic으로
+            request.state.role = ""
             if request.url.path == "/login" or request.url.path.startswith("/static"):
                 return
-            if _session_valid(request.cookies.get("zz_session", "")):
-                return
-            if cred is not None:
+            user = _session_user(request.cookies.get("zz_session", ""))
+            if user is None and cred is not None:
+                acct = accounts.get(cred.username)
                 # 바이트 비교 — compare_digest는 비ASCII 문자열을 받지 못한다
-                ok = secrets.compare_digest(
-                    cred.username.encode(), b"zzaimy"
-                ) and secrets.compare_digest(cred.password.encode(), password.encode())
-                if ok:
-                    return
-                raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
-            # 인증 정보가 아예 없는 브라우저 요청 — 로그인 페이지로
-            raise HTTPException(401, detail="login-required")
+                if acct is not None and secrets.compare_digest(
+                    cred.password.encode(), str(acct["pw"]).encode()
+                ):
+                    user = cred.username
+                else:
+                    raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
+            if user is None:
+                # 인증 정보가 아예 없는 브라우저 요청 — 로그인 페이지로
+                raise HTTPException(401, detail="login-required")
+            request.state.role = accounts.get(user, {}).get("role", "staff")
+            if request.url.path.startswith("/dev") and request.state.role != "dev":
+                raise HTTPException(403, "개발자 계정 전용입니다")
 
         dependencies = [Depends(check_auth)]
+    else:
+        # 인증 없는 로컬 개발 모드 — 개발자 뷰까지 전부 연다
+        def open_auth(request: Request) -> None:
+            request.state.role = "dev"
+
+        dependencies = [Depends(open_auth)]
 
     app = FastAPI(title="YNC 행정문서 검토 플랫폼", dependencies=dependencies)
 
@@ -475,14 +514,15 @@ def create_app(
     def login_submit(username: str = Form(""), pw: str = Form("")):
         if password is None:
             return RedirectResponse("/", status_code=303)
-        ok = secrets.compare_digest(username.strip().encode(), b"zzaimy") and (
-            secrets.compare_digest(pw.encode(), password.encode())
-        )
-        if not ok:
+        uname = username.strip()
+        acct = accounts.get(uname)
+        if acct is None or not secrets.compare_digest(
+            pw.encode(), str(acct["pw"]).encode()
+        ):
             return RedirectResponse("/login?err=1", status_code=303)
         resp = RedirectResponse("/", status_code=303)
         resp.set_cookie(
-            "zz_session", _make_session(), httponly=True, samesite="lax",
+            "zz_session", _make_session(uname), httponly=True, samesite="lax",
             max_age=7 * 24 * 3600,
         )
         return resp
@@ -520,6 +560,205 @@ def create_app(
             )
             background.add_task(processor.process, db, doc_id, stored)
         return RedirectResponse("/ocr", status_code=303)
+
+    # --- 개발 현황 (개발자 뷰 — 플랫폼 기능이 아니라 캡스톤 개발 과정용) ---
+
+    _DOCS_DIR = Path(__file__).resolve().parents[3] / "docs"
+
+    def _dev_read(name: str, tail_lines: int | None = None) -> str:
+        try:
+            text = (_DOCS_DIR / name).read_text(encoding="utf-8")
+            if tail_lines:
+                text = "\n".join(text.splitlines()[-tail_lines:])
+            return text
+        except OSError:
+            return ""
+
+    def _dev_stats() -> tuple[list[dict], list[dict]]:
+        import sqlite3
+
+        conn = sqlite3.connect(db_path)
+        q = conn.execute
+        n_docs = q("SELECT COUNT(*) FROM documents").fetchone()[0]
+        n_chunks = q("SELECT COUNT(*) FROM doc_chunks").fetchone()[0]
+        n_reg = q("SELECT COUNT(*) FROM regulation_chunks").fetchone()[0]
+        n_corr = q(
+            "SELECT COUNT(*) FROM documents WHERE parse_note LIKE '%오타 교정%'"
+        ).fetchone()[0]
+        n_pres = q(
+            "SELECT COUNT(*) FROM documents WHERE parse_note LIKE '%원문 보존%'"
+        ).fetchone()[0]
+        paths = [
+            {"path": r[0] or "일반", "n": r[1]}
+            for r in q(
+                "SELECT COALESCE(substr(parse_note, 1, 14), '일반'), COUNT(*)"
+                " FROM documents WHERE status='reviewed'"
+                " GROUP BY 1 ORDER BY 2 DESC"
+            ).fetchall()
+        ]
+        conn.close()
+        stats = [
+            {"label": "문서", "value": n_docs, "sub": f"원문 보존 {n_pres}건"},
+            {"label": "본문 조각", "value": n_chunks, "sub": f"오타 교정 {n_corr}건"},
+            {"label": "기준 조각", "value": n_reg, "sub": "규정 저장소"},
+        ]
+        return stats, paths
+
+    def _dev_tables() -> list[dict]:
+        import sqlite3
+
+        conn = sqlite3.connect(db_path)
+        names = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+            " AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ).fetchall()]
+        out = []
+        for n in names:
+            cnt = conn.execute(f'SELECT COUNT(*) FROM "{n}"').fetchone()[0]
+            out.append({"name": n, "n": cnt})
+        conn.close()
+        return out
+
+    def _run_dev_query(sql: str) -> dict:
+        """읽기 전용 SELECT 1문만, 상한 50행 — 개발자 DB 점검용."""
+        import sqlite3
+
+        q = sql.strip().rstrip(";")
+        if not q.lower().startswith("select") or ";" in q:
+            return {"error": "SELECT 한 문장만 실행할 수 있습니다."}
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            cur = conn.execute(q)
+            cols = [d[0] for d in cur.description or []]
+            rows = [
+                [str(v)[:200] if v is not None else "" for v in r]
+                for r in cur.fetchmany(50)
+            ]
+            conn.close()
+            return {"cols": cols, "rows": rows, "sql": sql}
+        except sqlite3.Error as e:
+            return {"error": str(e), "sql": sql}
+
+    @app.get("/dev", response_class=HTMLResponse)
+    def dev_dashboard(request: Request):
+        stats, paths = _dev_stats()
+        adrs = sorted(
+            p.name for p in (_DOCS_DIR / "decisions").glob("0*.md")
+        ) if (_DOCS_DIR / "decisions").exists() else []
+        notes = sorted(
+            p.name for p in (_DOCS_DIR / "notes").glob("*.md")
+        ) if (_DOCS_DIR / "notes").exists() else []
+        return templates.TemplateResponse(request, "dev.html", ctx({
+            "stats": stats,
+            "parse_paths": paths,
+            "embed_report": _dev_read("embed-v0-report.md"),
+            "baseline_report": _dev_read("retrieval-baseline-mini.md"),
+            "changelog": _dev_read("dev-changelog.md") or "(배포 시 갱신됩니다)",
+            "adrs": adrs, "notes": notes,
+            "tables": _dev_tables(),
+            "accounts": sorted(accounts) if password is not None else [],
+            "query_result": None,
+        }))
+
+    @app.post("/dev/query", response_class=HTMLResponse)
+    def dev_query(request: Request, sql: str = Form("")):
+        stats, paths = _dev_stats()
+        adrs = sorted(
+            p.name for p in (_DOCS_DIR / "decisions").glob("0*.md")
+        ) if (_DOCS_DIR / "decisions").exists() else []
+        notes = sorted(
+            p.name for p in (_DOCS_DIR / "notes").glob("*.md")
+        ) if (_DOCS_DIR / "notes").exists() else []
+        return templates.TemplateResponse(request, "dev.html", ctx({
+            "stats": stats, "parse_paths": paths,
+            "embed_report": _dev_read("embed-v0-report.md"),
+            "baseline_report": _dev_read("retrieval-baseline-mini.md"),
+            "changelog": _dev_read("dev-changelog.md") or "(배포 시 갱신됩니다)",
+            "adrs": adrs, "notes": notes,
+            "tables": _dev_tables(),
+            "accounts": sorted(accounts) if password is not None else [],
+            "query_result": _run_dev_query(sql) if sql.strip() else None,
+        }))
+
+    @app.post("/dev/account")
+    def dev_account(target: str = Form(...), new_pw: str = Form(...)):
+        """계정 비밀번호 변경 — 개발자 화면 전용 (경로 가드로 dev만 도달)."""
+        if password is None:
+            raise HTTPException(400, "인증 없는 로컬 모드에서는 계정이 없습니다")
+        if target not in accounts:
+            raise HTTPException(404, "없는 계정")
+        if len(new_pw) < 4:
+            raise HTTPException(400, "비밀번호는 4자 이상")
+        accounts[target]["pw"] = new_pw
+        _save_accounts()
+        return RedirectResponse("/dev", status_code=303)
+
+    @app.get("/dev/weekly.{fmt}")
+    def dev_weekly_report(fmt: str):
+        """캡스톤 주간 보고서 — 커밋 이력·지표·통계에서 자동 조립."""
+        from datetime import date, timedelta
+        from urllib.parse import quote as _q
+
+        from fastapi.responses import Response
+
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        stats, paths = _dev_stats()
+        changelog = _dev_read("dev-changelog.md")
+        base_tail = "\n".join(
+            ln for ln in _dev_read("retrieval-baseline-mini.md").splitlines()
+            if ln.startswith("|") or ln.startswith("측정일")
+        )
+        embed_tail = "\n".join(
+            ln for ln in _dev_read("embed-v0-report.md").splitlines()
+            if ln.startswith("|") or ln.startswith("측정일")
+        )
+        body = "\n".join([
+            "## 기간",
+            f"{monday.isoformat()} ~ {today.isoformat()}",
+            "",
+            "## 이번 주 주요 작업 (커밋 이력)",
+            changelog or "(기록 없음)",
+            "",
+            "## 지표 현황",
+            "검색 기준선:",
+            base_tail or "(미측정)",
+            "",
+            "임베딩 학습:",
+            embed_tail or "(미측정)",
+            "",
+            "## 시스템 규모",
+            "\n".join(f"- {s['label']}: {s['value']} ({s.get('sub', '')})" for s in stats),
+            "",
+            "## 처리 경로 분포",
+            "\n".join(f"- {p['path']}: {p['n']}건" for p in paths),
+            "",
+            "## 비고",
+            "본 보고서는 개발 현황 대시보드에서 자동 생성되었습니다.",
+        ])
+        title = f"ZZAIMY 캡스톤 주간 보고 ({monday.isoformat()})"
+        if fmt == "md":
+            payload: bytes | None = f"# {title}\n\n{body}\n".encode()
+            media = "text/markdown; charset=utf-8"
+        elif fmt == "docx":
+            from zzaimy.app.draft_export import build_draft_docx
+
+            payload = build_draft_docx(title, body)
+            media = ("application/vnd.openxmlformats-officedocument"
+                     ".wordprocessingml.document")
+        elif fmt == "hwpx":
+            from zzaimy.app.draft_export import build_draft_hwpx
+
+            payload = build_draft_hwpx(title, body)
+            media = "application/hwp+zip"
+        else:
+            raise HTTPException(404)
+        if payload is None:
+            raise HTTPException(500, "보고서 생성 실패")
+        return Response(payload, media_type=media, headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + _q(f"주간보고_{monday.isoformat()}.{fmt}"),
+        })
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request):

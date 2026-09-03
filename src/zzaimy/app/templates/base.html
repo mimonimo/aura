@@ -369,6 +369,11 @@
     {% endfor %}
   </div>
   <div class="side-bottom side-nav">
+    {% if request.state.role == 'dev' %}
+    <a href="/dev" class="{{ 'active' if request.url.path.startswith('/dev') else '' }}"
+       style="opacity:.7; font-size:12.5px;">
+      <iconify-icon icon="solar:code-square-linear"></iconify-icon>개발 현황 (개발자)</a>
+    {% endif %}
     <a href="/criteria" class="{{ 'active' if request.url.path.startswith('/criteria') else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>기준 문서 (규정·지침)</a>
   </div>
