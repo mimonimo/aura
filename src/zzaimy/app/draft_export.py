@@ -89,10 +89,15 @@ def build_draft_hwpx(title: str, draft: str) -> bytes | None:
         from hwpx import HwpxDocument
 
         doc = HwpxDocument.new()
-        doc.add_heading(title, level=1)
-        for sec in parse_draft(draft):
+        # 한글의 '개요' 스타일은 기본 개요 번호(가, 나, 다…)를 자동으로 붙여
+        # 제목이 "가. 요약"처럼 보인다 — 개요 스타일 대신 바탕글 문단에
+        # 우리가 직접 번호를 매긴다
+        doc.add_paragraph(title, style="바탕글")
+        doc.add_paragraph("", style="바탕글")
+        for i, sec in enumerate(parse_draft(draft), start=1):
             if sec["title"]:
-                doc.add_heading(sec["title"], level=2)
+                doc.add_paragraph("", style="바탕글")
+                doc.add_paragraph(f"{i}. {sec['title']}", style="바탕글")
             for b in sec["blocks"]:
                 if b["kind"] == "table":
                     rows = b["rows"]
@@ -103,7 +108,7 @@ def build_draft_hwpx(title: str, draft: str) -> bytes | None:
                             t.set_cell_text(ri, ci, cell, logical=True)
                 else:
                     for para in b["text"].split("\n"):
-                        doc.add_paragraph(para)
+                        doc.add_paragraph(para, style="바탕글")
         buf = io.BytesIO()
         doc.save_to_stream(buf)
         return buf.getvalue()
