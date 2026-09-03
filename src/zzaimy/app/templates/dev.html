@@ -5,21 +5,12 @@
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:target-linear"></iconify-icon>이 프로젝트가 만드는 것</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    교내 행정 업무 자동화를 위한 sLLM 플랫폼이다. 외부로 문서를 내보낼 수 없는
-    학교 환경에서, 교내 장비(DGX Spark) 위의 AI가 행정 문서를 읽고(OCR·복원),
-    규정을 찾아 근거로 답하고(검색), 계획서 초안을 쓰고(생성), 수치·예산을
-    기계적으로 검증한다(검증). 아래 지표들은 그 네 가지가 각각 얼마나 잘
-    되는지를 재는 것이다.</p>
+    교내 행정 업무 자동화를 위한 sLLM 플랫폼. 문서를 외부로 내보낼 수 없는 학교
+    환경에서, 교내 장비 위의 AI가 (1) 행정 문서를 읽어 전자문서로 복원하고,
+    (2) 질문하면 규정을 찾아 근거로 답하고, (3) 계획서 초안을 쓰고,
+    (4) 수치·예산을 기계적으로 검증한다. 이 화면은 그 개발이 어디까지 왔는지
+    보는 개발자용 현황판이다.</p>
 </div></div>
-
-<p class="muted" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-  <span></span>
-  <span style="margin-left:auto; display:flex; gap:8px;">
-    <a href="/dev/weekly.docx" class="btn-ghost" style="font-weight:600;">
-      <iconify-icon icon="solar:calendar-linear"></iconify-icon>주간 보고서 .docx</a>
-    <a href="/dev/weekly.hwpx" class="btn-ghost" style="font-weight:600;">.hwpx</a>
-    <a href="/dev/weekly.md" class="btn-ghost" style="font-weight:600;">.md</a>
-  </span></p>
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
   {% for s in stats %}
@@ -33,8 +24,10 @@
 
 <div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>구축 진행도
-      <span class="muted" style="font-size:12px; font-weight:500;">{{ progress.updated }}</span></h2>
+    <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>얼마나 만들어졌나
+      <span class="muted" style="font-size:12px; font-weight:500;">{{ progress.updated }} 기준</span></h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 12px;">전체 개발을 8가지
+      갈래로 나눠 각각의 진행률을 표시한다. 파란 영역이 넓을수록 완성에 가깝다.</p>
     <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
       {% if progress.radar %}
       <svg width="340" height="310" viewBox="0 0 340 310" style="flex:none;">
@@ -65,34 +58,27 @@
   </div>
 </div>
 
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:play-circle-linear"></iconify-icon>지금 하는 일
+    <span style="margin-left:auto; display:flex; gap:8px;">
+      <a href="/dev/weekly.docx" class="btn-ghost" style="font-weight:600;">
+        <iconify-icon icon="solar:calendar-linear"></iconify-icon>주간 보고서 .docx</a>
+      <a href="/dev/weekly.hwpx" class="btn-ghost" style="font-weight:600;">.hwpx</a>
+      <a href="/dev/weekly.md" class="btn-ghost" style="font-weight:600;">.md</a>
+    </span></h2>
+  <div>{{ dev_now | md_view }}</div>
+</div></div>
+
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>모델 학습 (축 B)
-      <a href="/dev/doc/embed-v0-report.md" class="muted"
-         style="margin-left:auto; font-size:12px; font-weight:500;">원문</a></h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
-      검색에 쓰는 임베딩 모델을 우리 문서로 추가 학습시켜 기본 모델보다
-      좋아지는지 재는 표다. Recall@1 = 질문했을 때 정답 문서를 한 번에
-      찾는 비율. 아직 기본 모델(KURE-v1)이 더 나아서 학습본은 적용하지 않았다.</p>
-    {% if embed_table %}
-    <table class="extract">
-      <tr>{% for c in embed_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
-      {% for r in embed_table.rows %}
-      <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
-      {% endfor %}
-    </table>
-    {% else %}<p class="muted">학습 결과가 아직 없습니다.</p>{% endif %}
-  </div></div>
-
-  <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>검색 기준선
+    <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 성적
       <a href="/dev/doc/retrieval-baseline-mini.md" class="muted"
-         style="margin-left:auto; font-size:12px; font-weight:500;">원문</a></h2>
+         style="margin-left:auto; font-size:12px; font-weight:500;">자세히</a></h2>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
-      담당자가 질문하면 등록된 규정에서 맞는 조각을 찾아오는 검색의 성적표다.
-      Recall@1 0.583 = 열 번 물으면 여섯 번은 정답을 첫 번째로 가져온다는 뜻.
-      키워드 검색(어휘)과 의미 검색(임베딩)을 합친 하이브리드가 상위 10개
-      기준으로 가장 좋다.</p>
+      담당자가 질문하면 등록된 규정에서 맞는 대목을 찾아오는 기능의 성적표.
+      Recall@1은 "정답을 한 번에 찾은 비율" — 임베딩 방식이 0.583, 즉 열 번
+      물으면 여섯 번은 첫 번째로 정답을 가져온다. 두 방식(키워드+의미)을 합친
+      하이브리드는 상위 10개 안에 정답이 드는 비율이 87%로 가장 높다.</p>
     {% if baseline_table %}
     <table class="extract">
       <tr>{% for c in baseline_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
@@ -100,38 +86,56 @@
       <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
       {% endfor %}
     </table>
-    {% else %}<p class="muted">기준선이 아직 없습니다.</p>{% endif %}
+    {% else %}<p class="muted">아직 측정 전.</p>{% endif %}
   </div></div>
-</div>
 
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 원재료</h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">실험 결과·판정·방법론
-      기록 — 논문·기획서·발표자료가 여기서 나온다.</p>
-    <div style="display:flex; gap:8px; flex-wrap:wrap;">
-      {% for p in papers %}
-      <a href="/dev/paper/{{ p }}" class="btn-ghost" style="font-weight:600;">
-        <iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ p }}</a>
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>검색 AI 학습 실험
+      <a href="/dev/doc/embed-v0-report.md" class="muted"
+         style="margin-left:auto; font-size:12px; font-weight:500;">자세히</a></h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
+      위 검색에 쓰는 AI(문장을 숫자로 바꿔 비슷한 규정을 찾는 모델)를 우리 학교
+      문서로 추가 공부시키면 더 좋아지는지 실험한 결과. 표의 윗줄이 공부 전(기본
+      모델), 아랫줄이 공부 후. 아직 공부 후가 오히려 낮아서 적용하지 않았고,
+      실제 학교 문서가 확보되면 그 데이터로 다시 실험한다.</p>
+    {% if embed_table %}
+    <table class="extract">
+      <tr>{% for c in embed_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
+      {% for r in embed_table.rows %}
+      <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
       {% endfor %}
-    </div>
-  </div>
-</div>
-
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>DB 열람
-      <a href="/dev/db" class="btn-ghost" style="margin-left:auto; font-weight:600;">열기</a></h2>
-    <p class="muted" style="font-size:12.5px; margin:0;">저장된 데이터(문서 대장,
-      읽어낸 내용, 규정, 채팅 기록 등)를 표별 설명과 함께 열람합니다.</p>
-  </div>
+    </table>
+    {% else %}<p class="muted">아직 실험 전.</p>{% endif %}
+  </div></div>
 </div>
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:history-linear"></iconify-icon>개선 이력</h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">날짜를 누르면
-      그날 반영한 개선 목록이 펼쳐집니다.</p>
+    <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>졸업논문 재료</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">논문·발표자료에
+      들어갈 실험 결과와 기록을 모아둔 문서. 제목을 누르면 열린다.</p>
+    {% for p in papers %}
+    <p style="margin:4px 0; font-size:13.5px;">
+      <a href="/dev/paper/{{ p.file }}" style="color:var(--navy); font-weight:600;
+         text-decoration:none;">
+        <iconify-icon icon="solar:document-text-linear"></iconify-icon> {{ p.label }}</a></p>
+    {% endfor %}
+  </div></div>
+
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>저장된 데이터 열람
+      <a href="/dev/db" class="btn-ghost" style="margin-left:auto; font-weight:600;">열기</a></h2>
+    <p class="muted" style="font-size:12.5px; margin:0;">시스템이 저장하고 있는
+      것들(문서 대장, 문서에서 읽어낸 내용, 규정, 채팅 기록)을 표별 설명과 함께
+      들여다본다. 검색·행 상세 보기 지원.</p>
+  </div></div>
+</div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:history-linear"></iconify-icon>작업 일지</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">날짜별로 반영한
+      변경 사항. 날짜를 누르면 펼쳐진다.</p>
     {% for d in history %}
     <details {{ "open" if loop.first else "" }} style="margin-bottom:8px;">
       <summary style="cursor:pointer; font-weight:700; font-size:13.5px;">
@@ -143,18 +147,20 @@
     {% endfor %}
   </div></div>
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>설계 결정·기술 판정 기록</h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">왜 이렇게 만들었는지(ADR),
-      외부 기술을 검토해 도입/보류를 정한 근거(판정 노트). 제목을 누르면 열립니다.</p>
-    <h4 class="extract-h">설계 결정 (ADR)</h4>
+    <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>왜 이렇게 만들었나</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">설계를 정할 때
+      남긴 결정 기록과, 외부 기술을 써볼지 검토한 판정 기록. 제목을 누르면 열린다.</p>
+    <h4 class="extract-h">설계 결정</h4>
     {% for d in adr_docs %}
     <p style="margin:3px 0; font-size:13px;">
-      <a href="/dev/doc/decisions/{{ d.file }}" style="color:var(--ink);">{{ d.title }}</a></p>
+      <a href="/dev/doc/decisions/{{ d.file }}" style="color:var(--ink);
+         text-decoration:none;">· {{ d.title }}</a></p>
     {% endfor %}
-    <h4 class="extract-h">기술 판정 노트</h4>
+    <h4 class="extract-h">기술 검토 판정</h4>
     {% for d in note_docs %}
     <p style="margin:3px 0; font-size:13px;">
-      <a href="/dev/doc/notes/{{ d.file }}" style="color:var(--ink);">{{ d.title }}</a></p>
+      <a href="/dev/doc/notes/{{ d.file }}" style="color:var(--ink);
+         text-decoration:none;">· {{ d.title }}</a></p>
     {% endfor %}
   </div></div>
 </div>
