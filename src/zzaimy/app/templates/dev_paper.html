@@ -11,6 +11,6 @@
 </p>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ fname }}</h2>
-  <pre class="doc-text" style="max-height:none;">{{ content }}</pre>
+  <div>{{ content | md_view }}</div>
 </div></div>
 {% endblock %}

@@ -583,6 +583,58 @@ def create_app(
 
     _DOCS_DIR = Path(__file__).resolve().parents[3] / "docs"
 
+    def _md_view(text: str) -> "Markup":
+        """문서 뷰어용 마크다운 렌더 — 제목·표·목록·굵게만 지원."""
+        from markupsafe import Markup as _M
+        from markupsafe import escape as _esc
+
+        out: list[str] = []
+        lines = text.splitlines()
+        i = 0
+        while i < len(lines):
+            ln = lines[i]
+            if ln.startswith("|") and ln.rstrip().endswith("|"):
+                rows = []
+                while i < len(lines) and lines[i].strip().startswith("|"):
+                    r = lines[i].strip()
+                    i += 1
+                    if set(r) <= set("|-: "):
+                        continue
+                    rows.append([c.strip() for c in r.strip("|").split("|")])
+                if rows:
+                    t = ['<div class="table-scroll"><table class="extract"><tr>']
+                    t += [f"<th>{_esc(c)}</th>" for c in rows[0]]
+                    t.append("</tr>")
+                    for row_cells in rows[1:]:
+                        t.append("<tr>" + "".join(
+                            f"<td>{_esc(c)}</td>" for c in row_cells) + "</tr>")
+                    t.append("</table></div>")
+                    out.append("".join(t))
+                continue
+            if ln.startswith("# "):
+                out.append(f'<h3 style="margin:18px 0 8px;">{_esc(ln[2:])}</h3>')
+            elif ln.startswith("## "):
+                out.append(
+                    f'<h4 class="extract-h">{_esc(ln[3:])}</h4>')
+            elif ln.strip().startswith("- "):
+                items = []
+                while i < len(lines) and lines[i].strip().startswith("- "):
+                    items.append(f"<li>{_esc(lines[i].strip()[2:])}</li>")
+                    i += 1
+                out.append(
+                    '<ul style="margin:4px 0 10px; padding-left:20px;'
+                    ' font-size:13.5px; line-height:1.7;">'
+                    + "".join(items) + "</ul>")
+                continue
+            elif ln.strip():
+                out.append(
+                    f'<p style="margin:4px 0; font-size:13.5px;'
+                    f' line-height:1.75;">{_esc(ln)}</p>')
+            i += 1
+        return _M("\n".join(out))
+
+    templates.env.filters["md_view"] = _md_view
+
     def _dev_read(name: str, tail_lines: int | None = None) -> str:
         try:
             text = (_DOCS_DIR / name).read_text(encoding="utf-8")
@@ -659,24 +711,99 @@ def create_app(
         "settings": "프로필·지침 등 환경 설정 값.",
     }
 
+    def _browse_table(table: str, q: str, page: int) -> dict:
+        """읽기 전용 브라우즈 — 텍스트 열 전체에 검색어 LIKE, 50행씩 페이지."""
+        import sqlite3
+
+        hidden = {
+            "masked_text", "ai_review", "draft", "draft_spec",
+            "suggested_criteria", "coverage", "error",
+        }
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            all_cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
+            cols = [c for c in all_cols if c not in hidden]
+            where, params = "", []
+            if q.strip():
+                like = " OR ".join(
+                    f'CAST("{c}" AS TEXT) LIKE ?' for c in all_cols
+                )
+                where = f" WHERE {like}"
+                params = [f"%{q.strip()}%"] * len(all_cols)
+            total = conn.execute(
+                f'SELECT COUNT(*) FROM "{table}"{where}', params
+            ).fetchone()[0]
+            sel = ", ".join(f'"{c}"' for c in cols)
+            rows = conn.execute(
+                f'SELECT rowid AS _rid, {sel} FROM "{table}"{where}'
+                f" ORDER BY rowid DESC LIMIT 50 OFFSET ?",
+                [*params, page * 50],
+            ).fetchall()
+            return {
+                "table": table, "cols": cols, "total": total,
+                "n_hidden": len(all_cols) - len(cols),
+                "page": page, "has_next": total > (page + 1) * 50,
+                "rows": [
+                    {"rid": r[0], "vals": [
+                        (str(v)[:160] if v is not None else "") for v in r[1:]
+                    ]}
+                    for r in rows
+                ],
+            }
+        except sqlite3.Error as e:
+            return {"table": table, "error": str(e), "cols": [], "rows": [],
+                    "total": 0, "page": 0, "has_next": False}
+        finally:
+            conn.close()
+
     @app.get("/dev/db", response_class=HTMLResponse)
-    def dev_db(request: Request, table: str = "documents"):
-        """DB 열람 전용 페이지 — 표 선택, 설명, 머리글 고정."""
+    def dev_db(
+        request: Request, table: str = "documents",
+        q: str = "", page: int = 0,
+    ):
+        """DB 열람 전용 페이지 — 표 선택, 설명, 검색, 페이지, 행 상세."""
         tables = _dev_tables()
         valid = {t["name"] for t in tables}
         if table not in valid:
             table = "documents" if "documents" in valid else (
                 tables[0]["name"] if tables else ""
             )
-        browse = _run_dev_query(
-            f'SELECT * FROM "{table}" ORDER BY rowid DESC'
-        ) if table else {"error": "테이블 없음"}
-        browse["table"] = table
+        browse = _browse_table(table, q, max(page, 0)) if table else {
+            "error": "테이블 없음", "cols": [], "rows": [],
+            "total": 0, "page": 0, "has_next": False, "table": "",
+        }
         return templates.TemplateResponse(request, "dev_db.html", ctx(request, {
             "tables": tables,
             "browse": browse,
+            "q": q,
             "desc": _TABLE_DESC.get(table, ""),
             "table_descs": _TABLE_DESC,
+        }))
+
+    @app.get("/dev/db/row", response_class=HTMLResponse)
+    def dev_db_row(request: Request, table: str, rid: int):
+        """행 상세 — 모든 열의 전체 값을 세로로 보여준다 (긴 내용 확인용)."""
+        import sqlite3
+
+        tables = _dev_tables()
+        if table not in {t["name"] for t in tables}:
+            raise HTTPException(404)
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
+            row = conn.execute(
+                f'SELECT * FROM "{table}" WHERE rowid = ?', (rid,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            raise HTTPException(404)
+        fields = [
+            {"name": c, "value": str(v) if v is not None else ""}
+            for c, v in zip(cols, row)
+        ]
+        return templates.TemplateResponse(request, "dev_db_row.html", ctx(request, {
+            "table": table, "rid": rid, "fields": fields,
         }))
 
     def _run_dev_query(sql: str) -> dict:
@@ -757,7 +884,10 @@ def create_app(
         """decisions/notes 목록 — 파일명 대신 문서 첫 제목을 보여준다."""
         d = _DOCS_DIR / sub
         out = []
+        skip = {"README.md", "0000-template.md"}
         for f in sorted(d.glob("*.md")) if d.exists() else []:
+            if f.name in skip:
+                continue
             title = f.stem
             try:
                 for ln in f.read_text(encoding="utf-8").splitlines()[:5]:
@@ -768,6 +898,9 @@ def create_app(
                 pass
             out.append({"file": f.name, "title": title, "sub": sub})
         return out
+
+    def _dev_now() -> str:
+        return _dev_read("dev-now.md")
 
     def _dev_history() -> list[dict]:
         """개선 이력 — 커밋을 날짜별로 묶는다."""
@@ -785,9 +918,19 @@ def create_app(
             days.setdefault(day, []).append(subject)
         return [{"day": d, "items": items} for d, items in days.items()]
 
-    def _dev_papers() -> list[str]:
+    _PAPER_LABELS = {
+        "논문-원재료.md": "논문 정리 노트",
+        "실험-로그.md": "실험 기록",
+        "논문-양식-가이드.md": "논문 양식 분석",
+    }
+
+    def _dev_papers() -> list[dict]:
         d = _DOCS_DIR / "paper"
-        return sorted(p.name for p in d.glob("*.md")) if d.exists() else []
+        names = sorted(p.name for p in d.glob("*.md")) if d.exists() else []
+        return [
+            {"file": n, "label": _PAPER_LABELS.get(n, n.replace(".md", ""))}
+            for n in names
+        ]
 
     @app.get("/dev/doc/{name:path}", response_class=HTMLResponse)
     def dev_doc(request: Request, name: str):
@@ -822,6 +965,7 @@ def create_app(
         return templates.TemplateResponse(request, "dev.html", ctx(request, {
             "stats": stats,
             "parse_paths": paths,
+            "dev_now": _dev_now(),
             "adr_docs": _dev_doc_list("decisions"),
             "note_docs": _dev_doc_list("notes"),
             "history": _dev_history(),
