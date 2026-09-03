@@ -48,3 +48,19 @@ def test_draft_pdf_text_extractable():
     text = "".join(p.extract_text() or "" for p in PdfReader(io.BytesIO(payload)).pages)
     assert "사업 개요" in text and "지역 인재 양성" in text
     assert "6,000만 원" in text  # 표 내용도 문서에 들어간다
+
+
+def test_draft_hwpx_opens_and_contains_content():
+    import zipfile
+
+    from zzaimy.app.draft_export import build_draft_hwpx
+
+    payload = build_draft_hwpx("테스트 계획서", DRAFT)
+    assert payload is not None
+    z = zipfile.ZipFile(io.BytesIO(payload))
+    assert "mimetype" in z.namelist()
+    xml = b"".join(
+        z.read(n) for n in z.namelist() if n.startswith("Contents/section")
+    ).decode("utf-8", errors="ignore")
+    assert "사업 개요" in xml and "지역 인재 양성" in xml
+    assert "6,000만 원" in xml  # 표 셀
