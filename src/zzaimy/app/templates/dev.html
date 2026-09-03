@@ -118,69 +118,44 @@
   </div>
 </div>
 
-<div class="card reveal" id="dbcard">
+<div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>DB 확인</h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">테이블을 누르면
-      최근 50행이 열립니다.</p>
-    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-      {% for t in tables %}
-      <a href="/dev?table={{ t.name }}#dbcard"
-         class="pill {{ 'reviewed' if browse and browse.table == t.name else '' }}"
-         style="text-decoration:none;">{{ t.name }} <b>{{ t.n }}</b></a>
-      {% endfor %}
-    </div>
-    {% if browse %}
-      {% if browse.error %}
-      <p class="notice" style="margin-top:10px;"><span>{{ browse.error }}</span></p>
-      {% else %}
-      <div class="table-scroll" style="margin-top:12px; max-height:380px; overflow:auto;">
-        <table class="extract">
-          <tr>{% for c in browse.cols %}<th>{{ c }}</th>{% endfor %}</tr>
-          {% for r in browse.rows %}
-          <tr>{% for v in r %}<td style="max-width:260px; overflow:hidden;
-              text-overflow:ellipsis; white-space:nowrap;">{{ v }}</td>{% endfor %}</tr>
-          {% endfor %}
-        </table>
-      </div>
-      {% endif %}
-    {% endif %}
-    <details style="margin-top:12px;">
-      <summary class="muted" style="cursor:pointer; font-size:12.5px;">고급 — SQL 직접 실행 (읽기 전용)</summary>
-      <form action="/dev/query" method="post" style="display:flex; gap:8px; margin-top:8px;">
-        <textarea name="sql" rows="2" placeholder="SELECT ..."
-                  style="flex:1; font-family:ui-monospace,monospace; font-size:12.5px;">{{ query_result.sql if query_result else "" }}</textarea>
-        <button type="submit" class="secondary">실행</button>
-      </form>
-      {% if query_result %}
-        {% if query_result.error %}
-        <p class="notice" style="margin-top:10px;"><span>{{ query_result.error }}</span></p>
-        {% else %}
-        <div class="table-scroll" style="margin-top:10px; max-height:320px; overflow:auto;">
-          <table class="extract">
-            <tr>{% for c in query_result.cols %}<th>{{ c }}</th>{% endfor %}</tr>
-            {% for r in query_result.rows %}
-            <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
-            {% endfor %}
-          </table>
-        </div>
-        {% endif %}
-      {% endif %}
-    </details>
+    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>DB 열람
+      <a href="/dev/db" class="btn-ghost" style="margin-left:auto; font-weight:600;">열기</a></h2>
+    <p class="muted" style="font-size:12.5px; margin:0;">저장된 데이터(문서 대장,
+      읽어낸 내용, 규정, 채팅 기록 등)를 표별 설명과 함께 열람합니다.</p>
   </div>
 </div>
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:history-linear"></iconify-icon>개선 이력</h2>
-    <pre class="doc-text" style="max-height:260px; font-size:12px;">{{ changelog }}</pre>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">날짜를 누르면
+      그날 반영한 개선 목록이 펼쳐집니다.</p>
+    {% for d in history %}
+    <details {{ "open" if loop.first else "" }} style="margin-bottom:8px;">
+      <summary style="cursor:pointer; font-weight:700; font-size:13.5px;">
+        {{ d.day }} — {{ d["items"] | length }}건</summary>
+      <ul style="margin:6px 0 0; padding-left:18px; font-size:12.5px; line-height:1.7;">
+        {% for it in d["items"] %}<li>{{ it }}</li>{% endfor %}
+      </ul>
+    </details>
+    {% endfor %}
   </div></div>
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>ADR·판정 노트</h2>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; font-size:12.5px;">
-      <div>{% for a in adrs %}<p style="margin:3px 0;">{{ a }}</p>{% endfor %}</div>
-      <div>{% for n in notes %}<p style="margin:3px 0;">{{ n }}</p>{% endfor %}</div>
-    </div>
+    <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>설계 결정·기술 판정 기록</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">왜 이렇게 만들었는지(ADR),
+      외부 기술을 검토해 도입/보류를 정한 근거(판정 노트). 제목을 누르면 열립니다.</p>
+    <h4 class="extract-h">설계 결정 (ADR)</h4>
+    {% for d in adr_docs %}
+    <p style="margin:3px 0; font-size:13px;">
+      <a href="/dev/doc/decisions/{{ d.file }}" style="color:var(--ink);">{{ d.title }}</a></p>
+    {% endfor %}
+    <h4 class="extract-h">기술 판정 노트</h4>
+    {% for d in note_docs %}
+    <p style="margin:3px 0; font-size:13px;">
+      <a href="/dev/doc/notes/{{ d.file }}" style="color:var(--ink);">{{ d.title }}</a></p>
+    {% endfor %}
   </div></div>
 </div>
 {% endblock %}
