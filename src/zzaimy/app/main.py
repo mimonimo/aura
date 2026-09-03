@@ -1058,6 +1058,9 @@ def create_app(
             "note_docs": _dev_doc_list("notes"),
             "history": _dev_history(),
             "recent_summary": _dev_recent_summary(),
+            "reindex_needed": (
+                Path(db_path).parent / ".reindex-needed"
+            ).exists(),
             "embed_table": _md_last_table(_dev_read("embed-v0-report.md")),
             "embed_meta": _md_meta_line(_dev_read("embed-v0-report.md")),
             "baseline_table": _md_last_table(_dev_read("retrieval-baseline-mini.md")),
@@ -1067,6 +1070,20 @@ def create_app(
             "progress": _dev_progress(),
             "papers": _dev_papers(),
         }))
+
+    @app.post("/dev/reindex")
+    def dev_reindex():
+        """재색인 체인 실행 — 규정 조각 변경 후 질의·임베딩·앱 순차 갱신."""
+        import subprocess
+
+        script = Path(__file__).resolve().parents[3] / "scripts" / "66_reindex.sh"
+        subprocess.Popen(
+            ["nohup", "bash", str(script)],
+            stdout=open("/tmp/reindex.log", "w"),
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        return RedirectResponse("/dev", status_code=303)
 
     @app.post("/dev/account")
     def dev_account(target: str = Form(...), new_pw: str = Form(...)):
