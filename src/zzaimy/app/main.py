@@ -942,6 +942,36 @@ def create_app(
             headers={"Content-Disposition": "inline; filename=restored.pdf"},
         )
 
+    @app.get("/doc/{doc_id}/images.zip")
+    def doc_images_zip(doc_id: int):
+        """추출 그림 일괄 내려받기 — 문서 속 사진·도표 이미지를 zip 하나로."""
+        import io as _io
+        import zipfile
+        from urllib.parse import quote as _q
+
+        from fastapi.responses import Response
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        assets = [
+            a for a in db.list_doc_assets(doc_id)
+            if a["kind"] != "scan" and Path(a["path"]).exists()
+        ]
+        if not assets:
+            raise HTTPException(404, "추출된 그림이 없다")
+        buf = _io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for i, a in enumerate(assets, start=1):
+                p = Path(a["path"])
+                zf.write(p, f"p{a.get('page_no') or 0:03d}_{i:02d}{p.suffix}")
+        stem = Path(doc["filename"] or "document").stem
+        return Response(
+            buf.getvalue(), media_type="application/zip",
+            headers={"Content-Disposition":
+                     f"attachment; filename*=UTF-8''{_q(stem)}_images.zip"},
+        )
+
     @app.get("/doc/{doc_id}/asset/{asset_id}")
     def doc_asset(doc_id: int, asset_id: int, dl: int = 0):
         from fastapi.responses import FileResponse
