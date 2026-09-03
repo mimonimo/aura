@@ -165,6 +165,8 @@ def find_relevant(
     allowed = {c["id"] for c in chunks}
     dense_ids = [cid for cid, _ in embed_search(query_text, top_k=12) if cid in allowed]
     by_id = {c["id"]: c for c in chunks}
+    # 가중 근거: 2026-09-04 스윕(docs/retrieval-weight-sweep.md) — w_a 0.2~0.5
+    # 고원(MRR .692~.693), 동가중(1.0)은 .647로 손해. 고원 중앙값 0.4 채택
     merged = rrf_merge(lexical_ids[:12], dense_ids, w_a=0.4, w_b=1.0)
     return [by_id[cid] for cid in merged if cid in by_id][:top_k]
 
