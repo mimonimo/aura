@@ -639,6 +639,31 @@ def create_app(
         except sqlite3.Error as e:
             return {"error": str(e), "sql": sql}
 
+    def _dev_progress() -> dict:
+        import json as _pj
+
+        try:
+            return _pj.loads((_DOCS_DIR / "progress.json").read_text())
+        except (OSError, ValueError):
+            return {"updated": "", "tracks": []}
+
+    def _dev_papers() -> list[str]:
+        d = _DOCS_DIR / "paper"
+        return sorted(p.name for p in d.glob("*.md")) if d.exists() else []
+
+    @app.get("/dev/paper/{name}", response_class=HTMLResponse)
+    def dev_paper(request: Request, name: str):
+        """논문 원재료 문서 열람 — 개발자 전용(경로 가드)."""
+        if "/" in name or ".." in name or not name.endswith(".md"):
+            raise HTTPException(404)
+        f = _DOCS_DIR / "paper" / name
+        if not f.exists():
+            raise HTTPException(404)
+        return templates.TemplateResponse(request, "dev_paper.html", ctx({
+            "fname": name, "content": f.read_text(encoding="utf-8"),
+            "papers": _dev_papers(),
+        }))
+
     @app.get("/dev", response_class=HTMLResponse)
     def dev_dashboard(request: Request):
         stats, paths = _dev_stats()
@@ -658,6 +683,8 @@ def create_app(
             "tables": _dev_tables(),
             "accounts": sorted(accounts) if password is not None else [],
             "query_result": None,
+            "progress": _dev_progress(),
+            "papers": _dev_papers(),
         }))
 
     @app.post("/dev/query", response_class=HTMLResponse)
@@ -678,6 +705,8 @@ def create_app(
             "tables": _dev_tables(),
             "accounts": sorted(accounts) if password is not None else [],
             "query_result": _run_dev_query(sql) if sql.strip() else None,
+            "progress": _dev_progress(),
+            "papers": _dev_papers(),
         }))
 
     @app.post("/dev/account")
