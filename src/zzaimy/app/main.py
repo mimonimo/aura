@@ -230,6 +230,34 @@ def create_app(
     )
     db = Database(db_path)
     app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
+
+    @app.on_event("startup")
+    def _warm_models() -> None:
+        """임베딩·리랭커를 백그라운드로 예열 — 첫 질문의 수 초 지연 제거."""
+        import os as _os
+        import threading
+
+        if _os.environ.get("ZZAIMY_NO_WARMUP"):
+            return
+
+        def warm() -> None:
+            try:
+                from zzaimy.app.embed_search import embed_search
+
+                embed_search("예열", top_k=1)
+            except Exception:
+                pass
+            try:
+                from zzaimy.app.rerank import rerank_chunks
+
+                rerank_chunks("예열", [
+                    {"heading": "a", "content": "x"},
+                    {"heading": "b", "content": "y"},
+                ])
+            except Exception:
+                pass
+
+        threading.Thread(target=warm, daemon=True).start()
     inbox_dir.mkdir(parents=True, exist_ok=True)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     templates.env.globals["status_labels"] = STATUS_LABELS
