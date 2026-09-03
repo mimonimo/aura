@@ -660,17 +660,59 @@ def create_app(
                                 status_code=303)
 
     @app.post("/doc/{doc_id}/draft")
-    def make_draft(background: BackgroundTasks, doc_id: int):
+    def make_draft(
+        background: BackgroundTasks, doc_id: int,
+        sections: str = Form(""),
+    ):
         doc = db.get_document(doc_id)
         if doc is None:
             raise HTTPException(404)
         if doc["doc_type"] != "grant":
             # 목적별 플로우: 초안 작성은 국고사업 계열, 나머지는 검토·판정
             raise HTTPException(400, "초안 작성은 국고사업 문서에서만 지원한다")
+        # 담당자가 요구한 작성 항목(한 줄에 하나) — 공고 목차보다 우선한다
+        db.update_document(doc_id, draft_spec=sections.strip() or None)
         # 진행 표시를 먼저 남긴다 — 생성이 끝나면 drafter가 결과로 덮어쓴다
         db.update_document(doc_id, coverage="초안 작성 중입니다 (1~2분 걸립니다)")
         background.add_task(drafter.generate, db, doc_id)
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
+
+    @app.get("/doc/{doc_id}/draft.{fmt}")
+    def draft_export(doc_id: int, fmt: str):
+        """초안 내보내기 — docx(한글 호환)·pdf·md."""
+        from urllib.parse import quote as _q
+
+        from fastapi.responses import Response
+
+        doc = db.get_document(doc_id)
+        if doc is None or not doc.get("draft"):
+            raise HTTPException(404, "초안이 없다")
+        stem = Path(doc["filename"] or "draft").stem
+        title = f"{stem} 계획서 초안"
+        if fmt == "md":
+            payload: bytes | None = (
+                f"# {title}\n\n{doc['draft']}\n"
+            ).encode("utf-8")
+            media = "text/markdown; charset=utf-8"
+        elif fmt == "docx":
+            from zzaimy.app.draft_export import build_draft_docx
+
+            payload = build_draft_docx(title, doc["draft"])
+            media = ("application/vnd.openxmlformats-officedocument"
+                     ".wordprocessingml.document")
+        elif fmt == "pdf":
+            from zzaimy.app.draft_export import build_draft_pdf
+
+            payload = build_draft_pdf(title, doc["draft"])
+            media = "application/pdf"
+        else:
+            raise HTTPException(404)
+        if payload is None:
+            raise HTTPException(500, "내보내기 실패")
+        return Response(payload, media_type=media, headers={
+            "Content-Disposition":
+            f"attachment; filename*=UTF-8\'\'{_q(stem)}_초안.{fmt}",
+        })
 
     @app.get("/doc/{doc_id}", response_class=HTMLResponse)
     def detail(request: Request, doc_id: int):

@@ -101,6 +101,7 @@ class Database:
     _MIGRATIONS = [
         "ALTER TABLE documents ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'auto'",
         "ALTER TABLE documents ADD COLUMN draft TEXT",
+        "ALTER TABLE documents ADD COLUMN draft_spec TEXT",
         "ALTER TABLE documents ADD COLUMN coverage TEXT",
         "ALTER TABLE documents ADD COLUMN decision TEXT NOT NULL DEFAULT 'pending'",
         "ALTER TABLE regulation_chunks ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
@@ -170,7 +171,8 @@ class Database:
     def update_document(self, doc_id: int, **fields: str | None) -> None:
         allowed = {
             "status", "series", "masked_text", "ai_review",
-            "error", "draft", "coverage", "decision", "parse_note", "suggested_criteria",
+            "error", "draft", "draft_spec", "coverage", "decision", "parse_note",
+            "suggested_criteria",
         }
         unknown = set(fields) - allowed
         if unknown:
