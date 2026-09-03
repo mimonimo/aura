@@ -616,9 +616,9 @@ def create_app(
         ]
         conn.close()
         stats = [
-            {"label": "문서", "value": n_docs, "sub": f"원문 보존 {n_pres}건"},
-            {"label": "본문 조각", "value": n_chunks, "sub": f"오타 교정 {n_corr}건"},
-            {"label": "기준 조각", "value": n_reg, "sub": "규정 저장소"},
+            {"label": "처리한 문서", "value": n_docs, "sub": f"원문 보존 {n_pres}건"},
+            {"label": "읽어낸 문단·표", "value": n_chunks, "sub": f"오타 교정 {n_corr}건"},
+            {"label": "등록된 규정 문단", "value": n_reg, "sub": "검색이 근거로 쓰는 것"},
         ]
         return stats, paths
 
@@ -636,6 +636,48 @@ def create_app(
             out.append({"name": n, "n": cnt})
         conn.close()
         return out
+
+    _TABLE_DESC = {
+        "documents": (
+            "접수·등록된 문서 대장. 파일명, 상태, 유형, 소유 계정이 한 줄씩."
+        ),
+        "doc_chunks": (
+            "문서에서 읽어낸 내용. 한 줄이 문단·표·그림 하나이고,"
+            " 검색과 초안 작성이 이걸 재료로 쓴다."
+        ),
+        "doc_assets": "문서에서 추출한 그림·스캔 파일의 목록과 저장 위치.",
+        "regulation_chunks": (
+            "기준 문서(규정·지침)를 검색용으로 나눠 둔 문단."
+            " 채팅 답변의 근거가 여기서 나온다."
+        ),
+        "chat_sessions": "채팅 대화방 목록.",
+        "chat_messages": "채팅 주고받은 메시지 전체.",
+        "projects": "업무 프로젝트(사업·공고 단위) 목록.",
+        "project_criteria": "프로젝트에 연결해 둔 기준 문서 짝.",
+        "project_notes": "프로젝트별 지침·메모.",
+        "reviews": "담당자가 문서에 남긴 검토 의견.",
+        "settings": "프로필·지침 등 환경 설정 값.",
+    }
+
+    @app.get("/dev/db", response_class=HTMLResponse)
+    def dev_db(request: Request, table: str = "documents"):
+        """DB 열람 전용 페이지 — 표 선택, 설명, 머리글 고정."""
+        tables = _dev_tables()
+        valid = {t["name"] for t in tables}
+        if table not in valid:
+            table = "documents" if "documents" in valid else (
+                tables[0]["name"] if tables else ""
+            )
+        browse = _run_dev_query(
+            f'SELECT * FROM "{table}" ORDER BY rowid DESC'
+        ) if table else {"error": "테이블 없음"}
+        browse["table"] = table
+        return templates.TemplateResponse(request, "dev_db.html", ctx(request, {
+            "tables": tables,
+            "browse": browse,
+            "desc": _TABLE_DESC.get(table, ""),
+            "table_descs": _TABLE_DESC,
+        }))
 
     def _run_dev_query(sql: str) -> dict:
         """읽기 전용 SELECT 1문만, 상한 50행 — 개발자 DB 점검용."""
@@ -711,17 +753,52 @@ def create_app(
                 return out[:96] + "…" if len(out) > 96 else out
         return ""
 
+    def _dev_doc_list(sub: str) -> list[dict]:
+        """decisions/notes 목록 — 파일명 대신 문서 첫 제목을 보여준다."""
+        d = _DOCS_DIR / sub
+        out = []
+        for f in sorted(d.glob("*.md")) if d.exists() else []:
+            title = f.stem
+            try:
+                for ln in f.read_text(encoding="utf-8").splitlines()[:5]:
+                    if ln.startswith("# "):
+                        title = ln[2:].strip()
+                        break
+            except OSError:
+                pass
+            out.append({"file": f.name, "title": title, "sub": sub})
+        return out
+
+    def _dev_history() -> list[dict]:
+        """개선 이력 — 커밋을 날짜별로 묶는다."""
+        from collections import OrderedDict
+
+        days: OrderedDict[str, list[str]] = OrderedDict()
+        for ln in _dev_read("dev-changelog.md").splitlines():
+            ln = ln.strip()
+            if not ln.startswith("- "):
+                continue
+            parts = ln[2:].split(" ", 2)
+            if len(parts) < 3:
+                continue
+            day, _time, subject = parts
+            days.setdefault(day, []).append(subject)
+        return [{"day": d, "items": items} for d, items in days.items()]
+
     def _dev_papers() -> list[str]:
         d = _DOCS_DIR / "paper"
         return sorted(p.name for p in d.glob("*.md")) if d.exists() else []
 
-    @app.get("/dev/doc/{name}", response_class=HTMLResponse)
+    @app.get("/dev/doc/{name:path}", response_class=HTMLResponse)
     def dev_doc(request: Request, name: str):
-        allowed = {"embed-v0-report.md", "retrieval-baseline-mini.md"}
+        allowed = {"embed-v0-report.md", "retrieval-baseline-mini.md"} | {
+            f"{d['sub']}/{d['file']}"
+            for sub in ("decisions", "notes") for d in _dev_doc_list(sub)
+        }
         if name not in allowed:
             raise HTTPException(404)
         return templates.TemplateResponse(request, "dev_paper.html", ctx(request, {
-            "fname": name,
+            "fname": name.rsplit("/", 1)[-1],
             "content": _dev_read(name),
             "papers": _dev_papers(),
         }))
@@ -740,62 +817,22 @@ def create_app(
         }))
 
     @app.get("/dev", response_class=HTMLResponse)
-    def dev_dashboard(request: Request, table: str | None = None):
+    def dev_dashboard(request: Request):
         stats, paths = _dev_stats()
-        browse = None
-        if table:
-            valid = {t["name"] for t in _dev_tables()}
-            if table in valid:
-                browse = _run_dev_query(
-                    f'SELECT * FROM "{table}" ORDER BY rowid DESC'
-                )
-                browse["table"] = table
-        adrs = sorted(
-            p.name for p in (_DOCS_DIR / "decisions").glob("0*.md")
-        ) if (_DOCS_DIR / "decisions").exists() else []
-        notes = sorted(
-            p.name for p in (_DOCS_DIR / "notes").glob("*.md")
-        ) if (_DOCS_DIR / "notes").exists() else []
         return templates.TemplateResponse(request, "dev.html", ctx(request, {
             "stats": stats,
             "parse_paths": paths,
+            "adr_docs": _dev_doc_list("decisions"),
+            "note_docs": _dev_doc_list("notes"),
+            "history": _dev_history(),
             "embed_table": _md_last_table(_dev_read("embed-v0-report.md")),
             "embed_meta": _md_meta_line(_dev_read("embed-v0-report.md")),
             "baseline_table": _md_last_table(_dev_read("retrieval-baseline-mini.md")),
             "baseline_meta": _md_meta_line(_dev_read("retrieval-baseline-mini.md")),
-            "changelog": _dev_read("dev-changelog.md") or "(배포 시 갱신됩니다)",
-            "adrs": adrs, "notes": notes,
             "tables": _dev_tables(),
             "accounts": sorted(accounts) if password is not None else [],
-            "query_result": None,
             "progress": _dev_progress(),
             "papers": _dev_papers(),
-            "browse": browse,
-        }))
-
-    @app.post("/dev/query", response_class=HTMLResponse)
-    def dev_query(request: Request, sql: str = Form("")):
-        stats, paths = _dev_stats()
-        adrs = sorted(
-            p.name for p in (_DOCS_DIR / "decisions").glob("0*.md")
-        ) if (_DOCS_DIR / "decisions").exists() else []
-        notes = sorted(
-            p.name for p in (_DOCS_DIR / "notes").glob("*.md")
-        ) if (_DOCS_DIR / "notes").exists() else []
-        return templates.TemplateResponse(request, "dev.html", ctx(request, {
-            "stats": stats, "parse_paths": paths,
-            "embed_table": _md_last_table(_dev_read("embed-v0-report.md")),
-            "embed_meta": _md_meta_line(_dev_read("embed-v0-report.md")),
-            "baseline_table": _md_last_table(_dev_read("retrieval-baseline-mini.md")),
-            "baseline_meta": _md_meta_line(_dev_read("retrieval-baseline-mini.md")),
-            "changelog": _dev_read("dev-changelog.md") or "(배포 시 갱신됩니다)",
-            "adrs": adrs, "notes": notes,
-            "tables": _dev_tables(),
-            "accounts": sorted(accounts) if password is not None else [],
-            "query_result": _run_dev_query(sql) if sql.strip() else None,
-            "progress": _dev_progress(),
-            "papers": _dev_papers(),
-            "browse": None,
         }))
 
     @app.post("/dev/account")

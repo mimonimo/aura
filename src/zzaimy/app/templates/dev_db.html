@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}DB 열람{% endblock %}
+{% block pagetitle %}DB 열람 (개발자){% endblock %}
+{% block content %}
+<p style="display:flex; align-items:center; gap:10px;">
+  <a href="/dev" class="btn-ghost">← 개발 현황</a>
+  <span class="muted" style="font-size:12.5px;">읽기 전용 — 최근 50건씩 보여줍니다.</span></p>
+
+<div style="display:grid; grid-template-columns:260px minmax(0,1fr); gap:16px; align-items:start;">
+  <div class="card"><div class="card-in" style="padding:14px;">
+    {% for t in tables %}
+    <a href="/dev/db?table={{ t.name }}"
+       style="display:block; padding:9px 11px; border-radius:10px; text-decoration:none;
+              color:var(--ink); font-size:13px; margin-bottom:2px;
+              {{ 'background:#E3ECFB; font-weight:700; color:var(--navy);' if browse.table == t.name else '' }}">
+      {{ t.name }}
+      <span class="muted" style="float:right; font-variant-numeric:tabular-nums;">{{ t.n }}</span>
+      <span class="muted" style="display:block; font-size:11px; line-height:1.4;
+            white-space:normal;">{{ table_descs.get(t.name, "") }}</span>
+    </a>
+    {% endfor %}
+  </div></div>
+
+  <div class="card"><div class="card-in">
+    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>{{ browse.table }}</h2>
+    {% if desc %}<p class="muted" style="font-size:13px; margin:0 0 12px;">{{ desc }}</p>{% endif %}
+    {% if browse.error %}
+    <p class="notice"><span>{{ browse.error }}</span></p>
+    {% else %}
+    <div class="table-scroll sticky-head" style="max-height:calc(100vh - 260px); overflow:auto;">
+      <table class="extract">
+        <thead><tr>{% for c in browse.cols %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for r in browse.rows %}
+        <tr>{% for v in r %}<td style="max-width:300px; overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap;" title="{{ v }}">{{ v }}</td>{% endfor %}</tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div></div>
+</div>
+{% endblock %}
