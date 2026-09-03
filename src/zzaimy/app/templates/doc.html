@@ -194,6 +194,23 @@
   {% endif %}
 {% endif %}
 
+{% if doc.doc_type == "regulation" and referencing %}
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:link-minimalistic-2-linear"></iconify-icon>이 기준을 참조한 문서</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">이 규정을 근거로
+      지정했거나, 연관성으로 자동 연결됐거나, 같은 프로젝트에 묶인 문서입니다.</p>
+    {% for r in referencing %}
+    <p style="margin:4px 0; font-size:13.5px;">
+      <a href="/doc/{{ r.id }}" style="color:var(--navy); font-weight:600; text-decoration:none;">
+        <iconify-icon icon="solar:document-text-linear"></iconify-icon> {{ r.filename }}</a>
+      <span class="pill type" style="font-size:11px;">{{ doc_type_labels.get(r.doc_type, r.doc_type) }}</span>
+      <span class="muted" style="font-size:11.5px;">{{ r.created_at[:10] }}</span></p>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if doc.masked_text %}
 <div class="card reveal">
   <div class="card-in">

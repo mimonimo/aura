@@ -372,6 +372,32 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def referencing_documents(self, criteria_id: int) -> list[dict]:
+        """이 기준 문서를 참조하는 접수 문서들 — 지정·자동 연결·프로젝트 경유.
+
+        문서-규정 연관 그래프의 1단계 간선이다.
+        """
+        like_a = f'%"id": {criteria_id},%'
+        like_b = f'%"id": {criteria_id}}}%'
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT d.* FROM documents d
+                WHERE d.doc_type NOT IN ('regulation', 'ocr') AND (
+                    d.related_criteria_id = ?
+                    OR d.suggested_criteria LIKE ?
+                    OR d.suggested_criteria LIKE ?
+                    OR d.project_id IN (
+                        SELECT project_id FROM project_criteria
+                        WHERE criteria_doc_id = ?
+                    )
+                )
+                ORDER BY d.id DESC LIMIT 30
+                """,
+                (criteria_id, like_a, like_b, criteria_id),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def recent_activity(self, limit: int = 12) -> list[dict]:
         """대시보드 최근 활동 — 접수·기준 등록·추출·채팅을 시간 역순으로 합친다."""
         with self._conn() as conn:
