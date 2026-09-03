@@ -426,13 +426,40 @@ class DocumentProcessor:
     )
 
     def _llm_correct_chunks(self, chunks: list[dict]) -> bool:
-        """MinerU 텍스트 조각의 OCR 오타를 LLM으로 교정한다 (마스킹 후 호출)."""
+        """MinerU 조각의 OCR 오타를 LLM으로 교정한다 (마스킹 후 호출).
+
+        본문·제목뿐 아니라 표 셀 텍스트도 대상 — '주민등특번호' 같은 셀 오타가
+        교정 없이 남던 사고 대응. 실패·훼손 배치는 원문 유지(_correct_texts 가드).
+        """
+        import json as _j
+
         targets = [c for c in chunks if c["kind"] in ("text", "heading")]
-        fixed = self._correct_texts([c["content"] for c in targets])
+        texts = [c["content"] for c in targets]
+        cell_refs: list[tuple[dict, dict, int]] = []
+        for c in chunks:
+            if c["kind"] != "table":
+                continue
+            try:
+                data = _j.loads(c["content"])
+                cells = data["cells"]
+            except (ValueError, KeyError, TypeError):
+                continue
+            for idx, cell in enumerate(cells):
+                t = str(cell[5]) if len(cell) > 5 else ""
+                if len(t.strip()) >= 2:
+                    cell_refs.append((c, data, idx))
+                    texts.append(t)
+        fixed = self._correct_texts(texts)
         if fixed is None:
             return False
-        for c, f in zip(targets, fixed):
+        for c, f in zip(targets, fixed[: len(targets)]):
             c["content"] = f[:2000]
+        touched: dict[int, tuple[dict, dict]] = {}
+        for (c, data, idx), f in zip(cell_refs, fixed[len(targets):]):
+            data["cells"][idx][5] = f[:500]
+            touched[id(c)] = (c, data)
+        for c, data in touched.values():
+            c["content"] = _j.dumps(data, ensure_ascii=False)
         return True
 
     def _correct_texts(self, texts: list[str]) -> list[str] | None:

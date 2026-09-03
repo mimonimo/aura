@@ -171,11 +171,13 @@ def build_restored_scan_pdf(
                     cv = rl_canvas.Canvas(buf, pagesize=(pw, ph))
                 else:
                     cv.setPageSize((pw, ph))
-                img = page.render(scale=scale).to_pil()
+                # 페이지 폭 1300px 상한 — 과대 해상도는 뷰어 스크롤을 끊기게 한다
+                eff_scale = min(scale, 1300.0 / max(pw, 1.0))
+                img = page.render(scale=eff_scale).to_pil()
                 if enhance:
                     img = _enhance_page(img)
                 jpg = io.BytesIO()  # 무손실 임베드는 페이지당 2MB+ — JPEG로 압축
-                img.convert("RGB").save(jpg, format="JPEG", quality=82)
+                img.convert("RGB").save(jpg, format="JPEG", quality=78)
                 jpg.seek(0)
                 cv.drawImage(
                     ImageReader(jpg), 0, 0, width=pw, height=ph
@@ -207,8 +209,14 @@ def build_restored_scan_pdf(
         return None
 
 
-def build_restored_photo_pdf(image_path: Path, lines_payload: dict) -> bytes | None:
-    """사진 → 한 장짜리 복원 PDF (보정 스캔 + 위치 맞춘 투명 레이어)."""
+def build_restored_photo_pdf(
+    image_path: Path, lines_payload: dict, full_text: str | None = None
+) -> bytes | None:
+    """사진 → 한 장짜리 복원 PDF (보정 스캔 + 위치 맞춘 투명 레이어).
+
+    손글씨처럼 좌표 OCR이 몇 줄밖에 못 잡는 사진은 비전 판독 전문(full_text)을
+    여백 투명 레이어로 함께 깔아 전체 복사·검색이 되게 한다.
+    """
     try:
         from PIL import Image
         from reportlab.lib.utils import ImageReader
@@ -244,6 +252,19 @@ def build_restored_photo_pdf(image_path: Path, lines_payload: dict) -> bytes | N
             t.setFont(_FONT, size)
             t.setTextOrigin(x0, ph - y1 + (y1 - y0 - size) / 2)
             t.textLine(text)
+            cv.drawText(t)
+        covered = sum(
+            len(str(ln.get("content") or "")) for ln in lines_payload.get("lines") or []
+        )
+        if full_text and len(full_text.strip()) > covered * 2:
+            # 좌표 레이어가 빈약하면 전문을 여백에 깔아 전체 복사·검색 보장
+            t = cv.beginText()
+            t.setTextRenderMode(3)
+            t.setFont(_FONT, 4)
+            t.setTextOrigin(4, ph - 8)
+            for line in full_text.splitlines():
+                if line.strip():
+                    t.textLine(line[:200])
             cv.drawText(t)
         cv.showPage()
         cv.save()

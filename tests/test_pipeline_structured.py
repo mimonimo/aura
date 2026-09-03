@@ -29,3 +29,32 @@ def test_overlay_text_layer_uses_original_chars(tmp_path):
     out = proc._overlay_text_layer(pdf)
     assert out is not None and "기초과학" in out
     assert "기추과하" not in out
+
+
+def test_llm_correction_covers_table_cells(monkeypatch):
+    """표 셀의 OCR 오타도 본문과 같은 교정을 거친다 — '주민등특번호' 사고 대응."""
+    import json
+
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    proc = DocumentProcessor.__new__(DocumentProcessor)
+    fixes = {
+        "주민등특번호": "주민등록번호", "등의여부": "동의여부",
+        "본문 오타난 줄": "본문 고친 줄",
+    }
+    monkeypatch.setattr(
+        DocumentProcessor, "_correct_texts",
+        lambda self, texts: [fixes.get(t, t) for t in texts],
+    )
+    chunks = [
+        {"kind": "text", "content": "본문 오타난 줄"},
+        {"kind": "table", "content": json.dumps({
+            "n_rows": 1, "n_cols": 2,
+            "cells": [[0, 0, 1, 1, 1, "주민등특번호"], [0, 1, 1, 1, 1, "등의여부"]],
+        }, ensure_ascii=False)},
+    ]
+    assert proc._llm_correct_chunks(chunks)
+    assert chunks[0]["content"] == "본문 고친 줄"
+    data = json.loads(chunks[1]["content"])
+    assert data["cells"][0][5] == "주민등록번호"
+    assert data["cells"][1][5] == "동의여부"
