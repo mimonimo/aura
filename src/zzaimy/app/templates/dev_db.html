@@ -4,8 +4,7 @@
 {% block content %}
 <p style="display:flex; align-items:center; gap:10px;">
   <a href="/dev" class="btn-ghost">← 개발 현황</a>
-  <span class="muted" style="font-size:12.5px;">읽기 전용 · 긴 내용 열은 목록에서
-    숨겨지며, 행을 누르면 전체 내용이 보입니다.</span></p>
+  <span class="muted" style="font-size:12.5px;">읽기 전용입니다. 행을 누르면 전체 내용이 열립니다.</span></p>
 
 <div style="display:grid; grid-template-columns:250px minmax(0,1fr); gap:16px; align-items:start;">
   <div class="card"><div class="card-in" style="padding:14px;">
@@ -40,15 +39,17 @@
     <p class="muted" style="font-size:11.5px; margin:0 0 8px;">긴 내용 열
       {{ browse.n_hidden }}개는 숨김 — 행을 누르면 전부 보입니다.</p>
     {% endif %}
-    <div class="table-scroll sticky-head" style="max-height:calc(100vh - 300px); overflow:auto;">
-      <table class="extract">
-        <thead><tr>{% for c in browse.cols %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <div class="sticky-head" style="max-height:calc(100vh - 300px); overflow-y:auto;">
+      <table class="extract" style="table-layout:fixed; width:100%;">
+        <thead><tr>{% for c in browse.cols %}
+          <th style="{{ 'width:52px;' if c == 'id' else ('width:92px;' if c.endswith('_at') or c in ('status','kind','role','owner','doc_id','page_no','sector') else '') }}">{{ c }}</th>
+        {% endfor %}</tr></thead>
         <tbody>
         {% for r in browse.rows %}
         <tr onclick="location.href='/dev/db/row?table={{ browse.table }}&rid={{ r.rid }}'"
             style="cursor:pointer;">
-          {% for v in r.vals %}<td style="max-width:280px; overflow:hidden;
-              text-overflow:ellipsis; white-space:nowrap;">{{ v }}</td>{% endfor %}</tr>
+          {% for v in r.vals %}<td style="overflow:hidden; text-overflow:ellipsis;
+              white-space:nowrap;">{{ v }}</td>{% endfor %}</tr>
         {% endfor %}
         </tbody>
       </table>
