@@ -195,6 +195,10 @@
         <a href="/doc/{{ doc.id }}/export.pdf" class="btn-ghost" style="font-weight:600;">
           <iconify-icon icon="solar:file-check-linear"></iconify-icon>검색 가능 PDF</a>
         {% endif %}
+        {% if assets %}
+        <a href="/doc/{{ doc.id }}/images.zip" class="btn-ghost" style="font-weight:600;">
+          <iconify-icon icon="solar:gallery-download-linear"></iconify-icon>그림 {{ assets|length }}장 (.zip)</a>
+        {% endif %}
         <a href="/doc/{{ doc.id }}/export.docx" class="btn-ghost" style="font-weight:600;">
           <iconify-icon icon="solar:document-add-linear"></iconify-icon>편집본 (.docx)</a>
         <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost" style="font-weight:600;">
