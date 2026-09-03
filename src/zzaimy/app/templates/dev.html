@@ -2,8 +2,18 @@
 {% block title %}개발 현황{% endblock %}
 {% block pagetitle %}개발 현황{% endblock %}
 {% block content %}
-<p class="muted" style="margin-top:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-  <span>캡스톤 개발 현황 — 담당자 화면과 분리된 개발자 전용 뷰</span>
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:target-linear"></iconify-icon>이 프로젝트가 만드는 것</h2>
+  <p style="margin:0; font-size:13.5px; line-height:1.7;">
+    교내 행정 업무 자동화를 위한 sLLM 플랫폼이다. 외부로 문서를 내보낼 수 없는
+    학교 환경에서, 교내 장비(DGX Spark) 위의 AI가 행정 문서를 읽고(OCR·복원),
+    규정을 찾아 근거로 답하고(검색), 계획서 초안을 쓰고(생성), 수치·예산을
+    기계적으로 검증한다(검증). 아래 지표들은 그 네 가지가 각각 얼마나 잘
+    되는지를 재는 것이다.</p>
+</div></div>
+
+<p class="muted" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+  <span></span>
   <span style="margin-left:auto; display:flex; gap:8px;">
     <a href="/dev/weekly.docx" class="btn-ghost" style="font-weight:600;">
       <iconify-icon icon="solar:calendar-linear"></iconify-icon>주간 보고서 .docx</a>
@@ -60,6 +70,10 @@
     <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>모델 학습 (축 B)
       <a href="/dev/doc/embed-v0-report.md" class="muted"
          style="margin-left:auto; font-size:12px; font-weight:500;">원문</a></h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
+      검색에 쓰는 임베딩 모델을 우리 문서로 추가 학습시켜 기본 모델보다
+      좋아지는지 재는 표다. Recall@1 = 질문했을 때 정답 문서를 한 번에
+      찾는 비율. 아직 기본 모델(KURE-v1)이 더 나아서 학습본은 적용하지 않았다.</p>
     {% if embed_table %}
     <table class="extract">
       <tr>{% for c in embed_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
@@ -67,7 +81,6 @@
       <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
       {% endfor %}
     </table>
-    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">{{ embed_meta }}</p>
     {% else %}<p class="muted">학습 결과가 아직 없습니다.</p>{% endif %}
   </div></div>
 
@@ -75,6 +88,11 @@
     <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>검색 기준선
       <a href="/dev/doc/retrieval-baseline-mini.md" class="muted"
          style="margin-left:auto; font-size:12px; font-weight:500;">원문</a></h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
+      담당자가 질문하면 등록된 규정에서 맞는 조각을 찾아오는 검색의 성적표다.
+      Recall@1 0.583 = 열 번 물으면 여섯 번은 정답을 첫 번째로 가져온다는 뜻.
+      키워드 검색(어휘)과 의미 검색(임베딩)을 합친 하이브리드가 상위 10개
+      기준으로 가장 좋다.</p>
     {% if baseline_table %}
     <table class="extract">
       <tr>{% for c in baseline_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
@@ -82,7 +100,6 @@
       <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
       {% endfor %}
     </table>
-    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">{{ baseline_meta }}</p>
     {% else %}<p class="muted">기준선이 아직 없습니다.</p>{% endif %}
   </div></div>
 </div>
@@ -90,6 +107,8 @@
 <div class="card reveal">
   <div class="card-in">
     <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 원재료</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">실험 결과·판정·방법론
+      기록 — 논문·기획서·발표자료가 여기서 나온다.</p>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       {% for p in papers %}
       <a href="/dev/paper/{{ p }}" class="btn-ghost" style="font-weight:600;">
@@ -101,9 +120,7 @@
 
 <div class="card reveal" id="dbcard">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>DB 확인
-      <button type="button" class="secondary" data-modal-open="#pwModal"
-              style="margin-left:auto;">비밀번호 변경</button></h2>
+    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>DB 확인</h2>
     <p class="muted" style="font-size:12.5px; margin:0 0 8px;">테이블을 누르면
       최근 50행이 열립니다.</p>
     <div style="display:flex; gap:6px; flex-wrap:wrap;">
@@ -164,28 +181,6 @@
       <div>{% for a in adrs %}<p style="margin:3px 0;">{{ a }}</p>{% endfor %}</div>
       <div>{% for n in notes %}<p style="margin:3px 0;">{{ n }}</p>{% endfor %}</div>
     </div>
-  </div></div>
-</div>
-
-{# 비밀번호 변경 팝업 — 사용자 선택 후 변경 #}
-<div class="modal-back" id="pwModal">
-  <div class="card"><div class="card-in">
-    <h2><iconify-icon icon="solar:user-id-linear"></iconify-icon>비밀번호 변경</h2>
-    <form action="/dev/account" method="post">
-      <label class="muted" style="font-size:12.5px;">사용자</label>
-      <select name="target" style="width:100%; margin:4px 0 12px;">
-        {% for a in accounts %}
-        <option value="{{ a }}">{{ a }} — {{ "개발자" if a == "zzdev" else "담당자" }}</option>
-        {% endfor %}
-      </select>
-      <label class="muted" style="font-size:12.5px;">새 비밀번호</label>
-      <input type="password" name="new_pw" required minlength="4"
-             style="width:100%; margin:4px 0 14px;">
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
-        <button type="button" class="secondary" data-modal-close>취소</button>
-        <button type="submit">변경</button>
-      </div>
-    </form>
   </div></div>
 </div>
 {% endblock %}

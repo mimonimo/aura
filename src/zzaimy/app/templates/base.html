@@ -311,6 +311,12 @@
   .modal-head h2 { margin: 0; }
   .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
   .form-row > .muted { font-size: 12.5px; }
+  .modal-back select, .modal-back input[type=password], .modal-back input[type=text] {
+    width: 100%; border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; font-size: 13.5px; font-family: inherit; background: #fff;
+    outline: none; transition: border-color .3s var(--ease), box-shadow .3s var(--ease); }
+  .modal-back select:focus, .modal-back input:focus { border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(73,123,251,.12); }
   .form-row select, .form-row input[type=text] { width: 100%; border: 1.5px solid var(--line);
                 border-radius: 12px; padding: 10px 14px; font-family: inherit; font-size: 14px; }
 
@@ -420,6 +426,11 @@
       <div class="popover" id="userPop">
         <h5>{{ "개발자 계정 (zzdev)" if request.state.user == "zzdev" else (profile_name or "담당자") }}{% if profile_dept and request.state.user != "zzdev" %} · {{ profile_dept }}{% endif %}</h5>
         <a class="pop-item" href="/settings"><iconify-icon icon="solar:user-id-linear"></iconify-icon><span>프로필·에이전트 지침 설정</span></a>
+        {% if request.state.role == 'dev' %}
+        <button type="button" class="pop-item" data-modal-open="#pwModal"
+                style="width:100%; background:none; border:0; cursor:pointer; font:inherit; text-align:left;">
+          <iconify-icon icon="solar:lock-password-linear"></iconify-icon><span>비밀번호 변경</span></button>
+        {% endif %}
         <form action="/logout" method="post" style="margin:0;">
           <button type="submit" class="pop-item" style="width:100%; background:none; border:0;
                   box-shadow:none; color:var(--ink); font-weight:400; font-size:13.5px;
@@ -514,5 +525,25 @@
     });
   });
 </script>
+{% if request.state.role == 'dev' %}
+<div class="modal-back" id="pwModal">
+  <div class="card"><div class="card-in">
+    <h2><iconify-icon icon="solar:lock-password-linear"></iconify-icon>비밀번호 변경</h2>
+    <form action="/dev/account" method="post">
+      <label class="muted" style="font-size:12.5px;">사용자</label>
+      <select name="target" style="margin:6px 0 14px;">
+        <option value="zzaimy">zzaimy — 담당자</option>
+        <option value="zzdev">zzdev — 개발자</option>
+      </select>
+      <label class="muted" style="font-size:12.5px;">새 비밀번호</label>
+      <input type="password" name="new_pw" required minlength="4" style="margin:6px 0 16px;">
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="secondary" data-modal-close>취소</button>
+        <button type="submit">변경</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
 </body>
 </html>
