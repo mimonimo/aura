@@ -1527,6 +1527,10 @@ def create_app(
             suggested = _json.loads(doc.get("suggested_criteria") or "[]")
         except _json.JSONDecodeError:
             suggested = []
+        referencing = (
+            db.referencing_documents(doc_id)
+            if doc["doc_type"] == "regulation" else []
+        )
         return templates.TemplateResponse(
             request,
             "doc.html",
@@ -1539,6 +1543,7 @@ def create_app(
                 "scan_asset": scan_asset,
                 "original_kind": original_kind,
                 "suggested_criteria": suggested,
+                "referencing": referencing,
                 "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),
                 "n_table_chunks": sum(1 for c in chunks if c["kind"] == "table"),
             }),
