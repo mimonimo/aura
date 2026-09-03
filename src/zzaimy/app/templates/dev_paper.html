@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}논문 원재료 — {{ fname }}{% endblock %}
+{% block pagetitle %}논문 원재료{% endblock %}
+{% block content %}
+<p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <a href="/dev" class="btn-ghost">← 개발 현황</a>
+  {% for p in papers %}
+  <a href="/dev/paper/{{ p }}" class="pill {{ 'reviewed' if p == fname else '' }}"
+     style="text-decoration:none;">{{ p }}</a>
+  {% endfor %}
+</p>
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ fname }}</h2>
+  <pre class="doc-text" style="max-height:none;">{{ content }}</pre>
+</div></div>
+{% endblock %}

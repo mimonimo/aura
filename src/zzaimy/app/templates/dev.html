@@ -24,6 +24,39 @@
 
 <div class="card reveal">
   <div class="card-in">
+    <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>구축 진행도
+      <span class="muted" style="font-size:12px; font-weight:500;">{{ progress.updated }}</span></h2>
+    {% for t in progress.tracks %}
+    <div style="margin:10px 0;">
+      <div style="display:flex; justify-content:space-between; font-size:13px;">
+        <span style="font-weight:600;">{{ t.name }}</span>
+        <span class="muted">{{ t.pct }}% · {{ t.note }}</span>
+      </div>
+      <div style="height:8px; background:var(--line); border-radius:5px; margin-top:4px;">
+        <div style="height:8px; width:{{ t.pct }}%; border-radius:5px;
+                    background:linear-gradient(90deg, var(--blue), var(--navy));"></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 원재료</h2>
+    <p class="muted" style="font-size:12.5px;">파인튜닝·실험 결과와 방법론 기록 —
+      논문·기획서·발표자료의 1차 출처입니다.</p>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      {% for p in papers %}
+      <a href="/dev/paper/{{ p }}" class="btn-ghost" style="font-weight:600;">
+        <iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ p }}</a>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<div class="card reveal">
+  <div class="card-in">
     <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>모델 학습 (축 B — 지도학습)</h2>
     {% if embed_report %}
     <pre class="doc-text" style="max-height:300px;">{{ embed_report }}</pre>
