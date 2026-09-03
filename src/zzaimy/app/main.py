@@ -179,6 +179,7 @@ def create_app(
         ) -> None:
             # 브라우저는 로그인 페이지의 세션 쿠키로, 스크립트·API는 Basic으로
             request.state.role = ""
+            request.state.user = "zzaimy"
             if request.url.path == "/login" or request.url.path.startswith("/static"):
                 return
             user = _session_user(request.cookies.get("zz_session", ""))
@@ -195,6 +196,7 @@ def create_app(
                 # 인증 정보가 아예 없는 브라우저 요청 — 로그인 페이지로
                 raise HTTPException(401, detail="login-required")
             request.state.role = accounts.get(user, {}).get("role", "staff")
+            request.state.user = user
             if request.url.path.startswith("/dev") and request.state.role != "dev":
                 raise HTTPException(403, "개발자 계정 전용입니다")
 
@@ -203,6 +205,7 @@ def create_app(
         # 인증 없는 로컬 개발 모드 — 개발자 뷰까지 전부 연다
         def open_auth(request: Request) -> None:
             request.state.role = "dev"
+            request.state.user = "zzaimy"
 
         dependencies = [Depends(open_auth)]
 
@@ -245,20 +248,22 @@ def create_app(
 
     templates.env.filters["md_lite"] = md_lite
 
-    def ctx(extra: dict) -> dict:
-        pending = db.pending_documents(limit=50)
+    def ctx(request: Request, extra: dict) -> dict:
+        # 작업물(문서함·프로젝트·채팅)은 계정별 분리 — 기준·OCR 저장소는 공용
+        owner = getattr(request.state, "user", "zzaimy")
+        pending = db.pending_documents(limit=50, owner=owner)
         by_type: dict[str, int] = {}
         for d in pending:
             by_type[d["doc_type"]] = by_type.get(d["doc_type"], 0) + 1
-        failed = db.failed_documents()
+        failed = db.failed_documents(owner=owner)
         return {
-            "chat_sessions": db.list_chat_sessions(),
+            "chat_sessions": db.list_chat_sessions(owner=owner),
             "pending_docs": pending[:8],
             "pending_count": len(pending),
             "pending_by_type": by_type,
             "failed_docs": failed,
             "alert_count": len(pending) + len(failed),
-            "side_projects": db.list_all_projects(),
+            "side_projects": db.list_all_projects(owner=owner),
             "profile_name": db.get_setting("name"),
             "profile_dept": db.get_setting("dept"),
             **extra,
@@ -274,7 +279,10 @@ def create_app(
     ):
         doc_type = type if type in INBOX_TYPES else None
         all_docs = [
-            d for d in db.list_documents(doc_type, q=q, project_id=project)
+            d for d in db.list_documents(
+                doc_type, q=q, project_id=project,
+                owner=getattr(request.state, "user", "zzaimy"),
+            )
             if d["doc_type"] not in ("regulation", "ocr")
         ]
         stats = {
@@ -310,7 +318,7 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "index.html",
-            ctx({
+            ctx(request, {
                 "documents": docs, "active_tab": doc_type or "all", "q": q or "",
                 "sector_criteria": sector_criteria,
                 "projects": projects, "active_project": project,
@@ -331,7 +339,7 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "chat.html",
-            ctx({
+            ctx(request, {
                 "messages": [], "criteria_docs": _criteria_docs(),
                 "waiting": False, "session_id": None,
             }),
@@ -344,7 +352,7 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "chat.html",
-            ctx({
+            ctx(request, {
                 "messages": messages, "criteria_docs": _criteria_docs(),
                 "waiting": waiting, "session_id": session_id,
             }),
@@ -407,6 +415,7 @@ def create_app(
 
     @app.post("/chat/send")
     def chat_send(
+        request: Request,
         background: BackgroundTasks,
         question: str = Form(...),
         session_id: int | None = Form(None),
@@ -423,7 +432,10 @@ def create_app(
                 title = f"[{proj['name'][:14]}] {q}"
             else:
                 project_id = None
-            session_id = db.create_chat_session(title=title, project_id=project_id)
+            session_id = db.create_chat_session(
+                title=title, project_id=project_id,
+                owner=getattr(request.state, "user", "zzaimy"),
+            )
         # 응답 대기 중 중복 전송 방지 — 마지막 메시지가 아직 답변 전이면 무시
         last = db.list_chats(session_id, limit=1)
         if last and last[-1]["role"] == "user":
@@ -450,7 +462,9 @@ def create_app(
         counts = db.regulation_chunk_counts()
         for d in docs:
             d["n_chunks"] = counts.get(d["id"], 0)
-        return templates.TemplateResponse(request, "criteria.html", ctx({"documents": docs}))
+        return templates.TemplateResponse(
+            request, "criteria.html", ctx(request, {"documents": docs})
+        )
 
     @app.post("/criteria/upload")
     def criteria_upload(
@@ -493,13 +507,17 @@ def create_app(
 
     @app.post("/projects")
     def create_project(
-        sector: str = Form(...), name: str = Form(...), due_date: str = Form("")
+        request: Request,
+        sector: str = Form(...), name: str = Form(...), due_date: str = Form(""),
     ):
         if sector not in INBOX_TYPES:
             raise HTTPException(400, f"알 수 없는 업무 영역: {sector}")
         if not name.strip():
             raise HTTPException(400, "프로젝트 이름이 필요하다")
-        pid = db.create_project(sector, name.strip(), due_date=due_date.strip())
+        pid = db.create_project(
+            sector, name.strip(), due_date=due_date.strip(),
+            owner=getattr(request.state, "user", "zzaimy"),
+        )
         return RedirectResponse(f"/project/{pid}", status_code=303)
 
     @app.get("/login", response_class=HTMLResponse)
@@ -538,7 +556,7 @@ def create_app(
         docs = db.list_documents("ocr")
         return templates.TemplateResponse(
             request, "ocr.html",
-            ctx({"documents": docs, "active_tab": "all", "err_ext": err}),
+            ctx(request, {"documents": docs, "active_tab": "all", "err_ext": err}),
         )
 
     @app.post("/ocr/upload")
@@ -659,7 +677,7 @@ def create_app(
         f = _DOCS_DIR / "paper" / name
         if not f.exists():
             raise HTTPException(404)
-        return templates.TemplateResponse(request, "dev_paper.html", ctx({
+        return templates.TemplateResponse(request, "dev_paper.html", ctx(request, {
             "fname": name, "content": f.read_text(encoding="utf-8"),
             "papers": _dev_papers(),
         }))
@@ -673,7 +691,7 @@ def create_app(
         notes = sorted(
             p.name for p in (_DOCS_DIR / "notes").glob("*.md")
         ) if (_DOCS_DIR / "notes").exists() else []
-        return templates.TemplateResponse(request, "dev.html", ctx({
+        return templates.TemplateResponse(request, "dev.html", ctx(request, {
             "stats": stats,
             "parse_paths": paths,
             "embed_report": _dev_read("embed-v0-report.md"),
@@ -696,7 +714,7 @@ def create_app(
         notes = sorted(
             p.name for p in (_DOCS_DIR / "notes").glob("*.md")
         ) if (_DOCS_DIR / "notes").exists() else []
-        return templates.TemplateResponse(request, "dev.html", ctx({
+        return templates.TemplateResponse(request, "dev.html", ctx(request, {
             "stats": stats, "parse_paths": paths,
             "embed_report": _dev_read("embed-v0-report.md"),
             "baseline_report": _dev_read("retrieval-baseline-mini.md"),
@@ -792,7 +810,7 @@ def create_app(
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request):
         return templates.TemplateResponse(
-            request, "settings.html", ctx({"s": db.all_settings(), "active_tab": "all"})
+            request, "settings.html", ctx(request, {"s": db.all_settings(), "active_tab": "all"})
         )
 
     @app.post("/settings")
@@ -816,7 +834,10 @@ def create_app(
             raise HTTPException(404)
         proj_sector = proj["sector"]
         docs = [
-            d for d in db.list_documents(proj_sector, project_id=project_id)
+            d for d in db.list_documents(
+                proj_sector, project_id=project_id,
+                owner=getattr(request.state, "user", "zzaimy"),
+            )
             if d["doc_type"] != "regulation"
         ]
         linked = set(db.get_project_criteria_ids(project_id))
@@ -839,7 +860,7 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "project.html",
-            ctx({
+            ctx(request, {
                 "project": proj, "documents": docs, "active_tab": proj["sector"],
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "project_chats": db.list_project_chat_sessions(project_id),
@@ -902,6 +923,7 @@ def create_app(
 
     @app.post("/upload")
     def upload(
+        request: Request,
         background: BackgroundTasks,
         file: UploadFile = File(...),
         doc_type: str = Form("auto"),
@@ -922,6 +944,7 @@ def create_app(
         doc_id = db.add_document(
             filename=name, stored_path=str(stored), doc_type=doc_type,
             related_criteria_id=related_criteria_id, project_id=project_id,
+            owner=getattr(request.state, "user", "zzaimy"),
         )
         background.add_task(processor.process, db, doc_id, stored)
         return RedirectResponse(f"/?type={doc_type}" if related_criteria_id else "/",
@@ -1116,7 +1139,7 @@ def create_app(
         return templates.TemplateResponse(
             request,
             "doc.html",
-            ctx({
+            ctx(request, {
                 "doc": doc, "reviews": db.get_reviews(doc_id), "related": related,
                 "assets": assets,
                 "extract_blocks": blocks, "layout_pages": layout,

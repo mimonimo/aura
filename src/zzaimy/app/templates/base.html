@@ -415,10 +415,10 @@
     <div class="menu-wrap">
       <button type="button" class="user-chip" data-pop="userPop">
         <span class="avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
-        {{ profile_name or "담당자" }} <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
+        {{ "개발자 (zzdev)" if request.state.user == "zzdev" else (profile_name or "담당자") }} <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
       </button>
       <div class="popover" id="userPop">
-        <h5>{{ profile_name or "담당자" }}{% if profile_dept %} · {{ profile_dept }}{% endif %}</h5>
+        <h5>{{ "개발자 계정 (zzdev)" if request.state.user == "zzdev" else (profile_name or "담당자") }}{% if profile_dept and request.state.user != "zzdev" %} · {{ profile_dept }}{% endif %}</h5>
         <a class="pop-item" href="/settings"><iconify-icon icon="solar:user-id-linear"></iconify-icon><span>프로필·에이전트 지침 설정</span></a>
         <form action="/logout" method="post" style="margin:0;">
           <button type="submit" class="pop-item" style="width:100%; background:none; border:0;
