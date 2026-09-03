@@ -83,6 +83,37 @@ def build_draft_docx(title: str, draft: str) -> bytes:
     return buf.getvalue()
 
 
+def build_draft_hwpx(title: str, draft: str) -> bytes | None:
+    """초안 → .hwpx (python-hwpx — 순수 파이썬 OWPML 생성, 한글에서 열림)."""
+    try:
+        from hwpx import HwpxDocument
+
+        doc = HwpxDocument.new()
+        doc.add_heading(title, level=1)
+        for sec in parse_draft(draft):
+            if sec["title"]:
+                doc.add_heading(sec["title"], level=2)
+            for b in sec["blocks"]:
+                if b["kind"] == "table":
+                    rows = b["rows"]
+                    n_cols = max(len(r) for r in rows)
+                    t = doc.add_table(rows=len(rows), cols=n_cols)
+                    for ri, row in enumerate(rows):
+                        for ci, cell in enumerate(row):
+                            t.set_cell_text(ri, ci, cell, logical=True)
+                else:
+                    for para in b["text"].split("\n"):
+                        doc.add_paragraph(para)
+        buf = io.BytesIO()
+        doc.save_to_stream(buf)
+        return buf.getvalue()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("hwpx 내보내기 실패", exc_info=True)
+        return None
+
+
 def build_draft_pdf(title: str, draft: str) -> bytes | None:
     """초안 → .pdf (Platypus 흐름 배치 — 제목·문단·표)."""
     try:

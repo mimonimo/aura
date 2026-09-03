@@ -19,6 +19,7 @@ dependencies = [
 parsers = [
     "docling>=2.0",
     "mineru[core]>=2.0",
+    "python-hwpx==6.3.0",
     "reportlab>=4.0",  # 합성 표본 생성
 ]
 # 접수·검토 플랫폼 (대시보드)

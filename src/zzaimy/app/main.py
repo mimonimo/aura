@@ -700,6 +700,11 @@ def create_app(
             payload = build_draft_docx(title, doc["draft"])
             media = ("application/vnd.openxmlformats-officedocument"
                      ".wordprocessingml.document")
+        elif fmt == "hwpx":
+            from zzaimy.app.draft_export import build_draft_hwpx
+
+            payload = build_draft_hwpx(title, doc["draft"])
+            media = "application/hwp+zip"
         elif fmt == "pdf":
             from zzaimy.app.draft_export import build_draft_pdf
 
