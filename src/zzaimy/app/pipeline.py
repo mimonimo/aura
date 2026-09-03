@@ -142,6 +142,7 @@ class DocumentProcessor:
         self._last_result = None
         self._last_attrs = []
         self._last_scan = None
+        self._ocr_used = False  # 이번 파싱에서 실제 OCR이 돌았는가 — 교정 게이트
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
@@ -156,6 +157,7 @@ class DocumentProcessor:
             # 원본 텍스트 무손실 (사용자 원칙: 굳이 품질을 낮추지 않는다)
             text = self._parse_mineru(file_path, method="auto")
             if text is not None and len(text.strip()) >= 200:
+                self._ocr_used = not self._pdf_has_text_layer(file_path)
                 if self._pdf_has_text_layer(file_path):
                     overlaid = self._overlay_text_layer(file_path)
                     if overlaid:
@@ -195,6 +197,8 @@ class DocumentProcessor:
             with tempfile.TemporaryDirectory(prefix="zz-mineru-") as tmp:
                 parsed = MineruParser(method=method).parse(file_path, work_dir=Path(tmp))
                 self._last_result = parsed
+                if method == "ocr":
+                    self._ocr_used = True
                 text = self._result_to_text(parsed)
                 # 그림은 임시 디렉터리가 사라지기 전에 밖으로 복사한다
                 keep_dir = file_path.parent / f"{file_path.stem}_imgs"
@@ -1026,7 +1030,7 @@ class DocumentProcessor:
 
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
                 chunks = split_regulation(raw_text)
-                if reg_vision_chunks is None and self._last_parse_note.startswith("스캔"):
+                if reg_vision_chunks is None and getattr(self, "_ocr_used", False):
                     # MinerU 스캔 경로 — 공백 복원 후 오인식을 보수적으로 교정
                     from zzaimy.app.regulations import restore_spacing
 
@@ -1044,15 +1048,21 @@ class DocumentProcessor:
                 db.add_regulation_chunks(
                     doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
                 )
-                db.replace_doc_chunks(
-                    doc_id,
+                reg_doc_chunks = (
                     reg_vision_chunks
                     or self._structured_chunks(do_mask=False)
                     or [
                         {"kind": "text", "content": c.content[:2000]}
                         for c in chunks if len(c.content) >= 2
-                    ],
+                    ]
                 )
+                if reg_vision_chunks is None and getattr(self, "_ocr_used", False):
+                    # OCR로 읽은 기준 문서 — 화면·표 셀 조각도 교정을 거친다
+                    if self._llm_correct_chunks(reg_doc_chunks) and (
+                        "오타 교정" not in (self._last_parse_note or "")
+                    ):
+                        self._last_parse_note += " · AI 오타 교정"
+                db.replace_doc_chunks(doc_id, reg_doc_chunks)
                 db.replace_doc_assets(
                     doc_id,
                     [
