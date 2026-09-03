@@ -42,6 +42,8 @@ def main() -> None:
         json.loads(x)
         for x in QUERIES.read_text(encoding="utf-8").splitlines() if x.strip()
     ]
+    valid_ids = {c["id"] for c in db.list_regulation_chunks()}
+    rows = [r for r in rows if r["chunk_id"] in valid_ids]
     pairs: list[tuple[str, int]] = []
     for r in rows:
         for qtype in ("practical", "requirement", "keyword"):
