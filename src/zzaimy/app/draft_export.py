@@ -55,10 +55,12 @@ def parse_draft(draft: str) -> list[dict]:
     return [s for s in sections if s["blocks"] or s["title"]]
 
 
-def build_draft_docx(title: str, draft: str) -> bytes:
-    """초안 → .docx (제목·섹션 헤딩·문단·실제 표)."""
+def build_draft_docx(
+    title: str, draft: str, images: list[str] | None = None
+) -> bytes:
+    """초안 → .docx (제목·섹션 헤딩·문단·실제 표·붙임 그림)."""
     from docx import Document
-    from docx.shared import Pt
+    from docx.shared import Inches, Pt
 
     doc = Document()
     doc.styles["Normal"].font.size = Pt(10.5)
@@ -78,12 +80,21 @@ def build_draft_docx(title: str, draft: str) -> bytes:
                 doc.add_paragraph("")
             else:
                 doc.add_paragraph(b["text"])
+    if images:
+        doc.add_heading("붙임 그림", level=1)
+        for img in images:
+            try:
+                doc.add_picture(img, width=Inches(5.5))
+            except Exception:
+                continue
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
 
 
-def build_draft_hwpx(title: str, draft: str) -> bytes | None:
+def build_draft_hwpx(
+    title: str, draft: str, images: list[str] | None = None
+) -> bytes | None:
     """초안 → .hwpx (python-hwpx — 순수 파이썬 OWPML 생성, 한글에서 열림)."""
     try:
         from hwpx import HwpxDocument
@@ -109,6 +120,19 @@ def build_draft_hwpx(title: str, draft: str) -> bytes | None:
                 else:
                     for para in b["text"].split("\n"):
                         doc.add_paragraph(para, style="바탕글")
+        if images:
+            from pathlib import Path as _P
+
+            doc.add_paragraph("", style="바탕글")
+            doc.add_paragraph("붙임 그림", style="바탕글")
+            for img in images:
+                try:
+                    fmt = _P(img).suffix.lstrip(".").lower() or "png"
+                    doc.add_picture(
+                        _P(img).read_bytes(), fmt, width_mm=140.0
+                    )
+                except Exception:
+                    continue
         buf = io.BytesIO()
         doc.save_to_stream(buf)
         return buf.getvalue()
@@ -119,7 +143,9 @@ def build_draft_hwpx(title: str, draft: str) -> bytes | None:
         return None
 
 
-def build_draft_pdf(title: str, draft: str) -> bytes | None:
+def build_draft_pdf(
+    title: str, draft: str, images: list[str] | None = None
+) -> bytes | None:
     """초안 → .pdf (Platypus 흐름 배치 — 제목·문단·표)."""
     try:
         from reportlab.lib import colors
@@ -170,6 +196,24 @@ def build_draft_pdf(title: str, draft: str) -> bytes | None:
                     story.append(Paragraph(
                         b["text"].replace("\n", "<br/>"), st_body))
                     story.append(Spacer(1, 6))
+        if images:
+            from reportlab.platypus import Image as RLImage
+
+            story.append(Paragraph("붙임 그림", st_head))
+            for img in images:
+                try:
+                    from PIL import Image as PILImage
+
+                    with PILImage.open(img) as im:
+                        w, h = im.size
+                    max_w = 430.0
+                    scale_f = min(max_w / w, 1.0)
+                    story += [
+                        RLImage(img, width=w * scale_f, height=h * scale_f),
+                        Spacer(1, 8),
+                    ]
+                except Exception:
+                    continue
         pdf.build(story)
         return buf.getvalue()
     except Exception:
