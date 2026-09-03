@@ -41,6 +41,8 @@ def main() -> None:
         json.loads(x)
         for x in QUERIES.read_text(encoding="utf-8").splitlines() if x.strip()
     ]
+    valid_ids = {c["id"] for c in db.list_regulation_chunks()}
+    rows = [r for r in rows if r["chunk_id"] in valid_ids]
     print(f"질의 소스 {len(rows)}조각", flush=True)
 
     # 질의당 어휘·임베딩 순위를 1회 계산
