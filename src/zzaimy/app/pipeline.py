@@ -1054,6 +1054,8 @@ class DocumentProcessor:
                 db.add_regulation_chunks(
                     doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
                 )
+                # 조각이 바뀌면 임베딩·질의 세트가 낡는다 — 재색인 필요 표시
+                (Path(db.path).parent / ".reindex-needed").touch()
                 reg_doc_chunks = (
                     reg_vision_chunks
                     or self._structured_chunks(do_mask=False)
