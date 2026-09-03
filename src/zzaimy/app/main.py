@@ -659,15 +659,72 @@ def create_app(
 
     def _dev_progress() -> dict:
         import json as _pj
+        import math
 
         try:
-            return _pj.loads((_DOCS_DIR / "progress.json").read_text())
+            data = _pj.loads((_DOCS_DIR / "progress.json").read_text())
         except (OSError, ValueError):
-            return {"updated": "", "tracks": []}
+            return {"updated": "", "tracks": [], "radar": None}
+        tracks = data.get("tracks", [])
+        n = len(tracks)
+        if n >= 3:
+            cx, cy, r = 170.0, 150.0, 110.0
+            pts, axes, rings = [], [], []
+            for i, t in enumerate(tracks):
+                ang = -math.pi / 2 + 2 * math.pi * i / n
+                frac = max(0, min(100, int(t.get("pct", 0)))) / 100.0
+                pts.append(f"{cx + r * frac * math.cos(ang):.1f},"
+                           f"{cy + r * frac * math.sin(ang):.1f}")
+                axes.append({
+                    "x2": cx + r * math.cos(ang), "y2": cy + r * math.sin(ang),
+                    "lx": cx + (r + 24) * math.cos(ang),
+                    "ly": cy + (r + 24) * math.sin(ang) + 4,
+                    "label": t["name"].split(" (")[0][:10],
+                })
+            for frac in (0.25, 0.5, 0.75, 1.0):
+                ring = [
+                    f"{cx + r * frac * math.cos(-math.pi / 2 + 2 * math.pi * i / n):.1f},"
+                    f"{cy + r * frac * math.sin(-math.pi / 2 + 2 * math.pi * i / n):.1f}"
+                    for i in range(n)
+                ]
+                rings.append(" ".join(ring))
+            data["radar"] = {"points": " ".join(pts), "axes": axes,
+                             "rings": rings, "cx": cx, "cy": cy}
+        else:
+            data["radar"] = None
+        return data
+
+    def _md_last_table(text: str) -> dict | None:
+        rows = [
+            [c.strip() for c in ln.strip().strip("|").split("|")]
+            for ln in text.splitlines()
+            if ln.strip().startswith("|") and not set(ln) <= set("|-: ")
+        ]
+        if len(rows) < 2:
+            return None
+        return {"cols": rows[0], "rows": rows[1:]}
+
+    def _md_meta_line(text: str, prefix: str = "측정일") -> str:
+        for ln in text.splitlines():
+            if ln.strip().startswith(prefix):
+                out = ln.strip()
+                return out[:96] + "…" if len(out) > 96 else out
+        return ""
 
     def _dev_papers() -> list[str]:
         d = _DOCS_DIR / "paper"
         return sorted(p.name for p in d.glob("*.md")) if d.exists() else []
+
+    @app.get("/dev/doc/{name}", response_class=HTMLResponse)
+    def dev_doc(request: Request, name: str):
+        allowed = {"embed-v0-report.md", "retrieval-baseline-mini.md"}
+        if name not in allowed:
+            raise HTTPException(404)
+        return templates.TemplateResponse(request, "dev_paper.html", ctx(request, {
+            "fname": name,
+            "content": _dev_read(name),
+            "papers": _dev_papers(),
+        }))
 
     @app.get("/dev/paper/{name}", response_class=HTMLResponse)
     def dev_paper(request: Request, name: str):
@@ -683,8 +740,16 @@ def create_app(
         }))
 
     @app.get("/dev", response_class=HTMLResponse)
-    def dev_dashboard(request: Request):
+    def dev_dashboard(request: Request, table: str | None = None):
         stats, paths = _dev_stats()
+        browse = None
+        if table:
+            valid = {t["name"] for t in _dev_tables()}
+            if table in valid:
+                browse = _run_dev_query(
+                    f'SELECT * FROM "{table}" ORDER BY rowid DESC'
+                )
+                browse["table"] = table
         adrs = sorted(
             p.name for p in (_DOCS_DIR / "decisions").glob("0*.md")
         ) if (_DOCS_DIR / "decisions").exists() else []
@@ -694,8 +759,10 @@ def create_app(
         return templates.TemplateResponse(request, "dev.html", ctx(request, {
             "stats": stats,
             "parse_paths": paths,
-            "embed_report": _dev_read("embed-v0-report.md"),
-            "baseline_report": _dev_read("retrieval-baseline-mini.md"),
+            "embed_table": _md_last_table(_dev_read("embed-v0-report.md")),
+            "embed_meta": _md_meta_line(_dev_read("embed-v0-report.md")),
+            "baseline_table": _md_last_table(_dev_read("retrieval-baseline-mini.md")),
+            "baseline_meta": _md_meta_line(_dev_read("retrieval-baseline-mini.md")),
             "changelog": _dev_read("dev-changelog.md") or "(배포 시 갱신됩니다)",
             "adrs": adrs, "notes": notes,
             "tables": _dev_tables(),
@@ -703,6 +770,7 @@ def create_app(
             "query_result": None,
             "progress": _dev_progress(),
             "papers": _dev_papers(),
+            "browse": browse,
         }))
 
     @app.post("/dev/query", response_class=HTMLResponse)
@@ -716,8 +784,10 @@ def create_app(
         ) if (_DOCS_DIR / "notes").exists() else []
         return templates.TemplateResponse(request, "dev.html", ctx(request, {
             "stats": stats, "parse_paths": paths,
-            "embed_report": _dev_read("embed-v0-report.md"),
-            "baseline_report": _dev_read("retrieval-baseline-mini.md"),
+            "embed_table": _md_last_table(_dev_read("embed-v0-report.md")),
+            "embed_meta": _md_meta_line(_dev_read("embed-v0-report.md")),
+            "baseline_table": _md_last_table(_dev_read("retrieval-baseline-mini.md")),
+            "baseline_meta": _md_meta_line(_dev_read("retrieval-baseline-mini.md")),
             "changelog": _dev_read("dev-changelog.md") or "(배포 시 갱신됩니다)",
             "adrs": adrs, "notes": notes,
             "tables": _dev_tables(),
@@ -725,6 +795,7 @@ def create_app(
             "query_result": _run_dev_query(sql) if sql.strip() else None,
             "progress": _dev_progress(),
             "papers": _dev_papers(),
+            "browse": None,
         }))
 
     @app.post("/dev/account")

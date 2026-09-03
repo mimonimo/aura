@@ -3,8 +3,7 @@
 {% block pagetitle %}개발 현황{% endblock %}
 {% block content %}
 <p class="muted" style="margin-top:0; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-  <span>프로젝트 경과·학습 결과·개선 이력을 보는 개발자 뷰 — 플랫폼 기능과 별개인
-  캡스톤 개발 과정용입니다.</span>
+  <span>캡스톤 개발 현황 — 담당자 화면과 분리된 개발자 전용 뷰</span>
   <span style="margin-left:auto; display:flex; gap:8px;">
     <a href="/dev/weekly.docx" class="btn-ghost" style="font-weight:600;">
       <iconify-icon icon="solar:calendar-linear"></iconify-icon>주간 보고서 .docx</a>
@@ -26,26 +25,71 @@
   <div class="card-in">
     <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>구축 진행도
       <span class="muted" style="font-size:12px; font-weight:500;">{{ progress.updated }}</span></h2>
-    {% for t in progress.tracks %}
-    <div style="margin:10px 0;">
-      <div style="display:flex; justify-content:space-between; font-size:13px;">
-        <span style="font-weight:600;">{{ t.name }}</span>
-        <span class="muted">{{ t.pct }}% · {{ t.note }}</span>
-      </div>
-      <div style="height:8px; background:var(--line); border-radius:5px; margin-top:4px;">
-        <div style="height:8px; width:{{ t.pct }}%; border-radius:5px;
-                    background:linear-gradient(90deg, var(--blue), var(--navy));"></div>
+    <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
+      {% if progress.radar %}
+      <svg width="340" height="310" viewBox="0 0 340 310" style="flex:none;">
+        {% for ring in progress.radar.rings %}
+        <polygon points="{{ ring }}" fill="none" stroke="#E2E8F0" stroke-width="1"/>
+        {% endfor %}
+        {% for a in progress.radar.axes %}
+        <line x1="{{ progress.radar.cx }}" y1="{{ progress.radar.cy }}"
+              x2="{{ a.x2 }}" y2="{{ a.y2 }}" stroke="#E2E8F0" stroke-width="1"/>
+        <text x="{{ a.lx }}" y="{{ a.ly }}" text-anchor="middle"
+              font-size="11" fill="#64748B">{{ a.label }}</text>
+        {% endfor %}
+        <polygon points="{{ progress.radar.points }}"
+                 fill="rgba(73,123,251,.22)" stroke="var(--blue)" stroke-width="2"/>
+      </svg>
+      {% endif %}
+      <div style="flex:1; min-width:260px;">
+        {% for t in progress.tracks %}
+        <div style="display:flex; justify-content:space-between; gap:10px;
+                    padding:5px 0; border-bottom:1px solid var(--panel); font-size:13px;">
+          <span style="font-weight:600;">{{ t.name }}</span>
+          <span><b style="color:var(--navy);">{{ t.pct }}%</b>
+            <span class="muted" style="font-size:12px;">{{ t.note }}</span></span>
+        </div>
+        {% endfor %}
       </div>
     </div>
-    {% endfor %}
   </div>
+</div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>모델 학습 (축 B)
+      <a href="/dev/doc/embed-v0-report.md" class="muted"
+         style="margin-left:auto; font-size:12px; font-weight:500;">원문</a></h2>
+    {% if embed_table %}
+    <table class="extract">
+      <tr>{% for c in embed_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
+      {% for r in embed_table.rows %}
+      <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </table>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">{{ embed_meta }}</p>
+    {% else %}<p class="muted">학습 결과가 아직 없습니다.</p>{% endif %}
+  </div></div>
+
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>검색 기준선
+      <a href="/dev/doc/retrieval-baseline-mini.md" class="muted"
+         style="margin-left:auto; font-size:12px; font-weight:500;">원문</a></h2>
+    {% if baseline_table %}
+    <table class="extract">
+      <tr>{% for c in baseline_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
+      {% for r in baseline_table.rows %}
+      <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </table>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">{{ baseline_meta }}</p>
+    {% else %}<p class="muted">기준선이 아직 없습니다.</p>{% endif %}
+  </div></div>
 </div>
 
 <div class="card reveal">
   <div class="card-in">
     <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 원재료</h2>
-    <p class="muted" style="font-size:12.5px;">파인튜닝·실험 결과와 방법론 기록 —
-      논문·기획서·발표자료의 1차 출처입니다.</p>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       {% for p in papers %}
       <a href="/dev/paper/{{ p }}" class="btn-ghost" style="font-weight:600;">
@@ -55,107 +99,93 @@
   </div>
 </div>
 
-<div class="card reveal">
+<div class="card reveal" id="dbcard">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>모델 학습 (축 B — 지도학습)</h2>
-    {% if embed_report %}
-    <pre class="doc-text" style="max-height:300px;">{{ embed_report }}</pre>
-    {% else %}
-    <p class="muted">학습 리포트가 아직 없습니다.</p>
-    {% endif %}
-  </div>
-</div>
-
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>검색 기준선 (Recall@k·MRR)</h2>
-    {% if baseline_report %}
-    <pre class="doc-text" style="max-height:300px;">{{ baseline_report }}</pre>
-    {% else %}
-    <p class="muted">기준선 리포트가 아직 없습니다.</p>
-    {% endif %}
-  </div>
-</div>
-
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:folder-check-linear"></iconify-icon>문서 처리 경로 분포</h2>
-    <table class="extract" style="max-width:560px;">
-      <tr><th>처리 경로</th><th>문서 수</th></tr>
-      {% for row in parse_paths %}
-      <tr><td>{{ row.path }}</td><td>{{ row.n }}</td></tr>
-      {% endfor %}
-    </table>
-  </div>
-</div>
-
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>DB 확인</h2>
-    <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>DB 확인
+      <button type="button" class="secondary" data-modal-open="#pwModal"
+              style="margin-left:auto;">비밀번호 변경</button></h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">테이블을 누르면
+      최근 50행이 열립니다.</p>
+    <div style="display:flex; gap:6px; flex-wrap:wrap;">
       {% for t in tables %}
-      <span class="pill" title="{{ t.name }}">{{ t.name }} <b>{{ t.n }}</b></span>
+      <a href="/dev?table={{ t.name }}#dbcard"
+         class="pill {{ 'reviewed' if browse and browse.table == t.name else '' }}"
+         style="text-decoration:none;">{{ t.name }} <b>{{ t.n }}</b></a>
       {% endfor %}
     </div>
-    <form action="/dev/query" method="post" style="display:flex; gap:8px; align-items:flex-start;">
-      <textarea name="sql" rows="2" placeholder="SELECT 한 문장 (읽기 전용, 최대 50행)"
-                style="flex:1; font-family:ui-monospace,monospace; font-size:12.5px;">{{ query_result.sql if query_result else "" }}</textarea>
-      <button type="submit" class="secondary">실행</button>
-    </form>
-    {% if query_result %}
-      {% if query_result.error %}
-      <p class="notice" style="margin-top:10px;"><span>{{ query_result.error }}</span></p>
+    {% if browse %}
+      {% if browse.error %}
+      <p class="notice" style="margin-top:10px;"><span>{{ browse.error }}</span></p>
       {% else %}
-      <div class="table-scroll" style="margin-top:10px; max-height:320px; overflow:auto;">
+      <div class="table-scroll" style="margin-top:12px; max-height:380px; overflow:auto;">
         <table class="extract">
-          <tr>{% for c in query_result.cols %}<th>{{ c }}</th>{% endfor %}</tr>
-          {% for r in query_result.rows %}
-          <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
+          <tr>{% for c in browse.cols %}<th>{{ c }}</th>{% endfor %}</tr>
+          {% for r in browse.rows %}
+          <tr>{% for v in r %}<td style="max-width:260px; overflow:hidden;
+              text-overflow:ellipsis; white-space:nowrap;">{{ v }}</td>{% endfor %}</tr>
           {% endfor %}
         </table>
       </div>
       {% endif %}
     {% endif %}
+    <details style="margin-top:12px;">
+      <summary class="muted" style="cursor:pointer; font-size:12.5px;">고급 — SQL 직접 실행 (읽기 전용)</summary>
+      <form action="/dev/query" method="post" style="display:flex; gap:8px; margin-top:8px;">
+        <textarea name="sql" rows="2" placeholder="SELECT ..."
+                  style="flex:1; font-family:ui-monospace,monospace; font-size:12.5px;">{{ query_result.sql if query_result else "" }}</textarea>
+        <button type="submit" class="secondary">실행</button>
+      </form>
+      {% if query_result %}
+        {% if query_result.error %}
+        <p class="notice" style="margin-top:10px;"><span>{{ query_result.error }}</span></p>
+        {% else %}
+        <div class="table-scroll" style="margin-top:10px; max-height:320px; overflow:auto;">
+          <table class="extract">
+            <tr>{% for c in query_result.cols %}<th>{{ c }}</th>{% endfor %}</tr>
+            {% for r in query_result.rows %}
+            <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
+            {% endfor %}
+          </table>
+        </div>
+        {% endif %}
+      {% endif %}
+    </details>
   </div>
 </div>
 
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:user-id-linear"></iconify-icon>계정 관리</h2>
-    <p class="muted" style="font-size:12.5px;">zzaimy=담당자(플랫폼), zzdev=개발자(이 화면).
-      초기 개발자 비밀번호는 devpass — 바로 변경하세요.</p>
-    {% for a in accounts %}
-    <form action="/dev/account" method="post" style="display:flex; gap:8px; align-items:center; margin-top:8px;">
-      <span style="min-width:80px; font-weight:700;">{{ a }}</span>
-      <input type="hidden" name="target" value="{{ a }}">
-      <input type="password" name="new_pw" placeholder="새 비밀번호" required minlength="4"
-             style="max-width:220px;">
-      <button type="submit" class="secondary">변경</button>
-    </form>
-    {% endfor %}
-  </div>
-</div>
-
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:history-linear"></iconify-icon>개선 이력 (최근 커밋)</h2>
-    <pre class="doc-text" style="max-height:360px;">{{ changelog }}</pre>
-  </div>
-</div>
-
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>결정 기록(ADR)·판정 노트</h2>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-      <div>
-        <h4 class="extract-h">ADR</h4>
-        {% for a in adrs %}<p style="margin:4px 0; font-size:13px;">{{ a }}</p>{% endfor %}
-      </div>
-      <div>
-        <h4 class="extract-h">조사·판정 노트</h4>
-        {% for n in notes %}<p style="margin:4px 0; font-size:13px;">{{ n }}</p>{% endfor %}
-      </div>
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:history-linear"></iconify-icon>개선 이력</h2>
+    <pre class="doc-text" style="max-height:260px; font-size:12px;">{{ changelog }}</pre>
+  </div></div>
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>ADR·판정 노트</h2>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px; font-size:12.5px;">
+      <div>{% for a in adrs %}<p style="margin:3px 0;">{{ a }}</p>{% endfor %}</div>
+      <div>{% for n in notes %}<p style="margin:3px 0;">{{ n }}</p>{% endfor %}</div>
     </div>
-  </div>
+  </div></div>
+</div>
+
+{# 비밀번호 변경 팝업 — 사용자 선택 후 변경 #}
+<div class="modal-back" id="pwModal">
+  <div class="card"><div class="card-in">
+    <h2><iconify-icon icon="solar:user-id-linear"></iconify-icon>비밀번호 변경</h2>
+    <form action="/dev/account" method="post">
+      <label class="muted" style="font-size:12.5px;">사용자</label>
+      <select name="target" style="width:100%; margin:4px 0 12px;">
+        {% for a in accounts %}
+        <option value="{{ a }}">{{ a }} — {{ "개발자" if a == "zzdev" else "담당자" }}</option>
+        {% endfor %}
+      </select>
+      <label class="muted" style="font-size:12.5px;">새 비밀번호</label>
+      <input type="password" name="new_pw" required minlength="4"
+             style="width:100%; margin:4px 0 14px;">
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="secondary" data-modal-close>취소</button>
+        <button type="submit">변경</button>
+      </div>
+    </form>
+  </div></div>
 </div>
 {% endblock %}
