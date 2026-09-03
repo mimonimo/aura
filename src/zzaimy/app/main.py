@@ -870,7 +870,7 @@ def create_app(
         """
         import json as _rj
 
-        from fastapi.responses import FileResponse, Response
+        from fastapi.responses import FileResponse
 
         doc = db.get_document(doc_id)
         if doc is None:
@@ -931,15 +931,22 @@ def create_app(
                 )
                 img = Path(scan["path"]) if scan else src
                 if lines_payload:
-                    payload = build_restored_photo_pdf(img, lines_payload)
+                    full_text = "\n".join(
+                        c["content"] for c in db.list_doc_chunks(doc_id)
+                        if c["kind"] in ("text", "heading")
+                    )
+                    payload = build_restored_photo_pdf(
+                        img, lines_payload, full_text=full_text
+                    )
                 if payload is None:
                     payload = build_scan_pdf(img, db.list_doc_chunks(doc_id))
             if payload is None:
                 raise HTTPException(400, "복원 PDF를 만들 수 없는 형식이다")
             cache.write_bytes(payload)
-        return Response(
-            cache.read_bytes(), media_type="application/pdf",
-            headers={"Content-Disposition": "inline; filename=restored.pdf"},
+        # FileResponse — Range 요청 지원으로 뷰어가 필요한 부분만 스트리밍
+        return FileResponse(
+            cache, media_type="application/pdf",
+            content_disposition_type="inline", filename="restored.pdf",
         )
 
     @app.get("/doc/{doc_id}/images.zip")
