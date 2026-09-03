@@ -10,7 +10,11 @@
   {% endfor %}
 </p>
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ fname }}</h2>
+  <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ fname }}
+    <span style="margin-left:auto; display:flex; gap:8px;">
+      <a href="/dev/paper/{{ fname }}/export.hwpx" class="btn-ghost" style="font-weight:600;">.hwpx</a>
+      <a href="/dev/paper/{{ fname }}/export.docx" class="btn-ghost" style="font-weight:600;">.docx</a>
+    </span></h2>
   <div>{{ content | md_view }}</div>
 </div></div>
 {% endblock %}

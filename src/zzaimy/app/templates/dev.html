@@ -3,12 +3,13 @@
 {% block pagetitle %}개발 현황{% endblock %}
 {% block content %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:target-linear"></iconify-icon>이 프로젝트가 만드는 것</h2>
+  <h2><iconify-icon icon="solar:target-linear"></iconify-icon>프로젝트 개요</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    학교 문서는 밖으로 못 내보내니까, 교내 장비에 AI를 직접 올려서 쓰는 시스템.
-    스캔본·사진을 전자문서로 되살리고, 물어보면 규정에서 근거 찾아서 답하고,
-    계획서 초안도 써줌. 초안에 들어간 숫자·예산 계산은 AI 말고 계산기로 다시
-    검증함. 이 화면은 그게 어디까지 됐는지 보는 곳.</p>
+    학교 행정 문서는 외부로 내보낼 수 없기 때문에, 교내 장비에 AI를 직접 올려
+    사용하는 시스템을 구축하고 있습니다. 스캔본이나 사진으로 접수된 문서를
+    전자문서로 복원하고, 담당자가 질문하면 등록된 규정에서 근거를 찾아
+    답변합니다. 국고사업 계획서 초안 작성까지 지원하며, 초안에 포함된 수치와
+    예산 계산은 AI가 아닌 결정론 검증기로 다시 확인합니다.</p>
 </div></div>
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px;">
@@ -23,33 +24,35 @@
 
 <div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>얼마나 만들어졌나
+    <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>구축 진행률
       <span class="muted" style="font-size:12px; font-weight:500;">{{ progress.updated }} 기준</span></h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 12px;">개발을 여덟 갈래로
-      나눠서 각각 어디까지 왔는지. 파란 영역이 넓을수록 완성에 가까움.</p>
-    <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
-      {% if progress.radar %}
-      <svg width="340" height="310" viewBox="0 0 340 310" style="flex:none;">
-        {% for ring in progress.radar.rings %}
-        <polygon points="{{ ring }}" fill="none" stroke="#E2E8F0" stroke-width="1"/>
-        {% endfor %}
-        {% for a in progress.radar.axes %}
-        <line x1="{{ progress.radar.cx }}" y1="{{ progress.radar.cy }}"
-              x2="{{ a.x2 }}" y2="{{ a.y2 }}" stroke="#E2E8F0" stroke-width="1"/>
-        <text x="{{ a.lx }}" y="{{ a.ly }}" text-anchor="middle"
-              font-size="11" fill="#64748B">{{ a.label }}</text>
-        {% endfor %}
-        <polygon points="{{ progress.radar.points }}"
-                 fill="rgba(73,123,251,.22)" stroke="var(--blue)" stroke-width="2"/>
-      </svg>
-      {% endif %}
-      <div style="flex:1; min-width:260px;">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:28px;">
+      <div>
+        <h4 class="extract-h" style="margin-top:0;">영역별 진행률</h4>
         {% for t in progress.tracks %}
-        <div style="display:flex; justify-content:space-between; gap:10px;
-                    padding:5px 0; border-bottom:1px solid var(--panel); font-size:13px;">
-          <span style="font-weight:600;">{{ t.name }}</span>
-          <span><b style="color:var(--navy);">{{ t.pct }}%</b>
-            <span class="muted" style="font-size:12px;">{{ t.note }}</span></span>
+        <div style="display:grid; grid-template-columns:110px 1fr 42px; gap:10px;
+                    align-items:center; margin:7px 0;">
+          <span style="font-size:12.5px; font-weight:600;">{{ t.name }}</span>
+          <div style="height:9px; background:var(--line); border-radius:5px;">
+            <div style="height:9px; width:{{ t.pct }}%; border-radius:5px;
+                        background:linear-gradient(90deg, var(--blue), var(--navy));"></div>
+          </div>
+          <span style="font-size:12px; font-weight:700; color:var(--navy);
+                       text-align:right;">{{ t.pct }}%</span>
+        </div>
+        {% endfor %}
+      </div>
+      <div>
+        <h4 class="extract-h" style="margin-top:0;">기능별 상태</h4>
+        {% for f in progress.features %}
+        <div style="display:flex; gap:10px; align-items:baseline; padding:5px 0;
+                    border-bottom:1px solid var(--panel); font-size:13px;">
+          {% if f.status == "done" %}<span class="pill reviewed" style="flex:none;">완료</span>
+          {% elif f.status == "doing" %}<span class="pill type" style="flex:none;">진행</span>
+          {% elif f.status == "wait" %}<span class="pill" style="flex:none; background:#FDF3E7; color:var(--amber);">대기</span>
+          {% else %}<span class="pill" style="flex:none;">예정</span>{% endif %}
+          <span style="font-weight:600; flex:none;">{{ f.name }}</span>
+          <span class="muted" style="font-size:12px;">{{ f.note }}</span>
         </div>
         {% endfor %}
       </div>
@@ -58,7 +61,7 @@
 </div>
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:play-circle-linear"></iconify-icon>지금 하는 일
+  <h2><iconify-icon icon="solar:play-circle-linear"></iconify-icon>진행 현황
     <span style="margin-left:auto; display:flex; gap:8px;">
       <a href="/dev/weekly.docx" class="btn-ghost" style="font-weight:600;">
         <iconify-icon icon="solar:calendar-linear"></iconify-icon>주간 보고서 .docx</a>
@@ -70,48 +73,68 @@
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 성적
+    <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 정확도
       <a href="/dev/doc/retrieval-baseline-mini.md" class="muted"
-         style="margin-left:auto; font-size:12px; font-weight:500;">자세히</a></h2>
+         style="margin-left:auto; font-size:12px; font-weight:500;">상세</a></h2>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
-      질문하면 규정에서 맞는 대목 찾아오는 기능이 얼마나 정확한지 잰 것.
-      Recall@1 = 정답을 한 번에 찾은 비율. 임베딩 방식이 0.583이니까 열 번
-      물으면 여섯 번은 바로 찾음. 키워드랑 합친 하이브리드는 후보 10개 안에
-      정답 넣는 비율 87%로 제일 나음.</p>
+      질문에 맞는 규정 대목을 찾아오는 정확도입니다. Recall@1은 정답을 한 번에
+      찾은 비율로, 임베딩 방식 기준 0.583 — 열 번 중 여섯 번은 첫 번째로 정답을
+      가져옵니다. 하이브리드는 후보 10개 안에 정답이 드는 비율이 87%로 가장
+      높습니다.</p>
     {% if baseline_table %}
-    <table class="extract">
-      <tr>{% for c in baseline_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
-      {% for r in baseline_table.rows %}
-      <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
-      {% endfor %}
-    </table>
-    {% else %}<p class="muted">아직 측정 전.</p>{% endif %}
+    {% for r in baseline_table.rows %}
+    <div style="margin:9px 0;">
+      <div style="display:flex; justify-content:space-between; font-size:12.5px;">
+        <span style="font-weight:600;">{{ r[0] }}</span>
+        <span class="muted">한 번에 {{ r[1] }} · 10개 안 {{ r[3] }}</span>
+      </div>
+      <div style="height:8px; background:var(--line); border-radius:5px; margin-top:3px;">
+        <div style="height:8px; width:{{ (r[3] | float * 100) | round }}%; border-radius:5px;
+                    background:#C6D6F5;"></div>
+      </div>
+      <div style="height:8px; background:transparent; border-radius:5px; margin-top:-8px;">
+        <div style="height:8px; width:{{ (r[1] | float * 100) | round }}%; border-radius:5px;
+                    background:linear-gradient(90deg, var(--blue), var(--navy));"></div>
+      </div>
+    </div>
+    {% endfor %}
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">진한 막대 = 한 번에
+      정답(Recall@1), 연한 막대 = 후보 10개 안(Recall@10)</p>
+    {% endif %}
   </div></div>
 
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>검색 AI 학습 실험
+    <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>검색 모델 학습 실험
       <a href="/dev/doc/embed-v0-report.md" class="muted"
-         style="margin-left:auto; font-size:12px; font-weight:500;">자세히</a></h2>
+         style="margin-left:auto; font-size:12px; font-weight:500;">상세</a></h2>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
-      검색 AI를 우리 문서로 추가 공부시키면 더 나아지나 실험한 것. 윗줄이 공부
-      전, 아랫줄이 공부 후. 아직은 공부 전이 더 나아서 적용 안 함. 실제 학교
-      문서 들어오면 그걸로 다시 돌릴 예정.</p>
+      검색에 쓰는 모델을 교내 문서로 추가 학습시켜 성능이 오르는지 실험한
+      결과입니다. 아직 기본 모델이 더 정확해 학습본은 적용하지 않았으며, 실제
+      학교 문서가 확보되면 그 데이터로 재실험할 계획입니다.</p>
     {% if embed_table %}
-    <table class="extract">
-      <tr>{% for c in embed_table.cols %}<th>{{ c }}</th>{% endfor %}</tr>
-      {% for r in embed_table.rows %}
-      <tr>{% for v in r %}<td>{{ v }}</td>{% endfor %}</tr>
-      {% endfor %}
-    </table>
-    {% else %}<p class="muted">아직 실험 전.</p>{% endif %}
+    {% for r in embed_table.rows %}
+    <div style="margin:9px 0;">
+      <div style="display:flex; justify-content:space-between; font-size:12.5px;">
+        <span style="font-weight:600;">{{ r[0] }}</span>
+        <span class="muted">한 번에 정답 {{ r[1] }}</span>
+      </div>
+      <div style="height:8px; background:var(--line); border-radius:5px; margin-top:3px;">
+        <div style="height:8px; width:{{ (r[1] | float * 100) | round }}%; border-radius:5px;
+                    background:{{ 'linear-gradient(90deg, var(--blue), var(--navy))' if loop.first else '#C6D6F5' }};"></div>
+      </div>
+    </div>
+    {% endfor %}
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">진한 막대 = 기본 모델,
+      연한 막대 = 추가 학습본. 기본이 아직 앞서 학습본은 미적용.</p>
+    {% endif %}
   </div></div>
 </div>
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>졸업논문 재료</h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">논문·발표자료에
-      들어갈 실험 결과랑 기록 모아두는 곳.</p>
+    <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 자료</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">논문과 발표자료에
+      들어갈 실험 결과·기록입니다.</p>
     {% for p in papers %}
     <p style="margin:4px 0; font-size:13.5px;">
       <a href="/dev/paper/{{ p.file }}" style="color:var(--navy); font-weight:600;
@@ -121,39 +144,45 @@
   </div></div>
 
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>저장된 데이터 열람
+    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>데이터 열람
       <a href="/dev/db" class="btn-ghost" style="margin-left:auto; font-weight:600;">열기</a></h2>
-    <p class="muted" style="font-size:12.5px; margin:0;">문서 대장, 읽어낸 내용,
-      규정, 채팅 기록 다 들여다볼 수 있음. 검색되고, 행 누르면 상세 보임.</p>
+    <p class="muted" style="font-size:12.5px; margin:0;">문서 대장, 문서에서 읽어낸
+      내용, 규정, 채팅 기록을 표별 설명과 함께 열람합니다. 검색과 행별 상세
+      보기를 지원합니다.</p>
   </div></div>
 </div>
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:history-linear"></iconify-icon>작업 일지</h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">날짜 누르면 그날
-      바꾼 것들 펼쳐짐.</p>
-    {% for d in history %}
-    <details {{ "open" if loop.first else "" }} style="margin-bottom:8px;">
-      <summary style="cursor:pointer; font-weight:700; font-size:13.5px;">
-        {{ d.day }} — {{ d["items"] | length }}건</summary>
-      <ul style="margin:6px 0 0; padding-left:18px; font-size:12.5px; line-height:1.7;">
+    <h2><iconify-icon icon="solar:history-linear"></iconify-icon>최근 개선 내용</h2>
+    {% if recent_summary %}
+    <ul style="margin:0; padding-left:18px; font-size:13px; line-height:1.8;">
+      {% for it in recent_summary %}<li>{{ it }}</li>{% endfor %}
+    </ul>
+    <p class="muted" style="font-size:11.5px; margin:10px 0 0;">주간 보고서에서
+      간추린 내용입니다. 전체 목록은 아래에서 볼 수 있습니다.</p>
+    {% endif %}
+    <details style="margin-top:10px;">
+      <summary class="muted" style="cursor:pointer; font-size:12px;">전체 변경 목록</summary>
+      {% for d in history %}
+      <p style="margin:8px 0 2px; font-weight:700; font-size:12.5px;">{{ d.day }}</p>
+      <ul style="margin:0; padding-left:18px; font-size:12px; line-height:1.7;">
         {% for it in d["items"] %}<li>{{ it }}</li>{% endfor %}
       </ul>
+      {% endfor %}
     </details>
-    {% endfor %}
   </div></div>
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>왜 이렇게 만들었나</h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">설계 정할 때 남긴
-      결정 기록이랑, 외부 기술 써볼지 따져본 검토 기록.</p>
+    <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>설계·기술 검토 기록</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">설계를 정하며 남긴
+      결정 기록과, 외부 기술의 도입 여부를 검토한 기록입니다.</p>
     <h4 class="extract-h">설계 결정</h4>
     {% for d in adr_docs %}
     <p style="margin:3px 0; font-size:13px;">
       <a href="/dev/doc/decisions/{{ d.file }}" style="color:var(--ink);
          text-decoration:none;">· {{ d.title }}</a></p>
     {% endfor %}
-    <h4 class="extract-h">기술 검토 판정</h4>
+    <h4 class="extract-h">기술 검토</h4>
     {% for d in note_docs %}
     <p style="margin:3px 0; font-size:13px;">
       <a href="/dev/doc/notes/{{ d.file }}" style="color:var(--ink);
@@ -161,4 +190,6 @@
     {% endfor %}
   </div></div>
 </div>
+
+
 {% endblock %}

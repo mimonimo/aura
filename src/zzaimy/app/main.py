@@ -611,16 +611,38 @@ def create_app(
                     t.append("</table></div>")
                     out.append("".join(t))
                 continue
+            import re as _mre
+
+            def rich(t: str) -> str:
+                return _mre.sub(r"\*\*(.+?)\*\*", r"<b>\\1</b>", str(_esc(t)))
+
             if ln.startswith("# "):
-                out.append(f'<h3 style="margin:18px 0 8px;">{_esc(ln[2:])}</h3>')
+                out.append(f'<h3 style="margin:18px 0 8px;">{rich(ln[2:])}</h3>')
             elif ln.startswith("## "):
+                out.append(f'<h4 class="extract-h">{rich(ln[3:])}</h4>')
+            elif ln.startswith("### "):
                 out.append(
-                    f'<h4 class="extract-h">{_esc(ln[3:])}</h4>')
-            elif ln.strip().startswith("- "):
+                    f'<h5 style="margin:12px 0 4px; font-size:13.5px;">'
+                    f"{rich(ln[4:])}</h5>")
+            elif ln.lstrip().startswith("- "):
                 items = []
-                while i < len(lines) and lines[i].strip().startswith("- "):
-                    items.append(f"<li>{_esc(lines[i].strip()[2:])}</li>")
+                while i < len(lines) and lines[i].lstrip().startswith("- "):
+                    cur_ln = lines[i]
+                    depth = (len(cur_ln) - len(cur_ln.lstrip())) // 2
+                    body = [cur_ln.lstrip()[2:]]
                     i += 1
+                    # 들여쓴 이어짐 줄은 같은 항목에 붙인다
+                    while (
+                        i < len(lines) and lines[i].strip()
+                        and not lines[i].lstrip().startswith("- ")
+                        and not lines[i].startswith(("#", "|"))
+                    ):
+                        body.append(lines[i].strip())
+                        i += 1
+                    pad = 20 + depth * 16
+                    items.append(
+                        f'<li style="margin-left:{pad - 20}px;">'
+                        f'{rich(" ".join(body))}</li>')
                 out.append(
                     '<ul style="margin:4px 0 10px; padding-left:20px;'
                     ' font-size:13.5px; line-height:1.7;">'
@@ -629,7 +651,7 @@ def create_app(
             elif ln.strip():
                 out.append(
                     f'<p style="margin:4px 0; font-size:13.5px;'
-                    f' line-height:1.75;">{_esc(ln)}</p>')
+                    f' line-height:1.75;">{rich(ln)}</p>')
             i += 1
         return _M("\n".join(out))
 
@@ -691,28 +713,37 @@ def create_app(
 
     _TABLE_DESC = {
         "documents": (
-            "접수·등록한 문서 대장. 파일명이랑 처리 상태가 한 줄씩."
+            "접수·등록된 문서 대장. 파일명과 처리 상태를 한 줄씩 기록."
         ),
         "doc_chunks": (
-            "문서에서 읽어낸 내용. 한 줄이 문단·표 하나고, 검색·초안이 이걸 재료로 씀."
+            "문서에서 읽어낸 내용. 한 줄이 문단 또는 표 하나이며, 검색과 초안 작성의 재료가 된다."
         ),
-        "doc_assets": "문서에서 뽑은 그림·스캔 파일이 어디 저장돼 있는지.",
+        "doc_assets": "문서에서 추출한 그림·스캔 파일의 저장 위치 목록.",
         "regulation_chunks": (
-            "규정·지침을 검색하기 좋게 문단으로 나눠둔 것. 채팅 답변 근거가 여기서 나옴."
+            "규정·지침을 검색용 문단으로 나눈 것. 채팅 답변의 근거가 여기서 나온다."
         ),
         "chat_sessions": "채팅 대화방 목록.",
-        "chat_messages": "채팅에서 주고받은 메시지 전체.",
-        "projects": "사업·공고 단위 프로젝트 목록.",
-        "project_criteria": "프로젝트에 어떤 기준 문서 연결했는지.",
-        "project_notes": "프로젝트별 지침·메모.",
+        "chat_messages": "채팅 메시지 전체 기록.",
+        "projects": "사업·공고 단위의 프로젝트 목록.",
+        "project_criteria": "프로젝트별로 연결한 기준 문서 기록.",
+        "project_notes": "프로젝트별 지침과 메모.",
         "reviews": "담당자가 문서에 남긴 검토 의견.",
-        "settings": "프로필·지침 같은 설정 값.",
+        "settings": "프로필·지침 등 설정 값.",
     }
 
     def _browse_table(table: str, q: str, page: int) -> dict:
         """읽기 전용 브라우즈 — 텍스트 열 전체에 검색어 LIKE, 50행씩 페이지."""
         import sqlite3
 
+        list_cols = {
+            "documents": ["id", "filename", "doc_type", "status", "owner", "created_at"],
+            "doc_chunks": ["id", "doc_id", "page_no", "kind", "content"],
+            "doc_assets": ["id", "doc_id", "kind", "page_no", "path"],
+            "regulation_chunks": ["id", "doc_id", "heading", "content"],
+            "chat_messages": ["id", "session_id", "role", "content", "created_at"],
+            "chat_sessions": ["id", "title", "project_id", "owner", "created_at"],
+            "projects": ["id", "sector", "name", "due_date", "owner"],
+        }
         hidden = {
             "masked_text", "ai_review", "draft", "draft_spec",
             "suggested_criteria", "coverage", "error",
@@ -720,7 +751,11 @@ def create_app(
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
             all_cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
-            cols = [c for c in all_cols if c not in hidden]
+            prefer = list_cols.get(table)
+            if prefer:
+                cols = [c for c in prefer if c in all_cols]
+            else:
+                cols = [c for c in all_cols if c not in hidden][:6]
             where, params = "", []
             if q.strip():
                 like = " OR ".join(
@@ -743,7 +778,9 @@ def create_app(
                 "page": page, "has_next": total > (page + 1) * 50,
                 "rows": [
                     {"rid": r[0], "vals": [
-                        (str(v)[:160] if v is not None else "") for v in r[1:]
+                        (str(v)[:10] if c.endswith("_at") or c == "created_at"
+                         else str(v)[:120]) if v is not None else ""
+                        for c, v in zip(cols, r[1:])
                     ]}
                     for r in rows
                 ],
@@ -900,6 +937,22 @@ def create_app(
     def _dev_now() -> str:
         return _dev_read("dev-now.md")
 
+    def _dev_recent_summary() -> list[str]:
+        """주간 보고서(LLM 작성)의 '주요 성과' 문장들 — 사람이 읽는 개선 요약."""
+        wdir = Path(db_path).parent / "weekly"
+        files = sorted(wdir.glob("*.md")) if wdir.exists() else []
+        if not files:
+            return []
+        out: list[str] = []
+        in_sec = False
+        for ln in files[-1].read_text(encoding="utf-8").splitlines():
+            if ln.startswith("## "):
+                in_sec = ln.strip() == "## 주요 성과"
+                continue
+            if in_sec and ln.strip():
+                out.append(ln.strip().lstrip("0123456789.- ").strip())
+        return out[:7]
+
     def _dev_history() -> list[dict]:
         """개선 이력 — 커밋을 날짜별로 묶는다."""
         from collections import OrderedDict
@@ -917,6 +970,7 @@ def create_app(
         return [{"day": d, "items": items} for d, items in days.items()]
 
     _PAPER_LABELS = {
+        "프로젝트-기획서.md": "프로젝트 기획서",
         "논문-원재료.md": "논문 정리 노트",
         "실험-로그.md": "실험 기록",
         "논문-양식-가이드.md": "논문 양식 분석",
@@ -944,6 +998,41 @@ def create_app(
             "papers": _dev_papers(),
         }))
 
+    @app.get("/dev/paper/{name}/export.{fmt}")
+    def dev_paper_export(name: str, fmt: str):
+        """논문 자료 문서를 hwpx·docx 파일로 내려받기."""
+        from urllib.parse import quote as _q
+
+        from fastapi.responses import Response
+
+        if name not in {p["file"] for p in _dev_papers()}:
+            raise HTTPException(404)
+        text = _dev_read(f"paper/{name}")
+        title = _PAPER_LABELS.get(name, name.replace(".md", ""))
+        body = "\n".join(
+            ln for ln in text.splitlines() if not ln.startswith("# ")
+        )
+        payload: bytes | None
+        if fmt == "docx":
+            from zzaimy.app.draft_export import build_draft_docx
+
+            payload = build_draft_docx(title, body)
+            media = ("application/vnd.openxmlformats-officedocument"
+                     ".wordprocessingml.document")
+        elif fmt == "hwpx":
+            from zzaimy.app.draft_export import build_draft_hwpx
+
+            payload = build_draft_hwpx(title, body)
+            media = "application/hwp+zip"
+        else:
+            raise HTTPException(404)
+        if payload is None:
+            raise HTTPException(500, "내보내기 실패")
+        return Response(payload, media_type=media, headers={
+            "Content-Disposition": "attachment; filename*=UTF-8''"
+            + _q(f"{title}.{fmt}"),
+        })
+
     @app.get("/dev/paper/{name}", response_class=HTMLResponse)
     def dev_paper(request: Request, name: str):
         """논문 원재료 문서 열람 — 개발자 전용(경로 가드)."""
@@ -967,6 +1056,7 @@ def create_app(
             "adr_docs": _dev_doc_list("decisions"),
             "note_docs": _dev_doc_list("notes"),
             "history": _dev_history(),
+            "recent_summary": _dev_recent_summary(),
             "embed_table": _md_last_table(_dev_read("embed-v0-report.md")),
             "embed_meta": _md_meta_line(_dev_read("embed-v0-report.md")),
             "baseline_table": _md_last_table(_dev_read("retrieval-baseline-mini.md")),
