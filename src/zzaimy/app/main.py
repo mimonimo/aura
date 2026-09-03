@@ -811,9 +811,85 @@ def create_app(
         _save_accounts()
         return RedirectResponse("/dev", status_code=303)
 
+    _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼 구축)의 주간 개발
+보고서를 작성한다. 독자는 지도교수다. 아래 원자료(커밋 이력·실험 기록)를 바탕으로 쓰되,
+원자료를 나열하지 말고 사람이 읽는 문장으로 정리하라.
+
+마크다운으로, 아래 섹션 구성 그대로:
+## 요약
+이번 주 작업을 3~4문장으로. 무엇이 가장 큰 진전인지부터.
+## 주요 성과
+4~7개 항목. 각 항목은 "무엇을 어떻게 해서 무엇이 개선되었다" 형태의 1~2문장.
+전문용어는 괄호로 짧게 풀어 쓴다. 예: "스캔 문서에 투명 글자층(이미지 위에 보이지 않는
+글자를 입혀 복사·검색이 되게 하는 방식)을 입혀, 스캔본에서도 본문을 긁어 쓸 수 있게 했다."
+## 문제와 대응
+이번 주 발생한 문제 1~3건과 어떻게 해결했는지.
+## 다음 주 계획
+3~5개 항목.
+
+규칙: 숫자는 원자료에 있는 것만 쓴다. 과장·수식어를 넣지 않는다. 볼드·이모지 금지.
+
+[커밋 이력]
+{changelog}
+
+[실험 기록]
+{experiments}"""
+
+    def _compose_weekly(monday: str, today: str, fresh: bool = False) -> str:
+        """주간 보고 본문 — LLM이 원자료를 읽고 문장으로 쓴다. 결과는 캐시."""
+        cache_dir = Path(db_path).parent / "weekly"
+        cache_dir.mkdir(exist_ok=True)
+        cache = cache_dir / f"{monday}.md"
+        if cache.exists() and not fresh:
+            return cache.read_text(encoding="utf-8")
+
+        changelog = _dev_read("dev-changelog.md")[:4000]
+        experiments = _dev_read("paper/실험-로그.md")[:4000]
+        body: str | None = None
+        try:
+            from zzaimy.generate.client import VllmClient
+
+            client = VllmClient()
+            resp = client.client.chat.completions.create(
+                model=client.model,
+                messages=[{"role": "user", "content": _WEEKLY_PROMPT.format(
+                    changelog=changelog or "(없음)",
+                    experiments=experiments or "(없음)",
+                )}],
+                temperature=0.3, max_tokens=1600,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            body = (resp.choices[0].message.content or "").strip()
+        except Exception:
+            body = None
+        if not body:
+            body = "## 요약\n(LLM 미가동 — 아래 정량 지표만 제공)\n\n## 주요 작업\n" + (
+                changelog or "(기록 없음)"
+            )
+
+        # 정량 지표는 결정론으로 그대로 붙인다
+        base_tbl = "\n".join(
+            ln for ln in _dev_read("retrieval-baseline-mini.md").splitlines()
+            if ln.startswith("|")
+        )
+        embed_tbl = "\n".join(
+            ln for ln in _dev_read("embed-v0-report.md").splitlines()
+            if ln.startswith("|")
+        )
+        stats, _ = _dev_stats()
+        scale = " · ".join(f"{x['label']} {x['value']}" for x in stats)
+        full = "\n".join([
+            f"## 기간\n{monday} ~ {today}", "", body, "",
+            "## 정량 지표", "검색 기준선:", base_tbl or "(미측정)", "",
+            "모델 학습(임베딩):", embed_tbl or "(미측정)", "",
+            f"시스템 규모: {scale}",
+        ])
+        cache.write_text(full, encoding="utf-8")
+        return full
+
     @app.get("/dev/weekly.{fmt}")
-    def dev_weekly_report(fmt: str):
-        """캡스톤 주간 보고서 — 커밋 이력·지표·통계에서 자동 조립."""
+    def dev_weekly_report(fmt: str, fresh: int = 0):
+        """캡스톤 주간 보고서 — LLM 작성 성과 서술 + 결정론 지표 표."""
         from datetime import date, timedelta
         from urllib.parse import quote as _q
 
@@ -821,39 +897,9 @@ def create_app(
 
         today = date.today()
         monday = today - timedelta(days=today.weekday())
-        stats, paths = _dev_stats()
-        changelog = _dev_read("dev-changelog.md")
-        base_tail = "\n".join(
-            ln for ln in _dev_read("retrieval-baseline-mini.md").splitlines()
-            if ln.startswith("|") or ln.startswith("측정일")
+        body = _compose_weekly(
+            monday.isoformat(), today.isoformat(), fresh=bool(fresh)
         )
-        embed_tail = "\n".join(
-            ln for ln in _dev_read("embed-v0-report.md").splitlines()
-            if ln.startswith("|") or ln.startswith("측정일")
-        )
-        body = "\n".join([
-            "## 기간",
-            f"{monday.isoformat()} ~ {today.isoformat()}",
-            "",
-            "## 이번 주 주요 작업 (커밋 이력)",
-            changelog or "(기록 없음)",
-            "",
-            "## 지표 현황",
-            "검색 기준선:",
-            base_tail or "(미측정)",
-            "",
-            "임베딩 학습:",
-            embed_tail or "(미측정)",
-            "",
-            "## 시스템 규모",
-            "\n".join(f"- {s['label']}: {s['value']} ({s.get('sub', '')})" for s in stats),
-            "",
-            "## 처리 경로 분포",
-            "\n".join(f"- {p['path']}: {p['n']}건" for p in paths),
-            "",
-            "## 비고",
-            "본 보고서는 개발 현황 대시보드에서 자동 생성되었습니다.",
-        ])
         title = f"ZZAIMY 캡스톤 주간 보고 ({monday.isoformat()})"
         if fmt == "md":
             payload: bytes | None = f"# {title}\n\n{body}\n".encode()
@@ -874,7 +920,7 @@ def create_app(
         if payload is None:
             raise HTTPException(500, "보고서 생성 실패")
         return Response(payload, media_type=media, headers={
-            "Content-Disposition": "attachment; filename*=UTF-8''"
+            "Content-Disposition": "attachment; filename*=UTF-8\'\'"
             + _q(f"주간보고_{monday.isoformat()}.{fmt}"),
         })
 
