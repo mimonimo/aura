@@ -90,3 +90,30 @@ def test_user_dictionary_keeps_domain_terms_whole():
     assert "전공심화과정" in nouns
     assert "일학습병행" in nouns
     assert "공동훈련센터" in nouns
+
+
+def test_rerank_chunks_reorders_and_survives_failure(monkeypatch):
+    """리랭커는 점수순 재정렬하되, 어떤 실패에도 검색을 죽이지 않는다."""
+    from zzaimy.app import rerank
+
+    chunks = [
+        {"heading": "가", "content": "덜 관련"},
+        {"heading": "나", "content": "가장 관련"},
+        {"heading": "다", "content": "중간"},
+    ]
+
+    class FakeCE:
+        def predict(self, pairs, show_progress_bar=False):
+            return [0.1, 0.9, 0.5]
+
+    monkeypatch.setattr(rerank, "_encoder", lambda: FakeCE())
+    out = rerank.rerank_chunks("질문", list(chunks))
+    assert [c["heading"] for c in out] == ["나", "다", "가"]
+
+    class BoomCE:
+        def predict(self, *a, **k):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr(rerank, "_encoder", lambda: BoomCE())
+    out2 = rerank.rerank_chunks("질문", list(chunks))
+    assert [c["heading"] for c in out2] == ["가", "나", "다"]

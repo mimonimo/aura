@@ -168,7 +168,11 @@ def find_relevant(
     # 가중 근거: 2026-09-04 스윕(docs/retrieval-weight-sweep.md) — w_a 0.2~0.5
     # 고원(MRR .692~.693), 동가중(1.0)은 .647로 손해. 고원 중앙값 0.4 채택
     merged = rrf_merge(lexical_ids[:12], dense_ids, w_a=0.4, w_b=1.0)
-    return [by_id[cid] for cid in merged if cid in by_id][:top_k]
+    candidates = [by_id[cid] for cid in merged if cid in by_id][:10]
+    # 크로스인코더 재정렬 — 표본 실측 R@1 +0.133 (docs/rerank-baseline.md)
+    from zzaimy.app.rerank import rerank_chunks
+
+    return rerank_chunks(query_text, candidates)[:top_k]
 
 
 def suggest_criteria_docs(
