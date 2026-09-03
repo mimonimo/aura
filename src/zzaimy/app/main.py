@@ -716,7 +716,8 @@ def create_app(
             raise HTTPException(500, "내보내기 실패")
         return Response(payload, media_type=media, headers={
             "Content-Disposition":
-            f"attachment; filename*=UTF-8\'\'{_q(stem)}_초안.{fmt}",
+            "attachment; filename*=UTF-8''"
+            + _q(f"{stem}_초안.{fmt}"),
         })
 
     @app.get("/doc/{doc_id}", response_class=HTMLResponse)
