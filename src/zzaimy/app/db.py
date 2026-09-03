@@ -102,6 +102,9 @@ class Database:
         "ALTER TABLE documents ADD COLUMN doc_type TEXT NOT NULL DEFAULT 'auto'",
         "ALTER TABLE documents ADD COLUMN draft TEXT",
         "ALTER TABLE documents ADD COLUMN draft_spec TEXT",
+        "ALTER TABLE documents ADD COLUMN owner TEXT NOT NULL DEFAULT 'zzaimy'",
+        "ALTER TABLE projects ADD COLUMN owner TEXT NOT NULL DEFAULT 'zzaimy'",
+        "ALTER TABLE chat_sessions ADD COLUMN owner TEXT NOT NULL DEFAULT 'zzaimy'",
         "ALTER TABLE documents ADD COLUMN coverage TEXT",
         "ALTER TABLE documents ADD COLUMN decision TEXT NOT NULL DEFAULT 'pending'",
         "ALTER TABLE regulation_chunks ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
@@ -149,6 +152,7 @@ class Database:
         sector: str = "common",
         related_criteria_id: int | None = None,
         project_id: int | None = None,
+        owner: str = "zzaimy",
     ) -> int:
         now = _now()
         year = now[:4]
@@ -161,10 +165,10 @@ class Database:
             receipt_no = f"{year}-{code}-{int(row[0]) + 1:04d}"
             cur = conn.execute(
                 "INSERT INTO documents (filename, stored_path, doc_type, sector,"
-                " related_criteria_id, project_id, receipt_no, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " related_criteria_id, project_id, receipt_no, created_at, owner)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (filename, stored_path, doc_type, sector, related_criteria_id,
-                 project_id, receipt_no, now),
+                 project_id, receipt_no, now, owner),
             )
             return int(cur.lastrowid or 0)
 
@@ -193,6 +197,7 @@ class Database:
         doc_type: str | None = None,
         q: str | None = None,
         project_id: int | None = None,
+        owner: str | None = None,
     ) -> list[dict]:
         sql = (
             "SELECT d.*, p.name AS project_name FROM documents d"
@@ -209,21 +214,29 @@ class Database:
         if project_id:
             cond.append("d.project_id = ?")
             params.append(project_id)
+        if owner:
+            cond.append("d.owner = ?")
+            params.append(owner)
         if cond:
             sql += " WHERE " + " AND ".join(cond)
         sql += " ORDER BY d.id DESC"
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-    def pending_documents(self, limit: int = 8) -> list[dict]:
+    def pending_documents(self, limit: int = 8, owner: str | None = None) -> list[dict]:
         """판정 대기 — 검토는 끝났는데 담당자 판정이 없는 문서."""
+        sql = (
+            "SELECT * FROM documents WHERE status = 'reviewed' AND decision = 'pending'"
+            " AND doc_type NOT IN ('regulation', 'ocr')"
+        )
+        params: list = []
+        if owner:
+            sql += " AND owner = ?"
+            params.append(owner)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM documents WHERE status = 'reviewed' AND decision = 'pending'"
-                " AND doc_type NOT IN ('regulation', 'ocr') ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-            return [dict(r) for r in rows]
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     def chunks_for_docs(self, doc_ids: list[int]) -> list[dict]:
         if not doc_ids:
@@ -236,20 +249,25 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def failed_documents(self, limit: int = 5) -> list[dict]:
+    def failed_documents(self, limit: int = 5, owner: str | None = None) -> list[dict]:
+        sql = "SELECT * FROM documents WHERE status = 'failed'"
+        params: list = []
+        if owner:
+            sql += " AND owner = ?"
+            params.append(owner)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM documents WHERE status = 'failed' ORDER BY id DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-            return [dict(r) for r in rows]
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-    def create_chat_session(self, title: str, project_id: int | None = None) -> int:
+    def create_chat_session(
+        self, title: str, project_id: int | None = None, owner: str = "zzaimy"
+    ) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO chat_sessions (title, created_at, project_id)"
-                " VALUES (?, ?, ?)",
-                (title[:60], _now(), project_id),
+                "INSERT INTO chat_sessions (title, created_at, project_id, owner)"
+                " VALUES (?, ?, ?, ?)",
+                (title[:60], _now(), project_id, owner),
             )
             return int(cur.lastrowid or 0)
 
@@ -268,12 +286,16 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def list_chat_sessions(self, limit: int = 12) -> list[dict]:
+    def list_chat_sessions(self, limit: int = 12, owner: str | None = None) -> list[dict]:
+        sql = "SELECT * FROM chat_sessions"
+        params: list = []
+        if owner:
+            sql += " WHERE owner = ?"
+            params.append(owner)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM chat_sessions ORDER BY id DESC LIMIT ?", (limit,)
-            ).fetchall()
-            return [dict(r) for r in rows]
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     def add_chat(self, session_id: int, role: str, content: str) -> None:
         with self._conn() as conn:
@@ -291,12 +313,14 @@ class Database:
             ).fetchall()
             return [dict(r) for r in reversed(rows)]
 
-    def create_project(self, sector: str, name: str, due_date: str = "") -> int:
+    def create_project(
+        self, sector: str, name: str, due_date: str = "", owner: str = "zzaimy"
+    ) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO projects (sector, name, created_at, due_date)"
-                " VALUES (?, ?, ?, ?)",
-                (sector, name[:80], _now(), due_date[:10]),
+                "INSERT INTO projects (sector, name, created_at, due_date, owner)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (sector, name[:80], _now(), due_date[:10], owner),
             )
             return int(cur.lastrowid or 0)
 
@@ -387,14 +411,19 @@ class Database:
             rows = conn.execute("SELECT key, value FROM settings").fetchall()
             return {r["key"]: r["value"] for r in rows}
 
-    def list_all_projects(self) -> list[dict]:
+    def list_all_projects(self, owner: str | None = None) -> list[dict]:
         """사이드바용 — 섹터 구분 없이 전체 프로젝트 (문서 수 포함)."""
+        sql = (
+            "SELECT p.*, (SELECT COUNT(*) FROM documents d WHERE d.project_id = p.id)"
+            " AS n_docs FROM projects p"
+        )
+        params: list = []
+        if owner:
+            sql += " WHERE p.owner = ?"
+            params.append(owner)
+        sql += " ORDER BY p.id DESC LIMIT 20"
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT p.*, (SELECT COUNT(*) FROM documents d WHERE d.project_id = p.id)"
-                " AS n_docs FROM projects p ORDER BY p.id DESC LIMIT 20",
-            ).fetchall()
-            return [dict(r) for r in rows]
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     def update_project_meta(
         self,
