@@ -14,6 +14,36 @@ from zzaimy.app.db import Database
 log = logging.getLogger(__name__)
 
 
+def _find_relevant(db: Database, query: str, top_k: int = 4) -> list[dict]:
+    from zzaimy.app.regulations import find_relevant
+
+    return find_relevant(db, query, top_k=top_k)
+
+
+def build_section_evidence(db, section_query: str, materials: list) -> list:
+    """섹션 근거 = 접수 자료 조각(우선) + 실검색 규정 조각.
+
+    P3: 스텁 검색기를 실제 하이브리드+리랭커 검색으로 교체한 자리다.
+    수치 검증기가 이 근거 텍스트를 허용 목록으로 쓰므로, 여기 들어온 것만이
+    초안 수치의 출처가 될 수 있다.
+    """
+    from zzaimy.retrieve.stub import Evidence
+
+    out = list(materials)[:6]
+    try:
+        hits = _find_relevant(db, section_query, top_k=4)
+    except Exception:
+        log.warning("규정 근거 검색 실패 — 자료 조각만 사용", exc_info=True)
+        hits = []
+    for h in hits:
+        out.append(Evidence(
+            text=f"{h.get('heading', '')} {h.get('content', '')}"[:600].strip(),
+            source_doc=h.get("reg_title") or "규정",
+            source_page=0,
+        ))
+    return out
+
+
 def _reference_text(db: Database, doc: dict) -> tuple[str, str]:
     """(공고·기준 텍스트, 출처명) — 문서 지정 기준 > 프로젝트 연결 기준 > 문서 자신."""
     ids: list[int] = []
@@ -32,7 +62,7 @@ class SliceDrafter:
     def generate(self, db: Database, doc_id: int) -> None:
         from zzaimy.app.pipeline import _guidance_block
         from zzaimy.generate.client import VllmClient
-        from zzaimy.retrieve.stub import Evidence, StubRetriever
+        from zzaimy.retrieve.stub import Evidence
         from zzaimy.verify.coverage import check_coverage
         from zzaimy.verify.numbers import verify_numbers
 
@@ -56,7 +86,6 @@ class SliceDrafter:
                 ]
                 if names:
                     schema.sections = [SectionSpec(name=n) for n in names[:12]]
-            retriever = StubRetriever()
 
             # 인풋 서류(신청서 등)가 공고와 다른 문서면 그 내용을 작성 재료로 쓴다
             materials: list[Evidence] = []
@@ -101,8 +130,9 @@ class SliceDrafter:
             full_text = ""
             all_evidence: list[str] = []
             for section in schema.sections:
-                evidence = materials or retriever.search(
-                    section.requirements, user_access_levels={"internal"}
+                evidence = build_section_evidence(
+                    db, f"{section.name} {section.requirements}".strip(),
+                    materials,
                 )
                 body = client.generate_section(
                     section.name, section.requirements, criteria_text,
