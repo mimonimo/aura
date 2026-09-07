@@ -7,6 +7,8 @@
 # 실행: nohup bash scripts/61_reprocess_all.sh > /tmp/reprocess-all.log 2>&1 &
 set -uo pipefail
 cd "$(dirname "$0")/.."
+exec 9>/tmp/zzaimy-heavy.lock
+flock -n 9 || { echo "다른 무거운 작업이 실행 중 — 중단"; exit 1; }
 
 echo "[$(date +%T)] 1/4 전 문서 재처리"
 OMP_NUM_THREADS=10 MKL_NUM_THREADS=10 .venv/bin/python - <<'PYEOF'
