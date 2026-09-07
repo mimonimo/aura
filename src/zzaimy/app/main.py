@@ -1586,6 +1586,9 @@ def create_app(
                 "extract_blocks": blocks, "layout_pages": layout,
                 "restored_pdf": Path(doc["stored_path"]).suffix.lower()
                 in (".pdf", ".png", ".jpg", ".jpeg"),
+                "has_lines": (
+                    Path(db_path).parent / "lines" / f"{doc_id}.json"
+                ).exists(),
                 "scan_asset": scan_asset,
                 "original_kind": original_kind,
                 "suggested_criteria": suggested,
@@ -1759,6 +1762,63 @@ def create_app(
             headers={"Content-Disposition":
                      f"attachment; filename*=UTF-8''{_q(stem)}_images.zip"},
         )
+
+    @app.get("/doc/{doc_id}/boxes/{page_no}.png")
+    def doc_boxes_image(doc_id: int, page_no: int):
+        """인식 박스 시각화 — 페이지 위에 OCR이 읽은 영역을 신뢰도 색으로.
+
+        초록 = 확신, 주황 = 낮은 확신(재판독 대상). 검수용.
+        """
+        import io as _io
+        import json as _bj
+
+        from fastapi.responses import Response
+        from PIL import ImageDraw
+
+        doc = db.get_document(doc_id)
+        lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+        if doc is None or not lines_file.exists():
+            raise HTTPException(404)
+        payload = _bj.loads(lines_file.read_text())
+        sizes = payload.get("page_sizes") or {}
+        if str(page_no) not in sizes:
+            raise HTTPException(404)
+        src = Path(doc["stored_path"])
+        if src.suffix.lower() == ".pdf":
+            import pypdfium2 as pdfium
+
+            pdf = pdfium.PdfDocument(str(src))
+            try:
+                page = pdf[page_no - 1]
+                mw = float(sizes[str(page_no)][0])
+                scale = 1.6 * mw / max(page.get_width(), 1.0)
+                img = page.render(scale=scale).to_pil()
+                f = scale * page.get_width() / mw
+            finally:
+                pdf.close()
+        else:
+            from PIL import Image as _Img
+
+            scan = next(
+                (a for a in db.list_doc_assets(doc_id)
+                 if a["kind"] == "scan" and Path(a["path"]).exists()), None,
+            )
+            img = _Img.open(scan["path"] if scan else src).convert("RGB")
+            f = img.width / float(sizes[str(page_no)][0])
+        draw = ImageDraw.Draw(img)
+        for ln in payload.get("lines") or []:
+            if int(ln.get("page_no") or 0) != page_no:
+                continue
+            try:
+                x0, y0, x1, y1 = (float(v) * f for v in ln["bbox"].split(","))
+            except (KeyError, ValueError):
+                continue
+            score = float(ln.get("score") or 1.0)
+            color = (34, 160, 76) if score >= 0.85 else (230, 140, 30)
+            draw.rectangle([x0, y0, x1, y1], outline=color, width=2)
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        return Response(buf.getvalue(), media_type="image/png")
 
     @app.get("/doc/{doc_id}/asset/{asset_id}")
     def doc_asset(doc_id: int, asset_id: int, dl: int = 0):

@@ -54,11 +54,13 @@ def extract_middle_lines(
                 if not spans:
                     continue
                 text = " ".join(str(sp["content"]).strip() for sp in spans)
+                score = min(float(sp.get("score") or 1.0) for sp in spans)
                 lines.append({
                     "page_no": page_no,
                     "kind": "text",
                     "content": text,
                     "bbox": ",".join(f"{float(v):.1f}" for v in bb),
+                    "score": round(score, 3),
                 })
     return lines, sizes
 

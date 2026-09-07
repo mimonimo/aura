@@ -426,12 +426,7 @@ class DocumentProcessor:
         "다음은 스캔 문서의 OCR 텍스트다. 오인식된 글자와 붙어버린 띄어쓰기만 고쳐라.\n"
         "규칙: 문장을 추가·삭제·요약하지 마라. 순서를 바꾸지 마라. 원문에 없는 내용을"
         " 만들지 마라. 확신이 없으면 그대로 둬라. 구분자 <<<>>> 는 그대로 유지하라.\n"
-        "행정 문서에 자주 나오는 표 머리글·용어의 근접 오타는 아래 표준 표기로 고쳐라:\n"
-        "동의여부, 철회여부, 제출여부, 승인여부, 주민등록번호, 순번, 성명, 관계,"
-        " 신청기간, 제출서류, 지원대상, 지원내용, 신청자격, 성적기준, 지원기간,"
-        " 접수번호, 담당부서, 전화번호, 전자우편\n"
-        "(예: 등의여부→동의여부, 절희여부/길회여부→철회여부, 주민등특번호→주민등록번호,"
-        " 순변→순번)\n"
+        "표 머리글처럼 짧은 항목도 문서 맥락에서 통용되는 표기로 판단해 고쳐라.\n"
         "고친 전문만 출력하라.\n\n{text}"
     )
 
@@ -591,6 +586,103 @@ class DocumentProcessor:
         except Exception:
             return None
 
+    _REREAD_MAX = 24         # 문서당 재판독 상한 — 비용 통제
+    _REREAD_THRESHOLD = 0.85  # 이 신뢰도 미만 줄만 대상
+
+    def _reread_low_conf_lines(
+        self,
+        pdf_path: Path | None,
+        lines: list[dict],
+        page_sizes: dict[int, tuple[float, float]],
+    ) -> list[dict]:
+        """신뢰도 낮은 줄의 원본 이미지 조각을 비전 모델이 다시 읽는다.
+
+        환각 억제: 짧은 크롭 한 줄만 보여주고 그대로 전사만 시키며,
+        결과 길이가 원문의 0.5~2배를 벗어나면 버린다.
+        """
+        if pdf_path is None or pdf_path.suffix.lower() != ".pdf":
+            return lines
+        targets = sorted(
+            (i for i, ln in enumerate(lines)
+             if float(ln.get("score") or 1.0) < self._REREAD_THRESHOLD
+             and len(ln.get("content") or "") >= 2),
+            key=lambda i: float(lines[i].get("score") or 1.0),
+        )[: self._REREAD_MAX]
+        if not targets:
+            return lines
+        try:
+            import tempfile
+
+            import pypdfium2 as pdfium
+
+            n_fixed = 0
+            with pdfium.PdfDocument(str(pdf_path)) as doc, \
+                    tempfile.TemporaryDirectory(prefix="zz-reread-") as tmp:
+                rendered: dict[int, tuple] = {}
+                for i in targets:
+                    ln = lines[i]
+                    pg = int(ln["page_no"])
+                    if pg not in page_sizes or pg > len(doc):
+                        continue
+                    if pg not in rendered:
+                        page = doc[pg - 1]
+                        mw = page_sizes[pg][0]
+                        scale = max(2.0 * mw / max(page.get_width(), 1.0), 1.0)
+                        rendered[pg] = (page.render(scale=scale).to_pil(), scale
+                                        * page.get_width() / mw)
+                    img, f = rendered[pg]
+                    x0, y0, x1, y1 = (float(v) for v in ln["bbox"].split(","))
+                    pad = 4 * f
+                    box = (
+                        max(0, int(x0 * f - pad)), max(0, int(y0 * f - pad)),
+                        min(img.width, int(x1 * f + pad)),
+                        min(img.height, int(y1 * f + pad)),
+                    )
+                    if box[2] - box[0] < 8 or box[3] - box[1] < 8:
+                        continue
+                    crop_path = Path(tmp) / f"l{i}.png"
+                    img.crop(box).save(crop_path)
+                    new = self._vlm_read_line(crop_path)
+                    old = ln["content"]
+                    if (
+                        new and "\n" not in new
+                        and 0.5 * len(old) <= len(new) <= 2.0 * len(old) + 4
+                        and new != old
+                    ):
+                        lines[i] = {**ln, "content": new[:500], "reread": True}
+                        n_fixed += 1
+            if n_fixed:
+                self._last_parse_note += f" · 저신뢰 줄 재판독 {n_fixed}"
+        except Exception:
+            log.warning("저신뢰 줄 재판독 실패 — 원문 유지", exc_info=True)
+        return lines
+
+    def _vlm_read_line(self, image_path: Path) -> str | None:
+        """짧은 이미지 조각 한 줄 전사 — 설명·교정 없이 보이는 그대로."""
+        try:
+            import base64
+
+            from zzaimy.generate.client import VllmClient
+
+            client = VllmClient()
+            b64 = base64.b64encode(image_path.read_bytes()).decode()
+            resp = client.client.chat.completions.create(
+                model=client.model,
+                messages=[{"role": "user", "content": [
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                    {"type": "text",
+                     "text": "이미지 속 글자를 보이는 그대로 한 줄로만 출력하라."
+                             " 설명·따옴표·교정 금지. 읽을 수 없으면 빈 출력."},
+                ]}],
+                temperature=0.0, max_tokens=120,
+                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            )
+            out = (resp.choices[0].message.content or "").strip()
+            return out or None
+        except Exception:
+            return None
+
     def _photo_ocr_lines(self, db: Database, doc_id: int, image_path: Path) -> None:
         """사진 문서의 줄 좌표만 MinerU OCR로 확보해 저장한다 (내용은 비전 판독)."""
         import json
@@ -617,7 +709,10 @@ class DocumentProcessor:
         except Exception:
             log.info("사진 줄 좌표 확보 실패 (doc %s) — 비전 판독만 사용", doc_id)
 
-    def _save_ocr_lines(self, db: Database, doc_id: int) -> None:
+    def _save_ocr_lines(
+        self, db: Database, doc_id: int,
+        doc_file_for_lines: Path | None = None,
+    ) -> None:
         """줄 단위 OCR 좌표를 문서별 JSON으로 — 스캔 복원 뷰의 투명 레이어 재료."""
         import json
 
@@ -629,7 +724,12 @@ class DocumentProcessor:
             # 투명 레이어에서 긁는 텍스트도 본문 조각과 같은 오타 교정을 거친다
             # (교정 실패·훼손 배치는 원문 유지 — _correct_texts의 가드 그대로).
             # 디지털 PDF는 뷰가 원본 레이어를 직독하므로 교정 호출을 아낀다
-            if "OCR" in (self._last_parse_note or ""):
+            if getattr(self, "_ocr_used", False):
+                # 신뢰도 낮은 줄은 원본 이미지 조각을 비전 모델이 다시 읽는다
+                # — 받침 혼동("정답→정달")류 오인식의 표적 수리
+                lines = self._reread_low_conf_lines(
+                    doc_file_for_lines, lines, parsed.ocr_page_sizes
+                )
                 fixed = self._correct_texts([ln["content"] for ln in lines])
                 if fixed is not None:
                     lines = [
@@ -1006,7 +1106,7 @@ class DocumentProcessor:
                     raw_text = self._parse_mineru(file_path) or self._parse(file_path)
             else:
                 raw_text = self._parse(file_path)
-            self._save_ocr_lines(db, doc_id)
+            self._save_ocr_lines(db, doc_id, doc_file_for_lines=file_path)
 
             series = classify_series(file_path.name)
 

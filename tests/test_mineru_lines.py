@@ -84,3 +84,19 @@ def test_image_layout_from_lines():
     assert sizes == {1: (1600.0, 1200.0)}
     assert len(items) == 1 and items[0]["justify"] is True
     assert items[0]["bbox"] == "100.0,80.0,700.0,140.0"
+
+
+def test_extract_middle_lines_carries_confidence():
+    from zzaimy.ingest.parsers.mineru import extract_middle_lines
+
+    middle = {"pdf_info": [{
+        "page_idx": 0, "page_size": [700, 500],
+        "preproc_blocks": [{"type": "text", "lines": [
+            {"bbox": [10, 10, 90, 30], "spans": [
+                {"bbox": [10, 10, 50, 30], "type": "text",
+                 "content": "정답", "score": 0.62},
+                {"bbox": [50, 10, 90, 30], "type": "text",
+                 "content": "및 해설", "score": 0.95}]}]}],
+    }]}
+    lines, _ = extract_middle_lines(middle)
+    assert lines[0]["score"] == 0.62  # 줄 신뢰도 = 스팬 최소값
