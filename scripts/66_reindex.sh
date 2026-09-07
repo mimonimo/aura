@@ -3,6 +3,9 @@
 # (조각 재구성 시 파생물 무효화 사고 방지 — 실측 사고 2회의 재발 방지 장치)
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# 무거운 작업 동시 1개 강제 — 겹치면 즉시 종료 (메모리 포화 사고 방지)
+exec 9>/tmp/zzaimy-heavy.lock
+flock -n 9 || { echo "다른 무거운 작업이 실행 중 — 중단"; exit 1; }
 echo "[$(date +%T)] 1/3 합성 질의 재생성"
 env PYTHONPATH=src .venv/bin/python scripts/51_synth_queries.py
 echo "[$(date +%T)] 2/3 임베딩 재계산"
