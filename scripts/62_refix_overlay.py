@@ -1,5 +1,7 @@
+import sqlite3
+import sys
 from pathlib import Path
-import sqlite3, sys
+
 sys.path.insert(0, "src")
 from zzaimy.app.db import Database
 from zzaimy.app.pipeline import DocumentProcessor
