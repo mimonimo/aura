@@ -234,6 +234,11 @@
           <iconify-icon icon="solar:document-add-linear"></iconify-icon>편집본 (.docx)</a>
         <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost" style="font-weight:600;">
           <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
+        {% if has_lines %}
+        <a href="/doc/{{ doc.id }}/boxes/1.png" target="_blank" class="btn-ghost"
+           style="font-weight:600;" title="OCR이 읽은 영역을 신뢰도 색(초록=확신, 주황=낮음)으로 표시">
+          <iconify-icon icon="solar:scanner-linear"></iconify-icon>인식 영역</a>
+        {% endif %}
       </span>
       {% endif %}</h2>
     {# 좌우 대조 없이 단일 뷰어 — 원본 모드 / 복원 모드 전환 #}
