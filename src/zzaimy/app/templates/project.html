@@ -114,26 +114,12 @@
     </div>
 
     <div id="paneGuide" class="tab-pane on">
-    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-      <span class="muted" style="font-size:12.5px;">에이전트의 응답을 맞춤화하는 지침과 맥락</span>
-      <button type="button" id="noteAddBtn" class="icon-btn" title="지침·메모 추가"
-              style="width:30px; height:30px; font-size:15px;">
-        <iconify-icon icon="solar:add-circle-linear"></iconify-icon></button>
-    </div>
-    <form action="/project/{{ project.id }}/notes" method="post" id="noteAddForm" hidden
-          style="margin-bottom:12px;">
-      <textarea name="content" required rows="3"
-                placeholder="예: 경력 3년 미만은 반려. 어학 성적은 유효기간을 확인한다."
-                style="min-height:72px;"></textarea>
-      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
-        <button type="button" class="secondary" id="noteAddCancel"
-                style="padding:6px 14px; font-size:12.5px;">취소</button>
-        <button type="submit" style="padding:6px 16px; font-size:12.5px;">저장</button>
-      </div>
-    </form>
-    <div id="noteList" style="display:flex; flex-direction:column; max-height:260px; overflow-y:auto;">
+    <div id="noteList" style="display:flex; flex-direction:column; gap:2px;
+         max-height:300px; overflow-y:auto; margin-bottom:12px;">
       {% for n in project_notes %}
       <div class="note-row">
+        <iconify-icon icon="solar:notes-minimalistic-linear"
+                      style="color:var(--faint); flex:none; margin-top:2px;"></iconify-icon>
         <span style="flex:1; line-height:1.6;">{{ n.content }}</span>
         <span class="muted note-time">{{ n.created_at[5:10] }}</span>
         <form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post"
@@ -144,15 +130,24 @@
         </form>
       </div>
       {% else %}
-      <p class="muted" style="font-size:12.5px; margin:6px 0;">아직 없습니다.
-        오른쪽 + 버튼이나 채팅으로 남기면 검토·작성·채팅이 따릅니다.</p>
+      <div style="text-align:center; padding:22px 10px; color:var(--faint);">
+        <iconify-icon icon="solar:notes-minimalistic-linear" style="font-size:30px;"></iconify-icon>
+        <p class="muted" style="font-size:12.5px; margin:8px 0 0; line-height:1.6;">
+          검토·작성·채팅에 반영할 지침을 남겨 두는 곳입니다.<br>
+          예: 경력 3년 미만은 반려, 어학 성적은 유효기간 확인.</p>
+      </div>
       {% endfor %}
     </div>
+    <form action="/project/{{ project.id }}/notes" method="post"
+          style="display:flex; gap:8px; align-items:flex-end;">
+      <textarea name="content" required rows="1" id="noteInput"
+                placeholder="지침이나 메모를 입력하세요"
+                style="flex:1; min-height:40px; resize:vertical;"></textarea>
+      <button type="submit" style="padding:9px 16px; font-size:13px; flex:none;">추가</button>
+    </form>
     </div>
 
     <div id="paneCriteria" class="tab-pane">
-    <p class="muted" style="margin:0 0 12px;">연결된 공고·기준이 이 프로젝트 검토·작성·채팅의
-      판단 근거가 됩니다.</p>
     {% set linked_docs = sector_criteria | selectattr("id", "in", linked_criteria) | list %}
     {% if linked_docs %}
     <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;">
@@ -173,16 +168,19 @@
       {% endfor %}
     </div>
     {% else %}
-    <p class="muted" style="margin:0 0 14px;">아직 연결된 공고·기준이 없습니다.
-      공고문이나 심사 기준을 연결하면 검토 품질이 크게 좋아집니다.</p>
+    <div style="text-align:center; padding:22px 10px; color:var(--faint);">
+      <iconify-icon icon="solar:library-linear" style="font-size:30px;"></iconify-icon>
+      <p class="muted" style="font-size:12.5px; margin:8px 0 0; line-height:1.6;">
+        공고문·심사 기준을 연결하면<br>검토와 초안이 그 기준을 근거로 씁니다.</p>
+    </div>
     {% endif %}
-    <div style="display:flex; gap:8px;">
+    <div style="display:flex; gap:8px; margin-top:12px;">
       <button type="button" class="secondary" data-modal-open="#linkModal"
-              style="padding:8px 16px; font-size:13px;">
-        <iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>기준 선택</button>
+              style="flex:1; padding:9px 0; font-size:13px;">
+        <iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>등록된 기준에서 선택</button>
       <button type="button" class="secondary" data-modal-open="#criteriaUploadModal"
-              style="padding:8px 16px; font-size:13px;">
-        <iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 첨부</button>
+              style="flex:1; padding:9px 0; font-size:13px;">
+        <iconify-icon icon="solar:paperclip-linear"></iconify-icon>새 파일 등록</button>
     </div>
     </div>
 
@@ -299,17 +297,6 @@
 </div>
 
 <script>
-  var noteBtn = document.getElementById("noteAddBtn");
-  var noteForm = document.getElementById("noteAddForm");
-  if (noteBtn && noteForm) {
-    noteBtn.addEventListener("click", function () {
-      noteForm.hidden = false;
-      noteForm.querySelector("textarea").focus();
-    });
-    document.getElementById("noteAddCancel").addEventListener("click", function () {
-      noteForm.hidden = true;
-    });
-  }
 
   var intakeFile = document.getElementById("intakeFile");
   if (intakeFile) {
