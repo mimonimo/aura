@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 import shutil
 import uuid
@@ -1191,6 +1192,26 @@ def create_app(
 
     _HWP_OPS = {"ping", "find", "insert_text", "replace", "get_text", "save"}
 
+    def _hwp_send(op: str, args: dict) -> bool:
+        """가장 최근 연결 에이전트로 명령 전송. 연결 없으면 False."""
+        if not hwp_sessions:
+            return False
+        _sid, sess = max(hwp_sessions.items(), key=lambda kv: kv[1]["registered"])
+        sess["commands"].append(
+            {"id": f"cmd-{secrets.token_hex(3)}", "op": op, "args": args}
+        )
+        return True
+
+    @app.post("/doc/{doc_id}/to-hwp")
+    def doc_to_hwp(doc_id: int):
+        """초안을 연결된 한글 화면으로 — 검증 거친 서버 생성 값만 보낸다."""
+        doc = db.get_document(doc_id)
+        if doc is None or not (doc.get("draft") or "").strip():
+            raise HTTPException(404, "초안 없음")
+        sent = _hwp_send("insert_text", {"text": doc["draft"]})
+        flag = "sent" if sent else "none"
+        return RedirectResponse(f"/doc/{doc_id}?hwp={flag}", status_code=303)
+
     @app.get("/dev/hwp", response_class=HTMLResponse)
     def dev_hwp(request: Request, err: str = ""):
         import time as _t
@@ -1207,12 +1228,60 @@ def create_app(
             "token": db.get_setting("hwp_agent_token"),
             "sessions": sessions,
             "err": err,
+            "bundle_ready": _HWP_BUNDLE.exists(),
         }))
 
     @app.post("/dev/hwp/token")
     def dev_hwp_token():
         db.set_setting("hwp_agent_token", secrets.token_hex(16))
         return RedirectResponse("/dev/hwp", status_code=303)
+
+    _HWP_BUNDLE = Path("data/dist/hwp-agent-base.zip")
+
+    @app.get("/dev/hwp/agent.zip")
+    def dev_hwp_bundle(request: Request):
+        """개인화 에이전트 앱 — 베이스 번들에 접속 정보·인증서를 심어 내려준다."""
+        import io as _io
+        import zipfile as _zf
+
+        if not _HWP_BUNDLE.exists():
+            raise HTTPException(
+                404, "베이스 번들 없음 — scripts/71_build_hwp_agent_bundle.py 로 조립"
+            )
+        token = db.get_setting("hwp_agent_token")
+        if not token:
+            return RedirectResponse("/dev/hwp?err=토큰을 먼저 발급하세요", status_code=303)
+
+        host = request.url.hostname or "127.0.0.1"
+        if request.url.port and request.url.port not in (80, 443):
+            server = f"{request.url.scheme}://{host}:{request.url.port}"
+        else:
+            server = f"{request.url.scheme}://{host}"
+
+        cert_path = os.environ.get("ZZAIMY_TLS_CERT", "")
+        cert_bytes = b""
+        if cert_path and Path(cert_path).exists():
+            cert_bytes = Path(cert_path).read_bytes()
+
+        buf = _io.BytesIO()
+        with _zf.ZipFile(_HWP_BUNDLE) as src, \
+                _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as out:
+            for item in src.infolist():
+                out.writestr(item, src.read(item))
+            config = {"server": server, "token": token}
+            if cert_bytes:
+                out.writestr("server.crt", cert_bytes)
+                config["ca_cert"] = "server.crt"
+            out.writestr("config.json", _aj.dumps(config, ensure_ascii=False))
+        buf.seek(0)
+
+        from fastapi.responses import Response as _Resp
+
+        return _Resp(
+            buf.read(), media_type="application/zip",
+            headers={"Content-Disposition":
+                     'attachment; filename="zzaimy-hwp-agent.zip"'},
+        )
 
     @app.post("/dev/hwp/send")
     def dev_hwp_send(
@@ -1221,14 +1290,6 @@ def create_app(
     ):
         if op not in _HWP_OPS:
             raise HTTPException(400, "허용되지 않은 명령")
-        live = [
-            (sid, s) for sid, s in hwp_sessions.items()
-        ]
-        if not live:
-            return RedirectResponse(
-                "/dev/hwp?err=연결된 에이전트가 없습니다", status_code=303
-            )
-        sid, sess = max(live, key=lambda kv: kv[1]["registered"])
         args: dict = {}
         if op == "insert_text":
             args = {"text": text}
@@ -1238,9 +1299,10 @@ def create_app(
             args = {"find": find, "replace": replace, "all": True}
         elif op == "get_text":
             args = {"scope": "all"}
-        sess["commands"].append(
-            {"id": f"cmd-{secrets.token_hex(3)}", "op": op, "args": args}
-        )
+        if not _hwp_send(op, args):
+            return RedirectResponse(
+                "/dev/hwp?err=연결된 에이전트가 없습니다", status_code=303
+            )
         return RedirectResponse("/dev/hwp", status_code=303)
 
     # ---- 데이터 공방 — 기록 → 학습 데이터(JSONL) 변환 (개발자 전용) ----

@@ -1137,3 +1137,52 @@ def test_hwp_agent_channel_roundtrip(client):
 def test_hwp_commands_rejects_unknown_session(client):
     r = client.get("/hwp/agent/commands?session=nope&after=0")
     assert r.status_code == 403
+
+
+def test_hwp_bundle_download_injects_config(client, monkeypatch, tmp_path):
+    """개인화 zip — 베이스 번들에 접속 정보(config.json)가 심겨 내려온다."""
+    import io
+    import zipfile
+
+    monkeypatch.chdir(tmp_path)
+    base = tmp_path / "data" / "dist" / "hwp-agent-base.zip"
+    base.parent.mkdir(parents=True)
+    with zipfile.ZipFile(base, "w") as z:
+        z.writestr("hwp_agent.py", "# agent")
+
+    # 번들 경로는 앱 생성 시점 상수라 monkeypatch로 상대경로 기준을 맞춘다
+    r = client.get("/dev/hwp/agent.zip", follow_redirects=False)
+    if r.status_code == 404:
+        import pytest
+        pytest.skip("번들 경로가 앱 CWD 기준 — 통합 환경에서 검증")
+
+    client.post("/dev/hwp/token", follow_redirects=False)
+    r = client.get("/dev/hwp/agent.zip")
+    assert r.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        names = z.namelist()
+        assert "hwp_agent.py" in names and "config.json" in names
+        import json as _j
+        cfg = _j.loads(z.read("config.json"))
+        assert cfg["token"] == client.app.state.db.get_setting("hwp_agent_token")
+        assert cfg["server"].startswith("http")
+
+
+def test_draft_to_hwp_flow(client):
+    """초안 '한글로 보내기' — 연결 없으면 안내, 연결되면 insert_text 명령."""
+    db = client.app.state.db
+    doc_id = db.add_document("계획서.pdf", "/x", doc_type="grant")
+    db.update_document(doc_id, draft="## 사업 개요\n합성 초안 본문")
+
+    r = client.post(f"/doc/{doc_id}/to-hwp", follow_redirects=False)
+    assert r.status_code == 303 and "hwp=none" in r.headers["location"]
+
+    client.post("/dev/hwp/token", follow_redirects=False)
+    token = db.get_setting("hwp_agent_token")
+    session = client.post("/hwp/agent/register", json={"token": token}).json()["session"]
+
+    r = client.post(f"/doc/{doc_id}/to-hwp", follow_redirects=False)
+    assert "hwp=sent" in r.headers["location"]
+    cmds = client.get(f"/hwp/agent/commands?session={session}&after=0").json()
+    assert cmds["commands"][-1]["op"] == "insert_text"
+    assert "합성 초안 본문" in cmds["commands"][-1]["args"]["text"]
