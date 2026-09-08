@@ -170,6 +170,10 @@ class Database:
         "ALTER TABLE documents ADD COLUMN decision TEXT NOT NULL DEFAULT 'pending'",
         "ALTER TABLE regulation_chunks ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
         "ALTER TABLE documents ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
+        # 부서 축(기획처·복지처 등) — RAG·그래프를 부서별로 스코프한다.
+        # sector(업무영역)와 별개 축. 기본 '공통'은 전 부서 공용 기준.
+        "ALTER TABLE documents ADD COLUMN dept TEXT NOT NULL DEFAULT '공통'",
+        "ALTER TABLE regulation_chunks ADD COLUMN dept TEXT NOT NULL DEFAULT '공통'",
         "ALTER TABLE documents ADD COLUMN related_criteria_id INTEGER",
         "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
         "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
@@ -633,14 +637,17 @@ class Database:
             conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
     def add_regulation_chunks(
-        self, doc_id: int, reg_title: str, chunks, sector: str = "common"
+        self, doc_id: int, reg_title: str, chunks,
+        sector: str = "common", dept: str = "공통",
     ) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
             conn.executemany(
-                "INSERT INTO regulation_chunks (doc_id, reg_title, heading, content, sector)"
-                " VALUES (?, ?, ?, ?, ?)",
-                [(doc_id, reg_title, c.heading, c.content, sector) for c in chunks],
+                "INSERT INTO regulation_chunks"
+                " (doc_id, reg_title, heading, content, sector, dept)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                [(doc_id, reg_title, c.heading, c.content, sector, dept)
+                 for c in chunks],
             )
 
     def regulation_chunk_counts(self) -> dict[int, int]:
@@ -650,16 +657,27 @@ class Database:
             ).fetchall()
             return {r[0]: r[1] for r in rows}
 
-    def list_regulation_chunks(self, sector: str | None = None) -> list[dict]:
+    def list_regulation_chunks(
+        self, sector: str | None = None, dept: str | None = None
+    ) -> list[dict]:
+        """규정 조각 후보. sector·dept가 주어지면 각 전용 + 공통만 남긴다.
+
+        부서별 RAG(사용자 요구): dept를 주면 그 부서 문서 + 공통 규정만 검색
+        후보가 된다 — 컨텍스트 예산 안에 관련 근거만 담고 타 부서를 배제.
+        """
+        cond, params = [], []
+        if sector:
+            cond.append("sector IN (?, 'common')")
+            params.append(sector)
+        if dept:
+            cond.append("dept IN (?, '공통')")
+            params.append(dept)
+        sql = "SELECT * FROM regulation_chunks"
+        if cond:
+            sql += " WHERE " + " AND ".join(cond)
+        sql += " ORDER BY id"
         with self._conn() as conn:
-            if sector:
-                rows = conn.execute(
-                    "SELECT * FROM regulation_chunks WHERE sector IN (?, 'common') ORDER BY id",
-                    (sector,),
-                ).fetchall()
-            else:
-                rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
-            return [dict(r) for r in rows]
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     def replace_doc_entities(
         self, doc_id: int, mentions: list[tuple[str, str, int]]
