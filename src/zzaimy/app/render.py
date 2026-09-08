@@ -361,6 +361,14 @@ def build_docx(
                     continue
                 t = doc.add_table(rows=n_rows, cols=n_cols)
                 t.style = "Table Grid"
+                col_w = data.get("col_w") or []
+                if len(col_w) == n_cols:
+                    # 괘선 직독의 원본 열 폭 비율 → 실제 열 너비 (A4 본문 6.3in)
+                    t.autofit = False
+                    for ci, w in enumerate(col_w):
+                        width = Inches(6.3 * float(w))
+                        for row in t.rows:
+                            row.cells[ci].width = width
                 for r, col, rs, cs, hd, txt in data["cells"]:
                     r, col, rs, cs = int(r), int(col), int(rs), int(cs)
                     if r >= n_rows or col >= n_cols:

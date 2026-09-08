@@ -7,6 +7,9 @@
 # LLM 연결 후 이 체인을 다시 돌려야 한다.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+# 오프라인 자립 — 모델은 로컬 캐시에서만. 미설정 시 허브 접속 재시도로
+# 수십 분을 허비한다 (VM은 외부 인터넷 차단, 2026-09-08 실측)
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 # 무거운 작업 동시 1개 강제 — 겹치면 즉시 종료 (메모리 포화 사고 방지)
 exec 9>/tmp/zzaimy-heavy.lock
 flock -n 9 || { echo "다른 무거운 작업이 실행 중 — 중단"; exit 1; }

@@ -1098,6 +1098,8 @@ def create_app(
             "progress": _dev_progress(),
             "papers": _dev_papers(),
             "egress": db.egress_stats(),
+            "quality": db.quality_report_stats(),
+            "quality_open": db.list_quality_reports(status="open", limit=10),
         }))
 
     @app.post("/dev/reindex")
@@ -1125,6 +1127,34 @@ def create_app(
             raise HTTPException(400, "비밀번호는 4자 이상")
         accounts[target]["pw"] = new_pw
         _save_accounts()
+        return RedirectResponse("/dev", status_code=303)
+
+    # ---- 추출 품질 신고 루프 (품질 체계 5계층, docs/quality-system.md) ----
+
+    _QUALITY_KINDS = {"table", "typo", "layout", "other"}
+
+    @app.post("/doc/{doc_id}/quality-report")
+    def doc_quality_report(
+        request: Request, doc_id: int,
+        kind: str = Form(...), note: str = Form(""),
+    ):
+        if db.get_document(doc_id) is None:
+            raise HTTPException(404, "없는 문서")
+        if kind not in _QUALITY_KINDS:
+            raise HTTPException(400, "알 수 없는 신고 유형")
+        db.add_quality_report(
+            doc_id, kind, note.strip(), reporter=request.state.user
+        )
+        return RedirectResponse(f"/doc/{doc_id}?reported=1", status_code=303)
+
+    @app.post("/dev/quality/{report_id}/done")
+    def dev_quality_done(
+        request: Request, report_id: int, fix_note: str = Form("")
+    ):
+        if not db.resolve_quality_report(
+            report_id, resolved_by=request.state.user, fix_note=fix_note.strip()
+        ):
+            raise HTTPException(404, "열려 있는 신고가 아님")
         return RedirectResponse("/dev", status_code=303)
 
     # ---- 지식 그래프 1단계 — 구조 그래프 (ADR-0009) ----

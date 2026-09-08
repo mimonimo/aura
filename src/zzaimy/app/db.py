@@ -89,6 +89,20 @@ CREATE TABLE IF NOT EXISTS regulation_chunks (
   heading    TEXT NOT NULL,
   content    TEXT NOT NULL
 );
+-- 추출 품질 신고 (품질 체계 5계층, docs/quality-system.md) — 담당자가 화면에서
+-- 발견한 추출 문제를 남기고, /dev 백로그로 집계한다
+CREATE TABLE IF NOT EXISTS quality_reports (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id      INTEGER NOT NULL REFERENCES documents(id),
+  kind        TEXT NOT NULL,        -- table | typo | layout | other
+  note        TEXT NOT NULL DEFAULT '',
+  reporter    TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'open',  -- open | done
+  fix_note    TEXT,                 -- 어느 계층에서 어떻게 막았는지
+  resolved_by TEXT,
+  resolved_at TEXT,
+  created_at  TEXT NOT NULL
+);
 -- 외부 참조 감사 기록 (ADR-0008) — 외부로 나가는 모든 질의는 이 테이블을
 -- 거친다. original은 감사용으로만 보관하고 절대 외부로 나가지 않는다.
 CREATE TABLE IF NOT EXISTS egress_requests (
@@ -619,6 +633,52 @@ class Database:
             else:
                 rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
             return [dict(r) for r in rows]
+
+    def add_quality_report(
+        self, doc_id: int, kind: str, note: str, reporter: str
+    ) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO quality_reports (doc_id, kind, note, reporter, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (doc_id, kind, note[:1000], reporter, _now()),
+            )
+            return int(cur.lastrowid or 0)
+
+    def list_quality_reports(
+        self, status: str = "open", limit: int = 30
+    ) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT q.*, d.filename FROM quality_reports q"
+                " JOIN documents d ON d.id = q.doc_id"
+                " WHERE q.status = ? ORDER BY q.id DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def resolve_quality_report(
+        self, report_id: int, resolved_by: str, fix_note: str = ""
+    ) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE quality_reports SET status = 'done', resolved_by = ?,"
+                " fix_note = ?, resolved_at = ? WHERE id = ? AND status = 'open'",
+                (resolved_by, fix_note[:1000], _now(), report_id),
+            )
+            return cur.rowcount > 0
+
+    def quality_report_stats(self) -> dict[str, int]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT kind, COUNT(*) FROM quality_reports WHERE status = 'open'"
+                " GROUP BY kind"
+            ).fetchall()
+            open_by_kind = {r[0]: int(r[1]) for r in rows}
+            done = conn.execute(
+                "SELECT COUNT(*) FROM quality_reports WHERE status = 'done'"
+            ).fetchone()[0]
+        return {"open": sum(open_by_kind.values()), "done": int(done), **open_by_kind}
 
     def add_egress_request(
         self,
