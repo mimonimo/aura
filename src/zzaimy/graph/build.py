@@ -106,8 +106,39 @@ def build_graph(db, include_similarity: bool = True) -> dict:
     _add_citation_edges(db, criteria, add_edge)
     if include_similarity:
         _add_similarity_edges(db, criteria, add_edge)
+    _add_entity_layer(db, nodes, doc_ids, add_edge)
 
     return {"nodes": nodes, "edges": edges}
+
+
+def _add_entity_layer(db, nodes: list[dict], doc_ids: set[int], add_edge) -> None:
+    """개체 계층 (온톨로지 v2) — 두 문서 이상을 잇는 개체만 노드로 올린다.
+
+    한 문서에만 나오는 개체는 그래프에서 연결 가치가 없어 제외한다
+    (검색 확장에는 doc_entities 원본을 그대로 쓴다).
+    """
+    try:
+        data = db.graph_entities(min_docs=2)
+    except Exception:
+        return
+    if not data["entities"]:
+        return
+    kept = set()
+    for e in data["entities"]:
+        kept.add(e["id"])
+        nodes.append({
+            "id": f"e{e['id']}",
+            "doc_id": None,
+            "label": e["name"],
+            "kind": "entity",
+            "sector": "common",
+            "doc_type": e["kind"],   # program | org | year
+            "chunks": e["n_docs"],
+        })
+    for ln in data["links"]:
+        if ln["entity_id"] in kept and ln["doc_id"] in doc_ids:
+            w = min(1.0, 0.4 + 0.1 * ln["n_mentions"])
+            add_edge(f"d{ln['doc_id']}", f"e{ln['entity_id']}", "mentions", w)
 
 
 def _add_citation_edges(db, criteria: list[dict], add_edge) -> None:
