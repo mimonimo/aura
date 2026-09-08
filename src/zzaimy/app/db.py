@@ -89,6 +89,18 @@ CREATE TABLE IF NOT EXISTS regulation_chunks (
   heading    TEXT NOT NULL,
   content    TEXT NOT NULL
 );
+-- 학습 데이터셋 대장 (데이터 공방) — 언제 어떤 소스로 몇 쌍을 만들었고
+-- 정제(수치 검증)에서 몇 쌍이 탈락했는지. 논문 방법론의 원재료
+CREATE TABLE IF NOT EXISTS datasets (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  name              TEXT NOT NULL,
+  sources           TEXT NOT NULL,   -- review,draft,chat
+  path              TEXT NOT NULL,   -- data/interim/sft/*.jsonl
+  n_pairs           INTEGER NOT NULL,
+  n_dropped_numbers INTEGER NOT NULL DEFAULT 0,
+  n_dropped_short   INTEGER NOT NULL DEFAULT 0,
+  created_at        TEXT NOT NULL
+);
 -- 추출 품질 신고 (품질 체계 5계층, docs/quality-system.md) — 담당자가 화면에서
 -- 발견한 추출 문제를 남기고, /dev 백로그로 집계한다
 CREATE TABLE IF NOT EXISTS quality_reports (
@@ -632,6 +644,34 @@ class Database:
                 ).fetchall()
             else:
                 rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
+            return [dict(r) for r in rows]
+
+    def add_dataset(
+        self, name: str, sources: str, path: str,
+        n_pairs: int, n_dropped_numbers: int = 0, n_dropped_short: int = 0,
+    ) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO datasets (name, sources, path, n_pairs,"
+                " n_dropped_numbers, n_dropped_short, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name[:80], sources, path, n_pairs,
+                 n_dropped_numbers, n_dropped_short, _now()),
+            )
+            return int(cur.lastrowid or 0)
+
+    def get_dataset(self, dataset_id: int) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM datasets WHERE id = ?", (dataset_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_datasets(self, limit: int = 30) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM datasets ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
             return [dict(r) for r in rows]
 
     def add_quality_report(

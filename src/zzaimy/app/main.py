@@ -1129,6 +1129,42 @@ def create_app(
         _save_accounts()
         return RedirectResponse("/dev", status_code=303)
 
+    # ---- 데이터 공방 — 기록 → 학습 데이터(JSONL) 변환 (개발자 전용) ----
+
+    @app.get("/dev/data", response_class=HTMLResponse)
+    def dev_data(request: Request, err: str = ""):
+        from zzaimy.dataset.build import rag_status
+
+        return templates.TemplateResponse(request, "dev_data.html", ctx(request, {
+            "rag_rows": rag_status(db),
+            "datasets": db.list_datasets(),
+            "err": err,
+        }))
+
+    @app.post("/dev/data/build")
+    def dev_data_build(
+        name: str = Form("dataset"), sources: list[str] = Form([])
+    ):
+        from zzaimy.dataset.build import export_dataset
+
+        try:
+            export_dataset(db, sources, name.strip() or "dataset")
+        except ValueError as exc:
+            return RedirectResponse(f"/dev/data?err={exc}", status_code=303)
+        return RedirectResponse("/dev/data", status_code=303)
+
+    @app.get("/dev/data/{dataset_id}.jsonl")
+    def dev_data_download(dataset_id: int):
+        from fastapi.responses import FileResponse
+
+        ds = db.get_dataset(dataset_id)
+        if ds is None or not Path(ds["path"]).exists():
+            raise HTTPException(404, "데이터셋 파일 없음")
+        return FileResponse(
+            ds["path"], media_type="application/jsonl",
+            filename=Path(ds["path"]).name,
+        )
+
     # ---- 추출 품질 신고 루프 (품질 체계 5계층, docs/quality-system.md) ----
 
     _QUALITY_KINDS = {"table", "typo", "layout", "other"}
