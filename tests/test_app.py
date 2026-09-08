@@ -1024,3 +1024,45 @@ def test_dev_egress_decide_rejects_bad_state(client):
         follow_redirects=False,
     )
     assert r.status_code == 400
+
+
+def test_quality_report_loop(client):
+    """신고 → /dev 백로그 노출 → 처리 완료 (품질 체계 5계층)."""
+    db = client.app.state.db
+    doc_id = db.add_document("표깨짐_예시.pdf", "/tmp/x", doc_type="grant")
+
+    r = client.post(
+        f"/doc/{doc_id}/quality-report",
+        data={"kind": "table", "note": "4쪽 신청서 표 병합 어긋남"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    open_reports = db.list_quality_reports()
+    assert open_reports and open_reports[0]["doc_id"] == doc_id
+    assert db.quality_report_stats()["open"] == 1
+
+    page = client.get("/dev")
+    assert "추출 품질 백로그" in page.text
+    assert "표깨짐_예시" in page.text
+
+    rid = open_reports[0]["id"]
+    r = client.post(
+        f"/dev/quality/{rid}/done",
+        data={"fix_note": "1계층 — 괘선 직독으로 원천 차단"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert db.quality_report_stats()["open"] == 0
+    assert db.quality_report_stats()["done"] == 1
+
+
+def test_quality_report_rejects_bad_kind(client):
+    db = client.app.state.db
+    doc_id = db.add_document("문서.pdf", "/tmp/x", doc_type="grant")
+    r = client.post(
+        f"/doc/{doc_id}/quality-report",
+        data={"kind": "nonsense"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400

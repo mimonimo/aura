@@ -199,6 +199,40 @@
   </div></div>
 
   <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>추출 품질 백로그
+      {% if quality.open %}
+      <span class="pill processing" style="margin-left:6px;">미처리 {{ quality.open }}</span>
+      {% endif %}
+      <a href="/dev/doc/quality-system.md" class="muted"
+         style="margin-left:auto; font-size:12px; font-weight:500;">품질 체계</a></h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">담당자가 문서 화면에서
+      신고한 추출 문제입니다. 처리 시 어느 계층에서 막았는지를 남깁니다
+      (누적 처리 {{ quality.done }}건).</p>
+    {% for r in quality_open %}
+    <div style="display:flex; gap:8px; align-items:center; padding:7px 0;
+                border-bottom:1px solid var(--panel); font-size:12.5px;">
+      <span class="pill" style="flex:none;">{{ {"table": "표", "typo": "오인식",
+        "layout": "배치", "other": "기타"}.get(r.kind, r.kind) }}</span>
+      <a href="/doc/{{ r.doc_id }}" style="color:var(--navy); font-weight:600;
+         text-decoration:none; max-width:180px; overflow:hidden;
+         text-overflow:ellipsis; white-space:nowrap;">{{ r.filename }}</a>
+      {% if r.note %}<span class="muted" style="flex:1; overflow:hidden;
+        text-overflow:ellipsis; white-space:nowrap;">{{ r.note }}</span>{% endif %}
+      <form action="/dev/quality/{{ r.id }}/done" method="post"
+            style="margin-left:auto; display:flex; gap:4px;">
+        <input type="text" name="fix_note" placeholder="처리 내용"
+               style="width:110px; border:1px solid var(--line); border-radius:7px;
+                      padding:3px 7px; font-size:11.5px;">
+        <button type="submit" class="secondary"
+                style="font-size:11.5px; padding:3px 10px;">처리</button>
+      </form>
+    </div>
+    {% else %}
+    <p class="muted" style="margin:0; font-size:12.5px;">미처리 신고 없음</p>
+    {% endfor %}
+  </div></div>
+
+  <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>외부 참조 관문
       {% if egress.get("queued", 0) %}
       <span class="pill processing" style="margin-left:6px;">대기 {{ egress.queued }}</span>

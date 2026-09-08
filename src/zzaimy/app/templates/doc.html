@@ -240,9 +240,37 @@
     {% endif %}
     {# 단일 뷰어 — 원본 / AI 읽기 전환 (복원 PDF 생성 제거로 빠름) #}
     {% if original_kind and extract_blocks %}
-    <div class="tabbar" style="max-width:280px; margin-bottom:12px;">
-      <button type="button" data-mtab="modeOriginal">원본</button>
-      <button type="button" class="on" data-mtab="modeRestored">AI 읽기</button>
+    <div style="display:flex; align-items:center; margin-bottom:12px;">
+      <div class="tabbar" style="max-width:280px; margin-bottom:0;">
+        <button type="button" data-mtab="modeOriginal">원본</button>
+        <button type="button" class="on" data-mtab="modeRestored">AI 읽기</button>
+      </div>
+      {% if request.query_params.get("reported") %}
+      <span class="pill reviewed" style="margin-left:12px;">신고 접수됨</span>
+      {% endif %}
+      <details style="margin-left:auto; position:relative;">
+        <summary class="btn-ghost" style="list-style:none; cursor:pointer;">
+          <iconify-icon icon="solar:flag-linear"></iconify-icon>추출 문제 신고</summary>
+        <form action="/doc/{{ doc.id }}/quality-report" method="post"
+              style="position:absolute; right:0; top:36px; z-index:30; width:280px;
+                     background:#fff; border:1px solid var(--line); border-radius:12px;
+                     padding:14px; box-shadow:0 12px 36px rgba(27,59,117,.16);
+                     display:flex; flex-direction:column; gap:8px;">
+          <span class="muted" style="font-size:12px;">원본과 다르게 읽힌 부분을
+            알려주시면 처리 방식을 개선합니다.</span>
+          <select name="kind" style="border:1px solid var(--line); border-radius:8px;
+                  padding:7px 9px; font-size:13px;">
+            <option value="table">표 구조 깨짐</option>
+            <option value="typo">글자 오인식</option>
+            <option value="layout">배치·순서 어긋남</option>
+            <option value="other">기타</option>
+          </select>
+          <textarea name="note" rows="2" placeholder="어느 부분인지 (선택)"
+                    style="border:1px solid var(--line); border-radius:8px;
+                           padding:7px 9px; font-size:13px; resize:vertical;"></textarea>
+          <button type="submit" style="justify-content:center;">신고</button>
+        </form>
+      </details>
     </div>
     {% endif %}
 
