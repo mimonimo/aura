@@ -35,7 +35,11 @@
   </div>
 </div>
 
-<div style="display:grid; grid-template-columns: minmax(0, 1fr) 360px; gap:20px; align-items:start;">
+<style>
+  .project-grid{display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px; align-items:start;}
+  @media (max-width:1080px){ .project-grid{grid-template-columns:1fr;} }
+</style>
+<div class="project-grid">
 <div style="min-width:0;">
 
 <div class="card">
