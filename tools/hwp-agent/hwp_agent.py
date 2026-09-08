@@ -1,0 +1,323 @@
+"""한글 실시간 편집 에이전트 (Windows COM 계층).
+
+실행 중인 한글(한컴오피스) 창을 COM으로 조작해, 서버가 보낸 편집 명령을
+화면에 실시간 반영한다. 서버측 hwpx-plugin(한컴 없이 HWPX 직접 편집)과
+같은 명령 계약(protocol.md)을 해석해 공존한다.
+
+이 계층은 "지시 → 눈앞의 한글이 바뀜"이 필요할 때만 쓴다. 화면 동기화가
+필요 없으면 서버측 경로가 기본이다.
+
+사용:
+  python hwp_agent.py --server https://<서버> --token <세션토큰>
+  python hwp_agent.py --selftest        # 한글 없이 디스패처·계약 검증
+  python hwp_agent.py --confirm ...      # 편집성 명령은 콘솔 확인 후 실행
+
+COM 백엔드는 Windows + 정품 한글이 있어야 동작한다. 그 외 환경에서는
+--selftest(목 백엔드)로 명령 라우팅만 검증한다. COM API 호출은 한컴 자동화
+문서 기준으로 작성했으며, 실장비에서 1회 확인이 필요하다(주석 참조).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+import urllib.request
+
+# 편집 명령 화이트리스트 — 이 밖의 op는 거부한다.
+ALLOWED_OPS = {
+    "ping", "open", "find", "insert_text", "replace",
+    "insert_table", "get_text", "save", "save_as",
+}
+EDITING_OPS = {"insert_text", "replace", "insert_table", "save", "save_as"}
+
+
+class HwpBackend:
+    """편집 백엔드 인터페이스. COM/목이 이를 구현한다."""
+
+    def ping(self) -> dict: raise NotImplementedError
+    def open(self, path: str, format: str = "hwpx") -> dict: raise NotImplementedError
+    def find(self, text: str, nth: int = 1) -> dict: raise NotImplementedError
+    def insert_text(self, text: str) -> dict: raise NotImplementedError
+    def replace(self, find: str, replace: str, all: bool = True) -> dict: raise NotImplementedError
+    def insert_table(self, rows: int, cols: int) -> dict: raise NotImplementedError
+    def get_text(self, scope: str = "all") -> dict: raise NotImplementedError
+    def save(self) -> dict: raise NotImplementedError
+    def save_as(self, path: str, format: str = "hwpx") -> dict: raise NotImplementedError
+
+
+class MockBackend(HwpBackend):
+    """한글 없이 명령 라우팅·계약을 검증하기 위한 인메모리 문서.
+
+    caret 위치의 문자열 편집만 흉내낸다. 실제 서식·표는 모사하지 않는다.
+    """
+
+    def __init__(self) -> None:
+        self.text = ""
+        self.caret = 0
+        self.path = None
+
+    def ping(self) -> dict:
+        return {"backend": "mock", "version": "mock-1"}
+
+    def open(self, path: str, format: str = "hwpx") -> dict:
+        self.path = path
+        self.text = ""
+        self.caret = 0
+        return {"opened": path}
+
+    def find(self, text: str, nth: int = 1) -> dict:
+        idx, start, count = -1, 0, 0
+        while count < nth:
+            idx = self.text.find(text, start)
+            if idx < 0:
+                return {"found": False}
+            count += 1
+            start = idx + 1
+        self.caret = idx + len(text)   # 일치 끝으로 캐럿(선택 흉내)
+        return {"found": True, "at": idx}
+
+    def insert_text(self, text: str) -> dict:
+        self.text = self.text[:self.caret] + text + self.text[self.caret:]
+        self.caret += len(text)
+        return {"inserted": len(text)}
+
+    def replace(self, find: str, replace: str, all: bool = True) -> dict:
+        n = self.text.count(find) if all else (1 if find in self.text else 0)
+        self.text = self.text.replace(find, replace, -1 if all else 1)
+        return {"replaced": n}
+
+    def insert_table(self, rows: int, cols: int) -> dict:
+        marker = f"[표 {rows}x{cols}]"
+        self.text = self.text[:self.caret] + marker + self.text[self.caret:]
+        self.caret += len(marker)
+        return {"table": [rows, cols]}
+
+    def get_text(self, scope: str = "all") -> dict:
+        return {"scope": scope, "text": self.text}
+
+    def save(self) -> dict:
+        return {"saved": self.path}
+
+    def save_as(self, path: str, format: str = "hwpx") -> dict:
+        self.path = path
+        return {"saved_as": path, "format": format}
+
+
+class ComBackend(HwpBackend):
+    """실행 중인 한글을 COM으로 조작한다 (Windows 전용).
+
+    한컴 자동화(HWPFrame.HwpObject) 기준. 메서드명은 한컴 자동화 문서 기준이며
+    실장비에서 1회 확인 권장(특히 HParameterSet 필드명).
+    """
+
+    _FMT = {"hwpx": "HWPX", "hwp": "HWP", "pdf": "PDF"}
+
+    def __init__(self, visible: bool = True) -> None:
+        import win32com.client  # pywin32 — Windows 전용
+
+        self.hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+        # 파일 접근 보안 대화상자 억제(자동화 표준 관용구). 없으면 열기 시 팝업.
+        try:
+            self.hwp.RegisterModule("FilePathCheckDLL", "SecurityModule")
+        except Exception:
+            pass
+        try:
+            self.hwp.XHwpWindows.Item(0).Visible = visible
+        except Exception:
+            pass
+
+    # 내부 헬퍼 — HAction 파라미터셋 실행
+    def _action(self, op: str, fields: dict):
+        act = self.hwp.HAction
+        pset = getattr(self.hwp.HParameterSet, self._PSET[op])
+        act.GetDefault(op, pset.HSet)
+        for k, v in fields.items():
+            setattr(pset, k, v)
+        return act.Execute(op, pset.HSet)
+
+    _PSET = {
+        "InsertText": "HInsertText",
+        "AllReplace": "HFindReplace",
+        "RepeatFind": "HFindReplace",
+        "TableCreate": "HTableCreation",
+    }
+
+    def ping(self) -> dict:
+        return {"backend": "com", "version": str(getattr(self.hwp, "Version", "?"))}
+
+    def open(self, path: str, format: str = "hwpx") -> dict:
+        ok = self.hwp.Open(path, self._FMT.get(format, ""), "")
+        return {"opened": bool(ok), "path": path}
+
+    def find(self, text: str, nth: int = 1) -> dict:
+        found = False
+        for _ in range(max(1, nth)):
+            found = bool(self._action("RepeatFind", {"FindString": text, "IgnoreMessage": 1}))
+            if not found:
+                break
+        return {"found": found}
+
+    def insert_text(self, text: str) -> dict:
+        self._action("InsertText", {"Text": text})
+        return {"inserted": len(text)}
+
+    def replace(self, find: str, replace: str, all: bool = True) -> dict:
+        self._action("AllReplace", {
+            "FindString": find, "ReplaceString": replace,
+            "ReplaceMode": 1, "IgnoreMessage": 1,
+        })
+        return {"replaced": "all" if all else 1}
+
+    def insert_table(self, rows: int, cols: int) -> dict:
+        self._action("TableCreate", {"Rows": rows, "Cols": cols})
+        return {"table": [rows, cols]}
+
+    def get_text(self, scope: str = "all") -> dict:
+        if scope == "selection":
+            try:
+                return {"scope": scope, "text": self.hwp.GetSelectedText()}
+            except Exception:
+                pass
+        return {"scope": "all", "text": self.hwp.GetTextFile("TEXT", "")}
+
+    def save(self) -> dict:
+        return {"saved": bool(self.hwp.Save())}
+
+    def save_as(self, path: str, format: str = "hwpx") -> dict:
+        ok = self.hwp.SaveAs(path, self._FMT.get(format, "HWPX"), "")
+        return {"saved_as": path, "ok": bool(ok)}
+
+
+def dispatch(backend: HwpBackend, command: dict, confirm: bool = False) -> dict:
+    """명령 봉투 하나를 백엔드로 라우팅한다. 계약(protocol.md) 준수."""
+    cid = command.get("id")
+    op = command.get("op")
+    args = command.get("args") or {}
+    if op not in ALLOWED_OPS:
+        return {"id": cid, "ok": False, "error": f"허용되지 않은 op: {op}"}
+    if confirm and op in EDITING_OPS:
+        sys.stderr.write(f"[확인] {op} {json.dumps(args, ensure_ascii=False)} 실행? [y/N] ")
+        if input().strip().lower() != "y":
+            return {"id": cid, "ok": False, "error": "사용자가 거부함"}
+    try:
+        method = getattr(backend, op)
+        result = method(**args)
+        return {"id": cid, "ok": True, "result": result}
+    except TypeError as e:
+        return {"id": cid, "ok": False, "error": f"인자 오류: {e}"}
+    except Exception as e:
+        return {"id": cid, "ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+# 운영 서버는 자체 서명 인증서다 — TLS 검증은 항상 켠 채로, 서버 인증서
+# 파일을 --ca-cert 로 신뢰시킨다 (검증 생략 옵션은 두지 않는다).
+_SSL_CONTEXT: "object | None" = None
+
+
+def set_tls(ca_cert: str | None) -> None:
+    global _SSL_CONTEXT
+    import ssl
+
+    if ca_cert:
+        _SSL_CONTEXT = ssl.create_default_context(cafile=ca_cert)
+
+
+def _post(url: str, payload: dict, timeout: int = 30) -> dict:
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CONTEXT) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def _get(url: str, timeout: int = 60) -> dict:
+    with urllib.request.urlopen(url, timeout=timeout, context=_SSL_CONTEXT) as r:
+        return json.loads(r.read() or b"{}")
+
+
+def run_loop(server: str, token: str, backend: HwpBackend, confirm: bool = False) -> None:
+    """서버에 아웃바운드로 붙어 명령을 롱폴·실행·회신한다."""
+    base = server.rstrip("/")
+    reg = _post(f"{base}/hwp/agent/register", {"token": token})
+    session = reg.get("session", token)
+    cursor = reg.get("poll_after", 0)
+    sys.stderr.write(f"[에이전트] 서버 연결됨 session={session}\n")
+    while True:
+        try:
+            resp = _get(f"{base}/hwp/agent/commands?session={session}&after={cursor}")
+        except Exception as e:
+            sys.stderr.write(f"[폴링 실패] {e} — 5초 후 재시도\n")
+            time.sleep(5)
+            continue
+        cursor = resp.get("cursor", cursor)
+        for command in resp.get("commands", []):
+            result = dispatch(backend, command, confirm=confirm)
+            try:
+                _post(f"{base}/hwp/agent/result", {"session": session, **result})
+            except Exception as e:
+                sys.stderr.write(f"[회신 실패] {e}\n")
+
+
+def _selftest() -> int:
+    """한글 없이 디스패처·계약을 검증한다."""
+    b = MockBackend()
+    script = [
+        {"id": "1", "op": "open", "args": {"path": "draft.hwpx"}},
+        {"id": "2", "op": "insert_text", "args": {"text": "사업 개요\n예산 총액 5,000,000원"}},
+        {"id": "3", "op": "find", "args": {"text": "5,000,000"}},
+        {"id": "4", "op": "replace",
+         "args": {"find": "5,000,000", "replace": "6,000,000", "all": True}},
+        {"id": "5", "op": "insert_table", "args": {"rows": 3, "cols": 2}},
+        {"id": "6", "op": "get_text", "args": {"scope": "all"}},
+        {"id": "7", "op": "save", "args": {}},
+        {"id": "8", "op": "danger", "args": {}},  # 화이트리스트 밖 → 거부돼야
+    ]
+    results = [dispatch(b, c) for c in script]
+    ok_flags = [r["ok"] for r in results]
+    text = b.get_text()["text"]
+
+    checks = [
+        ("전 명령 처리", len(results) == 8),
+        ("허용 op 성공", all(ok_flags[:7])),
+        ("화이트리스트 밖 거부", results[7]["ok"] is False),
+        ("치환 반영", "6,000,000" in text and "5,000,000" not in text),
+        ("표 삽입", "[표 3x2]" in text),
+    ]
+    all_ok = True
+    for name, passed in checks:
+        sys.stderr.write(f"  [{'OK' if passed else '실패'}] {name}\n")
+        all_ok = all_ok and passed
+    sys.stderr.write("selftest " + ("통과\n" if all_ok else "실패\n"))
+    return 0 if all_ok else 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="한글 실시간 편집 에이전트 (COM)")
+    ap.add_argument("--server", help="서버 base URL")
+    ap.add_argument("--token", help="세션 토큰(사용자 인증에 묶임)")
+    ap.add_argument("--confirm", action="store_true", help="편집성 명령을 콘솔 확인 후 실행")
+    ap.add_argument("--selftest", action="store_true", help="한글 없이 디스패처 검증")
+    ap.add_argument("--no-visible", action="store_true", help="한글 창 숨김")
+    ap.add_argument("--ca-cert", help="서버 인증서 파일(자체 서명 신뢰용)")
+    args = ap.parse_args()
+
+    if args.selftest:
+        return _selftest()
+    set_tls(args.ca_cert)
+    if not (args.server and args.token):
+        ap.error("--server 와 --token 이 필요합니다 (또는 --selftest)")
+    try:
+        backend: HwpBackend = ComBackend(visible=not args.no_visible)
+    except Exception as e:
+        sys.stderr.write(f"한글 COM 백엔드를 열 수 없습니다: {e}\n"
+                         "Windows + 정품 한글 + pywin32 환경에서 실행하세요.\n")
+        return 2
+    run_loop(args.server, args.token, backend, confirm=args.confirm)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
