@@ -2,6 +2,27 @@
 {% block title %}개발 현황{% endblock %}
 {% block pagetitle %}개발 현황{% endblock %}
 {% block content %}
+<style>
+  /* 섹션 구분 라벨 */
+  .dev-section { font-size: 12.5px; font-weight: 700; color: var(--faint);
+                 letter-spacing: .05em; margin: 28px 4px 12px;
+                 display: flex; align-items: center; gap: 10px; }
+  .dev-section::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .dev-section:first-of-type { margin-top: 6px; }
+  /* 지표 2단 — 비슷한 높이의 카드 (위에서 정렬) */
+  .dev-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+               gap: 16px; align-items: start; }
+  /* 바로가기 — 규격 통일 카드(같은 높이). 아이콘·제목·설명·링크 구조 동일 */
+  .dev-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+               gap: 14px; }
+  .dev-tools .card { margin-bottom: 0; }
+  .dev-tools .card-in { display: flex; flex-direction: column; height: 100%; }
+  .dev-tools .card-in > p { flex: 1; margin: 0 0 14px; }
+  .dev-tools .tool-open { align-self: flex-start; }
+</style>
+
+<div class="dev-section">개발 현황</div>
+
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:target-linear"></iconify-icon>프로젝트 개요</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
@@ -83,7 +104,44 @@
   <div>{{ dev_now | md_view }}</div>
 </div></div>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:widget-5-linear"></iconify-icon>모델 개발 트랙 (4종)
+    <a href="/dev/doc/model-plan.md" class="muted"
+       style="margin-left:auto; font-size:12px; font-weight:500;">상세</a></h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
+    오픈웨이트 모델을 교내 국고사업 문서 도메인에 맞춰 학습시키는 4종입니다.
+    지식(수치)은 학습하지 않고 능력(문체·검색력)만 학습하며, 베이스 대비
+    개선폭을 정량 입증하는 것이 목표입니다.</p>
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>모델</th><th>베이스</th><th>역할</th><th>학습 방식</th><th>상태</th></tr>
+    <tr>
+      <td style="font-weight:600;">ZZAIMY-Embed</td><td>KURE-v1</td>
+      <td>도메인 특화 임베딩(검색)</td><td>대조학습 — 합성 질의쌍</td>
+      <td><span class="pill type">v0 실험 · 베이스 유지</span></td></tr>
+    <tr>
+      <td style="font-weight:600;">ZZAIMY-Rerank</td><td>bge-reranker-v2-m3</td>
+      <td>검색 재정렬</td><td>동일 데이터 재활용</td>
+      <td><span class="pill type">베이스 사용 중</span></td></tr>
+    <tr>
+      <td style="font-weight:600;">ZZAIMY-Writer</td><td>Qwen3.5-35B-A3B (MoE)</td>
+      <td>계획서 섹션 생성</td><td>QLoRA SFT</td>
+      <td><span class="pill processing">예정 · 베이스라인 후</span></td></tr>
+    <tr>
+      <td style="font-weight:600;">ZZAIMY-Extract</td><td>Qwen3-4B</td>
+      <td>실적 카드 추출</td><td>증류(distillation) SFT</td>
+      <td><span class="pill processing">예정</span></td></tr>
+  </table>
+  </div>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0; line-height:1.6;">
+    ※ 학습이 실제로 착수된 건 임베딩(v0)뿐이며, v0는 베이스(KURE)를 못 넘어
+    미적용 상태입니다. Writer·Extract 학습은 GPU 서버 확보 + 베이스라인 측정
+    후에 착수합니다(순서 원칙). Qwen 계열 베이스는 기관 수용성·명명 확인 대기.</p>
+</div></div>
+
+<div class="dev-section">품질·성능</div>
+
+<div class="dev-grid2">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 정확도
       <a href="/dev/doc/retrieval-baseline-mini.md" class="muted"
@@ -142,7 +200,79 @@
   </div></div>
 </div>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>추출 품질 백로그
+    {% if quality.open %}
+    <span class="pill processing" style="margin-left:6px;">미처리 {{ quality.open }}</span>
+    {% endif %}
+    <a href="/dev/doc/quality-system.md" class="muted"
+       style="margin-left:auto; font-size:12px; font-weight:500;">품질 체계</a></h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">담당자가 문서 화면에서
+    신고한 추출 문제입니다. 처리 시 어느 계층에서 막았는지를 남깁니다
+    (누적 처리 {{ quality.done }}건).</p>
+  {% for r in quality_open %}
+  <div style="display:flex; gap:8px; align-items:center; padding:7px 0;
+              border-bottom:1px solid var(--panel); font-size:12.5px;">
+    <span class="pill" style="flex:none;">{{ {"table": "표", "typo": "오인식",
+      "layout": "배치", "other": "기타"}.get(r.kind, r.kind) }}</span>
+    <a href="/doc/{{ r.doc_id }}" style="color:var(--navy); font-weight:600;
+       text-decoration:none; max-width:180px; overflow:hidden;
+       text-overflow:ellipsis; white-space:nowrap;">{{ r.filename }}</a>
+    {% if r.note %}<span class="muted" style="flex:1; overflow:hidden;
+      text-overflow:ellipsis; white-space:nowrap;">{{ r.note }}</span>{% endif %}
+    <form action="/dev/quality/{{ r.id }}/done" method="post"
+          style="margin-left:auto; display:flex; gap:4px;">
+      <input type="text" name="fix_note" placeholder="처리 내용"
+             style="width:110px; border:1px solid var(--line); border-radius:7px;
+                    padding:3px 7px; font-size:11.5px;">
+      <button type="submit" class="secondary"
+              style="font-size:11.5px; padding:3px 10px;">처리</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0; font-size:12.5px;">미처리 신고 없음</p>
+  {% endfor %}
+</div></div>
+
+<div class="dev-section">바로가기</div>
+
+<div class="dev-tools">
+  <div class="card"><div class="card-in">
+    <h2 style="font-size:15px;"><iconify-icon icon="solar:database-linear"></iconify-icon>데이터 열람</h2>
+    <p class="muted" style="font-size:12.5px;">문서 대장, 문서에서 읽어낸 내용, 규정,
+      채팅 기록을 표별 설명과 함께 열람합니다. 검색과 행별 상세 보기를 지원합니다.</p>
+    <a href="/dev/db" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
+  </div></div>
+
+  <div class="card"><div class="card-in">
+    <h2 style="font-size:15px;"><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>모델 학습</h2>
+    <p class="muted" style="font-size:12.5px;">파인튜닝 도구(Label Studio·LLaMA Board·
+      TensorBoard) 연결과 학습 순서입니다. GPU 서버가 오면 주소만 넣어 바로 학습합니다.</p>
+    <a href="/dev/train" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
+  </div></div>
+
+  <div class="card"><div class="card-in">
+    <h2 style="font-size:15px;"><iconify-icon icon="solar:monitor-smartphone-linear"></iconify-icon>한글 에이전트</h2>
+    <p class="muted" style="font-size:12.5px;">Windows 한글을 서버 지시로 실시간
+      편집하는 채널입니다. 토큰 발급, 연결 상태, 명령 전송·결과 회신을 관리합니다.</p>
+    <a href="/dev/hwp" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
+  </div></div>
+
+  <div class="card"><div class="card-in">
+    <h2 style="font-size:15px;"><iconify-icon icon="solar:shield-check-linear"></iconify-icon>외부 참조 관문
+      {% if egress.get("queued", 0) %}
+      <span class="pill processing" style="margin-left:6px;">대기 {{ egress.queued }}</span>
+      {% endif %}</h2>
+    <p class="muted" style="font-size:12.5px;">외부 AI 참조 질의의 세척·판정·감사
+      기록입니다. 누적 {{ egress.get("total", 0) }}건 처리, 승인 대기
+      {{ egress.get("queued", 0) }}건, 차단 {{ egress.get("blocked", 0) }}건.</p>
+    <a href="/dev/egress" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
+  </div></div>
+</div>
+
+<div class="dev-section">문서·기록</div>
+
+<div class="dev-grid2">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 자료</h2>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px;">논문과 발표자료에
@@ -155,16 +285,6 @@
     {% endfor %}
   </div></div>
 
-  <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>데이터 열람
-      <a href="/dev/db" class="btn-ghost" style="margin-left:auto; font-weight:600;">열기</a></h2>
-    <p class="muted" style="font-size:12.5px; margin:0;">문서 대장, 문서에서 읽어낸
-      내용, 규정, 채팅 기록을 표별 설명과 함께 열람합니다. 검색과 행별 상세
-      보기를 지원합니다.</p>
-  </div></div>
-</div>
-
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:history-linear"></iconify-icon>최근 개선 내용</h2>
     {% if recent_summary %}
@@ -184,6 +304,7 @@
       {% endfor %}
     </details>
   </div></div>
+
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>설계·기술 검토 기록</h2>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px;">설계를 정하며 남긴
@@ -202,6 +323,5 @@
     {% endfor %}
   </div></div>
 </div>
-
 
 {% endblock %}

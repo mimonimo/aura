@@ -805,6 +805,26 @@ class DocumentProcessor:
                     tp.close()
                 if replaced == 0:
                     return None
+
+                # 표도 괘선 직독으로 교체 — MinerU 근사 격자 대신 원본 괘선의
+                # 정확한 구조·열 폭·글자층 텍스트를 쓴다 (오인식 원천 차단)
+                new_tables = list(parsed.tables)
+                n_swapped = 0
+                try:
+                    from zzaimy.ingest.parsers.lattice import (
+                        extract_tables,
+                        swap_tables,
+                    )
+
+                    new_tables, n_swapped = swap_tables(
+                        new_entries, parsed.tables, extract_tables(file_path), fits
+                    )
+                except Exception:
+                    log.warning("괘선 표 교체 실패 — MinerU 표 유지", exc_info=True)
+                if n_swapped:
+                    parsed = dc_replace(parsed, tables=new_tables)
+                    self._last_parse_note += f" · 표 괘선 직독 {n_swapped}개"
+
                 self._last_result = dc_replace(parsed, entries=new_entries)
                 # 본문 텍스트도 교체된 항목 기준으로 재구성
                 parts = []
@@ -943,12 +963,12 @@ class DocumentProcessor:
                          1 if c.is_header else 0, mk(c.text)]
                         for c in t.cells
                     ]
+                    payload = {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells}
+                    if getattr(t, "col_w", None):
+                        payload["col_w"] = list(t.col_w)  # 원본 열 폭 비율
                     out2.append({
                         "kind": "table", "page_no": e.page_no, "bbox": bbox,
-                        "content": _json.dumps(
-                            {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells},
-                            ensure_ascii=False,
-                        ),
+                        "content": _json.dumps(payload, ensure_ascii=False),
                     })
                 elif e.kind == "image" and 0 <= e.ref < len(parsed.images):
                     out2.append({

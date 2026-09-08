@@ -9,14 +9,20 @@
 <div style="display:grid; grid-template-columns:250px minmax(0,1fr); gap:16px; align-items:start;">
   <div class="card"><div class="card-in" style="padding:14px;">
     {% for t in tables %}
-    <a href="/dev/db?table={{ t.name }}"
-       style="display:block; padding:9px 11px; border-radius:10px; text-decoration:none;
-              color:var(--ink); font-size:13px; margin-bottom:2px;
-              {{ 'background:#E3ECFB; font-weight:700; color:var(--navy);' if browse.table == t.name else '' }}">
-      {{ t.name }}
-      <span class="muted" style="float:right; font-variant-numeric:tabular-nums;">{{ t.n }}</span>
-      <span class="muted" style="display:block; font-size:11px; line-height:1.4;
-            white-space:normal;">{{ table_descs.get(t.name, "") }}</span>
+    <a href="/dev/db?table={{ t.name }}" title="{{ table_descs.get(t.name, '') }}"
+       style="display:block; padding:8px 11px; border-radius:10px; text-decoration:none;
+              color:var(--ink); font-size:13px; margin-bottom:1px;
+              {{ 'background:#E3ECFB; color:var(--navy);' if browse.table == t.name else '' }}">
+      <span style="display:flex; align-items:center; gap:8px;">
+        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+              {{ 'font-weight:700;' if browse.table == t.name else 'font-weight:500;' }}">{{ t.name }}</span>
+        <span class="muted" style="flex:none; font-size:12px;
+              font-variant-numeric:tabular-nums;">{{ t.n }}</span>
+      </span>
+      {% if browse.table == t.name and table_descs.get(t.name) %}
+      <span class="muted" style="display:block; font-size:11px; line-height:1.45;
+            margin-top:3px;">{{ table_descs.get(t.name, "") }}</span>
+      {% endif %}
     </a>
     {% endfor %}
   </div></div>

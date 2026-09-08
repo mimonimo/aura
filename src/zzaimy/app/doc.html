@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.filename }} — 검토{% endblock %}
+{% block pagetitle %}{{ "기준 문서" if doc.doc_type == "regulation" else "문서 검토" }}{% endblock %}
+{% block head %}
+  {% set drafting = doc.coverage and (doc.coverage.startswith("초안 작성 중") or doc.coverage.startswith("분석 중")) %}
+  {% if doc.status in ("processing", "received") or drafting %}
+  <script>
+    (function poll() {
+      fetch("/doc/{{ doc.id }}/status")
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.processing && !d.drafting) { location.reload(); }
+          else { setTimeout(poll, 4000); }
+        })
+        .catch(function () { setTimeout(poll, 6000); });
+    })();
+  </script>
+  {% endif %}
+{% endblock %}
+{% block content %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    document.querySelectorAll("[data-mtab]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        document.querySelectorAll("[data-mtab]").forEach(function (b) {
+          b.classList.toggle("on", b === btn);
+        });
+        var orig = document.getElementById("modeOriginal");
+        var rest = document.getElementById("modeRestored");
+        if (orig) orig.hidden = btn.dataset.mtab !== "modeOriginal";
+        if (rest) rest.hidden = btn.dataset.mtab !== "modeRestored";
+      });
+    });
+  });
+</script>
+<p><a href="{{ '/criteria' if doc.doc_type == 'regulation' else ('/ocr' if doc.doc_type == 'ocr' else '/') }}" class="btn-ghost">
+  ← {{ "기준 문서로" if doc.doc_type == "regulation" else ("문서 추출로" if doc.doc_type == "ocr" else "문서 검토함으로") }}</a></p>
+
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>
+      <a href="/doc/{{ doc.id }}/original" target="_blank"
+         style="text-decoration:none; color:inherit;" title="원본 파일 열기">{{ doc.filename }}
+        <iconify-icon icon="solar:square-top-up-linear"
+                      style="font-size:14px; color:var(--faint);"></iconify-icon></a></h2>
+    <p style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+      <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
+      {% if doc.doc_type in ("regulation", "ocr") %}
+        <span class="pill reviewed">{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
+      {% else %}
+        <span class="pill {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
+        <span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>
+      {% endif %}
+      {% if related %}<span class="pill">대상: {{ related.filename }}</span>{% endif %}
+      {% for sc in suggested_criteria or [] %}
+      <a class="pill" href="/doc/{{ sc.id }}" style="text-decoration:none; background:#EEF7F1; color:var(--green);"
+         title="연관성으로 자동 연결된 기준">
+        <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}</a>
+      {% endfor %}
+      <span class="muted" style="margin-left:6px;">{{ doc.receipt_no or "" }} · 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
+    </p>
+    {% if doc.status == "failed" %}
+      <p class="notice"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>처리 실패: {{ doc.error }}</span></p>
+    {% elif doc.status != "reviewed" %}
+      <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>처리 중입니다. 끝나면 화면이 자동으로 갱신됩니다.</span></p>
+    {% endif %}
+    <form action="/doc/{{ doc.id }}/delete" method="post" style="margin-top:10px;"
+          onsubmit="return confirm('이 문서와 관련 기록을 삭제할까요?');">
+      <button type="submit" class="secondary" style="border-color:#E7B9B8; color:var(--red);">삭제</button>
+    </form>
+    {% if doc.status == "reviewed" and doc.doc_type == "grant"
+          and not (doc.coverage and doc.coverage.startswith("초안 작성 중")) %}
+    {# 목적별 플로우 — 국고사업: 초안 작성·재작성 / 채용·입학: 서류 검토·판정 #}
+    <form action="/doc/{{ doc.id }}/draft" method="post" style="margin-top:10px;">
+      <textarea name="sections" rows="3" placeholder="작성 항목을 직접 지정하려면 한 줄에 하나씩 (비우면 공고의 목차를 따릅니다)&#10;예) 사업 개요&#10;    추진 계획&#10;    예산 계획"
+                style="width:100%; max-width:560px; font-size:12.5px;">{{ doc.draft_spec or "" }}</textarea>
+      <div style="margin-top:8px;">
+        <button type="submit" class="secondary">{{ "계획서 초안 재작성" if doc.draft else "계획서 초안 작성" }}</button>
+        <span class="muted" style="margin-left:8px;">
+          {{ "아래 담당자 의견을 반영해 다시 작성합니다." if doc.draft
+             else "지정 항목(없으면 공고 목차)에 맞춰 이 서류를 재료로 초안을 만듭니다. 1~2분 걸립니다." }}</span>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if doc.doc_type in ("regulation", "ocr") %}
+  {% set analyzing = doc.coverage and doc.coverage.startswith("분석 중") %}
+  {% if doc.ai_review or doc.coverage %}
+  <div class="card reveal">
+    <div class="card-in">
+      {% set is_summary = doc.ai_review and (doc.ai_review.startswith("추출 완료") or doc.ai_review.startswith("규정 등록 완료")) %}
+      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>{{ ("기준 등록 결과" if is_summary else "AI 문서 요약") if doc.doc_type == "regulation" else ("추출 요약" if is_summary else "맥락 분석") }}</h2>
+      {% if analyzing %}
+      <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>{{ doc.coverage }} — 끝나면 자동 갱신됩니다.</span></p>
+      {% elif doc.coverage and doc.coverage.startswith("맥락 분석 실패") %}
+      <p class="notice"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>{{ doc.coverage }}</span></p>
+      {% endif %}
+      {% if doc.ai_review %}
+      {% if is_summary %}
+      <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ doc.ai_review }}</span></p>
+      {% else %}
+      <pre class="doc-text">{{ doc.ai_review | md_lite }}</pre>
+      {% endif %}
+      {% endif %}
+      {% if doc.doc_type in ("ocr", "regulation") and doc.status == "reviewed" and not analyzing %}
+      <form action="/doc/{{ doc.id }}/analyze" method="post" style="margin-top:12px;">
+        {% if doc.doc_type == "regulation" %}
+        <button type="submit" class="secondary">{{ "다시 요약" if not is_summary and doc.ai_review else "AI 문서 요약" }}</button>
+        <span class="muted" style="margin-left:8px;">이 기준이 무엇을 다루고 어디에 쓰이는지 정리합니다.</span>
+        {% else %}
+        <button type="submit" class="secondary">{{ "다시 분석" if not is_summary and doc.ai_review else "맥락 분석" }}</button>
+        <span class="muted" style="margin-left:8px;">추출 결과를 근거로 문서 유형·핵심 정보·활용처를 정리합니다.</span>
+        {% endif %}
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+{% else %}
+  {% if doc.draft %}
+  <div class="card accent reveal">
+    <div class="card-in">
+      <h2><iconify-icon icon="solar:document-add-linear"></iconify-icon>계획서 초안
+        <span style="margin-left:auto; display:flex; gap:8px;">
+          <a href="/doc/{{ doc.id }}/draft.hwpx" class="btn-ghost" style="font-weight:600;">
+            <iconify-icon icon="solar:document-text-linear"></iconify-icon>.hwpx</a>
+          <a href="/doc/{{ doc.id }}/draft.docx" class="btn-ghost" style="font-weight:600;">
+            <iconify-icon icon="solar:document-add-linear"></iconify-icon>.docx</a>
+          <a href="/doc/{{ doc.id }}/draft.pdf" class="btn-ghost" style="font-weight:600;">
+            <iconify-icon icon="solar:file-check-linear"></iconify-icon>.pdf</a>
+          <a href="/doc/{{ doc.id }}/draft.md" class="btn-ghost" style="font-weight:600;">
+            <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
+        </span></h2>
+      {% if doc.coverage %}<p class="notice"><iconify-icon icon="solar:chart-linear"></iconify-icon><span>{{ doc.coverage }}</span></p>{% endif %}
+      <pre class="doc-text">{{ doc.draft }}</pre>
+      <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>근거가
+        없는 수치 자리는 (근거 없음)으로 비워 둡니다. 초안이므로 검토와 수정을 거쳐 쓰세요.</span></p>
+    </div>
+  </div>
+  {% elif doc.coverage %}
+  <div class="card accent reveal">
+    <div class="card-in">
+      <h2><iconify-icon icon="solar:document-add-linear"></iconify-icon>계획서 초안</h2>
+      <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>{{ doc.coverage }}</span></p>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if doc.ai_review %}
+  <div class="card reveal">
+    <div class="card-in">
+      <h2><iconify-icon icon="solar:chat-square-check-linear"></iconify-icon>에이전트 검토 의견</h2>
+      <pre class="doc-text">{{ doc.ai_review | md_lite }}</pre>
+      <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>에이전트가
+        기준 문서를 근거로 정리한 의견입니다. 아래에 의견을 남기고 재검토를 요청하면 그 내용을
+        반영해 다시 검토합니다.</span></p>
+      {% if doc.status == "reviewed" %}
+      <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
+        <form action="/doc/{{ doc.id }}/decision" method="post">
+          <input type="hidden" name="decision" value="approved">
+          <button type="submit">검토 확인</button>
+        </form>
+        <form action="/doc/{{ doc.id }}/decision" method="post">
+          <input type="hidden" name="decision" value="rework">
+          <button type="submit" class="secondary">재검토 요청</button>
+        </form>
+        <form action="/doc/{{ doc.id }}/decision" method="post">
+          <input type="hidden" name="decision" value="rejected">
+          <button type="submit" class="secondary">반려</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+{% endif %}
+
+{% if doc.doc_type == "regulation" and referencing %}
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:link-minimalistic-2-linear"></iconify-icon>이 기준을 참조한 문서</h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">이 규정을 근거로
+      지정했거나, 연관성으로 자동 연결됐거나, 같은 프로젝트에 묶인 문서입니다.</p>
+    {% for r in referencing %}
+    <p style="margin:4px 0; font-size:13.5px;">
+      <a href="/doc/{{ r.id }}" style="color:var(--navy); font-weight:600; text-decoration:none;">
+        <iconify-icon icon="solar:document-text-linear"></iconify-icon> {{ r.filename }}</a>
+      <span class="pill type" style="font-size:11px;">{{ doc_type_labels.get(r.doc_type, r.doc_type) }}</span>
+      <span class="muted" style="font-size:11.5px;">{{ r.created_at[:10] }}</span></p>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if doc.masked_text %}
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>추출 결과{{ "" if doc.doc_type == "regulation" else " (개인정보 마스킹됨)" }}
+      {% if doc.parse_note %}<span class="pill type" style="font-size:11.5px;">{{ doc.parse_note }}</span>{% endif %}
+      <span class="muted" style="font-weight:500; font-size:12.5px;">
+        {% if n_text_chunks %}본문 {{ n_text_chunks }}조각{% endif %}
+        {% if n_table_chunks %} · 표 {{ n_table_chunks }}{% endif %}
+        {% if assets %} · 그림 {{ assets|length }}{% endif %}</span>
+      {% if extract_blocks %}
+      <span style="margin-left:auto; display:flex; gap:8px;">
+        {% if doc.stored_path.lower().endswith((".pdf", ".png", ".jpg", ".jpeg")) %}
+        <a href="/doc/{{ doc.id }}/export.pdf" class="btn-ghost" style="font-weight:600;">
+          <iconify-icon icon="solar:file-check-linear"></iconify-icon>검색 가능 PDF</a>
+        {% endif %}
+        {% if assets %}
+        <a href="/doc/{{ doc.id }}/images.zip" class="btn-ghost" style="font-weight:600;">
+          <iconify-icon icon="solar:gallery-download-linear"></iconify-icon>그림 {{ assets|length }}장 (.zip)</a>
+        {% endif %}
+        <a href="/doc/{{ doc.id }}/export.docx" class="btn-ghost" style="font-weight:600;">
+          <iconify-icon icon="solar:document-add-linear"></iconify-icon>편집본 (.docx)</a>
+        <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost" style="font-weight:600;">
+          <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
+        {% if box_pages %}
+        <a href="#" class="btn-ghost" style="font-weight:600;"
+           onclick="zLightbox(BOX_IMGS, 0, '인식 영역'); return false;"
+           title="OCR이 읽은 영역을 신뢰도 색(초록=확신, 주황=낮음)으로 표시">
+          <iconify-icon icon="solar:scanner-linear"></iconify-icon>인식 영역{% if box_pages|length > 1 %} {{ box_pages|length }}쪽{% endif %}</a>
+        <script>var BOX_IMGS=[{% for p in box_pages %}"/doc/{{ doc.id }}/boxes/{{ p }}.png"{% if not loop.last %},{% endif %}{% endfor %}];</script>
+        {% endif %}
+      </span>
+      {% endif %}</h2>
+    {% if assets %}
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 14px;">
+      {% for a in assets %}
+      <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="그림 {{ loop.index }}" loading="lazy"
+           onclick="zLightbox(GALLERY_IMGS, {{ loop.index0 }}, '그림')"
+           title="그림 {{ loop.index }} 크게 보기"
+           style="height:90px; width:auto; max-width:150px; object-fit:cover; cursor:zoom-in;
+                  border:1px solid var(--line); border-radius:8px; display:block;">
+      {% endfor %}
+    </div>
+    <script>var GALLERY_IMGS=[{% for a in assets %}"/doc/{{ doc.id }}/asset/{{ a.id }}"{% if not loop.last %},{% endif %}{% endfor %}];</script>
+    {% endif %}
+    {# 단일 뷰어 — 원본 / AI 읽기 전환 (복원 PDF 생성 제거로 빠름) #}
+    {% if original_kind and extract_blocks %}
+    <div class="tabbar" style="max-width:280px; margin-bottom:12px;">
+      <button type="button" data-mtab="modeOriginal">원본</button>
+      <button type="button" class="on" data-mtab="modeRestored">AI 읽기</button>
+    </div>
+    {% endif %}
+
+    {% if original_kind %}
+    <div id="modeOriginal" {% if extract_blocks %}hidden{% endif %}>
+      {% if original_kind == "pdf" %}
+      <embed src="/doc/{{ doc.id }}/original" type="application/pdf"
+             style="width:100%; height:680px; border:1px solid var(--line); border-radius:12px;">
+      {% else %}
+        {% if scan_asset %}
+        <div class="tabbar" style="max-width:240px; margin-bottom:10px;">
+          <button type="button" class="on" data-otab="oScan">보정 스캔본</button>
+          <button type="button" data-otab="oRaw">원본 사진</button>
+        </div>
+        {% endif %}
+        <div style="max-height:680px; overflow-y:auto; border:1px solid var(--line); border-radius:12px;">
+          {% if scan_asset %}
+          <img id="oScanImg" src="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}" alt="보정 스캔본"
+               style="width:100%; display:block;">
+          <img id="oRawImg" src="/doc/{{ doc.id }}/original" alt="원본" hidden
+               style="width:100%; display:block;">
+          {% else %}
+          <img src="/doc/{{ doc.id }}/original" alt="원본" style="width:100%; display:block;">
+          {% endif %}
+        </div>
+        {% if scan_asset %}
+        <p class="muted" style="margin:6px 0 0; font-size:11.5px;">기울기·조명을 보정한
+          스캔본입니다 · <a href="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}?dl=1">내려받기</a></p>
+        <script>
+          document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll("[data-otab]").forEach(function (btn) {
+              btn.addEventListener("click", function () {
+                document.querySelectorAll("[data-otab]").forEach(function (b) {
+                  b.classList.toggle("on", b === btn);
+                });
+                document.getElementById("oScanImg").hidden = btn.dataset.otab !== "oScan";
+                document.getElementById("oRawImg").hidden = btn.dataset.otab !== "oRaw";
+              });
+            });
+          });
+        </script>
+        {% endif %}
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if extract_blocks %}
+    <div id="modeRestored">
+      <div id="viewFlow" class="extract-doc" style="max-height:680px; overflow-y:auto;">
+        {% for b in extract_blocks %}{{ b }}{% endfor %}
+      </div>
+    </div>
+    {% elif not original_kind %}
+    <pre class="doc-text" style="max-height:680px;">{{ doc.masked_text }}</pre>
+    {% endif %}
+
+  </div>
+</div>
+{% endif %}
+
+{% if doc.doc_type not in ("regulation", "ocr") %}
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:pen-linear"></iconify-icon>담당자 의견</h2>
+    {% for r in reviews %}
+      <p>{{ r.opinion }} <span class="muted">— {{ r.created_at[:16].replace("T", " ") }}</span></p>
+    {% else %}
+      <p class="muted">아직 등록된 의견이 없습니다.</p>
+    {% endfor %}
+    <form action="/doc/{{ doc.id }}/review" method="post" style="margin-top:10px;">
+      <textarea name="opinion" required placeholder="검토 의견을 입력하세요"></textarea>
+      <div style="margin-top:10px;"><button type="submit">의견 저장</button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# 이미지 팝업(라이트박스) — 그림·인식 영역 공용, 좌우 이동 #}
+<div id="zlb" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:1000;
+     display:flex;align-items:center;justify-content:center;">
+  <button id="zlbClose" title="닫기 (Esc)" style="position:absolute;top:14px;right:20px;
+     font-size:28px;line-height:1;background:none;border:none;color:#fff;cursor:pointer;">×</button>
+  <button id="zlbPrev" title="이전 (←)" style="position:absolute;left:14px;font-size:38px;
+     line-height:1;background:none;border:none;color:#fff;cursor:pointer;">‹</button>
+  <img id="zlbImg" alt="" style="max-width:90vw;max-height:86vh;object-fit:contain;
+     border-radius:6px;background:#fff;">
+  <button id="zlbNext" title="다음 (→)" style="position:absolute;right:14px;font-size:38px;
+     line-height:1;background:none;border:none;color:#fff;cursor:pointer;">›</button>
+  <div id="zlbCount" style="position:absolute;bottom:16px;left:0;right:0;text-align:center;
+     color:#fff;font-size:13px;"></div>
+</div>
+<script>
+  function zLightbox(imgs, idx, label) {
+    if (!imgs || !imgs.length) return;
+    var ov = document.getElementById("zlb"), im = document.getElementById("zlbImg"),
+        ct = document.getElementById("zlbCount"), i = idx || 0;
+    function show() { im.src = imgs[i]; ct.textContent = (label || "") + " " + (i + 1) + " / " + imgs.length; }
+    window._zlbPrev = function () { i = (i - 1 + imgs.length) % imgs.length; show(); };
+    window._zlbNext = function () { i = (i + 1) % imgs.length; show(); };
+    var multi = imgs.length > 1;
+    document.getElementById("zlbPrev").style.visibility = multi ? "visible" : "hidden";
+    document.getElementById("zlbNext").style.visibility = multi ? "visible" : "hidden";
+    show(); ov.hidden = false;
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    var ov = document.getElementById("zlb");
+    if (!ov) return;
+    ov.addEventListener("click", function (e) { if (e.target === ov) ov.hidden = true; });
+    document.getElementById("zlbClose").addEventListener("click", function () { ov.hidden = true; });
+    document.getElementById("zlbPrev").addEventListener("click", function (e) { e.stopPropagation(); window._zlbPrev && window._zlbPrev(); });
+    document.getElementById("zlbNext").addEventListener("click", function (e) { e.stopPropagation(); window._zlbNext && window._zlbNext(); });
+    document.addEventListener("keydown", function (e) {
+      if (ov.hidden) return;
+      if (e.key === "Escape") ov.hidden = true;
+      else if (e.key === "ArrowLeft") window._zlbPrev && window._zlbPrev();
+      else if (e.key === "ArrowRight") window._zlbNext && window._zlbNext();
+    });
+  });
+</script>
+{% endblock %}
