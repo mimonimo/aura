@@ -89,6 +89,67 @@ CREATE TABLE IF NOT EXISTS regulation_chunks (
   heading    TEXT NOT NULL,
   content    TEXT NOT NULL
 );
+-- 개체 계층 (지식 그래프 2단계, ADR-0010) — 문서에서 추출된 사업·기관·연도
+-- 개체와 문서-개체 언급 관계. 결정론 추출기가 채우고 재실행 시 교체된다
+CREATE TABLE IF NOT EXISTS entities (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  kind       TEXT NOT NULL,        -- program | org | year
+  created_at TEXT NOT NULL,
+  UNIQUE (name, kind)
+);
+CREATE TABLE IF NOT EXISTS doc_entities (
+  doc_id     INTEGER NOT NULL REFERENCES documents(id),
+  entity_id  INTEGER NOT NULL REFERENCES entities(id),
+  n_mentions INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (doc_id, entity_id)
+);
+-- 학습 데이터셋 대장 (데이터 공방) — 언제 어떤 소스로 몇 쌍을 만들었고
+-- 정제(수치 검증)에서 몇 쌍이 탈락했는지. 논문 방법론의 원재료
+CREATE TABLE IF NOT EXISTS datasets (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  name              TEXT NOT NULL,
+  sources           TEXT NOT NULL,   -- review,draft,chat
+  path              TEXT NOT NULL,   -- data/interim/sft/*.jsonl
+  n_pairs           INTEGER NOT NULL,
+  n_dropped_numbers INTEGER NOT NULL DEFAULT 0,
+  n_dropped_short   INTEGER NOT NULL DEFAULT 0,
+  created_at        TEXT NOT NULL
+);
+-- 추출 품질 신고 (품질 체계 5계층, docs/quality-system.md) — 담당자가 화면에서
+-- 발견한 추출 문제를 남기고, /dev 백로그로 집계한다
+CREATE TABLE IF NOT EXISTS quality_reports (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id      INTEGER NOT NULL REFERENCES documents(id),
+  kind        TEXT NOT NULL,        -- table | typo | layout | other
+  note        TEXT NOT NULL DEFAULT '',
+  reporter    TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'open',  -- open | done
+  fix_note    TEXT,                 -- 어느 계층에서 어떻게 막았는지
+  resolved_by TEXT,
+  resolved_at TEXT,
+  created_at  TEXT NOT NULL
+);
+-- 외부 참조 감사 기록 (ADR-0008) — 외부로 나가는 모든 질의는 이 테이블을
+-- 거친다. original은 감사용으로만 보관하고 절대 외부로 나가지 않는다.
+CREATE TABLE IF NOT EXISTS egress_requests (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  TEXT NOT NULL,
+  requester   TEXT NOT NULL,
+  source      TEXT NOT NULL DEFAULT 'manual',  -- manual | chat | draft
+  original    TEXT NOT NULL,
+  scrubbed    TEXT NOT NULL,
+  removed     TEXT NOT NULL DEFAULT '[]',      -- 제거·치환 내역 (JSON 배열)
+  verdict     TEXT NOT NULL,                   -- safe | review | blocked
+  status      TEXT NOT NULL,
+  -- blocked(차단) | queued(승인 대기) | denied(거부) | held(전송 대기)
+  -- | approved(승인·전송 대기) | answered(응답 수신) | failed(전송 실패)
+  decided_by  TEXT,
+  decided_at  TEXT,
+  response    TEXT,
+  sent_at     TEXT,
+  error       TEXT
+);
 """
 
 
@@ -109,6 +170,10 @@ class Database:
         "ALTER TABLE documents ADD COLUMN decision TEXT NOT NULL DEFAULT 'pending'",
         "ALTER TABLE regulation_chunks ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
         "ALTER TABLE documents ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
+        # 부서 축(기획처·복지처 등) — RAG·그래프를 부서별로 스코프한다.
+        # sector(업무영역)와 별개 축. 기본 '공통'은 전 부서 공용 기준.
+        "ALTER TABLE documents ADD COLUMN dept TEXT NOT NULL DEFAULT '공통'",
+        "ALTER TABLE regulation_chunks ADD COLUMN dept TEXT NOT NULL DEFAULT '공통'",
         "ALTER TABLE documents ADD COLUMN related_criteria_id INTEGER",
         "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
         "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
@@ -572,14 +637,17 @@ class Database:
             conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
     def add_regulation_chunks(
-        self, doc_id: int, reg_title: str, chunks, sector: str = "common"
+        self, doc_id: int, reg_title: str, chunks,
+        sector: str = "common", dept: str = "공통",
     ) -> None:
         with self._conn() as conn:
             conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
             conn.executemany(
-                "INSERT INTO regulation_chunks (doc_id, reg_title, heading, content, sector)"
-                " VALUES (?, ?, ?, ?, ?)",
-                [(doc_id, reg_title, c.heading, c.content, sector) for c in chunks],
+                "INSERT INTO regulation_chunks"
+                " (doc_id, reg_title, heading, content, sector, dept)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                [(doc_id, reg_title, c.heading, c.content, sector, dept)
+                 for c in chunks],
             )
 
     def regulation_chunk_counts(self) -> dict[int, int]:
@@ -589,16 +657,212 @@ class Database:
             ).fetchall()
             return {r[0]: r[1] for r in rows}
 
-    def list_regulation_chunks(self, sector: str | None = None) -> list[dict]:
+    def list_regulation_chunks(
+        self, sector: str | None = None, dept: str | None = None
+    ) -> list[dict]:
+        """규정 조각 후보. sector·dept가 주어지면 각 전용 + 공통만 남긴다.
+
+        부서별 RAG(사용자 요구): dept를 주면 그 부서 문서 + 공통 규정만 검색
+        후보가 된다 — 컨텍스트 예산 안에 관련 근거만 담고 타 부서를 배제.
+        """
+        cond, params = [], []
+        if sector:
+            cond.append("sector IN (?, 'common')")
+            params.append(sector)
+        if dept:
+            cond.append("dept IN (?, '공통')")
+            params.append(dept)
+        sql = "SELECT * FROM regulation_chunks"
+        if cond:
+            sql += " WHERE " + " AND ".join(cond)
+        sql += " ORDER BY id"
         with self._conn() as conn:
-            if sector:
-                rows = conn.execute(
-                    "SELECT * FROM regulation_chunks WHERE sector IN (?, 'common') ORDER BY id",
-                    (sector,),
-                ).fetchall()
-            else:
-                rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def replace_doc_entities(
+        self, doc_id: int, mentions: list[tuple[str, str, int]]
+    ) -> None:
+        """문서의 개체 언급을 교체 저장 — (이름, 유형, 횟수) 목록."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM doc_entities WHERE doc_id = ?", (doc_id,))
+            for name, kind, count in mentions:
+                cur = conn.execute(
+                    "INSERT INTO entities (name, kind, created_at) VALUES (?, ?, ?)"
+                    " ON CONFLICT(name, kind) DO UPDATE SET name = excluded.name"
+                    " RETURNING id",
+                    (name[:80], kind, _now()),
+                )
+                entity_id = cur.fetchone()[0]
+                conn.execute(
+                    "INSERT OR REPLACE INTO doc_entities"
+                    " (doc_id, entity_id, n_mentions) VALUES (?, ?, ?)",
+                    (doc_id, entity_id, count),
+                )
+            # 어느 문서에서도 언급되지 않는 고아 개체 정리
+            conn.execute(
+                "DELETE FROM entities WHERE id NOT IN"
+                " (SELECT DISTINCT entity_id FROM doc_entities)"
+            )
+
+    def graph_entities(self, min_docs: int = 2) -> list[dict]:
+        """그래프용 개체 — 문서 min_docs건 이상을 잇는 개체와 언급 간선."""
+        with self._conn() as conn:
+            ents = [dict(r) for r in conn.execute(
+                """
+                SELECT e.id, e.name, e.kind, COUNT(DISTINCT de.doc_id) AS n_docs
+                FROM entities e JOIN doc_entities de ON de.entity_id = e.id
+                GROUP BY e.id HAVING n_docs >= ?
+                """,
+                (min_docs,),
+            ).fetchall()]
+            ids = [e["id"] for e in ents]
+            links: list[dict] = []
+            if ids:
+                marks = ",".join("?" for _ in ids)
+                links = [dict(r) for r in conn.execute(
+                    f"SELECT doc_id, entity_id, n_mentions FROM doc_entities"
+                    f" WHERE entity_id IN ({marks})",
+                    ids,
+                ).fetchall()]
+            return {"entities": ents, "links": links}
+
+    def add_dataset(
+        self, name: str, sources: str, path: str,
+        n_pairs: int, n_dropped_numbers: int = 0, n_dropped_short: int = 0,
+    ) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO datasets (name, sources, path, n_pairs,"
+                " n_dropped_numbers, n_dropped_short, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (name[:80], sources, path, n_pairs,
+                 n_dropped_numbers, n_dropped_short, _now()),
+            )
+            return int(cur.lastrowid or 0)
+
+    def get_dataset(self, dataset_id: int) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM datasets WHERE id = ?", (dataset_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_datasets(self, limit: int = 30) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM datasets ORDER BY id DESC LIMIT ?", (limit,)
+            ).fetchall()
             return [dict(r) for r in rows]
+
+    def add_quality_report(
+        self, doc_id: int, kind: str, note: str, reporter: str
+    ) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO quality_reports (doc_id, kind, note, reporter, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (doc_id, kind, note[:1000], reporter, _now()),
+            )
+            return int(cur.lastrowid or 0)
+
+    def list_quality_reports(
+        self, status: str = "open", limit: int = 30
+    ) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT q.*, d.filename FROM quality_reports q"
+                " JOIN documents d ON d.id = q.doc_id"
+                " WHERE q.status = ? ORDER BY q.id DESC LIMIT ?",
+                (status, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def resolve_quality_report(
+        self, report_id: int, resolved_by: str, fix_note: str = ""
+    ) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE quality_reports SET status = 'done', resolved_by = ?,"
+                " fix_note = ?, resolved_at = ? WHERE id = ? AND status = 'open'",
+                (resolved_by, fix_note[:1000], _now(), report_id),
+            )
+            return cur.rowcount > 0
+
+    def quality_report_stats(self) -> dict[str, int]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT kind, COUNT(*) FROM quality_reports WHERE status = 'open'"
+                " GROUP BY kind"
+            ).fetchall()
+            open_by_kind = {r[0]: int(r[1]) for r in rows}
+            done = conn.execute(
+                "SELECT COUNT(*) FROM quality_reports WHERE status = 'done'"
+            ).fetchone()[0]
+        return {"open": sum(open_by_kind.values()), "done": int(done), **open_by_kind}
+
+    def add_egress_request(
+        self,
+        requester: str,
+        source: str,
+        original: str,
+        scrubbed: str,
+        removed: str,
+        verdict: str,
+        status: str,
+    ) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO egress_requests (created_at, requester, source,"
+                " original, scrubbed, removed, verdict, status)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (_now(), requester, source, original, scrubbed, removed,
+                 verdict, status),
+            )
+            return int(cur.lastrowid or 0)
+
+    def update_egress_request(self, req_id: int, **fields: str | None) -> None:
+        allowed = {"status", "decided_by", "decided_at", "response", "sent_at", "error"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError(f"허용되지 않은 필드: {unknown}")
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with self._conn() as conn:
+            conn.execute(
+                f"UPDATE egress_requests SET {sets} WHERE id = ?",
+                (*fields.values(), req_id),
+            )
+
+    def get_egress_request(self, req_id: int) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM egress_requests WHERE id = ?", (req_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_egress_requests(
+        self, status: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        sql = "SELECT * FROM egress_requests"
+        params: list = []
+        if status:
+            sql += " WHERE status = ?"
+            params.append(status)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def egress_stats(self) -> dict[str, int]:
+        """판정·상태별 건수 — /dev 이그레스 모니터링의 집계 원천."""
+        with self._conn() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM egress_requests").fetchone()[0]
+            by_status = {
+                r[0]: r[1]
+                for r in conn.execute(
+                    "SELECT status, COUNT(*) FROM egress_requests GROUP BY status"
+                ).fetchall()
+            }
+        return {"total": int(total), **{k: int(v) for k, v in by_status.items()}}
 
     def add_review(self, doc_id: int, opinion: str) -> None:
         with self._conn() as conn:

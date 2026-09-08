@@ -26,6 +26,9 @@
     </div>
     <button type="button" data-modal-open="#uploadModal">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>기준 등록</button>
+    <a href="/graph" class="btn secondary" style="height:48px; display:inline-flex;
+       align-items:center; padding:0 18px; text-decoration:none;">
+      <iconify-icon icon="solar:structure-linear"></iconify-icon>지식그래프</a>
   </div>
   {% set sec_counts = {} %}
   {% for d in documents %}{% if sec_counts.update({d.sector: sec_counts.get(d.sector, 0) + 1}) %}{% endif %}{% endfor %}

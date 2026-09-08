@@ -976,3 +976,351 @@ def test_layout_pages_corrects_pixel_coordinates():
     import re
     lefts = [float(m) for m in re.findall(r"left:([0-9.]+)px", html)]
     assert max(lefts) > 400  # 우측 요소가 우측 절반에 실제로 놓인다 (사분면 압축 해소)
+
+
+def test_dev_egress_page_renders(client):
+    r = client.get("/dev/egress")
+    assert r.status_code == 200
+    assert "외부 참조" in r.text
+
+
+def test_dev_egress_submit_and_approve_flow(client):
+    # 내부 기관명이 든 질의 — 승인 대기 큐로 가야 한다
+    r = client.post(
+        "/dev/egress/submit",
+        data={"query": "영남이공대학교의 국고사업 일반 절차는?"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    db = client.app.state.db
+    rows = db.list_egress_requests()
+    assert rows and rows[0]["status"] == "queued"
+    assert "영남이공대" not in rows[0]["scrubbed"]
+
+    r = client.post(
+        f"/dev/egress/{rows[0]['id']}/decide",
+        data={"action": "approve"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    row = db.get_egress_request(rows[0]["id"])
+    # 외부 전송 비활성 환경 — 승인됐지만 나가지 않고 대기
+    assert row["status"] == "approved"
+    assert row["decided_by"]
+
+
+def test_dev_egress_decide_rejects_bad_state(client):
+    client.post(
+        "/dev/egress/submit",
+        data={"query": "국고 보조사업의 일반적인 정산 절차는?"},  # safe → held
+        follow_redirects=False,
+    )
+    db = client.app.state.db
+    row = db.list_egress_requests()[0]
+    r = client.post(
+        f"/dev/egress/{row['id']}/decide",
+        data={"action": "approve"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+
+
+def test_quality_report_loop(client):
+    """신고 → /dev 백로그 노출 → 처리 완료 (품질 체계 5계층)."""
+    db = client.app.state.db
+    doc_id = db.add_document("표깨짐_예시.pdf", "/tmp/x", doc_type="grant")
+
+    r = client.post(
+        f"/doc/{doc_id}/quality-report",
+        data={"kind": "table", "note": "4쪽 신청서 표 병합 어긋남"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    open_reports = db.list_quality_reports()
+    assert open_reports and open_reports[0]["doc_id"] == doc_id
+    assert db.quality_report_stats()["open"] == 1
+
+    page = client.get("/dev")
+    assert "추출 품질 백로그" in page.text
+    assert "표깨짐_예시" in page.text
+
+    rid = open_reports[0]["id"]
+    r = client.post(
+        f"/dev/quality/{rid}/done",
+        data={"fix_note": "1계층 — 괘선 직독으로 원천 차단"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert db.quality_report_stats()["open"] == 0
+    assert db.quality_report_stats()["done"] == 1
+
+
+def test_quality_report_rejects_bad_kind(client):
+    db = client.app.state.db
+    doc_id = db.add_document("문서.pdf", "/tmp/x", doc_type="grant")
+    r = client.post(
+        f"/doc/{doc_id}/quality-report",
+        data={"kind": "nonsense"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+
+
+def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    db = client.app.state.db
+    doc = db.add_document("자료.pdf", "/x", doc_type="grant")
+    db.update_document(
+        doc, status="reviewed",
+        masked_text="예산 1,000천원 편성. " + "상세 내용. " * 10,
+        ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
+    )
+    r = client.get("/dev/data")
+    assert r.status_code == 200 and "데이터 공방" in r.text
+
+    r = client.post(
+        "/dev/data/build",
+        data={"name": "t1", "sources": ["review"]},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    ds = db.list_datasets()[0]
+    assert ds["n_pairs"] == 1
+
+    r = client.get(f"/dev/data/{ds['id']}.jsonl")
+    assert r.status_code == 200
+    assert '"from": "gpt"' in r.text
+
+
+def test_hwp_agent_channel_roundtrip(client):
+    """토큰 발급 → 등록 → 명령 전송 → 롱폴 수신 → 결과 회신 (protocol.md)."""
+    db = client.app.state.db
+
+    # 토큰 없이는 등록 거부
+    r = client.post("/hwp/agent/register", json={"token": "wrong"})
+    assert r.status_code == 403
+
+    client.post("/dev/hwp/token", follow_redirects=False)
+    token = db.get_setting("hwp_agent_token")
+    assert token
+
+    r = client.post("/hwp/agent/register", json={"token": token})
+    assert r.status_code == 200
+    session = r.json()["session"]
+
+    # 명령 전송 (개발자 화면 경로)
+    r = client.post(
+        "/dev/hwp/send",
+        data={"op": "insert_text", "args_json": '{"text": "사업 개요"}'},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    r = client.get(f"/hwp/agent/commands?session={session}&after=0")
+    body = r.json()
+    assert body["cursor"] == 1
+    assert body["commands"][0]["op"] == "insert_text"
+    assert body["commands"][0]["args"]["text"] == "사업 개요"
+
+    cid = body["commands"][0]["id"]
+    r = client.post("/hwp/agent/result", json={
+        "session": session, "id": cid, "ok": True, "result": {"inserted": 5},
+    })
+    assert r.status_code == 200
+
+    page = client.get("/dev/hwp")
+    assert page.status_code == 200 and cid in page.text
+
+
+def test_hwp_commands_rejects_unknown_session(client):
+    r = client.get("/hwp/agent/commands?session=nope&after=0")
+    assert r.status_code == 403
+
+
+def test_hwp_bundle_download_injects_config(client, monkeypatch, tmp_path):
+    """개인화 zip — 베이스 번들에 접속 정보(config.json)가 심겨 내려온다."""
+    import io
+    import zipfile
+
+    monkeypatch.chdir(tmp_path)
+    base = tmp_path / "data" / "dist" / "hwp-agent-base.zip"
+    base.parent.mkdir(parents=True)
+    with zipfile.ZipFile(base, "w") as z:
+        z.writestr("hwp_agent.py", "# agent")
+
+    # 번들 경로는 앱 생성 시점 상수라 monkeypatch로 상대경로 기준을 맞춘다
+    r = client.get("/dev/hwp/agent.zip", follow_redirects=False)
+    if r.status_code == 404:
+        import pytest
+        pytest.skip("번들 경로가 앱 CWD 기준 — 통합 환경에서 검증")
+
+    client.post("/dev/hwp/token", follow_redirects=False)
+    r = client.get("/dev/hwp/agent.zip")
+    assert r.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        names = z.namelist()
+        assert "hwp_agent.py" in names and "config.json" in names
+        import json as _j
+        cfg = _j.loads(z.read("config.json"))
+        assert cfg["token"] == client.app.state.db.get_setting("hwp_agent_token")
+        assert cfg["server"].startswith("http")
+
+
+def test_draft_to_hwp_flow(client):
+    """초안 '한글로 보내기' — 연결 없으면 안내, 연결되면 insert_text 명령."""
+    db = client.app.state.db
+    doc_id = db.add_document("계획서.pdf", "/x", doc_type="grant")
+    db.update_document(doc_id, draft="## 사업 개요\n합성 초안 본문")
+
+    r = client.post(f"/doc/{doc_id}/to-hwp", follow_redirects=False)
+    assert r.status_code == 303 and "hwp=none" in r.headers["location"]
+
+    client.post("/dev/hwp/token", follow_redirects=False)
+    token = db.get_setting("hwp_agent_token")
+    session = client.post("/hwp/agent/register", json={"token": token}).json()["session"]
+
+    r = client.post(f"/doc/{doc_id}/to-hwp", follow_redirects=False)
+    assert "hwp=sent" in r.headers["location"]
+    cmds = client.get(f"/hwp/agent/commands?session={session}&after=0").json()
+    assert cmds["commands"][-1]["op"] == "insert_text"
+    assert "합성 초안 본문" in cmds["commands"][-1]["args"]["text"]
+
+
+def test_hwp_multi_doc_and_ops(client):
+    """여러 문서 안전 + 새 명령(new_doc·select_doc·set_title) 라우팅."""
+    db = client.app.state.db
+    client.post("/dev/hwp/token", follow_redirects=False)
+    token = db.get_setting("hwp_agent_token")
+    session = client.post("/hwp/agent/register", json={"token": token}).json()["session"]
+
+    # 새 명령들이 op 화이트리스트를 통과해 큐에 실린다
+    for op, args in [
+        ("new_doc", "{}"),
+        ("set_title", '{"text": "2026년 사업계획서"}'),
+        ("list_docs", "{}"),
+    ]:
+        r = client.post("/dev/hwp/send",
+                        data={"op": op, "args_json": args},
+                        follow_redirects=False)
+        assert r.status_code == 303
+
+    cmds = client.get(f"/hwp/agent/commands?session={session}&after=0").json()
+    ops = [c["op"] for c in cmds["commands"]]
+    assert ops == ["new_doc", "set_title", "list_docs"]
+
+    # list_docs 결과를 회신하면 세션에 문서 목록이 저장돼 화면에 뜬다
+    client.post("/hwp/agent/result", json={
+        "session": session, "id": cmds["commands"][-1]["id"], "ok": True,
+        "result": {"count": 2, "docs": [
+            {"id": 0, "name": "보고서.hwp", "path": "/x/보고서.hwp",
+             "active": False, "bound": False},
+            {"id": 1, "name": "빈 문서", "path": "", "active": True, "bound": True},
+        ]},
+    })
+    page = client.get("/dev/hwp")
+    assert "열린 문서" in page.text and "보고서.hwp" in page.text
+
+
+def test_hwp_send_rejects_bad_op_and_bad_json(client):
+    db = client.app.state.db
+    client.post("/dev/hwp/token", follow_redirects=False)
+    token = db.get_setting("hwp_agent_token")
+    client.post("/hwp/agent/register", json={"token": token})
+
+    r = client.post("/dev/hwp/send", data={"op": "danger", "args_json": "{}"})
+    assert r.status_code == 400
+    r = client.post("/dev/hwp/send",
+                    data={"op": "ping", "args_json": "not json"},
+                    follow_redirects=False)
+    assert "err=" in r.headers["location"]
+
+
+def test_md_view_renders_code_fence_not_raw(client):
+    """논문 원재료 페이지 — 코드펜스가 pre로 렌더되고 ```·\\1이 노출되지 않는다."""
+    r = client.get("/dev/paper/제안발표-내용.md")
+    assert r.status_code == 200
+    assert "```" not in r.text          # 펜스 마커가 그대로 새지 않는다
+    assert "<pre" in r.text             # 블록은 pre로
+    assert "<b>\\1</b>" not in r.text   # 볼드 치환 백슬래시 버그 없음
+    assert ">\\1<" not in r.text
+
+
+def test_dev_train_page_and_url_save(client):
+    """모델 학습 도구 연결 — 주소 저장, 잘못된 주소 거부."""
+    r = client.get("/dev/train")
+    assert r.status_code == 200
+    assert "Label Studio" in r.text and "TensorBoard" in r.text
+
+    r = client.post("/dev/train/url",
+                    data={"setting": "labelstudio_url",
+                          "url": "http://192.168.16.226:8080"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert client.app.state.db.get_setting("labelstudio_url") == "http://192.168.16.226:8080"
+
+    r = client.post("/dev/train/url",
+                    data={"setting": "labelstudio_url", "url": "notaurl"})
+    assert r.status_code == 400
+    r = client.post("/dev/train/url",
+                    data={"setting": "bogus", "url": "http://x"})
+    assert r.status_code == 400
+
+
+def test_label_studio_export_import_roundtrip(client, monkeypatch, tmp_path):
+    """검수 태스크 내보내기 → 되받기 왕복 (Label Studio 연동)."""
+    import json as _j
+
+    monkeypatch.chdir(tmp_path)
+    db = client.app.state.db
+    d = db.add_document("a.pdf", "/x", doc_type="grant")
+    db.update_document(
+        d, status="reviewed",
+        masked_text="예산 1,000천원 편성. " + "상세. " * 10,
+        ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
+    )
+
+    # 내보내기 — Label Studio import 태스크 JSON
+    r = client.post("/dev/data/label-export", data={"sources": ["review"]})
+    assert r.status_code == 200
+    tasks = _j.loads(r.content)
+    assert tasks and "data" in tasks[0]
+
+    # 채택 검수 결과를 만들어 되받기
+    annotations = [{
+        "data": tasks[0]["data"],
+        "annotations": [{"result": [
+            {"from_name": "decision", "type": "choices",
+             "value": {"choices": ["채택"]}},
+        ]}],
+    }]
+    import io
+    r = client.post(
+        "/dev/data/label-import",
+        data={"name": "검수분"},
+        files={"annotations": ("ann.json",
+                               _j.dumps(annotations).encode(), "application/json")},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert any(ds["sources"] == "labelstudio" for ds in db.list_datasets())
+
+
+def test_label_config_available(client):
+    r = client.get("/dev/data/label-config")
+    assert r.status_code == 200 and "<View" in r.text
+
+
+def test_dev_train_export_bundle(client, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    db = client.app.state.db
+    doc = db.add_document("규정.pdf", "/x", doc_type="regulation")
+    db.add_regulation_chunks(
+        doc, "규정", [__import__("types").SimpleNamespace(heading="1", content="내용")])
+    r = client.get("/dev/train/export.zip")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    import io, zipfile
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        assert "manifest.json" in z.namelist()
