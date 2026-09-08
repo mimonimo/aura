@@ -2,6 +2,12 @@
 {% block title %}개발 현황{% endblock %}
 {% block pagetitle %}개발 현황{% endblock %}
 {% block content %}
+<style>
+  /* 대시보드 카드 — 높이 불균형 지그재그 방지(마소너리). 카드가 촘촘히 쌓인다 */
+  .dev-cols { column-count: 2; column-gap: 16px; }
+  .dev-cols > .card { break-inside: avoid; margin-bottom: 16px; }
+  @media (max-width: 1080px) { .dev-cols { column-count: 1; } }
+</style>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:target-linear"></iconify-icon>프로젝트 개요</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
@@ -118,7 +124,7 @@
     후에 착수합니다(순서 원칙). Qwen 계열 베이스는 기관 수용성·명명 확인 대기.</p>
 </div></div>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px; align-items:start;">
+<div class="dev-cols">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 정확도
       <a href="/dev/doc/retrieval-baseline-mini.md" class="muted"
@@ -177,7 +183,7 @@
   </div></div>
 </div>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px; align-items:start;">
+<div class="dev-cols">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 자료</h2>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px;">논문과 발표자료에
@@ -260,7 +266,7 @@
   </div></div>
 </div>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px; align-items:start;">
+<div class="dev-cols">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:history-linear"></iconify-icon>최근 개선 내용</h2>
     {% if recent_summary %}

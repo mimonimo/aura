@@ -28,15 +28,20 @@
        style="text-decoration:none;">
       <iconify-icon icon="solar:arrow-right-up-linear"></iconify-icon>{{ t.name }} 열기</a>
     {% endif %}
-    <form action="/dev/train/url" method="post"
-          style="display:flex; gap:8px; margin-top:10px; align-items:stretch;">
-      <input type="hidden" name="setting" value="{{ t.setting }}">
-      <input type="text" name="url" value="{{ t.url }}"
-             placeholder="예: http://192.168.16.226:{{ '8080' if t.key=='labelstudio' else ('7860' if t.key=='llamaboard' else '6006') }}"
-             style="flex:1; min-width:0; border:1px solid var(--line); border-radius:12px;
-                    padding:8px 12px; font-size:12.5px;">
-      <button type="submit" class="secondary" style="font-size:12.5px; padding:8px 16px;">저장</button>
-    </form>
+    {# 주소는 구축 시 자동 설정됨 — 옮기거나 서버 이전 시에만 여기서 변경 #}
+    <details style="margin-top:10px;">
+      <summary class="muted" style="cursor:pointer; font-size:11.5px;">
+        {{ "주소 변경" if t.url else "주소 연결" }}</summary>
+      <form action="/dev/train/url" method="post"
+            style="display:flex; gap:8px; margin-top:8px; align-items:stretch;">
+        <input type="hidden" name="setting" value="{{ t.setting }}">
+        <input type="text" name="url" value="{{ t.url }}"
+               placeholder="예: http://192.168.16.226:{{ '8080' if t.key=='labelstudio' else ('7860' if t.key=='llamaboard' else '6006') }}"
+               style="flex:1; min-width:0; border:1px solid var(--line); border-radius:12px;
+                      padding:8px 12px; font-size:12.5px;">
+        <button type="submit" class="secondary" style="font-size:12.5px; padding:8px 16px;">저장</button>
+      </form>
+    </details>
   </div></div>
   {% endfor %}
 </div>
