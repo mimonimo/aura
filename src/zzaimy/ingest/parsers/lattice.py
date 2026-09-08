@@ -48,6 +48,49 @@ def extract_tables(pdf_path: Path | str) -> list[ParsedTable]:
         return []
 
 
+def swap_tables(
+    entries, tables: list, lattice_tables: list, fits: dict[int, float]
+) -> tuple[list, int]:
+    """MinerU 표 목록을 같은 자리의 괘선 표로 교체한다 (bbox 겹침 매칭).
+
+    entries의 table 항목마다 같은 페이지의 괘선 표 중 겹침 비율이 가장 큰
+    것을 고른다. fits는 entry bbox의 페이지별 렌더 배율(pdf pt 환산용).
+    반환: (교체된 표 목록, 교체 건수).
+    """
+    lattice_by_page: dict[int, list] = {}
+    for lt in lattice_tables:
+        lattice_by_page.setdefault(lt.page_no, []).append(lt)
+    new_tables = list(tables)
+    taken: set[tuple[int, int]] = set()  # (page_no, 후보 인덱스)
+    n_swapped = 0
+    for e in entries:
+        if getattr(e, "kind", "") != "table":
+            continue
+        if not (0 <= e.ref < len(new_tables)):
+            continue
+        cands = lattice_by_page.get(e.page_no, [])
+        best, best_ratio = None, 0.0
+        fit = max(fits.get(e.page_no, 1.0), 1.0)
+        ebox = tuple(v / fit for v in e.bbox) if e.bbox else None
+        for k, lt in enumerate(cands):
+            if (e.page_no, k) in taken or lt.bbox is None:
+                continue
+            if ebox is None:
+                best, best_ratio = k, 1.0  # bbox 없으면 순서 매칭
+                break
+            ix = max(0.0, min(ebox[2], lt.bbox[2]) - max(ebox[0], lt.bbox[0]))
+            iy = max(0.0, min(ebox[3], lt.bbox[3]) - max(ebox[1], lt.bbox[1]))
+            area = (lt.bbox[2] - lt.bbox[0]) * (lt.bbox[3] - lt.bbox[1])
+            ratio = (ix * iy) / area if area > 0 else 0.0
+            if ratio > best_ratio:
+                best, best_ratio = k, ratio
+        if best is not None and best_ratio >= 0.3:
+            taken.add((e.page_no, best))
+            new_tables[e.ref] = cands[best]
+            n_swapped += 1
+    return new_tables, n_swapped
+
+
 def _page_tables(page, page_no: int) -> list[ParsedTable]:
     hs, vs = _segments(page)
     if len(hs) < 2 or len(vs) < 2:
