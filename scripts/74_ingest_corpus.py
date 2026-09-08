@@ -21,7 +21,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from zzaimy.app.db import Database              # noqa: E402
-from zzaimy.app.regulations import split_regulation  # noqa: E402
+from zzaimy.app.regulations import chunk_document  # noqa: E402
 from zzaimy.ingest.hwp_text import extract_text  # noqa: E402
 from zzaimy.ingest.pii import PiiMasker, RawDocument  # noqa: E402
 
@@ -84,7 +84,7 @@ def main() -> int:
             print(f"  [마스킹ERR] {name[:40]} :: {str(e)[:40]}")
             n_err += 1
             continue
-        chunks = split_regulation(masked.text)
+        chunks = chunk_document(masked.text)
         if not chunks:
             n_skip += 1
             continue
