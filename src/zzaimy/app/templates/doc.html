@@ -31,23 +31,6 @@
         if (rest) rest.hidden = btn.dataset.mtab !== "modeRestored";
       });
     });
-    document.querySelectorAll("[data-vtab]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        document.querySelectorAll("[data-vtab]").forEach(function (b) {
-          b.classList.toggle("on", b === btn);
-        });
-        var flow = document.getElementById("viewFlow");
-        var lay = document.getElementById("viewLayout");
-        if (flow && lay) {
-          flow.hidden = btn.dataset.vtab !== "viewFlow";
-          lay.hidden = btn.dataset.vtab !== "viewLayout";
-        }
-      });
-    });
-    if (location.hash === "#layout") {
-      var lb = document.querySelector('[data-vtab="viewLayout"]');
-      if (lb) lb.click();
-    }
   });
 </script>
 <p><a href="{{ '/criteria' if doc.doc_type == 'regulation' else ('/ocr' if doc.doc_type == 'ocr' else '/') }}" class="btn-ghost">
@@ -241,11 +224,22 @@
         {% endif %}
       </span>
       {% endif %}</h2>
-    {# 좌우 대조 없이 단일 뷰어 — 원본 모드 / 복원 모드 전환 #}
+    {% if assets %}
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 14px;">
+      {% for a in assets %}
+      <a href="/doc/{{ doc.id }}/asset/{{ a.id }}" target="_blank"
+         title="그림 {{ loop.index }} 크게 보기" style="line-height:0;">
+        <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="그림 {{ loop.index }}" loading="lazy"
+             style="height:90px; width:auto; max-width:150px; object-fit:cover;
+                    border:1px solid var(--line); border-radius:8px; display:block;"></a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {# 단일 뷰어 — 원본 / AI 읽기 전환 (복원 PDF 생성 제거로 빠름) #}
     {% if original_kind and extract_blocks %}
     <div class="tabbar" style="max-width:280px; margin-bottom:12px;">
-      <button type="button" data-mtab="modeOriginal">원본 모드</button>
-      <button type="button" class="on" data-mtab="modeRestored">복원 모드</button>
+      <button type="button" data-mtab="modeOriginal">원본</button>
+      <button type="button" class="on" data-mtab="modeRestored">AI 읽기</button>
     </div>
     {% endif %}
 
@@ -294,28 +288,9 @@
 
     {% if extract_blocks %}
     <div id="modeRestored">
-      {% if restored_pdf %}
-      <div class="tabbar" style="max-width:280px; margin-bottom:10px;">
-        <button type="button" class="on" data-vtab="viewLayout">복원 문서</button>
-        <button type="button" data-vtab="viewFlow">AI 읽기</button>
-      </div>
-      {% endif %}
-      <div id="viewFlow" class="extract-doc" {% if restored_pdf %}hidden{% endif %}
-           style="max-height:680px; overflow-y:auto;">
+      <div id="viewFlow" class="extract-doc" style="max-height:680px; overflow-y:auto;">
         {% for b in extract_blocks %}{{ b }}{% endfor %}
       </div>
-      {% if restored_pdf %}
-      {# OCR 레이어가 입혀진 PDF — 크롬 내장 뷰어에서 드래그 복사·검색 #}
-      <div id="viewLayout">
-        <p style="margin:0 0 8px; text-align:right;">
-          <a href="/doc/{{ doc.id }}/restored.pdf" target="_blank" class="btn-ghost"
-             style="font-size:12px;">
-            <iconify-icon icon="solar:square-top-up-linear"></iconify-icon>새 탭에서 크게 보기</a></p>
-        <embed src="/doc/{{ doc.id }}/restored.pdf" type="application/pdf"
-               style="width:100%; height:calc(100vh - 230px); min-height:560px;
-                      border:1px solid var(--line); border-radius:12px;">
-      </div>
-      {% endif %}
     </div>
     {% elif not original_kind %}
     <pre class="doc-text" style="max-height:680px;">{{ doc.masked_text }}</pre>
