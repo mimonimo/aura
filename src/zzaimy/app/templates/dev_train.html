@@ -14,7 +14,7 @@
     넣어 학습을 시작할 수 있습니다.</p>
 </div></div>
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px;">
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; align-items:start;">
   {% for t in tools %}
   <div class="card reveal"><div class="card-in">
     <h2 style="font-size:15px;">{{ t.name }}
@@ -29,13 +29,13 @@
       <iconify-icon icon="solar:arrow-right-up-linear"></iconify-icon>{{ t.name }} 열기</a>
     {% endif %}
     <form action="/dev/train/url" method="post"
-          style="display:flex; gap:6px; margin-top:10px;">
+          style="display:flex; gap:8px; margin-top:10px; align-items:stretch;">
       <input type="hidden" name="setting" value="{{ t.setting }}">
       <input type="text" name="url" value="{{ t.url }}"
              placeholder="예: http://192.168.16.226:{{ '8080' if t.key=='labelstudio' else ('7860' if t.key=='llamaboard' else '6006') }}"
-             style="flex:1; border:1px solid var(--line); border-radius:8px;
-                    padding:7px 10px; font-size:12.5px;">
-      <button type="submit" class="secondary" style="font-size:12px;">저장</button>
+             style="flex:1; min-width:0; border:1px solid var(--line); border-radius:12px;
+                    padding:8px 12px; font-size:12.5px;">
+      <button type="submit" class="secondary" style="font-size:12.5px; padding:8px 16px;">저장</button>
     </form>
   </div></div>
   {% endfor %}

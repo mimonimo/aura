@@ -16,14 +16,17 @@
   "auto": "업무 단위로 묶어 관리하세요",
 } %}
 {% if active_tab != "all" and active_tab in sector_meta %}
-<div class="card reveal" style="background:linear-gradient(120deg,#16223A,#1B3B75); border:0;">
-  <div style="display:flex; align-items:center; gap:16px; padding:20px 24px; color:#fff;">
-    <iconify-icon icon="{{ sector_meta[active_tab][0] }}" style="font-size:34px; opacity:.9;"></iconify-icon>
-    <div>
-      <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ sector_meta[active_tab][1] }} 업무</div>
-      <div style="font-size:13px; color:#B9C6DA; margin-top:3px;">{{ sector_meta[active_tab][2] }}</div>
-    </div>
-    <a href="/" class="btn-ghost on-dark" style="margin-left:auto;">전체 문서함 보기</a>
+<div style="display:flex; align-items:center; gap:14px; padding:2px 2px 16px;
+            border-bottom:1px solid var(--line); margin-bottom:20px;">
+  <div style="width:42px; height:42px; border-radius:12px; background:#E8EFFC;
+              color:var(--navy); display:flex; align-items:center; justify-content:center;
+              flex:none;">
+    <iconify-icon icon="{{ sector_meta[active_tab][0] }}" style="font-size:23px;"></iconify-icon>
+  </div>
+  <div>
+    <div style="font-size:17px; font-weight:800; color:var(--ink); letter-spacing:-0.02em;">
+      {{ sector_meta[active_tab][1] }} 업무</div>
+    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">{{ sector_meta[active_tab][2] }}</div>
   </div>
 </div>
 {% endif %}
@@ -105,7 +108,7 @@
   ] %}
   <a class="tile" href="/?{{ base_qs }}{% if key %}&flt={{ key }}{% endif %}"
      style="text-decoration:none; color:var(--ink); cursor:pointer;
-            {% if active_flt == key or (not active_flt and not key) %}border-color:var(--navy); box-shadow:0 0 0 1px var(--navy) inset, 0 4px 18px rgba(27,59,117,.08);{% endif %}">
+            {% if active_flt == key or (not active_flt and not key) %}background:#EEF3FB; border-color:#B6CCF0;{% endif %}">
     <div class="ico {{ cls }}"><iconify-icon icon="{{ icon }}"></iconify-icon></div>
     <div><b>{{ n }}</b><span>{{ label }}</span></div>
   </a>
