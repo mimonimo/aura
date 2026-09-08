@@ -1934,8 +1934,14 @@ def create_app(
             owner=getattr(request.state, "user", "zzaimy"),
         )
         background.add_task(processor.process, db, doc_id, stored)
-        return RedirectResponse(f"/?type={doc_type}" if related_criteria_id else "/",
-                                status_code=303)
+        # 접수한 자리로 돌아간다 — 프로젝트에서 올렸으면 그 프로젝트로
+        if project_id:
+            dest = f"/project/{project_id}"
+        elif doc_type in INBOX_TYPES and doc_type != "auto":
+            dest = f"/?type={doc_type}"
+        else:
+            dest = "/"
+        return RedirectResponse(dest, status_code=303)
 
     @app.post("/doc/{doc_id}/draft")
     def make_draft(

@@ -16,7 +16,12 @@
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; align-items:start;">
   {% for t in tools %}
-  <div class="card reveal"><div class="card-in">
+  <div class="card reveal" style="position:relative;"><div class="card-in">
+    {# 주소는 구축 시 자동 설정 — 우상단 톱니 버튼으로 이전 시에만 변경 #}
+    <button type="button" class="icon-btn" title="주소 설정"
+            data-modal-open="#urlModal-{{ t.setting }}"
+            style="position:absolute; top:14px; right:14px;">
+      <iconify-icon icon="solar:settings-linear"></iconify-icon></button>
     <h2 style="font-size:15px;">{{ t.name }}
       {% if t.url %}<span class="pill reviewed" style="margin-left:6px;">연결됨</span>
       {% elif t.gpu %}<span class="pill" style="margin-left:6px; background:#FDF3E7; color:var(--amber);">GPU 대기</span>
@@ -28,21 +33,23 @@
        style="text-decoration:none;">
       <iconify-icon icon="solar:arrow-right-up-linear"></iconify-icon>{{ t.name }} 열기</a>
     {% endif %}
-    {# 주소는 구축 시 자동 설정됨 — 옮기거나 서버 이전 시에만 여기서 변경 #}
-    <details style="margin-top:10px;">
-      <summary class="muted" style="cursor:pointer; font-size:11.5px;">
-        {{ "주소 변경" if t.url else "주소 연결" }}</summary>
-      <form action="/dev/train/url" method="post"
-            style="display:flex; gap:8px; margin-top:8px; align-items:stretch;">
+  </div></div>
+
+  <div class="modal-back" id="urlModal-{{ t.setting }}">
+    <div class="card"><div class="card-in">
+      <div class="modal-head"><h2 style="font-size:15px;">{{ t.name }} 주소</h2>
+        <button type="button" class="icon-btn" data-modal-close>
+          <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+      <p class="muted" style="font-size:12px; margin:0 0 10px;">구축 시 자동 설정됩니다.
+        서버를 옮길 때만 바꾸세요.</p>
+      <form action="/dev/train/url" method="post" style="display:flex; gap:8px;">
         <input type="hidden" name="setting" value="{{ t.setting }}">
         <input type="text" name="url" value="{{ t.url }}"
-               placeholder="예: http://192.168.16.226:{{ '8080' if t.key=='labelstudio' else ('7860' if t.key=='llamaboard' else '6006') }}"
-               style="flex:1; min-width:0; border:1px solid var(--line); border-radius:12px;
-                      padding:8px 12px; font-size:12.5px;">
-        <button type="submit" class="secondary" style="font-size:12.5px; padding:8px 16px;">저장</button>
+               style="flex:1; border:1px solid var(--line); border-radius:12px; padding:9px 12px; font-size:13px;">
+        <button type="submit" class="secondary">저장</button>
       </form>
-    </details>
-  </div></div>
+    </div></div>
+  </div>
   {% endfor %}
 </div>
 
