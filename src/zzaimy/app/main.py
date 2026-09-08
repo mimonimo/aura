@@ -797,11 +797,13 @@ def create_app(
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
             all_cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
-            prefer = list_cols.get(table)
-            if prefer:
-                cols = [c for c in prefer if c in all_cols]
-            else:
-                cols = [c for c in all_cols if c not in hidden][:6]
+            # 엑셀형: 전체 열 노출. 큐레이션 열을 앞에, 나머지 열을 뒤에 두어
+            # 자주 보는 열이 왼쪽에 오게만 정렬한다(값은 120자로 잘라 그리드가
+            # ellipsis 처리 — 긴 열도 안전). hidden은 이제 정렬 후순위 힌트로만 쓴다.
+            prefer = [c for c in (list_cols.get(table) or []) if c in all_cols]
+            rest = [c for c in all_cols if c not in prefer and c not in hidden]
+            tail = [c for c in all_cols if c not in prefer and c in hidden]
+            cols = prefer + rest + tail
             where, params = "", []
             if q.strip():
                 like = " OR ".join(
@@ -1123,6 +1125,38 @@ def create_app(
             "quality_open": db.list_quality_reports(status="open", limit=10),
         }))
 
+    _CORPUS_DB = Path("data/platform/corpus_pilot.db")
+
+    @app.get("/dev/corpus", response_class=HTMLResponse)
+    def dev_corpus(request: Request, q: str = ""):
+        """수집·인제스트한 국고 코퍼스 조각을 요약·검색한다(전용 DB, dev DB와 분리).
+
+        임베딩·리랭커 없이 Kiwi 희소검색만 쓴다 — 모델 없이 검색 동작 확인·노출용.
+        dense(KURE)·rerank 품질은 VM 재색인(66) 후 붙는다.
+        """
+        from zzaimy.app.regulations import sparse_search
+
+        summary = {"exists": _CORPUS_DB.exists(), "docs": 0, "chunks": 0,
+                   "pii": 0, "by_source": []}
+        results: list[dict] = []
+        if _CORPUS_DB.exists():
+            cdb = Database(_CORPUS_DB)
+            with cdb._conn() as conn:
+                summary["docs"] = conn.execute(
+                    "SELECT COUNT(*) FROM documents").fetchone()[0]
+                summary["chunks"] = conn.execute(
+                    "SELECT COUNT(*) FROM regulation_chunks").fetchone()[0]
+                summary["by_source"] = [
+                    {"name": r[0], "n": r[1]} for r in conn.execute(
+                        "SELECT d.filename, COUNT(*) FROM regulation_chunks r"
+                        " JOIN documents d ON d.id = r.doc_id"
+                        " GROUP BY r.doc_id ORDER BY 2 DESC LIMIT 15")]
+            if q.strip():
+                results = sparse_search(cdb, q, top_k=15)
+        return templates.TemplateResponse(request, "dev_corpus.html", ctx(request, {
+            "summary": summary, "q": q, "results": results,
+        }))
+
     @app.post("/dev/reindex")
     def dev_reindex():
         """재색인 체인 실행 — 규정 조각 변경 후 질의·임베딩·앱 순차 갱신."""
@@ -1217,7 +1251,57 @@ def create_app(
         res = result.get("result")
         if isinstance(res, dict) and "docs" in res:
             sess["docs"] = res["docs"]
+        # 산출물 URL이 붙어 왔으면 세션 최신 산출물로 기억(미리보기용)
+        if isinstance(res, dict) and res.get("artifact_url"):
+            sess.setdefault("artifacts", []).append({
+                "url": res["artifact_url"], "format": res.get("format"),
+                "bytes": res.get("artifact_bytes"), "cmd": result.get("id"),
+            })
+            del sess["artifacts"][:-20]
         return {"ok": True}
+
+    _HWP_ARTIFACTS = Path("data/hwp-artifacts")
+
+    @app.post("/hwp/agent/artifact")
+    async def hwp_artifact(request: Request):
+        """에이전트가 한글에서 뽑은 산출물(PDF·hwpx)을 회수한다. 미리보기·
+        다운로드에 쓴다. 세션 검증 후 저장하고 회수 URL을 돌려준다."""
+        import base64 as _b64
+
+        payload = await request.json()
+        _hwp_session(str(payload.get("session") or ""))
+        fmt = str(payload.get("format") or "pdf")
+        ext = {"pdf": "pdf", "hwpx": "hwpx", "hwp": "hwp"}.get(fmt, "bin")
+        try:
+            data = _b64.b64decode(payload.get("b64") or "")
+        except Exception:
+            raise HTTPException(400, "잘못된 산출물 데이터")
+        if not data:
+            raise HTTPException(400, "빈 산출물")
+        _HWP_ARTIFACTS.mkdir(parents=True, exist_ok=True)
+        aid = secrets.token_hex(8)
+        (_HWP_ARTIFACTS / f"{aid}.{ext}").write_bytes(data)
+        return {"url": f"/dev/hwp/artifact/{aid}.{ext}", "id": aid,
+                "bytes": len(data)}
+
+    @app.get("/dev/hwp/artifact/{fname}")
+    def hwp_artifact_get(fname: str):
+        """회수된 산출물 서빙 — PDF는 브라우저 미리보기(inline), 나머지는 다운로드."""
+        from fastapi.responses import FileResponse
+
+        if "/" in fname or "\\" in fname or ".." in fname:
+            raise HTTPException(400, "잘못된 파일명")
+        p = _HWP_ARTIFACTS / fname
+        if not p.exists():
+            raise HTTPException(404, "산출물 없음")
+        media = {"pdf": "application/pdf",
+                 "hwpx": "application/haansofthwpx",
+                 "hwp": "application/x-hwp"}.get(
+                     p.suffix.lstrip("."), "application/octet-stream")
+        disp = "inline" if p.suffix == ".pdf" else "attachment"
+        return FileResponse(
+            str(p), media_type=media,
+            headers={"Content-Disposition": f'{disp}; filename="{fname}"'})
 
     # 개발자 화면 — 토큰 발급·상태·명령 콘솔 (LLM 없이도 실시간 데모 가능)
 
@@ -1225,30 +1309,44 @@ def create_app(
         "ping", "new_doc", "open", "list_docs", "select_doc", "goto",
         "set_title", "find", "insert_text", "replace", "insert_table",
         "fill_table", "set_format", "delete_text", "delete_table",
-        "get_text", "save", "save_as",
+        "get_text", "save", "save_as", "export_artifact",
     }
 
     def _hwp_send(op: str, args: dict) -> bool:
         """가장 최근 연결 에이전트로 명령 전송. 연결 없으면 False."""
+        return _hwp_send_many([{"op": op, "args": args}])
+
+    def _hwp_send_many(ops: list[dict]) -> bool:
+        """op 시퀀스를 한 번에 큐잉한다(문서 저작처럼 순서가 중요한 흐름).
+        연결된 에이전트가 없으면 False."""
         if not hwp_sessions:
             return False
         _sid, sess = max(hwp_sessions.items(), key=lambda kv: kv[1]["registered"])
-        sess["commands"].append(
-            {"id": f"cmd-{secrets.token_hex(3)}", "op": op, "args": args}
-        )
+        for o in ops:
+            sess["commands"].append({
+                "id": f"cmd-{secrets.token_hex(3)}",
+                "op": o["op"], "args": o.get("args", {}),
+            })
         return True
 
     @app.post("/doc/{doc_id}/to-hwp")
-    def doc_to_hwp(doc_id: int):
-        """초안을 한글에 새 문서로 띄운다 — 새 문서를 만들어 거기 넣으므로
-        사용자가 열어둔 다른 문서는 건드리지 않는다. 이후 편집은 이 문서로."""
+    def doc_to_hwp(doc_id: int, template: str = Form("")):
+        """초안(Markdown)을 한글 문서로 저작한다 (ADR-0014).
+
+        양식(template)이 지정되면 그 .hwp/.hwpx를 열어 채우고, 없으면 새 문서를
+        만든다 — 어느 쪽이든 사용자가 열어둔 다른 문서는 건드리지 않는다.
+        끝에 PDF·hwpx를 뽑아 서버로 회수(미리보기·다운로드).
+        """
+        from zzaimy.hwp.md_ops import author_sequence
+
         doc = db.get_document(doc_id)
         if doc is None or not (doc.get("draft") or "").strip():
             raise HTTPException(404, "초안 없음")
         if not hwp_sessions:
             return RedirectResponse(f"/doc/{doc_id}?hwp=none", status_code=303)
-        _hwp_send("new_doc", {})               # 새 문서 생성·바인딩
-        _hwp_send("insert_text", {"text": doc["draft"]})
+        seq = author_sequence(doc["draft"],
+                              template_path=(template.strip() or None))
+        _hwp_send_many(seq)
         return RedirectResponse(f"/doc/{doc_id}?hwp=sent", status_code=303)
 
     @app.get("/dev/hwp", response_class=HTMLResponse)
@@ -1259,7 +1357,8 @@ def create_app(
         sessions = [
             {"id": sid, "age": int(now - s["last_poll"]),
              "n_cmd": len(s["commands"]), "results": s["results"][-12:][::-1],
-             "docs": s.get("docs") or []}
+             "docs": s.get("docs") or [],
+             "artifacts": (s.get("artifacts") or [])[::-1]}
             for sid, s in sorted(
                 hwp_sessions.items(), key=lambda kv: -kv[1]["registered"]
             )
@@ -1367,9 +1466,16 @@ def create_app(
             {**t, "url": db.get_setting(t["setting"], "")}
             for t in _TRAIN_TOOLS
         ]
+        from zzaimy.export.bundle import preview_bundle
+        try:
+            export_preview = preview_bundle(
+                db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
+        except Exception:
+            export_preview = []
         return templates.TemplateResponse(request, "dev_train.html", ctx(request, {
             "tools": tools,
             "datasets": db.list_datasets(limit=10),
+            "export_preview": export_preview,
         }))
 
     @app.get("/dev/train/export-preview.json")

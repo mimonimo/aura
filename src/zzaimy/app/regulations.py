@@ -98,6 +98,92 @@ def split_regulation(text: str) -> list[RegulationChunk]:
     return chunks
 
 
+# 서술형(공고·계획서) 절 경계 — 로마숫자·장/절/조·번호·가나다·불릿·대괄호
+_PROSE_HEADING = re.compile(
+    r"^(?:제\s*\d+\s*[장절관조]"
+    r"|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.、\s]"
+    r"|\d+(?:-\d+)?\s*[.)]\s"
+    r"|[가나다라마바사아자차카타파하]\s*[.)]\s"
+    r"|[□○◦▪▶◆■●·※])"
+)
+_SENT_END = re.compile(r"(?<=[다음함임])\.\s|(?<=\.)\s|(?<=니다)\.\s|(?<=[.!?])\s")
+
+
+def _pack_sentences(text: str, target: int, hard_max: int) -> list[str]:
+    """긴 본문을 문장 경계로 target자 안팎 창으로 묶는다(문장 안 자름)."""
+    text = re.sub(r"[ \t]+", " ", text).strip()
+    if len(text) <= hard_max:
+        return [text] if text else []
+    sents = [s for s in _SENT_END.split(text) if s and s.strip()]
+    out, buf = [], ""
+    for s in sents:
+        if buf and len(buf) + len(s) > target:
+            out.append(buf.strip())
+            buf = s
+        else:
+            buf = f"{buf} {s}" if buf else s
+        if len(buf) >= hard_max:            # 문장 없이도 너무 길면 강제 컷
+            out.append(buf.strip())
+            buf = ""
+    if buf.strip():
+        out.append(buf.strip())
+    return out
+
+
+def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[RegulationChunk]:
+    """서술형 문서(공고·사업계획서)를 절 경계·문장 단위로 촘촘히 나눈다.
+
+    PDF 추출 텍스트처럼 문단 사이 빈 줄이 없어도 동작한다. 절 표제(로마숫자·
+    번호·불릿 등)에서 조각을 끊고, 표제 없는 긴 덩어리는 문장으로 묶는다.
+    각 조각에는 직전 표제를 heading으로 붙인다.
+    """
+    text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return []
+    lines = [ln.rstrip() for ln in text.split("\n")]
+
+    # 표제 라인에서 블록 분할
+    blocks: list[tuple[str, list[str]]] = []
+    heading, body = "", []
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            continue
+        if _PROSE_HEADING.match(s) and len(s) <= 60:
+            if heading or body:
+                blocks.append((heading, body))
+            heading, body = s, []
+        else:
+            body.append(s)
+    if heading or body:
+        blocks.append((heading, body))
+
+    chunks: list[RegulationChunk] = []
+    for head, body_lines in blocks:
+        body = " ".join(body_lines).strip()
+        full = (head + " " + body).strip() if head else body
+        if not full:
+            continue
+        pieces = _pack_sentences(full, target, hard_max)
+        for pc in pieces:
+            chunks.append(RegulationChunk(
+                heading=(head or _heading_of(pc))[:60], content=pc))
+    return chunks
+
+
+def chunk_document(text: str) -> list[RegulationChunk]:
+    """문서 성격을 판별해 청킹한다: 조문형(규정)이면 split_regulation, 그 외
+    서술형(공고·계획서)이면 split_prose. 인제스트가 문서마다 이걸 부른다."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    reg = split_regulation(text)
+    # 조문형이면(조각이 여럿·평균 길이 적정) 그대로. 아니면 서술형 청커로 재분할.
+    if len(reg) >= 3 and max((len(c.content) for c in reg), default=0) <= 1600:
+        return reg
+    return split_prose(text)
+
+
 def _tokens(text: str) -> set[str]:
     return set(_TOKEN.findall(text))
 
@@ -120,6 +206,45 @@ def restore_spacing(text: str) -> str:
         return fixed if fixed else text
     except Exception:
         return text
+
+
+def sparse_search(
+    db: Database, query_text: str, top_k: int = 15, min_overlap: int = 1,
+    sector: str | None = None, dept: str | None = None,
+) -> list[dict]:
+    """임베딩·리랭커 없이 Kiwi 명사 겹침(+IDF)만으로 조각을 랭킹한다.
+
+    모델이 없는 환경(맥 dev·임베딩 미계산)에서 검색 동작을 확인·노출하는 용도.
+    반환: 각 조각 dict에 float `score`를 붙인 top-k 리스트.
+    """
+    import math
+
+    query = extract_nouns(query_text)
+    if not query:
+        return []
+    chunks = db.list_regulation_chunks(sector=sector, dept=dept)
+    for chunk in chunks:
+        cid = chunk["id"]
+        if cid not in _noun_cache:
+            _noun_cache[cid] = extract_nouns(chunk["content"])
+    n = max(len(chunks), 1)
+    df = {t: sum(1 for c in chunks if t in _noun_cache[c["id"]]) for t in query}
+    idf = {t: math.log(1 + n / (1 + df[t])) for t in query}
+    rare_cut = max(3, int(n * 0.1))
+    scored: list[tuple[int, float, dict]] = []
+    for chunk in chunks:
+        matched = query & _noun_cache[chunk["id"]]
+        if len(matched) >= min_overlap:
+            rare_hits = sum(1 for t in matched if df[t] <= rare_cut)
+            score = sum(min(len(t), 4) * idf[t] for t in matched)
+            scored.append((rare_hits, score, chunk))
+    scored.sort(key=lambda x: (-x[0], -x[1]))
+    out = []
+    for _, score, chunk in scored[:top_k]:
+        c = dict(chunk)
+        c["score"] = round(score, 2)
+        out.append(c)
+    return out
 
 
 def find_relevant(

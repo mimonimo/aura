@@ -85,6 +85,29 @@
 </div></div>
 {% endif %}
 
+{% if primary and primary.artifacts %}
+{% set pdfs = primary.artifacts | selectattr('format','equalto','pdf') | list %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:file-check-linear"></iconify-icon>산출물 미리보기
+    <span class="muted" style="font-size:12px; font-weight:500;">한글이 뽑은 PDF · 원본 서식 그대로</span></h2>
+  {% if pdfs %}
+  <iframe src="{{ pdfs[0].url }}" title="PDF 미리보기"
+          style="width:100%; height:640px; border:1px solid var(--line); border-radius:10px; background:#fff;"></iframe>
+  {% else %}
+  <p class="muted" style="margin:0 0 6px; font-size:12.5px;">아직 PDF 산출물이 없습니다 —
+    저작 후 한글이 PDF를 뽑으면 여기 표시됩니다.</p>
+  {% endif %}
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+    {% for a in primary.artifacts %}
+    <a href="{{ a.url }}" class="btn" style="text-decoration:none; font-size:12px; padding:6px 12px;"
+       {% if a.format != 'pdf' %}download{% endif %}>
+      <iconify-icon icon="solar:download-linear"></iconify-icon>{{ a.format|upper }}
+      <span class="muted" style="font-weight:500;">{{ (a.bytes or 0)//1024 }}KB</span></a>
+    {% endfor %}
+  </div>
+</div></div>
+{% endif %}
+
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:command-linear"></iconify-icon>명령 콘솔</h2>
   <p class="muted" style="font-size:12px; margin:0 0 10px; line-height:1.6;">
