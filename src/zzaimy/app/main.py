@@ -1177,6 +1177,17 @@ def create_app(
         }
         return {"session": session, "poll_after": 0}
 
+    @app.get("/hwp/agent/latest.py")
+    def hwp_agent_latest():
+        """최신 에이전트 코드 — 에이전트가 시작 시 받아 자기 자신을 갱신한다.
+        코드가 바뀌어도 재다운로드 없이 시작.bat 재실행만으로 최신이 된다."""
+        agent_py = Path(__file__).resolve().parents[3] / "tools" / "hwp-agent" / "hwp_agent.py"
+        if not agent_py.exists():
+            raise HTTPException(404, "에이전트 코드 없음")
+        from fastapi.responses import PlainTextResponse
+
+        return PlainTextResponse(agent_py.read_text(encoding="utf-8"))
+
     @app.get("/hwp/agent/commands")
     async def hwp_commands(session: str, after: int = 0):
         import asyncio
@@ -1360,9 +1371,9 @@ def create_app(
     @app.get("/dev/train/export.zip")
     def dev_train_export():
         """학습 산출물 반출 번들 — RAG·학습데이터·모델을 개방 표준으로 (ADR-0012)."""
-        from zzaimy.export.bundle import build_bundle
-
         from datetime import datetime as _dt
+
+        from zzaimy.export.bundle import build_bundle
 
         model_dir = os.environ.get("ZZAIMY_MODEL_DIR")
         data, _manifest = build_bundle(db, model_dir=model_dir)

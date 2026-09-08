@@ -559,6 +559,46 @@ def _selftest() -> int:
     return 0 if all_ok else 1
 
 
+def _self_update(server: str) -> None:
+    """서버의 최신 에이전트 코드를 받아 자신을 교체하고 한 번 재실행한다.
+
+    - 내용이 같으면 아무것도 안 한다(재실행 루프 방지).
+    - 받은 코드가 파이썬으로 컴파일되지 않으면 교체하지 않는다(손상 방어).
+    - HWP_AGENT_UPDATED=1로 자식 프로세스를 표시해 무한 재실행을 막는다.
+    """
+    import os
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(f"{server.rstrip('/')}/hwp/agent/latest.py")
+        with urllib.request.urlopen(req, timeout=20, context=_SSL_CONTEXT) as r:
+            code = r.read().decode("utf-8")
+    except Exception as e:
+        sys.stderr.write(f"[자동 갱신 생략] 최신 코드를 못 받음: {e}\n")
+        return
+    self_path = os.path.abspath(__file__)
+    try:
+        current = open(self_path, encoding="utf-8").read()
+    except OSError:
+        return
+    if code.strip() == current.strip():
+        return  # 이미 최신
+    try:
+        compile(code, self_path, "exec")  # 손상·미완성 코드 방어
+    except SyntaxError:
+        sys.stderr.write("[자동 갱신 생략] 받은 코드가 유효하지 않음\n")
+        return
+    try:
+        with open(self_path, "w", encoding="utf-8") as f:
+            f.write(code)
+    except OSError as e:
+        sys.stderr.write(f"[자동 갱신 생략] 파일 교체 실패: {e}\n")
+        return
+    sys.stderr.write("[자동 갱신] 최신 코드로 교체 — 재실행합니다.\n")
+    os.environ["HWP_AGENT_UPDATED"] = "1"
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="한글 실시간 편집 에이전트 (COM)")
     ap.add_argument("--server", help="서버 base URL")
@@ -567,6 +607,7 @@ def main() -> int:
     ap.add_argument("--selftest", action="store_true", help="한글 없이 디스패처 검증")
     ap.add_argument("--no-visible", action="store_true", help="한글 창 숨김")
     ap.add_argument("--ca-cert", help="서버 인증서 파일(자체 서명 신뢰용)")
+    ap.add_argument("--no-update", action="store_true", help="시작 시 자동 갱신 생략")
     args = ap.parse_args()
 
     if args.selftest:
@@ -590,6 +631,12 @@ def main() -> int:
     set_tls(args.ca_cert)
     if not (args.server and args.token):
         ap.error("--server 와 --token 이 필요합니다 (또는 config.json / --selftest)")
+
+    # 자동 갱신 — 서버의 최신 코드를 받아 자신을 교체하고 한 번만 재실행한다.
+    # 코드가 바뀌어도 재다운로드 없이 시작.bat 재실행만으로 최신이 된다.
+    if not args.no_update and os.environ.get("HWP_AGENT_UPDATED") != "1":
+        _self_update(args.server)
+
     try:
         backend: HwpBackend = ComBackend(visible=not args.no_visible)
     except Exception as e:
