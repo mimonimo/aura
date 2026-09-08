@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}한글 에이전트{% endblock %}
+{% block pagetitle %}한글 에이전트{% endblock %}
+{% block content %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:monitor-smartphone-linear"></iconify-icon>한글 실시간 편집 채널</h2>
+  <p style="margin:0; font-size:13.5px; line-height:1.7;">
+    Windows PC의 한글(HWP)을 서버 지시로 실시간 편집하는 채널입니다. PC에서
+    에이전트를 실행하면 바깥 방향으로만 서버에 붙고(방화벽 개방 불필요),
+    아래에서 보낸 명령이 열려 있는 한글 화면에 바로 반영됩니다.
+    자연어 지시 변환은 LLM 연결 후이며, 지금은 정해진 명령으로 경로를
+    검증합니다.</p>
+</div></div>
+
+{% if err %}
+<div class="card" style="border-color:#F0D9B8;"><div class="card-in"
+     style="padding:12px 18px; font-size:13px;">{{ err }}</div></div>
+{% endif %}
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:key-linear"></iconify-icon>연결 토큰</h2>
+    {% if token %}
+    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">PC에서 실행:</p>
+    <pre class="doc-text" style="font-size:12px; white-space:pre-wrap;">python hwp_agent.py --server https://&lt;서버주소&gt; --token {{ token }} --ca-cert server.crt</pre>
+    {% else %}
+    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">아직 토큰이 없습니다.
+      발급한 토큰을 PC 에이전트 실행 시 넣습니다.</p>
+    {% endif %}
+    <form action="/dev/hwp/token" method="post" style="margin-top:10px;">
+      <button type="submit" class="secondary">{{ "토큰 재발급 (기존 무효화)" if token else "토큰 발급" }}</button>
+    </form>
+  </div></div>
+
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:plug-circle-linear"></iconify-icon>연결 상태</h2>
+    {% for s in sessions %}
+    <div style="display:flex; gap:10px; align-items:center; padding:6px 0;
+                border-bottom:1px solid var(--panel); font-size:12.5px;">
+      <span class="pill {{ 'reviewed' if s.age < 30 else 'failed' }}">
+        {{ "연결됨" if s.age < 30 else "응답 없음" }}</span>
+      <span style="font-weight:600;">{{ s.id[:8] }}</span>
+      <span class="muted">마지막 폴링 {{ s.age }}초 전 · 명령 {{ s.n_cmd }}건</span>
+    </div>
+    {% else %}
+    <p class="muted" style="margin:0; font-size:12.5px;">연결된 에이전트 없음 —
+      PC에서 에이전트를 실행하면 여기 나타납니다.</p>
+    {% endfor %}
+  </div></div>
+</div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:command-linear"></iconify-icon>명령 보내기</h2>
+  <form action="/dev/hwp/send" method="post"
+        style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; font-size:13px;">
+    <select name="op" style="border:1px solid var(--line); border-radius:8px; padding:8px 10px;">
+      <option value="ping">ping (생존 확인)</option>
+      <option value="insert_text">insert_text (텍스트 삽입)</option>
+      <option value="find">find (찾아 이동)</option>
+      <option value="replace">replace (찾아 바꾸기)</option>
+      <option value="get_text">get_text (본문 읽기)</option>
+      <option value="save">save (저장)</option>
+    </select>
+    <input type="text" name="text" placeholder="text (삽입·찾기)"
+           style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:220px;">
+    <input type="text" name="find" placeholder="find (치환 대상)"
+           style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:160px;">
+    <input type="text" name="replace" placeholder="replace (바꿀 값)"
+           style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:160px;">
+    <button type="submit">보내기</button>
+  </form>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">
+    명령은 가장 최근 연결된 에이전트로 갑니다. 결과는 아래에 회신됩니다.</p>
+</div></div>
+
+{% for s in sessions if s.results %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:inbox-in-linear"></iconify-icon>결과 회신
+    <span class="muted" style="font-size:12px; font-weight:500;">{{ s.id[:8] }}</span></h2>
+  {% for r in s.results %}
+  <div style="display:flex; gap:10px; align-items:baseline; padding:6px 0;
+              border-bottom:1px solid var(--panel); font-size:12.5px;">
+    <span class="pill {{ 'reviewed' if r.ok else 'failed' }}">{{ "성공" if r.ok else "실패" }}</span>
+    <span class="muted" style="flex:none;">{{ r.id }}</span>
+    <span style="overflow:hidden; text-overflow:ellipsis;">
+      {{ (r.result | tojson if r.ok else r.error) | truncate(160) }}</span>
+  </div>
+  {% endfor %}
+</div></div>
+{% endfor %}
+
+{% endblock %}

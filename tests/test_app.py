@@ -1092,3 +1092,48 @@ def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
     r = client.get(f"/dev/data/{ds['id']}.jsonl")
     assert r.status_code == 200
     assert '"from": "gpt"' in r.text
+
+
+def test_hwp_agent_channel_roundtrip(client):
+    """토큰 발급 → 등록 → 명령 전송 → 롱폴 수신 → 결과 회신 (protocol.md)."""
+    db = client.app.state.db
+
+    # 토큰 없이는 등록 거부
+    r = client.post("/hwp/agent/register", json={"token": "wrong"})
+    assert r.status_code == 403
+
+    client.post("/dev/hwp/token", follow_redirects=False)
+    token = db.get_setting("hwp_agent_token")
+    assert token
+
+    r = client.post("/hwp/agent/register", json={"token": token})
+    assert r.status_code == 200
+    session = r.json()["session"]
+
+    # 명령 전송 (개발자 화면 경로)
+    r = client.post(
+        "/dev/hwp/send",
+        data={"op": "insert_text", "text": "사업 개요"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    r = client.get(f"/hwp/agent/commands?session={session}&after=0")
+    body = r.json()
+    assert body["cursor"] == 1
+    assert body["commands"][0]["op"] == "insert_text"
+    assert body["commands"][0]["args"]["text"] == "사업 개요"
+
+    cid = body["commands"][0]["id"]
+    r = client.post("/hwp/agent/result", json={
+        "session": session, "id": cid, "ok": True, "result": {"inserted": 5},
+    })
+    assert r.status_code == 200
+
+    page = client.get("/dev/hwp")
+    assert page.status_code == 200 and cid in page.text
+
+
+def test_hwp_commands_rejects_unknown_session(client):
+    r = client.get("/hwp/agent/commands?session=nope&after=0")
+    assert r.status_code == 403

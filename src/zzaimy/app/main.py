@@ -182,6 +182,9 @@ def create_app(
             request.state.user = "zzaimy"
             if request.url.path == "/login" or request.url.path.startswith("/static"):
                 return
+            if request.url.path.startswith("/hwp/agent/"):
+                # 한글 에이전트 채널 — 발급 토큰·세션으로 자체 인증 (라우트에서 검증)
+                return
             user = _session_user(request.cookies.get("zz_session", ""))
             if user is None and cred is not None:
                 acct = accounts.get(cred.username)
@@ -1128,6 +1131,117 @@ def create_app(
         accounts[target]["pw"] = new_pw
         _save_accounts()
         return RedirectResponse("/dev", status_code=303)
+
+    # ---- 한글 실시간 편집 에이전트 — 서버 채널 (tools/hwp-agent/protocol.md) ----
+    #
+    # Windows 에이전트가 아웃바운드 롱폴로 붙는다. 인증은 발급 토큰(설정
+    # hwp_agent_token) → 등록 시 세션 발급. 상태는 메모리(재시작 시 에이전트가
+    # 재등록). 명령에 실리는 값은 서버에서 만든 것만 — 유출 경계는 서버 책임.
+
+    hwp_sessions: dict[str, dict] = {}
+
+    def _hwp_session(session: str) -> dict:
+        sess = hwp_sessions.get(session)
+        if sess is None:
+            raise HTTPException(403, "등록되지 않은 에이전트 세션")
+        return sess
+
+    @app.post("/hwp/agent/register")
+    async def hwp_register(request: Request):
+        import time as _t
+
+        payload = await request.json()
+        good = db.get_setting("hwp_agent_token")
+        token = str(payload.get("token") or "")
+        if not good or not secrets.compare_digest(token.encode(), good.encode()):
+            raise HTTPException(403, "토큰 불일치 — /dev/hwp에서 발급한 토큰 필요")
+        session = secrets.token_hex(8)
+        hwp_sessions[session] = {
+            "commands": [], "results": [], "registered": _t.time(),
+            "last_poll": _t.time(),
+        }
+        return {"session": session, "poll_after": 0}
+
+    @app.get("/hwp/agent/commands")
+    async def hwp_commands(session: str, after: int = 0):
+        import asyncio
+        import time as _t
+
+        sess = _hwp_session(session)
+        after = max(0, after)
+        for _ in range(40):  # 최대 ~20초 롱폴
+            sess["last_poll"] = _t.time()
+            pending = sess["commands"][after:]
+            if pending:
+                return {"commands": pending, "cursor": after + len(pending)}
+            await asyncio.sleep(0.5)
+        return {"commands": [], "cursor": after}
+
+    @app.post("/hwp/agent/result")
+    async def hwp_result(request: Request):
+        payload = await request.json()
+        sess = _hwp_session(str(payload.get("session") or ""))
+        sess["results"].append({
+            k: payload.get(k) for k in ("id", "ok", "result", "error")
+        })
+        del sess["results"][:-50]
+        return {"ok": True}
+
+    # 개발자 화면 — 토큰 발급·상태·명령 보내기 (LLM 없이도 실시간 데모 가능)
+
+    _HWP_OPS = {"ping", "find", "insert_text", "replace", "get_text", "save"}
+
+    @app.get("/dev/hwp", response_class=HTMLResponse)
+    def dev_hwp(request: Request, err: str = ""):
+        import time as _t
+
+        now = _t.time()
+        sessions = [
+            {"id": sid, "age": int(now - s["last_poll"]),
+             "n_cmd": len(s["commands"]), "results": s["results"][-8:][::-1]}
+            for sid, s in sorted(
+                hwp_sessions.items(), key=lambda kv: -kv[1]["registered"]
+            )
+        ]
+        return templates.TemplateResponse(request, "dev_hwp.html", ctx(request, {
+            "token": db.get_setting("hwp_agent_token"),
+            "sessions": sessions,
+            "err": err,
+        }))
+
+    @app.post("/dev/hwp/token")
+    def dev_hwp_token():
+        db.set_setting("hwp_agent_token", secrets.token_hex(16))
+        return RedirectResponse("/dev/hwp", status_code=303)
+
+    @app.post("/dev/hwp/send")
+    def dev_hwp_send(
+        op: str = Form(...), text: str = Form(""),
+        find: str = Form(""), replace: str = Form(""),
+    ):
+        if op not in _HWP_OPS:
+            raise HTTPException(400, "허용되지 않은 명령")
+        live = [
+            (sid, s) for sid, s in hwp_sessions.items()
+        ]
+        if not live:
+            return RedirectResponse(
+                "/dev/hwp?err=연결된 에이전트가 없습니다", status_code=303
+            )
+        sid, sess = max(live, key=lambda kv: kv[1]["registered"])
+        args: dict = {}
+        if op == "insert_text":
+            args = {"text": text}
+        elif op == "find":
+            args = {"text": find or text}
+        elif op == "replace":
+            args = {"find": find, "replace": replace, "all": True}
+        elif op == "get_text":
+            args = {"scope": "all"}
+        sess["commands"].append(
+            {"id": f"cmd-{secrets.token_hex(3)}", "op": op, "args": args}
+        )
+        return RedirectResponse("/dev/hwp", status_code=303)
 
     # ---- 데이터 공방 — 기록 → 학습 데이터(JSONL) 변환 (개발자 전용) ----
 
