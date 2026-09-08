@@ -18,8 +18,10 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# 임베딩 유사 간선 — 이 값보다 가까운 문서 쌍만 잇는다 (노드당 상위 2개)
-_SIM_THRESHOLD = 0.55
+# 임베딩 유사 간선 — 이 값보다 가까운 문서 쌍만 잇는다 (노드당 상위 2개).
+# 0.55는 간선이 전체의 95%를 차지해 화면이 어수선했다(실측 52/54) → 강한
+# 유사만 남기고, 약한 연결 발견은 검색(RRF) 몫으로 둔다
+_SIM_THRESHOLD = 0.75
 _SIM_TOP_K = 2
 # 조문 참조 스캔 — 너무 짧은 제목은 오탐이 많아 제외
 _MIN_TITLE_LEN = 3
