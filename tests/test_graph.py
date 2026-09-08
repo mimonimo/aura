@@ -80,7 +80,8 @@ def test_empty_db_yields_empty_graph(db):
 def test_graph_json_route(tmp_path):
     from fastapi.testclient import TestClient
 
-    from tests.test_app import FakeDrafter, FakeProcessor
+    # 경로 무관 임포트 — 'pytest'로 직접 돌려도(루트가 sys.path에 없어도) 동작
+    from test_app import FakeDrafter, FakeProcessor
     from zzaimy.app.main import create_app
 
     app = create_app(
