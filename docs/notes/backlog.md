@@ -7,8 +7,8 @@
 
 - [x] 품질 체계 링크 404 — /dev/doc 허용목록에 quality-system.md 추가
 - [x] 산출물 반출 선택 — RAG/학습데이터/모델 체크박스로 선택 반출
-- [ ] 모든 학습 도구 브라우저 접근 (nginx) — 학과망이 80·443·8080만 허용.
-      TensorBoard·LLaMA Board를 nginx 경로(/tb·/lf)로 뚫기
+- [x] 모든 학습 도구 브라우저 접근 — nginx(80)로 TB(/tb)·LLaMA(/lf) 프록시,
+      LS(8080) 직접. 셋 다 VPN 200 확인, /dev/train 연결됨
 - [ ] Label Studio 자동 연동 — 페이지에서 버튼 한 번으로 프로젝트 생성·검수
       태스크 밀어넣기·진행률·되받기 (ls_client.py 완성, 라우트·UI 연결 남음)
 - [ ] 명령 콘솔 raw JSON → op별 입력 필드(표=행/열 숫자칸 등)
