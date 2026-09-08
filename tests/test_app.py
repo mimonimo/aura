@@ -1310,3 +1310,17 @@ def test_label_studio_export_import_roundtrip(client, monkeypatch, tmp_path):
 def test_label_config_available(client):
     r = client.get("/dev/data/label-config")
     assert r.status_code == 200 and "<View" in r.text
+
+
+def test_dev_train_export_bundle(client, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    db = client.app.state.db
+    doc = db.add_document("규정.pdf", "/x", doc_type="regulation")
+    db.add_regulation_chunks(
+        doc, "규정", [__import__("types").SimpleNamespace(heading="1", content="내용")])
+    r = client.get("/dev/train/export.zip")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    import io, zipfile
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        assert "manifest.json" in z.namelist()

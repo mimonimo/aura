@@ -1357,6 +1357,24 @@ def create_app(
             "datasets": db.list_datasets(limit=10),
         }))
 
+    @app.get("/dev/train/export.zip")
+    def dev_train_export():
+        """학습 산출물 반출 번들 — RAG·학습데이터·모델을 개방 표준으로 (ADR-0012)."""
+        from zzaimy.export.bundle import build_bundle
+
+        from datetime import datetime as _dt
+
+        model_dir = os.environ.get("ZZAIMY_MODEL_DIR")
+        data, _manifest = build_bundle(db, model_dir=model_dir)
+        from fastapi.responses import Response as _Resp
+
+        stamp = _dt.now().strftime("%Y%m%d")
+        return _Resp(
+            data, media_type="application/zip",
+            headers={"Content-Disposition":
+                     f'attachment; filename="zzaimy-artifacts-{stamp}.zip"'},
+        )
+
     @app.post("/dev/train/url")
     def dev_train_url(setting: str = Form(...), url: str = Form("")):
         valid = {t["setting"] for t in _TRAIN_TOOLS}
