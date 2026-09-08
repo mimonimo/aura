@@ -28,12 +28,13 @@ import urllib.request
 # 편집 명령 화이트리스트 — 이 밖의 op는 거부한다.
 ALLOWED_OPS = {
     "ping", "open", "new_doc", "find", "goto", "set_title",
-    "insert_text", "replace", "insert_table", "delete_text", "delete_table",
+    "insert_text", "replace", "insert_table", "fill_table", "set_format",
+    "delete_text", "delete_table",
     "get_text", "save", "save_as", "list_docs", "select_doc",
 }
 EDITING_OPS = {
-    "insert_text", "replace", "insert_table", "delete_text", "delete_table",
-    "set_title", "save", "save_as",
+    "insert_text", "replace", "insert_table", "fill_table", "set_format",
+    "delete_text", "delete_table", "set_title", "save", "save_as",
 }
 # 편집 전에 대상 문서가 확정돼야 하는 op — 엉뚱한 창을 건드리지 않기 위함
 TARGETED_OPS = EDITING_OPS | {"find", "get_text"}
@@ -181,6 +182,16 @@ class MockBackend(HwpBackend):
         self.text = self.text[:self.caret] + marker + self.text[self.caret:]
         self.caret += len(marker)
         return {"table": [rows, cols]}
+
+    def fill_table(self, cells: list) -> dict:
+        self._ensure_target()
+        flat = [str(v) for row in cells for v in row if str(v)]
+        self.text += "\n[표내용: " + " | ".join(flat) + "]"
+        return {"filled": len(flat)}
+
+    def set_format(self, bold: bool = False, size=None, find=None) -> dict:
+        self._ensure_target()
+        return {"bold": bold, "size": size, "target": find}
 
     def get_text(self, scope: str = "all") -> dict:
         self._ensure_target()
@@ -393,6 +404,46 @@ class ComBackend(HwpBackend):
         self._action("TableCreate", {"Rows": rows, "Cols": cols})
         return {"table": [rows, cols]}
 
+    def fill_table(self, cells: list) -> dict:
+        """방금 만든(또는 캐럿이 놓인) 표를 행 우선으로 채운다.
+
+        cells: 2차원 배열 [[행1칸들], [행2칸들]...]. 첫 셀로 이동 후
+        오른쪽/다음 행으로 이동하며 입력한다.
+        """
+        self._ensure_target()
+        self.hwp.Run("TableColBegin")   # 표 첫 셀로
+        self.hwp.Run("TableColPageUp")
+        n = 0
+        for r, row in enumerate(cells):
+            for c, val in enumerate(row):
+                if str(val):
+                    self._action("InsertText", {"Text": str(val)})
+                    n += 1
+                if c < len(row) - 1:
+                    self.hwp.Run("TableRightCell")
+            if r < len(cells) - 1:
+                # 다음 행 첫 칸으로: 현재 행 끝에서 오른쪽이면 자동으로 다음 행 첫 칸
+                self.hwp.Run("TableRightCell")
+        return {"filled": n}
+
+    def set_format(self, bold: bool = False, size: float | None = None,
+                   find: str | None = None) -> dict:
+        """서식 변경. find가 주어지면 그 문구를 찾아 선택, 아니면 현재 선택.
+
+        bold: 굵게 토글. size: 글자 크기(pt).
+        """
+        self._ensure_target()
+        if find:
+            self._action("RepeatFind", {"FindString": find, "IgnoreMessage": 1})
+        if bold:
+            self.hwp.Run("CharShapeBold")
+        if size:
+            pset = self.hwp.HParameterSet.HCharShape
+            self.hwp.HAction.GetDefault("CharShape", pset.HSet)
+            pset.Height = int(float(size) * 100)   # HWPUNIT: pt*100
+            self.hwp.HAction.Execute("CharShape", pset.HSet)
+        return {"bold": bold, "size": size, "target": find}
+
     def get_text(self, scope: str = "all") -> dict:
         self._ensure_target()
         if scope == "selection":
@@ -478,16 +529,24 @@ def _register(base: str, token: str) -> tuple[str, int]:
     return session, int(reg.get("poll_after", 0))
 
 
-def run_loop(server: str, token: str, backend: HwpBackend, confirm: bool = False) -> None:
+def run_loop(server: str, token: str, backend: HwpBackend,
+             confirm: bool = False, no_update: bool = False) -> None:
     """서버에 아웃바운드로 붙어 명령을 롱폴·실행·회신한다.
 
     서버가 재시작되면 세션이 사라진다(403) — 자동으로 재등록해 이어간다.
+    5분마다 최신 코드를 확인해 바뀌었으면 자신을 교체·재실행한다.
     """
     import urllib.error
 
     base = server.rstrip("/")
     session, cursor = _register(base, token)
+    last_update_check = time.time()
     while True:
+        # 주기적 자동 갱신(5분) — 기능이 추가돼도 재실행 없이 최신으로.
+        # 코드가 바뀌면 _self_update가 자신을 교체하고 재실행한다.
+        if not no_update and time.time() - last_update_check > 300:
+            last_update_check = time.time()
+            _self_update(base)  # 변경 없으면 무동작, 있으면 os.execv로 재시작
         try:
             resp = _get(f"{base}/hwp/agent/commands?session={session}&after={cursor}")
         except urllib.error.HTTPError as e:
@@ -643,7 +702,8 @@ def main() -> int:
         sys.stderr.write(f"한글 COM 백엔드를 열 수 없습니다: {e}\n"
                          "Windows + 정품 한글 + pywin32 환경에서 실행하세요.\n")
         return 2
-    run_loop(args.server, args.token, backend, confirm=args.confirm)
+    run_loop(args.server, args.token, backend,
+             confirm=args.confirm, no_update=args.no_update)
     return 0
 
 
