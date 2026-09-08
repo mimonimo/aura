@@ -89,6 +89,21 @@ CREATE TABLE IF NOT EXISTS regulation_chunks (
   heading    TEXT NOT NULL,
   content    TEXT NOT NULL
 );
+-- 개체 계층 (지식 그래프 2단계, ADR-0010) — 문서에서 추출된 사업·기관·연도
+-- 개체와 문서-개체 언급 관계. 결정론 추출기가 채우고 재실행 시 교체된다
+CREATE TABLE IF NOT EXISTS entities (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  kind       TEXT NOT NULL,        -- program | org | year
+  created_at TEXT NOT NULL,
+  UNIQUE (name, kind)
+);
+CREATE TABLE IF NOT EXISTS doc_entities (
+  doc_id     INTEGER NOT NULL REFERENCES documents(id),
+  entity_id  INTEGER NOT NULL REFERENCES entities(id),
+  n_mentions INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (doc_id, entity_id)
+);
 -- 학습 데이터셋 대장 (데이터 공방) — 언제 어떤 소스로 몇 쌍을 만들었고
 -- 정제(수치 검증)에서 몇 쌍이 탈락했는지. 논문 방법론의 원재료
 CREATE TABLE IF NOT EXISTS datasets (
@@ -645,6 +660,53 @@ class Database:
             else:
                 rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
             return [dict(r) for r in rows]
+
+    def replace_doc_entities(
+        self, doc_id: int, mentions: list[tuple[str, str, int]]
+    ) -> None:
+        """문서의 개체 언급을 교체 저장 — (이름, 유형, 횟수) 목록."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM doc_entities WHERE doc_id = ?", (doc_id,))
+            for name, kind, count in mentions:
+                cur = conn.execute(
+                    "INSERT INTO entities (name, kind, created_at) VALUES (?, ?, ?)"
+                    " ON CONFLICT(name, kind) DO UPDATE SET name = excluded.name"
+                    " RETURNING id",
+                    (name[:80], kind, _now()),
+                )
+                entity_id = cur.fetchone()[0]
+                conn.execute(
+                    "INSERT OR REPLACE INTO doc_entities"
+                    " (doc_id, entity_id, n_mentions) VALUES (?, ?, ?)",
+                    (doc_id, entity_id, count),
+                )
+            # 어느 문서에서도 언급되지 않는 고아 개체 정리
+            conn.execute(
+                "DELETE FROM entities WHERE id NOT IN"
+                " (SELECT DISTINCT entity_id FROM doc_entities)"
+            )
+
+    def graph_entities(self, min_docs: int = 2) -> list[dict]:
+        """그래프용 개체 — 문서 min_docs건 이상을 잇는 개체와 언급 간선."""
+        with self._conn() as conn:
+            ents = [dict(r) for r in conn.execute(
+                """
+                SELECT e.id, e.name, e.kind, COUNT(DISTINCT de.doc_id) AS n_docs
+                FROM entities e JOIN doc_entities de ON de.entity_id = e.id
+                GROUP BY e.id HAVING n_docs >= ?
+                """,
+                (min_docs,),
+            ).fetchall()]
+            ids = [e["id"] for e in ents]
+            links: list[dict] = []
+            if ids:
+                marks = ",".join("?" for _ in ids)
+                links = [dict(r) for r in conn.execute(
+                    f"SELECT doc_id, entity_id, n_mentions FROM doc_entities"
+                    f" WHERE entity_id IN ({marks})",
+                    ids,
+                ).fetchall()]
+            return {"entities": ents, "links": links}
 
     def add_dataset(
         self, name: str, sources: str, path: str,
