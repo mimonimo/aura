@@ -1224,7 +1224,8 @@ def create_app(
     _HWP_OPS = {
         "ping", "new_doc", "open", "list_docs", "select_doc", "goto",
         "set_title", "find", "insert_text", "replace", "insert_table",
-        "delete_text", "delete_table", "get_text", "save", "save_as",
+        "fill_table", "set_format", "delete_text", "delete_table",
+        "get_text", "save", "save_as",
     }
 
     def _hwp_send(op: str, args: dict) -> bool:
