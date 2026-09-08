@@ -217,23 +217,26 @@
           <iconify-icon icon="solar:document-add-linear"></iconify-icon>편집본 (.docx)</a>
         <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost" style="font-weight:600;">
           <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
-        {% if has_lines %}
-        <a href="/doc/{{ doc.id }}/boxes/1.png" target="_blank" class="btn-ghost"
-           style="font-weight:600;" title="OCR이 읽은 영역을 신뢰도 색(초록=확신, 주황=낮음)으로 표시">
-          <iconify-icon icon="solar:scanner-linear"></iconify-icon>인식 영역</a>
+        {% if box_pages %}
+        <a href="#" class="btn-ghost" style="font-weight:600;"
+           onclick="zLightbox(BOX_IMGS, 0, '인식 영역'); return false;"
+           title="OCR이 읽은 영역을 신뢰도 색(초록=확신, 주황=낮음)으로 표시">
+          <iconify-icon icon="solar:scanner-linear"></iconify-icon>인식 영역{% if box_pages|length > 1 %} {{ box_pages|length }}쪽{% endif %}</a>
+        <script>var BOX_IMGS=[{% for p in box_pages %}"/doc/{{ doc.id }}/boxes/{{ p }}.png"{% if not loop.last %},{% endif %}{% endfor %}];</script>
         {% endif %}
       </span>
       {% endif %}</h2>
     {% if assets %}
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 14px;">
       {% for a in assets %}
-      <a href="/doc/{{ doc.id }}/asset/{{ a.id }}" target="_blank"
-         title="그림 {{ loop.index }} 크게 보기" style="line-height:0;">
-        <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="그림 {{ loop.index }}" loading="lazy"
-             style="height:90px; width:auto; max-width:150px; object-fit:cover;
-                    border:1px solid var(--line); border-radius:8px; display:block;"></a>
+      <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="그림 {{ loop.index }}" loading="lazy"
+           onclick="zLightbox(GALLERY_IMGS, {{ loop.index0 }}, '그림')"
+           title="그림 {{ loop.index }} 크게 보기"
+           style="height:90px; width:auto; max-width:150px; object-fit:cover; cursor:zoom-in;
+                  border:1px solid var(--line); border-radius:8px; display:block;">
       {% endfor %}
     </div>
+    <script>var GALLERY_IMGS=[{% for a in assets %}"/doc/{{ doc.id }}/asset/{{ a.id }}"{% if not loop.last %},{% endif %}{% endfor %}];</script>
     {% endif %}
     {# 단일 뷰어 — 원본 / AI 읽기 전환 (복원 PDF 생성 제거로 빠름) #}
     {% if original_kind and extract_blocks %}
@@ -316,4 +319,47 @@
   </div>
 </div>
 {% endif %}
+
+{# 이미지 팝업(라이트박스) — 그림·인식 영역 공용, 좌우 이동 #}
+<div id="zlb" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:1000;
+     display:flex;align-items:center;justify-content:center;">
+  <button id="zlbClose" title="닫기 (Esc)" style="position:absolute;top:14px;right:20px;
+     font-size:28px;line-height:1;background:none;border:none;color:#fff;cursor:pointer;">×</button>
+  <button id="zlbPrev" title="이전 (←)" style="position:absolute;left:14px;font-size:38px;
+     line-height:1;background:none;border:none;color:#fff;cursor:pointer;">‹</button>
+  <img id="zlbImg" alt="" style="max-width:90vw;max-height:86vh;object-fit:contain;
+     border-radius:6px;background:#fff;">
+  <button id="zlbNext" title="다음 (→)" style="position:absolute;right:14px;font-size:38px;
+     line-height:1;background:none;border:none;color:#fff;cursor:pointer;">›</button>
+  <div id="zlbCount" style="position:absolute;bottom:16px;left:0;right:0;text-align:center;
+     color:#fff;font-size:13px;"></div>
+</div>
+<script>
+  function zLightbox(imgs, idx, label) {
+    if (!imgs || !imgs.length) return;
+    var ov = document.getElementById("zlb"), im = document.getElementById("zlbImg"),
+        ct = document.getElementById("zlbCount"), i = idx || 0;
+    function show() { im.src = imgs[i]; ct.textContent = (label || "") + " " + (i + 1) + " / " + imgs.length; }
+    window._zlbPrev = function () { i = (i - 1 + imgs.length) % imgs.length; show(); };
+    window._zlbNext = function () { i = (i + 1) % imgs.length; show(); };
+    var multi = imgs.length > 1;
+    document.getElementById("zlbPrev").style.visibility = multi ? "visible" : "hidden";
+    document.getElementById("zlbNext").style.visibility = multi ? "visible" : "hidden";
+    show(); ov.hidden = false;
+  }
+  document.addEventListener("DOMContentLoaded", function () {
+    var ov = document.getElementById("zlb");
+    if (!ov) return;
+    ov.addEventListener("click", function (e) { if (e.target === ov) ov.hidden = true; });
+    document.getElementById("zlbClose").addEventListener("click", function () { ov.hidden = true; });
+    document.getElementById("zlbPrev").addEventListener("click", function (e) { e.stopPropagation(); window._zlbPrev && window._zlbPrev(); });
+    document.getElementById("zlbNext").addEventListener("click", function (e) { e.stopPropagation(); window._zlbNext && window._zlbNext(); });
+    document.addEventListener("keydown", function (e) {
+      if (ov.hidden) return;
+      if (e.key === "Escape") ov.hidden = true;
+      else if (e.key === "ArrowLeft") window._zlbPrev && window._zlbPrev();
+      else if (e.key === "ArrowRight") window._zlbNext && window._zlbNext();
+    });
+  });
+</script>
 {% endblock %}

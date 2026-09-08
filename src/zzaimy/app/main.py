@@ -1589,6 +1589,7 @@ def create_app(
                 "has_lines": (
                     Path(db_path).parent / "lines" / f"{doc_id}.json"
                 ).exists(),
+                "box_pages": _box_page_list(doc_id),
                 "scan_asset": scan_asset,
                 "original_kind": original_kind,
                 "suggested_criteria": suggested,
@@ -1762,6 +1763,62 @@ def create_app(
             headers={"Content-Disposition":
                      f"attachment; filename*=UTF-8''{_q(stem)}_images.zip"},
         )
+
+    def _box_page_list(doc_id: int) -> list[int]:
+        """인식 영역이 있는 페이지 번호 목록. 없으면 빈 목록."""
+        import json as _bj
+
+        lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+        if not lines_file.exists():
+            return []
+        try:
+            payload = _bj.loads(lines_file.read_text())
+        except (ValueError, OSError):
+            return []
+        return sorted((int(p) for p in (payload.get("page_sizes") or {})), key=int)
+
+    @app.get("/doc/{doc_id}/boxes", response_class=HTMLResponse)
+    def doc_boxes_view(doc_id: int):
+        """인식 영역 뷰어 — 전 페이지를 신뢰도 색 박스와 함께 세로로.
+
+        각 페이지 이미지는 /doc/{id}/boxes/{n}.png 라우트를 재사용한다.
+        """
+        import json as _bj
+
+        doc = db.get_document(doc_id)
+        lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+        if doc is None or not lines_file.exists():
+            raise HTTPException(404)
+        payload = _bj.loads(lines_file.read_text())
+        pages = sorted(
+            (int(p) for p in (payload.get("page_sizes") or {})), key=int
+        )
+        title = html_escape(doc["filename"])
+        imgs = "".join(
+            f'<figure><figcaption>{p}쪽</figcaption>'
+            f'<img src="/doc/{doc_id}/boxes/{p}.png" loading="lazy" alt="{p}쪽"></figure>'
+            for p in pages
+        )
+        return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>인식 영역 · {title}</title><style>
+body{{margin:0;background:#f4f5f7;font-family:system-ui,'Apple SD Gothic Neo',sans-serif;color:#1a1a1a}}
+header{{position:sticky;top:0;background:#fff;border-bottom:1px solid #e3e5e8;padding:12px 18px;
+ display:flex;align-items:center;gap:16px;flex-wrap:wrap}}
+header h1{{font-size:15px;margin:0;font-weight:600}}
+.legend{{display:flex;gap:14px;font-size:12.5px;color:#555}}
+.legend span{{display:inline-flex;align-items:center;gap:5px}}
+.dot{{width:11px;height:11px;border-radius:2px;border:2px solid}}
+.g{{border-color:#22a04c}}.o{{border-color:#e68c1e}}
+main{{max-width:1000px;margin:0 auto;padding:18px}}
+figure{{margin:0 0 22px;background:#fff;border:1px solid #e3e5e8;border-radius:10px;overflow:hidden}}
+figcaption{{padding:7px 12px;font-size:12px;color:#666;border-bottom:1px solid #eee}}
+figure img{{width:100%;display:block}}
+</style></head><body>
+<header><h1>인식 영역 — {title}</h1>
+<div class="legend"><span><i class="dot g"></i>확신(확정)</span>
+<span><i class="dot o"></i>낮은 확신(재판독 대상)</span></div></header>
+<main>{imgs or '<p>표시할 페이지가 없습니다.</p>'}</main></body></html>"""
 
     @app.get("/doc/{doc_id}/boxes/{page_no}.png")
     def doc_boxes_image(doc_id: int, page_no: int):
