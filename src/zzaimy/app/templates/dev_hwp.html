@@ -109,15 +109,37 @@
 
   <form action="/dev/hwp/send" method="post"
         style="display:flex; gap:10px; align-items:flex-start; font-size:13px;">
-    <select name="op" style="border:1px solid var(--line); border-radius:8px;
+    <select name="op" id="opSelect" style="border:1px solid var(--line); border-radius:8px;
             padding:9px 10px; flex:none;">
       {% for o in ops %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
     </select>
-    <textarea name="args_json" rows="2" placeholder='인자 JSON — 예: {"text": "삽입할 내용"} · {"find": "기존", "replace": "새 값"} · {"rows": 3, "cols": 4}'
+    <textarea name="args_json" id="opArgs" rows="2" placeholder='op을 고르면 인자 예시가 채워집니다'
               style="flex:1; border:1px solid var(--line); border-radius:8px;
                      padding:9px 10px; font-family:monospace; font-size:12px;"></textarea>
     <button type="submit" style="flex:none;">보내기</button>
   </form>
+  <script>
+    // op을 고르면 인자 JSON 예시를 자동으로 채운다 (형식을 외우지 않게)
+    (function () {
+      var tpl = {
+        ping: "{}", new_doc: "{}", list_docs: "{}", save: "{}",
+        open: '{"path": "C:\\\\경로\\\\문서.hwpx"}',
+        select_doc: '{"id": 0}',
+        goto: '{"where": "start"}',
+        set_title: '{"text": "2026년 사업계획서"}',
+        insert_text: '{"text": "삽입할 내용"}',
+        replace: '{"find": "기존 값", "replace": "새 값"}',
+        insert_table: '{"rows": 3, "cols": 4}',
+        get_text: '{"scope": "all"}',
+        save_as: '{"path": "C:\\\\경로\\\\문서.hwpx", "format": "hwpx"}'
+      };
+      var sel = document.getElementById("opSelect");
+      var box = document.getElementById("opArgs");
+      function fill() { box.value = tpl[sel.value] || "{}"; }
+      sel.addEventListener("change", fill);
+      fill();
+    })();
+  </script>
 </div></div>
 
 {% if primary and primary.results %}
