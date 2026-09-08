@@ -68,6 +68,7 @@
       <div class="row"><span class="g-dot" style="background:#1B3B75;"></span>기준 문서</div>
       <div class="row"><span class="g-dot" style="background:#497BFB;"></span>접수 문서</div>
       <div class="row"><span class="g-dot" style="background:#1E6B4F;"></span>프로젝트</div>
+      <div class="row"><span class="g-dot" style="background:#B7791F;"></span>개체 (사업·기관·연도)</div>
     </div>
 
     <div class="g-sec">연결</div>
@@ -87,13 +88,15 @@
   "use strict";
   var FOCUS = "{{ focus|default('') }}";
 
-  var NODE_COLOR = { criteria: "#1B3B75", intake: "#497BFB", project: "#1E6B4F" };
+  var NODE_COLOR = { criteria: "#1B3B75", intake: "#497BFB", project: "#1E6B4F",
+                     entity: "#B7791F" };
   var EDGE_META = {
     refers:  { label: "근거 (접수→기준)", color: "#497BFB", dash: false },
     belongs: { label: "소속 (문서→프로젝트)", color: "#1E6B4F", dash: false },
     uses:    { label: "적용 (프로젝트→기준)", color: "#2B6CB0", dash: false },
     cites:   { label: "조문 참조 (기준→기준)", color: "#7C5CBF", dash: false },
-    similar: { label: "유사 (임베딩)", color: "#AEB6C4", dash: true }
+    similar: { label: "유사 (임베딩)", color: "#AEB6C4", dash: true },
+    mentions: { label: "언급 (문서→개체)", color: "#D6BC8B", dash: false }
   };
 
   var canvas = document.getElementById("gcanvas");
