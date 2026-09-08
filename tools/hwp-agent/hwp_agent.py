@@ -245,16 +245,46 @@ def _get(url: str, timeout: int = 60) -> dict:
         return json.loads(r.read() or b"{}")
 
 
-def run_loop(server: str, token: str, backend: HwpBackend, confirm: bool = False) -> None:
-    """서버에 아웃바운드로 붙어 명령을 롱폴·실행·회신한다."""
-    base = server.rstrip("/")
-    reg = _post(f"{base}/hwp/agent/register", {"token": token})
+def _register(base: str, token: str) -> tuple[str, int]:
+    """등록. 토큰이 틀리면 사람이 알 수 있는 메시지로 종료한다."""
+    import urllib.error
+
+    try:
+        reg = _post(f"{base}/hwp/agent/register", {"token": token})
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            sys.stderr.write(
+                "[등록 거부] 토큰이 맞지 않습니다 — 토큰이 재발급된 경우입니다.\n"
+                "플랫폼에서 에이전트 zip을 다시 내려받아 실행하세요.\n"
+            )
+            raise SystemExit(3)
+        raise
     session = reg.get("session", token)
-    cursor = reg.get("poll_after", 0)
     sys.stderr.write(f"[에이전트] 서버 연결됨 session={session}\n")
+    return session, int(reg.get("poll_after", 0))
+
+
+def run_loop(server: str, token: str, backend: HwpBackend, confirm: bool = False) -> None:
+    """서버에 아웃바운드로 붙어 명령을 롱폴·실행·회신한다.
+
+    서버가 재시작되면 세션이 사라진다(403) — 자동으로 재등록해 이어간다.
+    """
+    import urllib.error
+
+    base = server.rstrip("/")
+    session, cursor = _register(base, token)
     while True:
         try:
             resp = _get(f"{base}/hwp/agent/commands?session={session}&after={cursor}")
+        except urllib.error.HTTPError as e:
+            if e.code == 403:
+                sys.stderr.write("[세션 만료] 서버 재시작 감지 — 재등록\n")
+                time.sleep(2)
+                session, cursor = _register(base, token)
+                continue
+            sys.stderr.write(f"[폴링 실패] {e} — 5초 후 재시도\n")
+            time.sleep(5)
+            continue
         except Exception as e:
             sys.stderr.write(f"[폴링 실패] {e} — 5초 후 재시도\n")
             time.sleep(5)
