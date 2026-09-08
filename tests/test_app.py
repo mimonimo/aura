@@ -976,3 +976,51 @@ def test_layout_pages_corrects_pixel_coordinates():
     import re
     lefts = [float(m) for m in re.findall(r"left:([0-9.]+)px", html)]
     assert max(lefts) > 400  # 우측 요소가 우측 절반에 실제로 놓인다 (사분면 압축 해소)
+
+
+def test_dev_egress_page_renders(client):
+    r = client.get("/dev/egress")
+    assert r.status_code == 200
+    assert "외부 참조" in r.text
+
+
+def test_dev_egress_submit_and_approve_flow(client):
+    # 내부 기관명이 든 질의 — 승인 대기 큐로 가야 한다
+    r = client.post(
+        "/dev/egress/submit",
+        data={"query": "영남이공대학교의 국고사업 일반 절차는?"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+
+    db = client.app.state.db
+    rows = db.list_egress_requests()
+    assert rows and rows[0]["status"] == "queued"
+    assert "영남이공대" not in rows[0]["scrubbed"]
+
+    r = client.post(
+        f"/dev/egress/{rows[0]['id']}/decide",
+        data={"action": "approve"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    row = db.get_egress_request(rows[0]["id"])
+    # 외부 전송 비활성 환경 — 승인됐지만 나가지 않고 대기
+    assert row["status"] == "approved"
+    assert row["decided_by"]
+
+
+def test_dev_egress_decide_rejects_bad_state(client):
+    client.post(
+        "/dev/egress/submit",
+        data={"query": "국고 보조사업의 일반적인 정산 절차는?"},  # safe → held
+        follow_redirects=False,
+    )
+    db = client.app.state.db
+    row = db.list_egress_requests()[0]
+    r = client.post(
+        f"/dev/egress/{row['id']}/decide",
+        data={"action": "approve"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400

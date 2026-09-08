@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}외부 참조 관문{% endblock %}
+{% block pagetitle %}외부 참조 관문{% endblock %}
+{% block content %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>외부 참조 이그레스 게이트웨이
+    <a href="/dev/doc/decisions/0008-external-egress-gateway.md" class="muted"
+       style="margin-left:auto; font-size:12px; font-weight:500;">설계 근거</a></h2>
+  <p style="margin:0; font-size:13.5px; line-height:1.7;">
+    외부 AI에 일반 지식을 물을 때 내부 정보가 새어 나가지 않도록 모든 질의가
+    이 관문 하나를 통과합니다. 개인정보와 기관 식별자를 지운 뒤(세척), 잔여
+    위험을 판정해 안전한 것만 자동 전송하고, 애매한 것은 담당자 승인을 거치며,
+    보증할 수 없는 것은 차단합니다. 모든 건이 아래에 기록됩니다.</p>
+</div></div>
+
+{% if not external_enabled %}
+<div class="card" style="border-color:#F0D9B8;"><div class="card-in"
+     style="display:flex; align-items:center; gap:12px; padding:14px 18px;">
+  <iconify-icon icon="solar:plug-circle-linear" style="color:var(--amber); font-size:20px;"></iconify-icon>
+  <span style="font-size:13px;">외부 전송 비활성 ({{ external_reason }}).
+    판정과 감사 기록은 정상 동작하며, 허용·승인된 질의는 전송 대기로 보관됩니다.</span>
+</div></div>
+{% endif %}
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px;">
+  {% for label, key in [("전체", "total"), ("승인 대기", "queued"), ("전송 대기", "held"),
+                        ("응답 수신", "answered"), ("차단", "blocked"), ("거부", "denied")] %}
+  <div class="card"><div class="card-in" style="padding:14px 16px;">
+    <div class="muted" style="font-size:12px;">{{ label }}</div>
+    <div style="font-size:22px; font-weight:800; color:var(--navy);">
+      {{ egress_stats.get(key, 0) }}</div>
+  </div></div>
+  {% endfor %}
+</div>
+
+{% if queued %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon>승인 대기
+    <span class="pill processing" style="margin-left:6px;">{{ queued | length }}</span></h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
+    아래 세척본이 실제로 외부에 나갈 문구입니다. 문맥으로 내부를 특정할 수 있는지
+    확인한 뒤 판정하세요. 애매하면 거부가 기본입니다.</p>
+  {% for r in queued %}
+  <div style="border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:10px 0;">
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px;">
+      <span class="muted" style="font-size:12px;">#{{ r.id }} · {{ r.created_at[:16] }}
+        · {{ r.requester }} · {{ r.source }}</span>
+      <span style="margin-left:auto; display:flex; gap:6px;">
+        {% for t in r.removed_list %}
+        <span class="pill" style="font-size:11px;">{{ t }}</span>
+        {% endfor %}
+      </span>
+    </div>
+    <div style="font-size:13.5px; line-height:1.6; background:var(--panel);
+                border-radius:8px; padding:10px 12px;">{{ r.scrubbed }}</div>
+    <div style="display:flex; gap:8px; margin-top:10px;">
+      <form action="/dev/egress/{{ r.id }}/decide" method="post">
+        <input type="hidden" name="action" value="approve">
+        <button type="submit">승인 · 전송</button>
+      </form>
+      <form action="/dev/egress/{{ r.id }}/decide" method="post">
+        <input type="hidden" name="action" value="deny">
+        <button type="submit" class="secondary">거부</button>
+      </form>
+      <details style="margin-left:auto; font-size:12px;">
+        <summary class="muted" style="cursor:pointer;">원문 보기 (외부로 나가지 않음)</summary>
+        <div style="margin-top:6px; padding:8px 10px; background:#FDECEC;
+                    border-radius:8px; line-height:1.6;">{{ r.original }}</div>
+      </details>
+    </div>
+  </div>
+  {% endfor %}
+</div></div>
+{% endif %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:test-tube-linear"></iconify-icon>질의 제출</h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
+    외부 참조 질의를 관문에 넣어봅니다. 세척·판정 결과가 아래 기록에 남습니다.</p>
+  <form action="/dev/egress/submit" method="post" style="display:flex; gap:8px;">
+    <input type="text" name="query" required placeholder="예: 국고 보조사업 정산보고서의 일반적인 목차는?"
+           style="flex:1; border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+                  font-size:13.5px;">
+    <button type="submit">제출</button>
+  </form>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>감사 기록
+    <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">최근 50건</span></h2>
+  {% if rows %}
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>#</th><th>시각</th><th>요청자</th><th>세척본 (실제 전송 문구)</th>
+        <th>제거 내역</th><th>판정</th><th>상태</th><th></th></tr>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.id }}</td>
+      <td style="white-space:nowrap;">{{ r.created_at[:16] }}</td>
+      <td>{{ r.requester }}</td>
+      <td style="max-width:340px;">{{ r.scrubbed[:120] }}{% if r.scrubbed | length > 120 %}…{% endif %}
+        {% if r.response %}
+        <details style="margin-top:4px;">
+          <summary class="muted" style="cursor:pointer; font-size:11.5px;">응답 보기</summary>
+          <div style="margin-top:4px; padding:6px 8px; background:var(--panel);
+                      border-radius:6px; line-height:1.6;">{{ r.response[:800] }}</div>
+        </details>
+        {% endif %}</td>
+      <td>{% for t in r.removed_list[:4] %}<span class="pill"
+            style="font-size:10.5px; margin:1px;">{{ t }}</span>{% endfor %}</td>
+      <td>{% if r.verdict == "safe" %}<span class="pill reviewed">safe</span>
+          {% elif r.verdict == "review" %}<span class="pill processing">review</span>
+          {% else %}<span class="pill failed">blocked</span>{% endif %}</td>
+      <td>{% if r.status == "answered" %}<span class="pill reviewed">응답 수신</span>
+          {% elif r.status == "queued" %}<span class="pill processing">승인 대기</span>
+          {% elif r.status == "held" %}<span class="pill type">전송 대기</span>
+          {% elif r.status == "approved" %}<span class="pill type">승인 · 전송 대기</span>
+          {% elif r.status == "denied" %}<span class="pill failed">거부</span>
+          {% elif r.status == "failed" %}<span class="pill failed">전송 실패</span>
+          {% else %}<span class="pill failed">차단</span>{% endif %}
+          {% if r.decided_by %}<div class="muted" style="font-size:10.5px;">{{ r.decided_by }}</div>{% endif %}</td>
+      <td>{% if external_enabled and r.status in ("held", "approved", "failed") %}
+          <form action="/dev/egress/{{ r.id }}/retry" method="post">
+            <button type="submit" class="secondary" style="font-size:11.5px; padding:4px 10px;">전송</button>
+          </form>
+          {% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0;">기록 없음 — 아직 외부 참조 요청이 없습니다.</p>
+  {% endif %}
+</div></div>
+
+{% endblock %}

@@ -49,3 +49,117 @@ def test_residual_proper_noun_needs_review_not_send():
     """세척이 못 잡은 미상 고유명사가 남으면 최소 review — 그냥 safe로 보내지 않는다."""
     out = scrub("한빛제일고등학교 특별전형 요강을 알려줘")
     assert classify(out) in (Verdict.REVIEW, Verdict.BLOCKED)
+
+
+# ---------------------------------------------------------------------------
+# 게이트웨이 오케스트레이션 — 제출·기록·승인·전송 상태 흐름
+# ---------------------------------------------------------------------------
+
+import json
+
+import pytest
+
+from zzaimy.app import egress
+from zzaimy.app.db import Database
+
+
+@pytest.fixture()
+def db(tmp_path):
+    return Database(tmp_path / "egress.db")
+
+
+@pytest.fixture(autouse=True)
+def _external_disabled(monkeypatch):
+    """기본은 외부 전송 비활성 — 실제 네트워크로 나가는 테스트는 없다."""
+    monkeypatch.delenv("ZZAIMY_EXTERNAL_ENABLED", raising=False)
+    monkeypatch.delenv("ZZAIMY_ANTHROPIC_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+
+def test_submit_safe_is_held_when_external_disabled(db):
+    """safe 판정이라도 전송 비활성이면 held(전송 대기)로 남고 기록된다."""
+    row = egress.submit(db, "국고 보조사업의 일반적인 정산 절차는?", "zzdev")
+    assert row["verdict"] == "safe"
+    assert row["status"] == "held"
+    assert "전송 보류" in (row["error"] or "")
+    assert row["original"] and row["scrubbed"]
+
+
+def test_submit_internal_query_is_queued(db):
+    """내부 기관이 든 질의는 승인 대기 큐로 — 자동 전송되지 않는다."""
+    row = egress.submit(db, "영남이공대학교의 국고사업 절차를 알려줘", "zzaimy", source="chat")
+    assert row["verdict"] == "review"
+    assert row["status"] == "queued"
+    assert "영남이공대" not in row["scrubbed"]
+    removed = json.loads(row["removed"])
+    assert any(r.startswith("ORG:") for r in removed)
+
+
+def test_approve_moves_to_approved_and_holds_offline(db):
+    """승인하면 approved — 전송 비활성이라 나가지는 않고 승인자·시각이 남는다."""
+    row = egress.submit(db, "영남이공대학교 관련 일반 절차", "zzaimy")
+    out = egress.decide(db, row["id"], approve=True, decided_by="zzdev")
+    assert out["status"] == "approved"
+    assert out["decided_by"] == "zzdev"
+    assert out["decided_at"]
+
+
+def test_deny_is_terminal(db):
+    row = egress.submit(db, "영남이공대학교 관련 일반 절차", "zzaimy")
+    out = egress.decide(db, row["id"], approve=False, decided_by="zzdev")
+    assert out["status"] == "denied"
+    with pytest.raises(ValueError):
+        egress.decide(db, row["id"], approve=True, decided_by="zzdev")
+
+
+def test_decide_rejects_non_queued(db):
+    row = egress.submit(db, "일반적인 예산 편성 절차는?", "zzdev")  # safe → held
+    with pytest.raises(ValueError):
+        egress.decide(db, row["id"], approve=True, decided_by="zzdev")
+
+
+def test_masker_failure_is_blocked(db, monkeypatch):
+    """마스커를 못 쓰면 세척을 보증 못 하므로 무조건 차단 — fail-closed."""
+    def broken():
+        raise RuntimeError("마스커 로드 실패")
+
+    monkeypatch.setattr(egress, "_get_masker", broken)
+    row = egress.submit(db, "아무 질의", "zzaimy")
+    assert row["verdict"] == "blocked"
+    assert row["status"] == "blocked"
+
+
+def test_send_path_when_enabled(db, monkeypatch):
+    """전송 활성 시 safe 질의는 즉시 전송되고 응답·시각이 기록된다."""
+    monkeypatch.setattr(egress, "external_status", lambda: (True, ""))
+    monkeypatch.setattr(egress, "_send_external", lambda text: "일반 지식 답변")
+    row = egress.submit(db, "국고 보조사업의 일반적인 목차는?", "zzdev")
+    assert row["status"] == "answered"
+    assert row["response"] == "일반 지식 답변"
+    assert row["sent_at"]
+
+
+def test_send_failure_is_recorded_and_retryable(db, monkeypatch):
+    monkeypatch.setattr(egress, "external_status", lambda: (True, ""))
+
+    def boom(text):
+        raise RuntimeError("연결 실패")
+
+    monkeypatch.setattr(egress, "_send_external", boom)
+    row = egress.submit(db, "국고 보조사업의 일반적인 목차는?", "zzdev")
+    assert row["status"] == "failed"
+    assert "연결 실패" in row["error"]
+
+    monkeypatch.setattr(egress, "_send_external", lambda text: "복구 후 답변")
+    out = egress.retry_send(db, row["id"])
+    assert out["status"] == "answered"
+    assert out["response"] == "복구 후 답변"
+
+
+def test_stats_counts_by_status(db):
+    egress.submit(db, "일반 절차 질문 하나", "zzdev")            # held
+    egress.submit(db, "영남이공대학교 관련 질문", "zzaimy")       # queued
+    stats = db.egress_stats()
+    assert stats["total"] == 2
+    assert stats.get("held") == 1
+    assert stats.get("queued") == 1
