@@ -259,6 +259,13 @@
   </div></div>
 
   <div class="card"><div class="card-in">
+    <h2 style="font-size:15px;"><iconify-icon icon="solar:library-linear"></iconify-icon>국고 코퍼스</h2>
+    <p class="muted" style="font-size:12.5px;">공개 국고사업 문서(공고·계획서·서식)를 수집·
+      인제스트한 RAG 코퍼스입니다. PII 마스킹된 조각을 검색해 볼 수 있습니다.</p>
+    <a href="/dev/corpus" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
+  </div></div>
+
+  <div class="card"><div class="card-in">
     <h2 style="font-size:15px;"><iconify-icon icon="solar:shield-check-linear"></iconify-icon>외부 참조 관문
       {% if egress.get("queued", 0) %}
       <span class="pill processing" style="margin-left:6px;">대기 {{ egress.queued }}</span>

@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}국고 코퍼스{% endblock %}
+{% block pagetitle %}국고 코퍼스{% endblock %}
+{% block content %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:library-linear"></iconify-icon>국고 코퍼스 검색</h2>
+  <p style="margin:0; font-size:13.5px; line-height:1.7;">
+    공개 국고사업 문서(공고·기본계획·사업계획서 서식)를 수집·인제스트한 RAG
+    코퍼스입니다. 개인정보는 인덱싱 전에 마스킹됩니다. 아래 검색은 임베딩 없이
+    Kiwi 형태소(명사 겹침)로 동작합니다 — 의미검색(KURE)·재정렬은 GPU 재색인 후 붙습니다.</p>
+</div></div>
+
+{% if not summary.exists %}
+<div class="card" style="border-color:#F0D9B8;"><div class="card-in" style="padding:14px 18px; font-size:13px;">
+  아직 코퍼스가 없습니다 — <code>scripts/74_ingest_corpus.py</code>로 인제스트하면 여기 나타납니다.</div></div>
+{% else %}
+
+<div class="card reveal"><div class="card-in">
+  <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:baseline;">
+    <div><span style="font-size:26px; font-weight:800; color:var(--navy);">{{ summary.docs }}</span>
+      <span class="muted" style="font-size:12.5px;"> 문서</span></div>
+    <div><span style="font-size:26px; font-weight:800; color:var(--navy);">{{ summary.chunks }}</span>
+      <span class="muted" style="font-size:12.5px;"> 조각(검색 단위)</span></div>
+    <span class="pill reviewed" style="align-self:center;">PII 마스킹 완료</span>
+  </div>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <form method="get" action="/dev/corpus" style="display:flex; gap:10px; align-items:center;">
+    <input type="text" name="q" value="{{ q }}" placeholder="예: 사업계획서 성과지표 작성 / 사업비 집행 기준 / 글로컬대학 신청 서식"
+           style="flex:1; border:1px solid var(--line); border-radius:10px; padding:11px 14px; font-size:14px;">
+    <button type="submit" style="flex:none;">
+      <iconify-icon icon="solar:magnifer-linear"></iconify-icon>검색</button>
+  </form>
+
+  {% if q and not results %}
+  <p class="muted" style="margin:14px 0 0; font-size:13px;">‘{{ q }}’에 겹치는 조각이 없습니다 — 다른 낱말로 시도해 보세요.</p>
+  {% elif results %}
+  <p class="muted" style="margin:14px 0 8px; font-size:12.5px;">‘{{ q }}’ 관련 조각 {{ results|length }}건 (희소검색 점수순)</p>
+  {% for r in results %}
+  <div style="padding:11px 0; border-top:1px solid var(--panel);">
+    <div style="display:flex; gap:8px; align-items:baseline;">
+      <span class="pill type" style="flex:none;">{{ r.score }}</span>
+      <span style="font-weight:600; font-size:13px;">{{ r.heading or '(제목 없음)' }}</span>
+      <span class="muted" style="font-size:11.5px; margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:45%;">{{ r.reg_title }}</span>
+    </div>
+    <p style="margin:6px 0 0; font-size:12.5px; line-height:1.6; color:#33425c;">
+      {{ (r.content | replace('\n',' '))[:240] }}{% if r.content|length > 240 %}…{% endif %}</p>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>수집 문서
+    <span class="muted" style="font-size:12px; font-weight:500;">조각 많은 순</span></h2>
+  {% for s in summary.by_source %}
+  <div style="display:flex; gap:10px; align-items:center; padding:5px 0;
+              border-bottom:1px solid var(--panel); font-size:12.5px;">
+    <span class="pill" style="flex:none;">{{ s.n }}</span>
+    <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ s.name }}</span>
+  </div>
+  {% endfor %}
+</div></div>
+
+{% endif %}
+
+{% endblock %}
