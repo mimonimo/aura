@@ -83,6 +83,41 @@
   <div>{{ dev_now | md_view }}</div>
 </div></div>
 
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:widget-5-linear"></iconify-icon>모델 개발 트랙 (4종)
+    <a href="/dev/doc/model-plan.md" class="muted"
+       style="margin-left:auto; font-size:12px; font-weight:500;">상세</a></h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
+    오픈웨이트 모델을 교내 국고사업 문서 도메인에 맞춰 학습시키는 4종입니다.
+    지식(수치)은 학습하지 않고 능력(문체·검색력)만 학습하며, 베이스 대비
+    개선폭을 정량 입증하는 것이 목표입니다.</p>
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>모델</th><th>베이스</th><th>역할</th><th>학습 방식</th><th>상태</th></tr>
+    <tr>
+      <td style="font-weight:600;">ZZAIMY-Embed</td><td>KURE-v1</td>
+      <td>도메인 특화 임베딩(검색)</td><td>대조학습 — 합성 질의쌍</td>
+      <td><span class="pill type">v0 실험 · 베이스 유지</span></td></tr>
+    <tr>
+      <td style="font-weight:600;">ZZAIMY-Rerank</td><td>bge-reranker-v2-m3</td>
+      <td>검색 재정렬</td><td>동일 데이터 재활용</td>
+      <td><span class="pill type">베이스 사용 중</span></td></tr>
+    <tr>
+      <td style="font-weight:600;">ZZAIMY-Writer</td><td>Qwen3.5-35B-A3B (MoE)</td>
+      <td>계획서 섹션 생성</td><td>QLoRA SFT</td>
+      <td><span class="pill processing">예정 · 베이스라인 후</span></td></tr>
+    <tr>
+      <td style="font-weight:600;">ZZAIMY-Extract</td><td>Qwen3-4B</td>
+      <td>실적 카드 추출</td><td>증류(distillation) SFT</td>
+      <td><span class="pill processing">예정</span></td></tr>
+  </table>
+  </div>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0; line-height:1.6;">
+    ※ 학습이 실제로 착수된 건 임베딩(v0)뿐이며, v0는 베이스(KURE)를 못 넘어
+    미적용 상태입니다. Writer·Extract 학습은 GPU 서버 확보 + 베이스라인 측정
+    후에 착수합니다(순서 원칙). Qwen 계열 베이스는 기관 수용성·명명 확인 대기.</p>
+</div></div>
+
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 정확도
