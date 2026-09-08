@@ -1245,3 +1245,24 @@ def test_md_view_renders_code_fence_not_raw(client):
     assert "<pre" in r.text             # 블록은 pre로
     assert "<b>\\1</b>" not in r.text   # 볼드 치환 백슬래시 버그 없음
     assert ">\\1<" not in r.text
+
+
+def test_dev_train_page_and_url_save(client):
+    """모델 학습 도구 연결 — 주소 저장, 잘못된 주소 거부."""
+    r = client.get("/dev/train")
+    assert r.status_code == 200
+    assert "Label Studio" in r.text and "TensorBoard" in r.text
+
+    r = client.post("/dev/train/url",
+                    data={"setting": "labelstudio_url",
+                          "url": "http://192.168.16.226:8080"},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert client.app.state.db.get_setting("labelstudio_url") == "http://192.168.16.226:8080"
+
+    r = client.post("/dev/train/url",
+                    data={"setting": "labelstudio_url", "url": "notaurl"})
+    assert r.status_code == 400
+    r = client.post("/dev/train/url",
+                    data={"setting": "bogus", "url": "http://x"})
+    assert r.status_code == 400
