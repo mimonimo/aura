@@ -1235,3 +1235,13 @@ def test_hwp_send_rejects_bad_op_and_bad_json(client):
                     data={"op": "ping", "args_json": "not json"},
                     follow_redirects=False)
     assert "err=" in r.headers["location"]
+
+
+def test_md_view_renders_code_fence_not_raw(client):
+    """논문 원재료 페이지 — 코드펜스가 pre로 렌더되고 ```·\\1이 노출되지 않는다."""
+    r = client.get("/dev/paper/제안발표-내용.md")
+    assert r.status_code == 200
+    assert "```" not in r.text          # 펜스 마커가 그대로 새지 않는다
+    assert "<pre" in r.text             # 블록은 pre로
+    assert "<b>\\1</b>" not in r.text   # 볼드 치환 백슬래시 버그 없음
+    assert ">\\1<" not in r.text
