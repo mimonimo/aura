@@ -1330,6 +1330,44 @@ def create_app(
             )
         return RedirectResponse("/dev/hwp", status_code=303)
 
+    # ---- 모델 학습 — 기성 오픈소스 도구 연결 (ADR-0011) ----
+    # 도구는 각자 프로세스로 돌고 플랫폼은 연결·임베드만 한다. GPU(DGX) 확보
+    # 후 실제 가동. 주소는 설정에 저장(없으면 미연결로 표시).
+
+    _TRAIN_TOOLS = [
+        {"key": "labelstudio", "name": "Label Studio",
+         "role": "데이터 라벨링·검수 (학습 쌍 검수, 실적 카드 정답, DPO 선호쌍)",
+         "gpu": False, "setting": "labelstudio_url"},
+        {"key": "llamaboard", "name": "LLaMA Board",
+         "role": "파인튜닝 실행 UI (데이터셋·하이퍼파라미터·학습 시작)",
+         "gpu": True, "setting": "llamaboard_url"},
+        {"key": "tensorboard", "name": "TensorBoard",
+         "role": "학습 진행 모니터링 (손실·학습률·평가지표 그래프)",
+         "gpu": True, "setting": "tensorboard_url"},
+    ]
+
+    @app.get("/dev/train", response_class=HTMLResponse)
+    def dev_train(request: Request):
+        tools = [
+            {**t, "url": db.get_setting(t["setting"], "")}
+            for t in _TRAIN_TOOLS
+        ]
+        return templates.TemplateResponse(request, "dev_train.html", ctx(request, {
+            "tools": tools,
+            "datasets": db.list_datasets(limit=10),
+        }))
+
+    @app.post("/dev/train/url")
+    def dev_train_url(setting: str = Form(...), url: str = Form("")):
+        valid = {t["setting"] for t in _TRAIN_TOOLS}
+        if setting not in valid:
+            raise HTTPException(400, "알 수 없는 도구")
+        url = url.strip()
+        if url and not url.startswith(("http://", "https://")):
+            raise HTTPException(400, "http(s):// 주소여야 합니다")
+        db.set_setting(setting, url)
+        return RedirectResponse("/dev/train", status_code=303)
+
     # ---- 데이터 공방 — 기록 → 학습 데이터(JSONL) 변환 (개발자 전용) ----
 
     @app.get("/dev/data", response_class=HTMLResponse)

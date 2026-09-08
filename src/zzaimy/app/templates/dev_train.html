@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}모델 학습{% endblock %}
+{% block pagetitle %}모델 학습{% endblock %}
+{% block content %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>모델 학습 도구
+    <a href="/dev/doc/decisions/0011-oss-mlops-integration.md" class="muted"
+       style="margin-left:auto; font-size:12px; font-weight:500;">설계 근거</a></h2>
+  <p style="margin:0; font-size:13.5px; line-height:1.7;">
+    파인튜닝은 검증된 오픈소스 도구로 합니다. 데이터 검수는 Label Studio,
+    학습 실행은 LLaMA Board, 진행 모니터링은 TensorBoard를 연결합니다. 각
+    도구의 주소를 넣으면 아래에서 바로 열립니다. GPU 서버가 준비되면 주소만
+    넣어 학습을 시작할 수 있습니다.</p>
+</div></div>
+
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px;">
+  {% for t in tools %}
+  <div class="card reveal"><div class="card-in">
+    <h2 style="font-size:15px;">{{ t.name }}
+      {% if t.url %}<span class="pill reviewed" style="margin-left:6px;">연결됨</span>
+      {% elif t.gpu %}<span class="pill" style="margin-left:6px; background:#FDF3E7; color:var(--amber);">GPU 대기</span>
+      {% else %}<span class="pill type" style="margin-left:6px;">지금 연결 가능</span>{% endif %}
+    </h2>
+    <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">{{ t.role }}</p>
+    {% if t.url %}
+    <a href="{{ t.url }}" target="_blank" rel="noopener" class="btn"
+       style="text-decoration:none;">
+      <iconify-icon icon="solar:arrow-right-up-linear"></iconify-icon>{{ t.name }} 열기</a>
+    {% endif %}
+    <form action="/dev/train/url" method="post"
+          style="display:flex; gap:6px; margin-top:10px;">
+      <input type="hidden" name="setting" value="{{ t.setting }}">
+      <input type="text" name="url" value="{{ t.url }}"
+             placeholder="예: http://192.168.16.226:{{ '8080' if t.key=='labelstudio' else ('7860' if t.key=='llamaboard' else '6006') }}"
+             style="flex:1; border:1px solid var(--line); border-radius:8px;
+                    padding:7px 10px; font-size:12.5px;">
+      <button type="submit" class="secondary" style="font-size:12px;">저장</button>
+    </form>
+  </div></div>
+  {% endfor %}
+</div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:map-arrow-right-linear"></iconify-icon>학습 순서</h2>
+  <ol style="margin:0; padding-left:20px; font-size:13px; line-height:1.9;">
+    <li>데이터 공방에서 학습 쌍 생성 → Label Studio에서 사람 검수·정답 확정</li>
+    <li>베이스라인 측정 — 학습 전 성능을 먼저 잰다(개선폭 입증의 기준)</li>
+    <li>LLaMA Board에서 SFT(능력 학습) 실행, TensorBoard로 진행 확인</li>
+    <li>담당자 판정·재작성 이력으로 DPO(선호 학습)</li>
+    <li>학습 모델을 서빙에 연결(.env.local의 VLLM_BASE_URL)</li>
+  </ol>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">
+    베이스라인 측정 전 파인튜닝을 시작하지 않습니다 — 개선폭을 수치로
+    입증하는 것이 목표입니다.</p>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:box-minimalistic-linear"></iconify-icon>준비된 학습 데이터
+    <a href="/dev/data" class="btn-ghost" style="margin-left:auto; font-weight:600;">데이터 공방</a></h2>
+  {% if datasets %}
+  <div class="table-scroll"><table style="font-size:12.5px;">
+    <tr><th>이름</th><th>소스</th><th>학습 쌍</th><th>수치 탈락</th><th>생성</th></tr>
+    {% for ds in datasets %}
+    <tr><td style="font-weight:600;">{{ ds.name }}</td><td>{{ ds.sources }}</td>
+      <td style="font-weight:700; color:var(--navy);">{{ ds.n_pairs }}</td>
+      <td>{{ ds.n_dropped_numbers }}</td><td>{{ ds.created_at[:10] }}</td></tr>
+    {% endfor %}
+  </table></div>
+  {% else %}
+  <p class="muted" style="margin:0; font-size:12.5px;">아직 만든 학습 데이터가
+    없습니다 — 데이터 공방에서 생성하세요.</p>
+  {% endif %}
+</div></div>
+
+{% endblock %}
