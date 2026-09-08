@@ -1066,3 +1066,29 @@ def test_quality_report_rejects_bad_kind(client):
         follow_redirects=False,
     )
     assert r.status_code == 400
+
+
+def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    db = client.app.state.db
+    doc = db.add_document("자료.pdf", "/x", doc_type="grant")
+    db.update_document(
+        doc, status="reviewed",
+        masked_text="예산 1,000천원 편성. " + "상세 내용. " * 10,
+        ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
+    )
+    r = client.get("/dev/data")
+    assert r.status_code == 200 and "데이터 공방" in r.text
+
+    r = client.post(
+        "/dev/data/build",
+        data={"name": "t1", "sources": ["review"]},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    ds = db.list_datasets()[0]
+    assert ds["n_pairs"] == 1
+
+    r = client.get(f"/dev/data/{ds['id']}.jsonl")
+    assert r.status_code == 200
+    assert '"from": "gpt"' in r.text

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}데이터 공방{% endblock %}
+{% block pagetitle %}데이터 공방{% endblock %}
+{% block content %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:box-minimalistic-linear"></iconify-icon>데이터 공방</h2>
+  <p style="margin:0; font-size:13.5px; line-height:1.7;">
+    플랫폼에 쌓인 기록(문서 검토·초안·대화)을 모델 학습 데이터로 변환합니다.
+    모든 학습 쌍은 내보내기 전에 수치 검증을 통과해야 하며, 출력의 수치가
+    입력 근거에 없으면 그 쌍은 폐기됩니다 — 모델이 수치를 외우지 않게 하는
+    정제 장치입니다. 검색(RAG)용 변환은 문서 등록 시 자동으로 이뤄지며,
+    아래 현황판에서 상태를 봅니다.</p>
+</div></div>
+
+{% if err %}
+<div class="card" style="border-color:#F0D9B8;"><div class="card-in"
+     style="padding:12px 18px; font-size:13px;">{{ err }}</div></div>
+{% endif %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:magic-stick-3-linear"></iconify-icon>학습 쌍 만들기</h2>
+  <form action="/dev/data/build" method="post"
+        style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; font-size:13px;">
+    <input type="text" name="name" value="sft" placeholder="데이터셋 이름"
+           style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:140px;">
+    <label style="display:flex; gap:5px; align-items:center;">
+      <input type="checkbox" name="sources" value="review" checked>검토 의견 (문서→검토)</label>
+    <label style="display:flex; gap:5px; align-items:center;">
+      <input type="checkbox" name="sources" value="draft" checked>초안 (근거→초안)</label>
+    <label style="display:flex; gap:5px; align-items:center;">
+      <input type="checkbox" name="sources" value="chat">대화 (멀티턴)</label>
+    <button type="submit">변환 실행</button>
+  </form>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0; line-height:1.6;">
+    대화 소스는 답변이 인용한 규정 조각이 세션에 저장되지 않아 수치 검증에서
+    보수적으로 탈락합니다 — 근거 추적 저장이 붙으면 통과율이 올라갑니다.</p>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>데이터셋 대장</h2>
+  {% if datasets %}
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>#</th><th>이름</th><th>소스</th><th>학습 쌍</th>
+        <th>수치 탈락</th><th>빈약 탈락</th><th>생성 시각</th><th></th></tr>
+    {% for ds in datasets %}
+    <tr>
+      <td>{{ ds.id }}</td>
+      <td style="font-weight:600;">{{ ds.name }}</td>
+      <td>{{ ds.sources }}</td>
+      <td style="font-weight:700; color:var(--navy);">{{ ds.n_pairs }}</td>
+      <td>{{ ds.n_dropped_numbers }}</td>
+      <td>{{ ds.n_dropped_short }}</td>
+      <td style="white-space:nowrap;">{{ ds.created_at[:16] }}</td>
+      <td><a href="/dev/data/{{ ds.id }}.jsonl" class="btn-ghost"
+             style="font-size:11.5px;">JSONL</a></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0;">아직 만든 데이터셋이 없습니다.</p>
+  {% endif %}
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:layers-minimalistic-linear"></iconify-icon>변환 현황판
+    <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">
+      문서 {{ rag_rows|length }}건</span></h2>
+  {% if rag_rows %}
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>#</th><th>문서</th><th>유형</th><th>상태</th><th>조각</th>
+        <th>색인</th><th>학습 재료</th></tr>
+    {% for r in rag_rows %}
+    <tr>
+      <td>{{ r.id }}</td>
+      <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;
+                 white-space:nowrap;">
+        <a href="/doc/{{ r.id }}" style="color:var(--navy); text-decoration:none;
+           font-weight:600;">{{ r.filename }}</a></td>
+      <td>{{ r.doc_type }}</td>
+      <td>{{ r.status }}</td>
+      <td>{{ r.n_chunks }}</td>
+      <td>{% if r.indexed is none %}<span class="muted">—</span>
+          {% elif r.indexed %}<span class="pill reviewed">등재</span>
+          {% else %}<span class="pill processing">재색인 필요</span>{% endif %}</td>
+      <td>{% if r.has_review %}<span class="pill type" style="font-size:10.5px;">검토</span>{% endif %}
+          {% if r.has_draft %}<span class="pill type" style="font-size:10.5px;">초안</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0;">등록된 문서가 없습니다.</p>
+  {% endif %}
+</div></div>
+
+{% endblock %}
