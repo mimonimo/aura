@@ -115,9 +115,16 @@ class ComBackend(HwpBackend):
     _FMT = {"hwpx": "HWPX", "hwp": "HWP", "pdf": "PDF"}
 
     def __init__(self, visible: bool = True) -> None:
-        import win32com.client  # pywin32 — Windows 전용
+        # pywin32가 있으면 우선, 없으면 comtypes(순수 파이썬 — 내장 배포판용).
+        # 플랫폼에서 내려받는 번들은 설치 없는 comtypes 경로로 동작한다.
+        try:
+            import win32com.client  # pywin32 — 설치형 환경
 
-        self.hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+            self.hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+        except ImportError:
+            import comtypes.client  # 순수 파이썬 COM
+
+            self.hwp = comtypes.client.CreateObject("HWPFrame.HwpObject")
         # 파일 접근 보안 대화상자 억제(자동화 표준 관용구). 없으면 열기 시 팝업.
         try:
             self.hwp.RegisterModule("FilePathCheckDLL", "SecurityModule")
@@ -306,9 +313,25 @@ def main() -> int:
 
     if args.selftest:
         return _selftest()
+
+    # 플랫폼 배포 번들은 config.json에 접속 정보를 심어 보낸다 — 인자 불필요
+    if not (args.server and args.token):
+        import os
+
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "config.json")
+        if os.path.exists(cfg_path):
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+            args.server = args.server or cfg.get("server")
+            args.token = args.token or cfg.get("token")
+            ca = cfg.get("ca_cert")
+            if ca and not args.ca_cert:
+                args.ca_cert = os.path.join(os.path.dirname(cfg_path), ca)
+
     set_tls(args.ca_cert)
     if not (args.server and args.token):
-        ap.error("--server 와 --token 이 필요합니다 (또는 --selftest)")
+        ap.error("--server 와 --token 이 필요합니다 (또는 config.json / --selftest)")
     try:
         backend: HwpBackend = ComBackend(visible=not args.no_visible)
     except Exception as e:

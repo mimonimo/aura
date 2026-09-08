@@ -132,7 +132,18 @@
             <iconify-icon icon="solar:file-check-linear"></iconify-icon>.pdf</a>
           <a href="/doc/{{ doc.id }}/draft.md" class="btn-ghost" style="font-weight:600;">
             <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
+          <form action="/doc/{{ doc.id }}/to-hwp" method="post" style="margin:0;">
+            <button type="submit" class="btn-ghost" style="font-weight:600; border:0;">
+              <iconify-icon icon="solar:monitor-smartphone-linear"></iconify-icon>한글로 보내기</button>
+          </form>
         </span></h2>
+      {% if request.query_params.get("hwp") == "sent" %}
+      <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>
+        연결된 한글로 보냈습니다 — PC 화면을 확인하세요.</span></p>
+      {% elif request.query_params.get("hwp") == "none" %}
+      <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>
+        연결된 에이전트가 없습니다 — 개발자 화면에서 에이전트 앱을 받아 실행하세요.</span></p>
+      {% endif %}
       {% if doc.coverage %}<p class="notice"><iconify-icon icon="solar:chart-linear"></iconify-icon><span>{{ doc.coverage }}</span></p>{% endif %}
       <pre class="doc-text">{{ doc.draft }}</pre>
       <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>근거가

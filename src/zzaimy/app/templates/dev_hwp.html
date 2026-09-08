@@ -4,13 +4,10 @@
 {% block content %}
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:monitor-smartphone-linear"></iconify-icon>한글 실시간 편집 채널</h2>
+  <h2><iconify-icon icon="solar:monitor-smartphone-linear"></iconify-icon>한글 실시간 편집</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    Windows PC의 한글(HWP)을 서버 지시로 실시간 편집하는 채널입니다. PC에서
-    에이전트를 실행하면 바깥 방향으로만 서버에 붙고(방화벽 개방 불필요),
-    아래에서 보낸 명령이 열려 있는 한글 화면에 바로 반영됩니다.
-    자연어 지시 변환은 LLM 연결 후이며, 지금은 정해진 명령으로 경로를
-    검증합니다.</p>
+    PC에서 에이전트 앱을 실행하면, 여기서 보낸 명령이 열려 있는 한글 화면에
+    바로 반영됩니다.</p>
 </div></div>
 
 {% if err %}
@@ -20,15 +17,28 @@
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:key-linear"></iconify-icon>연결 토큰</h2>
-    {% if token %}
-    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">PC에서 실행:</p>
-    <pre class="doc-text" style="font-size:12px; white-space:pre-wrap;">python hwp_agent.py --server https://&lt;서버주소&gt; --token {{ token }} --ca-cert server.crt</pre>
+    <h2><iconify-icon icon="solar:download-square-linear"></iconify-icon>에이전트 앱 받기</h2>
+    {% if bundle_ready and token %}
+    <p style="font-size:13px; margin:0 0 12px; line-height:1.7;">
+      설치 불필요. 접속 정보가 이미 들어 있습니다.</p>
+    <a href="/dev/hwp/agent.zip" class="btn" style="text-decoration:none;">
+      <iconify-icon icon="solar:download-linear"></iconify-icon>에이전트 다운로드 (.zip)</a>
+    <ol class="muted" style="font-size:12.5px; margin:12px 0 0; padding-left:18px; line-height:1.8;">
+      <li>PC에서 압축을 풉니다 (설치 불필요)</li>
+      <li>한글을 실행해 둡니다</li>
+      <li>시작.bat 더블클릭 — 아래 연결 상태에 나타납니다</li>
+    </ol>
+    {% elif not token %}
+    <p class="muted" style="font-size:12.5px; margin:0;">토큰을 먼저 발급하면
+      다운로드가 열립니다.</p>
     {% else %}
-    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">아직 토큰이 없습니다.
-      발급한 토큰을 PC 에이전트 실행 시 넣습니다.</p>
+    <p class="muted" style="font-size:12.5px; margin:0;">베이스 번들이 서버에
+      없습니다 — scripts/71_build_hwp_agent_bundle.py 로 조립 후 서버
+      data/dist/ 에 올립니다.</p>
     {% endif %}
-    <form action="/dev/hwp/token" method="post" style="margin-top:10px;">
+    <p class="muted" style="font-size:11.5px; margin:12px 0 0;">
+      토큰을 재발급하면 기존 앱은 끊어지며, zip을 다시 내려받아야 합니다.</p>
+    <form action="/dev/hwp/token" method="post" style="margin-top:8px;">
       <button type="submit" class="secondary">{{ "토큰 재발급 (기존 무효화)" if token else "토큰 발급" }}</button>
     </form>
   </div></div>
