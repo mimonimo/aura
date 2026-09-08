@@ -1392,6 +1392,73 @@ def create_app(
             return RedirectResponse(f"/dev/data?err={exc}", status_code=303)
         return RedirectResponse("/dev/data", status_code=303)
 
+    @app.post("/dev/data/label-export")
+    def dev_data_label_export(sources: list[str] = Form([])):
+        """검수 태스크(Label Studio import JSON) 내려받기 — 사람 검수용."""
+        from zzaimy.dataset.build import _BUILDERS
+        from zzaimy.dataset.labelstudio import export_to_label_studio
+
+        pairs = []
+        for s in sources:
+            if s in _BUILDERS:
+                pairs.extend(_BUILDERS[s](db).pairs)
+        if not pairs:
+            return RedirectResponse(
+                "/dev/data?err=내보낼 학습 쌍이 없습니다", status_code=303
+            )
+        tasks = export_to_label_studio(pairs)
+        from fastapi.responses import Response as _Resp
+
+        return _Resp(
+            _aj.dumps(tasks, ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition":
+                     'attachment; filename="label-studio-tasks.json"'},
+        )
+
+    @app.get("/dev/data/label-config")
+    def dev_data_label_config():
+        """Label Studio 프로젝트 라벨링 설정(XML)."""
+        from fastapi.responses import Response as _Resp
+
+        from zzaimy.dataset.labelstudio import LABEL_CONFIG
+
+        return _Resp(LABEL_CONFIG, media_type="application/xml")
+
+    @app.post("/dev/data/label-import")
+    def dev_data_label_import(name: str = Form("검수완료"),
+                              annotations: UploadFile = File(...)):
+        """Label Studio 검수 결과(annotations export)를 학습 데이터로 되받기."""
+        from zzaimy.dataset.labelstudio import import_from_label_studio
+
+        try:
+            data = _aj.loads(annotations.file.read())
+        except ValueError:
+            return RedirectResponse(
+                "/dev/data?err=JSON 파일이 아닙니다", status_code=303
+            )
+        pairs = import_from_label_studio(data)
+        if not pairs:
+            return RedirectResponse(
+                "/dev/data?err=검수 통과한 쌍이 없습니다", status_code=303
+            )
+        # 검수 통과분을 JSONL로 저장하고 대장에 기록
+        from datetime import datetime, timezone
+        from pathlib import Path as _P
+
+        from zzaimy.dataset.build import SFT_DIR
+
+        SFT_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
+        safe = "".join(c for c in name if c.isalnum() or c in "-_") or "reviewed"
+        path = _P(SFT_DIR) / f"{safe}-{stamp}.jsonl"
+        with path.open("w", encoding="utf-8") as f:
+            for p in pairs:
+                f.write(_aj.dumps(p, ensure_ascii=False) + "\n")
+        db.add_dataset(name=name, sources="labelstudio", path=str(path),
+                       n_pairs=len(pairs))
+        return RedirectResponse("/dev/data", status_code=303)
+
     @app.get("/dev/data/{dataset_id}.jsonl")
     def dev_data_download(dataset_id: int):
         from fastapi.responses import FileResponse
@@ -1441,10 +1508,10 @@ def create_app(
         )
 
     @app.get("/graph.json")
-    def graph_json():
+    def graph_json(dept: str = ""):
         from zzaimy.graph.build import build_graph
 
-        return JSONResponse(build_graph(db))
+        return JSONResponse(build_graph(db, dept=dept or None))
 
     # ---- 외부 참조 이그레스 게이트웨이 (ADR-0008) — 감사·승인·모니터링 ----
 

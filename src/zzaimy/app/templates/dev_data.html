@@ -38,6 +38,36 @@
 </div></div>
 
 <div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>Label Studio 검수</h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
+    학습 쌍을 사람이 검수합니다. 검수 태스크를 내려받아 Label Studio에서
+    채택·수정·폐기한 뒤, 결과 파일을 되받아 검수 완료 학습 데이터로 만듭니다.
+    되받은 수정본에도 수치 검증이 적용됩니다.</p>
+
+  <form action="/dev/data/label-export" method="post"
+        style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; font-size:13px;">
+    <span class="muted" style="font-weight:600;">검수 태스크 내보내기:</span>
+    <label><input type="checkbox" name="sources" value="review" checked> 검토</label>
+    <label><input type="checkbox" name="sources" value="draft" checked> 초안</label>
+    <label><input type="checkbox" name="sources" value="chat"> 대화</label>
+    <button type="submit" class="secondary">태스크 JSON 내려받기</button>
+    <a href="/dev/data/label-config" class="btn-ghost" style="font-size:12px;">
+      라벨링 설정 XML</a>
+  </form>
+
+  <form action="/dev/data/label-import" method="post" enctype="multipart/form-data"
+        style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+               font-size:13px; margin-top:12px; padding-top:12px;
+               border-top:1px solid var(--panel);">
+    <span class="muted" style="font-weight:600;">검수 결과 되받기:</span>
+    <input type="text" name="name" value="검수완료" placeholder="데이터셋 이름"
+           style="border:1px solid var(--line); border-radius:8px; padding:7px 10px; width:130px;">
+    <input type="file" name="annotations" accept=".json" required style="font-size:12px;">
+    <button type="submit">되받아 학습 데이터 생성</button>
+  </form>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>데이터셋 대장</h2>
   {% if datasets %}
   <div class="table-scroll">

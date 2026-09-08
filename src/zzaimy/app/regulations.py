@@ -124,7 +124,7 @@ def restore_spacing(text: str) -> str:
 
 def find_relevant(
     db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2,
-    sector: str | None = None,
+    sector: str | None = None, dept: str | None = None,
 ) -> list[dict]:
     """검토 대상 텍스트와 명사가 겹치는 규정 조각 top-k (Kiwi 형태소 기반).
 
@@ -136,7 +136,7 @@ def find_relevant(
     query = extract_nouns(query_text)
     if not query:
         return []
-    chunks = db.list_regulation_chunks(sector=sector)
+    chunks = db.list_regulation_chunks(sector=sector, dept=dept)
     for chunk in chunks:
         cid = chunk["id"]
         if cid not in _noun_cache:
@@ -176,10 +176,11 @@ def find_relevant(
 
 
 def suggest_criteria_docs(
-    db: Database, masked_text: str, sector: str | None = None, top_k: int = 3
+    db: Database, masked_text: str, sector: str | None = None,
+    dept: str | None = None, top_k: int = 3
 ) -> list[dict]:
     """검토 대상과 연관성 높은 기준 '문서' 추천 — 조각 점수를 문서로 집계한다."""
-    hits = find_relevant(db, masked_text, top_k=12, sector=sector)
+    hits = find_relevant(db, masked_text, top_k=12, sector=sector, dept=dept)
     agg: dict[int, dict] = {}
     for rank, h in enumerate(hits):
         d = agg.setdefault(
@@ -190,9 +191,12 @@ def suggest_criteria_docs(
     return ranked[:top_k]
 
 
-def compose_review_context(db: Database, masked_text: str, sector: str | None = None) -> str:
+def compose_review_context(
+    db: Database, masked_text: str, sector: str | None = None,
+    dept: str | None = None,
+) -> str:
     """검토 프롬프트에 붙일 '참고 규정' 블록. 섹터 전용 + 공통 기준만 후보."""
-    hits = find_relevant(db, masked_text, sector=sector)
+    hits = find_relevant(db, masked_text, sector=sector, dept=dept)
     if not hits:
         return ""
     lines = ["[참고 규정 — 검토 의견에서 관련 조항을 근거로 인용하라]"]

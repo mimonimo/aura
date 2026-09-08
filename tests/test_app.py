@@ -1266,3 +1266,47 @@ def test_dev_train_page_and_url_save(client):
     r = client.post("/dev/train/url",
                     data={"setting": "bogus", "url": "http://x"})
     assert r.status_code == 400
+
+
+def test_label_studio_export_import_roundtrip(client, monkeypatch, tmp_path):
+    """검수 태스크 내보내기 → 되받기 왕복 (Label Studio 연동)."""
+    import json as _j
+
+    monkeypatch.chdir(tmp_path)
+    db = client.app.state.db
+    d = db.add_document("a.pdf", "/x", doc_type="grant")
+    db.update_document(
+        d, status="reviewed",
+        masked_text="예산 1,000천원 편성. " + "상세. " * 10,
+        ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
+    )
+
+    # 내보내기 — Label Studio import 태스크 JSON
+    r = client.post("/dev/data/label-export", data={"sources": ["review"]})
+    assert r.status_code == 200
+    tasks = _j.loads(r.content)
+    assert tasks and "data" in tasks[0]
+
+    # 채택 검수 결과를 만들어 되받기
+    annotations = [{
+        "data": tasks[0]["data"],
+        "annotations": [{"result": [
+            {"from_name": "decision", "type": "choices",
+             "value": {"choices": ["채택"]}},
+        ]}],
+    }]
+    import io
+    r = client.post(
+        "/dev/data/label-import",
+        data={"name": "검수분"},
+        files={"annotations": ("ann.json",
+                               _j.dumps(annotations).encode(), "application/json")},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert any(ds["sources"] == "labelstudio" for ds in db.list_datasets())
+
+
+def test_label_config_available(client):
+    r = client.get("/dev/data/label-config")
+    assert r.status_code == 200 and "<View" in r.text

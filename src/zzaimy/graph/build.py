@@ -44,10 +44,16 @@ def _doc_node(d: dict, kind: str, chunk_counts: dict[int, int]) -> dict:
     }
 
 
-def build_graph(db, include_similarity: bool = True) -> dict:
-    """DB의 관계를 노드·간선 목록으로 만든다. 반환 형식은 /graph.json 계약."""
+def build_graph(db, include_similarity: bool = True, dept: str | None = None) -> dict:
+    """DB의 관계를 노드·간선 목록으로 만든다. 반환 형식은 /graph.json 계약.
+
+    dept를 주면 그 부서 + 공통 문서만 그린다 — 부서별 지식 그래프
+    (사용자 요구: 부서별로 나눠야 빠르고 정확).
+    """
     docs = db.list_documents()
     docs = [d for d in docs if d.get("doc_type") != "ocr"]  # OCR 작업물은 제외
+    if dept:
+        docs = [d for d in docs if (d.get("dept") or "공통") in (dept, "공통")]
     reg_counts = db.regulation_chunk_counts()
 
     nodes: list[dict] = []

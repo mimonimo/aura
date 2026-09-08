@@ -10,8 +10,12 @@
 
 from __future__ import annotations
 
+import json as _json
+import os as _os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime as _dt
+from datetime import timezone as _tz
 from enum import Enum
 
 
@@ -165,10 +169,6 @@ def classify(result: ScrubResult) -> Verdict:
 # held/approved는 "나가도 된다고 판정됐지만 아직 안 나간" 상태다. 외부 전송이
 # 비활성(아웃바운드 차단·키 없음)이어도 판정·감사 흐름은 그대로 동작한다.
 # ---------------------------------------------------------------------------
-
-import json as _json
-import os as _os
-from datetime import datetime as _dt, timezone as _tz
 
 # 전송 가능 상태 — 이 상태의 건만 실제 외부 호출을 시도한다.
 _SENDABLE = {"held", "approved", "failed"}
