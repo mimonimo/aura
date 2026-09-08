@@ -2,33 +2,89 @@
 {% block title %}데이터 열람{% endblock %}
 {% block pagetitle %}저장된 데이터 열람 (개발자){% endblock %}
 {% block content %}
-<p style="display:flex; align-items:center; gap:10px;">
-  <a href="/dev" class="btn-ghost">← 개발 현황</a>
-  <span class="muted" style="font-size:12.5px;">읽기 전용입니다. 행을 누르면 전체 내용이 열립니다.</span></p>
 
-<div style="display:grid; grid-template-columns:250px minmax(0,1fr); gap:16px; align-items:start;">
-  <div class="card"><div class="card-in" style="padding:14px;">
+<style>
+/* 엑셀형 데이터 그리드 — 이 페이지 전용 스코프(.xls-*) */
+.xls-scroll{
+  overflow:auto; max-height:calc(100vh - 264px);
+  border:1px solid var(--line); border-radius:10px; background:#fff;
+  -webkit-overflow-scrolling:touch;
+}
+table.xls{
+  border-collapse:separate; border-spacing:0;
+  width:max-content; min-width:100%; font-size:12.5px; line-height:1.5;
+}
+table.xls th, table.xls td{
+  border-right:1px solid var(--line); border-bottom:1px solid var(--line);
+  padding:6px 11px; text-align:left; white-space:nowrap; background:#fff;
+}
+/* 헤더 행: 위 고정 */
+table.xls thead th{
+  position:sticky; top:0; z-index:2;
+  background:#EEF3FB; color:var(--navy); font-weight:700;
+  border-bottom:2px solid #CEDBEF; letter-spacing:-0.01em;
+}
+/* 행번호 거터: 왼쪽 고정 */
+table.xls td.gut, table.xls thead th.gut{
+  position:sticky; left:0;
+  text-align:right; font-variant-numeric:tabular-nums;
+  border-right:2px solid #CEDBEF; padding:6px 9px;
+}
+table.xls td.gut{ z-index:1; background:#FAFBFE; }
+table.xls thead th.gut{ z-index:3; width:52px; }
+table.xls td.gut a{
+  color:var(--muted); text-decoration:none; font-size:11.5px;
+  display:block; width:100%;
+}
+table.xls td.gut a:hover{ color:var(--navy); }
+/* 데이터 셀 성격별 */
+table.xls td.mono{
+  font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+  color:#334155; text-align:right; font-variant-numeric:tabular-nums;
+}
+table.xls td.dt{ color:var(--muted); font-variant-numeric:tabular-nums; }
+table.xls td.txt{ max-width:380px; overflow:hidden; text-overflow:ellipsis; }
+/* 지브라 + 호버 (고정 셀 배경도 함께) */
+table.xls tbody tr:nth-child(even) td{ background:#FAFBFD; }
+table.xls tbody tr:nth-child(even) td.gut{ background:#F2F6FC; }
+table.xls tbody tr:hover td{ background:#EAF1FC; }
+table.xls tbody tr:hover td.gut{ background:#DCE7FA; }
+/* 셀 복사 */
+table.xls td.copyable{ cursor:copy; }
+table.xls td.copyable:active{ background:#DCE7FA !important; }
+/* 복사 토스트 */
+#xtoast{
+  position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
+  background:var(--navy); color:#fff; font-size:12.5px; font-weight:600;
+  padding:8px 16px; border-radius:20px; box-shadow:0 6px 18px rgba(27,59,117,.28);
+  opacity:0; pointer-events:none; transition:opacity .16s var(--ease), transform .16s var(--ease);
+  z-index:200;
+}
+#xtoast.on{ opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+
+<p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+  <a href="/dev" class="btn-ghost">← 개발 현황</a>
+  <span class="muted" style="font-size:12.5px;">읽기 전용입니다.
+    셀을 누르면 값이 복사되고, 행 번호를 누르면 전체 내용이 열립니다.</span></p>
+
+<div style="display:grid; grid-template-columns:210px minmax(0,1fr); gap:16px; align-items:start;">
+  <div class="card"><div class="card-in" style="padding:12px;">
     {% for t in tables %}
     <a href="/dev/db?table={{ t.name }}" title="{{ table_descs.get(t.name, '') }}"
-       style="display:block; padding:8px 11px; border-radius:10px; text-decoration:none;
-              color:var(--ink); font-size:13px; margin-bottom:1px;
+       style="display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:9px;
+              text-decoration:none; color:var(--ink); font-size:13px; margin-bottom:1px;
               {{ 'background:#E3ECFB; color:var(--navy);' if browse.table == t.name else '' }}">
-      <span style="display:flex; align-items:center; gap:8px;">
-        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-              {{ 'font-weight:700;' if browse.table == t.name else 'font-weight:500;' }}">{{ t.name }}</span>
-        <span class="muted" style="flex:none; font-size:12px;
-              font-variant-numeric:tabular-nums;">{{ t.n }}</span>
-      </span>
-      {% if browse.table == t.name and table_descs.get(t.name) %}
-      <span class="muted" style="display:block; font-size:11px; line-height:1.45;
-            margin-top:3px;">{{ table_descs.get(t.name, "") }}</span>
-      {% endif %}
+      <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+            {{ 'font-weight:700;' if browse.table == t.name else 'font-weight:500;' }}">{{ t.name }}</span>
+      <span class="muted" style="flex:none; font-size:12px; font-variant-numeric:tabular-nums;">{{ t.n }}</span>
     </a>
     {% endfor %}
   </div></div>
 
   <div class="card"><div class="card-in">
-    <h2><iconify-icon icon="solar:database-linear"></iconify-icon>{{ browse.table }}
+    <h2 style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+      <iconify-icon icon="solar:database-linear"></iconify-icon>{{ browse.table }}
       <span class="muted" style="font-size:12.5px; font-weight:500;">전체 {{ browse.total }}건</span>
       <form method="get" action="/dev/db" style="margin-left:auto; display:flex; gap:6px;">
         <input type="hidden" name="table" value="{{ browse.table }}">
@@ -38,33 +94,46 @@
         <button type="submit" class="secondary">검색</button>
       </form></h2>
     {% if desc %}<p class="muted" style="font-size:13px; margin:0 0 12px;">{{ desc }}</p>{% endif %}
+
     {% if browse.error %}
     <p class="notice"><span>{{ browse.error }}</span></p>
+    {% elif not browse.cols %}
+    <p class="muted">표시할 열이 없습니다.</p>
     {% else %}
     {% if browse.n_hidden %}
     <p class="muted" style="font-size:11.5px; margin:0 0 8px;">긴 내용 열
-      {{ browse.n_hidden }}개는 숨김 — 행을 누르면 전부 보입니다.</p>
+      {{ browse.n_hidden }}개는 그리드에서 숨김 — 행 번호를 누르면 전체 열을 봅니다.</p>
     {% endif %}
-    <div class="sticky-head" style="max-height:calc(100vh - 300px); overflow-y:auto;">
-      <table class="extract" style="table-layout:fixed; width:100%;">
-        <thead><tr>{% for c in browse.cols %}
-          <th style="{{ 'width:52px;' if c == 'id' else ('width:92px;' if c.endswith('_at') or c in ('status','kind','role','owner','doc_id','page_no','sector') else '') }}">{{ c }}</th>
-        {% endfor %}</tr></thead>
+
+    <div class="xls-scroll">
+      <table class="xls">
+        <thead><tr>
+          <th class="gut" title="행 번호 · 클릭 시 상세">#</th>
+          {% for c in browse.cols %}<th>{{ c }}</th>{% endfor %}
+        </tr></thead>
         <tbody>
         {% for r in browse.rows %}
-        <tr onclick="location.href='/dev/db/row?table={{ browse.table }}&rid={{ r.rid }}'"
-            style="cursor:pointer;">
-          {% for v in r.vals %}<td style="overflow:hidden; text-overflow:ellipsis;
-              white-space:nowrap;">{{ v }}</td>{% endfor %}</tr>
+        <tr>
+          <td class="gut"><a href="/dev/db/row?table={{ browse.table }}&rid={{ r.rid }}"
+              title="행 상세 열기">{{ browse.page * 50 + loop.index }}</a></td>
+          {% for v in r.vals %}
+          {% set c = browse.cols[loop.index0] %}
+          {% set is_id = c == 'id' or c.endswith('_id') or c == 'page_no' %}
+          {% set is_dt = c.endswith('_at') %}
+          <td class="copyable {{ 'mono' if is_id else ('dt' if is_dt else 'txt') }}"
+              onclick="xcopy(this)" title="{{ v }}">{{ v }}</td>
+          {% endfor %}
+        </tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
+
     <div style="display:flex; gap:8px; margin-top:12px; align-items:center;">
       {% if browse.page > 0 %}
       <a class="btn-ghost" href="/dev/db?table={{ browse.table }}&q={{ q }}&page={{ browse.page - 1 }}">← 이전</a>
       {% endif %}
-      <span class="muted" style="font-size:12px;">{{ browse.page * 50 + 1 }}–{{ browse.page * 50 + browse.rows | length }} / {{ browse.total }}</span>
+      <span class="muted" style="font-size:12px; font-variant-numeric:tabular-nums;">{{ browse.page * 50 + 1 }}–{{ browse.page * 50 + browse.rows | length }} / {{ browse.total }}</span>
       {% if browse.has_next %}
       <a class="btn-ghost" href="/dev/db?table={{ browse.table }}&q={{ q }}&page={{ browse.page + 1 }}">다음 →</a>
       {% endif %}
@@ -72,4 +141,33 @@
     {% endif %}
   </div></div>
 </div>
+
+<div id="xtoast"></div>
+<script>
+(function(){
+  var tid;
+  window.xtoast = function(m){
+    var t = document.getElementById('xtoast');
+    if(!t) return;
+    t.textContent = m; t.classList.add('on');
+    clearTimeout(tid); tid = setTimeout(function(){ t.classList.remove('on'); }, 1100);
+  };
+  window.xcopy = function(el){
+    var txt = el.textContent;
+    if(!txt){ return; }
+    function done(){ window.xtoast('복사됨'); }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(done, function(){ fb(txt); });
+    } else { fb(txt); }
+    function fb(s){
+      try{
+        var ta = document.createElement('textarea');
+        ta.value = s; ta.style.position='fixed'; ta.style.opacity='0';
+        document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta); done();
+      }catch(e){ window.xtoast('복사 실패'); }
+    }
+  };
+})();
+</script>
 {% endblock %}
