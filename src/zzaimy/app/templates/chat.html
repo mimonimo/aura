@@ -98,6 +98,11 @@
   {% if waiting %}
   <div class="msg assistant" style="color:var(--muted);">답변 작성 중…</div>
   {% endif %}
+
+  <div style="text-align:center; margin:14px 0 4px;">
+    <a href="/graph" class="btn-ghost" style="font-size:12px;">
+      <iconify-icon icon="solar:structure-linear"></iconify-icon>지식그래프 보기</a>
+  </div>
 </div>
 
 <form class="chat-dock" action="/chat/send" method="post" enctype="multipart/form-data">

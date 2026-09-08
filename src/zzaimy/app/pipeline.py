@@ -805,6 +805,47 @@ class DocumentProcessor:
                     tp.close()
                 if replaced == 0:
                     return None
+
+                # 표도 괘선 직독으로 교체 — MinerU 근사 격자 대신 원본 괘선의
+                # 정확한 구조·열 폭·글자층 텍스트를 쓴다 (오인식 원천 차단)
+                new_tables = list(parsed.tables)
+                n_swapped = 0
+                try:
+                    from zzaimy.ingest.parsers.lattice import extract_tables
+
+                    lattice_by_page: dict[int, list] = {}
+                    for lt in extract_tables(file_path):
+                        lattice_by_page.setdefault(lt.page_no, []).append(lt)
+                    taken: set[int] = set()
+                    for e in new_entries:
+                        if e.kind != "table" or not (0 <= e.ref < len(new_tables)):
+                            continue
+                        cands = lattice_by_page.get(e.page_no, [])
+                        best, best_ratio = None, 0.0
+                        fit = max(fits.get(e.page_no, 1.0), 1.0)
+                        ebox = tuple(v / fit for v in e.bbox) if e.bbox else None
+                        for k, lt in enumerate(cands):
+                            if k in taken or lt.bbox is None:
+                                continue
+                            if ebox is None:
+                                best, best_ratio = k, 1.0  # bbox 없으면 순서 매칭
+                                break
+                            ix = max(0.0, min(ebox[2], lt.bbox[2]) - max(ebox[0], lt.bbox[0]))
+                            iy = max(0.0, min(ebox[3], lt.bbox[3]) - max(ebox[1], lt.bbox[1]))
+                            area = (lt.bbox[2] - lt.bbox[0]) * (lt.bbox[3] - lt.bbox[1])
+                            ratio = (ix * iy) / area if area > 0 else 0.0
+                            if ratio > best_ratio:
+                                best, best_ratio = k, ratio
+                        if best is not None and best_ratio >= 0.3:
+                            taken.add(best)
+                            new_tables[e.ref] = cands[best]
+                            n_swapped += 1
+                except Exception:
+                    log.warning("괘선 표 교체 실패 — MinerU 표 유지", exc_info=True)
+                if n_swapped:
+                    parsed = dc_replace(parsed, tables=new_tables)
+                    self._last_parse_note += f" · 표 괘선 직독 {n_swapped}개"
+
                 self._last_result = dc_replace(parsed, entries=new_entries)
                 # 본문 텍스트도 교체된 항목 기준으로 재구성
                 parts = []
@@ -943,12 +984,12 @@ class DocumentProcessor:
                          1 if c.is_header else 0, mk(c.text)]
                         for c in t.cells
                     ]
+                    payload = {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells}
+                    if getattr(t, "col_w", None):
+                        payload["col_w"] = list(t.col_w)  # 원본 열 폭 비율
                     out2.append({
                         "kind": "table", "page_no": e.page_no, "bbox": bbox,
-                        "content": _json.dumps(
-                            {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells},
-                            ensure_ascii=False,
-                        ),
+                        "content": _json.dumps(payload, ensure_ascii=False),
                     })
                 elif e.kind == "image" and 0 <= e.ref < len(parsed.images):
                     out2.append({
