@@ -48,13 +48,33 @@ def extract_tables(pdf_path: Path | str) -> list[ParsedTable]:
         return []
 
 
+def _bigram_jaccard(a, b) -> float:
+    """두 표의 셀 텍스트 유사도 — 공백 제거 글자 2그램 자카드.
+
+    같은 표라면 좌표 관행(렌더 배율·원점)이 달라도 내용은 같다. OCR이
+    공백을 떨어뜨려도 글자 2그램은 살아남으므로 어절 비교보다 튼튼하다.
+    """
+    def grams(t) -> set[str]:
+        s = "".join(c.text for c in t.cells)
+        s = "".join(s.split())
+        return {s[i:i + 2] for i in range(len(s) - 1)}
+
+    ga, gb = grams(a), grams(b)
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / len(ga | gb)
+
+
 def swap_tables(
     entries, tables: list, lattice_tables: list, fits: dict[int, float]
 ) -> tuple[list, int]:
-    """MinerU 표 목록을 같은 자리의 괘선 표로 교체한다 (bbox 겹침 매칭).
+    """MinerU 표 목록을 같은 자리의 괘선 표로 교체한다.
 
-    entries의 table 항목마다 같은 페이지의 괘선 표 중 겹침 비율이 가장 큰
-    것을 고른다. fits는 entry bbox의 페이지별 렌더 배율(pdf pt 환산용).
+    매칭은 두 신호 중 큰 쪽: ① bbox 겹침 비율(같은 좌표 관행일 때),
+    ② 셀 내용 2그램 유사도(좌표 관행이 달라도 같은 표를 알아본다 —
+    MinerU 레이아웃 bbox와 벡터 좌표의 원점·배율이 페이지에 따라 어긋난
+    실측 사례 대응). 어느 쪽으로도 확신이 없으면 교체하지 않는다(fail-closed).
+    fits는 entry bbox의 페이지별 렌더 배율(pdf pt 환산용).
     반환: (교체된 표 목록, 교체 건수).
     """
     lattice_by_page: dict[int, list] = {}
@@ -82,6 +102,8 @@ def swap_tables(
             iy = max(0.0, min(ebox[3], lt.bbox[3]) - max(ebox[1], lt.bbox[1]))
             area = (lt.bbox[2] - lt.bbox[0]) * (lt.bbox[3] - lt.bbox[1])
             ratio = (ix * iy) / area if area > 0 else 0.0
+            # 좌표 관행이 어긋나도 내용이 같으면 같은 표다
+            ratio = max(ratio, _bigram_jaccard(lt, new_tables[e.ref]))
             if ratio > best_ratio:
                 best, best_ratio = k, ratio
         if best is not None and best_ratio >= 0.3:
