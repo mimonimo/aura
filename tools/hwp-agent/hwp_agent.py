@@ -28,11 +28,12 @@ import urllib.request
 # 편집 명령 화이트리스트 — 이 밖의 op는 거부한다.
 ALLOWED_OPS = {
     "ping", "open", "new_doc", "find", "goto", "set_title",
-    "insert_text", "replace", "insert_table", "get_text", "save", "save_as",
-    "list_docs", "select_doc",
+    "insert_text", "replace", "insert_table", "delete_text", "delete_table",
+    "get_text", "save", "save_as", "list_docs", "select_doc",
 }
 EDITING_OPS = {
-    "insert_text", "replace", "insert_table", "set_title", "save", "save_as",
+    "insert_text", "replace", "insert_table", "delete_text", "delete_table",
+    "set_title", "save", "save_as",
 }
 # 편집 전에 대상 문서가 확정돼야 하는 op — 엉뚱한 창을 건드리지 않기 위함
 TARGETED_OPS = EDITING_OPS | {"find", "get_text"}
@@ -154,6 +155,19 @@ class MockBackend(HwpBackend):
         self.text = self.text[:self.caret] + text + self.text[self.caret:]
         self.caret += len(text)
         return {"inserted": len(text)}
+
+    def delete_text(self, text: str) -> dict:
+        self._ensure_target()
+        n = self.text.count(text)
+        self.text = self.text.replace(text, "")
+        return {"deleted": text, "n": n}
+
+    def delete_table(self) -> dict:
+        self._ensure_target()
+        import re as _re
+
+        self.text = _re.sub(r"\[표 \d+x\d+\]", "", self.text, count=1)
+        return {"deleted": "table"}
 
     def replace(self, find: str, replace: str, all: bool = True) -> dict:
         self._ensure_target()
@@ -344,6 +358,22 @@ class ComBackend(HwpBackend):
             if not found:
                 break
         return {"found": found}
+
+    def delete_text(self, text: str) -> dict:
+        """특정 문구를 찾아 지운다 (빈 문자열로 치환) — 안전한 삭제."""
+        self._ensure_target()
+        self._action("AllReplace", {
+            "FindString": text, "ReplaceString": "",
+            "ReplaceMode": 1, "IgnoreMessage": 1,
+        })
+        return {"deleted": text}
+
+    def delete_table(self) -> dict:
+        """캐럿이 놓인 표를 통째로 지운다. 표 안에 캐럿이 있어야 한다."""
+        self._ensure_target()
+        # 표 안으로 진입 후 표 삭제 (한컴 자동화 표준 액션)
+        self.hwp.Run("TableDeleteTable")
+        return {"deleted": "table"}
 
     def insert_text(self, text: str) -> dict:
         self._ensure_target()
