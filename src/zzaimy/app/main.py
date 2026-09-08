@@ -1371,6 +1371,15 @@ def create_app(
             "datasets": db.list_datasets(limit=10),
         }))
 
+    @app.get("/dev/train/export-preview.json")
+    def dev_train_export_preview():
+        """반출 팝업용 — 담길 파일·크기 트리(zip 생성 없이)."""
+        from zzaimy.export.bundle import preview_bundle
+
+        return JSONResponse(
+            preview_bundle(db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
+        )
+
     @app.get("/dev/train/export.zip")
     def dev_train_export(rag: int = 1, datasets: int = 1, model: int = 1):
         """학습 산출물 반출 번들 — 선택 항목만 개방 표준으로 (ADR-0012)."""

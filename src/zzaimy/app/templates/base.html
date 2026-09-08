@@ -487,6 +487,27 @@
   <main>{% block content %}{% endblock %}</main>
 </div>
 <script>
+  // POST 폼 제출 시 스크롤 위치 유지 — 303 리다이렉트로 화면이 맨 위로 튀는 것 방지.
+  // (라우트는 그대로. 클라이언트에서 위치를 저장·복원한다.)
+  (function () {
+    var KEY = "scroll:" + location.pathname;
+    try {
+      var saved = sessionStorage.getItem(KEY);
+      if (saved !== null) {
+        sessionStorage.removeItem(KEY);
+        window.addEventListener("load", function () {
+          window.scrollTo(0, parseInt(saved, 10) || 0);
+        });
+      }
+    } catch (e) { /* 저장소 불가 시 무시 */ }
+    document.addEventListener("submit", function (ev) {
+      var f = ev.target;
+      if (f && f.tagName === "FORM" && (f.method || "").toLowerCase() === "post") {
+        try { sessionStorage.setItem("scroll:" + location.pathname, window.scrollY); }
+        catch (e) { /* 무시 */ }
+      }
+    }, true);
+  })();
   // 좁은 폭 사이드바 토글
   (function () {
     var t = document.getElementById("navToggle");

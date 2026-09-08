@@ -30,6 +30,54 @@ def _git_commit() -> str:
         return "unknown"
 
 
+def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
+                   model_dir: Path | str | None = None) -> list[dict]:
+    """반출에 담길 항목을 그룹·파일·크기 트리로 미리 보여준다(zip 생성 없이).
+
+    반환: [{"group","label","desc","files":[{"path","bytes"}]}...]
+    """
+    from zzaimy.app.embed_search import INDEX_PATH, MODEL_NAME
+
+    tree: list[dict] = []
+
+    # RAG
+    chunks = db.list_regulation_chunks()
+    rag_files = [{
+        "path": "rag/chunks.jsonl",
+        "bytes": sum(len((c.get("content") or "")) for c in chunks) + 200 * len(chunks),
+    }]
+    if Path(INDEX_PATH).exists():
+        rag_files.append({"path": "rag/chunk_embeddings.npz",
+                          "bytes": Path(INDEX_PATH).stat().st_size})
+    tree.append({"group": "rag", "label": "RAG 인덱스",
+                 "desc": f"규정 조각 {len(chunks)}개 + 임베딩({MODEL_NAME})",
+                 "files": rag_files})
+
+    # 학습 데이터
+    sft = Path(sft_dir)
+    ds_files = []
+    if sft.exists():
+        for jf in sorted(sft.glob("*.jsonl")):
+            ds_files.append({"path": f"datasets/{jf.name}",
+                             "bytes": jf.stat().st_size})
+    tree.append({"group": "datasets", "label": "학습 데이터",
+                 "desc": f"JSONL {len(ds_files)}개" if ds_files else "아직 없음",
+                 "files": ds_files})
+
+    # 모델
+    md_files = []
+    if model_dir and Path(model_dir).exists():
+        for f in Path(model_dir).rglob("*"):
+            if f.is_file() and f.suffix in (".safetensors", ".json", ".model", ".txt"):
+                md_files.append({"path": f"model/{f.relative_to(model_dir)}",
+                                 "bytes": f.stat().st_size})
+    tree.append({"group": "model", "label": "모델",
+                 "desc": f"파일 {len(md_files)}개" if md_files
+                 else "아직 없음 (DGX 학습 후)",
+                 "files": md_files})
+    return tree
+
+
 def build_bundle(db, sft_dir: Path | str = "data/interim/sft",
                  model_dir: Path | str | None = None,
                  include: set[str] | None = None) -> tuple[bytes, dict]:
