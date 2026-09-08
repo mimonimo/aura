@@ -150,3 +150,136 @@ def classify(result: ScrubResult) -> Verdict:
         # 개인정보를 지웠다 — 잔여 문맥 확인 위해 최소 review.
         return Verdict.REVIEW
     return Verdict.SAFE
+
+
+# ---------------------------------------------------------------------------
+# 게이트웨이 오케스트레이션 — 제출·기록·승인·전송 (ADR-0008 3·4단계)
+#
+# 상태 흐름:
+#   blocked                          차단 (종결)
+#   queued  → denied                 승인 대기 → 거부 (종결)
+#   queued  → approved → answered    승인 → 전송 성공
+#   safe    → held     → answered    자동 허용 → (전송 가능해지면) 전송 성공
+#   …      → failed                  전송 시도 중 오류 (재전송 가능)
+#
+# held/approved는 "나가도 된다고 판정됐지만 아직 안 나간" 상태다. 외부 전송이
+# 비활성(아웃바운드 차단·키 없음)이어도 판정·감사 흐름은 그대로 동작한다.
+# ---------------------------------------------------------------------------
+
+import json as _json
+import os as _os
+from datetime import datetime as _dt, timezone as _tz
+
+# 전송 가능 상태 — 이 상태의 건만 실제 외부 호출을 시도한다.
+_SENDABLE = {"held", "approved", "failed"}
+
+_EXTERNAL_SYSTEM = (
+    "너는 한국 정부 국고보조사업·대학 행정의 일반 지식을 답하는 참고 조수다. "
+    "일반적인 절차·규정 상식·문서 작성 관행만 답하고, 질문자의 소속 기관이나 "
+    "개인을 특정하는 정보를 되묻지 않는다. 확실하지 않은 내용은 모른다고 답한다."
+)
+
+
+def _now_iso() -> str:
+    return _dt.now(_tz.utc).astimezone().isoformat(timespec="seconds")
+
+
+def external_status() -> tuple[bool, str]:
+    """외부 전송 가능 여부와 사유. 플래그·키·SDK 세 가지가 모두 필요하다."""
+    if _os.environ.get("ZZAIMY_EXTERNAL_ENABLED") != "1":
+        return False, "ZZAIMY_EXTERNAL_ENABLED 미설정"
+    if not (_os.environ.get("ZZAIMY_ANTHROPIC_KEY") or _os.environ.get("ANTHROPIC_API_KEY")):
+        return False, "API 키 미설정"
+    try:
+        import anthropic  # noqa: F401
+    except ImportError:
+        return False, "anthropic 패키지 미설치"
+    return True, ""
+
+
+def _send_external(text: str) -> str:
+    """세척 완료 텍스트를 Claude API로 전송한다 — 게이트웨이 밖에서 호출 금지."""
+    import anthropic
+
+    client = anthropic.Anthropic(
+        api_key=_os.environ.get("ZZAIMY_ANTHROPIC_KEY")
+        or _os.environ.get("ANTHROPIC_API_KEY")
+    )
+    response = client.messages.create(
+        model=_os.environ.get("ZZAIMY_EXTERNAL_MODEL", "claude-opus-5"),
+        max_tokens=int(_os.environ.get("ZZAIMY_EXTERNAL_MAX_TOKENS", "4096")),
+        system=_EXTERNAL_SYSTEM,
+        messages=[{"role": "user", "content": text}],
+    )
+    if response.stop_reason == "refusal":
+        raise RuntimeError("외부 모델이 안전상 이유로 응답을 거부함")
+    return "".join(b.text for b in response.content if b.type == "text")
+
+
+def submit(db, text: str, requester: str, source: str = "manual") -> dict:
+    """외부 참조 질의 제출 — 세척·분류·기록까지 무조건, 전송은 safe일 때만 시도."""
+    result = scrub(text)
+    verdict = classify(result)
+    status = {
+        Verdict.BLOCKED: "blocked",
+        Verdict.REVIEW: "queued",
+        Verdict.SAFE: "held",
+    }[verdict]
+    req_id = db.add_egress_request(
+        requester=requester,
+        source=source,
+        original=result.original,
+        scrubbed=result.text,
+        removed=_json.dumps(result.removed, ensure_ascii=False),
+        verdict=verdict.value,
+        status=status,
+    )
+    if status == "held":
+        _try_send(db, req_id)
+    return db.get_egress_request(req_id)
+
+
+def decide(db, req_id: int, approve: bool, decided_by: str) -> dict:
+    """승인 대기 건의 사람 판정. 승인이면 전송을 시도한다."""
+    row = db.get_egress_request(req_id)
+    if row is None:
+        raise ValueError(f"없는 요청: {req_id}")
+    if row["status"] != "queued":
+        raise ValueError(f"승인 대기 상태가 아님: {row['status']}")
+    db.update_egress_request(
+        req_id,
+        status="approved" if approve else "denied",
+        decided_by=decided_by,
+        decided_at=_now_iso(),
+    )
+    if approve:
+        _try_send(db, req_id)
+    return db.get_egress_request(req_id)
+
+
+def retry_send(db, req_id: int) -> dict:
+    """전송 대기·실패 건 재전송 — 아웃바운드가 열린 뒤 수동으로 민다."""
+    row = db.get_egress_request(req_id)
+    if row is None:
+        raise ValueError(f"없는 요청: {req_id}")
+    if row["status"] not in _SENDABLE:
+        raise ValueError(f"전송 가능한 상태가 아님: {row['status']}")
+    _try_send(db, req_id)
+    return db.get_egress_request(req_id)
+
+
+def _try_send(db, req_id: int) -> None:
+    """전송 시도 — 비활성이면 상태를 그대로 두고, 오류는 기록한다."""
+    enabled, reason = external_status()
+    if not enabled:
+        db.update_egress_request(req_id, error=f"전송 보류: {reason}")
+        return
+    row = db.get_egress_request(req_id)
+    try:
+        answer = _send_external(row["scrubbed"])
+    except Exception as exc:  # 네트워크·API 오류 — 감사 기록에 남기고 재시도 가능
+        db.update_egress_request(req_id, status="failed", error=str(exc)[:500])
+        return
+    db.update_egress_request(
+        req_id, status="answered", response=answer, sent_at=_now_iso(), error=None
+    )

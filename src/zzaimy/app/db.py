@@ -89,6 +89,26 @@ CREATE TABLE IF NOT EXISTS regulation_chunks (
   heading    TEXT NOT NULL,
   content    TEXT NOT NULL
 );
+-- 외부 참조 감사 기록 (ADR-0008) — 외부로 나가는 모든 질의는 이 테이블을
+-- 거친다. original은 감사용으로만 보관하고 절대 외부로 나가지 않는다.
+CREATE TABLE IF NOT EXISTS egress_requests (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  TEXT NOT NULL,
+  requester   TEXT NOT NULL,
+  source      TEXT NOT NULL DEFAULT 'manual',  -- manual | chat | draft
+  original    TEXT NOT NULL,
+  scrubbed    TEXT NOT NULL,
+  removed     TEXT NOT NULL DEFAULT '[]',      -- 제거·치환 내역 (JSON 배열)
+  verdict     TEXT NOT NULL,                   -- safe | review | blocked
+  status      TEXT NOT NULL,
+  -- blocked(차단) | queued(승인 대기) | denied(거부) | held(전송 대기)
+  -- | approved(승인·전송 대기) | answered(응답 수신) | failed(전송 실패)
+  decided_by  TEXT,
+  decided_at  TEXT,
+  response    TEXT,
+  sent_at     TEXT,
+  error       TEXT
+);
 """
 
 
@@ -599,6 +619,70 @@ class Database:
             else:
                 rows = conn.execute("SELECT * FROM regulation_chunks ORDER BY id").fetchall()
             return [dict(r) for r in rows]
+
+    def add_egress_request(
+        self,
+        requester: str,
+        source: str,
+        original: str,
+        scrubbed: str,
+        removed: str,
+        verdict: str,
+        status: str,
+    ) -> int:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "INSERT INTO egress_requests (created_at, requester, source,"
+                " original, scrubbed, removed, verdict, status)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (_now(), requester, source, original, scrubbed, removed,
+                 verdict, status),
+            )
+            return int(cur.lastrowid or 0)
+
+    def update_egress_request(self, req_id: int, **fields: str | None) -> None:
+        allowed = {"status", "decided_by", "decided_at", "response", "sent_at", "error"}
+        unknown = set(fields) - allowed
+        if unknown:
+            raise ValueError(f"허용되지 않은 필드: {unknown}")
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with self._conn() as conn:
+            conn.execute(
+                f"UPDATE egress_requests SET {sets} WHERE id = ?",
+                (*fields.values(), req_id),
+            )
+
+    def get_egress_request(self, req_id: int) -> dict | None:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM egress_requests WHERE id = ?", (req_id,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_egress_requests(
+        self, status: str | None = None, limit: int = 50
+    ) -> list[dict]:
+        sql = "SELECT * FROM egress_requests"
+        params: list = []
+        if status:
+            sql += " WHERE status = ?"
+            params.append(status)
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def egress_stats(self) -> dict[str, int]:
+        """판정·상태별 건수 — /dev 이그레스 모니터링의 집계 원천."""
+        with self._conn() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM egress_requests").fetchone()[0]
+            by_status = {
+                r[0]: r[1]
+                for r in conn.execute(
+                    "SELECT status, COUNT(*) FROM egress_requests GROUP BY status"
+                ).fetchall()
+            }
+        return {"total": int(total), **{k: int(v) for k, v in by_status.items()}}
 
     def add_review(self, doc_id: int, opinion: str) -> None:
         with self._conn() as conn:

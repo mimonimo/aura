@@ -197,6 +197,17 @@
       내용, 규정, 채팅 기록을 표별 설명과 함께 열람합니다. 검색과 행별 상세
       보기를 지원합니다.</p>
   </div></div>
+
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>외부 참조 관문
+      {% if egress.get("queued", 0) %}
+      <span class="pill processing" style="margin-left:6px;">대기 {{ egress.queued }}</span>
+      {% endif %}
+      <a href="/dev/egress" class="btn-ghost" style="margin-left:auto; font-weight:600;">열기</a></h2>
+    <p class="muted" style="font-size:12.5px; margin:0;">외부 AI 참조 질의의 세척·판정·감사
+      기록입니다. 누적 {{ egress.get("total", 0) }}건 처리, 승인 대기
+      {{ egress.get("queued", 0) }}건, 차단 {{ egress.get("blocked", 0) }}건.</p>
+  </div></div>
 </div>
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">

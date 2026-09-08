@@ -1097,6 +1097,7 @@ def create_app(
             "accounts": sorted(accounts) if password is not None else [],
             "progress": _dev_progress(),
             "papers": _dev_papers(),
+            "egress": db.egress_stats(),
         }))
 
     @app.post("/dev/reindex")
@@ -1125,6 +1126,61 @@ def create_app(
         accounts[target]["pw"] = new_pw
         _save_accounts()
         return RedirectResponse("/dev", status_code=303)
+
+    # ---- 외부 참조 이그레스 게이트웨이 (ADR-0008) — 감사·승인·모니터링 ----
+
+    @app.get("/dev/egress", response_class=HTMLResponse)
+    def dev_egress(request: Request):
+        from zzaimy.app import egress as _egress
+
+        enabled, reason = _egress.external_status()
+        rows = db.list_egress_requests(limit=50)
+        queued = db.list_egress_requests(status="queued", limit=50)
+        for r in rows + queued:
+            try:
+                r["removed_list"] = _aj.loads(r.get("removed") or "[]")
+            except ValueError:
+                r["removed_list"] = []
+        return templates.TemplateResponse(request, "dev_egress.html", ctx(request, {
+            "egress_stats": db.egress_stats(),
+            "rows": rows,
+            "queued": queued,
+            "external_enabled": enabled,
+            "external_reason": reason,
+        }))
+
+    @app.post("/dev/egress/submit")
+    def dev_egress_submit(request: Request, query: str = Form(...)):
+        from zzaimy.app import egress as _egress
+
+        q = query.strip()
+        if q:
+            _egress.submit(db, q, requester=request.state.user, source="manual")
+        return RedirectResponse("/dev/egress", status_code=303)
+
+    @app.post("/dev/egress/{req_id}/decide")
+    def dev_egress_decide(request: Request, req_id: int, action: str = Form(...)):
+        from zzaimy.app import egress as _egress
+
+        try:
+            _egress.decide(
+                db, req_id,
+                approve=(action == "approve"),
+                decided_by=request.state.user,
+            )
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return RedirectResponse("/dev/egress", status_code=303)
+
+    @app.post("/dev/egress/{req_id}/retry")
+    def dev_egress_retry(req_id: int):
+        from zzaimy.app import egress as _egress
+
+        try:
+            _egress.retry_send(db, req_id)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return RedirectResponse("/dev/egress", status_code=303)
 
     _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼 구축)의 주간 개발
 보고서를 작성한다. 독자는 지도교수다. 아래 원자료(커밋 이력·실험 기록)를 바탕으로 쓰되,
