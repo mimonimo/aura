@@ -1416,6 +1416,8 @@ def create_app(
             "rag_rows": rag_status(db),
             "datasets": db.list_datasets(),
             "err": err,
+            "ls_token": bool(db.get_setting("labelstudio_token")),
+            "labelstudio_url": db.get_setting("labelstudio_url"),
         }))
 
     @app.post("/dev/data/build")
@@ -1430,9 +1432,73 @@ def create_app(
             return RedirectResponse(f"/dev/data?err={exc}", status_code=303)
         return RedirectResponse("/dev/data", status_code=303)
 
+    # ---- Label Studio 자동 연동 (API) — 페이지 버튼 한 번으로 왕복 ----
+    _LS_PROJECT = "ZZAIMY 검수"
+
+    def _ls_client():
+        from zzaimy.dataset.ls_client import LabelStudioClient
+
+        url = db.get_setting("labelstudio_url")
+        token = db.get_setting("labelstudio_token")
+        return LabelStudioClient(url, token)
+
+    @app.post("/dev/data/ls-token")
+    def dev_data_ls_token(token: str = Form("")):
+        db.set_setting("labelstudio_token", token.strip())
+        return RedirectResponse("/dev/data", status_code=303)
+
+    @app.post("/dev/data/ls-push")
+    def dev_data_ls_push(sources: list[str] = Form([])):
+        """데이터 공방 학습 쌍을 Label Studio 프로젝트로 자동 전송(파일 없이)."""
+        from zzaimy.dataset.build import _BUILDERS
+        from zzaimy.dataset.ls_client import LabelStudioError
+
+        pairs = []
+        for s in sources:
+            if s in _BUILDERS:
+                pairs.extend(_BUILDERS[s](db).pairs)
+        if not pairs:
+            return RedirectResponse("/dev/data?err=보낼 학습 쌍이 없습니다", status_code=303)
+        try:
+            cli = _ls_client()
+            pid = cli.ensure_project(_LS_PROJECT)
+            n = cli.push_tasks(pid, pairs)
+        except LabelStudioError as e:
+            return RedirectResponse(f"/dev/data?err=Label Studio: {e}", status_code=303)
+        return RedirectResponse(f"/dev/data?ls_pushed={n}", status_code=303)
+
+    @app.post("/dev/data/ls-pull")
+    def dev_data_ls_pull(name: str = Form("검수완료")):
+        """Label Studio 검수 결과를 API로 가져와 학습 데이터로 확정."""
+        from pathlib import Path as _P
+
+        from zzaimy.dataset.build import SFT_DIR
+        from zzaimy.dataset.ls_client import LabelStudioError
+
+        try:
+            cli = _ls_client()
+            pid = cli.ensure_project(_LS_PROJECT)
+            pairs = cli.pull_reviewed(pid)
+        except LabelStudioError as e:
+            return RedirectResponse(f"/dev/data?err=Label Studio: {e}", status_code=303)
+        if not pairs:
+            return RedirectResponse("/dev/data?err=검수 통과분이 없습니다", status_code=303)
+        from datetime import datetime, timezone
+
+        SFT_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
+        safe = "".join(c for c in name if c.isalnum() or c in "-_") or "reviewed"
+        path = _P(SFT_DIR) / f"{safe}-{stamp}.jsonl"
+        with path.open("w", encoding="utf-8") as f:
+            for p in pairs:
+                f.write(_aj.dumps(p, ensure_ascii=False) + "\n")
+        db.add_dataset(name=name, sources="labelstudio", path=str(path),
+                       n_pairs=len(pairs))
+        return RedirectResponse(f"/dev/data?ls_pulled={len(pairs)}", status_code=303)
+
     @app.post("/dev/data/label-export")
     def dev_data_label_export(sources: list[str] = Form([])):
-        """검수 태스크(Label Studio import JSON) 내려받기 — 사람 검수용."""
+        """검수 태스크(Label Studio import JSON) 내려받기 — 수동 대안."""
         from zzaimy.dataset.build import _BUILDERS
         from zzaimy.dataset.labelstudio import export_to_label_studio
 
