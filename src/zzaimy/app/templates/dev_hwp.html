@@ -60,44 +60,81 @@
   </div></div>
 </div>
 
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:command-linear"></iconify-icon>명령 보내기</h2>
-  <form action="/dev/hwp/send" method="post"
-        style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; font-size:13px;">
-    <select name="op" style="border:1px solid var(--line); border-radius:8px; padding:8px 10px;">
-      <option value="ping">ping (생존 확인)</option>
-      <option value="insert_text">insert_text (텍스트 삽입)</option>
-      <option value="find">find (찾아 이동)</option>
-      <option value="replace">replace (찾아 바꾸기)</option>
-      <option value="get_text">get_text (본문 읽기)</option>
-      <option value="save">save (저장)</option>
-    </select>
-    <input type="text" name="text" placeholder="text (삽입·찾기)"
-           style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:220px;">
-    <input type="text" name="find" placeholder="find (치환 대상)"
-           style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:160px;">
-    <input type="text" name="replace" placeholder="replace (바꿀 값)"
-           style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:160px;">
-    <button type="submit">보내기</button>
-  </form>
-  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">
-    명령은 가장 최근 연결된 에이전트로 갑니다. 결과는 아래에 회신됩니다.</p>
-</div></div>
+{% set primary = sessions[0] if sessions else none %}
 
-{% for s in sessions if s.results %}
+{% if primary and primary.docs %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:inbox-in-linear"></iconify-icon>결과 회신
-    <span class="muted" style="font-size:12px; font-weight:500;">{{ s.id[:8] }}</span></h2>
-  {% for r in s.results %}
-  <div style="display:flex; gap:10px; align-items:baseline; padding:6px 0;
+  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>열린 문서
+    <span class="muted" style="font-size:12px; font-weight:500;">list_docs 결과</span></h2>
+  {% for d in primary.docs %}
+  <div style="display:flex; gap:10px; align-items:center; padding:6px 0;
               border-bottom:1px solid var(--panel); font-size:12.5px;">
-    <span class="pill {{ 'reviewed' if r.ok else 'failed' }}">{{ "성공" if r.ok else "실패" }}</span>
-    <span class="muted" style="flex:none;">{{ r.id }}</span>
-    <span style="overflow:hidden; text-overflow:ellipsis;">
-      {{ (r.result | tojson if r.ok else r.error) | truncate(160) }}</span>
+    {% if d.bound %}<span class="pill reviewed">작업 대상</span>
+    {% elif d.active %}<span class="pill type">활성</span>
+    {% else %}<span class="pill" style="flex:none;">열림</span>{% endif %}
+    <span style="font-weight:600;">{{ d.name }}</span>
+    <span class="muted" style="overflow:hidden; text-overflow:ellipsis;">{{ d.path }}</span>
+    <form action="/dev/hwp/send" method="post" style="margin-left:auto;">
+      <input type="hidden" name="op" value="select_doc">
+      <input type="hidden" name="args_json" value='{"id": {{ d.id }}}'>
+      <button type="submit" class="secondary" style="font-size:11.5px; padding:4px 10px;">
+        대상 지정</button>
+    </form>
   </div>
   {% endfor %}
 </div></div>
-{% endfor %}
+{% endif %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:command-linear"></iconify-icon>명령 콘솔</h2>
+  <p class="muted" style="font-size:12px; margin:0 0 10px; line-height:1.6;">
+    개발 검증용입니다. 실제 사용은 프로젝트 대화창에서 이 명령들을 자연어로
+    부릅니다. 자주 쓰는 명령은 버튼으로, 그 외는 op·인자(JSON)로 보냅니다.</p>
+
+  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+    {% for b in [
+      {"op":"list_docs","label":"문서 목록","args":"{}"},
+      {"op":"new_doc","label":"새 문서","args":"{}"},
+      {"op":"ping","label":"연결 확인","args":"{}"},
+      {"op":"get_text","label":"본문 읽기","args":'{"scope":"all"}'},
+      {"op":"save","label":"저장","args":"{}"} ] %}
+    <form action="/dev/hwp/send" method="post">
+      <input type="hidden" name="op" value="{{ b.op }}">
+      <input type="hidden" name="args_json" value='{{ b.args }}'>
+      <button type="submit" class="secondary" style="font-size:12px; padding:5px 12px;">
+        {{ b.label }}</button>
+    </form>
+    {% endfor %}
+  </div>
+
+  <form action="/dev/hwp/send" method="post"
+        style="display:flex; gap:10px; align-items:flex-start; font-size:13px;">
+    <select name="op" style="border:1px solid var(--line); border-radius:8px;
+            padding:9px 10px; flex:none;">
+      {% for o in ops %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
+    </select>
+    <textarea name="args_json" rows="2" placeholder='인자 JSON — 예: {"text": "삽입할 내용"} · {"find": "기존", "replace": "새 값"} · {"rows": 3, "cols": 4}'
+              style="flex:1; border:1px solid var(--line); border-radius:8px;
+                     padding:9px 10px; font-family:monospace; font-size:12px;"></textarea>
+    <button type="submit" style="flex:none;">보내기</button>
+  </form>
+</div></div>
+
+{% if primary and primary.results %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:chat-square-code-linear"></iconify-icon>명령 로그
+    <span class="muted" style="font-size:12px; font-weight:500;">최근순</span></h2>
+  {% for r in primary.results %}
+  <div style="display:flex; gap:10px; align-items:baseline; padding:7px 0;
+              border-bottom:1px solid var(--panel); font-size:12.5px;">
+    <span class="pill {{ 'reviewed' if r.ok else 'failed' }}" style="flex:none;">
+      {{ "성공" if r.ok else "실패" }}</span>
+    <span class="muted" style="flex:none;">{{ r.id }}</span>
+    <span style="overflow-wrap:anywhere; font-family:monospace; font-size:11.5px;">
+      {{ (r.result | tojson if r.ok else r.error) | truncate(300) }}</span>
+  </div>
+  {% endfor %}
+</div></div>
+{% endif %}
 
 {% endblock %}

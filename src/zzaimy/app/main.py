@@ -1182,15 +1182,22 @@ def create_app(
     async def hwp_result(request: Request):
         payload = await request.json()
         sess = _hwp_session(str(payload.get("session") or ""))
-        sess["results"].append({
-            k: payload.get(k) for k in ("id", "ok", "result", "error")
-        })
+        result = {k: payload.get(k) for k in ("id", "ok", "result", "error")}
+        sess["results"].append(result)
         del sess["results"][:-50]
+        # 문서 목록 결과면 세션에 저장 — /dev/hwp에서 대상 선택에 쓴다
+        res = result.get("result")
+        if isinstance(res, dict) and "docs" in res:
+            sess["docs"] = res["docs"]
         return {"ok": True}
 
-    # 개발자 화면 — 토큰 발급·상태·명령 보내기 (LLM 없이도 실시간 데모 가능)
+    # 개발자 화면 — 토큰 발급·상태·명령 콘솔 (LLM 없이도 실시간 데모 가능)
 
-    _HWP_OPS = {"ping", "find", "insert_text", "replace", "get_text", "save"}
+    _HWP_OPS = {
+        "ping", "new_doc", "open", "list_docs", "select_doc", "goto",
+        "set_title", "find", "insert_text", "replace", "insert_table",
+        "get_text", "save", "save_as",
+    }
 
     def _hwp_send(op: str, args: dict) -> bool:
         """가장 최근 연결 에이전트로 명령 전송. 연결 없으면 False."""
@@ -1204,13 +1211,16 @@ def create_app(
 
     @app.post("/doc/{doc_id}/to-hwp")
     def doc_to_hwp(doc_id: int):
-        """초안을 연결된 한글 화면으로 — 검증 거친 서버 생성 값만 보낸다."""
+        """초안을 한글에 새 문서로 띄운다 — 새 문서를 만들어 거기 넣으므로
+        사용자가 열어둔 다른 문서는 건드리지 않는다. 이후 편집은 이 문서로."""
         doc = db.get_document(doc_id)
         if doc is None or not (doc.get("draft") or "").strip():
             raise HTTPException(404, "초안 없음")
-        sent = _hwp_send("insert_text", {"text": doc["draft"]})
-        flag = "sent" if sent else "none"
-        return RedirectResponse(f"/doc/{doc_id}?hwp={flag}", status_code=303)
+        if not hwp_sessions:
+            return RedirectResponse(f"/doc/{doc_id}?hwp=none", status_code=303)
+        _hwp_send("new_doc", {})               # 새 문서 생성·바인딩
+        _hwp_send("insert_text", {"text": doc["draft"]})
+        return RedirectResponse(f"/doc/{doc_id}?hwp=sent", status_code=303)
 
     @app.get("/dev/hwp", response_class=HTMLResponse)
     def dev_hwp(request: Request, err: str = ""):
@@ -1219,7 +1229,8 @@ def create_app(
         now = _t.time()
         sessions = [
             {"id": sid, "age": int(now - s["last_poll"]),
-             "n_cmd": len(s["commands"]), "results": s["results"][-8:][::-1]}
+             "n_cmd": len(s["commands"]), "results": s["results"][-12:][::-1],
+             "docs": s.get("docs") or []}
             for sid, s in sorted(
                 hwp_sessions.items(), key=lambda kv: -kv[1]["registered"]
             )
@@ -1229,6 +1240,7 @@ def create_app(
             "sessions": sessions,
             "err": err,
             "bundle_ready": _HWP_BUNDLE.exists(),
+            "ops": sorted(_HWP_OPS),
         }))
 
     @app.post("/dev/hwp/token")
@@ -1284,21 +1296,20 @@ def create_app(
         )
 
     @app.post("/dev/hwp/send")
-    def dev_hwp_send(
-        op: str = Form(...), text: str = Form(""),
-        find: str = Form(""), replace: str = Form(""),
-    ):
+    def dev_hwp_send(op: str = Form(...), args_json: str = Form("")):
+        """개발자 명령 콘솔 — op + 인자(JSON)를 자유롭게 보낸다."""
         if op not in _HWP_OPS:
-            raise HTTPException(400, "허용되지 않은 명령")
+            raise HTTPException(400, f"허용되지 않은 명령: {op}")
         args: dict = {}
-        if op == "insert_text":
-            args = {"text": text}
-        elif op == "find":
-            args = {"text": find or text}
-        elif op == "replace":
-            args = {"find": find, "replace": replace, "all": True}
-        elif op == "get_text":
-            args = {"scope": "all"}
+        if args_json.strip():
+            try:
+                args = _aj.loads(args_json)
+                if not isinstance(args, dict):
+                    raise ValueError
+            except ValueError:
+                return RedirectResponse(
+                    "/dev/hwp?err=인자는 JSON 객체여야 합니다", status_code=303
+                )
         if not _hwp_send(op, args):
             return RedirectResponse(
                 "/dev/hwp?err=연결된 에이전트가 없습니다", status_code=303
@@ -2105,6 +2116,8 @@ def create_app(
         pages = sorted(
             (int(p) for p in (payload.get("page_sizes") or {})), key=int
         )
+        from markupsafe import escape as html_escape
+
         title = html_escape(doc["filename"])
         imgs = "".join(
             f'<figure><figcaption>{p}쪽</figcaption>'
