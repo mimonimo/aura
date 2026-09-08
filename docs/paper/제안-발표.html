@@ -1,0 +1,397 @@
+<title>짜이미 캡스톤 제안</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700;900&family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  :root{
+    --bg:#F4F6F9; --surface:#FFFFFF; --surface-2:#EBEFF5;
+    --ink:#141B2B; --ink-soft:#48546C; --ink-faint:#8792A6;
+    --line:#E1E6EE; --line-strong:#CBD2DE;
+    --accent:#2456B8; --accent-2:#3E6FD1;
+    --good:#1E7A50; --amber:#B0731C;
+    --shadow:0 1px 2px rgba(20,27,43,.05), 0 8px 30px rgba(20,27,43,.07);
+    --serif:"Noto Serif KR", serif;
+    --sans:"IBM Plex Sans KR", system-ui, sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, monospace;
+  }
+  :root:not([data-theme="light"]){
+    @media (prefers-color-scheme: dark){
+      --bg:#0C1220; --surface:#141D30; --surface-2:#1A2438;
+      --ink:#E9EDF5; --ink-soft:#A4B0C7; --ink-faint:#6C7893;
+      --line:#243049; --line-strong:#324058;
+      --accent:#6E9BE8; --accent-2:#87ABEC;
+      --good:#57BC8B; --amber:#D79E4C;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 34px rgba(0,0,0,.34);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0C1220; --surface:#141D30; --surface-2:#1A2438;
+    --ink:#E9EDF5; --ink-soft:#A4B0C7; --ink-faint:#6C7893;
+    --line:#243049; --line-strong:#324058;
+    --accent:#6E9BE8; --accent-2:#87ABEC;
+    --good:#57BC8B; --amber:#D79E4C;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 34px rgba(0,0,0,.34);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--sans); font-weight:400; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .deck{scroll-snap-type:y mandatory; height:100vh; overflow-y:scroll}
+  .slide{
+    scroll-snap-align:start; min-height:100vh; width:100%;
+    display:flex; flex-direction:column; justify-content:center;
+    padding:clamp(28px,6vw,96px); position:relative;
+  }
+  .inner{max-width:1080px; width:100%; margin:0 auto}
+
+  .eyebrow{
+    font-family:var(--mono); font-size:12.5px; font-weight:600;
+    letter-spacing:.15em; text-transform:uppercase; color:var(--accent);
+    display:flex; align-items:center; gap:11px; margin-bottom:22px;
+  }
+  .eyebrow .sn{color:var(--ink-faint)}
+  .eyebrow::before{content:""; width:24px; height:2px; background:var(--accent)}
+  h1{
+    font-family:var(--serif); font-weight:900; color:var(--ink);
+    font-size:clamp(34px,6vw,66px); line-height:1.1; letter-spacing:-.01em;
+    text-wrap:balance; margin:0 0 20px;
+  }
+  h2{
+    font-family:var(--serif); font-weight:700; color:var(--ink);
+    font-size:clamp(26px,4vw,44px); line-height:1.18; letter-spacing:-.01em;
+    text-wrap:balance; margin:0 0 18px;
+  }
+  h3{font-family:var(--sans); font-weight:600; font-size:17px; margin:0 0 8px; color:var(--ink)}
+  p{margin:0 0 14px; color:var(--ink-soft); max-width:66ch}
+  .lead{font-size:clamp(17px,2vw,21px); color:var(--ink-soft); max-width:60ch}
+  strong{color:var(--ink); font-weight:600}
+  .accent{color:var(--accent); font-weight:600}
+  .mono{font-family:var(--mono)}
+  .num{font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:600}
+
+  .grid{display:grid; gap:18px}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  @media(max-width:820px){.g2,.g3{grid-template-columns:1fr}}
+
+  .card{
+    background:var(--surface); border:1px solid var(--line);
+    border-radius:14px; padding:22px; box-shadow:var(--shadow);
+  }
+  .card .k{font-family:var(--mono); font-size:12px; color:var(--accent); font-weight:600; letter-spacing:.04em}
+  .card h3{margin-top:8px}
+  .card p{font-size:14.5px; margin:0}
+
+  .stat{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:22px; box-shadow:var(--shadow)}
+  .stat .big{font-family:var(--mono); font-weight:600; font-size:clamp(30px,5vw,46px); color:var(--accent); letter-spacing:-.02em; line-height:1}
+  .stat .big .to{color:var(--ink-faint); font-weight:500}
+  .stat .big .win{color:var(--good)}
+  .stat .lab{margin-top:10px; font-size:13.5px; color:var(--ink-soft)}
+
+  table{width:100%; border-collapse:collapse; font-size:14.5px}
+  .tbl-wrap{overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:var(--surface)}
+  th,td{text-align:left; padding:12px 16px; border-bottom:1px solid var(--line)}
+  th{font-family:var(--mono); font-size:11.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; background:var(--surface-2)}
+  tbody tr:last-child td{border-bottom:none}
+  td .num{color:var(--accent)}
+  td .win{color:var(--good)}
+  caption{caption-side:bottom; text-align:left; padding:10px 4px 0; font-size:12px; color:var(--ink-faint)}
+
+  ul.clean{list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:12px}
+  ul.clean li{padding-left:22px; position:relative; color:var(--ink-soft); max-width:64ch}
+  ul.clean li::before{content:""; position:absolute; left:0; top:10px; width:8px; height:8px; border-radius:2px; background:var(--accent)}
+  ul.clean li strong{display:block; color:var(--ink); font-weight:600; margin-bottom:1px}
+
+  .flow{display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin-top:10px}
+  .flow .step{flex:1; min-width:150px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px; box-shadow:var(--shadow); position:relative}
+  .flow .step + .step{margin-left:26px}
+  .flow .step + .step::before{content:"→"; position:absolute; left:-22px; top:50%; transform:translateY(-50%); color:var(--accent); font-family:var(--mono); font-size:17px}
+  .flow .step .n{font-family:var(--mono); font-size:11px; color:var(--accent); font-weight:600}
+  .flow .step h3{font-size:15px; margin:6px 0 4px}
+  .flow .step p{font-size:12.5px; margin:0}
+  @media(max-width:820px){.flow .step + .step{margin-left:0; margin-top:26px} .flow .step + .step::before{left:50%; top:-22px; transform:translateX(-50%)}}
+
+  .pill{display:inline-block; font-family:var(--mono); font-size:11.5px; font-weight:600; padding:3px 10px; border-radius:999px; letter-spacing:.03em}
+  .pill.now{background:color-mix(in srgb,var(--good) 15%,transparent); color:var(--good)}
+  .pill.plan{background:color-mix(in srgb,var(--accent) 14%,transparent); color:var(--accent)}
+  .pill.target{background:color-mix(in srgb,var(--amber) 18%,transparent); color:var(--amber)}
+
+  .title-slide{justify-content:flex-end}
+  .title-slide .brand{font-family:var(--mono); font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-faint); margin-bottom:auto; padding-top:8px}
+  .title-slide .tag{font-size:15px; color:var(--ink-faint); margin:14px 0 0; font-family:var(--mono)}
+  .kicker{font-family:var(--mono); font-size:13px; color:var(--ink-faint); margin-top:26px; display:flex; gap:20px; flex-wrap:wrap}
+  .kicker b{color:var(--ink); font-weight:600}
+
+  .hud{position:fixed; right:20px; bottom:18px; display:flex; align-items:center; gap:14px; z-index:50;
+    font-family:var(--mono); font-size:12px; color:var(--ink-faint); background:color-mix(in srgb,var(--surface) 86%,transparent);
+    padding:7px 13px; border:1px solid var(--line); border-radius:999px; backdrop-filter:blur(6px)}
+  .hud .count{font-weight:600; color:var(--ink)}
+  .hud button{font-family:var(--mono); font-size:14px; background:none; border:none; color:var(--ink-soft); cursor:pointer; padding:2px 5px; border-radius:6px}
+  .hud button:hover{color:var(--accent)}
+  .hud button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .progress{position:fixed; left:0; top:0; height:3px; background:var(--accent); width:0; z-index:60; transition:width .25s ease}
+  @media (prefers-reduced-motion:reduce){.progress{transition:none}}
+  .themebtn{position:fixed; right:20px; top:16px; z-index:50; font-family:var(--mono); font-size:11.5px;
+    background:var(--surface); border:1px solid var(--line); color:var(--ink-soft); border-radius:999px; padding:6px 12px; cursor:pointer}
+  .themebtn:hover{color:var(--accent)}
+  .themebtn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  .foot{margin-top:26px; font-family:var(--mono); font-size:12px; color:var(--ink-faint)}
+  @media print{.deck{height:auto; overflow:visible} .slide{min-height:auto; page-break-after:always; padding:40px} .hud,.themebtn,.progress{display:none}}
+</style>
+
+<div class="progress" id="progress"></div>
+<button class="themebtn" id="themebtn" type="button">◐ 테마</button>
+
+<div class="deck" id="deck">
+
+  <!-- 1. 표지 -->
+  <section class="slide title-slide">
+    <div class="inner">
+      <div class="brand">영남이공대학교 · 캡스톤디자인 제안 발표</div>
+      <div class="eyebrow">국고사업 계획서 작성 지원 시스템</div>
+      <h1>짜이미 <span style="color:var(--ink-faint); font-weight:500; font-size:.5em; font-family:var(--sans);">ZZAIMY</span></h1>
+      <p class="lead">교내에 쌓인 국고사업 문서를, 실사용 가능한 계획서 초안으로 바꾸는 온프레미스 AI 시스템</p>
+      <p class="tag">공고를 날실로, 우리의 실적을 씨실로</p>
+      <div class="kicker">
+        <span><b>주제</b> 행정문서 기반 계획서 초안 자동화</span>
+        <span><b>방식</b> RAG + 도메인 특화 모델</span>
+        <span><b>환경</b> 온프레미스 실사용</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 문제 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">01</span> 문제</div>
+      <h2>수만 장의 문서가 쌓여만 있고,<br>계획서는 매번 처음부터 다시 쓴다</h2>
+      <p class="lead">영남이공대학교에는 국고사업 관련 문서가 수만 장 규모의 PDF로 축적돼 있다. 하지만 이 자산은 파일 서버에 쌓여만 있고, 새 공고가 나올 때마다 담당자가 과거 문서를 <strong>손으로 뒤져가며</strong> 사업계획서를 백지에서 다시 작성한다.</p>
+      <div class="grid g3" style="margin-top:28px">
+        <div class="stat"><div class="big">수만 장</div><div class="lab">파일 서버에 방치된 국고사업 문서 — 활용 수단 없음</div></div>
+        <div class="stat"><div class="big">약 2주</div><div class="lab">공고 하나당 계획서 초안 작성에 드는 담당자 시간</div></div>
+        <div class="stat"><div class="big">100%</div><div class="lab">수작업 — 과거 실적·표현을 사람이 직접 검색·재구성</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 원인 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">02</span> 왜 어려운가 · 원인</div>
+      <h2>단순한 "문서 검색" 문제가 아니다</h2>
+      <div class="grid g2" style="margin-top:8px">
+        <div class="card"><div class="k">원인 01 · 입력</div><h3>문서 형태가 제각각이다</h3><p>디지털 PDF뿐 아니라 스캔본, 사진, 한글(HWP) 파일이 섞여 있다. 읽어 들이는(추출) 단계부터 정확도가 무너진다.</p></div>
+        <div class="card"><div class="k">원인 02 · 검색</div><h3>방대해서 근거를 못 찾는다</h3><p>필요한 실적 수치가 어느 문서 몇 쪽에 있는지 사람이 다 기억할 수 없다. 검색이 틀리면 그 위의 모든 작업이 무의미해진다.</p></div>
+        <div class="card"><div class="k">원인 03 · 신뢰</div><h3>수치를 잘못 쓰면 사업이 취소된다</h3><p>계획서의 정량 수치는 근거가 있어야 한다. 근거 없는 수치(환각)가 들어가면 <strong>허위 기재로 사업 취소·환수 사유</strong>가 된다.</p></div>
+        <div class="card"><div class="k">원인 04 · 언어</div><h3>범용 AI는 도메인 용어를 모른다</h3><p>"학사운영지원", "성과관리 지표" 같은 교내·국고사업 용어의 관계를 범용 모델은 이해하지 못한다.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. 프로젝트 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">03</span> 해결 · 프로젝트</div>
+      <h2>공고에서 요구를 읽고, 실적에서 근거를 채운다</h2>
+      <p class="lead">새 공고문(PDF)을 넣고 방향 몇 가지를 지정하면, 기관의 <strong>실제 실적에 근거한</strong> 사업계획서 초안을 만든다. 공고가 계획서의 뼈대를, 우리 실적이 그 내용을 이룬다.</p>
+      <div class="grid g2" style="margin-top:22px; align-items:start">
+        <div class="card">
+          <div class="k">핵심 통찰</div>
+          <h3>보유 문서 = 학습 데이터셋</h3>
+          <p>과거 계획서는 "요구사항 → 완성 섹션"의 정답 쌍이고, 결과보고서는 "PDF → 실적 데이터"의 정답 쌍이다. <strong>사람의 라벨링 없이</strong> 모델 학습 데이터를 확보할 수 있다.</p>
+        </div>
+        <div>
+          <ul class="clean">
+            <li><strong>목표는 70% 초안</strong> 완성본이 아니라, 사람이 검수하는 초안. 담당자를 대체하지 않고 가속한다.</li>
+            <li><strong>모든 수치는 출처 추적</strong> 초안의 정량 수치마다 문서명·페이지를 단다.</li>
+            <li><strong>작성 시간 <span class="num">2주 → 2~3일</span></strong> <span class="pill target">목표</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. 아키텍처 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">04</span> 해결 구조</div>
+      <h2>네 단계 파이프라인</h2>
+      <p class="lead">통짜로 생성하지 않는다. 읽고 → 찾고 → 섹션별로 쓰고 → 검증한다. 각 단계가 독립적으로 측정·개선된다.</p>
+      <div class="flow" style="margin-top:26px">
+        <div class="step"><div class="n">01</div><h3>추출 · OCR</h3><p>PDF·스캔·사진·한글을 텍스트와 표로. 개인정보는 인덱싱 전에 마스킹.</p></div>
+        <div class="step"><div class="n">02</div><h3>검색</h3><p>공고 요구사항에 맞는 실적 근거를 하이브리드 검색 + 리랭킹으로 인출.</p></div>
+        <div class="step"><div class="n">03</div><h3>섹션 생성</h3><p>배점 항목별로 근거를 넣어 초안 작성. 수치는 인출된 것만 사용.</p></div>
+        <div class="step"><div class="n">04</div><h3>검증</h3><p>수치 대조 · 배점 커버리지 · 예산 검산 — 세 검증기가 초안을 점검.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. 기술 1 OCR -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">05</span> 핵심 기술 ① · 문서를 정확히 읽기</div>
+      <h2>OCR — 인식률이 시스템의 바닥이다</h2>
+      <p class="lead">실전 입력은 깨끗한 PDF만이 아니다. 스캔본·사진의 글자를 얼마나 정확히 읽느냐가 검색·생성 품질의 하한을 정한다.</p>
+      <div class="grid g3" style="margin-top:22px; align-items:start">
+        <div class="stat"><div class="big">0.81<span class="to"> 어절 F1</span></div><div class="lab">현행 엔진(MinerU) 실측 인식 정확도 <span class="pill now">실측</span></div></div>
+        <div class="card"><div class="k">가시화</div><h3>인식 영역 시각화</h3><p>OCR이 읽은 영역을 신뢰도 색(초록=확신, 주황=재판독 대상)으로 표시해 어디가 약한지 눈으로 확인.</p></div>
+        <div class="card"><div class="k">개선 방법론</div><h3>디지털 ↔ 스캔 영역 대조</h3><p>디지털 PDF의 정답 좌표와 스캔 인식 영역을 겹쳐, 글자뿐 아니라 <strong>영역 인식</strong>까지 정량 평가·개선.</p></div>
+      </div>
+      <p class="foot">도전자 모델(PaddleOCR-VL) 대결은 GPU 서버 확보 후 진행 — CPU 전용 환경에서는 실용성 미달로 확인됨(정직한 부정 결과 기록).</p>
+    </div>
+  </section>
+
+  <!-- 7. 기술 2 검색 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">06</span> 핵심 기술 ② · 근거를 정확히 찾기</div>
+      <h2>하이브리드 검색 + 리랭킹</h2>
+      <p class="lead">의미 기반(임베딩)과 키워드 기반을 결합(RRF)하고, 리랭커로 상위 결과를 재정렬한다. 검색 정확도를 <strong>실제로 측정</strong>하며 개선했다.</p>
+      <div class="tbl-wrap" style="margin-top:20px">
+        <table>
+          <thead><tr><th>구성</th><th>Recall@1</th><th>Recall@5</th><th>MRR@10</th></tr></thead>
+          <tbody>
+            <tr><td>하이브리드 검색</td><td><span class="num">0.490</span></td><td><span class="num">0.813</span></td><td><span class="num">0.623</span></td></tr>
+            <tr><td><strong>+ 리랭커 도입</strong></td><td><span class="num win">0.623</span></td><td><span class="num win">0.850</span></td><td><span class="num win">0.716</span></td></tr>
+          </tbody>
+          <caption>동일 평가셋 실측 · 리랭커(bge-reranker) 도입으로 Recall@1 +0.133, MRR +0.093</caption>
+        </table>
+      </div>
+      <p class="foot" style="margin-top:18px">가중치 스윕으로 최적 결합비(w<sub>a</sub>≈0.3)를 실측으로 확정 — 임의 설정이 아니라 근거 기반.</p>
+    </div>
+  </section>
+
+  <!-- 8. 기술 3 모델 4종 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">07</span> 핵심 기술 ③ · 도메인 특화 (파인튜닝)</div>
+      <h2>오픈웨이트 위에 도메인을 입힌 모델 4종</h2>
+      <p class="lead">범용 모델을 국고사업 문서 도메인에 적응시킨다. 성과 요건만을 위한 학습이 아니라, <strong>실제 시스템 성능을 올리는 방식</strong>으로. 베이스 대비 개선폭을 정량 입증한다.</p>
+      <div class="tbl-wrap" style="margin-top:18px">
+        <table>
+          <thead><tr><th>모델</th><th>역할</th><th>학습 방식</th><th>지표</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">ZZAIMY-Embed</td><td>도메인 특화 임베딩</td><td>대조학습 (합성 질의쌍)</td><td>Recall@k · MRR · nDCG</td></tr>
+            <tr><td class="mono">ZZAIMY-Rerank</td><td>검색 재정렬</td><td>동일 데이터 재활용</td><td>리랭킹 후 Recall@k</td></tr>
+            <tr><td class="mono">ZZAIMY-Writer</td><td>섹션 초안 생성</td><td>QLoRA SFT</td><td>배점 반영률 · 수치 환각률</td></tr>
+            <tr><td class="mono">ZZAIMY-Extract</td><td>실적 카드 추출</td><td>증류 (distillation)</td><td>필드 정확도 · 처리량</td></tr>
+          </tbody>
+          <caption>절대 규칙 — 모델에 지식(수치)을 주입하지 않는다. 능력만 학습시키고, 지식은 검색으로 공급한다.</caption>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. 신뢰성 원칙 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">08</span> 신뢰성 · 절대 원칙</div>
+      <h2>지어내지 않는 시스템</h2>
+      <p class="lead">행정 문서는 정확성이 곧 신뢰다. 설계 단계부터 지키는 규칙으로 환각과 유출을 원천 차단한다.</p>
+      <div class="grid g2" style="margin-top:20px">
+        <div class="card"><div class="k">환각 차단</div><h3>수치는 인출하고 생성하지 않는다</h3><p>초안의 모든 정량 수치는 인출된 근거에 존재해야 한다. 검증기가 초안의 수치를 원문과 대조한다.</p></div>
+        <div class="card"><div class="k">개인정보</div><h3>인덱싱 이전에 마스킹</h3><p>실제 교내 문서에 포함된 개인정보는 검색 인덱스에 들어가기 전에 제거한다.</p></div>
+        <div class="card"><div class="k">권한</div><h3>열람 등급을 검색 단계에서 필터</h3><p>문서 열람 권한을 검색 시점에 적용 — 사후에 붙이기 어려운 것을 처음부터 설계에 넣는다.</p></div>
+        <div class="card"><div class="k">예산</div><h3>계산은 결정론 로직으로</h3><p>예산 검산에 LLM을 쓰지 않는다. 수치 계산은 규칙 기반으로 정확히.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10. 현황 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">09</span> 진행 현황</div>
+      <h2>이미 돌아가는 시스템</h2>
+      <p class="lead">데모가 아니라 실사용을 전제로, 온프레미스 운영 서버에서 웹·검색·문서 처리가 실제로 동작하고 있다.</p>
+      <div class="grid g3" style="margin-top:22px; align-items:start">
+        <div class="card"><span class="pill now">가동 중</span><h3 style="margin-top:12px">운영 서버</h3><p>온프레미스 웹 서비스 상시 가동. 문서 등록·검색·초안·개발자 대시보드.</p></div>
+        <div class="card"><span class="pill now">실측 확보</span><h3 style="margin-top:12px">검색·OCR 지표</h3><p>리랭커 도입 개선폭, OCR 인식률을 재현 가능하게 측정.</p></div>
+        <div class="card"><span class="pill plan">진행</span><h3 style="margin-top:12px">파일럿 44건</h3><p>실제 문서로 파이프라인 관통 — 수만 장이 아니라 파일럿부터.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11. 기대효과 / 로드맵 -->
+  <section class="slide">
+    <div class="inner">
+      <div class="eyebrow"><span class="sn">10</span> 기대효과 · 로드맵</div>
+      <h2>두 개의 성과를 동시에</h2>
+      <div class="grid g2" style="margin-top:12px; align-items:start">
+        <div>
+          <h3 style="font-size:15px; color:var(--accent); font-family:var(--mono); letter-spacing:.05em">축 A · 실용 시스템</h3>
+          <ul class="clean" style="margin-top:12px">
+            <li><strong>담당자 시간 단축</strong> 계획서 초안 <span class="num">2주 → 2~3일</span> <span class="pill target">목표</span></li>
+            <li><strong>실사용 전환</strong> 실제 교내 행정에 활용 — 데모가 아닌 시스템</li>
+          </ul>
+        </div>
+        <div>
+          <h3 style="font-size:15px; color:var(--accent); font-family:var(--mono); letter-spacing:.05em">축 B · 도메인 특화 모델</h3>
+          <ul class="clean" style="margin-top:12px">
+            <li><strong>정량 입증</strong> 베이스 대비 개선폭을 재현 가능하게 측정</li>
+            <li><strong>논문 산출물</strong> 모델 카드 · 평가 보고서 · 버전 이력</li>
+          </ul>
+        </div>
+      </div>
+      <p class="foot" style="margin-top:30px">순서 원칙 — 베이스라인을 먼저 측정한 뒤 파인튜닝한다. 그래야 개선폭을 입증할 수 있다.</p>
+    </div>
+  </section>
+
+  <!-- 12. 마무리 -->
+  <section class="slide title-slide">
+    <div class="inner">
+      <div class="brand">영남이공대학교 · 짜이미</div>
+      <h1 style="font-size:clamp(30px,5.2vw,58px)">쌓여만 있던 문서를<br>실사용 계획서 초안으로</h1>
+      <p class="tag">공고를 날실로, 우리의 실적을 씨실로</p>
+      <div class="kicker" style="margin-top:30px"><span><b>감사합니다</b></span><span>질의응답</span></div>
+    </div>
+  </section>
+
+</div>
+
+<div class="hud">
+  <button id="prev" type="button" aria-label="이전">‹</button>
+  <span class="count"><span id="cur">1</span> / <span id="total">12</span></span>
+  <button id="next" type="button" aria-label="다음">›</button>
+</div>
+
+<script>
+  var deck=document.getElementById("deck");
+  var slides=Array.prototype.slice.call(document.querySelectorAll(".slide"));
+  var curEl=document.getElementById("cur"), totEl=document.getElementById("total");
+  var prog=document.getElementById("progress");
+  totEl.textContent=slides.length;
+  function current(){
+    var best=0, bestD=Infinity;
+    slides.forEach(function(s,i){var d=Math.abs(s.getBoundingClientRect().top); if(d<bestD){bestD=d; best=i;}});
+    return best;
+  }
+  function update(){
+    var i=current();
+    curEl.textContent=i+1;
+    prog.style.width=((i)/(slides.length-1)*100)+"%";
+  }
+  function go(i){i=Math.max(0,Math.min(slides.length-1,i)); slides[i].scrollIntoView({behavior:"smooth"});}
+  deck.addEventListener("scroll",function(){window.requestAnimationFrame(update)},{passive:true});
+  document.getElementById("next").addEventListener("click",function(){go(current()+1)});
+  document.getElementById("prev").addEventListener("click",function(){go(current()-1)});
+  document.addEventListener("keydown",function(e){
+    if(e.key==="ArrowRight"||e.key==="PageDown"||e.key===" "){e.preventDefault(); go(current()+1);}
+    else if(e.key==="ArrowLeft"||e.key==="PageUp"){e.preventDefault(); go(current()-1);}
+    else if(e.key==="Home"){e.preventDefault(); go(0);}
+    else if(e.key==="End"){e.preventDefault(); go(slides.length-1);}
+  });
+  var tb=document.getElementById("themebtn");
+  tb.addEventListener("click",function(){
+    var root=document.documentElement;
+    var cur=root.getAttribute("data-theme");
+    var isDark=cur==="dark"||(!cur&&window.matchMedia("(prefers-color-scheme:dark)").matches);
+    root.setAttribute("data-theme",isDark?"light":"dark");
+  });
+  update();
+</script>
