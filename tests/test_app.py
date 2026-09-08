@@ -1113,7 +1113,7 @@ def test_hwp_agent_channel_roundtrip(client):
     # 명령 전송 (개발자 화면 경로)
     r = client.post(
         "/dev/hwp/send",
-        data={"op": "insert_text", "text": "사업 개요"},
+        data={"op": "insert_text", "args_json": '{"text": "사업 개요"}'},
         follow_redirects=False,
     )
     assert r.status_code == 303
@@ -1186,3 +1186,52 @@ def test_draft_to_hwp_flow(client):
     cmds = client.get(f"/hwp/agent/commands?session={session}&after=0").json()
     assert cmds["commands"][-1]["op"] == "insert_text"
     assert "합성 초안 본문" in cmds["commands"][-1]["args"]["text"]
+
+
+def test_hwp_multi_doc_and_ops(client):
+    """여러 문서 안전 + 새 명령(new_doc·select_doc·set_title) 라우팅."""
+    db = client.app.state.db
+    client.post("/dev/hwp/token", follow_redirects=False)
+    token = db.get_setting("hwp_agent_token")
+    session = client.post("/hwp/agent/register", json={"token": token}).json()["session"]
+
+    # 새 명령들이 op 화이트리스트를 통과해 큐에 실린다
+    for op, args in [
+        ("new_doc", "{}"),
+        ("set_title", '{"text": "2026년 사업계획서"}'),
+        ("list_docs", "{}"),
+    ]:
+        r = client.post("/dev/hwp/send",
+                        data={"op": op, "args_json": args},
+                        follow_redirects=False)
+        assert r.status_code == 303
+
+    cmds = client.get(f"/hwp/agent/commands?session={session}&after=0").json()
+    ops = [c["op"] for c in cmds["commands"]]
+    assert ops == ["new_doc", "set_title", "list_docs"]
+
+    # list_docs 결과를 회신하면 세션에 문서 목록이 저장돼 화면에 뜬다
+    client.post("/hwp/agent/result", json={
+        "session": session, "id": cmds["commands"][-1]["id"], "ok": True,
+        "result": {"count": 2, "docs": [
+            {"id": 0, "name": "보고서.hwp", "path": "/x/보고서.hwp",
+             "active": False, "bound": False},
+            {"id": 1, "name": "빈 문서", "path": "", "active": True, "bound": True},
+        ]},
+    })
+    page = client.get("/dev/hwp")
+    assert "열린 문서" in page.text and "보고서.hwp" in page.text
+
+
+def test_hwp_send_rejects_bad_op_and_bad_json(client):
+    db = client.app.state.db
+    client.post("/dev/hwp/token", follow_redirects=False)
+    token = db.get_setting("hwp_agent_token")
+    client.post("/hwp/agent/register", json={"token": token})
+
+    r = client.post("/dev/hwp/send", data={"op": "danger", "args_json": "{}"})
+    assert r.status_code == 400
+    r = client.post("/dev/hwp/send",
+                    data={"op": "ping", "args_json": "not json"},
+                    follow_redirects=False)
+    assert "err=" in r.headers["location"]

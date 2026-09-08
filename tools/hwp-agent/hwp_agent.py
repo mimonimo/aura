@@ -27,17 +27,27 @@ import urllib.request
 
 # 편집 명령 화이트리스트 — 이 밖의 op는 거부한다.
 ALLOWED_OPS = {
-    "ping", "open", "find", "insert_text", "replace",
-    "insert_table", "get_text", "save", "save_as",
+    "ping", "open", "new_doc", "find", "goto", "set_title",
+    "insert_text", "replace", "insert_table", "get_text", "save", "save_as",
+    "list_docs", "select_doc",
 }
-EDITING_OPS = {"insert_text", "replace", "insert_table", "save", "save_as"}
+EDITING_OPS = {
+    "insert_text", "replace", "insert_table", "set_title", "save", "save_as",
+}
+# 편집 전에 대상 문서가 확정돼야 하는 op — 엉뚱한 창을 건드리지 않기 위함
+TARGETED_OPS = EDITING_OPS | {"find", "get_text"}
 
 
 class HwpBackend:
     """편집 백엔드 인터페이스. COM/목이 이를 구현한다."""
 
     def ping(self) -> dict: raise NotImplementedError
+    def new_doc(self) -> dict: raise NotImplementedError
     def open(self, path: str, format: str = "hwpx") -> dict: raise NotImplementedError
+    def list_docs(self) -> dict: raise NotImplementedError
+    def select_doc(self, index=None, path=None, id=None) -> dict: raise NotImplementedError
+    def goto(self, where: str = "start") -> dict: raise NotImplementedError
+    def set_title(self, text: str) -> dict: raise NotImplementedError
     def find(self, text: str, nth: int = 1) -> dict: raise NotImplementedError
     def insert_text(self, text: str) -> dict: raise NotImplementedError
     def replace(self, find: str, replace: str, all: bool = True) -> dict: raise NotImplementedError
@@ -54,20 +64,81 @@ class MockBackend(HwpBackend):
     """
 
     def __init__(self) -> None:
-        self.text = ""
+        # 여러 문서를 흉내낸다 — {id: {text, path}}. 안전 로직 검증용.
+        self.docs: dict[int, dict] = {0: {"text": "", "path": ""}}
+        self._active = 0
+        self._next_id = 1
         self.caret = 0
-        self.path = None
+        self._bound: int | None = None
+
+    @property
+    def text(self) -> str:
+        return self.docs[self._active]["text"]
+
+    @text.setter
+    def text(self, v: str) -> None:
+        self.docs[self._active]["text"] = v
+
+    def _ensure_target(self) -> None:
+        if self._bound is not None:
+            if self._bound not in self.docs:
+                raise RuntimeError("작업 대상 문서가 닫혔습니다. 다시 띄워 주세요.")
+            self._active = self._bound
+            return
+        if len(self.docs) > 1:
+            raise RuntimeError("문서가 여러 개 — 대상이 확정되지 않았습니다.")
+        self._bound = self._active
 
     def ping(self) -> dict:
         return {"backend": "mock", "version": "mock-1"}
 
-    def open(self, path: str, format: str = "hwpx") -> dict:
-        self.path = path
-        self.text = ""
+    def new_doc(self) -> dict:
+        did = self._next_id
+        self._next_id += 1
+        self.docs[did] = {"text": "", "path": ""}
+        self._active = did
+        self._bound = did
         self.caret = 0
-        return {"opened": path}
+        return {"created": True, "bound": did}
+
+    def list_docs(self) -> dict:
+        docs = [
+            {"id": did, "path": d["path"],
+             "name": (d["path"].rsplit("/", 1)[-1] or "빈 문서"),
+             "active": did == self._active, "bound": did == self._bound}
+            for did, d in self.docs.items()
+        ]
+        return {"count": len(docs), "docs": docs, "bound": self._bound}
+
+    def select_doc(self, index=None, path=None, id=None) -> dict:
+        did = int(id) if id is not None else index
+        if did not in self.docs:
+            raise RuntimeError("해당 문서를 찾을 수 없습니다")
+        self._active = did
+        self._bound = did
+        return {"selected": {"id": did}}
+
+    def goto(self, where: str = "start") -> dict:
+        self._ensure_target()
+        self.caret = 0 if where == "start" else len(self.text)
+        return {"moved": where}
+
+    def set_title(self, text: str) -> dict:
+        self._ensure_target()
+        self.text = text + "\n" + self.text
+        return {"title": text}
+
+    def open(self, path: str, format: str = "hwpx") -> dict:
+        did = self._next_id
+        self._next_id += 1
+        self.docs[did] = {"text": "", "path": path}
+        self._active = did
+        self._bound = did
+        self.caret = 0
+        return {"opened": path, "bound": did}
 
     def find(self, text: str, nth: int = 1) -> dict:
+        self._ensure_target()
         idx, start, count = -1, 0, 0
         while count < nth:
             idx = self.text.find(text, start)
@@ -79,29 +150,35 @@ class MockBackend(HwpBackend):
         return {"found": True, "at": idx}
 
     def insert_text(self, text: str) -> dict:
+        self._ensure_target()
         self.text = self.text[:self.caret] + text + self.text[self.caret:]
         self.caret += len(text)
         return {"inserted": len(text)}
 
     def replace(self, find: str, replace: str, all: bool = True) -> dict:
+        self._ensure_target()
         n = self.text.count(find) if all else (1 if find in self.text else 0)
         self.text = self.text.replace(find, replace, -1 if all else 1)
         return {"replaced": n}
 
     def insert_table(self, rows: int, cols: int) -> dict:
+        self._ensure_target()
         marker = f"[표 {rows}x{cols}]"
         self.text = self.text[:self.caret] + marker + self.text[self.caret:]
         self.caret += len(marker)
         return {"table": [rows, cols]}
 
     def get_text(self, scope: str = "all") -> dict:
+        self._ensure_target()
         return {"scope": scope, "text": self.text}
 
     def save(self) -> dict:
-        return {"saved": self.path}
+        self._ensure_target()
+        return {"saved": self.docs[self._active]["path"]}
 
     def save_as(self, path: str, format: str = "hwpx") -> dict:
-        self.path = path
+        self._ensure_target()
+        self.docs[self._active]["path"] = path
         return {"saved_as": path, "format": format}
 
 
@@ -134,6 +211,92 @@ class ComBackend(HwpBackend):
             self.hwp.XHwpWindows.Item(0).Visible = visible
         except Exception:
             pass
+        # 편집 대상으로 확정된 문서 ID. 프로젝트가 초안을 띄우면(new_doc/open)
+        # 그 문서에 바인딩되고, 이후 편집은 그 문서로만 간다 — 사용자가 열어둔
+        # 다른 한글 창은 절대 건드리지 않는다. 미확정 상태에서 문서가 여럿이면
+        # 편집을 거부한다(fail-closed).
+        self._bound: int | None = None
+
+    # ── 여러 문서 안전 ──────────────────────────────────────────
+    def _doc_id(self, d) -> int:
+        return int(getattr(d, "DocumentID", -1))
+
+    def _docs(self) -> list:
+        """열린 문서 목록 (id·경로·이름·활성/바인딩 여부)."""
+        col = self.hwp.XHwpDocuments
+        active_id = self._active_id()
+        out = []
+        for i in range(int(col.Count)):
+            d = col.Item(i)
+            path = getattr(d, "FullName", "") or getattr(d, "Path", "") or ""
+            did = self._doc_id(d)
+            out.append({
+                "index": i,
+                "id": did,
+                "path": path,
+                "name": path.replace("\\", "/").rsplit("/", 1)[-1] or "빈 문서",
+                "active": did == active_id,
+                "bound": did == self._bound,
+            })
+        return out
+
+    def _active_id(self) -> int:
+        try:
+            return self._doc_id(self.hwp.XHwpDocuments.Active_XHwpDocument)
+        except Exception:
+            return -1
+
+    def _activate(self, doc_id: int) -> bool:
+        col = self.hwp.XHwpDocuments
+        for i in range(int(col.Count)):
+            if self._doc_id(col.Item(i)) == doc_id:
+                col.Item(i).SetActive_XHwpDocument()
+                return True
+        return False
+
+    def _ensure_target(self) -> None:
+        """편집 전 바인딩된 문서를 활성화한다. 미확정+여러 개면 거부."""
+        if self._bound is not None:
+            if not self._activate(self._bound):
+                raise RuntimeError("작업 대상 문서가 닫혔습니다. 다시 띄워 주세요.")
+            return
+        if int(self.hwp.XHwpDocuments.Count) > 1:
+            raise RuntimeError(
+                "문서가 여러 개 열려 있어 대상이 확정되지 않았습니다. 프로젝트에서"
+                " 초안을 띄우거나 대상 문서를 선택하세요(select_doc)."
+            )
+        # 문서 하나뿐 — 그 문서를 대상으로 바인딩
+        self._bound = self._active_id()
+
+    def new_doc(self) -> dict:
+        """빈 문서를 새로 만들어 대상으로 바인딩한다 (초안 띄우기용)."""
+        try:
+            self.hwp.XHwpDocuments.Add(0)  # 0=새 창
+        except Exception:
+            self.hwp.Run("FileNew")
+        self._bound = self._active_id()
+        return {"created": True, "bound": self._bound}
+
+    def list_docs(self) -> dict:
+        docs = self._docs()
+        return {"count": len(docs), "docs": docs, "bound": self._bound}
+
+    def select_doc(self, index: int | None = None,
+                   path: str | None = None, id: int | None = None) -> dict:
+        docs = self._docs()
+        target = None
+        if id is not None:
+            target = next((d for d in docs if d["id"] == int(id)), None)
+        elif path:
+            target = next((d for d in docs if d["path"] == path
+                           or d["name"] == path), None)
+        elif index is not None:
+            target = next((d for d in docs if d["index"] == int(index)), None)
+        if target is None:
+            raise RuntimeError("해당 문서를 찾을 수 없습니다")
+        self._activate(target["id"])
+        self._bound = target["id"]
+        return {"selected": target}
 
     # 내부 헬퍼 — HAction 파라미터셋 실행
     def _action(self, op: str, fields: dict):
@@ -155,10 +318,26 @@ class ComBackend(HwpBackend):
         return {"backend": "com", "version": str(getattr(self.hwp, "Version", "?"))}
 
     def open(self, path: str, format: str = "hwpx") -> dict:
+        """특정 파일을 열어 대상으로 바인딩한다. 이미 열려 있으면 그 문서로."""
         ok = self.hwp.Open(path, self._FMT.get(format, ""), "")
-        return {"opened": bool(ok), "path": path}
+        self._bound = self._active_id()
+        return {"opened": bool(ok), "path": path, "bound": self._bound}
+
+    def goto(self, where: str = "start") -> dict:
+        """캐럿 이동 — start(문서 처음)·end(끝). 제목 삽입 등 위치 지정용."""
+        self._ensure_target()
+        self.hwp.Run("MoveDocBegin" if where == "start" else "MoveDocEnd")
+        return {"moved": where}
+
+    def set_title(self, text: str) -> dict:
+        """문서 맨 앞에 제목 문단을 넣는다 (처음으로 이동 → 삽입)."""
+        self._ensure_target()
+        self.hwp.Run("MoveDocBegin")
+        self._action("InsertText", {"Text": text + "\r\n"})
+        return {"title": text}
 
     def find(self, text: str, nth: int = 1) -> dict:
+        self._ensure_target()
         found = False
         for _ in range(max(1, nth)):
             found = bool(self._action("RepeatFind", {"FindString": text, "IgnoreMessage": 1}))
@@ -167,10 +346,12 @@ class ComBackend(HwpBackend):
         return {"found": found}
 
     def insert_text(self, text: str) -> dict:
+        self._ensure_target()
         self._action("InsertText", {"Text": text})
         return {"inserted": len(text)}
 
     def replace(self, find: str, replace: str, all: bool = True) -> dict:
+        self._ensure_target()
         self._action("AllReplace", {
             "FindString": find, "ReplaceString": replace,
             "ReplaceMode": 1, "IgnoreMessage": 1,
@@ -178,10 +359,12 @@ class ComBackend(HwpBackend):
         return {"replaced": "all" if all else 1}
 
     def insert_table(self, rows: int, cols: int) -> dict:
+        self._ensure_target()
         self._action("TableCreate", {"Rows": rows, "Cols": cols})
         return {"table": [rows, cols]}
 
     def get_text(self, scope: str = "all") -> dict:
+        self._ensure_target()
         if scope == "selection":
             try:
                 return {"scope": scope, "text": self.hwp.GetSelectedText()}
@@ -190,6 +373,7 @@ class ComBackend(HwpBackend):
         return {"scope": "all", "text": self.hwp.GetTextFile("TEXT", "")}
 
     def save(self) -> dict:
+        self._ensure_target()
         return {"saved": bool(self.hwp.Save())}
 
     def save_as(self, path: str, format: str = "hwpx") -> dict:
@@ -316,13 +500,27 @@ def _selftest() -> int:
     ok_flags = [r["ok"] for r in results]
     text = b.get_text()["text"]
 
+    # 여러 문서 안전 — 대상 미확정 상태에서 편집 거부, new_doc/select_doc 후 허용
+    b2 = MockBackend()
+    b2.docs[99] = {"text": "다른 사용자 문서", "path": "/other.hwp"}  # 두 번째 문서
+    guard_multi = dispatch(b2, {"id": "g1", "op": "insert_text",
+                                "args": {"text": "x"}})
+    made = dispatch(b2, {"id": "g2", "op": "new_doc", "args": {}})
+    after_bind = dispatch(b2, {"id": "g3", "op": "insert_text",
+                               "args": {"text": "초안 본문"}})
+    other_untouched = b2.docs[99]["text"] == "다른 사용자 문서"
+
     checks = [
         ("전 명령 처리", len(results) == 8),
         ("허용 op 성공", all(ok_flags[:7])),
         ("화이트리스트 밖 거부", results[7]["ok"] is False),
         ("치환 반영", "6,000,000" in text and "5,000,000" not in text),
         ("표 삽입", "[표 3x2]" in text),
+        ("대상 미확정 시 편집 거부", guard_multi["ok"] is False),
+        ("새 문서 생성·바인딩 후 편집 허용", made["ok"] and after_bind["ok"]),
+        ("다른 문서 안 건드림", other_untouched),
     ]
+    all_ok = True
     all_ok = True
     for name, passed in checks:
         sys.stderr.write(f"  [{'OK' if passed else '실패'}] {name}\n")
