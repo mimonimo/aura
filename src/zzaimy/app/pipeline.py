@@ -811,35 +811,14 @@ class DocumentProcessor:
                 new_tables = list(parsed.tables)
                 n_swapped = 0
                 try:
-                    from zzaimy.ingest.parsers.lattice import extract_tables
+                    from zzaimy.ingest.parsers.lattice import (
+                        extract_tables,
+                        swap_tables,
+                    )
 
-                    lattice_by_page: dict[int, list] = {}
-                    for lt in extract_tables(file_path):
-                        lattice_by_page.setdefault(lt.page_no, []).append(lt)
-                    taken: set[int] = set()
-                    for e in new_entries:
-                        if e.kind != "table" or not (0 <= e.ref < len(new_tables)):
-                            continue
-                        cands = lattice_by_page.get(e.page_no, [])
-                        best, best_ratio = None, 0.0
-                        fit = max(fits.get(e.page_no, 1.0), 1.0)
-                        ebox = tuple(v / fit for v in e.bbox) if e.bbox else None
-                        for k, lt in enumerate(cands):
-                            if k in taken or lt.bbox is None:
-                                continue
-                            if ebox is None:
-                                best, best_ratio = k, 1.0  # bbox 없으면 순서 매칭
-                                break
-                            ix = max(0.0, min(ebox[2], lt.bbox[2]) - max(ebox[0], lt.bbox[0]))
-                            iy = max(0.0, min(ebox[3], lt.bbox[3]) - max(ebox[1], lt.bbox[1]))
-                            area = (lt.bbox[2] - lt.bbox[0]) * (lt.bbox[3] - lt.bbox[1])
-                            ratio = (ix * iy) / area if area > 0 else 0.0
-                            if ratio > best_ratio:
-                                best, best_ratio = k, ratio
-                        if best is not None and best_ratio >= 0.3:
-                            taken.add(best)
-                            new_tables[e.ref] = cands[best]
-                            n_swapped += 1
+                    new_tables, n_swapped = swap_tables(
+                        new_entries, parsed.tables, extract_tables(file_path), fits
+                    )
                 except Exception:
                     log.warning("괘선 표 교체 실패 — MinerU 표 유지", exc_info=True)
                 if n_swapped:

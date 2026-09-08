@@ -71,3 +71,40 @@ def test_page_without_lines_yields_nothing(tmp_path):
     c.drawString(100, 700, "no table here")
     c.save()
     assert extract_tables(path) == []
+
+
+def test_swap_matches_per_page_not_global_index():
+    """여러 페이지의 표가 각각 자기 페이지의 괘선 표와 매칭된다.
+
+    회귀 잠금: 교체 이력(taken)을 전역 인덱스로 키잉해 2쪽 표가 0번을
+    차지하면 4쪽의 0번 후보가 건너뛰어지던 버그 (2026-09-08 실측 —
+    5개 표 중 1개만 교체됨).
+    """
+    from types import SimpleNamespace
+
+    from zzaimy.ingest.parsers.base import ParsedTable, TableCell
+    from zzaimy.ingest.parsers.lattice import swap_tables
+
+    def mineru_table(page):
+        return ParsedTable(
+            page_no=page, n_rows=1, n_cols=1,
+            cells=(TableCell(row=0, col=0, text="OCR근사"),),
+        )
+
+    def lattice_table(page):
+        return ParsedTable(
+            page_no=page, n_rows=1, n_cols=1,
+            cells=(TableCell(row=0, col=0, text="괘선직독"),),
+            col_w=(1.0,), bbox=(10.0, 10.0, 200.0, 100.0),
+        )
+
+    tables = [mineru_table(2), mineru_table(4)]
+    entries = [
+        SimpleNamespace(kind="table", page_no=2, ref=0, bbox=(10, 10, 200, 100)),
+        SimpleNamespace(kind="table", page_no=4, ref=1, bbox=(10, 10, 200, 100)),
+    ]
+    swapped, n = swap_tables(
+        entries, tables, [lattice_table(2), lattice_table(4)], fits={}
+    )
+    assert n == 2
+    assert all(t.cells[0].text == "괘선직독" for t in swapped)
