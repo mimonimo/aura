@@ -108,3 +108,41 @@ def test_swap_matches_per_page_not_global_index():
     )
     assert n == 2
     assert all(t.cells[0].text == "괘선직독" for t in swapped)
+
+
+def test_swap_matches_by_content_when_bbox_conventions_differ():
+    """bbox 좌표 관행이 어긋나도 셀 내용이 같으면 매칭된다 (2그램 대조).
+
+    실측: MinerU 레이아웃 bbox와 벡터 좌표의 원점·배율이 페이지에 따라
+    어긋나 겹침 0으로 매칭 실패하던 사례(통영시 p5·p6). 반대로 내용이
+    전혀 다른 표는 bbox가 어긋난 채로는 교체되지 않아야 한다(fail-closed).
+    """
+    from types import SimpleNamespace
+
+    from zzaimy.ingest.parsers.base import ParsedTable, TableCell
+    from zzaimy.ingest.parsers.lattice import swap_tables
+
+    def table(page, texts, **kw):
+        return ParsedTable(
+            page_no=page, n_rows=1, n_cols=len(texts),
+            cells=tuple(
+                TableCell(row=0, col=i, text=t) for i, t in enumerate(texts)
+            ), **kw,
+        )
+
+    mineru = [table(6, ["구비서류 안내사항", "제출 기한 준수"])]
+    lattice_same = table(
+        6, ["구비 서류 안내 사항", "제출 기한 준수"],  # 공백만 다름 (OCR 특성)
+        col_w=(0.5, 0.5), bbox=(45.0, 251.0, 549.0, 351.0),
+    )
+    entries = [SimpleNamespace(kind="table", page_no=6, ref=0,
+                               bbox=(72, 900, 922, 990))]  # 전혀 딴 좌표
+    swapped, n = swap_tables(entries, mineru, [lattice_same], fits={})
+    assert n == 1 and swapped[0].col_w == (0.5, 0.5)
+
+    lattice_other = table(
+        6, ["완전히 무관한 별개 목록표"],
+        col_w=(1.0,), bbox=(45.0, 251.0, 549.0, 351.0),
+    )
+    swapped, n = swap_tables(entries, mineru, [lattice_other], fits={})
+    assert n == 0 and swapped[0].cells[0].text == "구비서류 안내사항"
