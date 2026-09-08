@@ -1033,7 +1033,10 @@ def create_app(
 
     @app.get("/dev/doc/{name:path}", response_class=HTMLResponse)
     def dev_doc(request: Request, name: str):
-        allowed = {"embed-v0-report.md", "retrieval-baseline-mini.md"} | {
+        allowed = {
+            "embed-v0-report.md", "retrieval-baseline-mini.md",
+            "quality-system.md", "HANDOFF.md",
+        } | {
             f"{d['sub']}/{d['file']}"
             for sub in ("decisions", "notes") for d in _dev_doc_list(sub)
         }
@@ -1369,14 +1372,20 @@ def create_app(
         }))
 
     @app.get("/dev/train/export.zip")
-    def dev_train_export():
-        """학습 산출물 반출 번들 — RAG·학습데이터·모델을 개방 표준으로 (ADR-0012)."""
+    def dev_train_export(rag: int = 1, datasets: int = 1, model: int = 1):
+        """학습 산출물 반출 번들 — 선택 항목만 개방 표준으로 (ADR-0012)."""
         from datetime import datetime as _dt
 
         from zzaimy.export.bundle import build_bundle
 
+        include = {k for k, on in
+                   (("rag", rag), ("datasets", datasets), ("model", model)) if on}
+        if not include:
+            return RedirectResponse(
+                "/dev/train?err=반출할 항목을 하나 이상 선택하세요", status_code=303
+            )
         model_dir = os.environ.get("ZZAIMY_MODEL_DIR")
-        data, _manifest = build_bundle(db, model_dir=model_dir)
+        data, _manifest = build_bundle(db, model_dir=model_dir, include=include)
         from fastapi.responses import Response as _Resp
 
         stamp = _dt.now().strftime("%Y%m%d")

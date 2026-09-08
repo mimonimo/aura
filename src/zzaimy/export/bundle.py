@@ -31,55 +31,60 @@ def _git_commit() -> str:
 
 
 def build_bundle(db, sft_dir: Path | str = "data/interim/sft",
-                 model_dir: Path | str | None = None) -> tuple[bytes, dict]:
+                 model_dir: Path | str | None = None,
+                 include: set[str] | None = None) -> tuple[bytes, dict]:
     """반출 zip 바이트와 매니페스트를 만든다.
 
+    include로 담을 항목을 고른다(기본 전체): {"rag", "datasets", "model"}.
     - RAG: 조각 JSONL + 임베딩 npz + 임베딩 모델 id
     - 학습 데이터: data/interim/sft/*.jsonl (이미 마스킹·검증 통과분)
     - 모델: model_dir이 주어지고 존재하면 그 안의 safetensors·config 포함
       (LoRA 어댑터 권장 — 베이스는 오픈웨이트 참조)
     """
+    include = include or {"rag", "datasets", "model"}
     files: dict[str, bytes] = {}
     artifacts: list[dict] = []
 
-    # RAG
-    chunks = db.list_regulation_chunks()
-    rag_jsonl = "\n".join(
-        json.dumps({
-            "id": c["id"], "doc_id": c["doc_id"], "reg_title": c["reg_title"],
-            "heading": c["heading"], "content": c["content"],
-            "sector": c.get("sector", "common"), "dept": c.get("dept", "공통"),
-        }, ensure_ascii=False)
-        for c in chunks
-    )
-    files["rag/chunks.jsonl"] = rag_jsonl.encode("utf-8")
     from zzaimy.app.embed_search import INDEX_PATH, MODEL_NAME
 
-    if Path(INDEX_PATH).exists():
-        files["rag/chunk_embeddings.npz"] = Path(INDEX_PATH).read_bytes()
-    artifacts.append({
-        "kind": "rag_index", "format": "jsonl + npz(numpy)",
-        "n_chunks": len(chunks), "embedding_model": MODEL_NAME,
-        "vectors_included": Path(INDEX_PATH).exists(),
-        "reproduce": "chunks.jsonl을 embedding_model로 임베딩해 재색인",
-    })
-
-    # 학습 데이터 (마스킹·수치검증 통과분)
-    sft = Path(sft_dir)
-    datasets = []
-    if sft.exists():
-        for jf in sorted(sft.glob("*.jsonl")):
-            files[f"datasets/{jf.name}"] = jf.read_bytes()
-            n = sum(1 for _ in jf.open(encoding="utf-8"))
-            datasets.append({"file": jf.name, "n_pairs": n})
-    if datasets:
+    # RAG
+    if "rag" in include:
+        chunks = db.list_regulation_chunks()
+        rag_jsonl = "\n".join(
+            json.dumps({
+                "id": c["id"], "doc_id": c["doc_id"], "reg_title": c["reg_title"],
+                "heading": c["heading"], "content": c["content"],
+                "sector": c.get("sector", "common"), "dept": c.get("dept", "공통"),
+            }, ensure_ascii=False)
+            for c in chunks
+        )
+        files["rag/chunks.jsonl"] = rag_jsonl.encode("utf-8")
+        if Path(INDEX_PATH).exists():
+            files["rag/chunk_embeddings.npz"] = Path(INDEX_PATH).read_bytes()
         artifacts.append({
-            "kind": "training_data", "format": "jsonl(sharegpt)",
-            "files": datasets, "note": "인풋 유래는 마스킹본·수치검증 통과분만",
+            "kind": "rag_index", "format": "jsonl + npz(numpy)",
+            "n_chunks": len(chunks), "embedding_model": MODEL_NAME,
+            "vectors_included": Path(INDEX_PATH).exists(),
+            "reproduce": "chunks.jsonl을 embedding_model로 임베딩해 재색인",
         })
 
+    # 학습 데이터 (마스킹·수치검증 통과분)
+    if "datasets" in include:
+        sft = Path(sft_dir)
+        datasets = []
+        if sft.exists():
+            for jf in sorted(sft.glob("*.jsonl")):
+                files[f"datasets/{jf.name}"] = jf.read_bytes()
+                n = sum(1 for _ in jf.open(encoding="utf-8"))
+                datasets.append({"file": jf.name, "n_pairs": n})
+        if datasets:
+            artifacts.append({
+                "kind": "training_data", "format": "jsonl(sharegpt)",
+                "files": datasets, "note": "인풋 유래는 마스킹본·수치검증 통과분만",
+            })
+
     # 모델 (있을 때만 — DGX 학습 후)
-    if model_dir:
+    if "model" in include and model_dir:
         md = Path(model_dir)
         if md.exists():
             model_files = []
