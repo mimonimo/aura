@@ -625,6 +625,20 @@ def create_app(
         i = 0
         while i < len(lines):
             ln = lines[i]
+            if ln.lstrip().startswith("```"):
+                # 코드·도표 블록 — 펜스는 감추고 안쪽은 원문 그대로 보존
+                i += 1
+                body = []
+                while i < len(lines) and not lines[i].lstrip().startswith("```"):
+                    body.append(lines[i])
+                    i += 1
+                i += 1  # 닫는 펜스 소비
+                out.append(
+                    '<pre class="doc-text" style="white-space:pre; overflow-x:auto;'
+                    ' font-size:12px; line-height:1.5;">'
+                    + str(_esc("\n".join(body))) + "</pre>"
+                )
+                continue
             if ln.startswith("|") and ln.rstrip().endswith("|"):
                 rows = []
                 while i < len(lines) and lines[i].strip().startswith("|"):
@@ -646,7 +660,7 @@ def create_app(
             import re as _mre
 
             def rich(t: str) -> str:
-                return _mre.sub(r"\*\*(.+?)\*\*", r"<b>\\1</b>", str(_esc(t)))
+                return _mre.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(_esc(t)))
 
             if ln.startswith("# "):
                 out.append(f'<h3 style="margin:18px 0 8px;">{rich(ln[2:])}</h3>')
