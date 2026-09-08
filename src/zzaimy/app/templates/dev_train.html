@@ -73,14 +73,28 @@
     RAG 인덱스·학습 데이터·모델을 개방 표준 형식으로 묶어 내려받습니다. 다른
     환경으로 옮겨 그대로 재조립할 수 있습니다(매니페스트 포함). 인풋 문서
     유래 데이터는 마스킹본만 나갑니다.</p>
-  <form action="/dev/train/export.zip" method="get"
-        style="display:flex; gap:16px; align-items:center; flex-wrap:wrap;">
-    <label style="display:flex; gap:6px; align-items:center; font-size:13px;">
-      <input type="checkbox" name="rag" value="1" checked> RAG 인덱스</label>
-    <label style="display:flex; gap:6px; align-items:center; font-size:13px;">
-      <input type="checkbox" name="datasets" value="1" checked> 학습 데이터</label>
-    <label style="display:flex; gap:6px; align-items:center; font-size:13px;">
-      <input type="checkbox" name="model" value="1" checked> 모델</label>
+  <form action="/dev/train/export.zip" method="get">
+    <div style="display:flex; flex-direction:column; gap:8px; margin:0 0 14px;">
+      {% for g in export_preview %}
+      {% set gb = g.files | sum(attribute='bytes') %}
+      <label style="display:flex; gap:10px; align-items:flex-start; padding:10px 13px;
+                    border:1px solid var(--line); border-radius:10px; cursor:pointer;">
+        <input type="checkbox" name="{{ g.group }}" value="1" checked
+               {% if not g.files %}disabled{% endif %} style="margin-top:3px;">
+        <span style="flex:1;">
+          <b style="font-size:13.5px;">{{ g.label }}</b>
+          <span class="muted" style="font-size:12px;"> · {{ g.desc }}</span>
+          <div class="muted" style="font-size:11.5px; margin-top:2px;">
+            {% if g.files %}파일 {{ g.files|length }}개 ·
+              {% if gb >= 1048576 %}{{ (gb/1048576)|round(1) }}MB{% else %}{{ (gb/1024)|round(1) }}KB{% endif %}
+            {% else %}담을 파일 없음{% endif %}
+          </div>
+        </span>
+      </label>
+      {% else %}
+      <p class="muted" style="font-size:12.5px; margin:0;">반출 미리보기를 불러오지 못했습니다.</p>
+      {% endfor %}
+    </div>
     <button type="submit" style="text-decoration:none;">
       <iconify-icon icon="solar:download-linear"></iconify-icon>선택 항목 반출 (.zip)</button>
   </form>

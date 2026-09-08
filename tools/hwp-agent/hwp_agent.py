@@ -20,17 +20,20 @@ COM 백엔드는 Windows + 정품 한글이 있어야 동작한다. 그 외 환�
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import sys
 import time
 import urllib.request
+
+__version__ = "2026.09.08"
 
 # 편집 명령 화이트리스트 — 이 밖의 op는 거부한다.
 ALLOWED_OPS = {
     "ping", "open", "new_doc", "find", "goto", "set_title",
     "insert_text", "replace", "insert_table", "fill_table", "set_format",
     "delete_text", "delete_table",
-    "get_text", "save", "save_as", "list_docs", "select_doc",
+    "get_text", "save", "save_as", "export_artifact", "list_docs", "select_doc",
 }
 EDITING_OPS = {
     "insert_text", "replace", "insert_table", "fill_table", "set_format",
@@ -57,6 +60,7 @@ class HwpBackend:
     def get_text(self, scope: str = "all") -> dict: raise NotImplementedError
     def save(self) -> dict: raise NotImplementedError
     def save_as(self, path: str, format: str = "hwpx") -> dict: raise NotImplementedError
+    def export_artifact(self, format: str = "pdf") -> dict: raise NotImplementedError
 
 
 class MockBackend(HwpBackend):
@@ -206,6 +210,20 @@ class MockBackend(HwpBackend):
         self.docs[self._active]["path"] = path
         return {"saved_as": path, "format": format}
 
+    def export_artifact(self, format: str = "pdf") -> dict:
+        """산출물(미리보기용 PDF 등)을 임시 파일로 저장해 서버가 회수하게 한다."""
+        self._ensure_target()
+        import os
+        import tempfile
+
+        ext = {"pdf": "pdf", "hwpx": "hwpx", "hwp": "hwp"}.get(format, "pdf")
+        path = os.path.join(tempfile.gettempdir(),
+                            f"zzaimy_export_{int(time.time() * 1000)}.{ext}")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(self.text)  # 목: 실제 렌더 대신 텍스트만
+        return {"artifact_path": path, "format": format, "ok": True,
+                "name": os.path.basename(path)}
+
 
 class ComBackend(HwpBackend):
     """실행 중인 한글을 COM으로 조작한다 (Windows 전용).
@@ -219,14 +237,27 @@ class ComBackend(HwpBackend):
     def __init__(self, visible: bool = True) -> None:
         # pywin32가 있으면 우선, 없으면 comtypes(순수 파이썬 — 내장 배포판용).
         # 플랫폼에서 내려받는 번들은 설치 없는 comtypes 경로로 동작한다.
+        # 사용자가 이미 띄워 둔 한글에 먼저 붙는다(GetActiveObject) — 그래야
+        # 작업이 눈앞의 한글에서 일어나고, 열어둔 다른 문서창과 공존한다.
+        # 떠 있는 한글이 없으면 그때만 새 인스턴스를 띄운다.
         try:
             import win32com.client  # pywin32 — 설치형 환경
 
-            self.hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+            try:
+                self.hwp = win32com.client.GetActiveObject("HWPFrame.HwpObject")
+                self.attached = True
+            except Exception:
+                self.hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+                self.attached = False
         except ImportError:
             import comtypes.client  # 순수 파이썬 COM
 
-            self.hwp = comtypes.client.CreateObject("HWPFrame.HwpObject")
+            try:
+                self.hwp = comtypes.client.GetActiveObject("HWPFrame.HwpObject")
+                self.attached = True
+            except Exception:
+                self.hwp = comtypes.client.CreateObject("HWPFrame.HwpObject")
+                self.attached = False
         # 파일 접근 보안 대화상자 억제(자동화 표준 관용구). 없으면 열기 시 팝업.
         try:
             self.hwp.RegisterModule("FilePathCheckDLL", "SecurityModule")
@@ -340,7 +371,11 @@ class ComBackend(HwpBackend):
     }
 
     def ping(self) -> dict:
-        return {"backend": "com", "version": str(getattr(self.hwp, "Version", "?"))}
+        return {"backend": "com", "agent": __version__,
+                "hwp_version": str(getattr(self.hwp, "Version", "?")),
+                "attached": bool(getattr(self, "attached", False)),
+                "open_docs": int(self.hwp.XHwpDocuments.Count),
+                "bound": self._bound}
 
     def open(self, path: str, format: str = "hwpx") -> dict:
         """특정 파일을 열어 대상으로 바인딩한다. 이미 열려 있으면 그 문서로."""
@@ -461,6 +496,24 @@ class ComBackend(HwpBackend):
         ok = self.hwp.SaveAs(path, self._FMT.get(format, "HWPX"), "")
         return {"saved_as": path, "ok": bool(ok)}
 
+    def export_artifact(self, format: str = "pdf") -> dict:
+        """바인딩 문서를 임시 파일로 저장해 서버가 회수하게 한다(미리보기 PDF·
+        산출물). 사용자가 지정한 저장 경로·문서는 건드리지 않는다.
+
+        실장비 확인: 한컴 PDF 저장 포맷 문자열은 "PDF". SaveAs가 대화상자를
+        띄우지 않도록 위 RegisterModule(보안) 설정에 의존한다.
+        """
+        self._ensure_target()
+        import os
+        import tempfile
+
+        ext = {"pdf": "pdf", "hwpx": "hwpx", "hwp": "hwp"}.get(format, "pdf")
+        path = os.path.join(tempfile.gettempdir(),
+                            f"zzaimy_export_{int(time.time() * 1000)}.{ext}")
+        ok = self.hwp.SaveAs(path, self._FMT.get(format, "PDF"), "")
+        return {"artifact_path": path, "format": format, "ok": bool(ok),
+                "name": os.path.basename(path)}
+
 
 def dispatch(backend: HwpBackend, command: dict, confirm: bool = False) -> dict:
     """명령 봉투 하나를 백엔드로 라우팅한다. 계약(protocol.md) 준수."""
@@ -541,12 +594,14 @@ def run_loop(server: str, token: str, backend: HwpBackend,
     base = server.rstrip("/")
     session, cursor = _register(base, token)
     last_update_check = time.time()
+    last_cmd_time = 0.0   # 마지막으로 명령을 처리한 시각(유휴 판정용)
     while True:
-        # 주기적 자동 갱신(5분) — 기능이 추가돼도 재실행 없이 최신으로.
-        # 코드가 바뀌면 _self_update가 자신을 교체하고 재실행한다.
-        if not no_update and time.time() - last_update_check > 300:
+        # 자동 갱신: 코드가 바뀌었을 때만, 그리고 최근 60초간 작업이 없을 때만
+        # (작업 중 말없이 재시작하지 않는다). 15분 간격으로 확인.
+        idle = time.time() - last_cmd_time > 60
+        if not no_update and idle and time.time() - last_update_check > 900:
             last_update_check = time.time()
-            _self_update(base)  # 변경 없으면 무동작, 있으면 os.execv로 재시작
+            _self_update(base)  # 변경 없으면 무동작, 바뀌었을 때만 재시작
         try:
             resp = _get(f"{base}/hwp/agent/commands?session={session}&after={cursor}")
         except urllib.error.HTTPError as e:
@@ -565,10 +620,49 @@ def run_loop(server: str, token: str, backend: HwpBackend,
         cursor = resp.get("cursor", cursor)
         for command in resp.get("commands", []):
             result = dispatch(backend, command, confirm=confirm)
+            last_cmd_time = time.time()
+            # 산출물(PDF·hwpx)이 생겼으면 서버로 회수해 미리보기·다운로드에 쓴다.
+            _upload_artifact_if_any(base, session, result)
             try:
                 _post(f"{base}/hwp/agent/result", {"session": session, **result})
             except Exception as e:
                 sys.stderr.write(f"[회신 실패] {e}\n")
+
+
+def _upload_artifact_if_any(base: str, session: str, result: dict) -> None:
+    """결과에 artifact_path가 있으면 그 파일을 서버로 업로드하고, 결과에
+    회수 URL(artifact_url)을 채운다. 로컬 임시 파일은 업로드 후 지운다."""
+    res = result.get("result")
+    if not isinstance(res, dict):
+        return
+    path = res.get("artifact_path")
+    if not path:
+        return
+    import os
+
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError as e:
+        res["artifact_error"] = f"파일 읽기 실패: {e}"
+        return
+    try:
+        up = _post(f"{base}/hwp/agent/artifact", {
+            "session": session,
+            "cmd_id": result.get("id"),
+            "name": res.get("name") or os.path.basename(path),
+            "format": res.get("format", "pdf"),
+            "b64": base64.b64encode(data).decode("ascii"),
+        }, timeout=60)
+        res["artifact_url"] = up.get("url")
+        res["artifact_bytes"] = len(data)
+    except Exception as e:
+        res["artifact_error"] = f"업로드 실패: {e}"
+        return
+    try:
+        os.remove(path)   # 임시 파일 정리(서버에 회수됨)
+    except OSError:
+        pass
 
 
 def _selftest() -> int:
@@ -583,11 +677,13 @@ def _selftest() -> int:
         {"id": "5", "op": "insert_table", "args": {"rows": 3, "cols": 2}},
         {"id": "6", "op": "get_text", "args": {"scope": "all"}},
         {"id": "7", "op": "save", "args": {}},
-        {"id": "8", "op": "danger", "args": {}},  # 화이트리스트 밖 → 거부돼야
+        {"id": "8", "op": "export_artifact", "args": {"format": "pdf"}},
+        {"id": "9", "op": "danger", "args": {}},  # 화이트리스트 밖 → 거부돼야
     ]
     results = [dispatch(b, c) for c in script]
     ok_flags = [r["ok"] for r in results]
     text = b.get_text()["text"]
+    art = results[7].get("result", {})
 
     # 여러 문서 안전 — 대상 미확정 상태에서 편집 거부, new_doc/select_doc 후 허용
     b2 = MockBackend()
@@ -600,11 +696,12 @@ def _selftest() -> int:
     other_untouched = b2.docs[99]["text"] == "다른 사용자 문서"
 
     checks = [
-        ("전 명령 처리", len(results) == 8),
-        ("허용 op 성공", all(ok_flags[:7])),
-        ("화이트리스트 밖 거부", results[7]["ok"] is False),
+        ("전 명령 처리", len(results) == 9),
+        ("허용 op 성공", all(ok_flags[:8])),
+        ("화이트리스트 밖 거부", results[8]["ok"] is False),
         ("치환 반영", "6,000,000" in text and "5,000,000" not in text),
         ("표 삽입", "[표 3x2]" in text),
+        ("산출물 export_artifact 경로 반환", bool(art.get("artifact_path"))),
         ("대상 미확정 시 편집 거부", guard_multi["ok"] is False),
         ("새 문서 생성·바인딩 후 편집 허용", made["ok"] and after_bind["ok"]),
         ("다른 문서 안 건드림", other_untouched),
@@ -627,6 +724,12 @@ def _self_update(server: str) -> None:
     """
     import os
     import urllib.request
+
+    # onefile exe(sys.frozen)는 소스가 exe 안에 묶여 있어 .py 교체·재실행이
+    # 무의미하다(__file__ 은 임시 추출 폴더). exe 는 build_exe.bat 로 다시 빌드해
+    # 갱신한다 — 자동 갱신을 건너뛴다. zip+bat 경로는 종전대로 자동 갱신한다.
+    if getattr(sys, "frozen", False):
+        return
 
     try:
         req = urllib.request.Request(f"{server.rstrip('/')}/hwp/agent/latest.py")
@@ -658,6 +761,21 @@ def _self_update(server: str) -> None:
     os.execv(sys.executable, [sys.executable] + sys.argv)
 
 
+def _base_dir() -> str:
+    """config.json·server.crt 를 찾을 기준 폴더.
+
+    - 일반 실행(zip+bat, `python hwp_agent.py`): 이 스크립트가 놓인 폴더.
+    - PyInstaller onefile exe(sys.frozen): __file__ 은 매 실행마다 바뀌는 임시
+      추출 폴더(_MEIPASS)를 가리키므로 쓸 수 없다. exe 가 실제로 놓인 폴더
+      (sys.executable)를 우선한다 — 사용자가 exe 옆에 config.json 을 둔다.
+    """
+    import os
+
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="한글 실시간 편집 에이전트 (COM)")
     ap.add_argument("--server", help="서버 base URL")
@@ -676,8 +794,7 @@ def main() -> int:
     if not (args.server and args.token):
         import os
 
-        cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                "config.json")
+        cfg_path = os.path.join(_base_dir(), "config.json")
         if os.path.exists(cfg_path):
             with open(cfg_path, encoding="utf-8") as f:
                 cfg = json.load(f)

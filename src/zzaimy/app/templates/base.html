@@ -97,14 +97,18 @@
               min-width: 17px; height: 17px; display: flex; align-items: center;
               justify-content: center; padding: 0 4px;
               font-variant-numeric: tabular-nums; }
-  .user-chip { display: flex; align-items: center; gap: 8px; background: var(--navy);
-               color: #fff; border-radius: 22px; padding: 7px 16px 7px 8px;
-               font-size: 13.5px; font-weight: 700; cursor: default;
-               box-shadow: 0 4px 14px rgba(27,59,117,.25);
-               transition: all .35s var(--ease); }
+  .user-chip { display: flex; align-items: center; gap: 8px; background: #fff;
+               color: var(--navy); border-radius: 12px; padding: 6px 12px 6px 7px;
+               font-size: 13.5px; font-weight: 600; cursor: pointer;
+               border: 1px solid var(--line);
+               box-shadow: 0 1px 2px rgba(16,34,58,.05);
+               transition: all .2s var(--ease); }
+  .user-chip:hover { border-color: #C7D6EE; background: #FAFCFF; }
+  .user-chip iconify-icon[icon*="arrow"] { color: var(--faint); }
 
   .user-chip .avatar { width: 26px; height: 26px; border-radius: 50%;
                background: linear-gradient(135deg, var(--blue), var(--navy));
+               color: #fff;
                display: flex; align-items: center; justify-content: center;
                font-size: 12px; }
 
@@ -133,6 +137,12 @@
   .tile b { display: block; font-size: 19px; font-variant-numeric: tabular-nums;
             letter-spacing: -0.02em; }
   .tile span { color: var(--muted); font-size: 12px; }
+  /* 처리 현황 파이프라인(읽기용) — 4열 그리드 대신 화살표로 잇는 흐름 */
+  .tiles.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
+  .tiles.flow .tile { flex: 1 1 170px; }
+  .flow-arrow { display: flex; align-items: center; color: var(--faint);
+                font-size: 20px; flex: none; }
+  @media (max-width: 760px) { .flow-arrow { display: none; } }
   .ico.blue { background: #E8EFFC; color: var(--blue); }
   .ico.navy { background: #E5EAF4; color: var(--navy); }
   .ico.amber { background: #FEF3E2; color: var(--amber); }
