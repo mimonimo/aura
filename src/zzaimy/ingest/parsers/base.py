@@ -30,6 +30,10 @@ class ParsedTable:
     n_rows: int
     n_cols: int
     cells: tuple[TableCell, ...]
+    # 열 너비 비율(합=1) — 괘선 직독 추출만 채운다. 비면 균등 폭으로 렌더
+    col_w: tuple[float, ...] = ()
+    # 페이지 좌표 bbox(x0,y0,x1,y1, y0=위) — 원본 위치 매칭용
+    bbox: tuple[float, float, float, float] | None = None
 
     @property
     def merged_cells(self) -> tuple[TableCell, ...]:

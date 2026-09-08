@@ -71,7 +71,19 @@ def table_html(content: str) -> Markup:
     if all_texts and n_toc * 2 >= len(all_texts):
         return _toc_html(rows, int(data["n_rows"]))
 
-    parts = ['<div class="table-scroll"><table class="extract">']
+    col_w = data.get("col_w") or []
+    if col_w:
+        # 괘선 직독의 원본 열 폭 비율 — 고정 레이아웃이어야 비율이 지켜진다
+        parts = [
+            '<div class="table-scroll">'
+            '<table class="extract" style="table-layout:fixed; width:100%;">'
+            "<colgroup>"
+        ]
+        for w in col_w:
+            parts.append(f'<col style="width:{w * 100:.2f}%;">')
+        parts.append("</colgroup>")
+    else:
+        parts = ['<div class="table-scroll"><table class="extract">']
     for r in range(n_rows):
         parts.append("<tr>")
         for c, rs, cs, hd, txt in sorted(rows.get(r, [])):

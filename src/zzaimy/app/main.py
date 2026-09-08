@@ -1127,6 +1127,20 @@ def create_app(
         _save_accounts()
         return RedirectResponse("/dev", status_code=303)
 
+    # ---- 지식 그래프 1단계 — 구조 그래프 (ADR-0009) ----
+
+    @app.get("/graph", response_class=HTMLResponse)
+    def graph_page(request: Request, focus: str = ""):
+        return templates.TemplateResponse(
+            request, "graph.html", ctx(request, {"focus": focus})
+        )
+
+    @app.get("/graph.json")
+    def graph_json():
+        from zzaimy.graph.build import build_graph
+
+        return JSONResponse(build_graph(db))
+
     # ---- 외부 참조 이그레스 게이트웨이 (ADR-0008) — 감사·승인·모니터링 ----
 
     @app.get("/dev/egress", response_class=HTMLResponse)
