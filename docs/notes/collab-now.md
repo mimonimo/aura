@@ -3,7 +3,8 @@
 협업 절차의 원본은 `docs/collaboration/README.md` 다. 이 표는 그 절차에서 쓰는
 파일 소유권만 담는다. 기록은 각자 `docs/collaboration/` 아래 자기 파일에 남긴다.
 
-이 저장소에는 세션이 여럿이다 — Codex, Claude(이 세션), aura-7b, aura-4e.
+이 저장소의 개발 작업은 Claude(이 세션)로 일원화됐다. Codex 는 배정된 평가 하네스
+과제를 맡는다. aura-7b 는 편집을 하지 않고 질의응답·중계만 한다.
 두 사람 이상이 동시에 손댈 때 충돌을 막기 위한 파일 소유권 표다.
 작업을 시작하기 전에 이 표를 보고, 맡은 칸을 자기 이름으로 바꾼 뒤 시작한다.
 끝나면 비워 둔다. 남의 칸은 읽기만 한다.
@@ -21,12 +22,12 @@
 | 글자 복원 | `src/zzaimy/app/text_repair.py` | 진행 중 |
 | 반입 자가 점검 | `src/zzaimy/app/ingest_audit.py` | 진행 중 |
 | 문서 정체 | `src/zzaimy/app/doc_identity.py` | 진행 중 |
-| 문서 보기 | `templates/doc.html`, `render.py` | 비어 있음 |
-| UI 템플릿 계열 (dev·index·dev_db 등) | `templates/dev_db.html`, `index.html`, `dev_docs.html` 등 | aura-7b |
-| 한글 에이전트 도구 | `tools/hwp-agent/**` | aura-7b |
-| 이그레스 관문 | `src/zzaimy/app/egress.py` | aura-7b |
+| 문서 보기 | `templates/doc.html`, `render.py` | Codex — C-20260919-04 (doc.html 및 전용 조각·정적 파일만 수정, render.py 수정 없음) |
+| UI 템플릿 계열 (index·doc·project·graph·ocr·dev_db·dev_hwp·dev_corpus) | `templates/*.html` | 진행 중 (aura-7b 반납분 인계) |
+| 한글 에이전트 도구 | `tools/hwp-agent/**` | 진행 중 (인계) |
+| 이그레스 관문 | `src/zzaimy/app/egress.py` | 진행 중 (인계) |
 | 검색 평가 하네스 | `src/zzaimy/eval/**`, `scripts/53`·`64`·`65` | Codex (요청 K-20260919-02) |
-| 지식 그래프 화면 | `templates/graph.html` | 비어 있음 |
+| 지식 그래프 화면 | `templates/graph.html` | 진행 중 (간선 3종 표시) |
 | 검색·조각 품질 | `chunk_quality.py`, `embed_search.py`, `rerank.py`, `responder.py`, `regulations.py` | 비어 있음 |
 | 개체·연관 | `src/zzaimy/graph/**` | 비어 있음 |
 | 표·괘선 추출 | `src/zzaimy/ingest/parsers/**` | 비어 있음 |
