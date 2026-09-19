@@ -5,6 +5,13 @@
 - 문서 작업(채팅·검토·초안·요약)의 기본 연결: 교내 서버는 바로, 외부 서버는 개인정보 검토 확인(ack) 후에 지정한다.
 - 외부 AI 참조(민감정보 제거 후 일반 지식 질의, ADR-0008)는 외부 서버 연결만 쓴다.
 - 값이 하나도 없으면 model_config 의 예전 경로(설정 > 환경변수 > 기본값)를 그대로 쓴다.
+
+역할 나누기. 장비마다 잘하는 일이 다르므로 연결에 역할을 붙일 수 있다.
+  answer  답변·초안 생성. 서빙 장비(젯슨 토르 등)에 둔다
+  embed   문장 임베딩. 지금은 VM CPU 에서 도는데 서빙 장비로 옮기면 빨라진다
+  train   학습. DGX 처럼 무겁고 상시가 아닌 장비에 둔다
+역할이 비어 있으면 기본 연결(active)을 쓴다. 임베딩 역할을 바꾸면 벡터 공간이
+달라지므로 전체 재색인이 필요하다 — 화면에서 그 사실을 알린다.
 """
 
 from __future__ import annotations
@@ -35,7 +42,7 @@ def _load() -> dict:
     global _cache
     if _cache is not None:
         return _cache
-    data = {"connections": [], "active": "", "external": ""}
+    data = {"connections": [], "active": "", "external": "", "roles": {}}
     if _path and _path.is_file():
         try:
             data = json.loads(_path.read_text(encoding="utf-8"))
@@ -43,6 +50,7 @@ def _load() -> dict:
             pass
     data.setdefault("connections", [])
     data.setdefault("active", "")
+    data.setdefault("roles", {})
     data.setdefault("external", "")
     _cache = data
     return data
@@ -91,6 +99,56 @@ def get(cid: str) -> dict | None:
         if c["id"] == cid:
             return c
     return None
+
+
+ROLES = {
+    "answer": "답변·초안 생성",
+    "embed": "문장 임베딩",
+    "train": "학습",
+}
+
+
+def set_role(role: str, cid: str) -> dict:
+    """역할을 맡을 연결을 정한다. cid 가 비면 역할을 비운다."""
+    if role not in ROLES:
+        raise ValueError(f"알 수 없는 역할입니다: {role}")
+    data = _load()
+    if cid:
+        if get(cid) is None:
+            raise ValueError("없는 연결입니다")
+        data["roles"][role] = cid
+    else:
+        data["roles"].pop(role, None)
+    _save(data)
+    return data["roles"]
+
+
+def role_conn(role: str) -> dict | None:
+    """그 역할을 맡은 연결. 없으면 기본 연결로 물러난다."""
+    data = _load()
+    cid = (data.get("roles") or {}).get(role, "")
+    conn = get(cid) if cid else None
+    if conn is not None:
+        return conn
+    return get(data["active"]) if data["active"] else None
+
+
+def roles_public() -> list[dict]:
+    """화면용 — 역할마다 어느 연결이 맡고 있는지."""
+    data = _load()
+    assigned = data.get("roles") or {}
+    out = []
+    for role, label in ROLES.items():
+        cid = assigned.get(role, "")
+        conn = get(cid) if cid else None
+        out.append({
+            "role": role, "label": label,
+            "id": cid if conn else "",
+            "name": conn["name"] if conn else "",
+            "base_url": conn["base_url"] if conn else "",
+            "fallback": conn is None,
+        })
+    return out
 
 
 def active() -> dict | None:

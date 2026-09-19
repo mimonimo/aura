@@ -1,0 +1,43 @@
+{% macro extracted() %}
+  {% if extract_blocks %}
+    {% for b in extract_blocks %}{{ b }}{% endfor %}
+  {% elif doc.masked_text %}
+    <pre class="doc-text">{{ doc.masked_text }}</pre>
+  {% else %}
+    <p class="muted">추출된 내용이 없습니다.</p>
+  {% endif %}
+{% endmacro %}
+<div class="card"><div class="card-in">
+  <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 보기
+    <a class="btn-ghost" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener">원본 열기 ↗</a>
+    <span class="menu-wrap" style="margin-left:auto;">
+      <button type="button" id="expBtn" class="btn-ghost" aria-expanded="false" aria-controls="expMenu">내보내기</button>
+      <div id="expMenu" class="menu-list" hidden>
+        <a href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener">원본 파일</a>
+        {% if doc.status == 'reviewed' %}
+        {% if restored_pdf %}<a href="/doc/{{ doc.id }}/export.pdf">추출 문서 <span class="ext">.pdf</span></a>{% endif %}
+        <a href="/doc/{{ doc.id }}/export.docx">추출 문서 <span class="ext">.docx</span></a>
+        <a href="/doc/{{ doc.id }}/export.md">추출 문서 <span class="ext">.md</span></a>
+        {% if assets %}<a href="/doc/{{ doc.id }}/images.zip">그림 {{ assets|length }}장 <span class="ext">.zip</span></a>{% endif %}
+        {% if scan_asset %}<a href="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}?dl=1">보정 스캔본 <span class="ext">.png</span></a>{% endif %}
+        {% endif %}
+      </div>
+    </span>
+  </h2>
+  {% if doc.status == 'reviewed' and original_kind %}
+    <div class="docview"><iframe src="/doc/{{ doc.id }}/restored.pdf" title="{{ doc.filename }}" loading="lazy"></iframe></div>
+    <p class="viewnote muted">인식한 글자는 원본과 다를 수 있습니다. 수치와 표는 원본을 함께 확인하세요.</p>
+    <details class="xtract"><summary>추출된 글과 표 확인</summary>
+      <div class="extract-doc document-extract">{{ extracted() }}</div>
+    </details>
+  {% elif doc.status == 'reviewed' %}
+    <p class="viewnote muted">문서 뷰어로 열 수 없어 추출된 글과 표를 표시합니다. 원래 서식은 원본 파일에서 확인하세요.</p>
+    <div class="extract-doc document-extract">{{ extracted() }}</div>
+  {% else %}
+    <p class="muted">{{ '처리에 실패했습니다. 원본 파일은 위 버튼으로 열 수 있습니다.' if doc.status == 'failed' else '처리가 끝나면 추출 결과가 표시됩니다.' }}</p>
+  {% endif %}
+  {% if doc.parse_note %}<p class="viewnote muted">{{ doc.parse_note }}</p>{% endif %}
+  {% if n_text_chunks or n_table_chunks or assets or n_figtext_chunks %}
+  <p class="viewnote muted">본문 {{ n_text_chunks }}조각 · 표 {{ n_table_chunks }} · 그림 {{ assets|length }} · 그림 글자 {{ n_figtext_chunks }}</p>
+  {% endif %}
+</div></div>
