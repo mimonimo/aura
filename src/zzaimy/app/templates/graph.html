@@ -331,11 +331,19 @@
     mentions: { color: "#C08A2E", dash: false,
                 out: "언급한 기관·사업", "in": "이 이름이 나오는 문서" },
     relates:  { color: "#1E6B4F", dash: true,
-                out: "추정 연관", "in": "추정 연관" }
+                out: "추정 연관", "in": "추정 연관" },
+    of_program:   { color: "#B4531F", dash: false,
+                out: "이 문서의 사업", "in": "이 사업의 문서" },
+    same_program: { color: "#B4531F", dash: false,
+                out: "같은 사업 문서", "in": "같은 사업 문서" },
+    same_law:     { color: "#7C5CBF", dash: false,
+                out: "같은 근거 법령", "in": "같은 근거 법령" }
   };
-  var REL_ORDER = ["refers", "uses", "belongs", "cites", "similar", "relates", "mentions"];
-  var SYM = { similar: 1, relates: 1 };   // 방향을 나눠 봐야 뜻이 같은 관계
-  var STRUCT = { refers: 1, belongs: 1, uses: 1, cites: 1, similar: 1, relates: 1 };
+  var REL_ORDER = ["of_program", "same_program", "refers", "uses", "belongs",
+                   "cites", "same_law", "similar", "relates", "mentions"];
+  var SYM = { similar: 1, relates: 1, same_program: 1, same_law: 1 };
+  var STRUCT = { refers: 1, belongs: 1, uses: 1, cites: 1, similar: 1, relates: 1,
+                 of_program: 1, same_program: 1, same_law: 1 };
   var GRADE = { fact: "등록 근거", calc: "계산 근거", weak: "근거 미확인" };
 
   var PER_GROUP = 6;         // 관계도에서 한 관계당 기본 표시 수
@@ -452,6 +460,10 @@
     if (e.kind === "belongs" || e.kind === "uses") return "fact";
     if (e.kind === "refers") return e.w >= 0.99 ? "fact" : "weak";
     if (e.kind === "similar" || e.kind === "relates") return "calc";
+    // 사업·법령으로 이은 연결은 근거 문구가 함께 와야 성립한다
+    if (e.kind === "of_program" || e.kind === "same_program" || e.kind === "same_law") {
+      return (e.evidence && e.evidence.length) || e.why ? "fact" : "weak";
+    }
     return "fact";           // cites·mentions 는 본문에서 검출한 연결
   }
 
