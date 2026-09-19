@@ -2,92 +2,346 @@
 {% block title %}모델 학습{% endblock %}
 {% block pagetitle %}모델 학습{% endblock %}
 {% block content %}
+<style>
+  /* 도구 카드 3장 — 같은 구조(단계·이름·상태·역할·열기·설정), 같은 높이 */
+  /* 도구 카드 3장: 3열 → 좁으면 1열 (2+1 처럼 한 장만 남는 줄이 생기지 않는다) */
+  .tool-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-bottom:20px; }
+  @media (max-width:760px) { .tool-grid { grid-template-columns:1fr; } }
+  .tool-grid .card { margin:0; display:flex; }
+  .tool-grid .card > .card-in { display:flex; flex-direction:column; flex:1; padding:18px 20px; }
+  .tool-step { font-size:11.5px; font-weight:700; color:var(--muted); letter-spacing:.02em; }
+  .tool-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:6px 0 8px; }
+  .tool-head b { font-size:15px; letter-spacing:-0.01em; }
+  .tool-role { margin:0; font-size:12.5px; color:var(--muted); line-height:1.55; flex:1; }
+  .tool-foot { display:flex; gap:8px; margin-top:16px; }
+  .tool-foot .btn-ghost, .tool-foot button { flex:1; justify-content:center; padding:8px 10px; font-size:12.5px; white-space:nowrap; }
+  .tool-foot .off { background:var(--panel); color:var(--faint); border-color:var(--line); cursor:default; }
+  .modal-back .card { width:560px; }
+  .modal-sec { border-top:1px solid var(--line); padding-top:12px; margin-top:14px; }
+  .modal-sec h4 { margin:0 0 8px; font-size:13px; }
+  .field-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .field-row input[type=text], .field-row input[type=password] { flex:1; min-width:140px; }
+  .kv { display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:12.5px; margin:0; }
+  .kv dt { color:var(--muted); } .kv dd { margin:0; }
+  /* 학습 순서 — 번호·제목·설명·상태 한 줄, 완료는 초록 번호 */
+  .steps { list-style:none; margin:0; padding:0; }
+  .steps li { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--panel); }
+  .steps li:last-child { border-bottom:0; }
+  .step-n { width:26px; height:26px; border-radius:50%; background:#CBD5E1; color:#fff; font-size:12.5px; font-weight:700;
+            display:inline-flex; align-items:center; justify-content:center; flex:none; }
+  .steps li.done .step-n { background:var(--green); }
+  .steps li.doing .step-n { background:var(--ink); }
+  .file-chip { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--ink); text-decoration:none;
+               border:1px solid var(--line); border-radius:7px; padding:2px 8px; background:#fff; }
+  .file-chip:hover { border-color:#94A3B8; background:var(--panel); }
+</style>
 
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>모델 학습 도구
-    <a href="/dev/doc/decisions/0011-oss-mlops-integration.md" class="muted"
-       style="margin-left:auto; font-size:12px; font-weight:500;">설계 근거</a></h2>
-  <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    파인튜닝은 검증된 오픈소스 도구로 합니다. 데이터 검수는 Label Studio,
-    학습 실행은 LLaMA Board, 진행 모니터링은 TensorBoard를 연결합니다. 각
-    도구의 주소를 넣으면 아래에서 바로 열립니다. GPU 서버가 준비되면 주소만
-    넣어 학습을 시작할 수 있습니다.</p>
-</div></div>
+{% if err %}
+<div class="card" style="border-color:#F0D9B8;"><div class="card-in"
+     style="padding:12px 18px; font-size:13px;">{{ err }}</div></div>
+{% endif %}
+{% if ok %}
+<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
+{% endif %}
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; align-items:start;">
+<div class="tool-grid">
   {% for t in tools %}
-  <div class="card reveal" style="position:relative;"><div class="card-in">
-    {# 주소는 구축 시 자동 설정 — 우상단 톱니 버튼으로 이전 시에만 변경 #}
-    <button type="button" class="icon-btn" title="주소 설정"
-            data-modal-open="#urlModal-{{ t.setting }}"
-            style="position:absolute; top:14px; right:14px;">
-      <iconify-icon icon="solar:settings-linear"></iconify-icon></button>
-    <h2 style="font-size:15px;">{{ t.name }}
-      {% if t.url %}<span class="pill reviewed" style="margin-left:6px;">연결됨</span>
-      {% elif t.gpu %}<span class="pill" style="margin-left:6px; background:#FDF3E7; color:var(--amber);">GPU 대기</span>
-      {% else %}<span class="pill type" style="margin-left:6px;">지금 연결 가능</span>{% endif %}
-    </h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">{{ t.role }}</p>
-    {% if t.url %}
-    <a href="{{ t.url }}" target="_blank" rel="noopener" class="btn"
-       style="text-decoration:none;">
-      <iconify-icon icon="solar:arrow-right-up-linear"></iconify-icon>{{ t.name }} 열기</a>
-    {% endif %}
+  <div class="card reveal"><div class="card-in">
+    <div class="tool-step">{{ t.step }}</div>
+    <div class="tool-head"><b>{{ t.name }}</b>
+      {% if t.key == "labelstudio" %}
+        {% if t.connected %}<span class="pill reviewed">연결됨</span>
+        {% else %}<span class="pill processing">미연결</span>{% endif %}
+      {% elif t.url %}<span class="pill reviewed">연결됨</span>
+      {% else %}<span class="pill" style="background:#FDF3E7; color:var(--amber);">GPU 대기</span>{% endif %}
+    </div>
+    <p class="tool-role">{{ t.role }}</p>
+    <div class="tool-foot">
+      {% if t.url and (t.key != "labelstudio" or t.connected) %}
+      <a href="{{ t.url }}" target="_blank" rel="noopener" class="btn-ghost">열기</a>
+      {% else %}<span class="btn-ghost off">열기</span>{% endif %}
+      <button type="button" class="secondary" data-modal-open="#toolModal-{{ t.key }}">
+        <iconify-icon icon="solar:settings-linear"></iconify-icon>{{ "계정·연결" if t.key == "labelstudio" else "연결 설정" }}</button>
+    </div>
   </div></div>
-
-  <div class="modal-back" id="urlModal-{{ t.setting }}">
-    <div class="card"><div class="card-in">
-      <div class="modal-head"><h2 style="font-size:15px;">{{ t.name }} 주소</h2>
-        <button type="button" class="icon-btn" data-modal-close>
-          <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-      <p class="muted" style="font-size:12px; margin:0 0 10px;">구축 시 자동 설정됩니다.
-        서버를 옮길 때만 바꾸세요.</p>
-      <form action="/dev/train/url" method="post" style="display:flex; gap:8px;">
-        <input type="hidden" name="setting" value="{{ t.setting }}">
-        <input type="text" name="url" value="{{ t.url }}"
-               style="flex:1; border:1px solid var(--line); border-radius:12px; padding:9px 12px; font-size:13px;">
-        <button type="submit" class="secondary">저장</button>
-      </form>
-    </div></div>
-  </div>
   {% endfor %}
 </div>
 
+{% for t in tools %}
+<div class="modal-back" id="toolModal-{{ t.key }}">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">{{ t.name }} {{ "계정·연결" if t.key == "labelstudio" else "연결 설정" }}</h2>
+      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    {% if t.key == "labelstudio" %}
+    <dl class="kv">
+      <dt>주소</dt><dd>{% if t.url %}<a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.url }}</a>{% else %}미설정{% endif %}</dd>
+      <dt>상태</dt><dd>{{ "연결됨" if t.connected else "미연결" }}{% if not t.connected and ls.error %} ({{ ls.error }}){% endif %}</dd>
+      <dt>API 키</dt><dd>{{ "설정됨" if ls_token_set else "미설정" }}</dd>
+      <dt>로그인 아이디</dt><dd>{% if ls_username %}<code>{{ ls_username }}</code>{% else %}미확인{% endif %}</dd>
+    </dl>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">연결과 아이디는 서버에서 <code>bash scripts/68_labelstudio_token.sh</code>로 맺습니다.</p>
+    <div class="modal-sec">
+      <h4>비밀번호 재설정</h4>
+      {% if ls_admin_available %}
+      <form action="/dev/train/ls-password" method="post" class="field-row">
+        <input type="password" name="new_pw" minlength="8" required placeholder="새 비밀번호 (8자 이상)" autocomplete="new-password">
+        <input type="password" name="confirm" minlength="8" required placeholder="확인" autocomplete="new-password">
+        <button type="submit" class="secondary">재설정</button>
+      </form>
+      <p class="muted" style="font-size:11.5px; margin:6px 0 0;">비밀번호는 해시로만 저장되어 조회할 수 없습니다.</p>
+      {% else %}<p class="muted" style="font-size:12.5px; margin:0;">이 서버에는 Label Studio 프로비저닝이 없어 재설정할 수 없습니다.</p>{% endif %}
+    </div>
+    {% else %}
+    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">{{ t.role }} · 상태 {{ "연결됨" if t.url else "GPU 대기" }}</p>
+    <form action="/dev/train/url" method="post" class="field-row">
+      <input type="hidden" name="setting" value="{{ t.setting }}">
+      <label class="muted" style="font-size:12px; flex:none;">주소</label>
+      <input type="text" name="url" value="{{ t.url }}" placeholder="http://<GPU 서버>:포트/">
+      <button type="submit" class="secondary">저장</button>
+    </form>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">비우면 연결을 해제합니다.</p>
+    {% endif %}
+  </div></div>
+</div>
+{% endfor %}
+
+<style>
+  .llm-conns { display:flex; flex-direction:column; gap:12px; }
+  .llm-conn { border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:8px; background:#fff; }
+  .llm-conn-top { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+  .llm-conn-name { font-weight:700; font-size:14px; color:var(--ink); }
+  .llm-conn-meta { display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:12.5px; align-items:baseline; }
+  .llm-conn-meta .k { color:var(--faint); white-space:nowrap; }
+  .llm-conn-meta .v { color:var(--ink); word-break:break-all; }
+  .llm-conn-check { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; }
+  .llm-conn-check.ok { color:var(--green, #1E7F4F); } .llm-conn-check.bad { color:var(--red, #B42318); }
+  .llm-conn-check iconify-icon { font-size:13px; }
+  .llm-conn-acts { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:2px; }
+  .llm-conn-acts form { display:inline-flex; margin:0; }
+  .llm-conn-acts button { padding:5px 11px; font-size:12px; }
+  .llm-conn-acts button iconify-icon { font-size:14px; margin-right:3px; }
+</style>
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:server-square-linear"></iconify-icon>LLM 연결
+    {% if llm_probe.ok %}<span class="pill reviewed">연결됨{% if llm.external %} · 외부{% endif %}</span>
+    {% elif llm.configured %}<span class="pill processing">{{ llm_probe.error }}</span>
+    {% else %}<span class="pill" style="background:#FDF3E7; color:var(--amber);">기본 연결 없음</span>{% endif %}
+    {% if usage_all.requests %}<span class="muted" style="font-size:12px; font-weight:500;">오늘 {{ usage_all.requests }}회 · {{ "{:,}".format(usage_all.total) }} 토큰</span>{% endif %}
+    <span style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+      <button type="button" class="secondary" style="padding:6px 12px; font-size:12.5px;" data-modal-open="#llmAdd">
+        <iconify-icon icon="solar:add-circle-linear"></iconify-icon>연결 추가</button></span></h2>
+  {% if connections %}
+  <div class="llm-conns">
+    {% for c in connections %}
+    <div class="llm-conn">
+      <div class="llm-conn-top">
+        <span class="llm-conn-name">{{ c.name }}</span>
+        <span class="pill type">{{ c.kind_label }}</span>
+        {% if c.active %}<span class="pill reviewed">문서 작업 기본</span>{% endif %}
+        {% if c.external_use %}<span class="pill type">외부 AI 참조용</span>{% endif %}
+        {% if not c.active and not c.external_use %}<span class="pill" style="background:#F1F5F9; color:var(--faint);">용도 미지정</span>{% endif %}
+        {% if c.usage.requests %}<span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">오늘 {{ c.usage.requests }}회 · {{ "{:,}".format(c.usage.total) }} 토큰</span>{% endif %}
+      </div>
+      <div class="llm-conn-meta">
+        <span class="k">주소</span><span class="v">{{ c.base_url }}</span>
+        <span class="k">모델</span><span class="v">{{ c.model or "서버 첫 모델 자동" }}{% if c.catalog_n %} <span class="muted">· 목록 {{ c.catalog_n }}개</span>{% endif %}</span>
+        <span class="k">비전 모델</span><span class="v">{{ c.vision_model or "글 모델과 같음" }}</span>
+        <span class="k">API 키</span><span class="v">{{ c.api_key_masked }}</span>
+      </div>
+      {% if c.checked_at %}<div class="llm-conn-check {{ 'ok' if c.check_ok else 'bad' }}"><iconify-icon icon="solar:{{ 'check-circle' if c.check_ok else 'close-circle' }}-linear"></iconify-icon>{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</div>{% endif %}
+      <div class="llm-conn-acts">
+        <form action="/dev/llm/{{ c.id }}/test" method="post"><button type="submit" class="secondary" data-busy="확인 중…"><iconify-icon icon="solar:refresh-linear"></iconify-icon>연결 확인</button></form>
+        <button type="button" class="secondary" data-modal-open="#llmEdit-{{ c.id }}"><iconify-icon icon="solar:pen-linear"></iconify-icon>수정</button>
+        {% if c.active %}
+        <form action="/dev/llm/deactivate" method="post"><button type="submit" class="secondary">기본 해제</button></form>
+        {% elif c.external %}
+        <button type="button" class="secondary" data-modal-open="#llmAct-{{ c.id }}">문서 작업 기본으로</button>
+        {% else %}
+        <form action="/dev/llm/{{ c.id }}/activate" method="post"><button type="submit" class="secondary">문서 작업 기본으로</button></form>
+        {% endif %}
+        {% if c.external %}{% if c.external_use %}
+        <form action="/dev/llm/external/clear" method="post"><button type="submit" class="secondary">참조용 해제</button></form>
+        {% else %}
+        <form action="/dev/llm/{{ c.id }}/external" method="post"><button type="submit" class="secondary">외부 참조 전용</button></form>
+        {% endif %}{% endif %}
+        <form action="/dev/llm/{{ c.id }}/delete" method="post" style="margin-left:auto;" onsubmit="return confirm('연결 「{{ c.name }}」을 삭제할까요?');"><button type="submit" class="btn-ghost" style="color:var(--red); border-color:#E7B9B8;"><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>삭제</button></form>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted" style="font-size:12.5px; margin:0;">등록된 연결이 없습니다. ‘연결 추가’로 GPU 서버를 등록하세요.</p>
+  {% endif %}
+</div></div>
+
+{# 연결 추가 #}
+<div class="modal-back" id="llmAdd">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">LLM 연결 추가</h2>
+      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form action="/dev/llm/add" method="post" style="display:flex; flex-direction:column; gap:10px;">
+      <label class="muted" style="font-size:12px;">이름<input type="text" name="name" required maxlength="60" placeholder="예: 교내 DGX, 외부 GPU 서버" style="margin-top:4px;"></label>
+      <label class="muted" style="font-size:12px;">종류
+        <select name="kind" id="llmAddKind" style="margin-top:4px;">
+          {% for k, meta in llm_kinds.items() %}<option value="{{ k }}" data-url="{{ meta.base_url }}">{{ meta.label }}</option>{% endfor %}
+        </select></label>
+      <label class="muted" style="font-size:12px;">주소<input type="text" name="base_url" id="llmAddUrl" placeholder="{{ llm_kinds.vllm.base_url }}" style="margin-top:4px;"></label>
+      <label class="muted" style="font-size:12px;">API 키<input type="password" name="api_key" id="llmAddKey" autocomplete="off" style="margin-top:4px;"></label>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button type="button" class="secondary" id="llmAddFetch" data-busy="받는 중…"
+                style="padding:5px 11px; font-size:12px;">
+          <iconify-icon icon="solar:refresh-linear"></iconify-icon>모델 목록 받기</button>
+        <span class="muted" id="llmAddNote" style="font-size:11.5px;"></span>
+      </div>
+      <label class="muted" style="font-size:12px;">모델 (비우면 서버 첫 모델)<input type="text" name="model" id="llmAddModel" list="llmAddModelList" maxlength="120" placeholder="예: exaone-4.0-32b" style="margin-top:4px;"></label>
+      <label class="muted" style="font-size:12px;">비전 모델 (문서 이미지 판독, 선택)<input type="text" name="vision_model" id="llmAddVision" list="llmAddModelList" maxlength="120" placeholder="예: qwen2.5-vl-72b" style="margin-top:4px;"></label>
+      <datalist id="llmAddModelList"></datalist>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
+        <button type="button" class="secondary" data-modal-close>닫기</button>
+        <button type="submit">추가</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+{% for c in connections %}
+<div class="modal-back" id="llmEdit-{{ c.id }}">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">{{ c.name }} 수정</h2>
+      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form action="/dev/llm/{{ c.id }}/update" method="post" style="display:flex; flex-direction:column; gap:10px;">
+      <label class="muted" style="font-size:12px;">이름<input type="text" name="name" value="{{ c.name }}" maxlength="60" style="margin-top:4px;"></label>
+      <label class="muted" style="font-size:12px;">주소 ({{ c.kind_label }})<input type="text" name="base_url" value="{{ c.base_url }}" style="margin-top:4px;"></label>
+      {% if c.catalog_n %}
+      <label class="muted" style="font-size:12px;">모델 <span style="font-weight:500;">(목록 {{ c.catalog_n }}개 · {{ c.catalog_at }})</span>
+        <select name="model" style="margin-top:4px;">
+          <option value="">서버 첫 모델 자동</option>
+          {% for m in c.options.text.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.title }} — {{ m.provider }}{% if m.context_length %} · {{ m.context_length }}{% endif %}</option>{% endfor %}
+          {% if c.options.text.other %}<optgroup label="현재 미제공 (서버에서 서비스 안 함)">{% for m in c.options.text.other %}<option value="{{ m.id }}" disabled>{{ m.title }} — {{ m.provider }} ({{ m.status }})</option>{% endfor %}</optgroup>{% endif %}
+          {% if c.model and c.model not in (c.options.text.available | map(attribute='id') | list) %}<option value="{{ c.model }}" selected>{{ c.model }} (직접 입력)</option>{% endif %}
+        </select></label>
+      <label class="muted" style="font-size:12px;">비전 모델 (문서 이미지 판독)
+        <select name="vision_model" style="margin-top:4px;">
+          <option value="">글 모델과 같음</option>
+          {% for m in c.options.vision.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.title }} — {{ m.provider }}</option>{% endfor %}
+          {% if c.options.vision.other %}<optgroup label="현재 미제공 (서버에서 서비스 안 함)">{% for m in c.options.vision.other %}<option value="{{ m.id }}" disabled>{{ m.title }} ({{ m.status }})</option>{% endfor %}</optgroup>{% endif %}
+        </select></label>
+      {% else %}
+      <label class="muted" style="font-size:12px;">모델<input type="text" name="model" value="{{ c.model }}" maxlength="120" placeholder="비우면 서버 첫 모델" style="margin-top:4px;"></label>
+      <label class="muted" style="font-size:12px;">비전 모델 (선택)<input type="text" name="vision_model" value="{{ c.vision_model or '' }}" maxlength="120" style="margin-top:4px;"></label>
+      {% endif %}
+      <label class="muted" style="font-size:12px;">API 키 (현재 {{ c.api_key_masked }}) — 비우면 유지, clear 면 삭제
+        <input type="password" name="api_key" autocomplete="off" style="margin-top:4px;"></label>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
+        <button type="button" class="secondary" data-modal-close>닫기</button>
+        <button type="submit">저장</button>
+      </div>
+    </form>
+    <div style="display:flex; gap:10px; align-items:center; justify-content:flex-end; margin-top:12px; padding-top:10px; border-top:1px solid var(--line);">
+      <form action="/dev/llm/{{ c.id }}/catalog" method="post" style="margin:0; flex:none;"><button type="submit" class="secondary" data-busy="불러오는 중…" style="padding:5px 10px; font-size:12px;"><iconify-icon icon="solar:refresh-linear"></iconify-icon>모델 목록 새로고침</button></form>
+    </div>
+  </div></div>
+</div>
+{% if c.external and not c.active %}
+<div class="modal-back" id="llmAct-{{ c.id }}">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">외부 서버를 문서 작업 기본으로</h2>
+      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <p style="font-size:13px; line-height:1.7; margin:0 0 12px;">교내 문서(마스킹본)가 {{ c.base_url }} 로 전송됩니다.</p>
+    <form action="/dev/llm/{{ c.id }}/activate" method="post">
+      <label style="display:flex; gap:8px; align-items:flex-start; font-size:13px;"><input type="checkbox" name="ack" value="1" required style="margin-top:3px;">
+        <span>개인정보 검토를 마쳤습니다.</span></label>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+        <button type="button" class="secondary" data-modal-close>닫기</button>
+        <button type="submit">기본으로 지정</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% endfor %}
+<script>
+  (function () {
+    var k = document.getElementById("llmAddKind"), u = document.getElementById("llmAddUrl");
+    if (!k || !u) return;
+    k.addEventListener("change", function () {
+      var o = k.options[k.selectedIndex]; u.placeholder = o.dataset.url || ""; if (!u.value || u.dataset.auto === "1") { u.value = o.dataset.url || ""; u.dataset.auto = "1"; }
+    });
+    u.addEventListener("input", function () { u.dataset.auto = "0"; });
+
+    // 저장 전에 서버가 지금 내어 주는 모델 목록을 받아 자동완성에 넣는다
+    var fetchBtn = document.getElementById("llmAddFetch");
+    var note = document.getElementById("llmAddNote");
+    var list = document.getElementById("llmAddModelList");
+    if (fetchBtn) fetchBtn.addEventListener("click", function () {
+      var url = (u.value || u.placeholder || "").trim();
+      if (!url) { note.textContent = "주소를 먼저 넣으세요."; return; }
+      var keep = fetchBtn.innerHTML;
+      fetchBtn.disabled = true; fetchBtn.textContent = "받는 중…"; note.textContent = "";
+      var fd = new FormData();
+      fd.append("kind", k.value);
+      fd.append("base_url", url);
+      var key = document.getElementById("llmAddKey");
+      if (key && key.value) fd.append("api_key", key.value);
+      fetch("/dev/llm/models-live", { method: "POST", body: fd })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          fetchBtn.disabled = false; fetchBtn.innerHTML = keep;
+          list.innerHTML = "";
+          if (!d.ok) { note.textContent = d.error || "목록을 받지 못했습니다."; return; }
+          d.models.forEach(function (m) {
+            var o = document.createElement("option");
+            o.value = m.id;
+            o.label = m.title && m.title !== m.id ? m.title : "";
+            list.appendChild(o);
+          });
+          note.textContent = d.models.length + "개를 받았습니다.";
+        })
+        .catch(function () {
+          fetchBtn.disabled = false; fetchBtn.innerHTML = keep;
+          note.textContent = "목록을 받지 못했습니다.";
+        });
+    });
+  })();
+</script>
+
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:map-arrow-right-linear"></iconify-icon>학습 순서</h2>
-  <ol style="margin:0; padding-left:20px; font-size:13px; line-height:1.9;">
-    <li>데이터 공방에서 학습 쌍 생성 → Label Studio에서 사람 검수·정답 확정</li>
-    <li>베이스라인 측정 — 학습 전 성능을 먼저 잰다(개선폭 입증의 기준)</li>
-    <li>LLaMA Board에서 SFT(능력 학습) 실행, TensorBoard로 진행 확인</li>
-    <li>담당자 판정·재작성 이력으로 DPO(선호 학습)</li>
-    <li>학습 모델을 서빙에 연결(.env.local의 VLLM_BASE_URL)</li>
+  <ol class="steps">
+    {% for st in steps %}
+    <li class="{{ st.state }}">
+      <span class="step-n">{{ loop.index }}</span>
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:700; font-size:13.5px;">{{ st.title }}</div>
+        <div class="muted" style="font-size:12.5px;">{{ st.desc }}</div>
+      </div>
+      <span class="pill {{ 'reviewed' if st.state == 'done' else ('type' if st.state == 'doing' else '') }}" style="flex:none;">{{ st.status }}</span>
+    </li>
+    {% endfor %}
   </ol>
-  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">
-    베이스라인 측정 전 파인튜닝을 시작하지 않습니다 — 개선폭을 수치로
-    입증하는 것이 목표입니다.</p>
 </div></div>
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:export-linear"></iconify-icon>산출물 반출</h2>
-  <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
-    RAG 인덱스·학습 데이터·모델을 개방 표준 형식으로 묶어 내려받습니다. 다른
-    환경으로 옮겨 그대로 재조립할 수 있습니다(매니페스트 포함). 인풋 문서
-    유래 데이터는 마스킹본만 나갑니다.</p>
   <form action="/dev/train/export.zip" method="get">
     <div style="display:flex; flex-direction:column; gap:8px; margin:0 0 14px;">
       {% for g in export_preview %}
       {% set gb = g.files | sum(attribute='bytes') %}
       <label style="display:flex; gap:10px; align-items:flex-start; padding:10px 13px;
                     border:1px solid var(--line); border-radius:10px; cursor:pointer;">
-        <input type="checkbox" name="{{ g.group }}" value="1" checked
-               {% if not g.files %}disabled{% endif %} style="margin-top:3px;">
+        {# hidden 0 + checkbox 1: 해제하면 0이 전송돼 실제로 빠진다 #}
+        <input type="hidden" name="{{ g.group }}" value="0">
+        <input type="checkbox" name="{{ g.group }}" value="1" {% if g.files %}checked{% else %}disabled{% endif %}
+               style="margin-top:3px;">
         <span style="flex:1;">
           <b style="font-size:13.5px;">{{ g.label }}</b>
           <span class="muted" style="font-size:12px;"> · {{ g.desc }}</span>
-          <div class="muted" style="font-size:11.5px; margin-top:2px;">
-            {% if g.files %}파일 {{ g.files|length }}개 ·
-              {% if gb >= 1048576 %}{{ (gb/1048576)|round(1) }}MB{% else %}{{ (gb/1024)|round(1) }}KB{% endif %}
-            {% else %}담을 파일 없음{% endif %}
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
+            {% for f in g.files %}
+            <a href="/dev/train/export/file?path={{ f.path | urlencode }}" class="file-chip" title="{{ f.path }}">
+              <iconify-icon icon="solar:download-linear"></iconify-icon>{{ f.path.rsplit('/', 1)[-1] }}
+              <span class="muted" style="font-size:11px;">{% if f.bytes >= 1048576 %}{{ (f.bytes/1048576)|round(1) }}MB{% else %}{{ (f.bytes/1024)|round(1) }}KB{% endif %}</span></a>
+            {% else %}<span class="muted" style="font-size:11.5px;">담을 파일 없음</span>{% endfor %}
           </div>
         </span>
       </label>
@@ -95,27 +349,9 @@
       <p class="muted" style="font-size:12.5px; margin:0;">반출 미리보기를 불러오지 못했습니다.</p>
       {% endfor %}
     </div>
-    <button type="submit" style="text-decoration:none;">
-      <iconify-icon icon="solar:download-linear"></iconify-icon>선택 항목 반출 (.zip)</button>
+    <button type="submit" class="secondary">
+      <iconify-icon icon="solar:archive-down-minimlistic-linear"></iconify-icon>선택 항목 내려받기</button>
   </form>
-</div></div>
-
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:box-minimalistic-linear"></iconify-icon>준비된 학습 데이터
-    <a href="/dev/data" class="btn-ghost" style="margin-left:auto; font-weight:600;">데이터 공방</a></h2>
-  {% if datasets %}
-  <div class="table-scroll"><table style="font-size:12.5px;">
-    <tr><th>이름</th><th>소스</th><th>학습 쌍</th><th>수치 탈락</th><th>생성</th></tr>
-    {% for ds in datasets %}
-    <tr><td style="font-weight:600;">{{ ds.name }}</td><td>{{ ds.sources }}</td>
-      <td style="font-weight:700; color:var(--navy);">{{ ds.n_pairs }}</td>
-      <td>{{ ds.n_dropped_numbers }}</td><td>{{ ds.created_at[:10] }}</td></tr>
-    {% endfor %}
-  </table></div>
-  {% else %}
-  <p class="muted" style="margin:0; font-size:12.5px;">아직 만든 학습 데이터가
-    없습니다 — 데이터 공방에서 생성하세요.</p>
-  {% endif %}
 </div></div>
 
 {% endblock %}

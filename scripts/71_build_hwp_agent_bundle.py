@@ -66,21 +66,25 @@ def main() -> int:
     pth = next((work / "python").glob("python*._pth"))
     pth.write_text(pth.read_text() + "..\n", encoding="ascii")
 
-    print("2/4 comtypes(순수 파이썬 COM) 내려받기")
+    print("2/4 comtypes(순수 파이썬 COM) · infi.systray(트레이 아이콘) 내려받기")
     subprocess.run(
-        [sys.executable, "-m", "pip", "download", "comtypes", "--no-deps",
-         "-d", str(work / "_wheels"), "--quiet"],
+        [sys.executable, "-m", "pip", "download", "comtypes", "infi.systray",
+         "--no-deps", "-d", str(work / "_wheels"), "--quiet"],
         check=True,
     )
-    wheel = next((work / "_wheels").glob("comtypes-*.whl"))
-    with zipfile.ZipFile(wheel) as z:
-        for name in z.namelist():
-            if name.startswith("comtypes/"):
-                z.extract(name, work)
+    # comtypes 는 comtypes/ , infi.systray 는 infi/ 네임스페이스로 풀린다.
+    for prefix in ("comtypes/", "infi/"):
+        whl = next((work / "_wheels").glob(prefix.rstrip("/").split("/")[0] + "*.whl"), None)
+        if whl is None:
+            continue
+        with zipfile.ZipFile(whl) as z:
+            for name in z.namelist():
+                if name.startswith(prefix):
+                    z.extract(name, work)
     shutil.rmtree(work / "_wheels")
 
     print("3/4 에이전트 파일 복사")
-    for f in ("hwp_agent.py", "protocol.md"):
+    for f in ("hwp_agent.py", "protocol.md", "zzaimy.ico"):
         shutil.copy2(AGENT_DIR / f, work / f)
     (work / "시작.bat").write_bytes(_BAT.encode("utf-8"))
     (work / "README.txt").write_text(_README, encoding="utf-8")

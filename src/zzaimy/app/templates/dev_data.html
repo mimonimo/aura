@@ -3,47 +3,88 @@
 {% block pagetitle %}데이터 공방{% endblock %}
 {% block content %}
 
+<style>
+  .step-n { width:26px; height:26px; border-radius:50%; background:var(--ink); color:#fff;
+    display:inline-flex; align-items:center; justify-content:center; font-size:13px;
+    font-weight:800; flex:none; }
+  .flow-steps { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+  .flow-step { display:flex; align-items:center; gap:9px; background:var(--panel);
+    border:1px solid var(--line); border-radius:12px; padding:10px 14px; font-size:12.5px; flex:1; min-width:180px; }
+  .flow-step b { color:var(--ink); }
+  .flow-arrow2 { display:flex; align-items:center; color:var(--faint); }
+  @media (max-width:820px){ .flow-arrow2{ display:none; } }
+  .src-table { font-size:13px; }
+  .src-table th { white-space:nowrap; }
+  .src-table td.num, .src-table th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .src-table td { vertical-align:middle; }
+  .src-list { display:flex; flex-direction:column; gap:8px; margin:2px 0 14px; }
+  .src-list label { display:flex; gap:9px; align-items:flex-start; font-size:13px;
+    padding:9px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; }
+  .src-list label:hover { background:var(--panel); }
+  .src-list .s-desc, .src-table .s-desc { color:var(--muted); font-size:11.5px; margin-top:1px; }
+</style>
+
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:box-minimalistic-linear"></iconify-icon>데이터 공방</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    플랫폼에 쌓인 기록(문서 검토·초안·대화)을 모델 학습 데이터로 변환합니다.
-    모든 학습 쌍은 내보내기 전에 수치 검증을 통과해야 하며, 출력의 수치가
-    입력 근거에 없으면 그 쌍은 폐기됩니다 — 모델이 수치를 외우지 않게 하는
-    정제 장치입니다. 검색(RAG)용 변환은 문서 등록 시 자동으로 이뤄지며,
-    아래 현황판에서 상태를 봅니다.</p>
+    검토 의견·초안·대화 기록에서 학습 예시를 만듭니다.</p>
+  <div class="flow-steps">
+    <div class="flow-step"><span class="step-n">1</span><span><b>예시 만들기</b><br>
+      <span class="muted">쌓인 기록 → 학습 예시</span></span></div>
+    <div class="flow-arrow2"><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></div>
+    <div class="flow-step"><span class="step-n">2</span><span><b>사람 검수</b><br>
+      <span class="muted">Label Studio에서 채택·수정</span></span></div>
+    <div class="flow-arrow2"><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></div>
+    <div class="flow-step"><span class="step-n">3</span><span><b>학습</b><br>
+      <span class="muted">LLaMA Board (GPU 필요)</span></span></div>
+  </div>
 </div></div>
 
 {% if err %}
 <div class="card" style="border-color:#F0D9B8;"><div class="card-in"
      style="padding:12px 18px; font-size:13px;">{{ err }}</div></div>
+{% elif ok %}
+<div class="card"><div class="card-in" style="padding:12px 18px;">
+  <p class="notice" style="margin:0;"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
+</div></div>
 {% endif %}
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:magic-stick-3-linear"></iconify-icon>학습 쌍 만들기</h2>
-  <form action="/dev/data/build" method="post"
-        style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; font-size:13px;">
-    <input type="text" name="name" value="sft" placeholder="데이터셋 이름"
-           style="border:1px solid var(--line); border-radius:8px; padding:8px 10px; width:140px;">
-    <label style="display:flex; gap:5px; align-items:center;">
-      <input type="checkbox" name="sources" value="review" checked>검토 의견 (문서→검토)</label>
-    <label style="display:flex; gap:5px; align-items:center;">
-      <input type="checkbox" name="sources" value="draft" checked>초안 (근거→초안)</label>
-    <label style="display:flex; gap:5px; align-items:center;">
-      <input type="checkbox" name="sources" value="chat">대화 (멀티턴)</label>
-    <button type="submit">변환 실행</button>
+  <h2><span class="step-n">1</span>학습 예시 만들기</h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
+    고른 기록을 입력과 정답 예시로 변환합니다. 정답의 수치가 근거에 없으면 그 예시는 버립니다.</p>
+  <form action="/dev/data/build-and-push" method="post">
+    {# 소스별 숫자는 실제 변환기를 돌린 미리보기(저장 없음) — 무엇이 몇 건 만들어지고 왜 탈락하는지 #}
+    <div class="table-scroll" style="margin:2px 0 14px;">
+    <table class="src-table">
+      <tr><th></th><th>원천 기록</th><th class="num">기록</th><th class="num">생성 가능</th><th class="num">수치 탈락</th><th class="num">내용 빈약</th><th></th></tr>
+      {% for sp in source_preview %}
+      <tr>
+        <td><input type="checkbox" name="sources" value="{{ sp.key }}" {% if sp.key != 'chat' %}checked{% endif %}></td>
+        <td><b>{{ sp.label }}</b><div class="s-desc">{{ sp.shape }} · {{ sp.desc }}</div></td>
+        <td class="num">{{ sp.n_candidates }}</td>
+        <td class="num"><b>{{ sp.n_pairs }}</b></td>
+        <td class="num">{{ sp.n_dropped_numbers }}</td>
+        <td class="num">{{ sp.n_dropped_short }}</td>
+        <td>{% if sp.sample %}<button type="button" class="secondary" style="padding:4px 10px; font-size:12px;" data-modal-open="#sample-{{ sp.key }}">예시 보기</button>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px;">
+      <button type="submit"><iconify-icon icon="solar:upload-minimalistic-linear"></iconify-icon>예시 만들어 Label Studio로 보내기</button>
+      <button type="submit" formaction="/dev/data/build" class="secondary">예시만 만들기</button>
+      <span class="muted" style="font-size:11.5px;">Label Studio가 연결돼 있으면 만든 즉시 검수 프로젝트로 <b>자동 주입</b>됩니다.</span>
+    </div>
   </form>
-  <p class="muted" style="font-size:11.5px; margin:10px 0 0; line-height:1.6;">
-    대화 소스는 답변이 인용한 규정 조각이 세션에 저장되지 않아 수치 검증에서
-    보수적으로 탈락합니다 — 근거 추적 저장이 붙으면 통과율이 올라갑니다.</p>
 </div></div>
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>Label Studio 검수 (자동 연동)</h2>
+  <h2><span class="step-n">2</span>사람 검수 — Label Studio
+    {% if ls.ok %}<span class="pill reviewed" style="margin-left:6px;">연결됨</span>
+    {% else %}<span class="pill processing" style="margin-left:6px;">미연결</span>{% endif %}</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
-    소스는 이 플랫폼에 넣습니다(문서 접수·기준 등록). 여기서 만든 학습 쌍을
-    버튼 한 번으로 Label Studio에 보내면 검수 프로젝트가 자동 생성됩니다.
-    Label Studio에서는 채택·수정·폐기만 하고, 되받으면 검수 완료 데이터가 됩니다
-    — 파일을 주고받을 필요가 없습니다.</p>
+    ①에서 보낸 예시를 Label Studio에서 채택·수정·폐기하고, 되받기로 확정합니다.</p>
 
   {% if request.query_params.get("ls_pushed") %}
   <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>
@@ -54,84 +95,78 @@
     검수 완료 {{ request.query_params.get("ls_pulled") }}건을 학습 데이터로 확정했습니다.</span></p>
   {% endif %}
 
-  {% if not ls_token %}
-  <form action="/dev/data/ls-token" method="post"
-        style="display:flex; gap:8px; align-items:center; font-size:13px; margin-bottom:12px;">
-    <span class="muted" style="font-weight:600;">1회 설정 — Label Studio API 토큰:</span>
-    <input type="text" name="token" required placeholder="LS 계정 설정 > Access Token"
-           style="flex:1; max-width:420px; border:1px solid var(--line); border-radius:8px; padding:7px 10px;">
-    <button type="submit" class="secondary">저장</button>
-  </form>
-  <p class="muted" style="font-size:11.5px; margin:0 0 8px;">
-    Label Studio 로그인 → 우상단 계정 > Account & Settings > Access Token 복사.</p>
-  {% else %}
-  <div style="display:flex; gap:14px; align-items:center; flex-wrap:wrap; font-size:13px;">
-    <form action="/dev/data/ls-push" method="post"
-          style="display:flex; gap:10px; align-items:center;">
-      <span class="muted" style="font-weight:600;">검수 보내기:</span>
-      <label><input type="checkbox" name="sources" value="review" checked> 검토</label>
-      <label><input type="checkbox" name="sources" value="draft" checked> 초안</label>
-      <label><input type="checkbox" name="sources" value="chat"> 대화</label>
-      <button type="submit">Label Studio로 보내기</button>
-    </form>
-    <form action="/dev/data/ls-pull" method="post"
-          style="display:flex; gap:8px; align-items:center;
-                 padding-left:14px; border-left:1px solid var(--panel);">
-      <button type="submit" class="secondary">검수 결과 되받기</button>
+  {% if ls.ok %}
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px; font-variant-numeric:tabular-nums;">
+    검수 프로젝트 「{{ ls.project }}」
+    {% if ls.project_id %}· 전체 {{ ls.total }} · 완료 {{ ls.done }} · 대기 {{ ls.pending }}
+    {% else %}· 아직 없음 — 첫 보내기 때 자동으로 만들어집니다{% endif %}</p>
+  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px;">
+    <a href="{{ labelstudio_url }}" target="_blank" rel="noopener" class="btn" style="text-decoration:none;">
+      <iconify-icon icon="solar:square-top-down-linear"></iconify-icon>Label Studio에서 검수 (열기)</a>
+    <form action="/dev/data/ls-pull" method="post" style="margin:0;">
+      <button type="submit" class="secondary"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>검수 결과 되받기</button>
     </form>
   </div>
+  {% else %}
+  <p class="notice" style="margin:0;"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>
+    Label Studio에 연결되지 않았습니다{% if ls.error %} ({{ ls.error }}){% endif %}.
+    서버에서 <code>bash scripts/68_labelstudio_token.sh</code>를 한 번 실행하면 연결됩니다.</span></p>
   {% endif %}
-
-  <details style="margin-top:12px;">
-    <summary class="muted" style="cursor:pointer; font-size:12px;">파일로 수동 주고받기 (연동 없이)</summary>
-    <form action="/dev/data/label-export" method="post"
-          style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px; margin-top:8px;">
-      <label><input type="checkbox" name="sources" value="review" checked> 검토</label>
-      <label><input type="checkbox" name="sources" value="draft" checked> 초안</label>
-      <button type="submit" class="secondary">태스크 JSON 내려받기</button>
-      <a href="/dev/data/label-config" class="btn-ghost" style="font-size:12px;">라벨링 설정 XML</a>
-    </form>
-    <form action="/dev/data/label-import" method="post" enctype="multipart/form-data"
-          style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px; margin-top:8px;">
-      <input type="text" name="name" value="검수완료"
-             style="border:1px solid var(--line); border-radius:8px; padding:7px 10px; width:120px;">
-      <input type="file" name="annotations" accept=".json" required style="font-size:12px;">
-      <button type="submit" class="secondary">결과 파일 되받기</button>
-    </form>
-  </details>
 </div></div>
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>데이터셋 대장</h2>
+  <h2><span class="step-n">3</span>학습 — LLaMA Board</h2>
+  <p class="muted" style="font-size:12.5px; margin:0; line-height:1.6;">
+    검수 완료 예시로 파인튜닝합니다. 실행은 <a href="/dev/train">모델 학습</a> 화면에서 합니다.</p>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>만든 예시 묶음
+    <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">데이터셋 대장</span></h2>
   {% if datasets %}
+  {# 원천 기록은 영문 키("review,draft")로 저장된다 — 화면에는 한글 이름으로 #}
+  {% set source_labels = {"review": "검토 의견", "draft": "초안", "chat": "대화", "labelstudio": "Label Studio 검수"} %}
   <div class="table-scroll">
   <table style="font-size:12.5px;">
-    <tr><th>#</th><th>이름</th><th>소스</th><th>학습 쌍</th>
-        <th>수치 탈락</th><th>빈약 탈락</th><th>생성 시각</th><th></th></tr>
+    <tr><th>#</th><th>이름</th><th>원천 기록</th><th>학습 예시</th>
+        <th>수치 탈락</th><th>빈약 탈락</th><th>생성 시각</th><th>이어서 작업</th></tr>
     {% for ds in datasets %}
     <tr>
       <td>{{ ds.id }}</td>
       <td style="font-weight:600;">{{ ds.name }}</td>
-      <td>{{ ds.sources }}</td>
+      <td>{% for s in (ds.sources or "").split(",") if s.strip() %}{{ source_labels.get(s.strip(), s.strip()) }}{% if not loop.last %} · {% endif %}{% endfor %}</td>
       <td style="font-weight:700; color:var(--navy);">{{ ds.n_pairs }}</td>
       <td>{{ ds.n_dropped_numbers }}</td>
       <td>{{ ds.n_dropped_short }}</td>
       <td style="white-space:nowrap;">{{ ds.created_at[:16] }}</td>
-      <td><a href="/dev/data/{{ ds.id }}.jsonl" class="btn-ghost"
-             style="font-size:11.5px;">JSONL</a></td>
+      <td style="white-space:nowrap;">
+        <a href="/dev/data/{{ ds.id }}.jsonl" class="btn-ghost" style="font-size:11.5px;">JSONL</a>
+        {% if labelstudio_url %}<a href="{{ labelstudio_url }}" target="_blank" rel="noopener"
+           class="btn-ghost" style="font-size:11.5px;">검수</a>{% endif %}
+        {% if llamaboard_url %}<a href="{{ llamaboard_url }}" target="_blank" rel="noopener"
+           class="btn-ghost" style="font-size:11.5px;">학습</a>{% endif %}
+      </td>
     </tr>
     {% endfor %}
   </table>
   </div>
+  <div style="display:flex; gap:8px; margin-top:12px; align-items:center;">
+    {% if ds_page > 0 %}<a class="btn-ghost" href="/dev/data?ds_page={{ ds_page - 1 }}">← 이전</a>{% endif %}
+    <span class="muted" style="font-size:12px; font-variant-numeric:tabular-nums;">
+      {{ ds_page * ds_per + 1 }}–{{ ds_page * ds_per + datasets|length }} / {{ ds_total }}</span>
+    {% if ds_has_next %}<a class="btn-ghost" href="/dev/data?ds_page={{ ds_page + 1 }}">다음 →</a>{% endif %}
+  </div>
   {% else %}
-  <p class="muted" style="margin:0;">아직 만든 데이터셋이 없습니다.</p>
+  <p class="muted" style="margin:0;">아직 만든 예시 묶음이 없습니다 — 위 1단계에서 만들어 보세요.</p>
   {% endif %}
 </div></div>
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:layers-minimalistic-linear"></iconify-icon>변환 현황판
+  <h2><iconify-icon icon="solar:layers-minimalistic-linear"></iconify-icon>문서별 상태
     <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">
-      문서 {{ rag_rows|length }}건</span></h2>
+      변환 현황판 · 문서 {{ rag_rows|length }}건</span></h2>
+  <p class="muted" style="font-size:11.5px; margin:0 0 10px;">
+    <b>색인</b> = 검색(RAG) 등재 여부 · <b>학습 재료</b> = 이 문서에서 뽑을 수 있는 예시 종류</p>
   {% if rag_rows %}
   <div class="table-scroll">
   <table style="font-size:12.5px;">
@@ -144,8 +179,8 @@
                  white-space:nowrap;">
         <a href="/doc/{{ r.id }}" style="color:var(--navy); text-decoration:none;
            font-weight:600;">{{ r.filename }}</a></td>
-      <td>{{ r.doc_type }}</td>
-      <td>{{ r.status }}</td>
+      <td>{{ doc_type_labels.get(r.doc_type, r.doc_type) }}</td>
+      <td>{{ status_labels.get(r.status, r.status) }}</td>
       <td>{{ r.n_chunks }}</td>
       <td>{% if r.indexed is none %}<span class="muted">—</span>
           {% elif r.indexed %}<span class="pill reviewed">등재</span>
@@ -160,5 +195,19 @@
   <p class="muted" style="margin:0;">등록된 문서가 없습니다.</p>
   {% endif %}
 </div></div>
+
+
+{% for sp in source_preview if sp.sample %}
+<div class="modal-back" id="sample-{{ sp.key }}">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">{{ sp.label }} 예시 (첫 건)</h2>
+      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <p class="muted" style="font-size:11.5px; margin:0 0 6px;">입력</p>
+    <pre style="white-space:pre-wrap; font-family:inherit; font-size:12.5px; line-height:1.6; background:var(--panel); border:1px solid #EDF2F7; border-radius:10px; padding:10px 12px; margin:0 0 12px; max-height:220px; overflow:auto;">{{ sp.sample.human }}</pre>
+    <p class="muted" style="font-size:11.5px; margin:0 0 6px;">정답</p>
+    <pre style="white-space:pre-wrap; font-family:inherit; font-size:12.5px; line-height:1.6; background:var(--panel); border:1px solid #EDF2F7; border-radius:10px; padding:10px 12px; margin:0; max-height:220px; overflow:auto;">{{ sp.sample.gpt }}</pre>
+  </div></div>
+</div>
+{% endfor %}
 
 {% endblock %}

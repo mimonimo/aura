@@ -85,3 +85,17 @@ def test_rag_status_counts_chunks(db):
     db.replace_doc_chunks(d, [{"kind": "text", "page_no": 1, "content": "본문"}])
     rows = rag_status(db)
     assert rows[0]["n_chunks"] == 1
+
+
+def test_preview_sources_counts_match_builders(tmp_path):
+    from zzaimy.app.db import Database
+    from zzaimy.dataset.build import _BUILDERS, preview_sources
+
+    db = Database(tmp_path / "p.db")
+    rows = preview_sources(db)
+    assert [r["key"] for r in rows] == ["review", "draft", "chat"]
+    for r in rows:
+        res = _BUILDERS[r["key"]](db)
+        assert r["n_pairs"] == len(res.pairs)
+        assert r["n_candidates"] == len(res.pairs) + res.n_dropped_numbers + res.n_dropped_short
+        assert r["sample"] is None or {"human", "gpt"} <= set(r["sample"])

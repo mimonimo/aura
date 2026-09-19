@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}변경 이력{% endblock %}
+{% block pagetitle %}변경 이력{% endblock %}
+{% block content %}
+<style>
+  .h-links { margin-left: auto; display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .h-links .h-link { margin-left: 0; }
+  .card h2 .cnt { font-size: 12px; font-weight: 600; color: var(--faint);
+                  font-variant-numeric: tabular-nums; }
+
+  /* 작업 기록 — 날짜 라벨 + 세로 레일, 오른쪽에 그날의 항목 */
+  .tl { list-style: none; margin: 4px 0 0; padding: 0; }
+  .tl-day { display: grid; grid-template-columns: 92px 22px minmax(0, 1fr); gap: 0 10px;
+            padding-bottom: 26px; }
+  .tl-day:last-child { padding-bottom: 4px; }
+  .tl-date { text-align: right; font-size: 13px; font-weight: 700; color: var(--navy);
+             font-variant-numeric: tabular-nums; padding-top: 3px; white-space: nowrap; }
+  .tl-rail { position: relative; }
+  .tl-rail::before { content: ""; position: absolute; left: 50%; top: 14px; bottom: -26px;
+                     width: 2px; margin-left: -1px; background: #E2E8F0; }
+  .tl-day:last-child .tl-rail::before { display: none; }
+  .tl-rail::after { content: ""; position: absolute; left: 50%; top: 7px; width: 10px; height: 10px;
+                    margin-left: -5px; border-radius: 50%; background: #fff;
+                    border: 2px solid var(--navy); }
+  .tl-body ul { margin: 0 !important; padding-left: 18px !important; font-size: 14px !important;
+                line-height: 1.75 !important; list-style: disc; }
+  .tl-body li { margin: 0 0 7px; overflow-wrap: anywhere; }
+  .tl-body li:last-child { margin-bottom: 0; }
+  .tl-body li::marker { color: var(--faint); }
+  .tl-body p { margin: 0 0 6px !important; font-size: 14px !important; }
+  @media (max-width: 640px) {
+    .tl-day { grid-template-columns: 22px minmax(0, 1fr); }
+    .tl-date { grid-column: 2; text-align: left; padding: 0 0 4px; }
+    .tl-rail { grid-column: 1; grid-row: 1 / span 2; }
+    .tl-body { grid-column: 2; }
+  }
+
+  /* 주간 보고서 요약 */
+  .wk-label { font-size: 11.5px; font-weight: 700; color: var(--faint); letter-spacing: .04em;
+              margin: 0 0 6px; }
+  .wk ul { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.8; }
+
+  /* 커밋 이력 — 기본 삼각형 대신 펼침 버튼, 펼치면 날짜별 묶음 */
+  .cl { margin-top: 16px; }
+  .cl summary { list-style: none; display: inline-flex; align-items: center; gap: 8px;
+                background: #fff; color: var(--ink); border: 1px solid #CBD5E1; border-radius: 10px;
+                padding: 7px 14px 7px 11px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+                transition: all .2s var(--ease); }
+  .cl summary::-webkit-details-marker { display: none; }
+  .cl summary:hover { background: var(--panel); border-color: #94A3B8; }
+  .cl summary:focus-visible { outline: 2px solid #94A3B8; outline-offset: 2px; }
+  .cl-chev { font-size: 16px; color: var(--muted); transition: transform .2s var(--ease); }
+  .cl[open] .cl-chev { transform: rotate(180deg); }
+  .cl-count { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .cl-count::before { content: ""; display: inline-block; width: 1px; height: 12px;
+                      background: #CBD5E1; margin: 0 9px 0 1px; vertical-align: -2px; }
+  .cl-list { margin-top: 14px; border-top: 1px solid var(--line); }
+  .cl-day { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 0 18px;
+            padding: 14px 0; border-bottom: 1px solid #EFF3F8; }
+  .cl-date { font-size: 13px; font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums;
+             line-height: 1.7; }
+  .cl-date span { display: block; font-size: 11.5px; font-weight: 600; color: var(--faint); }
+  .cl-day ul { margin: 0; padding: 0 0 0 14px; font-size: 13px; line-height: 1.7;
+               border-left: 2px solid var(--line); list-style: none; }
+  .cl-day li { position: relative; padding-left: 4px; margin-bottom: 3px; overflow-wrap: anywhere; }
+  .cl-day li::before { content: ""; position: absolute; left: -19px; top: .72em; width: 6px; height: 6px;
+                       border-radius: 50%; background: #CBD5E1; }
+  .cl-day li:last-child { margin-bottom: 0; }
+  .cl-note { margin: 12px 0 0; font-size: 12px; color: var(--faint); }
+  @media (max-width: 640px) {
+    .cl-day { grid-template-columns: 1fr; gap: 6px; }
+    .cl-date span { display: inline; margin-left: 6px; }
+  }
+</style>
+<p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <a href="/dev" class="btn-ghost">← 개발 현황</a>
+</p>
+
+{% if dev_now_days %}
+<div class="card reveal" id="recent"><div class="card-in">
+  <h2><iconify-icon icon="solar:notes-linear"></iconify-icon>작업 기록
+    <span class="cnt" style="margin-left:auto;">{{ dev_now_days|length }}일</span></h2>
+  <ol class="tl">
+    {% for d in dev_now_days %}
+    <li class="tl-day">
+      <div class="tl-date">{{ d.day }}</div>
+      <div class="tl-rail"></div>
+      <div class="tl-body">{{ d.body | md_view }}</div>
+    </li>
+    {% endfor %}
+  </ol>
+</div></div>
+{% endif %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:history-linear"></iconify-icon>변경 이력
+    <span class="h-links">
+      <a href="/dev/weekly.docx" class="h-link"><iconify-icon icon="solar:calendar-linear"></iconify-icon>주간 보고서 .docx</a>
+      <a href="/dev/weekly.hwpx" class="h-link">.hwpx</a>
+      <a href="/dev/weekly.md" class="h-link">.md</a>
+    </span></h2>
+  {% if recent_summary %}
+  <div class="wk">
+    <div class="wk-label">주간 보고서 요약</div>
+    <ul>{% for it in recent_summary %}<li>{{ it }}</li>{% endfor %}</ul>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0; font-size:12.5px;">주간 보고서 요약 없음</p>
+  {% endif %}
+  <details class="cl">
+    <summary>
+      <iconify-icon class="cl-chev" icon="solar:alt-arrow-down-linear"></iconify-icon>
+      전체 변경 목록 (커밋 이력)
+      <span class="cl-count">{{ history|length }}일 · {{ history_count }}건</span>
+    </summary>
+    <div class="cl-list">
+      {% for d in history %}
+      <section class="cl-day">
+        <div class="cl-date">{{ d.day }}<span>{{ d["items"]|length }}건</span></div>
+        <ul>{% for it in d["items"] %}<li>{{ it }}</li>{% endfor %}</ul>
+      </section>
+      {% endfor %}
+      {% for n in history_notes %}<p class="cl-note">{{ n }}</p>{% endfor %}
+    </div>
+  </details>
+</div></div>
+{% endblock %}

@@ -14,6 +14,9 @@
 <div class="card" style="border-color:#F0D9B8;"><div class="card-in"
      style="padding:12px 18px; font-size:13px;">{{ err }}</div></div>
 {% endif %}
+{% if ok %}
+<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
+{% endif %}
 
 <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
@@ -21,25 +24,48 @@
     {% if bundle_ready and token %}
     <p style="font-size:13px; margin:0 0 12px; line-height:1.7;">
       설치 불필요. 접속 정보가 이미 들어 있습니다.</p>
-    <a href="/dev/hwp/agent.zip" class="btn" style="text-decoration:none;">
-      <iconify-icon icon="solar:download-linear"></iconify-icon>에이전트 다운로드 (.zip)</a>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <a href="/dev/hwp/agent.zip" class="btn" style="text-decoration:none;">
+        <iconify-icon icon="solar:download-linear"></iconify-icon>에이전트 (.zip · 바로 실행)</a>
+      <a href="/dev/hwp/installer-kit.zip" class="btn-ghost" style="font-weight:600;">
+        <iconify-icon icon="solar:box-linear"></iconify-icon>설치파일 빌드 키트</a>
+    </div>
     <ol class="muted" style="font-size:12.5px; margin:12px 0 0; padding-left:18px; line-height:1.8;">
-      <li>PC에서 압축을 풉니다 (설치 불필요)</li>
-      <li>한글을 실행해 둡니다</li>
-      <li>시작.bat 더블클릭 — 아래 연결 상태에 나타납니다</li>
+      <li>바로 실행: 압축을 풀고 한글을 켠 뒤 시작.bat 실행</li>
+      <li>설치파일: 빌드 키트를 Windows에서 Inno Setup으로 컴파일해 setup.exe 를 만든 뒤 아래에 올림</li>
     </ol>
     {% elif not token %}
-    <p class="muted" style="font-size:12.5px; margin:0;">토큰을 먼저 발급하면
+    <p class="muted" style="font-size:12.5px; margin:0;">접속 키를 먼저 발급하면
       다운로드가 열립니다.</p>
     {% else %}
-    <p class="muted" style="font-size:12.5px; margin:0;">베이스 번들이 서버에
-      없습니다 — scripts/71_build_hwp_agent_bundle.py 로 조립 후 서버
+    <p class="muted" style="font-size:12.5px; margin:0;">기본 패키지가 서버에
+      없습니다 — scripts/71_build_hwp_agent_bundle.py 로 조립한 뒤 서버
       data/dist/ 에 올립니다.</p>
     {% endif %}
+    <h4 class="extract-h" style="margin:16px 0 8px;">설치파일 (setup.exe)</h4>
+    {% if installer %}
+    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <a href="/hwp/setup.exe" class="btn-ghost" style="font-weight:600;">
+        <iconify-icon icon="solar:download-linear"></iconify-icon>setup.exe 내려받기</a>
+      <span class="muted" style="font-size:12px;">{% if installer.version %}v{{ installer.version }} · {% endif %}{{ installer.mb }}MB{% if installer.uploaded_at %} · {{ installer.uploaded_at }}{% endif %} · sha256 {{ installer.sha256[:12] }}</span>
+      <form action="/dev/hwp/installer/delete" method="post" style="margin-left:auto;">
+        <button type="submit" class="secondary" style="padding:5px 10px; font-size:12px;">내리기</button></form>
+    </div>
+    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">담당자 배포 주소: <code>/hwp/setup.exe</code> (로그인 필요)</p>
+    {% else %}
+    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">올라온 설치파일이 없습니다.</p>
+    {% endif %}
+    <form action="/dev/hwp/installer" method="post" enctype="multipart/form-data"
+          style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;">
+      <input type="file" name="file" accept=".exe" required style="flex:1 1 220px;">
+      <input type="text" name="version" placeholder="버전 (선택)" maxlength="40"
+             style="width:130px; padding:8px 10px; border:1.5px solid var(--line); border-radius:10px; font-size:13px; font-family:inherit;">
+      <button type="submit" class="secondary">올리기</button>
+    </form>
     <p class="muted" style="font-size:11.5px; margin:12px 0 0;">
-      토큰을 재발급하면 기존 앱은 끊어지며, zip을 다시 내려받아야 합니다.</p>
+      접속 키를 재발급하면 기존 앱은 끊어지며, zip을 다시 내려받아야 합니다.</p>
     <form action="/dev/hwp/token" method="post" style="margin-top:8px;">
-      <button type="submit" class="secondary">{{ "토큰 재발급 (기존 무효화)" if token else "토큰 발급" }}</button>
+      <button type="submit" class="secondary">{{ "접속 키 재발급 (기존 키 무효화)" if token else "접속 키 발급" }}</button>
     </form>
   </div></div>
 
@@ -51,7 +77,8 @@
       <span class="pill {{ 'reviewed' if s.age < 30 else 'failed' }}">
         {{ "연결됨" if s.age < 30 else "응답 없음" }}</span>
       <span style="font-weight:600;">{{ s.id[:8] }}</span>
-      <span class="muted">마지막 폴링 {{ s.age }}초 전 · 명령 {{ s.n_cmd }}건</span>
+      {% if s.version %}<span class="pill" style="flex:none; font-size:10.5px;">v{{ s.version }}</span>{% endif %}
+      <span class="muted">마지막 응답 {{ s.age }}초 전 · 명령 {{ s.n_cmd }}건</span>
     </div>
     {% else %}
     <p class="muted" style="margin:0; font-size:12.5px;">연결된 에이전트 없음 —
@@ -61,63 +88,156 @@
 </div>
 
 {% set primary = sessions[0] if sessions else none %}
+{% set docs = primary.docs if primary else [] %}
+{% set bound = (docs | selectattr('bound') | list | first) if docs else none %}
 
-{% if primary and primary.docs %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>열린 문서
-    <span class="muted" style="font-size:12px; font-weight:500;">list_docs 결과</span></h2>
-  {% for d in primary.docs %}
-  <div style="display:flex; gap:10px; align-items:center; padding:6px 0;
-              border-bottom:1px solid var(--panel); font-size:12.5px;">
-    {% if d.bound %}<span class="pill reviewed">작업 대상</span>
-    {% elif d.active %}<span class="pill type">활성</span>
-    {% else %}<span class="pill" style="flex:none;">열림</span>{% endif %}
-    <span style="font-weight:600;">{{ d.name }}</span>
-    <span class="muted" style="overflow:hidden; text-overflow:ellipsis;">{{ d.path }}</span>
-    <form action="/dev/hwp/send" method="post" style="margin-left:auto;">
-      <input type="hidden" name="op" value="select_doc">
-      <input type="hidden" name="args_json" value='{"id": {{ d.id }}}'>
-      <button type="submit" class="secondary" style="font-size:11.5px; padding:4px 10px;">
-        대상 지정</button>
+  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>작업 대상 문서</h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
+    명령·저작이 적용될 문서입니다. 고르지 않으면 새 문서가 열립니다.</p>
+
+  <div style="display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:10px;
+              background:var(--panel); font-size:13px; margin-bottom:12px;">
+    {% if bound %}
+    <span class="pill reviewed" style="flex:none;">현재 대상</span>
+    <span style="font-weight:700;">{{ bound.name }}</span>
+    <span class="muted" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ bound.path }}</span>
+    {% else %}
+    <span class="pill" style="flex:none;">대상 없음</span>
+    <span class="muted">문서를 고르거나 새로 만드세요. 지정 전 저작하면 새 문서가 생깁니다.</span>
+    {% endif %}
+  </div>
+
+  {% if not primary %}
+  <p class="muted" style="font-size:12.5px; margin:0;">연결된 에이전트가 없어 문서를 조회할 수 없습니다.</p>
+  {% else %}
+  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
+    <form action="/dev/hwp/send" method="post">
+      <input type="hidden" name="op" value="list_docs"><input type="hidden" name="args_json" value="{}">
+      <button type="submit" class="secondary" style="font-size:12px; padding:6px 13px;">
+        <iconify-icon icon="solar:refresh-linear"></iconify-icon>열린 문서 새로고침</button>
+    </form>
+    <form action="/dev/hwp/send" method="post">
+      <input type="hidden" name="op" value="new_doc"><input type="hidden" name="args_json" value="{}">
+      <button type="submit" class="secondary" style="font-size:12px; padding:6px 13px;">
+        <iconify-icon icon="solar:add-square-linear"></iconify-icon>새 문서 만들기</button>
     </form>
   </div>
-  {% endfor %}
-</div></div>
-{% endif %}
 
-{% if primary and primary.artifacts %}
+  {% if docs %}
+  <div style="border:1px solid var(--line); border-radius:10px; overflow:hidden;">
+    {% for d in docs %}
+    <div style="display:flex; gap:10px; align-items:center; padding:8px 12px; font-size:12.5px;
+                {% if not loop.last %}border-bottom:1px solid var(--panel);{% endif %}
+                {% if d.bound %}background:#EAF1FC;{% endif %}">
+      {% if d.bound %}<span class="pill reviewed" style="flex:none;">대상</span>
+      {% elif d.active %}<span class="pill type" style="flex:none;">활성</span>
+      {% else %}<span class="pill" style="flex:none;">열림</span>{% endif %}
+      <span style="font-weight:600;">{{ d.name }}</span>
+      <span class="muted" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ d.path }}</span>
+      {% if d.bound %}
+      <span class="muted" style="flex:none; font-size:11.5px;">현재 대상</span>
+      {% else %}
+      <form action="/dev/hwp/send" method="post" style="flex:none;">
+        <input type="hidden" name="op" value="select_doc">
+        <input type="hidden" name="args_json" value='{"id": {{ d.id }}}'>
+        <button type="submit" class="secondary" style="font-size:11.5px; padding:4px 11px;">이 문서로 작업</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted" style="font-size:12.5px; margin:0;">
+    아직 목록이 없습니다 — “열린 문서 새로고침”을 누르면 PC에서 열려 있는 한글 문서가 나타납니다.</p>
+  {% endif %}
+
+  <form action="/dev/hwp/send" method="post"
+        style="display:flex; gap:8px; margin-top:12px; align-items:center;">
+    <input type="hidden" name="op" value="open">
+    <input type="text" id="openPath" placeholder="C:\경로\문서.hwpx — 경로로 직접 열기"
+           oninput="document.getElementById('openArgs').value = JSON.stringify({path:this.value})"
+           style="flex:1; border:1px solid var(--line); border-radius:8px; padding:8px 11px; font-size:12.5px;">
+    <input type="hidden" name="args_json" id="openArgs" value="{}">
+    <button type="submit" class="secondary" style="flex:none; font-size:12px;">경로로 열기</button>
+  </form>
+  {% endif %}
+</div></div>
+
+{% if primary %}
 {% set pdfs = primary.artifacts | selectattr('format','equalto','pdf') | list %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:file-check-linear"></iconify-icon>산출물 미리보기
-    <span class="muted" style="font-size:12px; font-weight:500;">한글이 뽑은 PDF · 원본 서식 그대로</span></h2>
-  {% if pdfs %}
-  <iframe src="{{ pdfs[0].url }}" title="PDF 미리보기"
-          style="width:100%; height:640px; border:1px solid var(--line); border-radius:10px; background:#fff;"></iframe>
-  {% else %}
-  <p class="muted" style="margin:0 0 6px; font-size:12.5px;">아직 PDF 산출물이 없습니다 —
-    저작 후 한글이 PDF를 뽑으면 여기 표시됩니다.</p>
-  {% endif %}
+  <h2 style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <iconify-icon icon="solar:file-check-linear"></iconify-icon>산출물 미리보기
+    <span class="muted" style="font-size:12px; font-weight:500;">한글이 뽑은 PDF · 작업 완료 시 자동 갱신</span>
+    <span id="pdfFresh" style="margin-left:auto; font-size:11.5px; color:var(--ok, #2a8a4a); font-weight:600;"></span></h2>
+
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin:0 0 10px;">
+    <a id="pdfNewTab" href="{{ pdfs[0].url if pdfs else '#' }}" target="_blank" rel="noopener"
+       class="btn-ghost" style="font-size:12px; padding:6px 12px; {{ 'display:none;' if not pdfs }}">
+      <iconify-icon icon="solar:square-top-down-linear"></iconify-icon>새 탭에서 열기</a>
+    <form action="/dev/hwp/send" method="post">
+      <input type="hidden" name="op" value="export_artifact">
+      <input type="hidden" name="args_json" value='{"format":"pdf"}'>
+      <button type="submit" class="secondary" style="font-size:12px; padding:6px 12px;">
+        <iconify-icon icon="solar:refresh-linear"></iconify-icon>지금 갱신</button>
+    </form>
+  </div>
+
+  <iframe id="pdfFrame" src="{{ pdfs[0].url if pdfs else '' }}" title="PDF 미리보기"
+          style="width:100%; height:640px; border:1px solid var(--line); border-radius:10px;
+                 background:#fff; {{ 'display:none;' if not pdfs }}"></iframe>
+  <p id="pdfEmpty" class="muted" style="margin:0; font-size:12.5px; {{ 'display:none;' if pdfs }}">
+    아직 PDF 산출물이 없습니다 — 문서를 저작하면 작업 완료 시 자동으로 여기 표시됩니다.</p>
+
+  {% if primary.artifacts %}
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
     {% for a in primary.artifacts %}
-    <a href="{{ a.url }}" class="btn" style="text-decoration:none; font-size:12px; padding:6px 12px;"
+    <a href="{{ a.url }}" class="btn-ghost" style="font-size:12px; padding:6px 12px;"
        {% if a.format != 'pdf' %}download{% endif %}>
       <iconify-icon icon="solar:download-linear"></iconify-icon>{{ a.format|upper }}
       <span class="muted" style="font-weight:500;">{{ (a.bytes or 0)//1024 }}KB</span></a>
     {% endfor %}
   </div>
+  {% endif %}
 </div></div>
+<script>
+  // 작업 완료 시 자동 갱신 — 최신 PDF 산출물 URL을 주기적으로 확인해 미리보기를 교체
+  (function () {
+    var cur = {{ (pdfs[0].url if pdfs else "") | tojson }};
+    var frame = document.getElementById("pdfFrame"),
+        tab = document.getElementById("pdfNewTab"),
+        empty = document.getElementById("pdfEmpty"),
+        fresh = document.getElementById("pdfFresh");
+    function poll() {
+      fetch("/dev/hwp/latest-artifact", { cache: "no-store" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && d.url && d.url !== cur) {
+            cur = d.url;
+            frame.src = d.url; frame.style.display = "";
+            if (tab) { tab.href = d.url; tab.style.display = ""; }
+            if (empty) empty.style.display = "none";
+            if (fresh) {
+              fresh.textContent = "· 방금 갱신됨";
+              setTimeout(function () { fresh.textContent = ""; }, 4000);
+            }
+          }
+        })
+        .catch(function () {});
+    }
+    setInterval(poll, 4000);
+  })();
+</script>
 {% endif %}
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:command-linear"></iconify-icon>명령 콘솔</h2>
   <p class="muted" style="font-size:12px; margin:0 0 10px; line-height:1.6;">
-    개발 검증용입니다. 실제 사용은 프로젝트 대화창에서 이 명령들을 자연어로
-    부릅니다. 자주 쓰는 명령은 버튼으로, 그 외는 op·인자(JSON)로 보냅니다.</p>
+    개발 검증용 화면입니다. 실제 사용은 프로젝트 대화창에서 자연어로 합니다.</p>
 
   <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">
     {% for b in [
-      {"op":"list_docs","label":"문서 목록","args":"{}"},
-      {"op":"new_doc","label":"새 문서","args":"{}"},
       {"op":"ping","label":"연결 확인","args":"{}"},
       {"op":"get_text","label":"본문 읽기","args":'{"scope":"all"}'},
       {"op":"save","label":"저장","args":"{}"} ] %}
@@ -136,7 +256,7 @@
             padding:9px 10px; flex:none;">
       {% for o in ops %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
     </select>
-    <textarea name="args_json" id="opArgs" rows="2" placeholder='op을 고르면 인자 예시가 채워집니다'
+    <textarea name="args_json" id="opArgs" rows="2" placeholder='명령을 고르면 인자 예시가 채워집니다'
               style="flex:1; border:1px solid var(--line); border-radius:8px;
                      padding:9px 10px; font-family:monospace; font-size:12px;"></textarea>
     <button type="submit" style="flex:none;">보내기</button>
@@ -158,7 +278,10 @@
         fill_table: '{"cells": [["항목","금액"],["인건비","1000"]]}',
         set_format: '{"find": "제목", "bold": true, "size": 16}',
         get_text: '{"scope": "all"}',
-        save_as: '{"path": "C:\\\\경로\\\\문서.hwpx", "format": "hwpx"}'
+        save_as: '{"path": "C:\\\\경로\\\\문서.hwpx", "format": "hwpx"}',
+        find: '{"text": "찾을 문구"}',
+        set_page: '{"top": 20, "bottom": 20, "left": 20, "right": 20}',
+        export_artifact: '{"format": "pdf"}'
       };
       var sel = document.getElementById("opSelect");
       var box = document.getElementById("opArgs");
@@ -172,7 +295,7 @@
 {% if primary and primary.results %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:chat-square-code-linear"></iconify-icon>명령 로그
-    <span class="muted" style="font-size:12px; font-weight:500;">최근순</span></h2>
+    <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">최근순</span></h2>
   {% for r in primary.results %}
   <div style="display:flex; gap:10px; align-items:baseline; padding:7px 0;
               border-bottom:1px solid var(--panel); font-size:12.5px;">

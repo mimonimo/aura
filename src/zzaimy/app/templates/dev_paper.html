@@ -1,20 +1,128 @@
 {% extends "base.html" %}
-{% block title %}논문 원재료 — {{ fname }}{% endblock %}
-{% block pagetitle %}논문 원재료{% endblock %}
+{% block title %}{{ doc.title }} — {{ page_title|default('논문 자료') }}{% endblock %}
+{% block pagetitle %}{{ page_title|default('논문 자료') }}{% endblock %}
 {% block content %}
+<style>
+  /* 머리 — 문서 제목 + 파일명, 오른쪽에 내보내기 */
+  .doc-head h2 { font-size: 21px; line-height: 1.35; margin: 0 0 4px; flex-wrap: wrap;
+                 gap: 6px 12px; align-items: center; }
+  .doc-head h2 iconify-icon { font-size: 22px; }
+  .h-links { margin-left: auto; display: inline-flex; gap: 6px; }
+  .h-links .h-link { margin-left: 0; }
+  .doc-file { font-size: 12.5px; color: var(--faint); margin: 0 0 22px 32px;
+              font-variant-numeric: tabular-nums; }
+
+  /* 본문 왼쪽(최대 78ch), 목차 오른쪽 고정. 좁은 폭에서는 목차가 본문 위 접이식 */
+  .doc-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px 44px; }
+  .doc-layout.has-toc { grid-template-columns: minmax(0, 78ch) minmax(180px, 240px); }
+  .doc-body { grid-column: 1; max-width: 78ch; min-width: 0; }
+  .doc-toc { grid-column: 2; grid-row: 1; align-self: start; position: sticky; top: 84px;
+             max-height: calc(100vh - 100px); overflow-y: auto; font-size: 12.5px; }
+  @media (max-width: 1100px) {
+    .doc-layout.has-toc { grid-template-columns: minmax(0, 1fr); }
+    .doc-toc { grid-column: 1; grid-row: auto; position: static; max-height: none;
+               border: 1px solid var(--line); border-radius: 12px; padding: 4px 14px; }
+  }
+  .doc-toc summary { list-style: none; cursor: pointer; display: flex; align-items: center;
+                     gap: 6px; padding: 6px 0; font-size: 11.5px; font-weight: 700;
+                     color: var(--faint); letter-spacing: .04em; }
+  .doc-toc summary::-webkit-details-marker { display: none; }
+  .doc-toc summary iconify-icon { font-size: 15px; transition: transform .2s var(--ease); }
+  .doc-toc[open] summary iconify-icon { transform: rotate(180deg); }
+  .doc-toc ol { list-style: none; margin: 0 0 8px; padding: 0; border-left: 2px solid var(--line); }
+  .doc-toc li a { display: block; padding: 4px 0 4px 12px; margin-left: -2px; color: var(--muted);
+                  text-decoration: none; line-height: 1.45; border-left: 2px solid transparent;
+                  transition: color .2s var(--ease), border-color .2s var(--ease); }
+  .doc-toc li.lv3 a { padding-left: 24px; font-size: 12px; }
+  .doc-toc li a:hover { color: var(--ink); }
+  .doc-toc li a.on { color: var(--navy); font-weight: 600; border-left-color: var(--navy); }
+
+  /* 본문 활자 — 15px·행간 1.75. md_view 의 인라인 스타일을 여기서만 덮는다 */
+  .doc-body { font-size: 15px; line-height: 1.75; color: var(--ink); }
+  .doc-body p { margin: 0 0 14px !important; font-size: 15px !important; line-height: 1.75 !important;
+                overflow-wrap: anywhere; }
+  .doc-body ul { margin: 0 0 16px !important; padding-left: 22px !important; font-size: 15px !important;
+                 line-height: 1.75 !important; }
+  .doc-body li { margin-bottom: 4px; overflow-wrap: anywhere; }
+  .doc-body li::marker { color: var(--faint); }
+  .doc-body h3 { font-size: 19px; margin: 32px 0 12px; line-height: 1.35; }
+  .doc-body h4.extract-h { font-size: 19px !important; font-weight: 800; color: var(--ink);
+                           margin: 38px 0 14px !important; padding-top: 22px;
+                           border-top: 1px solid var(--line); line-height: 1.35; letter-spacing: -0.01em; }
+  .doc-body > h4.extract-h:first-child { margin-top: 0 !important; padding-top: 0; border-top: 0; }
+  .doc-body h5 { font-size: 16px !important; font-weight: 700; color: var(--navy);
+                 margin: 26px 0 8px !important; line-height: 1.4; }
+  .doc-body h4 + h5 { margin-top: 12px !important; }
+  .doc-body b { font-weight: 700; }
+  .doc-body code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .86em;
+                   background: #F1F5F9; border: 1px solid #E5EAF1; border-radius: 5px;
+                   padding: 1px 5px; color: #334155; word-break: normal; overflow-wrap: anywhere; }
+  .doc-body hr { border: 0; border-top: 1px solid var(--line); margin: 22px 0; }
+  .doc-body pre.doc-text { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace !important;
+                           font-size: 12.5px !important; line-height: 1.6 !important; max-height: none;
+                           margin: 4px 0 18px !important; padding: 14px 16px; border-radius: 10px; }
+  .doc-body blockquote { margin: 0 0 16px; padding: 10px 16px; border-left: 3px solid #C5D3EA;
+                         background: var(--panel); border-radius: 0 10px 10px 0; color: #475569; }
+  .doc-body blockquote p { margin: 0 0 4px !important; font-size: 14.5px !important; }
+  .doc-body blockquote p:last-child { margin-bottom: 0 !important; }
+  .doc-body .table-scroll { margin: 4px 0 20px; }
+  .doc-body table.extract { margin: 0 !important; font-size: 13.5px !important; }
+  .doc-body table.extract th, .doc-body table.extract td { padding: 8px 11px; line-height: 1.55; }
+  .doc-body table.extract th { font-size: 12.5px; white-space: nowrap; }
+  .doc-body [id^="s"] { scroll-margin-top: 84px; }
+</style>
 <p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-  <a href="/dev" class="btn-ghost">← 개발 현황</a>
-  {% for p in papers %}
-  <a href="/dev/paper/{{ p }}" class="pill {{ 'reviewed' if p == fname else '' }}"
-     style="text-decoration:none;">{{ p }}</a>
-  {% endfor %}
+  <a href="/dev/docs" class="btn-ghost">← 논문·설계 문서</a>
 </p>
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ fname }}
-    <span style="margin-left:auto; display:flex; gap:8px;">
-      <a href="/dev/paper/{{ fname }}/export.hwpx" class="btn-ghost" style="font-weight:600;">.hwpx</a>
-      <a href="/dev/paper/{{ fname }}/export.docx" class="btn-ghost" style="font-weight:600;">.docx</a>
-    </span></h2>
-  <div>{{ content | md_view }}</div>
+  <div class="doc-head">
+    <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>{{ doc.title }}
+      {% if show_export %}
+      <span class="h-links">
+        <a href="/dev/paper/{{ fname }}/export.hwpx" class="h-link"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>.hwpx</a>
+        <a href="/dev/paper/{{ fname }}/export.docx" class="h-link"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>.docx</a>
+      </span>
+      {% endif %}</h2>
+    <div class="doc-file">{{ fname }}</div>
+  </div>
+  <div class="doc-layout {{ 'has-toc' if doc.toc|length >= 3 else '' }}">
+    {% if doc.toc|length >= 3 %}
+    <details class="doc-toc" id="docToc">
+      <summary><iconify-icon icon="solar:alt-arrow-down-linear"></iconify-icon>목차</summary>
+      <ol>
+        {% for t in doc.toc %}
+        <li class="lv{{ t.level }}"><a href="#{{ t.id }}">{{ t.text }}</a></li>
+        {% endfor %}
+      </ol>
+    </details>
+    {% endif %}
+    <article class="doc-body">{{ doc.html }}</article>
+  </div>
 </div></div>
+<script>
+  (function () {
+    var toc = document.getElementById("docToc");
+    if (!toc) return;
+    var wide = window.matchMedia("(min-width: 1101px)");
+    toc.open = wide.matches;                       // 넓은 폭은 펼친 채 옆에 고정, 좁으면 접이식
+    wide.addEventListener("change", function (e) { toc.open = e.matches; });
+    var links = toc.querySelectorAll("a[href^='#']");
+    var byId = {};
+    links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+    var heads = document.querySelectorAll(".doc-body h4[id], .doc-body h5[id]");
+    if (!("IntersectionObserver" in window) || !heads.length) return;
+    var current = null;
+    function mark(id) {
+      if (current === id) return;
+      current = id;
+      links.forEach(function (a) { a.classList.remove("on"); });
+      if (byId[id]) byId[id].classList.add("on");
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { if (en.isIntersecting) mark(en.target.id); });
+    }, { rootMargin: "-80px 0px -70% 0px", threshold: 0 });
+    heads.forEach(function (h) { io.observe(h); });
+    mark(heads[0].id);
+  })();
+</script>
 {% endblock %}

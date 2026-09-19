@@ -7,18 +7,57 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 
+from zzaimy.app.chunk_quality import (
+    MERGE_MIN_SUBSTANTIVE,
+    MIN_SUBSTANTIVE_DROP,
+    substantive_len,
+)
 from zzaimy.app.db import Database
 
-# 조문형 규정의 분할 지점: 제N조 / 제N장 / 제N절
-_ARTICLE = re.compile(r"(?=제\d+[조장절])")
+# 조문형 규정의 분할 지점: 줄 머리의 제N조 / 제N장 / 제N절.
+# 문장 속 참조("제3조에 따른", "제11조제1항)을 비롯한")는 경계가 아니다 — 거기서 끊으면
+# 조문이 문장 중간에서 잘리고 표제가 엉킨다(실측 2026-09-14: 검색 상위에 그런 조각이
+# 올라왔다). 조 뒤에 한글이 바로 이어지면(…조에/…조의 사업) 참조로 본다.
+# 두 형태만 경계로 본다: ① 줄 머리의 제N조/장/절 ② 어디서든 '제N조(제목)' — 제목 괄호가
+# 붙은 조 표기는 조문 머리에만 쓰이고 참조("제3조에", "제3조제1항")엔 안 붙는다. ②가 있어
+# 줄바꿈이 사라진 텍스트(OCR·한 줄 붙임)에서도 조문을 나눈다.
+_ARTICLE = re.compile(
+    r"(?m)(?=^[ \t]*제\s*\d+\s*(?:조(?:\s*의\s*\d+)?|장|절)(?![가-힣])"
+    r"|제\s*\d+\s*조(?:\s*의\s*\d+)?\s*[(（])"
+)
 _TOKEN = re.compile(r"[가-힣A-Za-z0-9]{2,}")
 _CHUNK_SIZE = 700
+# 이보다 짧으면서 본문이 없는 조각(목차 줄·표제뿐)은 이웃과 합친다
+_MIN_CHUNK = 60
+# 이보다 길면 임베딩(512토큰)·리랭커(256토큰)가 뒷부분을 못 본다 — 실측: 사업계획 본문
+# 35,831자가 조각 하나였고 앞 700자만 검색됐다. 문장·줄 단위로 나눠 상한을 지킨다.
+_MAX_CHUNK = 1400
+_HARD_MAX = 1100
 
 _kiwi = None
-_noun_cache: dict[int, frozenset[str]] = {}
+# 조각 본문 → 명사 집합 캐시. 키를 조각 id로 두면 안 된다 — 저장소가 여럿이고(플랫폼·
+# 코퍼스) 재분할하면 같은 id에 다른 본문이 들어가 남의 명사로 검색하게 된다
+# (실측: 테스트가 서로의 캐시를 물려받아 후보가 0건이 됐다). 본문 해시로 잡는다.
+_noun_cache: dict[str, frozenset[str]] = {}
+
+
+def _noun_key(text: str) -> str:
+    import hashlib
+
+    return hashlib.blake2b((text or "").encode("utf-8"), digest_size=16).hexdigest()
+
+
+def chunk_nouns(chunk: dict) -> frozenset[str]:
+    """조각의 명사 집합(캐시) — 본문이 같으면 다시 계산하지 않는다."""
+    key = _noun_key(chunk.get("content") or "")
+    got = _noun_cache.get(key)
+    if got is None:
+        got = _noun_cache[key] = extract_nouns(chunk.get("content") or "")
+    return got
 
 
 # 교내·행정 도메인 용어 사전 — 형태소 분석기가 쪼개지 않게 통단어로 등록.
@@ -62,9 +101,217 @@ class RegulationChunk:
     content: str
 
 
+_ART_NUM = re.compile(r"제\s*\d+\s*조(?:\s*의\s*\d+)?")
+_ART_TITLE = re.compile(
+    r"제\s*\d+\s*조(?:\s*의\s*\d+)?\s*[(（]\s*([^)）\n]{2,40})\s*[)）]")
+
+
+# 표제로 인정하는 구조 표기 — 조문·장절·번호·가나다·로마숫자·불릿·대괄호 표제.
+# 이 형태가 아니면 본문 첫 줄을 표제로 승격하지 않는다.
+_HEADING_MARK = re.compile(
+    r"^(?:제\s*\d+\s*(?:조(?:\s*의\s*\d+)?|장|절|관|편)"
+    r"|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.、)]"
+    r"|\d+(?:[.-]\d+)*\s*[.)]"
+    r"|[가나다라마바사아자차카타파하]\s*[.)]"
+    r"|[□○◦▪▶◆■●◇△▲]\s*\S"
+    r"|[\[(［（<《【]\s*\S)"
+)
+# 표제가 될 수 없는 것 — 주소·링크·표 괘선. 실측(운영 화면): 이메일 주소가 표제로
+# 올라왔다. 첫 줄을 그대로 쓰던 규칙의 결과다.
+_NOT_HEADING = re.compile(r"[@]|https?://|www\.|^[\s|+\-–—─_.]+$")
+# 문장 종결 — 종결된 문장은 표제가 아니라 본문이다.
+_SENTENCE_TAIL = re.compile(r"(?:다|함|음|임|됨|니다|한다|된다)\s*[.。]?\s*$")
+# 낱말 중간에서 잘린 꼬리 — 마지막 어절이 한 글자이거나 조사·접속어면 잘린 본문이다.
+# 실측: '6지원방법: 이자 지', '본 기관은 학자금 대출이자 지' 같은 표제가 올라왔다.
+# 낱말 안의 글자로 판정하면 안 된다 — '개인정보 수집·이용 동의'의 '의'까지 잘림으로
+# 보게 된다. 어절 단위로 본다.
+_DANGLING_WORDS = {
+    "은", "는", "이", "가", "을", "를", "의", "에", "에서", "으로", "로", "와", "과",
+    "및", "또는", "에게", "부터", "까지", "한", "하는", "되는", "관한", "따른",
+}
+_HEADING_MAX = 60
+# 번호·불릿이 붙었다고 다 표제는 아니다. 실측(통영 공고): "나. 신청액이 예산을 초과할
+# 시 예산 범위 내에서 ①「국민기초생활 보장법」"처럼 본문 항목이 표제로 올라왔다.
+# 표제는 짧은 이름표다 — 같은 문서의 진짜 표제는 "1. 지원대상"·"□ 신청 방법"처럼
+# 30자 안쪽이다. 조문 표제(제N조(제목))만 _HEADING_MAX까지 허용한다.
+_MARK_HEADING_MAX = 30
+
+
+def _is_cut_off(line: str) -> bool:
+    """줄이 낱말·절 중간에서 끊겼는가.
+
+    형태소 분석으로 마지막 토큰이 조사(J*)나 어미(E*)면 뒤에 서술어가 이어질
+    자리라 표제가 아니다. 글자로만 보면 '개인정보 수집·이용 동의'의 '의'까지
+    조사로 오인한다(실측). 분석기를 못 쓰면 어절 단위 규칙으로 내려간다.
+    """
+    text = re.sub(r"[)\]）］>》】:：,，·]+$", "", line).strip()
+    words = text.split()
+    if not words:
+        return True
+    if words[-1] in _DANGLING_WORDS or re.fullmatch(r"[가-힣]", words[-1]):
+        return True
+    try:
+        toks = _get_kiwi().tokenize(text)
+    except Exception:
+        return False
+    if not toks:
+        return True
+    tag = toks[-1].tag
+    return tag.startswith("J") or tag.startswith("E")
+
+
+def looks_like_heading(line: str) -> bool:
+    """이 줄을 표제로 써도 되는가 — 구조 표기가 있고, 문장도 파편도 아닐 것."""
+    s = (line or "").strip().strip("|").strip()
+    if not s or _NOT_HEADING.search(s):
+        return False
+    # 제목 괄호가 붙은 조문 표제만 길게 허용한다. "제2조에 따른 …"은 조 참조이지
+    # 표제가 아니다(실측: 본문 한 줄이 그대로 표제가 됐다).
+    limit = _HEADING_MAX if _ART_TITLE.match(s) else _MARK_HEADING_MAX
+    if len(s) > limit:
+        return False
+    if _SENTENCE_TAIL.search(s):
+        return False
+    if _is_cut_off(s):
+        return False          # 조사·한 글자 어절로 끝남 = 낱말 중간에서 잘린 줄
+    return bool(_HEADING_MARK.match(s))
+
+
 def _heading_of(text: str) -> str:
-    first = text.strip().splitlines()[0].strip()
-    return first[:60]
+    """조각을 대표하는 표제 — 구할 수 없으면 빈 문자열.
+
+    ① '제N조(제목)'이면 그 제목 ② 첫 줄이 구조 표제 형태면 그 줄. 그 밖에는
+    표제를 만들지 않는다. 본문 첫 줄을 그대로 쓰면 이메일 주소·낱말 중간에서
+    잘린 파편이 표제가 된다(운영 화면 실측). 표제가 없는 편이 거짓 표제보다 낫다.
+    """
+    t = re.sub(r"[ \t]+", " ", (text or "").strip())
+    t = re.sub(r"\s*\|\s*", " ", t)          # 표 셀 구분자 → 공백
+    if not t:
+        return ""
+    # ① 제N조(제목)
+    m = _ART_TITLE.search(t[:160])
+    if m:
+        am = _ART_NUM.match(t)
+        num = re.sub(r"\s+", "", am.group(0)) if am else ""
+        title = m.group(1).strip()
+        return (f"{num}({title})" if num else title)[:_HEADING_MAX]
+    head = t.splitlines()[0].strip()
+    return head[:_HEADING_MAX].strip() if looks_like_heading(head) else ""
+
+
+def _split_size(text: str, size: int = _CHUNK_SIZE) -> list[str]:
+    """줄 단위로 size자 안팎 조각으로 묶는다(줄 안에서 자르지 않는다)."""
+    out: list[str] = []
+    buf = ""
+    for ln in text.splitlines():
+        if buf and len(buf) + len(ln) + 1 > size:
+            out.append(buf)
+            buf = ln
+        else:
+            buf = f"{buf}\n{ln}" if buf else ln
+    if buf:
+        out.append(buf)
+    return out
+
+
+def _finalize(chunks: list[RegulationChunk]) -> list[RegulationChunk]:
+    """조각 정리(일반 규칙): 실질이 모자란 조각은 이웃과 합치고, 중복은 버린다.
+
+    실측(2026-09-19, corpus_pilot 1,846조각): 48.2%가 실질 글자수 40자 미만,
+    36.9%가 20자 미만이었다. 20자 미만 조각은 코퍼스 중심 벡터와의 코사인이 0.762로
+    가장 높아(긴 조각 0.68~0.70) 어떤 질의에도 딸려 온다 — "억지 연관"의 실체다.
+    이전 규칙은 '본문 줄이 하나라도 있으면 통과'여서, 줄바꿈이 섞인 PDF 파편이
+    전부 독립 조각으로 남았다. 이제는 줄 수가 아니라 실질 글자수로 판정한다.
+
+    - 혼자 설 수 없는 조각(_self_contained 참조)은 다음 조각 앞에 붙인다
+    - 문서 끝에서 모자란 조각은 직전 조각 뒤에 붙인다
+    - 합쳐진 조각의 표제는 본문에서 다시 뽑고, 못 뽑으면 이웃의 표제를 쓴다
+    """
+    merged: list[RegulationChunk] = []
+    for c in chunks:
+        ct = (c.content or "").strip()
+        if not ct:
+            continue
+        if merged and not _self_contained(merged[-1].content):
+            prev = merged.pop()
+            body = f"{prev.content}\n{ct}"
+            merged.append(RegulationChunk(
+                heading=_heading_of(body) or prev.heading or c.heading, content=body))
+            continue
+        merged.append(RegulationChunk(heading=c.heading or _heading_of(ct), content=ct))
+    while len(merged) >= 2 and not _self_contained(merged[-1].content):
+        last = merged.pop()
+        prev = merged.pop()
+        body = f"{prev.content}\n{last.content}"
+        merged.append(RegulationChunk(
+            heading=prev.heading or _heading_of(body), content=body))
+    out = merged
+
+    seen: set[str] = set()
+    uniq: list[RegulationChunk] = []
+    for c in out:
+        key = re.sub(r"\s+", " ", c.content).strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(c)
+
+    # 상한 — 긴 조각은 구조에 맞춰 나눈다(줄이 많으면 줄 단위, 아니면 문장 단위). 표제는 유지.
+    bounded: list[RegulationChunk] = []
+    for c in uniq:
+        if len(c.content) <= _MAX_CHUNK:
+            bounded.append(c)
+            continue
+        many_lines = c.content.count("\n") >= 8
+        pieces = (
+            _split_size(c.content, _CHUNK_SIZE) if many_lines
+            else _pack_sentences(c.content, _CHUNK_SIZE, _HARD_MAX)
+        )
+        for piece in pieces:
+            if piece.strip():
+                bounded.append(RegulationChunk(heading=c.heading, content=piece))
+    return bounded
+
+
+# 문장이 끝났는가 — 한국어 행정문서의 평서 종결. 여기서 끝나지 않는 조각은
+# 낱말·문장 중간에서 잘린 파편이다(실측: '…개발\n하고,' · '…유효\n하며,').
+_COMPLETE_TAIL = re.compile(
+    r"(?:다|함|음|임|됨|니다|한다|된다|요|것|오|기|함께|말한다)\s*[.。]\s*$"
+    r"|(?:함|음|임|됨)\s*$"
+    r"|[.!?)\]】」』]\s*$")
+
+
+def _self_contained(text: str) -> bool:
+    """이 조각이 혼자 설 수 있는가 — 실질이 충분하고 문장이 끝났는가.
+
+    조각을 합칠지 정하는 유일한 기준이다. 길이만 보면 정상 조문("제1조(목적)
+    …목적으로 한다." 실질 28자)까지 합쳐 버리고, 줄 수만 보면 줄바꿈이 섞인 PDF
+    파편이 전부 통과한다(이전 규칙의 실패). 둘을 함께 본다:
+      · 실질 글자수 ≥ MIN_SUBSTANTIVE_DROP(20) — 측정상 그 아래는 검색 잡음
+      · 문장 종결로 끝남 — 잘린 파편은 조사·어미로 끝난다
+    """
+    t = (text or "").strip()
+    n = substantive_len(t)
+    if n < MIN_SUBSTANTIVE_DROP:
+        return False                      # 20자 미만은 무조건 이웃과 합친다
+    if n >= MERGE_MIN_SUBSTANTIVE:
+        return True                       # 실질이 충분하면 그대로 검색 단위
+    return bool(_COMPLETE_TAIL.search(t))  # 20~39자는 문장이 끝났을 때만
+
+
+def _has_body(text: str) -> bool:
+    """표제 말고 본문이 있는가 — '제N조(제목) 본문…' 또는 '표제 줄 + 본문 줄'.
+
+    목차 줄("제4조)-이해관계 직무의 회피(")·장 제목("제1장 총칙")·불릿 표제("정보제공
+    동의현황")는 한 줄뿐이고 제목 괄호 뒤에 이어지는 말이 없다 → 본문 없음.
+    """
+    m = _ART_TITLE.match(text)
+    if m:
+        body = text[m.end():]
+    else:
+        lines = text.splitlines()
+        body = "\n".join(lines[1:]) if len(lines) >= 2 else ""
+    return len(re.sub(r"[\W_]+", "", body)) >= 6
 
 
 def split_regulation(text: str) -> list[RegulationChunk]:
@@ -75,11 +322,23 @@ def split_regulation(text: str) -> list[RegulationChunk]:
 
     parts = [p.strip() for p in _ARTICLE.split(text) if p.strip()]
     if len(parts) >= 3:  # 조문 구조가 실제로 있다고 판단
-        return [RegulationChunk(heading=_heading_of(p), content=p) for p in parts]
+        return _finalize(
+            [RegulationChunk(heading=_heading_of(p), content=p) for p in parts]
+        )
 
-    def looks_like_heading(para: str) -> bool:
-        first = para.splitlines()[0].strip()
-        return len(first) <= 25 and not first.endswith(("다.", "함.", "음.", "."))
+    def starts_section(para: str) -> bool:
+        """이 문단이 새 절을 여는가.
+
+        ① 구조 표제(제N장·번호·불릿)로 시작하거나 ② '짧은 표제 줄 + 본문 줄'
+        형태일 때. ②는 빈 줄로 문단이 이미 나뉘어 있을 때만 쓴다 — 빈 줄이 없는
+        PDF 추출문에서는 줄마다 짧아 이 조건이 무의미해진다.
+        """
+        lines = para.splitlines()
+        first = lines[0].strip()
+        if looks_like_heading(first):
+            return True
+        return (len(lines) >= 2 and len(first) <= 25
+                and not first.endswith(("다.", "함.", "음.", ".")))
 
     chunks: list[RegulationChunk] = []
     buf = ""
@@ -87,15 +346,17 @@ def split_regulation(text: str) -> list[RegulationChunk]:
         para = para.strip()
         if not para:
             continue
-        # 제목형 문단(짧은 첫 줄)에서 새 조각 시작 — 매뉴얼의 장·절 경계
-        if buf and (looks_like_heading(para) or len(buf) + len(para) > _CHUNK_SIZE):
+        # 제목형 문단에서 새 조각 시작 — 단, 앞 조각이 혼자 설 수 있을 때만.
+        # (실측: PDF 추출문은 줄마다 짧아 조건 없이 끊으면 한 줄짜리 조각이 쏟아진다)
+        enough = _self_contained(buf)
+        if buf and ((enough and starts_section(para)) or len(buf) + len(para) > _CHUNK_SIZE):
             chunks.append(RegulationChunk(heading=_heading_of(buf), content=buf))
             buf = para
         else:
             buf = f"{buf}\n\n{para}" if buf else para
     if buf:
         chunks.append(RegulationChunk(heading=_heading_of(buf), content=buf))
-    return chunks
+    return _finalize(chunks)
 
 
 # 서술형(공고·계획서) 절 경계 — 로마숫자·장/절/조·번호·가나다·불릿·대괄호
@@ -107,6 +368,8 @@ _PROSE_HEADING = re.compile(
     r"|[□○◦▪▶◆■●·※])"
 )
 _SENT_END = re.compile(r"(?<=[다음함임])\.\s|(?<=\.)\s|(?<=니다)\.\s|(?<=[.!?])\s")
+# 질문 줄 — 물음표로 끝나거나 한국어 의문 종결로 끝나는 줄(FAQ의 Q)
+_QUESTION_LINE = re.compile(r"(?:\?|？|(?:나요|가요|까요|습니까|ㅂ니까|인가요|는지요))\s*$")
 
 
 def _pack_sentences(text: str, target: int, hard_max: int) -> list[str]:
@@ -136,6 +399,12 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
     PDF 추출 텍스트처럼 문단 사이 빈 줄이 없어도 동작한다. 절 표제(로마숫자·
     번호·불릿 등)에서 조각을 끊고, 표제 없는 긴 덩어리는 문장으로 묶는다.
     각 조각에는 직전 표제를 heading으로 붙인다.
+
+    경계 규칙 두 가지를 둔다(실측에서 드러난 문제를 일반 규칙으로 막는다):
+      · 앞 블록이 실질을 갖추기 전에는 표제를 만나도 끊지 않는다 — PDF 추출문은
+        줄마다 불릿이 붙어 있어 무조건 끊으면 한 줄짜리 조각이 쏟아진다.
+      · 물음표로 끝나는 줄은 새 블록을 연다 — 질문과 답이 한 조각에 함께 있도록.
+        (실측: FAQ의 질문 한 줄만 독립 검색 단위가 됐다)
     """
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
     if not text:
@@ -145,14 +414,25 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
     # 표제 라인에서 블록 분할
     blocks: list[tuple[str, list[str]]] = []
     heading, body = "", []
+
+    def substance() -> int:
+        return substantive_len(heading + " " + " ".join(body))
+
     for ln in lines:
         s = ln.strip()
         if not s:
             continue
-        if _PROSE_HEADING.match(s) and len(s) <= 60:
-            if heading or body:
-                blocks.append((heading, body))
-            heading, body = s, []
+        is_head = _PROSE_HEADING.match(s) and len(s) <= 60
+        is_question = bool(_QUESTION_LINE.search(s)) and len(s) <= 120
+        if (is_head or is_question) and (heading or body):
+            if substance() < MERGE_MIN_SUBSTANTIVE:
+                body.append(s)                 # 아직 실질이 없다 — 끊지 않고 이어 붙인다
+                continue
+            blocks.append((heading, body))
+            # 질문 줄은 표제가 아니라 본문의 시작 — 표제는 상위 절 제목을 유지한다
+            heading, body = (s, []) if is_head else (heading, [s])
+        elif not heading and not body and is_head:
+            heading = s
         else:
             body.append(s)
     if heading or body:
@@ -167,8 +447,8 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
         pieces = _pack_sentences(full, target, hard_max)
         for pc in pieces:
             chunks.append(RegulationChunk(
-                heading=(head or _heading_of(pc))[:60], content=pc))
-    return chunks
+                heading=(head if looks_like_heading(head) else "")[:60], content=pc))
+    return _finalize(chunks)
 
 
 def chunk_document(text: str) -> list[RegulationChunk]:
@@ -188,24 +468,47 @@ def _tokens(text: str) -> set[str]:
     return set(_TOKEN.findall(text))
 
 
-def restore_spacing(text: str) -> str:
-    """OCR이 떨어뜨린 어절 공백을 Kiwi로 복원한다.
+_SINGLE_SYL = re.compile(r"(?<=[가-힣]) (?=[가-힣](?![가-힣]))|(?<=(?<![가-힣])[가-힣]) (?=[가-힣])")
 
-    이미 공백이 정상인 텍스트(공백 비율 8% 이상)는 건드리지 않는다 —
-    원본 양식의 디지털 재구성이 목적이지 재작성이 아니다.
+
+def _collapse_over_spacing(t: str) -> str:
+    """'영 남 이 공 학교'처럼 글자마다 띄운 OCR 출력의 공백을 걷어 낸다(줄 단위).
+
+    한 줄에서 한 글자짜리 한글 토큰이 전체 한글 토큰의 35% 이상이면 그 줄은 글자 단위로
+    쪼개진 것으로 보고, 한 글자 토큰에 붙은 공백을 지운다. 정상 문장은 건드리지 않는다.
+    """
+    out = []
+    for line in t.splitlines():
+        toks = [w for w in line.split(" ") if re.fullmatch(r"[가-힣]+", w)]
+        if len(toks) >= 4 and sum(1 for w in toks if len(w) == 1) / len(toks) >= 0.35:
+            prev = None
+            while prev != line:
+                prev, line = line, _SINGLE_SYL.sub("", line)
+        out.append(line)
+    return "\n".join(out)
+
+
+def restore_spacing(text: str) -> str:
+    """OCR이 흐트러뜨린 어절 공백을 Kiwi로 복원한다 — 두 방향.
+
+    · 공백이 거의 없는 텍스트(비율 8% 미만): 띄어쓰기를 넣는다.
+    · 글자마다 띄운 텍스트(tesseract 사진 OCR 실측 '영 남 이 공 학교'): 글자 사이 공백을
+      걷어 낸 뒤 다시 띄어쓴다 — Kiwi의 space()는 공백을 넣기만 하고 지우지는 않는다.
+    이미 정상인 텍스트는 건드리지 않는다 — 원본 양식의 디지털 재구성이 목적이지 재작성이 아니다.
     """
     t = text.strip()
     if len(t) < 20:
         return text
+    collapsed = _collapse_over_spacing(t)
     ratio = t.count(" ") / len(t)
-    if ratio >= 0.08:
+    if collapsed == t and ratio >= 0.08:
         return text
     try:
         kiwi = _get_kiwi()
-        fixed = kiwi.space(t)
+        fixed = kiwi.space(collapsed)
         return fixed if fixed else text
     except Exception:
-        return text
+        return collapsed if collapsed != t else text
 
 
 def sparse_search(
@@ -223,17 +526,14 @@ def sparse_search(
     if not query:
         return []
     chunks = db.list_regulation_chunks(sector=sector, dept=dept)
-    for chunk in chunks:
-        cid = chunk["id"]
-        if cid not in _noun_cache:
-            _noun_cache[cid] = extract_nouns(chunk["content"])
+    nouns = {c["id"]: chunk_nouns(c) for c in chunks}
     n = max(len(chunks), 1)
-    df = {t: sum(1 for c in chunks if t in _noun_cache[c["id"]]) for t in query}
+    df = {t: sum(1 for c in chunks if t in nouns[c["id"]]) for t in query}
     idf = {t: math.log(1 + n / (1 + df[t])) for t in query}
     rare_cut = max(3, int(n * 0.1))
     scored: list[tuple[int, float, dict]] = []
     for chunk in chunks:
-        matched = query & _noun_cache[chunk["id"]]
+        matched = query & nouns[chunk["id"]]
         if len(matched) >= min_overlap:
             rare_hits = sum(1 for t in matched if df[t] <= rare_cut)
             score = sum(min(len(t), 4) * idf[t] for t in matched)
@@ -247,57 +547,183 @@ def sparse_search(
     return out
 
 
-def find_relevant(
-    db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2,
-    sector: str | None = None, dept: str | None = None,
-) -> list[dict]:
-    """검토 대상 텍스트와 명사가 겹치는 규정 조각 top-k (Kiwi 형태소 기반).
+# 하이브리드 검색 상수 — 운영 경로(find_relevant)와 평가(zzaimy.eval.retrieval_eval)가 같은 값을
+# 쓴다. 가중 근거: 2026-09-04 스윕(docs/retrieval-weight-sweep.md) — w_a 0.2~0.5 고원
+# (MRR .692~.693), 동가중(1.0)은 .647로 손해. 고원 중앙값 0.4 채택
+HYBRID_W_A = 0.4  # RRF 어휘 가중 (임베딩 1.0)
+# 질의의 '초점어' 수 — 판별력(IDF) 상위 이만큼 중 하나는 겹쳐야 근거로 본다.
+# 2로 둔 근거: 한국어 행정 질의는 대개 주제어 1~2개 + 범용어(기준·절차·방법)로
+# 이뤄진다. 1이면 동의어·표기 차이에 너무 약하고, 3 이상이면 범용어가 초점에
+# 섞여 걸러 내는 힘이 사라진다(명사 3개 이하 질의에는 적용하지 않는다).
+FOCUS_TERMS = 2
+# 초점어 규칙을 적용할 최소 조각 수 — 문서 빈도(IDF)가 뜻을 가지려면 모집단이
+# 있어야 한다. 조각이 몇 개뿐인 저장소에서는 '검토·의무' 같은 범용어가 가장 희귀한
+# 말이 되어 버린다(실측: 조각 3개짜리 테스트 저장소에서 정답이 걸러졌다).
+FOCUS_MIN_CHUNKS = 200
+HYBRID_TOP_K = 12  # RRF에 넣는 어휘·임베딩 순위 길이
+CANDIDATE_LIMIT = 10  # 리랭커에 넘기는 후보 수
 
-    점수 = 겹친 명사의 길이 합 (긴 명사가 더 정보량이 크다). 조각 명사는
+
+def _lexical_ids(query: frozenset[str], chunks: list[dict], min_overlap: int) -> list[int]:
+    """명사 집합으로 조각을 점수순 정렬 — lexical_rank·hybrid_candidates의 공통 본체.
+
+    점수 = 겹친 명사의 길이 합 × IDF (긴·드문 명사가 더 정보량이 크다). 조각 명사는
     프로세스 내 캐시로 재계산을 피한다.
     """
     import math
 
-    query = extract_nouns(query_text)
-    if not query:
-        return []
-    chunks = db.list_regulation_chunks(sector=sector, dept=dept)
-    for chunk in chunks:
-        cid = chunk["id"]
-        if cid not in _noun_cache:
-            _noun_cache[cid] = extract_nouns(chunk["content"])
+    nouns = {c["id"]: chunk_nouns(c) for c in chunks}
     # 희소성 가중치 — 어디에나 나오는 명사(기준·처리 등)는 정보량이 낮다
     n = max(len(chunks), 1)
-    df = {t: sum(1 for c in chunks if t in _noun_cache[c["id"]]) for t in query}
+    df = {t: sum(1 for c in chunks if t in nouns[c["id"]]) for t in query}
     idf = {t: math.log(1 + n / (1 + df[t])) for t in query}
 
     # 희귀 명사(전체 조각의 10% 이하에서만 등장)가 질의의 실질 주제다 —
     # "휴학"이 "기준·처리" 같은 범용 명사에 밀리지 않게 1순위 정렬키로 쓴다
     rare_cut = max(3, int(n * 0.1))
-    scored: list[tuple[int, float, int, dict]] = []
+    # 흔한 명사만 겹친 조각은 근거가 아니다 — "학생·지원·사업"처럼 거의 모든 문서에
+    # 나오는 말로 이어지는 것이 "연관성이 억지스럽다"의 정체다. 두 단계로 막는다.
+    #   ① 판별력 있는 명사(전체 조각의 10% 이하에서만 등장)가 하나도 없으면 제외
+    #   ② 질의에서 가장 판별력 높은 명사(초점어) 중 하나는 반드시 겹쳐야 한다
+    # ②가 필요한 이유: "소방 점검 주기와 과태료"처럼 코퍼스에 없는 주제를 물어도
+    # '점검'만 겹쳐 근거가 올라왔다(실측). 초점어가 코퍼스에 아예 없으면 결과는
+    # 0건이 맞다. 코퍼스가 작으면 rare_cut이 커져 ①은 자동으로 무력해진다.
+    require_rare = os.environ.get("ZZAIMY_LEXICAL_REQUIRE_RARE", "1") != "0"
+    focus: set[str] = set()
+    if require_rare and len(query) > FOCUS_TERMS and n >= FOCUS_MIN_CHUNKS:
+        focus = set(sorted(query, key=lambda t: (-idf[t], -len(t)))[:FOCUS_TERMS])
+        if all(df[t] == 0 for t in focus):
+            return []            # 질의의 핵심어가 저장소에 아예 없다 = 근거 없음
+        focus = {t for t in focus if df[t] > 0}
+    scored: list[tuple[int, float, int, int]] = []
     for chunk in chunks:
-        matched = query & _noun_cache[chunk["id"]]
-        if len(matched) >= min_overlap:
-            rare_hits = sum(1 for t in matched if df[t] <= rare_cut)
-            score = sum(min(len(t), 4) * idf[t] for t in matched)
-            scored.append((rare_hits, score, len(matched), chunk))
+        matched = query & nouns[chunk["id"]]
+        if len(matched) < min_overlap:
+            continue
+        rare_hits = sum(1 for t in matched if df[t] <= rare_cut)
+        if require_rare and rare_hits == 0:
+            continue
+        if focus and not (matched & focus):
+            continue
+        score = sum(min(len(t), 4) * idf[t] for t in matched)
+        scored.append((rare_hits, score, len(matched), chunk["id"]))
     scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
-    lexical_ids = [c["id"] for _, _, _, c in scored]
+    return [cid for _, _, _, cid in scored]
 
-    # 임베딩(KURE) 랭킹과 RRF 융합 — 임베딩이 비활성이면 키위 단독
+
+def lexical_rank(
+    db: Database, query_text: str, min_overlap: int = 2,
+    sector: str | None = None, dept: str | None = None,
+    chunks: list[dict] | None = None,
+) -> list[int]:
+    """어휘(Kiwi 명사+IDF) 순위 — 운영 검색의 어휘 축. 조각 id를 점수순으로 돌려준다.
+
+    chunks를 주면 DB 조회를 생략한다(평가 배치·스윕 스크립트).
+    """
+    query = extract_nouns(query_text)
+    if not query:
+        return []
+    if chunks is None:
+        chunks = db.list_regulation_chunks(sector=sector, dept=dept)
+    return _lexical_ids(query, chunks, min_overlap)
+
+
+def select_candidates(
+    merged_ids: list[int], by_id: dict[int, dict], limit: int = CANDIDATE_LIMIT,
+) -> list[dict]:
+    """융합 순위에서 근거가 될 수 없는 조각을 빼고 상위 limit개.
+
+    품질 판정(chunk_quality, SEARCH 강도)을 그대로 쓴다 — 실질 내용이 없는 파편,
+    목차·페이지번호, 정형 문구, 같은 본문의 중복은 근거가 될 수 없다.
+    (실측: 같은 조각이 상위 3건을 전부 차지하거나 한 단어짜리 조각이 1위에 올랐다)
+    """
+    from zzaimy.app.chunk_quality import Strictness, assess, corpus_reasons
+
+    ordered = [by_id[cid] for cid in merged_ids if cid in by_id]
+    if not ordered:
+        return []
+    # 후보 집합 안에서만 보는 코퍼스 규칙 — 중복·머리말 반복은 여기서도 유효하다
+    extra = corpus_reasons(ordered)
+    seen_body: set[str] = set()
+    candidates: list[dict] = []
+    for i, c in enumerate(ordered):
+        body = re.sub(r"\s+", " ", c.get("content") or "").strip()
+        if body in seen_body:
+            continue
+        v = assess(c.get("content") or "",
+                   {"extra_reasons": [r for r in extra.get(i, []) if r != "boilerplate"]})
+        if not v.keep(Strictness.SEARCH):
+            continue
+        seen_body.add(body)
+        item = dict(c)
+        item["quality_score"] = v.score
+        candidates.append(item)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def hybrid_candidates(
+    db: Database, query_text: str, min_overlap: int = 2,
+    sector: str | None = None, dept: str | None = None,
+    chunks: list[dict] | None = None,
+    lexical_ids: list[int] | None = None, dense_ids: list[int] | None = None,
+    limit: int = CANDIDATE_LIMIT,
+) -> list[dict]:
+    """리랭크 직전까지의 운영 후보 — 어휘·임베딩 순위를 RRF(w_a=0.4)로 융합해 상위 limit개.
+
+    임베딩이 비활성이면 어휘 단독. 명사가 하나도 없는 질의는 빈 목록.
+    lexical_ids·dense_ids를 주면 그 순위를 그대로 쓴다(평가에서 축별 순위를 한 번만 계산).
+    """
+    query = extract_nouns(query_text)
+    if not query:
+        return []
+    if chunks is None:
+        chunks = db.list_regulation_chunks(sector=sector, dept=dept)
+    if lexical_ids is None:
+        lexical_ids = _lexical_ids(query, chunks, min_overlap)
+
+    # 임베딩(KURE) 순위와 RRF 융합
     from zzaimy.app.embed_search import embed_search, rrf_merge
 
     allowed = {c["id"] for c in chunks}
-    dense_ids = [cid for cid, _ in embed_search(query_text, top_k=12) if cid in allowed]
-    by_id = {c["id"]: c for c in chunks}
-    # 가중 근거: 2026-09-04 스윕(docs/retrieval-weight-sweep.md) — w_a 0.2~0.5
-    # 고원(MRR .692~.693), 동가중(1.0)은 .647로 손해. 고원 중앙값 0.4 채택
-    merged = rrf_merge(lexical_ids[:12], dense_ids, w_a=0.4, w_b=1.0)
-    candidates = [by_id[cid] for cid in merged if cid in by_id][:10]
-    # 크로스인코더 재정렬 — 표본 실측 R@1 +0.133 (docs/rerank-baseline.md)
-    from zzaimy.app.rerank import rerank_chunks
+    if dense_ids is None:
+        dense_ids = [cid for cid, _ in embed_search(query_text, top_k=HYBRID_TOP_K)]
+    dense_ids = [cid for cid in dense_ids if cid in allowed]
+    merged = rrf_merge(lexical_ids[:HYBRID_TOP_K], dense_ids, w_a=HYBRID_W_A, w_b=1.0)
+    return select_candidates(merged, {c["id"]: c for c in chunks}, limit)
 
-    return rerank_chunks(query_text, candidates)[:top_k]
+
+def find_relevant(
+    db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2,
+    sector: str | None = None, dept: str | None = None,
+) -> list[dict]:
+    """검토 대상 텍스트와 관련된 규정 조각 top-k — 운영 검색 경로.
+
+    어휘(Kiwi)·임베딩(KURE) 하이브리드 후보(hybrid_candidates) → 크로스인코더 재정렬.
+    zzaimy.eval.retrieval_eval이 같은 구성요소로 품질을 잰다(운영 구성 행).
+    """
+    candidates = hybrid_candidates(db, query_text, min_overlap, sector, dept)
+    if not candidates:
+        return []                 # 후보 자체가 없다 = 근거 없음. 억지로 채우지 않는다
+    # 크로스인코더 재정렬 + 꼬리 자르기 — 표본 실측 R@1 +0.133 (docs/rerank-baseline.md).
+    # 하한을 넘은 것이 하나도 없어도 1위는 남기고 weak_evidence를 붙인다 — 조용히
+    # 지우는 대신 "근거가 약하다"고 밝히는 편이 담당자에게 낫다.
+    from zzaimy.app.rerank import prune_scored, rerank_scored
+
+    scored = rerank_scored(query_text, candidates)
+    if scored is None:            # 리랭커가 없는 환경 — 융합 순위를 그대로 쓴다
+        return candidates[:top_k]
+    kept, weak = prune_scored(scored)
+    by_score = dict(zip((id(c) for c, _ in scored), (s for _, s in scored)))
+    out = []
+    for c in kept[:top_k]:
+        item = dict(c)
+        item["rerank_score"] = round(by_score.get(id(c), 0.0), 4)
+        if weak:
+            item["weak_evidence"] = True
+        out.append(item)
+    return out
 
 
 def suggest_criteria_docs(

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}논문·설계 문서{% endblock %}
+{% block pagetitle %}논문·설계 문서{% endblock %}
+{% block content %}
+<style>
+  /* 종류별 카드 두 열 — 왼쪽 논문 자료·설계 결정, 오른쪽 기술 검토·측정 기록 */
+  .doc-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px;
+              align-items: start; }
+  @media (max-width: 980px) { .doc-cols { grid-template-columns: 1fr; } }
+  .doc-cols .card h2 { margin-bottom: 8px; }
+  .doc-cnt { margin-left: auto; font-size: 12px; font-weight: 600; color: var(--faint);
+             font-variant-numeric: tabular-nums; }
+  .doc-sub { margin: 16px 0 2px; font-size: 11.5px; font-weight: 700; color: var(--faint);
+             letter-spacing: .04em; }
+  .doc-sub:first-of-type { margin-top: 6px; }
+  .doc-list { list-style: none; margin: 0; padding: 0; }
+  .doc-list li { border-top: 1px solid #EFF3F8; }
+  .doc-list li:first-child { border-top: 0; }
+  .doc-row { display: flex; align-items: baseline; gap: 10px; padding: 9px 8px; margin: 0 -8px;
+             border-radius: 10px; color: var(--ink); text-decoration: none; font-size: 13.5px;
+             line-height: 1.45; transition: background .2s var(--ease); }
+  .doc-row:hover { background: var(--panel); }
+  .doc-row:hover .doc-go { color: var(--navy); }
+  .doc-num { flex: none; width: 2.9em; font-size: 12.5px; font-weight: 600; color: var(--faint);
+             font-variant-numeric: tabular-nums; }
+  .doc-t { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .doc-m { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+           color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .doc-st { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+  .doc-st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #CBD5E1; }
+  .doc-st.ok::before { background: var(--green); }
+  .doc-st.open::before { background: var(--amber); }
+  .doc-go { flex: none; align-self: center; font-size: 15px; color: var(--faint);
+            transition: color .2s var(--ease); }
+  /* 좁은 폭 — 상태·날짜는 제목 아래 줄로(번호 열은 그대로) */
+  @media (max-width: 520px) {
+    .doc-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px;
+               row-gap: 2px; align-items: start; grid-template-areas: "t go" "m go"; }
+    .doc-row:has(.doc-num) { grid-template-columns: auto minmax(0, 1fr) auto;
+               grid-template-areas: "num t go" "num m go"; }
+    .doc-num { grid-area: num; }
+    .doc-t { grid-area: t; }
+    .doc-m { grid-area: m; }
+    .doc-go { grid-area: go; align-self: center; }
+  }
+</style>
+<p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <a href="/dev" class="btn-ghost">← 개발 현황</a>
+</p>
+
+{% macro rows(items) %}
+<ul class="doc-list">
+  {% for d in items %}
+  <li><a class="doc-row" href="{{ d.href }}">
+    {% if d.num %}<span class="doc-num">{{ d.num }}</span>{% endif %}
+    <span class="doc-t">{{ d.title }}</span>
+    {% if d.status or d.date %}
+    <span class="doc-m">
+      {% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}">{{ d.status }}</span>{% endif %}
+      {% if d.date %}<span>{{ d.date }}</span>{% endif %}
+    </span>
+    {% endif %}
+    <iconify-icon class="doc-go" icon="solar:alt-arrow-right-linear"></iconify-icon>
+  </a></li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+<div class="doc-cols">
+  <div>
+    <div class="card"><div class="card-in">
+      <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 자료
+        <span class="doc-cnt">{{ papers|length }}</span></h2>
+      {{ rows(papers) }}
+    </div></div>
+
+    <div class="card"><div class="card-in">
+      <h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>설계 결정 (ADR)
+        <span class="doc-cnt">{{ adr_docs|length }}</span></h2>
+      {{ rows(adr_docs) }}
+    </div></div>
+  </div>
+
+  <div>
+    <div class="card"><div class="card-in">
+      <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>기술 검토
+        <span class="doc-cnt">{{ note_docs|length }}</span></h2>
+      {{ rows(note_docs) }}
+    </div></div>
+
+    <div class="card"><div class="card-in">
+      <h2><iconify-icon icon="solar:chart-square-linear"></iconify-icon>측정 기록·인수인계
+        <span class="doc-cnt">{{ bench_docs|length + plan_docs|length }}</span></h2>
+      <div class="doc-sub">측정 기록</div>
+      {{ rows(bench_docs) }}
+      <div class="doc-sub">인수인계·계획</div>
+      {{ rows(plan_docs) }}
+    </div></div>
+  </div>
+</div>
+{% endblock %}

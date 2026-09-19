@@ -26,21 +26,32 @@ import sys
 import time
 import urllib.request
 
-__version__ = "2026.09.08"
+__version__ = "2026.09.09"
 
 # 편집 명령 화이트리스트 — 이 밖의 op는 거부한다.
 ALLOWED_OPS = {
     "ping", "open", "new_doc", "find", "goto", "set_title",
-    "insert_text", "replace", "insert_table", "fill_table", "set_format",
+    "insert_text", "replace", "insert_table", "fill_table", "set_format", "set_page",
     "delete_text", "delete_table",
     "get_text", "save", "save_as", "export_artifact", "list_docs", "select_doc",
+    "open_bytes",
 }
 EDITING_OPS = {
-    "insert_text", "replace", "insert_table", "fill_table", "set_format",
+    "insert_text", "replace", "insert_table", "fill_table", "set_format", "set_page",
     "delete_text", "delete_table", "set_title", "save", "save_as",
 }
 # 편집 전에 대상 문서가 확정돼야 하는 op — 엉뚱한 창을 건드리지 않기 위함
 TARGETED_OPS = EDITING_OPS | {"find", "get_text"}
+
+
+def _hwp_color(c) -> int:
+    """#RRGGBB -> 한글 색상 정수(0x00BBGGRR). 실패 시 검정(0)."""
+    try:
+        c = str(c).lstrip("#")
+        r, g, b = int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16)
+        return r | (g << 8) | (b << 16)
+    except Exception:
+        return 0
 
 
 class HwpBackend:
@@ -49,6 +60,7 @@ class HwpBackend:
     def ping(self) -> dict: raise NotImplementedError
     def new_doc(self) -> dict: raise NotImplementedError
     def open(self, path: str, format: str = "hwpx") -> dict: raise NotImplementedError
+    def open_bytes(self, name: str = "", b64: str = "", format: str = "hwpx") -> dict: raise NotImplementedError
     def list_docs(self) -> dict: raise NotImplementedError
     def select_doc(self, index=None, path=None, id=None) -> dict: raise NotImplementedError
     def goto(self, where: str = "start") -> dict: raise NotImplementedError
@@ -143,6 +155,15 @@ class MockBackend(HwpBackend):
         self.caret = 0
         return {"opened": path, "bound": did}
 
+    def open_bytes(self, name: str = "upload.hwpx", b64: str = "", format: str = "hwpx") -> dict:
+        did = self._next_id
+        self._next_id += 1
+        self.docs[did] = {"text": "", "path": name}
+        self._active = did
+        self._bound = did
+        self.caret = 0
+        return {"opened": name, "bound": did}
+
     def find(self, text: str, nth: int = 1) -> dict:
         self._ensure_target()
         idx, start, count = -1, 0, 0
@@ -193,9 +214,21 @@ class MockBackend(HwpBackend):
         self.text += "\n[표내용: " + " | ".join(flat) + "]"
         return {"filled": len(flat)}
 
-    def set_format(self, bold: bool = False, size=None, find=None) -> dict:
+    def set_format(self, find=None, bold=None, italic=None, underline=None,
+                   size=None, font=None, color=None, align=None,
+                   line_spacing=None) -> dict:
         self._ensure_target()
-        return {"bold": bold, "size": size, "target": find}
+        keys = dict(bold=bold, italic=italic, underline=underline, size=size,
+                    font=font, color=color, align=align, line_spacing=line_spacing)
+        return {"applied": {k: v for k, v in keys.items() if v is not None},
+                "target": find}
+
+    def set_page(self, top=None, bottom=None, left=None, right=None,
+                 orientation=None, paper=None) -> dict:
+        self._ensure_target()
+        keys = dict(top=top, bottom=bottom, left=left, right=right,
+                    orientation=orientation, paper=paper)
+        return {"applied": {k: v for k, v in keys.items() if v is not None}}
 
     def get_text(self, scope: str = "all") -> dict:
         self._ensure_target()
@@ -383,6 +416,19 @@ class ComBackend(HwpBackend):
         self._bound = self._active_id()
         return {"opened": bool(ok), "path": path, "bound": self._bound}
 
+    def open_bytes(self, name: str = "upload.hwpx", b64: str = "", format: str = "hwpx") -> dict:
+        """업로드된 파일을 PC 임시폴더에 저장 후 열어 대상으로 바인딩한다."""
+        import base64 as _b64, tempfile as _tf, os as _os
+        data = _b64.b64decode(b64 or "")
+        bad = set('\\/:*?"<>|')
+        safe = "".join(c for c in (name or "upload") if c not in bad) or "upload.hwpx"
+        tmp = _os.path.join(_tf.gettempdir(), safe)
+        with open(tmp, "wb") as fh:
+            fh.write(data)
+        ok = self.hwp.Open(tmp, self._FMT.get(format, ""), "")
+        self._bound = self._active_id()
+        return {"opened": bool(ok), "name": name, "path": tmp, "bound": self._bound}
+
     def goto(self, where: str = "start") -> dict:
         """캐럿 이동 — start(문서 처음)·end(끝). 제목 삽입 등 위치 지정용."""
         self._ensure_target()
@@ -393,7 +439,8 @@ class ComBackend(HwpBackend):
         """문서 맨 앞에 제목 문단을 넣는다 (처음으로 이동 → 삽입)."""
         self._ensure_target()
         self.hwp.Run("MoveDocBegin")
-        self._action("InsertText", {"Text": text + "\r\n"})
+        self._action("InsertText", {"Text": text})
+        self.hwp.Run("BreakPara")
         return {"title": text}
 
     def find(self, text: str, nth: int = 1) -> dict:
@@ -422,9 +469,16 @@ class ComBackend(HwpBackend):
         return {"deleted": "table"}
 
     def insert_text(self, text: str) -> dict:
+        """텍스트 삽입. \n 은 실제 문단 나눔(BreakPara)으로 처리한다 —
+        통짜 InsertText 는 한글에서 줄글로 붙어 문단이 나뉘지 않는다."""
         self._ensure_target()
-        self._action("InsertText", {"Text": text})
-        return {"inserted": len(text)}
+        parts = text.split("\n")
+        for i, part in enumerate(parts):
+            if part:
+                self._action("InsertText", {"Text": part})
+            if i < len(parts) - 1:
+                self.hwp.Run("BreakPara")
+        return {"inserted": len(text), "paras": text.count("\n") + 1}
 
     def replace(self, find: str, replace: str, all: bool = True) -> dict:
         self._ensure_target()
@@ -461,23 +515,101 @@ class ComBackend(HwpBackend):
                 self.hwp.Run("TableRightCell")
         return {"filled": n}
 
-    def set_format(self, bold: bool = False, size: float | None = None,
-                   find: str | None = None) -> dict:
-        """서식 변경. find가 주어지면 그 문구를 찾아 선택, 아니면 현재 선택.
-
-        bold: 굵게 토글. size: 글자 크기(pt).
+    def set_format(self, find=None, bold=None, italic=None, underline=None,
+                   size=None, font=None, color=None, align=None,
+                   line_spacing=None) -> dict:
+        """글자·문단 서식. find가 있으면 그 문구를 찾아 선택 후 적용, 없으면
+        현재 선택/캐럿에 적용. 글자: bold/italic/underline, size(pt), font(글꼴명),
+        color(#RRGGBB). 문단: align(left/center/right/justify), line_spacing(%).
+        실장비 확인: CharShape/ParaShape 필드명은 한컴 자동화 문서 기준.
         """
         self._ensure_target()
+        applied = {}
         if find:
             self._action("RepeatFind", {"FindString": find, "IgnoreMessage": 1})
-        if bold:
-            self.hwp.Run("CharShapeBold")
-        if size:
-            pset = self.hwp.HParameterSet.HCharShape
-            self.hwp.HAction.GetDefault("CharShape", pset.HSet)
-            pset.Height = int(float(size) * 100)   # HWPUNIT: pt*100
-            self.hwp.HAction.Execute("CharShape", pset.HSet)
-        return {"bold": bold, "size": size, "target": find}
+        h = self.hwp
+        if any(v is not None for v in (bold, italic, underline, size, font, color)):
+            pset = h.HParameterSet.HCharShape
+            h.HAction.GetDefault("CharShape", pset.HSet)
+            if size is not None:
+                pset.Height = int(float(size) * 100); applied["size"] = size
+            if bold is not None:
+                pset.Bold = 1 if bold else 0; applied["bold"] = bool(bold)
+            if italic is not None:
+                pset.Italic = 1 if italic else 0; applied["italic"] = bool(italic)
+            if underline is not None:
+                pset.UnderlineType = 1 if underline else 0
+                applied["underline"] = bool(underline)
+            if font:
+                for a in ("FaceNameHangul", "FaceNameLatin", "FaceNameHanja",
+                          "FaceNameJapanese", "FaceNameOther", "FaceNameSymbol",
+                          "FaceNameUser"):
+                    try:
+                        setattr(pset, a, font)
+                    except Exception:
+                        pass
+                applied["font"] = font
+            if color:
+                pset.TextColor = _hwp_color(color); applied["color"] = color
+            h.HAction.Execute("CharShape", pset.HSet)
+        if align is not None:
+            # 정렬은 파라미터셋(ParaShape.AlignType)이 잘 먹지 않는다 —
+            # 한컴 정렬 전용 Run 명령이 선택/현재 문단에 확실히 적용된다.
+            amap = {"justify": "ParagraphShapeAlignJustify",
+                    "left": "ParagraphShapeAlignLeft",
+                    "right": "ParagraphShapeAlignRight",
+                    "center": "ParagraphShapeAlignCenter",
+                    "distribute": "ParagraphShapeAlignDistribute",
+                    "양쪽": "ParagraphShapeAlignJustify",
+                    "왼쪽": "ParagraphShapeAlignLeft",
+                    "오른쪽": "ParagraphShapeAlignRight",
+                    "가운데": "ParagraphShapeAlignCenter",
+                    "중앙": "ParagraphShapeAlignCenter",
+                    "배분": "ParagraphShapeAlignDistribute"}
+            run = amap.get(str(align).strip().lower()) or amap.get(str(align).strip())
+            if run:
+                h.Run(run)
+                applied["align"] = align
+        if line_spacing is not None:
+            pset = h.HParameterSet.HParaShape
+            h.HAction.GetDefault("ParaShape", pset.HSet)
+            try:
+                pset.LineSpacing = int(line_spacing)
+                h.HAction.Execute("ParaShape", pset.HSet)
+                applied["line_spacing"] = line_spacing
+            except Exception:
+                pass
+        return {"applied": applied, "target": find}
+
+    def set_page(self, top=None, bottom=None, left=None, right=None,
+                 orientation=None, paper=None) -> dict:
+        """페이지 설정 — 여백(mm)·용지 방향. top/bottom/left/right는 mm.
+        orientation: portrait(세로)/landscape(가로).
+        실장비 확인: PageSetup/HSecDef.PageDef 필드 경로는 한컴 문서 기준.
+        """
+        self._ensure_target()
+
+        def mm(v):
+            return int(round(float(v) * 7200 / 25.4))  # mm -> HWPUNIT
+
+        h = self.hwp
+        pset = h.HParameterSet.HSecDef
+        h.HAction.GetDefault("PageSetup", pset.HSet)
+        pd = pset.PageDef
+        applied = {}
+        if top is not None:
+            pd.TopMargin = mm(top); applied["top_mm"] = top
+        if bottom is not None:
+            pd.BottomMargin = mm(bottom); applied["bottom_mm"] = bottom
+        if left is not None:
+            pd.LeftMargin = mm(left); applied["left_mm"] = left
+        if right is not None:
+            pd.RightMargin = mm(right); applied["right_mm"] = right
+        if orientation is not None:
+            pd.Landscape = 1 if str(orientation).lower() in ("landscape", "가로") else 0
+            applied["orientation"] = orientation
+        h.HAction.Execute("PageSetup", pset.HSet)
+        return {"applied": applied}
 
     def get_text(self, scope: str = "all") -> dict:
         self._ensure_target()
@@ -568,7 +700,8 @@ def _register(base: str, token: str) -> tuple[str, int]:
     import urllib.error
 
     try:
-        reg = _post(f"{base}/hwp/agent/register", {"token": token})
+        reg = _post(f"{base}/hwp/agent/register",
+                    {"token": token, "version": __version__})
     except urllib.error.HTTPError as e:
         if e.code == 403:
             sys.stderr.write(
@@ -582,6 +715,10 @@ def _register(base: str, token: str) -> tuple[str, int]:
     return session, int(reg.get("poll_after", 0))
 
 
+# 실행 상태 — 트레이 아이콘·콘솔 표시에 공유한다.
+_STATUS = {"connected": False, "server": "", "last_poll": 0.0}
+
+
 def run_loop(server: str, token: str, backend: HwpBackend,
              confirm: bool = False, no_update: bool = False) -> None:
     """서버에 아웃바운드로 붙어 명령을 롱폴·실행·회신한다.
@@ -592,7 +729,9 @@ def run_loop(server: str, token: str, backend: HwpBackend,
     import urllib.error
 
     base = server.rstrip("/")
+    _STATUS["server"] = base
     session, cursor = _register(base, token)
+    _STATUS["connected"] = True
     last_update_check = time.time()
     last_cmd_time = 0.0   # 마지막으로 명령을 처리한 시각(유휴 판정용)
     while True:
@@ -607,16 +746,22 @@ def run_loop(server: str, token: str, backend: HwpBackend,
         except urllib.error.HTTPError as e:
             if e.code == 403:
                 sys.stderr.write("[세션 만료] 서버 재시작 감지 — 재등록\n")
+                _STATUS["connected"] = False
                 time.sleep(2)
                 session, cursor = _register(base, token)
+                _STATUS["connected"] = True
                 continue
+            _STATUS["connected"] = False
             sys.stderr.write(f"[폴링 실패] {e} — 5초 후 재시도\n")
             time.sleep(5)
             continue
         except Exception as e:
+            _STATUS["connected"] = False
             sys.stderr.write(f"[폴링 실패] {e} — 5초 후 재시도\n")
             time.sleep(5)
             continue
+        _STATUS["connected"] = True
+        _STATUS["last_poll"] = time.time()
         cursor = resp.get("cursor", cursor)
         for command in resp.get("commands", []):
             result = dispatch(backend, command, confirm=confirm)
@@ -694,6 +839,12 @@ def _selftest() -> int:
     after_bind = dispatch(b2, {"id": "g3", "op": "insert_text",
                                "args": {"text": "초안 본문"}})
     other_untouched = b2.docs[99]["text"] == "다른 사용자 문서"
+    fmt = dispatch(b2, {"id": "f1", "op": "set_format", "args": {
+        "find": "초안", "bold": True, "font": "함초롬바탕",
+        "color": "#C00000", "align": "center", "size": 14}})
+    pg = dispatch(b2, {"id": "p1", "op": "set_page", "args": {
+        "top": 20, "bottom": 20, "left": 25, "right": 25,
+        "orientation": "portrait"}})
 
     checks = [
         ("전 명령 처리", len(results) == 9),
@@ -705,6 +856,8 @@ def _selftest() -> int:
         ("대상 미확정 시 편집 거부", guard_multi["ok"] is False),
         ("새 문서 생성·바인딩 후 편집 허용", made["ok"] and after_bind["ok"]),
         ("다른 문서 안 건드림", other_untouched),
+        ("서식 op(글꼴·색·정렬) 처리", fmt["ok"] and "applied" in fmt.get("result", {})),
+        ("페이지 여백 op 처리", pg["ok"] and "applied" in pg.get("result", {})),
     ]
     all_ok = True
     all_ok = True
@@ -776,6 +929,95 @@ def _base_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def _start_tray(server: str):
+    """Windows 알림영역(트레이) 아이콘 — 상태 표시·플랫폼 열기·폴더 열기·종료.
+
+    infi.systray 가 있으면 백그라운드 스레드로 띄운다(폴링 루프는 건드리지
+    않는다). 없거나 실패하면 None 을 돌려주고, 에이전트는 콘솔만으로 계속 돈다.
+    """
+    import os
+
+    if os.name != "nt":
+        return None
+    try:
+        from infi.systray import SysTrayIcon
+    except Exception:
+        sys.stderr.write("[트레이 생략] infi.systray 없음 — 콘솔로 동작합니다.\n")
+        return None
+    ico = os.path.join(_base_dir(), "zzaimy.ico")
+    if not os.path.exists(ico):
+        return None
+
+    def _open_server(_st):
+        import webbrowser
+        try:
+            webbrowser.open(server)
+        except Exception:
+            pass
+
+    def _open_folder(_st):
+        try:
+            os.startfile(_base_dir())  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    def _show_status(_st):
+        """상태·버전을 메시지 상자로 보여준다(추가 의존성 없이 Win32 API)."""
+        state = "연결됨" if _STATUS.get("connected") else "연결 끊김"
+        lp = _STATUS.get("last_poll") or 0
+        ago = f"{int(time.time() - lp)}초 전" if lp else "-"
+        msg = ("ZZAIMY 한글 에이전트\n\n"
+               f"버전: {__version__}\n"
+               f"서버: {_STATUS.get('server', '')}\n"
+               f"상태: {state}\n"
+               f"마지막 통신: {ago}")
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(0, msg, "에이전트 상태", 0x40)
+        except Exception:
+            sys.stderr.write(msg + "\n")
+
+    def _open_config(_st):
+        """config.json 을 기본 편집기로 연다 — 서버 주소·연결 키(토큰) 수정용.
+        수정 후에는 트레이 종료 → 다시 실행하면 새 설정으로 붙는다."""
+        cfg = os.path.join(_base_dir(), "config.json")
+        try:
+            os.startfile(cfg)  # type: ignore[attr-defined]
+        except Exception:
+            try:
+                import subprocess
+                subprocess.Popen(["notepad.exe", cfg])
+            except Exception:
+                pass
+
+    def _quit(_st):
+        os._exit(0)
+
+    menu = (("상태 보기", None, _show_status),
+            ("연결 키·주소 설정", None, _open_config),
+            ("플랫폼 열기", None, _open_server),
+            ("설치 폴더 열기", None, _open_folder))
+    try:
+        tray = SysTrayIcon(ico, f"ZZAIMY {__version__} — 연결 중…", menu, on_quit=_quit)
+        tray.start()
+    except Exception as e:
+        sys.stderr.write(f"[트레이 생략] {e}\n")
+        return None
+
+    def _update_loop():
+        while True:
+            time.sleep(3)
+            state = "연결됨" if _STATUS.get("connected") else "연결 끊김"
+            try:
+                tray.update(hover_text=f"ZZAIMY {__version__} — {state}")
+            except Exception:
+                return
+
+    import threading
+    threading.Thread(target=_update_loop, daemon=True).start()
+    return tray
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="한글 실시간 편집 에이전트 (COM)")
     ap.add_argument("--server", help="서버 base URL")
@@ -819,6 +1061,18 @@ def main() -> int:
         sys.stderr.write(f"한글 COM 백엔드를 열 수 없습니다: {e}\n"
                          "Windows + 정품 한글 + pywin32 환경에서 실행하세요.\n")
         return 2
+
+    # 실행 표시 — 트레이 아이콘(있으면) + 콘솔 배너. "떠 있으면 동작 중".
+    _STATUS["server"] = args.server
+    tray = _start_tray(args.server)
+    sys.stderr.write(
+        "\n" + "=" * 52 + "\n"
+        f"  ZZAIMY 한글 에이전트 실행 중  (v{__version__})\n"
+        f"  서버: {args.server}\n"
+        + ("  상태: 알림영역(트레이) 아이콘으로 확인 — 우클릭 메뉴에서 종료\n"
+           if tray else
+           "  상태: 이 창이 떠 있으면 동작 중 — 창을 닫으면 종료됩니다\n")
+        + "=" * 52 + "\n")
     run_loop(args.server, args.token, backend,
              confirm=args.confirm, no_update=args.no_update)
     return 0

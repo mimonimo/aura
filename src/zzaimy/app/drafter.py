@@ -20,16 +20,51 @@ def _find_relevant(db: Database, query: str, top_k: int = 4) -> list[dict]:
     return find_relevant(db, query, top_k=top_k)
 
 
-def build_section_evidence(db, section_query: str, materials: list) -> list:
-    """섹션 근거 = 접수 자료 조각(우선) + 실검색 규정 조각.
+# 초안 재료가 되는 조각 종류 — 문단, 표, 그림 캡션·그림 속 글자
+_MATERIAL_KINDS = ("text", "table", "image_text")
 
-    P3: 스텁 검색기를 실제 하이브리드+리랭커 검색으로 교체한 자리다.
+
+def material_text(c: dict) -> str:
+    """조각 → 초안 재료 텍스트.
+
+    표는 셀 JSON이 아니라 캡션+행 평문(render.table_text)으로 준다 — 모델이 표를
+    읽을 수 있고, 표 속 수치가 수치 검증기의 근거 허용목록에 그대로 들어간다.
+    """
+    if c["kind"] == "table":
+        from zzaimy.app.render import table_text
+
+        return table_text(c["content"])[:900]
+    return c["content"][:600]
+
+
+_MATERIALS_PER_SECTION = 6
+
+
+def build_section_evidence(
+    db, section_query: str, materials: list, *, embed_fn=None, material_vecs=None,
+) -> list:
+    """섹션 근거 = 접수 자료 조각(섹션과 의미가 가까운 순) + 실검색 규정 조각.
+
+    접수 자료는 문서 앞 6조각을 모든 섹션에 똑같이 넣던 방식을 버리고, 섹션
+    질의와 각 조각의 학습 임베딩 코사인으로 섹션마다 골라 넣는다(예산 섹션엔
+    예산 조각, 추진체계엔 체계 조각). material_vecs는 초안 1건당 한 번만
+    계산해 넘긴다. 임베딩이 없으면 기존 순서 그대로(하위 호환).
     수치 검증기가 이 근거 텍스트를 허용 목록으로 쓰므로, 여기 들어온 것만이
     초안 수치의 출처가 될 수 있다.
     """
     from zzaimy.retrieve.stub import Evidence
 
-    out = list(materials)[:6]
+    out = list(materials)
+    if len(out) > _MATERIALS_PER_SECTION and embed_fn is not None and material_vecs is not None:
+        try:
+            qv = embed_fn([section_query])
+            if qv is not None:
+                sims = material_vecs @ qv[0]
+                order = sims.argsort()[::-1]
+                out = [out[i] for i in order]
+        except Exception:
+            log.warning("재료 의미 선별 실패 — 문서 순서 사용", exc_info=True)
+    out = out[:_MATERIALS_PER_SECTION]
     try:
         hits = _find_relevant(db, section_query, top_k=4)
     except Exception:
@@ -90,18 +125,20 @@ class SliceDrafter:
             # 인풋 서류(신청서 등)가 공고와 다른 문서면 그 내용을 작성 재료로 쓴다
             materials: list[Evidence] = []
             if ref_name != doc["filename"]:
-                # 구조 조각(문단·표)이 있으면 그것을 재료로 — 표 내용까지 근거가 된다
+                # 구조 조각(문단·표·그림 글자)이 있으면 그것을 재료로 — 표 내용까지 근거가 된다
                 chunks = [
-                    c for c in db.list_doc_chunks(doc_id)
-                    if c["kind"] in ("text", "table") and len(c["content"]) > 60
+                    (c, material_text(c)) for c in db.list_doc_chunks(doc_id)
+                    if c["kind"] in _MATERIAL_KINDS
                 ]
+                chunks = [(c, t) for c, t in chunks if len(t) > 60]
+                # 후보 풀은 넉넉히 — 섹션마다 의미로 골라 쓰므로 앞부분만 자르지 않는다
                 if chunks:
                     materials = [
                         Evidence(
-                            text=c["content"][:600], source_doc=doc["filename"],
+                            text=t, source_doc=doc["filename"],
                             source_page=c.get("page_no") or i + 1,
                         )
-                        for i, c in enumerate(chunks[:10])
+                        for i, (c, t) in enumerate(chunks[:40])
                     ]
                 else:
                     paras = [
@@ -110,8 +147,13 @@ class SliceDrafter:
                     ]
                     materials = [
                         Evidence(text=p[:600], source_doc=doc["filename"], source_page=i + 1)
-                        for i, p in enumerate(paras[:8])
+                        for i, p in enumerate(paras[:30])
                     ]
+
+            # 재료 임베딩은 초안 1건당 한 번 — 섹션별 선별과 커버리지 의미 판정에 재사용
+            from zzaimy.app.embed_search import embed_texts
+
+            material_vecs = embed_texts([m.text for m in materials]) if materials else None
 
             # 작성 방향: 기본 방향 + 담당자·프로젝트 지침 + 재작성 의견 반영
             project = (
@@ -126,13 +168,13 @@ class SliceDrafter:
 
             criteria_text = ", ".join(f"{c.name}({c.points}점)" for c in schema.criteria)
 
-            parts: list[str] = [f"# {schema.title} — 계획서 초안 (70%, 사람 검수 전제)"]
+            parts: list[str] = [f"# {schema.title} — 계획서 초안 (70% 초안, 담당자 검토 전제)"]
             full_text = ""
             all_evidence: list[str] = []
             for section in schema.sections:
                 evidence = build_section_evidence(
                     db, f"{section.name} {section.requirements}".strip(),
-                    materials,
+                    materials, embed_fn=embed_texts, material_vecs=material_vecs,
                 )
                 body = client.generate_section(
                     section.name, section.requirements, criteria_text,
@@ -157,6 +199,7 @@ class SliceDrafter:
                     for c in schema.criteria
                 ],
                 full_text,
+                embed_fn=embed_texts,   # 키워드 없어도 의미로 반영 여부 판정
             )
             summary = (
                 f"배점 커버리지 {coverage.covered_points}/{coverage.total_points}점"
@@ -173,8 +216,19 @@ class SliceDrafter:
                        len(budget_issues), " / ".join(budget_issues[:2])
                    ))
             )
-            db.update_document(doc_id, draft="\n\n".join(parts), coverage=summary)
+            new_draft = "\n\n".join(parts)
+            # 재작성이면 이전 초안을 이력으로 보존한다 — 나중에 DPO 선호쌍
+            # (이전=rejected, 현재=chosen)의 원천이 된다. 안 남기면 소급 불가.
+            prev = (doc.get("draft") or "").strip()
+            if prev and prev != new_draft.strip():
+                try:
+                    db.add_draft_history(doc_id, prev)
+                except Exception:
+                    log.warning("doc %d: 초안 이력 저장 실패(무시)", doc_id)
+            db.update_document(doc_id, draft=new_draft, coverage=summary)
             log.info("doc %d: 초안 생성 완료 (%d 섹션)", doc_id, len(schema.sections))
         except Exception as e:
+            from zzaimy.generate.client import describe_llm_error
+
             log.exception("doc %d 초안 생성 실패", doc_id)
-            db.update_document(doc_id, coverage=f"초안 생성 실패: {type(e).__name__}: {e}")
+            db.update_document(doc_id, coverage=f"초안 생성 실패: {describe_llm_error(e)}")

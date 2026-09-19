@@ -173,6 +173,12 @@ def classify(result: ScrubResult) -> Verdict:
 # 전송 가능 상태 — 이 상태의 건만 실제 외부 호출을 시도한다.
 _SENDABLE = {"held", "approved", "failed"}
 
+# 상태의 화면 표시명 — 오류 문구에 영문 키 대신 쓴다 (저장 값은 그대로).
+_STATUS_LABELS = {
+    "blocked": "차단", "queued": "승인 대기", "approved": "승인됨", "denied": "거부",
+    "held": "전송 대기", "answered": "응답 수신", "failed": "전송 실패",
+}
+
 _EXTERNAL_SYSTEM = (
     "너는 한국 정부 국고보조사업·대학 행정의 일반 지식을 답하는 참고 조수다. "
     "일반적인 절차·규정 상식·문서 작성 관행만 답하고, 질문자의 소속 기관이나 "
@@ -184,36 +190,82 @@ def _now_iso() -> str:
     return _dt.now(_tz.utc).astimezone().isoformat(timespec="seconds")
 
 
+def _external_conn() -> dict | None:
+    """화면에서 '외부 AI 참조용'으로 지정한 외부 기관 GPU 서버 연결(주소·키·모델). 없으면 None."""
+    try:
+        from zzaimy.generate import llm_connections
+
+        return llm_connections.external_credentials()
+    except Exception:
+        return None
+
+
 def external_status() -> tuple[bool, str]:
-    """외부 전송 가능 여부와 사유. 플래그·키·SDK 세 가지가 모두 필요하다."""
+    """외부 전송 가능 여부와 사유. 플래그·지정된 외부 기관 서버 연결·키·SDK 가 모두 필요하다."""
     if _os.environ.get("ZZAIMY_EXTERNAL_ENABLED") != "1":
         return False, "ZZAIMY_EXTERNAL_ENABLED 미설정"
-    if not (_os.environ.get("ZZAIMY_ANTHROPIC_KEY") or _os.environ.get("ANTHROPIC_API_KEY")):
-        return False, "API 키 미설정"
+    conn = _external_conn()
+    if conn is None:
+        return False, "외부 AI 참조용 연결 미지정 (모델 학습 화면의 LLM 연결)"
+    if not conn["api_key"]:
+        return False, f"외부 기관 서버 연결 「{conn['name']}」에 API 키 없음"
     try:
-        import anthropic  # noqa: F401
+        import openai  # noqa: F401
     except ImportError:
-        return False, "anthropic 패키지 미설치"
+        return False, "openai 패키지 미설치"
     return True, ""
 
 
-def _send_external(text: str) -> str:
-    """세척 완료 텍스트를 Claude API로 전송한다 — 게이트웨이 밖에서 호출 금지."""
-    import anthropic
+def _send_external(text: str, system: str | None = None) -> str:
+    """세척 완료 텍스트를 지정된 외부 기관 GPU 서버로 보낸다 — 게이트웨이 밖에서 호출 금지."""
+    from openai import OpenAI
 
-    client = anthropic.Anthropic(
-        api_key=_os.environ.get("ZZAIMY_ANTHROPIC_KEY")
-        or _os.environ.get("ANTHROPIC_API_KEY")
-    )
-    response = client.messages.create(
-        model=_os.environ.get("ZZAIMY_EXTERNAL_MODEL", "claude-opus-5"),
+    conn = _external_conn()
+    if conn is None:
+        raise RuntimeError("외부 AI 참조용 연결이 없습니다")
+    client = OpenAI(base_url=conn["base_url"], api_key=conn["api_key"])
+    model = conn["model"] or client.models.list().data[0].id
+    resp = client.chat.completions.create(
+        model=model,
         max_tokens=int(_os.environ.get("ZZAIMY_EXTERNAL_MAX_TOKENS", "4096")),
-        system=_EXTERNAL_SYSTEM,
-        messages=[{"role": "user", "content": text}],
+        messages=[{"role": "system", "content": system or _EXTERNAL_SYSTEM},
+                  {"role": "user", "content": text}],
     )
-    if response.stop_reason == "refusal":
-        raise RuntimeError("외부 모델이 안전상 이유로 응답을 거부함")
-    return "".join(b.text for b in response.content if b.type == "text")
+    return (resp.choices[0].message.content or "").strip()
+
+
+_TOKENIZE_SYSTEM = (
+    "입력에는 [[...]] 형태의 자리표시자가 들어 있습니다. 이는 개인정보를 가린 토큰입니다. "
+    "답변에서 그 토큰은 절대 바꾸지 말고 원문 그대로 유지하세요. 토큰의 실제 값을 추측하지 마세요."
+)
+
+
+def process_external_tokenized(text: str) -> dict:
+    """외부 처리 — 민감정보를 되돌릴 수 있는 토큰으로 바꿔 외부 모델에 보내고, 결과의 값을 교내에서 복원한다.
+
+    외부에는 토큰본만 나가고, 토큰↔원값 대응표(vault)는 교내에만 있다. 값 복원은 결정론적 치환이며
+    생성이 아니다. 반출은 external_status()(ZZAIMY_EXTERNAL_ENABLED + 외부 연결 + 키)가 켜져야 시도한다.
+    """
+    ok, why = external_status()
+    if not ok:
+        return {"ok": False, "error": why, "tokens": 0}
+    from zzaimy.ingest.pii import PiiMasker
+
+    masker = _get_masker()[0]
+    tok_text, vault = masker.tokenize(text)
+    try:
+        raw = _send_external(tok_text, system=_TOKENIZE_SYSTEM)
+    except Exception as e:  # 연결 실패 등 — 사람 말로
+        from zzaimy.generate.client import describe_llm_error
+
+        return {"ok": False, "error": describe_llm_error(e), "tokens": len(vault)}
+    restored = PiiMasker.restore(raw, vault)
+    types: dict[str, int] = {}
+    for tok in vault:
+        ent = tok[2:-2].rsplit("_", 1)[0]
+        types[ent] = types.get(ent, 0) + 1
+    return {"ok": True, "result": restored, "external_result": raw, "sent_text": tok_text,
+            "tokens": len(vault), "types": types}
 
 
 def submit(db, text: str, requester: str, source: str = "manual") -> dict:
@@ -243,9 +295,11 @@ def decide(db, req_id: int, approve: bool, decided_by: str) -> dict:
     """승인 대기 건의 사람 판정. 승인이면 전송을 시도한다."""
     row = db.get_egress_request(req_id)
     if row is None:
-        raise ValueError(f"없는 요청: {req_id}")
+        raise ValueError(f"없는 요청입니다: {req_id}")
     if row["status"] != "queued":
-        raise ValueError(f"승인 대기 상태가 아님: {row['status']}")
+        raise ValueError(
+            f"승인 대기 상태가 아닙니다: {_STATUS_LABELS.get(row['status'], row['status'])}"
+        )
     db.update_egress_request(
         req_id,
         status="approved" if approve else "denied",
@@ -261,9 +315,11 @@ def retry_send(db, req_id: int) -> dict:
     """전송 대기·실패 건 재전송 — 아웃바운드가 열린 뒤 수동으로 민다."""
     row = db.get_egress_request(req_id)
     if row is None:
-        raise ValueError(f"없는 요청: {req_id}")
+        raise ValueError(f"없는 요청입니다: {req_id}")
     if row["status"] not in _SENDABLE:
-        raise ValueError(f"전송 가능한 상태가 아님: {row['status']}")
+        raise ValueError(
+            f"전송할 수 있는 상태가 아닙니다: {_STATUS_LABELS.get(row['status'], row['status'])}"
+        )
     _try_send(db, req_id)
     return db.get_egress_request(req_id)
 

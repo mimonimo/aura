@@ -11,9 +11,9 @@ import json
 from datetime import date
 from pathlib import Path
 
-from zzaimy.app import regulations as reg  # noqa: F401  (경로 초기화 부수효과)
 from zzaimy.app.db import Database
 from zzaimy.app.embed_search import embed_search, rrf_merge
+from zzaimy.app.regulations import lexical_rank
 from zzaimy.eval.retrieval import mrr, recall_at_k
 
 DB = Path("data/platform/platform.db")
@@ -24,18 +24,6 @@ WEIGHTS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0, 1.2]
 
 
 def main() -> None:
-    import importlib.util
-    import sys
-
-    # 53의 lexical_rank를 재사용한다 (구현 갈림 방지)
-    spec = importlib.util.spec_from_file_location(
-        "s53", Path(__file__).parent / "53_retrieval_eval.py"
-    )
-    s53 = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules["s53"] = s53
-    spec.loader.exec_module(s53)
-
     db = Database(DB)
     rows = [
         json.loads(x)
@@ -56,7 +44,7 @@ def main() -> None:
             q = (r.get(qtype) or "").strip()
             if not q:
                 continue
-            lex_runs.append(s53.lexical_rank(db, q))
+            lex_runs.append(lexical_rank(db, q)[:TOP_K])  # 운영 어휘 축 그대로
             den_runs.append([cid for cid, _ in embed_search(q, top_k=TOP_K)])
             golds.append({gold})
             n += 1

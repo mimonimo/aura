@@ -10,6 +10,8 @@
 from __future__ import annotations
 
 import os
+import re
+import time
 import secrets
 import shutil
 import uuid
@@ -64,11 +66,29 @@ SECTOR_LABELS = {
     "auto": "일반 행정",
 }
 
+# 추출 품질 신고 유형 — 신고 화면(doc.html)과 백로그(dev.html)가 같은 이름을 쓴다
+QUALITY_KIND_LABELS = {
+    "table": "표 구조 깨짐", "typo": "글자 오인식",
+    "layout": "배치·순서 어긋남", "other": "기타",
+}
+
 DECISION_LABELS = {
     "pending": "판정 대기",
     "approved": "승인",
     "rejected": "반려",
     "rework": "재검토 중",
+}
+
+# 외부 AI 참조 관리 — 자동 분류 결과·제출 경로·제거 항목의 화면 표시명
+# (dev_egress.html과 데이터 열람 개요가 같은 이름을 쓴다. 저장 값은 영문 키 그대로)
+EGRESS_VERDICT_LABELS = {"safe": "안전", "review": "확인 필요", "blocked": "차단"}
+EGRESS_SOURCE_LABELS = {"manual": "직접 제출"}
+EGRESS_REMOVED_LABELS = {
+    "KR_RRN": "주민등록번호", "RRN": "주민등록번호",
+    "KR_PHONE": "전화번호", "PHONE": "전화번호",
+    "EMAIL": "이메일", "KR_BRN": "사업자등록번호", "KR_BANK_ACCOUNT": "계좌번호",
+    "CARD": "카드번호", "KR_NAME": "성명", "PERSON": "성명",
+    "PII_MASKER_UNAVAILABLE": "마스킹 도구 미가동",
 }
 
 
@@ -134,20 +154,61 @@ def create_app(
 
     accounts_path = Path(db_path).parent / "accounts.json"
     accounts: dict[str, dict] = {}
+
+    def _save_accounts() -> None:
+        accounts_path.write_text(_aj.dumps(accounts, ensure_ascii=False, indent=1))
+        accounts_path.chmod(0o600)
+
+    def _now_iso() -> str:
+        from datetime import datetime as _d
+
+        return _d.now().isoformat(timespec="seconds")
+
+    # 비밀번호는 해시(pbkdf2-sha256, 개별 salt)로만 저장한다. 예전 파일의 평문 pw 는
+    # 로그인에 성공하는 순간 해시로 바꿔 쓴다(승격) — 운영 중 파일을 손으로 고칠 필요 없음.
+    def _hash_pw(pw: str, salt: bytes | None = None) -> tuple[str, str]:
+        salt = salt or secrets.token_bytes(16)
+        digest = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt, 200_000)
+        return digest.hex(), salt.hex()
+
+    def _set_pw(acct: dict, pw: str) -> None:
+        acct["pw_hash"], acct["salt"] = _hash_pw(pw)
+        acct.pop("pw", None)
+        acct["updated_at"] = _now_iso()
+
+    def _verify_pw(uid: str, pw: str) -> bool:
+        """계정이 있고 활성이며 비밀번호가 맞는가. 평문 저장분은 맞으면 해시로 승격."""
+        acct = accounts.get(uid)
+        if acct is None or not acct.get("active", True):
+            return False
+        if acct.get("pw_hash"):
+            digest, _ = _hash_pw(pw, bytes.fromhex(acct["salt"]))
+            return secrets.compare_digest(digest, acct["pw_hash"])
+        legacy = str(acct.get("pw", ""))
+        # 바이트 비교 — compare_digest는 비ASCII 문자열을 받지 못한다
+        if legacy and secrets.compare_digest(pw.encode(), legacy.encode()):
+            _set_pw(acct, pw)
+            _save_accounts()
+            return True
+        return False
+
+    def _new_account(uid: str, pw: str, role: str, name: str = "") -> dict:
+        acct = {"role": role, "name": name, "active": True, "created_at": _now_iso()}
+        _set_pw(acct, pw)
+        return acct
+
     if password is not None:
         try:
             accounts = _aj.loads(accounts_path.read_text())
         except (OSError, ValueError):
+            # 부트스트랩: zzaimy(담당자)=기동 비밀번호, zzdev(개발자)=초기 devpass.
+            # 첫 로그인 후 변경한다.
             accounts = {
-                "zzaimy": {"pw": password, "role": "staff"},
-                "zzdev": {"pw": "devpass", "role": "dev"},
+                "zzaimy": _new_account("zzaimy", password, "staff", "담당자"),
+                "zzdev": _new_account("zzdev", "devpass", "dev", "개발자"),
             }
-            accounts_path.write_text(_aj.dumps(accounts, ensure_ascii=False))
-            accounts_path.chmod(0o600)
+            _save_accounts()
 
-    def _save_accounts() -> None:
-        accounts_path.write_text(_aj.dumps(accounts, ensure_ascii=False))
-        accounts_path.chmod(0o600)
 
     def _make_session(user: str, days: int = 7) -> str:
         exp = str(int(_time.time()) + days * 86400)
@@ -162,8 +223,8 @@ def create_app(
         if len(parts) != 3:
             return None
         exp, user, sig = parts
-        if not exp.isdigit() or user not in accounts:
-            return None
+        if not exp.isdigit() or user not in accounts or not accounts[user].get("active", True):
+            return None                       # 비활성 계정의 세션은 그 즉시 무효
         good = _hmac.new(
             session_secret.encode(), f"{exp}.{user}".encode(), hashlib.sha256
         ).hexdigest()
@@ -188,11 +249,7 @@ def create_app(
                 return
             user = _session_user(request.cookies.get("zz_session", ""))
             if user is None and cred is not None:
-                acct = accounts.get(cred.username)
-                # 바이트 비교 — compare_digest는 비ASCII 문자열을 받지 못한다
-                if acct is not None and secrets.compare_digest(
-                    cred.password.encode(), str(acct["pw"]).encode()
-                ):
+                if _verify_pw(cred.username, cred.password):
                     user = cred.username
                 else:
                     raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
@@ -233,6 +290,25 @@ def create_app(
         name="static",
     )
     db = Database(db_path)
+    # 화면에서 고른 모델 서버 주소·모델을 프로세스 전체에 적용 (설정 > 환경변수)
+    from zzaimy.generate import model_config as _mc
+
+    _mc.set_override(db.get_setting("llm_base_url", ""), db.get_setting("llm_model", ""))
+    _mc.configure_usage(Path(db_path).parent / "llm_usage.json")
+    # LLM 연결 목록(내부 vLLM·외부 API) — data/platform/llm_connections.json (0600)
+    from zzaimy.generate import llm_connections as _lc
+
+    _lc.configure(Path(db_path).parent / "llm_connections.json")
+    # NAS 수집 — 원천(계정 포함)·반입 상태 파일, 자동 반입은 켜진 원천이 있을 때만 시작
+    from zzaimy.ingest import nas_sync as _nas
+
+    _nas.configure(Path(db_path).parent / "nas_sources.json", Path(db_path).parent / "nas_state.json")
+    _nas.ensure_scheduler(db, processor, inbox_dir)
+    if not _lc.list_public() and db.get_setting("llm_base_url", ""):
+        # 예전 '모델 서버 주소' 설정은 내부 vLLM 연결 하나로 옮긴다
+        _old = _lc.add("내부 vLLM", "vllm", db.get_setting("llm_base_url", ""),
+                       db.get_setting("llm_model", ""), "")
+        _lc.activate(_old["id"])
     app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
 
     @app.on_event("startup")
@@ -268,6 +344,7 @@ def create_app(
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
     templates.env.globals["decision_labels"] = DECISION_LABELS
     templates.env.globals["sector_labels"] = SECTOR_LABELS
+    templates.env.globals["quality_kind_labels"] = QUALITY_KIND_LABELS
 
     import re as _re
 
@@ -288,7 +365,14 @@ def create_app(
         for d in pending:
             by_type[d["doc_type"]] = by_type.get(d["doc_type"], 0) + 1
         failed = db.failed_documents(owner=owner)
+        from zzaimy.generate import model_config as _mc2
+
+        try:
+            llm_status = _mc2.status()
+        except Exception:
+            llm_status = {"ok": False, "configured": False, "model": "", "models": [], "error": "확인 실패"}
         return {
+            "llm_status": llm_status,
             "chat_sessions": db.list_chat_sessions(owner=owner),
             "pending_docs": pending[:8],
             "pending_count": len(pending),
@@ -308,6 +392,7 @@ def create_app(
         q: str | None = None,
         project: int | None = None,
         flt: str | None = None,
+        page: int = 0,
     ):
         doc_type = type if type in INBOX_TYPES else None
         all_docs = [
@@ -338,6 +423,11 @@ def create_app(
             ]
         else:
             flt = None
+        # 페이징 — 표시 목록만 자른다(위 통계는 전체 기준 유지). "최근 N건"이 아니라 이어보기.
+        PER = 30
+        page = max(page, 0)
+        total_docs = len(docs)
+        docs = docs[page * PER:(page + 1) * PER]
         projects = db.list_projects(doc_type) if doc_type else []
         recent = db.recent_activity() if doc_type is None else []
         # 섹터 화면에서는 그 섹터의 기준 문서(공고 등)를 접수 대상 선택지로 제공
@@ -355,6 +445,8 @@ def create_app(
                 "sector_criteria": sector_criteria,
                 "projects": projects, "active_project": project,
                 "stats": stats, "active_flt": flt, "recent_activity": recent,
+                "page": page, "per": PER, "total_docs": total_docs,
+                "has_next": (page + 1) * PER < total_docs,
             }),
         )
 
@@ -373,9 +465,36 @@ def create_app(
             "chat.html",
             ctx(request, {
                 "messages": [], "criteria_docs": _criteria_docs(),
-                "waiting": False, "session_id": None,
+                "waiting": False, "session_id": None, "sources": [],
+                "recommended_criteria": [],
             }),
         )
+
+    def _recommended_criteria(session_id: int | None, messages: list) -> list[int]:
+        """이 대화에 맞는 기준 — 프로젝트에 연결된 것, 없으면 오간 말과 겹치는 것.
+
+        전부 늘어놓으면 고를 수 없다. 맞는 것이 먼저 와야 한다.
+        """
+        import re as _re
+
+        if session_id is not None:
+            session = db.get_chat_session(session_id)
+            if session and session.get("project_id"):
+                ids = db.get_project_criteria_ids(int(session["project_id"]))
+                if ids:
+                    return list(ids)
+        said = " ".join(m.get("content") or "" for m in (messages or [])[-6:])
+        words = {w for w in _re.findall(r"[0-9A-Za-z가-힣]{2,}", said)}
+        if not words:
+            return []
+        scored: list[tuple[int, int]] = []
+        for d in _criteria_docs():
+            hay = set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", d.get("filename") or ""))
+            n = len(words & hay)
+            if n:
+                scored.append((n, d["id"]))
+        scored.sort(reverse=True)
+        return [i for _, i in scored[:6]]
 
     @app.get("/chat/{session_id}", response_class=HTMLResponse)
     def chat_session(request: Request, session_id: int):
@@ -387,6 +506,8 @@ def create_app(
             ctx(request, {
                 "messages": messages, "criteria_docs": _criteria_docs(),
                 "waiting": waiting, "session_id": session_id,
+                "sources": _chat_sources.get(session_id, []),
+                "recommended_criteria": _recommended_criteria(session_id, messages),
             }),
         )
 
@@ -406,7 +527,7 @@ def create_app(
         if doc is None:
             raise HTTPException(404)
         if doc["doc_type"] not in ("ocr", "regulation"):
-            raise HTTPException(400, "맥락 분석은 문서 추출·기준 문서에서 지원한다")
+            raise HTTPException(400, "맥락 분석은 문서 추출·기준 문서에서만 지원합니다")
         db.update_document(doc_id, coverage="분석 중입니다 (30초~1분)")
         background.add_task(processor.analyze, db, doc_id)
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
@@ -416,8 +537,12 @@ def create_app(
         messages = db.list_chats(session_id)
         return {"waiting": bool(messages) and messages[-1]["role"] == "user"}
 
+    # 세션별 최근 검색 근거(연관 자료) — 채팅 사이드바에 노출한다.
+    _chat_sources: dict[int, list] = {}
+
     def _answer_task(
-        session_id: int, q: str, stored: Path | None, criteria: list[int]
+        session_id: int, q: str, stored: Path | None, criteria: list[int],
+        external: bool = False,
     ) -> None:
         # 전송 직후 화면을 돌려주기 위해 무거운 단계(첨부 파싱·LLM)는 백그라운드에서
         attachment_text = None
@@ -428,6 +553,19 @@ def create_app(
                 log_note = f"(첨부 처리 실패: {type(e).__name__})"
                 db.add_chat(session_id, "assistant", f"첨부 문서를 읽지 못했습니다 {log_note}")
                 return
+        # 외부 참조가 필요한 질문이면, 민감정보를 토큰으로 바꿔 외부에서 먼저 처리하고
+        # 되돌린 결과를 교내 모델에 자료로 건넨다. 최종 답은 교내 모델이 만든다.
+        if external:
+            from zzaimy.app.egress import process_external_tokenized
+
+            out = process_external_tokenized(q)
+            if out.get("ok"):
+                q = (f"{q}\n\n[외부에서 받은 참고 자료]\n{out['result']}\n"
+                     "위 자료는 참고용입니다. 교내 규정·공고에 근거해 답하십시오.")
+            else:
+                db.add_chat(session_id, "assistant",
+                            f"외부 참조를 쓰지 못했습니다 — {out.get('error', '사유 미상')}."
+                            " 교내 자료만으로 답합니다.")
         r = responder or _default_responder()
         # 프로젝트에 묶인 세션이면 지침·메모를 맥락으로, 연결 기준을 기본 근거로 쓴다
         session = db.get_chat_session(session_id)
@@ -442,7 +580,11 @@ def create_app(
                 session_id=session_id, project=project,
             )
         except Exception as e:
-            answer = f"응답 생성에 실패했습니다: {type(e).__name__}"
+            from zzaimy.generate.client import describe_llm_error
+
+            answer = describe_llm_error(e) + ". 검색된 근거 자료는 아래에 표시됩니다."
+        # 근거(연관 자료)는 LLM 성공·실패와 무관하게 저장 — 검색은 CPU로 동작
+        _chat_sources[session_id] = list(getattr(r, "last_sources", []) or [])
         db.add_chat(session_id, "assistant", answer)
 
     @app.post("/chat/send")
@@ -454,6 +596,7 @@ def create_app(
         criteria: list[int] = Form([]),
         attachment: UploadFile | None = File(None),
         project_id: int | None = Form(None),
+        external: str = Form(""),
     ):
         q = question.strip()
         if not q:
@@ -478,15 +621,343 @@ def create_app(
         if attachment is not None and attachment.filename:
             suffix = Path(attachment.filename).suffix.lower()
             if suffix not in ALLOWED_EXTENSIONS:
-                raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+                raise HTTPException(400, f"허용되지 않는 파일 형식입니다: {suffix}")
             stored = inbox_dir / f"chat_{uuid.uuid4().hex}{suffix}"
             with stored.open("wb") as out:
                 shutil.copyfileobj(attachment.file, out)
-            shown = f"📎 {attachment.filename}\n{q}"
+            shown = f"[첨부] {attachment.filename}\n{q}"
 
         db.add_chat(session_id, "user", shown)
-        background.add_task(_answer_task, session_id, q, stored, criteria)
+        background.add_task(_answer_task, session_id, q, stored, criteria,
+                            bool(external))
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
+
+    def _strip_attach_prefix(text: str) -> str:
+        """저장된 사용자 메시지에서 첨부 표시줄을 떼고 질문만 남긴다."""
+        if text.startswith("[첨부]") and "\n" in text:
+            return text.split("\n", 1)[1]
+        return text
+
+    @app.get("/chat/{session_id}/messages")
+    def chat_messages(session_id: int):
+        """대화 내용을 JSON 으로 돌려준다 — 페이지를 떠나지 않는 위젯과 갱신에 쓴다."""
+        rows = db.list_chats(session_id)
+        return {
+            "waiting": bool(rows) and rows[-1]["role"] == "user",
+            "messages": [
+                {"id": m["id"], "role": m["role"], "content": m["content"]} for m in rows
+            ],
+        }
+
+    @app.post("/chat/{session_id}/retry")
+    def chat_retry(background: BackgroundTasks, session_id: int):
+        """마지막 답변을 지우고 같은 질문으로 다시 생성한다."""
+        rows = db.list_chats(session_id)
+        if not rows:
+            raise HTTPException(404)
+        if rows[-1]["role"] == "user":
+            return {"ok": False, "error": "답변을 기다리는 중입니다"}
+        question = ""
+        for m in reversed(rows):
+            if m["role"] == "user":
+                question = _strip_attach_prefix(m["content"])
+                break
+        if not question:
+            return {"ok": False, "error": "다시 보낼 질문이 없습니다"}
+        db.delete_chat_message(int(rows[-1]["id"]))
+        criteria: list[int] = []
+        session = db.get_chat_session(session_id)
+        if session and session.get("project_id"):
+            criteria = db.get_project_criteria_ids(int(session["project_id"]))
+        background.add_task(_answer_task, session_id, question, None, criteria)
+        return {"ok": True}
+
+    from zzaimy.generate import llm_connections
+
+    def _find_document(question: str) -> int | None:
+        """말 속에서 어느 문서를 가리키는지 찾는다.
+
+        파일 이름과 문서 정체(사업 이름)의 낱말이 얼마나 겹치는지로 고른다.
+        으뜸이 버금보다 뚜렷하게 앞설 때만 고른다 — 애매하면 고르지 않는다.
+        """
+        import re as _re
+
+        words = {w for w in _re.findall(r"[0-9A-Za-z가-힣]{2,}", question or "")}
+        if not words:
+            return None
+        best, second, best_id = 0, 0, None
+        for d in db.list_documents():
+            name = d.get("filename") or ""
+            hay = set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", name))
+            ident = db.get_doc_identity(d["id"])
+            if ident.get("program"):
+                hay |= set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", ident["program"]))
+            score = len(words & hay)
+            if score > best:
+                best, second, best_id = score, best, d["id"]
+            elif score > second:
+                second = score
+        return best_id if best >= 2 and best > second else None
+
+    def _run_action(key: str, ctx: dict) -> str:
+        """교내에서 끝나고 되돌릴 수 있는 일은 에이전트가 직접 한다.
+
+        한 줄 결과를 돌려준다. 실패해도 대화는 이어져야 하므로 사유만 남긴다.
+        """
+        try:
+            if key == "doc.identity":
+                r = _identify_document(db, int(ctx["doc_id"]))
+                if not r["ok"]:
+                    return f"문서 정체를 읽지 못했습니다 — {r['error']}"
+                return "문서 정체를 정리했습니다 — " + " · ".join(r["identity"].values())
+            if key == "doc.analyze":
+                doc_id = int(ctx["doc_id"])
+                if db.get_document(doc_id) is None:
+                    return "없는 문서입니다"
+                db.update_document(doc_id, coverage="분석 중입니다 (30초~1분)")
+                processor.analyze(db, doc_id)
+                return "맥락을 다시 분석했습니다"
+            if key == "plan.start":
+                doc_id = int(ctx["doc_id"])
+                doc = db.get_document(doc_id)
+                if doc is None:
+                    return "없는 문서입니다"
+                ident = db.get_doc_identity(doc_id)
+                if not ident:
+                    r = _identify_document(db, doc_id)
+                    ident = r.get("identity") or {}
+                name = (ident.get("program") or doc["filename"]).strip()[:60]
+                sector = doc.get("sector") if doc.get("sector") in INBOX_TYPES else "grant"
+                pid = db.create_project(sector, name, owner="zzaimy")
+                db.set_document_project(doc_id, pid)
+                steps = [f"프로젝트 「{name}」를 만들고 공고를 붙였습니다"]
+                if ident.get("organizer") or ident.get("period"):
+                    bits = [v for v in (ident.get("organizer"), ident.get("period"),
+                                        ident.get("scale")) if v]
+                    steps.append("공고에서 확인한 것 — " + " · ".join(bits))
+                return " / ".join(steps) + f" (프로젝트 {pid})"
+            if key == "doc.draft":
+                doc_id = int(ctx["doc_id"])
+                doc = db.get_document(doc_id)
+                if doc is None:
+                    return "없는 문서입니다"
+                db.update_document(doc_id, coverage="초안 작성 중입니다")
+                drafter.generate(db, doc_id)
+                fresh = db.get_document(doc_id) or {}
+                if not (fresh.get("draft") or "").strip():
+                    return f"「{doc['filename']}」 초안을 만들지 못했습니다"
+                return (f"「{doc['filename']}」 초안을 만들었습니다."
+                        f" 문서 화면에서 확인하십시오.")
+            if key in ("llm.test", "llm.catalog"):
+                from zzaimy.generate import llm_connections as _lcm
+
+                cid = str(ctx.get("cid", ""))
+                conn = _lcm.get(cid) if cid else None
+                if conn is None:
+                    return "확인할 연결을 찾지 못했습니다"
+                if key == "llm.test":
+                    pr = _lcm.probe(conn)
+                    _lcm.record_check(cid, pr["ok"],
+                                      f"모델 {len(pr['models'])}개" if pr["ok"] else pr["error"])
+                    return (f"「{conn['name']}」 연결됨 · 모델 {len(pr['models'])}개"
+                            if pr["ok"] else f"「{conn['name']}」 연결 실패 — {pr['error']}")
+                cr = _lcm.fetch_catalog(conn)
+                if not cr["ok"]:
+                    return f"모델 목록을 받지 못했습니다 — {cr['error']}"
+                _lcm.set_catalog(cid, cr["models"], cr["source"])
+                return f"「{conn['name']}」 모델 {len(cr['models'])}개를 받았습니다"
+        except Exception as e:                      # 어떤 실패도 대화를 끊지 않는다
+            return f"처리하지 못했습니다 ({type(e).__name__})"
+        return ""
+
+    def _page_actions(page: str, question: str = "") -> list[dict]:
+        """말과 화면을 보고 지금 할 수 있는 일 — 되돌리기 어려운 일만 단추로 남긴다."""
+        from zzaimy.app import actions as _acts
+
+        extra: dict = {}
+        active = [c for c in llm_connections.list_public() if c.get("active")]
+        if active:
+            extra["cid"] = active[0]["id"]
+        if "doc_id" not in _acts.context_from_page(page):
+            found = _find_document(question)
+            if found is not None:
+                extra["doc_id"] = found
+        return _acts.suggest(question, page, extra)
+
+    @app.post("/chat/ask")
+    def chat_ask(
+        request: Request,
+        background: BackgroundTasks,
+        question: str = Form(...),
+        context: str = Form(""),
+        session_id: int | None = Form(None),
+        page: str = Form(""),
+    ):
+        """화면을 떠나지 않고 묻는다 — 떠 있는 에이전트 창과 글 선택 질문이 쓴다."""
+        q = question.strip()
+        if not q:
+            return {"ok": False, "error": "질문을 입력하세요"}
+        quoted = context.strip()
+        if quoted:
+            if len(quoted) > 1200:
+                quoted = quoted[:1200]
+            asked = f"「{quoted}」\n\n{q}"
+        else:
+            asked = q
+        if session_id is not None and db.get_chat_session(session_id) is not None:
+            last = db.list_chats(session_id, limit=1)
+            if last and last[-1]["role"] == "user":
+                return {"ok": False, "error": "앞선 답변을 기다리는 중입니다", "session_id": session_id}
+        else:
+            session_id = db.create_chat_session(
+                title=q[:60], owner=getattr(request.state, "user", "zzaimy")
+            )
+        db.add_chat(session_id, "user", asked)
+        found = _page_actions(page, q)
+        done: list[str] = []
+        for a in [x for x in found if x.get("auto")][:1]:
+            line = _run_action(a["key"], a.get("ctx") or {})
+            if line:
+                done.append(line)
+                db.add_chat(session_id, "assistant", line)
+        background.add_task(_answer_task, session_id, asked, None, [])
+        return {"ok": True, "session_id": session_id, "done": done,
+                "actions": [x for x in found if not x.get("auto")]}
+
+    def _process_then_identify(db_, doc_id: int, stored) -> None:
+        """접수 처리에 이어 문서의 정체까지 한 번에 읽는다.
+
+        반입 시점에 끝나야 담당자가 문서마다 버튼을 누르지 않는다. 모델이 없거나
+        실패하면 조용히 넘어간다 — 접수 자체가 막히면 안 되기 때문이다.
+        """
+        processor.process(db_, doc_id, stored)
+        try:
+            _identify_document(db_, doc_id)
+        except Exception:
+            pass
+
+    def _identify_document(db_, doc_id: int) -> dict:
+        """문서 본문에서 정체를 인출해 저장한다. 확인된 값이 없으면 저장하지 않는다."""
+        from zzaimy.app import doc_identity as di
+
+        doc = db_.get_document(doc_id)
+        if doc is None:
+            return {"ok": False, "identity": {}, "dropped": [], "error": "없는 문서입니다"}
+        parts = [c.get("content") or "" for c in db_.list_doc_chunks(doc_id)]
+        if not any(p.strip() for p in parts):
+            parts = [r.get("content") or "" for r in db_.list_regulation_chunks()
+                     if r["doc_id"] == doc_id]
+        body = "\n".join(p for p in parts if p.strip()) or (doc.get("masked_text") or "")
+        r = di.extract(body, _identity_call)
+        if r["ok"]:
+            db_.set_doc_identity(doc_id, r["identity"])
+        return r
+
+    def _identity_call(prompt: str) -> str:
+        """정체 파악에 쓰는 모델 호출 — 기본 연결을 그대로 쓴다."""
+        from zzaimy.generate.client import VllmClient
+
+        c = VllmClient()
+        r = c.client.chat.completions.create(
+            model=c.model, temperature=0.0, max_tokens=1200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return r.choices[0].message.content or ""
+
+    @app.post("/doc/{doc_id}/identity")
+    def doc_identity(doc_id: int):
+        """이 문서가 어떤 사업에 관한 것인지 본문에서 인출한다.
+
+        값은 모두 본문과 대조해 확인된 것만 남긴다. 확인되지 않은 값은 버리고
+        버린 이유를 함께 돌려준다 — 근거 없는 값이 화면에 남으면 안 되기 때문이다.
+        """
+        from urllib.parse import quote as _q
+
+        if db.get_document(doc_id) is None:
+            raise HTTPException(404)
+        r = _identify_document(db, doc_id)
+        return RedirectResponse(
+            f"/doc/{doc_id}?" + ("ok=" if r["ok"] else "err=")
+            + _q(("문서 정체를 정리했습니다 — " + " · ".join(r["identity"].values()))
+                 if r["ok"] else r["error"]),
+            status_code=303,
+        )
+
+    @app.get("/graph/evidence")
+    def graph_evidence(kind: str = "", s: str = "", t: str = "", term: str = ""):
+        """두 문서를 이은 근거 문장 — 미리보기 앞부분이 아니라 본문 전체에서 찾는다.
+
+        s 는 출처 문서 노드(dN), t 는 상대 노드, term 은 화면이 이미 아는 표현이다.
+        term 이 없고 인용 관계이면 상대 문서의 규정 제목을 근거 표현으로 삼는다.
+        """
+        if not s.startswith("d") or not s[1:].isdigit():
+            return {"ok": False, "term": "", "quotes": [], "n": 0, "error": "출처 문서가 아닙니다"}
+        src_id = int(s[1:])
+        reg_rows = db.list_regulation_chunks()
+
+        needle = (term or "").strip()
+        if not needle and kind == "cites" and t.startswith("d") and t[1:].isdigit():
+            dst_id = int(t[1:])
+            for c in reg_rows:
+                if c["doc_id"] == dst_id and (c.get("reg_title") or "").strip():
+                    needle = c["reg_title"].strip()
+                    break
+        if not needle:
+            return {"ok": False, "term": "", "quotes": [], "n": 0,
+                    "error": "근거로 삼을 표현을 찾지 못했습니다"}
+
+        blocks: list[tuple[str, str]] = [
+            ((c.get("heading") or "").strip(), c.get("content") or "")
+            for c in reg_rows if c["doc_id"] == src_id
+        ]
+        if not blocks:
+            blocks = [((c.get("kind") or "").strip(), c.get("content") or "")
+                      for c in db.list_doc_chunks(src_id)]
+
+        quotes: list[dict] = []
+        hits = 0
+        for heading, body in blocks:
+            start = body.find(needle)
+            while start >= 0:
+                hits += 1
+                if len(quotes) < 3:
+                    left = max(0, start - 90)
+                    right = min(len(body), start + len(needle) + 150)
+                    quotes.append({
+                        "heading": heading,
+                        "text": ("…" if left else "") + body[left:right].strip()
+                                + ("…" if right < len(body) else ""),
+                    })
+                start = body.find(needle, start + len(needle))
+        return {"ok": bool(hits), "term": needle, "quotes": quotes, "n": hits,
+                "error": "" if hits else "본문에서 이 표현을 찾지 못했습니다"}
+
+    @app.get("/chat/peek/{doc_id}")
+    def chat_doc_peek(doc_id: int):
+        """문서를 화면 안에서 바로 훑어본다 — 다른 페이지로 옮겨가지 않게 한다."""
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        chunks = db.list_doc_chunks(doc_id)
+        parts: list[str] = []
+        total = 0
+        for c in chunks:
+            text = (c.get("content") or "").strip()
+            if not text:
+                continue
+            parts.append(text)
+            total += len(text)
+            if total >= 2400:
+                break
+        return {
+            "id": doc_id,
+            "title": doc.get("filename", ""),
+            "sector": SECTOR_LABELS.get(doc.get("sector", ""), doc.get("sector", "")),
+            "doc_type": doc.get("doc_type", ""),
+            "status": doc.get("status", ""),
+            "n_chunks": len(chunks),
+            "text": "\n\n".join(parts),
+        }
 
     @app.get("/criteria", response_class=HTMLResponse)
     def criteria(request: Request):
@@ -506,12 +977,12 @@ def create_app(
         link_project_id: int | None = Form(None),
     ):
         if sector not in SECTOR_LABELS:
-            raise HTTPException(400, f"알 수 없는 업무 영역: {sector}")
+            raise HTTPException(400, f"알 수 없는 업무 영역입니다: {sector}")
         # 일괄 등록 — 형식 검사를 전부 통과해야 하나라도 저장한다
         for f in file:
             suffix = Path(f.filename or "이름없음").suffix.lower()
             if suffix not in ALLOWED_EXTENSIONS:
-                raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+                raise HTTPException(400, f"허용되지 않는 파일 형식입니다: {suffix}")
         new_ids: list[int] = []
         for f in file:
             name = f.filename or "이름없음"
@@ -523,7 +994,7 @@ def create_app(
                 doc_type="regulation", sector=sector,
             )
             new_ids.append(doc_id)
-            background.add_task(processor.process, db, doc_id, stored)
+            background.add_task(_process_then_identify, db, doc_id, stored)
         # 프로젝트에서 올린 경우 — 등록과 동시에 그 프로젝트에 연결한다
         if link_project_id and db.get_project(link_project_id):
             db.add_project_criteria(link_project_id, new_ids)
@@ -543,9 +1014,9 @@ def create_app(
         sector: str = Form(...), name: str = Form(...), due_date: str = Form(""),
     ):
         if sector not in INBOX_TYPES:
-            raise HTTPException(400, f"알 수 없는 업무 영역: {sector}")
+            raise HTTPException(400, f"알 수 없는 업무 영역입니다: {sector}")
         if not name.strip():
-            raise HTTPException(400, "프로젝트 이름이 필요하다")
+            raise HTTPException(400, "프로젝트 이름을 입력하세요")
         pid = db.create_project(
             sector, name.strip(), due_date=due_date.strip(),
             owner=getattr(request.state, "user", "zzaimy"),
@@ -565,10 +1036,7 @@ def create_app(
         if password is None:
             return RedirectResponse("/", status_code=303)
         uname = username.strip()
-        acct = accounts.get(uname)
-        if acct is None or not secrets.compare_digest(
-            pw.encode(), str(acct["pw"]).encode()
-        ):
+        if not _verify_pw(uname, pw):
             return RedirectResponse("/login?err=1", status_code=303)
         resp = RedirectResponse("/", status_code=303)
         resp.set_cookie(
@@ -620,6 +1088,13 @@ def create_app(
         from markupsafe import Markup as _M
         from markupsafe import escape as _esc
 
+        import re as _mre
+
+        def rich(t: str) -> str:
+            # 이스케이프한 뒤 굵게(**)와 줄바꿈(<br>)만 되살린다 — 생성 문서의 다른 태그는 글자 그대로
+            s2 = _mre.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(_esc(t)))
+            return s2.replace("&lt;br&gt;", "<br>").replace("&lt;br/&gt;", "<br>").replace("&lt;br /&gt;", "<br>")
+
         out: list[str] = []
         lines = text.splitlines()
         i = 0
@@ -649,19 +1124,14 @@ def create_app(
                     rows.append([c.strip() for c in r.strip("|").split("|")])
                 if rows:
                     t = ['<div class="table-scroll"><table class="extract"><tr>']
-                    t += [f"<th>{_esc(c)}</th>" for c in rows[0]]
+                    t += [f"<th>{rich(c)}</th>" for c in rows[0]]
                     t.append("</tr>")
                     for row_cells in rows[1:]:
                         t.append("<tr>" + "".join(
-                            f"<td>{_esc(c)}</td>" for c in row_cells) + "</tr>")
+                            f"<td>{rich(c)}</td>" for c in row_cells) + "</tr>")
                     t.append("</table></div>")
                     out.append("".join(t))
                 continue
-            import re as _mre
-
-            def rich(t: str) -> str:
-                return _mre.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(_esc(t)))
-
             if ln.startswith("# "):
                 out.append(f'<h3 style="margin:18px 0 8px;">{rich(ln[2:])}</h3>')
             elif ln.startswith("## "):
@@ -712,181 +1182,138 @@ def create_app(
         except OSError:
             return ""
 
-    def _dev_stats() -> tuple[list[dict], list[dict]]:
+    def _data_overview() -> dict:
+        """데이터 열람용 통계 개요 — 핵심 지표 타일 + 주요 현황 분해."""
         import sqlite3
 
-        conn = sqlite3.connect(db_path)
-        q = conn.execute
-        n_docs = q("SELECT COUNT(*) FROM documents").fetchone()[0]
-        n_chunks = q("SELECT COUNT(*) FROM doc_chunks").fetchone()[0]
-        n_reg = q("SELECT COUNT(*) FROM regulation_chunks").fetchone()[0]
-        n_corr = q(
-            "SELECT COUNT(*) FROM documents WHERE parse_note LIKE '%오타 교정%'"
-        ).fetchone()[0]
-        n_pres = q(
-            "SELECT COUNT(*) FROM documents WHERE parse_note LIKE '%원문 보존%'"
-        ).fetchone()[0]
-        paths = [
-            {"path": r[0] or "일반", "n": r[1]}
-            for r in q(
-                "SELECT COALESCE(substr(parse_note, 1, 14), '일반'), COUNT(*)"
-                " FROM documents WHERE status='reviewed'"
-                " GROUP BY 1 ORDER BY 2 DESC"
-            ).fetchall()
-        ]
-        conn.close()
-        stats = [
-            {"label": "처리한 문서", "value": n_docs, "sub": f"원문 보존 {n_pres}건"},
-            {"label": "읽어낸 문단·표", "value": n_chunks, "sub": f"오타 교정 {n_corr}건"},
-            {"label": "등록된 규정 문단", "value": n_reg, "sub": "검색이 근거로 쓰는 것"},
-        ]
-        return stats, paths
-
-    def _dev_tables() -> list[dict]:
-        import sqlite3
-
-        conn = sqlite3.connect(db_path)
-        names = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-            " AND name NOT LIKE 'sqlite_%' ORDER BY name"
-        ).fetchall()]
-        out = []
-        for n in names:
-            cnt = conn.execute(f'SELECT COUNT(*) FROM "{n}"').fetchone()[0]
-            out.append({"name": n, "n": cnt})
-        conn.close()
-        return out
-
-    _TABLE_DESC = {
-        "documents": (
-            "접수·등록된 문서 대장. 파일명과 처리 상태를 한 줄씩 기록."
-        ),
-        "doc_chunks": (
-            "문서에서 읽어낸 내용. 한 줄이 문단 또는 표 하나이며, 검색과 초안 작성의 재료가 된다."
-        ),
-        "doc_assets": "문서에서 추출한 그림·스캔 파일의 저장 위치 목록.",
-        "regulation_chunks": (
-            "규정·지침을 검색용 문단으로 나눈 것. 채팅 답변의 근거가 여기서 나온다."
-        ),
-        "chat_sessions": "채팅 대화방 목록.",
-        "chat_messages": "채팅 메시지 전체 기록.",
-        "projects": "사업·공고 단위의 프로젝트 목록.",
-        "project_criteria": "프로젝트별로 연결한 기준 문서 기록.",
-        "project_notes": "프로젝트별 지침과 메모.",
-        "reviews": "담당자가 문서에 남긴 검토 의견.",
-        "settings": "프로필·지침 등 설정 값.",
-    }
-
-    def _browse_table(table: str, q: str, page: int) -> dict:
-        """읽기 전용 브라우즈 — 텍스트 열 전체에 검색어 LIKE, 50행씩 페이지."""
-        import sqlite3
-
-        list_cols = {
-            "documents": ["id", "filename", "doc_type", "status", "owner", "created_at"],
-            "doc_chunks": ["id", "doc_id", "page_no", "kind", "content"],
-            "doc_assets": ["id", "doc_id", "kind", "page_no", "path"],
-            "regulation_chunks": ["id", "doc_id", "heading", "content"],
-            "chat_messages": ["id", "session_id", "role", "content", "created_at"],
-            "chat_sessions": ["id", "title", "project_id", "owner", "created_at"],
-            "projects": ["id", "sector", "name", "due_date", "owner"],
-        }
-        hidden = {
-            "masked_text", "ai_review", "draft", "draft_spec",
-            "suggested_criteria", "coverage", "error",
-        }
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        try:
-            all_cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
-            # 엑셀형: 전체 열 노출. 큐레이션 열을 앞에, 나머지 열을 뒤에 두어
-            # 자주 보는 열이 왼쪽에 오게만 정렬한다(값은 120자로 잘라 그리드가
-            # ellipsis 처리 — 긴 열도 안전). hidden은 이제 정렬 후순위 힌트로만 쓴다.
-            prefer = [c for c in (list_cols.get(table) or []) if c in all_cols]
-            rest = [c for c in all_cols if c not in prefer and c not in hidden]
-            tail = [c for c in all_cols if c not in prefer and c in hidden]
-            cols = prefer + rest + tail
-            where, params = "", []
-            if q.strip():
-                like = " OR ".join(
-                    f'CAST("{c}" AS TEXT) LIKE ?' for c in all_cols
-                )
-                where = f" WHERE {like}"
-                params = [f"%{q.strip()}%"] * len(all_cols)
-            total = conn.execute(
-                f'SELECT COUNT(*) FROM "{table}"{where}', params
-            ).fetchone()[0]
-            sel = ", ".join(f'"{c}"' for c in cols)
-            rows = conn.execute(
-                f'SELECT rowid AS _rid, {sel} FROM "{table}"{where}'
-                f" ORDER BY rowid DESC LIMIT 50 OFFSET ?",
-                [*params, page * 50],
-            ).fetchall()
-            return {
-                "table": table, "cols": cols, "total": total,
-                "n_hidden": len(all_cols) - len(cols),
-                "page": page, "has_next": total > (page + 1) * 50,
-                "rows": [
-                    {"rid": r[0], "vals": [
-                        (str(v)[:10] if c.endswith("_at") or c == "created_at"
-                         else str(v)[:120]) if v is not None else ""
-                        for c, v in zip(cols, r[1:])
-                    ]}
-                    for r in rows
-                ],
-            }
-        except sqlite3.Error as e:
-            return {"table": table, "error": str(e), "cols": [], "rows": [],
-                    "total": 0, "page": 0, "has_next": False}
-        finally:
-            conn.close()
+        q = conn.execute
+
+        def one(sql: str):
+            try:
+                return q(sql).fetchone()[0] or 0
+            except Exception:
+                return 0
+
+        def group(sql: str, labels: dict | None = None) -> list[dict]:
+            try:
+                rows = q(sql).fetchall()
+            except Exception:
+                return []
+            out = []
+            for val, n in rows:
+                key = "" if val is None else str(val)
+                lbl = (labels or {}).get(key) or key or "(미지정)"
+                out.append({"label": lbl, "n": n})
+            return out
+
+        n_docs = one("SELECT COUNT(*) FROM documents")
+        n_reviewed = one("SELECT COUNT(*) FROM documents WHERE status='reviewed'")
+        n_recent = one(
+            "SELECT COUNT(*) FROM documents WHERE created_at >= datetime('now','-7 days')")
+        n_proj = one("SELECT COUNT(*) FROM projects")
+        n_sess = one("SELECT COUNT(*) FROM chat_sessions")
+        n_msg = one("SELECT COUNT(*) FROM chat_messages")
+        n_reg = one("SELECT COUNT(*) FROM regulation_chunks")
+        n_reg_docs = one("SELECT COUNT(DISTINCT doc_id) FROM regulation_chunks")
+        n_ent = one("SELECT COUNT(*) FROM entities")
+        n_ds = one("SELECT COUNT(*) FROM datasets")
+        n_pairs = one("SELECT COALESCE(SUM(n_pairs),0) FROM datasets")
+        n_qr_open = one("SELECT COUNT(*) FROM quality_reports WHERE status='open'")
+        n_egr = one("SELECT COUNT(*) FROM egress_requests")
+
+        tiles = [
+            {"icon": "solar:documents-linear", "label": "접수 문서",
+             "value": n_docs, "sub": f"검토 완료 {n_reviewed} · 최근 7일 {n_recent}"},
+            {"icon": "solar:folder-2-linear", "label": "프로젝트",
+             "value": n_proj, "sub": "사업·공고 단위"},
+            {"icon": "solar:chat-round-line-linear", "label": "대화",
+             "value": n_sess, "sub": f"메시지 {n_msg}건"},
+            {"icon": "solar:book-2-linear", "label": "규정 문단",
+             "value": n_reg, "sub": f"검색 근거 · 문서 {n_reg_docs}종"},
+            {"icon": "solar:structure-linear", "label": "개체(그래프)",
+             "value": n_ent, "sub": "사업·부서·연도 등"},
+            {"icon": "solar:database-linear", "label": "학습 데이터쌍",
+             "value": n_pairs, "sub": f"데이터셋 {n_ds}개"},
+        ]
+        groups = []
+        for title, sql, labels in [
+            ("문서 상태",
+             "SELECT status, COUNT(*) FROM documents GROUP BY status ORDER BY 2 DESC",
+             STATUS_LABELS),
+            ("문서 계열",
+             "SELECT sector, COUNT(*) FROM documents GROUP BY sector ORDER BY 2 DESC",
+             SECTOR_LABELS),
+            ("담당자 판정",
+             "SELECT decision, COUNT(*) FROM documents GROUP BY decision ORDER BY 2 DESC",
+             DECISION_LABELS),
+            ("문서 유형",
+             "SELECT doc_type, COUNT(*) FROM documents GROUP BY doc_type ORDER BY 2 DESC",
+             DOC_TYPE_LABELS),
+        ]:
+            rows = group(sql, labels)
+            if rows:
+                groups.append({"title": title, "rows": rows})
+        if n_qr_open:
+            groups.append({"title": "품질 리포트",
+                           "rows": [{"label": "미해결", "n": n_qr_open}]})
+        if n_egr:
+            groups.append({"title": "외부 AI 참조 (자동 분류)",
+                           "rows": group(
+                               "SELECT verdict, COUNT(*) FROM egress_requests"
+                               " GROUP BY verdict ORDER BY 2 DESC",
+                               EGRESS_VERDICT_LABELS)})
+        conn.close()
+        return {"tiles": tiles, "groups": groups}
 
     @app.get("/dev/db", response_class=HTMLResponse)
     def dev_db(
-        request: Request, table: str = "documents",
-        q: str = "", page: int = 0,
+        request: Request, tab: str = "", q: str = "", type: str = "",
+        doc: int | None = None, table: str = "",
     ):
-        """DB 열람 전용 페이지 — 표 선택, 설명, 검색, 페이지, 행 상세."""
-        tables = _dev_tables()
-        valid = {t["name"] for t in tables}
-        if table not in valid:
-            table = "documents" if "documents" in valid else (
-                tables[0]["name"] if tables else ""
+        """데이터 열람 — 문서 중심 탐색기. 탭: 문서·규정·국고 코퍼스·채팅 기록.
+
+        표·행 덤프 대신 문서 하나의 개요(마스킹 기록)·RAG 조각(임베딩 유무)·그래프
+        연관을 본다. 조립은 zzaimy.app.data_explorer(순수 함수)가 하고, 모델이
+        필요한 검색·그래프 생성은 여기서 함수로 넘긴다. 예전 ?table= 주소는
+        가장 가까운 탭으로 보낸다.
+        """
+        from zzaimy.app import data_explorer as dx
+
+        tab = dx.normalize_tab(tab, table)
+        index = dx.embedding_index()
+        if tab == "docs":
+            def _graph() -> dict | None:
+                from zzaimy.graph.build import build_graph
+
+                try:
+                    return build_graph(db)
+                except Exception:   # 그래프는 부가 정보 — 실패해도 열람은 된다
+                    return None
+
+            view = dx.docs_tab(db, q=q, doc_type=type, doc_id=doc,
+                               graph_fn=_graph, index=index)
+        elif tab == "regulation":
+            def _search(text: str) -> list[dict]:
+                from zzaimy.app.regulations import find_relevant
+
+                return find_relevant(db, text, top_k=10)   # 채팅과 같은 운영 검색 경로
+
+            view = dx.regulation_tab(db, q=q, doc_id=doc, search_fn=_search, index=index)
+        elif tab == "corpus":
+            from zzaimy.app.corpus_search import _CORPUS_NPZ, corpus_hybrid_search
+
+            cdb = Database(_CORPUS_DB) if _CORPUS_DB.exists() else None
+            view = dx.corpus_tab(
+                cdb, q=q, dense_ready=_CORPUS_NPZ.exists(),
+                search_fn=lambda text: corpus_hybrid_search(cdb, text, top_k=15),
             )
-        browse = _browse_table(table, q, max(page, 0)) if table else {
-            "error": "테이블 없음", "cols": [], "rows": [],
-            "total": 0, "page": 0, "has_next": False, "table": "",
-        }
+        else:
+            view = dx.chat_tab(db, sources_by_session=_chat_sources)
         return templates.TemplateResponse(request, "dev_db.html", ctx(request, {
-            "tables": tables,
-            "browse": browse,
-            "q": q,
-            "desc": _TABLE_DESC.get(table, ""),
-            "table_descs": _TABLE_DESC,
-        }))
-
-    @app.get("/dev/db/row", response_class=HTMLResponse)
-    def dev_db_row(request: Request, table: str, rid: int):
-        """행 상세 — 모든 열의 전체 값을 세로로 보여준다 (긴 내용 확인용)."""
-        import sqlite3
-
-        tables = _dev_tables()
-        if table not in {t["name"] for t in tables}:
-            raise HTTPException(404)
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        try:
-            cols = [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]
-            row = conn.execute(
-                f'SELECT * FROM "{table}" WHERE rowid = ?', (rid,)
-            ).fetchone()
-        finally:
-            conn.close()
-        if row is None:
-            raise HTTPException(404)
-        fields = [
-            {"name": c, "value": str(v) if v is not None else ""}
-            for c, v in zip(cols, row)
-        ]
-        return templates.TemplateResponse(request, "dev_db_row.html", ctx(request, {
-            "table": table, "rid": rid, "fields": fields,
+            "tab": tab, "tabs": dx.TABS, "q": q, "type": type, "doc_id": doc,
+            "view": view, "index": index,
+            "overview": _data_overview(),
         }))
 
     def _run_dev_query(sql: str) -> dict:
@@ -910,58 +1337,29 @@ def create_app(
             return {"error": str(e), "sql": sql}
 
     def _dev_progress() -> dict:
+        """구축 현황 — docs/progress.json 의 기능 상태 목록. 영역별 막대는 기능 상태에서
+        계산한 완료 비율(완료/전체)이다. 수기로 적은 퍼센트는 쓰지 않는다(근거 없는 수치 금지)."""
         import json as _pj
-        import math
 
         try:
             data = _pj.loads((_DOCS_DIR / "progress.json").read_text())
         except (OSError, ValueError):
-            return {"updated": "", "tracks": [], "radar": None}
-        tracks = data.get("tracks", [])
-        n = len(tracks)
-        if n >= 3:
-            cx, cy, r = 170.0, 150.0, 110.0
-            pts, axes, rings = [], [], []
-            for i, t in enumerate(tracks):
-                ang = -math.pi / 2 + 2 * math.pi * i / n
-                frac = max(0, min(100, int(t.get("pct", 0)))) / 100.0
-                pts.append(f"{cx + r * frac * math.cos(ang):.1f},"
-                           f"{cy + r * frac * math.sin(ang):.1f}")
-                axes.append({
-                    "x2": cx + r * math.cos(ang), "y2": cy + r * math.sin(ang),
-                    "lx": cx + (r + 24) * math.cos(ang),
-                    "ly": cy + (r + 24) * math.sin(ang) + 4,
-                    "label": t["name"].split(" (")[0][:10],
-                })
-            for frac in (0.25, 0.5, 0.75, 1.0):
-                ring = [
-                    f"{cx + r * frac * math.cos(-math.pi / 2 + 2 * math.pi * i / n):.1f},"
-                    f"{cy + r * frac * math.sin(-math.pi / 2 + 2 * math.pi * i / n):.1f}"
-                    for i in range(n)
-                ]
-                rings.append(" ".join(ring))
-            data["radar"] = {"points": " ".join(pts), "axes": axes,
-                             "rings": rings, "cx": cx, "cy": cy}
-        else:
-            data["radar"] = None
+            return {"updated": "", "features": [], "areas": []}
+        feats = data.get("features", [])
+        order: list[str] = []
+        agg: dict[str, dict] = {}
+        for f in feats:
+            area = f.get("area") or "기타"
+            if area not in agg:
+                agg[area] = {"name": area, "done": 0, "total": 0}
+                order.append(area)
+            agg[area]["total"] += 1
+            if f.get("status") == "done":
+                agg[area]["done"] += 1
+        for a in agg.values():
+            a["pct"] = round(100 * a["done"] / a["total"]) if a["total"] else 0
+        data["areas"] = [agg[k] for k in order]
         return data
-
-    def _md_last_table(text: str) -> dict | None:
-        rows = [
-            [c.strip() for c in ln.strip().strip("|").split("|")]
-            for ln in text.splitlines()
-            if ln.strip().startswith("|") and not set(ln) <= set("|-: ")
-        ]
-        if len(rows) < 2:
-            return None
-        return {"cols": rows[0], "rows": rows[1:]}
-
-    def _md_meta_line(text: str, prefix: str = "측정일") -> str:
-        for ln in text.splitlines():
-            if ln.strip().startswith(prefix):
-                out = ln.strip()
-                return out[:96] + "…" if len(out) > 96 else out
-        return ""
 
     def _dev_doc_list(sub: str) -> list[dict]:
         """decisions/notes 목록 — 파일명 대신 문서 첫 제목을 보여준다."""
@@ -984,6 +1382,26 @@ def create_app(
 
     def _dev_now() -> str:
         return _dev_read("dev-now.md")
+
+    def _dev_now_parts() -> dict:
+        """dev-now.md 를 허브용과 이력용으로 나눈다.
+
+        허브(/dev)에는 '최근 작업' 중 최신 날짜 한 묶음만 보이고,
+        변경 이력(/dev/history)에는 전체를 보인다.
+        """
+        text = _dev_now()
+        head, sep, recent = text.partition("\n## 최근 작업")
+        if not sep:
+            return {"hub": text, "recent_all": "", "more": False}
+        blocks = [b for b in re.split(r"\n(?=### \S)", recent) if b.strip()]
+        if not blocks:
+            return {"hub": head, "recent_all": "", "more": False}
+        return {
+            "hub": head.rstrip() + "\n\n## 최근 작업\n\n" + blocks[0].strip() + "\n",
+            # 카드 제목이 '작업 기록'이므로 '## 최근 작업' 제목은 되풀이하지 않는다
+            "recent_all": "\n\n".join(b.strip() for b in blocks) + "\n",
+            "more": len(blocks) > 1,
+        }
 
     def _dev_recent_summary() -> list[str]:
         """주간 보고서(LLM 작성)의 '주요 성과' 문장들 — 사람이 읽는 개선 요약."""
@@ -1023,6 +1441,7 @@ def create_app(
         "논문-원재료.md": "논문 정리 노트",
         "실험-로그.md": "실험 기록",
         "논문-양식-가이드.md": "논문 양식 분석",
+        "제안발표-내용.md": "제안 발표 내용",
     }
 
     def _dev_papers() -> list[dict]:
@@ -1033,21 +1452,103 @@ def create_app(
             for n in names
         ]
 
+    def _dev_doc_view(text: str, fname: str) -> dict:
+        """열람 화면(dev_paper.html)용 — _md_view 는 허브 작업 기록과 공용이라 손대지 않고,
+        문서 열람에만 필요한 손질을 앞뒤로 붙인다.
+
+        앞: 줄바꿈으로 감싼(hard-wrap) 문단을 한 줄로 합쳐 문단 하나가 <p> 하나가 되게 한다
+            (펜스 안·표·목록·제목·인용·구분선은 그대로).
+        뒤: 첫 제목(# )은 머리에 보이므로 본문에서 빼고, `인라인 코드`·> 인용을 살리며,
+            ##·### 제목에 id 를 달아 목차를 만든다.
+        """
+        import html as _html
+
+        from markupsafe import Markup as _M
+
+        block = re.compile(r"^(\s*[-*+]\s|#{1,6}\s|\s*\||>|\s*[-*_]{3,}\s*$)")
+        para_start = re.compile(r"^\s*\d+[.)]\s")
+        joined: list[str] = []
+        buf: list[str] = []
+        fence = False
+        for ln in text.splitlines():
+            if ln.lstrip().startswith("```"):
+                fence = not fence
+            if fence or ln.lstrip().startswith("```") or not ln.strip() or block.match(ln):
+                if buf:
+                    joined.append(" ".join(buf))
+                    buf = []
+                joined.append(ln)
+            elif para_start.match(ln):
+                if buf:
+                    joined.append(" ".join(buf))
+                buf = [ln.strip()]
+            else:
+                buf.append(ln.strip())
+        if buf:
+            joined.append(" ".join(buf))
+
+        code_re = re.compile(r"`([^`<>\n]+)`")
+        tag_re = re.compile(r"<[^>]+>")
+        out: list[str] = []
+        toc: list[dict] = []
+        quote: list[str] = []
+        title = ""
+        in_pre = False
+        for raw in str(_md_view("\n".join(joined))).split("\n"):
+            if in_pre or raw.startswith("<pre"):
+                out.append(raw)
+                in_pre = "</pre>" not in raw
+                continue
+            m = re.match(r'<p style="[^"]*">&gt;\s?(.*)</p>$', raw)
+            if m:
+                quote.append("<p>" + code_re.sub(r"<code>\1</code>", m.group(1)) + "</p>")
+                continue
+            if quote:
+                out.append("<blockquote>" + "".join(quote) + "</blockquote>")
+                quote = []
+            raw = code_re.sub(r"<code>\1</code>", raw)
+            if re.match(r'<p style="[^"]*">[-*_]{3,}</p>$', raw):
+                out.append("<hr>")
+                continue
+            if raw.startswith('<div class="table-scroll">'):
+                # 표 칸은 _md_view 가 굵게를 살리지 않는다 — 여기서만 살린다
+                raw = re.sub(r"\*\*([^<>*]+?)\*\*", r"<b>\1</b>", raw)
+            m = re.match(r"<h3 [^>]*>(.*)</h3>$", raw)
+            if m and not title and not out:
+                title = _html.unescape(tag_re.sub("", m.group(1)))
+                continue
+            m = re.match(r"<(h4|h5)\b([^>]*)>(.*)</\1>$", raw)
+            if m:
+                sid = f"s{len(toc) + 1}"
+                toc.append({
+                    "id": sid, "level": 2 if m.group(1) == "h4" else 3,
+                    "text": _html.unescape(tag_re.sub("", m.group(3))),
+                })
+                raw = f'<{m.group(1)} id="{sid}"{m.group(2)}>{m.group(3)}</{m.group(1)}>'
+            out.append(raw)
+        if quote:
+            out.append("<blockquote>" + "".join(quote) + "</blockquote>")
+        return {"title": title or fname, "html": _M("\n".join(out)), "toc": toc}
+
     @app.get("/dev/doc/{name:path}", response_class=HTMLResponse)
     def dev_doc(request: Request, name: str):
         allowed = {
             "embed-v0-report.md", "retrieval-baseline-mini.md",
-            "quality-system.md", "HANDOFF.md",
+            "rerank-baseline.md", "retrieval-weight-sweep.md", "ocr-cer-bench.md",
+            "quality-system.md", "HANDOFF.md", "model-plan.md",
         } | {
             f"{d['sub']}/{d['file']}"
             for sub in ("decisions", "notes") for d in _dev_doc_list(sub)
         }
         if name not in allowed:
             raise HTTPException(404)
+        fname = name.rsplit("/", 1)[-1]
         return templates.TemplateResponse(request, "dev_paper.html", ctx(request, {
-            "fname": name.rsplit("/", 1)[-1],
-            "content": _dev_read(name),
+            "fname": fname,
+            "doc": _dev_doc_view(_dev_read(name), fname),
             "papers": _dev_papers(),
+            # 설계·기술 문서는 논문 자료가 아니라 hwpx·docx 내보내기가 없다(항상 404였음)
+            "show_export": False, "page_title": "설계·기술 문서",
         }))
 
     @app.get("/dev/paper/{name}/export.{fmt}")
@@ -1079,7 +1580,7 @@ def create_app(
         else:
             raise HTTPException(404)
         if payload is None:
-            raise HTTPException(500, "내보내기 실패")
+            raise HTTPException(500, "내보내기에 실패했습니다")
         return Response(payload, media_type=media, headers={
             "Content-Disposition": "attachment; filename*=UTF-8''"
             + _q(f"{title}.{fmt}"),
@@ -1094,95 +1595,265 @@ def create_app(
         if not f.exists():
             raise HTTPException(404)
         return templates.TemplateResponse(request, "dev_paper.html", ctx(request, {
-            "fname": name, "content": f.read_text(encoding="utf-8"),
+            "fname": name, "doc": _dev_doc_view(f.read_text(encoding="utf-8"), name),
             "papers": _dev_papers(),
+            "show_export": True,
         }))
 
     @app.get("/dev", response_class=HTMLResponse)
     def dev_dashboard(request: Request):
-        stats, paths = _dev_stats()
+        # 허브 — 요약과 바로가기만. 상세는 전용 페이지(/dev/quality·/dev/docs·/dev/history)
         return templates.TemplateResponse(request, "dev.html", ctx(request, {
-            "stats": stats,
-            "parse_paths": paths,
-            "dev_now": _dev_now(),
-            "adr_docs": _dev_doc_list("decisions"),
-            "note_docs": _dev_doc_list("notes"),
-            "history": _dev_history(),
-            "recent_summary": _dev_recent_summary(),
+            "overview": _data_overview(),   # 규모 타일 — /dev/db 와 같은 원천
+            "dev_now": _dev_now_parts()["hub"],
+            "dev_now_more": _dev_now_parts()["more"],
             "reindex_needed": (
                 Path(db_path).parent / ".reindex-needed"
             ).exists(),
-            "embed_table": _md_last_table(_dev_read("embed-v0-report.md")),
-            "embed_meta": _md_meta_line(_dev_read("embed-v0-report.md")),
-            "baseline_table": _md_last_table(_dev_read("retrieval-baseline-mini.md")),
-            "baseline_meta": _md_meta_line(_dev_read("retrieval-baseline-mini.md")),
-            "tables": _dev_tables(),
-            "accounts": sorted(accounts) if password is not None else [],
+            "retrieval_eval": _retrieval_eval_state(),   # 카드의 '최근 측정' 한 줄에만 쓴다
             "progress": _dev_progress(),
-            "papers": _dev_papers(),
+            "reindex_running": _reindex_running(),
             "egress": db.egress_stats(),
             "quality": db.quality_report_stats(),
+            "n_papers": len(_dev_papers()),
+            "n_adr": len(_dev_doc_list("decisions")),
+            "n_notes": len(_dev_doc_list("notes")),
+        }))
+
+    @app.get("/dev/quality", response_class=HTMLResponse)
+    def dev_quality(request: Request):
+        """품질·성능 — 규정 검색 정확도(기계 산출물)와 추출 품질 백로그."""
+        return templates.TemplateResponse(request, "dev_quality.html", ctx(request, {
+            "retrieval_eval": _retrieval_eval_state(),
+            "reindex_running": _reindex_running(),
+            "quality": db.quality_report_stats(),
             "quality_open": db.list_quality_reports(status="open", limit=10),
+        }))
+
+    @app.get("/dev/docs", response_class=HTMLResponse)
+    def dev_docs(request: Request):
+        """논문 자료·설계 결정·기술 검토·측정 기록 목록."""
+        date_re = re.compile(r"\d{4}-\d{2}-\d{2}")
+        head_re = re.compile(r"^-\s*\**(상태|날짜)\**\s*:\s*(.+)$")
+
+        def entry(rel: str, href: str, title: str | None = None) -> dict:
+            """문서 머리(첫 8줄)에서 뽑은 한 줄 정보 — ADR 은 '- 상태:'·'- 날짜:' 줄,
+            그 밖에는 머리에 적힌 첫 날짜. 없으면 비워 둔다."""
+            meta = {"status": "", "date": ""}
+            first_date = ""
+            try:
+                head = (_DOCS_DIR / rel).read_text(encoding="utf-8").splitlines()[:8]
+            except OSError:
+                head = []
+            for ln in head:
+                if title is None and ln.startswith("# "):
+                    title = ln[2:].strip()
+                m = head_re.match(ln.strip())
+                if m:
+                    key = "status" if m.group(1) == "상태" else "date"
+                    meta[key] = m.group(2).strip()
+                elif not first_date and (d := date_re.search(ln)):
+                    first_date = d.group(0)
+            if meta["date"] and (d := date_re.search(meta["date"])):
+                meta["date"] = d.group(0)
+            status = re.split(r"\s*[(（]", meta["status"], 1)[0].strip()
+            num = ""
+            title = title or rel.rsplit("/", 1)[-1]
+            if m := re.match(r"^(\d{4})\.\s*(.+)$", title):
+                num, title = m.group(1), m.group(2)
+            return {"href": href, "title": title, "num": num, "status": status,
+                    "date": meta["date"] or first_date}
+
+        return templates.TemplateResponse(request, "dev_docs.html", ctx(request, {
+            "papers": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
+                       for p in _dev_papers()],
+            "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
+                               d["title"]) for d in _dev_doc_list("decisions")],
+            "note_docs": [entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
+                          for d in _dev_doc_list("notes")],
+            # 측정 기록·인수인계는 docs/ 바로 아래 — dev_doc 의 allowed 와 같은 파일들
+            "bench_docs": [entry(f, f"/dev/doc/{f}") for f in (
+                "retrieval-baseline-mini.md", "retrieval-weight-sweep.md",
+                "rerank-baseline.md", "embed-v0-report.md", "ocr-cer-bench.md")],
+            "plan_docs": [entry(f, f"/dev/doc/{f}") for f in (
+                "HANDOFF.md", "model-plan.md", "quality-system.md")],
+        }))
+
+    @app.get("/dev/history", response_class=HTMLResponse)
+    def dev_history_page(request: Request):
+        """변경 이력 — 작업 기록(날짜별) + 주간 보고서 요약 + 커밋 이력 전체 목록."""
+        days = []
+        for blk in re.split(r"\n(?=### )", _dev_now_parts()["recent_all"]):
+            if blk.strip().startswith("### "):
+                head, _, body = blk.strip().partition("\n")
+                days.append({"day": head[4:].strip(), "body": body.strip()})
+        history = [d for d in _dev_history() if re.fullmatch(r"\d{2}-\d{2}", d["day"])]
+        return templates.TemplateResponse(request, "dev_history.html", ctx(request, {
+            "history": history,
+            "history_count": sum(len(d["items"]) for d in history),
+            # 날짜 없는 줄(예: 미커밋 안내)은 목록 밖 각주로
+            "history_notes": [
+                ln[2:].strip() for ln in _dev_read("dev-changelog.md").splitlines()
+                if ln.startswith("- ") and not re.match(r"- \d{2}-\d{2} ", ln)
+            ],
+            "recent_summary": _dev_recent_summary(),
+            "dev_now_days": days,
         }))
 
     _CORPUS_DB = Path("data/platform/corpus_pilot.db")
 
     @app.get("/dev/corpus", response_class=HTMLResponse)
     def dev_corpus(request: Request, q: str = ""):
-        """수집·인제스트한 국고 코퍼스 조각을 요약·검색한다(전용 DB, dev DB와 분리).
+        """국고 코퍼스는 데이터 열람(/dev/db)의 탭으로 합쳤다 — 예전 주소는 그리로 보낸다."""
+        from urllib.parse import urlencode
 
-        임베딩·리랭커 없이 Kiwi 희소검색만 쓴다 — 모델 없이 검색 동작 확인·노출용.
-        dense(KURE)·rerank 품질은 VM 재색인(66) 후 붙는다.
+        params = {"tab": "corpus", **({"q": q.strip()} if q.strip() else {})}
+        return RedirectResponse("/dev/db?" + urlencode(params), status_code=301)
+
+    @app.get("/dev/pii", response_class=HTMLResponse)
+    def dev_pii(request: Request):
+        """개인정보 마스킹 감사 — 기록·자가 점검·잔여 검사 (절대 규칙 3).
+
+        플랫폼 DB와, 옆에 있으면 코퍼스 파일럿 DB(스크립트 74 기본 대상)까지
+        본다. 자가 점검 결과는 DB와 무관하므로 플랫폼 DB settings에만 둔다.
         """
-        from zzaimy.app.regulations import sparse_search
+        from zzaimy.app import pii_audit
 
-        summary = {"exists": _CORPUS_DB.exists(), "docs": 0, "chunks": 0,
-                   "pii": 0, "by_source": []}
-        results: list[dict] = []
-        if _CORPUS_DB.exists():
-            cdb = Database(_CORPUS_DB)
-            with cdb._conn() as conn:
-                summary["docs"] = conn.execute(
-                    "SELECT COUNT(*) FROM documents").fetchone()[0]
-                summary["chunks"] = conn.execute(
-                    "SELECT COUNT(*) FROM regulation_chunks").fetchone()[0]
-                summary["by_source"] = [
-                    {"name": r[0], "n": r[1]} for r in conn.execute(
-                        "SELECT d.filename, COUNT(*) FROM regulation_chunks r"
-                        " JOIN documents d ON d.id = r.doc_id"
-                        " GROUP BY r.doc_id ORDER BY 2 DESC LIMIT 15")]
-            if q.strip():
-                results = sparse_search(cdb, q, top_k=15)
-        return templates.TemplateResponse(request, "dev_corpus.html", ctx(request, {
-            "summary": summary, "q": q, "results": results,
+        sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True)]
+        corpus_path = pii_audit.corpus_db_path(db)
+        if corpus_path is not None:
+            sources.append(pii_audit.source_view(
+                Database(corpus_path), name="국고 코퍼스 (별도 DB)", linkable=False,
+            ))
+        return templates.TemplateResponse(request, "dev_pii.html", ctx(request, {
+            "sources": sources,
+            "selftest": pii_audit.load_json(db, pii_audit.SELFTEST_KEY),
+            "policy": pii_audit.MASK_POLICY,
+            "type_names": {t: name for t, name, *_ in pii_audit.MASK_POLICY},
+            "entity_labels": pii_audit.ENTITY_LABELS,
         }))
+
+    @app.post("/dev/pii/selftest")
+    def dev_pii_selftest():
+        """합성 표본으로 실제 마스커를 검증 — 결과는 settings에 남는다."""
+        from zzaimy.app import pii_audit
+
+        pii_audit.run_selftest(db)
+        return RedirectResponse("/dev/pii", status_code=303)
+
+    @app.post("/dev/pii/scan")
+    def dev_pii_scan():
+        """저장·색인된 본문에 탐지 정규식을 독립 실행 — 잔여 개인정보 검사."""
+        from zzaimy.app import pii_audit
+
+        pii_audit.run_scan(db)
+        corpus_path = pii_audit.corpus_db_path(db)
+        if corpus_path is not None:
+            pii_audit.run_scan(Database(corpus_path))
+        return RedirectResponse("/dev/pii", status_code=303)
+
+    _REINDEX_LOG = Path("/tmp/reindex.log")
+    _reindex_proc: dict = {"p": None}
+
+    def _reindex_running() -> bool:
+        """재색인 체인이 아직 도는가 — 이 프로세스가 띄운 것은 직접, 그 외(앱 재시작 뒤)는
+        로그의 종료 표식과 최근성으로 판단한다."""
+        p = _reindex_proc["p"]
+        if p is not None and p.poll() is None:
+            return True
+        try:
+            if _REINDEX_LOG.exists():
+                tail = _REINDEX_LOG.read_text(encoding="utf-8", errors="ignore")[-400:]
+                fresh = (time.time() - _REINDEX_LOG.stat().st_mtime) < 1800
+                return fresh and "REINDEX_DONE" not in tail and "중단" not in tail
+        except OSError:
+            pass
+        return False
 
     @app.post("/dev/reindex")
     def dev_reindex():
-        """재색인 체인 실행 — 규정 조각 변경 후 질의·임베딩·앱 순차 갱신."""
+        """재색인 체인 실행 — 규정 조각 변경 후 질의·임베딩·앱 순차 갱신.
+
+        두 번 누르면 두 개가 돌던 문제: 실행 중이면 새로 띄우지 않는다(66 자체의
+        flock과 이중 방어). 로그 핸들은 자식이 물려받은 뒤 닫는다."""
         import subprocess
 
+        if _reindex_running():
+            return RedirectResponse("/dev?err=재색인이 이미 실행 중입니다", status_code=303)
         script = Path(__file__).resolve().parents[3] / "scripts" / "66_reindex.sh"
+        with _REINDEX_LOG.open("w") as log_f:
+            _reindex_proc["p"] = subprocess.Popen(
+                ["nohup", "bash", str(script)],
+                stdout=log_f, stderr=subprocess.STDOUT, start_new_session=True,
+            )
+        return RedirectResponse("/dev", status_code=303)
+
+    def _retrieval_eval_state() -> dict:
+        from zzaimy.eval.retrieval_eval import dashboard_state
+
+        return dashboard_state(Path(db_path).parent / "eval")
+
+    @app.post("/dev/eval/run")
+    def dev_eval_run():
+        """규정 검색 품질 재측정 — 재색인과 같은 방식(배경 실행·같은 잠금)으로 53을 돌린다.
+
+        합성 질의 세트가 없으면 실행하지 않고 그 사실을 돌려준다 — 가짜 수치는 없다.
+        """
+        import subprocess
+        import sys
+
+        from zzaimy.eval import retrieval_eval as rev
+
+        if not rev.QUERIES_PATH.exists():
+            return HTMLResponse(f"아직 측정 없음 ({rev.NO_QUERY_SET_MSG})", status_code=409)
+        if rev.running_state(Path(db_path).parent / "eval"):
+            return HTMLResponse("이미 측정 중입니다", status_code=409)
+        root = Path(__file__).resolve().parents[3]
         subprocess.Popen(
-            ["nohup", "bash", str(script)],
-            stdout=open("/tmp/reindex.log", "w"),
+            ["nohup", sys.executable, str(root / "scripts" / "53_eval_retrieval.py"),
+             "--db", str(Path(db_path).resolve())],
+            stdout=open(rev.LOG_PATH, "w"),
             stderr=subprocess.STDOUT,
             start_new_session=True,
+            cwd=root,
+            env={**os.environ, "PYTHONPATH": str(root / "src")},
         )
         return RedirectResponse("/dev", status_code=303)
 
-    @app.post("/dev/account")
-    def dev_account(target: str = Form(...), new_pw: str = Form(...)):
-        """계정 비밀번호 변경 — 개발자 화면 전용 (경로 가드로 dev만 도달)."""
+    @app.post("/account/password")
+    def account_password(
+        request: Request, current_pw: str = Form(""), new_pw: str = Form(...),
+        confirm: str = Form(""), back: str = Form("/"),
+    ):
+        """내 비밀번호 변경 — 로그인한 본인 계정만. 현재 비밀번호를 맞혀야 바꿀 수 있다."""
         if password is None:
             raise HTTPException(400, "인증 없는 로컬 모드에서는 계정이 없습니다")
-        if target not in accounts:
-            raise HTTPException(404, "없는 계정")
-        if len(new_pw) < 4:
-            raise HTTPException(400, "비밀번호는 4자 이상")
-        accounts[target]["pw"] = new_pw
+        uid = getattr(request.state, "user", "")
+        dest = back if back.startswith("/") and not back.startswith("//") else "/"
+        sep = "&" if "?" in dest else "?"
+        if not _verify_pw(uid, current_pw):
+            return RedirectResponse(
+                f"{dest}{sep}err=현재 비밀번호가 맞지 않습니다", status_code=303)
+        if len(new_pw) < 8:
+            return RedirectResponse(
+                f"{dest}{sep}err=새 비밀번호는 8자 이상이어야 합니다", status_code=303)
+        if new_pw != confirm:
+            return RedirectResponse(
+                f"{dest}{sep}err=새 비밀번호 확인이 일치하지 않습니다", status_code=303)
+        _set_pw(accounts[uid], new_pw)
         _save_accounts()
-        return RedirectResponse("/dev", status_code=303)
+        return RedirectResponse(f"{dest}{sep}ok=비밀번호를 변경했습니다", status_code=303)
+
+    # ---- 학습 도구 계정·연결 — 모델 학습 화면의 도구 카드에서 다룬다 ----
+
+    def _train_redirect(msg: str, ok: bool = True) -> RedirectResponse:
+        return RedirectResponse(f"/dev/train?{'ok' if ok else 'err'}={msg}", status_code=303)
+
+    @app.get("/dev/accounts")
+    def dev_accounts_moved():
+        # 예전 주소 — 도구 계정·연결은 모델 학습 화면으로 합쳤다
+        return RedirectResponse("/dev/train", status_code=301)
+
 
     # ---- 한글 실시간 편집 에이전트 — 서버 채널 (tools/hwp-agent/protocol.md) ----
     #
@@ -1195,7 +1866,7 @@ def create_app(
     def _hwp_session(session: str) -> dict:
         sess = hwp_sessions.get(session)
         if sess is None:
-            raise HTTPException(403, "등록되지 않은 에이전트 세션")
+            raise HTTPException(403, "등록되지 않은 에이전트 세션입니다")
         return sess
 
     @app.post("/hwp/agent/register")
@@ -1206,11 +1877,11 @@ def create_app(
         good = db.get_setting("hwp_agent_token")
         token = str(payload.get("token") or "")
         if not good or not secrets.compare_digest(token.encode(), good.encode()):
-            raise HTTPException(403, "토큰 불일치 — /dev/hwp에서 발급한 토큰 필요")
+            raise HTTPException(403, "접속 키 불일치 — /dev/hwp에서 발급한 접속 키가 필요합니다")
         session = secrets.token_hex(8)
         hwp_sessions[session] = {
             "commands": [], "results": [], "registered": _t.time(),
-            "last_poll": _t.time(),
+            "last_poll": _t.time(), "version": str(payload.get("version") or ""),
         }
         return {"session": session, "poll_after": 0}
 
@@ -1220,7 +1891,7 @@ def create_app(
         코드가 바뀌어도 재다운로드 없이 시작.bat 재실행만으로 최신이 된다."""
         agent_py = Path(__file__).resolve().parents[3] / "tools" / "hwp-agent" / "hwp_agent.py"
         if not agent_py.exists():
-            raise HTTPException(404, "에이전트 코드 없음")
+            raise HTTPException(404, "에이전트 코드가 없습니다")
         from fastapi.responses import PlainTextResponse
 
         return PlainTextResponse(agent_py.read_text(encoding="utf-8"))
@@ -1275,9 +1946,9 @@ def create_app(
         try:
             data = _b64.b64decode(payload.get("b64") or "")
         except Exception:
-            raise HTTPException(400, "잘못된 산출물 데이터")
+            raise HTTPException(400, "산출물 데이터가 잘못되었습니다")
         if not data:
-            raise HTTPException(400, "빈 산출물")
+            raise HTTPException(400, "산출물이 비어 있습니다")
         _HWP_ARTIFACTS.mkdir(parents=True, exist_ok=True)
         aid = secrets.token_hex(8)
         (_HWP_ARTIFACTS / f"{aid}.{ext}").write_bytes(data)
@@ -1290,10 +1961,10 @@ def create_app(
         from fastapi.responses import FileResponse
 
         if "/" in fname or "\\" in fname or ".." in fname:
-            raise HTTPException(400, "잘못된 파일명")
+            raise HTTPException(400, "파일명이 잘못되었습니다")
         p = _HWP_ARTIFACTS / fname
         if not p.exists():
-            raise HTTPException(404, "산출물 없음")
+            raise HTTPException(404, "산출물이 없습니다")
         media = {"pdf": "application/pdf",
                  "hwpx": "application/haansofthwpx",
                  "hwp": "application/x-hwp"}.get(
@@ -1303,26 +1974,54 @@ def create_app(
             str(p), media_type=media,
             headers={"Content-Disposition": f'{disp}; filename="{fname}"'})
 
+    @app.get("/hwp/artifact/{fname}")
+    def hwp_artifact_public(fname: str):
+        """회수된 한글 산출물 서빙(로그인 담당자용) — /dev 밖이라 staff도 본다."""
+        return hwp_artifact_get(fname)
+
+    @app.get("/hwp/latest-artifact")
+    def hwp_latest_artifact_public():
+        """가장 최근 PDF 산출물(담당자용). url은 비-dev 경로로 돌려준다."""
+        if not hwp_sessions:
+            return {"url": None}
+        _sid, s = max(hwp_sessions.items(), key=lambda kv: kv[1]["registered"])
+        pdfs = [a for a in (s.get("artifacts") or [])
+                if a.get("format") == "pdf" and a.get("url")]
+        if not pdfs:
+            return {"url": None}
+        fname = str(pdfs[-1]["url"]).rsplit("/", 1)[-1]
+        return {"url": f"/hwp/artifact/{fname}"}
+
     # 개발자 화면 — 토큰 발급·상태·명령 콘솔 (LLM 없이도 실시간 데모 가능)
 
     _HWP_OPS = {
         "ping", "new_doc", "open", "list_docs", "select_doc", "goto",
         "set_title", "find", "insert_text", "replace", "insert_table",
-        "fill_table", "set_format", "delete_text", "delete_table",
-        "get_text", "save", "save_as", "export_artifact",
+        "fill_table", "set_format", "set_page", "delete_text", "delete_table",
+        "get_text", "save", "save_as", "export_artifact", "open_bytes",
     }
 
     def _hwp_send(op: str, args: dict) -> bool:
         """가장 최근 연결 에이전트로 명령 전송. 연결 없으면 False."""
         return _hwp_send_many([{"op": op, "args": args}])
 
+    # 미리보기 갱신이 필요 없는(문서를 바꾸지 않는) op
+    _HWP_NO_EXPORT = {"ping", "list_docs", "get_text", "find", "goto",
+                      "export_artifact"}
+
     def _hwp_send_many(ops: list[dict]) -> bool:
         """op 시퀀스를 한 번에 큐잉한다(문서 저작처럼 순서가 중요한 흐름).
-        연결된 에이전트가 없으면 False."""
+        연결된 에이전트가 없으면 False. 문서를 바꾸는 배치 끝에는
+        export_artifact(PDF)를 자동으로 붙여, 작업 완료 시 미리보기가
+        최신본으로 갱신되게 한다."""
         if not hwp_sessions:
             return False
         _sid, sess = max(hwp_sessions.items(), key=lambda kv: kv[1]["registered"])
-        for o in ops:
+        queue = list(ops)
+        names = {o["op"] for o in queue}
+        if (names - _HWP_NO_EXPORT) and "export_artifact" not in names:
+            queue.append({"op": "export_artifact", "args": {"format": "pdf"}})
+        for o in queue:
             sess["commands"].append({
                 "id": f"cmd-{secrets.token_hex(3)}",
                 "op": o["op"], "args": o.get("args", {}),
@@ -1341,7 +2040,7 @@ def create_app(
 
         doc = db.get_document(doc_id)
         if doc is None or not (doc.get("draft") or "").strip():
-            raise HTTPException(404, "초안 없음")
+            raise HTTPException(404, "초안이 없습니다")
         if not hwp_sessions:
             return RedirectResponse(f"/doc/{doc_id}?hwp=none", status_code=303)
         seq = author_sequence(doc["draft"],
@@ -1349,15 +2048,259 @@ def create_app(
         _hwp_send_many(seq)
         return RedirectResponse(f"/doc/{doc_id}?hwp=sent", status_code=303)
 
+    # ---- NAS 수집 — 읽기 전용 공유 폴더에서 기준 문서·문서 추출로 자동 반입 (개발자 전용) ----
+
+    def _nas_redirect(msg: str, ok: bool = True) -> RedirectResponse:
+        return RedirectResponse(f"/dev/nas?{'ok' if ok else 'err'}={msg}", status_code=303)
+
+    @app.get("/dev/nas", response_class=HTMLResponse)
+    def dev_nas(request: Request, ok: str = "", err: str = "", probe: str = "", plan: str = ""):
+        from zzaimy.ingest import nas_sync
+
+        probe_result = plan_result = None
+        if probe:
+            src = nas_sync.get(probe)
+            probe_result = {"name": src["name"], **nas_sync.probe(src)} if src else None
+        if plan:
+            src = nas_sync.get(plan)
+            plan_result = {"name": src["name"], **nas_sync.plan(src)} if src else None
+        smb_ok = True
+        try:
+            import smbclient  # noqa: F401
+        except ImportError:
+            smb_ok = False
+        return templates.TemplateResponse(request, "dev_nas.html", ctx(request, {
+            "ok": ok, "err": err, "sources": nas_sync.list_public(),
+            "backends": nas_sync.BACKENDS, "targets": nas_sync.TARGETS, "sectors": nas_sync.SECTORS,
+            "default_exts": " ".join(nas_sync.DEFAULT_EXTENSIONS), "probe_result": probe_result,
+            "plan_result": plan_result, "type_groups": nas_sync.TYPE_GROUPS, "smb_ok": smb_ok,
+        }))
+
+    def _nas_form_bits(ext_group: list[str], interval_min: int) -> tuple[str, bool, int]:
+        # 확장자 묶음 칩 → 확장자 목록, 자동 반입 선택(0=끔) → (auto, interval)
+        exts = " ".join(ext_group)
+        return exts, interval_min > 0, (interval_min if interval_min > 0 else 60)
+
+    @app.post("/dev/nas/probe-draft")
+    def dev_nas_probe_draft(backend: str = Form("local"), root: str = Form(""), username: str = Form(""),
+                            password: str = Form(""), domain: str = Form(""), ext_group: list[str] = Form([]),
+                            recursive: str = Form("1")):
+        """저장 전에 입력한 값으로 연결을 확인한다 — 목록만 읽고 아무것도 저장하지 않는다."""
+        from zzaimy.ingest import nas_sync
+
+        exts, _auto, _iv = _nas_form_bits(ext_group, 0)
+        draft = {"id": "draft", "name": "확인", "backend": backend, "root": root.strip(), "username": username.strip(),
+                 "password": password, "domain": domain.strip(), "extensions": nas_sync._norm_exts(exts),
+                 "recursive": recursive == "1"}
+        if backend not in nas_sync.BACKENDS or not draft["root"]:
+            return {"ok": False, "n_all": 0, "n_match": 0, "sample": [], "error": "방식과 경로를 먼저 적어 주세요"}
+        return nas_sync.probe(draft, limit=5)
+
+    def _nas_draft(backend, root, username, password, domain, ext_group, recursive, since="", exclude="", max_mb=0,
+                   sid: str = "") -> dict:
+        from zzaimy.ingest import nas_sync
+
+        exts, _a, _i = _nas_form_bits(ext_group, 0)
+        return {"id": sid or "draft", "name": "확인", "backend": backend, "root": root.strip(),
+                "username": username.strip(), "password": password, "domain": domain.strip(),
+                "extensions": nas_sync._norm_exts(exts), "recursive": recursive == "1",
+                "since": since.strip(), "exclude": nas_sync._norm_excludes(exclude), "max_mb": int(max_mb or 0)}
+
+    @app.post("/dev/nas/browse-draft")
+    def dev_nas_browse_draft(backend: str = Form("local"), root: str = Form(""), username: str = Form(""),
+                             password: str = Form(""), domain: str = Form(""), recursive: str = Form("1"),
+                             rel: str = Form("")):
+        """입력한 경로의 하위 폴더와 파일 종류별 개수 — 목록만 읽는다."""
+        from zzaimy.ingest import nas_sync
+
+        if backend not in nas_sync.BACKENDS or not root.strip():
+            return {"ok": False, "dirs": [], "counts": {}, "n_files": 0, "other": 0, "error": "방식과 경로를 먼저 적어 주세요"}
+        draft = _nas_draft(backend, root, username, password, domain, [], recursive)
+        rel = rel.strip().strip("/\\")
+        if ".." in rel.split("/") or ".." in rel.split("\\"):
+            return {"ok": False, "dirs": [], "counts": {}, "n_files": 0, "other": 0, "error": "잘못된 경로"}
+        return nas_sync.browse(draft, rel)
+
+    @app.post("/dev/nas/plan-draft")
+    def dev_nas_plan_draft(backend: str = Form("local"), root: str = Form(""), username: str = Form(""),
+                           password: str = Form(""), domain: str = Form(""), ext_group: list[str] = Form([]),
+                           recursive: str = Form("1"), since: str = Form(""), exclude: str = Form(""),
+                           max_mb: int = Form(0), sid: str = Form("")):
+        """저장 전 반입 미리보기 — 새로 들어올 파일 수와 예시(읽지 않음)."""
+        from zzaimy.ingest import nas_sync
+
+        if backend not in nas_sync.BACKENDS or not root.strip():
+            return {"ok": False, "new": 0, "same": 0, "skipped": 0, "sample": [], "error": "방식과 경로를 먼저 적어 주세요"}
+        return nas_sync.plan(_nas_draft(backend, root, username, password, domain, ext_group, recursive,
+                                        since, exclude, max_mb, sid=sid))
+
+    @app.post("/dev/nas/{sid}/plan")
+    def dev_nas_plan(sid: str):
+        return RedirectResponse(f"/dev/nas?plan={sid}", status_code=303)
+
+    @app.post("/dev/nas/add")
+    def dev_nas_add(name: str = Form(""), backend: str = Form("local"), root: str = Form(""),
+                    target: str = Form("regulation"), sector: str = Form("common"),
+                    username: str = Form(""), password: str = Form(""), domain: str = Form(""),
+                    ext_group: list[str] = Form([]), extensions: str = Form(""), recursive: str = Form("1"),
+                    auto: str = Form(""), interval_min: int = Form(0), since: str = Form(""),
+                    exclude: str = Form(""), max_mb: int = Form(0)):
+        from zzaimy.ingest import nas_sync
+
+        exts, is_auto, iv = _nas_form_bits(ext_group, interval_min)
+        if not exts:
+            exts = extensions
+        if auto == "1":
+            is_auto, iv = True, (interval_min or 60)
+        try:
+            src = nas_sync.add(name, backend, root, target, sector=sector, username=username,
+                               password=password, domain=domain, extensions=exts,
+                               recursive=(recursive == "1"), auto=is_auto, interval_min=iv,
+                               since=since, exclude=exclude, max_mb=max_mb)
+        except ValueError as e:
+            return _nas_redirect(str(e), ok=False)
+        nas_sync.ensure_scheduler(db, processor, inbox_dir)
+        return _nas_redirect(f"폴더 「{src['name']}」을 연결했습니다")
+
+    @app.post("/dev/nas/{sid}/update")
+    def dev_nas_update(sid: str, name: str = Form(""), root: str = Form(""), target: str = Form(""),
+                       sector: str = Form(""), username: str = Form(""), password: str = Form(""),
+                       domain: str = Form(""), ext_group: list[str] = Form([]), extensions: str = Form(""),
+                       recursive: str = Form("1"), auto: str = Form(""), interval_min: int = Form(0),
+                       since: str = Form(""), exclude: str = Form(""), max_mb: int = Form(0)):
+        from zzaimy.ingest import nas_sync
+
+        exts, is_auto, iv = _nas_form_bits(ext_group, interval_min)
+        if not exts:
+            exts = extensions
+        if auto == "1":
+            is_auto, iv = True, (interval_min or 60)
+        try:
+            src = nas_sync.update(sid, name=name, root=root, target=target or None, sector=sector or None,
+                                  username=username, password=password, domain=domain,
+                                  extensions=exts or None, recursive=(recursive == "1"),
+                                  auto=is_auto, interval_min=iv, since=since, exclude=exclude, max_mb=max_mb)
+        except ValueError as e:
+            return _nas_redirect(str(e), ok=False)
+        nas_sync.ensure_scheduler(db, processor, inbox_dir)
+        return _nas_redirect(f"폴더 「{src['name']}」 설정을 저장했습니다")
+
+    @app.post("/dev/nas/{sid}/delete")
+    def dev_nas_delete(sid: str):
+        from zzaimy.ingest import nas_sync
+
+        nas_sync.delete(sid)
+        return _nas_redirect("폴더 연결을 지웠습니다 (이미 가져온 문서는 그대로)")
+
+    @app.post("/dev/nas/{sid}/probe")
+    def dev_nas_probe(sid: str):
+        return RedirectResponse(f"/dev/nas?probe={sid}", status_code=303)
+
+    @app.post("/dev/nas/{sid}/sync")
+    def dev_nas_sync(sid: str, wait: str = Form("")):
+        """반입 시작 — 보통은 백그라운드, wait=1 이면 끝날 때까지 기다린다(점검·테스트용)."""
+        from zzaimy.ingest import nas_sync
+
+        src = nas_sync.get(sid)
+        if src is None:
+            return _nas_redirect("없는 폴더입니다", ok=False)
+        if wait == "1":
+            r = nas_sync.sync(src, db, processor, inbox_dir)
+            nas_sync._runs[sid] = {"running": False, "started": "", "progress": "", "last": r}
+            return _nas_redirect(f"「{src['name']}」 가져오기 완료 — {r.get('summary') or r.get('error')}")
+        if not nas_sync.start_sync(src, db, processor, inbox_dir):
+            return _nas_redirect(f"「{src['name']}」은 이미 가져오는 중입니다", ok=False)
+        return _nas_redirect(f"「{src['name']}」 가져오기를 시작했습니다 — 끝나면 이 화면에 결과가 남습니다")
+
+    # ---- 설치파일(setup.exe) — Windows 에서 빌드 키트로 만든 뒤 여기 올려 배포한다 ----
+
+    def _hwp_dist_dir() -> Path:
+        return Path(os.environ.get("ZZAIMY_DIST_DIR") or _HWP_BUNDLE.parent)
+
+    def _hwp_installer_paths() -> tuple[Path, Path]:
+        d = _hwp_dist_dir()
+        return d / "zzaimy-agent-setup.exe", d / "zzaimy-agent-setup.json"
+
+    def _hwp_installer_info() -> dict | None:
+        """올라와 있는 설치파일의 메타(버전·크기·sha256·올린 시각). 없으면 None."""
+        exe, meta = _hwp_installer_paths()
+        if not exe.is_file():
+            return None
+        info = {}
+        try:
+            info = _aj.loads(meta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        size = exe.stat().st_size
+        if info.get("size") != size or not info.get("sha256"):
+            import hashlib as _hl
+
+            info = {**info, "size": size, "sha256": _hl.sha256(exe.read_bytes()).hexdigest()}
+        info.setdefault("version", "")
+        info.setdefault("uploaded_at", "")
+        info["mb"] = round(size / 1048576, 1)
+        return info
+
+    @app.post("/dev/hwp/installer")
+    async def dev_hwp_installer_upload(request: Request, file: UploadFile = File(...),
+                                       version: str = Form("")):
+        """setup.exe 업로드 — 확장자·PE 서명(MZ)·크기만 검사하고 원자적으로 교체한다."""
+        import hashlib as _hl
+        from datetime import datetime as _dt
+
+        name = (file.filename or "").strip()
+        if not name.lower().endswith(".exe"):
+            return RedirectResponse(
+                "/dev/hwp?err=setup.exe 파일만 올릴 수 있습니다", status_code=303)
+        data = await file.read()
+        if len(data) < 1024 or data[:2] != b"MZ":
+            return RedirectResponse("/dev/hwp?err=Windows 실행 파일이 아닙니다", status_code=303)
+        if len(data) > 300 * 1024 * 1024:
+            return RedirectResponse(
+                "/dev/hwp?err=파일이 너무 큽니다(300MB 초과)", status_code=303)
+        exe, meta = _hwp_installer_paths()
+        exe.parent.mkdir(parents=True, exist_ok=True)
+        tmp = exe.with_suffix(".exe.part")
+        tmp.write_bytes(data)
+        tmp.replace(exe)
+        info = {"name": name, "version": version.strip()[:40], "size": len(data),
+                "sha256": _hl.sha256(data).hexdigest(),
+                "uploaded_at": _dt.now().strftime("%Y-%m-%d %H:%M"),
+                "by": getattr(request.state, "user", "") or ""}
+        meta.write_text(_aj.dumps(info, ensure_ascii=False, indent=1), encoding="utf-8")
+        return RedirectResponse(
+            f"/dev/hwp?ok=설치파일을 올렸습니다 ({round(len(data) / 1048576, 1)}MB)",
+            status_code=303)
+
+    @app.post("/dev/hwp/installer/delete")
+    def dev_hwp_installer_delete():
+        for p in _hwp_installer_paths():
+            try:
+                p.unlink()
+            except FileNotFoundError:
+                pass
+        return RedirectResponse("/dev/hwp?ok=설치파일을 내렸습니다", status_code=303)
+
+    @app.get("/hwp/setup.exe")
+    def hwp_installer_download():
+        """담당자 PC 배포용 — 로그인한 누구나 내려받는다(에이전트 zip 과 같은 접속 정보가 들어 있다)."""
+        from fastapi.responses import FileResponse
+
+        exe, _meta = _hwp_installer_paths()
+        if not exe.is_file():
+            raise HTTPException(404, "올라온 설치파일이 없습니다")
+        return FileResponse(exe, media_type="application/octet-stream",
+                            filename="zzaimy-agent-setup.exe")
+
     @app.get("/dev/hwp", response_class=HTMLResponse)
-    def dev_hwp(request: Request, err: str = ""):
+    def dev_hwp(request: Request, err: str = "", ok: str = ""):
         import time as _t
 
         now = _t.time()
         sessions = [
             {"id": sid, "age": int(now - s["last_poll"]),
              "n_cmd": len(s["commands"]), "results": s["results"][-12:][::-1],
-             "docs": s.get("docs") or [],
+             "docs": s.get("docs") or [], "version": s.get("version") or "",
              "artifacts": (s.get("artifacts") or [])[::-1]}
             for sid, s in sorted(
                 hwp_sessions.items(), key=lambda kv: -kv[1]["registered"]
@@ -1366,10 +2309,72 @@ def create_app(
         return templates.TemplateResponse(request, "dev_hwp.html", ctx(request, {
             "token": db.get_setting("hwp_agent_token"),
             "sessions": sessions,
-            "err": err,
+            "err": err, "ok": ok,
             "bundle_ready": _HWP_BUNDLE.exists(),
-            "ops": sorted(_HWP_OPS),
+            "installer": _hwp_installer_info(),
+            "ops": sorted(_HWP_OPS - {"open_bytes"}),   # open_bytes는 서버가 조립하는 내부용
         }))
+
+    @app.get("/hwp/docs")
+    def hwp_docs(refresh: int = 0):
+        """열린 한글 문서 목록(대상 선택 모달용). refresh=1이면 에이전트에
+        list_docs를 요청하고, 현재 캐시된 목록을 함께 돌려준다."""
+        connected = bool(hwp_sessions)
+        docs, bound = [], None
+        if connected:
+            _sid, s = max(hwp_sessions.items(), key=lambda kv: kv[1]["registered"])
+            if refresh:
+                _hwp_send_many([{"op": "list_docs", "args": {}}])
+            docs = s.get("docs") or []
+            bound = next((d for d in docs if d.get("bound")), None)
+        return {"connected": connected, "docs": docs, "bound": bound}
+
+    @app.post("/hwp/target")
+    def hwp_target(mode: str = Form("select"), id: int = Form(-1)):
+        """작업 대상 지정 — mode=new면 새 문서, 아니면 해당 문서를 선택한다.
+        이어서 list_docs로 목록을 갱신한다(모달이 최신 상태를 다시 읽음)."""
+        if not hwp_sessions:
+            return JSONResponse({"ok": False, "error": "연결된 에이전트가 없습니다."},
+                                status_code=409)
+        ops = ([{"op": "new_doc", "args": {}}] if mode == "new"
+               else [{"op": "select_doc", "args": {"id": id}}])
+        ops.append({"op": "list_docs", "args": {}})
+        _hwp_send_many(ops)
+        return {"ok": True, "mode": mode}
+
+    @app.post("/hwp/open-upload")
+    async def hwp_open_upload(file: UploadFile = File(...)):
+        """업로드한 .hwp/.hwpx 를 에이전트로 보내 PC 한글에서 열고 대상 지정."""
+        import base64 as _b64
+        if not hwp_sessions:
+            return JSONResponse({"ok": False, "error": "연결된 에이전트가 없습니다."},
+                                status_code=409)
+        data = await file.read()
+        if not data:
+            return JSONResponse({"ok": False, "error": "빈 파일입니다."}, status_code=400)
+        if len(data) > 20 * 1024 * 1024:
+            return JSONResponse({"ok": False, "error": "파일이 너무 큽니다(20MB 초과)."},
+                                status_code=413)
+        name = file.filename or "upload.hwpx"
+        fmt = "hwp" if name.lower().endswith(".hwp") else "hwpx"
+        _hwp_send_many([
+            {"op": "open_bytes", "args": {"name": name,
+             "b64": _b64.b64encode(data).decode(), "format": fmt}},
+            {"op": "list_docs", "args": {}},
+        ])
+        return {"ok": True, "name": name}
+
+    @app.get("/dev/hwp/latest-artifact")
+    def hwp_latest_artifact():
+        """가장 최근 회수된 PDF 산출물 URL(미리보기 폴링용). 없으면 url=None."""
+        if not hwp_sessions:
+            return {"url": None, "cmd": None}
+        _sid, s = max(hwp_sessions.items(), key=lambda kv: kv[1]["registered"])
+        pdfs = [a for a in (s.get("artifacts") or [])
+                if a.get("format") == "pdf" and a.get("url")]
+        last = pdfs[-1] if pdfs else None
+        return {"url": last["url"] if last else None,
+                "cmd": last.get("cmd") if last else None}
 
     @app.post("/dev/hwp/token")
     def dev_hwp_token():
@@ -1386,11 +2391,11 @@ def create_app(
 
         if not _HWP_BUNDLE.exists():
             raise HTTPException(
-                404, "베이스 번들 없음 — scripts/71_build_hwp_agent_bundle.py 로 조립"
+                404, "기본 패키지가 없습니다 — scripts/71_build_hwp_agent_bundle.py 로 조립하세요"
             )
         token = db.get_setting("hwp_agent_token")
         if not token:
-            return RedirectResponse("/dev/hwp?err=토큰을 먼저 발급하세요", status_code=303)
+            return RedirectResponse("/dev/hwp?err=접속 키를 먼저 발급하세요", status_code=303)
 
         host = request.url.hostname or "127.0.0.1"
         if request.url.port and request.url.port not in (80, 443):
@@ -1423,11 +2428,63 @@ def create_app(
                      'attachment; filename="zzaimy-hwp-agent.zip"'},
         )
 
+    @app.get("/dev/hwp/installer-kit.zip")
+    def dev_hwp_installer_kit(request: Request):
+        """Inno Setup 빌드 키트 — zzaimy-agent.iss + BUILD.md + payload(개인화
+        번들)를 한 폴더 구조로 담아 내려준다. Windows에서 압축을 풀고 .iss 를
+        컴파일하면 setup.exe 가 나온다(installer/BUILD.md 참조)."""
+        import io as _io
+        import zipfile as _zf
+
+        if not _HWP_BUNDLE.exists():
+            raise HTTPException(
+                404, "기본 패키지가 없습니다 — scripts/71_build_hwp_agent_bundle.py 로 조립하세요"
+            )
+        iss = Path("installer") / "zzaimy-agent.iss"
+        if not iss.exists():
+            raise HTTPException(404, "installer/zzaimy-agent.iss 파일이 없습니다")
+        token = db.get_setting("hwp_agent_token")
+        if not token:
+            return RedirectResponse("/dev/hwp?err=접속 키를 먼저 발급하세요", status_code=303)
+
+        host = request.url.hostname or "127.0.0.1"
+        if request.url.port and request.url.port not in (80, 443):
+            server = f"{request.url.scheme}://{host}:{request.url.port}"
+        else:
+            server = f"{request.url.scheme}://{host}"
+        cert_path = os.environ.get("ZZAIMY_TLS_CERT", "")
+        cert_bytes = (Path(cert_path).read_bytes()
+                      if cert_path and Path(cert_path).exists() else b"")
+
+        root = "zzaimy-agent-installer/"
+        buf = _io.BytesIO()
+        with _zf.ZipFile(_HWP_BUNDLE) as src, \
+                _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as out:
+            out.writestr(root + "zzaimy-agent.iss", iss.read_bytes())
+            bd = Path("installer") / "BUILD.md"
+            if bd.exists():
+                out.writestr(root + "BUILD.md", bd.read_bytes())
+            for item in src.infolist():
+                out.writestr(root + "payload/" + item.filename, src.read(item))
+            config = {"server": server, "token": token}
+            if cert_bytes:
+                out.writestr(root + "payload/server.crt", cert_bytes)
+                config["ca_cert"] = "server.crt"
+            out.writestr(root + "payload/config.json",
+                         _aj.dumps(config, ensure_ascii=False))
+        buf.seek(0)
+        from fastapi.responses import Response as _Resp
+        return _Resp(
+            buf.read(), media_type="application/zip",
+            headers={"Content-Disposition":
+                     'attachment; filename="zzaimy-agent-installer-kit.zip"'},
+        )
+
     @app.post("/dev/hwp/send")
     def dev_hwp_send(op: str = Form(...), args_json: str = Form("")):
         """개발자 명령 콘솔 — op + 인자(JSON)를 자유롭게 보낸다."""
         if op not in _HWP_OPS:
-            raise HTTPException(400, f"허용되지 않은 명령: {op}")
+            raise HTTPException(400, f"허용되지 않은 명령입니다: {op}")
         args: dict = {}
         if args_json.strip():
             try:
@@ -1449,21 +2506,28 @@ def create_app(
     # 후 실제 가동. 주소는 설정에 저장(없으면 미연결로 표시).
 
     _TRAIN_TOOLS = [
-        {"key": "labelstudio", "name": "Label Studio",
-         "role": "데이터 라벨링·검수 (학습 쌍 검수, 실적 카드 정답, DPO 선호쌍)",
+        {"key": "labelstudio", "name": "Label Studio", "step": "검수",
+         "role": "학습 예시 검수",
          "gpu": False, "setting": "labelstudio_url"},
-        {"key": "llamaboard", "name": "LLaMA Board",
-         "role": "파인튜닝 실행 UI (데이터셋·하이퍼파라미터·학습 시작)",
+        {"key": "llamaboard", "name": "LLaMA Board", "step": "학습 실행",
+         "role": "파인튜닝 실행 · 데이터셋과 학습 설정값",
          "gpu": True, "setting": "llamaboard_url"},
-        {"key": "tensorboard", "name": "TensorBoard",
-         "role": "학습 진행 모니터링 (손실·학습률·평가지표 그래프)",
+        {"key": "tensorboard", "name": "TensorBoard", "step": "진행 확인",
+         "role": "손실·학습률·평가지표 그래프",
          "gpu": True, "setting": "tensorboard_url"},
     ]
 
     @app.get("/dev/train", response_class=HTMLResponse)
-    def dev_train(request: Request):
+    def dev_train(request: Request, err: str = "", ok: str = ""):
+        # Label Studio 는 실제 연결 여부(connected)로 표시 — 주소만 있다고 연결됨이 아니다.
+        # 도구 계정·주소(LS 아이디·비밀번호 재설정, GPU 도구 주소)도 이 화면의 도구 카드에서 다룬다.
+        from zzaimy.dataset import ls_admin
+        from zzaimy.generate import llm_connections, model_config
+
+        ls = _ls_status()
         tools = [
-            {**t, "url": db.get_setting(t["setting"], "")}
+            {**t, "url": db.get_setting(t["setting"], ""),
+             "connected": ls["ok"] if t["key"] == "labelstudio" else None}
             for t in _TRAIN_TOOLS
         ]
         from zzaimy.export.bundle import preview_bundle
@@ -1472,30 +2536,70 @@ def create_app(
                 db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
         except Exception:
             export_preview = []
+        # 학습 순서 — 단계별 상태는 DB(학습 데이터 묶음), 측정 산출물(검색 정확도), 설정(도구 주소)에서만
+        datasets = db.list_datasets(limit=10)
+        llamaboard_url = db.get_setting("llamaboard_url", "")
+        llm = model_config.current()
+        llm_probe = model_config.probe() if llm["configured"] else {"ok": False, "models": [], "error": "주소 없음"}
+        llm_url = llm["base_url"] if llm["configured"] else ""
+        try:
+            ev = _retrieval_eval_state().get("result") or {}
+        except Exception:
+            ev = {}
+        measured = (ev.get("measured_at") or "")[:10]
+        steps = [
+            {"title": "학습 데이터 준비", "desc": "데이터 공방에서 예시 생성, Label Studio 검수",
+             "status": f"묶음 {len(datasets)}개" if datasets else "데이터 없음",
+             "state": "done" if datasets else "todo"},
+            {"title": "베이스라인 측정", "desc": "학습 전 성능 기록 (개선폭의 기준)",
+             "status": (f"검색 정확도 측정 {measured}" if measured else "검색 정확도 측정 전")
+             + " · 작성 모델 측정 전",
+             "state": "doing" if measured else "todo"},
+            {"title": "SFT 실행", "desc": "LLaMA Board에서 능력 학습, TensorBoard로 진행 확인",
+             "status": "LLaMA Board 연결됨" if llamaboard_url else "GPU 대기",
+             "state": "todo"},
+            {"title": "DPO", "desc": "담당자 판정·재작성 이력으로 선호 학습",
+             "status": "SFT 후", "state": "todo"},
+            {"title": "모델 서버 연결", "desc": "학습 모델을 서빙에 연결",
+             "status": (f"연결됨 · {llm['model'] or (llm_probe['models'][0] if llm_probe['models'] else '모델 미선택')}"
+                        if llm_probe["ok"] else ("주소 설정됨 · " + llm_probe["error"] if llm_url else "주소 미설정")),
+             "state": "done" if llm_probe["ok"] else "todo"},
+        ]
         return templates.TemplateResponse(request, "dev_train.html", ctx(request, {
+            "err": err, "ok": ok,
             "tools": tools,
-            "datasets": db.list_datasets(limit=10),
+            "steps": steps,
+            "ls": ls,
+            "ls_username": db.get_setting("labelstudio_username", ""),
+            "ls_token_set": bool(db.get_setting("labelstudio_token")),
+            "ls_admin_available": ls_admin.available(),
+            "llm_url": llm_url,
+            "llm": llm, "llm_probe": llm_probe,
+            "connections": [dict(c, usage=model_config.usage_today(c["id"])) for c in llm_connections.list_public()],
+            "llm_kinds": llm_connections.KINDS,
+            "usage_all": model_config.usage_today(),
+            "datasets": datasets,
             "export_preview": export_preview,
         }))
 
-    @app.get("/dev/train/export-preview.json")
-    def dev_train_export_preview():
-        """반출 팝업용 — 담길 파일·크기 트리(zip 생성 없이)."""
-        from zzaimy.export.bundle import preview_bundle
-
-        return JSONResponse(
-            preview_bundle(db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
-        )
-
     @app.get("/dev/train/export.zip")
-    def dev_train_export(rag: int = 1, datasets: int = 1, model: int = 1):
-        """학습 산출물 반출 번들 — 선택 항목만 개방 표준으로 (ADR-0012)."""
+    def dev_train_export(
+        rag: int | None = None, datasets: int | None = None, model: int | None = None,
+    ):
+        """학습 산출물 반출 번들 — 선택 항목만 개방 표준으로 (ADR-0012).
+
+        폼은 항목마다 hidden 0 + checkbox 1 을 보내므로 해제한 항목은 0으로 온다
+        (기본값 1이던 때는 무엇을 꺼도 전부 반출됐다). 인자가 하나도 없는 맨 URL은
+        예전처럼 전체 반출."""
         from datetime import datetime as _dt
 
         from zzaimy.export.bundle import build_bundle
 
-        include = {k for k, on in
-                   (("rag", rag), ("datasets", datasets), ("model", model)) if on}
+        flags = (("rag", rag), ("datasets", datasets), ("model", model))
+        if all(v is None for _, v in flags):
+            include = {k for k, _ in flags}
+        else:
+            include = {k for k, on in flags if on}
         if not include:
             return RedirectResponse(
                 "/dev/train?err=반출할 항목을 하나 이상 선택하세요", status_code=303
@@ -1511,45 +2615,270 @@ def create_app(
                      f'attachment; filename="zzaimy-artifacts-{stamp}.zip"'},
         )
 
+    # ---- LLM 연결 관리 — 내부 vLLM·외부 API 등록, 확인, 기본 지정 (키는 서버 파일에만) ----
+
+    def _llm_redirect(msg: str, ok: bool = True) -> RedirectResponse:
+        return RedirectResponse(f"/dev/train?{'ok' if ok else 'err'}={msg}", status_code=303)
+
+    @app.post("/dev/llm/add")
+    def dev_llm_add(name: str = Form(""), kind: str = Form("vllm"), base_url: str = Form(""),
+                    model: str = Form(""), api_key: str = Form(""), vision_model: str = Form("")):
+        from zzaimy.generate import llm_connections, model_config
+
+        try:
+            conn = llm_connections.add(name, kind, base_url, model, api_key, vision_model=vision_model)
+        except ValueError as e:
+            return _llm_redirect(str(e), ok=False)
+        model_config.reset_status_cache()
+        return _llm_redirect(f"연결 「{conn['name']}」을 추가했습니다")
+
+    @app.post("/dev/llm/{cid}/update")
+    def dev_llm_update(cid: str, name: str = Form(""), base_url: str = Form(""),
+                       model: str = Form(""), api_key: str = Form(""), vision_model: str = Form("")):
+        from zzaimy.generate import llm_connections, model_config
+
+        try:
+            conn = llm_connections.update(cid, name=name, base_url=base_url, model=model, api_key=api_key,
+                                          vision_model=vision_model)
+        except ValueError as e:
+            return _llm_redirect(str(e), ok=False)
+        model_config.reset_status_cache()
+        return _llm_redirect(f"연결 「{conn['name']}」을 저장했습니다")
+
+    @app.post("/dev/llm/{cid}/delete")
+    def dev_llm_delete(cid: str):
+        from zzaimy.generate import llm_connections, model_config
+
+        llm_connections.delete(cid)
+        model_config.reset_status_cache()
+        return _llm_redirect("연결을 삭제했습니다")
+
+    @app.post("/dev/llm/{cid}/activate")
+    def dev_llm_activate(cid: str, ack: str = Form("")):
+        from zzaimy.generate import llm_connections, model_config
+
+        try:
+            conn = llm_connections.activate(cid, ack_external=(ack == "1"))
+        except ValueError as e:
+            return _llm_redirect(str(e), ok=False)
+        model_config.reset_status_cache()
+        return _llm_redirect(f"「{conn['name']}」을 문서 작업 기본 연결로 지정했습니다")
+
+    @app.post("/dev/llm/{cid}/external")
+    def dev_llm_external(cid: str):
+        from zzaimy.generate import llm_connections
+
+        try:
+            conn = llm_connections.set_external(cid)
+        except ValueError as e:
+            return _llm_redirect(str(e), ok=False)
+        return _llm_redirect(f"「{conn['name']}」을 외부 AI 참조용 연결로 지정했습니다")
+
+    @app.post("/dev/llm/external/clear")
+    def dev_llm_external_clear():
+        from zzaimy.generate import llm_connections
+
+        llm_connections.clear_external()
+        return _llm_redirect("외부 AI 참조용 연결을 해제했습니다")
+
+    @app.post("/dev/llm/deactivate")
+    def dev_llm_deactivate():
+        from zzaimy.generate import llm_connections, model_config
+
+        llm_connections.deactivate()
+        model_config.reset_status_cache()
+        return _llm_redirect("기본 연결을 해제했습니다 — 환경변수 설정을 씁니다")
+
+    @app.post("/dev/llm/{cid}/catalog")
+    def dev_llm_catalog(cid: str):
+        """모델 목록 갱신 — 허브 공개 카탈로그 또는 모델 API 에서 가져와 연결에 저장한다."""
+        from zzaimy.generate import llm_connections
+
+        conn = llm_connections.get(cid)
+        if conn is None:
+            return _llm_redirect("없는 연결입니다", ok=False)
+        r = llm_connections.fetch_catalog(conn)
+        if not r["ok"]:
+            llm_connections.record_check(cid, False, r["error"])
+            tail = f" {r['hint']}" if r.get("hint") else ""
+            return _llm_redirect(f"「{conn['name']}」 모델 목록을 받지 못했습니다 — {r['error']}.{tail}", ok=False)
+        llm_connections.record_check(cid, True, f"모델 목록 {len(r['models'])}개")
+        llm_connections.set_catalog(cid, r["models"], r["source"])
+        return _llm_redirect(f"「{conn['name']}」 모델 {len(r['models'])}개 목록을 받았습니다 ({r['source']})")
+
+    @app.post("/dev/llm/models-live")
+    def dev_llm_models_live(kind: str = Form("vllm"), base_url: str = Form(""),
+                            api_key: str = Form(""), cid: str = Form("")):
+        """저장 전에 서버가 지금 내어 주는 모델 목록만 받아 본다 — 연결 추가·수정 창이 쓴다."""
+        from zzaimy.generate import llm_connections
+
+        conn = {"kind": kind, "base_url": base_url.strip(), "api_key": api_key}
+        if cid:                                   # 수정 창에서 키를 다시 넣지 않았을 때
+            saved = llm_connections.get(cid)
+            if saved is None:
+                return {"ok": False, "models": [], "error": "없는 연결입니다"}
+            conn = {"kind": saved.get("kind", kind),
+                    "base_url": (base_url.strip() or saved.get("base_url", "")),
+                    "api_key": api_key or saved.get("api_key", "")}
+        if not conn["base_url"]:
+            return {"ok": False, "models": [], "error": "주소를 먼저 넣으세요"}
+        return llm_connections.live_models(conn)
+
+    @app.post("/dev/llm/{cid}/catalog-upload")
+    async def dev_llm_catalog_upload(cid: str, file: UploadFile = File(...)):
+        """나가는 통신이 막힌 서버용 — 다른 장비에서 받은 카탈로그 JSON 을 올린다."""
+        from zzaimy.generate import llm_connections
+
+        conn = llm_connections.get(cid)
+        if conn is None:
+            return _llm_redirect("없는 연결입니다", ok=False)
+        try:
+            models = llm_connections.parse_catalog(_aj.loads((await file.read()).decode("utf-8")))
+        except (ValueError, UnicodeDecodeError):
+            return _llm_redirect("카탈로그 JSON 을 읽지 못했습니다", ok=False)
+        if not models:
+            return _llm_redirect("모델이 없는 파일입니다", ok=False)
+        llm_connections.set_catalog(cid, models, "파일")
+        return _llm_redirect(f"「{conn['name']}」 모델 {len(models)}개 목록을 올렸습니다")
+
+    @app.post("/dev/llm/{cid}/test")
+    def dev_llm_test(cid: str):
+        from zzaimy.generate import llm_connections
+
+        conn = llm_connections.get(cid)
+        if conn is None:
+            return _llm_redirect("없는 연결입니다", ok=False)
+        r = llm_connections.probe(conn)
+        if r["ok"]:
+            shown = ", ".join(r["models"][:6]) + (" …" if len(r["models"]) > 6 else "")
+            llm_connections.record_check(cid, True, f"모델 {len(r['models'])}개")
+            return _llm_redirect(f"「{conn['name']}」 연결 확인 — 모델 {len(r['models'])}개 ({shown})")
+        llm_connections.record_check(cid, False, r["error"])
+        tail = f" {r['hint']}" if r.get("hint") else ""
+        return _llm_redirect(f"「{conn['name']}」 연결 실패 — {r['error']}.{tail}", ok=False)
+
+    @app.get("/dev/train/export/file")
+    def dev_train_export_file(path: str):
+        """반출 목록의 파일 하나를 그대로 내려받는다 — 묶음이 아니면 zip 을 거칠 이유가 없다."""
+        from zzaimy.export.bundle import single_file
+
+        data = single_file(db, path, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
+        if data is None:
+            raise HTTPException(404, "반출 목록에 없는 파일입니다")
+        from fastapi.responses import Response as _Resp
+
+        name = path.rsplit("/", 1)[-1]
+        return _Resp(data, media_type="application/octet-stream",
+                     headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.post("/dev/train/ls-password")
+    def dev_train_ls_password(new_pw: str = Form(...), confirm: str = Form("")):
+        """Label Studio 계정 비밀번호 재설정 — 값은 환경변수로 헬퍼에만 전달한다."""
+        from zzaimy.dataset import ls_admin
+
+        if len(new_pw) < 8:
+            return _train_redirect("비밀번호는 8자 이상이어야 합니다", ok=False)
+        if new_pw != confirm:
+            return _train_redirect("비밀번호 확인이 일치하지 않습니다", ok=False)
+        ok, msg = ls_admin.set_password(new_pw)
+        if not ok:
+            return _train_redirect(f"Label Studio 비밀번호 재설정 실패 — {msg}", ok=False)
+        return _train_redirect(
+            "Label Studio 비밀번호를 재설정했습니다 — 새 비밀번호로 로그인하세요")
+
     @app.post("/dev/train/url")
-    def dev_train_url(setting: str = Form(...), url: str = Form("")):
-        valid = {t["setting"] for t in _TRAIN_TOOLS}
+    def dev_tool_url(setting: str = Form(...), url: str = Form(""), back: str = Form("/dev/train")):
+        # Label Studio 주소는 구축 스크립트(scripts/68_labelstudio_token.sh)가 넣는다 —
+        # 화면에서는 GPU 도구(LLaMA Board·TensorBoard) 주소만 바꾼다
+        valid = {t["setting"] for t in _TRAIN_TOOLS if t["key"] != "labelstudio"}
         if setting not in valid:
-            raise HTTPException(400, "알 수 없는 도구")
+            raise HTTPException(400, "알 수 없는 도구입니다")
         url = url.strip()
         if url and not url.startswith(("http://", "https://")):
             raise HTTPException(400, "http(s):// 주소여야 합니다")
         db.set_setting(setting, url)
-        return RedirectResponse("/dev/train", status_code=303)
+        dest = back if back.startswith("/dev/") else "/dev/train"
+        return RedirectResponse(dest, status_code=303)
 
     # ---- 데이터 공방 — 기록 → 학습 데이터(JSONL) 변환 (개발자 전용) ----
 
     @app.get("/dev/data", response_class=HTMLResponse)
-    def dev_data(request: Request, err: str = ""):
-        from zzaimy.dataset.build import rag_status
+    def dev_data(request: Request, err: str = "", ok: str = "", ds_page: int = 0):
+        from zzaimy.dataset.build import preview_sources, rag_status
 
+        ds_page = max(ds_page, 0)
+        DS_PER = 20
+        ds_total = db.count_datasets()
         return templates.TemplateResponse(request, "dev_data.html", ctx(request, {
             "rag_rows": rag_status(db),
-            "datasets": db.list_datasets(),
-            "err": err,
-            "ls_token": bool(db.get_setting("labelstudio_token")),
+            "source_preview": preview_sources(db),
+            "datasets": db.list_datasets(limit=DS_PER, offset=ds_page * DS_PER),
+            "ds_page": ds_page, "ds_total": ds_total, "ds_per": DS_PER,
+            "ds_has_next": (ds_page + 1) * DS_PER < ds_total,
+            "err": err, "ok": ok,
+            "ls": _ls_status(),
             "labelstudio_url": db.get_setting("labelstudio_url"),
+            "llamaboard_url": db.get_setting("llamaboard_url"),
         }))
 
-    @app.post("/dev/data/build")
-    def dev_data_build(
-        name: str = Form("dataset"), sources: list[str] = Form([])
-    ):
-        from zzaimy.dataset.build import export_dataset
+    @app.post("/dev/data/build-and-push")
+    def dev_data_build_and_push(sources: list[str] = Form([])):
+        """예시 만들기 + Label Studio 자동 주입을 한 번에 — 연결돼 있으면 바로 푸시,
+        아니면 데이터셋만 만들고 연결 방법(구축 스크립트)을 안내한다."""
+        from datetime import datetime as _dt
 
+        from zzaimy.dataset.build import _BUILDERS, export_dataset
+        from zzaimy.dataset.ls_client import LabelStudioError
+
+        srcs = [s for s in sources if s in _BUILDERS]
+        if not srcs:
+            return RedirectResponse("/dev/data?err=기록 종류를 하나 이상 고르세요", status_code=303)
+        # 1) 예시 묶음 생성(수치검증 통과분만) — 대장에 기록
         try:
-            export_dataset(db, sources, name.strip() or "dataset")
+            export_dataset(db, srcs, _dt.now().strftime("예시-%Y%m%d-%H%M"))
         except ValueError as exc:
             return RedirectResponse(f"/dev/data?err={exc}", status_code=303)
-        return RedirectResponse("/dev/data", status_code=303)
+        # 2) Label Studio 연결이 있으면 자동 주입 (연결은 scripts/68_labelstudio_token.sh 가 맺는다)
+        if not (db.get_setting("labelstudio_url") and db.get_setting("labelstudio_token")):
+            return RedirectResponse(
+                "/dev/data?ok=예시 묶음을 만들었습니다. Label Studio가 연결되지 않아 보내지는"
+                " 않았습니다 — 서버에서 scripts/68_labelstudio_token.sh 를 실행하면"
+                " 다음부터 자동으로 보냅니다.",
+                status_code=303)
+        pairs = []
+        for s in srcs:
+            pairs.extend(_BUILDERS[s](db).pairs)
+        if not pairs:
+            return RedirectResponse("/dev/data?err=보낼 예시가 없습니다", status_code=303)
+        try:
+            cli = _ls_client()
+            pid = cli.ensure_project(_LS_PROJECT)
+            n = cli.push_tasks(pid, pairs)
+        except LabelStudioError as e:
+            return RedirectResponse(f"/dev/data?err=Label Studio: {e}", status_code=303)
+        _ls_status_reset()   # 진행 수치가 바뀌었다 — 캐시를 비워 바로 반영
+        return RedirectResponse(f"/dev/data?ls_pushed={n}", status_code=303)
+
+    @app.post("/dev/data/build")
+    def dev_data_build(sources: list[str] = Form([])):
+        from datetime import datetime as _dt
+
+        from zzaimy.dataset.build import export_dataset
+
+        # 이름은 자동 부여(사용자가 'sft' 같은 걸 타이핑하지 않게) — 필요 시 대장에서 구분
+        nm = _dt.now().strftime("예시-%Y%m%d-%H%M")
+        try:
+            export_dataset(db, sources, nm)
+        except ValueError as exc:
+            return RedirectResponse(f"/dev/data?err={exc}", status_code=303)
+        return RedirectResponse(f"/dev/data?ok=예시 묶음 「{nm}」을 만들었습니다", status_code=303)
 
     # ---- Label Studio 자동 연동 (API) — 페이지 버튼 한 번으로 왕복 ----
+    # 주소·토큰은 서버 구축 때 scripts/68_labelstudio_token.sh 가 설정에 넣는다.
+    # 사람이 토큰을 붙여넣거나 파일을 주고받는 경로는 두지 않는다.
     _LS_PROJECT = "ZZAIMY 검수"
+    _LS_STATUS_TTL = 30.0   # 연결 상태 캐시(초) — 화면마다 Label Studio 를 두드리지 않게
+    _ls_status_cache: dict = {"at": 0.0, "value": None}
 
     def _ls_client():
         from zzaimy.dataset.ls_client import LabelStudioClient
@@ -1558,30 +2887,24 @@ def create_app(
         token = db.get_setting("labelstudio_token")
         return LabelStudioClient(url, token)
 
-    @app.post("/dev/data/ls-token")
-    def dev_data_ls_token(token: str = Form("")):
-        db.set_setting("labelstudio_token", token.strip())
-        return RedirectResponse("/dev/data", status_code=303)
-
-    @app.post("/dev/data/ls-push")
-    def dev_data_ls_push(sources: list[str] = Form([])):
-        """데이터 공방 학습 쌍을 Label Studio 프로젝트로 자동 전송(파일 없이)."""
-        from zzaimy.dataset.build import _BUILDERS
+    def _ls_status() -> dict:
+        """연결 상태 — 2초 제한으로 한 번 묻고 30초 캐시. 설정이 없으면 묻지 않는다."""
         from zzaimy.dataset.ls_client import LabelStudioError
 
-        pairs = []
-        for s in sources:
-            if s in _BUILDERS:
-                pairs.extend(_BUILDERS[s](db).pairs)
-        if not pairs:
-            return RedirectResponse("/dev/data?err=보낼 학습 쌍이 없습니다", status_code=303)
+        now = _time.monotonic()
+        cached = _ls_status_cache["value"]
+        if cached is not None and now - _ls_status_cache["at"] < _LS_STATUS_TTL:
+            return cached
         try:
-            cli = _ls_client()
-            pid = cli.ensure_project(_LS_PROJECT)
-            n = cli.push_tasks(pid, pairs)
-        except LabelStudioError as e:
-            return RedirectResponse(f"/dev/data?err=Label Studio: {e}", status_code=303)
-        return RedirectResponse(f"/dev/data?ls_pushed={n}", status_code=303)
+            value = _ls_client().status(_LS_PROJECT)
+        except LabelStudioError:   # kind=config — 주소·토큰이 아직 없다 (캐시하지 않음)
+            return {"ok": False, "error": "설정 없음", "project": _LS_PROJECT,
+                    "project_id": None, "total": 0, "done": 0, "pending": 0}
+        _ls_status_cache.update(at=now, value=value)
+        return value
+
+    def _ls_status_reset() -> None:
+        _ls_status_cache["value"] = None
 
     @app.post("/dev/data/ls-pull")
     def dev_data_ls_pull(name: str = Form("검수완료")):
@@ -1612,80 +2935,13 @@ def create_app(
                        n_pairs=len(pairs))
         return RedirectResponse(f"/dev/data?ls_pulled={len(pairs)}", status_code=303)
 
-    @app.post("/dev/data/label-export")
-    def dev_data_label_export(sources: list[str] = Form([])):
-        """검수 태스크(Label Studio import JSON) 내려받기 — 수동 대안."""
-        from zzaimy.dataset.build import _BUILDERS
-        from zzaimy.dataset.labelstudio import export_to_label_studio
-
-        pairs = []
-        for s in sources:
-            if s in _BUILDERS:
-                pairs.extend(_BUILDERS[s](db).pairs)
-        if not pairs:
-            return RedirectResponse(
-                "/dev/data?err=내보낼 학습 쌍이 없습니다", status_code=303
-            )
-        tasks = export_to_label_studio(pairs)
-        from fastapi.responses import Response as _Resp
-
-        return _Resp(
-            _aj.dumps(tasks, ensure_ascii=False, indent=2),
-            media_type="application/json",
-            headers={"Content-Disposition":
-                     'attachment; filename="label-studio-tasks.json"'},
-        )
-
-    @app.get("/dev/data/label-config")
-    def dev_data_label_config():
-        """Label Studio 프로젝트 라벨링 설정(XML)."""
-        from fastapi.responses import Response as _Resp
-
-        from zzaimy.dataset.labelstudio import LABEL_CONFIG
-
-        return _Resp(LABEL_CONFIG, media_type="application/xml")
-
-    @app.post("/dev/data/label-import")
-    def dev_data_label_import(name: str = Form("검수완료"),
-                              annotations: UploadFile = File(...)):
-        """Label Studio 검수 결과(annotations export)를 학습 데이터로 되받기."""
-        from zzaimy.dataset.labelstudio import import_from_label_studio
-
-        try:
-            data = _aj.loads(annotations.file.read())
-        except ValueError:
-            return RedirectResponse(
-                "/dev/data?err=JSON 파일이 아닙니다", status_code=303
-            )
-        pairs = import_from_label_studio(data)
-        if not pairs:
-            return RedirectResponse(
-                "/dev/data?err=검수 통과한 쌍이 없습니다", status_code=303
-            )
-        # 검수 통과분을 JSONL로 저장하고 대장에 기록
-        from datetime import datetime, timezone
-        from pathlib import Path as _P
-
-        from zzaimy.dataset.build import SFT_DIR
-
-        SFT_DIR.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d-%H%M%S")
-        safe = "".join(c for c in name if c.isalnum() or c in "-_") or "reviewed"
-        path = _P(SFT_DIR) / f"{safe}-{stamp}.jsonl"
-        with path.open("w", encoding="utf-8") as f:
-            for p in pairs:
-                f.write(_aj.dumps(p, ensure_ascii=False) + "\n")
-        db.add_dataset(name=name, sources="labelstudio", path=str(path),
-                       n_pairs=len(pairs))
-        return RedirectResponse("/dev/data", status_code=303)
-
     @app.get("/dev/data/{dataset_id}.jsonl")
     def dev_data_download(dataset_id: int):
         from fastapi.responses import FileResponse
 
         ds = db.get_dataset(dataset_id)
         if ds is None or not Path(ds["path"]).exists():
-            raise HTTPException(404, "데이터셋 파일 없음")
+            raise HTTPException(404, "데이터셋 파일이 없습니다")
         return FileResponse(
             ds["path"], media_type="application/jsonl",
             filename=Path(ds["path"]).name,
@@ -1693,7 +2949,7 @@ def create_app(
 
     # ---- 추출 품질 신고 루프 (품질 체계 5계층, docs/quality-system.md) ----
 
-    _QUALITY_KINDS = {"table", "typo", "layout", "other"}
+    _QUALITY_KINDS = set(QUALITY_KIND_LABELS)
 
     @app.post("/doc/{doc_id}/quality-report")
     def doc_quality_report(
@@ -1701,9 +2957,9 @@ def create_app(
         kind: str = Form(...), note: str = Form(""),
     ):
         if db.get_document(doc_id) is None:
-            raise HTTPException(404, "없는 문서")
+            raise HTTPException(404, "없는 문서입니다")
         if kind not in _QUALITY_KINDS:
-            raise HTTPException(400, "알 수 없는 신고 유형")
+            raise HTTPException(400, "알 수 없는 신고 유형입니다")
         db.add_quality_report(
             doc_id, kind, note.strip(), reporter=request.state.user
         )
@@ -1716,7 +2972,7 @@ def create_app(
         if not db.resolve_quality_report(
             report_id, resolved_by=request.state.user, fix_note=fix_note.strip()
         ):
-            raise HTTPException(404, "열려 있는 신고가 아님")
+            raise HTTPException(404, "열려 있는 신고가 아닙니다")
         return RedirectResponse("/dev", status_code=303)
 
     # ---- 지식 그래프 1단계 — 구조 그래프 (ADR-0009) ----
@@ -1735,8 +2991,7 @@ def create_app(
 
     # ---- 외부 참조 이그레스 게이트웨이 (ADR-0008) — 감사·승인·모니터링 ----
 
-    @app.get("/dev/egress", response_class=HTMLResponse)
-    def dev_egress(request: Request):
+    def _egress_ctx(request: Request, extra: dict | None = None):
         from zzaimy.app import egress as _egress
 
         enabled, reason = _egress.external_status()
@@ -1747,13 +3002,33 @@ def create_app(
                 r["removed_list"] = _aj.loads(r.get("removed") or "[]")
             except ValueError:
                 r["removed_list"] = []
-        return templates.TemplateResponse(request, "dev_egress.html", ctx(request, {
+        base = {
             "egress_stats": db.egress_stats(),
             "rows": rows,
             "queued": queued,
             "external_enabled": enabled,
             "external_reason": reason,
-        }))
+            "egress_verdict_labels": EGRESS_VERDICT_LABELS,
+            "egress_source_labels": EGRESS_SOURCE_LABELS,
+            "egress_removed_labels": EGRESS_REMOVED_LABELS,
+            "tokenized": None,
+        }
+        base.update(extra or {})
+        return templates.TemplateResponse(request, "dev_egress.html", ctx(request, base))
+
+    @app.get("/dev/egress", response_class=HTMLResponse)
+    def dev_egress(request: Request):
+        return _egress_ctx(request)
+
+    @app.post("/dev/egress/tokenized", response_class=HTMLResponse)
+    def dev_egress_tokenized(request: Request, text: str = Form(...)):
+        from zzaimy.app import egress as _egress
+
+        t = text.strip()
+        result = (_egress.process_external_tokenized(t) if t
+                  else {"ok": False, "error": "내용이 비어 있습니다", "tokens": 0})
+        result["input"] = t
+        return _egress_ctx(request, {"tokenized": result})
 
     @app.post("/dev/egress/submit")
     def dev_egress_submit(request: Request, query: str = Form(...)):
@@ -1853,8 +3128,7 @@ def create_app(
             ln for ln in _dev_read("embed-v0-report.md").splitlines()
             if ln.startswith("|")
         )
-        stats, _ = _dev_stats()
-        scale = " · ".join(f"{x['label']} {x['value']}" for x in stats)
+        scale = " · ".join(f"{t['label']} {t['value']}" for t in _data_overview()["tiles"])
         full = "\n".join([
             f"## 기간\n{monday} ~ {today}", "", body, "",
             "## 정량 지표", "검색 기준선:", base_tbl or "(미측정)", "",
@@ -1895,7 +3169,7 @@ def create_app(
         else:
             raise HTTPException(404)
         if payload is None:
-            raise HTTPException(500, "보고서 생성 실패")
+            raise HTTPException(500, "보고서 생성에 실패했습니다")
         return Response(payload, media_type=media, headers={
             "Content-Disposition": "attachment; filename*=UTF-8\'\'"
             + _q(f"주간보고_{monday.isoformat()}.{fmt}"),
@@ -1904,7 +3178,9 @@ def create_app(
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request):
         return templates.TemplateResponse(
-            request, "settings.html", ctx(request, {"s": db.all_settings(), "active_tab": "all"})
+            request, "settings.html",
+            ctx(request, {"s": db.all_settings(), "active_tab": "all",
+                          "departments": db.department_counts()}),
         )
 
     @app.post("/settings")
@@ -1999,9 +3275,9 @@ def create_app(
     ):
         proj = db.get_project(project_id)
         if proj is None:
-            raise HTTPException(404, "프로젝트를 찾을 수 없다")
+            raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
         if not name.strip():
-            raise HTTPException(400, "프로젝트 이름이 필요하다")
+            raise HTTPException(400, "프로젝트 이름을 입력하세요")
         db.rename_project(project_id, name.strip())
         if due_date is not None:
             db.update_project_meta(project_id, due_date=due_date.strip())
@@ -2011,7 +3287,7 @@ def create_app(
     def delete_project(project_id: int):
         proj = db.get_project(project_id)
         if proj is None:
-            raise HTTPException(404, "프로젝트를 찾을 수 없다")
+            raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
         db.delete_project(project_id)
         return RedirectResponse(f"/?type={proj['sector']}", status_code=303)
 
@@ -2027,9 +3303,9 @@ def create_app(
         name = file.filename or "이름없음"
         suffix = Path(name).suffix.lower()
         if suffix not in ALLOWED_EXTENSIONS:
-            raise HTTPException(400, f"허용되지 않는 파일 형식: {suffix}")
+            raise HTTPException(400, f"허용되지 않는 파일 형식입니다: {suffix}")
         if doc_type not in INBOX_TYPES:
-            raise HTTPException(400, f"알 수 없는 문서 유형: {doc_type}")
+            raise HTTPException(400, f"알 수 없는 문서 유형입니다: {doc_type}")
         if project_id and db.get_project(project_id) is None:
             project_id = None  # 삭제됐거나 잘못된 프로젝트 — 연결 없이 접수한다
         stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
@@ -2060,7 +3336,7 @@ def create_app(
             raise HTTPException(404)
         if doc["doc_type"] != "grant":
             # 목적별 플로우: 초안 작성은 국고사업 계열, 나머지는 검토·판정
-            raise HTTPException(400, "초안 작성은 국고사업 문서에서만 지원한다")
+            raise HTTPException(400, "초안 작성은 국고사업 문서에서만 지원합니다")
         # 담당자가 요구한 작성 항목(한 줄에 하나) — 공고 목차보다 우선한다
         db.update_document(doc_id, draft_spec=sections.strip() or None)
         # 진행 표시를 먼저 남긴다 — 생성이 끝나면 drafter가 결과로 덮어쓴다
@@ -2077,7 +3353,7 @@ def create_app(
 
         doc = db.get_document(doc_id)
         if doc is None or not doc.get("draft"):
-            raise HTTPException(404, "초안이 없다")
+            raise HTTPException(404, "초안이 없습니다")
         stem = Path(doc["filename"] or "draft").stem
         title = f"{stem} 계획서 초안"
         # 자료 문서의 추출 그림을 붙임으로 — 표·도표 근거를 파일에 동봉한다
@@ -2109,7 +3385,7 @@ def create_app(
         else:
             raise HTTPException(404)
         if payload is None:
-            raise HTTPException(500, "내보내기 실패")
+            raise HTTPException(500, "내보내기에 실패했습니다")
         return Response(payload, media_type=media, headers={
             "Content-Disposition":
             "attachment; filename*=UTF-8''"
@@ -2262,8 +3538,11 @@ def create_app(
                 "original_kind": original_kind,
                 "suggested_criteria": suggested,
                 "referencing": referencing,
+                "identity": db.get_doc_identity(doc_id),
+                "same_program": db.docs_sharing_program(doc_id),
                 "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),
                 "n_table_chunks": sum(1 for c in chunks if c["kind"] == "table"),
+                "n_figtext_chunks": sum(1 for c in chunks if c["kind"] == "image_text"),
             }),
         )
 
@@ -2394,7 +3673,7 @@ def create_app(
                 if payload is None:
                     payload = build_scan_pdf(img, db.list_doc_chunks(doc_id))
             if payload is None:
-                raise HTTPException(400, "복원 PDF를 만들 수 없는 형식이다")
+                raise HTTPException(400, "복원 PDF를 만들 수 없는 형식입니다")
             cache.write_bytes(payload)
         # FileResponse — Range 요청 지원으로 뷰어가 필요한 부분만 스트리밍
         return FileResponse(
@@ -2419,7 +3698,7 @@ def create_app(
             if a["kind"] != "scan" and Path(a["path"]).exists()
         ]
         if not assets:
-            raise HTTPException(404, "추출된 그림이 없다")
+            raise HTTPException(404, "추출된 그림이 없습니다")
         buf = _io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for i, a in enumerate(assets, start=1):
@@ -2579,7 +3858,7 @@ figure img{{width:100%;display:block}}
         try:
             csv_text = table_csv(chunk["content"])
         except Exception:
-            raise HTTPException(404, "표 구조를 읽을 수 없다") from None
+            raise HTTPException(404, "표 구조를 읽을 수 없습니다") from None
         return Response(
             "\ufeff" + csv_text,  # BOM — 엑셀에서 한글 깨짐 방지
             media_type="text/csv; charset=utf-8",
@@ -2600,7 +3879,7 @@ figure img{{width:100%;display:block}}
             raise HTTPException(404)
         chunks = db.list_doc_chunks(doc_id)
         if not chunks:
-            raise HTTPException(404, "추출 조각이 없다")
+            raise HTTPException(404, "추출 조각이 없습니다")
         src = Path(doc["stored_path"])
         suffix = src.suffix.lower()
         payload: bytes | None = None
@@ -2647,7 +3926,7 @@ figure img{{width:100%;display:block}}
                 Path(scan["path"]) if scan else src, chunks
             )
         if payload is None:
-            raise HTTPException(400, "이 문서 형식은 PDF 레이어를 만들 수 없다")
+            raise HTTPException(400, "이 문서 형식은 PDF 레이어를 만들 수 없습니다")
         stem = Path(doc["filename"] or src.name).stem
         fname = quote(f"{stem}_OCR.pdf")
         return Response(
@@ -2668,7 +3947,7 @@ figure img{{width:100%;display:block}}
             raise HTTPException(404)
         chunks = db.list_doc_chunks(doc_id)
         if not chunks:
-            raise HTTPException(404, "추출 조각이 없다")
+            raise HTTPException(404, "추출 조각이 없습니다")
         asset_paths = {
             Path(a["path"]).name: a["path"]
             for a in db.list_doc_assets(doc_id)
@@ -2699,7 +3978,7 @@ figure img{{width:100%;display:block}}
             raise HTTPException(404)
         chunks = db.list_doc_chunks(doc_id)
         if not chunks:
-            raise HTTPException(404, "추출 조각이 없다")
+            raise HTTPException(404, "추출 조각이 없습니다")
         md = export_markdown(doc["filename"], chunks)
         fname = quote(f"{Path(doc['filename']).stem}_추출결과.md")
         return Response(
@@ -2713,7 +3992,7 @@ figure img{{width:100%;display:block}}
         if db.get_document(doc_id) is None:
             raise HTTPException(404)
         if decision not in ("approved", "rejected", "rework"):
-            raise HTTPException(400, f"알 수 없는 판정: {decision}")
+            raise HTTPException(400, f"알 수 없는 판정입니다: {decision}")
         db.update_document(doc_id, decision=decision)
         if decision == "rework":
             db.update_document(doc_id, status="processing")

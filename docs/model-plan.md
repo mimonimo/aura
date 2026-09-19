@@ -30,7 +30,7 @@ sentence-transformers는 W1 스모크 통과 실측 있음, 폴백 확보됨).
 
 Embed와 동일 데이터 자산 재활용 (추가 생성 비용 0). cross-encoder 순위 학습.
 
-### ZZAIMY-Writer (베이스: Qwen3.5-35B-A3B, MoE — 질문 #5/#6 조건부)
+### ZZAIMY-Writer (베이스: Qwen3.8-27B, dense — 2주차 미팅 확정, 2026-09-08)
 
 ```
 과거 계획서 20~30건 → 목차 기준 섹션 해체 (수백~수천 쌍)
@@ -39,8 +39,10 @@ Embed와 동일 데이터 자산 재활용 (추가 생성 비용 0). cross-encod
  → (입력, 출력=실제 제출 섹션 원문) 쌍 + 사업 단위 홀드아웃 분리
 ```
 
-학습: QLoRA 4bit SFT, LLaMA-Factory (W1 스모크 실측 완료, ADR-0001).
-128GB 통합메모리 내 QLoRA 가능성은 30~40GB로 추정 (ADR-0001 — 실측은 P5 진입 시).
+학습: QLoRA 4bit SFT → DPO, LLaMA-Factory (W1 스모크 실측 완료, ADR-0001).
+dense 27B를 고른 이유: LoRA 어댑터·DPO·vLLM LoRA 서빙이 dense에서 검증된 경로이고, MoE는 학습 시
+전문가 전체가 메모리에 올라가며 라우팅 때문에 소량 데이터 SFT·DPO가 불안정하다. 예비였던
+Qwen3-30B-A3B(MoE)는 서빙 실험용으로만 둔다. 메모리 계획은 DGX 사양 확인 후 재작성(미확인).
 
 ### ZZAIMY-Extract (베이스: Qwen3-4B, 3후보 소규모 비교 후 확정)
 

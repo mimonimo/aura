@@ -3,10 +3,10 @@
 {% block content %}
 
 {% set sector_meta = {
-  "grant": ("solar:buildings-2-linear", "국고사업", "공고 분석과 계획서 초안, 실적 근거 검토를 처리하는 공간입니다."),
-  "recruit": ("solar:users-group-rounded-linear", "채용", "접수 서류를 채용공고·임용 규정과 대조해 확인 사항을 정리합니다."),
-  "admission": ("solar:square-academic-cap-linear", "입학", "입학 접수 서류를 모집요강·학칙 기준으로 대조합니다."),
-  "auto": ("solar:document-text-linear", "일반 행정", "그 밖의 행정 문서를 접수하고 검토 의견을 받는 공간입니다."),
+  "grant": ("solar:buildings-2-linear", "국고사업", "공고 분석 · 계획서 초안 · 실적 근거 검토"),
+  "recruit": ("solar:users-group-rounded-linear", "채용", "접수 서류와 채용공고·임용 규정 대조"),
+  "admission": ("solar:square-academic-cap-linear", "입학", "입학 서류와 모집요강·학칙 대조"),
+  "auto": ("solar:document-text-linear", "일반 행정", "그 밖의 행정 문서 접수와 검토"),
 } %}
 
 {% set project_hints = {
@@ -39,8 +39,7 @@
             style="padding:7px 16px; font-size:13px;">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>프로젝트 추가</button>
   </div>
-  <p class="muted" style="margin:0 0 14px;">{{ project_hints.get(active_tab, "") }}
-    문서 접수·검토·작성은 각 프로젝트 안에서 진행합니다.</p>
+  <p class="muted" style="margin:0 0 14px;">{{ project_hints.get(active_tab, "") }}</p>
   {% if projects %}
   <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px;">
     {% for pj in projects %}
@@ -90,16 +89,16 @@
           <button type="submit">만들기</button>
         </div>
       </form>
-      <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>만든 뒤
-        프로젝트 페이지에서 지침·메모를 적고 공고·기준을 연결하면, 그 안의 문서 접수와
-        검토·작성·채팅이 전부 그 기준을 따릅니다.</span></p>
+      <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>프로젝트 안의 접수·검토·작성·채팅은 그 프로젝트의 지침과 연결 기준을 따릅니다.</span></p>
     </div>
   </div>
 </div>
 {% endif %}
 
 {% set base_qs = "type=" ~ active_tab ~ (("&project=" ~ active_project) if active_project else "") %}
-{# 처리 현황 — 읽기용 파이프라인(접수 → 처리 중 → 검토 완료 → 판정 대기). 필터 아님 #}
+{# 처리 현황 — 파이프라인 순서(접수 → 처리 중 → 검토 완료 → 판정 대기)이면서 각 타일은
+   그 단계의 문서만 보는 필터 링크다(아래 표의 "필터 해제"와 짝). 전 세션 개편 때 링크가
+   빠져 필터 기능이 끊겼던 것을 복구. #}
 <div class="dev-section" style="margin-bottom:8px;">처리 현황</div>
 <div class="tiles flow">
   {% for key, label, icon, cls, n in [
@@ -108,10 +107,12 @@
     ("reviewed", "검토 완료", "solar:check-circle-linear", "green", stats.reviewed),
     ("pending", "판정 대기", "solar:clock-circle-linear", "navy", stats.pending),
   ] %}
-  <div class="tile">
+  <a class="tile" href="/?{{ base_qs }}{% if key %}&flt={{ key }}{% endif %}"
+     style="text-decoration:none; color:inherit;{% if active_flt == key or (not key and not active_flt) %} box-shadow:0 0 0 2px #64748B inset;{% endif %}"
+     title="{{ label }} 문서만 보기">
     <div class="ico {{ cls }}"><iconify-icon icon="{{ icon }}"></iconify-icon></div>
     <div><b>{{ n }}</b><span>{{ label }}</span></div>
-  </div>
+  </a>
   {% if not loop.last %}<div class="flow-arrow"><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></div>{% endif %}
   {% endfor %}
 </div>
@@ -145,21 +146,10 @@
 
 <div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
-    {% if active_flt %}
     {% set flt_labels = {"processing": "처리 중", "reviewed": "검토 완료", "pending": "판정 대기"} %}
-    <p class="muted" style="margin:0 0 12px;">필터:
-      <b style="color:var(--navy);">{{ flt_labels.get(active_flt, active_flt) }}</b> 문서만 보고 있습니다
-      <a href="/?{{ base_qs }}" class="btn-ghost" style="margin-left:8px;">필터 해제</a></p>
-    {% endif %}
-    {% if active_tab != "all" %}
-    <p class="muted" style="margin:0 0 12px;">{{ doc_type_labels.get(active_tab, active_tab) }}
-      업무의 문서만 보고 있습니다 <a href="/" class="btn-ghost" style="margin-left:8px;">전체 보기</a></p>
-    {% endif %}
-    {% if q %}
-    <p class="muted" style="margin:0 0 12px;">"{{ q }}" 검색 결과 {{ documents|length }}건
-      <a href="/" class="btn-ghost" style="margin-left:8px;">전체 보기</a></p>
-    {% endif %}
+    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서
+      {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
+      {% if q %}<span class="muted" style="margin-left:auto; font-size:12.5px; font-weight:500;">"{{ q }}" 검색 {{ documents|length }}건 · <a href="/">전체 보기</a></span>{% endif %}</h2>
     {% if documents %}
     <div class="table-scroll">
       <table>
@@ -178,18 +168,21 @@
         {% endfor %}
       </table>
     </div>
+    {% set pg_qs = "type=" ~ active_tab ~ (("&project=" ~ active_project) if active_project else "") ~ (("&q=" ~ q) if q else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
+    {% if page > 0 or has_next %}
+    <div style="display:flex; gap:8px; margin-top:12px; align-items:center;">
+      {% if page > 0 %}<a class="btn-ghost" href="/?{{ pg_qs }}&page={{ page - 1 }}">← 이전</a>{% endif %}
+      <span class="muted" style="font-size:12px; font-variant-numeric:tabular-nums;">
+        {{ page * per + 1 }}–{{ page * per + documents|length }} / {{ total_docs }}건</span>
+      {% if has_next %}<a class="btn-ghost" href="/?{{ pg_qs }}&page={{ page + 1 }}">다음 →</a>{% endif %}
+    </div>
+    {% endif %}
     {% else %}
     <p class="muted">{% if active_flt %}해당 상태의 문서가 없습니다.
-      <a href="/?{{ base_qs }}" class="btn-ghost" style="margin-left:6px;">필터 해제</a>
       {% elif q %}"{{ q }}" 검색 결과가 없습니다.
-      {% elif active_tab != "all" %}접수된 문서가 없습니다. 문서 접수는 프로젝트 안에서
-      합니다 — 위에서 프로젝트를 만들거나 열어 접수하세요.
-      {% else %}접수된 문서가 없습니다. 각 업무 영역의 프로젝트에서 접수하세요.{% endif %}</p>
+      {% elif active_tab != "all" %}접수된 문서가 없습니다. 접수는 위 프로젝트 안에서 합니다.
+      {% else %}접수된 문서가 없습니다. 접수는 각 업무 영역의 프로젝트 안에서 합니다.{% endif %}</p>
     {% endif %}
-    <p class="notice"><iconify-icon icon="solar:shield-check-linear"></iconify-icon><span>문서
-      접수·검토·작성은 각 프로젝트 페이지에서 진행합니다. 규정·지침·매뉴얼·공고문 같은
-      판단 기준은 <a href="/criteria">기준 문서</a>에 등록하세요. 문서는 이 장비 밖으로
-      나가지 않고, 인풋 문서의 개인정보는 자동 마스킹 후 처리됩니다.</span></p>
   </div>
 </div>
 {% endblock %}

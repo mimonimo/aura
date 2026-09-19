@@ -66,7 +66,9 @@
   .count-pill { margin-left: 5px; background: #FDECEC; color: var(--red);
                 border-radius: 9px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
 
-  .side-bottom { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+    .side-bottom { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+  [hidden] { display: none !important; }
+  .side-note { font-size: 11px; color: var(--faint); padding: 10px 12px 0; line-height: 1.5; }
 
   /* ── 우측 컬럼 ── */
   .content-col { margin-left: 248px; min-width: 0; display: flex;
@@ -90,8 +92,7 @@
               background: var(--panel); border: 1px solid var(--line);
               color: var(--muted); text-decoration: none; font-size: 18px;
               transition: all .35s var(--ease); }
-  .icon-btn:hover { background: #E8EFFC; color: var(--navy);
-            }
+  .icon-btn:hover { background: #EEF2F7; color: var(--ink); }
   .icon-btn .badge-n { position: absolute; top: -4px; right: -5px; background: #E5484D;
               color: #fff; font-size: 10.5px; font-weight: 700; border-radius: 9px;
               min-width: 17px; height: 17px; display: flex; align-items: center;
@@ -121,7 +122,7 @@
           padding: 22px 24px; box-shadow: inset 0 1px 1px rgba(255,255,255,.6),
           0 1px 3px rgba(27,59,117,.04); }
   .card h2 { font-size: 16px; margin: 0 0 15px; display: flex; align-items: center;
-             gap: 9px; letter-spacing: -0.01em; text-wrap: balance; }
+             gap: 9px; letter-spacing: -0.01em; text-wrap: balance; flex-wrap: wrap; row-gap: 8px; }
   .card h2 iconify-icon { color: var(--navy); font-size: 20px; }
 
   .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
@@ -164,38 +165,42 @@
   .pill.failed { background: #FDECEC; color: var(--red); }
   .pill.type { background: #E8EFFC; color: var(--navy); }
 
+  /* 버튼 체계 — 주 버튼은 잉크색 채움 하나, 나머지는 흰 바탕에 테두리. 채움색 남발·파랑 호버·글로우 없음 */
   button, .btn { display: inline-flex; align-items: center; justify-content: center;
-           gap: 7px; background: var(--navy); color: #fff; border: 1px solid var(--navy);
-           border-radius: 12px; padding: 9px 18px; font-size: 13.5px; font-weight: 600;
+           gap: 7px; background: var(--ink); color: #fff; border: 1px solid var(--ink);
+           border-radius: 10px; padding: 9px 16px; font-size: 13.5px; font-weight: 600;
            line-height: 1.2; cursor: pointer; font-family: inherit; text-decoration: none;
-           box-shadow: 0 1px 2px rgba(27,59,117,.14);
-           transition: background .3s var(--ease), box-shadow .3s var(--ease),
-                       border-color .3s var(--ease); }
-  button:hover, .btn:hover { background: var(--blue); border-color: var(--blue);
-           box-shadow: 0 3px 10px rgba(73,123,251,.22); }
+           transition: background .2s var(--ease), border-color .2s var(--ease),
+                       color .2s var(--ease); }
+  button:hover, .btn:hover { background: #111827; border-color: #111827; }
+  button:active, .btn:active { background: #0B1220; }
+  button:focus-visible, .btn:focus-visible, .btn-ghost:focus-visible {
+           outline: 2px solid #94A3B8; outline-offset: 2px; }
+  button:disabled, .btn.off { background: var(--panel); color: var(--faint);
+           border-color: var(--line); cursor: default; }
 
-  button.secondary { background: #fff; color: var(--navy);
-           border: 1px solid #C9D7F0; box-shadow: none; }
-  button.secondary:hover { background: #E8EFFC; border-color: var(--navy); }
+  button.secondary, .btn.secondary { background: #fff; color: var(--ink);
+           border: 1px solid #CBD5E1; }
+  button.secondary:hover, .btn.secondary:hover { background: var(--panel); border-color: #94A3B8; }
 
   .file-field { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
   .file-field input[type=file] { display: none; }
   .file-btn { display: inline-flex; align-items: center; gap: 7px; background: #fff;
-              color: var(--navy); border: 1.5px dashed #A9BFE3; border-radius: 24px;
-              padding: 9px 20px; font-size: 14px; font-weight: 700;
-              transition: all .45s var(--ease); }
-  .file-field:hover .file-btn { background: #E8EFFC; border-color: var(--navy); }
+              color: var(--ink); border: 1.5px dashed #CBD5E1; border-radius: 10px;
+              padding: 9px 18px; font-size: 13.5px; font-weight: 600;
+              transition: all .2s var(--ease); }
+  .file-field:hover .file-btn { background: var(--panel); border-color: #94A3B8; }
   /* 맨몸 파일 입력(.file-field로 안 감싼 것)도 패밀리 룩으로 — 브라우저 기본
      회색 사각 버튼이 화면마다 튀는 것을 막는다. ::file-selector-button은 파일
      입력의 버튼 부분만 골라 스타일링한다 */
   input[type=file] { font-size: 13px; color: var(--muted); max-width: 100%; }
   input[type=file]::file-selector-button {
-      margin-right: 10px; border: 1.5px solid #C9D7F0; border-radius: 24px;
-      background: #fff; color: var(--navy); padding: 7px 16px; font-size: 13px;
-      font-weight: 700; cursor: pointer; font-family: inherit;
-      transition: all .3s var(--ease); }
+      margin-right: 10px; border: 1px solid #CBD5E1; border-radius: 10px;
+      background: #fff; color: var(--ink); padding: 7px 14px; font-size: 13px;
+      font-weight: 600; cursor: pointer; font-family: inherit;
+      transition: all .2s var(--ease); }
   input[type=file]::file-selector-button:hover {
-      background: #E8EFFC; border-color: var(--navy); }
+      background: var(--panel); border-color: #94A3B8; }
   /* 텍스트·검색·선택 입력 공통 — 폼마다 인라인 스타일이 빠져도 최소 룩 유지 */
   input[type=text], input[type=search], input[type=password], select, textarea {
       font-family: inherit; color: var(--ink); }
@@ -264,6 +269,8 @@
   .layout-box:hover { border-color: #C9D7F0; background: rgba(214,228,247,.25);
                 overflow: auto; z-index: 3; }
   .layout-box ::selection { background: rgba(58,110,224,.30); }
+  /* 표 래퍼 — 좁은 폭에서 표가 카드를 뚫지 않게 가로 스크롤(전 화면 공용) */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .layout-box .table-scroll { margin: 0; }
   .layout-box table.extract { font-size: 9px; margin: 0; }
   .layout-box table.extract th, .layout-box table.extract td { padding: 1px 3px;
@@ -298,15 +305,23 @@
                  border-radius: 12px; padding: 15px 17px; max-height: 440px;
                  overflow-y: auto; margin: 0; }
   .btn-ghost { display: inline-flex; align-items: center; gap: 6px;
-           background: #fff; color: var(--navy); border: 1px solid #C9D7F0;
-           border-radius: 12px; padding: 7px 14px; font-size: 12.5px; font-weight: 600;
-           text-decoration: none; transition: all .3s var(--ease); }
-  .btn-ghost:hover { background: #E8EFFC; border-color: var(--navy); }
+           background: #fff; color: var(--ink); border: 1px solid #CBD5E1;
+           border-radius: 10px; padding: 7px 14px; font-size: 12.5px; font-weight: 600;
+           text-decoration: none; white-space: nowrap; transition: all .2s var(--ease); }
+  .btn-ghost:hover { background: var(--panel); border-color: #94A3B8; }
   .btn-ghost.on-dark { background: rgba(255,255,255,.16); color: #EAF1FB;
            border-color: rgba(255,255,255,.42); }
   .btn-ghost.on-dark:hover { background: rgba(255,255,255,.26); color: #fff;
            border-color: rgba(255,255,255,.6); }
   .muted { color: var(--muted); font-size: 13px; }
+  /* 카드 머리 오른쪽의 보조 링크(설계 근거·상세·품질 체계 등) — 밑줄 글자 대신 작은 테두리 버튼 */
+  .h-link { display: inline-flex; align-items: center; gap: 5px; margin-left: auto;
+            background: #fff; color: var(--muted); border: 1px solid var(--line);
+            border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600;
+            line-height: 1.2; text-decoration: none; white-space: nowrap;
+            transition: all .2s var(--ease); }
+  .h-link:hover { color: var(--ink); border-color: #94A3B8; background: var(--panel); }
+  .h-link iconify-icon { font-size: 14px; color: inherit; }
   .notice { display: flex; gap: 9px; font-size: 13px; color: var(--muted);
             background: var(--panel); border: 1px solid #EDF2F7;
             border-radius: 10px; padding: 11px 14px; margin-top: 12px; line-height: 1.65; }
@@ -330,6 +345,15 @@
   .pop-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pop-item.disabled { color: var(--faint); cursor: default; }
   .pop-empty { padding: 14px 10px; color: var(--faint); font-size: 13px; text-align: center; }
+  .pop-head { display: flex; align-items: center; gap: 11px; padding: 6px 8px 12px; }
+  .pop-avatar { width: 38px; height: 38px; border-radius: 50%; flex: none;
+             background: linear-gradient(135deg, var(--blue), var(--navy)); color: #fff;
+             display: flex; align-items: center; justify-content: center; font-size: 17px; }
+  .pop-name { font-size: 14px; font-weight: 700; color: var(--ink);
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pop-sub { font-size: 12px; color: var(--muted); margin-top: 1px;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pop-div { height: 1px; background: var(--line); margin: 6px 4px; }
 
   /* 공용 모달 — data-modal-open="#id" 버튼으로 연다 */
   .modal-back { display: none; position: fixed; inset: 0; z-index: 70;
@@ -348,6 +372,21 @@
     outline: none; transition: border-color .3s var(--ease), box-shadow .3s var(--ease); }
   .modal-back select:focus, .modal-back input:focus { border-color: var(--blue);
     box-shadow: 0 0 0 3px rgba(73,123,251,.12); }
+  .modal-back select { -webkit-appearance: none; appearance: none; cursor: pointer;
+    padding-right: 38px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 14px center; }
+  /* 세그먼트 컨트롤 — 2~3지 선택을 네모 드롭다운 대신 깔끔하게 */
+  .seg { display: flex; gap: 6px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 12px; padding: 4px; }
+  .seg label { flex: 1; position: relative; margin: 0; }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg span { display: block; text-align: center; padding: 9px 10px; border-radius: 9px;
+    font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer;
+    transition: all .2s var(--ease); }
+  .seg label:hover span { color: var(--ink); }
+  .seg input:checked + span { background: #fff; color: var(--navy);
+    box-shadow: 0 1px 3px rgba(27,59,117,.14); }
   .form-row select, .form-row input[type=text] { width: 100%; border: 1.5px solid var(--line);
                 border-radius: 12px; padding: 10px 14px; font-family: inherit; font-size: 14px; }
 
@@ -361,7 +400,7 @@
                border: 1px solid var(--line); background: var(--panel); color: var(--muted);
                align-items: center; justify-content: center; font-size: 20px; cursor: pointer;
                margin-right: 4px; transition: all .35s var(--ease); }
-  .navtoggle:hover { background: #E8EFFC; color: var(--navy); }
+  .navtoggle:hover { background: #EEF2F7; color: var(--ink); }
   .nav-backdrop { display: none; position: fixed; inset: 0; z-index: 44;
                   background: rgba(20,27,43,.42); }
 
@@ -402,8 +441,6 @@
       <iconify-icon icon="solar:square-academic-cap-linear"></iconify-icon>입학{% if pending_by_type.get("admission") %}<span class="count-pill">{{ pending_by_type["admission"] }}</span>{% endif %}</a>
     <a href="/?type=auto" class="{{ 'active' if active_tab is defined and active_tab == 'auto' else '' }}">
       <iconify-icon icon="solar:document-text-linear"></iconify-icon>일반 행정{% if pending_by_type.get("auto") %}<span class="count-pill">{{ pending_by_type["auto"] }}</span>{% endif %}</a>
-    <a href="/ocr" class="{{ 'active' if request.url.path == '/ocr' else '' }}">
-      <iconify-icon icon="solar:scanner-linear"></iconify-icon>문서 추출 (OCR)</a>
   </nav>
   {% if side_projects %}
   <div class="side-label">프로젝트</div>
@@ -434,7 +471,12 @@
       <iconify-icon icon="solar:code-square-linear"></iconify-icon>개발 현황 (개발자)</a>
     {% endif %}
     <a href="/criteria" class="{{ 'active' if request.url.path.startswith('/criteria') else '' }}">
-      <iconify-icon icon="solar:library-linear"></iconify-icon>기준 문서 (규정·지침)</a>
+            <iconify-icon icon="solar:library-linear"></iconify-icon>기준 문서 (규정·지침)</a>
+    {% if llm_status is defined %}
+    <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok else '' }}">
+      {% if llm_status.ok %}<span style="color:var(--green);">●</span> AI 모델 서버 연결됨{% if llm_status.model %} · {{ llm_status.model }}{% endif %}
+      {% else %}<span style="color:var(--amber);">●</span> AI 모델 서버 미연결 · 답변 대기{% endif %}</div>
+    {% endif %}
   </div>
 </aside>
 
@@ -454,7 +496,7 @@
         {% if alert_count %}<span class="badge-n">{{ alert_count }}</span>{% endif %}
       </button>
       <div class="popover" id="bellPop">
-        <h5>판정 대기 {{ pending_count }}</h5>
+        <h5>확인할 문서 {{ pending_count }}</h5>
         {% for d in pending_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}">
           <iconify-icon icon="solar:check-circle-linear" style="color:var(--green);"></iconify-icon>
@@ -477,16 +519,24 @@
     <div class="menu-wrap">
       <button type="button" class="user-chip" data-pop="userPop">
         <span class="avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
-        {{ "개발자 (zzdev)" if request.state.user == "zzdev" else (profile_name or "담당자") }} <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
+        {{ profile_name or request.state.user or "담당자" }} <iconify-icon icon="solar:alt-arrow-down-linear" style="font-size:13px;"></iconify-icon>
       </button>
       <div class="popover" id="userPop">
-        <h5>{{ "개발자 계정 (zzdev)" if request.state.user == "zzdev" else (profile_name or "담당자") }}{% if profile_dept and request.state.user != "zzdev" %} · {{ profile_dept }}{% endif %}</h5>
+        <div class="pop-head">
+          <span class="pop-avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
+          <div style="min-width:0;">
+            <div class="pop-name">{{ profile_name or request.state.user or "담당자" }}</div>
+            <div class="pop-sub">{{ request.state.user or "" }}{% if request.state.user %} · {% endif %}{{ "개발자" if request.state.role == "dev" else "담당자" }}{% if profile_dept %} · {{ profile_dept }}{% endif %}</div>
+          </div>
+        </div>
+        <div class="pop-div"></div>
         <a class="pop-item" href="/settings"><iconify-icon icon="solar:user-id-linear"></iconify-icon><span>프로필·에이전트 지침 설정</span></a>
-        {% if request.state.role == 'dev' %}
+        {% if request.state.role %}
         <button type="button" class="pop-item" data-modal-open="#pwModal"
                 style="width:100%; background:none; border:0; cursor:pointer; font:inherit; text-align:left;">
           <iconify-icon icon="solar:lock-password-linear"></iconify-icon><span>비밀번호 변경</span></button>
         {% endif %}
+        <div class="pop-div"></div>
         <form action="/logout" method="post" style="margin:0;">
           <button type="submit" class="pop-item" style="width:100%; background:none; border:0;
                   box-shadow:none; color:var(--ink); font-weight:400; font-size:13.5px;
@@ -503,11 +553,21 @@
   // (라우트는 그대로. 클라이언트에서 위치를 저장·복원한다.)
   (function () {
     var KEY = "scroll:" + location.pathname;
+    // 결과 배너(?ok= / ?err=)가 있으면 스크롤을 복원하지 않고 위에 둬서 배너가 보이게 한다.
+    var hasBanner = /[?&](ok|err)=/.test(location.search);
+    // 배너는 한 번만 보이면 된다 — 주소에서 지워 새로고침·뒤로가기 때 되살아나지 않게 한다
+    if (hasBanner) {
+      try {
+        var u = new URL(location.href);
+        u.searchParams.delete("ok"); u.searchParams.delete("err");
+        history.replaceState(history.state, "", u.pathname + (u.search || "") + u.hash);
+      } catch (err) {}
+    }
     try {
       var saved = sessionStorage.getItem(KEY);
       if (saved !== null) {
         sessionStorage.removeItem(KEY);
-        window.addEventListener("load", function () {
+        if (!hasBanner) window.addEventListener("load", function () {
           window.scrollTo(0, parseInt(saved, 10) || 0);
         });
       }
@@ -517,6 +577,9 @@
       if (f && f.tagName === "FORM" && (f.method || "").toLowerCase() === "post") {
         try { sessionStorage.setItem("scroll:" + location.pathname, window.scrollY); }
         catch (e) { /* 무시 */ }
+        // 네트워크가 걸리는 버튼은 누르는 즉시 대기 표시를 준다(data-busy="문구").
+        var busy = f.querySelector('button[type="submit"][data-busy]');
+        if (busy && !busy.disabled) { busy.dataset.orig = busy.innerHTML; busy.textContent = busy.dataset.busy; busy.disabled = true; }
       }
     }, true);
   })();
@@ -539,16 +602,31 @@
       if (m) { m.classList.add("open"); var f = m.querySelector("input,select,textarea"); if (f) f.focus(); }
     });
   });
-  document.querySelectorAll(".modal-back").forEach(function (m) {
-    m.addEventListener("click", function (e) { if (e.target === m) m.classList.remove("open"); });
-    m.querySelectorAll("[data-modal-close]").forEach(function (b) {
-      b.addEventListener("click", function () { m.classList.remove("open"); });
+  // 닫기: 이벤트 위임 — 스크립트 이후에 파싱/삽입되는 모달(pwModal 등)도 닫힌다
+  function closeAllModals() {
+    var any = false;
+    document.querySelectorAll(".modal-back.open").forEach(function (m) {
+      m.classList.remove("open"); any = true;
     });
+    return any;
+  }
+  document.addEventListener("click", function (e) {
+    if (e.target.classList && e.target.classList.contains("modal-back")) {
+      e.target.classList.remove("open"); return;
+    }
+    var cb = e.target.closest && e.target.closest("[data-modal-close]");
+    if (cb) { var m = cb.closest(".modal-back"); if (m) m.classList.remove("open"); }
   });
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape") document.querySelectorAll(".modal-back.open")
-      .forEach(function (m) { m.classList.remove("open"); });
+    if (e.key === "Escape") closeAllModals();
   });
+  // 창이 열린 상태에서 뒤로 가면 앞 화면으로 튕기지 않고 창만 닫힌다
+  document.addEventListener("click", function (e) {
+    var ob = e.target.closest && e.target.closest("[data-modal-open]");
+    if (!ob) return;
+    try { history.pushState({ zzaimyModal: true }, ""); } catch (err) {}
+  }, true);
+  window.addEventListener("popstate", function () { closeAllModals(); });
   document.querySelectorAll("[data-pop]").forEach(function (btn) {
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
@@ -598,7 +676,7 @@
     ["dragenter", "dragover"].forEach(function (ev) {
       zone.addEventListener(ev, function (e) {
         e.preventDefault();
-        if (btn) { btn.style.background = "#E8EFFC"; btn.style.borderColor = "var(--navy)"; }
+        if (btn) { btn.style.background = "#EEF2F7"; btn.style.borderColor = "#94A3B8"; }
       });
     });
     ["dragleave", "drop"].forEach(function (ev) {
@@ -615,18 +693,20 @@
     });
   });
 </script>
-{% if request.state.role == 'dev' %}
+{% if request.state.role %}
 <div class="modal-back" id="pwModal">
   <div class="card"><div class="card-in">
-    <h2><iconify-icon icon="solar:lock-password-linear"></iconify-icon>비밀번호 변경</h2>
-    <form action="/dev/account" method="post">
-      <label class="muted" style="font-size:12.5px;">사용자</label>
-      <select name="target" style="margin:6px 0 14px;">
-        <option value="zzaimy">zzaimy — 담당자</option>
-        <option value="zzdev">zzdev — 개발자</option>
-      </select>
-      <label class="muted" style="font-size:12.5px;">새 비밀번호</label>
-      <input type="password" name="new_pw" required minlength="4" style="margin:6px 0 16px;">
+    <h2><iconify-icon icon="solar:lock-password-linear"></iconify-icon>비밀번호 변경
+      <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">{{ request.state.user }}</span></h2>
+    {# 본인 계정만 바꾼다 — 다른 계정은 개발자의 계정·연결 관리에서 #}
+    <form action="/account/password" method="post">
+      <input type="hidden" name="back" value="{{ request.url.path }}">
+      <label class="muted" style="font-size:12.5px;">현재 비밀번호</label>
+      <input type="password" name="current_pw" required autocomplete="current-password" style="margin:6px 0 12px;">
+      <label class="muted" style="font-size:12.5px;">새 비밀번호 (8자 이상)</label>
+      <input type="password" name="new_pw" required minlength="8" autocomplete="new-password" style="margin:6px 0 12px;">
+      <label class="muted" style="font-size:12.5px;">새 비밀번호 확인</label>
+      <input type="password" name="confirm" required minlength="8" autocomplete="new-password" style="margin:6px 0 16px;">
       <div style="display:flex; gap:8px; justify-content:flex-end;">
         <button type="button" class="secondary" data-modal-close>취소</button>
         <button type="submit">변경</button>
@@ -634,6 +714,325 @@
     </form>
   </div></div>
 </div>
+{% endif %}
+
+{# 떠 있는 에이전트 — 모든 화면에서 묻고, 글을 고른 뒤 오른쪽 단추로도 묻는다 #}
+{% if request.state.role and not request.url.path.startswith('/chat') %}
+<style>
+  .ag-fab { position: fixed; right: 22px; bottom: 22px; z-index: 60; width: 54px; height: 54px;
+            border-radius: 50%; border: 0; background: var(--navy); color: #fff; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 24px;
+            box-shadow: 0 10px 30px rgba(27,59,117,.32); transition: transform .2s var(--ease); }
+  .ag-fab:hover { transform: translateY(-2px); }
+  .ag-panel { position: fixed; right: 22px; bottom: 86px; z-index: 61; width: 384px;
+              max-width: calc(100vw - 32px); height: 560px; max-height: calc(100vh - 130px);
+              background: #fff; border: 1px solid var(--line); border-radius: 18px;
+              box-shadow: 0 22px 60px rgba(27,59,117,.22); display: none;
+              flex-direction: column; overflow: hidden; }
+  .ag-panel.open { display: flex; }
+  .ag-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px;
+             border-bottom: 1px solid var(--line); }
+  .ag-head b { font-size: 13.5px; flex: 1; }
+  .ag-head a, .ag-head button { color: var(--muted); }
+  .ag-body { flex: 1; overflow-y: auto; padding: 14px; display: flex;
+             flex-direction: column; gap: 10px; background: var(--bg, #F7F9FC); }
+  .ag-msg { max-width: 88%; padding: 10px 13px; border-radius: 14px; font-size: 13px;
+            line-height: 1.7; white-space: pre-wrap; }
+  .ag-msg.user { align-self: flex-end; background: var(--navy); color: #fff;
+                 border-bottom-right-radius: 4px; }
+  .ag-msg.assistant { align-self: flex-start; background: #fff; border: 1px solid var(--line);
+                 border-bottom-left-radius: 4px; }
+  .ag-empty { color: var(--muted); font-size: 13px; text-align: center; margin: auto;
+            line-height: 1.7; padding: 0 14px; }
+  .ag-tips { display: flex; flex-direction: column; gap: 7px; }
+  .ag-tips button { border: 1px solid var(--line); background: #fff; color: var(--ink);
+            border-radius: 12px; padding: 9px 12px; font: inherit; font-size: 12.5px;
+            cursor: pointer; box-shadow: none; text-align: left; }
+  .ag-tips button:hover { background: var(--panel); border-color: #94A3B8; }
+  .ag-foot { border-top: 1px solid var(--line); padding: 10px 12px 12px; background: #fff; }
+  .ag-quote { display: flex; gap: 6px; align-items: flex-start; font-size: 11.5px;
+              color: var(--muted); background: var(--panel); border-radius: 10px;
+              padding: 7px 9px; margin-bottom: 8px; }
+  .ag-quote span { flex: 1; display: -webkit-box; -webkit-line-clamp: 3;
+              -webkit-box-orient: vertical; overflow: hidden; }
+  .ag-quote button { border: 0; background: transparent; cursor: pointer; color: var(--faint);
+              padding: 0; display: flex; }
+  .ag-row { display: flex; align-items: flex-end; gap: 8px; border: 1px solid var(--line);
+            border-radius: 22px; padding: 5px 5px 5px 14px; background: #fff; }
+  .ag-row:focus-within { border-color: var(--navy); }
+  .ag-row textarea { flex: 1; border: 0 !important; outline: none !important; resize: none;
+            font: inherit; font-size: 13.5px; line-height: 1.5; padding: 9px 0;
+            max-height: 108px; background: transparent !important; min-width: 0;
+            box-shadow: none !important; border-radius: 0 !important; }
+  .ag-send { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 0;
+            background: var(--navy); color: #fff; cursor: pointer; display: flex;
+            align-items: center; justify-content: center; font-size: 16px;
+            box-shadow: none; padding: 0; }
+  .ag-send:disabled { background: var(--line); color: #fff; cursor: default; }
+  .ag-acts { display: flex; flex-wrap: wrap; gap: 6px; align-self: flex-start;
+            max-width: 92%; }
+  .ag-acts button, .ag-acts a { border: 1px solid var(--line); background: #fff;
+            color: var(--navy); border-radius: 12px; padding: 7px 11px; font: inherit;
+            font-size: 12px; cursor: pointer; box-shadow: none; text-decoration: none;
+            display: inline-flex; align-items: center; }
+  .ag-acts button:hover, .ag-acts a:hover { background: var(--panel); }
+  .ag-menu { position: fixed; z-index: 90; background: #fff; border: 1px solid var(--line);
+            border-radius: 12px; box-shadow: 0 14px 40px rgba(27,59,117,.2); padding: 5px;
+            display: none; min-width: 168px; }
+  .ag-menu.open { display: block; }
+  .ag-menu button { display: flex; align-items: center; gap: 8px; width: 100%; border: 0;
+            background: transparent; font: inherit; font-size: 13px; color: var(--ink);
+            padding: 9px 10px; border-radius: 8px; cursor: pointer; text-align: left; }
+  .ag-menu button:hover { background: var(--panel); }
+  @media (max-width: 560px) {
+    .ag-panel { right: 12px; left: 12px; width: auto; bottom: 80px; }
+    .ag-fab { right: 14px; bottom: 14px; }
+  }
+</style>
+
+<button type="button" class="ag-fab" id="agFab" title="에이전트에게 묻기" aria-label="에이전트에게 묻기">
+  <iconify-icon icon="solar:chat-round-line-linear"></iconify-icon></button>
+
+<div class="ag-panel" id="agPanel" role="dialog" aria-label="에이전트">
+  <div class="ag-head">
+    <iconify-icon icon="solar:chat-round-line-linear" style="color:var(--navy); font-size:18px;"></iconify-icon>
+    <b>에이전트</b>
+    <button type="button" class="icon-btn" id="agNew" title="새 대화"
+            style="width:28px; height:28px; font-size:14px;">
+      <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></button>
+    <a class="icon-btn" id="agFull" href="/chat" title="전체 화면으로 열기"
+       style="width:28px; height:28px; font-size:14px;">
+      <iconify-icon icon="solar:maximize-square-linear"></iconify-icon></a>
+    <button type="button" class="icon-btn" id="agClose" title="닫기"
+            style="width:28px; height:28px; font-size:14px;">
+      <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+  </div>
+  <div class="ag-body" id="agBody">
+    <div class="ag-empty" id="agEmpty">
+      <p style="margin:0 0 12px;">무엇이든 물어보세요.</p>
+      <div class="ag-tips">
+        <button type="button" data-ask="이 화면에서 무엇을 할 수 있습니까?">이 화면 사용법</button>
+        <button type="button" data-ask="일반휴학 처리 기준을 알려주세요.">규정 찾기</button>
+        <button type="button" data-ask="최근 접수된 문서를 정리해 주세요.">문서 정리</button>
+      </div>
+    </div>
+  </div>
+  <div class="ag-foot">
+    <div class="ag-quote" id="agQuote" hidden>
+      <iconify-icon icon="solar:quote-square-linear" style="font-size:14px; flex:none;"></iconify-icon>
+      <span id="agQuoteText"></span>
+      <button type="button" id="agQuoteClear" title="빼기">
+        <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+    </div>
+    <div class="ag-row">
+      <textarea id="agInput" rows="1" placeholder="메시지를 입력하세요"></textarea>
+      <button type="button" class="ag-send" id="agSend" title="보내기" disabled>
+        <iconify-icon icon="solar:plain-2-linear"></iconify-icon></button>
+    </div>
+  </div>
+</div>
+
+<div class="ag-menu" id="agMenu">
+  <button type="button" class="ag-menu-go" data-q="고른 부분을 쉽게 설명해 주세요.">
+    <iconify-icon icon="solar:lightbulb-linear" style="color:var(--navy);"></iconify-icon>
+    쉽게 설명</button>
+  <button type="button" class="ag-menu-go" data-q="고른 부분을 짧게 간추려 주세요.">
+    <iconify-icon icon="solar:list-down-linear" style="color:var(--navy);"></iconify-icon>
+    간추리기</button>
+  <button type="button" class="ag-menu-go" data-q="고른 부분과 관련된 교내 규정을 찾아 주세요.">
+    <iconify-icon icon="solar:library-linear" style="color:var(--navy);"></iconify-icon>
+    관련 규정 찾기</button>
+  <button type="button" id="agMenuAsk">
+    <iconify-icon icon="solar:chat-round-line-linear" style="color:var(--navy);"></iconify-icon>
+    직접 묻기</button>
+</div>
+
+<script>
+(function () {
+  var fab = document.getElementById("agFab");
+  var panel = document.getElementById("agPanel");
+  var body = document.getElementById("agBody");
+  var empty = document.getElementById("agEmpty");
+  var input = document.getElementById("agInput");
+  var send = document.getElementById("agSend");
+  var quote = document.getElementById("agQuote");
+  var quoteText = document.getElementById("agQuoteText");
+  var full = document.getElementById("agFull");
+  var menu = document.getElementById("agMenu");
+  if (!fab || !panel) return;
+
+  var sid = null, busy = false, quoted = "";
+  try { sid = sessionStorage.getItem("agentSession") || null; } catch (e) {}
+
+  function setSid(v) {
+    sid = v;
+    try { if (v) sessionStorage.setItem("agentSession", v); else sessionStorage.removeItem("agentSession"); } catch (e) {}
+    if (full) full.href = v ? "/chat/" + v : "/chat";
+  }
+  setSid(sid);
+
+  function grow() {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 110) + "px";
+  }
+  function paintSend() { send.disabled = busy || !input.value.trim(); }
+
+  // 모델이 붙이는 강조 기호는 화면에 그대로 드러내지 않는다
+  function plain(text) {
+    return String(text || "")
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/(^|\s)\*(\S[^*]*?)\*(?=\s|$)/g, "$1$2")
+      .replace(/^#{1,6}\s+/gm, "");
+  }
+
+  function render(messages) {
+    body.innerHTML = "";
+    if (!messages || !messages.length) { body.appendChild(empty); return; }
+    messages.forEach(function (m) {
+      var el = document.createElement("div");
+      el.className = "ag-msg " + (m.role === "user" ? "user" : "assistant");
+      el.textContent = plain(m.content);
+      body.appendChild(el);
+    });
+    body.scrollTop = body.scrollHeight;
+  }
+  // 이 화면에서 바로 시킬 수 있는 일 — 누를 때 실행한다
+  var lastActions = [];
+  function showActions(list) { lastActions = list || []; }
+  function drawActions() {
+    if (!lastActions.length) return;
+    var wrap = document.createElement("div");
+    wrap.className = "ag-acts";
+    lastActions.forEach(function (a) {
+      var el;
+      if (a.method === "post") {
+        el = document.createElement("form");
+        el.method = "post"; el.action = a.url; el.style.margin = "0";
+        var b = document.createElement("button");
+        b.type = "submit"; b.textContent = a.label;
+        el.appendChild(b);
+      } else {
+        el = document.createElement("a");
+        el.href = a.url; el.textContent = a.label;
+      }
+      wrap.appendChild(el);
+    });
+    body.appendChild(wrap);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  function pending() {
+    var el = document.createElement("div");
+    el.className = "ag-msg assistant";
+    el.style.color = "var(--muted)";
+    el.textContent = "답변 작성 중…";
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+  function load(showPending) {
+    if (!sid) return;
+    fetch("/chat/" + sid + "/messages", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        render(d.messages);
+        if (d.waiting) {
+          busy = true; paintSend(); if (showPending) pending();
+          setTimeout(function () { load(true); }, 2000);
+        } else { busy = false; paintSend(); drawActions(); }
+      })
+      .catch(function () { busy = false; paintSend(); });
+  }
+
+  function open() {
+    panel.classList.add("open");
+    if (sid) load(true);
+    setTimeout(function () { input.focus(); }, 60);
+  }
+  function close() { panel.classList.remove("open"); }
+  fab.addEventListener("click", function () {
+    if (panel.classList.contains("open")) close(); else open();
+  });
+  document.getElementById("agClose").addEventListener("click", close);
+  document.getElementById("agNew").addEventListener("click", function () {
+    setSid(null); render([]); setQuote(""); input.value = ""; grow(); paintSend(); input.focus();
+  });
+
+  function setQuote(text) {
+    quoted = text || "";
+    if (quoted) { quoteText.textContent = quoted; quote.hidden = false; }
+    else { quote.hidden = true; }
+  }
+  document.getElementById("agQuoteClear").addEventListener("click", function () { setQuote(""); });
+
+  function submit() {
+    var q = input.value.trim();
+    if (!q || busy) return;
+    busy = true; paintSend();
+    var fd = new FormData();
+    fd.append("question", q);
+    if (quoted) fd.append("context", quoted);
+    fd.append("page", location.pathname);
+    var shown = quoted ? "「" + quoted.slice(0, 120) + "」\n" + q : q;
+    var mine = document.createElement("div");
+    mine.className = "ag-msg user"; mine.textContent = shown;
+    if (empty.parentNode === body) body.innerHTML = "";
+    body.appendChild(mine); pending();
+    input.value = ""; grow(); setQuote("");
+    if (sid) fd.append("session_id", sid);
+    fetch("/chat/ask", { method: "POST", body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) { setSid(String(d.session_id)); showActions(d.actions); load(true); }
+        else { busy = false; paintSend(); }
+      })
+      .catch(function () { busy = false; paintSend(); });
+  }
+  document.querySelectorAll(".ag-tips button[data-ask]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      input.value = b.dataset.ask; grow(); paintSend(); submit();
+    });
+  });
+  send.addEventListener("click", submit);
+  input.addEventListener("input", function () { grow(); paintSend(); });
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
+  });
+
+  /* 글을 고른 뒤 오른쪽 단추 — 고른 글이 있을 때만 우리 메뉴를 띄운다 */
+  function selectedText() {
+    var s = window.getSelection();
+    return s && s.toString().trim() ? s.toString().trim() : "";
+  }
+  function hideMenu() { menu.classList.remove("open"); }
+  document.addEventListener("contextmenu", function (e) {
+    if (panel.contains(e.target) || menu.contains(e.target)) return;
+    var t = selectedText();
+    if (!t) { hideMenu(); return; }
+    e.preventDefault();
+    menu.style.left = Math.min(e.clientX, window.innerWidth - 190) + "px";
+    menu.style.top = Math.min(e.clientY, window.innerHeight - 70) + "px";
+    menu.classList.add("open");
+    menu.dataset.text = t.length > 1200 ? t.slice(0, 1200) : t;
+  });
+  document.addEventListener("click", function (e) { if (!menu.contains(e.target)) hideMenu(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") { hideMenu(); } });
+  document.getElementById("agMenuAsk").addEventListener("click", function () {
+    setQuote(menu.dataset.text || "");
+    hideMenu();
+    open();
+  });
+  // 고른 글에 대해 바로 묻는다 — 따로 타이핑하지 않아도 된다
+  document.querySelectorAll(".ag-menu-go[data-q]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      setQuote(menu.dataset.text || "");
+      hideMenu();
+      panel.classList.add("open");
+      input.value = b.dataset.q;
+      grow(); paintSend(); submit();
+    });
+  });
+})();
+</script>
 {% endif %}
 </body>
 </html>

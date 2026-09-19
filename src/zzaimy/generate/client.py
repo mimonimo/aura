@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import os
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:  # 개발 장비에 openai 가 없어도 앱·테스트는 뜬다(생성 서버 호출 때만 필요)
+    OpenAI = None  # type: ignore[assignment]
 
 from zzaimy.generate.schema import AnnouncementSchema
 from zzaimy.retrieve.stub import Evidence
@@ -45,6 +48,26 @@ _SECTION_PROMPT = """너는 전문대학의 국고사업 계획서 작성을 돕
 표의 수치도 근거에 있는 것만 쓴다."""
 
 
+def describe_llm_error(e: BaseException) -> str:
+    """LLM 호출 실패를 담당자 말로 — 예외 이름을 화면에 내보내지 않는다.
+
+    OpenAI 호환 서버 공통 규약(401/403 인증, 404 모델 없음, 429 한도, 5xx 일시 불가)을 사람 말로 옮긴다.
+    """
+    name = type(e).__name__
+    status = getattr(e, "status_code", None)
+    if "Connection" in name or "Timeout" in name or "Connect" in name:
+        return "AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다. 연결 후 다시 질문해 주세요."
+    if "Authentication" in name or "PermissionDenied" in name or status in (401, 403):
+        return "AI 모델 서버가 API 키를 거부했습니다. LLM 연결의 키를 확인해 주세요."
+    if "NotFound" in name or status == 404:
+        return "선택한 모델이 서버에 없습니다. LLM 연결에서 모델을 다시 골라 주세요."
+    if "RateLimit" in name or status == 429:
+        return "요청 한도를 넘었습니다. 잠시 후 다시 시도해 주세요."
+    if status is not None and int(status) >= 500:
+        return "AI 모델 서버가 일시적으로 응답하지 않습니다. 잠시 후 다시 시도해 주세요."
+    return "답변을 만들지 못했습니다. 잠시 후 다시 시도해 주세요."
+
+
 def _strip_fences(text: str) -> str:
     """모델이 JSON을 ```json 펜스로 감싸는 경우의 방어적 제거."""
     t = text.strip()
@@ -54,13 +77,93 @@ def _strip_fences(text: str) -> str:
     return t.strip()
 
 
+# 생각하는 모델 대비 — 답이 비어 오면 한도를 넓혀 한 번만 다시 받는다.
+# 바닥값은 실측 근거: qwen3.6:35b 는 같은 질문에 생각 1,250자를 먼저 내고 답을 낸다(2026-09-19 측정).
+_THINKING_FLOOR = int(os.environ.get("ZZAIMY_LLM_THINKING_FLOOR", "1500"))
+_THINKING_CEILING = int(os.environ.get("ZZAIMY_LLM_THINKING_CEILING", "4096"))
+
+
+def _rejects_extra(exc: Exception) -> bool:
+    """서버가 확장 인자를 모른다고 거절했는지 — 문구가 아니라 상태 코드로 본다."""
+    status = getattr(exc, "status_code", None)
+    if status in (400, 422):
+        return True
+    return "unknown" in str(exc).lower() and "field" in str(exc).lower()
+
+
 class VllmClient:
     def __init__(self, base_url: str | None = None, model: str | None = None) -> None:
+        from zzaimy.generate import model_config
+
+        cfg = model_config.current()          # 기본 연결 > 화면 설정 > 환경변수 > 기본값
+        if OpenAI is None:
+            raise RuntimeError("openai 패키지가 없습니다 — 생성 서버 호출에 필요합니다")
+        self.kind = cfg.get("kind", "vllm")
+        self.connection_id = cfg.get("connection_id", "")
+        # 시간 제한·재시도는 어느 OpenAI 호환 서버든 같은 규약(429·5xx 는 SDK 가 백오프 재시도)
         self.client = OpenAI(
-            base_url=base_url or os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1"),
-            api_key=os.environ.get("VLLM_API_KEY", "dummy"),
+            base_url=base_url or cfg["base_url"], api_key=cfg["api_key"],
+            timeout=float(os.environ.get("ZZAIMY_LLM_TIMEOUT", "180")),
+            max_retries=int(os.environ.get("ZZAIMY_LLM_RETRIES", "3")),
         )
-        self.model = model or self.client.models.list().data[0].id
+        self.model = model or cfg["model"] or self.client.models.list().data[0].id
+        # 응답의 usage 를 연결·모델·날짜별로 기록한다 (한도 관리용) — SDK 호출은 그대로 감싼다
+        try:
+            _orig = self.client.chat.completions.create
+
+            def _answer_is_empty(resp) -> bool:
+                """생각만 하고 답을 못 낸 응답인지 — 생각하는 모델에서 한도가 모자랄 때 생긴다."""
+                try:
+                    choice = resp.choices[0]
+                except (AttributeError, IndexError):
+                    return False
+                if (getattr(choice.message, "content", None) or "").strip():
+                    return False
+                thought = ""
+                for field in ("reasoning", "reasoning_content"):
+                    thought = thought or (getattr(choice.message, field, None) or "")
+                return bool(thought) or getattr(choice, "finish_reason", "") == "length"
+
+            def _create(*a, **kw):
+                try:
+                    resp = _orig(*a, **kw)
+                except TypeError:
+                    raise
+                except Exception as e:
+                    # 서버가 모르는 확장 인자를 거부하면 한 번만 빼고 다시 보낸다
+                    if kw.get("extra_body") and _rejects_extra(e):
+                        self._extra = {}
+                        kw = dict(kw, extra_body=None)
+                        resp = _orig(*a, **kw)
+                    else:
+                        raise
+                if not kw.get("stream"):
+                    model_config.record_usage(
+                        self.connection_id, kw.get("model", self.model), getattr(resp, "usage", None)
+                    )
+                    # 생각하는 모델은 한도를 생각에 다 써 답이 비어 돌아온다 — 한 번만 넓혀 다시 받는다
+                    if _answer_is_empty(resp):
+                        asked = int(kw.get("max_tokens") or 0)
+                        wider = min(max(asked * 4, _THINKING_FLOOR), _THINKING_CEILING)
+                        if wider > asked:
+                            resp2 = _orig(*a, **dict(kw, max_tokens=wider))
+                            model_config.record_usage(
+                                self.connection_id, kw.get("model", self.model),
+                                getattr(resp2, "usage", None),
+                            )
+                            return resp2
+                return resp
+
+            self.client.chat.completions.create = _create
+        except Exception:  # 가짜 클라이언트 등 — 기록만 건너뛴다
+            pass
+        # 문서 이미지 판독은 비전 모델이 따로 있으면 그것으로 (없으면 같은 모델).
+        # 글 모델에 이미지를 보내면 거절당하거나 연결이 끊긴다. 그래서 따로 지정된
+        # 모델이 있는지를 함께 알려, 호출부가 헛걸음하지 않게 한다.
+        self.vision_model = cfg.get("vision_model") or self.model
+        self.has_vision = bool(cfg.get("vision_model"))
+        # vLLM 전용 요청 옵션(생각 모드 끄기)은 내부 서버에만 보낸다 — 외부 API 는 모르는 인자를 거부한다
+        self._extra = {"chat_template_kwargs": {"enable_thinking": False}} if self.kind == "vllm" else {}
 
     def extract_schema(self, announcement_text: str) -> AnnouncementSchema:
         resp = self.client.chat.completions.create(
@@ -77,7 +180,7 @@ class VllmClient:
                     "schema": AnnouncementSchema.model_json_schema(),
                 },
             },
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=self._extra,
         )
         return AnnouncementSchema.model_validate_json(
             _strip_fences(resp.choices[0].message.content or "")
@@ -110,6 +213,6 @@ class VllmClient:
             ],
             temperature=0.3,
             max_tokens=1024,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=self._extra,
         )
         return (resp.choices[0].message.content or "").strip()

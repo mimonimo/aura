@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""ZZAIMY-Writer(27B) QLoRA 지도학습 준비·실행.
+
+브리프 절대규칙 2를 코드로 지킨다 — 베이스라인 측정 기록이 없으면 학습을 시작하지
+않는다. 순서를 바꾸면 축 B 의 성과를 입증할 수 없기 때문이다.
+
+쓰는 곳: 학습 담당 장비(DGX). 서빙 장비(젯슨 토르)와 역할이 다르다.
+학습이 끝난 가중치는 safetensors 로 옮겨 토르에서 서빙한다
+(scripts/82_serve_writer.sh). TensorRT 엔진은 장비 간에 옮길 수 없고
+서빙 장비에서 다시 만들어야 한다.
+
+사용:
+  python scripts/83_sft_writer_qlora.py --check          # 준비 상태만 점검
+  python scripts/83_sft_writer_qlora.py --base <경로> --data <jsonl> --out <경로>
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+BASELINE = ROOT / "data" / "eval" / "baseline.json"
+
+
+def read_baseline() -> dict | None:
+    """베이스라인 측정 기록 — 없으면 None. 이 기록이 학습의 전제다."""
+    if not BASELINE.exists():
+        return None
+    try:
+        return json.loads(BASELINE.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+
+
+def count_pairs(path: Path) -> int:
+    if not path.exists():
+        return 0
+    with path.open(encoding="utf-8") as f:
+        return sum(1 for line in f if line.strip())
+
+
+def check(data: Path | None) -> int:
+    print("학습 준비 상태")
+    base = read_baseline()
+    if base is None:
+        print(f"  베이스라인 측정 기록: 없음 ({BASELINE.relative_to(ROOT)})")
+        print("  베이스라인을 먼저 측정해야 학습을 시작할 수 있습니다.")
+    else:
+        print(f"  베이스라인 측정 기록: 있음 · {base.get('measured_at', '시각 미기재')}")
+    if data is not None:
+        n = count_pairs(data)
+        print(f"  학습 예시: {n}건 ({data})")
+    try:
+        import torch
+        print(f"  GPU: {torch.cuda.device_count()}대 · {torch.__version__}")
+    except ImportError:
+        print("  GPU: 확인 불가 (이 장비에 torch 가 없습니다)")
+    return 0 if base is not None else 1
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--check", action="store_true", help="준비 상태만 점검하고 끝낸다")
+    ap.add_argument("--base", default="", help="베이스 모델 경로 또는 허브 이름 (27B)")
+    ap.add_argument("--data", default=str(ROOT / "data" / "train" / "sft.jsonl"))
+    ap.add_argument("--out", default=str(ROOT / "data" / "train" / "writer-qlora"))
+    ap.add_argument("--epochs", type=float, default=2.0)
+    ap.add_argument("--lr", type=float, default=1e-4)
+    ap.add_argument("--rank", type=int, default=32)
+    ap.add_argument("--seq-len", type=int, default=4096)
+    ap.add_argument("--batch", type=int, default=1)
+    ap.add_argument("--accum", type=int, default=16)
+    args = ap.parse_args()
+
+    data = Path(args.data)
+    if args.check:
+        return check(data)
+
+    if read_baseline() is None:
+        print("베이스라인 측정 기록이 없어 학습을 시작하지 않습니다.", file=sys.stderr)
+        print(f"먼저 베이스라인을 측정해 {BASELINE.relative_to(ROOT)} 에 남기십시오.", file=sys.stderr)
+        return 2
+    if not args.base:
+        print("--base 로 베이스 모델을 지정하십시오.", file=sys.stderr)
+        return 2
+    n = count_pairs(data)
+    if n == 0:
+        print(f"학습 예시가 없습니다 — {data}", file=sys.stderr)
+        print("데이터 공방(/dev/data)에서 수치 검증을 통과한 예시를 먼저 만드십시오.", file=sys.stderr)
+        return 2
+
+    print(f"학습을 시작합니다 — 예시 {n}건 · 순위 {args.rank} · 길이 {args.seq_len}")
+    try:
+        from datasets import load_dataset
+        from peft import LoraConfig
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        from trl import SFTConfig, SFTTrainer
+        import torch
+    except ImportError as e:
+        print(f"학습 묶음이 이 장비에 없습니다 — {e}", file=sys.stderr)
+        print("학습 전용 가상환경(.venv-train)에서 실행하십시오.", file=sys.stderr)
+        return 3
+
+    quant = BitsAndBytesConfig(
+        load_in_4bit=True, bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
+    )
+    tok = AutoTokenizer.from_pretrained(args.base)
+    model = AutoModelForCausalLM.from_pretrained(
+        args.base, quantization_config=quant, torch_dtype=torch.bfloat16, device_map="auto",
+    )
+    ds = load_dataset("json", data_files=str(data), split="train")
+    trainer = SFTTrainer(
+        model=model,
+        processing_class=tok,
+        train_dataset=ds,
+        peft_config=LoraConfig(
+            r=args.rank, lora_alpha=args.rank * 2, lora_dropout=0.05,
+            task_type="CAUSAL_LM",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj",
+                            "gate_proj", "up_proj", "down_proj"],
+        ),
+        args=SFTConfig(
+            output_dir=args.out, num_train_epochs=args.epochs,
+            per_device_train_batch_size=args.batch,
+            gradient_accumulation_steps=args.accum,
+            learning_rate=args.lr, bf16=True, logging_steps=10,
+            save_strategy="epoch", max_length=args.seq_len,
+            gradient_checkpointing=True, report_to=[],
+        ),
+    )
+    trainer.train()
+    trainer.save_model(args.out)
+    print(f"학습을 마쳤습니다 — {args.out}")
+    print("서빙 장비로 옮긴 뒤 scripts/82_serve_writer.sh 로 띄우십시오.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

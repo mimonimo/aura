@@ -93,3 +93,66 @@ def test_graph_json_route(tmp_path):
     assert r.status_code == 200
     body = r.json()
     assert "nodes" in body and "edges" in body
+
+
+def _fake_embed(texts):
+    """결정론 가짜 임베딩 — 장학·학자금 주제면 [1,0], 아니면 [0,1] (학습 모델 자리)."""
+    import numpy as np
+
+    return np.array([[1.0, 0.0] if ("장학" in t or "학자금" in t) else [0.0, 1.0] for t in texts],
+                    dtype="float32")
+
+
+def test_project_relations_from_embeddings(db):
+    """명시 연결이 없어도 프로젝트와 의미가 가까운 문서만 '추정 연관'으로 잇는다(돋보임 규칙)."""
+    a = db.add_document("장학금 지급 지침.pdf", "/x/a", doc_type="regulation")
+    b = db.add_document("학칙.pdf", "/x/b", doc_type="regulation")
+    c = db.add_document("계약직원 임용 내규.pdf", "/x/c", doc_type="regulation")
+    d = db.add_document("교직원 취업규칙.pdf", "/x/d", doc_type="regulation")
+    proj = db.create_project("grant", "2026 학자금 지원 사업")
+
+    # 새로 계산할 벡터가 많으면 요청을 막지 않고 배경에서 채운다 → 이번 빌드엔 없음
+    g0 = build_graph(db, include_similarity=False, embed_fn=_fake_embed)
+    assert not any(e["kind"] == "relates" for e in g0["edges"])
+    import time as _t
+    from pathlib import Path as _P
+    for _ in range(50):                              # 배경 스레드가 캐시를 쓸 때까지
+        _t.sleep(0.05)
+        if (_P(db.path).parent / "doc_vectors.npz").exists():
+            break
+    g = build_graph(db, include_similarity=False, embed_fn=_fake_embed)
+    rel = {(e["s"], e["t"]) for e in g["edges"] if e["kind"] == "relates"}
+    assert rel == {(f"p{proj}", f"d{a}")}           # 주제가 같은 문서만, 나머지는 안 엮인다
+    w = [e["w"] for e in g["edges"] if e["kind"] == "relates"][0]
+    assert 0.99 <= w <= 1.0
+
+    # 명시 연결(uses)이 있는 문서는 추정 연관으로 중복해서 잇지 않는다
+    db.set_project_criteria(proj, [a])
+    g2 = build_graph(db, include_similarity=False, embed_fn=_fake_embed)
+    kinds = {(e["s"], e["t"], e["kind"]) for e in g2["edges"]}
+    assert (f"p{proj}", f"d{a}", "uses") in kinds
+    assert not any(k == "relates" for _, _, k in kinds)
+
+
+def test_project_relations_need_a_descriptive_project(db):
+    """이름이 'ㅇㅇ'처럼 근거가 없으면 추정하지 않는다(실측: 무의미한 이름이 임의 문서와 엮였음)."""
+    db.add_document("장학금 지급 지침.pdf", "/x/a", doc_type="regulation")
+    db.add_document("학칙.pdf", "/x/b", doc_type="regulation")
+    db.add_document("취업규칙.pdf", "/x/c", doc_type="regulation")
+    db.create_project("grant", "ㅇㅇ")
+    from pathlib import Path as _P
+    g = build_graph(db, include_similarity=False, embed_fn=_fake_embed)
+    import time as _t
+    for _ in range(50):
+        _t.sleep(0.05)
+        if _P(db.path).parent.joinpath("doc_vectors.npz").exists():
+            break
+    g = build_graph(db, include_similarity=False, embed_fn=_fake_embed)
+    assert not any(e["kind"] == "relates" for e in g["edges"])
+
+
+def test_project_relations_skipped_without_model(db):
+    db.add_document("장학금 지급 지침.pdf", "/x/a", doc_type="regulation")
+    db.create_project("grant", "2026 학자금 지원 사업")
+    g = build_graph(db, include_similarity=False, embed_fn=lambda texts: None)
+    assert not any(e["kind"] == "relates" for e in g["edges"])

@@ -1,0 +1,18 @@
+{# 규모 타일 — /dev 와 /dev/db 공용. 값·이름의 원천은 main._data_overview() 하나다. #}
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(158px,1fr)); gap:12px;">
+  {% for t in overview.tiles %}
+  <div style="background:#fff; border:1px solid var(--line); border-radius:14px;
+              padding:14px 16px; display:flex; gap:12px; align-items:center;">
+    <span style="width:40px; height:40px; border-radius:11px; background:#E8EFFC;
+                 color:var(--navy); display:flex; align-items:center; justify-content:center; flex:none;">
+      <iconify-icon icon="{{ t.icon }}" style="font-size:21px;"></iconify-icon></span>
+    <div style="min-width:0;">
+      <div style="font-size:22px; font-weight:800; color:var(--ink);
+                  font-variant-numeric:tabular-nums; line-height:1;">{{ "{:,}".format(t.value) }}</div>
+      <div style="font-size:12.5px; font-weight:600; color:var(--ink); margin-top:3px;">{{ t.label }}</div>
+      <div style="font-size:11px; color:var(--muted); margin-top:1px; overflow:hidden;
+                  text-overflow:ellipsis; white-space:nowrap;">{{ t.sub }}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>

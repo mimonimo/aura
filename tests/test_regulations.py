@@ -117,3 +117,14 @@ def test_rerank_chunks_reorders_and_survives_failure(monkeypatch):
     monkeypatch.setattr(rerank, "_encoder", lambda: BoomCE())
     out2 = rerank.rerank_chunks("질문", list(chunks))
     assert [c["heading"] for c in out2] == ["가", "나", "다"]
+
+
+def test_restore_spacing_joins_letter_spaced_ocr_output():
+    """tesseract 사진 OCR 실측: '영 남 이 공 학교'처럼 글자마다 띄운 줄을 어절로 되돌린다."""
+    from zzaimy.app.regulations import restore_spacing
+
+    out = restore_spacing("위 사 람 은 영 남 이 공 대 학교 사 이 버 보 안 과 에서 우 수 한 성 적 으로 입 상 하였 기에 상 장 을 수 여 함")
+    assert "영남이공대학교" in out.replace(" ", "")     # 글자 사이 공백이 사라지고
+    assert " " in out and "위 사 람" not in out            # 어절 단위로 다시 띄어진다
+    normal = "이 규정은 산학협력단의 운영 기준을 정함을 목적으로 한다."
+    assert restore_spacing(normal) == normal             # 정상 문장은 그대로

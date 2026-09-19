@@ -1,54 +1,52 @@
 {% extends "base.html" %}
-{% block title %}외부 참조 관문{% endblock %}
-{% block pagetitle %}외부 참조 관문{% endblock %}
+{% block title %}외부 AI 참조 관리{% endblock %}
+{% block pagetitle %}외부 AI 참조 관리{% endblock %}
 {% block content %}
+{# 제거 항목 표시명 — 기관명은 "기관명 ○○"으로, 나머지는 라우트가 넘긴 표시명으로 #}
+{% macro removed_label(t) -%}
+  {%- if t.startswith("ORG:") %}기관명 {{ t[4:] }}{% else %}{{ egress_removed_labels.get(t, t) }}{% endif -%}
+{%- endmacro %}
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>외부 참조 이그레스 게이트웨이
-    <a href="/dev/doc/decisions/0008-external-egress-gateway.md" class="muted"
-       style="margin-left:auto; font-size:12px; font-weight:500;">설계 근거</a></h2>
+  <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>외부 AI 참조 관리</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    외부 AI에 일반 지식을 물을 때 내부 정보가 새어 나가지 않도록 모든 질의가
-    이 관문 하나를 통과합니다. 개인정보와 기관 식별자를 지운 뒤(세척), 잔여
-    위험을 판정해 안전한 것만 자동 전송하고, 애매한 것은 담당자 승인을 거치며,
-    보증할 수 없는 것은 차단합니다. 모든 건이 아래에 기록됩니다.</p>
+    외부 AI 질의는 모두 이 창구를 거칩니다. 민감정보를 지운 뒤 위험도를 분류해 안전한 것만 자동 전송하고, 애매한 것은 승인을 받고, 보증할 수 없는 것은 차단합니다.</p>
 </div></div>
 
 {% if not external_enabled %}
 <div class="card" style="border-color:#F0D9B8;"><div class="card-in"
      style="display:flex; align-items:center; gap:12px; padding:14px 18px;">
   <iconify-icon icon="solar:plug-circle-linear" style="color:var(--amber); font-size:20px;"></iconify-icon>
-  <span style="font-size:13px;">외부 전송 비활성 ({{ external_reason }}).
-    판정과 감사 기록은 정상 동작하며, 허용·승인된 질의는 전송 대기로 보관됩니다.</span>
+  <span style="font-size:13px;">외부 전송이 꺼져 있습니다 ({{ external_reason }}).
+    자동 분류와 감사 기록은 정상 동작하며, 허용·승인된 질의는 전송 대기로 보관됩니다.</span>
 </div></div>
 {% endif %}
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px;">
-  {% for label, key in [("전체", "total"), ("승인 대기", "queued"), ("전송 대기", "held"),
-                        ("응답 수신", "answered"), ("차단", "blocked"), ("거부", "denied")] %}
-  <div class="card"><div class="card-in" style="padding:14px 16px;">
-    <div class="muted" style="font-size:12px;">{{ label }}</div>
-    <div style="font-size:22px; font-weight:800; color:var(--navy);">
-      {{ egress_stats.get(key, 0) }}</div>
-  </div></div>
+{# 처리 단계별 건수 — 큰 숫자 타일 대신 한 줄 칩 #}
+<div class="card"><div class="card-in" style="padding:12px 18px; display:flex; gap:6px 8px; flex-wrap:wrap; align-items:center; font-size:12.5px;">
+  <span class="muted" style="font-weight:600;">처리 현황</span>
+  {% for label, key in [("전체", "total"), ("승인 대기", "queued"), ("승인됨", "approved"),
+                        ("전송 대기", "held"), ("응답 수신", "answered"), ("전송 실패", "failed"),
+                        ("차단", "blocked"), ("거부", "denied")] %}
+  <span class="pill {{ 'processing' if key == 'queued' and egress_stats.get(key, 0) else ('failed' if key in ('failed', 'blocked') and egress_stats.get(key, 0) else '') }}"
+        style="font-variant-numeric:tabular-nums;">{{ label }} {{ egress_stats.get(key, 0) }}</span>
   {% endfor %}
-</div>
+</div></div>
 
 {% if queued %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon>승인 대기
     <span class="pill processing" style="margin-left:6px;">{{ queued | length }}</span></h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
-    아래 세척본이 실제로 외부에 나갈 문구입니다. 문맥으로 내부를 특정할 수 있는지
-    확인한 뒤 판정하세요. 애매하면 거부가 기본입니다.</p>
+    민감정보를 지운 뒤 실제로 나갈 문구입니다. 기관을 특정할 수 있으면 거부합니다.</p>
   {% for r in queued %}
   <div style="border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:10px 0;">
     <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px;">
       <span class="muted" style="font-size:12px;">#{{ r.id }} · {{ r.created_at[:16] }}
-        · {{ r.requester }} · {{ r.source }}</span>
+        · {{ r.requester }} · {{ egress_source_labels.get(r.source, r.source) }}</span>
       <span style="margin-left:auto; display:flex; gap:6px;">
         {% for t in r.removed_list %}
-        <span class="pill" style="font-size:11px;">{{ t }}</span>
+        <span class="pill" style="font-size:11px;">{{ removed_label(t) }}</span>
         {% endfor %}
       </span>
     </div>
@@ -75,9 +73,9 @@
 {% endif %}
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:test-tube-linear"></iconify-icon>질의 제출</h2>
+  <h2><iconify-icon icon="solar:test-tube-linear"></iconify-icon>질의 제출 (개발 검증용)</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
-    외부 참조 질의를 관문에 넣어봅니다. 세척·판정 결과가 아래 기록에 남습니다.</p>
+    질의를 직접 넣어 제거·분류 경로를 검증합니다. 결과는 감사 기록에 남습니다.</p>
   <form action="/dev/egress/submit" method="post" style="display:flex; gap:8px;">
     <input type="text" name="query" required placeholder="예: 국고 보조사업 정산보고서의 일반적인 목차는?"
            style="flex:1; border:1px solid var(--line); border-radius:10px; padding:10px 12px;
@@ -87,13 +85,35 @@
 </div></div>
 
 <div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:lock-keyhole-minimalistic-linear"></iconify-icon>외부 처리 — 민감정보 토큰화</h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
+    개인정보를 토큰으로 바꿔 외부에 보내고, 결과의 값은 교내에서 복원합니다. 대응표는 교내에만 둡니다.{% if not external_enabled %} <span style="color:var(--amber);">지금은 외부 전송이 꺼져 있습니다 — {{ external_reason }}.</span>{% endif %}</p>
+  <form action="/dev/egress/tokenized" method="post" style="display:flex; flex-direction:column; gap:8px;">
+    <textarea name="text" rows="3" required placeholder="예: 담당자 홍길동(hong@ync.ac.kr, 010-1234-5678)에게 정산 자료 전달 요청" style="border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:13.5px; font-family:inherit; resize:vertical;">{{ tokenized.input if tokenized else '' }}</textarea>
+    <div style="display:flex; justify-content:flex-end;"><button type="submit" data-busy="처리 중…">토큰화하여 외부 처리</button></div>
+  </form>
+  {% if tokenized %}
+    {% if tokenized.ok %}
+    <div style="margin-top:12px; display:flex; flex-direction:column; gap:10px; font-size:12.5px;">
+      <div><span class="pill reviewed">토큰화 {{ tokenized.tokens }}건</span>{% if tokenized.types %} <span class="muted">{% for t, n in tokenized.types.items() %}{{ t }} {{ n }}{% if not loop.last %} · {% endif %}{% endfor %}</span>{% endif %}</div>
+      <div><div class="muted" style="margin-bottom:3px;">외부로 나간 글 (토큰본 · 원값 없음)</div><div style="background:var(--panel); border-radius:8px; padding:8px 10px; white-space:pre-wrap;">{{ tokenized.sent_text }}</div></div>
+      <div><div class="muted" style="margin-bottom:3px;">외부 결과 (토큰 유지)</div><div style="background:var(--panel); border-radius:8px; padding:8px 10px; white-space:pre-wrap;">{{ tokenized.external_result }}</div></div>
+      <div><div class="muted" style="margin-bottom:3px;">교내 복원 결과 (실제 값)</div><div style="background:#F0FAF4; border:1px solid #CDEBD9; border-radius:8px; padding:8px 10px; white-space:pre-wrap;">{{ tokenized.result }}</div></div>
+    </div>
+    {% else %}
+    <p class="muted" style="margin-top:10px; color:var(--red); font-size:12.5px;">처리 실패 — {{ tokenized.error }}</p>
+    {% endif %}
+  {% endif %}
+</div></div>
+
+<div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>감사 기록
     <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">최근 50건</span></h2>
   {% if rows %}
   <div class="table-scroll">
   <table style="font-size:12.5px;">
-    <tr><th>#</th><th>시각</th><th>요청자</th><th>세척본 (실제 전송 문구)</th>
-        <th>제거 내역</th><th>판정</th><th>상태</th><th></th></tr>
+    <tr><th>#</th><th>시각</th><th>요청자</th><th>전송 문구 (민감정보 제거 후)</th>
+        <th>제거 내역</th><th>자동 분류</th><th>상태</th><th></th></tr>
     {% for r in rows %}
     <tr>
       <td>{{ r.id }}</td>
@@ -108,10 +128,10 @@
         </details>
         {% endif %}</td>
       <td>{% for t in r.removed_list[:4] %}<span class="pill"
-            style="font-size:10.5px; margin:1px;">{{ t }}</span>{% endfor %}</td>
-      <td>{% if r.verdict == "safe" %}<span class="pill reviewed">safe</span>
-          {% elif r.verdict == "review" %}<span class="pill processing">review</span>
-          {% else %}<span class="pill failed">blocked</span>{% endif %}</td>
+            style="font-size:10.5px; margin:1px;">{{ removed_label(t) }}</span>{% endfor %}</td>
+      <td>{% if r.verdict == "safe" %}<span class="pill reviewed">{{ egress_verdict_labels["safe"] }}</span>
+          {% elif r.verdict == "review" %}<span class="pill processing">{{ egress_verdict_labels["review"] }}</span>
+          {% else %}<span class="pill failed">{{ egress_verdict_labels["blocked"] }}</span>{% endif %}</td>
       <td>{% if r.status == "answered" %}<span class="pill reviewed">응답 수신</span>
           {% elif r.status == "queued" %}<span class="pill processing">승인 대기</span>
           {% elif r.status == "held" %}<span class="pill type">전송 대기</span>
@@ -130,7 +150,7 @@
   </table>
   </div>
   {% else %}
-  <p class="muted" style="margin:0;">기록 없음 — 아직 외부 참조 요청이 없습니다.</p>
+  <p class="muted" style="margin:0;">기록 없음 — 아직 외부 AI 참조 요청이 없습니다.</p>
   {% endif %}
 </div></div>
 

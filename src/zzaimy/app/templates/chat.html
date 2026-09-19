@@ -4,7 +4,7 @@
 {% block head %}
   {% if waiting %}
   <script>
-    // 전체 리로드 폴링은 화면이 깜빡인다 — 답이 준비된 순간에만 한 번 리로드
+    // 답이 준비된 순간에만 한 번 다시 그린다 — 주기적 전체 갱신은 화면이 깜빡인다
     (function poll() {
       fetch("/chat/{{ session_id }}/status")
         .then(function (r) { return r.json(); })
@@ -16,7 +16,18 @@
   </script>
   {% endif %}
   <style>
-    /* 메시지 버블 */
+    main { display: flex; flex-direction: row; height: calc(100vh - 63px);
+           overflow: hidden; max-width: none; width: 100%; margin: 0; padding: 0; }
+    .chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column;
+                 height: 100%; padding: 20px 24px 14px; position: relative; }
+    .chat-scroll { flex: 1; overflow-y: auto; padding: 6px 4px 14px;
+                   display: flex; flex-direction: column; gap: 6px; }
+    .chat-scroll > * { max-width: 900px; width: 100%; margin-left: auto; margin-right: auto; }
+
+    /* 말풍선 */
+    .turn { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+    .turn.user { align-items: flex-end; }
+    .turn.assistant { align-items: flex-start; }
     .msg { max-width: 78%; padding: 12px 16px; border-radius: 16px; font-size: 14.5px;
            line-height: 1.75; white-space: pre-wrap; animation: rise .5s var(--ease); }
     .msg.user { background: var(--navy); color: #fff; border-bottom-right-radius: 5px;
@@ -25,157 +36,622 @@
            border-bottom-left-radius: 5px; box-shadow: 0 3px 12px rgba(27,59,117,.05); }
     [hidden] { display: none !important; }
 
-    /* 입력 독 컨테이너 */
+    /* 말풍선 아래 동작 — 평소엔 옅게, 올려두면 또렷하게 */
+    .turn-acts { display: flex; gap: 4px; padding: 0 4px; opacity: 0;
+                 transition: opacity .18s var(--ease); }
+    .turn:hover .turn-acts, .turn-acts.always { opacity: 1; }
+    .act-btn { display: inline-flex; align-items: center; gap: 5px; border: 1px solid transparent;
+               background: transparent; color: var(--muted); font: inherit; font-size: 11.5px;
+               padding: 4px 9px; border-radius: 8px; cursor: pointer; }
+    .act-btn:hover { background: var(--panel); color: var(--ink); border-color: var(--line); }
+    .act-btn iconify-icon { font-size: 14px; }
+
+    /* 입력 독 */
     .chat-dock { background: #fff; border: 1px solid var(--line); border-radius: 20px;
-           box-shadow: 0 10px 34px rgba(27,59,117,.12); }
-
-    /* 메신저형 고정 레이아웃 — 페이지가 길어지지 않는다 */
-    main { display: flex; flex-direction: column; height: calc(100vh - 63px);
-           padding-bottom: 18px; overflow: hidden; }
-    .chat-scroll { flex: 1; overflow-y: auto; padding: 6px 4px 14px;
-                   display: flex; flex-direction: column; gap: 13px; }
-    .chat-scroll > * { max-width: 900px; width: 100%;
-                   margin-left: auto; margin-right: auto; }
-    .msg.user { align-self: flex-end; margin-right: calc((100% - 900px) / 2); }
-    .msg.assistant { align-self: flex-start; margin-left: calc((100% - 900px) / 2); }
-    @media (max-width: 1000px) {
-      .msg.user { margin-right: 0; } .msg.assistant { margin-left: 0; }
-    }
-
-    /* 입력 독 — 한 줄 구성: [첨부] [입력] [기준] [보내기] */
-    .chat-dock { position: static; max-width: 900px; width: 100%;
-                 margin: 0 auto; padding: 8px 10px; }
-    .dock-row { display: flex; align-items: center; gap: 8px; }
-    .dock-row input[type=text] { flex: 1; border: 0; outline: none;
-                 font-size: 14.5px; padding: 10px 8px; font-family: inherit;
-                 background: transparent; min-width: 0; }
+           box-shadow: 0 10px 34px rgba(27,59,117,.12);
+           max-width: 900px; width: 100%; margin: 0 auto; padding: 8px 10px; }
+    .chat-dock.warn { border-color: var(--amber); }
+    .dock-row { display: flex; align-items: flex-end; gap: 8px; }
+    .dock-row textarea { flex: 1; border: 0; outline: none; resize: none;
+                 font-size: 14.5px; line-height: 1.6; padding: 10px 8px; font-family: inherit;
+                 background: transparent; min-width: 0; max-height: 190px; }
     .dock-btn { position: relative; flex: none; width: 40px; height: 40px;
                  border-radius: 50%; border: 1px solid var(--line);
                  background: var(--panel); color: var(--muted); cursor: pointer;
                  display: flex; align-items: center; justify-content: center;
                  font-size: 18px; transition: all .35s var(--ease); }
     .dock-btn:hover { background: #E8EFFC; color: var(--navy); }
-    .dock-btn.active { background: #E8EFFC; color: var(--navy);
-                 border-color: var(--navy); }
+    .dock-btn.active { background: #E8EFFC; color: var(--navy); border-color: var(--navy); }
     .dock-btn .badge-n { position: absolute; top: -4px; right: -5px;
                  background: var(--navy); color: #fff; font-size: 10px;
                  font-weight: 700; border-radius: 8px; min-width: 16px; height: 16px;
                  display: flex; align-items: center; justify-content: center; }
-    .attach-name { display: none; align-items: center; gap: 6px; margin: 0 4px 6px;
-                 font-size: 12.5px; color: var(--navy); background: #E8EFFC;
-                 border-radius: 14px; padding: 4px 12px; width: fit-content; }
-    .attach-name.show { display: inline-flex; }
+    .dock-hint { font-size: 12px; color: var(--amber); padding: 2px 10px 4px; }
+    .dock-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 8px 2px; }
+    .dock-chips:empty { display: none; }
+    .dock-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+                 color: var(--navy); background: #E8EFFC; border-radius: 14px;
+                 padding: 4px 10px; max-width: 100%; }
+    .dock-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dock-chip button { border: 0; background: transparent; color: inherit; cursor: pointer;
+                 font: inherit; line-height: 1; padding: 0; display: flex; }
 
-    details.criteria-pick { position: relative; flex: none; }
-    details.criteria-pick summary { list-style: none; }
-    details.criteria-pick summary::-webkit-details-marker { display: none; }
-    .pick-list { position: absolute; bottom: 52px; right: 0; width: 380px;
-                 max-height: 260px; overflow-y: auto; background: #fff;
-                 border: 1px solid var(--line); border-radius: 14px; padding: 8px;
-                 box-shadow: 0 12px 36px rgba(27,59,117,.16); z-index: 30; }
-    .pick-item { display: flex; align-items: center; gap: 8px; font-size: 13px;
-                 padding: 7px 8px; border-radius: 8px; }
-    .pick-item:hover { background: var(--panel); }
+    .drop-veil { position: absolute; inset: 12px; z-index: 20; border-radius: 18px;
+                 border: 2px dashed var(--navy); background: rgba(232,239,252,.86);
+                 display: flex; align-items: center; justify-content: center;
+                 font-size: 14px; color: var(--navy); font-weight: 600; pointer-events: none; }
+
+    /* 빈 화면 시작 제안 */
+    .starter { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 14px; }
+    .starter button { border: 1px solid var(--line); background: #fff; color: var(--ink);
+                 border-radius: 14px; padding: 9px 14px; font: inherit; font-size: 13px;
+                 cursor: pointer; box-shadow: none; }
+    .starter button:hover { background: var(--panel); border-color: #94A3B8; }
+
+    /* 오른쪽 작업 패널 */
+    .chat-aside { flex: none; width: 360px; height: 100%; border-left: 1px solid var(--line);
+                  background: #fff; overflow: hidden; position: relative;
+                  transition: width .24s var(--ease); }
+    .chat-aside.closed { width: 0; border-left: 0; }
+    .chat-aside.no-anim { transition: none; }
+    .aside-in { width: 360px; height: 100%; overflow-y: auto; padding: 16px 16px 26px; }
+    .aside-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .aside-top h2 { font-size: 14px; margin: 0; display: flex; align-items: center; gap: 7px; }
+    .aside-sec { margin-bottom: 18px; }
+    .aside-sec h3 { font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+                 text-transform: uppercase; color: var(--faint); margin: 0 0 9px;
+                 display: flex; align-items: center; gap: 6px; }
+    .aside-sec h3 .n { color: var(--navy); }
+    .aside-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+                 border: 1px solid var(--line); border-radius: 10px; font-size: 12.5px;
+                 margin-bottom: 6px; text-decoration: none; color: var(--ink);
+                 background: #fff; width: 100%; text-align: left; font-family: inherit; cursor: pointer; }
+    .aside-item:hover { background: var(--panel); }
+    .aside-item iconify-icon { color: var(--faint); flex: none; font-size: 16px; }
+    .aside-item .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+    .aside-empty { font-size: 12px; color: var(--faint); padding: 2px; line-height: 1.6; }
+    .aside-fab { position: fixed; top: 74px; right: 16px; z-index: 40; }
+
+    /* 기준 고르기 — 검색 + 계열 묶음 */
+    .crit-search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line);
+                 border-radius: 10px; padding: 6px 10px; margin-bottom: 8px; }
+    .crit-search input { border: 0; outline: none; font: inherit; font-size: 12.5px;
+                 flex: 1; min-width: 0; background: transparent; }
+    .crit-group { margin-bottom: 8px; }
+    .crit-group-head { display: flex; align-items: center; gap: 6px; font-size: 11px;
+                 font-weight: 700; color: var(--muted); padding: 4px 2px; }
+    .crit-group-head button { margin-left: auto; border: 0; background: transparent; cursor: pointer;
+                 color: var(--navy); font: inherit; font-size: 11px; padding: 2px 4px; }
+    .crit-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+                 border-radius: 9px; font-size: 12.5px; }
+    .crit-row:hover { background: var(--panel); }
+    .crit-row input[type=checkbox] { flex: none; }
+    .crit-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                 white-space: nowrap; cursor: pointer; }
+    .crit-more { border: 0; background: transparent; color: var(--navy); font: inherit;
+                 font-size: 12px; cursor: pointer; padding: 4px 2px; }
+
+    /* 패널 안 미리보기 — 페이지를 떠나지 않는다 */
+    .peek { position: absolute; inset: 0; background: #fff; display: flex; flex-direction: column;
+                 transform: translateX(100%); transition: transform .22s var(--ease); }
+    .peek.open { transform: translateX(0); }
+    .peek-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px;
+                 border-bottom: 1px solid var(--line); }
+    .peek-head b { font-size: 13px; flex: 1; min-width: 0; overflow: hidden;
+                 text-overflow: ellipsis; white-space: nowrap; }
+    .peek-body { flex: 1; overflow-y: auto; padding: 12px 16px; font-size: 12.5px;
+                 line-height: 1.75; white-space: pre-wrap; color: var(--ink); }
+    .peek-foot { display: flex; gap: 8px; padding: 10px 16px 14px; border-top: 1px solid var(--line); }
+    .peek-foot button, .peek-foot a { flex: 1; justify-content: center; font-size: 12.5px; padding: 8px 10px; }
+
+    @media (max-width: 1000px) {
+      .chat-aside { position: fixed; top: 63px; right: 0; bottom: 0; z-index: 45;
+                    box-shadow: -14px 0 40px rgba(27,59,117,.14); }
+    }
   </style>
 {% endblock %}
 {% block content %}
 
+<div class="chat-main">
+<div class="drop-veil" id="dropVeil" hidden>파일을 놓으면 첨부됩니다</div>
 <div class="chat-scroll" id="chatScroll">
   {% if not messages %}
-  <div class="card reveal" style="margin-top:24px;"><div class="card-in" style="text-align:center; padding:38px 24px;">
-    <iconify-icon icon="solar:chat-round-line-linear"
-      style="font-size:34px; color:var(--navy);"></iconify-icon>
+  <div class="card reveal" style="margin-top:24px;"><div class="card-in" style="text-align:center; padding:34px 24px;">
+    <iconify-icon icon="solar:chat-round-line-linear" style="font-size:34px; color:var(--navy);"></iconify-icon>
     <h2 style="justify-content:center; margin-top:10px;">무엇을 도와드릴까요?</h2>
-    <p class="muted" style="line-height:1.8;">학칙·규정·매뉴얼·공고문을 근거로 답합니다.<br>
-      클립 버튼으로 검토할 파일을 첨부하고, 책 버튼으로 적용할 기준을 고를 수 있어요.<br>
-      예: "일반휴학 처리 기준 알려줘" · "이 이력서, 채용공고 기준으로 검토해줘"</p>
+    <p class="muted" style="margin:4px 0 0;">규정과 공고를 근거로 답합니다.</p>
+    <div class="starter">
+      <button type="button" data-fill="일반휴학 처리 기준을 알려주세요.">일반휴학 처리 기준</button>
+      <button type="button" data-fill="이 공고의 신청 자격과 제출 서류를 정리해 주세요.">공고 자격·서류 정리</button>
+      <button type="button" data-fill="첨부한 문서를 기준 문서에 비추어 검토해 주세요.">첨부 문서 검토</button>
+    </div>
   </div></div>
   {% endif %}
 
   {% for m in messages %}
-    <div class="msg {{ m.role }}">{{ m.content | md_lite }}</div>
+    <div class="turn {{ m.role }}">
+      {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
+      <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
+      {% else %}
+      <div class="msg {{ m.role }}">{{ m.content | md_lite }}</div>
+      {% endif %}
+      {% if m.role == "assistant" %}
+      <div class="turn-acts {{ 'always' if loop.last and not waiting else '' }}">
+        <button type="button" class="act-btn" data-copy>
+          <iconify-icon icon="solar:copy-linear"></iconify-icon>복사</button>
+        {% if loop.last and session_id and not waiting %}
+        <button type="button" class="act-btn" id="retryBtn" data-busy-text="다시 만드는 중…">
+          <iconify-icon icon="solar:refresh-linear"></iconify-icon>다시 시도</button>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
   {% endfor %}
   {% if waiting %}
-  <div class="msg assistant" style="color:var(--muted);">답변 작성 중…</div>
+  <div class="turn assistant"><div class="msg assistant" style="color:var(--muted);">답변 작성 중…</div></div>
   {% endif %}
-
-  <div style="text-align:center; margin:14px 0 4px;">
-    <a href="/graph" class="btn-ghost" style="font-size:12px;">
-      <iconify-icon icon="solar:structure-linear"></iconify-icon>지식그래프 보기</a>
-  </div>
 </div>
 
-<form class="chat-dock" action="/chat/send" method="post" enctype="multipart/form-data">
+<form class="chat-dock" id="chatForm" action="/chat/send" method="post" enctype="multipart/form-data">
   {% if session_id %}<input type="hidden" name="session_id" value="{{ session_id }}">{% endif %}
-  <span class="attach-name" id="attachName">
-    <iconify-icon icon="solar:paperclip-linear"></iconify-icon><span></span></span>
+  <div class="dock-chips" id="dockChips"></div>
+  <div id="criteriaInputs" hidden></div>
   <div class="dock-row">
-    <label class="dock-btn" title="검토할 파일 첨부">
-      <iconify-icon icon="solar:paperclip-linear"></iconify-icon>
-      <input type="file" name="attachment" hidden>
-    </label>
-    <input type="text" name="question" placeholder="메시지를 입력하세요" required
-           autofocus autocomplete="off" {% if waiting %}disabled{% endif %}>
-    <details class="criteria-pick">
-      <summary class="dock-btn" title="적용할 기준 선택 ({{ criteria_docs|length }}건 등록됨)">
-        <iconify-icon icon="solar:library-linear"></iconify-icon>
-        <span class="badge-n" id="criteriaCount" hidden>0</span>
-      </summary>
-      <div class="pick-list">
-        {% for c in criteria_docs %}
-        <label class="pick-item">
-          <input type="checkbox" name="criteria" value="{{ c.id }}">
-          {{ c.filename }} <span class="muted">({{ sector_labels.get(c.sector, c.sector) }})</span>
-        </label>
-        {% else %}
-        <span class="pick-item muted"><a href="/criteria">기준 문서</a>를 먼저 등록하세요</span>
-        {% endfor %}
-      </div>
-    </details>
+    <input type="file" name="attachment" id="chatFile" hidden>
+    <input type="hidden" name="external" id="extField" value="">
+    <textarea name="question" id="chatInput" rows="1" placeholder="메시지를 입력하세요"
+              autofocus autocomplete="off" {% if waiting %}disabled{% endif %}></textarea>
     <button type="submit" id="sendBtn" {% if waiting %}disabled style="opacity:.5;"{% endif %}>
       <iconify-icon icon="solar:plain-2-linear"></iconify-icon>보내기</button>
   </div>
+  <div class="dock-hint" id="dockHint" hidden>보낼 내용을 입력하세요.</div>
 </form>
+</div>{# /chat-main #}
+
+<aside class="chat-aside" id="chatAside">
+  <div class="aside-in">
+    <div class="aside-top">
+      <h2><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>작업 패널</h2>
+      <button type="button" id="asideClose" class="icon-btn" title="패널 닫기"
+              style="width:32px; height:32px; font-size:15px;">
+        <iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
+    </div>
+
+    <div class="aside-sec">
+      <h3>대상 문서</h3>
+      <div id="asideBound" class="aside-empty">확인 중…</div>
+      <button type="button" class="secondary" data-modal-open="#hwpTargetModal"
+              style="width:100%; margin-top:8px; justify-content:center;">
+        <iconify-icon icon="solar:document-text-linear"></iconify-icon>대상 문서 고르기</button>
+    </div>
+
+    <div class="aside-sec">
+      <h3>외부 참조</h3>
+      <label class="aside-item" style="cursor:pointer;">
+        <input type="checkbox" id="extBtn" style="flex:none;">
+        <span class="nm">외부 모델로 먼저 살피기</span>
+        <span class="badge-n" id="criteriaCount" hidden>0</span>
+      </label>
+      <div class="aside-empty" id="extNote" hidden>민감정보는 토큰으로 바뀌어 나가고, 답은 교내 모델이 만듭니다.</div>
+    </div>
+
+    <div class="aside-sec">
+      <h3>적용 기준 <span class="n" id="critPicked"></span></h3>
+      {% if criteria_docs %}
+      <div class="crit-search">
+        <iconify-icon icon="solar:magnifer-linear" style="color:var(--faint); font-size:14px;"></iconify-icon>
+        <input type="search" id="critSearch" placeholder="문서 이름으로 찾기" autocomplete="off">
+      </div>
+      <div id="critGroups"></div>
+      <div id="critNone" class="aside-empty" hidden>찾는 문서가 없습니다.</div>
+      {% else %}
+      <div class="aside-empty">등록된 기준 문서가 없습니다.</div>
+      {% endif %}
+    </div>
+
+    <div class="aside-sec">
+      <h3>연관 자료</h3>
+      {% for s in sources %}
+      <button type="button" class="aside-item" style="flex-direction:column; align-items:stretch; gap:3px;"
+         {% if s.doc_id %}data-peek="{{ s.doc_id }}"{% endif %} title="{{ s.snippet }}">
+        <span style="display:flex; align-items:center; gap:6px; min-width:0;">
+          <iconify-icon icon="solar:document-linear"></iconify-icon>
+          <span class="nm" style="font-weight:600;">{{ s.title }}</span>
+        </span>
+        {% if s.heading %}<span class="muted" style="font-size:11px;">{{ s.heading }}</span>{% endif %}
+        <span class="muted" style="font-size:11px; line-height:1.5; display:-webkit-box;
+              -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">{{ s.snippet }}</span>
+      </button>
+      {% else %}
+      <div class="aside-empty">질문하면 답변에 쓰인 근거가 여기 모입니다.</div>
+      {% endfor %}
+    </div>
+
+    <div class="aside-sec">
+      <h3>도구</h3>
+      <a class="aside-item" href="/graph" target="_blank" rel="noopener">
+        <iconify-icon icon="solar:structure-linear"></iconify-icon>
+        <span class="nm">지식그래프 보기</span>
+        <iconify-icon icon="solar:arrow-right-up-linear" style="font-size:13px;"></iconify-icon></a>
+    </div>
+  </div>
+
+  {# 문서 훑어보기 — 채팅을 벗어나지 않고 패널 위에서 연다 #}
+  <div class="peek" id="peek">
+    <div class="peek-head">
+      <button type="button" class="icon-btn" id="peekBack" title="뒤로"
+              style="width:28px; height:28px; font-size:14px;">
+        <iconify-icon icon="solar:arrow-left-linear"></iconify-icon></button>
+      <b id="peekTitle">문서</b>
+    </div>
+    <div class="peek-body" id="peekBody"></div>
+    <div class="peek-foot">
+      <button type="button" class="secondary" id="peekApply">기준으로 적용</button>
+      <a class="btn-ghost" id="peekOpen" href="#" target="_blank" rel="noopener">새 탭에서 열기</a>
+    </div>
+  </div>
+</aside>
+
+<button type="button" id="asideOpen" class="icon-btn aside-fab" title="작업 패널 열기" hidden>
+  <iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
 
 <script>
+  // 저장된 여닫기 상태를 첫 그리기 전에 적용 — 기본은 닫힘
+  (function () {
+    var a = document.getElementById("chatAside"), b = document.getElementById("asideOpen");
+    var open = false;
+    try { open = (localStorage.getItem("chatAside") || "0") === "1"; } catch (e) {}
+    if (a) { a.classList.add("no-anim"); if (!open) a.classList.add("closed"); }
+    if (b) b.hidden = open;
+    requestAnimationFrame(function () { requestAnimationFrame(function () {
+      if (a) a.classList.remove("no-anim"); }); });
+  })();
+</script>
+
+{% include "_hwp_target_modal.html" %}
+
+<script>
+(function () {
+  // 이 대화를 떠 있는 에이전트가 이어받게 한다 — 화면을 옮겨도 하던 이야기가 끊기지 않는다
+  try {
+    {% if session_id %}sessionStorage.setItem("agentSession", "{{ session_id }}");
+    {% else %}sessionStorage.removeItem("agentSession");{% endif %}
+  } catch (e) {}
+
   var scroller = document.getElementById("chatScroll");
   if (scroller) scroller.scrollTop = scroller.scrollHeight;
 
-  var form = document.querySelector(".chat-dock");
-  if (form) form.addEventListener("submit", function () {
-    var btn = document.getElementById("sendBtn");
-    if (btn) { btn.disabled = true; btn.style.opacity = ".5"; }
-  });
+  var form = document.getElementById("chatForm");
+  var input = document.getElementById("chatInput");
+  var hint = document.getElementById("dockHint");
+  var sendBtn = document.getElementById("sendBtn");
 
-  // 첨부 파일명 표시
-  var fileInput = document.querySelector('input[name="attachment"]');
-  if (fileInput) fileInput.addEventListener("change", function () {
-    var chipWrap = document.getElementById("attachName");
-    if (fileInput.files.length) {
-      chipWrap.querySelector("span").textContent = fileInput.files[0].name;
-      chipWrap.classList.add("show");
-      fileInput.closest(".dock-btn").classList.add("active");
-    } else {
-      chipWrap.classList.remove("show");
-      fileInput.closest(".dock-btn").classList.remove("active");
+  /* ---- 입력: 높이 자동 조절, 엔터로 보내기, 빈 입력은 조용히 알린다 ---- */
+  function grow() {
+    if (!input) return;
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 190) + "px";
+  }
+  function clearHint() { if (hint) hint.hidden = true; if (form) form.classList.remove("warn"); }
+  function showHint(text) {
+    if (!hint) return;
+    hint.textContent = text; hint.hidden = false;
+    if (form) form.classList.add("warn");
+    if (input) input.focus();
+  }
+  if (input) {
+    input.addEventListener("input", function () { grow(); clearHint(); });
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        if (form.requestSubmit) form.requestSubmit(); else form.submit();
+      }
+    });
+    grow();
+  }
+  if (form) form.addEventListener("submit", function (e) {
+    if (!input || !input.value.trim()) {
+      e.preventDefault();
+      showHint("보낼 내용을 입력하세요.");
+      return;
     }
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.style.opacity = ".5"; }
   });
-
-  // 선택한 기준 수 배지
-  document.querySelectorAll('.pick-list input[type="checkbox"]').forEach(function (cb) {
-    cb.addEventListener("change", function () {
-      var n = document.querySelectorAll('.pick-list input:checked').length;
-      var badge = document.getElementById("criteriaCount");
-      badge.textContent = n;
-      badge.hidden = n === 0;
-      var btn = document.querySelector(".criteria-pick summary");
-      if (btn) btn.classList.toggle("active", n > 0);
+  document.querySelectorAll(".starter button[data-fill]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      if (!input) return;
+      input.value = b.dataset.fill; grow(); clearHint(); input.focus();
     });
   });
-  // 팝오버 바깥 클릭 시 닫기
-  document.addEventListener("click", function (e) {
-    var d = document.querySelector("details.criteria-pick[open]");
-    if (d && !d.contains(e.target)) d.removeAttribute("open");
+
+  /* ---- 외부 참조 켜고 끄기 ---- */
+  var extBtn = document.getElementById("extBtn");
+  var extField = document.getElementById("extField");
+  var extNote = document.getElementById("extNote");
+  if (extBtn) extBtn.addEventListener("change", function () {
+    extField.value = extBtn.checked ? "1" : "";
+    if (extNote) extNote.hidden = !extBtn.checked;
   });
+
+  /* ---- 답변 복사·다시 시도 ---- */
+  document.querySelectorAll(".act-btn[data-copy]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var turn = b.closest(".turn");
+      var msg = turn && turn.querySelector(".msg");
+      if (!msg) return;
+      var text = msg.innerText;
+      var done = function () {
+        var keep = b.innerHTML;
+        b.textContent = "복사됨";
+        setTimeout(function () { b.innerHTML = keep; }, 1400);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function () {});
+      }
+    });
+  });
+  var retry = document.getElementById("retryBtn");
+  if (retry) retry.addEventListener("click", function () {
+    retry.disabled = true;
+    retry.textContent = retry.dataset.busyText || "다시 만드는 중…";
+    fetch("/chat/{{ session_id }}/retry", { method: "POST" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.ok) { location.reload(); }
+        else { retry.disabled = false; retry.textContent = d.error || "다시 시도"; }
+      })
+      .catch(function () { retry.disabled = false; retry.textContent = "다시 시도"; });
+  });
+
+  /* ---- 첨부 — 파일을 채팅 영역에 끌어다 놓는다 ---- */
+  var fileInput = document.getElementById("chatFile");
+  var chips = document.getElementById("dockChips");
+  if (fileInput) fileInput.addEventListener("change", renderChips);
+
+  var dropZone = document.querySelector(".chat-main");
+  if (dropZone && fileInput) {
+    var veil = document.getElementById("dropVeil");
+    function show(on) { if (veil) veil.hidden = !on; }
+    ["dragenter", "dragover"].forEach(function (ev) {
+      dropZone.addEventListener(ev, function (e) {
+        if (!e.dataTransfer || !Array.prototype.includes.call(e.dataTransfer.types || [], "Files")) return;
+        e.preventDefault(); show(true);
+      });
+    });
+    ["dragleave", "dragend"].forEach(function (ev) {
+      dropZone.addEventListener(ev, function (e) {
+        if (e.relatedTarget && dropZone.contains(e.relatedTarget)) return;
+        show(false);
+      });
+    });
+    dropZone.addEventListener("drop", function (e) {
+      if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+      e.preventDefault(); show(false);
+      try {
+        var dt = new DataTransfer();
+        dt.items.add(e.dataTransfer.files[0]);
+        fileInput.files = dt.files;
+      } catch (err) { return; }
+      renderChips();
+      if (input) input.focus();
+    });
+  }
+
+  /* ---- 적용 기준: 검색·묶음·패널 안에서 고르기 ---- */
+  var DOCS = [
+    {% for c in criteria_docs %}
+    { id: {{ c.id }}, name: {{ c.filename | tojson }},
+      sector: {{ sector_labels.get(c.sector, c.sector) | tojson }} }{{ "," if not loop.last else "" }}
+    {% endfor %}
+  ];
+  var RECOMMENDED = {{ (recommended_criteria or []) | tojson }};
+  var picked = new Set();
+  var groupsEl = document.getElementById("critGroups");
+  var noneEl = document.getElementById("critNone");
+  var searchEl = document.getElementById("critSearch");
+  var countBadge = document.getElementById("criteriaCount");
+  var pickedLabel = document.getElementById("critPicked");
+  var inputsEl = document.getElementById("criteriaInputs");
+  var expanded = {};
+  var PER_GROUP = 5;
+
+  function syncForm() {
+    if (!inputsEl) return;
+    inputsEl.innerHTML = "";
+    picked.forEach(function (id) {
+      var i = document.createElement("input");
+      i.type = "hidden"; i.name = "criteria"; i.value = id;
+      inputsEl.appendChild(i);
+    });
+    if (countBadge) { countBadge.textContent = picked.size; countBadge.hidden = picked.size === 0; }
+    if (pickedLabel) pickedLabel.textContent = picked.size ? picked.size + "건 선택" : "";
+    renderChips();
+  }
+  function renderChips() {
+    if (!chips) return;
+    chips.innerHTML = "";
+    if (fileInput && fileInput.files.length) {
+      var f = document.createElement("span");
+      f.className = "dock-chip";
+      f.innerHTML = '<iconify-icon icon="solar:paperclip-linear"></iconify-icon>';
+      var fn = document.createElement("span");
+      fn.textContent = fileInput.files[0].name;
+      f.appendChild(fn);
+      var fx = document.createElement("button");
+      fx.type = "button"; fx.title = "첨부 빼기";
+      fx.innerHTML = '<iconify-icon icon="solar:close-circle-linear"></iconify-icon>';
+      fx.addEventListener("click", function () {
+        fileInput.value = "";
+        renderChips();
+      });
+      f.appendChild(fx);
+      chips.appendChild(f);
+    }
+    DOCS.forEach(function (d) {
+      if (!picked.has(d.id)) return;
+      var el = document.createElement("span");
+      el.className = "dock-chip";
+      el.innerHTML = '<iconify-icon icon="solar:library-linear"></iconify-icon>';
+      var nm = document.createElement("span");
+      nm.textContent = d.name.length > 26 ? d.name.slice(0, 26) + "…" : d.name;
+      el.appendChild(nm);
+      var x = document.createElement("button");
+      x.type = "button"; x.title = "기준에서 빼기";
+      x.innerHTML = '<iconify-icon icon="solar:close-circle-linear"></iconify-icon>';
+      x.addEventListener("click", function () { picked.delete(d.id); syncForm(); renderGroups(); });
+      el.appendChild(x);
+      chips.appendChild(el);
+    });
+  }
+  function renderGroups() {
+    if (!groupsEl) return;
+    var q = (searchEl && searchEl.value || "").trim().toLowerCase();
+    var hit = DOCS.filter(function (d) { return !q || d.name.toLowerCase().indexOf(q) >= 0; });
+    groupsEl.innerHTML = "";
+    if (noneEl) noneEl.hidden = hit.length > 0;
+    var order = [], byGroup = {};
+    var rec = {};
+    RECOMMENDED.forEach(function (id) { rec[id] = true; });
+    hit.forEach(function (d) {
+      var g = rec[d.id] ? "이 대화에 맞는 기준" : (d.sector || "기타");
+      if (!byGroup[g]) { byGroup[g] = []; order.push(g); }
+      byGroup[g].push(d);
+    });
+    order.sort(function (a, b) {
+      return (a === "이 대화에 맞는 기준" ? -1 : 0) - (b === "이 대화에 맞는 기준" ? -1 : 0);
+    });
+    order.forEach(function (g) {
+      var rows = byGroup[g];
+      var wrap = document.createElement("div");
+      wrap.className = "crit-group";
+      var head = document.createElement("div");
+      head.className = "crit-group-head";
+      var gt = document.createElement("span");
+      gt.textContent = g + " " + rows.length;
+      head.appendChild(gt);
+      var all = rows.every(function (d) { return picked.has(d.id); });
+      var toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.textContent = all ? "모두 빼기" : "모두 넣기";
+      toggle.addEventListener("click", function () {
+        rows.forEach(function (d) { if (all) picked.delete(d.id); else picked.add(d.id); });
+        syncForm(); renderGroups();
+      });
+      head.appendChild(toggle);
+      wrap.appendChild(head);
+      var limit = (q || expanded[g] || g === "이 대화에 맞는 기준")
+                  ? rows.length : Math.min(rows.length, PER_GROUP);
+      rows.slice(0, limit).forEach(function (d) {
+        var row = document.createElement("label");
+        row.className = "crit-row";
+        var cb = document.createElement("input");
+        cb.type = "checkbox"; cb.checked = picked.has(d.id);
+        cb.addEventListener("change", function () {
+          if (cb.checked) picked.add(d.id); else picked.delete(d.id);
+          syncForm();
+        });
+        var nm = document.createElement("span");
+        nm.className = "nm"; nm.textContent = d.name; nm.title = d.name;
+        var look = document.createElement("button");
+        look.type = "button"; look.className = "act-btn always";
+        look.title = "내용 보기";
+        look.innerHTML = '<iconify-icon icon="solar:eye-linear"></iconify-icon>';
+        look.addEventListener("click", function (e) { e.preventDefault(); openPeek(d.id); });
+        row.appendChild(cb); row.appendChild(nm); row.appendChild(look);
+        wrap.appendChild(row);
+      });
+      if (limit < rows.length) {
+        var more = document.createElement("button");
+        more.type = "button"; more.className = "crit-more";
+        more.textContent = "나머지 " + (rows.length - limit) + "건 더 보기";
+        more.addEventListener("click", function () { expanded[g] = true; renderGroups(); });
+        wrap.appendChild(more);
+      }
+      groupsEl.appendChild(wrap);
+    });
+  }
+  if (searchEl) searchEl.addEventListener("input", renderGroups);
+  renderGroups(); syncForm();
+
+  /* ---- 패널 안 문서 훑어보기 ---- */
+  var peek = document.getElementById("peek");
+  var peekTitle = document.getElementById("peekTitle");
+  var peekBody = document.getElementById("peekBody");
+  var peekApply = document.getElementById("peekApply");
+  var peekOpen = document.getElementById("peekOpen");
+  var peekId = null;
+  function paintApply() {
+    if (!peekApply) return;
+    var on = peekId !== null && picked.has(peekId);
+    peekApply.textContent = on ? "기준에서 빼기" : "기준으로 적용";
+  }
+  function openPeek(id) {
+    peekId = id;
+    setAside(true);
+    if (peek) peek.classList.add("open");
+    if (peekTitle) peekTitle.textContent = "불러오는 중";
+    if (peekBody) peekBody.textContent = "";
+    if (peekOpen) peekOpen.href = "/doc/" + id;
+    paintApply();
+    fetch("/chat/peek/" + id, { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (peekTitle) peekTitle.textContent = d.title || "문서";
+        if (peekBody) peekBody.textContent = d.text || "표시할 본문이 없습니다.";
+      })
+      .catch(function () { if (peekBody) peekBody.textContent = "문서를 불러오지 못했습니다."; });
+  }
+  var peekBack = document.getElementById("peekBack");
+  if (peekBack) peekBack.addEventListener("click", function () {
+    if (peek) peek.classList.remove("open");
+    peekId = null;
+  });
+  if (peekApply) peekApply.addEventListener("click", function () {
+    if (peekId === null) return;
+    if (picked.has(peekId)) picked.delete(peekId); else picked.add(peekId);
+    syncForm(); renderGroups(); paintApply();
+  });
+  document.querySelectorAll("[data-peek]").forEach(function (b) {
+    b.addEventListener("click", function () { openPeek(parseInt(b.dataset.peek, 10)); });
+  });
+
+  /* ---- 작업 패널 여닫기 ---- */
+  var aside = document.getElementById("chatAside");
+  var closeBtn = document.getElementById("asideClose");
+  var openBtn = document.getElementById("asideOpen");
+  var panelBtn = null;                 // 패널은 오른쪽 단추로만 연다
+  function setAside(open) {
+    if (!aside) return;
+    aside.classList.toggle("closed", !open);
+    if (openBtn) openBtn.hidden = open;
+    try { localStorage.setItem("chatAside", open ? "1" : "0"); } catch (e) {}
+  }
+  if (closeBtn) closeBtn.addEventListener("click", function () { setAside(false); });
+  if (openBtn) openBtn.addEventListener("click", function () { setAside(true); });
+  if (panelBtn) panelBtn.addEventListener("click", function () {
+    var closed = aside && aside.classList.contains("closed");
+    setAside(closed);
+    if (closed && searchEl) setTimeout(function () { searchEl.focus(); }, 180);
+  });
+
+  /* ---- 대상 문서 표시 ---- */
+  fetch("/hwp/docs", { cache: "no-store" }).then(function (r) { return r.json(); })
+    .then(function (d) {
+      var el = document.getElementById("asideBound");
+      if (!el) return;
+      if (d.bound && d.bound.name) {
+        el.className = "aside-item"; el.textContent = "";
+        var ic = document.createElement("iconify-icon");
+        ic.setAttribute("icon", "solar:document-text-linear");
+        var nm = document.createElement("span"); nm.className = "nm";
+        nm.textContent = d.bound.name;
+        el.appendChild(ic); el.appendChild(nm);
+      } else if (d.connected) {
+        el.textContent = "지정된 문서가 없습니다.";
+      } else {
+        el.textContent = "한글 에이전트가 연결되지 않았습니다.";
+      }
+    }).catch(function () {});
+})();
 </script>
 {% endblock %}
