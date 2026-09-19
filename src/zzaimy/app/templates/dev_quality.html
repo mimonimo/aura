@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}품질·성능{% endblock %}
+{% block pagetitle %}품질·성능{% endblock %}
+{% block content %}
+<style>.dev-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start;}</style>
+<p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+  <a href="/dev" class="btn-ghost">← 개발 현황</a>
+</p>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 품질
+    <span style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+      {% if retrieval_eval.running %}
+      <span class="pill processing">측정 중…</span>
+      {% elif not retrieval_eval.query_set_missing %}
+      <form action="/dev/eval/run" method="post" style="margin:0;">
+        <button type="submit" class="secondary"
+                style="padding:5px 12px; font-size:12px;">재측정</button>
+      </form>
+      {% endif %}
+    </span></h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
+    합성 질의로 정답 조각을 되찾는 정확도입니다. R@k는 상위 k건 적중률, MRR@10은 첫 정답 순위의 역수 평균입니다.</p>
+  {% if retrieval_eval.running %}
+  <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 중
+    ({{ retrieval_eval.started_at_display }} 시작)
+    {% if retrieval_eval.running.progress %}· {{ retrieval_eval.running.progress }}{% endif %}
+    — 끝나면 새로고침으로 반영됩니다.</p>
+  {% endif %}
+  {% if retrieval_eval.last_error %}
+  <p class="muted" style="font-size:12px; margin:0 0 10px; color:var(--red);">
+    이전 측정 실패: {{ retrieval_eval.last_error }}</p>
+  {% endif %}
+  {% set ev = retrieval_eval.result %}
+  {% if ev %}
+  <p class="muted" style="font-size:12px; margin:0 0 8px;">측정
+    {{ retrieval_eval.measured_at_display }} · 질의 {{ ev.n_queries }}건
+    · 조각 {{ ev.n_chunks }}개 · 임베딩 {{ ev.embedding_model or '미확인' }}</p>
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>방식</th><th>R@1</th><th>R@5</th><th>R@10</th><th>MRR@10</th><th>n</th></tr>
+    {% for r in ev.rows %}
+    <tr>
+      <td{% if r.production %} style="font-weight:600;"{% endif %}>{{ r.method }}
+        {% if r.production %}<span class="pill type" style="margin-left:6px;">운영 구성</span>{% endif %}</td>
+      {% if r.recall_at_1 is none %}
+      <td colspan="4" class="muted">미측정{% if r.note %} — {{ r.note }}{% endif %}</td>
+      {% else %}
+      <td>{{ "%.3f" | format(r.recall_at_1) }}</td>
+      <td>{{ "%.3f" | format(r.recall_at_5) }}</td>
+      <td>{{ "%.3f" | format(r.recall_at_10) }}</td>
+      <td>{{ "%.3f" | format(r.mrr_at_10) }}</td>
+      {% endif %}
+      <td>{{ r.n }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% for n in ev.notes %}
+  <p class="muted" style="font-size:11.5px; margin:8px 0 0; line-height:1.6;">{{ n }}</p>
+  {% endfor %}
+  {% if retrieval_eval.query_set_missing %}
+  <p class="muted" style="font-size:11.5px; margin:8px 0 0;">재측정 불가 —
+    {{ retrieval_eval.query_set_message }}</p>
+  {% endif %}
+  {% elif retrieval_eval.running %}
+  <p style="font-size:13px; margin:0;">아직 측정 없음 — 첫 측정이 진행 중입니다.</p>
+  {% elif retrieval_eval.query_set_missing %}
+  <p style="font-size:13px; margin:0;">아직 측정 없음
+    ({{ retrieval_eval.query_set_message }})</p>
+  {% else %}
+  <p style="font-size:13px; margin:0;">아직 측정 없음 — 재측정을 실행하세요.</p>
+  {% endif %}
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>추출 품질 백로그
+    {% if quality.open %}
+    <span class="pill processing" style="margin-left:6px;">미처리 {{ quality.open }}</span>
+    {% endif %}
+    <a href="/dev/doc/quality-system.md" class="h-link"><iconify-icon icon="solar:document-text-linear"></iconify-icon>품질 체계</a></h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">담당자가 문서 화면에서 신고한 추출 문제입니다. 처리 시 막은 계층을 남깁니다(누적 {{ quality.done }}건).</p>
+  {% for r in quality_open %}
+  <div style="display:flex; gap:8px; align-items:center; padding:7px 0;
+              border-bottom:1px solid var(--panel); font-size:12.5px;">
+    <span class="pill" style="flex:none;">{{ quality_kind_labels.get(r.kind, r.kind) }}</span>
+    <a href="/doc/{{ r.doc_id }}" style="color:var(--navy); font-weight:600;
+       text-decoration:none; max-width:180px; overflow:hidden;
+       text-overflow:ellipsis; white-space:nowrap;">{{ r.filename }}</a>
+    {% if r.note %}<span class="muted" style="flex:1; overflow:hidden;
+      text-overflow:ellipsis; white-space:nowrap;">{{ r.note }}</span>{% endif %}
+    <form action="/dev/quality/{{ r.id }}/done" method="post"
+          style="margin-left:auto; display:flex; gap:4px;">
+      <input type="text" name="fix_note" placeholder="처리 내용"
+             style="width:110px; border:1px solid var(--line); border-radius:7px;
+                    padding:3px 7px; font-size:11.5px;">
+      <button type="submit" class="secondary"
+              style="font-size:11.5px; padding:3px 10px;">처리</button>
+    </form>
+  </div>
+  {% else %}
+  <p class="muted" style="margin:0; font-size:12.5px;">미처리 신고 없음</p>
+  {% endfor %}
+</div></div>
+
+
+{% endblock %}

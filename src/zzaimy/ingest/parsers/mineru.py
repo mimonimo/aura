@@ -15,6 +15,8 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
+from dataclasses import replace as _dc_replace
+
 from zzaimy.ingest.parsers.base import (
     ParsedEntry,
     ParsedImage,
@@ -23,6 +25,7 @@ from zzaimy.ingest.parsers.base import (
     ParseResult,
 )
 from zzaimy.ingest.parsers.html_table import parse_html_table
+from zzaimy.ingest.parsers.ocr_table import derive_col_widths
 
 
 def extract_middle_lines(
@@ -63,6 +66,70 @@ def extract_middle_lines(
                     "score": round(score, 3),
                 })
     return lines, sizes
+
+
+def _caption_lines(*groups) -> str:
+    """MinerU 캡션·각주 목록(들) → 줄 단위 문자열. 첫 줄이 캡션, 다음 줄들이 각주."""
+    lines: list[str] = []
+    for g in groups:
+        if isinstance(g, str):
+            g = [g]
+        for x in g or []:
+            t = " ".join(str(x).split())
+            if t:
+                lines.append(t)
+    return "\n".join(lines)
+
+
+def _parse_bbox_str(s: object) -> tuple[float, float, float, float] | None:
+    """ocr_lines의 'x0,y0,x1,y1' 문자열 → 좌표 튜플. 어긋나면 None."""
+    try:
+        x0, y0, x1, y1 = (float(v) for v in str(s).split(","))
+        return x0, y0, x1, y1
+    except (TypeError, ValueError):
+        return None
+
+
+def fill_ocr_col_widths(
+    tables: list[ParsedTable],
+    entries: list[ParsedEntry],
+    ocr_lines: list[dict],
+) -> list[ParsedTable]:
+    """괘선 없는 스캔·사진 표의 열 폭 비율을 OCR 글자줄 좌표에서 인출해 채운다.
+
+    표 영역(entry.bbox) 안에 놓인 글자줄들의 x 분포로 열 경계를 찾는다
+    (ocr_table.derive_col_widths). 이미 col_w가 있으면(디지털 PDF 괘선·HWP
+    원본 폭) 건드리지 않고, 좌표 신뢰도가 낮으면 비운 채 둔다(균등 폭 폴백).
+    좌표계가 어긋나 표 안에 잡히는 줄이 없으면 자연히 폴백한다(fail-closed).
+    """
+    by_page: dict[int, list[tuple[float, float, float, float]]] = {}
+    for ln in ocr_lines:
+        bb = _parse_bbox_str(ln.get("bbox"))
+        if bb is not None:
+            by_page.setdefault(int(ln.get("page_no", 0) or 0), []).append(bb)
+    if not by_page:
+        return tables
+
+    new = list(tables)
+    for e in entries:
+        if getattr(e, "kind", "") != "table" or e.bbox is None:
+            continue
+        if not (0 <= e.ref < len(new)):
+            continue
+        t = new[e.ref]
+        if getattr(t, "col_w", None) or t.n_cols < 2:
+            continue
+        tx0, ty0, tx1, ty1 = e.bbox
+        pad_y = 0.02 * abs(ty1 - ty0) if ty1 != ty0 else 2.0
+        spans: list[tuple[float, float]] = []
+        for lx0, ly0, lx1, ly1 in by_page.get(e.page_no, []):
+            cx, cy = (lx0 + lx1) / 2.0, (ly0 + ly1) / 2.0
+            if tx0 - 2 <= cx <= tx1 + 2 and ty0 - pad_y <= cy <= ty1 + pad_y:
+                spans.append((lx0, lx1))
+        col_w = derive_col_widths(tx0, tx1, spans, t.n_cols)
+        if col_w:
+            new[e.ref] = _dc_replace(t, col_w=col_w)
+    return new
 
 
 class MineruNotInstalled(RuntimeError):
@@ -137,28 +204,34 @@ class MineruParser:
             kind = e.get("type")
             if kind == "table":
                 body = e.get("table_body") or ""
+                # 캡션(첫 줄)·각주(다음 줄들)는 표 항목의 text로 — 표가 무엇을 담는지,
+                # 단위가 무엇인지가 셀 수치의 문맥이다
+                caption = _caption_lines(e.get("table_caption"), e.get("table_footnote"))
                 if body:
                     tables.append(parse_html_table(body, page_no=page_no))
                     entries.append(ParsedEntry(
                         page_no=page_no, kind="table",
-                        ref=len(tables) - 1, bbox=_bbox(e),
+                        ref=len(tables) - 1, bbox=_bbox(e), text=caption,
                     ))
+                    if caption:
+                        page_texts[page_no].append(caption)
                 else:
                     warnings.append(f"p{page_no}: table_body 없는 표 항목")
             elif kind == "image":
                 img = e.get("img_path") or ""
                 img_file = (base_dir / img).resolve() if img else None
+                caption = _caption_lines(e.get("img_caption"), e.get("img_footnote"))
                 if img_file and img_file.exists():
                     images.append(ParsedImage(page_no=page_no, path=img_file))
                     entries.append(ParsedEntry(
                         page_no=page_no, kind="image",
-                        ref=len(images) - 1, bbox=_bbox(e),
+                        ref=len(images) - 1, bbox=_bbox(e), text=caption,
                     ))
                     # 본문 흐름 속 그림 위치 마커 — 구조 항목이 없는 소비자용 폴백
                     page_texts[page_no].append(f"[[img]]{img_file.name}")
                 # 그림 캡션 텍스트도 본문에 남긴다
-                for cap in e.get("img_caption") or []:
-                    page_texts[page_no].append(cap)
+                if caption:
+                    page_texts[page_no].append(caption)
             elif kind == "text":
                 txt = e.get("text", "")
                 if txt.strip():
@@ -187,6 +260,11 @@ class MineruParser:
                 )
             except (json.JSONDecodeError, TypeError, ValueError):
                 warnings.append("middle.json 줄 좌표 추출 실패")
+        # 스캔·사진 표는 괘선이 없어 열 폭 정보가 없다 — OCR 글자줄 좌표에서
+        # 열 경계를 인출해 채운다. 디지털 PDF 표는 뒤이어 괘선 직독으로 교체되며
+        # 그쪽 col_w가 우선한다(호출부 swap_tables). 실패 시 균등 폭 폴백.
+        if ocr_lines:
+            tables = fill_ocr_col_widths(tables, entries, ocr_lines)
         return ParseResult(
             parser=self.name, elapsed_s=elapsed, pages=pages,
             tables=tables, images=images, entries=entries, warnings=warnings,

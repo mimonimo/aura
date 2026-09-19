@@ -11,15 +11,43 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import time
+from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from zzaimy.app.db import Database
+from zzaimy.app.pii_audit import record_mask_events
 from zzaimy.ingest.pii import PiiMasker, RawDocument
 
 if TYPE_CHECKING:
     from zzaimy.ingest.parsers.base import ParseResult
 from zzaimy.ingest.schema import classify_series
+
+_WARP_MARGIN_RATIO = 0.02   # 펴낸 문서 둘레에 둘 흰 여백 (짧은 변의 비율)
+_WARP_MARGIN_MIN = 12       # 여백 최소 화소 — 작은 사진에서도 가장자리를 지킨다
+
+_VISION_FAIL_LIMIT = 2   # 이만큼 연속 실패하면 그 실행에서 비전 판독을 접는다
+# 실행 범위 차단기. 문서마다 처리기를 새로 만들어도 유지돼야 하므로 모듈에 둔다.
+_vision_state = {"fails": 0, "off": False}
+
+
+def _vision_available() -> bool:
+    """비전 모델이 따로 지정돼 있는가. 없으면 이미지 판독을 아예 건너뛴다."""
+    if _vision_state["off"]:
+        return False
+    try:
+        from zzaimy.generate.client import VllmClient
+
+        if not getattr(VllmClient(), "has_vision", False):
+            _vision_state["off"] = True
+            log.info("비전 모델이 지정되지 않아 이미지 판독을 건너뜁니다")
+            return False
+        return True
+    except Exception:
+        _vision_state["off"] = True
+        return False
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +115,19 @@ def _split_chunks(text: str, max_chunks: int = 400) -> list[dict]:
     return chunks
 
 
+# 표·그림 주변 문맥 줄의 일반 패턴 — 특정 문서의 표현을 넣지 않는다 (하드코딩 금지).
+# 캡션: '표 3.', '<표 1>', '[그림 2]', 'Figure 4:' 처럼 종류+번호로 시작하는 짧은 줄
+_CAPTION_RE = re.compile(
+    r"^\s*[\[<(〈《「【]?\s*(?:표|그림|사진|도표|도식|그래프|Table|Figure|Fig\.?|Chart|Photo)"
+    r"\s*[\dⅠ-Ⅻ]{1,3}(?:[-.]\d{1,2})?\s*[\]>)〉》」】]?(?:[.:\s]|$)",
+    re.IGNORECASE,
+)
+# 각주·단위: '※ …', '주) …', '출처: …', '자료: …', '(단위: 천원)'
+_NOTE_RE = re.compile(
+    r"^\s*(?:※|＊|\*|주\s*[\d):：]|출처\s*[:：]|자료\s*[:：]|[\(（]?\s*단위\s*[:：])"
+)
+
+
 def _guidance_block(db: Database, project: dict | None) -> str:
     """담당자 전역 지침 + 프로젝트 지침·메모를 검토 입력 뒤에 붙인다."""
     parts = []
@@ -120,6 +161,7 @@ class DocumentProcessor:
         self._last_result: ParseResult | None = None  # 표 구조 보존용
         self._last_attrs: list[str] = []  # 손글씨·도장 등 문서 속성
         self._last_scan: Path | None = None  # 보정 스캔본
+        self._last_image_text: dict[str, str] = {}  # 그림 파일명 → 그림 속 글자(OCR)
 
     # 파싱 결과 상한 — 인쇄용 PDF 등에서 파서가 비정상적으로 긴 텍스트를 뽑는
     # 사례가 실측됨(26p 문서에서 950만 자). 상한 초과분은 잘라내고 경고를 남긴다.
@@ -142,14 +184,15 @@ class DocumentProcessor:
         self._last_result = None
         self._last_attrs = []
         self._last_scan = None
+        self._last_image_text = {}
         self._ocr_used = False  # 이번 파싱에서 실제 OCR이 돌았는가 — 교정 게이트
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
         if suffix == ".hwp":
-            return self._parse_hwp(file_path)
+            return self._parse_hwp_structured(file_path)
         if suffix == ".hwpx":
-            return self._parse_hwpx(file_path)
+            return self._parse_hwpx_structured(file_path)
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
             # PDF 기본 파서는 MinerU — 표 구조·2단 레이아웃·읽기 순서 보존.
             # 디지털 PDF(텍스트 레이어 있음)는 MinerU 구조 위에 원본 레이어의
@@ -169,9 +212,24 @@ class DocumentProcessor:
         # 이미지·오피스 문서(및 MinerU 실패 PDF)는 docling이 처리
         from zzaimy.ingest.parsers.docling import DoclingParser
 
-        parsed = DoclingParser().parse(file_path)
+        is_image = suffix in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
+        try:
+            parsed = DoclingParser().parse(file_path)
+        except Exception as e:
+            # 이미지 한 장은 docling 레이아웃 모델이 없어도(오프라인 VM 실측: HF 캐시 없음)
+            # tesseract(CPU)로 글자를 읽어 처리한다 — 사진·스크린샷 접수가 실패로 끝나지 않게
+            if is_image:
+                text = self._ocr_whole_image(file_path)
+                if text:
+                    return text
+            raise RuntimeError(f"문서 판독 실패 ({type(e).__name__})") from e
         self._last_result = parsed
         text = self._result_to_text(parsed)
+        if is_image and len(text.strip()) < 20:
+            # docling이 그림에서 글자를 못 읽은 경우(레이아웃만 있고 OCR 없음)도 같은 폴백
+            ocr = self._ocr_whole_image(file_path)
+            if ocr:
+                return ocr
 
         # 스캔 문서 감지 — 페이지당 텍스트가 빈약하면 MinerU OCR로 재파싱한다.
         # MinerU(오픈소스, PaddleOCR 계열)는 표를 구조로, 그림을 파일로 뽑아준다
@@ -199,21 +257,13 @@ class DocumentProcessor:
                 self._last_result = parsed
                 if method == "ocr":
                     self._ocr_used = True
-                text = self._result_to_text(parsed)
-                # 그림은 임시 디렉터리가 사라지기 전에 밖으로 복사한다
+                # 그림은 임시 디렉터리가 사라지기 전에 밖으로 복사하고, 그림 속
+                # 글자(차트 축·도식 라벨·삽입된 스캔)를 tesseract로 읽어 둔다
                 keep_dir = file_path.parent / f"{file_path.stem}_imgs"
-                images: list[tuple[int, Path]] = []
-                seen_hash: set[str] = set()
-                for img in parsed.images:
-                    if len(images) >= 20:
-                        break
-                    if not self._is_meaningful_image(img.path, seen_hash):
-                        continue  # 체크박스·불릿 같은 장식 아이콘, 중복은 걸러낸다
-                    keep_dir.mkdir(parents=True, exist_ok=True)
-                    dest = keep_dir / img.path.name
-                    shutil.copyfile(img.path, dest)
-                    images.append((img.page_no, dest))
+                images = self._keep_images(parsed.images, keep_dir)
                 self._last_images = images
+                self._last_image_text = self._ocr_images(images)
+                text = self._result_to_text(parsed, self._last_image_text)
                 label = (
                     "구조 추출 (MinerU)" if method == "auto"
                     else "스캔 문서 OCR 처리 (MinerU)"
@@ -221,6 +271,10 @@ class DocumentProcessor:
                 self._last_parse_note = (
                     f"{label} · 표 {len(parsed.tables)}개 · 그림 {len(images)}장"
                 )
+                if self._last_image_text:
+                    self._last_parse_note += (
+                        f" · 그림 글자 OCR {len(self._last_image_text)}장"
+                    )
                 log.info(
                     "%s: MinerU OCR 재파싱 — %d자, 표 %d, 그림 %d",
                     file_path.name, len(text), len(parsed.tables), len(images),
@@ -245,7 +299,15 @@ class DocumentProcessor:
     )
 
     def _vlm_transcribe(self, image_path: Path) -> str | None:
-        """비전 모델(Qwen3.5)로 사진 속 문서 전사 — 손글씨·도장 문구까지 읽는다."""
+        """비전 모델로 사진 속 문서 전사 — 손글씨·도장 문구까지 읽는다.
+
+        비전 서버가 없으면 곧바로 물러난다. 시간 제한과 재시도가 걸려 있어
+        문서마다 되풀이하면 전체 처리가 크게 느려지기 때문이다.
+        """
+        if _vision_state["off"]:
+            return None
+        if not _vision_available():
+            return None
         import base64
 
         try:
@@ -264,7 +326,7 @@ class DocumentProcessor:
             b64 = base64.b64encode(send_path.read_bytes()).decode()
             client = VllmClient()
             resp = client.client.chat.completions.create(
-                model=client.model,
+                model=getattr(client, "vision_model", client.model),
                 temperature=0.0,
                 max_tokens=2500,
                 messages=[{
@@ -275,7 +337,7 @@ class DocumentProcessor:
                         {"type": "text", "text": self._VLM_PROMPT},
                     ],
                 }],
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                extra_body=getattr(client, "_extra", {}),
             )
             text = (resp.choices[0].message.content or "").strip()
             # 속성 줄 분리 — 하드케이스 분류용 (손글씨·도장 여부)
@@ -291,14 +353,20 @@ class DocumentProcessor:
                 text = rest.strip()
             return text or None
         except Exception as e:
-            log.warning("비전 판독 실패(%s) — OCR 결과로 진행", type(e).__name__)
+            # 연달아 실패하면 이 실행 동안은 더 부르지 않는다. 한 번 실패에 시간 제한과
+            # 재시도가 걸려 있어, 문서마다 되풀이하면 처리 전체가 느려진다.
+            _vision_state["fails"] += 1
+            if _vision_state["fails"] >= _VISION_FAIL_LIMIT:
+                _vision_state["off"] = True
+                log.warning("비전 판독을 이번 실행에서 중단합니다 — %d회 연속 실패(%s)",
+                            _vision_state["fails"], type(e).__name__)
+            else:
+                log.warning("비전 판독 실패(%s) — OCR 결과로 진행", type(e).__name__)
             return None
 
     @staticmethod
     def _md_to_chunks(md: str, mk, page_no: int = 1) -> list[dict]:
         """비전 판독 마크다운을 조각으로 — '## ' 제목, 파이프 표, 문단."""
-        import json as _json
-
         out: list[dict] = []
         lines = md.splitlines()
         i = 0
@@ -328,17 +396,10 @@ class DocumentProcessor:
                     from zzaimy.ingest.parsers.html_table import parse_html_table
 
                     t = parse_html_table("\n".join(html_lines), page_no=page_no)
-                    cells_json = [
-                        [c.row, c.col, c.row_span, c.col_span,
-                         1 if c.is_header else 0, mk(c.text)]
-                        for c in t.cells
-                    ]
                     out.append({
                         "kind": "table", "page_no": page_no,
-                        "content": _json.dumps(
-                            {"n_rows": t.n_rows, "n_cols": t.n_cols,
-                             "cells": cells_json},
-                            ensure_ascii=False,
+                        "content": DocumentProcessor._finish_table_payload(
+                            DocumentProcessor._table_payload(t, mk)
                         ),
                     })
                 except Exception:
@@ -364,9 +425,8 @@ class DocumentProcessor:
                     ]
                     out.append({
                         "kind": "table", "page_no": page_no,
-                        "content": _json.dumps(
-                            {"n_rows": len(rows), "n_cols": n_cols, "cells": cells_json},
-                            ensure_ascii=False,
+                        "content": DocumentProcessor._finish_table_payload(
+                            {"n_rows": len(rows), "n_cols": n_cols, "cells": cells_json}
                         ),
                     })
                 continue
@@ -382,7 +442,7 @@ class DocumentProcessor:
                 para.append(ln)
             i += 1
         flush_para()
-        return out
+        return DocumentProcessor._attach_captions(out)
 
     def _extract_stamps(self, image_path: Path) -> list[Path]:
         """빨간 직인(도장) 영역을 찾아 잘라낸다 — OpenCV 색 분리, 없으면 빈 목록."""
@@ -438,7 +498,7 @@ class DocumentProcessor:
         """
         import json as _j
 
-        targets = [c for c in chunks if c["kind"] in ("text", "heading")]
+        targets = [c for c in chunks if c["kind"] in ("text", "heading", "image_text")]
         texts = [c["content"] for c in targets]
         cell_refs: list[tuple[dict, dict, int]] = []
         for c in chunks:
@@ -464,7 +524,8 @@ class DocumentProcessor:
             data["cells"][idx][5] = f[:500]
             touched[id(c)] = (c, data)
         for c, data in touched.values():
-            c["content"] = _j.dumps(data, ensure_ascii=False)
+            # 셀이 바뀌었으니 검색·인용용 평문(text)도 다시 만든다
+            c["content"] = self._finish_table_payload(data)
         return True
 
     def _correct_texts(self, texts: list[str]) -> list[str] | None:
@@ -504,7 +565,7 @@ class DocumentProcessor:
                         "role": "user",
                         "content": self._CORRECT_PROMPT.format(text=joined),
                     }],
-                    extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                    extra_body=getattr(client, "_extra", {}),
                 )
                 out = (resp.choices[0].message.content or "").strip()
                 parts = [p.strip() for p in out.split("<<<>>>")]
@@ -575,11 +636,20 @@ class DocumentProcessor:
             tr, bl = best[diff.argmin()], best[diff.argmax()]
             wd = int(max(np.linalg.norm(br - bl), np.linalg.norm(tr - tl)))
             ht = int(max(np.linalg.norm(tr - br), np.linalg.norm(tl - bl)))
+            # 검출한 네 귀퉁이에 딱 맞춰 펴면 가장자리 글자가 잘린다. 윤곽선은 종이
+            # 경계보다 약간 안쪽에 잡히는 일이 잦아, 첫 글자가 통째로 사라지기도 한다.
+            # 그래서 흰 여백을 두르고 그 안쪽으로 편다 — 판독기도 여백이 있어야
+            # 글자 상자를 제대로 잡는다.
+            pad = max(_WARP_MARGIN_MIN, int(min(wd, ht) * _WARP_MARGIN_RATIO))
             m = cv2.getPerspectiveTransform(
                 np.array([tl, tr, br, bl], dtype="float32"),
-                np.array([[0, 0], [wd, 0], [wd, ht], [0, ht]], dtype="float32"),
+                np.array([[pad, pad], [wd + pad, pad],
+                          [wd + pad, ht + pad], [pad, ht + pad]], dtype="float32"),
             )
-            warped = cv2.warpPerspective(img, m, (wd, ht))
+            warped = cv2.warpPerspective(
+                img, m, (wd + 2 * pad, ht + 2 * pad),
+                borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255),
+            )
             dest = image_path.parent / f"{image_path.stem}_docarea.png"
             cv2.imwrite(str(dest), warped)
             return dest
@@ -659,6 +729,10 @@ class DocumentProcessor:
 
     def _vlm_read_line(self, image_path: Path) -> str | None:
         """짧은 이미지 조각 한 줄 전사 — 설명·교정 없이 보이는 그대로."""
+        if _vision_state["off"]:
+            return None
+        if not _vision_available():
+            return None
         try:
             import base64
 
@@ -667,7 +741,7 @@ class DocumentProcessor:
             client = VllmClient()
             b64 = base64.b64encode(image_path.read_bytes()).decode()
             resp = client.client.chat.completions.create(
-                model=client.model,
+                model=getattr(client, "vision_model", client.model),
                 messages=[{"role": "user", "content": [
                     {"type": "image_url",
                      "image_url": {"url": f"data:image/png;base64,{b64}"}},
@@ -676,11 +750,16 @@ class DocumentProcessor:
                              " 설명·따옴표·교정 금지. 읽을 수 없으면 빈 출력."},
                 ]}],
                 temperature=0.0, max_tokens=120,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                extra_body=getattr(client, "_extra", {}),
             )
             out = (resp.choices[0].message.content or "").strip()
             return out or None
-        except Exception:
+        except Exception as e:
+            _vision_state["fails"] += 1
+            if _vision_state["fails"] >= _VISION_FAIL_LIMIT:
+                _vision_state["off"] = True
+                log.warning("비전 판독을 이번 실행에서 중단합니다 — %d회 연속 실패(%s)",
+                            _vision_state["fails"], type(e).__name__)
             return None
 
     def _photo_ocr_lines(self, db: Database, doc_id: int, image_path: Path) -> None:
@@ -826,17 +905,10 @@ class DocumentProcessor:
                     self._last_parse_note += f" · 표 괘선 직독 {n_swapped}개"
 
                 self._last_result = dc_replace(parsed, entries=new_entries)
-                # 본문 텍스트도 교체된 항목 기준으로 재구성
-                parts = []
-                for e in new_entries:
-                    if e.kind in ("text", "heading") and e.text.strip():
-                        parts.append(e.text.strip())
-                for t in parsed.tables:
-                    parts.append("\n".join(
-                        " | ".join(c.text for c in t.cells if c.row == r)
-                        for r in range(t.n_rows)
-                    ))
-                return "\n\n".join(parts)
+                # 본문 텍스트도 교체된 항목 기준으로, 읽기 순서 그대로 재구성
+                return self._compose_text(
+                    self._last_result, getattr(self, "_last_image_text", None)
+                )
             finally:
                 doc.close()
         except Exception as e:
@@ -926,9 +998,6 @@ class DocumentProcessor:
 
         구조 정보가 없으면(텍스트·HWP 경로) None을 주고 문단 분할로 폴백한다.
         """
-        import json as _json
-        from collections import defaultdict
-
         parsed = self._last_result
         if parsed is None or not parsed.pages:
             return None
@@ -957,27 +1026,37 @@ class DocumentProcessor:
                         "content": mk(e.text)[:2000], "bbox": bbox,
                     })
                 elif e.kind == "table" and 0 <= e.ref < len(parsed.tables):
-                    t = parsed.tables[e.ref]
-                    cells = [
-                        [c.row, c.col, c.row_span, c.col_span,
-                         1 if c.is_header else 0, mk(c.text)]
-                        for c in t.cells
-                    ]
-                    payload = {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells}
-                    if getattr(t, "col_w", None):
-                        payload["col_w"] = list(t.col_w)  # 원본 열 폭 비율
+                    # 파서가 준 캡션(e.text)은 표 JSON에 붙고 평문(text)에도 들어간다.
+                    # 문장으로 끝나는 줄은 캡션이 아니므로 본문 조각으로 앞에 둔다.
+                    cap, back = self._split_caption(e.text)
+                    if back:
+                        out2.append({"kind": "text", "page_no": e.page_no,
+                                     "content": mk(back)[:2000], "bbox": None})
+                    payload = self._table_payload(parsed.tables[e.ref], mk, caption=cap)
                     out2.append({
                         "kind": "table", "page_no": e.page_no, "bbox": bbox,
-                        "content": _json.dumps(payload, ensure_ascii=False),
+                        "content": self._finish_table_payload(payload),
                     })
                 elif e.kind == "image" and 0 <= e.ref < len(parsed.images):
+                    name = parsed.images[e.ref].path.name
                     out2.append({
                         "kind": "image", "page_no": e.page_no, "bbox": bbox,
-                        "content": parsed.images[e.ref].path.name,
+                        "content": name,
                     })
+                    # 그림 캡션·그림 속 글자는 그림 바로 뒤 조각으로 — 검색·인용 가능
+                    cap, back = self._split_caption(e.text)
+                    if back:
+                        out2.append({"kind": "text", "page_no": e.page_no,
+                                     "content": mk(back)[:2000], "bbox": None})
+                    fig = self._figure_text(name, cap)
+                    if fig:
+                        out2.append({
+                            "kind": "image_text", "page_no": e.page_no, "bbox": bbox,
+                            "content": mk(fig)[:2000],
+                        })
                 if len(out2) >= max_chunks:
                     break
-            return out2
+            return self._attach_captions(out2)
         tables_by_page: dict[int, list] = defaultdict(list)
         for t in getattr(parsed, "tables", []):
             tables_by_page[t.page_no].append(t)
@@ -1007,48 +1086,494 @@ class DocumentProcessor:
                         "content": mk(blk[5:].strip())[:300],
                     })
                 elif blk.startswith("[[img]]"):
+                    name = blk[7:].strip()
                     out.append({
                         "kind": "image", "page_no": pg.page_no,
-                        "content": blk[7:].strip(),  # 추출 그림 파일명 (마스킹 불필요)
+                        "content": name,  # 추출 그림 파일명 (마스킹 불필요)
                     })
+                    fig = self._figure_text(name)
+                    if fig:
+                        out.append({
+                            "kind": "image_text", "page_no": pg.page_no,
+                            "content": mk(fig)[:2000],
+                        })
                 elif len(blk) >= 2:
                     out.append(
                         {"kind": "text", "page_no": pg.page_no, "content": mk(blk)[:2000]}
                     )
             for t in tables_by_page.get(pg.page_no, []):
-                cells = [
-                    [c.row, c.col, c.row_span, c.col_span,
-                     1 if c.is_header else 0, mk(c.text)]
-                    for c in t.cells
-                ]
                 out.append({
                     "kind": "table", "page_no": pg.page_no,
-                    "content": _json.dumps(
-                        {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells},
-                        ensure_ascii=False,
-                    ),
+                    "content": self._finish_table_payload(self._table_payload(t, mk)),
                 })
             if len(out) >= max_chunks:
                 break
-        return out[:max_chunks]
+        return self._attach_captions(out[:max_chunks])
+
+    # ---- 표·그림 문맥 (캡션·그림 글자) --------------------------------------
+
+    # 문장으로 끝나는 줄(…이다. …한다. …함.)은 캡션이 아니라 본문이다 — 파서(MinerU)가 표 앞
+    # 문장을 table_caption 으로 넘긴 실측(2026-09-15 스캔 문제집). '표 N'·'그림 N'으로 시작하거나
+    # 짧은 명사구·단위 줄만 캡션으로 받는다. 특정 문서 표현은 넣지 않는다.
+    _SENTENCE_END_RE = re.compile(r"(?:다|요|함|음|됨|임|니다|습니다|였다|있다|없다)\s*[.。]?\s*$")
+
+    @classmethod
+    def _plausible_caption(cls, line: str) -> bool:
+        t = " ".join((line or "").split())
+        if not t:
+            return False
+        if _CAPTION_RE.match(t) or _NOTE_RE.match(t):
+            return True
+        if len(t) > 60 or cls._SENTENCE_END_RE.search(t) or "다. " in t:
+            return False
+        return True
+
+    @classmethod
+    def _split_caption(cls, text: str) -> tuple[str, str]:
+        """파서가 준 캡션 묶음 → (캡션으로 쓸 줄들, 본문으로 되돌릴 줄들)."""
+        keep, back = [], []
+        for ln in (text or "").splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            (keep if cls._plausible_caption(ln) else back).append(ln)
+        return "\n".join(keep), "\n".join(back)
 
     @staticmethod
-    def _result_to_text(parsed) -> str:
-        text = "\n".join(p.text for p in parsed.pages)
-        # 내부 마커는 본문·LLM 입력에 남기지 않는다
-        text = re.sub(r"^\[\[img\]\].*$", "[그림]", text, flags=re.M)
-        text = text.replace("[[h]]", "")
-        for t in parsed.tables:
-            # 표마다 빈 줄로 구분해야 조각 저장 시 표 단위로 나뉜다
-            text += "\n\n" + "\n".join(
-                " | ".join(c.text for c in t.cells if c.row == r) for r in range(t.n_rows)
+    def _table_payload(t, mk, caption: str = "") -> dict:
+        """ParsedTable → 표 JSON dict. 캡션 첫 줄은 caption, 나머지 줄은 note."""
+        cells = [
+            [c.row, c.col, c.row_span, c.col_span, 1 if c.is_header else 0, mk(c.text)]
+            for c in t.cells
+        ]
+        payload: dict = {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells}
+        if getattr(t, "col_w", None):
+            payload["col_w"] = list(t.col_w)  # 원본 열 폭 비율
+        lines = [ln.strip() for ln in (caption or "").splitlines() if ln.strip()]
+        if lines:
+            payload["caption"] = mk(lines[0])[:300]
+        if len(lines) > 1:
+            payload["note"] = mk(" ".join(lines[1:]))[:300]
+        return payload
+
+    @staticmethod
+    def _finish_table_payload(payload: dict) -> str:
+        """표 JSON에 검색·인용용 평문(text)을 붙여 직렬화한다.
+
+        셀·캡션이 바뀌면 다시 불러야 text가 낡지 않는다 (오타 교정·캡션 부착).
+        """
+        import json as _json
+
+        from zzaimy.app.render import render_table_text
+
+        payload["text"] = render_table_text(payload)
+        return _json.dumps(payload, ensure_ascii=False)
+
+    def _figure_text(self, name: str, caption: str = "") -> str:
+        """그림 한 장의 문맥 글자 — 파서 캡션 줄들 + 그림 속 글자(OCR). 없으면 빈 문자열."""
+        parts = [ln.strip() for ln in (caption or "").splitlines() if ln.strip()]
+        ocr = (getattr(self, "_last_image_text", None) or {}).get(name)
+        if ocr:
+            parts.append(ocr)
+        return "\n".join(parts)
+
+    _CONTEXT_MAX_CHARS = 160  # 캡션·각주로 볼 수 있는 줄의 최대 길이
+
+    @classmethod
+    def _attach_captions(cls, chunks: list[dict]) -> list[dict]:
+        """표·그림 주변의 캡션·단위·각주 줄을 찾아 그 조각에 붙인다.
+
+        표: 바로 앞의 짧은 '표 N…'·단위 줄(최대 2개)은 caption, 바로 뒤의 ※·주·출처
+        줄은 note. 그림: 앞뒤의 '그림 N…' 줄은 image_text 조각(캡션+그림 글자)에 넣는다.
+        붙인 줄은 본문 조각에서 빼서 같은 글이 두 번 나오지 않게 한다. 파서가 이미
+        캡션을 준 표는 건드리지 않는다. 판단은 일반 패턴뿐 — 문서별 규칙은 없다.
+        """
+        import json as _json
+
+        def short(c: dict) -> bool:
+            t = c["content"].strip()
+            return 0 < len(t) <= cls._CONTEXT_MAX_CHARS and t.count("\n") <= 1
+
+        def is_cap(c: dict) -> bool:
+            return (
+                c["kind"] in ("text", "heading") and short(c)
+                and bool(_CAPTION_RE.match(c["content"]))
             )
+
+        def is_note(c: dict) -> bool:
+            return c["kind"] == "text" and short(c) and bool(_NOTE_RE.match(c["content"]))
+
+        def same_page(a: dict, b: dict) -> bool:
+            return a.get("page_no") == b.get("page_no")
+
+        n = len(chunks)
+        consumed: set[int] = set()
+        fig_caps: dict[int, str] = {}  # image 조각 index → 캡션 (image_text 신설·보강)
+        for i, c in enumerate(chunks):
+            if c["kind"] == "table":
+                try:
+                    data = _json.loads(c["content"])
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(data, dict) or data.get("caption"):
+                    continue
+                caps: list[str] = []
+                j = i - 1
+                while j >= 0 and j not in consumed and len(caps) < 2:
+                    prev = chunks[j]
+                    if not same_page(prev, c) or not (is_cap(prev) or is_note(prev)):
+                        break
+                    caps.append(prev["content"].strip())
+                    consumed.add(j)
+                    j -= 1
+                caps.reverse()
+                note = ""
+                k = i + 1
+                if (
+                    k < n and k not in consumed and same_page(chunks[k], c)
+                    and is_note(chunks[k])
+                ):
+                    note = chunks[k]["content"].strip()
+                    consumed.add(k)
+                if caps or note:
+                    if caps:
+                        data["caption"] = " ".join(caps)[:300]
+                    if note:
+                        data["note"] = note[:300]
+                    c["content"] = cls._finish_table_payload(data)
+            elif c["kind"] == "image":
+                k = i + 1
+                has_fig = k < n and chunks[k]["kind"] == "image_text"
+                if has_fig and _CAPTION_RE.match(chunks[k]["content"]):
+                    continue  # 파서가 캡션을 이미 붙였다
+                # 그림 뒤(캡션은 보통 아래) → 그림 앞 순서로 찾는다
+                for idx in ((k + 1 if has_fig else k), i - 1):
+                    if (
+                        0 <= idx < n and idx not in consumed
+                        and same_page(chunks[idx], c) and is_cap(chunks[idx])
+                    ):
+                        fig_caps[i] = chunks[idx]["content"].strip()
+                        consumed.add(idx)
+                        break
+        if not consumed and not fig_caps:
+            return chunks
+        out: list[dict] = []
+        for i, c in enumerate(chunks):
+            if i in consumed:
+                continue
+            out.append(c)
+            cap = fig_caps.get(i)
+            if cap is None:
+                continue
+            k = i + 1
+            if k < n and chunks[k]["kind"] == "image_text":
+                chunks[k]["content"] = (cap + "\n" + chunks[k]["content"])[:2000]
+            else:
+                out.append({
+                    "kind": "image_text", "page_no": c.get("page_no"),
+                    "bbox": c.get("bbox"), "content": cap,
+                })
+        return out
+
+    @staticmethod
+    def _compose_text(parsed, image_text: dict[str, str] | None = None) -> str:
+        """읽기 순서 본문 — 문단·제목 사이 제자리에 표(캡션+행)와 그림(캡션+글자)을 둔다.
+
+        구조 항목(entries)이 있으면 그 순서를 따르고, 없으면 페이지 본문 뒤에 그
+        페이지의 표를 붙인다. 표를 문서 끝에 몰아 붙이던 방식은 표가 앞 문단·캡션과
+        떨어져 규정 조각·검토 입력에서 문맥을 잃었다. 표 행은 ' | '로 잇는다.
+        """
+        from zzaimy.app.render import render_table_text
+
+        image_text = image_text or {}
+
+        def table_block(t, caption: str = "") -> str:
+            payload: dict = {
+                "n_rows": t.n_rows, "n_cols": t.n_cols,
+                "cells": [
+                    [c.row, c.col, c.row_span, c.col_span, 1 if c.is_header else 0, c.text]
+                    for c in t.cells
+                ],
+            }
+            lines = [ln.strip() for ln in (caption or "").splitlines() if ln.strip()]
+            if lines:
+                payload["caption"] = lines[0]
+            if len(lines) > 1:
+                payload["note"] = " ".join(lines[1:])
+            return render_table_text(payload)
+
+        def figure_block(name: str, caption: str = "") -> str:
+            fig = "[그림]"
+            cap = " ".join((caption or "").split())
+            if cap:
+                fig += " " + cap
+            if image_text.get(name):
+                fig += "\n" + image_text[name]
+            return fig
+
+        parts: list[str] = []
+        entries = getattr(parsed, "entries", None)
+        if entries:
+            for e in entries:
+                if e.kind in ("text", "heading"):
+                    if e.text.strip():
+                        parts.append(e.text.strip())
+                elif e.kind == "table" and 0 <= e.ref < len(parsed.tables):
+                    block = table_block(parsed.tables[e.ref], e.text)
+                    if block:
+                        parts.append(block)
+                elif e.kind == "image" and 0 <= e.ref < len(parsed.images):
+                    parts.append(figure_block(parsed.images[e.ref].path.name, e.text))
+            return "\n\n".join(parts)
+
+        tables_by_page: dict[int, list] = defaultdict(list)
+        for t in getattr(parsed, "tables", []):
+            tables_by_page[t.page_no].append(t)
+        seen: set[int] = set()
+        for pg in parsed.pages:
+            seen.add(pg.page_no)
+            # 내부 마커는 본문·LLM 입력에 남기지 않는다
+            text = re.sub(
+                r"^\[\[img\]\](.*)$",
+                lambda m: figure_block(m.group(1).strip()), pg.text, flags=re.M,
+            )
+            text = text.replace("[[h]]", "").strip()
+            if text:
+                parts.append(text)
+            for t in tables_by_page.get(pg.page_no, []):
+                parts.append(table_block(t))
+        for pg_no in sorted(tables_by_page):
+            if pg_no not in seen:
+                parts.extend(table_block(t) for t in tables_by_page[pg_no])
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _result_to_text(parsed, image_text: dict[str, str] | None = None) -> str:
+        return DocumentProcessor._compose_text(parsed, image_text)
+
+    # ---- 그림 속 글자 OCR (tesseract, CPU) -----------------------------------
+
+    _TESS_MIN_CONF = 55.0       # 이 신뢰도 미만 단어는 버린다 (tesseract TSV conf)
+    _TESS_TIMEOUT_S = 60        # 그림 1장 OCR 상한 (초)
+    _IMAGE_OCR_BUDGET_S = 150   # 문서당 그림 OCR 총 예산 (초) — 초과분은 생략
+    _tess_cache: tuple[str, str] | bool | None = None
+
+    @classmethod
+    def _tesseract_cmd(cls) -> tuple[str, str] | None:
+        """tesseract 실행 파일과 언어 옵션(kor+eng 중 설치된 것). 없거나 꺼져 있으면 None.
+
+        프로세스 안에서 한 번만 찾는다. ZZAIMY_NO_IMAGE_OCR=1 이면 끈다.
+        """
+        if os.environ.get("ZZAIMY_NO_IMAGE_OCR"):
+            return None
+        if cls._tess_cache is not None:
+            return cls._tess_cache or None
+        found: tuple[str, str] | None = None
+        exe = shutil.which("tesseract")
+        if exe:
+            try:
+                proc = subprocess.run(
+                    [exe, "--list-langs"], capture_output=True, text=True, timeout=20,
+                )
+                langs = {
+                    ln.strip() for ln in (proc.stdout + "\n" + proc.stderr).splitlines()
+                }
+                pref = [lang for lang in ("kor", "eng") if lang in langs]
+                found = (exe, "+".join(pref))
+            except Exception:
+                found = None
+        cls._tess_cache = found or False
+        return found
+
+    @staticmethod
+    def _parse_tesseract_tsv(tsv: str, min_conf: float) -> str | None:
+        """tesseract TSV → 신뢰도 있는 단어만 줄 단위로 잇는다. 쓸 만한 줄이 없으면 None.
+
+        단어 신뢰도(conf) 문턱과 '글자·숫자가 절반 이상' 검사로 차트 선·잡음이
+        글자로 둔갑한 줄을 거른다 — MinerU 저신뢰 줄 처리와 같은 원리.
+        """
+        lines: dict[tuple[int, ...], list[str]] = {}
+        order: list[tuple[int, ...]] = []
+        for row in tsv.splitlines()[1:]:
+            cols = row.split("\t")
+            if len(cols) < 12 or cols[0] != "5":
+                continue
+            try:
+                conf = float(cols[10])
+                key = tuple(int(v) for v in cols[1:5])  # page, block, par, line
+            except ValueError:
+                continue
+            word = cols[11].strip()
+            if conf < min_conf or not word:
+                continue
+            if key not in lines:
+                lines[key] = []
+                order.append(key)
+            lines[key].append(word)
+        out: list[str] = []
+        for key in order:
+            ln = " ".join(lines[key])
+            alnum = sum(1 for ch in ln if ch.isalnum())
+            if alnum >= 2 and alnum * 2 >= len(ln.replace(" ", "")):
+                out.append(ln)
+        text = "\n".join(out).strip()
+        return text or None
+
+    @staticmethod
+    def _prepare_for_ocr(path: Path, tmp_dir: Path) -> Path | None:
+        """작은 그림은 키우고 회색조로 — 차트·도식 속 작은 글자 인식률. 실패하면 None."""
+        try:
+            from PIL import Image
+
+            with Image.open(path) as im:
+                w, h = im.size
+                gray = im.convert("L")
+                scale = min(3.0, 700.0 / max(min(w, h), 1)) if min(w, h) < 700 else 1.0
+                if scale > 1.05:
+                    gray = gray.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+                dest = tmp_dir / f"{path.stem}_ocr.png"
+                gray.save(dest)
+                return dest
+        except Exception:
+            return None
+
+    def _ocr_image_text(self, path: Path, tmp_dir: Path) -> str | None:
+        cmd = self._tesseract_cmd()
+        if cmd is None:
+            return None
+        exe, lang = cmd
+        src = self._prepare_for_ocr(path, tmp_dir) or path
+        args = [exe, str(src), "stdout"]
+        if lang:
+            args += ["-l", lang]
+        args += ["--psm", "3", "tsv"]
+        proc = subprocess.run(
+            args, capture_output=True, text=True, timeout=self._TESS_TIMEOUT_S,
+            # 웹 서버와 코어를 나눠 쓴다 — OCR 배치가 웹을 굶기지 않게
+            env={**os.environ, "OMP_THREAD_LIMIT": os.environ.get("OMP_THREAD_LIMIT", "2")},
+        )
+        if proc.returncode != 0:
+            return None
+        return self._parse_tesseract_tsv(proc.stdout, self._TESS_MIN_CONF)
+
+    def _ocr_whole_image(self, file_path: Path) -> str | None:
+        """이미지 문서 한 장 전체를 tesseract로 읽는다 — 그림은 자산으로, 글자는 본문으로.
+
+        읽은 글자가 없으면 None(호출자가 다음 수단으로). 결과는 OCR이므로 교정 게이트를 켠다.
+        """
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="zz-imgdoc-") as tmp:
+            try:
+                text = self._ocr_image_text(file_path, Path(tmp))
+            except Exception as e:
+                log.info("이미지 문서 OCR 실패(%s): %s", type(e).__name__, file_path.name)
+                return None
+        if not text or len(text.strip()) < 2:
+            return None
+        from zzaimy.app.regulations import restore_spacing
+
+        text = restore_spacing(text)          # 글자마다 띄운 OCR 출력을 어절로 되돌린다
+        self._last_result = None
+        self._last_images = [(1, file_path)]
+        self._ocr_used = True
+        self._last_parse_note = "이미지 글자 OCR (tesseract)"
         return text
+
+    def _ocr_images(self, images: list[tuple[int, Path]]) -> dict[str, str]:
+        """추출 그림 속 글자를 tesseract(CPU)로 읽는다 — 파일명 → 글자.
+
+        도구가 없으면 빈 dict (조용히 생략). 문서당 시간 예산을 넘기면 나머지는 건너뛴다.
+        """
+        out: dict[str, str] = {}
+        if not images or self._tesseract_cmd() is None:
+            return out
+        import tempfile
+
+        t0 = time.monotonic()
+        with tempfile.TemporaryDirectory(prefix="zz-imgocr-") as tmp:
+            for _pg, p in images:
+                if time.monotonic() - t0 > self._IMAGE_OCR_BUDGET_S:
+                    log.info("그림 글자 OCR 시간 예산 초과 — 나머지 그림은 생략")
+                    break
+                try:
+                    text = self._ocr_image_text(p, Path(tmp))
+                except Exception as e:
+                    log.info("그림 글자 OCR 실패(%s): %s", type(e).__name__, p.name)
+                    text = None
+                if text:
+                    from zzaimy.app.regulations import restore_spacing
+
+                    out[p.name] = restore_spacing(text)[:2000]
+        return out
+
+    def _keep_images(self, parsed_images, keep_dir: Path) -> list[tuple[int, Path]]:
+        """파서 산출 그림을 문서 옆 디렉터리에 보관 — 장식 아이콘·중복 제외, 20장 상한."""
+        images: list[tuple[int, Path]] = []
+        seen_hash: set[str] = set()
+        for img in parsed_images:
+            if len(images) >= 20:
+                break
+            if not self._is_meaningful_image(img.path, seen_hash):
+                continue  # 체크박스·불릿 같은 장식 아이콘, 중복은 걸러낸다
+            keep_dir.mkdir(parents=True, exist_ok=True)
+            dest = keep_dir / img.path.name
+            if img.path.resolve() != dest.resolve():
+                shutil.copyfile(img.path, dest)
+            images.append((img.page_no, dest))
+        return images
+
+    # ---- 한글 문서 (HWP/HWPX) 구조 추출 ---------------------------------------
+
+    def _finish_hwp_parse(self, parsed, images: list[tuple[int, Path]], label: str) -> str:
+        self._last_result = parsed
+        self._last_images = images
+        self._last_image_text = self._ocr_images(images)
+        self._last_parse_note = f"{label} · 표 {len(parsed.tables)}개 · 그림 {len(images)}장"
+        if self._last_image_text:
+            self._last_parse_note += f" · 그림 글자 OCR {len(self._last_image_text)}장"
+        return self._compose_text(parsed, self._last_image_text)
+
+    def _parse_hwpx_structured(self, file_path: Path) -> str:
+        """HWPX — 문단·표(병합 셀)·그림·캡션을 구조로. 실패하면 태그 제거 텍스트로 폴백."""
+        try:
+            from zzaimy.ingest.parsers.hwpx import HwpxParser
+
+            keep_dir = file_path.parent / f"{file_path.stem}_imgs"
+            parsed = HwpxParser().parse(file_path, work_dir=keep_dir)
+            if not parsed.entries:
+                raise ValueError("구조 항목 없음")
+            images = self._keep_images(parsed.images, keep_dir)
+        except Exception as e:
+            log.warning("HWPX 구조 추출 실패(%s) — 텍스트만 추출", type(e).__name__)
+            return self._parse_hwpx(file_path)
+        return self._finish_hwp_parse(parsed, images, "한글(HWPX) 구조 추출")
+
+    def _parse_hwp_structured(self, file_path: Path) -> str:
+        """HWP 5.0 — hwp5html 변환본에서 문단·표·그림을 구조로. 실패하면 hwp5txt 텍스트.
+
+        hwp5txt는 표를 '<표>' 자리표시로 접어 서식(신청서·계획서) 내용이 통째로
+        사라지므로, 표가 살아 있는 HTML 변환 경로를 우선한다.
+        """
+        try:
+            import tempfile
+
+            from zzaimy.ingest.parsers.hwp5 import Hwp5Parser
+
+            keep_dir = file_path.parent / f"{file_path.stem}_imgs"
+            with tempfile.TemporaryDirectory(prefix="zz-hwp5-") as tmp:
+                parsed = Hwp5Parser().parse(file_path, work_dir=Path(tmp))
+                if not parsed.entries:
+                    raise ValueError("구조 항목 없음")
+                images = self._keep_images(parsed.images, keep_dir)
+        except Exception as e:
+            log.warning("HWP 구조 추출 실패(%s) — hwp5txt 텍스트로 폴백", type(e).__name__)
+            return self._parse_hwp(file_path)
+        return self._finish_hwp_parse(parsed, images, "한글(HWP) 구조 추출")
 
     @staticmethod
     def _parse_hwp(file_path: Path) -> str:
-        """HWP 5.0 바이너리 — pyhwp의 hwp5txt CLI로 텍스트 추출."""
-        import subprocess
+        """HWP 5.0 바이너리 — pyhwp의 hwp5txt CLI로 텍스트 추출 (표는 '<표>'로 접힘)."""
         import sys
 
         cli = Path(sys.executable).parent / "hwp5txt"
@@ -1086,7 +1611,7 @@ class DocumentProcessor:
             messages=[{"role": "user", "content": prompt.format(text=masked_text[:8000])}],
             temperature=0.2,
             max_tokens=1024,
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            extra_body=getattr(client, "_extra", {}),
         )
         return (resp.choices[0].message.content or "").strip()
 
@@ -1134,7 +1659,7 @@ class DocumentProcessor:
                 # 규정 등록 모드 — 판단 근거이지 개인 문서가 아니므로 마스킹하지
                 # 않고 원문 그대로 조각화해 규정 저장소에 적재한다.
                 # 스캔본·사진도 문서 추출과 같은 고품질 경로(비전·오타 교정)를 탄다
-                from zzaimy.app.regulations import split_regulation
+                from zzaimy.app.regulations import chunk_document
 
                 reg_vision_chunks: list[dict] | None = None
                 vp = self._pdf_to_images(file_path, max_pages=4)
@@ -1155,7 +1680,14 @@ class DocumentProcessor:
                         self._last_parse_note = "AI 비전 판독 (Qwen3.5)"
 
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
-                chunks = split_regulation(raw_text)
+                # 글자가 한 칸씩 갈라져 들어온 낱말을 먼저 붙인다.
+                # 조각으로 나누기 전에 해야 분해된 낱말이 조각 경계를 흐트러뜨리지 않는다.
+                from zzaimy.app.text_repair import repair_document
+
+                raw_text, _fix = repair_document(raw_text)
+                if _fix.get("joined"):
+                    self._last_parse_note += f" · 갈라진 낱말 {_fix['joined']}개 복원"
+                chunks = chunk_document(raw_text)
                 if reg_vision_chunks is None and getattr(self, "_ocr_used", False):
                     # MinerU 스캔 경로 — 공백 복원 후 오인식을 보수적으로 교정
                     from zzaimy.app.regulations import restore_spacing
@@ -1171,6 +1703,23 @@ class DocumentProcessor:
                             for c, f in zip(chunks, fixed)
                         ]
                         self._last_parse_note += " · AI 오타 교정"
+                # 목차 줄·페이지 번호·정형 동의 문구 같은 조각은 검색에 잡음만 된다.
+                # 강도는 SEARCH 로 둔다 — INDEX 는 짧은 조문(제1조 목적 등)까지 버린다.
+                # 표제가 붙은 조각은 이 플랫폼의 뼈대이므로 어떤 경우에도 지킨다.
+                from zzaimy.app.chunk_quality import Strictness, filter_chunks
+
+                kept, _removed = filter_chunks(
+                    [{"doc_id": doc_id, "content": c.content, "heading": c.heading}
+                     for c in chunks],
+                    Strictness.SEARCH,
+                )
+                keep_keys = {(k["heading"], k["content"]) for k in kept}
+                survivors = [c for c in chunks
+                             if (c.heading, c.content) in keep_keys or (c.heading or "").strip()]
+                dropped = len(chunks) - len(survivors)
+                if survivors and dropped:      # 전부 걸러지면 원본을 그대로 둔다
+                    chunks = survivors
+                    self._last_parse_note += f" · 잡음 조각 {dropped}건 제외"
                 db.add_regulation_chunks(
                     doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
                 )
@@ -1205,8 +1754,7 @@ class DocumentProcessor:
                     parse_note=self._last_parse_note or None,
                     series=series.value if series else None,
                     ai_review=(
-                        "기준 등록 완료 — 이제 문서 검토와 채팅에서 이 문서가"
-                        " 근거로 인용됩니다."
+                        "기준 등록 완료. 문서 검토와 채팅의 근거로 쓰입니다."
                     ),
                 )
                 return
@@ -1264,14 +1812,16 @@ class DocumentProcessor:
                         if self._last_parse_note:
                             self._last_parse_note += " · 직인" if i == 0 else ""
 
-                masked, _ = self._masker.mask(
+                masked, ocr_events = self._masker.mask(
                     RawDocument(doc_id=str(doc_id), text=raw_text)
                 )
+                # 마스킹 기록 — 유형·건수·마스킹본 문맥만 (원문 값 없음)
+                record_mask_events(db, doc_id, masked.text, ocr_events)
                 if parsed_chunks is None:
                     parsed_chunks = self._structured_chunks() or _split_chunks(masked.text)
                     if self._llm_correct_chunks(parsed_chunks):
                         self._last_parse_note = (
-                            (self._last_parse_note or "일반 파싱") + " · AI 오타 교정"
+                            (self._last_parse_note or "일반 추출") + " · AI 오타 교정"
                         )
                 db.replace_doc_chunks(doc_id, parsed_chunks)
                 asset_rows = [
@@ -1303,6 +1853,8 @@ class DocumentProcessor:
                 RawDocument(doc_id=str(doc_id), text=raw_text)
             )
             log.info("doc %d: PII %d건 마스킹", doc_id, len(events))
+            # 마스킹 기록 — 유형·건수·마스킹본 문맥만 (원문 값 없음)
+            record_mask_events(db, doc_id, masked.text, events)
 
             # 파싱 결과 DB화 — 구조(페이지·표) 보존 조각, 없으면 문단 분할 (연관성·작성 재료)
             db.replace_doc_chunks(
@@ -1362,7 +1914,13 @@ class DocumentProcessor:
             if reg_context:
                 review_input = f"{masked.text}\n\n{reg_context}"
             review_input += _guidance_block(db, project)
-            ai_review = self._review(review_input, doc_type)
+            # 검토 의견(LLM) 생성만 개별 처리 — 생성 서버 미연결이어도 파싱·마스킹·
+            # 색인·분류는 이미 끝났으므로 문서를 '실패'로 버리지 않고 부분 성공으로 저장.
+            try:
+                ai_review = self._review(review_input, doc_type)
+            except Exception as re:
+                log.warning("doc %d 검토 의견 생성 실패(색인은 유지): %s", doc_id, re)
+                ai_review = "(검토 의견 생성 대기 — AI 모델 서버가 연결되지 않았습니다. 색인·분류는 끝났습니다)"
 
             db.update_document(
                 doc_id,
@@ -1417,9 +1975,14 @@ class DocumentProcessor:
                 if c["kind"] == "heading":
                     piece = f"\n## {c['content']}"
                 elif c["kind"] == "table":
-                    piece = f"\n[표] {c['content'][:800]}"
+                    # 셀 JSON이 아니라 캡션+행 평문을 준다 — 모델이 표를 읽을 수 있게
+                    from zzaimy.app.render import table_text
+
+                    piece = f"\n[표]\n{table_text(c['content'])[:1200]}"
                 elif c["kind"] == "image":
                     piece = "\n[그림]"
+                elif c["kind"] == "image_text":
+                    piece = f"\n[그림 설명·글자] {c['content'][:600]}"
                 else:
                     piece = f"\n{c['content']}"
                 if budget - len(piece) < 0:
@@ -1444,7 +2007,7 @@ class DocumentProcessor:
                     "role": "user",
                     "content": prompt.format(text=text),
                 }],
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                extra_body=getattr(client, "_extra", {}),
             )
             analysis = (resp.choices[0].message.content or "").strip()
             db.update_document(doc_id, ai_review=analysis, coverage=None)

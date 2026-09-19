@@ -1,0 +1,128 @@
+{# 추출 문제 신고 — 잘못 읽힌 칸·문단을 직접 눌러 위치를 지정한다.
+   텍스트로 옮겨 적지 않는다. 보내는 것은 선택한 위치(블록·행·열)와 선택적 한 줄
+   설명뿐이며, 원문 값은 담지 않는다. 저장은 기존 라우트(/doc/{id}/quality-report,
+   kind+note)를 그대로 쓴다. #}
+<style>
+  #viewFlow.ocr-pick { cursor: crosshair; }
+  #viewFlow.ocr-pick .xblk:hover {
+    outline: 2px solid var(--navy); outline-offset: 2px;
+    background: rgba(27, 59, 117, .05);
+  }
+  #viewFlow.ocr-pick td:hover, #viewFlow.ocr-pick th:hover {
+    outline: 2px solid var(--navy); background: rgba(27, 59, 117, .08);
+  }
+  #viewFlow .ocr-sel, #viewFlow .ocr-sel:hover {
+    outline: 2px solid var(--navy); outline-offset: 2px;
+    background: rgba(27, 59, 117, .09);
+  }
+  .ocr-report-pop {
+    position: absolute; right: 0; top: 36px; z-index: 30; width: 288px;
+    background: var(--panel, #fff); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px;
+    box-shadow: 0 12px 36px rgba(27, 59, 117, .16);
+  }
+</style>
+<div style="margin-left: auto; position: relative;">
+  <button type="button" id="ocrReportBtn" class="btn-ghost"
+          style="font-weight: 600; cursor: pointer;">
+    <iconify-icon icon="solar:flag-linear"></iconify-icon>잘못 읽힌 부분 표시</button>
+
+  <div id="ocrPickHint" class="ocr-report-pop muted" hidden
+       style="font-size: 12.5px; line-height: 1.6;">
+    잘못 읽힌 칸이나 문단을 누르십시오. 선택한 위치가 그대로 전달됩니다.</div>
+
+  <form id="ocrReportForm" method="post" action="/doc/{{ doc.id }}/quality-report"
+        class="ocr-report-pop" hidden
+        style="display: flex; flex-direction: column; gap: 9px;">
+    <input type="hidden" name="kind" id="ocrReportKind" value="typo">
+    <input type="hidden" name="note" id="ocrReportNote" value="">
+    <div id="ocrReportWhere" style="font-size: 13px; font-weight: 600; color: var(--navy);"></div>
+    <input type="text" id="ocrReportComment" maxlength="120" autocomplete="off"
+           placeholder="한 줄 설명 (선택)"
+           style="border: 1px solid var(--line); border-radius: 8px;
+                  padding: 7px 9px; font-size: 13px;">
+    <div style="display: flex; gap: 8px;">
+      <button type="submit" style="flex: 1; justify-content: center;">신고 보내기</button>
+      <button type="button" id="ocrReportCancel" class="btn-ghost">취소</button>
+    </div>
+  </form>
+</div>
+<script>
+  (function () {
+    var flow = document.getElementById("viewFlow");
+    var btn = document.getElementById("ocrReportBtn");
+    var form = document.getElementById("ocrReportForm");
+    var hint = document.getElementById("ocrPickHint");
+    if (!flow || !btn || !form) return;
+    var kindEl = document.getElementById("ocrReportKind");
+    var noteEl = document.getElementById("ocrReportNote");
+    var whereEl = document.getElementById("ocrReportWhere");
+    var commentEl = document.getElementById("ocrReportComment");
+    var cancel = document.getElementById("ocrReportCancel");
+    var picking = false, selected = null;
+
+    function clearSel() {
+      if (selected) { selected.classList.remove("ocr-sel"); selected = null; }
+    }
+    function setPick(on) {
+      picking = on;
+      flow.classList.toggle("ocr-pick", on);
+      btn.classList.toggle("on", on);
+      form.hidden = true;
+      hint.hidden = !on;
+      if (!on) clearSel();
+    }
+    function blockOf(el) {
+      while (el && el !== flow && !(el.classList && el.classList.contains("xblk"))) {
+        el = el.parentElement;
+      }
+      return (el && el.classList && el.classList.contains("xblk")) ? el : null;
+    }
+    function locate(target) {
+      var blk = blockOf(target);
+      if (!blk) return null;
+      var n = Number(blk.getAttribute("data-bidx")) + 1;
+      var cell = target.closest ? target.closest("td, th") : null;
+      if (cell && blk.contains(cell)) {
+        var tr = cell.parentElement;
+        var ri = Array.prototype.indexOf.call(tr.parentElement.children, tr) + 1;
+        var ci = Array.prototype.indexOf.call(tr.children, cell) + 1;
+        return {
+          el: cell, kind: "table",
+          note: "표 블록 " + n + " · " + ri + "행 " + ci + "열",
+          where: ri + "행 " + ci + "열 칸을 지정했습니다."
+        };
+      }
+      var kind = blk.querySelector("table") ? "table" : "typo";
+      return {
+        el: blk, kind: kind, note: "블록 " + n,
+        where: n + "번째 블록을 지정했습니다."
+      };
+    }
+
+    btn.addEventListener("click", function () { setPick(!picking); });
+    cancel.addEventListener("click", function () { setPick(false); });
+    // 지정 모드에서는 표 CSV·그림 내려받기 링크로 이동하지 않고 위치만 잡는다
+    flow.addEventListener("click", function (ev) {
+      if (!picking) return;
+      var loc = locate(ev.target);
+      if (!loc) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      clearSel();
+      selected = loc.el;
+      selected.classList.add("ocr-sel");
+      kindEl.value = loc.kind;
+      noteEl.value = loc.note;
+      whereEl.textContent = loc.where;
+      commentEl.value = "";
+      hint.hidden = true;
+      form.hidden = false;
+      commentEl.focus();
+    }, true);
+    form.addEventListener("submit", function () {
+      var c = commentEl.value.trim();
+      if (c) noteEl.value = noteEl.value + " — " + c;
+    });
+  })();
+</script>

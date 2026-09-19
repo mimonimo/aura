@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}개인정보 마스킹{% endblock %}
+{% block pagetitle %}개인정보 마스킹{% endblock %}
+{% block content %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:eye-closed-linear"></iconify-icon>개인정보 마스킹 감사
+    <a href="/dev/doc/decisions/0006-criteria-no-masking.md" class="h-link"><iconify-icon icon="solar:document-text-linear"></iconify-icon>마스킹 제외 근거 (ADR-0006)</a></h2>
+  <p style="margin:0; font-size:13.5px; line-height:1.7;">
+    개인정보는 색인 전에 가립니다. 마스킹 기록(유형별 건수), 합성 표본 자가 점검, 저장 본문 잔여 검사로 확인합니다. 원문 값은 저장하지 않습니다.</p>
+  {% set scan0 = sources[0].scan if sources else none %}
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
+    {% if selftest and not selftest.error %}
+      <span class="pill {{ 'reviewed' if selftest.ok else 'failed' }}">자가 점검 {{ selftest.passed }}/{{ selftest.total }} · {{ (selftest.at or '')[:16] | replace('T', ' ') }}</span>
+    {% else %}<span class="pill processing">자가 점검 미실행</span>{% endif %}
+    {% if scan0 and not scan0.error %}
+      <span class="pill {{ 'reviewed' if scan0.hits == 0 else 'failed' }}">잔여 검사 {{ '없음' if scan0.hits == 0 else scan0.hits ~ '건' }} · {{ (scan0.at or '')[:16] | replace('T', ' ') }}</span>
+    {% else %}<span class="pill processing">잔여 검사 미실행</span>{% endif %}
+    {% if sources %}<span class="pill type">기록 있는 문서 {{ sources[0].stats.docs }} / 대상 {{ sources[0].subject_docs }}</span>{% endif %}
+  </div>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:list-check-linear"></iconify-icon>문서 유형별 마스킹 정책</h2>
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>문서 유형</th><th>처리</th><th>시점</th><th>이유</th><th>기록(문서·가린 항목)</th></tr>
+    {% set agg_all = sources[0].by_doc_type if sources else {} %}
+    {% for code, name, masked, when, why in policy %}
+    {% set agg = agg_all.get(code) %}
+    <tr>
+      <td style="font-weight:600; white-space:nowrap;" title="{{ code }}">{{ name }}</td>
+      <td style="white-space:nowrap;">
+        {% if masked %}<span class="pill reviewed">가림</span>
+        {% else %}<span class="pill processing">원문 유지</span>{% endif %}</td>
+      <td style="white-space:nowrap;">{{ when }}</td>
+      <td style="line-height:1.55;">{{ why }}</td>
+      <td style="white-space:nowrap; font-variant-numeric:tabular-nums;">
+        {% if agg %}{{ agg.recorded }}/{{ agg.docs }}건 · {{ agg.total }}개{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="muted" style="margin:10px 0 0; font-size:12px; line-height:1.6;">
+    채팅 첨부 파일도 같은 마스커를 거치지만 문서 대장에 남지 않아 여기 집계되지 않습니다.</p>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:test-tube-linear"></iconify-icon>마스커 자가 점검
+    <form method="post" action="/dev/pii/selftest" style="margin-left:auto;">
+      <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>지금 실행</button>
+    </form></h2>
+  <p class="muted" style="margin:0 0 12px; font-size:12.5px; line-height:1.6;">
+    합성 표본(가공 번호·가짜 이름)으로 지원 유형이 가려지는지, 가리면 안 되는 것이 남는지 확인합니다. 실제 개인정보는 쓰지 않습니다.</p>
+
+  {% if not selftest %}
+  <p class="muted" style="margin:0; font-size:12.5px;">아직 실행하지 않음</p>
+  {% elif selftest.error %}
+  <div style="border:1px solid #F0D9B8; border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.6;">
+    <span class="pill failed">실패</span>
+    <span style="margin-left:6px;">{{ selftest.error }}</span>
+    <div class="muted" style="margin-top:6px; font-size:12px;">
+      {{ (selftest.at or '')[:16] | replace('T', ' ') }} — 접수 처리도 같은 마스커를 쓰므로,
+      이 상태에서는 접수 문서 처리 자체가 실패합니다.</div>
+  </div>
+  {% else %}
+  <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">
+    <span>마지막 자가 점검: {{ (selftest.at or '')[:16] | replace('T', ' ') }}
+      · 통과 {{ selftest.passed }}/{{ selftest.total }} · {{ selftest.elapsed_ms }}ms</span>
+    {% if selftest.ok %}<span class="pill reviewed">정상</span>
+    {% else %}<span class="pill failed">실패 있음</span>{% endif %}
+  </div>
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>항목</th><th>판정</th><th>마스킹 결과</th><th>비고</th></tr>
+    {% for c in selftest.checks %}
+    <tr>
+      <td style="white-space:nowrap;">
+        {% if c.kind == 'mask' %}<span class="pill type" style="font-size:11px;">{{ c.entity_type }}</span>
+        {% elif c.kind == 'keep' %}<span class="pill" style="font-size:11px;">오탐 방지</span>
+        {% else %}<span class="pill" style="font-size:11px;">복합</span>{% endif %}
+        {{ c.label }}</td>
+      <td style="white-space:nowrap;">
+        {% if c.passed %}<span class="pill reviewed">통과</span>
+        {% else %}<span class="pill failed">실패</span>{% endif %}</td>
+      <td style="font-family:ui-monospace, monospace; font-size:12px; color:#33425c; word-break:break-all;">{{ c.output }}</td>
+      <td class="muted" style="font-size:12px;">{{ c.detail }}</td>
+    </tr>
+    {% endfor %}
+    {% for e in selftest.uncovered %}
+    <tr>
+      <td style="white-space:nowrap;"><span class="pill type" style="font-size:11px;">{{ e }}</span>
+        {{ entity_labels.get(e, e) }}</td>
+      <td><span class="pill processing">미확인</span></td>
+      <td class="muted" style="font-size:12px;">표본 없음</td>
+      <td class="muted" style="font-size:12px;">마스커가 지원하지만 자가 점검 표본이 없는 유형입니다 — pii_audit.SELFTEST_CASES에 추가해야 합니다.</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="muted" style="margin:8px 0 0; font-size:12px;">지원 유형: {{ selftest.supported | join(', ') }}</p>
+  {% endif %}
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:magnifer-zoom-in-linear"></iconify-icon>저장 본문 잔여 검사
+    <form method="post" action="/dev/pii/scan" style="margin-left:auto;">
+      <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>지금 실행</button>
+    </form></h2>
+  <p class="muted" style="margin:0 0 12px; font-size:12.5px; line-height:1.6;">
+    저장 본문에 마스커와 같은 정규식을 독립 실행합니다. 라벨 없는 성명·주소는 못 잡습니다. 잡힌 값은 가려 보입니다.</p>
+
+  {% for src in sources %}
+  <div style="padding:10px 0; border-top:1px solid var(--panel);">
+    <div style="font-weight:600; font-size:13px; margin-bottom:6px;">{{ src.name }}</div>
+    {% set scan = src.scan %}
+    {% if not scan %}
+    <p class="muted" style="margin:0; font-size:12.5px;">아직 실행하지 않음</p>
+    {% elif scan.error %}
+    <div style="font-size:13px;"><span class="pill failed">실패</span>
+      <span style="margin-left:6px;">{{ scan.error }}</span></div>
+    {% else %}
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px;">
+      <span>마지막 검사: {{ (scan.at or '')[:16] | replace('T', ' ') }}
+        · 문서 {{ scan.scanned.get('docs', 0) }} · 본문 {{ scan.scanned.get('masked_text', 0) }}
+        · 조각 {{ scan.scanned.get('doc_chunks', 0) + scan.scanned.get('regulation_chunks', 0) }}
+        · {{ '{:,}'.format(scan.scanned.get('chars', 0)) }}자
+        · 검사 제외(기준 문서, 원문 유지) {{ scan.excluded_docs }}
+        · {{ scan.elapsed_ms }}ms</span>
+      {% if scan.hits == 0 %}<span class="pill reviewed">잔여 개인정보 없음(정규식 기준)</span>
+      {% else %}<span class="pill failed">잔여 {{ scan.hits }}건</span>{% endif %}
+    </div>
+    {% if scan.hits %}
+    <div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">
+      {% for k, v in scan.by_type.items() %}
+      <span class="pill type" style="font-size:11px;">{{ entity_labels.get(k, k) }} {{ v }}</span>
+      {% endfor %}
+    </div>
+    <div class="table-scroll">
+    <table style="font-size:12.5px;">
+      <tr><th>문서</th><th>유형</th><th>잔여</th><th>위치</th><th>문맥 표본(값은 가림)</th></tr>
+      {% for d in scan.docs %}
+      <tr>
+        <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          {% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ d.filename }}</a>
+          {% else %}{{ d.filename }}{% endif %}</td>
+        <td style="white-space:nowrap;">{{ type_names.get(d.doc_type, d.doc_type) }}</td>
+        <td style="white-space:nowrap;">
+          {% for k, v in d.by_type.items() %}
+          <span class="pill failed" style="font-size:11px;">{{ entity_labels.get(k, k) }} {{ v }}</span>
+          {% endfor %}</td>
+        <td class="muted" style="font-size:12px; white-space:nowrap;">{{ d.where | join(', ') }}</td>
+        <td style="font-size:12px; color:#33425c;">
+          {% for s in d.samples %}
+          <div style="font-family:ui-monospace, monospace;">… {{ s.context }} …</div>
+          {% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+    {% endif %}
+    <p class="muted" style="margin:6px 0 0; font-size:12px;">탐지기: {{ scan.detectors | join(', ') }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div></div>
+
+{% for src in sources %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>마스킹 기록 — {{ src.name }}</h2>
+  <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:12px;">
+    <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
+      <div class="muted" style="font-size:12px;">마스킹 대상 문서</div>
+      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.subject_docs }}</div>
+    </div></div>
+    <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
+      <div class="muted" style="font-size:12px;">기록 있는 문서</div>
+      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.stats.docs }}</div>
+    </div></div>
+    <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
+      <div class="muted" style="font-size:12px;">가린 항목 수</div>
+      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.stats.total }}</div>
+    </div></div>
+    <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
+      <div class="muted" style="font-size:12px;">마지막 기록</div>
+      <div style="font-size:14px; font-weight:700; color:var(--navy); margin-top:6px;">
+        {{ ((src.stats.last_at or '')[:16] | replace('T', ' ')) or '없음' }}</div>
+    </div></div>
+  </div>
+  {% if src.stats.by_type %}
+  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">
+    {% for k, v in src.stats.by_type.items() %}
+    <span class="pill type" style="font-size:11px;">{{ entity_labels.get(k, k) }} {{ v }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if src.unrecorded %}
+  <p class="muted" style="margin:0 0 10px; font-size:12px; line-height:1.6;">
+    처리는 끝났는데 기록이 없는 문서 {{ src.unrecorded }}건 — 기록 기능 도입 전에 처리된 문서입니다.
+    당시 마스킹 여부는 여기서 확인되지 않습니다(미확인). 재처리하면 기록이 생깁니다.</p>
+  {% endif %}
+  {% if src.unknown_types %}
+  <p class="muted" style="margin:0 0 10px; font-size:12px;">
+    정책표에 없는 문서 유형: {{ src.unknown_types | join(', ') }} — 마스킹 여부 미확인.</p>
+  {% endif %}
+
+  {% if src.docs %}
+  <div class="table-scroll">
+  <table style="font-size:12.5px;">
+    <tr><th>문서</th><th>유형</th><th>상태</th><th>마스킹(유형별)</th><th>문맥 표본</th><th>기록 시각</th></tr>
+    {% for d in src.docs %}
+    <tr>
+      <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+        {% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ d.filename }}</a>
+        {% else %}{{ d.filename }}{% endif %}</td>
+      <td style="white-space:nowrap;">{{ type_names.get(d.doc_type, d.doc_type) }}
+        {% if d.owner == 'corpus' %}<span class="muted" style="font-size:11px;">코퍼스</span>{% endif %}</td>
+      <td style="white-space:nowrap;"><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
+      <td>
+        {% if not d.recorded %}<span class="muted" style="font-size:12px;">기록 없음</span>
+        {% elif d.total == 0 %}<span class="pill" style="font-size:11px;">0건</span>
+        {% else %}
+          {% for k, v in d.by_type.items() %}
+          <span class="pill type" style="font-size:11px;">{{ entity_labels.get(k, k) }} {{ v }}</span>
+          {% endfor %}
+        {% endif %}</td>
+      <td style="font-size:12px; color:#33425c; max-width:360px;">
+        {% for c in d.contexts[:2] %}
+        <div style="font-family:ui-monospace, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">… {{ c.context }} …</div>
+        {% endfor %}</td>
+      <td class="muted" style="font-size:12px; white-space:nowrap;">{{ ((d.recorded_at or '')[:16] | replace('T', ' ')) or '—' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% if src.docs_truncated %}
+  <p class="muted" style="margin:8px 0 0; font-size:12px;">그 밖에 {{ src.docs_truncated }}건은 표시하지 않았습니다.</p>
+  {% endif %}
+  {% else %}
+  <p class="muted" style="margin:0; font-size:12.5px;">마스킹 대상 문서가 아직 없습니다.</p>
+  {% endif %}
+</div></div>
+{% endfor %}
+
+{% endblock %}

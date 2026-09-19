@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+{% block title %}문서 가져오기{% endblock %}
+{% block pagetitle %}문서 가져오기{% endblock %}
+{% block content %}
+<style>
+  .nas-form { display:flex; flex-direction:column; gap:14px; }
+  .nas-form fieldset { border:1px solid var(--line); border-radius:12px; padding:12px 14px 14px; margin:0; display:grid; gap:10px; }
+  .nas-form legend { font-size:12px; font-weight:700; color:var(--muted); padding:0 6px; letter-spacing:.03em; }
+  .nas-form .row { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .nas-form label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); min-width:0; }
+  .nas-form input[type=text], .nas-form input[type=password], .nas-form select {
+    padding:8px 10px; border:1.5px solid var(--line); border-radius:10px; font-size:13px; font-family:inherit; background:#fff; width:100%; }
+  .nas-form .hint { font-size:11.5px; color:var(--faint); }
+  .nas-form .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .nas-form .chips label { flex-direction:row; align-items:center; gap:5px; border:1px solid var(--line); border-radius:8px; padding:5px 9px; font-size:12.5px; color:var(--ink); cursor:pointer; }
+  .nas-form .chips label:has(input:checked) { border-color:var(--ink); background:var(--panel); }
+  .nas-form .chk { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
+  .nas-form .probe { font-size:12.5px; margin:0; min-height:18px; }
+  .nas-form .probe.ok { color:var(--green); } .nas-form .probe.bad { color:var(--red); }
+  .nas-form .row.three { grid-template-columns:1fr 1fr 1fr; }
+  .nas-form input[type=date], .nas-form input[type=number] { padding:8px 10px; border:1.5px solid var(--line); border-radius:10px; font-size:13px; font-family:inherit; background:#fff; width:100%; }
+  .nas-form .chips .cnt { font-size:11px; color:var(--faint); font-variant-numeric:tabular-nums; }
+  .browse { border:1px solid var(--line); border-radius:10px; padding:8px 10px; background:var(--panel); }
+  .browse-head { display:flex; gap:10px; align-items:center; margin-bottom:6px; }
+  .browse-dirs { display:flex; flex-wrap:wrap; gap:6px; max-height:150px; overflow:auto; }
+  .browse-dirs button { background:#fff; border:1px solid var(--line); border-radius:8px; padding:4px 10px; font-size:12.5px; color:var(--ink); box-shadow:none; }
+  .browse-dirs button:hover { border-color:#94A3B8; background:#fff; }
+  .modal-back .card { width:640px; }
+  .nas-items { font-size:12.5px; }
+  .nas-items td.p { max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .nas-form .field-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .nas-form .mini { display:inline-flex; align-items:center; background:#fff; border:1px solid var(--line); border-radius:7px; padding:3px 9px; font-size:11.5px; color:var(--muted); box-shadow:none; cursor:pointer; }
+  .nas-form .mini:hover { border-color:#94A3B8; background:#fff; color:var(--ink); }
+  .nas-form .mini.on { border-color:var(--ink); background:var(--panel); color:var(--ink); font-weight:600; }
+  .nas-form .presets { display:flex; gap:5px; flex-wrap:wrap; margin:2px 0 4px; }
+  .nas-form .tagbox { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px 8px; border:1.5px solid var(--line); border-radius:10px; background:#fff; min-height:38px; }
+  .nas-form .tagbox:focus-within { border-color:#94A3B8; }
+  .nas-form .tag { display:inline-flex; align-items:center; gap:5px; background:var(--panel); border:1px solid var(--line); border-radius:7px; padding:2px 6px 2px 9px; font-size:12px; color:var(--ink); }
+  .nas-form .tag button { background:none; border:none; box-shadow:none; color:var(--faint); font-size:14px; line-height:1; padding:0 2px; cursor:pointer; }
+  .nas-form .tag button:hover { color:var(--red); background:none; }
+  .nas-form .tagbox input { border:none; outline:none; flex:1; min-width:100px; font-size:13px; padding:2px; background:transparent; }
+</style>
+
+<p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
+  <a href="/dev" class="btn-ghost">← 개발 현황</a>
+  <span class="muted" style="font-size:12.5px;">마운트된 공유 폴더나 NAS(SMB)에서 문서를 읽어 옵니다 · 읽기 전용, 원본에는 쓰지 않습니다</span></p>
+
+{% if err %}
+<div class="card" style="border-color:#F0D9B8;"><div class="card-in" style="padding:12px 18px; font-size:13px;">{{ err }}</div></div>
+{% endif %}
+{% if ok %}
+<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
+{% endif %}
+{% if not smb_ok %}
+<p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>SMB 공유는 smbprotocol 패키지가 있어야 씁니다 (scripts/80_install_smb.sh). 서버 경로 방식은 바로 됩니다.</span></p>
+{% endif %}
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>연결한 폴더
+    <button type="button" class="secondary" style="margin-left:auto; padding:6px 12px; font-size:12.5px;" data-modal-open="#nasAdd">
+      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>폴더 연결</button></h2>
+  {% if sources %}
+  <div class="table-scroll"><table style="font-size:12.5px;">
+    <tr><th>이름</th><th>방식</th><th>경로</th><th>저장 위치</th><th>파일 종류</th><th>자동</th><th>마지막 가져오기</th><th></th></tr>
+    {% for s in sources %}
+    <tr>
+      <td style="font-weight:600;">{{ s.name }}{% if s.run.running %} <span class="pill processing">가져오는 중 {{ s.run.progress }}</span>{% endif %}</td>
+      <td>{{ s.backend_label.split(" ")[0] }}</td>
+      <td class="muted" style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ s.root }}">{{ s.root }}</td>
+      <td>{{ s.target_label }}{% if s.target == "regulation" %} · {{ s.sector_label }}{% endif %}</td>
+      <td class="muted">{{ s.extensions | join(" ") }}</td>
+      <td>{% if s.auto %}{{ s.interval_min }}분마다{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td class="muted">{% if s.last_run %}{{ s.last_run }}<div style="font-size:11.5px;">{{ s.last_summary }}</div>{% else %}없음{% endif %}</td>
+      <td style="white-space:nowrap; text-align:right;">
+        <form action="/dev/nas/{{ s.id }}/probe" method="post" style="display:inline;"><button type="submit" class="secondary" style="padding:4px 10px; font-size:12px;">연결 확인</button></form>
+        <form action="/dev/nas/{{ s.id }}/plan" method="post" style="display:inline;"><button type="submit" class="secondary" style="padding:4px 10px; font-size:12px;">미리보기</button></form>
+        <form action="/dev/nas/{{ s.id }}/sync" method="post" style="display:inline;"><button type="submit" class="secondary" style="padding:4px 10px; font-size:12px;" {% if s.run.running %}disabled{% endif %}>지금 가져오기</button></form>
+        <button type="button" class="secondary" style="padding:4px 10px; font-size:12px;" data-modal-open="#nasEdit-{{ s.id }}">수정</button>
+        <form action="/dev/nas/{{ s.id }}/delete" method="post" style="display:inline;" onsubmit="return confirm('폴더 연결 「{{ s.name }}」을 지울까요? 이미 가져온 문서는 그대로 남습니다.');">
+          <button type="submit" class="secondary" style="padding:4px 10px; font-size:12px; color:var(--red); border-color:#E7B9B8;">삭제</button></form></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}
+  <p class="muted" style="font-size:12.5px; margin:0;">아직 연결한 폴더가 없습니다. 위 ‘폴더 연결’로 공유 폴더를 추가하세요.</p>
+  {% endif %}
+</div></div>
+
+{% if probe_result %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:folder-check-linear"></iconify-icon>연결 확인 — {{ probe_result.name }}
+    {% if probe_result.ok %}<span class="pill reviewed">읽기 가능</span>{% else %}<span class="pill failed">실패</span>{% endif %}</h2>
+  {% if probe_result.ok %}
+  <p class="muted" style="font-size:12.5px; margin:0 0 8px;">전체 파일 {{ probe_result.n_all }}개 · 가져올 파일 {{ probe_result.n_match }}개</p>
+  <ul style="margin:0; padding-left:18px; font-size:12.5px; line-height:1.7;">{% for p in probe_result.sample %}<li>{{ p }}</li>{% endfor %}</ul>
+  {% else %}<p class="muted" style="font-size:12.5px; margin:0;">{{ probe_result.error }}</p>{% endif %}
+</div></div>
+{% endif %}
+
+{% if plan_result %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:eye-linear"></iconify-icon>미리보기 — {{ plan_result.name }}
+    {% if plan_result.ok %}<span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">새로 {{ plan_result.new }} · 그대로 {{ plan_result.same }} · 제외 {{ plan_result.skipped }}</span>
+    {% else %}<span class="pill failed">실패</span>{% endif %}</h2>
+  {% if plan_result.ok %}
+  {% if plan_result.sample %}
+  <ul style="margin:0; padding-left:18px; font-size:12.5px; line-height:1.7;">{% for f in plan_result.sample %}<li>{{ f.path }} <span class="muted">{{ (f.size / 1024) | round(0) | int }}KB</span></li>{% endfor %}
+    {% if plan_result.new > plan_result.sample | length %}<li class="muted">외 {{ plan_result.new - plan_result.sample | length }}개</li>{% endif %}</ul>
+  {% else %}<p class="muted" style="font-size:12.5px; margin:0;">새로 들어올 파일 없음</p>{% endif %}
+  <p class="muted" style="font-size:11.5px; margin:8px 0 0;">내용이 같은 파일의 중복 여부는 가져올 때 판정합니다.</p>
+  {% else %}<p class="muted" style="font-size:12.5px; margin:0;">{{ plan_result.error }}</p>{% endif %}
+</div></div>
+{% endif %}
+
+{% for s in sources if s.run.last %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:history-linear"></iconify-icon>가져온 결과 — {{ s.name }}
+    <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">{{ s.run.last.summary or s.run.last.error }}</span></h2>
+  {% if s.run.last['items'] %}
+  <div class="table-scroll" style="max-height:360px; overflow:auto;"><table class="nas-items">
+    <tr><th>파일</th><th>결과</th><th>문서</th></tr>
+    {% for it in s.run.last['items'] %}
+    <tr>
+      <td class="p" title="{{ it.path }}">{{ it.path }}</td>
+      <td>{% if it.status == "new" %}<span class="pill reviewed">가져옴</span>{% elif it.status == "dup" %}<span class="pill">중복</span>{% else %}<span class="pill failed">실패</span> <span class="muted">{{ it.error }}</span>{% endif %}</td>
+      <td>{% if it.doc_id %}<a href="/doc/{{ it.doc_id }}">#{{ it.doc_id }}</a>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="muted" style="font-size:12.5px; margin:0;">새로 가져온 파일 없음</p>{% endif %}
+</div></div>
+{% endfor %}
+
+{% macro form_fields(s, fid) %}
+  <fieldset>
+    <legend>연결</legend>
+    <div class="row">
+      <label>이름<input type="text" name="name" value="{{ s.name if s else '' }}" maxlength="60" required placeholder="예: 규정 폴더"></label>
+      {% if not s %}
+      <label>방식<select name="backend" class="nas-backend" data-fid="{{ fid }}">{% for k, v in backends.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+      {% else %}<label>방식<input type="text" value="{{ s.backend_label }}" disabled><input type="hidden" name="backend" value="{{ s.backend }}" class="nas-backend" data-fid="{{ fid }}"></label>{% endif %}
+    </div>
+    <label>경로<input type="text" name="root" value="{{ s.root if s else '' }}" required class="nas-root" data-fid="{{ fid }}">
+      <span class="hint nas-root-hint" data-fid="{{ fid }}"></span></label>
+    <div class="row nas-cred" data-fid="{{ fid }}">
+      <label>읽기 전용 계정<input type="text" name="username" value="{{ s.username if s else '' }}" autocomplete="off"></label>
+      <label>비밀번호{% if s %} <span class="hint">(저장됨 {{ '있음' if s.has_password else '없음' }} · 비우면 유지, clear 면 삭제)</span>{% endif %}<input type="password" name="password" autocomplete="off"></label>
+      <label>도메인 <span class="hint">(있을 때만)</span><input type="text" name="domain" value="{{ s.domain if s else '' }}"></label>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button type="button" class="secondary nas-browse-btn" data-fid="{{ fid }}" style="padding:6px 12px; font-size:12.5px;">
+        <iconify-icon icon="solar:folder-open-linear"></iconify-icon>폴더 찾아보기</button>
+      <p class="probe nas-probe-out" data-fid="{{ fid }}"></p>
+    </div>
+    <div class="browse" data-fid="{{ fid }}" hidden>
+      <div class="browse-head"><button type="button" class="secondary nas-up" data-fid="{{ fid }}" style="padding:3px 9px; font-size:11.5px;">상위 폴더</button>
+        <span class="muted nas-browse-msg" data-fid="{{ fid }}" style="font-size:12px;"></span></div>
+      <div class="browse-dirs nas-dirs" data-fid="{{ fid }}"></div>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>파일</legend>
+    {% set cur = (s.extensions if s else default_exts.split(' ')) %}
+    <div>
+      <div class="field-head">
+        <span class="hint">가져올 파일 종류</span>
+        <span style="display:flex; gap:5px;">
+          <button type="button" class="mini nas-ext-all" data-fid="{{ fid }}">모두</button>
+          <button type="button" class="mini nas-ext-none" data-fid="{{ fid }}">해제</button>
+        </span>
+      </div>
+      <div class="chips" style="margin-top:6px;">
+        {% for key, label, exts in type_groups %}
+        <label><input type="checkbox" name="ext_group" value="{{ exts | join(' ') }}" {{ 'checked' if exts[0] in cur else '' }}>{{ label }}
+          <span class="cnt nas-cnt-{{ key }}" data-fid="{{ fid }}"></span></label>
+        {% endfor %}
+      </div>
+    </div>
+    <label class="chk"><input type="checkbox" name="recursive" value="1" class="nas-recursive" data-fid="{{ fid }}" {{ 'checked' if (not s) or s.recursive else '' }}>하위 폴더까지 훑기</label>
+    <div class="row">
+      <label>수정한 날짜 <span class="hint">(이 날짜 이후만)</span>
+        <div class="presets nas-since-presets" data-fid="{{ fid }}">
+          <button type="button" class="mini" data-days="">전체</button>
+          <button type="button" class="mini" data-days="7">최근 1주</button>
+          <button type="button" class="mini" data-days="30">1개월</button>
+          <button type="button" class="mini" data-days="180">6개월</button>
+        </div>
+        <input type="date" name="since" class="nas-since" data-fid="{{ fid }}" value="{{ s.since if s else '' }}"></label>
+      <label>파일 최대 크기 <span class="hint">(넘으면 건너뜀)</span>
+        <div class="presets nas-mb-presets" data-fid="{{ fid }}">
+          <button type="button" class="mini" data-mb="0">제한 없음</button>
+          <button type="button" class="mini" data-mb="10">10MB</button>
+          <button type="button" class="mini" data-mb="50">50MB</button>
+          <button type="button" class="mini" data-mb="100">100MB</button>
+        </div>
+        <input type="number" name="max_mb" min="0" class="nas-mb" data-fid="{{ fid }}" value="{{ s.max_mb if s else 0 }}"></label>
+    </div>
+    <label>건너뛸 폴더 <span class="hint">(이름 입력 후 Enter · 이 폴더는 가져오지 않음)</span>
+      <div class="tagbox nas-exclude" data-fid="{{ fid }}">
+        <span class="nas-tags"></span>
+        <input type="text" class="nas-tag-in" placeholder="예: 백업" autocomplete="off">
+      </div>
+      <input type="hidden" name="exclude" class="nas-exclude-val" data-fid="{{ fid }}" value="{{ s.exclude | join(',') if s else '' }}"></label>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <button type="button" class="secondary nas-plan-btn" data-fid="{{ fid }}" data-sid="{{ s.id if s else '' }}" style="padding:6px 12px; font-size:12.5px;">
+        <iconify-icon icon="solar:eye-linear"></iconify-icon>미리보기</button>
+      <p class="probe nas-plan-out" data-fid="{{ fid }}"></p>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>저장 위치</legend>
+    <div class="row">
+      <label>가져온 문서를 넣을 곳<select name="target" class="nas-target" data-fid="{{ fid }}">{% for k, v in targets.items() %}<option value="{{ k }}" {{ 'selected' if s and s.target == k else '' }}>{{ v }}</option>{% endfor %}</select></label>
+      <label class="nas-sector" data-fid="{{ fid }}">업무 영역<select name="sector">{% for k, v in sectors.items() %}<option value="{{ k }}" {{ 'selected' if s and s.sector == k else '' }}>{{ v }}</option>{% endfor %}</select></label>
+    </div>
+  </fieldset>
+  <fieldset>
+    <legend>자동 가져오기</legend>
+    <div class="row">
+      <label>주기<select name="interval_min">
+        <option value="0" {{ 'selected' if not (s and s.auto) else '' }}>하지 않음 (지금 가져오기 버튼으로만)</option>
+        {% for m, lbl in [(30, "30분마다"), (60, "1시간마다"), (360, "6시간마다"), (1440, "하루 한 번")] %}
+        <option value="{{ m }}" {{ 'selected' if s and s.auto and s.interval_min == m else '' }}>{{ lbl }}</option>
+        {% endfor %}</select></label>
+    </div>
+  </fieldset>
+{% endmacro %}
+
+<div class="modal-back" id="nasAdd">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">폴더 연결</h2>
+      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form action="/dev/nas/add" method="post" class="nas-form">
+      {{ form_fields(none, 'add') }}
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="secondary" data-modal-close>닫기</button>
+        <button type="submit">연결</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% for s in sources %}
+<div class="modal-back" id="nasEdit-{{ s.id }}">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">{{ s.name }} 수정</h2>
+      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form action="/dev/nas/{{ s.id }}/update" method="post" class="nas-form">
+      {{ form_fields(s, s.id) }}
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="secondary" data-modal-close>닫기</button>
+        <button type="submit">저장</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endfor %}
+
+<script>
+  (function () {
+    var hints = { local: "예: /mnt/share/규정  (관리자가 마운트한 공유 경로)", smb: "예: \\\\nas.ync.ac.kr\\문서\\규정" };
+    function joinPath(root, name, backend) {
+      var sep = (backend === "smb" || root.indexOf("\\") >= 0) ? "\\" : "/";
+      return root.replace(/[\\/]+$/, "") + sep + name;
+    }
+    function parentPath(root) {
+      var m = root.match(/^(.*)[\\/][^\\/]+$/); return m ? m[1] : root;
+    }
+    function setup(fid) {
+      var q = function (sel) { return document.querySelector(sel + '[data-fid="' + fid + '"]'); };
+      var backend = q(".nas-backend"), cred = q(".nas-cred"), hint = q(".nas-root-hint"), target = q(".nas-target"), sector = q(".nas-sector");
+      var rootIn = q(".nas-root"), box = q(".browse"), dirsEl = q(".nas-dirs"), msg = q(".nas-browse-msg"), out = q(".nas-probe-out");
+      function refresh() {
+        var b = backend ? backend.value : "local";
+        if (cred) cred.style.display = (b === "smb") ? "" : "none";
+        if (hint) hint.textContent = hints[b] || "";
+        if (sector && target) sector.style.display = (target.value === "regulation") ? "" : "none";
+      }
+      if (backend) backend.addEventListener("change", refresh);
+      if (target) target.addEventListener("change", refresh);
+      refresh();
+      function browse() {
+        var form = rootIn.closest("form"), fd = new FormData(form); fd.set("rel", "");
+        out.className = "probe nas-probe-out"; out.textContent = "읽는 중…";
+        fetch("/dev/nas/browse-draft", { method: "POST", body: fd }).then(function (r) { return r.json(); }).then(function (d) {
+          if (!d.ok) { out.className = "probe nas-probe-out bad"; out.textContent = "실패 · " + d.error; box.hidden = true; return; }
+          out.className = "probe nas-probe-out ok"; out.textContent = "읽기 가능 · 파일 " + d.n_files + "개";
+          box.hidden = false; msg.textContent = rootIn.value; dirsEl.textContent = "";
+          if (!d.dirs.length) { var e = document.createElement("span"); e.className = "muted"; e.style.fontSize = "12px"; e.textContent = "하위 폴더 없음"; dirsEl.appendChild(e); }
+          d.dirs.forEach(function (dir) {
+            var btn = document.createElement("button"); btn.type = "button"; btn.textContent = dir.name;
+            btn.addEventListener("click", function () { rootIn.value = joinPath(rootIn.value, dir.name, backend ? backend.value : "local"); browse(); });
+            dirsEl.appendChild(btn);
+          });
+          Object.keys(d.counts || {}).forEach(function (k) { var c = q(".nas-cnt-" + k); if (c) c.textContent = d.counts[k] ? d.counts[k] : "0"; });
+        }).catch(function () { out.className = "probe nas-probe-out bad"; out.textContent = "확인 실패"; });
+      }
+      var bb = q(".nas-browse-btn"); if (bb) bb.addEventListener("click", browse);
+      var up = q(".nas-up"); if (up) up.addEventListener("click", function () { rootIn.value = parentPath(rootIn.value); browse(); });
+      var rec = q(".nas-recursive"); if (rec) rec.addEventListener("change", function () { if (!box.hidden) browse(); });
+      var pb = q(".nas-plan-btn"), pout = q(".nas-plan-out");
+      if (pb && pout) pb.addEventListener("click", function () {
+        var form = pb.closest("form"), fd = new FormData(form); fd.set("sid", pb.dataset.sid || "");
+        pout.className = "probe nas-plan-out"; pout.textContent = "계산 중…";
+        fetch("/dev/nas/plan-draft", { method: "POST", body: fd }).then(function (r) { return r.json(); }).then(function (d) {
+          pout.className = "probe nas-plan-out " + (d.ok ? "ok" : "bad");
+          pout.textContent = d.ok ? ("새로 " + d.new + " · 그대로 " + d.same + " · 제외 " + d.skipped + (d.sample.length ? " (예: " + d.sample.slice(0, 3).map(function (x) { return x.path; }).join(", ") + ")" : "")) : ("실패 · " + d.error);
+        }).catch(function () { pout.className = "probe nas-plan-out bad"; pout.textContent = "확인 실패"; });
+      });
+      // 파일 종류 모두/해제
+      function setExts(v) {
+        var host = (q(".nas-ext-all") || rootIn).closest("form");
+        host.querySelectorAll('input[name="ext_group"]').forEach(function (c) { c.checked = v; });
+      }
+      var exAll = q(".nas-ext-all"), exNone = q(".nas-ext-none");
+      if (exAll) exAll.addEventListener("click", function () { setExts(true); });
+      if (exNone) exNone.addEventListener("click", function () { setExts(false); });
+      // 수정 날짜 빠른 선택
+      var sinceIn = q(".nas-since"), sincePre = q(".nas-since-presets");
+      if (sincePre && sinceIn) sincePre.querySelectorAll("button").forEach(function (b) {
+        b.addEventListener("click", function () {
+          var d = b.dataset.days;
+          sinceIn.value = d ? new Date(Date.now() - d * 86400000).toISOString().slice(0, 10) : "";
+          sincePre.querySelectorAll("button").forEach(function (x) { x.classList.remove("on"); });
+          b.classList.add("on");
+        });
+      });
+      // 파일 최대 크기 빠른 선택
+      var mbIn = q(".nas-mb"), mbPre = q(".nas-mb-presets");
+      function mbSync() { if (!mbPre || !mbIn) return; mbPre.querySelectorAll("button").forEach(function (x) { x.classList.toggle("on", x.dataset.mb === String(mbIn.value || 0)); }); }
+      if (mbPre && mbIn) {
+        mbPre.querySelectorAll("button").forEach(function (b) { b.addEventListener("click", function () { mbIn.value = b.dataset.mb; mbSync(); }); });
+        mbIn.addEventListener("input", mbSync); mbSync();
+      }
+      // 건너뛸 폴더 — 태그 칩 입력
+      var exBox = q(".nas-exclude"), exVal = q(".nas-exclude-val");
+      if (exBox && exVal) {
+        var exTags = exBox.querySelector(".nas-tags"), exInEl = exBox.querySelector(".nas-tag-in");
+        function exList() { return exVal.value.split(",").map(function (x) { return x.trim(); }).filter(Boolean); }
+        function exRender() {
+          var list = exList(); exTags.textContent = "";
+          list.forEach(function (name, i) {
+            var tag = document.createElement("span"); tag.className = "tag"; tag.appendChild(document.createTextNode(name));
+            var x = document.createElement("button"); x.type = "button"; x.textContent = "×";
+            x.addEventListener("click", function () { var l = exList(); l.splice(i, 1); exVal.value = l.join(","); exRender(); });
+            tag.appendChild(x); exTags.appendChild(tag);
+          });
+        }
+        function exAdd(name) { name = name.trim(); if (!name) return; var l = exList(); if (l.indexOf(name) < 0) { l.push(name); exVal.value = l.join(","); exRender(); } }
+        exRender();
+        exInEl.addEventListener("keydown", function (e) {
+          if (e.key === "Enter" || e.key === ",") { e.preventDefault(); exAdd(exInEl.value); exInEl.value = ""; }
+          else if (e.key === "Backspace" && !exInEl.value) { var l = exList(); l.pop(); exVal.value = l.join(","); exRender(); }
+        });
+        exInEl.addEventListener("blur", function () { if (exInEl.value.trim()) { exAdd(exInEl.value); exInEl.value = ""; } });
+        exBox.addEventListener("click", function () { exInEl.focus(); });
+      }
+    }
+    document.querySelectorAll(".nas-backend").forEach(function (el) { setup(el.dataset.fid); });
+  })();
+</script>
+
+{% endblock %}

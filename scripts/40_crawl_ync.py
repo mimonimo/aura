@@ -46,19 +46,20 @@ FOLLOW_PATTERNS = (
 FILE_EXTS = (".pdf", ".hwp", ".hwpx", ".xlsx", ".xls", ".docx")
 UA = {"User-Agent": "Mozilla/5.0 (YNC-capstone internal crawler; contact: admin)"}
 MAX_FILE_MB = 20
+# 학교 사이트가 중간 인증서를 안 내려주는 경우(체인 불완전)만 True. 대상은 ALLOWED_HOSTS 뿐이고
+# 72·73 스크립트의 --insecure 와 같은 취지. 검증을 끄는 건 이 공개 자산 수집 한정.
+INSECURE = False
 
 
 def fetch(url: str, timeout: int = 15) -> bytes | None:
-    """curl 경유 수집 — 학교 서버가 중간 인증서를 안 내려줘 파이썬 기본 검증이
-    실패한다. curl은 OS 신뢰 저장소로 정상 검증하므로 검증을 끄지 않고 해결."""
+    """curl 경유 수집 — 학교 서버가 중간 인증서를 안 내려줘 기본 검증이 실패하면
+    (--insecure 지정 시) 검증을 끈다. 대상은 학교 공개 도메인(ALLOWED_HOSTS)뿐."""
     import subprocess
 
+    cmd = ["curl", "-sL"] + (["-k"] if INSECURE else []) + \
+        ["--max-time", str(timeout), "-A", UA["User-Agent"], url]
     try:
-        proc = subprocess.run(
-            ["curl", "-sL", "--max-time", str(timeout), "-A", UA["User-Agent"], url],
-            capture_output=True,
-            timeout=timeout + 5,
-        )
+        proc = subprocess.run(cmd, capture_output=True, timeout=timeout + 5)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if proc.returncode != 0 or not proc.stdout:
@@ -89,7 +90,12 @@ def main() -> None:
     ap.add_argument("--max-pages", type=int, default=300)
     ap.add_argument("--max-files", type=int, default=120)
     ap.add_argument("--delay", type=float, default=0.4)
+    ap.add_argument("--insecure", action="store_true",
+                    help="TLS 검증 끔 — 중간 인증서를 안 내려주는 학교 사이트에만")
     args = ap.parse_args()
+
+    global INSECURE
+    INSECURE = args.insecure
 
     pages_dir = args.out / "pages"
     files_dir = args.out / "files"

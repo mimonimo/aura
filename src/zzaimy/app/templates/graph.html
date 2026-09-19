@@ -4,440 +4,1477 @@
 
 {% block head %}
 <style>
-  /* 그래프 페이지 — content 영역을 꽉 채운다 (base main 제약 해제) */
+  /* 관계 조회 화면 — 본문 영역을 3단(시작점·관계도·근거)으로 채운다 */
   main { max-width: none; padding: 0; position: relative; overflow: hidden; }
-  #graphWrap { position: absolute; inset: 0; background:
-      radial-gradient(circle at 50% 40%, #FBFCFE 0%, var(--bg) 70%); }
-  #gcanvas { display: block; width: 100%; height: 100%; cursor: grab; }
-  #gcanvas.dragging { cursor: grabbing; }
+  .kg { position: absolute; inset: 0; display: flex; background: var(--bg);
+        font-size: 13px; }
+  .kg [hidden] { display: none !important; }
 
-  .g-overlay { position: absolute; top: 16px; left: 16px; width: 244px;
-      background: rgba(255,255,255,.86); border: 1px solid var(--line);
-      border-radius: 14px; padding: 14px 15px; backdrop-filter: blur(8px);
-      box-shadow: 0 6px 24px rgba(27,59,117,.08); font-size: 13px; }
-  .g-overlay .g-count { font-size: 12px; color: var(--muted);
-      font-variant-numeric: tabular-nums; margin-bottom: 10px; }
-  .g-search { display: flex; align-items: center; gap: 7px; background: var(--panel);
-      border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px;
-      margin-bottom: 12px; }
-  .g-search:focus-within { border-color: var(--blue);
-      box-shadow: 0 0 0 3px rgba(73,123,251,.12); }
-  .g-search iconify-icon { color: var(--faint); font-size: 15px; flex: none; }
-  .g-search input { border: 0; background: transparent; outline: none;
-      font-size: 13px; width: 100%; color: var(--ink); }
+  /* ── 왼쪽: 시작점 ── */
+  .kg-rail { width: 288px; flex: none; background: #fff;
+             border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  .kg-find { padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
+  .kg-search { display: flex; align-items: center; gap: 8px; background: var(--panel);
+               border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; }
+  .kg-search:focus-within { border-color: var(--blue);
+               box-shadow: 0 0 0 3px rgba(73,123,251,.12); }
+  .kg-search iconify-icon { color: var(--faint); font-size: 16px; flex: none; }
+  .kg-search input { border: 0; background: transparent; outline: none; width: 100%;
+               font-size: 13px; color: var(--ink); font-family: inherit;
+               -webkit-appearance: none; appearance: none; }
+  .kg-search input::-webkit-search-cancel-button { display: none; }
 
-  .g-sec { font-size: 11px; font-weight: 700; color: var(--faint);
-      letter-spacing: .06em; margin: 12px 0 7px; }
-  .g-legend { display: flex; flex-direction: column; gap: 6px; }
-  .g-legend .row { display: flex; align-items: center; gap: 9px; color: var(--muted); }
-  .g-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
-  .g-line { width: 18px; height: 0; flex: none; }
+  .kg-seg { display: flex; gap: 3px; background: #E9EEF5; border-radius: 10px;
+            padding: 3px; margin-top: 10px; }
+  .kg-seg button { flex: 1 1 0; min-width: 0; background: transparent; border: 0;
+            color: var(--muted); border-radius: 8px; padding: 6px 4px; font-size: 12.5px;
+            font-weight: 600; box-shadow: none; }
+  .kg-seg button:hover { background: rgba(255,255,255,.7); color: var(--navy); }
+  .kg-seg button.on, .kg-seg button.on:hover { background: #fff; color: var(--navy);
+            box-shadow: 0 1px 3px rgba(27,59,117,.15); }
 
-  .g-toggle { display: flex; align-items: center; gap: 9px; padding: 4px 0;
-      cursor: pointer; user-select: none; color: var(--ink); }
-  .g-toggle input { accent-color: var(--blue); width: 15px; height: 15px; flex: none; }
-  .g-toggle .g-key { font-size: 11px; color: var(--faint);
-      margin-left: auto; font-variant-numeric: tabular-nums; }
+  .kg-rail-body { flex: 1; overflow-y: auto; padding: 8px 8px 20px; }
+  .kg-hint { padding: 7px 10px 9px; color: var(--faint); font-size: 11.5px; }
+  .kg-group { border-bottom: 1px solid #F1F5F9; }
+  .kg-group:last-child { border-bottom: 0; }
+  .kg-group > summary { list-style: none; cursor: pointer; display: flex;
+            align-items: center; gap: 8px; padding: 9px 8px; border-radius: 9px; }
+  .kg-group > summary::-webkit-details-marker { display: none; }
+  .kg-group > summary:hover { background: var(--panel); }
+  .kg-group .kg-chev { color: var(--faint); font-size: 15px; flex: none;
+            transition: transform .18s var(--ease); }
+  .kg-group[open] .kg-chev { transform: rotate(90deg); }
+  .kg-group .kg-gname { flex: 1; min-width: 0; font-weight: 600; color: var(--ink);
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kg-group .kg-gnum { flex: none; font-size: 11.5px; color: var(--faint);
+            font-variant-numeric: tabular-nums; }
+  .kg-group .kg-list { padding: 0 0 8px 12px; }
 
-  .g-empty { position: absolute; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 12px; color: var(--faint);
-      text-align: center; }
-  .g-empty[hidden] { display: none; }
-  .g-empty iconify-icon { font-size: 46px; opacity: .55; }
-  .g-empty p { margin: 0; font-size: 14px; line-height: 1.6; }
+  .kg-row { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+            background: transparent; border: 0; color: var(--ink); border-radius: 8px;
+            padding: 6px 8px; font-size: 12.5px; font-weight: 400; box-shadow: none;
+            font-family: inherit; line-height: 1.45; }
+  .kg-row:hover { background: #EEF3FB; color: var(--ink); }
+  .kg-row.on { background: #E3ECFB; color: var(--navy); font-weight: 600; }
+  .kg-row .kg-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .kg-row .kg-rname { flex: 1; min-width: 0; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; }
+  .kg-row .kg-rnum { flex: none; font-size: 11px; color: var(--faint);
+            font-variant-numeric: tabular-nums; }
+  .kg-none { padding: 22px 12px; color: var(--faint); font-size: 12.5px;
+             text-align: center; line-height: 1.7; }
 
-  .g-hint { position: absolute; bottom: 14px; right: 16px; font-size: 11.5px;
-      color: var(--faint); background: rgba(255,255,255,.72); border-radius: 9px;
-      padding: 5px 10px; border: 1px solid var(--line); }
+  /* ── 가운데: 관계도 ── */
+  .kg-stage { flex: 1; min-width: 0; display: flex; flex-direction: column;
+              background: #fff; }
+  .kg-stage-head { display: flex; align-items: center; gap: 10px; flex: none;
+              padding: 11px 18px; border-bottom: 1px solid var(--line); min-height: 52px; }
+  .kg-icon { width: 30px; height: 30px; flex: none; padding: 0; border-radius: 9px;
+              background: #fff; border: 1px solid var(--line); color: var(--muted);
+              font-size: 17px; }
+  .kg-icon:hover { background: var(--panel); border-color: #94A3B8; color: var(--ink); }
+  .kg-icon:disabled { background: #fff; border-color: var(--line); color: #CBD5E1; }
+  .kg-center-name { font-size: 14px; font-weight: 700; color: var(--ink);
+              max-width: 44%; overflow: hidden; text-overflow: ellipsis;
+              white-space: nowrap; letter-spacing: -.01em; }
+  .kg-pill { flex: none; border-radius: 20px; padding: 2px 10px; font-size: 11.5px;
+              font-weight: 600; background: #EEF1F5; color: var(--muted); }
+  .kg-stat { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+              white-space: nowrap; }
+  .kg-check { margin-left: auto; display: flex; align-items: center; gap: 7px;
+              font-size: 12px; color: var(--muted); cursor: pointer; user-select: none;
+              white-space: nowrap; }
+  .kg-check input { accent-color: var(--blue); width: 14px; height: 14px; flex: none; }
+
+  .kg-canvas { flex: 1; min-height: 0; position: relative;
+              background: radial-gradient(circle at 50% 42%, #FBFCFE, #F6F8FC 72%); }
+  #kgSvg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #kgSvg text { font-family: inherit; }
+  .kg-blank { position: absolute; inset: 0; display: flex; flex-direction: column;
+              align-items: center; justify-content: center; gap: 10px; color: var(--faint);
+              text-align: center; padding: 0 30px; }
+  .kg-blank iconify-icon { font-size: 40px; opacity: .5; }
+  .kg-blank p { margin: 0; font-size: 13px; line-height: 1.7; }
+
+  /* 그래프 요소 */
+  .n-hit { cursor: pointer; }
+  .n-ring { fill: #fff; stroke: #D7E0EC; }
+  .n-core { stroke: #fff; stroke-width: 1.6; }
+  .n-label { font-size: 11.5px; fill: #33405A; text-anchor: middle;
+             pointer-events: none; }
+  .n-label.center { font-size: 13px; font-weight: 700; fill: #1B2436; }
+  .n-hit:hover .n-core { stroke: #F2A63B; stroke-width: 2.6; }
+  .e-line { fill: none; stroke-linecap: round; pointer-events: none; }
+  .e-hit { stroke: transparent; stroke-width: 15; fill: none; cursor: pointer; }
+  .e-line.sel { stroke-width: 3.4; }
+  .g-cap { font-size: 11px; font-weight: 600; }
+  .dim { opacity: .18; }
+  .weak { stroke-dasharray: 4 4; opacity: .5; }
+  .kg-tag { cursor: pointer; }
+  .kg-tag rect { fill: #fff; stroke: #D7E0EC; }
+  .kg-tag:hover rect { stroke: #94A3B8; }
+  /* 펼침 배지는 노드마다 늘 띄우면 어수선해 마우스를 올릴 때만 보인다 */
+  .kg-tag.onhover { opacity: 0; transition: opacity .15s var(--ease); }
+  .n-wrap:hover .kg-tag.onhover { opacity: 1; }
+  .kg-tag text { font-size: 10.5px; fill: var(--muted); text-anchor: middle;
+            pointer-events: none; font-variant-numeric: tabular-nums; }
+
+  /* 연도별 문서 */
+  .kg-years { flex: none; border-top: 1px solid var(--line); background: #fff;
+              padding: 10px 18px 12px; }
+  .kg-years-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 8px; }
+  .kg-years-head b { font-size: 12.5px; }
+  .kg-years-head span { font-size: 11.5px; color: var(--faint); }
+  .kg-years-track { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+  .kg-year { flex: none; min-width: 124px; max-width: 168px; border: 1px solid var(--line);
+             border-radius: 10px; padding: 7px 9px 8px; background: #fff; }
+  .kg-year > b { display: block; font-size: 11.5px; color: var(--navy);
+             font-variant-numeric: tabular-nums; margin-bottom: 4px; }
+  .kg-year button { display: block; width: 100%; text-align: left; background: transparent;
+             border: 0; box-shadow: none; color: var(--ink); font-weight: 400;
+             font-size: 11.5px; padding: 3px 4px; border-radius: 6px; font-family: inherit;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .kg-year button:hover { background: #EEF3FB; color: var(--ink); }
+  .kg-year button.on { background: #E3ECFB; color: var(--navy); font-weight: 600; }
+
+  /* ── 오른쪽: 상세·근거 ── */
+  .kg-panel { width: 392px; flex: none; background: #fff;
+              border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+  .kg-p-head { flex: none; padding: 14px 18px 12px; border-bottom: 1px solid var(--line); }
+  .kg-p-kindrow { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .kg-p-hide { display: none; }
+  .kg-p-title { margin: 0; font-size: 14.5px; font-weight: 700; line-height: 1.45;
+              letter-spacing: -.01em; word-break: break-all; }
+  .kg-p-meta { margin-top: 5px; font-size: 12px; color: var(--muted);
+              font-variant-numeric: tabular-nums; }
+  .kg-p-acts { display: flex; gap: 7px; margin-top: 11px; }
+  .kg-p-acts:empty { display: none; }
+  .kg-tabs { flex: none; display: flex; gap: 3px; background: #E9EEF5; border-radius: 10px;
+              padding: 3px; margin: 12px 18px 0; }
+  .kg-tabs button { flex: 1 1 0; background: transparent; border: 0; color: var(--muted);
+              border-radius: 8px; padding: 6px 4px; font-size: 12.5px; font-weight: 600;
+              box-shadow: none; }
+  .kg-tabs button:hover { background: rgba(255,255,255,.7); color: var(--navy); }
+  .kg-tabs button.on, .kg-tabs button.on:hover { background: #fff; color: var(--navy);
+              box-shadow: 0 1px 3px rgba(27,59,117,.15); }
+  .kg-tabs button:disabled { background: transparent; color: #C3CEDC; box-shadow: none; }
+  .kg-p-body { flex: 1; overflow-y: auto; padding: 14px 18px 26px; }
+
+  /* 근거 카드 */
+  .kg-why { border: 1px solid #D8E4F8; background: #F7FAFF; border-radius: 12px;
+            padding: 12px 13px; margin-bottom: 16px; }
+  .kg-why-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .kg-why-head b { font-size: 12.5px; flex: 1; min-width: 0; }
+  .kg-why-close { width: 24px; height: 24px; padding: 0; flex: none; border-radius: 7px;
+            background: transparent; border: 0; color: var(--faint); font-size: 15px; }
+  .kg-why-close:hover { background: #E3ECFB; color: var(--ink); }
+  .kg-why-pair { font-size: 12px; color: var(--muted); line-height: 1.75;
+            margin-bottom: 9px; word-break: break-all; }
+  .kg-why-pair em { font-style: normal; color: var(--ink); font-weight: 600; }
+  .kg-why p { margin: 0 0 6px; font-size: 12.5px; line-height: 1.7; color: var(--ink); }
+  .kg-why > div > p:last-child { margin-bottom: 0; }
+  .kg-cap { margin: 10px 0 0; font-size: 11px; font-weight: 700; color: var(--faint);
+            letter-spacing: .04em; }
+  .kg-quote { margin: 7px 0 0; background: #fff; border: 1px solid #E4EBF5;
+            border-radius: 9px; padding: 9px 11px; font-size: 12px; line-height: 1.8;
+            color: var(--muted); }
+  .kg-quote mark { background: #FFF1CC; color: var(--ink); padding: 0 1px;
+            border-radius: 3px; }
+  .kg-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .kg-chip { border-radius: 20px; padding: 2px 9px; font-size: 11.5px; font-weight: 600;
+            background: #EEF1F5; color: var(--muted); }
+  .kg-chip.grade-fact { background: #E5F3EA; color: var(--green); }
+  .kg-chip.grade-calc { background: #E8EFFC; color: var(--navy); }
+  .kg-chip.grade-weak { background: #FEF3E2; color: var(--amber); }
+  .kg-chip.act { cursor: pointer; border: 0; font-family: inherit; box-shadow: none;
+            line-height: 1.6; }
+  .kg-chip.act:hover { background: #DCE5F3; color: var(--navy); }
+
+  /* 관계 목록 */
+  .kg-relsec { margin-bottom: 15px; }
+  .kg-relsec > h4 { margin: 0 0 5px; font-size: 11px; font-weight: 700; color: var(--faint);
+            letter-spacing: .04em; display: flex; align-items: center; gap: 7px; }
+  .kg-relsec > h4 .kg-bar { width: 16px; height: 0; border-top: 2px solid currentColor;
+            flex: none; }
+  .kg-relsec > h4 .kg-gnum { margin-left: auto; font-weight: 600; }
+  .kg-rel { display: flex; align-items: center; gap: 8px; border-radius: 9px;
+            padding: 6px 6px 6px 8px; cursor: pointer; line-height: 1.5;
+            box-shadow: 0 0 0 1px transparent; }
+  .kg-rel:hover { background: #EEF3FB; }
+  .kg-rel.on { background: #E8EFFC; box-shadow: 0 0 0 1px #C7D8F7; }
+  .kg-rel:focus-visible { outline: 2px solid #94A3B8; outline-offset: 1px; }
+  .kg-rel .kg-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .kg-rel .kg-rname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; font-size: 12.5px; }
+  .kg-rel .kg-w { flex: none; font-size: 11px; color: var(--faint);
+            font-variant-numeric: tabular-nums; }
+  .kg-rel.weakrow { opacity: .55; }
+  .kg-rel-go { flex: none; width: 24px; height: 24px; padding: 0; border-radius: 7px;
+            background: transparent; border: 0; color: var(--faint); font-size: 15px;
+            opacity: 0; }
+  .kg-rel:hover .kg-rel-go, .kg-rel.on .kg-rel-go { opacity: 1; }
+  .kg-rel-go:hover { background: #D8E4F8; color: var(--navy); }
+  .kg-more-btn { background: transparent; border: 0; box-shadow: none; color: var(--muted);
+            font-size: 12px; font-weight: 600; padding: 5px 8px; border-radius: 8px; }
+  .kg-more-btn:hover { background: var(--panel); color: var(--ink); }
+
+  /* 본문 */
+  .kg-text { white-space: pre-wrap; font-size: 12.5px; line-height: 1.85;
+            color: var(--ink); background: var(--panel); border: 1px solid #EDF2F7;
+            border-radius: 12px; padding: 14px 15px; }
+  .kg-text mark { background: #FFF1CC; color: var(--ink); border-radius: 3px; padding: 0 1px; }
+  .kg-note { color: var(--faint); font-size: 12px; line-height: 1.7; margin: 0; }
+  .kg-p-body > .kg-note { margin-top: 8px; }
+
+  @media (max-width: 1280px) {
+    .kg-rail { width: 244px; }
+    .kg-panel { width: 344px; }
+  }
+  @media (max-width: 1000px) {
+    .kg-rail { width: 210px; }
+    .kg-panel { position: absolute; right: 0; top: 0; bottom: 0; width: 340px;
+                z-index: 12; box-shadow: -14px 0 38px rgba(27,59,117,.14);
+                transform: translateX(100%); transition: transform .24s var(--ease); }
+    .kg.panel-open .kg-panel { transform: none; }
+    .kg-p-hide { display: flex; margin-left: auto; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div id="graphWrap">
-  <canvas id="gcanvas"></canvas>
+<div class="kg" id="kg" data-focus="{{ focus|default('') }}">
 
-  <div class="g-overlay" id="overlay" hidden>
-    <div class="g-count" id="gCount">노드 0 · 연결 0</div>
-    <div class="g-search">
-      <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
-      <input type="text" id="gSearch" placeholder="노드 검색" autocomplete="off">
+  <aside class="kg-rail">
+    <div class="kg-find">
+      <div class="kg-search">
+        <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
+        <input type="search" id="kgQuery" placeholder="문서·사업·기관 검색" autocomplete="off">
+      </div>
+      <div class="kg-seg" id="kgRailTabs">
+        <button type="button" class="on" data-rail="cluster">묶음</button>
+        <button type="button" data-rail="entity">기관·사업</button>
+        <button type="button" data-rail="doc">문서</button>
+      </div>
     </div>
+    <div class="kg-rail-body" id="kgRailBody"></div>
+  </aside>
 
-    <div class="g-sec">노드</div>
-    <div class="g-legend">
-      <div class="row"><span class="g-dot" style="background:#1B3B75;"></span>기준 문서</div>
-      <div class="row"><span class="g-dot" style="background:#497BFB;"></span>접수 문서</div>
-      <div class="row"><span class="g-dot" style="background:#1E6B4F;"></span>프로젝트</div>
-      <div class="row"><span class="g-dot" style="background:#B7791F;"></span>개체 (사업·기관·연도)</div>
+  <section class="kg-stage">
+    <header class="kg-stage-head">
+      <button type="button" class="kg-icon" id="kgBack" title="이전으로" disabled>
+        <iconify-icon icon="solar:alt-arrow-left-linear"></iconify-icon></button>
+      <span class="kg-center-name" id="kgCenterName">선택 없음</span>
+      <span class="kg-pill" id="kgCenterKind" hidden></span>
+      <span class="kg-stat" id="kgCenterStat"></span>
+      <label class="kg-check">
+        <input type="checkbox" id="kgWeak">근거 미확인 연결 포함</label>
+    </header>
+    <div class="kg-canvas" id="kgCanvas">
+      <svg id="kgSvg" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="kg-blank" id="kgBlank">
+        <iconify-icon icon="solar:structure-linear"></iconify-icon>
+        <p id="kgBlankText">왼쪽에서 문서나 기관을 선택하십시오.</p>
+      </div>
     </div>
+    <div class="kg-years" id="kgYears" hidden></div>
+  </section>
 
-    <div class="g-sec">연결</div>
-    <div id="edgeToggles"></div>
-  </div>
-
-  <div class="g-empty" id="emptyState" hidden>
-    <iconify-icon icon="solar:graph-new-linear"></iconify-icon>
-    <p>문서를 등록하면 그래프가 그려집니다.<br>기준·접수 문서와 프로젝트의 연결을 한눈에 봅니다.</p>
-  </div>
-
-  <div class="g-hint">드래그 이동 · 휠 확대 · 노드 클릭 열기</div>
+  <aside class="kg-panel" id="kgPanel">
+    <div class="kg-p-head">
+      <div class="kg-p-kindrow">
+        <span class="kg-pill" id="kgPKind" hidden></span>
+        <span class="kg-stat" id="kgPSector"></span>
+        <button type="button" class="kg-icon kg-p-hide" id="kgPHide" title="닫기">
+          <iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></button>
+      </div>
+      <h3 class="kg-p-title" id="kgPTitle">선택 없음</h3>
+      <div class="kg-p-meta" id="kgPMeta"></div>
+      <div class="kg-p-acts" id="kgPActs"></div>
+    </div>
+    <div class="kg-tabs" id="kgTabs" hidden>
+      <button type="button" class="on" data-tab="rel">관계</button>
+      <button type="button" data-tab="text">본문</button>
+    </div>
+    <div class="kg-p-body" id="kgPBody"></div>
+  </aside>
 </div>
 
 <script>
 (function () {
   "use strict";
-  var FOCUS = "{{ focus|default('') }}";
 
-  var NODE_COLOR = { criteria: "#1B3B75", intake: "#497BFB", project: "#1E6B4F",
-                     entity: "#B7791F" };
-  var EDGE_META = {
-    refers:  { label: "근거 (접수→기준)", color: "#497BFB", dash: false },
-    belongs: { label: "소속 (문서→프로젝트)", color: "#1E6B4F", dash: false },
-    uses:    { label: "적용 (프로젝트→기준)", color: "#2B6CB0", dash: false },
-    cites:   { label: "조문 참조 (기준→기준)", color: "#7C5CBF", dash: false },
-    similar: { label: "유사 (임베딩)", color: "#AEB6C4", dash: true },
-    mentions: { label: "언급 (문서→개체)", color: "#D6BC8B", dash: false }
+  var SECTOR = {{ sector_labels|tojson }};
+  var root = document.getElementById("kg");
+  var FOCUS = root.getAttribute("data-focus") || "";
+
+  var NODE_COLOR = { criteria: "#1B3B75", intake: "#497BFB",
+                     project: "#1E6B4F", entity: "#B7791F" };
+  var KIND_LABEL = { criteria: "기준 문서", intake: "접수 문서", project: "프로젝트" };
+  // 개체 유형은 추출기가 늘려 갈 수 있다. 이름이 없는 유형도 그대로 묶어 보여 준다.
+  var ENT_LABEL = { program: "사업·제도", org: "기관", law: "근거 법령",
+                    year: "연도", period: "신청 기간", money: "지원 규모",
+                    target: "지원 대상" };
+  var ENT_ORDER = ["org", "program", "law", "target", "period", "money", "year"];
+
+  // 관계 정의. out 은 간선이 나가는 쪽, in 은 들어오는 쪽에서 읽는 이름이다.
+  var REL = {
+    refers:   { color: "#497BFB", dash: false,
+                out: "근거로 지정한 기준", "in": "이 기준을 근거로 삼은 문서" },
+    belongs:  { color: "#1E6B4F", dash: false,
+                out: "소속 프로젝트", "in": "소속 문서" },
+    uses:     { color: "#2B6CB0", dash: false,
+                out: "적용 기준", "in": "이 기준을 적용한 프로젝트" },
+    cites:    { color: "#7C5CBF", dash: false,
+                out: "본문에서 인용한 규정", "in": "이 규정을 인용한 문서" },
+    similar:  { color: "#0EA5A0", dash: false,
+                out: "내용이 가까운 문서", "in": "내용이 가까운 문서" },
+    mentions: { color: "#C08A2E", dash: false,
+                out: "언급한 기관·사업", "in": "이 이름이 나오는 문서" },
+    relates:  { color: "#1E6B4F", dash: true,
+                out: "추정 연관", "in": "추정 연관" }
   };
+  var REL_ORDER = ["refers", "uses", "belongs", "cites", "similar", "relates", "mentions"];
+  var SYM = { similar: 1, relates: 1 };   // 방향을 나눠 봐야 뜻이 같은 관계
+  var STRUCT = { refers: 1, belongs: 1, uses: 1, cites: 1, similar: 1, relates: 1 };
+  var GRADE = { fact: "등록 근거", calc: "계산 근거", weak: "근거 미확인" };
 
-  var canvas = document.getElementById("gcanvas");
-  var ctx = canvas.getContext("2d");
-  var overlay = document.getElementById("overlay");
-  var emptyState = document.getElementById("emptyState");
-  var countEl = document.getElementById("gCount");
-  var searchEl = document.getElementById("gSearch");
-  var edgeTogglesEl = document.getElementById("edgeToggles");
+  var PER_GROUP = 6;         // 관계도에서 한 관계당 기본 표시 수
+  var PER_GROUP_STEP = 6;
+  var PANEL_ROWS = 8;        // 관계 목록에서 한 관계당 기본 표시 수
+  var SAT_MAX = 5;           // 펼친 이웃에 붙여 보여 줄 수
 
-  var nodes = [], edges = [], nodeById = {};
-  var edgeOn = { refers: true, belongs: true, uses: true, cites: true, similar: true };
-  var view = { scale: 1, x: 0, y: 0 };
-  var W = 0, H = 0, dpr = 1;
-  var hoverNode = null, matchIds = null;
+  // ── 상태 ──
+  var nodes = [], edges = [], byId = {}, adj = {};
+  var docEnt = {}, clusters = [], tokenDf = {}, docCount = 1;
+  var center = null, history = [], showWeak = false;
+  var expandedId = null, stageCap = {}, panelCap = {}, selEdge = null;
+  var tab = "rel", railMode = "cluster", query = "", railOpen = {};
+  var peekCache = {}, placedIds = {};
 
-  // ── 화면 크기·해상도 ──
-  function resize() {
-    var wrap = document.getElementById("graphWrap");
-    W = wrap.clientWidth; H = wrap.clientHeight;
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(W * dpr);
-    canvas.height = Math.round(H * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  var railBody = document.getElementById("kgRailBody");
+  var svg = document.getElementById("kgSvg");
+  var canvasEl = document.getElementById("kgCanvas");
+  var blank = document.getElementById("kgBlank");
+  var blankText = document.getElementById("kgBlankText");
+  var yearsEl = document.getElementById("kgYears");
+  var pBody = document.getElementById("kgPBody");
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  // ── 도우미 ──
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
   }
-  window.addEventListener("resize", resize);
-
-  // ── 좌표 변환 (화면 ↔ 월드) ──
-  function toWorld(sx, sy) {
-    return { x: (sx - view.x) / view.scale, y: (sy - view.y) / view.scale };
+  function svgEl(tag, attrs) {
+    var e = document.createElementNS(SVGNS, tag);
+    for (var k in attrs) if (attrs[k] != null) e.setAttribute(k, attrs[k]);
+    return e;
   }
-  function nodeRadius(n) {
-    var base = n.kind === "project" ? 9 : 6;
-    var deg = Math.sqrt((n.deg || 0) + 1);
-    var chunk = Math.sqrt((n.chunks || 0) + 1) * 0.6;
-    return base + deg * 2.2 + chunk;
+  function icon(name) {
+    var i = document.createElement("iconify-icon");
+    i.setAttribute("icon", name);
+    return i;
   }
-
-  // ── 데이터 적재 ──
-  function ingest(data) {
-    nodes = (data.nodes || []).map(function (n) {
-      return {
-        id: n.id, doc_id: n.doc_id, label: n.label || n.id,
-        kind: n.kind || "criteria", sector: n.sector, doc_type: n.doc_type,
-        chunks: n.chunks || 0, deg: 0,
-        x: (Math.random() - 0.5) * 600, y: (Math.random() - 0.5) * 600,
-        vx: 0, vy: 0, pinned: false
-      };
-    });
-    nodeById = {};
-    nodes.forEach(function (n) { nodeById[n.id] = n; });
-
-    edges = (data.edges || []).filter(function (e) {
-      return nodeById[e.s] && nodeById[e.t] && e.s !== e.t;
-    }).map(function (e) {
-      var a = nodeById[e.s], b = nodeById[e.t];
-      a.deg++; b.deg++;
-      return { s: a, t: b, kind: e.kind || "refers", w: (e.w == null ? 0.5 : e.w) };
-    });
-
-    buildEdgeToggles();
-    updateCount();
-
-    var empty = nodes.length === 0;
-    emptyState.hidden = !empty;
-    overlay.hidden = empty;
-
-    // 초기엔 원점(중력 수렴점)을 화면 중앙에 두고, 안정되면 한 번 프레이밍
-    view = { scale: 0.9, x: W / 2, y: H / 2 };
-    framed = false;
-    alpha = 1;
+  function kindLabel(n) {
+    if (n.kind === "entity") return ENT_LABEL[n.doc_type] || "개체";
+    return KIND_LABEL[n.kind] || "노드";
   }
-
-  function buildEdgeToggles() {
-    var counts = {};
-    edges.forEach(function (e) { counts[e.kind] = (counts[e.kind] || 0) + 1; });
-    edgeTogglesEl.innerHTML = "";
-    Object.keys(EDGE_META).forEach(function (k) {
-      if (!counts[k]) return;
-      var m = EDGE_META[k];
-      var lab = document.createElement("label");
-      lab.className = "g-toggle";
-      var line = m.dash
-        ? "border-top:2px dashed " + m.color
-        : "border-top:2px solid " + m.color;
-      lab.innerHTML =
-        '<input type="checkbox" checked data-kind="' + k + '">' +
-        '<span class="g-line" style="' + line + '"></span>' +
-        '<span>' + m.label + '</span>' +
-        '<span class="g-key">' + counts[k] + '</span>';
-      lab.querySelector("input").addEventListener("change", function (ev) {
-        edgeOn[k] = ev.target.checked;
-      });
-      edgeTogglesEl.appendChild(lab);
-    });
-  }
-
-  function updateCount() {
-    countEl.textContent = "노드 " + nodes.length + " · 연결 " + edges.length;
-  }
-
-  // ── 뷰 맞춤 ──
-  function fitView() {
-    if (!nodes.length) { view = { scale: 1, x: W / 2, y: H / 2 }; return; }
-    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodes.forEach(function (n) {
-      minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
-      minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
-    });
-    var pad = 80;
-    var sx = W / Math.max(maxX - minX + pad, 1);
-    var sy = H / Math.max(maxY - minY + pad, 1);
-    view.scale = Math.max(0.15, Math.min(1.6, Math.min(sx, sy)));
-    view.x = W / 2 - (minX + maxX) / 2 * view.scale;
-    view.y = H / 2 - (minY + maxY) / 2 * view.scale;
-  }
-  function centerNode(n, strong) {
-    view.scale = strong ? 1.1 : view.scale;
-    view.x = W / 2 - n.x * view.scale;
-    view.y = H / 2 - n.y * view.scale;
-  }
-
-  // ── 물리 (반발 + 스프링 + 중심 중력 + 감쇠) ──
-  var alpha = 1, framed = false;
-  var REPULSE = 5200, SPRING = 0.02, REST = 90, GRAVITY = 0.015, DAMP = 0.86;
-  function tick() {
-    if (alpha < 0.008) { alpha = 0; }
-    if (alpha > 0) {
-      var n = nodes.length;
-      for (var i = 0; i < n; i++) {
-        var a = nodes[i];
-        for (var j = i + 1; j < n; j++) {
-          var b = nodes[j];
-          var dx = a.x - b.x, dy = a.y - b.y;
-          var d2 = dx * dx + dy * dy + 0.01;
-          if (d2 > 360000) continue;               // 먼 쌍은 생략
-          var f = REPULSE / d2;
-          var d = Math.sqrt(d2);
-          var fx = dx / d * f, fy = dy / d * f;
-          a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
-        }
-        a.vx -= a.x * GRAVITY; a.vy -= a.y * GRAVITY;   // 중심 중력
-      }
-      edges.forEach(function (e) {
-        var dx = e.t.x - e.s.x, dy = e.t.y - e.s.y;
-        var d = Math.sqrt(dx * dx + dy * dy) + 0.01;
-        var rest = e.kind === "similar" ? REST * 1.6 : REST;
-        var f = (d - rest) * SPRING;
-        var fx = dx / d * f, fy = dy / d * f;
-        e.s.vx += fx; e.s.vy += fy; e.t.vx -= fx; e.t.vy -= fy;
-      });
-      nodes.forEach(function (a) {
-        if (a.pinned) { a.vx = 0; a.vy = 0; return; }
-        a.vx *= DAMP; a.vy *= DAMP;
-        a.x += a.vx * alpha; a.y += a.vy * alpha;
-      });
-      alpha *= 0.985;
-      if (!framed && alpha < 0.05) {
-        framed = true;
-        if (FOCUS && nodeById[FOCUS]) centerNode(nodeById[FOCUS], true);
-        else fitView();
-      }
-    }
-    draw();
-    requestAnimationFrame(tick);
-  }
-
-  // ── 이웃 집합 (호버 하이라이트용) ──
-  function neighborsOf(node) {
-    var set = {}; set[node.id] = true;
-    edges.forEach(function (e) {
-      if (e.s === node) set[e.t.id] = true;
-      if (e.t === node) set[e.s.id] = true;
-    });
-    return set;
-  }
-
-  // ── 렌더 ──
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    ctx.save();
-    ctx.translate(view.x, view.y);
-    ctx.scale(view.scale, view.scale);
-
-    var hi = hoverNode ? neighborsOf(hoverNode) : null;
-    var focusDim = hi || (matchIds ? matchIds : null);
-
-    // 간선
-    edges.forEach(function (e) {
-      if (!edgeOn[e.kind]) return;
-      var m = EDGE_META[e.kind];
-      var active = !focusDim || (focusDim[e.s.id] && focusDim[e.t.id]);
-      ctx.globalAlpha = active ? (m.dash ? 0.5 : 0.62) : 0.06;
-      ctx.strokeStyle = m.color;
-      ctx.lineWidth = (m.dash ? 1 : 1 + e.w) / view.scale;
-      if (m.dash) ctx.setLineDash([5 / view.scale, 4 / view.scale]);
-      else ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(e.s.x, e.s.y);
-      ctx.lineTo(e.t.x, e.t.y);
-      ctx.stroke();
-    });
-    ctx.setLineDash([]);
-
-    // 노드
-    var showLabels = view.scale > 0.75;
-    nodes.forEach(function (nd) {
-      var r = nodeRadius(nd);
-      var lit = !focusDim || focusDim[nd.id];
-      var matched = matchIds && matchIds[nd.id];
-      ctx.globalAlpha = lit ? 1 : 0.16;
-      ctx.beginPath();
-      ctx.arc(nd.x, nd.y, r, 0, Math.PI * 2);
-      ctx.fillStyle = NODE_COLOR[nd.kind] || "#8892A6";
-      ctx.fill();
-      if (matched || nd === hoverNode) {
-        ctx.lineWidth = 2.5 / view.scale;
-        ctx.strokeStyle = "#F2A63B";
-        ctx.stroke();
-      } else {
-        ctx.lineWidth = 1.5 / view.scale;
-        ctx.strokeStyle = "rgba(255,255,255,.85)";
-        ctx.stroke();
-      }
-      if ((showLabels && lit) || nd === hoverNode || matched) {
-        ctx.globalAlpha = lit ? 1 : 0.3;
-        ctx.fillStyle = "#26324A";
-        ctx.font = (12 / view.scale) + "px 'Noto Sans KR', system-ui, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-        var t = nd.label.length > 18 ? nd.label.slice(0, 17) + "…" : nd.label;
-        ctx.fillText(t, nd.x, nd.y + r + 3 / view.scale);
-      }
-    });
-    ctx.globalAlpha = 1;
-    ctx.restore();
-  }
-
-  // ── 히트 테스트 ──
-  function nodeAt(sx, sy) {
-    var w = toWorld(sx, sy);
-    for (var i = nodes.length - 1; i >= 0; i--) {
-      var n = nodes[i];
-      var r = nodeRadius(n) + 4;
-      var dx = n.x - w.x, dy = n.y - w.y;
-      if (dx * dx + dy * dy <= r * r) return n;
-    }
+  function nodeUrl(n) {
+    if (n.kind === "project") return "/project/" + String(n.id).slice(1);
+    if (n.doc_id != null) return "/doc/" + n.doc_id;
     return null;
   }
-
-  // ── 인터랙션 ──
-  var drag = null, moved = false;
-  function relPos(ev) {
-    var rect = canvas.getBoundingClientRect();
-    return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
+  function tokenize(s) {
+    var parts = String(s || "").replace(/[_\s\-·()\[\],]+/g, " ").split(" ");
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].length >= 2 && !/^\d+$/.test(parts[i])) out.push(parts[i]);
+    }
+    return out;
   }
-  canvas.addEventListener("mousedown", function (ev) {
-    var p = relPos(ev);
-    var n = nodeAt(p.x, p.y);
-    moved = false;
-    if (n) {
-      drag = { node: n, kind: "node" };
-      n.pinned = true;
-    } else {
-      drag = { kind: "pan", sx: p.x, sy: p.y, ox: view.x, oy: view.y };
-    }
-    canvas.classList.add("dragging");
-  });
-  window.addEventListener("mousemove", function (ev) {
-    var p = relPos(ev);
-    if (drag) {
-      moved = true;
-      if (drag.kind === "node") {
-        var w = toWorld(p.x, p.y);
-        drag.node.x = w.x; drag.node.y = w.y;
-        drag.node.vx = 0; drag.node.vy = 0;
-        alpha = Math.max(alpha, 0.3);
-      } else {
-        view.x = drag.ox + (p.x - drag.sx);
-        view.y = drag.oy + (p.y - drag.sy);
-      }
-    } else {
-      var over = nodeAt(p.x, p.y);
-      if (over !== hoverNode) hoverNode = over;
-      canvas.style.cursor = over ? "pointer" : "grab";
-    }
-  });
-  window.addEventListener("mouseup", function (ev) {
-    if (drag && drag.kind === "node" && !moved) {
-      var n = drag.node;
-      if (n.kind === "project") {
-        var pid = String(n.id).replace(/^p/, "");
-        window.location.href = "/project/" + pid;
-      } else if (n.doc_id != null) {
-        window.location.href = "/doc/" + n.doc_id;
-      }
-    }
-    if (drag && drag.kind === "node") drag.node.pinned = false;
-    drag = null;
-    canvas.classList.remove("dragging");
-  });
-  canvas.addEventListener("wheel", function (ev) {
-    ev.preventDefault();
-    var p = relPos(ev);
-    var before = toWorld(p.x, p.y);
-    var factor = ev.deltaY < 0 ? 1.12 : 1 / 1.12;
-    view.scale = Math.max(0.1, Math.min(4, view.scale * factor));
-    view.x = p.x - before.x * view.scale;
-    view.y = p.y - before.y * view.scale;
-  }, { passive: false });
+  function isYearTok(t) { return /(19|20)\d{2}/.test(t); }
+  function yearOf(label) {
+    var m = String(label || "").match(/(19|20)\d{2}/g);
+    if (!m) return null;
+    var best = 0;
+    for (var i = 0; i < m.length; i++) best = Math.max(best, parseInt(m[i], 10));
+    return best >= 1980 && best <= 2100 ? best : null;
+  }
+  function idf(tok) { return Math.log(1 + docCount / (tokenDf[tok] || 1)); }
+  function clip(s, n) { return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+  // 파일명에서 온 밑줄은 읽기를 방해한다. 표시할 때만 공백으로 바꾼다.
+  function pretty(s) {
+    return String(s || "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  }
 
-  // ── 검색 ──
-  searchEl.addEventListener("input", function () {
-    var q = searchEl.value.trim().toLowerCase();
-    if (!q) { matchIds = null; return; }
-    matchIds = {};
-    var first = null;
-    nodes.forEach(function (n) {
-      if (n.label.toLowerCase().indexOf(q) >= 0) {
-        matchIds[n.id] = true;
-        if (!first) first = n;
+  // 함께 보이는 이름들이 공유하는 상용어를 덜어 내 구별되는 부분만 남긴다.
+  function shortNames(list) {
+    var names = list.map(function (n) { return pretty(n.label); });
+    if (list.length < 3) return names;
+    var toks = names.map(tokenize);
+    var share = {};
+    toks.forEach(function (ts) {
+      var seen = {};
+      ts.forEach(function (t) {
+        if (seen[t]) return;
+        seen[t] = 1;
+        share[t] = (share[t] || 0) + 1;
+      });
+    });
+    var cut = Math.max(2, Math.ceil(toks.length * 0.6));
+    return toks.map(function (ts, i) {
+      if (ts.length <= 3) return names[i];
+      var keep = ts.filter(function (t) {
+        return isYearTok(t) || !((share[t] || 0) >= cut && (tokenDf[t] || 0) >= 3);
+      });
+      if (keep.length < 2) {
+        // 모두 상용어라 남는 게 없으면 판별력이 큰 낱말 둘로 대신한다.
+        var rare = ts.slice().sort(function (a, b) { return idf(b) - idf(a); }).slice(0, 2);
+        keep = ts.filter(function (t) {
+          return isYearTok(t) || rare.indexOf(t) >= 0;
+        });
+      }
+      return keep.length ? keep.join(" ") : names[i];
+    });
+  }
+  function twoLines(s, per) {
+    var t = clip(s, per * 2);
+    if (t.length <= per) return [t];
+    var at = t.lastIndexOf(" ", per);
+    if (at < per * 0.45) at = per;
+    return [t.slice(0, at).trim(), t.slice(at).trim()];
+  }
+
+  // ── 데이터 ──
+  function gradeOf(e) {
+    if (e.kind === "belongs" || e.kind === "uses") return "fact";
+    if (e.kind === "refers") return e.w >= 0.99 ? "fact" : "weak";
+    if (e.kind === "similar" || e.kind === "relates") return "calc";
+    return "fact";           // cites·mentions 는 본문에서 검출한 연결
+  }
+
+  function ingest(data) {
+    nodes = (data.nodes || []).map(function (n) {
+      return { id: n.id, doc_id: n.doc_id, label: n.label || n.id,
+               kind: n.kind || "criteria", sector: n.sector, doc_type: n.doc_type,
+               chunks: n.chunks || 0, importance: n.importance || 0, deg: 0 };
+    });
+    byId = {}; adj = {}; docEnt = {};
+    nodes.forEach(function (n) { byId[n.id] = n; adj[n.id] = []; });
+
+    edges = [];
+    (data.edges || []).forEach(function (e) {
+      var a = byId[e.s], b = byId[e.t];
+      if (!a || !b || a === b || !REL[e.kind]) return;
+      var rec = { s: a, t: b, kind: e.kind, w: e.w == null ? 0.5 : e.w };
+      rec.grade = gradeOf(rec);
+      edges.push(rec);
+      a.deg++; b.deg++;
+      adj[a.id].push(rec);
+      adj[b.id].push(rec);
+      if (e.kind === "mentions") {
+        var d = a.kind === "entity" ? b : a;
+        var en = a.kind === "entity" ? a : b;
+        (docEnt[d.id] = docEnt[d.id] || []).push(en.id);
       }
     });
-    if (!Object.keys(matchIds).length) matchIds = null;
-    if (first) centerNode(first, false);
-  });
-  searchEl.addEventListener("keydown", function (ev) {
-    if (ev.key === "Enter" && matchIds) {
-      var id = Object.keys(matchIds)[0];
-      var n = nodeById[id];
-      if (n && n.doc_id != null) window.location.href = "/doc/" + n.doc_id;
+
+    var docs = nodes.filter(function (n) { return n.kind !== "entity"; });
+    docCount = Math.max(docs.length, 1);
+    tokenDf = {};
+    docs.forEach(function (n) {
+      var seen = {};
+      tokenize(n.label).forEach(function (t) {
+        if (seen[t]) return;
+        seen[t] = 1;
+        tokenDf[t] = (tokenDf[t] || 0) + 1;
+      });
+    });
+    buildClusters(docs);
+
+    if (!nodes.length) {
+      blankText.textContent = "등록된 문서가 없습니다.";
+      renderRail();
+      renderPanel();
+      return;
     }
+    renderRail();
+    setCenter((FOCUS && byId[FOCUS]) || pickDefault(), { push: false });
+  }
+
+  // 기본 진입점 — 가장 큰 묶음의 대표 문서. 언급 간선만 많은 노드는 첫 화면이
+  // 개체 나열이 되어 쓸모가 없으므로 구조 연결 수로 고른다.
+  function pickDefault() {
+    var pool = clusters.length ? clusters[0].members
+                               : nodes.filter(function (n) { return n.kind !== "entity"; });
+    var best = null, bestScore = -1;
+    pool.forEach(function (n) {
+      var score = 0;
+      (adj[n.id] || []).forEach(function (e) { if (STRUCT[e.kind]) score++; });
+      if (score > bestScore) { bestScore = score; best = n; }
+    });
+    return best || nodes[0];
+  }
+
+  // 문서 묶음 — 개체 언급을 뺀 구조 간선으로 이어진 덩어리
+  function buildClusters(docs) {
+    var seen = {}, out = [];
+    docs.forEach(function (n) {
+      if (seen[n.id]) return;
+      var stack = [n], members = [];
+      seen[n.id] = 1;
+      while (stack.length) {
+        var cur = stack.pop();
+        members.push(cur);
+        adj[cur.id].forEach(function (e) {
+          if (!STRUCT[e.kind]) return;
+          var other = e.s === cur ? e.t : e.s;
+          if (other.kind === "entity" || seen[other.id]) return;
+          seen[other.id] = 1;
+          stack.push(other);
+        });
+      }
+      members.sort(function (a, b) {
+        return (yearOf(b.label) || 0) - (yearOf(a.label) || 0) || b.deg - a.deg;
+      });
+      out.push({ members: members, name: clusterName(members) });
+    });
+    out.sort(function (a, b) { return b.members.length - a.members.length; });
+    clusters = out;
+  }
+  function clusterName(members) {
+    var score = {};
+    members.forEach(function (n) {
+      var seen = {};
+      tokenize(n.label).forEach(function (t) {
+        if (seen[t] || isYearTok(t)) return;
+        seen[t] = 1;
+        score[t] = (score[t] || 0) + idf(t);
+      });
+    });
+    var top = Object.keys(score).sort(function (a, b) {
+      return score[b] - score[a] || b.length - a.length;
+    }).slice(0, 2);
+    if (!top.length) return members[0] ? clip(members[0].label, 22) : "묶음";
+    return top.join(" · ");
+  }
+
+  // ── 왼쪽 목록 ──
+  function renderRail() {
+    railBody.innerHTML = "";
+    if (!nodes.length) {
+      railBody.appendChild(el("p", "kg-none", "등록된 문서가 없습니다."));
+      return;
+    }
+    if (query) { renderSearchResults(); return; }
+    if (railMode === "cluster") renderClusterList();
+    else if (railMode === "entity") renderEntityList();
+    else renderDocList();
+  }
+
+  function rowFor(n, note) {
+    var b = el("button", "kg-row" + (center === n ? " on" : ""));
+    b.type = "button";
+    var dot = el("span", "kg-dot");
+    dot.style.background = NODE_COLOR[n.kind] || "#8892A6";
+    b.appendChild(dot);
+    b.appendChild(el("span", "kg-rname", pretty(n.label)));
+    b.appendChild(el("span", "kg-rnum", note != null ? note : String(n.deg)));
+    b.title = pretty(n.label);
+    b.addEventListener("click", function () { setCenter(n); });
+    return b;
+  }
+  function groupBox(key, name, count, openByDefault) {
+    var d = el("details", "kg-group");
+    d.open = railOpen[key] === undefined ? !!openByDefault : railOpen[key];
+    d.addEventListener("toggle", function () { railOpen[key] = d.open; });
+    var s = document.createElement("summary");
+    var chev = icon("solar:alt-arrow-right-linear");
+    chev.className = "kg-chev";
+    s.appendChild(chev);
+    s.appendChild(el("span", "kg-gname", name));
+    s.appendChild(el("span", "kg-gnum", String(count)));
+    d.appendChild(s);
+    var list = el("div", "kg-list");
+    d.appendChild(list);
+    d.list = list;
+    return d;
+  }
+
+  function renderClusterList() {
+    var many = clusters.filter(function (c) { return c.members.length > 1; });
+    var single = clusters.filter(function (c) { return c.members.length === 1; });
+    many.forEach(function (c, i) {
+      var holds = center && c.members.indexOf(center) >= 0;
+      var d = groupBox("c" + i, c.name, c.members.length, i === 0 || holds);
+      if (holds) d.open = true;
+      var names = shortNames(c.members);
+      c.members.forEach(function (n, k) {
+        var r = rowFor(n);
+        r.querySelector(".kg-rname").textContent = names[k];
+        d.list.appendChild(r);
+      });
+      railBody.appendChild(d);
+    });
+    if (single.length) {
+      var d2 = groupBox("csingle", "묶이지 않은 문서", single.length, false);
+      single.forEach(function (c) { d2.list.appendChild(rowFor(c.members[0])); });
+      railBody.appendChild(d2);
+    }
+  }
+
+  function renderEntityList() {
+    var ents = nodes.filter(function (n) { return n.kind === "entity"; });
+    if (!ents.length) {
+      railBody.appendChild(el("p", "kg-none", "추출된 기관·사업이 없습니다."));
+      return;
+    }
+    var kinds = [];
+    ENT_ORDER.forEach(function (k) { kinds.push(k); });
+    ents.forEach(function (n) {
+      if (kinds.indexOf(n.doc_type) < 0) kinds.push(n.doc_type);
+    });
+    kinds.forEach(function (k) {
+      var group = ents.filter(function (n) { return n.doc_type === k; })
+                      .sort(function (a, b) { return b.chunks - a.chunks; });
+      if (!group.length) return;
+      var d = groupBox("e" + k, ENT_LABEL[k] || k, group.length, true);
+      group.forEach(function (n) { d.list.appendChild(rowFor(n, n.chunks + "건")); });
+      railBody.appendChild(d);
+    });
+  }
+
+  function renderDocList() {
+    ["project", "intake", "criteria"].forEach(function (k) {
+      var group = nodes.filter(function (n) { return n.kind === k; })
+                       .sort(function (a, b) { return b.deg - a.deg; });
+      if (!group.length) return;
+      var d = groupBox("d" + k, KIND_LABEL[k], group.length, true);
+      group.forEach(function (n) { d.list.appendChild(rowFor(n)); });
+      railBody.appendChild(d);
+    });
+  }
+
+  function renderSearchResults() {
+    var q = query.toLowerCase();
+    var hits = nodes.filter(function (n) {
+      return n.label.toLowerCase().indexOf(q) >= 0
+          || pretty(n.label).toLowerCase().indexOf(q) >= 0;
+    }).sort(function (a, b) {
+      var ka = a.kind === "entity" ? 1 : 0, kb = b.kind === "entity" ? 1 : 0;
+      return ka - kb || a.label.length - b.label.length;
+    });
+    if (!hits.length) {
+      railBody.appendChild(el("p", "kg-none", "검색 결과가 없습니다."));
+      return;
+    }
+    railBody.appendChild(el("div", "kg-hint", "검색 결과 " + hits.length + "건"));
+    var list = el("div", "kg-list");
+    list.style.paddingLeft = "0";
+    hits.slice(0, 80).forEach(function (n) { list.appendChild(rowFor(n, kindLabel(n))); });
+    railBody.appendChild(list);
+  }
+
+  // ── 중심 이동 ──
+  function setCenter(n, opt) {
+    if (!n) return;
+    opt = opt || {};
+    if (center && center !== n && opt.push !== false) history.push(center);
+    center = n;
+    expandedId = null;
+    stageCap = {};
+    panelCap = {};
+    if (!opt.keepEdge) selEdge = null;
+    if (tab === "text" && center.doc_id == null) tab = "rel";
+    document.getElementById("kgBack").disabled = !history.length;
+    root.classList.add("panel-open");
+    renderRail();
+    renderStage();
+    renderPanel();
+  }
+
+  function groupsOf(n) {
+    var map = {}, list = [];
+    (adj[n.id] || []).forEach(function (e) {
+      if (!showWeak && e.grade === "weak") return;
+      var other = e.s === n ? e.t : e.s;
+      var dir = SYM[e.kind] ? "out" : (e.s === n ? "out" : "in");
+      var key = e.kind + ":" + dir;
+      if (!map[key]) {
+        map[key] = { key: key, kind: e.kind, dir: dir, label: REL[e.kind][dir], items: [] };
+        list.push(map[key]);
+      }
+      map[key].items.push({ node: other, edge: e });
+    });
+    list.forEach(function (g) {
+      g.items.sort(function (a, b) { return (b.edge.w || 0) - (a.edge.w || 0); });
+    });
+    list.sort(function (a, b) {
+      return REL_ORDER.indexOf(a.kind) - REL_ORDER.indexOf(b.kind);
+    });
+    return list;
+  }
+  function otherLinks(n) {
+    var out = [];
+    (adj[n.id] || []).forEach(function (e) {
+      if (!showWeak && e.grade === "weak") return;
+      var other = e.s === n ? e.t : e.s;
+      if (other === center || placedIds[other.id]) return;
+      out.push({ node: other, edge: e });
+    });
+    out.sort(function (a, b) { return (b.edge.w || 0) - (a.edge.w || 0); });
+    return out;
+  }
+
+  // ── 관계도 ──
+  function renderStage() {
+    var nameEl = document.getElementById("kgCenterName");
+    var kindEl = document.getElementById("kgCenterKind");
+    var statEl = document.getElementById("kgCenterStat");
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    placedIds = {};
+    if (!center) {
+      blank.hidden = false;
+      yearsEl.hidden = true;
+      nameEl.textContent = "선택 없음";
+      kindEl.hidden = true;
+      statEl.textContent = "";
+      return;
+    }
+    nameEl.textContent = pretty(center.label);
+    nameEl.title = pretty(center.label);
+    kindEl.hidden = false;
+    kindEl.textContent = kindLabel(center);
+
+    var groups = groupsOf(center);
+    var total = 0;
+    groups.forEach(function (g) { total += g.items.length; });
+    statEl.textContent = "연결 " + total + "개";
+    blank.hidden = total > 0;
+    if (!total) {
+      var hiddenWeak = 0;
+      if (!showWeak) {
+        (adj[center.id] || []).forEach(function (e) {
+          if (e.grade === "weak") hiddenWeak++;
+        });
+      }
+      blankText.textContent = hiddenWeak
+        ? "근거가 확인되지 않은 연결 " + hiddenWeak + "개가 숨겨져 있습니다."
+        : "이 항목에 연결된 문서가 없습니다.";
+      renderYears(groups);
+      return;
+    }
+
+    // 1촌 배치 — 관계별 각도 구역을 나누고 반지름을 번갈아 준다.
+    var shown = [];
+    groups.forEach(function (g) {
+      g.shown = g.items.slice(0, stageCap[g.key] || PER_GROUP);
+      g.shown.forEach(function (it) { shown.push(it); placedIds[it.node.id] = 1; });
+    });
+    var m = shown.length;
+    var rings = m <= 7 ? 1 : m <= 14 ? 2 : 3;
+    var baseR = 192, ringGap = 98;
+    var gapAngle = groups.length > 1 ? 0.18 : 0;
+    var span = (Math.PI * 2 - gapAngle * groups.length) / Math.max(m, 1);
+    var angle = -Math.PI / 2 - span / 2;
+    var placed = [], caps = [], idx = 0;
+    groups.forEach(function (g) {
+      var start = angle, far = baseR;
+      g.shown.forEach(function (it) {
+        var a = angle + span / 2;
+        var r = baseR + ringGap * (idx % rings);
+        far = Math.max(far, r);
+        placed.push({ node: it.node, edge: it.edge, group: g, a: a, r: r,
+                      x: Math.cos(a) * r, y: Math.sin(a) * r });
+        angle += span;
+        idx++;
+      });
+      // 구역 이름은 그 관계의 노드들 바로 바깥에 둔다 — 멀리 밀면 어느 무리의
+      // 이름인지 읽히지 않는다. 관계가 하나뿐이면 둘레 어디에 놓아도 가리키는
+      // 곳이 없으므로 위쪽에 고정한다.
+      caps.push({ label: g.label, group: g,
+                  a: groups.length > 1 ? (start + angle) / 2 : -Math.PI / 2,
+                  r: far + 54, color: REL[g.kind].color });
+      angle += gapAngle;
+    });
+
+    // 펼친 이웃에 붙는 위성
+    var sats = [];
+    if (expandedId) {
+      var host = null;
+      placed.forEach(function (p) { if (p.node.id === expandedId) host = p; });
+      if (host) {
+        var extra = otherLinks(host.node).slice(0, SAT_MAX);
+        var fan = Math.min(1.4, 0.38 * Math.max(extra.length - 1, 1));
+        extra.forEach(function (x, i) {
+          var a2 = host.a + (extra.length < 2 ? 0
+                             : -fan / 2 + fan * (i / (extra.length - 1)));
+          sats.push({ node: x.node, edge: x.edge, from: host,
+                      x: Math.cos(a2) * (host.r + 116),
+                      y: Math.sin(a2) * (host.r + 116) });
+        });
+      }
+    }
+
+    // 자리 계산 후 viewBox 맞춤 — 늘 한 화면에 담아 확대·이동 조작이 필요 없게 한다.
+    var minX = -70, maxX = 70, minY = -70, maxY = 70;
+    [{ x: 0, y: 0 }].concat(placed, sats).forEach(function (p) {
+      minX = Math.min(minX, p.x - 80); maxX = Math.max(maxX, p.x + 80);
+      minY = Math.min(minY, p.y - 46); maxY = Math.max(maxY, p.y + 60);
+    });
+    caps.forEach(function (c) {
+      var cx = Math.cos(c.a) * c.r, cy = Math.sin(c.a) * c.r;
+      var half = c.label.length * 8 + 16;          // 구역 이름이 잘리지 않게
+      minX = Math.min(minX, cx - half); maxX = Math.max(maxX, cx + half);
+      minY = Math.min(minY, cy - 22); maxY = Math.max(maxY, cy + 22);
+    });
+    var w = maxX - minX, h = maxY - minY;
+    var box = canvasEl.getBoundingClientRect();
+    if (box.width > 10 && box.height > 10) {
+      var need = Math.max(w / box.width, h / box.height, 1);
+      var fw = box.width * need, fh = box.height * need;
+      minX -= (fw - w) / 2; minY -= (fh - h) / 2;
+      w = fw; h = fh;
+    }
+    svg.setAttribute("viewBox", [minX, minY, w, h].join(" "));
+
+    var gEdges = svgEl("g"), gCaps = svgEl("g"), gNodes = svgEl("g");
+    svg.appendChild(gEdges); svg.appendChild(gCaps); svg.appendChild(gNodes);
+
+    function drawEdge(x1, y1, x2, y2, e) {
+      var meta = REL[e.kind], on = selEdge === e;
+      gEdges.appendChild(svgEl("line", { x1: x1, y1: y1, x2: x2, y2: y2,
+        "class": "e-line" + (on ? " sel" : "") + (e.grade === "weak" ? " weak" : "")
+                 + (selEdge && !on ? " dim" : ""),
+        stroke: meta.color, "stroke-width": on ? 3.4 : 1 + (e.w || 0.5) * 1.4,
+        "stroke-dasharray": meta.dash ? "5 4" : null }));
+      var hit = svgEl("line", { x1: x1, y1: y1, x2: x2, y2: y2, "class": "e-hit" });
+      hit.addEventListener("click", function (ev) { ev.stopPropagation(); selectEdge(e); });
+      var t = svgEl("title");
+      t.textContent = REL[e.kind].out;
+      hit.appendChild(t);
+      gEdges.appendChild(hit);
+    }
+    placed.forEach(function (p) { drawEdge(0, 0, p.x, p.y, p.edge); });
+    sats.forEach(function (s) { drawEdge(s.from.x, s.from.y, s.x, s.y, s.edge); });
+
+    caps.forEach(function (c) {
+      var t = svgEl("text", { x: Math.cos(c.a) * c.r, y: Math.sin(c.a) * c.r,
+                              "class": "g-cap" + (selEdge ? " dim" : ""),
+                              "text-anchor": "middle", fill: c.color });
+      t.textContent = c.label;
+      gCaps.appendChild(t);
+    });
+
+    var names = shortNames(placed.map(function (p) { return p.node; }));
+    placed.forEach(function (p, i) {
+      gNodes.appendChild(nodeMark(p.node, p.x, p.y, names[i], p.edge, "hop1"));
+    });
+    var satNames = shortNames(sats.map(function (s) { return s.node; }));
+    sats.forEach(function (s, i) {
+      gNodes.appendChild(nodeMark(s.node, s.x, s.y, satNames[i], s.edge, "sat"));
+    });
+    gNodes.appendChild(nodeMark(center, 0, 0, pretty(center.label), null, "center"));
+
+    groups.forEach(function (g) {
+      var cap = stageCap[g.key] || PER_GROUP;
+      if (g.items.length <= cap) return;
+      var last = null;
+      placed.forEach(function (p) { if (p.group === g) last = p; });
+      if (!last) return;
+      gNodes.appendChild(tagMark(
+        Math.cos(last.a) * (last.r + 58), Math.sin(last.a) * (last.r + 58),
+        "더 " + (g.items.length - cap) + "개", 62,
+        function () { stageCap[g.key] = cap + PER_GROUP_STEP; renderStage(); }));
+    });
+
+    renderYears(groups);
+  }
+
+  function tagMark(x, y, text, width, onClick) {
+    var g = svgEl("g", { "class": "kg-tag" + (selEdge ? " dim" : "") });
+    g.appendChild(svgEl("rect", { x: x - width / 2, y: y - 11,
+                                  width: width, height: 22, rx: 11 }));
+    var t = svgEl("text", { x: x, y: y + 4 });
+    t.textContent = text;
+    g.appendChild(t);
+    g.addEventListener("click", function (ev) { ev.stopPropagation(); onClick(); });
+    return g;
+  }
+
+  function nodeMark(n, x, y, name, viaEdge, role) {
+    var isCenter = role === "center", isSat = role === "sat";
+    var dim = selEdge && !isCenter && viaEdge !== selEdge;
+    var wrap = svgEl("g", { transform: "translate(" + x + "," + y + ")" });
+    var g = svgEl("g", { "class": "n-hit" + (dim ? " dim" : "") });
+    wrap.appendChild(g);
+    var r = isCenter ? 26 : isSat ? 9 : 13;
+    if (isCenter) g.appendChild(svgEl("circle", { r: r + 7, "class": "n-ring" }));
+    g.appendChild(svgEl("circle", { r: r, "class": "n-core",
+                                    fill: NODE_COLOR[n.kind] || "#8892A6" }));
+    twoLines(name, isCenter ? 20 : 13).forEach(function (ln, i) {
+      var t = svgEl("text", { x: 0, y: r + (isCenter ? 25 : 17) + i * 15,
+                              "class": "n-label" + (isCenter ? " center" : "") });
+      t.textContent = ln;
+      g.appendChild(t);
+    });
+    var title = svgEl("title");
+    title.textContent = pretty(n.label);
+    g.appendChild(title);
+    g.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      if (isCenter) { clearEdge(); return; }
+      if (viaEdge) selEdge = viaEdge;
+      setCenter(n, { keepEdge: true });
+    });
+    if (role === "hop1") {
+      var more = otherLinks(n).length;
+      var open = expandedId === n.id;
+      if (more > 0 || open) {
+        var tag = tagMark(0, -r - 16, open ? "접기" : "연결 " + more,
+                          open ? 40 : 58,
+                          function () {
+                            expandedId = open ? null : n.id;
+                            renderStage();
+                          });
+        if (!open) tag.setAttribute("class", tag.getAttribute("class") + " onhover");
+        wrap.appendChild(tag);
+      }
+      wrap.setAttribute("class", "n-wrap");
+    }
+    return wrap;
+  }
+
+  function clearEdge() {
+    if (!selEdge) return;
+    selEdge = null;
+    renderStage();
+    renderPanel();
+  }
+  function selectEdge(e) {
+    selEdge = e;
+    tab = "rel";
+    renderStage();
+    renderPanel();
+    root.classList.add("panel-open");
+  }
+
+  // ── 연도별 문서 ──
+  function renderYears(groups) {
+    var pool = {}, order = [];
+    function add(n) {
+      if (!n || pool[n.id] != null || n.kind === "entity") return;
+      var y = yearOf(n.label);
+      if (y == null) return;
+      pool[n.id] = y;
+      order.push(n);
+    }
+    add(center);
+    groups.forEach(function (g) {
+      if (g.kind === "mentions" && center.kind !== "entity") return;
+      g.items.forEach(function (it) { add(it.node); });
+    });
+    // 내용이 가까운 문서는 2촌까지 따라가 같은 계열을 모은다.
+    (adj[center.id] || []).forEach(function (e) {
+      if (e.kind !== "similar") return;
+      var one = e.s === center ? e.t : e.s;
+      (adj[one.id] || []).forEach(function (e2) {
+        if (e2.kind !== "similar") return;
+        add(e2.s === one ? e2.t : e2.s);
+      });
+    });
+    var years = {};
+    order.forEach(function (n) { (years[pool[n.id]] = years[pool[n.id]] || []).push(n); });
+    var keys = Object.keys(years).sort();
+    if (keys.length < 2) { yearsEl.hidden = true; return; }
+
+    yearsEl.innerHTML = "";
+    var head = el("div", "kg-years-head");
+    head.appendChild(el("b", null, "연도별 문서"));
+    head.appendChild(el("span", null, "제목에 적힌 연도 기준"));
+    yearsEl.appendChild(head);
+    var track = el("div", "kg-years-track");
+    var flat = [];
+    keys.forEach(function (k) { years[k].forEach(function (n) { flat.push(n); }); });
+    var names = shortNames(flat);
+    var pos = 0;
+    keys.forEach(function (k) {
+      var col = el("div", "kg-year");
+      col.appendChild(el("b", null, k));
+      years[k].forEach(function (n) {
+        // 열 머리에 연도가 이미 있으므로 이름에서는 덜어 낸다.
+        var short = names[pos++].split(" ").filter(function (t) {
+          return !isYearTok(t);
+        }).join(" ");
+        var b = el("button", n === center ? "on" : null, short || names[pos - 1]);
+        b.type = "button";
+        b.title = pretty(n.label);
+        b.addEventListener("click", function () { setCenter(n); });
+        col.appendChild(b);
+      });
+      track.appendChild(col);
+    });
+    yearsEl.appendChild(track);
+    yearsEl.hidden = false;
+  }
+
+  // ── 오른쪽 패널 ──
+  function renderPanel() {
+    var kindEl = document.getElementById("kgPKind");
+    var secEl = document.getElementById("kgPSector");
+    var titleEl = document.getElementById("kgPTitle");
+    var metaEl = document.getElementById("kgPMeta");
+    var actsEl = document.getElementById("kgPActs");
+    var tabsEl = document.getElementById("kgTabs");
+    pBody.innerHTML = "";
+    actsEl.innerHTML = "";
+    if (!center) {
+      kindEl.hidden = true;
+      secEl.textContent = "";
+      titleEl.textContent = "선택 없음";
+      metaEl.textContent = "";
+      tabsEl.hidden = true;
+      return;
+    }
+    kindEl.hidden = false;
+    kindEl.textContent = kindLabel(center);
+    secEl.textContent = center.kind === "entity" ? "" : (SECTOR[center.sector] || "");
+    titleEl.textContent = pretty(center.label);
+    var meta = [];
+    if (center.kind === "entity") meta.push("등장 문서 " + center.chunks + "건");
+    else if (center.chunks) meta.push("본문 조각 " + center.chunks + "개");
+    meta.push("연결 " + center.deg + "개");
+    metaEl.textContent = meta.join(" · ");
+
+    var url = nodeUrl(center);
+    if (url) {
+      var a = el("a", "btn-ghost", center.kind === "project" ? "프로젝트 화면" : "문서 화면");
+      a.href = url;
+      actsEl.appendChild(a);
+    }
+    tabsEl.hidden = false;
+    var btns = tabsEl.querySelectorAll("button");
+    for (var i = 0; i < btns.length; i++) {
+      var t = btns[i].getAttribute("data-tab");
+      btns[i].classList.toggle("on", t === tab);
+      btns[i].disabled = (t === "text" && center.doc_id == null);
+    }
+    if (tab === "text") renderTextPane();
+    else renderRelPane();
+  }
+
+  function renderRelPane() {
+    if (selEdge) pBody.appendChild(whyCard(selEdge));
+    var groups = groupsOf(center);
+    if (!groups.length) {
+      pBody.appendChild(el("p", "kg-note", "표시할 연결이 없습니다."));
+      return;
+    }
+    groups.forEach(function (g) {
+      var sec = el("div", "kg-relsec");
+      var h = el("h4");
+      var bar = el("span", "kg-bar");
+      bar.style.color = REL[g.kind].color;
+      if (REL[g.kind].dash) bar.style.borderTopStyle = "dashed";
+      h.appendChild(bar);
+      h.appendChild(el("span", null, g.label));
+      h.appendChild(el("span", "kg-gnum", String(g.items.length)));
+      sec.appendChild(h);
+      var limit = panelCap[g.key] || PANEL_ROWS;
+      var names = shortNames(g.items.map(function (it) { return it.node; }));
+      g.items.slice(0, limit).forEach(function (it, i) {
+        sec.appendChild(relRow(it, names[i]));
+      });
+      if (g.items.length > limit) {
+        var more = el("button", "kg-more-btn",
+                      "나머지 " + (g.items.length - limit) + "개 보기");
+        more.type = "button";
+        more.addEventListener("click", function () {
+          panelCap[g.key] = limit + 20;
+          renderPanel();
+        });
+        sec.appendChild(more);
+      }
+      pBody.appendChild(sec);
+    });
+  }
+
+  function relRow(it, name) {
+    var row = el("div", "kg-rel" + (selEdge === it.edge ? " on" : "")
+                        + (it.edge.grade === "weak" ? " weakrow" : ""));
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    var dot = el("span", "kg-dot");
+    dot.style.background = NODE_COLOR[it.node.kind] || "#8892A6";
+    row.appendChild(dot);
+    row.appendChild(el("span", "kg-rname", name || pretty(it.node.label)));
+    row.title = pretty(it.node.label);
+    if (it.edge.kind === "similar" || it.edge.kind === "relates") {
+      row.appendChild(el("span", "kg-w", (it.edge.w || 0).toFixed(2)));
+    }
+    var go = el("button", "kg-rel-go");
+    go.type = "button";
+    go.title = "이 항목을 중심으로";
+    go.appendChild(icon("solar:alt-arrow-right-linear"));
+    go.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      selEdge = it.edge;
+      setCenter(it.node, { keepEdge: true });
+    });
+    row.appendChild(go);
+    row.addEventListener("click", function () { selectEdge(it.edge); });
+    row.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); selectEdge(it.edge); }
+    });
+    return row;
+  }
+
+  // ── 근거 ──
+  function whyCard(e) {
+    var card = el("div", "kg-why");
+    var head = el("div", "kg-why-head");
+    head.appendChild(el("b", null, "이 연결의 근거"));
+    var grade = el("span", "kg-chip grade-" + e.grade, GRADE[e.grade]);
+    head.appendChild(grade);
+    var close = el("button", "kg-why-close", "×");
+    close.type = "button";
+    close.title = "닫기";
+    close.addEventListener("click", clearEdge);
+    head.appendChild(close);
+    card.appendChild(head);
+
+    var pair = el("div", "kg-why-pair");
+    pair.appendChild(el("em", null, pretty(e.s.label)));
+    pair.appendChild(document.createTextNode("  ·  " + REL[e.kind].out + "  ·  "));
+    pair.appendChild(el("em", null, pretty(e.t.label)));
+    card.appendChild(pair);
+
+    var body = el("div");
+    card.appendChild(body);
+    fillWhy(body, e, grade);
+    return card;
+  }
+
+  function fillWhy(box, e, gradeChip) {
+    if (e.kind === "refers") {
+      box.appendChild(el("p", null, e.w >= 0.99
+        ? "담당자가 근거 기준으로 지정한 연결입니다."
+        : "시스템이 제안한 근거이며 아직 확정되지 않았습니다."));
+      return;
+    }
+    if (e.kind === "belongs") {
+      box.appendChild(el("p", null, "이 문서는 해당 프로젝트에 등록되어 있습니다."));
+      return;
+    }
+    if (e.kind === "uses") {
+      box.appendChild(el("p", null, "해당 프로젝트의 적용 기준으로 등록되어 있습니다."));
+      return;
+    }
+    if (e.kind === "similar" || e.kind === "relates") {
+      box.appendChild(el("p", null, e.kind === "similar"
+        ? "두 문서 본문의 의미 유사도는 " + (e.w || 0).toFixed(2) + "입니다."
+        : "프로젝트 설명과 문서 본문의 유사도는 " + (e.w || 0).toFixed(2)
+          + "이며, 등록된 연결은 아닙니다."));
+      var shared = sharedEntities(e.s, e.t);
+      if (shared.length) {
+        box.appendChild(el("p", "kg-cap", "양쪽에 함께 나오는 이름"));
+        box.appendChild(chips(shared.slice(0, 6), shared.length));
+      }
+      var words = sharedWords(e.s, e.t);
+      if (words.length) {
+        box.appendChild(el("p", "kg-cap", "제목에서 겹치는 표현"));
+        box.appendChild(chips(words.map(function (t) { return { label: t }; }),
+                              words.length));
+      }
+      if (!shared.length && !words.length) {
+        box.appendChild(el("p", "kg-note", "겹치는 이름이나 표현은 확인되지 않았습니다."));
+        weaken(gradeChip);
+      }
+      return;
+    }
+    if (e.kind === "mentions") {
+      var doc = e.s.kind === "entity" ? e.t : e.s;
+      var ent = e.s.kind === "entity" ? e.s : e.t;
+      box.appendChild(el("p", null, "문서 본문에 이 이름이 나옵니다."));
+      quoteInto(box, doc, [ent.label], gradeChip, "mentions", ent);
+      return;
+    }
+    if (e.kind === "cites") {
+      box.appendChild(el("p", null, "인용한 쪽 본문에 상대 규정의 제목이 나옵니다."));
+      quoteInto(box, e.s, keyTerms(e.t), gradeChip, "cites", e.t);
+    }
+  }
+  function weaken(chip) {
+    if (!chip) return;
+    chip.className = "kg-chip grade-weak";
+    chip.textContent = GRADE.weak;
+  }
+
+  function chips(items, total) {
+    var wrap = el("div", "kg-chips");
+    items.forEach(function (it) {
+      var c;
+      if (it.node) {
+        c = el("button", "kg-chip act", it.label);
+        c.type = "button";
+        c.addEventListener("click", function () { setCenter(it.node); });
+      } else {
+        c = el("span", "kg-chip", it.label);
+      }
+      wrap.appendChild(c);
+    });
+    if (total > items.length) {
+      wrap.appendChild(el("span", "kg-chip", "외 " + (total - items.length) + "개"));
+    }
+    return wrap;
+  }
+
+  function sharedEntities(a, b) {
+    var set = {}, out = [];
+    (docEnt[b.id] || []).forEach(function (id) { set[id] = 1; });
+    (docEnt[a.id] || []).forEach(function (id) {
+      if (!set[id] || !byId[id]) return;
+      out.push({ label: byId[id].label, node: byId[id], imp: byId[id].importance || 0 });
+    });
+    out.sort(function (x, y) { return y.imp - x.imp; });
+    return out;
+  }
+  function sharedWords(a, b) {
+    var has = {}, seen = {}, out = [];
+    tokenize(a.label).forEach(function (t) { has[t] = 1; });
+    tokenize(b.label).forEach(function (t) {
+      if (!has[t] || seen[t] || isYearTok(t)) return;
+      seen[t] = 1;
+      out.push(t);
+    });
+    out.sort(function (x, y) { return idf(y) - idf(x); });
+    return out.slice(0, 5);
+  }
+  // 본문에서 상대 문서를 찾을 표현 — 온전한 이름이 먼저, 그다음 판별력 있는 낱말.
+  function keyTerms(n) {
+    var ts = tokenize(n.label).filter(function (t) { return !isYearTok(t); });
+    ts.sort(function (a, b) { return idf(b) - idf(a) || b.length - a.length; });
+    return [pretty(n.label)].concat(ts.slice(0, 3));
+  }
+
+  // 공백을 지운 사본에서 찾아 원문 위치로 되돌린다 (개체명은 공백 없이 저장된다).
+  function findHits(text, terms, max) {
+    var stripped = "", map = [];
+    for (var i = 0; i < text.length; i++) {
+      if (/\s/.test(text[i])) continue;
+      stripped += text[i];
+      map.push(i);
+    }
+    var low = stripped.toLowerCase(), hits = [];
+    terms.forEach(function (term) {
+      var key = String(term).replace(/\s+/g, "").toLowerCase();
+      if (key.length < 2) return;
+      var from = 0;
+      while (hits.length < max) {
+        var at = low.indexOf(key, from);
+        if (at < 0) break;
+        hits.push({ start: map[at], end: map[at + key.length - 1] + 1 });
+        from = at + key.length;
+      }
+    });
+    hits.sort(function (a, b) { return a.start - b.start; });
+    return hits.slice(0, max);
+  }
+  // 온전한 이름부터 찾고, 없을 때만 짧은 표현으로 내려간다. 어떤 표현이 맞았는지
+  // 함께 돌려주어 근거를 읽는 사람이 확인할 수 있게 한다.
+  function findFirst(text, terms, max) {
+    for (var i = 0; i < terms.length; i++) {
+      var hits = findHits(text, [terms[i]], max);
+      if (hits.length) return { term: terms[i], hits: hits, exact: i === 0 };
+    }
+    return { term: null, hits: [], exact: false };
+  }
+
+  // 본문 전체에서 근거 문장을 받아 온다 — 미리보기 앞부분에만 의존하지 않는다
+  function fullEvidence(kind, srcNode, dstNode, term) {
+    var q = "/graph/evidence?kind=" + encodeURIComponent(kind || "")
+          + "&s=" + encodeURIComponent(srcNode ? srcNode.id : "")
+          + "&t=" + encodeURIComponent(dstNode ? dstNode.id : "")
+          + (term ? "&term=" + encodeURIComponent(term) : "");
+    return fetch(q, { headers: { "Accept": "application/json" } })
+      .then(function (r) { return r.json(); });
+  }
+
+  function quoteInto(box, doc, terms, gradeChip, kind, other) {
+    if (doc.doc_id == null) return;
+    var slot = el("div");
+    box.appendChild(slot);
+    slot.appendChild(el("p", "kg-note", "본문을 불러오는 중입니다."));
+    fullEvidence(kind, doc, other, terms && terms[0]).then(function (ev) {
+      if (!ev || !ev.ok || !ev.quotes || !ev.quotes.length) throw new Error("본문 근거 없음");
+      slot.innerHTML = "";
+      ev.quotes.forEach(function (q) {
+        var line = el("p", "kg-quote");
+        var at = q.text.indexOf(ev.term);
+        if (at < 0) { line.appendChild(document.createTextNode(q.text)); }
+        else {
+          line.appendChild(document.createTextNode(q.text.slice(0, at)));
+          line.appendChild(el("mark", null, ev.term));
+          line.appendChild(document.createTextNode(q.text.slice(at + ev.term.length)));
+        }
+        if (q.heading) line.insertBefore(el("span", "kg-cap", q.heading + " "), line.firstChild);
+        slot.appendChild(line);
+      });
+      if (ev.n > ev.quotes.length) {
+        slot.appendChild(el("p", "kg-note", "본문에서 모두 " + ev.n + "번 나옵니다."));
+      }
+    }).catch(function () { quoteFromPreview(slot, doc, terms, gradeChip); });
+  }
+
+  // 본문 전체 조회가 안 되면 미리보기 구간에서라도 찾는다
+  function quoteFromPreview(slot, doc, terms, gradeChip) {
+    slot.innerHTML = "";
+    slot.appendChild(el("p", "kg-note", "본문을 불러오는 중입니다."));
+    peek(doc.doc_id).then(function (data) {
+      slot.innerHTML = "";
+      var text = (data && data.text) || "";
+      var found = findFirst(text, terms, 2);
+      var hits = found.hits;
+      if (!hits.length) {
+        slot.appendChild(el("p", "kg-note",
+          "미리보기 구간에서는 해당 표현을 찾지 못했습니다."));
+        weaken(gradeChip);
+        return;
+      }
+      if (!found.exact) {
+        slot.appendChild(el("p", "kg-note",
+          "온전한 이름은 찾지 못해 " + found.term + " 부분으로 대신 표시합니다."));
+        weaken(gradeChip);
+      }
+      hits.forEach(function (h) {
+        var from = Math.max(0, h.start - 58), to = Math.min(text.length, h.end + 72);
+        var q = el("p", "kg-quote");
+        if (from > 0) q.appendChild(document.createTextNode("… "));
+        q.appendChild(document.createTextNode(text.slice(from, h.start)));
+        q.appendChild(el("mark", null, text.slice(h.start, h.end)));
+        q.appendChild(document.createTextNode(text.slice(h.end, to)));
+        if (to < text.length) q.appendChild(document.createTextNode(" …"));
+        slot.appendChild(q);
+      });
+    }).catch(function () {
+      slot.innerHTML = "";
+      slot.appendChild(el("p", "kg-note", "본문을 불러오지 못했습니다."));
+    });
+  }
+
+  // ── 본문 ──
+  function renderTextPane() {
+    if (center.doc_id == null) {
+      pBody.appendChild(el("p", "kg-note", "이 항목에는 본문이 없습니다."));
+      return;
+    }
+    var slot = el("div");
+    pBody.appendChild(slot);
+    slot.appendChild(el("p", "kg-note", "본문을 불러오는 중입니다."));
+    var want = center.doc_id;
+    peek(want).then(function (data) {
+      if (!center || center.doc_id !== want) return;
+      slot.innerHTML = "";
+      var text = (data && data.text) || "";
+      if (!text.trim()) {
+        slot.appendChild(el("p", "kg-note", "저장된 본문이 없습니다."));
+        return;
+      }
+      var terms = (docEnt[center.id] || []).map(function (id) {
+        return byId[id] ? byId[id].label : "";
+      }).filter(Boolean);
+      var wrap = el("div", "kg-text"), at = 0;
+      findHits(text, terms, 60).forEach(function (h) {
+        if (h.start < at) return;
+        wrap.appendChild(document.createTextNode(text.slice(at, h.start)));
+        wrap.appendChild(el("mark", null, text.slice(h.start, h.end)));
+        at = h.end;
+      });
+      wrap.appendChild(document.createTextNode(text.slice(at)));
+      slot.appendChild(wrap);
+      if (data.n_chunks > 1) {
+        slot.appendChild(el("p", "kg-note",
+          "전체 " + data.n_chunks + "개 조각 가운데 앞부분입니다."));
+      }
+    }).catch(function () {
+      slot.innerHTML = "";
+      slot.appendChild(el("p", "kg-note", "본문을 불러오지 못했습니다."));
+    });
+  }
+
+  function peek(docId) {
+    if (!peekCache[docId]) {
+      var p = fetch("/chat/peek/" + docId, { headers: { "Accept": "application/json" } })
+        .then(function (r) {
+          if (!r.ok) throw new Error(String(r.status));
+          return r.json();
+        });
+      p.catch(function () { delete peekCache[docId]; });
+      peekCache[docId] = p;
+    }
+    return peekCache[docId];
+  }
+
+  // ── 조작 ──
+  svg.addEventListener("click", clearEdge);
+  document.getElementById("kgPHide").addEventListener("click", function () {
+    root.classList.remove("panel-open");
+  });
+  document.getElementById("kgBack").addEventListener("click", function () {
+    var prev = history.pop();
+    if (prev) setCenter(prev, { push: false });
+  });
+  document.getElementById("kgWeak").addEventListener("change", function (ev) {
+    showWeak = ev.target.checked;
+    selEdge = null;
+    renderStage();
+    renderPanel();
+  });
+  document.getElementById("kgRailTabs").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-rail]");
+    if (!b) return;
+    railMode = b.getAttribute("data-rail");
+    var all = this.querySelectorAll("button");
+    for (var i = 0; i < all.length; i++) all[i].classList.toggle("on", all[i] === b);
+    renderRail();
+  });
+  document.getElementById("kgTabs").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-tab]");
+    if (!b || b.disabled) return;
+    tab = b.getAttribute("data-tab");
+    renderPanel();
+  });
+  var queryEl = document.getElementById("kgQuery");
+  queryEl.addEventListener("input", function () {
+    query = queryEl.value.trim();
+    renderRail();
+  });
+  queryEl.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") { queryEl.value = ""; query = ""; renderRail(); }
+    if (ev.key === "Enter") {
+      var first = railBody.querySelector(".kg-row");
+      if (first) first.click();
+    }
+  });
+  var resizeTimer = null;
+  window.addEventListener("resize", function () {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { if (center) renderStage(); }, 120);
   });
 
   // ── 시작 ──
-  resize();
   fetch("/graph.json", { headers: { "Accept": "application/json" } })
-    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (r) {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    })
     .then(ingest)
-    .catch(function () { ingest({ nodes: [], edges: [] }); });
-  requestAnimationFrame(tick);
+    .catch(function () {
+      ingest({ nodes: [], edges: [] });
+      blankText.textContent = "그래프를 불러오지 못했습니다.";
+    });
 })();
 </script>
 {% endblock %}

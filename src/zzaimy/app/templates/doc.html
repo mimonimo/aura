@@ -18,18 +18,54 @@
   {% endif %}
 {% endblock %}
 {% block content %}
+{% set can_draft = doc.status == "reviewed" and doc.doc_type == "grant" and not (doc.coverage and doc.coverage.startswith("초안 작성 중")) %}
+<style>
+  /* .draft-body: 마크다운 렌더(제목·표·목록·굵게) */
+  .draft-body { font-size: 14px; line-height: 1.75; color: var(--ink); }
+  .draft-body h3 { font-size: 16px; margin: 4px 0 10px; }
+  .draft-body h4.extract-h { margin: 18px 0 8px; }
+  .draft-body p { margin: 0 0 10px; }
+  .draft-body table.extract td, .draft-body table.extract th { font-size: 13px; vertical-align: top; }
+
+  /* 문서 보기 — 글자층이 입혀진 PDF를 브라우저 내장 뷰어로 */
+  .docview { border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+             background: #fff; }
+  .docview iframe { display: block; width: 100%; height: 78vh; min-height: 420px;
+             max-height: 1040px; border: 0; }
+  .viewnote { font-size: 12px; margin: 9px 0 0; }
+  .xtract { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .xtract summary { cursor: pointer; font-size: 12.5px; font-weight: 600;
+             color: var(--muted); }
+  .xtract summary:hover { color: var(--navy); }
+
+  /* 내보내기 — 단추 하나에 목록 하나 */
+  .menu-wrap { position: relative; }
+  .menu-list { position: absolute; right: 0; top: 36px; z-index: 30; min-width: 168px;
+    background: var(--panel, #fff); border: 1px solid var(--line); border-radius: 11px;
+    padding: 5px; box-shadow: 0 12px 32px rgba(27, 59, 117, .16);
+    display: flex; flex-direction: column; }
+  .menu-list a { display: flex; align-items: baseline; gap: 6px; color: var(--ink);
+    font-size: 13px; font-weight: 500; padding: 7px 10px; border-radius: 8px;
+    text-decoration: none; white-space: nowrap; }
+  .menu-list a:hover { background: #EEF3FA; color: var(--navy); }
+  .menu-list .ext { color: var(--faint); font-size: 11.5px; }
+</style>
 <script>
   document.addEventListener("DOMContentLoaded", function () {
-    document.querySelectorAll("[data-mtab]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        document.querySelectorAll("[data-mtab]").forEach(function (b) {
-          b.classList.toggle("on", b === btn);
-        });
-        var orig = document.getElementById("modeOriginal");
-        var rest = document.getElementById("modeRestored");
-        if (orig) orig.hidden = btn.dataset.mtab !== "modeOriginal";
-        if (rest) rest.hidden = btn.dataset.mtab !== "modeRestored";
-      });
+    var btn = document.getElementById("expBtn");
+    var menu = document.getElementById("expMenu");
+    if (!btn || !menu) return;
+    function close() { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); }
+    btn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      menu.hidden = !menu.hidden;
+      btn.setAttribute("aria-expanded", String(!menu.hidden));
+    });
+    document.addEventListener("click", function (ev) {
+      if (!menu.hidden && !menu.contains(ev.target)) close();
+    });
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape") close();
     });
   });
 </script>
@@ -43,7 +79,7 @@
          style="text-decoration:none; color:inherit;" title="원본 파일 열기">{{ doc.filename }}
         <iconify-icon icon="solar:square-top-up-linear"
                       style="font-size:14px; color:var(--faint);"></iconify-icon></a></h2>
-    <p style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+    <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:0 0 14px;">
       <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
       {% if doc.doc_type in ("regulation", "ocr") %}
         <span class="pill reviewed">{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
@@ -58,29 +94,17 @@
         <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}</a>
       {% endfor %}
       <span class="muted" style="margin-left:6px;">{{ doc.receipt_no or "" }} · 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
-    </p>
+      <a class="pill" href="/graph?focus=d{{ doc.id }}" style="text-decoration:none;" title="이 문서의 연결을 그래프에서 봅니다">
+        <iconify-icon icon="solar:graph-new-linear" style="font-size:12px;"></iconify-icon>그래프</a>
+      <form action="/doc/{{ doc.id }}/delete" method="post" style="margin:0 0 0 auto;"
+            onsubmit="return confirm('이 문서와 관련 기록을 삭제할까요?');">
+        <button type="submit" class="btn-ghost" style="padding:3px 10px; font-size:12px; color:var(--red); border-color:#E7B9B8;">삭제</button>
+      </form>
+    </div>
     {% if doc.status == "failed" %}
       <p class="notice"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>처리 실패: {{ doc.error }}</span></p>
     {% elif doc.status != "reviewed" %}
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>처리 중입니다. 끝나면 화면이 자동으로 갱신됩니다.</span></p>
-    {% endif %}
-    <form action="/doc/{{ doc.id }}/delete" method="post" style="margin-top:10px;"
-          onsubmit="return confirm('이 문서와 관련 기록을 삭제할까요?');">
-      <button type="submit" class="secondary" style="border-color:#E7B9B8; color:var(--red);">삭제</button>
-    </form>
-    {% if doc.status == "reviewed" and doc.doc_type == "grant"
-          and not (doc.coverage and doc.coverage.startswith("초안 작성 중")) %}
-    {# 목적별 플로우 — 국고사업: 초안 작성·재작성 / 채용·입학: 서류 검토·판정 #}
-    <form action="/doc/{{ doc.id }}/draft" method="post" style="margin-top:10px;">
-      <textarea name="sections" rows="3" placeholder="작성 항목을 직접 지정하려면 한 줄에 하나씩 (비우면 공고의 목차를 따릅니다)&#10;예) 사업 개요&#10;    추진 계획&#10;    예산 계획"
-                style="width:100%; max-width:560px; font-size:12.5px;">{{ doc.draft_spec or "" }}</textarea>
-      <div style="margin-top:8px;">
-        <button type="submit" class="secondary">{{ "계획서 초안 재작성" if doc.draft else "계획서 초안 작성" }}</button>
-        <span class="muted" style="margin-left:8px;">
-          {{ "아래 담당자 의견을 반영해 다시 작성합니다." if doc.draft
-             else "지정 항목(없으면 공고 목차)에 맞춰 이 서류를 재료로 초안을 만듭니다. 1~2분 걸립니다." }}</span>
-      </div>
-    </form>
     {% endif %}
   </div>
 </div>
@@ -95,7 +119,9 @@
       {% if analyzing %}
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>{{ doc.coverage }} — 끝나면 자동 갱신됩니다.</span></p>
       {% elif doc.coverage and doc.coverage.startswith("맥락 분석 실패") %}
-      <p class="notice"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>{{ doc.coverage }}</span></p>
+      {# 예외 이름(APIConnectionError 등)은 담당자에게 뜻이 없다 — 상태만 알린다 #}
+      <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>
+        {{ "요약" if doc.doc_type == "regulation" else "분석" }} 대기 — AI 모델 서버가 연결되면 만들 수 있습니다.</span></p>
       {% endif %}
       {% if doc.ai_review %}
       {% if is_summary %}
@@ -139,15 +165,46 @@
         </span></h2>
       {% if request.query_params.get("hwp") == "sent" %}
       <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>
-        연결된 한글로 보냈습니다 — PC 화면을 확인하세요.</span></p>
+        연결된 한글로 보냈습니다 — PC 화면을 확인하세요.<span id="hwpResult"></span></span></p>
+      <script>
+      (function () {
+        var el = document.getElementById("hwpResult");
+        if (!el) return;
+        var tries = 0;
+        var t = setInterval(function () {
+          tries++;
+          fetch("/hwp/latest-artifact", { cache: "no-store" })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (d && d.url) {
+                clearInterval(t);
+                el.innerHTML = ' · <a href="' + d.url + '" target="_blank" rel="noopener">결과 PDF 열기</a>';
+              } else if (tries >= 20) { clearInterval(t); }
+            }).catch(function () {});
+        }, 3000);
+      })();
+      </script>
       {% elif request.query_params.get("hwp") == "none" %}
       <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>
         연결된 에이전트가 없습니다 — 개발자 화면에서 에이전트 앱을 받아 실행하세요.</span></p>
       {% endif %}
       {% if doc.coverage %}<p class="notice"><iconify-icon icon="solar:chart-linear"></iconify-icon><span>{{ doc.coverage }}</span></p>{% endif %}
-      <pre class="doc-text">{{ doc.draft }}</pre>
+      <div class="draft-body">{{ doc.draft | md_view }}</div>
       <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>근거가
         없는 수치 자리는 (근거 없음)으로 비워 둡니다. 초안이므로 검토와 수정을 거쳐 쓰세요.</span></p>
+      {% if can_draft %}
+      <details style="margin-top:12px;">
+        <summary class="muted" style="cursor:pointer; font-size:12.5px; font-weight:600;">초안 항목 지정 · 다시 쓰기</summary>
+        <form action="/doc/{{ doc.id }}/draft" method="post" style="margin-top:10px;">
+          <textarea name="sections" rows="3" placeholder="작성 항목을 한 줄에 하나씩 (비우면 공고의 목차를 따릅니다)&#10;예) 사업 개요&#10;    추진 계획&#10;    예산 계획"
+                    style="width:100%; max-width:560px; font-size:12.5px;">{{ doc.draft_spec or "" }}</textarea>
+          <div style="margin-top:8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button type="submit" class="secondary">계획서 초안 재작성</button>
+            <span class="muted" style="font-size:12px;">아래 담당자 의견을 반영해 다시 작성합니다.</span>
+          </div>
+        </form>
+      </details>
+      {% endif %}
     </div>
   </div>
   {% elif doc.coverage %}
@@ -159,6 +216,20 @@
   </div>
   {% endif %}
 
+  {% if can_draft and not doc.draft %}
+  <div class="card accent reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:document-add-linear"></iconify-icon>계획서 초안 작성</h2>
+    <form action="/doc/{{ doc.id }}/draft" method="post">
+      <textarea name="sections" rows="3" placeholder="작성 항목을 한 줄에 하나씩 (비우면 공고의 목차를 따릅니다)&#10;예) 사업 개요&#10;    추진 계획&#10;    예산 계획"
+                style="width:100%; max-width:560px; font-size:12.5px;">{{ doc.draft_spec or "" }}</textarea>
+      <div style="margin-top:8px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <button type="submit">계획서 초안 작성</button>
+        <span class="muted" style="font-size:12px;">지정 항목(없으면 공고 목차)에 맞춰 만듭니다. 1~2분 걸립니다.</span>
+      </div>
+    </form>
+  </div></div>
+  {% endif %}
+
   {% if doc.ai_review %}
   <div class="card reveal">
     <div class="card-in">
@@ -167,24 +238,33 @@
       <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>에이전트가
         기준 문서를 근거로 정리한 의견입니다. 아래에 의견을 남기고 재검토를 요청하면 그 내용을
         반영해 다시 검토합니다.</span></p>
-      {% if doc.status == "reviewed" %}
-      <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap;">
-        <form action="/doc/{{ doc.id }}/decision" method="post">
-          <input type="hidden" name="decision" value="approved">
-          <button type="submit">검토 확인</button>
-        </form>
-        <form action="/doc/{{ doc.id }}/decision" method="post">
-          <input type="hidden" name="decision" value="rework">
-          <button type="submit" class="secondary">재검토 요청</button>
-        </form>
-        <form action="/doc/{{ doc.id }}/decision" method="post">
-          <input type="hidden" name="decision" value="rejected">
-          <button type="submit" class="secondary">반려</button>
-        </form>
-      </div>
-      {% endif %}
     </div>
   </div>
+  {% endif %}
+
+  {# 담당자 판정 — 검토 의견 유무와 무관하게 reviewed면 항상 노출(생성 서버 미연결 대비) #}
+  {% if doc.status == "reviewed" %}
+  <div class="card reveal"><div class="card-in">
+    <h2><iconify-icon icon="solar:gavel-linear"></iconify-icon>담당자 판정
+      {% if doc.decision and doc.decision != "pending" %}
+      <span class="pill {{ doc.decision }}" style="margin-left:6px;">{{ decision_labels.get(doc.decision, doc.decision) }}</span>
+      {% endif %}</h2>
+    {% if not doc.ai_review or "검토 의견 생성 대기" in doc.ai_review %}
+    <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>
+      검토 의견 생성은 대기 중이지만 색인·분류는 끝났습니다 — 담당자가 직접 판정할 수 있습니다.</span></p>
+    {% endif %}
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <form action="/doc/{{ doc.id }}/decision" method="post">
+        <input type="hidden" name="decision" value="approved">
+        <button type="submit">승인</button></form>
+      <form action="/doc/{{ doc.id }}/decision" method="post">
+        <input type="hidden" name="decision" value="rework">
+        <button type="submit" class="secondary">재검토 요청</button></form>
+      <form action="/doc/{{ doc.id }}/decision" method="post">
+        <input type="hidden" name="decision" value="rejected">
+        <button type="submit" class="secondary">반려</button></form>
+    </div>
+  </div></div>
   {% endif %}
 {% endif %}
 
@@ -206,141 +286,105 @@
 {% endif %}
 
 {% if doc.masked_text %}
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>추출 결과{{ "" if doc.doc_type == "regulation" else " (개인정보 마스킹됨)" }}
-      {% if doc.parse_note %}<span class="pill type" style="font-size:11.5px;">{{ doc.parse_note }}</span>{% endif %}
-      <span class="muted" style="font-weight:500; font-size:12.5px;">
-        {% if n_text_chunks %}본문 {{ n_text_chunks }}조각{% endif %}
-        {% if n_table_chunks %} · 표 {{ n_table_chunks }}{% endif %}
-        {% if assets %} · 그림 {{ assets|length }}{% endif %}</span>
-      {% if extract_blocks %}
-      <span style="margin-left:auto; display:flex; gap:8px;">
-        {% if doc.stored_path.lower().endswith((".pdf", ".png", ".jpg", ".jpeg")) %}
-        <a href="/doc/{{ doc.id }}/export.pdf" class="btn-ghost" style="font-weight:600;">
-          <iconify-icon icon="solar:file-check-linear"></iconify-icon>검색 가능 PDF</a>
-        {% endif %}
-        {% if assets %}
-        <a href="/doc/{{ doc.id }}/images.zip" class="btn-ghost" style="font-weight:600;">
-          <iconify-icon icon="solar:gallery-download-linear"></iconify-icon>그림 {{ assets|length }}장 (.zip)</a>
-        {% endif %}
-        <a href="/doc/{{ doc.id }}/export.docx" class="btn-ghost" style="font-weight:600;">
-          <iconify-icon icon="solar:document-add-linear"></iconify-icon>편집본 (.docx)</a>
-        <a href="/doc/{{ doc.id }}/export.md" class="btn-ghost" style="font-weight:600;">
-          <iconify-icon icon="solar:download-linear"></iconify-icon>.md</a>
-        {% if box_pages %}
-        <a href="#" class="btn-ghost" style="font-weight:600;"
-           onclick="zLightbox(BOX_IMGS, 0, '인식 영역'); return false;"
-           title="OCR이 읽은 영역을 신뢰도 색(초록=확신, 주황=낮음)으로 표시">
-          <iconify-icon icon="solar:scanner-linear"></iconify-icon>인식 영역{% if box_pages|length > 1 %} {{ box_pages|length }}쪽{% endif %}</a>
-        <script>var BOX_IMGS=[{% for p in box_pages %}"/doc/{{ doc.id }}/boxes/{{ p }}.png"{% if not loop.last %},{% endif %}{% endfor %}];</script>
-        {% endif %}
-      </span>
-      {% endif %}</h2>
-    {% if assets %}
-    <div style="display:flex; gap:8px; flex-wrap:wrap; margin:2px 0 14px;">
-      {% for a in assets %}
-      <img src="/doc/{{ doc.id }}/asset/{{ a.id }}" alt="그림 {{ loop.index }}" loading="lazy"
-           onclick="zLightbox(GALLERY_IMGS, {{ loop.index0 }}, '그림')"
-           title="그림 {{ loop.index }} 크게 보기"
-           style="height:90px; width:auto; max-width:150px; object-fit:cover; cursor:zoom-in;
-                  border:1px solid var(--line); border-radius:8px; display:block;">
+{# 이 문서가 어떤 사업에 관한 것인지 — 본문에서 확인된 값만 둔다 #}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:bookmark-square-minimalistic-linear"></iconify-icon>문서 정체
+    <form action="/doc/{{ doc.id }}/identity" method="post" style="margin:0 0 0 auto;">
+      <button type="submit" class="secondary" data-busy="읽는 중…" style="padding:5px 11px; font-size:12px;">
+        <iconify-icon icon="solar:magic-stick-3-linear"></iconify-icon>{{ "다시 읽기" if identity else "본문에서 읽기" }}</button>
+    </form></h2>
+  {% if identity %}
+  <dl style="display:grid; grid-template-columns:auto 1fr; gap:6px 16px; font-size:13px; margin:0;">
+    {% for key, label in [("program","사업"), ("organizer","주체"), ("year","연도"),
+                          ("target","대상"), ("scale","규모"), ("period","기간"), ("law","근거")] %}
+      {% if identity.get(key) %}
+      <dt class="muted" style="white-space:nowrap;">{{ label }}</dt><dd style="margin:0;">{{ identity[key] }}</dd>
+      {% endif %}
+    {% endfor %}
+  </dl>
+  {% if same_program %}
+  <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
+    <p class="muted" style="font-size:11.5px; margin:0 0 8px;">같은 사업을 다루는 문서</p>
+    <div style="display:flex; flex-wrap:wrap; gap:6px;">
+      {% for d in same_program %}
+      <a href="/doc/{{ d.id }}" class="pill type" style="text-decoration:none;">{{ d.filename }}{% if d.year %} · {{ d.year }}{% endif %}</a>
       {% endfor %}
     </div>
-    <script>var GALLERY_IMGS=[{% for a in assets %}"/doc/{{ doc.id }}/asset/{{ a.id }}"{% if not loop.last %},{% endif %}{% endfor %}];</script>
-    {% endif %}
-    {# 단일 뷰어 — 원본 / AI 읽기 전환 (복원 PDF 생성 제거로 빠름) #}
-    {% if original_kind and extract_blocks %}
-    <div style="display:flex; align-items:center; margin-bottom:12px;">
-      <div class="tabbar" style="max-width:280px; margin-bottom:0;">
-        <button type="button" data-mtab="modeOriginal">원본</button>
-        <button type="button" class="on" data-mtab="modeRestored">AI 읽기</button>
-      </div>
-      {% if request.query_params.get("reported") %}
-      <span class="pill reviewed" style="margin-left:12px;">신고 접수됨</span>
-      {% endif %}
-      <details style="margin-left:auto; position:relative;">
-        <summary class="btn-ghost" style="list-style:none; cursor:pointer;">
-          <iconify-icon icon="solar:flag-linear"></iconify-icon>추출 문제 신고</summary>
-        <form action="/doc/{{ doc.id }}/quality-report" method="post"
-              style="position:absolute; right:0; top:36px; z-index:30; width:280px;
-                     background:#fff; border:1px solid var(--line); border-radius:12px;
-                     padding:14px; box-shadow:0 12px 36px rgba(27,59,117,.16);
-                     display:flex; flex-direction:column; gap:8px;">
-          <span class="muted" style="font-size:12px;">원본과 다르게 읽힌 부분을
-            알려주시면 처리 방식을 개선합니다.</span>
-          <select name="kind" style="border:1px solid var(--line); border-radius:8px;
-                  padding:7px 9px; font-size:13px;">
-            <option value="table">표 구조 깨짐</option>
-            <option value="typo">글자 오인식</option>
-            <option value="layout">배치·순서 어긋남</option>
-            <option value="other">기타</option>
-          </select>
-          <textarea name="note" rows="2" placeholder="어느 부분인지 (선택)"
-                    style="border:1px solid var(--line); border-radius:8px;
-                           padding:7px 9px; font-size:13px; resize:vertical;"></textarea>
-          <button type="submit" style="justify-content:center;">신고</button>
-        </form>
-      </details>
-    </div>
-    {% endif %}
+  </div>
+  {% endif %}
+  {% else %}
+  <p class="muted" style="font-size:12.5px; margin:0;">아직 읽지 않았습니다.</p>
+  {% endif %}
+</div></div>
 
-    {% if original_kind %}
-    <div id="modeOriginal" {% if extract_blocks %}hidden{% endif %}>
-      {% if original_kind == "pdf" %}
-      <embed src="/doc/{{ doc.id }}/original" type="application/pdf"
-             style="width:100%; height:680px; border:1px solid var(--line); border-radius:12px;">
-      {% else %}
-        {% if scan_asset %}
-        <div class="tabbar" style="max-width:240px; margin-bottom:10px;">
-          <button type="button" class="on" data-otab="oScan">보정 스캔본</button>
-          <button type="button" data-otab="oRaw">원본 사진</button>
-        </div>
-        {% endif %}
-        <div style="max-height:680px; overflow-y:auto; border:1px solid var(--line); border-radius:12px;">
+{% endif %}
+
+{# 문서 보기 — 어느 문서든 같은 구성: 뷰어 · 한 줄 안내 · 추출된 글과 표 #}
+{% macro extracted() %}
+  {% if extract_blocks %}
+    {% for b in extract_blocks %}{{ b }}{% endfor %}
+  {% elif doc.masked_text %}
+    <pre class="doc-text" style="margin:0;">{{ doc.masked_text }}</pre>
+  {% else %}
+    <p class="muted" style="margin:0; font-size:12.5px;">추출된 내용이 없습니다.</p>
+  {% endif %}
+{% endmacro %}
+<div class="card reveal">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 보기
+      {% if doc.parse_note %}<span class="pill type" style="font-size:11.5px;">{{ doc.parse_note }}</span>{% endif %}
+      <span class="muted" style="font-weight:500; font-size:12.5px;">
+        {%- if n_text_chunks %}본문 {{ n_text_chunks }}조각{% endif -%}
+        {%- if n_table_chunks %} · 표 {{ n_table_chunks }}{% endif -%}
+        {%- if assets %} · 그림 {{ assets|length }}{% endif -%}
+        {%- if n_figtext_chunks %} · 그림 글자 {{ n_figtext_chunks }}{% endif -%}</span>
+      <span class="menu-wrap" style="margin-left:auto;">
+        <button type="button" id="expBtn" class="btn-ghost" aria-expanded="false"
+                aria-haspopup="true" style="font-weight:600;">
+          <iconify-icon icon="solar:download-linear"></iconify-icon>내보내기</button>
+        <div id="expMenu" class="menu-list" hidden>
+          <a href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener">원본 파일</a>
+          {% if restored_pdf %}
+          <a href="/doc/{{ doc.id }}/export.pdf">PDF<span class="ext">.pdf</span></a>
+          {% endif %}
+          <a href="/doc/{{ doc.id }}/export.docx">워드<span class="ext">.docx</span></a>
+          <a href="/doc/{{ doc.id }}/export.md">마크다운<span class="ext">.md</span></a>
+          {% if assets %}
+          <a href="/doc/{{ doc.id }}/images.zip">그림 {{ assets|length }}장<span class="ext">.zip</span></a>
+          {% endif %}
           {% if scan_asset %}
-          <img id="oScanImg" src="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}" alt="보정 스캔본"
-               style="width:100%; display:block;">
-          <img id="oRawImg" src="/doc/{{ doc.id }}/original" alt="원본" hidden
-               style="width:100%; display:block;">
-          {% else %}
-          <img src="/doc/{{ doc.id }}/original" alt="원본" style="width:100%; display:block;">
+          <a href="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}?dl=1">보정 스캔본<span class="ext">.png</span></a>
           {% endif %}
         </div>
-        {% if scan_asset %}
-        <p class="muted" style="margin:6px 0 0; font-size:11.5px;">기울기·조명을 보정한
-          스캔본입니다 · <a href="/doc/{{ doc.id }}/asset/{{ scan_asset.id }}?dl=1">내려받기</a></p>
-        <script>
-          document.addEventListener("DOMContentLoaded", function () {
-            document.querySelectorAll("[data-otab]").forEach(function (btn) {
-              btn.addEventListener("click", function () {
-                document.querySelectorAll("[data-otab]").forEach(function (b) {
-                  b.classList.toggle("on", b === btn);
-                });
-                document.getElementById("oScanImg").hidden = btn.dataset.otab !== "oScan";
-                document.getElementById("oRawImg").hidden = btn.dataset.otab !== "oRaw";
-              });
-            });
-          });
-        </script>
-        {% endif %}
-      {% endif %}
-    </div>
-    {% endif %}
+      </span></h2>
 
-    {% if extract_blocks %}
-    <div id="modeRestored">
-      <div id="viewFlow" class="extract-doc" style="max-height:680px; overflow-y:auto;">
-        {% for b in extract_blocks %}{{ b }}{% endfor %}
+    {% if doc.status == "failed" %}
+    <p class="viewnote muted">처리에 실패해 문서를 열 수 없습니다.</p>
+    {% elif doc.status != "reviewed" %}
+    <p class="viewnote muted">처리가 끝나면 이 자리에 문서가 열립니다.</p>
+    {% elif original_kind %}
+    <div class="docview">
+      <iframe src="/doc/{{ doc.id }}/restored.pdf" title="{{ doc.filename }}"
+              loading="lazy"></iframe>
+    </div>
+    <p class="viewnote muted">원본 쪽 모양 그대로이며, 글자를 선택하고 검색할 수 있습니다.</p>
+    <details class="xtract">
+      <summary>추출된 글과 표</summary>
+      <div class="extract-doc" style="max-height:620px; overflow-y:auto; margin-top:10px;">
+        {{ extracted() }}
       </div>
+    </details>
+    {% else %}
+    <p class="viewnote muted" style="margin:0 0 10px;">
+      {%- if restored_pdf %}원본 파일을 찾을 수 없어 추출한 글과 표로 보여 드립니다.
+      {%- else %}이 형식은 문서 뷰어로 열 수 없어 추출한 글과 표로 보여 드립니다.
+        원본 파일은 내보내기에서 받으십시오.{% endif %}</p>
+    <div class="extract-doc" style="max-height:680px; overflow-y:auto;">
+      {{ extracted() }}
     </div>
-    {% elif not original_kind %}
-    <pre class="doc-text" style="max-height:680px;">{{ doc.masked_text }}</pre>
     {% endif %}
-
   </div>
 </div>
-{% endif %}
 
 {% if doc.doc_type not in ("regulation", "ocr") %}
 <div class="card reveal">
@@ -359,47 +403,4 @@
 </div>
 {% endif %}
 
-{# 이미지 팝업(라이트박스) — 그림·인식 영역 공용, 좌우 이동 #}
-<style>#zlb[hidden]{display:none !important}</style>
-<div id="zlb" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:1000;
-     display:flex;align-items:center;justify-content:center;">
-  <button id="zlbClose" title="닫기 (Esc)" style="position:absolute;top:14px;right:20px;
-     font-size:28px;line-height:1;background:none;border:none;color:#fff;cursor:pointer;">×</button>
-  <button id="zlbPrev" title="이전 (←)" style="position:absolute;left:14px;font-size:38px;
-     line-height:1;background:none;border:none;color:#fff;cursor:pointer;">‹</button>
-  <img id="zlbImg" alt="" style="max-width:90vw;max-height:86vh;object-fit:contain;
-     border-radius:6px;background:#fff;">
-  <button id="zlbNext" title="다음 (→)" style="position:absolute;right:14px;font-size:38px;
-     line-height:1;background:none;border:none;color:#fff;cursor:pointer;">›</button>
-  <div id="zlbCount" style="position:absolute;bottom:16px;left:0;right:0;text-align:center;
-     color:#fff;font-size:13px;"></div>
-</div>
-<script>
-  function zLightbox(imgs, idx, label) {
-    if (!imgs || !imgs.length) return;
-    var ov = document.getElementById("zlb"), im = document.getElementById("zlbImg"),
-        ct = document.getElementById("zlbCount"), i = idx || 0;
-    function show() { im.src = imgs[i]; ct.textContent = (label || "") + " " + (i + 1) + " / " + imgs.length; }
-    window._zlbPrev = function () { i = (i - 1 + imgs.length) % imgs.length; show(); };
-    window._zlbNext = function () { i = (i + 1) % imgs.length; show(); };
-    var multi = imgs.length > 1;
-    document.getElementById("zlbPrev").style.visibility = multi ? "visible" : "hidden";
-    document.getElementById("zlbNext").style.visibility = multi ? "visible" : "hidden";
-    show(); ov.hidden = false;
-  }
-  document.addEventListener("DOMContentLoaded", function () {
-    var ov = document.getElementById("zlb");
-    if (!ov) return;
-    ov.addEventListener("click", function (e) { if (e.target === ov) ov.hidden = true; });
-    document.getElementById("zlbClose").addEventListener("click", function () { ov.hidden = true; });
-    document.getElementById("zlbPrev").addEventListener("click", function (e) { e.stopPropagation(); window._zlbPrev && window._zlbPrev(); });
-    document.getElementById("zlbNext").addEventListener("click", function (e) { e.stopPropagation(); window._zlbNext && window._zlbNext(); });
-    document.addEventListener("keydown", function (e) {
-      if (ov.hidden) return;
-      if (e.key === "Escape") ov.hidden = true;
-      else if (e.key === "ArrowLeft") window._zlbPrev && window._zlbPrev();
-      else if (e.key === "ArrowRight") window._zlbNext && window._zlbNext();
-    });
-  });
-</script>
 {% endblock %}

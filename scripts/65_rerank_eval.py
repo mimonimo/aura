@@ -15,6 +15,7 @@ from pathlib import Path
 
 from zzaimy.app.db import Database
 from zzaimy.app.embed_search import embed_search, rrf_merge
+from zzaimy.app.regulations import lexical_rank
 from zzaimy.eval.retrieval import mrr, recall_at_k
 
 DB = Path("data/platform/platform.db")
@@ -26,17 +27,6 @@ MODEL = "BAAI/bge-reranker-v2-m3"
 
 
 def main() -> None:
-    import importlib.util
-    import sys
-
-    spec = importlib.util.spec_from_file_location(
-        "s53", Path(__file__).parent / "53_retrieval_eval.py"
-    )
-    s53 = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules["s53"] = s53
-    spec.loader.exec_module(s53)
-
     db = Database(DB)
     rows = [
         json.loads(x)
@@ -75,7 +65,7 @@ def main() -> None:
     rerank_runs: list[list[int]] = []
     golds: list[set[int]] = []
     for i, (q, gold) in enumerate(pairs):
-        lex = s53.lexical_rank(db, q)
+        lex = lexical_rank(db, q)[:TOP_K]
         den = [cid for cid, _ in embed_search(q, top_k=TOP_K)]
         cand = rrf_merge(lex, den)[:TOP_K]
         base_runs.append(list(cand))

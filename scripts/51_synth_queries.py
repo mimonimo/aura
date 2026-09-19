@@ -2,6 +2,8 @@
 
 규정 저장소의 각 조각에 대해 vLLM으로 검색 질의 3종(실무형·요구사항형·키워드형)을
 생성해 JSONL로 쌓는다. 재시작해도 이어서 돈다(이미 처리한 조각은 건너뜀).
+각 행에 정답 조각의 본문(gold_text·gold_title·gold_heading)을 같이 적는다 — 조각을
+재분할해 id가 바뀌어도 평가(53)가 본문으로 정답을 되찾는다.
 /tmp/stop-overnight 파일이 생기면 우아하게 종료한다.
 
 실행(Spark): .venv/bin/python scripts/51_synth_queries.py
@@ -13,6 +15,7 @@ import json
 from pathlib import Path
 
 from zzaimy.app.db import Database
+from zzaimy.eval.retrieval_eval import gold_fields
 
 OUT = Path("data/interim/synth_queries.jsonl")
 STOP = Path("/tmp/stop-overnight")
@@ -54,6 +57,7 @@ def main() -> None:
             except (json.JSONDecodeError, KeyError):
                 pass
     todo = [c for c in chunks if c["id"] not in done]
+    by_id = {c["id"]: c for c in todo}
     print(f"조각 {len(chunks)}개 중 {len(todo)}개 생성 예정 (완료 {len(done)})", flush=True)
 
     client = VllmClient()
@@ -117,7 +121,8 @@ def main() -> None:
             if data is None or not any(str(v).strip() for v in data.values()):
                 continue  # 실질 내용 없음 — 정상 스킵
             with write_lock:
-                f.write(json.dumps({"chunk_id": cid, **data}, ensure_ascii=False) + "\n")
+                f.write(json.dumps({"chunk_id": cid, **data, **gold_fields(by_id[cid])},
+                                   ensure_ascii=False) + "\n")
                 f.flush()
             if ok % 50 == 0:
                 print(f"진행 {ok}/{len(todo)} (실패 {fail})", flush=True)

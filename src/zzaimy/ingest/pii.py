@@ -10,6 +10,8 @@ Presidio 기반 한국형 recognizer 골격. 인덱싱 **이전** 단계에 위�
 - EMAIL             이메일
 - KR_BRN            사업자등록번호 (체크섬 검증)
 - KR_BANK_ACCOUNT   계좌번호 (문맥 라벨 필수 — 오탐 방지)
+- KR_STUDENT_ID     학번·수험번호·사번 (라벨 문맥 필수)
+- KR_BIRTHDATE      생년월일 (라벨 문맥 필수 — 작성일자 같은 일반 날짜는 제외)
 - KR_NAME           성명 (라벨 문맥 기반. 자유 문장 속 성명은 못 잡는다 →
                     NER 기반 확장은 표본 확인 후 결정)
 
@@ -106,6 +108,29 @@ class BrnRecognizer(PatternRecognizer):
         return (10 - s % 10) % 10 == digits[9]
 
 
+def _label_alt(labels: tuple[str, ...]) -> str:
+    """라벨 대안식 — 글자 사이 공백을 허용한다.
+
+    한글 서식(표 칸)은 '성 명', '학 번', '생 년 월 일'처럼 글자를 띄어 쓰는 일이 흔하고,
+    OCR도 라벨 안에 공백을 끼워 넣는다. 실측(2026-09-15, .hwp 이수보고서): '성 명 ○○○'이
+    '성명:' 패턴에 안 걸려 이름이 그대로 저장됐다. 라벨 목록은 서식 일반어이지 특정 문서가 아니다.
+    """
+    import re as _re
+
+    return "|".join(r"\s*".join(_re.escape(ch) for ch in lab) for lab in labels)
+
+
+# 라벨 뒤 구분자 — 공백 또는 콜론·표 칸 경계(|)가 하나는 있어야 한다. 콜론을 필수로 두면
+# 표 서식을 전부 놓치고, 아무것도 요구하지 않으면 '이름으로 변경'·'성명은'처럼 라벨에
+# 조사가 붙은 문장에서 뒤 낱말을 값으로 잡는다(잔여 검사 오탐 실측 2026-09-15).
+_LABEL_SEP = r"(?:\s{1,3}[:：|]?\s{0,3}|\s{0,3}[:：|]\s{0,3})"
+# 라벨 뒤에 흔히 오는 '값이 아닌' 서식 낱말 — 성명 후보에서 제외(일반 서식 어휘)
+_NOT_A_NAME = (
+    "연락처", "전화", "휴대전화", "이메일", "소속", "부서", "직위", "직급", "서명", "날인",
+    "주소", "생년월일", "학번", "학과", "성별", "확인", "서명란", "인적사항", "정보",
+)
+
+
 def _pattern_recognizer(entity: str, name: str, regex: str, score: float) -> PatternRecognizer:
     return PatternRecognizer(
         supported_entity=entity,
@@ -123,8 +148,9 @@ def _build_recognizers() -> list[PatternRecognizer]:
             "KR_PHONE",
             "kr_phone",
             # 휴대전화(01x) 또는 지역번호 유선전화. 날짜(YYYY-MM-DD)와 겹치지 않도록
-            # 맨 앞 0을 요구하고 숫자 경계를 건다.
-            r"(?<!\d)0(?:1[016789][-. ]?\d{3,4}|\d{1,2}[-. ]?\d{3,4})[-. ]?\d{4}(?!\d)",
+            # 맨 앞 0을 요구하고, 경계는 '영숫자'로 건다 — 16진수 해시·파일명·코드처럼
+            # 글자와 숫자가 이어진 토큰 속 숫자열은 전화번호가 아니다(잔여 검사 오탐 실측).
+            r"(?<![0-9A-Za-z])0(?:1[016789][-. ]?\d{3,4}|\d{1,2}[-. ]?\d{3,4})[-. ]?\d{4}(?![0-9A-Za-z])",
             0.6,
         ),
         _pattern_recognizer(
@@ -142,12 +168,44 @@ def _build_recognizers() -> list[PatternRecognizer]:
             r"\d{2,6}[- ]\d{2,6}[- ]\d{2,11}(?!\d)",
             0.6,
         ),
+        # 성명 — 라벨 문맥 기반(자유 문장 속 성명은 NER 도입 전까지 못 잡는다). 두 갈래:
+        #  · '성명·이름'처럼 이름 자체를 뜻하는 라벨은 띄어쓰기('성 명')·콜론 없음(표 칸)도 허용
+        #  · '담당자·신청인'처럼 문장에도 흔한 역할 명사는 콜론·칸 경계가 있을 때만
+        #    ("신청인 자격은 …" 같은 문장에서 뒤 낱말을 이름으로 잡던 오탐 실측)
         _pattern_recognizer(
             "KR_NAME",
-            "kr_name",
-            # 라벨 문맥 기반. 자유 문장 속 성명은 NER 도입 전까지 못 잡는다.
-            r"(?<=(?:성명|이름|담당자|책임자|작성자|신청인)\s{0,3}[:：]\s{0,3})"
+            "kr_name_field",
+            r"(?<=(?:" + _label_alt(("성명", "이름", "학생명", "성함", "대표자명", "담당자명"))
+            + r")" + _LABEL_SEP + r")"
+            r"(?!(?:" + "|".join(_NOT_A_NAME) + r")(?![가-힣]))"
             r"[가-힣]{2,4}(?![가-힣])",
+            0.6,
+        ),
+        _pattern_recognizer(
+            "KR_NAME",
+            "kr_name_role",
+            r"(?<=(?:" + _label_alt(("담당자", "책임자", "작성자", "신청인", "신청자", "지원자",
+                                     "대표자", "연구책임자"))
+            + r")\s{0,3}[:：|]\s{0,3})"
+            r"(?!(?:" + "|".join(_NOT_A_NAME) + r")(?![가-힣]))"
+            r"[가-힣]{2,4}(?![가-힣])",
+            0.6,
+        ),
+        _pattern_recognizer(
+            "KR_STUDENT_ID",
+            "kr_student_id",
+            # 학번·수험번호·사번 — 대학 서식의 개인 식별자. 라벨 문맥이 있을 때만.
+            r"(?<=(?:" + _label_alt(("학번", "수험번호", "사번", "응시번호", "군번"))
+            + r")" + _LABEL_SEP + r")"
+            r"\d{5,10}(?![0-9A-Za-z])",
+            0.6,
+        ),
+        _pattern_recognizer(
+            "KR_BIRTHDATE",
+            "kr_birthdate",
+            # 생년월일 라벨 뒤의 날짜. 일반 날짜(작성일자 등)는 라벨이 달라 잡지 않는다.
+            r"(?<=(?:" + _label_alt(("생년월일", "출생일", "생일")) + r")" + _LABEL_SEP + r")"
+            r"(?:19|20)\d{2}\s*[.\-/년]\s*\d{1,2}\s*[.\-/월]\s*\d{1,2}\s*일?",
             0.6,
         ),
     ]
@@ -216,3 +274,44 @@ class PiiMasker:
                 "masked doc=%s entity=%s span=%d..%d", ev.doc_id, ev.entity_type, ev.start, ev.end
             )
         return MaskedDocument(doc_id=doc.doc_id, text="".join(parts)), events
+
+    def _spans(self, text: str) -> list[tuple[int, int, str]]:
+        results = self._analyzer.analyze(text=text, language="ko", score_threshold=SCORE_THRESHOLD)
+        spans: list[tuple[int, int, str]] = []
+        for r in sorted(results, key=lambda r: (r.start, -(r.end - r.start))):
+            if spans and r.start < spans[-1][1]:
+                continue
+            spans.append((r.start, r.end, r.entity_type))
+        return spans
+
+    def tokenize(self, text: str) -> tuple[str, dict[str, str]]:
+        """PII 를 되돌릴 수 있는 토큰으로 치환한다. 같은 값은 같은 토큰을 쓴다.
+
+        반환 vault(토큰→원값)는 교내에만 두고 밖으로 보내지 않는다. 외부 모델에는 토큰본만 보낸다.
+        """
+        vault: dict[str, str] = {}
+        val2tok: dict[str, str] = {}
+        counters: dict[str, int] = {}
+        parts: list[str] = []
+        cursor = 0
+        for start, end, entity in self._spans(text):
+            val = text[start:end]
+            tok = val2tok.get(val)
+            if tok is None:
+                counters[entity] = counters.get(entity, 0) + 1
+                tok = f"[[{entity}_{counters[entity]}]]"
+                val2tok[val] = tok
+                vault[tok] = val
+            parts.append(text[cursor:start])
+            parts.append(tok)
+            cursor = end
+        parts.append(text[cursor:])
+        return "".join(parts), vault
+
+    @staticmethod
+    def restore(text: str, vault: dict[str, str]) -> str:
+        """토큰을 원값으로 되돌린다(결정론적 치환). 값 복원은 생성이 아니라 정확 치환으로만 한다."""
+        # 긴 토큰부터 치환해 부분 겹침을 피한다
+        for tok in sorted(vault, key=len, reverse=True):
+            text = text.replace(tok, vault[tok])
+        return text

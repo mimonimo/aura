@@ -1,173 +1,455 @@
 {% extends "base.html" %}
 {% block title %}데이터 열람{% endblock %}
-{% block pagetitle %}저장된 데이터 열람 (개발자){% endblock %}
+{% block pagetitle %}데이터 열람 (개발자){% endblock %}
 {% block content %}
 
 <style>
-/* 엑셀형 데이터 그리드 — 이 페이지 전용 스코프(.xls-*) */
-.xls-scroll{
-  overflow:auto; max-height:calc(100vh - 264px);
-  border:1px solid var(--line); border-radius:10px; background:#fff;
-  -webkit-overflow-scrolling:touch;
-}
-table.xls{
-  border-collapse:separate; border-spacing:0;
-  width:max-content; min-width:100%; font-size:12.5px; line-height:1.5;
-}
-table.xls th, table.xls td{
-  border-right:1px solid var(--line); border-bottom:1px solid var(--line);
-  padding:6px 11px; text-align:left; white-space:nowrap; background:#fff;
-}
-/* 헤더 행: 위 고정 */
-table.xls thead th{
-  position:sticky; top:0; z-index:2;
-  background:#EEF3FB; color:var(--navy); font-weight:700;
-  border-bottom:2px solid #CEDBEF; letter-spacing:-0.01em;
-}
-/* 행번호 거터: 왼쪽 고정 */
-table.xls td.gut, table.xls thead th.gut{
-  position:sticky; left:0;
-  text-align:right; font-variant-numeric:tabular-nums;
-  border-right:2px solid #CEDBEF; padding:6px 9px;
-}
-table.xls td.gut{ z-index:1; background:#FAFBFE; }
-table.xls thead th.gut{ z-index:3; width:52px; }
-table.xls td.gut a{
-  color:var(--muted); text-decoration:none; font-size:11.5px;
-  display:block; width:100%;
-}
-table.xls td.gut a:hover{ color:var(--navy); }
-/* 데이터 셀 성격별 */
-table.xls td.mono{
-  font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
-  color:#334155; text-align:right; font-variant-numeric:tabular-nums;
-}
-table.xls td.dt{ color:var(--muted); font-variant-numeric:tabular-nums; }
-table.xls td.txt{ max-width:380px; overflow:hidden; text-overflow:ellipsis; }
-/* 지브라 + 호버 (고정 셀 배경도 함께) */
-table.xls tbody tr:nth-child(even) td{ background:#FAFBFD; }
-table.xls tbody tr:nth-child(even) td.gut{ background:#F2F6FC; }
-table.xls tbody tr:hover td{ background:#EAF1FC; }
-table.xls tbody tr:hover td.gut{ background:#DCE7FA; }
-/* 셀 복사 */
-table.xls td.copyable{ cursor:copy; }
-table.xls td.copyable:active{ background:#DCE7FA !important; }
-/* 복사 토스트 */
-#xtoast{
-  position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
-  background:var(--navy); color:#fff; font-size:12.5px; font-weight:600;
-  padding:8px 16px; border-radius:20px; box-shadow:0 6px 18px rgba(27,59,117,.28);
-  opacity:0; pointer-events:none; transition:opacity .16s var(--ease), transform .16s var(--ease);
-  z-index:200;
-}
-#xtoast.on{ opacity:1; transform:translateX(-50%) translateY(0); }
+/* 데이터 열람 — 이 페이지 전용 스코프(.dx-*) */
+.dx-tabs{ display:flex; gap:3px; background:#E9EEF5; border-radius:11px; padding:3px;
+          margin:0 0 16px; width:max-content; max-width:100%; }
+.dx-tabs a{ text-decoration:none; color:var(--muted); font-size:13px; font-weight:600;
+            padding:8px 18px; border-radius:9px; white-space:nowrap;
+            transition:background .25s var(--ease), color .25s var(--ease); }
+.dx-tabs a:hover{ background:rgba(255,255,255,.6); color:var(--navy); }
+.dx-tabs a.on{ background:#fff; color:var(--navy); box-shadow:0 1px 3px rgba(27,59,117,.15); }
+.dx-grid{ display:grid; grid-template-columns:minmax(360px,440px) minmax(0,1fr); gap:16px; align-items:start; }
+.dx-grid > .dx-detail{ position:sticky; top:16px; }
+.dx-grid.rev{ grid-template-columns:minmax(0,1fr) minmax(280px,360px); }
+@media (max-width:1000px){ .dx-grid, .dx-grid.rev{ grid-template-columns:1fr; } }
+.dx-card > .card-in{ padding:18px 20px; }
+.dx-head{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
+.dx-head h2{ margin:0; min-width:0; flex:1; }
+.dx-title{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dx-links{ margin-left:auto; display:flex; gap:6px; flex:none; }
+.dx-links .h-link{ margin-left:0; }
+.dx-search{ display:flex; gap:6px; align-items:center; margin:0 0 12px; }
+.dx-search input[type=text]{ flex:1; min-width:0; border:1.5px solid var(--line); border-radius:10px;
+            padding:7px 12px; font-size:13px; font-family:inherit; outline:none; }
+.dx-search input[type=text]:focus{ border-color:#94A3B8; }
+.dx-search select{ padding:6px 10px; font-size:12.5px; font-weight:500; border-radius:10px; }
+.dx-search button{ padding:7px 12px; font-size:12.5px; flex:none; }
+.dx-scroll{ max-height:calc(100vh - 230px); min-height:120px; overflow:auto;
+            border:1px solid var(--line); border-radius:10px; }
+table.dx-list{ font-size:13px; }
+table.dx-list th{ position:sticky; top:0; background:#F8FAFC; z-index:1; padding:7px 8px; white-space:nowrap; }
+table.dx-list td{ padding:10px 10px; vertical-align:middle; }
+table.dx-list tr.pick{ cursor:pointer; }
+table.dx-list tr.on td{ background:#E3ECFB; }
+table.dx-list td.name{ max-width:0; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+table.dx-list td.name a{ color:var(--ink); text-decoration:none; font-weight:600; }
+table.dx-list tr.on td.name a{ color:var(--navy); }
+table.dx-list td.name .sub{ font-size:11.5px; color:var(--muted); overflow:hidden; text-overflow:ellipsis;
+            white-space:nowrap; margin-top:3px; }
+table.dx-list td.name .sub.failed{ color:var(--red); }
+table.dx-list td.name .sub.processing, table.dx-list td.name .sub.received{ color:var(--amber); }
+.dx-rows-wrap{ max-height:560px; overflow:auto; border:1px solid var(--line); border-radius:10px; }
+.dx-rows-wrap table.dx-rows th{ position:sticky; top:0; background:#F8FAFC; z-index:1; }
+.dx-num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+td.dx-num{ color:var(--muted); }
+.dx-mono{ font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:11.5px; color:#334155; white-space:nowrap; }
+.dx-pill{ font-size:11px; padding:2px 8px; white-space:nowrap; }
+.dx-pills{ display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.dx-sec{ margin-top:16px; padding-top:14px; border-top:1px solid var(--panel); }
+.dx-sec h3{ font-size:13px; margin:0 0 10px; color:var(--navy); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.dx-sec h3 .muted{ font-weight:500; font-size:12px; }
+.dx-sec h3 .h-link{ margin-left:auto; }
+.dx-kv{ display:grid; grid-template-columns:repeat(auto-fill, minmax(170px,1fr)); gap:10px 16px; font-size:13px; }
+.dx-kv > div > span:first-child{ display:block; font-size:10.5px; font-weight:700; letter-spacing:.05em;
+            color:var(--faint); text-transform:uppercase; margin-bottom:3px; }
+.dx-kv .wide{ grid-column:1 / -1; }
+table.dx-rows{ font-size:12.5px; }
+table.dx-rows th{ padding:6px 8px; white-space:nowrap; }
+table.dx-rows td{ padding:6px 8px; vertical-align:top; }
+table.dx-rows td.prev{ max-width:0; width:100%; }
+table.dx-rows td.head{ max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+table.dx-rows tr.hit td{ background:#FFF8E6; }
+/* 긴 본문 — 한 줄 미리보기, 펼치면 전문 */
+details.dx-more summary{ list-style:none; cursor:default; color:var(--ink);
+            display:flex; gap:8px; align-items:baseline; min-width:0; }
+details.dx-more summary::-webkit-details-marker{ display:none; }
+details.dx-more summary .p{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+details.dx-more summary .t{ flex:none; color:var(--faint); font-size:11px; display:none; }
+details.dx-more.can summary{ cursor:pointer; }
+details.dx-more.can summary .t{ display:inline; }
+details.dx-more.can summary .t::after{ content:"펼치기"; }
+details.dx-more.can[open] summary .p{ display:none; }
+details.dx-more.can[open] summary .t{ color:var(--navy); }
+details.dx-more.can[open] summary .t::after{ content:"접기"; }
+details.dx-more pre{ white-space:pre-wrap; font-family:inherit; font-size:12.5px; line-height:1.65;
+            background:var(--panel); border:1px solid #EDF2F7; border-radius:10px; padding:10px 12px;
+            margin:6px 0 2px; max-height:360px; overflow:auto; }
+/* 조각 묶음 — 접이식 */
+details.dx-group{ margin-top:8px; }
+details.dx-group > summary{ cursor:pointer; font-size:12.5px; font-weight:600; color:var(--ink);
+            padding:6px 0; list-style:none; display:flex; gap:6px; align-items:center; }
+details.dx-group > summary::-webkit-details-marker{ display:none; }
+details.dx-group > summary iconify-icon{ color:var(--faint); font-size:15px; transition:transform .2s var(--ease); }
+details.dx-group[open] > summary iconify-icon{ transform:rotate(90deg); }
+details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
+.dx-chips{ display:flex; gap:6px; flex-wrap:wrap; }
+.dx-chip{ display:inline-flex; gap:7px; align-items:center; border:1px solid var(--line); border-radius:9px;
+          padding:5px 10px; font-size:12.5px; text-decoration:none; color:var(--ink); background:#fff; max-width:100%;
+          transition:all .2s var(--ease); }
+.dx-chip:hover{ border-color:#94A3B8; background:var(--panel); }
+.dx-chip .k{ font-size:10.5px; color:var(--faint); font-weight:700; flex:none; }
+.dx-chip .l{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:300px; }
+.dx-chip .w{ font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; flex:none; }
+.dx-empty{ color:var(--muted); font-size:13px; padding:28px 0; text-align:center; }
+.dx-hit{ padding:10px 0; border-top:1px solid var(--panel); }
+.dx-hit:first-child{ border-top:0; }
+.dx-big{ font-size:24px; font-weight:800; color:var(--navy); font-variant-numeric:tabular-nums; }
+.dx-groups{ display:flex; gap:12px; flex-wrap:wrap; margin-top:12px; }
+.dx-groups > div{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 14px; min-width:160px; flex:1; }
+.dx-groups .t{ font-size:10.5px; font-weight:700; letter-spacing:.06em; color:var(--faint); text-transform:uppercase; margin-bottom:6px; }
+.dx-groups .r{ display:flex; justify-content:space-between; gap:10px; font-size:12.5px; padding:2px 0; }
+.dx-foot{ margin:8px 0 0; font-size:11.5px; }
 </style>
 
-<p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+<p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
   <a href="/dev" class="btn-ghost">← 개발 현황</a>
-  <span class="muted" style="font-size:12.5px;">읽기 전용입니다.
-    셀을 누르면 값이 복사되고, 행 번호를 누르면 전체 내용이 열립니다.</span></p>
+  <span class="muted" style="font-size:12.5px;">읽기 전용 · 본문은 저장된 마스킹본</span></p>
 
-<div style="display:grid; grid-template-columns:210px minmax(0,1fr); gap:16px; align-items:start;">
-  <div class="card"><div class="card-in" style="padding:12px;">
-    {% for t in tables %}
-    <a href="/dev/db?table={{ t.name }}" title="{{ table_descs.get(t.name, '') }}"
-       style="display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:9px;
-              text-decoration:none; color:var(--ink); font-size:13px; margin-bottom:1px;
-              {{ 'background:#E3ECFB; color:var(--navy);' if browse.table == t.name else '' }}">
-      <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-            {{ 'font-weight:700;' if browse.table == t.name else 'font-weight:500;' }}">{{ t.name }}</span>
-      <span class="muted" style="flex:none; font-size:12px; font-variant-numeric:tabular-nums;">{{ t.n }}</span>
-    </a>
-    {% endfor %}
-  </div></div>
+<div class="dx-tabs">
+  {% for key, label in tabs %}
+  <a href="/dev/db?tab={{ key }}" class="{{ 'on' if key == tab else '' }}">{{ label }}</a>
+  {% endfor %}
+</div>
 
-  <div class="card"><div class="card-in">
-    <h2 style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-      <iconify-icon icon="solar:database-linear"></iconify-icon>{{ browse.table }}
-      <span class="muted" style="font-size:12.5px; font-weight:500;">전체 {{ browse.total }}건</span>
-      <form method="get" action="/dev/db" style="margin-left:auto; display:flex; gap:6px;">
-        <input type="hidden" name="table" value="{{ browse.table }}">
-        <input type="text" name="q" value="{{ q }}" placeholder="내용 검색"
-               style="border:1.5px solid var(--line); border-radius:10px; padding:7px 12px;
-                      font-size:13px; font-family:inherit; outline:none; width:180px;">
-        <button type="submit" class="secondary">검색</button>
-      </form></h2>
-    {% if desc %}<p class="muted" style="font-size:13px; margin:0 0 12px;">{{ desc }}</p>{% endif %}
-
-    {% if browse.error %}
-    <p class="notice"><span>{{ browse.error }}</span></p>
-    {% elif not browse.cols %}
-    <p class="muted">표시할 열이 없습니다.</p>
-    {% else %}
-    {% if browse.n_hidden %}
-    <p class="muted" style="font-size:11.5px; margin:0 0 8px;">긴 내용 열
-      {{ browse.n_hidden }}개는 그리드에서 숨김 — 행 번호를 누르면 전체 열을 봅니다.</p>
-    {% endif %}
-
-    <div class="xls-scroll">
-      <table class="xls">
-        <thead><tr>
-          <th class="gut" title="행 번호 · 클릭 시 상세">#</th>
-          {% for c in browse.cols %}<th>{{ c }}</th>{% endfor %}
-        </tr></thead>
+{# ---------------- 문서 ---------------- #}
+{% if tab == 'docs' %}
+<div class="dx-grid">
+  <div class="card dx-card"><div class="card-in">
+    <form method="get" action="/dev/db" class="dx-search">
+      <input type="hidden" name="tab" value="docs">
+      <input type="text" name="q" value="{{ q }}" placeholder="파일명 · 접수번호">
+      <select name="type">
+        <option value="">전체 유형</option>
+        {% for t in view.types %}
+        <option value="{{ t.doc_type }}" {{ 'selected' if t.doc_type == type else '' }}>{{ doc_type_labels.get(t.doc_type, t.doc_type) }} {{ t.n }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="secondary">검색</button>
+    </form>
+    <div class="dx-scroll">
+      <table class="dx-list">
+        <thead><tr><th>문서</th><th class="dx-num" title="추출 조각 · 검색 단위">조각</th></tr></thead>
         <tbody>
-        {% for r in browse.rows %}
-        <tr>
-          <td class="gut"><a href="/dev/db/row?table={{ browse.table }}&rid={{ r.rid }}"
-              title="행 상세 열기">{{ browse.page * 50 + loop.index }}</a></td>
-          {% for v in r.vals %}
-          {% set c = browse.cols[loop.index0] %}
-          {% set is_id = c == 'id' or c.endswith('_id') or c == 'page_no' %}
-          {% set is_dt = c.endswith('_at') %}
-          <td class="copyable {{ 'mono' if is_id else ('dt' if is_dt else 'txt') }}"
-              onclick="xcopy(this)" title="{{ v }}">{{ v }}</td>
-          {% endfor %}
+        {% set sel_id = view.selected_id or doc_id %}
+        {% for d in view.docs %}
+        {% set href = '/dev/db?tab=docs&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') ~ ('&type=' ~ type if type else '') %}
+        <tr class="pick {{ 'on' if d.id == sel_id else '' }}" onclick="location.href='{{ href }}'">
+          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.name }}</a>
+            <div class="sub {{ d.status }}">{{ doc_type_labels.get(d.doc_type, d.doc_type) }} · <span class="dx-mono">{{ d.receipt_no or '—' }}</span> · {{ status_labels.get(d.status, d.status) }}</div></td>
+          <td class="dx-num" title="추출 조각 {{ d.n_chunks }} · 검색 단위 {{ d.n_units }}">{{ d.n_chunks }}{% if d.n_units %} · {{ d.n_units }}{% endif %}</td>
         </tr>
+        {% else %}
+        <tr><td colspan="2" class="dx-empty">문서 없음</td></tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
+    <p class="muted dx-foot">{{ view.docs|length }}건 · 조각 = 추출 조각 · 검색 단위</p>
+  </div></div>
 
-    <div style="display:flex; gap:8px; margin-top:12px; align-items:center;">
-      {% if browse.page > 0 %}
-      <a class="btn-ghost" href="/dev/db?table={{ browse.table }}&q={{ q }}&page={{ browse.page - 1 }}">← 이전</a>
+  <div class="card dx-card dx-detail"><div class="card-in">
+    {% if not view.selected %}
+    <div class="dx-empty">문서 없음</div>
+    {% else %}
+    {% set s = view.selected %}{% set o = s.overview %}
+    <div class="dx-head">
+      <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon><span class="dx-title" title="{{ o.filename }}">{{ o.filename }}</span></h2>
+      <span class="dx-links">
+        <a class="h-link" href="/doc/{{ o.id }}"><iconify-icon icon="solar:eye-linear"></iconify-icon>문서 화면</a>
+        <a class="h-link" href="/graph?focus=d{{ o.id }}"><iconify-icon icon="solar:structure-linear"></iconify-icon>그래프</a>
+      </span>
+    </div>
+    <div class="dx-pills">
+      <span class="pill type dx-pill">{{ doc_type_labels.get(o.doc_type, o.doc_type) }}</span>
+      <span class="pill {{ o.status }} dx-pill">{{ status_labels.get(o.status, o.status) }}</span>
+      {% if o.decision and o.decision != 'pending' %}<span class="pill dx-pill">{{ decision_labels.get(o.decision, o.decision) }}</span>{% endif %}
+      <span class="muted" style="font-size:12px;">계정 {{ o.owner }}</span>
+    </div>
+
+    <div class="dx-sec">
+      <h3>개요</h3>
+      <div class="dx-kv">
+        <div><span>접수번호</span><b class="dx-mono" style="font-size:12.5px;">{{ o.receipt_no or '—' }}</b></div>
+        <div><span>접수 시각</span>{{ (o.created_at or '')[:16] | replace('T', ' ') or '—' }}</div>
+        <div><span>계열 · 부서</span>{{ sector_labels.get(o.sector, o.sector) }} · {{ o.dept }}</div>
+        <div><span>원본 파일</span>{% if o.original.exists %}있음 · {{ o.original.suffix or '확장자 없음' }}{% else %}없음{% endif %}</div>
+        <div><span>마스킹 본문</span>{{ "{:,}".format(o.text_chars) }}자</div>
+        <div><span>검토 의견 · 초안</span>{{ '있음' if o.has_review else '없음' }} · {{ '있음' if o.has_draft else '없음' }}</div>
+        <div><span>프로젝트</span>{% if o.project %}<a href="/project/{{ o.project.id }}" title="{{ o.project.name }}">{{ o.project.name }}</a>{% else %}—{% endif %}</div>
+        <div><span>근거 기준</span>{% if o.related_criteria %}<a href="/dev/db?tab=docs&doc={{ o.related_criteria.id }}" title="{{ o.related_criteria.filename }}">{{ o.related_criteria.name }}</a>{% elif o.related_criteria_id %}<span class="muted">문서 {{ o.related_criteria_id }} (삭제됨)</span>{% else %}—{% endif %}</div>
+        <div class="wide"><span>마스킹 기록</span>
+          {% if not o.mask.subject %}<span class="muted">대상 아님 — 기준 문서는 원문 유지 (ADR-0006)</span>
+          {% elif not o.mask.recorded %}<span class="muted">기록 없음 — 기능 도입 전 처리분</span>
+          {% elif not o.mask.rows %}<span class="dx-pills"><span class="pill reviewed dx-pill">가린 항목 0건</span>
+            <span class="muted" style="font-size:12px;">{{ (o.mask.recorded_at or '')[:16] | replace('T', ' ') }}</span></span>
+          {% else %}<span class="dx-pills">
+            {% for m in o.mask.rows %}<span class="pill type dx-pill">{{ m.label }} {{ m.n }}</span>{% endfor %}
+            <span class="muted" style="font-size:12px;">총 {{ o.mask.total }}건 · {{ (o.mask.recorded_at or '')[:16] | replace('T', ' ') }} · 유형·건수만 기록</span></span>
+          {% endif %}
+        </div>
+        {% if o.error %}<div class="wide"><span>오류</span><span style="color:var(--red);">{{ o.error }}</span></div>{% endif %}
+        {% if o.parse_note %}<div class="wide"><span>파싱 메모</span>{{ o.parse_note }}</div>{% endif %}
+      </div>
+    </div>
+
+    {% set c = s.chunks %}
+    <div class="dx-sec">
+      <h3>RAG 조각
+        <span class="dx-pills">
+          <span class="pill dx-pill">추출 조각 {{ c.n_extract }}</span>
+          {% for k in c.kinds %}<span class="pill dx-pill" style="background:#fff; border:1px solid var(--line);">{{ k.label }} {{ k.n }}</span>{% endfor %}
+          {% if c.n_units %}
+            <span class="pill type dx-pill">검색 단위 {{ c.n_units }}</span>
+            {% if c.n_embedded is not none %}
+              <span class="pill {{ 'reviewed' if c.n_embedded == c.n_units else 'processing' }} dx-pill">임베딩 {{ c.n_embedded }}/{{ c.n_units }}</span>
+            {% elif index.exists %}<span class="pill processing dx-pill">임베딩 조각별 미확인</span>
+            {% else %}<span class="pill dx-pill">임베딩 없음</span>{% endif %}
+          {% else %}
+            <span class="muted">검색 단위 없음 — 기준 문서만 색인</span>
+          {% endif %}
+        </span></h3>
+
+      {% if c.n_units %}
+      <details class="dx-group" open>
+        <summary><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon>검색 단위 {{ c.n_units }}
+          <span class="muted">조문·문단 단위 · 채팅 근거로 인출되는 조각</span></summary>
+        <div class="dx-rows-wrap"><table class="dx-rows">
+          <tr><th>#</th><th>표제</th><th class="dx-num">길이</th><th>임베딩</th><th>본문</th></tr>
+          {% for u in c.units %}
+          <tr>
+            <td class="dx-mono">{{ u.id }}</td>
+            <td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>
+            <td class="dx-num">{{ "{:,}".format(u.length) }}</td>
+            <td>{% if u.embedded is none %}<span class="muted">미확인</span>{% elif u.embedded %}<span class="pill reviewed dx-pill">있음</span>{% else %}<span class="pill processing dx-pill">없음</span>{% endif %}</td>
+            <td class="prev"><details class="dx-more {{ 'can' if u.long else '' }}"><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary>{% if u.long %}<pre>{{ u.content }}</pre>{% endif %}</details></td>
+          </tr>
+          {% endfor %}
+        </table></div>
+      </details>
       {% endif %}
-      <span class="muted" style="font-size:12px; font-variant-numeric:tabular-nums;">{{ browse.page * 50 + 1 }}–{{ browse.page * 50 + browse.rows | length }} / {{ browse.total }}</span>
-      {% if browse.has_next %}
-      <a class="btn-ghost" href="/dev/db?table={{ browse.table }}&q={{ q }}&page={{ browse.page + 1 }}">다음 →</a>
+
+      <details class="dx-group" {{ 'open' if not c.n_units else '' }}>
+        <summary><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon>추출 조각 {{ c.n_extract }}
+          <span class="muted">파서 산출(본문·제목·표·그림) · 문서 화면과 초안 재료</span></summary>
+        {% if c.extract %}
+        <div class="dx-rows-wrap"><table class="dx-rows">
+          <tr><th>#</th><th>종류</th><th class="dx-num">쪽</th><th class="dx-num">길이</th><th>본문</th></tr>
+          {% for r in c.extract %}
+          <tr>
+            <td class="dx-mono">{{ r.seq + 1 if r.seq is not none else loop.index }}</td>
+            <td><span class="pill dx-pill">{{ r.kind_label }}</span></td>
+            <td class="dx-num">{{ r.page_no if r.page_no is not none else '—' }}</td>
+            <td class="dx-num">{{ "{:,}".format(r.length) }}</td>
+            <td class="prev"><details class="dx-more {{ 'can' if r.long else '' }}"><summary><span class="p">{{ r.preview or '—' }}</span><span class="t"></span></summary>{% if r.long %}<pre>{{ r.content }}</pre>{% endif %}</details></td>
+          </tr>
+          {% endfor %}
+        </table></div>
+        {% else %}<p class="muted" style="font-size:12.5px; margin:4px 0 0;">추출 조각 없음</p>{% endif %}
+      </details>
+    </div>
+
+    {% set r = s.related %}
+    <div class="dx-sec">
+      <h3>연관 (지식 그래프)
+        {% if r.available and r.in_graph %}<span class="muted">이어진 노드 {{ r.n }}</span>{% endif %}
+        <a class="h-link" href="/graph?focus=d{{ o.id }}"><iconify-icon icon="solar:structure-linear"></iconify-icon>그래프에서 보기</a></h3>
+      {% if not r.available %}<p class="dx-empty" style="padding:12px 0;">그래프 미생성</p>
+      {% elif not r.in_graph %}<p class="dx-empty" style="padding:12px 0;">그래프 제외 유형 (문서 추출 작업물)</p>
+      {% elif not r.groups %}<p class="dx-empty" style="padding:12px 0;">이어진 문서·개체 없음</p>
+      {% else %}
+        {% for g in r.groups %}
+        <div style="margin-bottom:10px;">
+          <div style="font-size:11.5px; font-weight:700; color:var(--muted); margin-bottom:5px;">{{ g.label }}
+            <span class="muted" style="font-weight:500;">{{ g.nodes|length }}</span></div>
+          <div class="dx-chips">
+            {% for it in g.nodes %}
+            <a class="dx-chip" href="{{ it.href }}" title="{{ it.label }}">
+              <span class="k">{{ it.kind_label }}</span><span class="l">{{ it.label }}</span>
+              {% if it.note %}<span class="w">{{ it.note }}</span>{% endif %}
+            </a>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
       {% endif %}
     </div>
     {% endif %}
   </div></div>
 </div>
 
-<div id="xtoast"></div>
-<script>
-(function(){
-  var tid;
-  window.xtoast = function(m){
-    var t = document.getElementById('xtoast');
-    if(!t) return;
-    t.textContent = m; t.classList.add('on');
-    clearTimeout(tid); tid = setTimeout(function(){ t.classList.remove('on'); }, 1100);
-  };
-  window.xcopy = function(el){
-    var txt = el.textContent;
-    if(!txt){ return; }
-    function done(){ window.xtoast('복사됨'); }
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(txt).then(done, function(){ fb(txt); });
-    } else { fb(txt); }
-    function fb(s){
-      try{
-        var ta = document.createElement('textarea');
-        ta.value = s; ta.style.position='fixed'; ta.style.opacity='0';
-        document.body.appendChild(ta); ta.select();
-        document.execCommand('copy'); document.body.removeChild(ta); done();
-      }catch(e){ window.xtoast('복사 실패'); }
-    }
-  };
-})();
-</script>
+{# ---------------- 규정 ---------------- #}
+{% elif tab == 'regulation' %}
+<div class="dx-grid">
+  <div class="card dx-card"><div class="card-in">
+    <form method="get" action="/dev/db" class="dx-search">
+      <input type="hidden" name="tab" value="regulation">
+      <input type="text" name="q" value="{{ q }}" placeholder="규정 검색 — 채팅과 같은 검색 경로">
+      <button type="submit" class="secondary">검색</button>
+    </form>
+    <div class="dx-scroll">
+      <table class="dx-list">
+        <thead><tr><th>규정</th><th>계열</th><th class="dx-num">조각</th><th class="dx-num">임베딩</th></tr></thead>
+        <tbody>
+        {% for d in view.docs %}
+        {% set href = '/dev/db?tab=regulation&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') %}
+        <tr class="pick {{ 'on' if d.id == doc_id else '' }}" onclick="location.href='{{ href }}'">
+          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.name }}</a>
+            <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis;">{{ d.receipt_no or '—' }} · {{ d.dept }}</div></td>
+          <td><span class="pill type dx-pill">{{ sector_labels.get(d.sector, d.sector) }}</span></td>
+          <td class="dx-num">{{ d.n_units }}</td>
+          <td class="dx-num">{{ '—' if d.n_embedded is none else d.n_embedded }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="dx-empty">규정 문서 없음</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted dx-foot">{{ view.docs|length }}종 ·
+      {% if index.exists %}임베딩 색인 {{ index.model }} · {{ "{:,}".format(index.n_chunks) }}조각{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}
+      {% else %}임베딩 색인 없음 — 형태소 검색만{% endif %}</p>
+  </div></div>
+
+  <div class="card dx-card"><div class="card-in">
+    {% if view.hits %}
+    <div class="dx-sec" style="margin-top:0; padding-top:0; border-top:0;">
+      <h3>검색 결과 <span class="muted">‘{{ q }}’ · {{ view.hits|length }}건 · 형태소+임베딩 후보를 리랭커로 정렬</span></h3>
+      {% for h in view.hits %}
+      <div class="dx-hit">
+        <div style="display:flex; gap:8px; align-items:baseline; min-width:0;">
+          <span class="pill dx-pill" style="flex:none;">{{ h.rank }}</span>
+          <a href="/dev/db?tab=regulation&doc={{ h.doc_id }}&q={{ q|urlencode }}#u{{ h.id }}"
+             style="font-weight:600; font-size:13px; text-decoration:none; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ h.heading or '(표제 없음)' }}</a>
+          <span class="muted" style="font-size:11.5px; margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:45%; flex:none;">{{ h.reg_title }}</span>
+        </div>
+        <p style="margin:5px 0 0; font-size:12.5px; line-height:1.6; color:#33425c;">{{ h.preview }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% elif q %}
+    <p class="muted" style="font-size:13px; margin:0 0 12px;">‘{{ q }}’ 관련 조각 없음</p>
+    {% endif %}
+
+    {% if view.selected %}
+    {% set s = view.selected %}
+    <div class="dx-head" style="{{ 'margin-top:16px; padding-top:14px; border-top:1px solid var(--panel);' if view.hits else '' }}">
+      <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon><span class="dx-title" title="{{ s.filename }}">{{ s.title }}</span></h2>
+      <span class="dx-links">
+        <a class="h-link" href="/dev/db?tab=docs&doc={{ s.id }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon>문서 탭</a>
+        <a class="h-link" href="/doc/{{ s.id }}"><iconify-icon icon="solar:eye-linear"></iconify-icon>문서 화면</a>
+        <a class="h-link" href="/graph?focus=d{{ s.id }}"><iconify-icon icon="solar:structure-linear"></iconify-icon>그래프</a>
+      </span>
+    </div>
+    <div class="dx-pills" style="margin-bottom:12px;">
+      <span class="pill type dx-pill">{{ sector_labels.get(s.sector, s.sector) }} · {{ s.dept }}</span>
+      <span class="pill dx-pill">조각 {{ s.n_units }}</span>
+      {% if s.n_embedded is not none %}<span class="pill {{ 'reviewed' if s.n_embedded == s.n_units else 'processing' }} dx-pill">임베딩 {{ s.n_embedded }}/{{ s.n_units }}</span>{% endif %}
+      <span class="muted" style="font-size:12px;">{{ s.receipt_no or '—' }} · {{ (s.created_at or '')[:16] | replace('T', ' ') }} · {{ s.filename }}</span>
+    </div>
+    {% if s.units %}
+    <div class="dx-rows-wrap" style="max-height:calc(100vh - 220px);"><table class="dx-rows">
+      <tr><th>#</th><th>표제</th><th class="dx-num">길이</th><th>임베딩</th><th>본문</th></tr>
+      {% for u in s.units %}
+      <tr id="u{{ u.id }}" class="{{ 'hit' if u.hit else '' }}">
+        <td class="dx-mono">{{ u.id }}</td>
+        <td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>
+        <td class="dx-num">{{ "{:,}".format(u.length) }}</td>
+        <td>{% if u.embedded is none %}<span class="muted">미확인</span>{% elif u.embedded %}<span class="pill reviewed dx-pill">있음</span>{% else %}<span class="pill processing dx-pill">없음</span>{% endif %}</td>
+        <td class="prev"><details class="dx-more {{ 'can' if u.long else '' }}" {{ 'open' if u.hit else '' }}><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary>{% if u.long %}<pre>{{ u.content }}</pre>{% endif %}</details></td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    {% else %}<p class="dx-empty" style="padding:12px 0;">조각 없음</p>{% endif %}
+    {% elif not q %}
+    <div class="dx-empty">왼쪽 목록에서 규정 선택</div>
+    {% endif %}
+  </div></div>
+</div>
+
+{# ---------------- 국고 코퍼스 ---------------- #}
+{% elif tab == 'corpus' %}
+{% set cs = view.summary %}
+{% if not cs.exists %}
+<div class="card dx-card" style="border-color:#F0D9B8;"><div class="card-in" style="font-size:13px;">
+  코퍼스 없음 — <code>scripts/74_ingest_corpus.py</code>로 반입하면 여기 나타납니다.</div></div>
+{% else %}
+<div class="dx-grid rev">
+  <div class="card dx-card"><div class="card-in">
+    <div class="dx-head">
+      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>국고 코퍼스 검색</h2>
+      <span class="dx-links"><a class="h-link" href="/dev/pii"><iconify-icon icon="solar:eye-closed-linear"></iconify-icon>마스킹 기록·점검</a></span>
+    </div>
+    <div class="dx-pills" style="margin-bottom:12px; gap:14px;">
+      <span><span class="dx-big">{{ "{:,}".format(cs.docs) }}</span> <span class="muted" style="font-size:12px;">문서</span></span>
+      <span><span class="dx-big">{{ "{:,}".format(cs.chunks) }}</span> <span class="muted" style="font-size:12px;">조각(검색 단위)</span></span>
+      <span class="pill {{ 'reviewed' if view.dense_ready else 'processing' }} dx-pill">{{ '하이브리드 (형태소+임베딩)' if view.dense_ready else '형태소 검색만' }}</span>
+      <span class="muted" style="font-size:12px;">공개 국고사업 문서(공고·기본계획·서식) · 색인 전 마스킹 · 별도 DB</span>
+    </div>
+    <form method="get" action="/dev/db" class="dx-search">
+      <input type="hidden" name="tab" value="corpus">
+      <input type="text" name="q" value="{{ q }}" placeholder="예: 사업계획서 성과지표 작성 / 사업비 집행 기준 / 글로컬대학 신청 서식">
+      <button type="submit" class="secondary">검색</button>
+    </form>
+    {% if q and not view.results %}
+    <p class="muted" style="margin:0; font-size:13px;">‘{{ q }}’에 겹치는 조각 없음</p>
+    {% elif view.results %}
+    <p class="muted" style="margin:0 0 4px; font-size:12.5px;">‘{{ q }}’ 관련 조각 {{ view.results|length }}건 · {{ '하이브리드(RRF)' if view.dense_ready else '형태소 검색' }} 순위</p>
+    {% for r in view.results %}
+    <div class="dx-hit">
+      <div style="display:flex; gap:8px; align-items:baseline; min-width:0;">
+        <span class="pill type dx-pill" style="flex:none;">{{ r.rank }}{% if r.score is not none %} · {{ r.score }}{% endif %}</span>
+        <span style="font-weight:600; font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ r.heading or '(제목 없음)' }}</span>
+        <span class="muted" style="font-size:11.5px; margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:45%; flex:none;">{{ r.reg_title }}</span>
+      </div>
+      <p style="margin:5px 0 0; font-size:12.5px; line-height:1.6; color:#33425c;">{{ r.preview }}</p>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div></div>
+
+  <div class="card dx-card"><div class="card-in">
+    <h2 style="font-size:15px;"><iconify-icon icon="solar:documents-linear"></iconify-icon>수집 문서
+      <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">조각 많은 순 {{ cs.by_source|length }} / {{ cs.docs }}</span></h2>
+    {% for s in cs.by_source %}
+    <div style="display:flex; gap:10px; align-items:center; padding:5px 0; border-bottom:1px solid var(--panel); font-size:12.5px;">
+      <span class="pill dx-pill" style="flex:none;">{{ s.n }}</span>
+      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ s.name }}">{{ s.name }}</span>
+    </div>
+    {% endfor %}
+  </div></div>
+</div>
+{% endif %}
+
+{# ---------------- 채팅 기록 ---------------- #}
+{% elif tab == 'chat' %}
+<div class="card dx-card"><div class="card-in">
+  <div class="dx-head">
+    <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>채팅 기록
+      <span class="muted" style="font-size:12.5px; font-weight:500;">{{ view.sessions|length }}건</span></h2>
+  </div>
+  <div class="table-scroll"><table class="dx-rows" style="font-size:13px;">
+    <tr><th>#</th><th>질문</th><th>시각</th><th class="dx-num">메시지</th><th class="dx-num">근거</th><th>프로젝트</th><th>계정</th></tr>
+    {% for s in view.sessions %}
+    <tr>
+      <td class="dx-mono">{{ s.id }}</td>
+      <td style="max-width:0; width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ s.title }}">
+        <a href="/chat/{{ s.id }}" style="text-decoration:none; font-weight:600;">{{ s.title }}</a></td>
+      <td class="muted" style="white-space:nowrap; font-variant-numeric:tabular-nums;">{{ (s.created_at or '')[:16] | replace('T', ' ') }}</td>
+      <td class="dx-num" title="질문 {{ s.n_messages - s.n_answers }} · 답변 {{ s.n_answers }}">{{ s.n_messages }}</td>
+      <td class="dx-num">{{ '—' if s.n_sources is none else s.n_sources }}</td>
+      <td class="muted" style="white-space:nowrap;">{{ s.project_name or '' }}</td>
+      <td class="muted" style="white-space:nowrap;">{{ s.owner }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="dx-empty">채팅 기록 없음</td></tr>
+    {% endfor %}
+  </table></div>
+  <p class="muted dx-foot">근거 = 답변에 인출한 조각 수 · 재시작 전 세션만 (DB 미저장, 그 외 —)</p>
+</div></div>
+{% endif %}
+
 {% endblock %}

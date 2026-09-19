@@ -26,7 +26,7 @@ if [ "$n" -lt 100 ]; then
 fi
 
 echo "[$(date +%T)] 2/3 검색 베이스라인 (53)"
-OMP_NUM_THREADS=10 MKL_NUM_THREADS=10 .venv/bin/python scripts/53_retrieval_eval.py \
+OMP_NUM_THREADS=10 MKL_NUM_THREADS=10 .venv/bin/python scripts/53_eval_retrieval.py \
   || { echo "베이스라인 실패 — 학습 진행 안 함(순서 규칙)"; exit 1; }
 
 echo "[$(date +%T)] 3/3 가드 학습 (58)"

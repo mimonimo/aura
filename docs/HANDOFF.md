@@ -3,7 +3,7 @@
 이 문서는 **대화 맥락 없이도** 작업을 이어받게 하는 다리다. 순서대로:
 `CLAUDE.md`(작업 지침) → 이 문서(현재 상태) → `PROJECT_BRIEF.md`(판단 기준).
 
-최종 업데이트: 2026-09-08
+최종 업데이트: 2026-09-15
 
 ---
 
@@ -22,6 +22,9 @@
   - 스택: python3.12 venv(`.venv`), 검색(KURE·bge·kiwi), OCR(MinerU·docling·tesseract),
     산출물(python-hwpx·docx·pdf). 전부 오프라인 캐시(`HF_HUB_OFFLINE=1`). torch는 **2.4.1 고정**
     (2.14 최신은 torchvision::nms 오류로 탈락).
+  - **패키지 추가는 오프라인 절차**(VM은 pip 네트워크 없음): 맥에서 `.venv/bin/pip wheel <pkg> --no-deps -w data/tmp/wheels`
+    → `scp` → VM `.venv/bin/pip install --no-index --no-deps --find-links /tmp/wheels <pkg>`. 2026-09-15 pyhwp(0.1b15)를
+    이 절차로 설치 — 그 전까지 VM에는 pyhwp가 없어 .hwp 접수 문서가 빈 채로 처리됐다(재처리 `scripts/79 --write`).
 - **DGX = sLLM 전용** (학습+서빙). 새 DGX `220.67.5.51:8022`(id/pw dgx-01) — **현재 접속 불가**,
   생존·사양 확인 대기. 사양 확인되면 vLLM 서빙 → VM의 VLLM_BASE_URL 연결.
 - **⚠ 기존 Spark(211.170.162.109 = 211.xx)는 사용 금지** (사용자 지시). 데이터는 이미 VM으로 이관 완료.
@@ -40,8 +43,8 @@
 - OCR: MinerU 어절F1 ~0.81. 인식 영역 시각화(팝업·전 페이지). 문서 뷰어 2탭(원본/AI읽기).
 - 산출물: docx·pdf·hwpx 내보내기.
 - 개발자 대시보드(/dev): 진행률·검색지표·모델 트랙 4종 표·주간 보고서.
-- 이그레스 게이트웨이(세척·분류·감사 기록·승인 큐·/dev/egress 모니터링) — ADR-0008.
-  외부 전송은 ZZAIMY_EXTERNAL_ENABLED + API 키 + 아웃바운드 개방 전까지 비활성
+- 외부 AI 참조 관리(민감정보 제거·자동 분류·감사 기록·승인 큐·/dev/egress) — 이그레스 게이트웨이, ADR-0008.
+  외부 전송은 ZZAIMY_EXTERNAL_ENABLED + 외부 기관 서버 연결(개발 키) + 아웃바운드 개방 전까지 비활성
   (판정·기록은 동작, 허용·승인 건은 전송 대기로 보관).
 - 발표 자료: `docs/paper/제안-발표.html`(웹 슬라이드), `docs/paper/제안발표-내용.md`(텍스트).
 
@@ -53,10 +56,29 @@
 | sLLM 서빙 연결 | 예정 | DGX 확보 후 VLLM_BASE_URL 연결 |
 | Writer/Extract 파인튜닝 | 예정 | GPU + ★베이스라인 측정 먼저 (순서 규칙) |
 | 이그레스 에이전트 연동 | 예정 | LLM 서빙(DGX) 연결 후 — 채팅·초안에서 관문 경유 외부 참조 |
-| 이그레스 실전송 개방 | 대기 | 관리자에 api.anthropic.com 아웃바운드 요청 + API 키 + ZZAIMY_EXTERNAL_ENABLED |
+| 이그레스 실전송 개방 | 통신 개방됨(9/17) | 서버존 나가는 웹은 Imperva WAF 에서 허용 완료. 남은 것: 허브 개발 키를 LLM 연결에 등록(화면 수정 창) + 외부 참조용 지정 + ZZAIMY_EXTERNAL_ENABLED |
 | 외부 자료 수집(학습용) | 예정 | 대상 사이트 지정. **기준 문서와 분리**(학습에만) |
 | 한글 실시간 편집 에이전트 | **완료(2026-09-08 실장비 검증)** | 앱 다운로드(/dev/hwp)→연결→서버 지시→화면 반영 왕복 확인(한컴 automation 12.0). 남은 것: 대화창 자연어 변환(LLM 연결 후) |
 | OCR 도전자 대결(PaddleOCR-VL) | 유보 | GPU 필요 (CPU에선 1쪽 60분+ 불가 확인) |
+| 규정 조각 재분할(2026-09-14, 1,236→1,211) | **완료(VM 적용)** | 조 참조에서 끊지 않음·빈 조각 병합·중복 제거·1,400자 상한. 백업 `data/platform/backup/platform-<stamp>.db`. 재색인·개체 재추출 완료. 합성 질의 세트는 VM에 없음(Spark 유실) → 검색 정확도 재측정은 LLM 연결 후 51 재생성 필요 |
+| 리랭커 쌍 길이 256 | 완료 | 9.2s→4.6s/질의(CPU), top-1 일치 1.00 |
+| PII 점검 화면(/dev/pii) | **완료(9/15 실측: 자가 점검 19/19, 잔여 0건)** | 마스킹 기록(유형·건수만) 저장, 알려진 정답 자가 점검, 색인 본문 잔여 스캔, 정책표(시점·이유·기록). 전화번호 탐지에 영숫자 경계(해시 파일명 오탐 해소). `scripts/78_post_deploy_smoke.py`가 배포마다 실행·기록 |
+| Label Studio 무수동 연동 | **완료(9/15, whoami PASS)** | `scripts/68_labelstudio_token.sh`로 토큰 생성→유닛→재시작→검증, 아이디 저장. /dev/data 연결 상태·진행률. 도구 주소·로그인 아이디·LS 비밀번호 재설정은 `/dev/train` 도구 카드의 계정·연결 창 |
+| 계정 로직 정리 (9/15) | 완료 | 비밀번호는 pbkdf2 해시로만 저장(평문 계정은 로그인 때 승격), 비활성 계정 로그인·세션 거부, 프로필 메뉴는 본인 비밀번호만 변경(`/account/password`). 플랫폼 계정 추가·역할 변경 UI는 두지 않음(사용자 지시: 학습 도구 계정만) — 계정 추가는 `data/platform/accounts.json` 직접 편집 |
+| NAS 수집 (9/17) | 완료 | `ingest/nas_sync.py`(local·smb 백엔드, 읽기만), 원천 `data/platform/nas_sources.json`(0600)·상태 `nas_state.json`, 화면 `/dev/nas`, 라우트 `/dev/nas/*`, 자동 반입 스케줄러(켜진 원천만). SMB 는 `scripts/80_install_smb.sh`(오프라인 휠 data/tmp/wheels). ADR-0018 |
+| 경북 Open AI Service Hub 연결 (9/17) | 키 등록 대기 | `https://open.hasa.re.kr/v1`(OpenAI 호환) 을 외부 기관 GPU 서버 연결로 등록. 개발 키는 사용자가 화면에서 입력, 일 2천만 토큰·RPM 10·동시 1. VM 아웃바운드(open.hasa.re.kr = 221.142.226.68, TCP 443) — 9/17 개방 완료. 막던 곳은 ASA·팔로알토가 아니라 서버존(192.168.16.128/25) 앞 인라인 **Imperva WAF**(관리 콘솔 https://211.170.162.9:8083)였다. 서버망에서 나가는 웹(80·443·22)만 포트로 떨구는 이그레스 정책. WAF 에서 서버존 나가는 웹을 허용하니 즉시 통함. 진단 근거: ASA packet-tracer 는 allow, 그러나 ASA Server_zone_2 인터페이스 캡처에 VM 443 이 0 개(853 은 300 개 왕복) → ASA 앞에서 드롭. 플랫폼 연결 확인 성공(실시간 35 모델·카탈로그 50). 모델 목록은 허브 공개 카탈로그(`/api/catalog`, 50개)를 개발 장비에서 받아 연결에 저장(`catalog`) — 수정 창 드롭다운(사용 가능 8·비전 1). 통신이 열리면 '모델 목록' 버튼으로 갱신. 허브 문서(dolzi-gitc.github.io/GITC-Open-AI-Service-Hub)에 맞춘 것은 OpenAI 호환 규약 범위(Bearer 키·/v1/models·chat/completions·429/503 재시도)까지만 — 허브 전용 헤더(X-Safety-Mode)·임베딩/리랭크 엔드포인트는 쓰지 않음(교내 KURE·bge 유지) |
+| LLM 연결 관리 (9/17) | 완료 | `generate/llm_connections.py` + `data/platform/llm_connections.json`(0600). 종류는 교내 GPU 서버·외부 기관 GPU 서버(OpenAI 호환 규격)뿐, 상용 API 없음. 문서 작업 기본은 교내 바로·외부 기관은 ack 후(`activate`), 외부 AI 참조는 외부 기관 연결만(`set_external`, `egress._send_external`). 화면 `/dev/train` LLM 연결 카드, 라우트 `/dev/llm/*`. 호출 공통: 요청 시간 제한(`ZZAIMY_LLM_TIMEOUT`, 기본 180s)·429/5xx 백오프 재시도(`ZZAIMY_LLM_RETRIES`, 기본 3)·응답 usage 를 날짜·연결·모델별로 `data/platform/llm_usage.json` 에 누적(카드에 오늘 요청·토큰)·오류는 사람 말(키 거부/모델 없음/한도/일시 불가). ADR-0017 |
+| 모델 서버·모델 선택 (9/16) | 완료 | `src/zzaimy/generate/model_config.py`: 설정(`llm_base_url`·`llm_model`) > 환경변수 > 기본값, `probe()` 가 `/v1/models` 목록. `VllmClient` 가 이를 따름(모델 미선택이면 서버 첫 모델). 화면은 `/dev/train` 모델 서버 카드, 저장은 `POST /dev/train/model`, 기동 시 `create_app` 에서 적용 |
+| 데이터 열람 탐색기 (9/15) | 완료 | `/dev/db` 탭(문서·규정·국고 코퍼스·채팅 기록). 문서 상세 = 개요·마스킹 기록(유형·건수)·추출 조각·검색 단위(임베딩 유무, `chunk_embeddings.meta.json`+npz)·그래프 연관(`build_graph`). 모음 함수는 `src/zzaimy/app/data_explorer.py`. `/dev/corpus` 는 `/dev/db?tab=corpus` 로 301 |
+| 한글 에이전트 설치파일 배포 (9/15) | 완료 | Windows 에서 빌드 키트로 만든 setup.exe 를 /dev/hwp 에서 올림(MZ 서명·크기 검사, sha256·버전 메타 `data/dist/zzaimy-agent-setup.json`), 담당자 내려받기는 `/hwp/setup.exe`(로그인 필요) |
+| 개발 현황 허브화 (9/15) | 완료 | /dev 는 개요·구축 현황(기능 상태에서 파생한 영역별 완료 비율)·진행 현황·모델 트랙 + 바로가기 카드만. 상세는 /dev/quality(검색 품질·백로그), /dev/docs(논문·ADR·기술 검토·측정 기록), /dev/history(작업 기록 전체·변경 이력·주간 보고서). 진행 현황은 최신 날짜 작업만. 학습 도구 계정·연결(LS 아이디·비밀번호 재설정, GPU 도구 주소)은 /dev/train 도구 카드 설정 창 |
+| 검색 품질 카드(기계 산출물) | 완료 | `data/platform/eval/retrieval-latest.json`만 렌더, 없으면 '아직 측정 없음'. `/dev/eval/run`은 질의 세트 없으면 409 |
+| 개발자 영역 전수 감사 반영 | 완료 | 감사 40여 건 반영 + 9/15 중복 통합(규모 타일 공용, 근거 없는 % 제거, 변경 이력 통합 — `docs/notes/uiux-audit.md` 기록) + 한국어 표현 전수 손질(`docs/notes/ui-glossary.md`, 외부 참조 관문→외부 AI 참조 관리). 남은 것: B15, E6 |
+| 지식 그래프 프로젝트 탐색 | 완료(9/15) | 프로젝트 목록·선택 상세 패널·검색 목록·프로젝트↔문서 추정 연관(임베딩, 배경 캐시). 프로젝트 이름·지침이 실제 내용이어야 연관이 잡힘 |
+| OCR 표·그림·문맥 추출 고도화 (ADR-0016) | **완료(9/15 VM 실측)** | 표 평문(text)·캡션·주석, 그림 속 글자(tesseract), HWPX/HWP5 구조 파서, 이미지 문서 tesseract 폴백(docling 모델 없음), 글자 띄움 OCR 보정. 실측: 디지털 PDF 표 10개 평문 284s, 스캔 PDF 표 4개 466s(CPU MinerU), .hwp 표 2개 4s, PNG는 MinerU OCR 570s(품질 우선)·docling/MinerU 실패 시 tesseract 폴백 6s. 남은 것: 표 캡션 오부착 사례, MinerU 속도, 그림 설명(VLM, DGX 후). 검증 `scripts/79_ocr_structure_check.py <id> [--write]` |
+| 접수번호 규칙 | 완료(9/15) | `연도-유형코드-일련번호`, 일련번호는 기존 최대값+1(삭제 후 재사용 없음) |
+| 라벨 없는 성명 마스킹(NER) | **결정 대기** | 서식 표 라벨('성 명', '학 번', '생년월일') 기반 탐지는 9/15에 추가했으나, 상장처럼 라벨 없이 적힌 이름은 규칙으로 못 잡는다. 한국어 NER 모델(오프라인 반입, 수백 MB, CPU 추론)이 필요 — 사용자 결정 후 진행 |
+| 배점 커버리지 의미 판정 재보정 (ADR-0015) | 미확인 | 돋보임 폭 0.10은 합성 문단 표본 기준. 실제 생성 초안·공고 쌍이 나와야(LLM 서빙 후) 재보정 가능 — 관련 항목 폭이 하한(+0.11~0.13)에 가까움 |
 
 ## 5. 절대 지킬 규칙 (어기면 사고)
 

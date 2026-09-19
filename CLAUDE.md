@@ -5,6 +5,10 @@
 
 ## 먼저 읽을 것
 
+Codex·Claude 공동 작업 시 `docs/collaboration/README.md`와 같은 폴더의
+`codex.md`, `claude.md`를 먼저 확인한다. 작업 범위·요청·검증 결과를 공유하고,
+비밀번호·토큰은 기록에 복사하지 않고 기존 보관 위치를 참조한다.
+
 다른 세션·계정에서 이어받는다면 **`docs/HANDOFF.md`를 가장 먼저** 읽는다 —
 현재 인프라 상태·남은 일·이어받는 절차. 그리고 `docs/context/working-notes.md`
 — 축적된 사용자 선호·작업 규율·주의사항(세션 메모리를 저장소로 옮긴 것).

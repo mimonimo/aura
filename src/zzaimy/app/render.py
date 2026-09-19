@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import re
 from collections import defaultdict
-from collections.abc import Callable
 
 from markupsafe import Markup, escape
 
@@ -112,8 +111,77 @@ def table_csv(content: str) -> str:
     return buf.getvalue()
 
 
+def table_grid(data: dict, fill_spans: bool = False) -> list[list[str]]:
+    """표 JSON → 2차원 문자열 격자. fill_spans면 병합 범위 전체에 같은 값을 채운다."""
+    n_rows, n_cols = int(data["n_rows"]), int(data["n_cols"])
+    grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
+    for r, c, rs, cs, _hd, txt in data["cells"]:
+        r, c, rs, cs = int(r), int(c), int(rs), int(cs)
+        if not (0 <= r < n_rows and 0 <= c < n_cols):
+            continue
+        t = " ".join(str(txt).split())
+        if not fill_spans:
+            grid[r][c] = t
+            continue
+        for dr in range(max(rs, 1)):
+            for dc in range(max(cs, 1)):
+                if r + dr < n_rows and c + dc < n_cols:
+                    grid[r + dr][c + dc] = t
+    return grid
+
+
+def render_table_text(data: dict, max_chars: int = 6000) -> str:
+    """표 JSON(dict) → 검색·인용용 평문 — 캡션 줄, 행마다 ' | '로 이은 셀, 각주 줄.
+
+    병합 셀 값은 병합 범위 전체에 채워 각 행·열이 머리글 맥락을 잃지 않게 한다
+    (단위·연도 머리글이 붙어야 수치가 근거로 쓰인다). 화면 표는 table_html이 그린다.
+    """
+    lines: list[str] = []
+    caption = " ".join(str(data.get("caption") or "").split())
+    if caption:
+        lines.append(caption)
+    for row in table_grid(data, fill_spans=True):
+        if any(v for v in row):
+            lines.append(" | ".join(row))
+    note = " ".join(str(data.get("note") or "").split())
+    if note:
+        lines.append(note)
+    return "\n".join(lines)[:max_chars]
+
+
+def table_text(content: str) -> str:
+    """표 조각 content → 평문. 저장된 text가 있으면 그것, 없으면 셀에서 만든다.
+
+    JSON이 아니면(구버전·파이프 조각) 원문 그대로 돌려준다.
+    """
+    try:
+        data = json.loads(content)
+        data["cells"]
+        int(data["n_rows"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        return content
+    stored = data.get("text")
+    if isinstance(stored, str) and stored.strip():
+        return stored
+    return render_table_text(data)
+
+
+def table_context(content: str) -> tuple[str, str]:
+    """표 조각의 (캡션, 각주) — 없으면 빈 문자열."""
+    try:
+        data = json.loads(content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return "", ""
+    if not isinstance(data, dict):
+        return "", ""
+    return (
+        " ".join(str(data.get("caption") or "").split()),
+        " ".join(str(data.get("note") or "").split()),
+    )
+
+
 def export_markdown(filename: str, chunks: list[dict]) -> str:
-    """추출 결과 전체를 마크다운으로 — 소제목·문단·표(파이프 그리드)."""
+    """추출 결과 전체를 마크다운으로 — 소제목·문단·표(캡션+파이프 그리드)·그림 글자."""
     lines = [f"# {filename} — 추출 결과", ""]
     for c in chunks:
         if c["kind"] == "heading":
@@ -124,6 +192,9 @@ def export_markdown(filename: str, chunks: list[dict]) -> str:
             except (json.JSONDecodeError, TypeError):
                 lines += [c["content"], ""]
                 continue
+            caption, note = table_context(c["content"])
+            if caption:
+                lines += [f"**{caption}**", ""]
             grid = [
                 ["" for _ in range(int(data["n_cols"]))]
                 for _ in range(int(data["n_rows"]))
@@ -137,6 +208,11 @@ def export_markdown(filename: str, chunks: list[dict]) -> str:
                 for row in grid[1:]:
                     lines.append("| " + " | ".join(row) + " |")
                 lines.append("")
+            if note:
+                lines += [note, ""]
+        elif c["kind"] == "image_text":
+            # 그림 캡션·그림 속 글자 — 인용부로 표시해 본문과 구분한다
+            lines += ["> " + c["content"].replace("\n", "\n> "), ""]
         else:
             lines += [c["content"], ""]
     return "\n".join(lines)
@@ -150,6 +226,7 @@ def chunk_blocks(
     """조각 목록을 순서대로 HTML 블록으로 — 문단·표·그림이 원래 순서·페이지대로 흐른다."""
     blocks: list[Markup] = []
     last_page: int | None = None
+    prev_kind = ""
     for c in chunks:
         pg = c.get("page_no")
         if pg and pg != last_page:
@@ -169,9 +246,35 @@ def chunk_blocks(
                     '추출 그림 · <a href="/doc/{d}/asset/{a}?dl=1">내려받기</a>'
                     '</figcaption></figure>'
                 ).format(d=doc_id, a=aid))
+            prev_kind = "image"
             continue
+        if c["kind"] == "image_text":
+            # 그림 캡션·그림 속 글자(OCR) — 바로 앞 그림 아래에 작은 글씨로
+            style = (
+                "font-size:12px; line-height:1.55; white-space:pre-wrap;"
+                + (" margin:-10px 0 16px;" if prev_kind == "image" else " margin:0 0 12px;")
+            )
+            blocks.append(Markup(
+                '<div class="extract-figtext muted" style="{}">'
+                '<span style="font-weight:700;">그림 설명·글자</span> {}</div>'
+            ).format(Markup(style), _rich(c["content"])))
+            prev_kind = "image_text"
+            continue
+        prev_kind = c["kind"]
         if c["kind"] == "table":
-            block = table_html(c["content"])
+            caption, note = table_context(c["content"])
+            block = Markup("")
+            if caption:
+                block += Markup(
+                    '<div class="extract-caption" style="font-size:13px; font-weight:700;'
+                    ' color:var(--navy); margin:8px 0 4px;">{}</div>'
+                ).format(caption)
+            block += table_html(c["content"])
+            if note:
+                block += Markup(
+                    '<div class="extract-note muted" style="font-size:12px;'
+                    ' margin:-10px 0 12px;">{}</div>'
+                ).format(note)
             if doc_id is not None and c.get("id"):
                 block += Markup(
                     '<p style="margin:-10px 0 14px; text-align:right;">'
@@ -186,131 +289,14 @@ def chunk_blocks(
     return blocks
 
 
-def layout_pages(
-    chunks: list[dict],
-    doc_id: int | None = None,
-    asset_by_name: dict[str, int] | None = None,
-    page_sizes: dict[int, tuple[float, float]] | None = None,
-    page_image_url: Callable[[int], str] | None = None,
-) -> list[Markup] | None:
-    """bbox로 원본 배치를 재구성 — 실제 페이지 치수 기준, 픽셀 고정 캔버스.
+def layout_pages(*_args: object, **_kwargs: object) -> None:
+    """좌표 기반 재현은 쓰지 않는다 — 문서 보기는 글자층 PDF 뷰어가 맡는다.
 
-    page_image_url이 주어지면 원본 페이지 렌더를 배경으로 깔고 텍스트는
-    투명 레이어로 얹는다 — 디자인은 원본 그대로, 글자는 선택·복사·검색 가능
-    (구글 OCR PDF와 같은 방식). 없으면 텍스트를 직접 그린다.
-
-    글자 크기는 박스 높이·줄 수에서 계산해 원본 밀도에 가깝게 맞춘다.
-    좌표가 있는 조각이 충분치 않으면 None.
+    원본 쪽 그림 위에 글자층만 얹은 PDF를 브라우저 내장 뷰어로 띄우므로
+    배치·비율·글자 크기를 웹에서 다시 맞출 일이 없다. 아직 이 이름을 부르는
+    호출부(main.py)가 있어 None만 돌려 흐름 보기로 물러나게 한다.
     """
-    CANVAS_W = 760.0
-    with_bbox = [c for c in chunks if c.get("bbox")]
-    if len(with_bbox) < max(2, len(chunks) // 3):
-        return None
-
-    pages: dict[int, list] = defaultdict(list)
-    for c in chunks:
-        if not c.get("bbox"):
-            continue
-        try:
-            x0, y0, x1, y1 = (float(v) for v in c["bbox"].split(","))
-        except ValueError:
-            continue
-        if x1 <= x0 or y1 <= y0:
-            continue
-        pages[c.get("page_no") or 1].append((c, x0, y0, x1, y1))
-
-    out: list[Markup] = []
-    for pg in sorted(pages):
-        boxes = pages[pg]
-        if page_sizes and pg in page_sizes:
-            pw, ph = page_sizes[pg]
-        else:
-            pw = max(x1 for *_, x1, _ in boxes) * 1.02
-            ph = max(y1 for *_, y1 in boxes) * 1.03
-        if pw <= 0 or ph <= 0:
-            continue
-        # 좌표계 보정 — bbox가 렌더 픽셀 기준(페이지의 2배 등)이면 균일 축소
-        max_x = max(x1 for *_, x1, _ in boxes)
-        max_y = max(y1 for *_, y1 in boxes)
-        fit = max(max_x / pw, max_y / ph, 1.0)
-        if fit > 1.08:
-            boxes = [
-                (c, x0 / fit, y0 / fit, x1 / fit, y1 / fit)
-                for c, x0, y0, x1, y1 in boxes
-            ]
-        scale = CANVAS_W / pw
-        bg = ""
-        ghost = bool(page_image_url)
-        if page_image_url:
-            bg = (
-                f" background-image:url('{page_image_url(pg)}');"
-                " background-size:100% 100%; background-repeat:no-repeat;"
-            )
-        parts = [
-            f'<div class="layout-page" style="width:{CANVAS_W:.0f}px;'
-            f' height:{ph * scale:.0f}px;{bg}">',
-            f'<span class="layout-pageno">{pg}쪽</span>',
-        ]
-        for c, x0, y0, x1, y1 in boxes:
-            left, top = x0 * scale, y0 * scale
-            bw, bh = (x1 - x0) * scale, (y1 - y0) * scale
-            style = (
-                f"left:{left:.1f}px; top:{top:.1f}px;"
-                f" width:{bw:.1f}px; height:{bh:.1f}px;"
-            )
-            if c["kind"] == "image":
-                if ghost:
-                    continue  # 배경이 원본 렌더이므로 그림은 이미 보인다
-                aid = (asset_by_name or {}).get(c["content"])
-                inner = (
-                    Markup('<img src="/doc/{}/asset/{}" style="width:100%; height:100%;'
-                           ' object-fit:contain;">').format(doc_id, aid)
-                    if doc_id is not None and aid else Markup("")
-                )
-            elif c["kind"] == "table":
-                if ghost:
-                    continue  # 표 괘선·음영도 배경에 있다 — 글자는 텍스트 조각이 덮는다
-                inner = table_html(c["content"])
-            else:
-                n_lines = max(c["content"].count("\n") + 1, 1)
-                fs = min(15.0, bh / n_lines * 0.72)
-                # 폭 기준 상한 — 가장 긴 줄이 박스 폭을 넘지 않게 (CJK≈1em, 그 외≈0.55em)
-                widest = max(
-                    (sum(1.0 if ord(ch) > 0x2E80 else 0.55 for ch in ln)
-                     for ln in c["content"].splitlines() if ln.strip()),
-                    default=1.0,
-                )
-                fs = max(4.5, min(fs, bw / max(widest, 1.0) * 0.96))
-                weight = "700" if c["kind"] == "heading" or c.get("bold") else "400"
-                if c.get("color"):
-                    r, g, b = c["color"]
-                    color = f"rgb({r},{g},{b})"
-                else:
-                    color = "var(--navy)" if c["kind"] == "heading" else "inherit"
-                # 정밀 줄(한 줄 상자)은 글자 사이를 고르게 벌려 박스 폭에 맞춘다
-                # — 한글 공문서 양쪽정렬 방식. 웹 글꼴이 원본보다 좁아 생기는
-                # 줄 중간 빈 틈을 없앤다. 과도한 벌림은 글자 크기의 90%로 제한
-                spacing = ""
-                if "justify" in c and n_lines == 1 and len(c["content"]) >= 4:
-                    est = widest * fs
-                    extra = (bw - est) / max(len(c["content"]) - 1, 1)
-                    if extra > 0.3:
-                        spacing = f" letter-spacing:{min(extra, fs * 0.9):.2f}px;"
-                if ghost:
-                    # 원본 렌더가 배경 — 텍스트는 보이지 않게 얹어 선택·검색만
-                    color = "transparent"
-                inner = Markup(
-                    '<span style="font-size:{:.1f}px; font-weight:{}; color:{};'
-                    ' line-height:1.32; display:block;{}">{}</span>'
-                ).format(fs, weight, color, Markup(spacing), _rich(c["content"]))
-            parts.append(
-                Markup('<div class="layout-box" style="{}">{}</div>').format(
-                    Markup(style), inner
-                )
-            )
-        parts.append("</div>")
-        out.append(Markup("".join(str(x) for x in parts)))
-    return out or None
+    return None
 
 
 def trailing_image_blocks(doc_id: int, assets: list[dict]) -> list[Markup]:
@@ -359,6 +345,9 @@ def build_docx(
                 n_rows, n_cols = int(data["n_rows"]), int(data["n_cols"])
                 if n_rows < 1 or n_cols < 1:
                     continue
+                caption, note = table_context(c["content"])
+                if caption:
+                    doc.add_paragraph(caption).runs[0].bold = True
                 t = doc.add_table(rows=n_rows, cols=n_cols)
                 t.style = "Table Grid"
                 col_w = data.get("col_w") or []
@@ -383,7 +372,7 @@ def build_docx(
                         for para in cell.paragraphs:
                             for run in para.runs:
                                 run.bold = True
-                doc.add_paragraph("")
+                doc.add_paragraph(note if note else "")
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 doc.add_paragraph(c["content"])
         elif kind == "image":

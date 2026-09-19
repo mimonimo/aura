@@ -78,17 +78,10 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
     return tree
 
 
-def build_bundle(db, sft_dir: Path | str = "data/interim/sft",
-                 model_dir: Path | str | None = None,
-                 include: set[str] | None = None) -> tuple[bytes, dict]:
-    """반출 zip 바이트와 매니페스트를 만든다.
-
-    include로 담을 항목을 고른다(기본 전체): {"rag", "datasets", "model"}.
-    - RAG: 조각 JSONL + 임베딩 npz + 임베딩 모델 id
-    - 학습 데이터: data/interim/sft/*.jsonl (이미 마스킹·검증 통과분)
-    - 모델: model_dir이 주어지고 존재하면 그 안의 safetensors·config 포함
-      (LoRA 어댑터 권장 — 베이스는 오픈웨이트 참조)
-    """
+def collect_files(db, sft_dir: Path | str = "data/interim/sft",
+                  model_dir: Path | str | None = None,
+                  include: set[str] | None = None) -> tuple[dict[str, bytes], list[dict]]:
+    """반출 대상 파일(경로→바이트)과 산출물 목록. build_bundle 과 파일 하나 내려받기가 함께 쓴다."""
     include = include or {"rag", "datasets", "model"}
     files: dict[str, bytes] = {}
     artifacts: list[dict] = []
@@ -149,6 +142,34 @@ def build_bundle(db, sft_dir: Path | str = "data/interim/sft",
                     "files": model_files,
                     "note": "LoRA 어댑터면 베이스 오픈웨이트와 재조립",
                 })
+
+    return files, artifacts
+
+
+def single_file(db, path: str, sft_dir: Path | str = "data/interim/sft",
+                model_dir: Path | str | None = None) -> bytes | None:
+    """반출 목록에 있는 파일 하나의 바이트. 목록 밖 경로는 None(경로 조작 차단)."""
+    group = path.split("/", 1)[0]
+    if group not in ("rag", "datasets", "model"):
+        return None
+    files, _ = collect_files(db, sft_dir=sft_dir, model_dir=model_dir, include={group})
+    return files.get(path)
+
+
+def build_bundle(db, sft_dir: Path | str = "data/interim/sft",
+                 model_dir: Path | str | None = None,
+                 include: set[str] | None = None) -> tuple[bytes, dict]:
+    """반출 zip 바이트와 매니페스트를 만든다.
+
+    include로 담을 항목을 고른다(기본 전체): {"rag", "datasets", "model"}.
+    - RAG: 조각 JSONL + 임베딩 npz + 임베딩 모델 id
+    - 학습 데이터: data/interim/sft/*.jsonl (이미 마스킹·검증 통과분)
+    - 모델: model_dir이 주어지고 존재하면 그 안의 safetensors·config 포함
+      (LoRA 어댑터 권장 — 베이스는 오픈웨이트 참조)
+    """
+    from zzaimy.app.embed_search import MODEL_NAME
+
+    files, artifacts = collect_files(db, sft_dir=sft_dir, model_dir=model_dir, include=include)
 
     manifest = {
         "created_at": datetime.now(timezone.utc).astimezone().isoformat(

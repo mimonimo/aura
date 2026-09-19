@@ -190,7 +190,43 @@ def _regions(hs: list, vs: list):
     for i, (kind, s) in enumerate(segs):
         g = groups[find(i)]
         (g[0] if kind == "h" else g[1]).append(s)
-    return [g for g in groups.values() if len(g[0]) >= 2 and len(g[1]) >= 2]
+
+    out: list[tuple[list, list]] = []
+    for g in groups.values():
+        if len(g[0]) < 2 or len(g[1]) < 2:
+            continue
+        out.extend(_split_stacked(g[0], g[1]))
+    return out
+
+
+def _split_stacked(hs: list, vs: list) -> list[tuple[list, list]]:
+    """가까이 붙은 별개의 표를 나눈다.
+
+    표의 몸통은 세로선이 지탱한다. 그래서 세로선이 하나도 걸치지 않는 높이 구간이
+    있으면 그 위아래는 서로 다른 표다. 쪽 안에서 표 둘이 조금 떨어져 나란히 놓인
+    경우(제목 표와 내용 표처럼) 근접만으로 묶으면 한 격자로 합쳐져 열 경계가
+    뒤섞이고, 어느 쪽 열 폭도 원본과 맞지 않게 된다.
+    """
+    spans = sorted((min(y0, y1), max(y0, y1)) for y0, y1, _ in vs)
+    if not spans:
+        return [(hs, vs)]
+    bands: list[list[float]] = [[spans[0][0], spans[0][1]]]
+    for lo, hi in spans[1:]:
+        if lo - bands[-1][1] <= _REGION_GAP:      # 이어져 있으면 같은 몸통
+            bands[-1][1] = max(bands[-1][1], hi)
+        else:
+            bands.append([lo, hi])
+    if len(bands) < 2:
+        return [(hs, vs)]
+
+    out: list[tuple[list, list]] = []
+    for lo, hi in bands:
+        band_vs = [v for v in vs if min(v[0], v[1]) >= lo - _CLUSTER_TOL
+                   and max(v[0], v[1]) <= hi + _CLUSTER_TOL]
+        band_hs = [h for h in hs if lo - _REGION_GAP <= h[2] <= hi + _REGION_GAP]
+        if len(band_hs) >= 2 and len(band_vs) >= 2:
+            out.append((band_hs, band_vs))
+    return out or [(hs, vs)]
 
 
 def _cluster(vals: list[float]) -> list[float]:

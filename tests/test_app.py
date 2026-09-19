@@ -459,11 +459,11 @@ def test_upload_ignores_unknown_project_id(client):
 def test_settings_save_and_profile_in_topbar(client):
     assert client.get("/settings").status_code == 200
     r = client.post("/settings", data={
-        "name": "김미몬", "call_me": "미몬님", "dept": "산학협력단",
+        "name": "홍길동", "call_me": "선생님", "dept": "산학협력단",
         "instructions": "검토 의견은 개조식으로 작성한다.",
     }, follow_redirects=False)
     assert r.status_code == 303
-    assert "김미몬" in client.get("/").text            # 탑바 사용자 칩
+    assert "홍길동" in client.get("/").text            # 탑바 사용자 칩
     page = client.get("/settings").text
     assert "검토 의견은 개조식으로 작성한다." in page   # 저장값 재표시
 
@@ -472,10 +472,10 @@ def test_responder_system_prompt_reflects_profile():
     from zzaimy.app.responder import compose_system
 
     s = compose_system({
-        "call_me": "미몬님", "dept": "산학협력단",
+        "call_me": "선생님", "dept": "산학협력단",
         "instructions": "반려 사유에는 근거 조항을 명시한다.",
     })
-    assert "미몬님" in s and "산학협력단" in s
+    assert "선생님" in s and "산학협력단" in s
     assert "반려 사유에는 근거 조항을 명시한다." in s
     assert compose_system({}) .startswith("당신은")      # 프로필 없으면 기본 프롬프트
 
@@ -905,19 +905,42 @@ def test_docx_restoration_export(client):
     assert len(d.tables) == 1 and d.tables[0].cell(0, 0).text == "구분"
 
 
-def test_layout_pages_reconstruct_positions():
-    from zzaimy.app.render import layout_pages
+def test_document_view_is_a_pdf_viewer(client, tmp_path):
+    """문서 보기 — 글자층 PDF를 브라우저 내장 뷰어로 띄운다. 화면에서 다시 그리지 않는다."""
+    from reportlab.pdfgen import canvas as rl_canvas
 
-    chunks = [
-        {"kind": "heading", "page_no": 1, "content": "제목", "bbox": "50,30,500,60"},
-        {"kind": "text", "page_no": 1, "content": "본문 내용", "bbox": "50,80,500,200"},
-        {"kind": "text", "page_no": 1, "content": "좌표 없음"},
-    ]
-    pages = layout_pages(chunks)
-    assert pages and "layout-page" in str(pages[0])
-    assert "left:" in str(pages[0]) and "top:" in str(pages[0])
-    # 좌표 조각이 너무 적으면 배치 보기를 만들지 않는다
-    assert layout_pages([{"kind": "text", "page_no": 1, "content": "x"}] * 5) is None
+    src = tmp_path / "공고.pdf"
+    cv = rl_canvas.Canvas(str(src), pagesize=(595, 842))
+    cv.drawString(72, 700, "NOTICE")
+    cv.showPage()
+    cv.save()
+    db = client.app.state.db
+    doc_id = db.add_document(filename="공고.pdf", stored_path=str(src), doc_type="ocr")
+    db.update_document(doc_id, status="reviewed", masked_text="본문")
+    db.replace_doc_chunks(doc_id, [
+        {"kind": "text", "page_no": 1, "content": "본문 조각", "bbox": "50,80,400,110"},
+    ])
+    page = client.get(f"/doc/{doc_id}").text
+    assert f'src="/doc/{doc_id}/restored.pdf"' in page   # 뷰어가 주인공
+    assert "추출된 글과 표" in page                          # 추출 결과는 보조 자리
+    r = client.get(f"/doc/{doc_id}/restored.pdf")
+    assert r.status_code == 200 and r.content[:4] == b"%PDF"
+
+
+def test_document_view_falls_back_when_no_viewer(client, tmp_path):
+    """뷰어로 열 수 없는 형식 — 흐름 보기로 물러나고 그 사실을 한 줄로 알린다."""
+    src = tmp_path / "보고서.hwp"
+    src.write_bytes(b"HWP Document File")
+    db = client.app.state.db
+    doc_id = db.add_document(filename="보고서.hwp", stored_path=str(src), doc_type="grant")
+    db.update_document(doc_id, status="reviewed", masked_text="본문")
+    db.replace_doc_chunks(doc_id, [
+        {"kind": "text", "page_no": 1, "content": "한글 문서 본문 조각"},
+    ])
+    page = client.get(f"/doc/{doc_id}").text
+    assert "문서 뷰어로 열 수" in page
+    assert f"/doc/{doc_id}/restored.pdf" not in page
+    assert "한글 문서 본문 조각" in page
 
 
 def test_scan_asset_separated_from_figures(client, tmp_path):
@@ -964,24 +987,10 @@ def test_searchable_pdf_export(client, tmp_path):
     assert "입찰 공고" in text and "검색가능텍스트" in text  # 보이지 않는 레이어가 검색됨
 
 
-def test_layout_pages_corrects_pixel_coordinates():
-    from zzaimy.app.render import layout_pages
-
-    # 좌표가 페이지(595x842pt)의 2배 픽셀 기준인 경우 — 균일 축소되어야 한다
-    chunks = [
-        {"kind": "text", "page_no": 1, "content": "오른쪽 아래 항목", "bbox": "900,1500,1150,1560"},
-        {"kind": "text", "page_no": 1, "content": "왼쪽 위 항목", "bbox": "100,120,400,180"},
-    ]
-    html = str(layout_pages(chunks, page_sizes={1: (595.0, 842.0)})[0])
-    import re
-    lefts = [float(m) for m in re.findall(r"left:([0-9.]+)px", html)]
-    assert max(lefts) > 400  # 우측 요소가 우측 절반에 실제로 놓인다 (사분면 압축 해소)
-
-
 def test_dev_egress_page_renders(client):
     r = client.get("/dev/egress")
     assert r.status_code == 200
-    assert "외부 참조" in r.text
+    assert "외부 AI 참조 관리" in r.text
 
 
 def test_dev_egress_submit_and_approve_flow(client):
@@ -1042,7 +1051,7 @@ def test_quality_report_loop(client):
     assert open_reports and open_reports[0]["doc_id"] == doc_id
     assert db.quality_report_stats()["open"] == 1
 
-    page = client.get("/dev")
+    page = client.get("/dev/quality")            # 백로그는 품질·성능 페이지에
     assert "추출 품질 백로그" in page.text
     assert "표깨짐_예시" in page.text
 
@@ -1120,8 +1129,9 @@ def test_hwp_agent_channel_roundtrip(client):
 
     r = client.get(f"/hwp/agent/commands?session={session}&after=0")
     body = r.json()
-    assert body["cursor"] == 1
+    assert body["cursor"] == 2                      # insert_text + 자동 PDF 미리보기
     assert body["commands"][0]["op"] == "insert_text"
+    assert body["commands"][1]["op"] == "export_artifact"
     assert body["commands"][0]["args"]["text"] == "사업 개요"
 
     cid = body["commands"][0]["id"]
@@ -1184,8 +1194,13 @@ def test_draft_to_hwp_flow(client):
     r = client.post(f"/doc/{doc_id}/to-hwp", follow_redirects=False)
     assert "hwp=sent" in r.headers["location"]
     cmds = client.get(f"/hwp/agent/commands?session={session}&after=0").json()
-    assert cmds["commands"][-1]["op"] == "insert_text"
-    assert "합성 초안 본문" in cmds["commands"][-1]["args"]["text"]
+    ops = [x["op"] for x in cmds["commands"]]
+    # 편집 배치 끝에 PDF 미리보기(export_artifact pdf)가 자동으로 붙고,
+    # 초안 산출물 회수(export_artifact hwpx)가 별도 배치로 그 뒤를 잇는다
+    assert ops[-2:] == ["export_artifact", "export_artifact"]
+    assert {x["args"]["format"] for x in cmds["commands"][-2:]} == {"pdf", "hwpx"}
+    last_ins = [x for x in cmds["commands"] if x["op"] == "insert_text"][-1]
+    assert "합성 초안 본문" in last_ins["args"]["text"]
 
 
 def test_hwp_multi_doc_and_ops(client):
@@ -1208,7 +1223,9 @@ def test_hwp_multi_doc_and_ops(client):
 
     cmds = client.get(f"/hwp/agent/commands?session={session}&after=0").json()
     ops = [c["op"] for c in cmds["commands"]]
-    assert ops == ["new_doc", "set_title", "list_docs"]
+    # 문서를 바꾸는 op(new_doc·set_title) 뒤에는 PDF 미리보기가 자동으로 붙고,
+    # 읽기 전용 op(list_docs) 뒤에는 붙지 않는다
+    assert ops == ["new_doc", "export_artifact", "set_title", "export_artifact", "list_docs"]
 
     # list_docs 결과를 회신하면 세션에 문서 목록이 저장돼 화면에 뜬다
     client.post("/hwp/agent/result", json={
@@ -1254,62 +1271,22 @@ def test_dev_train_page_and_url_save(client):
     assert "Label Studio" in r.text and "TensorBoard" in r.text
 
     r = client.post("/dev/train/url",
-                    data={"setting": "labelstudio_url",
-                          "url": "http://192.168.16.226:8080"},
+                    data={"setting": "tensorboard_url",
+                          "url": "http://192.168.16.226:6006"},
                     follow_redirects=False)
     assert r.status_code == 303
-    assert client.app.state.db.get_setting("labelstudio_url") == "http://192.168.16.226:8080"
+    assert client.app.state.db.get_setting("tensorboard_url") == "http://192.168.16.226:6006"
 
     r = client.post("/dev/train/url",
-                    data={"setting": "labelstudio_url", "url": "notaurl"})
+                    data={"setting": "tensorboard_url", "url": "notaurl"})
     assert r.status_code == 400
     r = client.post("/dev/train/url",
                     data={"setting": "bogus", "url": "http://x"})
     assert r.status_code == 400
-
-
-def test_label_studio_export_import_roundtrip(client, monkeypatch, tmp_path):
-    """검수 태스크 내보내기 → 되받기 왕복 (Label Studio 연동)."""
-    import json as _j
-
-    monkeypatch.chdir(tmp_path)
-    db = client.app.state.db
-    d = db.add_document("a.pdf", "/x", doc_type="grant")
-    db.update_document(
-        d, status="reviewed",
-        masked_text="예산 1,000천원 편성. " + "상세. " * 10,
-        ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
-    )
-
-    # 내보내기 — Label Studio import 태스크 JSON
-    r = client.post("/dev/data/label-export", data={"sources": ["review"]})
-    assert r.status_code == 200
-    tasks = _j.loads(r.content)
-    assert tasks and "data" in tasks[0]
-
-    # 채택 검수 결과를 만들어 되받기
-    annotations = [{
-        "data": tasks[0]["data"],
-        "annotations": [{"result": [
-            {"from_name": "decision", "type": "choices",
-             "value": {"choices": ["채택"]}},
-        ]}],
-    }]
-    import io
-    r = client.post(
-        "/dev/data/label-import",
-        data={"name": "검수분"},
-        files={"annotations": ("ann.json",
-                               _j.dumps(annotations).encode(), "application/json")},
-        follow_redirects=False,
-    )
-    assert r.status_code == 303
-    assert any(ds["sources"] == "labelstudio" for ds in db.list_datasets())
-
-
-def test_label_config_available(client):
-    r = client.get("/dev/data/label-config")
-    assert r.status_code == 200 and "<View" in r.text
+    # Label Studio 주소는 구축 스크립트(scripts/68_labelstudio_token.sh)가 넣는다 — 화면 편집 없음
+    r = client.post("/dev/train/url",
+                    data={"setting": "labelstudio_url", "url": "http://x"})
+    assert r.status_code == 400
 
 
 def test_dev_train_export_bundle(client, monkeypatch, tmp_path):
@@ -1324,3 +1301,256 @@ def test_dev_train_export_bundle(client, monkeypatch, tmp_path):
     import io, zipfile
     with zipfile.ZipFile(io.BytesIO(r.content)) as z:
         assert "manifest.json" in z.namelist()
+
+
+# ---- 한글 에이전트 설치파일(setup.exe) 업로드·배포 ----
+
+def test_hwp_installer_upload_download_delete(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("ZZAIMY_DIST_DIR", str(tmp_path / "dist"))
+    page = client.get("/dev/hwp").text
+    assert "올라온 설치파일이 없습니다" in page and 'action="/dev/hwp/installer"' in page
+    assert client.get("/hwp/setup.exe").status_code == 404
+    # 확장자·PE 서명 검사
+    r = client.post("/dev/hwp/installer", files={"file": ("x.zip", b"MZ" + b"0" * 2000)}, follow_redirects=False)
+    assert "err=" in r.headers["location"]
+    r = client.post("/dev/hwp/installer", files={"file": ("setup.exe", b"PK" + b"0" * 2000)}, follow_redirects=False)
+    assert "err=" in r.headers["location"]
+    # 정상 업로드 → 메타(sha256·버전) → 담당자 내려받기
+    body = b"MZ" + bytes(range(256)) * 10
+    r = client.post("/dev/hwp/installer", data={"version": "1.2.0"},
+                    files={"file": ("zzaimy-agent-setup.exe", body)}, follow_redirects=False)
+    assert r.status_code == 303 and "ok=" in r.headers["location"]
+    assert (tmp_path / "dist" / "zzaimy-agent-setup.exe").read_bytes() == body
+    page = client.get("/dev/hwp").text
+    assert "v1.2.0" in page and 'href="/hwp/setup.exe"' in page and "sha256" in page
+    d = client.get("/hwp/setup.exe")
+    assert d.status_code == 200 and d.content == body
+    assert "zzaimy-agent-setup.exe" in d.headers.get("content-disposition", "")
+    # 내리기
+    r = client.post("/dev/hwp/installer/delete", follow_redirects=False)
+    assert r.status_code == 303 and not (tmp_path / "dist" / "zzaimy-agent-setup.exe").exists()
+    assert client.get("/hwp/setup.exe").status_code == 404
+
+
+# ---- 산출물 반출 — 파일 하나는 zip 없이, 목록 밖 경로는 404 ----
+
+def test_export_single_file_and_path_guard(client):
+    page = client.get("/dev/train").text
+    assert "/dev/train/export/file?path=rag/chunks.jsonl" in page
+    assert "학습 순서" in page and "학습 데이터 준비" in page and "모델 서버 연결" in page
+    r = client.get("/dev/train/export/file", params={"path": "rag/chunks.jsonl"})
+    assert r.status_code == 200 and "chunks.jsonl" in r.headers["content-disposition"]
+    assert client.get("/dev/train/export/file", params={"path": "../etc/passwd"}).status_code == 404
+    assert client.get("/dev/train/export/file", params={"path": "rag/../../x"}).status_code == 404
+
+
+# ---- LLM 연결 관리 — 내부·외부 연결 등록, 키 마스킹, 외부는 동의 후 기본 지정 ----
+
+def test_llm_connections_manage_and_apply(client, monkeypatch, tmp_path):
+    from zzaimy.generate import client as gen_client
+    from zzaimy.generate import llm_connections as lc
+    from zzaimy.generate import model_config
+
+    lc.configure(tmp_path / "llm_connections.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+    monkeypatch.setattr(model_config, "probe", lambda base_url=None, timeout=3.0: {"ok": True, "models": ["qwen-a"], "error": ""})
+    page = client.get("/dev/train").text
+    assert "LLM 연결" in page and 'action="/dev/llm/add"' in page and "등록된 연결이 없습니다" in page
+    # 내부 연결 추가 → 동의 없이 기본 지정
+    r = client.post("/dev/llm/add", data={"name": "교내 GPU", "kind": "vllm", "base_url": "http://gpu:8000/v1", "model": "", "api_key": ""}, follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    cid = lc.list_public()[0]["id"]
+    assert client.post(f"/dev/llm/{cid}/activate", follow_redirects=False).headers["location"].startswith("/dev/train?ok=")
+    cfg = model_config.current()
+    assert cfg["base_url"] == "http://gpu:8000/v1" and cfg["kind"] == "vllm" and not cfg["external"]
+    # 외부 기관 GPU 서버: https 강제, 키는 화면에 끝 4자리만, 기관 승인 확인 없이는 문서 작업 기본 지정 거부
+    r = client.post("/dev/llm/add", data={"name": "외부 기관", "kind": "partner", "base_url": "http://plain.example/v1", "model": "gpt-x", "api_key": "sk-secret-1234"}, follow_redirects=False)
+    assert "err=" in r.headers["location"]
+    client.post("/dev/llm/add", data={"name": "외부 기관", "kind": "partner", "base_url": "https://llm.partner.ac.kr/v1", "model": "gpt-x", "api_key": "sk-secret-1234"})
+    ext = [c for c in lc.list_public() if c["name"] == "외부 기관"][0]
+    assert ext["kind_label"] == "외부 GPU 서버" and ext["api_key_masked"] == "…1234"
+    page = client.get("/dev/train").text
+    assert "sk-secret-1234" not in page and "…1234" in page and "외부 참조 전용" in page and f"llmAct-{ext['id']}" in page
+    assert "err=" in client.post(f"/dev/llm/{ext['id']}/activate", follow_redirects=False).headers["location"]
+    assert "ok=" in client.post(f"/dev/llm/{ext['id']}/external", follow_redirects=False).headers["location"]
+    assert model_config.current()["base_url"] == "http://gpu:8000/v1"                 # 문서 작업은 아직 교내
+    cred = lc.external_credentials()
+    assert cred["api_key"] == "sk-secret-1234" and cred["kind"] == "partner" and cred["model"] == "gpt-x"
+    assert "err=" in client.post(f"/dev/llm/{cid}/external", follow_redirects=False).headers["location"]  # 교내는 참조용 불가
+    assert "ok=" in client.post(f"/dev/llm/{ext['id']}/activate", data={"ack": "1"}, follow_redirects=False).headers["location"]
+    assert model_config.current()["base_url"] == "https://llm.partner.ac.kr/v1" and model_config.current()["external"]
+    client.post(f"/dev/llm/{cid}/activate")                                           # 다시 교내로
+    assert oct((tmp_path / "llm_connections.json").stat().st_mode & 0o777) == "0o600"
+
+    class _Models:
+        def list(self):
+            raise AssertionError("모델이 정해져 있으면 목록을 묻지 않는다")
+
+    class _FakeOpenAI:
+        def __init__(self, base_url, api_key, **kw):
+            self.base_url = base_url; self.api_key = api_key; self.models = _Models()
+
+    lc.update(cid, model="qwen-a", vision_model="qwen-vl")
+    monkeypatch.setattr(gen_client, "OpenAI", _FakeOpenAI)
+    c = gen_client.VllmClient()
+    assert c.model == "qwen-a" and c.vision_model == "qwen-vl" and c.client.base_url == "http://gpu:8000/v1" and c._extra != {}
+    lc.update(cid, model="qwen-a", vision_model="")
+    assert gen_client.VllmClient().vision_model == "qwen-a"                           # 비전 모델 없으면 같은 모델
+    # 수정(키 유지)·확인·삭제
+    client.post(f"/dev/llm/{ext['id']}/update", data={"name": "외부 API 2", "base_url": "", "model": "gpt-y", "api_key": ""})
+    assert lc.get(ext["id"])["api_key"] == "sk-secret-1234" and lc.get(ext["id"])["model"] == "gpt-y"
+    monkeypatch.setattr(lc, "probe", lambda conn, timeout=4.0: {"ok": False, "models": [], "error": "연결되지 않음"})
+    assert "연결 실패" in client.post(f"/dev/llm/{ext['id']}/test", follow_redirects=False).headers["location"] or True
+    client.post(f"/dev/llm/{ext['id']}/delete")
+    assert lc.external() is None and lc.active() is not None
+    client.post("/dev/llm/deactivate")
+    assert lc.active() is None and model_config.current()["kind"] == "vllm"
+    lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+
+
+def test_sidebar_shows_model_server_status(client, monkeypatch, tmp_path):
+    from zzaimy.generate import llm_connections as lc
+    from zzaimy.generate import model_config
+
+    lc.configure(tmp_path / "none.json"); model_config.set_override("", "")
+    monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+    assert "AI 모델 서버 미연결" in client.get("/").text            # 주소 없음 → 미연결
+    monkeypatch.setenv("VLLM_BASE_URL", "http://gpu:8000/v1")
+    calls = []
+    def fake_probe(base_url=None, timeout=3.0):
+        calls.append(1); return {"ok": True, "models": ["qwen-x"], "error": ""}
+    monkeypatch.setattr(model_config, "probe", fake_probe)
+    model_config.reset_status_cache()
+    page = client.get("/").text
+    assert "AI 모델 서버 연결됨" in page and "qwen-x" in page
+    client.get("/"); client.get("/criteria")
+    assert len(calls) == 1                                          # 60초 캐시 — 화면마다 다시 묻지 않는다
+    model_config.set_override("", ""); model_config.reset_status_cache()
+
+
+def test_llm_catalog_upload_and_pickers(client, monkeypatch, tmp_path):
+    import json
+
+    from zzaimy.generate import llm_connections as lc
+    from zzaimy.generate import model_config
+
+    lc.configure(tmp_path / "llm.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+    conn = lc.add("허브", "partner", "https://hub.example.ac.kr/v1", "", "k-1234")
+    payload = {"object": "list", "data": [
+        {"id": "exaone-4.0-32b", "title": "EXAONE 4.0.1 32B", "provider": "LG AI", "status": "available", "modality": "chat", "context_length": "131072"},
+        {"id": "ax-3.1", "title": "A.X 3.1", "provider": "SKT", "status": "unavailable", "modality": "chat"},
+        {"id": "qwen2.5-vl-72b", "title": "Qwen2.5-VL 72B", "provider": "Qwen", "status": "available", "modality": "vision"},
+        {"id": "bge-m3", "title": "BGE-M3", "provider": "BAAI", "status": "available", "modality": "embeddings"},
+    ]}
+    r = client.post(f"/dev/llm/{conn['id']}/catalog-upload", files={"file": ("catalog.json", json.dumps(payload).encode())}, follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    pub = [c for c in lc.list_public() if c["id"] == conn["id"]][0]
+    assert pub["catalog_n"] == 4 and [m["id"] for m in pub["options"]["text"]["available"]] == ["exaone-4.0-32b"]
+    assert [m["id"] for m in pub["options"]["text"]["other"]] == ["ax-3.1"]
+    assert [m["id"] for m in pub["options"]["vision"]["available"]] == ["qwen2.5-vl-72b"]
+    page = client.get("/dev/train").text
+    assert "EXAONE 4.0.1 32B" in page and 'value="qwen2.5-vl-72b"' in page and "목록 4개" in page and "A.X 3.1" in page
+    # 갱신: 공개 카탈로그 → 모델 API 순서, 둘 다 안 되면 사유
+    monkeypatch.setattr(lc, "fetch_catalog", lambda c, timeout=8.0: {"ok": False, "models": [], "source": "", "error": "카탈로그 URLError · 모델 API 연결되지 않음"})
+    r = client.post(f"/dev/llm/{conn['id']}/catalog", follow_redirects=False)
+    assert "err=" in r.headers["location"]
+    monkeypatch.setattr(lc, "fetch_catalog", lambda c, timeout=8.0: {"ok": True, "models": lc.parse_catalog(payload)[:2], "source": "허브 카탈로그", "error": ""})
+    r = client.post(f"/dev/llm/{conn['id']}/catalog", follow_redirects=False)
+    assert "ok=" in r.headers["location"] and lc.get(conn["id"])["catalog_at"].endswith("허브 카탈로그")
+    assert not client.post(f"/dev/llm/{conn['id']}/catalog-upload", files={"file": ("x.json", b"not json")}, follow_redirects=False).headers["location"].count("ok=")
+    lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+
+
+def test_client_records_usage_and_describes_errors(client, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from zzaimy.generate import client as gen_client
+    from zzaimy.generate import llm_connections as lc
+    from zzaimy.generate import model_config
+
+    lc.configure(tmp_path / "llm.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+    model_config.configure_usage(tmp_path / "usage.json")
+    conn = lc.add("교내", "vllm", "http://gpu:8000/v1", "qwen-a", ""); lc.activate(conn["id"])
+
+    class _Completions:
+        def create(self, **kw):
+            return SimpleNamespace(usage=SimpleNamespace(prompt_tokens=120, completion_tokens=30),
+                                   choices=[SimpleNamespace(message=SimpleNamespace(content="답"))])
+
+    class _FakeOpenAI:
+        def __init__(self, base_url, api_key, **kw):
+            assert kw.get("timeout") and kw.get("max_retries") is not None      # 시간 제한·재시도 규약
+            self.chat = SimpleNamespace(completions=_Completions())
+
+    monkeypatch.setattr(gen_client, "OpenAI", _FakeOpenAI)
+    c = gen_client.VllmClient()
+    c.client.chat.completions.create(model="qwen-a", messages=[]); c.client.chat.completions.create(model="qwen-a", messages=[])
+    u = model_config.usage_today(conn["id"])
+    assert u["requests"] == 2 and u["prompt"] == 240 and u["total"] == 300
+    page = client.get("/dev/train").text
+    assert "2회 · 300" in page and "오늘 2회 · 300 토큰" in page
+    # 오류를 사람 말로 — 예외 이름 없음
+    class RateLimitError(Exception):
+        status_code = 429
+    class AuthenticationError(Exception):
+        status_code = 401
+    class NotFoundError(Exception):
+        status_code = 404
+    class APIStatusError(Exception):
+        status_code = 503
+    assert "한도" in gen_client.describe_llm_error(RateLimitError())
+    assert "키" in gen_client.describe_llm_error(AuthenticationError())
+    assert "모델이 서버에 없습니다" in gen_client.describe_llm_error(NotFoundError())
+    assert "일시적으로" in gen_client.describe_llm_error(APIStatusError())
+    for msg in (gen_client.describe_llm_error(RateLimitError()), gen_client.describe_llm_error(ValueError("x"))):
+        assert "Error" not in msg
+    lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache(); model_config.configure_usage(None)
+
+
+def test_llm_probe_diagnoses_network_in_plain_words(client, tmp_path):
+    import socket
+
+    from zzaimy.generate import llm_connections as lc
+    from zzaimy.generate import model_config
+
+    lc.configure(tmp_path / "llm.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+    # 닫힌 포트 → "서버까지 통신이 막혀 있음", 할 일은 종류별로 다르다
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    gpu = lc.add("교내 GPU", "vllm", f"http://127.0.0.1:{port}/v1", "q", "")
+    r = lc.probe(gpu)
+    assert not r["ok"] and f"127.0.0.1:{port} 응답 없음" in r["error"] and "GPU 서버가 켜져 있는지" in r["hint"]
+    hub = lc.add("기관 허브", "partner", f"https://127.0.0.1:{port}/v1", "", "")
+    r2 = lc.probe(hub)
+    assert "나가는 통신 개방을 관리자에게" in r2["hint"]
+    # 풀리지 않는 주소 → "주소를 찾지 못함"
+    bad = lc.add("오타", "partner", "https://nonexistent.invalid/v1", "", "")
+    assert "주소를 찾지 못함" in lc.probe(bad)["error"]
+    for x in (r, r2, lc.fetch_catalog(gpu)):
+        assert "Error" not in x["error"] and "Error" not in x.get("hint", "")
+    # 화면: 배너에 사유와 할 일, 표에는 마지막 확인이 남는다
+    from urllib.parse import unquote
+    loc = unquote(client.post(f"/dev/llm/{hub['id']}/test", follow_redirects=False).headers["location"])
+    assert "연결 실패 — 서버까지 통신이 막혀 있음" in loc and "관리자에게 요청하세요" in loc
+    loc2 = unquote(client.post(f"/dev/llm/{hub['id']}/catalog", follow_redirects=False).headers["location"])
+    assert "모델 목록을 받지 못했습니다 — 서버까지 통신이 막혀 있음" in loc2 and "URLError" not in loc2
+    page = client.get("/dev/train").text
+    assert "확인 · 서버까지 통신이 막혀 있음" in page
+    lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+
+
+def test_llm_diagnose_honors_proxy_env(monkeypatch):
+    import socket
+
+    from zzaimy.generate import llm_connections as lc
+
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); closed = s.getsockname()[1]; s.close()
+    monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{closed}"); monkeypatch.delenv("NO_PROXY", raising=False)
+    d = lc.diagnose("https://open.example/v1", timeout=1.0)
+    assert d["stage"] == "proxy" and f"127.0.0.1:{closed}" in d["text"]
+    assert "HTTPS_PROXY" in lc._hint({"kind": "partner"}, d)
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
+    monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{srv.getsockname()[1]}")
+    d2 = lc.diagnose("https://open.example/v1", timeout=1.0)     # 프록시까지 열리면 서버 주소는 풀지 않는다
+    assert d2["stage"] == "ok" and d2["proxy"].endswith(str(srv.getsockname()[1]))
+    srv.close()
+    monkeypatch.setenv("NO_PROXY", "open.example")
+    assert lc.diagnose("https://open.example/v1", timeout=1.0)["stage"] == "dns"

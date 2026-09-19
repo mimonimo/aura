@@ -150,6 +150,23 @@ CREATE TABLE IF NOT EXISTS egress_requests (
   sent_at     TEXT,
   error       TEXT
 );
+CREATE TABLE IF NOT EXISTS draft_history (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id     INTEGER NOT NULL,   -- 어느 문서의 초안인지
+  draft      TEXT NOT NULL,      -- 재작성으로 대체되기 전의 초안(=DPO rejected 후보)
+  created_at TEXT NOT NULL
+);
+-- 개인정보 마스킹 기록 (절대 규칙 3 감사) — 마스킹이 돌 때마다 문서별·유형별
+-- 건수를 남긴다. 원문 값은 절대 담지 않는다. context는 마스킹이 끝난 본문에서
+-- 뜬 짧은 문맥(치환 토큰 주변). entity_type 'NONE'·n 0은 '돌았지만 0건'.
+CREATE TABLE IF NOT EXISTS mask_events (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id      INTEGER NOT NULL REFERENCES documents(id),
+  entity_type TEXT NOT NULL,
+  n           INTEGER NOT NULL DEFAULT 0,
+  context     TEXT,
+  created_at  TEXT NOT NULL
+);
 """
 
 
@@ -186,6 +203,7 @@ class Database:
         "ALTER TABLE doc_chunks ADD COLUMN bbox TEXT",
         "ALTER TABLE doc_assets ADD COLUMN bbox TEXT",
         "ALTER TABLE documents ADD COLUMN suggested_criteria TEXT",
+        "ALTER TABLE documents ADD COLUMN identity TEXT",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -223,11 +241,19 @@ class Database:
         year = now[:4]
         code = self._TYPE_CODES.get(doc_type, "문서")
         with self._conn() as conn:
+            # 접수번호 = 연도-유형코드-일련번호(4자리). 일련번호는 그해·그 유형의 기존 최대값+1.
+            # (COUNT+1 방식은 문서를 지우면 번호가 겹쳤다 — 번호는 한 번 쓰면 다시 쓰지 않는다)
+            prefix = f"{year}-{code}-"
             row = conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE doc_type = ? AND created_at LIKE ?",
-                (doc_type, f"{year}%"),
+                "SELECT receipt_no FROM documents WHERE receipt_no LIKE ?"
+                " ORDER BY receipt_no DESC LIMIT 1",
+                (prefix + "%",),
             ).fetchone()
-            receipt_no = f"{year}-{code}-{int(row[0]) + 1:04d}"
+            try:
+                seq = int((row[0] or "").rsplit("-", 1)[1]) + 1 if row else 1
+            except (ValueError, IndexError):
+                seq = 1
+            receipt_no = f"{prefix}{seq:04d}"
             cur = conn.execute(
                 "INSERT INTO documents (filename, stored_path, doc_type, sector,"
                 " related_criteria_id, project_id, receipt_no, created_at, owner)"
@@ -370,6 +396,11 @@ class Database:
                 (session_id, role, content, _now()),
             )
 
+    def delete_chat_message(self, message_id: int) -> None:
+        """대화 한 줄 삭제 — 답변 다시 받기에서 직전 답변을 지울 때 쓴다."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM chat_messages WHERE id = ?", (message_id,))
+
     def list_chats(self, session_id: int, limit: int = 100) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
@@ -388,6 +419,12 @@ class Database:
                 (sector, name[:80], _now(), due_date[:10], owner),
             )
             return int(cur.lastrowid or 0)
+
+    def set_document_project(self, doc_id: int, project_id: int | None) -> None:
+        """문서를 프로젝트에 붙이거나 뗀다."""
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET project_id = ? WHERE id = ?",
+                         (project_id, doc_id))
 
     def list_projects(self, sector: str) -> list[dict]:
         with self._conn() as conn:
@@ -650,6 +687,73 @@ class Database:
                  for c in chunks],
             )
 
+    def set_doc_identity(self, doc_id: int, identity: dict) -> None:
+        """문서가 어떤 사업에 관한 것인지 — 본문에서 확인된 값만 들어온다."""
+        import json as _json
+
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET identity = ? WHERE id = ?",
+                         (_json.dumps(identity, ensure_ascii=False), doc_id))
+
+    def get_doc_identity(self, doc_id: int) -> dict:
+        import json as _json
+
+        with self._conn() as conn:
+            row = conn.execute("SELECT identity FROM documents WHERE id = ?",
+                               (doc_id,)).fetchone()
+        if not row or not row["identity"]:
+            return {}
+        try:
+            got = _json.loads(row["identity"])
+        except ValueError:
+            return {}
+        return got if isinstance(got, dict) else {}
+
+    def docs_sharing_program(self, doc_id: int) -> list[dict]:
+        """같은 사업을 다루는 다른 문서 — 낱말이 겹쳐서가 아니라 정체가 같아서 잇는다."""
+        from zzaimy.app.doc_identity import signature
+
+        key = signature(self.get_doc_identity(doc_id))
+        if not key:
+            return []
+        out = []
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, filename, identity FROM documents"
+                " WHERE identity IS NOT NULL AND id != ?", (doc_id,)
+            ).fetchall()
+        import json as _json
+
+        for r in rows:
+            try:
+                other = _json.loads(r["identity"])
+            except ValueError:
+                continue
+            if isinstance(other, dict) and signature(other) == key:
+                out.append({"id": r["id"], "filename": r["filename"],
+                            "program": other.get("program", ""),
+                            "year": other.get("year", "")})
+        return out
+
+    def department_counts(self) -> list[dict]:
+        """실제 자료에 있는 부서 목록과 분량 — 담당자 소속 부서를 고를 때 근거가 된다."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT dept,"
+                " (SELECT COUNT(*) FROM documents d WHERE d.dept = x.dept) AS n_docs,"
+                " COUNT(*) AS n_chunks"
+                " FROM regulation_chunks x GROUP BY dept ORDER BY n_chunks DESC"
+            ).fetchall()
+            out = [dict(r) for r in rows]
+            known = {r["dept"] for r in out}
+            extra = conn.execute(
+                "SELECT dept, COUNT(*) AS n_docs FROM documents GROUP BY dept"
+            ).fetchall()
+            for r in extra:
+                if r["dept"] not in known:
+                    out.append({"dept": r["dept"], "n_docs": r["n_docs"], "n_chunks": 0})
+        return out
+
     def regulation_chunk_counts(self) -> dict[int, int]:
         with self._conn() as conn:
             rows = conn.execute(
@@ -747,12 +851,37 @@ class Database:
             ).fetchone()
             return dict(row) if row else None
 
-    def list_datasets(self, limit: int = 30) -> list[dict]:
+    def list_datasets(self, limit: int = 30, offset: int = 0) -> list[dict]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM datasets ORDER BY id DESC LIMIT ?", (limit,)
+                "SELECT * FROM datasets ORDER BY id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def count_datasets(self) -> int:
+        with self._conn() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM datasets").fetchone()[0])
+
+    # ---- 초안 재작성 이력 (DPO 선호쌍 원천 — 덮어쓰기 전 이전본 보존) ----
+    def add_draft_history(self, doc_id: int, draft: str) -> None:
+        if not (draft or "").strip():
+            return
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO draft_history (doc_id, draft, created_at) VALUES (?, ?, ?)",
+                (doc_id, draft, _now()))
+
+    def list_draft_history(self, doc_id: int) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM draft_history WHERE doc_id = ? ORDER BY id", (doc_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def count_draft_history(self) -> int:
+        with self._conn() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM draft_history").fetchone()[0])
 
     def add_quality_report(
         self, doc_id: int, kind: str, note: str, reporter: str
@@ -863,6 +992,87 @@ class Database:
                 ).fetchall()
             }
         return {"total": int(total), **{k: int(v) for k, v in by_status.items()}}
+
+    # ---- 개인정보 마스킹 기록 (절대 규칙 3 감사, pii_audit) ----
+
+    def replace_mask_events(self, doc_id: int, rows: list[dict]) -> None:
+        """마스킹 기록 교체 저장 — {entity_type, n, context} 목록.
+
+        원문 값은 받지 않는다(호출자 pii_audit.record_mask_events가 마스킹본
+        문맥만 만든다). 빈 목록은 '돌았지만 0건'을 뜻하는 NONE 행 하나로 남겨
+        기록 자체가 없는 문서(기능 도입 전 처리분)와 구별한다.
+        """
+        now = _now()
+        if not rows:
+            rows = [{"entity_type": "NONE", "n": 0, "context": None}]
+        with self._conn() as conn:
+            conn.execute("DELETE FROM mask_events WHERE doc_id = ?", (doc_id,))
+            conn.executemany(
+                "INSERT INTO mask_events (doc_id, entity_type, n, context, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [
+                    (doc_id, r["entity_type"], int(r.get("n", 0)),
+                     (r.get("context") or None), now)
+                    for r in rows
+                ],
+            )
+
+    def list_mask_events(self, doc_id: int) -> list[dict]:
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM mask_events WHERE doc_id = ? ORDER BY n DESC, entity_type",
+                (doc_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def mask_event_stats(self) -> dict:
+        """기록 있는 문서 수·총 치환 건수·유형별 건수·마지막 기록 시각."""
+        with self._conn() as conn:
+            docs = conn.execute(
+                "SELECT COUNT(DISTINCT doc_id) FROM mask_events"
+            ).fetchone()[0]
+            total = conn.execute(
+                "SELECT COALESCE(SUM(n), 0) FROM mask_events"
+            ).fetchone()[0]
+            by_type = {
+                r[0]: int(r[1])
+                for r in conn.execute(
+                    "SELECT entity_type, SUM(n) FROM mask_events WHERE n > 0"
+                    " GROUP BY entity_type ORDER BY 2 DESC"
+                ).fetchall()
+            }
+            last = conn.execute("SELECT MAX(created_at) FROM mask_events").fetchone()[0]
+        return {"docs": int(docs), "total": int(total), "by_type": by_type, "last_at": last}
+
+    def mask_events_by_doc(self, limit: int = 300) -> list[dict]:
+        """문서별 마스킹 기록 — 유형별 건수·문맥 표본을 문서 하나로 접는다."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT m.doc_id, d.filename, d.doc_type, d.owner, m.entity_type, m.n,"
+                " m.context, m.created_at FROM mask_events m"
+                " JOIN documents d ON d.id = m.doc_id"
+                " ORDER BY m.doc_id DESC, m.n DESC, m.entity_type"
+            ).fetchall()
+        out: dict[int, dict] = {}
+        for r in rows:
+            d = out.get(r["doc_id"])
+            if d is None:
+                if len(out) >= limit:
+                    continue
+                d = out[r["doc_id"]] = {
+                    "doc_id": r["doc_id"], "filename": r["filename"],
+                    "doc_type": r["doc_type"], "owner": r["owner"],
+                    "by_type": {}, "total": 0, "contexts": [],
+                    "created_at": r["created_at"],
+                }
+            if r["n"] > 0:
+                d["by_type"][r["entity_type"]] = int(r["n"])
+                d["total"] += int(r["n"])
+                if r["context"]:
+                    d["contexts"].append(
+                        {"entity_type": r["entity_type"], "context": r["context"]}
+                    )
+        return list(out.values())
 
     def add_review(self, doc_id: int, opinion: str) -> None:
         with self._conn() as conn:

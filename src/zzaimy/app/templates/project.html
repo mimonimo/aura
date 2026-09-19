@@ -3,10 +3,10 @@
 {% block pagetitle %}{{ sector_labels.get(project.sector, project.sector) }} · 프로젝트{% endblock %}
 {% block content %}
 {% set flow_hints = {
-  "grant": "검토가 끝나면 문서 화면에서 공고 요구 항목에 맞춘 계획서 초안 작성·재작성까지 이어집니다.",
-  "recruit": "지원자 서류를 채용 공고·임용 규정과 대조해 적합성 검토 의견을 만들고, 판정(확인·재검토·반려)으로 마무리합니다.",
-  "admission": "입학 서류를 모집 요강·기준과 대조해 확인 사항을 정리하고, 판정으로 마무리합니다.",
-  "auto": "행정 문서를 관련 규정과 대조해 검토 의견을 만들고, 판정으로 마무리합니다.",
+  "grant": "검토 후 문서 화면에서 공고 항목에 맞춘 계획서 초안을 작성합니다.",
+  "recruit": "지원 서류를 채용 공고·임용 규정과 대조해 검토 의견을 만들고 판정합니다.",
+  "admission": "입학 서류를 모집 요강과 대조해 확인 사항을 정리하고 판정합니다.",
+  "auto": "행정 문서를 관련 규정과 대조해 검토 의견을 만들고 판정합니다.",
 } %}
 {% set chat_hints = {
   "grant": "예: 이 공고의 배점표와 필수 제출 서류를 정리해줘",
@@ -15,25 +15,37 @@
   "auto": "예: 이 업무에 적용되는 규정을 찾아줘",
 } %}
 
-<div class="card" style="background:linear-gradient(120deg,#16223A,#1B3B75); border:0;">
-  <div style="display:flex; align-items:center; gap:16px; padding:20px 24px; color:#fff;">
-    <iconify-icon icon="solar:folder-2-linear" style="font-size:32px; opacity:.9;"></iconify-icon>
-    <div>
-      <div style="font-size:19px; font-weight:800; letter-spacing:-0.02em;">{{ project.name }}</div>
-      <div style="font-size:13px; color:#B9C6DA; margin-top:3px;">
-        {{ sector_labels.get(project.sector, project.sector) }} 업무 · 문서 {{ documents|length }}건
-        · 연결 기준 {{ linked_criteria|length }}건
-        {% if project.due_date %} · <b style="color:#FBD38D;">마감 {{ project.due_date }}</b>{% endif %}
-        · 만든 날 {{ project.created_at[:10] }}</div>
-    </div>
-    <div style="margin-left:auto; display:flex; gap:8px;">
-      <button type="button" class="btn-ghost on-dark" data-modal-open="#manageModal"
-              style="font-family:inherit; cursor:pointer;">
-        <iconify-icon icon="solar:settings-linear"></iconify-icon>관리</button>
-      <a href="/?type={{ project.sector }}" class="btn-ghost on-dark">{{ sector_labels.get(project.sector, project.sector) }} 업무로</a>
-    </div>
+<div style="display:flex; align-items:center; gap:14px; padding:2px 2px 16px;
+            border-bottom:1px solid var(--line); margin-bottom:20px;">
+  <div style="width:42px; height:42px; border-radius:12px; background:#E8EFFC;
+              color:var(--navy); display:flex; align-items:center; justify-content:center; flex:none;">
+    <iconify-icon icon="solar:folder-2-linear" style="font-size:23px;"></iconify-icon>
+  </div>
+  <div style="min-width:0;">
+    <div style="font-size:17px; font-weight:800; color:var(--ink); letter-spacing:-0.02em;
+                white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ project.name }}</div>
+    <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
+      {{ sector_labels.get(project.sector, project.sector) }} 업무 · 문서 {{ documents|length }}건 ·
+      연결 기준 {{ linked_criteria|length }}건
+      {% if project.due_date %} · <b style="color:#C05621;">마감 {{ project.due_date }}</b>{% endif %}
+      · 만든 날 {{ project.created_at[:10] }}</div>
+  </div>
+  <div style="margin-left:auto; display:flex; gap:8px; flex:none; align-items:center;">
+    <a href="/graph?focus=p{{ project.id }}" class="btn-ghost" style="font-weight:600;"
+       title="이 프로젝트와 연결·추정 연관된 문서를 그래프에서 봅니다">
+      <iconify-icon icon="solar:graph-new-linear"></iconify-icon>그래프에서 보기</a>
+    <button type="button" class="secondary" data-modal-open="#manageModal"
+            style="font-family:inherit; cursor:pointer;">
+      <iconify-icon icon="solar:settings-linear"></iconify-icon>관리</button>
+    <a href="/?type={{ project.sector }}" class="icon-btn"
+       title="{{ sector_labels.get(project.sector, project.sector) }} 업무로 돌아가기"
+       style="width:40px; height:40px; text-decoration:none; flex:none;">
+      <iconify-icon icon="solar:arrow-left-linear" style="font-size:18px;"></iconify-icon></a>
   </div>
 </div>
+{% if flow_hints.get(project.sector) %}
+<p class="muted" style="font-size:12.5px; margin:-8px 2px 16px; line-height:1.6;">{{ flow_hints.get(project.sector) }}</p>
+{% endif %}
 
 <style>
   .project-grid{display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px; align-items:start;}
@@ -71,8 +83,7 @@
 <div class="card">
   <div class="card-in">
     <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>프로젝트 채팅</h2>
-    <p class="muted" style="margin:0 0 12px;">이 프로젝트의 지침·메모·연결 기준을 근거로 답하는
-      에이전트 채팅입니다. 접수 문서에 대한 질문도 여기서 하세요.</p>
+    <p class="muted" style="margin:0 0 12px;">이 프로젝트의 지침과 연결 기준을 근거로 답합니다. 접수 문서 질문도 여기서 합니다.</p>
     <div style="display:flex; gap:8px; align-items:center;">
       <form id="intakeForm" action="/upload" method="post" enctype="multipart/form-data"
             style="flex:none; margin:0;">
@@ -85,6 +96,10 @@
           <iconify-icon icon="solar:paperclip-linear" style="font-size:18px;"></iconify-icon>
         </label>
       </form>
+      <button type="button" class="icon-btn" data-modal-open="#hwpTargetModal"
+              style="flex:none; width:42px; height:42px;"
+              title="대상 문서 선택">
+        <iconify-icon icon="solar:document-text-linear" style="font-size:18px;"></iconify-icon></button>
       <form action="/chat/send" method="post" style="display:flex; gap:10px; flex:1; margin:0;">
         <input type="hidden" name="project_id" value="{{ project.id }}">
         <input type="text" name="question" required
@@ -178,12 +193,13 @@
         공고문·심사 기준을 연결하면<br>검토와 초안이 그 기준을 근거로 씁니다.</p>
     </div>
     {% endif %}
-    <div style="display:flex; gap:8px; margin-top:12px;">
+    {# 좁은 열에서는 한 줄에 하나씩 내려가고, 글자는 줄바꿈·넘침 없이 버튼 안에 있다 #}
+    <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
       <button type="button" class="secondary" data-modal-open="#linkModal"
-              style="flex:1; padding:9px 0; font-size:13px;">
-        <iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>등록된 기준에서 선택</button>
+              style="flex:1 1 auto; padding:9px 12px; font-size:13px; white-space:nowrap;">
+        <iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>등록된 기준 선택</button>
       <button type="button" class="secondary" data-modal-open="#criteriaUploadModal"
-              style="flex:1; padding:9px 0; font-size:13px;">
+              style="flex:1 1 auto; padding:9px 12px; font-size:13px; white-space:nowrap;">
         <iconify-icon icon="solar:paperclip-linear"></iconify-icon>새 파일 등록</button>
     </div>
     </div>
@@ -299,6 +315,8 @@
     </div>
   </div>
 </div>
+
+{% include "_hwp_target_modal.html" %}
 
 <script>
 
