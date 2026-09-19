@@ -1,0 +1,15 @@
+<div id="documentFeedback" class="card"><div class="card-in">
+  <h2><iconify-icon icon="solar:pen-linear"></iconify-icon>담당자 의견</h2>
+  <form action="/doc/{{ doc.id }}/review" method="post">
+    <label for="reviewOpinion">보완할 내용이나 확인한 근거</label>
+    <textarea id="reviewOpinion" name="opinion" required rows="4" placeholder="예: 참여 인원은 결과보고서 3쪽의 확정 인원으로 수정해 주세요."></textarea>
+    <div class="document-form-actions"><button type="submit">의견 저장</button><span class="muted">저장한 의견은 {{ '재검토와 초안 재작성' if doc.doc_type == 'grant' else '재검토' }}에 반영됩니다.</span></div>
+    <p id="opinionSaveStatus" role="status" class="viewnote" hidden></p>
+    <p id="opinionUnsaved" class="viewnote" role="status" hidden>아직 저장하지 않은 의견이 있습니다.</p>
+  </form>
+  {% if reviews %}
+  <details class="xtract"><summary>저장된 의견 {{ reviews|length }}건</summary>
+    {% for r in reviews %}<div class="document-opinion"><p>{{ r.opinion }}</p><time class="muted">{{ r.created_at[:16].replace('T', ' ') }}</time></div>{% endfor %}
+  </details>
+  {% endif %}
+</div></div>

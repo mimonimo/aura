@@ -45,6 +45,13 @@ REGISTRY: tuple[Action, ...] = (
            ("사업 준비", "준비해", "프로젝트 만들", "프로젝트 생성",
             "착수", "시작해"), True, auto=True),
 
+    Action("doc.route", "이 문서 갈래·영역 다시 정하기",
+           "/doc/{doc_id}/route", "post", ("doc_id",),
+           ("갈래", "분류", "영역", "어디에 두", "정리해"), True, auto=True),
+    Action("docs.route_all", "분류 안 된 문서 한꺼번에 정리",
+           "/dev/route-all", "post", (),
+           ("전부 분류", "한꺼번에 분류", "문서 정리", "분류 정리"), True),
+
     # ---- 문서 모음 ----
     Action("criteria.list", "기준 문서 목록", "/criteria", "get", (),
            ("기준", "규정", "지침", "학칙")),

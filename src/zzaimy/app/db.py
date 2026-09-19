@@ -420,6 +420,18 @@ class Database:
             )
             return int(cur.lastrowid or 0)
 
+    def set_document_type(self, doc_id: int, doc_type: str) -> None:
+        """문서 갈래를 바꾼다 — 반입 때 스스로 정하거나 담당자가 고칠 때 쓴다."""
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET doc_type = ? WHERE id = ?",
+                         (doc_type, doc_id))
+
+    def set_document_sector(self, doc_id: int, sector: str) -> None:
+        """문서가 놓일 업무 영역을 바꾼다."""
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET sector = ? WHERE id = ?",
+                         (sector, doc_id))
+
     def set_document_project(self, doc_id: int, project_id: int | None) -> None:
         """문서를 프로젝트에 붙이거나 뗀다."""
         with self._conn() as conn:

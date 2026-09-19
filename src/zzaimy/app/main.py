@@ -717,6 +717,12 @@ def create_app(
                 db.update_document(doc_id, coverage="분석 중입니다 (30초~1분)")
                 processor.analyze(db, doc_id)
                 return "맥락을 다시 분석했습니다"
+            if key == "doc.route":
+                doc_id = int(ctx["doc_id"])
+                if db.get_document(doc_id) is None:
+                    return "없는 문서입니다"
+                line = _auto_route(db, doc_id, user_chose_type=False)
+                return line or "지금 값이 알맞아 그대로 두었습니다"
             if key == "plan.start":
                 doc_id = int(ctx["doc_id"])
                 doc = db.get_document(doc_id)
@@ -824,7 +830,35 @@ def create_app(
         return {"ok": True, "session_id": session_id, "done": done,
                 "actions": [x for x in found if not x.get("auto")]}
 
-    def _process_then_identify(db_, doc_id: int, stored) -> None:
+    def _auto_route(db_, doc_id: int, user_chose_type: bool) -> str:
+        """반입된 문서의 갈래와 영역을 스스로 정한다.
+
+        담당자가 직접 고른 값은 건드리지 않는다. 확신이 없으면 그대로 둔다 —
+        억지로 붙인 갈래는 없느니만 못하다.
+        """
+        from zzaimy.app import doc_routing
+
+        doc = db_.get_document(doc_id)
+        if doc is None:
+            return ""
+        parts = [c.get("content") or "" for c in db_.list_doc_chunks(doc_id)
+                 if not (c.get("content") or "").startswith("{")]
+        body = "\n".join(parts)[:4000] or (doc.get("masked_text") or "")[:4000]
+        scanned = (doc.get("parse_note") or "").find("OCR") >= 0
+        r = doc_routing.route(db_, doc.get("filename") or "", body,
+                              db_.get_doc_identity(doc_id), scanned)
+        said: list[str] = []
+        if not user_chose_type and r["doc_type"] and r["doc_type"] != doc.get("doc_type"):
+            db_.set_document_type(doc_id, r["doc_type"])
+            said.append(f"갈래를 「{INBOX_TYPES.get(r['doc_type'], r['doc_type'])}」로 정했습니다"
+                        f" ({r['why_type']})")
+        if r["sector"] and r["sector"] != doc.get("sector"):
+            db_.set_document_sector(doc_id, r["sector"])
+            said.append(f"영역을 「{SECTOR_LABELS.get(r['sector'], r['sector'])}」로 정했습니다"
+                        f" ({r['why_sector']})")
+        return " / ".join(said)
+
+    def _process_then_identify(db_, doc_id: int, stored, user_chose_type: bool = True) -> None:
         """접수 처리에 이어 문서의 정체까지 한 번에 읽는다.
 
         반입 시점에 끝나야 담당자가 문서마다 버튼을 누르지 않는다. 모델이 없거나
@@ -833,6 +867,10 @@ def create_app(
         processor.process(db_, doc_id, stored)
         try:
             _identify_document(db_, doc_id)
+        except Exception:
+            pass
+        try:
+            _auto_route(db_, doc_id, user_chose_type)
         except Exception:
             pass
 
@@ -864,6 +902,19 @@ def create_app(
         )
         return r.choices[0].message.content or ""
 
+    @app.post("/doc/{doc_id}/route")
+    def doc_route(doc_id: int):
+        """이 문서의 갈래와 영역을 다시 정한다."""
+        from urllib.parse import quote as _q
+
+        if db.get_document(doc_id) is None:
+            raise HTTPException(404)
+        line = _auto_route(db, doc_id, user_chose_type=False)
+        return RedirectResponse(
+            f"/doc/{doc_id}?ok=" + _q(line or "지금 값이 알맞아 그대로 두었습니다"),
+            status_code=303,
+        )
+
     @app.post("/doc/{doc_id}/identity")
     def doc_identity(doc_id: int):
         """이 문서가 어떤 사업에 관한 것인지 본문에서 인출한다.
@@ -880,6 +931,26 @@ def create_app(
             f"/doc/{doc_id}?" + ("ok=" if r["ok"] else "err=")
             + _q(("문서 정체를 정리했습니다 — " + " · ".join(r["identity"].values()))
                  if r["ok"] else r["error"]),
+            status_code=303,
+        )
+
+    @app.post("/dev/route-all")
+    def dev_route_all():
+        """분류가 비어 있거나 뭉뚱그려진 문서를 한꺼번에 다시 정한다.
+
+        확신이 없는 문서는 건드리지 않는다. 결과는 건수로만 알린다.
+        """
+        from urllib.parse import quote as _q
+
+        changed = 0
+        for d in db.list_documents():
+            try:
+                if _auto_route(db, d["id"], user_chose_type=False):
+                    changed += 1
+            except Exception:
+                continue
+        return RedirectResponse(
+            "/?ok=" + _q(f"문서 {changed}건의 갈래·영역을 다시 정했습니다"),
             status_code=303,
         )
 
@@ -994,7 +1065,8 @@ def create_app(
                 doc_type="regulation", sector=sector,
             )
             new_ids.append(doc_id)
-            background.add_task(_process_then_identify, db, doc_id, stored)
+            # 기준 문서로 올린 것이므로 갈래는 담당자가 정한 것으로 본다
+            background.add_task(_process_then_identify, db, doc_id, stored, True)
         # 프로젝트에서 올린 경우 — 등록과 동시에 그 프로젝트에 연결한다
         if link_project_id and db.get_project(link_project_id):
             db.add_project_criteria(link_project_id, new_ids)
@@ -2580,6 +2652,8 @@ def create_app(
             "usage_all": model_config.usage_today(),
             "datasets": datasets,
             "export_preview": export_preview,
+            "llm_roles": llm_connections.roles_public(),
+            "role_labels": llm_connections.ROLES,
         }))
 
     @app.get("/dev/train/export.zip")
@@ -2688,6 +2762,24 @@ def create_app(
         llm_connections.deactivate()
         model_config.reset_status_cache()
         return _llm_redirect("기본 연결을 해제했습니다 — 환경변수 설정을 씁니다")
+
+    @app.post("/dev/llm/role")
+    def dev_llm_role(role: str = Form(...), cid: str = Form("")):
+        """역할을 맡을 연결을 정한다 — 답변 생성·임베딩·학습을 다른 장비에 둘 수 있다."""
+        from zzaimy.generate import llm_connections, model_config
+
+        try:
+            llm_connections.set_role(role, cid.strip())
+        except ValueError as e:
+            return _llm_redirect(str(e), ok=False)
+        model_config.reset_status_cache()
+        label = llm_connections.ROLES.get(role, role)
+        if not cid.strip():
+            return _llm_redirect(f"「{label}」 역할을 비웠습니다 — 기본 연결을 씁니다")
+        conn = llm_connections.get(cid.strip()) or {}
+        tail = (" 임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다."
+                if role == "embed" else "")
+        return _llm_redirect(f"「{label}」 역할을 「{conn.get('name', '')}」에 맡겼습니다.{tail}")
 
     @app.post("/dev/llm/{cid}/catalog")
     def dev_llm_catalog(cid: str):
