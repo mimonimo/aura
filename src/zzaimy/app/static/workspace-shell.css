@@ -1,0 +1,9 @@
+/* 작업 화면의 좁은 폭에서도 검색·알림·계정을 모두 유지한다. */
+@media (max-width:600px) {
+  body:has(:is(#documentWorkspace,#chatWorkspace)) .topbar { flex-wrap:wrap; gap:8px; padding:10px 16px; }
+  body:has(:is(#documentWorkspace,#chatWorkspace)) .page-title { flex:1; font-size:14px; white-space:nowrap; }
+  body:has(:is(#documentWorkspace,#chatWorkspace)) .searchbox { order:5; flex:1 0 100%; width:100%; min-width:0; border-radius:8px; padding:7px 10px; }
+  body:has(:is(#documentWorkspace,#chatWorkspace)) .searchbox input { width:100%; min-width:0; }
+  body:has(:is(#documentWorkspace,#chatWorkspace)) .user-chip { max-width:135px; white-space:nowrap; overflow:hidden; font-size:12px; padding-right:7px; }
+  body:has(:is(#documentWorkspace,#chatWorkspace)) .topbar .popover { position:fixed; top:110px; right:16px; max-width:calc(100vw - 32px); }
+}

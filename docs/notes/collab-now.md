@@ -22,7 +22,7 @@
 | 글자 복원 | `src/zzaimy/app/text_repair.py` | 진행 중 |
 | 반입 자가 점검 | `src/zzaimy/app/ingest_audit.py` | 진행 중 |
 | 문서 정체 | `src/zzaimy/app/doc_identity.py` | 진행 중 |
-| 문서 보기 | `templates/doc.html`, `render.py` | Codex — C-20260919-04 (doc.html 및 전용 조각·정적 파일만 수정, render.py 수정 없음) |
+| 문서 보기 | `templates/doc.html`, `render.py` | 비어 있음 — Codex C-20260919-04 로컬 검증 완료, Claude 배포 대기 |
 | UI 템플릿 계열 (index·doc·project·graph·ocr·dev_db·dev_hwp·dev_corpus) | `templates/*.html` | 진행 중 (aura-7b 반납분 인계) |
 | 한글 에이전트 도구 | `tools/hwp-agent/**` | 진행 중 (인계) |
 | 이그레스 관문 | `src/zzaimy/app/egress.py` | 진행 중 (인계) |

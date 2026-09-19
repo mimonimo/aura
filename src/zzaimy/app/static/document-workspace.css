@@ -1,3 +1,4 @@
+@import url('/static/workspace-shell.css');
 .document-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start; }
 .document-source, .document-work { min-width:0; scroll-margin-top:24px; }
 .document-source { position:sticky; top:88px; }

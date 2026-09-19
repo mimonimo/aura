@@ -1,5 +1,4 @@
-"""병렬로 개발한 채팅 화면을 기존 API에 연결해 합성 대화로 검증한다."""
-from jinja2 import ChoiceLoader, DictLoader
+"""채팅 화면과 기존 API의 연동을 합성 대화로 검증한다."""
 from fastapi.testclient import TestClient
 
 from tests.test_app import FakeDrafter, FakeProcessor, FakeResponder
@@ -7,17 +6,6 @@ from zzaimy.app import main
 
 
 def candidate_client(tmp_path, monkeypatch):
-    original = main.Jinja2Templates
-
-    def templates(*args, **kwargs):
-        result = original(*args, **kwargs)
-        result.env.loader = ChoiceLoader([
-            DictLoader({'chat.html': '{% extends "chat_workspace.html" %}'}),
-            result.env.loader,
-        ])
-        return result
-
-    monkeypatch.setattr(main, 'Jinja2Templates', templates)
     app = main.create_app(
         db_path=tmp_path / 'chat.db', inbox_dir=tmp_path / 'inbox',
         processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder(),
