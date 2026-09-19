@@ -462,7 +462,7 @@ def create_app(
     def chat_new(request: Request):
         return templates.TemplateResponse(
             request,
-            "chat.html",
+            "chat_workspace.html",
             ctx(request, {
                 "messages": [], "criteria_docs": _criteria_docs(),
                 "waiting": False, "session_id": None, "sources": [],
@@ -502,7 +502,7 @@ def create_app(
         waiting = bool(messages) and messages[-1]["role"] == "user"
         return templates.TemplateResponse(
             request,
-            "chat.html",
+            "chat_workspace.html",
             ctx(request, {
                 "messages": messages, "criteria_docs": _criteria_docs(),
                 "waiting": waiting, "session_id": session_id,
@@ -717,6 +717,20 @@ def create_app(
                 db.update_document(doc_id, coverage="분석 중입니다 (30초~1분)")
                 processor.analyze(db, doc_id)
                 return "맥락을 다시 분석했습니다"
+            if key == "doc.revise":
+                doc_id = int(ctx["doc_id"])
+                doc = db.get_document(doc_id)
+                if doc is None:
+                    return "없는 문서입니다"
+                want = (ctx.get("question") or "").strip()
+                if len(want) < 4:
+                    return "어떻게 고칠지 한 문장으로 알려 주십시오"
+                if not (doc.get("draft") or "").strip():
+                    return "아직 초안이 없습니다. 먼저 초안을 만들어야 합니다"
+                db.add_review(doc_id, want)
+                db.update_document(doc_id, coverage="초안을 고치는 중입니다")
+                drafter.generate(db, doc_id)
+                return f"「{doc['filename']}」 초안을 요청대로 고쳤습니다"
             if key == "doc.route":
                 doc_id = int(ctx["doc_id"])
                 if db.get_document(doc_id) is None:
@@ -788,6 +802,7 @@ def create_app(
             found = _find_document(question)
             if found is not None:
                 extra["doc_id"] = found
+        extra["question"] = question          # 고치기 요청은 말 자체가 내용이다
         return _acts.suggest(question, page, extra)
 
     @app.post("/chat/ask")
@@ -901,6 +916,26 @@ def create_app(
             messages=[{"role": "user", "content": prompt}],
         )
         return r.choices[0].message.content or ""
+
+    @app.post("/doc/{doc_id}/revise")
+    def doc_revise(background: BackgroundTasks, doc_id: int, want: str = Form("")):
+        """말한 대로 초안을 고친다 — 요청을 남기고 다시 만든다."""
+        from urllib.parse import quote as _q
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        want = want.strip()
+        if len(want) < 4:
+            return RedirectResponse(
+                f"/doc/{doc_id}?err=" + _q("어떻게 고칠지 한 문장으로 적어 주십시오"),
+                status_code=303)
+        db.add_review(doc_id, want)
+        db.update_document(doc_id, coverage="초안을 고치는 중입니다")
+        background.add_task(drafter.generate, db, doc_id)
+        return RedirectResponse(
+            f"/doc/{doc_id}?ok=" + _q("요청을 반영해 초안을 다시 만들고 있습니다"),
+            status_code=303)
 
     @app.post("/doc/{doc_id}/route")
     def doc_route(doc_id: int):

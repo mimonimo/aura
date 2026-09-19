@@ -93,3 +93,35 @@ def test_agent_can_reclassify_a_document(tmp_path):
                                      "page": "/doc/1"}).json()
     assert body["done"]
     assert db.get_document(1)["doc_type"] == "regulation"
+
+
+# ---- 말한 대로 초안 고치기 ----
+
+def test_agent_revises_a_draft_from_plain_words(tmp_path):
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                     processor=FakeProcessor(), drafter=FakeDrafter(),
+                     responder=FakeResponder())
+    c = TestClient(app)
+    c.post("/upload", data={"doc_type": "grant"},
+           files={"file": ("공고.pdf", b"%PDF fake", "application/pdf")})
+    db = Database(tmp_path / "t.db")
+    db.update_document(1, draft="처음 만든 초안입니다.")
+
+    body = c.post("/chat/ask", data={"question": "예산 부분을 더 자세히 고쳐줘",
+                                     "page": "/doc/1"}).json()
+    assert body["done"] and any("고쳤습니다" in line for line in body["done"])
+    opinions = [r["opinion"] for r in db.get_reviews(1)]
+    assert any("예산" in o for o in opinions)      # 말한 문장이 요청으로 남는다
+
+
+def test_revision_needs_a_draft_first(tmp_path):
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                     processor=FakeProcessor(), drafter=FakeDrafter(),
+                     responder=FakeResponder())
+    c = TestClient(app)
+    c.post("/upload", data={"doc_type": "grant"},
+           files={"file": ("공고.pdf", b"%PDF fake", "application/pdf")})
+    Database(tmp_path / "t.db").update_document(1, draft=None)
+    body = c.post("/chat/ask", data={"question": "예산 부분 고쳐줘",
+                                     "page": "/doc/1"}).json()
+    assert any("초안이 없습니다" in line for line in body["done"])

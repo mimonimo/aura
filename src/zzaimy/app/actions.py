@@ -52,6 +52,10 @@ REGISTRY: tuple[Action, ...] = (
            "/dev/route-all", "post", (),
            ("전부 분류", "한꺼번에 분류", "문서 정리", "분류 정리"), True),
 
+    Action("doc.revise", "말한 대로 초안 고치기",
+           "/doc/{doc_id}/revise", "post", ("doc_id",),
+           ("고쳐", "바꿔", "수정", "다시 써", "반영해"), True, auto=True),
+
     # ---- 문서 모음 ----
     Action("criteria.list", "기준 문서 목록", "/criteria", "get", (),
            ("기준", "규정", "지침", "학칙")),

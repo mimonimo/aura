@@ -10,6 +10,10 @@
   const scroller = document.getElementById('chatScroll');
   const latest = document.getElementById('chatLatest');
   const editNote = document.getElementById('chatEditNote');
+  const topbar = document.querySelector('.topbar');
+  if (topbar) new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--workspace-topbar-height', topbar.offsetHeight + 'px');
+  }).observe(topbar);
   let waiting = root.dataset.waiting === 'true';
   let sending = false;
   let timer;
@@ -38,6 +42,8 @@
     const shouldScroll = forceScroll || nearBottom();
     const position = scroller.scrollTop;
     scroller.innerHTML = nextScroll.innerHTML;
+    const heading = next.querySelector('.chat-workspace-head h1');
+    if (heading) root.querySelector('.chat-workspace-head h1').textContent = heading.textContent;
     const sources = parsed.getElementById('chatSources');
     if (sources) document.getElementById('chatSources').innerHTML = sources.innerHTML;
     root.dataset.session = next.dataset.session;
