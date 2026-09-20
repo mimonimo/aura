@@ -532,16 +532,49 @@ def _tokens(text: str) -> set[str]:
 _SINGLE_SYL = re.compile(r"(?<=[가-힣]) (?=[가-힣](?![가-힣]))|(?<=(?<![가-힣])[가-힣]) (?=[가-힣])")
 
 
-def _collapse_over_spacing(t: str) -> str:
+def _line_tokens(line: str) -> list[str]:
+    return [w for w in line.split(" ") if re.fullmatch(r"[가-힣]+", w)]
+
+
+def _syl_run(line: str) -> int:
+    """한 글자 한글 토큰이 연달아 나온 최대 길이 — 글자마다 띄운 출력의 지문.
+
+    비율로 보면 '그 외 사항은 따른다'(1글자 2/4)처럼 정상 표현이 걸린다. 반면
+    '영 남 이 공 대 학교'는 한 글자가 연달아 5개다. 이어짐이 더 확실한 신호다.
+    """
+    best = run = 0
+    for w in _line_tokens(line):
+        run = run + 1 if len(w) == 1 else 0
+        best = max(best, run)
+    return best
+
+
+def _spread_line(line: str, min_run: int) -> bool:
+    return _syl_run(line) >= min_run
+
+
+def over_spacing_evidence(text: str) -> bool:
+    """이 문서가 글자마다 띄운 출력인가 — 확실한 줄(한 글자 4연속)이 둘 이상인지로 본다.
+
+    짧은 줄('ㅇ 계 좌 정보')만 보고는 판정할 수 없어, 확실한 줄에서 증거를 모아
+    증거가 있는 문서에서만 짧은 줄까지 손댄다(실측 2026-09-20: 규칙에 걸린 벌어진 줄
+    548줄 옆에 같은 문서들의 짧은 줄 564줄이 그대로 남아 있었다).
+    """
+    return sum(1 for ln in (text or "").splitlines() if _spread_line(ln, 4)) >= 2
+
+
+def _collapse_over_spacing(t: str, short_too: bool = False) -> str:
     """'영 남 이 공 학교'처럼 글자마다 띄운 OCR 출력의 공백을 걷어 낸다(줄 단위).
 
-    한 줄에서 한 글자짜리 한글 토큰이 전체 한글 토큰의 35% 이상이면 그 줄은 글자 단위로
-    쪼개진 것으로 보고, 한 글자 토큰에 붙은 공백을 지운다. 정상 문장은 건드리지 않는다.
+    한 글자 한글 토큰이 3개 이상 연달아 나오면 그 줄은 글자 단위로 쪼개진 것으로 보고,
+    한 글자 토큰에 붙은 공백을 지운다. 정상 문장은 건드리지 않는다.
+
+    short_too=True 면 2연속까지 손댄다('ㅇ 계 좌 정보'). 문서에 증거가 있을 때만 켜는
+    용도다 — 과하게 붙은 것은 뒤의 Kiwi 띄어쓰기가 되돌린다.
     """
     out = []
     for line in t.splitlines():
-        toks = [w for w in line.split(" ") if re.fullmatch(r"[가-힣]+", w)]
-        if len(toks) >= 4 and sum(1 for w in toks if len(w) == 1) / len(toks) >= 0.35:
+        if _spread_line(line, 3) or (short_too and _spread_line(line, 2)):
             prev = None
             while prev != line:
                 prev, line = line, _SINGLE_SYL.sub("", line)
@@ -549,18 +582,22 @@ def _collapse_over_spacing(t: str) -> str:
     return "\n".join(out)
 
 
-def restore_spacing(text: str) -> str:
+def restore_spacing(text: str, *, spread_doc: bool | None = None) -> str:
     """OCR이 흐트러뜨린 어절 공백을 Kiwi로 복원한다 — 두 방향.
 
     · 공백이 거의 없는 텍스트(비율 8% 미만): 띄어쓰기를 넣는다.
     · 글자마다 띄운 텍스트(tesseract 사진 OCR 실측 '영 남 이 공 학교'): 글자 사이 공백을
       걷어 낸 뒤 다시 띄어쓴다 — Kiwi의 space()는 공백을 넣기만 하고 지우지는 않는다.
+      문서에 그 증거가 있으면 짧은 줄('ㅇ 계 좌 정보')까지 함께 고친다.
     이미 정상인 텍스트는 건드리지 않는다 — 원본 양식의 디지털 재구성이 목적이지 재작성이 아니다.
     """
     t = text.strip()
     if len(t) < 20:
         return text
-    collapsed = _collapse_over_spacing(t)
+    # spread_doc: 이 조각이 속한 문서가 글자마다 띄운 출력인지(호출부가 문서 전체로 판정해 넘긴다).
+    # 넘어오지 않으면 이 글만 보고 판정한다.
+    short_too = over_spacing_evidence(t) if spread_doc is None else spread_doc
+    collapsed = _collapse_over_spacing(t, short_too=short_too)
     ratio = t.count(" ") / len(t)
     if collapsed == t and ratio >= 0.08:
         return text

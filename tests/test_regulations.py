@@ -233,3 +233,20 @@ def test_query_embedding_uses_serving_box_and_falls_back(monkeypatch, tmp_path):
     assert embed_search.remote_vectors(["연구비 정산"]) is None
     monkeypatch.delenv("ZZAIMY_EMBED_URL")
     assert embed_search.remote_vectors(["연구비 정산"]) is None      # 꺼져 있으면 묻지 않는다
+
+
+def test_spacing_repair_needs_a_run_of_single_syllables():
+    """글자 벌어짐은 '한 글자가 연달아' 나오는 것으로 판정한다 — 비율로 보면 정상 표현이 걸린다."""
+    from zzaimy.app.regulations import _collapse_over_spacing, over_spacing_evidence
+
+    spread = ("영 남 이 공 대 학교 산 학 협력단\n"
+              "연 구 개 발 과 제 관리 규정\n"
+              "ㅇ 계 좌 정보\n등 록 계좌")
+    assert over_spacing_evidence(spread)
+    fixed = _collapse_over_spacing(spread, short_too=True)
+    assert "영남이공대학교" in fixed and "계좌정보" in fixed and "등록계좌" in fixed
+
+    # 정상 문장은 건드리지 않는다 — '그 외 사항은'은 한 글자가 2연속뿐이다
+    plain = "이 법은 시행한다\n그 외 사항은 따른다\n산학협력단의 업무는 다음과 같다"
+    assert not over_spacing_evidence(plain)
+    assert _collapse_over_spacing(plain, short_too=False) == plain
