@@ -1,28 +1,42 @@
 #!/bin/bash
-# 맥 → 운영 VM 코드 배포 (데이터는 절대 건드리지 않는다)
+# 운영 VM 배포 — 정본은 깃허브 하나다. VM 은 원격에서 받아 그 상태 그대로 돌린다.
 #
-# 운영 서버 = ESXi VM(aura@192.168.16.226). 기존 Spark(211.xx)는 사용 금지
-# (2026-09-07 서버 이전, docs/HANDOFF.md). 맥이 학과망 VPN 안에 있어야 한다.
+# 왜 바꿨나(2026-09-20): 예전에는 맥 → VM rsync 로 파일만 밀고, 깃 이력은 VM 에만 쌓았다.
+# 정본이 두 곳으로 갈라져 "무엇이 원본인지" 매번 확인해야 했고, 실행 중 스크립트를 덮어써
+# 사고도 났다. VM 이 외부로 나갈 수 있게 되면서(9/17 개방) 깃 기반으로 통일한다.
 #
-# 교훈(2026-09-01): 로컬 테스트로 생긴 빈 platform.db가 rsync로 서버 DB를
-# 덮어쓴 사고가 있었다. 서버의 data/는 서버만의 것이다 — 통째로 제외한다.
+# 흐름:  맥에서 고친다 → 커밋·푸시 → 이 스크립트가 VM 에서 받아 재시작한다.
+# 데이터(`data/`)와 `.env.local` 은 원래 깃에 없다 — VM 것이 그대로 남는다.
 #
-# 사용: bash scripts/99_deploy.sh [--restart]
+# 사용:
+#   bash scripts/99_deploy.sh              # 받아서 적용만
+#   bash scripts/99_deploy.sh --restart    # 적용 후 서비스 재시작·확인
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 HOST=aura@192.168.16.226
+BRANCH="${BRANCH:-main}"
 
-rsync -az \
-  --exclude '.venv' \
-  --exclude '.venv-train' \
-  --exclude 'data/' \
-  --exclude '.git/' \
-  --exclude '__pycache__' \
-  --exclude '.env.local' \
-  ./ "$HOST":~/zzaimy-capstone/
+# 1) 맥에 안 올린 변경이 있으면 멈춘다 — 배포는 푸시한 것만 나간다
+if [ -n "$(git status --porcelain)" ]; then
+  echo "커밋하지 않은 변경이 있습니다. 커밋·푸시 후 배포하십시오:" >&2
+  git status --short | head -10 >&2
+  exit 2
+fi
+LOCAL=$(git rev-parse HEAD)
+if ! git merge-base --is-ancestor "$LOCAL" "origin/$BRANCH" 2>/dev/null; then
+  echo "현재 커밋이 origin/$BRANCH 에 없습니다. 먼저 push 하십시오 (git push origin $BRANCH)." >&2
+  exit 2
+fi
 
-echo "코드 동기화 완료 (data/·.env.local 제외)"
+# 2) VM 에서 받아 그 커밋으로 맞춘다. VM 에서 직접 고친 것이 있으면 멈춘다(덮어쓰지 않는다)
+ssh -o BatchMode=yes "$HOST" "cd ~/zzaimy-capstone && \
+  if [ -n \"\$(git status --porcelain)\" ]; then \
+    echo 'VM 에 커밋하지 않은 변경이 있습니다 — 확인 후 다시 배포하십시오:' >&2; \
+    git status --short | head -10 >&2; exit 3; \
+  fi; \
+  git fetch --prune -q origin && git checkout -q -B $BRANCH $LOCAL && \
+  echo \"VM 적용: \$(git log --oneline -1)\""
 
 if [ "${1:-}" = "--restart" ]; then
   ssh -o BatchMode=yes "$HOST" '
