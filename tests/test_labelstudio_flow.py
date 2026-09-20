@@ -131,7 +131,7 @@ def test_page_unreachable_shows_fix_sentence_without_paste_box(client, monkeypat
     _fake_requests(monkeypatch, exc=requests.ConnectionError("refused"))
     r = client.get("/dev/data")
     assert r.status_code == 200
-    assert "미연결" in r.text and "68_labelstudio_token.sh" in r.text
+    assert "미연결" in r.text and '<a href="/dev/train">연결 설정</a>' in r.text
     assert 'name="token"' not in r.text          # 토큰 붙여넣기 칸 없음
     assert "label-export" not in r.text and "label-import" not in r.text  # 수동 파일 교환 없음
 
@@ -151,7 +151,7 @@ def test_page_without_settings_never_touches_network(client, monkeypatch):
     _fake_requests(monkeypatch, exc=AssertionError("설정이 없으면 네트워크에 나가면 안 된다"))
     r = client.get("/dev/data")
     assert r.status_code == 200
-    assert "미연결" in r.text and "68_labelstudio_token.sh" in r.text
+    assert "미연결" in r.text and '<a href="/dev/train">연결 설정</a>' in r.text
 
 
 def test_status_is_cached_between_page_loads(client, monkeypatch):

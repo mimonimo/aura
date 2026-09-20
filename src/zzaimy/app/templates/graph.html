@@ -238,7 +238,15 @@
     .kg.panel-open .kg-panel { transform: none; }
     .kg-p-hide { display: flex; margin-left: auto; }
   }
-  .kg-view-nav { display:none; }
+  .kg { padding-top:48px; }
+  .kg-view-nav { display:flex; position:absolute; top:0; left:0; right:0; height:48px; gap:6px; padding:7px 12px; border-bottom:1px solid var(--line); background:white; }
+  .kg-view-nav button { background:transparent; color:var(--muted); border:0; padding:6px 14px; }
+  .kg-view-nav button[aria-pressed=true] { background:#edf3fa; color:#294b73; }
+  @media(min-width:1101px) {
+    .kg[data-view=list] .kg-stage, .kg[data-view=detail] .kg-stage,
+    .kg[data-view=detail] .kg-rail { display:none; }
+    .kg[data-view=list] .kg-panel, .kg[data-view=detail] .kg-panel { flex:1; min-width:0; }
+  }
   .kg-stage-head { flex-wrap:wrap; gap:8px; padding:12px 16px; }
   .kg-center-name { flex:1 1 180px; max-width:none; font-weight:600; }
   .kg-check { font-size:12px; }
@@ -265,11 +273,11 @@
 {% endblock %}
 
 {% block content %}
-<div class="kg" id="kg" data-view="graph" data-focus="{{ focus|default('') }}">
+<div class="kg" id="kg" data-view="list" data-focus="{{ focus|default('') }}">
   <nav class="kg-view-nav" aria-label="그래프 화면 선택">
-    <button type="button" data-view="list" aria-pressed="false">문서 찾기</button>
-    <button type="button" data-view="graph" aria-pressed="true">관계 그래프</button>
-    <button type="button" data-view="detail" aria-pressed="false">상세·근거</button>
+    <button type="button" data-view="list" aria-pressed="true">문서 찾기</button>
+    <button type="button" data-view="detail" aria-pressed="false">연결 자료·근거</button>
+    <button type="button" data-view="graph" aria-pressed="false">관계도로 보기</button>
   </nav>
 
   <aside class="kg-rail">
@@ -279,9 +287,9 @@
         <input type="search" id="kgQuery" aria-label="문서·사업·기관 검색" placeholder="문서·사업·기관 검색" autocomplete="off">
       </div>
       <div class="kg-seg" id="kgRailTabs">
-        <button type="button" class="on" data-rail="cluster">묶음</button>
+        <button type="button" class="on" data-rail="doc">문서</button>
         <button type="button" data-rail="entity">기관·사업</button>
-        <button type="button" data-rail="doc">문서</button>
+        <button type="button" data-rail="cluster">연결 묶음</button>
       </div>
     </div>
     <div class="kg-rail-body" id="kgRailBody"></div>
@@ -298,12 +306,11 @@
         <input type="checkbox" id="kgWeak">근거 미확인 연결 포함</label>
     </header>
     <div class="kg-canvas" id="kgCanvas">
-      <p class="kg-help">항목을 선택해 관계를 확인하세요. 연결선은 관계의 근거를 보여줍니다.</p>
       <div class="kg-tools" aria-label="그래프 배율"><button type="button" id="kgZoomOut" aria-label="축소">−</button><button type="button" id="kgFit">전체 맞춤</button><button type="button" id="kgZoomIn" aria-label="확대">+</button></div>
       <svg id="kgSvg" preserveAspectRatio="xMidYMid meet"></svg>
       <div class="kg-blank" id="kgBlank">
         <iconify-icon icon="solar:structure-linear"></iconify-icon>
-        <p id="kgBlankText">왼쪽에서 문서나 기관을 선택하십시오.</p>
+        <p id="kgBlankText">문서를 선택하세요.</p>
       </div>
     </div>
     <div class="kg-years" id="kgYears" hidden></div>
@@ -317,12 +324,12 @@
         <button type="button" class="kg-icon kg-p-hide" id="kgPHide" title="닫기">
           <iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></button>
       </div>
-      <h3 class="kg-p-title" id="kgPTitle">선택 없음</h3>
+      <h3 class="kg-p-title" id="kgPTitle" tabindex="-1">선택 없음</h3>
       <div class="kg-p-meta" id="kgPMeta"></div>
       <div class="kg-p-acts" id="kgPActs"></div>
     </div>
     <div class="kg-tabs" id="kgTabs" hidden>
-      <button type="button" class="on" data-tab="rel">관계</button>
+      <button type="button" class="on" data-tab="rel">연결 자료·근거</button>
       <button type="button" data-tab="text">본문</button>
     </div>
     <div class="kg-p-body" id="kgPBody"></div>
@@ -386,7 +393,8 @@
   var docEnt = {}, clusters = [], tokenDf = {}, docCount = 1;
   var center = null, history = [], showWeak = false;
   var expandedId = null, stageCap = {}, panelCap = {}, selEdge = null;
-  var tab = "rel", railMode = "cluster", query = "", railOpen = {};
+  var tab = "rel", railMode = "doc", query = "", railOpen = {};
+  var searchLimit = 80;
   var peekCache = {}, placedIds = {};
 
   var railBody = document.getElementById("kgRailBody");
@@ -543,21 +551,13 @@
       return;
     }
     renderRail();
-    setCenter((FOCUS && byId[FOCUS]) || pickDefault(), { push: false });
-  }
-
-  // 기본 진입점 — 가장 큰 묶음의 대표 문서. 언급 간선만 많은 노드는 첫 화면이
-  // 개체 나열이 되어 쓸모가 없으므로 구조 연결 수로 고른다.
-  function pickDefault() {
-    var pool = clusters.length ? clusters[0].members
-                               : nodes.filter(function (n) { return n.kind !== "entity"; });
-    var best = null, bestScore = -1;
-    pool.forEach(function (n) {
-      var score = 0;
-      (adj[n.id] || []).forEach(function (e) { if (STRUCT[e.kind]) score++; });
-      if (score > bestScore) { bestScore = score; best = n; }
-    });
-    return best || nodes[0];
+    if (FOCUS && byId[FOCUS]) {
+      setCenter(byId[FOCUS], { push: false });
+      if (matchMedia('(max-width:1100px)').matches) setGraphView('detail');
+    } else {
+      renderStage();
+      renderPanel();
+    }
   }
 
   // 문서 묶음 — 개체 언급을 뺀 구조 간선으로 이어진 덩어리
@@ -625,7 +625,15 @@
     b.appendChild(el("span", "kg-rname", pretty(n.label)));
     b.appendChild(el("span", "kg-rnum", note != null ? note : String(n.deg)));
     b.title = pretty(n.label);
-    b.addEventListener("click", function () { setCenter(n); });
+    b.addEventListener("click", function () {
+      setCenter(n);
+      if (matchMedia('(max-width:1100px)').matches) {
+        setGraphView('detail');
+        root.querySelector('.kg-view-nav [data-view=detail]').focus();
+      } else {
+        document.getElementById('kgPTitle').focus();
+      }
+    });
     return b;
   }
   function groupBox(key, name, count, openByDefault) {
@@ -715,8 +723,21 @@
     railBody.appendChild(el("div", "kg-hint", "검색 결과 " + hits.length + "건"));
     var list = el("div", "kg-list");
     list.style.paddingLeft = "0";
-    hits.slice(0, 80).forEach(function (n) { list.appendChild(rowFor(n, kindLabel(n))); });
+    hits.slice(0, searchLimit).forEach(function (n) { list.appendChild(rowFor(n, kindLabel(n))); });
     railBody.appendChild(list);
+    if (hits.length > searchLimit) {
+      var more = el('button', 'kg-more-btn', '더 보기');
+      more.type = 'button';
+      more.addEventListener('click', function () {
+        var position = railBody.scrollTop, previousCount = searchLimit;
+        searchLimit += 80;
+        renderRail();
+        railBody.scrollTop = position;
+        var next = railBody.querySelectorAll('.kg-row')[previousCount];
+        if (next) next.focus({preventScroll:true});
+      });
+      railBody.appendChild(more);
+    }
   }
 
   // ── 중심 이동 ──
@@ -732,7 +753,9 @@
     if (tab === "text" && center.doc_id == null) tab = "rel";
     document.getElementById("kgBack").disabled = !history.length;
     root.classList.add("panel-open");
+    var railPosition = railBody.scrollTop;
     renderRail();
+    railBody.scrollTop = railPosition;
     renderStage();
     renderPanel();
   }
@@ -790,6 +813,8 @@
     kindEl.hidden = false;
     kindEl.textContent = kindLabel(center);
 
+    // List/detail work does not need SVG layout. Switching to graph renders it.
+    if (getComputedStyle(svg.closest('.kg-stage')).display === 'none') return;
     var groups = groupsOf(center);
     var total = 0;
     groups.forEach(function (g) { total += g.items.length; });
@@ -1079,7 +1104,7 @@
     if (!center) {
       kindEl.hidden = true;
       secEl.textContent = "";
-      titleEl.textContent = "선택 없음";
+      titleEl.textContent = "문서를 선택하세요";
       metaEl.textContent = "";
       tabsEl.hidden = true;
       return;
@@ -1094,6 +1119,16 @@
     meta.push("전체 연결 " + center.deg + "개 (숨긴 관계 포함)");
     metaEl.textContent = meta.join(" · ");
 
+    if (history.length) {
+      var back = el('button', 'btn-ghost', '이전 문서');
+      back.type = 'button';
+      back.addEventListener('click', function () {
+        var previous = history.pop();
+        if (previous) setCenter(previous, { push: false });
+        document.getElementById('kgPTitle').focus();
+      });
+      actsEl.appendChild(back);
+    }
     var url = nodeUrl(center);
     if (url) {
       var a = el("a", "btn-ghost", center.kind === "project" ? "프로젝트 화면" : "문서 화면");
@@ -1162,7 +1197,8 @@
     }
     var go = el("button", "kg-rel-go");
     go.type = "button";
-    go.title = "이 항목을 중심으로";
+    go.title = "이 문서의 연결 자료 보기";
+    go.setAttribute('aria-label', pretty(it.node.label) + ' 연결 자료 보기');
     go.appendChild(icon("solar:alt-arrow-right-linear"));
     go.addEventListener("click", function (ev) {
       ev.stopPropagation();
@@ -1172,7 +1208,7 @@
     row.appendChild(go);
     row.addEventListener("click", function () { selectEdge(it.edge); });
     row.addEventListener("keydown", function (ev) {
-      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); selectEdge(it.edge); }
+      if (ev.target === row && (ev.key === "Enter" || ev.key === " ")) { ev.preventDefault(); selectEdge(it.edge); }
     });
     return row;
   }
@@ -1487,8 +1523,8 @@
   document.getElementById('kgZoomOut').onclick = function() { scaleGraph(1.25); };
   railBody.addEventListener('click', function(event) {
     if (event.target.closest('.kg-row') && matchMedia('(max-width:1100px)').matches) {
-      setGraphView('graph');
-      root.querySelector('.kg-view-nav [data-view=graph]').focus();
+      setGraphView('detail');
+      root.querySelector('.kg-view-nav [data-view=detail]').focus();
     }
   });
   svg.addEventListener("click", clearEdge);
@@ -1520,13 +1556,24 @@
     renderPanel();
   });
   var queryEl = document.getElementById("kgQuery");
-  queryEl.addEventListener("input", function () {
-    query = queryEl.value.trim();
+  var queryTimer = null;
+  function applyQuery() {
+    clearTimeout(queryTimer);
+    var nextQuery = queryEl.value.trim();
+    if (nextQuery !== query) searchLimit = 80;
+    query = nextQuery;
     renderRail();
+  }
+  queryEl.addEventListener("input", function (ev) {
+    clearTimeout(queryTimer);
+    if (!ev.isComposing) queryTimer = setTimeout(applyQuery, 120);
   });
+  queryEl.addEventListener('compositionend', applyQuery);
   queryEl.addEventListener("keydown", function (ev) {
-    if (ev.key === "Escape") { queryEl.value = ""; query = ""; renderRail(); }
+    if (ev.isComposing || ev.keyCode === 229) return;
+    if (ev.key === "Escape") { queryEl.value = ""; applyQuery(); }
     if (ev.key === "Enter") {
+      ev.preventDefault(); applyQuery();
       var first = railBody.querySelector(".kg-row");
       if (first) first.click();
     }
@@ -1542,7 +1589,9 @@
   }).observe(canvasEl);
 
   // ── 시작 ──
-  fetch("/graph.json", { headers: { "Accept": "application/json" } })
+  function loadGraph() {
+  railBody.replaceChildren(el('p', 'kg-note', '문서 연결 정보를 불러오는 중…'));
+  fetch("/graph.json", { headers: { "Accept": "application/json" }, cache:'no-store' })
     .then(function (r) {
       if (!r.ok) throw new Error(String(r.status));
       return r.json();
@@ -1551,7 +1600,13 @@
     .catch(function () {
       ingest({ nodes: [], edges: [] });
       blankText.textContent = "그래프를 불러오지 못했습니다.";
+      railBody.replaceChildren(el('p', 'kg-note', '문서 연결 정보를 불러오지 못했습니다.'));
+      var retry = el('button', 'btn-ghost', '다시 불러오기');
+      retry.type = 'button'; retry.addEventListener('click', loadGraph);
+      railBody.appendChild(retry);
     });
+  }
+  loadGraph();
 })();
 </script>
 {% endblock %}

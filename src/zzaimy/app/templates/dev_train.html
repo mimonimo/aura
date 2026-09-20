@@ -317,7 +317,7 @@
   {% endif %}
 
   {# 검색 단계는 고르는 칸이 아니라 지금 어디서 도는지를 보여 준다 — 서빙 서비스가 정한다 #}
-  <div class="srv-head muted" style="clear:both;">검색 단계 — 서빙 서비스가 맡습니다</div>
+  <div class="srv-head muted" style="clear:both;">검색 모델</div>
   <div class="srv-list">
     {% for p in search_serving %}
     <div class="srv-row">
@@ -330,7 +330,6 @@
     </div>
     {% endfor %}
   </div>
-  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">임베딩 모델을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다. 서비스를 올리는 방법은 <code>scripts/102</code>·<code>scripts/103</code>.</p>
 </div></div>
 
 {# 연결별 설정 — 수정·확인·용도·삭제를 톱니 하나에 모은다 #}
@@ -341,8 +340,8 @@
       <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <dl class="kv">
       <dt>주소</dt><dd><code>{{ c.base_url }}</code></dd>
-      <dt>지금 상태</dt><dd>{% if c.live.ok %}연결됨 · 모델 {{ c.live.models | length }}개{% else %}응답 없음{% if c.live.error %} ({{ c.live.error }}){% endif %}{% endif %}</dd>
-      <dt>마지막 확인 기록</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}없음 — ‘연결 확인’을 누르면 남습니다{% endif %}</dd>
+      <dt>상태</dt><dd>{% if c.live.ok %}연결됨 · 모델 {{ c.live.models | length }}개{% else %}응답 없음{% if c.live.error %} ({{ c.live.error }}){% endif %}{% endif %}</dd>
+      <dt>최근 확인</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}확인 전{% endif %}</dd>
       <dt>기본 모델</dt><dd>{{ c.model or "자동" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</dd>
       <dt>사용 가능한 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
       <dt>API 키</dt><dd>{{ c.api_key_masked }}</dd>
@@ -350,7 +349,7 @@
     </dl>
     <div class="modal-sec">
       <h4>서버 정보</h4>
-      <form action="/dev/llm/{{ c.id }}/update" method="post" style="display:flex; flex-direction:column; gap:8px;">
+      <form id="llmUpdate-{{ c.id }}" action="/dev/llm/{{ c.id }}/update" method="post" style="display:flex; flex-direction:column; gap:8px;">
         <label class="muted" style="font-size:12px;">이름<input type="text" name="name" value="{{ c.name }}" maxlength="60" style="margin-top:4px;"></label>
         <label class="muted" style="font-size:12px;">주소<input type="text" name="base_url" value="{{ c.base_url }}" style="margin-top:4px;"></label>
         <label class="muted" style="font-size:12px;">기본 모델
@@ -368,9 +367,9 @@
           </select></label>
         <label class="muted" style="font-size:12px;">API 키
           <input type="password" name="api_key" autocomplete="off" placeholder="새 API 키" style="margin-top:4px;"></label>
-        <div><button type="submit">저장</button></div>
       </form>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+      <div class="llm-settings-actions">
+        <button type="submit" form="llmUpdate-{{ c.id }}">저장</button>
         <form action="/dev/llm/{{ c.id }}/test" method="post" style="margin:0;"><button type="submit" class="secondary" data-busy="확인 중…"><iconify-icon icon="solar:refresh-linear"></iconify-icon>연결 확인</button></form>
         {% if c.active %}
         <form action="/dev/llm/deactivate" method="post" style="margin:0;"><button type="submit" class="secondary">기본 서버 해제</button></form>
@@ -388,9 +387,8 @@
     </div>
     <div class="modal-sec">
       <h4>서버 삭제</h4>
-      <p class="muted" style="font-size:12px; margin:0 0 8px;">목록에서 지웁니다. 이 서버가 맡던 단계는 기본 서버로 돌아갑니다.</p>
-      <form action="/dev/llm/{{ c.id }}/delete" method="post" onsubmit="return confirm('「{{ c.name }}」을 목록에서 지울까요?');" style="margin:0;">
-        <button type="submit" class="btn-ghost" style="color:var(--red); border-color:#E7B9B8;"><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>삭제</button>
+      <form action="/dev/llm/{{ c.id }}/delete" method="post" data-confirm="‘{{ c.name }}’ 연결을 삭제할까요? 이 서버의 단계별 설정은 기본 서버로 변경됩니다." style="margin:0;">
+        <button type="submit" class="btn-ghost" style="color:var(--red); border-color:#E7B9B8;"><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>서버 삭제</button>
       </form>
     </div>
   </div></div>

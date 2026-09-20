@@ -155,3 +155,29 @@ def test_loose_title_edge_cases():
     assert loose_title("2025학년도 입학자\n연계교육과정 편성표\n학과: 건축과") == "2025학년도 입학자 연계교육과정 편성표"
     assert loose_title("학과명 발생일 건의사항 학과 답변 내용 조치 내용 증빙서류 완료일 계획\n2024학년도 학생 건의 사항 조치 보고서") \
         == "2024학년도 학생 건의 사항 조치 보고서"
+
+
+def test_title_comes_from_the_document_not_the_filename(tmp_path):
+    """파일 이름이 test.pdf 여도(같은 이름이 여럿이어도) 문서 안의 제목으로 구분된다."""
+    from zzaimy.app.db import Database
+    from zzaimy.app.doc_title import display_name
+
+    db = Database(tmp_path / "t.db")
+    body = ("영남이공대학교 산학협력단 운영 규정\n제정 2022년 05월 26일\n\n"
+            "제1조(목적) 이 규정은 산학협력단의 운영에 관한 사항을 정함을 목적으로 한다.")
+    ids = []
+    for _ in range(2):
+        doc_id = db.add_document(filename="test.pdf", stored_path=str(tmp_path / "test.pdf"),
+                                 doc_type="regulation")
+        db.rename_from_text(doc_id, body)          # 반입 단계에서 부르는 그 함수
+        db.update_document(doc_id, status="reviewed", masked_text=body)
+        ids.append(doc_id)
+    for doc_id in ids:
+        doc = db.get_document(doc_id)
+        ident = db.get_doc_identity(doc_id)
+        assert ident["title"] == "영남이공대학교 산학협력단 운영 규정"
+        # 문서 이름 자체가 바뀐다 — 화면마다 따로 계산하지 않아도 된다
+        assert doc["filename"].startswith("영남이공대학교 산학협력단 운영 규정")
+        assert ident["original_filename"] == "test.pdf"     # 올라온 파일 이름은 남는다
+        assert doc["stored_path"].endswith("test.pdf")      # 파일 자체는 그대로
+        assert display_name(doc) == doc["filename"]

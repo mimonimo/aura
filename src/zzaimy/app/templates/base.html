@@ -514,7 +514,7 @@ document.addEventListener('submit', function(event) {
         {% for d in pending_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}">
           <iconify-icon icon="solar:check-circle-linear" style="color:var(--green);"></iconify-icon>
-          <span>{{ d.filename }}</span>
+          <span>{{ doc_name(d) }}</span>
         </a>
         {% else %}
         <div class="pop-empty">새 알림이 없습니다</div>
@@ -524,7 +524,7 @@ document.addEventListener('submit', function(event) {
         {% for d in failed_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}">
           <iconify-icon icon="solar:danger-triangle-linear" style="color:var(--red);"></iconify-icon>
-          <span>{{ d.filename }}</span>
+          <span>{{ doc_name(d) }}</span>
         </a>
         {% endfor %}
         {% endif %}

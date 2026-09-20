@@ -142,8 +142,8 @@
       {% for d in scan.docs %}
       <tr>
         <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-          {% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ d.filename }}</a>
-          {% else %}{{ d.filename }}{% endif %}</td>
+          {% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>
+          {% else %}{{ doc_name(d) }}{% endif %}</td>
         <td style="white-space:nowrap;">{{ type_names.get(d.doc_type, d.doc_type) }}</td>
         <td style="white-space:nowrap;">
           {% for k, v in d.by_type.items() %}
@@ -211,8 +211,8 @@
     {% for d in src.docs %}
     <tr>
       <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-        {% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ d.filename }}</a>
-        {% else %}{{ d.filename }}{% endif %}</td>
+        {% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>
+        {% else %}{{ doc_name(d) }}{% endif %}</td>
       <td style="white-space:nowrap;">{{ type_names.get(d.doc_type, d.doc_type) }}
         {% if d.owner == 'corpus' %}<span class="muted" style="font-size:11px;">코퍼스</span>{% endif %}</td>
       <td style="white-space:nowrap;"><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>

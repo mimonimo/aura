@@ -1787,13 +1787,10 @@ class DocumentProcessor:
                         reg_vision_chunks = vc
                         self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
 
-                # 인용·검색 근거에 실릴 이름 — 'law03.pdf' 같은 파일 이름 대신 첫 쪽의 규정 이름
-                from zzaimy.app.doc_title import find_title, head_text, title_beats_filename
-
+                # 반입 단계에서 문서 이름을 본문의 제목으로 바꾼다 — 인용·목록·검색이 같은 이름을 쓴다
+                db.rename_from_text(doc_id, raw_text)
+                doc = db.get_document(doc_id) or doc
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
-                found, _date = find_title(head_text((doc or {}).get("stored_path"), raw_text[:3000]))
-                if found and title_beats_filename(found, title):
-                    title = found
                 # 글자가 한 칸씩 갈라져 들어온 낱말을 먼저 붙인다.
                 # 조각으로 나누기 전에 해야 분해된 낱말이 조각 경계를 흐트러뜨리지 않는다.
                 from zzaimy.app.text_repair import repair_document

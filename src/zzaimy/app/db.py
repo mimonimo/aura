@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -277,6 +278,45 @@ class Database:
             conn.execute(
                 f"UPDATE documents SET {sets} WHERE id = ?", (*fields.values(), doc_id)
             )
+
+    def rename_from_text(self, doc_id: int, text: str = "", overwrite: bool = False) -> str:
+        """반입 단계에서 문서 이름을 본문의 제목으로 바꾼다 — 뒷단계는 그 이름으로 흐른다.
+
+        파싱이 끝나 본문이 손에 들어온 시점에 부른다. 돌려주는 값은 바뀐 문서 이름이다.
+        """
+        ident = self.fill_identity_from_text(doc_id, overwrite=overwrite, text=text)
+        doc = self.get_document(doc_id)
+        return (doc or {}).get("filename", "") if ident else (doc or {}).get("filename", "")
+
+    def fill_identity_from_text(self, doc_id: int, overwrite: bool = False,
+                                text: str = "") -> dict:
+        """문서 본문에서 이름·날짜를 찾아 문서 이름으로 삼는다.
+
+        파일 이름은 'test.pdf' 처럼 아무것이나 될 수 있고 같은 이름이 여럿 들어올 수도 있다.
+        그래서 본문에서 찾은 이름을 문서의 이름으로 바꾸고, 올라온 파일 이름은 정체에
+        `original_filename` 으로 남긴다. 파일 자체는 건드리지 않는다(stored_path 그대로).
+        """
+        from zzaimy.app.doc_title import display_name, find_title, head_text
+
+        doc = self.get_document(doc_id)
+        if doc is None:
+            return {}
+        have = self.get_doc_identity(doc_id)
+        if not overwrite and have.get("title"):
+            return have
+        source = (text or doc.get("masked_text") or "")[:3000]
+        title, date = find_title(head_text(doc.get("stored_path"), source))
+        found = {k: v for k, v in (("title", title), ("date", date)) if v}
+        if not found:
+            return have
+        found.setdefault("original_filename", doc.get("filename") or "")
+        self.set_doc_identity(doc_id, found)
+        have.update(found)
+        name = display_name({**doc, "identity": json.dumps(have, ensure_ascii=False)})
+        if name and name != doc.get("filename"):
+            with self._conn() as conn:
+                conn.execute("UPDATE documents SET filename = ? WHERE id = ?", (name, doc_id))
+        return have
 
     def get_document(self, doc_id: int) -> dict | None:
         with self._conn() as conn:

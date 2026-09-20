@@ -867,24 +867,18 @@ def create_app(
                     return f"「{doc['filename']}」 초안을 만들지 못했습니다"
                 return (f"「{doc['filename']}」 초안을 만들었습니다."
                         f" 문서 화면에서 확인하십시오.")
-            if key in ("llm.test", "llm.catalog"):
+            if key == "llm.test":
                 from zzaimy.generate import llm_connections as _lcm
 
                 cid = str(ctx.get("cid", ""))
                 conn = _lcm.get(cid) if cid else None
                 if conn is None:
                     return "확인할 연결을 찾지 못했습니다"
-                if key == "llm.test":
-                    pr = _lcm.probe(conn)
-                    _lcm.record_check(cid, pr["ok"],
-                                      f"모델 {len(pr['models'])}개" if pr["ok"] else pr["error"])
-                    return (f"「{conn['name']}」 연결됨 · 모델 {len(pr['models'])}개"
-                            if pr["ok"] else f"「{conn['name']}」 연결 실패 — {pr['error']}")
-                cr = _lcm.fetch_catalog(conn)
-                if not cr["ok"]:
-                    return f"모델 목록을 받지 못했습니다 — {cr['error']}"
-                _lcm.set_catalog(cid, cr["models"], cr["source"])
-                return f"「{conn['name']}」 모델 {len(cr['models'])}개를 받았습니다"
+                pr = _lcm.probe(conn)
+                _lcm.record_check(cid, pr["ok"],
+                                  f"모델 {len(pr['models'])}개" if pr["ok"] else pr["error"])
+                return (f"「{conn['name']}」 연결됨 · 모델 {len(pr['models'])}개"
+                        if pr["ok"] else f"「{conn['name']}」 연결 실패 — {pr['error']}")
         except Exception as e:                      # 어떤 실패도 대화를 끊지 않는다
             return f"처리하지 못했습니다 ({type(e).__name__})"
         return ""
@@ -3047,22 +3041,6 @@ def create_app(
                 if "embed" in picks else "")
         return _llm_redirect(f"{', '.join(changed)} 을(를) 저장했습니다.{tail}")
 
-    @app.post("/dev/llm/{cid}/catalog")
-    def dev_llm_catalog(cid: str):
-        """모델 목록 갱신 — 허브 공개 카탈로그 또는 모델 API 에서 가져와 연결에 저장한다."""
-        from zzaimy.generate import llm_connections
-
-        conn = llm_connections.get(cid)
-        if conn is None:
-            return _llm_redirect("없는 연결입니다", ok=False)
-        r = llm_connections.fetch_catalog(conn)
-        if not r["ok"]:
-            llm_connections.record_check(cid, False, r["error"])
-            tail = f" {r['hint']}" if r.get("hint") else ""
-            return _llm_redirect(f"「{conn['name']}」 모델 목록을 받지 못했습니다 — {r['error']}.{tail}", ok=False)
-        llm_connections.record_check(cid, True, f"모델 목록 {len(r['models'])}개")
-        llm_connections.set_catalog(cid, r["models"], r["source"])
-        return _llm_redirect(f"「{conn['name']}」 모델 {len(r['models'])}개 목록을 받았습니다 ({r['source']})")
 
     @app.post("/dev/llm/models-live")
     def dev_llm_models_live(kind: str = Form("vllm"), base_url: str = Form(""),
@@ -3082,22 +3060,6 @@ def create_app(
             return {"ok": False, "models": [], "error": "주소를 먼저 넣으세요"}
         return llm_connections.live_models(conn)
 
-    @app.post("/dev/llm/{cid}/catalog-upload")
-    async def dev_llm_catalog_upload(cid: str, file: UploadFile = File(...)):
-        """나가는 통신이 막힌 서버용 — 다른 장비에서 받은 카탈로그 JSON 을 올린다."""
-        from zzaimy.generate import llm_connections
-
-        conn = llm_connections.get(cid)
-        if conn is None:
-            return _llm_redirect("없는 연결입니다", ok=False)
-        try:
-            models = llm_connections.parse_catalog(_aj.loads((await file.read()).decode("utf-8")))
-        except (ValueError, UnicodeDecodeError):
-            return _llm_redirect("카탈로그 JSON 을 읽지 못했습니다", ok=False)
-        if not models:
-            return _llm_redirect("모델이 없는 파일입니다", ok=False)
-        llm_connections.set_catalog(cid, models, "파일")
-        return _llm_redirect(f"「{conn['name']}」 모델 {len(models)}개 목록을 올렸습니다")
 
     @app.post("/dev/llm/{cid}/test")
     def dev_llm_test(cid: str):

@@ -1433,40 +1433,24 @@ def test_sidebar_shows_model_server_status(client, monkeypatch, tmp_path):
     model_config.set_override("", ""); model_config.reset_status_cache()
 
 
-def test_llm_catalog_upload_and_pickers(client, monkeypatch, tmp_path):
-    import json
-
+def test_connection_screen_uses_only_live_models(client, monkeypatch, tmp_path):
+    """화면은 서버가 지금 내어 주는 모델만 쓴다 — 참고용 카탈로그를 목록으로 쓰지 않는다."""
     from zzaimy.generate import llm_connections as lc
     from zzaimy.generate import model_config
 
     lc.configure(tmp_path / "llm.json"); model_config.set_override("", ""); model_config.reset_status_cache()
     conn = lc.add("허브", "partner", "https://hub.example.ac.kr/v1", "", "k-1234")
-    payload = {"object": "list", "data": [
-        {"id": "exaone-4.0-32b", "title": "EXAONE 4.0.1 32B", "provider": "LG AI", "status": "available", "modality": "chat", "context_length": "131072"},
-        {"id": "ax-3.1", "title": "A.X 3.1", "provider": "SKT", "status": "unavailable", "modality": "chat"},
-        {"id": "qwen2.5-vl-72b", "title": "Qwen2.5-VL 72B", "provider": "Qwen", "status": "available", "modality": "vision"},
-        {"id": "bge-m3", "title": "BGE-M3", "provider": "BAAI", "status": "available", "modality": "embeddings"},
-    ]}
-    r = client.post(f"/dev/llm/{conn['id']}/catalog-upload", files={"file": ("catalog.json", json.dumps(payload).encode())}, follow_redirects=False)
-    assert "ok=" in r.headers["location"]
-    pub = [c for c in lc.list_public() if c["id"] == conn["id"]][0]
-    assert pub["catalog_n"] == 4 and [m["id"] for m in pub["options"]["text"]["available"]] == ["exaone-4.0-32b"]
-    assert [m["id"] for m in pub["options"]["text"]["other"]] == ["ax-3.1"]
-    assert [m["id"] for m in pub["options"]["vision"]["available"]] == ["qwen2.5-vl-72b"]
-    # 화면은 카탈로그를 쓰지 않는다 — 서버에 실제로 올라와 쓸 수 있는 모델만 고르게 한다
-    # (카탈로그에는 'unavailable' 까지 섞여 있어 고를 수 없는 이름을 보여 주게 된다)
+    monkeypatch.setattr(lc, "probe", lambda c, timeout=8.0: {
+        "ok": True, "models": ["exaone-4.0-32b", "ax-3.1"], "error": "", "hint": ""})
+    monkeypatch.setattr(lc, "diagnose", lambda url, timeout=8.0: {"stage": "ok", "text": ""})
+    got = lc.live_models(lc.get(conn["id"]))
+    assert [m["id"] for m in got["models"]] == ["exaone-4.0-32b", "ax-3.1"]
+    r = lc.refresh_models(lc.get(conn["id"]))
+    assert r["ok"] and [m["id"] for m in r["models"]] == ["exaone-4.0-32b", "ax-3.1"]
     page = client.get("/dev/train").text
-    assert "EXAONE 4.0.1 32B" not in page and "A.X 3.1" not in page
-    assert "응답 없음" in page and "기본 모델" in page
-    # 갱신: 공개 카탈로그 → 모델 API 순서, 둘 다 안 되면 사유
-    monkeypatch.setattr(lc, "fetch_catalog", lambda c, timeout=8.0: {"ok": False, "models": [], "source": "", "error": "카탈로그 URLError · 모델 API 연결되지 않음"})
-    r = client.post(f"/dev/llm/{conn['id']}/catalog", follow_redirects=False)
-    assert "err=" in r.headers["location"]
-    monkeypatch.setattr(lc, "fetch_catalog", lambda c, timeout=8.0: {"ok": True, "models": lc.parse_catalog(payload)[:2], "source": "허브 카탈로그", "error": ""})
-    r = client.post(f"/dev/llm/{conn['id']}/catalog", follow_redirects=False)
-    assert "ok=" in r.headers["location"] and lc.get(conn["id"])["catalog_at"].endswith("허브 카탈로그")
-    assert not client.post(f"/dev/llm/{conn['id']}/catalog-upload", files={"file": ("x.json", b"not json")}, follow_redirects=False).headers["location"].count("ok=")
+    assert "카탈로그" not in page
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+
 
 
 def test_client_records_usage_and_describes_errors(client, monkeypatch, tmp_path):
@@ -1533,16 +1517,15 @@ def test_llm_probe_diagnoses_network_in_plain_words(client, tmp_path):
     # 풀리지 않는 주소 → "주소를 찾지 못함"
     bad = lc.add("오타", "partner", "https://nonexistent.invalid/v1", "", "")
     assert "주소를 찾지 못함" in lc.probe(bad)["error"]
-    for x in (r, r2, lc.fetch_catalog(gpu)):
+    for x in (r, r2, lc.refresh_models(gpu)):
         assert "Error" not in x["error"] and "Error" not in x.get("hint", "")
     # 화면: 배너에 사유와 할 일, 표에는 마지막 확인이 남는다
     from urllib.parse import unquote
     loc = unquote(client.post(f"/dev/llm/{hub['id']}/test", follow_redirects=False).headers["location"])
     assert "연결 실패 — 서버까지 통신이 막혀 있음" in loc and "관리자에게 요청하세요" in loc
-    loc2 = unquote(client.post(f"/dev/llm/{hub['id']}/catalog", follow_redirects=False).headers["location"])
-    assert "모델 목록을 받지 못했습니다 — 서버까지 통신이 막혀 있음" in loc2 and "URLError" not in loc2
+    # 통신이 막힌 연결은 화면에서 '응답 없음' 으로 보이고, 실패 사유가 사람 말로 남는다
     page = client.get("/dev/train").text
-    assert "확인 · 서버까지 통신이 막혀 있음" in page
+    assert "응답 없음" in page and "서버까지 통신이 막혀 있음" in page
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
 
 

@@ -73,7 +73,7 @@
         {% for d in documents %}
         <tr>
           <td class="muted">{{ d.receipt_no or d.id }}</td>
-          <td><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td>
+          <td><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a></td>
           <td><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
           <td><span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span></td>
           <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
@@ -93,7 +93,6 @@
 <div class="card project-chat-card">
   <div class="card-in">
     <h2>이 프로젝트에서 어떤 작업을 할까요?</h2>
-    <p class="muted" style="margin:0 0 20px;">프로젝트의 지침과 연결한 기준을 바탕으로 새 대화를 시작합니다.</p>
     <div class="project-chat-row" style="display:flex; gap:8px; align-items:center;">
       <form action="/chat/send" method="post" style="display:flex; gap:10px; flex:1; margin:0;">
         <input type="hidden" name="project_id" value="{{ project.id }}">
@@ -112,7 +111,7 @@
       <a class="project-conversation" href="/chat/{{ cs.id }}" title="{{ cs.title }}"><iconify-icon icon="solar:chat-line-linear"></iconify-icon><span>{{ cs.title }}</span><iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>
       {% endfor %}
     </div>
-    {% else %}<p class="project-empty">아직 대화가 없습니다. 첫 질문을 보내면 이곳에 기록됩니다.</p>{% endif %}
+    {% else %}<p class="project-empty">대화가 없습니다.</p>{% endif %}
   </div>
 </div>
 
@@ -168,7 +167,7 @@
                   border-radius:10px; padding:8px 10px;">
         <iconify-icon icon="solar:document-text-linear" style="color:var(--navy); flex:none;"></iconify-icon>
         <a href="/doc/{{ c.id }}" style="overflow:hidden; text-overflow:ellipsis;
-           white-space:nowrap; flex:1; text-decoration:none;">{{ c.filename }}</a>
+           white-space:nowrap; flex:1; text-decoration:none;">{{ doc_name(c) }}</a>
         <form action="/project/{{ project.id }}/criteria/unlink" method="post" style="flex:none;">
           <input type="hidden" name="criteria_doc_id" value="{{ c.id }}">
           <button type="submit" title="연결 해제" style="background:none; border:0; box-shadow:none;
@@ -224,7 +223,7 @@
                         padding:6px 8px; border-radius:8px;">
             <input type="checkbox" name="criteria" value="{{ c.id }}"
                    {% if c.id in linked_criteria %}checked{% endif %}>
-            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ c.filename }}</span>
+            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ doc_name(c) }}</span>
             <span class="pill" style="flex:none; font-size:11px; padding:2px 8px;
                   {% if c.sector == project.sector %}background:#E8EFFC; color:var(--navy);{% endif %}">
               {{ sector_labels.get(c.sector, c.sector) }}</span>

@@ -50,7 +50,7 @@
         <tr><th>파일명</th><th>상태</th><th>추출 정보</th><th>올린 시각</th></tr>
         {% for d in documents %}
         <tr>
-          <td><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td>
+          <td><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a></td>
           <td><span class="pill {{ d.status }}">{{ "추출 완료" if d.status == "reviewed" else status_labels.get(d.status, d.status) }}</span></td>
           <td class="muted">{{ d.parse_note or ("—" if d.status != "reviewed" else "일반 추출") }}</td>
           <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
