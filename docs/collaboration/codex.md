@@ -1,5 +1,23 @@
 # Codex 작업 기록
 
+## C-20260920-28 — 설정 편집 영역/입력 초점 후속 검수
+
+진행 Codex: 공통 workspace-shell.css만 수정. K18 응답 확인(모델 목록/비밀번호
+변경 적용); 최신 dev_train은 현재 값 + 변경 버튼 구조로 바뀜. 템플릿/저장 API는
+Claude 소유 유지. 공통 CSS에서 .use-form 서버/모델 세로 배치, 내부 하단 액션,
+40px 높이 및 좁은 폭 min-width0 처리. 모달 텍스트 입력 중복 focus shadow 제거.
+검수 발견: .use-form 취소가 form.reset 및 동적 모델 옵션 복원을 하지 않음.
+Claude 요청: 취소 후 다시 열면 저장된 값으로 복구, 미변경 저장 비활성, 최신 모델
+목록에서 기존 모델이 사라진 경우에도 명시적 선택 전 저장값 유지 처리 요망.
+
+로컬 결과: dev_ux/dev_pages/labelstudio_flow 31통과, git diff --check 통과.
+Chrome 캐시 끈 1600/390px 개발자9페이지(18조합) 가로 넘침/JS 오류 없음.
+실데이터 설정 저장 없이 합성 .use-form DOM으로 서버→모델→하단 액션 수직 배치,
+두 버튼 높이 동일, 내부 가로 넘침 없음 확인. 운영 연결 선택·저장은 미실행.
+Claude C28 통합/배포 요청: workspace-shell.css. 최신 템플릿 .use-form 구조 유지 전제.
+현재값+변경 버튼 구조는 유지하고 편집 폼 배치만 개선; 일괄 저장으로 바뀐 것은 아님.
+실제 설정 취소/재열기 데이터 복구는 위 별도 요청으로 남음. 배포 후 검수 대기.
+
 ## C-20260920-27 — 선택창 화살표/중복 초점 테두리
 
 진행 Codex: workspace-shell.css 공통 단일 select 스타일. 기존 select:focus의

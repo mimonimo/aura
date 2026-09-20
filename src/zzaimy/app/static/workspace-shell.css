@@ -57,6 +57,29 @@ body select:focus-visible, body .modal-back select:focus-visible {
   outline-offset:-2px;
   box-shadow:none;
 }
+/* Settings editors are a bounded task, not a row of unrelated controls. */
+body .use-form {
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  width:100%;
+  max-width:560px;
+  gap:16px;
+  padding:20px;
+  box-sizing:border-box;
+}
+body .use-form label { min-width:0; gap:7px; font-size:12px; }
+body .use-form select { width:100%; min-width:0; min-height:40px; box-sizing:border-box; font-size:13px; }
+body .use-actions { width:100%; margin:0; padding-top:12px; border-top:1px solid var(--line); justify-content:flex-end; }
+body .use-actions button { min-height:40px; padding:8px 16px; }
+body .modal-back input:is([type=text],[type=password],[type=url],[type=search]):focus {
+  border-color:#607c9e; box-shadow:none; outline:none;
+}
+body .modal-back input:is([type=text],[type=password],[type=url],[type=search]):focus-visible {
+  outline:2px solid #607c9e; outline-offset:-2px;
+}
+@media(max-width:600px) {
+  body .use-form { padding:14px; }
+}
 @media (forced-colors:active) {
   body select:not([multiple]):not([size]), body select[size="1"]:not([multiple]) {
     appearance:auto; -webkit-appearance:auto; background-image:none;
