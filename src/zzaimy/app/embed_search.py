@@ -37,6 +37,34 @@ DENSE_FLOOR_K = 1.0
 _FLOOR_SAMPLE_PAIRS = 20000
 
 
+# 질의 임베딩을 서빙 장비에서 계산한다 — ZZAIMY_EMBED_URL=http://<토르>:8014/embed
+# (scripts/103 으로 올린다). 조각 벡터는 배치로 미리 만들지만 질의 벡터는 검색마다 새로 만들고,
+# 그 계산이 VM CPU 에서 돌고 있었다. 같은 모델·같은 풀링(CLS+정규화)이라 공간이 같다
+# (실측 2026-09-20: 같은 글의 VM CPU 벡터와 코사인 1.0). 실패하면 VM 모델로 물러난다.
+def remote_vectors(texts: list[str]):
+    url = os.environ.get("ZZAIMY_EMBED_URL", "").strip()
+    if not url or not texts:
+        return None
+    import json
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(url, data=json.dumps({"texts": list(texts)}).encode("utf-8"),
+                                 headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=float(os.environ.get("ZZAIMY_EMBED_TIMEOUT", "8"))) as r:
+            got = json.loads(r.read().decode("utf-8"))
+        import numpy as np
+
+        vec = np.asarray(got.get("vectors"), dtype="float32")
+        if vec.ndim == 2 and len(vec) == len(texts):
+            return vec
+        log.warning("임베딩 서비스 응답 형식이 맞지 않음 — VM 모델로 물러남")
+    except (urllib.error.URLError, OSError, ValueError, TypeError) as e:
+        log.warning("임베딩 서비스 실패(%s) — VM 모델로 물러남", type(e).__name__)
+    return None
+
+
 class EmbedIndex:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -44,15 +72,16 @@ class EmbedIndex:
         self._ids: object = None
         self._vectors: object = None
         self._failed = False
+        self._remote_only = False
         self._floor: float | None = None
 
     def _load(self) -> bool:
         if self._failed:
             return False
-        if self._model is not None:
+        if self._ids is not None and (self._model is not None or self._remote_only):
             return True
         with self._lock:
-            if self._model is not None:
+            if self._ids is not None and (self._model is not None or self._remote_only):
                 return True
             try:
                 import os
@@ -64,13 +93,19 @@ class EmbedIndex:
                 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
                 import numpy as np
-                from sentence_transformers import SentenceTransformer
 
                 if not INDEX_PATH.exists():
                     raise FileNotFoundError(INDEX_PATH)
                 data = np.load(INDEX_PATH)
                 self._ids = data["ids"]
                 self._vectors = data["vectors"]
+                if os.environ.get("ZZAIMY_EMBED_URL", "").strip():
+                    # 질의 임베딩을 서빙 장비가 맡는다 — VM 에 모델을 올리지 않는다
+                    self._remote_only = True
+                    log.info("임베딩 인덱스 로드: %d조각 · 질의는 서빙 장비에서", len(data["ids"]))
+                    return True
+                from sentence_transformers import SentenceTransformer
+
                 # vLLM이 GPU를 점유하므로 질의 임베딩은 CPU로
                 self._model = SentenceTransformer(MODEL_NAME, device="cpu")
                 log.info("임베딩 인덱스 로드: %d조각", len(data["ids"]))
@@ -79,6 +114,24 @@ class EmbedIndex:
                 log.warning("임베딩 검색 비활성 (%s: %s) — 키위 검색만 사용", type(e).__name__, e)
                 self._failed = True
                 return False
+
+    def _encode(self, texts: list[str]):
+        """글을 벡터로 — 서빙 장비 먼저, 없거나 실패하면 VM 모델. 둘 다 없으면 None."""
+        remote = remote_vectors(texts)
+        if remote is not None:
+            return remote
+        if self._model is None:
+            if self._remote_only:       # 서비스가 죽었다 — 이때만 VM 모델을 뒤늦게 올린다
+                try:
+                    from sentence_transformers import SentenceTransformer
+
+                    self._model = SentenceTransformer(MODEL_NAME, device="cpu")
+                except Exception:
+                    log.warning("질의 임베딩 불가 — 키위 검색만 사용")
+                    return None
+            else:
+                return None
+        return self._model.encode(list(texts), normalize_embeddings=True)  # type: ignore[attr-defined]
 
     def noise_floor(self) -> float | None:
         """이 인덱스의 '무관 기준선' — 무작위 조각 쌍 코사인의 평균 + k·표준편차.
@@ -118,10 +171,12 @@ class EmbedIndex:
         """
         if not self._load():
             return []
-        model = self._model
         ids, vectors = self._ids, self._vectors
-        assert model is not None and ids is not None and vectors is not None
-        qv = model.encode([query], normalize_embeddings=True)[0]  # type: ignore[attr-defined]
+        assert ids is not None and vectors is not None
+        qv = self._encode([query])
+        if qv is None:
+            return []
+        qv = qv[0]
         sims = vectors @ qv  # type: ignore[operator]
         order = sims.argsort()[-top_k:][::-1]
         floor = self.noise_floor() if min_sim is None else min_sim
@@ -151,10 +206,14 @@ def embed_texts(texts: list[str]):
     재사용한다. 키워드 겹침 같은 규칙 대신 의미 표현으로 판단하기 위한 공용 입구.
     호출부는 None이면 규칙 기반 기존 동작으로 조용히 내려간다.
     """
-    if not texts or not _index._load():
+    if not texts:
         return None
-    model = _index._model
-    return model.encode(list(texts), normalize_embeddings=True)  # type: ignore[attr-defined]
+    remote = remote_vectors(list(texts))
+    if remote is not None:
+        return remote
+    if not _index._load():
+        return None
+    return _index._encode(list(texts))
 
 
 def rrf_merge(
