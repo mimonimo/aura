@@ -67,6 +67,21 @@ class ChatTopics:
                 " WHERE session_id = ?) ORDER BY id", (session_id, session_id)).fetchall()
         return [dict(r, weak=bool(r["weak"])) for r in rows]
 
+    @staticmethod
+    def match_clause(query: str) -> tuple[str, list]:
+        """주제 검색 조건 — (SQL 조각, 인자). 기록 목록 질의에 OR 로 붙여 한 번에 거른다.
+
+        주제 이름을 정하는 순서(사업 > 문서에서 찾은 이름 > 근거 제목)와 같은 값을 본다.
+        약한 근거는 주제로 삼지 않으므로 여기서도 뺀다.
+        """
+        key = f"%{query.strip().lower()}%"
+        sql = ("EXISTS (SELECT 1 FROM chat_sources cs LEFT JOIN documents d ON d.id = cs.doc_id"
+               " WHERE cs.session_id = s.id AND cs.weak = 0 AND ("
+               " lower(COALESCE(json_extract(d.identity, '$.program'), '')) LIKE ?"
+               " OR lower(COALESCE(json_extract(d.identity, '$.title'), '')) LIKE ?"
+               " OR lower(cs.title) LIKE ?))")
+        return sql, [key, key, key]
+
     def topics(self, session_ids: list[int]) -> dict[int, str]:
         """대화별 주제 이름. 근거가 없는 대화는 빠진다."""
         if not session_ids:

@@ -141,3 +141,47 @@ def test_chat_history_search_matches_topic(tmp_path):
     got = c.get("/api/chat/sessions", params={"q": "특성화"}).json()["sessions"]
     assert [s["id"] for s in got] == [sid]
     assert got[0]["topic"] == "2026 지방대학 특성화 선도대학 육성사업"
+
+
+def _history_client(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from tests.test_app import FakeDrafter, FakeProcessor, FakeResponder
+    from zzaimy.app.main import create_app
+
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "in", processor=FakeProcessor(),
+                     drafter=FakeDrafter(), responder=FakeResponder())
+    return TestClient(app), app.state.db
+
+
+def test_topic_search_pages_through_all_matches(tmp_path):
+    """주제 검색도 한 결과집합에서 걸러야 다음 쪽이 빠지지 않는다 (Codex C-20260920-21)."""
+    from zzaimy.app.chat_topics import ChatTopics
+
+    c, db = _history_client(tmp_path)
+    topics = ChatTopics(tmp_path / "t.db")
+    for i in range(35):
+        sid = db.create_chat_session(f"대화 {i}")
+        db.add_chat(sid, "assistant", "답변")
+        topics.record(sid, [{"doc_id": None, "title": "합성주제검수 규정"}])
+    first = c.get("/api/chat/sessions", params={"q": "합성주제검수"}).json()
+    assert len(first["sessions"]) == 30 and first["has_more"] is True
+    second = c.get("/api/chat/sessions", params={"q": "합성주제검수", "offset": 30}).json()
+    assert len(second["sessions"]) == 5 and second["has_more"] is False
+    ids = {s["id"] for s in first["sessions"]} | {s["id"] for s in second["sessions"]}
+    assert len(ids) == 35
+
+
+def test_deleting_a_chat_removes_its_evidence_rows(tmp_path):
+    """대화를 지우면 근거 기록도 같이 지운다 (Codex C-20260920-21)."""
+    import sqlite3
+
+    from zzaimy.app.chat_topics import ChatTopics
+
+    c, db = _history_client(tmp_path)
+    sid = db.create_chat_session("지울 대화")
+    db.add_chat(sid, "assistant", "답변")
+    ChatTopics(tmp_path / "t.db").record(sid, [{"doc_id": None, "title": "근거 규정"}])
+    assert c.delete(f"/api/chat/sessions/{sid}").status_code == 200
+    with sqlite3.connect(tmp_path / "t.db") as conn:
+        assert conn.execute("SELECT COUNT(*) FROM chat_sources WHERE session_id=?", (sid,)).fetchone()[0] == 0

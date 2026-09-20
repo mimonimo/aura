@@ -22,18 +22,27 @@ class ChatHistory:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def sessions(self, owner, query='', archived=False, offset=0, limit=30):
+    def sessions(self, owner, query='', archived=False, offset=0, limit=30, topic_match=None):
+        """계정의 대화 목록. topic_match 는 주제(근거 문서의 사업·규정 이름) 검색 조건을 함께 건다.
+
+        주제 조건도 같은 질의 안에서 걸러야 정렬·페이지 나눔이 한 결과집합에 적용된다
+        (예전에는 첫 페이지에서만 합쳐 다음 페이지에서 빠졌다 — Codex C-20260920-21).
+        """
+        topic_sql, topic_args = ('', [])
+        if query and topic_match:
+            topic_sql, topic_args = f' OR ({topic_match[0]})', list(topic_match[1])
         with closing(self.connect()) as conn:
-            rows = conn.execute('''
+            rows = conn.execute(f'''
                 SELECT s.*, p.name AS project_name,
                     COALESCE((SELECT MAX(m.id) FROM chat_messages m WHERE m.session_id=s.id), 0) AS last_message
                 FROM chat_sessions s
                 LEFT JOIN projects p ON p.id=s.project_id
                 LEFT JOIN chat_session_preferences pref ON pref.session_id=s.id
                 WHERE s.owner=? AND COALESCE(pref.archived,0)=?
-                    AND (?='' OR instr(lower(s.title), lower(?))>0 OR instr(lower(COALESCE(p.name,'')), lower(?))>0)
+                    AND (?='' OR instr(lower(s.title), lower(?))>0
+                         OR instr(lower(COALESCE(p.name,'')), lower(?))>0{topic_sql})
                 ORDER BY last_message DESC, s.id DESC LIMIT ? OFFSET ?
-            ''', (owner, int(archived), query, query, query, limit, offset)).fetchall()
+            ''', (owner, int(archived), query, query, query, *topic_args, limit, offset)).fetchall()
         return [dict(row) for row in rows]
 
     def change(self, owner, session_id, title=None, archived=None):
@@ -62,6 +71,8 @@ class ChatHistory:
                 conn.execute('DELETE FROM chat_message_context WHERE message_id IN (SELECT id FROM chat_messages WHERE session_id=?)', (session_id,))
             if 'chat_revisions' in tables:
                 conn.execute('DELETE FROM chat_revisions WHERE session_id=?', (session_id,))
+            if 'chat_sources' in tables:      # 대화의 근거 기록(chat_topics.py)도 같은 트랜잭션에서
+                conn.execute('DELETE FROM chat_sources WHERE session_id=?', (session_id,))
             conn.execute('DELETE FROM chat_messages WHERE session_id=?', (session_id,))
             conn.execute('DELETE FROM chat_session_preferences WHERE session_id=?', (session_id,))
             conn.execute('DELETE FROM chat_sessions WHERE id=?', (session_id,))
@@ -75,16 +86,10 @@ def install_routes(app, history):
 
     @app.get('/api/chat/sessions')
     def sessions(request: Request, q: str='', archived: bool=False, offset: int=0):
-        rows = history.sessions(request.state.user, q[:200], archived, max(0,offset), 31)
         topics = getattr(history, 'topics', None)
-        if topics is not None and q.strip() and offset == 0:
-            # 사업 이름으로도 찾는다 — 제목에 사업 이름이 없어도 근거 문서의 사업이 맞으면 나온다
-            pool = history.sessions(request.state.user, '', archived, 0, 500)
-            names = topics.topics([r['id'] for r in pool])
-            have = {r['id'] for r in rows}
-            key = q.strip().lower()
-            rows += [r for r in pool if r['id'] not in have and key in (names.get(r['id']) or '').lower()]
-            rows = rows[:31]
+        # 사업 이름으로도 찾는다 — 제목에 없어도 근거 문서의 사업이 맞으면 나온다(한 질의 안에서)
+        match = topics.match_clause(q[:200]) if (topics is not None and q.strip()) else None
+        rows = history.sessions(request.state.user, q[:200], archived, max(0,offset), 31, match)
         if topics is not None:  # 근거 문서에서 정한 대화 주제(chat_topics.py)
             names = topics.topics([r['id'] for r in rows])
             for r in rows:
