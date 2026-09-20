@@ -340,7 +340,12 @@ class Database:
             if not (4 <= len(line) <= 40) or line in name:
                 continue
             if any(k in line for k in ("학과", "계열", "전공", "과정", "대상", "유형", "차수")):
-                merged = f"{name} · {line}"
+                # 표에서 온 줄이면 이름 칸이 아니라 값 칸을 쓴다('학과(계열) | 건축학과' → '건축학과')
+                cells = [c.strip() for c in line.split("|") if c.strip()]
+                qualifier = cells[-1] if len(cells) > 1 else line
+                if len(qualifier) < 2 or qualifier in name:
+                    continue
+                merged = f"{name} · {qualifier}"
                 if merged not in taken:
                     return merged
                 break
