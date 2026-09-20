@@ -118,6 +118,35 @@ class Responder(Protocol):
     ) -> str: ...
 
 
+_live_models_cache: dict = {}
+_LIVE_TTL = 120.0
+
+
+def _live_models_cached(cid: str, ttl: float = _LIVE_TTL) -> dict:
+    """연결이 지금 내어 주는 모델 목록 — 화면에서 고르라고 보여 준다.
+
+    연결에 저장된 모델 하나만 보여 주면 서버에 새로 올린 모델이 화면에 뜨지 않는다
+    (실측 2026-09-20: DGX 에 27B 를 받았는데 목록에 없었다). 페이지마다 물으면 느리므로
+    짧게 캐시하고, 용도를 바꾸거나 연결을 고치면 캐시를 비운다.
+    """
+    import time as _t
+
+    from zzaimy.generate import llm_connections
+
+    hit = _live_models_cache.get(cid)
+    if hit and _t.time() - hit[0] < ttl:
+        return hit[1]
+    conn = llm_connections.get(cid)
+    if conn is None:
+        return {"ok": False, "models": [], "error": "없는 연결"}
+    try:
+        got = llm_connections.live_models(conn, timeout=4.0)
+    except Exception as e:                      # 서버가 없거나 느려도 화면은 떠야 한다
+        got = {"ok": False, "models": [], "error": f"{type(e).__name__}"}
+    _live_models_cache[cid] = (_t.time(), got)
+    return got
+
+
 def create_app(
     db_path: Path,
     inbox_dir: Path,
@@ -1147,6 +1176,68 @@ def create_app(
             "n_chunks": len(chunks),
             "text": "\n\n".join(parts),
         }
+
+    @app.get("/search", response_class=HTMLResponse)
+    def search_all(request: Request, q: str = ""):
+        """한 곳에서 찾기 — 문서·대화·근거 조각. 상단 검색창이 여기로 온다.
+
+        대화는 제목·프로젝트·사업(주제)뿐 아니라 주고받은 글에서도 찾는다. 근거 조각은
+        어휘 검색(Kiwi 명사 겹침)만 쓴다 — 검색창 한 번에 모델을 부르지 않기 위해서다.
+        """
+        import sqlite3 as _sq
+
+        term = (q or "").strip()[:200]
+        docs, chats, chunks, docs_more = [], [], [], False
+        if term:
+            owner = getattr(request.state, "user", "zzaimy")
+            found = db.list_documents(q=term)
+            seen = {d["id"] for d in found}
+            with _sq.connect(db_path) as conn:      # 이름뿐 아니라 본문에서도 찾는다
+                conn.row_factory = _sq.Row
+                for r in conn.execute(
+                    "SELECT * FROM documents WHERE instr(lower(COALESCE(masked_text,'')), lower(?)) > 0"
+                    " ORDER BY id DESC LIMIT 20", (term,)):
+                    if r["id"] not in seen:
+                        found.append(dict(r))
+                        seen.add(r["id"])
+            docs_more = len(found) > 10
+            for d in found[:10]:
+                body = (d.get("masked_text") or "")
+                i = body.lower().find(term.lower())
+                docs.append(dict(d, snippet=(" ".join(body[max(0, i - 40):i + 80].split())
+                                             if i >= 0 else "")))
+            rows = chat_history.sessions(owner, term, False, 0, 10,
+                                         chat_topics.match_clause(term), 'all')
+            names = chat_topics.topics([r["id"] for r in rows])
+            with _sq.connect(db_path) as conn:
+                conn.row_factory = _sq.Row
+                for r in rows:
+                    hit = conn.execute(
+                        "SELECT content FROM chat_messages WHERE session_id = ?"
+                        " AND instr(lower(content), lower(?)) > 0 ORDER BY id LIMIT 1",
+                        (r["id"], term)).fetchone()
+                    snip = ""
+                    if hit:
+                        body = hit["content"]
+                        i = body.lower().find(term.lower())
+                        snip = " ".join(body[max(0, i - 40):i + 80].split())
+                    chats.append(dict(r, topic=names.get(r["id"]), snippet=snip))
+            try:
+                from zzaimy.app.regulations import sparse_search
+
+                for h in sparse_search(db, term, top_k=8):
+                    body = h.get("content") or ""
+                    i = body.lower().find(term.lower())
+                    chunks.append({
+                        "doc_id": h.get("doc_id"), "reg_title": h.get("reg_title") or "문서",
+                        "heading": h.get("heading") or "",
+                        "snippet": " ".join((body[max(0, i - 40):i + 120] if i >= 0 else body[:120]).split()),
+                    })
+            except Exception:
+                chunks = []
+        return templates.TemplateResponse(request, "search.html", ctx(request, {
+            "q": term, "docs": docs, "docs_more": docs_more, "chats": chats, "chunks": chunks,
+        }))
 
     @app.get("/criteria", response_class=HTMLResponse)
     def criteria(request: Request):
@@ -2709,6 +2800,7 @@ def create_app(
 
     @app.get("/dev/train", response_class=HTMLResponse)
     def dev_train(request: Request, err: str = "", ok: str = ""):
+        # 연결마다 서버가 지금 내어 주는 모델 목록 — 저장된 값이 아니라 실시간(짧게 캐시)
         # Label Studio 는 실제 연결 여부(connected)로 표시 — 주소만 있다고 연결됨이 아니다.
         # 도구 계정·주소(LS 아이디·비밀번호 재설정, GPU 도구 주소)도 이 화면의 도구 카드에서 다룬다.
         from zzaimy.dataset import ls_admin
@@ -2765,7 +2857,9 @@ def create_app(
             "ls_admin_available": ls_admin.available(),
             "llm_url": llm_url,
             "llm": llm, "llm_probe": llm_probe,
-            "connections": [dict(c, usage=model_config.usage_today(c["id"])) for c in llm_connections.list_public()],
+            "connections": [dict(c, usage=model_config.usage_today(c["id"]),
+                                 live=_live_models_cached(c["id"]))
+                            for c in llm_connections.list_public()],
             "llm_kinds": llm_connections.KINDS,
             "usage_all": model_config.usage_today(),
             "datasets": datasets,
@@ -2821,6 +2915,7 @@ def create_app(
             conn = llm_connections.add(name, kind, base_url, model, api_key, vision_model=vision_model)
         except ValueError as e:
             return _llm_redirect(str(e), ok=False)
+        _live_models_cache.clear()
         model_config.reset_status_cache()
         return _llm_redirect(f"연결 「{conn['name']}」을 추가했습니다")
 
@@ -2834,6 +2929,7 @@ def create_app(
                                           vision_model=vision_model)
         except ValueError as e:
             return _llm_redirect(str(e), ok=False)
+        _live_models_cache.clear()
         model_config.reset_status_cache()
         return _llm_redirect(f"연결 「{conn['name']}」을 저장했습니다")
 
@@ -2842,6 +2938,7 @@ def create_app(
         from zzaimy.generate import llm_connections, model_config
 
         llm_connections.delete(cid)
+        _live_models_cache.clear()
         model_config.reset_status_cache()
         return _llm_redirect("연결을 삭제했습니다")
 
@@ -2882,22 +2979,24 @@ def create_app(
         return _llm_redirect("기본 연결을 해제했습니다 — 환경변수 설정을 씁니다")
 
     @app.post("/dev/llm/role")
-    def dev_llm_role(role: str = Form(...), cid: str = Form("")):
-        """역할을 맡을 연결을 정한다 — 답변 생성·임베딩·학습을 다른 장비에 둘 수 있다."""
+    def dev_llm_role(role: str = Form(...), cid: str = Form(""), model: str = Form("")):
+        """용도마다 쓸 서버와 모델을 정한다 — 문서 작업·이미지 판독·임베딩·학습."""
         from zzaimy.generate import llm_connections, model_config
 
         try:
-            llm_connections.set_role(role, cid.strip())
+            llm_connections.set_role(role, cid.strip(), model.strip())
         except ValueError as e:
             return _llm_redirect(str(e), ok=False)
         model_config.reset_status_cache()
+        _live_models_cache.clear()
         label = llm_connections.ROLES.get(role, role)
         if not cid.strip():
-            return _llm_redirect(f"「{label}」 역할을 비웠습니다 — 기본 연결을 씁니다")
+            return _llm_redirect(f"「{label}」은(는) 문서 작업 기본 서버를 씁니다")
         conn = llm_connections.get(cid.strip()) or {}
+        picked = f" · 모델 {model.strip()}" if model.strip() else ""
         tail = (" 임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다."
                 if role == "embed" else "")
-        return _llm_redirect(f"「{label}」 역할을 「{conn.get('name', '')}」에 맡겼습니다.{tail}")
+        return _llm_redirect(f"「{label}」은(는) 「{conn.get('name', '')}」{picked} 로 정했습니다.{tail}")
 
     @app.post("/dev/llm/{cid}/catalog")
     def dev_llm_catalog(cid: str):

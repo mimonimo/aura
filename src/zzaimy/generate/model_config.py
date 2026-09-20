@@ -22,10 +22,11 @@ def set_override(base_url: str = "", model: str = "") -> None:
         _override["model"] = model.strip()
 
 
-def current() -> dict:
+def current(role: str = "") -> dict:
+    """지금 쓸 서버·모델. role 을 주면 그 용도로 지정한 것(없으면 문서 작업 기본)을 쓴다."""
     from zzaimy.generate import llm_connections
 
-    conn = llm_connections.active()
+    conn = llm_connections.role_conn(role) if role else llm_connections.active()
     if conn:  # 등록된 기본 연결이 최우선 — 내부 vLLM 이든 외부 API 든 같은 경로로 쓴다
         return {
             "base_url": conn["base_url"],

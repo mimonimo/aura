@@ -101,51 +101,65 @@ def get(cid: str) -> dict | None:
     return None
 
 
+# 용도 — 화면에서 용도마다 서버와 모델을 함께 고른다. 비워 두면 문서 작업 기본 연결을 쓴다.
 ROLES = {
-    "answer": "답변·초안 생성",
-    "embed": "문장 임베딩",
+    "answer": "문서 작업 (채팅·검토·초안)",
+    "vision": "문서 이미지 판독 (스캔·그림)",
+    "embed": "문장 임베딩 (검색 색인)",
     "train": "학습",
 }
 
 
-def set_role(role: str, cid: str) -> dict:
-    """역할을 맡을 연결을 정한다. cid 가 비면 역할을 비운다."""
+def set_role(role: str, cid: str, model: str = "") -> dict:
+    """용도에 쓸 서버와 모델을 정한다. cid 가 비면 그 용도를 문서 작업 기본 연결에 맡긴다."""
     if role not in ROLES:
         raise ValueError(f"알 수 없는 역할입니다: {role}")
     data = _load()
     if cid:
         if get(cid) is None:
             raise ValueError("없는 연결입니다")
-        data["roles"][role] = cid
+        data["roles"][role] = {"id": cid, "model": (model or "").strip()}
     else:
         data["roles"].pop(role, None)
     _save(data)
     return data["roles"]
 
 
+def _role_entry(data: dict, role: str) -> tuple[str, str]:
+    """저장된 값 → (연결 id, 모델). 예전 형식(문자열 id)도 읽는다."""
+    raw = (data.get("roles") or {}).get(role) or ""
+    if isinstance(raw, dict):
+        return raw.get("id", ""), (raw.get("model") or "").strip()
+    return str(raw), ""
+
+
 def role_conn(role: str) -> dict | None:
-    """그 역할을 맡은 연결. 없으면 기본 연결로 물러난다."""
+    """그 용도에 쓸 연결. 용도에 모델을 따로 정해 뒀으면 그 모델로 바꿔 돌려준다.
+
+    용도를 지정하지 않았으면 문서 작업 기본 연결을 쓴다.
+    """
     data = _load()
-    cid = (data.get("roles") or {}).get(role, "")
+    cid, model = _role_entry(data, role)
     conn = get(cid) if cid else None
-    if conn is not None:
+    if conn is None:
+        conn = get(data["active"]) if data["active"] else None
         return conn
-    return get(data["active"]) if data["active"] else None
+    return dict(conn, model=model) if model else conn
 
 
 def roles_public() -> list[dict]:
     """화면용 — 역할마다 어느 연결이 맡고 있는지."""
     data = _load()
-    assigned = data.get("roles") or {}
     out = []
     for role, label in ROLES.items():
-        cid = assigned.get(role, "")
+        cid, model = _role_entry(data, role)
         conn = get(cid) if cid else None
         out.append({
             "role": role, "label": label,
             "id": cid if conn else "",
             "name": conn["name"] if conn else "",
             "base_url": conn["base_url"] if conn else "",
+            "model": model or (conn.get("model") if conn else ""),
             "fallback": conn is None,
         })
     return out

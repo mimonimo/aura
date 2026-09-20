@@ -62,6 +62,8 @@ main:has(#chatWorkspace) { flex:none; min-height:0; height:calc(100dvh - var(--w
 .chat-main .starter button { text-align:left; justify-content:flex-start; border-radius:10px; min-height:62px; padding:14px; line-height:1.5; }
 :is(#chatWorkspace,#chatAside) :is(button,a,textarea,input):focus-visible { outline:2px solid #607C9E; outline-offset:3px; }
 #chatForm textarea:focus-visible { outline:none; }
+#chatScroll:focus { outline:none; }
+#chatScroll:focus-visible { outline:1px solid #b7c4d4; outline-offset:-2px; border-radius:8px; }
 @media (max-width:600px) {
   #chatWorkspace { padding:14px 12px 12px; gap:12px; }
   .chat-workspace-head h1 { font-size:16px; }

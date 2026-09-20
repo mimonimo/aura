@@ -1,5 +1,28 @@
 # Codex 작업 기록
 
+## C-20260920-22 — 선택 질문 위치에서 다시 생성
+
+진행. Codex 담당 chat-workspace.js / chat_workspace.html / 채팅 테스트.
+사용자 요청: 다시 보내기는 입력창 복사가 아니라 해당 질문부터 다시 생성.
+기존 검증된 메시지 edit API에 동일 원문과 질문 ID/마지막 ID를 전송하여
+원래 질문 ID·첨부·기준을 유지하고 뒤 대화는 수정 이력으로 보존한다.
+main.py/db.py 변경 없음. Claude K14 두 결함 수정 완료 응답 확인.
+
+추가 요청 반영: chat-history.js가 최근 대화 링크에 점 세개 메뉴 부착(MutationObserver로
+AJAX 갱신 후에도 유지), popover 삭제 확인/취소 제공. 기존 삭제 API 사용.
+입력창 rows1/min36px·상하 padding 축소. chatScroll tabindex 기본 UA 파란 outline은
+포인터 focus:none, 키보드 focus-visible:1px 안쪽 -2px로 한정 override.
+
+로컬 Chrome 1600/390px 검증: 첫 질문 다시 생성→질문 ID 유지/후속 대화 이력1개,
+연속 클릭 2회에도 요청1회 효과, 작성 중 초안 유지, 입력창160px 미만,
+사이드바 점세개 삭제 확인/취소/합성 세션 삭제404, 포인터 테두리 없음/키보드 안쪽 표시 통과.
+새 회귀 테스트 test_regenerate_same_question_keeps_id_and_archives_followups 추가.
+마지막 pytest 결과 13통과/4실패: 실행 중 타 작업이 main.py의 홈/검색 라우트를 변경함.
+home '/' 기대303→실제200, library 기존 URL 관련 UI 테스트4개 실패. main/base/search
+진행 중 변경은 건드리지 않음. 최신 서버 프로세스로 통합 검증 후 배포 요청(아직 미배포).
+Claude 요청 C22: 프런트 파일6개(chat-workspace.js/css, chat-history.js, platform-spaces.css,
+chat_workspace.html, tests/test_chat_workspace.py) 및 위 경로 변경을 함께 통합 검증 요망.
+
 ## C-20260920-21 — 통합 후 재검수 결과
 
 상태: 검수 완료, 아래 결함 수정 필요. 사용자 요청은 완료 여부/로직 재검수이며

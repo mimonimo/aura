@@ -225,24 +225,47 @@
       });
     } catch (_) { content.textContent = '이력을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.'; }
   });
-  scroller.addEventListener('click', event => {
+  scroller.addEventListener('click', async event => {
     const button = event.target.closest('[data-edit-question],[data-resend-question]');
     if (!button) return;
     if (button.hasAttribute('data-edit-question')) { editQuestion(button); return; }
-    if (sending) { notify('전송이 끝난 뒤 질문을 수정해 주세요.'); return; }
-    if (input.value.trim() && !confirm('작성 중인 질문을 이전 질문으로 바꿀까요? 취소 버튼으로 되돌릴 수 있습니다.')) return;
-    if (previousInput === null) previousInput = input.value;
-    let question = button.dataset.editQuestion ?? button.dataset.resendQuestion;
-    mustAttach = question.startsWith('[첨부]') && question.includes('\n');
-    if (mustAttach) question = question.substring(question.indexOf('\n') + 1);
-    input.value = question;
-    document.getElementById('chatEditText').textContent = mustAttach
-      ? '첨부 파일을 다시 선택하고 보내세요. 이전 대화는 유지됩니다.'
-      : '질문을 확인한 뒤 보내세요. 이전 대화는 유지됩니다.';
-    editNote.hidden = false;
-    hint.hidden = true;
-    paint(); resize(); input.focus();
-    input.setSelectionRange(input.value.length, input.value.length);
+    if (sending || waiting) { notify('답변 작성이 끝난 뒤 다시 생성해 주세요.'); return; }
+    if (editor) { notify('수정 중인 질문을 저장하거나 취소해 주세요.'); editor.querySelector('textarea').focus(); return; }
+    const original = button.dataset.resendQuestion;
+    const messageId = button.dataset.resendId;
+    const turns = scroller.querySelectorAll('[data-message-id]');
+    if (!messageId || !turns.length) return;
+    const question = original.startsWith('[첨부]') && original.includes('\n')
+      ? original.substring(original.indexOf('\n') + 1) : original;
+    const payload = new FormData();
+    payload.set('question', question);
+    payload.set('expected_content', original);
+    payload.set('expected_tail_id', turns[turns.length - 1].dataset.messageId);
+    sending = true; paint(); button.disabled = true;
+    status.textContent = '선택한 질문부터 답변을 다시 생성합니다…';
+    let saved = false;
+    try {
+      const response = await fetch('/chat/' + root.dataset.session + '/messages/' + messageId + '/edit', {method:'POST', body:payload});
+      if (!response.ok || response.redirected) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(typeof result.detail === 'string' ? result.detail : '다시 생성하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+      saved = true;
+      const page = await fetch('/chat/' + root.dataset.session, {cache:'no-store'});
+      if (!page.ok || page.redirected) throw new Error();
+      installPage(await page.text(), page.url);
+      const selected = scroller.querySelector('[data-message-id="' + messageId + '"]');
+      selected?.scrollIntoView({block:'nearest'});
+      selected?.querySelector('[data-resend-question]')?.focus({preventScroll:true});
+      notify('이 질문부터 다시 생성했습니다. 이전 답변과 이후 대화는 수정 이력에서 볼 수 있습니다.');
+    } catch (error) {
+      notify(saved ? '재생성 요청은 저장되었습니다. 새로고침하여 답변을 확인해 주세요.'
+        : (error.message === 'Failed to fetch' ? '연결을 확인해 주세요. 입력 중인 내용은 유지됩니다.' : error.message));
+      status.textContent = '재생성 상태를 확인해 주세요.';
+    } finally {
+      sending = false; button.disabled = false; paint();
+      if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
+    }
   });
   document.getElementById('chatEditCancel').addEventListener('click', () => {
     input.value = previousInput ?? '';

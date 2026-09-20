@@ -177,14 +177,14 @@
           <iconify-icon icon="solar:copy-linear"></iconify-icon></button>
         {% if loop.last and session_id and not waiting %}
         {% set user_turns = messages | selectattr('role', 'equalto', 'user') | list %}
-        {% if user_turns %}<button type="button" class="act-btn" data-resend-question="{{ user_turns[-1].content }}" title="다시 시도 · 질문 확인 후 보내기" aria-label="다시 시도"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>{% endif %}
+        {% if user_turns %}<button type="button" class="act-btn" data-resend-question="{{ user_turns[-1].content }}" data-resend-id="{{ user_turns[-1].id }}" title="이 질문부터 답변 다시 생성 · 이후 대화는 이력에 보관" aria-label="답변 다시 생성"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>{% endif %}
         {% endif %}
       </div>
       {% endif %}
       {% if m.role == 'user' %}
       <div class="turn-acts always">
         <button type="button" class="act-btn" data-edit-question="{{ m.content }}" title="이 질문 수정" aria-label="이 질문 수정"><iconify-icon icon="solar:pen-linear"></iconify-icon></button>
-        <button type="button" class="act-btn" data-resend-question="{{ m.content }}" title="다시 보내기 · 질문 확인 후 보내기" aria-label="다시 보내기"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>
+        <button type="button" class="act-btn" data-resend-question="{{ m.content }}" data-resend-id="{{ m.id }}" title="이 질문부터 답변 다시 생성 · 이후 대화는 이력에 보관" aria-label="이 질문부터 다시 생성"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>
       </div>
       {% endif %}
     </div>
@@ -204,7 +204,7 @@
     <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md">
     <input type="hidden" name="external" id="extField" value="">
     <button type="button" class="dock-btn" id="attachButton" title="검토할 문서 첨부" aria-label="검토할 문서 첨부"><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
-    <textarea name="question" id="chatInput" rows="2" placeholder="질문이나 수정할 내용을 입력하세요"
+    <textarea name="question" id="chatInput" rows="1" placeholder="질문이나 수정할 내용을 입력하세요"
               aria-label="질문 또는 수정 요청" aria-describedby="chatKeyboardHint" autofocus autocomplete="off"></textarea>
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
       <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>

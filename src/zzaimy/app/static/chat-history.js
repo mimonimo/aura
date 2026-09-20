@@ -1,10 +1,56 @@
 (() => {
+  const sidebarList = document.getElementById('chatSessionList');
+  function addSessionMenus() {
+    sidebarList?.querySelectorAll(':scope > a[href^="/chat/"]').forEach(link => {
+      const id = link.getAttribute('href').split('/').pop();
+      if (!/^\d+$/.test(id)) return;
+      const row = document.createElement('div'); row.className = 'side-session-row';
+      link.before(row); row.append(link);
+      const menu = document.createElement('button'); menu.type = 'button'; menu.className = 'side-session-menu';
+      menu.textContent = '⋯'; menu.setAttribute('aria-label', (link.title || link.textContent) + ' 대화 메뉴');
+      menu.setAttribute('aria-haspopup', 'dialog');
+      menu.onclick = () => {
+        document.querySelector('.session-popover')?.remove();
+        const pop = document.createElement('div'); pop.className = 'session-popover'; pop.setAttribute('popover','auto'); pop.setAttribute('role','dialog'); pop.setAttribute('aria-label','대화 관리');
+        pop.innerHTML = '<button type="button" class="secondary" data-delete>대화 삭제</button>';
+        document.body.append(pop); pop.showPopover();
+        const rect = menu.getBoundingClientRect();
+        pop.style.left = Math.max(8, Math.min(rect.left, innerWidth - pop.offsetWidth - 8)) + 'px';
+        pop.style.top = Math.max(8, Math.min(rect.bottom + 4, innerHeight - pop.offsetHeight - 8)) + 'px';
+        pop.querySelector('button').focus();
+        pop.addEventListener('toggle', e => { if (e.newState === 'closed') {pop.remove(); if(menu.isConnected) menu.focus();} });
+        pop.querySelector('[data-delete]').onclick = () => {
+          pop.innerHTML = '<p class="session-delete-title"></p><p>이 대화와 수정 이력을 삭제할까요? 복구할 수 없습니다. 프로젝트와 등록 문서, 첨부 원본 파일은 유지됩니다.</p><div><button type="button" class="secondary" data-cancel>취소</button><button type="button" data-confirm>삭제</button></div><p role="alert"></p>';
+          pop.querySelector('.session-delete-title').textContent = link.title || link.textContent;
+          pop.style.top = Math.max(8, Math.min(rect.bottom + 4, innerHeight - pop.offsetHeight - 8)) + 'px';
+          pop.querySelector('[data-cancel]').onclick = () => pop.hidePopover();
+          pop.querySelector('[data-cancel]').focus();
+          pop.querySelector('[data-confirm]').onclick = async () => {
+            pop.querySelectorAll('button').forEach(b => b.disabled = true);
+            try {
+              const response = await fetch('/api/chat/sessions/' + id, {method:'DELETE'});
+              if (!response.ok || response.redirected) throw new Error(response.status === 409 ? '답변이 끝난 뒤 삭제해 주세요.' : '삭제하지 못했습니다. 다시 시도해 주세요.');
+              try { if(sessionStorage.getItem('agentSession') === id) sessionStorage.removeItem('agentSession'); sessionStorage.removeItem('chatCriteria:' + id); } catch (_) {}
+              document.dispatchEvent(new CustomEvent('chat-session-deleted', {detail:{id}}));
+              if(location.pathname === '/chat/' + id) { location.replace('/chat'); return; }
+              document.querySelectorAll('a[href="/chat/' + id + '"]').forEach(a => a.remove());
+              row.remove(); pop.hidePopover();
+              document.querySelector('[data-chat-history]')?.focus();
+              document.dispatchEvent(new CustomEvent('chat-history-changed'));
+            } catch (error) { pop.querySelector('[role=alert]').textContent = error.message; pop.querySelectorAll('button').forEach(b => b.disabled = false); }
+          };
+        };
+      };
+      row.append(menu);
+    });
+  }
+  if (sidebarList) { addSessionMenus(); new MutationObserver(addSessionMenus).observe(sidebarList, {childList:true}); }
   document.addEventListener('click', event => {
     if (!event.target.closest('[data-chat-history]')) return;
     if (document.querySelector('.session-manager')) return;
     const dialog = document.createElement('dialog');
     dialog.className = 'session-manager';
-    dialog.innerHTML = '<header><h2>대화 기록</h2><button type="button" class="secondary" data-close>닫기</button></header><p class="muted">작은 챗봇과 전체 화면의 대화가 함께 저장됩니다.</p><form class="session-search"><input type="search" aria-label="대화 이름 또는 프로젝트 검색" placeholder="대화 이름·프로젝트 검색"><select aria-label="기록 구분"><option value="0">진행 중인 대화</option><option value="1">보관한 대화</option></select><button type="submit" class="secondary">검색</button></form><p role="status"></p><div class="session-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button>';
+    dialog.innerHTML = '<header><h2>대화 기록</h2><button type="button" class="secondary" data-close>닫기</button></header><p class="muted">작은 챗봇과 전체 화면의 대화가 함께 저장됩니다.</p><form class="session-search"><input type="search" aria-label="대화 이름 또는 프로젝트 검색" placeholder="대화 이름·프로젝트·사업 검색"><select aria-label="기록 구분"><option value="0">진행 중인 대화</option><option value="1">보관한 대화</option></select><select aria-label="찾을 범위" data-scope><option value="title">이름·프로젝트·사업</option><option value="all">대화 내용까지</option></select><button type="submit" class="secondary">검색</button></form><p role="status"></p><div class="session-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button>';
     document.body.appendChild(dialog); dialog.showModal();
     dialog.querySelector('[data-close]').onclick = () => dialog.close();
     dialog.addEventListener('close', () => { token++; controller?.abort(); dialog.remove(); });
@@ -18,7 +64,7 @@
       more.disabled = true; status.textContent = '불러오는 중…';
       const archived = form.querySelector('select').value === '1';
       try {
-        const query = new URLSearchParams({q:form.querySelector('input').value, archived:String(archived), offset:String(offset)});
+        const query = new URLSearchParams({q:form.querySelector('input').value, archived:String(archived), offset:String(offset), scope:(form.querySelector('[data-scope]')?.value || 'title')});
         const response = await fetch('/api/chat/sessions?' + query, {cache:'no-store', signal:controller.signal});
         if (!response.ok || response.redirected) throw new Error(response.status === 404 ? '대화 기록 기능이 아직 서버에 반영되지 않았습니다. 왼쪽 최근 기록에서 대화를 열어 주세요.' : '기록을 불러오지 못했습니다. 검색을 눌러 다시 시도하세요.');
         const data = await response.json(); if (current !== token) return;
