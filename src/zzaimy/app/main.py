@@ -3023,11 +3023,15 @@ def create_app(
 
         form = await request.form()
         roles = form.getlist("role")
-        cids = form.getlist("cid")
-        models = form.getlist("model")
-        if not roles or not (len(roles) == len(cids) == len(models)):
+        # 화면에서 고르는 것은 '어느 서버의 어느 모델' 하나다 — "연결id|모델" 로 온다.
+        # 빈 값이면 그 단계는 기본 서버를 따른다.
+        raw = form.getlist("pick")
+        if not roles or len(roles) != len(raw):
             return _llm_redirect("보낸 값이 맞지 않습니다", ok=False)
-        picks = {r: (c.strip(), m.strip()) for r, c, m in zip(roles, cids, models)}
+        picks = {}
+        for role, value in zip(roles, raw):
+            cid, _, model = str(value).partition("|")
+            picks[role] = (cid.strip(), model.strip())
         before = {r["role"]: (r["id"], r["model"]) for r in llm_connections.roles_public()}
         try:
             llm_connections.set_roles(picks)
