@@ -102,11 +102,17 @@ def main() -> int:
         else:
             print("격차로도 갈리지 않습니다 — 지금 규칙을 그대로 두고 이유를 기록하십시오.")
         return 0
-    floor = (max(meta) + p05) / 2
-    print(f"권하는 하한(RERANK_MIN) {floor:.3f} — 정답 질의 약함 0건, 무관 질의 {len(meta)}건 모두 걸러짐")
-    if vague:
-        over = [q for q, (s_, _) in vague if s_ >= floor]
-        print(f"애매한 질의 {len(vague)}건 중 하한을 넘는 것 {len(over)}건: {', '.join(over) or '없음'}")
+    # 후보 하한마다 양쪽 오판을 센다 — '정답을 약함으로 찍는 수'와 '무관을 통과시키는 수'.
+    cands = sorted({round(max(meta) + 0.005, 3), round((max(meta) + p05) / 2, 3), round(p05, 3)})
+    print("하한 후보별 오판:")
+    for f in cands:
+        false_weak = sum(1 for s_ in good if s_ < f)
+        leaked = sum(1 for s_ in meta if s_ >= f)
+        over = [q for q, (s_, _) in vague if s_ >= f]
+        print(f"  {f:.3f} → 정답을 약함으로 {false_weak}/{len(good)}건"
+              f" · 무관 통과 {leaked}/{len(meta)}건"
+              f" · 애매한 질의 통과 {len(over)}/{len(vague)}건 {'(' + ', '.join(over) + ')' if over else ''}")
+    print(f"권하는 하한(RERANK_MIN) {cands[0]:.3f} — 무관을 막는 가장 낮은 값(정답 오판을 최소로)")
     return 0
 
 
