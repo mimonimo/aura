@@ -4,7 +4,8 @@
 # 왜: VM CPU 로는 조각 3,603개에 한 시간이 넘게 걸린다(2026-09-20 실측). 토르는 서비스 포트를
 # 새로 열지 않고 배치로만 쓴다 — 조각 글을 보내고, 벡터 파일을 받아 온다.
 # 결과 형식(ids·vectors npz, meta json)과 글 구성(제목 표제\n본문 1200자)은 52 와 같다.
-# 질의 임베딩은 지금처럼 VM 이 같은 모델(KURE-v1)로 만든다 — 같은 모델·같은 풀링(CLS+정규화)이라
+# 색인 메타의 모델 이름은 실제 쓴 모델을 적는다(후보 모델로 만들면 그 이름).
+# 질의 임베딩은 서빙 서비스(103)가 같은 모델로 만든다 — 색인과 질의 모델이 다르면 공간이 어긋난다 — 같은 모델·같은 풀링(CLS+정규화)이라
 # 벡터 공간이 같다. 끝에 VM CPU 로 표본을 다시 계산해 코사인 유사도로 대조한다.
 #
 # 준비: 토르 ~/zzaimy/models/KURE-v1 (VM 의 HF 캐시에서 옮긴 사본).
@@ -82,8 +83,8 @@ if [ "$APPLY" = "--apply" ]; then
   echo "[$(date +%T)] 4/4 적용 — 옛 색인은 백업"
   ssh "$VM" "cd ~/zzaimy-capstone && cp data/platform/chunk_embeddings.npz data/platform/backup/chunk_embeddings-$STAMP.npz \
     && mv /tmp/$OUT_NAME data/platform/chunk_embeddings.npz \
-    && .venv/bin/python -c 'import json, numpy as np; d = np.load(\"data/platform/chunk_embeddings.npz\"); \
-json.dump({\"model\": \"nlpai-lab/KURE-v1\", \"n_chunks\": int(len(d[\"ids\"])), \"dim\": int(d[\"vectors\"].shape[1]), \"device\": \"thor-gpu\"}, \
+    && MODEL_NAME='$MODEL' .venv/bin/python -c 'import json, os, numpy as np; d = np.load(\"data/platform/chunk_embeddings.npz\"); \
+json.dump({\"model\": os.environ[\"MODEL_NAME\"].rsplit(\"/\", 1)[-1], \"n_chunks\": int(len(d[\"ids\"])), \"dim\": int(d[\"vectors\"].shape[1]), \"device\": \"thor-gpu\"}, \
 open(\"data/platform/chunk_embeddings.meta.json\", \"w\"))' \
     && rm -f data/platform/.reindex-needed && systemctl --user restart zzaimy.service && echo 적용·재시작 완료"
 else
