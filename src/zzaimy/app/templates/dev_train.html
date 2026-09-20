@@ -256,8 +256,8 @@
         <div class="use-now">
           {% if srv %}
             <strong>{{ srv.name }}</strong>
-            <span class="use-model">{{ (r.model if own else none) or srv.model or "서버 기본" }}</span>
-            {% if not own %}<span class="pill use-tag">기본</span>{% endif %}
+            <span class="use-model">{{ (r.model if own else none) or srv.model or "자동" }}</span>
+            {% if not own %}<span class="pill use-tag">자동</span>{% endif %}
           {% else %}<span class="muted">지정된 서버가 없습니다</span>{% endif %}
         </div>
         <button type="button" class="btn-ghost use-edit" data-use-open>변경</button>
@@ -271,12 +271,12 @@
         <div class="pick-group">
           <span class="pick-label">서버</span>
           <div class="chips">
-            <button type="button" class="chip{{ ' on' if not r.id else '' }}" data-server="">기본 따름</button>
+            <button type="button" class="chip{{ ' on' if not r.id else '' }}" data-server="">자동</button>
             {% for c in connections %}
             <button type="button" class="chip{{ ' on' if c.id == r.id else '' }}{{ ' off' if not c.live.ok else '' }}"
                     data-server="{{ c.id }}" {{ 'disabled' if not c.live.ok else '' }}>
               {{ c.name }}
-              <span class="chip-n">{% if c.live.ok %}모델 {{ c.live.models | length }}{% else %}응답 없음{% endif %}</span>
+              <span class="chip-n">{% if c.live.ok %}{{ c.live.models | length }}{% else %}응답 없음{% endif %}</span>
             </button>
             {% endfor %}
           </div>
@@ -288,7 +288,7 @@
           <div class="chips chips-models">
             {% for c in connections %}
             <button type="button" class="chip{{ ' on' if c.id == r.id and not r.model else '' }}"
-                    data-server="{{ c.id }}" data-model="" hidden>서버 기본</button>
+                    data-server="{{ c.id }}" data-model="" hidden>자동</button>
             {% if c.live.ok %}{% for m in c.live.models %}
             <button type="button" class="chip{{ ' on' if c.id == r.id and m.id == r.model else '' }}"
                     data-server="{{ c.id }}" data-model="{{ m.id }}" hidden>{{ m.id }}</button>
@@ -340,7 +340,7 @@
       <dt>주소</dt><dd><code>{{ c.base_url }}</code></dd>
       <dt>지금 상태</dt><dd>{% if c.live.ok %}연결됨 · 모델 {{ c.live.models | length }}개{% else %}응답 없음{% if c.live.error %} ({{ c.live.error }}){% endif %}{% endif %}</dd>
       <dt>마지막 확인 기록</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}없음 — ‘연결 확인’을 누르면 남습니다{% endif %}</dd>
-      <dt>기본 모델</dt><dd>{{ c.model or "서버 기본" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</dd>
+      <dt>기본 모델</dt><dd>{{ c.model or "자동" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</dd>
       <dt>올라온 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
       <dt>API 키</dt><dd>{{ c.api_key_masked }}</dd>
       <dt>맡은 단계</dt><dd>{% set mine = llm_roles | selectattr('id', 'equalto', c.id) | list %}{% if mine %}{{ mine | map(attribute='label') | join(', ') }}{% else %}없음{% endif %}</dd>
@@ -353,13 +353,13 @@
         <label class="muted" style="font-size:12px;">기본 모델
           <span style="font-weight:500;">{% if c.live.ok %}(올라온 {{ c.live.models | length }}개){% else %}(응답 없음 — ‘연결 확인’ 뒤 고를 수 있습니다){% endif %}</span>
           <select name="model" style="margin-top:4px;">
-            <option value="">서버 기본</option>
+            <option value="">자동</option>
             {% if c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.id }}</option>{% endfor %}
             {% elif c.model %}<option value="{{ c.model }}" selected>{{ c.model }}</option>{% endif %}
           </select></label>
         <label class="muted" style="font-size:12px;">이미지 판독 모델
           <select name="vision_model" style="margin-top:4px;">
-            <option value="">기본 모델과 같음</option>
+            <option value="">글 모델과 같음</option>
             {% if c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.id }}</option>{% endfor %}
             {% elif c.vision_model %}<option value="{{ c.vision_model }}" selected>{{ c.vision_model }}</option>{% endif %}
           </select></label>
