@@ -47,7 +47,9 @@ def add(path, tag):
             q = (r.get(qt) or '').strip()
             if not q:
                 continue
-            cand = prod.hybrid(q, prod.lexical(q), prod.dense(q))[: rev.TOP_K]
+            # 운영과 같은 후보 수로 뽑는다(CANDIDATE_LIMIT=20). 리랭커가 실제로 보게 되는 목록이어야
+            # 학습 조건이 맞는다 — 예전에는 10 이었다(2026-09-20 후보 확대 반영).
+            cand = prod.hybrid(q, prod.lexical(q), prod.dense(q))[: reg.CANDIDATE_LIMIT]
             if not any(c in golds[i] for c in cand):
                 continue                      # 후보 안에 정답이 없으면 리랭커가 할 일이 없다
             out.append({'q': q, 'set': tag, 'doc_id': doc,
