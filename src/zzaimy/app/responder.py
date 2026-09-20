@@ -175,7 +175,7 @@ class AgentResponder:
             user_content += f"\n\n{context}"
         messages.append({"role": "user", "content": user_content})
 
-        client = VllmClient()
+        client = VllmClient(role="answer")
         resp = client.client.chat.completions.create(
             model=client.model,
             messages=messages,

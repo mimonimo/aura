@@ -19,7 +19,8 @@ PLAN = [
     {"key": "answer", "name": "③ZZAIMY-Writer", "base": "Qwen3.8-27B",
      "role": "문서 작업 — 채팅·검토·초안", "kind": "chat"},
     {"key": "extract", "name": "④ZZAIMY-Extract", "base": "Qwen3-4B",
-     "role": "실적 카드 추출", "kind": "chat"},
+     "role": "실적 카드 추출", "kind": "planned",
+     "note": "추출 경로는 아직 만들지 않았습니다 — 계획 단계"},
     {"key": "vision", "name": "문서 이미지 판독", "base": "비전 모델",
      "role": "스캔·그림에서 글자 읽기", "kind": "chat"},
 ]
@@ -40,6 +41,10 @@ def status(live_models=None) -> list[dict]:
     out = []
     for item in PLAN:
         row = dict(item, model="", where="", ok=False, detail="", matches_plan=False)
+        if item["kind"] == "planned":
+            row.update(model="", where="", ok=False, detail=item.get("note", ""))
+            out.append(row)
+            continue
         if item["kind"] == "service":
             part = serving.get(item["key"], {})
             row.update(model=part.get("model", ""), where=part.get("where", ""),
