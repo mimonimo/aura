@@ -164,65 +164,54 @@
   .use-form label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--muted); min-width:180px; flex:1; }
   .use-actions { display:flex; gap:8px; margin-left:auto; }
   @media (max-width:760px) { .use-row { grid-template-columns:1fr auto; } .use-now { grid-column:1 / -1; } }
-  .role-row select { min-width:0; }
-  @media (max-width:760px) { .role-row { grid-template-columns:1fr 1fr; } .role-row .role-label { grid-column:1 / -1; } }
+  .srv-head { font-size:11.5px; margin:14px 0 4px; }
+  .srv-list { display:flex; flex-direction:column; border-top:1px solid var(--line); }
+  .srv-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .srv-row:last-child { border-bottom:0; }
+  .srv-name { font-size:13px; font-weight:600; }
+  .srv-url { font-size:11.5px; color:var(--muted); overflow-wrap:anywhere; }
+  .srv-n { font-size:11.5px; }
+  .srv-bad { font-size:11.5px; color:var(--red, #C0392B); }
+  .srv-row .icon-btn { margin-left:auto; }
 </style>
+{# LLM 연결 — 서버를 붙이고 관리하는 자리. 어느 단계에 무엇을 쓸지는 다음 카드에서 고른다 #}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:server-square-linear"></iconify-icon>LLM 연결
     {% if llm_probe.ok %}<span class="pill reviewed">연결됨{% if llm.external %} · 외부{% endif %}</span>
     {% elif llm.configured %}<span class="pill processing">{{ llm_probe.error }}</span>
     {% else %}<span class="pill" style="background:#FDF3E7; color:var(--amber);">기본 연결 없음</span>{% endif %}
     {% if usage_all.requests %}<span class="muted" style="font-size:12px; font-weight:500;">오늘 {{ usage_all.requests }}회 · {{ "{:,}".format(usage_all.total) }} 토큰</span>{% endif %}
-    <span style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+    <span style="margin-left:auto;">
       <button type="button" class="secondary" style="padding:6px 12px; font-size:12.5px;" data-modal-open="#llmAdd">
-        <iconify-icon icon="solar:add-circle-linear"></iconify-icon>연결 추가</button></span></h2>
+        <iconify-icon icon="solar:add-circle-linear"></iconify-icon>서버 추가</button></span></h2>
   {% if connections %}
-  <div class="llm-conns">
+  <div class="srv-list">
     {% for c in connections %}
-    <div class="llm-conn">
-      <div class="llm-conn-top">
-        <span class="llm-conn-name">{{ c.name }}</span>
-        <span class="pill type">{{ c.kind_label }}</span>
-        {% if c.check_ok %}<span class="pill reviewed">연결됨</span>
-        {% elif c.checked_at %}<span class="pill processing">확인 실패</span>{% endif %}
-        {% for r in llm_roles %}{% if r.id == c.id %}<span class="pill" style="background:#EEF3FA; color:var(--navy);">{{ r.label.split(' (')[0] }}</span>{% endif %}{% endfor %}
-        {% if c.external_use %}<span class="pill type">외부 참조</span>{% endif %}
-        <span style="margin-left:auto; display:flex; align-items:center; gap:8px;">
-          {% if c.usage.requests %}<span class="muted" style="font-size:12px; font-weight:500;">오늘 {{ c.usage.requests }}회 · {{ "{:,}".format(c.usage.total) }} 토큰</span>{% endif %}
-          <button type="button" class="icon-btn" title="{{ c.name }} 설정" data-modal-open="#llmSet-{{ c.id }}">
-            <iconify-icon icon="solar:settings-linear"></iconify-icon></button>
-        </span>
-      </div>
-      <div class="llm-conn-meta">
-        <span class="k">주소</span><span class="v">{{ c.base_url }}</span>
-        <span class="k">지정 모델</span><span class="v">{{ c.model or "서버 기본" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</span>
-        <span class="k">쓸 수 있는 모델</span><span class="v">{% if c.live.ok %}{{ c.live.models | length }}개
-          <button type="button" class="btn-ghost" style="padding:2px 8px; font-size:11.5px; margin-left:4px;"
-                  data-toggle="#modelList-{{ c.id }}" aria-expanded="false">목록 보기</button>
-          {% else %}{{ c.live.error or "확인 전" }} — ‘연결 확인’을 누르면 다시 물어봅니다{% endif %}</span>
-      </div>
-      {% if c.live.ok %}
-      <div class="model-list" id="modelList-{{ c.id }}" hidden>
-        {% for m in c.live.models %}
-        <div class="model-row"><code>{{ m.id }}</code>
-          {% if m.id == c.model %}<span class="pill reviewed">지정 모델</span>{% endif %}
-          {% if m.id == c.vision_model %}<span class="pill type">이미지 판독</span>{% endif %}
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-      {% if c.checked_at %}<div class="llm-conn-check {{ 'ok' if c.check_ok else 'bad' }}"><iconify-icon icon="solar:{{ 'check-circle' if c.check_ok else 'close-circle' }}-linear"></iconify-icon>{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</div>{% endif %}
+    <div class="srv-row">
+      <span class="srv-name">{{ c.name }}</span>
+      {% if c.check_ok %}<span class="pill reviewed">연결됨</span>
+      {% elif c.checked_at %}<span class="pill processing">확인 실패</span>
+      {% else %}<span class="pill type">확인 전</span>{% endif %}
+      {% if c.active %}<span class="pill use-tag">기본</span>{% endif %}
+      {% if c.external_use %}<span class="pill type">외부 참조</span>{% endif %}
+      <code class="srv-url">{{ c.base_url }}</code>
+      <span class="muted srv-n">{% if c.live.ok %}모델 {{ c.live.models | length }}개{% else %}{{ c.live.error or "확인 전" }}{% endif %}</span>
+      {% if c.checked_at and not c.check_ok %}<span class="srv-bad">{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</span>{% endif %}
+      {% if c.usage.requests %}<span class="muted srv-n">오늘 {{ c.usage.requests }}회</span>{% endif %}
+      <button type="button" class="icon-btn" title="{{ c.name }} 설정" data-modal-open="#llmSet-{{ c.id }}">
+        <iconify-icon icon="solar:settings-linear"></iconify-icon></button>
     </div>
     {% endfor %}
   </div>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">모델 목록·API 키·삭제는 서버별 설정(톱니)에 있습니다.</p>
   {% else %}
-  <p class="muted" style="font-size:12.5px; margin:0;">등록된 연결이 없습니다. ‘연결 추가’로 GPU 서버를 등록하세요.</p>
+  <p class="muted" style="font-size:12.5px; margin:0;">등록된 서버가 없습니다. ‘서버 추가’로 GPU 서버를 등록하세요.</p>
   {% endif %}
 </div></div>
 
-{# 용도별 지정 — 무엇에 무엇이 쓰이고 있는지가 먼저다. 바꿀 때만 고르는 칸이 나온다 #}
+{# 단계별 모델 — 처리 단계마다 어느 서버의 어느 모델을 쓰는지. 지금 값이 먼저, 고르는 칸은 변경할 때만 #}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>지금 쓰는 모델</h2>
+  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>단계별 모델</h2>
   {% if connections %}
   {% set act = connections | selectattr('active') | list | first %}
   <div class="use-list">
@@ -264,9 +253,9 @@
     </div>
     {% endfor %}
   </div>
-  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">모델 목록은 각 서버가 지금 내어 주는 것입니다. 임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다.</p>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다.</p>
   {% else %}
-  <p class="muted" style="font-size:12.5px; margin:0;">연결을 먼저 등록하세요.</p>
+  <p class="muted" style="font-size:12.5px; margin:0;">서버를 먼저 등록하세요.</p>
   {% endif %}
 </div></div>
 

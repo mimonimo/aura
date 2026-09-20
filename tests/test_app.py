@@ -1360,7 +1360,7 @@ def test_llm_connections_manage_and_apply(client, monkeypatch, tmp_path):
     lc.configure(tmp_path / "llm_connections.json"); model_config.set_override("", ""); model_config.reset_status_cache()
     monkeypatch.setattr(model_config, "probe", lambda base_url=None, timeout=3.0: {"ok": True, "models": ["qwen-a"], "error": ""})
     page = client.get("/dev/train").text
-    assert "LLM 연결" in page and 'action="/dev/llm/add"' in page and "등록된 연결이 없습니다" in page
+    assert "LLM 연결" in page and 'action="/dev/llm/add"' in page and "등록된 서버가 없습니다" in page
     # 내부 연결 추가 → 동의 없이 기본 지정
     r = client.post("/dev/llm/add", data={"name": "교내 GPU", "kind": "vllm", "base_url": "http://gpu:8000/v1", "model": "", "api_key": ""}, follow_redirects=False)
     assert "ok=" in r.headers["location"]

@@ -152,3 +152,43 @@ def test_table_heading_never_promotes_prose_or_data_rows():
     assert _heading_of("1 | 1 | IT와소프트웨어 | 컴퓨팅사고\n1 | 2 | 데이터베이스 | C기초") == ""
     assert _heading_of("이 규정은 2022년 5월 26일부터 시행한다. 다만 부칙은 예외로 한다.") == ""
     assert _heading_of("신청 자격은 다음과 같다. 재학생 수 기준을 충족해야 한다.\n구분 | 기준") == ""
+
+
+def test_reranker_asks_serving_box_first_and_falls_back(monkeypatch):
+    """리랭커는 서빙 장비(GPU)에 먼저 묻고, 실패하면 VM 쪽 경로로 물러난다."""
+    import json
+
+    from zzaimy.app import rerank
+
+    chunks = [{"id": 1, "reg_title": "산학협력단 사무분장 규정", "heading": "제3조(업무분장)", "content": "가"},
+              {"id": 2, "reg_title": "학칙", "heading": "제9조", "content": "나"}]
+    sent = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({"scores": [0.2, 0.9]}).encode()
+
+    def fake_open(req, timeout=0):
+        sent["url"] = req.full_url
+        sent["body"] = json.loads(req.data.decode())
+        return _Resp()
+
+    monkeypatch.setenv("ZZAIMY_RERANK_URL", "http://thor:8013/score")
+    monkeypatch.setattr("urllib.request.urlopen", fake_open)
+    got = rerank.rerank_scored("업무분장", chunks)
+    assert [c["id"] for c, _ in got] == [2, 1]              # 점수 순서대로
+    assert sent["body"]["max_length"] == rerank.REMOTE_MAX_LEN
+    assert "산학협력단 사무분장 규정" in sent["body"]["texts"][0]   # 문서 이름까지 보낸다
+
+    def boom(req, timeout=0):
+        raise OSError("연결 거부")
+
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    monkeypatch.setattr(rerank, "_encoder", lambda: None)
+    assert rerank.rerank_scored("업무분장", chunks) is None   # 물러날 곳도 없으면 원래 순서
