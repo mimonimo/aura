@@ -23,6 +23,10 @@
   Jetson AGX Thor, 통합 메모리 122GB. Ollama 0.32.6 을 0.0.0.0:11434 로 열었다(인증 없음, ufw 꺼짐).
   모델: 03 qwen3:30b-a3b-instruct-2507(64 tok/s)·gemma4:e2b, 02 qwen3:4b-instruct-2507(53 tok/s).
   주의: `qwen3:30b-a3b`·`qwen3:4b` 태그는 2507 Thinking 판(항상 생각) — Instruct 태그를 쓸 것.
+  **문맥 크기를 줄인 서빙용 모델을 따로 만들어 쓴다**(2026-09-21). 원본 태그는 문맥이 262K 라
+  호출마다 메모리를 크게 잡고(30B 45GB) 모델이 계속 오르내려 호출이 시간 초과된다. 실측: 같은
+  8천 자 요약이 113초 → **5.2초**. Modelfile 로 만든다(sudo 불필요):
+  `zzaimy-answer`(30B·16K) · `zzaimy-review`(4B·8K, 반입 검토) · `zzaimy-vision`(gemma4·8K, 이미지 판독).
   토르 Ollama 0.32.6 은 qwen3.8 을 못 읽는다(갱신은 sudo). 학습본 서빙은 vLLM 컨테이너
   `ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor`(0.19)로 — `scripts/82`(서빙)·`94`(어댑터 전달)·`95`(자가 점검, 9/20 통과).
   VM→.120 은 첫 구간 장비(10.10.10.13)의 허용 목록 누락으로 막혀 있다가 9/20 사용자가 해소.
