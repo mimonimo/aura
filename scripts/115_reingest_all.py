@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 import time
 from pathlib import Path
@@ -100,7 +101,10 @@ def main() -> int:
     ok = fail = 0
     t0 = time.time()
     for i, (path, doc_type) in enumerate(plan, 1):
-        dest = inbox / f"{path.stem[:60]}{path.suffix.lower()}"
+        # 원본 이름이 URL 이라 앞부분이 모두 같다 — 잘라 쓰면 서로 다른 파일이 같은 이름으로
+        # 덮인다(실측: 113건이 몇 건으로 뭉갰다). 경로 해시를 붙여 고유하게 만든다.
+        tag = hashlib.sha1(str(path).encode()).hexdigest()[:8]
+        dest = inbox / f"{path.stem[:40]}-{tag}{path.suffix.lower()}"
         dest.parent.mkdir(parents=True, exist_ok=True)
         if not dest.exists():
             dest.write_bytes(path.read_bytes())          # 올린 파일은 문서함으로 들어온다
