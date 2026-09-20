@@ -172,7 +172,7 @@ def test_reranker_asks_serving_box_first_and_falls_back(monkeypatch):
             return False
 
         def read(self):
-            return json.dumps({"scores": [0.2, 0.9]}).encode()
+            return json.dumps({"scores": [-8.4, 3.1]}).encode()   # 서비스는 원시 로짓을 준다
 
     def fake_open(req, timeout=0):
         sent["url"] = req.full_url
@@ -183,6 +183,10 @@ def test_reranker_asks_serving_box_first_and_falls_back(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_open)
     got = rerank.rerank_scored("업무분장", chunks)
     assert [c["id"] for c, _ in got] == [2, 1]              # 점수 순서대로
+    # 눈금은 0~1 — 하한(RERANK_MIN)·꼬리 자르기가 이 눈금을 전제한다
+    assert all(0.0 <= sc <= 1.0 for _, sc in got)
+    kept, weak = rerank.prune_scored(got)
+    assert len(kept) >= 1 and not weak
     assert sent["body"]["max_length"] == rerank.REMOTE_MAX_LEN
     assert "산학협력단 사무분장 규정" in sent["body"]["texts"][0]   # 문서 이름까지 보낸다
 
