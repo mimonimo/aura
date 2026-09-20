@@ -93,7 +93,9 @@ def test_export_selection_is_honored(client):
 
 def test_train_page_holds_tool_accounts_once(client):
     page = client.get("/dev/train").text
-    assert "toolModal-labelstudio" in page and "비밀번호 재설정" in page and "/dev/accounts" not in page
+    assert "toolModal-labelstudio" in page and "/dev/accounts" not in page
+    # 비밀번호는 같은 창 안에서 화면만 바꿔 받는다 — 접이식(details)으로 펼치지 않는다
+    assert "비밀번호 변경" in page and "data-pw-open" in page and "<details" not in page
     assert 'href="/dev/data"' not in page                # 데이터 공방 진입은 허브에서만
     assert "준비된 학습 데이터" not in page                 # 목록은 데이터 공방이 원본
 

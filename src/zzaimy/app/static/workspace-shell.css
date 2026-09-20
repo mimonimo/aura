@@ -8,6 +8,20 @@
   body .topbar .popover { position:fixed; top:110px; right:16px; max-width:calc(100vw - 32px); }
 }
 main { min-width:0; }
+/* Overlay scroll stays inside the overlay; preserve the page's scrollbar space. */
+html { scrollbar-gutter:stable; }
+html:has(dialog[open], .modal-back.open, .popover.open, .ag-panel.open, .session-popover:popover-open, #chatAside:not(.closed)) { overflow:hidden; }
+body:has(dialog[open], .modal-back.open, .popover.open, .ag-panel.open, .session-popover:popover-open, #chatAside:not(.closed)) #chatScroll { overflow-y:hidden; }
+body:has(dialog[open], .modal-back.open, .popover.open, .ag-panel.open, .session-popover:popover-open) .sidebar { overflow-y:hidden; }
+body:has(dialog[open], .modal-back.open, .popover.open, .ag-panel.open, .session-popover:popover-open) #chatSessionList { overflow-y:hidden; }
+:is(dialog, .modal-back, .ag-panel, .chat-aside, .session-popover, .popover),
+:is(dialog, .modal-back, .ag-panel, .chat-aside, .session-popover, .popover) * { overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#bdc5cf transparent; }
+body .modal-back > .card { overflow:hidden; padding:6px; max-height:88dvh; }
+body .modal-back > .card > .card-in { max-height:calc(88dvh - 14px); overflow-y:auto; scrollbar-gutter:stable; border-radius:8px; }
+body .session-manager[open], body .chat-history-dialog[open] { display:flex; flex-direction:column; overflow:hidden; }
+body .session-manager > header, body .chat-history-dialog > header { flex-shrink:0; }
+body .session-manager .session-results, body .chat-history-dialog .chat-history-content { min-height:0; overflow-y:auto; scrollbar-gutter:stable; padding-right:8px; }
+body .ag-body, body .chat-aside { scrollbar-gutter:stable; }
 .history-link { padding:3px 5px; border:0; border-radius:5px; background:transparent; box-shadow:none; color:var(--muted); font:inherit; font-size:11px; cursor:pointer; }
 .session-manager { width:min(640px,calc(100vw - 24px)); max-height:85dvh; padding:24px; border:1px solid var(--line); border-radius:16px; color:var(--ink); }
 .session-manager::backdrop { background:#15243c66; }
@@ -23,6 +37,32 @@ main { min-width:0; }
 .session-manager button { padding:7px 11px; font-size:12px; }
 .session-manager [role=status] { font-size:12px; color:var(--muted); }
 :is(button,a,input,select,textarea):focus-visible { outline:2px solid #607C9E; outline-offset:3px; }
+/* Keep native select semantics, with space for the indicator and one focus edge. */
+body select:not([multiple]):not([size]), body select[size="1"]:not([multiple]) {
+  appearance:none;
+  -webkit-appearance:none;
+  padding-right:42px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='m4 6 4 4 4-4' stroke='%23667485' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;
+  background-position:right 14px center;
+  background-size:16px 16px;
+}
+body select:focus, body .modal-back select:focus {
+  border-color:#607c9e;
+  box-shadow:none;
+  outline:none;
+}
+body select:focus-visible, body .modal-back select:focus-visible {
+  outline:2px solid #607c9e;
+  outline-offset:-2px;
+  box-shadow:none;
+}
+@media (forced-colors:active) {
+  body select:not([multiple]):not([size]), body select[size="1"]:not([multiple]) {
+    appearance:auto; -webkit-appearance:auto; background-image:none;
+  }
+  body select:focus-visible { outline-color:Highlight; }
+}
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; transition-duration:.01ms !important; transition-delay:0s !important; }
 }
