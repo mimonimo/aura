@@ -18,6 +18,8 @@ IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 MODEL="${MODEL:-/models/bge-reranker-v2-m3}"
 QUERIES="${1:-}"
 SAMPLE="${2:-150}"
+# 조건은 한 실행 안에서 모두 잰다(같은 후보 = 짝지은 비교). 운영은 prod·256 이다.
+COMBOS="${COMBOS:-prod:256 full:256 full:512}"
 STAMP=$(date +%Y%m%d-%H%M%S)
 WORK=/tmp/zz-rerank-$STAMP
 
@@ -42,12 +44,14 @@ for i in idx:
     q, gold = pairs[i]
     cand = prod.hybrid(q, prod.lexical(q), prod.dense(q))[: rev.TOP_K]
     out.append({'q': q, 'gold': sorted(gold), 'cands': [
-        {'id': cid, 'text': f\"{by_id[cid]['reg_title']} {by_id[cid]['heading']}\n{(by_id[cid]['content'] or '')[:900]}\"}
+        {'id': cid,
+         'prod': f\"{by_id[cid].get('heading','')} {by_id[cid].get('content','')}\"[:800],
+         'full': f\"{by_id[cid]['reg_title']} {by_id[cid]['heading']}\n{(by_id[cid]['content'] or '')[:900]}\"}
         for cid in cand if cid in by_id]})
 print(json.dumps({'embedding': prod.meta['embedding_active'], 'queries': out}, ensure_ascii=False))
 PY"
 
-echo "[$(date +%T)] 2/3 토르 GPU 로 점수 매기기 — $MODEL"
+echo "[$(date +%T)] 2/3 토르 GPU 로 점수 매기기 — $MODEL · 조건 $COMBOS"
 ssh "$VM" "cat /tmp/rerank-pairs.json" | ssh -p $TP "$THOR" "mkdir -p $WORK && cat > $WORK/pairs.json"
 ssh -p $TP "$THOR" "cat > $WORK/score.py" <<'PY'
 import json, os, time
@@ -55,30 +59,31 @@ import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 MODEL = os.environ.get("MODEL", "/models/bge-reranker-v2-m3")
+COMBOS = [c.split(":") for c in os.environ.get("COMBOS", "prod:256").split()]
 d = json.load(open("/work/pairs.json"))
 tok = AutoTokenizer.from_pretrained(MODEL)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL, dtype=torch.float16).cuda().eval()
-t0 = time.time()
-out = []
+res = {}
 with torch.no_grad():
-    for item in d["queries"]:
-        pairs = [(item["q"], c["text"]) for c in item["cands"]]
-        if not pairs:
-            out.append([]); continue
-        b = tok([p[0] for p in pairs], [p[1] for p in pairs], padding=True, truncation=True,
-                max_length=512, return_tensors="pt").to("cuda")
-        s = model(**b).logits.view(-1).float().cpu().tolist()
-        out.append(s)
-n = max(1, len(d["queries"]))
-json.dump({"scores": out, "sec_per_query": round((time.time() - t0) / n, 3),
-           "model": MODEL}, open("/work/scores.json", "w"))
-print(f"질의 {n}건 · 질의당 {(time.time() - t0) / n:.3f}초", flush=True)
+    for style, maxlen in COMBOS:
+        t0, out = time.time(), []
+        for item in d["queries"]:
+            cands = item["cands"]
+            if not cands:
+                out.append([]); continue
+            b = tok([item["q"]] * len(cands), [c[style] for c in cands], padding=True,
+                    truncation=True, max_length=int(maxlen), return_tensors="pt").to("cuda")
+            out.append(model(**b).logits.view(-1).float().cpu().tolist())
+        n = max(1, len(d["queries"]))
+        res[f"{style}:{maxlen}"] = {"scores": out, "sec_per_query": round((time.time() - t0) / n, 3)}
+        print(f"  {style}:{maxlen} 끝 — 질의당 {(time.time() - t0) / n:.3f}초", flush=True)
+json.dump({"model": MODEL, "runs": res}, open("/work/scores.json", "w"))
 PY
-ssh -p $TP "$THOR" "docker run --rm --runtime nvidia --ipc host -e MODEL=$MODEL \
+ssh -p $TP "$THOR" "docker run --rm --runtime nvidia --ipc host -e MODEL=$MODEL -e COMBOS='$COMBOS' \
   -v \$HOME/zzaimy/models:/models -v $WORK:/work --entrypoint python3 $IMAGE /work/score.py" 2>&1 | grep -v Warning
 ssh -p $TP "$THOR" "cat $WORK/scores.json" | ssh "$VM" "cat > /tmp/rerank-scores.json"
 
-echo "[$(date +%T)] 3/3 VM 에서 지표 계산 (운영 평가 코드와 같은 지표)"
+echo "[$(date +%T)] 3/3 VM 에서 지표 계산 (운영 평가 코드와 같은 지표·같은 후보)"
 ssh "$VM" "cd ~/zzaimy-capstone && env PYTHONPATH=src .venv/bin/python - <<'PY'
 import json
 from zzaimy.eval import retrieval_eval as rev
@@ -87,11 +92,16 @@ pairs = json.load(open('/tmp/rerank-pairs.json'))
 sc = json.load(open('/tmp/rerank-scores.json'))
 golds = [set(item['gold']) for item in pairs['queries']]
 base = [[c['id'] for c in item['cands']] for item in pairs['queries']]
-ranked = []
-for ids, scores in zip(base, sc['scores']):
-    order = sorted(range(len(ids)), key=lambda i: (-scores[i], i)) if scores else []
-    ranked.append([ids[i] for i in order])
 print('임베딩', pairs['embedding'], '· 질의', len(base), '· 모델', sc['model'])
-print('하이브리드    ', rev.metrics(base, golds))
-print('GPU 리랭커    ', rev.metrics(ranked, golds), '· 질의당', sc['sec_per_query'], '초')
+def line(name, runs, sec=''):
+    m = rev.metrics(runs, golds)
+    print(f\"{name:22s} R@1 {m['recall_at_1']:.3f} · R@5 {m['recall_at_5']:.3f} · R@10 {m['recall_at_10']:.3f}\"
+          f\" · MRR {m['mrr_at_10']:.3f}{sec}\")
+line('하이브리드(그대로)', base)
+for key, run in sc['runs'].items():
+    ranked = []
+    for ids, scores in zip(base, run['scores']):
+        order = sorted(range(len(ids)), key=lambda i: (-scores[i], i)) if scores else []
+        ranked.append([ids[i] for i in order])
+    line(f'리랭커 {key}', ranked, f\" · 질의당 {run['sec_per_query']}초\")
 PY"
