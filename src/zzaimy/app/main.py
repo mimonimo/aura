@@ -33,7 +33,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from zzaimy.app import search_serving
+from zzaimy.app import search_serving, serving_plan
 from zzaimy.app.db import Database
 
 ALLOWED_EXTENSIONS = {
@@ -2874,6 +2874,8 @@ def create_app(
             "llm_roles": llm_connections.roles_public(),
             "role_labels": llm_connections.ROLES,
             "search_serving": search_serving.status(),
+            "serving_plan": serving_plan.status(_live_models_cached),
+            "train_host": serving_plan.training_box(),
         }))
 
     @app.get("/dev/train/export.zip")
