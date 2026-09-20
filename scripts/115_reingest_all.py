@@ -59,6 +59,7 @@ def main() -> int:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--limit", type=int, default=0, help="원본 폴더마다 최대 몇 건까지")
     ap.add_argument("--timeout", type=int, default=10, help="문서 한 건의 제한 시간(분)")
+    ap.add_argument("--jobs", type=int, default=2, help="동시에 처리할 문서 수")
     ap.add_argument("--resume", action="store_true",
                     help="비우지 않고 아직 안 들어간 것만 올린다(중단됐을 때)")
     args = ap.parse_args()
@@ -116,36 +117,49 @@ def main() -> int:
     ok = fail = 0
     limit_s = args.timeout * 60
     t0 = time.time()
-    for i, (path, doc_type) in enumerate(plan, 1):
-        # 원본 이름이 URL 이라 앞부분이 모두 같다 — 잘라 쓰면 서로 다른 파일이 같은 이름으로
-        # 덮인다(실측: 113건이 몇 건으로 뭉갰다). 경로 해시를 붙여 고유하게 만든다.
+    def start(path: Path, doc_type: str):
         tag = hashlib.sha1(str(path).encode()).hexdigest()[:8]
         dest = inbox / f"{path.stem[:40]}-{tag}{path.suffix.lower()}"
         dest.parent.mkdir(parents=True, exist_ok=True)
         if not dest.exists():
             dest.write_bytes(path.read_bytes())          # 올린 파일은 문서함으로 들어온다
         doc_id = db.add_document(filename=path.name, stored_path=str(dest), doc_type=doc_type)
-        # 문서 하나가 배치를 멈추지 못하게 제한 시간을 둔다 — 스캔본 한 건이 파서에서 굳으면
-        # 나머지 백 건이 함께 멈춘다(실측: 같은 PDF 가 두 번 반입을 세웠다).
         child = mp.Process(target=_run_one, args=(str(Path(args.db)), doc_id, str(dest)))
         child.start()
-        child.join(limit_s)
-        if child.is_alive():
-            child.terminate()
-            child.join(10)
-            fail += 1
-            db.update_document(doc_id, status="failed",
-                               error=f"시간 초과 — {args.timeout}분 안에 끝나지 않았습니다")
-        elif child.exitcode == 0:
-            ok += 1
-        else:
-            fail += 1
-            if (db.get_document(doc_id) or {}).get("status") != "failed":
-                db.update_document(doc_id, status="failed", error="처리 중 중단되었습니다")
-        if i % 5 == 0 or i == len(plan):
-            done = time.time() - t0
-            print(f"  {i}/{len(plan)} · 성공 {ok} 실패 {fail} · {done / 60:.1f}분"
-                  f" · 남은 시간 {(len(plan) - i) * done / max(i, 1) / 60:.0f}분", flush=True)
+        return {"doc_id": doc_id, "proc": child, "t0": time.time(), "name": path.name}
+
+    # 문서 하나가 배치를 멈추지 못하게 제한 시간을 둔다(실측: 같은 스캔 PDF 가 두 번 반입을 세웠다).
+    # 여러 건을 동시에 돌린다 — 파싱은 CPU, 검토는 서빙 장비라 겹쳐 돌리면 전체가 빨라진다.
+    pending = list(plan)
+    running: list[dict] = []
+    while pending or running:
+        while pending and len(running) < max(1, args.jobs):
+            running.append(start(*pending.pop(0)))
+        time.sleep(2)
+        for job in list(running):
+            child = job["proc"]
+            over = time.time() - job["t0"] > limit_s
+            if child.is_alive() and not over:
+                continue
+            if child.is_alive():
+                child.terminate()
+                child.join(10)
+                fail += 1
+                db.update_document(job["doc_id"], status="failed",
+                                   error=f"시간 초과 — {args.timeout}분 안에 끝나지 않았습니다")
+            elif child.exitcode == 0:
+                ok += 1
+            else:
+                fail += 1
+                if (db.get_document(job["doc_id"]) or {}).get("status") != "failed":
+                    db.update_document(job["doc_id"], status="failed", error="처리 중 중단되었습니다")
+            running.remove(job)
+            done = ok + fail
+            if done % 5 == 0 or not (pending or running):
+                spent = time.time() - t0
+                print(f"  {done}/{len(plan)} · 성공 {ok} 실패 {fail} · {spent / 60:.1f}분"
+                      f" · 남은 시간 {(len(plan) - done) * spent / max(done, 1) / 60:.0f}분", flush=True)
+
     print(f"반입 완료 — 성공 {ok} 실패 {fail} ({(time.time() - t0) / 60:.1f}분)")
     print("다음: 색인(scripts/96 --apply) · 개체 그래프 · 반입 점검")
     return 0
