@@ -296,7 +296,7 @@ class Database:
         그래서 본문에서 찾은 이름을 문서의 이름으로 바꾸고, 올라온 파일 이름은 정체에
         `original_filename` 으로 남긴다. 파일 자체는 건드리지 않는다(stored_path 그대로).
         """
-        from zzaimy.app.doc_title import display_name, find_title, head_text
+        from zzaimy.app.doc_title import display_name, resolved_title
 
         doc = self.get_document(doc_id)
         if doc is None:
@@ -304,8 +304,12 @@ class Database:
         have = self.get_doc_identity(doc_id)
         if not overwrite and have.get("title"):
             return have
-        source = (text or doc.get("masked_text") or "")[:3000]
-        title, date = find_title(head_text(doc.get("stored_path"), source))
+        # 규정식 제목(제N조·규정·지침)뿐 아니라 '2022학년도 입학자 연계교육과정 편성표' 처럼
+        # 첫 쪽 제목 줄만 있는 문서도 이름으로 삼는다. 파일 이름이 더 나으면 그대로 둔다.
+        probe = dict(doc)
+        if text:
+            probe["masked_text"] = text
+        title, date = resolved_title(probe)
         found = {k: v for k, v in (("title", title), ("date", date)) if v}
         if not found:
             return have
