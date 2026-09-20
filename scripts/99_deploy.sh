@@ -17,11 +17,11 @@ cd "$(dirname "$0")/.."
 HOST=aura@192.168.16.226
 BRANCH="${BRANCH:-main}"
 
-# 1) 맥에 안 올린 변경이 있으면 멈춘다 — 배포는 푸시한 것만 나간다
+# 1) 배포는 '푸시한 커밋'만 나간다. 작업 트리에 미커밋 변경이 있어도 그건 나가지 않으므로
+#    멈추지 않고 알리기만 한다 — 같은 트리에서 다른 사람(Codex)이 작업 중일 수 있다.
 if [ -n "$(git status --porcelain)" ]; then
-  echo "커밋하지 않은 변경이 있습니다. 커밋·푸시 후 배포하십시오:" >&2
+  echo "알림: 커밋하지 않은 변경이 있습니다(배포에는 포함되지 않습니다):" >&2
   git status --short | head -10 >&2
-  exit 2
 fi
 LOCAL=$(git rev-parse HEAD)
 if ! git merge-base --is-ancestor "$LOCAL" "origin/$BRANCH" 2>/dev/null; then
