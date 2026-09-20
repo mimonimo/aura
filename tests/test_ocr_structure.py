@@ -458,7 +458,7 @@ def test_analyze_feeds_table_text_not_json(tmp_path, monkeypatch):
     class _FakeClient:
         model = "fake"
 
-        def __init__(self) -> None:
+        def __init__(self, *a, **kw) -> None:      # role= 로 부르는 호출부도 받는다
             chat = type("Chat", (), {"completions": _Completions()})()
             self.client = type("Client", (), {"chat": chat})()
 

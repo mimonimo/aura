@@ -1713,7 +1713,7 @@ class DocumentProcessor:
         from zzaimy.generate.client import VllmClient
 
         prompt = pick_review_prompt(doc_type)
-        client = VllmClient()
+        client = VllmClient(role="answer")
         resp = client.client.chat.completions.create(
             model=client.model,
             messages=[{"role": "user", "content": prompt.format(text=masked_text[:8000])}],
@@ -2124,7 +2124,7 @@ class DocumentProcessor:
                 if doc.get("doc_type") == "regulation"
                 else self._ANALYZE_PROMPT
             )
-            client = VllmClient()
+            client = VllmClient(role="answer")
             resp = client.client.chat.completions.create(
                 model=client.model,
                 temperature=0.2,

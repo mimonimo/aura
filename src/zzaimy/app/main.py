@@ -1017,7 +1017,7 @@ def create_app(
         """정체 파악에 쓰는 모델 호출 — 기본 연결을 그대로 쓴다."""
         from zzaimy.generate.client import VllmClient
 
-        c = VllmClient()
+        c = VllmClient(role="answer")
         r = c.client.chat.completions.create(
             model=c.model, temperature=0.0, max_tokens=1200,
             messages=[{"role": "user", "content": prompt}],
@@ -3423,7 +3423,7 @@ def create_app(
         try:
             from zzaimy.generate.client import VllmClient
 
-            client = VllmClient()
+            client = VllmClient(role="answer")
             resp = client.client.chat.completions.create(
                 model=client.model,
                 messages=[{"role": "user", "content": _WEEKLY_PROMPT.format(

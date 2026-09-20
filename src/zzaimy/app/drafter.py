@@ -106,7 +106,7 @@ class SliceDrafter:
             log.warning("doc %s: 초안 생성 불가 (본문 없음)", doc_id)
             return
         try:
-            client = VllmClient()
+            client = VllmClient(role="answer")
             # 공고문 참조: 연결된 공고·기준이 있으면 그 스키마로, 없으면 문서 자신
             ref_text, ref_name = _reference_text(db, doc)
             schema = client.extract_schema(ref_text[:12000])
