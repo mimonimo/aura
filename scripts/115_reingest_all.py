@@ -29,26 +29,34 @@ WIPE = ("regulation_chunks", "doc_chunks", "doc_assets", "chunk_questions",
 INDEXES = ("chunk_embeddings.npz", "chunk_embeddings.meta.json", "question_embeddings.npz")
 
 
+SOURCES = [
+    # (폴더, 문서 유형, 설명) — 앞에서부터 순서대로 올린다
+    ("data/scraped/iacf", "regulation", "영남이공대학교 산학협력단 규정"),
+    ("data/external", "recruit", "외부 기관 공고·안내"),
+    ("data/scraped/files", "auto", "교내 내려받기 문서"),
+]
+EXTS = {".pdf", ".hwp", ".hwpx", ".docx", ".png", ".jpg", ".jpeg", ".xlsx"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--limit", type=int, default=0, help="원본 폴더마다 최대 몇 건까지")
     args = ap.parse_args()
 
     db = Database(Path(args.db))
-    docs = db.list_documents()
-    plan = [{"path": d.get("stored_path"), "doc_type": d.get("doc_type"),
-             "owner": d.get("owner"), "sector": d.get("sector"), "dept": d.get("dept"),
-             "project_id": d.get("project_id")} for d in docs if d.get("stored_path")]
-    missing = [p for p in plan if not Path(p["path"]).exists()]
-    print(f"지금 문서 {len(docs)}건 · 다시 넣을 원본 {len(plan) - len(missing)}건"
-          f"{f' · 원본이 사라진 것 {len(missing)}건' if missing else ''}")
-    kinds: dict[str, int] = {}
-    for p in plan:
-        kinds[p["doc_type"]] = kinds.get(p["doc_type"], 0) + 1
-    print("  유형별:", kinds)
+    plan: list[tuple[Path, str]] = []
+    for rel, doc_type, label in SOURCES:
+        folder = ROOT / rel
+        files = sorted(p for p in folder.glob("*") if p.is_file() and p.suffix.lower() in EXTS)
+        if args.limit:
+            files = files[: args.limit]
+        print(f"  {label}: {len(files)}건 ({rel})")
+        plan += [(p, doc_type) for p in files]
+    print(f"지금 문서함 {len(db.list_documents())}건 → 새로 올릴 것 {len(plan)}건")
     if not args.apply:
-        print("미리보기입니다. 실제로 비우고 다시 넣으려면 --apply 를 붙이십시오.")
+        print("미리보기입니다. 비우고 새로 올리려면 --apply 를 붙이십시오.")
         return 0
 
     import sqlite3
@@ -59,37 +67,42 @@ def main() -> int:
             try:
                 conn.execute(f"DELETE FROM {t}")
             except sqlite3.OperationalError:
-                pass                      # 없는 표는 건너뛴다
+                pass
     conn.close()
     for name in INDEXES:
-        p = Path(args.db).parent / name
-        if p.exists():
-            p.unlink()
-    print("문서함을 비웠습니다.")
+        f = Path(args.db).parent / name
+        if f.exists():
+            f.unlink()
+    inbox = Path(args.db).parent / "inbox"
+    if inbox.exists():
+        for f in inbox.iterdir():
+            if f.is_file():
+                f.unlink()
+    print("문서함을 비웠습니다 — 이제 원본에서 올립니다.", flush=True)
 
     from zzaimy.app.pipeline import Processor
 
     proc = Processor()
     ok = fail = 0
     t0 = time.time()
-    for i, item in enumerate(plan, 1):
-        path = Path(item["path"])
-        if not path.exists():
-            continue
-        doc_id = db.add_document(
-            filename=path.name, stored_path=str(path), doc_type=item["doc_type"] or "auto",
-            owner=item["owner"] or "zzaimy", sector=item["sector"] or "common",
-            dept=item["dept"] or "공통", project_id=item["project_id"])
+    for i, (path, doc_type) in enumerate(plan, 1):
+        dest = inbox / f"{path.stem[:60]}{path.suffix.lower()}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if not dest.exists():
+            dest.write_bytes(path.read_bytes())          # 올린 파일은 문서함으로 들어온다
+        doc_id = db.add_document(filename=path.name, stored_path=str(dest), doc_type=doc_type)
         try:
-            proc.process(db, doc_id, path)
+            proc.process(db, doc_id, dest)
             ok += 1
         except Exception as e:
             fail += 1
             db.update_document(doc_id, status="failed", error=f"{type(e).__name__}: {e}")
-        if i % 10 == 0:
-            print(f"  {i}/{len(plan)} · 성공 {ok} 실패 {fail} · {time.time() - t0:.0f}초", flush=True)
-    print(f"반입 완료 — 성공 {ok} 실패 {fail} ({time.time() - t0:.0f}초)")
-    print("다음: 색인(scripts/96 --apply) · 개체 그래프 재구성 · 반입 점검")
+        if i % 5 == 0 or i == len(plan):
+            done = time.time() - t0
+            print(f"  {i}/{len(plan)} · 성공 {ok} 실패 {fail} · {done / 60:.1f}분"
+                  f" · 남은 시간 {(len(plan) - i) * done / max(i, 1) / 60:.0f}분", flush=True)
+    print(f"반입 완료 — 성공 {ok} 실패 {fail} ({(time.time() - t0) / 60:.1f}분)")
+    print("다음: 색인(scripts/96 --apply) · 개체 그래프 · 반입 점검")
     return 0
 
 
