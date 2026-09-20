@@ -86,8 +86,8 @@ def test_peek_missing_document(tmp_path):
 
 def test_widget_present_off_chat_and_absent_on_chat(tmp_path):
     c = _client(tmp_path)
-    assert "에이전트에게 묻기" in c.get("/").text          # 다른 화면에는 떠 있다
-    assert "직접 묻기" in c.get("/").text                  # 글 선택 질문
+    assert "에이전트에게 묻기" in c.get("/inbox").text     # 라이브러리에는 떠 있다
+    assert "직접 묻기" in c.get("/inbox").text             # 글 선택 질문
     assert "에이전트에게 묻기" not in c.get("/chat").text  # 채팅 화면에는 겹치지 않는다
 
 
@@ -248,7 +248,7 @@ def test_ask_offers_actions_for_the_current_document(tmp_path):
     c.post("/upload", files={"file": ("규정.pdf", b"%PDF fake", "application/pdf")})
     body = c.post("/chat/ask", data={"question": "이 문서 정체 읽어줘", "page": "/doc/1"}).json()
     assert body["done"]                                  # 시킨 일은 바로 한다
-    assert any("정체" in line for line in body["done"])
+    assert any("사업 정보" in line for line in body["done"])
 
 
 def test_ask_without_page_offers_no_actions(tmp_path):
@@ -291,3 +291,31 @@ def test_agent_leaves_outward_actions_as_buttons(tmp_path):
     labels = [a["label"] for a in body["actions"]]
     assert "외부 전송 켜기" in labels          # 밖으로 나가는 일은 확인을 받는다
     assert body["done"] == []
+
+
+def test_ollama_server_gets_reasoning_effort_none(monkeypatch):
+    """Ollama 는 vLLM 식 생각 끄기 인자를 무시한다 — reasoning_effort=none 을 붙여 보낸다."""
+    from zzaimy.generate import client as cl
+
+    seen = {}
+
+    class _Comp:
+        def create(self, **kw):
+            seen.update(kw)
+            raise RuntimeError("stop")
+
+    class _Fake:
+        base_url = "http://ollama.example:11434/v1/"
+
+        def __init__(self, **kw):
+            self.chat = type("C", (), {"completions": _Comp()})()
+
+    monkeypatch.setattr(cl, "OpenAI", _Fake)
+    monkeypatch.setattr(cl, "is_ollama", lambda url: True)
+    c = cl.VllmClient(model="m")
+    try:
+        c.client.chat.completions.create(model="m", messages=[],
+                                         extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+    except RuntimeError:
+        pass
+    assert seen["extra_body"] == {"reasoning_effort": "none"}

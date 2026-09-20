@@ -23,6 +23,9 @@ MIN_CHUNKS = 1                 # 조각이 없으면 검색·인용 자체가 �
 LOW_MEDIAN_SUBSTANTIVE = 40    # chunk_quality 가 "본문이 짧음"을 가르는 값과 같다
 HIGH_DAMAGE_RATIO = 0.20       # 다섯에 하나가 손상 의심이면 원문을 다시 봐야 한다
 HIGH_NOISE_RATIO = 0.50        # 절반 넘게 못 쓰면 그 문서는 검색에 기여하지 못한다
+# 표제가 없다고 짚을 최소 조각 수 — 신청서·확약서 같은 짧은 서식에는 조문 표제가 원래 없다
+# (실측 2026-09-20: '표제 없음' 35건 중 29건이 조각 9개 이하의 서식).
+MIN_CHUNKS_FOR_HEADINGS = 10
 
 
 def _doc_blocks(db, doc_id: int) -> tuple[list[dict], bool]:
@@ -84,7 +87,7 @@ def audit_document(db, doc: dict) -> dict:
 
     if prose and mid < LOW_MEDIAN_SUBSTANTIVE:
         issues.append(f"본문이 잘게 쪼개졌습니다 (실질 중앙값 {mid}자)")
-    if has_headings and headed == 0:
+    if has_headings and headed == 0 and len(texts) >= MIN_CHUNKS_FOR_HEADINGS:
         issues.append("구조 표제를 붙이지 못했습니다")
     if damaged / len(texts) >= HIGH_DAMAGE_RATIO:
         issues.append(f"글자 손상이 의심됩니다 ({damaged}/{len(texts)} 조각)")

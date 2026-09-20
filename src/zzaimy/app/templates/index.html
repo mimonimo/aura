@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% block pagetitle %}{{ doc_type_labels.get(active_tab, "문서 검토함") if active_tab != "all" else "문서 검토함" }}{% endblock %}
+{% block pagetitle %}{{ doc_type_labels.get(active_tab, "라이브러리") if active_tab != "all" else "라이브러리" }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css">{% endblock %}
 {% block content %}
 
 {% set sector_meta = {
@@ -15,6 +16,12 @@
   "admission": "학년도·전형·학과 단위로 묶어 관리하세요 (예: 2026 수시 자동차과)",
   "auto": "업무 단위로 묶어 관리하세요",
 } %}
+{% if active_tab == 'all' %}
+<section class="work-start" aria-label="업무 시작">
+  <h1>라이브러리</h1>
+  <p>프로젝트를 열어 대화, 문서, 작업 지침을 이어가세요.</p>
+</section>
+{% endif %}
 {% if active_tab != "all" and active_tab in sector_meta %}
 <div style="display:flex; align-items:center; gap:14px; padding:2px 2px 16px;
             border-bottom:1px solid var(--line); margin-bottom:20px;">
@@ -31,7 +38,11 @@
 </div>
 {% endif %}
 
-{% if active_tab != "all" %}
+<nav class="space-links" aria-label="프로젝트 업무 분류">
+  <a href="/?type=all" {% if active_tab == 'all' %}aria-current="page"{% endif %}>최근 프로젝트</a>
+  {% for key, meta in sector_meta.items() %}<a href="/?type={{ key }}" {% if active_tab == key %}aria-current="page"{% endif %}>{{ meta[1] }}</a>{% endfor %}
+</nav>
+{% set visible_projects = side_projects if active_tab == 'all' else projects %}
 <div class="card"><div class="card-in">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
     <h2 style="margin:0;"><iconify-icon icon="solar:folder-2-linear"></iconify-icon>프로젝트</h2>
@@ -40,9 +51,10 @@
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>프로젝트 추가</button>
   </div>
   <p class="muted" style="margin:0 0 14px;">{{ project_hints.get(active_tab, "") }}</p>
-  {% if projects %}
+  {% if active_tab == 'all' %}<p class="muted">최근 프로젝트 최대 20개 · 업무 분류를 선택하면 해당 프로젝트를 모두 볼 수 있습니다.</p>{% endif %}
+  {% if visible_projects %}
   <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px;">
-    {% for pj in projects %}
+    {% for pj in visible_projects %}
     <a href="/project/{{ pj.id }}" style="text-decoration:none; color:var(--ink);
        border:1px solid var(--line); border-radius:14px; padding:14px 16px; background:var(--panel);
        display:block; transition: border-color .3s var(--ease), background .3s var(--ease);"
@@ -73,7 +85,9 @@
           <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
       </div>
       <form action="/projects" method="post">
-        <input type="hidden" name="sector" value="{{ active_tab }}">
+        {% if active_tab == 'all' %}
+        <label class="form-row">업무 분류<select name="sector" required>{% for key, meta in sector_meta.items() %}<option value="{{ key }}">{{ meta[1] }}</option>{% endfor %}</select></label>
+        {% else %}<input type="hidden" name="sector" value="{{ active_tab }}">{% endif %}
         <div class="form-row">
           <span class="muted">프로젝트 이름</span>
           <input type="text" name="name" required placeholder="{{ project_hints.get(active_tab, '') }}">
@@ -93,66 +107,25 @@
     </div>
   </div>
 </div>
-{% endif %}
-
-{% set base_qs = "type=" ~ active_tab ~ (("&project=" ~ active_project) if active_project else "") %}
-{# 처리 현황 — 파이프라인 순서(접수 → 처리 중 → 검토 완료 → 판정 대기)이면서 각 타일은
-   그 단계의 문서만 보는 필터 링크다(아래 표의 "필터 해제"와 짝). 전 세션 개편 때 링크가
-   빠져 필터 기능이 끊겼던 것을 복구. #}
-<div class="dev-section" style="margin-bottom:8px;">처리 현황</div>
-<div class="tiles flow">
-  {% for key, label, icon, cls, n in [
-    (none, "접수 문서", "solar:inbox-archive-linear", "blue", stats.total),
-    ("processing", "처리 중", "solar:hourglass-line-linear", "amber", stats.processing),
-    ("reviewed", "검토 완료", "solar:check-circle-linear", "green", stats.reviewed),
-    ("pending", "판정 대기", "solar:clock-circle-linear", "navy", stats.pending),
-  ] %}
-  <a class="tile" href="/?{{ base_qs }}{% if key %}&flt={{ key }}{% endif %}"
-     style="text-decoration:none; color:inherit;{% if active_flt == key or (not key and not active_flt) %} box-shadow:0 0 0 2px #64748B inset;{% endif %}"
-     title="{{ label }} 문서만 보기">
-    <div class="ico {{ cls }}"><iconify-icon icon="{{ icon }}"></iconify-icon></div>
-    <div><b>{{ n }}</b><span>{{ label }}</span></div>
-  </a>
-  {% if not loop.last %}<div class="flow-arrow"><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></div>{% endif %}
-  {% endfor %}
-</div>
-
-{% if active_tab == "all" and recent_activity and not active_flt %}
-{% set act_meta = {
-  "intake": ("solar:inbox-archive-linear", "접수", "/doc/"),
-  "criteria": ("solar:library-linear", "기준 등록", "/doc/"),
-  "ocr": ("solar:scanner-linear", "문서 추출", "/doc/"),
-  "chat": ("solar:chat-line-linear", "채팅", "/chat/"),
-} %}
-<div class="card reveal">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:history-linear"></iconify-icon>최근 활동</h2>
-    <div style="display:flex; flex-direction:column;">
-      {% for a in recent_activity %}
-      {% set m = act_meta.get(a.kind) %}
-      <a href="{{ m[2] }}{{ a.ref_id }}" style="display:flex; align-items:center; gap:10px;
-         padding:8px 6px; border-bottom:1px solid #EDF2F7; text-decoration:none;
-         color:var(--ink); font-size:13.5px;">
-        <iconify-icon icon="{{ m[0] }}" style="color:var(--faint); flex:none;"></iconify-icon>
-        <span class="pill" style="flex:none; font-size:11px; padding:2px 9px;">{{ m[1] }}</span>
-        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ a.title }}</span>
-        <span class="muted" style="flex:none; font-size:12px;">{{ a.created_at[:16].replace("T", " ") }}</span>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
-
+{% if q or active_flt or active_project %}
+{% set base_qs = "type=" ~ active_tab ~ (("&project=" ~ active_project) if active_project else "") ~ (("&q=" ~ (q | urlencode)) if q else "") %}
 <div class="card reveal">
   <div class="card-in">
     {% set flt_labels = {"processing": "처리 중", "reviewed": "검토 완료", "pending": "판정 대기"} %}
-    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서
+    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>문서 검색 결과
       {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
-      {% if q %}<span class="muted" style="margin-left:auto; font-size:12.5px; font-weight:500;">"{{ q }}" 검색 {{ documents|length }}건 · <a href="/">전체 보기</a></span>{% endif %}</h2>
+      {% if q %}<span class="muted" style="margin-left:auto; font-size:12.5px; font-weight:500;">검색 {{ total_docs }}건</span>{% endif %}</h2>
+    <form action="/" method="get" class="intake-toolbar" role="search" aria-label="현재 업무 문서 검색">
+      <input type="hidden" name="type" value="{{ active_tab }}">
+      {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
+      {% if active_flt %}<input type="hidden" name="flt" value="{{ active_flt }}">{% endif %}
+      <input type="search" name="q" value="{{ q }}" placeholder="이 업무의 문서명 검색" aria-label="문서명 검색">
+      <button type="submit" class="secondary">검색</button>
+      {% if q or active_flt %}<a class="btn-ghost" href="/?type={{ active_tab }}{% if active_project %}&amp;project={{ active_project }}{% endif %}">필터 해제</a>{% endif %}
+    </form>
     {% if documents %}
     <div class="table-scroll">
-      <table>
+      <table class="intake-table">
         <tr><th>접수번호</th><th>파일명</th><th>유형</th><th>상태</th><th>담당자 판정</th><th>접수 시각</th></tr>
         {% for d in documents %}
         <tr>
@@ -168,7 +141,7 @@
         {% endfor %}
       </table>
     </div>
-    {% set pg_qs = "type=" ~ active_tab ~ (("&project=" ~ active_project) if active_project else "") ~ (("&q=" ~ q) if q else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
+    {% set pg_qs = base_qs ~ (("&flt=" ~ active_flt) if active_flt else "") %}
     {% if page > 0 or has_next %}
     <div style="display:flex; gap:8px; margin-top:12px; align-items:center;">
       {% if page > 0 %}<a class="btn-ghost" href="/?{{ pg_qs }}&page={{ page - 1 }}">← 이전</a>{% endif %}
@@ -185,4 +158,5 @@
     {% endif %}
   </div>
 </div>
+{% endif %}
 {% endblock %}

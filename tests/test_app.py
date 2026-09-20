@@ -58,9 +58,12 @@ def client(tmp_path):
 
 
 def test_index_page_renders(client):
-    r = client.get("/")
+    """첫 화면은 채팅이고, 문서 라이브러리는 /inbox 에서 프로젝트부터 보여 준다(C-20260920-09)."""
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].endswith("/chat")
+    r = client.get("/inbox")
     assert r.status_code == 200
-    assert "접수 문서" in r.text
+    assert "프로젝트" in r.text
 
 
 def test_upload_creates_document_and_processes(client):
@@ -176,12 +179,13 @@ def test_sector_tab_filters_documents(client):
                 files={"file": ("공고문.pdf", b"%PDF", "application/pdf")})
     client.post("/upload", data={"doc_type": "recruit"},
                 files={"file": ("이력서.pdf", b"%PDF", "application/pdf")})
-    all_page = client.get("/").text
+    # 문서 표는 검색 결과로 나온다 — 업무 탭이 표를 거른다
+    all_page = client.get("/inbox?q=pdf").text
     assert "공고문.pdf" in all_page and "이력서.pdf" in all_page
-    recruit_page = client.get("/?type=recruit").text
-    # 표(문서함 목록) 기준으로 확인 — 사이드바 판정 대기 목록에는 둘 다 뜰 수 있다
-    assert '<td><a href="/doc/2">이력서.pdf' in recruit_page
-    assert '<td><a href="/doc/1">공고문.pdf' not in recruit_page
+    recruit_page = client.get("/inbox?type=recruit&q=pdf").text
+    table = recruit_page.split('<table class="intake-table">', 1)[-1].split("</table>", 1)[0]
+    assert '<td><a href="/doc/2">이력서.pdf' in table
+    assert '<td><a href="/doc/1">공고문.pdf' not in table
 
 
 def test_password_protection_requires_auth(tmp_path):
@@ -344,7 +348,7 @@ def test_receipt_number_scheme(client):
                 files={"file": ("b.pdf", b"%PDF", "application/pdf")})
     client.post("/upload", data={"doc_type": "grant"},
                 files={"file": ("c.pdf", b"%PDF", "application/pdf")})
-    page = client.get("/").text
+    page = client.get("/inbox?q=pdf").text
     assert "2026-채용-0001" in page
     assert "2026-채용-0002" in page
     assert "2026-국고-0001" in page  # 섹터별 독립 일련번호
@@ -403,12 +407,12 @@ def test_project_rename_and_delete(client):
     r = client.post("/projects/1/rename", data={"name": "2026 하반기 조교"},
                     follow_redirects=False)
     assert r.status_code == 303
-    page = client.get("/?type=recruit").text
+    page = client.get("/inbox?type=recruit").text
     assert "2026 하반기 조교" in page and "임시 이름" not in page
     # 삭제 — 프로젝트는 사라지고 문서는 남는다(연결만 해제)
     r = client.post("/projects/1/delete", follow_redirects=False)
     assert r.status_code == 303
-    page = client.get("/?type=recruit").text
+    page = client.get("/inbox?type=recruit&q=pdf").text
     assert "2026 하반기 조교" not in page
     assert ">지원서.pdf</a>" in page
 
@@ -551,7 +555,9 @@ def test_draft_only_for_grant_docs(client):
                 files={"file": ("지원서.pdf", b"%PDF", "application/pdf")})
     assert client.post("/doc/1/draft").status_code == 400  # 채용 서류는 검토·판정 플로우
     page = client.get("/doc/1").text
-    assert "초안" not in page  # 채용 문서 화면에는 초안 버튼이 없다
+    # 떠 있는 에이전트 창이 모든 화면에 있으므로 문서 영역만 본다
+    body = page.split('<main>', 1)[-1].split('</main>', 1)[0]
+    assert "초안" not in body  # 채용 문서 화면에는 초안 버튼이 없다
 
 
 def test_criteria_bulk_upload(client):
@@ -571,10 +577,10 @@ def test_tiles_filter_document_list(client):
     client.post("/doc/1/decision", data={"decision": "approved"})  # 판정 완료
     client.post("/upload", data={"doc_type": "recruit"},
                 files={"file": ("대기문서.pdf", b"%PDF", "application/pdf")})  # 판정 대기
-    page = client.get("/?type=recruit&flt=pending").text
-    table = page.split("<table>", 1)[-1].split("</table>", 1)[0]
+    page = client.get("/inbox?type=recruit&flt=pending").text
+    table = page.split('<table class="intake-table">', 1)[-1].split("</table>", 1)[0]
     assert "대기문서.pdf" in table and "완료문서.pdf" not in table
-    assert 'href="/?type=recruit&flt=pending"' in page  # 타일이 링크다
+    assert "판정 대기" in page  # 걸린 필터가 표시된다
 
 
 def test_draft_shows_progress_immediately(client):
@@ -776,7 +782,7 @@ def test_ocr_analyze_flow(tmp_path):
     r = c.post("/doc/1/analyze", follow_redirects=False)
     assert r.status_code == 303
     page = c.get("/doc/1").text
-    assert "문서 유형: 공문" in page and "맥락 분석" in page
+    assert "문서 유형: 공문" in page and "문서 분석" in page
     # 검토함 문서에는 분석 라우트가 막혀 있다
     c.post("/upload", data={"doc_type": "auto"},
            files={"file": ("b.pdf", b"%PDF", "application/pdf")})
@@ -869,14 +875,14 @@ def test_session_survives_app_restart(tmp_path):
     assert c2.get("/").status_code == 200
 
 
-def test_recent_activity_on_dashboard(client):
+def test_recent_uploads_are_findable_in_library(client):
+    """'최근 활동' 칸은 라이브러리 개편(C-20260920-09)으로 빠졌다 — 새로 들어온 문서는 검색으로 찾는다."""
     client.post("/upload", data={"doc_type": "recruit"},
                 files={"file": ("이력서R.pdf", b"%PDF", "application/pdf")})
     client.post("/criteria/upload", data={"sector": "common"},
                 files={"file": ("규정R.pdf", b"%PDF", "application/pdf")})
-    page = client.get("/").text
-    assert "최근 활동" in page
-    assert "이력서R.pdf" in page and "규정R.pdf" in page
+    assert "이력서R.pdf" in client.get("/inbox?q=이력서R").text
+    assert "규정R.pdf" in client.get("/criteria").text
 
 
 def test_docx_restoration_export(client):
@@ -922,7 +928,7 @@ def test_document_view_is_a_pdf_viewer(client, tmp_path):
     ])
     page = client.get(f"/doc/{doc_id}").text
     assert f'src="/doc/{doc_id}/restored.pdf"' in page   # 뷰어가 주인공
-    assert "추출된 글과 표" in page                          # 추출 결과는 보조 자리
+    assert 'data-view="text"' in page and 'id="docSearch"' in page  # 본문 탭·문서 내 검색
     r = client.get(f"/doc/{doc_id}/restored.pdf")
     assert r.status_code == 200 and r.content[:4] == b"%PDF"
 

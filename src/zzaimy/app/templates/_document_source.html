@@ -2,11 +2,12 @@
   {% if extract_blocks %}
     {% for b in extract_blocks %}{{ b }}{% endfor %}
   {% elif doc.masked_text %}
-    <pre class="doc-text">{{ doc.masked_text }}</pre>
+    <pre class="doc-text" data-kind="text">{{ doc.masked_text }}</pre>
   {% else %}
     <p class="muted">추출된 내용이 없습니다.</p>
   {% endif %}
 {% endmacro %}
+{% set has_pdf = doc.status == 'reviewed' and original_kind %}
 <div class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 보기
     <a class="btn-ghost" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener">원본 열기 ↗</a>
@@ -24,20 +25,36 @@
       </div>
     </span>
   </h2>
-  {% if doc.status == 'reviewed' and original_kind %}
-    <div class="docview"><iframe src="/doc/{{ doc.id }}/restored.pdf" title="{{ doc.filename }}" loading="lazy"></iframe></div>
-    <p class="viewnote muted">인식한 글자는 원본과 다를 수 있습니다. 수치와 표는 원본을 함께 확인하세요.</p>
-    <details class="xtract"><summary>추출된 글과 표 확인</summary>
-      <div class="extract-doc document-extract">{{ extracted() }}</div>
-    </details>
-  {% elif doc.status == 'reviewed' %}
-    <p class="viewnote muted">문서 뷰어로 열 수 없어 추출된 글과 표를 표시합니다. 원래 서식은 원본 파일에서 확인하세요.</p>
-    <div class="extract-doc document-extract">{{ extracted() }}</div>
+  {% if doc.status == 'reviewed' %}
+  {# 원문·본문·표·그림을 한 자리에서 바꿔 본다. 검색은 추출된 글 전체에서 찾고
+     결과를 누르면 그 쪽의 원문이나 본문 위치로 간다 #}
+  <div class="docview-wrap" id="docViewer" data-pdf="{{ '/doc/%d/restored.pdf' % doc.id if has_pdf else '' }}">
+    <div class="docbar">
+      <div class="doctabs" role="tablist" aria-label="보기 방식">
+        {% if has_pdf %}<button type="button" role="tab" data-view="pdf" aria-selected="true">원문</button>{% endif %}
+        <button type="button" role="tab" data-view="text" aria-selected="{{ 'false' if has_pdf else 'true' }}">본문</button>
+        {% if n_table_chunks %}<button type="button" role="tab" data-view="table" aria-selected="false">표 {{ n_table_chunks }}</button>{% endif %}
+        {% if assets %}<button type="button" role="tab" data-view="image" aria-selected="false">그림 {{ assets|length }}</button>{% endif %}
+      </div>
+      <form class="docsearch" role="search" onsubmit="return false;">
+        <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
+        <input type="search" id="docSearch" placeholder="문서 안에서 찾기" aria-label="문서 안에서 찾기" autocomplete="off">
+        <span class="docsearch-count muted" id="docSearchCount"></span>
+      </form>
+    </div>
+    <div class="docsearch-results" id="docSearchResults" hidden></div>
+    {% if has_pdf %}
+    <div class="docpane" data-pane="pdf">
+      <div class="docview"><iframe id="docPdf" src="/doc/{{ doc.id }}/restored.pdf" title="{{ doc.filename }}" loading="lazy"></iframe></div>
+    </div>
+    {% endif %}
+    <div class="docpane" data-pane="extract" {% if has_pdf %}hidden{% endif %}>
+      <nav class="extract-nav" id="extractNav" aria-label="본문 목차" hidden></nav>
+      <div class="extract-doc document-extract" id="extractBody" data-show="{{ 'text' if not has_pdf else 'text' }}">{{ extracted() }}</div>
+    </div>
+    <p class="viewnote muted">{% if has_pdf %}인식한 글자는 원본과 다를 수 있습니다. 수치와 표는 원본을 함께 확인하세요.{% else %}문서 뷰어로 열 수 없어 추출된 글과 표를 표시합니다. 원래 서식은 원본 파일에서 확인하세요.{% endif %}</p>
+  </div>
   {% else %}
     <p class="muted">{{ '처리에 실패했습니다. 원본 파일은 위 버튼으로 열 수 있습니다.' if doc.status == 'failed' else '처리가 끝나면 추출 결과가 표시됩니다.' }}</p>
-  {% endif %}
-  {% if doc.parse_note %}<p class="viewnote muted">{{ doc.parse_note }}</p>{% endif %}
-  {% if n_text_chunks or n_table_chunks or assets or n_figtext_chunks %}
-  <p class="viewnote muted">본문 {{ n_text_chunks }}조각 · 표 {{ n_table_chunks }} · 그림 {{ assets|length }} · 그림 글자 {{ n_figtext_chunks }}</p>
   {% endif %}
 </div></div>

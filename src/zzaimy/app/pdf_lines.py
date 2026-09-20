@@ -197,3 +197,98 @@ def pdf_line_boxes(
     finally:
         doc.close()
     return pages
+
+
+def char_boxes(textpage) -> list[tuple[float, float, float, float]]:
+    """글자층의 글자 상자 (left, bottom, right, top) — PDF 좌표. 공백·줄바꿈은 뺀다."""
+    out = []
+    for i in range(textpage.count_chars()):
+        ch = textpage.get_text_range(i, 1)
+        if not ch.strip():
+            continue
+        out.append(textpage.get_charbox(i))
+    return out
+
+
+def complete_line_rect(
+    boxes: list[tuple[float, float, float, float]],
+    rect: tuple[float, float, float, float],
+    gap_ratio: float = 1.6,
+) -> tuple[float, float, float, float]:
+    """블록 상자에 걸친 줄을 끝까지 잇도록 상자를 좌우로 넓힌다.
+
+    구조 추출기의 상자가 줄보다 좁으면 상자 안 글자만 떠서 줄 끝이 잘린다
+    (실측 2026-09-20: '학과장회 통과일자 : 2022년…' → '학과장회 통'). 상자 안 글자와
+    같은 줄에 있고 글자 간격이 글자 폭의 gap_ratio 배 안으로 이어지는 글자만 붙인다 —
+    2단 편집의 단 사이처럼 넓은 틈은 넘지 않는다.
+    rect 와 반환값은 (left, bottom, right, top).
+    """
+    L, B, R, T = rect
+    inside = [b for b in boxes
+              if L <= (b[0] + b[2]) / 2 <= R and B <= (b[1] + b[3]) / 2 <= T]
+    if not inside:
+        return rect
+    nl, nr = L, R
+    for seed in inside:
+        cy = (seed[1] + seed[3]) / 2
+        h = max(seed[3] - seed[1], 1.0)
+        line = sorted((b for b in boxes if abs((b[1] + b[3]) / 2 - cy) <= h * 0.45),
+                      key=lambda b: b[0])
+        if not line:
+            continue
+        widths = sorted(b[2] - b[0] for b in line)
+        gap_max = max(widths[len(widths) // 2], 1.0) * gap_ratio
+        idx = next(i for i, b in enumerate(line) if b == seed)
+        j = idx
+        while j + 1 < len(line) and line[j + 1][0] - line[j][2] <= gap_max:
+            j += 1
+        k = idx
+        while k - 1 >= 0 and line[k][0] - line[k - 1][2] <= gap_max:
+            k -= 1
+        nl, nr = min(nl, line[k][0]), max(nr, line[j][2])
+    return (nl, B, nr, T)
+
+
+def _bigrams(s: str) -> set[str]:
+    t = "".join((s or "").split())
+    return {t[i:i + 2] for i in range(len(t) - 1)}
+
+
+def page_bbox_mappers(entries, textpage_of, sizes: dict, fits: dict) -> dict:
+    """페이지별 좌표 변환 — 구조 추출기 bbox → PDF 좌표(왼쪽 위 원점, pt).
+
+    MinerU 는 버전에 따라 bbox 를 렌더 픽셀로도, 가로·세로 각각 0~1000 정규화로도 준다.
+    배율 하나로 나누면 정규화 좌표에서 세로가 어긋나 한 줄 위 글자를 떠 온다(실측 2026-09-20:
+    '학과장회 통과일자 …' 칸에 윗줄 '무분장 규정'). 두 변환을 모두 해 보고, 원문 글자층에서
+    뜬 글이 추출기 자신이 읽은 글과 더 닮은 쪽을 그 페이지에 쓴다. 동률이면 기존(배율) 방식.
+    textpage_of(page_no) 는 pypdfium2 textpage 를 돌려준다.
+    """
+    by_page: dict[int, list] = {}
+    for e in entries:
+        if e.bbox and e.page_no in sizes:
+            by_page.setdefault(e.page_no, []).append(e)
+    out = {}
+    for pg, ents in by_page.items():
+        pw, ph = sizes[pg]
+        fit = max(fits.get(pg, 1.0), 1.0)
+        cands = {"fit": (lambda b, f=fit: tuple(v / f for v in b))}
+        if all(max(e.bbox) <= 1000 for e in ents):
+            cands["norm"] = (lambda b, w=pw, h=ph: (b[0] * w / 1000, b[1] * h / 1000,
+                                                    b[2] * w / 1000, b[3] * h / 1000))
+        if len(cands) == 1:
+            out[pg] = cands["fit"]
+            continue
+        samples = [e for e in ents if e.kind in ("text", "heading") and len((e.text or "").strip()) >= 4][:12]
+        tp = textpage_of(pg)
+        best, best_score = "fit", -1.0
+        for name, fn in cands.items():
+            sc = 0.0
+            for e in samples:
+                x0, y0, x1, y1 = fn(e.bbox)
+                got = tp.get_text_bounded(left=x0, bottom=ph - y1, right=x1, top=ph - y0) or ""
+                want = _bigrams(e.text)
+                sc += len(want & _bigrams(got)) / len(want) if want else 0.0
+            if sc > best_score + 1e-9:
+                best, best_score = name, sc
+        out[pg] = cands[best]
+    return out

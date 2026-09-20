@@ -143,21 +143,22 @@
 
 <div class="chat-main" id="chatWorkspace" data-session="{{ session_id or '' }}" data-waiting="{{ 'true' if waiting else 'false' }}">
 <header class="chat-workspace-head">
-  <div><span class="chat-eyebrow">행정 업무 지원</span><h1>{{ '이어서 검토하기' if messages else '근거를 찾고, 문서를 다듬으세요' }}</h1></div>
-  <button type="button" class="secondary" id="chatContextOpen" aria-controls="chatAside">기준·참고 자료</button>
+  <div class="chat-heading">
+    <span class="chat-eyebrow">{{ sector_labels.get(chat_project.sector, '행정 업무') ~ ' · 프로젝트' if chat_project else ('업무 상담' if messages else '새 대화') }}</span>
+    {% set conversation_title = chat_project.name if chat_project else (chat_session.title if chat_session else '근거를 찾고, 문서를 다듬으세요') %}
+    <h1 title="{{ conversation_title }}">{% if chat_project %}<a href="/project/{{ chat_project.id }}">{{ conversation_title }}</a>{% else %}{{ conversation_title }}{% endif %}</h1>
+    {% if chat_topic and (chat_project or chat_topic != conversation_title) %}
+    <p class="chat-topic" title="{{ chat_topic }}">최근 요청 · {{ chat_topic | truncate(110, true) }}</p>
+    {% endif %}
+  </div>
+  <div class="chat-head-actions"><a class="act-btn" href="/chat" title="다른 업무로 새 대화 시작" aria-label="새 대화"><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></a><button type="button" class="act-btn" id="chatHistory" title="수정 이력" aria-label="수정 이력" {% if not session_id %}hidden{% endif %}><iconify-icon icon="solar:history-linear"></iconify-icon></button><button type="button" class="secondary" id="chatContextOpen" aria-controls="chatAside">작업 패널</button></div>
 </header>
 <div class="drop-veil" id="dropVeil" hidden>파일을 놓으면 첨부됩니다</div>
 <div class="chat-scroll" id="chatScroll" aria-label="대화 내용" tabindex="0">
   {% if not messages %}
-  <div class="card reveal" style="margin-top:24px;"><div class="card-in" style="text-align:center; padding:34px 24px;">
-    <iconify-icon icon="solar:chat-round-line-linear" style="font-size:34px; color:var(--navy);"></iconify-icon>
-    <h2 style="justify-content:center; margin-top:10px;">어떤 업무를 진행할까요?</h2>
-    <p class="muted" style="margin:4px 0 0;">질문을 적거나 문서를 첨부해 검토를 시작하세요.</p>
-    <div class="starter">
-      <button type="button" data-fill="일반휴학 처리 기준을 알려주세요.">일반휴학 처리 기준</button>
-      <button type="button" data-fill="이 공고의 신청 자격과 제출 서류를 정리해 주세요.">공고 자격·서류 정리</button>
-      <button type="button" data-fill="첨부한 문서를 기준 문서에 비추어 검토해 주세요.">첨부 문서 검토</button>
-    </div>
+  <div class="card chat-empty-state"><div class="card-in">
+    <h2>어떤 업무를 도와드릴까요?</h2>
+    <p class="muted">{% if chat_project %}{{ chat_project.name }}의 자료와 지침을 바탕으로 시작합니다.{% else %}질문하거나 문서를 첨부해 업무를 시작하세요.{% endif %}</p>
   </div></div>
   {% endif %}
 
@@ -172,18 +173,18 @@
       {% endif %}
       {% if m.role == "assistant" %}
       <div class="turn-acts {{ 'always' if loop.last and not waiting else '' }}">
-        <button type="button" class="act-btn" data-copy>
-          <iconify-icon icon="solar:copy-linear"></iconify-icon>복사</button>
+        <button type="button" class="act-btn" data-copy title="답변 복사" aria-label="답변 복사">
+          <iconify-icon icon="solar:copy-linear"></iconify-icon></button>
         {% if loop.last and session_id and not waiting %}
         {% set user_turns = messages | selectattr('role', 'equalto', 'user') | list %}
-        {% if user_turns %}<button type="button" class="act-btn" data-resend-question="{{ user_turns[-1].content }}" title="같은 질문을 확인하고 새 메시지로 다시 보냅니다">다시 시도</button>{% endif %}
+        {% if user_turns %}<button type="button" class="act-btn" data-resend-question="{{ user_turns[-1].content }}" title="다시 시도 · 질문 확인 후 보내기" aria-label="다시 시도"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>{% endif %}
         {% endif %}
       </div>
       {% endif %}
       {% if m.role == 'user' %}
       <div class="turn-acts always">
-        <button type="button" class="act-btn" data-edit-question="{{ m.content }}">수정해서 보내기</button>
-        <button type="button" class="act-btn" data-resend-question="{{ m.content }}">다시 보내기</button>
+        <button type="button" class="act-btn" data-edit-question="{{ m.content }}" title="이 질문 수정" aria-label="이 질문 수정"><iconify-icon icon="solar:pen-linear"></iconify-icon></button>
+        <button type="button" class="act-btn" data-resend-question="{{ m.content }}" title="다시 보내기 · 질문 확인 후 보내기" aria-label="다시 보내기"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>
       </div>
       {% endif %}
     </div>
@@ -193,9 +194,10 @@
   {% endif %}
 </div>
 
-<form class="chat-dock" id="chatForm" action="/chat/send" method="post" enctype="multipart/form-data">
+<form class="chat-dock" id="chatForm" action="/chat/send" method="post" enctype="multipart/form-data" data-async-submit>
   <div class="chat-edit-note" id="chatEditNote" hidden><span id="chatEditText"></span><button type="button" id="chatEditCancel" class="act-btn">취소</button></div>
   {% if session_id %}<input type="hidden" name="session_id" value="{{ session_id }}">{% endif %}
+  {% if chat_project %}<input type="hidden" name="project_id" value="{{ chat_project.id }}">{% endif %}
   <div class="dock-chips" id="dockChips"></div>
   <div id="criteriaInputs" hidden></div>
   <div class="dock-row">
@@ -204,8 +206,8 @@
     <button type="button" class="dock-btn" id="attachButton" title="검토할 문서 첨부" aria-label="검토할 문서 첨부"><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
     <textarea name="question" id="chatInput" rows="2" placeholder="질문이나 수정할 내용을 입력하세요"
               aria-label="질문 또는 수정 요청" aria-describedby="chatKeyboardHint" autofocus autocomplete="off"></textarea>
-    <button type="submit" id="sendBtn" {% if waiting %}disabled style="opacity:.5;"{% endif %}>
-      <iconify-icon icon="solar:plain-2-linear"></iconify-icon>보내기</button>
+    <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
+      <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
   </div>
   <div class="dock-hint" id="dockHint" hidden>보낼 내용을 입력하세요.</div>
   <div class="chat-dock-footer"><span id="chatKeyboardHint">Enter 전송 · Shift+Enter 줄바꿈</span><span id="chatSendState" role="status" aria-live="polite">{{ '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' if waiting else '수치와 최종 판단은 근거 문서와 확인하세요.' }}</span></div>
@@ -213,13 +215,14 @@
 <button type="button" id="chatLatest" class="secondary" hidden>새 답변 보기 ↓</button>
 </div>{# /chat-main #}
 
-<aside class="chat-aside" id="chatAside">
+<div id="chatPanelBackdrop" class="chat-panel-backdrop" hidden></div>
+<aside class="chat-aside closed" id="chatAside" role="dialog" aria-modal="true" aria-labelledby="chatPanelTitle" aria-hidden="true" inert>
   <div class="aside-in">
     <div class="aside-top">
-      <h2><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>작업 패널</h2>
+      <h2 id="chatPanelTitle"><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>작업 패널</h2>
       <button type="button" id="asideClose" class="icon-btn" title="패널 닫기"
               style="width:32px; height:32px; font-size:15px;">
-        <iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
+        <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
     </div>
 
     <div class="aside-sec">
@@ -301,12 +304,12 @@
   <iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
 
 <script>
-  // 저장된 여닫기 상태를 첫 그리기 전에 적용 — 기본은 닫힘
+  // 페이지 진입 때는 항상 닫힘. 이전 화면의 패널 상태를 이어받지 않는다.
   (function () {
     var a = document.getElementById("chatAside"), b = document.getElementById("asideOpen");
     var open = false;
-    try { open = (localStorage.getItem("chatAside") || "0") === "1"; } catch (e) {}
     if (a) { a.classList.add("no-anim"); if (!open) a.classList.add("closed"); }
+    document.getElementById('chatPanelBackdrop').hidden = !open;
     if (b) b.hidden = open;
     requestAnimationFrame(function () { requestAnimationFrame(function () {
       if (a) a.classList.remove("no-anim"); }); });
@@ -625,18 +628,30 @@
     aside.classList.toggle("closed", !open);
     aside.inert = !open;
     aside.setAttribute('aria-hidden', String(!open));
+    document.getElementById('chatPanelBackdrop').hidden = !open;
+    document.getElementById('chatWorkspace').inert = open;
+    if (open) closeBtn.focus();
+    else if (aside.contains(document.activeElement)) document.getElementById('chatContextOpen').focus();
     document.getElementById('chatContextOpen').setAttribute('aria-expanded', String(open));
     if (openBtn) openBtn.hidden = open;
-    try { localStorage.setItem("chatAside", open ? "1" : "0"); } catch (e) {}
   }
   setAside(!aside.classList.contains('closed'));
   document.getElementById('chatContextOpen').addEventListener('click', function() {
     setAside(aside.classList.contains('closed'));
     if (!aside.classList.contains('closed')) closeBtn.focus();
   });
-  aside.addEventListener('keydown', function(event) {
+  document.addEventListener('keydown', function(event) {
+    if (aside.classList.contains('closed') || document.querySelector('.modal-back.open, dialog[open]')) return;
     if (event.key === 'Escape') { setAside(false); document.getElementById('chatContextOpen').focus(); }
+    if (event.key === 'Tab') {
+      var focusable = Array.from(aside.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),[tabindex="0"]'))
+        .filter(function(el) { return el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden'; });
+      var first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
   });
+  document.getElementById('chatPanelBackdrop').addEventListener('click', function() { setAside(false); });
   if (closeBtn) closeBtn.addEventListener("click", function () { setAside(false); });
   if (openBtn) openBtn.addEventListener("click", function () { setAside(true); });
   if (panelBtn) panelBtn.addEventListener("click", function () {

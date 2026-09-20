@@ -1,9 +1,28 @@
 /* 작업 화면의 좁은 폭에서도 검색·알림·계정을 모두 유지한다. */
 @media (max-width:600px) {
-  body:has(:is(#documentWorkspace,#chatWorkspace)) .topbar { flex-wrap:wrap; gap:8px; padding:10px 16px; }
-  body:has(:is(#documentWorkspace,#chatWorkspace)) .page-title { flex:1; font-size:14px; white-space:nowrap; }
-  body:has(:is(#documentWorkspace,#chatWorkspace)) .searchbox { order:5; flex:1 0 100%; width:100%; min-width:0; border-radius:8px; padding:7px 10px; }
-  body:has(:is(#documentWorkspace,#chatWorkspace)) .searchbox input { width:100%; min-width:0; }
-  body:has(:is(#documentWorkspace,#chatWorkspace)) .user-chip { max-width:135px; white-space:nowrap; overflow:hidden; font-size:12px; padding-right:7px; }
-  body:has(:is(#documentWorkspace,#chatWorkspace)) .topbar .popover { position:fixed; top:110px; right:16px; max-width:calc(100vw - 32px); }
+  body .topbar { flex-wrap:wrap; gap:8px; padding:10px 16px; }
+  body .page-title { flex:1; min-width:0; font-size:14px; }
+  body .topbar .searchbox { order:5; flex:1 0 100%; width:100%; min-width:0; border-radius:8px; padding:7px 10px; }
+  body .topbar .searchbox input { width:100%; min-width:0; }
+  body .user-chip { max-width:135px; white-space:nowrap; overflow:hidden; font-size:12px; padding-right:7px; }
+  body .topbar .popover { position:fixed; top:110px; right:16px; max-width:calc(100vw - 32px); }
+}
+main { min-width:0; }
+.history-link { padding:3px 5px; border:0; border-radius:5px; background:transparent; box-shadow:none; color:var(--muted); font:inherit; font-size:11px; cursor:pointer; }
+.session-manager { width:min(640px,calc(100vw - 24px)); max-height:85dvh; padding:24px; border:1px solid var(--line); border-radius:16px; color:var(--ink); }
+.session-manager::backdrop { background:#15243c66; }
+.session-manager header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.session-manager h2 { margin:0; }
+.session-manager .muted { font-size:12px; }
+.session-search { display:flex; flex-wrap:wrap; gap:8px; }
+.session-search input { min-width:120px; flex:1; padding:10px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:13px; }
+.session-search select { max-width:100%; border:1px solid var(--line); border-radius:8px; padding:8px; background:white; }
+.session-row { padding:16px 0; border-bottom:1px solid var(--line); }
+.session-row > a { font-weight:600; overflow-wrap:anywhere; color:var(--navy); }
+.session-actions { display:flex; gap:8px; }
+.session-manager button { padding:7px 11px; font-size:12px; }
+.session-manager [role=status] { font-size:12px; color:var(--muted); }
+:is(button,a,input,select,textarea):focus-visible { outline:2px solid #607C9E; outline-offset:3px; }
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; transition-duration:.01ms !important; transition-delay:0s !important; }
 }

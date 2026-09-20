@@ -5,9 +5,8 @@
 않는다. 순서를 바꾸면 축 B 의 성과를 입증할 수 없기 때문이다.
 
 쓰는 곳: 학습 담당 장비(DGX). 서빙 장비(젯슨 토르)와 역할이 다르다.
-학습이 끝난 가중치는 safetensors 로 옮겨 토르에서 서빙한다
-(scripts/82_serve_writer.sh). TensorRT 엔진은 장비 간에 옮길 수 없고
-서빙 장비에서 다시 만들어야 한다.
+학습 결과는 LoRA 어댑터만 토르로 옮기고(scripts/94_ship_adapter.sh), 토르가 베이스 위에
+얹어 서빙한다(scripts/82_serve_writer.sh). 27B 병합본을 옮기지 않는다.
 
 사용:
   python scripts/83_sft_writer_qlora.py --check          # 준비 상태만 점검
@@ -134,7 +133,7 @@ def main() -> int:
     trainer.train()
     trainer.save_model(args.out)
     print(f"학습을 마쳤습니다 — {args.out}")
-    print("서빙 장비로 옮긴 뒤 scripts/82_serve_writer.sh 로 띄우십시오.")
+    print("다음: scripts/94_ship_adapter.sh 로 토르에 옮긴 뒤 scripts/82_serve_writer.sh 로 띄우십시오.")
     return 0
 
 

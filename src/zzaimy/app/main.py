@@ -290,6 +290,18 @@ def create_app(
         name="static",
     )
     db = Database(db_path)
+    from zzaimy.app.chat_revisions import ChatRevisions, install_routes as install_chat_revisions
+
+    chat_revisions = ChatRevisions(Path(db_path))
+    from zzaimy.app.chat_history import ChatHistory, install_routes as install_chat_history
+    chat_history = ChatHistory(Path(db_path))
+    # 대화의 근거·주제 — 기록 목록이 '일반 대화' 대신 근거 문서의 사업·규정 이름을 보인다
+    from zzaimy.app.chat_topics import ChatTopics
+
+    chat_topics = ChatTopics(Path(db_path))
+    chat_history.topics = chat_topics
+    install_chat_history(app, chat_history)
+    _chat_running: set[int] = set()
     # 화면에서 고른 모델 서버 주소·모델을 프로세스 전체에 적용 (설정 > 환경변수)
     from zzaimy.generate import model_config as _mc
 
@@ -344,6 +356,9 @@ def create_app(
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
     templates.env.globals["decision_labels"] = DECISION_LABELS
     templates.env.globals["sector_labels"] = SECTOR_LABELS
+    # 문서 이름 — 'law03.pdf' 같은 파일 이름 대신 첫 쪽의 규정 이름·날짜
+    from zzaimy.app.doc_title import display_name as _doc_name
+    templates.env.globals["doc_name"] = _doc_name
     templates.env.globals["quality_kind_labels"] = QUALITY_KIND_LABELS
 
     import re as _re
@@ -373,7 +388,7 @@ def create_app(
             llm_status = {"ok": False, "configured": False, "model": "", "models": [], "error": "확인 실패"}
         return {
             "llm_status": llm_status,
-            "chat_sessions": db.list_chat_sessions(owner=owner),
+            "chat_sessions": chat_history.sessions(owner, limit=12),
             "pending_docs": pending[:8],
             "pending_count": len(pending),
             "pending_by_type": by_type,
@@ -386,6 +401,7 @@ def create_app(
         }
 
     @app.get("/", response_class=HTMLResponse)
+    @app.get("/inbox", response_class=HTMLResponse)
     def index(
         request: Request,
         type: str | None = None,
@@ -394,6 +410,8 @@ def create_app(
         flt: str | None = None,
         page: int = 0,
     ):
+        if request.url.path == "/" and not any((type, q, project, flt, page)):
+            return RedirectResponse("/chat", status_code=303)
         doc_type = type if type in INBOX_TYPES else None
         all_docs = [
             d for d in db.list_documents(
@@ -458,15 +476,29 @@ def create_app(
             if d["status"] == "reviewed"
         ]
 
+    @app.get("/connections", response_class=HTMLResponse)
+    def connections_page(request: Request):
+        return templates.TemplateResponse(request, "connections.html", ctx(request, {}))
+
+    def _owned_chat(request, session_id):
+        session = db.get_chat_session(session_id)
+        if not session or session.get("owner") != request.state.user:
+            raise HTTPException(404, "대화를 찾을 수 없습니다.")
+        return session
+
     @app.get("/chat", response_class=HTMLResponse)
-    def chat_new(request: Request):
+    def chat_new(request: Request, project: int | None = None):
+        chat_project = db.get_project(project) if project else None
+        if project and (not chat_project or chat_project.get("owner") != request.state.user):
+            raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
         return templates.TemplateResponse(
             request,
             "chat_workspace.html",
             ctx(request, {
                 "messages": [], "criteria_docs": _criteria_docs(),
                 "waiting": False, "session_id": None, "sources": [],
-                "recommended_criteria": [],
+                "recommended_criteria": db.get_project_criteria_ids(project) if project else [],
+                "chat_session": None, "chat_project": chat_project, "chat_topic": "",
             }),
         )
 
@@ -498,16 +530,27 @@ def create_app(
 
     @app.get("/chat/{session_id}", response_class=HTMLResponse)
     def chat_session(request: Request, session_id: int):
+        _owned_chat(request, session_id)
         messages = db.list_chats(session_id)
-        waiting = bool(messages) and messages[-1]["role"] == "user"
+        waiting = session_id in _chat_running or (bool(messages) and messages[-1]["role"] == "user")
+        session = db.get_chat_session(session_id)
+        project = (
+            db.get_project(session["project_id"])
+            if session and session.get("project_id") else None
+        )
+        latest_question = next(
+            (m["content"] for m in reversed(messages) if m["role"] == "user"), ""
+        )
+        topic = " ".join(_strip_attach_prefix(latest_question).split())
         return templates.TemplateResponse(
             request,
             "chat_workspace.html",
             ctx(request, {
                 "messages": messages, "criteria_docs": _criteria_docs(),
                 "waiting": waiting, "session_id": session_id,
-                "sources": _chat_sources.get(session_id, []),
+                "sources": _chat_sources.get(session_id) or chat_topics.latest(session_id),
                 "recommended_criteria": _recommended_criteria(session_id, messages),
+                "chat_session": session, "chat_project": project, "chat_topic": topic,
             }),
         )
 
@@ -533,14 +576,15 @@ def create_app(
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
     @app.get("/chat/{session_id}/status")
-    def chat_status(session_id: int):
+    def chat_status(request: Request, session_id: int):
+        _owned_chat(request, session_id)
         messages = db.list_chats(session_id)
-        return {"waiting": bool(messages) and messages[-1]["role"] == "user"}
+        return {"waiting": session_id in _chat_running or (bool(messages) and messages[-1]["role"] == "user")}
 
     # 세션별 최근 검색 근거(연관 자료) — 채팅 사이드바에 노출한다.
     _chat_sources: dict[int, list] = {}
 
-    def _answer_task(
+    def _answer_task_impl(
         session_id: int, q: str, stored: Path | None, criteria: list[int],
         external: bool = False,
     ) -> None:
@@ -585,7 +629,25 @@ def create_app(
             answer = describe_llm_error(e) + ". 검색된 근거 자료는 아래에 표시됩니다."
         # 근거(연관 자료)는 LLM 성공·실패와 무관하게 저장 — 검색은 CPU로 동작
         _chat_sources[session_id] = list(getattr(r, "last_sources", []) or [])
+        try:
+            chat_topics.record(session_id, _chat_sources[session_id])
+        except Exception:
+            pass                    # 근거 기록이 실패해도 답변은 남긴다
         db.add_chat(session_id, "assistant", answer)
+
+    def _answer_task(session_id, q, stored, criteria, external=False):
+        try:
+            _answer_task_impl(session_id, q, stored, criteria, external)
+        finally:
+            _chat_running.discard(session_id)
+
+    def _schedule_answer(background, session_id, q, stored, criteria, external=False):
+        _chat_running.add(session_id)
+        background.add_task(_answer_task, session_id, q, stored, criteria, external)
+
+    install_chat_revisions(app, db, chat_revisions, _schedule_answer,
+                           lambda sid: sid in _chat_running, inbox_dir,
+                           ALLOWED_EXTENSIONS, _chat_sources)
 
     @app.post("/chat/send")
     def chat_send(
@@ -604,6 +666,8 @@ def create_app(
         if session_id is None:
             title = q
             if project_id and (proj := db.get_project(project_id)):
+                if proj.get("owner") != request.state.user:
+                    raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
                 title = f"[{proj['name'][:14]}] {q}"
             else:
                 project_id = None
@@ -611,9 +675,11 @@ def create_app(
                 title=title, project_id=project_id,
                 owner=getattr(request.state, "user", "zzaimy"),
             )
+        else:
+            _owned_chat(request, session_id)
         # 응답 대기 중 중복 전송 방지 — 마지막 메시지가 아직 답변 전이면 무시
         last = db.list_chats(session_id, limit=1)
-        if last and last[-1]["role"] == "user":
+        if session_id in _chat_running or (last and last[-1]["role"] == "user"):
             return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
         stored: Path | None = None
@@ -628,8 +694,8 @@ def create_app(
             shown = f"[첨부] {attachment.filename}\n{q}"
 
         db.add_chat(session_id, "user", shown)
-        background.add_task(_answer_task, session_id, q, stored, criteria,
-                            bool(external))
+        chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
+        _schedule_answer(background, session_id, q, stored, criteria, bool(external))
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
     def _strip_attach_prefix(text: str) -> str:
@@ -639,23 +705,26 @@ def create_app(
         return text
 
     @app.get("/chat/{session_id}/messages")
-    def chat_messages(session_id: int):
+    def chat_messages(request: Request, session_id: int):
         """대화 내용을 JSON 으로 돌려준다 — 페이지를 떠나지 않는 위젯과 갱신에 쓴다."""
+        session = _owned_chat(request, session_id)
         rows = db.list_chats(session_id)
         return {
-            "waiting": bool(rows) and rows[-1]["role"] == "user",
+            "title": session["title"], "project_id": session.get("project_id"),
+            "waiting": session_id in _chat_running or (bool(rows) and rows[-1]["role"] == "user"),
             "messages": [
                 {"id": m["id"], "role": m["role"], "content": m["content"]} for m in rows
             ],
         }
 
     @app.post("/chat/{session_id}/retry")
-    def chat_retry(background: BackgroundTasks, session_id: int):
+    def chat_retry(request: Request, background: BackgroundTasks, session_id: int):
         """마지막 답변을 지우고 같은 질문으로 다시 생성한다."""
+        _owned_chat(request, session_id)
         rows = db.list_chats(session_id)
         if not rows:
             raise HTTPException(404)
-        if rows[-1]["role"] == "user":
+        if session_id in _chat_running or rows[-1]["role"] == "user":
             return {"ok": False, "error": "답변을 기다리는 중입니다"}
         question = ""
         for m in reversed(rows):
@@ -669,7 +738,7 @@ def create_app(
         session = db.get_chat_session(session_id)
         if session and session.get("project_id"):
             criteria = db.get_project_criteria_ids(int(session["project_id"]))
-        background.add_task(_answer_task, session_id, question, None, criteria)
+        _schedule_answer(background, session_id, question, None, criteria)
         return {"ok": True}
 
     from zzaimy.generate import llm_connections
@@ -708,8 +777,8 @@ def create_app(
             if key == "doc.identity":
                 r = _identify_document(db, int(ctx["doc_id"]))
                 if not r["ok"]:
-                    return f"문서 정체를 읽지 못했습니다 — {r['error']}"
-                return "문서 정체를 정리했습니다 — " + " · ".join(r["identity"].values())
+                    return f"사업 정보를 읽지 못했습니다 — {r['error']}"
+                return "사업 정보를 정리했습니다 — " + " · ".join(r["identity"].values())
             if key == "doc.analyze":
                 doc_id = int(ctx["doc_id"])
                 if db.get_document(doc_id) is None:
@@ -825,13 +894,27 @@ def create_app(
             asked = f"「{quoted}」\n\n{q}"
         else:
             asked = q
-        if session_id is not None and db.get_chat_session(session_id) is not None:
+        project_match = re.fullmatch(r"/project/(\d+)", page)
+        doc_match = re.fullmatch(r"/doc/(\d+)", page)
+        page_project = int(project_match[1]) if project_match else None
+        if doc_match:
+            page_doc = db.get_document(int(doc_match[1]))
+            if page_doc and page_doc.get("owner") == request.state.user:
+                page_project = page_doc.get("project_id")
+        if page_project:
+            project = db.get_project(page_project)
+            if not project or project.get("owner") != request.state.user:
+                raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
+        if session_id is not None:
+            session = _owned_chat(request, session_id)
+            if page_project and session.get("project_id") != page_project:
+                raise HTTPException(409, "다른 프로젝트의 대화입니다. 이 프로젝트에서 새 대화를 시작해 주세요.")
             last = db.list_chats(session_id, limit=1)
-            if last and last[-1]["role"] == "user":
+            if session_id in _chat_running or (last and last[-1]["role"] == "user"):
                 return {"ok": False, "error": "앞선 답변을 기다리는 중입니다", "session_id": session_id}
         else:
             session_id = db.create_chat_session(
-                title=q[:60], owner=getattr(request.state, "user", "zzaimy")
+                title=q[:60], project_id=page_project, owner=getattr(request.state, "user", "zzaimy")
             )
         db.add_chat(session_id, "user", asked)
         found = _page_actions(page, q)
@@ -841,7 +924,7 @@ def create_app(
             if line:
                 done.append(line)
                 db.add_chat(session_id, "assistant", line)
-        background.add_task(_answer_task, session_id, asked, None, [])
+        _schedule_answer(background, session_id, asked, None, [])
         return {"ok": True, "session_id": session_id, "done": done,
                 "actions": [x for x in found if not x.get("auto")]}
 
@@ -964,7 +1047,7 @@ def create_app(
         r = _identify_document(db, doc_id)
         return RedirectResponse(
             f"/doc/{doc_id}?" + ("ok=" if r["ok"] else "err=")
-            + _q(("문서 정체를 정리했습니다 — " + " · ".join(r["identity"].values()))
+            + _q(("사업 정보를 정리했습니다 — " + " · ".join(r["identity"].values()))
                  if r["ok"] else r["error"]),
             status_code=303,
         )
@@ -4135,7 +4218,7 @@ figure img{{width:100%;display:block}}
         stored = Path(doc["stored_path"])
         if stored.exists():
             stored.unlink()
-        dest = "/criteria" if doc["doc_type"] == "regulation" else "/"
+        dest = "/criteria" if doc["doc_type"] == "regulation" else ("/ocr" if doc["doc_type"] == "ocr" else "/inbox")
         return RedirectResponse(dest, status_code=303)
 
     @app.post("/doc/{doc_id}/review")

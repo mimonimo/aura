@@ -41,7 +41,8 @@
                      letter-spacing: 0.04em; padding: 4px 12px; border-radius: 12px; }
 
   .side-nav { display: flex; flex-direction: column; gap: 2px; }
-  .side-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  .side-nav a, .side-nav .side-search { display: flex; align-items: center; justify-content:flex-start; gap: 10px; padding: 10px 12px;
+                border:0; box-shadow:none; background:transparent;
                 border-radius: 11px; color: var(--ink); text-decoration: none;
                 font-size: 14.5px; font-weight: 600;
                 transition: background .35s var(--ease), color .35s var(--ease); }
@@ -49,8 +50,7 @@
                 transition: color .35s var(--ease); }
   .side-nav a:hover { background: var(--panel); }
   .side-nav a:hover iconify-icon { color: var(--navy); }
-  .side-nav a.active { background: linear-gradient(135deg, #E8EFFC, #EEF3FB);
-                color: var(--navy); box-shadow: inset 0 0 0 1px #D8E4F8; }
+  .side-nav a.active { background: #e9eaec; color: var(--ink); }
   .side-nav a.active iconify-icon { color: var(--navy); }
 
   .side-label { margin: 18px 12px 6px; font-size: 11px; font-weight: 700;
@@ -165,15 +165,15 @@
   .pill.failed { background: #FDECEC; color: var(--red); }
   .pill.type { background: #E8EFFC; color: var(--navy); }
 
-  /* 버튼 체계 — 주 버튼은 잉크색 채움 하나, 나머지는 흰 바탕에 테두리. 채움색 남발·파랑 호버·글로우 없음 */
+  /* 주 버튼은 연한 파란 배경과 짙은 글자, 보조 버튼은 흰 바탕. 클릭 시에도 검정 채움 없음. */
   button, .btn { display: inline-flex; align-items: center; justify-content: center;
-           gap: 7px; background: var(--ink); color: #fff; border: 1px solid var(--ink);
+           gap: 7px; background: #EDF3FA; color: #294B73; border: 1px solid #C8D7E8;
            border-radius: 10px; padding: 9px 16px; font-size: 13.5px; font-weight: 600;
            line-height: 1.2; cursor: pointer; font-family: inherit; text-decoration: none;
            transition: background .2s var(--ease), border-color .2s var(--ease),
                        color .2s var(--ease); }
-  button:hover, .btn:hover { background: #111827; border-color: #111827; }
-  button:active, .btn:active { background: #0B1220; }
+  button:hover, .btn:hover { background: #E1EBF7; border-color: #AABFD8; }
+  button:active, .btn:active { background: #D4E2F2; border-color: #8FAACB; }
   button:focus-visible, .btn:focus-visible, .btn-ghost:focus-visible {
            outline: 2px solid #94A3B8; outline-offset: 2px; }
   button:disabled, .btn.off { background: var(--panel); color: var(--faint);
@@ -417,30 +417,43 @@
   }
   @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 </style>
+<link rel="stylesheet" href="/static/workspace-shell.css">
+<script src="/static/chat-history.js" defer></script>
+<script src="/static/workspace-navigation.js" defer></script>
+<script>try { document.documentElement.classList.toggle('sidebar-collapsed', localStorage.getItem('workspaceSidebarCollapsed') === '1'); } catch (_) {}</script>
+<script>
+// 공용 PC에서 계정이 바뀌면 이전 계정의 대화 포인터·임시 초안을 넘기지 않는다.
+try {
+  const owner = {{ request.state.user | tojson }};
+  if (sessionStorage.getItem('chatOwner') !== owner) {
+    Object.keys(sessionStorage).filter(key => key === 'agentSession' || key === 'agentDraftTransfer' || key.startsWith('chatCriteria:')).forEach(key => sessionStorage.removeItem(key));
+  }
+  sessionStorage.setItem('chatOwner', owner);
+} catch (_) {}
+document.addEventListener('submit', function(event) {
+  if (event.target.getAttribute('action') !== '/logout') return;
+  try { Object.keys(sessionStorage).filter(key => key.startsWith('chat') || key === 'agentSession' || key === 'agentDraftTransfer').forEach(key => sessionStorage.removeItem(key)); } catch (_) {}
+});
+</script>
 {% block head %}{% endblock %}
+<link rel="stylesheet" href="/static/platform-spaces.css">
 </head>
 <body>
-<aside class="sidebar">
+<aside class="sidebar" id="workspaceSidebar" aria-label="업무 탐색">
+  <div class="sidebar-header">
+  <button type="button" id="navClose" class="icon-btn sidebar-close" aria-label="메뉴 접기" title="메뉴 접기"><iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
   <a class="side-brand" href="/">
     <img src="/static/ync-logo.png" alt="영남이공대학교">
     <span>행정 에이전트 플랫폼</span>
   </a>
+  </div>
   <nav class="side-nav">
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
-    <a href="/" class="{{ 'active' if request.url.path == '/' and (active_tab is not defined or active_tab == 'all') else '' }}">
-      <iconify-icon icon="solar:inbox-archive-linear"></iconify-icon>전체 문서함</a>
-  </nav>
-  <div class="side-label">업무 영역</div>
-  <nav class="side-nav">
-    <a href="/?type=grant" class="{{ 'active' if active_tab is defined and active_tab == 'grant' else '' }}">
-      <iconify-icon icon="solar:buildings-2-linear"></iconify-icon>국고사업{% if pending_by_type.get("grant") %}<span class="count-pill">{{ pending_by_type["grant"] }}</span>{% endif %}</a>
-    <a href="/?type=recruit" class="{{ 'active' if active_tab is defined and active_tab == 'recruit' else '' }}">
-      <iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>채용{% if pending_by_type.get("recruit") %}<span class="count-pill">{{ pending_by_type["recruit"] }}</span>{% endif %}</a>
-    <a href="/?type=admission" class="{{ 'active' if active_tab is defined and active_tab == 'admission' else '' }}">
-      <iconify-icon icon="solar:square-academic-cap-linear"></iconify-icon>입학{% if pending_by_type.get("admission") %}<span class="count-pill">{{ pending_by_type["admission"] }}</span>{% endif %}</a>
-    <a href="/?type=auto" class="{{ 'active' if active_tab is defined and active_tab == 'auto' else '' }}">
-      <iconify-icon icon="solar:document-text-linear"></iconify-icon>일반 행정{% if pending_by_type.get("auto") %}<span class="count-pill">{{ pending_by_type["auto"] }}</span>{% endif %}</a>
+    <button type="button" class="side-search" data-chat-history><iconify-icon icon="solar:magnifer-linear"></iconify-icon>대화 검색</button>
+    <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox') or request.url.path.startswith('/project/') else '' }}">
+      <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
+    <a href="/connections" class="{{ 'active' if request.url.path in ('/connections', '/criteria', '/ocr') else '' }}"><iconify-icon icon="solar:link-round-linear"></iconify-icon>자료 연결</a>
   </nav>
   {% if side_projects %}
   <div class="side-label">프로젝트</div>
@@ -454,8 +467,8 @@
     {% endfor %}
   </nav>
   {% endif %}
-  <div class="side-label">채팅 기록</div>
-  <div class="side-section">
+  <div class="side-label">최근 대화</div>
+  <div class="side-section" id="chatSessionList">
     {% for cs in chat_sessions %}
       <a class="side-item {{ 'active' if request.url.path == '/chat/' ~ cs.id else '' }}"
          href="/chat/{{ cs.id }}" title="{{ cs.title }}">
@@ -470,8 +483,6 @@
        style="opacity:.7; font-size:12.5px;">
       <iconify-icon icon="solar:code-square-linear"></iconify-icon>개발 현황 (개발자)</a>
     {% endif %}
-    <a href="/criteria" class="{{ 'active' if request.url.path.startswith('/criteria') else '' }}">
-            <iconify-icon icon="solar:library-linear"></iconify-icon>기준 문서 (규정·지침)</a>
     {% if llm_status is defined %}
     <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok else '' }}">
       {% if llm_status.ok %}<span style="color:var(--green);">●</span> AI 모델 서버 연결됨{% if llm_status.model %} · {{ llm_status.model }}{% endif %}
@@ -485,8 +496,11 @@
   <div class="topbar">
     <button type="button" class="navtoggle" id="navToggle" aria-label="메뉴 열기">
       <iconify-icon icon="solar:hamburger-menu-linear"></iconify-icon></button>
+    {% if request.url.path in ('/', '/inbox', '/connections', '/criteria', '/ocr') %}
+    <a class="icon-btn" data-page-back href="{{ '/connections' if request.url.path in ('/criteria', '/ocr') else '/chat' }}" aria-label="뒤로가기" title="뒤로가기"><iconify-icon icon="solar:arrow-left-linear"></iconify-icon></a>
+    {% endif %}
     <span class="page-title">{% block pagetitle %}문서 검토함{% endblock %}</span>
-    <form class="searchbox" action="/" method="get">
+    <form class="searchbox" action="/" method="get" role="search" aria-label="전체 문서 검색"><input type="hidden" name="type" value="all">
       <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
       <input type="search" name="q" placeholder="문서 검색" value="{{ q if q is defined else '' }}">
     </form>
@@ -583,19 +597,7 @@
       }
     }, true);
   })();
-  // 좁은 폭 사이드바 토글
-  (function () {
-    var t = document.getElementById("navToggle");
-    var bd = document.getElementById("navBackdrop");
-    if (!t) return;
-    function close() { document.body.classList.remove("nav-open"); }
-    t.addEventListener("click", function () { document.body.classList.toggle("nav-open"); });
-    if (bd) bd.addEventListener("click", close);
-    document.querySelectorAll(".sidebar a").forEach(function (a) {
-      a.addEventListener("click", close);
-    });
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") close(); });
-  })();
+  // 업무 탐색의 접기·모바일 초점 관리는 workspace-navigation.js에서 처리한다.
   document.querySelectorAll("[data-modal-open]").forEach(function (btn) {
     btn.addEventListener("click", function () {
       var m = document.querySelector(btn.dataset.modalOpen);
@@ -628,6 +630,8 @@
   }, true);
   window.addEventListener("popstate", function () { closeAllModals(); });
   document.querySelectorAll("[data-pop]").forEach(function (btn) {
+    btn.setAttribute('aria-controls', btn.dataset.pop);
+    btn.setAttribute('aria-expanded', 'false');
     btn.addEventListener("click", function (e) {
       e.stopPropagation();
       var pop = document.getElementById(btn.dataset.pop);
@@ -635,16 +639,26 @@
         if (p !== pop) p.classList.remove("open");
       });
       pop.classList.toggle("open");
+      document.querySelectorAll('[data-pop]').forEach(function(item) { item.setAttribute('aria-expanded', String(document.getElementById(item.dataset.pop).classList.contains('open'))); });
     });
   });
   document.addEventListener("click", function () {
     document.querySelectorAll(".popover.open").forEach(function (p) { p.classList.remove("open"); });
+    document.querySelectorAll('[data-pop]').forEach(function(btn) { btn.setAttribute('aria-expanded','false'); });
+  });
+  document.addEventListener('keydown', function(event) {
+    if (event.key !== 'Escape') return;
+    document.querySelectorAll('[data-pop]').forEach(function(btn) {
+      var pop = document.getElementById(btn.dataset.pop);
+      if (pop.classList.contains('open')) { pop.classList.remove('open'); btn.setAttribute('aria-expanded','false'); btn.focus(); }
+    });
   });
   document.querySelectorAll(".popover").forEach(function (p) {
     p.addEventListener("click", function (e) { e.stopPropagation(); });
   });
   // 파일 폼 제출 시 무반응처럼 보이지 않게 — 버튼을 잠그고 진행 표시
   document.querySelectorAll("form").forEach(function (form) {
+    if (form.hasAttribute('data-async-submit')) return;
     if (!form.querySelector("input[type=file]")) return;
     form.addEventListener("submit", function () {
       var btn = form.querySelector("button[type=submit]");
@@ -724,12 +738,18 @@
             display: flex; align-items: center; justify-content: center; font-size: 24px;
             box-shadow: 0 10px 30px rgba(27,59,117,.32); transition: transform .2s var(--ease); }
   .ag-fab:hover { transform: translateY(-2px); }
-  .ag-panel { position: fixed; right: 22px; bottom: 86px; z-index: 61; width: 384px;
+  .ag-panel { position: fixed; right: 22px; bottom: 22px; z-index: 61; width: 384px;
               max-width: calc(100vw - 32px); height: 560px; max-height: calc(100vh - 130px);
               background: #fff; border: 1px solid var(--line); border-radius: 18px;
-              box-shadow: 0 22px 60px rgba(27,59,117,.22); display: none;
+              box-shadow: 0 16px 48px rgba(27,59,117,.16); display: flex;
+              opacity:0; visibility:hidden; pointer-events:none; transform:translateY(12px) scale(.98);
+              transform-origin:bottom right;
+              transition:opacity .18s ease, transform .22s ease, visibility 0s linear .22s;
               flex-direction: column; overflow: hidden; }
-  .ag-panel.open { display: flex; }
+  .ag-panel.open { opacity:1; visibility:visible; pointer-events:auto; transform:none; transition-delay:0s; }
+  .ag-fab[hidden] { display: none; }
+  .ag-panel .ag-body { min-height: 0; }
+  .ag-panel .ag-head, .ag-panel .ag-foot { flex-shrink: 0; }
   .ag-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px;
              border-bottom: 1px solid var(--line); }
   .ag-head b { font-size: 13.5px; flex: 1; }
@@ -785,18 +805,19 @@
             padding: 9px 10px; border-radius: 8px; cursor: pointer; text-align: left; }
   .ag-menu button:hover { background: var(--panel); }
   @media (max-width: 560px) {
-    .ag-panel { right: 12px; left: 12px; width: auto; bottom: 80px; }
+    .ag-panel { right: 12px; left: 12px; width: auto; bottom: 14px; }
     .ag-fab { right: 14px; bottom: 14px; }
   }
 </style>
 
-<button type="button" class="ag-fab" id="agFab" title="에이전트에게 묻기" aria-label="에이전트에게 묻기">
+<button type="button" class="ag-fab" id="agFab" title="에이전트에게 묻기" aria-label="에이전트에게 묻기" aria-controls="agPanel" aria-expanded="false">
   <iconify-icon icon="solar:chat-round-line-linear"></iconify-icon></button>
 
-<div class="ag-panel" id="agPanel" role="dialog" aria-label="에이전트">
+<div class="ag-panel" id="agPanel" role="dialog" aria-label="에이전트" aria-hidden="true" inert>
   <div class="ag-head">
     <iconify-icon icon="solar:chat-round-line-linear" style="color:var(--navy); font-size:18px;"></iconify-icon>
-    <b>에이전트</b>
+    <b id="agTitle" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">새 대화</b>
+    <button type="button" class="icon-btn" data-chat-history title="대화 기록" aria-label="대화 기록" style="width:28px; height:28px; font-size:14px;"><iconify-icon icon="solar:history-linear"></iconify-icon></button>
     <button type="button" class="icon-btn" id="agNew" title="새 대화"
             style="width:28px; height:28px; font-size:14px;">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></button>
@@ -809,12 +830,10 @@
   </div>
   <div class="ag-body" id="agBody">
     <div class="ag-empty" id="agEmpty">
-      <p style="margin:0 0 12px;">무엇이든 물어보세요.</p>
-      <div class="ag-tips">
-        <button type="button" data-ask="이 화면에서 무엇을 할 수 있습니까?">이 화면 사용법</button>
-        <button type="button" data-ask="일반휴학 처리 기준을 알려주세요.">규정 찾기</button>
-        <button type="button" data-ask="최근 접수된 문서를 정리해 주세요.">문서 정리</button>
-      </div>
+      <iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>
+      <h3>{% if project is defined and project %}프로젝트 업무를 함께 진행하세요{% else %}어떤 업무를 도와드릴까요?{% endif %}</h3>
+      <p>{% if project is defined and project %}{{ project.name }}{% else %}필요한 작업을 아래에 입력하세요.{% endif %}</p>
+      <p class="ag-empty-hint">이전 대화는 상단의 기록 버튼에서 찾을 수 있습니다.</p>
     </div>
   </div>
   <div class="ag-foot">
@@ -861,21 +880,41 @@
   var menu = document.getElementById("agMenu");
   if (!fab || !panel) return;
 
-  var sid = null, busy = false, quoted = "";
+  var sid = null, busy = false, quoted = "", posting = false, generation = 0, pollTimer;
+  var pageProject = {{ (project.id if project is defined and project else none) | tojson }};
+  var chatTitle = document.getElementById("agTitle");
   try { sid = sessionStorage.getItem("agentSession") || null; } catch (e) {}
 
   function setSid(v) {
+    if (sid !== v) { generation++; clearTimeout(pollTimer); }
     sid = v;
     try { if (v) sessionStorage.setItem("agentSession", v); else sessionStorage.removeItem("agentSession"); } catch (e) {}
-    if (full) full.href = v ? "/chat/" + v : "/chat";
+    if (full) full.href = v ? "/chat/" + v : (pageProject ? "/chat?project=" + pageProject : "/chat");
+    chatTitle.textContent = v ? "이어서 대화" : "새 대화";
   }
   setSid(sid);
+  document.addEventListener('chat-session-deleted', function(event) {
+    if (String(sid) !== String(event.detail.id)) return;
+    setSid(null); busy = false; lastActions = []; render([]); setQuote(''); paintSend();
+  });
 
   function grow() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 110) + "px";
   }
-  function paintSend() { send.disabled = busy || !input.value.trim(); }
+  function paintSend() {
+    send.disabled = busy || !input.value.trim();
+    document.getElementById("agNew").disabled = posting;
+    full.setAttribute("aria-disabled", String(posting));
+  }
+  full.addEventListener("click", function(event) {
+    if (posting) { event.preventDefault(); return; }
+    // 화면 전환을 명시적으로 누른 때만 초안을 한 번 전달하고 수신 화면에서 지운다.
+    if (input.value.trim() || quoted) {
+      try { sessionStorage.setItem("agentDraftTransfer", JSON.stringify({session:sid || "", text:input.value, quote:quoted})); }
+      catch (_) { event.preventDefault(); alert("작성한 내용을 복사한 뒤 전체 화면을 열어 주세요."); }
+    }
+  });
 
   // 모델이 붙이는 강조 기호는 화면에 그대로 드러내지 않는다
   function plain(text) {
@@ -930,31 +969,56 @@
     body.scrollTop = body.scrollHeight;
   }
   function load(showPending) {
-    if (!sid) return;
+    if (!sid || !panel.classList.contains("open")) return;
+    clearTimeout(pollTimer);
+    var requestedSession = sid, token = generation;
+    busy = true; paintSend();
     fetch("/chat/" + sid + "/messages", { cache: "no-store" })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { if (!r.ok || r.redirected) { var error = new Error(); error.status = r.status; throw error; } return r.json(); })
       .then(function (d) {
+        if (token !== generation || requestedSession !== sid) return;
+        if (pageProject && d.project_id !== pageProject) {
+          setSid(null); busy = false; lastActions = []; render([]); paintSend();
+          chatTitle.textContent = "이 프로젝트의 새 대화"; return;
+        }
+        if (!Array.isArray(d.messages)) throw new Error();
         render(d.messages);
+        var firstQuestion = d.messages.find(function(m) { return m.role === "user"; });
+        chatTitle.textContent = d.title || (firstQuestion ? firstQuestion.content : "새 대화");
+        chatTitle.title = chatTitle.textContent;
         if (d.waiting) {
           busy = true; paintSend(); if (showPending) pending();
-          setTimeout(function () { load(true); }, 2000);
+          pollTimer = setTimeout(function () { if (token === generation) load(true); }, 2000);
         } else { busy = false; paintSend(); drawActions(); }
       })
-      .catch(function () { busy = false; paintSend(); });
+      .catch(function (error) {
+        if (token !== generation) return;
+        if (error.status === 403 || error.status === 404) {
+          setSid(null); busy = false; lastActions = []; render([]); paintSend(); return;
+        }
+        busy = true; paintSend();
+        chatTitle.textContent = "대화 연결을 확인하고 있습니다";
+        pollTimer = setTimeout(function () { if (token === generation) load(true); }, 4000);
+      });
   }
 
   function open() {
+    panel.inert = false; panel.setAttribute('aria-hidden', 'false');
     panel.classList.add("open");
+    fab.hidden = true; fab.setAttribute("aria-expanded", "true");
     if (sid) load(true);
-    setTimeout(function () { input.focus(); }, 60);
+    setTimeout(function () { if (panel.classList.contains('open')) input.focus(); }, 180);
   }
-  function close() { panel.classList.remove("open"); }
+  function close() { panel.classList.remove("open"); panel.inert = true; panel.setAttribute('aria-hidden', 'true'); clearTimeout(pollTimer); fab.hidden = false; fab.setAttribute("aria-expanded", "false"); fab.focus(); }
+  panel.addEventListener('keydown', function(event) { if(event.key === 'Escape') { event.stopPropagation(); close(); } });
   fab.addEventListener("click", function () {
     if (panel.classList.contains("open")) close(); else open();
   });
   document.getElementById("agClose").addEventListener("click", close);
   document.getElementById("agNew").addEventListener("click", function () {
-    setSid(null); render([]); setQuote(""); input.value = ""; grow(); paintSend(); input.focus();
+    if (posting) return;
+    if (input.value.trim() && !confirm("작성 중인 내용을 지우고 새 대화를 시작할까요?")) return;
+    setSid(null); busy = false; lastActions = []; render([]); setQuote(""); input.value = ""; grow(); paintSend(); input.focus();
   });
 
   function setQuote(text) {
@@ -967,7 +1031,8 @@
   function submit() {
     var q = input.value.trim();
     if (!q || busy) return;
-    busy = true; paintSend();
+    busy = true; posting = true; paintSend();
+    var sentQuote = quoted, token = generation;
     var fd = new FormData();
     fd.append("question", q);
     if (quoted) fd.append("context", quoted);
@@ -977,15 +1042,27 @@
     mine.className = "ag-msg user"; mine.textContent = shown;
     if (empty.parentNode === body) body.innerHTML = "";
     body.appendChild(mine); pending();
+    var pendingBubble = body.lastElementChild;
     input.value = ""; grow(); setQuote("");
     if (sid) fd.append("session_id", sid);
     fetch("/chat/ask", { method: "POST", body: fd })
-      .then(function (r) { return r.json(); })
+      .then(function (r) { if (!r.ok || r.redirected) throw new Error(); return r.json(); })
       .then(function (d) {
-        if (d.ok) { setSid(String(d.session_id)); showActions(d.actions); load(true); }
-        else { busy = false; paintSend(); }
+        if (token !== generation) return;
+        if (!d.ok) throw new Error();
+        posting = false; setSid(String(d.session_id)); showActions(d.actions); load(true);
       })
-      .catch(function () { busy = false; paintSend(); });
+      .catch(function () {
+        if (token !== generation) return;
+        busy = false; posting = false;
+        mine.remove(); pendingBubble.remove();
+        // 답변 대기 중 작성한 다음 질문도 버리지 않는다.
+        input.value = q + (input.value ? "\n\n" + input.value : "");
+        setQuote(sentQuote); grow(); paintSend();
+        var error = document.createElement("div"); error.className = "ag-msg assistant";
+        error.setAttribute("role", "status"); error.textContent = "전송 결과를 확인하지 못했습니다. 입력은 복원했습니다. 전체 대화에서 전송 여부를 확인한 뒤 다시 보내세요.";
+        body.appendChild(error); input.focus();
+      });
   }
   document.querySelectorAll(".ag-tips button[data-ask]").forEach(function (b) {
     b.addEventListener("click", function () {
@@ -1026,7 +1103,7 @@
     b.addEventListener("click", function () {
       setQuote(menu.dataset.text || "");
       hideMenu();
-      panel.classList.add("open");
+      open();
       input.value = b.dataset.q;
       grow(); paintSend(); submit();
     });

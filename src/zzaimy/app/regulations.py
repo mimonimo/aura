@@ -694,6 +694,27 @@ def hybrid_candidates(
     return select_candidates(merged, {c["id"]: c for c in chunks}, limit)
 
 
+def drop_near_duplicates(chunks: list[dict]) -> list[dict]:
+    """순서를 지키며 거의 같은 내용의 조각을 한 번만 남긴다.
+
+    같은 규정이 두 번 적재되면(예: 규정집 파일과 개별 파일) 근거 세 자리를 같은 조항이 나눠
+    가진다. 앞선(점수가 높은) 쪽을 남긴다. 기준은 적재 품질 점검의 근사 중복 기준과 같다.
+    """
+    from zzaimy.app.chunk_quality import NEAR_DUP_JACCARD, _fingerprint, _jaccard, _shingles
+
+    kept: list[dict] = []
+    seen: list[tuple[str, set]] = []
+    for c in chunks:
+        fp = _fingerprint(c.get("content") or "")
+        sh = _shingles(c.get("content") or "")
+        if any(fp == kfp or (fp and fp in kfp) or _jaccard(sh, ksh) >= NEAR_DUP_JACCARD
+               for kfp, ksh in seen):
+            continue
+        seen.append((fp, sh))
+        kept.append(c)
+    return kept
+
+
 def find_relevant(
     db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2,
     sector: str | None = None, dept: str | None = None,
@@ -715,9 +736,23 @@ def find_relevant(
     if scored is None:            # 리랭커가 없는 환경 — 융합 순위를 그대로 쓴다
         return candidates[:top_k]
     kept, weak = prune_scored(scored)
+    # 근거가 약할 때만 질의 확장 — 규정 용어를 모르고 상황으로 물은 질문을 규정 용어 검색어로 풀어
+    # 다시 찾는다. 평가(2026-09-20, 바꿔 말한 질의 150): R@5 0.593→0.647, MRR 0.462→0.498,
+    # 정확한 질의 150 은 5건만 확장되고 지표 변화 없음. 확장본의 1위가 더 나을 때만 바꾼다.
+    if weak:
+        from zzaimy.app import query_expand
+
+        if query_expand.configured():
+            expanded = query_expand.expand(query_text)
+            if expanded != query_text:
+                c2 = hybrid_candidates(db, expanded, min_overlap, sector, dept)
+                s2 = rerank_scored(query_text, c2) if c2 else None   # 원 질문 기준으로 다시 잰다
+                if s2 and s2[0][1] > scored[0][1]:
+                    scored = s2
+                    kept, weak = prune_scored(scored)
     by_score = dict(zip((id(c) for c, _ in scored), (s for _, s in scored)))
     out = []
-    for c in kept[:top_k]:
+    for c in drop_near_duplicates(kept)[:top_k]:
         item = dict(c)
         item["rerank_score"] = round(by_score.get(id(c), 0.0), 4)
         if weak:

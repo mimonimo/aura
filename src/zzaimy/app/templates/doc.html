@@ -1,11 +1,32 @@
 {% extends "base.html" %}
-{% block title %}{{ doc.filename }} — 검토{% endblock %}
+{% block title %}{{ doc_name(doc) }} — 검토{% endblock %}
 {% block pagetitle %}{{ "기준 문서" if doc.doc_type == "regulation" else "문서 검토" }}{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/document-workspace.css">
   <script src="/static/document-workspace.js" defer></script>
 {% endblock %}
 {% block content %}
+{% macro program_meta() %}
+  {# 사업 정보 — 따로 칸을 두지 않고 문서 이름 아래 한 줄로. 본문에서 확인된 값만 #}
+  {% set shown = [] %}
+  <div class="doc-meta">
+    {% for key, label in [("program","사업"), ("organizer","주체"), ("year","연도"),
+                          ("target","대상"), ("scale","규모"), ("period","기간"), ("law","근거")] %}
+      {% if identity and identity.get(key) %}{% set _ = shown.append(key) %}
+      <span class="doc-meta-item"><span class="doc-meta-k">{{ label }}</span>{{ identity[key] }}</span>
+      {% endif %}
+    {% endfor %}
+    {% for d in same_program or [] %}
+      <a href="/doc/{{ d.id }}" class="pill type" style="text-decoration:none;" title="같은 사업을 다루는 문서">{{ doc_name(d) }}{% if d.year %} · {{ d.year }}{% endif %}</a>
+    {% endfor %}
+    {% if doc.masked_text %}
+    <form action="/doc/{{ doc.id }}/identity" method="post" style="margin:0;">
+      <button type="submit" class="btn-ghost doc-meta-btn" data-busy="읽는 중…"
+              title="본문에서 사업·주체·근거를 다시 읽습니다">{{ "다시 읽기" if shown else "사업 정보 읽기" }}</button>
+    </form>
+    {% endif %}
+  </div>
+{% endmacro %}
 {% set drafting = doc.coverage and (doc.coverage.startswith("초안 작성 중") or doc.coverage.startswith("분석 중")) %}
 {% set can_draft = doc.status == "reviewed" and doc.doc_type == "grant" and not (doc.coverage and doc.coverage.startswith("초안 작성 중")) %}
 <div id="documentWorkspace" data-status-url="/doc/{{ doc.id }}/status" data-poll="{{ 'true' if doc.status in ('processing', 'received') or drafting else 'false' }}">
@@ -66,13 +87,13 @@
   <div class="card-in">
     <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon>
       <a href="/doc/{{ doc.id }}/original" target="_blank"
-         style="text-decoration:none; color:inherit;" title="원본 파일 열기">{{ doc.filename }}
+         style="text-decoration:none; color:inherit;" title="원본 파일 열기 — {{ doc.filename }}">{{ doc_name(doc) }}
         <iconify-icon icon="solar:square-top-up-linear"
                       style="font-size:14px; color:var(--faint);"></iconify-icon></a></h2>
     <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:0 0 14px;">
       <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
       {% if doc.doc_type in ("regulation", "ocr") %}
-        <span class="pill reviewed">{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
+        <span class="pill reviewed" {% if doc.parse_note %}title="{{ doc.parse_note }}"{% endif %}>{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
       {% else %}
         <span class="pill {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
         <span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>
@@ -91,6 +112,7 @@
         <button type="submit" class="btn-ghost" style="padding:3px 10px; font-size:12px; color:var(--red); border-color:#E7B9B8;">삭제</button>
       </form>
     </div>
+    {{ program_meta() }}
     {% if doc.status == "failed" %}
       <p class="notice"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>처리 실패: {{ doc.error }}</span></p>
     {% elif doc.status != "reviewed" %}
@@ -103,28 +125,13 @@
   <span>처리가 완료되었습니다. 작성 중인 내용을 저장한 뒤 새 결과를 확인하세요.</span>
   <button type="button" class="secondary" id="documentRefresh">새 결과 보기</button>
 </div>
-<nav class="document-nav" aria-label="문서 작업 바로가기">
-  <a href="#documentSource">문서 확인</a>
-  <a href="#documentWork">{{ '요약·분석' if doc.doc_type in ('regulation', 'ocr') else ('검토·초안' if doc.doc_type == 'grant' else '검토 의견') }}</a>
-  {% if doc.doc_type not in ('regulation', 'ocr') %}<a href="#documentFeedback">의견·판정</a>{% endif %}
-</nav>
-<div class="document-columns">
-  <section id="documentSource" class="document-source" aria-label="검토할 문서">
-    {% include "_document_source.html" %}
-  </section>
-  <section id="documentWork" class="document-work" aria-label="문서 검토 작업">
-{% if doc.status in ('received', 'processing') %}
-<div class="card"><div class="card-in"><h2>문서 처리 중</h2><p class="muted">본문 추출과 검토가 끝나면 결과가 표시됩니다. 원본 파일은 지금 열 수 있습니다.</p></div></div>
-{% elif doc.status == 'failed' %}
-<div class="card"><div class="card-in"><h2>처리 결과 확인 필요</h2><p class="muted">위 오류 내용을 확인하고 프로젝트에서 파일을 다시 접수하거나 관리자에게 처리를 요청하세요.</p></div></div>
-{% endif %}
 {% if doc.doc_type in ("regulation", "ocr") %}
   {% set analyzing = doc.coverage and doc.coverage.startswith("분석 중") %}
   {% if doc.ai_review or doc.coverage or doc.status == 'reviewed' %}
   <div class="card reveal">
     <div class="card-in">
       {% set is_summary = doc.ai_review and (doc.ai_review.startswith("추출 완료") or doc.ai_review.startswith("규정 등록 완료")) %}
-      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>{{ ("기준 등록 결과" if is_summary else "AI 문서 요약") if doc.doc_type == "regulation" else ("추출 요약" if is_summary else "맥락 분석") }}</h2>
+      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>문서 분석</h2>
       {% if analyzing %}
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>{{ doc.coverage }} — 끝나면 자동 갱신됩니다.</span></p>
       {% elif doc.coverage and doc.coverage.startswith("맥락 분석 실패") %}
@@ -139,20 +146,33 @@
       <div class="draft-body">{{ doc.ai_review | md_view }}</div>
       {% endif %}
       {% endif %}
-      {% if doc.doc_type in ("ocr", "regulation") and doc.status == "reviewed" and not analyzing %}
-      <form action="/doc/{{ doc.id }}/analyze" method="post" style="margin-top:12px;">
-        {% if doc.doc_type == "regulation" %}
-        <button type="submit" class="secondary">{{ "다시 요약" if not is_summary and doc.ai_review else "AI 문서 요약" }}</button>
-        <span class="muted" style="margin-left:8px;">이 기준이 무엇을 다루고 어디에 쓰이는지 정리합니다.</span>
-        {% else %}
-        <button type="submit" class="secondary">{{ "다시 분석" if not is_summary and doc.ai_review else "맥락 분석" }}</button>
-        <span class="muted" style="margin-left:8px;">추출 결과를 근거로 문서 유형·핵심 정보·활용처를 정리합니다.</span>
-        {% endif %}
-      </form>
+      {% if not doc.ai_review and not analyzing %}
+      <p class="muted" style="font-size:12.5px; margin:0;">요약을 아직 만들지 않았습니다.</p>
       {% endif %}
+      <div class="analysis-actions">
+        {% if doc.status == "reviewed" and not analyzing %}
+        <form action="/doc/{{ doc.id }}/analyze" method="post" style="margin:0;">
+          <button type="submit" class="secondary">{{ "다시 요약" if not is_summary and doc.ai_review else "요약 만들기" }}</button>
+        </form>
+        {% endif %}
+      </div>
     </div>
   </div>
   {% endif %}
+{% endif %}
+{# 기준·추출 문서는 읽는 것이 일이므로 문서 보기를 전체 폭으로 두고 분석을 아래에 둔다 #}
+<div class="document-columns{{ ' stacked' if doc.doc_type in ('regulation', 'ocr') }}">
+  <section id="documentSource" class="document-source" aria-label="검토할 문서">
+    {% include "_document_source.html" %}
+  </section>
+  <section id="documentWork" class="document-work" aria-label="문서 검토 작업">
+{% if doc.status in ('received', 'processing') %}
+<div class="card"><div class="card-in"><h2>문서 처리 중</h2><p class="muted">본문 추출과 검토가 끝나면 결과가 표시됩니다. 원본 파일은 지금 열 수 있습니다.</p></div></div>
+{% elif doc.status == 'failed' %}
+<div class="card"><div class="card-in"><h2>처리 결과 확인 필요</h2><p class="muted">위 오류 내용을 확인하고 프로젝트에서 파일을 다시 접수하거나 관리자에게 처리를 요청하세요.</p></div></div>
+{% endif %}
+{% if doc.doc_type in ("regulation", "ocr") %}
+  {# 문서 분석은 문서 보기 위(맨 앞)에 그린다 #}
 {% else %}
   {% if doc.ai_review %}
   <div class="card reveal"><div class="card-in">
@@ -293,39 +313,7 @@
 </div>
 {% endif %}
 
-{% if doc.masked_text %}
-{# 이 문서가 어떤 사업에 관한 것인지 — 본문에서 확인된 값만 둔다 #}
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:bookmark-square-minimalistic-linear"></iconify-icon>문서 정체
-    <form action="/doc/{{ doc.id }}/identity" method="post" style="margin:0 0 0 auto;">
-      <button type="submit" class="secondary" data-busy="읽는 중…" style="padding:5px 11px; font-size:12px;">
-        <iconify-icon icon="solar:magic-stick-3-linear"></iconify-icon>{{ "다시 읽기" if identity else "본문에서 읽기" }}</button>
-    </form></h2>
-  {% if identity %}
-  <dl style="display:grid; grid-template-columns:auto 1fr; gap:6px 16px; font-size:13px; margin:0;">
-    {% for key, label in [("program","사업"), ("organizer","주체"), ("year","연도"),
-                          ("target","대상"), ("scale","규모"), ("period","기간"), ("law","근거")] %}
-      {% if identity.get(key) %}
-      <dt class="muted" style="white-space:nowrap;">{{ label }}</dt><dd style="margin:0;">{{ identity[key] }}</dd>
-      {% endif %}
-    {% endfor %}
-  </dl>
-  {% if same_program %}
-  <div style="margin-top:14px; padding-top:12px; border-top:1px solid var(--line);">
-    <p class="muted" style="font-size:11.5px; margin:0 0 8px;">같은 사업을 다루는 문서</p>
-    <div style="display:flex; flex-wrap:wrap; gap:6px;">
-      {% for d in same_program %}
-      <a href="/doc/{{ d.id }}" class="pill type" style="text-decoration:none;">{{ d.filename }}{% if d.year %} · {{ d.year }}{% endif %}</a>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-  {% else %}
-  <p class="muted" style="font-size:12.5px; margin:0;">아직 읽지 않았습니다.</p>
-  {% endif %}
-</div></div>
 
-{% endif %}
 
   </section>
 </div>

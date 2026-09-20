@@ -66,7 +66,8 @@ def _bigram_jaccard(a, b) -> float:
 
 
 def swap_tables(
-    entries, tables: list, lattice_tables: list, fits: dict[int, float]
+    entries, tables: list, lattice_tables: list, fits: dict[int, float],
+    mappers: dict | None = None,
 ) -> tuple[list, int]:
     """MinerU 표 목록을 같은 자리의 괘선 표로 교체한다.
 
@@ -91,7 +92,10 @@ def swap_tables(
         cands = lattice_by_page.get(e.page_no, [])
         best, best_ratio = None, 0.0
         fit = max(fits.get(e.page_no, 1.0), 1.0)
-        ebox = tuple(v / fit for v in e.bbox) if e.bbox else None
+        if e.bbox and mappers and e.page_no in mappers:
+            ebox = tuple(mappers[e.page_no](e.bbox))     # 페이지별로 확인한 좌표 관행
+        else:
+            ebox = tuple(v / fit for v in e.bbox) if e.bbox else None
         for k, lt in enumerate(cands):
             if (e.page_no, k) in taken or lt.bbox is None:
                 continue
@@ -239,8 +243,8 @@ def _cluster(vals: list[float]) -> list[float]:
     return [sum(g) / len(g) for g in out]
 
 
-def _page_chars(page) -> list[tuple[float, float, float, str]]:
-    """글자층 → (중심x, 중심y, 높이, 글자) 목록."""
+def _page_chars(page) -> list[tuple[float, float, float, str, float]]:
+    """글자층 → (중심x, 중심y, 높이, 글자, 반폭) 목록. 반폭은 낱말 간격(공백)을 되살리는 데 쓴다."""
     tp = page.get_textpage()
     try:
         chars = []
@@ -248,8 +252,14 @@ def _page_chars(page) -> list[tuple[float, float, float, str]]:
             ch = tp.get_text_range(i, 1)
             if not ch or not ch.strip():
                 continue
-            left, bottom, right, top = tp.get_charbox(i)
-            chars.append(((left + right) / 2, (bottom + top) / 2, top - bottom, ch))
+            # '넉넉한 상자'(글꼴 진행 폭·높이)를 쓴다. 잉크 상자는 ① 라틴 글자 사이에도 틈이 있어 'HEAD' 가
+            # 'H EAD' 로 갈라지고 ② 마침표처럼 글줄 아래에만 잉크가 있는 글자의 중심이 내려가 다른 줄로
+            # 묶인다('2026. 09. 28.' → '2026 09 28' + '. . .'). 넉넉한 상자면 둘 다 생기지 않는다.
+            try:
+                left, bottom, right, top = tp.get_charbox(i, loose=True)
+            except TypeError:
+                left, bottom, right, top = tp.get_charbox(i)
+            chars.append(((left + right) / 2, (bottom + top) / 2, top - bottom, ch, (right - left) / 2))
         return chars
     finally:
         tp.close()
@@ -328,21 +338,33 @@ def _build_table(hs, vs, chars, page_no: int, page_h: float) -> ParsedTable | No
     )
 
 
+# 같은 줄 두 글자 사이 틈이 글자 높이의 이 비율보다 크면 낱말 사이(공백)로 본다. 한글 본문의 자간은
+# 보통 높이의 0~5%, 낱말 간격은 25~33% 안팎이다. PDF 는 공백을 글자 대신 위치 간격으로 두는 일이 많아
+# 글자만 이어 붙이면 '도제학교운영지원신규기업발굴' 처럼 낱말이 붙는다(실측 2026-09-20 채용 공고 표).
+_WORD_GAP = 0.15
+
+
 def _cell_text(chars, x0, x1, y0, y1) -> str:
-    """셀 사각형 안의 글자를 줄 단위로 묶어 원문 그대로 잇는다."""
+    """셀 사각형 안의 글자를 줄 단위로 묶어 원문 그대로 잇는다 — 낱말 간격은 공백으로 되살린다."""
     inside = [
-        (cx, cy, ch) for cx, cy, _h, ch in chars
+        (cx, cy, h, ch, hw) for cx, cy, h, ch, hw in chars
         if x0 <= cx <= x1 and y0 <= cy <= y1
     ]
     if not inside:
         return ""
-    lines: list[list[tuple[float, float, str]]] = []
-    for cx, cy, ch in sorted(inside, key=lambda t: -t[1]):
-        if lines and abs(lines[-1][0][1] - cy) <= _LINE_TOL:
-            lines[-1].append((cx, cy, ch))
+    lines: list[list[tuple]] = []
+    for item in sorted(inside, key=lambda t: -t[1]):
+        if lines and abs(lines[-1][0][1] - item[1]) <= _LINE_TOL:
+            lines[-1].append(item)
         else:
-            lines.append([(cx, cy, ch)])
+            lines.append([item])
     parts = []
     for line in lines:
-        parts.append("".join(ch for _, _, ch in sorted(line, key=lambda t: t[0])))
-    return "\n".join(p.strip() for p in parts if p.strip())
+        out, prev = [], None
+        for cx, _cy, h, ch, hw in sorted(line, key=lambda t: t[0]):
+            if prev is not None and (cx - hw) - (prev[0] + prev[1]) > _WORD_GAP * max(h, 1.0):
+                out.append(" ")
+            out.append(ch)
+            prev = (cx, hw)
+        parts.append("".join(out))
+    return "\n".join(" ".join(p.split()) for p in parts if p.strip())

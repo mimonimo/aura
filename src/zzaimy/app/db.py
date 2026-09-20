@@ -704,8 +704,16 @@ class Database:
         import json as _json
 
         with self._conn() as conn:
+            # 첫 쪽에서 결정론적으로 찾은 이름·날짜(doc_title.py)는 모델 재읽기로 지우지 않는다
+            row = conn.execute("SELECT identity FROM documents WHERE id = ?", (doc_id,)).fetchone()
+            try:
+                old = _json.loads((row[0] if row else None) or "{}")
+            except ValueError:
+                old = {}
+            merged = {k: old[k] for k in ("title", "date") if old.get(k)}
+            merged.update(identity)
             conn.execute("UPDATE documents SET identity = ? WHERE id = ?",
-                         (_json.dumps(identity, ensure_ascii=False), doc_id))
+                         (_json.dumps(merged, ensure_ascii=False), doc_id))
 
     def get_doc_identity(self, doc_id: int) -> dict:
         import json as _json

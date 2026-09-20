@@ -52,9 +52,13 @@ def _encoder():
 # 상대값으로 두는 이유: bge-reranker-v2-m3의 절대 점수는 모델 버전·max_length에
 # 따라 눈금이 달라 임의의 숫자를 박을 수 없고, 이 저장소에서는 로컬에 모델이 없어
 # 절대 분포를 실측하지 못했다(미확인). 반면 "1위보다 한참 못한 후보는 근거가 아니다"는
-# 눈금과 무관하게 성립한다. 절대 하한이 필요하면 ZZAIMY_RERANK_MIN으로 넣는다
-# (기본 0 = 사용 안 함) — 운영 VM에서 점수 분포를 재고 나서 채우는 자리다.
+# 눈금과 무관하게 성립한다. 절대 하한은 ZZAIMY_RERANK_MIN(기본 RERANK_MIN).
 RERANK_TAIL_RATIO = 0.25
+# 절대 하한 — 1위조차 이 값 아래면 '근거가 약함'으로 표시한다. 운영 VM 실측(2026-09-20,
+# bge-reranker-v2-m3, 점수 0~1): 규정 질의 1위=정답 39건 하위 5% 0.837·중앙 0.992, 무관 질의
+# 15건('문서 접수 해줘'·'안녕하세요' 등) 최대 0.058. 0.1 에서 규정 질의 약함 0/39, 무관 15/15 걸러짐.
+# 전엔 0(미사용)이라 관련도 0.01 짜리 조각이 약함 표시 없이 근거로 실렸다.
+RERANK_MIN = 0.1
 
 
 def rerank_scored(query: str, chunks: list[dict],
@@ -62,6 +66,14 @@ def rerank_scored(query: str, chunks: list[dict],
     """(조각, 점수)를 점수 내림차순으로. 리랭커가 없거나 실패하면 None."""
     if os.environ.get("ZZAIMY_NO_RERANK") or not chunks:
         return None
+    # 서빙 장비의 LLM 리랭커(ZZAIMY_LLM_RERANK=주소|모델)가 켜져 있으면 그것으로 — 0~1 눈금.
+    # 동점은 원래(하이브리드) 순서. 실패하면 크로스인코더로 물러난다. 평가: scripts/90.
+    from zzaimy.app import llm_rerank
+
+    llm = llm_rerank.configured_scores(query, chunks)
+    if llm is not None:
+        order = sorted(range(len(chunks)), key=lambda i: (-llm[i], i))
+        return [(chunks[i], llm[i]) for i in order]
     ce = _encoder()
     if ce is None:
         return None
@@ -87,7 +99,7 @@ def prune_scored(scored: list[tuple[dict, float]]) -> tuple[list[dict], bool]:
     if not scored:
         return [], False
     top = scored[0][1]
-    abs_min = float(os.environ.get("ZZAIMY_RERANK_MIN", "0") or 0)
+    abs_min = float(os.environ.get("ZZAIMY_RERANK_MIN", RERANK_MIN) or 0)
     ratio = float(os.environ.get("ZZAIMY_RERANK_TAIL_RATIO", RERANK_TAIL_RATIO))
     cut = top * ratio if top > 0 else float("-inf")
     kept = [c for c, s in scored if s >= max(cut, abs_min)]
@@ -115,7 +127,7 @@ def rerank_chunks(query: str, chunks: list[dict], text_key: str = "content",
     if not prune:
         return ordered
     top = scored[0][1]
-    abs_min = float(os.environ.get("ZZAIMY_RERANK_MIN", "0") or 0)
+    abs_min = float(os.environ.get("ZZAIMY_RERANK_MIN", RERANK_MIN) or 0)
     ratio = float(os.environ.get("ZZAIMY_RERANK_TAIL_RATIO", RERANK_TAIL_RATIO))
     # 점수 눈금이 음수까지 갈 수 있어(로짓) 비율은 양수 구간에서만 뜻이 있다
     if abs_min and top < abs_min:
