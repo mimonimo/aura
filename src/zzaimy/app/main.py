@@ -1455,6 +1455,18 @@ def create_app(
 
     templates.env.filters["md_view"] = _md_view
 
+    def _eval_md(name: str) -> str:
+        """기계가 쓴 사본(data/platform/eval/) 먼저, 없으면 저장소 사본(docs/)."""
+        from zzaimy.eval.retrieval_eval import MARKDOWN_PATH
+
+        try:
+            path = MARKDOWN_PATH.parent / name
+            if path.is_file():
+                return path.read_text(encoding="utf-8")
+        except OSError:
+            pass
+        return _dev_read(name)
+
     def _dev_read(name: str, tail_lines: int | None = None) -> str:
         try:
             text = (_DOCS_DIR / name).read_text(encoding="utf-8")
@@ -3461,9 +3473,11 @@ def create_app(
                 changelog or "(기록 없음)"
             )
 
-        # 정량 지표는 결정론으로 그대로 붙인다
+        # 정량 지표는 결정론으로 그대로 붙인다.
+        # 검색 품질 표는 기계가 마지막으로 쓴 사본을 먼저 본다 — 평가는 운영에서 돌고
+        # 저장소 사본은 --report 로만 갱신되므로, 산출물 폴더가 최신이다.
         base_tbl = "\n".join(
-            ln for ln in _dev_read("retrieval-baseline-mini.md").splitlines()
+            ln for ln in _eval_md("retrieval-baseline-mini.md").splitlines()
             if ln.startswith("|")
         )
         embed_tbl = "\n".join(
