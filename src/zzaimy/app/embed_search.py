@@ -52,7 +52,8 @@ def remote_vectors(texts: list[str]):
     req = urllib.request.Request(url, data=json.dumps({"texts": list(texts)}).encode("utf-8"),
                                  headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=float(os.environ.get("ZZAIMY_EMBED_TIMEOUT", "8"))) as r:
+        timeout = float(os.environ.get("ZZAIMY_EMBED_TIMEOUT", "8"))
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             got = json.loads(r.read().decode("utf-8"))
         import numpy as np
 

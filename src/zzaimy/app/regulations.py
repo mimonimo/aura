@@ -228,7 +228,8 @@ def _table_heading(text: str) -> str:
         # 두 글자짜리는 표 살림 낱말(구분·학년·합계·계·개발·운영)이라 무엇도 가리지 못한다.
         # 실측(2026-09-20): 이 하한이 없으면 431개 중 '합 계'·'구분 · 초급' 같은 표제가 섞여
         # 들어오고, 표제가 붙은 조각은 잡음 필터에서 보호되므로 잡음까지 살아남는다.
-        if len(_PLAIN.sub("", pick)) >= 3 and re.search(r"[가-힣A-Za-z]", pick) and pick not in picks:
+        plain = _PLAIN.sub("", pick)
+        if len(plain) >= 3 and re.search(r"[가-힣A-Za-z]", pick) and pick not in picks:
             picks.append(pick)
         if len(picks) == 2:
             break

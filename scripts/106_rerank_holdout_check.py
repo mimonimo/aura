@@ -63,7 +63,8 @@ def main() -> int:
             ids = [c for c in cand if c in by_id]
             texts = [f"{by_id[c]['reg_title']} {by_id[c]['heading']}\n{(by_id[c]['content'] or '')[:900]}"
                      for c in ids]
-            hyb.append(ids); gold_list.append(g)
+            hyb.append(ids)
+            gold_list.append(g)
             for url, out in ((args.base, base_runs), (args.trained, trained_runs)):
                 s = score(url, q, texts)
                 out.append([ids[i] for i in sorted(range(len(ids)), key=lambda i: (-s[i], i))])

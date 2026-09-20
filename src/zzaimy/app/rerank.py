@@ -97,7 +97,8 @@ def _remote_scores(query: str, texts: list[str]) -> list[float] | None:
                        "max_length": _remote_conf()[0]}).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=float(os.environ.get("ZZAIMY_RERANK_TIMEOUT", "8"))) as r:
+        timeout = float(os.environ.get("ZZAIMY_RERANK_TIMEOUT", "8"))
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             got = json.loads(r.read().decode("utf-8"))
         scores = got.get("scores")
         if isinstance(scores, list) and len(scores) == len(texts):
