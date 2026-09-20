@@ -19,6 +19,14 @@
   .dev-tools .card-in { display: flex; flex-direction: column; height: 100%; }
   .dev-tools .card-in > p { flex: 1; margin: 0 0 14px; }
   .dev-tools .tool-open { align-self: flex-start; }
+  .dev-progress-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:16px 28px; margin-bottom:24px; }
+  .dev-area-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px 12px; margin-bottom:8px; font-size:13px; }
+  .dev-area-head b { font-weight:600; }
+  .dev-area-head span { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+  .dev-progress-grid progress { display:block; width:100%; height:7px; border:0; border-radius:8px; overflow:hidden; appearance:none; background:#edf0f4; }
+  .dev-progress-grid progress::-webkit-progress-bar { background:#edf0f4; border-radius:8px; }
+  .dev-progress-grid progress::-webkit-progress-value { background:#6b89ad; border-radius:8px; }
+  .dev-progress-grid progress::-moz-progress-bar { background:#6b89ad; border-radius:8px; }
 </style>
 
 {% if request.query_params.get("err") %}
@@ -68,17 +76,16 @@
       · 대기 {{ progress.features | selectattr("status", "equalto", "wait") | list | length }}
       · 예정 {{ progress.features | selectattr("status", "equalto", "todo") | list | length }} · 막대는 기능 상태에서 계산한 완료 비율</p>
     <h4 class="extract-h" style="margin-top:0;">영역별 완료 비율</h4>
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px 18px; margin-bottom:16px;">
+    <div class="dev-progress-grid">
       {% for a in progress.areas %}
       <div>
-        <div style="display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:4px;">
-          <span style="font-weight:600;">{{ a.name }}</span>
-          <span style="font-weight:700; color:var(--navy); font-variant-numeric:tabular-nums;">{{ a.done }}/{{ a.total }}</span>
+        <div class="dev-area-head">
+          <b>{{ a.name }}</b>
+          <span>{% if a.total %}{{ a.done }}/{{ a.total }} 완료 · {{ a.pct }}%{% else %}등록된 기능 없음{% endif %}</span>
         </div>
-        <div style="height:9px; background:var(--line); border-radius:5px;" title="완료 {{ a.done }} / 전체 {{ a.total }}">
-          <div style="height:9px; width:{{ a.pct }}%; border-radius:5px; background:linear-gradient(90deg, var(--blue), var(--navy));"></div>
-        </div>
+        {% if a.total %}<progress value="{{ a.done }}" max="{{ a.total }}" aria-label="{{ a.name }} 완료 {{ a.done }}개 / 전체 {{ a.total }}개">{{ a.pct }}%</progress>{% endif %}
       </div>
+      {% else %}<p class="muted">아직 영역별 진행 데이터가 없습니다.</p>
       {% endfor %}
     </div>
     <h4 class="extract-h" style="margin-top:0;">기능별 상태</h4>

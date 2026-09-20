@@ -113,9 +113,26 @@ base = AutoModel.from_pretrained(BASE, dtype=torch.float32).cuda()
 before = {t: evaluate(base, t) for t in ev}
 print("베이스", json.dumps(before, ensure_ascii=False), flush=True)
 
+# 헷갈리는 오답(hard negative) 고르기 — 베이스가 상위로 올리지만 정답이 아닌 조각.
+# 한 묶음 안의 다른 정답만 오답으로 쓰면(in-batch) 쉬운 오답뿐이라 배울 것이 적다.
+base.eval()
+with torch.no_grad():
+    V = encode(base, [text_by_id[i] for i in ids]).cuda()
+    Q = encode(base, [r["q"] for r in train]).cuda()
+    top = (Q @ V.T).topk(12, dim=1).indices.cpu().tolist()
+for r, row in zip(train, top):
+    gold = {pos_of[g] for g in r["gold"] if g in pos_of}
+    negs = [ids[p] for p in row if p not in gold][:4]
+    r["negs"] = negs
+del Q, V
+torch.cuda.empty_cache()
+print(f"오답 표본 평균 {sum(len(r['negs']) for r in train) / max(1, len(train)):.1f}개", flush=True)
+
 model = base
-opt = torch.optim.AdamW(model.parameters(), lr=2e-5, weight_decay=0.01)
-scaler_dtype = torch.bfloat16
+BATCH = 16                    # 묶음마다 오답 4배가 더 붙는다(실효 대조군 80)
+opt = torch.optim.AdamW(model.parameters(), lr=1e-5, weight_decay=0.01)
+steps = max(1, (len(train) // BATCH) * EPOCHS)
+sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=1e-5, total_steps=steps, pct_start=0.1)
 t0 = time.time()
 for ep in range(EPOCHS):
     model.train()
@@ -123,15 +140,17 @@ for ep in range(EPOCHS):
     total = 0.0
     for s in range(0, len(train) - BATCH + 1, BATCH):
         batch = train[s:s + BATCH]
-        with torch.autocast("cuda", dtype=scaler_dtype):
+        docs_text = [text_by_id[sorted(r["gold"])[0]] for r in batch]
+        neg_text = [text_by_id[n] for r in batch for n in r["negs"]]
+        with torch.autocast("cuda", dtype=torch.bfloat16):
             A = encode(model, [r["q"] for r in batch], bs=BATCH, grad=True)
-            P = encode(model, [text_by_id[sorted(r["gold"])[0]] for r in batch], bs=BATCH, grad=True)
+            P = encode(model, docs_text + neg_text, bs=BATCH, grad=True)
             logits = A @ P.T / 0.05
             labels = torch.arange(len(batch), device="cuda")
-            loss = (F.cross_entropy(logits, labels) + F.cross_entropy(logits.T, labels)) / 2
+            loss = F.cross_entropy(logits, labels)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        opt.step(); opt.zero_grad(set_to_none=True)
+        opt.step(); sched.step(); opt.zero_grad(set_to_none=True)
         total += loss.item()
         if (s // BATCH) % 20 == 0:
             print(f"  에폭 {ep + 1} 스텝 {s // BATCH} 손실 {loss.item():.4f}", flush=True)

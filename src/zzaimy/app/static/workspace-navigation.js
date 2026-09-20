@@ -1,4 +1,13 @@
 (() => {
+  document.addEventListener('click', event => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest('a[href]');
+    if (!link || link.hasAttribute('download') || link.target || link.hasAttribute('data-force-navigation')) return;
+    const target = new URL(link.href, location.href);
+    if (target.origin !== location.origin || target.pathname !== location.pathname || target.search !== location.search || target.hash !== location.hash) return;
+    event.preventDefault();
+    document.querySelectorAll('.session-popover:popover-open').forEach(pop => pop.hidePopover());
+  });
   document.querySelector('[data-page-back]')?.addEventListener('click', event => {
     // Direct visits and external referrers use the explicit parent link.
     if (document.referrer && history.length > 1) {

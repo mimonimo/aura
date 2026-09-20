@@ -168,7 +168,8 @@
       </div>
       <div class="llm-conn-meta">
         <span class="k">주소</span><span class="v">{{ c.base_url }}</span>
-        <span class="k">올라온 모델</span><span class="v">{% if c.live.ok %}{{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</span>
+        <span class="k">지정 모델</span><span class="v">{{ c.model or "서버 첫 모델 자동" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</span>
+        <span class="k">서버 모델</span><span class="v">{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') | truncate(90, true, '…') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</span>
       </div>
       {% if c.checked_at %}<div class="llm-conn-check {{ 'ok' if c.check_ok else 'bad' }}"><iconify-icon icon="solar:{{ 'check-circle' if c.check_ok else 'close-circle' }}-linear"></iconify-icon>{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</div>{% endif %}
     </div>
@@ -192,15 +193,14 @@
         <option value="">문서 작업 서버와 같이</option>
         {% for c in connections %}
         <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}
-                data-models="{{ (c.live.models | map(attribute='id') | join('|')) if c.live.ok else (c.options.text.available | map(attribute='id') | join('|') if c.catalog_n else '') }}">{{ c.name }}</option>
+                data-models="{{ c.live.models | map(attribute='id') | join('|') if c.live.ok else '' }}">{{ c.name }}</option>
         {% endfor %}
       </select>
       <select name="model" data-role-model {{ '' if r.id else 'disabled' }}>
         <option value="">{{ "서버가 정한 모델" if r.id else "문서 작업 서버와 같이" }}</option>
-        {% for c in connections %}{% if c.id == r.id %}
-          {% if c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>{% endfor %}
-          {% elif c.catalog_n %}{% for m in c.options.text.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.title }}</option>{% endfor %}{% endif %}
-        {% endif %}{% endfor %}
+        {% for c in connections %}{% if c.id == r.id and c.live.ok %}{% for m in c.live.models %}
+        <option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>
+        {% endfor %}{% endif %}{% endfor %}
       </select>
       <button type="submit" class="secondary">저장</button>
     </form>
@@ -221,7 +221,8 @@
     <dl class="kv">
       <dt>주소</dt><dd><code>{{ c.base_url }}</code></dd>
       <dt>확인</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}아직 확인하지 않음{% endif %}</dd>
-      <dt>올라온 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
+      <dt>지정 모델</dt><dd>{{ c.model or "서버 첫 모델 자동" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</dd>
+      <dt>서버 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
       <dt>API 키</dt><dd>{{ c.api_key_masked }}</dd>
       <dt>맡은 용도</dt><dd>{% set mine = llm_roles | selectattr('id', 'equalto', c.id) | list %}{% if mine %}{{ mine | map(attribute='label') | join(', ') }}{% else %}없음{% endif %}</dd>
     </dl>
@@ -230,22 +231,17 @@
       <form action="/dev/llm/{{ c.id }}/update" method="post" style="display:flex; flex-direction:column; gap:8px;">
         <label class="muted" style="font-size:12px;">이름<input type="text" name="name" value="{{ c.name }}" maxlength="60" style="margin-top:4px;"></label>
         <label class="muted" style="font-size:12px;">주소<input type="text" name="base_url" value="{{ c.base_url }}" style="margin-top:4px;"></label>
-        <label class="muted" style="font-size:12px;">기본 모델{% if c.catalog_n %} <span style="font-weight:500;">(목록 {{ c.catalog_n }}개 · {{ c.catalog_at }})</span>{% endif %}
+        <label class="muted" style="font-size:12px;">기본 모델
+          <span style="font-weight:500;">{% if c.live.ok %}(서버에 올라온 {{ c.live.models | length }}개){% else %}(서버 응답 없음 — ‘연결 확인’ 뒤 고를 수 있습니다){% endif %}</span>
           <select name="model" style="margin-top:4px;">
             <option value="">서버 첫 모델 자동</option>
-            {% if c.catalog_n %}
-              {% for m in c.options.text.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.title }}{% if m.provider %} — {{ m.provider }}{% endif %}</option>{% endfor %}
-              {% if c.options.text.other %}<optgroup label="지금 서버에 없음">{% for m in c.options.text.other %}<option value="{{ m.id }}" disabled>{{ m.title }}{% if m.provider %} — {{ m.provider }}{% endif %} ({{ m.status }})</option>{% endfor %}</optgroup>{% endif %}
-            {% elif c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.id }}</option>{% endfor %}
+            {% if c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.id }}</option>{% endfor %}
             {% elif c.model %}<option value="{{ c.model }}" selected>{{ c.model }}</option>{% endif %}
           </select></label>
         <label class="muted" style="font-size:12px;">이미지 판독 모델
           <select name="vision_model" style="margin-top:4px;">
             <option value="">글 모델과 같이</option>
-            {% if c.catalog_n %}
-              {% for m in c.options.vision.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.title }}{% if m.provider %} — {{ m.provider }}{% endif %}</option>{% endfor %}
-              {% if c.options.vision.other %}<optgroup label="지금 서버에 없음">{% for m in c.options.vision.other %}<option value="{{ m.id }}" disabled>{{ m.title }} ({{ m.status }})</option>{% endfor %}</optgroup>{% endif %}
-            {% elif c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.id }}</option>{% endfor %}
+            {% if c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.id }}</option>{% endfor %}
             {% elif c.vision_model %}<option value="{{ c.vision_model }}" selected>{{ c.vision_model }}</option>{% endif %}
           </select></label>
         <label class="muted" style="font-size:12px;">API 키 <span style="font-weight:500;">(비워 두면 지금 키를 그대로 씁니다)</span>

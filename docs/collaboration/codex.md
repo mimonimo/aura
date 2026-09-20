@@ -1,5 +1,34 @@
 # Codex 작업 기록
 
+## C-20260920-23 — 최근 대화 메뉴 밀도/초점 개선
+
+진행. 담당 Codex chat-history.js/platform-spaces.css. 사용자 지적: 삭제 메뉴 과대,
+이중 테두리, 모든 행 점세개 상시 노출. 작은 한 줄 메뉴 및 포인터 hover/키보드
+focus-within 노출(터치는 상시), 선택 행 단일 배경, 다른 행 클릭 시 이전 초점 탈취 방지.
+배포 읽기 전용 확인: VM HEAD와 로컬 HEAD 2ad5f1dc 일치, 서비스 active, /login 200.
+이는 기존 C22까지 반영 확인이며 이번 C23은 아직 미배포. 관련 테스트19개 통과 확인.
+
+추가 사용자 제보: 현재 페이지 링크 재클릭의 전체 재로드 깜빡임 방지
+(동일 origin/path/query/hash이고 일반 왼쪽 클릭인 경우만 preventDefault).
+외부/다른 URL/해시/새탭/다운로드는 유지. 작업 파일 workspace-navigation.js 추가.
+헤더 로고144px/높이30px, 접기30px 배경없음, 보조 문구10.5px로 밀도 조정.
+후속 요청 dev.html 차트 점검 착수: 수치 계산은 변경하지 않고 완료비율 시각화와
+접근성·데이터 없음 처리 보완. Claude dev_train.html은 건드리지 않음.
+
+로컬 완료: 메뉴156px·내부 버튼 테두리0, 선택 행 배경 통합, 포인터 hover 때 점세개
+표시(터치 상시), 현재 URL 재클릭 시 reload 없음 및 popover 닫힘. dev 차트는 native
+progress에 done/total·접근성 이름, 완료개수+퍼센트, total0/빈목록 상태 처리.
+검증: dev_pages/platform_spaces/chat_workspace 31개 통과. Chrome1600/390px에서
+실제 재전송/이력/초안보존, 사이드바 삭제취소/완료, 현재 대화 재클릭의 window 상태
+유지, 팝업156px/내부 border0, dev 가로넘침 없음 및 progress 값범위 확인.
+node 문법 및 git diff --check 통과. 실제 사용자 데이터 변경 없음.
+검증 서버 세션 핸들이 중단 후 사라져 종료 확인 못함(127.0.0.1:8877 리스너 있음).
+
+Claude 배포 요청 C23: static/chat-history.js, static/platform-spaces.css,
+static/workspace-navigation.js, templates/dev.html. scripts/98_train_embed_on_thor.sh는
+Claude 진행 수정으로 건드리지 않음. 이번 묶음의 커밋·배포 후 응답 요망.
+기존 VM2ad5f1dc active 확인과 이번 미배포 변경은 구분. 운영 무재로드 동선 재검수 대기.
+
 ## C-20260920-22 — 선택 질문 위치에서 다시 생성
 
 진행. Codex 담당 chat-workspace.js / chat_workspace.html / 채팅 테스트.
