@@ -674,6 +674,9 @@ FOCUS_MIN_CHUNKS = 200
 # 풀에 정답이 들어오는 비율(0.827→0.893)이 천장이다.
 HYBRID_TOP_K = 20
 CANDIDATE_LIMIT = 20
+# 조각별 질문 축(doc2query)의 융합 가중 — 0 이면 쓰지 않는다. 환경변수 ZZAIMY_QUESTION_W 로 잰다.
+# 색인은 scripts/111(질문 생성)·112(임베딩)로 만든다. 켜는 값은 측정 뒤에 정한다.
+HYBRID_W_Q = 0.0
 
 
 def _lexical_ids(query: frozenset[str], chunks: list[dict], min_overlap: int) -> list[int]:
@@ -795,14 +798,21 @@ def hybrid_candidates(
     if lexical_ids is None:
         lexical_ids = _lexical_ids(query, chunks, min_overlap)
 
-    # 임베딩(KURE) 순위와 RRF 융합
-    from zzaimy.app.embed_search import embed_search, rrf_merge
+    # 임베딩 순위와 RRF 융합
+    from zzaimy.app.embed_search import embed_search, question_search, rrf_merge
 
     allowed = {c["id"] for c in chunks}
     if dense_ids is None:
         dense_ids = [cid for cid, _ in embed_search(query_text, top_k=HYBRID_TOP_K)]
     dense_ids = [cid for cid in dense_ids if cid in allowed]
     merged = rrf_merge(lexical_ids[:HYBRID_TOP_K], dense_ids, w_a=HYBRID_W_A, w_b=1.0)
+    # 보조 축 — 조각별 질문(doc2query). 가중이 0 이면 쓰지 않는다(측정하고 켠다).
+    w_q = float(os.environ.get("ZZAIMY_QUESTION_W", HYBRID_W_Q))
+    if w_q > 0:
+        q_ids = [cid for cid, _ in question_search(query_text, top_k=HYBRID_TOP_K)
+                 if cid in allowed]
+        if q_ids:
+            merged = rrf_merge(merged, q_ids, w_a=1.0, w_b=w_q)
     return select_candidates(merged, {c["id"]: c for c in chunks}, limit)
 
 
