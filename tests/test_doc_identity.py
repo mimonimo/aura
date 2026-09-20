@@ -201,4 +201,4 @@ def test_same_title_documents_get_distinguishable_names(tmp_path):
         names.append((db.get_document(doc_id) or {})["filename"])
     assert names[0] != names[1]                       # 서로 구분된다
     assert all(n.startswith("2022학년도 입학자 연계교육과정 편성표") for n in names)
-    assert "계열" in names[1]
+    assert "스마트융합기계계열" in names[1] and "|" not in names[1]   # 표 구분자 없이 값만
