@@ -217,3 +217,23 @@ def test_connection_page_shows_what_is_in_use_without_popups(client, monkeypatch
     # 목록·열람용 팝업을 따로 두지 않는다 — 서버가 내어 주는 모델 전체는 설정(톱니) 안에 있다
     assert 'id="llmModels-' not in page and 'id="llmSet-' in page
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+
+
+def test_search_stages_show_where_they_run_not_a_picker(client, monkeypatch):
+    """검색 단계(임베딩·리랭킹)는 고르는 칸이 아니라 지금 어디서 도는지를 보여 준다."""
+    from zzaimy.app import search_serving
+
+    search_serving.clear_cache()
+    monkeypatch.setenv("ZZAIMY_EMBED_URL", "http://211.170.162.121:8014/embed")
+    monkeypatch.delenv("ZZAIMY_RERANK_URL", raising=False)
+    monkeypatch.setattr(search_serving, "_health",
+                        lambda url: {"ok": True, "model": "/models/KURE-v1", "detail": ""})
+    got = {p["key"]: p for p in search_serving.status(ttl=0)}
+    assert got["embed"]["remote"] and got["embed"]["model"] == "KURE-v1"
+    assert "211.170.162.121:8014" in got["embed"]["where"]
+    assert not got["rerank"]["remote"] and "VM" in got["rerank"]["where"]
+    page = client.get("/dev/train").text
+    assert "검색 단계" in page and "리랭킹" in page
+    # 쓰이지 않는 단계를 고르게 두지 않는다 — 학습 서버 지정 칸은 없다
+    assert 'value="train"' not in page
+    search_serving.clear_cache()

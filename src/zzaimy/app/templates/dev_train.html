@@ -253,10 +253,25 @@
     </div>
     {% endfor %}
   </div>
-  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다.</p>
   {% else %}
   <p class="muted" style="font-size:12.5px; margin:0;">서버를 먼저 등록하세요.</p>
   {% endif %}
+
+  {# 검색 단계는 고르는 칸이 아니라 지금 어디서 도는지를 보여 준다 — 서빙 서비스가 정한다 #}
+  <div class="srv-head muted">검색 단계 — 서빙 서비스가 맡습니다</div>
+  <div class="srv-list">
+    {% for p in search_serving %}
+    <div class="srv-row">
+      <span class="srv-name">{{ p.label }}</span>
+      {% if p.ok %}<span class="pill reviewed">{{ "GPU" if p.remote else "VM" }}</span>
+      {% else %}<span class="pill processing">멈춤</span>{% endif %}
+      <span class="muted srv-n">{{ p.where }}</span>
+      {% if p.model %}<span class="use-model">{{ p.model }}</span>{% endif %}
+      {% if p.detail %}<span class="{{ 'srv-bad' if not p.ok else 'muted srv-n' }}">{{ p.detail }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">임베딩 모델을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다. 올리는 방법은 <code>scripts/102</code>·<code>scripts/103</code>.</p>
 </div></div>
 
 {# 연결별 설정 — 수정·확인·용도·삭제를 톱니 하나에 모은다 #}
