@@ -19,10 +19,11 @@ EPOCHS="${1:-2}"
 STAMP=$(date +%Y%m%d-%H%M%S)
 WORK=/tmp/zz-rerank-train-$STAMP
 
-echo "[$(date +%T)] 1/3 VM 에서 후보·정답 내보내기 (운영 하이브리드 상위 10)"
+echo "[$(date +%T)] 1/3 VM 에서 후보·정답 내보내기 (운영 하이브리드 후보 전체)"
 ssh "$VM" "cd ~/zzaimy-capstone && env PYTHONPATH=src .venv/bin/python - <<'PY' > /tmp/rerank-train.json
 import json
 from pathlib import Path
+from zzaimy.app import regulations as reg
 from zzaimy.app.db import Database
 from zzaimy.eval import retrieval_eval as rev
 
