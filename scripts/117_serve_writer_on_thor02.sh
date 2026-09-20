@@ -19,8 +19,9 @@ echo "[$(date +%T)] 서빙 시작 — $MODEL · 문맥 $MAXLEN · 포트 $PORT"
 ssh -p $TP "$THOR" "docker rm -f $NAME >/dev/null 2>&1 || true
 docker run -d --name $NAME --restart unless-stopped --runtime nvidia --ipc host \
   -p $PORT:8000 -v \$HOME/zzaimy/models:/models \
-  $IMAGE --model $MODEL --served-model-name zzaimy-writer \
-  --max-model-len $MAXLEN --gpu-memory-utilization $UTIL --dtype bfloat16 >/dev/null"
+  -e HF_HOME=/root/.cache/huggingface -v \$HOME/zzaimy/hf:/root/.cache/huggingface \
+  $IMAGE vllm serve $MODEL --host 0.0.0.0 --port 8000 --served-model-name zzaimy-writer \
+  --max-model-len $MAXLEN --gpu-memory-utilization $UTIL >/dev/null"
 
 echo "[$(date +%T)] 준비 기다리는 중 (27B 적재는 몇 분 걸린다)"
 for i in $(seq 1 60); do
