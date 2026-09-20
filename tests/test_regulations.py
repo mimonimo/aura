@@ -250,3 +250,25 @@ def test_spacing_repair_needs_a_run_of_single_syllables():
     plain = "이 법은 시행한다\n그 외 사항은 따른다\n산학협력단의 업무는 다음과 같다"
     assert not over_spacing_evidence(plain)
     assert _collapse_over_spacing(plain, short_too=False) == plain
+
+
+def test_cpu_fallback_reranks_only_the_head(monkeypatch):
+    """CPU 폴백은 앞쪽 후보만 재정렬한다 — 후보 20개에서도 폴백이 대화를 멈추지 않게."""
+    from zzaimy.app import rerank
+
+    chunks = [{"id": i, "reg_title": "규정", "heading": f"제{i}조", "content": f"내용 {i}"}
+              for i in range(1, 16)]
+    seen = {}
+
+    class _CE:
+        def predict(self, pairs, show_progress_bar=False):
+            seen["n"] = len(pairs)
+            return [0.1 * i for i in range(len(pairs))][::-1]      # 앞쪽이 높게
+
+    monkeypatch.delenv("ZZAIMY_RERANK_URL", raising=False)
+    monkeypatch.setattr(rerank, "_encoder", lambda: _CE())
+    got = rerank.rerank_scored("질의", chunks)
+    assert seen["n"] == rerank.LOCAL_MAX_PAIRS            # 상한만 채점한다
+    assert len(got) == len(chunks)                        # 뒤쪽도 순서를 지켜 남는다
+    assert [c["id"] for c, _ in got][:3] == [1, 2, 3]
+    assert all(s == 0.0 for _, s in got[rerank.LOCAL_MAX_PAIRS:])
