@@ -196,3 +196,40 @@ def test_reranker_asks_serving_box_first_and_falls_back(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", boom)
     monkeypatch.setattr(rerank, "_encoder", lambda: None)
     assert rerank.rerank_scored("업무분장", chunks) is None   # 물러날 곳도 없으면 원래 순서
+
+
+def test_query_embedding_uses_serving_box_and_falls_back(monkeypatch, tmp_path):
+    """질의 임베딩은 서빙 장비(GPU)에서 만들고, 서비스가 죽으면 VM 쪽으로 물러난다."""
+    import json
+
+    import numpy as np
+
+    from zzaimy.app import embed_search
+
+    calls = {"n": 0}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            calls["n"] += 1
+            return json.dumps({"vectors": [[0.6, 0.8]], "model": "KURE-v1"}).encode()
+
+    monkeypatch.setenv("ZZAIMY_EMBED_URL", "http://thor:8014/embed")
+    monkeypatch.setattr("urllib.request.urlopen", lambda req, timeout=0: _Resp())
+    got = embed_search.remote_vectors(["연구비 정산"])
+    assert got is not None and calls["n"] == 1
+    assert np.allclose(got[0], [0.6, 0.8])
+
+    # 서비스가 죽으면 None — 호출부는 VM 모델이나 키위 검색으로 내려간다
+    def boom(req, timeout=0):
+        raise OSError("연결 거부")
+
+    monkeypatch.setattr("urllib.request.urlopen", boom)
+    assert embed_search.remote_vectors(["연구비 정산"]) is None
+    monkeypatch.delenv("ZZAIMY_EMBED_URL")
+    assert embed_search.remote_vectors(["연구비 정산"]) is None      # 꺼져 있으면 묻지 않는다
