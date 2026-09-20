@@ -272,3 +272,26 @@ def test_cpu_fallback_reranks_only_the_head(monkeypatch):
     assert len(got) == len(chunks)                        # 뒤쪽도 순서를 지켜 남는다
     assert [c["id"] for c, _ in got][:3] == [1, 2, 3]
     assert all(s == 0.0 for _, s in got[rerank.LOCAL_MAX_PAIRS:])
+
+
+def test_question_axis_joins_fusion_only_when_weighted(monkeypatch, tmp_path):
+    """조각별 질문 축은 가중이 0 이면 쓰지 않고, 켜면 융합에 들어간다."""
+    import numpy as np
+
+    from zzaimy.app import embed_search as es
+
+    # 질문 색인 흉내 — 조각 7 의 질문이 질의와 가깝다
+    path = tmp_path / "q.npz"
+    np.savez(path, ids=np.array([1, 2]), chunks=np.array([7, 9]),
+             vectors=np.array([[1.0, 0.0], [0.0, 1.0]], dtype="float32"))
+    monkeypatch.setenv("ZZAIMY_QUESTION_INDEX", str(path))
+    es._questions = es.QuestionIndex()
+    monkeypatch.setattr(es, "remote_vectors", lambda texts: np.array([[1.0, 0.0]], dtype="float32"))
+    monkeypatch.setattr(es._index, "_load", lambda: False)
+    got = es.question_search("연구비를 잘못 썼을 때", top_k=5)
+    assert got and got[0][0] == 7 and got[0][1] > 0.9
+
+    # 색인이 없으면 조용히 꺼진다
+    monkeypatch.setenv("ZZAIMY_QUESTION_INDEX", str(tmp_path / "none.npz"))
+    es._questions = es.QuestionIndex()
+    assert es.question_search("무엇이든") == []

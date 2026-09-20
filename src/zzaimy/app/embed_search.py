@@ -186,7 +186,77 @@ class EmbedIndex:
         return [(cid, s) for cid, s in out if s >= floor]
 
 
+class QuestionIndex:
+    """조각별 질문 색인 — 담당자 말투의 질문으로 조각을 찾는 보조 축(doc2query).
+
+    왜: 상황으로 묻는 질의는 조각 본문과 말이 겹치지 않는다(실측 2026-09-20: 상황 질문의
+    22.7%가 어휘·조밀 두 축 모두 상위 20 안에 정답을 못 넣었다). 조각마다 "이 조각으로 답할 수
+    있는 질문"을 만들어 두고(scripts/111) 질의와 질문을 맞춘다.
+
+    조각 색인과 **같은 모델**로 만들어야 한다(scripts/112). 없으면 이 축은 그냥 꺼진다.
+    점수는 조각마다 그 조각의 질문 중 가장 가까운 것(max)을 쓴다.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._chunks: object = None
+        self._vectors: object = None
+        self._failed = False
+
+    def _load(self) -> bool:
+        if self._failed:
+            return False
+        if self._vectors is not None:
+            return True
+        with self._lock:
+            if self._vectors is not None:
+                return True
+            try:
+                import numpy as np
+
+                path = Path(os.environ.get("ZZAIMY_QUESTION_INDEX",
+                                           "data/platform/question_embeddings.npz"))
+                if not path.exists():
+                    raise FileNotFoundError(path)
+                data = np.load(path)
+                self._chunks = data["chunks"]
+                self._vectors = data["vectors"]
+                log.info("질문 색인 로드: %d개", len(data["chunks"]))
+                return True
+            except Exception as e:
+                log.info("질문 축 없음 (%s) — 어휘·조밀만 사용", type(e).__name__)
+                self._failed = True
+                return False
+
+    def search(self, query: str, top_k: int = 20) -> list[tuple[int, float]]:
+        """(chunk_id, 유사도) 상위 top_k — 조각마다 가장 가까운 질문의 점수."""
+        if not self._load():
+            return []
+        qv = _index._encode([query]) if _index._load() else remote_vectors([query])
+        if qv is None:
+            return []
+        import numpy as np
+
+        sims = self._vectors @ np.asarray(qv[0])          # type: ignore[operator]
+        best: dict[int, float] = {}
+        for cid, s in zip(self._chunks, sims):            # type: ignore[arg-type]
+            cid = int(cid)
+            if s > best.get(cid, -1.0):
+                best[cid] = float(s)
+        return sorted(best.items(), key=lambda kv: -kv[1])[:top_k]
+
+
 _index = EmbedIndex()
+_questions = QuestionIndex()
+
+
+def question_search(query: str, top_k: int = 20) -> list[tuple[int, float]]:
+    """보조 축 — 조각별 질문으로 찾는다. 색인이 없으면 빈 목록."""
+    return _questions.search(query, top_k)
+
+
+def question_index_ready() -> bool:
+    return _questions._load()
 
 
 def embed_search(query: str, top_k: int = 12,
