@@ -52,10 +52,17 @@ def status(ttl: float = _TTL) -> list[dict]:
             got = _health(url)
             _cache[key] = (time.time(), got)
         host = url.split("//")[-1].split("/")[0]
+        detail = got["detail"] if got["ok"] else "응답 없음 — VM 으로 물러납니다"
+        if key == "rerank" and got["ok"]:
+            # 하한은 모델마다 다시 재야 하는 값이다(scripts/105) — 화면에 지금 값을 적어
+            # 모델만 바꾸고 하한을 안 고친 상태가 눈에 보이게 한다
+            from zzaimy.app.rerank import RERANK_MIN
+
+            floor = os.environ.get("ZZAIMY_RERANK_MIN", "").strip() or f"{RERANK_MIN}"
+            detail = f"{detail} · 근거 하한 {floor}" if detail else f"근거 하한 {floor}"
         out.append({"key": key, "label": label, "where": f"서빙 장비 {host}",
                     "model": (got["model"] or "").rsplit("/", 1)[-1],
-                    "ok": got["ok"], "remote": True,
-                    "detail": got["detail"] if got["ok"] else f"응답 없음 — VM 으로 물러납니다"})
+                    "ok": got["ok"], "remote": True, "detail": detail})
     return out
 
 
