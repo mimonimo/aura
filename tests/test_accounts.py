@@ -72,6 +72,9 @@ def test_tool_accounts_live_on_train_page(tmp_path):
     c = TestClient(_app(tmp_path))
     _login(c, "zzaimy", "boot-pass-1")
     assert c.get("/dev/train").status_code == 403           # 담당자는 접근 불가
+    # 새로 만든 일괄 저장도 같은 가드를 받는다(전역 /dev 검사)
+    assert c.post("/dev/llm/roles", content="role=answer&cid=&model=",
+                  headers={"Content-Type": "application/x-www-form-urlencoded"}).status_code == 403
     d = TestClient(_app(tmp_path))
     _login(d, "zzdev", "devpass")
     page = d.get("/dev/train").text
