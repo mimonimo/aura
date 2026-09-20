@@ -38,7 +38,11 @@ from zzaimy.eval.retrieval import mrr, recall_at_k
 QUERIES_PATH = Path("data/interim/synth_queries.jsonl")
 EVAL_DIR = Path("data/platform/eval")
 BACKUP_DIR = Path("data/platform/backup")
-MARKDOWN_PATH = Path("docs/retrieval-baseline-mini.md")
+# 사람이 읽는 사본. 기본은 산출물 폴더에 둔다 — 평가는 임베딩·색인이 있는 운영 VM 에서 돌리는데
+# 저장소 파일(docs/)을 건드리면 그 체크아웃이 더러워져 배포가 멈춘다(실측 2026-09-20).
+# 저장소에 남길 판이면 --report 로 명시한다(맥에서 커밋할 때).
+MARKDOWN_PATH = Path("data/platform/eval/retrieval-baseline-mini.md")
+REPO_MARKDOWN_PATH = Path("docs/retrieval-baseline-mini.md")
 LATEST_NAME = "retrieval-latest.json"
 RUNNING_NAME = ".running"
 LOG_PATH = Path("/tmp/eval.log")
@@ -530,7 +534,10 @@ def _fmt(v: float | None) -> str:
 
 
 def write_markdown(result: dict, path: Path) -> None:
-    """docs/retrieval-baseline-mini.md 사본 — 주간 보고가 이 표를 읽는다. 정본은 JSON."""
+    """사람이 읽는 사본 — 주간 보고가 이 표를 읽는다. 정본은 JSON.
+
+    기본 위치는 산출물 폴더(data/platform/eval/), 저장소 사본은 --report 로만 갱신한다.
+    """
     lines = [
         "# 검색 미니 베이스라인 (규정 코퍼스 · 합성 질의)",
         "",
@@ -694,8 +701,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--rerank-sample", type=int, default=RERANK_SAMPLE,
                     help=f"리랭커 행 표본 크기 (기본 {RERANK_SAMPLE})")
     ap.add_argument("--seed", type=int, default=SEED)
+    ap.add_argument("--report", action="store_true",
+                    help="사람이 읽는 사본을 저장소(docs/)에 쓴다. 기본은 산출물 폴더에만 둔다")
     ap.add_argument("--no-md", action="store_true",
-                    help="docs/retrieval-baseline-mini.md 사본 갱신 생략")
+                    help="사람이 읽는 사본 갱신 생략")
     ap.add_argument("--backfill-gold", action="store_true",
                     help="질의 세트에 정답 본문(gold_text)만 채우고 끝 — 조각 재분할 전에 실행")
     args = ap.parse_args(argv)
@@ -746,7 +755,8 @@ def main(argv: list[str] | None = None) -> int:
             snapshot=Path(args.snapshot) if args.snapshot else None,
             limit=args.limit, no_rerank=args.no_rerank,
             rerank_sample=args.rerank_sample, seed=args.seed,
-            write_md=None if args.no_md else MARKDOWN_PATH,
+            write_md=(None if args.no_md
+                      else (REPO_MARKDOWN_PATH if args.report else MARKDOWN_PATH)),
             log=lambda m: print(m, flush=True),
         )
         _print_summary(result)
