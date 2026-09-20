@@ -38,10 +38,21 @@ def configure(path: Path) -> None:
     _cache = None
 
 
+def _default_path() -> Path:
+    """앱이 `configure()` 를 부르지 않은 곳(스크립트·배치)에서도 같은 설정을 쓰게 한다.
+
+    예전에는 설정을 못 찾으면 연결이 통째로 비어, 스크립트에서 부른 모델 호출이 주소 없이
+    나가 연결 오류로 떨어졌다(실측 2026-09-21: 검토 채우기가 전부 실패).
+    """
+    return Path(os.environ.get("ZZAIMY_DATA_DIR", "data/platform")) / "llm_connections.json"
+
+
 def _load() -> dict:
-    global _cache
+    global _cache, _path
     if _cache is not None:
         return _cache
+    if _path is None:
+        _path = _default_path()
     data = {"connections": [], "active": "", "external": "", "roles": {}}
     if _path and _path.is_file():
         try:
