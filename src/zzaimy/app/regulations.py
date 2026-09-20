@@ -532,8 +532,7 @@ def _tokens(text: str) -> set[str]:
 _SINGLE_SYL = re.compile(r"(?<=[가-힣]) (?=[가-힣](?![가-힣]))|(?<=(?<![가-힣])[가-힣]) (?=[가-힣])")
 
 
-def _line_tokens(line: str) -> list[str]:
-    return [w for w in line.split(" ") if re.fullmatch(r"[가-힣]+", w)]
+_ONE_SYL = re.compile(r"^[가-힣]$")
 
 
 def _syl_run(line: str) -> int:
@@ -541,15 +540,20 @@ def _syl_run(line: str) -> int:
 
     비율로 보면 '그 외 사항은 따른다'(1글자 2/4)처럼 정상 표현이 걸린다. 반면
     '영 남 이 공 대 학교'는 한 글자가 연달아 5개다. 이어짐이 더 확실한 신호다.
+
+    한글 아닌 토큰(숫자·기호·영문)은 이어짐을 끊는다. 건너뛰면 '2023년 5 월 26 일'이
+    '월·일' 연속으로 잡혀 '일산학협력단장'처럼 붙는다(실측 2026-09-20에 잡힌 오작동).
     """
     best = run = 0
-    for w in _line_tokens(line):
-        run = run + 1 if len(w) == 1 else 0
+    for w in line.split():
+        run = run + 1 if _ONE_SYL.match(w) else 0
         best = max(best, run)
     return best
 
 
-def _spread_line(line: str, min_run: int) -> bool:
+def _spread_line(line: str, min_run: int, max_tokens: int = 0) -> bool:
+    if max_tokens and len(line.split()) > max_tokens:
+        return False
     return _syl_run(line) >= min_run
 
 
@@ -569,12 +573,14 @@ def _collapse_over_spacing(t: str, short_too: bool = False) -> str:
     한 글자 한글 토큰이 3개 이상 연달아 나오면 그 줄은 글자 단위로 쪼개진 것으로 보고,
     한 글자 토큰에 붙은 공백을 지운다. 정상 문장은 건드리지 않는다.
 
-    short_too=True 면 2연속까지 손댄다('ㅇ 계 좌 정보'). 문서에 증거가 있을 때만 켜는
-    용도다 — 과하게 붙은 것은 뒤의 Kiwi 띄어쓰기가 되돌린다.
+    short_too=True 면 토큰 5개 이하의 짧은 줄에서 2연속까지 손댄다('ㅇ 계 좌 정보').
+    문서에 증거가 있을 때만 켜는 용도다 — 과하게 붙은 것은 뒤의 Kiwi 띄어쓰기가 되돌린다.
     """
     out = []
     for line in t.splitlines():
-        if _spread_line(line, 3) or (short_too and _spread_line(line, 2)):
+        # 짧은 줄의 완화는 짧은 줄에만. 긴 줄에 2연속 기준을 적용하면 '표 등 하단에'가
+        # 걸려 문장 전체가 붙는다(실측 2026-09-20: 사업계획서 작성 요령 단락이 망가졌다).
+        if _spread_line(line, 3) or (short_too and _spread_line(line, 2, max_tokens=5)):
             prev = None
             while prev != line:
                 prev, line = line, _SINGLE_SYL.sub("", line)
