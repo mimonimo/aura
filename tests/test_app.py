@@ -1457,7 +1457,7 @@ def test_llm_catalog_upload_and_pickers(client, monkeypatch, tmp_path):
     # (카탈로그에는 'unavailable' 까지 섞여 있어 고를 수 없는 이름을 보여 주게 된다)
     page = client.get("/dev/train").text
     assert "EXAONE 4.0.1 32B" not in page and "A.X 3.1" not in page
-    assert "서버 응답 없음" in page and "지정 모델" in page
+    assert "응답 없음" in page and "기본 모델" in page
     # 갱신: 공개 카탈로그 → 모델 API 순서, 둘 다 안 되면 사유
     monkeypatch.setattr(lc, "fetch_catalog", lambda c, timeout=8.0: {"ok": False, "models": [], "source": "", "error": "카탈로그 URLError · 모델 API 연결되지 않음"})
     r = client.post(f"/dev/llm/{conn['id']}/catalog", follow_redirects=False)
