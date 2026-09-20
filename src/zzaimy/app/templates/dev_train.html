@@ -276,7 +276,7 @@
             <button type="button" class="chip{{ ' on' if c.id == r.id else '' }}{{ ' off' if not c.live.ok else '' }}"
                     data-server="{{ c.id }}" {{ 'disabled' if not c.live.ok else '' }}>
               {{ c.name }}
-              <span class="chip-n">{% if c.live.ok %}{{ c.live.models | length }}{% else %}응답 없음{% endif %}</span>
+              <span class="chip-n">{% if c.live.ok %}모델 {{ c.live.models | length }}{% else %}응답 없음{% endif %}</span>
             </button>
             {% endfor %}
           </div>
