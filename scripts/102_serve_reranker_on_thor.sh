@@ -15,7 +15,9 @@ THOR=thor-03@211.170.162.121
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8013}"
-NAME=zzaimy-reranker
+# 컨테이너 이름에 포트를 붙인다 — 이름이 고정이면 다른 포트로 올릴 때 돌아가던 서비스를
+# 지워 버린다(2026-09-20: 학습본을 8015 에 올리다가 운영이 쓰는 8013 을 내렸다).
+NAME="zzaimy-reranker-$PORT"
 MODEL="${MODEL:-/models/bge-reranker-v2-m3}"
 
 ssh -p $TP "$THOR" "mkdir -p ~/zzaimy/serve && cat > ~/zzaimy/serve/reranker.py" <<'PY'
