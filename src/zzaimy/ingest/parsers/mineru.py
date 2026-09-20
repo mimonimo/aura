@@ -7,6 +7,8 @@ MinerU는 파이썬 API가 버전마다 바뀌어 CLI(`mineru -p .. -o .. -b pip
 
 from __future__ import annotations
 
+import os
+
 import json
 import shutil
 import subprocess
@@ -144,12 +146,16 @@ class MineruParser:
         backend: str = "pipeline",
         lang: str = "korean",
         method: str = "auto",  # auto | txt | ocr — CID 폰트 PDF는 txt 추출이 비어 ocr 필요
-        timeout_s: int = 1800,
+        timeout_s: int | None = None,
     ) -> None:
         self.backend = backend
         self.lang = lang
         self.method = method
-        self.timeout_s = timeout_s
+        # 제한 시간. 예전 기본값은 30분이었는데, 한 문서가 그만큼 붙잡혀 있으면 여러 건을
+        # 넣는 반입이 멈춘다(실측 2026-09-21). 넘으면 호출부가 기본 파싱(원문 글자층)으로
+        # 물러나므로 글자를 잃지 않는다 — 잃는 것은 표·읽기 순서 같은 구조다.
+        self.timeout_s = timeout_s if timeout_s is not None else int(
+            os.environ.get("ZZAIMY_MINERU_TIMEOUT", "600"))
 
     @staticmethod
     def _cli() -> str:
