@@ -22,7 +22,7 @@ class ChatHistory:
         conn.row_factory = sqlite3.Row
         return conn
 
-    def sessions(self, owner, query='', archived=False, offset=0, limit=30, topic_match=None):
+    def sessions(self, owner, query='', archived=False, offset=0, limit=30, topic_match=None, scope='title'):
         """계정의 대화 목록. topic_match 는 주제(근거 문서의 사업·규정 이름) 검색 조건을 함께 건다.
 
         주제 조건도 같은 질의 안에서 걸러야 정렬·페이지 나눔이 한 결과집합에 적용된다
@@ -31,6 +31,11 @@ class ChatHistory:
         topic_sql, topic_args = ('', [])
         if query and topic_match:
             topic_sql, topic_args = f' OR ({topic_match[0]})', list(topic_match[1])
+        if query and scope == 'all':
+            # 대화 내용까지 — 주고받은 글에서 찾는다(맥락 검색)
+            topic_sql += (" OR EXISTS (SELECT 1 FROM chat_messages m2 WHERE m2.session_id = s.id"
+                          " AND instr(lower(m2.content), lower(?)) > 0)")
+            topic_args.append(query)
         with closing(self.connect()) as conn:
             rows = conn.execute(f'''
                 SELECT s.*, p.name AS project_name,
@@ -85,11 +90,12 @@ def install_routes(app, history):
         return {'ok': True}
 
     @app.get('/api/chat/sessions')
-    def sessions(request: Request, q: str='', archived: bool=False, offset: int=0):
+    def sessions(request: Request, q: str='', archived: bool=False, offset: int=0, scope: str='title'):
         topics = getattr(history, 'topics', None)
         # 사업 이름으로도 찾는다 — 제목에 없어도 근거 문서의 사업이 맞으면 나온다(한 질의 안에서)
         match = topics.match_clause(q[:200]) if (topics is not None and q.strip()) else None
-        rows = history.sessions(request.state.user, q[:200], archived, max(0,offset), 31, match)
+        rows = history.sessions(request.state.user, q[:200], archived, max(0,offset), 31, match,
+                                'all' if scope == 'all' else 'title')
         if topics is not None:  # 근거 문서에서 정한 대화 주제(chat_topics.py)
             names = topics.topics([r['id'] for r in rows])
             for r in rows:

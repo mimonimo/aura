@@ -13,6 +13,24 @@ def candidate_client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
+def test_regenerate_same_question_keeps_id_and_archives_followups(tmp_path, monkeypatch):
+    client = candidate_client(tmp_path, monkeypatch)
+    client.post('/chat/send', data={'question': '첫 질문'})
+    client.post('/chat/send', data={'session_id': 1, 'question': '후속 질문'})
+    db = client.app.state.db
+    before = db.list_chats(1)
+    message_id = before[0]['id']
+    payload = {'question': before[0]['content'], 'expected_content': before[0]['content'], 'expected_tail_id': before[-1]['id']}
+    url = f'/chat/1/messages/{message_id}/edit'
+    assert client.post(url, data=payload).status_code == 200
+    after = db.list_chats(1)
+    assert len(after) == 2 and after[0]['id'] == message_id
+    assert after[0]['content'] == '첫 질문'
+    assert client.get('/chat/1/revisions').json()['revisions'][0]['messages'] == before
+    assert client.post(url, data=payload).status_code == 409
+    assert f'data-resend-id="{message_id}"' in client.get('/chat/1').text
+
+
 def test_edit_resend_preserves_original_history_and_project(tmp_path, monkeypatch):
     client = candidate_client(tmp_path, monkeypatch)
     client.post('/projects', data={'sector': 'grant', 'name': '합성 사업'})
@@ -185,3 +203,32 @@ def test_deleting_a_chat_removes_its_evidence_rows(tmp_path):
     assert c.delete(f"/api/chat/sessions/{sid}").status_code == 200
     with sqlite3.connect(tmp_path / "t.db") as conn:
         assert conn.execute("SELECT COUNT(*) FROM chat_sources WHERE session_id=?", (sid,)).fetchone()[0] == 0
+
+
+def test_search_page_finds_documents_chats_and_chunks(tmp_path):
+    """상단 검색창 — 문서 본문, 대화(주고받은 글), 규정 조각을 한 화면에서 찾는다."""
+    c, db = _history_client(tmp_path)
+    did = db.add_document(filename="학칙.pdf", stored_path="", doc_type="regulation")
+    db.update_document(did, status="reviewed", masked_text="제19조(휴학) 질병 휴학은 전문의 진단서를 첨부한다.")
+    chunk = type("C", (), {"heading": "제19조(휴학)", "content": "질병 휴학은 전문의 진단서를 첨부한다."})()
+    db.add_regulation_chunks(did, "영남이공대학교 학칙", [chunk], sector="common")
+    sid = db.create_chat_session("휴학 문의")
+    db.add_chat(sid, "user", "질병 휴학 진단서 필요해?")
+    db.add_chat(sid, "assistant", "진단서가 필요합니다.")
+
+    page = c.get("/search", params={"q": "진단서"}).text
+    assert f'href="/doc/{did}"' in page                 # 문서(본문에서 찾음)
+    assert f'href="/chat/{sid}"' in page                # 대화(주고받은 글에서 찾음)
+    assert "제19조(휴학)" in page                        # 근거 조각
+    assert 'action="/search"' in c.get("/chat").text     # 상단 검색창이 이 화면으로 온다
+
+
+def test_chat_history_search_can_look_inside_messages(tmp_path):
+    """대화 기록 검색 — 이름·사업만이 아니라 '대화 내용까지' 범위를 고를 수 있다."""
+    c, db = _history_client(tmp_path)
+    sid = db.create_chat_session("무관한 제목")
+    db.add_chat(sid, "user", "출장비 정산 기준이 궁금합니다")
+    db.add_chat(sid, "assistant", "규정에 따르면…")
+    assert c.get("/api/chat/sessions", params={"q": "출장비"}).json()["sessions"] == []
+    got = c.get("/api/chat/sessions", params={"q": "출장비", "scope": "all"}).json()["sessions"]
+    assert [s["id"] for s in got] == [sid]

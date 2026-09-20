@@ -500,9 +500,9 @@ document.addEventListener('submit', function(event) {
     <a class="icon-btn" data-page-back href="{{ '/connections' if request.url.path in ('/criteria', '/ocr') else '/chat' }}" aria-label="뒤로가기" title="뒤로가기"><iconify-icon icon="solar:arrow-left-linear"></iconify-icon></a>
     {% endif %}
     <span class="page-title">{% block pagetitle %}문서 검토함{% endblock %}</span>
-    <form class="searchbox" action="/" method="get" role="search" aria-label="전체 문서 검색"><input type="hidden" name="type" value="all">
+    <form class="searchbox" action="/search" method="get" role="search" aria-label="문서·대화 검색">
       <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
-      <input type="search" name="q" placeholder="문서 검색" value="{{ q if q is defined else '' }}">
+      <input type="search" name="q" placeholder="문서·대화 검색" value="{{ q if q is defined else '' }}">
     </form>
     <div class="menu-wrap">
       <button type="button" class="icon-btn" data-pop="bellPop" title="알림">

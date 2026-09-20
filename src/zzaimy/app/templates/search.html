@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}검색 — {{ q }}{% endblock %}
+{% block pagetitle %}검색{% endblock %}
+{% block content %}
+<style>
+  .sr-group { margin-bottom: 18px; }
+  .sr-row { display:flex; gap:10px; align-items:baseline; padding:9px 0; border-bottom:1px solid var(--line); }
+  .sr-row:last-child { border-bottom:0; }
+  .sr-row .sr-main { flex:1; min-width:0; }
+  .sr-row .sr-sub { color:var(--muted); font-size:12px; margin-top:2px; overflow-wrap:anywhere; }
+  .sr-row a { color:var(--navy); font-weight:600; text-decoration:none; }
+  .sr-more { font-size:12.5px; }
+  .sr-empty { color:var(--muted); font-size:12.5px; margin:0; }
+</style>
+
+<form class="card reveal" action="/search" method="get" style="margin-bottom:16px;">
+  <div class="card-in" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+    <input type="search" name="q" value="{{ q }}" placeholder="문서·대화·근거에서 찾기" style="flex:1; min-width:240px;">
+    <button type="submit">찾기</button>
+  </div>
+</form>
+
+{% if not q %}
+<div class="card reveal"><div class="card-in">
+  <p class="sr-empty">찾을 말을 입력하세요. 문서 이름과 본문, 대화 이름·사업·주고받은 글, 규정 조각을 함께 찾습니다.</p>
+</div></div>
+{% else %}
+
+<div class="card reveal sr-group"><div class="card-in">
+  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>문서 {{ docs|length }}{% if docs_more %}+{% endif %}</h2>
+  {% for d in docs %}
+  <div class="sr-row"><div class="sr-main">
+    <a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
+    <span class="pill type" style="margin-left:6px;">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span>
+    <div class="sr-sub">{{ d.receipt_no or "" }}{% if d.snippet %} · {{ d.snippet }}{% endif %}</div>
+  </div></div>
+  {% else %}
+  <p class="sr-empty">맞는 문서가 없습니다.</p>
+  {% endfor %}
+  {% if docs_more %}<p class="sr-more" style="margin:10px 0 0;"><a href="/inbox?q={{ q|urlencode }}">문서 더 보기</a></p>{% endif %}
+</div></div>
+
+<div class="card reveal sr-group"><div class="card-in">
+  <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>대화 {{ chats|length }}{% if chats_more %}+{% endif %}</h2>
+  {% for c in chats %}
+  <div class="sr-row"><div class="sr-main">
+    <a href="/chat/{{ c.id }}">{{ c.title }}</a>
+    {% if c.topic %}<span class="pill type" style="margin-left:6px;">{{ c.topic }}</span>{% endif %}
+    <div class="sr-sub">{{ c.created_at[:10] }}{% if c.project_name %} · {{ c.project_name }}{% endif %}{% if c.snippet %} · {{ c.snippet }}{% endif %}</div>
+  </div></div>
+  {% else %}
+  <p class="sr-empty">맞는 대화가 없습니다.</p>
+  {% endfor %}
+</div></div>
+
+<div class="card reveal sr-group"><div class="card-in">
+  <h2><iconify-icon icon="solar:bookmark-square-minimalistic-linear"></iconify-icon>근거 조각 {{ chunks|length }}</h2>
+  <p class="muted" style="font-size:12px; margin:-4px 0 6px;">규정·공고 본문에서 찾은 조각입니다. 답변의 근거로 쓰이는 단위입니다.</p>
+  {% for h in chunks %}
+  <div class="sr-row"><div class="sr-main">
+    <a href="/doc/{{ h.doc_id }}#q={{ q|urlencode }}">{{ h.reg_title }}{% if h.heading %} · {{ h.heading }}{% endif %}</a>
+    <div class="sr-sub">{{ h.snippet }}</div>
+  </div></div>
+  {% else %}
+  <p class="sr-empty">맞는 조각이 없습니다.</p>
+  {% endfor %}
+</div></div>
+
+{% endif %}
+{% endblock %}

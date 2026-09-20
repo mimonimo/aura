@@ -146,10 +146,12 @@ def model_can_see(base_url: str, model: str) -> bool:
 
 
 class VllmClient:
-    def __init__(self, base_url: str | None = None, model: str | None = None) -> None:
+    def __init__(self, base_url: str | None = None, model: str | None = None,
+                 role: str = "") -> None:
+        """role 을 주면 그 용도로 지정한 서버·모델을 쓴다(화면의 '용도별 지정')."""
         from zzaimy.generate import model_config
 
-        cfg = model_config.current()          # 기본 연결 > 화면 설정 > 환경변수 > 기본값
+        cfg = model_config.current(role)      # 용도 지정 > 기본 연결 > 화면 설정 > 환경변수
         if OpenAI is None:
             raise RuntimeError("openai 패키지가 없습니다 — 생성 서버 호출에 필요합니다")
         self.kind = cfg.get("kind", "vllm")

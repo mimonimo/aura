@@ -73,33 +73,47 @@
     <div class="modal-head"><h2 style="font-size:15px;">{{ t.name }} {{ "계정·연결" if t.key == "labelstudio" else "연결 설정" }}</h2>
       <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     {% if t.key == "labelstudio" %}
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">{{ t.role }}</p>
     <dl class="kv">
+      <dt>상태</dt><dd>{% if t.connected %}연결됨{% else %}미연결{% if ls.error %} — {{ ls.error }}{% endif %}{% endif %}</dd>
       <dt>주소</dt><dd>{% if t.url %}<a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.url }}</a>{% else %}미설정{% endif %}</dd>
-      <dt>상태</dt><dd>{{ "연결됨" if t.connected else "미연결" }}{% if not t.connected and ls.error %} ({{ ls.error }}){% endif %}</dd>
-      <dt>API 키</dt><dd>{{ "설정됨" if ls_token_set else "미설정" }}</dd>
       <dt>로그인 아이디</dt><dd>{% if ls_username %}<code>{{ ls_username }}</code>{% else %}미확인{% endif %}</dd>
+      <dt>API 키</dt><dd>{{ "설정됨" if ls_token_set else "미설정" }}</dd>
     </dl>
-    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">연결과 아이디는 서버에서 <code>bash scripts/68_labelstudio_token.sh</code>로 맺습니다.</p>
+    {% if not t.connected or not ls_token_set %}
     <div class="modal-sec">
-      <h4>비밀번호 재설정</h4>
+      <h4>연결 맺기</h4>
+      <p class="muted" style="font-size:12.5px; margin:0;">서버에서 아래를 한 번 실행하면 주소·아이디·API 키가 함께 등록됩니다.</p>
+      <p style="margin:6px 0 0;"><code>bash scripts/68_labelstudio_token.sh</code></p>
+    </div>
+    {% endif %}
+    <details class="modal-sec" style="margin-top:12px;">
+      <summary class="muted" style="cursor:pointer; font-size:12.5px; font-weight:600;">비밀번호 재설정</summary>
       {% if ls_admin_available %}
-      <form action="/dev/train/ls-password" method="post" class="field-row">
+      <form action="/dev/train/ls-password" method="post" class="field-row" style="margin-top:10px;">
         <input type="password" name="new_pw" minlength="8" required placeholder="새 비밀번호 (8자 이상)" autocomplete="new-password">
         <input type="password" name="confirm" minlength="8" required placeholder="확인" autocomplete="new-password">
         <button type="submit" class="secondary">재설정</button>
       </form>
       <p class="muted" style="font-size:11.5px; margin:6px 0 0;">비밀번호는 해시로만 저장되어 조회할 수 없습니다.</p>
-      {% else %}<p class="muted" style="font-size:12.5px; margin:0;">이 서버에는 Label Studio 프로비저닝이 없어 재설정할 수 없습니다.</p>{% endif %}
-    </div>
+      {% else %}<p class="muted" style="font-size:12.5px; margin:10px 0 0;">이 서버에는 Label Studio 프로비저닝이 없어 재설정할 수 없습니다.</p>{% endif %}
+    </details>
     {% else %}
-    <p class="muted" style="font-size:12.5px; margin:0 0 8px;">{{ t.role }} · 상태 {{ "연결됨" if t.url else "GPU 대기" }}</p>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">{{ t.role }}</p>
+    <dl class="kv">
+      <dt>상태</dt><dd>{% if t.url %}주소 등록됨{% else %}주소 없음 — 아래에서 등록하세요{% endif %}</dd>
+      <dt>주소</dt><dd>{% if t.url %}<a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.url }}</a>{% else %}미설정{% endif %}</dd>
+    </dl>
+    <div class="modal-sec">
+      <h4>주소 등록</h4>
+      <p class="muted" style="font-size:12px; margin:0 0 8px;">학습 장비에서 이 도구를 띄운 주소입니다. 장비를 옮길 때만 바꾸면 됩니다.</p>
     <form action="/dev/train/url" method="post" class="field-row">
       <input type="hidden" name="setting" value="{{ t.setting }}">
-      <label class="muted" style="font-size:12px; flex:none;">주소</label>
       <input type="text" name="url" value="{{ t.url }}" placeholder="http://<GPU 서버>:포트/">
       <button type="submit" class="secondary">저장</button>
     </form>
-    <p class="muted" style="font-size:11.5px; margin:8px 0 0;">비우면 연결을 해제합니다.</p>
+      <p class="muted" style="font-size:11.5px; margin:8px 0 0;">주소를 지우고 저장하면 이 도구를 쓰지 않는 상태가 됩니다.</p>
+    </div>
     {% endif %}
   </div></div>
 </div>
@@ -120,6 +134,11 @@
   .llm-conn-acts form { display:inline-flex; margin:0; }
   .llm-conn-acts button { padding:5px 11px; font-size:12px; }
   .llm-conn-acts button iconify-icon { font-size:14px; margin-right:3px; }
+  .role-row { display:grid; grid-template-columns:minmax(150px,1.1fr) minmax(140px,1fr) minmax(160px,1.2fr) auto;
+    gap:8px; align-items:center; margin:0; }
+  .role-row .role-label { font-size:13px; font-weight:600; }
+  .role-row select { min-width:0; }
+  @media (max-width:760px) { .role-row { grid-template-columns:1fr 1fr; } .role-row .role-label { grid-column:1 / -1; } }
 </style>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:server-square-linear"></iconify-icon>LLM 연결
@@ -137,35 +156,21 @@
       <div class="llm-conn-top">
         <span class="llm-conn-name">{{ c.name }}</span>
         <span class="pill type">{{ c.kind_label }}</span>
-        {% if c.active %}<span class="pill reviewed">문서 작업 기본</span>{% endif %}
-        {% if c.external_use %}<span class="pill type">외부 AI 참조용</span>{% endif %}
-        {% if not c.active and not c.external_use %}<span class="pill" style="background:#F1F5F9; color:var(--faint);">용도 미지정</span>{% endif %}
-        {% if c.usage.requests %}<span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">오늘 {{ c.usage.requests }}회 · {{ "{:,}".format(c.usage.total) }} 토큰</span>{% endif %}
+        {% if c.check_ok %}<span class="pill reviewed">연결됨</span>
+        {% elif c.checked_at %}<span class="pill processing">확인 실패</span>{% endif %}
+        {% for r in llm_roles %}{% if r.id == c.id %}<span class="pill" style="background:#EEF3FA; color:var(--navy);">{{ r.label.split(' (')[0] }}</span>{% endif %}{% endfor %}
+        {% if c.external_use %}<span class="pill type">외부 참조</span>{% endif %}
+        <span style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+          {% if c.usage.requests %}<span class="muted" style="font-size:12px; font-weight:500;">오늘 {{ c.usage.requests }}회 · {{ "{:,}".format(c.usage.total) }} 토큰</span>{% endif %}
+          <button type="button" class="icon-btn" title="{{ c.name }} 설정" data-modal-open="#llmSet-{{ c.id }}">
+            <iconify-icon icon="solar:settings-linear"></iconify-icon></button>
+        </span>
       </div>
       <div class="llm-conn-meta">
         <span class="k">주소</span><span class="v">{{ c.base_url }}</span>
-        <span class="k">모델</span><span class="v">{{ c.model or "서버 첫 모델 자동" }}{% if c.catalog_n %} <span class="muted">· 목록 {{ c.catalog_n }}개</span>{% endif %}</span>
-        <span class="k">비전 모델</span><span class="v">{{ c.vision_model or "글 모델과 같음" }}</span>
-        <span class="k">API 키</span><span class="v">{{ c.api_key_masked }}</span>
+        <span class="k">올라온 모델</span><span class="v">{% if c.live.ok %}{{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</span>
       </div>
       {% if c.checked_at %}<div class="llm-conn-check {{ 'ok' if c.check_ok else 'bad' }}"><iconify-icon icon="solar:{{ 'check-circle' if c.check_ok else 'close-circle' }}-linear"></iconify-icon>{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</div>{% endif %}
-      <div class="llm-conn-acts">
-        <form action="/dev/llm/{{ c.id }}/test" method="post"><button type="submit" class="secondary" data-busy="확인 중…"><iconify-icon icon="solar:refresh-linear"></iconify-icon>연결 확인</button></form>
-        <button type="button" class="secondary" data-modal-open="#llmEdit-{{ c.id }}"><iconify-icon icon="solar:pen-linear"></iconify-icon>수정</button>
-        {% if c.active %}
-        <form action="/dev/llm/deactivate" method="post"><button type="submit" class="secondary">기본 해제</button></form>
-        {% elif c.external %}
-        <button type="button" class="secondary" data-modal-open="#llmAct-{{ c.id }}">문서 작업 기본으로</button>
-        {% else %}
-        <form action="/dev/llm/{{ c.id }}/activate" method="post"><button type="submit" class="secondary">문서 작업 기본으로</button></form>
-        {% endif %}
-        {% if c.external %}{% if c.external_use %}
-        <form action="/dev/llm/external/clear" method="post"><button type="submit" class="secondary">참조용 해제</button></form>
-        {% else %}
-        <form action="/dev/llm/{{ c.id }}/external" method="post"><button type="submit" class="secondary">외부 참조 전용</button></form>
-        {% endif %}{% endif %}
-        <form action="/dev/llm/{{ c.id }}/delete" method="post" style="margin-left:auto;" onsubmit="return confirm('연결 「{{ c.name }}」을 삭제할까요?');"><button type="submit" class="btn-ghost" style="color:var(--red); border-color:#E7B9B8;"><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>삭제</button></form>
-      </div>
     </div>
     {% endfor %}
   </div>
@@ -174,31 +179,131 @@
   {% endif %}
 </div></div>
 
-{# 역할 나누기 — 학습과 서빙, 임베딩을 다른 장비에 둘 수 있다 #}
+{# 용도별 지정 — 용도마다 어느 서버의 어느 모델을 쓸지 고른다 #}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>역할</h2>
+  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>용도별 모델</h2>
   {% if connections %}
-  <div style="display:flex; flex-direction:column; gap:10px;">
+  <div style="display:flex; flex-direction:column; gap:8px;">
     {% for r in llm_roles %}
-    <form action="/dev/llm/role" method="post"
-          style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0;">
+    <form action="/dev/llm/role" method="post" class="role-row">
       <input type="hidden" name="role" value="{{ r.role }}">
-      <span style="font-size:13px; font-weight:600; min-width:120px;">{{ r.label }}</span>
-      <select name="cid" style="flex:1; min-width:200px;">
-        <option value="">기본 연결을 씁니다</option>
+      <span class="role-label">{{ r.label }}</span>
+      <select name="cid" data-role-server>
+        <option value="">문서 작업 서버와 같이</option>
         {% for c in connections %}
-        <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}>{{ c.name }} · {{ c.base_url }}</option>
+        <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}
+                data-models="{{ (c.live.models | map(attribute='id') | join('|')) if c.live.ok else (c.options.text.available | map(attribute='id') | join('|') if c.catalog_n else '') }}">{{ c.name }}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="secondary" style="padding:5px 12px; font-size:12px;">맡기기</button>
-      {% if r.fallback %}<span class="muted" style="font-size:11.5px;">지정 없음</span>{% endif %}
+      <select name="model" data-role-model {{ '' if r.id else 'disabled' }}>
+        <option value="">{{ "서버가 정한 모델" if r.id else "문서 작업 서버와 같이" }}</option>
+        {% for c in connections %}{% if c.id == r.id %}
+          {% if c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>{% endfor %}
+          {% elif c.catalog_n %}{% for m in c.options.text.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.title }}</option>{% endfor %}{% endif %}
+        {% endif %}{% endfor %}
+      </select>
+      <button type="submit" class="secondary">저장</button>
     </form>
     {% endfor %}
   </div>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">모델 목록은 각 서버가 지금 내어 주는 것입니다. 임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다.</p>
   {% else %}
   <p class="muted" style="font-size:12.5px; margin:0;">연결을 먼저 등록하세요.</p>
   {% endif %}
 </div></div>
+
+{# 연결별 설정 — 수정·확인·용도·삭제를 톱니 하나에 모은다 #}
+{% for c in connections %}
+<div class="modal-back" id="llmSet-{{ c.id }}">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:15px;">{{ c.name }} 설정</h2>
+      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <dl class="kv">
+      <dt>주소</dt><dd><code>{{ c.base_url }}</code></dd>
+      <dt>확인</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}아직 확인하지 않음{% endif %}</dd>
+      <dt>올라온 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
+      <dt>API 키</dt><dd>{{ c.api_key_masked }}</dd>
+      <dt>맡은 용도</dt><dd>{% set mine = llm_roles | selectattr('id', 'equalto', c.id) | list %}{% if mine %}{{ mine | map(attribute='label') | join(', ') }}{% else %}없음{% endif %}</dd>
+    </dl>
+    <div class="modal-sec">
+      <h4>연결 고치기</h4>
+      <form action="/dev/llm/{{ c.id }}/update" method="post" style="display:flex; flex-direction:column; gap:8px;">
+        <label class="muted" style="font-size:12px;">이름<input type="text" name="name" value="{{ c.name }}" maxlength="60" style="margin-top:4px;"></label>
+        <label class="muted" style="font-size:12px;">주소<input type="text" name="base_url" value="{{ c.base_url }}" style="margin-top:4px;"></label>
+        <label class="muted" style="font-size:12px;">기본 모델{% if c.catalog_n %} <span style="font-weight:500;">(목록 {{ c.catalog_n }}개 · {{ c.catalog_at }})</span>{% endif %}
+          <select name="model" style="margin-top:4px;">
+            <option value="">서버 첫 모델 자동</option>
+            {% if c.catalog_n %}
+              {% for m in c.options.text.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.title }}{% if m.provider %} — {{ m.provider }}{% endif %}</option>{% endfor %}
+              {% if c.options.text.other %}<optgroup label="지금 서버에 없음">{% for m in c.options.text.other %}<option value="{{ m.id }}" disabled>{{ m.title }}{% if m.provider %} — {{ m.provider }}{% endif %} ({{ m.status }})</option>{% endfor %}</optgroup>{% endif %}
+            {% elif c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.id }}</option>{% endfor %}
+            {% elif c.model %}<option value="{{ c.model }}" selected>{{ c.model }}</option>{% endif %}
+          </select></label>
+        <label class="muted" style="font-size:12px;">이미지 판독 모델
+          <select name="vision_model" style="margin-top:4px;">
+            <option value="">글 모델과 같이</option>
+            {% if c.catalog_n %}
+              {% for m in c.options.vision.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.title }}{% if m.provider %} — {{ m.provider }}{% endif %}</option>{% endfor %}
+              {% if c.options.vision.other %}<optgroup label="지금 서버에 없음">{% for m in c.options.vision.other %}<option value="{{ m.id }}" disabled>{{ m.title }} ({{ m.status }})</option>{% endfor %}</optgroup>{% endif %}
+            {% elif c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.id }}</option>{% endfor %}
+            {% elif c.vision_model %}<option value="{{ c.vision_model }}" selected>{{ c.vision_model }}</option>{% endif %}
+          </select></label>
+        <label class="muted" style="font-size:12px;">API 키 <span style="font-weight:500;">(비워 두면 지금 키를 그대로 씁니다)</span>
+          <input type="password" name="api_key" autocomplete="off" style="margin-top:4px;"></label>
+        <div><button type="submit">저장</button></div>
+      </form>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+        <form action="/dev/llm/{{ c.id }}/test" method="post" style="margin:0;"><button type="submit" class="secondary" data-busy="확인 중…"><iconify-icon icon="solar:refresh-linear"></iconify-icon>연결 확인·모델 목록 새로고침</button></form>
+        {% if c.active %}
+        <form action="/dev/llm/deactivate" method="post" style="margin:0;"><button type="submit" class="secondary">문서 작업 기본 해제</button></form>
+        {% elif c.external %}
+        <button type="button" class="secondary" data-modal-open="#llmAct-{{ c.id }}">문서 작업 기본으로</button>
+        {% else %}
+        <form action="/dev/llm/{{ c.id }}/activate" method="post" style="margin:0;"><button type="submit" class="secondary">문서 작업 기본으로</button></form>
+        {% endif %}
+        {% if c.external %}{% if c.external_use %}
+        <form action="/dev/llm/external/clear" method="post" style="margin:0;"><button type="submit" class="secondary">외부 참조 해제</button></form>
+        {% else %}
+        <form action="/dev/llm/{{ c.id }}/external" method="post" style="margin:0;"><button type="submit" class="secondary">외부 참조 전용으로</button></form>
+        {% endif %}{% endif %}
+      </div>
+    </div>
+    <div class="modal-sec">
+      <h4>연결 삭제</h4>
+      <p class="muted" style="font-size:12px; margin:0 0 8px;">목록에서 뺍니다. 이 서버가 맡고 있던 용도는 문서 작업 서버로 돌아갑니다.</p>
+      <form action="/dev/llm/{{ c.id }}/delete" method="post" onsubmit="return confirm('연결 「{{ c.name }}」을 삭제할까요?');" style="margin:0;">
+        <button type="submit" class="btn-ghost" style="color:var(--red); border-color:#E7B9B8;"><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>삭제</button>
+      </form>
+    </div>
+  </div></div>
+</div>
+{% endfor %}
+
+<script>
+// 용도 줄 — 서버를 고르면 그 서버가 지금 내어 주는 모델로 목록을 바꾼다
+document.addEventListener("DOMContentLoaded", function () {
+  document.querySelectorAll(".role-row").forEach(function (row) {
+    var server = row.querySelector("[data-role-server]");
+    var model = row.querySelector("[data-role-model]");
+    if (!server || !model) return;
+    server.addEventListener("change", function () {
+      var opt = server.selectedOptions[0];
+      var list = (opt && opt.dataset.models ? opt.dataset.models.split("|") : []).filter(Boolean);
+      model.replaceChildren();
+      var head = document.createElement("option");
+      head.value = "";
+      head.textContent = server.value ? "서버가 정한 모델" : "문서 작업 서버와 같이";
+      model.appendChild(head);
+      list.forEach(function (id) {
+        var o = document.createElement("option");
+        o.value = id; o.textContent = id;
+        model.appendChild(o);
+      });
+      model.disabled = !server.value;
+    });
+  });
+});
+</script>
 
 {# 연결 추가 #}
 <div class="modal-back" id="llmAdd">
@@ -231,43 +336,6 @@
 </div>
 
 {% for c in connections %}
-<div class="modal-back" id="llmEdit-{{ c.id }}">
-  <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:15px;">{{ c.name }} 수정</h2>
-      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form action="/dev/llm/{{ c.id }}/update" method="post" style="display:flex; flex-direction:column; gap:10px;">
-      <label class="muted" style="font-size:12px;">이름<input type="text" name="name" value="{{ c.name }}" maxlength="60" style="margin-top:4px;"></label>
-      <label class="muted" style="font-size:12px;">주소 ({{ c.kind_label }})<input type="text" name="base_url" value="{{ c.base_url }}" style="margin-top:4px;"></label>
-      {% if c.catalog_n %}
-      <label class="muted" style="font-size:12px;">모델 <span style="font-weight:500;">(목록 {{ c.catalog_n }}개 · {{ c.catalog_at }})</span>
-        <select name="model" style="margin-top:4px;">
-          <option value="">서버 첫 모델 자동</option>
-          {% for m in c.options.text.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.title }} — {{ m.provider }}{% if m.context_length %} · {{ m.context_length }}{% endif %}</option>{% endfor %}
-          {% if c.options.text.other %}<optgroup label="현재 미제공 (서버에서 서비스 안 함)">{% for m in c.options.text.other %}<option value="{{ m.id }}" disabled>{{ m.title }} — {{ m.provider }} ({{ m.status }})</option>{% endfor %}</optgroup>{% endif %}
-          {% if c.model and c.model not in (c.options.text.available | map(attribute='id') | list) %}<option value="{{ c.model }}" selected>{{ c.model }} (직접 입력)</option>{% endif %}
-        </select></label>
-      <label class="muted" style="font-size:12px;">비전 모델 (문서 이미지 판독)
-        <select name="vision_model" style="margin-top:4px;">
-          <option value="">글 모델과 같음</option>
-          {% for m in c.options.vision.available %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.title }} — {{ m.provider }}</option>{% endfor %}
-          {% if c.options.vision.other %}<optgroup label="현재 미제공 (서버에서 서비스 안 함)">{% for m in c.options.vision.other %}<option value="{{ m.id }}" disabled>{{ m.title }} ({{ m.status }})</option>{% endfor %}</optgroup>{% endif %}
-        </select></label>
-      {% else %}
-      <label class="muted" style="font-size:12px;">모델<input type="text" name="model" value="{{ c.model }}" maxlength="120" placeholder="비우면 서버 첫 모델" style="margin-top:4px;"></label>
-      <label class="muted" style="font-size:12px;">비전 모델 (선택)<input type="text" name="vision_model" value="{{ c.vision_model or '' }}" maxlength="120" style="margin-top:4px;"></label>
-      {% endif %}
-      <label class="muted" style="font-size:12px;">API 키 (현재 {{ c.api_key_masked }}) — 비우면 유지, clear 면 삭제
-        <input type="password" name="api_key" autocomplete="off" style="margin-top:4px;"></label>
-      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
-        <button type="button" class="secondary" data-modal-close>닫기</button>
-        <button type="submit">저장</button>
-      </div>
-    </form>
-    <div style="display:flex; gap:10px; align-items:center; justify-content:flex-end; margin-top:12px; padding-top:10px; border-top:1px solid var(--line);">
-      <form action="/dev/llm/{{ c.id }}/catalog" method="post" style="margin:0; flex:none;"><button type="submit" class="secondary" data-busy="불러오는 중…" style="padding:5px 10px; font-size:12px;"><iconify-icon icon="solar:refresh-linear"></iconify-icon>모델 목록 새로고침</button></form>
-    </div>
-  </div></div>
-</div>
 {% if c.external and not c.active %}
 <div class="modal-back" id="llmAct-{{ c.id }}">
   <div class="card"><div class="card-in">

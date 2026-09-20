@@ -56,7 +56,7 @@ def _vision_model_name() -> str:
     try:
         from zzaimy.generate.client import VllmClient
 
-        c = VllmClient()
+        c = VllmClient(role="vision")
         return getattr(c, "vision_model", "") or c.model
     except Exception:
         return "비전 모델"
@@ -69,9 +69,9 @@ def _vision_available() -> bool:
     try:
         from zzaimy.generate.client import VllmClient
 
-        if not getattr(VllmClient(), "has_vision", False):
+        if not getattr(VllmClient(role="vision"), "has_vision", False):
             _vision_state["off"] = True
-            log.info("비전 모델이 지정되지 않아 이미지 판독을 건너뜁니다")
+            log.info("이미지를 읽을 수 있는 모델이 없어 판독을 건너뜁니다")
             return False
         return True
     except Exception:
@@ -353,7 +353,7 @@ class DocumentProcessor:
                     im.convert("RGB").save(send_path, quality=88)
             mime = "image/png" if send_path.suffix.lower() == ".png" else "image/jpeg"
             b64 = base64.b64encode(send_path.read_bytes()).decode()
-            client = VllmClient()
+            client = VllmClient(role="vision")
             resp = client.client.chat.completions.create(
                 model=getattr(client, "vision_model", client.model),
                 temperature=0.0,
@@ -565,7 +565,7 @@ class DocumentProcessor:
         try:
             from zzaimy.generate.client import VllmClient
 
-            client = VllmClient()
+            client = VllmClient(role="vision")
         except Exception:
             return None
 
@@ -767,7 +767,7 @@ class DocumentProcessor:
 
             from zzaimy.generate.client import VllmClient
 
-            client = VllmClient()
+            client = VllmClient(role="vision")
             b64 = base64.b64encode(image_path.read_bytes()).decode()
             resp = client.client.chat.completions.create(
                 model=getattr(client, "vision_model", client.model),
@@ -811,7 +811,7 @@ class DocumentProcessor:
 
             from zzaimy.generate.client import VllmClient
 
-            client = VllmClient()
+            client = VllmClient(role="vision")
             mime = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
             b64 = base64.b64encode(image_path.read_bytes()).decode()
             resp = client.client.chat.completions.create(
