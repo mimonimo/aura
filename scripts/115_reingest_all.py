@@ -48,7 +48,8 @@ SOURCES = [
     # (폴더, 문서 유형, 설명) — 앞에서부터 순서대로 올린다
     ("data/scraped/iacf", "regulation", "영남이공대학교 산학협력단 규정"),
     ("data/external", "recruit", "외부 기관 공고·안내"),
-    ("data/scraped/files", "auto", "교내 내려받기 문서"),
+    ("data/scraped/files", "regulation", "교내 내려받기 문서"),
+    ("data/scraped/uniall", "regulation", "국고사업 공개 문서(기본계획·서식)"),
 ]
 EXTS = {".pdf", ".hwp", ".hwpx", ".docx", ".png", ".jpg", ".jpeg", ".xlsx"}
 

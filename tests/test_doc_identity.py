@@ -202,3 +202,33 @@ def test_same_title_documents_get_distinguishable_names(tmp_path):
     assert names[0] != names[1]                       # 서로 구분된다
     assert all(n.startswith("2022학년도 입학자 연계교육과정 편성표") for n in names)
     assert "스마트융합기계계열" in names[1] and "|" not in names[1]   # 표 구분자 없이 값만
+
+
+def test_table_rows_do_not_become_titles():
+    """서식 문서의 첫 쪽은 표다 — 항목 이름이 늘어선 줄은 제목이 아니다."""
+    from zzaimy.app.doc_title import loose_title
+
+    assert loose_title("|학년|학년|학년||||학번|학번|학번||||") is None
+    assert loose_title("비고|비고||||||||") is None
+    assert loose_title("학과(계열) | | 수험번호 |") is None
+    # 문서 종류로 끝나는 칸은 그 문서의 이름이다
+    assert loose_title("영문성명등록신청서 | | 전결 | | |") == "영문성명등록신청서"
+    assert loose_title("[]행사계획서|결재|||") == "행사계획서"
+    # 표 줄 다음에 제목 줄이 오면 그 줄을 쓴다
+    assert loose_title("|학년|학번|\n2024학년도 학생 건의 사항 조치 보고서") \
+        == "2024학년도 학생 건의 사항 조치 보고서"
+
+
+def test_document_number_and_item_marker_lines_are_not_titles():
+    """공고는 첫 줄이 문서 번호다 — 제목은 그다음 줄에 있다."""
+    from zzaimy.app.doc_title import loose_title
+
+    assert loose_title("통영시공고 제2026-1669호\n2026년 상반기분 통영시 대학생 학자금 이자 지원 공고") \
+        == "2026년 상반기분 통영시 대학생 학자금 이자 지원 공고"
+    assert loose_title("가. 신청기간:2026. 9. 2.(수)\n1.대학(원) 재학 증명서") is None
+    # 값만 남은 줄은 건너뛰고 다음 줄을 본다
+    assert loose_title(": 대구광역시 중구 북성로 107 번지\n응시원서") == "응시원서"
+    # 표의 번호 칸('9납입금 내역')도 제목이 아니다. 기간 표기('2026년')는 제목이다
+    assert loose_title("9납입금 내역\n등록금 |  | 3,393,000") is None
+    assert loose_title("2026년 상반기분 통영시 대학생 학자금 이자 지원 공고") \
+        == "2026년 상반기분 통영시 대학생 학자금 이자 지원 공고"
