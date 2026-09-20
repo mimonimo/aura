@@ -162,7 +162,9 @@
   .use-form { grid-column:1 / -1; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;
               background:var(--bg-soft, #F7F8FA); border-radius:10px; padding:10px 12px; margin-top:4px; }
   .use-form label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--muted); min-width:180px; flex:1; }
-  .use-actions { display:flex; gap:8px; margin-left:auto; }
+  .use-bar { display:flex; align-items:center; gap:10px; margin-top:12px; padding-top:12px;
+             border-top:1px solid var(--line); }
+  .use-hint { font-size:11.5px; margin-right:auto; }
   @media (max-width:760px) { .use-row { grid-template-columns:1fr auto; } .use-now { grid-column:1 / -1; } }
   .srv-head { font-size:11.5px; margin:14px 0 4px; }
   .srv-list { display:flex; flex-direction:column; border-top:1px solid var(--line); }
@@ -209,50 +211,60 @@
   {% endif %}
 </div></div>
 
-{# 단계별 모델 — 처리 단계마다 어느 서버의 어느 모델을 쓰는지. 지금 값이 먼저, 고르는 칸은 변경할 때만 #}
+{# 단계별 모델 — 지금 값이 먼저. 고치는 칸은 '변경'을 눌러야 열리고,
+   저장은 줄마다가 아니라 섹션 하단에 하나(원자적 저장: POST /dev/llm/roles) #}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>단계별 모델</h2>
   {% if connections %}
   {% set act = connections | selectattr('active') | list | first %}
-  <div class="use-list">
-    {% for r in llm_roles %}
-    {% set own = (connections | selectattr('id', 'equalto', r.id) | list | first) if r.id else none %}
-    {% set srv = own or act %}
-    <div class="use-row" id="use-{{ r.role }}">
-      <div class="use-name">{{ r.label }}</div>
-      <div class="use-now">
-        {% if srv %}
-          <strong>{{ srv.name }}</strong>
-          <span class="use-model">{{ (r.model if own else none) or srv.model or "서버 기본" }}</span>
-          {% if not own %}<span class="pill use-tag">기본</span>{% endif %}
-        {% else %}<span class="muted">지정된 서버가 없습니다</span>{% endif %}
-      </div>
-      <button type="button" class="btn-ghost use-edit" data-use-open>변경</button>
-      <form action="/dev/llm/role" method="post" class="use-form" hidden>
+  <form action="/dev/llm/roles" method="post" id="useForm">
+    <div class="use-list">
+      {% for r in llm_roles %}
+      {% set own = (connections | selectattr('id', 'equalto', r.id) | list | first) if r.id else none %}
+      {% set srv = own or act %}
+      <div class="use-row" id="use-{{ r.role }}">
         <input type="hidden" name="role" value="{{ r.role }}">
-        <label>서버
-          <select name="cid" data-role-server>
-            <option value="">{% if act %}기본 — {{ act.name }}{% else %}기본 연결 없음{% endif %}</option>
-            {% for c in connections %}
-            <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}
-                    data-models="{{ c.live.models | map(attribute='id') | join('|') if c.live.ok else '' }}">{{ c.name }}</option>
-            {% endfor %}
-          </select></label>
-        <label>모델
-          <select name="model" data-role-model {{ '' if r.id else 'disabled' }}>
-            <option value="">{{ "서버 기본" if r.id else "기본 — " ~ (act.model or "서버 기본" if act else "없음") }}</option>
-            {% for c in connections %}{% if c.id == r.id and c.live.ok %}{% for m in c.live.models %}
-            <option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>
-            {% endfor %}{% endif %}{% endfor %}
-          </select></label>
-        <div class="use-actions">
-          <button type="button" class="btn-ghost" data-use-cancel>취소</button>
-          <button type="submit" class="secondary">저장</button>
+        <div class="use-name">{{ r.label }}</div>
+        <div class="use-now">
+          {% if srv %}
+            <strong>{{ srv.name }}</strong>
+            <span class="use-model">{{ (r.model if own else none) or srv.model or "서버 기본" }}</span>
+            {% if not own %}<span class="pill use-tag">기본</span>{% endif %}
+          {% else %}<span class="muted">지정된 서버가 없습니다</span>{% endif %}
         </div>
-      </form>
+        <button type="button" class="btn-ghost use-edit" data-use-open>변경</button>
+        <div class="use-form" hidden>
+          <label>서버
+            <select name="cid" data-role-server data-saved="{{ r.id }}">
+              <option value="">{% if act %}기본 — {{ act.name }}{% else %}기본 연결 없음{% endif %}</option>
+              {% for c in connections %}
+              <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}
+                      data-models="{{ c.live.models | map(attribute='id') | join('|') if c.live.ok else '' }}">{{ c.name }}</option>
+              {% endfor %}
+            </select></label>
+          <label>모델
+            <select name="model" data-role-model data-saved="{{ r.model if r.id else '' }}" {{ '' if r.id else 'disabled' }}>
+              <option value="">{{ "서버 기본" if r.id else "기본 — " ~ (act.model or "서버 기본" if act else "없음") }}</option>
+              {% for c in connections %}{% if c.id == r.id %}
+                {% if c.live.ok %}{% for m in c.live.models %}
+                <option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>
+                {% endfor %}{% endif %}
+                {# 서버 목록에 없어진 모델도 지금 지정값이면 남긴다 — 조용히 덮어쓰지 않는다 #}
+                {% if r.model and (not c.live.ok or r.model not in (c.live.models | map(attribute='id') | list)) %}
+                <option value="{{ r.model }}" selected>{{ r.model }} (목록에 없음)</option>
+                {% endif %}
+              {% endif %}{% endfor %}
+            </select></label>
+        </div>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
-  </div>
+    <div class="use-bar">
+      <span class="muted use-hint" id="useHint">바꾼 것이 없습니다</span>
+      <button type="button" class="btn-ghost" id="useCancel" disabled>취소</button>
+      <button type="submit" class="secondary" id="useSave" disabled>변경사항 저장</button>
+    </div>
+  </form>
   {% else %}
   <p class="muted" style="font-size:12.5px; margin:0;">서버를 먼저 등록하세요.</p>
   {% endif %}
@@ -271,7 +283,7 @@
     </div>
     {% endfor %}
   </div>
-  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">임베딩 모델을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다. 올리는 방법은 <code>scripts/102</code>·<code>scripts/103</code>.</p>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">임베딩 모델을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다. 서비스를 올리는 방법은 <code>scripts/102</code>·<code>scripts/103</code>.</p>
 </div></div>
 
 {# 연결별 설정 — 수정·확인·용도·삭제를 톱니 하나에 모은다 #}
@@ -349,23 +361,88 @@ document.addEventListener("DOMContentLoaded", function () {
       btn.textContent = box.hidden ? "목록 보기" : "목록 접기";
     });
   });
-  // 용도 바꾸기 — 지금 값은 그대로 두고, 고르는 칸만 그 줄 아래에 연다
-  document.querySelectorAll(".use-row").forEach(function (row) {
-    var open = row.querySelector("[data-use-open]");
-    var form = row.querySelector(".use-form");
-    if (!open || !form) return;
-    open.addEventListener("click", function () {
-      var show = form.hidden;
-      form.hidden = !show;
-      open.textContent = show ? "닫기" : "변경";
-      if (show) form.querySelector("select").focus();
+  // 단계별 모델 — 지금 값은 그대로 두고 고르는 칸만 그 줄 아래에 연다.
+  // 저장은 섹션 하단 하나. 바뀐 것이 없으면 저장을 누를 수 없고, 취소는 저장된 값으로 되돌린다.
+  var useForm = document.getElementById("useForm");
+  if (useForm) {
+    var save = document.getElementById("useSave");
+    var cancel = document.getElementById("useCancel");
+    var hint = document.getElementById("useHint");
+    var rows = Array.prototype.slice.call(useForm.querySelectorAll(".use-row"));
+
+    function optionsFor(server) {
+      var opt = server.selectedOptions[0];
+      return (opt && opt.dataset.models ? opt.dataset.models.split("|") : []).filter(Boolean);
+    }
+
+    function fillModels(row, keep) {
+      var server = row.querySelector("[data-role-server]");
+      var model = row.querySelector("[data-role-model]");
+      var list = optionsFor(server);
+      model.replaceChildren();
+      var head = document.createElement("option");
+      head.value = "";
+      head.textContent = server.value ? "서버 기본" : "기본";
+      model.appendChild(head);
+      // 목록에 없어진 모델도 지금 지정값이면 남긴다 — 조용히 덮어쓰지 않는다
+      if (keep && list.indexOf(keep) === -1) list = list.concat([keep]);
+      list.forEach(function (id) {
+        var o = document.createElement("option");
+        o.value = id;
+        o.textContent = id === keep && optionsFor(server).indexOf(id) === -1 ? id + " (목록에 없음)" : id;
+        model.appendChild(o);
+      });
+      model.disabled = !server.value;
+      if (keep) model.value = keep;
+    }
+
+    function dirtyRows() {
+      return rows.filter(function (row) {
+        var server = row.querySelector("[data-role-server]");
+        var model = row.querySelector("[data-role-model]");
+        return server.value !== server.dataset.saved || model.value !== model.dataset.saved;
+      });
+    }
+
+    function paint() {
+      var n = dirtyRows().length;
+      save.disabled = n === 0;
+      cancel.disabled = n === 0;
+      hint.textContent = n === 0 ? "바꾼 것이 없습니다" : n + "개 단계를 바꿨습니다";
+    }
+
+    rows.forEach(function (row) {
+      var open = row.querySelector("[data-use-open]");
+      var box = row.querySelector(".use-form");
+      var server = row.querySelector("[data-role-server]");
+      var model = row.querySelector("[data-role-model]");
+      open.addEventListener("click", function () {
+        var show = box.hidden;
+        box.hidden = !show;
+        open.textContent = show ? "닫기" : "변경";
+        if (show) server.focus();
+      });
+      server.addEventListener("change", function () {
+        fillModels(row, server.value === server.dataset.saved ? model.dataset.saved : "");
+        paint();
+      });
+      model.addEventListener("change", paint);
     });
-    form.querySelector("[data-use-cancel]").addEventListener("click", function () {
-      form.hidden = true;
-      open.textContent = "변경";
-      open.focus();
+
+    cancel.addEventListener("click", function () {
+      rows.forEach(function (row) {
+        var server = row.querySelector("[data-role-server]");
+        var model = row.querySelector("[data-role-model]");
+        server.value = server.dataset.saved;
+        fillModels(row, model.dataset.saved);
+        var box = row.querySelector(".use-form");
+        box.hidden = true;
+        row.querySelector("[data-use-open]").textContent = "변경";
+      });
+      paint();
     });
-  });
+    paint();
+  }
   // 비밀번호 변경 — 같은 창 안에서 화면만 바꾼다(접이식·중첩 팝업 없이)
   document.querySelectorAll("[data-pw-open]").forEach(function (btn) {
     var card = btn.closest(".card-in");
@@ -382,31 +459,7 @@ document.addEventListener("DOMContentLoaded", function () {
 });
 </script>
 
-<script>
-// 용도 줄 — 서버를 고르면 그 서버가 지금 내어 주는 모델로 목록을 바꾼다
-document.addEventListener("DOMContentLoaded", function () {
-  document.querySelectorAll(".use-form").forEach(function (row) {
-    var server = row.querySelector("[data-role-server]");
-    var model = row.querySelector("[data-role-model]");
-    if (!server || !model) return;
-    server.addEventListener("change", function () {
-      var opt = server.selectedOptions[0];
-      var list = (opt && opt.dataset.models ? opt.dataset.models.split("|") : []).filter(Boolean);
-      model.replaceChildren();
-      var head = document.createElement("option");
-      head.value = "";
-      head.textContent = server.value ? "서버 기본" : "기본";
-      model.appendChild(head);
-      list.forEach(function (id) {
-        var o = document.createElement("option");
-        o.value = id; o.textContent = id;
-        model.appendChild(o);
-      });
-      model.disabled = !server.value;
-    });
-  });
-});
-</script>
+
 
 {# 연결 추가 #}
 <div class="modal-back" id="llmAdd">
