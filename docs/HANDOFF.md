@@ -37,6 +37,8 @@
   | 8014 | 질의 임베딩 (KURE-v1, CLS+정규화) | `bash scripts/103_serve_embed_on_thor.sh` | `ZZAIMY_EMBED_URL=http://211.170.162.121:8014/embed` |
   | 8015 | **운영 리랭커 = ZZAIMY-Rerank v1 학습본** | `MODEL=/models/zzaimy-rerank-v1 bash scripts/102_serve_reranker_on_thor.sh 8015` | `ZZAIMY_RERANK_URL=http://211.170.162.121:8015/score` + `ZZAIMY_RERANK_MIN=0.005` |
 
+  점검은 `bash scripts/110_serving_check.sh` 한 줄 — 서비스 생존·VM 설정·하한이 모델과 맞는지 함께 본다.
+
   **리랭커 모델을 바꾸면 근거 하한을 다시 잰다** — `scripts/105_rerank_floor.py` 로 재고
   `.env.local` 의 `ZZAIMY_RERANK_MIN` 을 갱신한다. 지금 값은 모델 학습 화면에 표시된다.
   눈금은 모델마다 다르다(베이스 0.271 · 학습본 0.005). 학습은 `scripts/104`,
