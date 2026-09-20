@@ -49,7 +49,8 @@ vecs = np.concatenate(out).astype(np.float32) if out else np.zeros((0, 1024), dt
 np.savez_compressed("/work/question_embeddings.npz",
                     ids=np.array([r["id"] for r in rows]),
                     chunks=np.array([r["chunk"] for r in rows]),
-                    vectors=vecs)
+                    vectors=vecs,
+                    model=np.array(MODEL.rsplit("/", 1)[-1]))   # 조각 색인과 같은 모델인지 확인용
 print(f"질문 {len(rows)} · {vecs.shape} · {time.time() - t0:.1f}초 · 모델 {MODEL}")
 PY
 ssh -p $TP "$THOR" "docker run --rm --runtime nvidia --ipc host -e MODEL=$MODEL \

@@ -187,6 +187,17 @@ class EmbedIndex:
         return [(cid, s) for cid, s in out if s >= floor]
 
 
+def _index_model_name() -> str:
+    """조각 색인을 만든 모델 이름 — 메타 파일에서 읽는다(없으면 빈 문자열)."""
+    try:
+        import json
+
+        meta = json.loads(INDEX_PATH.with_suffix(".meta.json").read_text(encoding="utf-8"))
+        return str(meta.get("model") or "")
+    except (OSError, ValueError):
+        return ""
+
+
 class QuestionIndex:
     """조각별 질문 색인 — 담당자 말투의 질문으로 조각을 찾는 보조 축(doc2query).
 
@@ -220,9 +231,15 @@ class QuestionIndex:
                 if not path.exists():
                     raise FileNotFoundError(path)
                 data = np.load(path)
+                # 조각 색인과 같은 모델로 만든 것만 쓴다 — 벡터 공간이 다르면 점수가 뜻이 없다.
+                # 오류가 아니라 엉뚱한 결과로 나타나므로 여기서 막는다(ADR-0021 과 같은 이유).
+                mine = str(data["model"]) if "model" in data.files else ""
+                theirs = _index_model_name()
+                if mine and theirs and mine not in theirs and theirs not in mine:
+                    raise ValueError(f"질문 색인 모델({mine}) ≠ 조각 색인 모델({theirs})")
                 self._chunks = data["chunks"]
                 self._vectors = data["vectors"]
-                log.info("질문 색인 로드: %d개", len(data["chunks"]))
+                log.info("질문 색인 로드: %d개 (모델 %s)", len(data["chunks"]), mine or "미기록")
                 return True
             except Exception as e:
                 log.info("질문 축 없음 (%s) — 어휘·조밀만 사용", type(e).__name__)
