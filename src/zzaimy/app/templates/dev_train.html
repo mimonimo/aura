@@ -260,7 +260,7 @@
       {% endfor %}
     </div>
     <div class="use-bar">
-      <span class="muted use-hint" id="useHint">바꾼 것이 없습니다</span>
+      <span class="muted use-hint" id="useHint">바꾼 것 없음</span>
       <button type="button" class="btn-ghost" id="useCancel" disabled>취소</button>
       <button type="submit" class="secondary" id="useSave" disabled>변경사항 저장</button>
     </div>
@@ -408,7 +408,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var n = dirtyRows().length;
       save.disabled = n === 0;
       cancel.disabled = n === 0;
-      hint.textContent = n === 0 ? "바꾼 것이 없습니다" : n + "개 단계를 바꿨습니다";
+      hint.textContent = n === 0 ? "바꾼 것 없음" : "저장 안 한 변경 " + n + "건";
     }
 
     rows.forEach(function (row) {
