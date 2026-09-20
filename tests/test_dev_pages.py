@@ -208,10 +208,12 @@ def test_connection_page_shows_what_is_in_use_without_popups(client, monkeypatch
     monkeypatch.setattr(app_main, "_live_models_cached", lambda cid, ttl=0: {
         "ok": True, "models": [{"id": "qwen3.8:27b"}, {"id": "qwen3.6:35b"}], "error": ""})
     page = client.get("/dev/train").text
-    # 서버가 지금 내어 주는 모델이 화면에 있다 — 어제 받은 모델이 안 보이던 문제
+    # 서버가 지금 내어 주는 모델을 고를 수 있다 — 어제 받은 모델이 안 보이던 문제
     assert "qwen3.8:27b" in page
-    # 용도마다 실제 적용되는 서버·모델을 값으로 보여 준다(상속이면 기본 서버를 따른다고 적는다)
-    assert "지금 쓰는 모델" in page and 'class="pill use-tag">기본<' in page
-    # 모델 목록은 팝업이 아니라 그 자리에서 펼친다
-    assert 'id="llmModels-' not in page and 'data-toggle="#modelList-' in page
+    # 연결(서버) 관리와 단계별 모델 선택은 나뉘어 있다
+    assert "LLM 연결" in page and "단계별 모델" in page
+    # 단계마다 지금 쓰는 서버·모델이 값으로 보이고, 물려받은 줄에는 '기본' 표시만 붙는다
+    assert 'class="pill use-tag">기본<' in page and "교내 DGX" in page
+    # 목록·열람용 팝업을 따로 두지 않는다 — 서버가 내어 주는 모델 전체는 설정(톱니) 안에 있다
+    assert 'id="llmModels-' not in page and 'id="llmSet-' in page
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()

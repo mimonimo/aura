@@ -61,6 +61,47 @@ RERANK_TAIL_RATIO = 0.25
 RERANK_MIN = 0.1
 
 
+# 서빙 장비의 리랭커 — ZZAIMY_RERANK_URL=http://<토르>:8013/score (scripts/102 로 올린다).
+# 여기로 물으면 쌍 길이를 512 로 쓸 수 있다. VM CPU 로는 512 가 질의당 9.2초라 256 으로 줄여 놨는데,
+# 짝지은 실측(2026-09-20, 질의 150건)에서 256 은 정확한 질문의 순위를 오히려 떨어뜨렸다:
+#   하이브리드 R@1 0.647 · MRR 0.715 → 256 0.640/0.701 → 512 0.667/0.720 (질의당 0.07초)
+# 상황 질문은 어느 길이든 리랭커가 벌어 준다(R@1 0.407 → 0.47~0.49).
+REMOTE_MAX_LEN = 512
+
+
+def _remote_scores(query: str, texts: list[str]) -> list[float] | None:
+    """서빙 장비에 점수를 묻는다 — 꺼져 있거나 실패하면 None(그러면 VM CPU 로 물러난다)."""
+    url = os.environ.get("ZZAIMY_RERANK_URL", "").strip()
+    if not url or not texts:
+        return None
+    import json
+    import urllib.error
+    import urllib.request
+
+    body = json.dumps({"query": query, "texts": texts,
+                       "max_length": REMOTE_MAX_LEN}).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=float(os.environ.get("ZZAIMY_RERANK_TIMEOUT", "8"))) as r:
+            got = json.loads(r.read().decode("utf-8"))
+        scores = got.get("scores")
+        if isinstance(scores, list) and len(scores) == len(texts):
+            return [float(x) for x in scores]
+        log.warning("리랭커 서비스 응답 형식이 맞지 않음 — CPU 로 물러남")
+    except (urllib.error.URLError, OSError, ValueError, TypeError) as e:
+        log.warning("리랭커 서비스 실패(%s) — CPU 로 물러남", type(e).__name__)
+    return None
+
+
+def _pair_text(c: dict, text_key: str, *, with_title: bool) -> str:
+    """리랭커에 보낼 후보 글. 서빙 장비로 보낼 때는 문서 이름까지 넣는다(길이 여유가 있다)."""
+    body = c.get(text_key, "") or ""
+    head = c.get("heading", "") or ""
+    if with_title:
+        return f"{c.get('reg_title', '') or ''} {head}\n{body[:900]}".strip()
+    return f"{head} {body}"[:800]
+
+
 def rerank_scored(query: str, chunks: list[dict],
                   text_key: str = "content") -> list[tuple[dict, float]] | None:
     """(조각, 점수)를 점수 내림차순으로. 리랭커가 없거나 실패하면 None."""
@@ -74,14 +115,16 @@ def rerank_scored(query: str, chunks: list[dict],
     if llm is not None:
         order = sorted(range(len(chunks)), key=lambda i: (-llm[i], i))
         return [(chunks[i], llm[i]) for i in order]
+    # 서빙 장비의 리랭커가 켜져 있으면 그것으로 — 눈금은 같은 모델이라 그대로 쓴다
+    remote = _remote_scores(query, [_pair_text(c, text_key, with_title=True) for c in chunks])
+    if remote is not None:
+        order = sorted(range(len(chunks)), key=lambda i: (-remote[i], i))
+        return [(chunks[i], remote[i]) for i in order]
     ce = _encoder()
     if ce is None:
         return None
     try:
-        pairs = [
-            (query, f"{c.get('heading', '')} {c.get(text_key, '')}"[:800])
-            for c in chunks
-        ]
+        pairs = [(query, _pair_text(c, text_key, with_title=False)) for c in chunks]
         scores = [float(s) for s in ce.predict(pairs, show_progress_bar=False)]
         order = sorted(range(len(chunks)), key=lambda i: -scores[i])
         return [(chunks[i], scores[i]) for i in order]
