@@ -27,6 +27,7 @@ ssh -o BatchMode=yes "$VM" 'cd ~/zzaimy-capstone && grep -E "^ZZAIMY_(RERANK|EMB
 echo "[$(date +%T)] 3/3 플랫폼이 실제로 쓰는 것 (앱과 같은 환경으로)"
 # 점검 본문은 VM 에 파일로 두고 부른다 — 따옴표를 겹쳐 넘기면 이스케이프가 깨진다
 ssh -o BatchMode=yes "$VM" "cat > /tmp/zz_serving_check.py" <<'PY'
+import json
 import os
 
 from zzaimy.app import search_serving
@@ -35,12 +36,30 @@ from zzaimy.app.rerank import RERANK_MIN
 KNOWN = {"bge-reranker-v2-m3": 0.271, "zzaimy-rerank-v1": 0.005}   # scripts/105 로 잰 값
 floor = os.environ.get("ZZAIMY_RERANK_MIN", "").strip()
 bad = 0
+
+# 색인과 질의 임베딩 모델이 한 짝인지 — 어긋나면 오류 없이 엉뚱한 결과가 나온다(ADR-0021)
+index_model = ""
+try:
+    with open("data/platform/chunk_embeddings.meta.json", encoding="utf-8") as fh:
+        meta = json.load(fh)
+    index_model = str(meta.get("model") or "")
+    print(f"  조각 색인: {index_model} · 조각 {meta.get('n_chunks')}개 · 차원 {meta.get('dim')}")
+except (OSError, ValueError):
+    print("  조각 색인: 메타 파일 없음 — 색인 모델을 확인할 수 없습니다")
+    bad = 1
 for p in search_serving.status(ttl=0):
     mark = "정상" if p["ok"] else "멈춤"
     model = p["model"] or "-"
     print(f"  {p['label']}: {mark} · {p['where']} · {model} · {p['detail'] or '-'}")
     if not p["ok"]:
         bad = 1
+    if p["key"] == "embed" and model != "-" and index_model:
+        # 이름 표기가 조금 달라도(경로·대소문자) 서로를 포함하면 같은 모델로 본다
+        a, b = model.lower(), index_model.lower()
+        if a not in b and b not in a:
+            print(f"     ! 색인({index_model})과 질의 모델({model})이 다릅니다 —"
+                  f" 한쪽만 바꾸면 검색이 조용히 망가집니다(ADR-0021)")
+            bad = 1
     if p["key"] != "rerank":
         continue
     if model in KNOWN:
