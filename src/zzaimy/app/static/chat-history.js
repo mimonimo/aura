@@ -12,18 +12,26 @@
       menu.onclick = () => {
         document.querySelector('.session-popover')?.remove();
         const pop = document.createElement('div'); pop.className = 'session-popover'; pop.setAttribute('popover','auto'); pop.setAttribute('role','dialog'); pop.setAttribute('aria-label','대화 관리');
-        pop.innerHTML = '<button type="button" class="secondary" data-delete>대화 삭제</button>';
+        pop.innerHTML = '<button type="button" class="session-delete-action" data-delete><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>삭제</button>';
         document.body.append(pop); pop.showPopover();
+        menu.setAttribute('aria-expanded','true');
         const rect = menu.getBoundingClientRect();
-        pop.style.left = Math.max(8, Math.min(rect.left, innerWidth - pop.offsetWidth - 8)) + 'px';
-        pop.style.top = Math.max(8, Math.min(rect.bottom + 4, innerHeight - pop.offsetHeight - 8)) + 'px';
+        function position() {
+          pop.style.left = Math.max(8, Math.min(rect.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8)) + 'px';
+          pop.style.top = Math.max(8, Math.min(rect.bottom + 4, innerHeight - pop.offsetHeight - 8)) + 'px';
+        }
+        position();
         pop.querySelector('button').focus();
-        pop.addEventListener('toggle', e => { if (e.newState === 'closed') {pop.remove(); if(menu.isConnected) menu.focus();} });
+        pop.addEventListener('keydown', e => {
+          if(e.key === 'Escape') { e.preventDefault(); pop.hidePopover(); if(menu.isConnected) menu.focus(); }
+        });
+        pop.addEventListener('toggle', e => { if (e.newState === 'closed') {pop.remove(); menu.setAttribute('aria-expanded','false');} });
         pop.querySelector('[data-delete]').onclick = () => {
+          pop.classList.add('confirming');
           pop.innerHTML = '<p class="session-delete-title"></p><p>이 대화와 수정 이력을 삭제할까요? 복구할 수 없습니다. 프로젝트와 등록 문서, 첨부 원본 파일은 유지됩니다.</p><div><button type="button" class="secondary" data-cancel>취소</button><button type="button" data-confirm>삭제</button></div><p role="alert"></p>';
           pop.querySelector('.session-delete-title').textContent = link.title || link.textContent;
-          pop.style.top = Math.max(8, Math.min(rect.bottom + 4, innerHeight - pop.offsetHeight - 8)) + 'px';
-          pop.querySelector('[data-cancel]').onclick = () => pop.hidePopover();
+          position();
+          pop.querySelector('[data-cancel]').onclick = () => {pop.hidePopover(); if(menu.isConnected) menu.focus();};
           pop.querySelector('[data-cancel]').focus();
           pop.querySelector('[data-confirm]').onclick = async () => {
             pop.querySelectorAll('button').forEach(b => b.disabled = true);
