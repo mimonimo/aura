@@ -30,17 +30,23 @@ from zzaimy.app.rerank import rerank_scored  # noqa: E402
 from zzaimy.eval import retrieval_eval as rev  # noqa: E402
 
 # 근거가 없어야 하는 질의 — 업무 지시·인사말. 규정 조각이 1위로 올라와도 근거는 아니다.
+# 근거가 없어야 하는 질의 — 인사말·업무 지시. 규정 조각이 1위로 올라와도 근거는 아니다.
+# 여기에 '학교 규정 좀 알려줘' 같은 질의를 섞으면 측정이 무너진다 — 그건 실제로 규정을
+# 찾아야 하는 질의이고 점수가 높은 것이 정답이다(2026-09-20 실측에서 이 실수를 잡았다).
 META_QUERIES = [
     "문서 접수 해줘", "안녕하세요", "오늘 일정 알려줘", "이 파일 업로드할게",
     "감사합니다", "지난번에 말한 그거 어떻게 됐어", "회의 잡아줘", "출력해서 가져다줘",
     "메일 보냈어요", "확인 부탁드립니다", "지금 몇 시야", "테스트",
     "잘 부탁드립니다", "수고하셨습니다", "파일 이름 바꿔줘",
-    # 행정 낱말이 섞여 후보가 잡히는 쪽 — 하한이 실제로 판정해야 하는 질의들이다
-    "문서 좀 정리해 주세요", "자료 보내 주실 수 있나요", "담당자 연락처 알려줘",
-    "파일 다시 올려 주세요", "지난 회의 자료 찾아줘", "사업 관련해서 물어볼 게 있어요",
-    "결재 올렸습니다", "서류 준비 다 됐나요", "그 건은 어떻게 처리하죠",
-    "오늘 중으로 보내주세요", "학교 규정 좀 알려줘", "보고서 초안 부탁해요",
-    "내일 회의 자료 준비할게요", "요청하신 대로 수정했습니다", "언제까지 제출하면 되나요",
+    "결재 올렸습니다", "오늘 중으로 보내주세요", "요청하신 대로 수정했습니다",
+    "내일 회의 자료 준비할게요", "파일 다시 올려 주세요",
+]
+
+# 애매한 질의 — 규정과 상관이 있을 수도 있다. 하한을 정하는 데 쓰지 않고, 정한 하한이
+# 이들을 어떻게 판정하는지만 함께 적는다(참고용).
+VAGUE_QUERIES = [
+    "학교 규정 좀 알려줘", "보고서 초안 부탁해요", "사업 관련해서 물어볼 게 있어요",
+    "담당자 연락처 알려줘", "서류 준비 다 됐나요", "언제까지 제출하면 되나요",
 ]
 
 
@@ -72,6 +78,7 @@ def main() -> int:
 
     good = [v for i in idx if (v := top_score(pairs[i][0])) is not None]
     meta = [v for q in META_QUERIES if (v := top_score(q)) is not None]
+    vague = [(q, v) for q in VAGUE_QUERIES if (v := top_score(q)) is not None]
     good_gap = sorted(g for _, g in good)
     meta_gap = sorted(g for _, g in meta)
     good = [s for s, _ in good]
@@ -97,6 +104,9 @@ def main() -> int:
         return 0
     floor = (max(meta) + p05) / 2
     print(f"권하는 하한(RERANK_MIN) {floor:.3f} — 정답 질의 약함 0건, 무관 질의 {len(meta)}건 모두 걸러짐")
+    if vague:
+        over = [q for q, (s_, _) in vague if s_ >= floor]
+        print(f"애매한 질의 {len(vague)}건 중 하한을 넘는 것 {len(over)}건: {', '.join(over) or '없음'}")
     return 0
 
 
