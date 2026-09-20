@@ -1816,10 +1816,13 @@ class DocumentProcessor:
                 chunks = chunk_document(raw_text)
                 if reg_vision_chunks is None and getattr(self, "_ocr_used", False):
                     # MinerU 스캔 경로 — 공백 복원 후 오인식을 보수적으로 교정
-                    from zzaimy.app.regulations import restore_spacing
+                    from zzaimy.app.regulations import over_spacing_evidence, restore_spacing
 
+                    # 글자 벌어짐은 문서 전체로 판정한다 — 조각만 보면 짧은 줄을 놓친다
+                    spread = over_spacing_evidence(raw_text)
                     chunks = [
-                        type(c)(heading=c.heading, content=restore_spacing(c.content))
+                        type(c)(heading=c.heading,
+                                content=restore_spacing(c.content, spread_doc=spread))
                         for c in chunks
                     ]
                     fixed = self._correct_texts([c.content for c in chunks])
