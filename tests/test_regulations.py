@@ -128,3 +128,27 @@ def test_restore_spacing_joins_letter_spaced_ocr_output():
     assert " " in out and "위 사 람" not in out            # 어절 단위로 다시 띄어진다
     normal = "이 규정은 산학협력단의 운영 기준을 정함을 목적으로 한다."
     assert restore_spacing(normal) == normal             # 정상 문장은 그대로
+
+
+def test_table_only_chunk_gets_heading_from_the_table_itself():
+    """표가 본문인 조각(편성표·서식)은 표 머리에서 표제를 만든다 — 문서별 예외 없이."""
+    from zzaimy.app.regulations import _heading_of
+
+    plan = ("학과(계열) | 소프트웨어융합과\n연계편입 학과(전공) | 컴퓨터공학과\n"
+            "학년 | 학기 | 연계교과목\n1 | 1 | IT와소프트웨어 | 컴퓨팅사고")
+    assert _heading_of(plan) == "소프트웨어융합과 · 컴퓨터공학과"
+    # 제목 줄이 앞에 붙어 있어도 표 행만 본다
+    assert _heading_of("2025학년도 입학자\n\n연계교육과정 편성표\n\n" + plan).startswith("소프트웨어융합과")
+    # 값 칸이 여럿인 서식 행은 이름 칸이 표제가 된다
+    form = ("사업명 | 창업교육 혁신 선도대학(SCOUT) - SCOUT(STARTUP Co-Op University) -\n"
+            "컨소시엄 주관대학 | 대학명 | 대학교 | 대학교")
+    assert _heading_of(form) == "사업명 · 컨소시엄 주관대학"
+
+
+def test_table_heading_never_promotes_prose_or_data_rows():
+    """거짓 표제를 만들지 않는다 — 자료 행·서술문·표 한 줄에는 표제를 붙이지 않는다."""
+    from zzaimy.app.regulations import _heading_of
+
+    assert _heading_of("1 | 1 | IT와소프트웨어 | 컴퓨팅사고\n1 | 2 | 데이터베이스 | C기초") == ""
+    assert _heading_of("이 규정은 2022년 5월 26일부터 시행한다. 다만 부칙은 예외로 한다.") == ""
+    assert _heading_of("신청 자격은 다음과 같다. 재학생 수 기준을 충족해야 한다.\n구분 | 기준") == ""
