@@ -180,4 +180,25 @@ def test_title_comes_from_the_document_not_the_filename(tmp_path):
         assert doc["filename"].startswith("영남이공대학교 산학협력단 운영 규정")
         assert ident["original_filename"] == "test.pdf"     # 올라온 파일 이름은 남는다
         assert doc["stored_path"].endswith("test.pdf")      # 파일 자체는 그대로
-        assert display_name(doc) == doc["filename"]
+        # 같은 제목이 둘이면 뒤에 구분되는 말이 붙으므로 시작만 같다
+        assert doc["filename"].startswith(display_name(doc))
+
+
+def test_same_title_documents_get_distinguishable_names(tmp_path):
+    """제목이 같은 문서가 여럿 들어오면 본문에서 구분되는 말을 붙인다."""
+    from zzaimy.app.db import Database
+
+    db = Database(tmp_path / "t.db")
+    bodies = [
+        "2022학년도 입학자\n연계교육과정 편성표\n학과(계열) ICT반도체전자계열\n연계편입 전자공학전공",
+        "2022학년도 입학자\n연계교육과정 편성표\n학과(계열) 스마트융합기계계열\n연계편입 기계공학전공",
+    ]
+    names = []
+    for body in bodies:
+        doc_id = db.add_document(filename="down.pdf", stored_path=str(tmp_path / "down.pdf"),
+                                 doc_type="auto")
+        db.rename_from_text(doc_id, body)
+        names.append((db.get_document(doc_id) or {})["filename"])
+    assert names[0] != names[1]                       # 서로 구분된다
+    assert all(n.startswith("2022학년도 입학자 연계교육과정 편성표") for n in names)
+    assert "계열" in names[1]

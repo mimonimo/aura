@@ -317,10 +317,37 @@ class Database:
         self.set_doc_identity(doc_id, found)
         have.update(found)
         name = display_name({**doc, "identity": json.dumps(have, ensure_ascii=False)})
+        if name:
+            name = self._unique_name(name, doc_id, text or doc.get("masked_text") or "")
         if name and name != doc.get("filename"):
             with self._conn() as conn:
                 conn.execute("UPDATE documents SET filename = ? WHERE id = ?", (name, doc_id))
         return have
+
+    def _unique_name(self, name: str, doc_id: int, text: str) -> str:
+        """같은 제목의 문서가 이미 있으면 구분되는 말을 덧붙인다.
+
+        학과별 편성표처럼 제목이 같은 문서가 여럿 들어온다. 본문에서 그다음으로 구분이 되는 줄
+        (학과·과정·대상 같은 것)을 찾아 붙이고, 그래도 겹치면 접수번호를 붙인다.
+        """
+        with self._conn() as conn:
+            taken = {r[0] for r in conn.execute(
+                "SELECT filename FROM documents WHERE filename LIKE ? AND id <> ?",
+                (f"{name}%", doc_id))}
+        if name not in taken:
+            return name
+        for line in (ln.strip() for ln in text.splitlines()):
+            if not (4 <= len(line) <= 40) or line in name:
+                continue
+            if any(k in line for k in ("학과", "계열", "전공", "과정", "대상", "유형", "차수")):
+                merged = f"{name} · {line}"
+                if merged not in taken:
+                    return merged
+                break
+        with self._conn() as conn:
+            row = conn.execute("SELECT receipt_no FROM documents WHERE id = ?", (doc_id,)).fetchone()
+        receipt = (row[0] if row else "") or str(doc_id)
+        return f"{name} · {receipt}"
 
     def get_document(self, doc_id: int) -> dict | None:
         with self._conn() as conn:
