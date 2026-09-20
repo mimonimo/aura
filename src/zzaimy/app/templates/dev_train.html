@@ -267,42 +267,42 @@
       <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <dl class="kv">
       <dt>주소</dt><dd><code>{{ c.base_url }}</code></dd>
-      <dt>확인</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}아직 확인하지 않음{% endif %}</dd>
-      <dt>지정 모델</dt><dd>{{ c.model or "서버 첫 모델 자동" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</dd>
-      <dt>서버 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
+      <dt>마지막 확인</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}아직 확인하지 않음{% endif %}</dd>
+      <dt>기본 모델</dt><dd>{{ c.model or "서버 기본" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</dd>
+      <dt>올라온 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
       <dt>API 키</dt><dd>{{ c.api_key_masked }}</dd>
-      <dt>맡은 용도</dt><dd>{% set mine = llm_roles | selectattr('id', 'equalto', c.id) | list %}{% if mine %}{{ mine | map(attribute='label') | join(', ') }}{% else %}없음{% endif %}</dd>
+      <dt>맡은 단계</dt><dd>{% set mine = llm_roles | selectattr('id', 'equalto', c.id) | list %}{% if mine %}{{ mine | map(attribute='label') | join(', ') }}{% else %}없음{% endif %}</dd>
     </dl>
     <div class="modal-sec">
-      <h4>연결 고치기</h4>
+      <h4>서버 정보</h4>
       <form action="/dev/llm/{{ c.id }}/update" method="post" style="display:flex; flex-direction:column; gap:8px;">
         <label class="muted" style="font-size:12px;">이름<input type="text" name="name" value="{{ c.name }}" maxlength="60" style="margin-top:4px;"></label>
         <label class="muted" style="font-size:12px;">주소<input type="text" name="base_url" value="{{ c.base_url }}" style="margin-top:4px;"></label>
         <label class="muted" style="font-size:12px;">기본 모델
-          <span style="font-weight:500;">{% if c.live.ok %}(서버에 올라온 {{ c.live.models | length }}개){% else %}(서버 응답 없음 — ‘연결 확인’ 뒤 고를 수 있습니다){% endif %}</span>
+          <span style="font-weight:500;">{% if c.live.ok %}(올라온 {{ c.live.models | length }}개){% else %}(응답 없음 — ‘연결 확인’ 뒤 고를 수 있습니다){% endif %}</span>
           <select name="model" style="margin-top:4px;">
-            <option value="">서버 첫 모델 자동</option>
+            <option value="">서버 기본</option>
             {% if c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.model else '' }}>{{ m.id }}</option>{% endfor %}
             {% elif c.model %}<option value="{{ c.model }}" selected>{{ c.model }}</option>{% endif %}
           </select></label>
         <label class="muted" style="font-size:12px;">이미지 판독 모델
           <select name="vision_model" style="margin-top:4px;">
-            <option value="">글 모델과 같이</option>
+            <option value="">기본 모델과 같음</option>
             {% if c.live.ok %}{% for m in c.live.models %}<option value="{{ m.id }}" {{ 'selected' if m.id == c.vision_model else '' }}>{{ m.id }}</option>{% endfor %}
             {% elif c.vision_model %}<option value="{{ c.vision_model }}" selected>{{ c.vision_model }}</option>{% endif %}
           </select></label>
-        <label class="muted" style="font-size:12px;">API 키 <span style="font-weight:500;">(비워 두면 지금 키를 그대로 씁니다)</span>
+        <label class="muted" style="font-size:12px;">API 키 <span style="font-weight:500;">(바꿀 때만 입력)</span>
           <input type="password" name="api_key" autocomplete="off" style="margin-top:4px;"></label>
         <div><button type="submit">저장</button></div>
       </form>
       <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
-        <form action="/dev/llm/{{ c.id }}/test" method="post" style="margin:0;"><button type="submit" class="secondary" data-busy="확인 중…"><iconify-icon icon="solar:refresh-linear"></iconify-icon>연결 확인·모델 목록 새로고침</button></form>
+        <form action="/dev/llm/{{ c.id }}/test" method="post" style="margin:0;"><button type="submit" class="secondary" data-busy="확인 중…"><iconify-icon icon="solar:refresh-linear"></iconify-icon>연결 확인</button></form>
         {% if c.active %}
-        <form action="/dev/llm/deactivate" method="post" style="margin:0;"><button type="submit" class="secondary">문서 작업 기본 해제</button></form>
+        <form action="/dev/llm/deactivate" method="post" style="margin:0;"><button type="submit" class="secondary">기본 서버 해제</button></form>
         {% elif c.external %}
-        <button type="button" class="secondary" data-modal-open="#llmAct-{{ c.id }}">문서 작업 기본으로</button>
+        <button type="button" class="secondary" data-modal-open="#llmAct-{{ c.id }}">기본 서버로 지정</button>
         {% else %}
-        <form action="/dev/llm/{{ c.id }}/activate" method="post" style="margin:0;"><button type="submit" class="secondary">문서 작업 기본으로</button></form>
+        <form action="/dev/llm/{{ c.id }}/activate" method="post" style="margin:0;"><button type="submit" class="secondary">기본 서버로 지정</button></form>
         {% endif %}
         {% if c.external %}{% if c.external_use %}
         <form action="/dev/llm/external/clear" method="post" style="margin:0;"><button type="submit" class="secondary">외부 참조 해제</button></form>
@@ -312,9 +312,9 @@
       </div>
     </div>
     <div class="modal-sec">
-      <h4>연결 삭제</h4>
-      <p class="muted" style="font-size:12px; margin:0 0 8px;">목록에서 뺍니다. 이 서버가 맡고 있던 용도는 문서 작업 서버로 돌아갑니다.</p>
-      <form action="/dev/llm/{{ c.id }}/delete" method="post" onsubmit="return confirm('연결 「{{ c.name }}」을 삭제할까요?');" style="margin:0;">
+      <h4>서버 삭제</h4>
+      <p class="muted" style="font-size:12px; margin:0 0 8px;">목록에서 지웁니다. 이 서버가 맡던 단계는 기본 서버로 돌아갑니다.</p>
+      <form action="/dev/llm/{{ c.id }}/delete" method="post" onsubmit="return confirm('「{{ c.name }}」을 목록에서 지울까요?');" style="margin:0;">
         <button type="submit" class="btn-ghost" style="color:var(--red); border-color:#E7B9B8;"><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>삭제</button>
       </form>
     </div>
@@ -323,7 +323,6 @@
 {% endfor %}
 
 <script>
-// 모델 목록 거르기 — 한 줄에 한 모델, 이름으로 좁힌다
 document.addEventListener("DOMContentLoaded", function () {
   // 그 자리에서 펼치기 — 모델 목록처럼 가끔 보는 것에 팝업까지 둘 이유가 없다
   document.querySelectorAll("[data-toggle]").forEach(function (btn) {
