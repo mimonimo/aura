@@ -1060,6 +1060,20 @@ class DocumentProcessor:
         except Exception:
             return False
 
+    def _note_partial_vision(self, file_path: Path, pages: list) -> None:
+        """앞쪽만 판독했으면 기록에 남긴다 — 화면에서 '일부만 읽었다'를 알 수 있게."""
+        if not pages:
+            return
+        try:
+            import pypdfium2 as pdfium
+
+            total = len(pdfium.PdfDocument(str(file_path)))
+        except Exception:
+            return
+        if total > len(pages):
+            self._last_parse_note = (self._last_parse_note or "") + (
+                f" · 앞 {len(pages)}쪽만 판독 (전체 {total}쪽)")
+
     @staticmethod
     def _pdf_to_images(file_path: Path, max_pages: int = 4) -> list[tuple[int, Path]]:
         """작은 스캔 PDF를 쪽별 PNG로 — 비전 판독용. 조건 밖이거나 실패하면 빈 목록.
@@ -1076,12 +1090,16 @@ class DocumentProcessor:
 
             doc = pdfium.PdfDocument(str(file_path))
             try:
-                if len(doc) == 0 or len(doc) > max_pages:
+                if len(doc) == 0:
                     return []
+                # 쪽수가 많다고 판독을 건너뛰지 않는다 — 앞쪽부터 상한까지 읽는다.
+                # 예전에는 4쪽을 넘으면 빈 목록을 돌려줬고, 그 바람에 스캔본은 어느 경로로도
+                # 읽히지 않은 채 시간만 썼다(실측 2026-09-21: 53쪽 스캔 PDF 가 매번 제한 시간 초과).
+                take = min(len(doc), max(1, max_pages))
                 out_dir = file_path.parent / f"{file_path.stem}_pages"
                 out_dir.mkdir(parents=True, exist_ok=True)
                 pages: list[tuple[int, Path]] = []
-                for i in range(len(doc)):
+                for i in range(take):
                     bmp = doc[i].render(scale=2.0)
                     im = bmp.to_pil()
                     # 비전 모델 요청 한도를 넘지 않게 긴 변 2000px로 제한
@@ -1833,6 +1851,7 @@ class DocumentProcessor:
 
                 reg_vision_chunks: list[dict] | None = None
                 vp = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
+                self._note_partial_vision(file_path, vp)
                 if not vp and file_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
                     area = self._crop_document_region(file_path)
                     vp = [(1, area or file_path)]
@@ -1954,6 +1973,7 @@ class DocumentProcessor:
 
                 parsed_chunks: list[dict] | None = None
                 vlm_pages = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
+                self._note_partial_vision(file_path, vlm_pages)
                 if vlm_pages:
                     # 스캔 PDF(VISION_MAX_PAGES 쪽 이하)는 페이지째 비전 판독 (오인식이 훨씬 적다)
                     all_chunks: list[dict] = []
