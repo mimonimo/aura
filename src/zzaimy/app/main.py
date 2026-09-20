@@ -1449,6 +1449,16 @@ def create_app(
 
     templates.env.filters["md_view"] = _md_view
 
+    def _cite_links(html, sources) -> "Markup":
+        """답변에 나온 문서 이름을 근거 문서 링크로 — 근거 목록에 있는 이름만."""
+        from markupsafe import Markup as _M
+
+        from zzaimy.app.citations import linkify
+
+        return _M(linkify(str(html), sources or []))
+
+    templates.env.filters["cite_links"] = _cite_links
+
     def _eval_md(name: str) -> str:
         """기계가 쓴 사본(data/platform/eval/) 먼저, 없으면 저장소 사본(docs/)."""
         from zzaimy.eval.retrieval_eval import MARKDOWN_PATH

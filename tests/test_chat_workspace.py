@@ -232,3 +232,18 @@ def test_chat_history_search_can_look_inside_messages(tmp_path):
     assert c.get("/api/chat/sessions", params={"q": "출장비"}).json()["sessions"] == []
     got = c.get("/api/chat/sessions", params={"q": "출장비", "scope": "all"}).json()["sessions"]
     assert [s["id"] for s in got] == [sid]
+
+
+def test_answer_links_the_documents_it_cites():
+    """답변에 나온 문서 이름은 그 문서로 가는 링크가 된다 — 근거 목록에 있는 이름만."""
+    from zzaimy.app.citations import linkify
+
+    sources = [{"doc_id": 12, "title": "영남이공대학교 산학협력단 운영 규정", "heading": "제4조(업무)"},
+               {"doc_id": 13, "title": "짧음", "heading": ""}]
+    html = "<p>영남이공대학교 산학협력단 운영 규정 제4조에 따르면 짧음 은 그대로다.</p>"
+    out = linkify(html, sources)
+    assert 'href="/doc/12#q=' in out and "제4조" in out
+    assert out.count("<a ") == 1                     # 짧은 이름은 링크하지 않는다
+    # 태그 속성 안의 글자는 건드리지 않는다
+    safe = linkify('<a title="영남이공대학교 산학협력단 운영 규정">x</a>', sources)
+    assert safe.count("<a ") == 1
