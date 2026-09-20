@@ -34,10 +34,15 @@
   | 포트 | 무엇 | 올리는 법 | VM 쪽 설정(`.env.local`) |
   |---|---|---|---|
   | 8013 | 리랭커 베이스 (bge-reranker-v2-m3) — 비교용 | `bash scripts/102_serve_reranker_on_thor.sh 8013` | (평가에만 씀) |
-  | 8014 | 질의 임베딩 (KURE-v1, CLS+정규화) | `bash scripts/103_serve_embed_on_thor.sh` | `ZZAIMY_EMBED_URL=http://211.170.162.121:8014/embed` |
+  | 8014 | 질의 임베딩 베이스 (KURE-v1) — 비교용 | `bash scripts/103_serve_embed_on_thor.sh 8014` | (평가에만 씀) |
+  | 8016 | **운영 질의 임베딩 = ZZAIMY-Embed v2 학습본** | `MODEL=/models/zzaimy-embed-v2 bash scripts/103_serve_embed_on_thor.sh 8016` | `ZZAIMY_EMBED_URL=http://211.170.162.121:8016/embed` |
   | 8015 | **운영 리랭커 = ZZAIMY-Rerank v1 학습본** | `MODEL=/models/zzaimy-rerank-v1 bash scripts/102_serve_reranker_on_thor.sh 8015` | `ZZAIMY_RERANK_URL=http://211.170.162.121:8015/score` + `ZZAIMY_RERANK_MIN=0.005` |
 
   점검은 `bash scripts/110_serving_check.sh` 한 줄 — 서비스 생존·VM 설정·하한이 모델과 맞는지 함께 본다.
+
+  **색인과 질의 임베딩 모델은 한 짝이다** — 한쪽만 바꾸면 벡터 공간이 어긋나 검색이 조용히 망가진다.
+  색인은 `MODEL=… bash scripts/96_embed_on_thor.sh --apply`, 쓰인 모델은
+  `data/platform/chunk_embeddings.meta.json` 에 적힌다. ADR-0021.
 
   **리랭커 모델을 바꾸면 근거 하한을 다시 잰다** — `scripts/105_rerank_floor.py` 로 재고
   `.env.local` 의 `ZZAIMY_RERANK_MIN` 을 갱신한다. 지금 값은 모델 학습 화면에 표시된다.
