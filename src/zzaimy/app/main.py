@@ -3000,6 +3000,37 @@ def create_app(
                 if role == "embed" else "")
         return _llm_redirect(f"「{label}」은(는) 「{conn.get('name', '')}」{picked} 로 정했습니다.{tail}")
 
+    @app.post("/dev/llm/roles")
+    async def dev_llm_roles(request: Request):
+        """단계별 모델을 한 번에 저장한다 — 화면의 '변경사항 저장' 하나에 대응한다.
+
+        단건 저장(/dev/llm/role)을 단계마다 부르면 중간 실패 때 절반만 바뀐 상태가 남고,
+        화면에도 줄마다 저장 버튼이 붙어 손이 많이 간다. 여기서는 전부 검증한 뒤 한 번에 쓴다.
+        """
+        from zzaimy.generate import llm_connections, model_config
+
+        form = await request.form()
+        roles = form.getlist("role")
+        cids = form.getlist("cid")
+        models = form.getlist("model")
+        if not roles or not (len(roles) == len(cids) == len(models)):
+            return _llm_redirect("보낸 값이 맞지 않습니다", ok=False)
+        picks = {r: (c.strip(), m.strip()) for r, c, m in zip(roles, cids, models)}
+        before = {r["role"]: (r["id"], r["model"]) for r in llm_connections.roles_public()}
+        try:
+            llm_connections.set_roles(picks)
+        except ValueError as e:
+            return _llm_redirect(str(e), ok=False)
+        model_config.reset_status_cache()
+        _live_models_cache.clear()
+        changed = [llm_connections.ROLES.get(r, r) for r, (c, m) in picks.items()
+                   if before.get(r, ("", "")) != (c, m)]
+        if not changed:
+            return _llm_redirect("바뀐 것이 없습니다")
+        tail = (" 임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다."
+                if "embed" in picks else "")
+        return _llm_redirect(f"{', '.join(changed)} 을(를) 저장했습니다.{tail}")
+
     @app.post("/dev/llm/{cid}/catalog")
     def dev_llm_catalog(cid: str):
         """모델 목록 갱신 — 허브 공개 카탈로그 또는 모델 API 에서 가져와 연결에 저장한다."""

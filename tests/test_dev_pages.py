@@ -237,3 +237,44 @@ def test_search_stages_show_where_they_run_not_a_picker(client, monkeypatch):
     # 쓰이지 않는 단계를 고르게 두지 않는다 — 학습 서버 지정 칸은 없다
     assert 'value="train"' not in page
     search_serving.clear_cache()
+
+
+def test_stage_models_save_once_atomically(client, monkeypatch, tmp_path):
+    """단계별 모델은 줄마다 저장하지 않고 한 번에 저장한다 — 중간 실패로 절반만 바뀌지 않게."""
+    from zzaimy.app import main as app_main
+    from zzaimy.generate import llm_connections as lc
+    from zzaimy.generate import model_config
+
+    lc.configure(tmp_path / "llm.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+    a = lc.add("교내 DGX", "vllm", "http://dgx:11434/v1", "qwen3.6:35b", "")
+    b = lc.add("토르 03", "vllm", "http://thor:11434/v1", "qwen3:30b", "")
+    lc.activate(a["id"])
+    monkeypatch.setattr(app_main, "_live_models_cached", lambda cid, ttl=0: {
+        "ok": True, "models": [{"id": "qwen3.8:27b"}, {"id": "qwen3.6:35b"}], "error": ""})
+
+    page = client.get("/dev/train").text
+    assert 'action="/dev/llm/roles"' in page and 'id="useSave"' in page
+    assert page.count('name="role"') == len(lc.ROLES)      # 단계마다 한 줄, 저장 버튼은 하나
+
+    # 한 번의 제출로 두 단계를 정한다 (브라우저와 같은 폼 인코딩 — 같은 이름이 반복된다)
+    def submit(items):
+        from urllib.parse import urlencode
+
+        return client.post("/dev/llm/roles", content=urlencode(items),
+                           headers={"Content-Type": "application/x-www-form-urlencoded"},
+                           follow_redirects=False)
+
+    r = submit([("role", "answer"), ("cid", a["id"]), ("model", "qwen3.8:27b"),
+                ("role", "vision"), ("cid", b["id"]), ("model", "")])
+    assert "ok=" in r.headers["location"]
+    got = {x["role"]: x for x in lc.roles_public()}
+    assert got["answer"]["id"] == a["id"] and got["answer"]["model"] == "qwen3.8:27b"
+    assert got["vision"]["id"] == b["id"]
+
+    # 없는 연결이 섞이면 아무것도 바뀌지 않는다
+    r = submit([("role", "answer"), ("cid", "없음"), ("model", ""),
+                ("role", "vision"), ("cid", ""), ("model", "")])
+    assert "err=" in r.headers["location"]
+    got = {x["role"]: x for x in lc.roles_public()}
+    assert got["answer"]["id"] == a["id"] and got["vision"]["id"] == b["id"]   # 그대로다
+    lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()

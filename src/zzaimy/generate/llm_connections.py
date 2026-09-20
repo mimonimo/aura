@@ -127,6 +127,28 @@ def set_role(role: str, cid: str, model: str = "") -> dict:
     return data["roles"]
 
 
+def set_roles(picks: dict[str, tuple[str, str]]) -> dict:
+    """여러 단계를 한 번에 정한다 — 전부 확인한 뒤 한꺼번에 쓴다(원자적).
+
+    화면에서 단계 네 줄을 고치고 아래 '변경사항 저장' 하나를 누르므로, 단건 저장을
+    여러 번 부르면 중간에 하나가 실패할 때 절반만 바뀐 상태가 남는다. 여기서는 먼저
+    전부 검증하고 한 번만 파일에 쓴다.
+    """
+    for role, (cid, _model) in picks.items():
+        if role not in ROLES:
+            raise ValueError(f"알 수 없는 단계입니다: {role}")
+        if cid and get(cid) is None:
+            raise ValueError("없는 연결입니다")
+    data = _load()
+    for role, (cid, model) in picks.items():
+        if cid:
+            data["roles"][role] = {"id": cid, "model": (model or "").strip()}
+        else:
+            data["roles"].pop(role, None)
+    _save(data)
+    return data["roles"]
+
+
 def _role_entry(data: dict, role: str) -> tuple[str, str]:
     """저장된 값 → (연결 id, 모델). 예전 형식(문자열 id)도 읽는다."""
     raw = (data.get("roles") or {}).get(role) or ""
