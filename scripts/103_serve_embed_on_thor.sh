@@ -13,7 +13,7 @@ THOR=thor-03@<토르03 주소>
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8014}"
-NAME=zzaimy-embed
+NAME="zzaimy-embed-$PORT"      # 포트를 붙인다 — 102 와 같은 이유
 MODEL="${MODEL:-/models/KURE-v1}"
 
 ssh -p $TP "$THOR" "mkdir -p ~/zzaimy/serve && cat > ~/zzaimy/serve/embedder.py" <<'PY'
