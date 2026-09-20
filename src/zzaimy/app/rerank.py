@@ -68,6 +68,10 @@ RERANK_MIN = 0.1
 #   하이브리드 R@1 0.647 · MRR 0.715 → 256 0.640/0.701 → 512 0.667/0.720 (질의당 0.07초)
 # 상황 질문은 어느 길이든 리랭커가 벌어 준다(R@1 0.407 → 0.47~0.49).
 REMOTE_MAX_LEN = 512
+# 측정용 손잡이 — 쌍 구성을 바꿔 가며 점수 분포를 재 본다(scripts/105). 운영 기본값은 512·제목 포함.
+def _remote_conf() -> tuple[int, bool]:
+    return (int(os.environ.get("ZZAIMY_RERANK_MAXLEN", REMOTE_MAX_LEN)),
+            os.environ.get("ZZAIMY_RERANK_TITLE", "1") != "0")
 
 
 def _remote_scores(query: str, texts: list[str]) -> list[float] | None:
@@ -80,7 +84,7 @@ def _remote_scores(query: str, texts: list[str]) -> list[float] | None:
     import urllib.request
 
     body = json.dumps({"query": query, "texts": texts,
-                       "max_length": REMOTE_MAX_LEN}).encode("utf-8")
+                       "max_length": _remote_conf()[0]}).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=float(os.environ.get("ZZAIMY_RERANK_TIMEOUT", "8"))) as r:
@@ -120,7 +124,8 @@ def rerank_scored(query: str, chunks: list[dict],
         order = sorted(range(len(chunks)), key=lambda i: (-llm[i], i))
         return [(chunks[i], llm[i]) for i in order]
     # 서빙 장비의 리랭커가 켜져 있으면 그것으로 — 눈금은 같은 모델이라 그대로 쓴다
-    remote = _remote_scores(query, [_pair_text(c, text_key, with_title=True) for c in chunks])
+    remote = _remote_scores(query, [_pair_text(c, text_key, with_title=_remote_conf()[1])
+                                    for c in chunks])
     if remote is not None:
         order = sorted(range(len(chunks)), key=lambda i: (-remote[i], i))
         return [(chunks[i], remote[i]) for i in order]
