@@ -30,12 +30,54 @@ _HEAD_LINES = 12
 
 
 # 느슨한 제목 — 규범 문서가 아닌 공지·안내문용. 파일 이름에 한글이 전혀 없을 때만 쓴다
-_LOOSE_SKIP = re.compile(r"^(?:[\d\-–.()\s/]+$|제\s*\d+\s*[장조절]|\d+[.)]|[□○◦▪■●※▶-]|페이지|page)",
-                         re.IGNORECASE)
+_LOOSE_SKIP = re.compile(
+    r"^(?:[\d\-–.()\s/]+$|제\s*\d+\s*[장조절]|\d+[.)]|[□○◦▪■●※▶-]|페이지|page"
+    r"|\d{1,3}(?![년월일차기회주])(?=[가-힣])"       # '9납입금' 처럼 표의 번호 칸
+    r"|[가-하][.)]\s"                                # '가. 신청기간' 처럼 항목 기호
+    r"|[:：])",                                      # ': 대구광역시 …' 처럼 항목의 값만 남은 줄
+    re.IGNORECASE)
+# 공고·고시는 첫 줄에 문서 번호를 적고 그다음 줄에 제목을 적는다 — 번호 줄은 이름이 아니다
+_DOC_NUMBER = re.compile(
+    r"^[가-힣\s]*(?:공고|고시|공지|훈령|지침|규칙)\s*(?:제\s*)?\d{2,4}\s*-\s*\d+\s*호")
+
+
+# 표의 칸 구분자 — 서식 문서는 첫 쪽이 표로 시작한다
+_CELL = re.compile(r"[|｜￨┃│\t]")
+# 표 칸에서만 쓰는 조건 — 칸은 대개 항목 이름('학년'·'비고')이라 문서 종류로 끝날 때만 이름으로 본다.
+# 줄에는 걸지 않는다: 문서 종류 낱말은 목록으로 다 담을 수 없다('학생회칙'을 버렸다, 2026-09-21).
+_KIND_TAIL = _TITLE_TAIL + ("서", "표", "원", "록", "집", "부", "안", "문", "황", "고", "장",
+                            "증", "안내", "계획", "명세", "현황", "일정", "결과", "양식", "서식")
+# 제목은 첫머리에 있다. 창을 넓히면 본문 중간 줄이 제목으로 잡힌다(2026-09-21 실측:
+# 40줄로 넓혔더니 47건 중 상당수가 본문 문장으로 바뀌었다) — 규정과 같은 12줄로 둔다.
+_LOOSE_LINES = _HEAD_LINES
+
+
+def _kind_like(s: str) -> bool:
+    return s.endswith(_KIND_TAIL)
+
+
+def _clean_cell(c: str) -> str:
+    """표 칸의 군더더기를 뗀다 — 빈 칸 표시('[]'·'()')와 칸 전체를 감싼 괄호."""
+    c = re.sub(r"\[\s*\]|\(\s*\)", "", c).strip()
+    while len(c) > 2 and (c[0], c[-1]) in ((("("), (")")), (("["), ("]"))):
+        c = c[1:-1].strip()
+    return _unspace(c)
+
+
+def _cell_title(ln: str) -> str | None:
+    """표 한 줄에서 문서 이름이 될 칸을 고른다.
+
+    '영문성명등록신청서 | | 전결 | |' 처럼 서식 이름이 첫 칸에 오면 그 칸이 문서 이름이다.
+    '|학년|학년|학번|' 처럼 항목 이름만 늘어선 줄에는 이름이 없다.
+    """
+    first = next((c for c in (_clean_cell(x) for x in _CELL.split(ln)) if c), "")
+    if len(re.findall(r"[가-힣]", first)) < 5 or not _kind_like(first):
+        return None
+    return first
 
 
 def _title_like(ln: str) -> bool:
-    if _LOOSE_SKIP.match(ln) or _DATE_LINE.search(ln):
+    if _LOOSE_SKIP.match(ln) or _DOC_NUMBER.match(ln) or _DATE_LINE.search(ln):
         return False
     if not (2 <= len(ln) <= 60) or len(re.findall(r"[가-힣]", ln)) < 2:
         return False
@@ -60,14 +102,20 @@ def loose_title(text: str) -> str | None:
     """
     lines = [re.sub(r"\s{2,}", " ", ln.strip())
              for ln in (text or "").replace("\r", "\n").split("\n") if ln.strip()]
-    head = lines[:_HEAD_LINES]
+    head = lines[:_LOOSE_LINES]
     for i, ln in enumerate(head):
         ln = _unspace(ln)
+        if _CELL.search(ln):                 # 표 줄 — 문서 이름 칸이 있으면 그것만 쓴다
+            cell = _cell_title(ln)
+            if cell:
+                return cell
+            continue
         if not _title_like(ln) or len(re.findall(r"[가-힣]", ln)) < 4 or len(ln) < 4:
             continue
-        if len(ln) < 12 and i + 1 < len(head):
+        if len(ln) < 12 and i + 1 < len(head) and not _CELL.search(head[i + 1]):
             nxt = _unspace(head[i + 1])
-            if _title_like(nxt) and len(ln) + len(nxt) <= 60:
+            # '대상: 재학생'처럼 항목:값 줄은 제목의 뒷줄이 아니다
+            if _title_like(nxt) and len(ln) + len(nxt) <= 60 and not re.search(r"[:：]", nxt):
                 return f"{ln} {nxt}"
         return ln
     return None

@@ -307,11 +307,21 @@ class Database:
         # 규정식 제목(제N조·규정·지침)뿐 아니라 '2022학년도 입학자 연계교육과정 편성표' 처럼
         # 첫 쪽 제목 줄만 있는 문서도 이름으로 삼는다. 파일 이름이 더 나으면 그대로 둔다.
         probe = dict(doc)
+        if overwrite:
+            # 이름 규칙이 바뀌어 다시 매길 때다 — 저장된 이름을 무시하고 본문에서 다시 읽는다
+            probe["identity"] = None
+            have = {k: v for k, v in have.items() if k not in ("title", "date")}
         if text:
             probe["masked_text"] = text
         title, date = resolved_title(probe)
         found = {k: v for k, v in (("title", title), ("date", date)) if v}
         if not found:
+            if overwrite:
+                # 다시 읽어도 이름이 없으면 옛 이름을 버리고 올라온 파일 이름으로 돌아간다
+                back = have.get("original_filename") or doc.get("filename") or ""
+                with self._conn() as conn:
+                    conn.execute("UPDATE documents SET identity = ?, filename = ? WHERE id = ?",
+                                 (json.dumps(have, ensure_ascii=False), back, doc_id))
             return have
         found.setdefault("original_filename", doc.get("filename") or "")
         self.set_doc_identity(doc_id, found)
