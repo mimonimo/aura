@@ -43,6 +43,8 @@ def main() -> int:
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--limit", type=int, default=0, help="원본 폴더마다 최대 몇 건까지")
+    ap.add_argument("--resume", action="store_true",
+                    help="비우지 않고 아직 안 들어간 것만 올린다(중단됐을 때)")
     args = ap.parse_args()
 
     db = Database(Path(args.db))
@@ -54,31 +56,43 @@ def main() -> int:
             files = files[: args.limit]
         print(f"  {label}: {len(files)}건 ({rel})")
         plan += [(p, doc_type) for p in files]
+    if args.resume:
+        # 이미 들어간 원본은 건너뛴다 — 문서에 올라온 파일 이름을 남겨 두므로 그것으로 맞춘다
+        done = set()
+        for d in db.list_documents():
+            ident = db.get_doc_identity(d["id"])
+            done.add(ident.get("original_filename") or d["filename"])
+            done.add(Path(d.get("stored_path") or "").name)
+        plan = [(p, t) for p, t in plan if p.name not in done
+                and f"{p.stem[:60]}{p.suffix.lower()}" not in done]
     print(f"지금 문서함 {len(db.list_documents())}건 → 새로 올릴 것 {len(plan)}건")
     if not args.apply:
         print("미리보기입니다. 비우고 새로 올리려면 --apply 를 붙이십시오.")
         return 0
 
-    import sqlite3
-
-    conn = sqlite3.connect(args.db, timeout=30)
-    with conn:
-        for t in WIPE:
-            try:
-                conn.execute(f"DELETE FROM {t}")
-            except sqlite3.OperationalError:
-                pass
-    conn.close()
-    for name in INDEXES:
-        f = Path(args.db).parent / name
-        if f.exists():
-            f.unlink()
     inbox = Path(args.db).parent / "inbox"
-    if inbox.exists():
-        for f in inbox.iterdir():
-            if f.is_file():
+    if not args.resume:
+        import sqlite3
+
+        conn = sqlite3.connect(args.db, timeout=30)
+        with conn:
+            for t in WIPE:
+                try:
+                    conn.execute(f"DELETE FROM {t}")
+                except sqlite3.OperationalError:
+                    pass
+        conn.close()
+        for name in INDEXES:
+            f = Path(args.db).parent / name
+            if f.exists():
                 f.unlink()
-    print("문서함을 비웠습니다 — 이제 원본에서 올립니다.", flush=True)
+        if inbox.exists():
+            for f in inbox.iterdir():
+                if f.is_file():
+                    f.unlink()
+        print("문서함을 비웠습니다 — 이제 원본에서 올립니다.", flush=True)
+    else:
+        print("이어서 올립니다(문서함은 그대로).", flush=True)
 
     from zzaimy.app.pipeline import DocumentProcessor
 
