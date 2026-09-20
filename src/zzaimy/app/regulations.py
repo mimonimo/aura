@@ -179,6 +179,8 @@ def looks_like_heading(line: str) -> bool:
 
 _LABEL_MAX = 20            # 표의 이름 칸으로 볼 수 있는 길이
 _VALUE_MAX = 40            # 값이 이보다 길면 이름 칸을 표제로 쓴다
+_PLAIN = re.compile(r"[^가-힣A-Za-z0-9]")          # 길이를 셀 때 뺄 것(공백·기호)
+_PRIVATE_GLYPH = re.compile(r"[\ue000-\uf8ff\U000f0000-\U000ffffd]")   # 한글 문서의 사설 불릿 글자
 
 
 def _table_heading(text: str) -> str:
@@ -222,8 +224,11 @@ def _table_heading(text: str) -> str:
             pick = cells[1] if len(cells[1]) <= _VALUE_MAX else cells[0]
         else:
             pick = cells[0]                    # 값 칸이 여럿인 서식 행 — 이름 칸이 표제
-        pick = re.sub(r"\s+", " ", pick).strip(" .·:")
-        if len(pick) >= 2 and re.search(r"[가-힣A-Za-z]", pick) and pick not in picks:
+        pick = _PRIVATE_GLYPH.sub("", re.sub(r"\s+", " ", pick)).strip(" .·:*")
+        # 두 글자짜리는 표 살림 낱말(구분·학년·합계·계·개발·운영)이라 무엇도 가리지 못한다.
+        # 실측(2026-09-20): 이 하한이 없으면 431개 중 '합 계'·'구분 · 초급' 같은 표제가 섞여
+        # 들어오고, 표제가 붙은 조각은 잡음 필터에서 보호되므로 잡음까지 살아남는다.
+        if len(_PLAIN.sub("", pick)) >= 3 and re.search(r"[가-힣A-Za-z]", pick) and pick not in picks:
             picks.append(pick)
         if len(picks) == 2:
             break
