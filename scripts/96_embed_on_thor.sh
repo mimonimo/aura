@@ -16,6 +16,8 @@ THOR=thor-03@211.170.162.121
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 APPLY="${1:-}"
+MODEL="${MODEL:-/models/KURE-v1}"          # 후보 모델로 색인을 만들 때 바꾼다(예: /models/zzaimy-embed-v1)
+OUT_NAME="${OUT_NAME:-chunk_embeddings.npz}"   # VM 에 둘 이름 — 후보는 다른 이름으로 두고 평가한다
 STAMP=$(date +%Y%m%d-%H%M%S)
 WORK=/tmp/zz-embed-$STAMP
 
@@ -28,13 +30,16 @@ for r in c.execute(\"SELECT id, reg_title, heading, content FROM regulation_chun
 '" | ssh -p $TP "$THOR" "mkdir -p $WORK && cat > $WORK/chunks.jsonl && wc -l < $WORK/chunks.jsonl"
 
 echo "[$(date +%T)] 2/4 토르 GPU 로 임베딩"
-ssh -p $TP "$THOR" "docker run -i --rm --runtime nvidia -v \$HOME/zzaimy/models:/models:ro -v $WORK:/work \
+ssh -p $TP "$THOR" "docker run -i --rm --runtime nvidia -e EMBED_MODEL=$MODEL -v \$HOME/zzaimy/models:/models:ro -v $WORK:/work \
   --entrypoint python3 $IMAGE -" <<'PY'
 import json, time, numpy as np, torch
 from transformers import AutoModel, AutoTokenizer
 rows = [json.loads(l) for l in open("/work/chunks.jsonl", encoding="utf-8")]
-tok = AutoTokenizer.from_pretrained("/models/KURE-v1")
-model = AutoModel.from_pretrained("/models/KURE-v1", torch_dtype=torch.float32).cuda().eval()
+import os
+BASE = os.environ.get("EMBED_MODEL", "/models/KURE-v1")
+tok = AutoTokenizer.from_pretrained(BASE)
+model = AutoModel.from_pretrained(BASE, torch_dtype=torch.float32).cuda().eval()
+print("모델", BASE, flush=True)
 t0, out = time.time(), []
 order = sorted(range(len(rows)), key=lambda i: len(rows[i]["text"]))   # 길이순 묶음 — 패딩 낭비를 줄인다
 with torch.no_grad():
@@ -51,26 +56,32 @@ print(f"조각 {len(rows)} · {vecs.shape} · {time.time() - t0:.1f}초")
 PY
 
 echo "[$(date +%T)] 3/4 VM 으로 받아 CPU 표본과 대조"
-ssh -p $TP "$THOR" "cat $WORK/chunk_embeddings.npz" | ssh "$VM" "cat > /tmp/chunk_embeddings.thor.npz"
-ssh "$VM" "cd ~/zzaimy-capstone && HF_HUB_OFFLINE=1 OMP_NUM_THREADS=2 .venv/bin/python -c '
-import json, random, sqlite3, numpy as np
+ssh -p $TP "$THOR" "cat $WORK/chunk_embeddings.npz" | ssh "$VM" "cat > /tmp/$OUT_NAME"
+if [ "$MODEL" = "/models/KURE-v1" ]; then
+  # 베이스 모델일 때만 VM CPU 계산과 대조한다(같은 모델이어야 맞춰 볼 수 있다)
+  ssh "$VM" "cd ~/zzaimy-capstone && HF_HUB_OFFLINE=1 OMP_NUM_THREADS=2 .venv/bin/python - <<'PYV'
+import random, sqlite3, numpy as np
 from sentence_transformers import SentenceTransformer
-d = np.load(\"/tmp/chunk_embeddings.thor.npz\"); ids, V = list(d[\"ids\"]), d[\"vectors\"]
-c = sqlite3.connect(\"data/platform/platform.db\"); c.row_factory = sqlite3.Row
-rows = {r[\"id\"]: r for r in c.execute(\"SELECT id, reg_title, heading, content FROM regulation_chunks\")}
+d = np.load('/tmp/$OUT_NAME'); ids, V = list(d['ids']), d['vectors']
+c = sqlite3.connect('data/platform/platform.db'); c.row_factory = sqlite3.Row
+rows = {r['id']: r for r in c.execute('SELECT id, reg_title, heading, content FROM regulation_chunks')}
 pick = random.Random(7).sample(range(len(ids)), 20)
-m = SentenceTransformer(\"nlpai-lab/KURE-v1\", device=\"cpu\")
-texts = [f\"{rows[ids[i]][\"reg_title\"]} {rows[ids[i]][\"heading\"]}\n{rows[ids[i]][\"content\"][:1200]}\" for i in pick]
+m = SentenceTransformer('nlpai-lab/KURE-v1', device='cpu')
+texts = [f\"{rows[ids[i]]['reg_title']} {rows[ids[i]]['heading']}\n{rows[ids[i]]['content'][:1200]}\" for i in pick]
 cpu = m.encode(texts, normalize_embeddings=True)
 cos = [float(cpu[k] @ V[i]) for k, i in enumerate(pick)]
-print(\"대조 코사인 최소 %.5f · 평균 %.5f\" % (min(cos), sum(cos) / len(cos)))
+print('대조 코사인 최소 %.5f · 평균 %.5f' % (min(cos), sum(cos) / len(cos)))
 raise SystemExit(0 if min(cos) > 0.999 else 1)
-'"
+PYV"
+else
+  echo "후보 모델($MODEL) — 베이스와 벡터가 달라 대조는 생략합니다. 평가로 판단합니다."
+  ssh "$VM" "ls -la /tmp/$OUT_NAME | awk '{print \$5, \$9}'"
+fi
 
 if [ "$APPLY" = "--apply" ]; then
   echo "[$(date +%T)] 4/4 적용 — 옛 색인은 백업"
   ssh "$VM" "cd ~/zzaimy-capstone && cp data/platform/chunk_embeddings.npz data/platform/backup/chunk_embeddings-$STAMP.npz \
-    && mv /tmp/chunk_embeddings.thor.npz data/platform/chunk_embeddings.npz \
+    && mv /tmp/$OUT_NAME data/platform/chunk_embeddings.npz \
     && .venv/bin/python -c 'import json, numpy as np; d = np.load(\"data/platform/chunk_embeddings.npz\"); \
 json.dump({\"model\": \"nlpai-lab/KURE-v1\", \"n_chunks\": int(len(d[\"ids\"])), \"dim\": int(d[\"vectors\"].shape[1]), \"device\": \"thor-gpu\"}, \
 open(\"data/platform/chunk_embeddings.meta.json\", \"w\"))' \
