@@ -29,8 +29,37 @@ _WARP_MARGIN_RATIO = 0.02   # 펴낸 문서 둘레에 둘 흰 여백 (짧은 변
 _WARP_MARGIN_MIN = 12       # 여백 최소 화소 — 작은 사진에서도 가장자리를 지킨다
 
 _VISION_FAIL_LIMIT = 2   # 이만큼 연속 실패하면 그 실행에서 비전 판독을 접는다
+# 스캔 문서를 쪽째 비전으로 읽는 한도. 디지털 PDF 는 비전으로 가지 않으므로(_pdf_to_images)
+# 이 한도는 스캔본에만 걸린다. 실측(2026-09-20 DGX qwen3.6:35b): 병합 표가 있는 쪽 17.6초.
+VISION_MAX_PAGES = int(os.environ.get("ZZAIMY_VISION_MAX_PAGES", "30"))
 # 실행 범위 차단기. 문서마다 처리기를 새로 만들어도 유지돼야 하므로 모듈에 둔다.
 _vision_state = {"fails": 0, "off": False}
+
+
+_MASK_PROBE = "성명: 김민수 연락처 010-1234-5678"
+_mask_probe_cache: dict = {}
+
+
+def _masking_active(mk) -> bool:
+    """이 가리기 함수가 실제로 가리는가 — 가리지 않는 정책(기준 문서)이면 행 단위 성명 가리기도 건너뛴다."""
+    key = id(getattr(mk, "__func__", mk))
+    if key not in _mask_probe_cache:
+        try:
+            _mask_probe_cache[key] = mk(_MASK_PROBE) != _MASK_PROBE
+        except Exception:
+            _mask_probe_cache[key] = False
+    return _mask_probe_cache[key]
+
+
+def _vision_model_name() -> str:
+    """처리 기록에 남길 비전 모델 이름 — 실제로 부른 모델을 적는다."""
+    try:
+        from zzaimy.generate.client import VllmClient
+
+        c = VllmClient()
+        return getattr(c, "vision_model", "") or c.model
+    except Exception:
+        return "비전 모델"
 
 
 def _vision_available() -> bool:
@@ -762,6 +791,52 @@ class DocumentProcessor:
                             _vision_state["fails"], type(e).__name__)
             return None
 
+    _FIGURE_PROMPT = (
+        "이 그림은 행정 문서에서 뽑은 도식·차트·사진이다. 두 부분으로 답하라.\n"
+        "글자: 그림 속 글자와 숫자를 보이는 그대로 옮긴다(줄 바꿈으로 구분). 없으면 '없음'.\n"
+        "설명: 그림이 무엇을 나타내는지 한 문장. 그림에 보이지 않는 수치·사실은 쓰지 않는다.\n"
+        "장식·로고뿐이면 '장식'이라고만 답하라."
+    )
+
+    def _vlm_figure(self, image_path: Path) -> str | None:
+        """그림 한 장의 글자·한 줄 설명 — 비전 모델. 장식이거나 실패하면 None.
+
+        tesseract 는 도식 속 글자를 자주 부순다(실측 2026-09-20: '반도께터리', '대핵낌 분야').
+        비전 모델은 배치를 보고 읽으므로 훨씬 낫다. 수치는 그림에 보이는 것만 옮긴다(절대규칙 1).
+        """
+        if _vision_state["off"] or not _vision_available():
+            return None
+        try:
+            import base64
+
+            from zzaimy.generate.client import VllmClient
+
+            client = VllmClient()
+            mime = "image/png" if image_path.suffix.lower() == ".png" else "image/jpeg"
+            b64 = base64.b64encode(image_path.read_bytes()).decode()
+            resp = client.client.chat.completions.create(
+                model=getattr(client, "vision_model", client.model),
+                messages=[{"role": "user", "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                    {"type": "text", "text": self._FIGURE_PROMPT},
+                ]}],
+                temperature=0.0, max_tokens=600,
+                extra_body=getattr(client, "_extra", {}),
+            )
+            out = (resp.choices[0].message.content or "").strip()
+            _vision_state["fails"] = 0
+            # 글자가 없는 그림(로고·아이콘·장식)의 설명은 검색에 잡음이다 — 버린다
+            if not out or out.startswith("장식") or re.search(r"글자\s*[:：]\s*없음", out):
+                return None
+            return out
+        except Exception as e:
+            _vision_state["fails"] += 1
+            if _vision_state["fails"] >= _VISION_FAIL_LIMIT:
+                _vision_state["off"] = True
+                log.warning("비전 판독을 이번 실행에서 중단합니다 — %d회 연속 실패(%s)",
+                            _vision_state["fails"], type(e).__name__)
+            return None
+
     def _photo_ocr_lines(self, db: Database, doc_id: int, image_path: Path) -> None:
         """사진 문서의 줄 좌표만 MinerU OCR로 확보해 저장한다 (내용은 비전 판독)."""
         import json
@@ -859,6 +934,17 @@ class DocumentProcessor:
                 new_entries = []
                 replaced = 0
                 textpages: dict[int, Any] = {}
+                page_boxes: dict[int, list] = {}
+                from zzaimy.app.pdf_lines import char_boxes, complete_line_rect, page_bbox_mappers
+
+                def _tp(pg: int):
+                    if pg not in textpages:
+                        textpages[pg] = doc[pg - 1].get_textpage()
+                    return textpages[pg]
+
+                # 페이지별로 추출기 좌표 관행(렌더 배율 / 0~1000 정규화)을 스스로 확인해 고른다
+                mappers = page_bbox_mappers(parsed.entries, _tp, sizes, fits)
+
                 for e in parsed.entries:
                     if (
                         e.kind in ("text", "heading")
@@ -866,14 +952,15 @@ class DocumentProcessor:
                         and e.page_no in sizes
                     ):
                         pw, ph = sizes[e.page_no]
-                        fit = max(fits.get(e.page_no, 1.0), 1.0)
-                        x0, y0, x1, y1 = (v / fit for v in e.bbox)
-                        if e.page_no not in textpages:
-                            textpages[e.page_no] = doc[e.page_no - 1].get_textpage()
-                        tp = textpages[e.page_no]
-                        raw = tp.get_text_bounded(
-                            left=x0, bottom=ph - y1, right=x1, top=ph - y0
+                        x0, y0, x1, y1 = mappers[e.page_no](e.bbox)
+                        tp = _tp(e.page_no)
+                        if e.page_no not in page_boxes:
+                            page_boxes[e.page_no] = char_boxes(tp)
+                        # 상자보다 긴 줄은 끝까지 잇는다 — 줄 끝 잘림 방지
+                        cl, cb, cr, ct = complete_line_rect(
+                            page_boxes[e.page_no], (x0, ph - y1, x1, ph - y0)
                         )
+                        raw = tp.get_text_bounded(left=cl, bottom=cb, right=cr, top=ct)
                         raw = (raw or "").strip()
                         if len(raw) >= 2:
                             new_entries.append(dc_replace(e, text=raw))
@@ -896,7 +983,8 @@ class DocumentProcessor:
                     )
 
                     new_tables, n_swapped = swap_tables(
-                        new_entries, parsed.tables, extract_tables(file_path), fits
+                        new_entries, parsed.tables, extract_tables(file_path), fits,
+                        mappers=mappers,
                     )
                 except Exception:
                     log.warning("괘선 표 교체 실패 — MinerU 표 유지", exc_info=True)
@@ -939,8 +1027,14 @@ class DocumentProcessor:
 
     @staticmethod
     def _pdf_to_images(file_path: Path, max_pages: int = 4) -> list[tuple[int, Path]]:
-        """작은 PDF를 쪽별 PNG로 — 비전 판독용. 조건 밖이거나 실패하면 빈 목록."""
+        """작은 스캔 PDF를 쪽별 PNG로 — 비전 판독용. 조건 밖이거나 실패하면 빈 목록.
+
+        글자층이 있는 디지털 PDF 는 넘기지 않는다 — 원문 글자를 좌표로 바로 읽을 수 있는데
+        모델에게 그림을 다시 받아쓰게 하면 품질이 떨어진다(원문 보존 원칙).
+        """
         if file_path.suffix.lower() != ".pdf":
+            return []
+        if DocumentProcessor._pdf_has_text_layer(file_path):
             return []
         try:
             import pypdfium2 as pdfium
@@ -1146,6 +1240,11 @@ class DocumentProcessor:
             [c.row, c.col, c.row_span, c.col_span, 1 if c.is_header else 0, mk(c.text)]
             for c in t.cells
         ]
+        if _masking_active(mk):
+            # 칸마다 가리면 옆 칸 문맥('과 장 | 김진형')을 못 본다 — 행 단위로 한 번 더
+            from zzaimy.ingest.pii import mask_names_in_rows
+
+            cells = mask_names_in_rows(cells)
         payload: dict = {"n_rows": t.n_rows, "n_cols": t.n_cols, "cells": cells}
         if getattr(t, "col_w", None):
             payload["col_w"] = list(t.col_w)  # 원본 열 폭 비율
@@ -1486,7 +1585,8 @@ class DocumentProcessor:
         도구가 없으면 빈 dict (조용히 생략). 문서당 시간 예산을 넘기면 나머지는 건너뛴다.
         """
         out: dict[str, str] = {}
-        if not images or self._tesseract_cmd() is None:
+        use_vision = bool(images) and _vision_available()
+        if not images or (not use_vision and self._tesseract_cmd() is None):
             return out
         import tempfile
 
@@ -1496,6 +1596,14 @@ class DocumentProcessor:
                 if time.monotonic() - t0 > self._IMAGE_OCR_BUDGET_S:
                     log.info("그림 글자 OCR 시간 예산 초과 — 나머지 그림은 생략")
                     break
+                # 비전 모델이 있으면 먼저 — 도식 속 글자를 tesseract 보다 훨씬 덜 부순다
+                if use_vision and not _vision_state["off"]:
+                    fig = self._vlm_figure(p)
+                    if fig:
+                        out[p.name] = fig[:2000]
+                        continue
+                if self._tesseract_cmd() is None:
+                    continue
                 try:
                     text = self._ocr_image_text(p, Path(tmp))
                 except Exception as e:
@@ -1662,7 +1770,7 @@ class DocumentProcessor:
                 from zzaimy.app.regulations import chunk_document
 
                 reg_vision_chunks: list[dict] | None = None
-                vp = self._pdf_to_images(file_path, max_pages=4)
+                vp = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
                 if not vp and file_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
                     area = self._crop_document_region(file_path)
                     vp = [(1, area or file_path)]
@@ -1677,9 +1785,15 @@ class DocumentProcessor:
                     if reg_mds:
                         raw_text = "\n\n".join(reg_mds)
                         reg_vision_chunks = vc
-                        self._last_parse_note = "AI 비전 판독 (Qwen3.5)"
+                        self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
+
+                # 인용·검색 근거에 실릴 이름 — 'law03.pdf' 같은 파일 이름 대신 첫 쪽의 규정 이름
+                from zzaimy.app.doc_title import find_title, head_text, title_beats_filename
 
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
+                found, _date = find_title(head_text((doc or {}).get("stored_path"), raw_text[:3000]))
+                if found and title_beats_filename(found, title):
+                    title = found
                 # 글자가 한 칸씩 갈라져 들어온 낱말을 먼저 붙인다.
                 # 조각으로 나누기 전에 해야 분해된 낱말이 조각 경계를 흐트러뜨리지 않는다.
                 from zzaimy.app.text_repair import repair_document
@@ -1687,6 +1801,18 @@ class DocumentProcessor:
                 raw_text, _fix = repair_document(raw_text)
                 if _fix.get("joined"):
                     self._last_parse_note += f" · 갈라진 낱말 {_fix['joined']}개 복원"
+                # 기준 문서는 가리지 않지만, 공개 코퍼스 반입분(owner=corpus)은 가려야 한다.
+                # 이 판정을 빼먹으면 전체 재처리가 적재 때 가린 연락처를 되살린다
+                # (2026-09-20 실측: 재처리 뒤 잔여 스캔 전화번호 37건).
+                from zzaimy.app.pii_audit import is_masking_subject
+
+                reg_mask = is_masking_subject("regulation", (doc or {}).get("owner"))
+                if reg_mask:
+                    raw_text = self._mask_str(raw_text)
+                    if reg_vision_chunks:
+                        for vc_ in reg_vision_chunks:
+                            if isinstance(vc_.get("content"), str):
+                                vc_["content"] = self._mask_str(vc_["content"])
                 chunks = chunk_document(raw_text)
                 if reg_vision_chunks is None and getattr(self, "_ocr_used", False):
                     # MinerU 스캔 경로 — 공백 복원 후 오인식을 보수적으로 교정
@@ -1727,7 +1853,7 @@ class DocumentProcessor:
                 (Path(db.path).parent / ".reindex-needed").touch()
                 reg_doc_chunks = (
                     reg_vision_chunks
-                    or self._structured_chunks(do_mask=False)
+                    or self._structured_chunks(do_mask=reg_mask)
                     or [
                         {"kind": "text", "content": c.content[:2000]}
                         for c in chunks if len(c.content) >= 2
@@ -1765,9 +1891,9 @@ class DocumentProcessor:
                     self._masker = PiiMasker()
 
                 parsed_chunks: list[dict] | None = None
-                vlm_pages = self._pdf_to_images(file_path, max_pages=4)
+                vlm_pages = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
                 if vlm_pages:
-                    # 4쪽 이하 PDF는 페이지째 비전 판독 (오인식이 훨씬 적다)
+                    # 스캔 PDF(VISION_MAX_PAGES 쪽 이하)는 페이지째 비전 판독 (오인식이 훨씬 적다)
                     all_chunks: list[dict] = []
                     mds: list[str] = []
                     for pg_no, img_path in vlm_pages:
@@ -1781,7 +1907,7 @@ class DocumentProcessor:
                         parsed_chunks = all_chunks
                         n_t = sum(1 for c in parsed_chunks if c["kind"] == "table")
                         self._last_parse_note = (
-                            f"AI 비전 판독 (Qwen3.5) · {len(vlm_pages)}쪽 · 표 {n_t}개"
+                            f"AI 비전 판독 ({_vision_model_name()}) · {len(vlm_pages)}쪽 · 표 {n_t}개"
                         )
                         raw_text = "\n\n".join(mds)
                 if parsed_chunks is None and file_path.suffix.lower() in (
@@ -1801,7 +1927,7 @@ class DocumentProcessor:
                         parsed_chunks = self._md_to_chunks(vlm_md, self._mask_str)
                         n_t = sum(1 for c in parsed_chunks if c["kind"] == "table")
                         self._last_parse_note = (
-                            f"AI 비전 판독 (Qwen3.5) · 표 {n_t}개"
+                            f"AI 비전 판독 ({_vision_model_name()}) · 표 {n_t}개"
                         )
                         if self._last_attrs:
                             self._last_parse_note += " · " + "·".join(self._last_attrs)

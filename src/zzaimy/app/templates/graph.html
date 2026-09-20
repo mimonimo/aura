@@ -238,17 +238,45 @@
     .kg.panel-open .kg-panel { transform: none; }
     .kg-p-hide { display: flex; margin-left: auto; }
   }
+  .kg-view-nav { display:none; }
+  .kg-stage-head { flex-wrap:wrap; gap:8px; padding:12px 16px; }
+  .kg-center-name { flex:1 1 180px; max-width:none; font-weight:600; }
+  .kg-check { font-size:12px; }
+  .kg-panel { width:320px; }
+  .kg-rail { width:260px; }
+  .kg-search input:focus-visible { outline:none; }
+  .kg-canvas { background:#fafbfc; }
+  .kg-tools { position:absolute; left:16px; bottom:16px; display:flex; gap:6px; z-index:2; }
+  .kg-tools button { min-width:36px; height:36px; padding:6px 10px; background:white; color:var(--ink); border:1px solid var(--line); box-shadow:none; }
+  .kg-help { position:absolute; left:16px; top:12px; right:16px; margin:0; color:var(--muted); font-size:12px; pointer-events:none; }
+  .kg-row { padding:9px 8px; font-size:13px; }
+  .kg-p-title { line-height:1.5; overflow-wrap:anywhere; }
+  @media(max-width:1100px) {
+    .kg { padding-top:48px; }
+    .kg-view-nav { display:flex; position:absolute; top:0; left:0; right:0; height:48px; gap:6px; padding:7px 12px; border-bottom:1px solid var(--line); background:white; }
+    .kg-view-nav button { flex:1; background:transparent; color:var(--muted); border:0; padding:6px; }
+    .kg-view-nav button[aria-pressed=true] { background:#edf3fa; color:#294b73; }
+    .kg .kg-rail, .kg .kg-stage, .kg .kg-panel { display:none; width:100%; min-width:0; position:static; transform:none; box-shadow:none; border:0; }
+    .kg[data-view=list] .kg-rail, .kg[data-view=graph] .kg-stage, .kg[data-view=detail] .kg-panel { display:flex; }
+    .kg .kg-p-hide { display:none; }
+    .kg-check { margin-left:0; flex-basis:100%; white-space:normal; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="kg" id="kg" data-focus="{{ focus|default('') }}">
+<div class="kg" id="kg" data-view="graph" data-focus="{{ focus|default('') }}">
+  <nav class="kg-view-nav" aria-label="그래프 화면 선택">
+    <button type="button" data-view="list" aria-pressed="false">문서 찾기</button>
+    <button type="button" data-view="graph" aria-pressed="true">관계 그래프</button>
+    <button type="button" data-view="detail" aria-pressed="false">상세·근거</button>
+  </nav>
 
   <aside class="kg-rail">
     <div class="kg-find">
       <div class="kg-search">
         <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
-        <input type="search" id="kgQuery" placeholder="문서·사업·기관 검색" autocomplete="off">
+        <input type="search" id="kgQuery" aria-label="문서·사업·기관 검색" placeholder="문서·사업·기관 검색" autocomplete="off">
       </div>
       <div class="kg-seg" id="kgRailTabs">
         <button type="button" class="on" data-rail="cluster">묶음</button>
@@ -270,6 +298,8 @@
         <input type="checkbox" id="kgWeak">근거 미확인 연결 포함</label>
     </header>
     <div class="kg-canvas" id="kgCanvas">
+      <p class="kg-help">항목을 선택해 관계를 확인하세요. 연결선은 관계의 근거를 보여줍니다.</p>
+      <div class="kg-tools" aria-label="그래프 배율"><button type="button" id="kgZoomOut" aria-label="축소">−</button><button type="button" id="kgFit">전체 맞춤</button><button type="button" id="kgZoomIn" aria-label="확대">+</button></div>
       <svg id="kgSvg" preserveAspectRatio="xMidYMid meet"></svg>
       <div class="kg-blank" id="kgBlank">
         <iconify-icon icon="solar:structure-linear"></iconify-icon>
@@ -763,7 +793,7 @@
     var groups = groupsOf(center);
     var total = 0;
     groups.forEach(function (g) { total += g.items.length; });
-    statEl.textContent = "연결 " + total + "개";
+    statEl.textContent = "표시 관계 " + total + "개";
     blank.hidden = total > 0;
     if (!total) {
       var hiddenWeak = 0;
@@ -971,6 +1001,10 @@
     renderStage();
     renderPanel();
     root.classList.add("panel-open");
+    if (matchMedia('(max-width:1100px)').matches) {
+      setGraphView('detail');
+      root.querySelector('.kg-view-nav [data-view=detail]').focus();
+    }
   }
 
   // ── 연도별 문서 ──
@@ -1057,7 +1091,7 @@
     var meta = [];
     if (center.kind === "entity") meta.push("등장 문서 " + center.chunks + "건");
     else if (center.chunks) meta.push("본문 조각 " + center.chunks + "개");
-    meta.push("연결 " + center.deg + "개");
+    meta.push("전체 연결 " + center.deg + "개 (숨긴 관계 포함)");
     metaEl.textContent = meta.join(" · ");
 
     var url = nodeUrl(center);
@@ -1430,6 +1464,33 @@
   }
 
   // ── 조작 ──
+  function setGraphView(view) {
+    root.dataset.view = view;
+    root.querySelectorAll('.kg-view-nav button').forEach(function(button) {
+      button.setAttribute('aria-pressed', String(button.dataset.view === view));
+    });
+    if (view === 'graph') requestAnimationFrame(renderStage);
+  }
+  root.querySelector('.kg-view-nav').addEventListener('click', function(event) {
+    var button = event.target.closest('button[data-view]');
+    if (button) setGraphView(button.dataset.view);
+  });
+  document.getElementById('kgFit').onclick = renderStage;
+  function scaleGraph(factor) {
+    var value = svg.getAttribute('viewBox');
+    if (!value) return;
+    var v = value.split(/\s+/).map(Number), w = v[2] * factor, h = v[3] * factor;
+    if (w < 160 || w > 12000) return;
+    svg.setAttribute('viewBox', [v[0] + (v[2]-w)/2, v[1] + (v[3]-h)/2, w, h].join(' '));
+  }
+  document.getElementById('kgZoomIn').onclick = function() { scaleGraph(0.8); };
+  document.getElementById('kgZoomOut').onclick = function() { scaleGraph(1.25); };
+  railBody.addEventListener('click', function(event) {
+    if (event.target.closest('.kg-row') && matchMedia('(max-width:1100px)').matches) {
+      setGraphView('graph');
+      root.querySelector('.kg-view-nav [data-view=graph]').focus();
+    }
+  });
   svg.addEventListener("click", clearEdge);
   document.getElementById("kgPHide").addEventListener("click", function () {
     root.classList.remove("panel-open");
@@ -1475,6 +1536,10 @@
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function () { if (center) renderStage(); }, 120);
   });
+  if (window.ResizeObserver) new ResizeObserver(function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { if (center && canvasEl.clientWidth) renderStage(); }, 120);
+  }).observe(canvasEl);
 
   // ── 시작 ──
   fetch("/graph.json", { headers: { "Accept": "application/json" } })

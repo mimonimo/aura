@@ -1,56 +1,79 @@
 #!/bin/bash
-# ZZAIMY-Writer(27B) 서빙 — OpenAI 호환 규격으로 띄운다.
+# ZZAIMY-Writer 서빙 — 젯슨 토르에서 vLLM 컨테이너로 OpenAI 호환 규격을 띄운다.
 #
-# 쓰는 곳: 서빙 담당 장비(젯슨 토르 211.170.162.120 · .121, 또는 DGX).
+# 학습 → 서빙 흐름
+#   DGX   scripts/83_sft_writer_qlora.py  → LoRA 어댑터(수백 MB)
+#   전달  scripts/94_ship_adapter.sh       → 토르 ~/zzaimy/adapters/<이름>
+#   토르  이 스크립트                        → 베이스 모델 + 어댑터를 한 서버에서
+# 병합본(27B ≈ 55GB)을 옮기지 않고 어댑터만 옮긴다. 베이스와 학습본이 같은 서버에
+# 나란히 올라가므로(모델 이름 zzaimy-base / zzaimy-writer) 베이스라인 대비 개선폭을
+# 같은 조건에서 잰다(절대규칙 2).
+#
+# 확인된 사실 (2026-09-20 토르 03 실측)
+#   - 토르에는 pip vLLM 이 없다. NVIDIA 젯슨용 컨테이너
+#     ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor (vLLM 0.19.0, torch 2.10, CUDA 가능)를 쓴다.
+#   - 계정이 docker 그룹이라 sudo 없이 띄울 수 있다.
+#   - 토르 Ollama(0.32.6)는 qwen3.8 GGUF 를 못 읽는다(412, 새 버전 필요).
+#   - 컨테이너 기본 HF_HOME 은 /data/models/huggingface 다. 지정하지 않으면 받은 가중치가
+#     컨테이너와 함께 사라진다 — HF_HOME 을 고정해 ~/zzaimy/hf 에 남긴다.
+#
+# 사용 (토르에서):
+#   BASE=Qwen/Qwen3-4B bash scripts/82_serve_writer.sh                         # 베이스만
+#   BASE=Qwen/Qwen3-4B ADAPTER=writer-sft-01 bash scripts/82_serve_writer.sh    # + 어댑터
 # 띄운 뒤 플랫폼에 연결을 등록한다:
 #   python scripts/79_register_llm_connection.py --name "토르 서빙" \
-#       --base-url http://211.170.162.121:8000/v1
-#
-# 확인된 사실 (2026-09-19 플랫폼 VM 에서 측정)
-#   - DGX 211.170.162.110 은 Ollama(0.33.2) 로 11434 포트에서 서비스 중이다.
-#     올라온 모델은 gpt-oss:120b 와 qwen3.6:35b 두 개다.
-#   - 토르 .120 은 어느 포트로도 응답하지 않는다. .121 은 8022 만 열려 있다.
-#   - 두 토르 모두 추론 포트가 열려 있지 않다. 즉 아직 서빙 중이 아니다.
-#
-# 미확인
-#   - 젯슨 토르(ARM64·Blackwell)에서 vLLM 이 어느 빌드로 도는지 확인하지 못했다.
-#     ARM64 용 휠이 없으면 NVIDIA 가 배포하는 젯슨용 컨테이너를 써야 한다.
-#   - 27B 를 어느 양자화로 올려야 128GB 안에서 여유가 남는지 측정하지 않았다.
+#       --base-url http://<토르 주소>:$PORT/v1
 set -euo pipefail
 
-MODEL="${MODEL:-}"                     # 로컬 가중치 경로 또는 허브 이름
+BASE="${BASE:-}"                        # 허브 이름 또는 ~/zzaimy/models 아래 경로
+ADAPTER="${ADAPTER:-}"                  # ~/zzaimy/adapters 아래 이름
 PORT="${PORT:-8000}"
-MAXLEN="${MAXLEN:-16384}"              # 공고문과 근거를 함께 넣으므로 넉넉히
-GPUS="${GPUS:-1}"
-QUANT="${QUANT:-}"                     # 예: fp8 · awq. 비우면 원본 정밀도
+BIND="${BIND:-127.0.0.1}"               # 외부에 열 때만 0.0.0.0 — 기본은 장비 안에서만
+MAXLEN="${MAXLEN:-16384}"               # 공고문과 근거를 함께 넣으므로 넉넉히
+MEM="${MEM:-0.5}"                       # 통합 메모리 비율 — Ollama 와 나눠 쓴다
+QUANT="${QUANT:-}"                      # 예: fp8. 비우면 원본 정밀도
+IMAGE="${IMAGE:-ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor}"
+NAME="${NAME:-zzaimy-writer}"
+ROOTDIR="$HOME/zzaimy"
 
-if [ -z "$MODEL" ]; then
-  echo "MODEL 을 지정하십시오. 예:" >&2
-  echo "  MODEL=/opt/models/zzaimy-writer-27b bash scripts/82_serve_writer.sh" >&2
+if [ -z "$BASE" ]; then
+  echo "BASE 를 지정하십시오. 예: BASE=Qwen/Qwen3-4B bash scripts/82_serve_writer.sh" >&2
   exit 2
 fi
+mkdir -p "$ROOTDIR/hf" "$ROOTDIR/models" "$ROOTDIR/adapters"
 
-ARGS=(--model "$MODEL" --port "$PORT" --host 0.0.0.0
-      --max-model-len "$MAXLEN" --tensor-parallel-size "$GPUS"
-      --served-model-name zzaimy-writer)
+ARGS=(vllm serve "$BASE" --port 8000 --host 0.0.0.0
+      --max-model-len "$MAXLEN" --gpu-memory-utilization "$MEM"
+      --served-model-name zzaimy-base)
 [ -n "$QUANT" ] && ARGS+=(--quantization "$QUANT")
+if [ -n "$ADAPTER" ]; then
+  if [ ! -f "$ROOTDIR/adapters/$ADAPTER/adapter_config.json" ]; then
+    echo "어댑터가 없습니다 — $ROOTDIR/adapters/$ADAPTER (94_ship_adapter.sh 로 먼저 옮기십시오)" >&2
+    exit 2
+  fi
+  RANK=$(python3 -c "import json;print(json.load(open('$ROOTDIR/adapters/$ADAPTER/adapter_config.json'))['r'])")
+  ARGS+=(--enable-lora --max-lora-rank "$RANK"
+         --lora-modules "zzaimy-writer=/adapters/$ADAPTER")
+fi
 
-echo "서빙을 시작합니다 — 모델 $MODEL · 포트 $PORT · 길이 $MAXLEN"
-python -m vllm.entrypoints.openai.api_server "${ARGS[@]}" &
-SERVER_PID=$!
+docker rm -f "$NAME" >/dev/null 2>&1 || true
+echo "서빙을 시작합니다 — 베이스 $BASE${ADAPTER:+ · 어댑터 $ADAPTER} · $BIND:$PORT"
+docker run -d --name "$NAME" --runtime nvidia --ipc host \
+  -p "$BIND:$PORT:8000" \
+  -e HF_HOME=/root/.cache/huggingface -v "$ROOTDIR/hf:/root/.cache/huggingface" \
+  -v "$ROOTDIR/models:/models:ro" -v "$ROOTDIR/adapters:/adapters:ro" \
+  "$IMAGE" "${ARGS[@]}" >/dev/null
 
-# 준비될 때까지 기다렸다가 실제로 모델 목록이 나오는지 확인한다
-for _ in $(seq 1 60); do
+# 준비될 때까지 기다렸다가 실제로 모델 목록이 나오는지 확인한다(첫 실행은 가중치 내려받기로 오래 걸린다)
+for _ in $(seq 1 180); do
   if curl -sf "http://127.0.0.1:$PORT/v1/models" >/dev/null 2>&1; then
     echo "준비되었습니다. 올라온 모델:"
     curl -s "http://127.0.0.1:$PORT/v1/models" | python3 -c \
       'import json,sys; [print("   ", m["id"]) for m in json.load(sys.stdin)["data"]]'
-    wait "$SERVER_PID"
     exit 0
   fi
-  sleep 5
+  docker ps -q -f "name=^$NAME$" | grep -q . || { echo "컨테이너가 멈췄습니다:" >&2; docker logs "$NAME" 2>&1 | tail -20 >&2; exit 1; }
+  sleep 10
 done
-
-echo "5분 안에 뜨지 않았습니다. 서버 기록을 확인하십시오." >&2
-kill "$SERVER_PID" 2>/dev/null || true
+echo "30분 안에 뜨지 않았습니다 — docker logs $NAME 을 확인하십시오." >&2
 exit 1

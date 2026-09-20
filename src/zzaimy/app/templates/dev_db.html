@@ -15,7 +15,7 @@
 .dx-grid{ display:grid; grid-template-columns:minmax(360px,440px) minmax(0,1fr); gap:16px; align-items:start; }
 .dx-grid > .dx-detail{ position:sticky; top:16px; }
 .dx-grid.rev{ grid-template-columns:minmax(0,1fr) minmax(280px,360px); }
-@media (max-width:1000px){ .dx-grid, .dx-grid.rev{ grid-template-columns:1fr; } }
+@media (max-width:1000px){ .dx-grid, .dx-grid.rev{ grid-template-columns:minmax(0,1fr); } .dx-grid > * { min-width:0; } .dx-search { flex-wrap:wrap; } }
 .dx-card > .card-in{ padding:18px 20px; }
 .dx-head{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 10px; }
 .dx-head h2{ margin:0; min-width:0; flex:1; }

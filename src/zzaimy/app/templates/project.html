@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }} — 프로젝트{% endblock %}
 {% block pagetitle %}{{ sector_labels.get(project.sector, project.sector) }} · 프로젝트{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css"><link rel="stylesheet" href="/static/project-workspace.css"><script src="/static/project-workspace.js" defer></script>{% endblock %}
 {% block content %}
 {% set flow_hints = {
   "grant": "검토 후 문서 화면에서 공고 항목에 맞춘 계획서 초안을 작성합니다.",
@@ -15,15 +16,16 @@
   "auto": "예: 이 업무에 적용되는 규정을 찾아줘",
 } %}
 
-<div style="display:flex; align-items:center; gap:14px; padding:2px 2px 16px;
+<div id="projectWorkspace">
+<a class="project-breadcrumb" href="/?type={{ project.sector }}">{{ sector_labels.get(project.sector, project.sector) }} / 프로젝트</a>
+<div class="project-head" style="display:flex; align-items:center; gap:14px; padding:2px 2px 16px;
             border-bottom:1px solid var(--line); margin-bottom:20px;">
   <div style="width:42px; height:42px; border-radius:12px; background:#E8EFFC;
               color:var(--navy); display:flex; align-items:center; justify-content:center; flex:none;">
     <iconify-icon icon="solar:folder-2-linear" style="font-size:23px;"></iconify-icon>
   </div>
   <div style="min-width:0;">
-    <div style="font-size:17px; font-weight:800; color:var(--ink); letter-spacing:-0.02em;
-                white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ project.name }}</div>
+    <h1 class="project-name">{{ project.name }}</h1>
     <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
       {{ sector_labels.get(project.sector, project.sector) }} 업무 · 문서 {{ documents|length }}건 ·
       연결 기준 {{ linked_criteria|length }}건
@@ -47,16 +49,23 @@
 <p class="muted" style="font-size:12.5px; margin:-8px 2px 16px; line-height:1.6;">{{ flow_hints.get(project.sector) }}</p>
 {% endif %}
 
-<style>
-  .project-grid{display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:20px; align-items:start;}
-  @media (max-width:1080px){ .project-grid{grid-template-columns:1fr;} }
-</style>
-<div class="project-grid">
-<div style="min-width:0;">
+<div class="project-tabs" role="tablist" aria-label="프로젝트 작업">
+  <button type="button" role="tab" id="projectTabChat" data-project-tab="projectConversations" aria-controls="projectConversations" aria-selected="true">대화 <span>{{ project_chats|length }}</span></button>
+  <button type="button" role="tab" id="projectTabDocs" data-project-tab="projectDocuments" aria-controls="projectDocuments" aria-selected="false" tabindex="-1">문서 <span>{{ documents|length }}</span></button>
+  <button type="button" role="tab" id="projectTabContext" data-project-tab="projectContext" aria-controls="projectContext" aria-selected="false" tabindex="-1">지침·기준 <span>{{ linked_criteria|length }}</span></button>
+</div>
+<form id="intakeForm" action="/upload" method="post" enctype="multipart/form-data" hidden>
+  <input type="hidden" name="doc_type" value="{{ project.sector }}"><input type="hidden" name="project_id" value="{{ project.id }}">
+  <input type="file" name="file" id="intakeFile" accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md">
+</form>
+<p class="muted" id="intakeStatus" role="status" hidden>문서를 접수하는 중입니다…</p>
+<section id="projectDocuments" class="project-panel" role="tabpanel" aria-labelledby="projectTabDocs" hidden>
 
 <div class="card">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
+    <div class="project-doc-head"><h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
+      <button type="button" onclick="document.getElementById('intakeFile').click()"><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 접수</button>
+    </div>
     {% if documents %}
     <div class="table-scroll">
       <table>
@@ -79,52 +88,36 @@
     {% endif %}
   </div>
 </div>
-
-<div class="card">
+</section>
+<section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
+<div class="card project-chat-card">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>프로젝트 채팅</h2>
-    <p class="muted" style="margin:0 0 12px;">이 프로젝트의 지침과 연결 기준을 근거로 답합니다. 접수 문서 질문도 여기서 합니다.</p>
-    <div style="display:flex; gap:8px; align-items:center;">
-      <form id="intakeForm" action="/upload" method="post" enctype="multipart/form-data"
-            style="flex:none; margin:0;">
-        <input type="hidden" name="doc_type" value="{{ project.sector }}">
-        <input type="hidden" name="project_id" value="{{ project.id }}">
-        <label class="icon-btn" title="문서 접수 — 파일을 고르면 바로 접수됩니다"
-               style="cursor:pointer; width:42px; height:42px;">
-          <input type="file" name="file" id="intakeFile" style="display:none;"
-                 accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md">
-          <iconify-icon icon="solar:paperclip-linear" style="font-size:18px;"></iconify-icon>
-        </label>
-      </form>
-      <button type="button" class="icon-btn" data-modal-open="#hwpTargetModal"
-              style="flex:none; width:42px; height:42px;"
-              title="대상 문서 선택">
-        <iconify-icon icon="solar:document-text-linear" style="font-size:18px;"></iconify-icon></button>
+    <h2>이 프로젝트에서 어떤 작업을 할까요?</h2>
+    <p class="muted" style="margin:0 0 20px;">프로젝트의 지침과 연결한 기준을 바탕으로 새 대화를 시작합니다.</p>
+    <div class="project-chat-row" style="display:flex; gap:8px; align-items:center;">
       <form action="/chat/send" method="post" style="display:flex; gap:10px; flex:1; margin:0;">
         <input type="hidden" name="project_id" value="{{ project.id }}">
         <input type="text" name="question" required
-               placeholder="{{ chat_hints.get(project.sector, '무엇이든 물어보세요') }}"
+               aria-label="새 프로젝트 대화의 질문" placeholder="이 프로젝트에서 필요한 작업을 입력하세요"
                style="flex:1; border:1.5px solid var(--line); border-radius:22px; padding:11px 18px;
                       font-family:inherit; font-size:14px;">
-        <button type="submit">보내기</button>
+        <button type="submit" style="white-space:nowrap;">새 대화</button>
       </form>
     </div>
-    <p class="muted" id="intakeStatus" style="margin:8px 0 0; font-size:12px;" hidden>
-      문서를 접수하는 중입니다…</p>
+    <div class="project-tools"><button type="button" class="secondary" onclick="document.getElementById('intakeFile').click()"><iconify-icon icon="solar:upload-linear"></iconify-icon>프로젝트에 문서 접수</button><button type="button" class="secondary" data-modal-open="#hwpTargetModal"><iconify-icon icon="solar:document-text-linear"></iconify-icon>한글 문서 연결</button></div>
+    <div class="project-history-heading"><h3>이어서 대화하기</h3><button type="button" class="history-link" data-chat-history>전체 기록 검색</button></div>
     {% if project_chats %}
-    <div style="margin-top:14px; display:flex; flex-direction:column; gap:4px;">
+    <div class="project-conversations">
       {% for cs in project_chats %}
-      <a class="side-item" style="padding:7px 10px;" href="/chat/{{ cs.id }}" title="{{ cs.title }}">
-        <iconify-icon icon="solar:chat-line-linear"></iconify-icon>{{ cs.title }}</a>
+      <a class="project-conversation" href="/chat/{{ cs.id }}" title="{{ cs.title }}"><iconify-icon icon="solar:chat-line-linear"></iconify-icon><span>{{ cs.title }}</span><iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>
       {% endfor %}
     </div>
-    {% endif %}
+    {% else %}<p class="project-empty">아직 대화가 없습니다. 첫 질문을 보내면 이곳에 기록됩니다.</p>{% endif %}
   </div>
 </div>
 
-</div>
-<div style="min-width:0;">
-
+</section>
+<section id="projectContext" class="project-panel" role="tabpanel" aria-labelledby="projectTabContext" hidden>
 <div class="card">
   <div class="card-in">
     <div class="tabbar">
@@ -152,8 +145,7 @@
       <div style="text-align:center; padding:22px 10px; color:var(--faint);">
         <iconify-icon icon="solar:notes-minimalistic-linear" style="font-size:30px; display:block; margin:0 auto 2px;"></iconify-icon>
         <p class="muted" style="font-size:12.5px; margin:8px 0 0; line-height:1.6;">
-          검토·작성·채팅에 반영할 지침을 남겨 두는 곳입니다.<br>
-          예: 경력 3년 미만은 반려, 어학 성적은 유효기간 확인.</p>
+          이 프로젝트의 검토·작성·채팅에 공통으로 적용할 지침을 남겨 주세요.</p>
       </div>
       {% endfor %}
     </div>
@@ -207,7 +199,7 @@
   </div>
 </div>
 
-</div>
+</section>
 </div>
 
 <div id="linkModal" class="modal-back">

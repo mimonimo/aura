@@ -91,6 +91,60 @@ def _rejects_extra(exc: Exception) -> bool:
     return "unknown" in str(exc).lower() and "field" in str(exc).lower()
 
 
+_OLLAMA_CACHE: dict[str, bool] = {}
+
+
+def is_ollama(base_url: str) -> bool:
+    """이 주소의 서버가 Ollama 인가 — /api/version 이 답하면 Ollama 다. 주소별로 한 번만 묻는다.
+
+    왜: 생각 모드를 끄는 인자가 서버마다 다르다. vLLM 은 chat_template_kwargs.enable_thinking,
+    Ollama 는 reasoning_effort="none" 만 듣는다(2026-09-20 DGX 실측: vLLM 식 인자를 무시하고
+    300토큰을 생각에 다 써 본문이 비었고, reasoning_effort="none" 은 0.9초에 바로 답했다).
+    """
+    root = (base_url or "").rstrip("/")
+    root = root[:-3] if root.endswith("/v1") else root
+    if not root.startswith(("http://", "https://")):
+        return False
+    if root in _OLLAMA_CACHE:
+        return _OLLAMA_CACHE[root]
+    ok = False
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(root + "/api/version", timeout=3) as r:
+            ok = r.status == 200 and b"version" in r.read(200)
+    except Exception:
+        ok = False
+    _OLLAMA_CACHE[root] = ok
+    return ok
+
+
+_VISION_CACHE: dict[tuple[str, str], bool] = {}
+
+
+def model_can_see(base_url: str, model: str) -> bool:
+    """Ollama 모델이 이미지를 읽을 수 있는가 — /api/show 의 capabilities 에 vision 이 있는지."""
+    if not model or not is_ollama(base_url):
+        return False
+    root = base_url.rstrip("/")
+    root = root[:-3] if root.endswith("/v1") else root
+    key = (root, model)
+    if key not in _VISION_CACHE:
+        ok = False
+        try:
+            import json as _json
+            import urllib.request
+
+            req = urllib.request.Request(root + "/api/show", _json.dumps({"model": model}).encode(),
+                                         {"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=5) as r:
+                ok = "vision" in (_json.loads(r.read()).get("capabilities") or [])
+        except Exception:
+            ok = False
+        _VISION_CACHE[key] = ok
+    return _VISION_CACHE[key]
+
+
 class VllmClient:
     def __init__(self, base_url: str | None = None, model: str | None = None) -> None:
         from zzaimy.generate import model_config
@@ -124,7 +178,16 @@ class VllmClient:
                     thought = thought or (getattr(choice.message, field, None) or "")
                 return bool(thought) or getattr(choice, "finish_reason", "") == "length"
 
+            ollama = self.kind == "vllm" and is_ollama(str(getattr(self.client, "base_url", "") or ""))
+
             def _create(*a, **kw):
+                # Ollama 는 생각 끄기 인자가 다르다 — 호출부가 따로 정하지 않았으면 끈다
+                if ollama and "reasoning_effort" not in kw and not (
+                    kw.get("extra_body") or {}).get("reasoning_effort"):
+                    eb = dict(kw.get("extra_body") or {})
+                    eb.pop("chat_template_kwargs", None)
+                    eb["reasoning_effort"] = "none"
+                    kw = dict(kw, extra_body=eb)
                 try:
                     resp = _orig(*a, **kw)
                 except TypeError:
@@ -162,6 +225,10 @@ class VllmClient:
         # 모델이 있는지를 함께 알려, 호출부가 헛걸음하지 않게 한다.
         self.vision_model = cfg.get("vision_model") or self.model
         self.has_vision = bool(cfg.get("vision_model"))
+        if not self.has_vision and self.kind == "vllm":
+            # 비전 모델을 따로 지정하지 않아도, 기본 모델이 이미지를 읽을 수 있으면 쓴다
+            # (DGX qwen3.6:35b 는 vision 능력이 있는데 칸이 비어 스캔 판독이 꺼져 있었다)
+            self.has_vision = model_can_see(str(getattr(self.client, "base_url", "") or ""), self.model)
         # vLLM 전용 요청 옵션(생각 모드 끄기)은 내부 서버에만 보낸다 — 외부 API 는 모르는 인자를 거부한다
         self._extra = {"chat_template_kwargs": {"enable_thinking": False}} if self.kind == "vllm" else {}
 

@@ -11,6 +11,11 @@
   .hero-row { display: flex; gap: 10px; justify-content: center; align-items: stretch; }
   .hero-row .searchbox { width: 520px; max-width: 60vw; padding: 0 20px; }
   .hero-row button { padding: 0 22px; height: 48px; }
+  @media(max-width:600px) {
+    .hero-row { flex-wrap:wrap; }
+    .hero-row .searchbox { flex:1 0 100%; width:100%; max-width:100%; min-height:46px; }
+    .hero-row .searchbox input { min-width:0; }
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -22,7 +27,7 @@
     <div class="searchbox">
       <iconify-icon icon="solar:magnifer-linear" style="font-size:18px;"></iconify-icon>
       <input type="search" id="criteriaSearch" placeholder="기준 문서 검색 (문서명·업무 영역)"
-             style="width:100%; font-size:14.5px;" autofocus>
+             style="width:100%; font-size:14.5px;">
     </div>
     <button type="button" data-modal-open="#uploadModal">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>기준 등록</button>
@@ -49,9 +54,9 @@
   <div class="table-scroll"><table id="criteriaTable">
     <tr><th>접수번호</th><th>문서명</th><th>적용 영역</th><th>상태</th><th>조각 수</th><th>등록 시각</th></tr>
     {% for d in documents %}
-    <tr data-search="{{ d.filename }} {{ sector_labels.get(d.sector, d.sector) }}" data-sector="{{ d.sector }}">
+    <tr data-search="{{ doc_name(d) }} {{ d.filename }} {{ sector_labels.get(d.sector, d.sector) }}" data-sector="{{ d.sector }}">
       <td class="muted" style="white-space:nowrap;">{{ d.receipt_no or "—" }}</td>
-      <td><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td>
+      <td><a href="/doc/{{ d.id }}" title="{{ d.filename }}">{{ doc_name(d) }}</a></td>
       <td><span class="pill type">{{ sector_labels.get(d.sector, d.sector) }}</span></td>
       <td><span class="pill {{ d.status }}">{{ "등록됨" if d.status == "reviewed" else status_labels.get(d.status, d.status) }}</span></td>
       <td>{{ d.n_chunks }}</td>

@@ -91,7 +91,8 @@ OCR_RUN_LEN = 16
 # 신호는 모두 '비율'로 잰다 — 긴 조각에서 한 번 걸린 것으로 문서 전체를 손상으로
 # 몰지 않기 위해서다(실측: 1만 자 조각이 긴 낱말 하나로 손상 판정을 받았다).
 OCR_RUN_RATIO = 0.10        # 한글 글자 중 띄어쓰기 없는 긴 연속에 속한 비율
-OCR_SYLLABLE_RATIO = 0.35   # 한 글자짜리 한글 토큰 비율 = 글자 단위 분해
+OCR_SYLLABLE_RATIO = 0.25   # 한 글자 토큰이 셋 이상 잇따른 구간에 속한 비율 = 글자 단위 분해
+OCR_SYLLABLE_MIN_TOKENS = 12  # 이보다 짧은 조각은 비율을 재지 않는다(자간 띄운 제목 오탐)
 OCR_COLLAPSE_PER_KCHAR = 0.5  # 1,000자당 날짜 구분자 소실 횟수
 # 손상 신호가 이 개수 이상이면 배제 대상으로 올린다(하나뿐이면 표시만).
 OCR_SIGNALS_TO_DROP = 2
@@ -247,6 +248,23 @@ def _is_question_only(text: str) -> bool:
     return q == len(sents)
 
 
+def _table_cell_text(text: str) -> str | None:
+    """표 조각 JSON 이면 칸 글자를 공백으로 이어 돌려준다. 표가 아니면 None."""
+    t = (text or "").lstrip()
+    if not t.startswith("{") or '"cells"' not in t[:400]:
+        return None
+    try:
+        import json
+
+        data = json.loads(t)
+    except ValueError:
+        return None
+    cells = data.get("cells") if isinstance(data, dict) else None
+    if not isinstance(cells, list):
+        return None
+    return " ".join(str(c[-1]) for c in cells if isinstance(c, list) and c)
+
+
 def ocr_damage_signals(text: str) -> list[str]:
     """OCR 손상 신호 목록 — 일반 지표만 쓴다(문서별 규칙 없음).
 
@@ -255,6 +273,13 @@ def ocr_damage_signals(text: str) -> list[str]:
     모두 길이로 나눈 비율이라 조각 길이에 휘둘리지 않는다.
     """
     out: list[str] = []
+    # 표 조각(JSON)은 칸의 글자만 본다. 표 칸에는 '계'·'예'·'○' 같은 한 글자 값이 원래 많아
+    # '글자 단위 분해'를 재면 멀쩡한 디지털 표가 손상으로 몰린다(실측 2026-09-20: 적재 점검
+    # 108건 중 87건이 이 오탐, .hwpx 원문 표 포함). 표에는 ①② 신호만 쓴다.
+    cells = _table_cell_text(text)
+    is_table = cells is not None
+    if is_table:
+        text = cells
     n = max(len(text or ""), 1)
     collapses = len(_DATE_COLLAPSE.findall(text or ""))
     if collapses and collapses / (n / 1000.0) >= OCR_COLLAPSE_PER_KCHAR:
@@ -264,10 +289,21 @@ def ocr_damage_signals(text: str) -> list[str]:
     long_hangul = sum(len(r) for r in runs if len(r) >= OCR_RUN_LEN)
     if total_hangul >= 40 and long_hangul / total_hangul >= OCR_RUN_RATIO:
         out.append("띄어쓰기 소실")
-    toks = [w for w in normalize(text).split(" ") if _HANGUL.fullmatch(w)]
-    if len(toks) >= 4:
-        single = sum(1 for w in toks if len(w) == 1) / len(toks)
-        if single >= OCR_SYLLABLE_RATIO:
+    # 글자 단위 분해 — 한 글자 토큰이 '연달아' 이어지는 구간만 센다. 개조식 공문은 '및'·'등'·'각'
+    # 같은 한 글자 낱말이 흩어져 많아 단순 비율로는 멀쩡한 문서가 손상으로 몰렸다(실측
+    # 2026-09-20: 적재 점검 오탐 다수). 진짜 분해는 '첨 단 신 소 재'처럼 셋 이상 잇따른다.
+    words = [w for w in normalize(text).split(" ") if w]
+    hangul_tokens = [w for w in words if _HANGUL.fullmatch(w)]
+    if len(hangul_tokens) >= OCR_SYLLABLE_MIN_TOKENS and not is_table:
+        in_runs = run = 0
+        for w in words:
+            if len(w) == 1 and _HANGUL.fullmatch(w):
+                run += 1
+                continue
+            in_runs += run if run >= 3 else 0
+            run = 0
+        in_runs += run if run >= 3 else 0
+        if in_runs / len(hangul_tokens) >= OCR_SYLLABLE_RATIO:
             out.append("글자 단위 분해")
     return out
 

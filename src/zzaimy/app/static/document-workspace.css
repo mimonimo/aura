@@ -44,3 +44,54 @@
   .document-nav a { flex:1; text-align:center; padding:9px 8px; }
   #documentWorkspace .docview iframe { min-height:280px; }
 }
+
+/* 기준·추출 문서 — 문서 보기를 전체 폭으로, 분석은 그 아래 */
+.document-columns.stacked { grid-template-columns:1fr; }
+.document-columns.stacked .document-source { position:static; }
+#documentWorkspace .stacked .docview iframe { height:86vh; min-height:520px; max-height:none; }
+.analysis-h { font-size:12.5px; font-weight:600; color:var(--muted); margin:16px 0 8px; }
+.analysis-h:first-of-type { margin-top:4px; }
+.analysis-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+
+/* 문서 머리 — 사업 정보 한 줄 */
+.doc-meta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin:-4px 0 12px; font-size:12.5px; color:var(--ink); }
+.doc-meta:not(:has(.doc-meta-item, a, button)) { display:none; }
+.doc-meta-item { display:inline; min-width:0; overflow-wrap:anywhere; }
+.doc-meta-k { margin-right:6px; }
+.doc-meta-k { color:var(--muted); font-size:11.5px; white-space:nowrap; }
+#documentWorkspace .doc-meta-btn { min-height:26px; padding:2px 9px; font-size:11.5px; }
+
+/* 문서 보기 — 탭·검색 */
+.docbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin:0 0 10px; }
+.doctabs { display:flex; gap:2px; background:#F2F5F9; border-radius:8px; padding:3px; }
+#documentWorkspace .doctabs button[aria-selected] { min-height:30px; padding:4px 14px; border:0; border-radius:6px; background:transparent; color:var(--muted); font-weight:600; font-size:12.5px; }
+#documentWorkspace .doctabs button[aria-selected]:hover { background:rgba(255,255,255,.6); color:var(--navy); }
+#documentWorkspace .doctabs button[aria-selected="true"] { background:#fff; color:var(--navy); box-shadow:0 1px 3px rgba(27,59,117,.14); }
+.docsearch { display:flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:8px; padding:0 10px; background:#fff; flex:0 1 320px; }
+.docsearch input { border:0; outline:0; padding:7px 0; font-size:13px; flex:1; min-width:0; background:transparent; }
+.docsearch-count { font-size:11.5px; white-space:nowrap; }
+.docsearch-results { max-height:240px; overflow:auto; border:1px solid var(--line); border-radius:8px; margin:0 0 10px; }
+.docsearch-hit { display:flex; align-items:center; gap:10px; padding:7px 10px; border-bottom:1px solid var(--line); font-size:12.5px; }
+.docsearch-hit:last-child { border-bottom:0; }
+.docsearch-hit .pg { color:var(--muted); font-size:11.5px; white-space:nowrap; min-width:42px; }
+.docsearch-hit .snip { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.docsearch-hit mark { background:#FFE8A3; color:inherit; padding:0 1px; border-radius:2px; }
+#documentWorkspace .docsearch-hit .btn-ghost { min-height:26px; padding:2px 9px; font-size:11.5px; }
+
+/* 본문 — 목차 + 글. 표·그림 탭은 그 갈래만 */
+.docpane[data-pane="extract"].with-nav { display:grid; grid-template-columns:220px minmax(0,1fr); gap:16px; }
+.docpane[data-pane="extract"][hidden] { display:none; }
+.extract-nav { max-height:70vh; overflow:auto; border-right:1px solid var(--line); padding-right:10px; font-size:12.5px; }
+.extract-nav a { display:block; padding:4px 6px; border-radius:6px; color:var(--ink); text-decoration:none; line-height:1.4; }
+.extract-nav a.depth2 { padding-left:16px; color:var(--muted); }
+.extract-nav a:hover { background:#EEF3FA; color:var(--navy); }
+.stacked .document-extract { max-height:70vh; }
+#extractBody[data-show="table"] > :not([data-kind="table"]),
+#extractBody[data-show="image"] > :not([data-kind="image"]) { display:none; }
+#extractBody[data-show="table"] .extract-table[data-page]:not([data-page=""])::before { content:attr(data-page) "쪽"; display:block; color:var(--muted); font-size:11.5px; margin:14px 0 4px; }
+#extractBody .hit { background:#FFF6D6; box-shadow:0 0 0 4px #FFF6D6; border-radius:4px; transition:background .6s; }
+@media (max-width:760px) {
+  .docpane[data-pane="extract"].with-nav { grid-template-columns:1fr; }
+  .extract-nav { max-height:180px; border-right:0; border-bottom:1px solid var(--line); padding:0 0 8px; }
+  .docsearch { flex-basis:100%; }
+}

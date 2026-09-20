@@ -10,7 +10,7 @@
   .dev-section::after { content: ""; flex: 1; height: 1px; background: var(--line); }
   .dev-section:first-of-type { margin-top: 6px; }
   /* 지표 2단 — 비슷한 높이의 카드 (위에서 정렬) */
-  .dev-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  .dev-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%,340px), 1fr));
                gap: 16px; align-items: start; }
   /* 바로가기 — 규격 통일 카드(같은 높이). 아이콘·제목·설명·링크 구조 동일 */
   .dev-tools { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -82,9 +82,9 @@
       {% endfor %}
     </div>
     <h4 class="extract-h" style="margin-top:0;">기능별 상태</h4>
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:0 28px;">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr)); gap:0 28px;">
       {% for f in progress.features %}
-      <div style="display:flex; gap:10px; align-items:baseline; padding:5px 0;
+      <div style="display:flex; flex-wrap:wrap; gap:6px 10px; align-items:baseline; padding:8px 0;
                   border-bottom:1px solid var(--panel); font-size:13px;">
         {% if f.status == "done" %}<span class="pill reviewed" style="flex:none;">완료</span>
         {% elif f.status == "doing" %}<span class="pill type" style="flex:none;">진행</span>

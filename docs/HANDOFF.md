@@ -3,16 +3,31 @@
 이 문서는 **대화 맥락 없이도** 작업을 이어받게 하는 다리다. 순서대로:
 `CLAUDE.md`(작업 지침) → 이 문서(현재 상태) → `PROJECT_BRIEF.md`(판단 기준).
 
-최종 업데이트: 2026-09-15
+최종 업데이트: 2026-09-20 (인프라·서빙 절 갱신)
 
 ---
 
 ## 1. 지금 어떤 구성으로 도는가
 
 ```
-[Windows PC · 한글]  ──브라우저──▶  [Linux 운영 서버(VM)]  ──API──▶  [DGX · sLLM]
-  실사용·한글 편집          웹·검색·OCR·문서관리(CPU)        생성·학습(GPU)
+[Windows PC · 한글]  ──브라우저──▶  [Linux 운영 서버(VM)]  ──API──▶  [DGX · sLLM]      (기본 연결: 답변·비전 판독)
+  실사용·한글 편집          웹·검색·OCR·문서관리(CPU)   ──API──▶  [젯슨 토르 02·03]  (보조 연결·학습본 서빙)
 ```
+
+- **LLM 연결은 화면(개발자 > 연결)에서 등록한 값이 우선**이다(`data/platform/llm_connections.json`).
+  2026-09-20 등록: 교내 DGX(기본), 토르 03, 토르 02. 스크립트에서 연결을 쓰려면 `llm_connections.configure(...)` 필요.
+- **DGX `211.170.162.110`** — Ollama 0.33, HTTP 로만 사용(셸 없음). 모델 qwen3.6:35b(기본, vision 가능, 76~83 tok/s),
+  qwen3.8:27b(Writer 베이스, 22~25 tok/s), gpt-oss:120b. Ollama 는 vLLM 식 생각 끄기 인자를 무시하므로
+  `reasoning_effort="none"` 을 쓴다 — `generate/client.py` 가 서버를 판별해 자동으로 붙인다.
+- **젯슨 토르** `thor-03@211.170.162.121`·`thor-02@211.170.162.120`, SSH 포트 8022(맥 키 등록됨, sudo 는 비밀번호 필요).
+  Jetson AGX Thor, 통합 메모리 122GB. Ollama 0.32.6 을 0.0.0.0:11434 로 열었다(인증 없음, ufw 꺼짐).
+  모델: 03 qwen3:30b-a3b-instruct-2507(64 tok/s)·gemma4:e2b, 02 qwen3:4b-instruct-2507(53 tok/s).
+  주의: `qwen3:30b-a3b`·`qwen3:4b` 태그는 2507 Thinking 판(항상 생각) — Instruct 태그를 쓸 것.
+  토르 Ollama 0.32.6 은 qwen3.8 을 못 읽는다(갱신은 sudo). 학습본 서빙은 vLLM 컨테이너
+  `ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor`(0.19)로 — `scripts/82`(서빙)·`94`(어댑터 전달)·`95`(자가 점검, 9/20 통과).
+  VM→.120 은 첫 구간 장비(10.10.10.13)의 허용 목록 누락으로 막혀 있다가 9/20 사용자가 해소.
+  **임베딩 재계산은 토르 GPU 로**: `bash scripts/96_embed_on_thor.sh --apply`(맥에서 실행) — 3,751조각 44초,
+  VM CPU 계산 표본과 코사인 1.00000. VM CPU 경로(`66_reindex.sh`)는 한 시간 넘게 걸린다.
 
 - **운영 서버 = ESXi VM** (`aura@192.168.16.226`). 웹·검색·OCR·문서관리 담당. GPU 없음.
   - 접속: 학과망 VPN 안에서 `ssh aura@192.168.16.226` (키 등록 필요, 비번은 별도 전달).
@@ -25,8 +40,7 @@
   - **패키지 추가는 오프라인 절차**(VM은 pip 네트워크 없음): 맥에서 `.venv/bin/pip wheel <pkg> --no-deps -w data/tmp/wheels`
     → `scp` → VM `.venv/bin/pip install --no-index --no-deps --find-links /tmp/wheels <pkg>`. 2026-09-15 pyhwp(0.1b15)를
     이 절차로 설치 — 그 전까지 VM에는 pyhwp가 없어 .hwp 접수 문서가 빈 채로 처리됐다(재처리 `scripts/79 --write`).
-- **DGX = sLLM 전용** (학습+서빙). 새 DGX `220.67.5.51:8022`(id/pw dgx-01) — **현재 접속 불가**,
-  생존·사양 확인 대기. 사양 확인되면 vLLM 서빙 → VM의 VLLM_BASE_URL 연결.
+- **새 DGX `220.67.5.51:8022`** — 여전히 접속 불가(확인 대기). 지금 쓰는 DGX 는 위의 211.170.162.110.
 - **⚠ 기존 Spark(211.170.162.109 = 211.xx)는 사용 금지** (사용자 지시). 데이터는 이미 VM으로 이관 완료.
 
 ## 2. 저장소·데이터
@@ -52,8 +66,8 @@
 
 | 항목 | 상태 | 막는 것 |
 |---|---|---|
-| DGX 생존·사양 확인 | 대기 | 제공자 확인 (220.67.5.51 접속 불가) |
-| sLLM 서빙 연결 | 예정 | DGX 확보 후 VLLM_BASE_URL 연결 |
+| 새 DGX(220.67.5.51) 확인 | 대기 | 제공자 확인 (접속 불가). 기존 DGX(.110)는 연결 완료 |
+| sLLM 서빙 연결 | **완료(9/20)** | DGX(.110)·토르 02·03 연결 등록. 학습본 서빙 경로는 95 자가 점검 통과 |
 | Writer/Extract 파인튜닝 | 예정 | GPU + ★베이스라인 측정 먼저 (순서 규칙) |
 | 이그레스 에이전트 연동 | 예정 | LLM 서빙(DGX) 연결 후 — 채팅·초안에서 관문 경유 외부 참조 |
 | 이그레스 실전송 개방 | 통신 개방됨(9/17) | 서버존 나가는 웹은 Imperva WAF 에서 허용 완료. 남은 것: 허브 개발 키를 LLM 연결에 등록(화면 수정 창) + 외부 참조용 지정 + ZZAIMY_EXTERNAL_ENABLED |

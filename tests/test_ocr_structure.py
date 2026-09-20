@@ -341,7 +341,7 @@ def test_pipeline_hwpx_gives_structured_chunks_and_reading_order_text(tmp_path, 
     proc = DocumentProcessor()
     text = proc._parse(f)
     assert "1. 사업 개요" in text
-    assert "표 1. 연도별 예산\n구분 | 구분\n국고 | 1,200" in text   # 표가 제자리에, 행 평문으로
+    assert "표 1. 연도별 예산\n구분\n국고 | 1,200" in text   # 표가 제자리에, 행 평문으로
     assert "[그림] 그림 1. 추진 체계" in text
     assert proc._last_parse_note.startswith("한글(HWPX) 구조 추출 · 표 1개 · 그림 1장")
     chunks = proc._structured_chunks(do_mask=False)

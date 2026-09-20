@@ -360,3 +360,28 @@ def test_pipeline_records_mask_events(tmp_path, monkeypatch, masker, doc_type):
     events = {e["entity_type"]: e["n"] for e in db.list_mask_events(doc_id)}
     assert events == {"KR_PHONE": 1, "EMAIL": 1}
     assert SYN_PHONE not in _dump(db) and SYN_EMAIL not in _dump(db)
+
+
+# ---- 이미 가린 자리를 잔여로 세지 않는다 (2026-09-20 운영 자료 실측) ----
+
+def test_already_masked_spans_are_not_counted():
+    """마스킹 결과를 다시 잔여로 세면 점검이 영원히 실패한다."""
+    from zzaimy.app.pii_audit import _already_masked
+
+    assert _already_masked("성*")
+    assert _already_masked("소***")
+    assert _already_masked("010-***-****")
+    assert _already_masked("[KR_NAME]")
+    assert not _already_masked("김진형")
+    assert not _already_masked("010-1234-5678")
+
+
+def test_scan_ignores_masked_text_but_finds_real_values():
+    from zzaimy.app.pii_audit import _load_detectors, find_spans
+
+    detectors = _load_detectors()
+    masked = "담당자 | 사무관 | 성* | (044-***-****)"
+    assert find_spans(masked, detectors) == []
+
+    leaking = "담당자: 홍길동, 연락처 010-1234-5678"
+    assert find_spans(leaking, detectors)

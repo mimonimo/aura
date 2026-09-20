@@ -18,7 +18,7 @@
 <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
 {% endif %}
 
-<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(380px,1fr)); gap:16px;">
+<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr)); gap:16px;">
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:download-square-linear"></iconify-icon>에이전트 앱 받기</h2>
     {% if bundle_ready and token %}

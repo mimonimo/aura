@@ -151,3 +151,73 @@ def test_audit_events_do_not_contain_original_text(masker):
     for ev in events:
         for value in asdict(ev).values():
             assert VALID_RRN not in str(value)
+
+
+# ---- 표 칸에 직위가 끼어 든 경우 (2026-09-20 운영 자료 실측) ----
+
+def test_name_after_title_in_table_cells_is_masked():
+    """"담당자 | 사무관 | 우성헌" 처럼 직위 칸이 끼면 이름을 놓치던 문제."""
+    from zzaimy.ingest.pii import PiiMasker, RawDocument
+
+    masker = PiiMasker()
+    text = ("| 대학규제혁신국 | 책임자 | 과 장 | 김진형 | (044-203-6900) "
+            "담당 부서 | 대학재정과 | 담당자 | 사무관 | 우성헌 | (044-203-6911)")
+    out = masker.mask(RawDocument(doc_id=1, text=text))
+    masked = getattr(out[0] if isinstance(out, tuple) else out, "text", "")
+    assert "김진형" not in masked
+    assert "우성헌" not in masked
+    assert "044-203-6900" not in masked
+
+
+def test_ordinary_sentences_with_titles_are_left_alone():
+    """직위가 나온다고 뒤 낱말을 이름으로 잡으면 안 된다."""
+    from zzaimy.ingest.pii import PiiMasker, RawDocument
+
+    masker = PiiMasker()
+    for text in ("과장 회의는 매주 수요일에 연다.",
+                 "신청인 자격은 재학생으로 한다.",
+                 "팀장 전결 사항으로 정한다."):
+        out = masker.mask(RawDocument(doc_id=1, text=text))
+        masked = getattr(out[0] if isinstance(out, tuple) else out, "text", "")
+        assert "[KR_NAME]" not in masked, text
+
+
+def test_header_cells_of_form_tables_are_not_taken_as_names():
+    """표 머리줄의 항목 이름을 성명으로 가리면 안 된다 (재마스킹 미리보기 실측)."""
+    from zzaimy.ingest.pii import PiiMasker, RawDocument
+
+    masker = PiiMasker()
+    for text in ("| 직 위 | 성명 | 성명 | 성명 |",
+                 "| 대표자 | 총장 / 부총장 | 총장 / 부총장 |",
+                 "주관대학 담당자 | 작성자 | 작성자 | 확인자 |",
+                 "| 책임자 | 소속부서 | 담당업무 |",
+                 "| 과 장 | 주요 | 주관대학 |",
+                 "발명자 | 성명 | 지분(%) | 소속학과 |"):
+        out = masker.mask(RawDocument(doc_id=1, text=text))
+        masked = getattr(out[0] if isinstance(out, tuple) else out, "text", "")
+        assert "[KR_NAME]" not in masked, text
+
+
+def test_titles_inside_longer_words_and_form_headers_are_not_names():
+    """'반도체소부장 | 전북대', '기후변화센터장 | 기후…', '성명 | 연구실적'은 이름이 아니다."""
+    from zzaimy.ingest.pii import PiiMasker, RawDocument
+
+    masker = PiiMasker()
+    for text in ("② 반도체소부장 | 전북대 | 성균관대 |",
+                 "| OO기업/연구소 기후변화센터장 | 기후변화 예측과 대책 |",
+                 "연번 | 구분 | 구분 | 성명 | 연구실적\n1 | 사업단장 |"):
+        out = masker.mask(RawDocument(doc_id=1, text=text))
+        masked = getattr(out[0] if isinstance(out, tuple) else out, "text", "")
+        assert "[KR_NAME]" not in masked, text
+
+
+def test_names_in_table_cells_are_masked_with_row_context():
+    from zzaimy.ingest.pii import mask_names_in_rows
+
+    cells = [[0, 0, 1, 1, 0, "대학규제혁신국"], [0, 1, 1, 1, 0, "책임자"], [0, 2, 1, 1, 0, "과 장"],
+             [0, 3, 1, 1, 0, "김진형"], [0, 4, 1, 1, 0, "([KR_PHONE])"],
+             [1, 0, 1, 1, 0, "담당자"], [1, 1, 1, 1, 0, "사무관"], [1, 2, 1, 1, 0, "우성헌"],
+             [2, 0, 1, 1, 1, "구분"], [2, 1, 1, 1, 1, "성명"], [2, 2, 1, 1, 1, "연구실적"]]
+    out = mask_names_in_rows(cells)
+    assert out[3][-1] == "[KR_NAME]" and out[7][-1] == "[KR_NAME]"
+    assert out[10][-1] == "연구실적"          # 머리줄 항목 이름은 그대로

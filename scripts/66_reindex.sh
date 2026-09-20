@@ -20,7 +20,19 @@ OMP=$(( NCPU / 2 )); [ "$OMP" -lt 1 ] && OMP=1
 PY=.venv/bin/python
 [ -x .venv-train/bin/python ] && PY=.venv-train/bin/python
 
-if grep -qE '^\s*VLLM_BASE_URL=' .env.local 2>/dev/null; then
+# LLM 이 붙어 있는가 — 환경변수 또는 화면에서 등록한 기본 연결
+has_llm() {
+  grep -qE '^\s*VLLM_BASE_URL=' .env.local 2>/dev/null && return 0
+  .venv/bin/python - <<'PY' 2>/dev/null
+import json, sys
+try:
+    d = json.load(open("data/platform/llm_connections.json"))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if any(c.get("id") == d.get("active") for c in d.get("connections", [])) else 1)
+PY
+}
+if has_llm; then
   echo "[$(date +%T)] 1/3 합성 질의 재생성"
   env PYTHONPATH=src nice -n 10 .venv/bin/python scripts/51_synth_queries.py
 else

@@ -130,6 +130,35 @@ def table_grid(data: dict, fill_spans: bool = False) -> list[list[str]]:
     return grid
 
 
+def _row_texts(data: dict) -> list[list[str]]:
+    """행별 셀 글 — 병합 셀은 범위 전체에 채우되, 행 전체를 덮는 한 셀은 한 번만 쓴다.
+
+    부분 병합('예산'이 두 열)은 열마다 채워 아래 행 값과 열 위치를 맞춘다. 행 전체를 덮는
+    셀(표 제목 줄)을 칸마다 되풀이하면 'X | X | X | X'가 되어 검색 조각이 같은 말로 채워진다
+    (실측 2026-09-20: 서식 문서 조각 첫머리가 제목 네다섯 번 반복).
+    """
+    n_rows, n_cols = int(data["n_rows"]), int(data["n_cols"])
+    grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
+    origin = [[-1] * n_cols for _ in range(n_rows)]
+    for k, (r, c, rs, cs, _hd, txt) in enumerate(data["cells"]):
+        r, c, rs, cs = int(r), int(c), int(rs), int(cs)
+        if not (0 <= r < n_rows and 0 <= c < n_cols):
+            continue
+        t = " ".join(str(txt).split())
+        for dr in range(max(rs, 1)):
+            for dc in range(max(cs, 1)):
+                if r + dr < n_rows and c + dc < n_cols:
+                    grid[r + dr][c + dc] = t
+                    origin[r + dr][c + dc] = k
+    out = []
+    for r in range(n_rows):
+        if n_cols > 1 and origin[r][0] >= 0 and all(o == origin[r][0] for o in origin[r]):
+            out.append([grid[r][0]])       # 행 전체가 한 셀 — 한 번만
+        else:
+            out.append(grid[r])            # 부분 병합은 열마다 채워 아래 행과 열 위치를 맞춘다
+    return out
+
+
 def render_table_text(data: dict, max_chars: int = 6000) -> str:
     """표 JSON(dict) → 검색·인용용 평문 — 캡션 줄, 행마다 ' | '로 이은 셀, 각주 줄.
 
@@ -140,7 +169,7 @@ def render_table_text(data: dict, max_chars: int = 6000) -> str:
     caption = " ".join(str(data.get("caption") or "").split())
     if caption:
         lines.append(caption)
-    for row in table_grid(data, fill_spans=True):
+    for row in _row_texts(data):
         if any(v for v in row):
             lines.append(" | ".join(row))
     note = " ".join(str(data.get("note") or "").split())
@@ -229,23 +258,29 @@ def chunk_blocks(
     prev_kind = ""
     for c in chunks:
         pg = c.get("page_no")
+        # 문서 보기의 탭(본문·표·그림)과 문서 내 검색이 쓰는 표지 — 갈래와 쪽
+        at = Markup(' data-kind="{}" data-page="{}"').format(
+            "table" if c["kind"] == "table"
+            else "image" if c["kind"] in ("image", "image_text") else "text",
+            pg or last_page or "",
+        )
         if pg and pg != last_page:
             if last_page is not None:
                 blocks.append(
-                    Markup('<div class="extract-page">{}쪽</div>').format(pg)
+                    Markup('<div class="extract-page" data-kind="page">{}쪽</div>').format(pg)
                 )
             last_page = pg
         if c["kind"] == "image":
             aid = (asset_by_name or {}).get(c["content"])
             if doc_id is not None and aid:
                 blocks.append(Markup(
-                    '<figure style="margin:6px 0 16px;">'
+                    '<figure{at} style="margin:6px 0 16px;">'
                     '<img src="/doc/{d}/asset/{a}" style="max-width:70%; border:1px solid'
                     ' var(--line); border-radius:10px; display:block;">'
                     '<figcaption class="muted" style="font-size:11px; margin-top:3px;">'
                     '추출 그림 · <a href="/doc/{d}/asset/{a}?dl=1">내려받기</a>'
                     '</figcaption></figure>'
-                ).format(d=doc_id, a=aid))
+                ).format(d=doc_id, a=aid, at=at))
             prev_kind = "image"
             continue
         if c["kind"] == "image_text":
@@ -255,15 +290,15 @@ def chunk_blocks(
                 + (" margin:-10px 0 16px;" if prev_kind == "image" else " margin:0 0 12px;")
             )
             blocks.append(Markup(
-                '<div class="extract-figtext muted" style="{}">'
+                '<div class="extract-figtext muted"{} style="{}">'
                 '<span style="font-weight:700;">그림 설명·글자</span> {}</div>'
-            ).format(Markup(style), _rich(c["content"])))
+            ).format(at, Markup(style), _rich(c["content"])))
             prev_kind = "image_text"
             continue
         prev_kind = c["kind"]
         if c["kind"] == "table":
             caption, note = table_context(c["content"])
-            block = Markup("")
+            block = Markup('<div class="extract-table"{}>').format(at)
             if caption:
                 block += Markup(
                     '<div class="extract-caption" style="font-size:13px; font-weight:700;'
@@ -281,11 +316,11 @@ def chunk_blocks(
                     '<a href="/doc/{}/table/{}.csv" class="muted"'
                     ' style="font-size:11.5px;">표 CSV 내려받기</a></p>'
                 ).format(doc_id, c["id"])
-            blocks.append(block)
+            blocks.append(block + Markup("</div>"))
         elif c["kind"] == "heading":
-            blocks.append(Markup('<h4 class="extract-h">{}</h4>').format(_rich(c["content"])))
+            blocks.append(Markup('<h4 class="extract-h"{}>{}</h4>').format(at, _rich(c["content"])))
         else:
-            blocks.append(Markup('<p class="extract-p">{}</p>').format(_rich(c["content"])))
+            blocks.append(Markup('<p class="extract-p"{}>{}</p>').format(at, _rich(c["content"])))
     return blocks
 
 
@@ -303,10 +338,10 @@ def trailing_image_blocks(doc_id: int, assets: list[dict]) -> list[Markup]:
     """위치 정보가 없는 추출 그림을 프리뷰 말미 섹션으로 — 복원 문서와 동일 구성."""
     if not assets:
         return []
-    blocks = [Markup('<h4 class="extract-h">추출 그림</h4>')]
+    blocks = [Markup('<h4 class="extract-h" data-kind="image">추출 그림</h4>')]
     for a in assets:
         blocks.append(Markup(
-            '<figure style="margin:6px 0 16px;">'
+            '<figure data-kind="image" data-page="{p}" style="margin:6px 0 16px;">'
             '<img src="/doc/{d}/asset/{a}" style="max-width:70%; border:1px solid'
             ' var(--line); border-radius:10px; display:block;">'
             '<figcaption class="muted" style="font-size:11px; margin-top:3px;">'

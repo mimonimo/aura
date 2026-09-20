@@ -326,12 +326,27 @@ def _load_detectors() -> list[tuple[str, Any, Any]]:
     return out
 
 
+def _already_masked(value: str) -> str | bool:
+    """이미 가려진 자리인가.
+
+    마스킹은 값을 별표로 덮는다(redact_value). 그 결과를 다시 탐지하면 점검이
+    스스로 만든 결과를 위반으로 세게 된다. 실측(2026-09-20 운영 자료): 잔여로
+    잡힌 표본 60건이 전부 "성*", "소***" 같은 이미 가린 자리였고 실제 노출은
+    없었다. 별표나 자리표를 품은 구간은 세지 않는다.
+    """
+    if "*" in value:
+        return True
+    return "[KR_" in value or "[EMAIL]" in value
+
+
 def find_spans(text: str, detectors: Sequence[tuple[str, Any, Any]]) -> list[tuple[int, int, str]]:
     """탐지 구간 (start, end, entity). 겹침은 앞선 것·긴 것 우선 — 마스커와 같은 규칙."""
     spans: list[tuple[int, int, str]] = []
     for entity, rx, validate in detectors:
         for m in rx.finditer(text):
             if validate(m.group()) is False:   # None은 검증 없음, False만 탈락
+                continue
+            if _already_masked(m.group()):     # 우리가 가려 놓은 자리는 잔여가 아니다
                 continue
             spans.append((m.start(), m.end(), entity))
     spans.sort(key=lambda s: (s[0], -(s[1] - s[0])))

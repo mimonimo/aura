@@ -92,7 +92,12 @@ def main() -> int:
         doc_id = db.add_document(
             filename=name, stored_path=path, doc_type="regulation",
             sector=args.sector, owner="corpus")
-        db.add_regulation_chunks(doc_id, reg_title=name, chunks=chunks,
+        # 인용 이름 — 'www.ync.ac.kr__UPLOAD_…' 같은 파일 이름 대신 첫 쪽의 문서 이름(doc_title.py)
+        from zzaimy.app.doc_title import resolved_title
+
+        found, _date = resolved_title({"filename": name, "stored_path": str(path),
+                                       "masked_text": masked.text[:3000], "identity": None})
+        db.add_regulation_chunks(doc_id, reg_title=found or name, chunks=chunks,
                                  sector=args.sector, dept=args.dept)
         # 마스킹 기록 — 유형·건수·마스킹본 문맥만 남긴다 (/dev/pii에서 확인)
         record_mask_events(db, doc_id, masked.text, events)

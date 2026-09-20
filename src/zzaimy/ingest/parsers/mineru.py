@@ -198,6 +198,21 @@ class MineruParser:
             return None
         base_dir = content_lists[0].parent
         max_page = 0
+        # 첫 쪽 머리 영역 — MinerU 는 첫 쪽 맨 위의 문서 이름·시행일도 'header'로 분류해
+        # 버린다. 2쪽부터의 머리말은 쪽마다 반복되는 장식이지만, 첫 쪽의 그 자리는 문서
+        # 이름이 놓이는 자리다(실측 2026-09-20 규정집: '… 사무분장 규정', '학과장회 통과일자 …'
+        # 가 통째로 빠짐). 첫 쪽 것만 위에서부터 본문 앞에 되살린다.
+        first_headers = sorted(
+            (e for e in raw_entries
+             if e.get("type") == "header" and int(e.get("page_idx", 0)) == 0
+             and (e.get("text") or "").strip()),
+            key=lambda e: (_bbox(e) or (0, 0, 0, 0))[1],
+        )
+        for i, e in enumerate(first_headers):
+            txt = e["text"].strip()
+            entries.append(ParsedEntry(page_no=1, kind="heading" if i == 0 else "text",
+                                       text=txt, bbox=_bbox(e)))
+            page_texts[1].append(f"[[h]]{txt}" if i == 0 else txt)
         for e in raw_entries:
             page_no = int(e.get("page_idx", 0)) + 1
             max_page = max(max_page, page_no)

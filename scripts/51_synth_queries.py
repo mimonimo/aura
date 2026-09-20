@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from zzaimy.app.db import Database
@@ -57,10 +58,24 @@ def main() -> None:
             except (json.JSONDecodeError, KeyError):
                 pass
     todo = [c for c in chunks if c["id"] not in done]
+    # 표본 — ZZAIMY_SYNTH_SAMPLE=300 이면 무작위 300개만(고정 시드). 전체는 몇 시간이 걸린다
+    sample = int(os.environ.get("ZZAIMY_SYNTH_SAMPLE", "0") or 0)
+    if sample:
+        import random
+
+        rng = random.Random(20260920)
+        pool = sorted(chunks, key=lambda c: c["id"])
+        picked = {c["id"] for c in rng.sample(pool, min(sample, len(pool)))}
+        todo = [c for c in todo if c["id"] in picked]
     by_id = {c["id"]: c for c in todo}
     print(f"조각 {len(chunks)}개 중 {len(todo)}개 생성 예정 (완료 {len(done)})", flush=True)
 
+    # 화면에서 등록한 LLM 연결(기본 연결)을 쓴다 — 없으면 환경변수로 물러난다
+    from zzaimy.generate import llm_connections
+
+    llm_connections.configure(Path("data/platform/llm_connections.json"))
     client = VllmClient()
+    print(f"생성 모델: {client.model} ({client.client.base_url})", flush=True)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     ok = fail = 0
 
