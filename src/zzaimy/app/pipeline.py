@@ -250,6 +250,23 @@ class DocumentProcessor:
                         )
                         return overlaid
                 return text
+        # 글자층이 없는 PDF(스캔본)는 비전 판독을 먼저 쓴다.
+        # 예전에는 CPU OCR(docling)을 먼저 돌렸는데, 큰 스캔본에서 그 단계만 십수 분이 걸려
+        # 판독까지 가지도 못하고 제한 시간에 걸렸다(실측 2026-09-21). 읽는 일은 서빙 장비 몫이다.
+        if suffix == ".pdf" and not self._pdf_has_text_layer(file_path) and _vision_available():
+            pages = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
+            if pages:
+                mds = []
+                for _no, img in pages:
+                    got = self._vlm_transcribe(img)
+                    if got:
+                        mds.append(got)
+                if mds:
+                    self._ocr_used = True
+                    self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
+                    self._note_partial_vision(file_path, pages)
+                    return "\n\n".join(mds)
+
         # 이미지·오피스 문서(및 MinerU 실패 PDF)는 docling이 처리
         from zzaimy.ingest.parsers.docling import DoclingParser
 
