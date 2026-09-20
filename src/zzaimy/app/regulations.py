@@ -177,10 +177,64 @@ def looks_like_heading(line: str) -> bool:
     return bool(_HEADING_MARK.match(s))
 
 
+_LABEL_MAX = 20            # 표의 이름 칸으로 볼 수 있는 길이
+_VALUE_MAX = 40            # 값이 이보다 길면 이름 칸을 표제로 쓴다
+
+
+def _table_heading(text: str) -> str:
+    """표가 본문인 조각의 표제를 표 자신의 머리에서 만든다 — 못 만들면 빈 문자열.
+
+    왜: 편성표·신청서 서식처럼 문서 전체가 표인 경우 서술형 표제가 아예 없어
+    조각 제목이 문서 이름뿐이었다(실측 2026-09-20: 108건 중 6건이 '구조 표제를
+    붙이지 못했습니다'). 인용도 "《연계교육과정 편성표 · 》"으로 나가고, 조각마다
+    어느 학과 이야기인지 화면에서 구분되지 않았다.
+
+    규칙(문서별 예외 없이):
+      · 빈 줄이 아닌 줄의 절반 이상이 셀 구분자를 가진 조각(표 행 2줄 이상)만 대상으로 한다.
+      · 표 행만 위에서부터 최대 3줄 보며, 셀을 정리한 뒤(병합 셀의 반복은 하나로) 판단한다.
+        표가 아닌 줄은 쳐다보지 않는다 — 서술문 첫 줄이 표제로 올라가면 안 된다.
+        - '이름 | 값' 두 칸이면 값을 쓴다. 이름은 어느 문서에나 있는 일반어라
+          '소프트웨어융합과'가 '학과(계열)'보다 그 조각을 잘 가리킨다.
+          값이 길면(서술에 가까움) 이름 칸을 쓴다.
+        - 값 칸이 여럿인 서식 행('컨소시엄 주관대학 | 대학명 | …')은 이름 칸을 쓴다.
+        - 한 칸으로 줄면 그 칸을 쓴다(제목 행).
+      · 이렇게 고른 것 두 개까지 ' · '로 잇는다 — '소프트웨어융합과 · 컴퓨터공학과'.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    rows = [ln for ln in lines if "|" in ln]
+    if len(rows) < 2 or len(rows) / len(lines) < 0.5:
+        return ""
+    picks: list[str] = []
+    for ln in rows[:3]:
+        cells: list[str] = []
+        for cell in (c.strip() for c in ln.split("|")):
+            if cell and (not cells or cells[-1] != cell):
+                cells.append(cell)             # 병합 셀이 만든 반복은 하나로
+        if not cells:
+            continue
+        if len(cells) == 1:
+            pick = cells[0]
+        elif len(cells[0]) > _LABEL_MAX:
+            continue                           # 첫 칸이 이름 같지 않다 — 자료 행이다
+        elif len(cells) == 2:
+            pick = cells[1] if len(cells[1]) <= _VALUE_MAX else cells[0]
+        else:
+            pick = cells[0]                    # 값 칸이 여럿인 서식 행 — 이름 칸이 표제
+        pick = re.sub(r"\s+", " ", pick).strip(" .·:")
+        if len(pick) >= 2 and re.search(r"[가-힣A-Za-z]", pick) and pick not in picks:
+            picks.append(pick)
+        if len(picks) == 2:
+            break
+    return " · ".join(picks)[:_HEADING_MAX].strip(" ·") if picks else ""
+
+
 def _heading_of(text: str) -> str:
     """조각을 대표하는 표제 — 구할 수 없으면 빈 문자열.
 
-    ① '제N조(제목)'이면 그 제목 ② 첫 줄이 구조 표제 형태면 그 줄. 그 밖에는
+    ① '제N조(제목)'이면 그 제목 ② 첫 줄이 구조 표제 형태면 그 줄
+    ③ 표가 본문인 조각이면 표의 머리에서 만든다(_table_heading). 그 밖에는
     표제를 만들지 않는다. 본문 첫 줄을 그대로 쓰면 이메일 주소·낱말 중간에서
     잘린 파편이 표제가 된다(운영 화면 실측). 표제가 없는 편이 거짓 표제보다 낫다.
     """
@@ -196,7 +250,9 @@ def _heading_of(text: str) -> str:
         title = m.group(1).strip()
         return (f"{num}({title})" if num else title)[:_HEADING_MAX]
     head = t.splitlines()[0].strip()
-    return head[:_HEADING_MAX].strip() if looks_like_heading(head) else ""
+    if looks_like_heading(head):
+        return head[:_HEADING_MAX].strip()
+    return _table_heading(text)
 
 
 def _split_size(text: str, size: int = _CHUNK_SIZE) -> list[str]:
