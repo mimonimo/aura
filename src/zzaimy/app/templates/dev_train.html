@@ -158,7 +158,7 @@
   .use-now strong { font-weight:600; }
   .use-model { font-family:var(--mono, ui-monospace, monospace); font-size:12.5px; color:var(--navy);
                background:#EEF3FA; border-radius:6px; padding:1px 7px; overflow-wrap:anywhere; }
-  .use-note { font-size:11.5px; }
+  .use-tag { background:#EEF3FA; color:var(--navy); font-size:11px; }
   .use-form { grid-column:1 / -1; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;
               background:var(--bg-soft, #F7F8FA); border-radius:10px; padding:10px 12px; margin-top:4px; }
   .use-form label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--muted); min-width:180px; flex:1; }
@@ -195,7 +195,7 @@
       </div>
       <div class="llm-conn-meta">
         <span class="k">주소</span><span class="v">{{ c.base_url }}</span>
-        <span class="k">지정 모델</span><span class="v">{{ c.model or "서버 첫 모델 자동" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</span>
+        <span class="k">지정 모델</span><span class="v">{{ c.model or "서버 기본" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</span>
         <span class="k">쓸 수 있는 모델</span><span class="v">{% if c.live.ok %}{{ c.live.models | length }}개
           <button type="button" class="btn-ghost" style="padding:2px 8px; font-size:11.5px; margin-left:4px;"
                   data-toggle="#modelList-{{ c.id }}" aria-expanded="false">목록 보기</button>
@@ -234,16 +234,16 @@
       <div class="use-now">
         {% if srv %}
           <strong>{{ srv.name }}</strong>
-          <span class="use-model">{{ (r.model if own else none) or srv.model or "서버 첫 모델" }}</span>
-          {% if not own %}<span class="muted use-note">기본 서버를 따릅니다</span>{% endif %}
+          <span class="use-model">{{ (r.model if own else none) or srv.model or "서버 기본" }}</span>
+          {% if not own %}<span class="pill use-tag">기본</span>{% endif %}
         {% else %}<span class="muted">지정된 서버가 없습니다</span>{% endif %}
       </div>
-      <button type="button" class="btn-ghost use-edit" data-use-open>바꾸기</button>
+      <button type="button" class="btn-ghost use-edit" data-use-open>변경</button>
       <form action="/dev/llm/role" method="post" class="use-form" hidden>
         <input type="hidden" name="role" value="{{ r.role }}">
         <label>서버
           <select name="cid" data-role-server>
-            <option value="">{% if act %}기본 서버 따르기 ({{ act.name }}){% else %}기본 서버 없음{% endif %}</option>
+            <option value="">{% if act %}기본 — {{ act.name }}{% else %}기본 연결 없음{% endif %}</option>
             {% for c in connections %}
             <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}
                     data-models="{{ c.live.models | map(attribute='id') | join('|') if c.live.ok else '' }}">{{ c.name }}</option>
@@ -251,7 +251,7 @@
           </select></label>
         <label>모델
           <select name="model" data-role-model {{ '' if r.id else 'disabled' }}>
-            <option value="">{{ "서버 첫 모델" if r.id else "기본 서버의 모델" }}</option>
+            <option value="">{{ "서버 기본" if r.id else "기본 — " ~ (act.model or "서버 기본" if act else "없음") }}</option>
             {% for c in connections %}{% if c.id == r.id and c.live.ok %}{% for m in c.live.models %}
             <option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>
             {% endfor %}{% endif %}{% endfor %}
@@ -354,12 +354,12 @@ document.addEventListener("DOMContentLoaded", function () {
     open.addEventListener("click", function () {
       var show = form.hidden;
       form.hidden = !show;
-      open.textContent = show ? "닫기" : "바꾸기";
+      open.textContent = show ? "닫기" : "변경";
       if (show) form.querySelector("select").focus();
     });
     form.querySelector("[data-use-cancel]").addEventListener("click", function () {
       form.hidden = true;
-      open.textContent = "바꾸기";
+      open.textContent = "변경";
       open.focus();
     });
   });
@@ -392,7 +392,7 @@ document.addEventListener("DOMContentLoaded", function () {
       model.replaceChildren();
       var head = document.createElement("option");
       head.value = "";
-      head.textContent = server.value ? "서버 첫 모델" : "기본 서버의 모델";
+      head.textContent = server.value ? "서버 기본" : "기본";
       model.appendChild(head);
       list.forEach(function (id) {
         var o = document.createElement("option");
