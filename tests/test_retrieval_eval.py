@@ -171,8 +171,9 @@ def test_run_eval_writes_artifact_shape(tmp_path):
         assert key in latest
     assert latest["n_queries"] == 8 and latest["n_chunks"] == 4  # 행 4 × (실무형+키워드)
     assert latest["embedding_model"] == "fake-embed"
+    # 조밀 축 행 이름에는 실제로 쓴 모델 이름이 들어간다(손으로 적지 않는다)
     assert [r["method"] for r in latest["rows"]] == [
-        rev.METHOD_LEXICAL, rev.METHOD_DENSE, rev.METHOD_HYBRID, rev.METHOD_PRODUCTION]
+        rev.METHOD_LEXICAL, "임베딩(fake-embed)", rev.METHOD_HYBRID, rev.METHOD_PRODUCTION]
     lex, den, hyb, prod = latest["rows"]
     assert lex["recall_at_1"] == 1.0 and lex["n"] == 8 and lex["production"] is False
     assert den["recall_at_1"] == 0.0 and den["recall_at_5"] == 1.0 and den["mrr_at_10"] == 0.5

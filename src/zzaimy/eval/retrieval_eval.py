@@ -3,7 +3,7 @@
 대시보드(/dev)의 "규정 검색 품질" 카드는 이 모듈이 쓰는 data/platform/eval/retrieval-latest.json
 하나만 읽는다. 손으로 쓴 보고서에서 수치를 긁어 오지 않는다 — 수치는 인출하고 생성하지 않는다.
 
-측정 행 4개: 어휘(Kiwi) · 임베딩(KURE) · 하이브리드(RRF, 운영 후보) · 하이브리드+리랭커
+측정 행 4개: 어휘(Kiwi) · 임베딩(색인 모델 이름) · 하이브리드(RRF, 운영 후보) · 하이브리드+리랭커
 (= find_relevant, 운영 구성). 지표는 정본(zzaimy.eval.retrieval)의 Recall@1/5/10·MRR@10이고,
 랭킹은 regulations·embed_search·rerank의 운영 함수를 그대로 부른다(평가용 재구현 없음).
 
@@ -51,7 +51,17 @@ SEED = 7
 QUERY_TYPES = ("practical", "requirement", "keyword")
 
 METHOD_LEXICAL = "어휘(Kiwi)"
-METHOD_DENSE = "임베딩(KURE)"
+METHOD_DENSE = "임베딩(KURE)"          # 기본 이름 — 실제 색인 모델이 다르면 dense_method_name() 이 바꾼다
+
+
+def dense_method_name(model: str = "") -> str:
+    """조밀 축 행 이름 — 실제로 쓴 임베딩 모델 이름을 넣는다.
+
+    화면 카드의 수치는 기계 산출물만 쓴다는 규칙과 같은 이유로, 모델 이름도 손으로 적지 않는다.
+    임베딩 학습본으로 갈아탄 뒤에도 'KURE' 라고 적혀 있으면 기록이 거짓이 된다(2026-09-20 실측).
+    """
+    name = (model or "").rsplit("/", 1)[-1]
+    return f"임베딩({name})" if name else METHOD_DENSE
 METHOD_HYBRID = "하이브리드"
 METHOD_PRODUCTION = "하이브리드+리랭커"
 METRIC_KEYS = ("recall_at_1", "recall_at_5", "recall_at_10", "mrr_at_10")
@@ -295,17 +305,28 @@ def production_retrievers(db, chunks: list[dict] | None = None) -> Retrievers:
 
     rerank = None
     # 적재 실패·비활성이면 rerank_chunks가 입력 순서를 그대로 돌려준다 — 그 결과를 리랭크
-    # 수치로 적으면 거짓이 되므로 여기서 미적재로 못 박는다
-    if not os.environ.get("ZZAIMY_NO_RERANK") and rr._encoder() is not None:
+    # 수치로 적으면 거짓이 되므로 여기서 미적재로 못 박는다.
+    # 서빙 장비의 리랭커가 켜져 있으면 VM 에 모델이 없어도 운영 구성 행을 잰다.
+    remote_rerank = bool(os.environ.get("ZZAIMY_RERANK_URL", "").strip())
+    if not os.environ.get("ZZAIMY_NO_RERANK") and (remote_rerank or rr._encoder() is not None):
         def rerank(q: str, cand_ids: list[int]) -> list[int]:
             cands = [by_id[c] for c in cand_ids if c in by_id]
             return [c["id"] for c in rr.rerank_chunks(q, cands)]
 
+    # 모델 이름은 손으로 적지 않는다 — 색인 메타와 서빙 상태에서 읽는다.
+    # 학습본으로 갈아탄 뒤에도 'KURE'·'bge-reranker' 라고 적히면 측정 기록이 거짓이 된다.
+    rerank_model = rr._MODEL
+    if remote_rerank:
+        from zzaimy.app import search_serving
+
+        for part in search_serving.status():
+            if part["key"] == "rerank" and part["model"]:
+                rerank_model = part["model"]
     meta = {
         "n_chunks": len(chunks),
-        "embedding_model": es.MODEL_NAME,
+        "embedding_model": es._index_model_name() or es.MODEL_NAME,
         "embedding_active": bool(es._index._load()),
-        "rerank_model": rr._MODEL,
+        "rerank_model": rerank_model,
         "rerank_active": rerank is not None,
     }
     return Retrievers(lexical, dense, hybrid, rerank, meta)
@@ -356,9 +377,11 @@ def evaluate(
     notes: list[str] = []
     rows = [_row(METHOD_LEXICAL, lex_runs, golds)]
     if retrievers.meta.get("embedding_active", True):
-        rows.append(_row(METHOD_DENSE, den_runs, golds))
+        rows.append(_row(dense_method_name(retrievers.meta.get("embedding_model", "")),
+                         den_runs, golds))
     else:
-        rows.append(_unmeasured(METHOD_DENSE, "임베딩 색인 없음"))
+        rows.append(_unmeasured(dense_method_name(retrievers.meta.get("embedding_model", "")),
+                                "임베딩 색인 없음"))
         notes.append("임베딩 색인 비활성 — 하이브리드 행은 어휘 단독 결과")
     rows.append(_row(METHOD_HYBRID, hyb_runs, golds))
 
