@@ -55,13 +55,21 @@ def main() -> int:
              for qt in rev.QUERY_TYPES if (t := (r.get(qt) or "").strip())]
     idx = sorted(random.Random(rev.SEED).sample(range(len(pairs)), min(args.sample, len(pairs))))
 
-    def top_score(q: str) -> float | None:
+    def top_score(q: str) -> tuple[float, float] | None:
+        """(1위 점수, 격차) — 격차는 1위와 나머지 후보 평균의 차이."""
         cand = prod.hybrid(q, prod.lexical(q), prod.dense(q))[: rev.TOP_K]
         got = rerank_scored(q, [by_id[c] for c in cand if c in by_id])
-        return got[0][1] if got else None
+        if not got:
+            return None
+        rest = [s for _, s in got[1:]]
+        return got[0][1], got[0][1] - (sum(rest) / len(rest) if rest else 0.0)
 
-    good = [s for i in idx if (s := top_score(pairs[i][0])) is not None]
-    meta = [s for q in META_QUERIES if (s := top_score(q)) is not None]
+    good = [v for i in idx if (v := top_score(pairs[i][0])) is not None]
+    meta = [v for q in META_QUERIES if (v := top_score(q)) is not None]
+    good_gap = sorted(g for _, g in good)
+    meta_gap = sorted(g for _, g in meta)
+    good = [s for s, _ in good]
+    meta = [s for s, _ in meta]
     if not good or not meta:
         print("점수를 얻지 못했습니다 — 리랭커가 켜져 있는지 확인하십시오.")
         return 1
@@ -70,8 +78,16 @@ def main() -> int:
     print(f"정답 질의 {len(good)}건 · 1위 점수 하위5% {p05:.3f} · 중앙 {statistics.median(good):.3f}"
           f" · 최솟값 {good[0]:.3f}")
     print(f"무관 질의 {len(meta)}건 · 1위 점수 최댓값 {max(meta):.3f} · 중앙 {statistics.median(meta):.3f}")
+    g05 = good_gap[max(0, int(len(good_gap) * 0.05) - 1)]
+    print(f"격차(1위 - 나머지 평균) · 정답 하위5% {g05:.3f} · 중앙 {statistics.median(good_gap):.3f}"
+          f" · 최솟값 {good_gap[0]:.3f}")
+    print(f"격차 · 무관 최댓값 {max(meta_gap):.3f} · 중앙 {statistics.median(meta_gap):.3f}")
     if max(meta) >= p05:
-        print("두 분포가 겹칩니다 — 하한 하나로 가릴 수 없습니다. 그대로 두고 이유를 기록하십시오.")
+        print("절대 점수로는 두 분포가 겹칩니다 — 하한 하나로 가릴 수 없습니다.")
+        if max(meta_gap) < g05:
+            print(f"격차는 갈립니다 — 격차 하한 {(max(meta_gap) + g05) / 2:.3f} 로 판정하는 편이 맞습니다.")
+        else:
+            print("격차로도 갈리지 않습니다 — 지금 규칙을 그대로 두고 이유를 기록하십시오.")
         return 0
     floor = (max(meta) + p05) / 2
     print(f"권하는 하한(RERANK_MIN) {floor:.3f} — 정답 질의 약함 0건, 무관 질의 {len(meta)}건 모두 걸러짐")
