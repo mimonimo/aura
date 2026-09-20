@@ -22,6 +22,8 @@ _MODEL = "BAAI/bge-reranker-v2-m3"
 # 조각 본문 앞 350자 안팎(표제 + 조문 요지)이면 관련도 판단에 충분하다. int8 양자화는
 # 2.9s까지 줄지만 쌍별 일치가 0.87로 떨어져 채택하지 않았다(리랭커의 일은 정밀한 순서).
 _MAX_LEN = 256
+# CPU 폴백에서 재정렬할 최대 후보 수 — 10쌍 3.75초(실측)라 그 이상은 대화 흐름을 끊는다
+LOCAL_MAX_PAIRS = 10
 _ce = None
 _failed = False
 
@@ -141,10 +143,15 @@ def rerank_scored(query: str, chunks: list[dict],
     if ce is None:
         return None
     try:
-        pairs = [(query, _pair_text(c, text_key, with_title=False)) for c in chunks]
+        # VM CPU 폴백에서는 앞쪽 후보만 재정렬한다 — 후보가 20개로 늘어난 뒤에도 폴백이
+        # 질의당 몇 초로 끝나게. 뒤쪽은 검색 순서를 그대로 두고 0점으로 남긴다.
+        head = chunks[:LOCAL_MAX_PAIRS]
+        pairs = [(query, _pair_text(c, text_key, with_title=False)) for c in head]
         scores = [float(s) for s in ce.predict(pairs, show_progress_bar=False)]
-        order = sorted(range(len(chunks)), key=lambda i: -scores[i])
-        return [(chunks[i], scores[i]) for i in order]
+        order = sorted(range(len(head)), key=lambda i: -scores[i])
+        out = [(head[i], scores[i]) for i in order]
+        out.extend((c, 0.0) for c in chunks[LOCAL_MAX_PAIRS:])
+        return out
     except Exception:
         log.warning("리랭크 실패 — 원래 순서 유지", exc_info=True)
         return None
