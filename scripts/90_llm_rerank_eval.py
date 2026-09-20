@@ -2,8 +2,8 @@
 """LLM 리랭커 평가 — 같은 질의 세트·같은 표본으로 하이브리드·크로스인코더·LLM 리랭커를 비교한다.
 
 운영 검색 구성요소(production_retrievers)를 그대로 쓰고 리랭크 자리만 바꿔 끼운다.
-결과는 data/eval/llm-rerank-<날짜>.json 과 docs/llm-rerank-eval.md 에 남긴다.
-후보 모델·색인을 환경변수로 바꿔 돌린 임시 실행분은 docs/ 에 쓰지 않고 data/eval/ 에만 둔다.
+결과는 data/eval/llm-rerank-<날짜>.json 과 그 옆의 .md 에 남긴다.
+저장소(docs/)에 보고서를 남기려면 --report 를 붙인다 — 운영 VM 체크아웃을 더럽히지 않기 위해서다.
 
 사용 (VM):
   PYTHONPATH=src .venv/bin/python scripts/90_llm_rerank_eval.py \
@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import random
 import sys
 import time
@@ -38,6 +37,8 @@ def main() -> int:
     ap.add_argument("--tag", default="", help="산출물 이름 꼬리표(예: paraphrase)")
     ap.add_argument("--expand", action="append", default=[], help="질의 확장 비교: 이름=주소|모델")
     ap.add_argument("--conditional", action="store_true", help="조건부 확장(1위 근거가 약할 때만) 행 추가")
+    ap.add_argument("--report", action="store_true",
+                    help="보고서를 저장소(docs/)에 쓴다. 기본은 data/eval 옆에만 둔다")
     ap.add_argument("--db", default="", help="평가할 DB(기본: 운영 DB) — 운영 DB 가 바뀌는 중일 때 스냅숏으로")
     args = ap.parse_args()
 
@@ -144,11 +145,10 @@ def main() -> int:
         md.append(f"| {r['method']} | {r['recall_at_1']:.3f} | {r['recall_at_5']:.3f} | "
                   f"{r['recall_at_10']:.3f} | {r['mrr_at_10']:.3f} | {r['sec_per_query']} |")
     md += ["", f"원자료: `{out.relative_to(ROOT)}` (산출: `scripts/90_llm_rerank_eval.py`)", ""]
-    # 저장소에 남기는 보고서는 기본 실행분만. 후보 모델·색인을 바꿔 돌린 임시 실행분은
-    # data/eval/ 에만 둔다 — 그래야 VM 에서 돌려도 배포(깃 상태 확인)를 막지 않는다.
-    trial = bool(os.environ.get("ZZAIMY_EMBED_MODEL") or os.environ.get("ZZAIMY_EMBED_INDEX"))
-    md_out = (out.with_suffix(".md") if trial
-              else ROOT / "docs" / f"llm-rerank-eval{tag}.md")
+    # 보고서는 기본적으로 원자료 옆(data/eval/)에 둔다. 평가는 임베딩·색인이 있는 운영 VM 에서
+    # 돌리는데, 저장소 파일(docs/)을 건드리면 그 체크아웃이 더러워져 배포가 멈춘다(실측 2026-09-20).
+    # 저장소에 남길 판이면 --report 로 명시한다(맥에서 커밋할 때).
+    md_out = (ROOT / "docs" / f"llm-rerank-eval{tag}.md") if args.report else out.with_suffix(".md")
     md_out.write_text("\n".join(md), encoding="utf-8")
     print("\n".join(md))
     return 0
