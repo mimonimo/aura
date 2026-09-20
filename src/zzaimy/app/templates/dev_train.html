@@ -204,6 +204,12 @@
   .srv-url { font-size:11.5px; color:var(--muted); overflow-wrap:anywhere; }
   .srv-n { font-size:11.5px; }
   .srv-bad { font-size:11.5px; color:var(--red, #C0392B); }
+  .plan-list { display:flex; flex-direction:column; border-top:1px solid var(--line); }
+  .plan-row { display:flex; align-items:center; gap:8px; padding:8px 0; flex-wrap:wrap;
+              border-bottom:1px solid var(--line); min-width:0; }
+  .plan-row:last-child { border-bottom:0; }
+  .plan-name { font-size:13px; font-weight:600; }
+  .plan-role, .plan-base { font-size:11.5px; }
   .srv-row .icon-btn { margin-left:auto; }
 </style>
 {# LLM 연결 — 서버를 붙이고 관리하는 자리. 어느 단계에 무엇을 쓸지는 다음 카드에서 고른다 #}
@@ -316,20 +322,24 @@
   <p class="muted" style="font-size:12.5px; margin:0;">서버를 먼저 등록하세요.</p>
   {% endif %}
 
-  {# 검색 단계는 고르는 칸이 아니라 지금 어디서 도는지를 보여 준다 — 서빙 서비스가 정한다 #}
-  <div class="srv-head muted" style="clear:both;">검색 모델</div>
-  <div class="srv-list">
-    {% for p in search_serving %}
-    <div class="srv-row">
-      <span class="srv-name">{{ p.label }}</span>
-      {% if p.ok %}<span class="pill reviewed">{{ "GPU" if p.remote else "VM" }}</span>
-      {% else %}<span class="pill processing">멈춤</span>{% endif %}
-      <span class="muted srv-n">{{ p.where }}</span>
-      {% if p.model %}<span class="use-model">{{ p.model }}</span>{% endif %}
-      {% if p.detail %}<span class="{{ 'srv-bad' if not p.ok else 'muted srv-n' }}">{{ p.detail }}</span>{% endif %}
+  {# 계획서 모델 4종이 지금 어디서 도는지 — 계획과 다르면 그 자리에서 보이게 #}
+  <div class="srv-head muted">계획 대비 지금</div>
+  <div class="plan-list">
+    {% for p in serving_plan %}
+    <div class="plan-row">
+      <span class="plan-name">{{ p.name }}</span>
+      <span class="muted plan-role">{{ p.role }}</span>
+      <span class="plan-base muted">계획 {{ p.base }}</span>
+      <span class="use-model">{{ p.model or "미지정" }}</span>
+      <span class="muted srv-n">{{ p.where or "—" }}</span>
+      {% if p.ok and p.matches_plan %}<span class="pill reviewed">정상</span>
+      {% elif p.ok %}<span class="pill type">다른 모델</span>
+      {% else %}<span class="pill processing">준비 안 됨</span>{% endif %}
+      {% if p.detail %}<span class="srv-bad">{{ p.detail }}</span>{% endif %}
     </div>
     {% endfor %}
   </div>
+  <p class="muted" style="font-size:11.5px; margin:10px 0 0;">학습은 {{ train_host }}, 서빙은 토르가 맡습니다. 임베딩 모델을 바꾸면 전체 재색인이 필요합니다.</p>
 </div></div>
 
 {# 연결별 설정 — 수정·확인·용도·삭제를 톱니 하나에 모은다 #}
