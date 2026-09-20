@@ -58,3 +58,18 @@ def test_llm_correction_covers_table_cells(monkeypatch):
     data = json.loads(chunks[1]["content"])
     assert data["cells"][0][5] == "주민등록번호"
     assert data["cells"][1][5] == "동의여부"
+
+
+def test_downloaded_error_page_is_reported_as_such(tmp_path):
+    """내려받기가 막혀 오류 쪽이 .pdf 로 저장된 파일 — 판독 실패가 아니라 그 이유를 말한다."""
+    from zzaimy.app.pipeline import _format_mismatch
+
+    bad = tmp_path / "공고.pdf"
+    bad.write_bytes(b'<!DOCTYPE HTML PUBLIC "-//IETF"><HTML><TITLE>400 Bad Request</TITLE>')
+    reason = _format_mismatch(bad)
+    assert reason and "웹 페이지" in reason and "PDF" in reason
+
+    ok = tmp_path / "정상.pdf"
+    ok.write_bytes(b"%PDF-1.7 ...")
+    assert _format_mismatch(ok) is None
+    assert _format_mismatch(tmp_path / "그림.png") is None      # 검사 대상이 아닌 형식
