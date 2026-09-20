@@ -3,6 +3,7 @@
 
 운영 검색 구성요소(production_retrievers)를 그대로 쓰고 리랭크 자리만 바꿔 끼운다.
 결과는 data/eval/llm-rerank-<날짜>.json 과 docs/llm-rerank-eval.md 에 남긴다.
+후보 모델·색인을 환경변수로 바꿔 돌린 임시 실행분은 docs/ 에 쓰지 않고 data/eval/ 에만 둔다.
 
 사용 (VM):
   PYTHONPATH=src .venv/bin/python scripts/90_llm_rerank_eval.py \
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 import time
@@ -142,7 +144,12 @@ def main() -> int:
         md.append(f"| {r['method']} | {r['recall_at_1']:.3f} | {r['recall_at_5']:.3f} | "
                   f"{r['recall_at_10']:.3f} | {r['mrr_at_10']:.3f} | {r['sec_per_query']} |")
     md += ["", f"원자료: `{out.relative_to(ROOT)}` (산출: `scripts/90_llm_rerank_eval.py`)", ""]
-    (ROOT / "docs" / f"llm-rerank-eval{tag}.md").write_text("\n".join(md), encoding="utf-8")
+    # 저장소에 남기는 보고서는 기본 실행분만. 후보 모델·색인을 바꿔 돌린 임시 실행분은
+    # data/eval/ 에만 둔다 — 그래야 VM 에서 돌려도 배포(깃 상태 확인)를 막지 않는다.
+    trial = bool(os.environ.get("ZZAIMY_EMBED_MODEL") or os.environ.get("ZZAIMY_EMBED_INDEX"))
+    md_out = (out.with_suffix(".md") if trial
+              else ROOT / "docs" / f"llm-rerank-eval{tag}.md")
+    md_out.write_text("\n".join(md), encoding="utf-8")
     print("\n".join(md))
     return 0
 
