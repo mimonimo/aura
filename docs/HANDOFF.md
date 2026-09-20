@@ -29,6 +29,19 @@
   **임베딩 재계산은 토르 GPU 로**: `bash scripts/96_embed_on_thor.sh --apply`(맥에서 실행) — 3,751조각 44초,
   VM CPU 계산 표본과 코사인 1.00000. VM CPU 경로(`66_reindex.sh`)는 한 시간 넘게 걸린다.
 
+  **상시 서비스 두 개(9/20 올림, 토르 03, `--restart unless-stopped`·도커 부팅 시작 enabled)**:
+
+  | 포트 | 무엇 | 올리는 법 | VM 쪽 설정(`.env.local`) |
+  |---|---|---|---|
+  | 8013 | 리랭커 점수 (bge-reranker-v2-m3, 512토큰) | `bash scripts/102_serve_reranker_on_thor.sh` | `ZZAIMY_RERANK_URL=http://211.170.162.121:8013/score` |
+  | 8014 | 질의 임베딩 (KURE-v1, CLS+정규화) | `bash scripts/103_serve_embed_on_thor.sh` | `ZZAIMY_EMBED_URL=http://211.170.162.121:8014/embed` |
+
+  둘 다 OpenAI 규격이 아니라 단일 용도 규약이다(`/health`·`/score`·`/embed`). VM 은 서비스가 죽으면
+  스스로 물러난다(리랭커→VM CPU, 임베딩→VM 모델을 그때 올림, 그것도 없으면 키위 검색만).
+  효과(질의 150건 실측 9/20): 리랭킹 질의당 3.75초→0.07초, 정확한 질문 R@1 0.647→0.667,
+  상황 질문 R@1 0.413→0.460. VM 상주 메모리 634MB→358MB(질의 임베딩 모델을 안 올린다).
+  모델 파일은 토르 `~/zzaimy/models/`(KURE-v1·bge-reranker-v2-m3·zzaimy-embed-v1), 서비스 코드는 `~/zzaimy/serve/`.
+
 - **운영 서버 = ESXi VM** (`aura@192.168.16.226`). 웹·검색·OCR·문서관리 담당. GPU 없음.
   - 접속: 학과망 VPN 안에서 `ssh aura@192.168.16.226` (키 등록 필요, 비번은 별도 전달).
   - 웹: `https://192.168.16.226` (self-signed, https·443). 로그인 `zzaimy`(담당자) / `zzdev`(개발자).
