@@ -33,13 +33,20 @@
 
   | 포트 | 무엇 | 올리는 법 | VM 쪽 설정(`.env.local`) |
   |---|---|---|---|
-  | 8013 | 리랭커 점수 (bge-reranker-v2-m3, 512토큰) | `bash scripts/102_serve_reranker_on_thor.sh` | `ZZAIMY_RERANK_URL=http://211.170.162.121:8013/score` |
+  | 8013 | 리랭커 베이스 (bge-reranker-v2-m3) — 비교용 | `bash scripts/102_serve_reranker_on_thor.sh 8013` | (평가에만 씀) |
   | 8014 | 질의 임베딩 (KURE-v1, CLS+정규화) | `bash scripts/103_serve_embed_on_thor.sh` | `ZZAIMY_EMBED_URL=http://211.170.162.121:8014/embed` |
+  | 8015 | **운영 리랭커 = ZZAIMY-Rerank v1 학습본** | `MODEL=/models/zzaimy-rerank-v1 bash scripts/102_serve_reranker_on_thor.sh 8015` | `ZZAIMY_RERANK_URL=http://211.170.162.121:8015/score` + `ZZAIMY_RERANK_MIN=0.005` |
+
+  **리랭커 모델을 바꾸면 근거 하한을 다시 잰다** — `scripts/105_rerank_floor.py` 로 재고
+  `.env.local` 의 `ZZAIMY_RERANK_MIN` 을 갱신한다. 지금 값은 모델 학습 화면에 표시된다.
+  눈금은 모델마다 다르다(베이스 0.271 · 학습본 0.005). 학습은 `scripts/104`,
+  홀드아웃 검증은 `scripts/106`. 결정 근거는 ADR-0020.
 
   둘 다 OpenAI 규격이 아니라 단일 용도 규약이다(`/health`·`/score`·`/embed`). VM 은 서비스가 죽으면
   스스로 물러난다(리랭커→VM CPU, 임베딩→VM 모델을 그때 올림, 그것도 없으면 키위 검색만).
   효과(질의 150건 실측 9/20): 리랭킹 질의당 3.75초→0.07초, 정확한 질문 R@1 0.647→0.667,
   상황 질문 R@1 0.413→0.460. VM 상주 메모리 634MB→358MB(질의 임베딩 모델을 안 올린다).
+  학습본까지 더하면 홀드아웃 문서에서 정확한 질문 R@1 0.649→0.711·MRR 0.751→0.790.
   모델 파일은 토르 `~/zzaimy/models/`(KURE-v1·bge-reranker-v2-m3·zzaimy-embed-v1), 서비스 코드는 `~/zzaimy/serve/`.
 
 - **운영 서버 = ESXi VM** (`aura@192.168.16.226`). 웹·검색·OCR·문서관리 담당. GPU 없음.
