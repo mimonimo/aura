@@ -1709,6 +1709,25 @@ class DocumentProcessor:
                     parts.append(re.sub(r"\n{2,}", "\n", text).strip())
         return "\n\n".join(parts)
 
+    def _review_with_retry(self, doc_id: int, text: str, doc_type: str, tries: int = 3) -> str:
+        """검토 의견 — 한 번 실패했다고 포기하지 않는다.
+
+        서빙 장비는 용도마다 다른 모델을 쓰므로(판독용·검토용) 요청 사이에 모델이 오르내린다.
+        그 사이에 걸린 호출은 연결 오류로 떨어진다. 잠깐 기다렸다 다시 부르면 대개 통한다.
+        """
+        import time as _t
+
+        last = ""
+        for i in range(tries):
+            try:
+                return self._review(text, doc_type)
+            except Exception as e:                      # 모델 적재 대기·일시 오류
+                last = f"{type(e).__name__}"
+                if i + 1 < tries:
+                    _t.sleep(5 * (i + 1))
+        log.warning("doc %d 검토 의견 생성 실패(색인은 유지): %s", doc_id, last)
+        return "(검토 의견 생성 대기 — 모델 서버가 응답하지 않았습니다. 색인·분류는 끝났습니다)"
+
     def _review(self, masked_text: str, doc_type: str) -> str:
         from zzaimy.generate.client import VllmClient
 
@@ -2048,11 +2067,7 @@ class DocumentProcessor:
             review_input += _guidance_block(db, project)
             # 검토 의견(LLM) 생성만 개별 처리 — 생성 서버 미연결이어도 파싱·마스킹·
             # 색인·분류는 이미 끝났으므로 문서를 '실패'로 버리지 않고 부분 성공으로 저장.
-            try:
-                ai_review = self._review(review_input, doc_type)
-            except Exception as re:
-                log.warning("doc %d 검토 의견 생성 실패(색인은 유지): %s", doc_id, re)
-                ai_review = "(검토 의견 생성 대기 — AI 모델 서버가 연결되지 않았습니다. 색인·분류는 끝났습니다)"
+            ai_review = self._review_with_retry(doc_id, review_input, doc_type)
 
             db.update_document(
                 doc_id,
