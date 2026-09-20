@@ -180,6 +180,30 @@ def _guidance_block(db: Database, project: dict | None) -> str:
     return ("\n\n" + "\n\n".join(parts)) if parts else ""
 
 
+# 확장자가 말하는 형식과 실제 내용이 다른 파일 — 내려받기가 막혀 오류 쪽이 저장된 경우가 많다.
+# 실측 2026-09-21: '대입전형기본사항_2027.pdf' 166바이트가 '400 Bad Request' HTML 이었다.
+_MAGIC = {".pdf": b"%PDF", ".hwpx": b"PK", ".docx": b"PK", ".xlsx": b"PK", ".pptx": b"PK",
+          ".hwp": b"\xd0\xcf\x11\xe0", ".zip": b"PK"}
+
+
+def _format_mismatch(file_path: Path) -> str | None:
+    """열어 보기 전에 형식을 확인한다. 맞으면 None, 아니면 사람이 읽을 이유."""
+    want = _MAGIC.get(file_path.suffix.lower())
+    if not want:
+        return None
+    try:
+        head = file_path.read_bytes()[:512]
+    except OSError:
+        return None
+    if head.startswith(want):
+        return None
+    kind = file_path.suffix.lstrip(".").upper()
+    size = file_path.stat().st_size
+    if head.lstrip()[:15].lower().startswith((b"<!doctype html", b"<html")):
+        return f"{kind} 가 아니라 웹 페이지가 저장돼 있습니다 ({size:,}바이트) — 내려받기가 막힌 파일"
+    return f"{kind} 형식이 아닙니다 ({size:,}바이트)"
+
+
 class DocumentProcessor:
     """실제 처리기. 테스트에서는 FakeProcessor로 대체된다."""
 
@@ -215,6 +239,9 @@ class DocumentProcessor:
         self._last_scan = None
         self._last_image_text = {}
         self._ocr_used = False  # 이번 파싱에서 실제 OCR이 돌았는가 — 교정 게이트
+        bad = _format_mismatch(file_path)
+        if bad:
+            raise RuntimeError(bad)
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
@@ -250,6 +277,14 @@ class DocumentProcessor:
                         )
                         return overlaid
                 return text
+            # 구조 추출이 빈손이면(제한 시간·오류) 글자층이라도 그대로 읽는다.
+            # 실측 2026-09-21: 36쪽 디지털 PDF 가 MinerU 제한 시간에 걸려 반입 실패로 끝났다.
+            # 표 구조는 잃지만 원문 글자는 남는다 — 아무것도 없는 것보다 낫다.
+            fallback = self._read_text_layer(file_path, min_pages=1)
+            if fallback:
+                self._ocr_used = False
+                self._last_parse_note = f"글자층 직독 (구조 추출 실패, 쪽수 {fallback[1]})"
+                return fallback[0]
         # 글자층이 없는 PDF(스캔본)는 비전 판독을 먼저 쓴다.
         # 예전에는 CPU OCR(docling)을 먼저 돌렸는데, 큰 스캔본에서 그 단계만 십수 분이 걸려
         # 판독까지 가지도 못하고 제한 시간에 걸렸다(실측 2026-09-21). 읽는 일은 서빙 장비 몫이다.
