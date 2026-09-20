@@ -44,6 +44,22 @@
 <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
 {% endif %}
 
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:map-arrow-right-linear"></iconify-icon>학습 순서</h2>
+  <ol class="steps">
+    {% for st in steps %}
+    <li class="{{ st.state }}">
+      <span class="step-n">{{ loop.index }}</span>
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:700; font-size:13.5px;">{{ st.title }}</div>
+        <div class="muted" style="font-size:12.5px;">{{ st.desc }}</div>
+      </div>
+      <span class="pill {{ 'reviewed' if st.state == 'done' else ('type' if st.state == 'doing' else '') }}" style="flex:none;">{{ st.status }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+</div></div>
+
 <div class="tool-grid">
   {% for t in tools %}
   <div class="card reveal"><div class="card-in">
@@ -159,9 +175,20 @@
   .use-model { font-family:var(--mono, ui-monospace, monospace); font-size:12.5px; color:var(--navy);
                background:#EEF3FA; border-radius:6px; padding:1px 7px; overflow-wrap:anywhere; }
   .use-tag { background:#EEF3FA; color:var(--navy); font-size:11px; }
-  .use-form { grid-column:1 / -1; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;
-              background:var(--bg-soft, #F7F8FA); border-radius:10px; padding:10px 12px; margin-top:4px; }
-  .use-form label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--muted); min-width:180px; flex:1; }
+  .use-form { grid-column:1 / -1; display:flex; flex-direction:column; gap:10px;
+              background:var(--bg-soft, #F7F8FA); border-radius:10px; padding:12px; margin-top:6px; }
+  .pick-group { display:flex; flex-direction:column; gap:6px; }
+  .pick-label { font-size:11.5px; color:var(--muted); }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; max-height:168px; overflow:auto; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:999px;
+          border:1.5px solid var(--line); background:#fff; font-size:12.5px; font-family:inherit;
+          color:var(--ink); cursor:pointer; }
+  .chip:hover:not(:disabled) { border-color:var(--navy); }
+  .chip.on { border-color:var(--navy); background:#EEF3FA; color:var(--navy); font-weight:600; }
+  .chip:disabled { color:var(--muted); background:#F7F8FA; cursor:not-allowed; }
+  .chip-n { font-size:11px; color:var(--muted); }
+  .chip.on .chip-n { color:var(--navy); }
+  .chip-filter { width:100%; max-width:280px; }
   .use-bar { display:flex; align-items:center; gap:10px; margin-top:12px; padding-top:12px;
              border-top:1px solid var(--line); }
   .use-hint { font-size:11.5px; margin-right:auto; }
@@ -191,14 +218,15 @@
     {% for c in connections %}
     <div class="srv-row">
       <span class="srv-name">{{ c.name }}</span>
-      {% if c.check_ok %}<span class="pill reviewed">연결됨</span>
-      {% elif c.checked_at %}<span class="pill processing">확인 실패</span>
-      {% else %}<span class="pill type">확인 전</span>{% endif %}
+      {# 상태는 지금 물어본 결과로 적는다. 예전에 '연결 확인'을 눌렀는지와는 상관이 없다 —
+         실시간으로 모델 목록을 받아 왔는데 '확인 전'으로 찍히면 화면이 스스로 모순된다 #}
+      {% if c.live.ok %}<span class="pill reviewed">연결됨</span>
+      {% else %}<span class="pill processing">응답 없음</span>{% endif %}
       {% if c.active %}<span class="pill use-tag">기본</span>{% endif %}
       {% if c.external_use %}<span class="pill type">외부 참조</span>{% endif %}
       <code class="srv-url">{{ c.base_url }}</code>
-      <span class="muted srv-n">{% if c.live.ok %}모델 {{ c.live.models | length }}개{% else %}{{ c.live.error or "확인 전" }}{% endif %}</span>
-      {% if c.checked_at and not c.check_ok %}<span class="srv-bad">{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</span>{% endif %}
+      <span class="muted srv-n">{% if c.live.ok %}모델 {{ c.live.models | length }}개{% else %}{{ c.live.error or "주소를 확인하세요" }}{% endif %}</span>
+      {% if not c.live.ok and c.checked_at %}<span class="srv-bad">{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</span>{% endif %}
       {% if c.usage.requests %}<span class="muted srv-n">오늘 {{ c.usage.requests }}회</span>{% endif %}
       <button type="button" class="icon-btn" title="{{ c.name }} 설정" data-modal-open="#llmSet-{{ c.id }}">
         <iconify-icon icon="solar:settings-linear"></iconify-icon></button>
@@ -234,35 +262,51 @@
         </div>
         <button type="button" class="btn-ghost use-edit" data-use-open>변경</button>
         <div class="use-form" hidden>
-          <label>서버
-            <select name="cid" data-role-server data-saved="{{ r.id }}">
-              <option value="">{% if act %}기본 — {{ act.name }}{% else %}기본 연결 없음{% endif %}</option>
-              {% for c in connections %}
-              <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}
-                      data-models="{{ c.live.models | map(attribute='id') | join('|') if c.live.ok else '' }}">{{ c.name }}</option>
-              {% endfor %}
-            </select></label>
-          <label>모델
-            <select name="model" data-role-model data-saved="{{ r.model if r.id else '' }}" {{ '' if r.id else 'disabled' }}>
-              <option value="">{{ "서버 기본" if r.id else "기본 — " ~ (act.model or "서버 기본" if act else "없음") }}</option>
-              {% for c in connections %}{% if c.id == r.id %}
-                {% if c.live.ok %}{% for m in c.live.models %}
-                <option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>
-                {% endfor %}{% endif %}
-                {# 서버 목록에 없어진 모델도 지금 지정값이면 남긴다 — 조용히 덮어쓰지 않는다 #}
-                {% if r.model and (not c.live.ok or r.model not in (c.live.models | map(attribute='id') | list)) %}
-                <option value="{{ r.model }}" selected>{{ r.model }} (목록에 없음)</option>
-                {% endif %}
-              {% endif %}{% endfor %}
-            </select></label>
+        {# 고르는 것은 '어느 서버의 어느 모델' 하나다. 선택창(select)을 쓰면 목록이 OS 팝업으로 떠서
+           스크롤을 가로채고, 서버·모델 두 칸이 서로 빈 상태를 만든다. 칩으로 펼쳐 두면 무엇이 있는지
+           바로 보이고 응답 없는 서버는 눌리지 않는다. 값은 hidden 에 "연결id|모델" 로 담는다 #}
+        <input type="hidden" name="pick" data-role-pick
+               value="{{ (r.id ~ '|' ~ (r.model or '')) if r.id else '' }}"
+               data-saved="{{ (r.id ~ '|' ~ (r.model or '')) if r.id else '' }}">
+        <div class="pick-group">
+          <span class="pick-label">서버</span>
+          <div class="chips">
+            <button type="button" class="chip{{ ' on' if not r.id else '' }}" data-server="">기본 따름</button>
+            {% for c in connections %}
+            <button type="button" class="chip{{ ' on' if c.id == r.id else '' }}{{ ' off' if not c.live.ok else '' }}"
+                    data-server="{{ c.id }}" {{ 'disabled' if not c.live.ok else '' }}>
+              {{ c.name }}
+              <span class="chip-n">{% if c.live.ok %}{{ c.live.models | length }}{% else %}응답 없음{% endif %}</span>
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="pick-group" data-models-group {{ 'hidden' if not r.id else '' }}>
+          <span class="pick-label">모델</span>
+          <input type="search" class="chip-filter" placeholder="모델 이름으로 좁히기" hidden
+                 aria-label="모델 이름으로 좁히기">
+          <div class="chips chips-models">
+            {% for c in connections %}
+            <button type="button" class="chip{{ ' on' if c.id == r.id and not r.model else '' }}"
+                    data-server="{{ c.id }}" data-model="" hidden>서버 기본</button>
+            {% if c.live.ok %}{% for m in c.live.models %}
+            <button type="button" class="chip{{ ' on' if c.id == r.id and m.id == r.model else '' }}"
+                    data-server="{{ c.id }}" data-model="{{ m.id }}" hidden>{{ m.id }}</button>
+            {% endfor %}{% endif %}
+            {% if r.id == c.id and r.model and (not c.live.ok or r.model not in (c.live.models | map(attribute='id') | list)) %}
+            <button type="button" class="chip on" data-server="{{ c.id }}" data-model="{{ r.model }}" hidden>
+              {{ r.model }}<span class="chip-n">목록에 없음</span></button>
+            {% endif %}
+            {% endfor %}
+          </div>
         </div>
       </div>
       {% endfor %}
     </div>
-    <div class="use-bar">
-      <span class="muted use-hint" id="useHint">바꾼 것 없음</span>
-      <button type="button" class="btn-ghost" id="useCancel" disabled>취소</button>
-      <button type="submit" class="secondary" id="useSave" disabled>변경사항 저장</button>
+    <div class="use-bar" id="useBar" hidden>
+      <span class="muted use-hint" id="useHint"></span>
+      <button type="button" class="btn-ghost" id="useCancel">취소</button>
+      <button type="submit" class="secondary" id="useSave">변경사항 저장</button>
     </div>
   </form>
   {% else %}
@@ -294,7 +338,8 @@
       <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <dl class="kv">
       <dt>주소</dt><dd><code>{{ c.base_url }}</code></dd>
-      <dt>마지막 확인</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}아직 확인하지 않음{% endif %}</dd>
+      <dt>지금 상태</dt><dd>{% if c.live.ok %}연결됨 · 모델 {{ c.live.models | length }}개{% else %}응답 없음{% if c.live.error %} ({{ c.live.error }}){% endif %}{% endif %}</dd>
+      <dt>마지막 확인 기록</dt><dd>{% if c.checked_at %}{{ c.checked_at[5:] }} · {{ c.check_text }}{% else %}없음 — ‘연결 확인’을 누르면 남습니다{% endif %}</dd>
       <dt>기본 모델</dt><dd>{{ c.model or "서버 기본" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</dd>
       <dt>올라온 모델</dt><dd>{% if c.live.ok %}{{ c.live.models | length }}개 — {{ c.live.models | map(attribute='id') | join(', ') }}{% else %}{{ c.live.error or "확인 전" }}{% endif %}</dd>
       <dt>API 키</dt><dd>{{ c.api_key_masked }}</dd>
@@ -361,82 +406,94 @@ document.addEventListener("DOMContentLoaded", function () {
       btn.textContent = box.hidden ? "목록 보기" : "목록 접기";
     });
   });
-  // 단계별 모델 — 지금 값은 그대로 두고 고르는 칸만 그 줄 아래에 연다.
-  // 저장은 섹션 하단 하나. 바뀐 것이 없으면 저장을 누를 수 없고, 취소는 저장된 값으로 되돌린다.
+  // 단계별 모델 — 지금 값은 그대로 두고, 고르는 칩만 그 줄 아래에 연다.
+  // 선택창(select)을 쓰지 않는 이유: 목록이 OS 팝업으로 떠서 페이지 스크롤을 가로채고,
+  // 서버·모델 두 칸이 서로 빈 상태를 만든다. 저장은 섹션 하단 하나(원자적).
   var useForm = document.getElementById("useForm");
   if (useForm) {
-    var save = document.getElementById("useSave");
-    var cancel = document.getElementById("useCancel");
+    var bar = document.getElementById("useBar");
     var hint = document.getElementById("useHint");
+    var cancel = document.getElementById("useCancel");
     var rows = Array.prototype.slice.call(useForm.querySelectorAll(".use-row"));
 
-    function optionsFor(server) {
-      var opt = server.selectedOptions[0];
-      return (opt && opt.dataset.models ? opt.dataset.models.split("|") : []).filter(Boolean);
-    }
+    function serverOf(row) { return row.querySelector("[data-role-pick]").value.split("|")[0]; }
 
-    function fillModels(row, keep) {
-      var server = row.querySelector("[data-role-server]");
-      var model = row.querySelector("[data-role-model]");
-      var list = optionsFor(server);
-      model.replaceChildren();
-      var head = document.createElement("option");
-      head.value = "";
-      head.textContent = server.value ? "서버 기본" : "기본";
-      model.appendChild(head);
-      // 목록에 없어진 모델도 지금 지정값이면 남긴다 — 조용히 덮어쓰지 않는다
-      if (keep && list.indexOf(keep) === -1) list = list.concat([keep]);
-      list.forEach(function (id) {
-        var o = document.createElement("option");
-        o.value = id;
-        o.textContent = id === keep && optionsFor(server).indexOf(id) === -1 ? id + " (목록에 없음)" : id;
-        model.appendChild(o);
+    function paintChips(row) {
+      var pick = row.querySelector("[data-role-pick]");
+      var server = serverOf(row);
+      var model = pick.value.slice(server.length + 1);
+      row.querySelectorAll(".pick-group > .chips > .chip").forEach(function (chip) {
+        if (chip.dataset.model === undefined) {
+          chip.classList.toggle("on", (chip.dataset.server || "") === server);
+        }
       });
-      model.disabled = !server.value;
-      if (keep) model.value = keep;
-    }
-
-    function dirtyRows() {
-      return rows.filter(function (row) {
-        var server = row.querySelector("[data-role-server]");
-        var model = row.querySelector("[data-role-model]");
-        return server.value !== server.dataset.saved || model.value !== model.dataset.saved;
+      var shown = 0;
+      row.querySelectorAll(".chips-models .chip").forEach(function (chip) {
+        var mine = chip.dataset.server === server;
+        chip.hidden = !mine;
+        chip.classList.toggle("on", mine && chip.dataset.model === model);
+        shown += mine ? 1 : 0;
       });
+      row.querySelector("[data-models-group]").hidden = !server;
+      row.querySelector(".chip-filter").hidden = shown <= 12;   // 모델이 많은 서버에서만 좁히기
     }
 
     function paint() {
-      var n = dirtyRows().length;
-      save.disabled = n === 0;
-      cancel.disabled = n === 0;
-      hint.textContent = n === 0 ? "바꾼 것 없음" : "저장 안 한 변경 " + n + "건";
+      var n = rows.filter(function (row) {
+        var pick = row.querySelector("[data-role-pick]");
+        return pick.value !== pick.dataset.saved;
+      }).length;
+      bar.hidden = n === 0;
+      hint.textContent = n === 0 ? "" : "저장 안 한 변경 " + n + "건";
     }
 
     rows.forEach(function (row) {
       var open = row.querySelector("[data-use-open]");
       var box = row.querySelector(".use-form");
-      var server = row.querySelector("[data-role-server]");
-      var model = row.querySelector("[data-role-model]");
+      var pick = row.querySelector("[data-role-pick]");
       open.addEventListener("click", function () {
         var show = box.hidden;
         box.hidden = !show;
         open.textContent = show ? "닫기" : "변경";
-        if (show) server.focus();
+        if (show) {
+          paintChips(row);
+          var first = box.querySelector(".chip:not(:disabled)");
+          if (first) first.focus();
+        }
       });
-      server.addEventListener("change", function () {
-        fillModels(row, server.value === server.dataset.saved ? model.dataset.saved : "");
-        paint();
+      row.querySelectorAll(".pick-group > .chips > .chip").forEach(function (chip) {
+        if (chip.dataset.model !== undefined) return;
+        chip.addEventListener("click", function () {
+          pick.value = chip.dataset.server ? chip.dataset.server + "|" : "";
+          paintChips(row);
+          paint();
+        });
       });
-      model.addEventListener("change", paint);
+      row.querySelectorAll(".chips-models .chip").forEach(function (chip) {
+        chip.addEventListener("click", function () {
+          pick.value = chip.dataset.server + "|" + chip.dataset.model;
+          paintChips(row);
+          paint();
+        });
+      });
+      var filter = row.querySelector(".chip-filter");
+      filter.addEventListener("input", function () {
+        var key = filter.value.trim().toLowerCase();
+        var server = serverOf(row);
+        row.querySelectorAll(".chips-models .chip").forEach(function (chip) {
+          chip.hidden = chip.dataset.server !== server
+            || (key && chip.dataset.model.toLowerCase().indexOf(key) === -1);
+        });
+      });
+      paintChips(row);
     });
 
     cancel.addEventListener("click", function () {
       rows.forEach(function (row) {
-        var server = row.querySelector("[data-role-server]");
-        var model = row.querySelector("[data-role-model]");
-        server.value = server.dataset.saved;
-        fillModels(row, model.dataset.saved);
-        var box = row.querySelector(".use-form");
-        box.hidden = true;
+        var pick = row.querySelector("[data-role-pick]");
+        pick.value = pick.dataset.saved;
+        paintChips(row);
+        row.querySelector(".use-form").hidden = true;
         row.querySelector("[data-use-open]").textContent = "변경";
       });
       paint();
@@ -554,22 +611,6 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   })();
 </script>
-
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:map-arrow-right-linear"></iconify-icon>학습 순서</h2>
-  <ol class="steps">
-    {% for st in steps %}
-    <li class="{{ st.state }}">
-      <span class="step-n">{{ loop.index }}</span>
-      <div style="flex:1; min-width:0;">
-        <div style="font-weight:700; font-size:13.5px;">{{ st.title }}</div>
-        <div class="muted" style="font-size:12.5px;">{{ st.desc }}</div>
-      </div>
-      <span class="pill {{ 'reviewed' if st.state == 'done' else ('type' if st.state == 'doing' else '') }}" style="flex:none;">{{ st.status }}</span>
-    </li>
-    {% endfor %}
-  </ol>
-</div></div>
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:export-linear"></iconify-icon>산출물 반출</h2>

@@ -255,6 +255,10 @@ def test_stage_models_save_once_atomically(client, monkeypatch, tmp_path):
     page = client.get("/dev/train").text
     assert 'action="/dev/llm/roles"' in page and 'id="useSave"' in page
     assert page.count('name="role"') == len(lc.ROLES)      # 단계마다 한 줄, 저장 버튼은 하나
+    # 고르는 칸은 선택창이 아니라 칩이다 — 목록이 OS 팝업으로 떠 스크롤을 가로채지 않게
+    assert "data-role-pick" in page and 'class="chips' in page
+    assert "data-role-server" not in page and "data-role-model" not in page
+    assert 'data-server="' in page and 'data-model="qwen3.8:27b"' in page
 
     # 한 번의 제출로 두 단계를 정한다 (브라우저와 같은 폼 인코딩 — 같은 이름이 반복된다)
     def submit(items):
@@ -264,16 +268,16 @@ def test_stage_models_save_once_atomically(client, monkeypatch, tmp_path):
                            headers={"Content-Type": "application/x-www-form-urlencoded"},
                            follow_redirects=False)
 
-    r = submit([("role", "answer"), ("cid", a["id"]), ("model", "qwen3.8:27b"),
-                ("role", "vision"), ("cid", b["id"]), ("model", "")])
+    r = submit([("role", "answer"), ("pick", a["id"] + "|qwen3.8:27b"),
+                ("role", "vision"), ("pick", b["id"] + "|")])
     assert "ok=" in r.headers["location"]
     got = {x["role"]: x for x in lc.roles_public()}
     assert got["answer"]["id"] == a["id"] and got["answer"]["model"] == "qwen3.8:27b"
     assert got["vision"]["id"] == b["id"]
 
     # 없는 연결이 섞이면 아무것도 바뀌지 않는다
-    r = submit([("role", "answer"), ("cid", "없음"), ("model", ""),
-                ("role", "vision"), ("cid", ""), ("model", "")])
+    r = submit([("role", "answer"), ("pick", "없음|"),
+                ("role", "vision"), ("pick", "")])
     assert "err=" in r.headers["location"]
     got = {x["role"]: x for x in lc.roles_public()}
     assert got["answer"]["id"] == a["id"] and got["vision"]["id"] == b["id"]   # 그대로다
