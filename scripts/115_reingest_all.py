@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import multiprocessing as mp
 import sys
 import time
 from pathlib import Path
@@ -28,6 +29,19 @@ from zzaimy.app.db import Database  # noqa: E402
 WIPE = ("regulation_chunks", "doc_chunks", "doc_assets", "chunk_questions",
         "chat_sources", "entities", "entity_links", "pii_records", "documents")
 INDEXES = ("chunk_embeddings.npz", "chunk_embeddings.meta.json", "question_embeddings.npz")
+
+
+def _run_one(db_path: str, doc_id: int, file_path: str) -> None:
+    """문서 한 건을 따로 돌린다 — 굳으면 부모가 끊을 수 있게."""
+    from zzaimy.app.db import Database as _DB
+    from zzaimy.app.pipeline import DocumentProcessor as _P
+
+    db = _DB(Path(db_path))
+    try:
+        _P().process(db, doc_id, Path(file_path))
+    except Exception as e:
+        db.update_document(doc_id, status="failed", error=f"{type(e).__name__}: {e}")
+        raise SystemExit(1)
 
 
 SOURCES = [
@@ -44,6 +58,7 @@ def main() -> int:
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--limit", type=int, default=0, help="원본 폴더마다 최대 몇 건까지")
+    ap.add_argument("--timeout", type=int, default=10, help="문서 한 건의 제한 시간(분)")
     ap.add_argument("--resume", action="store_true",
                     help="비우지 않고 아직 안 들어간 것만 올린다(중단됐을 때)")
     args = ap.parse_args()
@@ -99,6 +114,7 @@ def main() -> int:
 
     proc = DocumentProcessor()
     ok = fail = 0
+    limit_s = args.timeout * 60
     t0 = time.time()
     for i, (path, doc_type) in enumerate(plan, 1):
         # 원본 이름이 URL 이라 앞부분이 모두 같다 — 잘라 쓰면 서로 다른 파일이 같은 이름으로
@@ -109,12 +125,23 @@ def main() -> int:
         if not dest.exists():
             dest.write_bytes(path.read_bytes())          # 올린 파일은 문서함으로 들어온다
         doc_id = db.add_document(filename=path.name, stored_path=str(dest), doc_type=doc_type)
-        try:
-            proc.process(db, doc_id, dest)
-            ok += 1
-        except Exception as e:
+        # 문서 하나가 배치를 멈추지 못하게 제한 시간을 둔다 — 스캔본 한 건이 파서에서 굳으면
+        # 나머지 백 건이 함께 멈춘다(실측: 같은 PDF 가 두 번 반입을 세웠다).
+        child = mp.Process(target=_run_one, args=(str(Path(args.db)), doc_id, str(dest)))
+        child.start()
+        child.join(limit_s)
+        if child.is_alive():
+            child.terminate()
+            child.join(10)
             fail += 1
-            db.update_document(doc_id, status="failed", error=f"{type(e).__name__}: {e}")
+            db.update_document(doc_id, status="failed",
+                               error=f"시간 초과 — {args.timeout}분 안에 끝나지 않았습니다")
+        elif child.exitcode == 0:
+            ok += 1
+        else:
+            fail += 1
+            if (db.get_document(doc_id) or {}).get("status") != "failed":
+                db.update_document(doc_id, status="failed", error="처리 중 중단되었습니다")
         if i % 5 == 0 or i == len(plan):
             done = time.time() - t0
             print(f"  {i}/{len(plan)} · 성공 {ok} 실패 {fail} · {done / 60:.1f}분"
