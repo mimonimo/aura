@@ -4,7 +4,7 @@
 {% block content %}
 
 <style>
-  .step-n { width:26px; height:26px; border-radius:50%; background:var(--ink); color:#fff;
+  .step-n { width:26px; height:26px; border-radius:50%; background:#eaf0f7; color:#294b73;
     display:inline-flex; align-items:center; justify-content:center; font-size:13px;
     font-weight:800; flex:none; }
   .flow-steps { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
@@ -53,14 +53,14 @@
   <h2><span class="step-n">1</span>학습 예시 만들기</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
     고른 기록을 입력과 정답 예시로 변환합니다. 정답의 수치가 근거에 없으면 그 예시는 버립니다.</p>
-  <form action="/dev/data/build-and-push" method="post">
+  <form action="/dev/data/build-and-push" method="post" id="datasetBuildForm">
     {# 소스별 숫자는 실제 변환기를 돌린 미리보기(저장 없음) — 무엇이 몇 건 만들어지고 왜 탈락하는지 #}
     <div class="table-scroll" style="margin:2px 0 14px;">
     <table class="src-table">
       <tr><th></th><th>원천 기록</th><th class="num">기록</th><th class="num">생성 가능</th><th class="num">수치 탈락</th><th class="num">내용 빈약</th><th></th></tr>
       {% for sp in source_preview %}
       <tr>
-        <td><input type="checkbox" name="sources" value="{{ sp.key }}" {% if sp.key != 'chat' %}checked{% endif %}></td>
+        <td><input type="checkbox" name="sources" value="{{ sp.key }}" aria-label="{{ sp.label }} 원천 선택" {% if sp.key != 'chat' %}checked{% endif %}></td>
         <td><b>{{ sp.label }}</b><div class="s-desc">{{ sp.shape }} · {{ sp.desc }}</div></td>
         <td class="num">{{ sp.n_candidates }}</td>
         <td class="num"><b>{{ sp.n_pairs }}</b></td>
@@ -71,6 +71,7 @@
       {% endfor %}
     </table>
     </div>
+    <p id="datasetSelectionStatus" role="status" class="muted" style="font-size:12px;"></p>
     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px;">
       <button type="submit"><iconify-icon icon="solar:upload-minimalistic-linear"></iconify-icon>예시 만들어 Label Studio로 보내기</button>
       <button type="submit" formaction="/dev/data/build" class="secondary">예시만 만들기</button>
@@ -210,4 +211,21 @@
 </div>
 {% endfor %}
 
+<script>
+(() => {
+  const form = document.getElementById('datasetBuildForm');
+  const status = document.getElementById('datasetSelectionStatus');
+  function syncSelection() {
+    const count = form.querySelectorAll('[name=sources]:checked').length;
+    status.textContent = count ? '원천 ' + count + '종 선택됨 · 선택한 기록만 변환합니다.' : '학습 예시를 만들 원천 기록을 하나 이상 선택하세요.';
+    form.querySelectorAll('button[type=submit]').forEach(button => button.disabled = count === 0);
+    return count;
+  }
+  form.addEventListener('change', syncSelection);
+  form.addEventListener('submit', event => {
+    if (!syncSelection()) { event.preventDefault(); form.querySelector('[name=sources]')?.focus(); }
+  });
+  syncSelection();
+})();
+</script>
 {% endblock %}

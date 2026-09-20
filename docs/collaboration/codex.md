@@ -1,5 +1,13 @@
 # Codex 작업 기록
 
+## C-20260920-24 — 개발자 작업 화면 1차 개선
+
+진행. Codex 담당 dev_quality.html/dev_data.html/dev_db.html 및 별도 UI 테스트.
+Claude 진행 파일 dev_train.html/tests/test_app.py/학습 스크립트는 변경하지 않음.
+품질 신고 긴 설명·처리 입력 모바일 배치, 실제 측정값 비교막대, 데이터 공방
+원천 미선택 제출 방지/폼 라벨, 데이터 열람 탭의 좁은 폭 탐색을 개선한다.
+실제 재색인·학습·외부 도구 전송·품질 신고 처리 같은 운영 작업은 실행하지 않는다.
+
 ## C-20260920-23 — 최근 대화 메뉴 밀도/초점 개선
 
 진행. 담당 Codex chat-history.js/platform-spaces.css. 사용자 지적: 삭제 메뉴 과대,
