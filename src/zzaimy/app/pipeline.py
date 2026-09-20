@@ -222,6 +222,18 @@ class DocumentProcessor:
             return self._parse_hwp_structured(file_path)
         if suffix == ".hwpx":
             return self._parse_hwpx_structured(file_path)
+        if suffix == ".pdf":
+            # 쪽수가 많은 디지털 PDF 는 글자층을 그대로 읽는다.
+            # 구조 추출(MinerU)은 이런 문서에서 제한 시간을 다 쓰고도 아무것도 내놓지 못하고
+            # (실측 2026-09-21: 140쪽 문서에서 240초 소진·결과 0자), 뒤따르는 경로도 쪽수만큼
+            # 오래 걸려 반입이 멈춘다. 글자층 직독은 몇 초면 끝나고 원문 글자를 잃지 않는다.
+            big = int(os.environ.get("ZZAIMY_BIG_PDF_PAGES", "60"))
+            direct = self._read_text_layer(file_path, min_pages=big)
+            if direct:
+                self._ocr_used = False
+                self._last_parse_note = f"글자층 직독 (쪽수 {direct[1]})"
+                return direct[0]
+
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
             # PDF 기본 파서는 MinerU — 표 구조·2단 레이아웃·읽기 순서 보존.
             # 디지털 PDF(텍스트 레이어 있음)는 MinerU 구조 위에 원본 레이어의
@@ -270,6 +282,29 @@ class DocumentProcessor:
             if ocr_text is not None and len(ocr_text.strip()) > len(text.strip()):
                 return ocr_text
         return text
+
+    @staticmethod
+    def _read_text_layer(file_path: Path, min_pages: int = 60) -> tuple[str, int] | None:
+        """쪽수가 많은 디지털 PDF 의 글자층을 그대로 읽는다 — 조건에 안 맞으면 None."""
+        try:
+            import pypdfium2 as pdfium
+
+            pdf = pdfium.PdfDocument(str(file_path))
+            pages = len(pdf)
+            if pages < min_pages:
+                return None
+            sample = "".join((pdf[i].get_textpage().get_text_range() or "") for i in range(min(3, pages)))
+            if len(sample.strip()) < 120:          # 글자층이 없으면(스캔) 다른 경로로 보낸다
+                return None
+            out = []
+            for i in range(pages):
+                text = (pdf[i].get_textpage().get_text_range() or "").strip()
+                if text:
+                    out.append(text)
+            body = "\n\n".join(out)
+            return (body, pages) if len(body.strip()) >= 200 else None
+        except Exception:
+            return None
 
     def _parse_mineru(self, file_path: Path, method: str = "ocr") -> str | None:
         """MinerU 경로 — 실패해도 기본 파싱 결과로 진행할 수 있게 None을 준다.
