@@ -80,9 +80,9 @@ def main() -> int:
                 f.unlink()
     print("문서함을 비웠습니다 — 이제 원본에서 올립니다.", flush=True)
 
-    from zzaimy.app.pipeline import Processor
+    from zzaimy.app.pipeline import DocumentProcessor
 
-    proc = Processor()
+    proc = DocumentProcessor()
     ok = fail = 0
     t0 = time.time()
     for i, (path, doc_type) in enumerate(plan, 1):
