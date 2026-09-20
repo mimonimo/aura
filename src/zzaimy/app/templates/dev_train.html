@@ -145,12 +145,25 @@
   .role-row { display:grid; grid-template-columns:minmax(150px,1.1fr) minmax(140px,1fr) minmax(160px,1.2fr) auto;
     gap:8px; align-items:center; margin:0; }
   .role-row .role-label { font-size:13px; font-weight:600; }
-  .role-field { display:flex; flex-direction:column; gap:3px; margin:0; min-width:0; }
-  .role-field span { font-size:11.5px; }
-  .model-list { max-height:320px; overflow:auto; border:1px solid var(--line); border-radius:10px; }
-  .model-row { display:flex; align-items:center; gap:8px; padding:7px 10px; border-bottom:1px solid var(--line); font-size:12.5px; }
+  .model-list { max-height:260px; overflow:auto; border:1px solid var(--line); border-radius:10px; margin-top:8px; }
+  .model-row { display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); font-size:12.5px; }
   .model-row:last-child { border-bottom:0; }
-  .model-filter { width:100%; margin:0 0 8px; }
+  /* 지금 쓰는 모델 — 값이 먼저 보이고, 고르는 칸은 바꿀 때만 나온다 */
+  .use-list { display:flex; flex-direction:column; }
+  .use-row { display:grid; grid-template-columns:minmax(150px,auto) 1fr auto; gap:10px 14px;
+             align-items:center; padding:11px 0; border-bottom:1px solid var(--line); }
+  .use-row:last-child { border-bottom:0; }
+  .use-name { font-size:13px; font-weight:600; }
+  .use-now { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; font-size:13px; min-width:0; }
+  .use-now strong { font-weight:600; }
+  .use-model { font-family:var(--mono, ui-monospace, monospace); font-size:12.5px; color:var(--navy);
+               background:#EEF3FA; border-radius:6px; padding:1px 7px; overflow-wrap:anywhere; }
+  .use-note { font-size:11.5px; }
+  .use-form { grid-column:1 / -1; display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;
+              background:var(--bg-soft, #F7F8FA); border-radius:10px; padding:10px 12px; margin-top:4px; }
+  .use-form label { display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--muted); min-width:180px; flex:1; }
+  .use-actions { display:flex; gap:8px; margin-left:auto; }
+  @media (max-width:760px) { .use-row { grid-template-columns:1fr auto; } .use-now { grid-column:1 / -1; } }
   .role-row select { min-width:0; }
   @media (max-width:760px) { .role-row { grid-template-columns:1fr 1fr; } .role-row .role-label { grid-column:1 / -1; } }
 </style>
@@ -185,9 +198,19 @@
         <span class="k">지정 모델</span><span class="v">{{ c.model or "서버 첫 모델 자동" }}{% if c.vision_model %} · 이미지 판독 {{ c.vision_model }}{% endif %}</span>
         <span class="k">쓸 수 있는 모델</span><span class="v">{% if c.live.ok %}{{ c.live.models | length }}개
           <button type="button" class="btn-ghost" style="padding:2px 8px; font-size:11.5px; margin-left:4px;"
-                  data-modal-open="#llmModels-{{ c.id }}">모델 {{ c.live.models | length }}개 보기</button>
+                  data-toggle="#modelList-{{ c.id }}" aria-expanded="false">목록 보기</button>
           {% else %}{{ c.live.error or "확인 전" }} — ‘연결 확인’을 누르면 다시 물어봅니다{% endif %}</span>
       </div>
+      {% if c.live.ok %}
+      <div class="model-list" id="modelList-{{ c.id }}" hidden>
+        {% for m in c.live.models %}
+        <div class="model-row"><code>{{ m.id }}</code>
+          {% if m.id == c.model %}<span class="pill reviewed">지정 모델</span>{% endif %}
+          {% if m.id == c.vision_model %}<span class="pill type">이미지 판독</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% if c.checked_at %}<div class="llm-conn-check {{ 'ok' if c.check_ok else 'bad' }}"><iconify-icon icon="solar:{{ 'check-circle' if c.check_ok else 'close-circle' }}-linear"></iconify-icon>{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</div>{% endif %}
     </div>
     {% endfor %}
@@ -197,36 +220,48 @@
   {% endif %}
 </div></div>
 
-{# 용도별 지정 — 용도마다 어느 서버의 어느 모델을 쓸지 고른다 #}
+{# 용도별 지정 — 무엇에 무엇이 쓰이고 있는지가 먼저다. 바꿀 때만 고르는 칸이 나온다 #}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>용도별 모델</h2>
+  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>지금 쓰는 모델</h2>
   {% if connections %}
-  <div style="display:flex; flex-direction:column; gap:8px;">
-    {% set act = connections | selectattr('active') | list | first %}
+  {% set act = connections | selectattr('active') | list | first %}
+  <div class="use-list">
     {% for r in llm_roles %}
-    <form action="/dev/llm/role" method="post" class="role-row">
-      <input type="hidden" name="role" value="{{ r.role }}">
-      <span class="role-label">{{ r.label }}
-        {% if r.fallback %}<span class="muted" style="display:block; font-weight:500; font-size:11.5px;">
-          지금 적용: {% if act %}{{ act.name }} · {{ act.model or "서버 첫 모델" }}{% else %}지정된 기본 서버 없음{% endif %}</span>{% endif %}
-      </span>
-      <label class="role-field"><span class="muted">서버</span>
-      <select name="cid" data-role-server>
-        <option value="">{% if act %}기본 서버 사용 ({{ act.name }}){% else %}기본 서버 없음{% endif %}</option>
-        {% for c in connections %}
-        <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}
-                data-models="{{ c.live.models | map(attribute='id') | join('|') if c.live.ok else '' }}">{{ c.name }}</option>
-        {% endfor %}
-      </select></label>
-      <label class="role-field"><span class="muted">모델</span>
-      <select name="model" data-role-model {{ '' if r.id else 'disabled' }}>
-        <option value="">{{ "서버 첫 모델" if r.id else "기본 서버의 모델" }}</option>
-        {% for c in connections %}{% if c.id == r.id and c.live.ok %}{% for m in c.live.models %}
-        <option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>
-        {% endfor %}{% endif %}{% endfor %}
-      </select></label>
-      <button type="submit" class="secondary">저장</button>
-    </form>
+    {% set own = (connections | selectattr('id', 'equalto', r.id) | list | first) if r.id else none %}
+    {% set srv = own or act %}
+    <div class="use-row" id="use-{{ r.role }}">
+      <div class="use-name">{{ r.label }}</div>
+      <div class="use-now">
+        {% if srv %}
+          <strong>{{ srv.name }}</strong>
+          <span class="use-model">{{ (r.model if own else none) or srv.model or "서버 첫 모델" }}</span>
+          {% if not own %}<span class="muted use-note">기본 서버를 따릅니다</span>{% endif %}
+        {% else %}<span class="muted">지정된 서버가 없습니다</span>{% endif %}
+      </div>
+      <button type="button" class="btn-ghost use-edit" data-use-open>바꾸기</button>
+      <form action="/dev/llm/role" method="post" class="use-form" hidden>
+        <input type="hidden" name="role" value="{{ r.role }}">
+        <label>서버
+          <select name="cid" data-role-server>
+            <option value="">{% if act %}기본 서버 따르기 ({{ act.name }}){% else %}기본 서버 없음{% endif %}</option>
+            {% for c in connections %}
+            <option value="{{ c.id }}" {{ 'selected' if c.id == r.id else '' }}
+                    data-models="{{ c.live.models | map(attribute='id') | join('|') if c.live.ok else '' }}">{{ c.name }}</option>
+            {% endfor %}
+          </select></label>
+        <label>모델
+          <select name="model" data-role-model {{ '' if r.id else 'disabled' }}>
+            <option value="">{{ "서버 첫 모델" if r.id else "기본 서버의 모델" }}</option>
+            {% for c in connections %}{% if c.id == r.id and c.live.ok %}{% for m in c.live.models %}
+            <option value="{{ m.id }}" {{ 'selected' if m.id == r.model else '' }}>{{ m.id }}</option>
+            {% endfor %}{% endif %}{% endfor %}
+          </select></label>
+        <div class="use-actions">
+          <button type="button" class="btn-ghost" data-use-cancel>취소</button>
+          <button type="submit" class="secondary">저장</button>
+        </div>
+      </form>
+    </div>
     {% endfor %}
   </div>
   <p class="muted" style="font-size:11.5px; margin:10px 0 0;">모델 목록은 각 서버가 지금 내어 주는 것입니다. 임베딩을 바꾸면 벡터 공간이 달라져 전체 재색인이 필요합니다.</p>
@@ -234,28 +269,6 @@
   <p class="muted" style="font-size:12.5px; margin:0;">연결을 먼저 등록하세요.</p>
   {% endif %}
 </div></div>
-
-{# 모델 목록 — 한 줄에 한 모델, 이름으로 걸러 본다 #}
-{% for c in connections %}{% if c.live.ok %}
-<div class="modal-back" id="llmModels-{{ c.id }}">
-  <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:15px;">{{ c.name }} — 쓸 수 있는 모델 {{ c.live.models | length }}개</h2>
-      <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <p class="muted" style="font-size:12px; margin:0 0 8px;">{{ c.base_url }} 가 지금 내어 주는 목록입니다.</p>
-    <input type="search" class="model-filter" data-target="modelList-{{ c.id }}" placeholder="모델 이름으로 걸러 보기" aria-label="모델 이름으로 걸러 보기">
-    <div class="model-list" id="modelList-{{ c.id }}">
-      {% for m in c.live.models %}
-      <div class="model-row" data-id="{{ m.id }}">
-        <code>{{ m.id }}</code>
-        {% if m.id == c.model %}<span class="pill reviewed">지정 모델</span>{% endif %}
-        {% if m.id == c.vision_model %}<span class="pill type">이미지 판독</span>{% endif %}
-      </div>
-      {% endfor %}
-    </div>
-    <p class="muted model-empty" hidden style="font-size:12.5px; margin:8px 0 0;">맞는 모델이 없습니다.</p>
-  </div></div>
-</div>
-{% endif %}{% endfor %}
 
 {# 연결별 설정 — 수정·확인·용도·삭제를 톱니 하나에 모은다 #}
 {% for c in connections %}
@@ -323,18 +336,31 @@
 <script>
 // 모델 목록 거르기 — 한 줄에 한 모델, 이름으로 좁힌다
 document.addEventListener("DOMContentLoaded", function () {
-  document.querySelectorAll(".model-filter").forEach(function (box) {
-    box.addEventListener("input", function () {
-      var list = document.getElementById(box.dataset.target);
-      var key = box.value.trim().toLowerCase();
-      var shown = 0;
-      list.querySelectorAll(".model-row").forEach(function (row) {
-        var hit = !key || row.dataset.id.toLowerCase().includes(key);
-        row.hidden = !hit;
-        shown += hit ? 1 : 0;
-      });
-      var empty = list.parentElement.querySelector(".model-empty");
-      if (empty) empty.hidden = shown > 0;
+  // 그 자리에서 펼치기 — 모델 목록처럼 가끔 보는 것에 팝업까지 둘 이유가 없다
+  document.querySelectorAll("[data-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var box = document.querySelector(btn.dataset.toggle);
+      if (!box) return;
+      box.hidden = !box.hidden;
+      btn.setAttribute("aria-expanded", String(!box.hidden));
+      btn.textContent = box.hidden ? "목록 보기" : "목록 접기";
+    });
+  });
+  // 용도 바꾸기 — 지금 값은 그대로 두고, 고르는 칸만 그 줄 아래에 연다
+  document.querySelectorAll(".use-row").forEach(function (row) {
+    var open = row.querySelector("[data-use-open]");
+    var form = row.querySelector(".use-form");
+    if (!open || !form) return;
+    open.addEventListener("click", function () {
+      var show = form.hidden;
+      form.hidden = !show;
+      open.textContent = show ? "닫기" : "바꾸기";
+      if (show) form.querySelector("select").focus();
+    });
+    form.querySelector("[data-use-cancel]").addEventListener("click", function () {
+      form.hidden = true;
+      open.textContent = "바꾸기";
+      open.focus();
     });
   });
   // 비밀번호 변경 — 같은 창 안에서 화면만 바꾼다(접이식·중첩 팝업 없이)
@@ -356,7 +382,7 @@ document.addEventListener("DOMContentLoaded", function () {
 <script>
 // 용도 줄 — 서버를 고르면 그 서버가 지금 내어 주는 모델로 목록을 바꾼다
 document.addEventListener("DOMContentLoaded", function () {
-  document.querySelectorAll(".role-row").forEach(function (row) {
+  document.querySelectorAll(".use-form").forEach(function (row) {
     var server = row.querySelector("[data-role-server]");
     var model = row.querySelector("[data-role-model]");
     if (!server || !model) return;
@@ -366,7 +392,7 @@ document.addEventListener("DOMContentLoaded", function () {
       model.replaceChildren();
       var head = document.createElement("option");
       head.value = "";
-      head.textContent = server.value ? "서버가 정한 모델" : "문서 작업 서버와 같이";
+      head.textContent = server.value ? "서버 첫 모델" : "기본 서버의 모델";
       model.appendChild(head);
       list.forEach(function (id) {
         var o = document.createElement("option");

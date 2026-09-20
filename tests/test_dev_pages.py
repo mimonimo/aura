@@ -194,3 +194,24 @@ def test_history_groups_by_day_with_real_counts(client):
     assert '<details class="cl">' in page and "cl-chev" in page            # 기본 삼각형 대신 펼침 버튼
     assert 'class="h-link"' in page and 'href="/dev/weekly.docx"' in page  # 주간 보고서는 머리 오른쪽 h-link
     assert "위 버튼으로 생성" not in page
+
+
+def test_connection_page_shows_what_is_in_use_without_popups(client, monkeypatch, tmp_path):
+    """연결 화면의 첫 정보는 '지금 무엇에 무엇이 쓰이는가'다 — 고르는 칸·팝업은 그 다음."""
+    from zzaimy.app import main as app_main
+    from zzaimy.generate import llm_connections as lc
+    from zzaimy.generate import model_config
+
+    lc.configure(tmp_path / "llm.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+    conn = lc.add("교내 DGX", "vllm", "http://dgx:11434/v1", "qwen3.6:35b", "")
+    lc.activate(conn["id"])
+    monkeypatch.setattr(app_main, "_live_models_cached", lambda cid, ttl=0: {
+        "ok": True, "models": [{"id": "qwen3.8:27b"}, {"id": "qwen3.6:35b"}], "error": ""})
+    page = client.get("/dev/train").text
+    # 서버가 지금 내어 주는 모델이 화면에 있다 — 어제 받은 모델이 안 보이던 문제
+    assert "qwen3.8:27b" in page
+    # 용도마다 실제 적용되는 서버·모델을 값으로 보여 준다(상속이면 기본 서버를 따른다고 적는다)
+    assert "지금 쓰는 모델" in page and "기본 서버를 따릅니다" in page
+    # 모델 목록은 팝업이 아니라 그 자리에서 펼친다
+    assert 'id="llmModels-' not in page and 'data-toggle="#modelList-' in page
+    lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
