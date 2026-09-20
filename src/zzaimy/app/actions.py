@@ -66,8 +66,6 @@ REGISTRY: tuple[Action, ...] = (
     # ---- 모델과 연결 ----
     Action("llm.page", "모델 연결 화면", "/dev/train", "get", (),
            ("모델", "연결", "서버", "학습", "gpu")),
-    Action("llm.catalog", "모델 목록 새로 받기", "/dev/llm/{cid}/catalog", "post",
-           ("cid",), ("모델 목록", "갱신", "새로고침"), True),
     Action("llm.test", "연결 확인", "/dev/llm/{cid}/test", "post", ("cid",),
            ("연결 확인", "접속", "살아"), True, auto=True),
 

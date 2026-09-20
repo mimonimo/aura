@@ -157,7 +157,7 @@ details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
     {% else %}
     {% set s = view.selected %}{% set o = s.overview %}
     <div class="dx-head">
-      <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon><span class="dx-title" title="{{ o.filename }}">{{ o.filename }}</span></h2>
+      <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon><span class="dx-title" title="{{ o.filename }}">{{ doc_name(o) }}</span></h2>
       <span class="dx-links">
         <a class="h-link" href="/doc/{{ o.id }}"><iconify-icon icon="solar:eye-linear"></iconify-icon>문서 화면</a>
         <a class="h-link" href="/graph?focus=d{{ o.id }}"><iconify-icon icon="solar:structure-linear"></iconify-icon>그래프</a>
@@ -348,7 +348,7 @@ details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
       <span class="pill type dx-pill">{{ sector_labels.get(s.sector, s.sector) }} · {{ s.dept }}</span>
       <span class="pill dx-pill">조각 {{ s.n_units }}</span>
       {% if s.n_embedded is not none %}<span class="pill {{ 'reviewed' if s.n_embedded == s.n_units else 'processing' }} dx-pill">임베딩 {{ s.n_embedded }}/{{ s.n_units }}</span>{% endif %}
-      <span class="muted" style="font-size:12px;">{{ s.receipt_no or '—' }} · {{ (s.created_at or '')[:16] | replace('T', ' ') }} · {{ s.filename }}</span>
+      <span class="muted" style="font-size:12px;">{{ s.receipt_no or '—' }} · {{ (s.created_at or '')[:16] | replace('T', ' ') }} · {{ doc_name(s) }}</span>
     </div>
     {% if s.units %}
     <div class="dx-rows-wrap" style="max-height:calc(100vh - 220px);"><table class="dx-rows">
@@ -375,7 +375,7 @@ details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
 {% set cs = view.summary %}
 {% if not cs.exists %}
 <div class="card dx-card" style="border-color:#F0D9B8;"><div class="card-in" style="font-size:13px;">
-  코퍼스 없음 — <code>scripts/74_ingest_corpus.py</code>로 반입하면 여기 나타납니다.</div></div>
+  등록된 코퍼스가 없습니다.</div></div>
 {% else %}
 <div class="dx-grid rev">
   <div class="card dx-card"><div class="card-in">

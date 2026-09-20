@@ -11,7 +11,7 @@ def test_home_and_spaces_keep_work_tools(tmp_path, monkeypatch):
         assert page.status_code == 200
         assert '/static/platform-spaces.css' in page.text
     connections = client.get('/connections').text
-    assert '미지원 · 연결되지 않음' in connections
+    assert '<span class="connection-state">미지원</span>' in connections
     assert 'href="/dev/nas"' in connections
     assert '일반휴학 처리 기준' not in client.get('/chat').text
 

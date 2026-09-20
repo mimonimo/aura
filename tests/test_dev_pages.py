@@ -233,7 +233,7 @@ def test_search_stages_show_where_they_run_not_a_picker(client, monkeypatch):
     assert "211.170.162.121:8014" in got["embed"]["where"]
     assert not got["rerank"]["remote"] and "VM" in got["rerank"]["where"]
     page = client.get("/dev/train").text
-    assert "검색 단계" in page and "리랭킹" in page
+    assert "검색 모델" in page and "리랭킹" in page
     # 쓰이지 않는 단계를 고르게 두지 않는다 — 학습 서버 지정 칸은 없다
     assert 'value="train"' not in page
     search_serving.clear_cache()

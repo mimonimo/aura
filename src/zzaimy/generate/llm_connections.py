@@ -79,9 +79,6 @@ def mask_key(key: str) -> str:
 def public(conn: dict) -> dict:
     """화면용 사본 — 키는 마스킹."""
     c = {k: v for k, v in conn.items() if k != "api_key"}
-    c["catalog_n"] = len(conn.get("catalog") or [])
-    c["catalog_at"] = conn.get("catalog_at", "")
-    c["options"] = catalog_options(conn)
     c["api_key_masked"] = mask_key(conn.get("api_key", ""))
     c["has_key"] = bool(conn.get("api_key"))
     c["kind_label"] = KINDS.get(conn.get("kind", ""), {}).get("label", conn.get("kind", ""))
@@ -425,101 +422,25 @@ STATUS_LABELS = {"available": "사용 가능", "listed": "등록만 됨", "unava
                  "retired": "중단", "disabled": "중단"}
 
 
-def parse_catalog(payload) -> list[dict]:
-    """허브 카탈로그(/api/catalog)나 OpenAI 호환 /v1/models 응답을 같은 모양으로 정리한다."""
-    items = payload.get("data") if isinstance(payload, dict) else payload
-    out: list[dict] = []
-    for it in items or []:
-        if not isinstance(it, dict) or not it.get("id"):
-            continue
-        out.append({
-            "id": str(it["id"]), "title": str(it.get("title") or it.get("name") or it["id"]),
-            "provider": str(it.get("provider") or it.get("owned_by") or ""),
-            "status": str(it.get("status") or "available"),
-            "modality": str(it.get("modality") or "chat"),
-            "tags": [str(t) for t in (it.get("tags") or [])][:12],
-            "context_length": str(it.get("context_length") or ""),
-            "allow_dev_key": bool(it.get("allow_dev_key", True)),
-        })
-    return out
 
 
-def set_catalog(cid: str, models: list[dict], source: str = "") -> dict:
-    data = _load()
-    conn = get(cid)
-    if conn is None:
-        raise ValueError("없는 연결입니다")
-    conn["catalog"] = models
-    conn["catalog_at"] = datetime.now().strftime("%Y-%m-%d %H:%M") + (f" · {source}" if source else "")
-    _save(data)
-    return conn
 
 
-def catalog_options(conn: dict) -> dict:
-    """모델 선택 칸용 — 글 모델(chat)과 문서 이미지 판독용(vision), 상태별로 나눠 돌려준다."""
-    cat = conn.get("catalog") or []
-    def pick(mods):
-        rows = [m for m in cat if m.get("modality") in mods]
-        return {
-            "available": [m for m in rows if m.get("status") == "available" and m.get("allow_dev_key", True)],
-            "other": [m for m in rows if not (m.get("status") == "available" and m.get("allow_dev_key", True))],
-        }
-    return {"text": pick({"chat"}), "vision": pick({"vision"})}
+def refresh_models(conn: dict, timeout: float = 8.0) -> dict:
+    """서버가 지금 내어 주는 모델 목록을 받아 온다(OpenAI 호환 /v1/models).
 
-
-def _hub_catalog(conn: dict, timeout: float) -> list[dict]:
-    """허브 공개 카탈로그 — 모델 설명(이름·제공자·길이·용도)을 얻는 데만 쓴다. 실패하면 빈 목록."""
-    import json as _json
-    import urllib.request
-
-    base = conn["base_url"].rstrip("/")
-    origin = base[:-3] if base.endswith("/v1") else base
-    try:
-        req = urllib.request.Request(origin + "/api/catalog", headers={"Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return parse_catalog(_json.loads(r.read().decode("utf-8")))
-    except Exception:
-        return []
-
-
-def fetch_catalog(conn: dict, timeout: float = 8.0) -> dict:
-    """모델 목록 가져오기.
-
-    서버가 지금 실제로 내어 주는 목록(OpenAI 호환 /v1/models)을 기준으로 삼는다.
-    허브 공개 카탈로그는 이름·제공자 같은 설명을 보태는 데만 쓴다. 카탈로그에만 있고
-    서버가 내어 주지 않는 모델은 고르게 두지 않는다 — 고르면 호출이 실패하기 때문이다.
+    예전에는 허브 공개 카탈로그도 함께 읽었는데, 카탈로그에만 있고 서버가 내어 주지 않는
+    모델까지 목록에 올라와 고르면 실패했다. 참고 자료를 목록으로 쓰지 않는다(2026-09-20 정리).
     """
     net = diagnose(conn.get("base_url", ""), timeout)
     if net["stage"] != "ok":
         return {"ok": False, "models": [], "source": "", "error": net["text"], "hint": _hint(conn, net)}
-
-    described = {m["id"]: m for m in _hub_catalog(conn, timeout)}
     live = probe(conn, timeout=timeout)
-    if live["ok"]:
-        models = []
-        for mid in live["models"]:
-            row = dict(described.get(mid) or {})
-            row.update({
-                "id": mid,
-                "title": row.get("title") or mid,
-                "provider": row.get("provider", ""),
-                "modality": row.get("modality", "chat"),
-                "tags": row.get("tags", []),
-                "context_length": row.get("context_length", ""),
-                "status": "available",          # 서버가 지금 내어 주는 목록이다
-                "allow_dev_key": True,
-            })
-            models.append(row)
-        return {"ok": True, "models": models, "source": "서버 실시간 목록", "error": "", "hint": ""}
-
-    if described:
-        # 실시간 목록을 못 받았다 — 설명 목록만 보여 주되 고를 수 없게 표시한다
-        models = [dict(m, status="unverified") for m in described.values()]
-        return {"ok": True, "models": models, "source": "허브 설명 목록 (실시간 아님)",
-                "error": "", "hint": "서버 실시간 목록을 받지 못했습니다. " + live["error"]}
-
-    return {"ok": False, "models": [], "source": "",
-            "error": f"모델 목록을 받지 못했습니다 · {live['error']}", "hint": live.get("hint", "")}
+    if not live["ok"]:
+        return {"ok": False, "models": [], "source": "",
+                "error": live.get("error", "모델 목록을 받지 못했습니다"), "hint": _hint(conn, live)}
+    return {"ok": True, "models": [{"id": mid} for mid in live["models"]],
+            "source": "서버 목록", "error": "", "hint": ""}
 
 
 def live_models(conn: dict, timeout: float = 8.0) -> dict:
@@ -527,10 +448,4 @@ def live_models(conn: dict, timeout: float = 8.0) -> dict:
     r = probe(conn, timeout=timeout)
     if not r["ok"]:
         return {"ok": False, "models": [], "error": r["error"], "hint": r.get("hint", "")}
-    described = {m["id"]: m for m in _hub_catalog(conn, timeout)}
-    rows = []
-    for mid in r["models"]:
-        d = described.get(mid) or {}
-        rows.append({"id": mid, "title": d.get("title") or mid,
-                     "provider": d.get("provider", ""), "modality": d.get("modality", "chat")})
-    return {"ok": True, "models": rows, "error": "", "hint": ""}
+    return {"ok": True, "models": [{"id": mid} for mid in r["models"]], "error": "", "hint": ""}

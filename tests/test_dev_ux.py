@@ -1,6 +1,55 @@
 from tests.test_dev_pages import client
 
 
+def test_stage_model_rows_do_not_nest_and_help_copy_is_removed(client, monkeypatch, tmp_path):
+    from html.parser import HTMLParser
+    from zzaimy.app import main
+    from zzaimy.generate import llm_connections as lc
+    from zzaimy.generate import model_config
+
+    class Rows(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack = []
+            self.rows = []
+            self.save_parents = None
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == 'div':
+                classes = attrs.get('class', '').split()
+                if 'use-row' in classes:
+                    self.rows.append(list(self.stack))
+                if attrs.get('id') == 'useBar':
+                    self.save_parents = list(self.stack)
+                self.stack.append(classes)
+
+        def handle_endtag(self, tag):
+            if tag == 'div' and self.stack:
+                self.stack.pop()
+
+    lc.configure(tmp_path / 'layout-connections.json')
+    model_config.set_override('', '')
+    try:
+        conn = lc.add('검수 서버', 'vllm', 'http://test.invalid/v1', 'long-model-name', '')
+        lc.activate(conn['id'])
+        monkeypatch.setattr(main, '_live_models_cached', lambda *a, **kw: {
+            'ok': True, 'models': [{'id': 'long-model-name'}], 'error': ''})
+        page = client.get('/dev/train')
+        assert page.status_code == 200
+        parsed = Rows()
+        parsed.feed(page.text)
+        assert len(parsed.rows) == len(lc.ROLES)
+        assert all(not any('use-row' in p for p in parents) for parents in parsed.rows)
+        assert parsed.save_parents is not None
+        assert not any('use-row' in p or 'use-list' in p for p in parsed.save_parents)
+        assert '모델 목록·API 키·삭제는 서버별 설정' not in page.text
+    finally:
+        lc.configure(tmp_path / 'empty-connections.json')
+        model_config.set_override('', '')
+        model_config.reset_status_cache()
+
+
 def test_quality_chart_uses_measured_values_and_skips_unmeasured(client, monkeypatch):
     from zzaimy.eval import retrieval_eval
     monkeypatch.setattr(retrieval_eval, 'dashboard_state', lambda _: {

@@ -52,7 +52,7 @@
 <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
 {% endif %}
 {% if not smb_ok %}
-<p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>SMB 공유는 smbprotocol 패키지가 있어야 씁니다 (scripts/80_install_smb.sh). 서버 경로 방식은 바로 됩니다.</span></p>
+<p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>SMB 연결에는 서버 구성이 필요합니다.</span></p>
 {% endif %}
 
 <div class="card reveal"><div class="card-in">
@@ -82,7 +82,7 @@
     {% endfor %}
   </table></div>
   {% else %}
-  <p class="muted" style="font-size:12.5px; margin:0;">아직 연결한 폴더가 없습니다. 위 ‘폴더 연결’로 공유 폴더를 추가하세요.</p>
+  <p class="muted" style="font-size:12.5px; margin:0;">연결된 폴더가 없습니다.</p>
   {% endif %}
 </div></div>
 

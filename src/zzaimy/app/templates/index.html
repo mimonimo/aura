@@ -19,7 +19,6 @@
 {% if active_tab == 'all' %}
 <section class="work-start" aria-label="업무 시작">
   <h1>라이브러리</h1>
-  <p>프로젝트를 열어 대화, 문서, 작업 지침을 이어가세요.</p>
 </section>
 {% endif %}
 {% if active_tab != "all" and active_tab in sector_meta %}
@@ -51,7 +50,7 @@
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>프로젝트 추가</button>
   </div>
   <p class="muted" style="margin:0 0 14px;">{{ project_hints.get(active_tab, "") }}</p>
-  {% if active_tab == 'all' %}<p class="muted">최근 프로젝트 최대 20개 · 업무 분류를 선택하면 해당 프로젝트를 모두 볼 수 있습니다.</p>{% endif %}
+  {% if active_tab == 'all' %}<p class="muted">최근 프로젝트 20개</p>{% endif %}
   {% if visible_projects %}
   <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px;">
     {% for pj in visible_projects %}
@@ -71,7 +70,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <p class="muted">아직 프로젝트가 없습니다. 프로젝트 추가로 첫 업무 묶음을 만들어 보세요.</p>
+  <p class="muted">등록된 프로젝트가 없습니다.</p>
   {% endif %}
 </div></div>
 
@@ -103,7 +102,6 @@
           <button type="submit">만들기</button>
         </div>
       </form>
-      <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>프로젝트 안의 접수·검토·작성·채팅은 그 프로젝트의 지침과 연결 기준을 따릅니다.</span></p>
     </div>
   </div>
 </div>
@@ -130,7 +128,7 @@
         {% for d in documents %}
         <tr>
           <td class="muted">{{ d.receipt_no or d.id }}</td>
-          <td><a href="/doc/{{ d.id }}">{{ d.filename }}</a>
+          <td><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
             {% if d.project_name %}<span class="pill" style="margin-left:6px;">
               <iconify-icon icon="solar:folder-2-linear" style="font-size:12px;"></iconify-icon>{{ d.project_name }}</span>{% endif %}</td>
           <td><span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span></td>

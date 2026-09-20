@@ -102,7 +102,7 @@
   {% for r in quality_open %}
   <article class="quality-report">
     <div><span class="pill">{{ quality_kind_labels.get(r.kind, r.kind) }}</span>
-      <a href="/doc/{{ r.doc_id }}">{{ r.filename }}</a>
+      <a href="/doc/{{ r.doc_id }}">{{ doc_name(r) }}</a>
       {% if r.note %}<p>{{ r.note }}</p>{% endif %}
     </div>
     <form class="quality-resolve" action="/dev/quality/{{ r.id }}/done" method="post">
