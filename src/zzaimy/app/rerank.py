@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 
 log = logging.getLogger(__name__)
@@ -86,7 +87,10 @@ def _remote_scores(query: str, texts: list[str]) -> list[float] | None:
             got = json.loads(r.read().decode("utf-8"))
         scores = got.get("scores")
         if isinstance(scores, list) and len(scores) == len(texts):
-            return [float(x) for x in scores]
+            # 눈금 맞추기: 서비스는 원시 로짓을 주고, 이 저장소의 하한·꼬리 자르기(RERANK_MIN,
+            # RERANK_TAIL_RATIO)는 0~1 눈금을 전제한다(sentence_transformers 가 시그모이드를
+            # 씌운 값). 그대로 쓰면 모든 점수가 하한 아래로 떨어져 근거가 1건으로 잘린다.
+            return [1.0 / (1.0 + math.exp(-float(x))) for x in scores]
         log.warning("리랭커 서비스 응답 형식이 맞지 않음 — CPU 로 물러남")
     except (urllib.error.URLError, OSError, ValueError, TypeError) as e:
         log.warning("리랭커 서비스 실패(%s) — CPU 로 물러남", type(e).__name__)
