@@ -2,7 +2,20 @@
 {% block title %}품질·성능{% endblock %}
 {% block pagetitle %}품질·성능{% endblock %}
 {% block content %}
-<style>.dev-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start;}</style>
+<style>
+.dev-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px;align-items:start;}
+.quality-report { display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,auto); gap:12px 20px; padding:16px 0; border-bottom:1px solid var(--line); font-size:13px; }
+.quality-report p { margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.6; }
+.quality-report a { overflow-wrap:anywhere; }
+.quality-resolve { display:flex; align-items:flex-end; gap:8px; }
+.quality-resolve label { flex:1; min-width:0; color:var(--muted); font-size:12px; }
+.quality-resolve input { display:block; width:100%; margin-top:5px; padding:8px; border:1px solid var(--line); font:inherit; }
+.quality-resolve button { white-space:nowrap; }
+.quality-bars { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:16px 24px; margin:16px 0 24px; }
+.quality-bars label { display:flex; justify-content:space-between; gap:10px; font-size:13px; margin-bottom:6px; }
+.quality-bars meter { display:block; width:100%; height:12px; }
+@media(max-width:700px){.quality-report { grid-template-columns:minmax(0,1fr); }.card h2 { flex-wrap:wrap; }}
+</style>
 <p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <a href="/dev" class="btn-ghost">← 개발 현황</a>
 </p>
@@ -36,6 +49,12 @@
   <p class="muted" style="font-size:12px; margin:0 0 8px;">측정
     {{ retrieval_eval.measured_at_display }} · 질의 {{ ev.n_queries }}건
     · 조각 {{ ev.n_chunks }}개 · 임베딩 {{ ev.embedding_model or '미확인' }}</p>
+  <div class="quality-bars" aria-label="상위 5건 검색 적중률 비교">
+    {% for r in ev.rows if r.recall_at_5 is not none %}
+    <div><label for="recall-{{ loop.index }}"><span>{{ r.method }}{% if r.production %} · 운영{% endif %}</span><b>{{ "%.1f" | format(r.recall_at_5 * 100) }}%</b></label>
+      <meter id="recall-{{ loop.index }}" min="0" max="1" value="{{ r.recall_at_5 }}">{{ r.recall_at_5 }}</meter></div>
+    {% endfor %}
+  </div>
   <div class="table-scroll">
   <table style="font-size:12.5px;">
     <tr><th>방식</th><th>R@1</th><th>R@5</th><th>R@10</th><th>MRR@10</th><th>n</th></tr>
@@ -81,23 +100,16 @@
     <a href="/dev/doc/quality-system.md" class="h-link"><iconify-icon icon="solar:document-text-linear"></iconify-icon>품질 체계</a></h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 10px;">담당자가 문서 화면에서 신고한 추출 문제입니다. 처리 시 막은 계층을 남깁니다(누적 {{ quality.done }}건).</p>
   {% for r in quality_open %}
-  <div style="display:flex; gap:8px; align-items:center; padding:7px 0;
-              border-bottom:1px solid var(--panel); font-size:12.5px;">
-    <span class="pill" style="flex:none;">{{ quality_kind_labels.get(r.kind, r.kind) }}</span>
-    <a href="/doc/{{ r.doc_id }}" style="color:var(--navy); font-weight:600;
-       text-decoration:none; max-width:180px; overflow:hidden;
-       text-overflow:ellipsis; white-space:nowrap;">{{ r.filename }}</a>
-    {% if r.note %}<span class="muted" style="flex:1; overflow:hidden;
-      text-overflow:ellipsis; white-space:nowrap;">{{ r.note }}</span>{% endif %}
-    <form action="/dev/quality/{{ r.id }}/done" method="post"
-          style="margin-left:auto; display:flex; gap:4px;">
-      <input type="text" name="fix_note" placeholder="처리 내용"
-             style="width:110px; border:1px solid var(--line); border-radius:7px;
-                    padding:3px 7px; font-size:11.5px;">
-      <button type="submit" class="secondary"
-              style="font-size:11.5px; padding:3px 10px;">처리</button>
+  <article class="quality-report">
+    <div><span class="pill">{{ quality_kind_labels.get(r.kind, r.kind) }}</span>
+      <a href="/doc/{{ r.doc_id }}">{{ r.filename }}</a>
+      {% if r.note %}<p>{{ r.note }}</p>{% endif %}
+    </div>
+    <form class="quality-resolve" action="/dev/quality/{{ r.id }}/done" method="post">
+      <label>처리 내용<input type="text" name="fix_note" placeholder="수정한 내용과 확인 결과"></label>
+      <button type="submit" class="secondary">처리 완료</button>
     </form>
-  </div>
+  </article>
   {% else %}
   <p class="muted" style="margin:0; font-size:12.5px;">미처리 신고 없음</p>
   {% endfor %}

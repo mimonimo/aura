@@ -55,10 +55,10 @@ PY" | ssh -p $TP "$THOR" "mkdir -p $WORK && cat > $WORK/data.json && python3 -c 
 import json; d=json.load(open('$WORK/data.json'))
 print('조각', len(d['chunks']), '질의', len(d['rows']))\""
 
-echo "[$(date +%T)] 2/3 토르 GPU 학습·평가 (에폭 $EPOCHS)"
-ssh -p $TP "$THOR" "docker run -i --rm --runtime nvidia --ipc host \
-  -e EPOCHS=$EPOCHS -v \$HOME/zzaimy/models:/models -v $WORK:/work \
-  --entrypoint python3 $IMAGE -" <<'PY'
+echo "[$(date +%T)] 2/3 토르 GPU 학습·평가 (에폭 $EPOCHS) — 토르에서 떼어 놓고 돌린다"
+# 학습 본문을 토르에 먼저 올린다. 컨테이너는 -d 로 띄워 맥 연결이 끊겨도 계속 돈다
+# (2026-09-20: 맥 터미널 앱이 충돌해 붙어 있던 학습의 출력이 사라졌다. 기록은 $WORK/train.log 에 남는다)
+ssh -p $TP "$THOR" "cat > $WORK/train.py" <<'PY'
 import json, os, random, time
 import torch, torch.nn.functional as F
 from transformers import AutoModel, AutoTokenizer
@@ -165,5 +165,10 @@ json.dump({"base": before, "trained": after, "epochs": EPOCHS, "train_rows": len
 print("저장: /models/zzaimy-embed-v1", flush=True)
 PY
 
-echo "[$(date +%T)] 3/3 결과"
-ssh -p $TP "$THOR" "cat $WORK/report.json"
+ssh -p $TP "$THOR" "docker run -d --name zzaimy-embed-train --rm --runtime nvidia --ipc host \
+  -e EPOCHS=$EPOCHS -v \$HOME/zzaimy/models:/models -v $WORK:/work \
+  --entrypoint python3 $IMAGE /work/train.py > /dev/null && echo '컨테이너 시작 — 기록 $WORK/train.log'"
+
+echo "[$(date +%T)] 3/3 결과 기다리는 중 (끊겨도 토르에서 계속 돕니다: docker logs -f zzaimy-embed-train)"
+ssh -p $TP "$THOR" "docker logs -f zzaimy-embed-train 2>&1 | tee $WORK/train.log | grep -E '문서 |오답 표본|에폭 .* 평균|베이스|학습본|저장:'" || true
+ssh -p $TP "$THOR" "cat $WORK/report.json 2>/dev/null || echo '보고 없음 — docker logs zzaimy-embed-train 확인'"

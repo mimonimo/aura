@@ -374,3 +374,15 @@ LLM 리랭커 평가(90) → 규정 PDF 16건 재추출(91) → 재색인 2차 �
 - 도구(텐서보드·LLaMA Board) 창: 주소 한 칸만 있던 것을 상태·용도와 함께 '주소 등록'으로.
 - 상단 검색창 → `/search`: 문서(이름·본문)·대화(이름·프로젝트·사업·주고받은 글)·근거 조각을 한 화면에.
 - 대화 기록 검색에 범위 선택: '이름·프로젝트·사업' / '대화 내용까지'.
+
+## K-20260920-16 — 맥 터미널 충돌과 원격 작업 보호
+
+- 어젯밤·오늘 두 번 세션이 끊긴 원인은 맥 절전이 아니라 **Terminal.app 충돌**이다.
+  충돌 기록 `~/Library/Logs/DiagnosticReports/Terminal-2026-09-20-{010420,120145}.ips`,
+  `EXC_BAD_ACCESS / EXC_ARM_PAC_FAIL` at `CFRunLoopTimerInvalidate → CFBasicHashRemoveValue`.
+  프로세스 수명 약 11시간. 애플 터미널 쪽 문제로 보인다.
+- 대책(사용자): tmux 안에서 실행하거나 다른 터미널(iTerm2·Ghostty) 사용, 스크롤백 제한.
+- 대책(코드): 오래 걸리는 원격 작업은 붙어 있지 말고 떼어 놓는다.
+  `98_train_embed_on_thor.sh` 는 학습 본문을 토르에 올려 `docker run -d` 로 돌리고
+  기록을 `train.log` 에 남긴다. 맥이 끊겨도 학습은 계속되고, 다시 붙어서 볼 수 있다
+  (`docker logs -f zzaimy-embed-train`). 실제로 12:01 충돌 때 학습은 살아남았다.
