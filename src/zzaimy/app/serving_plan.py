@@ -21,6 +21,8 @@ PLAN = [
     {"key": "extract", "name": "④ZZAIMY-Extract", "base": "Qwen3-4B",
      "role": "실적 카드 추출", "kind": "planned",
      "note": "추출 경로는 아직 만들지 않았습니다 — 계획 단계"},
+    {"key": "review", "name": "반입 검토", "base": "경량 모델",
+     "role": "문서를 들일 때 요약·판정", "kind": "chat"},
     {"key": "vision", "name": "문서 이미지 판독", "base": "비전 모델",
      "role": "스캔·그림에서 글자 읽기", "kind": "chat"},
 ]

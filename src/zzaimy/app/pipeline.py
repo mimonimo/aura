@@ -1732,7 +1732,9 @@ class DocumentProcessor:
         from zzaimy.generate.client import VllmClient
 
         prompt = pick_review_prompt(doc_type)
-        client = VllmClient(role="answer")
+        # 반입 검토는 문서를 들일 때마다 도는 일이라 가벼운 모델이 맞다(대화·초안과 성격이 다르다).
+        # 지정이 없으면 문서 작업 모델을 쓴다.
+        client = VllmClient(role="review")
         resp = client.client.chat.completions.create(
             model=client.model,
             messages=[{"role": "user", "content": prompt.format(text=masked_text[:8000])}],
@@ -2145,7 +2147,7 @@ class DocumentProcessor:
                 if doc.get("doc_type") == "regulation"
                 else self._ANALYZE_PROMPT
             )
-            client = VllmClient(role="answer")
+            client = VllmClient(role="review")
             resp = client.client.chat.completions.create(
                 model=client.model,
                 temperature=0.2,
