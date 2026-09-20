@@ -1761,6 +1761,12 @@ class DocumentProcessor:
                 raw_text = self._parse(file_path)
             self._save_ocr_lines(db, doc_id, doc_file_for_lines=file_path)
 
+            # 반입 단계에서 문서 이름을 본문의 제목으로 바꾼다 — 갈래와 상관없이 여기서 한 번.
+            # 올라온 파일 이름은 'www.ync.ac.kr__UPLOAD_PDF_…' 처럼 뜻이 없을 수 있고 같은 이름이
+            # 여럿일 수도 있다. 뒷단계(조각 제목·검토·인용·목록)는 바뀐 이름을 그대로 쓴다.
+            db.rename_from_text(doc_id, raw_text)
+            doc = db.get_document(doc_id) or doc
+
             series = classify_series(file_path.name)
 
             if doc_type == "regulation":
