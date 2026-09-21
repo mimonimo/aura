@@ -53,12 +53,22 @@ def _default_path() -> Path:
     return Path(os.environ.get("ZZAIMY_DATA_DIR", "data/platform")) / "llm_connections.json"
 
 
+_mtime: float | None = None
+
+
 def _load() -> dict:
-    global _cache, _path
-    if _cache is not None:
-        return _cache
+    """설정을 읽는다. 파일이 바뀌었으면 다시 읽는다 — 화면에서 역할을 바꾸면 돌고 있던 반입·재처리
+    프로세스도 다음 호출부터 새 지정을 따라야 한다(2026-09-21 실측: 캐시 때문에 옛 서버로 계속 갔다)."""
+    global _cache, _path, _mtime
     if _path is None:
         _path = _default_path()
+    try:
+        now = _path.stat().st_mtime if _path else None
+    except OSError:
+        now = None
+    if _cache is not None and now == _mtime:
+        return _cache
+    _mtime = now
     data = {"connections": [], "active": "", "external": "", "roles": {}}
     if _path and _path.is_file():
         try:
@@ -84,6 +94,11 @@ def _save(data: dict) -> None:
         _path.chmod(0o600)
     except OSError:
         pass
+    global _mtime
+    try:
+        _mtime = _path.stat().st_mtime if _path else None
+    except OSError:
+        _mtime = None
 
 
 def mask_key(key: str) -> str:
