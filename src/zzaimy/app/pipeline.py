@@ -281,6 +281,10 @@ class DocumentProcessor:
         # 글자층이 없거나 깨진 PDF(스캔본)는 비전 판독을 먼저 쓴다. 예전에는 구조 추출(MinerU)이
         # 먼저 돌았고 그 OCR 결과가 200자만 넘으면 판독까지 오지 못했다 — 깨진 글자층 문서가
         # 통째로 잡음으로 들어온 이유(실측 2026-09-21: 스캔 매뉴얼 2건).
+        if suffix == ".pdf" and not self._pdf_has_text_layer(file_path) and not _vision_available():
+            # 스캔본인데 판독 모델이 없다 — 조용히 CPU OCR 로 떨어지면 아무도 모른다(2026-09-21 실측: 연결의
+            # 비전 모델 칸이 비어 판독이 꺼진 채 문서가 들어갔다). 처리 기록에 남겨 화면에서 보이게 한다.
+            self._note_no_vision()
         if suffix == ".pdf" and not self._pdf_has_text_layer(file_path) and _vision_available():
             pages = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
             if pages:
@@ -434,6 +438,12 @@ class DocumentProcessor:
     # bf16 27B 는 빽빽한 쪽 하나에 2분을 넘겨 시간 초과가 났고, 두 번 연속이면 판독이 꺼졌다(2026-09-21 실측, 문서 422).
     VISION_TIMEOUT_S = float(os.environ.get("ZZAIMY_VISION_TIMEOUT", "600"))
     REVIEW_TIMEOUT_S = float(os.environ.get("ZZAIMY_REVIEW_TIMEOUT", "600"))
+
+    NO_VISION_NOTE = "판독 모델 없음 — CPU 문자 인식으로 진행 (단계별 모델에서 '문서 이미지 판독'을 지정하십시오)"
+
+    def _note_no_vision(self) -> None:
+        if self.NO_VISION_NOTE not in (self._last_parse_note or ""):
+            self._last_parse_note = (self._last_parse_note + " · " if self._last_parse_note else "") + self.NO_VISION_NOTE
 
     def _vlm_pages(self, pages: list) -> tuple[list[str], int]:
         """쪽 그림 목록을 차례로 판독한다 — (전사 목록, 실제로 읽은 쪽 수). 시간 예산 안에서만."""
@@ -2012,6 +2022,9 @@ class DocumentProcessor:
                 if not vp and file_path.suffix.lower() in (".png", ".jpg", ".jpeg"):
                     area = self._crop_document_region(file_path)
                     vp = [(1, area or file_path)]
+                if vp and not _vision_available():
+                    self._note_no_vision()
+                    vp = []
                 if vp:
                     reg_mds: list[str] = []
                     vc: list[dict] = []
