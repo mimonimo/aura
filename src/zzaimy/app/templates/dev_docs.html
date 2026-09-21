@@ -6,6 +6,9 @@
   /* 종류별 카드 두 열 — 왼쪽 논문 자료·주간 보고서·설계 결정, 오른쪽 기술 검토·측정 기록 */
   .weekly-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:4px 0 10px; font-size:13px; }
   .weekly-actions .btn-ghost { padding:4px 10px; min-height:30px; }
+  .weekly-feedback { display:flex; flex-direction:column; gap:6px; margin:6px 0 10px; }
+  .weekly-feedback textarea { width:100%; box-sizing:border-box; font:inherit; font-size:13px; padding:8px; border:1px solid var(--line, #dfe3ea); border-radius:8px; }
+  .weekly-feedback .btn-ghost { align-self:flex-start; padding:4px 10px; min-height:30px; }
   .doc-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px;
               align-items: start; }
   @media (max-width: 980px) { .doc-cols { grid-template-columns: 1fr; } }
@@ -79,6 +82,11 @@
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:calendar-mark-linear"></iconify-icon>주간 보고서
         <span class="doc-cnt">{{ weekly_docs|length }}</span></h2>
+      <form method="post" action="/dev/weekly/feedback" class="weekly-feedback" id="weekly">
+        <label for="weekly-fb" class="muted">이번 주 피드백 (미팅 결정·지도교수 의견) — 붙여 넣으면 보고서가 이 내용을 먼저 반영합니다</label>
+        <textarea id="weekly-fb" name="feedback" rows="4" placeholder="예) GPU 서버는 10월 초 배정 예정. 규정 문서는 학습하지 말고 검색으로.">{{ weekly_feedback }}</textarea>
+        <button type="submit" class="btn-ghost">피드백 저장</button>
+      </form>
       <div class="weekly-actions">
         <span class="muted">이번 주 ({{ weekly_monday }}~)</span>
         <a class="btn-ghost" href="/dev/weekly.md">md</a>

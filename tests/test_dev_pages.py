@@ -291,3 +291,13 @@ def test_weekly_report_card_and_template(client, tmp_path):
     assert "주간 보고서" in page and "/dev/weekly.docx" in page and "다시 만들기" in page
     r = client.get("/dev/weekly.md")
     assert r.status_code == 200 and "주간 보고" in r.text
+
+
+def test_weekly_feedback_is_saved_and_used(client):
+    """피드백을 붙여 넣으면 저장되고 보고서 원자료에 들어간다."""
+    r = client.post("/dev/weekly/feedback", data={"feedback": "GPU 서버 10월 초 배정. 규정은 검색으로."}, follow_redirects=False)
+    assert r.status_code == 303
+    page = client.get("/dev/docs").text
+    assert "GPU 서버 10월 초 배정" in page
+    md = client.get("/dev/weekly.md?fresh=1").text
+    assert "주간업무보고" in md
