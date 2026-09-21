@@ -38,7 +38,9 @@ case "$EP" in
   *)       CMD="vllm serve" ;;  # 진입점이 셸
 esac
 echo "   이미지 진입점: '${EP:-없음}' → 명령 '$CMD'"
-ssh -p $TP "$THOR" "docker rm -f $NAME >/dev/null 2>&1 || true
+# 강제 종료(rm -f)하면 젯슨 GPU 드라이버가 메모리를 돌려받지 못하는 일이 있다(2026-09-22 실측: 토르 02 에 90GB 가
+# 어떤 프로세스에도 잡히지 않은 채 남아 재부팅해야 했다). 먼저 정상 종료를 기다리고, 그다음에 지운다.
+ssh -p $TP "$THOR" "docker stop -t 60 $NAME >/dev/null 2>&1 || true; docker rm $NAME >/dev/null 2>&1 || true
 docker run -d --name $NAME --restart unless-stopped --runtime nvidia --ipc host \
   -p $PORT:8000 -v \$HOME/zzaimy/models:/models \
   -e HF_HOME=/root/.cache/huggingface -v \$HOME/zzaimy/hf:/root/.cache/huggingface \
