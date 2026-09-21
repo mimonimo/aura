@@ -558,7 +558,7 @@ def write_markdown(result: dict, path: Path) -> None:
         "|---|---|---|---|---|---|",
     ]
     for r in result["rows"]:
-        name = r["method"] + (" (운영 구성)" if r.get("production") else "")
+        name = r["method"] + ((" (운영 구성)" if os.environ.get("ZZAIMY_RERANK_URL", "").strip() else " (CPU 베이스 — 운영 아님)") if r.get("production") else "")
         lines.append(
             f"| {name} | {_fmt(r['recall_at_1'])} | {_fmt(r['recall_at_5'])} |"
             f" {_fmt(r['recall_at_10'])} | {_fmt(r['mrr_at_10'])} | {r['n']} |"
@@ -687,7 +687,7 @@ def _print_summary(result: dict) -> None:
           f" · 조각 {result['n_chunks']}개")
     print("| 방식 | R@1 | R@5 | R@10 | MRR@10 | n |")
     for r in result["rows"]:
-        name = r["method"] + (" (운영 구성)" if r.get("production") else "")
+        name = r["method"] + ((" (운영 구성)" if os.environ.get("ZZAIMY_RERANK_URL", "").strip() else " (CPU 베이스 — 운영 아님)") if r.get("production") else "")
         print(f"| {name} | {_fmt(r['recall_at_1'])} | {_fmt(r['recall_at_5'])} |"
               f" {_fmt(r['recall_at_10'])} | {_fmt(r['mrr_at_10'])} | {r['n']} |")
     for n in result["notes"]:
@@ -696,9 +696,14 @@ def _print_summary(result: dict) -> None:
         from zzaimy.app import rerank as _rr
 
         st = _rr.STATS
-        if st["remote_ok"] or st["fallback"]:
-            print(f"- 리랭커 서빙 장비 응답 {st['remote_ok']}건 · CPU 폴백 {st['fallback']}건"
-                  + (" — 폴백이 있으면 운영 구성 행은 GPU 리랭커만의 숫자가 아니다" if st["fallback"] else ""))
+        if os.environ.get("ZZAIMY_RERANK_URL", "").strip():
+            print(f"- 리랭커: 서빙 장비 {os.environ['ZZAIMY_RERANK_URL']} · 응답 {st['remote_ok']}건 · CPU 폴백 {st['fallback']}건"
+                  + (" — 폴백이 있으면 이 행은 GPU 리랭커만의 숫자가 아니다" if st["fallback"] else ""))
+        else:
+            # 2026-09-21 실측: .env.local 없이 띄운 측정이 CPU 베이스 리랭커(앞쪽 후보만·제목 없이)로 떨어져
+            # 운영보다 0.1 낮은 값을 '운영 구성'으로 적었다. 어느 리랭커가 점수를 냈는지 항상 적는다.
+            print("- 리랭커: ZZAIMY_RERANK_URL 이 없어 VM CPU 의 베이스 리랭커로 쟀다 — 운영 구성이 아니다."
+                  " 운영 값은 `set -a; . ./.env.local; set +a` 뒤에 다시 잰다")
     except Exception:
         pass
 
