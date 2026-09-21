@@ -1969,6 +1969,7 @@ def create_app(
             "weekly_docs": _weekly_list(),
             "weekly_template": _weekly_sections()[1],
             "weekly_monday": (_today - _td(days=_today.weekday())).isoformat(),
+            "weekly_feedback": _weekly_feedback((_today - _td(days=_today.weekday())).isoformat()),
             "papers": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
                        for p in _dev_papers()],
             "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
@@ -3401,13 +3402,17 @@ def create_app(
             raise HTTPException(400, str(exc))
         return RedirectResponse("/dev/egress", status_code=303)
 
-    _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼 구축)의 주간 개발
-보고서를 작성한다. 독자는 지도교수다. 아래 원자료(커밋 이력·실험 기록)를 바탕으로 쓰되,
-원자료를 나열하지 말고 사람이 읽는 문장으로 정리하라.
+    _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼 구축)의 주간 업무 보고를 작성한다.
+독자는 지도교수다. 아래 원자료(이번 주 피드백·커밋 이력·실험 기록)를 바탕으로 쓰되, 원자료를 나열하지 말고
+간략하게 정리하라. 피드백(미팅 결정·지도교수 의견)이 있으면 그 내용을 먼저 반영하고, 그에 대해 한 일을 잇는다.
 
 {sections}
 
-규칙: 숫자는 원자료에 있는 것만 쓴다. 과장·수식어를 넣지 않는다. 볼드·이모지 금지.
+규칙: 항목은 번호(1. 2.)와 세부 줄(들여쓴 -)로. 한 항목은 한두 줄. 숫자는 원자료에 있는 것만 쓴다.
+과장·수식어·볼드·이모지 금지. 【】 제목은 양식 그대로 쓴다.
+
+[이번 주 피드백·미팅 결정]
+{feedback}
 
 [커밋 이력]
 {changelog}
@@ -3440,6 +3445,16 @@ def create_app(
             return ("마크다운으로, 아래 양식의 항목 구성·순서·제목을 그대로 따른다. 양식의 안내문은 지침이지 본문이 아니다:\n"
                     + text), True
         return _WEEKLY_SECTIONS_DEFAULT, False
+
+    def _weekly_feedback_path(monday: str) -> Path:
+        return _weekly_dir() / f"{monday}.feedback.md"
+
+    def _weekly_feedback(monday: str) -> str:
+        f = _weekly_feedback_path(monday)
+        try:
+            return f.read_text(encoding="utf-8").strip() if f.exists() else ""
+        except OSError:
+            return ""
 
     def _weekly_dir() -> Path:
         d = Path(db_path).parent / "weekly"
@@ -3489,6 +3504,7 @@ def create_app(
                 model=client.model,
                 messages=[{"role": "user", "content": _WEEKLY_PROMPT.format(
                     sections=_weekly_sections()[0],
+                    feedback=_weekly_feedback(monday) or "(없음)",
                     changelog=changelog or "(없음)",
                     experiments=experiments or "(없음)",
                 )}],
@@ -3537,7 +3553,7 @@ def create_app(
         body = _compose_weekly(
             monday.isoformat(), today.isoformat(), fresh=bool(fresh)
         )
-        title = f"ZZAIMY 캡스톤 주간 보고 ({monday.isoformat()})"
+        title = f"주간업무보고 ({monday.isoformat()} ~ {today.isoformat()})"
         if fmt == "md":
             payload: bytes | None = f"# {title}\n\n{body}\n".encode()
             media = "text/markdown; charset=utf-8"
@@ -3595,6 +3611,23 @@ def create_app(
             if f.exists() and f.name != "양식.md":
                 return f
         raise HTTPException(404)
+
+    @app.post("/dev/weekly/feedback")
+    async def dev_weekly_feedback(request: Request):
+        """이번 주 피드백(미팅 결정·지도교수 의견)을 저장한다 — 보고서는 이 내용을 먼저 반영한다."""
+        from datetime import date as _date, timedelta as _td
+        from fastapi.responses import RedirectResponse
+
+        form = await request.form()
+        today = _date.today()
+        monday = (today - _td(days=today.weekday())).isoformat()
+        text = str(form.get("feedback") or "").strip()
+        f = _weekly_feedback_path(monday)
+        f.write_text(text, encoding="utf-8")
+        cache = _weekly_dir() / f"{monday}.md"
+        if cache.exists():
+            cache.unlink()                 # 피드백이 바뀌면 보고서를 다시 쓴다
+        return RedirectResponse("/dev/docs#weekly", status_code=303)
 
     @app.get("/dev/weekly/{stem}.{fmt}")
     def dev_weekly_past(stem: str, fmt: str):
