@@ -16,7 +16,7 @@
       if (link) link.click();
     });
     const link = row.querySelector('a[href]');
-    if (link && document.getElementById('dxDetail') && matchMedia('(max-width:1000px)').matches) link.hash = 'dxDetail';
+    if (link && document.getElementById('dxDetail') && matchMedia('(max-width:1200px)').matches) link.hash = 'dxDetail';
     if (row.classList.contains('on')) link?.setAttribute('aria-current', 'true');
   });
   if (typeof HTMLDialogElement === 'undefined') return;
