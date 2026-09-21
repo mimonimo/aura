@@ -426,3 +426,17 @@ def test_two_line_title_keeps_the_first_line():
     assert t == "학생 모바일 신청 매뉴얼"
     t, _ = find_title("10-03-1\n영남이공대학교 산학협력단 사무분장 규정\n학과장회 통과일자 : 2022년 05월 26일")
     assert t == "영남이공대학교 산학협력단 사무분장 규정"                # 번호 줄도 잇지 않는다
+
+
+def test_subtitle_ignores_spacing_variants_of_the_title(tmp_path):
+    """판독 결과는 제목을 띄어쓰기만 다르게 두 번 적는다 — 그건 부제가 아니고, 괄호 부제가 부제다."""
+    from zzaimy.app.db import Database
+
+    db = Database(tmp_path / "t.db")
+    names = []
+    for sub in ("(홈페이지, 모바일앱)", "(웰로 'Wello' 앱 사용 매뉴얼)"):
+        d = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="", doc_type="regulation")
+        db.rename_from_text(d, f"## 가구원 정보 제공 동의 절차 {sub}\n**가구원 정보 제공 동의 절차**\n**{sub}**\n한국장학재단\n국가장학실 소득심사기준팀")
+        names.append(db.get_document(d)["filename"])
+    assert names[1] == "가구원 정보 제공 동의 절차 (웰로 'Wello' 앱 사용 매뉴얼)"   # 제목 줄 전체가 제목이다
+    assert names[0] == "가구원 정보 제공 동의 절차 (홈페이지, 모바일앱)"
