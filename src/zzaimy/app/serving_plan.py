@@ -55,6 +55,14 @@ def status(live_models=None) -> list[dict]:
                        ok=bool(part.get("ok")), detail=part.get("detail", ""))
         else:
             r = roles.get(item["key"])
+            if item["key"] == "vision_public" and not (r and r.get("id")):
+                # 지정이 없으면 판독 모델이 맡는다 — 기본 연결을 보이면 거짓이다
+                vr = roles.get("vision") or {}
+                vconn = conns.get(vr.get("id") or "") or active
+                row.update(model="", where=vconn["name"] if vconn else "",
+                           ok=True, detail="지정 없음 — 문서 이미지 판독 모델을 씁니다", matches_plan=True)
+                out.append(row)
+                continue
             conn = conns.get(r["id"]) if r and r.get("id") else active
             if conn is not None:
                 model = (r.get("model") if r and r.get("id") else "") or conn.get("model") or ""

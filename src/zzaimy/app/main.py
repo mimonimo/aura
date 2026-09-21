@@ -2859,7 +2859,7 @@ def create_app(
              "state": "todo"},
             {"title": "DPO", "desc": "담당자 판정·재작성 이력으로 선호 학습",
              "status": "SFT 후", "state": "todo"},
-            {"title": "모델 서버 연결", "desc": "학습 모델을 서빙에 연결",
+            {"title": "모델 서버 연결", "desc": "문서 작업의 기본 연결",
              "status": (f"연결됨 · {llm['model'] or (llm_probe['models'][0] if llm_probe['models'] else '모델 미선택')}"
                         if llm_probe["ok"] else ("주소 설정됨 · " + llm_probe["error"] if llm_url else "주소 미설정")),
              "state": "done" if llm_probe["ok"] else "todo"},

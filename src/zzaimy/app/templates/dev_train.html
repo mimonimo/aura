@@ -263,12 +263,14 @@
     <div class="use-list">
       {% for r in llm_roles %}
       {% set own = (connections | selectattr('id', 'equalto', r.id) | list | first) if r.id else none %}
-      {% set srv = own or act %}
+      {# 공개 자료 판독은 지정이 없으면 기본 연결이 아니라 '문서 이미지 판독' 모델을 쓴다 — 그대로 보인다 #}
+      {% set srv = own or (none if r.role == 'vision_public' else act) %}
       <div class="use-row" id="use-{{ r.role }}">
         <input type="hidden" name="role" value="{{ r.role }}">
         <div class="use-name">{{ r.label }}</div>
         <div class="use-now">
-          {% if srv %}
+          {% if not srv and r.role == 'vision_public' %}<span class="muted">지정 없음 — 문서 이미지 판독 모델을 씁니다</span>
+          {% elif srv %}
             <strong>{{ srv.name }}</strong>
             <span class="use-model">{{ (r.model if own else none) or srv.model or "자동" }}</span>
             {% if not own %}<span class="pill use-tag">자동</span>{% endif %}
