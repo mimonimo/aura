@@ -186,6 +186,7 @@ class Database:
         "ALTER TABLE chat_sessions ADD COLUMN owner TEXT NOT NULL DEFAULT 'zzaimy'",
         "ALTER TABLE documents ADD COLUMN coverage TEXT",
         "ALTER TABLE documents ADD COLUMN decision TEXT NOT NULL DEFAULT 'pending'",
+        "ALTER TABLE documents ADD COLUMN content_sha256 TEXT",
         "ALTER TABLE regulation_chunks ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
         "ALTER TABLE documents ADD COLUMN sector TEXT NOT NULL DEFAULT 'common'",
         # 부서 축(기획처·복지처 등) — RAG·그래프를 부서별로 스코프한다.
@@ -279,24 +280,26 @@ class Database:
                 f"UPDATE documents SET {sets} WHERE id = ?", (*fields.values(), doc_id)
             )
 
-    def rename_from_text(self, doc_id: int, text: str = "", overwrite: bool = False) -> str:
+    def rename_from_text(self, doc_id: int, text: str = "", overwrite: bool = False,
+                         ask=None) -> str:
         """반입 단계에서 문서 이름을 본문의 제목으로 바꾼다 — 뒷단계는 그 이름으로 흐른다.
 
         파싱이 끝나 본문이 손에 들어온 시점에 부른다. 돌려주는 값은 바뀐 문서 이름이다.
         """
-        ident = self.fill_identity_from_text(doc_id, overwrite=overwrite, text=text)
+        ident = self.fill_identity_from_text(doc_id, overwrite=overwrite, text=text, ask=ask)
         doc = self.get_document(doc_id)
         return (doc or {}).get("filename", "") if ident else (doc or {}).get("filename", "")
 
     def fill_identity_from_text(self, doc_id: int, overwrite: bool = False,
-                                text: str = "") -> dict:
+                                text: str = "", ask=None) -> dict:
         """문서 본문에서 이름·날짜를 찾아 문서 이름으로 삼는다.
 
         파일 이름은 'test.pdf' 처럼 아무것이나 될 수 있고 같은 이름이 여럿 들어올 수도 있다.
         그래서 본문에서 찾은 이름을 문서의 이름으로 바꾸고, 올라온 파일 이름은 정체에
         `original_filename` 으로 남긴다. 파일 자체는 건드리지 않는다(stored_path 그대로).
         """
-        from zzaimy.app.doc_title import display_name, resolved_title
+        from zzaimy.app.doc_title import (display_name, meaningless_filename, resolved_title,
+                                          tidy_name)
 
         doc = self.get_document(doc_id)
         if doc is None:
@@ -314,14 +317,28 @@ class Database:
         if text:
             probe["masked_text"] = text
         title, date = resolved_title(probe)
+        if not title and ask is not None and meaningless_filename(probe.get("filename") or ""):
+            # 규칙이 못 찾았고 파일 이름도 뜻이 없다 — 모델에게 제목 줄을 짚게 한다(본문 대조 통과분만)
+            from zzaimy.app.doc_identity import find_title_by_model
+
+            got = find_title_by_model(probe.get("masked_text") or "", ask)
+            title = tidy_name(got) if got else None
         found = {k: v for k, v in (("title", title), ("date", date)) if v}
         if not found:
+            # 제목이 없으면 파일 이름이 이름이다 — 그래도 첨부 표시·기호는 뗀다
+            back = doc.get("filename") or ""
             if overwrite:
                 # 다시 읽어도 이름이 없으면 옛 이름을 버리고 올라온 파일 이름으로 돌아간다
-                back = have.get("original_filename") or doc.get("filename") or ""
+                back = have.get("original_filename") or back
+            name = tidy_name(back) or back
+            if name != doc.get("filename") or overwrite:
+                if name != back:
+                    have.setdefault("original_filename", back)
                 with self._conn() as conn:
                     conn.execute("UPDATE documents SET identity = ?, filename = ? WHERE id = ?",
-                                 (json.dumps(have, ensure_ascii=False), back, doc_id))
+                                 (json.dumps(have, ensure_ascii=False), name, doc_id))
+                    conn.execute("UPDATE regulation_chunks SET reg_title = ? WHERE doc_id = ?",
+                                 (name, doc_id))
             return have
         found.setdefault("original_filename", doc.get("filename") or "")
         self.set_doc_identity(doc_id, found)
@@ -332,6 +349,9 @@ class Database:
         if name and name != doc.get("filename"):
             with self._conn() as conn:
                 conn.execute("UPDATE documents SET filename = ? WHERE id = ?", (name, doc_id))
+                # 인용에 쓰는 기준명도 같은 이름을 본다 — 이름이 바뀌었는데 인용만 옛 이름이면 안 된다
+                conn.execute("UPDATE regulation_chunks SET reg_title = ? WHERE doc_id = ?",
+                             (name, doc_id))
         return have
 
     def _unique_name(self, name: str, doc_id: int, text: str) -> str:
@@ -346,6 +366,21 @@ class Database:
                 (f"{name}%", doc_id))}
         if name not in taken:
             return name
+        # 제목 바로 다음 줄이 부제다 — '( 홈페이지 , 모바일앱 )' 과 '( 웰로 앱 사용 매뉴얼 )' 처럼
+        # 같은 제목의 문서를 가르는 말은 대개 거기 있다.
+        import re as _re
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        base = _re.sub(r"[\s()（）]", "", name.split(" · ")[0])
+        for i, ln in enumerate(lines[:12]):
+            if base and base in _re.sub(r"[\s()（）]", "", ln) and i + 1 < len(lines):
+                sub = _re.sub(r"\s*[,，]\s*", ", ", lines[i + 1].strip(" ()（）[]"))
+                sub = _re.sub(r"\s{2,}", " ", sub).strip()
+                if 2 <= len(sub) <= 40 and "|" not in sub and not _re.search(r"\d{4}\s*[년.]", sub) \
+                        and sub not in name:
+                    merged = f"{name} · {sub}"
+                    if merged not in taken:
+                        return merged
+                break
         for line in (ln.strip() for ln in text.splitlines()):
             if not (4 <= len(line) <= 40) or line in name:
                 continue
@@ -505,6 +540,20 @@ class Database:
                 (sector, name[:80], _now(), due_date[:10], owner),
             )
             return int(cur.lastrowid or 0)
+
+    def record_content_hash(self, doc_id: int, sha256: str) -> None:
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET content_sha256 = ? WHERE id = ?", (sha256, doc_id))
+
+    def find_same_content(self, sha256: str, exclude_id: int) -> dict | None:
+        """같은 내용의 문서가 이미 있으면 그것 — 실패한 것은 빼고, 먼저 들어온 것을 준다."""
+        if not sha256:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT id, filename, status FROM documents WHERE content_sha256 = ? AND id <> ? "
+                "AND status <> 'failed' ORDER BY id LIMIT 1", (sha256, exclude_id)).fetchone()
+            return dict(row) if row else None
 
     def set_document_type(self, doc_id: int, doc_type: str) -> None:
         """문서 갈래를 바꾼다 — 반입 때 스스로 정하거나 담당자가 고칠 때 쓴다."""

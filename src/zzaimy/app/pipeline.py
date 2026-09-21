@@ -261,6 +261,23 @@ class DocumentProcessor:
                 self._last_parse_note = f"글자층 직독 (쪽수 {direct[1]})"
                 return direct[0]
 
+        # 글자층이 없거나 깨진 PDF(스캔본)는 비전 판독을 먼저 쓴다. 예전에는 구조 추출(MinerU)이
+        # 먼저 돌았고 그 OCR 결과가 200자만 넘으면 판독까지 오지 못했다 — 깨진 글자층 문서가
+        # 통째로 잡음으로 들어온 이유(실측 2026-09-21: 스캔 매뉴얼 2건).
+        if suffix == ".pdf" and not self._pdf_has_text_layer(file_path) and _vision_available():
+            pages = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
+            if pages:
+                mds = []
+                for _no, img in pages:
+                    got = self._vlm_transcribe(img)
+                    if got:
+                        mds.append(got)
+                if mds:
+                    self._ocr_used = True
+                    self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
+                    self._note_partial_vision(file_path, pages)
+                    return "\n\n".join(mds)
+
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
             # PDF 기본 파서는 MinerU — 표 구조·2단 레이아웃·읽기 순서 보존.
             # 디지털 PDF(텍스트 레이어 있음)는 MinerU 구조 위에 원본 레이어의
@@ -285,23 +302,6 @@ class DocumentProcessor:
                 self._ocr_used = False
                 self._last_parse_note = f"글자층 직독 (구조 추출 실패, 쪽수 {fallback[1]})"
                 return fallback[0]
-        # 글자층이 없는 PDF(스캔본)는 비전 판독을 먼저 쓴다.
-        # 예전에는 CPU OCR(docling)을 먼저 돌렸는데, 큰 스캔본에서 그 단계만 십수 분이 걸려
-        # 판독까지 가지도 못하고 제한 시간에 걸렸다(실측 2026-09-21). 읽는 일은 서빙 장비 몫이다.
-        if suffix == ".pdf" and not self._pdf_has_text_layer(file_path) and _vision_available():
-            pages = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
-            if pages:
-                mds = []
-                for _no, img in pages:
-                    got = self._vlm_transcribe(img)
-                    if got:
-                        mds.append(got)
-                if mds:
-                    self._ocr_used = True
-                    self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
-                    self._note_partial_vision(file_path, pages)
-                    return "\n\n".join(mds)
-
         # 이미지·오피스 문서(및 MinerU 실패 PDF)는 docling이 처리
         from zzaimy.ingest.parsers.docling import DoclingParser
 
@@ -1102,11 +1102,19 @@ class DocumentProcessor:
                 if n == 0:
                     return False
                 chars = 0
+                sample = []
                 for i in range(n):
                     tp = doc[i].get_textpage()
-                    chars += len(tp.get_text_bounded() or "")
+                    got = tp.get_text_bounded() or ""
+                    chars += len(got)
+                    sample.append(got)
                     tp.close()
-                return chars / n >= 200
+                if chars / n < 200:
+                    return False
+                # 글자가 있어도 다른 문자 체계로 깨져 있으면 글자층이 아니다 — 스캔본으로 다룬다
+                from zzaimy.app.chunk_quality import GARBLED_RATIO, garbled_ratio
+
+                return garbled_ratio("\n".join(sample)) < GARBLED_RATIO
             finally:
                 doc.close()
         except Exception:
@@ -1833,6 +1841,18 @@ class DocumentProcessor:
         log.warning("doc %d 검토 의견 생성 실패(색인은 유지): %s", doc_id, last)
         return "(검토 의견 생성 대기 — 모델 서버가 응답하지 않았습니다. 색인·분류는 끝났습니다)"
 
+    def ask_review(self, prompt: str) -> str:
+        """반입 검토 모델에 질문 한 덩어리를 던진다 — 제목 짚기처럼 짧고 검증 가능한 일에 쓴다."""
+        from zzaimy.generate.client import VllmClient
+
+        client = VllmClient(role="review")
+        resp = client.client.chat.completions.create(
+            model=client.model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0, max_tokens=120, extra_body=getattr(client, "_extra", {}),
+        )
+        return (resp.choices[0].message.content or "").strip()
+
     def _review(self, masked_text: str, doc_type: str) -> str:
         from zzaimy.generate.client import VllmClient
 
@@ -1858,6 +1878,22 @@ class DocumentProcessor:
         return masked.text
 
     def process(self, db: Database, doc_id: int, file_path: Path) -> None:
+        # 같은 파일이 두 번 올라오면(이름만 다른 채) 하나만 들인다 — 같은 조각이 둘이면
+        # 검색이 같은 근거를 두 번 올리고 그래프가 쌍둥이를 잇는다.
+        import hashlib
+
+        try:
+            digest = hashlib.sha256(file_path.read_bytes()).hexdigest()
+        except OSError:
+            digest = ""
+        if digest:
+            db.record_content_hash(doc_id, digest)
+            twin = db.find_same_content(digest, exclude_id=doc_id)
+            if twin:
+                db.update_document(
+                    doc_id, status="failed",
+                    error=f"같은 내용의 문서가 이미 있습니다 — #{twin['id']} {twin['filename']}")
+                return
         db.update_document(doc_id, status="processing")
         # 재처리 시 파생 캐시(복원 PDF·페이지 렌더)를 비운다
         try:
@@ -1890,7 +1926,7 @@ class DocumentProcessor:
             # 반입 단계에서 문서 이름을 본문의 제목으로 바꾼다 — 갈래와 상관없이 여기서 한 번.
             # 올라온 파일 이름은 'www.ync.ac.kr__UPLOAD_PDF_…' 처럼 뜻이 없을 수 있고 같은 이름이
             # 여럿일 수도 있다. 뒷단계(조각 제목·검토·인용·목록)는 바뀐 이름을 그대로 쓴다.
-            db.rename_from_text(doc_id, raw_text)
+            db.rename_from_text(doc_id, raw_text, ask=self.ask_review)
             doc = db.get_document(doc_id) or doc
 
             series = classify_series(file_path.name)
@@ -1921,7 +1957,7 @@ class DocumentProcessor:
                         self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
 
                 # 반입 단계에서 문서 이름을 본문의 제목으로 바꾼다 — 인용·목록·검색이 같은 이름을 쓴다
-                db.rename_from_text(doc_id, raw_text)
+                db.rename_from_text(doc_id, raw_text, ask=self.ask_review)
                 doc = db.get_document(doc_id) or doc
                 title = (doc or {}).get("filename", f"규정 {doc_id}")
                 # 글자가 한 칸씩 갈라져 들어온 낱말을 먼저 붙인다.

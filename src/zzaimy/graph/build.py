@@ -298,10 +298,16 @@ def _add_citation_edges(db, criteria: list[dict], add_edge) -> None:
     text_of: dict[int, list[str]] = {}
     for c in chunks:
         text_of.setdefault(c["doc_id"], []).append(c["content"])
+    def _base(t: str) -> str:
+        return t.split(" · ")[0].strip()          # '이름 · 구분' 에서 이름만
+
     for src_id, parts in text_of.items():
         body = "\n".join(parts)
         for dst_id, title in titles.items():
             if dst_id == src_id:
+                continue
+            # 같은 제목의 문서(판이 다른 매뉴얼 등)는 서로 '인용'이 아니다 — 제 제목이 제 본문에 있을 뿐이다
+            if _base(title) == _base(title_of.get(src_id, "")):
                 continue
             if title in body:
                 add_edge(f"d{src_id}", f"d{dst_id}", "cites",

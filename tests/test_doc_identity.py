@@ -232,3 +232,98 @@ def test_document_number_and_item_marker_lines_are_not_titles():
     assert loose_title("9납입금 내역\n등록금 |  | 3,393,000") is None
     assert loose_title("2026년 상반기분 통영시 대학생 학자금 이자 지원 공고") \
         == "2026년 상반기분 통영시 대학생 학자금 이자 지원 공고"
+
+
+def test_attachment_markers_and_symbols_are_not_part_of_the_name():
+    """'붙임1.'·'[붙임2]'·'(서식2-1)' 은 문서가 실린 자리다. ★·이모지·역슬래시·URL 구분자도 뗀다."""
+    from zzaimy.app.doc_title import tidy_name
+
+    assert tidy_name("붙임1. 2024년 첨단분야 혁신융합대학 사업 추진계획.hwpx") \
+        == "2024년 첨단분야 혁신융합대학 사업 추진계획.hwpx"
+    assert tidy_name("[붙임2]+2025+글로컬대학+지정계획(결재본)★.pdf") == "2025 글로컬대학 지정계획(결재본).pdf"
+    assert tidy_name("(서식2-1) 2026년 지방대학 특성화 선도대학 육성사업 사업계획서 서식(단독형)") \
+        == "2026년 지방대학 특성화 선도대학 육성사업 사업계획서 서식(단독형)"
+    assert tidy_name("지원범위:2026년 상반기(2026.1.1.\\~6.30.까지)발생이자") \
+        == "지원범위:2026년 상반기(2026.1.1.~6.30.까지)발생이자"
+    assert tidy_name("🎉 2026 대한민국 SNS 대상 투표 이벤트 ✨") == "2026 대한민국 SNS 대상 투표 이벤트"
+    assert tidy_name("대학재정지원사업_운영관리_매뉴얼.pdf") == "대학재정지원사업_운영관리_매뉴얼.pdf"
+
+
+def test_field_value_lines_are_not_titles():
+    from zzaimy.app.doc_title import loose_title
+
+    assert loose_title("지원범위:2026년 상반기(2026.1.1.~6.30.까지)발생이자\n가. 대상") is None
+
+
+def test_model_title_is_accepted_only_when_it_is_in_the_body():
+    """모델은 제목 줄을 가리킬 뿐이다 — 본문에 없는 말은 받지 않는다."""
+    from zzaimy.app.doc_identity import find_title_by_model
+
+    body = "한국장학재단\n2026년 2학기 고졸 후학습자 장학사업 신규장학생 신청 안내\n1. 신청 기간: 2026. 8. 1. ~ 8. 31."
+    assert find_title_by_model(body, lambda p: "2026년 2학기 고졸 후학습자 장학사업 신규장학생 신청 안내") \
+        == "2026년 2학기 고졸 후학습자 장학사업 신규장학생 신청 안내"
+    assert find_title_by_model(body, lambda p: "고졸 후학습자를 위한 장학금 안내문") is None   # 지어낸 제목
+    assert find_title_by_model(body, lambda p: "없음") is None
+    assert find_title_by_model(body, lambda p: "안내") is None                            # 너무 짧다
+
+
+def test_meaningless_url_filename_uses_model_title(tmp_path):
+    from zzaimy.app.db import Database
+    from zzaimy.app.doc_title import meaningless_filename
+
+    assert meaningless_filename("www.ync.ac.kr_kor_ajx_json_UploadMgr_downloadRun.do_qcode_Qm9hcmQsNTE5MzgsWQ.hwp")
+    assert not meaningless_filename("rise2026_seoul_공고.pdf")
+    db = Database(tmp_path / "t.db")
+    body = "한국장학재단\n지원범위:2026년 상반기 발생이자\n2026년 대학생 학자금대출 부담경감 지원 신청 안내\n가. 대상: 재학생"
+    doc_id = db.add_document(filename="www.ync.ac.kr_kor_ajx_json_UploadMgr_downloadRun.do_qcode_Qm9hcmQsNTE5MzgsWQ.hwp",
+                             stored_path="", doc_type="regulation")
+    db.rename_from_text(doc_id, body, ask=lambda p: "2026년 대학생 학자금대출 부담경감 지원 신청 안내")
+    assert db.get_document(doc_id)["filename"] == "2026년 대학생 학자금대출 부담경감 지원 신청 안내"
+
+
+def test_same_title_documents_are_told_apart_by_subtitle(tmp_path):
+    """제목이 같은 매뉴얼 둘 — 제목 다음 줄(부제)이 가른다. 접수번호는 마지막 수단이다."""
+    from zzaimy.app.db import Database
+
+    db = Database(tmp_path / "t.db")
+    bodies = ["가구원 정보제공 동의 절차\n( 홈페이지 , 모바일앱 )\n한국장학재단 국가장학실",
+              "가구원 정보제공 동의 절차\n( 웰로'Wello' 앱 사용 매뉴얼 )\n한국장학재단 국가장학실"]
+    names = []
+    for body in bodies:
+        doc_id = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="",
+                                 doc_type="regulation")
+        db.rename_from_text(doc_id, body)
+        names.append(db.get_document(doc_id)["filename"])
+    assert names[0] == "가구원 정보제공 동의 절차"
+    assert names[1] == "가구원 정보제공 동의 절차 · 웰로'Wello' 앱 사용 매뉴얼"
+
+
+def test_renaming_updates_the_citation_title(tmp_path):
+    """이름이 바뀌면 인용에 쓰는 기준명도 같이 바뀐다."""
+    from zzaimy.app.db import Database
+    from zzaimy.app.regulations import chunk_document
+
+    db = Database(tmp_path / "t.db")
+    body = "붙임1. 2024년 글로컬대학 지정계획\n제1조(목적) 이 계획은 글로컬대학 지정에 관한 사항을 정한다."
+    doc_id = db.add_document(filename="붙임1. 2024년 글로컬대학 지정계획.hwpx", stored_path="", doc_type="regulation")
+    db.add_regulation_chunks(doc_id, "붙임1. 2024년 글로컬대학 지정계획.hwpx", chunk_document(body))
+    db.rename_from_text(doc_id, body, overwrite=True)
+    assert db.get_document(doc_id)["filename"] == "2024년 글로컬대학 지정계획.hwpx"
+    assert {c["reg_title"] for c in db.list_regulation_chunks()} == {"2024년 글로컬대학 지정계획.hwpx"}
+
+
+def test_same_file_is_not_ingested_twice(tmp_path):
+    from zzaimy.app.db import Database
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    f1 = tmp_path / "a.txt"; f1.write_text("영남이공대학교 산학협력단 운영 규정\n제1조(목적) 운영에 관한 사항.")
+    f2 = tmp_path / "b.txt"; f2.write_bytes(f1.read_bytes())
+    db = Database(tmp_path / "t.db")
+    a = db.add_document(filename="a.txt", stored_path=str(f1), doc_type="regulation")
+    b = db.add_document(filename="b.txt", stored_path=str(f2), doc_type="regulation")
+    import hashlib
+    db.record_content_hash(a, hashlib.sha256(f1.read_bytes()).hexdigest())
+    db.update_document(a, status="reviewed")
+    DocumentProcessor().process(db, b, f2)
+    doc = db.get_document(b)
+    assert doc["status"] == "failed" and "같은 내용" in doc["error"] and f"#{a}" in doc["error"]

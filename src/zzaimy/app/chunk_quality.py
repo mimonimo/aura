@@ -265,6 +265,23 @@ def _table_cell_text(text: str) -> str | None:
     return " ".join(str(c[-1]) for c in cells if isinstance(c, list) and c)
 
 
+_IDEOGRAPH = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
+_LETTER = re.compile(r"[가-힣A-Za-z\u4e00-\u9fff\u3400-\u4dbf]")
+GARBLED_RATIO = 0.15
+
+
+def garbled_ratio(text: str) -> float:
+    """다른 문자 체계로 깨진 비율 — 한자가 글자의 이만큼이면 우리 문서가 아니라 엉터리 글자층이다.
+
+    실측 2026-09-21: 스캔 매뉴얼 PDF 에 박힌 글자층이 'I0号是收百亡C' 같은 한자 잡음이었고,
+    그것을 믿고 읽어 본문이 통째로 쓰레기가 됐다. 국고·교내 문서에 한자는 거의 없다.
+    """
+    letters = _LETTER.findall(text or "")
+    if len(letters) < 40:
+        return 0.0
+    return len(_IDEOGRAPH.findall(text or "")) / len(letters)
+
+
 def ocr_damage_signals(text: str) -> list[str]:
     """OCR 손상 신호 목록 — 일반 지표만 쓴다(문서별 규칙 없음).
 
@@ -273,6 +290,8 @@ def ocr_damage_signals(text: str) -> list[str]:
     모두 길이로 나눈 비율이라 조각 길이에 휘둘리지 않는다.
     """
     out: list[str] = []
+    if garbled_ratio(text) >= GARBLED_RATIO:
+        out.append("다른 문자 체계로 깨짐")
     # 표 조각(JSON)은 칸의 글자만 본다. 표 칸에는 '계'·'예'·'○' 같은 한 글자 값이 원래 많아
     # '글자 단위 분해'를 재면 멀쩡한 디지털 표가 손상으로 몰린다(실측 2026-09-20: 적재 점검
     # 108건 중 87건이 이 오탐, .hwpx 원문 표 포함). 표에는 ①② 신호만 쓴다.

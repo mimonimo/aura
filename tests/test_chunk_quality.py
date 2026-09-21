@@ -226,3 +226,14 @@ def test_bulleted_pdf_lines_do_not_become_one_chunk_each():
     chunks = split_prose(text)
     assert len(chunks) <= 3
     assert all(cq.substantive_len(c.content) >= cq.MIN_SUBSTANTIVE_DROP for c in chunks)
+
+
+def test_garbled_script_is_a_damage_signal():
+    """스캔 PDF 에 박힌 엉터리 글자층 — 한자 잡음이 글자의 15% 를 넘으면 손상이다."""
+    from zzaimy.app.chunk_quality import garbled_ratio, ocr_damage_signals
+
+    junk = "01 02 03 [ 04 OL-----(IYI0影)I0号是收百亡C 05 LL-----(晶否)庫I号是收百是亡C 吾(3p卫) 吾号 三今 吾号斗章吞 " * 2
+    assert garbled_ratio(junk) >= 0.15
+    assert "다른 문자 체계로 깨짐" in ocr_damage_signals(junk)
+    fine = "제1조(목적) 이 규정은 산학협력단의 운영에 관한 사항을 정함을 목적으로 한다. " * 3
+    assert garbled_ratio(fine) == 0.0
