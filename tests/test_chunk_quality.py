@@ -278,3 +278,15 @@ def test_prose_blocks_inherit_the_previous_structural_heading():
     heads = [c.heading for c in chunks]
     assert heads[0] == "Ⅱ. 사업 개요" and all(h for h in heads)
     assert "Ⅲ. 신청 자격" in heads and heads.index("Ⅲ. 신청 자격") > 0
+
+
+def test_headed_table_skeleton_is_not_protected_by_its_heading():
+    """표제가 있어도 기호가 글자보다 많은 표 껍데기는 적재 관문을 못 넘는다."""
+    from zzaimy.app.regulations import RegulationChunk, index_ready
+
+    skeleton = " | ".join(["-----"] * 12) + "\n" + " | ".join(["|"] * 12) + "\n합계 1 2 3 4 5 6 7 8 9 10 11 12 13"
+    kept, dropped = index_ready(1, [
+        RegulationChunk(heading="< 예산 집행 기준 >", content=skeleton),
+        RegulationChunk(heading="제2조(정의)", content="제2조(정의) 이 규정에서 쓰는 용어의 뜻은 다음과 같다. 1. 사업단이란 대학이 설치한 조직을 말한다."),
+    ])
+    assert [c.heading for c in kept] == ["제2조(정의)"] and dropped == 1
