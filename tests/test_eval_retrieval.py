@@ -36,3 +36,11 @@ def test_empty_inputs_are_zero():
     assert recall_at_k([], [], k=5) == 0.0
     assert mrr([], []) == 0.0
     assert ndcg_at_k([], [], k=5) == 0.0
+
+
+def test_production_row_uses_the_production_candidate_count():
+    """측정의 '운영 구성' 행은 운영과 같은 수의 후보를 리랭커에 넘겨야 한다 — 어긋나면 운영을 재현하지 못한다."""
+    from zzaimy.app import regulations as reg
+    from zzaimy.eval import retrieval_eval as rev
+
+    assert rev.PRODUCTION_CANDIDATES == reg.CANDIDATE_LIMIT
