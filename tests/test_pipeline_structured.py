@@ -96,3 +96,32 @@ def test_public_documents_may_use_the_public_reader_only_when_set(tmp_path):
     assert proc._vision_role() == "vision_public"
     proc._doc_public = False
     assert proc._vision_role() == "vision"                    # 교내 문서는 언제나 교내 판독
+
+
+def test_review_continues_when_the_model_hits_the_length_limit(monkeypatch):
+    """검토 의견이 상한에 걸리면 한 번 이어 쓰고, 그래도 끝나지 않으면 끊겼다고 적는다."""
+    from types import SimpleNamespace
+    from zzaimy.app import pipeline as pl
+    from zzaimy.app.pipeline import DocumentProcessor, looks_cut
+
+    assert looks_cut("실무 역량 강화에 기여할") and not looks_cut("실무 역량 강화에 기여한다.")
+    calls = []
+
+    class FakeCompletions:
+        def create(self, **kw):
+            calls.append(kw)
+            reasons = ["length", "stop"]
+            content = ["요약: 편성표는 전공별로", " 교과목을 배치한다."][len(calls) - 1]
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content),
+                                                            finish_reason=reasons[len(calls) - 1])])
+
+    class FakeClient:
+        model = "m"
+        _extra = {}
+        client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+
+    monkeypatch.setattr("zzaimy.generate.client.VllmClient", lambda role="": FakeClient())
+    out = DocumentProcessor()._review("본문", "regulation")
+    assert out == "요약: 편성표는 전공별로\n교과목을 배치한다." and len(calls) == 2
+    assert calls[0]["max_tokens"] == DocumentProcessor.REVIEW_MAX_TOKENS
+    assert "이어서" in calls[1]["messages"][-1]["content"]
