@@ -3402,23 +3402,36 @@ def create_app(
             raise HTTPException(400, str(exc))
         return RedirectResponse("/dev/egress", status_code=303)
 
-    _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼 구축)의 주간 업무 보고를 작성한다.
-독자는 지도교수다. 아래 원자료(이번 주 피드백·커밋 이력·실험 기록)를 바탕으로 쓰되, 원자료를 나열하지 말고
-간략하게 정리하라. 피드백(미팅 결정·지도교수 의견)이 있으면 그 내용을 먼저 반영하고, 그에 대해 한 일을 잇는다.
+    _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼)의 주간 업무 보고를 쓴다. 독자는 지도교수이고
+개발자가 아니다. 아래 원자료를 바탕으로 쓰되 원자료를 옮겨 적지 말고, 무엇을 했고 무엇이 되었는지만 짧게 쓴다.
+피드백(미팅 결정·지도교수 의견)이 있으면 그 내용을 먼저 반영하고 그에 대해 한 일을 잇는다.
 
 {sections}
 
-규칙: 항목은 번호(1. 2.)와 세부 줄(들여쓴 -)로. 한 항목은 한두 줄. 숫자는 원자료에 있는 것만 쓴다.
-과장·수식어·볼드·이모지 금지. 【】 제목은 양식 그대로 쓴다.
+쓰는 법:
+- 【이번 주 한 일】은 아래 [기준 틀]의 큰 축(플랫폼·모델(LLM)·데이터 같은 것) 단위로 3~5개. 큰 항목은 "무엇 — 결과" 한 줄
+  (예: "모델 선정 — 베이스 모델을 Qwen 27B로 확정"). 세부 줄은 항목당 0~2줄, 각각 한 줄, 핵심만. 기획서에 쓸 높이로 쓴다 —
+  어떻게 구현했는지가 아니라 무엇이 되었는지.
+- 【다음 주 계획】은 3개 안팎, 각 한 줄. [다음에 할 일] 원자료에서만 고른다.
+- 【이슈/건의사항】은 실제 막힌 것·요청할 것만. 없으면 "없음".
+- 쓰지 않는 것: 파일·스크립트·함수 이름, 결정 번호(ADR 등), 영문 약어·개발 용어(폴백·타임아웃·리랭커·임베딩 같은 말).
+  꼭 필요하면 우리말로 풀어 쓴다(예: "검색 결과를 다시 줄 세우는 모델").
+- 숫자는 원자료에 있는 것만. 과장·수식어·볼드·이모지 금지. 【】 제목은 양식 그대로.
+
+[기준 틀 — 기획서 개발 내용]
+{frame}
 
 [이번 주 피드백·미팅 결정]
 {feedback}
 
-[커밋 이력]
-{changelog}
+[지금 하는 일·이번 주 한 일 — 현재 상태 문서]
+{now}
 
-[실험 기록]
-{experiments}"""
+[다음에 할 일 — 현재 상태 문서]
+{plans}
+
+[참고: 이번 주 작업 기록 제목만]
+{changelog}"""
 
     _WEEKLY_SECTIONS_DEFAULT = """마크다운으로, 아래 섹션 구성 그대로:
 ## 요약
@@ -3493,8 +3506,30 @@ def create_app(
         if cache.exists() and not fresh:
             return cache.read_text(encoding="utf-8")
 
-        changelog = _dev_read("dev-changelog.md")[:4000]
-        experiments = _dev_read("paper/실험-로그.md")[:4000]
+        # 원자료는 사람이 읽는 현재 상태 문서가 먼저다 — 커밋 기록은 제목만, 이번 주 것만 참고로 준다.
+        dn = _dev_read("dev-now.md")
+
+        def _section(text: str, head: str) -> str:
+            if head not in text:
+                return ""
+            return text.split(head, 1)[1].split("\n## ", 1)[0].strip()
+
+        now_text = _section(dn, "## 지금 하는 일")
+        recent = _section(dn, "## 최근 작업")
+        # 이번 주 날짜(월요일 이후)의 '### YYYY-MM-DD' 묶음만
+        week_parts = []
+        for chunk in recent.split("\n### ")[1:] if recent else []:
+            day = chunk[:10]
+            if day >= monday:
+                week_parts.append("### " + chunk.strip())
+        if week_parts:
+            now_text = (now_text + "\n\n이번 주 한 일:\n" + "\n".join(week_parts)).strip()
+        plans = _section(dn, "## 다음에 할 일")
+        # 기준 틀 — 기획서의 개발 내용(플랫폼·모델·데이터 축). 보고는 이 축의 높이에서 쓴다.
+        frame = _section(_dev_read("paper/프로젝트-기획서.md"), "## 개발 내용")[:2500]
+        week_lines = [ln for ln in _dev_read("dev-changelog.md").splitlines()
+                      if ln.startswith("- ") and ln[2:7] >= f"{monday[5:7]}-{monday[8:10]}"]
+        changelog = "\n".join(week_lines[:60])[:3000]
         body: str | None = None
         try:
             from zzaimy.generate.client import VllmClient
@@ -3504,9 +3539,11 @@ def create_app(
                 model=client.model,
                 messages=[{"role": "user", "content": _WEEKLY_PROMPT.format(
                     sections=_weekly_sections()[0],
+                    frame=frame or "(없음)",
                     feedback=_weekly_feedback(monday) or "(없음)",
+                    now=now_text[:5000] or "(없음)",
+                    plans=plans[:2000] or "(없음)",
                     changelog=changelog or "(없음)",
-                    experiments=experiments or "(없음)",
                 )}],
                 temperature=0.3, max_tokens=1600,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}},
@@ -3531,12 +3568,9 @@ def create_app(
             if ln.startswith("|")
         )
         scale = " · ".join(f"{t['label']} {t['value']}" for t in _data_overview()["tiles"])
-        full = "\n".join([
-            f"## 기간\n{monday} ~ {today}", "", body, "",
-            "## 정량 지표", "검색 기준선:", base_tbl or "(미측정)", "",
-            "모델 학습(임베딩):", embed_tbl or "(미측정)", "",
-            f"시스템 규모: {scale}",
-        ])
+        # 양식 밖의 것은 붙이지 않는다(2026-09-22 사용자: "너무 어렵게 적혀 있다"). 기간은 제목에 있다.
+        full = body.strip() + "\n"
+        _ = (base_tbl, embed_tbl, scale)      # 지표는 화면(측정 기록)에서 본다
         cache.write_text(full, encoding="utf-8")
         return full
 
