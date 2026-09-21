@@ -184,6 +184,13 @@
   .use-form { grid-column:1 / -1; display:flex; flex-direction:column; gap:10px;
               background:var(--bg-soft, #F7F8FA); border-radius:10px; padding:12px; margin-top:6px; }
   #useForm .use-form { width:100%; max-width:none; min-width:0; box-sizing:border-box; }
+  #useForm .use-dialog { width:min(620px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); padding:0; border:1px solid var(--line); border-radius:16px; color:var(--ink); background:white; overflow:hidden; }
+  .use-dialog::backdrop { background:rgba(24,32,45,.38); }
+  .use-dialog-head, .use-dialog-actions { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 22px; }
+  .use-dialog-head h3 { margin:0; font-size:16px; }
+  .use-dialog-actions { justify-content:flex-end; border-top:1px solid var(--line); }
+  #useForm .use-dialog .use-form { max-height:calc(100dvh - 220px); overflow-y:auto; overscroll-behavior:contain; border-radius:0; padding:22px; margin:0; }
+  .use-dialog .use-dialog-note { margin:0; color:var(--muted); font-size:12px; flex:1; }
   .pick-group { display:flex; flex-direction:column; gap:6px; }
   .pick-label { font-size:11.5px; color:var(--muted); }
   .chips { display:flex; flex-wrap:wrap; gap:6px; max-height:168px; overflow:auto; }
@@ -276,8 +283,10 @@
             {% if not own %}<span class="pill use-tag">자동</span>{% endif %}
           {% else %}<span class="muted">지정된 서버가 없습니다</span>{% endif %}
         </div>
-        <button type="button" class="btn-ghost use-edit" data-use-open>변경</button>
-        <div class="use-form" hidden>
+        <button type="button" class="btn-ghost use-edit" data-use-open aria-haspopup="dialog" aria-controls="useDialog-{{ r.role }}">변경</button>
+        <dialog class="use-dialog" id="useDialog-{{ r.role }}" aria-labelledby="useTitle-{{ r.role }}">
+        <div class="use-dialog-head"><h3 id="useTitle-{{ r.role }}">{{ r.label }}</h3><button type="button" class="icon-btn" data-use-cancel aria-label="닫기">×</button></div>
+        <div class="use-form">
         {# 고르는 것은 '어느 서버의 어느 모델' 하나다. 선택창(select)을 쓰면 목록이 OS 팝업으로 떠서
            스크롤을 가로채고, 서버·모델 두 칸이 서로 빈 상태를 만든다. 칩으로 펼쳐 두면 무엇이 있는지
            바로 보이고 응답 없는 서버는 눌리지 않는다. 값은 hidden 에 "연결id|모델" 로 담는다 #}
@@ -317,6 +326,8 @@
           </div>
         </div>
       </div>
+      <div class="use-dialog-actions"><p class="use-dialog-note">적용 후 변경사항을 저장하세요.</p><button type="button" class="secondary" data-use-cancel>취소</button><button type="button" data-use-apply>적용</button></div>
+      </dialog>
       </div>
       {% endfor %}
     </div>
@@ -339,6 +350,7 @@
       <span class="muted plan-role">{{ p.role }}</span>
       <span class="plan-base muted">계획 {{ p.base }}</span>
       <span class="use-model">{{ p.model or "미지정" }}</span>
+      {% if p.train_state %}<span class="pill use-tag">{{ p.train_state }}</span>{% endif %}
       <span class="muted srv-n">{{ p.where or "—" }}</span>
       {% if p.ok and p.matches_plan %}<span class="pill reviewed">정상</span>
       {% elif p.ok %}<span class="pill type">다른 모델</span>
@@ -470,15 +482,34 @@ document.addEventListener("DOMContentLoaded", function () {
       var open = row.querySelector("[data-use-open]");
       var box = row.querySelector(".use-form");
       var pick = row.querySelector("[data-role-pick]");
+      var dialog = row.querySelector(".use-dialog");
+      var beforeOpen = pick.value;
+      var originalSummary = row.querySelector('.use-now').innerHTML;
+      function summary() {
+        var now = row.querySelector('.use-now');
+        if (pick.value === pick.dataset.saved) { now.innerHTML = originalSummary; return; }
+        var server = serverOf(row), model = pick.value.slice(server.length + 1);
+        var selected = Array.from(row.querySelectorAll('.pick-group > .chips > .chip')).find(function(c) { return c.dataset.model === undefined && c.dataset.server === server; });
+        var label = selected ? selected.cloneNode(true) : null;
+        if (label) label.querySelectorAll('.chip-n').forEach(function(n) { n.remove(); });
+        var name = document.createElement('strong'); name.textContent = label ? label.textContent.trim() : '자동';
+        var value = document.createElement('span'); value.className = 'use-model'; value.textContent = model || '자동';
+        now.replaceChildren(name, value);
+      }
+      row._paintSummary = summary;
+      function dismiss() { pick.value = beforeOpen; paintChips(row); paint(); dialog.close(); }
+      dialog.addEventListener('cancel', function(e) { e.preventDefault(); dismiss(); });
+      dialog.querySelectorAll('[data-use-cancel]').forEach(function(b) { b.addEventListener('click', dismiss); });
+      dialog.querySelector('[data-use-apply]').addEventListener('click', function() { summary(); paint(); dialog.close(); });
+      dialog.addEventListener('close', function() { open.focus(); });
+      dialog.addEventListener('keydown', function(e) { if (e.key === 'Enter' && e.target.matches('input')) e.preventDefault(); });
       open.addEventListener("click", function () {
-        var show = box.hidden;
-        box.hidden = !show;
-        open.textContent = show ? "닫기" : "변경";
-        if (show) {
+          beforeOpen = pick.value;
+          box.querySelector('.chip-filter').value = '';
           paintChips(row);
+          dialog.showModal();
           var first = box.querySelector(".chip:not(:disabled)");
           if (first) first.focus();
-        }
       });
       row.querySelectorAll(".pick-group > .chips > .chip").forEach(function (chip) {
         if (chip.dataset.model !== undefined) return;
@@ -512,7 +543,8 @@ document.addEventListener("DOMContentLoaded", function () {
         var pick = row.querySelector("[data-role-pick]");
         pick.value = pick.dataset.saved;
         paintChips(row);
-        row.querySelector(".use-form").hidden = true;
+        row.querySelector(".use-dialog").close();
+        row._paintSummary();
         row.querySelector("[data-use-open]").textContent = "변경";
       });
       paint();
