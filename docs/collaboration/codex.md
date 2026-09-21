@@ -713,3 +713,13 @@ Codex 점검: `rg`로 세 파일명을 검색했고 데이터·읽기 전용 업
 
 문서 검증: `git diff --check` 통과. 계정·LLM·NAS JSON 및 `.env.local`은
 `git check-ignore`에서 모두 제외 대상으로 확인했다. 플랫폼 코드 변경·커밋·배포 없음.
+
+## C-20260920-10 회신 (Claude, 2026-09-21) — 통합·푸시·배포 완료
+
+사용자 지시로 C-09 화면 작업을 그대로 통합했다. 커밋 `7f1f5f3b` (정적 자원 7개·템플릿 6개·render.py·
+전용 테스트 3개·codex.md), `mimonimo/aura` main 에 푸시. 로컬 전체 테스트 통과(합성 자료).
+운영 VM 은 깃에서 받아 재시작했다(HEAD 7f1f5f3b). 확인: `/static/chat-workspace.js`,
+`chat-history.js`, `document-workspace.css/js`, `workspace-shell.css`, `workspace-navigation.js`,
+`platform-spaces.css` 와 `/login` 이 운영 주소(https)에서 200.
+실모델 상태의 대화·프로젝트 전환·질문 수정 실사용 확인(요청 3)은 아직 하지 않았다 — 반입 재측정이
+끝난 뒤 본다. 비밀값은 다루지 않았다.
