@@ -1928,6 +1928,30 @@ def create_app(
             "quality_open": db.list_quality_reports(status="open", limit=10),
         }))
 
+    _doc_dates: dict[str, str] = {}
+
+    def _doc_last_changed(rel: str) -> str:
+        """docs/ 파일의 마지막 변경일(YYYY-MM-DD) — 깃 기록이 있으면 그것, 없으면 파일 수정 시각."""
+        if rel in _doc_dates:
+            return _doc_dates[rel]
+        import subprocess
+        from datetime import datetime as _dt
+
+        out = ""
+        try:
+            r = subprocess.run(["git", "log", "-1", "--format=%ad", "--date=short", "--", str(_DOCS_DIR / rel)],
+                               capture_output=True, text=True, timeout=5, cwd=str(_DOCS_DIR.parent))
+            out = (r.stdout or "").strip()
+        except Exception:
+            out = ""
+        if not out:
+            try:
+                out = _dt.fromtimestamp((_DOCS_DIR / rel).stat().st_mtime).strftime("%Y-%m-%d")
+            except OSError:
+                out = ""
+        _doc_dates[rel] = out
+        return out
+
     @app.get("/dev/docs", response_class=HTMLResponse)
     def dev_docs(request: Request):
         """논문 자료·설계 결정·기술 검토·측정 기록 목록."""
@@ -1954,7 +1978,10 @@ def create_app(
                     first_date = d.group(0)
             if meta["date"] and (d := date_re.search(meta["date"])):
                 meta["date"] = d.group(0)
-            status = re.split(r"\s*[(（]", meta["status"], 1)[0].strip()
+            if not meta["date"] and not first_date:
+                # 머리에 날짜가 없는 문서는 깃의 마지막 수정일 — 목록의 날짜 칸이 들쭉날쭉하지 않게(2026-09-22 사용자 지적)
+                first_date = _doc_last_changed(rel)
+            status = re.split(r"\s*[(（]", meta["status"], maxsplit=1)[0].strip()
             num = ""
             title = title or rel.rsplit("/", 1)[-1]
             if m := re.match(r"^(\d{4})\.\s*(.+)$", title):
