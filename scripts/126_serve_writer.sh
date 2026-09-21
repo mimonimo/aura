@@ -29,11 +29,14 @@ EXTRA="${EXTRA:-}"                 # 예: --quantization modelopt (NVFP4 판은 
 echo "[$(date +%T)] $HOST 서빙 시작 — $MODEL · 문맥 $MAXLEN · 포트 $PORT · 이름 $SERVED"
 ssh -p $TP "$THOR" "test -d \$HOME/zzaimy/models/$(basename $MODEL)" \
   || { echo "가중치가 없습니다: $HOST:~/zzaimy/models/$(basename $MODEL)" >&2; exit 2; }
+# 이미지마다 진입점이 다르다 — gemma4 빌드는 셸(명령에 vllm 을 써야 함), qwen3.8 빌드는 진입점이 이미 vllm 이다.
+# 진입점에 vllm 이 있으면 'serve …' 만 넘긴다(2026-09-21 실측: 'vllm vllm serve' 로 13번 재시작).
+CMD=$(ssh -p $TP "$THOR" "docker image inspect -f '{{.Config.Entrypoint}}' $IMAGE 2>/dev/null | grep -q vllm && echo serve || echo 'vllm serve'")
 ssh -p $TP "$THOR" "docker rm -f $NAME >/dev/null 2>&1 || true
 docker run -d --name $NAME --restart unless-stopped --runtime nvidia --ipc host \
   -p $PORT:8000 -v \$HOME/zzaimy/models:/models \
   -e HF_HOME=/root/.cache/huggingface -v \$HOME/zzaimy/hf:/root/.cache/huggingface \
-  $IMAGE vllm serve $MODEL --host 0.0.0.0 --port 8000 --served-model-name $SERVED \
+  $IMAGE $CMD $MODEL --host 0.0.0.0 --port 8000 --served-model-name $SERVED \
   --max-model-len $MAXLEN --gpu-memory-utilization $UTIL $EXTRA >/dev/null"
 echo "[$(date +%T)] 준비 기다리는 중 (27B 적재는 몇 분 걸린다)"
 for i in $(seq 1 80); do
