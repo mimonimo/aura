@@ -375,10 +375,10 @@ class Database:
         # 같은 제목의 문서를 가르는 말은 대개 거기 있다.
         import re as _re
 
-        from zzaimy.app.doc_title import _ORG_ONLY, _title_like
+        from zzaimy.app.doc_title import _ORG_ONLY, _plain, _title_like
 
         def _clean(sub: str) -> str:
-            sub = _re.sub(r"\s*[,，]\s*", ", ", sub.strip(" ()（）[]【】:：-·"))
+            sub = _re.sub(r"\s*[,，]\s*", ", ", _plain(sub).strip(" ()（）[]【】:：-·"))
             return _re.sub(r"\s{2,}", " ", sub).strip()
 
         def _usable(sub: str) -> bool:
@@ -388,24 +388,26 @@ class Database:
                 return False                      # 부서·기관 줄은 문서를 가르는 말이 아니다
             return _title_like(_re.sub(r"[:：]", " ", sub))   # '법인사업자:지점' 같은 항목:값도 구분이 된다
 
-        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        lines = [_plain(ln) for ln in text.splitlines() if _plain(ln)]
         base_raw = name.split(" · ")[0]
         base = _re.sub(r"[\s()（）]", "", base_raw)
+        # 제목이 나오는 모든 줄을 본다 — 판독 결과는 제목을 두 번 적기도 한다('## 제목' 뒤에 '**제목** (부제)').
+        # 줄마다 제목 뒤에 남은 말('(웰로 앱 사용 매뉴얼)')이 먼저, 그다음이 그 다음 줄이다.
+        cands: list[str] = []
         for i, ln in enumerate(lines[:12]):
             flat = _re.sub(r"[\s()（）]", "", ln)
             if not base or base not in flat:
                 continue
-            # 제목 줄에 남은 말('( 웰로 앱 사용 매뉴얼 )')이 먼저, 없으면 다음 줄
-            rest = _clean(ln[ln.find(base_raw.split()[0]):].replace(base_raw, "", 1)) if base_raw.split() else ""
-            cands = [rest] if rest else []
+            rest = _clean(ln.replace(base_raw, "", 1)) if base_raw in ln else ""
+            if rest:
+                cands.append(rest)
             if i + 1 < len(lines):
                 cands.append(_clean(lines[i + 1]))
-            for sub in cands:
-                if _usable(sub):
-                    merged = f"{name} · {sub}"
-                    if merged not in taken:
-                        return merged
-            break
+        for sub in cands:
+            if _usable(sub):
+                merged = f"{name} · {sub}"
+                if merged not in taken:
+                    return merged
         for line in (ln.strip() for ln in text.splitlines()):
             if not (4 <= len(line) <= 40) or line in name:
                 continue

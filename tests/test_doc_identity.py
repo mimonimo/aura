@@ -376,3 +376,26 @@ def test_field_value_line_can_still_tell_same_titles_apart(tmp_path):
         db.rename_from_text(d, f"사업자등록증\n( {sub} )\n등록번호 : 000-00-00000")
         names.append(db.get_document(d)["filename"])
     assert names == ["사업자등록증", "사업자등록증 · 법인사업자:지점"]
+
+
+def test_markdown_from_vision_output_is_not_part_of_names(tmp_path):
+    """비전 판독 결과는 마크다운이다 — '## 제목', '**굵게**' 표시는 이름에 들어가지 않는다."""
+    from zzaimy.app.db import Database
+    from zzaimy.app.doc_title import loose_title, tidy_name
+
+    assert loose_title("[[속성]] 손글씨:아니오\n## **가구원 정보 제공 절차 (홈페이지, 모바일앱)**\n한국장학재단") \
+        == "가구원 정보 제공 절차 (홈페이지, 모바일앱)"
+    assert tidy_name("## 분석 결과") == "분석 결과"
+    db = Database(tmp_path / "t.db")
+    names = []
+    for sub in ("(홈페이지, 모바일앱)", "(웰로 'Wello' 앱 사용 매뉴얼)"):
+        d = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="", doc_type="regulation")
+        db.rename_from_text(d, f"## 가구원 정보 제공 동의 절차\n**가구원 정보 제공 동의 절차** **{sub}**\n한국장학재단 국가장학실")
+        names.append(db.get_document(d)["filename"])
+    assert names == ["가구원 정보 제공 동의 절차", "가구원 정보 제공 동의 절차 · 웰로 'Wello' 앱 사용 매뉴얼"]
+
+
+def test_three_letter_form_name_in_table_cell():
+    from zzaimy.app.doc_title import loose_title
+
+    assert loose_title("예비군대대 | 예비군대대 | 복학원 | 복학원 | 결 재 | 담당") == "복학원"

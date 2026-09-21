@@ -37,7 +37,8 @@ _LOOSE_SKIP = re.compile(
     r"|[:：]"                                        # ': 대구광역시 …' 처럼 항목의 값만 남은 줄
     r"|[가-힣A-Za-z]{1,8}\s*[:：]"                   # '지원범위: 2026년 …' 처럼 항목:값 줄
     r"|\d{1,2}\s+(?=[가-힣])"                         # '1 모집분야 및 지원자격' 처럼 번호 붙은 절 제목
-    r"|【)",
+    r"|【"
+    r"|\[\[)",                                       # 판독기의 속성 줄 '[[속성]] …'
     re.IGNORECASE)
 # 공고·고시는 첫 줄에 문서 번호를 적고 그다음 줄에 제목을 적는다 — 번호 줄은 이름이 아니다
 _DOC_NUMBER = re.compile(
@@ -73,10 +74,15 @@ def _cell_title(ln: str) -> str | None:
     '영문성명등록신청서 | | 전결 | |' 처럼 서식 이름이 첫 칸에 오면 그 칸이 문서 이름이다.
     '|학년|학년|학번|' 처럼 항목 이름만 늘어선 줄에는 이름이 없다.
     """
-    first = next((c for c in (_clean_cell(x) for x in _CELL.split(ln)) if c), "")
-    if len(re.findall(r"[가-힣]", first)) < 5 or not _kind_like(first):
-        return None
-    return first
+    # 서식의 이름 칸은 첫 칸이 아닐 수 있다('예비군대대 | 복학원 | 결재') — 칸을 차례로 본다.
+    # '복학원'·'신청서'처럼 세 글자 서식 이름은 문서 종류로 끝날 때만 받는다.
+    for cell in (_clean_cell(x) for x in _CELL.split(ln)):
+        if not cell or not _kind_like(cell):
+            continue
+        hangul = len(re.findall(r"[가-힣]", cell))
+        if hangul >= 5 or (hangul >= 3 and cell.endswith(("서", "표", "원"))):
+            return cell
+    return None
 
 
 # 이름 앞의 첨부 표시 — '붙임1.', '[붙임2]', '(서식2-1)', '별첨' 은 문서가 실린 자리이지 이름이 아니다
@@ -99,6 +105,7 @@ def tidy_name(name: str) -> str:
     if out.count("+") >= 2 and " " not in out:          # URL 에서 온 이름의 구분자
         out = out.replace("+", " ")
     out = re.sub(r"\\([~*_#\[\]()])", r"\1", out)           # '\~' → '~'
+    out = _MD.sub("", out)                                   # '## 제목'·'**굵게**' 의 표시
     out = _SYMBOL.sub(" ", out)
     prev = None
     while prev != out:                                   # '[붙임2] 붙임 …' 처럼 겹친 표시
@@ -132,6 +139,14 @@ def _title_like(ln: str) -> bool:
     return not re.search(r"(?:다|요|함|음)\s*[.。]?$", ln)   # 문장은 제목이 아니다
 
 
+_MD = re.compile(r"^\s*#{1,6}\s*|\*\*|__|`")
+
+
+def _plain(ln: str) -> str:
+    """비전 판독 결과는 마크다운이다('## 제목', '**굵게**') — 표시는 이름이 아니다."""
+    return re.sub(r"\s{2,}", " ", _MD.sub("", ln)).strip()
+
+
 def _unspace(ln: str) -> str:
     """'입 찰 공 고' 처럼 글자마다 띄운 제목을 붙인다(모든 토큰이 한 글자일 때만)."""
     toks = ln.split()
@@ -146,8 +161,7 @@ def loose_title(text: str) -> str | None:
     첫 줄이 짧고(12자 미만) 다음 줄도 제목처럼 보이면 두 줄로 나뉜 제목으로 보고 잇는다
     ('2025학년도 입학자' + '연계교육과정 편성표').
     """
-    lines = [re.sub(r"\s{2,}", " ", ln.strip())
-             for ln in (text or "").replace("\r", "\n").split("\n") if ln.strip()]
+    lines = [_plain(ln) for ln in (text or "").replace("\r", "\n").split("\n") if _plain(ln)]
     head = lines[:_LOOSE_LINES]
     for i, ln in enumerate(head):
         ln = _unspace(ln)
@@ -171,7 +185,7 @@ def loose_title(text: str) -> str | None:
 
 def find_title(text: str) -> tuple[str | None, str | None]:
     """본문 머리에서 (이름, 날짜)를 찾는다. 없으면 각각 None."""
-    lines = [ln.strip() for ln in (text or "").replace("\r", "\n").split("\n") if ln.strip()]
+    lines = [_plain(ln) for ln in (text or "").replace("\r", "\n").split("\n") if _plain(ln)]
     head = lines[:_HEAD_LINES]
     title = None
     for ln in head:
