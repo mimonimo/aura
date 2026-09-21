@@ -31,7 +31,13 @@ ssh -p $TP "$THOR" "test -d \$HOME/zzaimy/models/$(basename $MODEL)" \
   || { echo "가중치가 없습니다: $HOST:~/zzaimy/models/$(basename $MODEL)" >&2; exit 2; }
 # 이미지마다 진입점이 다르다 — gemma4 빌드는 셸(명령에 vllm 을 써야 함), qwen3.8 빌드는 진입점이 이미 vllm 이다.
 # 진입점에 vllm 이 있으면 'serve …' 만 넘긴다(2026-09-21 실측: 'vllm vllm serve' 로 13번 재시작).
-CMD=$(ssh -p $TP "$THOR" "docker image inspect -f '{{.Config.Entrypoint}}' $IMAGE 2>/dev/null | grep -q vllm && echo serve || echo 'vllm serve'")
+EP=$(ssh -p $TP "$THOR" "docker image inspect -f '{{join .Config.Entrypoint \" \"}}' $IMAGE 2>/dev/null")
+case "$EP" in
+  *serve*) CMD="" ;;            # 진입점이 'vllm serve' — 모델 경로부터 넘긴다
+  *vllm*)  CMD="serve" ;;       # 진입점이 'vllm'
+  *)       CMD="vllm serve" ;;  # 진입점이 셸
+esac
+echo "   이미지 진입점: '${EP:-없음}' → 명령 '$CMD'"
 ssh -p $TP "$THOR" "docker rm -f $NAME >/dev/null 2>&1 || true
 docker run -d --name $NAME --restart unless-stopped --runtime nvidia --ipc host \
   -p $PORT:8000 -v \$HOME/zzaimy/models:/models \
