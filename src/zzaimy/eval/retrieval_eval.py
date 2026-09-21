@@ -286,6 +286,37 @@ class Retrievers:
     hybrid: Callable[[str, list[int], list[int]], list[int]]
     rerank: Callable[[str, list[int]], list[int]] | None = None
     meta: dict = field(default_factory=dict)
+    # 대안 조밀 축(예: KURE-v2 다중 벡터 서비스) — 있으면 운영 축과 나란히 같은 질의로 잰다(ADR-0022 의 채택 조건).
+    alt_dense: Callable[[str], list[int]] | None = None
+    alt_name: str = ""
+
+
+def alt_dense_from_env() -> tuple[Callable[[str], list[int]] | None, str]:
+    """ZZAIMY_ALT_DENSE_URL(…/search) 이 있으면 그 서비스로 조각 순위를 받는다. 이름은 /health 의 model."""
+    import json
+    import urllib.request
+
+    url = os.environ.get("ZZAIMY_ALT_DENSE_URL", "").strip()
+    if not url:
+        return None, ""
+    name = os.environ.get("ZZAIMY_ALT_DENSE_NAME", "").strip()
+    if not name:
+        try:
+            base = url.rsplit("/", 1)[0]
+            with urllib.request.urlopen(base + "/health", timeout=10) as r:
+                name = str(json.load(r).get("model") or "")
+        except Exception:
+            name = ""
+    name = name or "대안 조밀"
+    from zzaimy.app.regulations import HYBRID_TOP_K
+
+    def alt(q: str) -> list[int]:
+        req = urllib.request.Request(url, data=json.dumps({"query": q, "top_k": HYBRID_TOP_K}).encode(),
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return [int(i) for i in json.load(r).get("ids", [])]
+
+    return alt, name
 
 
 def production_retrievers(db, chunks: list[dict] | None = None) -> Retrievers:
@@ -327,14 +358,16 @@ def production_retrievers(db, chunks: list[dict] | None = None) -> Retrievers:
         for part in search_serving.status():
             if part["key"] == "rerank" and part["model"]:
                 rerank_model = part["model"]
+    alt, alt_name = alt_dense_from_env()
     meta = {
         "n_chunks": len(chunks),
         "embedding_model": es._index_model_name() or es.MODEL_NAME,
         "embedding_active": bool(es._index._load()),
         "rerank_model": rerank_model,
         "rerank_active": rerank is not None,
+        "alt_dense_model": alt_name or None,
     }
-    return Retrievers(lexical, dense, hybrid, rerank, meta)
+    return Retrievers(lexical, dense, hybrid, rerank, meta, alt_dense=alt, alt_name=alt_name)
 
 
 # ---------------------------------------------------------------- 지표
@@ -371,6 +404,9 @@ def evaluate(
     den_runs: list[list[int]] = []
     hyb_runs: list[list[int]] = []
     cand_runs: list[list[int]] = []          # 리랭커에 넘길 후보 — 운영과 같은 개수(CANDIDATE_LIMIT)
+    alt_runs: list[list[int]] = []           # 대안 조밀 축(있을 때) — 단독 · 어휘와 융합 · 후보
+    alt_hyb_runs: list[list[int]] = []
+    alt_cand_runs: list[list[int]] = []
     for i, q in enumerate(queries, start=1):
         lex = list(retrievers.lexical(q.text))
         den = list(retrievers.dense(q.text))
@@ -379,6 +415,12 @@ def evaluate(
         hyb = list(retrievers.hybrid(q.text, lex, den))
         hyb_runs.append(hyb[:TOP_K])
         cand_runs.append(hyb[:PRODUCTION_CANDIDATES])
+        if retrievers.alt_dense is not None:
+            alt = list(retrievers.alt_dense(q.text))
+            alt_runs.append(alt[:TOP_K])
+            ahyb = list(retrievers.hybrid(q.text, lex, alt))
+            alt_hyb_runs.append(ahyb[:TOP_K])
+            alt_cand_runs.append(ahyb[:PRODUCTION_CANDIDATES])
         if i % 100 == 0:
             say(f"진행 {i}/{len(queries)}")
 
@@ -391,7 +433,17 @@ def evaluate(
         rows.append(_unmeasured(dense_method_name(retrievers.meta.get("embedding_model", "")),
                                 "임베딩 색인 없음"))
         notes.append("임베딩 색인 비활성 — 하이브리드 행은 어휘 단독 결과")
-    rows.append(_row(METHOD_HYBRID, hyb_runs, golds))
+    hyb_row = _row(METHOD_HYBRID, hyb_runs, golds)
+    hyb_row["recall_at_20"] = round(recall_at_k(cand_runs, golds, PRODUCTION_CANDIDATES), 4)   # 후보 진입률
+    rows.append(hyb_row)
+    alt_name = retrievers.alt_name or "대안 조밀"
+    if retrievers.alt_dense is not None:
+        rows.append(_row(f"다중 벡터({alt_name})", alt_runs, golds))
+        arow = _row(f"하이브리드(어휘+{alt_name})", alt_hyb_runs, golds)
+        arow["recall_at_20"] = round(recall_at_k(alt_cand_runs, golds, PRODUCTION_CANDIDATES), 4)
+        rows.append(arow)
+        notes.append(f"후보 진입률(R@{PRODUCTION_CANDIDATES}): 운영 하이브리드 {hyb_row['recall_at_20']:.3f} · "
+                     f"어휘+{alt_name} {arow['recall_at_20']:.3f}")
 
     # 운영 구성 — 크로스인코더는 CPU에서 질의당 수 초라 고정 시드 표본으로 잰다
     if no_rerank:
@@ -424,6 +476,15 @@ def evaluate(
         )
     prod["production"] = True
     rows.append(prod)
+    if retrievers.alt_dense is not None and retrievers.rerank is not None and not no_rerank:
+        # 같은 표본·같은 리랭커로 대안 축의 후보를 재정렬 — 운영 구성 행과 바로 견준다
+        n = len(queries)
+        idx = sorted(random.Random(seed).sample(range(n), min(rerank_sample, n)))
+        a_runs = [list(retrievers.rerank(queries[k].text, alt_cand_runs[k]))[:TOP_K] for k in idx]
+        arow = _row(f"어휘+{alt_name}+리랭커", a_runs, [golds[k] for k in idx])
+        arow["sample"] = {"seed": seed, "of": n}
+        arow["hybrid_on_sample"] = metrics([alt_hyb_runs[k] for k in idx], [golds[k] for k in idx])
+        rows.append(arow)
     return rows, notes
 
 
@@ -508,6 +569,7 @@ def run_eval(
         "gold_snapshot": str(snapshot) if snapshot else None,
         "embedding_model": meta.get("embedding_model"),
         "rerank_model": meta.get("rerank_model"),
+        "alt_dense_model": meta.get("alt_dense_model"),
         "lexical": "Kiwi 명사+IDF",
         "hybrid": f"RRF w_a={HYBRID_W_A} w_b=1.0 · 후보 {CANDIDATE_LIMIT}",
         "top_k": TOP_K,
