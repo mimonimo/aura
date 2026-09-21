@@ -8,10 +8,15 @@
                        padding: 6px 14px; }
   #sectorPills .pill:not(.on):hover { background: #E2E8F0; color: var(--ink); }
   #sectorPills .pill.on { background: #1E6B4F; color: #fff; }
-  .hero-row { display: flex; gap: 10px; justify-content: center; align-items: stretch; }
+  .criteria-hero { display: flex; flex-direction: column; align-items: center;
+                   gap: 24px; text-align: center; padding: 32px 0 28px; }
+  .criteria-hero h1 { margin: 0; font-size: 22px; line-height: 1.5; letter-spacing: -0.02em; }
+  .hero-row { display: flex; gap: 10px; justify-content: center; align-items: stretch; max-width: 100%; }
   .hero-row .searchbox { width: 520px; max-width: 60vw; padding: 0 20px; }
   .hero-row button { padding: 0 22px; height: 48px; }
   @media(max-width:600px) {
+    .criteria-hero { gap: 20px; padding: 24px 0; }
+    .criteria-hero h1 { font-size: 20px; }
     .hero-row { flex-wrap:wrap; }
     .hero-row .searchbox { flex:1 0 100%; width:100%; max-width:100%; min-height:46px; }
     .hero-row .searchbox input { min-width:0; }
@@ -20,8 +25,8 @@
 {% endblock %}
 {% block content %}
 
-<div style="text-align:center; padding:26px 0 20px;">
-  <h1 style="margin:0 0 6px; font-size:22px; letter-spacing:-0.02em;">규정 · 지침 · 매뉴얼 · 공고문</h1>
+<div class="criteria-hero">
+  <h1>규정 · 지침 · 매뉴얼 · 공고문</h1>
   <div class="hero-row">
     <div class="searchbox">
       <iconify-icon icon="solar:magnifer-linear" style="font-size:18px;"></iconify-icon>
@@ -36,7 +41,7 @@
   </div>
   {% set sec_counts = {} %}
   {% for d in documents %}{% if sec_counts.update({d.sector: sec_counts.get(d.sector, 0) + 1}) %}{% endif %}{% endfor %}
-  <div id="sectorPills" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:16px;">
+  <div id="sectorPills" style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
     <button type="button" class="pill" data-sector="" style="cursor:pointer; border:0; background:#1E6B4F; color:#fff;">전체 {{ documents|length }}</button>
     {% for sec, label in [("common", "공통"), ("grant", "국고사업"), ("recruit", "채용"), ("admission", "입학"), ("auto", "일반 행정")] %}
     {% if sec_counts.get(sec) %}

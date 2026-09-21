@@ -1,5 +1,249 @@
 # Codex 작업 기록
 
+## C-20260921-49 — 긴급 UI 배포 누락 확인 / 통합 요청
+
+운영 HTTPS workspace-shell.css 직접 조회: llm-settings-actions 및 useForm .use-list
+규칙 없음(9/21 11시대). 현재 사용자 스크린샷의 세로로 붙는 버튼/좌측 편집창은
+로컬 수정이 배포되지 않은 상태. K41 회신: **C29~42/C44/C46~49의 정적파일 및
+base/criteria/login/settings/dev_train 템플릿은 지금 통합 배포 요청**.
+기존 테스트 기록 참조, 파일 명시 staging 필요. C43 doc.html은 analyze+identity
+백엔드 연계가 남아 있으므로 별도로 처리. render.py/table 테스트는 희소셀 수정만,
+원본재현 완료 아님. dev_train 내에도 액션 flex 및 #useForm .use-form 전체폭을
+명시해 템플릿 단독 갱신시 깨짐 방지. 실제 운영 스타일 응답과 팝업 검수까지 필요.
+
+## C-20260921-48 — 최근 대화 제목 초기 렌더 안정화
+
+Codex base.html/chat-history.js/platform-spaces.css. 기존 서버 HTML은 bare link,
+JS 초기화 뒤 wrapper/menu 삽입으로 구조 변경. 이제 서버부터 동일 row/menu 슬롯과
+별도 title span 렌더. JS는 기존 메뉴에 이벤트만 연결, 중복 바인딩 방지.
+동적 갱신에도 title span 적용. 폰트 굵기500/아이콘15px 고정 유지.
+Claude 위3파일 C48 통합 배포 요청. 실제 운영 반영 전. 기존 공유 변경 보존.
+
+## C-20260921-47 — 프로필 및 채팅 입력 밀도
+
+Codex settings.html/platform-spaces.css 수정. 프로필 최대880px, 성명/부서 2열→모바일1열,
+응답 지침 별도 섹션, 저장 우측. 호칭은 기본 화면에서 제외하되 기존 값이 있는
+사용자는 수정/비우기 가능하게 유지(기존 설정 묵시 삭제 방지).
+채팅 dock-row 자체를 입력 카드로 사용, 안내 footer를 카드 밖으로 시각 분리.
+입력/액션 간14px 간격, 내부18px, 전송40px. 설정/프로필 테스트2개 통과.
+Claude C46/47 통합·배포 요청: settings.html/platform-spaces.css. C43은
+자동 분석/identity 갱신 백엔드 연계와 함께 배포해야 함. 계정/운영설정 변경 없음.
+
+## C-20260921-46 — 사이드바 브랜드 영역 비율
+
+진행 Codex platform-spaces.css. 로고 높이/너비 상충 규칙 통합,
+로고·서비스명 간격과 헤더 여백 확보, 접기 버튼을 로고 행 중앙 정렬.
+Chrome1600/768/390 로고-서비스명12px, 접기버튼 중앙 오차1px 미만,
+충돌/넘침 없음. 팝업 스크롤 및 개발자/그래프 회귀 브라우저 통과.
+
+## C-20260921-45 — 서비스 장애 신고 읽기 전용 점검
+
+10:57 KST HTTPS /login 200(0.146초), VM 서비스 active/running,
+ActiveEnterTimestamp10:54:00, NRestarts0. VM HTTPS / 303, /login200,
+workspace-shell.css200. 메모리 가용26GB, 디스크8%, load4.46/8.65/12.70.
+8000 probe는 리스너 없음; 실제443 리스닝 확인. 재시작/설정 변경하지 않음.
+로그인 이후 기능 장애까지 정상이라고 단정하지 않음.
+
+## C-20260921-44 — 로그인 아이디 기본값 제거
+
+진행 Codex login.html. username value="zzaimy" 하드코딩 확인.
+기본값 제거 및 최초 포커스를 아이디로 이동. 개인 비밀번호관리자 자동완성은 유지.
+로그인 UI/인증 테스트2개 통과. Claude login.html 및 tests/test_login_ui.py
+명시적 통합/배포 요청. 운영 기본값 제거는 아직 확인 전.
+
+## C-20260921-43 — 문서 분석 카드 통합
+
+진행 Codex doc.html 및 document-workspace.css: 기준/추출 문서의 요약과 확인된
+사업 메타를 한 카드로 통합, 완료 안내를 분석 본문으로 출력하지 않음.
+Claude 요청: /analyze 한 작업에서 identity 인출도 갱신하고 반입 후 자동 실행하는
+백엔드 연계 필요. main/pipeline은 동시 수정하지 않음. 현재 자동 분석 완료 아님.
+로컬 완료: 기준/추출 화면 상단 중복 사업정보 행 제거, 분석카드 내부 메타/요약 통합,
+헤더 액션 하나, '기준 등록 완료'도 placeholder로 판정. 없는 결과는 명시.
+관련 test_app 9개 및 새 test_document_analysis_ui 1개 통과, diff check 통과.
+Claude 통합 요청: doc.html/document-workspace.css/tests/test_document_analysis_ui.py.
+사업정보 별도 갱신 버튼을 통합 화면에서 제외했으므로 /analyze identity 갱신 연계와
+함께 배포 요망. 기존 /identity API와 비기준 문서 버튼은 유지. 운영/시각 검증 미실시.
+
+## C-20260920-42 — OCR 자동 배치 보존 및 기존 문서 검증 요청
+
+Claude 요청(미확인): 사용자는 문서별 수동 CSS 보정이 아니라 반입/OCR 과정에서
+좌표·크기·정렬·표 비율이 자동 생성/보존되는 구조를 요구. 대상 예시는
+'영남이공대학교 산학협력단 법인 정관' 첫 페이지: 중앙 제목/장제목, 우측 날짜,
+구분선, 들여쓰기와 행 배치. C40 계약 확인 후 파이프라인 개선 협업 필요.
+처리 완료 후 업데이트하고 기존 문서에도 적용됐는지 확인하라는 사용자 추가 요청.
+필요한 경우 원본 기반 재처리/재반입 검증 허용. 기존 ID·프로젝트 연결·대화 참조를
+보존하고 중복 문서 생성은 피할 것. 먼저 해당 문서로 검증하고 영향 범위 확인 후
+나머지 문서 적용. 운영 배포/재처리 실행 담당 Claude, 화면 대조 Codex로 요청.
+현재 배포/재처리 실행이나 원본 일치 확인이 끝난 상태는 아님.
+
+## C-20260920-41 — 기준 문서 검색 헤더 간격
+
+진행 Codex criteria.html 한정. 제목 하단 6px로 검색창과 붙어 보이는 문제를
+명시적 헤더 gap으로 교체. 모바일 검색/액션 배치도 확인 예정. OCR 배치 보존 C40은
+별도 미완료 과제로 유지. Claude 통합 요청은 검증 후 기록.
+로컬 수정 완료: 제목/검색행 간격 desktop24px·mobile20px, 필터도 독립 간격.
+Chrome1600/768/390 실제 렌더 간격24/24/20px 및 가로 넘침 없음 확인.
+개발자/모델/그래프 브라우저 회귀도 통과. git diff --check 통과.
+Claude 통합/배포 요청: criteria.html(C41). 운영 반영 확인 전 완료로 표시하지 않음.
+
+## C-20260920-40 — 사용자 정정: 원본 페이지 재현이 기준
+
+사용자는 반응형 HTML표 개선이 아니라 OCR 후 페이지의 크기/위치/비율을 원본처럼
+그리는 것을 요구. C39 희소셀 보완만으로 해결되지 않음.
+확인: ParsedTable.bbox 존재하지만 pipeline._table_payload는 bbox를 표 JSON에
+넣지 않음. render.extract_blocks는 순차 flow HTML, table_html은 width100% 및
+공통 font/padding을 사용. 원본 절대배치를 재현하는 경로가 아님.
+Claude 파이프라인 담당 요청: 원본 page dimensions+table bbox+cell geometry 보존
+여부 조사/계약 필요. 원본비율 페이지 캔버스와 OCR 검색/선택 레이어를 분리하고,
+표 확대도 같은 페이지/표 영역을 기준으로 표시. 원본에 없는 글꼴/행높이는 추정해
+원본이라 표시하지 말 것. 원본 이미지/PDF를 시각 기준으로 사용하고 추출 HTML은
+검색·편집용 별도 표현으로 구분. 아직 원본 재현 구현 완료 아님.
+C39 테스트102개 통과는 희소셀 회귀만 의미하며 원본 일치 검증이 아님.
+
+## C-20260920-39 — 추출 표 좌표/표시 보존
+
+진행 Codex render.py table_html 및 document-workspace.css, 별도 렌더 테스트.
+확인: col_w는 이미 전달되지만 renderer가 셀의 c좌표 사이 빈 칸을 출력하지 않아
+희소 셀에서 열 당김 가능. rowspan 점유를 고려해 빈 셀 복원. 긴 문자열 넘침 방지.
+OCR parser/html_table.py는 br 태그 무시로 줄바꿈 소실 가능(Claude 추출 담당 확인 요청).
+원본 글꼴/행높이는 ParsedTable에 없으므로 임의 재현하지 않음. 사용자에게 문서명/
+쪽번호 비동기 질문; 운영 원본 대조는 아직 미실시. 재처리/DB 변경 없음.
+
+## C-20260920-38 — 남은 문구 및 통합 회귀 점검
+
+진행 Codex graph.html/chat-workspace.js/dev_nas.html/dev_egress.html.
+Claude 동시 변경 확인: main/actions/base/llm_connections 및 일부 템플릿·테스트.
+그 진행 변경은 보존하고 중복 편집하지 않음. 전체 테스트 실행으로 회귀 확인.
+추가 연계 결함: chat-workspace.js refresh가 전체 대화 session을 agentSession에
+저장하므로 보조 챗봇과 맥락을 섞음. C31 목적분리 시 이 쓰기도 함께 제거/이관 필요.
+저장 구조 합의 전 이 부분은 변경하지 않음.
+결과: 전체 tests/ 522통과(29.43초), 이후 그래프 검색 개선 후 graph8통과.
+그래프 검색80건 상한을 더보기80건 단위로 확장, 검색어 변경 시 초기화,
+선택 시 rail scroll 위치 보존. 기본 빈화면 중복 안내 제거. NAS/외부참조 문구 축약.
+Chrome1600/390 개발자9페이지·합성 모델 카드 및 검색 실패/복구/IME 검증 통과.
+105개 합성 graph.json으로 검색80→더보기105→검색어변경80 복귀 확인.
+JS 런타임 오류 없음, diff check 통과. 실제 사용자 데이터 변경 없음.
+Claude C38 통합/배포 요청: graph.html, dev_nas.html, dev_egress.html,
+chat-workspace.js 및 이전 C29~37 묶음. 운영 반영과 목적별 세션 분리는 아직 미확인.
+
+## C-20260920-37 — 모델 카드 균형/화면 문구 후속 정리
+
+Codex workspace-shell.css 단계별 모델2열 카드(1000px 이하1열), 카드 전체폭 편집,
+긴 모델명 한 행 목록/줄바꿈, 검색서빙 동일폭 카드. dev_train의 검색제목을
+'검색 모델'로 변경하고 scripts102/103+벡터공간 설명 삭제(읽기전용 상태영역).
+project/chat/chat_workspace/dev_hwp/dev_data/dev_db 및 document-workspace.js의
+중복/구어 설명 정리. 개발자 작업 절차는 사용자 화면에서 제거 또는 연결설정 링크로.
+검증: 관련41개 중 기존 스크립트 노출 기대 테스트2개만 실패→연결설정 링크 기대값
+수정 후 labelstudio15통과. 기존39개 통과. 테스트 목적(미연결/불필요 네트워크 없음) 유지.
+합성 서버8878에서 실제 dev_train 렌더, Chrome1600/390 카드/편집 폭/가로넘침
+검증 통과. 운영 서버/모델 설정 변경 없음. 전체 문구를 모두 검수완료한 것은 아님.
+Claude 요청: 이번 추가 templates/project,chat,chat_workspace,dev_hwp,dev_data,dev_db,
+dev_train 및 static/document-workspace.js/workspace-shell.css, tests/test_labelstudio_flow.py
+통합 검토/배포. C35/36 후속. 기존 다른 작업 스테이징에는 손대지 않음.
+
+## C-20260920-36 — 연결 설정 액션 정렬/간결한 문구/삭제 확인
+
+진행 Codex. dev_train 최신 파일 재확인(C35 변경이 이미 커밋에 포함됨).
+서버 update 폼 id 부여 후 저장 버튼을 form 속성으로 동일 액션 행에 연결.
+연결 확인/기본 지정 기존 폼 유지. 설정 삭제는 별도 위험 영역, 확인 필수.
+전체 문구 정리는 중복 설명 우선 제거, 복구/삭제 영향은 유지. 통합 담당 Claude 요청.
+로컬 완료: 설정 저장버튼 form=llmUpdate-id로 연결, 동일 행 연결확인/기본 지정,
+서버 삭제 별도 확인(data-confirm 속성으로 이름 인코딩, inline JS 삽입 제거).
+workspace-navigation submit capture에서 확인 없는 동일출처 /delete 폼을 방어;
+이미 onsubmit 확인 있는 폼과 기존 JS 대화 삭제는 중복 확인하지 않음.
+설치파일/프로젝트 메모도 취소 가능. 모든 동적 삭제 경로 전수완료는 아님.
+문구: dev_train 구어체/중복 도움말, connections/index/criteria 반복 설명 제거.
+Google Drive는 미지원 표시 유지. 삭제영향은 확인 시점으로 이동.
+테스트 dev_pages/labelstudio30통과, dev_ux/platform_spaces11통과(문구 기대값 갱신),
+DOM 회귀로 use-row 중첩/저장바 위치 검증 추가. Chrome1600/390 합성 삭제폼 confirm
+취소 preventDefault 검증, dev9페이지18조합 및 그래프 재시도 통과. 실제 삭제 없음.
+Claude 통합 요청: dev_train.html, workspace-shell.css, workspace-navigation.js,
+connections/index/criteria.html, tests/test_dev_ux.py/test_platform_spaces.py.
+docs/archive 이동·models/cards/.gitkeep 삭제 스테이징은 Claude 작업으로 보존.
+운영 반영 미확인. 전체 플랫폼 문구 점검은 이어서 필요.
+
+## C-20260920-35 — 단계별 모델 DOM 중첩 및 레이아웃 수정
+
+진행 Codex. 사용자 지정 화면 확인 결과 dev_train.html use-row 닫기 div 누락:
+다음 모델 행/저장바/검색서빙이 이전 행 안으로 중첩됨. 현재 파일 미수정 상태이며
+Claude 이전 연결 변경은 보존, 누락된 닫기 태그1개만 국소 수정.
+workspace-shell.css에 단계 행 명시 배치/긴 모델명 줄바꿈/검색서빙 카드 정렬 추가.
+API·모델 선택·저장 로직은 변경하지 않음. Claude 통합 검토 요청.
+
+## C-20260920-34 — 기록 검색은 미리보기 우선
+
+진행 Codex chat-history.js/workspace-shell.css. 검색 결과 클릭이 즉시 /chat/id로
+이동하던 동작을 기록 내용 미리보기로 변경. 목록 복귀 시 검색/스크롤 유지,
+전체 업무 화면 이동은 별도 명시적 링크로 분리. 기존 messages 읽기 API 사용.
+base.html 위젯의 내부 세션 전환/출처 구분은 Claude C31 응답 대기; 이 구현만으로
+보조 챗봇과 최근 작업의 저장 구조 분리가 완료됐다고 표시하지 않음.
+로컬 구현/검증: 검색결과 클릭→모달 내부 메시지 미리보기(안전한 textContent),
+목록 복귀 시 조건/스크롤 보존, 전체업무 이동은 별도 명시 링크. 중단 요청 abort,
+모달 이름 및 닫을 때 원래 버튼 초점 복구. Chrome1600/390에서 URL불변/메시지 표시/
+목록 복귀와 모달 배경 스크롤 회귀 통과. 관련 pytest42통과. 실제 기록 변경 없음.
+그래프 추가: 입력120ms debounce·한글 IME Enter 방어, 로딩 실패 명시/재시도.
+Chrome 네트워크 graph.json 차단→오류 표시→차단해제/재시도→문서 목록 복구 통과.
+한글 조합 Enter 무이동 확인. dev9페이지18조합 재통과. Claude 통합/배포 요청:
+chat-history.js/workspace-shell.css/graph.html (C29~33 변경 포함), 응답 대기.
+
+## C-20260920-33 — 탐색 연속성 후속 검수
+
+진행 Codex graph.html/chat-history.js. 사용자 요구: 옵시디언급 유연한 문서 탐색.
+범위: 키보드 탐색 일관성·뒤로 이동·관련 문서 이동, 기록 갱신 경쟁상태/아이콘
+누락 보완. 근거 없는 관계 생성이나 데이터 구조 일괄 변경은 하지 않음.
+변경: 목록/상세 모드에서는 SVG 좌표 계산 생략(관계도 전환 때 렌더), 문서 선택
+초점 상세 제목으로 이동, 모바일 선택 상세 유지. 관계행 내부 이동 버튼 Enter가
+바깥 근거 선택 핸들러에 먹히던 문제 차단. 상세에도 이전 문서 액션 추가.
+기록 갱신은 요청 revision으로 오래된 응답 무시, DocumentFragment 단일 교체,
+갱신 후 빠지던 아이콘 복원. 실제 업무 최근작업 전환과 챗봇 목적 분리는 C31 별도.
+검증: graph/chat_workspace/chat_widget42통과, JS 문법/diff check 통과,
+Chrome1600/390 graph 모드/문서선택 및 dev9페이지18조합 통과.
+Claude 통합/배포 요청 graph.html/chat-history.js 및 C29~32 CSS. 운영 반영 미확인.
+
+## C-20260920-32 — 그래프를 문서/근거 탐색 우선으로
+
+진행 Codex graph.html UI (기존 C18 담당). 데이터 추출/연결 판정 변경 없음.
+기본 문서 목록, 임의 최대 묶음 대표 자동 선택 제거, 관계도는 선택적 보기.
+데스크톱도 문서찾기+근거 상세 중심, 모바일 문서 선택→상세 이동.
+분류 데이터와 그래프/묶음 기능은 보존하되 기본 작업을 가로막지 않게 변경.
+로컬 완료: graph pytest8통과. Chrome1600/390 캐시 비활성 검증에서 문서탭 기본,
+임의 문서 선택 없음, 모바일 선택 후 detail 전환, list/detail/graph 전환 모두
+가로 넘침/JS 오류 없음. 개발자9페이지18조합도 재통과. 데이터 추출은 변경 없음.
+Claude C32 통합/배포 요청 graph.html. 과거 C29~30 CSS와 함께 반영 요청.
+실제 업무 프로젝트 기준 자동 추천/필요 서류 분류는 미구현이며 임의로 추론하지 않음.
+
+## C-20260920-31 — 사용자 정정: 챗봇과 전체 채팅 목적 분리
+
+사용자는 기록 선택 시 같은 페이지로 이동하는 바로가기와 차이가 없다고 지적.
+단순히 열리는 위치만 바꾸는 것이 아니라 업무 전체 채팅과 현재 화면 보조 챗봇의
+목적·기록 맥락을 구분해야 함. 현재 chat-history.js는 모두 /chat/id 링크이며,
+안내도 두 기록을 통합 저장한다고 표시. Claude 요청: 세션 출처/용도 저장·검색 범위
+분리 설계 협의 필요. 과거 기록을 제목으로 임의 분류하거나 삭제/복제하지 말 것.
+챗봇에서 선택한 기록은 챗봇 내부 이어가기, 전체 화면은 명시적 승격 동작으로.
+출처 분리 없이 UI 필터만 추가하여 분리된 척하지 말 것. 현재 미구현.
+
+C29/C30 로컬 검증: Chrome1600/390에서 메뉴 생성 전후 링크 폭 동일/ellipsis,
+알림·계정·챗봇 열린 상태 배경 실제 wheel 동작, native 모달 열린 상태 배경 wheel
+차단/닫은 뒤 복구 통과. 빈 새 채팅의 중복 새 대화 아이콘 숨김 및 안내-입력 간격
+36~52px 조정 추가(platform-spaces.css). 이 빈 화면 변경은 별도 브라우저 검수 대기.
+Claude 통합 요청: platform-spaces.css/workspace-shell.css, 운영 배포 미확인.
+
+## C-20260920-30 — 비모달 UI의 과도한 스크롤 잠금 정정
+
+진행 Codex workspace-shell.css. C24의 전체 잠금에 작은 메뉴/작업패널/챗봇을
+포함한 것은 과도했음. 비모달 UI가 열린 채로 배경을 휠하면 먹통처럼 보일 수 있음.
+페이지 잠금은 dialog:modal 및 실제 표시 중인 .modal-back.open으로 한정.
+비모달 패널 내부 overscroll contain은 유지해 내부 끝에서 배경으로 스크롤이
+전파되는 것은 계속 차단. 사용자 제보 전체 원인 확정이 아닌 재현 가능한 원인 수정.
+
+## C-20260920-29 — 최근 대화 끝 글자 깜빡임
+
+진행 Codex platform-spaces.css. 원인 코드 확인: 서버 렌더는 icon+익명 텍스트의
+flex 링크라 text-overflow가 제목에 적용되지 않고 잘림. 이후 chat-history.js가
+메뉴28px/gap2px/padding4px를 추가하며 제목 너비가34px 줄어듦.
+첫 렌더부터 메뉴 공간 확보, block 말줄임 및 아이콘 폭 고정, 선택 전후 글꼴 두께
+고정으로 제목 끝 재배치 방지. Claude 진행 dev_train.html은 변경하지 않음.
+
 ## C-20260920-28 — 설정 편집 영역/입력 초점 후속 검수
 
 진행 Codex: 공통 workspace-shell.css만 수정. K18 응답 확인(모델 목록/비밀번호

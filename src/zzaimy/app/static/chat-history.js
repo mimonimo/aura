@@ -1,12 +1,15 @@
 (() => {
   const sidebarList = document.getElementById('chatSessionList');
   function addSessionMenus() {
-    sidebarList?.querySelectorAll(':scope > a[href^="/chat/"]').forEach(link => {
+    sidebarList?.querySelectorAll('a[href^="/chat/"]').forEach(link => {
       const id = link.getAttribute('href').split('/').pop();
       if (!/^\d+$/.test(id)) return;
-      const row = document.createElement('div'); row.className = 'side-session-row';
-      link.before(row); row.append(link);
-      const menu = document.createElement('button'); menu.type = 'button'; menu.className = 'side-session-menu';
+      let row = link.closest('.side-session-row');
+      if (!row) { row = document.createElement('div'); row.className = 'side-session-row'; link.before(row); row.append(link); }
+      const menu = row.querySelector('.side-session-menu') || document.createElement('button');
+      if (menu.dataset.ready) return;
+      menu.dataset.ready = 'true'; menu.disabled = false;
+      menu.type = 'button'; menu.className = 'side-session-menu';
       menu.textContent = '⋯'; menu.setAttribute('aria-label', (link.title || link.textContent) + ' 대화 메뉴');
       menu.setAttribute('aria-haspopup', 'dialog');
       menu.onclick = () => {
@@ -54,17 +57,61 @@
   }
   if (sidebarList) { addSessionMenus(); new MutationObserver(addSessionMenus).observe(sidebarList, {childList:true}); }
   document.addEventListener('click', event => {
-    if (!event.target.closest('[data-chat-history]')) return;
+    const opener = event.target.closest('[data-chat-history]');
+    if (!opener) return;
     if (document.querySelector('.session-manager')) return;
     const dialog = document.createElement('dialog');
     dialog.className = 'session-manager';
+    dialog.setAttribute('aria-label', '대화 기록 검색');
     dialog.innerHTML = '<header><h2>대화 기록</h2><button type="button" class="secondary" data-close>닫기</button></header><p class="muted">작은 챗봇과 전체 화면의 대화가 함께 저장됩니다.</p><form class="session-search"><input type="search" aria-label="대화 이름 또는 프로젝트 검색" placeholder="대화 이름·프로젝트·사업 검색"><select aria-label="기록 구분"><option value="0">진행 중인 대화</option><option value="1">보관한 대화</option></select><select aria-label="찾을 범위" data-scope><option value="title">이름·프로젝트·사업</option><option value="all">대화 내용까지</option></select><button type="submit" class="secondary">검색</button></form><p role="status"></p><div class="session-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button>';
     document.body.appendChild(dialog); dialog.showModal();
     dialog.querySelector('[data-close]').onclick = () => dialog.close();
-    dialog.addEventListener('close', () => { token++; controller?.abort(); dialog.remove(); });
+    let previewController;
+    dialog.addEventListener('close', () => { token++; controller?.abort(); previewController?.abort(); dialog.remove(); if(opener.isConnected) opener.focus({preventScroll:true}); });
     const form = dialog.querySelector('form'), results = dialog.querySelector('.session-results');
     const status = dialog.querySelector('[role=status]'), more = dialog.querySelector('[data-more]');
     let offset = 0, token = 0, controller;
+    async function preview(session) {
+      previewController?.abort();
+      const request = new AbortController(); previewController = request;
+      const scroll = results.scrollTop;
+      const controls = [form, status, results, more];
+      const visibility = controls.map(node => node.hidden);
+      controls.forEach(node => node.hidden = true);
+      const pane = document.createElement('section'); pane.className = 'session-preview';
+      const toolbar = document.createElement('div'); toolbar.className = 'session-preview-toolbar';
+      const back = document.createElement('button'); back.type = 'button'; back.className = 'secondary'; back.textContent = '검색 결과로';
+      const full = document.createElement('a'); full.className = 'btn-ghost'; full.href = '/chat/' + session.id; full.textContent = '전체 업무 대화로 열기';
+      toolbar.append(back, full);
+      const title = document.createElement('h3'); title.textContent = session.title || '이름 없는 대화'; title.tabIndex = -1;
+      const content = document.createElement('div'); content.className = 'session-preview-messages';
+      const notice = document.createElement('p'); notice.setAttribute('role','status'); notice.textContent = '대화 내용을 불러오는 중…';
+      content.append(notice); pane.append(toolbar, title, content); dialog.append(pane); title.focus();
+      back.onclick = () => {
+        request.abort(); pane.remove();
+        controls.forEach((node,index) => node.hidden = visibility[index]); results.scrollTop = scroll;
+        [...results.querySelectorAll('a')].find(node => node.getAttribute('href') === '/chat/' + session.id)?.focus({preventScroll:true});
+      };
+      try {
+        const response = await fetch('/chat/' + session.id + '/messages', {cache:'no-store', signal:request.signal});
+        if (!response.ok || response.redirected) throw new Error('대화를 불러오지 못했습니다. 권한 또는 삭제 여부를 확인해 주세요.');
+        const data = await response.json();
+        if (request.signal.aborted || !pane.isConnected) return;
+        if (!Array.isArray(data.messages)) throw new Error('대화 내용을 확인할 수 없습니다.');
+        const fragment = document.createDocumentFragment();
+        for (const message of data.messages) {
+          if (!['user','assistant'].includes(message.role)) continue;
+          const turn = document.createElement('article'); turn.className = 'session-preview-turn';
+          const author = document.createElement('strong'); author.textContent = message.role === 'user' ? '나' : '업무 에이전트';
+          const text = document.createElement('p'); text.textContent = message.content || '';
+          turn.append(author,text); fragment.append(turn);
+        }
+        notice.textContent = data.waiting ? '답변 작성 중인 대화입니다. 현재 저장된 내용만 표시합니다.' : (fragment.childNodes.length ? '저장된 대화 내용입니다.' : '저장된 메시지가 없습니다.');
+        content.append(fragment);
+      } catch (error) {
+        if (error.name !== 'AbortError') notice.textContent = error.message || '불러오지 못했습니다. 검색 결과로 돌아가 다시 시도해 주세요.';
+      }
+    }
     async function load(append=false) {
       const current = ++token;
       controller?.abort(); controller = new AbortController();
@@ -79,6 +126,10 @@
         for (const session of data.sessions) {
           const row = document.createElement('article'); row.className = 'session-row';
           const link = document.createElement('a'); link.href = '/chat/' + session.id; link.textContent = session.title || '이름 없는 대화'; link.title = link.textContent;
+          link.addEventListener('click', event => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            event.preventDefault(); preview(session);
+          });
           const meta = document.createElement('p'); meta.className = 'muted'; meta.textContent = (session.project_name || session.topic || '일반 대화') + ' · ' + session.created_at.slice(0,10);
           const actions = document.createElement('div'); actions.className = 'session-actions';
           const rename = document.createElement('button'); rename.type = 'button'; rename.className = 'secondary'; rename.textContent = '이름 변경';
@@ -144,7 +195,7 @@
           actions.append(rename, archive, remove); row.append(link, meta, actions); results.appendChild(row);
         }
         offset += data.sessions.length; more.hidden = !data.has_more;
-        status.textContent = offset ? (archived ? '보관한 대화는 복원할 수 있습니다.' : '최근 대화 순입니다. 보관해도 내용은 삭제되지 않습니다.') : '해당 대화가 없습니다.';
+        status.textContent = offset ? (archived ? '보관한 대화' : '최근 대화') + ' · ' + offset + '개' : '검색 결과가 없습니다.';
       } catch (error) { if(current===token && error.name !== 'AbortError') status.textContent = error.message || '기록을 불러오지 못했습니다. 검색을 눌러 다시 시도하세요.'; }
       finally { if(current===token) more.disabled = false; }
     }
@@ -152,16 +203,23 @@
     form.querySelector('select').onchange = () => load();
     more.onclick = () => load(true); load();
   });
+  let sidebarRevision = 0;
   document.addEventListener('chat-history-changed', async () => {
+    const revision = ++sidebarRevision;
     try {
       const response = await fetch('/api/chat/sessions', {cache:'no-store'});
       if (!response.ok || response.redirected) return;
       const data = await response.json(), list = document.getElementById('chatSessionList');
-      if (!list) return; list.replaceChildren();
+      if (!list || revision !== sidebarRevision) return;
+      const fragment = document.createDocumentFragment();
       data.sessions.slice(0,12).forEach(session => {
-        const link = document.createElement('a'); link.className = 'side-item'; link.href = '/chat/'+session.id; link.textContent = session.title; link.title = session.title;
-        link.classList.toggle('active', location.pathname===link.getAttribute('href')); list.appendChild(link);
+        const link = document.createElement('a'); link.className = 'side-item'; link.href = '/chat/'+session.id; link.title = session.title;
+        const icon = document.createElement('iconify-icon'); icon.setAttribute('icon','solar:chat-line-linear'); icon.setAttribute('aria-hidden','true');
+        const title = document.createElement('span'); title.className = 'side-session-title'; title.textContent = session.title;
+        link.append(icon, title);
+        link.classList.toggle('active', location.pathname===link.getAttribute('href')); fragment.appendChild(link);
       });
+      list.replaceChildren(fragment);
       if (!data.sessions.length) list.textContent = '진행 중인 대화가 없습니다.';
     } catch (_) {}
   });

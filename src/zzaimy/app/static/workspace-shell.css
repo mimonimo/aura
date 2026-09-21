@@ -10,10 +10,12 @@
 main { min-width:0; }
 /* Overlay scroll stays inside the overlay; preserve the page's scrollbar space. */
 html { scrollbar-gutter:stable; }
-html:has(dialog[open], .modal-back.open, .popover.open, .ag-panel.open, .session-popover:popover-open, #chatAside:not(.closed)) { overflow:hidden; }
-body:has(dialog[open], .modal-back.open, .popover.open, .ag-panel.open, .session-popover:popover-open, #chatAside:not(.closed)) #chatScroll { overflow-y:hidden; }
-body:has(dialog[open], .modal-back.open, .popover.open, .ag-panel.open, .session-popover:popover-open) .sidebar { overflow-y:hidden; }
-body:has(dialog[open], .modal-back.open, .popover.open, .ag-panel.open, .session-popover:popover-open) #chatSessionList { overflow-y:hidden; }
+/* Only blocking modals lock the page. Menus, the assistant and work panel
+   are non-modal: their scroll containment must not disable the workspace. */
+html:has(dialog:modal, .modal-back.open:not([hidden])) { overflow:hidden; }
+body:has(dialog:modal, .modal-back.open:not([hidden])) #chatScroll { overflow-y:hidden; }
+body:has(dialog:modal, .modal-back.open:not([hidden])) .sidebar { overflow-y:hidden; }
+body:has(dialog:modal, .modal-back.open:not([hidden])) #chatSessionList { overflow-y:hidden; }
 :is(dialog, .modal-back, .ag-panel, .chat-aside, .session-popover, .popover),
 :is(dialog, .modal-back, .ag-panel, .chat-aside, .session-popover, .popover) * { overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:#bdc5cf transparent; }
 body .modal-back > .card { overflow:hidden; padding:6px; max-height:88dvh; }
@@ -34,6 +36,13 @@ body .ag-body, body .chat-aside { scrollbar-gutter:stable; }
 .session-row { padding:16px 0; border-bottom:1px solid var(--line); }
 .session-row > a { font-weight:600; overflow-wrap:anywhere; color:var(--navy); }
 .session-actions { display:flex; gap:8px; }
+.session-preview { display:flex; flex-direction:column; min-height:0; gap:14px; }
+.session-preview-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.session-preview h3 { margin:0; font-size:16px; line-height:1.6; overflow-wrap:anywhere; }
+.session-preview-messages { min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding-right:8px; }
+.session-preview-turn { padding:16px 0; border-bottom:1px solid var(--line); }
+.session-preview-turn strong { color:var(--muted); font-size:12px; }
+.session-preview-turn p { margin:8px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.75; font-size:14px; }
 .session-manager button { padding:7px 11px; font-size:12px; }
 .session-manager [role=status] { font-size:12px; color:var(--muted); }
 :is(button,a,input,select,textarea):focus-visible { outline:2px solid #607C9E; outline-offset:3px; }
@@ -58,6 +67,30 @@ body select:focus-visible, body .modal-back select:focus-visible {
   box-shadow:none;
 }
 /* Settings editors are a bounded task, not a row of unrelated controls. */
+.llm-settings-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.llm-settings-actions button { min-height:38px; box-sizing:border-box; padding:8px 12px; font-size:12px; }
+.llm-settings-actions form { display:flex; }
+body #useForm .use-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
+body #useForm .use-row { grid-template-columns:minmax(0,1fr) auto; gap:10px 16px; padding:16px; border:1px solid var(--line); border-radius:12px; }
+body #useForm .use-name { grid-column:1; grid-row:1; line-height:1.6; }
+body #useForm .use-edit { grid-column:2; grid-row:1; align-self:start; min-height:36px; padding:6px 12px; }
+body #useForm .use-now { grid-column:1 / -1; grid-row:2; align-items:flex-start; flex-direction:column; gap:6px; }
+body #useForm .use-model { max-width:100%; box-sizing:border-box; overflow-wrap:anywhere; line-height:1.6; }
+body #useForm .use-form { grid-column:1 / -1; width:100%; min-width:0; max-width:none; margin:0; padding:16px; }
+body #useForm .pick-group, body #useForm .chips { min-width:0; }
+body #useForm .chips-models { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; padding:2px 8px 2px 2px; }
+body #useForm .chips-models .chip { width:100%; justify-content:flex-start; }
+body #useForm .chip-filter { max-width:none; box-sizing:border-box; }
+body #useForm .chip { min-width:0; max-width:100%; white-space:normal; overflow-wrap:anywhere; text-align:left; }
+body #useForm .use-bar { flex-wrap:wrap; justify-content:flex-end; }
+body #useForm .use-hint { flex:1 1 200px; }
+body .srv-head + .srv-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; border:0; }
+body .srv-head + .srv-list .srv-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 12px; align-content:start; padding:16px; border:1px solid var(--line); border-radius:12px; }
+body .srv-head + .srv-list .srv-row > .srv-n,
+body .srv-head + .srv-list .srv-row > .srv-bad,
+body .srv-head + .srv-list .srv-row > .use-model { grid-column:1 / -1; min-width:0; overflow-wrap:anywhere; line-height:1.6; }
+@media(max-width:1000px) { body #useForm .use-list { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:760px) { body .srv-head + .srv-list { grid-template-columns:minmax(0,1fr); } }
 body .use-form {
   display:grid;
   grid-template-columns:minmax(0,1fr);

@@ -470,9 +470,12 @@ document.addEventListener('submit', function(event) {
   <div class="side-label">최근 대화</div>
   <div class="side-section" id="chatSessionList">
     {% for cs in chat_sessions %}
+      <div class="side-session-row">
       <a class="side-item {{ 'active' if request.url.path == '/chat/' ~ cs.id else '' }}"
          href="/chat/{{ cs.id }}" title="{{ cs.title }}">
-        <iconify-icon icon="solar:chat-line-linear"></iconify-icon>{{ cs.title }}</a>
+        <iconify-icon icon="solar:chat-line-linear" aria-hidden="true"></iconify-icon><span class="side-session-title">{{ cs.title }}</span></a>
+      <button type="button" class="side-session-menu" aria-label="{{ cs.title }} 대화 메뉴" aria-haspopup="dialog" disabled>⋯</button>
+      </div>
     {% else %}
       <span class="side-item">채팅 기록이 없습니다</span>
     {% endfor %}

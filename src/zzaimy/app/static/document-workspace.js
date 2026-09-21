@@ -42,7 +42,7 @@
         if (!response.ok || new URL(response.url).pathname !== window.location.pathname) throw new Error('save failed');
         initial.set(opinion, value);
         document.getElementById('opinionUnsaved').hidden = opinion.value === value;
-        status.textContent = '의견을 저장했습니다. 재검토 또는 재작성을 진행할 수 있습니다.';
+        status.textContent = '의견이 저장되었습니다.';
         if (!dirty()) { submitting = true; window.location.reload(); }
       } catch (_) {
         status.textContent = '저장 여부를 확인하지 못했습니다. 입력은 유지됩니다. 연결 상태를 확인해 주세요.';

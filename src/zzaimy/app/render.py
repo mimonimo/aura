@@ -83,14 +83,29 @@ def table_html(content: str) -> Markup:
         parts.append("</colgroup>")
     else:
         parts = ['<div class="table-scroll"><table class="extract">']
+    occupied: set[tuple[int, int]] = set()
+    n_cols = int(data.get("n_cols") or max((int(c) + int(cs) for _, c, _, cs, _, _ in cells), default=0))
     for r in range(n_rows):
         parts.append("<tr>")
+        cursor = 0
         for c, rs, cs, hd, txt in sorted(rows.get(r, [])):
+            while cursor < c:
+                if (r, cursor) not in occupied:
+                    parts.append('<td></td>')
+                cursor += 1
             tag = "th" if hd else "td"
             attrs = (f' rowspan="{rs}"' if rs > 1 else "") + (
                 f' colspan="{cs}"' if cs > 1 else ""
             )
             parts.append(f"<{tag}{attrs}>{escape(txt)}</{tag}>")
+            for dr in range(rs):
+                for dc in range(cs):
+                    occupied.add((r + dr, c + dc))
+            cursor = c + cs
+        while cursor < n_cols:
+            if (r, cursor) not in occupied:
+                parts.append('<td></td>')
+            cursor += 1
         parts.append("</tr>")
     parts.append("</table></div>")
     return Markup("".join(parts))
