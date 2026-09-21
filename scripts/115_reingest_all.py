@@ -45,11 +45,12 @@ def _run_one(db_path: str, doc_id: int, file_path: str) -> None:
 
 
 SOURCES = [
-    # (폴더, 문서 유형, 설명) — 앞에서부터 순서대로 올린다
-    ("data/scraped/iacf", "regulation", "영남이공대학교 산학협력단 규정"),
-    ("data/external", "recruit", "외부 기관 공고·안내"),
-    ("data/scraped/files", "regulation", "교내 내려받기 문서"),
-    ("data/scraped/uniall", "regulation", "국고사업 공개 문서(기본계획·서식)"),
+    # (폴더, 문서 유형, 설명, 소유) — 앞에서부터 순서대로 올린다.
+    # 소유 corpus = 공개 수집 문서: 마스킹 대상이며, 공개 자료 판독(외부 모델)을 쓸 수 있다.
+    ("data/scraped/iacf", "regulation", "영남이공대학교 산학협력단 규정", "zzaimy"),
+    ("data/external", "recruit", "외부 기관 공고·안내", "corpus"),
+    ("data/scraped/files", "regulation", "교내 내려받기 문서", "zzaimy"),
+    ("data/scraped/uniall", "regulation", "국고사업 공개 문서(기본계획·서식)", "corpus"),
 ]
 EXTS = {".pdf", ".hwp", ".hwpx", ".docx", ".png", ".jpg", ".jpeg", ".xlsx"}
 
@@ -67,13 +68,13 @@ def main() -> int:
 
     db = Database(Path(args.db))
     plan: list[tuple[Path, str]] = []
-    for rel, doc_type, label in SOURCES:
+    for rel, doc_type, label, owner in SOURCES:
         folder = ROOT / rel
         files = sorted(p for p in folder.glob("*") if p.is_file() and p.suffix.lower() in EXTS)
         if args.limit:
             files = files[: args.limit]
         print(f"  {label}: {len(files)}건 ({rel})")
-        plan += [(p, doc_type) for p in files]
+        plan += [(p, doc_type, owner) for p in files]
     if args.resume:
         # 이미 들어간 원본은 건너뛴다 — 문서에 올라온 파일 이름을 남겨 두므로 그것으로 맞춘다
         done = set()
@@ -81,7 +82,7 @@ def main() -> int:
             ident = db.get_doc_identity(d["id"])
             done.add(ident.get("original_filename") or d["filename"])
             done.add(Path(d.get("stored_path") or "").name)
-        plan = [(p, t) for p, t in plan if p.name not in done
+        plan = [(p, t, o) for p, t, o in plan if p.name not in done
                 and f"{p.stem[:60]}{p.suffix.lower()}" not in done]
     print(f"지금 문서함 {len(db.list_documents())}건 → 새로 올릴 것 {len(plan)}건")
     if not args.apply:
@@ -118,13 +119,13 @@ def main() -> int:
     ok = fail = 0
     limit_s = args.timeout * 60
     t0 = time.time()
-    def start(path: Path, doc_type: str):
+    def start(path: Path, doc_type: str, owner: str = "zzaimy"):
         tag = hashlib.sha1(str(path).encode()).hexdigest()[:8]
         dest = inbox / f"{path.stem[:40]}-{tag}{path.suffix.lower()}"
         dest.parent.mkdir(parents=True, exist_ok=True)
         if not dest.exists():
             dest.write_bytes(path.read_bytes())          # 올린 파일은 문서함으로 들어온다
-        doc_id = db.add_document(filename=path.name, stored_path=str(dest), doc_type=doc_type)
+        doc_id = db.add_document(filename=path.name, stored_path=str(dest), doc_type=doc_type, owner=owner)
         child = mp.Process(target=_run_one, args=(str(Path(args.db)), doc_id, str(dest)))
         child.start()
         return {"doc_id": doc_id, "proc": child, "t0": time.time(), "name": path.name}

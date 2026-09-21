@@ -438,6 +438,18 @@ class DocumentProcessor:
                 mds.append(got)
         return mds, read
 
+    def _vision_role(self) -> str:
+        """이 문서를 읽을 판독 용도 — 공개 수집 문서(owner=corpus)에 공개 판독 지정이 있으면 그것.
+
+        외부 모델은 여기로만 나간다. 교내 문서·사용자 문서는 언제나 교내 판독 모델이다.
+        """
+        if getattr(self, "_doc_public", False):
+            from zzaimy.generate import llm_connections
+
+            if llm_connections.role_is_set("vision_public"):
+                return "vision_public"
+        return "vision"
+
     def _vlm_transcribe(self, image_path: Path) -> str | None:
         """비전 모델로 사진 속 문서 전사 — 손글씨·도장 문구까지 읽는다.
 
@@ -464,7 +476,7 @@ class DocumentProcessor:
                     im.convert("RGB").save(send_path, quality=88)
             mime = "image/png" if send_path.suffix.lower() == ".png" else "image/jpeg"
             b64 = base64.b64encode(send_path.read_bytes()).decode()
-            client = VllmClient(role="vision")
+            client = VllmClient(role=self._vision_role())
             resp = client.client.chat.completions.create(
                 model=getattr(client, "vision_model", client.model),
                 temperature=0.0,
@@ -477,9 +489,7 @@ class DocumentProcessor:
                         {"type": "text", "text": self._VLM_PROMPT},
                     ],
                 }],
-                # 생각 모델(Qwen3 계열)은 생각을 끄고 본문만 받는다 — 켜 두면 답 앞에 새어 나온다
-                extra_body={**getattr(client, "_extra", {}),
-                            "chat_template_kwargs": {"enable_thinking": False}},
+                extra_body=getattr(client, "_extra", {}),    # 교내 vLLM 은 생각 끄기, 외부 API 는 빈 값
             )
             text = _strip_think(resp.choices[0].message.content or "")
             # 속성 줄 분리 — 하드케이스 분류용 (손글씨·도장 여부)
@@ -1921,6 +1931,7 @@ class DocumentProcessor:
                     error=f"같은 내용의 문서가 이미 있습니다 — #{twin['id']} {twin['filename']}")
                 return
         db.update_document(doc_id, status="processing")
+        self._doc_public = ((db.get_document(doc_id) or {}).get("owner") == "corpus")
         # 재처리 시 파생 캐시(복원 PDF·페이지 렌더)를 비운다
         try:
             base = Path(db.path).parent
