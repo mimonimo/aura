@@ -14,6 +14,8 @@
 .document-work .draft-body { overflow-wrap:anywhere; }
 .document-work .draft-body table { display:block; max-width:100%; overflow:auto; }
 .document-extract { max-height:65vh; overflow:auto; margin-top:12px; }
+.document-extract .table-scroll { max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
+.document-extract table.extract :is(td,th) { min-width:0; overflow-wrap:anywhere; word-break:normal; }
 .document-form-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:10px; }
 .document-form-actions .muted { font-size:12px; }
 .document-opinion { padding:12px 0; border-bottom:1px solid var(--line); }
@@ -89,6 +91,13 @@
 #extractBody[data-show="table"] > :not([data-kind="table"]),
 #extractBody[data-show="image"] > :not([data-kind="image"]) { display:none; }
 #extractBody[data-show="table"] .extract-table[data-page]:not([data-page=""])::before { content:attr(data-page) "쪽"; display:block; color:var(--muted); font-size:11.5px; margin:14px 0 4px; }
+.document-analysis-head { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
+.document-analysis-head h2, .document-analysis-head form { margin:0; }
+.document-analysis-head button { white-space:nowrap; }
+.document-analysis-meta { padding:16px; margin-bottom:20px; border-radius:12px; background:var(--bg, #f7f8fa); }
+.document-analysis-meta .doc-meta { margin:0; gap:12px 24px; }
+.document-analysis-meta .doc-meta-item { overflow-wrap:anywhere; }
+.document-analysis-empty { margin:0; padding:16px 0; font-size:14px; }
 #extractBody .hit { background:#FFF6D6; box-shadow:0 0 0 4px #FFF6D6; border-radius:4px; transition:background .6s; }
 @media (max-width:760px) {
   .docpane[data-pane="extract"].with-nav { grid-template-columns:1fr; }

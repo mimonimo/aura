@@ -19,6 +19,11 @@
   .modal-back .card { width:560px; }
   .modal-sec { border-top:1px solid var(--line); padding-top:12px; margin-top:14px; }
   .modal-sec h4 { margin:0 0 8px; font-size:13px; }
+  .llm-settings-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:16px; }
+  .llm-settings-actions form { display:flex; margin:0; }
+  .llm-settings-actions button { min-height:38px; margin:0; padding:8px 12px; }
+  [id^="llmSet-"] .kv dd { min-width:0; overflow-wrap:anywhere; }
+  [id^="llmSet-"] .modal-head h2 { min-width:0; overflow-wrap:anywhere; }
   .field-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .field-row input[type=text], .field-row input[type=password] { flex:1; min-width:140px; }
   .kv { display:grid; grid-template-columns:auto 1fr; gap:5px 14px; font-size:12.5px; margin:0; }
@@ -178,6 +183,7 @@
   .use-tag { background:#EEF3FA; color:var(--navy); font-size:11px; }
   .use-form { grid-column:1 / -1; display:flex; flex-direction:column; gap:10px;
               background:var(--bg-soft, #F7F8FA); border-radius:10px; padding:12px; margin-top:6px; }
+  #useForm .use-form { width:100%; max-width:none; min-width:0; box-sizing:border-box; }
   .pick-group { display:flex; flex-direction:column; gap:6px; }
   .pick-label { font-size:11.5px; color:var(--muted); }
   .chips { display:flex; flex-wrap:wrap; gap:6px; max-height:168px; overflow:auto; }

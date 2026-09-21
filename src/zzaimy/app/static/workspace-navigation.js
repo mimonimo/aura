@@ -1,4 +1,16 @@
 (() => {
+  document.addEventListener('submit', event => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || event.defaultPrevented || form.hasAttribute('onsubmit')) return;
+    const action = new URL(form.action, location.href);
+    if (action.origin !== location.origin || !/\/delete\/?$/.test(action.pathname)) return;
+    const message = form.dataset.confirm || (/\/notes\//.test(action.pathname)
+      ? '이 메모를 삭제할까요? 삭제 후에는 복구할 수 없습니다.'
+      : /\/installer\//.test(action.pathname)
+        ? '설치파일을 삭제할까요? 삭제하면 다운로드할 수 없습니다.'
+        : '이 항목을 삭제할까요?');
+    if (!window.confirm(message)) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, true);
   document.addEventListener('click', event => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const link = event.target.closest('a[href]');

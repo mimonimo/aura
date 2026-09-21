@@ -78,7 +78,7 @@
     } catch (_) {}
     if (shouldScroll) bottom();
     else { scroller.scrollTop = position; latest.hidden = false; }
-    status.textContent = waiting ? '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' : '답변을 확인하고 이어서 질문하세요.';
+    status.textContent = waiting ? '답변 생성 중' : '';
     paint();
     clearTimeout(timer);
     if (waiting) timer = setTimeout(poll, 2000);

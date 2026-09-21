@@ -6,7 +6,7 @@
   <script src="/static/document-workspace.js" defer></script>
 {% endblock %}
 {% block content %}
-{% macro program_meta() %}
+{% macro program_meta(show_action=true) %}
   {# 사업 정보 — 따로 칸을 두지 않고 문서 이름 아래 한 줄로. 본문에서 확인된 값만 #}
   {% set shown = [] %}
   <div class="doc-meta">
@@ -19,7 +19,7 @@
     {% for d in same_program or [] %}
       <a href="/doc/{{ d.id }}" class="pill type" style="text-decoration:none;" title="같은 사업을 다루는 문서">{{ doc_name(d) }}{% if d.year %} · {{ d.year }}{% endif %}</a>
     {% endfor %}
-    {% if doc.masked_text %}
+    {% if doc.masked_text and show_action %}
     <form action="/doc/{{ doc.id }}/identity" method="post" style="margin:0;">
       <button type="submit" class="btn-ghost doc-meta-btn" data-busy="읽는 중…"
               title="본문에서 사업·주체·근거를 다시 읽습니다">{{ "다시 읽기" if shown else "사업 정보 읽기" }}</button>
@@ -112,7 +112,7 @@
         <button type="submit" class="btn-ghost" style="padding:3px 10px; font-size:12px; color:var(--red); border-color:#E7B9B8;">삭제</button>
       </form>
     </div>
-    {{ program_meta() }}
+    {% if doc.doc_type not in ('regulation', 'ocr') %}{{ program_meta() }}{% endif %}
     {% if doc.status == "failed" %}
       <p class="notice"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>처리 실패: {{ doc.error }}</span></p>
     {% elif doc.status != "reviewed" %}
@@ -130,8 +130,19 @@
   {% if doc.ai_review or doc.coverage or doc.status == 'reviewed' %}
   <div class="card reveal">
     <div class="card-in">
-      {% set is_summary = doc.ai_review and (doc.ai_review.startswith("추출 완료") or doc.ai_review.startswith("규정 등록 완료")) %}
-      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>문서 분석</h2>
+      {% set is_summary = doc.ai_review and (doc.ai_review.startswith("추출 완료") or doc.ai_review.startswith("규정 등록 완료") or doc.ai_review.startswith("기준 등록 완료")) %}
+      {% set has_analysis = doc.ai_review and not is_summary %}
+      <div class="document-analysis-head">
+        <h2><iconify-icon icon="solar:library-linear"></iconify-icon>문서 분석</h2>
+        {% if doc.status == "reviewed" %}
+        <form action="/doc/{{ doc.id }}/analyze" method="post">
+          <button type="submit" class="secondary" {% if analyzing %}disabled{% endif %}>{{ '분석 중' if analyzing else ('다시 분석' if has_analysis else '분석하기') }}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% if identity %}
+      <div class="document-analysis-meta">{{ program_meta(false) }}</div>
+      {% endif %}
       {% if analyzing %}
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>{{ doc.coverage }} — 끝나면 자동 갱신됩니다.</span></p>
       {% elif doc.coverage and doc.coverage.startswith("맥락 분석 실패") %}
@@ -139,23 +150,12 @@
       <p class="notice"><iconify-icon icon="solar:hourglass-line-linear"></iconify-icon><span>
         {{ "요약" if doc.doc_type == "regulation" else "분석" }} 대기 — AI 모델 서버가 연결되면 만들 수 있습니다.</span></p>
       {% endif %}
-      {% if doc.ai_review %}
-      {% if is_summary %}
-      <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ doc.ai_review }}</span></p>
-      {% else %}
+      {% if has_analysis %}
       <div class="draft-body">{{ doc.ai_review | md_view }}</div>
       {% endif %}
+      {% if not has_analysis and not analyzing and not (doc.coverage and doc.coverage.startswith("맥락 분석 실패")) %}
+      <p class="document-analysis-empty muted">문서 추출 완료 · 분석 결과 없음</p>
       {% endif %}
-      {% if not doc.ai_review and not analyzing %}
-      <p class="muted" style="font-size:12.5px; margin:0;">요약을 아직 만들지 않았습니다.</p>
-      {% endif %}
-      <div class="analysis-actions">
-        {% if doc.status == "reviewed" and not analyzing %}
-        <form action="/doc/{{ doc.id }}/analyze" method="post" style="margin:0;">
-          <button type="submit" class="secondary">{{ "다시 요약" if not is_summary and doc.ai_review else "요약 만들기" }}</button>
-        </form>
-        {% endif %}
-      </div>
     </div>
   </div>
   {% endif %}
