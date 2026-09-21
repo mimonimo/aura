@@ -154,8 +154,10 @@ class MineruParser:
         # 제한 시간. 예전 기본값은 30분이었는데, 한 문서가 그만큼 붙잡혀 있으면 여러 건을
         # 넣는 반입이 멈춘다(실측 2026-09-21). 넘으면 호출부가 기본 파싱(원문 글자층)으로
         # 물러나므로 글자를 잃지 않는다 — 잃는 것은 표·읽기 순서 같은 구조다.
+        # 기본 5분: 반입은 문서 한 건에 10분을 준다. 구조 추출이 그 10분을 다 쓰면 글자층으로
+        # 물러날 시간이 없어 문서가 실패로 끝난다(실측 2026-09-21: 기본계획 PDF 3건).
         self.timeout_s = timeout_s if timeout_s is not None else int(
-            os.environ.get("ZZAIMY_MINERU_TIMEOUT", "600"))
+            os.environ.get("ZZAIMY_MINERU_TIMEOUT", "300"))
 
     @staticmethod
     def _cli() -> str:
