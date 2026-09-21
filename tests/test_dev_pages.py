@@ -283,3 +283,11 @@ def test_stage_models_save_once_atomically(client, monkeypatch, tmp_path):
     got = {x["role"]: x for x in lc.roles_public()}
     assert got["answer"]["id"] == a["id"] and got["vision"]["id"] == b["id"]   # 그대로다
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
+
+
+def test_weekly_report_card_and_template(client, tmp_path):
+    """논문 자료 화면에 주간 보고서 칸 — 이번 주 만들기·지난 보고 목록. 양식 파일이 있으면 그 구성을 쓴다."""
+    page = client.get("/dev/docs").text
+    assert "주간 보고서" in page and "/dev/weekly.docx" in page and "다시 만들기" in page
+    r = client.get("/dev/weekly.md")
+    assert r.status_code == 200 and "주간 보고" in r.text

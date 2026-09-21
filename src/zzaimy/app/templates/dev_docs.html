@@ -3,7 +3,9 @@
 {% block pagetitle %}논문·설계 문서{% endblock %}
 {% block content %}
 <style>
-  /* 종류별 카드 두 열 — 왼쪽 논문 자료·설계 결정, 오른쪽 기술 검토·측정 기록 */
+  /* 종류별 카드 두 열 — 왼쪽 논문 자료·주간 보고서·설계 결정, 오른쪽 기술 검토·측정 기록 */
+  .weekly-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:4px 0 10px; font-size:13px; }
+  .weekly-actions .btn-ghost { padding:4px 10px; min-height:30px; }
   .doc-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px;
               align-items: start; }
   @media (max-width: 980px) { .doc-cols { grid-template-columns: 1fr; } }
@@ -72,6 +74,20 @@
       <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 자료
         <span class="doc-cnt">{{ papers|length }}</span></h2>
       {{ rows(papers) }}
+    </div></div>
+
+    <div class="card"><div class="card-in">
+      <h2><iconify-icon icon="solar:calendar-mark-linear"></iconify-icon>주간 보고서
+        <span class="doc-cnt">{{ weekly_docs|length }}</span></h2>
+      <div class="weekly-actions">
+        <span class="muted">이번 주 ({{ weekly_monday }}~)</span>
+        <a class="btn-ghost" href="/dev/weekly.md">md</a>
+        <a class="btn-ghost" href="/dev/weekly.docx">docx</a>
+        <a class="btn-ghost" href="/dev/weekly.hwpx">hwpx</a>
+        <a class="btn-ghost" href="/dev/weekly.md?fresh=1" title="원자료를 다시 읽어 새로 씁니다">다시 만들기</a>
+        <span class="muted">양식: {% if weekly_template %}docs/weekly/양식.md 적용{% else %}기본 구성 (docs/weekly/양식.md 를 두면 그 구성으로){% endif %}</span>
+      </div>
+      {{ rows(weekly_docs) }}
     </div></div>
 
     <div class="card"><div class="card-in">
