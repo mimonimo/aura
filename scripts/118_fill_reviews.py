@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from zzaimy.app.db import Database  # noqa: E402
-from zzaimy.app.pipeline import DocumentProcessor  # noqa: E402
+from zzaimy.app.pipeline import looks_cut, DocumentProcessor  # noqa: E402
 
 WAITING = "검토 의견 생성 대기"
 
@@ -29,11 +29,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--recut", action="store_true",
+                    help="문장 중간에서 끊긴 검토 의견도 다시 만든다(생성 상한을 올린 뒤 소급)")
     args = ap.parse_args()
 
     db = Database(Path(args.db))
     todo = [d for d in db.list_documents()
-            if WAITING in (d.get("ai_review") or "") or not (d.get("ai_review") or "").strip()]
+            if WAITING in (d.get("ai_review") or "") or not (d.get("ai_review") or "").strip()
+            or (args.recut and looks_cut(d.get("ai_review") or ""))]
     todo = [d for d in todo if (d.get("masked_text") or "").strip()]
     print(f"검토 의견이 비어 있는 문서 {len(todo)}건")
     if not args.apply or not todo:

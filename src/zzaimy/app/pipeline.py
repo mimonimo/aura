@@ -186,6 +186,15 @@ _MAGIC = {".pdf": b"%PDF", ".hwpx": b"PK", ".docx": b"PK", ".xlsx": b"PK", ".ppt
           ".hwp": b"\xd0\xcf\x11\xe0", ".zip": b"PK"}
 
 
+_SENTENCE_END = re.compile(r"[.。!?」』)\]*]\s*$|(?:다|음|됨|임|함|요|음\.)\s*$")
+
+
+def looks_cut(text: str) -> bool:
+    """글이 문장 중간에서 끊겼는가 — 검토 의견이 생성 상한에 걸렸을 때의 모양."""
+    t = (text or "").rstrip()
+    return bool(t) and not _SENTENCE_END.search(t)
+
+
 def _strip_think(text: str) -> str:
     """모델의 생각 과정(<think>…</think>)이 답에 섞여 나오면 뗀다 — 본문에 들어가면 안 된다."""
     text = re.sub(r"(?s)<think>.*?</think>\s*", "", text or "")
@@ -1889,6 +1898,12 @@ class DocumentProcessor:
         )
         return (resp.choices[0].message.content or "").strip()
 
+    # 검토 의견 생성 상한. 1,024 토큰이던 때 193건 중 84건이 문장 중간에서 끊겼다(2026-09-21 실측,
+    # 최대 1,661자). 검토 모델(4B)의 문맥이 8K 라 입력 6,000자 + 출력 2,048 토큰으로 맞춘다.
+    REVIEW_INPUT_CHARS = 6000
+    REVIEW_MAX_TOKENS = 2048
+    REVIEW_CUT_NOTE = "(검토 의견이 길이 상한에서 끊겼습니다)"
+
     def _review(self, masked_text: str, doc_type: str) -> str:
         from zzaimy.generate.client import VllmClient
 
@@ -1896,14 +1911,24 @@ class DocumentProcessor:
         # 반입 검토는 문서를 들일 때마다 도는 일이라 가벼운 모델이 맞다(대화·초안과 성격이 다르다).
         # 지정이 없으면 문서 작업 모델을 쓴다.
         client = VllmClient(role="review")
+        messages = [{"role": "user", "content": prompt.format(text=masked_text[: self.REVIEW_INPUT_CHARS])}]
         resp = client.client.chat.completions.create(
-            model=client.model,
-            messages=[{"role": "user", "content": prompt.format(text=masked_text[:8000])}],
-            temperature=0.2,
-            max_tokens=1024,
-            extra_body=getattr(client, "_extra", {}),
+            model=client.model, messages=messages, temperature=0.2,
+            max_tokens=self.REVIEW_MAX_TOKENS, extra_body=getattr(client, "_extra", {}),
         )
-        return (resp.choices[0].message.content or "").strip()
+        text = _strip_think(resp.choices[0].message.content or "")
+        if getattr(resp.choices[0], "finish_reason", "") == "length":
+            # 상한에 걸리면 한 번 이어 쓴다 — 그래도 끝나지 않으면 끊겼다고 적어 둔다(모른 척하지 않는다)
+            messages += [{"role": "assistant", "content": text},
+                         {"role": "user", "content": "끊긴 곳부터 이어서 마무리하라. 앞 내용을 되풀이하지 마라."}]
+            more = client.client.chat.completions.create(
+                model=client.model, messages=messages, temperature=0.2,
+                max_tokens=self.REVIEW_MAX_TOKENS // 2, extra_body=getattr(client, "_extra", {}),
+            )
+            text = (text.rstrip() + "\n" + _strip_think(more.choices[0].message.content or "")).strip()
+            if getattr(more.choices[0], "finish_reason", "") == "length":
+                text += "\n" + self.REVIEW_CUT_NOTE
+        return text
 
     def extract_text(self, file_path: Path) -> str:
         """채팅 첨부용 — 파싱 + PII 마스킹까지만 하고 결과 텍스트를 돌려준다."""
