@@ -25,6 +25,8 @@ PLAN = [
      "role": "문서를 들일 때 요약·판정", "kind": "chat"},
     {"key": "vision", "name": "문서 이미지 판독", "base": "비전 모델",
      "role": "스캔·그림에서 글자 읽기", "kind": "chat"},
+    {"key": "vision_public", "name": "공개 자료 판독", "base": "외부 모델 허용",
+     "role": "공개 수집 문서(국고 공고·외부 안내)만 — 지정이 없으면 위 판독 모델을 쓴다", "kind": "chat"},
 ]
 
 

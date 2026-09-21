@@ -25,7 +25,13 @@ from pathlib import Path
 KINDS = {
     "vllm": {"label": "교내 GPU 서버", "external": False, "base_url": "http://<교내 GPU 서버>:8000/v1"},
     "partner": {"label": "외부 GPU 서버", "external": True, "base_url": "https://<외부 GPU 서버 주소>/v1"},
+    # 상용 API — OpenAI 호환 주소로 부른다(같은 클라이언트). 공개 자료 판독에만 쓴다(아래 set_role 의 규칙).
+    "anthropic": {"label": "Anthropic 클로드 (상용 API)", "external": True,
+                  "base_url": "https://api.anthropic.com/v1/"},
 }
+# 외부(교외) 연결을 맡길 수 있는 용도 — 공개 자료만 다루는 용도뿐이다. 교내 문서·개인정보가 지나가는
+# 용도(문서 작업·반입 검토·일반 판독)에는 외부 연결을 지정할 수 없다(절대규칙 3).
+EXTERNAL_OK_ROLES = ("vision_public",)
 
 _path: Path | None = None
 _cache: dict | None = None
@@ -118,6 +124,7 @@ ROLES = {
     "answer": "문서 작업 (채팅·초안)",
     "review": "반입 검토 의견 (문서를 들일 때 요약·판정)",
     "vision": "문서 이미지 판독 (스캔·그림)",
+    "vision_public": "공개 자료 판독 (외부 모델 허용 — 공개 수집 문서만)",
 }
 
 
@@ -127,8 +134,11 @@ def set_role(role: str, cid: str, model: str = "") -> dict:
         raise ValueError(f"알 수 없는 역할입니다: {role}")
     data = _load()
     if cid:
-        if get(cid) is None:
+        conn = get(cid)
+        if conn is None:
             raise ValueError("없는 연결입니다")
+        if conn.get("external") and role not in EXTERNAL_OK_ROLES:
+            raise ValueError("외부 서버는 공개 자료 판독에만 지정할 수 있습니다 — 교내 문서는 나가지 않습니다")
         data["roles"][role] = {"id": cid, "model": (model or "").strip()}
     else:
         data["roles"].pop(role, None)
@@ -164,6 +174,11 @@ def _role_entry(data: dict, role: str) -> tuple[str, str]:
     if isinstance(raw, dict):
         return raw.get("id", ""), (raw.get("model") or "").strip()
     return str(raw), ""
+
+
+def role_is_set(role: str) -> bool:
+    """그 용도에 연결을 명시적으로 정해 뒀는가(기본 연결로 물러나는 경우는 아니다)."""
+    return bool(_role_entry(_load(), role)[0])
 
 
 def role_conn(role: str) -> dict | None:

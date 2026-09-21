@@ -385,3 +385,13 @@ def test_scan_ignores_masked_text_but_finds_real_values():
 
     leaking = "담당자: 홍길동, 연락처 010-1234-5678"
     assert find_spans(leaking, detectors)
+
+
+def test_degree_words_are_not_names():
+    """'지원자 | 박사 학위' 의 '박사'는 성명이 아니다 — 채용 서식(2026-09-21 실측)."""
+    from zzaimy.ingest.pii import mask_names_in_rows
+
+    rows = [[0, 0, 1, 1, True, "지원자"], [0, 1, 1, 1, False, "박사"], [0, 2, 1, 1, False, "학위"],
+            [1, 0, 1, 1, True, "지원자"], [1, 1, 1, 1, False, "김진형"]]
+    out = mask_names_in_rows(rows)
+    assert out[1][-1] == "박사" and out[4][-1] == "[KR_NAME]"

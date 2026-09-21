@@ -81,3 +81,18 @@ def test_model_thinking_is_stripped_from_transcripts():
     assert _strip_think("<think>이미지를 본다</think>\n푸른등대\n한국장학재단") == "푸른등대\n한국장학재단"
     assert _strip_think("사용자는 텍스트 추출을 요청했다.\n</think>\n\n푸른등대") == "푸른등대"
     assert _strip_think("푸른등대") == "푸른등대"
+
+
+def test_public_documents_may_use_the_public_reader_only_when_set(tmp_path):
+    from zzaimy.app.pipeline import DocumentProcessor
+    from zzaimy.generate import llm_connections as lc
+
+    lc.configure(tmp_path / "c.json")
+    proc = DocumentProcessor()
+    proc._doc_public = True
+    assert proc._vision_role() == "vision"                    # 지정이 없으면 교내 판독
+    ext = lc.add("클로드", "anthropic", "https://api.anthropic.com/v1/", "claude-sonnet-5", "sk-test")
+    lc.set_role("vision_public", ext["id"], "claude-sonnet-5")
+    assert proc._vision_role() == "vision_public"
+    proc._doc_public = False
+    assert proc._vision_role() == "vision"                    # 교내 문서는 언제나 교내 판독

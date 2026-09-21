@@ -226,7 +226,7 @@ class VllmClient:
         # 글 모델에 이미지를 보내면 거절당하거나 연결이 끊긴다. 그래서 따로 지정된
         # 모델이 있는지를 함께 알려, 호출부가 헛걸음하지 않게 한다.
         self.vision_model = cfg.get("vision_model") or self.model
-        self.has_vision = bool(cfg.get("vision_model"))
+        self.has_vision = bool(cfg.get("vision_model")) or self.kind == "anthropic"
         if not self.has_vision and self.kind == "vllm":
             # 비전 모델을 따로 지정하지 않아도, 기본 모델이 이미지를 읽을 수 있으면 쓴다
             # (DGX qwen3.6:35b 는 vision 능력이 있는데 칸이 비어 스캔 판독이 꺼져 있었다)
