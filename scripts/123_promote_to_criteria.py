@@ -26,7 +26,7 @@ from zzaimy.app.regulations import chunk_document  # noqa: E402
 # 공고(recruit)는 날실로 따로 처리한다 — 절대규칙 6(계열별 처리 경로 분리).
 # 여기서 올리는 것은 갈래를 못 정해 '문서 추출'로 들어온 교내 서류뿐이다.
 PROMOTE = ("auto", "")
-MIN_CHARS = 200                # 본문이 이만큼도 없으면 조각화할 것이 없다
+MIN_CHARS = 80                 # 공개 코퍼스 반입(scripts/74 --min-chars)과 같은 하한
 
 
 def targets(db: Database) -> list[dict]:
