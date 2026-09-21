@@ -117,7 +117,7 @@ def meaningless_filename(filename: str) -> bool:
 
 # 기관 이름만 있는 줄은 문서의 발신처(레터헤드)다 — '한국장학재단', '통 영 시 장'
 _ORG_ONLY = re.compile(
-    r"^[가-힣A-Za-z·]{2,20}(?:재단|대학교|대학|공단|공사|협회|센터|위원회|연구원|교육청|[시군구]청|[시군구]장|본부)$")
+    r"^[가-힣A-Za-z·]{2,20}(?:재단|대학교|대학|공단|공사|협회|센터|위원회|연구원|교육청|[시군구]청|[시군구]장|본부|부|처|청)$")
 
 
 def _title_like(ln: str) -> bool:
@@ -158,7 +158,7 @@ def loose_title(text: str) -> str | None:
             continue
         hangul = len(re.findall(r"[가-힣]", ln))
         # '이력서'·'신청서'처럼 세 글자 서식 이름은 문서 종류로 끝날 때만 받는다
-        if not _title_like(ln) or hangul < 3 or (hangul < 4 and not _kind_like(ln)):
+        if not _title_like(ln) or hangul < 3 or (hangul < 4 and not ln.endswith(("서", "표", "원"))):
             continue
         if len(ln) < 12 and i + 1 < len(head) and not _CELL.search(head[i + 1]):
             nxt = _unspace(head[i + 1])

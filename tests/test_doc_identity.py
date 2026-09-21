@@ -356,3 +356,23 @@ def test_short_form_names_and_english_titles():
     assert loose_title("1 모집분야 및 지원자격\n가. 대상") is None
     body = "DCCF\nLIVE STREAMING\n15 DAEGU CONTENT & CREATOR FAIR\n2026. 10. 16."
     assert find_title_by_model(body, lambda p: "15 DAEGU CONTENT & CREATOR FAIR") == "15 DAEGU CONTENT & CREATOR FAIR"
+
+
+def test_ministry_letterhead_is_not_a_title():
+    from zzaimy.app.doc_title import loose_title
+
+    assert loose_title("교육부\n학자금 지원구간 체계 개편(사전공표)\n1. 개요") == "학자금 지원구간 체계 개편(사전공표)"
+    assert loose_title("한국장학재단\n2026년 2학기 중소기업 취업연계 장학금 (희망사다리 1유형)") \
+        == "2026년 2학기 중소기업 취업연계 장학금 (희망사다리 1유형)"
+
+
+def test_field_value_line_can_still_tell_same_titles_apart(tmp_path):
+    from zzaimy.app.db import Database
+
+    db = Database(tmp_path / "t.db")
+    names = []
+    for sub in ("법인사업자:본점", "법인사업자:지점"):
+        d = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="", doc_type="regulation")
+        db.rename_from_text(d, f"사업자등록증\n( {sub} )\n등록번호 : 000-00-00000")
+        names.append(db.get_document(d)["filename"])
+    assert names == ["사업자등록증", "사업자등록증 · 법인사업자:지점"]

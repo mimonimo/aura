@@ -386,7 +386,7 @@ class Database:
                 return False
             if _ORG_ONLY.match(sub.replace(" ", "")) or _re.search(r"(팀|실|과|부|처|국|원)$", sub):
                 return False                      # 부서·기관 줄은 문서를 가르는 말이 아니다
-            return _title_like(sub)
+            return _title_like(_re.sub(r"[:：]", " ", sub))   # '법인사업자:지점' 같은 항목:값도 구분이 된다
 
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
         base_raw = name.split(" · ")[0]
