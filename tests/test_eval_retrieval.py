@@ -44,3 +44,28 @@ def test_production_row_uses_the_production_candidate_count():
     from zzaimy.eval import retrieval_eval as rev
 
     assert rev.PRODUCTION_CANDIDATES == reg.CANDIDATE_LIMIT
+
+
+def test_alt_dense_axis_is_measured_beside_production(monkeypatch):
+    """대안 조밀 축(예: KURE-v2 다중 벡터)이 있으면 단독·어휘 융합·리랭커 행과 후보 진입률(R@20)을
+    운영 행과 나란히 낸다 — ADR-0022 의 채택 조건을 같은 질의로 재기 위해서다."""
+    from zzaimy.eval import retrieval_eval as rev
+
+    queries = [rev.Query(f"질의 {i}", "practical", i) for i in range(6)]
+    golds = [{i} for i in range(6)]
+    ret = rev.Retrievers(
+        lexical=lambda q: [99, 98],                        # 어휘는 늘 틀린다
+        dense=lambda q: [98, 97],                          # 운영 임베딩도 틀린다
+        hybrid=lambda q, lex, den: list(dict.fromkeys(den + lex)),
+        rerank=lambda q, cand: cand,                       # 순서 유지
+        alt_dense=lambda q: [int(q.split()[-1]), 97],      # 대안 축은 정답을 1위로
+        alt_name="KURE-v2",
+    )
+    rows, notes = rev.evaluate(queries, golds, ret, rerank_sample=6)
+    by = {r["method"]: r for r in rows}
+    assert by["다중 벡터(KURE-v2)"]["recall_at_1"] == 1.0
+    assert by["하이브리드(어휘+KURE-v2)"]["recall_at_20"] == 1.0 and by[rev.METHOD_HYBRID]["recall_at_20"] == 0.0
+    assert by["어휘+KURE-v2+리랭커"]["recall_at_1"] == 1.0 and by[rev.METHOD_PRODUCTION]["recall_at_1"] == 0.0
+    assert any("후보 진입률" in n for n in notes)
+    monkeypatch.delenv("ZZAIMY_ALT_DENSE_URL", raising=False)
+    assert rev.alt_dense_from_env() == (None, "")          # 주소가 없으면 대안 축 없음
