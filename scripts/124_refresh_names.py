@@ -46,7 +46,8 @@ def main() -> int:
     changed = 0
     for r in rows:
         ident = json.loads(r["identity"] or "{}") or {}
-        orig = (ident.get("original_filename") or "").strip()
+        # 정체가 비어 있으면(반입 때 제목을 못 찾은 문서) 지금 이름이 곧 올라온 이름이다
+        orig = (ident.get("original_filename") or r["filename"] or "").strip()
         if not orig:
             continue
         if args.apply:
