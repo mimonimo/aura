@@ -89,11 +89,22 @@ def _remote_conf() -> tuple[int, bool]:
             os.environ.get("ZZAIMY_RERANK_TITLE", "1") != "0")
 
 
+# 이번 프로세스에서 서빙 장비 리랭커가 몇 번 성공하고 몇 번 CPU 로 물러났는지 — 측정 보고가
+# 이 수를 같이 적어야 '운영 구성' 숫자가 실제로 GPU 리랭커의 것인지 알 수 있다.
+STATS = {"remote_ok": 0, "fallback": 0}
+
+
 def _remote_scores(query: str, texts: list[str]) -> list[float] | None:
     """서빙 장비에 점수를 묻는다 — 꺼져 있거나 실패하면 None(그러면 VM CPU 로 물러난다)."""
     url = os.environ.get("ZZAIMY_RERANK_URL", "").strip()
     if not url or not texts:
         return None
+    got = _remote_scores_once(url, query, texts)
+    STATS["remote_ok" if got is not None else "fallback"] += 1
+    return got
+
+
+def _remote_scores_once(url: str, query: str, texts: list[str]) -> list[float] | None:
     import json
     import urllib.error
     import urllib.request

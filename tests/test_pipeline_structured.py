@@ -73,3 +73,11 @@ def test_downloaded_error_page_is_reported_as_such(tmp_path):
     ok.write_bytes(b"%PDF-1.7 ...")
     assert _format_mismatch(ok) is None
     assert _format_mismatch(tmp_path / "그림.png") is None      # 검사 대상이 아닌 형식
+
+
+def test_model_thinking_is_stripped_from_transcripts():
+    from zzaimy.app.pipeline import _strip_think
+
+    assert _strip_think("<think>이미지를 본다</think>\n푸른등대\n한국장학재단") == "푸른등대\n한국장학재단"
+    assert _strip_think("사용자는 텍스트 추출을 요청했다.\n</think>\n\n푸른등대") == "푸른등대"
+    assert _strip_think("푸른등대") == "푸른등대"

@@ -685,6 +685,15 @@ def _print_summary(result: dict) -> None:
               f" {_fmt(r['recall_at_10'])} | {_fmt(r['mrr_at_10'])} | {r['n']} |")
     for n in result["notes"]:
         print(f"- {n}")
+    try:
+        from zzaimy.app import rerank as _rr
+
+        st = _rr.STATS
+        if st["remote_ok"] or st["fallback"]:
+            print(f"- 리랭커 서빙 장비 응답 {st['remote_ok']}건 · CPU 폴백 {st['fallback']}건"
+                  + (" — 폴백이 있으면 운영 구성 행은 GPU 리랭커만의 숫자가 아니다" if st["fallback"] else ""))
+    except Exception:
+        pass
 
 
 def main(argv: list[str] | None = None) -> int:

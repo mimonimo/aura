@@ -186,6 +186,14 @@ _MAGIC = {".pdf": b"%PDF", ".hwpx": b"PK", ".docx": b"PK", ".xlsx": b"PK", ".ppt
           ".hwp": b"\xd0\xcf\x11\xe0", ".zip": b"PK"}
 
 
+def _strip_think(text: str) -> str:
+    """모델의 생각 과정(<think>…</think>)이 답에 섞여 나오면 뗀다 — 본문에 들어가면 안 된다."""
+    text = re.sub(r"(?s)<think>.*?</think>\s*", "", text or "")
+    if "</think>" in text:                       # 여는 표시 없이 닫는 표시만 남은 경우
+        text = text.split("</think>", 1)[1]
+    return text.strip()
+
+
 def _format_mismatch(file_path: Path) -> str | None:
     """열어 보기 전에 형식을 확인한다. 맞으면 None, 아니면 사람이 읽을 이유."""
     want = _MAGIC.get(file_path.suffix.lower())
@@ -267,15 +275,11 @@ class DocumentProcessor:
         if suffix == ".pdf" and not self._pdf_has_text_layer(file_path) and _vision_available():
             pages = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
             if pages:
-                mds = []
-                for _no, img in pages:
-                    got = self._vlm_transcribe(img)
-                    if got:
-                        mds.append(got)
+                mds, read = self._vlm_pages(pages)
                 if mds:
                     self._ocr_used = True
                     self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
-                    self._note_partial_vision(file_path, pages)
+                    self._note_partial_vision(file_path, pages[:read])
                     return "\n\n".join(mds)
 
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
@@ -411,8 +415,28 @@ class DocumentProcessor:
         " 머리글(음영·강조된 행이나 열)은 <th>로 원본 구조 그대로\n"
         "- 날짜, 문서번호, 서명, 직인(도장)에 새겨진 글자도 보이는 대로 옮겨라"
         " (도장은 '(직인: ...)' 형태로)\n- 이미지에 없는 내용은 절대 지어내지 마라."
-        " 읽을 수 없는 부분은 (판독 불가)로 표시하라."
+        " 읽을 수 없는 부분은 (판독 불가)로 표시하라.\n"
+        "- 네 설명·분석·요약·'분석 결과' 같은 제목을 덧붙이지 마라. 이미지에 있는 글만 옮긴다."
     )
+    # 판독은 서빙 장비 몫이지만 문서 한 건이 반입을 세워서는 안 된다 — 이 시간을 넘기면
+    # 남은 쪽은 두고 '앞 N쪽만' 으로 기록한다(27B 는 빽빽한 쪽 하나에 2분 남짓, 2026-09-21 실측).
+    VISION_BUDGET_S = int(os.environ.get("ZZAIMY_VISION_BUDGET_S", "480"))
+
+    def _vlm_pages(self, pages: list) -> tuple[list[str], int]:
+        """쪽 그림 목록을 차례로 판독한다 — (전사 목록, 실제로 읽은 쪽 수). 시간 예산 안에서만."""
+        import time as _t
+
+        t0 = _t.time()
+        mds: list[str] = []
+        read = 0
+        for _no, img in pages:
+            if read and _t.time() - t0 > self.VISION_BUDGET_S:
+                break
+            got = self._vlm_transcribe(img)
+            read += 1
+            if got:
+                mds.append(got)
+        return mds, read
 
     def _vlm_transcribe(self, image_path: Path) -> str | None:
         """비전 모델로 사진 속 문서 전사 — 손글씨·도장 문구까지 읽는다.
@@ -453,9 +477,11 @@ class DocumentProcessor:
                         {"type": "text", "text": self._VLM_PROMPT},
                     ],
                 }],
-                extra_body=getattr(client, "_extra", {}),
+                # 생각 모델(Qwen3 계열)은 생각을 끄고 본문만 받는다 — 켜 두면 답 앞에 새어 나온다
+                extra_body={**getattr(client, "_extra", {}),
+                            "chat_template_kwargs": {"enable_thinking": False}},
             )
-            text = (resp.choices[0].message.content or "").strip()
+            text = _strip_think(resp.choices[0].message.content or "")
             # 속성 줄 분리 — 하드케이스 분류용 (손글씨·도장 여부)
             first, _, rest = text.partition("\n")
             if first.startswith("[[속성]]"):
@@ -1946,11 +1972,19 @@ class DocumentProcessor:
                 if vp:
                     reg_mds: list[str] = []
                     vc: list[dict] = []
+                    import time as _t
+
+                    _t0 = _t.time()
+                    _read = 0
                     for pg_no, img_p in vp:
+                        if _read and _t.time() - _t0 > self.VISION_BUDGET_S:
+                            break
                         md = self._vlm_transcribe(img_p)
+                        _read += 1
                         if md:
                             reg_mds.append(md)
                             vc += self._md_to_chunks(md, lambda x: x, page_no=pg_no)
+                    vp = vp[:_read]
                     if reg_mds:
                         raw_text = "\n\n".join(reg_mds)
                         reg_vision_chunks = vc
