@@ -331,6 +331,11 @@ class Database:
                 # 다시 읽어도 이름이 없으면 옛 이름을 버리고 올라온 파일 이름으로 돌아간다
                 back = have.get("original_filename") or back
             name = tidy_name(back) or back
+            if meaningless_filename(name):
+                # 규칙도 모델도 제목을 못 찾았고 파일 이름은 URL 이다 — 그 사실을 이름으로 말한다.
+                # 올라온 이름은 identity.original_filename 에 남는다.
+                have.setdefault("original_filename", back)
+                name = f"제목 없음 · {doc.get('receipt_no') or doc_id}"
             if name != doc.get("filename") or overwrite:
                 if name != back:
                     have.setdefault("original_filename", back)
@@ -369,18 +374,38 @@ class Database:
         # 제목 바로 다음 줄이 부제다 — '( 홈페이지 , 모바일앱 )' 과 '( 웰로 앱 사용 매뉴얼 )' 처럼
         # 같은 제목의 문서를 가르는 말은 대개 거기 있다.
         import re as _re
+
+        from zzaimy.app.doc_title import _ORG_ONLY, _title_like
+
+        def _clean(sub: str) -> str:
+            sub = _re.sub(r"\s*[,，]\s*", ", ", sub.strip(" ()（）[]【】:：-·"))
+            return _re.sub(r"\s{2,}", " ", sub).strip()
+
+        def _usable(sub: str) -> bool:
+            if not (2 <= len(sub) <= 40) or "|" in sub or sub in name:
+                return False
+            if _ORG_ONLY.match(sub.replace(" ", "")) or _re.search(r"(팀|실|과|부|처|국|원)$", sub):
+                return False                      # 부서·기관 줄은 문서를 가르는 말이 아니다
+            return _title_like(sub)
+
         lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        base = _re.sub(r"[\s()（）]", "", name.split(" · ")[0])
+        base_raw = name.split(" · ")[0]
+        base = _re.sub(r"[\s()（）]", "", base_raw)
         for i, ln in enumerate(lines[:12]):
-            if base and base in _re.sub(r"[\s()（）]", "", ln) and i + 1 < len(lines):
-                sub = _re.sub(r"\s*[,，]\s*", ", ", lines[i + 1].strip(" ()（）[]"))
-                sub = _re.sub(r"\s{2,}", " ", sub).strip()
-                if 2 <= len(sub) <= 40 and "|" not in sub and not _re.search(r"\d{4}\s*[년.]", sub) \
-                        and sub not in name:
+            flat = _re.sub(r"[\s()（）]", "", ln)
+            if not base or base not in flat:
+                continue
+            # 제목 줄에 남은 말('( 웰로 앱 사용 매뉴얼 )')이 먼저, 없으면 다음 줄
+            rest = _clean(ln[ln.find(base_raw.split()[0]):].replace(base_raw, "", 1)) if base_raw.split() else ""
+            cands = [rest] if rest else []
+            if i + 1 < len(lines):
+                cands.append(_clean(lines[i + 1]))
+            for sub in cands:
+                if _usable(sub):
                     merged = f"{name} · {sub}"
                     if merged not in taken:
                         return merged
-                break
+            break
         for line in (ln.strip() for ln in text.splitlines()):
             if not (4 <= len(line) <= 40) or line in name:
                 continue
