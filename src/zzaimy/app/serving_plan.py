@@ -74,6 +74,14 @@ def status(live_models=None) -> list[dict]:
                                   else "이 서버에 그 모델이 지금 없습니다")
             else:
                 row["detail"] = "지정된 서버가 없습니다"
+        # 학습본은 이름에 판 번호가 붙는다(zzaimy-embed-v2, zzaimy-rerank-v1). 번호 없는 zzaimy-* 는
+        # 베이스에 붙인 서빙 이름이다 — 표가 그 사실을 말하지 않으면 학습본으로 오해한다(2026-09-21).
+        import re as _re
+
+        got_model = row.get("model") or ""
+        if got_model.startswith("zzaimy-"):
+            row["trained"] = bool(_re.search(r"-v\d+$", got_model))
+            row["train_state"] = "학습본" if row["trained"] else "학습 전 베이스"
         base = item["base"].lower().replace("-", "").replace(".", "")
         got = (row["model"] or "").lower().replace("-", "").replace(".", "").replace(":", "")
         row["matches_plan"] = bool(got) and (base[:8] in got or got[:8] in base
