@@ -353,15 +353,20 @@ def index_ready(doc_id: int, chunks: list[RegulationChunk]) -> tuple[list[Regula
 
     if not chunks:
         return [], 0
-    kept, _removed = filter_chunks(
+    kept, removed = filter_chunks(
         [{"doc_id": doc_id, "content": c.content, "heading": c.heading} for c in chunks],
         Strictness.SEARCH,
     )
     keep_keys = {(k["heading"], k["content"]) for k in kept}
+    # 표제 보호의 예외 — 글자보다 기호가 많은 표 껍데기·쪽번호·목차 줄은 표제가 있어도 근거가 못 된다
+    # (실측 2026-09-22: 보호 규칙 때문에 symbol_only 57건이 남았다)
+    hard = {"symbol_only", "low_text", "page_number", "toc_line"}
+    why = {(r["heading"], r["content"]): set(r.get("quality_reasons") or []) for r in removed}
     survivors = [
         c for c in chunks
         if (c.heading, c.content) in keep_keys
-        or ((c.heading or "").strip() and substantive_len(c.content) >= MIN_SUBSTANTIVE_DROP)
+        or ((c.heading or "").strip() and substantive_len(c.content) >= MIN_SUBSTANTIVE_DROP
+            and not (why.get((c.heading, c.content), set()) & hard))
     ]
     if not survivors:
         return list(chunks), 0
