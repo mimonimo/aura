@@ -3597,7 +3597,9 @@ def create_app(
             now_text = (now_text + "\n\n이번 주 한 일:\n" + "\n".join(week_parts)).strip()
         plans = _section(dn, "## 다음에 할 일")
         # 기준 틀 — 기획서의 개발 내용(플랫폼·모델·데이터 축). 보고는 이 축의 높이에서 쓴다.
-        frame = _section(_dev_read("paper/프로젝트-기획서.md"), "## 개발 내용")[:2500]
+        plan_doc = _dev_read("paper/프로젝트-기획서.md")
+        frame = (_section(plan_doc, "## 개발 내용")[:2500]
+                 + "\n\n[추진 일정]\n" + _section(plan_doc, "## 추진 일정")[:1200])   # 일정 질문에도 답할 수 있게
         week_lines = [f"- {it['day'][5:]} {it['subject']}" for it in _git_history() if it["day"] >= monday]
         if not week_lines:                   # 깃이 없으면 저장소 사본
             week_lines = [ln for ln in _dev_read("dev-changelog.md").splitlines()
