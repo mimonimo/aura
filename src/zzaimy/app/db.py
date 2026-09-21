@@ -381,8 +381,12 @@ class Database:
             sub = _re.sub(r"\s*[,，]\s*", ", ", _plain(sub).strip(" ()（）[]【】:：-·"))
             return _re.sub(r"\s{2,}", " ", sub).strip()
 
+        def _squash(t: str) -> str:
+            return _re.sub(r"[\s()（）*'\"·]", "", t)
+
         def _usable(sub: str) -> bool:
-            if not (2 <= len(sub) <= 40) or "|" in sub or sub in name:
+            # 띄어쓰기만 다른 같은 제목('가구원 정보 제공 동의 절차')은 구분이 아니다
+            if not (2 <= len(sub) <= 60) or "|" in sub or _squash(sub) in _squash(name) or _squash(name.split(" · ")[0]) in _squash(sub):
                 return False
             if _ORG_ONLY.match(sub.replace(" ", "")) or _re.search(r"(팀|실|과|부|처|국|원)$", sub):
                 return False                      # 부서·기관 줄은 문서를 가르는 말이 아니다
@@ -398,7 +402,9 @@ class Database:
             flat = _re.sub(r"[\s()（）]", "", ln)
             if not base or base not in flat:
                 continue
-            rest = _clean(ln.replace(base_raw, "", 1)) if base_raw in ln else ""
+            # 제목 줄에 남은 말 — 띄어쓰기가 달라도 뒤에 붙은 괄호 부제('(웰로 앱 사용 매뉴얼)')를 잡는다
+            m = _re.search(r"[(（]([^()（）]{2,60})[)）]\s*\**\s*$", ln)
+            rest = _clean(m.group(1)) if m else (_clean(ln.replace(base_raw, "", 1)) if base_raw in ln else "")
             if rest:
                 cands.append(rest)
             if i + 1 < len(lines):

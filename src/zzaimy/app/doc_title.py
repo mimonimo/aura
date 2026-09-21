@@ -141,7 +141,9 @@ def _title_like(ln: str) -> bool:
         return False
     if not (2 <= len(ln) <= 60) or len(re.findall(r"[가-힣]", ln)) < 2:
         return False
-    if len(ln.split()) > 9:                        # 표 머리줄처럼 낱말이 줄줄이 이어진 줄
+    # 표 머리줄처럼 낱말이 줄줄이 이어진 줄은 제목이 아니다. 괄호 부제("(웰로 'Wello' 앱 사용 매뉴얼)")의 낱말은
+    # 세지 않는다 — 부제가 붙은 제목이 표 줄로 몰려 뒷줄에 밀리던 것(2026-09-21 실측).
+    if len(re.sub(r"[(（][^()（）]*[)）]", "", ln).split()) > 9:
         return False
     return not re.search(r"(?:다|요|함|음)\s*[.。]?$", ln)   # 문장은 제목이 아니다
 
