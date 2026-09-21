@@ -1,4 +1,24 @@
 (() => {
+  // Only explicit settings forms participate; chat drafts have their own lifecycle.
+  const protectedForms = [...document.querySelectorAll('form[data-protect-changes]')];
+  const snapshot = form => JSON.stringify([...new FormData(form).entries()].map(([key, value]) =>
+    [key, typeof value === 'string' ? value : [value.name, value.size, value.lastModified]]));
+  const initialValues = new Map(protectedForms.map(form => [form, snapshot(form)]));
+  let savingForm = null;
+  if (protectedForms.length) {
+    window.addEventListener('beforeunload', event => {
+      if (!protectedForms.some(form => form.isConnected && form !== savingForm && snapshot(form) !== initialValues.get(form))) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
+    window.addEventListener('submit', event => {
+      if (event.defaultPrevented || !initialValues.has(event.target)) return;
+      savingForm = event.target;
+      queueMicrotask(() => { if (event.defaultPrevented) savingForm = null; });
+    });
+    // Back/forward restoration must not retain the prior navigation's save bypass.
+    window.addEventListener('pageshow', () => { savingForm = null; });
+  }
   document.addEventListener('submit', event => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement) || event.defaultPrevented || form.hasAttribute('onsubmit')) return;
