@@ -156,3 +156,21 @@ def test_project_relations_skipped_without_model(db):
     db.create_project("grant", "2026 학자금 지원 사업")
     g = build_graph(db, include_similarity=False, embed_fn=lambda texts: None)
     assert not any(e["kind"] == "relates" for e in g["edges"])
+
+
+def test_same_title_documents_do_not_cite_each_other(tmp_path):
+    """판이 다른 같은 제목의 매뉴얼 — 제 제목이 제 본문에 있을 뿐, 서로 인용이 아니다."""
+    from zzaimy.app.db import Database
+    from zzaimy.app.regulations import RegulationChunk
+    from zzaimy.graph.build import _add_citation_edges
+
+    db = Database(tmp_path / "t.db")
+    edges = []
+    for name in ("가구원 정보제공 동의 절차", "가구원 정보제공 동의 절차 · 웰로 앱"):
+        d = db.add_document(filename=name, stored_path="", doc_type="regulation")
+        db.add_regulation_chunks(d, name, [RegulationChunk(heading="1", content="가구원 정보제공 동의 절차 안내 본문입니다. 자세한 절차는 아래와 같습니다.")])
+    other = db.add_document(filename="학자금 지원 규정", stored_path="", doc_type="regulation")
+    db.add_regulation_chunks(other, "학자금 지원 규정", [RegulationChunk(heading="1", content="가구원 정보제공 동의 절차 를 따른다.")])
+    _add_citation_edges(db, [], lambda s, t, k, **kw: edges.append((s, t)))
+    assert all(not (s.startswith("d") and t.startswith("d") and s != f"d{other}") for s, t in edges)
+    assert (f"d{other}", "d1") in edges

@@ -114,3 +114,30 @@ def extract(text: str, call, max_chars: int = 6000) -> dict:
 def signature(identity: dict) -> str:
     """문서를 잇는 열쇠 — 사업 이름을 표기 차이 없이 맞춘 것. 없으면 빈 문자열."""
     return _normalize(identity.get("program", ""))
+
+
+TITLE_PROMPT = (
+    "다음은 문서 첫 부분이다. 이 문서의 제목 한 줄을 본문에 적힌 그대로 옮겨 적어라.\n"
+    "제목만 한 줄로 답한다. 설명·따옴표·번호를 붙이지 않는다. 제목이 없으면 '없음' 이라고만 답한다.\n"
+    "표의 항목 이름(학년·성명·비고), 기관 이름만 있는 줄, 날짜 줄은 제목이 아니다.\n\n본문:\n{body}\n"
+)
+
+
+def find_title_by_model(text: str, call, max_chars: int = 3000) -> str | None:
+    """규칙이 제목을 못 찾은 문서 — 모델에게 제목 줄을 짚게 하되, 본문에 그대로 있는 답만 받는다.
+
+    사업 정보 읽기(extract)와 같은 원칙이다: 모델은 가리키기만 하고 값은 본문에서 확인한다.
+    """
+    head = (text or "").strip()[:max_chars]
+    if len(head) < 20:
+        return None
+    try:
+        raw = (call(TITLE_PROMPT.format(body=head)) or "").strip()
+    except Exception:
+        return None
+    line = raw.splitlines()[0].strip(" \"'「」『』*#") if raw else ""
+    if not line or line in ("없음", "제목 없음") or not (4 <= len(line) <= 60):
+        return None
+    if len(re.findall(r"[가-힣]", line)) < 2 or _normalize(line) not in _normalize(head):
+        return None
+    return line

@@ -31,6 +31,9 @@ def main() -> int:
     args = ap.parse_args()
 
     db = Database(Path(args.db))
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    ask = DocumentProcessor().ask_review      # 규칙이 못 찾은 것만 모델에게 제목 줄을 짚게 한다
     sql = ("SELECT id, filename, identity, masked_text FROM documents "
            "WHERE masked_text IS NOT NULL")
     params: tuple = ()
@@ -49,7 +52,7 @@ def main() -> int:
         if args.apply:
             with db._conn() as conn:
                 conn.execute("UPDATE documents SET filename = ? WHERE id = ?", (orig, r["id"]))
-            new = db.rename_from_text(r["id"], r["masked_text"], overwrite=True)
+            new = db.rename_from_text(r["id"], r["masked_text"], overwrite=True, ask=ask)
         else:
             from zzaimy.app.doc_title import display_name
             # 저장된 이름을 무시하고 본문에서 다시 읽는다 — --apply 와 같은 조건으로 미리 본다

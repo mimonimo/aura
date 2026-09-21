@@ -34,7 +34,8 @@ _LOOSE_SKIP = re.compile(
     r"^(?:[\d\-–.()\s/]+$|제\s*\d+\s*[장조절]|\d+[.)]|[□○◦▪■●※▶-]|페이지|page"
     r"|\d{1,3}(?![년월일차기회주])(?=[가-힣])"       # '9납입금' 처럼 표의 번호 칸
     r"|[가-하][.)]\s"                                # '가. 신청기간' 처럼 항목 기호
-    r"|[:：])",                                      # ': 대구광역시 …' 처럼 항목의 값만 남은 줄
+    r"|[:：]"                                        # ': 대구광역시 …' 처럼 항목의 값만 남은 줄
+    r"|[가-힣A-Za-z]{1,8}\s*[:：])",                 # '지원범위: 2026년 …' 처럼 항목:값 줄
     re.IGNORECASE)
 # 공고·고시는 첫 줄에 문서 번호를 적고 그다음 줄에 제목을 적는다 — 번호 줄은 이름이 아니다
 _DOC_NUMBER = re.compile(
@@ -76,8 +77,49 @@ def _cell_title(ln: str) -> str | None:
     return first
 
 
+# 이름 앞의 첨부 표시 — '붙임1.', '[붙임2]', '(서식2-1)', '별첨' 은 문서가 실린 자리이지 이름이 아니다
+_ATTACH = re.compile(
+    r"^\s*(?:[\[(【]\s*)?(?:붙임|별첨|첨부|별지|서식|양식)\s*(?:제\s*)?[\d\-]*\s*호?\s*(?:[\])】]\s*)?[.\-:]?\s*")
+# 이름에 남으면 안 되는 것 — 기호·이모지(★☆※·그림 문자), 파서의 역슬래시 이스케이프, 서로게이트
+_SYMBOL = re.compile(r"[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\uFE0F\u200D★☆※◆◇■□●○▶▷◀◁]")
+_MEANINGLESS = re.compile(r"www\.|https?:|[A-Za-z0-9]{16,}")
+
+
+def tidy_name(name: str) -> str:
+    """이름을 정돈한다 — 첨부 표시·기호·이스케이프를 떼고 공백을 고른다. 파일 확장자는 건드리지 않는다."""
+    if not name:
+        return ""
+    stem, ext = (name, "")
+    m = re.search(r"\.(pdf|hwpx?|docx?|xlsx?|pptx?|png|jpe?g|txt|md)$", name, re.IGNORECASE)
+    if m:
+        stem, ext = name[: m.start()], name[m.start():]
+    out = stem
+    if out.count("+") >= 2 and " " not in out:          # URL 에서 온 이름의 구분자
+        out = out.replace("+", " ")
+    out = re.sub(r"\\([~*_#\[\]()])", r"\1", out)           # '\~' → '~'
+    out = _SYMBOL.sub(" ", out)
+    prev = None
+    while prev != out:                                   # '[붙임2] 붙임 …' 처럼 겹친 표시
+        prev, out = out, _ATTACH.sub("", out, count=1)
+    out = re.sub(r"\s{2,}", " ", out).strip(" ·-_,.")
+    return (out + ext) if out else name
+
+
+def meaningless_filename(filename: str) -> bool:
+    """'www.ync.ac.kr__UPLOAD…' 처럼 사람이 붙인 이름이 아닌 것 — 한글이 없고 URL·해시 흔적이 있다."""
+    stem = Path(filename or "").stem
+    return not re.search(r"[가-힣]", stem) and bool(_MEANINGLESS.search(stem))
+
+
+# 기관 이름만 있는 줄은 문서의 발신처(레터헤드)다 — '한국장학재단', '통 영 시 장'
+_ORG_ONLY = re.compile(
+    r"^[가-힣A-Za-z·]{2,20}(?:재단|대학교|대학|공단|공사|협회|센터|위원회|연구원|교육청|[시군구]청|[시군구]장|본부)$")
+
+
 def _title_like(ln: str) -> bool:
     if _LOOSE_SKIP.match(ln) or _DOC_NUMBER.match(ln) or _DATE_LINE.search(ln):
+        return False
+    if _ORG_ONLY.match(ln.replace(" ", "")):
         return False
     if not (2 <= len(ln) <= 60) or len(re.findall(r"[가-힣]", ln)) < 2:
         return False
@@ -210,12 +252,12 @@ def resolved_title(doc: dict) -> tuple[str | None, str | None]:
         title = loose_title(head_text(doc.get("stored_path"), (doc.get("masked_text") or "")[:3000]))
     if not title or not title_beats_filename(title, filename):
         return None, None
-    return title, date
+    return tidy_name(title) or title, date
 
 
 def display_name(doc: dict) -> str:
     """화면에 보일 이름 — '이름 · 날짜', 못 찾으면 파일 이름."""
     title, date = resolved_title(doc)
     if not title:
-        return doc.get("filename") or ""
+        return tidy_name(doc.get("filename") or "")
     return f"{title} · {date}" if date else title
