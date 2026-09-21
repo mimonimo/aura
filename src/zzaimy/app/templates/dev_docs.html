@@ -9,6 +9,12 @@
   .weekly-feedback { display:flex; flex-direction:column; gap:6px; margin:6px 0 10px; }
   .weekly-feedback textarea { width:100%; box-sizing:border-box; font:inherit; font-size:13px; padding:8px; border:1px solid var(--line, #dfe3ea); border-radius:8px; }
   .weekly-feedback .btn-ghost { align-self:flex-start; padding:4px 10px; min-height:30px; }
+  .weekly-st { font-size:12.5px; color:var(--muted); }
+  .weekly-st.ok { color:var(--green); font-weight:600; }
+  .weekly-st.run { color:var(--amber); font-weight:600; }
+  .weekly-st.err { color:#B45309; }
+  .weekly-preview { border:1px solid var(--line, #dfe3ea); border-radius:10px; padding:6px 14px; margin:2px 0 10px;
+                    max-height:340px; overflow:auto; font-size:13px; }
   .doc-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px;
               align-items: start; }
   @media (max-width: 980px) { .doc-cols { grid-template-columns: 1fr; } }
@@ -82,20 +88,49 @@
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:calendar-mark-linear"></iconify-icon>주간 보고서
         <span class="doc-cnt">{{ weekly_docs|length }}</span></h2>
-      <form method="post" action="/dev/weekly/feedback" class="weekly-feedback" id="weekly">
-        <label for="weekly-fb" class="muted">이번 주 피드백 (미팅 결정·지도교수 의견) — 붙여 넣으면 보고서가 이 내용을 먼저 반영합니다</label>
-        <textarea id="weekly-fb" name="feedback" rows="4" placeholder="예) GPU 서버는 10월 초 배정 예정. 규정 문서는 학습하지 말고 검색으로.">{{ weekly_feedback }}</textarea>
-        <button type="submit" class="btn-ghost">피드백 저장</button>
-      </form>
-      <div class="weekly-actions">
+      <div class="weekly-actions" id="weekly">
         <span class="muted">이번 주 ({{ weekly_monday }}~)</span>
+        {% if weekly.running %}
+        <span class="weekly-st run" data-weekly-running="1">작성 중 ({{ weekly.started }} 시작) — 끝나면 화면이 새로 고쳐집니다</span>
+        {% elif weekly.exists %}
+        <span class="weekly-st ok">작성됨 {{ weekly.made_at }}</span>
+        {% elif weekly.error %}
+        <span class="weekly-st err">{{ weekly.error }}</span>
+        {% elif not weekly.auto %}
+        <span class="weekly-st err">모델 연결이 없어 자동 작성을 못 합니다 — 연결 화면에서 답변 용도를 지정하면 이 화면을 열 때 스스로 씁니다</span>
+        {% else %}
+        <span class="weekly-st">아직 없음</span>
+        {% endif %}
+      </div>
+      <div class="weekly-actions">
+        {% if weekly.exists %}<a class="btn-ghost" href="/dev/weekly/{{ weekly.stem }}">보기</a>{% endif %}
         <a class="btn-ghost" href="/dev/weekly.md">md</a>
         <a class="btn-ghost" href="/dev/weekly.docx">docx</a>
         <a class="btn-ghost" href="/dev/weekly.hwpx">hwpx</a>
-        <a class="btn-ghost" href="/dev/weekly.md?fresh=1" title="원자료를 다시 읽어 새로 씁니다">다시 만들기</a>
+        <a class="btn-ghost" href="/dev/weekly/rebuild" title="원자료를 다시 읽어 뒤에서 새로 씁니다">다시 만들기</a>
         <span class="muted">양식: {% if weekly_template %}docs/weekly/양식.md 적용{% else %}기본 구성 (docs/weekly/양식.md 를 두면 그 구성으로){% endif %}</span>
       </div>
+      {% if weekly.preview %}
+      <div class="weekly-preview">{{ weekly.preview | md_view }}</div>
+      {% endif %}
+      <form method="post" action="/dev/weekly/feedback" class="weekly-feedback">
+        <label for="weekly-fb" class="muted">이번 주 피드백 (미팅 결정·지도교수 의견) — 저장하면 이 내용을 먼저 반영해 보고서를 다시 씁니다</label>
+        <textarea id="weekly-fb" name="feedback" rows="4" placeholder="예) GPU 서버는 10월 초 배정 예정. 규정 문서는 학습하지 말고 검색으로.">{{ weekly_feedback }}</textarea>
+        <button type="submit" class="btn-ghost">피드백 저장</button>
+      </form>
+      <div class="doc-sub">지난 보고서</div>
       {{ rows(weekly_docs) }}
+      <script>
+        (function () {
+          if (!document.querySelector('[data-weekly-running]')) return;
+          var tick = function () {
+            fetch('/dev/weekly/status').then(function (r) { return r.json(); }).then(function (j) {
+              if (!j.running) { location.reload(); } else { setTimeout(tick, 8000); }
+            }).catch(function () { setTimeout(tick, 15000); });
+          };
+          setTimeout(tick, 8000);
+        })();
+      </script>
     </div></div>
 
     <div class="card"><div class="card-in">

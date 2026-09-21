@@ -25,7 +25,7 @@ class CriterionSpec(BaseModel):
 
 
 class AnnouncementSchema(BaseModel):
-    """공고 1건의 정형 스키마 — 날실."""
+    """공고 1건의 정형 스키마 — 계획서 뼈대와 배점의 기준."""
 
     title: str
     sections: list[SectionSpec]

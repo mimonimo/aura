@@ -45,7 +45,7 @@ def test_db_browser_shortens_long_names_and_keeps_full_title(client):
     assert f'title="{long}.pdf"' in r.text             # 목록은 줄여 보이고 전체 이름은 툴팁에
     assert "n_hidden" not in r.text
     r2 = client.get("/dev/db?tab=docs&q=가&doc=1")
-    assert r2.status_code == 200 and "RAG 조각" in r2.text
+    assert r2.status_code == 200 and "추출·검색 자료" in r2.text
 
 
 def test_hwp_console_hides_internal_op(client):
@@ -68,7 +68,7 @@ def test_dev_dashboard_labels(client):
     d = client.get("/dev/docs").text
     assert "논문 자료" in d and "설계 결정" in d and "측정 기록·인수인계" in d
     hpage = client.get("/dev/history").text
-    assert "전체 변경 목록" in hpage and "/dev/weekly.docx" in hpage
+    assert "전체 변경 목록" in hpage and "/dev/docs#weekly" in hpage     # 주간 보고서는 논문 자료 칸으로
     r2 = client.get("/dev/egress")
     assert r2.status_code == 200 and "전송 실패" in r2.text
     r3 = client.get("/dev/corpus")
@@ -186,14 +186,16 @@ def test_history_groups_by_day_with_real_counts(client):
     now = (_DOCS / "dev-now.md").read_text(encoding="utf-8").partition("\n## 최근 작업")[2]
     n_days = sum(1 for ln in now.splitlines() if ln.startswith("### "))
     assert page.count('class="tl-day"') == n_days                         # 작업 기록은 날짜별 구역
-    log = [ln for ln in (_DOCS / "dev-changelog.md").read_text(encoding="utf-8").splitlines()
-           if re.match(r"- \d{2}-\d{2} ", ln)]
-    days = {ln.split()[1] for ln in log}
-    assert f'<span class="cl-count">{len(days)}일 · {len(log)}건</span>' in page
+    import subprocess
+    log = subprocess.run(["git", "log", "--no-merges", "--format=%ad", "--date=short"],
+                         capture_output=True, text=True, cwd=str(_DOCS.parent)).stdout.split()
+    days = set(log)
+    assert f'<span class="cl-count">{len(days)}일 · {len(log)}건</span>' in page   # 깃 커밋이 정본
     assert page.count('class="cl-day"') == len(days)
-    assert '<details class="cl">' in page and "cl-chev" in page            # 기본 삼각형 대신 펼침 버튼
-    assert 'class="h-link"' in page and 'href="/dev/weekly.docx"' in page  # 주간 보고서는 머리 오른쪽 h-link
-    assert "위 버튼으로 생성" not in page
+    assert '<details class="cl" open>' in page and "cl-chev" in page       # 펼친 채로 — 이 화면의 본문이다
+    assert 'class="cl-tag"' in page and "깃 커밋" in page                  # 커밋마다 영역 표식
+    assert 'class="wk-label"' not in page                               # 주간 보고 요약 블록은 논문 자료 칸으로(2026-09-22)
+    assert 'href="/dev/docs#weekly"' in page
 
 
 def test_connection_page_shows_what_is_in_use_without_popups(client, monkeypatch, tmp_path):
@@ -289,6 +291,9 @@ def test_weekly_report_card_and_template(client, tmp_path):
     """논문 자료 화면에 주간 보고서 칸 — 이번 주 만들기·지난 보고 목록. 양식 파일이 있으면 그 구성을 쓴다."""
     page = client.get("/dev/docs").text
     assert "주간 보고서" in page and "/dev/weekly.docx" in page and "다시 만들기" in page
+    assert "/dev/weekly/rebuild" in page and "지난 보고서" in page          # 뒤에서 다시 쓰기 + 목록
+    st = client.get("/dev/weekly/status").json()
+    assert set(st) == {"running", "error", "exists"}
     r = client.get("/dev/weekly.md")
     assert r.status_code == 200 and "주간업무보고" in r.text
 
