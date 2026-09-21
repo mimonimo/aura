@@ -430,6 +430,10 @@ class DocumentProcessor:
     # 판독은 서빙 장비 몫이지만 문서 한 건이 반입을 세워서는 안 된다 — 이 시간을 넘기면
     # 남은 쪽은 두고 '앞 N쪽만' 으로 기록한다(27B 는 빽빽한 쪽 하나에 2분 남짓, 2026-09-21 실측).
     VISION_BUDGET_S = int(os.environ.get("ZZAIMY_VISION_BUDGET_S", "480"))
+    # 호출 하나의 제한 시간. 대화용 기본값(ZZAIMY_LLM_TIMEOUT=180초)은 판독·검토처럼 긴 생성에 짧다 —
+    # bf16 27B 는 빽빽한 쪽 하나에 2분을 넘겨 시간 초과가 났고, 두 번 연속이면 판독이 꺼졌다(2026-09-21 실측, 문서 422).
+    VISION_TIMEOUT_S = float(os.environ.get("ZZAIMY_VISION_TIMEOUT", "600"))
+    REVIEW_TIMEOUT_S = float(os.environ.get("ZZAIMY_REVIEW_TIMEOUT", "600"))
 
     def _vlm_pages(self, pages: list) -> tuple[list[str], int]:
         """쪽 그림 목록을 차례로 판독한다 — (전사 목록, 실제로 읽은 쪽 수). 시간 예산 안에서만."""
@@ -499,6 +503,7 @@ class DocumentProcessor:
                     ],
                 }],
                 extra_body=getattr(client, "_extra", {}),    # 교내 vLLM 은 생각 끄기, 외부 API 는 빈 값
+                timeout=self.VISION_TIMEOUT_S,
             )
             text = _strip_think(resp.choices[0].message.content or "")
             # 속성 줄 분리 — 하드케이스 분류용 (손글씨·도장 여부)
@@ -1915,6 +1920,7 @@ class DocumentProcessor:
         resp = client.client.chat.completions.create(
             model=client.model, messages=messages, temperature=0.2,
             max_tokens=self.REVIEW_MAX_TOKENS, extra_body=getattr(client, "_extra", {}),
+            timeout=self.REVIEW_TIMEOUT_S,
         )
         text = _strip_think(resp.choices[0].message.content or "")
         if getattr(resp.choices[0], "finish_reason", "") == "length":
@@ -1924,6 +1930,7 @@ class DocumentProcessor:
             more = client.client.chat.completions.create(
                 model=client.model, messages=messages, temperature=0.2,
                 max_tokens=self.REVIEW_MAX_TOKENS // 2, extra_body=getattr(client, "_extra", {}),
+                timeout=self.REVIEW_TIMEOUT_S,
             )
             text = (text.rstrip() + "\n" + _strip_think(more.choices[0].message.content or "")).strip()
             if getattr(more.choices[0], "finish_reason", "") == "length":
