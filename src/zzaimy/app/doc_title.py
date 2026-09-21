@@ -35,7 +35,9 @@ _LOOSE_SKIP = re.compile(
     r"|\d{1,3}(?![년월일차기회주])(?=[가-힣])"       # '9납입금' 처럼 표의 번호 칸
     r"|[가-하][.)]\s"                                # '가. 신청기간' 처럼 항목 기호
     r"|[:：]"                                        # ': 대구광역시 …' 처럼 항목의 값만 남은 줄
-    r"|[가-힣A-Za-z]{1,8}\s*[:：])",                 # '지원범위: 2026년 …' 처럼 항목:값 줄
+    r"|[가-힣A-Za-z]{1,8}\s*[:：]"                   # '지원범위: 2026년 …' 처럼 항목:값 줄
+    r"|\d{1,2}\s+(?=[가-힣])"                         # '1 모집분야 및 지원자격' 처럼 번호 붙은 절 제목
+    r"|【)",
     re.IGNORECASE)
 # 공고·고시는 첫 줄에 문서 번호를 적고 그다음 줄에 제목을 적는다 — 번호 줄은 이름이 아니다
 _DOC_NUMBER = re.compile(
@@ -101,6 +103,8 @@ def tidy_name(name: str) -> str:
     prev = None
     while prev != out:                                   # '[붙임2] 붙임 …' 처럼 겹친 표시
         prev, out = out, _ATTACH.sub("", out, count=1)
+    out = re.sub(r"\(\s+", "(", out); out = re.sub(r"\s+\)", ")", out)   # '( 홈페이지 , 모바일앱 )'
+    out = re.sub(r"\s+([,，])\s*", r"\1 ", out)
     out = re.sub(r"\s{2,}", " ", out).strip(" ·-_,.")
     return (out + ext) if out else name
 
@@ -152,7 +156,9 @@ def loose_title(text: str) -> str | None:
             if cell:
                 return cell
             continue
-        if not _title_like(ln) or len(re.findall(r"[가-힣]", ln)) < 4 or len(ln) < 4:
+        hangul = len(re.findall(r"[가-힣]", ln))
+        # '이력서'·'신청서'처럼 세 글자 서식 이름은 문서 종류로 끝날 때만 받는다
+        if not _title_like(ln) or hangul < 3 or (hangul < 4 and not _kind_like(ln)):
             continue
         if len(ln) < 12 and i + 1 < len(head) and not _CELL.search(head[i + 1]):
             nxt = _unspace(head[i + 1])

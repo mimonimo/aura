@@ -138,6 +138,9 @@ def find_title_by_model(text: str, call, max_chars: int = 3000) -> str | None:
     line = raw.splitlines()[0].strip(" \"'「」『』*#") if raw else ""
     if not line or line in ("없음", "제목 없음") or not (4 <= len(line) <= 60):
         return None
-    if len(re.findall(r"[가-힣]", line)) < 2 or _normalize(line) not in _normalize(head):
+    # 한글 제목이 보통이지만 영문 포스터('DAEGU CONTENT & CREATOR FAIR')도 있다
+    if len(re.findall(r"[가-힣]", line)) < 2 and len(re.findall(r"[A-Za-z]", line)) < 8:
+        return None
+    if _normalize(line) not in _normalize(head):
         return None
     return line

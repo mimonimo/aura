@@ -296,6 +296,11 @@ def test_same_title_documents_are_told_apart_by_subtitle(tmp_path):
         names.append(db.get_document(doc_id)["filename"])
     assert names[0] == "가구원 정보제공 동의 절차"
     assert names[1] == "가구원 정보제공 동의 절차 · 웰로'Wello' 앱 사용 매뉴얼"
+    # 괄호가 제목 줄 안에 있어도, 다음 줄이 부서명이어도 같은 결과다
+    body = "가구원 정보제공 동의 절차 ( 홈페이지 , 모바일앱 )\n한국장학재단 국가장학실 소득심사기준팀"
+    doc_id = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="", doc_type="regulation")
+    db.rename_from_text(doc_id, body)
+    assert db.get_document(doc_id)["filename"] == "가구원 정보제공 동의 절차 (홈페이지, 모바일앱)"
 
 
 def test_renaming_updates_the_citation_title(tmp_path):
@@ -327,3 +332,27 @@ def test_same_file_is_not_ingested_twice(tmp_path):
     DocumentProcessor().process(db, b, f2)
     doc = db.get_document(b)
     assert doc["status"] == "failed" and "같은 내용" in doc["error"] and f"#{a}" in doc["error"]
+
+
+def test_untitled_url_document_says_so(tmp_path):
+    """규칙도 모델도 제목을 못 찾은 URL 이름 문서 — URL 대신 '제목 없음 · 접수번호'."""
+    from zzaimy.app.db import Database
+
+    db = Database(tmp_path / "t.db")
+    doc_id = db.add_document(filename="www.ync.ac.kr_kor_ajx_json_UploadMgr_downloadRun.do_qcode_Qm9hcmQsNTE5MzgsWQ.hwp",
+                             stored_path="", doc_type="regulation")
+    body = "5.지원시기: 2026년12월예정(변동 가능)\n6.지원방법: 상환계좌로 입금\n7.기타유의사항"
+    db.rename_from_text(doc_id, body, ask=lambda p: "없음")
+    doc = db.get_document(doc_id)
+    assert doc["filename"].startswith("제목 없음 · ")
+    assert db.get_doc_identity(doc_id)["original_filename"].startswith("www.ync.ac.kr")
+
+
+def test_short_form_names_and_english_titles():
+    from zzaimy.app.doc_identity import find_title_by_model
+    from zzaimy.app.doc_title import loose_title
+
+    assert loose_title("이 력 서\n사진 | 성 명 | (한글)") == "이력서"
+    assert loose_title("1 모집분야 및 지원자격\n가. 대상") is None
+    body = "DCCF\nLIVE STREAMING\n15 DAEGU CONTENT & CREATOR FAIR\n2026. 10. 16."
+    assert find_title_by_model(body, lambda p: "15 DAEGU CONTENT & CREATOR FAIR") == "15 DAEGU CONTENT & CREATOR FAIR"
