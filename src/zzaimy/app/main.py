@@ -3573,15 +3573,17 @@ def create_app(
                     changelog=changelog or "(없음)",
                 )}],
                 temperature=0.3, max_tokens=1600,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+                extra_body=getattr(client, "_extra", {}),
+                timeout=float(os.environ.get("ZZAIMY_REVIEW_TIMEOUT", "600")),   # 1,600 토큰은 3분을 넘긴다
             )
             body = (resp.choices[0].message.content or "").strip()
         except Exception:
             body = None
         if not body:
-            body = "## 요약\n(LLM 미가동 — 아래 정량 지표만 제공)\n\n## 주요 작업\n" + (
-                changelog or "(기록 없음)"
-            )
+            # 모델이 없으면 원자료(현재 상태 문서)를 그대로 보인다 — 커밋 목록을 쏟지 않는다(2026-09-22)
+            body = ("(모델이 응답하지 않아 자동 작성을 못 했습니다. 아래는 현재 상태 문서의 내용입니다 — "
+                    "모델 연결 뒤 '다시 만들기'를 누르십시오.)\n\n" + (now_text or "(기록 없음)"))
+            return body                      # 실패본은 캐시하지 않는다
 
         # 정량 지표는 결정론으로 그대로 붙인다.
         # 검색 품질 표는 기계가 마지막으로 쓴 사본을 먼저 본다 — 평가는 운영에서 돌고
