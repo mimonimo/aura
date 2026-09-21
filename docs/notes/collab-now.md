@@ -9,7 +9,7 @@
 작업을 시작하기 전에 이 표를 보고, 맡은 칸을 자기 이름으로 바꾼 뒤 시작한다.
 끝나면 비워 둔다. 남의 칸은 읽기만 한다.
 
-## 지금 상태 (2026-09-19)
+## 지금 상태 (2026-09-21)
 
 | 영역 | 파일 | 맡은 이 |
 |---|---|---|
@@ -22,13 +22,13 @@
 | 글자 복원 | `src/zzaimy/app/text_repair.py` | 진행 중 |
 | 반입 자가 점검 | `src/zzaimy/app/ingest_audit.py` | 진행 중 |
 | 문서 정체 | `src/zzaimy/app/doc_identity.py` | 진행 중 |
-| 문서 보기 | `templates/doc.html`, `render.py` | 비어 있음 — Codex C-20260919-04 로컬 검증 완료, Claude 배포 대기 |
+| 문서 보기·대화 화면 | `templates/doc.html`, `chat_workspace.html`, `render.py`, `static/*-workspace.*` | Codex 작업분 통합·배포 완료(7f1f5f3b, 9/21). 다음 작업은 Codex 가 맡기 전에 표를 갱신 |
 | UI 템플릿 계열 (index·doc·project·graph·ocr·dev_db·dev_hwp·dev_corpus) | `templates/*.html` | 진행 중 (aura-7b 반납분 인계) |
 | 한글 에이전트 도구 | `tools/hwp-agent/**` | 진행 중 (인계) |
 | 이그레스 관문 | `src/zzaimy/app/egress.py` | 진행 중 (인계) |
-| 검색 평가 하네스 | `src/zzaimy/eval/**`, `scripts/53`·`64`·`65` | Codex (요청 K-20260919-02) |
+| 검색 평가 하네스 | `src/zzaimy/eval/**`, `scripts/53`·`64`·`65` | Claude (9/21 측정 후보 수·리랭커 출처 표기 수정) |
 | 지식 그래프 화면 | `templates/graph.html` | 진행 중 (간선 3종 표시) |
-| 검색·조각 품질 | `chunk_quality.py`, `embed_search.py`, `rerank.py`, `responder.py`, `regulations.py` | 비어 있음 |
+| 검색·조각 품질 | `chunk_quality.py`, `embed_search.py`, `rerank.py`, `responder.py`, `regulations.py` | Claude (9/21 깨짐 판정·리랭커 계측) |
 | 개체·연관 | `src/zzaimy/graph/**` | 비어 있음 |
 | 표·괘선 추출 | `src/zzaimy/ingest/parsers/**` | 비어 있음 |
 
@@ -36,9 +36,9 @@
 
 - 운영 서버는 `aura@192.168.16.226` 하나뿐이다. 배포(`scripts/99_deploy.sh`)와 서비스 재시작은
   **한 사람만** 한다. 지금은 라우트 담당(Claude)이 한다.
-- **맥 사본과 VM 은 지금 내용이 같다** (2026-09-19 대조: 공유 파일 244개 전부 동일).
-  배포는 맥 → VM rsync 이고 `--delete` 가 없어 덮어쓴다. VM 에서 직접 고칠 일이 생기면
-  배포 담당에게 먼저 알린다. 배포 담당은 배포 직전에 양쪽을 md5 로 대조한다.
+- **정본은 깃허브(mimonimo/aura) 하나다** (9/20 부터). 배포는 커밋·푸시 뒤 VM 이 받아 재시작한다
+  (`scripts/99_deploy.sh`). 맥 → VM rsync 로 밀어 넣지 않는다 — 밀어 넣으면 VM 트리가 더러워져 pull 이 막힌다
+  (9/21 실측). VM 에서 직접 고칠 일이 생기면 배포 담당에게 먼저 알린다.
 - 지금 그 서버에서 전 문서 재처리가 돌고 있다. 무거운 조회·작업을 걸지 않는다.
 - 저장소 규칙은 `CLAUDE.md` 를 따른다. `data/` 는 커밋하지 않는다. 수치는 근거 있는 것만 쓰고, 확인 못 한 것은 미확인으로 적는다.
 - 화면 문구는 격식체 완결 문장으로 쓰고, 설명을 여러 줄 늘어놓지 않는다.
