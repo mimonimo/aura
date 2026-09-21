@@ -17,7 +17,7 @@ case "$HOST" in
   *) echo "HOST 는 thor-02 또는 thor-03" >&2; exit 2 ;;
 esac
 TP=8022
-IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
+IMAGE="${IMAGE:-ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor}"   # Qwen3.8 전용 빌드: qwen3.8-next-jetson-thor-latest
 PORT="${PORT:-8001}"
 MODEL="${MODEL:-/models/Qwen3.8-27B}"
 NAME="zzaimy-writer-$PORT"
