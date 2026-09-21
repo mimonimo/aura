@@ -125,3 +125,16 @@ def test_review_continues_when_the_model_hits_the_length_limit(monkeypatch):
     assert out == "요약: 편성표는 전공별로\n교과목을 배치한다." and len(calls) == 2
     assert calls[0]["max_tokens"] == DocumentProcessor.REVIEW_MAX_TOKENS
     assert "이어서" in calls[1]["messages"][-1]["content"]
+
+
+def test_missing_vision_model_is_written_into_the_parse_note():
+    """판독 모델이 없으면 처리 기록에 남긴다 — 조용히 CPU OCR 로 떨어지지 않는다."""
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    proc = DocumentProcessor()
+    proc._last_parse_note = ""
+    proc._note_no_vision(); proc._note_no_vision()
+    assert proc._last_parse_note.count("판독 모델 없음") == 1
+    proc._last_parse_note = "구조 추출 (MinerU)"
+    proc._note_no_vision()
+    assert proc._last_parse_note.startswith("구조 추출 (MinerU) · 판독 모델 없음")
