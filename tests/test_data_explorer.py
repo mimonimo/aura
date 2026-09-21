@@ -280,6 +280,17 @@ def test_dev_corpus_redirects_into_data_explorer(client):
     assert client.get("/dev/corpus").status_code == 200           # 따라가면 열람 화면
 
 
+def test_short_content_also_has_full_reader(client, tmp_path):
+    db = Database(tmp_path / "test.db")
+    ids = _seed(db)
+    regulation = client.get(f"/dev/db?tab=regulation&doc={ids['reg']}").text
+    document = client.get(f"/dev/db?tab=docs&doc={ids['intake']}").text
+    assert '<pre>휴학은 학기 단위로 신청한다.</pre>' in regulation
+    assert '<pre>도장</pre>' in document
+    assert 'id="dxDetail"' in regulation
+    assert 'class="dx-more can"' in regulation
+
+
 def test_table_chunk_preview_is_readable():
     from zzaimy.app.data_explorer import chunk_rows, table_text
 

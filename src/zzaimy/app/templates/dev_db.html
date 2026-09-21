@@ -104,7 +104,7 @@ details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
 .dx-groups .t{ font-size:10.5px; font-weight:700; letter-spacing:.06em; color:var(--faint); text-transform:uppercase; margin-bottom:6px; }
 .dx-groups .r{ display:flex; justify-content:space-between; gap:10px; font-size:12.5px; padding:2px 0; }
 .dx-foot{ margin:8px 0 0; font-size:11.5px; }
-.dx-grid { grid-template-columns:minmax(280px,340px) minmax(0,1fr); gap:24px; }
+.dx-grid { grid-template-columns:minmax(380px,420px) minmax(0,1fr); gap:24px; }
 .dx-grid > * { min-width:0; }
 .dx-grid > .dx-detail { position:static; scroll-margin-top:90px; }
 .dx-card > .card-in { padding:22px; }
@@ -114,23 +114,38 @@ details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
 .dx-search input[type=text] { flex:1 1 180px; min-height:40px; }
 .dx-search select { max-width:100%; padding-right:36px; min-height:40px; }
 .dx-scroll, .dx-rows-wrap { overscroll-behavior:contain; scrollbar-gutter:stable; }
-table.dx-list td.name { white-space:normal; }
-table.dx-list td.name a { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; line-height:1.6; }
+table.dx-list td.name { white-space:normal; min-width:220px; }
+table.dx-list td.name a { display:block; overflow-wrap:anywhere; line-height:1.6; }
+/* Give each document its own full-width title; counts are secondary metadata. */
+table.dx-list, table.dx-list tbody { display:block; width:100%; }
+table.dx-list thead { display:none; }
+table.dx-list tr { display:flex; flex-wrap:wrap; gap:6px 12px; padding:14px; border-bottom:1px solid var(--line); }
+table.dx-list td { display:block; border:0; padding:0; }
+table.dx-list td.name { flex:0 0 100%; width:100%; max-width:none; min-width:0; overflow:visible; }
+table.dx-list td.name .sub { white-space:normal; }
+table.dx-list td.dx-num { font-size:12px; text-align:left; }
+table.dx-list td.dx-num::before { content:'자료 '; }
+table.dx-list td.dx-num + td.dx-num::before { content:'검색 색인 '; }
+table.dx-list tr.on { background:#edf3fc; box-shadow:inset 3px 0 #607c9e; }
+table.dx-list tr:hover { background:#f3f6fa; }
+table.dx-list tr.on td:first-child { box-shadow:none; }
 table.dx-list tr.on td { background:#edf3fc; }
 table.dx-list tr.on td:first-child { box-shadow:inset 3px 0 #607c9e; }
 .dx-kv { gap:16px; line-height:1.6; }
 .dx-kv > div { min-width:0; overflow-wrap:anywhere; }
 .dx-kv > div > span:first-child { font-size:12px; letter-spacing:0; color:var(--muted); }
 .dx-rows-wrap table { min-width:620px; }
+table.dx-rows td.prev { min-width:280px; max-width:none; }
 .dx-preview-button { display:flex; align-items:center; gap:12px; width:100%; border:0; background:transparent; box-shadow:none; color:var(--ink); text-align:left; padding:6px 0; font-size:13px; font-weight:400; }
 .dx-preview-button span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .dx-preview-button small { flex:none; color:var(--navy); }
 .dx-reader { width:min(800px,calc(100vw - 32px)); max-height:calc(100dvh - 40px); padding:0; border:1px solid var(--line); border-radius:16px; overflow:hidden; background:white; color:var(--ink); }
 .dx-reader::backdrop { background:#18202d66; }
 .dx-reader-head { display:flex; align-items:center; gap:16px; padding:20px 24px; border-bottom:1px solid var(--line); }
-.dx-reader-head h2 { margin:0; flex:1; font-size:17px; }
+.dx-reader-head h2 { margin:0; flex:1; min-width:0; overflow-wrap:anywhere; font-size:17px; }
+.dx-reader-head button { flex:none; }
 .dx-reader pre { margin:0; padding:24px; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; font-size:14px; line-height:1.85; max-height:65dvh; overflow:auto; overscroll-behavior:contain; }
-@media(max-width:1000px) { .dx-grid, .dx-grid.rev { grid-template-columns:minmax(0,1fr); } .dx-scroll { max-height:42dvh; } }
+@media(max-width:1200px) { .dx-grid, .dx-grid.rev { grid-template-columns:minmax(0,1fr); } .dx-scroll { max-height:42dvh; } }
 @media(max-width:600px) { .dx-card > .card-in { padding:16px; } .dx-links { margin-left:0; flex-wrap:wrap; } .dx-reader pre { padding:18px; } }
 </style>
 
@@ -167,7 +182,7 @@ table.dx-list tr.on td:first-child { box-shadow:inset 3px 0 #607c9e; }
         {% for d in view.docs %}
         {% set href = '/dev/db?tab=docs&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') ~ ('&type=' ~ type if type else '') %}
         <tr class="pick {{ 'on' if d.id == sel_id else '' }}" data-href="{{ href }}">
-          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.name }}</a>
+          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.filename }}</a>
             <div class="sub {{ d.status }}">{{ doc_type_labels.get(d.doc_type, d.doc_type) }} · <span class="dx-mono">{{ d.receipt_no or '—' }}</span> · {{ status_labels.get(d.status, d.status) }}</div></td>
           <td class="dx-num" title="추출 항목 {{ d.n_chunks }} · 검색 자료 {{ d.n_units }}">{{ d.n_chunks }}{% if d.n_units %} · {{ d.n_units }}{% endif %}</td>
         </tr>
@@ -254,7 +269,7 @@ table.dx-list tr.on td:first-child { box-shadow:inset 3px 0 #607c9e; }
             <td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>
             <td class="dx-num">{{ "{:,}".format(u.length) }}</td>
             <td>{% if u.embedded is none %}<span class="muted">미확인</span>{% elif u.embedded %}<span class="pill reviewed dx-pill">있음</span>{% else %}<span class="pill processing dx-pill">없음</span>{% endif %}</td>
-            <td class="prev"><details class="dx-more {{ 'can' if u.long else '' }}"><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary>{% if u.long %}<pre>{{ u.content }}</pre>{% endif %}</details></td>
+            <td class="prev"><details class="dx-more can"><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary><pre>{{ u.content }}</pre></details></td>
           </tr>
           {% endfor %}
         </table></div>
@@ -273,7 +288,7 @@ table.dx-list tr.on td:first-child { box-shadow:inset 3px 0 #607c9e; }
             <td><span class="pill dx-pill">{{ r.kind_label }}</span></td>
             <td class="dx-num">{{ r.page_no if r.page_no is not none else '—' }}</td>
             <td class="dx-num">{{ "{:,}".format(r.length) }}</td>
-            <td class="prev"><details class="dx-more {{ 'can' if r.long else '' }}"><summary><span class="p">{{ r.preview or '—' }}</span><span class="t"></span></summary>{% if r.long %}<pre>{{ r.content }}</pre>{% endif %}</details></td>
+            <td class="prev"><details class="dx-more can"><summary><span class="p">{{ r.preview or '—' }}</span><span class="t"></span></summary><pre>{{ r.content }}</pre></details></td>
           </tr>
           {% endfor %}
         </table></div>
@@ -326,7 +341,7 @@ table.dx-list tr.on td:first-child { box-shadow:inset 3px 0 #607c9e; }
         {% for d in view.docs %}
         {% set href = '/dev/db?tab=regulation&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') %}
         <tr class="pick {{ 'on' if d.id == doc_id else '' }}" data-href="{{ href }}">
-          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.name }}</a>
+          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.filename }}</a>
             <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis;">{{ d.receipt_no or '—' }} · {{ d.dept }}</div></td>
           <td><span class="pill type dx-pill">{{ sector_labels.get(d.sector, d.sector) }}</span></td>
           <td class="dx-num">{{ d.n_units }}</td>
@@ -339,11 +354,11 @@ table.dx-list tr.on td:first-child { box-shadow:inset 3px 0 #607c9e; }
       </table>
     </div>
     <p class="muted dx-foot">{{ view.docs|length }}종 ·
-      {% if index.exists %}의미 검색 색인 색인 {{ index.model }} · {{ "{:,}".format(index.n_chunks) }}자료{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}
-      {% else %}의미 검색 색인 색인 없음 — 형태소 검색만{% endif %}</p>
+      {% if index.exists %}검색 색인 {{ index.model }} · {{ "{:,}".format(index.n_chunks) }}자료{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}
+      {% else %}검색 색인 없음 — 형태소 검색만{% endif %}</p>
   </div></div>
 
-  <div class="card dx-card"><div class="card-in">
+  <div class="card dx-card dx-detail" id="dxDetail"><div class="card-in">
     {% if view.hits %}
     <div class="dx-sec" style="margin-top:0; padding-top:0; border-top:0;">
       <h3>검색 결과 <span class="muted">‘{{ q }}’ · {{ view.hits|length }}건 · 형태소+의미 검색 색인 후보를 리랭커로 정렬</span></h3>
@@ -388,7 +403,7 @@ table.dx-list tr.on td:first-child { box-shadow:inset 3px 0 #607c9e; }
         <td class="head" title="{{ u.heading }}">{{ u.heading or '—' }}</td>
         <td class="dx-num">{{ "{:,}".format(u.length) }}</td>
         <td>{% if u.embedded is none %}<span class="muted">미확인</span>{% elif u.embedded %}<span class="pill reviewed dx-pill">있음</span>{% else %}<span class="pill processing dx-pill">없음</span>{% endif %}</td>
-        <td class="prev"><details class="dx-more {{ 'can' if u.long else '' }}" {{ 'open' if u.hit else '' }}><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary>{% if u.long %}<pre>{{ u.content }}</pre>{% endif %}</details></td>
+        <td class="prev"><details class="dx-more can" {{ 'open' if u.hit else '' }}><summary><span class="p">{{ u.preview or '—' }}</span><span class="t"></span></summary><pre>{{ u.content }}</pre></details></td>
       </tr>
       {% endfor %}
     </table></div>
