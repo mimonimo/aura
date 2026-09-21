@@ -444,8 +444,8 @@ document.addEventListener('submit', function(event) {
   <button type="button" id="navClose" class="icon-btn sidebar-close" aria-label="메뉴 접기" title="메뉴 접기"><iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
   <a class="side-brand" href="/">
     <img src="/static/ync-logo.png" alt="영남이공대학교">
-    <span>행정 에이전트 플랫폼</span>
   </a>
+  <p class="sidebar-service-name">행정 에이전트 플랫폼</p>
   </div>
   <nav class="side-nav">
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
@@ -488,7 +488,12 @@ document.addEventListener('submit', function(event) {
     {% endif %}
     {% if llm_status is defined %}
     <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok else '' }}">
-      {% if llm_status.ok %}<span style="color:var(--green);">●</span> AI 모델 서버 연결됨{% if llm_status.model %} · {{ llm_status.model }}{% endif %}
+      {% if llm_status.ok %}
+      <span class="side-connection-status"><span style="color:var(--green);" aria-hidden="true">●</span> 기본 AI 서버 연결됨</span>
+      {% if llm_status.source is defined and llm_status.source.startswith('연결: ') %}
+      <span class="side-connection-device">{{ llm_status.source[4:] }}</span>
+      {% else %}<span class="side-connection-device">{{ llm_status.source | default('서버명 미등록') }}</span>{% endif %}
+      {% if llm_status.model %}<span class="side-connection-model" title="{{ llm_status.model }}">{{ llm_status.model }}</span>{% endif %}
       {% else %}<span style="color:var(--amber);">●</span> AI 모델 서버 미연결 · 답변 대기{% endif %}</div>
     {% endif %}
   </div>

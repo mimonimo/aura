@@ -191,6 +191,18 @@
   .use-dialog-actions { justify-content:flex-end; border-top:1px solid var(--line); }
   #useForm .use-dialog .use-form { max-height:calc(100dvh - 220px); overflow-y:auto; overscroll-behavior:contain; border-radius:0; padding:22px; margin:0; }
   .use-dialog .use-dialog-note { margin:0; color:var(--muted); font-size:12px; flex:1; }
+  #useForm .use-dialog .use-form { background:white; display:flex; flex-direction:column; gap:24px; }
+  #useForm .use-dialog .pick-label { font-size:13px; font-weight:600; color:var(--ink); margin-bottom:4px; }
+  #useForm .use-dialog .pick-group > .chips:not(.chips-models) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; max-height:220px; padding:2px; }
+  #useForm .use-dialog .chip { justify-content:flex-start; border:1px solid var(--line); border-radius:10px; padding:12px 14px; min-height:44px; font-weight:500; line-height:1.5; box-shadow:none; }
+  #useForm .use-dialog .chip:focus-visible { outline:2px solid #607c9e; outline-offset:-2px; box-shadow:none; }
+  #useForm .use-dialog .chip.on { background:#edf3fc; border-color:#6f8eb7; color:#234b7c; }
+  #useForm .use-dialog .chip.on::after { content:'✓'; margin-left:auto; padding-left:10px; font-weight:700; flex-shrink:0; }
+  #useForm .use-dialog .chip-n { white-space:nowrap; font-size:11px; color:var(--muted); }
+  #useForm .use-dialog .chips-models { max-height:260px; gap:6px; padding:2px; }
+  #useForm .use-dialog .chip-filter { margin-bottom:8px; min-height:40px; padding:9px 12px; border:1px solid var(--line); border-radius:9px; font-size:13px; }
+  .model-no-results { font-size:13px; color:var(--muted); padding:16px 0; margin:0; text-align:center; }
+  @media(max-width:440px) { #useForm .use-dialog .pick-group > .chips:not(.chips-models) { grid-template-columns:minmax(0,1fr); } }
   .pick-group { display:flex; flex-direction:column; gap:6px; }
   .pick-label { font-size:11.5px; color:var(--muted); }
   .chips { display:flex; flex-wrap:wrap; gap:6px; max-height:168px; overflow:auto; }
@@ -266,7 +278,7 @@
   <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>단계별 모델</h2>
   {% if connections %}
   {% set act = connections | selectattr('active') | list | first %}
-  <form action="/dev/llm/roles" method="post" id="useForm">
+  <form action="/dev/llm/roles" method="post" id="useForm" data-protect-changes>
     <div class="use-list">
       {% for r in llm_roles %}
       {% set own = (connections | selectattr('id', 'equalto', r.id) | list | first) if r.id else none %}
@@ -301,15 +313,15 @@
             <button type="button" class="chip{{ ' on' if c.id == r.id else '' }}{{ ' off' if not c.live.ok else '' }}"
                     data-server="{{ c.id }}" {{ 'disabled' if not c.live.ok else '' }}>
               {{ c.name }}
-              <span class="chip-n">{% if c.live.ok %}{{ c.live.models | length }}{% else %}응답 없음{% endif %}</span>
+              <span class="chip-n">{% if c.live.ok %}모델 {{ c.live.models | length }}개{% else %}응답 없음{% endif %}</span>
             </button>
             {% endfor %}
           </div>
         </div>
         <div class="pick-group" data-models-group {{ 'hidden' if not r.id else '' }}>
           <span class="pick-label">모델</span>
-          <input type="search" class="chip-filter" placeholder="모델 이름으로 좁히기" hidden
-                 aria-label="모델 이름으로 좁히기">
+          <input type="search" class="chip-filter" placeholder="모델 검색" hidden
+                 aria-label="모델 검색">
           <div class="chips chips-models">
             {% for c in connections %}
             <button type="button" class="chip{{ ' on' if c.id == r.id and not r.model else '' }}"
@@ -325,6 +337,7 @@
             {% endfor %}
           </div>
         </div>
+        <p class="model-no-results" role="status" hidden>검색 결과가 없습니다.</p>
       </div>
       <div class="use-dialog-actions"><p class="use-dialog-note">적용 후 변경사항을 저장하세요.</p><button type="button" class="secondary" data-use-cancel>취소</button><button type="button" data-use-apply>적용</button></div>
       </dialog>
@@ -456,6 +469,7 @@ document.addEventListener("DOMContentLoaded", function () {
       row.querySelectorAll(".pick-group > .chips > .chip").forEach(function (chip) {
         if (chip.dataset.model === undefined) {
           chip.classList.toggle("on", (chip.dataset.server || "") === server);
+          chip.setAttribute('aria-pressed', String((chip.dataset.server || '') === server));
         }
       });
       var shown = 0;
@@ -463,10 +477,12 @@ document.addEventListener("DOMContentLoaded", function () {
         var mine = chip.dataset.server === server;
         chip.hidden = !mine;
         chip.classList.toggle("on", mine && chip.dataset.model === model);
+        chip.setAttribute('aria-pressed', String(mine && chip.dataset.model === model));
         shown += mine ? 1 : 0;
       });
       row.querySelector("[data-models-group]").hidden = !server;
-      row.querySelector(".chip-filter").hidden = shown <= 12;   // 모델이 많은 서버에서만 좁히기
+      row.querySelector(".chip-filter").hidden = shown <= 5;
+      row.querySelector('.model-no-results').hidden = true;
     }
 
     function paint() {
@@ -514,6 +530,8 @@ document.addEventListener("DOMContentLoaded", function () {
       row.querySelectorAll(".pick-group > .chips > .chip").forEach(function (chip) {
         if (chip.dataset.model !== undefined) return;
         chip.addEventListener("click", function () {
+          if ((chip.dataset.server || '') === serverOf(row)) return;
+          row.querySelector('.chip-filter').value = '';
           pick.value = chip.dataset.server ? chip.dataset.server + "|" : "";
           paintChips(row);
           paint();
@@ -534,6 +552,7 @@ document.addEventListener("DOMContentLoaded", function () {
           chip.hidden = chip.dataset.server !== server
             || (key && chip.dataset.model.toLowerCase().indexOf(key) === -1);
         });
+        row.querySelector('.model-no-results').hidden = !!row.querySelector('.chips-models .chip:not([hidden])');
       });
       paintChips(row);
     });

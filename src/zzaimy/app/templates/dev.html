@@ -55,7 +55,7 @@
   <h2><iconify-icon icon="solar:target-linear"></iconify-icon>프로젝트 현황
     <a href="/dev/history" class="h-link"><iconify-icon icon="solar:history-linear"></iconify-icon>변경 이력</a></h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    학교 문서를 외부로 내보내지 않고 교내 장비에서 AI를 쓰는 시스템입니다. 스캔 문서 복원, 규정 근거 답변, 국고사업 계획서 초안을 지원하고 수치·예산은 결정론 검증기로 다시 확인합니다.</p>
+    행정 문서의 검색·검토와 국고사업 계획서 초안 작성을 지원합니다. 최종 내용과 수치는 담당자가 근거 문서와 대조해 확인합니다.</p>
   {# 규모 요약 — 큰 숫자 블록 대신 한 줄. 원천은 데이터 열람과 같은 _data_overview() #}
   <div style="display:flex; gap:6px 8px; flex-wrap:wrap; align-items:center; margin-top:12px; font-size:12.5px;">
     <span class="muted" style="font-weight:600;">현재 규모</span>
@@ -140,7 +140,7 @@
   </table>
   </div>
   <p class="muted" style="font-size:11.5px; margin:10px 0 0; line-height:1.6;">
-    임베딩 v0는 리허설(별도 질의 96건)에서 베이스를 넘지 못해 미적용입니다. Writer·Extract는 GPU 서버 확보와 베이스라인 측정 후에 학습합니다.</p>
+    학습·연결 상태는 <a href="/dev/train">모델 학습</a>에서, 검색 성능은 <a href="/dev/quality">품질 점검</a>에서 확인할 수 있습니다.</p>
 </div></div>
 
 <div class="dev-section" id="sec-flow">모델 개발 흐름</div>
@@ -148,7 +148,7 @@
 <div class="dev-tools">
   <div class="card"><div class="card-in">
     <h2 style="font-size:15px;"><iconify-icon icon="solar:database-linear"></iconify-icon>데이터 열람</h2>
-    <p class="muted" style="font-size:12.5px;">반입 문서·규정·국고 코퍼스 · 조각과 연관</p>
+    <p class="muted" style="font-size:12.5px;">등록 문서·공개 문서 모음 · 추출 내용과 연결 정보</p>
     <a href="/dev/db" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
   </div></div>
   <div class="card"><div class="card-in">

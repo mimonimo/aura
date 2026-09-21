@@ -63,7 +63,7 @@
     const dialog = document.createElement('dialog');
     dialog.className = 'session-manager';
     dialog.setAttribute('aria-label', '대화 기록 검색');
-    dialog.innerHTML = '<header><h2>대화 기록</h2><button type="button" class="secondary" data-close>닫기</button></header><p class="muted">작은 챗봇과 전체 화면의 대화가 함께 저장됩니다.</p><form class="session-search"><input type="search" aria-label="대화 이름 또는 프로젝트 검색" placeholder="대화 이름·프로젝트·사업 검색"><select aria-label="기록 구분"><option value="0">진행 중인 대화</option><option value="1">보관한 대화</option></select><select aria-label="찾을 범위" data-scope><option value="title">이름·프로젝트·사업</option><option value="all">대화 내용까지</option></select><button type="submit" class="secondary">검색</button></form><p role="status"></p><div class="session-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button>';
+    dialog.innerHTML = '<header><h2>대화 검색</h2><button type="button" class="secondary" data-close>닫기</button></header><form class="session-search"><input type="search" aria-label="대화 이름 또는 프로젝트 검색" placeholder="대화 이름, 프로젝트 검색"><button type="submit" class="secondary">검색</button><div class="session-filters"><label>상태<select aria-label="기록 구분"><option value="0">진행 중</option><option value="1">보관됨</option></select></label><label>검색 범위<select aria-label="찾을 범위" data-scope><option value="title">이름·프로젝트·사업</option><option value="all">대화 내용 포함</option></select></label></div></form><p role="status"></p><div class="session-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button>';
     document.body.appendChild(dialog); dialog.showModal();
     dialog.querySelector('[data-close]').onclick = () => dialog.close();
     let previewController;
@@ -200,7 +200,7 @@
       finally { if(current===token) more.disabled = false; }
     }
     form.onsubmit = event => {event.preventDefault(); load();};
-    form.querySelector('select').onchange = () => load();
+    form.querySelectorAll('select').forEach(select => { select.onchange = () => load(); });
     more.onclick = () => load(true); load();
   });
   let sidebarRevision = 0;

@@ -1,5 +1,80 @@
 # Codex 작업 기록
 
+## C-20260922-57 — 운영 반영 확인 및 검색 필터 회귀
+
+운영 읽기전용 확인: HEAD1d1fc954, service active, HTTPS /login200.
+C56 sidebar-service-name/session-filters는 운영 파일에 아직 없음. 배포 완료 아님.
+추가 수정(chat-history.js): 검색 범위 변경도 상태 변경과 동일하게 결과 재조회.
+기존 요청 취소/응답 순서 보호(load token/AbortController)를 그대로 사용.
+Claude C54~57 통합 요청 유지. 운영 데이터나 서버 설정 변경하지 않음.
+검증: 개발자 UX4테스트 통과. Chrome1600/390 검색 범위 변경시 scope=all,
+offset=0 재조회 확인, 검색/데이터/NAS 넘침 없음. JS구문/diff check 통과.
+
+## C-20260922-56 — 탐색 UI와 헤더 정렬
+
+진행 Codex: 데이터 열람(dev_db/data-explorer.js), NAS 선택 경계(dev_nas),
+개발 현황 문구(dev.html), 브랜드 헤더(platform-spaces/base), 대화 검색(chat-history.js).
+다른 작업자의 main.py 및 논문 파일은 수정하지 않음. 서버 설정·데이터 변경 없음.
+브랜드 첫 행을 상단 바와 같은 높이로 맞추고 서비스명은 독립된 보조 행으로 구성.
+검색은 검색어/필터를 분리하고 결과 미리보기·삭제 확인 동작은 유지.
+
+로컬 검증: Chrome1600/768/390 브랜드 중앙/간격 통과. 검색·데이터 열람·NAS
+1600/390 가로 넘침 없음, 검색 필터 분리 및 모바일 스크린샷 검수.
+JS 구문 검사와 git diff --check 통과. 데이터 열람 회귀 통과.
+전체 개발자 회귀에서는 history 기대문구/집계 2개 실패(동시 변경 중인 history/main
+관련이므로 임의 수정하지 않음). 장시간 실행 중인 합성 서버의 /dev/docs는500으로
+전체 브라우저 검수 중단, 위 대상 페이지는 별도 검증 완료.
+Claude 요청: C54~56 UI 파일(새 data-explorer.js 포함) 통합·배포 후 운영 확인 필요.
+현재 운영 반영 완료로 보고하지 않음. history 회귀2개와 /dev/docs도 확인 요청.
+
+## C-20260922-55 — 설정 미저장 변경 보호
+
+진행 Codex workspace-navigation.js/settings.html/dev_train.html. 모델 적용 후
+일괄 저장 전 및 프로필 수정 후 페이지 이탈 보호. 초기 폼값 비교로 취소/복원은
+경고하지 않고 해당 폼 저장은 제외. 실제 서버 설정/운영 데이터 변경 없음.
+
+## C-20260921-54 — 모델 팝업 선택 UI
+
+진행 Codex dev_train.html 선택카드/모델목록 한정. 서버 카드와 모델 목록 위계,
+선택 체크 및 aria-pressed, 검색 초기화/미검색 결과 안내. 실제 모델 설정 변경 없음.
+서버2열 카드(440px 이하1열), 모델 전체폭 목록, 최소44px 선택영역, 체크 표시,
+모델5개 초과 검색. 같은 서버 재클릭 모델 초기화 방지. 포커스는 안쪽 테두리로
+스크롤 경계 잘림 방지. 개발자4테스트/Chrome1600·390 팝업 회귀 통과, 모바일
+스크린샷 검수. Claude dev_train.html C54 통합 배포 요청. 운영 미반영.
+
+## C-20260921-53 — 모델 변경 팝업 운영 포함 확인
+
+사용자 미반영 신고 후 SSH 읽기전용 확인: 운영 HEAD4fd47720,
+dev_train.html dialog/useDialog/data-use-apply/dialog.showModal 코드 존재.
+서비스 ActiveEnterTimestamp2026-09-21 14:18:30 KST(커밋14:18:26 후).
+로컬 dev_train은 해당 커밋과 diff 없음. 운영 인증 브라우저의 실제 클릭은
+아직 검증하지 않았으므로 파일 반영 확인과 사용자 세션 동작을 구분.
+
+## C-20260921-52 — 단계 모델 편집 모달
+
+진행 Codex dev_train.html. 사용자 요청으로 카드 내 펼침을 native dialog로 대체.
+취소/Escape는 열기 직전 값 복원, 적용은 일괄 저장 전 선택값만 반영.
+서버 설정 실제 변경은 기존 /dev/llm/roles 일괄 POST만 사용.
+완료(로컬): native dialog 팝업, 닫기/취소/Escape 복원, 적용 시 카드 요약 갱신,
+전체 취소는 저장값/요약 복원, 검색 Enter의 우발 전체 POST 방지.
+개발자 테스트4개 통과. Chrome1600/390 팝업 취소/적용/전체취소, 카드높이 불변,
+팝업 화면폭 및 기타 개발자/그래프 회귀 통과. 390px 스크린샷 시각 검수 완료.
+git diff check 통과. Claude dev_train.html C52 통합 배포 요청; 운영반영 미확인.
+
+## C-20260921-51 — 사이드바 기본 서버 이름
+
+Codex base.html/platform-spaces.css: 상태 / 등록된 서버명 / 모델명 3행 구분.
+model_config.status.source의 실제 연결명 사용. 역할별 서버와 혼동 없도록
+'기본 AI 서버'로 명시, 환경변수 설정은 해당 source 표시(장비명 추측 안 함).
+네트워크 추가 호출/모델 설정 변경 없음. Claude C50/51 함께 통합 배포 요청.
+
+## C-20260921-50 — 단계별 모델 펼침의 2열 공백 제거
+
+사용자 운영 스크린샷 확인: 2열 카드 한쪽 펼침으로 다른 열에 큰 공백 발생.
+Codex workspace-shell.css 수정: 일관된 단일열 카드, desktop 단계/현재값/변경
+3영역 헤더, 편집은 카드 전체폭 아래에 배치. 1000px 이하 제목/버튼 및 현재값
+두 줄 유지. 단계 순서 변경이나 모델 저장 로직 변경 없음. Claude 배포 요청.
+
 ## C-20260921-49 — 긴급 UI 배포 누락 확인 / 통합 요청
 
 운영 HTTPS workspace-shell.css 직접 조회: llm-settings-actions 및 useForm .use-list

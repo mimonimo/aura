@@ -70,11 +70,11 @@ body select:focus-visible, body .modal-back select:focus-visible {
 .llm-settings-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:16px; }
 .llm-settings-actions button { min-height:38px; box-sizing:border-box; padding:8px 12px; font-size:12px; }
 .llm-settings-actions form { display:flex; }
-body #useForm .use-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; align-items:start; }
-body #useForm .use-row { grid-template-columns:minmax(0,1fr) auto; gap:10px 16px; padding:16px; border:1px solid var(--line); border-radius:12px; }
+body #useForm .use-list { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; align-items:start; }
+body #useForm .use-row { grid-template-columns:minmax(180px,1fr) minmax(0,1.5fr) auto; gap:16px 24px; padding:18px; border:1px solid var(--line); border-radius:12px; }
 body #useForm .use-name { grid-column:1; grid-row:1; line-height:1.6; }
-body #useForm .use-edit { grid-column:2; grid-row:1; align-self:start; min-height:36px; padding:6px 12px; }
-body #useForm .use-now { grid-column:1 / -1; grid-row:2; align-items:flex-start; flex-direction:column; gap:6px; }
+body #useForm .use-edit { grid-column:3; grid-row:1; align-self:center; min-height:36px; padding:6px 12px; }
+body #useForm .use-now { grid-column:2; grid-row:1; align-items:flex-start; flex-direction:column; gap:6px; }
 body #useForm .use-model { max-width:100%; box-sizing:border-box; overflow-wrap:anywhere; line-height:1.6; }
 body #useForm .use-form { grid-column:1 / -1; width:100%; min-width:0; max-width:none; margin:0; padding:16px; }
 body #useForm .pick-group, body #useForm .chips { min-width:0; }
@@ -89,7 +89,11 @@ body .srv-head + .srv-list .srv-row { display:grid; grid-template-columns:minmax
 body .srv-head + .srv-list .srv-row > .srv-n,
 body .srv-head + .srv-list .srv-row > .srv-bad,
 body .srv-head + .srv-list .srv-row > .use-model { grid-column:1 / -1; min-width:0; overflow-wrap:anywhere; line-height:1.6; }
-@media(max-width:1000px) { body #useForm .use-list { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:1000px) {
+  body #useForm .use-row { grid-template-columns:minmax(0,1fr) auto; gap:12px; }
+  body #useForm .use-edit { grid-column:2; }
+  body #useForm .use-now { grid-column:1 / -1; grid-row:2; }
+}
 @media(max-width:760px) { body .srv-head + .srv-list { grid-template-columns:minmax(0,1fr); } }
 body .use-form {
   display:grid;

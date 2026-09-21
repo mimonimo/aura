@@ -252,12 +252,12 @@ def test_dev_db_renders_tabs_and_document_detail(client):
     for key in ("tab=docs", "tab=regulation", "tab=corpus", "tab=chat"):
         assert f'href="/dev/db?{key}"' in r.text
     assert f'title="{long}.pdf"' in r.text and (long + ".pdf") not in r.text.split('title="')[0]
-    assert "RAG 조각" in r.text
+    assert "추출·검색 자료" in r.text
 
     detail = client.get("/dev/db?tab=docs&doc=1")
     assert detail.status_code == 200
     assert "합성 마스킹 본문" not in detail.text            # 본문 전문은 조각으로만, 원문 덤프 없음
-    assert "RAG 조각" in detail.text and "연관 (지식 그래프)" in detail.text
+    assert "추출·검색 자료" in detail.text and "연관 (지식 그래프)" in detail.text
     assert 'href="/graph?focus=d1"' in detail.text and 'href="/doc/1"' in detail.text
     assert client.get("/dev/db?tab=docs&doc=999").status_code == 200   # 없는 문서 → 목록만
 
@@ -265,7 +265,7 @@ def test_dev_db_renders_tabs_and_document_detail(client):
 def test_dev_db_other_tabs_and_legacy_urls(client):
     assert client.get("/dev/db?tab=regulation").status_code == 200
     corpus = client.get("/dev/db?tab=corpus")   # 코퍼스 DB는 작업 폴더 기준 — 있으면 검색 화면, 없으면 안내
-    assert corpus.status_code == 200 and ("코퍼스 없음" in corpus.text or "국고 코퍼스 검색" in corpus.text)
+    assert corpus.status_code == 200 and ("등록된 공개 문서 모음이 없습니다." in corpus.text or "공개 문서 검색" in corpus.text)
     chat = client.get("/dev/db?tab=chat")
     assert chat.status_code == 200 and "채팅 기록 없음" in chat.text
     legacy = client.get("/dev/db?table=regulation_chunks")

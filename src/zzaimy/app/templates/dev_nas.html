@@ -13,7 +13,14 @@
   .nas-form .hint { font-size:11.5px; color:var(--faint); }
   .nas-form .chips { display:flex; gap:6px; flex-wrap:wrap; }
   .nas-form .chips label { flex-direction:row; align-items:center; gap:5px; border:1px solid var(--line); border-radius:8px; padding:5px 9px; font-size:12.5px; color:var(--ink); cursor:pointer; }
-  .nas-form .chips label:has(input:checked) { border-color:var(--ink); background:var(--panel); }
+  .nas-form .chips label:has(input:checked) { border-color:#b6c8df; background:#edf3fc; color:#234b7c; }
+  .nas-form input[type=checkbox] { accent-color:#567da9; width:16px; height:16px; flex:none; }
+  .nas-form .chips label { min-height:36px; padding:8px 12px; }
+  .nas-form :is(input,select,button):focus-visible { outline:2px solid #607c9e; outline-offset:-2px; box-shadow:none; }
+  .nas-form fieldset { min-width:0; padding:16px; gap:14px; }
+  .nas-form .browse-head { flex-wrap:wrap; }
+  .nas-form .browse-head code { min-width:0; overflow-wrap:anywhere; }
+  @media(max-width:600px) { body .nas-form .row, body .nas-form .row.three { grid-template-columns:minmax(0,1fr); } }
   .nas-form .chk { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
   .nas-form .probe { font-size:12.5px; margin:0; min-height:18px; }
   .nas-form .probe.ok { color:var(--green); } .nas-form .probe.bad { color:var(--red); }
@@ -31,7 +38,7 @@
   .nas-form .field-head { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .nas-form .mini { display:inline-flex; align-items:center; background:#fff; border:1px solid var(--line); border-radius:7px; padding:3px 9px; font-size:11.5px; color:var(--muted); box-shadow:none; cursor:pointer; }
   .nas-form .mini:hover { border-color:#94A3B8; background:#fff; color:var(--ink); }
-  .nas-form .mini.on { border-color:var(--ink); background:var(--panel); color:var(--ink); font-weight:600; }
+  .nas-form .mini.on { border-color:#b6c8df; background:#edf3fc; color:#234b7c; font-weight:600; }
   .nas-form .presets { display:flex; gap:5px; flex-wrap:wrap; margin:2px 0 4px; }
   .nas-form .tagbox { display:flex; flex-wrap:wrap; gap:6px; align-items:center; padding:6px 8px; border:1.5px solid var(--line); border-radius:10px; background:#fff; min-height:38px; }
   .nas-form .tagbox:focus-within { border-color:#94A3B8; }
@@ -176,7 +183,7 @@
         {% endfor %}
       </div>
     </div>
-    <label class="chk"><input type="checkbox" name="recursive" value="1" class="nas-recursive" data-fid="{{ fid }}" {{ 'checked' if (not s) or s.recursive else '' }}>하위 폴더까지 훑기</label>
+    <label class="chk"><input type="checkbox" name="recursive" value="1" class="nas-recursive" data-fid="{{ fid }}" {{ 'checked' if (not s) or s.recursive else '' }}>하위 폴더 포함</label>
     <div class="row">
       <label>수정한 날짜 <span class="hint">(이 날짜 이후만)</span>
         <div class="presets nas-since-presets" data-fid="{{ fid }}">
