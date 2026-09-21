@@ -20,7 +20,8 @@
   qwen3.8:27b(Writer 베이스, 22~25 tok/s), gpt-oss:120b. Ollama 는 vLLM 식 생각 끄기 인자를 무시하므로
   `reasoning_effort="none"` 을 쓴다 — `generate/client.py` 가 서버를 판별해 자동으로 붙인다.
 - **젯슨 토르** `thor-03@211.170.162.121`·`thor-02@211.170.162.120`, SSH 포트 8022(맥 키 등록됨, sudo 는 비밀번호 필요).
-  Jetson AGX Thor, 통합 메모리 122GB. Ollama 0.32.6 을 0.0.0.0:11434 로 열었다(인증 없음, ufw 꺼짐).
+  Jetson AGX Thor, 통합 메모리 122GB. **큰 파일을 받은 뒤엔 root 로 `sync; sysctl vm.drop_caches=3` 하고 서빙을 올린다** —
+  페이지 캐시를 CUDA 가 되찾지 못해 vLLM 이 cuBLAS 오류로 죽는다(K-47). 확인은 `torch.cuda.mem_get_info()`. Ollama 0.32.6 을 0.0.0.0:11434 로 열었다(인증 없음, ufw 꺼짐).
   모델: 03 qwen3:30b-a3b-instruct-2507(64 tok/s)·gemma4:e2b, 02 qwen3:4b-instruct-2507(53 tok/s).
   주의: `qwen3:30b-a3b`·`qwen3:4b` 태그는 2507 Thinking 판(항상 생각) — Instruct 태그를 쓸 것.
   **문맥 크기를 줄인 서빙용 모델을 따로 만들어 쓴다**(2026-09-21). 원본 태그는 문맥이 262K 라

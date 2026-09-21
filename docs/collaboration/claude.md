@@ -843,3 +843,16 @@ MinerU vlm 컨테이너는 내렸고 토르 03 의 Ollama 모델도 내려 메�
 로 돌렸다. 실측(같은 입력): 판독 5쪽 20초·13쪽 27초(토르 bf16 128·129초), 내용은 같은 수준(오독 1: '재자정보'),
 검토 77초·26.7 토큰/초. 대화·초안은 토르 02 그대로. 돌고 있던 재처리·재생성은 호출마다 역할을 읽으므로
 자동으로 DGX 로 넘어간다. 검토 의견 재생성은 그 전까지 87분에 5건이었다.
+
+## K-20260921-47 — 토르 FP8 적재 실패의 진짜 원인: 젯슨 페이지 캐시
+
+토르 03 에 `Qwen/Qwen3.8-27B-FP8`(29GB)을 vLLM 으로 올리면 가중치는 다 읽힌 뒤 KV 캐시 시험 실행에서
+`CUBLAS_STATUS_EXECUTION_FAILED` 로 죽었다(`--enforce-eager` 도 같음). GPU 는 정상(bf16 GEMM 8192² 시험 통과).
+실측: `free` 는 available 63GB 인데 CUDA `mem_get_info` 는 **free 11.9GB**. 젯슨은 CPU·GPU 통합 메모리라
+큰 파일을 읽으면 생기는 페이지 캐시(오늘 52GB — NVFP4 21GB·FP8 29GB·KURE-v2·MinerU 내려받기)가 RAM 을 차지하고,
+CUDA 할당은 그 캐시를 되찾지 못한다. 그래서 cuBLAS 작업 메모리 확보가 실패한다.
+
+풀이: root 로 `sync; sysctl vm.drop_caches=3`. 도커가 root 로 받은 가중치는 `chown` 뒤에야 지울 수 있다.
+운영 규칙(문서에 적음): 토르에 큰 파일을 받은 뒤에는 캐시를 비우고 나서 서빙을 올린다. 확인은
+`torch.cuda.mem_get_info()` — `free` 의 available 을 믿지 않는다.
+연결 정리: 토르 Ollama 연결 둘 삭제, 토르 03 vLLM 연결 등록(`토르 03 · Writer(27B)`). DGX 연결은 이관 뒤 삭제.
