@@ -50,6 +50,7 @@ LOCK_PATH = Path("/tmp/zzaimy-heavy.lock")  # 66_reindex.sh와 같은 잠금 —
 
 SCHEMA = 1
 TOP_K = 10
+PRODUCTION_CANDIDATES = 20     # 운영 하이브리드 → 리랭커 후보 수(regulations.CANDIDATE_LIMIT 과 같아야 한다)
 RERANK_SAMPLE = 300  # 크로스인코더는 CPU에서 질의당 수 초 — 고정 시드 표본으로 측정
 SEED = 7
 QUERY_TYPES = ("practical", "requirement", "keyword")
@@ -369,12 +370,15 @@ def evaluate(
     lex_runs: list[list[int]] = []
     den_runs: list[list[int]] = []
     hyb_runs: list[list[int]] = []
+    cand_runs: list[list[int]] = []          # 리랭커에 넘길 후보 — 운영과 같은 개수(CANDIDATE_LIMIT)
     for i, q in enumerate(queries, start=1):
         lex = list(retrievers.lexical(q.text))
         den = list(retrievers.dense(q.text))
         lex_runs.append(lex[:TOP_K])
         den_runs.append(den[:TOP_K])
-        hyb_runs.append(list(retrievers.hybrid(q.text, lex, den))[:TOP_K])
+        hyb = list(retrievers.hybrid(q.text, lex, den))
+        hyb_runs.append(hyb[:TOP_K])
+        cand_runs.append(hyb[:PRODUCTION_CANDIDATES])
         if i % 100 == 0:
             say(f"진행 {i}/{len(queries)}")
 
@@ -401,9 +405,12 @@ def evaluate(
         sub_hyb: list[list[int]] = []
         sub_gold: list[set[int]] = []
         for j, k in enumerate(idx, start=1):
-            cand = hyb_runs[k]
+            # 운영은 후보 20개를 리랭커에 넘긴다. 예전에는 R@10 절단 목록(10개)을 넘겨 리랭커가 고를 폭이
+            # 좁았고, 그래서 운영 구성 행이 하이브리드보다 낮게 나왔다(2026-09-21 실측: 0.550 vs 0.657,
+            # 같은 표본을 후보 20개로 돌리면 0.683 → 0.770). 측정은 운영을 그대로 재현해야 한다.
+            cand = cand_runs[k]
             rr_runs.append(list(retrievers.rerank(queries[k].text, cand))[:TOP_K])
-            sub_hyb.append(cand)
+            sub_hyb.append(hyb_runs[k])
             sub_gold.append(golds[k])
             if j % 25 == 0:
                 say(f"리랭크 {j}/{len(idx)}")
@@ -412,7 +419,7 @@ def evaluate(
         prod["hybrid_on_sample"] = metrics(sub_hyb, sub_gold)
         base = prod["hybrid_on_sample"]
         notes.append(
-            f"운영 구성 행은 고정 시드({seed}) 무작위 표본 {len(idx)}건으로 측정 — "
+            f"운영 구성 행은 고정 시드({seed}) 무작위 표본 {len(idx)}건 · 후보 {PRODUCTION_CANDIDATES}개(운영과 같음)로 측정 — "
             f"같은 표본의 하이브리드 R@1 {base['recall_at_1']:.3f}, MRR@10 {base['mrr_at_10']:.3f}"
         )
     prod["production"] = True
