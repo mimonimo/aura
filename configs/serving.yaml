@@ -1,38 +1,30 @@
-# vLLM 서빙 기동 파라미터 (W1-W2 TASK-02)
-# "latest" 금지 — 검증된 태그·다이제스트만 기록한다 (ADR-0004).
+# 서빙 구성 기록 — 실제 기동은 scripts/126_serve_writer.sh (Writer) · 102·103 (리랭커·임베딩) 이 한다.
+# 이 파일은 무엇을 어디에 어떤 판으로 올리는지의 기록이며 값이 바뀌면 ADR 과 HANDOFF §1 을 같이 고친다.
 
-# ★ 검증 통과 이미지 — 다이제스트로 고정 (태그 "nightly"는 움직이므로 다이제스트가 기준)
-image: vllm/vllm-openai@sha256:df6c5814eadd5b5c9e388e7093dfd811f900539619fcf07c65bb637f607898ff
-platform: linux/arm64  # DGX Spark (aarch64, GB10 sm_121)
+writer:                                   # ③ZZAIMY-Writer (Qwen3.8-27B) — ADR-0023
+  image: ghcr.io/nvidia-ai-iot/vllm:qwen3.8-next-jetson-thor-latest   # Qwen3.8 전용 빌드. 기본 젯슨 빌드(gemma4 태그, vLLM 0.19)는 양자화 lm_head 를 못 받는다
+  model: /models/Qwen3.8-27B-NVFP4       # nvidia/Qwen3.8-27B-NVFP4 — 무게 54GB→14GB, 요청 1개 10.4~10.9 tok/s(bf16 2.4~4.5)
+  served_name: zzaimy-writer
+  max_model_len: 16384
+  hosts:
+    thor-02: { port: 8001, roles: [answer], util: 0.35 }              # 대화·초안 — 사람이 기다리는 일
+    thor-03: { port: 8001, roles: [review, vision, query_expand], util: 0.35 }   # 반입 검토·이미지 판독 — 배치
+  precision_order: [NVFP4, FP8, bf16]     # 채택은 같은 입력에서 내용이 같음을 확인한 뒤(2026-09-21 실측)
+  rejected:
+    - "FP8 (Qwen/Qwen3.8-27B-FP8): 0.19 빌드에서 KV 캐시 시험 실행의 cuBLAS 실패"
+    - "gemma4 (계획 외 모델): 없는 문장을 지어냄 — 제거(K-43)"
 
-# 탈락: v0.11.0 릴리스 (digest 014a95f2…) — 동봉 triton ptxas가 sm_121a 미지원
-# ("ptxas fatal: Value 'sm_121a' is not defined for option 'gpu-name'"). ADR-0004 참조.
+search_services:                          # 토르 03, --restart unless-stopped — ADR-0020·0021
+  embed:   { port: 8016, model: /models/zzaimy-embed-v2,  script: scripts/103_serve_embed_on_thor.sh }
+  rerank:  { port: 8015, model: /models/zzaimy-rerank-v1, script: scripts/102_serve_reranker_on_thor.sh, floor: 0.005 }
+  compare: { embed_base: 8014, rerank_base: 8013 }     # 베이스 비교용(평가에만)
 
-model: Qwen/Qwen3.5-35B-A3B  # 주 서빙 (리서치 1안, MoE 활성 3B — 실측 30.8 tok/s)
-smoke_model: Qwen/Qwen3-4B  # Extract 베이스 1안 — 배치 추출용 후보
-
-# 기동 전 필수: 페이지 캐시 정리 (통합 메모리 — 아래 notes 참조)
-pre_start: sudo sysctl vm.drop_caches=3
-
-run: |
-  docker run -d --name vllm-smoke \
-    --gpus all --shm-size=16g \
-    -v ~/.cache/huggingface:/root/.cache/huggingface \
-    -p 127.0.0.1:8000:8000 \
-    vllm/vllm-openai@sha256:df6c5814eadd5b5c9e388e7093dfd811f900539619fcf07c65bb637f607898ff \
-    --model Qwen/Qwen3.5-35B-A3B \
-    --max-model-len 16384 \
-    --gpu-memory-utilization 0.85
+training:
+  host: DGX (211.170.162.110)             # 학습 전용. 학습본은 bf16 병합 → NVFP4(ModelOpt) → scripts/116_ship_and_serve.sh writer
+  adapters: bf16 LoRA / 병합본 — configs/training/
 
 notes:
-  - "보안 (실측 2026-09-01): 공인 IP 장비라 -p 8000:8000은 인증 없는 LLM 엔드포인트를
-    인터넷에 노출시켰다 (외부 접속 실측 확인 후 차단). 반드시 127.0.0.1 바인딩.
-    외부 접근이 필요해지면 SSH 터널 또는 --api-key + 방화벽으로만"
-  - "--ipc=host 대신 --shm-size=16g 사용 — 호스트 IPC 네임스페이스 공유 회피"
-  - "통합 메모리 함정 (실측 2026-09-01): 파일 캐시가 차 있으면 vLLM이 보는 여유
-    메모리가 급감해 기동 실패 (관측: 6.56/119.67 GiB free < 요구 107.7 GiB).
-    기본 gpu-memory-utilization 0.9는 이 장비에서 다른 워크로드와 공존 불가 —
-    기동 전 drop_caches + utilization 명시가 규칙"
-  - "이 장비에 Ollama 서버 상주 중 (타 사용자) — 메모리 계획 시 고려"
-  - LoRA 동적 로딩(--enable-lora)은 P5에서 검증 예정
-  - 처리량 측정: scripts/21_serving_smoke.py (조건 명시 필수)
+  - "젯슨 통합 메모리: 큰 파일을 받은 뒤 페이지 캐시가 CUDA 메모리를 막는다 — root 로 `sync; sysctl vm.drop_caches=3` 뒤 서빙(K-47)"
+  - "컨테이너 강제 종료(docker rm -f)는 GPU 메모리를 붙잡아 재부팅이 필요했다(88GB, 2026-09-22) — 126 은 docker stop -t 60 으로 정상 종료를 기다린다"
+  - "서비스 포트는 학과망 안에서만. 인증 없는 엔드포인트를 공인망에 열지 않는다(2026-09-01 Spark 노출 사고, risks.md §8)"
+  - "초기 검증(2026-09-01, DGX Spark, vllm/vllm-openai nightly 다이제스트 df6c5814…, Qwen3.5-35B-A3B bf16 30.8 tok/s)은 ADR-0004 — 장비와 모델 모두 지금은 쓰지 않는다"

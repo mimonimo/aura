@@ -3,43 +3,42 @@
 이 문서는 **대화 맥락 없이도** 작업을 이어받게 하는 다리다. 순서대로:
 `CLAUDE.md`(작업 지침) → 이 문서(현재 상태) → `PROJECT_BRIEF.md`(판단 기준).
 
-최종 업데이트: 2026-09-20 (인프라·서빙 절 갱신)
+최종 업데이트: 2026-09-22 (§1 두 토르 NVFP4 구성 확정)
 
 ---
 
 ## 1. 지금 어떤 구성으로 도는가
 
 ```
-[Windows PC · 한글]  ──브라우저──▶  [Linux 운영 서버(VM)]  ──API──▶  [DGX · sLLM]      (기본 연결: 답변·비전 판독)
-  실사용·한글 편집          웹·검색·OCR·문서관리(CPU)   ──API──▶  [젯슨 토르 02·03]  (보조 연결·학습본 서빙)
+[Windows PC · 한글]  ──브라우저──▶  [운영 서버 VM · CPU]  ──API──▶  [토르 02 · Writer 27B NVFP4 :8001]   대화·초안 (answer)
+  실사용·한글 편집                웹·검색·OCR·문서관리      ──API──▶  [토르 03 · Writer 27B NVFP4 :8001]   반입 검토·이미지 판독·질의 확장 (review·vision)
+                                                          ──API──▶  [토르 03 · 임베딩 :8016 · 리랭커 :8015]  검색 모델 서비스(학습본)
+                                                                    [DGX]  학습 전용 — 서빙 연결 없음
 ```
 
-- **LLM 연결은 화면(개발자 > 연결)에서 등록한 값이 우선**이다(`data/platform/llm_connections.json`).
-  2026-09-20 등록: 교내 DGX(기본), 토르 03, 토르 02. 스크립트에서 연결을 쓰려면 `llm_connections.configure(...)` 필요.
-- **DGX `211.170.162.110`** — Ollama 0.33, HTTP 로만 사용(셸 없음). 모델 qwen3.6:35b(기본, vision 가능, 76~83 tok/s),
-  qwen3.8:27b(Writer 베이스, 22~25 tok/s), gpt-oss:120b. Ollama 는 vLLM 식 생각 끄기 인자를 무시하므로
-  `reasoning_effort="none"` 을 쓴다 — `generate/client.py` 가 서버를 판별해 자동으로 붙인다.
-- **젯슨 토르** `thor-03@211.170.162.121`·`thor-02@211.170.162.120`, SSH 포트 8022(맥 키 등록됨, sudo 는 비밀번호 필요).
-  Jetson AGX Thor, 통합 메모리 122GB. **큰 파일을 받은 뒤엔 root 로 `sync; sysctl vm.drop_caches=3` 하고 서빙을 올린다** —
-  페이지 캐시를 CUDA 가 되찾지 못해 vLLM 이 cuBLAS 오류로 죽는다(K-47). 확인은 `torch.cuda.mem_get_info()`. Ollama 0.32.6 을 0.0.0.0:11434 로 열었다(인증 없음, ufw 꺼짐).
-  모델: 03 qwen3:30b-a3b-instruct-2507(64 tok/s)·gemma4:e2b, 02 qwen3:4b-instruct-2507(53 tok/s).
-  주의: `qwen3:30b-a3b`·`qwen3:4b` 태그는 2507 Thinking 판(항상 생각) — Instruct 태그를 쓸 것.
-  **문맥 크기를 줄인 서빙용 모델을 따로 만들어 쓴다**(2026-09-21). 원본 태그는 문맥이 262K 라
-  호출마다 메모리를 크게 잡고(30B 45GB) 모델이 계속 오르내려 호출이 시간 초과된다. 실측: 같은
-  8천 자 요약이 113초 → **5.2초**. Modelfile 로 만든다(sudo 불필요):
-  `zzaimy-answer`(30B·16K, 서빙 실험용) · `zzaimy-review`(4B·8K) — 둘 다 9/21부터 용도 지정에서 빠졌다.
-  **9/21 확정 분담**: 토르 02 = 대화·초안(사람이 기다리는 일), 토르 03 = 반입 검토·이미지 판독(배치) + 임베딩·리랭커.
-  **토르 03 = NVFP4 27B(:8001, 이미지 `qwen3.8-next-jetson-thor-latest`)** — 검토·판독·질의 확장. 실측 요청당 10.4 토큰/초, bf16 대비 3~4배(ADR-0023).
-  토르 02 = bf16 27B(:8001) — 대화·초안. 같은 NVFP4 판으로 교체 예정(이미지·가중치 받는 중). 서빙은 `scripts/126_serve_writer.sh` 하나로
-  (IMAGE·MODEL·HOST 인자). 양자화 판은 기본 젯슨 빌드(gemma4 태그, vLLM 0.19)에서는 적재 실패 — 반드시 qwen3.8 전용 태그.
-  DGX 는 문서대로 학습 전용(SSH 불가, Ollama 만 닿음). K-45.
-  (9/21 14~17시 사이 DGX Ollama 로 임시 이관했다가 17:50 토르 03 으로 복귀, DGX 연결 삭제. DGX 는 학습 전용.)
-  계획에 없던 gemma4 는 9/21 지웠다(사용자 지적, K-43). 공개 수집 문서만 외부 상용 모델로 읽는 용도(`vision_public`)가 있고 키는 화면에서 넣는다.
-  토르 Ollama 0.32.6 은 qwen3.8 을 못 읽는다(갱신은 sudo). 학습본 서빙은 vLLM 컨테이너
-  `ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor`(0.19)로 — `scripts/82`(서빙)·`94`(어댑터 전달)·`95`(자가 점검, 9/20 통과).
-  VM→.120 은 첫 구간 장비(10.10.10.13)의 허용 목록 누락으로 막혀 있다가 9/20 사용자가 해소.
-  **임베딩 재계산은 토르 GPU 로**: `bash scripts/96_embed_on_thor.sh --apply`(맥에서 실행) — 3,751조각 44초,
-  VM CPU 계산 표본과 코사인 1.00000. VM CPU 경로(`66_reindex.sh`)는 한 시간 넘게 걸린다.
+- **역할 분담(2026-09-21 확정, ADR-0023)**: 토르 02 = 사람이 기다리는 일(대화·초안), 토르 03 = 배치(반입 검토·이미지
+  판독) + 임베딩·리랭커. 같은 27B 를 두 대에 각각 올려 배치가 대화를 막지 않게 한다. DGX 는 학습만(SSH 계정 대기).
+  계획에 없는 모델은 쓰지 않는다(gemma4 는 9/21 제거, K-43).
+- **LLM 연결은 화면(개발자 > 연결)에서 등록한 값이 우선**(`data/platform/llm_connections.json`). 지금 연결은
+  `토르 02 · Writer(27B)`(92a94f3f, answer·기본)와 `토르 03 · Writer(27B)`(6a68d93b, review·vision) 둘뿐이다.
+  스크립트에서 연결을 쓰려면 `llm_connections.configure(...)`. 공개 수집 문서만 외부 상용 모델로 읽는 용도(`vision_public`)가
+  있고 키는 화면에서 넣는다(ADR-0024, 미지정이면 판독 모델을 쓴다).
+- **젯슨 토르** `thor-02@211.170.162.120`·`thor-03@211.170.162.121`, SSH 포트 8022(맥 키 등록됨, sudo 는 비밀번호 필요).
+  Jetson AGX Thor, 통합 메모리 122GB. 모델 파일은 `~/zzaimy/models/`, 서비스 코드는 `~/zzaimy/serve/`.
+  - **Writer 서빙은 `scripts/126_serve_writer.sh` 하나로**(HOST·MODEL·IMAGE·PORT 인자). 두 대 모두
+    `MODEL=/models/Qwen3.8-27B-NVFP4 IMAGE=ghcr.io/nvidia-ai-iot/vllm:qwen3.8-next-jetson-thor-latest`(9/22 토르 02 교체 완료,
+    요청 1개 10.9 tok/s — bf16 2.4~4.5). 양자화 판은 기본 젯슨 빌드(gemma4 태그, vLLM 0.19)에서 적재 실패 — 반드시 qwen3.8 전용 태그.
+    학습본은 `116_ship_and_serve.sh writer` 로 두 대에 올린다.
+  - **젯슨 GPU 메모리 함정 둘**: ① 큰 파일을 받은 뒤 페이지 캐시가 CUDA 메모리를 막아 vLLM 이 cuBLAS 오류로 죽는다 — root 로
+    `sync; sysctl vm.drop_caches=3`(K-47). ② 컨테이너를 `docker rm -f` 로 죽이면 GPU 메모리(88GB)가 안 돌아와 재부팅이
+    필요하다 — 126 은 `docker stop -t 60` 으로 정상 종료를 기다린다(K-53). 확인은 `torch.cuda.mem_get_info()`.
+  - 토르 Ollama(0.32.6, :11434)는 9/21부터 용도에서 빠졌다(qwen3.8 을 못 읽고 갱신은 sudo). 그 위의 `zzaimy-answer`·`zzaimy-review`
+    모델은 서빙 실험용 흔적이다.
+  - VM→.120 은 첫 구간 장비(10.10.10.13) 허용 목록 누락으로 막혀 있다가 9/20 사용자가 해소.
+  - **임베딩 재계산은 토르 GPU 로**: `bash scripts/96_embed_on_thor.sh --apply`(맥에서 실행) — 4,254조각 약 1분,
+    VM CPU 계산 표본과 코사인 1.00000. VM CPU 경로(`66_reindex.sh`)는 한 시간 넘게 걸린다.
+- **DGX `211.170.162.110`** — 학습 전용. Ollama(HTTP)만 닿고 셸 계정은 대기. 9/21 14~17시 임시로 서빙을 넘겼다가 토르 03 으로
+  복귀하며 연결을 지웠다. 학습본 이관 경로는 ADR-0023 §3(bf16 병합 → NVFP4 양자화 → 116 으로 두 토르).
 
   **상시 서비스 두 개(9/20 올림, 토르 03, `--restart unless-stopped`·도커 부팅 시작 enabled)**:
 

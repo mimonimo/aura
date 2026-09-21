@@ -1701,36 +1701,74 @@ def create_app(
             "more": len(blocks) > 1,
         }
 
-    def _dev_recent_summary() -> list[str]:
-        """주간 보고서(LLM 작성)의 '주요 성과' 문장들 — 사람이 읽는 개선 요약."""
-        wdir = Path(db_path).parent / "weekly"
-        files = sorted(wdir.glob("*.md")) if wdir.exists() else []
-        if not files:
+    # 커밋이 건드린 파일의 영역 — 변경 이력 줄마다 붙는 표식(어디를 고쳤는지 한눈에)
+    _AREA_RULES = (
+        ("src/zzaimy/app/templates/", "화면"), ("src/", "코드"), ("scripts/", "스크립트"),
+        ("tests/", "테스트"), ("docs/decisions/", "결정"), ("docs/", "문서"), ("configs/", "설정"),
+    )
+    _git_cache: dict = {}
+
+    def _commit_areas(paths: list[str]) -> list[str]:
+        seen: list[str] = []
+        for path in paths:
+            area = next((a for pre, a in _AREA_RULES if path.startswith(pre)), "기타")
+            if area not in seen:
+                seen.append(area)
+        return seen
+
+    def _git_history() -> list[dict]:
+        """커밋 이력을 깃에서 직접 읽는다 — 한 줄 = {day, time, subject, hash, areas, files}.
+        저장소 사본(dev-changelog.md)은 손으로 다시 만들어야 낡았으므로(9/22) 깃이 정본이다.
+        HEAD 가 같으면 캐시를 쓴다."""
+        import subprocess
+
+        root = _DOCS_DIR.parent
+        try:
+            head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                                  timeout=5, cwd=str(root)).stdout.strip()
+            if not head:
+                return []
+            if _git_cache.get("head") == head:
+                return _git_cache["items"]
+            r = subprocess.run(
+                ["git", "log", "--no-merges", "--name-only", "--date=format:%Y-%m-%d %H:%M",
+                 "--format=%x00%h\t%ad\t%s"],
+                capture_output=True, text=True, timeout=15, cwd=str(root))
+        except Exception:
             return []
-        out: list[str] = []
-        in_sec = False
-        for ln in files[-1].read_text(encoding="utf-8").splitlines():
-            if ln.startswith("## "):
-                in_sec = ln.strip() == "## 주요 성과"
-                continue
-            if in_sec and ln.strip():
-                out.append(ln.strip().lstrip("0123456789.- ").strip())
-        return out[:7]
-
-    def _dev_history() -> list[dict]:
-        """개선 이력 — 커밋을 날짜별로 묶는다."""
-        from collections import OrderedDict
-
-        days: OrderedDict[str, list[str]] = OrderedDict()
-        for ln in _dev_read("dev-changelog.md").splitlines():
-            ln = ln.strip()
-            if not ln.startswith("- "):
-                continue
-            parts = ln[2:].split(" ", 2)
+        items: list[dict] = []
+        for blk in (r.stdout or "").split("\x00")[1:]:
+            head_ln, _, rest = blk.partition("\n")
+            parts = head_ln.split("\t", 2)
             if len(parts) < 3:
                 continue
-            day, _time, subject = parts
-            days.setdefault(day, []).append(subject)
+            h, when, subject = parts
+            files = [ln.strip() for ln in rest.splitlines() if ln.strip()]
+            items.append({"hash": h, "day": when[:10], "time": when[11:16], "subject": subject,
+                          "files": len(files), "areas": _commit_areas(files)})
+        _git_cache.update(head=head, items=items)
+        return items
+
+    def _dev_history() -> list[dict]:
+        """변경 이력 — 커밋을 날짜별로 묶는다. 깃이 없으면 저장소 사본(dev-changelog.md)으로 물러난다."""
+        from collections import OrderedDict
+
+        days: OrderedDict[str, list[dict]] = OrderedDict()
+        items = _git_history()
+        if items:
+            for it in items:
+                days.setdefault(it["day"], []).append(it)
+        else:
+            for ln in _dev_read("dev-changelog.md").splitlines():
+                ln = ln.strip()
+                if not ln.startswith("- "):
+                    continue
+                parts = ln[2:].split(" ", 2)
+                if len(parts) < 3:
+                    continue
+                day, time, subject = parts
+                days.setdefault(day, []).append({"day": day, "time": time, "subject": subject,
+                                                 "hash": "", "files": 0, "areas": []})
         return [{"day": d, "items": items} for d, items in days.items()]
 
     _PAPER_LABELS = {
@@ -1984,7 +2022,8 @@ def create_app(
             status = re.split(r"\s*[(（]", meta["status"], maxsplit=1)[0].strip()
             num = ""
             title = title or rel.rsplit("/", 1)[-1]
-            if m := re.match(r"^(\d{4})\.\s*(.+)$", title):
+            # ADR 제목은 '# NNNN. 제목' 이 규칙이지만 'ADR-NNNN' · 'NNNN ·' 꼴도 번호로 읽는다(2026-09-22)
+            if m := re.match(r"^(?:ADR-)?(\d{4})\s*[.·:]?\s+(.+)$", title):
                 num, title = m.group(1), m.group(2)
             return {"href": href, "title": title, "num": num, "status": status,
                     "date": meta["date"] or first_date}
@@ -1997,6 +2036,7 @@ def create_app(
             "weekly_template": _weekly_sections()[1],
             "weekly_monday": (_today - _td(days=_today.weekday())).isoformat(),
             "weekly_feedback": _weekly_feedback((_today - _td(days=_today.weekday())).isoformat()),
+            "weekly": _weekly_card((_today - _td(days=_today.weekday())).isoformat(), _today.isoformat()),
             "papers": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
                        for p in _dev_papers()],
             "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
@@ -2013,22 +2053,24 @@ def create_app(
 
     @app.get("/dev/history", response_class=HTMLResponse)
     def dev_history_page(request: Request):
-        """변경 이력 — 작업 기록(날짜별) + 주간 보고서 요약 + 커밋 이력 전체 목록."""
+        """변경 이력 — 작업 기록(날짜별) + 커밋 이력 전체(깃에서 직접, 영역 표식).
+        주간 보고서 요약은 논문 자료 화면의 주간 보고서 칸으로 갔다(2026-09-22)."""
         days = []
         for blk in re.split(r"\n(?=### )", _dev_now_parts()["recent_all"]):
             if blk.strip().startswith("### "):
                 head, _, body = blk.strip().partition("\n")
                 days.append({"day": head[4:].strip(), "body": body.strip()})
-        history = [d for d in _dev_history() if re.fullmatch(r"\d{2}-\d{2}", d["day"])]
+        history = [d for d in _dev_history() if re.fullmatch(r"(\d{4}-)?\d{2}-\d{2}", d["day"])]
+        area_count: dict[str, int] = {}
+        for d in history:
+            for it in d["items"]:
+                for a in it["areas"]:
+                    area_count[a] = area_count.get(a, 0) + 1
         return templates.TemplateResponse(request, "dev_history.html", ctx(request, {
             "history": history,
             "history_count": sum(len(d["items"]) for d in history),
-            # 날짜 없는 줄(예: 미커밋 안내)은 목록 밖 각주로
-            "history_notes": [
-                ln[2:].strip() for ln in _dev_read("dev-changelog.md").splitlines()
-                if ln.startswith("- ") and not re.match(r"- \d{2}-\d{2} ", ln)
-            ],
-            "recent_summary": _dev_recent_summary(),
+            "history_areas": sorted(area_count.items(), key=lambda kv: -kv[1]),
+            "history_source": "깃 커밋" if _git_history() else "저장소 사본(dev-changelog.md)",
             "dev_now_days": days,
         }))
 
@@ -3554,8 +3596,10 @@ def create_app(
         plans = _section(dn, "## 다음에 할 일")
         # 기준 틀 — 기획서의 개발 내용(플랫폼·모델·데이터 축). 보고는 이 축의 높이에서 쓴다.
         frame = _section(_dev_read("paper/프로젝트-기획서.md"), "## 개발 내용")[:2500]
-        week_lines = [ln for ln in _dev_read("dev-changelog.md").splitlines()
-                      if ln.startswith("- ") and ln[2:7] >= f"{monday[5:7]}-{monday[8:10]}"]
+        week_lines = [f"- {it['day'][5:]} {it['subject']}" for it in _git_history() if it["day"] >= monday]
+        if not week_lines:                   # 깃이 없으면 저장소 사본
+            week_lines = [ln for ln in _dev_read("dev-changelog.md").splitlines()
+                          if ln.startswith("- ") and ln[2:7] >= f"{monday[5:7]}-{monday[8:10]}"]
         changelog = "\n".join(week_lines[:60])[:3000]
         body: str | None = None
         try:
@@ -3602,6 +3646,79 @@ def create_app(
         _ = (base_tbl, embed_tbl, scale)      # 지표는 화면(측정 기록)에서 본다
         cache.write_text(full, encoding="utf-8")
         return full
+
+    # 자동 작성 — 논문 자료 화면을 열면 이번 주 보고서가 없을 때 뒤에서 만든다(2026-09-22 사용자: "생성은 자동인가?").
+    # 피드백 저장·다시 만들기도 뒤에서 돌고, 화면은 끝나면 스스로 새로 고친다.
+    _weekly_state: dict = {"monday": "", "running": False, "started": "", "error": ""}
+
+    def _weekly_can_auto() -> bool:
+        """답변 용도로 부를 모델 연결이 있는가 — 없으면 자동 작성을 시도하지 않고 화면에 그 사실을 적는다."""
+        from zzaimy.generate import llm_connections as lc
+
+        try:
+            return bool(lc.role_conn("answer") or lc.active())
+        except Exception:
+            return False
+
+    def _weekly_kick(monday: str, today: str, fresh: bool = False) -> bool:
+        """이번 주 보고서를 뒤에서 만든다. 이미 만드는 중이면 False."""
+        import threading
+        from datetime import datetime as _dt
+
+        if _weekly_state["running"]:
+            return False
+        _weekly_state.update(monday=monday, running=True, started=_dt.now().strftime("%H:%M"), error="")
+
+        def run():
+            try:
+                body = _compose_weekly(monday, today, fresh=fresh)
+                if body.startswith("(모델이 응답하지 않아"):
+                    _weekly_state["error"] = "모델이 응답하지 않아 작성하지 못했습니다"
+            except Exception:
+                _weekly_state["error"] = "작성 중 오류가 났습니다"
+            finally:
+                _weekly_state["running"] = False
+
+        threading.Thread(target=run, daemon=True, name="weekly-report").start()
+        return True
+
+    def _weekly_card(monday: str, today: str) -> dict:
+        """주간 보고서 칸의 상태 — 있으면 미리보기, 없으면 자동 작성을 시작한다."""
+        from datetime import datetime as _dt
+
+        cache = _weekly_dir() / f"{monday}.md"
+        auto = _weekly_can_auto()
+        if (not cache.exists() and auto and not _weekly_state["running"]
+                and os.environ.get("ZZAIMY_WEEKLY_AUTO", "1") != "0"):
+            _weekly_kick(monday, today)
+        info = {"exists": cache.exists(), "running": _weekly_state["running"],
+                "started": _weekly_state["started"], "error": _weekly_state["error"],
+                "auto": auto, "preview": "", "made_at": "", "stem": monday}
+        if cache.exists():
+            text = cache.read_text(encoding="utf-8")
+            info["preview"] = text[:1800] + ("\n\n…" if len(text) > 1800 else "")
+            info["made_at"] = _dt.fromtimestamp(cache.stat().st_mtime).strftime("%m-%d %H:%M")
+        return info
+
+    @app.get("/dev/weekly/status")
+    def dev_weekly_status():
+        from datetime import date as _date, timedelta as _td
+
+        today = _date.today()
+        monday = (today - _td(days=today.weekday())).isoformat()
+        return {"running": _weekly_state["running"], "error": _weekly_state["error"],
+                "exists": (_weekly_dir() / f"{monday}.md").exists()}
+
+    @app.get("/dev/weekly/rebuild")
+    def dev_weekly_rebuild():
+        """다시 만들기 — 뒤에서 새로 쓰고 화면으로 돌아간다."""
+        from datetime import date as _date, timedelta as _td
+        from fastapi.responses import RedirectResponse
+
+        today = _date.today()
+        monday = (today - _td(days=today.weekday())).isoformat()
+        _weekly_kick(monday, today.isoformat(), fresh=True)
+        return RedirectResponse("/dev/docs#weekly", status_code=303)
 
     @app.get("/dev/weekly.{fmt}")
     def dev_weekly_report(fmt: str, fresh: int = 0):
@@ -3690,6 +3807,8 @@ def create_app(
         cache = _weekly_dir() / f"{monday}.md"
         if cache.exists():
             cache.unlink()                 # 피드백이 바뀌면 보고서를 다시 쓴다
+        if _weekly_can_auto() and os.environ.get("ZZAIMY_WEEKLY_AUTO", "1") != "0":
+            _weekly_kick(monday, today.isoformat(), fresh=True)
         return RedirectResponse("/dev/docs#weekly", status_code=303)
 
     @app.get("/dev/weekly/{stem}.{fmt}")
