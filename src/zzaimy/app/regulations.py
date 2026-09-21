@@ -540,15 +540,20 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
         blocks.append((heading, body))
 
     chunks: list[RegulationChunk] = []
+    current = ""                       # 직전 구조 표제 — 표제 없는 블록은 이것을 물려받는다(절 맥락)
     for head, body_lines in blocks:
+        own = bool(head) and looks_like_heading(head)     # 이 블록이 스스로 연 표제인가
+        if own:
+            current = head
+        label = (head if own else current)[:60]           # 문서 설명대로 '직전 표제를 heading 으로'
+        #                                                   (실측 2026-09-22: 4,284조각 중 1,516개가 표제 없음)
         if _is_table_block(body_lines):
             # 표는 행이 단위다 — 문장으로 묶으면 행 중간에서 잘려 머리글과 값이 떨어진다
-            # (실측 2026-09-22: '제출기한 / 접수방법 | …' 행이 조각 경계에서 끊김). 표제는 첫 조각에만.
-            rows_text = "\n".join(([head] if head else []) + [ln.strip() for ln in body_lines if ln.strip()])
-            pieces = _split_size(rows_text, target)
+            # (실측 2026-09-22: '제출기한 / 접수방법 | …' 행이 조각 경계에서 끊김). 표제 줄은 첫 조각에만.
+            rows = [ln.strip() for ln in body_lines if ln.strip()]
+            pieces = _split_size("\n".join(([head] if head else []) + rows), target)
             for pc in pieces:
-                chunks.append(RegulationChunk(
-                    heading=(head if looks_like_heading(head) else "")[:60], content=pc))
+                chunks.append(RegulationChunk(heading=label, content=pc))
             continue
         body = " ".join(body_lines).strip()
         full = (head + " " + body).strip() if head else body
@@ -556,8 +561,7 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
             continue
         pieces = _pack_sentences(full, target, hard_max)
         for pc in pieces:
-            chunks.append(RegulationChunk(
-                heading=(head if looks_like_heading(head) else "")[:60], content=pc))
+            chunks.append(RegulationChunk(heading=label, content=pc))
     return _finalize(chunks)
 
 
