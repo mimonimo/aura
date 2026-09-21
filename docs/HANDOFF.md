@@ -26,9 +26,9 @@
   **문맥 크기를 줄인 서빙용 모델을 따로 만들어 쓴다**(2026-09-21). 원본 태그는 문맥이 262K 라
   호출마다 메모리를 크게 잡고(30B 45GB) 모델이 계속 오르내려 호출이 시간 초과된다. 실측: 같은
   8천 자 요약이 113초 → **5.2초**. Modelfile 로 만든다(sudo 불필요):
-  `zzaimy-answer`(30B·16K) · `zzaimy-review`(4B·8K, 반입 검토) · `zzaimy-vision`(gemma4·8K).
-  **이미지 판독은 9/21부터 토르 02 의 `zzaimy-writer`(Qwen3.8-27B, vLLM :8001)** — gemma4 는 빽빽한 쪽에서
-  없는 문장을 지어냈다(K-43). 공개 수집 문서만 외부 상용 모델로 읽는 용도(`vision_public`)가 있고 키는 화면에서 넣는다.
+  `zzaimy-answer`(30B·16K) · `zzaimy-review`(4B·8K, 반입 검토).
+  **이미지 판독은 토르 02 의 `zzaimy-writer`(Qwen3.8-27B 멀티모달, vLLM :8001)** — 계획 문서의 Writer 가 곧 판독 모델이다.
+  계획에 없던 gemma4 는 9/21 지웠다(사용자 지적, K-43). 공개 수집 문서만 외부 상용 모델로 읽는 용도(`vision_public`)가 있고 키는 화면에서 넣는다.
   토르 Ollama 0.32.6 은 qwen3.8 을 못 읽는다(갱신은 sudo). 학습본 서빙은 vLLM 컨테이너
   `ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor`(0.19)로 — `scripts/82`(서빙)·`94`(어댑터 전달)·`95`(자가 점검, 9/20 통과).
   VM→.120 은 첫 구간 장비(10.10.10.13)의 허용 목록 누락으로 막혀 있다가 9/20 사용자가 해소.
