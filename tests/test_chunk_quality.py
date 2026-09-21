@@ -237,3 +237,31 @@ def test_garbled_script_is_a_damage_signal():
     assert "다른 문자 체계로 깨짐" in ocr_damage_signals(junk)
     fine = "제1조(목적) 이 규정은 산학협력단의 운영에 관한 사항을 정함을 목적으로 한다. " * 3
     assert garbled_ratio(fine) == 0.0
+
+
+def test_number_only_lines_never_survive_as_chunks():
+    """크기 분할이 만든 "3-2." 같은 번호 줄 조각도 이웃과 합친다 — 표제만 있는 조각은 검색 단위가 아니다."""
+    from zzaimy.app.regulations import RegulationChunk, _finalize, index_ready
+
+    long_body = "\n".join(f"{i}. 컨소시엄 참여대학은 지역 산업 수요에 맞는 교육과정을 운영한다." for i in range(40))
+    out = _finalize([RegulationChunk(heading="3-1.", content="3-1.\n" + long_body + "\n3-2.")])
+    assert out and all(cq.substantive_len(c.content) >= cq.MIN_SUBSTANTIVE_DROP for c in out)
+    kept, dropped = index_ready(1, [RegulationChunk(heading="Ⅴ.", content="Ⅴ."),
+                                    RegulationChunk(heading="제1조(목적)", content="제1조(목적) 이 규정은 산학협력단의 운영에 필요한 사항을 정한다.")])
+    assert [c.heading for c in kept] == ["제1조(목적)"] and dropped == 1
+    kept, dropped = index_ready(1, [RegulationChunk(heading="Ⅴ.", content="Ⅴ.")])
+    assert len(kept) == 1 and dropped == 0        # 전부 걸러지면 원본을 둔다
+
+
+def test_table_block_is_packed_by_rows_not_sentences():
+    """표 블록은 행 단위로 묶인다 — 행 중간에서 잘려 머리글과 값이 떨어지지 않는다."""
+    from zzaimy.app.regulations import split_prose
+
+    rows = [f"{i}학과 | 산업디자인학과 | {i}학년 | 공간디자인기초 {i} | 컴퓨터그래픽 {i}" for i in range(1, 60)]
+    text = "< 연계교육과정 편성표 >\n" + "\n".join(rows)
+    chunks = split_prose(text, target=400, hard_max=600)
+    assert len(chunks) >= 3
+    for c in chunks:
+        for ln in c.content.splitlines():
+            if " | " in ln:
+                assert ln.count("|") == 4, ln          # 행이 온전하다

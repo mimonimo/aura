@@ -289,25 +289,7 @@ def _finalize(chunks: list[RegulationChunk]) -> list[RegulationChunk]:
     - 문서 끝에서 모자란 조각은 직전 조각 뒤에 붙인다
     - 합쳐진 조각의 표제는 본문에서 다시 뽑고, 못 뽑으면 이웃의 표제를 쓴다
     """
-    merged: list[RegulationChunk] = []
-    for c in chunks:
-        ct = (c.content or "").strip()
-        if not ct:
-            continue
-        if merged and not _self_contained(merged[-1].content):
-            prev = merged.pop()
-            body = f"{prev.content}\n{ct}"
-            merged.append(RegulationChunk(
-                heading=_heading_of(body) or prev.heading or c.heading, content=body))
-            continue
-        merged.append(RegulationChunk(heading=c.heading or _heading_of(ct), content=ct))
-    while len(merged) >= 2 and not _self_contained(merged[-1].content):
-        last = merged.pop()
-        prev = merged.pop()
-        body = f"{prev.content}\n{last.content}"
-        merged.append(RegulationChunk(
-            heading=prev.heading or _heading_of(body), content=body))
-    out = merged
+    out = _merge_thin(chunks)
 
     seen: set[str] = set()
     uniq: list[RegulationChunk] = []
@@ -332,7 +314,58 @@ def _finalize(chunks: list[RegulationChunk]) -> list[RegulationChunk]:
         for piece in pieces:
             if piece.strip():
                 bounded.append(RegulationChunk(heading=c.heading, content=piece))
-    return bounded
+    # 크기 분할이 만든 조각도 같은 기준으로 다시 본다 — 줄 단위로 자르면 "3-2." 같은 번호 줄 하나가
+    # 조각으로 떨어져 나온다(실측 2026-09-22: 운영 4,284조각 중 2~4자 조각 12건, 80자 미만 473건).
+    return _merge_thin(bounded)
+
+
+def _merge_thin(chunks: list[RegulationChunk]) -> list[RegulationChunk]:
+    """혼자 설 수 없는 조각(_self_contained 참조)은 다음 조각 앞에, 문서 끝이면 직전 조각 뒤에 붙인다."""
+    merged: list[RegulationChunk] = []
+    for c in chunks:
+        ct = (c.content or "").strip()
+        if not ct:
+            continue
+        if merged and not _self_contained(merged[-1].content):
+            prev = merged.pop()
+            body = f"{prev.content}\n{ct}"
+            merged.append(RegulationChunk(
+                heading=_heading_of(body) or prev.heading or c.heading, content=body))
+            continue
+        merged.append(RegulationChunk(heading=c.heading or _heading_of(ct), content=ct))
+    while len(merged) >= 2 and not _self_contained(merged[-1].content):
+        last = merged.pop()
+        prev = merged.pop()
+        body = f"{prev.content}\n{last.content}"
+        merged.append(RegulationChunk(
+            heading=prev.heading or _heading_of(body), content=body))
+    return merged
+
+
+def index_ready(doc_id: int, chunks: list[RegulationChunk]) -> tuple[list[RegulationChunk], int]:
+    """적재 직전의 잡음 관문 — (남길 조각, 뺀 수). 반입 경로(pipeline)와 승격(123)·재분할(75)이 같이 쓴다.
+
+    강도는 SEARCH 다(INDEX 는 '제1조(목적)' 같은 짧은 조문까지 버린다). 표제가 붙은 조각은 이 플랫폼의
+    뼈대라 지키되, 본문이 없는 표제만의 조각("3-2.", "Ⅴ.")은 지키지 않는다 — 이전 규칙은 표제만 있으면
+    무조건 살려 번호 줄이 검색 단위로 남았다(2026-09-22 실측). 전부 걸러지면 원본을 그대로 둔다.
+    """
+    from zzaimy.app.chunk_quality import MIN_SUBSTANTIVE_DROP, Strictness, filter_chunks, substantive_len
+
+    if not chunks:
+        return [], 0
+    kept, _removed = filter_chunks(
+        [{"doc_id": doc_id, "content": c.content, "heading": c.heading} for c in chunks],
+        Strictness.SEARCH,
+    )
+    keep_keys = {(k["heading"], k["content"]) for k in kept}
+    survivors = [
+        c for c in chunks
+        if (c.heading, c.content) in keep_keys
+        or ((c.heading or "").strip() and substantive_len(c.content) >= MIN_SUBSTANTIVE_DROP)
+    ]
+    if not survivors:
+        return list(chunks), 0
+    return survivors, len(chunks) - len(survivors)
 
 
 # 문장이 끝났는가 — 한국어 행정문서의 평서 종결. 여기서 끝나지 않는 조각은
@@ -455,6 +488,12 @@ def _pack_sentences(text: str, target: int, hard_max: int) -> list[str]:
     return out
 
 
+def _is_table_block(lines: list[str]) -> bool:
+    """줄의 절반 이상이 표 행(' | ' 구분자)이면 표 블록으로 본다 — _table_heading 과 같은 기준."""
+    body = [ln for ln in lines if ln.strip()]
+    return len(body) >= 2 and sum(1 for ln in body if " | " in ln) / len(body) >= 0.5
+
+
 def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[RegulationChunk]:
     """서술형 문서(공고·사업계획서)를 절 경계·문장 단위로 촘촘히 나눈다.
 
@@ -502,6 +541,15 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
 
     chunks: list[RegulationChunk] = []
     for head, body_lines in blocks:
+        if _is_table_block(body_lines):
+            # 표는 행이 단위다 — 문장으로 묶으면 행 중간에서 잘려 머리글과 값이 떨어진다
+            # (실측 2026-09-22: '제출기한 / 접수방법 | …' 행이 조각 경계에서 끊김). 표제는 첫 조각에만.
+            rows_text = "\n".join(([head] if head else []) + [ln.strip() for ln in body_lines if ln.strip()])
+            pieces = _split_size(rows_text, target)
+            for pc in pieces:
+                chunks.append(RegulationChunk(
+                    heading=(head if looks_like_heading(head) else "")[:60], content=pc))
+            continue
         body = " ".join(body_lines).strip()
         full = (head + " " + body).strip() if head else body
         if not full:
