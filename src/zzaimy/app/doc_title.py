@@ -116,9 +116,16 @@ def tidy_name(name: str) -> str:
     return (out + ext) if out else name
 
 
+_PLACEHOLDER = "제목 없음"
+
+
 def meaningless_filename(filename: str) -> bool:
-    """'www.ync.ac.kr__UPLOAD…' 처럼 사람이 붙인 이름이 아닌 것 — 한글이 없고 URL·해시 흔적이 있다."""
+    """'www.ync.ac.kr__UPLOAD…' 처럼 사람이 붙인 이름이 아닌 것 — 한글이 없고 URL·해시 흔적이 있거나,
+    반입이 제목을 못 찾아 붙인 자리 표시('제목 없음 · 접수번호')다. 자리 표시는 다시 읽을 때마다 후보가 된다
+    (2026-09-21 실측: 전체 판독 뒤 제목이 본문 첫 줄에 있는데도 자리 표시가 한글이라 그대로 남았다)."""
     stem = Path(filename or "").stem
+    if stem.startswith(_PLACEHOLDER):
+        return True
     return not re.search(r"[가-힣]", stem) and bool(_MEANINGLESS.search(stem))
 
 
@@ -254,7 +261,7 @@ def title_beats_filename(title: str, filename: str) -> bool:
     경우('공동 운영ㆍ관리 매뉴얼')에 멀쩡한 파일 이름을 잘린 이름으로 바꾸지 않기 위해서다.
     """
     stem = Path(filename or "").stem
-    if not re.search(r"[가-힣]", stem):
+    if not re.search(r"[가-힣]", stem) or stem.startswith(_PLACEHOLDER):
         return True
     words = [w for w in re.split(r"[^가-힣A-Za-z0-9]+", stem) if len(w) >= 2 and re.search(r"[가-힣]", w)]
     if not words:
@@ -267,7 +274,7 @@ def resolved_title(doc: dict) -> tuple[str | None, str | None]:
     """파일 이름 대신 쓸 (이름, 날짜). 쓸 만하지 않으면 (None, None)."""
     title, date = document_title(doc)
     filename = doc.get("filename") or ""
-    if not title and not re.search(r"[가-힣]", Path(filename).stem):
+    if not title and meaningless_filename(filename):
         # 'www.ync.ac.kr__UPLOAD_PDF_…' 처럼 뜻 없는 이름 — 공지·안내문의 첫 제목 줄이라도 쓴다
         title = loose_title(head_text(doc.get("stored_path"), (doc.get("masked_text") or "")[:3000]))
     if not title or not title_beats_filename(title, filename):

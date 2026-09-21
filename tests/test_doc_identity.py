@@ -399,3 +399,17 @@ def test_three_letter_form_name_in_table_cell():
     from zzaimy.app.doc_title import loose_title
 
     assert loose_title("예비군대대 | 예비군대대 | 복학원 | 복학원 | 결 재 | 담당") == "복학원"
+
+
+def test_placeholder_name_is_replaced_once_the_title_becomes_readable(tmp_path):
+    """'제목 없음 · 접수번호'는 자리 표시다 — 전체 판독 뒤 제목이 읽히면 바뀐다."""
+    from zzaimy.app.db import Database
+    from zzaimy.app.doc_title import meaningless_filename
+
+    assert meaningless_filename("제목 없음 · 2026-행정-0067")
+    db = Database(tmp_path / "t.db")
+    d = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="", doc_type="regulation")
+    db.rename_from_text(d, "5.지원시기: 2026년12월예정\n6.지원방법: 입금", ask=lambda p: "없음")
+    assert db.get_document(d)["filename"].startswith("제목 없음 · ")
+    db.rename_from_text(d, "## '26년 2학기 국가장학금(Ⅰ·Ⅱ유형) 및 다자녀 국가장학금\n## **학생 모바일 신청 매뉴얼**\n국가장학실")
+    assert db.get_document(d)["filename"] == "'26년 2학기 국가장학금(Ⅰ·Ⅱ유형) 및 다자녀 국가장학금"
