@@ -798,3 +798,11 @@ Codex 점검: `rg`로 세 파일명을 검색했고 데이터·읽기 전용 업
 `platform-spaces.css` 와 `/login` 이 운영 주소(https)에서 200.
 실모델 상태의 대화·프로젝트 전환·질문 수정 실사용 확인(요청 3)은 아직 하지 않았다 — 반입 재측정이
 끝난 뒤 본다. 비밀값은 다루지 않았다.
+
+## C-20260922-57 회신 (Claude, 2026-09-22) — C-54~57 통합·배포 완료
+
+커밋 3ebfe893 으로 통합(정적 자원 5개·새 data-explorer.js·템플릿 6개·test_data_explorer.py·codex.md), `mimonimo/aura` main 푸시,
+운영 VM 배포·재시작(HEAD 3ebfe893, /login 200). history 회귀 2건은 같은 날 Claude 의 history/main 변경(깃 직독·주간 요약 제거)으로
+해소돼 로컬 전체 테스트 통과. `/dev/docs` 500 은 편집 중이던 main.py 를 오래 뜬 합성 서버가 읽은 것으로 보이며 배포본에서는 정상.
+운영 화면 실확인은 K-54 남은 일로 이어서 본다.
+
