@@ -1962,7 +1962,13 @@ def create_app(
             return {"href": href, "title": title, "num": num, "status": status,
                     "date": meta["date"] or first_date}
 
+        from datetime import date as _date, timedelta as _td
+
+        _today = _date.today()
         return templates.TemplateResponse(request, "dev_docs.html", ctx(request, {
+            "weekly_docs": _weekly_list(),
+            "weekly_template": _weekly_sections()[1],
+            "weekly_monday": (_today - _td(days=_today.weekday())).isoformat(),
             "papers": [entry(f"paper/{p['file']}", f"/dev/paper/{p['file']}", p["label"])
                        for p in _dev_papers()],
             "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
@@ -3399,7 +3405,17 @@ def create_app(
 보고서를 작성한다. 독자는 지도교수다. 아래 원자료(커밋 이력·실험 기록)를 바탕으로 쓰되,
 원자료를 나열하지 말고 사람이 읽는 문장으로 정리하라.
 
-마크다운으로, 아래 섹션 구성 그대로:
+{sections}
+
+규칙: 숫자는 원자료에 있는 것만 쓴다. 과장·수식어를 넣지 않는다. 볼드·이모지 금지.
+
+[커밋 이력]
+{changelog}
+
+[실험 기록]
+{experiments}"""
+
+    _WEEKLY_SECTIONS_DEFAULT = """마크다운으로, 아래 섹션 구성 그대로:
 ## 요약
 이번 주 작업을 3~4문장으로. 무엇이 가장 큰 진전인지부터.
 ## 주요 성과
@@ -3409,15 +3425,50 @@ def create_app(
 ## 문제와 대응
 이번 주 발생한 문제 1~3건과 어떻게 해결했는지.
 ## 다음 주 계획
-3~5개 항목.
+3~5개 항목."""
 
-규칙: 숫자는 원자료에 있는 것만 쓴다. 과장·수식어를 넣지 않는다. 볼드·이모지 금지.
+    _WEEKLY_TEMPLATE = _DOCS_DIR / "weekly" / "양식.md"
 
-[커밋 이력]
-{changelog}
+    def _weekly_sections(template: Path | None = None) -> tuple[str, bool]:
+        """보고서 항목 구성 — 사용자가 준 양식(docs/weekly/양식.md)이 있으면 그 구성을 그대로, 없으면 기본."""
+        f = template or _WEEKLY_TEMPLATE
+        try:
+            text = f.read_text(encoding="utf-8").strip() if f.exists() else ""
+        except OSError:
+            text = ""
+        if text:
+            return ("마크다운으로, 아래 양식의 항목 구성·순서·제목을 그대로 따른다. 양식의 안내문은 지침이지 본문이 아니다:\n"
+                    + text), True
+        return _WEEKLY_SECTIONS_DEFAULT, False
 
-[실험 기록]
-{experiments}"""
+    def _weekly_dir() -> Path:
+        d = Path(db_path).parent / "weekly"
+        d.mkdir(exist_ok=True)
+        return d
+
+    def _weekly_list() -> list[dict]:
+        """지금까지의 주간 보고 — 생성본(data/platform/weekly)과 수기본(docs/weekly)을 한 목록으로, 최근 것부터."""
+        out: list[dict] = []
+        seen: set[str] = set()
+        for src, folder in (("생성", _weekly_dir()), ("수기", _DOCS_DIR / "weekly")):
+            if not folder.exists():
+                continue
+            for f in folder.glob("*.md"):
+                if f.name == "양식.md" or f.stem in seen:
+                    continue
+                m = re.search(r"\d{4}-\d{2}-\d{2}", f.stem)
+                title = f.stem
+                try:
+                    first = next((ln[2:].strip() for ln in f.read_text(encoding="utf-8").splitlines()
+                                  if ln.startswith("# ")), "")
+                except OSError:
+                    first = ""
+                seen.add(f.stem)
+                out.append({"href": f"/dev/weekly/{f.stem}", "title": first or f"주간 보고 {title}",
+                            "num": "", "status": src, "date": m.group(0) if m else "",
+                            "stem": f.stem, "kind": src})
+        out.sort(key=lambda d: d["date"], reverse=True)
+        return out
 
     def _compose_weekly(monday: str, today: str, fresh: bool = False) -> str:
         """주간 보고 본문 — LLM이 원자료를 읽고 문장으로 쓴다. 결과는 캐시."""
@@ -3437,6 +3488,7 @@ def create_app(
             resp = client.client.chat.completions.create(
                 model=client.model,
                 messages=[{"role": "user", "content": _WEEKLY_PROMPT.format(
+                    sections=_weekly_sections()[0],
                     changelog=changelog or "(없음)",
                     experiments=experiments or "(없음)",
                 )}],
@@ -3508,6 +3560,61 @@ def create_app(
             "Content-Disposition": "attachment; filename*=UTF-8\'\'"
             + _q(f"주간보고_{monday.isoformat()}.{fmt}"),
         })
+
+    def _weekly_payload(title: str, body: str, fmt: str):
+        from fastapi.responses import Response
+        from urllib.parse import quote as _q
+
+        if fmt == "md":
+            payload: bytes | None = f"# {title}\n\n{body}\n".encode()
+            media = "text/markdown; charset=utf-8"
+        elif fmt == "docx":
+            from zzaimy.app.draft_export import build_draft_docx
+
+            payload = build_draft_docx(title, body)
+            media = ("application/vnd.openxmlformats-officedocument"
+                     ".wordprocessingml.document")
+        elif fmt == "hwpx":
+            from zzaimy.app.draft_export import build_draft_hwpx
+
+            payload = build_draft_hwpx(title, body)
+            media = "application/hwp+zip"
+        else:
+            raise HTTPException(404)
+        if payload is None:
+            raise HTTPException(500, "보고서 생성에 실패했습니다")
+        return Response(payload, media_type=media, headers={
+            "Content-Disposition": "attachment; filename*=UTF-8\'\'" + _q(f"{title}.{fmt}"),
+        })
+
+    def _weekly_file(stem: str) -> Path:
+        if "/" in stem or ".." in stem or not stem:
+            raise HTTPException(404)
+        for folder in (_weekly_dir(), _DOCS_DIR / "weekly"):
+            f = folder / f"{stem}.md"
+            if f.exists() and f.name != "양식.md":
+                return f
+        raise HTTPException(404)
+
+    @app.get("/dev/weekly/{stem}.{fmt}")
+    def dev_weekly_past(stem: str, fmt: str):
+        """지난 주간 보고를 파일로 — 생성본이든 수기본이든 같은 형식으로."""
+        f = _weekly_file(stem)
+        text = f.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        title = next((ln[2:].strip() for ln in lines if ln.startswith("# ")), f"주간 보고 {stem}")
+        body = "\n".join(ln for ln in lines if not ln.startswith("# ")).strip()
+        return _weekly_payload(title, body, fmt)
+
+    @app.get("/dev/weekly/{stem}", response_class=HTMLResponse)
+    def dev_weekly_view(request: Request, stem: str):
+        """지난 주간 보고 열람 — 논문 자료 열람 화면과 같은 틀."""
+        f = _weekly_file(stem)
+        return templates.TemplateResponse(request, "dev_paper.html", ctx(request, {
+            "fname": f.name, "doc": _dev_doc_view(f.read_text(encoding="utf-8"), f.name),
+            "papers": [], "show_export": False, "page_title": "주간 보고서",
+            "weekly_stem": stem,
+        }))
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request):
