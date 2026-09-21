@@ -12,6 +12,31 @@
 | [llm-rerank-eval.md](llm-rerank-eval.md) | 검색·리랭커 측정 기록 |
 | [quality-system.md](quality-system.md) | 품질 5계층 체계 |
 
+## 설계·계획 문서
+
+| 문서 | 용도 |
+|---|---|
+| [architecture.md](architecture.md) | 아키텍처 설계 |
+| [eval-plan.md](eval-plan.md) | 평가 계획(지표·분리 원칙) |
+| [capstone-plan.md](capstone-plan.md) | 13주 실행계획 |
+| [pilot-plan.md](pilot-plan.md) | 파일럿 계획 |
+| [risks.md](risks.md) | 위험 관리 |
+| [workflow.md](workflow.md) | 명세와 구현의 분업 |
+| [business-plan.md](business-plan.md) | 사업계획서(교수님 소유, 읽기 전용) |
+
+## 측정 기록 (날짜가 곧 유효 범위 — 최신 수치는 `data/platform/eval/` 과 실험-로그)
+
+| 문서 | 무엇 | 비고 |
+|---|---|---|
+| [retrieval-baseline-mini.md](retrieval-baseline-mini.md) | 검색 미니 베이스라인 | 2026-09-04, 옛 코퍼스 |
+| [retrieval-weight-sweep.md](retrieval-weight-sweep.md) | 하이브리드 가중 스윕 | 2026-09-04 |
+| [rerank-baseline.md](rerank-baseline.md) | 리랭커 학습 전 베이스라인 | 2026-09-04 |
+| [llm-rerank-eval.md](llm-rerank-eval.md) | 리랭커·LLM 리랭킹 평가 | 2026-09-20 |
+| [embed-v0-report.md](embed-v0-report.md) | 임베딩 v0.0 리허설 | 2026-09-03, 미배포(이력) |
+| [ocr-cer-bench.md](ocr-cer-bench.md) · [ocr-duel.md](ocr-duel.md) | 판독(OCR) 벤치·대결 | 2026-09-07/08 |
+| [env-report.md](env-report.md) | DGX Spark 환경 점검 | 2026-09-01, Spark 는 사용 금지(이력) |
+| `progress.json` | 기능 상태에서 계산한 진행률(화면용) | 수기 퍼센트 아님 |
+
 ## 폴더
 
 | 폴더 | 무엇 |
