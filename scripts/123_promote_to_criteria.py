@@ -19,9 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from zzaimy.app.chunk_quality import Strictness, filter_chunks  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
-from zzaimy.app.regulations import chunk_document  # noqa: E402
+from zzaimy.app.regulations import chunk_document, index_ready  # noqa: E402
 
 # 공고(recruit)는 날실로 따로 처리한다 — 절대규칙 6(계열별 처리 경로 분리).
 # 여기서 올리는 것은 갈래를 못 정해 '문서 추출'로 들어온 교내 서류뿐이다.
@@ -62,13 +61,7 @@ def main() -> int:
         if not chunks:
             skipped += 1
             continue
-        kept, _ = filter_chunks(
-            [{"doc_id": d["id"], "content": c.content, "heading": c.heading} for c in chunks],
-            Strictness.SEARCH)
-        keys = {(k["heading"], k["content"]) for k in kept}
-        survivors = [c for c in chunks
-                     if (c.heading, c.content) in keys or (c.heading or "").strip()]
-        use = survivors if (survivors and len(survivors) < len(chunks)) else chunks
+        use, _dropped = index_ready(d["id"], chunks)     # 반입 경로와 같은 잡음 관문
         db.add_regulation_chunks(d["id"], d["filename"], use,
                                  sector=d.get("sector") or "common")
         db.set_document_type(d["id"], "regulation")

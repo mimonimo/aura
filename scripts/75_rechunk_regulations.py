@@ -1,8 +1,8 @@
 """규정 조각 재분할 — 조각화 규칙이 바뀐 뒤 기존 문서에 소급 적용한다.
 
-새 규칙(regulations.py 2026-09-14): 문장 속 조 참조에서 끊지 않음 · 본문 없는
-조각(목차 줄·표제뿐) 이웃과 병합 · 중복 제거 · 1,400자 상한. 실측 예상
-1,236 → 806조각(빈 조각 468→0, 중복 116→0).
+규칙은 반입 경로와 같다: chunk_document(조문형·서술형 자동 판별) → index_ready(잡음 관문).
+2026-09-14: 문장 속 조 참조에서 끊지 않음 · 본문 없는 조각 이웃과 병합 · 중복 제거 · 1,400자 상한.
+2026-09-22: 크기 분할 뒤에도 얇은 조각 병합 · 표 블록은 행 단위 · 본문 없는 번호 줄은 표제여도 제외.
 
 원문 선택: 기본은 documents.masked_text. 비전 판독·오타 교정을 거친 문서는
 조각 본문이 교정본이라(masked_text는 교정 전) 기존 조각을 이어 붙여 쓴다.
@@ -46,7 +46,7 @@ def main() -> int:
     import sys
     sys.path.insert(0, "src")
     from zzaimy.app.db import Database
-    from zzaimy.app.regulations import split_regulation
+    from zzaimy.app.regulations import chunk_document, index_ready
 
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
@@ -77,10 +77,11 @@ def main() -> int:
         if not old:
             continue
         text, src = _source_text(d, old)
-        chunks = split_regulation(text)
+        chunks, dropped = index_ready(d["id"], chunk_document(text))
         tot_old += len(old)
         tot_new += len(chunks)
-        print(f"{d['id']:4d} {d['filename'][:34]:<34} {src:<10} {len(old):4d} → {len(chunks):4d}")
+        print(f"{d['id']:4d} {d['filename'][:34]:<34} {src:<10} {len(old):4d} → {len(chunks):4d}"
+              + (f" (잡음 {dropped} 제외)" if dropped else ""))
         if args.dry_run or not chunks:
             continue
         db.add_regulation_chunks(

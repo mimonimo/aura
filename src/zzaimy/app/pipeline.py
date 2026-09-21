@@ -2088,22 +2088,12 @@ class DocumentProcessor:
                             for c, f in zip(chunks, fixed)
                         ]
                         self._last_parse_note += " · AI 오타 교정"
-                # 목차 줄·페이지 번호·정형 동의 문구 같은 조각은 검색에 잡음만 된다.
-                # 강도는 SEARCH 로 둔다 — INDEX 는 짧은 조문(제1조 목적 등)까지 버린다.
-                # 표제가 붙은 조각은 이 플랫폼의 뼈대이므로 어떤 경우에도 지킨다.
-                from zzaimy.app.chunk_quality import Strictness, filter_chunks
+                # 목차 줄·페이지 번호·정형 동의 문구·본문 없는 번호 줄은 검색에 잡음만 된다.
+                # 관문은 regulations.index_ready 하나 — 승격(123)·재분할(75)과 같은 기준.
+                from zzaimy.app.regulations import index_ready
 
-                kept, _removed = filter_chunks(
-                    [{"doc_id": doc_id, "content": c.content, "heading": c.heading}
-                     for c in chunks],
-                    Strictness.SEARCH,
-                )
-                keep_keys = {(k["heading"], k["content"]) for k in kept}
-                survivors = [c for c in chunks
-                             if (c.heading, c.content) in keep_keys or (c.heading or "").strip()]
-                dropped = len(chunks) - len(survivors)
-                if survivors and dropped:      # 전부 걸러지면 원본을 그대로 둔다
-                    chunks = survivors
+                chunks, dropped = index_ready(doc_id, chunks)
+                if dropped:
                     self._last_parse_note += f" · 잡음 조각 {dropped}건 제외"
                 db.add_regulation_chunks(
                     doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
