@@ -260,9 +260,13 @@ def add(name: str, kind: str, base_url: str, model: str, api_key: str, vision_mo
     return conn
 
 
-def update(cid: str, name: str = "", base_url: str = "", model: str = "", api_key: str = "",
-           vision_model: str = "") -> dict:
-    """빈 값은 그대로 둔다(키는 비워 보내면 유지, 'clear' 를 보내면 지운다)."""
+def update(cid: str, name: str = "", base_url: str = "", model: str | None = None, api_key: str = "",
+           vision_model: str | None = None) -> dict:
+    """주지 않은 값은 그대로 둔다. 키·모델·비전 모델은 'clear' 를 보내면 지운다.
+
+    실측 2026-09-21: 이름만 바꾸려고 부른 update 가 vision_model 을 빈 값으로 덮어써 판독이 꺼졌다
+    (has_vision False → 스캔 문서가 CPU OCR 로 떨어짐). 그래서 '안 줌'과 '비움'을 구분한다.
+    """
     data = _load()
     conn = get(cid)
     if conn is None:
@@ -275,8 +279,10 @@ def update(cid: str, name: str = "", base_url: str = "", model: str = "", api_ke
         if conn["external"] and not base_url.strip().startswith("https://"):
             raise ValueError("외부 서버 주소는 https:// 여야 합니다")
         conn["base_url"] = base_url.strip()
-    conn["model"] = model.strip()[:120]
-    conn["vision_model"] = vision_model.strip()[:120]
+    if model is not None:
+        conn["model"] = "" if model.strip() == "clear" else model.strip()[:120]
+    if vision_model is not None:
+        conn["vision_model"] = "" if vision_model.strip() == "clear" else vision_model.strip()[:120]
     if api_key.strip() == "clear":
         conn["api_key"] = ""
     elif api_key.strip():

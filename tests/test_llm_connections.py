@@ -29,3 +29,16 @@ def test_role_change_is_seen_without_restart(tmp_path):
     data = json.loads(path.read_text()); data["roles"]["review"] = {"id": b["id"], "model": "m-b"}
     path.write_text(json.dumps(data)); os.utime(path, (time.time() + 5, time.time() + 5))   # 다른 프로세스가 고친 것처럼
     assert lc.role_conn("review")["name"] == "B"
+
+
+def test_update_keeps_fields_that_were_not_given(tmp_path):
+    """이름만 바꾸는 update 가 비전 모델을 지우면 판독이 꺼진다 — 안 준 값은 그대로 둔다."""
+    from zzaimy.generate import llm_connections as lc
+
+    lc.configure(tmp_path / "c.json")
+    c = lc.add("토르", "vllm", "http://t:8001/v1", "zzaimy-writer", "", vision_model="zzaimy-writer")
+    lc.update(c["id"], name="토르 03 · Writer")
+    got = lc.get(c["id"])
+    assert got["name"] == "토르 03 · Writer" and got["vision_model"] == "zzaimy-writer" and got["model"] == "zzaimy-writer"
+    lc.update(c["id"], vision_model="clear")
+    assert lc.get(c["id"])["vision_model"] == ""
