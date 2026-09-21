@@ -184,7 +184,8 @@ def test_run_eval_writes_artifact_shape(tmp_path):
     assert rev.SELF_RETRIEVAL_NOTE in latest["notes"]
     assert list(eval_dir.glob("retrieval-2*.json"))  # 날짜본
     md = (tmp_path / "mini.md").read_text(encoding="utf-8")
-    assert "| 어휘(Kiwi) | 1.000 |" in md and "(운영 구성)" in md
+    # 리랭커 행은 늘 있되, 서빙 장비 주소가 없는 시험 환경에서는 '운영 구성'이라 적지 않는다(2026-09-21 규칙)
+    assert "| 어휘(Kiwi) | 1.000 |" in md and "하이브리드+리랭커" in md and ("(운영 구성)" in md or "CPU 베이스" in md)
 
 
 def test_run_eval_marks_production_unmeasured_without_reranker(tmp_path):

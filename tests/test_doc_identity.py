@@ -114,13 +114,15 @@ def test_title_is_read_from_the_head_of_regulation_text():
     assert display_name(doc) == "영남이공대학교 산학협력단 사무분장 규정 · 2022년 05월 26일"
 
 
-def test_meaningful_filename_is_not_replaced_by_a_partial_title():
-    """제목이 두 줄로 나뉘어 뒷줄만 잡혔으면 멀쩡한 파일 이름을 그대로 둔다."""
-    from zzaimy.app.doc_title import display_name
+def test_two_line_title_is_joined_and_partial_title_never_beats_a_meaningful_filename():
+    """제목이 두 줄이면 앞줄을 이어 온전한 제목이 되고, 그래야 멀쩡한 파일 이름을 대신할 수 있다.
+    뒷줄만 잡힌 채로는(예전 동작) 파일 이름을 잘린 이름으로 바꾸지 않는다."""
+    from zzaimy.app.doc_title import display_name, title_beats_filename
 
     doc = {"filename": "대학재정지원사업_운영관리_매뉴얼.pdf", "stored_path": "",
            "masked_text": "대학재정지원사업\n공동 운영ㆍ관리 매뉴얼\n2024. 3."}
-    assert display_name(doc) == "대학재정지원사업_운영관리_매뉴얼.pdf"
+    assert display_name(doc) == "대학재정지원사업 공동 운영ㆍ관리 매뉴얼"
+    assert not title_beats_filename("공동 운영ㆍ관리 매뉴얼", "대학재정지원사업_운영관리_매뉴얼.pdf")
 
 
 def test_reading_identity_again_keeps_title_and_date(tmp_path):
@@ -412,4 +414,15 @@ def test_placeholder_name_is_replaced_once_the_title_becomes_readable(tmp_path):
     db.rename_from_text(d, "5.지원시기: 2026년12월예정\n6.지원방법: 입금", ask=lambda p: "없음")
     assert db.get_document(d)["filename"].startswith("제목 없음 · ")
     db.rename_from_text(d, "## '26년 2학기 국가장학금(Ⅰ·Ⅱ유형) 및 다자녀 국가장학금\n## **학생 모바일 신청 매뉴얼**\n국가장학실")
-    assert db.get_document(d)["filename"] == "'26년 2학기 국가장학금(Ⅰ·Ⅱ유형) 및 다자녀 국가장학금"
+    assert db.get_document(d)["filename"] == "'26년 2학기 국가장학금(Ⅰ·Ⅱ유형) 및 다자녀 국가장학금 학생 모바일 신청 매뉴얼"
+
+
+def test_two_line_title_keeps_the_first_line():
+    from zzaimy.app.doc_title import find_title
+
+    t, _ = find_title("'26년 2학기 국가장학금(Ⅰ·Ⅱ유형) 및 다자녀 국가장학금\n학생 모바일 신청 매뉴얼\n국가장학실")
+    assert t == "'26년 2학기 국가장학금(Ⅰ·Ⅱ유형) 및 다자녀 국가장학금 학생 모바일 신청 매뉴얼"
+    t, _ = find_title("한국장학재단\n학생 모바일 신청 매뉴얼")        # 발신처 줄은 잇지 않는다
+    assert t == "학생 모바일 신청 매뉴얼"
+    t, _ = find_title("10-03-1\n영남이공대학교 산학협력단 사무분장 규정\n학과장회 통과일자 : 2022년 05월 26일")
+    assert t == "영남이공대학교 산학협력단 사무분장 규정"                # 번호 줄도 잇지 않는다

@@ -195,12 +195,19 @@ def find_title(text: str) -> tuple[str | None, str | None]:
     lines = [_plain(ln) for ln in (text or "").replace("\r", "\n").split("\n") if _plain(ln)]
     head = lines[:_HEAD_LINES]
     title = None
-    for ln in head:
+    for i, ln in enumerate(head):
         if _NOT_TITLE.match(ln):
             continue
         m = _TITLE_LINE.match(ln)
         if m and re.search(r"[가-힣]{2}", m.group(1)):
             title = re.sub(r"\s{2,}", " ", m.group(1)).strip()
+            # 두 줄 제목 — 바로 윗줄도 제목처럼 보이면 잇는다("'26년 2학기 국가장학금 …" + "학생 모바일 신청 매뉴얼").
+            # 규정식 꼬리(매뉴얼·규정)를 가진 줄만 잡으면 앞줄의 사업·연도가 떨어져 나간다(2026-09-21 실측).
+            if i > 0:
+                prev = _unspace(head[i - 1])
+                if (_title_like(prev) and not _CELL.search(prev) and len(re.findall(r"[가-힣]", prev)) >= 4
+                        and len(prev) + len(title) <= 70 and not _ORG_ONLY.match(prev.replace(" ", ""))):
+                    title = f"{prev} {title}"
             break
     date = None
     for ln in head:
@@ -231,7 +238,11 @@ def head_text(stored_path: str | None, fallback: str = "") -> str:
     if p.suffix.lower() == ".pdf" and p.exists():
         got = _pdf_head(str(p), p.stat().st_mtime)
         if got.strip():
-            return got
+            # 스캔본에 박힌 엉터리 글자층(한자 잡음)은 제목을 못 준다 — 판독 결과(fallback)를 쓴다
+            from zzaimy.app.chunk_quality import GARBLED_RATIO, garbled_ratio
+
+            if garbled_ratio(got) < GARBLED_RATIO:
+                return got
     return fallback or ""
 
 
@@ -274,7 +285,7 @@ def resolved_title(doc: dict) -> tuple[str | None, str | None]:
     """파일 이름 대신 쓸 (이름, 날짜). 쓸 만하지 않으면 (None, None)."""
     title, date = document_title(doc)
     filename = doc.get("filename") or ""
-    if not title and meaningless_filename(filename):
+    if not title and (not re.search(r"[가-힣]", Path(filename).stem) or meaningless_filename(filename)):
         # 'www.ync.ac.kr__UPLOAD_PDF_…' 처럼 뜻 없는 이름 — 공지·안내문의 첫 제목 줄이라도 쓴다
         title = loose_title(head_text(doc.get("stored_path"), (doc.get("masked_text") or "")[:3000]))
     if not title or not title_beats_filename(title, filename):
