@@ -265,3 +265,16 @@ def test_table_block_is_packed_by_rows_not_sentences():
         for ln in c.content.splitlines():
             if " | " in ln:
                 assert ln.count("|") == 4, ln          # 행이 온전하다
+
+
+def test_prose_blocks_inherit_the_previous_structural_heading():
+    """표제 없는 블록은 직전 절 표제를 물려받는다 — 화면에서 어느 절의 조각인지 보이게."""
+    from zzaimy.app.regulations import split_prose
+
+    text = ("Ⅱ. 사업 개요\n" + "사업의 목적은 지역 산업과 연계한 교육과정을 운영하는 것이다. " * 6 + "\n"
+            + "예산은 연 10억 원 규모이며 3년간 지원한다. 대학은 자체 부담금을 확보해야 한다. " * 12 + "\n"
+            + "Ⅲ. 신청 자격\n" + "전문대학 및 일반대학이 신청할 수 있다. 컨소시엄 구성은 필수다. " * 8)
+    chunks = split_prose(text, target=300, hard_max=450)
+    heads = [c.heading for c in chunks]
+    assert heads[0] == "Ⅱ. 사업 개요" and all(h for h in heads)
+    assert "Ⅲ. 신청 자격" in heads and heads.index("Ⅲ. 신청 자격") > 0
