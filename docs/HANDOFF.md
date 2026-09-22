@@ -63,6 +63,14 @@ python 3.12가 있다. 같은 장비에 Ollama가 상주하며 27b, 35b, 120b �
 옛 Spark(.109)와는 다른 장비다. 9월 21일 오후에 잠시 서빙을 넘겼다가 토르 03으로 복귀하며 연결을
 지웠다. 학습본 이관 경로는 ADR-0023 3절(bf16 병합, NVFP4 양자화, 116으로 두 토르)이다.
 
+학습 환경(2026-09-22 설치): `~/zzaimy-capstone`(깃 체크아웃) 안의 `.venv-train` — `configs/training-env.txt` 고정
+스택(torch 2.13.0+cu130, transformers 5.6, peft 0.18, trl 0.24, sentence-transformers 6.0, llamafactory 0.9.5)을
+그대로 설치했고 GB10 에서 bf16 행렬곱까지 확인했다. bitsandbytes 는 없다(aarch64 CUDA 13 휠 없음) — Writer 학습은
+bf16 LoRA 가 기본이고 `scripts/83 --4bit` 는 휠이 생기면 쓴다. 베이스 가중치는 `~/zzaimy/models/Qwen3.8-27B`(토르 02 에서
+rsync). 학습 전에는 Ollama 모델을 내린다: `curl -s localhost:11434/api/generate -d '{"model":"qwen3.8:27b","keep_alive":0}'`
+(35b·120b 도 같이) — 내리면 CUDA 가용 91GB. 장비 검증은 `env PYTHONPATH=src .venv-train/bin/python scripts/83_sft_writer_qlora.py
+--base ~/zzaimy/models/Qwen3.8-27B --smoke`(합성 4쌍 2스텝). 도커는 dgx-01 계정이 docker 그룹이 아니라 못 쓴다(sudo).
+
 ### 토르 03의 상시 서비스
 
 9월 20일에 올렸고 `--restart unless-stopped`와 도커 부팅 시작이 걸려 있다.
@@ -143,6 +151,20 @@ kiwi), OCR(MinerU, docling, tesseract), 산출물(python-hwpx, docx, pdf)이며 
   외부 전송은 ZZAIMY_EXTERNAL_ENABLED + 외부 기관 서버 연결(개발 키) + 아웃바운드 개방 전까지 비활성
   (판정·기록은 동작, 허용·승인 건은 전송 대기로 보관).
 - 발표 자료: `docs/paper/제안-발표.html`(웹 슬라이드), `docs/paper/제안발표-내용.md`(텍스트).
+
+## 3-1. 교내 실물 문서가 오면 (학습까지의 절차)
+
+1. 반입: 화면 업로드 또는 공유 폴더 원천으로 들인다. 문서마다 부서·열람 등급이 붙는다(access_policy, 기본은 올린 사람의
+   부서·유형 기본 등급). 접수 문서는 개인정보를 가린 뒤 저장된다. 반입 뒤 `scripts/125`(자가 점검)·`78`(스모크)을 돌린다.
+2. 검색 정답 세트: 담당자가 실무 질의와 정답 조각을 200~500문항 만든다(eval-plan 1.1). 합성 질의(51)는 보조.
+3. 베이스라인: 검색은 `scripts/53`(운영 설정으로), 초안은 `scripts/133 --docs <실물 공고 id>` 로 `data/eval/baseline.json`.
+   이 기록이 없으면 학습 스크립트가 돌지 않는다.
+4. 학습 자료: `/dev/data` 데이터 공방에서 검토 의견·초안·대화를 학습 쌍으로 만들고 수치 검증 통과분만 `data/train/sft.jsonl` 로.
+5. 학습(DGX): `baseline.json` 과 `sft.jsonl` 을 DGX 의 같은 자리로 복사한 뒤
+   `env PYTHONPATH=src .venv-train/bin/python scripts/83_sft_writer_qlora.py --base ~/zzaimy/models/Qwen3.8-27B --data data/train/sft.jsonl --out ~/zzaimy/train/writer-v1`.
+   검색 모델(Embed·Rerank)은 토르 03 의 `104`·`108` 로 다시 학습한다.
+6. 이관: 병합 → NVFP4 양자화 → `scripts/116_ship_and_serve.sh writer <이름> --from dgx-01@211.170.162.110:~/zzaimy/train` 로 두 토르에.
+   채택은 같은 입력의 대결(검토·판독·초안 검증 결과)로만, 결과는 ADR 로.
 
 ## 4. 무엇이 남았나 (진행/예정)
 
