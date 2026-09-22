@@ -701,8 +701,8 @@ def create_app(
         scope_msg = ag.scope_note(q, dept, role, depts)
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
-        criteria = ag.allowed_doc_ids(db, criteria, dept, role)
-        scope = ag.search_scope(dept, role)
+        criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
+        scope = ag.search_scope(dept, role, owner)
         try:
             import inspect as _insp
 
@@ -1104,6 +1104,24 @@ def create_app(
         return RedirectResponse(
             f"/doc/{doc_id}?ok=" + _q("요청을 반영해 초안을 다시 만들고 있습니다"),
             status_code=303)
+
+    @app.post("/doc/{doc_id}/scope")
+    def doc_set_scope(request: Request, doc_id: int, dept: str = Form(""), access_level: str = Form(""),
+                      back: str = Form("")):
+        """문서의 부서·열람 등급 바꾸기 — 조각에도 즉시 옮겨져 검색 범위가 따라간다(C-60 화면이 부른다).
+        관리자, 또는 그 문서를 올린 사람만."""
+        from zzaimy.app.access_policy import LEVELS
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        user = getattr(request.state, "user", "")
+        if getattr(request.state, "role", "") != "dev" and doc.get("owner") != user:
+            raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+        db.set_document_scope(doc_id, dept=dept.strip() or None,
+                              access_level=access_level if access_level in LEVELS else None)
+        dest = back if back.startswith("/") and not back.startswith("//") else f"/doc/{doc_id}"
+        return RedirectResponse(dest, status_code=303)
 
     @app.post("/doc/{doc_id}/route")
     def doc_route(doc_id: int):
@@ -4132,6 +4150,8 @@ def create_app(
         doc_type: str = Form("auto"),
         related_criteria_id: int | None = Form(None),
         project_id: int | None = Form(None),
+        dept: str = Form(""),
+        access_level: str = Form(""),
     ):
         name = file.filename or "이름없음"
         suffix = Path(name).suffix.lower()
@@ -4144,10 +4164,19 @@ def create_app(
         stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
         with stored.open("wb") as out:
             shutil.copyfileobj(file.file, out)
+        # 부서·열람 등급은 반입 때 정한다(access_policy) — 명시값 → 올린 사람의 부서 → 프로젝트 부서 → 공통
+        from zzaimy.app.access_policy import LEVELS, classify
+
+        proj = db.get_project(project_id) if project_id else None
+        doc_dept, doc_level = classify(
+            doc_type, owner=getattr(request.state, "user", "zzaimy"), dept=dept,
+            access_level=access_level if access_level in LEVELS else None,
+            uploader_dept=getattr(request.state, "dept", ""), project_dept=(proj or {}).get("dept"),
+        )
         doc_id = db.add_document(
             filename=name, stored_path=str(stored), doc_type=doc_type,
             related_criteria_id=related_criteria_id, project_id=project_id,
-            owner=getattr(request.state, "user", "zzaimy"),
+            owner=getattr(request.state, "user", "zzaimy"), dept=doc_dept, access_level=doc_level,
         )
         background.add_task(processor.process, db, doc_id, stored)
         # 접수한 자리로 돌아간다 — 프로젝트에서 올렸으면 그 프로젝트로

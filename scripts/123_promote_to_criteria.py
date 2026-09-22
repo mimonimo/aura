@@ -63,7 +63,8 @@ def main() -> int:
             continue
         use, _dropped = index_ready(d["id"], chunks)     # 반입 경로와 같은 잡음 관문
         db.add_regulation_chunks(d["id"], d["filename"], use,
-                                 sector=d.get("sector") or "common")
+                                 sector=d.get("sector") or "common",
+                                 dept=d.get("dept"), access_level="public")   # 기준 문서로 올리는 것 = 공개
         db.set_document_type(d["id"], "regulation")
         made += len(use)
         if i % 20 == 0 or i == len(todo):

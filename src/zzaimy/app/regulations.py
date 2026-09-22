@@ -701,7 +701,7 @@ def restore_spacing(text: str, *, spread_doc: bool | None = None) -> str:
 
 def sparse_search(
     db: Database, query_text: str, top_k: int = 15, min_overlap: int = 1,
-    sector: str | None = None, dept: str | None = None,
+    sector: str | None = None, dept: str | None = None, user: str | None = None, levels: tuple | None = None,
 ) -> list[dict]:
     """임베딩·리랭커 없이 Kiwi 명사 겹침(+IDF)만으로 조각을 랭킹한다.
 
@@ -713,7 +713,7 @@ def sparse_search(
     query = extract_nouns(query_text)
     if not query:
         return []
-    chunks = db.list_regulation_chunks(sector=sector, dept=dept)
+    chunks = db.list_regulation_chunks(sector=sector, dept=dept, user=user, levels=levels)
     nouns = {c["id"]: chunk_nouns(c) for c in chunks}
     n = max(len(chunks), 1)
     df = {t: sum(1 for c in chunks if t in nouns[c["id"]]) for t in query}
@@ -812,7 +812,7 @@ def _lexical_ids(query: frozenset[str], chunks: list[dict], min_overlap: int) ->
 
 def lexical_rank(
     db: Database, query_text: str, min_overlap: int = 2,
-    sector: str | None = None, dept: str | None = None,
+    sector: str | None = None, dept: str | None = None, user: str | None = None, levels: tuple | None = None,
     chunks: list[dict] | None = None,
 ) -> list[int]:
     """어휘(Kiwi 명사+IDF) 순위 — 운영 검색의 어휘 축. 조각 id를 점수순으로 돌려준다.
@@ -823,7 +823,7 @@ def lexical_rank(
     if not query:
         return []
     if chunks is None:
-        chunks = db.list_regulation_chunks(sector=sector, dept=dept)
+        chunks = db.list_regulation_chunks(sector=sector, dept=dept, user=user, levels=levels)
     return _lexical_ids(query, chunks, min_overlap)
 
 
@@ -864,7 +864,7 @@ def select_candidates(
 
 def hybrid_candidates(
     db: Database, query_text: str, min_overlap: int = 2,
-    sector: str | None = None, dept: str | None = None,
+    sector: str | None = None, dept: str | None = None, user: str | None = None, levels: tuple | None = None,
     chunks: list[dict] | None = None,
     lexical_ids: list[int] | None = None, dense_ids: list[int] | None = None,
     limit: int = CANDIDATE_LIMIT,
@@ -878,7 +878,7 @@ def hybrid_candidates(
     if not query:
         return []
     if chunks is None:
-        chunks = db.list_regulation_chunks(sector=sector, dept=dept)
+        chunks = db.list_regulation_chunks(sector=sector, dept=dept, user=user, levels=levels)
     if lexical_ids is None:
         lexical_ids = _lexical_ids(query, chunks, min_overlap)
 
@@ -923,14 +923,14 @@ def drop_near_duplicates(chunks: list[dict]) -> list[dict]:
 
 def find_relevant(
     db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2,
-    sector: str | None = None, dept: str | None = None,
+    sector: str | None = None, dept: str | None = None, user: str | None = None, levels: tuple | None = None,
 ) -> list[dict]:
     """검토 대상 텍스트와 관련된 규정 조각 top-k — 운영 검색 경로.
 
     어휘(Kiwi)·임베딩(KURE) 하이브리드 후보(hybrid_candidates) → 크로스인코더 재정렬.
     zzaimy.eval.retrieval_eval이 같은 구성요소로 품질을 잰다(운영 구성 행).
     """
-    candidates = hybrid_candidates(db, query_text, min_overlap, sector, dept)
+    candidates = hybrid_candidates(db, query_text, min_overlap, sector, dept, user=user, levels=levels)
     if not candidates:
         return []                 # 후보 자체가 없다 = 근거 없음. 억지로 채우지 않는다
     # 크로스인코더 재정렬 + 꼬리 자르기 — 표본 실측 R@1 +0.133 (docs/rerank-baseline.md).
@@ -951,7 +951,7 @@ def find_relevant(
         if query_expand.configured():
             expanded = query_expand.expand(query_text)
             if expanded != query_text:
-                c2 = hybrid_candidates(db, expanded, min_overlap, sector, dept)
+                c2 = hybrid_candidates(db, expanded, min_overlap, sector, dept, user=user, levels=levels)
                 s2 = rerank_scored(query_text, c2) if c2 else None   # 원 질문 기준으로 다시 잰다
                 if s2 and s2[0][1] > scored[0][1]:
                     scored = s2

@@ -193,6 +193,9 @@ class Database:
         # sector(업무영역)와 별개 축. 기본 '공통'은 전 부서 공용 기준.
         "ALTER TABLE documents ADD COLUMN dept TEXT NOT NULL DEFAULT '공통'",
         "ALTER TABLE regulation_chunks ADD COLUMN dept TEXT NOT NULL DEFAULT '공통'",
+        # 열람 등급 — 반입 때 정한다(access_policy). 조각은 문서의 값을 물려받아 검색 SQL 이 바로 거른다.
+        "ALTER TABLE documents ADD COLUMN access_level TEXT NOT NULL DEFAULT 'public'",
+        "ALTER TABLE regulation_chunks ADD COLUMN access_level TEXT NOT NULL DEFAULT 'public'",
         "ALTER TABLE documents ADD COLUMN related_criteria_id INTEGER",
         "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
         "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
@@ -238,7 +241,12 @@ class Database:
         related_criteria_id: int | None = None,
         project_id: int | None = None,
         owner: str = "zzaimy",
+        dept: str | None = None,
+        access_level: str | None = None,
     ) -> int:
+        from zzaimy.app.access_policy import classify
+
+        dept, access_level = classify(doc_type, owner=owner, dept=dept, access_level=access_level)
         now = _now()
         year = now[:4]
         code = self._TYPE_CODES.get(doc_type, "문서")
@@ -258,10 +266,10 @@ class Database:
             receipt_no = f"{prefix}{seq:04d}"
             cur = conn.execute(
                 "INSERT INTO documents (filename, stored_path, doc_type, sector,"
-                " related_criteria_id, project_id, receipt_no, created_at, owner)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " related_criteria_id, project_id, receipt_no, created_at, owner, dept, access_level)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (filename, stored_path, doc_type, sector, related_criteria_id,
-                 project_id, receipt_no, now, owner),
+                 project_id, receipt_no, now, owner, dept, access_level),
             )
             return int(cur.lastrowid or 0)
 
@@ -855,17 +863,34 @@ class Database:
 
     def add_regulation_chunks(
         self, doc_id: int, reg_title: str, chunks,
-        sector: str = "common", dept: str = "공통",
+        sector: str = "common", dept: str | None = None, access_level: str | None = None,
     ) -> None:
+        """조각의 부서·등급은 문서의 값을 물려받는다 — 따로 주지 않으면 documents 에서 읽는다."""
         with self._conn() as conn:
+            if dept is None or access_level is None:
+                row = conn.execute("SELECT dept, access_level FROM documents WHERE id = ?", (doc_id,)).fetchone()
+                dept = dept if dept is not None else ((row[0] if row else None) or "공통")
+                access_level = access_level if access_level is not None else ((row[1] if row else None) or "public")
             conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
             conn.executemany(
                 "INSERT INTO regulation_chunks"
-                " (doc_id, reg_title, heading, content, sector, dept)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                [(doc_id, reg_title, c.heading, c.content, sector, dept)
+                " (doc_id, reg_title, heading, content, sector, dept, access_level)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                [(doc_id, reg_title, c.heading, c.content, sector, dept, access_level)
                  for c in chunks],
             )
+
+    def set_document_scope(self, doc_id: int, dept: str | None = None, access_level: str | None = None) -> None:
+        """문서의 부서·등급을 바꾸고 조각에도 그대로 옮긴다 — 재색인 없이 검색 범위가 따라간다."""
+        from zzaimy.app.access_policy import LEVELS
+
+        with self._conn() as conn:
+            if dept is not None:
+                conn.execute("UPDATE documents SET dept = ? WHERE id = ?", (dept, doc_id))
+                conn.execute("UPDATE regulation_chunks SET dept = ? WHERE doc_id = ?", (dept, doc_id))
+            if access_level is not None and access_level in LEVELS:
+                conn.execute("UPDATE documents SET access_level = ? WHERE id = ?", (access_level, doc_id))
+                conn.execute("UPDATE regulation_chunks SET access_level = ? WHERE doc_id = ?", (access_level, doc_id))
 
     def set_doc_identity(self, doc_id: int, identity: dict) -> None:
         """문서가 어떤 사업에 관한 것인지 — 본문에서 확인된 값만 들어온다."""
@@ -950,12 +975,16 @@ class Database:
             return {r[0]: r[1] for r in rows}
 
     def list_regulation_chunks(
-        self, sector: str | None = None, dept: str | None = None
+        self, sector: str | None = None, dept: str | None = None,
+        user: str | None = None, levels: tuple[str, ...] | None = None,
     ) -> list[dict]:
         """규정 조각 후보. sector·dept가 주어지면 각 전용 + 공통만 남긴다.
 
         부서별 RAG(사용자 요구): dept를 주면 그 부서 문서 + 공통 규정만 검색
         후보가 된다 — 컨텍스트 예산 안에 관련 근거만 담고 타 부서를 배제.
+        열람 등급(access_policy)은 dept·user·levels 가 하나라도 있을 때 건다 —
+        public 은 누구나, dept 는 그 부서(와 공통), owner 는 올린 사람(user)만. levels 를 주면 그 등급만
+        (학생 = ('public',)). 아무 범위도 없으면 전체(관리자·측정·재색인).
         """
         cond, params = [], []
         if sector:
@@ -964,6 +993,13 @@ class Database:
         if dept:
             cond.append("dept IN (?, '공통')")
             params.append(dept)
+        if levels:
+            cond.append("access_level IN (%s)" % ",".join("?" for _ in levels))
+            params.extend(levels)
+        elif dept or user:
+            cond.append("(access_level IN ('public', 'dept')"
+                        " OR (access_level = 'owner' AND doc_id IN (SELECT id FROM documents WHERE owner = ?)))")
+            params.append(user or "")
         sql = "SELECT * FROM regulation_chunks"
         if cond:
             sql += " WHERE " + " AND ".join(cond)

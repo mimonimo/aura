@@ -122,7 +122,8 @@ class AgentResponder:
             hits = chunks[:8]
         else:
             # 교내 규정(platform) + 국고 공고 코퍼스(corpus_pilot) 교차 검색
-            hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"))
+            hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"),
+                                 user=scope.get("user"), levels=scope.get("levels"))
             corpus_hits = self._corpus_hits(attachment_text or question, top_k=5)
             blocks = []
             if corpus_hits:
