@@ -54,7 +54,7 @@ def main() -> int:
         "SELECT id, filename, parse_note, masked_text FROM documents"
         " WHERE doc_type='regulation' ORDER BY id")]
     old_all = [dict(r) for r in conn.execute(
-        "SELECT id, doc_id, reg_title, heading, content, sector, dept"
+        "SELECT id, doc_id, reg_title, heading, content, sector, dept, access_level"
         " FROM regulation_chunks ORDER BY id")]
     conn.close()
     by_doc: dict[int, list[dict]] = {}
@@ -87,6 +87,7 @@ def main() -> int:
         db.add_regulation_chunks(
             d["id"], old[0]["reg_title"], chunks,
             sector=old[0].get("sector") or "common", dept=old[0].get("dept") or "공통",
+            access_level=old[0].get("access_level") or "public",
         )
     print(f"합계 {tot_old} → {tot_new} 조각" + (" (dry-run)" if args.dry_run else ""))
     if not args.dry_run:

@@ -88,26 +88,29 @@ def scope_note(question: str, dept: str | None, role: str, depts: list[str]) -> 
     return None
 
 
-def search_scope(dept: str | None, role: str) -> dict:
-    """검색에 넘길 범위 — 학생은 공통 자료만, 담당자·부서장은 자기 부서 + 공통, 관리자는 전체."""
+def search_scope(dept: str | None, role: str, user: str | None = None) -> dict:
+    """검색에 넘길 범위 — 학생은 공통의 공개 자료만, 담당자·부서장은 자기 부서 + 공통(등급 규칙 적용),
+    관리자는 전체. 부서가 없는 담당자도 등급 규칙(담당자 한정은 본인만)은 받는다."""
     if role == "student":
-        return {"dept": "공통"}
-    if role == "dev" or not dept:
+        return {"dept": "공통", "levels": ("public",)}
+    if role == "dev":
         return {}
-    return {"dept": dept}
+    scope: dict = {"user": user or ""}
+    if dept:
+        scope["dept"] = dept
+    return scope
 
 
-def allowed_doc_ids(db, doc_ids: list[int], dept: str | None, role: str) -> list[int]:
-    """담당자가 직접 고른 기준 문서도 범위 안의 것만 남긴다."""
-    if not doc_ids or role == "dev" or (not dept and role != "student"):
+def allowed_doc_ids(db, doc_ids: list[int], dept: str | None, role: str, user: str | None = None) -> list[int]:
+    """담당자가 직접 고른 기준 문서도 범위 안의 것만 남긴다 — 검색 SQL 과 같은 규칙(access_policy.visible)."""
+    from zzaimy.app.access_policy import visible
+
+    if not doc_ids or role == "dev":
         return list(doc_ids)
-    allow = {"공통", "common", ""}
-    if role != "student" and dept:
-        allow.add(dept)
     out: list[int] = []
     for did in doc_ids:
         d = db.get_document(did) or {}
-        if (d.get("dept") or "공통") in allow:
+        if visible(d, dept=dept, user=user, role=role):
             out.append(did)
     return out
 

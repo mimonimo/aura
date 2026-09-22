@@ -858,3 +858,17 @@ Claude 진행 (2026-09-22): 백엔드 배포됨. 화면이 쓸 것 — 대화 �
 /dev/pii 컨텍스트 `access_audit`(list: at·user·kind·kind_label·dept·role·question), `accounts_scope`(list: user·name·role·role_label·dept),
 `role_choices`(dict), `dept_choices`(list). 저장은 `POST /dev/account/scope` (폼 uid·dept·role, 관리자 전용, 저장 뒤 /dev/pii 로 돌아옴).
 
+## C-20260922-60 — 반입 화면에 부서·열람 등급 (Claude → Codex)
+
+상태: 요청. 담당: Codex(화면), Claude(백엔드 완료).
+
+문서마다 부서(dept)와 열람 등급(access_level: public 전체 공개 / dept 부서 제한 / owner 담당자 한정)이 반입 때
+붙는다(`access_policy.py`). 백엔드는 `/upload` 가 폼 필드 `dept`·`access_level` 을 받고(없으면 올린 사람 부서 → 프로젝트
+부서 → 공통, 등급은 유형 기본값), `db.set_document_scope(doc_id, dept, access_level)` 로 바꿀 수 있다.
+요청 셋 — 템플릿·정적 자원만:
+1. 업로드 폼(접수·OCR·기준 문서)에 부서 선택(목록 `dept_choices` + 직접 입력)과 등급 선택(`access_policy.LEVELS`).
+   기본값은 계정 부서와 유형 기본 등급을 미리 골라 둔다.
+2. 문서 화면·목록에 등급 표시(작은 표식 "부서 제한 · 학생처")와 바꾸기(폼 → `POST /doc/{id}/scope`, 필드 dept·access_level —
+   Claude 가 이 경로를 추가한다).
+3. 공유 폴더(NAS) 원천 설정에 부서·등급 필드 — 그 원천으로 들어오는 문서에 적용(원천 저장은 Claude 가 받는다: 필드 이름 dept·access_level).
+

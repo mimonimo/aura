@@ -28,15 +28,12 @@ def test_scope_note_by_role_and_department():
 def test_search_scope_and_allowed_docs(tmp_path):
     from zzaimy.app.db import Database
 
-    assert ag.search_scope("학생처", "staff") == {"dept": "학생처"}
-    assert ag.search_scope("", "student") == {"dept": "공통"}
-    assert ag.search_scope("학생처", "dev") == {} and ag.search_scope(None, "staff") == {}
+    assert ag.search_scope("학생처", "staff", "kim") == {"user": "kim", "dept": "학생처"}
+    assert ag.search_scope("", "student") == {"dept": "공통", "levels": ("public",)}
+    assert ag.search_scope("학생처", "dev") == {} and ag.search_scope(None, "staff") == {"user": ""}
     db = Database(tmp_path / "t.db")
     a = db.add_document("공통규정.txt", "x", doc_type="regulation")
-    b = db.add_document("산단규정.txt", "y", doc_type="regulation")
-    db.set_document_dept(b, "산학협력단") if hasattr(db, "set_document_dept") else None
-    with db._conn() as conn:  # noqa: SLF001
-        conn.execute("UPDATE documents SET dept=? WHERE id=?", ("산학협력단", b))
+    b = db.add_document("산단서류.txt", "y", doc_type="auto", dept="산학협력단")     # 부서 제한 접수 문서
     assert ag.allowed_doc_ids(db, [a, b], "학생처", "staff") == [a]
     assert ag.allowed_doc_ids(db, [a, b], "산학협력단", "staff") == [a, b]
     assert ag.allowed_doc_ids(db, [a, b], "", "student") == [a]
@@ -74,3 +71,57 @@ def test_pii_question_is_answered_by_rule_not_model(tmp_path):
         time.sleep(0.2)
     assert ag.PII_NOTE[:20] in c.get(r.url).text
     assert ag.recent(tmp_path, hours=1)[0]["kind"] == "pii"
+
+
+def test_intake_assigns_department_and_level_and_chunks_inherit(tmp_path):
+    """반입 때 부서·등급이 정해지고(access_policy) 조각은 문서의 값을 물려받는다 — 검색 SQL 이 바로 거른다."""
+    from zzaimy.app.access_policy import classify, visible
+    from zzaimy.app.db import Database
+    from zzaimy.app.regulations import RegulationChunk
+
+    assert classify("regulation") == ("공통", "public")
+    assert classify("auto", uploader_dept="학생처") == ("학생처", "dept")
+    assert classify("auto", project_dept="입학처") == ("입학처", "dept")
+    assert classify("auto", access_level="owner", dept="산학협력단") == ("산학협력단", "owner")
+    assert classify("auto", owner="corpus") == ("공통", "public")
+
+    db = Database(tmp_path / "t.db")
+    pub = db.add_document("규정.txt", "a", doc_type="regulation")
+    mine = db.add_document("우리부서.txt", "b", doc_type="auto", dept="학생처", owner="kim")
+    secret = db.add_document("민감.txt", "c", doc_type="auto", dept="학생처", access_level="owner", owner="lee")
+    other = db.add_document("타부서.txt", "d", doc_type="auto", dept="입학처", owner="park")
+    for did, txt in ((pub, "공개 규정"), (mine, "학생처 자료"), (secret, "담당자 한정 자료"), (other, "입학처 자료")):
+        db.add_regulation_chunks(did, txt, [RegulationChunk(heading="", content=txt + " 본문 내용이다.")])
+    got = {c["doc_id"]: (c["dept"], c["access_level"]) for c in db.list_regulation_chunks()}
+    assert got[pub] == ("공통", "public") and got[mine] == ("학생처", "dept") and got[secret] == ("학생처", "owner")
+
+    ids = lambda **kw: {c["doc_id"] for c in db.list_regulation_chunks(**kw)}          # noqa: E731
+    assert ids() == {pub, mine, secret, other}                                         # 범위 없음 = 전체(관리자·측정)
+    assert ids(dept="학생처", user="kim") == {pub, mine}                                # 부서 담당자: 공개 + 부서, 남의 한정 자료 제외
+    assert ids(dept="학생처", user="lee") == {pub, mine, secret}                        # 올린 사람은 한정 자료도
+    assert ids(dept="입학처", user="park") == {pub, other}
+    assert ids(dept="공통", levels=("public",)) == {pub}                                # 학생
+    assert ids(user="kim") == {pub, mine, other}                                        # 부서 없는 담당자: 등급 규칙만
+    docs = {d: db.get_document(d) for d in (pub, mine, secret, other)}
+    assert visible(docs[secret], dept="학생처", user="lee", role="staff") and not visible(docs[secret], dept="학생처", user="kim", role="staff")
+    assert not visible(docs[mine], dept="공통", user="", role="student") and visible(docs[pub], dept="공통", user="", role="student")
+    db.set_document_scope(other, dept="공통", access_level="public")
+    assert ids(dept="공통", levels=("public",)) == {pub, other}                          # 부서·등급을 바꾸면 조각도 따라간다
+
+
+def test_upload_route_uses_uploader_department(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from tests.test_app import FakeDrafter, FakeProcessor
+    from zzaimy.app.main import create_app
+
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                     processor=FakeProcessor(), drafter=FakeDrafter())
+    c = TestClient(app)
+    r = c.post("/upload", data={"doc_type": "auto", "dept": "학생처", "access_level": "owner"},
+               files={"file": ("서류.txt", b"hello", "text/plain")}, follow_redirects=False)
+    assert r.status_code == 303
+    from zzaimy.app.db import Database
+
+    d = Database(tmp_path / "t.db").get_document(1)
+    assert d["dept"] == "학생처" and d["access_level"] == "owner"

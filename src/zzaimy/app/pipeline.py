@@ -2096,7 +2096,8 @@ class DocumentProcessor:
                 if dropped:
                     self._last_parse_note += f" · 잡음 조각 {dropped}건 제외"
                 db.add_regulation_chunks(
-                    doc_id, title, chunks, sector=(doc or {}).get("sector", "common")
+                    doc_id, title, chunks, sector=(doc or {}).get("sector", "common"),
+                    dept=(doc or {}).get("dept"), access_level=(doc or {}).get("access_level")
                 )
                 # 조각이 바뀌면 임베딩·질의 세트가 낡는다 — 재색인 필요 표시
                 (Path(db.path).parent / ".reindex-needed").touch()
