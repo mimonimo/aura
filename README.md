@@ -52,7 +52,7 @@ data/         산출물·문서 (저장소에 포함하지 않음)
 | ZZAIMY-Embed | KURE-v1 | 조밀 검색 | v2 적용 (ADR-0021) |
 | ZZAIMY-Rerank | bge-reranker-v2-m3 | 후보 재정렬 | v1 적용 (ADR-0020) |
 | ZZAIMY-Writer | Qwen3.8-27B | 섹션 생성 · 이미지 판독 · 검토 · 대화 | 베이스 서빙(NVFP4, ADR-0023), 학습은 실물 문서 뒤 |
-| ZZAIMY-Extract | Qwen3-4B | 실적 카드 추출 | 예정 |
+| ZZAIMY-Extract | Qwen3.8-27B (Writer 공용) | 실적 카드 추출 | 예정 — 소형 모델은 처리량이 문제될 때만(ADR-0026) |
 
 학습은 베이스라인을 먼저 재고 시작한다. 계획은 [docs/model-plan.md](docs/model-plan.md),
 검색 품질 측정은 [docs/llm-rerank-eval.md](docs/llm-rerank-eval.md).
