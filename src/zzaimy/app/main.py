@@ -305,6 +305,7 @@ def create_app(
                 # 인증 정보가 아예 없는 브라우저 요청 — 로그인 페이지로
                 raise HTTPException(401, detail="login-required")
             request.state.role = accounts.get(user, {}).get("role", "staff")
+            request.state.dept = accounts.get(user, {}).get("dept", "")     # 검색·대화 범위(부서). 비면 전체
             request.state.user = user
             if request.url.path.startswith("/dev") and request.state.role != "dev":
                 raise HTTPException(403, "개발자 계정 전용입니다")
@@ -314,6 +315,7 @@ def create_app(
         # 인증 없는 로컬 개발 모드 — 개발자 뷰까지 전부 연다
         def open_auth(request: Request) -> None:
             request.state.role = "dev"
+            request.state.dept = ""
             request.state.user = "zzaimy"
 
         dependencies = [Depends(open_auth)]
@@ -534,6 +536,16 @@ def create_app(
             raise HTTPException(404, "대화를 찾을 수 없습니다.")
         return session
 
+    def _scope_label(request: Request) -> str:
+        """대화 화면 상단의 '내 범위' 한 줄 — 부서와 역할. 부서가 없으면 전체."""
+        from zzaimy.app.access_guard import ROLES
+
+        role = ROLES.get(getattr(request.state, "role", ""), "담당자")
+        dept = getattr(request.state, "dept", "") or ""
+        if getattr(request.state, "role", "") == "student":
+            return f"내 범위: 공개 규정·학사 안내 · {role}"
+        return f"내 범위: {dept or '전체'} · {role}"
+
     @app.get("/chat", response_class=HTMLResponse)
     def chat_new(request: Request, project: int | None = None):
         chat_project = db.get_project(project) if project else None
@@ -547,6 +559,7 @@ def create_app(
                 "waiting": False, "session_id": None, "sources": [],
                 "recommended_criteria": db.get_project_criteria_ids(project) if project else [],
                 "chat_session": None, "chat_project": chat_project, "chat_topic": "",
+                "scope_label": _scope_label(request),
             }),
         )
 
@@ -599,6 +612,7 @@ def create_app(
                 "sources": _chat_sources.get(session_id) or chat_topics.latest(session_id),
                 "recommended_criteria": _recommended_criteria(session_id, messages),
                 "chat_session": session, "chat_project": project, "chat_topic": topic,
+                "scope_label": _scope_label(request),
             }),
         )
 
@@ -666,15 +680,44 @@ def create_app(
             project = db.get_project(int(session["project_id"]))
             if project and not criteria:
                 criteria = db.get_project_criteria_ids(project["id"])
+        # 권한 밖 질문 대처 — 판단은 규칙과 검색이 하고 모델은 결과를 말로 옮긴다
+        # (docs/notes/2026-09-22-access-controlled-knowledge-base.md). 범위는 세션 주인의 계정에서 온다.
+        from zzaimy.app import access_guard as ag
+
+        owner = (session or {}).get("owner") or ""
+        acct = accounts.get(owner, {}) if password is not None else {}
+        role = acct.get("role", "dev" if password is None else "staff")
+        dept = acct.get("dept") or None
+        data_dir = Path(db_path).parent
+        note = ag.pii_request(q)
+        if note:
+            ag.audit(data_dir, owner, "pii", q, dept, role)
+            _chat_sources[session_id] = []
+            db.add_chat(session_id, "assistant", note)
+            return
+        if ag.injection_like(q):
+            ag.audit(data_dir, owner, "injection", q, dept, role)
+        depts = [d.get("dept") or "" for d in db.department_counts()]
+        scope_msg = ag.scope_note(q, dept, role, depts)
+        if scope_msg:
+            ag.audit(data_dir, owner, "scope", q, dept, role)
+        criteria = ag.allowed_doc_ids(db, criteria, dept, role)
+        scope = ag.search_scope(dept, role)
         try:
-            answer = r.answer(
-                db, q, attachment_text=attachment_text, criteria_ids=criteria,
-                session_id=session_id, project=project,
-            )
+            import inspect as _insp
+
+            kw = dict(attachment_text=attachment_text, criteria_ids=criteria,
+                      session_id=session_id, project=project)
+            if "scope" in _insp.signature(r.answer).parameters:
+                kw["scope"] = scope
+            answer = r.answer(db, q, **kw)
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
 
             answer = describe_llm_error(e) + ". 검색된 근거 자료는 아래에 표시됩니다."
+        answer = ag.scrub(answer)                       # 답변에 남은 식별 정보는 한 번 더 가린다
+        if scope_msg:
+            answer = scope_msg + "\n\n" + answer
         # 근거(연관 자료)는 LLM 성공·실패와 무관하게 저장 — 검색은 CPU로 동작
         _chat_sources[session_id] = list(getattr(r, "last_sources", []) or [])
         try:
@@ -2171,7 +2214,7 @@ def create_app(
         플랫폼 DB와, 옆에 있으면 코퍼스 파일럿 DB(스크립트 74 기본 대상)까지
         본다. 자가 점검 결과는 DB와 무관하므로 플랫폼 DB settings에만 둔다.
         """
-        from zzaimy.app import pii_audit
+        from zzaimy.app import access_guard, pii_audit
 
         sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True)]
         corpus_path = pii_audit.corpus_db_path(db)
@@ -2185,6 +2228,19 @@ def create_app(
             "policy": pii_audit.MASK_POLICY,
             "type_names": {t: name for t, name, *_ in pii_audit.MASK_POLICY},
             "entity_labels": pii_audit.ENTITY_LABELS,
+            # 권한 밖 시도(개인정보 요청·범위 밖 자료·유도 질문) — 최근 24시간, 화면은 C-59
+            "access_audit": [
+                {**r, "kind_label": access_guard.KIND_LABELS.get(r.get("kind"), r.get("kind"))}
+                for r in access_guard.recent(Path(db_path).parent, hours=24)
+            ],
+            "accounts_scope": [
+                {"user": u, "name": a.get("name", ""), "role": a.get("role", "staff"),
+                 "role_label": access_guard.ROLES.get(a.get("role", "staff"), a.get("role", "staff")),
+                 "dept": a.get("dept", "")}
+                for u, a in sorted(accounts.items())
+            ],
+            "role_choices": access_guard.ROLES,
+            "dept_choices": [d.get("dept") for d in db.department_counts() if d.get("dept")],
         }))
 
     @app.post("/dev/pii/selftest")
@@ -2302,6 +2358,23 @@ def create_app(
 
     def _train_redirect(msg: str, ok: bool = True) -> RedirectResponse:
         return RedirectResponse(f"/dev/train?{'ok' if ok else 'err'}={msg}", status_code=303)
+
+    @app.post("/dev/account/scope")
+    def dev_account_scope(request: Request, uid: str = Form(...), dept: str = Form(""), role: str = Form("staff")):
+        """계정의 부서·역할 — 관리자만. 검색·대화 범위가 여기서 정해진다(C-59 화면이 부른다)."""
+        from zzaimy.app.access_guard import ROLES
+
+        if password is None:
+            raise HTTPException(400, "인증 없는 로컬 모드에서는 계정이 없습니다")
+        if uid not in accounts:
+            raise HTTPException(404, "계정이 없습니다")
+        if role not in ROLES:
+            raise HTTPException(400, "역할 값이 올바르지 않습니다")
+        accounts[uid]["dept"] = dept.strip()
+        accounts[uid]["role"] = role
+        accounts[uid]["updated_at"] = _now_iso()
+        _save_accounts()
+        return RedirectResponse("/dev/pii?ok=계정 범위를 저장했습니다", status_code=303)
 
     @app.get("/dev/accounts")
     def dev_accounts_moved():
