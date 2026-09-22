@@ -162,4 +162,7 @@ def test_kind_rules_cover_posters_spaced_headers_and_subtitled_reports():
     assert guess_kind("평점평균 계산(예제)", "취득년도 | 취득학기 | 과목명 | 평점 | 개설학점 | 평점*개설학점")[0] == "table"
     assert guess_kind("제목 없음", "5.지원시기: 2026년12월 예정 6.지원방법: 이자지원 확정금액만큼")[0] == "notice"
     assert guess_kind("제목 없음", "행사 개요 기간 2026년 연중 장소 김천시 주요 관광지 대상 기관·단체 워크숍")[0] == "notice"
+    assert guess_kind("전남광주통합특별시 입장권 예매", "")[0] == "notice"
+    assert guess_kind("문경에서 달리고,놀고,자자!RUN·MUSIC·CAMP·ECO", "다이나믹 리버런 참가시 우선 자리 배정 신청하기 *선착순 접수")[0] == "notice"
+    assert guess_kind("Island, Connecting the Ocean and the Future", "섬, 바다와 미래를 잇다 2026 여수세계섬박람회")[0] == "notice"
 

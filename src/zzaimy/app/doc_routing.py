@@ -141,7 +141,7 @@ _KIND_CUES = {
     "report": r"결과보고|성과보고|실적보고|결과 보고|최종보고|보고서|보고$",
     "guideline": r"지침|매뉴얼|안내서|가이드|요령|편람|길라잡이|처리기준|업무기준|운영기준|처리 기준",
     "criteria": r"심사기준|평가기준|평가지표|배점|채점|심사표|평가표",
-    "notice": r"안내|공지|알림|확인사항|유의사항|이벤트|박람회|축제|체험|캠페인|참여방법|관광",
+    "notice": r"안내|공지|알림|확인사항|유의사항|이벤트|박람회|축제|체험|캠페인|참여방법|관광|예매|입장권|페스타|페스티벌|공연|마라톤",
 }
 _KIND_ORDER = ("regulation", "certificate", "form", "report", "criteria", "announcement", "guideline", "plan",
                "table", "notice")
@@ -151,7 +151,7 @@ _WON_NOT = re.compile(r"(대학원|연구원|학원|병원|위원|직원|회원|
 # 양식의 결재란 — '결재 … 담당 … 팀장' 이 앞머리에 있으면 서식이다
 _APPROVAL = re.compile(r"결\s*재.{0,60}담\s*당.{0,60}(팀\s*장|과\s*장|처\s*장)", re.S)
 _NOTICE_BODY = re.compile(r"신청\s*(?:하세요|안내|기간|접수|방법)|접수\s*(?:기간|기한)|이벤트\s*기간|공모\s*일정|행사\s*(?:일정|기간)|특강|"
-                          r"지원\s*(?:방법|시기|대상)|참여\s*방법")
+                          r"지원\s*(?:방법|시기|대상)|참여\s*방법|선착순|참가\s*(?:신청|접수|비)|신청하기")
 # 홍보물의 뼈대 — 기간·장소·대상이 앞머리에 같이 있으면 안내문이다
 _POSTER = re.compile(r"기간.{0,80}장소.{0,80}대상|대상.{0,80}기간", re.S)
 # 양식의 몸 — 빈칸 표시가 잦다: '년 월 일', '○○', 'OOO', '☐', '□', '( )'
@@ -193,7 +193,7 @@ def guess_kind(filename: str, text: str, doc_type: str | None = None) -> tuple[s
     for kind in ("report", "criteria", "plan", "guideline"):
         if re.search(_KIND_CUES[kind], head):
             return kind, f"앞머리에 「{KINDS[kind]}」 낱말이 있습니다"
-    if _NOTICE_BODY.search(head) or _POSTER.search(head[:500]):
+    if _NOTICE_BODY.search(head) or _POSTER.search(head[:500]) or re.search(_KIND_CUES["notice"], head[:120]):
         return "notice", "앞머리에 신청·접수 안내가 있습니다"
     if re.search(_KIND_CUES["table"], head[:120]):
         return "table", "앞머리가 표 제목입니다"
