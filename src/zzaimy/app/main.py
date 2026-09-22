@@ -1818,7 +1818,7 @@ def create_app(
         "model-cards/zzaimy-rerank-v1.md": "운영 리랭커 학습본 카드",
         "notes/2026-09-22-external-split-and-blockchain.md": "외부 모델 반분 위탁·블록체인 — 채택 안 함(이유·대안)",
         "notes/2026-09-22-vllm-vs-ollama.md": "서빙 엔진 비교 — 실측과 vLLM 통일 이유",
-        "notes/2026-09-22-access-controlled-knowledge-base.md": "권한별 지식 베이스 — 열람 등급·부서 범위, 우리가 택한 방식과 세워야 할 것",
+        "notes/2026-09-22-access-controlled-knowledge-base.md": "권한별 지식 베이스 — 권한 밖 질문(학생·타 부서 개인정보)에 어떻게 응답하나, 열람 등급·부서 범위",
         "notes/meeting-w2-20260908.md": "2주차 미팅 메모(교수님)와 정합 분석",
         "notes/2026-09-02-ocr-engine-refs.md": "OCR 엔진 후보 조사",
         "notes/2026-09-02-ocr-preprocessing-refs.md": "스캔 전처리·복원 후보 조사",
