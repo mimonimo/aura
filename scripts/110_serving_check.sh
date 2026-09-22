@@ -12,9 +12,11 @@ THOR_HOST=211.170.162.121
 fail=0
 
 echo "[$(date +%T)] 1/3 토르 서비스"
-for port in 8013 8014 8015; do
-  got=$(ssh -o BatchMode=yes "$VM" "curl -s -m 5 http://$THOR_HOST:$port/health" 2>/dev/null)
-  if echo "$got" | grep -q '"ok":true'; then
+# 8015 리랭커 · 8016 임베딩(학습본 서비스, /health) · 8001 Writer 27B(vLLM, /v1/models)
+for port in 8015 8016 8001; do
+  path=/health; [ "$port" = 8001 ] && path=/v1/models
+  got=$(ssh -o BatchMode=yes "$VM" "curl -s -m 5 http://$THOR_HOST:$port$path" 2>/dev/null)
+  if echo "$got" | grep -q '"ok":true\|"object":"list"'; then
     echo "  $port  $got"
   else
     echo "  $port  응답 없음"
