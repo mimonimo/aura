@@ -82,7 +82,7 @@ rsync). 학습 전에는 Ollama 모델을 내린다: `curl -s localhost:11434/ap
 | 8014 | 질의 임베딩 베이스(KURE-v1), 비교용 | `bash scripts/103_serve_embed_on_thor.sh 8014` | 평가에만 |
 | 8016 | 운영 질의 임베딩, ZZAIMY-Embed v2 | `MODEL=/models/zzaimy-embed-v2 bash scripts/103_serve_embed_on_thor.sh 8016` | `ZZAIMY_EMBED_URL=http://211.170.162.121:8016/embed` |
 | 8015 | 운영 리랭커, ZZAIMY-Rerank v1 | `MODEL=/models/zzaimy-rerank-v1 bash scripts/102_serve_reranker_on_thor.sh 8015` | `ZZAIMY_RERANK_URL=http://211.170.162.121:8015/score`, `ZZAIMY_RERANK_MIN=0.005` |
-| 8017 | KURE-v2 다중 벡터 검색, 비교용(운영은 부르지 않음) | `bash scripts/128_kure2_index_on_thor.sh` 뒤 `bash scripts/129_serve_kure2_on_thor.sh 8017` | 측정에만 `ZZAIMY_ALT_DENSE_URL=http://211.170.162.121:8017/search` |
+| 8017 | KURE-v2 다중 벡터 검색, 비교용 — 측정을 마치고 9/22 내렸다(ADR-0025). 필요하면 30분 안에 다시 띄운다 | `bash scripts/128_kure2_index_on_thor.sh` 뒤 `bash scripts/129_serve_kure2_on_thor.sh 8017` | 측정에만 `ZZAIMY_ALT_DENSE_URL=http://211.170.162.121:8017/search` |
 
 학습본을 서빙으로 올릴 때는 `bash scripts/116_ship_and_serve.sh <rerank|embed> <학습본이름>`을 쓴다.
 옮기기, 서비스 교체, 임베딩이면 재색인, 리랭커면 근거 하한 재측정, 설정 갱신, 점검까지 한 번에
