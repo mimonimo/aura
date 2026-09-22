@@ -225,7 +225,24 @@ class SliceDrafter:
                     db.add_draft_history(doc_id, prev)
                 except Exception:
                     log.warning("doc %d: 초안 이력 저장 실패(무시)", doc_id)
-            db.update_document(doc_id, draft=new_draft, coverage=summary)
+            # 기계가 읽는 검증 결과 — 베이스라인(scripts/133)과 학습 뒤 개선폭 측정이 이것을 모은다
+            import json as _json
+            from datetime import datetime as _dt
+
+            audit_json = _json.dumps({
+                "at": _dt.now().isoformat(timespec="seconds"),
+                "model": getattr(client, "model", ""),
+                "sections": len(schema.sections),
+                "criteria": len(schema.criteria),
+                "covered_points": coverage.covered_points,
+                "total_points": coverage.total_points,
+                "missing": [m.name for m in coverage.missing],
+                "number_violations": len(audit.violations),
+                "budget_issues": len(budget_issues),
+                "materials": len(materials),
+                "draft_chars": len(new_draft),
+            }, ensure_ascii=False)
+            db.update_document(doc_id, draft=new_draft, coverage=summary, draft_audit=audit_json)
             log.info("doc %d: 초안 생성 완료 (%d 섹션)", doc_id, len(schema.sections))
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
