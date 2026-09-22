@@ -66,7 +66,7 @@ def test_dev_dashboard_labels(client):
     q = client.get("/dev/quality").text
     assert "규정 검색 품질" in q and "추출 품질 백로그" in q
     d = client.get("/dev/docs").text
-    assert "논문 자료" in d and "설계 결정" in d and "측정 기록·인수인계" in d
+    assert "논문 자료" in d and "설계 결정" in d and "현황·설계" in d and "측정 기록·모델 카드" in d and "작업 메모" in d
     hpage = client.get("/dev/history").text
     assert "전체 변경 목록" in hpage and "/dev/docs#weekly" in hpage     # 주간 보고서는 논문 자료 칸으로
     r2 = client.get("/dev/egress")
@@ -132,7 +132,7 @@ def test_docs_list_pulls_status_and_date_from_adr_files(client):
     row = page.split(f'href="/dev/doc/decisions/{adr.name}"', 1)[1].split("</a>", 1)[0]
     assert f'<span class="doc-num">{adr.name[:4]}</span>' in row      # ADR 번호는 따로 떼어 보인다
     assert status in row and date in row                               # 상태·날짜는 파일의 머리 줄에서
-    assert "측정 기록" in page and "인수인계·계획" in page
+    assert "측정 기록" in page and "설계·계획" in page and "먼저 볼 것" in page
     for f in ("retrieval-baseline-mini.md", "embed-v0-report.md", "model-plan.md", "quality-system.md"):
         assert f'href="/dev/doc/{f}"' in page                          # dev_doc 이 여는 파일은 목록에도 있다
 

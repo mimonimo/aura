@@ -3,7 +3,7 @@
 {% block pagetitle %}논문·설계 문서{% endblock %}
 {% block content %}
 <style>
-  /* 종류별 카드 두 열 — 왼쪽 논문 자료·주간 보고서·설계 결정, 오른쪽 기술 검토·측정 기록 */
+  /* 종류별 카드 두 열 — 왼쪽 논문 자료·주간 보고서·설계 결정, 오른쪽 현황·설계 → 측정 기록·모델 카드 → 기술 검토(작업 메모는 접힘) */
   .weekly-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:4px 0 10px; font-size:13px; }
   .weekly-actions .btn-ghost { padding:4px 10px; min-height:30px; }
   .weekly-feedback { display:flex; flex-direction:column; gap:6px; margin:6px 0 10px; }
@@ -35,6 +35,10 @@
   .doc-num { flex: none; width: 2.9em; font-size: 12.5px; font-weight: 600; color: var(--faint);
              font-variant-numeric: tabular-nums; }
   .doc-t { flex: 1 1 auto; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .doc-d { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin-top: 1px; }
+  .doc-memo summary { list-style: none; cursor: pointer; font-size: 12px; font-weight: 700; color: var(--faint);
+                      letter-spacing: .04em; margin: 14px 0 2px; }
+  .doc-memo summary::-webkit-details-marker { display: none; }
   .doc-m { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
            color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .doc-st { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
@@ -63,8 +67,9 @@
 <ul class="doc-list">
   {% for d in items %}
   <li><a class="doc-row" href="{{ d.href }}">
-    {% if d.num %}<span class="doc-num">{{ d.num }}</span>{% endif %}
-    <span class="doc-t">{{ d.title }}</span>
+    {# 순번 — ADR 은 제 번호, 나머지는 목록 안 차례(2026-09-22 사용자: "순번도 없고") #}
+    <span class="doc-num">{{ d.num if d.num else loop.index }}</span>
+    <span class="doc-t">{{ d.title }}{% if d.desc %}<span class="doc-d">{{ d.desc }}</span>{% endif %}</span>
     {% if d.status or d.date %}
     <span class="doc-m">
       {% if d.status %}<span class="doc-st {{ 'ok' if d.status in ('확정', '채택') else 'open' if d.status == '제안' else '' }}">{{ d.status }}</span>{% endif %}
@@ -142,18 +147,31 @@
 
   <div>
     <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>기술 검토
-        <span class="doc-cnt">{{ note_docs|length }}</span></h2>
-      {{ rows(note_docs) }}
+      <h2><iconify-icon icon="solar:compass-linear"></iconify-icon>현황·설계
+        <span class="doc-cnt">{{ status_docs|length + plan_docs|length }}</span></h2>
+      <div class="doc-sub">먼저 볼 것 — 지금 상태</div>
+      {{ rows(status_docs) }}
+      <div class="doc-sub">설계·계획</div>
+      {{ rows(plan_docs) }}
     </div></div>
 
     <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:chart-square-linear"></iconify-icon>측정 기록·인수인계
-        <span class="doc-cnt">{{ bench_docs|length + plan_docs|length }}</span></h2>
-      <div class="doc-sub">측정 기록</div>
+      <h2><iconify-icon icon="solar:chart-square-linear"></iconify-icon>측정 기록·모델 카드
+        <span class="doc-cnt">{{ bench_docs|length + card_docs|length }}</span></h2>
+      <div class="doc-sub">측정 기록 (날짜가 곧 유효 범위 — 최신 수치는 품질·성능 화면)</div>
       {{ rows(bench_docs) }}
-      <div class="doc-sub">인수인계·계획</div>
-      {{ rows(plan_docs) }}
+      <div class="doc-sub">모델 카드 (학습본)</div>
+      {{ rows(card_docs) }}
+    </div></div>
+
+    <div class="card"><div class="card-in">
+      <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>기술 검토
+        <span class="doc-cnt">{{ note_docs|length }}</span></h2>
+      {{ rows(note_docs) }}
+      <details class="doc-memo">
+        <summary>작업 메모 {{ memo_docs|length }} — 백로그·용어집·조사 노트 (펼치기)</summary>
+        {{ rows(memo_docs) }}
+      </details>
     </div></div>
   </div>
 </div>
