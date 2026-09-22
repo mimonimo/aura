@@ -19,6 +19,17 @@
   .dev-tools .card-in { display: flex; flex-direction: column; height: 100%; }
   .dev-tools .card-in > p { flex: 1; margin: 0 0 14px; }
   .dev-tools .tool-open { align-self: flex-start; }
+  .feat-area { margin: 0 0 14px; }
+  .feat-area-h { font-size: 13px; font-weight: 700; color: var(--navy); padding: 6px 0 4px; border-bottom: 1px solid var(--line); }
+  .feat-area-h .muted { font-weight: 500; font-size: 12px; margin-left: 6px; }
+  .feat-row { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 4px 14px; padding: 8px 0; border-bottom: 1px solid var(--panel); font-size: 13px; }
+  .feat-head { display: flex; gap: 8px; align-items: baseline; }
+  .feat-head .pill { flex: none; }
+  .feat-name { font-weight: 600; }
+  .feat-body { display: flex; flex-direction: column; gap: 2px; color: var(--ink); font-size: 12.5px; line-height: 1.55; }
+  .feat-k { display: inline-block; min-width: 46px; color: var(--faint); font-weight: 600; font-size: 11.5px; }
+  .feat-links a { margin-right: 10px; font-size: 12px; color: var(--navy); text-decoration: none; border-bottom: 1px solid #CBD5E1; }
+  @media (max-width: 640px) { .feat-row { grid-template-columns: 1fr; } }
   .dev-progress-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr)); gap:16px 28px; margin-bottom:24px; }
   .dev-area-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px 12px; margin-bottom:8px; font-size:13px; }
   .dev-area-head b { font-weight:600; }
@@ -89,19 +100,29 @@
       {% endfor %}
     </div>
     <h4 class="extract-h" style="margin-top:0;">기능별 상태</h4>
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr)); gap:0 28px;">
-      {% for f in progress.features %}
-      <div style="display:flex; flex-wrap:wrap; gap:6px 10px; align-items:baseline; padding:8px 0;
-                  border-bottom:1px solid var(--panel); font-size:13px;">
-        {% if f.status == "done" %}<span class="pill reviewed" style="flex:none;">완료</span>
-        {% elif f.status == "doing" %}<span class="pill type" style="flex:none;">진행</span>
-        {% elif f.status == "wait" %}<span class="pill" style="flex:none; background:#FDF3E7; color:var(--amber);">대기</span>
-        {% else %}<span class="pill" style="flex:none;">예정</span>{% endif %}
-        <span style="font-weight:600; flex:none;">{{ f.name }}</span>
-        <span class="muted" style="font-size:12px;">{{ f.note }}</span>
+    {# 영역별로 묶고, 기능마다 지금 상태 · 남은 것 · 근거 문서/화면 링크 — 한 줄로 다 못 적는 것은 문서로 잇는다(2026-09-22) #}
+    {% for a in progress.areas %}
+    <div class="feat-area">
+      <div class="feat-area-h">{{ loop.index }}. {{ a.name }} <span class="muted">{{ a.done }}/{{ a.total }} 완료</span></div>
+      {% for f in a.features %}
+      <div class="feat-row">
+        <div class="feat-head">
+          {% if f.status == "done" %}<span class="pill reviewed">완료</span>
+          {% elif f.status == "doing" %}<span class="pill type">진행</span>
+          {% elif f.status == "wait" %}<span class="pill" style="background:#FDF3E7; color:var(--amber);">대기</span>
+          {% else %}<span class="pill">예정</span>{% endif %}
+          <span class="feat-name">{{ f.name }}</span>
+        </div>
+        <div class="feat-body">
+          <div><span class="feat-k">지금</span>{{ f.note }}</div>
+          {% if f.left and f.left != "—" %}<div><span class="feat-k">남은 것</span>{{ f.left }}</div>{% endif %}
+          {% if f.links %}<div class="feat-links"><span class="feat-k">근거</span>
+            {% for l in f.links %}<a href="{{ l.href }}">{{ l.label }}</a>{% endfor %}</div>{% endif %}
+        </div>
       </div>
       {% endfor %}
     </div>
+    {% endfor %}
   </div>
   <div id="paneNow" class="tab-pane">
   <div>{{ dev_now | md_view }}</div>
