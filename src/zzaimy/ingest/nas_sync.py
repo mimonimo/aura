@@ -23,6 +23,7 @@ from pathlib import Path
 BACKENDS = {
     "local": "서버 경로 (마운트된 공유 폴더)",
     "smb": "SMB 공유 (NAS·Windows·Synology, 읽기 전용 계정)",
+    "gdrive": "구글 드라이브 (읽기 전용, 허용한 구글 계정)",
 }
 TARGETS = {"regulation": "기준 문서", "ocr": "문서 추출"}
 SECTORS = {"common": "공통", "grant": "국고사업", "recruit": "채용", "admission": "입학"}
@@ -152,6 +153,12 @@ def add(name: str, backend: str, root: str, target: str, sector: str = "common",
         raise ValueError("이름과 경로를 적어 주세요")
     if backend == "smb" and not (root.startswith("\\\\") or root.startswith("//")):
         raise ValueError(r"SMB 경로는 \\서버\공유\폴더 형식이어야 합니다")
+    if backend == "gdrive":
+        from zzaimy.ingest import gdrive
+
+        root = gdrive.folder_id(root)              # 폴더 주소를 넣어도 ID 로 저장
+        if not username.strip():
+            raise ValueError("허용한 구글 계정(이메일)을 골라 주세요")
     src = {
         "id": secrets.token_hex(4), "name": name, "backend": backend, "root": root,
         "target": target, "sector": sector if target == "regulation" else "common",
@@ -330,6 +337,10 @@ class SmbBackend:
 def backend_for(src: dict):
     if src["backend"] == "local":
         return LocalBackend(src["root"])
+    if src["backend"] == "gdrive":
+        from zzaimy.ingest.gdrive import GDriveBackend
+
+        return GDriveBackend(src["root"], src.get("username", ""))
     return SmbBackend(src["root"], src.get("username", ""), src.get("password", ""), src.get("domain", ""))
 
 

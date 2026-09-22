@@ -2625,12 +2625,60 @@ def create_app(
             import smbclient  # noqa: F401
         except ImportError:
             smb_ok = False
+        from zzaimy.ingest import gdrive
+
         return templates.TemplateResponse(request, "dev_nas.html", ctx(request, {
             "ok": ok, "err": err, "sources": nas_sync.list_public(),
             "backends": nas_sync.BACKENDS, "targets": nas_sync.TARGETS, "sectors": nas_sync.SECTORS,
             "default_exts": " ".join(nas_sync.DEFAULT_EXTENSIONS), "probe_result": probe_result,
             "plan_result": plan_result, "type_groups": nas_sync.TYPE_GROUPS, "smb_ok": smb_ok,
+            "gdrive": {**gdrive.public_status(), "redirect_uri": _gdrive_redirect_uri(request)},
         }))
+
+    # ---- 구글 드라이브 원천 — 관리자가 클라이언트 ID·비밀을 넣고, 담당자가 자기 계정으로 한 번 허용한다(읽기 전용, ADR-0028) ----
+
+    def _gdrive_redirect_uri(request: Request) -> str:
+        """구글에 등록해야 하는 되돌아올 주소 — 플랫폼의 공개 주소 + /dev/gdrive/callback."""
+        base = os.environ.get("ZZAIMY_PUBLIC_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
+        return f"{base}/dev/gdrive/callback"
+
+    @app.post("/dev/gdrive/client")
+    def dev_gdrive_client(client_id: str = Form(""), client_secret: str = Form("")):
+        from zzaimy.ingest import gdrive
+
+        try:
+            gdrive.set_client(client_id, client_secret)
+        except ValueError as e:
+            return _nas_redirect(str(e), ok=False)
+        return _nas_redirect("구글 클라이언트를 저장했습니다 — 이제 계정 허용을 누르세요")
+
+    @app.get("/dev/gdrive/auth")
+    def dev_gdrive_auth(request: Request):
+        from zzaimy.ingest import gdrive
+
+        try:
+            return RedirectResponse(gdrive.auth_url(_gdrive_redirect_uri(request)), status_code=303)
+        except ValueError as e:
+            return _nas_redirect(str(e), ok=False)
+
+    @app.get("/dev/gdrive/callback")
+    def dev_gdrive_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+        from zzaimy.ingest import gdrive
+
+        if error or not code:
+            return _nas_redirect(f"구글 허용이 취소됐습니다({error or '코드 없음'})", ok=False)
+        try:
+            email = gdrive.exchange_code(code, state, _gdrive_redirect_uri(request))
+        except ValueError as e:
+            return _nas_redirect(str(e), ok=False)
+        return _nas_redirect(f"구글 계정 {email} 을 허용했습니다 — 드라이브 폴더를 원천으로 등록할 수 있습니다")
+
+    @app.post("/dev/gdrive/revoke")
+    def dev_gdrive_revoke(email: str = Form("")):
+        from zzaimy.ingest import gdrive
+
+        gdrive.revoke(email.strip())
+        return _nas_redirect(f"구글 계정 {email} 의 허용을 지웠습니다(구글 쪽 접근 권한은 계정 설정에서 따로 지웁니다)")
 
     def _nas_form_bits(ext_group: list[str], interval_min: int) -> tuple[str, bool, int]:
         # 확장자 묶음 칩 → 확장자 목록, 자동 반입 선택(0=끔) → (auto, interval)
