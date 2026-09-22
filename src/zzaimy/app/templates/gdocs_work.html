@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}문서 작업 — 행정 에이전트{% endblock %}
+{% block pagetitle %}문서 작업{% endblock %}
+{% block content %}
+<header class="space-intro"><h1>문서 작업</h1><p class="muted">구글 독스를 옆에 두고 에이전트가 같은 문서를 읽고, 담당자가 고른 자리에만 씁니다.</p></header>
+{% if err %}<p class="notice error">{{ err }}</p>{% endif %}
+{% if ok %}<p class="notice">{{ ok }}</p>{% endif %}
+<form method="get" action="/gdocs/work" class="inline-form">
+  <label>구글 독스 주소 또는 문서 ID <input type="text" name="doc" value="{{ doc_id }}" placeholder="https://docs.google.com/document/d/…/edit" size="48"></label>
+  <label>계정 <select name="account">{% for a in accounts %}<option value="{{ a.email }}" {% if a.email == account %}selected{% endif %}>{{ a.email }}{% if not a.docs_ok %} (문서 편집 허용 필요){% endif %}</option>{% endfor %}</select></label>
+  <button class="btn" type="submit">열기</button>
+</form>
+{% if not accounts %}<p class="muted">허용된 구글 계정이 없습니다. {% if request.state.role == 'dev' %}<a href="/dev/nas">원천 관리</a>에서 계정 허용을 먼저 합니다.{% else %}관리자에게 계정 허용을 요청하세요.{% endif %}</p>{% endif %}
+{% if doc_id and info %}
+<div class="gdocs-split">
+  <section class="gdocs-editor">
+    <p class="muted">{{ info.title }} · <a href="https://docs.google.com/document/d/{{ doc_id }}/edit" target="_blank" rel="noopener">새 창에서 열기</a> (iframe 로그인이 막히는 브라우저용)</p>
+    <iframe src="{{ embed_url }}" title="구글 독스" loading="lazy"></iframe>
+  </section>
+  <section class="gdocs-agent">
+    <h2>에이전트</h2>
+    <form method="post" action="/gdocs/ask">
+      <input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}">
+      <textarea name="question" rows="4" placeholder="이 문서에 대해 물어보거나, 넣을 글을 요청하세요">{{ question }}</textarea>
+      <button class="btn" type="submit">묻기</button>
+    </form>
+    {% if answer %}<article class="gdocs-answer"><h3>답변</h3><div class="md">{{ answer | safe }}</div></article>{% endif %}
+    <h3>절 아래에 넣기</h3>
+    <form method="post" action="/gdocs/insert">
+      <input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}">
+      <label>어느 절 <select name="section">{% for s in info.sections %}<option value="{{ s.index }}">{{ '  ' * s.level }}{{ s.heading }} ({{ s.chars }}자)</option>{% endfor %}</select></label>
+      <textarea name="text" rows="6" placeholder="넣을 글 — 답변에서 옮겨 적거나 직접 씁니다">{{ draft_text }}</textarea>
+      <button class="btn" type="submit">문서에 넣기</button>
+    </form>
+    <h3>글 바꾸기</h3>
+    <form method="post" action="/gdocs/replace">
+      <input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}">
+      <label>바꿀 글 <input type="text" name="old" size="30"></label>
+      <label>새 글 <input type="text" name="new" size="30"></label>
+      <button class="btn secondary" type="submit">모두 바꾸기</button>
+    </form>
+    {% if writes %}<h3>최근 쓰기</h3><ul class="muted">{% for w in writes %}<li>{{ w.at }} · {{ w.user }} · {{ w.action }} · {{ w.section or '' }} · {{ w.chars }}자</li>{% endfor %}</ul>{% endif %}
+  </section>
+</div>
+{% endif %}
+{% endblock %}

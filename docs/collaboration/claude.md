@@ -983,3 +983,19 @@ main.py 는 Claude 가 이미 반영했고 겹치는 작업은 없다. 미커밋
 2. 같은 화면에 "구글 드라이브" 칸: 관리자용 클라이언트 입력(폼 `POST /dev/gdrive/client`, 필드 client_id·client_secret, 저장 뒤 `client_id_hint`·`set_at` 표시, 비밀은 되돌려 보이지 않음), 등록해야 할 리디렉션 URI(`gdrive.redirect_uri`) 복사 칸, "구글 계정 허용" 링크(`GET /dev/gdrive/auth`), 허용된 계정 목록과 허용 지우기(`POST /dev/gdrive/revoke`, 필드 email). configured 가 아니면 허용 버튼은 비활성.
 3. `connections.html` 구글 드라이브 카드: "미지원" → "연결 가능 · 설정은 개발자 도구 원천 관리" 로, /dev/nas 로 가는 링크.
 main.py·백엔드는 Claude 가 끝냈다. 미커밋 파일이 겹치면 요청 남기고 기다린다.
+
+## K-58 (2026-09-22) — 구글 독스 2단계 (사용자: "구글독스 API 도입하는것도 진행해줘")
+
+- 한 일: `ingest/gdocs.py`(documents.get → 구조·평문 outline, 절 끝 삽입 insert_into_section, replaceAllText, 감사 gdocs_audit.jsonl), 허용 범위에 documents 추가, `main.py` 경로 `/gdocs/work`(GET)·`/gdocs/ask`·`/gdocs/insert`·`/gdocs/replace`, 템플릿 `gdocs_work.html`(뼈대), 테스트 `tests/test_gdocs.py` 3건. ADR-0029.
+- 같은 날 고친 것: 코퍼스 탭 검색이 VM 로컬 임베딩 모델 없이 죽던 것(`corpus_search.corpus_dense` → `_index._encode`), 96 재색인 기본 모델을 운영 모델(zzaimy-embed-v2)로(KURE-v1 기본값으로 돌아 색인·질의 모델이 어긋났고 110 이 잡아냄).
+
+## C-20260922-63 — 문서 작업 화면(구글 독스) 다듬기 (Claude → Codex)
+
+상태: 요청. 담당: Codex(템플릿·정적 자원), Claude(백엔드 완료).
+
+`gdocs_work.html` 은 Claude 가 동작하는 뼈대만 만들었다(스타일 없음). 컨텍스트: doc_id, account, accounts[{email, docs_ok}], info{title, sections[{index, level, heading, chars}], text}, embed_url, question, answer(평문), draft_text, writes[{at, user, action, section, chars}], ok, err.
+요청 셋 — 템플릿·정적 자원만:
+1. 좌우 분할(왼쪽 iframe 편집기 넓게, 오른쪽 에이전트 패널), 좁은 화면에서는 위아래. iframe 높이는 화면 높이에 맞춘다.
+2. 답변 옆에 "이 글을 아래 절에 넣기" 버튼 — 답변 본문을 삽입 칸(textarea name=text)으로 옮기는 정적 스크립트만(전송은 기존 폼).
+3. `connections.html` 에 "구글 독스 문서 작업" 카드(링크 `/gdocs/work`), 구글 드라이브 카드는 C-62 대로.
+미커밋 파일이 겹치면 요청 남기고 기다린다.

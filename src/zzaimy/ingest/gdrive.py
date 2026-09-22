@@ -22,7 +22,8 @@ from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlencode
 
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+# drive.readonly: 폴더 목록·내려받기(1단계). documents: 문서 작업 화면에서 같은 문서를 읽고 고치기(2단계, ADR-0029).
+SCOPES = ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/documents"]
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 API = "https://www.googleapis.com/drive/v3"
