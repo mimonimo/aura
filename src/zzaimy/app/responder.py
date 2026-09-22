@@ -98,9 +98,13 @@ class AgentResponder:
         criteria_ids: list[int] | None = None,
         session_id: int | None = None,
         project: dict | None = None,
+        scope: dict | None = None,
     ) -> str:
         from zzaimy.generate.client import VllmClient
         from zzaimy.app.regulations import find_relevant
+
+        # 범위(부서·역할)는 검색 단계에서 자른다 — 범위 밖 조각은 모델에게 건네지지 않는다(절대 규칙 4)
+        scope = scope or {}
 
         self.last_sources = []
         corpus_hits: list = []
@@ -118,7 +122,7 @@ class AgentResponder:
             hits = chunks[:8]
         else:
             # 교내 규정(platform) + 국고 공고 코퍼스(corpus_pilot) 교차 검색
-            hits = find_relevant(db, attachment_text or question)
+            hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"))
             corpus_hits = self._corpus_hits(attachment_text or question, top_k=5)
             blocks = []
             if corpus_hits:
