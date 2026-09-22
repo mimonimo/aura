@@ -256,6 +256,7 @@ class DocumentProcessor:
         self._last_scan = None
         self._last_image_text = {}
         self._last_pages = None   # 글자층 직독의 쪽별 본문 [(쪽, 글)] — 조각에 쪽 번호를 남기기 위해
+        self._last_md = None      # 비전 판독의 쪽별 마크다운 [(쪽, md)] — 표를 셀 구조 조각으로 남기기 위해
         self._ocr_used = False  # 이번 파싱에서 실제 OCR이 돌았는가 — 교정 게이트
         bad = _format_mismatch(file_path)
         if bad:
@@ -295,6 +296,7 @@ class DocumentProcessor:
                     self._ocr_used = True
                     self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
                     self._note_partial_vision(file_path, pages[:read])
+                    self._last_md = [(pg, m) for (pg, _p), m in zip(pages[:read], mds)]
                     return "\n\n".join(self._md_to_text(m) for m in mds)
 
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
@@ -326,6 +328,16 @@ class DocumentProcessor:
         from zzaimy.ingest.parsers.docling import DoclingParser
 
         is_image = suffix in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
+        if is_image and _vision_available():
+            # 사진·게시물은 갈래와 무관하게 판독 모델이 먼저 읽는다. 문자 인식(MinerU·tesseract)은 홍보물 글자를
+            # 깨뜨린다(실측 2026-09-23: '위크숍 맞출혐'). 판독이 비면 아래 경로로 물러난다.
+            area = self._crop_document_region(file_path)
+            md = self._vlm_transcribe(area or file_path)
+            if md:
+                self._ocr_used = True
+                self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
+                self._last_md = [(1, md)]
+                return self._md_to_text(md)
         try:
             parsed = DoclingParser().parse(file_path)
         except Exception as e:
@@ -1332,6 +1344,19 @@ class DocumentProcessor:
             log.warning("판본 판정 실패(%s) — 그대로 반입", type(e).__name__)
         return False
 
+    def _md_chunks(self, do_mask: bool = True, max_chunks: int = 400) -> list[dict] | None:
+        """비전 판독의 쪽별 마크다운 → 제목·문단·표(셀 JSON) 조각. 없으면 None."""
+        pages = getattr(self, "_last_md", None)
+        if not pages:
+            return None
+        mk = self._mask_str if do_mask else (lambda s: s)
+        out: list[dict] = []
+        for no, md in pages:
+            out += self._md_to_chunks(md, mk, page_no=int(no))
+            if len(out) >= max_chunks:
+                break
+        return out[:max_chunks] or None
+
     def _page_chunks(self, do_mask: bool = True, max_chunks: int = 400) -> list[dict] | None:
         """글자층 직독의 쪽별 본문을 쪽 번호가 붙은 문단 조각으로 — 쪽별 본문이 없으면 None."""
         pages = getattr(self, "_last_pages", None)
@@ -2197,6 +2222,7 @@ class DocumentProcessor:
                 reg_doc_chunks = (
                     reg_vision_chunks
                     or self._structured_chunks(do_mask=reg_mask)
+                    or self._md_chunks(do_mask=reg_mask)
                     or self._page_chunks(do_mask=reg_mask)
                     or [
                         {"kind": "text", "content": c.content[:2000]}
@@ -2289,7 +2315,7 @@ class DocumentProcessor:
                 # 마스킹 기록 — 유형·건수·마스킹본 문맥만 (원문 값 없음)
                 record_mask_events(db, doc_id, masked.text, ocr_events)
                 if parsed_chunks is None:
-                    parsed_chunks = self._structured_chunks() or self._page_chunks() or _split_chunks(masked.text)
+                    parsed_chunks = self._structured_chunks() or self._md_chunks() or self._page_chunks() or _split_chunks(masked.text)
                     if self._llm_correct_chunks(parsed_chunks):
                         self._last_parse_note = (
                             (self._last_parse_note or "일반 추출") + " · AI 오타 교정"
@@ -2330,7 +2356,7 @@ class DocumentProcessor:
 
             # 파싱 결과 DB화 — 구조(페이지·표) 보존 조각, 없으면 문단 분할 (연관성·작성 재료)
             db.replace_doc_chunks(
-                doc_id, self._structured_chunks() or self._page_chunks() or _split_chunks(masked.text)
+                doc_id, self._structured_chunks() or self._md_chunks() or self._page_chunks() or _split_chunks(masked.text)
             )
             db.replace_doc_assets(
                 doc_id,
