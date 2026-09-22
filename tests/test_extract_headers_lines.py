@@ -206,3 +206,24 @@ def test_vision_markdown_becomes_plain_text_without_html_tags():
     assert "<" not in text and "##" not in text and "속성" not in text and "```" not in text
     assert text.startswith("2026년 2학기 기부장학금 선발 요약표")
     assert "생활비 | 가계소득 | 자기소개서" in text and "문의: 장학팀" in text
+
+
+def test_image_documents_go_to_vision_first_and_keep_table_chunks(tmp_path, monkeypatch):
+    """사진·게시물은 갈래와 무관하게 판독 모델이 먼저 읽고, 표는 셀 구조 조각으로 남는다."""
+    from zzaimy.app import pipeline as pl
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    img = tmp_path / "poster.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"0" * 64)
+    monkeypatch.setattr(pl, "_vision_available", lambda: True)
+    monkeypatch.setattr(pl, "_vision_model_name", lambda: "zzaimy-writer")
+    monkeypatch.setattr(pl, "_format_mismatch", lambda p: "")
+    proc = DocumentProcessor.__new__(DocumentProcessor)
+    proc._masker = None
+    monkeypatch.setattr(proc, "_crop_document_region", lambda p: None)
+    monkeypatch.setattr(proc, "_vlm_transcribe", lambda p: "## 워크숍 맞춤형 김천관광체험\n\n| 기간 | 장소 |\n|---|---|\n| 연중 | 김천시 |")
+    text = proc._parse_inner(img)
+    assert text.startswith("워크숍 맞춤형 김천관광체험") and "연중 | 김천시" in text
+    assert "비전 판독" in proc._last_parse_note
+    chunks = proc._md_chunks(do_mask=False)
+    assert [c["kind"] for c in chunks] == ["heading", "table"] and chunks[1]["page_no"] == 1
