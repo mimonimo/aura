@@ -935,3 +935,9 @@ DGX 연결 삭제(연결은 토르 02·03 둘뿐). 문서 422 전체 판독을 �
 - Codex C-54~57 통합: 별도 커밋 3ebfe893, 푸시, VM 배포·재시작(HEAD 3ebfe893, /login 200). Codex 가 본 history 회귀 2건은 K-54 의 history/main 변경으로 해소(로컬 전체 테스트 통과, 555건).
 - 남은 것: 운영에서 /dev/docs·/dev/history·데이터 열람 실화면 확인, 주간 보고 첫 자동 생성 확인.
 
+## K-55 (2026-09-22) — 권한 밖 질문 대처 구축 (아스트라와 분담)
+
+- 배경: 기술 검토 `docs/notes/2026-09-22-access-controlled-knowledge-base.md`. 학생이 내부 정보를 묻거나 타 부서 문서에서 개인정보를 뽑으려 할 때의 대처를 구현한다. 사용자 지시 "아스트라 협업 필요하면 같이 해".
+- Claude 담당(백엔드): 계정에 부서(dept)·역할(staff/head/student/dev) 필드와 요청 범위(request.state.dept/role) · 대화 답변 경로에 부서 범위 전달(find_relevant dept/sector, 선택 기준도 범위 안으로) · `access_guard.py`(개인정보 요청 결정론 판정, 범위 밖 안내문, 답변 후 마스킹 검사, 감사 기록 `data/platform/access_audit.jsonl`) · 시나리오 자가 점검 `scripts/131_access_scenarios.py` · 테스트. 파일: main.py(계정·채팅 경로), responder.py, access_guard.py(신규), db.py(필요 시).
+- 아스트라 요청 C-20260922-59: 화면 쪽 — ① 설정/계정 관리에 부서·역할 입력(역할 값: staff 담당자, head 부서장, student 학생, dev 관리자; 부서는 `db.department_counts()` 목록 + 직접 입력) ② 대화 화면 상단에 "내 범위: 부서 ○○ · 역할" 한 줄과 안내형 응답(범위 밖·개인정보 요청)의 표시 스타일 ③ 개발 현황(/dev) 또는 PII 점검 화면에 감사 목록(권한 밖 시도: 시각·계정·유형·질문 앞 40자, 최근 24시간 건수) 패널. 템플릿·정적 자원만 만지고 main.py 는 Claude 가 맡는다(감사 JSONL 읽기 함수는 Claude 가 `access_guard.recent()` 로 제공).
+

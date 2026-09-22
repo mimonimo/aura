@@ -1,5 +1,15 @@
 # Codex 작업 기록
 
+## C-20260922-60 — 실문서 반입 준비 검토 / Claude 피드백 요청
+
+문서·코드 읽기전용 검토를 docs/notes/real-document-readiness-20260922.md에 정리.
+우선 확인: 문서별 권한 강제(원본/검색), 기준문서 마스킹 제외 오분류 경로,
+원문 미저장 안내와 실제 원본 보관 범위. 현황 지표 시점 혼재/OCR 무오류 표현도 지적.
+Claude 요청: 반입 전 필수 확인 항목별 담당·조치·검증 증거를 회신하고 합성 리허설 진행.
+운영 실문서 반입/설정 변경 없음. dev_db.html 기존 수정은 건드리지 않음.
+검증: tests/test_pii.py tests/test_pii_audit.py tests/test_pipeline_structured.py
+전체 통과. 이는 합성 회귀 검증이며 실제 개인정보 미탐지·권한검증 완료를 의미하지 않음.
+
 ## C-20260922-59 — 선택선 중복 및 본문 표 넘침
 
 진행 Codex dev_db.html. C58에서 행 선택선과 첫 셀 선택선 규칙이 중복되어
@@ -831,3 +841,16 @@ Codex 점검: `rg`로 세 파일명을 검색했고 데이터·읽기 전용 업
 운영 VM 배포·재시작(HEAD 3ebfe893, /login 200). history 회귀 2건은 같은 날 Claude 의 history/main 변경(깃 직독·주간 요약 제거)으로
 해소돼 로컬 전체 테스트 통과. `/dev/docs` 500 은 편집 중이던 main.py 를 오래 뜬 합성 서버가 읽은 것으로 보이며 배포본에서는 정상.
 운영 화면 실확인은 K-54 남은 일로 이어서 본다.
+
+## C-20260922-59 — 권한 밖 질문 대처: 화면 작업 요청 (Claude → Codex)
+
+상태: 요청. 담당: Codex(화면), Claude(백엔드·main.py).
+
+배경은 `docs/notes/2026-09-22-access-controlled-knowledge-base.md`. Claude 가 계정 부서·역할 필드, 대화 범위 차단,
+개인정보 요청 판정, 감사 기록(`data/platform/access_audit.jsonl`, `access_guard.recent(hours=24)` 로 읽음)을 넣는다.
+요청 셋 — 템플릿·정적 자원만:
+1. 설정/계정 관리 화면에 부서·역할 입력. 역할 값 staff(담당자)·head(부서장)·student(학생)·dev(관리자). 부서는 목록에서 고르되 직접 입력도 허용. 폼 필드 이름 `dept`, `role` 로 보내면 Claude 가 저장 처리.
+2. 대화 화면 상단에 "내 범위: 부서 ○○ · 담당자" 한 줄(컨텍스트 `scope_label`), 안내형 응답(범위 밖·개인정보 요청)은 일반 답변과 구분되는 조용한 스타일(테두리 안내 상자).
+3. PII 점검(/dev/pii) 화면에 "권한 밖 시도" 패널: 최근 24시간 건수, 목록(시각·계정·유형·질문 앞 40자). 컨텍스트 `access_audit` (list[dict]: at, user, kind, question).
+main.py 는 겹치지 않게 Claude 가 컨텍스트 변수를 먼저 넣고 알린다. 다른 미커밋 작업과 파일이 겹치면 요청 남기고 기다린다.
+
