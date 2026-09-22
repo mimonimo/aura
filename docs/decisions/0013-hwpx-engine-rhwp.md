@@ -1,8 +1,8 @@
 # 0013. 웹 한글 기안기 엔진 — rhwp (Node 사이드카)
 
-- **상태**: 대체됨(→ 0014)
-- **날짜**: 2026-09-08
-- **관련**: ADR-0007(OCR·산출), HWPX 스킬 노트(docs/notes/hwpx-agent-skills.md),
+- 상태: 대체됨(→ 0014)
+- 날짜: 2026-09-08
+- 관련: ADR-0007(OCR·산출), HWPX 스킬 노트(docs/notes/hwpx-agent-skills.md),
   한글 에이전트(tools/hwp-agent), 사용자 확정(2026-09-08)
 
 ## 맥락
@@ -22,16 +22,16 @@ rhwp(edwardkim/rhwp, Rust+WASM, MIT, npm `@rhwp/core` v0.8.6)를 맥에서
 - 편집 API 풍부: insertText/insertTextInCell/createTable/applyCharFormat/
   applyCellStyle/exportHwpx/renderPageSvg/renderPageHtml 등.
 - 한계: v1.0 이전(조판 엔진 체계화 중), HML 일부만 지원. **createEmpty(빈
-  문서 처음부터)는 기본 서식 ID 미등록으로 export 실패** — 양식 기반이 정답.
+  문서 처음부터)는 기본 서식 ID 미등록으로 export 실패**, 양식 기반이 정답.
 
 ## 결정
 
-웹 한글 기안기 엔진으로 **rhwp를 채택**한다. 문서 생성은 "빈 문서 짓기"가
-아니라 **양식(.hwp/.hwpx)을 열어 채우기**를 기본으로 한다(사용자: "양식도
+웹 한글 기안기 엔진으로 rhwp를 채택한다. 문서 생성은 "빈 문서 짓기"가
+아니라 양식(.hwp/.hwpx)을 열어 채우기를 기본으로 한다(사용자: "양식도
 있고 주로 채워넣고 비슷하다"). 이는 createEmpty의 서식 문제를 피하고 실무
 흐름과도 맞는다.
 
-통합은 **Node 사이드카 서비스**로 한다.
+통합은 Node 사이드카 서비스로 한다.
 - 작은 Node 프로세스가 rhwp를 담당: 양식 열기 → 필드/셀 채우기 → .hwpx/.hwp
   내보내기 → (필요 시) SVG/PDF 렌더. HTTP로 노출.
 - 파이썬 플랫폼(FastAPI)은 HTTP로 호출한다. 역할 분리로 rhwp를 원본 그대로
@@ -41,7 +41,7 @@ rhwp(edwardkim/rhwp, Rust+WASM, MIT, npm `@rhwp/core` v0.8.6)를 맥에서
 단계:
 1. (지금) 사이드카 골격 + 플랫폼 초안 내보내기를 rhwp 경로로 업그레이드
    (.hwp 양식 지원). 기존 python-hwpx는 폴백으로 유지.
-2. (다음) 브라우저 WASM 편집기 임베드 — 대화창에서 초안 열어 지시로 수정
+2. (다음) 브라우저 WASM 편집기 임베드: 대화창에서 초안 열어 지시로 수정
    (rhwp Action/Field API + 얇은 명령 계약 protocol.md 공유).
 
 ## 근거

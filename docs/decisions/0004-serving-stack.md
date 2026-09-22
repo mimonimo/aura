@@ -14,8 +14,8 @@ vLLM은 리서치 1안으로 확정된 상태였고, 남은 것은 "aarch64 + Bl
 
 | 안 | 결과 |
 |---|---|
-| A. `v0.11.0` 릴리스 (digest 014a95f2…) | 실패 — 동봉 triton ptxas가 sm_121a 미지원: `ptxas fatal: Value 'sm_121a' is not defined for option 'gpu-name'` |
-| B. nightly (digest df6c5814…) | 성공 — torch.compile 정상, 서버 기동, 응답 확인 |
+| A. `v0.11.0` 릴리스 (digest 014a95f2…) | 실패, 동봉 triton ptxas가 sm_121a 미지원: `ptxas fatal: Value 'sm_121a' is not defined for option 'gpu-name'` |
+| B. nightly (digest df6c5814…) | 성공, torch.compile 정상, 서버 기동, 응답 확인 |
 
 ## 결정
 
@@ -27,7 +27,7 @@ vLLM은 리서치 1안으로 확정된 상태였고, 남은 것은 "aarch64 + Bl
 
 - 모델: Qwen/Qwen3-4B, `--max-model-len 8192 --gpu-memory-utilization 0.5`
 - 처리량: TTFT 중앙값 47ms · 생성 23.0 tok/s (배치 1, 스트리밍, max_tokens=256,
-  temperature=0, 단일 동시 요청, 웜업 1회 제외 3회 측정 — `scripts/21_serving_smoke.py`)
+  temperature=0, 단일 동시 요청, 웜업 1회 제외 3회 측정, `scripts/21_serving_smoke.py`)
 - 대역폭 제약(~273GB/s) 장비의 dense 4B 기대 범위 내. 브리프의 MoE 우선 지침 타당성 뒷받침.
 
 ## 운영 함정 2건 (재현 절차에 포함할 것)
@@ -49,13 +49,13 @@ sLLM 목표(로컬 최대 성능)에 따라 주 서빙을 Qwen3-4B → Qwen3-30B
 
 | Qwen3.5-35B-A3B (MoE, 활성 3B) | 87ms | 30.8 tok/s |
 
-MoE가 dense 4B보다 빠르면서 품질은 상위 체급 — 대역폭 제약 장비에서 MoE를
+MoE가 dense 4B보다 빠르면서 품질은 상위 체급, 대역폭 제약 장비에서 MoE를
 우선하라는 브리프 4장의 판단이 실측으로 확인됐다. 최종 주 서빙은 리서치 1안
 그대로 Qwen3.5-35B-A3B (2026-09-02 교체. 전날 "저장소 없음" 판단은 구 CLI
-오류 로그를 오독한 것으로 정정한다). FP8 변형(Qwen3.5-35B-A3B-FP8)은 시도했으나 이 이미지에서 cutlass_scaled_mm 'Error Internal'(sm_121 FP8 커널 미성숙)로 기동 실패 — bf16 유지, vLLM 업데이트 시 재시도.
+오류 로그를 오독한 것으로 정정한다). FP8 변형(Qwen3.5-35B-A3B-FP8)은 시도했으나 이 이미지에서 cutlass_scaled_mm 'Error Internal'(sm_121 FP8 커널 미성숙)로 기동 실패, bf16 유지, vLLM 업데이트 시 재시도.
 기동 파라미터는 serving.yaml.
 
 ## 결과와 되돌리기 비용
 
 이 다이제스트가 모델 카드·평가 재현 절차의 서빙 기준이 된다. 이미지 교체 시
-스모크(기동 + 응답 + 처리량) 재실행이 필수 — 절차는 이 문서와 serving.yaml에 있다.
+스모크(기동 + 응답 + 처리량) 재실행이 필수, 절차는 이 문서와 serving.yaml에 있다.
