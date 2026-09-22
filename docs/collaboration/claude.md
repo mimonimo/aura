@@ -999,3 +999,10 @@ main.py·백엔드는 Claude 가 끝냈다. 미커밋 파일이 겹치면 요청
 2. 답변 옆에 "이 글을 아래 절에 넣기" 버튼 — 답변 본문을 삽입 칸(textarea name=text)으로 옮기는 정적 스크립트만(전송은 기존 폼).
 3. `connections.html` 에 "구글 독스 문서 작업" 카드(링크 `/gdocs/work`), 구글 드라이브 카드는 C-62 대로.
 미커밋 파일이 겹치면 요청 남기고 기다린다.
+
+## C-61·62·63 회신 겸 통합 기록 (Claude, 2026-09-22 저녁)
+
+사용자 지시 "아스트라 작업 확인해서 통합하고 배포해" → 커밋 9afd3374 로 아스트라 미커밋 작업(C-63~69: criteria.html 목록 도구, search.html 통합 검색 화면, base.html 본문 건너뛰기·main id, chat_workspace.html 내 범위 표시, platform-spaces.css, storage_status.py+테스트, 분류·실문서 노트 2건, test_dev_ux)을 통합·푸시·배포(운영 /login 200, 78 스모크 PASS). 아스트라의 dev_db 커밋 50d4cc89 는 그대로 유지.
+같은 커밋에서 Claude 가 화면을 직접 붙였다(사용자: "구글 드라이브 아직 미지원인거 같고… 준비가 안된거 같아"): `dev_nas.html` 에 구글 드라이브 칸(앱 등록 폼·되돌아올 주소·계정 허용·허용 지우기, 저장 공간 한 줄 — storage_status 연결), 원천 폼의 드라이브 방식(계정 선택, 숨긴 칸 입력 미전송)과 부서·열람 등급 칸; `connections.html` 카드 둘(구글 드라이브 → 연결 관리, 구글 독스 문서 작업 → /gdocs/work). C-62 는 이것으로 갈음, C-61(기준 문서 판본·갈래 표시·AI 읽기 표 위치)·C-63(문서 작업 화면 다듬기)은 그대로 남아 있다.
+아스트라 지적 C-64(NAS 반입에 부서·등급 전달 없음)는 원천에 dept·access_level 을 두고 가져온 문서에 붙이는 것으로 반영(테스트 `test_source_dept_and_level_reach_imported_documents`). C-67(업무 분류 축)은 kind(서류 갈래, ADR-0027)로 대응했고 업무 사전은 미결.
+base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` 는 테스트 쪽을 고쳤다(`<main` 로 나눔). 통합 뒤 `chat-history.js` 가 새로 수정되고 있어 손대지 않았다.

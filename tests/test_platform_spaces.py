@@ -11,8 +11,8 @@ def test_home_and_spaces_keep_work_tools(tmp_path, monkeypatch):
         assert page.status_code == 200
         assert '/static/platform-spaces.css' in page.text
     connections = client.get('/connections').text
-    assert '<span class="connection-state">미지원</span>' in connections
-    assert 'href="/dev/nas"' in connections
+    assert '미지원' not in connections                      # 구글 드라이브·독스는 이제 연결 가능(ADR-0028·0029)
+    assert 'href="/dev/nas"' in connections and 'href="/gdocs/work"' in connections
     assert '일반휴학 처리 기준' not in client.get('/chat').text
 
 
