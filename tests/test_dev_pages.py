@@ -306,3 +306,16 @@ def test_weekly_feedback_is_saved_and_used(client):
     assert "GPU 서버 10월 초 배정" in page
     md = client.get("/dev/weekly.md?fresh=1").text
     assert "주간업무보고" in md
+
+
+def test_weekly_markdown_is_tidied_for_screen_and_export():
+    """연번 항목 앞 빈 줄·세부 줄 '   - ' 로 골라야 화면(마크다운)과 내보내기(docx·hwpx)가 1,2,3 을 항목으로 본다."""
+    from zzaimy.app.draft_export import parse_draft
+    from zzaimy.app.main import _tidy_weekly_md
+
+    md = "【이번 주 한 일】\n1. 장비 구성\n- 토르 2대\n2. 문서 반입\n• 194건\n【다음 주 계획】\n1. 파일럿"
+    assert len([b for s in parse_draft(md) for b in s["blocks"]]) == 1          # 정리 전: 한 문단에 뭉침
+    tidy = _tidy_weekly_md(md)
+    assert "\n\n2. 문서 반입\n   - 194건" in tidy and tidy.startswith("【이번 주 한 일】\n\n1. 장비 구성\n   - 토르 2대")
+    blocks = [b for s in parse_draft(tidy) for b in s["blocks"]]
+    assert [b["kind"] for b in blocks] == ["p", "list", "list", "p", "list"]

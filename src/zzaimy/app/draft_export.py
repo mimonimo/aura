@@ -12,6 +12,27 @@ import re
 
 _HEAD = re.compile(r"^##\s+(.+)$")
 _TABLE_SEP = re.compile(r"^\|[\s:|-]+\|$")
+# 목록 줄 — 연번("1. ", "2) ")은 항목, 불릿("- ", "• ", "· ")은 그 항목의 세부 줄.
+# 한 문단에 섞어 넣으면 워드·한글이 첫 줄만 번호로 보고 나머지는 점으로 그린다(2026-09-22 주간 보고 실측).
+_NUM_ITEM = re.compile(r"^(\d+)[.)]\s+(.+)$")
+_BULLET_ITEM = re.compile(r"^[-•·◦▪*]\s+(.+)$")
+
+
+def _list_items(lines: list[str]) -> list[tuple[int, str]] | None:
+    """줄 묶음이 목록이면 [(수준, 글)] — 연번 줄이 하나도 없으면 None(보통 문단)."""
+    if not any(_NUM_ITEM.match(ln) for ln in lines):
+        return None
+    items: list[tuple[int, str]] = []
+    for ln in lines:
+        if _NUM_ITEM.match(ln):
+            items.append((0, ln))
+        elif (m := _BULLET_ITEM.match(ln)):
+            items.append((1, m.group(1)))
+        elif items:
+            items[-1] = (items[-1][0], items[-1][1] + " " + ln)   # 이어지는 줄은 앞 항목에 붙인다
+        else:
+            items.append((0, ln))
+    return items
 
 
 def parse_draft(draft: str) -> list[dict]:
@@ -49,7 +70,11 @@ def parse_draft(draft: str) -> list[dict]:
             while i < len(lines) and lines[i].strip() and not lines[i].startswith(("|", "## ")):
                 para.append(lines[i].strip())
                 i += 1
-            cur["blocks"].append({"kind": "p", "text": "\n".join(para)})
+            items = _list_items(para)
+            if items:
+                cur["blocks"].append({"kind": "list", "items": items})
+            else:
+                cur["blocks"].append({"kind": "p", "text": "\n".join(para)})
             continue
         i += 1
     return [s for s in sections if s["blocks"] or s["title"]]
@@ -78,6 +103,11 @@ def build_draft_docx(
                     for ci, cell in enumerate(row):
                         t.rows[ri].cells[ci].text = cell
                 doc.add_paragraph("")
+            elif b["kind"] == "list":
+                for level, text in b["items"]:
+                    para = doc.add_paragraph(text if level == 0 else f"· {text}")
+                    if level:
+                        para.paragraph_format.left_indent = Inches(0.3)
             else:
                 doc.add_paragraph(b["text"])
     if images:
@@ -117,6 +147,9 @@ def build_draft_hwpx(
                     for ri, row in enumerate(rows):
                         for ci, cell in enumerate(row):
                             t.set_cell_text(ri, ci, cell, logical=True)
+                elif b["kind"] == "list":
+                    for level, text in b["items"]:
+                        doc.add_paragraph(text if level == 0 else f"    · {text}", style="바탕글")
                 else:
                     for para in b["text"].split("\n"):
                         doc.add_paragraph(para, style="바탕글")
