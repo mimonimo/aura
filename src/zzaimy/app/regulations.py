@@ -599,10 +599,13 @@ def chunk_document(text: str) -> list[RegulationChunk]:
     text = (text or "").strip()
     if not text:
         return []
-    reg = split_regulation(text)
-    # 조문형이면(조각이 여럿·평균 길이 적정) 그대로. 아니면 서술형 청커로 재분할.
-    if len(reg) >= 3 and max((len(c.content) for c in reg), default=0) <= 1600:
-        return reg
+    # 조문 구조(제N조 …)가 실제로 있을 때만 조문 경로. 그 밖의 서술형(공고·계획서)은 빈 줄이 있어도
+    # split_prose 로 — 문단 경로는 불릿을 절과 같은 급으로 끊어 '4. 신청방법' 한 절이 항목마다 흩어졌다
+    # (실측 2026-09-22, HUSS 공고). 두 급 경계는 split_prose 에만 있다.
+    if len([p for p in _ARTICLE.split(text) if p.strip()]) >= 3:
+        reg = split_regulation(text)
+        if len(reg) >= 3 and max((len(c.content) for c in reg), default=0) <= 1600:
+            return reg
     return split_prose(text)
 
 

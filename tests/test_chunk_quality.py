@@ -314,3 +314,17 @@ def test_merged_cells_repeated_across_a_row_collapse_to_one():
     text = "< 신청 조건 >\n" + "\n".join("|《 사업 신청 조건 》| |《 사업 신청 조건 》| 항목 %d | 값 %d" % (i, i) for i in range(6))
     chunks = split_prose(text)
     assert all(c.content.count("사업 신청 조건") <= 6 for c in chunks) and "》 | 《" not in "".join(c.content for c in chunks)
+
+
+def test_notice_with_blank_lines_uses_two_level_prose_splitting():
+    """빈 줄로 문단이 나뉜 공고도 서술형 경로로 간다 — 불릿 항목이 절 안에 남는다."""
+    from zzaimy.app.regulations import chunk_document
+
+    text = ("교육부 공고 제2024-871호 인문사회 융합인재양성사업 컨소시엄 선정 공고\n\n"
+            "1. 사업목적\n\n◦ 대학 간 공유·협력을 통해 인문사회 중심의 융합교육체제를 구축한다.\n\n"
+            "4. 신청방법\n\n◦ (신청절차) 가 신청 접수 후 본 신청을 받는다. 주관대학이 일괄 신청한다.\n\n"
+            "◦ (제출방법) 전자문서로 시스템에 입력한다. 우편 접수는 받지 않는다.\n\n"
+            "◦ (접수처) 한국연구재단 산학협력진흥팀. 문의는 대표번호로 한다.\n\n"
+            "5. 기타사항\n\n◦ 사업설명회는 3월 13일 대전청사에서 연다. 참석은 자유다.")
+    heads = [c.heading for c in chunk_document(text)]
+    assert "4. 신청방법" in heads and not any(h.startswith("◦") for h in heads)
