@@ -556,7 +556,7 @@ def test_draft_only_for_grant_docs(client):
     assert client.post("/doc/1/draft").status_code == 400  # 채용 서류는 검토·판정 플로우
     page = client.get("/doc/1").text
     # 떠 있는 에이전트 창이 모든 화면에 있으므로 문서 영역만 본다
-    body = page.split('<main>', 1)[-1].split('</main>', 1)[0]
+    body = page.split('<main', 1)[-1].split('</main>', 1)[0]
     assert "초안" not in body  # 채용 문서 화면에는 초안 버튼이 없다
 
 

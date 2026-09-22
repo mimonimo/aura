@@ -141,7 +141,7 @@ def _passes_filters(src: dict, rel: str, size: int, mtime: float) -> bool:
 def add(name: str, backend: str, root: str, target: str, sector: str = "common", username: str = "",
         password: str = "", domain: str = "", extensions: str = "", recursive: bool = True,
         auto: bool = False, interval_min: int = 60, since: str = "", exclude: str = "",
-        max_mb: int = 0) -> dict:
+        max_mb: int = 0, dept: str = "", access_level: str = "") -> dict:
     if backend not in BACKENDS:
         raise ValueError("연결 방식이 올바르지 않습니다")
     if target not in TARGETS:
@@ -166,6 +166,8 @@ def add(name: str, backend: str, root: str, target: str, sector: str = "common",
         "extensions": _norm_exts(extensions), "recursive": bool(recursive),
         "since": since.strip() if _parse_since(since) else "", "exclude": _norm_excludes(exclude),
         "max_mb": max(0, int(max_mb or 0)),
+        # 원천에서 들어오는 문서에 붙는 부서·열람 등급(access_policy) — 비우면 유형 기본값
+        "dept": (dept or "").strip()[:40], "access_level": access_level if access_level in ("public", "dept", "owner") else "",
         "auto": bool(auto), "interval_min": max(5, int(interval_min or 60)),
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"), "last_run": "", "last_summary": "",
     }
@@ -199,6 +201,10 @@ def update(sid: str, **fields) -> dict:
         src["exclude"] = _norm_excludes(fields["exclude"])
     if "max_mb" in fields and fields["max_mb"] is not None:
         src["max_mb"] = max(0, int(fields["max_mb"] or 0))
+    if "dept" in fields and fields["dept"] is not None:
+        src["dept"] = str(fields["dept"]).strip()[:40]
+    if "access_level" in fields and fields["access_level"] is not None:
+        src["access_level"] = fields["access_level"] if fields["access_level"] in ("public", "dept", "owner") else ""
     pw = fields.get("password")
     if pw == "clear":
         src["password"] = ""
@@ -478,7 +484,8 @@ def sync(src: dict, db, processor, inbox_dir: Path, limit: int | None = None,
                 stored = inbox_dir / f"{uuid.uuid4().hex}{Path(rel).suffix.lower()}"
                 stored.write_bytes(data)
                 doc_id = db.add_document(filename=Path(rel).name, stored_path=str(stored),
-                                         doc_type=src["target"], sector=src.get("sector", "common"))
+                                         doc_type=src["target"], sector=src.get("sector", "common"),
+                                         dept=src.get("dept") or None, access_level=src.get("access_level") or None)
                 try:
                     processor.process(db, doc_id, stored)
                 except Exception as e:  # 처리 실패는 문서 상태에 남기고 반입은 계속한다

@@ -49,8 +49,8 @@
 </style>
 
 <p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
-  <a href="/dev" class="btn-ghost">← 개발 현황</a>
-  <span class="muted" style="font-size:12.5px;">마운트된 공유 폴더나 NAS(SMB)에서 문서를 읽어 옵니다 · 읽기 전용, 원본에는 쓰지 않습니다</span></p>
+  <a href="/connections" class="btn-ghost">← 자료 연결</a>
+  <span class="muted" style="font-size:12.5px;">NAS·공유 폴더의 문서 가져오기</span></p>
 
 {% if err %}
 <div class="card" style="border-color:#F0D9B8;"><div class="card-in" style="padding:12px 18px; font-size:13px;">{{ err }}</div></div>
@@ -61,6 +61,36 @@
 {% if not smb_ok %}
 <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>SMB 연결에는 서버 구성이 필요합니다.</span></p>
 {% endif %}
+
+<datalist id="deptChoices">{% for d in dept_choices %}<option value="{{ d }}"></option>{% endfor %}</datalist>
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:cloud-linear"></iconify-icon>구글 드라이브
+    <span class="muted" style="margin-left:auto; font-size:12px;">{% if gdrive.configured %}앱 등록됨 ({{ gdrive.client_id_hint }}, {{ gdrive.set_at }}){% else %}앱 등록 전{% endif %}</span></h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">드라이브 폴더를 읽기 전용 원천으로 쓰고, 구글 독스를 <a href="/gdocs/work">문서 작업</a> 화면에서 에이전트와 함께 고칩니다. 순서는 관리자의 앱 등록 → 담당자의 계정 허용 → 폴더 연결입니다. 절차는 <a href="/dev/doc/notes/2026-09-22-google-drive-source.md">설정 문서</a>.</p>
+  <div class="row" style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+    <form action="/dev/gdrive/client" method="post" class="nas-form" style="margin:0;">
+      <fieldset><legend>1. 앱 등록 (관리자)</legend>
+        <label>클라이언트 ID<input type="text" name="client_id" placeholder="….apps.googleusercontent.com" autocomplete="off" required></label>
+        <label>클라이언트 비밀<input type="password" name="client_secret" autocomplete="off" required></label>
+        <p class="hint" style="margin:6px 0;">구글 클라우드 콘솔의 OAuth 클라이언트(웹)에 이 되돌아올 주소를 등록합니다:<br><code style="user-select:all;">{{ gdrive.redirect_uri }}</code></p>
+        <button type="submit" class="secondary" style="padding:6px 12px; font-size:12.5px;">저장</button>
+      </fieldset>
+    </form>
+    <div class="nas-form">
+      <fieldset><legend>2. 계정 허용 (담당자)</legend>
+        <p class="hint" style="margin:0 0 8px;">허용 범위: 드라이브 읽기, 구글 독스 읽기·쓰기. 범위가 바뀌면 다시 허용합니다.</p>
+        {% if gdrive.configured %}<a class="btn secondary" href="/dev/gdrive/auth" style="display:inline-block; padding:6px 12px; font-size:12.5px;">구글 계정 허용</a>{% else %}<button type="button" class="secondary" disabled style="padding:6px 12px; font-size:12.5px;">구글 계정 허용 (앱 등록 뒤)</button>{% endif %}
+        {% if gdrive.accounts %}
+        <table style="font-size:12.5px; margin-top:10px;"><tr><th>계정</th><th>허용 시각</th><th>문서 편집</th><th></th></tr>
+          {% for a in gdrive.accounts %}<tr><td>{{ a.email }}</td><td>{{ a.granted_at }}</td><td>{{ '가능' if 'https://www.googleapis.com/auth/documents' in a.scopes else '다시 허용 필요' }}</td>
+            <td><form action="/dev/gdrive/revoke" method="post" style="display:inline;"><input type="hidden" name="email" value="{{ a.email }}"><button type="submit" class="secondary" style="padding:3px 8px; font-size:12px;">허용 지우기</button></form></td></tr>{% endfor %}
+        </table>
+        {% else %}<p class="muted" style="font-size:12.5px; margin-top:8px;">허용한 계정이 없습니다.</p>{% endif %}
+      </fieldset>
+    </div>
+  </div>
+  {% if storage and storage.available %}<p class="muted" style="font-size:12px; margin:10px 0 0;">문서 저장 공간: 사용 {{ (storage.used_bytes / 1073741824) | round(1) }}GB / 전체 {{ (storage.total_bytes / 1073741824) | round(1) }}GB ({{ storage.used_percent }}%){% if storage.low_space %} · 남은 공간이 적습니다{% endif %}</p>{% endif %}
+</div></div>
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>연결한 폴더
@@ -149,6 +179,10 @@
     </div>
     <label>경로<input type="text" name="root" value="{{ s.root if s else '' }}" required class="nas-root" data-fid="{{ fid }}">
       <span class="hint nas-root-hint" data-fid="{{ fid }}"></span></label>
+    <div class="row nas-gacct" data-fid="{{ fid }}">
+      <label>허용한 구글 계정<select name="username" class="nas-gacct-sel">{% for a in gdrive.accounts %}<option value="{{ a.email }}" {{ 'selected' if s and s.username == a.email else '' }}>{{ a.email }}</option>{% endfor %}</select>
+        {% if not gdrive.accounts %}<span class="hint">아직 허용한 계정이 없습니다 — 아래 구글 드라이브 칸에서 계정 허용을 먼저 합니다</span>{% endif %}</label>
+    </div>
     <div class="row nas-cred" data-fid="{{ fid }}">
       <label>읽기 전용 계정<input type="text" name="username" value="{{ s.username if s else '' }}" autocomplete="off"></label>
       <label>비밀번호{% if s %} <span class="hint">(저장됨 {{ '있음' if s.has_password else '없음' }} · 비우면 유지, clear 면 삭제)</span>{% endif %}<input type="password" name="password" autocomplete="off"></label>
@@ -218,6 +252,8 @@
     <legend>저장 위치</legend>
     <div class="row">
       <label>가져온 문서를 넣을 곳<select name="target" class="nas-target" data-fid="{{ fid }}">{% for k, v in targets.items() %}<option value="{{ k }}" {{ 'selected' if s and s.target == k else '' }}>{{ v }}</option>{% endfor %}</select></label>
+      <label>부서 <span class="hint">(가져온 문서에 붙는 부서)</span><input type="text" name="dept" list="deptChoices" value="{{ s.dept if s and s.dept else '' }}" placeholder="공통"></label>
+      <label>열람 등급<select name="access_level"><option value="">유형 기본값</option>{% for k, v in levels.items() %}<option value="{{ k }}" {{ 'selected' if s and s.access_level == k else '' }}>{{ v }}</option>{% endfor %}</select></label>
       <label class="nas-sector" data-fid="{{ fid }}">업무 영역<select name="sector">{% for k, v in sectors.items() %}<option value="{{ k }}" {{ 'selected' if s and s.sector == k else '' }}>{{ v }}</option>{% endfor %}</select></label>
     </div>
   </fieldset>
@@ -264,7 +300,8 @@
 
 <script>
   (function () {
-    var hints = { local: "예: /mnt/share/규정  (관리자가 마운트한 공유 경로)", smb: "예: \\\\nas.ync.ac.kr\\문서\\규정" };
+    var hints = { local: "예: /mnt/share/규정  (관리자가 마운트한 공유 경로)", smb: "예: \\\\nas.ync.ac.kr\\문서\\규정",
+                  gdrive: "드라이브 폴더 주소(…/folders/ID) 또는 폴더 ID · 공유 드라이브도 됩니다" };
     function joinPath(root, name, backend) {
       var sep = (backend === "smb" || root.indexOf("\\") >= 0) ? "\\" : "/";
       return root.replace(/[\\/]+$/, "") + sep + name;
@@ -275,10 +312,17 @@
     function setup(fid) {
       var q = function (sel) { return document.querySelector(sel + '[data-fid="' + fid + '"]'); };
       var backend = q(".nas-backend"), cred = q(".nas-cred"), hint = q(".nas-root-hint"), target = q(".nas-target"), sector = q(".nas-sector");
+      var gacct = q(".nas-gacct");
+      function toggle(group, on) {
+        if (!group) return;
+        group.style.display = on ? "" : "none";
+        group.querySelectorAll("input,select").forEach(function (el) { el.disabled = !on; });
+      }
       var rootIn = q(".nas-root"), box = q(".browse"), dirsEl = q(".nas-dirs"), msg = q(".nas-browse-msg"), out = q(".nas-probe-out");
       function refresh() {
         var b = backend ? backend.value : "local";
-        if (cred) cred.style.display = (b === "smb") ? "" : "none";
+        toggle(cred, b === "smb");
+        toggle(gacct, b === "gdrive");
         if (hint) hint.textContent = hints[b] || "";
         if (sector && target) sector.style.display = (target.value === "regulation") ? "" : "none";
       }
