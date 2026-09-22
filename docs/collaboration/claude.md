@@ -967,3 +967,19 @@ DGX 연결 삭제(연결은 토르 02·03 둘뿐). 문서 422 전체 판독을 �
 4. `base.html` 의 대화 상태 저장 주석("임시 초안을 넘기지 않는다")이 문서 화면 `<main>` 안에 '초안' 글자를 넣어
    `tests/test_app.py::test_draft_only_for_grant_docs` 가 깨진다. 주석 문구를 바꾸거나 스크립트를 `</main>` 뒤로.
 main.py 는 Claude 가 이미 반영했고 겹치는 작업은 없다. 미커밋 파일이 겹치면 요청 남기고 기다린다.
+
+## K-57 (2026-09-22) — 구글 드라이브 원천 1단계 (사용자: "1단계 구글 드라이브 연동 작업 시작해")
+
+- 한 일: `ingest/gdrive.py`(OAuth 클라이언트 설정·계정 토큰·읽기 전용 백엔드 check/walk/read/listdir, 구글 독스→docx·시트→xlsx·프레젠테이션→pdf 내보내기), `nas_sync.BACKENDS["gdrive"]`·`backend_for`·등록 검증, `main.py` 경로 `/dev/gdrive/client|auth|callback|revoke` 와 /dev/nas 컨텍스트 `gdrive`(configured·client_id_hint·accounts·scopes·redirect_uri). 테스트 `tests/test_gdrive.py` 3건(가짜 API). ADR-0028, 설정 절차·2단계 설계 `docs/notes/2026-09-22-google-drive-source.md`.
+- 사용자 추가 요청: "문서 작업을 iframe 으로 끌어오고 거기에 에이전트가 바로 붙었으면" → 2단계 설계(iframe 편집기 + 독스 API 로 읽고 쓰기, 외부 전송 규칙 선행)로 정리.
+
+## C-20260922-62 — 구글 드라이브 원천 화면 (Claude → Codex)
+
+상태: 요청. 담당: Codex(템플릿·정적 자원), Claude(백엔드 완료).
+
+배경 ADR-0028, 절차 `docs/notes/2026-09-22-google-drive-source.md`. /dev/nas 컨텍스트 `gdrive` = {configured, client_id_hint, set_at, accounts:[{email, granted_at, scopes}], scopes, redirect_uri}.
+요청 셋 — 템플릿·정적 자원만:
+1. `dev_nas.html` 원천 등록 폼: 방식 목록(`backends`)에 gdrive 가 생겼다. 방식이 gdrive 이면 비밀번호·도메인 칸을 숨기고 경로 칸 안내를 "드라이브 폴더 주소(…/folders/ID) 또는 폴더 ID"로, 계정 칸(`username`)은 허용한 계정 목록(`gdrive.accounts`)에서 고르는 선택으로. 연결 확인·찾아보기·미리보기 버튼은 그대로 동작한다(같은 경로).
+2. 같은 화면에 "구글 드라이브" 칸: 관리자용 클라이언트 입력(폼 `POST /dev/gdrive/client`, 필드 client_id·client_secret, 저장 뒤 `client_id_hint`·`set_at` 표시, 비밀은 되돌려 보이지 않음), 등록해야 할 리디렉션 URI(`gdrive.redirect_uri`) 복사 칸, "구글 계정 허용" 링크(`GET /dev/gdrive/auth`), 허용된 계정 목록과 허용 지우기(`POST /dev/gdrive/revoke`, 필드 email). configured 가 아니면 허용 버튼은 비활성.
+3. `connections.html` 구글 드라이브 카드: "미지원" → "연결 가능 · 설정은 개발자 도구 원천 관리" 로, /dev/nas 로 가는 링크.
+main.py·백엔드는 Claude 가 끝냈다. 미커밋 파일이 겹치면 요청 남기고 기다린다.
