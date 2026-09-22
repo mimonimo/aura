@@ -152,3 +152,20 @@ def test_browse_plan_and_filters(env, tmp_path):
     assert pl2["new"] == 0 and pl2["same"] == 2
     page = client.get(f"/dev/nas?plan={src['id']}").text
     assert "미리보기" in page and "그대로 2" in page
+
+
+def test_source_dept_and_level_reach_imported_documents(env, tmp_path):
+    """원천에 적은 부서·열람 등급이 가져온 문서에 붙는다(C-64 지적: NAS 반입에 부서·등급 전달이 없었다)."""
+    app, client, nas = env
+    r = client.post("/dev/nas/add", data={"name": "학생처 폴더", "backend": "local", "root": str(nas / "규정"),
+                                          "target": "ocr", "sector": "common", "extensions": "", "recursive": "1",
+                                          "dept": "학생처", "access_level": "dept"}, follow_redirects=False)
+    assert r.status_code == 303 and "ok=" in r.headers["location"]
+    src = nas_sync.list_sources()[-1]
+    assert src["dept"] == "학생처" and src["access_level"] == "dept"
+    from test_app import FakeProcessor
+    nas_sync.sync(src, app.state.db, FakeProcessor(), tmp_path / "inbox")
+    docs = [d for d in app.state.db.list_documents("ocr")]
+    assert docs and all(d["dept"] == "학생처" and d["access_level"] == "dept" for d in docs)
+    page = client.get("/dev/nas").text
+    assert "구글 드라이브" in page and "/dev/gdrive/client" in page and "열람 등급" in page

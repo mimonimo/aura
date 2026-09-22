@@ -2626,6 +2626,8 @@ def create_app(
             import smbclient  # noqa: F401
         except ImportError:
             smb_ok = False
+        from zzaimy.app import storage_status
+        from zzaimy.app.access_policy import LEVELS
         from zzaimy.ingest import gdrive
 
         return templates.TemplateResponse(request, "dev_nas.html", ctx(request, {
@@ -2634,6 +2636,8 @@ def create_app(
             "default_exts": " ".join(nas_sync.DEFAULT_EXTENSIONS), "probe_result": probe_result,
             "plan_result": plan_result, "type_groups": nas_sync.TYPE_GROUPS, "smb_ok": smb_ok,
             "gdrive": {**gdrive.public_status(), "redirect_uri": _gdrive_redirect_uri(request)},
+            "levels": LEVELS, "dept_choices": [d.get("dept") for d in db.department_counts() if d.get("dept")],
+            "storage": storage_status.snapshot(inbox_dir),
         }))
 
     # ---- 구글 드라이브 원천 — 관리자가 클라이언트 ID·비밀을 넣고, 담당자가 자기 계정으로 한 번 허용한다(읽기 전용, ADR-0028) ----
@@ -2848,7 +2852,7 @@ def create_app(
                     username: str = Form(""), password: str = Form(""), domain: str = Form(""),
                     ext_group: list[str] = Form([]), extensions: str = Form(""), recursive: str = Form("1"),
                     auto: str = Form(""), interval_min: int = Form(0), since: str = Form(""),
-                    exclude: str = Form(""), max_mb: int = Form(0)):
+                    exclude: str = Form(""), max_mb: int = Form(0), dept: str = Form(""), access_level: str = Form("")):
         from zzaimy.ingest import nas_sync
 
         exts, is_auto, iv = _nas_form_bits(ext_group, interval_min)
@@ -2860,7 +2864,7 @@ def create_app(
             src = nas_sync.add(name, backend, root, target, sector=sector, username=username,
                                password=password, domain=domain, extensions=exts,
                                recursive=(recursive == "1"), auto=is_auto, interval_min=iv,
-                               since=since, exclude=exclude, max_mb=max_mb)
+                               since=since, exclude=exclude, max_mb=max_mb, dept=dept, access_level=access_level)
         except ValueError as e:
             return _nas_redirect(str(e), ok=False)
         nas_sync.ensure_scheduler(db, processor, inbox_dir)
@@ -2871,7 +2875,8 @@ def create_app(
                        sector: str = Form(""), username: str = Form(""), password: str = Form(""),
                        domain: str = Form(""), ext_group: list[str] = Form([]), extensions: str = Form(""),
                        recursive: str = Form("1"), auto: str = Form(""), interval_min: int = Form(0),
-                       since: str = Form(""), exclude: str = Form(""), max_mb: int = Form(0)):
+                       since: str = Form(""), exclude: str = Form(""), max_mb: int = Form(0),
+                       dept: str = Form(""), access_level: str = Form("")):
         from zzaimy.ingest import nas_sync
 
         exts, is_auto, iv = _nas_form_bits(ext_group, interval_min)
@@ -2883,7 +2888,8 @@ def create_app(
             src = nas_sync.update(sid, name=name, root=root, target=target or None, sector=sector or None,
                                   username=username, password=password, domain=domain,
                                   extensions=exts or None, recursive=(recursive == "1"),
-                                  auto=is_auto, interval_min=iv, since=since, exclude=exclude, max_mb=max_mb)
+                                  auto=is_auto, interval_min=iv, since=since, exclude=exclude, max_mb=max_mb,
+                                  dept=dept, access_level=access_level)
         except ValueError as e:
             return _nas_redirect(str(e), ok=False)
         nas_sync.ensure_scheduler(db, processor, inbox_dir)

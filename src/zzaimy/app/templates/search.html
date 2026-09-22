@@ -3,30 +3,43 @@
 {% block pagetitle %}검색{% endblock %}
 {% block content %}
 <style>
-  .sr-group { margin-bottom: 18px; }
-  .sr-row { display:flex; gap:10px; align-items:baseline; padding:9px 0; border-bottom:1px solid var(--line); }
+  main { max-width:1100px; }
+  .sr-group { margin-bottom: 20px; }
+  .sr-group h2 { font-size:16px; margin-bottom:10px; }
+  .sr-row { display:flex; gap:10px; align-items:baseline; padding:18px 0; border-bottom:1px solid var(--line); }
   .sr-row:last-child { border-bottom:0; }
   .sr-row .sr-main { flex:1; min-width:0; }
-  .sr-row .sr-sub { color:var(--muted); font-size:12px; margin-top:2px; overflow-wrap:anywhere; }
-  .sr-row a { color:var(--navy); font-weight:600; text-decoration:none; }
+  .sr-row .sr-sub { color:var(--muted); font-size:13px; line-height:1.7; margin-top:8px; overflow-wrap:anywhere; }
+  .sr-row a { color:var(--ink); font-size:15px; line-height:1.6; overflow-wrap:anywhere; font-weight:600; text-decoration:none; }
+  .sr-row a:hover { color:var(--navy); text-decoration:underline; }
+  .sr-row .pill { white-space:normal; overflow-wrap:anywhere; }
+  .sr-search { display:flex; gap:10px; margin:0 0 24px; }
+  .sr-search input { flex:1; min-width:0; min-height:44px; }
+  .sr-search button { flex:none; min-height:44px; }
+  .sr-nav { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 20px; }
+  .sr-nav a { padding:8px 12px; border-radius:8px; background:var(--panel); color:var(--ink); text-decoration:none; font-size:13px; }
+  .sr-group { scroll-margin-top:120px; }
   .sr-more { font-size:12.5px; }
   .sr-empty { color:var(--muted); font-size:12.5px; margin:0; }
 </style>
 
-<form class="card reveal" action="/search" method="get" style="margin-bottom:16px;">
-  <div class="card-in" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-    <input type="search" name="q" value="{{ q }}" placeholder="문서·대화·근거에서 찾기" style="flex:1; min-width:240px;">
-    <button type="submit">찾기</button>
-  </div>
+<form class="sr-search" action="/search" method="get" role="search" aria-label="통합 검색">
+    <input type="search" name="q" value="{{ q }}" aria-label="검색어" placeholder="문서·대화·근거 검색">
+    <button type="submit">검색</button>
 </form>
 
 {% if not q %}
 <div class="card reveal"><div class="card-in">
-  <p class="sr-empty">찾을 말을 입력하세요. 문서 이름과 본문, 대화 이름·사업·주고받은 글, 규정 조각을 함께 찾습니다.</p>
+  <p class="sr-empty">검색어를 입력하세요.</p>
 </div></div>
 {% else %}
 
-<div class="card reveal sr-group"><div class="card-in">
+<nav class="sr-nav" aria-label="검색 결과 유형">
+  <a href="#srDocuments">문서 {{ docs|length }}{% if docs_more %}+{% endif %}</a>
+  <a href="#srChats">대화 {{ chats|length }}{% if chats_more %}+{% endif %}</a>
+  <a href="#srEvidence">근거 자료 {{ chunks|length }}</a>
+</nav>
+<div class="card sr-group" id="srDocuments"><div class="card-in">
   <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>문서 {{ docs|length }}{% if docs_more %}+{% endif %}</h2>
   {% for d in docs %}
   <div class="sr-row"><div class="sr-main">
@@ -37,10 +50,10 @@
   {% else %}
   <p class="sr-empty">맞는 문서가 없습니다.</p>
   {% endfor %}
-  {% if docs_more %}<p class="sr-more" style="margin:10px 0 0;"><a href="/inbox?q={{ q|urlencode }}">문서 더 보기</a></p>{% endif %}
+  {% if docs_more %}<p class="sr-more muted" style="margin:10px 0 0;">상위 10건 표시 · 검색어를 구체적으로 입력하세요.</p>{% endif %}
 </div></div>
 
-<div class="card reveal sr-group"><div class="card-in">
+<div class="card sr-group" id="srChats"><div class="card-in">
   <h2><iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>대화 {{ chats|length }}{% if chats_more %}+{% endif %}</h2>
   {% for c in chats %}
   <div class="sr-row"><div class="sr-main">
@@ -53,16 +66,15 @@
   {% endfor %}
 </div></div>
 
-<div class="card reveal sr-group"><div class="card-in">
-  <h2><iconify-icon icon="solar:bookmark-square-minimalistic-linear"></iconify-icon>근거 조각 {{ chunks|length }}</h2>
-  <p class="muted" style="font-size:12px; margin:-4px 0 6px;">규정·공고 본문에서 찾은 조각입니다. 답변의 근거로 쓰이는 단위입니다.</p>
+<div class="card sr-group" id="srEvidence"><div class="card-in">
+  <h2><iconify-icon icon="solar:bookmark-square-minimalistic-linear"></iconify-icon>근거 자료 {{ chunks|length }}</h2>
   {% for h in chunks %}
   <div class="sr-row"><div class="sr-main">
     <a href="/doc/{{ h.doc_id }}#q={{ q|urlencode }}">{{ h.reg_title }}{% if h.heading %} · {{ h.heading }}{% endif %}</a>
     <div class="sr-sub">{{ h.snippet }}</div>
   </div></div>
   {% else %}
-  <p class="sr-empty">맞는 조각이 없습니다.</p>
+  <p class="sr-empty">검색된 근거 자료가 없습니다.</p>
   {% endfor %}
 </div></div>
 

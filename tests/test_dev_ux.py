@@ -1,6 +1,14 @@
 from tests.test_dev_pages import client
 
 
+def test_shared_navigation_and_chat_scope(client):
+    page = client.get('/chat').text
+    assert 'href="#workspaceContent"' in page
+    assert '<main id="workspaceContent" tabindex="-1">' in page
+    assert 'class="chat-scope"' in page
+    assert '내 범위:' in page
+
+
 def test_stage_model_rows_do_not_nest_and_help_copy_is_removed(client, monkeypatch, tmp_path):
     from html.parser import HTMLParser
     from zzaimy.app import main

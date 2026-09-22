@@ -147,6 +147,7 @@
     <span class="chat-eyebrow">{{ sector_labels.get(chat_project.sector, '행정 업무') ~ ' · 프로젝트' if chat_project else ('업무 상담' if messages else '새 대화') }}</span>
     {% set conversation_title = chat_project.name if chat_project else (chat_session.title if chat_session else '근거를 찾고, 문서를 다듬으세요') %}
     <h1 title="{{ conversation_title }}">{% if chat_project %}<a href="/project/{{ chat_project.id }}">{{ conversation_title }}</a>{% else %}{{ conversation_title }}{% endif %}</h1>
+    {% if scope_label %}<p class="chat-scope">{{ scope_label }}</p>{% endif %}
     {% if chat_topic and (chat_project or chat_topic != conversation_title) %}
     <p class="chat-topic" title="{{ chat_topic }}">최근 요청 · {{ chat_topic | truncate(110, true) }}</p>
     {% endif %}

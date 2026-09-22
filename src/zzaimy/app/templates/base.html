@@ -439,6 +439,7 @@ document.addEventListener('submit', function(event) {
 <link rel="stylesheet" href="/static/platform-spaces.css">
 </head>
 <body>
+<a class="skip-content" href="#workspaceContent">본문으로 이동</a>
 <aside class="sidebar" id="workspaceSidebar" aria-label="업무 탐색">
   <div class="sidebar-header">
   <button type="button" id="navClose" class="icon-btn sidebar-close" aria-label="메뉴 접기" title="메뉴 접기"><iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
@@ -568,7 +569,7 @@ document.addEventListener('submit', function(event) {
       </div>
     </div>
   </div>
-  <main>{% block content %}{% endblock %}</main>
+  <main id="workspaceContent" tabindex="-1">{% block content %}{% endblock %}</main>
 </div>
 <script>
   // POST 폼 제출 시 스크롤 위치 유지 — 303 리다이렉트로 화면이 맨 위로 튀는 것 방지.
