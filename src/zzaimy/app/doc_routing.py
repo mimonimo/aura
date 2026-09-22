@@ -138,10 +138,10 @@ _KIND_CUES = {
     "announcement": r"공고|모집|공모|제안요청|입찰",
     "plan": r"계획",
     "table": r"편성표|현황|내역|목록|일람|명단|시간표|일정표|배정표",
-    "report": r"결과보고|성과보고|실적보고|결과 보고|최종보고|보고서$|보고$",
+    "report": r"결과보고|성과보고|실적보고|결과 보고|최종보고|보고서|보고$",
     "guideline": r"지침|매뉴얼|안내서|가이드|요령|편람|길라잡이|처리기준|업무기준|운영기준|처리 기준",
     "criteria": r"심사기준|평가기준|평가지표|배점|채점|심사표|평가표",
-    "notice": r"안내|공지|알림|확인사항|유의사항",
+    "notice": r"안내|공지|알림|확인사항|유의사항|이벤트|박람회|축제|체험|캠페인|참여방법|관광",
 }
 _KIND_ORDER = ("regulation", "certificate", "form", "report", "criteria", "announcement", "guideline", "plan",
                "table", "notice")
@@ -150,7 +150,10 @@ _WON_FORM = re.compile(r"[가-힣()/]{2,}원$")
 _WON_NOT = re.compile(r"(대학원|연구원|학원|병원|위원|직원|회원|공무원|기관원|법원|의원)$")
 # 양식의 결재란 — '결재 … 담당 … 팀장' 이 앞머리에 있으면 서식이다
 _APPROVAL = re.compile(r"결\s*재.{0,60}담\s*당.{0,60}(팀\s*장|과\s*장|처\s*장)", re.S)
-_NOTICE_BODY = re.compile(r"신청\s*(?:하세요|안내|기간|접수)|접수\s*(?:기간|기한)|이벤트\s*기간|공모\s*일정|행사\s*(?:일정|기간)|특강")
+_NOTICE_BODY = re.compile(r"신청\s*(?:하세요|안내|기간|접수|방법)|접수\s*(?:기간|기한)|이벤트\s*기간|공모\s*일정|행사\s*(?:일정|기간)|특강|"
+                          r"지원\s*(?:방법|시기|대상)|참여\s*방법")
+# 홍보물의 뼈대 — 기간·장소·대상이 앞머리에 같이 있으면 안내문이다
+_POSTER = re.compile(r"기간.{0,80}장소.{0,80}대상|대상.{0,80}기간", re.S)
 # 양식의 몸 — 빈칸 표시가 잦다: '년 월 일', '○○', 'OOO', '☐', '□', '( )'
 _BLANK = re.compile(r"년\s*월\s*일|[○◯]{2,}|(?<![A-Za-z])[oO]{3,}(?![A-Za-z])|[☐□■]|\(\s{2,}\)")
 _APPLY = re.compile(r"신청\s*(?:기간|기한|접수)|접수\s*(?:기간|기한)|공고합니다|공고함")
@@ -171,6 +174,10 @@ def guess_kind(filename: str, text: str, doc_type: str | None = None) -> tuple[s
     body = (text or "")[:BODY_CHARS * 2]
     if _APPROVAL.search(body[:600]):
         return "form", "앞머리에 결재란이 있습니다"
+    # 글자가 한 칸씩 벌어진 앞머리('제 안 요 청 서')는 붙여서 본다
+    tight = re.sub(r"\s+", "", body[:60])
+    if re.search(r"제안요청서|입찰공고|공고문", tight):
+        return "announcement", "앞머리가 제안요청·공고입니다"
     if doc_type == "regulation" and len(_ARTICLE.findall(body)) >= ARTICLE_MIN:
         return "regulation", "조문 머리가 줄지어 있습니다"
     if len(_ARTICLE.findall(body)) >= ARTICLE_MIN * 2:
@@ -178,13 +185,15 @@ def guess_kind(filename: str, text: str, doc_type: str | None = None) -> tuple[s
     blanks = len(_BLANK.findall(body))
     if body and blanks * 1000 / max(len(body), 1) >= 3:
         return "form", "빈칸 표시(년 월 일·○○·☐)가 잦습니다"
+    if body[:400].count(" | ") >= 4:
+        return "table", "앞머리가 표입니다"
     head = body[:800]
     if _APPLY.search(body) and re.search(r"공고|공모|모집", head):
         return "announcement", "앞머리가 공고이고 신청 기간이 있습니다"
     for kind in ("report", "criteria", "plan", "guideline"):
         if re.search(_KIND_CUES[kind], head):
             return kind, f"앞머리에 「{KINDS[kind]}」 낱말이 있습니다"
-    if _NOTICE_BODY.search(head):
+    if _NOTICE_BODY.search(head) or _POSTER.search(head[:500]):
         return "notice", "앞머리에 신청·접수 안내가 있습니다"
     if re.search(_KIND_CUES["table"], head[:120]):
         return "table", "앞머리가 표 제목입니다"
