@@ -459,14 +459,19 @@ def split_regulation(text: str) -> list[RegulationChunk]:
     return _finalize(chunks)
 
 
-# 서술형(공고·계획서) 절 경계 — 로마숫자·장/절/조·번호·가나다·불릿·대괄호
+# 서술형(공고·계획서) 절 경계 — 두 급으로 본다(2026-09-22 실측: 불릿을 절과 같은 급으로 끊어 '4. 신청방법'
+# 한 절이 ◦ 제출방법 / ◦ 접수처 / ◦ 신청서식 세 조각으로 흩어졌다).
+#   상위: 장/절/조·로마숫자·번호·가나다·□■◆▶·〈 〉《 》 제목 — 여기서 새 조각을 연다
+#   하위: ○◦▪●·※ 불릿 — 절 안의 항목이라 끊지 않고, 조각이 목표 길이를 넘칠 때만 이 경계에서 나눈다
 _PROSE_HEADING = re.compile(
     r"^(?:제\s*\d+\s*[장절관조]"
     r"|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.、\s]"
     r"|\d+(?:-\d+)?\s*[.)]\s"
     r"|[가나다라마바사아자차카타파하]\s*[.)]\s"
-    r"|[□○◦▪▶◆■●·※])"
+    r"|[□■◆▶◇]"
+    r"|[<〈《][^>〉》]{2,40}[>〉》]\s*$)"
 )
+_SUB_BULLET = re.compile(r"^[○◦▪●·•※\-–]\s?\S")
 _SENT_END = re.compile(r"(?<=[다음함임])\.\s|(?<=\.)\s|(?<=니다)\.\s|(?<=[.!?])\s")
 # 질문 줄 — 물음표로 끝나거나 한국어 의문 종결로 끝나는 줄(FAQ의 Q)
 _QUESTION_LINE = re.compile(r"(?:\?|？|(?:나요|가요|까요|습니까|ㅂ니까|인가요|는지요))\s*$")
@@ -491,6 +496,19 @@ def _pack_sentences(text: str, target: int, hard_max: int) -> list[str]:
     if buf.strip():
         out.append(buf.strip())
     return out
+
+
+def _clean_row(line: str) -> str:
+    """표 행 정리 — 빈 칸을 빼고 연속 같은 칸(병합 셀이 칸마다 반복된 것)은 한 번만.
+    실측 2026-09-22: '|《 사업 신청 조건 》| |《 사업 신청 조건 》|' 처럼 제목 셀이 열 수만큼 되풀이됐다."""
+    s = line.strip()
+    if " | " not in s and not s.startswith("|"):
+        return s
+    cells: list[str] = []
+    for cell in (c.strip() for c in s.split("|")):
+        if cell and (not cells or cells[-1] != cell):
+            cells.append(cell)
+    return " | ".join(cells)
 
 
 def _is_table_block(lines: list[str]) -> bool:
@@ -529,6 +547,7 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
         if not s:
             continue
         is_head = _PROSE_HEADING.match(s) and len(s) <= 60
+        is_sub = (not is_head) and bool(_SUB_BULLET.match(s)) and len(s) <= 200
         is_question = bool(_QUESTION_LINE.search(s)) and len(s) <= 120
         if (is_head or is_question) and (heading or body):
             if substance() < MERGE_MIN_SUBSTANTIVE:
@@ -537,6 +556,10 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
             blocks.append((heading, body))
             # 질문 줄은 표제가 아니라 본문의 시작 — 표제는 상위 절 제목을 유지한다
             heading, body = (s, []) if is_head else (heading, [s])
+        elif is_sub and body and len(" ".join(body)) >= target:
+            # 절이 목표 길이를 넘쳤다 — 불릿 경계에서 나누고 표제는 그대로 물려준다(빈 표제 = 상속 표시)
+            blocks.append((heading, body))
+            heading, body = "", [s]
         elif not heading and not body and is_head:
             heading = s
         else:
@@ -555,7 +578,7 @@ def split_prose(text: str, target: int = 700, hard_max: int = 1100) -> list[Regu
         if _is_table_block(body_lines):
             # 표는 행이 단위다 — 문장으로 묶으면 행 중간에서 잘려 머리글과 값이 떨어진다
             # (실측 2026-09-22: '제출기한 / 접수방법 | …' 행이 조각 경계에서 끊김). 표제 줄은 첫 조각에만.
-            rows = [ln.strip() for ln in body_lines if ln.strip()]
+            rows = [_clean_row(ln) for ln in body_lines if ln.strip()]
             pieces = _split_size("\n".join(([head] if head else []) + rows), target)
             for pc in pieces:
                 chunks.append(RegulationChunk(heading=label, content=pc))
