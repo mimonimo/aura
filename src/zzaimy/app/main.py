@@ -148,6 +148,23 @@ def _live_models_cached(cid: str, ttl: float = _LIVE_TTL) -> dict:
     return got
 
 
+def _tidy_weekly_md(body: str) -> str:
+    """모델이 쓴 마크다운을 화면·내보내기가 같은 구조로 읽게 고른다 — 연번 항목 앞에는 빈 줄, 세부 줄은 '   - '.
+    빈 줄 없이 '2. …' 가 불릿 뒤에 오면 마크다운이 앞 불릿의 이어지는 글로 붙인다(2026-09-22 실측)."""
+    out: list[str] = []
+    for ln in body.strip().splitlines():
+        st = ln.strip()
+        if re.match(r"^\d+[.)]\s", st) or st.startswith("【"):
+            if out and out[-1].strip():
+                out.append("")
+            out.append(st)
+        elif re.match(r"^[-•·◦▪*]\s", st):
+            out.append("   - " + st[2:].strip())
+        else:
+            out.append(st)
+    return "\n".join(out).strip()
+
+
 def create_app(
     db_path: Path,
     inbox_dir: Path,
@@ -3481,7 +3498,7 @@ def create_app(
 - 【이번 주 한 일】은 아래 [기준 틀]의 큰 축(플랫폼·모델(LLM)·데이터 같은 것) 단위로 3~5개. 큰 항목은 "무엇 — 결과" 한 줄
   (예: "서빙 장비 구성 완료 — 젯슨 토르 2대에 27B 모델, DGX는 학습 전용"). 항목은 굵직한 구축 단위로만 잡는다 —
   장비 구성, 플랫폼 구축, 문서 반입 체계, 검색 구축, 모델 준비처럼 "무엇을 구축·준비·구성했다"로 끝나는 제목 한 줄.
-  항목은 4개 이내, 세부 줄은 꼭 필요할 때만 한 줄(없어도 된다). 보고서 전체가 15줄 안팎이어야 한다 — 핵심만.
+  항목은 4~5개, 세부 줄은 항목당 1~2줄(각 한 문장, 사실만). 보고서 전체가 20줄 안팎 — 핵심만.
   항목 순서는 장비 구성(토르 2대·DGX) → 표·이미지 OCR 고도화 작업(판독 테스트와 측정 결과 — 무엇으로 시험했고
   속도·정확도가 어땠는지 한 줄) → 플랫폼 구축 → 문서 반입·검색 구축 → 모델 준비. 그 주에 해당 없는 항목은 뺀다.
   항목 제목은 짧은 명사구다 — "토르·DGX 장비 구성", "표·이미지 OCR 고도화 작업", "문서 반입 및 검색 구축"처럼.
@@ -3529,6 +3546,7 @@ def create_app(
 3~5개 항목."""
 
     _WEEKLY_TEMPLATE = _DOCS_DIR / "weekly" / "양식.md"
+
 
     def _weekly_sections(template: Path | None = None) -> tuple[str, bool]:
         """보고서 항목 구성 — 사용자가 준 양식(docs/weekly/양식.md)이 있으면 그 구성을 그대로, 없으면 기본."""
@@ -3658,7 +3676,7 @@ def create_app(
         )
         scale = " · ".join(f"{t['label']} {t['value']}" for t in _data_overview()["tiles"])
         # 양식 밖의 것은 붙이지 않는다(2026-09-22 사용자: "너무 어렵게 적혀 있다"). 기간은 제목에 있다.
-        full = body.strip() + "\n"
+        full = _tidy_weekly_md(body) + "\n"
         _ = (base_tbl, embed_tbl, scale)      # 지표는 화면(측정 기록)에서 본다
         cache.write_text(full, encoding="utf-8")
         return full

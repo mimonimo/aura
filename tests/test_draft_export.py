@@ -109,3 +109,24 @@ def test_draft_pdf_with_images(tmp_path):
         "/XObject" in (p.get("/Resources") or {}) for p in r.pages
     )
     assert has_img
+
+
+def test_numbered_items_with_sub_bullets_become_separate_list_paragraphs():
+    """연번 항목과 그 세부 불릿은 한 문단이 아니라 항목별 문단이다 — 워드·한글에서 1,2,3 이 그대로 보이게."""
+    import io
+
+    from docx import Document
+
+    from zzaimy.app.draft_export import build_draft_docx, parse_draft
+
+    md = ("【이번 주 한 일】\n1. 토르·DGX 장비 구성\n   - 젯슨 토르 2대에 27B, DGX는 학습 전용\n"
+          "2. 문서 반입 및 검색 구축\n   - 문서 194건 재반입\n3. 모델 준비\n\n【다음 주 계획】\n1. 실물 문서 반입\n2. 파인튜닝 착수")
+    secs = parse_draft(md)
+    kinds = [b["kind"] for s in secs for b in s["blocks"]]
+    assert kinds.count("list") == 2
+    items = [b for s in secs for b in s["blocks"] if b["kind"] == "list"][0]["items"]
+    assert [lv for lv, _ in items] == [0, 0, 1, 0, 1, 0] and items[1][1].startswith("1. ") and items[2][1].startswith("젯슨")
+    doc = Document(io.BytesIO(build_draft_docx("주간업무보고", md)))
+    texts = [p.text for p in doc.paragraphs]
+    assert "2. 문서 반입 및 검색 구축" in texts and "· 문서 194건 재반입" in texts
+    assert all("\n" not in t for t in texts if t.startswith(("1.", "2.", "3.")))
