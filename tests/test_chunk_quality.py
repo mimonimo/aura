@@ -290,3 +290,27 @@ def test_headed_table_skeleton_is_not_protected_by_its_heading():
         RegulationChunk(heading="제2조(정의)", content="제2조(정의) 이 규정에서 쓰는 용어의 뜻은 다음과 같다. 1. 사업단이란 대학이 설치한 조직을 말한다."),
     ])
     assert [c.heading for c in kept] == ["제2조(정의)"] and dropped == 1
+
+
+def test_sub_bullets_stay_inside_their_section_until_it_overflows():
+    """하위 불릿(◦)은 절 안의 항목이다 — 절이 목표 길이 안이면 한 조각, 넘치면 불릿 경계에서 나누되 표제는 물려받는다."""
+    from zzaimy.app.regulations import split_prose
+
+    short = ("4. 신청방법\n◦ (신청절차) 가 신청 접수 후 본 신청을 받는다.\n"
+             "◦ (제출방법) 전자문서로 시스템에 입력한다.\n◦ (접수처) 한국연구재단 산학협력진흥팀.\n"
+             "◦ (신청서식) 별도 서식을 참조한다.\n5. 기타사항\n◦ 사업설명회는 3월 13일에 연다. 문의는 재단으로 한다.")
+    chunks = split_prose(short, target=700, hard_max=1100)
+    assert [c.heading for c in chunks] == ["4. 신청방법", "5. 기타사항"]
+    long = "4. 신청방법\n" + "\n".join(f"◦ (항목 {i}) " + "신청 절차와 제출 방법을 자세히 적는다. " * 6 for i in range(12))
+    chunks = split_prose(long, target=500, hard_max=800)
+    assert len(chunks) >= 3 and all(c.heading == "4. 신청방법" for c in chunks)
+    assert all(ln.startswith("◦") or ln.startswith("4.") for c in chunks for ln in [c.content.split(" ◦")[0]])
+
+
+def test_merged_cells_repeated_across_a_row_collapse_to_one():
+    from zzaimy.app.regulations import _clean_row, split_prose
+
+    assert _clean_row("|《 사업 신청 조건 》| |《 사업 신청 조건 》| ● 인문·사회") == "《 사업 신청 조건 》 | ● 인문·사회"
+    text = "< 신청 조건 >\n" + "\n".join("|《 사업 신청 조건 》| |《 사업 신청 조건 》| 항목 %d | 값 %d" % (i, i) for i in range(6))
+    chunks = split_prose(text)
+    assert all(c.content.count("사업 신청 조건") <= 6 for c in chunks) and "》 | 《" not in "".join(c.content for c in chunks)
