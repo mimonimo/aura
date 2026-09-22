@@ -76,7 +76,12 @@ def corpus_dense(query, top_k=20, min_sim=None):
     from zzaimy.app.embed_search import _index
     if not _index._load():
         return []
-    qv = _index._model.encode([query], normalize_embeddings=True)[0]
+    # 질의 벡터는 플랫폼 색인과 같은 경로로 — 서빙 장비 서비스가 먼저, 없으면 VM 모델, 둘 다 없으면 조밀 축 없이
+    # (실측 2026-09-22: 서비스만 쓰는 구성에서 VM 모델이 None 이라 코퍼스 탭 검색이 죽었다)
+    qvs = _index._encode([query])
+    if qvs is None:
+        return []
+    qv = qvs[0]
     sims = _vecs @ qv
     order = sims.argsort()[-top_k:][::-1]
     out = [(int(_ids[i]), float(sims[i])) for i in order]

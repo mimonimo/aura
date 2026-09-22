@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlencode
 import re
 import time
 import secrets
@@ -2672,6 +2673,105 @@ def create_app(
         except ValueError as e:
             return _nas_redirect(str(e), ok=False)
         return _nas_redirect(f"구글 계정 {email} 을 허용했습니다 — 드라이브 폴더를 원천으로 등록할 수 있습니다")
+
+    # ---- 문서 작업 — 구글 독스를 화면 안에 두고 에이전트가 같은 문서를 읽고, 담당자가 누른 자리에만 쓴다(ADR-0029) ----
+
+    def _gdocs_accounts() -> list[dict]:
+        from zzaimy.ingest import gdocs, gdrive
+
+        return [{**a, "docs_ok": gdocs.has_docs_scope(a["email"])} for a in gdrive.list_accounts()]
+
+    def _gdocs_page(request: Request, doc: str, account: str, **extra):
+        from zzaimy.ingest import gdocs
+
+        accounts_ = _gdocs_accounts()
+        account = account or (accounts_[0]["email"] if accounts_ else "")
+        ctx_ = {"doc_id": "", "account": account, "accounts": accounts_, "info": None, "embed_url": "",
+                "question": "", "answer": "", "draft_text": "", "writes": [], "ok": "", "err": ""}
+        ctx_.update(extra)
+        if doc.strip():
+            try:
+                did = gdocs.doc_id(doc)
+                ctx_["doc_id"] = did
+                ctx_["embed_url"] = gdocs.embed_url(did)
+                if not account:
+                    ctx_["err"] = "허용된 구글 계정이 없습니다"
+                else:
+                    ctx_["info"] = gdocs.get(account, did)
+                    ctx_["writes"] = [w for w in gdocs.recent_writes(Path(db_path).parent) if w.get("doc") == did][:10]
+            except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
+                ctx_["err"] = str(e)
+        return templates.TemplateResponse(request, "gdocs_work.html", ctx(request, ctx_))
+
+    @app.get("/gdocs/work", response_class=HTMLResponse)
+    def gdocs_work(request: Request, doc: str = "", account: str = "", ok: str = "", err: str = ""):
+        return _gdocs_page(request, doc, account, ok=ok, err=err)
+
+    @app.post("/gdocs/ask", response_class=HTMLResponse)
+    def gdocs_ask(request: Request, doc: str = Form(""), account: str = Form(""), question: str = Form("")):
+        """문서 본문을 첨부처럼 붙여 에이전트에게 묻는다 — 문서는 저장하지 않는다."""
+        from zzaimy.app import access_guard as ag
+        from zzaimy.ingest import gdocs
+
+        q = question.strip()
+        if not q:
+            return _gdocs_page(request, doc, account, err="질문을 적어 주세요")
+        owner = getattr(request.state, "user", "zzaimy")
+        acct = accounts.get(owner, {}) if password is not None else {}
+        role = acct.get("role", "dev" if password is None else "staff")
+        dept = acct.get("dept") or None
+        note = ag.pii_request(q)
+        if note:
+            ag.audit(Path(db_path).parent, owner, "pii", q, dept, role)
+            return _gdocs_page(request, doc, account, question=q, answer=note)
+        try:
+            info = gdocs.get(account, doc)
+        except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
+            return _gdocs_page(request, doc, account, question=q, err=str(e))
+        material = f"[문서: {info['title']}]\n{info['text']}"[:12000]
+        try:
+            import inspect as _insp
+
+            r_ = responder or _default_responder()
+            kw = dict(attachment_text=material, criteria_ids=ag.allowed_doc_ids(db, [], dept, role, owner))
+            if "scope" in _insp.signature(r_.answer).parameters:
+                kw["scope"] = ag.search_scope(dept, role, owner)
+            answer = r_.answer(db, q, **kw)
+        except Exception as e:
+            from zzaimy.generate.client import describe_llm_error
+
+            answer = describe_llm_error(e)
+        answer = ag.scrub(answer)
+        return _gdocs_page(request, doc, account, question=q, answer=answer, draft_text=answer)
+
+    @app.post("/gdocs/insert")
+    def gdocs_insert(request: Request, doc: str = Form(""), account: str = Form(""), section: int = Form(0),
+                     text: str = Form("")):
+        from zzaimy.app import access_guard as ag
+        from zzaimy.ingest import gdocs
+
+        owner = getattr(request.state, "user", "zzaimy")
+        try:
+            r = gdocs.insert_into_section(account, doc, section, text, user=owner, data_dir=Path(db_path).parent,
+                                          scrub=ag.scrub)
+        except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
+            return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
+        msg = f"「{r['section']}」 아래에 {r['chars']}자를 넣었습니다"
+        return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'ok': msg})}", status_code=303)
+
+    @app.post("/gdocs/replace")
+    def gdocs_replace(request: Request, doc: str = Form(""), account: str = Form(""), old: str = Form(""),
+                      new: str = Form("")):
+        from zzaimy.app import access_guard as ag
+        from zzaimy.ingest import gdocs
+
+        owner = getattr(request.state, "user", "zzaimy")
+        try:
+            r = gdocs.replace_text(account, doc, old, new, user=owner, data_dir=Path(db_path).parent, scrub=ag.scrub)
+        except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
+            return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
+        msg = f"{r['count']}곳을 바꿨습니다"
+        return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'ok': msg})}", status_code=303)
 
     @app.post("/dev/gdrive/revoke")
     def dev_gdrive_revoke(email: str = Form("")):

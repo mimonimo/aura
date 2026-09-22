@@ -323,6 +323,27 @@
      "href": "/dev/pii"
     }
    ]
+  },
+  {
+   "name": "구글 드라이브·독스 연동",
+   "status": "doing",
+   "area": "문서 읽기·복원",
+   "note": "드라이브 폴더를 읽기 전용 원천으로(독스·시트는 docx·xlsx 내보내기), 구글 독스를 화면 안(iframe)에 두고 에이전트가 같은 문서를 읽고 담당자가 고른 절에 쓰기. 쓰기는 개인정보 검사·감사 기록.",
+   "left": "관리자의 OAuth 클라이언트 등록, 아스트라 C-62·C-63 화면, 실제 문서로 확인",
+   "links": [
+    {
+     "label": "설정 절차·설계",
+     "href": "/dev/doc/notes/2026-09-22-google-drive-source.md"
+    },
+    {
+     "label": "결정 ADR-0028",
+     "href": "/dev/doc/decisions/0028-google-drive-source.md"
+    },
+    {
+     "label": "결정 ADR-0029",
+     "href": "/dev/doc/decisions/0029-google-docs-agent-editing.md"
+    }
+   ]
   }
  ]
 }
