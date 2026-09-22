@@ -5,104 +5,299 @@
     {
       "name": "서빙 장비 구성 (토르 2대 + DGX)",
       "status": "done",
-      "note": "토르 02 = 대화·초안, 토르 03 = 반입 검토·이미지 판독 + 검색 서비스, 둘 다 27B NVFP4(원본 대비 3~4배). DGX 는 학습 전용 — 셸 계정 대기",
-      "area": "장비·서빙"
+      "note": "토르 02 = 대화·초안, 토르 03 = 반입 검토·이미지 판독 + 검색 서비스, 둘 다 27B NVFP4(원본 대비 3~4배). DGX(211.170.162.110)는 연결돼 있고 학습 전용",
+      "area": "장비·서빙",
+      "left": "DGX 에서 학습을 돌리려면 SSH 접속이 필요(지금은 모델 호출만) → 학습본 이관 실전(116)",
+      "links": [
+        {
+          "label": "구성·접속",
+          "href": "/dev/doc/HANDOFF.md"
+        },
+        {
+          "label": "결정 ADR-0023",
+          "href": "/dev/doc/decisions/0023-writer-serving-precision-two-thors.md"
+        },
+        {
+          "label": "연결 화면",
+          "href": "/dev/train"
+        }
+      ]
     },
     {
       "name": "운영 서버 (VM) 상시 가동",
       "status": "done",
       "note": "웹·검색·OCR·문서관리, 자동시작, 오프라인 자립. 배포는 스크립트 한 줄(99), 서빙 점검(110)",
-      "area": "장비·서빙"
+      "area": "장비·서빙",
+      "left": "열람 등급 체계 확정 뒤 권한 필터 값 채우기",
+      "links": [
+        {
+          "label": "인수인계",
+          "href": "/dev/doc/HANDOFF.md"
+        }
+      ]
     },
     {
       "name": "문서 OCR·전자문서 복원",
       "status": "done",
       "note": "디지털 PDF 는 글자 좌표 직독, 스캔·사진은 27B 판독(토르 03), 표는 병합 셀 유지. 실물 표본 검증 대기",
-      "area": "문서 읽기·복원"
+      "area": "문서 읽기·복원",
+      "left": "실물 표본으로 표·손글씨 판독 정확도 측정",
+      "links": [
+        {
+          "label": "표준 경로 ADR-0007",
+          "href": "/dev/doc/decisions/0007-ocr-extraction-standard.md"
+        },
+        {
+          "label": "OCR 벤치",
+          "href": "/dev/doc/ocr-cer-bench.md"
+        },
+        {
+          "label": "품질 화면",
+          "href": "/dev/quality"
+        }
+      ]
     },
     {
       "name": "문서 반입 체계",
       "status": "done",
       "note": "본문 제목으로 이름, 같은 내용 한 번만, 개인정보 마스킹, 조각 잡음 관문·절 단위 분할(9/22). 실제 반입 경로 자가 점검(125)",
-      "area": "문서 읽기·복원"
+      "area": "문서 읽기·복원",
+      "left": "사업계획서 '양식' 파일을 기준 문서와 구분할지 결정",
+      "links": [
+        {
+          "label": "품질 체계",
+          "href": "/dev/doc/quality-system.md"
+        },
+        {
+          "label": "데이터 열람",
+          "href": "/dev/db"
+        }
+      ]
     },
     {
       "name": "한글 실시간 편집 에이전트",
       "status": "done",
       "note": "실장비 왕복 검증(9/8), 설치 프로그램. 대화창 자연어 변환은 실사용 검증 대기",
-      "area": "문서 읽기·복원"
+      "area": "문서 읽기·복원",
+      "left": "대화창 자연어 지시 → 편집 실사용 검증",
+      "links": [
+        {
+          "label": "결정 ADR-0014",
+          "href": "/dev/doc/decisions/0014-hwp-authoring-com-agent-md-ir.md"
+        },
+        {
+          "label": "설치",
+          "href": "/dev/hwp"
+        }
+      ]
     },
     {
       "name": "규정 검색 (하이브리드+리랭커)",
       "status": "done",
       "note": "문서 194건·조각 3,503(9/22). 학습본 Embed v2·Rerank v1 운영, 한 번에 맞히는 비율 0.72·상위 10 안 0.91(표본 300, 합성 질의)",
-      "area": "규정 검색·근거"
+      "area": "규정 검색·근거",
+      "left": "실물 골드셋 측정, 상황 질의(못 찾는 몫 22.7%) 보강",
+      "links": [
+        {
+          "label": "측정 기록",
+          "href": "/dev/doc/llm-rerank-eval.md"
+        },
+        {
+          "label": "품질·성능",
+          "href": "/dev/quality"
+        },
+        {
+          "label": "모델 카드",
+          "href": "/dev/doc/model-cards/zzaimy-rerank-v1.md"
+        }
+      ]
     },
     {
       "name": "규정 근거 채팅 응답",
       "status": "done",
       "note": "토르 02 27B 가 답하고 근거 조문을 인용. 상황으로 묻는 질의 보강(질의 확장)은 진행 중",
-      "area": "규정 검색·근거"
+      "area": "규정 검색·근거",
+      "left": "규정 RAG 정식 화면(근거 조문·출처 고정)",
+      "links": [
+        {
+          "label": "연결 화면",
+          "href": "/dev/train"
+        }
+      ]
     },
     {
       "name": "지식 그래프",
       "status": "done",
       "note": "의미 유사·개체·프로젝트 추정 연관, 프로젝트 탐색 패널. 개체 계층 2단계 진행",
-      "area": "규정 검색·근거"
+      "area": "규정 검색·근거",
+      "left": "개체(사업·부서·연도·실적) 계층 2단계",
+      "links": [
+        {
+          "label": "결정 ADR-0009",
+          "href": "/dev/doc/decisions/0009-knowledge-graph-ontology.md"
+        },
+        {
+          "label": "그래프",
+          "href": "/graph"
+        }
+      ]
     },
     {
       "name": "계획서 초안 생성",
       "status": "doing",
       "note": "섹션별 생성·재작성 루프·4형식 출력 동작. 실물 공고·실적 카드로 보정 대기",
-      "area": "초안·검증"
+      "area": "초안·검증",
+      "left": "실물 공고 1건 end-to-end, 실적 카드 DB",
+      "links": [
+        {
+          "label": "설계 §4",
+          "href": "/dev/doc/architecture.md"
+        },
+        {
+          "label": "연관 판정 ADR-0015",
+          "href": "/dev/doc/decisions/0015-learned-relatedness-over-rules.md"
+        }
+      ]
     },
     {
       "name": "수치·배점·예산 검증기",
       "status": "done",
       "note": "초안 생성 시 자동 실행. 커버리지 의미 판정 폭은 실제 초안으로 재보정 예정",
-      "area": "초안·검증"
+      "area": "초안·검증",
+      "left": "커버리지 판정 폭 실물 재보정",
+      "links": [
+        {
+          "label": "설계 §5",
+          "href": "/dev/doc/architecture.md"
+        }
+      ]
     },
     {
       "name": "검색 모델 학습본 (Embed v2 · Rerank v1)",
       "status": "done",
       "note": "9/20 채택 — 운영 하이브리드 위의 개선으로 판정, 모델 카드 2종. KURE-v2 다중 벡터는 측정 뒤 미채택(ADR-0025)",
-      "area": "모델 학습"
+      "area": "모델 학습",
+      "left": "실물 문서로 재학습·재측정",
+      "links": [
+        {
+          "label": "Embed v2 ADR-0021",
+          "href": "/dev/doc/decisions/0021-embed-v2-adoption.md"
+        },
+        {
+          "label": "Rerank v1 ADR-0020",
+          "href": "/dev/doc/decisions/0020-rerank-on-serving-gpu-and-v1-adoption.md"
+        },
+        {
+          "label": "KURE-v2 ADR-0025",
+          "href": "/dev/doc/decisions/0025-kure-v2-multivector-measured.md"
+        },
+        {
+          "label": "모델 학습",
+          "href": "/dev/train"
+        }
+      ]
     },
     {
       "name": "작성·추출 모델 (Writer·Extract)",
       "status": "wait",
       "note": "교내 실물 문서 → 베이스라인 측정 → DGX 에서 SFT → DPO. 학습본 이관 경로(116)는 준비됨",
-      "area": "모델 학습"
+      "area": "모델 학습",
+      "left": "교내 실물 계획서 20~30건 → 베이스라인 측정 → DGX 에서 SFT → DPO (장비는 준비됨)",
+      "links": [
+        {
+          "label": "모델 계획",
+          "href": "/dev/doc/model-plan.md"
+        },
+        {
+          "label": "평가 계획",
+          "href": "/dev/doc/eval-plan.md"
+        }
+      ]
     },
     {
       "name": "데이터 공방·Label Studio 연동",
       "status": "done",
       "note": "검토 의견·초안·대화 → 학습 형식, 수치 검증 통과분만. 검수 결과 되받기",
-      "area": "모델 학습"
+      "area": "모델 학습",
+      "left": "실물 검토 이력으로 DPO 선호쌍 축적",
+      "links": [
+        {
+          "label": "데이터 공방",
+          "href": "/dev/data"
+        }
+      ]
     },
     {
       "name": "개인정보 마스킹 점검",
       "status": "done",
       "note": "자가 점검 19/19, 저장 본문 잔여 0건(9/22 스모크)",
-      "area": "운영·보안"
+      "area": "운영·보안",
+      "left": "라벨 없는 이름(상장·명단) — 개체명 인식 모델 도입 여부",
+      "links": [
+        {
+          "label": "점검 화면",
+          "href": "/dev/pii"
+        },
+        {
+          "label": "원칙 ADR-0006",
+          "href": "/dev/doc/decisions/0006-criteria-no-masking.md"
+        }
+      ]
     },
     {
       "name": "외부 AI 참조 관리",
       "status": "wait",
       "note": "세척·위험 판정·승인 큐·감사·가역 토큰화 동작. 실전송은 키 등록 대기(공개 수집 문서 판독 용도만, ADR-0024)",
-      "area": "운영·보안"
+      "area": "운영·보안",
+      "left": "키 등록 → 공개 문서 판독 실전송",
+      "links": [
+        {
+          "label": "관문 ADR-0008",
+          "href": "/dev/doc/decisions/0008-external-egress-gateway.md"
+        },
+        {
+          "label": "토큰화 ADR-0019",
+          "href": "/dev/doc/decisions/0019-reversible-tokenization-egress.md"
+        },
+        {
+          "label": "반출 화면",
+          "href": "/dev/egress"
+        }
+      ]
     },
     {
       "name": "개발 현황판·보고서",
       "status": "done",
       "note": "지표는 기계 산출물만, 주간 보고 자동 작성(피드백 반영·docx·hwpx), 변경 이력은 깃 직독",
-      "area": "운영·보안"
+      "area": "운영·보안",
+      "left": "—",
+      "links": [
+        {
+          "label": "논문 자료·주간 보고",
+          "href": "/dev/docs"
+        },
+        {
+          "label": "변경 이력",
+          "href": "/dev/history"
+        }
+      ]
     },
     {
       "name": "교내 실물 문서 파일럿",
       "status": "wait",
       "note": "문서 표본·개인정보 부서 검토·열람 등급 체계 대기",
-      "area": "운영·보안"
+      "area": "운영·보안",
+      "left": "표본 수령, 개인정보 부서 검토, 열람 등급 체계",
+      "links": [
+        {
+          "label": "파일럿 계획",
+          "href": "/dev/doc/pilot-plan.md"
+        },
+        {
+          "label": "위험 관리",
+          "href": "/dev/doc/risks.md"
+        }
+      ]
     }
   ]
 }

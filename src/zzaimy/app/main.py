@@ -1666,9 +1666,10 @@ def create_app(
         for f in feats:
             area = f.get("area") or "기타"
             if area not in agg:
-                agg[area] = {"name": area, "done": 0, "total": 0}
+                agg[area] = {"name": area, "done": 0, "total": 0, "features": []}
                 order.append(area)
             agg[area]["total"] += 1
+            agg[area]["features"].append(f)          # 기능별 상태는 영역별로 묶어 보인다(2026-09-22)
             if f.get("status") == "done":
                 agg[area]["done"] += 1
         for a in agg.values():
