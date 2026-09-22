@@ -23,6 +23,7 @@ import re
 from collections import Counter, defaultdict
 
 _WORD = re.compile(r"[0-9A-Za-z가-힣]{2,}")
+_EXT_RE = re.compile(r"\.(hwpx?|pdf|docx?|xlsx?|pptx?|jpe?g|png|txt|md)$", re.I)
 _ARTICLE = re.compile(r"제\s*\d+\s*조")
 
 # 경계값 — 낮출수록 더 자주 고른다. 근거는 주석에 남긴다.
@@ -122,6 +123,56 @@ def guess_doc_type(text: str, identity: dict | None = None,
     return "auto", "규정이나 공고의 뼈대가 보이지 않습니다"
 
 
+# 서류 갈래 — 처리 경로(doc_type)와 별개로 문서가 어떤 서류인지. 화면 표시와 연관(공고↔양식↔계획서)에 쓴다.
+KINDS = {
+    "announcement": "공고", "form": "양식", "plan": "계획서", "report": "결과보고서",
+    "regulation": "규정", "guideline": "지침·매뉴얼", "criteria": "심사·평가 기준", "notice": "안내문",
+}
+# 제목·본문의 낱말 단서 — 특정 문서가 아니라 서류 종류에 붙는 일반 낱말이다(하드코딩 금지 규칙과 충돌하지 않는다)
+_KIND_CUES = {
+    "regulation": r"학칙|규정|규칙|세칙|규약|내규|정관|조례",
+    "form": r"신청서|확약서|동의서|서약서|정의서|양식|서식|신고서|원서|위임서|제출서|이력서|추천서|"
+            r"(?:복학|휴학|자퇴|퇴학|전과|입학|편입|재입학|사직|휴직|복직|출원)원$",
+    "announcement": r"공고|모집|공모",
+    "plan": r"계획서|추진\s*계획|기본\s*계획|시행\s*계획|운영\s*계획|사업\s*계획",
+    "report": r"결과보고|성과보고|실적보고|결과 보고|최종보고|보고서$|보고$",
+    "guideline": r"지침|매뉴얼|안내서|가이드|요령|편람|길라잡이|처리기준|업무기준|운영기준|처리 기준",
+    "criteria": r"심사기준|평가기준|평가지표|배점|채점|심사표|평가표",
+    "notice": r"안내|공지|알림",
+}
+_KIND_ORDER = ("regulation", "form", "report", "criteria", "announcement", "guideline", "plan", "notice")
+# 양식의 몸 — 빈칸 표시가 잦다: '년 월 일', '○○', 'OOO', '☐', '□', '( )'
+_BLANK = re.compile(r"년\s*월\s*일|[○◯]{2,}|(?<![A-Za-z])[oO]{3,}(?![A-Za-z])|[☐□■]|\(\s{2,}\)")
+_APPLY = re.compile(r"신청\s*(?:기간|기한|접수)|접수\s*(?:기간|기한)|공고합니다|공고함")
+
+
+def guess_kind(filename: str, text: str, doc_type: str | None = None) -> tuple[str, str]:
+    """서류 갈래를 고른다 — (갈래, 이유). 확신이 없으면 ('', 이유).
+
+    제목의 낱말이 먼저다(사람도 제목으로 서류를 안다). 제목에 단서가 없으면 본문 앞머리의
+    생김새로 본다: 조문 머리가 줄지어 있으면 규정, 빈칸 표시가 잦으면 양식, 공고 뼈대면 공고.
+    """
+    title = _EXT_RE.sub("", filename or "")
+    for kind in _KIND_ORDER:
+        if re.search(_KIND_CUES[kind], title):
+            return kind, f"제목에 「{KINDS[kind]}」 낱말이 있습니다"
+    body = (text or "")[:BODY_CHARS * 2]
+    if doc_type == "regulation" and len(_ARTICLE.findall(body)) >= ARTICLE_MIN:
+        return "regulation", "조문 머리가 줄지어 있습니다"
+    if len(_ARTICLE.findall(body)) >= ARTICLE_MIN * 2:
+        return "regulation", "조문 머리가 줄지어 있습니다"
+    blanks = len(_BLANK.findall(body))
+    if body and blanks * 1000 / max(len(body), 1) >= 3:
+        return "form", "빈칸 표시(년 월 일·○○·☐)가 잦습니다"
+    head = body[:800]
+    if _APPLY.search(body) and re.search(r"공고", head):
+        return "announcement", "앞머리가 공고이고 신청 기간이 있습니다"
+    for kind in ("report", "criteria", "plan", "guideline"):
+        if re.search(_KIND_CUES[kind], head):
+            return kind, f"앞머리에 「{KINDS[kind]}」 낱말이 있습니다"
+    return "", "서류 갈래를 정할 단서가 없습니다"
+
+
 def route(db, filename: str, text: str, identity: dict | None = None,
           scanned: bool = False) -> dict:
     """반입되는 문서 한 건의 갈래와 영역을 정한다.
@@ -131,7 +182,9 @@ def route(db, filename: str, text: str, identity: dict | None = None,
     """
     doc_type, why_type = guess_doc_type(text, identity, scanned)
     sector, why_sector = guess_sector(db, filename, text=text)
+    kind, why_kind = guess_kind(filename, text, doc_type)
     return {
         "doc_type": doc_type, "why_type": why_type,
         "sector": sector, "why_sector": why_sector,
+        "kind": kind, "why_kind": why_kind,
     }

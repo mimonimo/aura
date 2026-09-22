@@ -1039,6 +1039,9 @@ def create_app(
             db_.set_document_sector(doc_id, r["sector"])
             said.append(f"영역을 「{SECTOR_LABELS.get(r['sector'], r['sector'])}」로 정했습니다"
                         f" ({r['why_sector']})")
+        if r.get("kind") and r["kind"] != doc.get("kind"):
+            db_.set_document_kind(doc_id, r["kind"])
+            said.append(f"서류를 「{doc_routing.KINDS.get(r['kind'], r['kind'])}」로 보았습니다 ({r['why_kind']})")
         return " / ".join(said)
 
     def _process_then_identify(db_, doc_id: int, stored, user_chose_type: bool = True) -> None:
@@ -1315,12 +1318,20 @@ def create_app(
 
     @app.get("/criteria", response_class=HTMLResponse)
     def criteria(request: Request):
+        from zzaimy.app.doc_routing import KINDS
+
         docs = db.list_documents("regulation")
         counts = db.regulation_chunk_counts()
+        families = db.family_counts("regulation")
+        names = {d["id"]: d["filename"] for d in docs}
         for d in docs:
             d["n_chunks"] = counts.get(d["id"], 0)
+            d["kind_label"] = KINDS.get(d.get("kind") or "", "")
+            # 같은 제목의 판본이 여럿이면 몇 판째인지·어느 공고에 딸렸는지 보여 준다
+            d["family_count"] = families.get(d.get("family") or "", 1)
+            d["head_title"] = names.get(d.get("related_criteria_id") or -1, "")
         return templates.TemplateResponse(
-            request, "criteria.html", ctx(request, {"documents": docs})
+            request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS})
         )
 
     @app.post("/criteria/upload")

@@ -198,6 +198,10 @@ class Database:
         # 초안 검증 결과(JSON) — 배점 반영·수치 검증·예산 검산을 기계가 읽는 형태로. 베이스라인·개선폭 측정의 원천
         "ALTER TABLE documents ADD COLUMN draft_audit TEXT",
         "ALTER TABLE regulation_chunks ADD COLUMN access_level TEXT NOT NULL DEFAULT 'public'",
+        # 판본 묶음(제목 정규화 열쇠)·첫 판본·서류 갈래(공고/양식/계획서/…) — doc_family · doc_routing.guess_kind
+        "ALTER TABLE documents ADD COLUMN family TEXT",
+        "ALTER TABLE documents ADD COLUMN version_of INTEGER",
+        "ALTER TABLE documents ADD COLUMN kind TEXT",
         "ALTER TABLE documents ADD COLUMN related_criteria_id INTEGER",
         "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
         "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
@@ -247,8 +251,10 @@ class Database:
         access_level: str | None = None,
     ) -> int:
         from zzaimy.app.access_policy import classify
+        from zzaimy.app.doc_family import family_key
 
         dept, access_level = classify(doc_type, owner=owner, dept=dept, access_level=access_level)
+        family = family_key(filename) or None
         now = _now()
         year = now[:4]
         code = self._TYPE_CODES.get(doc_type, "문서")
@@ -268,10 +274,10 @@ class Database:
             receipt_no = f"{prefix}{seq:04d}"
             cur = conn.execute(
                 "INSERT INTO documents (filename, stored_path, doc_type, sector,"
-                " related_criteria_id, project_id, receipt_no, created_at, owner, dept, access_level)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " related_criteria_id, project_id, receipt_no, created_at, owner, dept, access_level, family)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (filename, stored_path, doc_type, sector, related_criteria_id,
-                 project_id, receipt_no, now, owner, dept, access_level),
+                 project_id, receipt_no, now, owner, dept, access_level, family),
             )
             return int(cur.lastrowid or 0)
 
@@ -603,6 +609,43 @@ class Database:
         with self._conn() as conn:
             conn.execute("UPDATE documents SET doc_type = ? WHERE id = ?",
                          (doc_type, doc_id))
+
+    def set_document_kind(self, doc_id: int, kind: str | None) -> None:
+        """서류 갈래(공고·양식·계획서 …)를 적는다 — 반입 때 스스로 정하거나 담당자가 고칠 때."""
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET kind = ? WHERE id = ?", (kind or None, doc_id))
+
+    def set_document_family(self, doc_id: int, family: str | None, version_of: int | None = None,
+                            related_criteria_id: int | None = None) -> None:
+        """판본 묶음 열쇠와 첫 판본, 딸린 공고(related_criteria_id)를 적는다. None 인 값은 건드리지 않는다."""
+        sets, vals = ["family = ?"], [family or None]
+        if version_of is not None:
+            sets.append("version_of = ?"); vals.append(version_of)
+        if related_criteria_id is not None:
+            sets.append("related_criteria_id = ?"); vals.append(related_criteria_id)
+        with self._conn() as conn:
+            conn.execute(f"UPDATE documents SET {', '.join(sets)} WHERE id = ?", (*vals, doc_id))
+
+    def same_family(self, family: str, exclude_id: int, doc_type: str | None = None) -> list[dict]:
+        """같은 판본 묶음의 다른 문서들(실패 제외, 오래된 순) — 본문(masked_text)을 함께 준다."""
+        if not family:
+            return []
+        sql = ("SELECT id, filename, doc_type, status, created_at, version_of, masked_text FROM documents"
+               " WHERE family = ? AND id <> ? AND status <> 'failed'")
+        params: list = [family, exclude_id]
+        if doc_type:
+            sql += " AND doc_type = ?"; params.append(doc_type)
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(sql + " ORDER BY id", params).fetchall()]
+
+    def family_counts(self, doc_type: str | None = None) -> dict[str, int]:
+        """판본 묶음별 문서 수 — 목록에서 '판 3' 같은 표시에 쓴다."""
+        sql = "SELECT family, COUNT(*) FROM documents WHERE family IS NOT NULL AND status <> 'failed'"
+        params: list = []
+        if doc_type:
+            sql += " AND doc_type = ?"; params.append(doc_type)
+        with self._conn() as conn:
+            return {r[0]: r[1] for r in conn.execute(sql + " GROUP BY family", params).fetchall()}
 
     def set_document_sector(self, doc_id: int, sector: str) -> None:
         """문서가 놓일 업무 영역을 바꾼다."""

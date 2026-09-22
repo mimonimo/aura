@@ -125,3 +125,29 @@ def test_revision_needs_a_draft_first(tmp_path):
     body = c.post("/chat/ask", data={"question": "예산 부분 고쳐줘",
                                      "page": "/doc/1"}).json()
     assert any("초안이 없습니다" in line for line in body["done"])
+
+
+def test_kind_comes_from_title_words_then_body_shape():
+    from zzaimy.app.doc_routing import guess_kind
+
+    assert guess_kind("(붙임2) 첨단분야 혁신융합대학 사업 가 신청서.hwpx", "")[0] == "form"
+    assert guess_kind("복학원", "")[0] == "form"
+    assert guess_kind("2025학년도 1학기 학생 건의 사항 조치 보고서", "")[0] == "report"
+    assert guess_kind("kcue_교원공채_심사기준표.pdf", "")[0] == "criteria"
+    assert guess_kind("대학원 학칙", "")[0] == "regulation"
+    assert guess_kind("사업 계획 및 업무처리기준", "")[0] == "guideline"
+    assert guess_kind("2026년 지방대학 육성사업 공고.hwpx", "")[0] == "announcement"
+    form_body = "성명 | 년 월 일 | ☐ 복학 ☐ 조기복학 | 학번 ○○○ | 입대일자 년 월 일 | 전역일자 년 월 일"
+    assert guess_kind("이름없음.pdf", form_body)[0] == "form"
+    ann = "2026년 지역혁신 사업 공고\n교육부는 다음과 같이 공고합니다.\n신청 기간: 3. 2. ~ 3. 20."
+    assert guess_kind("law01.pdf", ann)[0] == "announcement"
+    assert guess_kind("law01.pdf", "제1조(목적) 이 규정은 … 제2조(정의) … 제3조 … 제4조 … 제5조 … 제6조 …")[0] == "regulation"
+    assert guess_kind("law01.pdf", "그냥 평범한 글입니다.")[0] == ""
+
+
+def test_route_reports_kind_alongside_type_and_sector(tmp_path):
+    from zzaimy.app.db import Database
+    from zzaimy.app.doc_routing import route
+
+    r = route(Database(tmp_path / "t.db"), "복학원", "성명 | 년 월 일 | ☐ 복학")
+    assert r["kind"] == "form" and r["why_kind"]

@@ -93,6 +93,18 @@ def test_table_text_does_not_repeat_column_merged_cells():
     assert lines[2] == "구분 | 가 | 나"                   # 세로 병합은 아래 행에도 채운다
 
 
+def test_table_text_skips_rows_that_only_repeat_merged_cells():
+    """서식 표: 세로 병합 라벨 아래에 새 글이 없는 행은 되풀이하지 않는다(실측 2026-09-22 복학원)."""
+    from zzaimy.app.render import render_table_text
+
+    data = {"n_rows": 3, "n_cols": 4, "cells": [
+        [0, 0, 3, 1, 1, "군제대자에 한함"], [0, 1, 3, 2, 1, "복학원"], [0, 3, 1, 1, 0, "담당"],
+        [1, 3, 1, 1, 0, "전결"],
+        [2, 3, 1, 1, 0, ""]]}
+    lines = render_table_text(data).split("\n")
+    assert lines == ["군제대자에 한함 | 복학원 | 담당", "군제대자에 한함 | 복학원 | 전결"]
+
+
 def test_digital_pdf_is_never_sent_to_vision(tmp_path, monkeypatch):
     """글자층이 있는 PDF 는 원문을 바로 읽는다 — 비전 판독용 쪽 그림을 만들지 않는다."""
     from zzaimy.app.pipeline import DocumentProcessor
@@ -169,3 +181,16 @@ def test_lattice_cell_text_restores_word_gaps():
     a, x = run("도제학교", 0.0, gap_after=3.0)              # 낱말 간격 30%
     b, _ = run("운영지원", x)
     assert _cell_text(a + b, 0, 200, 90, 110) == "도제학교 운영지원"
+
+
+def test_text_layer_pages_keep_page_numbers_on_chunks():
+    """글자층 직독 문서의 조각에는 쪽 번호가 붙는다(실측 2026-09-22: 250쪽 문서 조각 전부 쪽 없음)."""
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    proc = DocumentProcessor.__new__(DocumentProcessor)
+    proc._masker = None
+    proc._last_pages = [(1, "첫 쪽의 본문입니다. " * 5), (7, "일곱째 쪽의 본문입니다. " * 5)]
+    chunks = proc._page_chunks(do_mask=False)
+    assert [c["page_no"] for c in chunks] == [1, 7]
+    proc._last_pages = None
+    assert proc._page_chunks(do_mask=False) is None

@@ -146,31 +146,33 @@ def table_grid(data: dict, fill_spans: bool = False) -> list[list[str]]:
 
 
 def _row_texts(data: dict) -> list[list[str]]:
-    """행별 셀 글 — 병합 셀은 범위 전체에 채우되, 행 전체를 덮는 한 셀은 한 번만 쓴다.
+    """행별 셀 글 — 병합 셀의 글은 한 번만 쓴다.
 
-    부분 병합('예산'이 두 열)은 열마다 채워 아래 행 값과 열 위치를 맞춘다. 행 전체를 덮는
-    셀(표 제목 줄)을 칸마다 되풀이하면 'X | X | X | X'가 되어 검색 조각이 같은 말로 채워진다
-    (실측 2026-09-20: 서식 문서 조각 첫머리가 제목 네다섯 번 반복).
+    가로 병합(colspan)은 첫 칸에만 쓴다. 칸마다 되풀이하면 'X | X | X'가 되어 본문·검색 조각이
+    같은 말로 채워진다(실측 2026-09-22: 서식 문서 본문 첫 줄이 '예비군대대 | 예비군대대 | 예비군대대 |
+    복학원 | 복학원 | 복학원 …'). 세로 병합(rowspan)은 아래 행에도 채운다 — '예산' 머리글 아래 수치 행이
+    머리글 맥락을 잃지 않아야 근거로 쓰인다. 다만 아래 행에 새 글이 하나도 없으면(병합 칸의 되풀이뿐)
+    그 행은 내지 않는다. 빈 칸은 내지 않는다.
     """
     n_rows, n_cols = int(data["n_rows"]), int(data["n_cols"])
     grid = [["" for _ in range(n_cols)] for _ in range(n_rows)]
-    origin = [[-1] * n_cols for _ in range(n_rows)]
-    for k, (r, c, rs, cs, _hd, txt) in enumerate(data["cells"]):
+    fresh = [[False] * n_cols for _ in range(n_rows)]     # 이 칸이 병합의 첫 행인가
+    for r, c, rs, cs, _hd, txt in data["cells"]:
         r, c, rs, cs = int(r), int(c), int(rs), int(cs)
         if not (0 <= r < n_rows and 0 <= c < n_cols):
             continue
         t = " ".join(str(txt).split())
+        if not t:
+            continue
         for dr in range(max(rs, 1)):
-            for dc in range(max(cs, 1)):
-                if r + dr < n_rows and c + dc < n_cols:
-                    grid[r + dr][c + dc] = t
-                    origin[r + dr][c + dc] = k
+            if r + dr < n_rows:
+                grid[r + dr][c] = t
+                fresh[r + dr][c] = dr == 0
     out = []
     for r in range(n_rows):
-        if n_cols > 1 and origin[r][0] >= 0 and all(o == origin[r][0] for o in origin[r]):
-            out.append([grid[r][0]])       # 행 전체가 한 셀 — 한 번만
-        else:
-            out.append(grid[r])            # 부분 병합은 열마다 채워 아래 행과 열 위치를 맞춘다
+        if not any(fresh[r]):
+            continue
+        out.append([v for v in grid[r] if v])
     return out
 
 
