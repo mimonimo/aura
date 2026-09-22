@@ -316,6 +316,6 @@ def test_weekly_markdown_is_tidied_for_screen_and_export():
     md = "【이번 주 한 일】\n1. 장비 구성\n- 토르 2대\n2. 문서 반입\n• 194건\n【다음 주 계획】\n1. 파일럿"
     assert len([b for s in parse_draft(md) for b in s["blocks"]]) == 1          # 정리 전: 한 문단에 뭉침
     tidy = _tidy_weekly_md(md)
-    assert "\n\n2. 문서 반입\n   - 194건" in tidy and tidy.startswith("【이번 주 한 일】\n\n1. 장비 구성\n   - 토르 2대")
+    assert "\n\n2) 문서 반입\n   - 194건" in tidy and tidy.startswith("【이번 주 한 일】\n\n1) 장비 구성\n   - 토르 2대")
     blocks = [b for s in parse_draft(tidy) for b in s["blocks"]]
     assert [b["kind"] for b in blocks] == ["p", "list", "list", "p", "list"]
