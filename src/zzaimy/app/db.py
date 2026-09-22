@@ -195,6 +195,8 @@ class Database:
         "ALTER TABLE regulation_chunks ADD COLUMN dept TEXT NOT NULL DEFAULT '공통'",
         # 열람 등급 — 반입 때 정한다(access_policy). 조각은 문서의 값을 물려받아 검색 SQL 이 바로 거른다.
         "ALTER TABLE documents ADD COLUMN access_level TEXT NOT NULL DEFAULT 'public'",
+        # 초안 검증 결과(JSON) — 배점 반영·수치 검증·예산 검산을 기계가 읽는 형태로. 베이스라인·개선폭 측정의 원천
+        "ALTER TABLE documents ADD COLUMN draft_audit TEXT",
         "ALTER TABLE regulation_chunks ADD COLUMN access_level TEXT NOT NULL DEFAULT 'public'",
         "ALTER TABLE documents ADD COLUMN related_criteria_id INTEGER",
         "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
@@ -276,7 +278,7 @@ class Database:
     def update_document(self, doc_id: int, **fields: str | None) -> None:
         allowed = {
             "status", "series", "masked_text", "ai_review",
-            "error", "draft", "draft_spec", "coverage", "decision", "parse_note",
+            "error", "draft", "draft_spec", "coverage", "decision", "parse_note", "draft_audit",
             "suggested_criteria",
         }
         unknown = set(fields) - allowed
