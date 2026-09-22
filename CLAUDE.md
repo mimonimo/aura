@@ -19,7 +19,7 @@ Codex·Claude 공동 작업이면 `docs/collaboration/README.md`와 `codex.md`·
 
 - 기간: 2026-09-01 ~ 11-30 구축·논문, 12월 초 교내 발표회. 13주 계획은 `docs/capstone-plan.md`
 - 장비: 운영 = ESXi VM(CPU, 웹·검색·OCR) / 서빙 = 젯슨 토르 02(대화·초안)·03(검토·판독·임베딩·리랭커),
-  둘 다 Writer 27B NVFP4 / 학습 = DGX 전용. 상세와 접속은 `docs/HANDOFF.md` §1
+  둘 다 Writer 27B NVFP4 / 학습 = DGX(.110, SSH dgx-01 포트 8022) 전용. 상세와 접속은 `docs/HANDOFF.md` §1
 - 데이터: 실물 표본은 `data/samples/`(git 제외). 지금 문서함은 공개 국고문서 + 교내 공개 문서 194건,
   교내 실물 문서는 수령 대기
 - 단계: 플랫폼 가동 중. 검색 학습본(Embed v2·Rerank v1) 운영 채택. Writer·Extract 학습은 실물 문서와
