@@ -943,3 +943,27 @@ DGX 연결 삭제(연결은 토르 02·03 둘뿐). 문서 422 전체 판독을 �
 - 진행(같은 날): 백엔드 커밋·배포 완료 — `access_guard.py`(pii_request·scope_note·search_scope·allowed_doc_ids·audit·recent·scrub), 계정 `dept`/`role`(request.state.dept), 대화 경로에 가드·범위·마스킹 검사, `POST /dev/account/scope`(관리자), /dev/pii 컨텍스트 `access_audit`·`accounts_scope`·`role_choices`·`dept_choices`, 대화 컨텍스트 `scope_label`. 시나리오 자가 점검 `scripts/131` 운영 DB PASS(부서 자료가 아직 전부 '공통'이라 부서 시나리오는 건너뜀). 아스트라 C-59(화면) 대기.
 - 반입 구조(같은 날, 사용자: "문서 반입 시 처리해야 할 게 있으니 미리 구조화"): 문서마다 부서·열람 등급(public/dept/owner)이 반입 때 붙고(`access_policy.classify`) 조각이 물려받으며 `list_regulation_chunks(dept, user, levels)` 가 SQL 에서 거른다. `/upload` 폼 `dept`·`access_level`, `POST /doc/{id}/scope`, `db.set_document_scope`. 운영 DB 소급(132): 문서 194건 중 접수 문서 3건 → dept, 나머지 public. 131 PASS, 110 통과. 아스트라 C-60(업로드·문서·NAS 원천 화면) 대기.
 
+
+## K-56 (2026-09-22) — OCR·표·판본·갈래: 반입 파이프라인 직접 개선 (아스트라와 분담)
+
+- 사용자 지시: "문서 OCR 품질이 아직 너무 낮음. 표 처리도", "표랑 텍스트 위치 이런거 원본이랑 틀림", "너랑 아스트라가 직접 관여해서 개선", "문서 분류시에 분류를 잘 해(양식·사업 공고·계획서 …)", "기준문서에 중복으로 등록된것도 있어보이는데 개선".
+- 진단(운영 DB 실측): ① 서식 표의 병합 셀이 칸마다 되풀이(복학원 본문 '예비군대대 | 예비군대대 | 예비군대대 | 복학원 | 복학원 …' — render._row_texts 의 colspan 채움). ② 글자층 직독 문서 10건의 조각 전부 쪽 번호 없음(392: 250쪽). ③ 같은 제목 기준 문서 5묶음(첨단분야 신청서 3판 등) — 해마다 공고에 딸린 같은 양식, 바이트 해시로는 못 잡음. ④ 서류 갈래 없음(doc_type 은 처리 경로). ⑤ 판독이 깨져 한자 잡음만 남은 게시물 9건(440·454·455·456·462·476·477·435·451 — 비전 없이 MinerU OCR 로 들어간 것). ⑥ 321 은 내려받기가 막힌 파일(파이프라인 문제 아님).
+- 한 일(커밋 4ce83571·후속): `render._row_texts`(가로 병합 한 번만·되풀이 행 생략), `pipeline._read_text_layer` 쪽별 본문 → `_page_chunks`, 새 `doc_family.py`(family_key·judge·link_attachments·similarity), `doc_routing.guess_kind`(갈래 10종, 제목 낱말 → 본문 생김새), DB 열 family·version_of·kind, 반입 관문 `_family_gate`(같은 내용 거절·판본 잇기·붙임 잇기), `/criteria` 컨텍스트에 kind_label·family_count·head_title, 소급 136·137. ADR-0027. 테스트 추가(doc_family 6·routing 2·표 평문 2·쪽 번호 1).
+- VM 적용: 136(판본 8·갈래 173/192·붙임 잇기 37·중복 0), 137(표 조각 1,444개 평문 갱신, 811,240→517,902자). 재처리 체인(`data/logs/reprocess-20260922.log`): 깨진 게시물 9건 비전 재판독 + 글자층 직독 9건 재처리 → 75 재분할 → 84 자가 점검. 이어서 96 재색인·53 재측정.
+- 로컬 전체 테스트: 아스트라 미커밋 `base.html`(대화 상태 저장 주석 "임시 초안을 넘기지 않는다")이 `test_app.py::test_draft_only_for_grant_docs` 를 깨뜨린다 — 문서 화면 `<main>` 안에 '초안' 글자가 들어감. 아스트라 쪽에서 문구를 바꾸거나 주석을 `<main>` 밖으로 옮겨 달라(C-61 에 포함).
+
+## C-20260922-61 — 기준 문서 목록의 판본·갈래 표시와 AI 읽기 표 충실도 (Claude → Codex)
+
+상태: 요청. 담당: Codex(템플릿·정적 자원), Claude(백엔드 완료).
+
+배경은 ADR-0027. 백엔드가 `/criteria` 컨텍스트에 문서마다 `kind_label`(공고·양식·계획서 …), `family_count`(같은 제목 판본 수),
+`head_title`(딸린 공고·계획 문서 제목), `version_of`(첫 판본 id) 를 준다. `kind_labels` 는 갈래 이름표 사전.
+요청 넷 — 템플릿·정적 자원만:
+1. 기준 문서 목록(`criteria.html`): 같은 `family` 는 한 줄로 접고 "판 3" 표식과 펼치기, 각 판에 딸린 공고 제목(`head_title`)을 작게.
+   갈래는 제목 앞 작은 표식(`kind_label`), 갈래별 거르기(목록 상단 칸).
+2. 문서 화면 AI 읽기 탭: 표는 셀 구조(`table_html`)로 그리되 원본 쪽 위치(page_no·bbox 가 있으면)에 맞춰 본문 사이에 놓는다.
+   지금은 표가 본문 뒤에 몰리는 문서가 있다(320 RISE 공고 2쪽). 조각 순서는 `doc_chunks` 순(id) 그대로가 읽기 순서다.
+3. 데이터 열람 문서 상세: 조각 목록에 쪽 번호와 갈래·판본 정보 한 줄.
+4. `base.html` 의 대화 상태 저장 주석("임시 초안을 넘기지 않는다")이 문서 화면 `<main>` 안에 '초안' 글자를 넣어
+   `tests/test_app.py::test_draft_only_for_grant_docs` 가 깨진다. 주석 문구를 바꾸거나 스크립트를 `</main>` 뒤로.
+main.py 는 Claude 가 이미 반영했고 겹치는 작업은 없다. 미커밋 파일이 겹치면 요청 남기고 기다린다.
