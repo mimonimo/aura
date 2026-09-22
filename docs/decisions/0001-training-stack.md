@@ -26,7 +26,7 @@ aarch64 + Blackwell(sm_121)은 리서치가 위험 2번으로 지목한 조합�
   반복 실험용 후보로 유지하되 필요 시점에 별도 스모크 후 채택.
 - 임베딩 학습: sentence-transformers 6.0.1로 1-step 검증 완료. FlagEmbedding
   (리서치 1안, hn_mine)은 P2 하드 네거티브 마이닝 시점에 확인.
-- 환경: venv 분리 — `.venv`(파싱·서빙), `.venv-train`(학습). 버전 고정은
+- 환경: venv 분리: `.venv`(파싱·서빙), `.venv-train`(학습). 버전 고정은
   `configs/training-env.txt` (pip freeze 전문).
 
 ## 근거
