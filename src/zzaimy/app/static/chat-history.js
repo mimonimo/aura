@@ -66,52 +66,10 @@
     dialog.innerHTML = '<header><h2>대화 검색</h2><button type="button" class="secondary" data-close>닫기</button></header><form class="session-search"><input type="search" aria-label="대화 이름 또는 프로젝트 검색" placeholder="대화 이름, 프로젝트 검색"><button type="submit" class="secondary">검색</button><div class="session-filters"><label>상태<select aria-label="기록 구분"><option value="0">진행 중</option><option value="1">보관됨</option></select></label><label>검색 범위<select aria-label="찾을 범위" data-scope><option value="title">이름·프로젝트·사업</option><option value="all">대화 내용 포함</option></select></label></div></form><p role="status"></p><div class="session-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button>';
     document.body.appendChild(dialog); dialog.showModal();
     dialog.querySelector('[data-close]').onclick = () => dialog.close();
-    let previewController;
-    dialog.addEventListener('close', () => { token++; controller?.abort(); previewController?.abort(); dialog.remove(); if(opener.isConnected) opener.focus({preventScroll:true}); });
+    dialog.addEventListener('close', () => { token++; controller?.abort(); dialog.remove(); if(opener.isConnected) opener.focus({preventScroll:true}); });
     const form = dialog.querySelector('form'), results = dialog.querySelector('.session-results');
     const status = dialog.querySelector('[role=status]'), more = dialog.querySelector('[data-more]');
     let offset = 0, token = 0, controller;
-    async function preview(session) {
-      previewController?.abort();
-      const request = new AbortController(); previewController = request;
-      const scroll = results.scrollTop;
-      const controls = [form, status, results, more];
-      const visibility = controls.map(node => node.hidden);
-      controls.forEach(node => node.hidden = true);
-      const pane = document.createElement('section'); pane.className = 'session-preview';
-      const toolbar = document.createElement('div'); toolbar.className = 'session-preview-toolbar';
-      const back = document.createElement('button'); back.type = 'button'; back.className = 'secondary'; back.textContent = '검색 결과로';
-      const full = document.createElement('a'); full.className = 'btn-ghost'; full.href = '/chat/' + session.id; full.textContent = '전체 업무 대화로 열기';
-      toolbar.append(back, full);
-      const title = document.createElement('h3'); title.textContent = session.title || '이름 없는 대화'; title.tabIndex = -1;
-      const content = document.createElement('div'); content.className = 'session-preview-messages';
-      const notice = document.createElement('p'); notice.setAttribute('role','status'); notice.textContent = '대화 내용을 불러오는 중…';
-      content.append(notice); pane.append(toolbar, title, content); dialog.append(pane); title.focus();
-      back.onclick = () => {
-        request.abort(); pane.remove();
-        controls.forEach((node,index) => node.hidden = visibility[index]); results.scrollTop = scroll;
-        [...results.querySelectorAll('a')].find(node => node.getAttribute('href') === '/chat/' + session.id)?.focus({preventScroll:true});
-      };
-      try {
-        const response = await fetch('/chat/' + session.id + '/messages', {cache:'no-store', signal:request.signal});
-        if (!response.ok || response.redirected) throw new Error('대화를 불러오지 못했습니다. 권한 또는 삭제 여부를 확인해 주세요.');
-        const data = await response.json();
-        if (request.signal.aborted || !pane.isConnected) return;
-        if (!Array.isArray(data.messages)) throw new Error('대화 내용을 확인할 수 없습니다.');
-        const fragment = document.createDocumentFragment();
-        for (const message of data.messages) {
-          if (!['user','assistant'].includes(message.role)) continue;
-          const turn = document.createElement('article'); turn.className = 'session-preview-turn';
-          const author = document.createElement('strong'); author.textContent = message.role === 'user' ? '나' : '업무 에이전트';
-          const text = document.createElement('p'); text.textContent = message.content || '';
-          turn.append(author,text); fragment.append(turn);
-        }
-        notice.textContent = data.waiting ? '답변 작성 중인 대화입니다. 현재 저장된 내용만 표시합니다.' : (fragment.childNodes.length ? '저장된 대화 내용입니다.' : '저장된 메시지가 없습니다.');
-        content.append(fragment);
-      } catch (error) {
-        if (error.name !== 'AbortError') notice.textContent = error.message || '불러오지 못했습니다. 검색 결과로 돌아가 다시 시도해 주세요.';
-      }
-    }
     async function load(append=false) {
       const current = ++token;
       controller?.abort(); controller = new AbortController();
@@ -126,10 +84,6 @@
         for (const session of data.sessions) {
           const row = document.createElement('article'); row.className = 'session-row';
           const link = document.createElement('a'); link.href = '/chat/' + session.id; link.textContent = session.title || '이름 없는 대화'; link.title = link.textContent;
-          link.addEventListener('click', event => {
-            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-            event.preventDefault(); preview(session);
-          });
           const meta = document.createElement('p'); meta.className = 'muted'; meta.textContent = (session.project_name || session.topic || '일반 대화') + ' · ' + session.created_at.slice(0,10);
           const actions = document.createElement('div'); actions.className = 'session-actions';
           const rename = document.createElement('button'); rename.type = 'button'; rename.className = 'secondary'; rename.textContent = '이름 변경';
