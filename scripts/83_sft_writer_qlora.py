@@ -11,6 +11,11 @@
 사용:
   python scripts/83_sft_writer_qlora.py --check          # 준비 상태만 점검
   python scripts/83_sft_writer_qlora.py --base <경로> --data <jsonl> --out <경로>
+  python scripts/83_sft_writer_qlora.py --base <경로> --smoke   # 합성 4쌍으로 2스텝 — 장비에서 27B LoRA 가 도는지만 본다
+
+정밀도: 기본은 bf16 LoRA 다(DGX 통합 메모리 121GB 에 27B bf16 54GB 가 들어가고, 학습본을 bf16 으로 병합한 뒤
+NVFP4 로 양자화해 서빙하는 경로가 ADR-0023). --4bit 를 주면 bitsandbytes QLoRA — aarch64 CUDA 13 에 bnb 휠이
+있을 때만 된다.
 """
 from __future__ import annotations
 
@@ -71,13 +76,25 @@ def main() -> int:
     ap.add_argument("--seq-len", type=int, default=4096)
     ap.add_argument("--batch", type=int, default=1)
     ap.add_argument("--accum", type=int, default=16)
+    ap.add_argument("--4bit", dest="four_bit", action="store_true", help="bitsandbytes QLoRA(기본은 bf16 LoRA)")
+    ap.add_argument("--smoke", action="store_true", help="합성 4쌍 2스텝 — 베이스라인 없이도 장비 검증용으로만")
     args = ap.parse_args()
 
     data = Path(args.data)
     if args.check:
         return check(data)
+    if args.smoke:
+        # 합성 4쌍(configs/training/data/smoke_pairs.json)을 대화 형식 jsonl 로 임시 생성 — 실제 문서는 쓰지 않는다
+        import json as _json
 
-    if read_baseline() is None:
+        pairs = _json.loads((ROOT / "configs" / "training" / "data" / "smoke_pairs.json").read_text())
+        data = Path("/tmp/zzaimy-writer-smoke.jsonl")
+        data.write_text("\n".join(_json.dumps({"messages": [
+            {"role": "user", "content": (ex.get("instruction", "") + "\n" + ex.get("input", "")).strip()},
+            {"role": "assistant", "content": ex.get("output", "")}]}, ensure_ascii=False) for ex in pairs) + "\n")
+        args.out, args.epochs, args.seq_len, args.accum = "/tmp/zzaimy-writer-smoke", 1.0, 512, 1
+
+    if read_baseline() is None and not args.smoke:
         print("베이스라인 측정 기록이 없어 학습을 시작하지 않습니다.", file=sys.stderr)
         print(f"먼저 베이스라인을 측정해 {BASELINE.relative_to(ROOT)} 에 남기십시오.", file=sys.stderr)
         return 2
@@ -102,14 +119,14 @@ def main() -> int:
         print("학습 전용 가상환경(.venv-train)에서 실행하십시오.", file=sys.stderr)
         return 3
 
-    quant = BitsAndBytesConfig(
-        load_in_4bit=True, bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
-    )
+    load_kw: dict = {"dtype": torch.bfloat16, "device_map": "auto"}
+    if args.four_bit:
+        load_kw["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=True, bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
+        )
     tok = AutoTokenizer.from_pretrained(args.base)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.base, quantization_config=quant, torch_dtype=torch.bfloat16, device_map="auto",
-    )
+    model = AutoModelForCausalLM.from_pretrained(args.base, **load_kw)
     ds = load_dataset("json", data_files=str(data), split="train")
     trainer = SFTTrainer(
         model=model,
@@ -125,12 +142,17 @@ def main() -> int:
             output_dir=args.out, num_train_epochs=args.epochs,
             per_device_train_batch_size=args.batch,
             gradient_accumulation_steps=args.accum,
-            learning_rate=args.lr, bf16=True, logging_steps=10,
-            save_strategy="epoch", max_length=args.seq_len,
+            learning_rate=args.lr, bf16=True, logging_steps=1 if args.smoke else 10,
+            save_strategy="no" if args.smoke else "epoch", max_length=args.seq_len,
             gradient_checkpointing=True, report_to=[],
+            max_steps=2 if args.smoke else -1,
         ),
     )
     trainer.train()
+    if args.smoke:
+        peak = torch.cuda.max_memory_allocated() / 2**30 if torch.cuda.is_available() else 0
+        print(f"스모크 통과 — 2스텝, GPU 최대 사용 {peak:.1f}GB")
+        return 0
     trainer.save_model(args.out)
     print(f"학습을 마쳤습니다 — {args.out}")
     print("다음: scripts/94_ship_adapter.sh 로 토르에 옮긴 뒤 scripts/82_serve_writer.sh 로 띄우십시오.")
