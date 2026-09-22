@@ -1,6 +1,6 @@
 # 인수인계 — 다른 세션/계정이 이어받을 때 먼저 읽는 문서
 
-이 문서는 **대화 맥락 없이도** 작업을 이어받게 하는 다리다. 순서대로:
+이 문서는 대화 맥락 없이도 작업을 이어받게 하는 다리다. 순서대로:
 `CLAUDE.md`(작업 지침) → 이 문서(현재 상태) → `PROJECT_BRIEF.md`(판단 기준).
 
 최종 업데이트: 2026-09-22 (§1 두 토르 NVFP4 구성 확정)
@@ -16,80 +16,102 @@
                                                                     [DGX .110]  학습 전용 — SSH dgx-01@211.170.162.110 -p 8022
 ```
 
-- **역할 분담(2026-09-21 확정, ADR-0023)**: 토르 02 = 사람이 기다리는 일(대화·초안), 토르 03 = 배치(반입 검토·이미지
-  판독) + 임베딩·리랭커. 같은 27B 를 두 대에 각각 올려 배치가 대화를 막지 않게 한다. DGX 는 학습만.
-  계획에 없는 모델은 쓰지 않는다(gemma4 는 9/21 제거, K-43).
-- **LLM 연결은 화면(개발자 > 연결)에서 등록한 값이 우선**(`data/platform/llm_connections.json`). 지금 연결은
-  `토르 02 · Writer(27B)`(92a94f3f, answer·기본)와 `토르 03 · Writer(27B)`(6a68d93b, review·vision) 둘뿐이다.
-  스크립트에서 연결을 쓰려면 `llm_connections.configure(...)`. 공개 수집 문서만 외부 상용 모델로 읽는 용도(`vision_public`)가
-  있고 키는 화면에서 넣는다(ADR-0024, 미지정이면 판독 모델을 쓴다).
-- **젯슨 토르** `thor-02@211.170.162.120`·`thor-03@211.170.162.121`, SSH 포트 8022(맥 키 등록됨, sudo 는 비밀번호 필요).
-  Jetson AGX Thor, 통합 메모리 122GB. 모델 파일은 `~/zzaimy/models/`, 서비스 코드는 `~/zzaimy/serve/`.
-  - **Writer 서빙은 `scripts/126_serve_writer.sh` 하나로**(HOST·MODEL·IMAGE·PORT 인자). 두 대 모두
-    `MODEL=/models/Qwen3.8-27B-NVFP4 IMAGE=ghcr.io/nvidia-ai-iot/vllm:qwen3.8-next-jetson-thor-latest`(9/22 토르 02 교체 완료,
-    요청 1개 10.9 tok/s — bf16 2.4~4.5). 양자화 판은 기본 젯슨 빌드(gemma4 태그, vLLM 0.19)에서 적재 실패 — 반드시 qwen3.8 전용 태그.
-    학습본은 `116_ship_and_serve.sh writer` 로 두 대에 올린다.
-  - **젯슨 GPU 메모리 함정 둘**: ① 큰 파일을 받은 뒤 페이지 캐시가 CUDA 메모리를 막아 vLLM 이 cuBLAS 오류로 죽는다 — root 로
-    `sync; sysctl vm.drop_caches=3`(K-47). ② 컨테이너를 `docker rm -f` 로 죽이면 GPU 메모리(88GB)가 안 돌아와 재부팅이
-    필요하다 — 126 은 `docker stop -t 60` 으로 정상 종료를 기다린다(K-53). 확인은 `torch.cuda.mem_get_info()`.
-  - 토르 Ollama(0.32.6, :11434)는 9/21부터 용도에서 빠졌다(qwen3.8 을 못 읽고 갱신은 sudo). 그 위의 `zzaimy-answer`·`zzaimy-review`
-    모델은 서빙 실험용 흔적이다.
-  - VM→.120 은 첫 구간 장비(10.10.10.13) 허용 목록 누락으로 막혀 있다가 9/20 사용자가 해소.
-  - **임베딩 재계산은 토르 GPU 로**: `bash scripts/96_embed_on_thor.sh --apply`(맥에서 실행) — 4,254조각 약 1분,
-    VM CPU 계산 표본과 코사인 1.00000. VM CPU 경로(`66_reindex.sh`)는 한 시간 넘게 걸린다.
-- **DGX `211.170.162.110`** — 학습 전용. **SSH `ssh -p 8022 dgx-01@211.170.162.110`(맥 키 등록됨, 9/22 확인; sudo 는 비밀번호 필요)**.
-  실체는 DGX Spark 급(호스트 spark-b30a, GB10, aarch64, 통합 메모리 121GB, Ubuntu 24.04, 디스크 3.0TB 여유, docker 29·python 3.12).
-  같은 장비에 Ollama(qwen3.8:27b·qwen3.6:35b·gpt-oss:120b)가 상주해 메모리 93GB 를 잡고 있다 — 학습 전에 Ollama 모델을
-  내려야 한다(`keep_alive` 0 또는 서비스 중지, sudo). 사용 금지인 옛 Spark(.109)와는 다른 장비다. 9/21 14~17시 임시로 서빙을
-  넘겼다가 토르 03 으로 복귀하며 연결을 지웠다. 학습본 이관 경로는 ADR-0023 §3(bf16 병합 → NVFP4 양자화 → 116 으로 두 토르).
+### 역할 분담
 
-  **상시 서비스 두 개(9/20 올림, 토르 03, `--restart unless-stopped`·도커 부팅 시작 enabled)**:
+토르 02는 대화와 초안 작성처럼 사람이 기다리는 일을 맡고, 토르 03은 반입 검토와 이미지 판독 같은
+배치 작업과 임베딩·리랭커 서비스를 맡는다. 같은 27B 모델을 두 대에 각각 올려 배치가 대화를 막지
+않게 했다. DGX는 학습만 한다. 계획에 없는 모델은 쓰지 않는다. 9월 21일에 계획 밖 소형 판독
+모델을 지웠다.
 
-  | 포트 | 무엇 | 올리는 법 | VM 쪽 설정(`.env.local`) |
-  |---|---|---|---|
-  | 8013 | 리랭커 베이스 (bge-reranker-v2-m3) — 비교용 | `bash scripts/102_serve_reranker_on_thor.sh 8013` | (평가에만 씀) |
-  | 8014 | 질의 임베딩 베이스 (KURE-v1) — 비교용 | `bash scripts/103_serve_embed_on_thor.sh 8014` | (평가에만 씀) |
-  | 8016 | **운영 질의 임베딩 = ZZAIMY-Embed v2 학습본** | `MODEL=/models/zzaimy-embed-v2 bash scripts/103_serve_embed_on_thor.sh 8016` | `ZZAIMY_EMBED_URL=http://211.170.162.121:8016/embed` |
-  | 8015 | **운영 리랭커 = ZZAIMY-Rerank v1 학습본** | `MODEL=/models/zzaimy-rerank-v1 bash scripts/102_serve_reranker_on_thor.sh 8015` | `ZZAIMY_RERANK_URL=http://211.170.162.121:8015/score` + `ZZAIMY_RERANK_MIN=0.005` |
-  | 8017 | KURE-v2 다중 벡터 검색 — 비교용(운영은 부르지 않음, ADR-0025) | `bash scripts/128_kure2_index_on_thor.sh` → `bash scripts/129_serve_kure2_on_thor.sh 8017` | (측정에만: `ZZAIMY_ALT_DENSE_URL=http://211.170.162.121:8017/search`) |
+LLM 연결은 화면(개발자 > 연결)에서 등록한 값이 우선이며 `data/platform/llm_connections.json`에
+저장된다. 지금 연결은 토르 02의 Writer(answer, 기본 연결)와 토르 03의 Writer(review, vision) 둘뿐이다.
+스크립트에서 연결을 쓰려면 `llm_connections.configure(...)`를 부른다. 공개 수집 문서만 외부 상용
+모델로 읽는 용도(`vision_public`)가 따로 있고 키는 화면에서 넣는다. 지정하지 않으면 판독 모델을
+쓴다(ADR-0024).
 
-  **학습본을 서빙으로 올릴 때는 `bash scripts/116_ship_and_serve.sh <rerank|embed> <학습본이름>`** —
-  옮기기·서비스 교체·(임베딩이면) 재색인·(리랭커면) 근거 하한 재측정·설정 갱신·점검까지 한 번에 한다.
-  학습 장비에서 가져오려면 `--from <계정@주소>:<경로>` 를 붙인다.
+### 젯슨 토르
 
-  점검은 `bash scripts/110_serving_check.sh` 한 줄 — 서비스 생존·VM 설정·하한이 모델과 맞는지 함께 본다.
+`thor-02@211.170.162.120`과 `thor-03@211.170.162.121`, SSH 포트 8022다. 맥의 키가 등록돼 있고 sudo는
+비밀번호가 필요하다. Jetson AGX Thor로 통합 메모리 122GB. 모델 파일은 `~/zzaimy/models/`, 서비스
+코드는 `~/zzaimy/serve/`에 있다.
 
-  **색인과 질의 임베딩 모델은 한 짝이다** — 한쪽만 바꾸면 벡터 공간이 어긋나 검색이 조용히 망가진다.
-  색인은 `MODEL=… bash scripts/96_embed_on_thor.sh --apply`, 쓰인 모델은
-  `data/platform/chunk_embeddings.meta.json` 에 적힌다. ADR-0021.
+Writer 서빙은 `scripts/126_serve_writer.sh` 하나로 한다(HOST, MODEL, IMAGE, PORT 인자). 두 대 모두
+`MODEL=/models/Qwen3.8-27B-NVFP4`, `IMAGE=ghcr.io/nvidia-ai-iot/vllm:qwen3.8-next-jetson-thor-latest`
+다. 9월 22일 토르 02까지 교체를 마쳤고 요청 하나에 초당 10.9토큰이 나온다(원본 bf16은 2.4~4.5).
+양자화 판은 기본 젯슨 빌드(gemma4 태그, vLLM 0.19)에서 뜨지 않으므로 반드시 Qwen3.8 전용 태그를
+쓴다. 학습본은 `116_ship_and_serve.sh writer`로 두 대에 올린다.
 
-  **리랭커 모델을 바꾸면 근거 하한을 다시 잰다** — `scripts/105_rerank_floor.py` 로 재고
-  `.env.local` 의 `ZZAIMY_RERANK_MIN` 을 갱신한다. 지금 값은 모델 학습 화면에 표시된다.
-  눈금은 모델마다 다르다(베이스 0.271 · 학습본 0.005). 학습은 `scripts/104`,
-  홀드아웃 검증은 `scripts/106`. 결정 근거는 ADR-0020.
+젯슨의 GPU 메모리 함정이 둘 있다. 큰 파일을 받은 뒤에는 페이지 캐시가 GPU 메모리를 막아 vLLM이
+cuBLAS 오류로 죽으므로 root로 `sync; sysctl vm.drop_caches=3`을 한 뒤 서빙을 올린다. 컨테이너를
+`docker rm -f`로 죽이면 GPU 메모리 88GB가 돌아오지 않아 재부팅이 필요했으므로 126은 `docker stop
+-t 60`으로 정상 종료를 기다린다. 확인은 `torch.cuda.mem_get_info()`로 한다.
 
-  둘 다 OpenAI 규격이 아니라 단일 용도 규약이다(`/health`·`/score`·`/embed`). VM 은 서비스가 죽으면
-  스스로 물러난다(리랭커→VM CPU, 임베딩→VM 모델을 그때 올림, 그것도 없으면 키위 검색만).
-  효과(질의 150건 실측 9/20): 리랭킹 질의당 3.75초→0.07초, 정확한 질문 R@1 0.647→0.667,
-  상황 질문 R@1 0.413→0.460. VM 상주 메모리 634MB→358MB(질의 임베딩 모델을 안 올린다).
-  학습본까지 더하면 홀드아웃 문서에서 정확한 질문 R@1 0.649→0.711·MRR 0.751→0.790.
-  후보 수는 10→20 으로 늘렸다(리랭커가 싸져서 가능해진 몫). 오늘 운영 수치:
-  정확한 질문 R@1 0.753·MRR 0.786 / 상황 질문 R@1 0.587·MRR 0.630 (아침 0.633/0.704, 0.400/0.504).
-  모델 파일은 토르 `~/zzaimy/models/`(KURE-v1·bge-reranker-v2-m3·zzaimy-embed-v1), 서비스 코드는 `~/zzaimy/serve/`.
+토르의 Ollama(0.32.6, 포트 11434)는 9월 21일부터 용도에서 빠졌다. 그 위의 `zzaimy-answer`와
+`zzaimy-review` 모델은 서빙 실험의 흔적이다. 운영 서버에서 토르 02로 가는 길은 첫 구간 장비의
+허용 목록 누락으로 막혀 있다가 9월 20일 사용자가 풀었다.
 
-- **운영 서버 = ESXi VM** (`aura@192.168.16.226`). 웹·검색·OCR·문서관리 담당. GPU 없음.
-  - 접속: 학과망 VPN 안에서 `ssh aura@192.168.16.226` (키 등록 필요, 비번은 별도 전달).
-  - 웹: `https://192.168.16.226` (self-signed, https·443). 로그인 `zzaimy`(담당자) / `zzdev`(개발자).
-  - 서비스: `systemctl --user status zzaimy.service` (자동시작·linger 설정됨). 로그 `~/app.log`.
-  - 환경: `~/zzaimy-capstone/.env.local` — 여기 `VLLM_BASE_URL`에 GPU 서버 주소 넣으면 생성 켜짐.
-  - 스택: python3.12 venv(`.venv`), 검색(KURE·bge·kiwi), OCR(MinerU·docling·tesseract),
-    산출물(python-hwpx·docx·pdf). 전부 오프라인 캐시(`HF_HUB_OFFLINE=1`). torch는 **2.4.1 고정**
-    (2.14 최신은 torchvision::nms 오류로 탈락).
-  - **패키지 추가는 오프라인 절차**(VM은 pip 네트워크 없음): 맥에서 `.venv/bin/pip wheel <pkg> --no-deps -w data/tmp/wheels`
-    → `scp` → VM `.venv/bin/pip install --no-index --no-deps --find-links /tmp/wheels <pkg>`. 2026-09-15 pyhwp(0.1b15)를
-    이 절차로 설치 — 그 전까지 VM에는 pyhwp가 없어 .hwp 접수 문서가 빈 채로 처리됐다(재처리 `scripts/79 --write`).
-- **새 DGX `220.67.5.51:8022`** — 여전히 접속 불가(확인 대기). 지금 쓰는 DGX 는 위의 211.170.162.110.
-- **⚠ 기존 Spark(211.170.162.109 = 211.xx)는 사용 금지** (사용자 지시). 데이터는 이미 VM으로 이관 완료.
+임베딩 재계산은 토르 GPU로 한다. 맥에서 `bash scripts/96_embed_on_thor.sh --apply`를 실행하면
+조각 4천 개가 1분 안에 끝나고, 운영 서버 CPU 표본과 코사인 1.00000으로 맞았다. 운영 서버 CPU
+경로(`66_reindex.sh`)는 한 시간 넘게 걸린다.
+
+### DGX
+
+`ssh -p 8022 dgx-01@211.170.162.110`으로 접속한다(맥 키 등록, 9월 22일 확인, sudo는 비밀번호 필요).
+호스트 이름 spark-b30a, GB10, aarch64, 통합 메모리 121GB, Ubuntu 24.04, 디스크 3.0TB 여유, docker 29와
+python 3.12가 있다. 같은 장비에 Ollama가 상주하며 27b, 35b, 120b 모델로 메모리 93GB를 잡고
+있으므로 학습 전에는 그 모델들을 내려야 한다(`keep_alive` 0 또는 서비스 중지, sudo). 사용 금지인
+옛 Spark(.109)와는 다른 장비다. 9월 21일 오후에 잠시 서빙을 넘겼다가 토르 03으로 복귀하며 연결을
+지웠다. 학습본 이관 경로는 ADR-0023 3절(bf16 병합, NVFP4 양자화, 116으로 두 토르)이다.
+
+### 토르 03의 상시 서비스
+
+9월 20일에 올렸고 `--restart unless-stopped`와 도커 부팅 시작이 걸려 있다.
+
+| 포트 | 무엇 | 올리는 법 | 운영 서버 설정(`.env.local`) |
+|---|---|---|---|
+| 8013 | 리랭커 베이스(bge-reranker-v2-m3), 비교용 | `bash scripts/102_serve_reranker_on_thor.sh 8013` | 평가에만 |
+| 8014 | 질의 임베딩 베이스(KURE-v1), 비교용 | `bash scripts/103_serve_embed_on_thor.sh 8014` | 평가에만 |
+| 8016 | 운영 질의 임베딩, ZZAIMY-Embed v2 | `MODEL=/models/zzaimy-embed-v2 bash scripts/103_serve_embed_on_thor.sh 8016` | `ZZAIMY_EMBED_URL=http://211.170.162.121:8016/embed` |
+| 8015 | 운영 리랭커, ZZAIMY-Rerank v1 | `MODEL=/models/zzaimy-rerank-v1 bash scripts/102_serve_reranker_on_thor.sh 8015` | `ZZAIMY_RERANK_URL=http://211.170.162.121:8015/score`, `ZZAIMY_RERANK_MIN=0.005` |
+| 8017 | KURE-v2 다중 벡터 검색, 비교용(운영은 부르지 않음) | `bash scripts/128_kure2_index_on_thor.sh` 뒤 `bash scripts/129_serve_kure2_on_thor.sh 8017` | 측정에만 `ZZAIMY_ALT_DENSE_URL=http://211.170.162.121:8017/search` |
+
+학습본을 서빙으로 올릴 때는 `bash scripts/116_ship_and_serve.sh <rerank|embed> <학습본이름>`을 쓴다.
+옮기기, 서비스 교체, 임베딩이면 재색인, 리랭커면 근거 하한 재측정, 설정 갱신, 점검까지 한 번에
+한다. 학습 장비에서 가져오려면 `--from <계정@주소>:<경로>`를 붙인다. 점검은 `bash
+scripts/110_serving_check.sh` 한 줄이며 서비스 생존, 운영 서버 설정, 하한이 모델과 맞는지 함께 본다.
+
+색인과 질의 임베딩 모델은 한 짝이다. 한쪽만 바꾸면 벡터 공간이 어긋나 검색이 조용히 망가진다.
+색인은 `MODEL=… bash scripts/96_embed_on_thor.sh --apply`로 만들고 쓰인 모델은
+`data/platform/chunk_embeddings.meta.json`에 적힌다(ADR-0021). 리랭커 모델을 바꾸면 근거 하한을
+`scripts/105_rerank_floor.py`로 다시 재고 `.env.local`의 `ZZAIMY_RERANK_MIN`을 갱신한다. 눈금은
+모델마다 다르다(베이스 0.271, 학습본 0.005). 학습은 `scripts/104`, 홀드아웃 검증은 `scripts/106`,
+결정 근거는 ADR-0020이다.
+
+두 서비스는 OpenAI 규격이 아니라 단일 용도 규약(`/health`, `/score`, `/embed`)이다. 운영 서버는
+서비스가 죽으면 스스로 물러난다. 리랭커는 CPU로, 임베딩은 운영 서버 모델을 그때 올리고, 그것도
+없으면 어휘 검색만 한다. 검색을 GPU로 옮긴 효과는 리랭킹이 질의당 3.75초에서 0.07초로 줄고 운영
+서버 상주 메모리가 634MB에서 358MB로 준 것이다. 학습본까지 더하면 홀드아웃 문서에서 정확한 질문의
+R@1이 0.649에서 0.711로 올랐다. 후보 수는 리랭커가 싸진 덕에 10개에서 20개로 늘렸다. 최신 운영
+수치는 품질·성능 화면과 `data/platform/eval/retrieval-latest.json`에 있다.
+
+### 운영 서버
+
+ESXi VM `aura@192.168.16.226`이다. 웹, 검색, OCR, 문서 관리를 맡고 GPU가 없다. 학과망 VPN 안에서
+`ssh aura@192.168.16.226`으로 접속하며 키 등록이 필요하고 비밀번호는 별도로 전달한다. 웹은
+`https://192.168.16.226`(자체 서명 인증서)이고 로그인은 `zzaimy`(담당자)와 `zzdev`(개발자)다. 서비스는
+`systemctl --user status zzaimy.service`로 보고 자동 시작과 linger가 설정돼 있다. 로그는 `~/app.log`.
+
+환경은 `~/zzaimy-capstone/.env.local`에 있다. 스택은 python 3.12 가상환경(`.venv`)에 검색(KURE, bge,
+kiwi), OCR(MinerU, docling, tesseract), 산출물(python-hwpx, docx, pdf)이며 전부 오프라인 캐시로 돈다
+(`HF_HUB_OFFLINE=1`). torch는 2.4.1로 고정한다. 최신 2.14는 torchvision의 nms 오류로 탈락했다.
+
+패키지 추가는 오프라인 절차다. 운영 서버는 pip 네트워크가 없으므로 맥에서 `.venv/bin/pip wheel
+<pkg> --no-deps -w data/tmp/wheels`로 휠을 만들어 scp로 옮긴 뒤 `.venv/bin/pip install --no-index
+--no-deps --find-links /tmp/wheels <pkg>`로 설치한다. 9월 15일 pyhwp를 이 절차로 설치했다. 그 전에는
+.hwp 접수 문서가 빈 채로 처리됐고 `scripts/79 --write`로 다시 처리했다.
+
+새 DGX `220.67.5.51:8022`는 여전히 접속되지 않는다(확인 대기). 지금 쓰는 DGX는 위의
+211.170.162.110이다. 옛 Spark(211.170.162.109)는 사용 금지이며 데이터는 이미 운영 서버로 옮겼다.
 
 ## 1-1. 정본과 배포 (2026-09-20 정리)
 
