@@ -295,7 +295,7 @@ class DocumentProcessor:
                     self._ocr_used = True
                     self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
                     self._note_partial_vision(file_path, pages[:read])
-                    return "\n\n".join(mds)
+                    return "\n\n".join(self._md_to_text(m) for m in mds)
 
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
             # PDF 기본 파서는 MinerU — 표 구조·2단 레이아웃·읽기 순서 보존.
@@ -548,6 +548,26 @@ class DocumentProcessor:
             else:
                 log.warning("비전 판독 실패(%s) — OCR 결과로 진행", type(e).__name__)
             return None
+
+    @staticmethod
+    def _md_to_text(md: str) -> str:
+        """비전 판독 마크다운 → 본문 평문. 표는 셀 구조를 풀어 행마다 ' | ' 로, 제목은 '## ' 없이.
+
+        판독 결과를 그대로 본문으로 두면 <table>·<tr> 태그가 기준 조각과 검색에 들어간다(실측 2026-09-22:
+        비전으로 읽은 게시물 3건에서 태그 든 조각 34개, 표제가 '</tr>' 인 조각). 조각 변환기와 같은 파서를 쓴다.
+        """
+        from zzaimy.app.render import table_text
+
+        parts: list[str] = []
+        for c in DocumentProcessor._md_to_chunks(md, lambda x: x):
+            if c.get("kind") == "table":
+                t = table_text(c.get("content") or "")
+            else:
+                t = c.get("content") or ""
+            t = t.strip()
+            if t:
+                parts.append(t)
+        return "\n\n".join(parts)
 
     @staticmethod
     def _md_to_chunks(md: str, mk, page_no: int = 1) -> list[dict]:
@@ -2105,7 +2125,7 @@ class DocumentProcessor:
                             vc += self._md_to_chunks(md, lambda x: x, page_no=pg_no)
                     vp = vp[:_read]
                     if reg_mds:
-                        raw_text = "\n\n".join(reg_mds)
+                        raw_text = "\n\n".join(self._md_to_text(m) for m in reg_mds)
                         reg_vision_chunks = vc
                         self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
 
@@ -2229,7 +2249,7 @@ class DocumentProcessor:
                         self._last_parse_note = (
                             f"AI 비전 판독 ({_vision_model_name()}) · {len(vlm_pages)}쪽 · 표 {n_t}개"
                         )
-                        raw_text = "\n\n".join(mds)
+                        raw_text = "\n\n".join(self._md_to_text(m) for m in mds)
                 if parsed_chunks is None and file_path.suffix.lower() in (
                     ".png", ".jpg", ".jpeg",
                 ):
@@ -2251,7 +2271,7 @@ class DocumentProcessor:
                         )
                         if self._last_attrs:
                             self._last_parse_note += " · " + "·".join(self._last_attrs)
-                        raw_text = vlm_md
+                        raw_text = self._md_to_text(vlm_md)
                     # 빨간 직인(도장) 영역은 별도 이미지로 잘라 보관한다
                     for i, stamp in enumerate(self._extract_stamps(file_path)):
                         self._last_images.append((1, stamp))
