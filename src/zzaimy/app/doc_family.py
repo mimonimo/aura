@@ -97,6 +97,21 @@ def similarity(a: str, b: str) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
+def source_name(doc: dict) -> str:
+    """붙임 번호가 남아 있는 이름 — 반입 때 제목으로 바꾼 뒤에도 identity.original_filename 에 원래 이름이 있다."""
+    ident = doc.get("identity")
+    if isinstance(ident, str):
+        try:
+            import json
+
+            ident = json.loads(ident)
+        except ValueError:
+            ident = {}
+    if isinstance(ident, dict) and (ident.get("original_filename") or "").strip():
+        return str(ident["original_filename"])
+    return doc.get("filename") or ""
+
+
 def link_attachments(db, doc_id: int, doc_type: str = "regulation") -> int | None:
     """같은 공고에 딸린 붙임 묶음에서 머리 문서를 찾아 이 문서를 잇는다(related_criteria_id).
 
@@ -106,19 +121,19 @@ def link_attachments(db, doc_id: int, doc_type: str = "regulation") -> int | Non
     doc = db.get_document(doc_id)
     if not doc:
         return None
-    key = batch_key(doc.get("filename") or "")
+    key = batch_key(source_name(doc))
     if not key:
         return None
     mates = [d for d in db.list_documents(doc_type)
              if d["id"] != doc_id and d.get("status") != "failed"
-             and batch_key(d.get("filename") or "") == key]
+             and batch_key(source_name(d)) == key]
     if not mates:
         return None
     pool = mates + [doc]
 
     def rank(d: dict) -> tuple:
         head_kind = 0 if (d.get("kind") in ("announcement", "plan")) else 1
-        return (head_kind, attachment_no(d.get("filename") or "") or 99, d["id"])
+        return (head_kind, attachment_no(source_name(d)) or 99, d["id"])
 
     head = min(pool, key=rank)
     if head["id"] == doc_id:

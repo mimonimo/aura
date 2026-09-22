@@ -127,20 +127,30 @@ def guess_doc_type(text: str, identity: dict | None = None,
 KINDS = {
     "announcement": "공고", "form": "양식", "plan": "계획서", "report": "결과보고서",
     "regulation": "규정", "guideline": "지침·매뉴얼", "criteria": "심사·평가 기준", "notice": "안내문",
+    "table": "표·현황", "certificate": "증명·등록증",
 }
 # 제목·본문의 낱말 단서 — 특정 문서가 아니라 서류 종류에 붙는 일반 낱말이다(하드코딩 금지 규칙과 충돌하지 않는다)
 _KIND_CUES = {
-    "regulation": r"학칙|규정|규칙|세칙|규약|내규|정관|조례",
+    "regulation": r"학칙|규정|규칙|세칙|규약|내규|정관|조례|회칙|헌장",
+    "certificate": r"등록증|증명서|확인서|인증서|허가증|면허증",
     "form": r"신청서|확약서|동의서|서약서|정의서|양식|서식|신고서|원서|위임서|제출서|이력서|추천서|"
             r"(?:복학|휴학|자퇴|퇴학|전과|입학|편입|재입학|사직|휴직|복직|출원)원$",
-    "announcement": r"공고|모집|공모",
-    "plan": r"계획서|추진\s*계획|기본\s*계획|시행\s*계획|운영\s*계획|사업\s*계획",
+    "announcement": r"공고|모집|공모|제안요청|입찰",
+    "plan": r"계획",
+    "table": r"편성표|현황|내역|목록|일람|명단|시간표|일정표|배정표",
     "report": r"결과보고|성과보고|실적보고|결과 보고|최종보고|보고서$|보고$",
     "guideline": r"지침|매뉴얼|안내서|가이드|요령|편람|길라잡이|처리기준|업무기준|운영기준|처리 기준",
     "criteria": r"심사기준|평가기준|평가지표|배점|채점|심사표|평가표",
-    "notice": r"안내|공지|알림",
+    "notice": r"안내|공지|알림|확인사항|유의사항",
 }
-_KIND_ORDER = ("regulation", "form", "report", "criteria", "announcement", "guideline", "plan", "notice")
+_KIND_ORDER = ("regulation", "certificate", "form", "report", "criteria", "announcement", "guideline", "plan",
+               "table", "notice")
+# '-원'으로 끝나는 서류 이름은 신청 서식이다(복학원·재입학원·학점취소원). 기관 이름의 '원'은 아니다.
+_WON_FORM = re.compile(r"[가-힣()/]{2,}원$")
+_WON_NOT = re.compile(r"(대학원|연구원|학원|병원|위원|직원|회원|공무원|기관원|법원|의원)$")
+# 양식의 결재란 — '결재 … 담당 … 팀장' 이 앞머리에 있으면 서식이다
+_APPROVAL = re.compile(r"결\s*재.{0,60}담\s*당.{0,60}(팀\s*장|과\s*장|처\s*장)", re.S)
+_NOTICE_BODY = re.compile(r"신청\s*(?:하세요|안내|기간|접수)|접수\s*(?:기간|기한)|이벤트\s*기간|공모\s*일정|행사\s*(?:일정|기간)|특강")
 # 양식의 몸 — 빈칸 표시가 잦다: '년 월 일', '○○', 'OOO', '☐', '□', '( )'
 _BLANK = re.compile(r"년\s*월\s*일|[○◯]{2,}|(?<![A-Za-z])[oO]{3,}(?![A-Za-z])|[☐□■]|\(\s{2,}\)")
 _APPLY = re.compile(r"신청\s*(?:기간|기한|접수)|접수\s*(?:기간|기한)|공고합니다|공고함")
@@ -152,11 +162,15 @@ def guess_kind(filename: str, text: str, doc_type: str | None = None) -> tuple[s
     제목의 낱말이 먼저다(사람도 제목으로 서류를 안다). 제목에 단서가 없으면 본문 앞머리의
     생김새로 본다: 조문 머리가 줄지어 있으면 규정, 빈칸 표시가 잦으면 양식, 공고 뼈대면 공고.
     """
-    title = _EXT_RE.sub("", filename or "")
+    title = _EXT_RE.sub("", filename or "").strip()
     for kind in _KIND_ORDER:
         if re.search(_KIND_CUES[kind], title):
             return kind, f"제목에 「{KINDS[kind]}」 낱말이 있습니다"
+    if _WON_FORM.search(title) and not _WON_NOT.search(title):
+        return "form", "제목이 '-원'으로 끝나는 신청 서식입니다"
     body = (text or "")[:BODY_CHARS * 2]
+    if _APPROVAL.search(body[:600]):
+        return "form", "앞머리에 결재란이 있습니다"
     if doc_type == "regulation" and len(_ARTICLE.findall(body)) >= ARTICLE_MIN:
         return "regulation", "조문 머리가 줄지어 있습니다"
     if len(_ARTICLE.findall(body)) >= ARTICLE_MIN * 2:
@@ -165,11 +179,15 @@ def guess_kind(filename: str, text: str, doc_type: str | None = None) -> tuple[s
     if body and blanks * 1000 / max(len(body), 1) >= 3:
         return "form", "빈칸 표시(년 월 일·○○·☐)가 잦습니다"
     head = body[:800]
-    if _APPLY.search(body) and re.search(r"공고", head):
+    if _APPLY.search(body) and re.search(r"공고|공모|모집", head):
         return "announcement", "앞머리가 공고이고 신청 기간이 있습니다"
     for kind in ("report", "criteria", "plan", "guideline"):
         if re.search(_KIND_CUES[kind], head):
             return kind, f"앞머리에 「{KINDS[kind]}」 낱말이 있습니다"
+    if _NOTICE_BODY.search(head):
+        return "notice", "앞머리에 신청·접수 안내가 있습니다"
+    if re.search(_KIND_CUES["table"], head[:120]):
+        return "table", "앞머리가 표 제목입니다"
     return "", "서류 갈래를 정할 단서가 없습니다"
 
 

@@ -55,7 +55,10 @@ def main() -> int:
     print("백업:", backup)
     missed = 0
     for did in docs:
-        text = conn.execute("SELECT masked_text FROM documents WHERE id = ?", (did,)).fetchone()[0] or ""
+        row = conn.execute("SELECT masked_text FROM documents WHERE id = ?", (did,)).fetchone()
+        if row is None:            # 문서 없이 남은 조각(고아) — 조각만 고친다
+            continue
+        text = row[0] or ""
         for _, d, old, new, _ in changed:
             if d != did or not old:
                 continue
