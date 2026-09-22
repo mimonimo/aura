@@ -1788,6 +1788,52 @@ def create_app(
                                                  "hash": "", "files": 0, "areas": []})
         return [{"day": d, "items": items} for d, items in days.items()]
 
+    # 문서 한 줄 설명 — 목록에서 제목 아래에 보인다. 없는 파일은 설명 없이 제목만.
+    _DOC_DESC = {
+        "paper/프로젝트-기획서.md": "제출용 기획서 — 목표·개발 내용·장비·일정·기대 효과",
+        "paper/논문-원재료.md": "논문 본문의 재료 — 시스템 구성·방법·기여·한계·수치 총람",
+        "paper/실험-로그.md": "실험 시계열 — 무엇을 어떻게 재서 어떤 판정을 했는지",
+        "paper/논문-양식-가이드.md": "작년 논문집 형식과 우리 목차 대응",
+        "paper/중간-발표자료.md": "중간 발표 슬라이드 구성안",
+        "paper/제안발표-내용.md": "제안 발표(9/8) 슬라이드 원고",
+        "HANDOFF.md": "지금 어떤 구성으로 도는가 · 접속 · 남은 일 (이어받는 사람이 먼저 읽는 문서)",
+        "dev-now.md": "지금 하는 일 · 다음 일 · 최근 작업 (진행 현황 탭의 원본)",
+        "architecture.md": "아키텍처 설계 — 데이터 흐름·검색·검증기·현황 주석",
+        "model-plan.md": "모델 4종 학습 계획 — 데이터·순서·게이트",
+        "eval-plan.md": "평가 계획 — 평가셋·지표·베이스라인 절차",
+        "capstone-plan.md": "13주 실행 계획 — 주차별 목표와 현황",
+        "pilot-plan.md": "실물 문서 파일럿 계획",
+        "risks.md": "위험 관리 — 개인정보·환각·파싱·운영",
+        "quality-system.md": "품질 5계층 체계 — 문제를 어느 계층에서 막는가",
+        "workflow.md": "저장소·결정·보고 방식",
+        "retrieval-baseline-mini.md": "검색 기준선(9/4) — 어휘·임베딩·하이브리드",
+        "retrieval-weight-sweep.md": "하이브리드 가중 스윕(9/4)",
+        "rerank-baseline.md": "리랭커 학습 전 기준선(9/4)",
+        "llm-rerank-eval.md": "리랭커 학습본·LLM 리랭킹 비교(9/20)",
+        "embed-v0-report.md": "임베딩 v0 리허설(9/3, 미배포)",
+        "ocr-cer-bench.md": "OCR 어절 정확도 벤치(9/7)",
+        "ocr-duel.md": "OCR 엔진 대결(9/8)",
+        "model-cards/zzaimy-embed-v2.md": "운영 임베딩 학습본 카드",
+        "model-cards/zzaimy-rerank-v1.md": "운영 리랭커 학습본 카드",
+        "notes/2026-09-22-external-split-and-blockchain.md": "외부 모델 반분 위탁·블록체인 — 채택 안 함(이유·대안)",
+        "notes/2026-09-22-vllm-vs-ollama.md": "서빙 엔진 비교 — 실측과 vLLM 통일 이유",
+        "notes/meeting-w2-20260908.md": "2주차 미팅 메모(교수님)와 정합 분석",
+        "notes/2026-09-02-ocr-engine-refs.md": "OCR 엔진 후보 조사",
+        "notes/2026-09-02-ocr-preprocessing-refs.md": "스캔 전처리·복원 후보 조사",
+        "notes/2026-09-02-ocr-upgrade-refs.md": "OCR·문서이해 고도화 레퍼런스",
+        "notes/2026-09-02-external-doc-sources.md": "공개 문서 소스 조사",
+        "notes/table-layout.md": "표·레이아웃 원본 불일치 원인 진단",
+        "notes/automation-pipeline.md": "자동화 파이프라인 목표와 현재 위치",
+        "notes/backlog.md": "개선 백로그(9/8 실사용 리뷰)",
+        "notes/uiux-audit.md": "UI/UX 전수 조사",
+        "notes/ui-glossary.md": "화면 문구 용어집",
+        "notes/hwpx-agent-skills.md": "한글 에이전트 스킬 수집 노트",
+        "notes/collab-now.md": "협업 분담(현재)",
+    }
+    # 기술 검토(조사·판단 기록)와 작업 메모(백로그·용어집 같은 내부 메모)를 나눈다
+    _NOTE_MEMO = {"backlog.md", "collab-now.md", "ui-glossary.md", "uiux-audit.md", "hwpx-agent-skills.md",
+                  "automation-pipeline.md"}
+
     _PAPER_LABELS = {
         "프로젝트-기획서.md": "프로젝트 기획서",
         "중간-발표자료.md": "중간 발표자료 구성안",
@@ -1797,9 +1843,13 @@ def create_app(
         "제안발표-내용.md": "제안 발표 내용",
     }
 
+    _PAPER_ORDER = ["프로젝트-기획서.md", "제안발표-내용.md", "중간-발표자료.md", "논문-원재료.md",
+                    "실험-로그.md", "논문-양식-가이드.md"]
+
     def _dev_papers() -> list[dict]:
         d = _DOCS_DIR / "paper"
-        names = sorted(p.name for p in d.glob("*.md")) if d.exists() else []
+        names = sorted((p.name for p in d.glob("*.md")) if d.exists() else [],
+                       key=lambda n: (_PAPER_ORDER.index(n) if n in _PAPER_ORDER else 99, n))
         return [
             {"file": n, "label": _PAPER_LABELS.get(n, n.replace(".md", ""))}
             for n in names
@@ -1886,13 +1936,14 @@ def create_app(
     @app.get("/dev/doc/{name:path}", response_class=HTMLResponse)
     def dev_doc(request: Request, name: str):
         allowed = {
-            "embed-v0-report.md", "retrieval-baseline-mini.md",
+            "embed-v0-report.md", "retrieval-baseline-mini.md", "llm-rerank-eval.md", "ocr-duel.md",
             "rerank-baseline.md", "retrieval-weight-sweep.md", "ocr-cer-bench.md",
-            "quality-system.md", "HANDOFF.md", "model-plan.md",
+            "quality-system.md", "HANDOFF.md", "dev-now.md", "model-plan.md", "architecture.md",
+            "eval-plan.md", "capstone-plan.md", "pilot-plan.md", "risks.md", "workflow.md",
         } | {
             f"{d['sub']}/{d['file']}"
             for sub in ("decisions", "notes") for d in _dev_doc_list(sub)
-        }
+        } | {f"model-cards/{p.name}" for p in (_DOCS_DIR / "model-cards").glob("*.md")}
         if name not in allowed:
             raise HTTPException(404)
         fname = name.rsplit("/", 1)[-1]
@@ -2043,7 +2094,7 @@ def create_app(
             if m := re.match(r"^(?:ADR-)?(\d{4})\s*[.·:]?\s+(.+)$", title):
                 num, title = m.group(1), m.group(2)
             return {"href": href, "title": title, "num": num, "status": status,
-                    "date": meta["date"] or first_date}
+                    "date": meta["date"] or first_date, "desc": _DOC_DESC.get(rel, "")}
 
         from datetime import date as _date, timedelta as _td
 
@@ -2058,14 +2109,23 @@ def create_app(
                        for p in _dev_papers()],
             "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
                                d["title"]) for d in _dev_doc_list("decisions")],
-            "note_docs": [entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
-                          for d in _dev_doc_list("notes")],
-            # 측정 기록·인수인계는 docs/ 바로 아래 — dev_doc 의 allowed 와 같은 파일들
-            "bench_docs": [entry(f, f"/dev/doc/{f}") for f in (
-                "retrieval-baseline-mini.md", "retrieval-weight-sweep.md",
-                "rerank-baseline.md", "embed-v0-report.md", "ocr-cer-bench.md")],
+            # 기술 검토(조사·판단) 와 작업 메모(내부 메모)를 나눈다 — 한 목록에 섞여 무엇이 무엇인지 안 보였다(9/22)
+            "note_docs": sorted([entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
+                                 for d in _dev_doc_list("notes") if d["file"] not in _NOTE_MEMO],
+                                key=lambda e: e["date"], reverse=True),
+            "memo_docs": sorted([entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
+                                 for d in _dev_doc_list("notes") if d["file"] in _NOTE_MEMO],
+                                key=lambda e: e["date"], reverse=True),
+            # 현황(먼저 볼 것) · 설계·계획 · 측정 기록 · 모델 카드 — docs/ 바로 아래 파일들
+            "status_docs": [entry(f, f"/dev/doc/{f}") for f in ("HANDOFF.md", "dev-now.md")],
             "plan_docs": [entry(f, f"/dev/doc/{f}") for f in (
-                "HANDOFF.md", "model-plan.md", "quality-system.md")],
+                "architecture.md", "model-plan.md", "eval-plan.md", "capstone-plan.md",
+                "pilot-plan.md", "risks.md", "quality-system.md", "workflow.md")],
+            "bench_docs": [entry(f, f"/dev/doc/{f}") for f in (
+                "llm-rerank-eval.md", "retrieval-baseline-mini.md", "retrieval-weight-sweep.md",
+                "rerank-baseline.md", "embed-v0-report.md", "ocr-cer-bench.md", "ocr-duel.md")],
+            "card_docs": [entry(f"model-cards/{f}", f"/dev/doc/model-cards/{f}") for f in
+                          sorted(p.name for p in (_DOCS_DIR / "model-cards").glob("*.md"))],
         }))
 
     @app.get("/dev/history", response_class=HTMLResponse)
