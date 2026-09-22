@@ -157,9 +157,10 @@
       <td><span class="pill type">베이스 서빙 중 · 학습 환경 준비됨</span>
         <span class="muted" style="font-size:11.5px; margin-left:4px;">두 토르 NVFP4, DGX .venv-train, 베이스라인 기록(9/22, 공개 공고 3건). 학습은 실물 문서 뒤</span></td></tr>
     <tr>
-      <td style="font-weight:600;">ZZAIMY-Extract</td><td>Qwen3-4B</td>
-      <td>실적 카드 추출</td><td>교사 추출 → 검수 → SFT</td>
-      <td><span class="pill processing">예정 · 결과보고서 수령 후</span></td></tr>
+      <td style="font-weight:600;">ZZAIMY-Extract</td><td>Qwen3.8-27B (Writer 공용)</td>
+      <td>실적 카드 추출(형식 강제)</td><td>27B 추출 → 사람 검수 → 같은 베이스 어댑터</td>
+      <td><span class="pill processing">예정 · 결과보고서 수령 후</span>
+        <span class="muted" style="font-size:11.5px; margin-left:4px;">소형 4B 는 처리량이 문제될 때만(ADR-0026)</span></td></tr>
   </table>
   </div>
   <p class="muted" style="font-size:11.5px; margin:10px 0 0; line-height:1.6;">

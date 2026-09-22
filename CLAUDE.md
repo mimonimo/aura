@@ -79,7 +79,7 @@ data/         산출물·문서 (저장소에 넣지 않음)
 | `ZZAIMY-Embed` | KURE-v1 | 조밀 검색 | v2 운영(ADR-0021) |
 | `ZZAIMY-Rerank` | bge-reranker-v2-m3 | 후보 재정렬 | v1 운영(ADR-0020) |
 | `ZZAIMY-Writer` | Qwen3.8-27B (dense, 멀티모달) | 섹션 생성 + 이미지 판독·검토·대화 | 베이스 서빙(NVFP4), 학습은 SFT → DPO |
-| `ZZAIMY-Extract` | Qwen3-4B | 실적 카드 추출 | 예정 |
+| `ZZAIMY-Extract` | Qwen3.8-27B (Writer 와 같은 모델, 형식 강제) | 실적 카드 추출 | 예정 — 소형 4B 는 처리량이 문제될 때만(ADR-0026, 제안) |
 
 계획은 `docs/model-plan.md`. 학습 데이터는 `/dev/data` 데이터 공방에서 수치 검증 통과분만.
 학습본 이관은 `scripts/116_ship_and_serve.sh`(DGX → 두 토르, 리랭커면 근거 하한 재측정까지).
