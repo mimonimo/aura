@@ -194,3 +194,15 @@ def test_text_layer_pages_keep_page_numbers_on_chunks():
     assert [c["page_no"] for c in chunks] == [1, 7]
     proc._last_pages = None
     assert proc._page_chunks(do_mask=False) is None
+
+
+def test_vision_markdown_becomes_plain_text_without_html_tags():
+    """비전 판독 결과의 <table> 은 본문에서 행 평문이 된다 — 태그가 기준 조각·검색에 들어가지 않는다."""
+    from zzaimy.app.pipeline import DocumentProcessor
+
+    md = ("## 2026년 2학기 기부장학금 선발 요약표\n\n(단위: 명)\n\n<table>\n<tr><th rowspan=\"2\">유형</th><th colspan=\"2\">심사기준</th></tr>\n"
+          "<tr><th>1차</th><th>2차</th></tr>\n<tr><td>생활비</td><td>가계소득</td><td>자기소개서</td></tr>\n</table>\n\n문의: 장학팀")
+    text = DocumentProcessor._md_to_text(md)
+    assert "<" not in text and "##" not in text
+    assert text.startswith("2026년 2학기 기부장학금 선발 요약표")
+    assert "생활비 | 가계소득 | 자기소개서" in text and "문의: 장학팀" in text
