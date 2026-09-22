@@ -21,6 +21,7 @@ def test_scope_note_by_role_and_department():
     assert ag.scope_note("입학처 전형 자료", None, "staff", depts) is None              # 부서 미지정 = 전체
     assert ag.scope_note("입학처 전형 자료", "학생처", "dev", depts) is None            # 관리자
     assert "학생 계정" in ag.scope_note("산학협력단 계약 서류", "", "student", depts)
+    assert "학생 계정" in ag.scope_note("사업계획서 원문 보여줘", "", "student", ["공통"])   # 부서명 없어도 업무 자료
     assert ag.scope_note("휴학 절차", "", "student", depts) is None
 
 

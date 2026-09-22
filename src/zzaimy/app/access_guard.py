@@ -35,6 +35,12 @@ _INJECTION = re.compile(
     r"|숨기지\s*말고|필터\s*(?:없이|끄고)|제한\s*없이"
 )
 
+# 교직원 업무 자료를 가리키는 말 — 학생 계정의 범위 밖
+_STAFF_MATERIAL = re.compile(
+    r"사업계획서|결과보고서|접수\s*(?:문서|서류)|채용\s*서류|지원자|응시자|입학\s*전형\s*자료|평가\s*(?:표|자료)"
+    r"|내부\s*(?:문서|자료)|원문\s*(?:보여|출력|전부)|검토\s*의견|초안"
+)
+
 PII_NOTE = (
     "개인정보(연락처·주민번호·계좌·급여 등)는 이 시스템이 보관하지 않으며 답변에 쓰지 않습니다. "
     "필요하면 해당 자료를 관리하는 부서에 직접 확인해 주십시오."
@@ -68,7 +74,8 @@ def scope_note(question: str, dept: str | None, role: str, depts: list[str]) -> 
     q = question or ""
     mentioned = [d for d in _dept_words(depts) if d in q]
     if role == "student":
-        if mentioned:
+        # 부서명이 자료에 없어도 업무 자료를 가리키는 말이면 안내한다(사업계획서·접수 서류·지원자…)
+        if mentioned or _STAFF_MATERIAL.search(q):
             return ("학생 계정에서는 부서 업무 자료를 볼 수 없습니다. 공개된 규정과 학사 안내만 답할 수 있으며, "
                     "그 밖의 문의는 학생 민원 창구나 해당 부서에 해 주십시오.")
         return None
