@@ -151,3 +151,15 @@ def test_route_reports_kind_alongside_type_and_sector(tmp_path):
 
     r = route(Database(tmp_path / "t.db"), "복학원", "성명 | 년 월 일 | ☐ 복학")
     assert r["kind"] == "form" and r["why_kind"]
+
+
+def test_kind_rules_cover_posters_spaced_headers_and_subtitled_reports():
+    from zzaimy.app.doc_routing import guess_kind
+
+    assert guess_kind("2024학년도 학생 건의 사항 조치 보고서 · 사이버보안과", "")[0] == "report"
+    assert guess_kind("워크숍 맞춤형 김천관광체험", "")[0] == "notice"
+    assert guess_kind("이름없음", "제 안 요 청 서 2026학년도 비교과과정 운영 프로그램 위탁운영")[0] == "announcement"
+    assert guess_kind("평점평균 계산(예제)", "취득년도 | 취득학기 | 과목명 | 평점 | 개설학점 | 평점*개설학점")[0] == "table"
+    assert guess_kind("제목 없음", "5.지원시기: 2026년12월 예정 6.지원방법: 이자지원 확정금액만큼")[0] == "notice"
+    assert guess_kind("제목 없음", "행사 개요 기간 2026년 연중 장소 김천시 주요 관광지 대상 기관·단체 워크숍")[0] == "notice"
+

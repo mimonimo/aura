@@ -525,6 +525,8 @@ class DocumentProcessor:
                 timeout=self.VISION_TIMEOUT_S,
             )
             text = _strip_think(resp.choices[0].message.content or "")
+            # 모델이 답을 코드 울타리(```html … ```)로 감싸면 벗긴다 — 속성 줄이 둘째 줄로 밀려 본문에 남는다
+            text = re.sub(r"^\s*```[a-zA-Z]*\s*$", "", text, flags=re.M).strip()
             # 속성 줄 분리 — 하드케이스 분류용 (손글씨·도장 여부)
             first, _, rest = text.partition("\n")
             if first.startswith("[[속성]]"):
@@ -558,6 +560,9 @@ class DocumentProcessor:
         """
         from zzaimy.app.render import table_text
 
+        # 판독 모델이 붙이는 코드 울타리(```html)와 첫 줄 속성 표시([[속성]] …)는 본문이 아니다
+        md = re.sub(r"^\s*```[a-zA-Z]*\s*$", "", md or "", flags=re.M)
+        md = "\n".join(ln for ln in md.splitlines() if not ln.strip().startswith("[[속성]]"))
         parts: list[str] = []
         for c in DocumentProcessor._md_to_chunks(md, lambda x: x):
             if c.get("kind") == "table":
