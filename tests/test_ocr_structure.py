@@ -28,7 +28,7 @@ def test_table_text_renders_caption_rows_and_fills_spans():
     text = render_table_text(payload)
     lines = text.splitlines()
     assert lines[0] == "표 2. 연도별 예산 (단위: 천원)"
-    assert lines[1] == "구분 | 예산 | 예산"          # colspan 채움 — 열마다 머리글 맥락
+    assert lines[1] == "구분 | 예산"                 # 가로 병합은 한 번만
     assert lines[2] == "국고 | 1,200 | 1,350"
     assert lines[-1] == "※ 집행 기준"
     # 저장된 text가 있으면 그대로, 없으면 셀에서 만든다. JSON이 아니면 원문 그대로

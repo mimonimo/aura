@@ -255,6 +255,7 @@ class DocumentProcessor:
         self._last_attrs = []
         self._last_scan = None
         self._last_image_text = {}
+        self._last_pages = None   # 글자층 직독의 쪽별 본문 [(쪽, 글)] — 조각에 쪽 번호를 남기기 위해
         self._ocr_used = False  # 이번 파싱에서 실제 OCR이 돌았는가 — 교정 게이트
         bad = _format_mismatch(file_path)
         if bad:
@@ -275,6 +276,7 @@ class DocumentProcessor:
             direct = self._read_text_layer(file_path, min_pages=big)
             if direct:
                 self._ocr_used = False
+                self._last_pages = direct[2]
                 self._last_parse_note = f"글자층 직독 (쪽수 {direct[1]})"
                 return direct[0]
 
@@ -317,6 +319,7 @@ class DocumentProcessor:
             fallback = self._read_text_layer(file_path, min_pages=1)
             if fallback:
                 self._ocr_used = False
+                self._last_pages = fallback[2]
                 self._last_parse_note = f"글자층 직독 (구조 추출 실패, 쪽수 {fallback[1]})"
                 return fallback[0]
         # 이미지·오피스 문서(및 MinerU 실패 PDF)는 docling이 처리
@@ -353,8 +356,12 @@ class DocumentProcessor:
         return text
 
     @staticmethod
-    def _read_text_layer(file_path: Path, min_pages: int = 60) -> tuple[str, int] | None:
-        """쪽수가 많은 디지털 PDF 의 글자층을 그대로 읽는다 — 조건에 안 맞으면 None."""
+    def _read_text_layer(file_path: Path, min_pages: int = 60) -> tuple[str, int, list] | None:
+        """쪽수가 많은 디지털 PDF 의 글자층을 그대로 읽는다 — 조건에 안 맞으면 None.
+
+        돌려주는 것은 (본문, 쪽수, [(쪽 번호, 그 쪽 글)]). 쪽별 글은 조각에 쪽 번호를 남기는 데 쓴다 —
+        없으면 250쪽 문서의 조각이 전부 쪽 번호 없이 들어가 원문 이동·인용이 막힌다(실측 2026-09-22: 10건).
+        """
         try:
             import pypdfium2 as pdfium
 
@@ -365,13 +372,15 @@ class DocumentProcessor:
             sample = "".join((pdf[i].get_textpage().get_text_range() or "") for i in range(min(3, pages)))
             if len(sample.strip()) < 120:          # 글자층이 없으면(스캔) 다른 경로로 보낸다
                 return None
-            out = []
+            out: list[str] = []
+            per_page: list[tuple[int, str]] = []
             for i in range(pages):
                 text = (pdf[i].get_textpage().get_text_range() or "").strip()
                 if text:
                     out.append(text)
+                    per_page.append((i + 1, text))
             body = "\n\n".join(out)
-            return (body, pages) if len(body.strip()) >= 200 else None
+            return (body, pages, per_page) if len(body.strip()) >= 200 else None
         except Exception:
             return None
 
@@ -1258,6 +1267,60 @@ class DocumentProcessor:
         masked, _ = self._masker.mask(RawDocument(doc_id="chunk", text=s))
         return masked.text
 
+    @staticmethod
+    def _assign_kind(db: Database, doc_id: int, filename: str, text: str, doc_type: str | None) -> str:
+        """서류 갈래(공고·양식·계획서 …)를 정해 적는다 — 확신이 없으면 비워 둔다."""
+        try:
+            from zzaimy.app.doc_routing import guess_kind
+
+            kind, _why = guess_kind(filename, text, doc_type)
+            db.set_document_kind(doc_id, kind or None)
+            return kind
+        except Exception:
+            return ""
+
+    def _family_gate(self, db: Database, doc_id: int, doc: dict | None, text: str) -> bool:
+        """같은 제목의 기준 문서와 견줘 같은 내용이면 실패로 막고 True. 판본이면 첫 판본에 잇고 False.
+
+        붙임 묶음(같은 공고에 딸린 서식들)은 머리 문서(공고·계획)에 related_criteria_id 로 잇는다.
+        """
+        from zzaimy.app.doc_family import judge, link_attachments
+
+        family = (doc or {}).get("family")
+        if not family:
+            return False
+        try:
+            siblings = db.same_family(family, doc_id, doc_type="regulation")
+            if siblings:
+                j = judge(text, siblings)
+                if j["duplicate_of"]:
+                    twin = next(s for s in siblings if s["id"] == j["duplicate_of"])
+                    db.update_document(
+                        doc_id, status="failed",
+                        error=f"같은 내용의 문서가 이미 있습니다 — #{twin['id']} {twin['filename']}"
+                              f" (본문 겹침 {j['score'] * 100:.0f}%)")
+                    return True
+                db.set_document_family(doc_id, family, version_of=j["version_of"])
+                self._last_parse_note += f" · 같은 제목 {len(siblings) + 1}판(본문 겹침 {j['score'] * 100:.0f}%)"
+            link_attachments(db, doc_id)
+        except Exception as e:      # 판본 판정이 반입을 막아서는 안 된다
+            log.warning("판본 판정 실패(%s) — 그대로 반입", type(e).__name__)
+        return False
+
+    def _page_chunks(self, do_mask: bool = True, max_chunks: int = 400) -> list[dict] | None:
+        """글자층 직독의 쪽별 본문을 쪽 번호가 붙은 문단 조각으로 — 쪽별 본문이 없으면 None."""
+        pages = getattr(self, "_last_pages", None)
+        if not pages:
+            return None
+        mk = self._mask_str if do_mask else (lambda s: s)
+        out: list[dict] = []
+        for no, text in pages:
+            for c in _split_chunks(mk(text), max_chunks=max_chunks):
+                out.append({**c, "page_no": int(no)})
+                if len(out) >= max_chunks:
+                    return out
+        return out or None
+
     def _structured_chunks(
         self, do_mask: bool = True, max_chunks: int = 400
     ) -> list[dict] | None:
@@ -2069,6 +2132,11 @@ class DocumentProcessor:
                         for vc_ in reg_vision_chunks:
                             if isinstance(vc_.get("content"), str):
                                 vc_["content"] = self._mask_str(vc_["content"])
+                # 같은 제목의 기준 문서가 이미 있으면 판본인지 같은 내용인지 가린다(doc_family).
+                # 같은 내용이면 받지 않는다 — 목록에 같은 제목이 줄지어 서고 검색이 같은 조각을 판본 수만큼 올린다.
+                if self._family_gate(db, doc_id, doc, raw_text):
+                    return
+                self._assign_kind(db, doc_id, title, raw_text, "regulation")
                 chunks = chunk_document(raw_text)
                 if reg_vision_chunks is None and getattr(self, "_ocr_used", False):
                     # MinerU 스캔 경로 — 공백 복원 후 오인식을 보수적으로 교정
@@ -2104,6 +2172,7 @@ class DocumentProcessor:
                 reg_doc_chunks = (
                     reg_vision_chunks
                     or self._structured_chunks(do_mask=reg_mask)
+                    or self._page_chunks(do_mask=reg_mask)
                     or [
                         {"kind": "text", "content": c.content[:2000]}
                         for c in chunks if len(c.content) >= 2
@@ -2195,7 +2264,7 @@ class DocumentProcessor:
                 # 마스킹 기록 — 유형·건수·마스킹본 문맥만 (원문 값 없음)
                 record_mask_events(db, doc_id, masked.text, ocr_events)
                 if parsed_chunks is None:
-                    parsed_chunks = self._structured_chunks() or _split_chunks(masked.text)
+                    parsed_chunks = self._structured_chunks() or self._page_chunks() or _split_chunks(masked.text)
                     if self._llm_correct_chunks(parsed_chunks):
                         self._last_parse_note = (
                             (self._last_parse_note or "일반 추출") + " · AI 오타 교정"
@@ -2232,10 +2301,11 @@ class DocumentProcessor:
             log.info("doc %d: PII %d건 마스킹", doc_id, len(events))
             # 마스킹 기록 — 유형·건수·마스킹본 문맥만 (원문 값 없음)
             record_mask_events(db, doc_id, masked.text, events)
+            self._assign_kind(db, doc_id, (doc or {}).get("filename") or "", masked.text, doc_type)
 
             # 파싱 결과 DB화 — 구조(페이지·표) 보존 조각, 없으면 문단 분할 (연관성·작성 재료)
             db.replace_doc_chunks(
-                doc_id, self._structured_chunks() or _split_chunks(masked.text)
+                doc_id, self._structured_chunks() or self._page_chunks() or _split_chunks(masked.text)
             )
             db.replace_doc_assets(
                 doc_id,

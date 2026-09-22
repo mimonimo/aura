@@ -328,3 +328,16 @@ def test_notice_with_blank_lines_uses_two_level_prose_splitting():
             "5. 기타사항\n\n◦ 사업설명회는 3월 13일 대전청사에서 연다. 참석은 자유다.")
     heads = [c.heading for c in chunk_document(text)]
     assert "4. 신청방법" in heads and not any(h.startswith("◦") for h in heads)
+
+
+def test_select_candidates_keeps_one_of_nearly_identical_version_chunks():
+    """해마다 조금 손본 같은 양식의 행은 글자 몇이 다를 뿐 같은 조각이다 — 후보 집합의 근사 중복 규칙(corpus_reasons)이 하나만 남긴다."""
+    from zzaimy.app.regulations import select_candidates
+
+    base = ("컨소시엄 구성 주관 대학 대학명 oooo대학교 컨소시엄 구성비율 수도권 40% 권역 동남권 비수도권 60% "
+            "광역지자체 ooo도 참여대학 참여(전문)대학 ooo 대학교 주관대학 담당자 작성자 확인자 성명 휴대전화 전자우편")
+    by_id = {1: {"id": 1, "content": base + " 신청분야 항공드론"},
+             2: {"id": 2, "content": base + " 신청분야 그린바이오"},
+             3: {"id": 3, "content": "지원 규모는 대학당 연 30억 원이며 신청 기간은 3월 2일부터 3월 20일까지다. 접수는 온라인으로 한다."}}
+    got = [c["id"] for c in select_candidates([1, 2, 3], by_id)]
+    assert len(got) == 2 and 3 in got and len({1, 2} & set(got)) == 1
