@@ -289,6 +289,9 @@ def test_short_content_also_has_full_reader(client, tmp_path):
     assert '<pre>도장</pre>' in document
     assert 'id="dxDetail"' in regulation
     assert 'class="dx-more can"' in regulation
+    assert 'aria-label="추출 내용"' in document
+    assert 'class="dx-group"' not in document
+    assert 'box-shadow:inset 3px' not in document
 
 
 def test_table_chunk_preview_is_readable():
