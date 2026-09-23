@@ -142,7 +142,27 @@
     }
   });
   input.addEventListener('input', () => { paint(); resize(); });
-  document.getElementById('attachButton').addEventListener('click', () => file.click());
+  const toolsButton = document.getElementById('attachButton'), toolsMenu = document.getElementById('chatTools');
+  function placeTools() {
+    const rect = toolsButton.getBoundingClientRect();
+    toolsMenu.style.left = Math.max(12, Math.min(rect.left, innerWidth - 292)) + 'px';
+    toolsMenu.style.bottom = Math.max(12, innerHeight - rect.top + 10) + 'px';
+  }
+  toolsButton.addEventListener('click', () => { placeTools(); toolsMenu.togglePopover(); });
+  toolsMenu.addEventListener('toggle', event => {
+    toolsButton.setAttribute('aria-expanded', String(event.newState === 'open'));
+    if (event.newState === 'open') toolsMenu.querySelector('button').focus();
+  });
+  toolsMenu.addEventListener('keydown', event => {
+    if (event.key === 'Escape') toolsButton.focus();
+  });
+  toolsMenu.querySelectorAll('[data-chat-tool]').forEach(button => button.addEventListener('click', () => {
+    toolsMenu.hidePopover();
+    toolsButton.focus();
+    if (button.dataset.chatTool === 'file') file.click();
+    else document.getElementById(button.dataset.chatTool === 'document' ? 'chatDocumentOpen' : 'chatContextOpen').click();
+  }));
+  window.addEventListener('resize', () => { if (toolsMenu.matches(':popover-open')) placeTools(); });
   function editQuestion(button) {
     if (waiting || sending) { notify('답변 작성이 끝난 뒤 수정해 주세요.'); return; }
     if (editor) { editor.querySelector('textarea').focus(); return; }

@@ -3,6 +3,13 @@
  if(!workspace||!opener)return;
  const sid=workspace.dataset.session, main=workspace.parentElement;
  let linked=null, panel=null;
+ function visibility(visible){
+   if(!panel)return;
+   panel.hidden=!visible;main.classList.toggle('chat-doc-open',visible);
+   opener.setAttribute('aria-pressed',String(visible));
+   opener.textContent=visible?'문서 패널 끄기':'문서 패널 켜기';
+   sessionStorage.setItem('chatDocHidden:'+sid,visible?'0':'1');
+ }
  async function api(url,options={}){const response=await fetch(url,{cache:'no-store',...options});if(!response.ok||response.redirected){let message='요청을 처리하지 못했습니다.';try{const data=await response.json();if(typeof data.detail==='string')message=data.detail;}catch(_){}throw new Error(message);}return response.json();}
  function dialog(title){const d=document.createElement('dialog');d.className='chat-doc-dialog';d.setAttribute('aria-label',title);d.innerHTML='<h2></h2><form><div data-fields></div><p role="status"></p><footer><button type="button" class="secondary" data-cancel>취소</button><button type="submit" data-submit>연결</button></footer></form>';d.querySelector('h2').textContent=title;d.querySelector('[data-fields]').style.display='grid';d.querySelector('[data-fields]').style.gap='16px';d.querySelector('[data-cancel]').onclick=()=>d.close();d.addEventListener('close',()=>{d.remove();opener.focus();});document.body.append(d);d.showModal();return d;}
  async function connect(){const d=dialog('Google Docs 연결'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;status.textContent='연결 계정 확인 중…';
@@ -24,6 +31,16 @@
  function show(){if(panel){panel.hidden=false;main.classList.add('chat-doc-open');return;}panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label>문서 폭<input type="range" min="40" max="70" value="60" aria-label="문서 영역 너비"></label><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-insert>내용 삽입</button><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
  panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url;panel.querySelector('input').oninput=e=>main.style.setProperty('--document-width',e.target.value+'%');panel.querySelector('[data-hide]').onclick=()=>{panel.hidden=true;main.classList.remove('chat-doc-open');sessionStorage.setItem('chatDocHidden:'+sid,'1');};panel.querySelector('[data-insert]').onclick=insert;
  panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});panel.remove();panel=null;linked=null;main.classList.remove('chat-doc-open');opener.textContent='Google Docs';d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);main.classList.add('chat-doc-open');}
- opener.onclick=()=>{if(linked){sessionStorage.removeItem('chatDocHidden:'+sid);show();}else connect();};
- if(sid)api('/api/chat-documents/'+sid).then(data=>{if(data.connected){linked=data;opener.textContent='연결 문서';if(sessionStorage.getItem('chatDocHidden:'+sid)!=='1')show();}}).catch(error=>{opener.title=error.message;});
+ const createPanel=show;
+ show=()=>{
+   createPanel();
+   panel.id='chatDocumentPanel';opener.setAttribute('aria-controls',panel.id);
+   const width=panel.querySelector('input[type=range]');
+   if(width){width.closest('label').remove();main.style.setProperty('--document-width','50%');}
+   panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
+   visibility(true);
+ };
+ opener.setAttribute('aria-pressed','false');
+ opener.onclick=()=>{if(linked){if(panel&&!panel.hidden)visibility(false);else show();}else connect();};
+ if(sid)api('/api/chat-documents/'+sid).then(data=>{if(data.connected){linked=data;opener.textContent='문서 패널 켜기';if(sessionStorage.getItem('chatDocHidden:'+sid)!=='1')show();}}).catch(error=>{opener.title=error.message;});
 })();
