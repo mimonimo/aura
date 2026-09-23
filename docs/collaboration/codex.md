@@ -1,11 +1,49 @@
 # Codex 작업 기록
 
+## C-20260923-72 — Google 계정 연결부터 문서 작업 UI
+
+Codex 담당 gdocs_work.html/dev_nas.html, 신규 gdocs-work.css/js 및 UI 테스트.
+사용자 스크린샷: 미연결 상태에서도 빈 계정 선택/열기 노출, 입력 기본 검은 테두리.
+미연결 상태 카드·연결 관리 동선·반응형 편집기/에이전트·삽입/전체바꾸기 확인 구현.
+OAuth/문서 쓰기 API 및 main.py 수정하지 않음. 실제 Google 쓰기 없이 합성 검증.
+
+## C-20260922-71 — 프로젝트 검색 분리 구현 / main 연결 요청
+
+사용자: 프로젝트 검색 전환 검토 후 '작업 계속 진행해'. Codex 담당:
+project_search.py(독립 APIRouter), project-search.js/css, base.html 검색 진입점,
+tests/test_project_search.py. main.py/db.py는 Claude 소유 유지하며 수정하지 않음.
+현재 side_projects는 최근20개 제한이므로 이를 전체 검색으로 위장하지 않음.
+Claude 요청: create_app 안에 app.include_router(project_search.router)를 연결하고
+import 추가 바람. 새 모듈은 request.app.state.db와 request.state.user를 사용,
+GET /api/projects/search, q/offset, {projects,has_more}를 제공할 예정.
+검색 결과 /project/id 직접 이동. 대화 검색은 최근 대화 제목 옆 별도 버튼으로 유지.
+API 연결 전에는 새 UI를 운영 배포하지 않음. 다른 계정 결과 제외·21번째 이후 검증 예정.
+구현·검증 완료(로컬): 독립 API/화면과 기존 대화 검색 유지. 프로젝트4+기존 UX5+
+대화검색1 테스트 총10통과. Chrome1600/390에서 검색/빈결과/긴제목/직접이동 통과.
+합성 서버만 app.include_router(router)를 주입해 검증했고 운영 main.py는 수정 안 함.
+Claude 연결 요청 정확한 두 줄: `from .project_search import router as project_search_router`,
+create_app에서 `app.include_router(project_search_router)` (app.state.db 할당 이후).
+현재 요청의 인증 미들웨어가 request.state.user를 설정해야 하며 없으면401 반환.
+권한은 계정 소유 프로젝트·문서·대화만. 제목과 업무분야만 검색하고 문서 본문은 검색 안 함.
+
 ## C-20260922-70 — 대화 검색 결과 직접 이동
 
 사용자 최신 지시: 미리보기 대신 해당 대화창으로 바로 이동.
 Codex chat-history.js의 결과 링크 클릭 가로채기를 제거하고 검색 미리보기 코드를 정리.
 검색·이름 변경·보관·삭제 API는 유지. 기존 다른 작업자의 변경은 포함하지 않음.
 직접 이동/수정키 새 탭 기본 동작/관리 버튼 분리 검증 후 별도 통합 예정.
+검증: 채팅 관련35테스트+직접 링크 회귀1 통과, 최신 합성 서버 Chrome에서
+클릭/Enter로 해당 /chat/id 이동·입력창 존재·이름 변경은 검색창 유지 확인.
+커밋8338a98e, 운영 반영 예정(재시작 없는 정적 파일 배포).
+운영 반영 완료: HEAD8338a98e, /static/chat-history.js HTTP 본문 해시가 로컬·VM
+26815772…와 일치, /login200. 이전 코드 backup/chat-search-before-8338a98e 보존.
+인증된 운영 화면 직접 클릭은 미확인, 합성 Chrome 검증과 실제 정적 응답 확인을 구분.
+
+사용자 추가 검토 요청: 사이드바 대화 검색을 프로젝트 검색으로 바꾸는 방향.
+검토 결과: 상단은 문서/대화/근거 검색, 현재 사이드바 검색은 프로젝트명으로
+대화를 찾지만 프로젝트 검색은 아님. 제안은 사이드바 프로젝트 찾기→/project/id,
+연결 문서 수/최근 작업 표시, 독립 대화는 별도 기록 진입점 유지.
+이름만 변경하거나 기존 대화를 프로젝트로 자동 전환하지 않음. 아직 구현 지시 아님.
 
 ## C-20260922-69 — 데이터 열람 반복 미반영 직접 통합
 

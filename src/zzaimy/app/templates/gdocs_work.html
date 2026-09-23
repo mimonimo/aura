@@ -2,6 +2,18 @@
 {% block title %}문서 작업 — 행정 에이전트{% endblock %}
 {% block pagetitle %}문서 작업{% endblock %}
 {% block content %}
+<style>
+  .gdocs-split { display:grid; grid-template-columns:minmax(0, 3fr) minmax(320px, 2fr); gap:18px; align-items:start; }
+  .gdocs-editor iframe { width:100%; height:calc(100vh - 230px); min-height:520px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  .gdocs-agent { position:sticky; top:12px; max-height:calc(100vh - 40px); overflow:auto; padding:14px 16px; border:1px solid var(--line); border-radius:10px; background:var(--panel, #fafafa); }
+  .gdocs-agent h2 { font-size:15px; margin:0 0 10px; } .gdocs-agent h3 { font-size:13px; margin:16px 0 6px; }
+  .gdocs-agent textarea, .gdocs-agent input[type=text], .gdocs-agent select { width:100%; box-sizing:border-box; font-size:13px; }
+  .gdocs-agent form { display:flex; flex-direction:column; gap:8px; }
+  .gdocs-answer { white-space:pre-wrap; font-size:13px; line-height:1.65; padding:10px 12px; border-left:3px solid var(--navy, #1f3a5f); background:#fff; margin:10px 0; }
+  .inline-form { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:0 0 16px; }
+  .inline-form label { display:flex; flex-direction:column; font-size:12.5px; gap:4px; }
+  @media (max-width: 1000px) { .gdocs-split { grid-template-columns:1fr; } .gdocs-agent { position:static; max-height:none; } .gdocs-editor iframe { height:60vh; } }
+</style>
 <header class="space-intro"><h1>문서 작업</h1><p class="muted">구글 독스를 옆에 두고 에이전트가 같은 문서를 읽고, 담당자가 고른 자리에만 씁니다.</p></header>
 {% if err %}<p class="notice error">{{ err }}</p>{% endif %}
 {% if ok %}<p class="notice">{{ ok }}</p>{% endif %}
@@ -24,12 +36,13 @@
       <textarea name="question" rows="4" placeholder="이 문서에 대해 물어보거나, 넣을 글을 요청하세요">{{ question }}</textarea>
       <button class="btn" type="submit">묻기</button>
     </form>
-    {% if answer %}<article class="gdocs-answer"><h3>답변</h3><div class="md">{{ answer | safe }}</div></article>{% endif %}
+    {% if answer %}<article><h3>답변</h3><div class="gdocs-answer" id="gdocsAnswer">{{ answer }}</div>
+      <button type="button" class="secondary" id="gdocsUseAnswer" style="font-size:12.5px;">이 글을 아래 삽입 칸으로</button></article>{% endif %}
     <h3>절 아래에 넣기</h3>
     <form method="post" action="/gdocs/insert">
       <input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}">
       <label>어느 절 <select name="section">{% for s in info.sections %}<option value="{{ s.index }}">{{ '  ' * s.level }}{{ s.heading }} ({{ s.chars }}자)</option>{% endfor %}</select></label>
-      <textarea name="text" rows="6" placeholder="넣을 글 — 답변에서 옮겨 적거나 직접 씁니다">{{ draft_text }}</textarea>
+      <textarea name="text" id="gdocsInsertText" rows="6" placeholder="넣을 글 — 답변에서 옮겨 적거나 직접 씁니다">{{ draft_text }}</textarea>
       <button class="btn" type="submit">문서에 넣기</button>
     </form>
     <h3>글 바꾸기</h3>
@@ -42,5 +55,11 @@
     {% if writes %}<h3>최근 쓰기</h3><ul class="muted">{% for w in writes %}<li>{{ w.at }} · {{ w.user }} · {{ w.action }} · {{ w.section or '' }} · {{ w.chars }}자</li>{% endfor %}</ul>{% endif %}
   </section>
 </div>
+<script>
+  (function () {
+    var b = document.getElementById('gdocsUseAnswer'), a = document.getElementById('gdocsAnswer'), t = document.getElementById('gdocsInsertText');
+    if (b && a && t) b.addEventListener('click', function () { t.value = a.textContent.trim(); t.focus(); t.scrollIntoView({ block: 'center' }); });
+  })();
+</script>
 {% endif %}
 {% endblock %}
