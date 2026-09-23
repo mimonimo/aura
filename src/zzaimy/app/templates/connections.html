@@ -6,8 +6,7 @@
 <div class="connection-grid">
   <section class="connection-card"><iconify-icon icon="solar:library-linear"></iconify-icon><h2>규정·지침·공고</h2><p>업무 검토에 사용하는 공통 기준 자료</p><a class="btn secondary" href="/criteria">기준 자료 관리</a></section>
   <section class="connection-card"><iconify-icon icon="solar:scanner-linear"></iconify-icon><h2>문서 추출</h2><p>PDF·스캔·한글 파일의 텍스트 추출</p><a class="btn secondary" href="/ocr">추출 도구 열기</a></section>
-  <section class="connection-card"><iconify-icon icon="solar:server-path-linear"></iconify-icon><h2>NAS·공유 폴더</h2><p>저장소 연결 및 문서 가져오기</p>{% if request.state.role == 'dev' %}<a class="btn secondary" href="/dev/nas">연결 관리</a>{% else %}<span class="connection-state">관리자 설정 필요</span>{% endif %}</section>
-  <section class="connection-card"><iconify-icon icon="solar:cloud-linear"></iconify-icon><h2>구글 드라이브</h2><p>드라이브 폴더의 문서를 읽기 전용으로 가져오기</p>{% if request.state.role == 'dev' %}<a class="btn secondary" href="/dev/nas">연결 관리</a>{% else %}<span class="connection-state">관리자 설정 필요</span>{% endif %}</section>
-  <section class="connection-card"><iconify-icon icon="solar:document-text-linear"></iconify-icon><h2>구글 독스 문서 작업</h2><p>구글 독스를 화면 안에 두고 에이전트와 함께 고치기</p><a class="btn secondary" href="/gdocs/work">문서 작업 열기</a></section>
+  <section class="connection-card"><iconify-icon icon="solar:server-path-linear"></iconify-icon><h2>문서 가져오기</h2><p>NAS·공유 폴더·Google Drive 연결</p>{% if request.state.role == 'dev' %}<a class="btn secondary" href="/dev/nas">연결 관리</a>{% else %}<span class="connection-state">관리자 설정 필요</span>{% endif %}</section>
+  <section class="connection-card"><iconify-icon icon="solar:document-text-linear"></iconify-icon><h2>Google Docs 문서 작업</h2><p>문서 편집 및 AI 검토</p><a class="btn secondary" href="/gdocs/work">문서 작업 열기</a></section>
 </div>
 {% endblock %}
