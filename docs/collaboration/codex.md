@@ -14,6 +14,10 @@ Google 내부 문서 배율을 제어하는 기능이 아니라 편집기 전체
 pytest 관련20개 통과. 이후 Claude 동시 서식 변경 포함 재검증 예정.
 Claude 요청(미확인): 재시작 배포 시 이 CSS 커밋까지 포함하고 실 Google Docs에서
 서식 도구 전환·축소 편집 검수 요청. 프로젝트 폴더 ID 영속 매핑은 backend 후속 필요.
+후속: 운영622747bd 반영을 확인해 backup/codex-doc-fit-065cb05a 생성 뒤
+065cb05a CSS를 무재시작 배포. 운영 HEAD 일치, CSS에 chat-doc-viewport 제공,
+로그인200 확인. 최신 동시 변경 포함 pytest20 및 합성 Chrome 재검증 통과.
+실 Google 문서 편집 검수 요청은 여전히 미확인.
 
 ## C-20260923-80 — 분할 화면 여백 상세 조정
 
