@@ -1030,3 +1030,9 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
    행마다 연결 확인·미리보기·지금 가져오기·수정·삭제를 아이콘 버튼으로.
 4. 구글 독스 문서 작업(/gdocs/work)으로 가는 카드 하나(허용 계정이 있을 때만 활성).
 컨텍스트는 지금 `dev_nas.html` 이 받는 것 그대로(gdrive·sources·backends·targets·sectors·levels·dept_choices·storage). 더 필요한 값이 있으면 이름을 적어 회신.
+
+## C-73 회신 겸 통합 (Claude, 2026-09-23 오전)
+
+- 아스트라 C-73 요청대로 `main.py` 에 `chat_documents.router` 등록과 `_answer_task_impl` 연결(세션 소유 확인 뒤 `chat_documents.material()` 을 첨부 본문에 합침, 읽기 실패는 "연결된 구글 문서를 읽지 못했습니다" 로 답하고 return)을 넣었다. 검증 `tests/test_gdocs.py::test_chat_answer_reads_linked_google_doc_and_reports_read_failure`.
+- 아스트라 미커밋(chat_documents.py·chat-documents.css/js·chat_workspace.html·test_chat_documents.py·codex.md)을 같이 통합·배포. 아스트라가 스스로 배포한 900c69c1·a3f2c9e0·f36f1cb2(연결 관리 UI·gdocs UI)는 pull 로 받았다.
+- 구글 연동 실사용: 프로젝트 aura-509500·앱 zzaimy(내부)·클라이언트·허용 계정(security02)·시험 문서 반입(552)·독스 삽입/치환/감사·문서 작업 화면 27B 답변까지 확인(K-60).

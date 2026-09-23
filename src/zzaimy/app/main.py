@@ -374,9 +374,12 @@ def create_app(
         _lc.activate(_old["id"])
     app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
     # 프로젝트 검색(사이드바) — 계정 소유 프로젝트만, 제목·업무 영역으로 (Codex C-71, 독립 라우터)
+    from zzaimy.app.chat_documents import router as chat_documents_router
     from zzaimy.app.project_search import router as project_search_router
 
     app.include_router(project_search_router)
+    # 대화에 구글 독스를 연결해 읽고(요청마다), 담당자가 확인한 삽입만 쓴다 (Codex C-73, 독립 라우터)
+    app.include_router(chat_documents_router)
 
     @app.on_event("startup")
     def _warm_models() -> None:
@@ -694,6 +697,20 @@ def create_app(
         role = acct.get("role", "dev" if password is None else "staff")
         dept = acct.get("dept") or None
         data_dir = Path(db_path).parent
+        # 대화에 연결된 구글 독스가 있으면 본문을 첨부처럼 붙인다. 못 읽으면 읽은 척하지 않고 그렇게 말한다.
+        try:
+            from zzaimy.app import chat_documents
+
+            doc_material = chat_documents.material(db, session_id, owner)
+        except HTTPException:
+            doc_material = ""                      # 이 계정의 대화가 아니면 연결을 쓰지 않는다
+        except Exception as e:
+            _chat_sources[session_id] = []
+            db.add_chat(session_id, "assistant",
+                        f"연결된 구글 문서를 읽지 못했습니다({type(e).__name__}). 계정 허용과 문서 주소를 확인해 주세요.")
+            return
+        if doc_material:
+            attachment_text = ((attachment_text or "") + "\n\n" + doc_material).strip()
         note = ag.pii_request(q)
         if note:
             ag.audit(data_dir, owner, "pii", q, dept, role)
