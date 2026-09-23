@@ -215,12 +215,12 @@
       <button type="button" id="chatContextOpen" data-chat-tool="context" aria-controls="chatAside"><iconify-icon icon="solar:folder-linear"></iconify-icon>작업 패널</button>
     </div>
     <textarea name="question" id="chatInput" rows="1" placeholder="질문이나 수정할 내용을 입력하세요"
-              aria-label="질문 또는 수정 요청" aria-describedby="chatKeyboardHint" autofocus autocomplete="off"></textarea>
+              aria-label="질문 또는 수정 요청" autofocus autocomplete="off"></textarea>
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
       <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
   </div>
   <div class="dock-hint" id="dockHint" hidden>보낼 내용을 입력하세요.</div>
-  <div class="chat-dock-footer"><span id="chatKeyboardHint">Enter 전송 · Shift+Enter 줄바꿈</span><span id="chatSendState" role="status" aria-live="polite">{{ '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' if waiting else '수치와 최종 판단은 근거 문서와 확인하세요.' }}</span></div>
+  <div class="chat-dock-footer"><span id="chatSendState" role="status" aria-live="polite">{{ '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' if waiting else '수치와 최종 판단은 근거 문서와 확인하세요.' }}</span></div>
 </form>
 <button type="button" id="chatLatest" class="secondary" hidden>새 답변 보기 ↓</button>
 </div>{# /chat-main #}
