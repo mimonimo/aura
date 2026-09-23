@@ -148,8 +148,7 @@ def exchange_code(code: str, state: str, redirect_uri: str, http=None) -> str:
     tok = r.json()
     if not tok.get("refresh_token"):
         raise ValueError("갱신 토큰이 오지 않았습니다 — 구글 계정 설정에서 이 앱의 접근 권한을 지우고 다시 허용해 주세요")
-    u = http.get(USERINFO, headers={"Authorization": f"Bearer {tok['access_token']}"})
-    email = (u.json().get("email") if u.status_code == 200 else "") or f"account-{secrets.token_hex(3)}"
+    email = _whoami(tok["access_token"], http) or f"account-{secrets.token_hex(3)}"
     with _lock:
         t = _tokens()
         t[email] = {"refresh_token": tok["refresh_token"], "access_token": tok.get("access_token", ""),
@@ -158,6 +157,39 @@ def exchange_code(code: str, state: str, redirect_uri: str, http=None) -> str:
                     "granted_at": time.strftime("%Y-%m-%d %H:%M")}
         _write(_data_dir() / "gdrive_tokens.json", t)
     return email
+
+
+def _whoami(token: str, http) -> str:
+    """토큰 주인의 이메일 — 허용 범위에 이메일 조회가 없어도 드라이브 계정 정보(about.user)로 안다."""
+    h = {"Authorization": f"Bearer {token}"}
+    try:
+        r = http.get(f"{API}/about", headers=h, params={"fields": "user(emailAddress)"})
+        if r.status_code == 200 and (r.json().get("user") or {}).get("emailAddress"):
+            return r.json()["user"]["emailAddress"]
+        u = http.get(USERINFO, headers=h)
+        if u.status_code == 200 and u.json().get("email"):
+            return u.json()["email"]
+    except Exception:
+        pass
+    return ""
+
+
+def relabel_accounts(http=None) -> list[tuple[str, str]]:
+    """'account-…' 로 저장된 계정을 실제 이메일로 바꾼다(허용 직후 이메일을 못 받았던 것). 돌려주는 것은 (전, 후) 목록."""
+    http = http or _http()
+    changed: list[tuple[str, str]] = []
+    for key in [k for k in _tokens() if k.startswith("account-")]:
+        try:
+            email = _whoami(access_token(key, http), http)
+        except ValueError:
+            continue
+        if email and email != key:
+            with _lock:
+                t = _tokens()
+                t[email] = t.pop(key)
+                _write(_data_dir() / "gdrive_tokens.json", t)
+            changed.append((key, email))
+    return changed
 
 
 def access_token(email: str, http=None) -> str:
