@@ -92,3 +92,13 @@ def test_exports_keep_a_copy_in_generated_folder(tmp_path):
     assert c.get("/doc/1/draft.md").status_code == 200
     gen = db.list_files(kind="generated")
     assert gen and Path(gen[0]["path"]).exists() and "생성" in gen[0]["path"] and gen[0]["doc_id"] == 1
+
+
+def test_title_keeps_numbered_names_whole(tmp_path):
+    db = Database(tmp_path / "t.db")
+    src = tmp_path / "inbox" / "x.jpg"; src.parent.mkdir(); src.write_bytes(b"jpg")
+    did = db.add_document("2. 도심 캠퍼스 2호관 위치 안내", str(src), doc_type="auto")
+    p = storage.adopt_original(db, did, src, base=tmp_path)
+    assert p.parent.name.endswith(" 2. 도심 캠퍼스 2호관 위치 안내")
+    assert storage.title_of("붙임 2. 사업 가 신청서.hwpx") == "붙임 2. 사업 가 신청서"
+

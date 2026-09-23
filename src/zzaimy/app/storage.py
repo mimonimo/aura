@@ -44,9 +44,17 @@ def _year(iso: str | None) -> str:
     return (iso or datetime.now().isoformat())[:4]
 
 
+_EXT = re.compile(r"\.(hwpx?|pdf|docx?|xlsx?|pptx?|jpe?g|png|tiff?|bmp|webp|txt|md|zip)$", re.I)
+
+
+def title_of(filename: str) -> str:
+    """이름에서 확장자만 뗀다 — Path.stem 은 '2. 도심 캠퍼스 안내' 를 '2' 로 잘라 버린다(실측 2026-09-23)."""
+    return _EXT.sub("", (filename or "").strip())
+
+
 def intake_dir(base: Path, doc: dict) -> Path:
     """반입 문서의 폴더 — 반입/<연도>/<유형>/<접수번호> <제목>."""
-    title = safe_name(Path(doc.get("filename") or "").stem or doc.get("filename") or "")
+    title = safe_name(title_of(doc.get("filename") or ""))
     receipt = doc.get("receipt_no") or f"문서-{doc.get('id', 0)}"
     return (root(base) / KIND_DIRS["intake"] / _year(doc.get("created_at"))
             / TYPE_DIRS.get(doc.get("doc_type") or "auto", "행정") / f"{receipt} {title}")
@@ -109,8 +117,9 @@ def attachment_path(base: Path, session_id: int | None, filename: str) -> Path:
     now = datetime.now()
     d = root(base) / KIND_DIRS["attachment"] / f"{now:%Y}" / (f"대화-{session_id}" if session_id else "미분류")
     d.mkdir(parents=True, exist_ok=True)
-    stem = safe_name(Path(filename).stem) or "첨부"
-    return d / f"{now:%Y%m%d-%H%M%S} {stem}{Path(filename).suffix.lower()}"
+    stem = safe_name(title_of(filename)) or "첨부"
+    ext = _EXT.search(filename or "")
+    return d / f"{now:%Y%m%d-%H%M%S} {stem}{(ext.group(0).lower() if ext else '')}"
 
 
 def generated_path(base: Path, ref: str, kind: str, ext: str) -> Path:
