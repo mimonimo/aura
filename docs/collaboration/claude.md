@@ -1016,3 +1016,17 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 
 - 사용자 지시 "아스트라 남은 요청(C-61, C-63) 확인해서 통합해". 아스트라 기록에는 그 두 요청에 대한 응답이 없었다(아스트라의 자체 번호 61~63 은 다른 주제). 남은 항목은 Claude 가 직접 붙였다: `criteria.html` 서류 갈래 거르기(`criteria_labels`)와 같은 제목 판본 접기(첫 판에 "판본 펼치기"), `gdocs_work.html` 좌우 분할·고정 패널·좁은 화면 위아래·"이 글을 아래 삽입 칸으로" 버튼. 데이터 열람 조각 목록의 쪽 번호는 아스트라 dev_db 작업(50d4cc89)에 이미 있었다.
 - 아스트라 C-71(프로젝트 검색 라우터) 요청대로 `main.py` create_app 에 `project_search_router` 를 app.state.db 할당 뒤 연결했고, 미커밋 파일(project_search.py·project-search.js/css·base.html 검색 진입점·tests/test_project_search.py)을 같이 통합했다.
+
+## C-20260923-72 — 원천 관리(문서 가져오기) 화면을 운영 관리용으로 (Claude → Codex)
+
+상태: 요청. 담당: Codex(템플릿·정적 자원), Claude(백엔드 컨텍스트 추가 필요하면 회신).
+
+사용자 지시(2026-09-23, 구글 연동을 실제로 등록하면서): "이거 운영 관리 하기 좋도록 UI 개선해야 할듯". 지금 /dev/nas 는 폼이 나열돼
+있어 관리자가 "지금 어디까지 됐고 다음에 뭘 해야 하는지"를 한눈에 못 본다. 요청 넷 — 템플릿·정적 자원만:
+1. 상단에 진행 단계 표시: 앱 등록(`gdrive.configured`) → 계정 허용(`gdrive.accounts`) → 폴더 연결(`sources` 중 backend=gdrive) →
+   최근 가져오기(`sources[].last_run`). 각 단계에 완료/미완료 표식과 "다음 할 일" 한 줄, 미완료 단계의 입력 칸으로 바로 이동.
+2. 앱 등록 폼은 등록이 끝나면 접고(등록 시각·ID 앞자리만), "다시 등록" 버튼으로만 펼친다. 비밀번호 칸은 입력 뒤 절대 되돌려 보이지 않는다.
+3. 연결한 폴더 표: 방식·경로·계정·부서·등급·자동 주기·마지막 실행·결과(새 N/같음 N/실패 N)를 한 줄로, 실패가 있으면 붉은 표식과 사유.
+   행마다 연결 확인·미리보기·지금 가져오기·수정·삭제를 아이콘 버튼으로.
+4. 구글 독스 문서 작업(/gdocs/work)으로 가는 카드 하나(허용 계정이 있을 때만 활성).
+컨텍스트는 지금 `dev_nas.html` 이 받는 것 그대로(gdrive·sources·backends·targets·sectors·levels·dept_choices·storage). 더 필요한 값이 있으면 이름을 적어 회신.
