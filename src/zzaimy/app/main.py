@@ -725,6 +725,10 @@ def create_app(
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
         scope = ag.search_scope(dept, role, owner)
+        # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
+        if doc_material:
+            _edit_linked_doc(session_id, q, owner, data_dir, scope, scope_msg)
+            return
         try:
             import inspect as _insp
 
@@ -747,6 +751,38 @@ def create_app(
         except Exception:
             pass                    # 근거 기록이 실패해도 답변은 남긴다
         db.add_chat(session_id, "assistant", answer)
+
+    def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
+        """연결된 구글 독스에 대한 명령 — 근거 조각을 붙여 편집 계획을 받고 적용한 결과를 채팅에 남긴다."""
+        from zzaimy.app import access_guard as ag
+        from zzaimy.app import chat_documents, gdocs_agent
+        from zzaimy.app.regulations import find_relevant
+
+        link = chat_documents.binding(db, session_id, owner)
+        try:
+            hits = find_relevant(db, q, top_k=5, **scope)
+        except Exception:
+            hits = []
+        _chat_sources[session_id] = [{
+            "title": h.get("reg_title") or "문서", "heading": h.get("heading") or "",
+            "snippet": (h.get("content") or "")[:160], "doc_id": h.get("doc_id"), "origin": "교내 규정",
+            "weak": bool(h.get("weak_evidence")),
+        } for h in hits[:4]]
+        confirm = (db.get_setting(f"chat_google_doc_confirm:{session_id}", "") or "") == "1"
+        try:
+            from zzaimy.generate.client import VllmClient
+
+            client = VllmClient(role="answer")
+            text, _ops = gdocs_agent.run(db, session_id, owner, q, link, client=client, data_dir=data_dir,
+                                         scrub=ag.scrub, evidence=hits, confirm=confirm)
+        except Exception as e:
+            from zzaimy.generate.client import describe_llm_error
+
+            text = describe_llm_error(e) + ". 문서는 바꾸지 않았습니다."
+        text = ag.scrub(text)
+        if scope_msg:
+            text = scope_msg + "\n\n" + text
+        db.add_chat(session_id, "assistant", text)
 
     def _answer_task(session_id, q, stored, criteria, external=False):
         try:
@@ -2797,6 +2833,29 @@ def create_app(
             return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
         msg = f"{r['count']}곳을 바꿨습니다"
         return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'ok': msg})}", status_code=303)
+
+    @app.post("/api/chat-documents/{sid}/confirm-mode")
+    def chat_doc_confirm_mode(request: Request, sid: int, on: str = Form("")):
+        """확인 후 적용 모드 — 켜면 에이전트가 계획만 보여 주고 담당자가 적용을 누른다(기본 꺼짐)."""
+        from zzaimy.app import chat_documents
+
+        chat_documents.owned(db, sid, getattr(request.state, "user", None))
+        db.set_setting(f"chat_google_doc_confirm:{sid}", "1" if on == "1" else "")
+        return {"ok": True, "confirm": on == "1"}
+
+    @app.post("/api/chat-documents/{sid}/apply-pending")
+    def chat_doc_apply_pending(request: Request, sid: int):
+        from zzaimy.app import access_guard as ag
+        from zzaimy.app import chat_documents, gdocs_agent
+
+        owner = getattr(request.state, "user", "zzaimy")
+        link = chat_documents.binding(db, sid, owner)
+        if not link:
+            raise HTTPException(400, "연결된 문서가 없습니다")
+        lines = gdocs_agent.apply_pending(db, sid, owner, link, data_dir=Path(db_path).parent, scrub=ag.scrub)
+        if lines:
+            db.add_chat(sid, "assistant", "적용됨:\n" + "\n".join(f"- {ln}" for ln in lines))
+        return {"ok": True, "applied": lines}
 
     @app.post("/dev/gdrive/revoke")
     def dev_gdrive_revoke(email: str = Form("")):

@@ -1036,3 +1036,19 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 - 아스트라 C-73 요청대로 `main.py` 에 `chat_documents.router` 등록과 `_answer_task_impl` 연결(세션 소유 확인 뒤 `chat_documents.material()` 을 첨부 본문에 합침, 읽기 실패는 "연결된 구글 문서를 읽지 못했습니다" 로 답하고 return)을 넣었다. 검증 `tests/test_gdocs.py::test_chat_answer_reads_linked_google_doc_and_reports_read_failure`.
 - 아스트라 미커밋(chat_documents.py·chat-documents.css/js·chat_workspace.html·test_chat_documents.py·codex.md)을 같이 통합·배포. 아스트라가 스스로 배포한 900c69c1·a3f2c9e0·f36f1cb2(연결 관리 UI·gdocs UI)는 pull 로 받았다.
 - 구글 연동 실사용: 프로젝트 aura-509500·앱 zzaimy(내부)·클라이언트·허용 계정(security02)·시험 문서 반입(552)·독스 삽입/치환/감사·문서 작업 화면 27B 답변까지 확인(K-60).
+
+## C-20260923-76 — 대화 안 구글 독스: 확인 단계 대신 바로 적용, 결과 표시 (Claude → Codex)
+
+상태: 요청. 담당: Codex(채팅 패널 템플릿·정적 자원), Claude(백엔드 완료).
+
+사용자 정정(2026-09-23): "구글독스로 에이전트 채팅 작업할 때 문서를 웹에서 실시간으로 작업하려고 땡겨오는 건데… 2분할 형식으로
+에이전트에게 명령 → 구글독스 작업". 즉 답변을 옮겨 넣거나 "삽입 내용 확인" 단계가 목적이 아니라, 채팅 명령이 곧 문서 편집이다.
+백엔드: 연결된 대화의 메시지는 `gdocs_agent` 가 맡는다 — 27B 가 편집 계획(JSON 스키마 강제)을 내고 플랫폼이 독스 API 로 즉시
+적용, 채팅 답변 끝에 "적용됨: - 「1. 추진 배경」 아래에 62자 추가 …" 가 붙는다. 넣는 글은 개인정보 검사, 쓰기는 감사 기록.
+`POST /api/chat-documents/{sid}/confirm-mode`(on=1|빈값) 로 "확인 후 적용" 을 켜면 계획만 보여 주고 `POST /api/chat-documents/{sid}/apply-pending`
+으로 적용. 기본은 꺼짐.
+요청 셋 — 템플릿·정적 자원만:
+1. 채팅 문서 패널의 "삽입 내용 확인/취소" 흐름을 기본에서 빼고(확인 모드가 켜졌을 때만), 패널에 "확인 후 적용" 스위치(confirm-mode)와
+   보류 계획이 있을 때 "적용" 버튼(apply-pending).
+2. 답변의 "적용됨:" 목록을 일반 답변과 구분되는 표식(작은 칩)으로. 문서 편집기(iframe)는 자동 갱신되니 새로고침 안내는 불필요.
+3. 연결 상태 줄에 문서 제목·계정, "연결 해제". 2분할은 지금 구조 유지.
