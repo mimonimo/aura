@@ -33,7 +33,9 @@ def fake_drive(calls: list):
         if req.url.host == "oauth2.googleapis.com":
             return httpx.Response(200, json={"access_token": "AT2", "expires_in": 3600, "refresh_token": "RT", "scope": " ".join(gdrive.SCOPES)})
         if req.url.path.endswith("/userinfo"):
-            return httpx.Response(200, json={"email": "staff@example.ac.kr"})
+            return httpx.Response(403)                       # 이메일 범위가 없을 때처럼
+        if req.url.path == "/drive/v3/about":
+            return httpx.Response(200, json={"user": {"emailAddress": "staff@example.ac.kr"}})
         if req.headers.get("Authorization") != "Bearer AT2":
             return httpx.Response(401)
         path, q = req.url.path, dict(req.url.params)
@@ -128,3 +130,12 @@ def test_oauth_flow_stores_tokens_only_on_valid_state(drive_env, tmp_path):
     assert gdrive.list_accounts() == []
     r = client.post("/dev/gdrive/client", data={"client_id": "bad", "client_secret": "x"}, follow_redirects=False)
     assert "err=" in r.headers["location"]
+
+
+def test_relabel_accounts_replaces_placeholder_with_email(drive_env, tmp_path):
+    t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
+    t["account-abc123"] = t.pop("staff@example.ac.kr")
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    assert gdrive.relabel_accounts() == [("account-abc123", "staff@example.ac.kr")]
+    assert [a["email"] for a in gdrive.list_accounts()] == ["staff@example.ac.kr"]
+
