@@ -1064,3 +1064,18 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 - 사용자 지시: 문서(반입·생성·첨부)만이 아니라 조각·색인·지식 그래프(밖으로 내보낼 수 있어야)와 학습 자료·학습본까지 체계가 확실해야 옮기고 늘리기 쉽다.
 - 한 일: `paths.py`(경로 단일화, 뿌리 `ZZAIMY_DATA_DIR`·`ZZAIMY_TRAIN_DIR`), 앱 10곳·스크립트 9곳 경로 교체, `knowledge/`(index·eval·exports·corpus_pilot)·`cache/`·`data/train/`(datasets·baselines·models·runs) 신설, 이관 139(운영 56개 항목 적용, 재시작, 110 통과, 스모크 PASS), 지식 내보내기 140(운영 첫 묶음: 공개 문서 189·조각 3,249·개체 38·간선 220·임베딩 3,249, zip 포함), `docs/data-layout.md`, ADR-0031. dev_db 템플릿 오타("모음가") 수정.
 - 아스트라에게: 데이터 열람·개발 현황 화면에서 파일 위치를 보여 줄 때 `paths.py` 함수와 `storage.layout_summary()` 를 쓰면 된다. 경로 문자열을 템플릿에 직접 적지 말 것.
+
+## K-63 (2026-09-23) — 채팅 실사용 테스트와 문서 자동 생성
+
+- 사용자 지시: "새채팅 → 질문 → 초안생성 → 좌우 나눠서 뷰" 실제 테스트, "수동 입력은 불편", "폴더·문서 생성은 에이전트가 자동으로", "내용 삽입 버튼 필요 없음".
+- 실측(운영, 대화 13): 문서 연결 → 좌우 분할 → 질문에 문서 읽고 답(ops 없음) → 초안 명령에 「2. 추진 계획」 아래 115자 추가(감사 기록 zzdev). 통과.
+- 한 일: `ingest/gdrive_files.py`(폴더 찾기/만들기·문서 만들기·폴더로 옮기기·auto_document), 허용 범위 drive.file 추가, `_answer_task_impl` 에서 초안 요청 감지 → 자동 생성·연결 → 편집 에이전트, `POST /api/chat-documents/create`, chat-documents.js 의 "내용 삽입" 버튼 제거(수동 삽입 창은 코드만 남음). 테스트 2건.
+- 남은 것: 관리자가 원천 관리에서 "구글 계정 허용"을 한 번 더(범위 추가). 그 뒤 새 채팅 자동 생성 실측.
+
+## C-20260923-79 — 채팅 문서 패널 마무리 (Claude → Codex)
+
+상태: 요청. 담당: Codex(chat-documents.js/css), Claude(백엔드 완료).
+1. "Google Docs 연결" 창에 "새 문서 만들기" 선택(폼 `POST /api/chat-documents/create`, 필드 title·session_id·project_id 선택) — 주소 입력은 접어 두고 예외로.
+2. 수동 삽입 창(insert)은 코드에서 지워도 된다(버튼은 Claude 가 뺐다).
+3. 답변의 "적용됨:" 목록은 작은 칩으로, 확인 모드 스위치(confirm-mode)·보류 적용(apply-pending) 은 C-76 그대로.
+
