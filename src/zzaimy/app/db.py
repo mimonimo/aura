@@ -245,7 +245,7 @@ class Database:
 
     _TYPE_CODES = {
         "grant": "국고", "recruit": "채용", "admission": "입학",
-        "auto": "행정", "regulation": "기준",
+        "auto": "행정", "regulation": "기준", "ocr": "추출",
     }
 
     def add_document(
