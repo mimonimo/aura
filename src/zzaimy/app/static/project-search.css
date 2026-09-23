@@ -1,0 +1,20 @@
+.project-search-dialog { width:min(680px,calc(100vw - 32px)); max-height:82dvh; padding:24px; border:1px solid var(--line); border-radius:16px; color:var(--ink); background:#fff; box-sizing:border-box; }
+.project-search-dialog[open] { display:flex; flex-direction:column; overflow:hidden; gap:18px; }
+.project-search-dialog::backdrop { background:#15243c66; }
+.project-search-dialog header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.project-search-dialog h2 { margin:0; font-size:20px; }
+.project-search-dialog form { display:flex; gap:10px; }
+.project-search-dialog input { flex:1; min-width:0; width:100%; min-height:44px; border:1px solid var(--line); border-radius:9px; padding:10px 12px; font:inherit; font-size:14px; background:#f8fafc; color:var(--ink); }
+.project-search-dialog header, .project-search-dialog form, .project-search-dialog [role=status], .project-search-dialog > button { flex-shrink:0; }
+.project-search-dialog [role=status] { margin:0; color:var(--muted); font-size:13px; }
+.project-search-results { overflow-y:auto; min-height:0; scrollbar-gutter:stable; padding:2px 6px 2px 2px; }
+.project-search-results a { display:flex; flex-direction:column; gap:7px; padding:16px; border-radius:10px; color:var(--ink); text-decoration:none; overflow-wrap:anywhere; }
+.project-search-results a + a { border-top:1px solid var(--line); }
+.project-search-results a:hover { background:#f1f5fb; }
+body .project-search-results a, body .project-search-results a:hover { text-decoration:none; }
+.project-search-results strong { font-size:15px; line-height:1.5; }
+.project-search-results span, .project-search-results small { color:var(--muted); font-size:12px; }
+.project-search-dialog :is(a,button,input):focus-visible { outline:2px solid #607c9e; outline-offset:-2px; box-shadow:none; }
+.side-history-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.side-history-heading button { background:transparent; border:0; color:var(--muted); padding:5px 8px; font-size:12px; box-shadow:none; }
+@media(max-width:600px) { .project-search-dialog { padding:18px; } }

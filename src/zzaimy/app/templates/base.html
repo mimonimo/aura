@@ -419,6 +419,8 @@
 </style>
 <link rel="stylesheet" href="/static/workspace-shell.css">
 <script src="/static/chat-history.js" defer></script>
+<link rel="stylesheet" href="/static/project-search.css">
+<script src="/static/project-search.js" defer></script>
 <script src="/static/workspace-navigation.js" defer></script>
 <script>try { document.documentElement.classList.toggle('sidebar-collapsed', localStorage.getItem('workspaceSidebarCollapsed') === '1'); } catch (_) {}</script>
 <script>
@@ -451,7 +453,7 @@ document.addEventListener('submit', function(event) {
   <nav class="side-nav">
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
-    <button type="button" class="side-search" data-chat-history><iconify-icon icon="solar:magnifer-linear"></iconify-icon>대화 검색</button>
+    <button type="button" class="side-search" data-project-search><iconify-icon icon="solar:magnifer-linear"></iconify-icon>프로젝트 검색</button>
     <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox') or request.url.path.startswith('/project/') else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
     <a href="/connections" class="{{ 'active' if request.url.path in ('/connections', '/criteria', '/ocr') else '' }}"><iconify-icon icon="solar:link-round-linear"></iconify-icon>자료 연결</a>
@@ -468,7 +470,7 @@ document.addEventListener('submit', function(event) {
     {% endfor %}
   </nav>
   {% endif %}
-  <div class="side-label">최근 대화</div>
+  <div class="side-label side-history-heading"><span>최근 대화</span><button type="button" data-chat-history aria-label="대화 검색">검색</button></div>
   <div class="side-section" id="chatSessionList">
     {% for cs in chat_sessions %}
       <div class="side-session-row">

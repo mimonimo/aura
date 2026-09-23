@@ -79,16 +79,17 @@
   {% if documents %}
   <div class="criteria-tools">
     <label>처리 상태<select id="criteriaStatus"><option value="">전체</option><option value="reviewed">등록됨</option><option value="processing">처리 중</option><option value="received">접수됨</option><option value="failed">실패</option></select></label>
+    <label>서류 갈래<select id="criteriaKind"><option value="">전체</option>{% for k, v in kind_labels.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
     <label>정렬<select id="criteriaSort"><option value="recent">최근 등록순</option><option value="name">이름순</option></select></label>
     <button type="button" class="secondary" id="criteriaReset">초기화</button>
   </div>
   <div class="table-scroll"><table id="criteriaTable">
     <tr><th>접수번호</th><th>문서명</th><th>적용 영역</th><th>상태</th><th>검색 자료</th><th>등록 시각</th></tr>
     {% for d in documents %}
-    <tr data-search="{{ doc_name(d) }} {{ d.filename }} {{ d.receipt_no or '' }} {{ sector_labels.get(d.sector, d.sector) }} {{ d.kind_label or '' }}" data-sector="{{ d.sector }}" data-status="{{ d.status }}" data-name="{{ doc_name(d) }}" data-date="{{ d.created_at }}">
+    <tr data-search="{{ doc_name(d) }} {{ d.filename }} {{ d.receipt_no or '' }} {{ sector_labels.get(d.sector, d.sector) }} {{ d.kind_label or '' }}" data-sector="{{ d.sector }}" data-status="{{ d.status }}" data-name="{{ doc_name(d) }}" data-date="{{ d.created_at }}" data-kind="{{ d.kind or '' }}" data-family="{{ d.family or '' }}" data-version="{{ '1' if d.version_of else '' }}">
       <td class="muted" style="white-space:nowrap;">{{ d.receipt_no or "—" }}</td>
       <td><a href="/doc/{{ d.id }}" title="{{ d.filename }}">{{ doc_name(d) }}</a>
-        {% if d.kind_label or d.family_count > 1 or d.head_title %}<span class="muted" style="display:block; font-size:11.5px; margin-top:2px;">{% if d.kind_label %}{{ d.kind_label }}{% endif %}{% if d.family_count > 1 %} · 같은 제목 {{ d.family_count }}판{% if d.version_of %} (첫 판 #{{ d.version_of }}){% endif %}{% endif %}{% if d.head_title %} · 딸린 문서: {{ d.head_title[:30] }}{% endif %}</span>{% endif %}</td>
+        {% if d.kind_label or d.family_count > 1 or d.head_title %}<span class="muted" style="display:block; font-size:11.5px; margin-top:2px;">{% if d.kind_label %}{{ d.kind_label }}{% endif %}{% if d.family_count > 1 and not d.version_of %} · 같은 제목 {{ d.family_count }}판 <button type="button" class="criteria-fold" data-family="{{ d.family }}" style="font-size:11px; padding:1px 7px;">판본 펼치기</button>{% elif d.version_of %} · #{{ d.version_of }}의 다른 판{% endif %}{% if d.head_title %} · 딸린 문서: {{ d.head_title[:30] }}{% endif %}</span>{% endif %}</td>
       <td><span class="pill type">{{ sector_labels.get(d.sector, d.sector) }}</span></td>
       <td><span class="pill {{ d.status }}">{{ "등록됨" if d.status == "reviewed" else status_labels.get(d.status, d.status) }}</span></td>
       <td>{{ d.n_chunks }}</td>
@@ -142,6 +143,7 @@
 <script>
   var input = document.getElementById("criteriaSearch");
   var activeSector = "";
+  var openFamilies = {};
   var status = document.getElementById('criteriaStatus');
   var sort = document.getElementById('criteriaSort');
 
@@ -152,7 +154,11 @@
     rows.forEach(function (tr) {
       var hitQ = !q || tr.dataset.search.toLowerCase().indexOf(q) !== -1;
       var hitS = !activeSector || tr.dataset.sector === activeSector;
-      var hit = hitQ && hitS && (!status || !status.value || tr.dataset.status === status.value);
+      var kindSel = document.getElementById('criteriaKind');
+      var hitK = !kindSel || !kindSel.value || tr.dataset.kind === kindSel.value;
+      // 같은 제목의 다른 판은 접어 두고 첫 판의 '판본 펼치기'로 연다
+      var folded = tr.dataset.version === '1' && !(openFamilies[tr.dataset.family]);
+      var hit = hitQ && hitS && hitK && (!status || !status.value || tr.dataset.status === status.value) && !folded;
       tr.hidden = !hit;
       if (hit) shown++;
     });
@@ -164,6 +170,15 @@
 
   if (input) input.addEventListener("input", applyFilter);
   if (status) status.addEventListener('change', applyFilter);
+  var kindSelect = document.getElementById('criteriaKind');
+  if (kindSelect) kindSelect.addEventListener('change', applyFilter);
+  document.querySelectorAll('.criteria-fold').forEach(function (b) {
+    b.addEventListener('click', function () {
+      openFamilies[b.dataset.family] = !openFamilies[b.dataset.family];
+      b.textContent = openFamilies[b.dataset.family] ? '판본 접기' : '판본 펼치기';
+      applyFilter();
+    });
+  });
   if (sort) sort.addEventListener('change', function () {
     var rows = Array.from(document.querySelectorAll('#criteriaTable tr[data-search]'));
     rows.sort(function(a,b) { return sort.value === 'name' ? a.dataset.name.localeCompare(b.dataset.name,'ko',{numeric:true}) : b.dataset.date.localeCompare(a.dataset.date); });

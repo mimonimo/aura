@@ -373,6 +373,10 @@ def create_app(
                        db.get_setting("llm_model", ""), "")
         _lc.activate(_old["id"])
     app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
+    # 프로젝트 검색(사이드바) — 계정 소유 프로젝트만, 제목·업무 영역으로 (Codex C-71, 독립 라우터)
+    from zzaimy.app.project_search import router as project_search_router
+
+    app.include_router(project_search_router)
 
     @app.on_event("startup")
     def _warm_models() -> None:

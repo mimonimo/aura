@@ -1011,3 +1011,8 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 
 - 커밋 de42481c: 서류 갈래 규칙 보강(홍보물 낱말·기간/장소/대상 뼈대, 벌어진 앞머리 '제 안 요 청 서', 부제 붙은 보고서, 표 앞머리), 판독 결과의 코드 울타리·[[속성]] 줄 제거(`_vlm_transcribe`·`_md_to_text`), 기준 문서 목록에 갈래·판본 수·딸린 문서 한 줄(C-61 의 1번은 이것으로 뼈대만 — 접기·거르기는 아스트라). 배포·스모크 PASS.
 - VM 배경 작업(로그 `data/logs/`): `reread-421.log`(53쪽 비전 재판독 → 136 → 75), `reread-posters.log`(깨진 홍보물 6건 재판독, 421 끝난 뒤 136·75), `weekly-rebuild.log`(주간 보고서 다시 쓰기). 23:50 현재 VM·토르 모두 접속 불가(VPN) — 돌아오면 96 재색인(운영 모델)·110 점검·갈래 미정 건수·주간 보고서 결과 확인이 남은 순서.
+
+## C-61·C-63·C-71 통합 (Claude, 2026-09-23 새벽)
+
+- 사용자 지시 "아스트라 남은 요청(C-61, C-63) 확인해서 통합해". 아스트라 기록에는 그 두 요청에 대한 응답이 없었다(아스트라의 자체 번호 61~63 은 다른 주제). 남은 항목은 Claude 가 직접 붙였다: `criteria.html` 서류 갈래 거르기(`criteria_labels`)와 같은 제목 판본 접기(첫 판에 "판본 펼치기"), `gdocs_work.html` 좌우 분할·고정 패널·좁은 화면 위아래·"이 글을 아래 삽입 칸으로" 버튼. 데이터 열람 조각 목록의 쪽 번호는 아스트라 dev_db 작업(50d4cc89)에 이미 있었다.
+- 아스트라 C-71(프로젝트 검색 라우터) 요청대로 `main.py` create_app 에 `project_search_router` 를 app.state.db 할당 뒤 연결했고, 미커밋 파일(project_search.py·project-search.js/css·base.html 검색 진입점·tests/test_project_search.py)을 같이 통합했다.
