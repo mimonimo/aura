@@ -1,5 +1,15 @@
 # Codex 작업 기록
 
+## C-20260923-82 — 문서 편집기 메뉴 정리
+
+진행. 사용자 스크린샷: 큰 버튼 나열 개선. chat-documents.js와
+platform-spaces.css 담당. 제목/목록/닫기를 첫 줄, 보기 설정을 보조 줄,
+폴더·새창·연결 해제는 더보기로 통합. 기능/실문서 내용 변경 없음.
+검증 후 정적 자원만 무재시작 배포 예정.
+검증 완료: 관련 pytest11개, JS구문/diff검사 통과. Chrome1600에서
+325px 문서 패널의 더보기 경계/Escape, 파일목록 왕복, 배율/입력 회귀 통과.
+Claude의 main.py/tests/test_gdocs.py 미커밋 변경은 보존·스테이징 제외.
+
 ## C-20260923-81 — 문서 목록 우선·패널 너비 자동 맞춤
 
 구현 완료, 운영 검증 대기. chat-documents.js/chat_documents.py 작업 중 Claude의

@@ -194,6 +194,26 @@ body .chat-doc-open #chatWorkspace { padding:16px 20px 12px; }
 body .chat-doc-open .chat-workspace-head { align-items:center; }
 body .chat-doc-editor header { padding:10px 14px; min-height:52px; box-sizing:border-box; }
 body .chat-doc-editor header strong { font-size:13px; line-height:1.5; }
+body .chat-doc-editor header.doc-header-refined { display:block; padding:10px 12px 8px; background:#fff; position:relative; z-index:2; }
+body .doc-title-row { display:flex; align-items:center; gap:8px; min-width:0; }
+body .chat-doc-editor .doc-title-row strong { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+body .chat-doc-editor header.doc-header-refined .doc-icon-button { flex:none; width:30px; min-height:30px; height:30px; padding:0; border:0; box-shadow:none; background:transparent; color:var(--muted); font-size:23px; line-height:30px; }
+body .chat-doc-editor header.doc-header-refined .doc-icon-button:hover { background:#eef2f7; color:var(--ink); }
+body .doc-view-tools { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:7px; padding-top:7px; border-top:1px solid #edf0f4; }
+body .chat-doc-editor header.doc-header-refined .chat-doc-toolbar { display:inline-flex; gap:6px; margin:0; padding:4px 6px; font-size:11px; white-space:nowrap; cursor:pointer; }
+body .chat-doc-toolbar input { width:14px; height:14px; margin:0; accent-color:#45658f; }
+body .chat-doc-editor header.doc-header-refined [data-fit] { font-size:11px; min-height:28px; padding:3px 8px; background:transparent; box-shadow:none; border:1px solid transparent; color:var(--muted); }
+body .chat-doc-editor header.doc-header-refined [data-fit][aria-pressed=true] { background:#edf3fb; color:#355984; border-color:#dce7f5; }
+body .doc-more { position:relative; flex:none; }
+body .doc-more summary { display:flex; align-items:center; justify-content:center; width:30px; height:28px; border-radius:6px; cursor:pointer; list-style:none; color:var(--muted); font-size:12px; letter-spacing:1px; }
+body .doc-more summary::-webkit-details-marker { display:none; }
+body .doc-more[open] summary,body .doc-more summary:hover { background:#eef2f7; }
+body .doc-more-actions { position:absolute; right:0; top:34px; width:184px; padding:6px; background:white; border:1px solid var(--line); border-radius:10px; box-shadow:0 8px 28px #182c4824; display:grid; gap:3px; }
+body .chat-doc-editor header.doc-header-refined .doc-more-actions :is(a,button) { display:flex; justify-content:flex-start; width:100%; min-height:34px; padding:8px 10px; box-sizing:border-box; border:0; background:transparent; box-shadow:none; text-decoration:none; font-size:12px; text-align:left; border-radius:6px; color:var(--ink); }
+body .chat-doc-editor header.doc-header-refined .doc-more-actions [hidden] { display:none; }
+body .chat-doc-editor header.doc-header-refined .doc-more-actions :is(a,button):hover { background:#f1f4f8; }
+body .chat-doc-editor header.doc-header-refined .doc-more-actions [data-unlink] { border-top:1px solid var(--line); border-radius:0; margin-top:3px; color:#9a4545; }
+body .doc-header-refined :is(button,summary,a):focus-visible { outline:2px solid #607c9e; outline-offset:2px; }
 body .chat-doc-editor header a { display:inline-flex; align-items:center; justify-content:center; min-height:34px; box-sizing:border-box; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--ink); font-size:12px; font-weight:600; line-height:18px; white-space:nowrap; text-decoration:none; }
 body .chat-doc-editor header a:hover { background:#f3f6fa; border-color:#bdc9d8; }
 body .chat-doc-editor header a[hidden] { display:none; }
