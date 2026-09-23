@@ -1,5 +1,6 @@
 """대화별 Google Docs 연결. 본문은 요청마다 읽고 연결 식별자만 보관한다."""
 import json
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -88,6 +89,23 @@ def disconnect(request: Request, sid: int):
     owned(db, sid, owner)
     db.set_setting(f'chat_google_doc:{sid}', '{}')
     return {'ok':True}
+
+
+@router.get('/api/chat-documents/{sid}/folder')
+def document_folder(request: Request, sid: int):
+    db, owner = identity(request)
+    link = binding(db, sid, owner)
+    if not link or not re.fullmatch(r'[A-Za-z0-9_-]+', link.get('doc', '')):
+        raise HTTPException(400, '연결된 문서가 없습니다.')
+    try:
+        metadata = gdrive.GDriveBackend('root', link['account'])._get(
+            f"{gdrive.API}/files/{link['doc']}", fields='parents', supportsAllDrives='true').json()
+    except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as exc:
+        raise HTTPException(400, '문서 폴더를 확인하지 못했습니다.') from exc
+    parents = metadata.get('parents') or []
+    if not parents or not isinstance(parents[0], str) or not re.fullmatch(r'[A-Za-z0-9_-]+', parents[0]):
+        return {'url': None}
+    return {'url': f'https://drive.google.com/drive/folders/{parents[0]}'}
 
 
 @router.post('/api/chat-documents/{sid}/insert')

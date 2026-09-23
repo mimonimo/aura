@@ -62,3 +62,19 @@ def test_bad_document_does_not_replace_binding(client):
     sid = attach(client)
     assert client.post('/api/chat-documents/connect',data={'session_id':sid,'doc':'missing','account':'staff@example.ac.kr'}).status_code == 400
     assert client.get(f'/api/chat-documents/{sid}').json()['doc'] == 'docA'
+
+
+def test_folder_uses_actual_parent_and_checks_owner(client, monkeypatch):
+    from types import SimpleNamespace
+    from zzaimy.ingest import gdrive
+    sid = attach(client)
+    calls = []
+    def metadata(self, url, **params):
+        calls.append(url)
+        return SimpleNamespace(json=lambda: {'parents': ['folderA']})
+    monkeypatch.setattr(gdrive.GDriveBackend, '_get', metadata)
+    assert client.get(f'/api/chat-documents/{sid}/folder').json() == {
+        'url': 'https://drive.google.com/drive/folders/folderA'}
+    client.app.state.owner = 'other'
+    assert client.get(f'/api/chat-documents/{sid}/folder').status_code == 404
+    assert len(calls) == 1
