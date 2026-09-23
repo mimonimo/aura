@@ -68,8 +68,18 @@
   <h2><iconify-icon icon="solar:cloud-linear"></iconify-icon>Google 연결
     <span class="muted" style="margin-left:auto; font-size:12px;">{{ '앱 등록 완료' if gdrive.configured else '앱 등록 필요' }}</span></h2>
   <p class="gd-hint">Drive 읽기 · Docs 읽기 및 편집</p>
+  {% set drive_sources = sources | selectattr('backend', 'equalto', 'gdrive') | list %}
+  {% set runs = drive_sources | selectattr('last_run') | list %}
+  <ol class="gd-steps" aria-label="Google Drive 연결 단계">
+    {% for label, done, target in [('앱 등록', gdrive.configured, '#googleApp'), ('계정 연결', gdrive.accounts, '#googleAccounts'), ('폴더 연결', drive_sources, '#connectedFolders'), ('문서 가져오기', runs, '#connectedFolders')] %}
+    <li class="{{ 'done' if done else '' }}"><a href="{{ target }}"><span>{{ loop.index }}. {{ label }}</span><small>{{ ('실행됨' if loop.last else '완료') if done else '대기' }}</small></a></li>
+    {% endfor %}
+  </ol>
+  <p class="gd-next" role="status">{% if not gdrive.configured %}앱 설정을 등록하세요.{% elif not gdrive.accounts %}문서를 가져올 Google 계정을 연결하세요.{% elif not drive_sources %}가져올 Drive 폴더를 연결하세요.{% elif not runs %}연결한 폴더에서 ‘지금 가져오기’를 실행하세요.{% else %}연결 설정이 완료되었습니다. 아래에서 가져오기 결과를 확인하세요.{% endif %}</p>
   <div class="gd-connect-grid">
-    <form action="/dev/gdrive/client" method="post" class="nas-form" style="margin:0;">
+    <section id="googleApp" class="gd-app-settings">
+    {% if gdrive.configured %}<div class="gd-app-summary"><h3>앱 등록 완료</h3><p>{{ gdrive.client_id_hint }}</p><small>{{ gdrive.set_at }}</small><button type="button" class="secondary" data-app-edit aria-controls="googleAppForm" aria-expanded="false" hidden>설정 변경</button></div>{% endif %}
+    <form id="googleAppForm" data-configured="{{ 'true' if gdrive.configured else 'false' }}" action="/dev/gdrive/client" method="post" class="nas-form" style="margin:0;">
       <fieldset><legend>앱 설정</legend>
         <label>클라이언트 ID<input type="text" name="client_id" placeholder="….apps.googleusercontent.com" autocomplete="off" required></label>
         <label>클라이언트 보안 비밀번호<input type="password" name="client_secret" autocomplete="new-password" required></label>
@@ -78,7 +88,8 @@
         <button type="submit" class="secondary" style="padding:6px 12px; font-size:12.5px;">저장</button>
       </fieldset>
     </form>
-    <div class="nas-form">
+    </section>
+    <div class="nas-form" id="googleAccounts">
       <fieldset><legend>연결 계정</legend>
         {% if gdrive.configured %}<a class="btn secondary" href="/dev/gdrive/auth">Google 계정 연결</a>{% else %}<p class="gd-hint">앱 설정을 저장하면 계정을 연결할 수 있습니다.</p><button type="button" class="secondary" disabled>Google 계정 연결</button>{% endif %}
         {% if gdrive.accounts %}
@@ -91,7 +102,7 @@
   {% if storage and storage.available %}<p class="muted" style="font-size:12px; margin:10px 0 0;">문서 저장 공간: 사용 {{ (storage.used_bytes / 1073741824) | round(1) }}GB / 전체 {{ (storage.total_bytes / 1073741824) | round(1) }}GB ({{ storage.used_percent }}%){% if storage.low_space %} · 남은 공간이 적습니다{% endif %}</p>{% endif %}
 </div></div>
 
-<div class="card reveal"><div class="card-in">
+<div class="card reveal" id="connectedFolders"><div class="card-in">
   <h2><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>연결한 폴더
     <button type="button" class="secondary" style="margin-left:auto; padding:6px 12px; font-size:12.5px;" data-modal-open="#nasAdd">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>폴더 연결</button></h2>
@@ -100,19 +111,19 @@
     <tr><th>이름</th><th>방식</th><th>경로</th><th>저장 위치</th><th>파일 종류</th><th>자동</th><th>마지막 가져오기</th><th></th></tr>
     {% for s in sources %}
     <tr>
-      <td style="font-weight:600;">{{ s.name }}{% if s.run.running %} <span class="pill processing">가져오는 중 {{ s.run.progress }}</span>{% endif %}</td>
+      <td style="font-weight:600;">{{ s.name }}{% if s.run.running %} <span class="pill processing">가져오는 중 {{ s.run.progress }}</span>{% endif %}<div class="gd-source-meta">{{ s.username or '계정 미지정' }}<br>{{ s.dept or '공통' }} · {{ levels.get(s.access_level, s.access_level or '자동') }}</div></td>
       <td>{{ s.backend_label.split(" ")[0] }}</td>
       <td class="muted" style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ s.root }}">{{ s.root }}</td>
       <td>{{ s.target_label }}{% if s.target == "regulation" %} · {{ s.sector_label }}{% endif %}</td>
       <td class="muted">{{ s.extensions | join(" ") }}</td>
       <td>{% if s.auto %}{{ s.interval_min }}분마다{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td class="muted">{% if s.last_run %}{{ s.last_run }}<div style="font-size:11.5px;">{{ s.last_summary }}</div>{% else %}없음{% endif %}</td>
-      <td style="white-space:nowrap; text-align:right;">
+      <td class="muted">{% if s.last_run %}{{ s.last_run }}<div style="font-size:11.5px;">{{ s.last_summary }}</div>{% else %}실행 전{% endif %}{% if s.run.last and s.run.last.error %}<p class="gd-source-error">{{ s.run.last.error }}</p>{% endif %}</td>
+      <td class="gd-source-actions">
         <form action="/dev/nas/{{ s.id }}/probe" method="post" style="display:inline;"><button type="submit" class="secondary" style="padding:4px 10px; font-size:12px;">연결 확인</button></form>
         <form action="/dev/nas/{{ s.id }}/plan" method="post" style="display:inline;"><button type="submit" class="secondary" style="padding:4px 10px; font-size:12px;">미리보기</button></form>
         <form action="/dev/nas/{{ s.id }}/sync" method="post" style="display:inline;"><button type="submit" class="secondary" style="padding:4px 10px; font-size:12px;" {% if s.run.running %}disabled{% endif %}>지금 가져오기</button></form>
         <button type="button" class="secondary" style="padding:4px 10px; font-size:12px;" data-modal-open="#nasEdit-{{ s.id }}">수정</button>
-        <form action="/dev/nas/{{ s.id }}/delete" method="post" style="display:inline;" onsubmit="return confirm('폴더 연결 「{{ s.name }}」을 지울까요? 이미 가져온 문서는 그대로 남습니다.');">
+        <form action="/dev/nas/{{ s.id }}/delete" method="post" style="display:inline;" data-confirm="폴더 연결 ‘{{ s.name }}’을 삭제할까요? 이미 가져온 문서는 유지됩니다.">
           <button type="submit" class="secondary" style="padding:4px 10px; font-size:12px; color:var(--red); border-color:#E7B9B8;">삭제</button></form></td>
     </tr>
     {% endfor %}

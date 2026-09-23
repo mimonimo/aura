@@ -43,3 +43,7 @@ def test_connection_panel_and_disconnect_confirmation(docs_env, tmp_path):
     assert 'class="gd-connect-grid"' in page.text
     assert '연결 해제' in page.text and 'data-confirm=' in page.text
     assert '편집 권한 확인 필요' in page.text
+    assert 'aria-label="Google Drive 연결 단계"' in page.text
+    assert 'id="googleAppForm" data-configured="true"' in page.text
+    assert 'data-app-edit' in page.text
+    assert '가져올 Drive 폴더를 연결하세요.' in page.text

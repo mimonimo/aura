@@ -1,4 +1,14 @@
 (() => {
+  const appForm = document.getElementById('googleAppForm'), edit = document.querySelector('[data-app-edit]');
+  if (appForm?.dataset.configured === 'true' && edit) {
+    appForm.hidden = true; edit.hidden = false;
+    edit.addEventListener('click', () => {
+      appForm.hidden = !appForm.hidden;
+      edit.setAttribute('aria-expanded', String(!appForm.hidden));
+      edit.textContent = appForm.hidden ? '설정 변경' : '닫기';
+      if (!appForm.hidden) appForm.querySelector('input')?.focus();
+    });
+  }
   function confirmChange(message, opener) {
     return new Promise(resolve => {
       const dialog = document.createElement('dialog'); dialog.className = 'gd-confirm';
