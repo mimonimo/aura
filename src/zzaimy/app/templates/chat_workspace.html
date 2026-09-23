@@ -207,7 +207,12 @@
   <div class="dock-row">
     <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md">
     <input type="hidden" name="external" id="extField" value="">
-    <button type="button" class="dock-btn" id="attachButton" title="검토할 문서 첨부" aria-label="검토할 문서 첨부"><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
+    <button type="button" class="dock-btn" id="attachButton" title="도구 추가" aria-label="도구 추가" aria-expanded="false" aria-controls="chatTools"><iconify-icon icon="solar:add-linear"></iconify-icon></button>
+    <div id="chatTools" class="chat-tools" popover aria-label="채팅 도구">
+      <button type="button" data-chat-tool="file"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 또는 사진 추가</button>
+      <button type="button" data-chat-tool="document"><iconify-icon icon="solar:document-text-linear"></iconify-icon>Google Docs</button>
+      <button type="button" data-chat-tool="context"><iconify-icon icon="solar:folder-linear"></iconify-icon>작업 패널</button>
+    </div>
     <textarea name="question" id="chatInput" rows="1" placeholder="질문이나 수정할 내용을 입력하세요"
               aria-label="질문 또는 수정 요청" aria-describedby="chatKeyboardHint" autofocus autocomplete="off"></textarea>
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
