@@ -111,7 +111,7 @@ def test_work_page_ask_insert_replace(docs_env, tmp_path):
 
 
 def test_chat_answer_reads_linked_google_doc_and_reports_read_failure(docs_env, tmp_path, monkeypatch):
-    """대화에 연결된 구글 독스는 답변 재료로 붙고(C-73 연결), 못 읽으면 읽은 척하지 않는다."""
+    """대화에 연결된 구글 독스는 편집 에이전트가 맡고(모델이 없으면 문서를 바꾸지 않았다고 말함), 못 읽으면 읽은 척하지 않는다."""
     import json as _json
 
     app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
@@ -120,13 +120,77 @@ def test_chat_answer_reads_linked_google_doc_and_reports_read_failure(docs_env, 
     db = app.state.db
     sid = db.create_chat_session("문서 대화", owner="zzaimy")
     db.set_setting(f"chat_google_doc:{sid}", _json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    from zzaimy.generate import client as _gc
+
+    def _boom(*a, **k):
+        raise RuntimeError("모델 서버 없음")
+    monkeypatch.setattr(_gc, "VllmClient", _boom)
     r = client.post("/chat/send", data={"question": "추진 배경 보강", "session_id": str(sid)}, follow_redirects=False)
     assert r.status_code == 303
     page = client.get(r.headers["location"]).text
-    assert "연결된 Google Docs: 2026 사업계획서" in page and "지역 산업 수요가 늘고 있다" in page
-    # 읽기 실패 — 문서 주소가 없는 것으로 바꾸면 답변 대신 실패 안내
+    assert "문서는 바꾸지 않았습니다" in page
+    # 읽기 실패 — 문서 주소가 없는 것으로 바꾸면 실패 안내
     db.set_setting(f"chat_google_doc:{sid}", _json.dumps({"doc": "missing", "account": "staff@example.ac.kr"}))
     r = client.post("/chat/send", data={"question": "다시", "session_id": str(sid)}, follow_redirects=False)
     page = client.get(r.headers["location"]).text
     assert "연결된 구글 문서를 읽지 못했습니다" in page
     assert client.get("/api/chat-documents/accounts").status_code == 200
+
+
+class _FakeChoice:
+    def __init__(self, content): self.message = type("M", (), {"content": content})()
+
+
+class _FakePlanner:
+    """가짜 27B — 편집 계획을 정해진 JSON 으로 낸다. 프롬프트에 문서 본문과 지시가 들어갔는지 기록한다."""
+
+    def __init__(self, content):
+        self.content, self.prompts, self.model, self._extra = content, [], "fake", {}
+        outer = self
+
+        class _Completions:
+            def create(self, **kw):
+                outer.prompts.append(kw["messages"][0]["content"])
+                assert kw["response_format"]["type"] == "json_schema"
+                return type("R", (), {"choices": [_FakeChoice(outer.content)]})()
+
+        self.client = type("C", (), {"chat": type("Ch", (), {"completions": _Completions()})()})()
+
+
+def test_linked_doc_command_is_applied_to_the_document(docs_env, tmp_path, monkeypatch):
+    """채팅 명령 → 편집 계획 → 문서에 바로 적용 → 채팅에 결과(사용자 요구: 담당자가 옮겨 넣지 않는다)."""
+    import json as _json
+    from zzaimy.app.main import create_app as _create
+
+    fake = _FakePlanner(_json.dumps({"reply": "추진 배경을 보강했습니다.", "ops": [
+        {"op": "insert", "section": 2, "old": "", "text": "산학협력 수요조사에서 응답 기관의 다수가 공동 교육과정을 원했다. 문의 010-9999-8888"},
+        {"op": "replace", "section": 0, "old": "세부 과제", "text": "세부 추진 과제"}]}, ensure_ascii=False))
+    app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                  processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    db = app.state.db
+    sid = db.create_chat_session("문서 대화", owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", _json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    calls_before = len([c for c in docs_env[1] if c[1].endswith(":batchUpdate")])
+    with monkeypatch.context() as m:
+        from zzaimy.generate import client as _gc
+        m.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+        r = client.post("/chat/send", data={"question": "추진 배경을 보강해 줘", "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "추진 배경을 보강했습니다" in page and "적용됨" in page and "아래에" in page and "곳" in page
+    batch = [c for c in docs_env[1] if c[1].endswith(":batchUpdate")]
+    assert len(batch) - calls_before == 2
+    assert "010-9999-8888" not in batch[-2][2]          # 넣는 글의 전화번호는 가려진다
+    assert "담당자 지시" in fake.prompts[-1] and "지역 산업 수요가 늘고 있다" in fake.prompts[-1]
+    # 확인 후 적용 모드: 계획만 보여 주고 쓰지 않는다 → 적용을 누르면 쓴다
+    client.post(f"/api/chat-documents/{sid}/confirm-mode", data={"on": "1"})
+    n = len([c for c in docs_env[1] if c[1].endswith(":batchUpdate")])
+    with monkeypatch.context() as m:
+        from zzaimy.generate import client as _gc
+        m.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+        r = client.post("/chat/send", data={"question": "다시 보강", "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "아직 문서에 쓰지 않았습니다" in page
+    assert len([c for c in docs_env[1] if c[1].endswith(":batchUpdate")]) == n
+    ap = client.post(f"/api/chat-documents/{sid}/apply-pending")
+    assert ap.status_code == 200 and len(ap.json()["applied"]) == 2
