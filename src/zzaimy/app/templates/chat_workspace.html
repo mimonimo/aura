@@ -154,7 +154,7 @@
     <p class="chat-topic" title="{{ chat_topic }}">최근 요청 · {{ chat_topic | truncate(110, true) }}</p>
     {% endif %}
   </div>
-  <div class="chat-head-actions"><a class="act-btn" href="/chat" title="다른 업무로 새 대화 시작" aria-label="새 대화"><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></a><button type="button" class="act-btn" id="chatHistory" title="수정 이력" aria-label="수정 이력" {% if not session_id %}hidden{% endif %}><iconify-icon icon="solar:history-linear"></iconify-icon></button><button type="button" class="secondary" id="chatContextOpen" aria-controls="chatAside">작업 패널</button>
+  <div class="chat-head-actions">
     <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen" title="문서 열기" aria-label="문서 열기" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/connections' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
   </div>
 </header>
@@ -212,7 +212,7 @@
     <div id="chatTools" class="chat-tools" popover aria-label="채팅 도구">
       <button type="button" data-chat-tool="file"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 또는 사진 추가</button>
       <button type="button" data-chat-tool="document"><iconify-icon icon="solar:document-text-linear"></iconify-icon>Google Docs</button>
-      <button type="button" data-chat-tool="context"><iconify-icon icon="solar:folder-linear"></iconify-icon>작업 패널</button>
+      <button type="button" id="chatContextOpen" data-chat-tool="context" aria-controls="chatAside"><iconify-icon icon="solar:folder-linear"></iconify-icon>작업 패널</button>
     </div>
     <textarea name="question" id="chatInput" rows="1" placeholder="질문이나 수정할 내용을 입력하세요"
               aria-label="질문 또는 수정 요청" aria-describedby="chatKeyboardHint" autofocus autocomplete="off"></textarea>
@@ -643,7 +643,7 @@
     document.getElementById('chatPanelBackdrop').hidden = !open;
     document.getElementById('chatWorkspace').inert = open;
     if (open) closeBtn.focus();
-    else if (aside.contains(document.activeElement)) document.getElementById('chatContextOpen').focus();
+    else if (aside.contains(document.activeElement)) document.getElementById('attachButton').focus();
     document.getElementById('chatContextOpen').setAttribute('aria-expanded', String(open));
     if (openBtn) openBtn.hidden = open;
   }
@@ -654,7 +654,7 @@
   });
   document.addEventListener('keydown', function(event) {
     if (aside.classList.contains('closed') || document.querySelector('.modal-back.open, dialog[open]')) return;
-    if (event.key === 'Escape') { setAside(false); document.getElementById('chatContextOpen').focus(); }
+    if (event.key === 'Escape') { setAside(false); document.getElementById('attachButton').focus(); }
     if (event.key === 'Tab') {
       var focusable = Array.from(aside.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),[tabindex="0"]'))
         .filter(function(el) { return el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden'; });
