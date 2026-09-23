@@ -141,6 +141,12 @@ kiwi), OCR(MinerU, docling, tesseract), 산출물(python-hwpx, docx, pdf)이며 
 - **데이터 커밋 금지**: 실문서·파싱결과는 `data/` 아래에만(.gitignore). VM에 문서 44·청크 3767 있음.
 - 결정은 ADR로: `docs/decisions/` (최신 0008 = 외부 참조 이그레스 게이트웨이).
 
+
+문서 저장 구조(ADR-0030, 9/23): DB 가 원본이고 디스크는 종류별 정리 폴더다. `data/platform/documents/반입/<연도>/<유형>/<접수번호> <제목>/원본.<확장자>`
+(+ `원본_imgs/`), `첨부/<연도>/대화-<번호>/`, `생성/<연도>/<접수번호>/`(초안·OCR·복원·추출결과 사본), `보고/주간/`. 모든 파일은 `files` 표에
+있다. 반입 경로 전부가 `storage.adopt_original` 을 거치고 삭제는 폴더째다. 옛 inbox 파일은 `scripts/138_layout_migrate.py` 로 옮겼다.
+재생성 캐시(`restored/`, `pagecache/`, 색인 npz)는 장부 밖이다.
+
 ## 3. 무엇이 되어 있나 (완료)
 
 - 운영 서버 구축·데이터 이관·오프라인 자립·자동시작.
