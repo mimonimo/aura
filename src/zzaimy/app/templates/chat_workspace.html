@@ -145,7 +145,6 @@
 
 <div class="chat-main" id="chatWorkspace" data-session="{{ session_id or '' }}" data-waiting="{{ 'true' if waiting else 'false' }}">
 <header class="chat-workspace-head">
-  <button type="button" class="secondary" id="chatDocumentOpen" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/connections' }}">Google Docs</button>
   <div class="chat-heading">
     <span class="chat-eyebrow">{{ sector_labels.get(chat_project.sector, '행정 업무') ~ ' · 프로젝트' if chat_project else ('업무 상담' if messages else '새 대화') }}</span>
     {% set conversation_title = chat_project.name if chat_project else (chat_session.title if chat_session else '근거를 찾고, 문서를 다듬으세요') %}
@@ -155,7 +154,9 @@
     <p class="chat-topic" title="{{ chat_topic }}">최근 요청 · {{ chat_topic | truncate(110, true) }}</p>
     {% endif %}
   </div>
-  <div class="chat-head-actions"><a class="act-btn" href="/chat" title="다른 업무로 새 대화 시작" aria-label="새 대화"><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></a><button type="button" class="act-btn" id="chatHistory" title="수정 이력" aria-label="수정 이력" {% if not session_id %}hidden{% endif %}><iconify-icon icon="solar:history-linear"></iconify-icon></button><button type="button" class="secondary" id="chatContextOpen" aria-controls="chatAside">작업 패널</button></div>
+  <div class="chat-head-actions"><a class="act-btn" href="/chat" title="다른 업무로 새 대화 시작" aria-label="새 대화"><iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></a><button type="button" class="act-btn" id="chatHistory" title="수정 이력" aria-label="수정 이력" {% if not session_id %}hidden{% endif %}><iconify-icon icon="solar:history-linear"></iconify-icon></button><button type="button" class="secondary" id="chatContextOpen" aria-controls="chatAside">작업 패널</button>
+    <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen" title="문서 열기" aria-label="문서 열기" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/connections' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
+  </div>
 </header>
 <div class="drop-veil" id="dropVeil" hidden>파일을 놓으면 첨부됩니다</div>
 <div class="chat-scroll" id="chatScroll" aria-label="대화 내용" tabindex="0">
