@@ -8,6 +8,11 @@ chat_workspace.html/chat-workspace.js/platform-spaces.css 담당. 기록 데이�
 후속 요청 중앙 드래그 바: chat-documents.js/css 포함. 기본50:50, 최소320px 및
 30~70% 범위, 방향키/Enter/더블클릭 초기화, 탭 내 대화별 비율 보관.
 다른 담당 storage/db/main/pipeline/nas_sync 미커밋 작업 보존·스테이징 제외.
+최종 범위는 20~80%, 최소260px(화면 너비에 따라 제한). 사이드바 접기 버튼은
+로고 왼쪽 정렬. Chrome1600/390, 실제 포인터 드래그→문서 약22%→Enter50:50,
+패널 표시전환, 메뉴 작업패널/Escape 초점복귀, 입력창85px미만 모두 통과.
+pytest8 통과. Google iframe 네트워크 차단한 합성 UI 검수이며 문서 편집 검증 아님.
+파일목록30%/이미지 미리보기/프로젝트 자동 생성은 아직 미구현이며 완료로 보고 금지.
 
 ## C-20260923-77 — 채팅 문서 패널 50:50 및 켜기/끄기
 
