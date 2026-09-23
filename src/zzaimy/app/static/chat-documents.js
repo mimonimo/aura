@@ -9,7 +9,7 @@
    const frame=panel.querySelector('iframe');if(!frame||frame.parentElement.classList.contains('chat-doc-viewport'))return;
    const viewport=document.createElement('div');viewport.className='chat-doc-viewport';
    frame.before(viewport);viewport.append(frame);
-   const toggle=document.createElement('button');toggle.type='button';toggle.className='secondary';toggle.textContent='너비 맞춤';toggle.setAttribute('aria-pressed','true');
+   const toggle=document.createElement('button');toggle.type='button';toggle.className='secondary';toggle.dataset.fit='';toggle.textContent='너비 맞춤';toggle.setAttribute('aria-pressed','true');
    panel.querySelector('header').insertBefore(toggle,panel.querySelector('[data-hide]'));
    let fit=true;
    const resize=()=>{
@@ -85,6 +85,29 @@
  panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=e=>{panel.querySelector('iframe').src=e.target.checked?(linked.embed_url_toolbar||linked.embed_url):linked.embed_url;};panel.querySelector('input').oninput=e=>main.style.setProperty('--document-width',e.target.value+'%');panel.querySelector('[data-hide]').onclick=()=>{panel.hidden=true;main.classList.remove('chat-doc-open');sessionStorage.setItem('chatDocHidden:'+sid,'1');};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
  panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;opener.title='문서 열기';opener.setAttribute('aria-label',opener.title);opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);main.classList.add('chat-doc-open');}
  const createPanel=show;
+ function arrangeHeader(){
+   const header=panel.querySelector('header');if(header.classList.contains('doc-header-refined'))return;
+   header.classList.add('doc-header-refined');
+   const titleRow=document.createElement('div');titleRow.className='doc-title-row';
+   const tools=document.createElement('div');tools.className='doc-view-tools';tools.setAttribute('aria-label','문서 보기 설정');
+   const back=header.querySelector('[data-list]'),title=header.querySelector('strong'),close=header.querySelector('[data-hide]');
+   back.textContent='‹';back.title='파일 목록으로';back.setAttribute('aria-label','파일 목록으로');back.classList.add('doc-icon-button');
+   title.title=title.textContent;
+   close.textContent='×';close.title='문서 패널 닫기';close.setAttribute('aria-label','문서 패널 닫기');close.classList.add('doc-icon-button');
+   titleRow.append(back,title,close);
+   const more=document.createElement('details');more.className='doc-more';
+   const summary=document.createElement('summary');summary.textContent='•••';summary.title='문서 더보기';summary.setAttribute('aria-label','문서 더보기');
+   const menu=document.createElement('div');menu.className='doc-more-actions';
+   header.querySelectorAll('a').forEach(a=>menu.append(a));
+   const unlink=panel.querySelector('[data-unlink]');menu.append(unlink);
+   more.append(summary,menu);
+   more.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();more.open=false;summary.focus();}});
+   menu.addEventListener('click',e=>{if(e.target.closest('a,button'))more.open=false;});
+   tools.append(header.querySelector('.chat-doc-toolbar'),header.querySelector('[data-fit]'),more);
+   header.append(titleRow,tools);
+   panel.querySelector('.chat-doc-note')?.remove();
+ }
+ document.addEventListener('pointerdown',e=>{const more=panel?.querySelector('.doc-more[open]');if(more&&!more.contains(e.target))more.open=false;});
  show=()=>{
    createPanel();
    fitEditor();
@@ -107,6 +130,7 @@
    panel.id='chatDocumentPanel';opener.setAttribute('aria-controls',panel.id);
    const width=panel.querySelector('input[type=range]');
    if(width){width.closest('label').remove();main.style.setProperty('--document-width','50%');}
+   arrangeHeader();
    panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
    visibility(true);
  };
@@ -151,5 +175,7 @@
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
  const initialized=sid?api('/api/chat-documents/'+sid).then(data=>{if(data.connected)linked=data;}).catch(error=>{loadError=error.message;}):Promise.resolve();
+ // 대화 중 에이전트가 문서를 만들어 이으면(초안 요청) 새로고침 없이 패널을 연다
+ if(sid){const watch=setInterval(async()=>{if(linked){clearInterval(watch);return;}try{const d=await api('/api/chat-documents/'+sid);if(d.connected){linked=d;clearInterval(watch);show();}}catch(_){}},6000);}
  opener.onclick=async()=>{await initialized;if(panel&&!panel.hidden)visibility(false);else showFiles();};
 })();
