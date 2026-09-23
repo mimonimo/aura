@@ -45,7 +45,7 @@ def existing_filenames(db: Database) -> set[str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("dirs", nargs="+", help="수집 코퍼스 디렉터리들")
-    ap.add_argument("--db", default="data/platform/corpus_pilot.db")
+    ap.add_argument("--db", default="data/platform/knowledge/corpus_pilot/corpus_pilot.db")
     ap.add_argument("--sector", default="common")
     ap.add_argument("--dept", default="공통")
     ap.add_argument("--min-chars", type=int, default=80,

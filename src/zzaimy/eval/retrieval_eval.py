@@ -36,12 +36,14 @@ from pathlib import Path
 from zzaimy.eval.retrieval import mrr, recall_at_k
 
 QUERIES_PATH = Path("data/interim/synth_queries.jsonl")
-EVAL_DIR = Path("data/platform/eval")
+from zzaimy.app import paths as _paths
+
+EVAL_DIR = _paths.eval_dir()
 BACKUP_DIR = Path("data/platform/backup")
 # 사람이 읽는 사본. 기본은 산출물 폴더에 둔다 — 평가는 임베딩·색인이 있는 운영 VM 에서 돌리는데
 # 저장소 파일(docs/)을 건드리면 그 체크아웃이 더러워져 배포가 멈춘다(실측 2026-09-20).
 # 저장소에 남길 판이면 --report 로 명시한다(맥에서 커밋할 때).
-MARKDOWN_PATH = Path("data/platform/eval/retrieval-baseline-mini.md")
+MARKDOWN_PATH = EVAL_DIR / "retrieval-baseline-mini.md"
 REPO_MARKDOWN_PATH = Path("docs/retrieval-baseline-mini.md")
 LATEST_NAME = "retrieval-latest.json"
 RUNNING_NAME = ".running"

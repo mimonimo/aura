@@ -467,7 +467,9 @@ def run_scan(db: Database) -> dict:
 
 def corpus_db_path(db: Database) -> Path | None:
     """플랫폼 DB 옆에 있는 코퍼스 파일럿 DB(스크립트 74 기본 대상). 없으면 None."""
-    p = Path(db.path).parent / "corpus_pilot.db"
+    from zzaimy.app import paths as _paths
+
+    p = _paths.corpus_db_existing(Path(db.path).parent)
     if p.exists() and p.resolve() != Path(db.path).resolve():
         return p
     return None

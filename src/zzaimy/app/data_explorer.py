@@ -21,7 +21,9 @@ from pathlib import Path
 from zzaimy.app.embed_search import INDEX_PATH
 from zzaimy.app.pii_audit import ENTITY_LABELS, is_masking_subject
 
-META_PATH = Path("data/platform/chunk_embeddings.meta.json")
+from zzaimy.app import paths as _paths
+
+META_PATH = _paths.index_meta()
 
 TABS: list[tuple[str, str]] = [
     ("docs", "문서"),

@@ -7,7 +7,9 @@ from __future__ import annotations
 import threading
 from pathlib import Path
 
-_CORPUS_NPZ = Path("data/platform/corpus_pilot_embeddings.npz")
+from zzaimy.app import paths as _paths
+
+_CORPUS_NPZ = _paths.corpus_npz() if _paths.corpus_npz().exists() else _paths.platform_dir() / "corpus_pilot_embeddings.npz"
 _lock = threading.Lock()
 _ids = None
 _vecs = None

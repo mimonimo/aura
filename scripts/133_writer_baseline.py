@@ -10,7 +10,7 @@
 실행(VM, 서빙 설정 필요):
   set -a; . ./.env.local; set +a
   env PYTHONPATH=src .venv/bin/python scripts/133_writer_baseline.py [--docs 517,504,527] [--limit 3]
-산출: data/eval/baseline.json (+ 날짜본). DGX 에서 학습할 때는 이 파일을 DGX 의 같은 자리에 복사한다.
+산출: data/train/baselines/writer/baseline.json (+ 날짜본, ADR-0031 3층 모델). DGX 에서 학습할 때는 이 파일을 DGX 의 같은 자리에 복사한다.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ def main() -> int:
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
     ap.add_argument("--docs", default="", help="문서 id 를 쉼표로")
     ap.add_argument("--limit", type=int, default=3)
-    ap.add_argument("--out", default=str(ROOT / "data" / "eval" / "baseline.json"))
+    ap.add_argument("--out", default=str(ROOT / "data" / "train" / "baselines" / "writer" / "baseline.json"))
     args = ap.parse_args()
     llm_connections.configure(Path(args.db).parent / "llm_connections.json")
     db = Database(Path(args.db))
