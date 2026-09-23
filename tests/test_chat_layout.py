@@ -13,3 +13,5 @@ def test_chat_header_has_only_document_control(client):
     assert 'id="chatContextOpen"' in tools
     assert response.text.count('id="chatContextOpen"') == 1
     assert 'data-chat-tool="file"' in tools
+    assert 'chatKeyboardHint' not in response.text
+    assert 'Enter 전송 · Shift+Enter 줄바꿈' not in response.text
