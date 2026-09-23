@@ -76,6 +76,16 @@ CREATE TABLE IF NOT EXISTS doc_chunks (
 );
 -- 문서에서 추출된 그림 — 파일은 assets 디렉터리에, 여기엔 경로만.
 -- 원본과 같은 장비 안에만 머문다 (마스킹 대상 아님, 열람은 인증 뒤에서만)
+CREATE TABLE IF NOT EXISTS files (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind       TEXT NOT NULL,                 -- intake · attachment · generated · report
+  path       TEXT NOT NULL UNIQUE,
+  name       TEXT NOT NULL DEFAULT '',
+  doc_id     INTEGER,
+  session_id INTEGER,
+  size       INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS doc_assets (
   id       INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id   INTEGER NOT NULL REFERENCES documents(id),
@@ -609,6 +619,60 @@ class Database:
         with self._conn() as conn:
             conn.execute("UPDATE documents SET doc_type = ? WHERE id = ?",
                          (doc_type, doc_id))
+
+    # ---- 파일 장부(files) — 디스크의 모든 파일은 여기 있어야 한다(ADR-0030) ----
+
+    def set_stored_path(self, doc_id: int, path: str) -> None:
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET stored_path = ? WHERE id = ?", (path, doc_id))
+
+    def add_file(self, kind: str, path: str, *, name: str = "", doc_id: int | None = None,
+                 session_id: int | None = None, size: int = 0) -> int:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM files WHERE path = ?", (path,))
+            cur = conn.execute(
+                "INSERT INTO files (kind, path, name, doc_id, session_id, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (kind, path, name, doc_id, session_id, int(size or 0), _now()))
+            return int(cur.lastrowid or 0)
+
+    def list_files(self, *, kind: str | None = None, doc_id: int | None = None, session_id: int | None = None,
+                   limit: int = 200) -> list[dict]:
+        sql, params = "SELECT * FROM files", []
+        cond = []
+        if kind:
+            cond.append("kind = ?"); params.append(kind)
+        if doc_id is not None:
+            cond.append("doc_id = ?"); params.append(doc_id)
+        if session_id is not None:
+            cond.append("session_id = ?"); params.append(session_id)
+        if cond:
+            sql += " WHERE " + " AND ".join(cond)
+        sql += " ORDER BY id DESC LIMIT ?"; params.append(limit)
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def remove_files(self, *, doc_id: int | None = None, path: str | None = None) -> None:
+        with self._conn() as conn:
+            if doc_id is not None:
+                conn.execute("DELETE FROM files WHERE doc_id = ?", (doc_id,))
+            if path:
+                conn.execute("DELETE FROM files WHERE path = ?", (path,))
+
+    def repath_files(self, old_prefix: str, new_prefix: str) -> None:
+        """폴더 이름이 바뀌면 그 아래 파일 경로를 함께 바꾼다."""
+        with self._conn() as conn:
+            for r in conn.execute("SELECT id, path FROM files WHERE path LIKE ?", (old_prefix + "%",)).fetchall():
+                conn.execute("UPDATE files SET path = ? WHERE id = ?", (new_prefix + r[1][len(old_prefix):], r[0]))
+
+    def repath_assets(self, doc_id: int, old_prefix: str, new_prefix: str) -> None:
+        with self._conn() as conn:
+            for r in conn.execute("SELECT id, path FROM doc_assets WHERE doc_id = ? AND path LIKE ?",
+                                  (doc_id, old_prefix + "%")).fetchall():
+                conn.execute("UPDATE doc_assets SET path = ? WHERE id = ?", (new_prefix + r[1][len(old_prefix):], r[0]))
+
+    def file_counts(self) -> dict[str, int]:
+        with self._conn() as conn:
+            return {r[0]: r[1] for r in conn.execute("SELECT kind, COUNT(*) FROM files GROUP BY kind").fetchall()}
 
     def set_document_kind(self, doc_id: int, kind: str | None) -> None:
         """서류 갈래(공고·양식·계획서 …)를 적는다 — 반입 때 스스로 정하거나 담당자가 고칠 때."""

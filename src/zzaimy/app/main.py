@@ -35,6 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from zzaimy.app import search_serving, serving_plan
+from zzaimy.app import storage
 from zzaimy.app.db import Database
 
 ALLOWED_EXTENSIONS = {
@@ -837,9 +838,11 @@ def create_app(
             suffix = Path(attachment.filename).suffix.lower()
             if suffix not in ALLOWED_EXTENSIONS:
                 raise HTTPException(400, f"허용되지 않는 파일 형식입니다: {suffix}")
-            stored = inbox_dir / f"chat_{uuid.uuid4().hex}{suffix}"
+            stored = storage.attachment_path(Path(db_path).parent, session_id, attachment.filename)
             with stored.open("wb") as out:
                 shutil.copyfileobj(attachment.file, out)
+            db.add_file("attachment", str(stored), name=attachment.filename, session_id=session_id,
+                        size=stored.stat().st_size)
             shown = f"[첨부] {attachment.filename}\n{q}"
 
         db.add_chat(session_id, "user", shown)
@@ -1416,6 +1419,7 @@ def create_app(
                 filename=name, stored_path=str(stored),
                 doc_type="regulation", sector=sector,
             )
+            stored = storage.adopt_original(db, doc_id, stored)
             new_ids.append(doc_id)
             # 기준 문서로 올린 것이므로 갈래는 담당자가 정한 것으로 본다
             background.add_task(_process_then_identify, db, doc_id, stored, True)
@@ -1500,6 +1504,7 @@ def create_app(
             doc_id = db.add_document(
                 filename=name, stored_path=str(stored), doc_type="ocr"
             )
+            stored = storage.adopt_original(db, doc_id, stored)
             background.add_task(processor.process, db, doc_id, stored)
         return RedirectResponse("/ocr", status_code=303)
 
@@ -3977,9 +3982,7 @@ def create_app(
             return ""
 
     def _weekly_dir() -> Path:
-        d = Path(db_path).parent / "weekly"
-        d.mkdir(exist_ok=True)
-        return d
+        return storage.report_dir(Path(db_path).parent, "주간")
 
     def _weekly_list() -> list[dict]:
         """지금까지의 주간 보고 — 생성본(data/platform/weekly)과 수기본(docs/weekly)을 한 목록으로, 최근 것부터."""
@@ -4423,6 +4426,7 @@ def create_app(
             related_criteria_id=related_criteria_id, project_id=project_id,
             owner=getattr(request.state, "user", "zzaimy"), dept=doc_dept, access_level=doc_level,
         )
+        stored = storage.adopt_original(db, doc_id, stored)
         background.add_task(processor.process, db, doc_id, stored)
         # 접수한 자리로 돌아간다 — 프로젝트에서 올렸으면 그 프로젝트로
         if project_id:
@@ -4493,11 +4497,23 @@ def create_app(
             raise HTTPException(404)
         if payload is None:
             raise HTTPException(500, "내보내기에 실패했습니다")
+        _keep_generated(doc, payload, "초안", fmt)
         return Response(payload, media_type=media, headers={
             "Content-Disposition":
             "attachment; filename*=UTF-8''"
             + _q(f"{stem}_초안.{fmt}"),
         })
+
+    def _keep_generated(doc: dict, payload, kind: str, ext: str) -> None:
+        """내보낸 파일의 사본을 생성 폴더에 두고 장부에 적는다(ADR-0030). 실패해도 내려받기는 그대로."""
+        try:
+            data = payload.encode("utf-8") if isinstance(payload, str) else bytes(payload)
+            storage.save_generated(db, data, ref=doc.get("receipt_no") or f"문서-{doc['id']}", kind=kind, ext=ext,
+                                   doc_id=int(doc["id"]))
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning("생성 파일 보관 실패 doc=%s kind=%s", doc.get("id"), kind)
 
     @app.get("/doc/{doc_id}", response_class=HTMLResponse)
     def detail(request: Request, doc_id: int):
@@ -5036,6 +5052,7 @@ figure img{{width:100%;display:block}}
             raise HTTPException(400, "이 문서 형식은 PDF 레이어를 만들 수 없습니다")
         stem = Path(doc["filename"] or src.name).stem
         fname = quote(f"{stem}_OCR.pdf")
+        _keep_generated(doc, payload, "OCR", "pdf")
         return Response(
             payload, media_type="application/pdf",
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
@@ -5065,6 +5082,7 @@ figure img{{width:100%;display:block}}
             extra_images=list(asset_paths.values()),
         )
         fname = quote(f"{Path(doc['filename']).stem}_복원.docx")
+        _keep_generated(doc, payload, "복원", "docx")
         return Response(
             payload,
             media_type=("application/vnd.openxmlformats-officedocument"
@@ -5088,6 +5106,7 @@ figure img{{width:100%;display:block}}
             raise HTTPException(404, "추출 조각이 없습니다")
         md = export_markdown(doc["filename"], chunks)
         fname = quote(f"{Path(doc['filename']).stem}_추출결과.md")
+        _keep_generated(doc, md, "추출결과", "md")
         return Response(
             md, media_type="text/markdown; charset=utf-8",
             headers={"Content-Disposition":
@@ -5112,9 +5131,7 @@ figure img{{width:100%;display:block}}
         if doc is None:
             raise HTTPException(404)
         db.delete_document(doc_id)
-        stored = Path(doc["stored_path"])
-        if stored.exists():
-            stored.unlink()
+        storage.remove_intake_dir(db, doc)          # 원본·추출 그림이 든 문서 폴더째 지운다
         dest = "/criteria" if doc["doc_type"] == "regulation" else ("/ocr" if doc["doc_type"] == "ocr" else "/inbox")
         return RedirectResponse(dest, status_code=303)
 

@@ -2427,6 +2427,14 @@ class DocumentProcessor:
         except Exception as e:  # 실패도 기록이 남아야 화면에서 보인다
             log.exception("doc %d 처리 실패", doc_id)
             db.update_document(doc_id, status="failed", error=f"{type(e).__name__}: {e}")
+        finally:
+            # 반입 중 제목이 본문 제목으로 바뀌었으면 문서 폴더 이름도 따라간다(ADR-0030). 실패해도 반입 결과는 그대로.
+            try:
+                from zzaimy.app.storage import rename_intake_dir
+
+                rename_intake_dir(db, doc_id)
+            except Exception:
+                log.warning("doc %d 폴더 이름 맞추기 실패", doc_id)
 
     _ANALYZE_PROMPT = """다음은 문서에서 추출한 내용이다(제목·문단·표 순서 유지, 개인정보 마스킹됨).
 행정 담당자를 위해 이 문서의 맥락을 분석하라.

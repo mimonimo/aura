@@ -486,6 +486,9 @@ def sync(src: dict, db, processor, inbox_dir: Path, limit: int | None = None,
                 doc_id = db.add_document(filename=Path(rel).name, stored_path=str(stored),
                                          doc_type=src["target"], sector=src.get("sector", "common"),
                                          dept=src.get("dept") or None, access_level=src.get("access_level") or None)
+                from zzaimy.app import storage
+
+                stored = storage.adopt_original(db, doc_id, stored)      # 문서 폴더로(ADR-0030)
                 try:
                     processor.process(db, doc_id, stored)
                 except Exception as e:  # 처리 실패는 문서 상태에 남기고 반입은 계속한다
