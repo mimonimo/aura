@@ -145,7 +145,10 @@ kiwi), OCR(MinerU, docling, tesseract), 산출물(python-hwpx, docx, pdf)이며 
 문서 저장 구조(ADR-0030, 9/23): DB 가 원본이고 디스크는 종류별 정리 폴더다. `data/platform/documents/반입/<연도>/<유형>/<접수번호> <제목>/원본.<확장자>`
 (+ `원본_imgs/`), `첨부/<연도>/대화-<번호>/`, `생성/<연도>/<접수번호>/`(초안·OCR·복원·추출결과 사본), `보고/주간/`. 모든 파일은 `files` 표에
 있다. 반입 경로 전부가 `storage.adopt_original` 을 거치고 삭제는 폴더째다. 옛 inbox 파일은 `scripts/138_layout_migrate.py` 로 옮겼다.
-재생성 캐시(`restored/`, `pagecache/`, 색인 npz)는 장부 밖이다.
+재생성 캐시는 `cache/`(lines·pagecache·restored)에 있고 장부 밖이다.
+데이터 체계 전체(ADR-0031)는 세 층이다: 문서 `documents/`, 지식 `knowledge/`(index·eval·exports·corpus_pilot), 모델 `data/train/`(datasets·baselines·
+models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`ZZAIMY_TRAIN_DIR`). 지식 내보내기는 `scripts/140_export_knowledge.py`.
+배치 표는 `docs/data-layout.md`.
 
 ## 3. 무엇이 되어 있나 (완료)
 
@@ -168,7 +171,7 @@ kiwi), OCR(MinerU, docling, tesseract), 산출물(python-hwpx, docx, pdf)이며 
    판독 정답을 손으로 만들 때만 `scripts/134`(쪽 그림 렌더, 공개 문서만)·`135`(쪽별 마크다운 전사본 반입)를 쓴다 —
    교내·사용자 문서는 밖으로 내지 않으므로 외부 판독 대체 용도가 아니다(ADR-0024).
 2. 검색 정답 세트: 담당자가 실무 질의와 정답 조각을 200~500문항 만든다(eval-plan 1.1). 합성 질의(51)는 보조.
-3. 베이스라인: 검색은 `scripts/53`(운영 설정으로), 초안은 `scripts/133 --docs <실물 공고 id>` 로 `data/eval/baseline.json`.
+3. 베이스라인: 검색은 `scripts/53`(운영 설정으로), 초안은 `scripts/133 --docs <실물 공고 id>` 로 `data/train/baselines/writer/baseline.json`.
    이 기록이 없으면 학습 스크립트가 돌지 않는다.
 4. 학습 자료: `/dev/data` 데이터 공방에서 검토 의견·초안·대화를 학습 쌍으로 만들고 수치 검증 통과분만 `data/train/sft.jsonl` 로.
 5. 학습(DGX): `baseline.json` 과 `sft.jsonl` 을 DGX 의 같은 자리로 복사한 뒤
@@ -184,7 +187,7 @@ kiwi), OCR(MinerU, docling, tesseract), 산출물(python-hwpx, docx, pdf)이며 
 | sLLM 서빙 연결 | **완료(9/20)** | DGX(.110)·토르 02·03 연결 등록. 학습본 서빙 경로는 95 자가 점검 통과 |
 | ②Rerank 파인튜닝 | **완료·운영 적용(9/20)** | 베이스라인(GPU 조건) 먼저 측정 → 학습(`scripts/104`) → 홀드아웃 검증(`106`) → 하한 재측정(`105`) → 8015 서빙. 홀드아웃 R@1 0.649→0.711. ADR-0020·모델 카드 |
 | ①Embed 파인튜닝 | **완료·운영 적용(9/20, ADR-0021)** | v1 은 조밀 단독만 올라 보류. v2 는 오답을 융합 후 후보에서 뽑아 재학습(`scripts/108`), 홀드아웃 진입률 0.889→0.933 · R@1 0.811→0.856, 8016 서빙. 공개 KURE-v2 다중 벡터 경로는 재서 채택하지 않음(ADR-0025) |
-| Writer/Extract 파인튜닝 | 준비 완료 · 실물 문서 대기 | DGX(.110)에 학습 환경 설치, 27B 가중치 52GB 반입, 스모크 2스텝 통과(최고 52.7GB), 공개 공고 3건으로 학습 전 베이스라인 기록(`data/eval/baseline.json`: 수치 위반 3.0건/문서, 배점 반영은 재료 없음, 문서당 275초). 실물 계획서·결과보고서와 골드 세트가 오면 §3-1 절차대로 학습 |
+| Writer/Extract 파인튜닝 | 준비 완료 · 실물 문서 대기 | DGX(.110)에 학습 환경 설치, 27B 가중치 52GB 반입, 스모크 2스텝 통과(최고 52.7GB), 공개 공고 3건으로 학습 전 베이스라인 기록(`data/train/baselines/writer/baseline.json`: 수치 위반 3.0건/문서, 배점 반영은 재료 없음, 문서당 275초). 실물 계획서·결과보고서와 골드 세트가 오면 §3-1 절차대로 학습 |
 | 검색 서빙 GPU 이관 | **완료(9/20)** | 리랭커·질의 임베딩을 토르 서비스로(§1 표). 리랭킹 3.75초→0.07초, 후보 10→20, 운영 지표 정확한 질문 R@1 0.753·상황 0.587. 점검 `scripts/110` |
 | 이그레스 에이전트 연동 | 예정 | 채팅·초안에서 관문 경유 외부 참조. 허브 개발 키 등록 뒤 |
 | 이그레스 실전송 개방 | 통신 개방됨(9/17) | 서버존 나가는 웹은 Imperva WAF 에서 허용 완료. 남은 것: 허브 개발 키를 LLM 연결에 등록(화면 수정 창) + 외부 참조용 지정 + ZZAIMY_EXTERNAL_ENABLED |
