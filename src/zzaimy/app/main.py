@@ -35,6 +35,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from zzaimy.app import search_serving, serving_plan
+from zzaimy.app import paths as _paths
 from zzaimy.app import storage
 from zzaimy.app.db import Database
 
@@ -373,6 +374,7 @@ def create_app(
         _old = _lc.add("내부 vLLM", "vllm", db.get_setting("llm_base_url", ""),
                        db.get_setting("llm_model", ""), "")
         _lc.activate(_old["id"])
+    _paths.ensure_layout(Path(db_path).parent)     # 문서·지식·캐시 폴더 뼈대(ADR-0031)
     app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
     # 프로젝트 검색(사이드바) — 계정 소유 프로젝트만, 제목·업무 영역으로 (Codex C-71, 독립 라우터)
     from zzaimy.app.chat_documents import router as chat_documents_router
@@ -2289,7 +2291,7 @@ def create_app(
             "dev_now_days": days,
         }))
 
-    _CORPUS_DB = Path("data/platform/corpus_pilot.db")
+    _CORPUS_DB = _paths.corpus_db_existing(Path(db_path).parent)
 
     @app.get("/dev/corpus", response_class=HTMLResponse)
     def dev_corpus(request: Request, q: str = ""):
@@ -4582,7 +4584,7 @@ def create_app(
                 layout = None
         if layout is None and page_sizes:
             # 스캔 PDF — 파이프라인이 저장한 줄 단위 OCR 좌표로 투명 레이어
-            lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+            lines_file = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
             if lines_file.exists():
                 try:
                     import json as _ljson
@@ -4603,7 +4605,7 @@ def create_app(
                     layout = None
         if layout is None and not page_sizes:
             # 사진 문서 — 보정 스캔본을 배경으로, OCR 줄 좌표를 투명 레이어로
-            lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+            lines_file = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
             if lines_file.exists() and Path(doc["stored_path"]).suffix.lower() in (
                 ".png", ".jpg", ".jpeg",
             ):
@@ -4654,7 +4656,7 @@ def create_app(
                 "restored_pdf": Path(doc["stored_path"]).suffix.lower()
                 in (".pdf", ".png", ".jpg", ".jpeg"),
                 "has_lines": (
-                    Path(db_path).parent / "lines" / f"{doc_id}.json"
+                    _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
                 ).exists(),
                 "box_pages": _box_page_list(doc_id),
                 "scan_asset": scan_asset,
@@ -4694,7 +4696,7 @@ def create_app(
             or not (1 <= page_no <= 500)
         ):
             raise HTTPException(404)
-        cache_dir = Path(db_path).parent / "pagecache"
+        cache_dir = _paths.pagecache_dir(Path(db_path).parent)
         cache_dir.mkdir(exist_ok=True)
         out = cache_dir / f"{doc_id}-{page_no}.png"
         if not out.exists():
@@ -4747,12 +4749,12 @@ def create_app(
             except Exception:
                 pass
 
-        cache_dir = Path(db_path).parent / "restored"
+        cache_dir = _paths.restored_dir(Path(db_path).parent)
         cache_dir.mkdir(exist_ok=True)
         cache = cache_dir / f"{doc_id}.pdf"
         if not cache.exists():
             payload: bytes | None = None
-            lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+            lines_file = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
             lines_payload = (
                 _rj.loads(lines_file.read_text()) if lines_file.exists() else None
             )
@@ -4838,7 +4840,7 @@ def create_app(
         """인식 영역이 있는 페이지 번호 목록. 없으면 빈 목록."""
         import json as _bj
 
-        lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+        lines_file = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
         if not lines_file.exists():
             return []
         try:
@@ -4856,7 +4858,7 @@ def create_app(
         import json as _bj
 
         doc = db.get_document(doc_id)
-        lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+        lines_file = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
         if doc is None or not lines_file.exists():
             raise HTTPException(404)
         payload = _bj.loads(lines_file.read_text())
@@ -4905,7 +4907,7 @@ figure img{{width:100%;display:block}}
         from PIL import ImageDraw
 
         doc = db.get_document(doc_id)
-        lines_file = Path(db_path).parent / "lines" / f"{doc_id}.json"
+        lines_file = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
         if doc is None or not lines_file.exists():
             raise HTTPException(404)
         payload = _bj.loads(lines_file.read_text())
@@ -5019,7 +5021,7 @@ figure img{{width:100%;display:block}}
                         ln for pg in sorted(lp) for ln in lp[pg]
                     ]
                 else:
-                    lf = Path(db_path).parent / "lines" / f"{doc_id}.json"
+                    lf = _paths.lines_dir(Path(db_path).parent) / f"{doc_id}.json"
                     if lf.exists():
                         import json as _ej
 

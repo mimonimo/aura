@@ -101,8 +101,10 @@ def main() -> int:
                 except sqlite3.OperationalError:
                     pass
         conn.close()
+        from zzaimy.app import paths as _paths
+
         for name in INDEXES:
-            f = Path(args.db).parent / name
+            f = _paths.index_dir(Path(args.db).parent) / name
             if f.exists():
                 f.unlink()
         if inbox.exists():

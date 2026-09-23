@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-BASELINE = ROOT / "data" / "eval" / "baseline.json"
+BASELINE = ROOT / "data" / "train" / "baselines" / "writer" / "baseline.json"
 
 
 def read_baseline() -> dict | None:
@@ -69,7 +69,7 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="준비 상태만 점검하고 끝낸다")
     ap.add_argument("--base", default="", help="베이스 모델 경로 또는 허브 이름 (27B)")
     ap.add_argument("--data", default=str(ROOT / "data" / "train" / "sft.jsonl"))
-    ap.add_argument("--out", default=str(ROOT / "data" / "train" / "writer-qlora"))
+    ap.add_argument("--out", default=str(ROOT / "data" / "train" / "models" / "writer" / "v1-adapter"))
     ap.add_argument("--epochs", type=float, default=2.0)
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--rank", type=int, default=32)

@@ -42,7 +42,7 @@ bad = 0
 # 색인과 질의 임베딩 모델이 한 짝인지 — 어긋나면 오류 없이 엉뚱한 결과가 나온다(ADR-0021)
 index_model = ""
 try:
-    with open("data/platform/chunk_embeddings.meta.json", encoding="utf-8") as fh:
+    with open("data/platform/knowledge/index/chunk_embeddings.meta.json", encoding="utf-8") as fh:
         meta = json.load(fh)
     index_model = str(meta.get("model") or "")
     print(f"  조각 색인: {index_model} · 조각 {meta.get('n_chunks')}개 · 차원 {meta.get('dim')}")

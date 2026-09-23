@@ -83,13 +83,13 @@ if [ "$APPLY" = "--apply" ]; then
   echo "[$(date +%T)] 4/4 적용 — 옛 색인은 백업"
   # 옛 색인이 없을 수도 있다(문서함을 비우고 다시 올린 뒤) — 없으면 백업을 건너뛴다
   ssh "$VM" "cd ~/zzaimy-capstone && mkdir -p data/platform/backup \
-    && { [ -f data/platform/chunk_embeddings.npz ] \
-         && cp data/platform/chunk_embeddings.npz data/platform/backup/chunk_embeddings-$STAMP.npz \
+    && { mkdir -p data/platform/knowledge/index && [ -f data/platform/knowledge/index/chunk_embeddings.npz ] \
+         && cp data/platform/knowledge/index/chunk_embeddings.npz data/platform/backup/chunk_embeddings-$STAMP.npz \
          || echo '옛 색인 없음 — 백업 건너뜀'; } \
-    && mv /tmp/$OUT_NAME data/platform/chunk_embeddings.npz \
-    && MODEL_NAME='$MODEL' .venv/bin/python -c 'import json, os, numpy as np; d = np.load(\"data/platform/chunk_embeddings.npz\"); \
+    && mv /tmp/$OUT_NAME data/platform/knowledge/index/chunk_embeddings.npz \
+    && MODEL_NAME='$MODEL' .venv/bin/python -c 'import json, os, numpy as np; d = np.load(\"data/platform/knowledge/index/chunk_embeddings.npz\"); \
 json.dump({\"model\": os.environ[\"MODEL_NAME\"].rsplit(\"/\", 1)[-1], \"n_chunks\": int(len(d[\"ids\"])), \"dim\": int(d[\"vectors\"].shape[1]), \"device\": \"thor-gpu\"}, \
-open(\"data/platform/chunk_embeddings.meta.json\", \"w\"))' \
+open(\"data/platform/knowledge/index/chunk_embeddings.meta.json\", \"w\"))' \
     && rm -f data/platform/.reindex-needed && systemctl --user restart zzaimy.service && echo 적용·재시작 완료"
 else
   echo "[$(date +%T)] 4/4 미리보기 — 적용하려면 --apply"

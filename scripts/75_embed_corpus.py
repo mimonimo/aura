@@ -8,9 +8,11 @@ import json, sqlite3, os
 from pathlib import Path
 
 MODEL = "nlpai-lab/KURE-v1"
-DB = "data/platform/corpus_pilot.db"
-OUT = Path("data/platform/corpus_pilot_embeddings.npz")
-META = Path("data/platform/corpus_pilot_embeddings.meta.json")
+from zzaimy.app import paths as _paths  # noqa: E402
+
+DB = str(_paths.corpus_db())
+OUT = _paths.corpus_npz()
+META = _paths.corpus_meta()
 
 def main():
     import numpy as np

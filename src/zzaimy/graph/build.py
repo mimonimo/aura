@@ -415,7 +415,9 @@ def _add_project_relations(db, docs, projects, linked, add_edge, embed_fn=None,
         texts = {i: t for i, t in texts.items() if len(t) >= 2}   # 제목만 있어도 주제는 있다
         if not texts:
             return
-        cache_path = Path(db.path).parent / "doc_vectors.npz"
+        from zzaimy.app import paths as _paths
+
+        cache_path = _paths.doc_vectors_npz(Path(db.path).parent)
         cache = DocVectorCache(cache_path)
         if background and cache.missing(texts) > _REL_WARM_MAX_SYNC:
             _warm_vectors_background(cache_path, texts, embed_fn)   # 다음 요청부터 추정 연관이 보인다

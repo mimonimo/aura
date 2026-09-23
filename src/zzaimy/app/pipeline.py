@@ -1044,7 +1044,9 @@ class DocumentProcessor:
                 )
             if not parsed.ocr_lines:
                 return
-            out_dir = Path(db.path).parent / "lines"
+            from zzaimy.app import paths as _paths
+
+            out_dir = _paths.lines_dir(Path(db.path).parent)
             out_dir.mkdir(exist_ok=True)
             (out_dir / f"{doc_id}.json").write_text(json.dumps({
                 "page_sizes": {
@@ -1082,7 +1084,9 @@ class DocumentProcessor:
                     lines = [
                         {**ln, "content": f[:500]} for ln, f in zip(lines, fixed)
                     ]
-            out_dir = Path(db.path).parent / "lines"
+            from zzaimy.app import paths as _paths
+
+            out_dir = _paths.lines_dir(Path(db.path).parent)
             out_dir.mkdir(exist_ok=True)
             payload = {
                 "page_sizes": {
@@ -2090,8 +2094,10 @@ class DocumentProcessor:
         # 재처리 시 파생 캐시(복원 PDF·페이지 렌더)를 비운다
         try:
             base = Path(db.path).parent
-            (base / "restored" / f"{doc_id}.pdf").unlink(missing_ok=True)
-            for p in (base / "pagecache").glob(f"{doc_id}-*.png"):
+            from zzaimy.app import paths as _paths
+
+            (_paths.restored_dir(base) / f"{doc_id}.pdf").unlink(missing_ok=True)
+            for p in _paths.pagecache_dir(base).glob(f"{doc_id}-*.png"):
                 p.unlink(missing_ok=True)
         except Exception:
             pass

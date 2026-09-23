@@ -16,7 +16,9 @@ log = logging.getLogger(__name__)
 
 # 후보 모델을 운영 색인을 건드리지 않고 시험할 수 있게 환경변수로 바꿔 끼운다.
 # 둘은 반드시 같은 모델로 맞춰야 한다 — 색인과 질의를 다른 모델로 만들면 벡터 공간이 어긋난다.
-INDEX_PATH = Path(os.environ.get("ZZAIMY_EMBED_INDEX", "data/platform/chunk_embeddings.npz"))
+from zzaimy.app import paths as _paths
+
+INDEX_PATH = _paths.index_npz()      # 2층 지식 색인(ADR-0031) — 옛 변수 ZZAIMY_EMBED_INDEX 도 받는다
 MODEL_NAME = os.environ.get("ZZAIMY_EMBED_MODEL", "nlpai-lab/KURE-v1")
 
 # 유사도 하한 — 코퍼스가 스스로 잡음 바닥을 재게 한다.
@@ -226,8 +228,8 @@ class QuestionIndex:
             try:
                 import numpy as np
 
-                path = Path(os.environ.get("ZZAIMY_QUESTION_INDEX",
-                                           "data/platform/question_embeddings.npz"))
+                path = (Path(os.environ["ZZAIMY_QUESTION_INDEX"]) if os.environ.get("ZZAIMY_QUESTION_INDEX")
+                        else _paths.question_index_npz())
                 if not path.exists():
                     raise FileNotFoundError(path)
                 data = np.load(path)

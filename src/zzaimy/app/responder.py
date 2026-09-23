@@ -82,7 +82,9 @@ class AgentResponder:
 
             from zzaimy.app.corpus_search import corpus_hybrid_search
 
-            p = Path("data/platform/corpus_pilot.db")
+            from zzaimy.app import paths as _paths
+
+            p = _paths.corpus_db_existing(Path(db.path).parent)
             if not p.exists():
                 return []
             cdb = Database(str(p))

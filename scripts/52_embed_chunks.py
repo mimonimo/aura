@@ -15,8 +15,10 @@ from pathlib import Path
 
 MODEL = "nlpai-lab/KURE-v1"
 DB = "data/platform/platform.db"
-OUT = Path("data/platform/chunk_embeddings.npz")
-META = Path("data/platform/chunk_embeddings.meta.json")
+from zzaimy.app import paths as _paths  # noqa: E402
+
+OUT = _paths.index_npz()
+META = _paths.index_meta()
 
 PROBES = [
     "일반휴학 처리 기준",
