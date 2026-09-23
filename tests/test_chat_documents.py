@@ -78,3 +78,29 @@ def test_folder_uses_actual_parent_and_checks_owner(client, monkeypatch):
     client.app.state.owner = 'other'
     assert client.get(f'/api/chat-documents/{sid}/folder').status_code == 404
     assert len(calls) == 1
+
+
+def test_file_list_reads_parent_and_never_crosses_owner(client, monkeypatch):
+    from types import SimpleNamespace
+    from zzaimy.ingest import gdrive
+    sid = attach(client)
+    monkeypatch.setattr(gdrive.GDriveBackend, '_get', lambda *a, **kw:
+                        SimpleNamespace(json=lambda: {'parents': ['folderA']}))
+    calls = []
+    def children(self, folder):
+        calls.append(folder)
+        return [{'id': 'docA', 'name': '시험 문서', 'mimeType': 'application/vnd.google-apps.document'}]
+    monkeypatch.setattr(gdrive.GDriveBackend, '_children', children)
+    result = client.get(f'/api/chat-documents/{sid}/files')
+    assert result.status_code == 200
+    assert result.json()['files'][0]['name'] == '시험 문서'
+    assert calls == ['folderA']
+    client.app.state.owner = 'other'
+    assert client.get(f'/api/chat-documents/{sid}/files').status_code == 404
+    assert calls == ['folderA']
+
+
+def test_file_list_without_binding_is_empty(client):
+    sid = attach(client)
+    client.delete(f'/api/chat-documents/{sid}')
+    assert client.get(f'/api/chat-documents/{sid}/files').json()['files'] == []
