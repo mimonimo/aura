@@ -1,65 +1,25 @@
 {% extends "base.html" %}
-{% block title %}문서 작업 — 행정 에이전트{% endblock %}
+{% block title %}문서 작업{% endblock %}
 {% block pagetitle %}문서 작업{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/gdocs-work.css"><script src="/static/gdocs-work.js" defer></script>{% endblock %}
 {% block content %}
-<style>
-  .gdocs-split { display:grid; grid-template-columns:minmax(0, 3fr) minmax(320px, 2fr); gap:18px; align-items:start; }
-  .gdocs-editor iframe { width:100%; height:calc(100vh - 230px); min-height:520px; border:1px solid var(--line); border-radius:10px; background:#fff; }
-  .gdocs-agent { position:sticky; top:12px; max-height:calc(100vh - 40px); overflow:auto; padding:14px 16px; border:1px solid var(--line); border-radius:10px; background:var(--panel, #fafafa); }
-  .gdocs-agent h2 { font-size:15px; margin:0 0 10px; } .gdocs-agent h3 { font-size:13px; margin:16px 0 6px; }
-  .gdocs-agent textarea, .gdocs-agent input[type=text], .gdocs-agent select { width:100%; box-sizing:border-box; font-size:13px; }
-  .gdocs-agent form { display:flex; flex-direction:column; gap:8px; }
-  .gdocs-answer { white-space:pre-wrap; font-size:13px; line-height:1.65; padding:10px 12px; border-left:3px solid var(--navy, #1f3a5f); background:#fff; margin:10px 0; }
-  .inline-form { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:0 0 16px; }
-  .inline-form label { display:flex; flex-direction:column; font-size:12.5px; gap:4px; }
-  @media (max-width: 1000px) { .gdocs-split { grid-template-columns:1fr; } .gdocs-agent { position:static; max-height:none; } .gdocs-editor iframe { height:60vh; } }
-</style>
-<header class="space-intro"><h1>문서 작업</h1><p class="muted">구글 독스를 옆에 두고 에이전트가 같은 문서를 읽고, 담당자가 고른 자리에만 씁니다.</p></header>
-{% if err %}<p class="notice error">{{ err }}</p>{% endif %}
-{% if ok %}<p class="notice">{{ ok }}</p>{% endif %}
-<form method="get" action="/gdocs/work" class="inline-form">
-  <label>구글 독스 주소 또는 문서 ID <input type="text" name="doc" value="{{ doc_id }}" placeholder="https://docs.google.com/document/d/…/edit" size="48"></label>
-  <label>계정 <select name="account">{% for a in accounts %}<option value="{{ a.email }}" {% if a.email == account %}selected{% endif %}>{{ a.email }}{% if not a.docs_ok %} (문서 편집 허용 필요){% endif %}</option>{% endfor %}</select></label>
-  <button class="btn" type="submit">열기</button>
-</form>
-{% if not accounts %}<p class="muted">허용된 구글 계정이 없습니다. {% if request.state.role == 'dev' %}<a href="/dev/nas">원천 관리</a>에서 계정 허용을 먼저 합니다.{% else %}관리자에게 계정 허용을 요청하세요.{% endif %}</p>{% endif %}
-{% if doc_id and info %}
-<div class="gdocs-split">
-  <section class="gdocs-editor">
-    <p class="muted">{{ info.title }} · <a href="https://docs.google.com/document/d/{{ doc_id }}/edit" target="_blank" rel="noopener">새 창에서 열기</a> (iframe 로그인이 막히는 브라우저용)</p>
-    <iframe src="{{ embed_url }}" title="구글 독스" loading="lazy"></iframe>
-  </section>
-  <section class="gdocs-agent">
-    <h2>에이전트</h2>
-    <form method="post" action="/gdocs/ask">
-      <input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}">
-      <textarea name="question" rows="4" placeholder="이 문서에 대해 물어보거나, 넣을 글을 요청하세요">{{ question }}</textarea>
-      <button class="btn" type="submit">묻기</button>
-    </form>
-    {% if answer %}<article><h3>답변</h3><div class="gdocs-answer" id="gdocsAnswer">{{ answer }}</div>
-      <button type="button" class="secondary" id="gdocsUseAnswer" style="font-size:12.5px;">이 글을 아래 삽입 칸으로</button></article>{% endif %}
-    <h3>절 아래에 넣기</h3>
-    <form method="post" action="/gdocs/insert">
-      <input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}">
-      <label>어느 절 <select name="section">{% for s in info.sections %}<option value="{{ s.index }}">{{ '  ' * s.level }}{{ s.heading }} ({{ s.chars }}자)</option>{% endfor %}</select></label>
-      <textarea name="text" id="gdocsInsertText" rows="6" placeholder="넣을 글 — 답변에서 옮겨 적거나 직접 씁니다">{{ draft_text }}</textarea>
-      <button class="btn" type="submit">문서에 넣기</button>
-    </form>
-    <h3>글 바꾸기</h3>
-    <form method="post" action="/gdocs/replace">
-      <input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}">
-      <label>바꿀 글 <input type="text" name="old" size="30"></label>
-      <label>새 글 <input type="text" name="new" size="30"></label>
-      <button class="btn secondary" type="submit">모두 바꾸기</button>
-    </form>
-    {% if writes %}<h3>최근 쓰기</h3><ul class="muted">{% for w in writes %}<li>{{ w.at }} · {{ w.user }} · {{ w.action }} · {{ w.section or '' }} · {{ w.chars }}자</li>{% endfor %}</ul>{% endif %}
-  </section>
-</div>
-<script>
-  (function () {
-    var b = document.getElementById('gdocsUseAnswer'), a = document.getElementById('gdocsAnswer'), t = document.getElementById('gdocsInsertText');
-    if (b && a && t) b.addEventListener('click', function () { t.value = a.textContent.trim(); t.focus(); t.scrollIntoView({ block: 'center' }); });
-  })();
-</script>
+<div class="gd-work">
+<header class="gd-intro"><div><h1>문서 작업</h1><p>Google Docs 편집과 AI 검토를 한곳에서.</p></div><a class="btn-ghost" href="{% if request.state.role == 'dev' %}/dev/nas#googleConnection{% else %}/connections{% endif %}">연결 관리</a></header>
+{% if err %}<p class="notice error" role="alert">{{ err }}</p>{% endif %}{% if ok %}<p class="notice" role="status">{{ ok }}</p>{% endif %}
+{% if not accounts %}
+<section class="gd-empty"><h2>Google 계정을 연결하세요</h2><p>문서를 열고 검토하려면 계정 연결이 필요합니다.</p>{% if request.state.role == 'dev' %}<a class="btn" href="/dev/nas#googleConnection">계정 연결 설정</a>{% else %}<p>관리자에게 계정 연결을 요청하세요.</p>{% endif %}</section>
+{% else %}
+<form method="get" action="/gdocs/work" class="gd-open"><label>문서 주소<input type="text" name="doc" value="{{ doc_id }}" placeholder="Google Docs 주소 또는 문서 ID" required></label><label>Google 계정<select name="account">{% for a in accounts %}<option value="{{ a.email }}" {% if a.email == account %}selected{% endif %}>{{ a.email }}{% if not a.docs_ok %} · 권한 확인 필요{% endif %}</option>{% endfor %}</select></label><button type="submit">문서 열기</button></form>
+{% if accounts | selectattr('docs_ok', 'equalto', false) | list %}<p class="gd-hint">편집 권한이 없는 계정은 연결 관리에서 다시 인증해 주세요.</p>{% endif %}
+{% if not info %}<section class="gd-empty"><h2>작업할 문서를 열어보세요</h2><p>문서 주소를 입력하면 편집기와 에이전트가 함께 열립니다.</p></section>{% endif %}
 {% endif %}
+{% if doc_id and info %}
+<div class="gd-split"><section class="gd-editor" aria-label="문서 편집기"><header><h2>{{ info.title }}</h2><a href="https://docs.google.com/document/d/{{ doc_id }}/edit" target="_blank" rel="noopener">새 창에서 열기 ↗</a></header><iframe src="{{ embed_url }}" title="{{ info.title }} — Google Docs 편집기" loading="lazy"></iframe></section>
+<aside class="gd-agent" aria-label="문서 에이전트"><header><h2>에이전트</h2><span>현재 문서 기준</span></header><div class="gd-agent-body">
+<form method="post" action="/gdocs/ask" class="gd-form"><input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}"><label for="gdQuestion">검토 요청</label><textarea id="gdQuestion" name="question" rows="4" required placeholder="검토하거나 작성할 내용을 입력하세요">{{ question }}</textarea><div class="gd-actions"><button type="submit">요청 보내기</button></div></form>
+{% if answer %}<article class="gd-answer"><h3>답변</h3><div id="gdAnswer">{{ answer }}</div><button type="button" class="secondary" data-use-answer>삽입할 내용으로 사용</button></article>{% endif %}
+<section class="gd-section"><h3>내용 삽입</h3><form method="post" action="/gdocs/insert" class="gd-form" data-confirm="선택한 위치에 내용을 삽입할까요?"><input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}"><label>삽입 위치<select name="section" {% if not info.sections %}disabled{% endif %}>{% for s in info.sections %}<option value="{{ s.index }}">{{ s.heading }}</option>{% endfor %}</select></label><label for="gdDraft">삽입할 내용</label><textarea id="gdDraft" name="text" rows="6" required placeholder="문서에 추가할 내용">{{ draft_text }}</textarea>{% if not info.sections %}<p class="gd-hint">삽입 가능한 위치가 없습니다.</p>{% endif %}<div class="gd-actions"><button type="submit" {% if not info.sections %}disabled{% endif %}>문서에 삽입</button></div></form></section>
+<section class="gd-section"><h3>텍스트 바꾸기</h3><form method="post" action="/gdocs/replace" class="gd-form" data-confirm="문서 전체에서 일치하는 텍스트를 모두 바꿀까요?"><input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}"><label>찾을 텍스트<input type="text" name="old" required></label><label>바꿀 텍스트<input type="text" name="new"></label><div class="gd-actions"><button type="submit" class="secondary">모두 바꾸기</button></div></form></section>
+{% if writes %}<section class="gd-section"><h3>최근 변경</h3><ul class="gd-history">{% for w in writes %}<li><strong>{{ {'insert':'내용 삽입', 'replace':'텍스트 바꾸기'}.get(w.action, w.action) }}</strong><span>{{ w.chars }}자{% if w.section %} · {{ w.section }}{% endif %}</span><small>{{ w.at[:16] | replace('T', ' ') }} · {{ w.user }}</small></li>{% endfor %}</ul></section>{% endif %}
+</div></aside></div>{% endif %}</div>
 {% endblock %}
