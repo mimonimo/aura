@@ -1,5 +1,14 @@
 # Codex 작업 기록
 
+## C-20260923-78 — 채팅 상단 중복 제거·입력창 높이 축소
+
+진행. 사용자: 상단 새채팅/이력/작업패널 제거, 문서 버튼만 유지. 작업패널은
++메뉴 진입으로 통합. platform-spaces.css 입력창 2행을 1행으로 축소.
+chat_workspace.html/chat-workspace.js/platform-spaces.css 담당. 기록 데이터 변경 없음.
+후속 요청 중앙 드래그 바: chat-documents.js/css 포함. 기본50:50, 최소320px 및
+30~70% 범위, 방향키/Enter/더블클릭 초기화, 탭 내 대화별 비율 보관.
+다른 담당 storage/db/main/pipeline/nas_sync 미커밋 작업 보존·스테이징 제외.
+
 ## C-20260923-77 — 채팅 문서 패널 50:50 및 켜기/끄기
 
 진행: 사용자 명시 요청. chat-documents.js/css만 수정. 패널 표시는 연결 해제와

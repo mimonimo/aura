@@ -3,9 +3,44 @@
  if(!workspace||!opener)return;
  const sid=workspace.dataset.session, main=workspace.parentElement;
  let linked=null, panel=null;
+ const divider=document.createElement('div');
+ divider.className='chat-doc-divider';divider.tabIndex=0;
+ divider.setAttribute('role','separator');divider.setAttribute('aria-orientation','vertical');
+ divider.setAttribute('aria-label','채팅과 문서 너비 조절');
+ divider.setAttribute('aria-controls','chatWorkspace chatDocumentPanel');
+ divider.title='드래그로 너비 조절 · 두 번 클릭하면 반반';
+ let ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||50;
+ function setRatio(value){
+   const available=Math.max(main.clientWidth-8,1), minimum=Math.min(45,Math.max(20,260/available*100));
+   ratio=Math.max(minimum,Math.min(100-minimum,value));
+   main.style.setProperty('--chat-width',ratio+'%');
+   divider.setAttribute('aria-valuemin',String(Math.ceil(minimum)));
+   divider.setAttribute('aria-valuemax',String(Math.floor(100-minimum)));
+   divider.setAttribute('aria-valuenow',String(Math.round(ratio)));
+   divider.setAttribute('aria-valuetext','채팅 '+Math.round(ratio)+'%, 문서 '+Math.round(100-ratio)+'%');
+   sessionStorage.setItem('chatDocRatio:'+sid,String(ratio));
+ }
+ divider.addEventListener('pointerdown',event=>{
+   if(event.button!==0)return;
+   event.preventDefault();divider.focus();divider.setPointerCapture(event.pointerId);
+   main.classList.add('chat-doc-resizing');
+ });
+ divider.addEventListener('pointermove',event=>{
+   if(!divider.hasPointerCapture(event.pointerId))return;
+   const bounds=main.getBoundingClientRect();setRatio((event.clientX-bounds.left-4)/(bounds.width-8)*100);
+ });
+ const stopResize=()=>main.classList.remove('chat-doc-resizing');
+ ['pointerup','pointercancel','lostpointercapture'].forEach(name=>divider.addEventListener(name,stopResize));
+ divider.addEventListener('dblclick',()=>setRatio(50));
+ divider.addEventListener('keydown',event=>{
+   if(!['ArrowLeft','ArrowRight','Home','End','Enter'].includes(event.key))return;
+   event.preventDefault();setRatio(event.key==='Enter'?50:event.key==='Home'?0:event.key==='End'?100:ratio+(event.key==='ArrowLeft'?-2:2));
+ });
+ new ResizeObserver(()=>{if(main.classList.contains('chat-doc-open'))setRatio(ratio);}).observe(main);
  function visibility(visible){
    if(!panel)return;
    panel.hidden=!visible;main.classList.toggle('chat-doc-open',visible);
+   if(!visible)stopResize();
    opener.setAttribute('aria-pressed',String(visible));
    opener.title=visible?'문서 패널 접기':'문서 패널 열기';
    opener.setAttribute('aria-label',opener.title);
@@ -35,6 +70,8 @@
  const createPanel=show;
  show=()=>{
    createPanel();
+   if(!divider.isConnected)main.append(divider);
+   setRatio(ratio);
    panel.id='chatDocumentPanel';opener.setAttribute('aria-controls',panel.id);
    const width=panel.querySelector('input[type=range]');
    if(width){width.closest('label').remove();main.style.setProperty('--document-width','50%');}

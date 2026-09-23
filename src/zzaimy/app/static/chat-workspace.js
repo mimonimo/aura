@@ -60,7 +60,6 @@
     const sources = parsed.getElementById('chatSources');
     if (sources) document.getElementById('chatSources').innerHTML = sources.innerHTML;
     root.dataset.session = next.dataset.session;
-    document.getElementById('chatHistory').hidden = false;
     waiting = next.dataset.waiting === 'true';
     root.dataset.waiting = String(waiting);
     let sessionField = form.querySelector('[name="session_id"]');
@@ -160,7 +159,7 @@
     toolsMenu.hidePopover();
     toolsButton.focus();
     if (button.dataset.chatTool === 'file') file.click();
-    else document.getElementById(button.dataset.chatTool === 'document' ? 'chatDocumentOpen' : 'chatContextOpen').click();
+    else if (button.dataset.chatTool === 'document') document.getElementById('chatDocumentOpen').click();
   }));
   window.addEventListener('resize', () => { if (toolsMenu.matches(':popover-open')) placeTools(); });
   function editQuestion(button) {
@@ -222,7 +221,7 @@
       }
     });
   }
-  document.getElementById('chatHistory').addEventListener('click', async () => {
+  document.getElementById('chatHistory')?.addEventListener('click', async () => {
     if (document.querySelector('.chat-history-dialog')) return;
     const dialog = document.createElement('dialog'); dialog.className = 'chat-history-dialog';
     dialog.setAttribute('aria-labelledby', 'revisionDialogTitle');
