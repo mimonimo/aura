@@ -70,6 +70,16 @@
  const createPanel=show;
  show=()=>{
    createPanel();
+   if(!panel.querySelector('[data-folder]')){
+     const folder=document.createElement('a');folder.dataset.folder='';folder.textContent='폴더 열기 ↗';
+     folder.target='_blank';folder.rel='noopener';folder.hidden=true;
+     panel.querySelector('header').insertBefore(folder,panel.querySelector('header a'));
+     api('/api/chat-documents/'+sid+'/folder').then(data=>{
+       if(data.url&&/^https:\/\/drive\.google\.com\/drive\/folders\/[A-Za-z0-9_-]+$/.test(data.url)){
+         folder.href=data.url;folder.hidden=false;
+       }
+     }).catch(()=>{folder.remove();});
+   }
    if(!divider.isConnected)main.append(divider);
    setRatio(ratio);
    panel.id='chatDocumentPanel';opener.setAttribute('aria-controls',panel.id);
