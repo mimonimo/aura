@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from test_app import FakeDrafter, FakeProcessor, FakeResponder
 from zzaimy.app.main import create_app
+from zzaimy.app.db import Database
 from zzaimy.ingest import gdocs, gdrive
 
 
@@ -203,3 +204,89 @@ def test_insert_drops_lines_already_in_document():
     assert _drop_existing("세부 과제를 둔다.\n1) 산학협력 교육과정을 개발한다.", doc) == "1) 산학협력 교육과정을 개발한다."
     assert _drop_existing("세부 과제를 둔다.", doc) == ""
 
+
+
+def _drive_files_transport(calls: list, folders: dict):
+    """폴더 찾기·만들기, 문서 만들기, 폴더로 옮기기까지 흉내 내는 가짜 드라이브·독스 API."""
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append((req.method, req.url.path, dict(req.url.params)))
+        if req.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "AT", "expires_in": 3600})
+        if req.method == "GET" and req.url.path == "/drive/v3/files":
+            q = req.url.params.get("q", "")
+            name = q.split("'")[1]
+            hit = [{"id": fid, "name": n} for fid, (n, _p) in folders.items() if n == name]
+            return httpx.Response(200, json={"files": hit})
+        if req.method == "POST" and req.url.path == "/drive/v3/files":
+            body = json.loads(req.content); fid = f"f{len(folders) + 1}"
+            folders[fid] = (body["name"], body["parents"][0])
+            return httpx.Response(200, json={"id": fid})
+        if req.method == "POST" and req.url.path == "/v1/documents":
+            return httpx.Response(200, json={"documentId": "newdoc"})
+        if req.url.path.endswith(":batchUpdate"):
+            return httpx.Response(200, json={"documentId": "newdoc", "replies": []})
+        if req.method == "PATCH" and req.url.path == "/drive/v3/files/newdoc":
+            calls.append(("moved", req.url.params.get("addParents"), ""))
+            return httpx.Response(200, json={"id": "newdoc"})
+        if req.url.path == "/v1/documents/newdoc":
+            return httpx.Response(200, json={"documentId": "newdoc", "title": "새 초안", "body": {"content": [
+                {"startIndex": 0, "endIndex": 1, "sectionBreak": {}},
+                {"startIndex": 1, "endIndex": 6, "paragraph": {"paragraphStyle": {"namedStyleType": "TITLE"},
+                                                                "elements": [{"textRun": {"content": "새 초안\n"}}]}}]}})
+        return httpx.Response(404)
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_auto_document_creates_folder_chain_and_binds_session(docs_env, tmp_path, monkeypatch):
+    from zzaimy.ingest import gdrive_files
+
+    t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
+    t["staff@example.ac.kr"]["scopes"] = gdrive.SCOPES
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    calls, folders = [], {}
+    monkeypatch.setattr(gdrive, "_http", lambda: _drive_files_transport(calls, folders))
+    db = Database(tmp_path / "t.db")
+    sid = db.create_chat_session("지역혁신 계획서", owner="zzaimy")
+    made = gdrive_files.auto_document(db, sid, "zzaimy", "지역혁신 계획서", project_name="RISE 2026")
+    assert made["doc"] == "newdoc" and made["url"].endswith("/newdoc/edit")
+    names = [n for n, _p in folders.values()]
+    assert names[0] == "ZZAIMY" and names[2] == "RISE 2026" and len(names) == 3      # ZZAIMY/<연도>/<프로젝트>
+    assert ("moved", made["folder"], "") in calls
+    assert json.loads(db.get_setting(f"chat_google_doc:{sid}"))["doc"] == "newdoc"
+    # 두 번째는 같은 폴더를 다시 만들지 않는다
+    gdrive_files.auto_document(db, sid, "zzaimy", "다른 문서", project_name="RISE 2026")
+    assert len(folders) == 3
+    # 파일 만들기 범위가 없으면 다시 허용을 안내한다
+    t["staff@example.ac.kr"]["scopes"] = [gdrive.SCOPES[0], gdrive.SCOPES[1]]
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    with pytest.raises(PermissionError):
+        gdrive_files.auto_document(db, sid, "zzaimy", "x")
+
+
+def test_drafting_request_without_document_creates_one_and_writes(docs_env, tmp_path, monkeypatch):
+    """새 채팅에서 '초안 써 줘' 만 하면 문서 주소 없이 폴더·문서가 생기고 에이전트가 바로 쓴다."""
+    from zzaimy.app.main import create_app as _create
+
+    t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
+    t["staff@example.ac.kr"]["scopes"] = gdrive.SCOPES
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    calls, folders = [], {}
+    monkeypatch.setattr(gdrive, "_http", lambda: _drive_files_transport(calls, folders))
+    fake = _FakePlanner(json.dumps({"reply": "초안을 넣었습니다.", "ops": [
+        {"op": "insert", "section": 1, "old": "", "text": "1. 추진 배경\n지역 산업 수요가 늘고 있다."}]}, ensure_ascii=False))
+    from zzaimy.generate import client as _gc
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                  processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    r = client.post("/chat/send", data={"question": "지역혁신 사업계획서 초안을 써 줘"}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "드라이브에 문서" in page and "만들어 이 대화에 연결했습니다" in page and "적용됨" in page
+    sid = int(r.headers["location"].rstrip("/").split("/")[-1])
+    assert json.loads(app.state.db.get_setting(f"chat_google_doc:{sid}"))["doc"] == "newdoc"
+    # 질문(초안 요청이 아님)은 문서를 만들지 않고 보통 답변
+    r = client.post("/chat/send", data={"question": "휴학 처리 기준이 뭐야?"}, follow_redirects=False)
+    assert "합성 답변" in client.get(r.headers["location"]).text
+    # 명시적 만들기 경로
+    made = client.post("/api/chat-documents/create", data={"title": "새 문서"})
+    assert made.status_code == 200 and made.json()["doc"] == "newdoc"

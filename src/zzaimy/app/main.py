@@ -729,6 +729,15 @@ def create_app(
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
         scope = ag.search_scope(dept, role, owner)
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
+        if not doc_material and _looks_like_drafting(q):
+            # 문서가 없는데 초안을 써 달라면 드라이브에 프로젝트 폴더·문서를 만들어 잇는다(주소 붙여넣기 없이)
+            made, why = _auto_link_document(session_id, q, owner, project)
+            if made:
+                doc_material = "new"
+            elif why:
+                db.add_chat(session_id, "assistant", why)
+                _chat_sources[session_id] = []
+                return
         if doc_material:
             _edit_linked_doc(session_id, q, owner, data_dir, scope, scope_msg)
             return
@@ -754,6 +763,32 @@ def create_app(
         except Exception:
             pass                    # 근거 기록이 실패해도 답변은 남긴다
         db.add_chat(session_id, "assistant", answer)
+
+    _DRAFT_WORDS = re.compile(r"초안|작성해|작성\s*부탁|써\s*줘|써줘|만들어\s*줘|만들어줘|정리해\s*줘|정리해줘|보고서로|문서로\s*(?:만들|정리|작성)")
+
+    def _looks_like_drafting(q: str) -> bool:
+        """문서를 써 달라는 요청인가 — 질문·검토 요청과 구분한다(일반 낱말 단서, 특정 사례 없음)."""
+        return bool(_DRAFT_WORDS.search(q or ""))
+
+    def _auto_link_document(session_id: int, q: str, owner: str, project: dict | None) -> tuple[bool, str]:
+        """대화에 문서가 없을 때 드라이브 폴더(ZZAIMY/<연도>/<프로젝트|대화>)와 문서를 만들어 잇는다.
+
+        돌려주는 것은 (만들었는가, 못 만들었을 때 담당자에게 보일 안내). 허용 계정이 없으면 안내 없이 일반 답변으로 간다.
+        """
+        from zzaimy.ingest import gdrive, gdrive_files
+
+        if not gdrive.list_accounts():
+            return False, ""
+        session = db.get_chat_session(session_id) or {}
+        title = (session.get("title") or q[:40] or "새 문서").strip()[:60]
+        try:
+            made = gdrive_files.auto_document(db, session_id, owner, title, project_name=(project or {}).get("name"))
+        except PermissionError as e:
+            return False, f"{e} 그 뒤 다시 요청하면 문서를 만들어 바로 씁니다."
+        except Exception as e:
+            return False, f"문서를 만들지 못했습니다({type(e).__name__}). 원천 관리에서 구글 연결 상태를 확인해 주세요."
+        db.add_chat(session_id, "assistant", f"드라이브에 문서 「{title}」 을 만들어 이 대화에 연결했습니다. {made['url']}")
+        return True, ""
 
     def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
         """연결된 구글 독스에 대한 명령 — 근거 조각을 붙여 편집 계획을 받고 적용한 결과를 채팅에 남긴다."""
@@ -2840,6 +2875,29 @@ def create_app(
             return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
         msg = f"{r['count']}곳을 바꿨습니다"
         return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'ok': msg})}", status_code=303)
+
+    @app.post("/api/chat-documents/create")
+    def chat_doc_create(request: Request, session_id: int | None = Form(None), title: str = Form(""),
+                        project_id: int | None = Form(None), account: str = Form("")):
+        """주소 없이 새 구글 독스를 만들어 대화에 잇는다 — 드라이브 ZZAIMY/<연도>/<프로젝트|대화> 폴더 안에."""
+        from zzaimy.app import chat_documents
+        from zzaimy.ingest import gdrive_files
+
+        owner = getattr(request.state, "user", "zzaimy")
+        proj = db.get_project(project_id) if project_id else None
+        if proj and proj.get("owner") != owner:
+            raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
+        if session_id:
+            chat_documents.owned(db, session_id, owner)
+        name = (title or (proj or {}).get("name") or "새 문서").strip()[:60]
+        if not session_id:
+            session_id = db.create_chat_session(name, project_id=project_id, owner=owner)
+        try:
+            made = gdrive_files.auto_document(db, session_id, owner, name, project_name=(proj or {}).get("name"),
+                                              email=account or None)
+        except (PermissionError, ValueError) as e:
+            raise HTTPException(400, str(e))
+        return {"session_id": session_id, **made}
 
     @app.post("/api/chat-documents/{sid}/confirm-mode")
     def chat_doc_confirm_mode(request: Request, sid: int, on: str = Form("")):
