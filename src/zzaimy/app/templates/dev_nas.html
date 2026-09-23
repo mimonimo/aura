@@ -78,16 +78,11 @@
   <p class="gd-next" role="status">{% if not gdrive.configured %}앱 설정을 등록하세요.{% elif not gdrive.accounts %}문서를 가져올 Google 계정을 연결하세요.{% elif not drive_sources %}가져올 Drive 폴더를 연결하세요.{% elif not runs %}연결한 폴더에서 ‘지금 가져오기’를 실행하세요.{% else %}연결 설정이 완료되었습니다. 아래에서 가져오기 결과를 확인하세요.{% endif %}</p>
   <div class="gd-connect-grid">
     <section id="googleApp" class="gd-app-settings">
-    {% if gdrive.configured %}<div class="gd-app-summary"><h3>앱 등록 완료</h3><p>{{ gdrive.client_id_hint }}</p><small>{{ gdrive.set_at }}</small><button type="button" class="secondary" data-app-edit aria-controls="googleAppForm" aria-expanded="false" hidden>설정 변경</button></div>{% endif %}
-    <form id="googleAppForm" data-configured="{{ 'true' if gdrive.configured else 'false' }}" action="/dev/gdrive/client" method="post" class="nas-form" style="margin:0;">
-      <fieldset><legend>앱 설정</legend>
-        <label>클라이언트 ID<input type="text" name="client_id" placeholder="….apps.googleusercontent.com" autocomplete="off" required></label>
-        <label>클라이언트 보안 비밀번호<input type="password" name="client_secret" autocomplete="new-password" required></label>
-        <p class="hint" style="margin:6px 0;">리디렉션 URI<br><code style="user-select:all;">{{ gdrive.redirect_uri }}</code></p>
-        <a href="/dev/doc/notes/2026-09-22-google-drive-source.md">설정 가이드</a>
-        <button type="submit" class="secondary" style="padding:6px 12px; font-size:12.5px;">저장</button>
-      </fieldset>
-    </form>
+    <div class="gd-app-summary"><h3>Google 앱</h3>
+      <p>{{ '등록 완료' if gdrive.configured else '등록 필요' }}</p>
+      {% if gdrive.configured %}<small>{{ gdrive.client_id_hint }}</small>{% endif %}
+      <button type="button" class="secondary" data-app-edit aria-haspopup="dialog" aria-controls="googleAppDialog">{{ '앱 설정' if gdrive.configured else '앱 등록' }}</button>
+    </div>
     </section>
     <div class="nas-form" id="googleAccounts">
       <fieldset><legend>연결 계정</legend>
@@ -101,6 +96,20 @@
   </div>
   {% if storage and storage.available %}<p class="muted" style="font-size:12px; margin:10px 0 0;">문서 저장 공간: 사용 {{ (storage.used_bytes / 1073741824) | round(1) }}GB / 전체 {{ (storage.total_bytes / 1073741824) | round(1) }}GB ({{ storage.used_percent }}%){% if storage.low_space %} · 남은 공간이 적습니다{% endif %}</p>{% endif %}
 </div></div>
+
+<dialog id="googleAppDialog" class="gd-app-dialog" aria-labelledby="googleAppTitle">
+  <header><h2 id="googleAppTitle">Google 앱 설정</h2><button type="button" class="secondary" data-app-close aria-label="앱 설정 닫기">닫기</button></header>
+  <form id="googleAppForm" data-configured="{{ 'true' if gdrive.configured else 'false' }}" action="/dev/gdrive/client" method="post" class="nas-form">
+    <div class="gd-app-fields">
+      {% if gdrive.configured %}<p class="gd-hint">등록된 앱을 변경하려면 새 연결 정보를 입력하세요.</p>{% endif %}
+      <label>클라이언트 ID<input type="text" name="client_id" placeholder="….apps.googleusercontent.com" autocomplete="off" required></label>
+      <label>클라이언트 보안 비밀번호<input type="password" name="client_secret" autocomplete="new-password" required></label>
+      <div class="gd-redirect"><span>리디렉션 URI</span><code>{{ gdrive.redirect_uri }}</code></div>
+      <a href="/dev/doc/notes/2026-09-22-google-drive-source.md" target="_blank" rel="noopener">설정 가이드 ↗</a>
+    </div>
+    <footer><button type="button" class="secondary" data-app-close>취소</button><button type="submit">저장</button></footer>
+  </form>
+</dialog>
 
 <div class="card reveal" id="connectedFolders"><div class="card-in">
   <h2><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>연결한 폴더

@@ -46,4 +46,11 @@ def test_connection_panel_and_disconnect_confirmation(docs_env, tmp_path):
     assert 'aria-label="Google Drive 연결 단계"' in page.text
     assert 'id="googleAppForm" data-configured="true"' in page.text
     assert 'data-app-edit' in page.text
+    assert '<dialog id="googleAppDialog"' in page.text
+    assert 'aria-haspopup="dialog"' in page.text
+    dialog = page.text.split('<dialog id="googleAppDialog"', 1)[1].split('</dialog>', 1)[0]
+    assert 'name="client_secret"' in dialog
+    assert 'name="client_id"' in dialog
+    assert 'data-app-close' in dialog
+    assert 'name="client_secret"' not in page.text.split('<dialog id="googleAppDialog"', 1)[0]
     assert '가져올 Drive 폴더를 연결하세요.' in page.text
