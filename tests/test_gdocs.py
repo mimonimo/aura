@@ -194,3 +194,12 @@ def test_linked_doc_command_is_applied_to_the_document(docs_env, tmp_path, monke
     assert len([c for c in docs_env[1] if c[1].endswith(":batchUpdate")]) == n
     ap = client.post(f"/api/chat-documents/{sid}/apply-pending")
     assert ap.status_code == 200 and len(ap.json()["applied"]) == 2
+
+
+def test_insert_drops_lines_already_in_document():
+    from zzaimy.app.gdocs_agent import _drop_existing
+
+    doc = "1. 추진 배경\n지역 산업 수요가 늘고 있다.\n2. 추진 계획\n세부 과제를 둔다."
+    assert _drop_existing("세부 과제를 둔다.\n1) 산학협력 교육과정을 개발한다.", doc) == "1) 산학협력 교육과정을 개발한다."
+    assert _drop_existing("세부 과제를 둔다.", doc) == ""
+

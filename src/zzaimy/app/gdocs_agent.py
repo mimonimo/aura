@@ -43,6 +43,7 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 - 지시가 문서를 고치라는 것이면 ops 에 넣기(insert: 해당 절의 끝에 새 문단)나 바꾸기(replace: old 를 text 로, old 는 문서에 있는 글 그대로)를 담는다.
 - 지시가 질문이나 검토 요청이면 ops 는 비우고 reply 에만 답한다.
 - 글은 문서의 말투와 격식을 따른다. 수치·금액·날짜는 아래 근거 조각이나 문서에 있는 것만 쓰고 지어내지 않는다.
+- insert 의 text 에는 새 글만 담는다. 문서에 이미 있는 문장을 다시 쓰지 않는다(그 절의 마지막 문장을 따라 적지 않는다).
 - 개인정보(전화·주민번호·계좌)는 쓰지 않는다. reply 는 한두 문장, 무엇을 어느 절에 어떻게 했는지.
 
 [문서 제목] {title}
@@ -81,10 +82,23 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     return {"reply": (data.get("reply") or "").strip(), "ops": ops}
 
 
-def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None) -> list[str]:
+def _drop_existing(text: str, doc_text: str) -> str:
+    """넣을 글에서 문서에 이미 그대로 있는 줄을 뺀다 — 모델이 절의 마지막 문장을 따라 적는 버릇(실측 2026-09-23)."""
+    have = {ln.strip() for ln in (doc_text or "").splitlines() if ln.strip()}
+    kept = [ln for ln in (text or "").splitlines() if ln.strip() and ln.strip() not in have]
+    return "\n".join(kept)
+
+
+def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None,
+          doc_text: str = "") -> list[str]:
     """계획을 문서에 적용하고 한 줄씩 결과를 돌려준다. 한 항목이 실패해도 나머지는 계속한다."""
     lines: list[str] = []
     for o in ops:
+        if o["op"] == "insert" and doc_text:
+            o = dict(o, text=_drop_existing(o["text"], doc_text))
+            if not o["text"].strip():
+                lines.append("문서에 이미 있는 글이라 넣지 않음")
+                continue
         try:
             if o["op"] == "insert":
                 r = gdocs.insert_into_section(account, doc, int(o["section"]), o["text"], user=user,
@@ -125,7 +139,8 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         db.set_setting(f"chat_google_doc_pending:{session_id}", json.dumps(p["ops"], ensure_ascii=False))
         return (p["reply"] + "\n\n확인 후 적용이 켜져 있어 아직 문서에 쓰지 않았습니다. 아래 계획을 확인하고 적용을 누르세요.\n"
                 + describe(p["ops"], info)), p["ops"]
-    lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http)
+    lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http,
+                  doc_text=info["text"])
     return (p["reply"] + "\n\n적용됨:\n" + "\n".join(f"- {ln}" for ln in lines)), p["ops"]
 
 
