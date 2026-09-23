@@ -168,8 +168,108 @@ def replace_text(email: str, doc: str, old: str, new: str, *, user: str, data_di
     return {"ok": True, "count": n}
 
 
-def embed_url(doc: str) -> str:
-    return f"https://docs.google.com/document/d/{doc_id(doc)}/edit?rm=minimal"
+def embed_url(doc: str, toolbar: bool = False) -> str:
+    """편집기 주소 — 기본은 최소 모드(도구 모음 숨김). toolbar=True 면 구글 독스의 서식 도구 모음이 보인다."""
+    base = f"https://docs.google.com/document/d/{doc_id(doc)}/edit"
+    return base if toolbar else base + "?rm=minimal"
+
+
+STYLES = {"TITLE", "HEADING_1", "HEADING_2", "HEADING_3", "NORMAL_TEXT"}
+
+
+def _section_heading_range(info: dict, section_index: int) -> tuple[int, int] | None:
+    sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
+    if not sec or sec["level"] == 0 and sec["heading"] == "(앞머리)":
+        return None
+    return int(sec["start"]), int(sec["start"]) + len(sec["heading"]) + 1
+
+
+def set_section_style(email: str, doc: str, section_index: int, style: str, *, user: str, data_dir: Path,
+                      http=None) -> dict:
+    """절 제목의 문단 서식(제목 단계)을 바꾼다."""
+    http = http or _http()
+    style = (style or "").upper()
+    if style not in STYLES:
+        raise ValueError("서식은 TITLE·HEADING_1·HEADING_2·HEADING_3·NORMAL_TEXT 중 하나여야 합니다")
+    info = get(email, doc, http)
+    rng = _section_heading_range(info, section_index)
+    if not rng:
+        raise ValueError("절을 다시 골라 주세요")
+    _batch(email, doc, [{"updateParagraphStyle": {"range": {"startIndex": rng[0], "endIndex": rng[1]},
+                                                  "paragraphStyle": {"namedStyleType": style}, "fields": "namedStyleType"}}], http)
+    _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "style", "section": info["sections"][0]["heading"] if False else next(s["heading"] for s in info["sections"] if s["index"] == int(section_index)), "style": style})
+    return {"ok": True, "style": style}
+
+
+def emphasize(email: str, doc: str, phrase: str, *, user: str, data_dir: Path, bold: bool = True, http=None) -> dict:
+    """문서 안의 글귀를 굵게(또는 해제) — 첫 등장 위치부터 모두."""
+    http = http or _http()
+    phrase = (phrase or "").strip()
+    if not phrase:
+        raise ValueError("굵게 할 글귀를 적어 주세요")
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http))
+    _raise(r)
+    body = r.json().get("body", {}).get("content", [])
+    reqs = []
+    for el in body:
+        p = el.get("paragraph")
+        if not p:
+            continue
+        offset = int(el.get("startIndex", 0))
+        for e in p.get("elements", []):
+            tr = e.get("textRun")
+            if not tr:
+                continue
+            text = tr.get("content", "")
+            start = int(e.get("startIndex", offset))
+            offset = start + len(text)
+            pos = text.find(phrase)
+            while pos >= 0:
+                a = start + pos
+                reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": a + len(phrase)},
+                                                 "textStyle": {"bold": bool(bold)}, "fields": "bold"}})
+                pos = text.find(phrase, pos + len(phrase))
+    if not reqs:
+        return {"ok": True, "count": 0}
+    _batch(email, doc, reqs, http)
+    _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "bold" if bold else "unbold", "chars": len(phrase), "count": len(reqs)})
+    return {"ok": True, "count": len(reqs)}
+
+
+def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]], *, user: str, data_dir: Path,
+                 scrub=None, http=None) -> dict:
+    """절 끝에 표를 넣고 셀을 채운다. 셀은 뒤에서부터 채워 앞 인덱스가 밀리지 않게 한다."""
+    http = http or _http()
+    rows = [[scrub(str(c)) if scrub else str(c) for c in r] for r in rows if r]
+    if not rows:
+        raise ValueError("표 내용이 없습니다")
+    n_cols = max(len(r) for r in rows)
+    info = get(email, doc, http)
+    sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
+    if sec is None:
+        raise ValueError("절을 다시 골라 주세요")
+    at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
+    _batch(email, doc, [{"insertTable": {"location": {"index": at}, "rows": len(rows), "columns": n_cols}}], http)
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http))
+    _raise(r)
+    body = r.json().get("body", {}).get("content", [])
+    table = next((el["table"] for el in body if el.get("table") and int(el.get("startIndex", -1)) >= at), None)
+    if not table:
+        raise RuntimeError("표를 넣었지만 자리를 찾지 못했습니다")
+    fills = []
+    for ri, row in enumerate(table.get("tableRows", [])):
+        for ci, cell in enumerate(row.get("tableCells", [])):
+            text = rows[ri][ci] if ri < len(rows) and ci < len(rows[ri]) else ""
+            if text:
+                idx = int(cell["content"][0]["startIndex"]) if cell.get("content") else None
+                if idx is not None:
+                    fills.append((idx, text))
+    reqs = [{"insertText": {"location": {"index": idx}, "text": text}} for idx, text in sorted(fills, reverse=True)]
+    if reqs:
+        _batch(email, doc, reqs, http)
+    _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "table", "section": sec["heading"],
+                      "rows": len(rows), "cols": n_cols})
+    return {"ok": True, "rows": len(rows), "cols": n_cols, "section": sec["heading"]}
 
 
 def data_dir_default() -> Path:

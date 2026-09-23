@@ -26,10 +26,10 @@ PLAN_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["insert", "replace"]},
-                    "section": {"type": "integer", "description": "insert 일 때 글을 넣을 절 번호"},
-                    "old": {"type": "string", "description": "replace 일 때 문서에 있는 그대로의 글"},
-                    "text": {"type": "string", "description": "넣을 글 또는 바꿀 새 글"},
+                    "op": {"type": "string", "enum": ["insert", "replace", "style", "bold", "table"]},
+                    "section": {"type": "integer", "description": "insert·style·table 일 때 대상 절 번호"},
+                    "old": {"type": "string", "description": "replace 일 때 문서에 있는 그대로의 글, bold 일 때 굵게 할 글귀"},
+                    "text": {"type": "string", "description": "insert·replace 의 글. style 이면 TITLE|HEADING_1|HEADING_2|HEADING_3|NORMAL_TEXT. table 이면 행을 줄바꿈, 칸을 ' | ' 로 나눈 글"},
                 },
                 "required": ["op", "section", "old", "text"],
             },
@@ -41,6 +41,8 @@ PLAN_SCHEMA = {
 _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. 담당자가 구글 독스 문서를 열어 두고 채팅으로 지시한다.
 지시를 읽고 문서를 어떻게 고칠지 편집 계획을 JSON 으로 낸다. 규칙:
 - 지시가 문서를 고치라는 것이면 ops 에 넣기(insert: 해당 절의 끝에 새 문단)나 바꾸기(replace: old 를 text 로, old 는 문서에 있는 글 그대로)를 담는다.
+- 서식 지시는 style(절 제목의 단계: TITLE·HEADING_1·HEADING_2·HEADING_3·NORMAL_TEXT), bold(old 에 적은 글귀를 굵게), table(section 절 끝에 표 —
+  text 는 행마다 줄바꿈, 칸은 ' | ' 로) 로 낸다.
 - 지시가 질문이나 검토 요청이면 ops 는 비우고 reply 에만 답한다.
 - 글은 문서의 말투와 격식을 따른다. 수치·금액·날짜는 아래 근거 조각이나 문서에 있는 것만 쓰고 지어내지 않는다.
 - insert 의 text 에는 새 글만 담는다. 문서에 이미 있는 문장을 다시 쓰지 않는다(그 절의 마지막 문장을 따라 적지 않는다).
@@ -78,7 +80,8 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     raw = (resp.choices[0].message.content or "").strip()
     raw = raw.strip("`").removeprefix("json").strip() if raw.startswith("`") else raw
     data = json.loads(raw)
-    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace") and (o.get("text") or "").strip()]
+    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table")
+           and ((o.get("text") or "").strip() or o.get("op") == "bold")]
     return {"reply": (data.get("reply") or "").strip(), "ops": ops}
 
 
@@ -104,13 +107,23 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                 r = gdocs.insert_into_section(account, doc, int(o["section"]), o["text"], user=user,
                                               data_dir=data_dir, scrub=scrub, http=http)
                 lines.append(f"「{r['section']}」 아래에 {r['chars']}자 추가")
-            else:
+            elif o["op"] == "replace":
                 if not (o.get("old") or "").strip():
                     lines.append("바꿀 글이 비어 있어 건너뜀")
                     continue
                 r = gdocs.replace_text(account, doc, o["old"], o["text"], user=user, data_dir=data_dir,
                                        scrub=scrub, http=http)
                 lines.append(f"「{o['old'][:30]}」 → 「{o['text'][:30]}」 {r['count']}곳")
+            elif o["op"] == "style":
+                r = gdocs.set_section_style(account, doc, int(o["section"]), o["text"], user=user, data_dir=data_dir, http=http)
+                lines.append(f"절 {o['section']} 제목 서식 → {r['style']}")
+            elif o["op"] == "bold":
+                r = gdocs.emphasize(account, doc, o.get("old") or o.get("text") or "", user=user, data_dir=data_dir, http=http)
+                lines.append(f"「{(o.get('old') or o.get('text') or '')[:30]}」 굵게 {r['count']}곳")
+            elif o["op"] == "table":
+                rows = [[c.strip() for c in ln.split("|")] for ln in (o.get("text") or "").splitlines() if ln.strip()]
+                r = gdocs.insert_table(account, doc, int(o["section"]), rows, user=user, data_dir=data_dir, scrub=scrub, http=http)
+                lines.append(f"「{r['section']}」 아래에 표 {r['rows']}×{r['cols']}")
         except Exception as e:      # 계정·문서 상태 문제 — 무엇이 안 됐는지 채팅에 남긴다
             lines.append(f"적용 실패({type(e).__name__}): {str(e)[:80]}")
     return lines
@@ -123,8 +136,10 @@ def describe(ops: list[dict], info: dict) -> str:
     for i, o in enumerate(ops, 1):
         if o["op"] == "insert":
             out.append(f"{i}) 「{heads.get(int(o['section']), o['section'])}」 아래에 추가:\n{o['text']}")
-        else:
+        elif o["op"] == "replace":
             out.append(f"{i}) 바꾸기: 「{o.get('old', '')[:60]}」 → 「{o['text'][:60]}」")
+        else:
+            out.append(f"{i}) 서식({o['op']}): 절 {o.get('section')} · {o.get('old') or ''} {o.get('text') or ''}"[:120])
     return "\n".join(out)
 
 

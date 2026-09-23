@@ -80,6 +80,7 @@ def current(request: Request, sid: int):
         return {'connected':False}
     info = read_document(link['account'], link['doc'])
     return {'connected':True, **link, 'title':info['title'], 'embed_url':gdocs.embed_url(link['doc']),
+            'embed_url_toolbar':gdocs.embed_url(link['doc'], toolbar=True),
             'sections':[{'index':s['index'],'heading':s['heading']} for s in info['sections']]}
 
 
@@ -106,6 +107,25 @@ def document_folder(request: Request, sid: int):
     if not parents or not isinstance(parents[0], str) or not re.fullmatch(r'[A-Za-z0-9_-]+', parents[0]):
         return {'url': None}
     return {'url': f'https://drive.google.com/drive/folders/{parents[0]}'}
+
+
+@router.get('/api/chat-documents/{sid}/files')
+def document_files(request: Request, sid: int):
+    db, owner = identity(request)
+    link = binding(db, sid, owner)
+    if not link:
+        return {'files': [], 'folder_url': None}
+    folder = document_folder(request, sid)['url']
+    if not folder:
+        return {'files': [], 'folder_url': None}
+    try:
+        backend = gdrive.GDriveBackend(folder, link['account'])
+        files = backend._children(backend.folder)
+    except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as exc:
+        raise HTTPException(400, '폴더의 파일 목록을 불러오지 못했습니다.') from exc
+    return {'folder_url': folder, 'account': link['account'], 'files': [
+        {'id': f['id'], 'name': f.get('name', '문서'), 'mime_type': f.get('mimeType', '')}
+        for f in files if re.fullmatch(r'[A-Za-z0-9_-]+', f.get('id', ''))]}
 
 
 @router.post('/api/chat-documents/{sid}/insert')
