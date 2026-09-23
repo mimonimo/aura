@@ -108,3 +108,25 @@ def test_work_page_ask_insert_replace(docs_env, tmp_path):
     bad = client.post("/gdocs/insert", data={"doc": "docA", "account": "staff@example.ac.kr", "section": "3", "text": ""}, follow_redirects=False)
     assert "err=" in bad.headers["location"]
     assert len(gdocs.recent_writes(tmp_path)) == 2
+
+
+def test_chat_answer_reads_linked_google_doc_and_reports_read_failure(docs_env, tmp_path, monkeypatch):
+    """대화에 연결된 구글 독스는 답변 재료로 붙고(C-73 연결), 못 읽으면 읽은 척하지 않는다."""
+    import json as _json
+
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                     processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    db = app.state.db
+    sid = db.create_chat_session("문서 대화", owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", _json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    r = client.post("/chat/send", data={"question": "추진 배경 보강", "session_id": str(sid)}, follow_redirects=False)
+    assert r.status_code == 303
+    page = client.get(r.headers["location"]).text
+    assert "연결된 Google Docs: 2026 사업계획서" in page and "지역 산업 수요가 늘고 있다" in page
+    # 읽기 실패 — 문서 주소가 없는 것으로 바꾸면 답변 대신 실패 안내
+    db.set_setting(f"chat_google_doc:{sid}", _json.dumps({"doc": "missing", "account": "staff@example.ac.kr"}))
+    r = client.post("/chat/send", data={"question": "다시", "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "연결된 구글 문서를 읽지 못했습니다" in page
+    assert client.get("/api/chat-documents/accounts").status_code == 200

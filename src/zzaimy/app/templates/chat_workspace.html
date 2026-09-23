@@ -2,6 +2,8 @@
 {% block title %}에이전트 채팅 — YNC 행정 에이전트{% endblock %}
 {% block pagetitle %}에이전트 채팅{% endblock %}
 {% block head %}
+  <link rel="stylesheet" href="/static/chat-documents.css">
+  <script src="/static/chat-documents.js" defer></script>
   <style>
     main { display: flex; flex-direction: row; height: calc(100vh - 63px);
            overflow: hidden; max-width: none; width: 100%; margin: 0; padding: 0; }
@@ -143,6 +145,7 @@
 
 <div class="chat-main" id="chatWorkspace" data-session="{{ session_id or '' }}" data-waiting="{{ 'true' if waiting else 'false' }}">
 <header class="chat-workspace-head">
+  <button type="button" class="secondary" id="chatDocumentOpen" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/connections' }}">Google Docs</button>
   <div class="chat-heading">
     <span class="chat-eyebrow">{{ sector_labels.get(chat_project.sector, '행정 업무') ~ ' · 프로젝트' if chat_project else ('업무 상담' if messages else '새 대화') }}</span>
     {% set conversation_title = chat_project.name if chat_project else (chat_session.title if chat_session else '근거를 찾고, 문서를 다듬으세요') %}

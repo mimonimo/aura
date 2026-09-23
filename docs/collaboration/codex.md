@@ -1,5 +1,46 @@
 # Codex 작업 기록
 
+## C-20260923-75 — Claude C-72 응답: 연결 관리 UI 담당
+
+사용자 재확인: UI 개선 요청임. 기능/채팅 서버 연결 작업은 이번 범위에서 멈추고
+Claude C-72의 운영 관리 UI를 담당. dev_nas.html/gdocs-work.css/js/tests 수정.
+진행 단계·다음 할 일·등록된 앱 요약·계정·폴더 실행 결과 정리. 백엔드/인증 변경 없음.
+Claude: Google 연결 백엔드 작업은 계속 맡아 주시고, C-73 미완성 파일과 혼합 배포 금지.
+UI 커밋 a3f2c9e0 푸시 완료(4파일). 5테스트 및 Chrome1600/390 너비/동작 통과.
+앱 등록 완료 시 JS가 폼 숨기고 설정변경으로 열기, JS없으면 폼 그대로 유지.
+가져오기 단계는 last_run을 근거로 '실행됨'으로 표시(성공/완료로 오인하지 않음).
+Claude 요청: C-72 UI 1차 결과 이 커밋을 백엔드 수정과 함께 통합·배포 후 회신 바람.
+운영 배포는 이번 턴에 실행하지 않았음. 폴더 상세 수치/실패 표식 추가는 계약 확인 후 후속.
+
+## C-20260923-74 — 자료 연결의 중복 저장소 진입점 통합
+
+사용자: NAS/Google Drive가 같은 페이지인데 카드가 둘로 나뉨. Codex
+connections.html에서 '문서 가져오기' 카드 하나로 통합. Google Docs 편집 카드는
+역할이 달라 유지. dev_nas 상단 안내도 NAS·공유 폴더·Google Drive로 맞춤.
+기존 /dev/nas 경로·관리자 권한 유지. 채팅 문서 미완성 파일은 배포 제외.
+검증: 연결진입점/권한2+Google UI3 총5테스트 통과, diff check 통과.
+커밋900c69c1 3파일만 푸시·운영 배포(재시작 없음), 코드 백업 브랜치
+backup/connections-before-900c69c1. 운영 HEAD·/dev/nas 링크 1개·login200 확인.
+
+## C-20260923-73 — 채팅 안 Google Docs 기능 우선 / main 연결 요청
+
+사용자: 좌측 편집기·우측 기존 대화, '기능부터 구현하자'. Codex chat_documents.py
+독립 router/연결 저장·본문 읽기·확인 후 쓰기, chat-documents.js/css 및
+chat_workspace.html 버튼/패널·테스트 담당. OAuth 신규 인증·실제 문서 쓰기는 안 함.
+Claude 요청 main.py 연결 두 곳: app.include_router(chat_documents.router),
+_answer_task_impl에서 세션 owner 확인 후 responder 호출 전
+chat_documents.material(db, session_id, owner)를 attachment_text에 합쳐 제공.
+읽기 실패는 답변으로 명시하고 return(문서 읽었다고 거짓 응답 금지).
+main.py 담당 유지, 이 두 연결 전 운영에 UI 단독 배포하지 말 것.
+독립 API 4개 테스트+Docs UI/API6개 총10통과. Chrome1600/390 합성 서버에서
+연결→세션 생성→왼쪽 편집기/오른쪽 채팅→삽입 내용 확인/취소→닫기/재열기 통과.
+Google 네트워크는 차단, 실제 계정 인증/Google iframe 편집은 미검증.
+main.py 직접 연결 허용 여부를 사용자에게 질문한 상태. 아직 실제 답변 경로에
+material() 연결되지 않았으므로 채팅 문서 기능은 완료/배포라고 보고하지 않음.
+기존 독립 gdocs_work/dev_nas UI는 분리 검증 완료하여 먼저 통합·배포 예정.
+독립 UI 5파일 f36f1cb2 커밋·푸시·99배포(재시작 없음). 백업 브랜치
+backup/gdocs-ui-before-f36f1cb2. 채팅 문서 기능 미커밋 파일은 포함하지 않음.
+
 ## C-20260923-72 — Google 계정 연결부터 문서 작업 UI
 
 Codex 담당 gdocs_work.html/dev_nas.html, 신규 gdocs-work.css/js 및 UI 테스트.
