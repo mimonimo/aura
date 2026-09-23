@@ -79,6 +79,20 @@
    visibility(true);
  };
  opener.setAttribute('aria-pressed','false');
- opener.onclick=()=>{if(linked){if(panel&&!panel.hidden)visibility(false);else show();}else connect();};
- if(sid)api('/api/chat-documents/'+sid).then(data=>{if(data.connected){linked=data;opener.title='문서 패널 열기';opener.setAttribute('aria-label',opener.title);if(sessionStorage.getItem('chatDocHidden:'+sid)!=='1')show();}}).catch(error=>{opener.title=error.message;});
+ let loadError='';
+ function showEmpty(){
+   if(!panel){
+     panel=document.createElement('section');panel.className='chat-doc-editor';panel.id='chatDocumentPanel';
+     panel.setAttribute('aria-label','대화 문서');
+     panel.innerHTML='<header><strong>문서</strong><button type="button" class="secondary" data-close>닫기</button></header><div class="chat-doc-empty"><p role="status"></p><button type="button" class="secondary" data-connect>기존 문서 연결</button></div>';
+     panel.querySelector('[role=status]').textContent=loadError||'이 대화에 연결된 문서가 없습니다.';
+     panel.querySelector('[data-close]').onclick=()=>{visibility(false);opener.focus();};
+     panel.querySelector('[data-connect]').onclick=connect;
+     main.append(panel);if(!divider.isConnected)main.append(divider);
+     opener.setAttribute('aria-controls',panel.id);setRatio(ratio);
+   }
+   visibility(true);
+ }
+ const initialized=sid?api('/api/chat-documents/'+sid).then(data=>{if(data.connected){linked=data;opener.title='문서 패널 열기';opener.setAttribute('aria-label',opener.title);if(sessionStorage.getItem('chatDocHidden:'+sid)!=='1')show();}}).catch(error=>{loadError=error.message;}):Promise.resolve();
+ opener.onclick=async()=>{await initialized;if(panel&&!panel.hidden)visibility(false);else if(linked)show();else showEmpty();};
 })();
