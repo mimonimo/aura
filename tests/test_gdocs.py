@@ -279,9 +279,9 @@ def test_drafting_request_without_document_creates_one_and_writes(docs_env, tmp_
     app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
                   processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
     client = TestClient(app)
-    r = client.post("/chat/send", data={"question": "지역혁신 사업계획서 초안을 써 줘"}, follow_redirects=False)
+    r = client.post("/chat/send", data={"question": "2027년 지역혁신 사업계획서 초안을 써 줘. 절은 셋으로."}, follow_redirects=False)
     page = client.get(r.headers["location"]).text
-    assert "드라이브에 문서" in page and "만들어 이 대화에 연결했습니다" in page and "적용됨" in page
+    assert "드라이브에 문서 「2027년 지역혁신 사업계획서」" in page and "만들어 이 대화에 연결했습니다" in page and "적용됨" in page
     sid = int(r.headers["location"].rstrip("/").split("/")[-1])
     assert json.loads(app.state.db.get_setting(f"chat_google_doc:{sid}"))["doc"] == "newdoc"
     # 질문(초안 요청이 아님)은 문서를 만들지 않고 보통 답변

@@ -770,6 +770,17 @@ def create_app(
         """문서를 써 달라는 요청인가 — 질문·검토 요청과 구분한다(일반 낱말 단서, 특정 사례 없음)."""
         return bool(_DRAFT_WORDS.search(q or ""))
 
+    _TITLE_CUT = re.compile(r"\s*(?:의\s*)?(?:초안|작성|써\s*줘|써줘|만들어|정리해|보고서로|문서로)")
+
+    def _draft_title(q: str) -> str:
+        """지시문에서 문서 제목을 추린다 — '2027년 사업계획서 초안을 써 줘. 절은…' → '2027년 사업계획서'."""
+        head = (q or "").strip().splitlines()[0] if (q or "").strip() else ""
+        m = _TITLE_CUT.search(head)
+        cand = head[:m.start()] if m else head
+        cand = re.sub(r"[\s,.:;·]+$", "", cand)
+        cand = re.sub(r"(을|를|은|는|의|로|으로)$", "", cand).strip()
+        return (cand or head or "새 문서")[:60]
+
     def _auto_link_document(session_id: int, q: str, owner: str, project: dict | None) -> tuple[bool, str]:
         """대화에 문서가 없을 때 드라이브 폴더(ZZAIMY/<연도>/<프로젝트|대화>)와 문서를 만들어 잇는다.
 
@@ -779,8 +790,7 @@ def create_app(
 
         if not gdrive.list_accounts():
             return False, ""
-        session = db.get_chat_session(session_id) or {}
-        title = (session.get("title") or q[:40] or "새 문서").strip()[:60]
+        title = _draft_title(q)
         try:
             made = gdrive_files.auto_document(db, session_id, owner, title, project_name=(project or {}).get("name"))
         except PermissionError as e:
