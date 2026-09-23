@@ -290,3 +290,43 @@ def test_drafting_request_without_document_creates_one_and_writes(docs_env, tmp_
     # 명시적 만들기 경로
     made = client.post("/api/chat-documents/create", data={"title": "새 문서"})
     assert made.status_code == 200 and made.json()["doc"] == "newdoc"
+
+
+def test_formatting_ops_style_bold_and_table(docs_env, tmp_path, monkeypatch):
+    """서식: 절 제목 단계, 글귀 굵게, 절 끝에 표(셀은 뒤에서부터 채움)."""
+    calls: list = []
+    state = {"table": False}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append((req.method, req.url.path, req.content.decode() if req.content else ""))
+        if req.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "AT", "expires_in": 3600})
+        if req.url.path == "/v1/documents/docA" and req.method == "GET":
+            if not state["table"]:
+                return httpx.Response(200, json=DOC)
+            doc = json.loads(json.dumps(DOC))
+            doc["body"]["content"].append({"startIndex": 36, "endIndex": 60, "table": {"tableRows": [
+                {"tableCells": [{"content": [{"startIndex": 38}]}, {"content": [{"startIndex": 41}]}]},
+                {"tableCells": [{"content": [{"startIndex": 45}]}, {"content": [{"startIndex": 48}]}]}]}})
+            return httpx.Response(200, json=doc)
+        if req.url.path == "/v1/documents/docA:batchUpdate":
+            body = json.loads(req.content)
+            if any("insertTable" in r for r in body["requests"]):
+                state["table"] = True
+            return httpx.Response(200, json={"documentId": "docA", "replies": []})
+        return httpx.Response(404)
+    monkeypatch.setattr(gdrive, "_http", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    st = gdocs.set_section_style("staff@example.ac.kr", "docA", 2, "heading_2", user="k", data_dir=tmp_path)
+    assert st["style"] == "HEADING_2"
+    req = json.loads([c for c in calls if c[1].endswith(":batchUpdate")][-1][2])["requests"][0]["updateParagraphStyle"]
+    assert req["range"] == {"startIndex": 11, "endIndex": 20} and req["paragraphStyle"]["namedStyleType"] == "HEADING_2"
+    b = gdocs.emphasize("staff@example.ac.kr", "docA", "지역 산업", user="k", data_dir=tmp_path)
+    assert b["count"] == 1
+    req = json.loads([c for c in calls if c[1].endswith(":batchUpdate")][-1][2])["requests"][0]["updateTextStyle"]
+    assert req["range"] == {"startIndex": 20, "endIndex": 25} and req["textStyle"]["bold"] is True
+    t = gdocs.insert_table("staff@example.ac.kr", "docA", 2, [["항목", "값"], ["예산", "100"]], user="k", data_dir=tmp_path)
+    assert t["rows"] == 2 and t["cols"] == 2
+    fills = json.loads([c for c in calls if c[1].endswith(":batchUpdate")][-1][2])["requests"]
+    assert [f["insertText"]["location"]["index"] for f in fills] == [48, 45, 41, 38]      # 뒤에서부터
+    assert [a["action"] for a in gdocs.recent_writes(tmp_path, 3)] == ["table", "bold", "style"]
+    assert gdocs.embed_url("docA", toolbar=True).endswith("/docA/edit") and "rm=minimal" in gdocs.embed_url("docA")
