@@ -23,7 +23,9 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 # drive.readonly: 폴더 목록·내려받기(1단계). documents: 문서 작업 화면에서 같은 문서를 읽고 고치기(2단계, ADR-0029).
-SCOPES = ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/documents"]
+# drive.file: 이 앱이 만든 폴더·문서만 만들고 고친다(에이전트가 작업 문서를 자동으로 준비, gdrive_files).
+SCOPES = ["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/documents",
+          "https://www.googleapis.com/auth/drive.file"]
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 API = "https://www.googleapis.com/drive/v3"
