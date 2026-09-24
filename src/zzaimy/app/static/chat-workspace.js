@@ -174,6 +174,7 @@
     box.innerHTML = '<textarea rows="2" required aria-label="수정할 질문"></textarea><p class="chat-edit-explanation">수정하면 답변을 다시 작성합니다. 이후 대화는 수정 이력에 남습니다.</p><div class="chat-edit-attachment"><input type="file" name="attachment" hidden aria-label="교체할 첨부 파일"><span class="chat-edit-filename" role="status"></span></div><div class="chat-edit-actions"><button type="button" class="secondary chat-edit-file"><iconify-icon icon="solar:paperclip-linear"></iconify-icon><span>첨부 변경</span></button><button type="button" class="secondary" data-edit-cancel>취소</button><button type="submit">저장하고 다시 받기</button></div><p role="status" class="chat-edit-status"></p>';
     const area = box.querySelector('textarea');
     area.value = original.startsWith('[첨부') ? original.substring(original.indexOf('\n') + 1) : original;
+    area.defaultValue = area.value;
     const replacement = box.querySelector('[type=file]');
     replacement.accept = file.accept;
     const attachmentButton = box.querySelector('.chat-edit-file');
@@ -296,7 +297,9 @@
   latest.addEventListener('click', bottom);
   scroller.addEventListener('scroll', () => { if (nearBottom()) latest.hidden = true; });
   window.addEventListener('beforeunload', event => {
-    if (input.value.trim() || file.files.length || sending || editor) {
+    const edited = editor && (editor.querySelector('textarea').value !== editor.querySelector('textarea').defaultValue ||
+      editor.querySelector('[type=file]').files.length > 0);
+    if (input.value.trim() || file.files.length || sending || edited) {
       event.preventDefault(); event.returnValue = '';
     }
   });

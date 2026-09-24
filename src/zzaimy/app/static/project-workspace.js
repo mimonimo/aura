@@ -22,10 +22,18 @@
   });
   try { activate(sessionStorage.getItem(key) || 'projectConversations'); } catch (_) {}
   // 탭을 옮겨도 작성 중인 지침과 질문은 DOM에 그대로 남긴다.
-  let leavingBySubmit = false;
-  root.addEventListener('submit', () => { leavingBySubmit = true; });
+  const fields = [...root.querySelectorAll('textarea, input[name=question]:not([type=hidden]), input[type=file]')];
+  const initial = new Map(fields.map(field => [field, field.value]));
+  let submittingForm = null;
+  root.addEventListener('submit', event => {
+    if (event.defaultPrevented) return;
+    submittingForm = event.target;
+    queueMicrotask(() => { if (event.defaultPrevented) submittingForm = null; });
+  });
+  window.addEventListener('pageshow', () => { submittingForm = null; });
   window.addEventListener('beforeunload', event => {
-    if (!leavingBySubmit && [...root.querySelectorAll('textarea, input[name=question]')].some(input => input.value.trim())) {
+    if (fields.some(field => field.isConnected && !field.disabled && field.form !== submittingForm &&
+      (field.type === 'file' ? field.files.length > 0 : field.value !== initial.get(field)))) {
       event.preventDefault(); event.returnValue = '';
     }
   });

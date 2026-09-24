@@ -480,8 +480,9 @@ class Converter:
                 elif n in ("secPr",):
                     self._section(obj)
                     self._just_sectioned = True          # 구역 시작이 이미 새 쪽이다 — 같은 문단의 쪽 나눔은 겹치지 않게
-        if (para is None or not para.text.strip()) and not pending:
-            # 빈 문단(공백만 있는 문단 포함) — 원본의 줄 간격을 지킨다
+        if (para is None or not _para_has_content(para)) and not pending:
+            # 빈 문단(공백만 있는 문단 포함) — 원본의 줄 간격을 지킨다. 그림만 든 문단은 빈 문단이 아니다(실측 2026-09-25: 표지·본문
+            # 그림이 '빈 문단 정리'에 지워져 그림 2장이 사라짐)
             if para is None:
                 para = self._new_para(container, 0)
                 self._apply_para_style(para, p_el)
@@ -872,6 +873,15 @@ def normalize_image(data: bytes) -> bytes:
         return out if len(out) < len(data) or not ok_head else data
     except Exception:
         return data
+
+
+def _para_has_content(para) -> bool:
+    """글이나 그림이 있는 문단인가 — 빈 문단 정리(쪽 나눔·구역 앞)에서 지우면 안 되는 문단."""
+    from docx.oxml.ns import qn
+
+    if para.text.strip():
+        return True
+    return para._p.find(".//" + qn("w:drawing")) is not None
 
 
 def _binary_map(zf: zipfile.ZipFile, names: list[str]) -> dict[str, str]:
