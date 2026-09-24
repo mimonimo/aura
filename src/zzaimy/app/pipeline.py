@@ -186,6 +186,18 @@ _MAGIC = {".pdf": b"%PDF", ".hwpx": b"PK", ".docx": b"PK", ".xlsx": b"PK", ".ppt
           ".hwp": b"\xd0\xcf\x11\xe0", ".zip": b"PK"}
 
 
+_BAD_GLYPHS = re.compile(r"[\ufffe\uffff]+")
+_PUA = re.compile(r"[\ue000-\uf8ff]")
+
+
+def _clean_glyphs(text: str) -> str:
+    """글자층 직독의 잔글자 — 글꼴이 공백을 U+FFFE 로 내는 PDF(실측 2026-09-24 사업계획서 합본), 기호 글꼴의 사설 영역 글리프
+    (\uf09e·\uf0a7 같은 글머리표)를 공백·글머리표로 돌린다. 없으면 검색 낱말이 '사업추진\ufffe' 처럼 깨진다."""
+    text = _BAD_GLYPHS.sub(" ", text)
+    text = _PUA.sub("·", text)
+    return re.sub(r"[ \t]{2,}", " ", text)
+
+
 _SENTENCE_END = re.compile(r"[.。!?」』)\]*]\s*$|(?:다|음|됨|임|함|요|음\.)\s*$")
 
 
@@ -387,7 +399,7 @@ class DocumentProcessor:
             out: list[str] = []
             per_page: list[tuple[int, str]] = []
             for i in range(pages):
-                text = (pdf[i].get_textpage().get_text_range() or "").strip()
+                text = _clean_glyphs(pdf[i].get_textpage().get_text_range() or "").strip()
                 if text:
                     out.append(text)
                     per_page.append((i + 1, text))

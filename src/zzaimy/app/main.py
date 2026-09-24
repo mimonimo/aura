@@ -930,12 +930,18 @@ def create_app(
 
         session_ = db.get_chat_session(session_id) or {}
         pid = int(session_["project_id"]) if session_.get("project_id") else None
+        proj = db.get_project(pid) if pid else None
         doc_ids: list[int] = []
-        if pid:
-            proj = db.get_project(pid)
-            if proj:
-                doc_ids += [d["id"] for d in db.list_documents(proj["sector"], project_id=pid) if d.get("status") == "reviewed"]
+        if proj:
+            doc_ids += [d["id"] for d in db.list_documents(proj["sector"], project_id=pid) if d.get("status") == "reviewed"]
         doc_ids += [int(f["doc_id"]) for f in db.list_files(kind="attachment", session_id=session_id) if f.get("doc_id")]
+        # 명령이 문서를 지목하면("합본의 내용으로") 그 문서만. 아니면 지금 고치는 작업본의 원본 서식은 뺀다(작성방법 상자가 근거로 잡힌다)
+        named = _project_doc_named(proj, session_id, q)
+        if named is not None and named["id"] in doc_ids:
+            doc_ids = [named["id"]]
+        else:
+            sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
+            doc_ids = [d for d in doc_ids if d not in sources]
         if not doc_ids:
             return []
         q_nouns = extract_nouns(q)
