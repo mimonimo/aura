@@ -27,7 +27,7 @@
  divider.setAttribute('aria-controls','chatWorkspace chatDocumentPanel');
  divider.title='드래그로 너비 조절 · 두 번 클릭하면 반반';
  let ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||50;
- function setRatio(value){
+ function setRatio(value,persist=true){
    const available=Math.max(main.clientWidth-8,1), minimum=Math.min(45,Math.max(20,260/available*100));
    ratio=Math.max(minimum,Math.min(100-minimum,value));
    main.style.setProperty('--chat-width',ratio+'%');
@@ -35,7 +35,7 @@
    divider.setAttribute('aria-valuemax',String(Math.floor(100-minimum)));
    divider.setAttribute('aria-valuenow',String(Math.round(ratio)));
    divider.setAttribute('aria-valuetext','채팅 '+Math.round(ratio)+'%, 문서 '+Math.round(100-ratio)+'%');
-   sessionStorage.setItem('chatDocRatio:'+sid,String(ratio));
+   if(persist)sessionStorage.setItem('chatDocRatio:'+sid,String(ratio));
  }
  divider.addEventListener('pointerdown',event=>{
    if(event.button!==0)return;
@@ -61,7 +61,8 @@
    main.classList.remove('chat-doc-closing');
    panel.hidden=false;panel.classList.add('chat-doc-entering');
    main.style.setProperty('--chat-width','100%');main.classList.add('chat-doc-open');
-   requestAnimationFrame(()=>requestAnimationFrame(()=>{panel.classList.remove('chat-doc-entering');setRatio(ratio);}));
+   const saved=Number(sessionStorage.getItem('chatDocRatio:'+sid));
+   requestAnimationFrame(()=>requestAnimationFrame(()=>{panel.classList.remove('chat-doc-entering');setRatio(saved||50,false);}));
  }
  function conceal(){
    // 닫기: 문서 폭을 0으로 미끄러뜨린 뒤 숨긴다
@@ -96,8 +97,8 @@
  if(!d.isConnected)return;submit.disabled=!linked.sections.length;f.dataset.ready='true';
  let confirmed=false;f.addEventListener('input',()=>{confirmed=false;fields.querySelector('[data-confirmation]').hidden=true;submit.textContent='내용 확인';});
  f.onsubmit=async e=>{e.preventDefault();if(!confirmed){confirmed=true;const p=fields.querySelector('[data-confirmation]');p.textContent='「'+f.elements.section.selectedOptions[0].textContent+'」 아래에 '+f.elements.text.value.length+'자를 삽입합니다.';p.hidden=false;submit.textContent='삽입 확정';return;}submit.disabled=true;status.textContent='삽입 중…';const body=new FormData(f);body.set('confirmed','true');try{await api('/api/chat-documents/'+sid+'/insert',{method:'POST',body});status.textContent='삽입했습니다. 문서에서 확인하세요.';submit.hidden=true;f.querySelector('[data-cancel]').textContent='닫기';f.querySelectorAll('input,select,textarea').forEach(el=>el.disabled=true);}catch(error){status.textContent=error.message;submit.disabled=false;confirmed=false;submit.textContent='내용 확인';}};}
- function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label>문서 폭<input type="range" min="40" max="70" value="60" aria-label="문서 영역 너비"></label><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 서식 도구</label><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
- panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=e=>{panel.querySelector('iframe').src=e.target.checked?(linked.embed_url_toolbar||linked.embed_url):linked.embed_url;};panel.querySelector('input').oninput=e=>main.style.setProperty('--document-width',e.target.value+'%');panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
+ function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 서식 도구</label><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
+ panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=e=>{panel.querySelector('iframe').src=e.target.checked?(linked.embed_url_toolbar||linked.embed_url):linked.embed_url;};panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
  panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;opener.title='문서 열기';opener.setAttribute('aria-label',opener.title);opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
  const createPanel=show;
  function arrangeHeader(){
@@ -166,7 +167,7 @@
    visibility(true);
  }
  async function showFiles(){
-   clearPanel();showEmpty();setRatio(70);
+   clearPanel();showEmpty();setRatio(70,false);
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
    const status=document.createElement('p');status.setAttribute('role','status');status.textContent='파일을 불러오는 중…';body.append(status);
    try{
