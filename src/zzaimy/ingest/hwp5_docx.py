@@ -27,6 +27,7 @@ except Exception:  # pragma: no cover
 from zzaimy.ingest.hwpx_docx import BorderFill, CharStyle, Converter, ParaStyle, Styles
 
 _HEADING_NAME = re.compile(r"개요\s*(\d)|outline\s*(\d)|제목|title|heading", re.I)
+_PUA = re.compile(r"[\ue000-\uf8ff]")
 
 
 def _hwp5proc() -> Path | None:
@@ -185,12 +186,13 @@ def _translate_paragraph(p_el: ET.Element) -> ET.Element:
             elif tag == "Text":
                 char_id = node.get("charshape-id") or last_char
                 last_char = char_id
+                text = _PUA.sub("·", node.text or "")           # 기호 글꼴의 사설 영역 글리프(AI\ue907DX 의 가운뎃점)는 '·' 로
                 if run is None or run.get("charPrIDRef") != char_id or cur_t is None:
                     r = new_run(char_id)
                     cur_t = ET.SubElement(r, "t")
-                    cur_t.text = node.text or ""
+                    cur_t.text = text
                 else:
-                    _append_text(cur_t, node.text or "")
+                    _append_text(cur_t, text)
             elif tag == "ControlChar":
                 name = node.get("name") or ""
                 if name == "LINE_BREAK":
