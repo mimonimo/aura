@@ -49,7 +49,8 @@ ADR-0027~0032, 작업 규율은 `docs/context/working-notes.md`(2026-09-24 절)�
 `gdocs.outline`) 편집 계획(insert·replace·style·bold·table·rename·move)을 세워 적용한다.
 
 - 근거: 기준 조각(`find_relevant`) + 프로젝트 접수 문서 조각(`_project_evidence`, 지목한 문서만·작업본의 원본 서식은 제외).
-  합본·지난 계획서의 그림 쪽은 글이 없으므로 요청 시 판독해 조각을 더한다(`read_image_pages`, 12쪽씩).
+  합본·지난 계획서의 그림 쪽은 글이 없으므로 요청 시 판독해 조각을 더한다(`read_image_pages`, 12쪽씩. 긴 판독은
+  `scripts/143_read_image_pages.py` 로 서비스 밖에서).
 - 넣는 자리: 절이 작성방법 상자(표)로 끝나면 표 뒤에 본문 모양으로.
 - 가림: 주민번호·계좌·사업자번호만(`scrub_for_writing`). 기관·담당자 이름·업무 연락처는 남긴다. 모르는 값은 ○○○·빈칸.
 - 이름 바꾸기·옮기기는 담당자가 말했을 때만. 질문에는 문서를 만들지 않는다.
