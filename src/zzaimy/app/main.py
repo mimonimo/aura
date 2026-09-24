@@ -1066,8 +1066,14 @@ def create_app(
         from zzaimy.app.regulations import find_relevant
 
         link = chat_documents.binding(db, session_id, owner)
+        # 프로젝트 대화면 그 프로젝트의 기준 문서(공고·기본계획·지침) 안에서 먼저 찾는다 — 문서함의 다른 사업 공고가 앞서지 않게
+        session_ = db.get_chat_session(session_id) or {}
+        crit_ids = db.get_project_criteria_ids(int(session_["project_id"])) if session_.get("project_id") else []
         try:
-            hits = find_relevant(db, q, top_k=5, **scope)
+            if crit_ids:
+                hits = find_relevant(db, q, top_k=5, chunks=db.chunks_for_docs(crit_ids), **scope)
+            else:
+                hits = find_relevant(db, q, top_k=5, **scope)
         except Exception:
             hits = []
         # 프로젝트의 접수 문서(완성된 합본·지난 계획서·현황표)와 이 대화의 첨부도 근거다 — 양식을 채울 재료는 거기 있다

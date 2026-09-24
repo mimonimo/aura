@@ -45,6 +45,30 @@ WEAK_EVIDENCE_NOTE = (
 )
 
 
+def rank_criteria_chunks(db, question: str, chunks: list[dict], criteria_ids: list[int], top_k: int = 12) -> list[dict]:
+    """기준 조각을 질문과의 관련도로 고른다 — 문서마다 첫 자리를 하나씩 보장한 뒤 나머지는 점수순. 검색이 안 되면 문서 순서."""
+    if not chunks:
+        return []
+    try:
+        from zzaimy.app.regulations import find_relevant
+
+        ranked = find_relevant(db, question, top_k=max(top_k, 3 * len(criteria_ids)), chunks=chunks)
+    except Exception:
+        ranked = []
+    if not ranked:
+        return chunks
+    out: list[dict] = []
+    seen: set = set()
+    for did in criteria_ids:                                 # 문서마다 가장 관련 있는 조각 하나
+        first = next((h for h in ranked if h.get("doc_id") == did), None)
+        if first is not None and id(first) not in seen:
+            out.append(first); seen.add(id(first))
+    for h in ranked:                                         # 그다음은 점수순
+        if id(h) not in seen:
+            out.append(h); seen.add(id(h))
+    return out
+
+
 def _cite(hit: dict) -> str:
     """근거 블록 한 덩어리 — 표제가 없으면 문서명만 쓴다(빈 《 · 》를 만들지 않는다)."""
     title = hit.get("reg_title") or "문서"
@@ -111,17 +135,20 @@ class AgentResponder:
         self.last_sources = []
         corpus_hits: list = []
         if criteria_ids:
-            # 담당자가 기준을 직접 고른 경우 — 그 기준의 조각들만 사용(범위 고정)
+            # 담당자가 기준을 직접 고른 경우 — 그 기준의 조각들만 사용(범위 고정). 예전에는 문서 순서대로 앞 6000자를 잘라
+            # 넣어 기준 문서가 여럿이면 첫 문서(기본계획 48조각)만 들어가고 공고의 신청 기한은 빠졌다(실측 2026-09-24, 대화 19).
+            # 질문과의 관련도로 고르고, 기준 문서마다 적어도 한 조각은 들어가게 한다.
             chunks = db.chunks_for_docs(criteria_ids)
+            ordered = rank_criteria_chunks(db, question, chunks, criteria_ids)
             budget, parts = 6000, []
-            for c in chunks:
+            for c in ordered:
                 piece = _cite(c)
                 if budget - len(piece) < 0:
                     break
                 budget -= len(piece)
                 parts.append(piece)
             context = "[선택된 기준 문서 — 이 기준으로 판단하고 인용하라]\n\n" + "\n\n".join(parts)
-            hits = chunks[:8]
+            hits = ordered[:8]
         else:
             # 교내 규정(platform) + 국고 공고 코퍼스(corpus_pilot) 교차 검색
             hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"),
