@@ -199,6 +199,26 @@ def load_styles(root: ET.Element) -> Styles:
 
 # ---- DOCX 저수준 도우미 --------------------------------------------------------------------------------
 
+_TCPR_ORDER = ("cnfStyle", "tcW", "gridSpan", "hMerge", "vMerge", "tcBorders", "shd", "noWrap", "tcMar", "textDirection", "tcFitText",
+               "vAlign", "hideMark")
+
+
+def _set_tcpr(tcPr, el) -> None:
+    from docx.oxml.ns import qn
+
+    name = el.tag.split("}")[1]
+    for old in tcPr.findall(qn(f"w:{name}")):
+        tcPr.remove(old)
+    rank = _TCPR_ORDER.index(name) if name in _TCPR_ORDER else len(_TCPR_ORDER)
+    for i, ch in enumerate(list(tcPr)):
+        cname = ch.tag.split("}")[1]
+        crank = _TCPR_ORDER.index(cname) if cname in _TCPR_ORDER else len(_TCPR_ORDER)
+        if crank > rank:
+            tcPr.insert(i, el)
+            return
+    tcPr.append(el)
+
+
 def _set_cell_borders(cell, bf: BorderFill | None) -> None:
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
@@ -218,13 +238,13 @@ def _set_cell_borders(cell, bf: BorderFill | None) -> None:
             el.set(qn("w:space"), "0")
             el.set(qn("w:color"), "000000")
         borders.append(el)
-    tcPr.append(borders)
+    _set_tcpr(tcPr, borders)
     if bf and bf.fill:
         shd = OxmlElement("w:shd")
         shd.set(qn("w:val"), "clear")
         shd.set(qn("w:color"), "auto")
         shd.set(qn("w:fill"), bf.fill)
-        tcPr.append(shd)
+        _set_tcpr(tcPr, shd)
 
 
 def _set_cell_valign(cell, valign: str) -> None:
@@ -245,7 +265,30 @@ def _set_cell_margins(cell, hu: int = 141) -> None:
         el.set(qn("w:w"), str(int(hu * TWIPS_PER_HWPUNIT)))
         el.set(qn("w:type"), "dxa")
         mar.append(el)
-    tcPr.append(mar)
+    _set_tcpr(tcPr, mar)
+
+
+# w:tblPr 자식의 규격(OOXML) 순서 — 순서가 틀리거나 같은 요소가 둘이면 구글 독스는 표 속성을 통째로 버려 표가 가늘게 찌그러진다
+# (실측 2026-09-25: tblLayout 둘 + tblBorders 가 뒤에 → 독스 199쪽, 표가 한 줄 폭). 리브레오피스는 눈감아 준다.
+_TBLPR_ORDER = ("tblStyle", "tblpPr", "tblOverlap", "bidiVisual", "tblStyleRowBandSize", "tblStyleColBandSize", "tblW", "jc",
+                "tblCellSpacing", "tblInd", "tblBorders", "shd", "tblLayout", "tblCellMar", "tblLook", "tblCaption", "tblDescription")
+
+
+def _set_tblpr(tblPr, el) -> None:
+    """같은 이름의 기존 요소는 지우고 규격 순서 자리에 넣는다."""
+    from docx.oxml.ns import qn
+
+    name = el.tag.split("}")[1]
+    for old in tblPr.findall(qn(f"w:{name}")):
+        tblPr.remove(old)
+    rank = _TBLPR_ORDER.index(name) if name in _TBLPR_ORDER else len(_TBLPR_ORDER)
+    for i, ch in enumerate(list(tblPr)):
+        cname = ch.tag.split("}")[1]
+        crank = _TBLPR_ORDER.index(cname) if cname in _TBLPR_ORDER else len(_TBLPR_ORDER)
+        if crank > rank:
+            tblPr.insert(i, el)
+            return
+    tblPr.append(el)
 
 
 def _table_fixed_layout(table, col_twips: list[int]) -> None:
@@ -253,19 +296,24 @@ def _table_fixed_layout(table, col_twips: list[int]) -> None:
     from docx.oxml.ns import qn
 
     tblPr = table._tbl.tblPr
-    layout = OxmlElement("w:tblLayout")
-    layout.set(qn("w:type"), "fixed")
-    tblPr.append(layout)
-    grid = table._tbl.tblGrid
-    for gc, w in zip(grid.findall(qn("w:gridCol")), col_twips):
-        gc.set(qn("w:w"), str(w))
+    total = sum(col_twips)
+    tblw = OxmlElement("w:tblW")
+    tblw.set(qn("w:w"), str(total))
+    tblw.set(qn("w:type"), "dxa")
+    _set_tblpr(tblPr, tblw)
     # 표 자체 테두리는 셀마다 정하므로 표 기본 테두리는 없앤다
     borders = OxmlElement("w:tblBorders")
     for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
         el = OxmlElement(f"w:{side}")
         el.set(qn("w:val"), "nil")
         borders.append(el)
-    tblPr.append(borders)
+    _set_tblpr(tblPr, borders)
+    layout = OxmlElement("w:tblLayout")
+    layout.set(qn("w:type"), "fixed")
+    _set_tblpr(tblPr, layout)
+    grid = table._tbl.tblGrid
+    for gc, w in zip(grid.findall(qn("w:gridCol")), col_twips):
+        gc.set(qn("w:w"), str(w))
 
 
 MAX_ROW_HU = 5 * HWPUNIT_PER_INCH     # 행 높이 상한 5인치 — 쪽 전체를 차지하는 배치용 표 행이 빈 쪽을 만든다(실측 2026-09-24)
