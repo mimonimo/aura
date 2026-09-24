@@ -168,12 +168,33 @@ def test_normalize_image_downscales_large_pictures():
 
     from PIL import Image
 
-    buf = _io.BytesIO(); Image.new("RGB", (4000, 3000), "white").save(buf, format="PNG")
+    import os
+
+    noisy = Image.frombytes("RGB", (2000, 1500), os.urandom(2000 * 1500 * 3))       # 압축이 안 되는 큰 그림(수 MB)
+    buf = _io.BytesIO(); noisy.save(buf, format="PNG")
     out = hwpx_docx.normalize_image(buf.getvalue())
     im = Image.open(_io.BytesIO(out))
     assert max(im.size) == 1600 and im.format == "JPEG"
-    buf = _io.BytesIO(); Image.new("RGBA", (3200, 100), (0, 0, 0, 0)).save(buf, format="PNG")
+    noisy_a = Image.frombytes("RGBA", (3200, 300), os.urandom(3200 * 300 * 4))      # 투명 채널이 있는 큰 그림
+    buf = _io.BytesIO(); noisy_a.save(buf, format="PNG")
     im2 = Image.open(_io.BytesIO(hwpx_docx.normalize_image(buf.getvalue())))
     assert im2.format == "PNG" and max(im2.size) == 1600                # 투명 그림은 PNG 유지
     small = _io.BytesIO(); Image.new("RGB", (100, 100), "white").save(small, format="PNG")
     assert hwpx_docx.normalize_image(small.getvalue()) == small.getvalue()
+
+
+def test_table_properties_follow_ooxml_order(tmp_path):
+    """구글 독스는 표·셀 속성이 규격 순서를 어기면 통째로 버린다 — 순서와 중복을 검사한다."""
+    data, _ = hwpx_docx.convert(_hwpx(tmp_path))
+    d = Document(io.BytesIO(data))
+    t = d.tables[0]
+    names = [c.tag.split("}")[1] for c in t._tbl.tblPr]
+    assert names == sorted(names, key=lambda n: hwpx_docx._TBLPR_ORDER.index(n) if n in hwpx_docx._TBLPR_ORDER else 99)
+    assert names.count("tblLayout") == 1 and "tblBorders" in names and "tblW" in names
+    tblw = t._tbl.tblPr.find(qn("w:tblW"))
+    assert tblw.get(qn("w:type")) == "dxa" and int(tblw.get(qn("w:w"))) == 8000        # 40000 HWPUNIT = 8000 twips
+    for row in t.rows:
+        for cell in row.cells:
+            cn = [c.tag.split("}")[1] for c in cell._tc.tcPr]
+            assert cn == sorted(cn, key=lambda n: hwpx_docx._TCPR_ORDER.index(n) if n in hwpx_docx._TCPR_ORDER else 99), cn
+            assert len(cn) == len(set(cn))
