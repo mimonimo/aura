@@ -144,3 +144,42 @@ def test_rightmost_title_cue_decides_kind():
     assert guess_kind("AID선정평가사업계획서 작성서식(ver5).hwpx", "")[0] == "form"
     assert guess_kind("규정 개정 신청서.hwp", "")[0] == "form"
     assert guess_kind("2026학년도 지원사업 기본계획.pdf", "")[0] == "plan"
+
+
+def test_project_doc_named_matches_title_words(tmp_path):
+    app, c = _client(tmp_path)
+    db = app.state.db
+    r = c.post("/projects/bundle", data={"sector": "grant"}, files=_files()[:2], follow_redirects=False)
+    pid = int(r.headers["location"].split("/project/")[1].split("?")[0])
+    project = db.get_project(pid)
+    f = app.state.project_doc_named
+    assert f(project, 0, "사업계획서 양식으로 작성 시작하자")["filename"].endswith("사업계획서 양식.hwp")
+    assert f(project, 0, "AID 전환 중점 전문대학 지원사업 기본계획을 독스로 열어 줘")["filename"].endswith("기본계획.hwp")
+    assert f(project, 0, "기본계획을 독스로 열어 줘") is None          # 낱말 하나로는 지목이 아니다
+    assert f(project, 0, "예산이 얼마야") is None
+
+
+def test_working_on_a_project_document_links_its_docs_copy(tmp_path, monkeypatch):
+    """"작성서식으로 작업하자" → 한글 양식을 독스로 바꿔 대화에 잇고, 이후 명령은 그 문서를 고친다."""
+    from zzaimy.ingest import gdrive, gdrive_files
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    r = c.post("/projects/bundle", data={"sector": "grant"}, files=_files()[:2], follow_redirects=False)
+    pid = int(r.headers["location"].split("/project/")[1].split("?")[0])
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
+    monkeypatch.setattr(gdrive_files, "account_for", lambda db, user, dept=None: "staff@example.ac.kr")
+    monkeypatch.setattr(gdrive_files, "has_file_scope", lambda email: True)
+    monkeypatch.setattr(gdrive_files, "project_folder_for", lambda *a, **k: "folderX")
+    made = {}
+    def fake_copy(db_, doc, email, folder, http=None):
+        made["doc"] = doc["filename"]
+        return {"id": "gdoc1", "mime": "application/vnd.google-apps.document", "url": "https://docs.google.com/document/d/gdoc1/edit"}
+    monkeypatch.setattr(gdrive_files, "google_copy", fake_copy)
+    r = c.post("/chat/send", data={"question": "사업계획서 양식으로 작업하자", "project_id": str(pid)}, follow_redirects=False)
+    sid = int(r.headers["location"].rsplit("/", 1)[-1])
+    assert made["doc"].endswith("사업계획서 양식.hwp")
+    import json
+    assert json.loads(db.get_setting(f"chat_google_doc:{sid}", ""))["doc"] == "gdoc1"
+    page = c.get(r.headers["location"]).text
+    assert "구글 독스로 열어 이 대화에 연결했습니다" in page

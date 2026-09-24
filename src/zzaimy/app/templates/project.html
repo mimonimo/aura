@@ -79,7 +79,7 @@
         <article class="project-document-item">
           <a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
           <span class="muted">{{ d.receipt_no or d.id }} · {{ d.created_at[:16].replace("T", " ") }}</span>
-          <div><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span> <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span> <a href="/doc/{{ d.id }}/view" target="_blank" rel="noopener">문서 보기 ↗</a></div>
+          <div><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span> <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span> <a class="project-action-link" href="/doc/{{ d.id }}/view" target="_blank" rel="noopener" aria-label="문서 보기 (새 창)"><iconify-icon icon="solar:eye-linear" aria-hidden="true"></iconify-icon>문서 보기 <span aria-hidden="true">↗</span></a></div>
         </article>
         {% endfor %}
     </div>
@@ -152,7 +152,7 @@
       <article class="project-criterion-item">
         <iconify-icon icon="solar:document-text-linear" style="color:var(--navy); flex:none;"></iconify-icon>
         <div class="project-criterion-title"><a href="/doc/{{ c.id }}">{{ doc_name(c) }}</a><span>기준 문서{% if c.receipt_no %} · {{ c.receipt_no }}{% endif %}</span></div>
-        <a class="project-criterion-open" href="/doc/{{ c.id }}">문서 열기</a>
+        <a class="project-criterion-open project-action-link" href="/doc/{{ c.id }}"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>문서 열기</a>
         <form action="/project/{{ project.id }}/criteria/unlink" method="post" onsubmit="return confirm('이 기준 문서의 연결을 해제할까요? 원본 문서는 유지됩니다.');">
           <input type="hidden" name="criteria_doc_id" value="{{ c.id }}">
           <button type="submit" class="secondary">연결 해제</button>
@@ -221,7 +221,7 @@
       </form>
       {% else %}
       <p class="muted">등록된 기준 문서가 없습니다. 파일 첨부로 바로 올리거나
-        <a href="/criteria">기준 문서</a>에서 등록하세요.</p>
+        <a class="project-action-link" href="/criteria">기준 문서로 이동 <span aria-hidden="true">→</span></a></p>
       {% endif %}
     </div>
   </div>

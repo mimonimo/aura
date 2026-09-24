@@ -1,0 +1,607 @@
+"""HWPX(OWPML) → DOCX 충실 변환 — 구글 독스에서 여러 사람과 에이전트가 같이 작업하기 위한 열람·편집본.
+
+추출 조각으로 되살리던 이전 경로(render.build_docx)는 표 테두리·바탕색·정렬·글자 크기가 사라지고 중첩 표의 글이
+두 번 들어갔다(실측 2026-09-24, AID 사업계획서 작성서식). 여기서는 `Contents/header.xml` 의 글자 모양(charPr)·
+문단 모양(paraPr)·테두리/배경(borderFill)과 `Contents/section*.xml` 의 문단·표·글상자·그림을 그대로 옮긴다.
+
+옮기는 것: 쪽 크기·여백·가로세로, 문단 정렬·들여쓰기·쪽 나눔, 글자 크기·굵기·기울임·밑줄·색, 표(열 너비·행 높이·
+병합·셀 테두리·바탕색·세로 정렬·중첩 표), 글상자(hp:rect 안의 글), 그림(BinData), 줄 바꿈·탭, 개요 문단은 제목 스타일.
+안 옮기는 것: 머리말·꼬리말·쪽 번호·각주(독스로 넘어가도 편집 대상이 아니다), 그림 위 좌표 배치(흐름 순서로 넣는다).
+
+단위: HWPUNIT = 1/7200 인치. charPr height = 1/100 pt.
+"""
+
+from __future__ import annotations
+
+import io
+import re
+import zipfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+try:  # XML 폭탄·외부 개체 방어
+    from defusedxml.ElementTree import fromstring as _fromstring
+except Exception:  # pragma: no cover
+    from xml.etree.ElementTree import fromstring as _fromstring
+
+_SECTION_RE = re.compile(r"Contents/section(\d+)\.xml$")
+HWPUNIT_PER_INCH = 7200
+EMU_PER_HWPUNIT = 914400 / HWPUNIT_PER_INCH          # 127
+TWIPS_PER_HWPUNIT = 1440 / HWPUNIT_PER_INCH          # 0.2
+
+
+def _local(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1] if "}" in tag else tag.split(":")[-1]
+
+
+def _children(el: ET.Element, name: str):
+    return [ch for ch in el if _local(ch.tag) == name]
+
+
+def _first(el: ET.Element, name: str) -> ET.Element | None:
+    for node in el.iter():
+        if _local(node.tag) == name:
+            return node
+    return None
+
+
+def _child(el: ET.Element, name: str) -> ET.Element | None:
+    """직접 자식만 — 셀(hp:tc)의 cellAddr·cellSpan·cellSz 는 subList(중첩 표 포함) 뒤에 오므로 iter() 로 찾으면
+    중첩 표의 셀 값을 집는다(실측 2026-09-24)."""
+    for ch in el:
+        if _local(ch.tag) == name:
+            return ch
+    return None
+
+
+# ---- header.xml: 스타일 사전 ------------------------------------------------------------------------
+
+@dataclass
+class CharStyle:
+    size_pt: float = 10.0
+    bold: bool = False
+    italic: bool = False
+    underline: bool = False
+    color: str = "000000"
+    font: str = ""
+    superscript: bool = False
+    subscript: bool = False
+
+
+@dataclass
+class ParaStyle:
+    align: str = "JUSTIFY"
+    left_hu: int = 0          # 왼쪽 여백(HWPUNIT)
+    indent_hu: int = 0        # 첫 줄 들여쓰기(음수면 내어쓰기)
+    before_hu: int = 0
+    after_hu: int = 0
+    line_pct: int = 0         # 줄 간격 %
+    outline_level: int = 0    # 1~ 이면 개요(제목)
+
+
+@dataclass
+class BorderFill:
+    sides: dict = field(default_factory=dict)   # left/right/top/bottom → (type, width_mm)
+    fill: str = ""                              # 바탕색 hex(없으면 "")
+
+
+@dataclass
+class Styles:
+    fonts: dict = field(default_factory=dict)
+    chars: dict = field(default_factory=dict)
+    paras: dict = field(default_factory=dict)
+    borders: dict = field(default_factory=dict)
+    heading_styles: dict = field(default_factory=dict)   # styleIDRef → outline level
+
+
+def _hu(value: str | None) -> int:
+    try:
+        return int(float(value or 0))
+    except ValueError:
+        return 0
+
+
+def load_styles(root: ET.Element) -> Styles:
+    st = Styles()
+    for f in root.iter():
+        if _local(f.tag) == "font" and f.get("id") is not None:
+            st.fonts[str(f.get("id"))] = f.get("face") or ""
+    for cp in root.iter():
+        name = _local(cp.tag)
+        if name == "charPr":
+            cs = CharStyle()
+            cs.size_pt = _hu(cp.get("height")) / 100.0 or 10.0
+            color = (cp.get("textColor") or "#000000").lstrip("#")
+            cs.color = color if re.fullmatch(r"[0-9A-Fa-f]{6}", color) else "000000"
+            for ch in cp:
+                n = _local(ch.tag)
+                if n == "bold":
+                    cs.bold = True
+                elif n == "italic":
+                    cs.italic = True
+                elif n == "underline" and (ch.get("type") or "NONE") != "NONE":
+                    cs.underline = True
+                elif n == "supscript":
+                    cs.superscript = True
+                elif n == "subscript":
+                    cs.subscript = True
+                elif n == "fontRef":
+                    cs.font = st.fonts.get(str(ch.get("hangul")), "")
+            st.chars[str(cp.get("id"))] = cs
+        elif name == "paraPr":
+            ps = ParaStyle()
+            for ch in cp.iter():
+                n = _local(ch.tag)
+                if n == "align":
+                    ps.align = ch.get("horizontal") or "JUSTIFY"
+                elif n == "heading" and (ch.get("type") or "NONE") == "OUTLINE":
+                    ps.outline_level = int(ch.get("level") or 0) + 1
+                elif n == "left":
+                    ps.left_hu = _hu(ch.get("value"))
+                elif n == "intent":
+                    ps.indent_hu = _hu(ch.get("value"))
+                elif n == "prev":
+                    ps.before_hu = _hu(ch.get("value"))
+                elif n == "next":
+                    ps.after_hu = _hu(ch.get("value"))
+                elif n == "lineSpacing" and (ch.get("type") or "") == "PERCENT":
+                    ps.line_pct = _hu(ch.get("value"))
+            st.paras[str(cp.get("id"))] = ps
+        elif name == "borderFill":
+            bf = BorderFill()
+            for ch in cp.iter():
+                n = _local(ch.tag)
+                if n in ("leftBorder", "rightBorder", "topBorder", "bottomBorder"):
+                    w = ch.get("width") or "0.12 mm"
+                    try:
+                        mm = float(w.replace("mm", "").strip())
+                    except ValueError:
+                        mm = 0.12
+                    bf.sides[n[:-6]] = ((ch.get("type") or "NONE").upper(), mm)
+                elif n == "winBrush":
+                    face = (ch.get("faceColor") or "").lstrip("#")
+                    alpha = ch.get("alpha") or "0"
+                    # 한글은 채우기 없음을 검정(#000000)·alpha 0 으로도 적는다 — 검정 바탕은 표에 쓰지 않으므로 없음으로 본다
+                    if re.fullmatch(r"[0-9A-Fa-f]{6}", face) and face.upper() not in ("000000", "FFFFFF") and alpha in ("0", "255"):
+                        bf.fill = face.upper()
+            st.borders[str(cp.get("id"))] = bf
+        elif name == "style" and cp.get("id") is not None:
+            pid = str(cp.get("paraPrIDRef"))
+            if pid in st.paras and st.paras[pid].outline_level:
+                st.heading_styles[str(cp.get("id"))] = st.paras[pid].outline_level
+    return st
+
+
+# ---- DOCX 저수준 도우미 --------------------------------------------------------------------------------
+
+def _set_cell_borders(cell, bf: BorderFill | None) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    tcPr = cell._tc.get_or_add_tcPr()
+    borders = OxmlElement("w:tcBorders")
+    for side in ("top", "left", "bottom", "right"):
+        el = OxmlElement(f"w:{side}")
+        kind, mm = (bf.sides.get(side) if bf else None) or ("SOLID", 0.12)
+        if kind == "NONE":
+            el.set(qn("w:val"), "nil")
+        else:
+            val = {"DASH": "dashed", "DOT": "dotted", "DOUBLE_SLIM": "double", "SLIM_THICK": "thinThickSmallGap",
+                   "THICK_SLIM": "thickThinSmallGap"}.get(kind, "single")
+            el.set(qn("w:val"), val)
+            el.set(qn("w:sz"), str(max(2, int(round(mm / 25.4 * 72 * 8)))))   # 1/8 pt
+            el.set(qn("w:space"), "0")
+            el.set(qn("w:color"), "000000")
+        borders.append(el)
+    tcPr.append(borders)
+    if bf and bf.fill:
+        shd = OxmlElement("w:shd")
+        shd.set(qn("w:val"), "clear")
+        shd.set(qn("w:color"), "auto")
+        shd.set(qn("w:fill"), bf.fill)
+        tcPr.append(shd)
+
+
+def _set_cell_valign(cell, valign: str) -> None:
+    from docx.enum.table import WD_ALIGN_VERTICAL
+
+    cell.vertical_alignment = {"CENTER": WD_ALIGN_VERTICAL.CENTER, "BOTTOM": WD_ALIGN_VERTICAL.BOTTOM}.get(
+        valign, WD_ALIGN_VERTICAL.TOP)
+
+
+def _set_cell_margins(cell, hu: int = 141) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    tcPr = cell._tc.get_or_add_tcPr()
+    mar = OxmlElement("w:tcMar")
+    for side in ("top", "left", "bottom", "right"):
+        el = OxmlElement(f"w:{side}")
+        el.set(qn("w:w"), str(int(hu * TWIPS_PER_HWPUNIT)))
+        el.set(qn("w:type"), "dxa")
+        mar.append(el)
+    tcPr.append(mar)
+
+
+def _table_fixed_layout(table, col_twips: list[int]) -> None:
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    tblPr = table._tbl.tblPr
+    layout = OxmlElement("w:tblLayout")
+    layout.set(qn("w:type"), "fixed")
+    tblPr.append(layout)
+    grid = table._tbl.tblGrid
+    for gc, w in zip(grid.findall(qn("w:gridCol")), col_twips):
+        gc.set(qn("w:w"), str(w))
+    # 표 자체 테두리는 셀마다 정하므로 표 기본 테두리는 없앤다
+    borders = OxmlElement("w:tblBorders")
+    for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        el = OxmlElement(f"w:{side}")
+        el.set(qn("w:val"), "nil")
+        borders.append(el)
+    tblPr.append(borders)
+
+
+MAX_ROW_HU = 5 * HWPUNIT_PER_INCH     # 행 높이 상한 5인치 — 쪽 전체를 차지하는 배치용 표 행이 빈 쪽을 만든다(실측 2026-09-24)
+
+
+def _row_height(row, hu: int) -> None:
+    from docx.enum.table import WD_ROW_HEIGHT_RULE
+    from docx.shared import Emu
+
+    if hu > 0:
+        row.height = Emu(int(min(hu, MAX_ROW_HU) * EMU_PER_HWPUNIT))
+        row.height_rule = WD_ROW_HEIGHT_RULE.AT_LEAST
+
+
+# ---- 본문 걷기 -------------------------------------------------------------------------------------
+
+class Converter:
+    def __init__(self, styles: Styles, zf: zipfile.ZipFile, bin_map: dict[str, str]) -> None:
+        self.st = styles
+        self.zf = zf
+        self.bin_map = bin_map
+        from docx import Document
+
+        self.doc = Document()
+        self._first_section = True
+        self.stats = {"paragraphs": 0, "tables": 0, "nested_tables": 0, "images": 0, "textboxes": 0}
+
+    # -- 문단 ---------------------------------------------------------------------------------------
+    def _apply_para_style(self, para, p_el: ET.Element) -> None:
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.shared import Emu, Pt
+
+        ps = self.st.paras.get(str(p_el.get("paraPrIDRef")))
+        if ps is None:
+            return
+        para.alignment = {"LEFT": WD_ALIGN_PARAGRAPH.LEFT, "CENTER": WD_ALIGN_PARAGRAPH.CENTER,
+                          "RIGHT": WD_ALIGN_PARAGRAPH.RIGHT, "DISTRIBUTE": WD_ALIGN_PARAGRAPH.DISTRIBUTE,
+                          "DISTRIBUTE_SPACE": WD_ALIGN_PARAGRAPH.DISTRIBUTE}.get(ps.align, WD_ALIGN_PARAGRAPH.JUSTIFY)
+        pf = para.paragraph_format
+        if ps.left_hu:
+            pf.left_indent = Emu(int(ps.left_hu * EMU_PER_HWPUNIT))
+        if ps.indent_hu:
+            pf.first_line_indent = Emu(int(ps.indent_hu * EMU_PER_HWPUNIT))
+        pf.space_before = Emu(int(ps.before_hu * EMU_PER_HWPUNIT))
+        pf.space_after = Emu(int(ps.after_hu * EMU_PER_HWPUNIT))
+        if ps.line_pct:
+            pf.line_spacing = max(0.8, min(ps.line_pct / 100.0, 3.0))
+        if p_el.get("pageBreak") == "1":
+            pf.page_break_before = True
+
+    def _apply_run_style(self, run, char_id: str | None) -> None:
+        from docx.oxml.ns import qn
+        from docx.shared import Pt, RGBColor
+
+        cs = self.st.chars.get(str(char_id))
+        if cs is None:
+            return
+        run.font.size = Pt(max(cs.size_pt, 4.0))
+        run.font.bold = cs.bold
+        run.font.italic = cs.italic
+        if cs.underline:
+            run.font.underline = True
+        if cs.color and cs.color.upper() != "000000":
+            run.font.color.rgb = RGBColor.from_string(cs.color.upper())
+        if cs.superscript:
+            run.font.superscript = True
+        if cs.subscript:
+            run.font.subscript = True
+        if cs.font:
+            run.font.name = cs.font
+            rpr = run._r.get_or_add_rPr()
+            rfonts = rpr.find(qn("w:rFonts"))
+            if rfonts is not None:
+                rfonts.set(qn("w:eastAsia"), cs.font)
+
+    def _emit_text(self, para, t_el: ET.Element, char_id: str | None) -> None:
+        """hp:t 안의 글·줄바꿈·탭을 런으로."""
+        if t_el.text:
+            self._apply_run_style(para.add_run(t_el.text), char_id)
+        for ch in t_el:
+            n = _local(ch.tag)
+            if n == "lineBreak":
+                para.add_run().add_break()
+            elif n == "tab":
+                para.add_run("\t")
+            if ch.tail:
+                self._apply_run_style(para.add_run(ch.tail), char_id)
+
+    def paragraph(self, p_el: ET.Element, container, heading_ok: bool = True) -> None:
+        """hp:p 하나 → 문단(그 안의 표·글상자·그림은 문단 뒤에 이어서)."""
+        level = self.st.heading_styles.get(str(p_el.get("styleIDRef")), 0)
+        ps = self.st.paras.get(str(p_el.get("paraPrIDRef")))
+        if not level and ps and ps.outline_level:
+            level = ps.outline_level
+        pending: list[tuple[str, ET.Element]] = []
+        para = None
+        for run in _children(p_el, "run"):
+            char_id = run.get("charPrIDRef")
+            for obj in run:
+                n = _local(obj.tag)
+                if n == "t":
+                    if para is None:
+                        para = self._new_para(container, level if heading_ok else 0)
+                        self._apply_para_style(para, p_el)
+                    self._emit_text(para, obj, char_id)
+                elif n in ("tbl", "pic", "rect", "container", "ellipse", "polygon", "curve", "line", "arc", "ole", "equation"):
+                    pending.append((n, obj))
+                elif n in ("secPr",):
+                    self._section(obj)
+        if para is None and not pending:
+            # 빈 문단 — 원본의 줄 간격을 지킨다(연속 빈 문단은 하나로)
+            para = self._new_para(container, 0)
+            self._apply_para_style(para, p_el)
+        for n, obj in pending:
+            if n == "tbl":
+                self.table(obj, container)
+            elif n == "pic":
+                self.picture(obj, container)
+            elif n == "line":
+                continue
+            else:
+                self.shape(obj, container)
+
+    def _new_para(self, container, level: int):
+        if level and container is self.doc:
+            self.stats["paragraphs"] += 1
+            return self.doc.add_heading("", level=min(level, 4))
+        self.stats["paragraphs"] += 1
+        return container.add_paragraph()
+
+    # -- 구역(쪽 설정) ------------------------------------------------------------------------------
+    def _section(self, sec_el: ET.Element) -> None:
+        from docx.enum.section import WD_ORIENT
+        from docx.shared import Emu
+
+        page = _first(sec_el, "pagePr")
+        if page is None:
+            return
+        section = self.doc.sections[-1] if self._first_section else self.doc.add_section()
+        self._first_section = False
+        w, h = _hu(page.get("width")), _hu(page.get("height"))
+        if w and h:
+            section.page_width, section.page_height = Emu(int(w * EMU_PER_HWPUNIT)), Emu(int(h * EMU_PER_HWPUNIT))
+            section.orientation = WD_ORIENT.LANDSCAPE if w > h else WD_ORIENT.PORTRAIT
+        m = _first(page, "margin")
+        if m is not None:
+            section.left_margin = Emu(int((_hu(m.get("left")) + _hu(m.get("gutter"))) * EMU_PER_HWPUNIT))
+            section.right_margin = Emu(int(_hu(m.get("right")) * EMU_PER_HWPUNIT))
+            section.top_margin = Emu(int((_hu(m.get("top")) + _hu(m.get("header"))) * EMU_PER_HWPUNIT))
+            section.bottom_margin = Emu(int((_hu(m.get("bottom")) + _hu(m.get("footer"))) * EMU_PER_HWPUNIT))
+
+    # -- 표 ----------------------------------------------------------------------------------------
+    def table(self, tbl: ET.Element, container) -> None:
+        from docx.shared import Emu
+
+        rows = _children(tbl, "tr")
+        cells_info = []
+        widths: dict[int, int] = {}
+        heights: dict[int, int] = {}
+        for r_i, tr in enumerate(rows):
+            for tc in _children(tr, "tc"):
+                addr = _child(tc, "cellAddr")
+                span = _child(tc, "cellSpan")
+                sz = _child(tc, "cellSz")
+                row = _hu(addr.get("rowAddr")) if addr is not None else r_i
+                col = _hu(addr.get("colAddr")) if addr is not None else 0
+                rs = max(_hu(span.get("rowSpan")) if span is not None else 1, 1)
+                cs = max(_hu(span.get("colSpan")) if span is not None else 1, 1)
+                w = _hu(sz.get("width")) if sz is not None else 0
+                hgt = _hu(sz.get("height")) if sz is not None else 0
+                if cs == 1 and w:
+                    widths.setdefault(col, w)
+                if rs == 1 and hgt:
+                    heights.setdefault(row, hgt)
+                cells_info.append((row, col, rs, cs, tc))
+        n_rows = max([r + rs for r, _, rs, _, _ in cells_info] + [_hu(tbl.get("rowCnt"))])
+        n_cols = max([c + cs for _, c, _, cs, _ in cells_info] + [_hu(tbl.get("colCnt"))])
+        if n_rows < 1 or n_cols < 1:
+            return
+        # 열 너비: 단일 셀 폭이 없는 열은 병합 셀 폭을 나눠 채운다
+        for row, col, rs, cs, _tc in cells_info:
+            if cs > 1:
+                w = _hu(_child(_tc, "cellSz").get("width")) if _child(_tc, "cellSz") is not None else 0
+                missing = [c for c in range(col, col + cs) if c not in widths]
+                if missing and w:
+                    known = sum(widths.get(c, 0) for c in range(col, col + cs))
+                    share = max((w - known) // len(missing), 100)
+                    for c in missing:
+                        widths[c] = share
+        total_hu = _hu((_child(tbl, "sz") or ET.Element("x")).get("width")) or sum(widths.values())
+        col_hu = [widths.get(c, max(total_hu // n_cols, 100)) for c in range(n_cols)]
+        table = container.add_table(rows=n_rows, cols=n_cols)
+        table.autofit = False
+        _table_fixed_layout(table, [int(w * TWIPS_PER_HWPUNIT) for w in col_hu])
+        for c in range(n_cols):
+            for row in table.rows:
+                row.cells[c].width = Emu(int(col_hu[c] * EMU_PER_HWPUNIT))
+        nested_rows = {row for row, _c, _rs, _cs, tc in cells_info if _first(tc, "tbl") is not None}
+        for r_i, row in enumerate(table.rows):
+            if r_i not in nested_rows:
+                _row_height(row, heights.get(r_i, 0))
+        covered: set[tuple[int, int]] = set()
+        default_bf = self.st.borders.get(str(tbl.get("borderFillIDRef")))
+        for row, col, rs, cs, tc in cells_info:
+            if row >= n_rows or col >= n_cols:
+                continue
+            cell = table.cell(row, col)
+            end_r, end_c = min(row + rs - 1, n_rows - 1), min(col + cs - 1, n_cols - 1)
+            if (end_r, end_c) != (row, col):
+                cell = cell.merge(table.cell(end_r, end_c))
+            for rr in range(row, end_r + 1):
+                for cc in range(col, end_c + 1):
+                    covered.add((rr, cc))
+            bf = self.st.borders.get(str(tc.get("borderFillIDRef"))) or default_bf
+            _set_cell_borders(cell, bf)
+            _set_cell_margins(cell)
+            sub = _child(tc, "subList")
+            _set_cell_valign(cell, (sub.get("vertAlign") if sub is not None else "TOP") or "TOP")
+            # 셀의 첫 빈 문단을 지우고 원본 문단으로 채운다
+            first_p = cell.paragraphs[0]
+            if sub is not None:
+                paras = _children(sub, "p")
+                for i, p_el in enumerate(paras):
+                    if i == 0:
+                        self._fill_para_into(first_p, p_el, cell)
+                    else:
+                        self.paragraph(p_el, cell, heading_ok=False)
+        # 병합에 덮이지 않은 빈 칸도 테두리를 준다
+        for rr in range(n_rows):
+            for cc in range(n_cols):
+                if (rr, cc) not in covered:
+                    _set_cell_borders(table.cell(rr, cc), default_bf)
+        if container is self.doc:
+            self.stats["tables"] += 1
+        else:
+            self.stats["nested_tables"] += 1
+        # 표 뒤에 문단 하나(한글은 표 다음에 항상 빈 줄 없이 이어지지만 워드는 표 사이에 문단이 필요)
+        if container is not self.doc:
+            return
+
+    def _fill_para_into(self, para, p_el: ET.Element, cell) -> None:
+        """이미 있는 문단(셀의 첫 문단)에 hp:p 내용을 채운다."""
+        self._apply_para_style(para, p_el)
+        pending = []
+        for run in _children(p_el, "run"):
+            char_id = run.get("charPrIDRef")
+            for obj in run:
+                n = _local(obj.tag)
+                if n == "t":
+                    self._emit_text(para, obj, char_id)
+                elif n in ("tbl", "pic", "rect", "container"):
+                    pending.append((n, obj))
+        for n, obj in pending:
+            if n == "tbl":
+                self.table(obj, cell)
+            elif n == "pic":
+                self.picture(obj, cell)
+            else:
+                self.shape(obj, cell)
+
+    # -- 글상자·도형 --------------------------------------------------------------------------------
+    def shape(self, el: ET.Element, container) -> None:
+        """글상자(hp:rect 등)의 글은 그 자리에 문단으로. 테두리가 있으면 한 칸 표로 감싼다."""
+        draw = _child(el, "drawText")
+        if draw is None:
+            for node in el.iter():
+                if _local(node.tag) == "tbl":
+                    self.table(node, container)
+            return
+        sub = _child(draw, "subList")
+        if sub is None:
+            return
+        line = _child(el, "lineShape")
+        boxed = line is not None and (line.get("style") or "NONE") != "NONE"
+        paras = _children(sub, "p")
+        if not paras:
+            return
+        self.stats["textboxes"] += 1
+        if boxed:
+            box = container.add_table(rows=1, cols=1)
+            cell = box.cell(0, 0)
+            _set_cell_borders(cell, BorderFill(sides={s: ("SOLID", 0.12) for s in ("left", "right", "top", "bottom")}))
+            _set_cell_margins(cell)
+            for i, p_el in enumerate(paras):
+                if i == 0:
+                    self._fill_para_into(cell.paragraphs[0], p_el, cell)
+                else:
+                    self.paragraph(p_el, cell, heading_ok=False)
+        else:
+            for p_el in paras:
+                self.paragraph(p_el, container, heading_ok=False)
+
+    # -- 그림 --------------------------------------------------------------------------------------
+    def picture(self, pic: ET.Element, container) -> None:
+        from docx.shared import Emu
+
+        ref = ""
+        for node in pic.iter():
+            if _local(node.tag) == "img" and node.get("binaryItemIDRef"):
+                ref = node.get("binaryItemIDRef") or ""
+                break
+        member = self.bin_map.get(ref) or self.bin_map.get(Path(ref).stem)
+        if not member:
+            return
+        try:
+            data = self.zf.read(member)
+        except KeyError:
+            return
+        cur = _child(pic, "curSz") or _child(pic, "orgSz")
+        w = _hu(cur.get("width")) if cur is not None else 0
+        if not w:
+            org = _child(pic, "orgSz")
+            w = _hu(org.get("width")) if org is not None else 0
+        width = Emu(int(min(max(w, 2000), 45000) * EMU_PER_HWPUNIT))
+        para = container.add_paragraph()
+        try:
+            para.add_run().add_picture(io.BytesIO(data), width=width)
+            self.stats["images"] += 1
+        except Exception:
+            para.add_run("[그림]")
+
+
+def _binary_map(zf: zipfile.ZipFile, names: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    hpf = next((n for n in names if n.endswith("content.hpf")), None)
+    if hpf:
+        try:
+            root = _fromstring(zf.read(hpf))
+            for item in root.iter():
+                if _local(item.tag) == "item" and item.get("id") and item.get("href"):
+                    out[str(item.get("id"))] = str(item.get("href")).lstrip("/")
+        except ET.ParseError:
+            pass
+    for n in names:
+        if n.startswith("BinData/"):
+            out.setdefault(Path(n).stem, n)
+    return out
+
+
+def convert(path: Path | str) -> tuple[bytes, dict]:
+    """HWPX 파일 → (docx 바이트, 통계). 암호화(배포용)면 ValueError."""
+    path = Path(path)
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        header = next((n for n in names if n.endswith("Contents/header.xml")), None)
+        styles = load_styles(_fromstring(zf.read(header))) if header else Styles()
+        conv = Converter(styles, zf, _binary_map(zf, names))
+        sections = sorted((n for n in names if _SECTION_RE.search(n)),
+                          key=lambda n: int(_SECTION_RE.search(n).group(1)))  # type: ignore[union-attr]
+        for sec in sections:
+            raw = zf.read(sec)
+            if not raw.lstrip().startswith(b"<"):
+                raise ValueError(f"배포용/암호화 HWPX로 보임: {path.name}")
+            root = _fromstring(raw)
+            for p_el in _children(root, "p"):
+                conv.paragraph(p_el, conv.doc)
+        # 문서 기본 글꼴(독스가 없는 글꼴은 바꿔 쓴다)
+        from docx.shared import Pt
+
+        conv.doc.styles["Normal"].font.size = Pt(10)
+        buf = io.BytesIO()
+        conv.doc.save(buf)
+        return buf.getvalue(), conv.stats

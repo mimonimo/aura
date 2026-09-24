@@ -739,6 +739,20 @@ def create_app(
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
         scope = ag.search_scope(dept, role, owner)
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
+        if not doc_material and _looks_like_working_on(q):
+            # "작성서식으로 작업하자" 처럼 프로젝트에 있는 문서(한글 양식 등)를 지목하면 그 문서를 독스로 바꿔 잇는다
+            picked = _project_doc_named(project, session_id, q)
+            if picked is not None:
+                made, why = _link_existing_document(session_id, picked, owner, project)
+                if made:
+                    doc_material = "existing"
+                    if not _looks_like_drafting(q):
+                        _chat_sources[session_id] = []
+                        return
+                elif why:
+                    db.add_chat(session_id, "assistant", why)
+                    _chat_sources[session_id] = []
+                    return
         if not doc_material and _looks_like_drafting(q):
             # 문서가 없는데 초안을 써 달라면 드라이브에 프로젝트 폴더·문서를 만들어 잇는다(주소 붙여넣기 없이)
             made, why = _auto_link_document(session_id, q, owner, project)
@@ -803,6 +817,64 @@ def create_app(
         cand = re.sub(r"[\s,.:;·]+$", "", cand)
         cand = re.sub(r"(을|를|은|는|의|로|으로)$", "", cand).strip()
         return (cand or head or "새 문서")[:60]
+
+    _WORK_WORDS = re.compile(r"작업|작성|수정|편집|채워|채우|고쳐|고치|써\s*(?:보|줘|주)|열어|열고|독스로|구글\s*독스")
+
+    def _looks_like_working_on(q: str) -> bool:
+        """있는 문서를 가지고 일하자는 말인가 — 서류 이름과 함께 작업·작성·수정·편집·열기 같은 낱말이 있을 때."""
+        return bool(_WORK_WORDS.search(q or ""))
+
+    def _project_doc_named(project: dict | None, session_id: int, q: str) -> dict | None:
+        """질문이 지목한 프로젝트 문서 — 제목 낱말(2자 이상)의 6할 이상이 질문에 있으면 그 문서. 가장 많이 겹치는 것."""
+        if not q:
+            return None
+        cands: list[dict] = []
+        if project:
+            for did in db.get_project_criteria_ids(int(project["id"])):
+                d = db.get_document(did)
+                if d:
+                    cands.append(d)
+            cands += db.list_documents(project["sector"], project_id=int(project["id"]))
+        for f in db.list_files(kind="attachment", session_id=session_id):
+            d = db.get_document(int(f["doc_id"])) if f.get("doc_id") else None
+            if d:
+                cands.append(d)
+        norm_q = re.sub(r"[\s\-_()\[\]{}.,:;·+/]+", "", q).lower()
+        best, best_score = None, 0.0
+        for d in cands:
+            title = storage.title_of(d.get("filename") or "")
+            tokens = [t.lower() for t in re.split(r"[\s\-_()\[\]{}.,:;·+/]+", title) if len(t) >= 2]
+            if not tokens:
+                continue
+            hit = sum(1 for t in tokens if t in norm_q)
+            score = hit / len(tokens)
+            if score >= 0.6 and score > best_score:
+                best, best_score = d, score
+        return best
+
+    app.state.project_doc_named = _project_doc_named
+
+    def _link_existing_document(session_id: int, doc: dict, owner: str, project: dict | None) -> tuple[bool, str]:
+        """프로젝트 문서의 구글 독스 변환본(한글이면 지금 변환)을 이 대화의 작업 문서로 잇는다."""
+        from zzaimy.ingest import gdrive, gdrive_files
+
+        if not gdrive.list_accounts():
+            return False, ""
+        acct_ = accounts.get(owner, {}) if password is not None else {}
+        email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
+        if not email or not gdrive_files.has_file_scope(email):
+            return False, "구글 계정 허용이 없어 문서를 독스로 열지 못합니다 — 원천 관리에서 구글 계정 허용을 해 주세요."
+        title = storage.title_of(doc.get("filename") or "")
+        try:
+            folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
+            made = gdrive_files.google_copy(db, doc, email, folder)
+        except Exception as e:
+            return False, f"「{title}」 을 독스로 바꾸지 못했습니다({type(e).__name__})."
+        if made.get("mime") != "application/vnd.google-apps.document":
+            return False, f"「{title}」 은 독스 문서가 아니라(시트·슬라이드·PDF) 에이전트가 편집할 수 없습니다. 열람은 문서함에서 됩니다."
+        db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": made["id"], "account": email}))
+        db.add_chat(session_id, "assistant", f"「{title}」 을 구글 독스로 열어 이 대화에 연결했습니다. 이제 명령하면 이 문서를 바로 고칩니다. {made['url']}")
+        return True, ""
 
     def _auto_link_document(session_id: int, q: str, owner: str, project: dict | None) -> tuple[bool, str]:
         """대화에 문서가 없을 때 드라이브 폴더(ZZAIMY/<연도>/<프로젝트|대화>)와 문서를 만들어 잇는다.
@@ -1600,36 +1672,7 @@ def create_app(
                 stored = storage.adopt_original(db, doc_id, stored)
                 background.add_task(_process_then_identify, db, doc_id, stored, True)
                 made["intake"].append(doc_id)
-        background.add_task(_prewarm_google_views, [*made["criteria"], *made["intake"]], owner, project)
         return made
-
-    def _prewarm_google_views(doc_ids: list[int], owner: str, project: dict) -> None:
-        """묶음 문서의 구글 열람본을 미리 만든다(허용 계정이 있을 때만). 실패해도 조용히 — 열람 때 다시 시도한다."""
-        from zzaimy.ingest import gdrive_files
-
-        acct_ = accounts.get(owner, {}) if password is not None else {}
-        email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
-        if not email or not gdrive_files.has_file_scope(email):
-            return
-        try:
-            folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
-        except Exception:
-            return
-        import time as _t
-
-        for did in doc_ids:
-            for _ in range(30):                       # 추출이 끝나야 한글→docx 가 된다(최대 5분 기다림)
-                d = db.get_document(did) or {}
-                if d.get("status") in ("reviewed", "failed"):
-                    break
-                _t.sleep(10)
-            d = db.get_document(did)
-            if not d or d.get("status") == "failed":
-                continue
-            try:
-                gdrive_files.google_copy(db, d, email, folder)
-            except Exception:
-                continue
 
     def _title_from_bundle(files) -> str:
         """묶음에서 프로젝트 이름 — 공고·기본계획 파일 이름에서 붙임 번호·서류 낱말을 뗀 것, 없으면 첫 파일 제목."""
