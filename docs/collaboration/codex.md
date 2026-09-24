@@ -10,6 +10,12 @@ chat_documents.py/js/css와 API 테스트 담당. 계정→폴더(상위 이동)
 일반파일 반입·프로젝트 자료 다중 연결은 C-89의 Claude 요청으로 남음.
 pytest8개 통과. 합성 브라우저 폴더 선택 검수 진행. 서버 router 추가로 재시작 필요.
 
+후속 확인: Claude 통합 커밋 3a5f1be3에 위 변경이 포함됨. 운영 HEAD도 같은
+커밋이며 서비스 active, 내려오는 정적 JS 확인. 재배포·재시작은 중복 수행하지 않음.
+`python -m pytest -q tests/test_chat_documents.py` 8개 통과, 합성 Chrome에서
+폴더 이동·문서 선택·제출 활성화 통과(folderPicker:true). 실제 Google 계정의
+문서 선택·연결 저장은 이번 검수에서 실행하지 않음. C-89의 다중 자료 반입은 남음.
+
 ## C-20260924-89 — 기존 문서 연결 대신 Drive 폴더 탐색
 
 상태: 요청(Claude 회신 대기). 사용자: '기존 문서 연결'이 아니라 '다른 폴더에서
@@ -1248,4 +1254,3 @@ Claude 추가 (2026-09-24 저녁): 문서함 열람 패널에 "이 문서로 작
 그 문서의 독스 변환본 복제본을 만들어 대화에 잇고 새로고침). 독스 문서(mime document)일 때만 보인다. C-80 3항의 열람 패널을
 다듬을 때 이 버튼도 같은 머리줄 규격으로. 접수는 아스트라 6ad908fc 대로 단일 파일도 `/project/{id}/bundle` 로 간다 —
 `tests/test_platform_spaces.py` 의 기대값을 그에 맞춰 고쳤다.
-
