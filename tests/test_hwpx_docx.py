@@ -256,12 +256,14 @@ _HEADER_CTRL = ('<hp:ctrl><hp:header id="{id}" applyPageType="BOTH"><hp:subList>
 
 def test_header_picture_and_page_number_go_to_section_header_footer(tmp_path):
     """머리말의 그림(로고)과 쪽 번호 매기기는 워드 구역의 머리말·꼬리말로 간다 — 본문에서 잃지 않는다."""
+    from docx.enum.section import WD_SECTION
+
     section = SECTION.replace(
         '<hp:run charPrIDRef="1"><hp:t>사업 개요</hp:t></hp:run></hp:p>',
         '<hp:run charPrIDRef="1"><hp:t>사업 개요</hp:t></hp:run>'
         '<hp:run charPrIDRef="0"><hp:ctrl><hp:pageNum pos="BOTTOM_CENTER" formatType="DIGIT" sideChar="-"/></hp:ctrl>'
         + _HEADER_CTRL.format(id=1) + '</hp:run></hp:p>'
-        # 같은 구역에서 머리말을 다시 정하면 대체된다(워드는 구역당 하나) — 그림이 둘로 늘지 않는다
+        # 본문이 들어간 뒤 머리말을 다시 정하면 그 자리에 이어지는 구역이 열린다(한글은 정의한 쪽부터 적용)
         '<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0">' + _HEADER_CTRL.format(id=5) + '<hp:t>본문</hp:t></hp:run></hp:p>')
     p = tmp_path / "h.hwpx"
     with zipfile.ZipFile(p, "w") as zf:
@@ -271,13 +273,16 @@ def test_header_picture_and_page_number_go_to_section_header_footer(tmp_path):
     data, stats = hwpx_docx.convert(p)
     d = Document(io.BytesIO(data))
     assert stats["headers"] == 2 and stats["page_numbers"] == 1
-    hdr = d.sections[0].header
-    assert not hdr.is_linked_to_previous
-    assert len(hdr._element.findall(".//" + qn("w:drawing"))) == 1        # 로고는 머리말에, 한 번만
+    assert len(d.sections) == 2 and d.sections[1].start_type == WD_SECTION.CONTINUOUS    # 본문 뒤 재정의 → 이어지는 구역
+    for sec in d.sections:
+        assert not sec.header.is_linked_to_previous
+        assert len(sec.header._element.findall(".//" + qn("w:drawing"))) == 1          # 구역마다 로고 한 장
     assert not d.element.body.findall(".//" + qn("w:drawing"))             # 본문에는 없다
     ftr = d.sections[0].footer
     assert [t.text for t in ftr._element.iter(qn("w:instrText"))] == ["PAGE"]
     assert ftr.paragraphs[0].text.startswith("- ") and ftr.paragraphs[0].text.endswith(" -")
+    assert d.sections[1].footer.is_linked_to_previous                       # 쪽 번호는 이어진다
+    assert round(d.sections[1].page_width.inches, 2) == round(d.sections[0].page_width.inches, 2)
     assert [q.text for q in d.paragraphs if q.text.strip()][:2] == ["사업 개요", "본문"]
 
 

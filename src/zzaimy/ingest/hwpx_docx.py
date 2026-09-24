@@ -343,6 +343,7 @@ class Converter:
         self._just_sectioned = False
         self._prev_pb_empty = None          # 직전 쪽 나눔 문단이 빈 문단이면 그 요소
         self._content_since_pb = True       # 직전 쪽 나눔 뒤에 글·표·그림이 있었는가
+        self._section_has_content = False   # 지금 구역에 본문 내용이 들어갔는가(머리말을 다시 정하면 이어지는 구역을 새로 연다)
         self.stats = {"paragraphs": 0, "tables": 0, "nested_tables": 0, "images": 0, "textboxes": 0}
 
     # -- 문단 ---------------------------------------------------------------------------------------
@@ -511,6 +512,7 @@ class Converter:
         if container is self.doc:
             self._trailing_empty = []
             self._content_since_pb = True
+            self._section_has_content = True
         for n, obj in pending:
             if n == "tbl":
                 self.table(obj, container)
@@ -544,10 +546,15 @@ class Converter:
         return hf
 
     def header_footer(self, el: ET.Element, kind: str) -> None:
-        """한글의 머리말/꼬리말(hp:header·hp:footer)을 워드 구역의 머리말/꼬리말로. 한글은 한 구역 안에서도 문단마다 다시
-        정할 수 있지만 워드·독스는 구역당 하나라 나중 정의가 앞 정의를 대체한다(대부분의 쪽이 보는 것이 나중 것).
-        실측 2026-09-25: 표지 로고 2장이 머리말에 있어 변환에서 빠졌다(회귀 검사 145 가 잡음)."""
+        """한글의 머리말/꼬리말(hp:header·hp:footer)을 워드 구역의 머리말/꼬리말로. 한글은 정의한 쪽부터 그 머리말이 적용되므로
+        본문이 이미 들어간 구역에서 다시 정하면 그 자리에 '이어지는 구역'을 열어 새 머리말을 건다(쪽 흐름은 그대로).
+        실측 2026-09-25: 표지 로고 2장이 머리말에 있어 변환에서 빠졌고(회귀 검사 145 가 잡음), 나중 정의로 덮으면 표지 로고가 사라졌다."""
+        from docx.enum.section import WD_SECTION
+
         apply = (el.get("applyPageType") or "BOTH").upper()
+        if self._section_has_content:
+            self.doc.add_section(WD_SECTION.CONTINUOUS)          # 쪽 설정은 앞 구역을 물려받고, 머리말·꼬리말은 이어져 있다
+            self._section_has_content = False
         hf = self._story(kind, apply)
         host = hf._element
         for k in list(host):
@@ -598,6 +605,7 @@ class Converter:
             self._trailing_empty = []
         section = self.doc.sections[-1] if self._first_section else self.doc.add_section()
         self._first_section = False
+        self._section_has_content = False
         w, h = _hu(page.get("width")), _hu(page.get("height"))
         if w and h:
             section.page_width, section.page_height = Emu(int(w * EMU_PER_HWPUNIT)), Emu(int(h * EMU_PER_HWPUNIT))
