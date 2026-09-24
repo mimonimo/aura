@@ -463,3 +463,33 @@ def test_plain_questions_do_not_look_like_drafting():
     assert f("회의 결과를 문서로 정리해 줘")
     assert f("안내문 작성해 줘")
     assert f("지원 신청서를 만들어 줘")
+
+
+def _cell(text: str) -> dict:
+    return {"content": [{"paragraph": {"elements": [{"textRun": {"content": text + "\n"}}]}}]}
+
+
+def test_outline_reads_tabs_tables_and_numbered_headings_of_converted_forms():
+    """한글 양식 변환본: body 가 비고 tabs 에 내용, 제목 스타일 없이 번호 문단, 본문은 표 — 그래도 절과 글이 보여야 한다."""
+    content = [
+        {"startIndex": 0, "endIndex": 1, "sectionBreak": {}},
+        _para(1, "Ⅰ. 사업추진 목표\n"),
+        _para(12, "1. 대학의 여건 및 AI·DX 특성화 방향\n"),
+        _para(36, "1.1. 대학의 AI·DX 교육여건 분석\n"),
+        {"startIndex": 57, "endIndex": 90, "table": {"tableRows": [{"tableCells": [_cell("【작성방법】")]},
+                                                                  {"tableCells": [_cell("1) 지역 동향을 기술")]}]}},
+        _para(90, "\n"),
+        _para(91, "2026. 4.\n"),
+        _para(100, "1.2. 대학의 AI·DX 특성화 방향\n"),
+        _para(120, "\n"),
+    ]
+    doc = {"documentId": "d", "title": "작성서식 작업본", "body": {"content": []},
+           "tabs": [{"documentTab": {"body": {"content": content}}}]}
+    info = gdocs.outline(doc)
+    heads = [(s["index"], s["level"], s["heading"]) for s in info["sections"]]
+    assert heads == [(1, 1, "Ⅰ. 사업추진 목표"), (2, 2, "1. 대학의 여건 및 AI·DX 특성화 방향"),
+                     (3, 3, "1.1. 대학의 AI·DX 교육여건 분석"), (4, 3, "1.2. 대학의 AI·DX 특성화 방향")]
+    sec = info["sections"][2]
+    assert "【작성방법】" in info["text"] and "1) 지역 동향을 기술" in info["text"]
+    assert sec["chars"] > 0 and sec["end"] == 100          # 삽입 자리는 표가 아니라 그 뒤 문단 끝('2026. 4.' 문단)
+    assert info["end"] == 121
