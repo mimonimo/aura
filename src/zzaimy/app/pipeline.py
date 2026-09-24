@@ -1340,6 +1340,7 @@ class DocumentProcessor:
                         doc_id, status="failed",
                         error=f"같은 내용의 문서가 이미 있습니다 — #{twin['id']} {twin['filename']}"
                               f" (본문 겹침 {j['score'] * 100:.0f}%)")
+                    db.set_document_family(doc_id, family, version_of=int(twin["id"]))   # 열람은 원본 조각으로
                     return True
                 db.set_document_family(doc_id, family, version_of=j["version_of"])
                 self._last_parse_note += f" · 같은 제목 {len(siblings) + 1}판(본문 겹침 {j['score'] * 100:.0f}%)"
@@ -2088,6 +2089,7 @@ class DocumentProcessor:
                 db.update_document(
                     doc_id, status="failed",
                     error=f"같은 내용의 문서가 이미 있습니다 — #{twin['id']} {twin['filename']}")
+                db.set_document_family(doc_id, (db.get_document(doc_id) or {}).get("family"), version_of=int(twin["id"]))
                 return
         db.update_document(doc_id, status="processing")
         self._doc_public = ((db.get_document(doc_id) or {}).get("owner") == "corpus")

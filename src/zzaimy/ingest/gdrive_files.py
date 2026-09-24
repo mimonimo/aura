@@ -232,11 +232,15 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
     ext = src.suffix.lower()
     name = (doc.get("filename") or src.name)
     if ext in (".hwp", ".hwpx"):
-        chunks = db.list_doc_chunks(int(doc["id"]))
+        src_id = int(doc["id"])
+        chunks = db.list_doc_chunks(src_id)
+        if not chunks and doc.get("version_of"):                  # 중복으로 막힌 문서 — 같은 내용의 원본 조각으로
+            src_id = int(doc["version_of"])
+            chunks = db.list_doc_chunks(src_id)
         if chunks:
             from zzaimy.app.render import build_docx
 
-            assets = {Path(a["path"]).name: a["path"] for a in db.list_doc_assets(int(doc["id"])) if Path(a["path"]).exists()}
+            assets = {Path(a["path"]).name: a["path"] for a in db.list_doc_assets(src_id) if Path(a["path"]).exists()}
             data = build_docx(name, chunks, assets, extra_images=list(assets.values()))
             stem = name[: -len(ext)] if name.lower().endswith(ext) else name
             return data, stem + ".docx", CONVERT[".docx"][0], CONVERT[".docx"][1]
