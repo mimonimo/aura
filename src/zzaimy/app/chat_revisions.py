@@ -68,7 +68,7 @@ class ChatRevisions:
             context = conn.execute("SELECT * FROM chat_message_context WHERE message_id=?",
                                    (message_id,)).fetchone()
             stored = replacement or (Path(context["attachment"]) if context and context["attachment"] else None)
-            attached = message["content"].startswith("[첨부]")
+            attached = message["content"].startswith("[첨부")
             if (attached or stored) and (stored is None or not stored.is_file()):
                 raise HTTPException(400, "이전 첨부 파일을 찾을 수 없습니다. 파일을 다시 선택해 주세요.")
             criteria = json.loads(context["criteria"]) if context else []

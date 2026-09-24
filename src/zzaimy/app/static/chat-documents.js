@@ -100,6 +100,14 @@
  function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 서식 도구</label><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
  panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=e=>{panel.querySelector('iframe').src=e.target.checked?(linked.embed_url_toolbar||linked.embed_url):linked.embed_url;};panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
  panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;opener.title='문서 열기';opener.setAttribute('aria-label',opener.title);opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
+ // 플랫폼 문서(첨부·접수·기준)의 구글 열람본을 같은 자리(iframe)에 연다 — 연결 문서와 달리 에이전트 편집 대상은 아니다
+ function showViewer(v){
+   clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor chat-doc-viewer';panel.setAttribute('aria-label','문서 열람');
+   panel.innerHTML='<header><button type="button" class="secondary" data-list>목록</button><strong></strong><a target="_blank" rel="noopener">새 창 ↗</a><a data-page>플랫폼 화면</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="문서 열람"></iframe>';
+   panel.querySelector('strong').textContent=v.title;panel.querySelector('iframe').src=v.embed_url;panel.querySelector('a[target]').href=v.url;panel.querySelector('[data-page]').href=v.page;
+   panel.querySelector('[data-list]').onclick=showFiles;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
+   main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(50,false);visibility(true);fitEditor&&fitEditor();
+ }
  const createPanel=show;
  function arrangeHeader(){
    const header=panel.querySelector('header');if(header.classList.contains('doc-header-refined'))return;
@@ -188,6 +196,15 @@
          }catch(error){status.textContent=error.message;button.disabled=false;}
        };
      }
+     // 플랫폼 문서 — 이 대화의 첨부, 프로젝트의 기준·접수 문서. 클릭하면 구글 열람본(없으면 만들어서)으로 연다.
+     if(sid){try{const mine=await api('/api/chat/'+sid+'/documents');if(panel!==current)return;
+       if(mine.documents.length){status.textContent='';const head=document.createElement('p');head.className='chat-doc-group';head.textContent=(mine.project?mine.project+' · ':'')+'플랫폼 문서';body.append(head);
+         for(const d of mine.documents){const a=document.createElement('button');a.type='button';a.className='chat-doc-file';a.title=(d.kind||'')+(d.status?' · '+d.status:'');
+           const tag=document.createElement('span');tag.className='chat-doc-tag';tag.textContent=d.group;a.append(tag,document.createTextNode(d.name));body.append(a);
+           a.onclick=async()=>{a.disabled=true;status.textContent='구글 열람본을 여는 중…';
+             try{const g=await api('/api/doc/'+d.id+'/google');if(panel!==current)return;showViewer({title:d.name,embed_url:g.embed_url,url:g.url,page:d.page});}
+             catch(error){status.textContent=error.message;a.disabled=false;}};}}
+     }catch(error){}}
      const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='기존 문서 연결';connectButton.onclick=connect;body.append(connectButton);
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }

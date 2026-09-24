@@ -28,3 +28,12 @@ main.chat-doc-open.chat-doc-closing>.chat-doc-editor{flex-basis:0!important;widt
 main.chat-doc-open.chat-doc-closing>#chatWorkspace{flex-basis:100%!important;width:100%!important}
 main.chat-doc-open.chat-doc-closing>.chat-doc-divider{opacity:0;transition:opacity .2s ease}
 @media(prefers-reduced-motion:reduce){main.chat-doc-open>#chatWorkspace,main.chat-doc-open>.chat-doc-editor{transition:none}}
+
+/* 문서함 목록의 플랫폼 문서 구역 */
+.chat-doc-group{margin:10px 0 4px;font-size:12px;color:var(--faint)}
+button.chat-doc-file.chat-doc-file{display:flex!important;align-items:center;gap:8px;margin-bottom:6px}
+.chat-doc-viewer header{display:flex;align-items:center;gap:8px}
+.chat-doc-viewer header strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-doc-viewer iframe{flex:1;width:100%;border:0;min-height:60vh}
+.chat-doc-tag{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--surface-2,#eef1f5);color:var(--faint);flex:none}
+

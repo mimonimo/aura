@@ -174,7 +174,7 @@
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
       {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | md_view | cite_links(sources) }}</div>
-      {% else %}<div class="msg user">{{ m.content }}</div>{% endif %}
+      {% else %}<div class="msg user">{{ m.content | attach_view }}</div>{% endif %}
       {% endif %}
       {% if m.role == "assistant" %}
       <div class="turn-acts {{ 'always' if loop.last and not waiting else '' }}">
@@ -206,7 +206,7 @@
   <div class="dock-chips" id="dockChips"></div>
   <div id="criteriaInputs" hidden></div>
   <div class="dock-row">
-    <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md">
+    <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
     <input type="hidden" name="external" id="extField" value="">
     <button type="button" class="dock-btn" id="attachButton" title="도구 추가" aria-label="도구 추가" aria-expanded="false" aria-controls="chatTools"><iconify-icon icon="solar:add-linear"></iconify-icon></button>
     <div id="chatTools" class="chat-tools" popover aria-label="채팅 도구">
