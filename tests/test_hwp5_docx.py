@@ -29,7 +29,7 @@ XML = f"""<HwpDoc version="5.0.3.0"><DocInfo><IdMappings ko-fonts="1" charshapes
 <Style local-name="바탕글" name="Normal"/><Style local-name="개요 1" name="Outline 1"/>
 <BinData><BinDataEmbedding storage-id="BIN0001" ext="bmp">{PNG}</BinDataEmbedding></BinData>
 </DocInfo><BodyText><Section>
-<Paragraph parashape-id="1" style-id="1" new-page="0"><LineSeg><SectionDef><PageDef width="59528" height="84188" left-offset="5669" right-offset="5669" top-offset="4251" bottom-offset="2834" header-offset="2834" footer-offset="2834" bookbinding-offset="0"/></SectionDef><Text charshape-id="1">사업 개요</Text></LineSeg></Paragraph>
+<Paragraph parashape-id="1" style-id="1" new-page="0"><LineSeg><SectionDef><PageDef width="59528" height="84188" left-offset="5669" right-offset="5669" top-offset="4251" bottom-offset="2834" header-offset="2834" footer-offset="2834" bookbinding-offset="0"/></SectionDef><Text charshape-id="1">AIDX 사업 개요</Text></LineSeg></Paragraph>
 <Paragraph parashape-id="0" style-id="0" new-page="0"><LineSeg><Text charshape-id="0">첫 줄</Text><ControlChar name="LINE_BREAK"/><Text charshape-id="0">둘째 줄</Text></LineSeg></Paragraph>
 <Paragraph parashape-id="0" style-id="0" new-page="0"><LineSeg><TableControl inline="1" width="40000" height="2000"><TableBody rows="2" cols="2" borderfill-id="2"><TableRow>
 <TableCell col="0" row="0" colspan="2" rowspan="1" width="40000" height="1000" borderfill-id="2" valign="middle"><Paragraph parashape-id="0" style-id="0"><LineSeg><Text charshape-id="1">제목 칸</Text></LineSeg></Paragraph></TableCell></TableRow><TableRow>
@@ -48,6 +48,7 @@ def test_hwp5_xml_converts_like_hwpx(tmp_path):
     d = Document(io.BytesIO(data))
     h = d.paragraphs[0]
     assert h.style.name.startswith("Heading") and h.runs[0].bold and h.runs[0].font.size.pt == 16
+    assert h.text == "AI·DX 사업 개요"                          # 사설 영역 글리프는 가운뎃점으로
     assert not h.runs[0].font.underline                        # pyhwp 의 정의 안 된 밑줄 값은 밑줄이 아니다
     assert len(d.paragraphs[1]._p.findall(".//" + qn("w:br"))) == 1
     t = d.tables[0]

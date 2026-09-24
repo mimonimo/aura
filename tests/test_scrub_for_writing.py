@@ -40,3 +40,12 @@ def test_name_lists_are_masked_even_without_a_label():
     assert "박재훈" not in out and "김장환" not in out and "이재용" not in out and "[KR_NAME]" in out and "기계학관" in out
     keep = masker.mask(RawDocument(doc_id="t", text="권역: 수도권, 충청권, 호남권, 영남권"))[0].text
     assert keep == "권역: 수도권, 충청권, 호남권, 영남권"
+
+
+def test_name_list_rule_ignores_ordinary_word_lists():
+    from zzaimy.ingest.pii import PiiMasker, RawDocument
+
+    masker = PiiMasker()
+    for text in ("수도권(서울·인천·경기)을 제외한 지역", "자연 과학, 경제, 사회, 문화 사회 과학분야", "지역의 제조, 상업, 서비스 현황",
+                 "타대학, 기업, 병원, 기관, 연구소, 지자체 등"):
+        assert masker.mask(RawDocument(doc_id="t", text=text))[0].text == text
