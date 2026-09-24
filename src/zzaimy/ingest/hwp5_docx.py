@@ -181,7 +181,7 @@ def _translate_control(node: ET.Element, run: ET.Element) -> None:
         sub = ET.SubElement(hf, "subList")
         for pl in node:
             if pl.tag.endswith("ParagraphList"):
-                for para in pl.findall("Paragraph"):
+                for para in _paras(pl):
                     sub.append(_translate_paragraph(para))
     elif tag == "PageNumberPosition":
         ctrl = ET.SubElement(run, "ctrl")
@@ -263,6 +263,17 @@ def _append_text(t: ET.Element, text: str) -> None:
         t.text = (t.text or "") + text
 
 
+def _paras(el: ET.Element) -> list[ET.Element]:
+    """요소 바로 아래 문단 + 다단(ColumnSet) 아래 문단 — 셀·글상자·머리말도 다단일 수 있다(실측 2026-09-25: 셀 다단 안의 그림 누락)."""
+    out: list[ET.Element] = []
+    for ch in el:
+        if ch.tag == "Paragraph":
+            out.append(ch)
+        elif ch.tag == "ColumnSet":
+            out.extend(ch.findall("Paragraph"))
+    return out
+
+
 def _translate_table(tc_el: ET.Element) -> ET.Element:
     body = tc_el.find("TableBody")
     tbl = ET.Element("tbl", {"rowCnt": (body.get("rows") if body is not None else "0") or "0",
@@ -275,7 +286,7 @@ def _translate_table(tc_el: ET.Element) -> ET.Element:
         for cell in row.findall("TableCell"):
             tc = ET.SubElement(tr, "tc", {"borderFillIDRef": cell.get("borderfill-id") or ""})
             sub = ET.SubElement(tc, "subList", {"vertAlign": (cell.get("valign") or "top").upper().replace("MIDDLE", "CENTER")})
-            for para in cell.findall("Paragraph"):
+            for para in _paras(cell):
                 sub.append(_translate_paragraph(para))
             ET.SubElement(tc, "cellAddr", {"rowAddr": cell.get("row") or "0", "colAddr": cell.get("col") or "0"})
             ET.SubElement(tc, "cellSpan", {"rowSpan": cell.get("rowspan") or "1", "colSpan": cell.get("colspan") or "1"})
@@ -322,7 +333,7 @@ def _translate_component(comp: ET.Element, holder: ET.Element, inline: str, widt
         ET.SubElement(rect, "lineShape", {"style": style})
         draw = ET.SubElement(rect, "drawText")
         sub = ET.SubElement(draw, "subList", {"vertAlign": (tpl.get("valign") or "top").upper().replace("MIDDLE", "CENTER")})
-        for para in tpl.findall("Paragraph"):
+        for para in _paras(tpl):
             sub.append(_translate_paragraph(para))
 
 

@@ -93,3 +93,21 @@ def test_hwp5_header_and_page_number_controls(tmp_path):
     assert d.sections[0].header.paragraphs[0].text == "영남이공대학교"
     assert [t.text for t in d.sections[0].footer._element.iter(qn("w:instrText"))] == ["PAGE"]
     assert d.paragraphs[0].text == "AI·DX 사업 개요"                       # 본문은 그대로
+
+
+def test_paragraphs_under_a_column_set_inside_a_cell_are_kept(tmp_path):
+    """셀이 다단(ColumnSet)이면 그 아래 문단·그림도 옮긴다."""
+    xml = XML.replace(
+        '<TableCell col="1" row="1" colspan="1" rowspan="1" width="30000" height="1000" borderfill-id="2" valign="top"><Paragraph parashape-id="0" style-id="0"><LineSeg><Text charshape-id="0">오른쪽</Text></LineSeg></Paragraph></TableCell>',
+        '<TableCell col="1" row="1" colspan="1" rowspan="1" width="30000" height="1000" borderfill-id="2" valign="top"><ColumnSet>'
+        '<Paragraph parashape-id="0" style-id="0"><LineSeg><Text charshape-id="0">다단 오른쪽</Text></LineSeg></Paragraph>'
+        '<Paragraph parashape-id="0" style-id="0"><LineSeg><GShapeObjectControl inline="1" width="4000" height="4000"><ShapeComponent width="4000" height="4000">'
+        '<ShapePicture><PictureInfo bindata-id="1"/></ShapePicture></ShapeComponent></GShapeObjectControl></LineSeg></Paragraph></ColumnSet></TableCell>')
+    assert xml != XML
+    p = tmp_path / "cs.xml"
+    p.write_text(xml, encoding="utf-8")
+    data, stats = hwp5_docx.convert_xml(p)
+    d = Document(io.BytesIO(data))
+    assert stats["images"] == 2
+    cell = d.tables[0].cell(1, 1)
+    assert "다단 오른쪽" in cell.text and cell._tc.findall(".//" + qn("w:drawing"))

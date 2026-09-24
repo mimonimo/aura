@@ -868,8 +868,13 @@ class Converter:
         width = Emu(int(min(max(w, 2000), 45000) * EMU_PER_HWPUNIT))
         if para is None:
             para = container.add_paragraph()
+        meta = metafile_kind(data)
         try:
-            para.add_run().add_picture(io.BytesIO(data), width=width)
+            if meta:
+                _add_metafile(para, data, width, *meta)     # WMF·EMF(체크 표시 같은 작은 그림) — 독스는 그대로 받아 그린다(왕복 실측 2026-09-25)
+                self.stats["metafiles"] = self.stats.get("metafiles", 0) + 1
+            else:
+                para.add_run().add_picture(io.BytesIO(data), width=width)
             self.stats["images"] += 1
         except Exception as e:
             self.stats.setdefault("image_errors", []).append(f"{type(e).__name__}: {e} member={member} head={data[:6]!r} len={len(data)}"[:200])
@@ -1018,6 +1023,44 @@ def normalize_image(data: bytes) -> bytes:
         return out if len(out) < len(data) or not ok_head else data
     except Exception:
         return data
+
+
+def metafile_kind(data: bytes) -> tuple[str, tuple[int, int]] | None:
+    """WMF(placeable·표준)·EMF 이면 (종류, (가로, 세로)) — Pillow 는 머리에서 크기만 읽고 그리지는 못한다(리눅스에 렌더러 없음)."""
+    head = data[:4]
+    if head in (b"\xd7\xcd\xc6\x9a", b"\x01\x00\x09\x00", b"\x02\x00\x09\x00"):
+        kind = "wmf"
+    elif head == b"\x01\x00\x00\x00" and data[40:44] == b" EMF":
+        kind = "emf"
+    else:
+        return None
+    size = (100, 100)
+    try:
+        from PIL import Image
+
+        size = Image.open(io.BytesIO(data)).size
+    except Exception:
+        pass
+    return kind, (max(size[0], 1), max(size[1], 1))
+
+
+def _add_metafile(para, data: bytes, width, kind: str, size: tuple[int, int]) -> None:
+    """메타파일을 원본 그대로 그림 부품으로 넣는다. python-docx 는 PNG·JPEG 등만 받으므로 같은 비율의 빈 PNG 로 자리를 만들고
+    그 부품의 내용·형식·이름을 메타파일로 바꾼다. 워드·독스는 image/x-wmf·x-emf 부품을 그린다."""
+    from docx.opc.packuri import PackURI
+    from PIL import Image
+
+    w, h = size
+    scale = min(1.0, 200 / max(w, h))
+    ph = io.BytesIO()
+    Image.new("RGB", (max(1, int(w * scale)), max(1, int(h * scale))), "white").save(ph, format="PNG")
+    run = para.add_run()
+    run.add_picture(io.BytesIO(ph.getvalue()), width=width)
+    rid = run._r.xpath(".//a:blip/@r:embed")[0]
+    part = para.part.related_parts[rid]
+    part._blob = data
+    part._content_type = "image/x-wmf" if kind == "wmf" else "image/x-emf"
+    part._partname = para.part.package.next_partname(f"/word/media/image%d.{kind}")
 
 
 def _para_has_content(para) -> bool:
