@@ -67,6 +67,9 @@ def convert(src: Path | str, timeout_s: int = 900) -> tuple[bytes, dict]:
         stats = {"images": 0, "images_dropped": 0, "tables": html.count("<table")}
         # pyhwp 는 취소선을 글자 모양마다 거의 다 켜서 낸다(실측 2026-09-24: 서식 442곳, 제목까지 줄이 그어짐) — 뺀다
         css = re.sub(r"\s*text-decoration:\s*line-through;", "", css)
+        # 화면용 꾸밈(회색 바탕·종이 테두리)은 독스에서 쪽 바탕이 회색으로 보인다 — 뺀다
+        css = re.sub(r"body\s*\{[^}]*\}", "body { margin: 0; }", css, count=1)
+        css = re.sub(r"\.Paper\s*\{[^}]*\}", ".Paper { background-color: #fff; }", css, count=1)
         html = _HEAD_FOOT.sub("", html)
         html = _BR_CR.sub("", html)
         html = _LINK.sub(f"<style>{css}</style>", html, count=1)
