@@ -1,5 +1,64 @@
 # Codex 작업 기록
 
+## C-20260925-100 — 작업 지침/기준 자료 구조 정리
+
+Codex project.html/project-workspace.css. 중첩 탭 제거, 작업 지침과 기준 문서를
+같은 화면의 두 영역으로(좁으면1열). 적용 중 지침/새 지침 구분, 개인 메모 아님
+명시, 연결 자료 의미/원본 유지 설명. 중복 새 파일 등록 버튼 제거(대화·문서에서
+단일 반입). 사업정보/연관사업 자동 요약은 별도 기능이며 구현했다고 표시하지 않음.
+
+## C-20260925-99 — AID 작업본과 대화 불일치 긴급 점검
+
+운영 읽기 전용: 프로젝트4 대화18의 binding은 00:46/00:49 쓰기 감사 doc와
+일치. 953자/515자 삽입·치환 기록 존재하나 실제 문서 내용/배치 검증은 아직 아님.
+최근 검토 답변103은 '편집 계획(ops)은 비워 두었습니다'뿐 — 검토 결과가 아님.
+gdocs_agent 프롬프트가 검토 reply도 한두 문장으로 제한, 본문 앞12000자만 제공.
+Codex gdocs_agent.py 프롬프트: 검토 실내용/근거/미확인 구분과 잘림 명시 수정.
+Claude 긴급 요청(main.py 담당): 고정 _chat_suggestions fallback 제거하고
+chat_options만 노출. 실제 Drive 작업본과 원본 양식의 혼동/쓰기 후 재읽기 검증,
+긴 문서 대상 절 인출과 표 기입란 채우기 보강. 현재 '00' 문제 해결 선언 금지.
+
+## C-20260925-98 — 카드/알림 및 제안 실행 시 문서함 유지
+
+Codex: chat-documents.js/css, base.html 알림 마크업, platform-spaces.css.
+Google Docs 글자 배지 대신 문서 아이콘, 닫기 맨 오른쪽. 알림 제목2줄·검토/실패
+설명과 접수번호 구분, 실패만 있을 때 '알림 없음' 모순 제거. 실제 읽음 처리는 추가 안 함.
+같은 작업 문서 재선택은 connect/read API 재호출 생략(현재 연결 정보 사용).
+합성 Chrome 검증: 제안 전송 전후 동일 panel/iframe DOM, 열린 상태/분할 비율
+유지 확인, 미전송 입력 덮어쓰기 방지. 목록→문서→목록·비율·이미지·폴더 회귀 통과.
+실제 Google 편집기의 로딩 속도/네트워크 상태는 합성 검증 대상이 아님.
+Claude 요청: C-96~98 통합 배포. _chat_suggestions의 linked/project 기반 고정
+fallback은 사용자 의도와 다름. 답변이 제안한 chat_options만 표시하도록 변경 요청.
+
+## C-20260925-97 — 답변 제안 버튼 위치
+
+Codex chat_workspace.html/chat-workspace.css. 스크롤 영역의 별도 형제였던
+제안 목록을 마지막 assistant turn 내부로 이동. 고정 왼쪽44px 제거,
+답변 내부4px 기준 정렬, 긴 버튼 줄바꿈·좁은 분할/모바일 대응.
+마지막 메시지가 사용자이거나 응답 대기면 이전 제안 노출하지 않음.
+
+## C-20260925-96 — 대화 제안 버튼 전체 페이지 이동 제거
+
+Codex chat-workspace.js: 제안 폼 native POST 대신 기존 채팅 비동기 전송 경로로
+위임. 답변 갱신 후 제안도 이벤트 위임 유지. 작성 중 입력/첨부/질문 수정은
+덮어쓰지 않고 안내, 전송/응답 대기 중 중복 요청 차단. C-95 후속 점검.
+
+## C-20260925-95 — 불필요한 페이지 이탈 경고 수정
+
+Codex 담당 project-workspace.js/chat-workspace.js. 프로젝트 숨김 추천 질문을
+dirty 판정에서 제외하고 실제 입력 초기값 비교. 취소된 제출·뒤로 복귀 시 보호 유지.
+채팅 질문 수정창도 열기만 한 상태는 경고하지 않고 실제 변경/첨부만 검사.
+Claude의 hwpx_docx.py/test_hwpx_docx.py 진행 변경 보존.
+추가 사용자 요청: 프로젝트의 고정 다음 작업 제안 제거(project.html).
+Claude가 이미 구현한 대화 답변 아래 chat-suggestions 경로 유지: 답변에서
+낸 선택지 우선, 없으면 작업 문서/프로젝트 상태 기반. main.py 안내 문구 중
+"프로젝트 화면의 다음 작업 제안"도 대화 안내로 변경 요청(Claude 담당).
+검증: 프로젝트 UI/bundle pytest29개, node project_navigation_guard 회귀1개 통과.
+회귀: 초기/숨김 추천/되돌림 경고 없음, 변경 있음 경고, 다른 폼 제출에도
+미저장 입력 보호, 취소된 제출/뒤로 복귀 보호 확인. JS 문법/diff 검사 통과.
+Claude 통합 배포 요청: project-workspace.js/chat-workspace.js/project.html 및
+관련 tests. 운영 반영은 아직 확인하지 않음.
+
 ## C-20260924-94 — 작업 문서와 참고·첨부 분리
 
 Codex JS/CSS: Drive Google Docs는 작업 문서, 플랫폼 접수/기준/첨부는
@@ -1303,4 +1362,3 @@ Claude 추가 (2026-09-25 새벽, 대화 선택지): 답변 아래에 상황별 
 `.chat-suggestions`(컨텍스트 `suggestions`: [{kind, text, question}], 각 항목은 `POST /chat/send` 폼, `waiting` 이면 안 보임) 와
 `/chat/{sid}/messages` JSON 의 `suggestions`. 답변이 직접 낸 선택지(문서 고르기·판독·다음 절)가 먼저, 없으면 프로젝트 제안. 칩 모양은
 chat-workspace.css 에 임시로 넣었으니 디자인에 맞춰 다듬어 달라(C-80 항목에 추가).
-

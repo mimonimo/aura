@@ -994,36 +994,20 @@ def create_app(
         db.set_setting(f"chat_options:{session_id}", _aj.dumps(options[:4], ensure_ascii=False) if options else "")
 
     def _chat_suggestions(session_: dict | None, owner: str) -> list[dict]:
-        """대화 안에 선택지처럼 띄우는 다음 작업(사용자 지시 2026-09-25: 클로드가 선택지 주듯이).
+        """대화 안에 선택지처럼 띄우는 다음 작업(사용자 지시 2026-09-25: 클로드가 선택지 주듯이, 작업 맥락에서 입력이 필요할 때만).
 
-        프로젝트 제안(양식으로 작성 시작·그림 쪽 판독)에 더해, 문서가 이어져 있으면 '이어서 다음 절 채우기', 프로젝트가 없으면
-        '문서 세트로 프로젝트 만들기'. 질문 그대로 보낼 수 있게 question 을 함께 준다."""
+        답변이 직접 낸 선택지(chat_options)만 보인다 — 프로젝트·연결 문서 상태로 만든 고정 제안은 두지 않는다(2026-09-25, C-99).
+        질문 그대로 보낼 수 있게 question 을 함께 준다."""
         if not session_:
             return []
         raw = db.get_setting(f"chat_options:{session_['id']}", "") or ""
-        if raw:
-            try:
-                opts = _aj.loads(raw)
-                if opts:
-                    return opts[:4]                      # 답변이 직접 낸 선택지가 먼저
-            except Exception:
-                pass
-        out: list[dict] = []
-        pid = int(session_["project_id"]) if session_.get("project_id") else None
-        project = db.get_project(pid) if pid else None
-        linked = bool((db.get_setting(f"chat_google_doc:{session_['id']}", "") or "").strip("{} "))
-        if linked:
-            out.append({"kind": "continue", "text": "이어서 다음 절 채우기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"})
-            out.append({"kind": "review", "text": "지금까지 쓴 내용 검토", "question": "작업본에서 지금까지 쓴 절을 공고·평가지표 기준으로 검토해 줘"})
-        for sg in _project_suggestions(project):
-            if sg["kind"] == "draft" and linked:
-                continue
-            out.append(sg)
-        if project and not linked:
-            out.append({"kind": "ask", "text": "공고 요건 확인", "question": f"{project['name']}의 신청 자격·지원 규모·기한을 공고 기준으로 알려 줘"})
-        if not project:
-            out.append({"kind": "project", "text": "문서 세트로 프로젝트 만들기", "question": "공고·기본계획·양식 파일을 첨부하면 프로젝트를 만들어 줘"})
-        return out[:4]
+        if not raw:
+            return []
+        try:
+            opts = _aj.loads(raw)
+        except Exception:
+            return []
+        return (opts or [])[:4]
 
     def _project_suggestions(project: dict | None) -> list[dict]:
         """다음 작업 제안 — 무조건 돌리지 않고 알림처럼 내민다(사용자 지시 2026-09-24).
@@ -1247,7 +1231,7 @@ def create_app(
             lines = [f"[첨부#{d}] {storage.title_of((db.get_document(d) or {}).get('filename') or '')}" for d in [*made["criteria"], *made["intake"]]]
             db.add_chat(session_id, "user", "\n".join(lines) + "\n" + q)
             note = (f"프로젝트 「{made_project['name']}」 을 만들었습니다 — 기준 문서 {len(made['criteria'])}건, 접수 문서 {len(made['intake'])}건. "
-                    f"추출이 끝나면 프로젝트 화면의 '다음 작업 제안'에서 양식으로 작성을 시작하거나 그림 쪽 판독을 고를 수 있습니다.")
+                    f"추출이 끝나면 아래 선택지로 양식 작성을 시작하거나 그림 쪽 판독을 요청할 수 있습니다.")
             if past:
                 note += " 지난 자료 " + ", ".join(f"「{storage.title_of(d.get('filename') or '')}」" for d in past[:4]) + " 을 기준으로 이었습니다."
             db.add_chat(session_id, "assistant", note)

@@ -114,6 +114,6 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 @media(max-width:950px) { body .chat-doc-editor { margin:12px; height:55dvh; } }
 
 /* 답변 아래 다음 작업 제안(선택지) */
-.chat-suggestions{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px 44px}
-.chat-suggestion{display:inline}
-.chat-suggestion button{border-radius:999px;padding:6px 12px;font-size:13px}
+#chatScroll .chat-suggestions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 4px 0;max-width:100%;align-self:stretch}
+#chatScroll .chat-suggestion{display:flex;margin:0;min-width:0;max-width:100%}
+#chatScroll .chat-suggestion button{border-radius:999px;padding:8px 14px;font-size:13px;line-height:1.5;white-space:normal;overflow-wrap:anywhere;text-align:left;height:auto;min-height:36px}
