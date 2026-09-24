@@ -217,3 +217,24 @@ def test_adjacent_tables_get_a_separator_paragraph(tmp_path):
     for a, b in zip(body, body[1:]):
         assert not (a == "tbl" and b == "tbl"), body                   # 표가 바로 붙어 있지 않다
     assert stats["tables"] == 3
+
+
+def test_picture_only_paragraph_survives_page_break_cleanup(tmp_path):
+    """그림만 든 문단은 빈 문단이 아니다 — 쪽 나눔 앞 정리에서 지워지면 안 된다."""
+    import io as _io
+
+    from PIL import Image
+
+    buf = _io.BytesIO(); Image.new("RGB", (8, 8), "white").save(buf, format="PNG")
+    section = SECTION.replace('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>첫 줄<hp:lineBreak/>둘째 줄</hp:t></hp:run></hp:p>',
+                              '<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:pic><hp:pos treatAsChar="1"/><hp:curSz width="4000" height="4000"/>'
+                              '<hp:img binaryItemIDRef="image1"/></hp:pic></hp:run></hp:p>'
+                              '<hp:p paraPrIDRef="0" pageBreak="1"><hp:run charPrIDRef="0"><hp:t>다음 쪽</hp:t></hp:run></hp:p>')
+    p = tmp_path / "pic.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+        zf.writestr("BinData/image1.png", buf.getvalue())
+    data, stats = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    assert stats["images"] == 1
+    assert d.element.body.find(".//" + qn("w:drawing")) is not None
