@@ -4,7 +4,7 @@
 문서를 만들어 대화에 이어야 한다. 허용 범위에 drive.file 이 필요하다(이 앱이 만든 파일만 다룬다 — 사용자의 다른
 파일은 여전히 읽기 전용 범위로만 본다).
 
-폴더 규칙: ZZAIMY/<연도>/<프로젝트 이름 또는 대화 제목>/ . 같은 이름 폴더가 있으면 다시 만들지 않는다.
+폴더 규칙: ZZAIMY/<연도>/<프로젝트 이름>/ , 프로젝트가 없으면 ZZAIMY/<연도>/기타/ . 같은 이름 폴더가 있으면 다시 만들지 않는다.
 """
 
 from __future__ import annotations
@@ -76,8 +76,12 @@ def create_document(email: str, title: str, folder_id: str | None = None, body: 
     return doc_id
 
 
-def project_parts(project_name: str | None, chat_title: str) -> list[str]:
-    name = (project_name or chat_title or "대화").strip()[:60] or "대화"
+OTHER_FOLDER = "기타"
+
+
+def project_parts(project_name: str | None, chat_title: str = "") -> list[str]:
+    """폴더 경로 — 프로젝트가 있으면 ZZAIMY/<연도>/<프로젝트>, 없으면 ZZAIMY/<연도>/기타 (대화마다 폴더를 만들면 드라이브가 어지럽다)."""
+    name = (project_name or "").strip()[:60] or OTHER_FOLDER
     return [ROOT_FOLDER, f"{datetime.now():%Y}", name]
 
 
@@ -95,3 +99,19 @@ def auto_document(db, session_id: int, owner: str, title: str, project_name: str
     doc_id = create_document(email, title, folder, http=http)
     db.set_setting(f"chat_google_doc:{session_id}", json.dumps({"doc": doc_id, "account": email}))
     return {"doc": doc_id, "account": email, "folder": folder, "url": f"https://docs.google.com/document/d/{doc_id}/edit"}
+
+
+def rename_document(email: str, doc_id: str, title: str, http=None) -> dict:
+    """드라이브 문서 이름을 바꾼다(구글 독스 제목도 같이 바뀐다). 이 앱이 만든 파일이거나 사용자가 연 파일이어야 한다."""
+    http = http or gdrive._http()
+    title = (title or "").strip()[:120]
+    if not title:
+        raise ValueError("새 이름을 적어 주세요")
+    r = http.patch(f"{gdrive.API}/files/{doc_id}", headers=_headers(email, http),
+                   params={"supportsAllDrives": "true", "fields": "id,name"}, json={"name": title})
+    if r.status_code == 403:
+        raise PermissionError("이 문서의 이름을 바꿀 권한이 없습니다 — 플랫폼이 만든 문서만 바꿀 수 있습니다")
+    if r.status_code != 200:
+        raise RuntimeError(f"이름 바꾸기 실패({r.status_code})")
+    return {"ok": True, "title": r.json().get("name", title)}
+
