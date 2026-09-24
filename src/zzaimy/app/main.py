@@ -802,7 +802,9 @@ def create_app(
             return False, ""
         title = _draft_title(q)
         try:
-            made = gdrive_files.auto_document(db, session_id, owner, title, project_name=(project or {}).get("name"))
+            acct_ = accounts.get(owner, {}) if password is not None else {}
+            made = gdrive_files.auto_document(db, session_id, owner, title, project_name=(project or {}).get("name"),
+                                              dept=acct_.get("dept") or None)
         except PermissionError as e:
             return False, f"{e} 그 뒤 다시 요청하면 문서를 만들어 바로 씁니다."
         except Exception as e:
@@ -839,6 +841,21 @@ def create_app(
                     db.rename_chat_session(session_id, new_name.strip()[:60])
                 except Exception:
                     pass
+            move_to = next((o.get("text") for o in _ops if o.get("op") == "move" and (o.get("text") or "").strip()), "")
+            if move_to and not confirm:
+                proj = _project_by_name(owner, move_to)
+                if proj is None:
+                    text += f"\n- 프로젝트 「{move_to}」 를 찾지 못해 옮기지 않았습니다"
+                else:
+                    try:
+                        from zzaimy.ingest import gdrive_files
+
+                        db.set_chat_project(session_id, int(proj["id"]))
+                        acct_ = accounts.get(owner, {}) if password is not None else {}
+                        gdrive_files.move_to_project(db, session_id, proj["name"], dept=acct_.get("dept") or None)
+                        text += f"\n- 드라이브 문서를 「{proj['name']}」 폴더로 옮기고 대화를 그 프로젝트에 넣었습니다"
+                    except Exception as e:
+                        text += f"\n- 문서를 옮기지 못했습니다({type(e).__name__})"
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
 
@@ -2801,7 +2818,10 @@ def create_app(
             email = gdrive.exchange_code(code, state, _gdrive_redirect_uri(request))
         except ValueError as e:
             return _nas_redirect(str(e), ok=False)
-        return _nas_redirect(f"구글 계정 {email} 을 허용했습니다 — 드라이브 폴더를 원천으로 등록할 수 있습니다")
+        from zzaimy.ingest import gdrive_files
+
+        gdrive_files.bind_account(db, getattr(request.state, "user", ""), email)   # 허용을 누른 계정에 묶인다
+        return _nas_redirect(f"구글 계정 {email} 을 허용했습니다 — 이 플랫폼 계정의 문서는 그 드라이브에 만들어집니다")
 
     # ---- 문서 작업 — 구글 독스를 화면 안에 두고 에이전트가 같은 문서를 읽고, 담당자가 누른 자리에만 쓴다(ADR-0029) ----
 
@@ -2901,6 +2921,37 @@ def create_app(
             return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
         msg = f"{r['count']}곳을 바꿨습니다"
         return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'ok': msg})}", status_code=303)
+
+    @app.post("/chat/{session_id}/project")
+    def chat_set_project(request: Request, session_id: int, project_id: int = Form(0)):
+        """대화를 프로젝트에 넣는다(0 이면 뺀다). 이어진 드라이브 문서는 프로젝트 폴더로(없으면 기타로) 따라 옮긴다."""
+        from zzaimy.ingest import gdrive_files
+
+        _owned_chat(request, session_id)
+        owner = getattr(request.state, "user", "zzaimy")
+        proj = db.get_project(project_id) if project_id else None
+        if project_id and (not proj or proj.get("owner") != owner):
+            raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
+        db.set_chat_project(session_id, int(project_id) if proj else None)
+        moved = None
+        try:
+            acct_ = accounts.get(owner, {}) if password is not None else {}
+            moved = gdrive_files.move_to_project(db, session_id, (proj or {}).get("name"), dept=acct_.get("dept") or None)
+        except Exception as e:
+            db.add_chat(session_id, "assistant", f"대화는 프로젝트에 넣었지만 드라이브 문서는 옮기지 못했습니다({type(e).__name__}).")
+        if moved:
+            db.add_chat(session_id, "assistant", f"드라이브 문서를 「{moved['project']}」 폴더로 옮겼습니다.")
+        return {"ok": True, "project_id": int(project_id) if proj else None, "moved": bool(moved)}
+
+    def _project_by_name(owner: str, name: str) -> dict | None:
+        from zzaimy.app.project_search import search as _ps
+
+        want = (name or "").strip()
+        if not want:
+            return None
+        hits = _ps(db, owner, want).get("projects", [])
+        exact = [p for p in hits if p["name"].strip() == want]
+        return (exact or hits or [None])[0]
 
     @app.post("/api/chat-documents/create")
     def chat_doc_create(request: Request, session_id: int | None = Form(None), title: str = Form(""),
