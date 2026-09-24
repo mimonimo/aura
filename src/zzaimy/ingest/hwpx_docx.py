@@ -759,25 +759,36 @@ def _column_grid(rows, cells_info):
     return col_hu, out
 
 
+IMAGE_MAX_SIDE = 1600          # 문서 그림의 긴 변 상한(px) — 한글 문서의 그림은 2~8MB 가 흔해 독스 문서가 커진다(내보내기 10MB 한도)
+IMAGE_BIG_BYTES = 400_000
+
+
 def normalize_image(data: bytes) -> bytes:
-    """워드가 받는 그림으로 — BMP 등은 PNG 로, JFIF·Exif 머리가 아닌 JPEG(ICC 프로필 APP2 로 시작, 실측 2026-09-24 사업계획서 10장)는
-    다시 저장한다. python-docx 는 머리를 보고 형식을 알아내서 이런 파일을 UnrecognizedImageError 로 거절한다."""
+    """워드·독스가 받는 그림으로 — BMP 등은 PNG 로, JFIF·Exif 머리가 아닌 JPEG(ICC 프로필 APP2 로 시작, 실측 2026-09-24 사업계획서
+    10장)는 다시 저장하고, 큰 그림은 긴 변 1600px·JPEG(투명하면 PNG)로 줄인다. python-docx 는 머리를 보고 형식을 알아낸다."""
     head = data[:4]
-    if head.startswith(b"\x89PNG") or head in (b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1"):
+    ok_head = head.startswith(b"\x89PNG") or head in (b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1")
+    if ok_head and len(data) <= IMAGE_BIG_BYTES:
         return data
     try:
         from PIL import Image
 
         im = Image.open(io.BytesIO(data))
         im.load()
+        w, h = im.size
+        scale = min(1.0, IMAGE_MAX_SIDE / max(w, h))
+        if scale < 1.0:
+            im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+        elif ok_head and len(data) <= IMAGE_BIG_BYTES * 4 and (im.format or "").upper() in ("PNG", "JPEG"):
+            return data                                    # 크지 않은 정상 그림은 그대로
         buf = io.BytesIO()
-        if (im.format or "").upper() == "JPEG":
-            im.convert("RGB").save(buf, format="JPEG", quality=90)
+        transparent = im.mode in ("RGBA", "LA", "P") and (im.mode != "P" or "transparency" in im.info)
+        if transparent:
+            im.convert("RGBA").save(buf, format="PNG", optimize=True)
         else:
-            if im.mode not in ("RGB", "RGBA", "L"):
-                im = im.convert("RGBA")
-            im.save(buf, format="PNG")
-        return buf.getvalue()
+            im.convert("RGB").save(buf, format="JPEG", quality=88, optimize=True)
+        out = buf.getvalue()
+        return out if len(out) < len(data) or not ok_head else data
     except Exception:
         return data
 

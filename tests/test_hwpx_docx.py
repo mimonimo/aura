@@ -158,5 +158,22 @@ def test_normalize_image_reencodes_icc_jpeg_and_bmp():
     out = hwpx_docx.normalize_image(jpg)
     assert out[:4] in (b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1")
     buf = _io.BytesIO(); Image.new("RGB", (4, 4), "white").save(buf, format="BMP")
-    assert hwpx_docx.normalize_image(buf.getvalue())[:4] == b"\x89PNG"
+    out = hwpx_docx.normalize_image(buf.getvalue())
+    assert out[:4] in (b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1", b"\x89PNG")   # 불투명 BMP 는 JPEG, 투명이면 PNG — 워드가 받는 형식이면 된다
     assert hwpx_docx.normalize_image(b"not an image") == b"not an image"
+
+
+def test_normalize_image_downscales_large_pictures():
+    import io as _io
+
+    from PIL import Image
+
+    buf = _io.BytesIO(); Image.new("RGB", (4000, 3000), "white").save(buf, format="PNG")
+    out = hwpx_docx.normalize_image(buf.getvalue())
+    im = Image.open(_io.BytesIO(out))
+    assert max(im.size) == 1600 and im.format == "JPEG"
+    buf = _io.BytesIO(); Image.new("RGBA", (3200, 100), (0, 0, 0, 0)).save(buf, format="PNG")
+    im2 = Image.open(_io.BytesIO(hwpx_docx.normalize_image(buf.getvalue())))
+    assert im2.format == "PNG" and max(im2.size) == 1600                # 투명 그림은 PNG 유지
+    small = _io.BytesIO(); Image.new("RGB", (100, 100), "white").save(small, format="PNG")
+    assert hwpx_docx.normalize_image(small.getvalue()) == small.getvalue()
