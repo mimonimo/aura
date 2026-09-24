@@ -740,6 +740,27 @@ class Database:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    def append_doc_chunks(self, doc_id: int, chunks: list[dict], replace_pages: list[int] | None = None) -> int:
+        """조각을 뒤에 덧붙인다(그림 쪽 판독). replace_pages 의 쪽에 이미 있던 '판독' 조각(bbox='vision')은 먼저 지운다."""
+        with self._conn() as conn:
+            if replace_pages:
+                conn.executemany("DELETE FROM doc_chunks WHERE doc_id = ? AND page_no = ? AND bbox = 'vision'",
+                                 [(doc_id, p) for p in replace_pages])
+            row = conn.execute("SELECT COALESCE(MAX(seq), -1) FROM doc_chunks WHERE doc_id = ?", (doc_id,)).fetchone()
+            seq = int(row[0]) + 1
+            conn.executemany(
+                "INSERT INTO doc_chunks (doc_id, seq, kind, page_no, content, bbox) VALUES (?, ?, ?, ?, ?, ?)",
+                [(doc_id, seq + i, c.get("kind", "text"), c.get("page_no"), c["content"], c.get("bbox") or "vision")
+                 for i, c in enumerate(chunks)])
+        return len(chunks)
+
+    def vision_pages(self, doc_id: int) -> list[int]:
+        """이미 판독한 쪽 번호(bbox='vision' 조각이 있는 쪽)."""
+        with self._conn() as conn:
+            rows = conn.execute("SELECT DISTINCT page_no FROM doc_chunks WHERE doc_id = ? AND bbox = 'vision' AND page_no IS NOT NULL",
+                                (doc_id,)).fetchall()
+        return sorted(int(r[0]) for r in rows)
+
     def replace_doc_chunks(self, doc_id: int, chunks: list[dict]) -> None:
         """파싱 산출 조각 교체 저장 — {kind, page_no, content} 목록."""
         with self._conn() as conn:

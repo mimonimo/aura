@@ -61,8 +61,13 @@
    main.classList.remove('chat-doc-closing');
    panel.hidden=false;panel.classList.add('chat-doc-entering');
    main.style.setProperty('--chat-width','100%');main.classList.add('chat-doc-open');
-   const saved=Number(sessionStorage.getItem('chatDocRatio:'+sid));
-   requestAnimationFrame(()=>requestAnimationFrame(()=>{panel.classList.remove('chat-doc-entering');setRatio(saved||50,false);}));
+   const entering=panel;
+   // 목록(70:30) 또는 편집(50:50)이 지정한 현재 비율을 유지한다.
+   // 저장된 편집 폭을 여기서 다시 읽으면 목록 폭을 다음 프레임에 덮어쓴다.
+   requestAnimationFrame(()=>requestAnimationFrame(()=>{
+     if(panel!==entering||!entering.isConnected||closing)return;
+     entering.classList.remove('chat-doc-entering');setRatio(ratio,false);
+   }));
  }
  function conceal(){
    // 닫기: 문서 폭을 0으로 미끄러뜨린 뒤 숨긴다
@@ -72,6 +77,12 @@
  }
  function visibility(visible){
    if(!panel)return;
+   if(visible){
+     const close=panel.querySelector('header [data-hide],header [data-close]');
+     if(close){close.textContent='×';close.title='문서 패널 닫기';close.setAttribute('aria-label','문서 패널 닫기');close.classList.add('doc-icon-button');}
+     const back=panel.querySelector('header [data-list]');
+     if(back){back.textContent='← 문서함';back.title='문서함으로 돌아가기';back.setAttribute('aria-label',back.title);back.classList.remove('doc-icon-button');}
+   }
    if(visible)reveal();else conceal();
    if(!visible)stopResize();
    opener.setAttribute('aria-pressed',String(visible));
@@ -120,8 +131,11 @@
  // 플랫폼 문서(첨부·접수·기준)의 구글 열람본을 같은 자리(iframe)에 연다 — 연결 문서와 달리 에이전트 편집 대상은 아니다
  function showViewer(v){
    clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor chat-doc-viewer';panel.setAttribute('aria-label','문서 열람');
-   panel.innerHTML='<header><button type="button" class="secondary" data-list>목록</button><strong></strong><a target="_blank" rel="noopener">새 창 ↗</a><a data-page>플랫폼 화면</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="문서 열람"></iframe>';
-   panel.querySelector('strong').textContent=v.title;panel.querySelector('iframe').src=v.embed_url;panel.querySelector('a[target]').href=v.url;panel.querySelector('[data-page]').href=v.page;
+   panel.innerHTML='<header><button type="button" class="secondary" data-list>목록</button><strong></strong><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="문서 열람"></iframe>';
+   panel.querySelector('strong').textContent=v.title;panel.querySelector('iframe').src=v.embed_url;panel.querySelector('a[target]').href=v.url;
+   const state=document.createElement('span');state.className='chat-doc-state';
+   state.textContent=[v.original_format?originalLabel(v.original_format):'문서',v.is_doc?'변환본 보기':'미리보기','읽기 전용'].join(' · ');
+   panel.querySelector('header').after(state);
    panel.querySelector('[data-list]').onclick=showFiles;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
    // 독스 문서면 "이 문서로 작업" — 복제본을 만들어 이 대화의 작업 문서로 잇는다(원본 서식은 그대로)
    if(v.is_doc&&sid){const work=document.createElement('button');work.type='button';work.className='secondary';work.textContent='이 문서로 작업';work.title='복제본을 만들어 이 대화에 연결합니다';
@@ -197,10 +211,11 @@
    }
    visibility(true);
  }
- function fileCard(button,name,subtitle,imageUrl){
+ function originalLabel(format){const ext=(format||'').replace(/^\./,'').toLowerCase();return ['hwp','hwpx'].includes(ext)?'한글 ('+ext.toUpperCase()+')':ext?ext.toUpperCase():'문서';}
+ function fileCard(button,name,subtitle,imageUrl,originalFormat){
    button.classList.add('chat-file-card');button.title=name;button.replaceChildren();
    const visual=document.createElement('span');visual.className='chat-file-visual';
-   const format=(name.match(/\.([a-z0-9]+)$/i)?.[1]||'DOC').toUpperCase();visual.textContent=format;
+   const format=originalLabel(originalFormat||name.match(/\.([a-z0-9]+)$/i)?.[1]);visual.textContent=format;
    if(imageUrl){const img=document.createElement('img');img.src=imageUrl;img.alt='';img.loading='lazy';img.onerror=()=>img.remove();visual.append(img);}
    const copy=document.createElement('span');copy.className='chat-file-copy';
    const title=document.createElement('strong');title.textContent=name;
@@ -253,10 +268,10 @@
        if(mine.documents.length){status.textContent='';
          for(const d of mine.documents){const a=document.createElement('button');a.type='button';a.className='chat-doc-file';a.title=(d.kind||'')+(d.status?' · '+d.status:'');
            const isImage=imageFile(d.name),imageUrl='/doc/'+encodeURIComponent(d.id)+'/original';
-           fileCard(a,d.name,[d.group,d.kind,d.status].filter(Boolean).join(' · '),isImage?imageUrl:null);(isImage?images:docs).append(a);
+           fileCard(a,d.name,[d.group,d.kind,d.status,'읽기 전용'].filter(Boolean).join(' · '),isImage?imageUrl:null,d.original_format);(isImage?images:docs).append(a);
            a.onclick=async()=>{a.disabled=true;status.textContent='구글 열람본을 여는 중…';
              if(isImage){a.disabled=false;status.textContent='';previewImage(d.name,imageUrl,a);return;}
-             try{const g=await api('/api/doc/'+d.id+'/google');if(panel!==current)return;showViewer({title:d.name,embed_url:g.embed_url,url:g.url,page:d.page,doc_id:d.id,is_doc:g.mime==='application/vnd.google-apps.document'});}
+             try{const g=await api('/api/doc/'+d.id+'/google');if(panel!==current)return;const preview='https://drive.google.com/file/d/'+encodeURIComponent(g.id)+'/preview';showViewer({title:d.name,embed_url:preview,url:preview,original_format:d.original_format,page:d.page,doc_id:d.id,is_doc:g.mime==='application/vnd.google-apps.document'});}
              catch(error){status.textContent=error.message;a.disabled=false;}};}}
      }catch(error){status.textContent='프로젝트 문서를 불러오지 못했습니다. 문서함을 다시 열어 주세요.';}}
      if(data.error)status.textContent='Drive 목록: '+data.error;

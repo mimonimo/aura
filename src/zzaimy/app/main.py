@@ -739,6 +739,12 @@ def create_app(
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
         scope = ag.search_scope(dept, role, owner)
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
+        if _looks_like_reading(q):
+            target = _project_doc_named(project, session_id, q)
+            if target is not None:
+                db.add_chat(session_id, "assistant", _read_named_document(session_id, target))
+                _chat_sources[session_id] = []
+                return
         if not doc_material and _looks_like_working_on(q):
             # "작성서식으로 작업하자" 처럼 프로젝트에 있는 문서(한글 양식 등)를 지목하면 그 문서를 독스로 바꿔 잇는다
             picked = _project_doc_named(project, session_id, q)
@@ -922,6 +928,55 @@ def create_app(
         db.add_chat(session_id, "assistant", f"드라이브에 문서 「{title}」 을 만들어 이 대화에 연결했습니다. {made['url']}")
         return True, ""
 
+    def _sparse_pages_of(doc: dict) -> list[int]:
+        fn = getattr(processor, "sparse_pages", None)
+        if not fn or (doc.get("status") != "reviewed"):
+            return []
+        try:
+            return list(fn(Path(doc["stored_path"])))
+        except Exception:
+            return []
+
+    def _project_suggestions(project: dict | None) -> list[dict]:
+        """다음 작업 제안 — 무조건 돌리지 않고 알림처럼 내민다(사용자 지시 2026-09-24).
+
+        양식이 있으면 '그 양식으로 작성 시작', 글자 없는 그림 쪽이 있는 접수 문서가 있으면 '그림 쪽 판독'."""
+        if not project:
+            return []
+        out: list[dict] = []
+        docs = db.list_documents(project["sector"], project_id=int(project["id"]))
+        for d in docs:
+            title = storage.title_of(d.get("filename") or "")
+            if d.get("kind") == "form" and d.get("status") == "reviewed":
+                out.append({"kind": "draft", "doc_id": d["id"], "text": f"「{title}」 으로 작성을 시작할까요? 원본 서식은 두고 복제본에서 씁니다.",
+                            "question": f"{title}으로 작업하자"})
+        for d in docs:
+            title = storage.title_of(d.get("filename") or "")
+            pages = [p for p in _sparse_pages_of(d) if p not in set(db.vision_pages(int(d["id"])))]
+            if pages:
+                out.append({"kind": "read", "doc_id": d["id"], "text": f"「{title}」 의 {len(pages)}쪽은 그림이라 글이 없습니다. 판독해 둘까요? (쪽 {', '.join(map(str, pages[:8]))}{' …' if len(pages) > 8 else ''})",
+                            "question": f"{title} 그림 쪽 판독해 줘"})
+        return out[:6]
+
+    _READ_WORDS = re.compile(r"판독|그림\s*쪽|이미지\s*쪽")
+
+    def _looks_like_reading(q: str) -> bool:
+        return bool(_READ_WORDS.search(q or ""))
+
+    def _read_named_document(session_id: int, doc: dict) -> str:
+        """지목한 문서의 그림 쪽을 지금 판독한다(대화의 배경 작업 안에서 돈다). 결과 문장을 돌려준다."""
+        title = storage.title_of(doc.get("filename") or "")
+        fn = getattr(processor, "read_image_pages", None)
+        if not fn:
+            return f"「{title}」 판독 기능이 없습니다."
+        try:
+            res = fn(db, int(doc["id"]))
+        except Exception as e:
+            return f"「{title}」 판독에 실패했습니다({type(e).__name__})."
+        if not res.get("read"):
+            return f"「{title}」 에 판독할 그림 쪽이 없거나 판독 모델이 꺼져 있습니다. {res.get('reason') or ''}".strip()
+        return f"「{title}」 의 그림 쪽 {res['read']}쪽(쪽 {', '.join(map(str, res['pages']))})을 판독해 조각 {res.get('chunks', 0)}개를 더했습니다. 이제 그 내용으로 작성을 요청할 수 있습니다."
+
     def _project_evidence(session_id: int, q: str, limit: int = 6) -> list[dict]:
         """대화가 속한 프로젝트의 접수 문서·첨부에서 명령과 낱말이 겹치는 조각 — 명사 겹침으로 고른다(어휘 검색과 같은 키).
 
@@ -978,8 +1033,10 @@ def create_app(
         except Exception:
             hits = []
         # 프로젝트의 접수 문서(완성된 합본·지난 계획서·현황표)와 이 대화의 첨부도 근거다 — 양식을 채울 재료는 거기 있다
+        proj_hits: list[dict] = []
         try:
-            hits = _project_evidence(session_id, q, limit=6) + hits
+            proj_hits = _project_evidence(session_id, q, limit=6)
+            hits = proj_hits + hits
         except Exception:
             pass
         _chat_sources[session_id] = [{
@@ -994,6 +1051,12 @@ def create_app(
             client = VllmClient(role="answer")
             text, _ops = gdocs_agent.run(db, session_id, owner, q, link, client=client, data_dir=data_dir,
                                          scrub=ag.scrub_for_writing, evidence=hits, confirm=confirm)
+            if not _ops and not proj_hits:
+                session_ = db.get_chat_session(session_id) or {}
+                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+                reads = [sg for sg in _project_suggestions(proj_) if sg["kind"] == "read"]
+                if reads:
+                    text += "\n\n다음 작업 제안: " + " ".join(sg["text"] for sg in reads[:2]) + " 「" + reads[0]["question"] + "」 라고 하면 판독합니다."
             new_name = next((o.get("text") for o in _ops if o.get("op") == "rename" and (o.get("text") or "").strip()), "")
             if new_name and not confirm:
                 try:
@@ -4838,6 +4901,7 @@ def create_app(
             "project.html",
             ctx(request, {
                 "project": proj, "documents": docs, "active_tab": proj["sector"],
+                "suggestions": _project_suggestions(proj),
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "project_chats": db.list_project_chat_sessions(project_id),
                 "project_notes": db.list_project_notes(project_id),
@@ -5631,6 +5695,16 @@ figure img{{width:100%;display:block}}
             db.update_document(doc_id, status="processing")
             background.add_task(processor.reprocess, db, doc_id)
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
+
+    @app.post("/doc/{doc_id}/read-pages")
+    def read_pages(background: BackgroundTasks, doc_id: int):
+        """그림 쪽(글자층 없는 쪽) 판독 — 요청 시에만. 끝나면 조각이 더해지고 처리 기록에 남는다."""
+        if db.get_document(doc_id) is None:
+            raise HTTPException(404)
+        fn = getattr(processor, "read_image_pages", None)
+        if fn:
+            background.add_task(fn, db, doc_id)
+        return RedirectResponse(f"/doc/{doc_id}?reading=1", status_code=303)
 
     @app.post("/doc/{doc_id}/delete")
     def delete_doc(doc_id: int):

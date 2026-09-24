@@ -31,6 +31,7 @@ main.chat-doc-open.chat-doc-closing>.chat-doc-divider{opacity:0;transition:opaci
 
 /* 문서함 목록의 플랫폼 문서 구역 */
 .chat-doc-group{margin:10px 0 4px;font-size:12px;color:var(--faint)}
+.chat-doc-state{display:block;padding:9px 14px;border-bottom:1px solid var(--line);background:#f1f5fa;color:#52647b;font-size:12px;line-height:1.5}
 .drive-picker-path{display:flex;flex-wrap:wrap;gap:6px}
 .drive-picker-path button{font-size:12px;padding:5px 9px}
 .drive-picker-list{display:grid;gap:6px;max-height:40dvh;overflow:auto;min-height:80px}

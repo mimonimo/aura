@@ -1256,6 +1256,75 @@ class DocumentProcessor:
             self._last_parse_note = (self._last_parse_note or "") + (
                 f" · 앞 {len(pages)}쪽만 판독 (전체 {total}쪽)")
 
+    SPARSE_CHARS = 150
+
+    @staticmethod
+    def sparse_pages(file_path: Path) -> list[int]:
+        """글자층이 거의 없는 쪽(인포그래픽·표 그림) 번호 — 글자층 직독으로 들어온 문서에서 판독이 필요한 쪽."""
+        if Path(file_path).suffix.lower() != ".pdf":
+            return []
+        try:
+            import pypdfium2 as pdfium
+
+            pdf = pdfium.PdfDocument(str(file_path))
+            out = []
+            for i in range(len(pdf)):
+                text = _clean_glyphs(pdf[i].get_textpage().get_text_range() or "")
+                if len(" ".join(text.split())) < DocumentProcessor.SPARSE_CHARS:
+                    out.append(i + 1)
+            return out
+        except Exception:
+            return []
+
+    def read_image_pages(self, db: Database, doc_id: int, pages: list[int] | None = None, max_pages: int = 12) -> dict:
+        """접수 문서의 그림 쪽을 비전 모델로 판독해 조각으로 덧붙인다 — 양식을 채울 재료가 그림 쪽에 있을 때(실측 2026-09-24 합본).
+
+        글자층 직독 문서는 반입 때 판독을 거치지 않으므로 여기서 요청 시에만 읽는다. 마스킹 대상 문서면 가린다."""
+        doc = db.get_document(doc_id)
+        if not doc:
+            return {"read": 0, "pages": []}
+        path = Path(doc["stored_path"])
+        if not pages:
+            done_before = set(db.vision_pages(doc_id))
+            pages = [p for p in self.sparse_pages(path) if p not in done_before]   # 다시 부르면 다음 쪽들을 읽는다
+        pages = pages[:max_pages]
+        if not pages or not _vision_available():
+            return {"read": 0, "pages": pages, "reason": "" if pages else "판독할 그림 쪽이 없습니다"}
+        from zzaimy.app.pii_audit import is_masking_subject
+
+        mask = is_masking_subject(doc.get("doc_type") or "", doc.get("owner"))
+        mk = (lambda t: self._mask_str(t)) if mask else (lambda t: t)
+        try:
+            import pypdfium2 as pdfium
+
+            pdf = pdfium.PdfDocument(str(path))
+            out_dir = path.parent / f"{path.stem}_pages"
+            out_dir.mkdir(parents=True, exist_ok=True)
+            rendered: list[tuple[int, Path]] = []
+            for no in pages:
+                im = pdf[no - 1].render(scale=2.0).to_pil()
+                im.thumbnail((2000, 2000))
+                dest = out_dir / f"page_{no}.jpg"
+                im.convert("RGB").save(dest, quality=88)
+                rendered.append((no, dest))
+        except Exception:
+            return {"read": 0, "pages": pages, "reason": "쪽 그림을 만들지 못했습니다"}
+        chunks: list[dict] = []
+        done: list[int] = []
+        for no, img in rendered:
+            md = self._vlm_transcribe(img)
+            if not md:
+                continue
+            for c in self._md_to_chunks(md, mk, page_no=no):
+                c["bbox"] = "vision"
+                chunks.append(c)
+            done.append(no)
+        if chunks:
+            db.append_doc_chunks(doc_id, chunks, replace_pages=done)
+            note = (doc.get("parse_note") or "").split(" · 그림 쪽 판독")[0]
+            db.update_document(doc_id, parse_note=f"{note} · 그림 쪽 판독 {len(done)}쪽")
+        return {"read": len(done), "pages": done, "chunks": len(chunks)}
+
     @staticmethod
     def _pdf_to_images(file_path: Path, max_pages: int = 4) -> list[tuple[int, Path]]:
         """작은 스캔 PDF를 쪽별 PNG로 — 비전 판독용. 조건 밖이거나 실패하면 빈 목록.
