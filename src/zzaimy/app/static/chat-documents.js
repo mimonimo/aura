@@ -53,7 +53,7 @@
    if(!['ArrowLeft','ArrowRight','Home','End','Enter'].includes(event.key))return;
    event.preventDefault();setRatio(event.key==='Enter'?50:event.key==='Home'?0:event.key==='End'?100:ratio+(event.key==='ArrowLeft'?-2:2));
  });
- new ResizeObserver(()=>{if(main.classList.contains('chat-doc-open'))setRatio(ratio);}).observe(main);
+ new ResizeObserver(()=>{if(main.classList.contains('chat-doc-open'))setRatio(ratio,false);}).observe(main);
  let closing=null;
  function reveal(){
    // 열기: 채팅 폭을 100%에서 시작해 다음 프레임에 목표 비율로 — 폭·투명도가 함께 미끄러진다
@@ -176,16 +176,45 @@
    }
    visibility(true);
  }
+ function fileCard(button,name,subtitle,imageUrl){
+   button.classList.add('chat-file-card');button.title=name;button.replaceChildren();
+   const visual=document.createElement('span');visual.className='chat-file-visual';
+   const format=(name.match(/\.([a-z0-9]+)$/i)?.[1]||'DOC').toUpperCase();visual.textContent=format;
+   if(imageUrl){const img=document.createElement('img');img.src=imageUrl;img.alt='';img.loading='lazy';img.onerror=()=>img.remove();visual.append(img);}
+   const copy=document.createElement('span');copy.className='chat-file-copy';
+   const title=document.createElement('strong');title.textContent=name;
+   const detail=document.createElement('small');detail.textContent=subtitle||format;
+   copy.append(title,detail);button.append(visual,copy);
+ }
+ function previewImage(name,url,trigger){
+   const modal=document.createElement('dialog');modal.className='chat-image-preview';modal.setAttribute('aria-label',name);
+   const close=document.createElement('button');close.type='button';close.textContent='닫기';close.onclick=()=>modal.close();
+   const img=document.createElement('img');img.src=url;img.alt=name;
+   const caption=document.createElement('p');caption.textContent=name;
+   img.onerror=()=>{img.hidden=true;caption.textContent='이미지를 불러오지 못했습니다. 문서 화면에서 확인해 주세요.';};
+   modal.append(close,img,caption);document.body.append(modal);
+   modal.addEventListener('click',e=>{if(e.target===modal)modal.close();});
+   modal.addEventListener('close',()=>{modal.remove();if(trigger.isConnected)trigger.focus();});modal.showModal();
+ }
  async function showFiles(){
    clearPanel();showEmpty();setRatio(70,false);
+   panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서함';
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
    const status=document.createElement('p');status.setAttribute('role','status');status.textContent='파일을 불러오는 중…';body.append(status);
+   const docsHeading=document.createElement('h3');docsHeading.textContent='문서';
+   const docs=document.createElement('div');docs.className='chat-file-list';
+   const imagesHeading=document.createElement('h3');imagesHeading.textContent='콘텐츠';
+   const images=document.createElement('div');images.className='chat-image-grid';
+   body.append(docsHeading,docs,imagesHeading,images);
+   const imageFile=name=>/\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
    try{
-     const data=sid?await api('/api/chat-documents/'+sid+'/files'):{files:[]};if(panel!==current)return;
+     const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
      status.textContent=data.files.length?'':'연결된 폴더에 표시할 파일이 없습니다.';
      if(data.folder_url){const folder=document.createElement('a');folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='폴더 열기 ↗';panel.querySelector('header').append(folder);}
      for(const file of data.files){
-       const button=document.createElement('button');button.type='button';button.className='chat-doc-file';button.textContent=file.name;body.append(button);
+       const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
+       const isImage=file.mime_type.startsWith('image/')||imageFile(file.name);
+       fileCard(button,file.name,isImage?'이미지 · Google Drive':'Google Drive');(isImage?images:docs).append(button);
        button.onclick=async()=>{
          if(file.mime_type!=='application/vnd.google-apps.document'){
            const path=file.mime_type==='application/vnd.google-apps.folder'?'drive/folders/'+file.id:'file/d/'+file.id+'/view';
@@ -200,13 +229,20 @@
      }
      // 플랫폼 문서 — 이 대화의 첨부, 프로젝트의 기준·접수 문서. 클릭하면 구글 열람본(없으면 만들어서)으로 연다.
      if(sid){try{const mine=await api('/api/chat/'+sid+'/documents');if(panel!==current)return;
-       if(mine.documents.length){status.textContent='';const head=document.createElement('p');head.className='chat-doc-group';head.textContent=(mine.project?mine.project+' · ':'')+'플랫폼 문서';body.append(head);
+       if(mine.documents.length){status.textContent='';
          for(const d of mine.documents){const a=document.createElement('button');a.type='button';a.className='chat-doc-file';a.title=(d.kind||'')+(d.status?' · '+d.status:'');
-           const tag=document.createElement('span');tag.className='chat-doc-tag';tag.textContent=d.group;a.append(tag,document.createTextNode(d.name));body.append(a);
+           const isImage=imageFile(d.name),imageUrl='/doc/'+encodeURIComponent(d.id)+'/original';
+           fileCard(a,d.name,[d.group,d.kind,d.status].filter(Boolean).join(' · '),isImage?imageUrl:null);(isImage?images:docs).append(a);
            a.onclick=async()=>{a.disabled=true;status.textContent='구글 열람본을 여는 중…';
+             if(isImage){a.disabled=false;status.textContent='';previewImage(d.name,imageUrl,a);return;}
              try{const g=await api('/api/doc/'+d.id+'/google');if(panel!==current)return;showViewer({title:d.name,embed_url:g.embed_url,url:g.url,page:d.page});}
              catch(error){status.textContent=error.message;a.disabled=false;}};}}
-     }catch(error){}}
+     }catch(error){status.textContent='프로젝트 문서를 불러오지 못했습니다. 문서함을 다시 열어 주세요.';}}
+     if(data.error)status.textContent='Drive 목록: '+data.error;
+     else if(docs.children.length||images.children.length)status.textContent='';
+     docsHeading.textContent='문서 '+docs.children.length;
+     imagesHeading.textContent='콘텐츠 '+images.children.length;
+     if(!images.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent='첨부된 이미지가 없습니다.';images.append(empty);}
      const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='기존 문서 연결';connectButton.onclick=connect;body.append(connectButton);
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
