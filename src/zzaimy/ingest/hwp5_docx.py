@@ -279,6 +279,7 @@ def _translate_component(comp: ET.Element, holder: ET.Element, inline: str, widt
     tpl = comp.find("TextboxParagraphList")
     if tpl is not None:
         rect = ET.SubElement(holder, "rect")
+        ET.SubElement(rect, "curSz", {"width": comp.get("width") or width, "height": comp.get("height") or height})
         border = comp.find(".//BorderLine")
         style = "NONE" if border is None or (border.get("stroke") or "none") == "none" else "SOLID"
         ET.SubElement(rect, "lineShape", {"style": style})
