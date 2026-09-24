@@ -109,6 +109,8 @@ def _load_styles(docinfo: ET.Element) -> tuple[Styles, dict[str, bytes]]:
             if 0 <= idx < len(ko_faces):
                 cs.font = ko_faces[idx]
         st.chars[str(i)] = cs
+    for i, b in enumerate(docinfo.iter("Bullet"), start=1):          # numbering-bullet-id 는 1부터
+        st.bullets[str(i)] = (b.get("char") or "").strip()
     for i, ps_el in enumerate(docinfo.iter("ParaShape")):
         ps = ParaStyle()
         ps.align = {"both": "JUSTIFY", "left": "LEFT", "right": "RIGHT", "center": "CENTER", "distribute": "DISTRIBUTE",
@@ -121,6 +123,8 @@ def _load_styles(docinfo: ET.Element) -> tuple[Styles, dict[str, bytes]]:
             ps.line_pct = _int(ps_el.get("linespacing"))
         if (ps_el.get("head-shape") or "none") == "outline":
             ps.outline_level = _int(ps_el.get("level")) + 1
+        elif (ps_el.get("head-shape") or "none") == "bullet":
+            ps.bullet = st.bullets.get(str(ps_el.get("numbering-bullet-id")), "")
         st.paras[str(i)] = ps
     for i, bf_el in enumerate(docinfo.iter("BorderFill"), start=1):     # borderfill-id 는 1부터
         bf = BorderFill()

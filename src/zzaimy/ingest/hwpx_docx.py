@@ -31,6 +31,23 @@ EMU_PER_HWPUNIT = 914400 / HWPUNIT_PER_INCH          # 127
 TWIPS_PER_HWPUNIT = 1440 / HWPUNIT_PER_INCH          # 0.2
 
 
+# 구글 독스에 있는 한글 글꼴로 맞춘다 — 한글 문서의 글꼴 이름(맑은 고딕·휴먼명조·HY헤드라인M …)을 그대로 두면 독스가 Arial 로
+# 대신 그려 한글 모양이 달라진다(실측 2026-09-24). 고딕 계열은 Nanum Gothic, 명조·바탕 계열은 Nanum Myeongjo.
+_SERIF_HINT = ("명조", "바탕", "신명조", "Batang", "Myeongjo", "Myungjo", "궁서", "Gungsuh")
+FONT_MAP = {"고딕": "Nanum Gothic", "명조": "Nanum Myeongjo"}
+
+
+def docs_font(face: str) -> str:
+    if not face:
+        return ""
+    f = face.strip()
+    if f in ("Nanum Gothic", "Nanum Myeongjo", "Noto Sans KR", "Noto Serif KR", "Arial", "Times New Roman"):
+        return f
+    if any(h.lower() in f.lower() for h in _SERIF_HINT):
+        return FONT_MAP["명조"]
+    return FONT_MAP["고딕"]
+
+
 def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1] if "}" in tag else tag.split(":")[-1]
 
@@ -78,6 +95,7 @@ class ParaStyle:
     after_hu: int = 0
     line_pct: int = 0         # 줄 간격 %
     outline_level: int = 0    # 1~ 이면 개요(제목)
+    bullet: str = ""          # 자동 글머리표 문자(한글은 글에 없고 문단 모양에 있다)
 
 
 @dataclass
@@ -93,6 +111,7 @@ class Styles:
     paras: dict = field(default_factory=dict)
     borders: dict = field(default_factory=dict)
     heading_styles: dict = field(default_factory=dict)   # styleIDRef → outline level
+    bullets: dict = field(default_factory=dict)          # bullet id → 문자
 
 
 def _hu(value: str | None) -> int:
@@ -107,6 +126,9 @@ def load_styles(root: ET.Element) -> Styles:
     for f in root.iter():
         if _local(f.tag) == "font" and f.get("id") is not None:
             st.fonts[str(f.get("id"))] = f.get("face") or ""
+    for b in root.iter():
+        if _local(b.tag) == "bullet" and b.get("id") is not None:
+            st.bullets[str(b.get("id"))] = (b.get("char") or "").strip()
     for cp in root.iter():
         name = _local(cp.tag)
         if name == "charPr":
@@ -137,6 +159,8 @@ def load_styles(root: ET.Element) -> Styles:
                     ps.align = ch.get("horizontal") or "JUSTIFY"
                 elif n == "heading" and (ch.get("type") or "NONE") == "OUTLINE":
                     ps.outline_level = int(ch.get("level") or 0) + 1
+                elif n == "heading" and (ch.get("type") or "NONE") == "BULLET":
+                    ps.bullet = st.bullets.get(str(ch.get("idRef")), "")
                 elif n == "left":
                     ps.left_hu = _hu(ch.get("value"))
                 elif n == "intent":
@@ -281,6 +305,8 @@ class Converter:
         ps = self.st.paras.get(str(p_el.get("paraPrIDRef")))
         if ps is None:
             return
+        if ps.bullet:
+            para._zz_bullet = ps.bullet
         para.alignment = {"LEFT": WD_ALIGN_PARAGRAPH.LEFT, "CENTER": WD_ALIGN_PARAGRAPH.CENTER,
                           "RIGHT": WD_ALIGN_PARAGRAPH.RIGHT, "DISTRIBUTE": WD_ALIGN_PARAGRAPH.DISTRIBUTE,
                           "DISTRIBUTE_SPACE": WD_ALIGN_PARAGRAPH.DISTRIBUTE}.get(ps.align, WD_ALIGN_PARAGRAPH.JUSTIFY)
@@ -334,15 +360,18 @@ class Converter:
             run.font.superscript = True
         if cs.subscript:
             run.font.subscript = True
-        if cs.font:
-            run.font.name = cs.font
-            rpr = run._r.get_or_add_rPr()
-            rfonts = rpr.find(qn("w:rFonts"))
-            if rfonts is not None:
-                rfonts.set(qn("w:eastAsia"), cs.font)
+        face = docs_font(cs.font) if cs.font else FONT_MAP["고딕"]
+        run.font.name = face
+        rpr = run._r.get_or_add_rPr()
+        rfonts = rpr.find(qn("w:rFonts"))
+        if rfonts is not None:
+            rfonts.set(qn("w:eastAsia"), face)
 
     def _emit_text(self, para, t_el: ET.Element, char_id: str | None) -> None:
         """hp:t 안의 글·줄바꿈·탭을 런으로."""
+        bullet = getattr(para, "_zz_bullet", "")
+        if bullet and not para.runs:
+            self._apply_run_style(para.add_run(bullet + " "), char_id)
         if t_el.text:
             self._apply_run_style(para.add_run(t_el.text), char_id)
         for ch in t_el:
