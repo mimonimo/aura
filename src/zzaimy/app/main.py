@@ -880,16 +880,21 @@ def create_app(
                         owners.setdefault(t, []).append(d)
             uniq = {t: ds[0] for t, ds in owners.items() if len(ds) == 1}
             if uniq:
-                picks = {d["id"]: d for d in uniq.values()}
-                if len(picks) == 1:
-                    best = next(iter(picks.values()))
-                else:
-                    best = max(uniq.items(), key=lambda kv: len(kv[0]))[1]
-                    rivals = [d for d in picks.values() if d["id"] != best["id"]]
+                counts: dict[int, int] = {}
+                picks: dict[int, dict] = {}
+                for t, d in uniq.items():
+                    counts[d["id"]] = counts.get(d["id"], 0) + 1
+                    picks[d["id"]] = d
+                top = max(counts.values())
+                tops = [picks[i] for i, n in counts.items() if n == top]
+                best = tops[0]
+                rivals = tops[1:]                       # 서로 다른 문서를 가리키는 낱말이 같은 수면 되묻는다
+                if len(tops) == 1:
+                    rivals = []
         _project_doc_named.rivals = rivals   # type: ignore[attr-defined]
         return best
 
-    _GENERIC_WORDS = {"사업", "계획", "계획서", "문서", "자료", "지원", "지원사업", "전환", "중점", "전문대학", "대학", "학년도", "년도",
+    _GENERIC_WORDS = {"사업", "계획", "계획서", "사업계획서", "문서", "자료", "지원", "지원사업", "전환", "중점", "전문대학", "대학", "학년도", "년도",
                       "양식", "서식", "붙임", "별첨", "최종", "수정", "제출", "안", "및", "관련"}
 
     app.state.project_doc_named = _project_doc_named

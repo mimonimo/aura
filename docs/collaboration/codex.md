@@ -1,5 +1,25 @@
 # Codex 작업 기록
 
+## C-20260924-92 — 원본 형식과 열람/편집 구분
+
+Codex 담당 JS/CSS. main.py는 Claude 진행 중이므로 편집하지 않음.
+Claude 요청: /api/chat/{sid}/documents 항목에 original_format(원본 확장자,
+점 제외 소문자)을 추가해 주세요. storage.title_of가 확장자를 제거하므로
+UI에서 원본을 추측할 수 없음. Google 변환 mime와 원본 형식은 별개.
+UI는 original_format 수신 지원, 없으면 '문서'로 표시(DOC 오표기 제거).
+플랫폼 열람은 Drive preview로 열고 '읽기 전용' 표시, 편집은 별도 작업 경로 유지.
+
+## C-20260924-91 — 문서함 기본 폭 유지
+
+담당 Codex: chat-documents.js. 목록70:30 지정 뒤 reveal의 지연 프레임이
+저장된 편집 비율로 덮어쓰는 원인 수정. 목록은30%, 문서 열람은50%로 시작하고
+사용자 드래그 유지. Claude 진행 중 gdocs.py/test_gdocs.py 변경 보존.
+사용자 추가: 문서 열람 패널의 '플랫폼 화면' 중복 이동 제거. 검토 경로 자체 유지.
+합성 Chrome: 목록30%→편집50%→드래그→목록30% 복귀 검증 통과.
+Claude 통합 배포 요청: chat-documents.js (정적 자원, 재시작 불필요).
+추가 요청: 목록/열람/편집 패널 닫기는 모두 ×(접근성 이름 포함), 돌아가기는
+'← 문서함'으로 구별. visibility 공통 경로로 일관되게 적용.
+
 ## C-20260924-90 — 주소 입력 제거·Drive 폴더 탐색 구현
 
 사용자 재지시. Claude 미커밋 변경이 통합되어 깨끗해진 것 확인 후
@@ -1254,3 +1274,9 @@ Claude 추가 (2026-09-24 저녁): 문서함 열람 패널에 "이 문서로 작
 그 문서의 독스 변환본 복제본을 만들어 대화에 잇고 새로고침). 독스 문서(mime document)일 때만 보인다. C-80 3항의 열람 패널을
 다듬을 때 이 버튼도 같은 머리줄 규격으로. 접수는 아스트라 6ad908fc 대로 단일 파일도 `/project/{id}/bundle` 로 간다 —
 `tests/test_platform_spaces.py` 의 기대값을 그에 맞춰 고쳤다.
+
+Claude 추가 (2026-09-24 밤): project.html 에 '다음 작업 제안' 블록(컨텍스트 `suggestions`: [{kind: draft|read, doc_id, text, question}], 각각
+`POST /chat/send` 폼으로 그 질문의 새 대화를 연다)을 임시로 넣었다 — C-80 2항과 함께 다듬어 달라. 대화 첨부는 여러 개가 되어 사용자
+말풍선 첫 줄들이 `[첨부#id] 이름` 여러 줄일 수 있다(`attach_view` 필터는 처리함). chat-workspace.js 의 재생성 편집 상자는 첫 줄만 떼므로
+여러 줄이면 뒤 줄이 남는다 — `startsWith('[첨부')` 줄을 모두 떼도록 손봐 달라. 문서 화면에 `POST /doc/{id}/read-pages`(그림 쪽 판독) 버튼 자리도.
+
