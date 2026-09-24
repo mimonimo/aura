@@ -659,7 +659,7 @@ class Converter:
         if not member:
             return
         try:
-            data = self.zf.read(member)
+            data = normalize_image(self.zf.read(member))
         except KeyError:
             return
         cur = _child(pic, "curSz") or _child(pic, "orgSz")
@@ -673,7 +673,8 @@ class Converter:
         try:
             para.add_run().add_picture(io.BytesIO(data), width=width)
             self.stats["images"] += 1
-        except Exception:
+        except Exception as e:
+            self.stats.setdefault("image_errors", []).append(f"{type(e).__name__}: {e} member={member} head={data[:6]!r} len={len(data)}"[:200])
             para.add_run("[그림]")
         if container is self.doc:
             self._content_since_pb = True
@@ -727,6 +728,29 @@ def _column_grid(rows, cells_info):
             c1 = c0 + 1
         out.append((row, c0, rs, c1 - c0, tc))
     return col_hu, out
+
+
+def normalize_image(data: bytes) -> bytes:
+    """워드가 받는 그림으로 — BMP 등은 PNG 로, JFIF·Exif 머리가 아닌 JPEG(ICC 프로필 APP2 로 시작, 실측 2026-09-24 사업계획서 10장)는
+    다시 저장한다. python-docx 는 머리를 보고 형식을 알아내서 이런 파일을 UnrecognizedImageError 로 거절한다."""
+    head = data[:4]
+    if head.startswith(b"\x89PNG") or head in (b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1"):
+        return data
+    try:
+        from PIL import Image
+
+        im = Image.open(io.BytesIO(data))
+        im.load()
+        buf = io.BytesIO()
+        if (im.format or "").upper() == "JPEG":
+            im.convert("RGB").save(buf, format="JPEG", quality=90)
+        else:
+            if im.mode not in ("RGB", "RGBA", "L"):
+                im = im.convert("RGBA")
+            im.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return data
 
 
 def _binary_map(zf: zipfile.ZipFile, names: list[str]) -> dict[str, str]:

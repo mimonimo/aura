@@ -144,3 +144,19 @@ def test_hanging_indent_and_exact_line_spacing(tmp_path):
     pf = d.paragraphs[1].paragraph_format                     # '첫 줄/둘째 줄' 문단(10pt)
     assert round(pf.left_indent.inches, 3) == round(1000 / 7200, 3) and round(pf.first_line_indent.inches, 3) == -round(1000 / 7200, 3)
     assert pf.line_spacing.pt == 16.0
+
+
+def test_normalize_image_reencodes_icc_jpeg_and_bmp():
+    import io as _io
+
+    from PIL import Image
+
+    buf = _io.BytesIO(); Image.new("RGB", (4, 4), "white").save(buf, format="JPEG", icc_profile=b"\x00" * 128)
+    raw = buf.getvalue()
+    jpg = b"\xff\xd8" + raw[raw.index(b"\xff\xe2"):]           # JFIF 머리를 떼어 ICC 프로필(APP2)로 시작하게 — 워드가 거절하는 머리
+    assert jpg[:4] == b"\xff\xd8\xff\xe2"
+    out = hwpx_docx.normalize_image(jpg)
+    assert out[:4] in (b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1")
+    buf = _io.BytesIO(); Image.new("RGB", (4, 4), "white").save(buf, format="BMP")
+    assert hwpx_docx.normalize_image(buf.getvalue())[:4] == b"\x89PNG"
+    assert hwpx_docx.normalize_image(b"not an image") == b"not an image"

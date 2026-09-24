@@ -30,8 +30,9 @@
    보고 제 이름을 붙인 실측 사례 차단).
 
 6. 변환은 담당자가 열거나 작업하겠다고 할 때만 한다(미리 돌리지 않는다). 우리 변환기는 hwp·hwpx 에만 쓴다.
-   hwpx 는 `ingest/hwpx_docx.py`(글자·문단·표·글상자·그림·쪽 설정을 docx 로), hwp 는 `ingest/hwp_html.py`(pyhwp HTML 을
-   그림 줄여 한 파일로 → 독스). 둘 다 안 되면 추출 조각 복원(build_docx).
+   hwpx 는 `ingest/hwpx_docx.py`(글자·문단·표·글상자·그림·쪽 설정을 docx 로), hwp 는 `ingest/hwp5_docx.py`(pyhwp 구조 XML 을
+   같은 변환기로) → 안 되면 `hwp_html.py`(pyhwp HTML). 둘 다 안 되면 추출 조각 복원(build_docx). 그림은 워드가 받는 형식으로
+   정리한다(normalize_image: BMP → PNG, ICC 머리 JPEG 재저장).
 7. 작성은 복제본에서 한다. 프로젝트 문서를 지목해 "작업하자" 하면(`_project_doc_named`, 날짜·판번호는 낱말에서 뺀다)
    그 독스 변환본의 복제본 「제목 작업본 YYYY-MM-DD」 를 프로젝트 폴더 `작성/` 에 만들어 대화에 잇는다. 후보가 여럿이면
    되묻는다. 문서함 열람 패널의 "이 문서로 작업"(`POST /api/chat/{sid}/work-on/{doc_id}`)도 같은 길이다.

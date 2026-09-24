@@ -286,6 +286,14 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
         except Exception:
             pass                                                   # 암호화 등 — 아래 조각 복원으로
     if ext == ".hwp":
+        # 1순위: pyhwp 구조 XML → 우리 변환기(hwpx 와 같은 품질). 2순위: pyhwp HTML. 둘 다 안 되면 아래 조각 복원
+        try:
+            from zzaimy.ingest import hwp5_docx
+
+            data, _stats = hwp5_docx.convert(src)
+            return data, name[: -len(ext)] + ".docx", CONVERT[".docx"][0], CONVERT[".docx"][1]
+        except Exception:
+            pass
         try:
             from zzaimy.ingest import hwp_html
 
