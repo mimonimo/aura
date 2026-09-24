@@ -304,3 +304,20 @@ def test_footer_auto_number_becomes_page_field(tmp_path):
     assert stats["footers"] == 1 and "page_numbers" not in stats                  # 꼬리말에 이미 쪽 번호가 있으면 겹치지 않는다
     assert [t.text for t in ftr._element.iter(qn("w:instrText"))] == [r"PAGE \* ROMAN"]
     assert ftr.paragraphs[0].text.startswith("쪽 ")
+
+
+def test_page_number_inside_a_table_cell_still_reaches_the_footer(tmp_path):
+    """쪽 번호 매기기가 표 셀의 첫 문단에 있어도(작성서식 실측) 꼬리말 PAGE 필드가 된다."""
+    section = SECTION.replace(
+        '<hp:run charPrIDRef="1"><hp:t>제목 칸</hp:t></hp:run>',
+        '<hp:run charPrIDRef="1"><hp:t>제목 칸</hp:t><hp:ctrl><hp:newNum num="1" numType="PAGE"/></hp:ctrl></hp:run>'
+        '<hp:run charPrIDRef="0"><hp:ctrl><hp:pageNum pos="BOTTOM_CENTER" formatType="DIGIT" sideChar="-"/></hp:ctrl><hp:t/></hp:run>')
+    p = tmp_path / "cellpn.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("mimetype", "application/hwp+zip")
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+    data, stats = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    assert stats["page_numbers"] == 1
+    assert [t.text for t in d.sections[0].footer._element.iter(qn("w:instrText"))] == ["PAGE"]
+    assert d.tables[0].cell(0, 0).text == "제목 칸"

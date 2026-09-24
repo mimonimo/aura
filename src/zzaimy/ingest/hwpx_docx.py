@@ -483,17 +483,10 @@ class Converter:
                     self._section(obj)
                     self._just_sectioned = True          # 구역 시작이 이미 새 쪽이다 — 같은 문단의 쪽 나눔은 겹치지 않게
                 elif n == "ctrl":
-                    for c in obj:
-                        cn = _local(c.tag)
-                        if cn in ("header", "footer"):
-                            self.header_footer(c, cn)
-                        elif cn == "pageNum":
-                            page_nums.append(c)               # 머리말·꼬리말 정의를 다 옮긴 뒤에 — 먼저 넣으면 뒤의 정의가 지운다
-                        elif cn == "autoNum" and (c.get("numType") or "").upper() == "PAGE":
-                            if para is None:
-                                para = self._new_para(container, 0)
-                                self._apply_para_style(para, p_el)
-                            _add_page_field(para, c.get("formatType") or "DIGIT", self.st.chars.get(str(char_id)))
+                    if any(_local(c.tag) == "autoNum" for c in obj) and para is None:
+                        para = self._new_para(container, 0)
+                        self._apply_para_style(para, p_el)
+                    self._control(obj, para, page_nums, char_id)
         for c in page_nums:
             self.page_number(c)
         if (para is None or not _para_has_content(para)) and not pending:
@@ -534,6 +527,19 @@ class Converter:
         return container.add_paragraph()
 
     # -- 머리말·꼬리말·쪽 번호 ------------------------------------------------------------------------
+    def _control(self, ctrl: ET.Element, para, page_nums: list, char_id: str | None) -> None:
+        """hp:ctrl 의 자식 — 머리말/꼬리말은 바로, 쪽 번호 매기기는 문단 끝에(먼저 넣으면 뒤의 머리말·꼬리말 정의가 지운다),
+        쪽 번호 자동 번호는 그 자리에 PAGE 필드. 본문·셀·글상자 어느 문단에 있어도 같다(실측 2026-09-25: 작성서식의 쪽 번호가
+        표 셀 첫 문단에 있어 빠졌다)."""
+        for c in ctrl:
+            cn = _local(c.tag)
+            if cn in ("header", "footer"):
+                self.header_footer(c, cn)
+            elif cn == "pageNum":
+                page_nums.append(c)
+            elif cn == "autoNum" and (c.get("numType") or "").upper() == "PAGE" and para is not None:
+                _add_page_field(para, c.get("formatType") or "DIGIT", self.st.chars.get(str(char_id)))
+
     def _story(self, kind: str, apply: str):
         """현재 구역의 머리말/꼬리말 저장소. EVEN 은 짝수 쪽용(문서 설정을 켠다), 그 밖은 기본."""
         section = self.doc.sections[-1]
@@ -759,6 +765,7 @@ class Converter:
         """이미 있는 문단(셀의 첫 문단)에 hp:p 내용을 채운다."""
         self._apply_para_style(para, p_el)
         pending = []
+        page_nums: list[ET.Element] = []
         for run in _children(p_el, "run"):
             char_id = run.get("charPrIDRef")
             for obj in run:
@@ -767,6 +774,10 @@ class Converter:
                     self._emit_text(para, obj, char_id)
                 elif n in ("tbl", "pic", "rect", "container"):
                     pending.append((n, obj))
+                elif n == "ctrl":
+                    self._control(obj, para, page_nums, char_id)
+        for c in page_nums:
+            self.page_number(c)
         for n, obj in pending:
             if n == "tbl":
                 self.table(obj, cell)
