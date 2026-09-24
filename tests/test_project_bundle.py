@@ -155,7 +155,7 @@ def test_project_doc_named_matches_title_words(tmp_path):
     f = app.state.project_doc_named
     assert f(project, 0, "사업계획서 양식으로 작성 시작하자")["filename"].endswith("사업계획서 양식.hwp")
     assert f(project, 0, "AID 전환 중점 전문대학 지원사업 기본계획을 독스로 열어 줘")["filename"].endswith("기본계획.hwp")
-    assert f(project, 0, "기본계획을 독스로 열어 줘") is None          # 낱말 하나로는 지목이 아니다
+    assert f(project, 0, "기본계획을 독스로 열어 줘")["filename"].endswith("기본계획.hwp")   # 한 문서에만 있는 낱말이면 지목
     assert f(project, 0, "예산이 얼마야") is None
 
 
@@ -197,6 +197,9 @@ def test_project_doc_named_ignores_dates_and_versions(tmp_path):
     f = app.state.project_doc_named
     assert f(db.get_project(pid), 0, "AID선정평가사업계획서 작성서식으로 작업하자")["filename"].endswith("작성서식(ver5).hwpx")
     assert f(db.get_project(pid), 0, "지표정의서 및 평가편람을 독스로 열어 줘")["filename"].endswith("평가편람(ver5).hwpx")
+    db.add_document(filename="2026년 AID 전환 중점 전문대학 지원사업 합본 20260403 0900.pdf", stored_path=str(tmp_path / "c.pdf"), doc_type="grant", project_id=pid)
+    assert f(db.get_project(pid), 0, "사업계획서 합본 그림 쪽 판독해 줘")["filename"].endswith("합본 20260403 0900.pdf")   # 짧게 불러도
+    assert f(db.get_project(pid), 0, "작성서식으로 작업하자")["filename"].endswith("작성서식(ver5).hwpx")
 
 
 def test_ambiguous_document_reference_asks_instead_of_guessing(tmp_path, monkeypatch):
@@ -311,3 +314,46 @@ def test_vision_pages_are_not_reread(tmp_path):
     db.append_doc_chunks(did, [{"kind": "text", "content": "판독 글", "page_no": 3}], replace_pages=[3])
     db.append_doc_chunks(did, [{"kind": "text", "content": "판독 글 다시", "page_no": 3}], replace_pages=[3])
     assert db.vision_pages(did) == [3] and len(db.list_doc_chunks(did)) == 1
+
+
+def test_new_chat_with_a_document_set_creates_project_and_links_past_materials(tmp_path, monkeypatch):
+    """새 채팅에 문서 세트를 던지면 프로젝트가 생기고(기준/접수 분리), 같은 사업의 지난 기준 문서가 이어진다."""
+    from zzaimy.ingest import gdrive
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    old = db.add_document(filename="2025학년도 AID 전환 중점 전문대학 지원사업 공고문.pdf", stored_path=str(tmp_path / "old.pdf"),
+                          doc_type="regulation", owner="zzaimy")
+    db.update_document(old, status="reviewed")
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: [])
+    r = c.post("/chat/send", data={"question": "이 사업 계획서 작성을 준비하자"}, files=[("attachment", f[1]) for f in _files()[:3]], follow_redirects=False)
+    assert r.status_code == 303
+    sid = int(r.headers["location"].rsplit("/", 1)[-1])
+    session = db.get_chat_session(sid)
+    pid = int(session["project_id"])
+    project = db.get_project(pid)
+    assert project["name"] == "2026학년도 AID 전환 중점 전문대학 지원사업"
+    crit = set(db.get_project_criteria_ids(pid))
+    assert old in crit and len(crit) == 3                      # 기본계획·지침 + 지난 공고
+    assert len(db.list_documents("grant", project_id=pid)) == 1  # 양식
+    msgs = db.list_chats(sid)
+    assert msgs[0]["content"].count("[첨부#") == 3 and msgs[0]["content"].endswith("이 사업 계획서 작성을 준비하자")
+    assert "프로젝트 「2026학년도 AID 전환 중점 전문대학 지원사업」 을 만들었습니다" in msgs[1]["content"]
+    assert "지난 자료 「2025학년도 AID 전환 중점 전문대학 지원사업 공고문」" in msgs[1]["content"]
+    page = c.get(f"/chat/{sid}").text
+    assert page.count('class="chat-attach"') == 3
+
+
+def test_existing_chat_accepts_several_attachments(tmp_path):
+    app, c = _client(tmp_path)
+    db = app.state.db
+    r = c.post("/chat/send", data={"question": "둘 다 검토해 줘"},
+               files=[("attachment", ("a.pdf", b"%PDF-1.4 a", "application/pdf")), ("attachment", ("b.pdf", b"%PDF-1.4 b", "application/pdf"))],
+               follow_redirects=False)
+    sid = int(r.headers["location"].rsplit("/", 1)[-1])
+    # 첨부 둘이지만 프로젝트는 만들지 않는다? — 두 건 이상이면 프로젝트다(문서 세트). 한 건이면 첨부만.
+    assert db.get_chat_session(sid)["project_id"] is not None
+    r2 = c.post("/chat/send", data={"question": "하나만"}, files=[("attachment", ("c.pdf", b"%PDF-1.4 c", "application/pdf"))], follow_redirects=False)
+    sid2 = int(r2.headers["location"].rsplit("/", 1)[-1])
+    assert db.get_chat_session(sid2)["project_id"] is None
+    assert db.list_chats(sid2)[0]["content"].startswith("[첨부#")
