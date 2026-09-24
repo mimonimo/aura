@@ -107,7 +107,7 @@ def main() -> int:
         say("WARN", "색인", "색인 메타를 읽지 못함 — 어휘 검색만 될 수 있음")
 
     if not args.question:
-        args.question = f"{project['name']}의 신청 자격과 지원 규모는?"
+        args.question = f"{proj['name']}의 신청 자격과 지원 규모는?"
     # 5 검색
     try:
         from zzaimy.app.regulations import find_relevant
