@@ -518,3 +518,14 @@ def test_insert_goes_after_the_closing_table_of_a_section(monkeypatch, tmp_path)
     assert reqs[0]["insertText"]["location"]["index"] == 40 and reqs[0]["insertText"]["text"].endswith("\n")
     assert reqs[1]["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"] == "NORMAL_TEXT"
     assert out["section"].startswith("1.1")
+
+
+def test_drop_existing_removes_sentences_already_in_the_document():
+    from zzaimy.app.gdocs_agent import _drop_existing
+
+    doc = "1) 강점(S)\n본 대학은 AI-X추진단을 신설하여 컨트롤타워를 구축하였다. 전 학과 AI 기초교육을 필수화하였다.\n2) 약점(W)\n조정 체계가 아직 충분히 정립되지 않았다."
+    text = ("본 대학은 AI-X추진단을 신설하여 컨트롤타워를 구축하였다. 조정 체계가 아직 충분히 정립되지 않았다. 새로 덧붙이는 문장이다.\n"
+            "완전히 새로운 줄.")
+    out = _drop_existing(text, doc)
+    assert out == "새로 덧붙이는 문장이다.\n완전히 새로운 줄."
+    assert _drop_existing("본 대학은 AI-X추진단을 신설하여 컨트롤타워를 구축하였다.", doc) == ""
