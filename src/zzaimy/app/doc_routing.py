@@ -166,9 +166,18 @@ def guess_kind(filename: str, text: str, doc_type: str | None = None) -> tuple[s
     생김새로 본다: 조문 머리가 줄지어 있으면 규정, 빈칸 표시가 잦으면 양식, 공고 뼈대면 공고.
     """
     title = _EXT_RE.sub("", filename or "").strip()
-    for kind in _KIND_ORDER:
-        if re.search(_KIND_CUES[kind], title):
-            return kind, f"제목에 「{KINDS[kind]}」 낱말이 있습니다"
+    # 제목에 단서가 여럿이면 맨 뒤의 것이 서류의 머리 낱말이다(우리말 제목은 뒤가 핵심: '사업계획서 작성서식' 은 서식,
+    # '지표정의서 및 평가편람' 은 편람). 같은 자리면 _KIND_ORDER 순.
+    found = []
+    for rank, kind in enumerate(_KIND_ORDER):
+        last = None
+        for m in re.finditer(_KIND_CUES[kind], title):
+            last = m
+        if last is not None:
+            found.append((last.end(), -rank, kind))
+    if found:
+        kind = max(found)[2]
+        return kind, f"제목에 「{KINDS[kind]}」 낱말이 있습니다"
     if _WON_FORM.search(title) and not _WON_NOT.search(title):
         return "form", "제목이 '-원'으로 끝나는 신청 서식입니다"
     body = (text or "")[:BODY_CHARS * 2]
