@@ -157,6 +157,28 @@ KIND_LABELS = {"pii": "개인정보 요청", "scope": "범위 밖 자료", "inje
 _masker = None
 
 
+WRITING_ENTITIES = ["KR_RRN", "KR_BRN", "KR_BANK_ACCOUNT", "KR_PASSPORT"]
+
+
+def scrub_for_writing(text: str) -> str:
+    """문서에 써 넣는 글의 가림 — 주민번호·계좌·사업자번호 같은 식별 번호만. 기관명·총장·담당자 이름과 업무 전화·전자우편은
+    신청서·공문에 적어야 하는 정보라 가리지 않는다(사용자 지시 2026-09-24). 모르는 값은 모델이 ○○○ 으로 남긴다."""
+    global _masker
+    if not text:
+        return text
+    try:
+        if _masker is None:
+            from zzaimy.ingest.pii import PiiMasker
+
+            _masker = PiiMasker()
+        from zzaimy.ingest.pii import RawDocument
+
+        masked, _ = _masker.mask(RawDocument(doc_id="writing", text=text), entities=WRITING_ENTITIES)
+        return masked.text
+    except Exception:
+        return text
+
+
 def scrub(text: str) -> str:
     """답변 본문에 남은 식별 정보를 가린다 — 접수 문서의 마스킹과 같은 검사기."""
     global _masker

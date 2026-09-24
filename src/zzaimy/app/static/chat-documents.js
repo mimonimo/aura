@@ -106,6 +106,10 @@
    panel.innerHTML='<header><button type="button" class="secondary" data-list>목록</button><strong></strong><a target="_blank" rel="noopener">새 창 ↗</a><a data-page>플랫폼 화면</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="문서 열람"></iframe>';
    panel.querySelector('strong').textContent=v.title;panel.querySelector('iframe').src=v.embed_url;panel.querySelector('a[target]').href=v.url;panel.querySelector('[data-page]').href=v.page;
    panel.querySelector('[data-list]').onclick=showFiles;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
+   // 독스 문서면 "이 문서로 작업" — 복제본을 만들어 이 대화의 작업 문서로 잇는다(원본 서식은 그대로)
+   if(v.is_doc&&sid){const work=document.createElement('button');work.type='button';work.className='secondary';work.textContent='이 문서로 작업';work.title='복제본을 만들어 이 대화에 연결합니다';
+     work.onclick=async()=>{work.disabled=true;work.textContent='복제본 만드는 중…';try{await api('/api/chat/'+sid+'/work-on/'+v.doc_id,{method:'POST'});const d=await api('/api/chat-documents/'+sid);linked=d;clearPanel();setRatio(50);show();location.reload();}catch(e){work.textContent=e.message;}};
+     panel.querySelector('header').insertBefore(work,panel.querySelector('[data-hide]'));}
    main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(50,false);visibility(true);fitEditor();
    const fit=panel.querySelector('[data-fit]');if(fit&&!/document\//.test(v.embed_url))fit.click();   // 시트·슬라이드·PDF 는 원래 크기
    panel.querySelectorAll('header a,header button').forEach(el=>el.classList.add('chat-doc-mini'));
@@ -235,7 +239,7 @@
            fileCard(a,d.name,[d.group,d.kind,d.status].filter(Boolean).join(' · '),isImage?imageUrl:null);(isImage?images:docs).append(a);
            a.onclick=async()=>{a.disabled=true;status.textContent='구글 열람본을 여는 중…';
              if(isImage){a.disabled=false;status.textContent='';previewImage(d.name,imageUrl,a);return;}
-             try{const g=await api('/api/doc/'+d.id+'/google');if(panel!==current)return;showViewer({title:d.name,embed_url:g.embed_url,url:g.url,page:d.page});}
+             try{const g=await api('/api/doc/'+d.id+'/google');if(panel!==current)return;showViewer({title:d.name,embed_url:g.embed_url,url:g.url,page:d.page,doc_id:d.id,is_doc:g.mime==='application/vnd.google-apps.document'});}
              catch(error){status.textContent=error.message;a.disabled=false;}};}}
      }catch(error){status.textContent='프로젝트 문서를 불러오지 못했습니다. 문서함을 다시 열어 주세요.';}}
      if(data.error)status.textContent='Drive 목록: '+data.error;

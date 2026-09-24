@@ -337,9 +337,10 @@ class PiiMasker:
             supported_languages=["ko"],
         )
 
-    def mask(self, doc: RawDocument) -> tuple[MaskedDocument, list[MaskEvent]]:
+    def mask(self, doc: RawDocument, entities: list[str] | None = None) -> tuple[MaskedDocument, list[MaskEvent]]:
+        """entities 를 주면 그 갈래만 가린다 — 문서 작성처럼 기관·담당자 연락처는 남겨야 하는 자리에서 쓴다."""
         results = self._analyzer.analyze(
-            text=doc.text, language="ko", score_threshold=SCORE_THRESHOLD
+            text=doc.text, language="ko", score_threshold=SCORE_THRESHOLD, entities=entities
         )
         # 겹치는 탐지는 앞선 것·긴 것 우선으로 병합
         spans: list[tuple[int, int, str]] = []

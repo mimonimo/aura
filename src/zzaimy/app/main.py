@@ -742,6 +742,12 @@ def create_app(
         if not doc_material and _looks_like_working_on(q):
             # "작성서식으로 작업하자" 처럼 프로젝트에 있는 문서(한글 양식 등)를 지목하면 그 문서를 독스로 바꿔 잇는다
             picked = _project_doc_named(project, session_id, q)
+            rivals = getattr(_project_doc_named, "rivals", []) or []
+            if picked is not None and rivals:
+                names = "\n".join(f"- {storage.title_of(d.get('filename') or '')}" for d in [picked, *rivals][:6])
+                db.add_chat(session_id, "assistant", f"어느 문서로 작업할지 분명하지 않습니다. 아래 중 하나를 이름 그대로 말해 주세요.\n{names}")
+                _chat_sources[session_id] = []
+                return
             if picked is not None:
                 made, why = _link_existing_document(session_id, picked, owner, project)
                 if made:
@@ -841,15 +847,24 @@ def create_app(
                 cands.append(d)
         norm_q = re.sub(r"[\s\-_()\[\]{}.,:;·+/]+", "", q).lower()
         best, best_score = None, 0.0
+        scored: list[tuple[float, dict]] = []
         for d in cands:
             title = storage.title_of(d.get("filename") or "")
-            tokens = [t.lower() for t in re.split(r"[\s\-_()\[\]{}.,:;·+/]+", title) if len(t) >= 2]
+            # 날짜·판번호·붙임 번호(20260219, ver5, 붙임2)는 사람이 부르는 이름이 아니다 — 뜻 있는 낱말만, 글자 수로 잰다
+            tokens = [t.lower() for t in re.split(r"[\s\-_()\[\]{}.,:;·+/]+", title)
+                      if len(t) >= 2 and not re.fullmatch(r"(?:v|ver|rev)?\.?\d[\d.]*|붙임\d*|별첨\d*", t, re.I)]
             if not tokens:
                 continue
-            hit = sum(1 for t in tokens if t in norm_q)
-            score = hit / len(tokens)
-            if score >= 0.6 and score > best_score:
-                best, best_score = d, score
+            total = sum(len(t) for t in tokens)
+            hit = sum(len(t) for t in tokens if t in norm_q)
+            score = hit / total
+            if score >= 0.5 and any(len(t) >= 3 and t in norm_q for t in tokens):
+                scored.append((score, d))
+                if score > best_score:
+                    best, best_score = d, score
+        # 비슷하게 맞는 후보가 둘 이상이면 짐작하지 않는다 — 호출 쪽이 되묻는다(사용자 지시: 어떤 문서를 고칠지 정확히)
+        rivals = [d for sc, d in scored if d is not best and sc >= best_score - 0.15 and d["id"] != (best or {}).get("id")]
+        _project_doc_named.rivals = rivals   # type: ignore[attr-defined]
         return best
 
     app.state.project_doc_named = _project_doc_named
@@ -872,8 +887,18 @@ def create_app(
             return False, f"「{title}」 을 독스로 바꾸지 못했습니다({type(e).__name__})."
         if made.get("mime") != "application/vnd.google-apps.document":
             return False, f"「{title}」 은 독스 문서가 아니라(시트·슬라이드·PDF) 에이전트가 편집할 수 없습니다. 열람은 문서함에서 됩니다."
-        db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": made["id"], "account": email}))
-        db.add_chat(session_id, "assistant", f"「{title}」 을 구글 독스로 열어 이 대화에 연결했습니다. 이제 명령하면 이 문서를 바로 고칩니다. {made['url']}")
+        # 원본 서식(변환본)은 그대로 두고 복제본을 만들어 그 복제본에서 작업한다 — 프로젝트 폴더의 '작성' 아래
+        from datetime import date as _date
+
+        work_title = f"{title} 작업본 {_date.today().isoformat()}"
+        try:
+            work_folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="작성")
+            copy = gdrive_files.copy_document(email, made["id"], work_title, work_folder)
+        except Exception as e:
+            return False, f"「{title}」 의 작업본을 만들지 못했습니다({type(e).__name__})."
+        db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": copy["id"], "account": email}))
+        db.add_file("google", copy["url"], name=work_title, session_id=session_id, doc_id=int(doc["id"]))
+        db.add_chat(session_id, "assistant", f"「{title}」 의 복제본 「{work_title}」 을 만들어 이 대화에 연결했습니다. 원본 서식은 그대로 두고 이 복제본을 고칩니다. {copy['url']}")
         return True, ""
 
     def _auto_link_document(session_id: int, q: str, owner: str, project: dict | None) -> tuple[bool, str]:
@@ -919,7 +944,7 @@ def create_app(
 
             client = VllmClient(role="answer")
             text, _ops = gdocs_agent.run(db, session_id, owner, q, link, client=client, data_dir=data_dir,
-                                         scrub=ag.scrub, evidence=hits, confirm=confirm)
+                                         scrub=ag.scrub_for_writing, evidence=hits, confirm=confirm)
             new_name = next((o.get("text") for o in _ops if o.get("op") == "rename" and (o.get("text") or "").strip()), "")
             if new_name and not confirm:
                 try:
@@ -1770,6 +1795,23 @@ def create_app(
             raise HTTPException(400, f"구글 열람본을 만들지 못했습니다: {e}")
         return {"id": made["id"], "name": made.get("name") or doc["filename"], "mime": made["mime"], "url": made["url"],
                 "embed_url": gdrive_files.embed_url(made["id"], made["mime"]), "account": email}
+
+    @app.post("/api/chat/{session_id}/work-on/{doc_id}")
+    def chat_work_on(request: Request, session_id: int, doc_id: int):
+        """문서함에서 고른 프로젝트 문서로 작업 — 독스 변환본(한글이면 변환)의 복제본을 만들어 이 대화에 잇는다."""
+        session_ = db.get_chat_session(session_id)
+        owner = getattr(request.state, "user", "zzaimy")
+        if session_ is None or session_.get("owner") not in (None, owner):
+            raise HTTPException(404)
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        project = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+        made, why = _link_existing_document(session_id, doc, owner, project)
+        if not made:
+            raise HTTPException(400, why or "이 문서로 작업하지 못했습니다")
+        raw = db.get_setting(f"chat_google_doc:{session_id}", "") or "{}"
+        return {"ok": True, "linked": _aj.loads(raw)}
 
     @app.get("/doc/{doc_id}/view")
     def doc_view(request: Request, doc_id: int):
