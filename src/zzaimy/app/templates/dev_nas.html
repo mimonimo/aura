@@ -91,7 +91,7 @@
         {% if gdrive.configured %}<a class="btn secondary" href="/dev/gdrive/auth">Google 계정 연결</a>{% else %}<p class="gd-hint">앱 설정을 저장하면 계정을 연결할 수 있습니다.</p><button type="button" class="secondary" disabled>Google 계정 연결</button>{% endif %}
         {% if gdrive.accounts %}
         <div class="gd-accounts">{% for a in gdrive.accounts %}<article class="gd-account"><div><strong>{{ a.email }}</strong><small>{{ '문서 편집 가능' if 'https://www.googleapis.com/auth/documents' in a.scopes else '편집 권한 확인 필요' }}</small></div><form action="/dev/gdrive/revoke" method="post" data-confirm="이 계정의 연결을 해제할까요? 연결된 폴더와 문서에 접근할 수 없게 됩니다."><input type="hidden" name="email" value="{{ a.email }}"><button type="submit" class="secondary">연결 해제</button></form></article>{% endfor %}</div>
-        <a class="gd-action-link" href="/gdocs/work"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>문서 작업 열기 <span aria-hidden="true">→</span></a>
+        <a class="gd-action-link" href="/gdocs/work"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon>연결된 Drive 보기 <span aria-hidden="true">→</span></a>
         {% else %}<p class="gd-hint">연결된 계정이 없습니다.</p>{% endif %}
       </fieldset>
     </div>

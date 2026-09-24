@@ -1115,3 +1115,8 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 - 실측: 대화 18 에서 "작성서식으로 작업하자" → 복제본 연결(19:50). 첫 채우기는 독스 읽기가 탭 문서를 못 읽어 (앞머리)에 15자만
   들어감 → 읽기 고친 뒤 재실행(20:05~, 결과는 dev-now 에).
 
+## K-68 (2026-09-25 오후) — 머리말·쪽 번호 변환 · 선택지는 답변 것만 · 드라이브 탐색 API
+
+- 145 가 잡은 '그림 부족'(548·497)의 원인은 머리말 그림 — 변환기가 머리말·꼬리말·쪽 번호를 버리고 있었다. hwpx(hp:ctrl 의 header/footer/pageNum/autoNum)와 hwp(pyhwp SectionDef 자식 Header/Footer/PageNumberPosition/AutoNumbering)를 같은 형태로 워드 구역 머리말/꼬리말·PAGE 필드에 옮긴다. 본문이 든 뒤 머리말을 다시 정하면 이어지는 구역(continuous) — 나중 정의로 덮었더니 표지 로고가 사라진 것을 독스 왕복(PDF 내보내기)으로 보고 고침. 548 왕복: 34쪽, 1쪽 로고, 전 쪽 '- N -'.
+- 아스트라 C-95~98 통합 배포, C-99 처리: `_chat_suggestions` 는 `chat_options` 만 돌려준다(고정 제안 제거), 프로젝트 생성 안내 문구도 대화 선택지로. 테스트 갱신.
+- C-101: 드라이브 탐색은 이미 있는 `GET /api/chat-documents/browse`(chat_documents.py, 계정·폴더·page 토큰)를 아스트라가 쓴다 — 같은 일을 하는 경로를 하나 더 만들었다가 뺐다. 아스트라의 drive-browser.js·gdocs_work.html·dev_nas 링크는 문법 검사 뒤 함께 배포.
