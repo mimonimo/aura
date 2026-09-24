@@ -186,7 +186,9 @@ def mask_names_in_rows(cells: list) -> list:
     """
     import re as _re
 
-    label = _re.compile(r"^\s*(?:" + _label_alt(_NAME_LABELS) + "|" + "|".join(_TITLES) + r")\s*$")
+    # 직위 낱말은 목록에 없는 것도 많다(부총장·팀원·청장·기안자·협조자) — 직책 꼴(…장/원/관/담당/위원/…자)이면 라벨로 본다
+    label = _re.compile(r"^\s*(?:" + _label_alt(_NAME_LABELS) + "|" + "|".join(_TITLES)
+                        + r"|[가-힣]{0,5}\s?(?:장|원|관|담당|위원|위원장|기안자|협조자|검토자|결재자|책임자|실무자))\s*$")
     name = _re.compile(r"^\s*" + _NAME_GUARD + r"[가-힣]{2,4}\s*$")
     by_row: dict = {}
     for i, c in enumerate(cells):

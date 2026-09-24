@@ -673,12 +673,16 @@ class DocumentProcessor:
                         rows.append(cells)
                     i += 1
                 if rows:
+                    from zzaimy.ingest.pii import mask_names_in_rows
+
                     n_cols = max(len(r) for r in rows)
                     cells_json = [
                         [ri, ci, 1, 1, 1 if ri == 0 else 0, mk(val)]
                         for ri, row in enumerate(rows)
                         for ci, val in enumerate(row)
                     ]
+                    # 칸마다 따로 가리면 옆 칸의 직위(총장·팀원)를 못 본다 — 결재선·명단 표의 성명이 남았다(잔여 스캔 21건, 2026-09-24)
+                    cells_json = mask_names_in_rows(cells_json) if mk("홍길동 010-0000-0000") != "홍길동 010-0000-0000" else cells_json
                     out.append({
                         "kind": "table", "page_no": page_no,
                         "content": DocumentProcessor._finish_table_payload(
