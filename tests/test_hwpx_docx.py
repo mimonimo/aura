@@ -321,3 +321,29 @@ def test_page_number_inside_a_table_cell_still_reaches_the_footer(tmp_path):
     assert stats["page_numbers"] == 1
     assert [t.text for t in d.sections[0].footer._element.iter(qn("w:instrText"))] == ["PAGE"]
     assert d.tables[0].cell(0, 0).text == "제목 칸"
+
+
+_WMF = (b"\xd7\xcd\xc6\x9a\x00\x00" + b"\x00\x00\x00\x00\x71\x00\x72\x00" + b"\x60\x00" + b"\x00\x00\x00\x00\x00\x00"    # placeable 머리(22바이트): 0,0-113,114 @ 96dpi
+        + b"\x01\x00\x09\x00\x00\x03" + b"\x0a\x00\x00\x00" + b"\x00\x00" + b"\x03\x00\x00\x00" + b"\x00\x00"
+        + b"\x03\x00\x00\x00\x00\x00")
+
+
+def test_metafile_pictures_are_kept_as_native_parts(tmp_path):
+    """WMF·EMF(체크 표시 그림)는 그리지 못해도 버리지 않는다 — 원본 부품으로 넣으면 워드·독스가 그린다."""
+    assert hwpx_docx.metafile_kind(_WMF) == ("wmf", (84, 85))                          # Pillow 는 72dpi 기준 크기 — 비율만 쓴다
+    assert hwpx_docx.metafile_kind(b"\x89PNG\r\n") is None
+    section = SECTION.replace('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>첫 줄<hp:lineBreak/>둘째 줄</hp:t></hp:run></hp:p>',
+                              '<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>확인 </hp:t><hp:pic><hp:pos treatAsChar="1"/><hp:curSz width="2968" height="2983"/>'
+                              '<hp:img binaryItemIDRef="image1"/></hp:pic></hp:run></hp:p>')
+    p = tmp_path / "wmf.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+        zf.writestr("BinData/image1.wmf", _WMF)
+    data, stats = hwpx_docx.convert(p)
+    assert stats["images"] == 1 and stats["metafiles"] == 1 and "image_errors" not in stats
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        media = [n for n in z.namelist() if n.startswith("word/media/")]
+        assert media == ["word/media/image1.wmf"] and z.read(media[0]) == _WMF
+        assert 'Extension="wmf"' in z.read("[Content_Types].xml").decode()
+    d = Document(io.BytesIO(data))
+    assert d.paragraphs[1].text.startswith("확인") and d.paragraphs[1]._p.find(".//" + qn("w:drawing")) is not None
