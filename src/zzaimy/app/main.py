@@ -283,6 +283,9 @@ def create_app(
             return user
         return None
 
+    _DOC_PATH = re.compile(r"^/doc/(\d+)(?:/|$)")
+    from zzaimy.app.access_policy import visible as _visible
+
     if password is not None:
         basic = HTTPBasic(auto_error=False)
 
@@ -312,6 +315,13 @@ def create_app(
             request.state.user = user
             if request.url.path.startswith("/dev") and request.state.role != "dev":
                 raise HTTPException(403, "개발자 계정 전용입니다")
+            # 열람 등급은 검색만이 아니라 문서 경로 전부(화면·원본·쪽 그림·복원·내보내기·삭제)에 강제한다(브리프 절대 규칙 4).
+            # 라우트마다 검사를 넣지 않고 여기서 한 번에 — 앞으로 생기는 /doc/{id}/… 경로도 저절로 막힌다.
+            m = _DOC_PATH.match(request.url.path)
+            if m:
+                doc = db.get_document(int(m.group(1)))
+                if doc is not None and not _visible(doc, dept=request.state.dept or None, user=user, role=request.state.role):
+                    raise HTTPException(404, "문서를 찾을 수 없습니다")
 
         dependencies = [Depends(check_auth)]
     else:

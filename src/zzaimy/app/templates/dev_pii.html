@@ -7,7 +7,7 @@
   <h2><iconify-icon icon="solar:eye-closed-linear"></iconify-icon>개인정보 마스킹 감사
     <a href="/dev/doc/decisions/0006-criteria-no-masking.md" class="h-link"><iconify-icon icon="solar:document-text-linear"></iconify-icon>마스킹 제외 근거 (ADR-0006)</a></h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    개인정보는 색인 전에 가립니다. 마스킹 기록(유형별 건수), 합성 표본 자가 점검, 저장 본문 잔여 검사로 확인합니다. 원문 값은 저장하지 않습니다.</p>
+    개인정보는 색인 전에 가립니다. 마스킹 기록(유형별 건수), 합성 표본 자가 점검, 저장 본문 잔여 검사로 확인합니다. 마스킹 기록에는 유형과 건수만 저장하고, 원본 파일은 문서 폴더에 따로 보관합니다(열람 등급 적용).</p>
   {% set scan0 = sources[0].scan if sources else none %}
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
     {% if selftest and not selftest.error %}

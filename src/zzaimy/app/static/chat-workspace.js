@@ -97,7 +97,7 @@
         installPage(await page.text(), page.url);
         return;
       }
-      status.textContent = '답변 작성 중입니다. 다음 질문을 미리 적어 두세요.';
+      status.textContent = '답변 작성 중입니다.';
     } catch (_) {
       status.textContent = '연결을 다시 확인하고 있습니다. 작성 중인 내용은 유지됩니다.';
     }
