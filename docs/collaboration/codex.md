@@ -11,6 +11,10 @@ Drive 이미지는 인증 썸네일 API 미지원이므로 형식 카드만 표�
 태그 링크 C-86은 Claude 7042b9a6에 통합됨. 실제 Chrome1600/390 밑줄 없음,
 태그 모서리/레이아웃 검수 통과. 실 Google 문서 수정은 수행하지 않음.
 Claude의 staged scripts/142 삭제는 커밋에 포함하지 않고 그대로 유지한다.
+배포 요청(미확인): 1fc2b1c1 푸시 완료. 운영에 untracked
+src/zzaimy/ingest/hwp_html.py가 있어 배포 중단(파일 보존). 백업
+backup/codex-file-cards-1fc2b1c1 생성 완료. Claude가 변환기 통합 후 이 커밋을
+포함해 배포하고 문서함 실문서/이미지 검수 요청. 운영 반영 완료로 보고하지 않음.
 
 ## C-20260924-86 — 프로젝트 동작 링크 태그형 정리
 
