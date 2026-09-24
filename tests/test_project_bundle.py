@@ -105,3 +105,16 @@ def test_doc_google_api_without_account_says_so(tmp_path, monkeypatch):
     assert r.status_code == 400 and "허용 계정" in r.json()["detail"]
     assert gdrive_files.embed_url("X", "application/vnd.google-apps.presentation") == "https://docs.google.com/presentation/d/X/edit?rm=minimal"
     assert gdrive_files.embed_url("X", "application/pdf") == "https://drive.google.com/file/d/X/preview"
+
+
+def test_duplicate_hwp_view_uses_original_chunks(tmp_path):
+    app, _ = _client(tmp_path)
+    db = app.state.db
+    o = tmp_path / "o.hwp"; o.write_bytes(b"h")
+    orig = db.add_document(filename="o.hwp", stored_path=str(o), doc_type="grant")
+    db.replace_doc_chunks(orig, [{"kind": "text", "content": "원본 본문", "page_no": 1}])
+    d = tmp_path / "d.hwp"; d.write_bytes(b"h")
+    dup = db.add_document(filename="d.hwp", stored_path=str(d), doc_type="grant")
+    db.set_document_family(dup, "x", version_of=orig)
+    data, name, mime, target = gdrive_files.bytes_for_view(db, db.get_document(dup))
+    assert name == "d.docx" and data[:2] == b"PK" and target.endswith("document")

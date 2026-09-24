@@ -106,7 +106,9 @@
    panel.innerHTML='<header><button type="button" class="secondary" data-list>목록</button><strong></strong><a target="_blank" rel="noopener">새 창 ↗</a><a data-page>플랫폼 화면</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="문서 열람"></iframe>';
    panel.querySelector('strong').textContent=v.title;panel.querySelector('iframe').src=v.embed_url;panel.querySelector('a[target]').href=v.url;panel.querySelector('[data-page]').href=v.page;
    panel.querySelector('[data-list]').onclick=showFiles;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
-   main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(50,false);visibility(true);fitEditor&&fitEditor();
+   main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(50,false);visibility(true);fitEditor();
+   const fit=panel.querySelector('[data-fit]');if(fit&&!/document\//.test(v.embed_url))fit.click();   // 시트·슬라이드·PDF 는 원래 크기
+   panel.querySelectorAll('header a,header button').forEach(el=>el.classList.add('chat-doc-mini'));
  }
  const createPanel=show;
  function arrangeHeader(){
