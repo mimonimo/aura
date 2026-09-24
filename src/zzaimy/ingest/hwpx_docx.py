@@ -267,6 +267,10 @@ class Converter:
 
         self.doc = Document()
         self._first_section = True
+        self._trailing_empty: list = []
+        self._just_sectioned = False
+        self._prev_pb_empty = None          # 직전 쪽 나눔 문단이 빈 문단이면 그 요소
+        self._content_since_pb = True       # 직전 쪽 나눔 뒤에 글·표·그림이 있었는가
         self.stats = {"paragraphs": 0, "tables": 0, "nested_tables": 0, "images": 0, "textboxes": 0}
 
     # -- 문단 ---------------------------------------------------------------------------------------
@@ -281,16 +285,35 @@ class Converter:
                           "RIGHT": WD_ALIGN_PARAGRAPH.RIGHT, "DISTRIBUTE": WD_ALIGN_PARAGRAPH.DISTRIBUTE,
                           "DISTRIBUTE_SPACE": WD_ALIGN_PARAGRAPH.DISTRIBUTE}.get(ps.align, WD_ALIGN_PARAGRAPH.JUSTIFY)
         pf = para.paragraph_format
-        if ps.left_hu:
-            pf.left_indent = Emu(int(ps.left_hu * EMU_PER_HWPUNIT))
-        if ps.indent_hu:
-            pf.first_line_indent = Emu(int(ps.indent_hu * EMU_PER_HWPUNIT))
+        # 한글의 내어쓰기(intent<0)는 첫 줄이 왼쪽 여백에서 시작하고 둘째 줄부터 |intent| 만큼 들어간다 — 워드로는
+        # 왼쪽 여백을 |intent| 만큼 늘리고 첫 줄을 그만큼 되돌린다(그대로 옮기면 첫 줄이 칸 밖으로 나간다, 실측 2026-09-24 평가편람)
+        left, first = ps.left_hu, ps.indent_hu
+        if first < 0:
+            left, first = left + abs(first), -abs(first)
+        if left:
+            pf.left_indent = Emu(int(left * EMU_PER_HWPUNIT))
+        if first:
+            pf.first_line_indent = Emu(int(first * EMU_PER_HWPUNIT))
         pf.space_before = Emu(int(ps.before_hu * EMU_PER_HWPUNIT))
         pf.space_after = Emu(int(ps.after_hu * EMU_PER_HWPUNIT))
         if ps.line_pct:
-            pf.line_spacing = max(0.8, min(ps.line_pct / 100.0, 3.0))
-        if p_el.get("pageBreak") == "1":
+            # 한글의 줄 간격 %는 글자 크기 기준이다(10pt·160% = 16pt). 워드의 배수는 글꼴 행 높이 기준이라 맑은 고딕에서 2할쯤
+            # 커져 쪽이 넘친다(실측: 표지 뒤 빈 쪽) — 글자 크기 × 비율을 고정 값으로 준다
+            from docx.enum.text import WD_LINE_SPACING
+
+            size_pt = self._para_font_pt(p_el)
+            pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+            pf.line_spacing = Pt(max(6.0, size_pt * max(0.8, min(ps.line_pct / 100.0, 3.0))))
+        if p_el.get("pageBreak") == "1" and not self._just_sectioned:
             pf.page_break_before = True
+
+    def _para_font_pt(self, p_el: ET.Element) -> float:
+        """문단의 글자 크기 — 첫 런의 글자 모양(없으면 10pt)."""
+        for run in _children(p_el, "run"):
+            cs = self.st.chars.get(str(run.get("charPrIDRef")))
+            if cs is not None:
+                return max(cs.size_pt, 4.0)
+        return 10.0
 
     def _apply_run_style(self, run, char_id: str | None) -> None:
         from docx.oxml.ns import qn
@@ -338,6 +361,20 @@ class Converter:
             level = ps.outline_level
         pending: list[tuple[str, ET.Element]] = []
         para = None
+        is_pb = container is self.doc and p_el.get("pageBreak") == "1" and not self._just_sectioned
+        if is_pb:
+            # 쪽 나눔 앞의 빈 문단들은 쪽 끝 여백일 뿐이다. 직전 쪽 나눔 뒤에 아무 내용도 없었다면 그 쪽은 빈 쪽 — 앞 쪽 나눔 문단까지 지운다
+            for old_p in self._trailing_empty:
+                el = old_p._element
+                if el.getparent() is not None:
+                    el.getparent().remove(el)
+            self._trailing_empty = []
+            if not self._content_since_pb and self._prev_pb_empty is not None:
+                el = self._prev_pb_empty._element
+                if el.getparent() is not None:
+                    el.getparent().remove(el)
+            self._prev_pb_empty = None
+            self._content_since_pb = False
         for run in _children(p_el, "run"):
             char_id = run.get("charPrIDRef")
             for obj in run:
@@ -347,14 +384,39 @@ class Converter:
                         para = self._new_para(container, level if heading_ok else 0)
                         self._apply_para_style(para, p_el)
                     self._emit_text(para, obj, char_id)
-                elif n in ("tbl", "pic", "rect", "container", "ellipse", "polygon", "curve", "line", "arc", "ole", "equation"):
+                elif n == "pic" and (_child(obj, "pos") is not None and (_child(obj, "pos").get("treatAsChar") or "0") == "1"):
+                    # 글자처럼 놓인 그림(표지의 로고 여러 개)은 같은 문단 안에 나란히 — 문단마다 따로 두면 쪽이 넘친다(실측 2026-09-24)
+                    if para is None:
+                        para = self._new_para(container, 0)
+                        self._apply_para_style(para, p_el)
+                    self.picture(obj, container, para=para)
+                elif n == "line":
+                    continue                                   # 장식 선 — 내용이 아니다(간지 쪽의 선만 있는 문단이 내용으로 잡혀 빈 쪽을 만들었다)
+                elif n in ("tbl", "pic"):
                     pending.append((n, obj))
+                elif n in ("rect", "container", "ellipse", "polygon", "curve", "arc", "ole", "equation"):
+                    has_text = any((t.text or "").strip() for t in obj.iter() if _local(t.tag) == "t")
+                    has_obj = any(_local(x.tag) in ("tbl", "pic") for x in obj.iter())
+                    if has_text or has_obj:
+                        pending.append((n, obj))
                 elif n in ("secPr",):
                     self._section(obj)
-        if para is None and not pending:
-            # 빈 문단 — 원본의 줄 간격을 지킨다(연속 빈 문단은 하나로)
-            para = self._new_para(container, 0)
-            self._apply_para_style(para, p_el)
+                    self._just_sectioned = True          # 구역 시작이 이미 새 쪽이다 — 같은 문단의 쪽 나눔은 겹치지 않게
+        if (para is None or not para.text.strip()) and not pending:
+            # 빈 문단(공백만 있는 문단 포함) — 원본의 줄 간격을 지킨다
+            if para is None:
+                para = self._new_para(container, 0)
+                self._apply_para_style(para, p_el)
+            if container is self.doc:
+                if is_pb:
+                    self._prev_pb_empty = para
+                else:
+                    self._trailing_empty.append(para)
+            self._just_sectioned = False
+            return
+        if container is self.doc:
+            self._trailing_empty = []
+            self._content_since_pb = True
         for n, obj in pending:
             if n == "tbl":
                 self.table(obj, container)
@@ -364,6 +426,9 @@ class Converter:
                 continue
             else:
                 self.shape(obj, container)
+        if pending and container is self.doc:
+            self._trailing_empty = []
+        self._just_sectioned = False
 
     def _new_para(self, container, level: int):
         if level and container is self.doc:
@@ -380,6 +445,12 @@ class Converter:
         page = _first(sec_el, "pagePr")
         if page is None:
             return
+        if not self._first_section:
+            for old_p in self._trailing_empty:           # 구역 끝의 빈 문단은 쪽 끝 여백일 뿐 — 남기면 빈 쪽
+                el = old_p._element
+                if el.getparent() is not None:
+                    el.getparent().remove(el)
+            self._trailing_empty = []
         section = self.doc.sections[-1] if self._first_section else self.doc.add_section()
         self._first_section = False
         w, h = _hu(page.get("width")), _hu(page.get("height"))
@@ -418,21 +489,29 @@ class Converter:
                     heights.setdefault(row, hgt)
                 cells_info.append((row, col, rs, cs, tc))
         n_rows = max([r + rs for r, _, rs, _, _ in cells_info] + [_hu(tbl.get("rowCnt"))])
-        n_cols = max([c + cs for _, c, _, cs, _ in cells_info] + [_hu(tbl.get("colCnt"))])
-        if n_rows < 1 or n_cols < 1:
+        if n_rows < 1:
             return
-        # 열 너비: 단일 셀 폭이 없는 열은 병합 셀 폭을 나눠 채운다
-        for row, col, rs, cs, _tc in cells_info:
-            if cs > 1:
-                w = _hu(_child(_tc, "cellSz").get("width")) if _child(_tc, "cellSz") is not None else 0
-                missing = [c for c in range(col, col + cs) if c not in widths]
-                if missing and w:
-                    known = sum(widths.get(c, 0) for c in range(col, col + cs))
-                    share = max((w - known) // len(missing), 100)
-                    for c in missing:
-                        widths[c] = share
-        total_hu = _hu((_child(tbl, "sz") or ET.Element("x")).get("width")) or sum(widths.values())
-        col_hu = [widths.get(c, max(total_hu // n_cols, 100)) for c in range(n_cols)]
+        # 한글 표는 행마다 열 경계가 달라도 된다(배치용 표, 실측 2026-09-24 작성서식의 4×13 표). 워드·독스는 한 그리드를 요구하므로
+        # 모든 행의 셀 경계(x 좌표)를 모아 공통 그리드를 만들고 셀을 그 그리드 열에 얹는다. 폭 정보가 없으면 cellAddr 로 돌아간다.
+        grid = _column_grid(rows, cells_info)
+        if grid is not None:
+            col_hu, cells_info = grid
+            n_cols = len(col_hu)
+        else:
+            n_cols = max([c + cs for _, c, _, cs, _ in cells_info] + [_hu(tbl.get("colCnt"))])
+            for row, col, rs, cs, _tc in cells_info:
+                if cs > 1:
+                    w = _hu(_child(_tc, "cellSz").get("width")) if _child(_tc, "cellSz") is not None else 0
+                    missing = [c for c in range(col, col + cs) if c not in widths]
+                    if missing and w:
+                        known = sum(widths.get(c, 0) for c in range(col, col + cs))
+                        share = max((w - known) // len(missing), 100)
+                        for c in missing:
+                            widths[c] = share
+            total_hu = _hu((_child(tbl, "sz") or ET.Element("x")).get("width")) or sum(widths.values())
+            col_hu = [widths.get(c, max(total_hu // n_cols, 100)) for c in range(n_cols)]
+        if n_cols < 1:
+            return
         table = container.add_table(rows=n_rows, cols=n_cols)
         table.autofit = False
         _table_fixed_layout(table, [int(w * TWIPS_PER_HWPUNIT) for w in col_hu])
@@ -445,13 +524,30 @@ class Converter:
                 _row_height(row, heights.get(r_i, 0))
         covered: set[tuple[int, int]] = set()
         default_bf = self.st.borders.get(str(tbl.get("borderFillIDRef")))
-        for row, col, rs, cs, tc in cells_info:
+        for row, col, rs, cs, tc in sorted(cells_info, key=lambda t: (t[0], t[1])):
             if row >= n_rows or col >= n_cols:
                 continue
-            cell = table.cell(row, col)
+            if (row, col) in covered:
+                # 공통 그리드로 옮기다 앞 셀의 병합 영역과 겹쳤다(경계 반올림) — 겹치지 않는 첫 칸으로 민다
+                shift = col
+                while shift < n_cols and (row, shift) in covered:
+                    shift += 1
+                if shift >= n_cols:
+                    continue
+                cs = max(1, cs - (shift - col))
+                col = shift
             end_r, end_c = min(row + rs - 1, n_rows - 1), min(col + cs - 1, n_cols - 1)
+            # 병합 영역이 이미 덮인 칸과 겹치면 겹치기 직전까지로 줄인다(워드는 겹치는 병합을 허용하지 않는다)
+            while end_c > col and any((rr, end_c) in covered for rr in range(row, end_r + 1)):
+                end_c -= 1
+            while end_r > row and any((end_r, cc) in covered for cc in range(col, end_c + 1)):
+                end_r -= 1
+            cell = table.cell(row, col)
             if (end_r, end_c) != (row, col):
-                cell = cell.merge(table.cell(end_r, end_c))
+                try:
+                    cell = cell.merge(table.cell(end_r, end_c))
+                except ValueError:
+                    end_r, end_c = row, col
             for rr in range(row, end_r + 1):
                 for cc in range(col, end_c + 1):
                     covered.add((rr, cc))
@@ -476,6 +572,8 @@ class Converter:
                     _set_cell_borders(table.cell(rr, cc), default_bf)
         if container is self.doc:
             self.stats["tables"] += 1
+            self._content_since_pb = True
+            self._trailing_empty = []
         else:
             self.stats["nested_tables"] += 1
         # 표 뒤에 문단 하나(한글은 표 다음에 항상 빈 줄 없이 이어지지만 워드는 표 사이에 문단이 필요)
@@ -507,9 +605,22 @@ class Converter:
         """글상자(hp:rect 등)의 글은 그 자리에 문단으로. 테두리가 있으면 한 칸 표로 감싼다."""
         draw = _child(el, "drawText")
         if draw is None:
-            for node in el.iter():
-                if _local(node.tag) == "tbl":
-                    self.table(node, container)
+            # 묶음 도형(container)은 글이 안쪽 도형에 있다 — 자식 도형을 차례로(간지의 장 제목 상자, 실측 2026-09-24)
+            handled = False
+            for ch in el:
+                if _local(ch.tag) in ("rect", "container", "ellipse", "polygon", "curve", "arc"):
+                    self.shape(ch, container)
+                    handled = True
+                elif _local(ch.tag) == "tbl":
+                    self.table(ch, container)
+                    handled = True
+                elif _local(ch.tag) == "pic":
+                    self.picture(ch, container)
+                    handled = True
+            if not handled:
+                for node in el.iter():
+                    if _local(node.tag) == "tbl":
+                        self.table(node, container)
             return
         sub = _child(draw, "subList")
         if sub is None:
@@ -535,7 +646,7 @@ class Converter:
                 self.paragraph(p_el, container, heading_ok=False)
 
     # -- 그림 --------------------------------------------------------------------------------------
-    def picture(self, pic: ET.Element, container) -> None:
+    def picture(self, pic: ET.Element, container, para=None) -> None:
         from docx.shared import Emu
 
         ref = ""
@@ -556,12 +667,65 @@ class Converter:
             org = _child(pic, "orgSz")
             w = _hu(org.get("width")) if org is not None else 0
         width = Emu(int(min(max(w, 2000), 45000) * EMU_PER_HWPUNIT))
-        para = container.add_paragraph()
+        if para is None:
+            para = container.add_paragraph()
         try:
             para.add_run().add_picture(io.BytesIO(data), width=width)
             self.stats["images"] += 1
         except Exception:
             para.add_run("[그림]")
+        if container is self.doc:
+            self._content_since_pb = True
+
+
+GRID_TOL = 60     # 경계 좌표 합치기 허용치(HWPUNIT, 약 0.2mm)
+
+
+def _column_grid(rows, cells_info):
+    """모든 행의 셀 x 경계로 공통 열 그리드를 만든다 → (열 너비 목록, 그리드 열로 옮긴 cells_info). 폭이 없으면 None."""
+    # 행마다 셀을 colAddr 순으로 놓고 폭을 누적해 x 범위를 구한다
+    by_row: dict[int, list] = {}
+    for row, col, rs, cs, tc in cells_info:
+        sz = _child(tc, "cellSz")
+        w = _hu(sz.get("width")) if sz is not None else 0
+        if w <= 0:
+            return None
+        by_row.setdefault(row, []).append((col, w, rs, cs, tc))
+    spans: list[tuple[int, int, int, int, object]] = []      # (row, x0, x1, rs, tc)
+    bounds: list[int] = [0]
+    # 세로 병합 셀은 아래 행에 자리를 차지하지만 XML 에 없다 — 아래 행의 x 누적을 맞추려면 그 자리를 건너뛰어야 한다
+    occupied: dict[int, list[tuple[int, int]]] = {}         # row → [(x0, x1)] 세로 병합이 덮는 구간
+    for row in sorted(by_row):
+        x = 0
+        for col, w, rs, cs, tc in sorted(by_row[row], key=lambda t: t[0]):
+            for ox0, ox1 in sorted(occupied.get(row, [])):
+                if abs(ox0 - x) <= GRID_TOL:
+                    x = ox1
+            x0, x1 = x, x + w
+            spans.append((row, x0, x1, rs, tc))
+            bounds += [x0, x1]
+            for rr in range(row + 1, row + rs):
+                occupied.setdefault(rr, []).append((x0, x1))
+            x = x1
+    # 경계 합치기
+    uniq: list[int] = []
+    for b in sorted(bounds):
+        if not uniq or b - uniq[-1] > GRID_TOL:
+            uniq.append(b)
+    if len(uniq) < 2:
+        return None
+
+    def idx(v: int) -> int:
+        return min(range(len(uniq)), key=lambda i: abs(uniq[i] - v))
+
+    col_hu = [uniq[i + 1] - uniq[i] for i in range(len(uniq) - 1)]
+    out = []
+    for row, x0, x1, rs, tc in spans:
+        c0, c1 = idx(x0), idx(x1)
+        if c1 <= c0:
+            c1 = c0 + 1
+        out.append((row, c0, rs, c1 - c0, tc))
+    return col_hu, out
 
 
 def _binary_map(zf: zipfile.ZipFile, names: list[str]) -> dict[str, str]:

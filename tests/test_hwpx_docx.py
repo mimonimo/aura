@@ -91,3 +91,56 @@ def test_encrypted_section_raises(tmp_path):
 
     with pytest.raises(ValueError):
         hwpx_docx.convert(p)
+
+
+def test_column_grid_merges_rows_with_different_boundaries():
+    """행마다 열 경계가 다른 배치용 표(작성서식 4×13): 공통 그리드로 옮겨도 각 셀의 x 범위가 보존된다."""
+    from xml.etree import ElementTree as ET
+
+    def tc(w, col, rs=1, cs=1):
+        el = ET.Element("tc")
+        ET.SubElement(el, "cellAddr", rowAddr="0", colAddr=str(col)); ET.SubElement(el, "cellSpan", rowSpan=str(rs), colSpan=str(cs))
+        ET.SubElement(el, "cellSz", width=str(w), height="500")
+        return el
+    # 0행: 6434 | 848×4 | 29094(3칸 병합) | 848×4 | 5685 ; 1행: 20953(6칸) | 17684 | 9077(6칸)
+    r0 = [(0, 0, 1, 1, tc(6434, 0))] + [(0, c, 1, 1, tc(848, c)) for c in (1, 2, 3, 4)] + [(0, 5, 1, 3, tc(29094, 5, 1, 3))] \
+         + [(0, c, 1, 1, tc(848, c)) for c in (8, 9, 10, 11)] + [(0, 12, 1, 1, tc(5685, 12))]
+    r1 = [(1, 0, 1, 6, tc(20953, 0, 1, 6)), (1, 6, 1, 1, tc(17684, 6)), (1, 7, 1, 6, tc(9077, 7, 1, 6))]
+    col_hu, cells = hwpx_docx._column_grid([None, None], r0 + r1)
+    assert sum(col_hu) == 47997 or abs(sum(col_hu) - 47997) <= 2 * hwpx_docx.GRID_TOL
+    # 1행 가운데 셀(17684)은 x 20953~38637 — 그리드 열 합이 그 폭이어야 한다
+    mid = next(c for c in cells if c[0] == 1 and c[1] > 0 and c[3] < 6)
+    start, span = mid[1], mid[3]
+    assert abs(sum(col_hu[start:start + span]) - 17684) <= 2 * hwpx_docx.GRID_TOL
+    assert len(col_hu) >= 13
+
+
+def test_empty_paragraphs_before_page_break_are_dropped(tmp_path):
+    section = SECTION.replace('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>첫 줄<hp:lineBreak/>둘째 줄</hp:t></hp:run></hp:p>',
+                              '<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>첫 줄<hp:lineBreak/>둘째 줄</hp:t></hp:run></hp:p>'
+                              '<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"/></hp:p><hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"/></hp:p>'
+                              '<hp:p paraPrIDRef="0" pageBreak="1"><hp:run charPrIDRef="0"><hp:t>다음 쪽</hp:t></hp:run></hp:p>')
+    p = tmp_path / "b.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+    data, _ = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    texts = [x.text for x in d.paragraphs]
+    i = texts.index("다음 쪽")
+    assert texts[i - 1] != ""                                  # 쪽 나눔 앞 빈 문단이 사라졌다
+    assert d.paragraphs[i].paragraph_format.page_break_before
+
+
+def test_hanging_indent_and_exact_line_spacing(tmp_path):
+    header = HEADER.replace('<hh:paraPr id="0"><hh:align horizontal="JUSTIFY"/><hh:heading type="NONE" level="0"/></hh:paraPr>',
+                            '<hh:paraPr id="0"><hh:align horizontal="JUSTIFY"/><hh:heading type="NONE" level="0"/>'
+                            '<hh:margin><hc:intent value="-1000" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/></hh:margin>'
+                            '<hh:lineSpacing type="PERCENT" value="160" unit="HWPUNIT"/></hh:paraPr>')
+    p = tmp_path / "i.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("Contents/header.xml", header); zf.writestr("Contents/section0.xml", SECTION)
+    data, _ = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    pf = d.paragraphs[1].paragraph_format                     # '첫 줄/둘째 줄' 문단(10pt)
+    assert round(pf.left_indent.inches, 3) == round(1000 / 7200, 3) and round(pf.first_line_indent.inches, 3) == -round(1000 / 7200, 3)
+    assert pf.line_spacing.pt == 16.0
