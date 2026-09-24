@@ -301,9 +301,10 @@ class Converter:
             # 커져 쪽이 넘친다(실측: 표지 뒤 빈 쪽) — 글자 크기 × 비율을 고정 값으로 준다
             from docx.enum.text import WD_LINE_SPACING
 
+            # 한글 양식은 여백용 빈 문단을 0.5pt 글자로 둔다(표지, 실측 2026-09-24) — 하한을 크게 두면 표지가 넘친다
             size_pt = self._para_font_pt(p_el)
             pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-            pf.line_spacing = Pt(max(6.0, size_pt * max(0.8, min(ps.line_pct / 100.0, 3.0))))
+            pf.line_spacing = Pt(max(1.0, size_pt * max(0.8, min(ps.line_pct / 100.0, 3.0))))
         if p_el.get("pageBreak") == "1" and not self._just_sectioned:
             pf.page_break_before = True
 
@@ -312,7 +313,7 @@ class Converter:
         for run in _children(p_el, "run"):
             cs = self.st.chars.get(str(run.get("charPrIDRef")))
             if cs is not None:
-                return max(cs.size_pt, 4.0)
+                return max(cs.size_pt, 0.5)
         return 10.0
 
     def _apply_run_style(self, run, char_id: str | None) -> None:
