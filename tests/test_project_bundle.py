@@ -54,7 +54,8 @@ def test_bundle_with_explicit_name_and_added_to_existing_project(tmp_path):
     assert c.post("/projects/bundle", data={"sector": "grant"}, follow_redirects=False).status_code == 400
 
 
-def test_doc_view_falls_back_to_platform_page_without_google(tmp_path):
+def test_doc_view_falls_back_to_platform_page_without_google(tmp_path, monkeypatch):
+    monkeypatch.setattr(gdrive_files, "account_for", lambda db, user, dept=None: "")
     app, c = _client(tmp_path)
     db = app.state.db
     did = db.add_document(filename="a.xlsx", stored_path=str(tmp_path / "a.xlsx"), doc_type="grant")
@@ -96,7 +97,8 @@ def test_chat_documents_api_lists_attachments_criteria_and_intake(tmp_path):
     assert c.get("/api/chat/9999/documents").status_code == 404
 
 
-def test_doc_google_api_without_account_says_so(tmp_path):
+def test_doc_google_api_without_account_says_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(gdrive_files, "account_for", lambda db, user, dept=None: "")   # 운영 VM 의 실제 토큰과 무관하게
     app, c = _client(tmp_path)
     did = app.state.db.add_document(filename="a.xlsx", stored_path=str(tmp_path / "a.xlsx"), doc_type="grant")
     r = c.get(f"/api/doc/{did}/google")
