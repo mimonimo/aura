@@ -374,3 +374,13 @@ def test_startup_unlocks_chats_left_without_an_answer(tmp_path):
         assert msgs[-1]["role"] == "assistant" and "다시 시작" in msgs[-1]["content"]
         r = c.post("/chat/send", data={"question": "다시 보냄", "session_id": str(sid)}, follow_redirects=False)
         assert r.status_code == 303 and app.state.db.list_chats(sid)[-1]["content"] != "합본 그림 쪽 판독해 줘"
+
+
+def test_vision_off_latch_expires(monkeypatch):
+    from zzaimy.app import pipeline as p
+
+    p._vision_state.update({"fails": 0, "off": False, "off_at": 0.0})
+    p._vision_switch_off()
+    assert p._vision_off() is True
+    p._vision_state["off_at"] -= p.VISION_OFF_S + 1
+    assert p._vision_off() is False and p._vision_state["fails"] == 0

@@ -33,7 +33,29 @@ _VISION_FAIL_LIMIT = 2   # 이만큼 연속 실패하면 그 실행에서 비전
 # 이 한도는 스캔본에만 걸린다. 실측(2026-09-20 DGX qwen3.6:35b): 병합 표가 있는 쪽 17.6초.
 VISION_MAX_PAGES = int(os.environ.get("ZZAIMY_VISION_MAX_PAGES", "30"))
 # 실행 범위 차단기. 문서마다 처리기를 새로 만들어도 유지돼야 하므로 모듈에 둔다.
-_vision_state = {"fails": 0, "off": False}
+_vision_state = {"fails": 0, "off": False, "off_at": 0.0}
+VISION_OFF_S = int(os.environ.get("ZZAIMY_VISION_OFF_S", "300"))   # 연속 실패로 끈 판독을 다시 시도하기까지
+
+
+def _vision_off() -> bool:
+    """연속 실패로 꺼진 상태인가 — 일정 시간이 지나면 다시 켠다. 예전에는 프로세스가 살아 있는 동안 영영 꺼져 있어
+    잠깐의 장애 뒤에도 재시작 전까지 판독이 안 됐다(실측 2026-09-24: 요청 시 판독이 조용히 0쪽)."""
+    import time as _t
+
+    if not _vision_state["off"]:
+        return False
+    if _t.time() - float(_vision_state.get("off_at") or 0) > VISION_OFF_S:
+        _vision_state["off"] = False
+        _vision_state["fails"] = 0
+        return False
+    return True
+
+
+def _vision_switch_off() -> None:
+    import time as _t
+
+    _vision_state["off"] = True
+    _vision_state["off_at"] = _t.time()
 
 
 _MASK_PROBE = "성명: 김민수 연락처 010-1234-5678"
@@ -64,18 +86,18 @@ def _vision_model_name() -> str:
 
 def _vision_available() -> bool:
     """비전 모델이 따로 지정돼 있는가. 없으면 이미지 판독을 아예 건너뛴다."""
-    if _vision_state["off"]:
+    if _vision_off():
         return False
     try:
         from zzaimy.generate.client import VllmClient
 
         if not getattr(VllmClient(role="vision"), "has_vision", False):
-            _vision_state["off"] = True
+            _vision_switch_off()
             log.info("이미지를 읽을 수 있는 모델이 없어 판독을 건너뜁니다")
             return False
         return True
     except Exception:
-        _vision_state["off"] = True
+        _vision_switch_off()
         return False
 
 log = logging.getLogger(__name__)
@@ -512,7 +534,7 @@ class DocumentProcessor:
         비전 서버가 없으면 곧바로 물러난다. 시간 제한과 재시도가 걸려 있어
         문서마다 되풀이하면 전체 처리가 크게 느려지기 때문이다.
         """
-        if _vision_state["off"]:
+        if _vision_off():
             return None
         if not _vision_available():
             return None
@@ -568,7 +590,7 @@ class DocumentProcessor:
             # 재시도가 걸려 있어, 문서마다 되풀이하면 처리 전체가 느려진다.
             _vision_state["fails"] += 1
             if _vision_state["fails"] >= _VISION_FAIL_LIMIT:
-                _vision_state["off"] = True
+                _vision_switch_off()
                 log.warning("비전 판독을 이번 실행에서 중단합니다 — %d회 연속 실패(%s)",
                             _vision_state["fails"], type(e).__name__)
             else:
@@ -963,7 +985,7 @@ class DocumentProcessor:
 
     def _vlm_read_line(self, image_path: Path) -> str | None:
         """짧은 이미지 조각 한 줄 전사 — 설명·교정 없이 보이는 그대로."""
-        if _vision_state["off"]:
+        if _vision_off():
             return None
         if not _vision_available():
             return None
@@ -991,7 +1013,7 @@ class DocumentProcessor:
         except Exception as e:
             _vision_state["fails"] += 1
             if _vision_state["fails"] >= _VISION_FAIL_LIMIT:
-                _vision_state["off"] = True
+                _vision_switch_off()
                 log.warning("비전 판독을 이번 실행에서 중단합니다 — %d회 연속 실패(%s)",
                             _vision_state["fails"], type(e).__name__)
             return None
@@ -1037,7 +1059,7 @@ class DocumentProcessor:
         except Exception as e:
             _vision_state["fails"] += 1
             if _vision_state["fails"] >= _VISION_FAIL_LIMIT:
-                _vision_state["off"] = True
+                _vision_switch_off()
                 log.warning("비전 판독을 이번 실행에서 중단합니다 — %d회 연속 실패(%s)",
                             _vision_state["fails"], type(e).__name__)
             return None
