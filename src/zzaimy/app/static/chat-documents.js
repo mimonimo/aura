@@ -109,6 +109,7 @@
  }
  document.addEventListener('pointerdown',e=>{const more=panel?.querySelector('.doc-more[open]');if(more&&!more.contains(e.target))more.open=false;});
  show=()=>{
+   if(panel&&!panel.querySelector('iframe'))clearPanel();
    createPanel();
    fitEditor();
    if(!panel.querySelector('[data-list]')){
@@ -175,9 +176,18 @@
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
  const initialized=sid?api('/api/chat-documents/'+sid).then(data=>{if(data.connected)linked=data;}).catch(error=>{loadError=error.message;}):Promise.resolve();
- // 대화 중 에이전트가 문서를 만들어 이으면(초안 요청) 새로고침 없이 패널을 연다
- if(sid){const watch=setInterval(async()=>{if(linked){clearInterval(watch);return;}try{const d=await api('/api/chat-documents/'+sid);if(d.connected){linked=d;clearInterval(watch);show();}}catch(_){}},6000);}
- opener.onclick=async()=>{await initialized;if(panel&&!panel.hidden)visibility(false);else if(linked)show();else showFiles();};
- // 이미 문서가 이어진 대화는 열자마자 편집기를 보인다(닫아 둔 대화는 그대로)
- initialized.then(()=>{if(linked&&sessionStorage.getItem('chatDocHidden:'+sid)!=='1')show();});
+ // 새로 생성된 문서만 자동으로 연다. 기존 문서는 문서 버튼에서 목록을 먼저 표시한다.
+ let watch=null;
+ async function checkCreatedDocument(){
+   if(linked||!workspace.isConnected)return;
+   try{
+     const data=await api('/api/chat-documents/'+sid);
+     // 요청 중 사용자가 목록에서 다른 문서를 선택했다면 그 선택을 보존한다.
+     if(!linked&&data.connected){linked=data;setRatio(50);show();}
+   }catch(_){}
+   if(!linked&&workspace.isConnected)watch=setTimeout(checkCreatedDocument,6000);
+ }
+ initialized.then(()=>{if(sid&&!linked)watch=setTimeout(checkCreatedDocument,6000);});
+ window.addEventListener('pagehide',()=>clearTimeout(watch));
+ opener.onclick=async()=>{await initialized;if(panel&&!panel.hidden)visibility(false);else showFiles();};
 })();
