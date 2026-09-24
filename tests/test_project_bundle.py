@@ -38,7 +38,7 @@ def test_bundle_creates_project_and_splits_criteria_from_intake(tmp_path):
     for d in db.list_documents("grant", project_id=pid):
         assert "반입" in d["stored_path"] and str(pid) in d["stored_path"] or "반입" in d["stored_path"]
     page = c.get(f"/project/{pid}?bundle=2+3").text
-    assert "묶음을 접수했습니다" in page and "예산 편성표.xlsx" in page
+    assert "문서를 추가했습니다" in page and "예산 편성표.xlsx" in page
 
 
 def test_bundle_with_explicit_name_and_added_to_existing_project(tmp_path):
