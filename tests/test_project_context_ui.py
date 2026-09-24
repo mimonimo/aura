@@ -27,5 +27,5 @@ def test_linked_criteria_has_readable_title_and_separate_actions(client):
     client.post('/project/1/criteria', data={'criteria': ['1']})
     page = client.get('/project/1').text
     assert 'class="project-criterion-title"' in page
-    assert 'class="project-criterion-open"' in page
+    assert 'class="project-criterion-open project-action-link"' in page
     assert '원본 문서는 유지됩니다.' in page

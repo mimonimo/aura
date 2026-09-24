@@ -231,6 +231,18 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
     src = Path(doc["stored_path"])
     ext = src.suffix.lower()
     name = (doc.get("filename") or src.name)
+    if ext == ".hwpx":
+        try:
+            from zzaimy.ingest import hwpx_docx
+
+            data, _stats = hwpx_docx.convert(src)
+            return data, name[: -len(ext)] + ".docx", CONVERT[".docx"][0], CONVERT[".docx"][1]
+        except Exception:
+            pass                                                   # 암호화 등 — 아래 조각 복원으로
+    if ext == ".hwp":
+        odt = hwp_to_odt(src)
+        if odt:
+            return odt, name[: -len(ext)] + ".odt", "application/vnd.oasis.opendocument.text", CONVERT[".docx"][1]
     if ext in (".hwp", ".hwpx"):
         src_id = int(doc["id"])
         chunks = db.list_doc_chunks(src_id)
@@ -247,6 +259,28 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
         return src.read_bytes(), name, "application/x-hwp", ""      # 아직 추출 전 — 원본 그대로(드라이브 미리보기)
     mime, target = CONVERT.get(ext, ("application/octet-stream", ""))
     return src.read_bytes(), name, mime, target
+
+
+def hwp_to_odt(src) -> bytes | None:
+    """옛 한글(.hwp 5.0) → ODT(pyhwp hwp5odt). 구글이 ODT 를 독스로 바꾼다. 도구가 없거나 실패하면 None."""
+    import shutil
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    try:
+        import hwp5  # noqa: F401 — pyhwp 가 있어야 한다
+    except Exception:
+        return None
+    runner = Path(__file__).resolve().parents[3] / "scripts" / "142_hwp_to_odt.py"
+    with tempfile.TemporaryDirectory() as td:
+        out = Path(td) / "out.odt"
+        try:
+            subprocess.run([sys.executable, str(runner), str(src), str(out)], check=True, capture_output=True, timeout=900)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            return None
+        return out.read_bytes() if out.exists() and out.stat().st_size > 1000 else None
 
 
 def google_copy(db, doc: dict, email: str, folder_id: str | None, http=None) -> dict:

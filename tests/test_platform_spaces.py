@@ -87,7 +87,8 @@ def test_ui_initial_state_and_project_tools_remain_available(tmp_path, monkeypat
         assert f'id="{name}"' in page
     assert page.count('id="intakeForm"') == 1
     assert page.count('id="intakeFile"') == 1
-    for action in ('/upload', '/chat/send', f'/project/{pid}/notes', f'/projects/{pid}/rename', '/criteria/upload'):
+    # 접수는 묶음 접수 경로 하나로(아스트라 6ad908fc): 파일 하나든 여럿이든 /project/{id}/bundle
+    for action in (f'/project/{pid}/bundle', '/chat/send', f'/project/{pid}/notes', f'/projects/{pid}/rename', '/criteria/upload'):
         assert f'action="{action}"' in page
     assert 'data-modal-open="#hwpTargetModal"' in page
     assert '일반휴학' not in page
