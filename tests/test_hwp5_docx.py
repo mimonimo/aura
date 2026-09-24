@@ -24,6 +24,8 @@ XML = f"""<HwpDoc version="5.0.3.0"><DocInfo><IdMappings ko-fonts="1" charshapes
 <CharShape basesize="1600" bold="1" italic="0" underline="line_through" underline-style="15" text-color="#2525f5"><FontFace ko="0"/></CharShape>
 <ParaShape align="both" doubled-margin-left="0" indent="0" linespacing-type="ratio" linespacing="160" head-shape="none" level="0"/>
 <ParaShape align="center" doubled-margin-left="0" indent="0" linespacing-type="ratio" linespacing="160" head-shape="outline" level="0"/>
+<ParaShape align="both" doubled-margin-left="0" indent="0" linespacing-type="ratio" linespacing="160" head-shape="bullet" level="0" numbering-bullet-id="1"/>
+<Bullet char="❍"/>
 <BorderFill fillflags="00000000"><Border attribute-name="left" stroke-type="none" width="0.1mm"/><Border attribute-name="right" stroke-type="none" width="0.1mm"/><Border attribute-name="top" stroke-type="none" width="0.1mm"/><Border attribute-name="bottom" stroke-type="none" width="0.1mm"/></BorderFill>
 <BorderFill fillflags="00000001"><Border attribute-name="left" stroke-type="solid" width="0.12mm"/><Border attribute-name="right" stroke-type="solid" width="0.12mm"/><Border attribute-name="top" stroke-type="solid" width="0.12mm"/><Border attribute-name="bottom" stroke-type="solid" width="0.12mm"/><FillColorPattern background-color="#d6d6d6"/></BorderFill>
 <Style local-name="바탕글" name="Normal"/><Style local-name="개요 1" name="Outline 1"/>
@@ -31,6 +33,7 @@ XML = f"""<HwpDoc version="5.0.3.0"><DocInfo><IdMappings ko-fonts="1" charshapes
 </DocInfo><BodyText><Section>
 <Paragraph parashape-id="1" style-id="1" new-page="0"><LineSeg><SectionDef><PageDef width="59528" height="84188" left-offset="5669" right-offset="5669" top-offset="4251" bottom-offset="2834" header-offset="2834" footer-offset="2834" bookbinding-offset="0"/></SectionDef><Text charshape-id="1">AIDX 사업 개요</Text></LineSeg></Paragraph>
 <Paragraph parashape-id="0" style-id="0" new-page="0"><LineSeg><Text charshape-id="0">첫 줄</Text><ControlChar name="LINE_BREAK"/><Text charshape-id="0">둘째 줄</Text></LineSeg></Paragraph>
+<Paragraph parashape-id="2" style-id="0" new-page="0"><LineSeg><Text charshape-id="0">글머리표 항목</Text></LineSeg></Paragraph>
 <Paragraph parashape-id="0" style-id="0" new-page="0"><LineSeg><TableControl inline="1" width="40000" height="2000"><TableBody rows="2" cols="2" borderfill-id="2"><TableRow>
 <TableCell col="0" row="0" colspan="2" rowspan="1" width="40000" height="1000" borderfill-id="2" valign="middle"><Paragraph parashape-id="0" style-id="0"><LineSeg><Text charshape-id="1">제목 칸</Text></LineSeg></Paragraph></TableCell></TableRow><TableRow>
 <TableCell col="0" row="1" colspan="1" rowspan="1" width="10000" height="1000" borderfill-id="2" valign="top"><Paragraph parashape-id="0" style-id="0"><LineSeg><Text charshape-id="0">왼쪽</Text></LineSeg></Paragraph></TableCell>
@@ -51,6 +54,8 @@ def test_hwp5_xml_converts_like_hwpx(tmp_path):
     assert h.text == "AI·DX 사업 개요"                          # 사설 영역 글리프는 가운뎃점으로
     assert not h.runs[0].font.underline                        # pyhwp 의 정의 안 된 밑줄 값은 밑줄이 아니다
     assert len(d.paragraphs[1]._p.findall(".//" + qn("w:br"))) == 1
+    assert d.paragraphs[2].text == "❍ 글머리표 항목"                 # 자동 글머리표는 글로 붙는다
+    assert d.paragraphs[0].runs[0].font.name == "Nanum Gothic"        # 맑은 고딕 → 독스에 있는 한글 글꼴
     t = d.tables[0]
     assert t.cell(0, 0).text == "제목 칸" and t.cell(0, 0)._tc is t.cell(0, 1)._tc
     assert t.cell(0, 0)._tc.tcPr.find(qn("w:shd")).get(qn("w:fill")) == "D6D6D6"
