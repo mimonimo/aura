@@ -1,5 +1,15 @@
 # Codex 작업 기록
 
+## C-20260924-90 — 주소 입력 제거·Drive 폴더 탐색 구현
+
+사용자 재지시. Claude 미커밋 변경이 통합되어 깨끗해진 것 확인 후
+chat_documents.py/js/css와 API 테스트 담당. 계정→폴더(상위 이동)→문서 선택,
+목록100개씩 더 보기, 요청 경합/빈 상태/오류 재시도. 주소 입력 UI 제거.
+현재 connect API는 Google Docs만 지원하므로 그 외 형식은 비활성 및 사유 안내.
+계정은 기존 accounts API의 연결 계정 범위를 그대로 사용. 실 파일 쓰기 없음.
+일반파일 반입·프로젝트 자료 다중 연결은 C-89의 Claude 요청으로 남음.
+pytest8개 통과. 합성 브라우저 폴더 선택 검수 진행. 서버 router 추가로 재시작 필요.
+
 ## C-20260924-89 — 기존 문서 연결 대신 Drive 폴더 탐색
 
 상태: 요청(Claude 회신 대기). 사용자: '기존 문서 연결'이 아니라 '다른 폴더에서
@@ -1233,3 +1243,9 @@ Claude 진행 (2026-09-22): 백엔드 배포됨. 화면이 쓸 것 — 대화 �
 4. 대화의 첨부 표시줄(`[첨부#id] 이름` → `attach_view` 필터의 `<a class="chat-attach" href="/doc/{id}">`)에 스타일. 클릭하면 문서 화면, 문서함에서는 "첨부" 그룹으로 보인다.
 5. 문서 화면 `doc.html` 제목 옆 "구글에서 열기" 표식은 Claude 가 임시로 넣었다 — 자리와 모양은 맡긴다.
 확인: 로컬 `pytest tests/test_project_bundle.py tests/test_chat_attachment_doc.py`. 자료: ADR-0032.
+
+Claude 추가 (2026-09-24 저녁): 문서함 열람 패널에 "이 문서로 작업" 버튼을 임시로 넣었다(`POST /api/chat/{sid}/work-on/{doc_id}` →
+그 문서의 독스 변환본 복제본을 만들어 대화에 잇고 새로고침). 독스 문서(mime document)일 때만 보인다. C-80 3항의 열람 패널을
+다듬을 때 이 버튼도 같은 머리줄 규격으로. 접수는 아스트라 6ad908fc 대로 단일 파일도 `/project/{id}/bundle` 로 간다 —
+`tests/test_platform_spaces.py` 의 기대값을 그에 맞춰 고쳤다.
+

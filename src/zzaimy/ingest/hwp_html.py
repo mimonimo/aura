@@ -65,6 +65,8 @@ def convert(src: Path | str, timeout_s: int = 900) -> tuple[bytes, dict]:
         html = index.read_text(encoding="utf-8", errors="replace")
         css = (out / "styles.css").read_text(encoding="utf-8", errors="replace") if (out / "styles.css").exists() else ""
         stats = {"images": 0, "images_dropped": 0, "tables": html.count("<table")}
+        # pyhwp 는 취소선을 글자 모양마다 거의 다 켜서 낸다(실측 2026-09-24: 서식 442곳, 제목까지 줄이 그어짐) — 뺀다
+        css = re.sub(r"\s*text-decoration:\s*line-through;", "", css)
         html = _HEAD_FOOT.sub("", html)
         html = _BR_CR.sub("", html)
         html = _LINK.sub(f"<style>{css}</style>", html, count=1)

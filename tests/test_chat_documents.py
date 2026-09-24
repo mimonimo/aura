@@ -104,3 +104,22 @@ def test_file_list_without_binding_is_empty(client):
     sid = attach(client)
     client.delete(f'/api/chat-documents/{sid}')
     assert client.get(f'/api/chat-documents/{sid}/files').json()['files'] == []
+
+
+def test_browse_connected_account_folder_and_pagination(client, monkeypatch):
+    from types import SimpleNamespace
+    from zzaimy.ingest import gdrive
+    calls = []
+    def request(self, url, **params):
+        calls.append(params)
+        return SimpleNamespace(json=lambda: {'files': [{'id': 'folderA', 'name': '사업', 'mimeType': gdrive.FOLDER}], 'nextPageToken': 'next'})
+    monkeypatch.setattr(gdrive.GDriveBackend, '_get', request)
+    result = client.get('/api/chat-documents/browse', params={'account': 'staff@example.ac.kr', 'folder': 'root'})
+    assert result.status_code == 200
+    assert result.json()['next'] == 'next'
+    assert "'root' in parents" in calls[0]['q']
+    client.get('/api/chat-documents/browse', params={'account': 'staff@example.ac.kr', 'folder': 'folderA', 'page': 'next'})
+    assert calls[-1]['pageToken'] == 'next'
+    assert client.get('/api/chat-documents/browse', params={'account': 'unknown'}).status_code == 400
+    assert client.get('/api/chat-documents/browse', params={'account': 'staff@example.ac.kr', 'folder': "x' or true"}).status_code == 400
+    assert len(calls) == 2

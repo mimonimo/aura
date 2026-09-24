@@ -52,6 +52,25 @@ def accounts(request: Request):
                          for a in gdrive.list_accounts()]}
 
 
+@router.get('/api/chat-documents/browse')
+def browse(request: Request, account: str, folder: str = 'root', page: str = ''):
+    identity(request)
+    if account not in {a['email'] for a in gdrive.list_accounts()}:
+        raise HTTPException(400, '연결된 계정을 선택하세요.')
+    if not re.fullmatch(r'[A-Za-z0-9_-]+', folder):
+        raise HTTPException(400, '폴더를 확인하세요.')
+    try:
+        params = dict(q=f"'{folder}' in parents and trashed = false",
+                      fields='nextPageToken,files(id,name,mimeType)', pageSize=100,
+                      orderBy='folder,name', supportsAllDrives='true', includeItemsFromAllDrives='true')
+        if page:
+            params['pageToken'] = page
+        data = gdrive.GDriveBackend(folder, account)._get(f'{gdrive.API}/files', **params).json()
+    except Exception as exc:
+        raise HTTPException(400, '폴더를 불러오지 못했습니다. 계정 권한을 확인하거나 다시 시도하세요.') from exc
+    return {'files': data.get('files', []), 'next': data.get('nextPageToken', '')}
+
+
 @router.post('/api/chat-documents/connect')
 def connect(request: Request, doc: str = Form(...), account: str = Form(...),
             session_id: int | None = Form(None), project_id: int | None = Form(None)):
