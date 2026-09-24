@@ -20,14 +20,8 @@
 }
 .chat-doc-dialog{width:min(540px,calc(100vw - 28px));box-sizing:border-box;max-height:85dvh;overflow:auto;border:1px solid var(--line);border-radius:16px;padding:24px;color:var(--ink)}.chat-doc-dialog::backdrop{background:#15243c66}.chat-doc-dialog h2{margin:0 0 20px;font-size:20px}.chat-doc-dialog form{display:grid;gap:16px}.chat-doc-dialog label{display:grid;gap:8px;font-size:13px}.chat-doc-dialog :is(input,select,textarea){width:100%;box-sizing:border-box;min-width:0;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit}.chat-doc-dialog select{padding-right:32px}.chat-doc-dialog textarea{min-height:160px;resize:vertical;max-height:35dvh}.chat-doc-dialog footer{display:flex;gap:10px;justify-content:flex-end}.chat-doc-dialog [role=status]{font-size:13px;color:var(--muted);line-height:1.7}.chat-doc-dialog [hidden]{display:none!important}.chat-doc-dialog [data-confirmation]{padding:12px;border:1px solid var(--line);border-radius:8px}.chat-doc-note{padding:10px 14px;font-size:12px;background:#fff;line-height:1.6}
 @media(max-width:950px){main.chat-doc-open{flex-direction:column;overflow-y:auto;height:auto;min-height:calc(100dvh - 64px)}.chat-doc-editor{flex:none;height:55dvh;min-height:360px;border-right:0;border-bottom:1px solid var(--line)}.chat-doc-open #chatWorkspace{flex:none;min-width:0;height:75dvh;min-height:500px}.chat-doc-editor label{display:none}}
-/* 여닫기 전환 — 뚝뚝 끊기지 않게(2026-09-24). 드래그로 조절할 때는 전환을 끈다 */
-main.chat-doc-open>#chatWorkspace,main.chat-doc-open>.chat-doc-editor{transition:flex-basis .28s ease,width .28s ease,opacity .22s ease}
-main.chat-doc-open.chat-doc-resizing>#chatWorkspace,main.chat-doc-open.chat-doc-resizing>.chat-doc-editor{transition:none}
-main.chat-doc-open>.chat-doc-editor.chat-doc-entering{opacity:0}
-main.chat-doc-open.chat-doc-closing>.chat-doc-editor{flex-basis:0!important;width:0!important;opacity:0;overflow:hidden;border-right:0}
-main.chat-doc-open.chat-doc-closing>#chatWorkspace{flex-basis:100%!important;width:100%!important}
-main.chat-doc-open.chat-doc-closing>.chat-doc-divider{opacity:0;transition:opacity .2s ease}
-@media(prefers-reduced-motion:reduce){main.chat-doc-open>#chatWorkspace,main.chat-doc-open>.chat-doc-editor{transition:none}}
+/* 패널 전환/드래그 때 본문이 좌우로 쓸리지 않도록 폭은 즉시 적용한다. */
+main>#chatWorkspace,main>.chat-doc-editor{transition:none}
 
 /* 문서함 목록의 플랫폼 문서 구역 */
 .chat-doc-group{margin:10px 0 4px;font-size:12px;color:var(--faint)}
