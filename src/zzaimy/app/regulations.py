@@ -924,13 +924,15 @@ def drop_near_duplicates(chunks: list[dict]) -> list[dict]:
 def find_relevant(
     db: Database, query_text: str, top_k: int = 3, min_overlap: int = 2,
     sector: str | None = None, dept: str | None = None, user: str | None = None, levels: tuple | None = None,
+    chunks: list[dict] | None = None,
 ) -> list[dict]:
     """검토 대상 텍스트와 관련된 규정 조각 top-k — 운영 검색 경로.
 
     어휘(Kiwi)·임베딩(KURE) 하이브리드 후보(hybrid_candidates) → 크로스인코더 재정렬.
     zzaimy.eval.retrieval_eval이 같은 구성요소로 품질을 잰다(운영 구성 행).
+    chunks 를 주면 그 조각들(프로젝트 기준 문서) 안에서만 고른다.
     """
-    candidates = hybrid_candidates(db, query_text, min_overlap, sector, dept, user=user, levels=levels)
+    candidates = hybrid_candidates(db, query_text, min_overlap, sector, dept, user=user, levels=levels, chunks=chunks)
     if not candidates:
         return []                 # 후보 자체가 없다 = 근거 없음. 억지로 채우지 않는다
     # 크로스인코더 재정렬 + 꼬리 자르기 — 표본 실측 R@1 +0.133 (docs/rerank-baseline.md).
@@ -951,7 +953,7 @@ def find_relevant(
         if query_expand.configured():
             expanded = query_expand.expand(query_text)
             if expanded != query_text:
-                c2 = hybrid_candidates(db, expanded, min_overlap, sector, dept, user=user, levels=levels)
+                c2 = hybrid_candidates(db, expanded, min_overlap, sector, dept, user=user, levels=levels, chunks=chunks)
                 s2 = rerank_scored(query_text, c2) if c2 else None   # 원 질문 기준으로 다시 잰다
                 if s2 and s2[0][1] > scored[0][1]:
                     scored = s2

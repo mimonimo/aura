@@ -1290,10 +1290,16 @@ class DocumentProcessor:
 
             pdf = pdfium.PdfDocument(str(file_path))
             out = []
-            for i in range(len(pdf)):
-                text = _clean_glyphs(pdf[i].get_textpage().get_text_range() or "")
-                if len(" ".join(text.split())) < DocumentProcessor.SPARSE_CHARS:
-                    out.append(i + 1)
+            try:
+                for i in range(len(pdf)):
+                    page = pdf[i]
+                    tp = page.get_textpage()
+                    text = _clean_glyphs(tp.get_text_range() or "")
+                    tp.close(); page.close()
+                    if len(" ".join(text.split())) < DocumentProcessor.SPARSE_CHARS:
+                        out.append(i + 1)
+            finally:
+                pdf.close()
             return out
         except Exception:
             return []
