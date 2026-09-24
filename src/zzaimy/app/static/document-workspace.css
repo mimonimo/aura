@@ -32,7 +32,8 @@
 #documentWorkspace button:not(.secondary):not(.btn-ghost):active:not(:disabled) { background:#102034; border-color:#102034; }
 #documentWorkspace :is(button.secondary,.btn-ghost) { background:#fff; border:1px solid #D6DEE8; color:#36465B; box-shadow:none; }
 #documentWorkspace :is(button.secondary,.btn-ghost):hover:not(:disabled) { background:#F3F6FA; border-color:#AEBBCD; }
-#documentWorkspace button:disabled,#documentWorkspace button:disabled:hover { background:#E9EDF2; border-color:#D7DEE7; color:#596879; opacity:1; cursor:not-allowed; box-shadow:none; }
+#documentWorkspace button:not(.secondary):not(.btn-ghost):disabled,
+#documentWorkspace :is(button.secondary,button.btn-ghost):disabled { background:#E9EDF2; border-color:#D7DEE7; color:#596879; opacity:1; cursor:not-allowed; box-shadow:none; }
 #documentWorkspace .accent { border-top:2px solid #71849C; }
 #documentWorkspace textarea { border-radius:8px; border:1px solid #CAD4E0; padding:12px; line-height:1.65; background:#FCFDFE; }
 #documentWorkspace .notice { border-radius:8px; font-size:12.5px; line-height:1.65; }
