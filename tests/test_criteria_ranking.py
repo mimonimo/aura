@@ -6,16 +6,19 @@ from zzaimy.app import responder as R
 def test_rank_criteria_chunks_gives_each_document_a_slot(monkeypatch):
     chunks = [{"doc_id": 1, "content": f"기본계획 {i}", "reg_title": "기본계획"} for i in range(5)] + \
              [{"doc_id": 2, "content": "공고 신청 기한 2026. 4. 3.", "reg_title": "공고문"}]
-    ranked = [chunks[0], chunks[1], chunks[5], chunks[2]]
+    cands = [chunks[0], chunks[1], chunks[5], chunks[2]]
     import zzaimy.app.regulations as reg
-    monkeypatch.setattr(reg, "find_relevant", lambda db, q, top_k=3, chunks=None, **kw: ranked)
+    import zzaimy.app.rerank as rr
+    monkeypatch.setattr(reg, "hybrid_candidates", lambda *a, **k: cands)
+    monkeypatch.setattr(rr, "rerank_scored", lambda q, c: [(c[0], 0.9), (c[1], 0.8), (c[2], 0.7), (c[3], 0.1)])
     out = R.rank_criteria_chunks(None, "신청 기한은?", chunks, [1, 2])
     assert out[0]["doc_id"] == 1 and out[1]["doc_id"] == 2          # 문서마다 첫 자리
-    assert [c["content"] for c in out] == ["기본계획 0", "공고 신청 기한 2026. 4. 3.", "기본계획 1", "기본계획 2"]
+    assert [c["content"] for c in out[:4]] == ["기본계획 0", "공고 신청 기한 2026. 4. 3.", "기본계획 1", "기본계획 2"]
+    assert len(out) == len(chunks)                                   # 후보에 안 든 조각도 뒤에 남는다(자르지 않는다)
 
 
 def test_rank_criteria_chunks_falls_back_to_document_order(monkeypatch):
     chunks = [{"doc_id": 1, "content": "a"}, {"doc_id": 2, "content": "b"}]
     import zzaimy.app.regulations as reg
-    monkeypatch.setattr(reg, "find_relevant", lambda *a, **k: [])
+    monkeypatch.setattr(reg, "hybrid_candidates", lambda *a, **k: [])
     assert R.rank_criteria_chunks(None, "q", chunks, [1, 2]) == chunks

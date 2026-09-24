@@ -49,10 +49,15 @@ def rank_criteria_chunks(db, question: str, chunks: list[dict], criteria_ids: li
     """기준 조각을 질문과의 관련도로 고른다 — 문서마다 첫 자리를 하나씩 보장한 뒤 나머지는 점수순. 검색이 안 되면 문서 순서."""
     if not chunks:
         return []
+    # 열린 검색과 달리 꼬리를 자르지 않는다 — 기준은 이미 담당자가 고른 범위라 순서만 필요하다(자르면 한 조각만 남아
+    # 지원 규모·기한이 빠졌다, 실측 2026-09-24 대화 20)
     try:
-        from zzaimy.app.regulations import find_relevant
+        from zzaimy.app.regulations import hybrid_candidates
+        from zzaimy.app.rerank import rerank_scored
 
-        ranked = find_relevant(db, question, top_k=max(top_k, 3 * len(criteria_ids)), chunks=chunks)
+        cands = hybrid_candidates(db, question, 1, None, None, chunks=chunks, limit=max(60, len(chunks)))
+        scored = rerank_scored(question, cands) if cands else None
+        ranked = [c for c, _s in sorted(scored, key=lambda x: -x[1])] if scored else list(cands)
     except Exception:
         ranked = []
     if not ranked:
@@ -66,6 +71,11 @@ def rank_criteria_chunks(db, question: str, chunks: list[dict], criteria_ids: li
     for h in ranked:                                         # 그다음은 점수순
         if id(h) not in seen:
             out.append(h); seen.add(id(h))
+    key = lambda c: (c.get("id"), c.get("doc_id"), (c.get("content") or "")[:80])   # noqa: E731
+    have = {key(c) for c in out}
+    for c in chunks:                                         # 후보에 안 든 조각은 문서 순서대로 뒤에
+        if key(c) not in have:
+            out.append(c)
     return out
 
 
