@@ -47,6 +47,14 @@
 .project-empty { padding:28px 0; color:var(--muted); font-size:13px; }
 #projectContext .tabbar { max-width:440px; margin-bottom:24px; }
 #projectContext textarea { min-width:0; }
+.project-context-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:start}
+.project-context-section{min-width:0;padding:22px;border:1px solid var(--line);border-radius:16px;background:white}
+#projectWorkspace .project-context-section .project-context-intro{margin:0 0 20px}
+.project-context-help{font-size:12px;color:var(--muted);line-height:1.7;margin:14px 0 0}
+#projectWorkspace .project-context-section .project-criterion-item{flex-wrap:wrap;gap:10px;padding:14px}
+#projectWorkspace .project-context-section .project-criterion-title{flex-basis:calc(100% - 40px)}
+#projectWorkspace .project-context-section .project-criterion-open{margin-left:auto}
+@media(max-width:1100px){.project-context-grid{grid-template-columns:minmax(0,1fr)}.project-context-section{padding:18px}}
 @media(max-width:600px) {
   .project-name { font-size:24px; }
   .project-tabs { gap:20px; margin-top:18px; }

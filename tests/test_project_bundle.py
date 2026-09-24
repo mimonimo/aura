@@ -298,8 +298,8 @@ def test_project_suggestions_and_read_command(tmp_path, monkeypatch):
     db.update_document(form, status="reviewed"); db.set_document_kind(form, "form")
     db.update_document(merged, status="reviewed")
     page = c.get(f"/project/{pid}").text
-    assert "다음 작업 제안" in page and "작성을 시작할까요" in page and "2쪽은 그림이라" in page
-    assert 'value="사업계획서 작성서식으로 작업하자"' in page
+    assert "다음 작업 제안" not in page
+    assert 'value="사업계획서 작성서식으로 작업하자"' not in page
     monkeypatch.setattr(gdrive, "list_accounts", lambda: [])
     r = c.post("/chat/send", data={"question": "사업계획서 합본 그림 쪽 판독해 줘", "project_id": str(pid)}, follow_redirects=False)
     page = c.get(r.headers["location"]).text
@@ -417,7 +417,8 @@ def test_upload_file_reuses_same_name_in_folder(monkeypatch):
     assert out["id"] == "old1" and out.get("reused") and all(m == "GET" for m, _p, _q in calls)   # 업로드(POST)를 하지 않았다
 
 
-def test_chat_shows_next_step_chips_under_the_answer(tmp_path):
+def test_chat_shows_only_the_answers_own_chips(tmp_path):
+    """선택지는 답변이 낸 것만 — 프로젝트·연결 문서 상태로 만든 고정 제안은 없다(C-99)."""
     app, c = _client(tmp_path)
     db = app.state.db
     pid = db.create_project("grant", "AID", owner="zzaimy")
@@ -426,12 +427,14 @@ def test_chat_shows_next_step_chips_under_the_answer(tmp_path):
     sid = db.create_chat_session("작성", project_id=pid, owner="zzaimy")
     db.add_chat(sid, "user", "안녕"); db.add_chat(sid, "assistant", "네")
     page = c.get(f"/chat/{sid}").text
-    assert 'class="chat-suggestions"' in page and "작성을 시작할까요" in page and "공고 요건 확인" in page
-    data = c.get(f"/chat/{sid}/messages").json()
-    assert any(s["kind"] == "draft" for s in data["suggestions"])
+    assert 'class="chat-suggestions"' not in page and "작성을 시작할까요" not in page
+    assert c.get(f"/chat/{sid}/messages").json()["suggestions"] == []
     db.set_setting(f"chat_google_doc:{sid}", '{"doc": "d1", "account": "a@b"}')
+    assert 'class="chat-suggestions"' not in c.get(f"/chat/{sid}").text                     # 연결만으로는 안 띄운다
+    db.set_setting(f"chat_options:{sid}", '[{"kind": "continue", "text": "이어서 다음 절 채우기", "question": "다음 절 채워 줘"}]')
     page = c.get(f"/chat/{sid}").text
-    assert "이어서 다음 절 채우기" in page and "작성을 시작할까요" not in page
+    assert 'class="chat-suggestions"' in page and "이어서 다음 절 채우기" in page
+    assert [s["kind"] for s in c.get(f"/chat/{sid}/messages").json()["suggestions"]] == ["continue"]
 
 
 def test_context_options_take_precedence_and_clear_on_next_question(tmp_path, monkeypatch):

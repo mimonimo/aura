@@ -521,21 +521,21 @@ document.addEventListener('submit', function(event) {
         {% if alert_count %}<span class="badge-n">{{ alert_count }}</span>{% endif %}
       </button>
       <div class="popover" id="bellPop">
-        <h5>확인할 문서 {{ pending_count }}</h5>
+        <h5>문서 알림 <span>{{ alert_count }}</span></h5>
         {% for d in pending_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}">
-          <iconify-icon icon="solar:check-circle-linear" style="color:var(--green);"></iconify-icon>
-          <span>{{ doc_name(d) }}</span>
+          <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
+          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 확인{% if d.receipt_no %} · {{ d.receipt_no }}{% endif %}</small></span>
         </a>
         {% else %}
-        <div class="pop-empty">새 알림이 없습니다</div>
+        {% if not failed_docs %}<div class="pop-empty">확인할 문서가 없습니다.</div>{% endif %}
         {% endfor %}
         {% if failed_docs %}
         <h5 style="margin-top:10px;">처리 실패 {{ failed_docs|length }}</h5>
         {% for d in failed_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}">
           <iconify-icon icon="solar:danger-triangle-linear" style="color:var(--red);"></iconify-icon>
-          <span>{{ doc_name(d) }}</span>
+          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>처리 실패 · 문서에서 원인을 확인해 주세요.</small></span>
         </a>
         {% endfor %}
         {% endif %}

@@ -204,6 +204,9 @@
    button.classList.add('chat-file-card');button.title=name;button.replaceChildren();
    const visual=document.createElement('span');visual.className='chat-file-visual';
    const format=originalLabel(originalFormat||name.match(/\.([a-z0-9]+)$/i)?.[1]);visual.textContent=format;
+   if(originalFormat==='Google Docs'){
+     visual.textContent='';const icon=document.createElement('iconify-icon');icon.setAttribute('icon','solar:document-text-linear');icon.setAttribute('aria-hidden','true');visual.append(icon);
+   }
    if(imageUrl){const img=document.createElement('img');img.src=imageUrl;img.alt='';img.loading='lazy';img.onerror=()=>img.remove();visual.append(img);}
    const copy=document.createElement('span');copy.className='chat-file-copy';
    const title=document.createElement('strong');title.textContent=name;
@@ -238,7 +241,7 @@
    try{
      const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
      status.textContent=data.files.length?'':'연결된 폴더에 표시할 파일이 없습니다.';
-     if(data.folder_url){const folder=document.createElement('a');folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='폴더 열기 ↗';panel.querySelector('header').append(folder);}
+     if(data.folder_url){const folder=document.createElement('a');folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='폴더 열기 ↗';panel.querySelector('header').insertBefore(folder,panel.querySelector('[data-close]'));}
      for(const file of data.files){
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
        const isImage=file.mime_type.startsWith('image/')||imageFile(file.name);
@@ -251,6 +254,8 @@
            const path=file.mime_type==='application/vnd.google-apps.folder'?'drive/folders/'+file.id:'file/d/'+file.id+'/view';
            window.open('https://drive.google.com/'+path,'_blank','noopener');return;
          }
+         // 이미 연결된 작업본은 다시 연결 요청을 보내지 않고 기존 정보로 연다.
+         if(linked?.doc===file.id&&linked?.account===data.account){clearPanel();setRatio(50,false);show();return;}
          button.disabled=true;status.textContent='문서를 여는 중…';
          try{const form=new FormData();form.set('session_id',sid);form.set('doc',file.id);form.set('account',data.account);
            await api('/api/chat-documents/connect',{method:'POST',body:form});const document=await api('/api/chat-documents/'+sid);

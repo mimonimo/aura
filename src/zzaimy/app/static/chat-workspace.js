@@ -140,6 +140,23 @@
       if (waiting) { clearTimeout(timer); timer = setTimeout(poll, 2000); }
     }
   });
+  // 답변 갱신으로 교체되는 제안에도 같은 비동기 채팅 전송 경로를 사용한다.
+  scroller.addEventListener('submit', event => {
+    const suggestion = event.target.closest('form.chat-suggestion');
+    if (!suggestion) return;
+    event.preventDefault();
+    if (sending || waiting) return;
+    if (editor || input.value.trim() || file.files.length || mustAttach) {
+      notify('작성 중인 질문을 보내거나 비운 뒤 제안을 선택해 주세요.');
+      (editor?.querySelector('textarea') || input).focus();
+      return;
+    }
+    const question = suggestion.querySelector('[name=question]')?.value;
+    if (!question?.trim()) return;
+    input.value = question;
+    paint(); resize();
+    form.requestSubmit();
+  });
   input.addEventListener('input', () => { paint(); resize(); });
   const toolsButton = document.getElementById('attachButton'), toolsMenu = document.getElementById('chatTools');
   function placeTools() {

@@ -192,13 +192,13 @@
         <button type="button" class="act-btn" data-resend-question="{{ m.content }}" data-resend-id="{{ m.id }}" title="이 질문부터 답변 다시 생성 · 이후 대화는 이력에 보관" aria-label="이 질문부터 다시 생성"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>
       </div>
       {% endif %}
-    </div>
-  {% endfor %}
-  {% if suggestions and not waiting %}
+  {% if loop.last and m.role == 'assistant' and suggestions and not waiting %}
   <div class="chat-suggestions" aria-label="다음 작업 제안">
     {% for sg in suggestions %}<form action="/chat/send" method="post" class="chat-suggestion"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="secondary" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endfor %}
   </div>
   {% endif %}
+    </div>
+  {% endfor %}
   {% if waiting %}
   <div class="turn assistant"><div class="msg assistant chat-waiting" role="status">근거를 확인하고 답변을 작성하고 있습니다.</div></div>
   {% endif %}

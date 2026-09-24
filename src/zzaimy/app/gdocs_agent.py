@@ -21,7 +21,7 @@ from zzaimy.ingest import gdocs
 PLAN_SCHEMA = {
     "type": "object",
     "properties": {
-        "reply": {"type": "string", "description": "담당자에게 보낼 한두 문장. 무엇을 어떻게 고쳤는지 또는 질문에 대한 답"},
+        "reply": {"type": "string", "description": "질문에 대한 실제 답이나 근거를 포함한 검토 결과. 편집 계획 자체에 대한 내부 설명은 금지"},
         "ops": {
             "type": "array",
             "items": {
@@ -48,10 +48,12 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
   원본의 ○○○·빈칸을 그대로 두고 reply 에 무엇이 비었는지 적는다.
 - 문서 이름(제목)을 바꾸라는 지시는 rename(text 에 새 이름, 예: 사업명·연도·서류 종류)으로 낸다.
 - 문서를 어느 프로젝트(폴더)로 옮기라는 지시는 move(text 에 프로젝트 이름)로 낸다.
-- 지시가 질문이나 검토 요청이면 ops 는 비우고 reply 에만 답한다.
+- 지시가 질문이나 검토 요청이면 ops 는 비우고 reply 에 실제 답을 쓴다. 'ops를 비웠습니다' 같은 내부 처리 설명으로 답을 대신하지 않는다.
+- 검토 결과는 확인한 절/내용, 근거와의 차이, 보완할 점을 구분해서 쓴다. 근거가 없거나 본문이 잘렸으면 검토하지 못한 범위를 명시한다.
+- 원본의 00·○○ 같은 미기입 표시는 완성된 내용이 아니다. 확인 가능한 값이 없으면 미기입 항목으로 보고하고 임의로 채우지 않는다.
 - 글은 문서의 말투와 격식을 따른다. 수치·금액·날짜는 아래 근거 조각이나 문서에 있는 것만 쓰고 지어내지 않는다.
 - insert 의 text 에는 새 글만 담는다. 문서에 이미 있는 문장을 다시 쓰지 않는다(그 절의 마지막 문장을 따라 적지 않는다).
-- 개인정보(전화·주민번호·계좌)는 쓰지 않는다. reply 는 한두 문장, 무엇을 어느 절에 어떻게 했는지.
+- 개인정보(전화·주민번호·계좌)는 쓰지 않는다. 편집 reply는 계획 요약이며 실행 성공을 미리 단정하지 않는다. 질문/검토 reply에는 필요한 설명을 충분히 쓴다.
 
 [문서 제목] {title}
 [절 구조] (번호 · 제목 · 글자 수)
@@ -73,7 +75,10 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     """27B 에게 편집 계획을 받는다. client 는 VllmClient(.client 는 OpenAI 호환, .model, ._extra)."""
     ev = "\n".join(f"- ({c.get('reg_title') or c.get('doc_title') or ''}) {str(c.get('content') or '')[:400]}"
                    for c in (evidence or [])[:5]) or "(없음)"
-    prompt = _PROMPT.format(title=info["title"], outline=_outline_lines(info), text=info["text"][:max_text],
+    visible_text = info["text"][:max_text]
+    if len(info["text"]) > max_text:
+        visible_text += "\n[본문 일부만 제공됨: 이후 내용은 확인하지 못했으므로 전체 검토 완료로 보고하지 마세요.]"
+    prompt = _PROMPT.format(title=info["title"], outline=_outline_lines(info), text=visible_text,
                             evidence=ev, command=command.strip())
     resp = client.client.chat.completions.create(
         model=client.model,
