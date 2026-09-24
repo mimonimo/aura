@@ -415,3 +415,39 @@ def test_upload_file_reuses_same_name_in_folder(monkeypatch):
     out = gdrive_files.upload_file("a@b", b"x", "예산 편성표.xlsx", gdrive_files.CONVERT[".xlsx"][0], "folder1",
                                    convert_to=gdrive_files.CONVERT[".xlsx"][1], http=http)
     assert out["id"] == "old1" and out.get("reused") and all(m == "GET" for m, _p, _q in calls)   # 업로드(POST)를 하지 않았다
+
+
+def test_chat_shows_next_step_chips_under_the_answer(tmp_path):
+    app, c = _client(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AID", owner="zzaimy")
+    form = db.add_document(filename="사업계획서 작성서식.hwpx", stored_path=str(tmp_path / "f.hwpx"), doc_type="grant", project_id=pid)
+    db.update_document(form, status="reviewed"); db.set_document_kind(form, "form")
+    sid = db.create_chat_session("작성", project_id=pid, owner="zzaimy")
+    db.add_chat(sid, "user", "안녕"); db.add_chat(sid, "assistant", "네")
+    page = c.get(f"/chat/{sid}").text
+    assert 'class="chat-suggestions"' in page and "작성을 시작할까요" in page and "공고 요건 확인" in page
+    data = c.get(f"/chat/{sid}/messages").json()
+    assert any(s["kind"] == "draft" for s in data["suggestions"])
+    db.set_setting(f"chat_google_doc:{sid}", '{"doc": "d1", "account": "a@b"}')
+    page = c.get(f"/chat/{sid}").text
+    assert "이어서 다음 절 채우기" in page and "작성을 시작할까요" not in page
+
+
+def test_context_options_take_precedence_and_clear_on_next_question(tmp_path, monkeypatch):
+    from zzaimy.ingest import gdrive
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AID", owner="zzaimy")
+    for n in ("사업계획서 작성서식 2025.hwpx", "사업계획서 작성서식 2026.hwpx"):
+        d = db.add_document(filename=n, stored_path=str(tmp_path / n), doc_type="grant", project_id=pid); db.update_document(d, status="reviewed")
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
+    r = c.post("/chat/send", data={"question": "사업계획서 작성서식으로 작업하자", "project_id": str(pid)}, follow_redirects=False)
+    sid = int(r.headers["location"].rsplit("/", 1)[-1])
+    page = c.get(r.headers["location"]).text
+    assert "아래에서 골라 주세요" in page and page.count("으로 작업</button>") == 2       # 후보 둘이 선택지로
+    data = c.get(f"/chat/{sid}/messages").json()
+    assert [o["kind"] for o in data["suggestions"]] == ["pick", "pick"]
+    c.post("/chat/send", data={"question": "다른 질문", "session_id": str(sid)}, follow_redirects=False)
+    assert not db.get_setting(f"chat_options:{sid}", "")                                  # 다음 질문이 오면 지워진다
