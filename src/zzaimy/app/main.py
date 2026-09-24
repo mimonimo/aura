@@ -395,6 +395,20 @@ def create_app(
     app.include_router(chat_documents_router)
 
     @app.on_event("startup")
+    def _recover_dangling_chats() -> None:
+        """재시작으로 끊긴 대화 복구 — 마지막 말이 담당자 질문이면(답변 스레드가 죽었다) 안내를 붙여 대화가 잠기지 않게 한다.
+
+        실측 2026-09-24: 배포 재시작 뒤 판독 요청이 답 없이 남아 그 대화는 새 질문·재생성이 모두 막혔다(409)."""
+        try:
+            for sess in db.list_chat_sessions(limit=500):
+                last = db.list_chats(int(sess["id"]), limit=1)
+                if last and last[-1]["role"] == "user":
+                    db.add_chat(int(sess["id"]), "assistant",
+                                "서비스가 다시 시작되어 이 요청의 처리가 중단됐습니다. 같은 요청을 다시 보내 주세요.")
+        except Exception:
+            pass
+
+    @app.on_event("startup")
     def _warm_models() -> None:
         """임베딩·리랭커를 백그라운드로 예열 — 첫 질문의 수 초 지연 제거."""
         import os as _os

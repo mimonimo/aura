@@ -358,3 +358,19 @@ def test_existing_chat_accepts_several_attachments(tmp_path):
     sid2 = int(r2.headers["location"].rsplit("/", 1)[-1])
     assert db.get_chat_session(sid2)["project_id"] is None
     assert db.list_chats(sid2)[0]["content"].startswith("[첨부#")
+
+
+def test_startup_unlocks_chats_left_without_an_answer(tmp_path):
+    from tests.test_app import FakeDrafter, FakeProcessor, FakeResponder
+    from zzaimy.app.db import Database
+    from zzaimy.app.main import create_app
+
+    db = Database(tmp_path / "t.db")
+    sid = db.create_chat_session("끊긴 대화", owner="zzaimy")
+    db.add_chat(sid, "user", "합본 그림 쪽 판독해 줘")
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    with TestClient(app) as c:
+        msgs = app.state.db.list_chats(sid)
+        assert msgs[-1]["role"] == "assistant" and "다시 시작" in msgs[-1]["content"]
+        r = c.post("/chat/send", data={"question": "다시 보냄", "session_id": str(sid)}, follow_redirects=False)
+        assert r.status_code == 303 and app.state.db.list_chats(sid)[-1]["content"] != "합본 그림 쪽 판독해 줘"
