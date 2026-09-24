@@ -65,42 +65,93 @@ def _para_text(p: dict) -> str:
     return "".join(e.get("textRun", {}).get("content", "") for e in p.get("elements", []))
 
 
+def body_content(document: dict) -> list[dict]:
+    """본문 요소 목록 — 탭이 있는 문서(가져온·변환한 문서는 다 그렇다, 실측 2026-09-24)는 body 가 비고 tabs[0] 에 있다."""
+    body = document.get("body", {}).get("content", [])
+    if body:
+        return body
+    for tab in document.get("tabs", []) or []:
+        content = tab.get("documentTab", {}).get("body", {}).get("content", [])
+        if content:
+            return content
+    return []
+
+
+# 제목 스타일이 하나도 없는 문서(한글 양식 변환본)에서는 번호 붙은 짧은 문단을 절 제목으로 본다 — Ⅰ. / 1. / 1.1. / 【…】 / 가.
+_NUMBERED = re.compile(r"^\s*(?:(?P<roman>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)\s*[.．]|(?P<num>\d+(?:\.\d+)*)[.．]?|(?P<box>【[^】]{1,40}】)|(?P<ga>[가-힣])[.．])\s*(?P<rest>\S.*)?$")
+
+
+def _numbered_level(text: str) -> int | None:
+    t = text.strip()
+    if not t or len(t) > 70 or re.search(r"[.다요음임함]\s*$", t) and not t.endswith("】"):
+        return None
+    m = _NUMBERED.match(t)
+    if not m:
+        return None
+    if m.group("roman"):
+        return 1
+    if m.group("num"):
+        if m.group("rest") is None:
+            return None                               # '2026.' 같은 숫자만 있는 줄은 제목이 아니다
+        depth = m.group("num").count(".") + 1
+        return min(1 + depth, 4)
+    if m.group("box"):
+        return 2
+    if m.group("ga"):
+        return 3
+    return None
+
+
+def _table_text(tbl: dict) -> str:
+    rows = []
+    for row in tbl.get("tableRows", []):
+        cells = []
+        for cell in row.get("tableCells", []):
+            cells.append(" ".join(_para_text(e["paragraph"]).strip() for e in cell.get("content", []) if "paragraph" in e).strip())
+        rows.append(" | ".join(c for c in cells))
+    return "\n".join(r for r in rows if r.strip(" |"))
+
+
 def outline(document: dict) -> dict:
     """documents.get 결과 → {title, end, sections:[{index, level, heading, start, end, chars}], text}.
 
     절은 제목(TITLE·HEADING_n)에서 다음 같은 급 이상의 제목 전까지다. 제목 없는 앞머리는 index 0 '(앞머리)'.
-    end 는 그 절의 마지막 문단 끝 인덱스(다음 절 시작 직전).
+    end 는 그 절의 마지막 문단 끝 인덱스(다음 절 시작 직전). 표는 절의 글에 들어가지만(칸을 ' | ' 로) 삽입 위치(end)는
+    문단에만 둔다. 제목 스타일이 전혀 없으면 번호 붙은 문단을 절로 본다(한글 양식 변환본).
     """
-    body = document.get("body", {}).get("content", [])
-    paras: list[tuple[int, int, str, str]] = []       # (start, end, style, text)
+    body = body_content(document)
+    items: list[tuple[int, int, str, str, bool]] = []       # (start, end, style, text, is_table)
     for el in body:
-        p = el.get("paragraph")
-        if not p:
-            continue
-        paras.append((int(el.get("startIndex", 0)), int(el.get("endIndex", 0)),
-                      p.get("paragraphStyle", {}).get("namedStyleType", "NORMAL_TEXT"), _para_text(p)))
+        if "paragraph" in el:
+            p = el["paragraph"]
+            items.append((int(el.get("startIndex", 0)), int(el.get("endIndex", 0)),
+                          p.get("paragraphStyle", {}).get("namedStyleType", "NORMAL_TEXT"), _para_text(p), False))
+        elif "table" in el:
+            items.append((int(el.get("startIndex", 0)), int(el.get("endIndex", 0)), "TABLE", _table_text(el["table"]), True))
     doc_end = int(body[-1].get("endIndex", 1)) if body else 1
+    styled = any(HEADING_LEVELS.get(st) is not None and t.strip() for _s, _e, st, t, tb in items if not tb)
     sections: list[dict] = []
     cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0}
-    for start, end, style, text in paras:
-        lvl = HEADING_LEVELS.get(style)
-        if lvl is not None and text.strip():
+    for start, end, style, text, is_table in items:
+        lvl = HEADING_LEVELS.get(style) if styled else (None if is_table else _numbered_level(text))
+        if lvl is not None and text.strip() and not is_table:
             if cur["chars"] or cur["index"] > 0:        # 글 없는 앞머리는 절로 세지 않는다
                 sections.append(cur)
             cur = {"index": len(sections) + 1, "level": lvl, "heading": text.strip()[:80],
                    "start": start, "end": end, "chars": 0}
             continue
-        cur["end"] = end
+        if not is_table:
+            cur["end"] = end
         cur["chars"] += len(text.strip())
     sections.append(cur)
-    text = "\n".join(t.rstrip("\n") for _s, _e, _st, t in paras)
+    text = "\n".join(t.rstrip("\n") for _s, _e, _st, t, _tb in items)
     return {"title": document.get("title", ""), "end": doc_end, "sections": sections, "text": text}
 
 
 def get(email: str, doc: str, http=None) -> dict:
     """문서를 읽어 구조와 평문을 돌려준다."""
     http = http or _http()
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http))
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
     _raise(r)
     return outline(r.json())
 
@@ -207,9 +258,9 @@ def emphasize(email: str, doc: str, phrase: str, *, user: str, data_dir: Path, b
     phrase = (phrase or "").strip()
     if not phrase:
         raise ValueError("굵게 할 글귀를 적어 주세요")
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http))
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
     _raise(r)
-    body = r.json().get("body", {}).get("content", [])
+    body = body_content(r.json())
     reqs = []
     for el in body:
         p = el.get("paragraph")
@@ -250,9 +301,9 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
         raise ValueError("절을 다시 골라 주세요")
     at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
     _batch(email, doc, [{"insertTable": {"location": {"index": at}, "rows": len(rows), "columns": n_cols}}], http)
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http))
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
     _raise(r)
-    body = r.json().get("body", {}).get("content", [])
+    body = body_content(r.json())
     table = next((el["table"] for el in body if el.get("table") and int(el.get("startIndex", -1)) >= at), None)
     if not table:
         raise RuntimeError("표를 넣었지만 자리를 찾지 못했습니다")
