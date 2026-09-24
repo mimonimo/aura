@@ -11,6 +11,7 @@
 3. `docs/dev-now.md` — 지금 하는 일·다음 일(화면에도 나온다)
 4. `docs/context/working-notes.md` — 축적된 사용자 선호·작업 규율·주의사항
 5. `docs/decisions/` — 결정과 근거(ADR). 새 결정은 여기에 번호로
+6. `docs/document-work-flow.md` — 문서 세트 → 프로젝트 → 독스 작성·합본의 체계(문서 작업을 손대기 전에)
 
 Codex·Claude 공동 작업이면 `docs/collaboration/README.md`와 `codex.md`·`claude.md`를 먼저 본다.
 설계 문서(`docs/architecture.md` 등)와 `research/`는 근거 참조용이며 현황은 위 문서가 우선한다.
