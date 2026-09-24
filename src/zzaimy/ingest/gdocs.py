@@ -133,7 +133,13 @@ def outline(document: dict) -> dict:
     sections: list[dict] = []
     cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0, "table_end": 0}
     for start, end, style, text, is_table in items:
-        lvl = HEADING_LEVELS.get(style) if styled else (None if is_table else _numbered_level(text))
+        # 제목 스타일이 있어도 번호 문단(Ⅰ. / 1.1.)은 절이다 — 변환한 한글 문서는 개요 스타일이 몇 개뿐이고 절 제목이 굵은 보통
+        # 문단이라(실측 2026-09-24 사업계획서: 스타일 제목 3개, 번호 절 수십 개) 스타일만 보면 절이 3개로 잡힌다
+        lvl = None if is_table else HEADING_LEVELS.get(style)
+        if lvl is None and not is_table:
+            lvl = _numbered_level(text)
+            if lvl is not None and styled:
+                lvl = max(lvl, 2)                     # 스타일 제목 아래 급으로
         if lvl is not None and text.strip() and not is_table:
             if cur["chars"] or cur["index"] > 0:        # 글 없는 앞머리는 절로 세지 않는다
                 sections.append(cur)
