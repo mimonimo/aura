@@ -922,6 +922,44 @@ def create_app(
         db.add_chat(session_id, "assistant", f"드라이브에 문서 「{title}」 을 만들어 이 대화에 연결했습니다. {made['url']}")
         return True, ""
 
+    def _project_evidence(session_id: int, q: str, limit: int = 6) -> list[dict]:
+        """대화가 속한 프로젝트의 접수 문서·첨부에서 명령과 낱말이 겹치는 조각 — 명사 겹침으로 고른다(어휘 검색과 같은 키).
+
+        기준 문서는 find_relevant 가 맡고, 여기서는 합본·계획서·현황표 같은 접수 문서의 doc_chunks 를 본다. 표 조각은 평문(text)으로."""
+        from zzaimy.app.regulations import extract_nouns
+
+        session_ = db.get_chat_session(session_id) or {}
+        pid = int(session_["project_id"]) if session_.get("project_id") else None
+        doc_ids: list[int] = []
+        if pid:
+            proj = db.get_project(pid)
+            if proj:
+                doc_ids += [d["id"] for d in db.list_documents(proj["sector"], project_id=pid) if d.get("status") == "reviewed"]
+        doc_ids += [int(f["doc_id"]) for f in db.list_files(kind="attachment", session_id=session_id) if f.get("doc_id")]
+        if not doc_ids:
+            return []
+        q_nouns = extract_nouns(q)
+        if not q_nouns:
+            return []
+        titles = {did: storage.title_of((db.get_document(did) or {}).get("filename") or "") for did in dict.fromkeys(doc_ids)}
+        scored: list[tuple[float, dict]] = []
+        for did in dict.fromkeys(doc_ids):
+            for ch in db.list_doc_chunks(did):
+                text = ch.get("content") or ""
+                if ch.get("kind") == "table":
+                    try:
+                        text = _aj.loads(text).get("text") or text
+                    except Exception:
+                        pass
+                if len(text) < 40:
+                    continue
+                overlap = len(q_nouns & extract_nouns(text[:1500]))
+                if overlap >= 2:
+                    scored.append((overlap / (1 + len(text) / 2000), {"reg_title": titles[did], "heading": f"{ch.get('page_no') or ''}쪽",
+                                                                       "content": text[:900], "doc_id": did, "origin": "프로젝트 문서"}))
+        scored.sort(key=lambda x: -x[0])
+        return [h for _, h in scored[:limit]]
+
     def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
         """연결된 구글 독스에 대한 명령 — 근거 조각을 붙여 편집 계획을 받고 적용한 결과를 채팅에 남긴다."""
         from zzaimy.app import access_guard as ag
@@ -933,6 +971,11 @@ def create_app(
             hits = find_relevant(db, q, top_k=5, **scope)
         except Exception:
             hits = []
+        # 프로젝트의 접수 문서(완성된 합본·지난 계획서·현황표)와 이 대화의 첨부도 근거다 — 양식을 채울 재료는 거기 있다
+        try:
+            hits = _project_evidence(session_id, q, limit=6) + hits
+        except Exception:
+            pass
         _chat_sources[session_id] = [{
             "title": h.get("reg_title") or "문서", "heading": h.get("heading") or "",
             "snippet": (h.get("content") or "")[:160], "doc_id": h.get("doc_id"), "origin": "교내 규정",

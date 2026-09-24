@@ -81,12 +81,29 @@
  }
  async function api(url,options={}){const response=await fetch(url,{cache:'no-store',...options});if(!response.ok||response.redirected){let message='요청을 처리하지 못했습니다.';try{const data=await response.json();if(typeof data.detail==='string')message=data.detail;}catch(_){}throw new Error(message);}return response.json();}
  function dialog(title){const d=document.createElement('dialog');d.className='chat-doc-dialog';d.setAttribute('aria-label',title);d.innerHTML='<h2></h2><form><div data-fields></div><p role="status"></p><footer><button type="button" class="secondary" data-cancel>취소</button><button type="submit" data-submit>연결</button></footer></form>';d.querySelector('h2').textContent=title;d.querySelector('[data-fields]').style.display='grid';d.querySelector('[data-fields]').style.gap='16px';d.querySelector('[data-cancel]').onclick=()=>d.close();d.addEventListener('close',()=>{d.remove();opener.focus();});document.body.append(d);d.showModal();return d;}
- async function connect(){const d=dialog('Google Docs 연결'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;status.textContent='연결 계정 확인 중…';
+ async function connect(){const d=dialog('다른 폴더에서 문서 가져오기'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;submit.textContent='선택한 문서 가져오기';status.textContent='연결 계정 확인 중…';
  try{const data=await api('/api/chat-documents/accounts');if(!d.isConnected)return;
- fields.innerHTML='<label>Google 계정<select name="account" required></select></label><label>문서 주소<input name="doc" required placeholder="Google Docs 주소 또는 문서 ID"></label>';
+ fields.innerHTML='<label>Google 계정<select name="account" required></select></label><input type="hidden" name="doc"><div class="drive-picker-path"></div><div class="drive-picker-list"></div><p class="muted">Google Docs 문서를 선택하면 이 대화에서 작업할 수 있습니다. 다른 형식은 문서 추가를 이용해 주세요. 원본은 이동하거나 삭제하지 않습니다.</p>';
  data.accounts.filter(a=>a.docs_ok).forEach(a=>{const o=document.createElement('option');o.value=a.email;o.textContent=a.email;fields.querySelector('select').append(o);});
  if(!fields.querySelector('option')){fields.replaceChildren();status.textContent='문서 편집 권한이 있는 연결 계정이 없습니다.';const a=document.createElement('a');a.href=opener.dataset.connections;a.textContent='계정 연결 설정';fields.append(a);submit.hidden=true;return;}
- status.textContent='선택한 문서가 이 대화에 연결됩니다.';submit.disabled=false;
+ const account=f.elements.account,list=fields.querySelector('.drive-picker-list'),path=fields.querySelector('.drive-picker-path');
+ f.addEventListener('submit',e=>{if(!f.elements.doc.value){e.preventDefault();e.stopImmediatePropagation();}},true);
+ let trail=[{id:'root',name:'내 드라이브'}],generation=0;
+ async function load(page=''){
+   const version=++generation;submit.disabled=true;f.elements.doc.value='';status.textContent='폴더를 불러오는 중…';
+   if(!page)list.replaceChildren();path.replaceChildren();
+   trail.forEach((part,index)=>{const b=document.createElement('button');b.type='button';b.className='secondary';b.textContent=part.name;b.onclick=()=>{trail=trail.slice(0,index+1);load();};path.append(b);});
+   try{const result=await api('/api/chat-documents/browse?'+new URLSearchParams({account:account.value,folder:trail.at(-1).id,page}));if(!d.isConnected||version!==generation)return;
+     status.textContent=result.files.length?'문서를 선택하세요.':'이 폴더에 파일이 없습니다.';
+     result.files.forEach(file=>{const folder=file.mimeType==='application/vnd.google-apps.folder',doc=file.mimeType==='application/vnd.google-apps.document';
+       const b=document.createElement('button');b.type='button';b.className='drive-picker-item';b.textContent=(folder?'폴더 · ':'')+file.name;b.disabled=!folder&&!doc;
+       if(!folder&&!doc)b.title='현재 선택 가능 형식: Google Docs';
+       b.onclick=()=>{if(folder){trail.push({id:file.id,name:file.name});load();return;}list.querySelectorAll('[aria-pressed]').forEach(el=>el.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed','true');f.elements.doc.value=file.id;submit.disabled=false;status.textContent='선택: '+file.name;};if(doc)b.setAttribute('aria-pressed','false');list.append(b);
+     });
+     if(result.next){const more=document.createElement('button');more.type='button';more.textContent='더 보기';more.onclick=()=>{more.remove();load(result.next);};list.append(more);}
+   }catch(error){if(version!==generation||!d.isConnected)return;status.textContent=error.message;const retry=document.createElement('button');retry.type='button';retry.textContent='다시 시도';retry.onclick=()=>{retry.remove();load(page);};list.append(retry);}
+ }
+ account.onchange=()=>{trail=[{id:'root',name:'내 드라이브'}];load();};load();
  f.onsubmit=async e=>{e.preventDefault();submit.disabled=true;status.textContent='문서 확인 중…';const body=new FormData(f);if(sid)body.set('session_id',sid);const project=document.querySelector('#chatForm [name=project_id]')?.value;if(project)body.set('project_id',project);try{const result=await api('/api/chat-documents/connect',{method:'POST',body});sessionStorage.removeItem('chatDocHidden:'+result.session_id);location.assign('/chat/'+result.session_id);}catch(error){status.textContent=error.message;submit.disabled=false;}};
  }catch(error){status.textContent=error.message;}}
  async function insert(){const d=dialog('문서에 내용 삽입'),f=d.querySelector('form'),fields=d.querySelector('[data-fields]'),status=d.querySelector('[role=status]'),submit=d.querySelector('[data-submit]');
@@ -247,7 +264,7 @@
      docsHeading.textContent='문서 '+docs.children.length;
      imagesHeading.textContent='콘텐츠 '+images.children.length;
      if(!images.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent='첨부된 이미지가 없습니다.';images.append(empty);}
-     const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='기존 문서 연결';connectButton.onclick=connect;body.append(connectButton);
+     const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='다른 폴더에서 가져오기';connectButton.onclick=connect;body.append(connectButton);
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
  const initialized=sid?api('/api/chat-documents/'+sid).then(data=>{if(data.connected)linked=data;}).catch(error=>{loadError=error.message;}):Promise.resolve();

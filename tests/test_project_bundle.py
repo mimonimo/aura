@@ -212,3 +212,33 @@ def test_ambiguous_document_reference_asks_instead_of_guessing(tmp_path, monkeyp
     page = c.get(r.headers["location"]).text
     assert "어느 문서로 작업할지 분명하지 않습니다" in page and "작성서식 2025" in page and "작성서식 2026" in page
     assert not db.get_setting(f"chat_google_doc:{int(r.headers['location'].rsplit('/', 1)[-1])}", "")
+
+
+def test_project_evidence_uses_intake_documents(tmp_path, monkeypatch):
+    """양식을 채울 재료는 프로젝트의 접수 문서(합본·지난 계획서)에 있다 — 명령과 낱말이 겹치는 조각이 근거로 붙는다."""
+    from zzaimy.app import gdocs_agent
+    from zzaimy.ingest import gdrive
+    import json
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AID")
+    did = db.add_document(filename="사업계획서 합본.pdf", stored_path=str(tmp_path / "h.pdf"), doc_type="grant", project_id=pid)
+    db.update_document(did, status="reviewed")
+    db.replace_doc_chunks(did, [{"kind": "text", "content": "대학의 AI·DX 교육여건 분석: 재학생 3,200명 가운데 AI 관련 교과목 이수자는 41%이며 산업체 수요 조사 결과 데이터 분석 인력이 부족하다.", "page_no": 12},
+                               {"kind": "text", "content": "예산 편성은 인건비와 운영비로 나눈다.", "page_no": 80}])
+    sid = db.create_chat_session("작성", project_id=pid, owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    seen = {}
+    from zzaimy.app import chat_documents
+    monkeypatch.setattr(chat_documents, "material", lambda db_, sid_, owner_: "[연결 문서] 사업계획서 작성서식 작업본")
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
+    def fake_run(db_, session_id, owner, command, link, *, client, data_dir, scrub=None, evidence=None, confirm=False, http=None):
+        seen["evidence"] = evidence or []
+        return "적용됨: 1곳", []
+    monkeypatch.setattr(gdocs_agent, "run", fake_run)
+    from zzaimy.generate import client as _gc
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: object())
+    c.post("/chat/send", data={"question": "합본의 대학 AI·DX 교육여건 분석 내용으로 1.1 절을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
+    ev = seen["evidence"]
+    assert ev and ev[0]["origin"] == "프로젝트 문서" and "교육여건" in ev[0]["content"] and ev[0]["reg_title"] == "사업계획서 합본"
