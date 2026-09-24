@@ -225,11 +225,15 @@
    panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서함';
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
    const status=document.createElement('p');status.setAttribute('role','status');status.textContent='파일을 불러오는 중…';body.append(status);
-   const docsHeading=document.createElement('h3');docsHeading.textContent='문서';
+   const workHeading=document.createElement('h3');workHeading.textContent='작업 문서';
+   const workDocs=document.createElement('div');workDocs.className='chat-file-list chat-work-files';
+   const workNote=document.createElement('p');workNote.className='chat-file-section-note';workNote.textContent='Google Drive 문서를 열어 채팅과 함께 작업합니다.';
+   const docsHeading=document.createElement('h3');docsHeading.textContent='참고·첨부 문서';
    const docs=document.createElement('div');docs.className='chat-file-list';
+   const referenceNote=document.createElement('p');referenceNote.className='chat-file-section-note';referenceNote.textContent='플랫폼의 접수·기준·첨부 문서와 참고 파일입니다.';
    const imagesHeading=document.createElement('h3');imagesHeading.textContent='콘텐츠';
    const images=document.createElement('div');images.className='chat-image-grid';
-   body.append(docsHeading,docs,imagesHeading,images);
+   body.append(workHeading,workNote,workDocs,docsHeading,referenceNote,docs,imagesHeading,images);
    const imageFile=name=>/\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
    try{
      const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
@@ -238,7 +242,10 @@
      for(const file of data.files){
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
        const isImage=file.mime_type.startsWith('image/')||imageFile(file.name);
-       fileCard(button,file.name,isImage?'이미지 · Google Drive':'Google Drive');(isImage?images:docs).append(button);
+       const editable=file.mime_type==='application/vnd.google-apps.document',active=editable&&linked?.doc===file.id;
+       fileCard(button,file.name,isImage?'이미지 · Google Drive':editable?(active?'현재 작업 중 · Google Docs':'Google Docs · 작업 문서'):'Google Drive · 참고 파일',null,editable?'Google Docs':null);
+       if(active){button.classList.add('chat-file-current');button.setAttribute('aria-current','true');}
+       (isImage?images:editable?workDocs:docs).append(button);
        button.onclick=async()=>{
          if(file.mime_type!=='application/vnd.google-apps.document'){
            const path=file.mime_type==='application/vnd.google-apps.folder'?'drive/folders/'+file.id:'file/d/'+file.id+'/view';
@@ -263,11 +270,14 @@
              catch(error){status.textContent=error.message;a.disabled=false;}};}}
      }catch(error){status.textContent='프로젝트 문서를 불러오지 못했습니다. 문서함을 다시 열어 주세요.';}}
      if(data.error)status.textContent='Drive 목록: '+data.error;
-     else if(docs.children.length||images.children.length)status.textContent='';
-     docsHeading.textContent='문서 '+docs.children.length;
+     else if(workDocs.children.length||docs.children.length||images.children.length)status.textContent='';
+     workHeading.textContent='작업 문서 '+workDocs.children.length;
+     docsHeading.textContent='참고·첨부 문서 '+docs.children.length;
+     if(!workDocs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=data.error?'작업 문서 목록을 불러오지 못했습니다.':'아직 작업 문서가 없습니다.';workDocs.append(empty);}
+     if(!docs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent='표시할 참고·첨부 문서가 없습니다.';docs.append(empty);}
      imagesHeading.textContent='콘텐츠 '+images.children.length;
      if(!images.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent='첨부된 이미지가 없습니다.';images.append(empty);}
-     const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='다른 폴더에서 가져오기';connectButton.onclick=connect;body.append(connectButton);
+     const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='다른 폴더에서 가져오기';connectButton.onclick=connect;workDocs.after(connectButton);
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
  const initialized=sid?api('/api/chat-documents/'+sid).then(data=>{if(data.connected)linked=data;}).catch(error=>{loadError=error.message;}):Promise.resolve();
