@@ -30,3 +30,13 @@ def test_vision_pipe_table_masks_names_next_to_job_titles():
     texts = [c[-1] for c in cells]
     assert "김동호" not in texts and "김기종" not in texts and "이재용" not in texts
     assert texts.count("[KR_NAME]") == 3 and "2026" in texts and "없음" in texts
+
+
+def test_name_lists_are_masked_even_without_a_label():
+    from zzaimy.ingest.pii import PiiMasker, RawDocument
+
+    masker = PiiMasker()
+    out = masker.mask(RawDocument(doc_id="t", text="참석 | 학과 교수 | 신**, 박재훈, 김장환, 박민규, 이재용 | 장소 기계학관"))[0].text
+    assert "박재훈" not in out and "김장환" not in out and "이재용" not in out and "[KR_NAME]" in out and "기계학관" in out
+    keep = masker.mask(RawDocument(doc_id="t", text="권역: 수도권, 충청권, 호남권, 영남권"))[0].text
+    assert keep == "권역: 수도권, 충청권, 호남권, 영남권"

@@ -276,6 +276,14 @@ def _build_recognizers() -> list[PatternRecognizer]:
         # 직위 바로 뒤에 성명이 오는 표기 — "과 장 | 김진형"
         _pattern_recognizer(
             "KR_NAME",
+            "kr_name_list",
+            # 참석자·위원 명단처럼 이름이 쉼표·가운뎃점으로 셋 이상 이어진 것(실측 2026-09-24 판독 표 "박재훈, 김장환, 박민규, …").
+            # 라벨이 없어도 이름 셋이 나란히면 명단이다. 한 덩어리로 가린다
+            r"(?<![가-힣])" + _NAME_GUARD + r"[가-힣]{2,3}(?:\s*[,、·･]\s*" + _NAME_GUARD + r"[가-힣]{2,3}){2,}(?![가-힣])",
+            0.55,
+        ),
+        _pattern_recognizer(
+            "KR_NAME",
             "kr_name_after_title",
             r"(?<=(?<![가-힣])(?:" + "|".join(_TITLES) + r")\s{0,3}[:：|]\s{0,3})"
             r"(?!(?:" + "|".join(_NOT_A_NAME) + r")(?![가-힣]))"
