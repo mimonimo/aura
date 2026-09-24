@@ -198,7 +198,8 @@ def test_project_doc_named_ignores_dates_and_versions(tmp_path):
     assert f(db.get_project(pid), 0, "AID선정평가사업계획서 작성서식으로 작업하자")["filename"].endswith("작성서식(ver5).hwpx")
     assert f(db.get_project(pid), 0, "지표정의서 및 평가편람을 독스로 열어 줘")["filename"].endswith("평가편람(ver5).hwpx")
     db.add_document(filename="2026년 AID 전환 중점 전문대학 지원사업 합본 20260403 0900.pdf", stored_path=str(tmp_path / "c.pdf"), doc_type="grant", project_id=pid)
-    assert f(db.get_project(pid), 0, "사업계획서 합본 그림 쪽 판독해 줘")["filename"].endswith("합본 20260403 0900.pdf")   # 짧게 불러도
+    db.add_document(filename="2026년 AID 전환 중점 전문대학 지원사업 사업계획서 Ver.3.3 260401_2330.hwp", stored_path=str(tmp_path / "d.hwp"), doc_type="grant", project_id=pid)
+    assert f(db.get_project(pid), 0, "사업계획서 합본 그림 쪽 판독해 줘")["filename"].endswith("합본 20260403 0900.pdf")   # 짧게 불러도, '사업계획서'는 흔한 낱말
     assert f(db.get_project(pid), 0, "작성서식으로 작업하자")["filename"].endswith("작성서식(ver5).hwpx")
 
 
