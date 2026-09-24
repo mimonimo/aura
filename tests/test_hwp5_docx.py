@@ -73,3 +73,23 @@ def test_text_box_table_gets_the_shape_width(tmp_path):
     box = d.tables[1]                                          # 글상자(40000 HWPUNIT = 8000 twips)
     assert box._tbl.tblPr.find(qn("w:tblW")).get(qn("w:w")) == "8000"
     assert box._tbl.tblGrid.findall(qn("w:gridCol"))[0].get(qn("w:w")) == "8000"
+
+
+def test_hwp5_header_and_page_number_controls(tmp_path):
+    """pyhwp 의 Header(chid head)·PageNumberPosition(chid pgnp)·AutoNumbering(kind page)이 머리말·꼬리말·쪽 번호로 옮겨진다."""
+    xml = XML.replace(
+        '</SectionDef>',
+        '<PageNumberPosition chid="pgnp" shape="0" position="bottom_center" dash="-"/>'
+        '<Header chid="head" places="both_pages"><HeaderParagraphList paragraphs="1"><Paragraph parashape-id="0" style-id="0">'
+        '<LineSeg><Text charshape-id="0">영남이공대학교</Text></LineSeg></Paragraph></HeaderParagraphList></Header>'
+        '<Footer chid="foot" places="both_pages"><FooterParagraphList paragraphs="1"><Paragraph parashape-id="1" style-id="0">'
+        '<LineSeg><AutoNumbering chid="atno" kind="page" footnoteshape="0" number="2"/></LineSeg></Paragraph></FooterParagraphList></Footer>'
+        '</SectionDef>')
+    p = tmp_path / "hf.xml"
+    p.write_text(xml, encoding="utf-8")
+    data, stats = hwp5_docx.convert_xml(p)
+    assert stats["headers"] == 1 and stats["footers"] == 1 and "page_numbers" not in stats
+    d = Document(io.BytesIO(data))
+    assert d.sections[0].header.paragraphs[0].text == "영남이공대학교"
+    assert [t.text for t in d.sections[0].footer._element.iter(qn("w:instrText"))] == ["PAGE"]
+    assert d.paragraphs[0].text == "AI·DX 사업 개요"                       # 본문은 그대로

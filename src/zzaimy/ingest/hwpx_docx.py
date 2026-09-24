@@ -438,6 +438,7 @@ class Converter:
         if not level and ps and ps.outline_level:
             level = ps.outline_level
         pending: list[tuple[str, ET.Element]] = []
+        page_nums: list[ET.Element] = []
         para = None
         is_pb = container is self.doc and p_el.get("pageBreak") == "1" and not self._just_sectioned
         if is_pb:
@@ -480,6 +481,20 @@ class Converter:
                 elif n in ("secPr",):
                     self._section(obj)
                     self._just_sectioned = True          # 구역 시작이 이미 새 쪽이다 — 같은 문단의 쪽 나눔은 겹치지 않게
+                elif n == "ctrl":
+                    for c in obj:
+                        cn = _local(c.tag)
+                        if cn in ("header", "footer"):
+                            self.header_footer(c, cn)
+                        elif cn == "pageNum":
+                            page_nums.append(c)               # 머리말·꼬리말 정의를 다 옮긴 뒤에 — 먼저 넣으면 뒤의 정의가 지운다
+                        elif cn == "autoNum" and (c.get("numType") or "").upper() == "PAGE":
+                            if para is None:
+                                para = self._new_para(container, 0)
+                                self._apply_para_style(para, p_el)
+                            _add_page_field(para, c.get("formatType") or "DIGIT", self.st.chars.get(str(char_id)))
+        for c in page_nums:
+            self.page_number(c)
         if (para is None or not _para_has_content(para)) and not pending:
             # 빈 문단(공백만 있는 문단 포함) — 원본의 줄 간격을 지킨다. 그림만 든 문단은 빈 문단이 아니다(실측 2026-09-25: 표지·본문
             # 그림이 '빈 문단 정리'에 지워져 그림 2장이 사라짐)
@@ -515,6 +530,57 @@ class Converter:
             return self.doc.add_heading("", level=min(level, 4))
         self.stats["paragraphs"] += 1
         return container.add_paragraph()
+
+    # -- 머리말·꼬리말·쪽 번호 ------------------------------------------------------------------------
+    def _story(self, kind: str, apply: str):
+        """현재 구역의 머리말/꼬리말 저장소. EVEN 은 짝수 쪽용(문서 설정을 켠다), 그 밖은 기본."""
+        section = self.doc.sections[-1]
+        if apply == "EVEN":
+            self.doc.settings.odd_and_even_pages_header_footer = True
+            hf = section.even_page_header if kind == "header" else section.even_page_footer
+        else:
+            hf = section.header if kind == "header" else section.footer
+        hf.is_linked_to_previous = False
+        return hf
+
+    def header_footer(self, el: ET.Element, kind: str) -> None:
+        """한글의 머리말/꼬리말(hp:header·hp:footer)을 워드 구역의 머리말/꼬리말로. 한글은 한 구역 안에서도 문단마다 다시
+        정할 수 있지만 워드·독스는 구역당 하나라 나중 정의가 앞 정의를 대체한다(대부분의 쪽이 보는 것이 나중 것).
+        실측 2026-09-25: 표지 로고 2장이 머리말에 있어 변환에서 빠졌다(회귀 검사 145 가 잡음)."""
+        apply = (el.get("applyPageType") or "BOTH").upper()
+        hf = self._story(kind, apply)
+        host = hf._element
+        for k in list(host):
+            host.remove(k)
+        sub = _first(el, "subList")
+        for p_el in (_children(sub, "p") if sub is not None else []):
+            self.paragraph(p_el, hf, heading_ok=False)
+        _drop_leading_empty(hf)
+        if not list(host):
+            hf.add_paragraph()
+        self.stats[kind + "s"] = self.stats.get(kind + "s", 0) + 1
+
+    def page_number(self, el: ET.Element) -> None:
+        """쪽 번호 매기기(hp:pageNum) → 머리말/꼬리말의 PAGE 필드. 한글은 sideChar 로 '- 1 -' 처럼 꾸민다.
+        해당 저장소에 이미 PAGE 필드가 있으면(꼬리말 안의 autoNum) 겹쳐 넣지 않는다."""
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        pos = (el.get("pos") or "BOTTOM_CENTER").upper()
+        if pos == "NONE":
+            return
+        hf = self._story("header" if pos.startswith("TOP") else "footer", "BOTH")
+        if any(_has_page_field(p) for p in hf.paragraphs):
+            return
+        para = hf.paragraphs[0] if hf.paragraphs and not _para_has_content(hf.paragraphs[0]) else hf.add_paragraph()
+        para.alignment = (WD_ALIGN_PARAGRAPH.LEFT if pos.endswith("LEFT") else
+                          WD_ALIGN_PARAGRAPH.RIGHT if pos.endswith(("RIGHT", "OUTSIDE")) else WD_ALIGN_PARAGRAPH.CENTER)
+        side = (el.get("sideChar") or "").strip()
+        if side:
+            para.add_run(side + " ")
+        _add_page_field(para, el.get("formatType") or "DIGIT", None)
+        if side:
+            para.add_run(" " + side)
+        self.stats["page_numbers"] = self.stats.get("page_numbers", 0) + 1
 
     # -- 구역(쪽 설정) ------------------------------------------------------------------------------
     def _section(self, sec_el: ET.Element) -> None:
@@ -613,7 +679,7 @@ class Converter:
             col_hu = [widths.get(c, max(total_hu // n_cols, 100)) for c in range(n_cols)]
         if n_cols < 1:
             return
-        table = container.add_table(rows=n_rows, cols=n_cols)
+        table = _add_table(container, n_rows, n_cols)
         table.autofit = False
         _table_fixed_layout(table, [int(w * TWIPS_PER_HWPUNIT) for w in col_hu])
         for c in range(n_cols):
@@ -742,7 +808,7 @@ class Converter:
                     w_hu = _hu(sz.get("width"))
                     break
             w_hu = min(max(w_hu, 4 * HWPUNIT_PER_INCH // 4), 47000)       # 최소 1인치, 최대 본문 폭쯤
-            box = container.add_table(rows=1, cols=1)
+            box = _add_table(container, 1, 1)
             _table_fixed_layout(box, [int(w_hu * TWIPS_PER_HWPUNIT)])
             cell = box.cell(0, 0)
             cell.width = __import__("docx.shared", fromlist=["Emu"]).Emu(int(w_hu * EMU_PER_HWPUNIT))
@@ -773,7 +839,9 @@ class Converter:
             data = normalize_image(self.zf.read(member))
         except KeyError:
             return
-        cur = _child(pic, "curSz") or _child(pic, "orgSz")
+        cur = _child(pic, "curSz")
+        if cur is None:
+            cur = _child(pic, "orgSz")
         w = _hu(cur.get("width")) if cur is not None else 0
         if not w:
             org = _child(pic, "orgSz")
@@ -789,6 +857,64 @@ class Converter:
             para.add_run("[그림]")
         if container is self.doc:
             self._content_since_pb = True
+
+
+_PAGE_FMT = {"ROMAN_CAPITAL": r" \* ROMAN", "ROMAN_SMALL": r" \* roman", "LATIN_CAPITAL": r" \* ALPHABETIC",
+             "LATIN_SMALL": r" \* alphabetic", "HANGUL_SYLLABLE": r" \* GANADA", "CIRCLED_DIGIT": r" \* CIRCLENUM"}
+
+
+def _add_table(container, rows: int, cols: int):
+    """문서·셀은 폭 없이, 머리말/꼬리말은 폭을 요구한다(python-docx). 폭은 뒤에서 고정 배치로 다시 정한다."""
+    try:
+        return container.add_table(rows=rows, cols=cols)
+    except TypeError:
+        from docx.shared import Emu
+
+        return container.add_table(rows=rows, cols=cols, width=Emu(int(48000 * EMU_PER_HWPUNIT)))
+
+
+def _add_page_field(para, fmt: str, cs) -> None:
+    """PAGE 필드(복합 필드: begin·instr·separate·결과·end). 독스는 이 형태를 쪽 번호로 읽는다."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    def run(kind: str, text: str = ""):
+        r = para.add_run()
+        if cs is not None and cs.size_pt:
+            from docx.shared import Pt
+            r.font.size = Pt(max(cs.size_pt, 4.0))
+        if kind == "text":
+            t = OxmlElement("w:instrText"); t.set(qn("xml:space"), "preserve"); t.text = text; r._r.append(t)
+        elif kind == "result":
+            r.text = text
+        else:
+            fc = OxmlElement("w:fldChar"); fc.set(qn("w:fldCharType"), kind); r._r.append(fc)
+        return r
+
+    run("begin")
+    run("text", "PAGE" + _PAGE_FMT.get((fmt or "").upper(), ""))
+    run("separate")
+    run("result", "1")
+    run("end")
+
+
+def _has_page_field(para) -> bool:
+    from docx.oxml.ns import qn
+
+    return any("PAGE" in (t.text or "") for t in para._p.iter(qn("w:instrText")))
+
+
+def _drop_leading_empty(story) -> None:
+    """머리말/꼬리말 맨 앞의 빈 문단(내용 없는 문단)은 지운다 — 남기면 머리말 높이만 커진다."""
+    host = story._element
+    for k in list(host):
+        if k.tag.endswith("}p"):
+            texts = "".join(t.text or "" for t in k.iter() if t.tag.endswith("}t"))
+            if texts.strip() or any(x.tag.endswith("}drawing") for x in k.iter()) or any(x.tag.endswith("}instrText") for x in k.iter()):
+                break
+            host.remove(k)
+        else:
+            break
 
 
 GRID_TOL = 60     # 경계 좌표 합치기 허용치(HWPUNIT, 약 0.2mm)
