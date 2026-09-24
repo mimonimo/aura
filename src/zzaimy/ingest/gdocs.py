@@ -131,17 +131,21 @@ def outline(document: dict) -> dict:
     doc_end = int(body[-1].get("endIndex", 1)) if body else 1
     styled = any(HEADING_LEVELS.get(st) is not None and t.strip() for _s, _e, st, t, tb in items if not tb)
     sections: list[dict] = []
-    cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0}
+    cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0, "table_end": 0}
     for start, end, style, text, is_table in items:
         lvl = HEADING_LEVELS.get(style) if styled else (None if is_table else _numbered_level(text))
         if lvl is not None and text.strip() and not is_table:
             if cur["chars"] or cur["index"] > 0:        # 글 없는 앞머리는 절로 세지 않는다
                 sections.append(cur)
             cur = {"index": len(sections) + 1, "level": lvl, "heading": text.strip()[:80],
-                   "start": start, "end": end, "chars": 0}
+                   "start": start, "end": end, "chars": 0, "table_end": 0}
             continue
-        if not is_table:
+        if is_table:
+            cur["table_end"] = end                     # 절이 표(작성방법 상자)로 끝나면 글은 그 표 뒤에 들어가야 한다
+        else:
             cur["end"] = end
+            if text.strip():
+                cur["table_end"] = 0                   # 표 뒤에 글 문단이 있으면 그 문단 끝이 삽입 자리
         cur["chars"] += len(text.strip())
     sections.append(cur)
     text = "\n".join(t.rstrip("\n") for _s, _e, _st, t, _tb in items)
@@ -192,10 +196,20 @@ def insert_into_section(email: str, doc: str, section_index: int, text: str, *, 
     sec = secs.get(int(section_index))
     if sec is None:
         raise ValueError("절을 다시 골라 주세요 — 문서 구조가 바뀌었습니다")
-    # 절의 마지막 문단 끝(줄바꿈 앞)에 새 문단으로 넣는다. 문서 끝이면 끝 인덱스 - 1.
-    at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
-    payload = "\n" + text
-    res = _batch(email, doc, [{"insertText": {"location": {"index": at}, "text": payload}}], http)
+    if int(sec.get("table_end") or 0) > int(sec["end"]) - 1:
+        # 절이 표(작성방법 상자)로 끝난다 — 표 바로 뒤(다음 문단 앞)에 새 문단으로 넣고, 그 문단의 모양은 본문으로 되돌린다
+        # (표 뒤 문단이 다음 절 제목이면 넣은 글이 제목 모양을 물려받는다)
+        at = min(int(sec["table_end"]), int(info["end"]) - 1)
+        payload = text + "\n"
+        reqs = [{"insertText": {"location": {"index": at}, "text": payload}},
+                {"updateParagraphStyle": {"range": {"startIndex": at, "endIndex": at + len(payload)},
+                                          "paragraphStyle": {"namedStyleType": "NORMAL_TEXT"}, "fields": "namedStyleType"}}]
+    else:
+        # 절의 마지막 문단 끝(줄바꿈 앞)에 새 문단으로 넣는다. 문서 끝이면 끝 인덱스 - 1.
+        at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
+        payload = "\n" + text
+        reqs = [{"insertText": {"location": {"index": at}, "text": payload}}]
+    res = _batch(email, doc, reqs, http)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "insert", "section": sec["heading"],
                       "chars": len(text)})
     return {"ok": True, "at": at, "chars": len(text), "section": sec["heading"], "reply": res.get("documentId", "")}

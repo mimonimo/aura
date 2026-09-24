@@ -54,6 +54,9 @@
   <input type="file" name="file" id="intakeFile" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
 </form>
 <p class="muted" id="intakeStatus" role="status" hidden>문서를 접수하는 중입니다…</p>
+{% if suggestions %}<div class="notice suggestions" role="status"><iconify-icon icon="solar:lightbulb-linear"></iconify-icon><div><span class="muted">다음 작업 제안</span>
+  {% for sg in suggestions %}<form action="/chat/send" method="post" style="display:inline;margin:2px 6px 2px 0;"><input type="hidden" name="project_id" value="{{ project.id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="secondary" title="{{ sg.text }}">{{ sg.text }}</button></form>{% endfor %}
+</div></div>{% endif %}
 {% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다 — 기준 문서 {{ received[0] }}건, 접수 문서 {{ received[-1] }}건. 문서 내용을 추출하고 열람 화면을 준비하고 있습니다.</span></p>{% endif %}
 <section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
 <div class="project-chat-row project-start">

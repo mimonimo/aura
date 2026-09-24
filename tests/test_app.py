@@ -25,6 +25,13 @@ class FakeProcessor:
             ai_review="합성 검토 의견: 형식 적합.",
         )
 
+    def sparse_pages(self, path):
+        return [11, 12] if str(path).endswith("합본.pdf") else []
+
+    def read_image_pages(self, db: Database, doc_id: int, pages=None, max_pages: int = 12) -> dict:
+        db.append_doc_chunks(doc_id, [{"kind": "text", "content": "판독: 대외여건 분석 — 지역 AI 인력 수요 12,800명", "page_no": 11}], replace_pages=[11])
+        return {"read": 1, "pages": [11], "chunks": 1}
+
     def reprocess(self, db: Database, doc_id: int) -> None:
         db.update_document(
             doc_id, status="reviewed", ai_review="재검토 의견: 담당자 요청 반영."

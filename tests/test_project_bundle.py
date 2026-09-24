@@ -280,3 +280,34 @@ def test_project_evidence_targets_named_document_and_skips_form_source(tmp_path,
     assert all(e["doc_id"] != form for e in seen["evidence"]) and any(e["doc_id"] == merged for e in seen["evidence"])
     c.post("/chat/send", data={"question": "사업계획서 합본의 교육여건 분석 내용으로 절을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
     assert [e["doc_id"] for e in seen["evidence"]] == [merged]
+
+
+def test_project_suggestions_and_read_command(tmp_path, monkeypatch):
+    """무조건 돌리지 않고 제안한다: 양식이 있으면 '작성 시작', 그림 쪽이 있으면 '판독'. 판독 명령은 지목한 문서를 읽어 조각을 더한다."""
+    from zzaimy.ingest import gdrive
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AID", owner="zzaimy")
+    form = db.add_document(filename="사업계획서 작성서식.hwpx", stored_path=str(tmp_path / "f.hwpx"), doc_type="grant", project_id=pid)
+    merged = db.add_document(filename="사업계획서 합본.pdf", stored_path=str(tmp_path / "사업계획서 합본.pdf"), doc_type="grant", project_id=pid)
+    db.update_document(form, status="reviewed"); db.set_document_kind(form, "form")
+    db.update_document(merged, status="reviewed")
+    page = c.get(f"/project/{pid}").text
+    assert "다음 작업 제안" in page and "작성을 시작할까요" in page and "2쪽은 그림이라" in page
+    assert 'value="사업계획서 작성서식으로 작업하자"' in page
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: [])
+    r = c.post("/chat/send", data={"question": "사업계획서 합본 그림 쪽 판독해 줘", "project_id": str(pid)}, follow_redirects=False)
+    page = c.get(r.headers["location"]).text
+    assert "그림 쪽 1쪽" in page and "조각 1개" in page
+    assert any("판독: 대외여건" in ch["content"] for ch in db.list_doc_chunks(merged))
+    assert c.post(f"/doc/{merged}/read-pages", follow_redirects=False).status_code == 303
+
+
+def test_vision_pages_are_not_reread(tmp_path):
+    app, _ = _client(tmp_path)
+    db = app.state.db
+    did = db.add_document(filename="x.pdf", stored_path=str(tmp_path / "x.pdf"), doc_type="grant")
+    db.append_doc_chunks(did, [{"kind": "text", "content": "판독 글", "page_no": 3}], replace_pages=[3])
+    db.append_doc_chunks(did, [{"kind": "text", "content": "판독 글 다시", "page_no": 3}], replace_pages=[3])
+    assert db.vision_pages(did) == [3] and len(db.list_doc_chunks(did)) == 1

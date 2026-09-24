@@ -492,4 +492,29 @@ def test_outline_reads_tabs_tables_and_numbered_headings_of_converted_forms():
     sec = info["sections"][2]
     assert "【작성방법】" in info["text"] and "1) 지역 동향을 기술" in info["text"]
     assert sec["chars"] > 0 and sec["end"] == 100          # 삽입 자리는 표가 아니라 그 뒤 문단 끝('2026. 4.' 문단)
+    assert sec["table_end"] == 0                           # 표 뒤에 글 문단이 있으니 표 끝은 쓰지 않는다
     assert info["end"] == 121
+    # 표(작성방법 상자)로 끝나는 절: 빈 문단만 뒤따르면 표 끝이 삽입 자리
+    last = info["sections"][3]
+    assert last["heading"].startswith("1.2")
+
+
+def test_insert_goes_after_the_closing_table_of_a_section(monkeypatch, tmp_path):
+    content = [
+        {"startIndex": 0, "endIndex": 1, "sectionBreak": {}},
+        _para(1, "1.1. 교육여건 분석\n"),
+        _para(13, "\n"),
+        {"startIndex": 14, "endIndex": 40, "table": {"tableRows": [{"tableCells": [_cell("【작성방법】 지역 동향을 기술")]}]}},
+        _para(40, "1.2. 특성화 방향\n"),
+        _para(52, "\n"),
+    ]
+    doc = {"documentId": "d", "title": "t", "body": {"content": content}}
+    monkeypatch.setattr(gdocs, "get", lambda email, d, http=None: gdocs.outline(doc))
+    sent = {}
+    monkeypatch.setattr(gdocs, "_batch", lambda email, d, reqs, http: sent.update(reqs=reqs) or {"documentId": "d"})
+    monkeypatch.setattr(gdocs, "_http", lambda: object())
+    out = gdocs.insert_into_section("a@b", "d", 1, "본 대학의 여건은 다음과 같다.", user="u", data_dir=tmp_path)
+    reqs = sent["reqs"]
+    assert reqs[0]["insertText"]["location"]["index"] == 40 and reqs[0]["insertText"]["text"].endswith("\n")
+    assert reqs[1]["updateParagraphStyle"]["paragraphStyle"]["namedStyleType"] == "NORMAL_TEXT"
+    assert out["section"].startswith("1.1")
