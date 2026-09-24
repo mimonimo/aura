@@ -397,3 +397,21 @@ def test_chat_delete_removes_session_but_keeps_documents(tmp_path):
     assert r2.status_code == 303 and db.get_chat_session(sid) is None and db.list_chats(sid) == []
     assert db.get_document(doc_id) is not None and not db.get_setting(f"chat_google_doc:{sid}", "")
     assert c.post("/chat/99999/delete", follow_redirects=False).status_code in (403, 404)
+
+
+def test_upload_file_reuses_same_name_in_folder(monkeypatch):
+    import httpx
+    from zzaimy.ingest import gdrive, gdrive_files
+
+    calls = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append((req.method, req.url.path, dict(req.url.params)))
+        if req.url.path == "/drive/v3/files" and req.method == "GET":
+            return httpx.Response(200, json={"files": [{"id": "old1", "name": "예산 편성표", "mimeType": "application/vnd.google-apps.spreadsheet"}]})
+        return httpx.Response(500)
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    out = gdrive_files.upload_file("a@b", b"x", "예산 편성표.xlsx", gdrive_files.CONVERT[".xlsx"][0], "folder1",
+                                   convert_to=gdrive_files.CONVERT[".xlsx"][1], http=http)
+    assert out["id"] == "old1" and out.get("reused") and all(m == "GET" for m, _p, _q in calls)   # 업로드(POST)를 하지 않았다

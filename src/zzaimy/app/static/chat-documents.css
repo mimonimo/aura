@@ -37,6 +37,9 @@ main>#chatWorkspace,main>.chat-doc-editor{transition:none}
 .chat-file-library h3{margin:6px 0 0;font-size:14px;font-weight:600}
 .chat-file-library [role=status]:empty{display:none}
 .chat-file-list{display:grid;gap:10px}
+.chat-file-section-note{margin:0;color:var(--muted);font-size:12px;line-height:1.6}
+.chat-file-library .chat-file-current{border-color:#6887b0!important;background:#edf3fc!important}
+.chat-work-files~h3{padding-top:14px;border-top:1px solid var(--line)}
 button.chat-doc-file.chat-file-card{border-radius:14px!important;padding:12px!important;margin:0!important;min-width:0;gap:12px!important;box-shadow:0 2px 5px #15243c08!important}
 button.chat-file-card:hover{border-color:#aebed3!important;background:#f5f8fc!important}
 button.chat-file-card:focus-visible{outline:2px solid #45658f;outline-offset:2px}

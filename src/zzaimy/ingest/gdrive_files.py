@@ -218,13 +218,40 @@ def view_url(file_id: str, mime: str) -> str:
     return VIEW_URL.get(mime, "https://drive.google.com/file/d/{id}/view").format(id=file_id)
 
 
+def find_in_folder(email: str, name: str, folder_id: str, http=None) -> dict | None:
+    """폴더 안에서 같은 이름의(휴지통 아닌) 파일 하나 — 열람본을 두 번 올리지 않기 위해."""
+    http = http or gdrive._http()
+    safe = name.replace("\\", "\\\\").replace("'", "\\'")
+    r = http.get(f"{gdrive.API}/files", headers=_headers(email, http),
+                 params={"q": f"name = '{safe}' and '{folder_id}' in parents and trashed = false",
+                         "fields": "files(id,name,mimeType)", "pageSize": 5, "supportsAllDrives": "true"})
+    if r.status_code != 200:
+        return None
+    files = r.json().get("files", [])
+    return files[0] if files else None
+
+
 def upload_file(email: str, data: bytes, name: str, source_mime: str, folder_id: str | None = None,
-                convert_to: str = "", http=None) -> dict:
-    """드라이브에 파일을 올린다. convert_to 가 있으면 구글 형식(독스·시트·슬라이드)으로 바꿔 올린다."""
+                convert_to: str = "", http=None, reuse: bool = True) -> dict:
+    """드라이브에 파일을 올린다. convert_to 가 있으면 구글 형식(독스·시트·슬라이드)으로 바꿔 올린다.
+
+    reuse 면 폴더에 같은 이름(변환 뒤 이름)의 파일이 있을 때 그것을 돌려주고 올리지 않는다 — 열람본이 겹겹이 쌓이던 일
+    (실측 2026-09-24: 같은 첨부가 폴더에 8벌)을 막는다."""
     if http is None:
         import httpx
 
         http = httpx.Client(timeout=httpx.Timeout(600, connect=30))    # 큰 파일의 변환 업로드는 오래 걸린다(8MB HTML 실측)
+    if reuse and folder_id:
+        shown = name
+        if convert_to:                                   # 구글 형식으로 바꾸면 확장자가 떨어진 이름이 된다
+            for ext in (".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".html", ".odt", ".txt", ".md"):
+                if shown.lower().endswith(ext):
+                    shown = shown[: -len(ext)]
+                    break
+        found = find_in_folder(email, shown, folder_id, http)
+        if found and (not convert_to or found.get("mimeType") == convert_to):
+            return {"id": found["id"], "mime": found.get("mimeType", ""), "name": found.get("name", shown),
+                    "url": view_url(found["id"], found.get("mimeType", "")), "reused": True}
     meta = {"name": name}
     if convert_to:
         meta["mimeType"] = convert_to
