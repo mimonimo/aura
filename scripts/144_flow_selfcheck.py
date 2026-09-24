@@ -41,6 +41,7 @@ def main() -> int:
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
     ap.add_argument("--project", type=int, required=True)
     ap.add_argument("--question", default="이 사업의 신청 자격과 지원 규모는?")
+    ap.add_argument("--ask", action="store_true", help="응답기를 직접 돌려 답과 근거를 본다 — 대화를 만들지 않는다(최근 대화를 어지럽히지 않게)")
     args = ap.parse_args()
     db = Database(Path(args.db))
     proj = db.get_project(args.project)
@@ -157,6 +158,19 @@ def main() -> int:
             if last and last[-1]["role"] == "user":
                 dangling.append(int(s["id"]))
     say("PASS" if not dangling else "WARN", "대화", "답 없이 남은 질문 없음" if not dangling else f"답 없이 남은 대화: {dangling}")
+    # 10 에이전트 실행(선택): 프로젝트 기준을 근거로 답하는지 — 대화 세션 없이 응답기만 부른다
+    if args.ask:
+        try:
+            from zzaimy.app.responder import AgentResponder
+
+            r = AgentResponder()
+            answer = r.answer(db, args.question, criteria_ids=crit_ids, project=proj)
+            srcs = getattr(r, "last_sources", []) or []
+            docs_cited = {s.get("title") for s in srcs}
+            say("PASS" if srcs else "WARN", "에이전트", f"근거 {len(srcs)}건({len(docs_cited)}개 문서) · 답 {len(answer)}자")
+            print("    답:", answer[:500].replace("\n", " / "))
+        except Exception as e:
+            say("FAIL", "에이전트", f"응답기 실패 {type(e).__name__}: {e}"); fails += 1
     print("결과:", "FAIL" if fails else "OK")
     return 1 if fails else 0
 

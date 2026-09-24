@@ -384,3 +384,16 @@ def test_vision_off_latch_expires(monkeypatch):
     assert p._vision_off() is True
     p._vision_state["off_at"] -= p.VISION_OFF_S + 1
     assert p._vision_off() is False and p._vision_state["fails"] == 0
+
+
+def test_chat_delete_removes_session_but_keeps_documents(tmp_path):
+    app, c = _client(tmp_path)
+    db = app.state.db
+    r = c.post("/chat/send", data={"question": "검토해 줘"}, files={"attachment": ("메모.pdf", b"%PDF-1.4 m", "application/pdf")}, follow_redirects=False)
+    sid = int(r.headers["location"].rsplit("/", 1)[-1])
+    db.set_setting(f"chat_google_doc:{sid}", "{}")
+    doc_id = db.list_files(kind="attachment", session_id=sid)[0]["doc_id"]
+    r2 = c.post(f"/chat/{sid}/delete", follow_redirects=False)
+    assert r2.status_code == 303 and db.get_chat_session(sid) is None and db.list_chats(sid) == []
+    assert db.get_document(doc_id) is not None and not db.get_setting(f"chat_google_doc:{sid}", "")
+    assert c.post("/chat/99999/delete", follow_redirects=False).status_code in (403, 404)

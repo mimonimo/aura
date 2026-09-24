@@ -2000,6 +2000,15 @@ def create_app(
         return {"id": made["id"], "name": made.get("name") or doc["filename"], "mime": made["mime"], "url": made["url"],
                 "embed_url": gdrive_files.embed_url(made["id"], made["mime"]), "account": email}
 
+    @app.post("/chat/{session_id}/delete")
+    def delete_chat(request: Request, session_id: int):
+        """대화 삭제 — 본인 대화만. 첨부·작업본 문서는 남고 대화 기록만 지운다(최근 대화 정리)."""
+        _owned_chat(request, session_id)
+        if session_id in _chat_running:
+            raise HTTPException(409, "답변이 끝난 뒤 지워 주세요.")
+        db.delete_chat_session(session_id)
+        return RedirectResponse("/chat", status_code=303)
+
     @app.post("/api/chat/{session_id}/work-on/{doc_id}")
     def chat_work_on(request: Request, session_id: int, doc_id: int):
         """문서함에서 고른 프로젝트 문서로 작업 — 독스 변환본(한글이면 변환)의 복제본을 만들어 이 대화에 잇는다."""

@@ -546,6 +546,21 @@ class Database:
         with self._conn() as conn:
             conn.execute("UPDATE chat_sessions SET project_id = ? WHERE id = ?", (project_id, session_id))
 
+    def delete_chat_session(self, session_id: int) -> bool:
+        """대화와 딸린 것(메시지·문맥·수정 이력·설정·근거·문서 연결 설정)을 지운다. 첨부 문서는 문서함에 남는다."""
+        with self._conn() as conn:
+            if conn.execute("SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,)).fetchone() is None:
+                return False
+            names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            for t in ("chat_messages", "chat_message_context", "chat_revisions", "chat_session_preferences", "chat_sources"):
+                if t in names:
+                    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({t})")}
+                    if "session_id" in cols:
+                        conn.execute(f"DELETE FROM {t} WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM settings WHERE key LIKE ?", (f"chat_google_doc%:{session_id}",))
+            conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+        return True
+
     def rename_chat_session(self, session_id: int, title: str) -> None:
         with self._conn() as conn:
             conn.execute("UPDATE chat_sessions SET title = ? WHERE id = ?", ((title or "").strip()[:60] or "대화", session_id))

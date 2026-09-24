@@ -54,26 +54,14 @@
    event.preventDefault();setRatio(event.key==='Enter'?50:event.key==='Home'?0:event.key==='End'?100:ratio+(event.key==='ArrowLeft'?-2:2));
  });
  new ResizeObserver(()=>{if(main.classList.contains('chat-doc-open'))setRatio(ratio,false);}).observe(main);
- let closing=null;
  function reveal(){
-   // 열기: 채팅 폭을 100%에서 시작해 다음 프레임에 목표 비율로 — 폭·투명도가 함께 미끄러진다
-   if(closing){clearTimeout(closing);closing=null;}
-   main.classList.remove('chat-doc-closing');
-   panel.hidden=false;panel.classList.add('chat-doc-entering');
-   main.style.setProperty('--chat-width','100%');main.classList.add('chat-doc-open');
-   const entering=panel;
-   // 목록(70:30) 또는 편집(50:50)이 지정한 현재 비율을 유지한다.
-   // 저장된 편집 폭을 여기서 다시 읽으면 목록 폭을 다음 프레임에 덮어쓴다.
-   requestAnimationFrame(()=>requestAnimationFrame(()=>{
-     if(panel!==entering||!entering.isConnected||closing)return;
-     entering.classList.remove('chat-doc-entering');setRatio(ratio,false);
-   }));
+   // 목표 폭으로 바로 표시한다. 채팅을 전체 폭으로 되돌리는 중간 프레임은 없다.
+   setRatio(ratio,false);
+   panel.hidden=false;main.classList.add('chat-doc-open');
  }
  function conceal(){
-   // 닫기: 문서 폭을 0으로 미끄러뜨린 뒤 숨긴다
    if(!panel||panel.hidden)return;
-   main.classList.add('chat-doc-closing');
-   closing=setTimeout(()=>{panel.hidden=true;main.classList.remove('chat-doc-open','chat-doc-closing');closing=null;},300);
+   panel.hidden=true;main.classList.remove('chat-doc-open');
  }
  function visibility(visible){
    if(!panel)return;
