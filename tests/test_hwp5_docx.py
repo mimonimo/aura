@@ -63,3 +63,13 @@ def test_hwp5_xml_converts_like_hwpx(tmp_path):
     box = d.tables[1]                                          # 글상자는 테두리 있는 한 칸 표
     assert "Ⅰ. 사업추진 목표" in box.cell(0, 0).text
     assert round(d.sections[0].page_width.inches, 2) == 8.27
+
+
+def test_text_box_table_gets_the_shape_width(tmp_path):
+    p = tmp_path / "plan.xml"
+    p.write_text(XML, encoding="utf-8")
+    data, _ = hwp5_docx.convert_xml(p)
+    d = Document(io.BytesIO(data))
+    box = d.tables[1]                                          # 글상자(40000 HWPUNIT = 8000 twips)
+    assert box._tbl.tblPr.find(qn("w:tblW")).get(qn("w:w")) == "8000"
+    assert box._tbl.tblGrid.findall(qn("w:gridCol"))[0].get(qn("w:w")) == "8000"

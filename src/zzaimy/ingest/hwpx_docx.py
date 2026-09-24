@@ -710,8 +710,18 @@ class Converter:
             return
         self.stats["textboxes"] += 1
         if boxed:
+            # 글상자 너비를 표에 준다 — 너비 없는 한 칸 표는 독스가 가장 좁게 그려 쪽 높이의 가는 상자가 됐다(실측 2026-09-25 사업계획서)
+            w_hu = 0
+            for tag in ("curSz", "sz", "orgSz"):
+                sz = _child(el, tag)
+                if sz is not None and _hu(sz.get("width")) > 0:
+                    w_hu = _hu(sz.get("width"))
+                    break
+            w_hu = min(max(w_hu, 4 * HWPUNIT_PER_INCH // 4), 47000)       # 최소 1인치, 최대 본문 폭쯤
             box = container.add_table(rows=1, cols=1)
+            _table_fixed_layout(box, [int(w_hu * TWIPS_PER_HWPUNIT)])
             cell = box.cell(0, 0)
+            cell.width = __import__("docx.shared", fromlist=["Emu"]).Emu(int(w_hu * EMU_PER_HWPUNIT))
             _set_cell_borders(cell, BorderFill(sides={s: ("SOLID", 0.12) for s in ("left", "right", "top", "bottom")}))
             _set_cell_margins(cell)
             for i, p_el in enumerate(paras):
