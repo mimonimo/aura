@@ -543,9 +543,31 @@ class Converter:
             section.bottom_margin = Emu(int((_hu(m.get("bottom")) + _hu(m.get("footer"))) * EMU_PER_HWPUNIT))
 
     # -- 표 ----------------------------------------------------------------------------------------
+    def _separate_from_previous_table(self, container) -> None:
+        """표 바로 뒤에 표가 오면 사이에 아주 낮은 빈 문단을 둔다 — 워드·구글 독스는 붙어 있는 두 표를 한 표로 합쳐 버려
+        뒤 표의 글이 앞 표의 좁은 열에 끼어 한 글자씩 세로로 늘어졌다(실측 2026-09-25 사업계획서 독스 199쪽)."""
+        from docx.enum.text import WD_LINE_SPACING
+        from docx.shared import Pt
+
+        if container is self.doc:
+            host = self.doc.element.body
+        else:
+            host = getattr(container, "_tc", None)
+        if host is None:
+            return
+        kids = [k for k in host if not k.tag.endswith("}sectPr")]
+        if kids and kids[-1].tag.endswith("}tbl"):
+            para = container.add_paragraph()
+            pf = para.paragraph_format
+            pf.space_before = Pt(0)
+            pf.space_after = Pt(0)
+            pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+            pf.line_spacing = Pt(1)
+
     def table(self, tbl: ET.Element, container) -> None:
         from docx.shared import Emu
 
+        self._separate_from_previous_table(container)
         rows = _children(tbl, "tr")
         cells_info = []
         widths: dict[int, int] = {}
@@ -710,6 +732,7 @@ class Converter:
             return
         self.stats["textboxes"] += 1
         if boxed:
+            self._separate_from_previous_table(container)
             # 글상자 너비를 표에 준다 — 너비 없는 한 칸 표는 독스가 가장 좁게 그려 쪽 높이의 가는 상자가 됐다(실측 2026-09-25 사업계획서)
             w_hu = 0
             for tag in ("curSz", "sz", "orgSz"):
