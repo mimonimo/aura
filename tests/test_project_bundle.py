@@ -135,3 +135,12 @@ def test_bundle_name_from_web_download_names(tmp_path):
     r = c.post("/projects/bundle", data={"sector": "grant"}, files=files, follow_redirects=False)
     pid = int(r.headers["location"].split("/project/")[1].split("?")[0])
     assert app.state.db.get_project(pid)["name"] == "2026학년도 AID 전환 중점 전문대학 지원사업"
+
+
+def test_rightmost_title_cue_decides_kind():
+    from zzaimy.app.doc_routing import guess_kind
+
+    assert guess_kind("AID선정평가 지표정의서 및 평가편람(ver5).hwpx", "")[0] == "guideline"
+    assert guess_kind("AID선정평가사업계획서 작성서식(ver5).hwpx", "")[0] == "form"
+    assert guess_kind("규정 개정 신청서.hwp", "")[0] == "form"
+    assert guess_kind("2026학년도 지원사업 기본계획.pdf", "")[0] == "plan"
