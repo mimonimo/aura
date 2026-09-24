@@ -198,3 +198,22 @@ def test_table_properties_follow_ooxml_order(tmp_path):
             cn = [c.tag.split("}")[1] for c in cell._tc.tcPr]
             assert cn == sorted(cn, key=lambda n: hwpx_docx._TCPR_ORDER.index(n) if n in hwpx_docx._TCPR_ORDER else 99), cn
             assert len(cn) == len(set(cn))
+
+
+def test_adjacent_tables_get_a_separator_paragraph(tmp_path):
+    """표 두 개가 붙어 있으면 사이에 문단을 둔다 — 독스가 두 표를 합치지 않게."""
+    tbl = ('<hp:tbl rowCnt="1" colCnt="1" borderFillIDRef="2"><hp:sz width="20000"/><hp:tr><hp:tc borderFillIDRef="2"><hp:subList>'
+           '<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>{t}</hp:t></hp:run></hp:p></hp:subList>'
+           '<hp:cellAddr rowAddr="0" colAddr="0"/><hp:cellSpan rowSpan="1" colSpan="1"/><hp:cellSz width="20000" height="500"/></hp:tc></hp:tr></hp:tbl>')
+    section = SECTION.replace('<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>첫 줄<hp:lineBreak/>둘째 줄</hp:t></hp:run></hp:p>',
+                              '<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0">' + tbl.format(t="표 하나") + '</hp:run></hp:p>'
+                              '<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0">' + tbl.format(t="표 둘") + '</hp:run></hp:p>')
+    p = tmp_path / "t2.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+    data, stats = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    body = [el.tag.split("}")[1] for el in d.element.body]
+    for a, b in zip(body, body[1:]):
+        assert not (a == "tbl" and b == "tbl"), body                   # 표가 바로 붙어 있지 않다
+    assert stats["tables"] == 3
