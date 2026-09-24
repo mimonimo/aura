@@ -26,10 +26,10 @@ PLAN_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["insert", "replace", "style", "bold", "table", "rename"]},
+                    "op": {"type": "string", "enum": ["insert", "replace", "style", "bold", "table", "rename", "move"]},
                     "section": {"type": "integer", "description": "insert·style·table 일 때 대상 절 번호"},
                     "old": {"type": "string", "description": "replace 일 때 문서에 있는 그대로의 글, bold 일 때 굵게 할 글귀"},
-                    "text": {"type": "string", "description": "insert·replace 의 글. style 이면 TITLE|HEADING_1|HEADING_2|HEADING_3|NORMAL_TEXT. table 이면 행을 줄바꿈, 칸을 ' | ' 로 나눈 글. rename 이면 새 문서 이름"},
+                    "text": {"type": "string", "description": "insert·replace 의 글. style 이면 TITLE|HEADING_1|HEADING_2|HEADING_3|NORMAL_TEXT. table 이면 행을 줄바꿈, 칸을 ' | ' 로 나눈 글. rename 이면 새 문서 이름. move 이면 옮길 프로젝트 이름"},
                 },
                 "required": ["op", "section", "old", "text"],
             },
@@ -44,6 +44,7 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 - 서식 지시는 style(절 제목의 단계: TITLE·HEADING_1·HEADING_2·HEADING_3·NORMAL_TEXT), bold(old 에 적은 글귀를 굵게), table(section 절 끝에 표 —
   text 는 행마다 줄바꿈, 칸은 ' | ' 로) 로 낸다.
 - 문서 이름(제목)을 바꾸라는 지시는 rename(text 에 새 이름, 예: 사업명·연도·서류 종류)으로 낸다.
+- 문서를 어느 프로젝트(폴더)로 옮기라는 지시는 move(text 에 프로젝트 이름)로 낸다.
 - 지시가 질문이나 검토 요청이면 ops 는 비우고 reply 에만 답한다.
 - 글은 문서의 말투와 격식을 따른다. 수치·금액·날짜는 아래 근거 조각이나 문서에 있는 것만 쓰고 지어내지 않는다.
 - insert 의 text 에는 새 글만 담는다. 문서에 이미 있는 문장을 다시 쓰지 않는다(그 절의 마지막 문장을 따라 적지 않는다).
@@ -81,7 +82,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     raw = (resp.choices[0].message.content or "").strip()
     raw = raw.strip("`").removeprefix("json").strip() if raw.startswith("`") else raw
     data = json.loads(raw)
-    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "rename")
+    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "rename", "move")
            and ((o.get("text") or "").strip() or o.get("op") == "bold")]
     return {"reply": (data.get("reply") or "").strip(), "ops": ops}
 
@@ -121,6 +122,8 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
             elif o["op"] == "bold":
                 r = gdocs.emphasize(account, doc, o.get("old") or o.get("text") or "", user=user, data_dir=data_dir, http=http)
                 lines.append(f"「{(o.get('old') or o.get('text') or '')[:30]}」 굵게 {r['count']}곳")
+            elif o["op"] == "move":
+                lines.append(f"프로젝트 「{o['text'][:40]}」 로 옮기기 요청")      # 실제 이동은 호출부(프로젝트 조회 필요)
             elif o["op"] == "rename":
                 from zzaimy.ingest.gdrive_files import rename_document
 

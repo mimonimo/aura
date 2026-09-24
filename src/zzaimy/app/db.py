@@ -542,6 +542,10 @@ class Database:
             )
             return int(cur.lastrowid or 0)
 
+    def set_chat_project(self, session_id: int, project_id: int | None) -> None:
+        with self._conn() as conn:
+            conn.execute("UPDATE chat_sessions SET project_id = ? WHERE id = ?", (project_id, session_id))
+
     def rename_chat_session(self, session_id: int, title: str) -> None:
         with self._conn() as conn:
             conn.execute("UPDATE chat_sessions SET title = ? WHERE id = ?", ((title or "").strip()[:60] or "대화", session_id))

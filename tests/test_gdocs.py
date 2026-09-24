@@ -368,3 +368,61 @@ def test_rename_command_renames_drive_file_and_chat_title(docs_env, tmp_path, mo
     assert any(m == "PATCH" and p == "/drive/v3/files/docA" for m, p, _ in calls)
     assert db.get_chat_session(sid)["title"] == "2027 산학협력 선도대학 사업계획서"
     assert gdocs.recent_writes(tmp_path, 1)[0]["action"] == "rename"
+
+
+def test_account_binding_department_root_and_project_move(docs_env, tmp_path, monkeypatch):
+    """계정이 여럿일 때: 허용을 누른 사람에게 묶이고, 부서 공용 자리가 있으면 그 아래에, 프로젝트에 넣으면 문서가 따라 옮겨진다."""
+    from zzaimy.app.main import create_app as _create
+    from zzaimy.ingest import gdrive_files
+
+    t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
+    t["staff@example.ac.kr"]["scopes"] = gdrive.SCOPES
+    t["other@example.ac.kr"] = dict(t["staff@example.ac.kr"])
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    calls, folders = [], {}
+    monkeypatch.setattr(gdrive, "_http", lambda: _drive_files_transport(calls, folders))
+    db = Database(tmp_path / "t.db")
+    # 허용 계정이 둘이면 묶이지 않은 사용자는 계정이 없다 → 본인 계정을 묶으면 그것
+    assert gdrive_files.account_for(db, "kim", "학생처") == ""
+    gdrive_files.bind_account(db, "kim", "staff@example.ac.kr")
+    assert gdrive_files.account_for(db, "kim", "학생처") == "staff@example.ac.kr"
+    db.set_setting("google_account_dept:학생처", "other@example.ac.kr")
+    assert gdrive_files.account_for(db, "park", "학생처") == "other@example.ac.kr"      # 부서 공용 계정
+    db.set_setting("google_root:학생처", "shared-root")
+    sid = db.create_chat_session("초안", owner="kim")
+    made = gdrive_files.auto_document(db, sid, "kim", "초안", dept="학생처")
+    assert folders[[k for k, (n, _p) in folders.items() if n == "ZZAIMY"][0]][1] == "shared-root"   # 부서 공용 자리 아래
+    assert [n for n, _p in folders.values()][-1] == "기타"                                            # 프로젝트 없음
+    # 프로젝트에 넣으면 문서가 프로젝트 폴더로 옮겨진다
+    pid = db.create_project("grant", "RISE 2027", owner="kim")
+    moved = gdrive_files.move_to_project(db, sid, "RISE 2027", dept="학생처")
+    assert moved["project"] == "RISE 2027" and any(m == "moved" and a == moved["folder"] for m, a, _ in calls)
+    assert [n for n, _p in folders.values()][-1] == "RISE 2027"
+
+
+def test_project_route_moves_document_and_agent_move_op(docs_env, tmp_path, monkeypatch):
+    from zzaimy.app.main import create_app as _create
+    from zzaimy.ingest import gdrive_files
+
+    t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
+    t["staff@example.ac.kr"]["scopes"] = gdrive.SCOPES
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    calls, folders = [], {}
+    monkeypatch.setattr(gdrive, "_http", lambda: _drive_files_transport(calls, folders))
+    fake = _FakePlanner(json.dumps({"reply": "옮겼습니다.", "ops": [{"op": "move", "section": 0, "old": "", "text": "HUSS 2027"}]}, ensure_ascii=False))
+    from zzaimy.generate import client as _gc
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                  processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    db = app.state.db
+    sid = db.create_chat_session("초안", owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "newdoc", "account": "staff@example.ac.kr"}))
+    pid = db.create_project("grant", "RISE 2027", owner="zzaimy")
+    r = client.post(f"/chat/{sid}/project", data={"project_id": str(pid)})
+    assert r.status_code == 200 and r.json()["moved"] is True
+    assert db.get_chat_session(sid)["project_id"] == pid and "RISE 2027" in [n for n, _p in folders.values()]
+    pid2 = db.create_project("grant", "HUSS 2027", owner="zzaimy")
+    r = client.post("/chat/send", data={"question": "이 문서를 HUSS 2027 프로젝트로 옮겨 줘", "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "「HUSS 2027」 폴더로 옮기고" in page and db.get_chat_session(sid)["project_id"] == pid2
