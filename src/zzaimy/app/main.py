@@ -644,6 +644,7 @@ def create_app(
             ctx(request, {
                 "messages": messages, "criteria_docs": _criteria_docs(),
                 "waiting": waiting, "session_id": session_id,
+                "suggestions": [] if waiting else _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
                 "sources": _chat_sources.get(session_id) or chat_topics.latest(session_id),
                 "recommended_criteria": _recommended_criteria(session_id, messages),
                 "chat_session": session, "chat_project": project, "chat_topic": topic,
@@ -765,7 +766,9 @@ def create_app(
             rivals = getattr(_project_doc_named, "rivals", []) or []
             if picked is not None and rivals:
                 names = "\n".join(f"- {storage.title_of(d.get('filename') or '')}" for d in [picked, *rivals][:6])
-                db.add_chat(session_id, "assistant", f"어느 문서로 작업할지 분명하지 않습니다. 아래 중 하나를 이름 그대로 말해 주세요.\n{names}")
+                db.add_chat(session_id, "assistant", f"어느 문서로 작업할지 분명하지 않습니다. 아래에서 골라 주세요.\n{names}")
+                _set_options(session_id, [{"kind": "pick", "text": f"「{storage.title_of(d.get('filename') or '')[:28]}」 으로 작업",
+                                           "question": f"{storage.title_of(d.get('filename') or '')}으로 작업하자"} for d in [picked, *rivals][:4]])
                 _chat_sources[session_id] = []
                 return
             if picked is not None:
@@ -966,14 +969,61 @@ def create_app(
         db.add_chat(session_id, "assistant", f"드라이브에 문서 「{title}」 을 만들어 이 대화에 연결했습니다. {made['url']}")
         return True, ""
 
+    _sparse_cache: dict[tuple, list[int]] = {}
+
     def _sparse_pages_of(doc: dict) -> list[int]:
+        """글자 없는 쪽 목록 — 파일(경로·크기·수정 시각)로 캐시한다(137쪽 PDF 훑기가 1초 남짓, 대화 화면마다 돌면 느리다)."""
         fn = getattr(processor, "sparse_pages", None)
         if not fn or (doc.get("status") != "reviewed"):
             return []
         try:
-            return list(fn(Path(doc["stored_path"])))
+            p = Path(doc["stored_path"])
+            try:
+                st = p.stat()
+                key = (str(p), st.st_size, int(st.st_mtime))
+            except OSError:
+                key = (str(p), 0, 0)
+            if key not in _sparse_cache:
+                _sparse_cache[key] = list(fn(p))
+            return _sparse_cache[key]
         except Exception:
             return []
+
+    def _set_options(session_id: int, options: list[dict]) -> None:
+        """이 답변에 딸린 선택지 — 담당자의 선택이 필요할 때 답 아래에 띄운다. 다음 질문이 오면 지운다."""
+        db.set_setting(f"chat_options:{session_id}", _aj.dumps(options[:4], ensure_ascii=False) if options else "")
+
+    def _chat_suggestions(session_: dict | None, owner: str) -> list[dict]:
+        """대화 안에 선택지처럼 띄우는 다음 작업(사용자 지시 2026-09-25: 클로드가 선택지 주듯이).
+
+        프로젝트 제안(양식으로 작성 시작·그림 쪽 판독)에 더해, 문서가 이어져 있으면 '이어서 다음 절 채우기', 프로젝트가 없으면
+        '문서 세트로 프로젝트 만들기'. 질문 그대로 보낼 수 있게 question 을 함께 준다."""
+        if not session_:
+            return []
+        raw = db.get_setting(f"chat_options:{session_['id']}", "") or ""
+        if raw:
+            try:
+                opts = _aj.loads(raw)
+                if opts:
+                    return opts[:4]                      # 답변이 직접 낸 선택지가 먼저
+            except Exception:
+                pass
+        out: list[dict] = []
+        pid = int(session_["project_id"]) if session_.get("project_id") else None
+        project = db.get_project(pid) if pid else None
+        linked = bool((db.get_setting(f"chat_google_doc:{session_['id']}", "") or "").strip("{} "))
+        if linked:
+            out.append({"kind": "continue", "text": "이어서 다음 절 채우기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"})
+            out.append({"kind": "review", "text": "지금까지 쓴 내용 검토", "question": "작업본에서 지금까지 쓴 절을 공고·평가지표 기준으로 검토해 줘"})
+        for sg in _project_suggestions(project):
+            if sg["kind"] == "draft" and linked:
+                continue
+            out.append(sg)
+        if project and not linked:
+            out.append({"kind": "ask", "text": "공고 요건 확인", "question": f"{project['name']}의 신청 자격·지원 규모·기한을 공고 기준으로 알려 줘"})
+        if not project:
+            out.append({"kind": "project", "text": "문서 세트로 프로젝트 만들기", "question": "공고·기본계획·양식 파일을 첨부하면 프로젝트를 만들어 줘"})
+        return out[:4]
 
     def _project_suggestions(project: dict | None) -> list[dict]:
         """다음 작업 제안 — 무조건 돌리지 않고 알림처럼 내민다(사용자 지시 2026-09-24).
@@ -1100,7 +1150,13 @@ def create_app(
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 reads = [sg for sg in _project_suggestions(proj_) if sg["kind"] == "read"]
                 if reads:
-                    text += "\n\n다음 작업 제안: " + " ".join(sg["text"] for sg in reads[:2]) + " 「" + reads[0]["question"] + "」 라고 하면 판독합니다."
+                    text += "\n\n재료가 될 그림 쪽이 아직 판독되지 않았습니다. 아래에서 고르면 바로 진행합니다."
+                    _set_options(session_id, [{"kind": "read", "text": sg["text"][:40], "question": sg["question"]} for sg in reads[:2]]
+                                 + [{"kind": "skip", "text": "판독 없이 지금 있는 내용으로", "question": q}])
+            if _ops:
+                _set_options(session_id, [{"kind": "continue", "text": "이어서 다음 절 채우기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"},
+                                          {"kind": "review", "text": "방금 쓴 내용 검토", "question": "방금 쓴 절을 공고·평가지표 기준으로 검토해 줘"},
+                                          {"kind": "redo", "text": "다시 써 줘", "question": "방금 넣은 내용을 더 구체적인 수치와 근거로 다시 써 줘"}])
             new_name = next((o.get("text") for o in _ops if o.get("op") == "rename" and (o.get("text") or "").strip()), "")
             if new_name and not confirm:
                 try:
@@ -1195,6 +1251,9 @@ def create_app(
             if past:
                 note += " 지난 자료 " + ", ".join(f"「{storage.title_of(d.get('filename') or '')}」" for d in past[:4]) + " 을 기준으로 이었습니다."
             db.add_chat(session_id, "assistant", note)
+            _set_options(session_id, [{"kind": "ask", "text": "공고 요건 확인", "question": f"{made_project['name']}의 신청 자격·지원 규모·기한을 공고 기준으로 알려 줘"},
+                                      {"kind": "draft", "text": "양식으로 작성 시작", "question": "양식으로 작업하자"},
+                                      {"kind": "read", "text": "그림 쪽 판독", "question": "그림 쪽 판독해 줘"}])
             chat_revisions.remember(db.list_chats(session_id, limit=2)[0]["id"], None, criteria)
             return RedirectResponse(f"/chat/{session_id}", status_code=303)
         # 응답 대기 중 중복 전송 방지 — 마지막 메시지가 아직 답변 전이면 무시
@@ -1228,6 +1287,7 @@ def create_app(
         if markers:
             shown = "\n".join(markers) + "\n" + q
 
+        _set_options(session_id, [])
         db.add_chat(session_id, "user", shown)
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
         _schedule_answer(background, session_id, q, stored, criteria, bool(external))
@@ -1248,6 +1308,7 @@ def create_app(
         return {
             "title": session["title"], "project_id": session.get("project_id"),
             "waiting": session_id in _chat_running or (bool(rows) and rows[-1]["role"] == "user"),
+            "suggestions": _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
             "messages": [
                 {"id": m["id"], "role": m["role"], "content": m["content"]} for m in rows
             ],

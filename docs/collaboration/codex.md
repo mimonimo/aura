@@ -1298,3 +1298,9 @@ Claude 추가 (2026-09-24 밤): project.html 에 '다음 작업 제안' 블록(�
 
 Claude 추가 (2026-09-24 밤, 대화 삭제): `POST /chat/{sid}/delete`(본인 대화만, 답변 중이면 409, 첨부·작업본 문서는 남김)를 넣었다.
 최근 대화 목록과 대화 화면 머리줄에 "대화 삭제"(확인 한 번) 자리를 만들어 달라 — 시험·잘못 만든 대화가 쌓이는 것을 담당자가 직접 정리한다.
+
+Claude 추가 (2026-09-25 새벽, 대화 선택지): 답변 아래에 상황별 선택지(클로드가 선택지 주듯이)를 붙였다 — `chat_workspace.html` 의
+`.chat-suggestions`(컨텍스트 `suggestions`: [{kind, text, question}], 각 항목은 `POST /chat/send` 폼, `waiting` 이면 안 보임) 와
+`/chat/{sid}/messages` JSON 의 `suggestions`. 답변이 직접 낸 선택지(문서 고르기·판독·다음 절)가 먼저, 없으면 프로젝트 제안. 칩 모양은
+chat-workspace.css 에 임시로 넣었으니 디자인에 맞춰 다듬어 달라(C-80 항목에 추가).
+
