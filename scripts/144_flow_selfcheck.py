@@ -40,7 +40,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
     ap.add_argument("--project", type=int, required=True)
-    ap.add_argument("--question", default="이 사업의 신청 자격과 지원 규모는?")
+    ap.add_argument("--question", default="", help="비우면 「<프로젝트 이름>의 신청 자격과 지원 규모는?」 — 전체 색인 검색이라 사업 이름이 있어야 이 프로젝트 문서가 나온다")
     ap.add_argument("--ask", action="store_true", help="응답기를 직접 돌려 답과 근거를 본다 — 대화를 만들지 않는다(최근 대화를 어지럽히지 않게)")
     args = ap.parse_args()
     db = Database(Path(args.db))
@@ -106,6 +106,8 @@ def main() -> int:
     else:
         say("WARN", "색인", "색인 메타를 읽지 못함 — 어휘 검색만 될 수 있음")
 
+    if not args.question:
+        args.question = f"{project['name']}의 신청 자격과 지원 규모는?"
     # 5 검색
     try:
         from zzaimy.app.regulations import find_relevant
