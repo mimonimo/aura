@@ -40,7 +40,7 @@ from zzaimy.app import storage
 from zzaimy.app.db import Database
 
 ALLOWED_EXTENSIONS = {
-    ".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".xls", ".xlsx",
+    ".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
     ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".txt", ".md",
 }
 
@@ -921,9 +921,22 @@ def create_app(
             stored = storage.attachment_path(Path(db_path).parent, session_id, attachment.filename)
             with stored.open("wb") as out:
                 shutil.copyfileobj(attachment.file, out)
-            db.add_file("attachment", str(stored), name=attachment.filename, session_id=session_id,
+            # 첨부는 문서로도 등록한다 — 대화에서 바로 열어 보고(/doc/{id}), 프로젝트 문서 목록에도 선다.
+            # 파일은 첨부 폴더에 그대로 두고(ADR-0030 2층 '첨부'), 부서·등급은 올린 사람 기준이다.
+            from zzaimy.app.access_policy import classify
+
+            session_ = db.get_chat_session(session_id) or {}
+            proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+            owner_ = getattr(request.state, "user", "zzaimy")
+            a_dept, a_level = classify("auto", owner=owner_, uploader_dept=getattr(request.state, "dept", ""),
+                                       project_dept=(proj_ or {}).get("dept"))
+            att_type = (proj_ or {}).get("sector") if (proj_ or {}).get("sector") in INBOX_TYPES else "auto"
+            att_doc = db.add_document(filename=attachment.filename, stored_path=str(stored), doc_type=att_type,
+                                      project_id=(proj_ or {}).get("id"), owner=owner_, dept=a_dept, access_level=a_level)
+            db.add_file("attachment", str(stored), name=attachment.filename, session_id=session_id, doc_id=att_doc,
                         size=stored.stat().st_size)
-            shown = f"[첨부] {attachment.filename}\n{q}"
+            background.add_task(processor.process, db, att_doc, stored)
+            shown = f"[첨부#{att_doc}] {attachment.filename}\n{q}"
 
         db.add_chat(session_id, "user", shown)
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
@@ -932,7 +945,7 @@ def create_app(
 
     def _strip_attach_prefix(text: str) -> str:
         """저장된 사용자 메시지에서 첨부 표시줄을 떼고 질문만 남긴다."""
-        if text.startswith("[첨부]") and "\n" in text:
+        if text.startswith("[첨부") and "\n" in text:
             return text.split("\n", 1)[1]
         return text
 
@@ -1531,6 +1544,199 @@ def create_app(
         )
         return RedirectResponse(f"/project/{pid}", status_code=303)
 
+    _CRITERIA_KINDS = {"announcement", "guideline", "criteria", "regulation"}
+    _BASE_PLAN = re.compile(r"기본\s*계획|추진\s*계획|시행\s*계획|운영\s*계획")
+
+    def _bundle_role(filename: str) -> str:
+        """묶음 속 파일이 기준(공고·기본계획·지침)인지 접수(계획서·양식)인지 — 이름의 서류 갈래로 정한다."""
+        from zzaimy.app.doc_routing import guess_kind
+
+        kind, _why = guess_kind(filename, "")
+        if kind in _CRITERIA_KINDS or (kind == "plan" and _BASE_PLAN.search(filename or "")):
+            return "criteria"
+        return "intake"
+
+    def _intake_bundle(request: Request, background: BackgroundTasks, project: dict, files) -> dict:
+        """여러 파일을 한 프로젝트에 들인다 — 공고·기본계획·지침은 기준 문서로 등록해 프로젝트에 잇고, 계획서·양식은 접수 문서로."""
+        from zzaimy.app.access_policy import classify
+
+        owner = getattr(request.state, "user", "zzaimy")
+        made = {"criteria": [], "intake": [], "skipped": []}
+        for f in files:
+            name = f.filename or "이름없음"
+            suffix = Path(name).suffix.lower()
+            if suffix not in ALLOWED_EXTENSIONS:
+                made["skipped"].append(name)
+                continue
+            stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
+            with stored.open("wb") as out:
+                shutil.copyfileobj(f.file, out)
+            role_ = _bundle_role(name)
+            if role_ == "criteria":
+                doc_id = db.add_document(filename=name, stored_path=str(stored), doc_type="regulation",
+                                         sector=project["sector"], project_id=int(project["id"]), owner=owner)
+                stored = storage.adopt_original(db, doc_id, stored)
+                db.add_project_criteria(int(project["id"]), [doc_id])
+                background.add_task(_process_then_identify, db, doc_id, stored, True)
+                made["criteria"].append(doc_id)
+            else:
+                d_dept, d_level = classify(project["sector"], owner=owner, uploader_dept=getattr(request.state, "dept", ""),
+                                           project_dept=project.get("dept"))
+                doc_id = db.add_document(filename=name, stored_path=str(stored), doc_type=project["sector"],
+                                         project_id=int(project["id"]), owner=owner, dept=d_dept, access_level=d_level)
+                stored = storage.adopt_original(db, doc_id, stored)
+                background.add_task(_process_then_identify, db, doc_id, stored, True)
+                made["intake"].append(doc_id)
+        background.add_task(_prewarm_google_views, [*made["criteria"], *made["intake"]], owner, project)
+        return made
+
+    def _prewarm_google_views(doc_ids: list[int], owner: str, project: dict) -> None:
+        """묶음 문서의 구글 열람본을 미리 만든다(허용 계정이 있을 때만). 실패해도 조용히 — 열람 때 다시 시도한다."""
+        from zzaimy.ingest import gdrive_files
+
+        acct_ = accounts.get(owner, {}) if password is not None else {}
+        email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
+        if not email or not gdrive_files.has_file_scope(email):
+            return
+        try:
+            folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
+        except Exception:
+            return
+        import time as _t
+
+        for did in doc_ids:
+            for _ in range(30):                       # 추출이 끝나야 한글→docx 가 된다(최대 5분 기다림)
+                d = db.get_document(did) or {}
+                if d.get("status") in ("reviewed", "failed"):
+                    break
+                _t.sleep(10)
+            d = db.get_document(did)
+            if not d or d.get("status") == "failed":
+                continue
+            try:
+                gdrive_files.google_copy(db, d, email, folder)
+            except Exception:
+                continue
+
+    def _title_from_bundle(files) -> str:
+        """묶음에서 프로젝트 이름 — 공고·기본계획 파일 이름에서 붙임 번호·서류 낱말을 뗀 것, 없으면 첫 파일 제목."""
+        from zzaimy.app.doc_family import _ATTACH, _EXT, _KIND_WORDS
+
+        names = [f.filename or "" for f in files if f.filename]
+        cand = [n for n in names if _bundle_role(n) == "criteria"] or names
+        if not cand:
+            return "새 프로젝트"
+        t = _EXT.sub("", _ATTACH.sub("", cand[0].strip()))
+        t = re.sub(r"\s*[\[(（].*?[\])）]\s*$", "", t)
+        t = _KIND_WORDS.sub("", t).strip(" ·-_,.")
+        return re.sub(r"\s+", " ", t)[:60] or cand[0][:60]
+
+    @app.post("/projects/bundle")
+    def create_project_bundle(request: Request, background: BackgroundTasks, sector: str = Form("grant"),
+                              name: str = Form(""), due_date: str = Form(""), file: list[UploadFile] = File([])):
+        """문서 묶음(공고·기본계획·양식·계획서 …)으로 프로젝트를 만든다 — 이름은 비우면 묶음에서 뽑는다."""
+        if sector not in INBOX_TYPES:
+            raise HTTPException(400, f"알 수 없는 업무 영역입니다: {sector}")
+        files = [f for f in file if f and f.filename]
+        if not files:
+            raise HTTPException(400, "파일을 하나 이상 골라 주세요")
+        title = name.strip() or _title_from_bundle(files)
+        pid = db.create_project(sector, title, due_date=due_date.strip(), owner=getattr(request.state, "user", "zzaimy"))
+        project = db.get_project(pid) or {"id": pid, "sector": sector, "name": title}
+        made = _intake_bundle(request, background, project, files)
+        return RedirectResponse(f"/project/{pid}?bundle={len(made['criteria'])}+{len(made['intake'])}", status_code=303)
+
+    @app.post("/project/{project_id}/bundle")
+    def project_bundle(request: Request, background: BackgroundTasks, project_id: int, file: list[UploadFile] = File([])):
+        project = db.get_project(project_id)
+        if project is None or project.get("owner") != getattr(request.state, "user", "zzaimy"):
+            raise HTTPException(404)
+        files = [f for f in file if f and f.filename]
+        if not files:
+            raise HTTPException(400, "파일을 하나 이상 골라 주세요")
+        made = _intake_bundle(request, background, project, files)
+        return RedirectResponse(f"/project/{project_id}?bundle={len(made['criteria'])}+{len(made['intake'])}", status_code=303)
+
+    @app.get("/api/chat/{session_id}/documents")
+    def chat_project_documents(request: Request, session_id: int):
+        """대화 문서함의 플랫폼 문서 목록 — 이 대화의 첨부, 프로젝트의 접수·기준 문서. 각각 /doc/{id}/view 로 연다."""
+        from zzaimy.app.access_policy import visible
+        from zzaimy.app.doc_routing import KINDS
+
+        session_ = db.get_chat_session(session_id)
+        owner = getattr(request.state, "user", "zzaimy")
+        if session_ is None or session_.get("owner") not in (None, owner):
+            raise HTTPException(404)
+        dept, role_ = getattr(request.state, "dept", None), getattr(request.state, "role", "")
+        attached = {f["doc_id"] for f in db.list_files(kind="attachment", session_id=session_id) if f.get("doc_id")}
+        pid = int(session_["project_id"]) if session_.get("project_id") else None
+        project = db.get_project(pid) if pid else None
+        rows: list[dict] = []
+        seen: set[int] = set()
+
+        def _add(d: dict | None, group: str) -> None:
+            if not d or d["id"] in seen or not visible(d, dept=dept, user=owner, role=role_):
+                return
+            seen.add(d["id"])
+            raw = db.get_setting(f"doc_google:{d['id']}", "") or ""
+            rows.append({"id": d["id"], "name": storage.title_of(d.get("filename") or ""), "group": group,
+                         "kind": KINDS.get(d.get("kind") or "", ""), "status": STATUS_LABELS.get(d.get("status"), d.get("status")),
+                         "url": f"/doc/{d['id']}/view", "page": f"/doc/{d['id']}",
+                         "google": (_aj.loads(raw).get("url") if raw else None)})
+
+        for did in sorted(attached):
+            _add(db.get_document(did), "첨부")
+        if project:
+            for did in db.get_project_criteria_ids(pid):
+                _add(db.get_document(did), "기준")
+            for d in db.list_documents(project["sector"], project_id=pid):
+                _add(d, "접수")
+        return {"project": (project or {}).get("name"), "project_id": pid, "documents": rows}
+
+    @app.get("/api/doc/{doc_id}/google")
+    def doc_google(request: Request, doc_id: int):
+        """문서의 구글 열람본 — 없으면 지금 만든다. 문서함 패널이 iframe 으로 열 주소(embed_url)까지 준다."""
+        from zzaimy.ingest import gdrive_files
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        owner = getattr(request.state, "user", "zzaimy")
+        acct_ = accounts.get(owner, {}) if password is not None else {}
+        email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
+        if not email or not gdrive_files.has_file_scope(email):
+            raise HTTPException(400, "구글 열람본을 만들 허용 계정이 없습니다 — 개발자 도구 → 구글 드라이브에서 연결해 주세요")
+        project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
+        try:
+            folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
+            made = gdrive_files.google_copy(db, doc, email, folder)
+        except Exception as e:
+            raise HTTPException(400, f"구글 열람본을 만들지 못했습니다: {e}")
+        return {"id": made["id"], "name": made.get("name") or doc["filename"], "mime": made["mime"], "url": made["url"],
+                "embed_url": gdrive_files.embed_url(made["id"], made["mime"]), "account": email}
+
+    @app.get("/doc/{doc_id}/view")
+    def doc_view(request: Request, doc_id: int):
+        """문서를 구글에서 연다 — 엑셀·PPT·워드는 시트·슬라이드·독스, 한글은 복원 docx→독스, PDF·그림은 드라이브 미리보기.
+        열람본이 없으면 지금 만든다. 허용 계정이 없으면 플랫폼 문서 화면으로."""
+        from zzaimy.ingest import gdrive_files
+
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        owner = getattr(request.state, "user", "zzaimy")
+        acct_ = accounts.get(owner, {}) if password is not None else {}
+        email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
+        if not email or not gdrive_files.has_file_scope(email):
+            return RedirectResponse(f"/doc/{doc_id}?view=local", status_code=303)
+        project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
+        try:
+            folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
+            made = gdrive_files.google_copy(db, doc, email, folder)
+        except Exception as e:
+            return RedirectResponse(f"/doc/{doc_id}?view=local&err={type(e).__name__}", status_code=303)
+        return RedirectResponse(made["url"], status_code=303)
+
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request, err: int = 0):
         if password is None:
@@ -1691,6 +1897,23 @@ def create_app(
         return _M(linkify(str(html), sources or []))
 
     templates.env.filters["cite_links"] = _cite_links
+
+    _ATTACH_LINE = re.compile(r"^\[첨부(?:#(\d+))?\] ([^\n]+)\n?")
+
+    def _attach_view(text: str):
+        """사용자 말풍선 — 첫 줄이 첨부면 문서 보기 링크로 바꾸고 나머지는 그대로(이스케이프)."""
+        from markupsafe import Markup, escape
+
+        m = _ATTACH_LINE.match(text or "")
+        if not m:
+            return escape(text or "")
+        did, name = m.group(1), m.group(2)
+        rest = (text or "")[m.end():]
+        head = (Markup('<a class="chat-attach" href="/doc/%s">첨부 · %s</a>') % (did, name) if did
+                else Markup('<span class="chat-attach">첨부 · %s</span>') % name)
+        return head + Markup("<br>") + escape(rest) if rest else head
+
+    templates.env.filters["attach_view"] = _attach_view
 
     def _eval_md(name: str) -> str:
         """기계가 쓴 사본(data/platform/eval/) 먼저, 없으면 저장소 사본(docs/)."""

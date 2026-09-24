@@ -90,7 +90,9 @@
          style="text-decoration:none; color:inherit;" title="원본 파일 열기 — {{ doc.filename }}">{{ doc_name(doc) }}
         <iconify-icon icon="solar:square-top-up-linear"
                       style="font-size:14px; color:var(--faint);"></iconify-icon></a></h2>
+    {% if request.query_params.get('view') == 'local' %}<p class="muted" style="margin:-6px 0 10px;">구글 열람본을 만들 허용 계정이 없어 플랫폼 화면으로 열었습니다{% if request.query_params.get('err') %} ({{ request.query_params.get('err') }}){% endif %}. 연결은 개발자 도구 → 구글 드라이브에서 합니다.</p>{% endif %}
     <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:0 0 14px;">
+      <a class="pill" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener" title="엑셀·PPT·워드는 시트·슬라이드·독스로, 한글은 복원 문서로, PDF·그림은 드라이브 미리보기로 엽니다"><iconify-icon icon="solar:square-top-up-linear"></iconify-icon> 구글에서 열기</a>
       <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
       {% if doc.doc_type in ("regulation", "ocr") %}
         <span class="pill reviewed" {% if doc.parse_note %}title="{{ doc.parse_note }}"{% endif %}>{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>

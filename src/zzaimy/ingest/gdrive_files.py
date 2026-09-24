@@ -170,3 +170,98 @@ def rename_document(email: str, doc_id: str, title: str, http=None) -> dict:
         raise RuntimeError(f"이름 바꾸기 실패({r.status_code})")
     return {"ok": True, "title": r.json().get("name", title)}
 
+
+# ---- 첨부·접수 문서를 구글로 열람 (엑셀·PPT·워드는 시트·슬라이드·독스로 변환, 한글은 복원 docx 를 거쳐 독스로, PDF·그림은 그대로) ----
+UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
+CONVERT = {
+    ".docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.google-apps.document"),
+    ".doc": ("application/msword", "application/vnd.google-apps.document"),
+    ".xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.google-apps.spreadsheet"),
+    ".xls": ("application/vnd.ms-excel", "application/vnd.google-apps.spreadsheet"),
+    ".pptx": ("application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/vnd.google-apps.presentation"),
+    ".ppt": ("application/vnd.ms-powerpoint", "application/vnd.google-apps.presentation"),
+    ".pdf": ("application/pdf", ""),
+    ".png": ("image/png", ""), ".jpg": ("image/jpeg", ""), ".jpeg": ("image/jpeg", ""),
+    ".txt": ("text/plain", "application/vnd.google-apps.document"), ".md": ("text/plain", "application/vnd.google-apps.document"),
+}
+VIEW_URL = {
+    "application/vnd.google-apps.document": "https://docs.google.com/document/d/{id}/edit",
+    "application/vnd.google-apps.spreadsheet": "https://docs.google.com/spreadsheets/d/{id}/edit",
+    "application/vnd.google-apps.presentation": "https://docs.google.com/presentation/d/{id}/edit",
+}
+
+
+def embed_url(file_id: str, mime: str) -> str:
+    """문서함 iframe 용 — 독스·시트·슬라이드는 최소 모드 편집기, 그 밖(PDF·그림)은 드라이브 미리보기."""
+    if mime in VIEW_URL:
+        return VIEW_URL[mime].format(id=file_id) + "?rm=minimal"
+    return f"https://drive.google.com/file/d/{file_id}/preview"
+
+
+def view_url(file_id: str, mime: str) -> str:
+    return VIEW_URL.get(mime, "https://drive.google.com/file/d/{id}/view").format(id=file_id)
+
+
+def upload_file(email: str, data: bytes, name: str, source_mime: str, folder_id: str | None = None,
+                convert_to: str = "", http=None) -> dict:
+    """드라이브에 파일을 올린다. convert_to 가 있으면 구글 형식(독스·시트·슬라이드)으로 바꿔 올린다."""
+    http = http or gdrive._http()
+    meta = {"name": name}
+    if convert_to:
+        meta["mimeType"] = convert_to
+    if folder_id:
+        meta["parents"] = [folder_id]
+    files = {"metadata": ("metadata", json.dumps(meta), "application/json; charset=UTF-8"),
+             "file": (name, data, source_mime)}
+    r = http.post(UPLOAD, headers=_headers(email, http), params={"uploadType": "multipart", "supportsAllDrives": "true",
+                                                                "fields": "id,name,mimeType"}, files=files)
+    if r.status_code == 403:
+        raise PermissionError("드라이브에 올릴 권한이 없습니다 — 계정 허용을 다시 해 주세요")
+    if r.status_code != 200:
+        raise RuntimeError(f"드라이브 업로드 실패({r.status_code}): {r.text[:120]}")
+    out = r.json()
+    return {"id": out["id"], "mime": out.get("mimeType", ""), "name": out.get("name", name),
+            "url": view_url(out["id"], out.get("mimeType", ""))}
+
+
+def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
+    """(올릴 바이트, 이름, 원본 mime, 변환 목표). 한글은 복원 docx 로 바꿔 독스가 되게 한다. 못 바꾸면 원본 그대로."""
+    from pathlib import Path
+
+    src = Path(doc["stored_path"])
+    ext = src.suffix.lower()
+    name = (doc.get("filename") or src.name)
+    if ext in (".hwp", ".hwpx"):
+        chunks = db.list_doc_chunks(int(doc["id"]))
+        if chunks:
+            from zzaimy.app.render import build_docx
+
+            assets = {Path(a["path"]).name: a["path"] for a in db.list_doc_assets(int(doc["id"])) if Path(a["path"]).exists()}
+            data = build_docx(name, chunks, assets, extra_images=list(assets.values()))
+            stem = name[: -len(ext)] if name.lower().endswith(ext) else name
+            return data, stem + ".docx", CONVERT[".docx"][0], CONVERT[".docx"][1]
+        return src.read_bytes(), name, "application/x-hwp", ""      # 아직 추출 전 — 원본 그대로(드라이브 미리보기)
+    mime, target = CONVERT.get(ext, ("application/octet-stream", ""))
+    return src.read_bytes(), name, mime, target
+
+
+def google_copy(db, doc: dict, email: str, folder_id: str | None, http=None) -> dict:
+    """문서의 구글 열람본을 만들거나(없으면) 돌려준다. settings doc_google:<id> 에 기록, 장부에도 남긴다."""
+    key = f"doc_google:{doc['id']}"
+    raw = db.get_setting(key, "") or ""
+    if raw:
+        return json.loads(raw)
+    data, name, mime, target = bytes_for_view(db, doc)
+    made = upload_file(email, data, name, mime, folder_id, convert_to=target, http=http)
+    made["account"] = email
+    db.set_setting(key, json.dumps(made, ensure_ascii=False))
+    db.add_file("google", made["url"], name=name, doc_id=int(doc["id"]), size=len(data))
+    return made
+
+
+def project_folder_for(db, email: str, project: dict | None, dept: str | None, sub: str = "", http=None) -> str:
+    parts = project_parts((project or {}).get("name"))
+    if sub:
+        parts = parts + [sub]
+    return ensure_folder(email, parts, http, root=root_for(db, dept))
+

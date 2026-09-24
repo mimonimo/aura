@@ -102,6 +102,13 @@
           <button type="submit">만들기</button>
         </div>
       </form>
+      <form action="/projects/bundle" method="post" enctype="multipart/form-data" class="bundle-form" style="margin-top:14px;">
+        {% if active_tab == 'all' %}<input type="hidden" name="sector" value="grant">{% else %}<input type="hidden" name="sector" value="{{ active_tab }}">{% endif %}
+        <div class="form-row"><span class="muted">문서 묶음으로 프로젝트 만들기</span>
+          <input type="file" name="file" multiple required accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
+        <div class="form-row"><span class="muted">프로젝트 이름 (비우면 공고·기본계획 이름에서 뽑음)</span><input type="text" name="name" placeholder="예: 2026학년도 AID 전환 중점 전문대학 지원사업"></div>
+        <button type="submit" class="secondary">묶음으로 만들기</button>
+      </form>
     </div>
   </div>
 </div>

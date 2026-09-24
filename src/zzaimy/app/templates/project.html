@@ -56,15 +56,21 @@
 </div>
 <form id="intakeForm" action="/upload" method="post" enctype="multipart/form-data" hidden>
   <input type="hidden" name="doc_type" value="{{ project.sector }}"><input type="hidden" name="project_id" value="{{ project.id }}">
-  <input type="file" name="file" id="intakeFile" accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.txt,.md">
+  <input type="file" name="file" id="intakeFile" accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
+</form>
+<form id="bundleForm" action="/project/{{ project.id }}/bundle" method="post" enctype="multipart/form-data" hidden>
+  <input type="file" name="file" id="bundleFiles" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"
+         onchange="document.getElementById('intakeStatus').hidden=false;this.form.submit()">
 </form>
 <p class="muted" id="intakeStatus" role="status" hidden>문서를 접수하는 중입니다…</p>
+{% if request.query_params.get('bundle') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>묶음을 접수했습니다 — 기준 문서 {{ request.query_params.get('bundle').split('+')[0] }}건, 접수 문서 {{ request.query_params.get('bundle').split('+')[-1] }}건. 추출이 끝나면 목록에 갈래가 붙고, 구글 열람본은 뒤에서 만들어집니다.</span></p>{% endif %}
 <section id="projectDocuments" class="project-panel" role="tabpanel" aria-labelledby="projectTabDocs" hidden>
 
 <div class="card">
   <div class="card-in">
     <div class="project-doc-head"><h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
       <button type="button" onclick="document.getElementById('intakeFile').click()"><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 접수</button>
+      <button type="button" class="secondary" onclick="document.getElementById('bundleFiles').click()" title="공고·기본계획·양식·계획서를 한꺼번에 — 기준과 접수로 나뉘어 들어갑니다"><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>묶음 접수</button>
     </div>
     {% if documents %}
     <div class="table-scroll">
@@ -73,7 +79,7 @@
         {% for d in documents %}
         <tr>
           <td class="muted">{{ d.receipt_no or d.id }}</td>
-          <td><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a></td>
+          <td><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a> <a class="muted" href="/doc/{{ d.id }}/view" target="_blank" rel="noopener" title="구글에서 열기" style="font-size:12px; margin-left:6px;">구글 ↗</a></td>
           <td><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
           <td><span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span></td>
           <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
