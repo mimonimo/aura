@@ -238,3 +238,64 @@ def test_picture_only_paragraph_survives_page_break_cleanup(tmp_path):
     d = Document(io.BytesIO(data))
     assert stats["images"] == 1
     assert d.element.body.find(".//" + qn("w:drawing")) is not None
+
+
+def _png_bytes() -> bytes:
+    import io as _io
+
+    from PIL import Image
+
+    buf = _io.BytesIO(); Image.new("RGB", (8, 8), "white").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+_HEADER_CTRL = ('<hp:ctrl><hp:header id="{id}" applyPageType="BOTH"><hp:subList><hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0">'
+                '<hp:pic id="9"><hp:curSz width="9780" height="2524"/><hp:pos treatAsChar="1"/><hp:img binaryItemIDRef="image1"/></hp:pic><hp:t/>'
+                '</hp:run></hp:p></hp:subList></hp:header></hp:ctrl>')
+
+
+def test_header_picture_and_page_number_go_to_section_header_footer(tmp_path):
+    """머리말의 그림(로고)과 쪽 번호 매기기는 워드 구역의 머리말·꼬리말로 간다 — 본문에서 잃지 않는다."""
+    section = SECTION.replace(
+        '<hp:run charPrIDRef="1"><hp:t>사업 개요</hp:t></hp:run></hp:p>',
+        '<hp:run charPrIDRef="1"><hp:t>사업 개요</hp:t></hp:run>'
+        '<hp:run charPrIDRef="0"><hp:ctrl><hp:pageNum pos="BOTTOM_CENTER" formatType="DIGIT" sideChar="-"/></hp:ctrl>'
+        + _HEADER_CTRL.format(id=1) + '</hp:run></hp:p>'
+        # 같은 구역에서 머리말을 다시 정하면 대체된다(워드는 구역당 하나) — 그림이 둘로 늘지 않는다
+        '<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0">' + _HEADER_CTRL.format(id=5) + '<hp:t>본문</hp:t></hp:run></hp:p>')
+    p = tmp_path / "h.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("mimetype", "application/hwp+zip")
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+        zf.writestr("BinData/image1.png", _png_bytes())
+    data, stats = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    assert stats["headers"] == 2 and stats["page_numbers"] == 1
+    hdr = d.sections[0].header
+    assert not hdr.is_linked_to_previous
+    assert len(hdr._element.findall(".//" + qn("w:drawing"))) == 1        # 로고는 머리말에, 한 번만
+    assert not d.element.body.findall(".//" + qn("w:drawing"))             # 본문에는 없다
+    ftr = d.sections[0].footer
+    assert [t.text for t in ftr._element.iter(qn("w:instrText"))] == ["PAGE"]
+    assert ftr.paragraphs[0].text.startswith("- ") and ftr.paragraphs[0].text.endswith(" -")
+    assert [q.text for q in d.paragraphs if q.text.strip()][:2] == ["사업 개요", "본문"]
+
+
+def test_footer_auto_number_becomes_page_field(tmp_path):
+    section = SECTION.replace(
+        '<hp:run charPrIDRef="1"><hp:t>사업 개요</hp:t></hp:run></hp:p>',
+        '<hp:run charPrIDRef="1"><hp:t>사업 개요</hp:t></hp:run>'
+        '<hp:run charPrIDRef="0"><hp:ctrl><hp:footer id="2" applyPageType="BOTH"><hp:subList><hp:p paraPrIDRef="1" styleIDRef="0">'
+        '<hp:run charPrIDRef="0"><hp:t>쪽 </hp:t></hp:run><hp:run charPrIDRef="0"><hp:ctrl><hp:autoNum numType="PAGE" formatType="ROMAN_CAPITAL"/></hp:ctrl></hp:run>'
+        '</hp:p></hp:subList></hp:footer></hp:ctrl>'
+        '<hp:ctrl><hp:pageNum pos="BOTTOM_CENTER" formatType="DIGIT" sideChar="-"/></hp:ctrl></hp:run></hp:p>')
+    p = tmp_path / "f.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("mimetype", "application/hwp+zip")
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+    data, stats = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    ftr = d.sections[0].footer
+    assert stats["footers"] == 1 and "page_numbers" not in stats                  # 꼬리말에 이미 쪽 번호가 있으면 겹치지 않는다
+    assert [t.text for t in ftr._element.iter(qn("w:instrText"))] == [r"PAGE \* ROMAN"]
+    assert ftr.paragraphs[0].text.startswith("쪽 ")

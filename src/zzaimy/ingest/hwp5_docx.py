@@ -161,6 +161,37 @@ def _load_styles(docinfo: ET.Element) -> tuple[Styles, dict[str, bytes]]:
     return st, blobs
 
 
+# 한글 번호 모양(pyhwp shape 번호) → OWPML formatType. 0 숫자, 1 대문자 로마, 2 소문자 로마, 3 대문자 라틴, 4 소문자 라틴,
+# 5 원 숫자, 6 한글, 7 원 한글, 8 한자 — 표에 없는 값은 숫자로 둔다
+_NUM_FMT = {"0": "DIGIT", "1": "ROMAN_CAPITAL", "2": "ROMAN_SMALL", "3": "LATIN_CAPITAL", "4": "LATIN_SMALL",
+            "5": "CIRCLED_DIGIT", "6": "HANGUL_SYLLABLE"}
+
+
+_CONTROLS = ("Header", "Footer", "PageNumberPosition", "AutoNumbering")
+
+
+def _translate_control(node: ET.Element, run: ET.Element) -> None:
+    """머리말/꼬리말(chid head·foot) → hp:ctrl/hp:header·footer/subList/p, 쪽 번호 위치(pgnp) → hp:pageNum,
+    쪽 번호 자동 번호(atno, kind=page) → hp:autoNum. 그 밖의 자동 번호(각주 등)는 두지 않는다."""
+    tag = node.tag
+    if tag in ("Header", "Footer"):
+        ctrl = ET.SubElement(run, "ctrl")
+        places = (node.get("places") or "both_pages").lower()
+        hf = ET.SubElement(ctrl, tag.lower(), {"applyPageType": "EVEN" if "even" in places else "ODD" if "odd" in places else "BOTH"})
+        sub = ET.SubElement(hf, "subList")
+        for pl in node:
+            if pl.tag.endswith("ParagraphList"):
+                for para in pl.findall("Paragraph"):
+                    sub.append(_translate_paragraph(para))
+    elif tag == "PageNumberPosition":
+        ctrl = ET.SubElement(run, "ctrl")
+        ET.SubElement(ctrl, "pageNum", {"pos": (node.get("position") or "bottom_center").upper(),
+                                        "formatType": _NUM_FMT.get(node.get("shape") or "0", "DIGIT"), "sideChar": node.get("dash") or ""})
+    elif tag == "AutoNumbering" and (node.get("kind") or "") == "page":
+        ctrl = ET.SubElement(run, "ctrl")
+        ET.SubElement(ctrl, "autoNum", {"numType": "PAGE", "formatType": _NUM_FMT.get(node.get("footnoteshape") or "0", "DIGIT")})
+
+
 def _translate_paragraph(p_el: ET.Element) -> ET.Element:
     p = ET.Element("p", {"paraPrIDRef": p_el.get("parashape-id") or "0", "styleIDRef": p_el.get("style-id") or "0",
                          "pageBreak": "1" if p_el.get("new-page") == "1" else "0"})
@@ -187,6 +218,10 @@ def _translate_paragraph(p_el: ET.Element) -> ET.Element:
                                                  "top": pd.get("top-offset") or "0", "bottom": pd.get("bottom-offset") or "0",
                                                  "header": pd.get("header-offset") or "0", "footer": pd.get("footer-offset") or "0",
                                                  "gutter": pd.get("bookbinding-offset") or "0"})
+                # 실물 구조: 머리말·꼬리말·쪽 번호 위치는 SectionDef 의 자식으로 이어져 있다(실측 2026-09-25)
+                for child in node:
+                    if child.tag in _CONTROLS:
+                        _translate_control(child, r)
             elif tag == "Text":
                 char_id = node.get("charshape-id") or last_char
                 last_char = char_id
@@ -212,6 +247,8 @@ def _translate_paragraph(p_el: ET.Element) -> ET.Element:
             elif tag == "TableControl":
                 r = new_run(last_char)
                 r.append(_translate_table(node))
+            elif tag in _CONTROLS:
+                _translate_control(node, new_run(last_char))
             elif tag == "GShapeObjectControl":
                 r = new_run(last_char)
                 _translate_shape(node, r)
