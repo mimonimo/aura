@@ -426,3 +426,39 @@ def test_project_route_moves_document_and_agent_move_op(docs_env, tmp_path, monk
     r = client.post("/chat/send", data={"question": "이 문서를 HUSS 2027 프로젝트로 옮겨 줘", "session_id": str(sid)}, follow_redirects=False)
     page = client.get(r.headers["location"]).text
     assert "「HUSS 2027」 폴더로 옮기고" in page and db.get_chat_session(sid)["project_id"] == pid2
+
+
+def test_rename_and_move_ops_are_dropped_unless_the_user_asked(monkeypatch):
+    """모델이 근거 조각을 보고 제 이름을 붙이는 일(실측 2026-09-24: 질문에 '자기소개서'로 개명) — 담당자의 말에 그 뜻이 없으면 버린다."""
+    from zzaimy.app import gdocs_agent
+
+    fake = _FakePlanner(json.dumps({"reply": "정리했습니다.", "ops": [
+        {"op": "rename", "section": 0, "old": "", "text": "자기소개서"},
+        {"op": "move", "section": 0, "old": "", "text": "다른 프로젝트"},
+        {"op": "insert", "section": 1, "old": "", "text": "접수 문서 목록"}]}, ensure_ascii=False))
+    info = {"title": "t", "sections": [{"index": 1, "heading": "1", "chars": 0}], "text": ""}
+    kept = gdocs_agent.plan(fake, "이 프로젝트에 접수된 문서가 무엇인지 정리해 줘", info)["ops"]
+    assert [o["op"] for o in kept] == ["insert"]
+    asked = gdocs_agent.plan(fake, "문서 이름을 사업명으로 바꿔 주고 RISE 프로젝트 폴더로 옮겨 줘", info)["ops"]
+    assert [o["op"] for o in asked] == ["rename", "move", "insert"]
+
+
+def test_plain_questions_do_not_look_like_drafting():
+    from zzaimy.app.main import create_app  # noqa: F401 — 판정 함수는 앱 안에 있어 아래처럼 꺼낸다
+    import zzaimy.app.main as m
+
+    src = m.create_app.__code__
+    names = src.co_consts
+    # 판정 함수는 create_app 의 지역 함수라 앱을 만들어 꺼낸다
+    from tests.test_app import FakeDrafter, FakeProcessor, FakeResponder
+    import tempfile, pathlib
+    d = pathlib.Path(tempfile.mkdtemp())
+    app = create_app(db_path=d / "t.db", inbox_dir=d / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    f = app.state.looks_like_drafting
+    assert not f("이 프로젝트에 접수된 문서가 무엇인지 정리해 줘")
+    assert not f("계획서는 어디에 있어?")
+    assert not f("이 공고에서 배점 기준을 정리해 줘")
+    assert f("2027년 사업계획서 초안을 써 줘")
+    assert f("회의 결과를 문서로 정리해 줘")
+    assert f("안내문 작성해 줘")
+    assert f("지원 신청서를 만들어 줘")

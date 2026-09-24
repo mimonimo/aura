@@ -774,11 +774,24 @@ def create_app(
             pass                    # 근거 기록이 실패해도 답변은 남긴다
         db.add_chat(session_id, "assistant", answer)
 
-    _DRAFT_WORDS = re.compile(r"초안|작성해|작성\s*부탁|써\s*줘|써줘|만들어\s*줘|만들어줘|정리해\s*줘|정리해줘|보고서로|문서로\s*(?:만들|정리|작성)")
+    _DRAFT_EXPLICIT = re.compile(r"초안|보고서로|문서로\s*(?:만들|정리|작성|써)|공문으로")
+    _DRAFT_NOUN = re.compile(r"계획서|보고서|공문|제안서|신청서|요청서|의견서|안내문|양식|보도자료|회의록|문서|초안")
+    _DRAFT_VERB = re.compile(r"작성|써\s*줘|써줘|써\s*주|만들어|정리해|기안")
 
     def _looks_like_drafting(q: str) -> bool:
-        """문서를 써 달라는 요청인가 — 질문·검토 요청과 구분한다(일반 낱말 단서, 특정 사례 없음)."""
-        return bool(_DRAFT_WORDS.search(q or ""))
+        """문서를 써 달라는 요청인가 — 질문·검토 요청과 구분한다(일반 낱말 단서, 특정 사례 없음).
+
+        '초안'·'문서로 만들어' 같은 명시 단서가 있거나, 서류 갈래 낱말(계획서·공문 …)과 쓰기 동사가 함께 있을 때만.
+        '접수된 문서가 무엇인지 정리해 줘' 처럼 있는 문서를 묻는 말은 문서를 만들지 않는다(실측 2026-09-24)."""
+        q = q or ""
+        if _DRAFT_EXPLICIT.search(q):
+            return True
+        if not (_DRAFT_NOUN.search(q) and _DRAFT_VERB.search(q)):
+            return False
+        # 서류 갈래 낱말이 조사 '가·이·는·은' 을 달고 주어로 쓰였으면(문서가 무엇인지, 계획서는 어디에) 질문이다
+        return not re.search(r"(?:계획서|보고서|공문|문서|양식)(?:가|이|는|은)\s", q)
+
+    app.state.looks_like_drafting = _looks_like_drafting     # 테스트에서 판정 규칙을 그대로 검사한다
 
     _TITLE_CUT = re.compile(r"\s*(?:의\s*)?(?:초안|작성|써\s*줘|써줘|만들어|정리해|보고서로|문서로)")
 

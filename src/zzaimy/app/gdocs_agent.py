@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from zzaimy.ingest import gdocs
@@ -84,7 +85,18 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     data = json.loads(raw)
     ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "rename", "move")
            and ((o.get("text") or "").strip() or o.get("op") == "bold")]
+    ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
     return {"reply": (data.get("reply") or "").strip(), "ops": ops}
+
+
+_RENAME_CUE = re.compile(r"(?:이름|제목|파일명|문서명).{0,12}(?:바꿔|바꾸|변경|수정|고쳐|해\s*줘|으로|로)|(?:으로|로)\s*(?:이름|제목).{0,6}(?:바꿔|바꾸|변경|지어|해)|이름\s*지어|제목\s*지어")
+_MOVE_CUE = re.compile(r"(?:폴더|프로젝트).{0,12}(?:옮겨|옮기|이동|넣어|넣어\s*줘|으로|로)|(?:으로|로)\s*(?:옮겨|옮기|이동)")
+
+
+def _asked_for(op: str, command: str) -> bool:
+    """rename·move 는 담당자의 말에 그 뜻이 있어야 한다 — 모델이 근거 조각을 보고 제멋대로 이름을 바꾸거나 옮기지 못하게."""
+    cue = _RENAME_CUE if op == "rename" else _MOVE_CUE
+    return bool(cue.search(command or ""))
 
 
 def _drop_existing(text: str, doc_text: str) -> str:
