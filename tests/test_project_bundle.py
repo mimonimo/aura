@@ -118,3 +118,20 @@ def test_duplicate_hwp_view_uses_original_chunks(tmp_path):
     db.set_document_family(dup, "x", version_of=orig)
     data, name, mime, target = gdrive_files.bytes_for_view(db, db.get_document(dup))
     assert name == "d.docx" and data[:2] == b"PK" and target.endswith("document")
+
+
+def test_titles_from_web_downloads_get_spaces_back():
+    from zzaimy.app import storage
+
+    assert storage.title_of("2026학년도+AID+전환+중점+전문대학+지원사업+공고문.pdf") == "2026학년도 AID 전환 중점 전문대학 지원사업 공고문"
+    assert storage.title_of("2._2026-1학기_개설과목_관리_중_AI관련_교과목(01.27).xlsx") == "2. 2026-1학기 개설과목 관리 중 AI관련 교과목(01.27)"
+    assert storage.title_of("2026년 AID 사업계획서 Ver.3.3 260401_2330.hwp") == "2026년 AID 사업계획서 Ver.3.3 260401_2330"
+
+
+def test_bundle_name_from_web_download_names(tmp_path):
+    app, c = _client(tmp_path)
+    files = [("file", ("2026학년도+AID+전환+중점+전문대학+지원사업+공고문.pdf", b"%PDF-1.4", "application/pdf")),
+             ("file", ("2026년 AID 전환 중점 전문대학 지원사업 사업계획서 Ver.3.3 260401_2330.hwp", b"h", "application/octet-stream"))]
+    r = c.post("/projects/bundle", data={"sector": "grant"}, files=files, follow_redirects=False)
+    pid = int(r.headers["location"].split("/project/")[1].split("?")[0])
+    assert app.state.db.get_project(pid)["name"] == "2026학년도 AID 전환 중점 전문대학 지원사업"
