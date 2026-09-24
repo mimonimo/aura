@@ -13,3 +13,20 @@ def test_writing_scrub_keeps_contacts_but_hides_identity_numbers():
 
 def test_answer_scrub_still_hides_phone():
     assert "053-123-4567" not in ag.scrub("전화 053-123-4567")
+
+
+def test_vision_pipe_table_masks_names_next_to_job_titles():
+    """판독한 결재선·명단 표: 옆 칸이 직위(총장·부총장·팀원)면 이름을 가린다 — 잔여 스캔 21건의 원인."""
+    import json
+
+    from zzaimy.app.pipeline import DocumentProcessor
+    from zzaimy.ingest.pii import PiiMasker, RawDocument
+
+    masker = PiiMasker()
+    mk = lambda t: masker.mask(RawDocument(doc_id="t", text=t))[0].text  # noqa: E731
+    md = "| 팀원 | 김동호 | 부총장 | 김기종 | 협조자 | 이재용 |\n| 기간 | 2026 | 예산 | 240 | 비고 | 없음 |"
+    chunks = DocumentProcessor._md_to_chunks(md, mk, page_no=88)
+    cells = json.loads(chunks[0]["content"])["cells"]
+    texts = [c[-1] for c in cells]
+    assert "김동호" not in texts and "김기종" not in texts and "이재용" not in texts
+    assert texts.count("[KR_NAME]") == 3 and "2026" in texts and "없음" in texts

@@ -132,7 +132,8 @@ def auth_url(redirect_uri: str) -> str:
 def _http():
     import httpx
 
-    return httpx.Client(timeout=30)
+    # 큰 독스(사업계획서 95쪽, 표 124개)는 documents.get 에 30초가 넘는다(실측 2026-09-24) — 읽기 제한을 넉넉히
+    return httpx.Client(timeout=httpx.Timeout(180, connect=30))
 
 
 def exchange_code(code: str, state: str, redirect_uri: str, http=None) -> str:
