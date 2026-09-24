@@ -242,3 +242,41 @@ def test_project_evidence_uses_intake_documents(tmp_path, monkeypatch):
     c.post("/chat/send", data={"question": "합본의 대학 AI·DX 교육여건 분석 내용으로 1.1 절을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
     ev = seen["evidence"]
     assert ev and ev[0]["origin"] == "프로젝트 문서" and "교육여건" in ev[0]["content"] and ev[0]["reg_title"] == "사업계획서 합본"
+
+
+def test_text_layer_cleans_bad_glyphs():
+    from zzaimy.app.pipeline import _clean_glyphs
+
+    assert _clean_glyphs("사업추진￾ 목표\r\n 항목") == "사업추진 목표\r\n· 항목"
+
+
+def test_project_evidence_targets_named_document_and_skips_form_source(tmp_path, monkeypatch):
+    from zzaimy.app import chat_documents, gdocs_agent
+    from zzaimy.ingest import gdrive
+    import json
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AID")
+    form = db.add_document(filename="사업계획서 작성서식.hwpx", stored_path=str(tmp_path / "f.hwpx"), doc_type="grant", project_id=pid)
+    merged = db.add_document(filename="사업계획서 합본.pdf", stored_path=str(tmp_path / "h.pdf"), doc_type="grant", project_id=pid)
+    for d in (form, merged):
+        db.update_document(d, status="reviewed")
+    db.replace_doc_chunks(form, [{"kind": "text", "content": "【작성방법】 대학의 AI·DX 교육여건 분석 결과를 기술하고 지역 산업 여건과 인력수요를 분석하라.", "page_no": 2}])
+    db.replace_doc_chunks(merged, [{"kind": "text", "content": "대학의 AI·DX 교육여건 분석: 재학생 3,200명 가운데 AI 교과목 이수자 41%, 지역 산업 여건은 제조업 중심이며 인력수요 조사 결과 데이터 인력이 부족하다.", "page_no": 12}])
+    sid = db.create_chat_session("작성", project_id=pid, owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "work1", "account": "staff@example.ac.kr"}))
+    db.add_file("google", "https://docs.google.com/document/d/work1/edit", name="작업본", session_id=sid, doc_id=form)
+    seen = {}
+    monkeypatch.setattr(chat_documents, "material", lambda db_, sid_, owner_: "[연결 문서] 작업본")
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
+    def fake_run(db_, session_id, owner, command, link, *, client, data_dir, scrub=None, evidence=None, confirm=False, http=None):
+        seen["evidence"] = evidence or []
+        return "적용됨: 1곳", []
+    monkeypatch.setattr(gdocs_agent, "run", fake_run)
+    from zzaimy.generate import client as _gc
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: object())
+    c.post("/chat/send", data={"question": "대학의 AI·DX 교육여건 분석 절을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert all(e["doc_id"] != form for e in seen["evidence"]) and any(e["doc_id"] == merged for e in seen["evidence"])
+    c.post("/chat/send", data={"question": "사업계획서 합본의 교육여건 분석 내용으로 절을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert [e["doc_id"] for e in seen["evidence"]] == [merged]
