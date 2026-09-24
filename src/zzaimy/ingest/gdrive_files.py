@@ -156,6 +156,22 @@ def auto_document(db, session_id: int, owner: str, title: str, project_name: str
     return {"doc": doc_id, "account": email, "folder": folder, "url": f"https://docs.google.com/document/d/{doc_id}/edit"}
 
 
+def copy_document(email: str, file_id: str, title: str, folder_id: str | None = None, http=None) -> dict:
+    """드라이브 파일 복제 — 원본 서식은 그대로 두고 작업은 복제본에서(사용자 지시 2026-09-24)."""
+    http = http or gdrive._http()
+    body = {"name": (title or "").strip()[:120] or "작업본"}
+    if folder_id:
+        body["parents"] = [folder_id]
+    r = http.post(f"{gdrive.API}/files/{file_id}/copy", headers=_headers(email, http),
+                  params={"supportsAllDrives": "true", "fields": "id,name,mimeType"}, json=body)
+    if r.status_code == 403:
+        raise PermissionError("이 문서를 복제할 권한이 없습니다")
+    if r.status_code != 200:
+        raise RuntimeError(f"복제 실패({r.status_code}): {r.text[:120]}")
+    out = r.json()
+    return {"id": out["id"], "name": out.get("name"), "mime": out.get("mimeType", ""), "url": view_url(out["id"], out.get("mimeType", ""))}
+
+
 def rename_document(email: str, doc_id: str, title: str, http=None) -> dict:
     """드라이브 문서 이름을 바꾼다(구글 독스 제목도 같이 바뀐다). 이 앱이 만든 파일이거나 사용자가 연 파일이어야 한다."""
     http = http or gdrive._http()
@@ -205,7 +221,10 @@ def view_url(file_id: str, mime: str) -> str:
 def upload_file(email: str, data: bytes, name: str, source_mime: str, folder_id: str | None = None,
                 convert_to: str = "", http=None) -> dict:
     """드라이브에 파일을 올린다. convert_to 가 있으면 구글 형식(독스·시트·슬라이드)으로 바꿔 올린다."""
-    http = http or gdrive._http()
+    if http is None:
+        import httpx
+
+        http = httpx.Client(timeout=httpx.Timeout(600, connect=30))    # 큰 파일의 변환 업로드는 오래 걸린다(8MB HTML 실측)
     meta = {"name": name}
     if convert_to:
         meta["mimeType"] = convert_to
@@ -240,9 +259,13 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
         except Exception:
             pass                                                   # 암호화 등 — 아래 조각 복원으로
     if ext == ".hwp":
-        odt = hwp_to_odt(src)
-        if odt:
-            return odt, name[: -len(ext)] + ".odt", "application/vnd.oasis.opendocument.text", CONVERT[".docx"][1]
+        try:
+            from zzaimy.ingest import hwp_html
+
+            html, _stats = hwp_html.convert(src)
+            return html, name[: -len(ext)] + ".html", "text/html", CONVERT[".docx"][1]
+        except Exception:
+            pass                                                   # pyhwp 없음·실패 — 아래 조각 복원으로
     if ext in (".hwp", ".hwpx"):
         src_id = int(doc["id"])
         chunks = db.list_doc_chunks(src_id)
@@ -259,28 +282,6 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
         return src.read_bytes(), name, "application/x-hwp", ""      # 아직 추출 전 — 원본 그대로(드라이브 미리보기)
     mime, target = CONVERT.get(ext, ("application/octet-stream", ""))
     return src.read_bytes(), name, mime, target
-
-
-def hwp_to_odt(src) -> bytes | None:
-    """옛 한글(.hwp 5.0) → ODT(pyhwp hwp5odt). 구글이 ODT 를 독스로 바꾼다. 도구가 없거나 실패하면 None."""
-    import shutil
-    import subprocess
-    import sys
-    import tempfile
-    from pathlib import Path
-
-    try:
-        import hwp5  # noqa: F401 — pyhwp 가 있어야 한다
-    except Exception:
-        return None
-    runner = Path(__file__).resolve().parents[3] / "scripts" / "142_hwp_to_odt.py"
-    with tempfile.TemporaryDirectory() as td:
-        out = Path(td) / "out.odt"
-        try:
-            subprocess.run([sys.executable, str(runner), str(src), str(out)], check=True, capture_output=True, timeout=900)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
-            return None
-        return out.read_bytes() if out.exists() and out.stat().st_size > 1000 else None
 
 
 def google_copy(db, doc: dict, email: str, folder_id: str | None, http=None) -> dict:

@@ -27,11 +27,12 @@
 .document-source .extract-doc { border:0; background:transparent; padding:0; }
 #documentWorkspace h2 { font-size:15px; letter-spacing:-.025em; }
 #documentWorkspace :is(button,.btn-ghost) { min-height:36px; border-radius:7px; font-size:13px; gap:6px; }
-#documentWorkspace button:not(.secondary):not(.btn-ghost) { background:#23354D; border-color:#23354D; }
-#documentWorkspace button:not(.secondary):not(.btn-ghost):hover { background:#16263B; }
-#documentWorkspace button:disabled { opacity:.6; cursor:wait; }
+#documentWorkspace button:not(.secondary):not(.btn-ghost) { background:#23354D; border-color:#23354D; color:#fff; box-shadow:none; }
+#documentWorkspace button:not(.secondary):not(.btn-ghost):hover:not(:disabled) { background:#16263B; border-color:#16263B; color:#fff; }
+#documentWorkspace button:not(.secondary):not(.btn-ghost):active:not(:disabled) { background:#102034; border-color:#102034; }
 #documentWorkspace :is(button.secondary,.btn-ghost) { background:#fff; border:1px solid #D6DEE8; color:#36465B; box-shadow:none; }
-#documentWorkspace :is(button.secondary,.btn-ghost):hover { background:#F3F6FA; border-color:#AEBBCD; }
+#documentWorkspace :is(button.secondary,.btn-ghost):hover:not(:disabled) { background:#F3F6FA; border-color:#AEBBCD; }
+#documentWorkspace button:disabled,#documentWorkspace button:disabled:hover { background:#E9EDF2; border-color:#D7DEE7; color:#596879; opacity:1; cursor:not-allowed; box-shadow:none; }
 #documentWorkspace .accent { border-top:2px solid #71849C; }
 #documentWorkspace textarea { border-radius:8px; border:1px solid #CAD4E0; padding:12px; line-height:1.65; background:#FCFDFE; }
 #documentWorkspace .notice { border-radius:8px; font-size:12.5px; line-height:1.65; }

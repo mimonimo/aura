@@ -176,10 +176,39 @@ def test_working_on_a_project_document_links_its_docs_copy(tmp_path, monkeypatch
         made["doc"] = doc["filename"]
         return {"id": "gdoc1", "mime": "application/vnd.google-apps.document", "url": "https://docs.google.com/document/d/gdoc1/edit"}
     monkeypatch.setattr(gdrive_files, "google_copy", fake_copy)
+    monkeypatch.setattr(gdrive_files, "copy_document", lambda email, fid, title, folder=None, http=None:
+                        {"id": "work1", "name": title, "mime": "application/vnd.google-apps.document", "url": "https://docs.google.com/document/d/work1/edit"})
     r = c.post("/chat/send", data={"question": "사업계획서 양식으로 작업하자", "project_id": str(pid)}, follow_redirects=False)
     sid = int(r.headers["location"].rsplit("/", 1)[-1])
     assert made["doc"].endswith("사업계획서 양식.hwp")
     import json
-    assert json.loads(db.get_setting(f"chat_google_doc:{sid}", ""))["doc"] == "gdoc1"
+    assert json.loads(db.get_setting(f"chat_google_doc:{sid}", ""))["doc"] == "work1"      # 원본 변환본(gdoc1)이 아니라 복제본
     page = c.get(r.headers["location"]).text
-    assert "구글 독스로 열어 이 대화에 연결했습니다" in page
+    assert "복제본" in page and "원본 서식은 그대로" in page
+    assert db.list_files(kind="google", session_id=sid)[0]["name"].startswith("[붙임2] 사업계획서 양식 작업본")
+
+
+def test_project_doc_named_ignores_dates_and_versions(tmp_path):
+    app, _ = _client(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AID")
+    db.add_document(filename="20260219-AID선정평가사업계획서 작성서식(ver5).hwpx", stored_path=str(tmp_path / "a.hwpx"), doc_type="grant", project_id=pid)
+    db.add_document(filename="20260219-AID선정평가 지표정의서 및 평가편람(ver5).hwpx", stored_path=str(tmp_path / "b.hwpx"), doc_type="grant", project_id=pid)
+    f = app.state.project_doc_named
+    assert f(db.get_project(pid), 0, "AID선정평가사업계획서 작성서식으로 작업하자")["filename"].endswith("작성서식(ver5).hwpx")
+    assert f(db.get_project(pid), 0, "지표정의서 및 평가편람을 독스로 열어 줘")["filename"].endswith("평가편람(ver5).hwpx")
+
+
+def test_ambiguous_document_reference_asks_instead_of_guessing(tmp_path, monkeypatch):
+    from zzaimy.ingest import gdrive, gdrive_files
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AID")
+    db.add_document(filename="사업계획서 작성서식 2025.hwpx", stored_path=str(tmp_path / "a.hwpx"), doc_type="grant", project_id=pid)
+    db.add_document(filename="사업계획서 작성서식 2026.hwpx", stored_path=str(tmp_path / "b.hwpx"), doc_type="grant", project_id=pid)
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
+    r = c.post("/chat/send", data={"question": "사업계획서 작성서식으로 작업하자", "project_id": str(pid)}, follow_redirects=False)
+    page = c.get(r.headers["location"]).text
+    assert "어느 문서로 작업할지 분명하지 않습니다" in page and "작성서식 2025" in page and "작성서식 2026" in page
+    assert not db.get_setting(f"chat_google_doc:{int(r.headers['location'].rsplit('/', 1)[-1])}", "")
