@@ -94,4 +94,6 @@
 - 교내 문서도 학교 워크스페이스 드라이브까지는 올린다(공개가 아니다). 외부 공유는 하지 않는다.
 - 지적된 항목은 그때그때 회귀 테스트(tests/test_project_bundle.py·test_gdocs.py·test_scrub_for_writing.py·test_hwpx_docx.py)로
   남겨 다시 생기지 않게 한다.
+- 지시 없이 스스로 점검한다: 문서 작업 흐름은 `scripts/144_flow_selfcheck.py --project N` 로 9항목(반입·갈래·기준 조각·색인·검색·재료·
+  구글·제안·대화)을 돌려 WARN·FAIL 을 먼저 없앤 뒤 보고한다. 새 기준 문서가 들어오면 재색인(96)까지 한 묶음이다.
 
