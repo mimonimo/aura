@@ -251,6 +251,7 @@ def test_auto_document_creates_folder_chain_and_binds_session(docs_env, tmp_path
     assert made["doc"] == "newdoc" and made["url"].endswith("/newdoc/edit")
     names = [n for n, _p in folders.values()]
     assert names[0] == "ZZAIMY" and names[2] == "RISE 2026" and len(names) == 3      # ZZAIMY/<연도>/<프로젝트>
+    assert gdrive_files.project_parts(None)[2] == "기타"                                # 프로젝트 없으면 기타 하나에
     assert ("moved", made["folder"], "") in calls
     assert json.loads(db.get_setting(f"chat_google_doc:{sid}"))["doc"] == "newdoc"
     # 두 번째는 같은 폴더를 다시 만들지 않는다
@@ -330,3 +331,40 @@ def test_formatting_ops_style_bold_and_table(docs_env, tmp_path, monkeypatch):
     assert [f["insertText"]["location"]["index"] for f in fills] == [48, 45, 41, 38]      # 뒤에서부터
     assert [a["action"] for a in gdocs.recent_writes(tmp_path, 3)] == ["table", "bold", "style"]
     assert gdocs.embed_url("docA", toolbar=True).endswith("/docA/edit") and "rm=minimal" in gdocs.embed_url("docA")
+
+
+def test_rename_command_renames_drive_file_and_chat_title(docs_env, tmp_path, monkeypatch):
+    """"문서 이름을 사업명으로 바꿔 줘" → 드라이브 파일 이름(독스 제목)과 대화 제목이 바뀐다."""
+    from zzaimy.app.main import create_app as _create
+
+    t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
+    t["staff@example.ac.kr"]["scopes"] = gdrive.SCOPES
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    calls: list = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append((req.method, req.url.path, req.content.decode() if req.content else ""))
+        if req.url.host == "oauth2.googleapis.com":
+            return httpx.Response(200, json={"access_token": "AT", "expires_in": 3600})
+        if req.url.path == "/v1/documents/docA" and req.method == "GET":
+            return httpx.Response(200, json=DOC)
+        if req.method == "PATCH" and req.url.path == "/drive/v3/files/docA":
+            return httpx.Response(200, json={"id": "docA", "name": json.loads(req.content)["name"]})
+        return httpx.Response(404)
+    monkeypatch.setattr(gdrive, "_http", lambda: httpx.Client(transport=httpx.MockTransport(handler)))
+    fake = _FakePlanner(json.dumps({"reply": "문서 이름을 바꿨습니다.", "ops": [
+        {"op": "rename", "section": 0, "old": "", "text": "2027 산학협력 선도대학 사업계획서"}]}, ensure_ascii=False))
+    from zzaimy.generate import client as _gc
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                  processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    db = app.state.db
+    sid = db.create_chat_session("초안 대화", owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    r = client.post("/chat/send", data={"question": "문서 이름을 사업명으로 바꿔 줘", "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "문서 이름 → 「2027 산학협력 선도대학 사업계획서」" in page
+    assert any(m == "PATCH" and p == "/drive/v3/files/docA" for m, p, _ in calls)
+    assert db.get_chat_session(sid)["title"] == "2027 산학협력 선도대학 사업계획서"
+    assert gdocs.recent_writes(tmp_path, 1)[0]["action"] == "rename"

@@ -833,6 +833,12 @@ def create_app(
             client = VllmClient(role="answer")
             text, _ops = gdocs_agent.run(db, session_id, owner, q, link, client=client, data_dir=data_dir,
                                          scrub=ag.scrub, evidence=hits, confirm=confirm)
+            new_name = next((o.get("text") for o in _ops if o.get("op") == "rename" and (o.get("text") or "").strip()), "")
+            if new_name and not confirm:
+                try:
+                    db.rename_chat_session(session_id, new_name.strip()[:60])
+                except Exception:
+                    pass
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
 
