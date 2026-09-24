@@ -33,9 +33,6 @@
       · 만든 날 {{ project.created_at[:10] }}</div>
   </div>
   <div style="margin-left:auto; display:flex; gap:8px; flex:none; align-items:center;">
-    <a href="/graph?focus=p{{ project.id }}" class="btn-ghost" style="font-weight:600;"
-       title="이 프로젝트와 연결·추정 연관된 문서를 그래프에서 봅니다">
-      <iconify-icon icon="solar:graph-new-linear"></iconify-icon>그래프에서 보기</a>
     <button type="button" class="secondary" data-modal-open="#manageModal"
             style="font-family:inherit; cursor:pointer;">
       <iconify-icon icon="solar:settings-linear"></iconify-icon>관리</button>
@@ -50,42 +47,41 @@
 {% endif %}
 
 <div class="project-tabs" role="tablist" aria-label="프로젝트 작업">
-  <button type="button" role="tab" id="projectTabChat" data-project-tab="projectConversations" aria-controls="projectConversations" aria-selected="true">대화 <span>{{ project_chats|length }}</span></button>
-  <button type="button" role="tab" id="projectTabDocs" data-project-tab="projectDocuments" aria-controls="projectDocuments" aria-selected="false" tabindex="-1">문서 <span>{{ documents|length }}</span></button>
+  <button type="button" role="tab" id="projectTabChat" data-project-tab="projectConversations" aria-controls="projectConversations" aria-selected="true">대화·문서</button>
   <button type="button" role="tab" id="projectTabContext" data-project-tab="projectContext" aria-controls="projectContext" aria-selected="false" tabindex="-1">지침·기준 <span>{{ linked_criteria|length }}</span></button>
 </div>
-<form id="intakeForm" action="/upload" method="post" enctype="multipart/form-data" hidden>
-  <input type="hidden" name="doc_type" value="{{ project.sector }}"><input type="hidden" name="project_id" value="{{ project.id }}">
-  <input type="file" name="file" id="intakeFile" accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
-</form>
-<form id="bundleForm" action="/project/{{ project.id }}/bundle" method="post" enctype="multipart/form-data" hidden>
-  <input type="file" name="file" id="bundleFiles" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"
-         onchange="document.getElementById('intakeStatus').hidden=false;this.form.submit()">
+<form id="intakeForm" action="/project/{{ project.id }}/bundle" method="post" enctype="multipart/form-data" hidden>
+  <input type="file" name="file" id="intakeFile" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
 </form>
 <p class="muted" id="intakeStatus" role="status" hidden>문서를 접수하는 중입니다…</p>
-{% if request.query_params.get('bundle') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>묶음을 접수했습니다 — 기준 문서 {{ request.query_params.get('bundle').split('+')[0] }}건, 접수 문서 {{ request.query_params.get('bundle').split('+')[-1] }}건. 추출이 끝나면 목록에 갈래가 붙고, 구글 열람본은 뒤에서 만들어집니다.</span></p>{% endif %}
-<section id="projectDocuments" class="project-panel" role="tabpanel" aria-labelledby="projectTabDocs" hidden>
+{% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다 — 기준 문서 {{ received[0] }}건, 접수 문서 {{ received[-1] }}건. 문서 내용을 추출하고 열람 화면을 준비하고 있습니다.</span></p>{% endif %}
+<section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
+<div class="project-chat-row project-start">
+  <form action="/chat/send" method="post">
+    <button type="button" class="secondary" onclick="document.getElementById('intakeFile').click()" aria-label="프로젝트에 문서 추가" title="문서 추가">＋</button>
+    <input type="hidden" name="project_id" value="{{ project.id }}">
+    <input type="text" name="question" required aria-label="새 프로젝트 대화의 질문" placeholder="{{ project.name }}에서 새 대화 시작">
+    <button type="submit">대화 시작</button>
+  </form>
+</div>
+<div class="project-overview-grid">
+<section id="projectDocuments" aria-label="프로젝트 문서">
 
 <div class="card">
   <div class="card-in">
     <div class="project-doc-head"><h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
-      <button type="button" onclick="document.getElementById('intakeFile').click()"><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 접수</button>
-      <button type="button" class="secondary" onclick="document.getElementById('bundleFiles').click()" title="공고·기본계획·양식·계획서를 한꺼번에 — 기준과 접수로 나뉘어 들어갑니다"><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>묶음 접수</button>
+      <button type="button" onclick="document.getElementById('intakeFile').click()"><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 추가</button>
     </div>
+    <p class="project-intake-help">파일을 한 개 또는 여러 개 선택할 수 있습니다. 기준으로 분류된 문서는 ‘지침·기준’에서 확인하세요.</p>
     {% if documents %}
-    <div class="table-scroll">
-      <table>
-        <tr><th>접수번호</th><th>파일명</th><th>상태</th><th>담당자 판정</th><th>접수 시각</th></tr>
+    <div class="project-document-list">
         {% for d in documents %}
-        <tr>
-          <td class="muted">{{ d.receipt_no or d.id }}</td>
-          <td><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a> <a class="muted" href="/doc/{{ d.id }}/view" target="_blank" rel="noopener" title="구글에서 열기" style="font-size:12px; margin-left:6px;">구글 ↗</a></td>
-          <td><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
-          <td><span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span></td>
-          <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
-        </tr>
+        <article class="project-document-item">
+          <a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
+          <span class="muted">{{ d.receipt_no or d.id }} · {{ d.created_at[:16].replace("T", " ") }}</span>
+          <div><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span> <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span> <a href="/doc/{{ d.id }}/view" target="_blank" rel="noopener">문서 보기 ↗</a></div>
+        </article>
         {% endfor %}
-      </table>
     </div>
     {% endif %}
 
@@ -95,21 +91,9 @@
   </div>
 </div>
 </section>
-<section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
+<section id="projectChatList" aria-label="프로젝트 대화">
 <div class="card project-chat-card">
   <div class="card-in">
-    <h2>이 프로젝트에서 어떤 작업을 할까요?</h2>
-    <div class="project-chat-row" style="display:flex; gap:8px; align-items:center;">
-      <form action="/chat/send" method="post" style="display:flex; gap:10px; flex:1; margin:0;">
-        <input type="hidden" name="project_id" value="{{ project.id }}">
-        <input type="text" name="question" required
-               aria-label="새 프로젝트 대화의 질문" placeholder="이 프로젝트에서 필요한 작업을 입력하세요"
-               style="flex:1; border:1.5px solid var(--line); border-radius:22px; padding:11px 18px;
-                      font-family:inherit; font-size:14px;">
-        <button type="submit" style="white-space:nowrap;">새 대화</button>
-      </form>
-    </div>
-    <div class="project-tools"><button type="button" class="secondary" onclick="document.getElementById('intakeFile').click()"><iconify-icon icon="solar:upload-linear"></iconify-icon>프로젝트에 문서 접수</button><button type="button" class="secondary" data-modal-open="#hwpTargetModal"><iconify-icon icon="solar:document-text-linear"></iconify-icon>한글 문서 연결</button></div>
     <div class="project-history-heading"><h3>이어서 대화하기</h3><button type="button" class="history-link" data-chat-history>전체 기록 검색</button></div>
     {% if project_chats %}
     <div class="project-conversations">
@@ -122,6 +106,9 @@
 </div>
 
 </section>
+</div>
+<div class="project-tools"><button type="button" class="secondary" data-modal-open="#hwpTargetModal">한글 문서 연결</button></div>
+</section>
 <section id="projectContext" class="project-panel" role="tabpanel" aria-labelledby="projectTabContext" hidden>
 <div class="card">
   <div class="card-in">
@@ -131,56 +118,46 @@
     </div>
 
     <div id="paneGuide" class="tab-pane on">
-    <div id="noteList" style="display:flex; flex-direction:column; gap:2px;
-         max-height:300px; overflow-y:auto; margin-bottom:12px;">
+    <div class="project-context-intro"><h2>프로젝트 지침·메모</h2><p>검토·작성·채팅에서 함께 참고할 내용을 남겨 주세요. 개인 메모가 아니라 이 프로젝트의 AI 작업에 공통으로 적용됩니다.</p></div>
+    <form action="/project/{{ project.id }}/notes" method="post" class="project-note-compose">
+      <label for="noteInput">새 지침·메모</label>
+      <textarea name="content" required rows="4" id="noteInput" aria-describedby="noteHelp"
+                placeholder="예: 검토 의견에는 근거 조항을 함께 적고, 확인되지 않은 내용은 구분해 주세요."></textarea>
+      <div class="project-context-footer"><span id="noteHelp">업무 조건이나 작성 원칙을 구체적으로 적어 주세요.</span><button type="submit">저장</button></div>
+    </form>
+    <h3 class="project-context-list-title">저장된 지침·메모 <span>{{ project_notes|length }}</span></h3>
+    <div id="noteList" class="project-note-list">
       {% for n in project_notes %}
-      <div class="note-row">
-        <iconify-icon icon="solar:notes-minimalistic-linear"
-                      style="color:var(--faint); flex:none; margin-top:2px;"></iconify-icon>
-        <span style="flex:1; line-height:1.6;">{{ n.content }}</span>
-        <span class="muted note-time">{{ n.created_at[5:10] }}</span>
+      <article class="project-note-item">
+        <p>{{ n.content }}</p>
+        <div class="project-note-meta"><time>{{ n.created_at[:16] }}</time>
         <form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post"
-              class="note-del" style="flex:none; margin:0;">
-          <button type="submit" title="삭제" style="background:none; border:0; box-shadow:none;
-                  color:var(--faint); padding:2px; cursor:pointer; font-size:14px;">
-            <iconify-icon icon="solar:trash-bin-minimalistic-linear"></iconify-icon></button>
+              class="project-note-delete" onsubmit="return confirm('이 지침·메모를 삭제할까요?');">
+          <button type="submit" class="secondary">삭제</button>
         </form>
-      </div>
+        </div>
+      </article>
       {% else %}
-      <div style="text-align:center; padding:22px 10px; color:var(--faint);">
-        <iconify-icon icon="solar:notes-minimalistic-linear" style="font-size:30px; display:block; margin:0 auto 2px;"></iconify-icon>
-        <p class="muted" style="font-size:12.5px; margin:8px 0 0; line-height:1.6;">
-          이 프로젝트의 검토·작성·채팅에 공통으로 적용할 지침을 남겨 주세요.</p>
-      </div>
+      <p class="project-context-empty">아직 저장된 지침·메모가 없습니다. 위에서 첫 내용을 작성해 주세요.</p>
       {% endfor %}
     </div>
-    <form action="/project/{{ project.id }}/notes" method="post"
-          style="display:flex; gap:8px; align-items:flex-end;">
-      <textarea name="content" required rows="1" id="noteInput"
-                placeholder="지침이나 메모를 입력하세요"
-                style="flex:1; min-height:40px; resize:vertical;"></textarea>
-      <button type="submit" style="padding:9px 16px; font-size:13px; flex:none;">추가</button>
-    </form>
     </div>
 
     <div id="paneCriteria" class="tab-pane">
+    <div class="project-context-intro"><h2>연결된 기준 문서</h2><p>이 프로젝트의 검토·초안에 근거로 사용할 공고문·규정·지침입니다. 제목을 눌러 내용을 확인할 수 있습니다.</p></div>
     {% set linked_docs = sector_criteria | selectattr("id", "in", linked_criteria) | list %}
     {% if linked_docs %}
     <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;">
       {% for c in linked_docs %}
-      <div style="display:flex; align-items:center; gap:8px; font-size:13.5px;
-                  background:var(--panel); border:1px solid var(--line);
-                  border-radius:10px; padding:8px 10px;">
+      <article class="project-criterion-item">
         <iconify-icon icon="solar:document-text-linear" style="color:var(--navy); flex:none;"></iconify-icon>
-        <a href="/doc/{{ c.id }}" style="overflow:hidden; text-overflow:ellipsis;
-           white-space:nowrap; flex:1; text-decoration:none;">{{ doc_name(c) }}</a>
-        <form action="/project/{{ project.id }}/criteria/unlink" method="post" style="flex:none;">
+        <div class="project-criterion-title"><a href="/doc/{{ c.id }}">{{ doc_name(c) }}</a><span>기준 문서{% if c.receipt_no %} · {{ c.receipt_no }}{% endif %}</span></div>
+        <a class="project-criterion-open" href="/doc/{{ c.id }}">문서 열기</a>
+        <form action="/project/{{ project.id }}/criteria/unlink" method="post" onsubmit="return confirm('이 기준 문서의 연결을 해제할까요? 원본 문서는 유지됩니다.');">
           <input type="hidden" name="criteria_doc_id" value="{{ c.id }}">
-          <button type="submit" title="연결 해제" style="background:none; border:0; box-shadow:none;
-                  color:var(--faint); padding:2px; cursor:pointer; font-size:15px;">
-            <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+          <button type="submit" class="secondary">연결 해제</button>
         </form>
-      </div>
+      </article>
       {% endfor %}
     </div>
     {% else %}
@@ -322,7 +299,7 @@
     intakeFile.addEventListener("change", function () {
       if (intakeFile.files.length) {
         var st = document.getElementById("intakeStatus");
-        if (st) st.hidden = false;
+        if (st) { st.hidden = false; st.textContent = intakeFile.files.length + '개 파일을 접수하는 중입니다…'; }
         document.getElementById("intakeForm").submit();
       }
     });
