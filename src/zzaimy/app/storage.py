@@ -48,8 +48,14 @@ _EXT = re.compile(r"\.(hwpx?|pdf|docx?|xlsx?|pptx?|jpe?g|png|tiff?|bmp|webp|txt|
 
 
 def title_of(filename: str) -> str:
-    """이름에서 확장자만 뗀다 — Path.stem 은 '2. 도심 캠퍼스 안내' 를 '2' 로 잘라 버린다(실측 2026-09-23)."""
-    return _EXT.sub("", (filename or "").strip())
+    """이름에서 확장자만 뗀다 — Path.stem 은 '2. 도심 캠퍼스 안내' 를 '2' 로 잘라 버린다(실측 2026-09-23).
+
+    띄어쓰기 없이 '+' 나 '_' 로만 이어진 이름(누리집 내려받기가 공백을 그렇게 바꾼다, 실측 2026-09-24)은 그 글자를
+    공백으로 돌린다. 공백이 이미 있는 이름은 건드리지 않는다."""
+    t = _EXT.sub("", (filename or "").strip())
+    if t and " " not in t and ("+" in t or "_" in t):
+        t = re.sub(r"[+_]+", " ", t).strip()
+    return t
 
 
 def intake_dir(base: Path, doc: dict) -> Path:

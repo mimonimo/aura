@@ -1639,7 +1639,7 @@ def create_app(
         cand = [n for n in names if _bundle_role(n) == "criteria"] or names
         if not cand:
             return "새 프로젝트"
-        t = _EXT.sub("", _ATTACH.sub("", cand[0].strip()))
+        t = _EXT.sub("", _ATTACH.sub("", storage.title_of(cand[0])))
         t = re.sub(r"\s*[\[(（].*?[\])）]\s*$", "", t)
         t = _KIND_WORDS.sub("", t).strip(" ·-_,.")
         return re.sub(r"\s+", " ", t)[:60] or cand[0][:60]
