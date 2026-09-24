@@ -870,8 +870,27 @@ def create_app(
                     best, best_score = d, score
         # 비슷하게 맞는 후보가 둘 이상이면 짐작하지 않는다 — 호출 쪽이 되묻는다(사용자 지시: 어떤 문서를 고칠지 정확히)
         rivals = [d for sc, d in scored if d is not best and sc >= best_score - 0.15 and d["id"] != (best or {}).get("id")]
+        if best is None:
+            # 사람은 긴 제목을 다 부르지 않는다("합본", "작성서식") — 한 문서에만 있는 뜻 있는 낱말 하나면 그 문서다
+            owners: dict[str, list[dict]] = {}
+            for d in cands:
+                title = storage.title_of(d.get("filename") or "")
+                for t in {t.lower() for t in re.split(r"[\s\-_()\[\]{}.,:;·+/]+", title) if len(t) >= 2}:
+                    if t in norm_q and t not in _GENERIC_WORDS and not re.fullmatch(r"(?:v|ver|rev)?\.?\d[\d.]*[년월일]?|\d+학년도", t, re.I):
+                        owners.setdefault(t, []).append(d)
+            uniq = {t: ds[0] for t, ds in owners.items() if len(ds) == 1}
+            if uniq:
+                picks = {d["id"]: d for d in uniq.values()}
+                if len(picks) == 1:
+                    best = next(iter(picks.values()))
+                else:
+                    best = max(uniq.items(), key=lambda kv: len(kv[0]))[1]
+                    rivals = [d for d in picks.values() if d["id"] != best["id"]]
         _project_doc_named.rivals = rivals   # type: ignore[attr-defined]
         return best
+
+    _GENERIC_WORDS = {"사업", "계획", "계획서", "문서", "자료", "지원", "지원사업", "전환", "중점", "전문대학", "대학", "학년도", "년도",
+                      "양식", "서식", "붙임", "별첨", "최종", "수정", "제출", "안", "및", "관련"}
 
     app.state.project_doc_named = _project_doc_named
 
@@ -1108,19 +1127,31 @@ def create_app(
         question: str = Form(...),
         session_id: int | None = Form(None),
         criteria: list[int] = Form([]),
-        attachment: UploadFile | None = File(None),
+        attachment: list[UploadFile] = File([]),
         project_id: int | None = Form(None),
         external: str = Form(""),
     ):
         q = question.strip()
         if not q:
             return RedirectResponse("/chat", status_code=303)
+        files = [f for f in (attachment or []) if f is not None and f.filename]
+        for f in files:
+            if Path(f.filename).suffix.lower() not in ALLOWED_EXTENSIONS:
+                raise HTTPException(400, f"허용되지 않는 파일 형식입니다: {Path(f.filename).suffix.lower()}")
+        made_project: dict | None = None
         if session_id is None:
             title = q
             if project_id and (proj := db.get_project(project_id)):
                 if proj.get("owner") != request.state.user:
                     raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
                 title = f"[{proj['name'][:14]}] {q}"
+            elif len(files) >= 2:
+                # 새 대화에 문서 세트를 던지면 프로젝트가 생긴다(사용자 지시 2026-09-24) — 이름은 묶음에서, 기준/접수로 나눠 들인다
+                pname = _title_from_bundle(files)
+                pid = db.create_project("grant", pname, owner=getattr(request.state, "user", "zzaimy"))
+                made_project = db.get_project(pid) or {"id": pid, "sector": "grant", "name": pname}
+                project_id = pid
+                title = f"[{pname[:14]}] {q}"
             else:
                 project_id = None
             session_id = db.create_chat_session(
@@ -1129,6 +1160,18 @@ def create_app(
             )
         else:
             _owned_chat(request, session_id)
+        if made_project is not None:
+            made = _intake_bundle(request, background, made_project, files)
+            past = _link_past_materials(made_project)
+            lines = [f"[첨부#{d}] {storage.title_of((db.get_document(d) or {}).get('filename') or '')}" for d in [*made["criteria"], *made["intake"]]]
+            db.add_chat(session_id, "user", "\n".join(lines) + "\n" + q)
+            note = (f"프로젝트 「{made_project['name']}」 을 만들었습니다 — 기준 문서 {len(made['criteria'])}건, 접수 문서 {len(made['intake'])}건. "
+                    f"추출이 끝나면 프로젝트 화면의 '다음 작업 제안'에서 양식으로 작성을 시작하거나 그림 쪽 판독을 고를 수 있습니다.")
+            if past:
+                note += " 지난 자료 " + ", ".join(f"「{storage.title_of(d.get('filename') or '')}」" for d in past[:4]) + " 을 기준으로 이었습니다."
+            db.add_chat(session_id, "assistant", note)
+            chat_revisions.remember(db.list_chats(session_id, limit=2)[0]["id"], None, criteria)
+            return RedirectResponse(f"/chat/{session_id}", status_code=303)
         # 응답 대기 중 중복 전송 방지 — 마지막 메시지가 아직 답변 전이면 무시
         last = db.list_chats(session_id, limit=1)
         if session_id in _chat_running or (last and last[-1]["role"] == "user"):
@@ -1136,10 +1179,8 @@ def create_app(
 
         stored: Path | None = None
         shown = q
-        if attachment is not None and attachment.filename:
-            suffix = Path(attachment.filename).suffix.lower()
-            if suffix not in ALLOWED_EXTENSIONS:
-                raise HTTPException(400, f"허용되지 않는 파일 형식입니다: {suffix}")
+        markers: list[str] = []
+        for attachment in files:
             stored = storage.attachment_path(Path(db_path).parent, session_id, attachment.filename)
             with stored.open("wb") as out:
                 shutil.copyfileobj(attachment.file, out)
@@ -1158,7 +1199,9 @@ def create_app(
             db.add_file("attachment", str(stored), name=attachment.filename, session_id=session_id, doc_id=att_doc,
                         size=stored.stat().st_size)
             background.add_task(processor.process, db, att_doc, stored)
-            shown = f"[첨부#{att_doc}] {attachment.filename}\n{q}"
+            markers.append(f"[첨부#{att_doc}] {attachment.filename}")
+        if markers:
+            shown = "\n".join(markers) + "\n" + q
 
         db.add_chat(session_id, "user", shown)
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
@@ -1167,9 +1210,10 @@ def create_app(
 
     def _strip_attach_prefix(text: str) -> str:
         """저장된 사용자 메시지에서 첨부 표시줄을 떼고 질문만 남긴다."""
-        if text.startswith("[첨부") and "\n" in text:
-            return text.split("\n", 1)[1]
-        return text
+        lines = (text or "").split("\n")
+        while len(lines) > 1 and lines[0].startswith("[첨부"):
+            lines.pop(0)
+        return "\n".join(lines)
 
     @app.get("/chat/{session_id}/messages")
     def chat_messages(request: Request, session_id: int):
@@ -1811,6 +1855,29 @@ def create_app(
                 made["intake"].append(doc_id)
         return made
 
+    def _link_past_materials(project: dict) -> list[dict]:
+        """같은 사업의 지난 자료(다른 연도의 공고·기본계획·지침) 를 프로젝트 기준으로 잇는다 — 이름 낱말(연도·번호 제외) 7할 이상 겹치는
+        문서함의 기준 문서. 사용자 지시(2026-09-24): 새 채팅에 던지면 지난 자료가 자동으로 이어져야 한다."""
+        name = project.get("name") or ""
+        toks = [t.lower() for t in re.split(r"[\s\-_()\[\]{}.,:;·+/]+", name)
+                if len(t) >= 2 and not re.fullmatch(r"\d{2,4}(?:학년도|년도|년)?|(?:v|ver)?\d[\d.]*", t, re.I)]
+        if not toks:
+            return []
+        linked = set(db.get_project_criteria_ids(int(project["id"])))
+        picked: list[dict] = []
+        for d in db.list_documents("regulation"):
+            if d["id"] in linked or d.get("status") != "reviewed" or d.get("project_id") == project["id"]:
+                continue
+            title = storage.title_of(d.get("filename") or "").lower()
+            norm = re.sub(r"[\s\-_()\[\]{}.,:;·+/]+", "", title)
+            total = sum(len(t) for t in toks)
+            hit = sum(len(t) for t in toks if t in norm)
+            if total and hit / total >= 0.7:
+                picked.append(d)
+        if picked:
+            db.add_project_criteria(int(project["id"]), [d["id"] for d in picked])
+        return picked
+
     def _title_from_bundle(files) -> str:
         """묶음에서 프로젝트 이름 — 공고·기본계획 파일 이름에서 붙임 번호·서류 낱말을 뗀 것, 없으면 첫 파일 제목."""
         from zzaimy.app.doc_family import _ATTACH, _EXT, _KIND_WORDS
@@ -2114,13 +2181,19 @@ def create_app(
         """사용자 말풍선 — 첫 줄이 첨부면 문서 보기 링크로 바꾸고 나머지는 그대로(이스케이프)."""
         from markupsafe import Markup, escape
 
-        m = _ATTACH_LINE.match(text or "")
-        if not m:
+        rest = text or ""
+        heads: list = []
+        while True:
+            m = _ATTACH_LINE.match(rest)
+            if not m:
+                break
+            did, name = m.group(1), m.group(2)
+            heads.append(Markup('<a class="chat-attach" href="/doc/%s">첨부 · %s</a>') % (did, name) if did
+                         else Markup('<span class="chat-attach">첨부 · %s</span>') % name)
+            rest = rest[m.end():]
+        if not heads:
             return escape(text or "")
-        did, name = m.group(1), m.group(2)
-        rest = (text or "")[m.end():]
-        head = (Markup('<a class="chat-attach" href="/doc/%s">첨부 · %s</a>') % (did, name) if did
-                else Markup('<span class="chat-attach">첨부 · %s</span>') % name)
+        head = Markup(" ").join(heads)
         return head + Markup("<br>") + escape(rest) if rest else head
 
     templates.env.filters["attach_view"] = _attach_view
