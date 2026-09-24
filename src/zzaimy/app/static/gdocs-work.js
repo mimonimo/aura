@@ -1,4 +1,13 @@
 (() => {
+  function revealSettings() {
+    if (['#googleApp', '#googleAccounts'].includes(location.hash)) {
+      const section = document.querySelector(location.hash);
+      const details = section?.closest('details');
+      if (details) { details.open = true; section.scrollIntoView({block:'nearest'}); }
+    }
+  }
+  window.addEventListener('hashchange', revealSettings);
+  revealSettings();
   const appForm = document.getElementById('googleAppForm'), edit = document.querySelector('[data-app-edit]');
   const appDialog = document.getElementById('googleAppDialog');
   if (appDialog && appForm && edit) {

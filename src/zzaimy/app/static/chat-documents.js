@@ -12,11 +12,15 @@
    const toggle=document.createElement('button');toggle.type='button';toggle.className='secondary';toggle.dataset.fit='';toggle.textContent='너비 맞춤';toggle.setAttribute('aria-pressed','true');
    panel.querySelector('header').insertBefore(toggle,panel.querySelector('[data-hide]'));
    let fit=true;
+   const toolbar=panel.querySelector('[data-toolbar]');
    const resize=()=>{
      const width=viewport.clientWidth,height=viewport.clientHeight;if(!width||!height)return;
-     const scale=fit?Math.min(1,width/1100):1;
+     const nativeTools=Boolean(toolbar?.checked);
+     toggle.hidden=nativeTools;
+     const scale=fit&&!nativeTools?Math.min(1,width/1100):1;
      frame.style.cssText=`position:absolute;left:0;top:0;width:${width/scale}px;height:${height/scale}px;transform:scale(${scale});transform-origin:top left;max-width:none;`;
    };
+   toolbar?.addEventListener('change',resize);
    toggle.onclick=()=>{fit=!fit;toggle.setAttribute('aria-pressed',String(fit));toggle.textContent=fit?'너비 맞춤':'원래 크기';resize();};
    fitObserver=new ResizeObserver(resize);fitObserver.observe(viewport);
  }

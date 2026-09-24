@@ -16,6 +16,12 @@ body .gd-work :is(input[type=text],select,textarea){width:100%;min-width:0;box-s
 .gd-connection .nas-form{min-width:0}.gd-connection .nas-form fieldset{padding:20px;gap:16px;min-width:0}.gd-connection .nas-form fieldset>button,.gd-connection .nas-form fieldset>.btn{justify-self:start;width:auto;padding:10px 18px;min-height:40px;text-decoration:none}.gd-connection .gd-hint{margin:0 0 20px}.gd-connection .nas-form input{box-sizing:border-box}.gd-connection .gd-account form{margin:0}.gd-connection .gd-account button{white-space:nowrap}
 @media(max-width:1100px){.gd-split{grid-template-columns:minmax(0,1fr)}.gd-agent-body{max-height:none;min-height:0}.gd-editor iframe{height:65dvh;min-height:420px}}
 @media(max-width:700px){.gd-open,.gd-connect-grid{grid-template-columns:minmax(0,1fr)}.gd-intro{align-items:flex-start;flex-wrap:wrap}.gd-editor>header{flex-wrap:wrap}.gd-empty{padding:40px 20px}}
+.drive-browser{border:1px solid var(--line);border-radius:16px;padding:24px;background:white;margin-bottom:24px}
+.drive-browser>header{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap}.drive-browser label{display:grid;gap:8px;min-width:0;max-width:100%}.drive-browser select{max-width:100%}
+.drive-browser nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.drive-browser [role=status]{color:var(--muted);font-size:13px}
+.drive-browser-item{display:flex!important;align-items:center;gap:12px;width:100%;padding:16px!important;margin:8px 0;border:1px solid var(--line);border-radius:12px;background:white!important;color:var(--ink)!important;text-decoration:none!important;text-align:left;font-size:14px}
+.drive-browser-item:hover{background:#f3f6fb!important}.drive-browser-item span{flex:1;min-width:0;overflow-wrap:anywhere}.drive-browser-item small{color:var(--muted);font-size:12px}.drive-browser-item iconify-icon{font-size:24px;color:var(--navy);flex:none}
+@media(max-width:600px){.drive-browser{padding:16px}.drive-browser-item{flex-wrap:wrap}.drive-browser-item small{width:100%;padding-left:36px}}
 .gd-settings-details{border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:18px}
 .gd-settings-details>summary{cursor:pointer;font-size:14px;font-weight:600;line-height:1.7}
 .gd-settings-details>summary small{display:inline-block;margin-left:14px;color:var(--muted);font-weight:400;font-size:12px}

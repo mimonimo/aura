@@ -454,3 +454,4 @@ def test_context_options_take_precedence_and_clear_on_next_question(tmp_path, mo
     assert [o["kind"] for o in data["suggestions"]] == ["pick", "pick"]
     c.post("/chat/send", data={"question": "다른 질문", "session_id": str(sid)}, follow_redirects=False)
     assert not db.get_setting(f"chat_options:{sid}", "")                                  # 다음 질문이 오면 지워진다
+

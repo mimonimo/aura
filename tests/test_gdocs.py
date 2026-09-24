@@ -100,6 +100,11 @@ def test_work_page_ask_insert_replace(docs_env, tmp_path):
     client = TestClient(app)
     page = client.get("/gdocs/work", params={"doc": "https://docs.google.com/document/d/docA/edit", "account": "staff@example.ac.kr"})
     assert page.status_code == 200 and "1. 추진 배경" in page.text and "docs.google.com/document/d/docA/edit" in page.text
+    listing = client.get("/gdocs/work")
+    assert listing.status_code == 200
+    assert 'data-drive-account' in listing.text and 'data-drive-files' in listing.text
+    assert 'Google Docs 주소 또는 문서 ID' not in listing.text
+    assert '연결된 Drive' in listing.text
     ask = client.post("/gdocs/ask", data={"doc": "docA", "account": "staff@example.ac.kr", "question": "추진 배경을 보강해 줘"})
     assert ask.status_code == 200 and "답변" in ask.text
     ins = client.post("/gdocs/insert", data={"doc": "docA", "account": "staff@example.ac.kr", "section": "3", "text": "새 과제를 더한다"}, follow_redirects=False)
