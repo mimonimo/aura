@@ -101,11 +101,30 @@ def _asked_for(op: str, command: str) -> bool:
     return bool(cue.search(command or ""))
 
 
+_SENT = re.compile(r"(?<=[.。!?])\s+|\n+")
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[\s'\"‘’“”·,]+", "", s)
+
+
 def _drop_existing(text: str, doc_text: str) -> str:
-    """넣을 글에서 문서에 이미 그대로 있는 줄을 뺀다 — 모델이 절의 마지막 문장을 따라 적는 버릇(실측 2026-09-23)."""
-    have = {ln.strip() for ln in (doc_text or "").splitlines() if ln.strip()}
-    kept = [ln for ln in (text or "").splitlines() if ln.strip() and ln.strip() not in have]
-    return "\n".join(kept)
+    """넣을 글에서 문서에 이미 있는 줄·문장을 뺀다 — 모델이 절의 마지막 문장을 따라 적거나(실측 2026-09-23) 방금 넣은 S·W·O·T
+    문단을 한 덩어리로 다시 붙이는 버릇(실측 2026-09-25: 1.1 절에 515자 중복). 줄 단위 → 문장 단위 두 번 거른다."""
+    have_lines = {ln.strip() for ln in (doc_text or "").splitlines() if ln.strip()}
+    have_sents = {_norm(x) for x in _SENT.split(doc_text or "") if len(_norm(x)) >= 12}
+    kept_lines = []
+    for ln in (text or "").splitlines():
+        if not ln.strip() or ln.strip() in have_lines:
+            continue
+        sents = [x for x in _SENT.split(ln) if x.strip()]
+        fresh = [x for x in sents if len(_norm(x)) < 12 or _norm(x) not in have_sents]
+        if not fresh:
+            continue
+        if len(fresh) < len(sents):
+            ln = " ".join(x.strip() for x in fresh)
+        kept_lines.append(ln)
+    return "\n".join(kept_lines)
 
 
 def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None,
