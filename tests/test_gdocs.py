@@ -534,3 +534,10 @@ def test_drop_existing_removes_sentences_already_in_the_document():
     out = _drop_existing(text, doc)
     assert out == "새로 덧붙이는 문장이다.\n완전히 새로운 줄."
     assert _drop_existing("본 대학은 AI-X추진단을 신설하여 컨트롤타워를 구축하였다.", doc) == ""
+
+
+def test_outline_carries_each_sections_text(docs_env):
+    info = gdocs.get("staff@example.ac.kr", "docA")
+    sec = info["sections"][1]
+    assert sec["heading"] == "1. 추진 배경" and sec["text"].startswith("1. 추진 배경") and "지역 산업 수요가 늘고 있다." in sec["text"]
+    assert "2. 추진 계획" not in sec["text"]

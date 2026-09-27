@@ -2,6 +2,13 @@
 
 ## C-20260927-106 — 엑셀 시트 비율 미리보기
 
+검증/막힘: Claude 06bff57d에 함께 통합돼 VM HEAD도 일치/service active.
+office_pdf/document UI 테스트 8개 통과. 실물 대신 임시 xlsx로 운영 변환 시
+LibreOffice exit0인데 'source file could not be loaded', PDF 미생성.
+dpkg 확인: libreoffice-core만 설치, libreoffice-calc/writer 미설치(un).
+관리자에게 sudo apt-get install libreoffice-calc 요청 필요. root 우회 안 함.
+설치 후 시트1쪽/열 비율/원문 탭 실측 남음. 아직 엑셀 기능 완료 선언 금지.
+
 진행 Codex: office_pdf.py, _document_source.html, document-workspace.js.
 Claude main.py/gdocs_agent.py/dev-now 진행 변경은 보존. 방금 추가된 원문 PDF
 경로 재사용. Calc SinglePageSheets로 열 분할 없이 시트별 1쪽, PDF FitH 기본.

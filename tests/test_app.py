@@ -934,7 +934,7 @@ def test_document_view_is_a_pdf_viewer(client, tmp_path):
         {"kind": "text", "page_no": 1, "content": "본문 조각", "bbox": "50,80,400,110"},
     ])
     page = client.get(f"/doc/{doc_id}").text
-    assert f'src="/doc/{doc_id}/restored.pdf"' in page   # 뷰어가 주인공
+    assert f'src="/doc/{doc_id}/restored.pdf' in page   # 뷰어가 주인공(#view=FitH 같은 뷰어 옵션은 붙을 수 있다)
     assert 'data-view="text"' in page and 'id="docSearch"' in page  # 본문 탭·문서 내 검색
     r = client.get(f"/doc/{doc_id}/restored.pdf")
     assert r.status_code == 200 and r.content[:4] == b"%PDF"
