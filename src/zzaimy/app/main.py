@@ -1151,21 +1151,20 @@ def create_app(
                 all_ops: list[dict] = []
                 redo = bool(re.search(r"다시\s*(?:써|쓰|작성)|새로\s*(?:써|쓰|작성)|바꿔\s*(?:써|쓰)", q))
                 for sec in targets:
+                    before_apply = None
                     if redo and not drafting.is_unfilled(sec):
-                        try:
-                            cleared = _gd.clear_section_body(link["account"], link["doc"], sec["index"], user=owner, data_dir=data_dir)
-                            if cleared.get("chars"):
-                                parts_.append(f"「{sec['heading'][:30]}」 의 기존 초안 {cleared['chars']}자를 지우고 다시 씁니다.")
-                            info = _gd.get(link["account"], link["doc"])
-                            sec = next((x for x in info["sections"] if x["heading"] == sec["heading"]), sec)
-                        except Exception as e:
-                            parts_.append(f"기존 초안을 지우지 못해 덧붙입니다({type(e).__name__}).")
+                        # 다시 쓰기 — 모델의 계획이 나온 뒤에 기존 초안을 비우고 넣는다(모델이 실패하면 문서는 그대로).
+                        # 모델에게는 비운 뒤의 모습(제목·작성방법 상자만)을 보인다.
+                        def before_apply(sec_=sec):
+                            cleared = _gd.clear_section_body(link["account"], link["doc"], sec_["index"], user=owner, data_dir=data_dir)
+                            return [f"기존 초안 {cleared['chars']}자를 지우고 다시 씀"] if cleared.get("chars") else []
+                        sec = dict(sec, text="\n".join(ln for ln in (sec.get("text") or "").split("\n") if ln.startswith(("【작성방법】", sec["heading"])) or ("작성방법" in ln)), chars=0)
                     m = mats.for_section(info, sec, q, storage.title_of)
-                    cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 작성해 줘. 담당자 지시: {q}"
+                    cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 {'새로 ' if redo else ''}작성해 줘. 담당자 지시: {q}"
                     refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
                     t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=ag.scrub_for_writing,
                                              evidence=m["criteria"], confirm=confirm, materials=drafting.render_materials(m, inst),
-                                             focus=sec, references=refs)
+                                             focus=sec, references=refs, before_apply=before_apply)
                     used = ", ".join(f"{p_['title'][:18]}({p_['how']})" for p_ in m["past"]) or "없음"
                     parts_.append(f"[{sec['heading'][:40]}]\n{t_}\n재료 — 지난 자료: {used} · 기준 조각 {len(m['criteria'])}건")
                     all_ops += o_

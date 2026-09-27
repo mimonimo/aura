@@ -96,16 +96,26 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     prompt = _PROMPT.format(title=info["title"], outline=_outline_lines(info), text=visible_text, focus_note=focus_note,
                             materials=(materials.strip() + "\n") if materials.strip() else "",
                             evidence=ev, command=command.strip())
-    resp = client.client.chat.completions.create(
-        model=client.model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2, max_tokens=2048,
-        response_format={"type": "json_schema", "json_schema": {"name": "EditPlan", "schema": PLAN_SCHEMA}},
-        extra_body=getattr(client, "_extra", None) or {},
-    )
-    raw = (resp.choices[0].message.content or "").strip()
-    raw = raw.strip("`").removeprefix("json").strip() if raw.startswith("`") else raw
-    data = json.loads(raw)
+    # 절 하나를 통째로 쓰면 JSON 이 2048 토큰을 넘어 잘린다(실측 2026-09-27: 1.1 절 재작성이 'Unterminated string' 으로 실패).
+    # 절 작성(focus)은 넉넉히, 잘리면 한 번 더 짧게 쓰라고 청한다.
+    max_tokens = 8192 if focus is not None else 2048
+    data = None
+    for attempt in range(2):
+        resp = client.client.chat.completions.create(
+            model=client.model,
+            messages=[{"role": "user", "content": prompt if attempt == 0 else prompt + "\n(앞선 답이 너무 길어 잘렸다. 본문은 3,000자 안으로, JSON 을 반드시 닫아라.)"}],
+            temperature=0.2, max_tokens=max_tokens,
+            response_format={"type": "json_schema", "json_schema": {"name": "EditPlan", "schema": PLAN_SCHEMA}},
+            extra_body=getattr(client, "_extra", None) or {},
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        raw = raw.strip("`").removeprefix("json").strip() if raw.startswith("`") else raw
+        try:
+            data = json.loads(raw)
+            break
+        except json.JSONDecodeError:
+            if attempt == 1:
+                raise
     ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "rename", "move")
            and ((o.get("text") or "").strip() or o.get("op") == "bold")]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
@@ -209,7 +219,8 @@ def describe(ops: list[dict], info: dict) -> str:
 
 def run(db, session_id: int, owner: str, command: str, link: dict, *, client, data_dir: Path, scrub=None,
         evidence: list[dict] | None = None, confirm: bool = False, http=None, materials: str = "",
-        focus: dict | None = None, info: dict | None = None, references: list[dict] | None = None) -> tuple[str, list[dict]]:
+        focus: dict | None = None, info: dict | None = None, references: list[dict] | None = None,
+        before_apply=None) -> tuple[str, list[dict]]:
     """명령 하나를 처리해 (채팅에 남길 글, 적용/보류한 ops) 를 돌려준다.
 
     절 작성이면(focus) 재료와 함께 부르고, 실행 기록(재료·지시·모델의 초안·참고 정답)을 남긴다 — Writer 학습 데이터 공방의 재료."""
@@ -226,9 +237,15 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         db.set_setting(f"chat_google_doc_pending:{session_id}", json.dumps(p["ops"], ensure_ascii=False))
         return (p["reply"] + "\n\n확인 후 적용이 켜져 있어 아직 문서에 쓰지 않았습니다. 아래 계획을 확인하고 적용을 누르세요.\n"
                 + describe(p["ops"], info)), p["ops"]
+    pre: list[str] = []
+    if before_apply is not None:
+        try:
+            pre = list(before_apply() or [])            # 계획이 나온 뒤에만 비운다 — 모델이 실패하면 문서는 그대로
+        except Exception as e:
+            pre = [f"비우기 실패({type(e).__name__}) — 덧붙입니다"]
     lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http,
-                  doc_text=info["text"])
-    return (p["reply"] + "\n\n적용됨:\n" + "\n".join(f"- {ln}" for ln in lines)), p["ops"]
+                  doc_text=info["text"] if not pre else "")
+    return (p["reply"] + "\n\n적용됨:\n" + "\n".join(f"- {ln}" for ln in pre + lines)), p["ops"]
 
 
 def apply_pending(db, session_id: int, owner: str, link: dict, *, data_dir: Path, scrub=None, http=None) -> list[str]:
