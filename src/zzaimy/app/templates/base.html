@@ -516,16 +516,18 @@ document.addEventListener('submit', function(event) {
       <input type="search" name="q" placeholder="문서·대화 검색" value="{{ q if q is defined else '' }}">
     </form>
     <div class="menu-wrap">
-      <button type="button" class="icon-btn" data-pop="bellPop" title="알림">
+      <button type="button" class="icon-btn" data-pop="bellPop" title="확인할 문서" aria-label="확인할 문서">
         <iconify-icon icon="solar:bell-linear"></iconify-icon>
         {% if alert_count %}<span class="badge-n">{{ alert_count }}</span>{% endif %}
       </button>
       <div class="popover" id="bellPop">
-        <h5>문서 알림 <span>{{ alert_count }}</span></h5>
+        <h5>확인할 문서 <span>{{ alert_count }}</span></h5>
+        <p class="notification-help">새 알림이 아닌 판정 대기·처리 실패 문서입니다.</p>
+        {% if pending_docs %}<h6 class="notification-section">판정 대기</h6>{% endif %}
         {% for d in pending_docs %}
         <a class="pop-item" href="/doc/{{ d.id }}">
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 확인{% if d.receipt_no %} · {{ d.receipt_no }}{% endif %}</small></span>
+          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 확인 후 판정{% if d.receipt_no %} · {{ d.receipt_no }}{% endif %}</small></span>
         </a>
         {% else %}
         {% if not failed_docs %}<div class="pop-empty">확인할 문서가 없습니다.</div>{% endif %}

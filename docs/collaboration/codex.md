@@ -1,5 +1,39 @@
 # Codex 작업 기록
 
+## C-20260927-104 — 사용자 요청으로 C-102/103 배포 (Codex 담당)
+
+배포 진행: 사용자 명시 요청에 따라 이번 UI 변경만 Codex가 커밋·푸시·배포.
+Claude의 미추적 section_context.py/test_form_fill.py는 제외·보존. 운영 HEAD
+807ec465 clean/service active, 진행 중 장기 판독 없음 확인. 로컬 Chrome
+1600/390 기준 선택창 캡처 직접 확인, 프로젝트 29개/Docs 25개 회귀 통과.
+배포 전 코드·DB 백업 뒤 99_deploy.sh 사용. 동시 배포 금지.
+
+## C-20260927-103 — 기준 선택창·잔존 한글 연결·알림 의미 정리
+
+Codex project.html/project-workspace.css/base.html/platform-spaces.css.
+기준 검색 이중 focus 제거(부모 focus 유지), 긴 이름 줄바꿈, 선택 카드/하단
+분리/빈 검색 결과 안내. 프로젝트 한글 연결 버튼과 미사용 모달 include 제거.
+알림은 unread가 아닌 pending/failed 목록이라 '확인할 문서'로 바로잡음.
+읽기만 해도 판정 완료되는 동작은 추가하지 않음. pending 50건 상한으로 실제
+전체 건수가 잘릴 수 있는 백엔드 문제는 Claude main.py 담당에게 수정 요청.
+누락 후속: 사업 정보/외부 자료 탭, 절 단위 실시간 상태/저장 후 실문서 검증,
+C-102/103 운영 배포 및 실사용 화면 검증. 완료로 표시하지 않음.
+
+## C-20260927-102 — 새 대화 문서함 세션 동기화와 작업 시작 새로고침 제거
+
+로컬 구현/검증 완료, 운영 배포 요청(Claude). 테스트 gdocs/chat_documents
+25개 통과, Chrome 합성 UI: 기존 iframe·비율 유지/폴더 선택/새 세션9 재연결
+통과. 재현 스크립트 tests/chat_documents_browser.mjs 추가(로컬 앱 URL은
+UI_TEST_URL, Chrome은 CHROME_BIN; API와 iframe은 합성, 실문서 쓰기 없음).
+운영 읽기 확인 9/27: HEAD 807ec465, clean, 서비스 active. C-101 포함 확인.
+C-102는 아직 미배포. 실제 Google 내부 커서 추적/절 진행 표시 미완료.
+
+진행: Codex chat-documents.js/chat-workspace.js 및 회귀 테스트.
+C-101 Claude 통합 기록 확인. 새 채팅 AJAX 생성 뒤 문서함의 const sid가
+이전 값에 머무는 문제, work-on 성공 후 location.reload() 남은 경로 수정.
+main.py/gdocs_agent.py는 변경하지 않음. 실제 절 단위 진행 이벤트는 현재
+status API(waiting만 제공)에 없어 Claude 백엔드 연계 요청 유지.
+
 ## C-20260925-101 — 서식 도구와 외부 너비 맞춤 분리
 
 검증: gdocs/chat_documents pytest 25개 통과. 로컬 합성 Chrome: 폴더 탐색,

@@ -107,7 +107,6 @@
 
 </section>
 </div>
-<div class="project-tools"><button type="button" class="secondary" data-modal-open="#hwpTargetModal">한글 문서 연결</button></div>
 </section>
 <section id="projectContext" class="project-panel" role="tabpanel" aria-labelledby="projectTabContext" hidden>
 <div class="card">
@@ -183,33 +182,34 @@
   <div class="card">
     <div class="card-in">
       <div class="modal-head">
-        <h2><iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>공고·기준 선택</h2>
+        <h2 id="criteriaPickerTitle"><iconify-icon icon="solar:checklist-minimalistic-linear"></iconify-icon>공고·기준 선택</h2>
         <button type="button" data-modal-close class="icon-btn" title="닫기"
                 style="width:32px; height:32px; font-size:15px;">
           <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
       </div>
       {% if sector_criteria %}
-      <div class="searchbox" style="margin-bottom:10px; padding:8px 14px;">
+      <p class="criteria-picker-help">이 프로젝트에서 참고할 공고·평가 기준·지침을 선택하세요.</p>
+      <div class="searchbox criteria-picker-search">
         <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
-        <input type="search" id="criteriaFilter" placeholder="기준 문서 검색" style="width:100%;">
+        <input type="search" id="criteriaFilter" placeholder="문서 이름으로 검색" aria-label="기준 문서 검색">
       </div>
       <form action="/project/{{ project.id }}/criteria" method="post">
-        <div id="criteriaList" style="max-height:320px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;">
+        <div id="criteriaList">
           {% for c in sector_criteria %}
           <label data-name="{{ c.filename }}" data-linked="{{ '1' if c.id in linked_criteria else '' }}"
-                 style="display:flex; align-items:center; gap:8px; font-size:13.5px; cursor:pointer;
-                        padding:6px 8px; border-radius:8px;">
+                 class="criteria-picker-item">
             <input type="checkbox" name="criteria" value="{{ c.id }}"
                    {% if c.id in linked_criteria %}checked{% endif %}>
-            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;">{{ doc_name(c) }}</span>
+            <span class="criteria-picker-name">{{ doc_name(c) }}</span>
             <span class="pill" style="flex:none; font-size:11px; padding:2px 8px;
                   {% if c.sector == project.sector %}background:#E8EFFC; color:var(--navy);{% endif %}">
               {{ sector_labels.get(c.sector, c.sector) }}</span>
           </label>
           {% endfor %}
         </div>
-        <div style="margin-top:12px; display:flex; justify-content:flex-end; gap:10px; align-items:center;">
-          <span class="muted" id="linkedCount" style="margin-right:auto;">{{ linked_criteria|length }}건 연결됨</span>
+        <p id="criteriaEmpty" class="criteria-picker-help" hidden>검색 결과가 없습니다. 다른 문서 이름으로 검색해 주세요.</p>
+        <div class="criteria-picker-footer">
+          <span class="muted" id="linkedCount" aria-live="polite">{{ linked_criteria|length }}개 선택</span>
           <button type="button" data-modal-close class="secondary">닫기</button>
           <button type="submit">연결 저장</button>
         </div>
@@ -285,7 +285,6 @@
   </div>
 </div>
 
-{% include "_hwp_target_modal.html" %}
 
 <script>
 
@@ -325,6 +324,7 @@
       Array.from(list.children).forEach(function (el) {
         el.style.display = !q || el.dataset.name.toLowerCase().indexOf(q) !== -1 ? "" : "none";
       });
+      document.getElementById('criteriaEmpty').hidden = Array.from(list.children).some(function (el) { return el.style.display !== 'none'; });
     });
   }
   if (list) {
