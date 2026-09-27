@@ -1,6 +1,17 @@
 (() => {
   const root = document.getElementById('documentWorkspace');
   if (!root) return;
+  const widthToggle = document.getElementById('documentWidthToggle');
+  const columns = root.querySelector('.document-columns');
+  if (widthToggle && columns) {
+    widthToggle.hidden = false;
+    widthToggle.addEventListener('click', () => {
+      // Change layout only: keep the PDF frame, current page and unsaved review intact.
+      const wide = columns.classList.toggle('source-expanded');
+      widthToggle.setAttribute('aria-pressed', String(wide));
+      widthToggle.textContent = wide ? '나란히 보기' : '넓게 보기';
+    });
+  }
   const fields = [...root.querySelectorAll('textarea')];
   const initial = new Map(fields.map(field => [field, field.value]));
   const dirty = () => fields.some(field => field.value !== initial.get(field));
