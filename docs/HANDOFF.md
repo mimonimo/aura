@@ -240,3 +240,5 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 
 > 인프라의 세션 로컬 메모리(SSH 예절·프록시 터널 구성 등)는 이 문서로 대체됨.
 > 상세 세션 기록이 필요하면 이전 담당자에게 대화 로그를 요청.
+
+운영 VM 의 apt 는 `/etc/apt/apt.conf.d` 에 127.0.0.1:3128 프록시가 남아 있어 그 프록시가 없으면 패키지를 못 받는다. 설치할 때는 `sudo apt-get -o Acquire::http::Proxy=false -o Acquire::https::Proxy=false install …` 로 우회한다(2026-09-27 LibreOffice Calc·Impress 설치 때 확인).
