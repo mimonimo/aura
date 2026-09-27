@@ -29,6 +29,14 @@ def view_path(doc: dict) -> Path:
 
 
 def soffice() -> str | None:
+    """렌더러 — 환경변수 ZZAIMY_SOFFICE, 홈에 root 없이 푼 전체판(~/opt/lo/opt/libreoffice*/program/soffice, Calc·Impress 포함),
+    그다음 PATH 의 soffice(배포판 writer-nogui 만이면 엑셀·PPT 는 못 그린다)."""
+    env = os.environ.get("ZZAIMY_SOFFICE", "").strip()
+    if env and Path(env).exists():
+        return env
+    home = sorted(Path.home().glob("opt/lo/opt/libreoffice*/program/soffice"))
+    if home:
+        return str(home[-1])
     return shutil.which("soffice") or shutil.which("libreoffice")
 
 
