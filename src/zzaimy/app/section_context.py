@@ -24,6 +24,7 @@ _BULLET_MAP = {"q": "○", "§": "-", "Ø": "-", "ü": "-", "v": "▪", "w": "�
 _NUM_RE = re.compile(r"^\s*((?:\d+\.)+\d*)\s*")                    # 1. / 1.1. / 2.1.1.
 _SUBNUM_RE = re.compile(r"^\s*(\d+\)|\(\d+\)|[가-하]\.|[가-하]\)|\d+\.)\s*")
 _PAGE_NO_RE = re.compile(r"^\s*(-\s*)?\d{1,3}(\s*-)?\s*$")
+_TOC_RE = re.compile(r"[·.…‥]{3,}\s*\d{1,3}\s*$|\s\d{1,3}\s*$")          # 목차 줄: 리더 점 뒤 쪽 번호, 또는 제목 뒤 쪽 번호
 _BOLD_RE = re.compile(r"\*\*(.*?)\*\*")
 _KEEP_RE = re.compile(r"[^0-9a-z가-힣]")
 
@@ -142,6 +143,8 @@ def table_rows(raw: str) -> list[list[str]]:
 def _heading_at(item: Item, heading: str) -> bool:
     if item.kind != "text":
         return False
+    if _TOC_RE.search(item.text) and not _TOC_RE.search(heading):
+        return False                                   # 앞쪽 목차의 같은 제목(실측 2026-09-27: 합본 9쪽 목차에 걸려 절이 비었다)
     num, title = split_number(heading)
     inum, ititle = split_number(item.text)
     if num and inum:
