@@ -41,6 +41,25 @@ def test_processing_document_only_offers_original_export(workspace):
     assert 'id="documentWidthToggle"' not in page
 
 
+def test_office_preview_requires_generated_pdf(workspace, tmp_path, monkeypatch):
+    from zzaimy.app import office_pdf
+    client, db = workspace
+    source = tmp_path / 'sheet.xlsx'
+    source.write_bytes(b'synthetic')
+    doc_id = db.add_document(filename='sheet.xlsx', stored_path=str(source), doc_type='grant')
+    db.update_document(doc_id, status='reviewed')
+    monkeypatch.setattr(office_pdf, 'soffice', lambda: '/usr/bin/soffice')
+    target = office_pdf.view_path({'stored_path': str(source)})
+    for content in (None, b'', b'%PDF-1.4'):
+        if content is not None:
+            target.write_bytes(content)
+        page = client.get(f'/doc/{doc_id}').text
+        assert ('id="docPdf"' in page) == bool(content)
+        if not content:
+            assert 'PDF 미리보기가 준비되지 않았습니다' in page
+            assert f'href="/doc/{doc_id}/view"' in page
+
+
 def test_empty_regulation_summary_can_be_requested(workspace):
     client, db = workspace
     doc_id = db.add_document(filename='합성기준.txt', stored_path='absent-synthetic.txt',

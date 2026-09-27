@@ -31,7 +31,7 @@
   </h2>
   {% if doc.status == 'reviewed' %}
   {% if is_spreadsheet %}
-  <div class="spreadsheet-help"><p>{% if has_pdf %}원문은 시트별 비율을 유지해 너비에 맞춥니다. 숨김 시트도 포함되며, 작은 글씨는 PDF 도구로 확대하세요.{% else %}현재 추출 표만 표시됩니다. 원본 비율 미리보기는 PDF 변환이 필요합니다.{% endif %}</p><a class="btn-ghost" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener">스프레드시트로 보기 ↗</a></div>
+  <div class="spreadsheet-help"><p>{% if has_pdf %}원문은 시트별 비율을 유지해 너비에 맞춥니다. 숨김 시트도 포함되며, 작은 글씨는 PDF 도구로 확대하세요.{% else %}PDF 미리보기가 준비되지 않았습니다. 열 너비와 서식을 유지하려면 스프레드시트로 여세요. 아래는 서식이 생략된 추출 내용입니다.{% endif %}</p><a class="btn-ghost" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener">스프레드시트로 보기 ↗</a></div>
   {% endif %}
   {# 원문·본문·표·그림을 한 자리에서 바꿔 본다. 검색은 추출된 글 전체에서 찾고
      결과를 누르면 그 쪽의 원문이나 본문 위치로 간다 #}
