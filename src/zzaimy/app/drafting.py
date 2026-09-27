@@ -189,3 +189,28 @@ def render_materials(m: dict, institution: dict | None = None) -> str:
         unknown = [k for k, v in institution.items() if not v]
         lines.append("[기관 정보]\n" + ("\n".join(known) if known else "(없음)") + (f"\n모르는 값: {', '.join(unknown)} — 지어내지 말고 ○○○ 로 둔다" if unknown else ""))
     return "\n\n".join(lines)
+
+
+def subsections(info: dict, section: dict) -> list[dict]:
+    """절에 딸린 소제목 절들 — 양식이 준 뼈대(1. 대외여건 분석 → 1) 지역 동향 …). 다음 본문 절(번호 두 마디 이상) 앞까지."""
+    secs = sorted(info.get("sections", []), key=lambda s: s.get("start", 0))
+    out: list[dict] = []
+    seen = False
+    for s in secs:
+        if s is section or (s.get("index") == section.get("index") and s.get("heading") == section.get("heading")):
+            seen = True
+            continue
+        if not seen:
+            continue
+        if writable(s) or s.get("level", 9) <= 1:
+            break
+        out.append(s)
+    return out
+
+
+def family_text(info: dict, section: dict) -> str:
+    """절 본문 + 소제목 절들의 글(절 번호를 앞에 붙여 모델이 어느 절에 넣을지 고를 수 있게)."""
+    parts = [section_text(info, section)]
+    for s in subsections(info, section):
+        parts.append(f"[절 {s['index']}] " + (section_text(info, s) or s.get("heading", "")))
+    return "\n".join(p for p in parts if p)

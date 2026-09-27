@@ -1165,10 +1165,19 @@ def create_app(
                     if redo and not drafting.is_unfilled(sec):
                         # 다시 쓰기 — 모델의 계획이 나온 뒤에 기존 초안을 비우고 넣는다(모델이 실패하면 문서는 그대로).
                         # 모델에게는 비운 뒤의 모습(제목·작성방법 상자만)을 보인다.
-                        def before_apply(sec_=sec):
-                            cleared = _gd.clear_section_body(link["account"], link["doc"], sec_["index"], user=owner, data_dir=data_dir)
+                        subs = drafting.subsections(info, sec)
+                        after = next((x for x in sorted(info["sections"], key=lambda s_: s_.get("start", 0)) if x.get("start", 0) > (subs[-1] if subs else sec).get("start", 0)), None)
+
+                        def before_apply(sec_=sec, subs_=subs, after_=after):
+                            cleared = _gd.clear_section_body(link["account"], link["doc"], sec_["index"], user=owner, data_dir=data_dir,
+                                                             end_index=after_["start"] if after_ else None,
+                                                             keep_headings={x["heading"] for x in subs_})
                             return [f"기존 초안 {cleared['chars']}자를 지우고 다시 씀"] if cleared.get("chars") else []
-                        sec = dict(sec, text="\n".join(ln for ln in (sec.get("text") or "").split("\n") if ln.startswith(("【작성방법】", sec["heading"])) or ("작성방법" in ln)), chars=0)
+                        # 모델에게는 비운 뒤의 모습(제목·작성방법 상자·소제목 뼈대)을 보인다
+                        box_lines = [ln for ln in (sec.get("text") or "").split("\n") if ln.startswith(sec["heading"]) or "작성방법" in ln]
+                        sec = dict(sec, text="\n".join(box_lines) + "".join(f"\n[절 {x['index']}] {x['heading']}" for x in subs), chars=0, body_chars=0)
+                    else:
+                        sec = dict(sec, text=drafting.family_text(info, sec))     # 소제목 뼈대가 있으면 같이 보인다 — 어디에 넣을지는 모델이 정한다
                     m = mats.for_section(info, sec, q, storage.title_of)
                     cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 {'새로 ' if redo else ''}작성해 줘. 담당자 지시: {q}"
                     refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]

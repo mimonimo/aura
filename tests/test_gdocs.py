@@ -568,4 +568,11 @@ def test_clear_section_body_keeps_heading_and_instruction_box(monkeypatch, tmp_p
     http = httpx.Client(transport=httpx.MockTransport(handler))
     r = gdocs.clear_section_body("a@b", "d", 1, user="u", data_dir=tmp_path, http=http)
     ranges = [(q["deleteContentRange"]["range"]["startIndex"], q["deleteContentRange"]["range"]["endIndex"]) for q in sent[0]]
-    assert ranges == [(80, 301), (20, 22)] and r["chars"] == 223          # 상자 뒤(옛 문단+표), 상자 앞의 빈 문단 — 뒤에서부터
+    assert ranges == [(80, 301)] and r["chars"] == 221          # 상자 뒤(옛 문단+표)만 — 상자 앞 빈 문단은 독스가 못 지운다
+    # 소제목 뼈대를 남기고 그 사이 본문만 — end_index 로 소제목 절들까지
+    body[:] = [para(1, 20, "1.1. 교육여건 분석\n", "HEADING_2"), table(20, 80, "【작성방법】 지역 동향"), para(80, 100, "옛 글\n"),
+               para(100, 120, "1. 대외여건 분석\n"), para(120, 150, "옛 소제목 본문\n"), para(150, 170, "1.2. 특성화 방향\n"), para(170, 180, "끝\n")]
+    sent.clear()
+    r = gdocs.clear_section_body("a@b", "d", 1, user="u", data_dir=tmp_path, http=http, end_index=150, keep_headings={"1. 대외여건 분석"})
+    ranges = [(q["deleteContentRange"]["range"]["startIndex"], q["deleteContentRange"]["range"]["endIndex"]) for q in sent[0]]
+    assert ranges == [(120, 149), (80, 100)]
