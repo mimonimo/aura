@@ -697,6 +697,14 @@ class Database:
         with self._conn() as conn:
             return {r[0]: r[1] for r in conn.execute("SELECT kind, COUNT(*) FROM files GROUP BY kind").fetchall()}
 
+    def set_receipt_no(self, doc_id: int, receipt_no: str) -> None:
+        """접수번호를 바꾼다(사용자 지시 2026-09-27: 번호는 변경 가능해야). 다른 문서가 쓰는 번호면 ValueError."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT id FROM documents WHERE receipt_no = ? AND id != ?", (receipt_no, doc_id)).fetchone()
+            if row:
+                raise ValueError(f"접수번호 {receipt_no} 는 문서 {row[0]} 이 쓰고 있습니다")
+            conn.execute("UPDATE documents SET receipt_no = ? WHERE id = ?", (receipt_no, doc_id))
+
     def set_document_kind(self, doc_id: int, kind: str | None) -> None:
         """서류 갈래(공고·양식·계획서 …)를 적는다 — 반입 때 스스로 정하거나 담당자가 고칠 때."""
         with self._conn() as conn:

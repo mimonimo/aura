@@ -106,7 +106,12 @@
          title="연관성으로 자동 연결된 기준">
         <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}</a>
       {% endfor %}
-      <span class="muted" style="margin-left:6px;">{{ doc.receipt_no or "" }} · 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
+      <form action="/doc/{{ doc.id }}/receipt" method="post" class="muted" style="margin:0 0 0 6px; display:inline-flex; align-items:center; gap:4px;" title="접수번호 — 연도-유형-일련(예 2026-국고-0004). 바꾸면 문서 폴더 이름도 따라갑니다">
+        <input type="text" name="receipt_no" value="{{ doc.receipt_no or '' }}" pattern="\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}" aria-label="접수번호" style="width:150px; font-size:12px; padding:2px 6px;">
+        <button type="submit" class="btn-ghost" style="padding:2px 8px; font-size:11.5px;">변경</button>
+        <span>· 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
+        {% if request.query_params.get('err') == 'receipt' %}<span style="color:var(--red);">형식은 2026-국고-0004 처럼</span>{% elif request.query_params.get('err') == 'receipt_dup' %}<span style="color:var(--red);">이미 쓰는 번호</span>{% endif %}
+      </form>
       <a class="pill" href="/graph?focus=d{{ doc.id }}" style="text-decoration:none;" title="이 문서의 연결을 그래프에서 봅니다">
         <iconify-icon icon="solar:graph-new-linear" style="font-size:12px;"></iconify-icon>그래프</a>
       <form action="/doc/{{ doc.id }}/delete" method="post" style="margin:0 0 0 auto;"

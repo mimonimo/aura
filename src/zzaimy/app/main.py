@@ -1206,6 +1206,28 @@ def create_app(
                     text = scope_msg + "\n\n" + text
                 db.add_chat(session_id, "assistant", text)
                 return
+            if re.search(r"(작성방법|안내|가이드)\s*(상자|박스|표)?[을를은는]?\s*(지워|삭제|없애|정리)|제출본|마무리\s*(해|정리)", q):
+                # 마무리 — 양식의 안내 상자(【작성방법】·【증빙자료】)를 지운다. 되돌릴 수 없으니 몇 개인지 먼저 세어 확인을 받는다
+                from zzaimy.ingest import gdocs as _gd
+
+                sure = bool(re.search(r"확인|그래|응|네|진행|지워\s*줘|삭제해\s*줘", q)) and (db.get_setting(f"chat_pending_boxes:{session_id}", "") or "") == "1"
+                if not sure:
+                    cnt = _gd.remove_instruction_boxes(link["account"], link["doc"], user=owner, data_dir=data_dir, dry_run=True)["count"]
+                    if cnt:
+                        db.set_setting(f"chat_pending_boxes:{session_id}", "1")
+                        text = f"작업본에 안내 상자(【작성방법】·【증빙자료】)가 {cnt}개 있습니다. 지우면 되돌릴 수 없고, 아직 안 쓴 절의 작성방법도 사라집니다. 지울까요?"
+                        _set_options(session_id, [{"kind": "confirm", "text": f"안내 상자 {cnt}개 삭제 확인", "question": "안내 상자 삭제 확인, 지워 줘"},
+                                                  {"kind": "skip", "text": "아직 두기", "question": "안내 상자는 아직 두고 다음 절을 작성해 줘"}])
+                    else:
+                        text = "지울 안내 상자가 없습니다."
+                    db.add_chat(session_id, "assistant", ag.scrub(text))
+                    return
+                db.set_setting(f"chat_pending_boxes:{session_id}", "")
+                res = _gd.remove_instruction_boxes(link["account"], link["doc"], user=owner, data_dir=data_dir)
+                text = f"안내 상자 {res['count']}개를 지웠습니다. 제출 전에 표지의 대학명·직인란과 쪽수를 확인하세요."
+                _set_options(session_id, [{"kind": "review", "text": "전체 검토", "question": "문서 전체를 공고·평가지표 기준으로 검토해 줘"}])
+                db.add_chat(session_id, "assistant", ag.scrub(text))
+                return
             review_focus = None
             review_mat = ""
             if re.search(r"검토|점검|평가해|맞는지", q):
@@ -1949,8 +1971,13 @@ def create_app(
         for d in intake:
             d["n_chunks"] = dc.get(d["id"], 0)
             d["kind_label"] = KINDS.get(d.get("kind") or "", "")
+        from zzaimy.app import institution
+
+        inst = institution.facts(db)
+        inst_set = {k: bool((db.get_setting(f"institution:{k}", "") or "").strip()) for k in institution.KEYS}
         return templates.TemplateResponse(
-            request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS, "intake": intake})
+            request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS, "intake": intake,
+                                                     "institution": inst, "institution_set": inst_set})
         )
 
     @app.post("/criteria/upload")
@@ -6006,6 +6033,36 @@ figure img{{width:100%;display:block}}
         storage.remove_intake_dir(db, doc)          # 원본·추출 그림이 든 문서 폴더째 지운다
         dest = "/criteria" if doc["doc_type"] == "regulation" else ("/ocr" if doc["doc_type"] == "ocr" else "/inbox")
         return RedirectResponse(dest, status_code=303)
+
+    _RECEIPT_RE = re.compile(r"^\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}$")
+
+    @app.post("/doc/{doc_id}/receipt")
+    def set_receipt(doc_id: int, receipt_no: str = Form(...)):
+        """접수번호 변경 — 연도-유형-일련(예 2026-국고-0004). 폴더 이름·파일 장부도 따라간다."""
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        new = (receipt_no or "").strip()
+        if not _RECEIPT_RE.match(new):
+            return RedirectResponse(f"/doc/{doc_id}?err=receipt", status_code=303)
+        try:
+            db.set_receipt_no(doc_id, new)
+        except ValueError:
+            return RedirectResponse(f"/doc/{doc_id}?err=receipt_dup", status_code=303)
+        try:
+            storage.rename_intake_dir(db, doc_id)
+        except Exception:
+            logging.getLogger(__name__).warning("접수번호 변경 뒤 폴더 이름 바꾸기 실패 doc=%s", doc_id)
+        return RedirectResponse(f"/doc/{doc_id}", status_code=303)
+
+    @app.post("/institution")
+    def set_institution(request: Request, 대학명: str = Form(""), 주소: str = Form(""), 총장: str = Form(""), 대표전화: str = Form("")):
+        """기관 정보 설정 — 문서함에서 인출한 값을 담당자가 바로잡거나 없는 값(총장 등)을 채운다. 빈 값은 인출값으로 돌아간다."""
+        from zzaimy.app import institution
+
+        for k, v in (("대학명", 대학명), ("주소", 주소), ("총장", 총장), ("대표전화", 대표전화)):
+            institution.set_fact(db, k, v)
+        return RedirectResponse("/criteria#institution", status_code=303)
 
     @app.post("/doc/{doc_id}/review")
     def add_review(doc_id: int, opinion: str = Form(...)):

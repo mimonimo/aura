@@ -576,3 +576,29 @@ def test_clear_section_body_keeps_heading_and_instruction_box(monkeypatch, tmp_p
     r = gdocs.clear_section_body("a@b", "d", 1, user="u", data_dir=tmp_path, http=http, end_index=150, keep_headings={"1. 대외여건 분석"})
     ranges = [(q["deleteContentRange"]["range"]["startIndex"], q["deleteContentRange"]["range"]["endIndex"]) for q in sent[0]]
     assert ranges == [(120, 149), (80, 100)]
+
+
+def test_remove_instruction_boxes_counts_and_deletes(monkeypatch, tmp_path):
+    import httpx
+
+    def para(st, en, text):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": "NORMAL_TEXT"}, "elements": [{"textRun": {"content": text}}]}}
+
+    def table(st, en, text):
+        return {"startIndex": st, "endIndex": en, "table": {"tableRows": [{"tableCells": [{"content": [para(st + 1, en - 1, text)]}]}]}}
+
+    body = [para(1, 10, "1.1. 절\n"), table(10, 50, "【작성방법】 지역 동향"), para(50, 60, "본문\n"), para(60, 70, "【증빙자료】\n"),
+            table(70, 90, "구분 | 값"), para(90, 100, "끝\n")]
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"title": "t", "body": {"content": body}})
+        sent.append(json.loads(req.content)["requests"]); return httpx.Response(200, json={"documentId": "d"})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    assert gdocs.remove_instruction_boxes("a@b", "d", user="u", data_dir=tmp_path, http=http, dry_run=True) == {"ok": True, "count": 2}
+    assert not sent
+    r = gdocs.remove_instruction_boxes("a@b", "d", user="u", data_dir=tmp_path, http=http)
+    ranges = [(q["deleteContentRange"]["range"]["startIndex"], q["deleteContentRange"]["range"]["endIndex"]) for q in sent[0]]
+    assert r["count"] == 2 and ranges == [(60, 70), (10, 50)]          # 데이터 표(구분|값)는 남는다
