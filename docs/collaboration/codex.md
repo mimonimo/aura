@@ -1,5 +1,9 @@
 # Codex 작업 기록
 
+## C-20260927-108 — 미생성 PDF 원문 표시 오류
+
+진행: 사용자 화면에 PDF 변환 실패 JSON 노출. 실행 파일 존재만으로 PDF 준비로 판단하는 것이 원인. main.py는 현재 clean 확인, detail의 original_kind 조건 한 줄만 수정(작성 로직 제외). 실제 생성된 비어 있지 않은 PDF일 때만 원문 탭 제공. 미생성 시 Sheets 열기 안내 유지. Claude에게 해당 조건 변경 인계.
+
 ## C-20260927-107 — 문서 검토 화면 넓게 보기
 
 진행: 문서 원문·검토 의견 고정 분할을 사용자 선택으로 전환. `_document_source.html`, document-workspace CSS/JS, UI 테스트만 수정. iframe·입력값을 유지하고 모바일은 기존 단일 열 유지. main.py/작성 에이전트는 건드리지 않음. Calc 미설치에 따른 실제 Excel PDF 검증은 C106의 미완료 항목.

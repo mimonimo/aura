@@ -1250,7 +1250,7 @@ def create_app(
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
 
-            logging.getLogger("zzaimy.app.gdocs").exception("연결 문서 명령 실패 (대화 %s): %s", session_id, q[:80])
+            logging.getLogger("zzaimy.app.gdocs").exception("연결 문서 명령 실패 (대화 %s)", session_id)
             text = describe_llm_error(e) + ". 문서는 바꾸지 않았습니다."
         text = ag.scrub(text)
         if scope_msg:
@@ -1923,8 +1923,15 @@ def create_app(
             # 같은 제목의 판본이 여럿이면 몇 판째인지·어느 공고에 딸렸는지 보여 준다
             d["family_count"] = families.get(d.get("family") or "", 1)
             d["head_title"] = names.get(d.get("related_criteria_id") or -1, "")
+        # 접수·첨부 문서(문서 검토 대상)도 같은 문서함에서 본다(사용자 지시 2026-09-27) — 프로젝트·갈래·번호·상태
+        intake = [d for d in db.list_documents() if d.get("doc_type") != "regulation"]
+        with db._conn() as conn:
+            dc = {r[0]: r[1] for r in conn.execute("SELECT doc_id, COUNT(*) FROM doc_chunks GROUP BY doc_id").fetchall()}
+        for d in intake:
+            d["n_chunks"] = dc.get(d["id"], 0)
+            d["kind_label"] = KINDS.get(d.get("kind") or "", "")
         return templates.TemplateResponse(
-            request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS})
+            request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS, "intake": intake})
         )
 
     @app.post("/criteria/upload")
@@ -1983,7 +1990,7 @@ def create_app(
         )
         return RedirectResponse(f"/project/{pid}", status_code=303)
 
-    _CRITERIA_KINDS = {"announcement", "guideline", "criteria", "regulation"}
+    _CRITERIA_KINDS = {"announcement", "guideline", "criteria", "regulation", "basic_plan"}
     _BASE_PLAN = re.compile(r"기본\s*계획|추진\s*계획|시행\s*계획|운영\s*계획")
 
     def _bundle_role(filename: str) -> str:
@@ -5361,7 +5368,7 @@ def create_app(
             original_kind = (
                 "pdf" if suffix == ".pdf"
                 else "image" if suffix in (".png", ".jpg", ".jpeg")
-                else "office" if office_pdf.is_office(src_path) and (office_pdf.view_path(doc).exists() or office_pdf.soffice()) else None
+                else "office" if office_pdf.is_office(src_path) and office_pdf.view_path(doc).is_file() and office_pdf.view_path(doc).stat().st_size > 0 else None
             )
 
         all_assets = db.list_doc_assets(doc_id)

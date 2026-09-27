@@ -131,9 +131,10 @@ def test_draft_generation_flow(client):
     )
     r = client.post("/doc/1/draft", follow_redirects=False)
     assert r.status_code == 303
+    d = client.app.state.db.get_document(1)          # 초안은 저장되지만 개별 문서 화면에는 안 보인다 — 초안은 에이전트 대화에서(9/27)
+    assert "합성 초안 섹션" in (d.get("draft") or "") and "배점 커버리지 70/100점" in (d.get("coverage") or "")
     r = client.get("/doc/1")
-    assert "합성 초안 섹션" in r.text
-    assert "배점 커버리지 70/100점" in r.text
+    assert r.status_code == 200 and "계획서 초안 작성" not in r.text
 
 
 def test_draft_endpoint_404_for_unknown_doc(client):

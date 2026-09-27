@@ -143,7 +143,7 @@ def test_rightmost_title_cue_decides_kind():
     assert guess_kind("AID선정평가 지표정의서 및 평가편람(ver5).hwpx", "")[0] == "guideline"
     assert guess_kind("AID선정평가사업계획서 작성서식(ver5).hwpx", "")[0] == "form"
     assert guess_kind("규정 개정 신청서.hwp", "")[0] == "form"
-    assert guess_kind("2026학년도 지원사업 기본계획.pdf", "")[0] == "plan"
+    assert guess_kind("2026학년도 지원사업 기본계획.pdf", "")[0] == "basic_plan"      # 기본계획은 기준 문서 갈래(9/27)
 
 
 def test_project_doc_named_matches_title_words(tmp_path):
@@ -465,3 +465,18 @@ def test_context_options_take_precedence_and_clear_on_next_question(tmp_path, mo
     c.post("/chat/send", data={"question": "다른 질문", "session_id": str(sid)}, follow_redirects=False)
     assert not db.get_setting(f"chat_options:{sid}", "")                                  # 다음 질문이 오면 지워진다
 
+
+
+def test_document_store_page_lists_intake_documents_and_basic_plan_kind(tmp_path):
+    """문서함(/criteria)에는 기준 문서와 함께 접수·첨부 문서도 보인다. '기본계획'은 기준 갈래다."""
+    from zzaimy.app.doc_routing import guess_kind
+
+    assert guess_kind("2026학년도 AID 전환 중점 전문대학 지원사업 기본계획.pdf", "")[0] == "basic_plan"
+    assert guess_kind("2026년 AID 사업계획서 Ver.3.3.hwp", "")[0] == "plan"
+    app, c = _client(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "AID", owner="zzaimy")
+    d = db.add_document(filename="사업계획서 합본.pdf", stored_path=str(tmp_path / "h.pdf"), doc_type="grant", project_id=pid)
+    db.update_document(d, status="reviewed"); db.set_document_kind(d, "plan")
+    page = c.get("/criteria").text
+    assert "접수·첨부 문서" in page and "사업계획서 합본" in page and f'href="/doc/{d}"' in page and "AID" in page

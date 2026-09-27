@@ -125,7 +125,7 @@ def guess_doc_type(text: str, identity: dict | None = None,
 
 # 서류 갈래 — 처리 경로(doc_type)와 별개로 문서가 어떤 서류인지. 화면 표시와 연관(공고↔양식↔계획서)에 쓴다.
 KINDS = {
-    "announcement": "공고", "form": "양식", "plan": "계획서", "report": "결과보고서",
+    "announcement": "공고", "form": "양식", "plan": "계획서", "basic_plan": "기본계획", "report": "결과보고서",
     "regulation": "규정", "guideline": "지침·매뉴얼", "criteria": "심사·평가 기준", "notice": "안내문",
     "table": "표·현황", "certificate": "증명·등록증",
 }
@@ -136,6 +136,7 @@ _KIND_CUES = {
     "form": r"신청서|확약서|동의서|서약서|정의서|양식|서식|신고서|원서|위임서|제출서|이력서|추천서|"
             r"(?:복학|휴학|자퇴|퇴학|전과|입학|편입|재입학|사직|휴직|복직|출원)원$",
     "announcement": r"공고|모집|공모|제안요청|입찰",
+    "basic_plan": r"기본\s*계획|시행\s*계획|추진\s*계획|운영\s*계획",     # 사업의 틀을 정하는 기준 문서 — 우리가 쓰는 '계획서'와 다르다
     "plan": r"계획",
     "table": r"편성표|현황|내역|목록|일람|명단|시간표|일정표|배정표",
     "report": r"결과보고|성과보고|실적보고|결과 보고|최종보고|보고서|보고$",
@@ -143,7 +144,7 @@ _KIND_CUES = {
     "criteria": r"심사기준|평가기준|평가지표|배점|채점|심사표|평가표",
     "notice": r"안내|공지|알림|확인사항|유의사항|이벤트|박람회|축제|체험|캠페인|참여방법|관광|예매|입장권|페스타|페스티벌|공연|마라톤",
 }
-_KIND_ORDER = ("regulation", "certificate", "form", "report", "criteria", "announcement", "guideline", "plan",
+_KIND_ORDER = ("regulation", "certificate", "form", "report", "criteria", "announcement", "guideline", "basic_plan", "plan",
                "table", "notice")
 # '-원'으로 끝나는 서류 이름은 신청 서식이다(복학원·재입학원·학점취소원). 기관 이름의 '원'은 아니다.
 _WON_FORM = re.compile(r"[가-힣()/]{2,}원$")
