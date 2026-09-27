@@ -28,7 +28,7 @@
   </h2>
   {% if doc.status == 'reviewed' %}
   {% if is_spreadsheet %}
-  <div class="spreadsheet-help"><p>표는 열 너비를 유지해 표시합니다. 좌우로 스크롤해 확인하세요.</p><a class="btn-ghost" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener">스프레드시트로 보기 ↗</a></div>
+  <div class="spreadsheet-help"><p>{% if has_pdf %}원문은 시트별 비율을 유지해 너비에 맞춥니다. 숨김 시트도 포함되며, 작은 글씨는 PDF 도구로 확대하세요.{% else %}현재 추출 표만 표시됩니다. 원본 비율 미리보기는 PDF 변환이 필요합니다.{% endif %}</p><a class="btn-ghost" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener">스프레드시트로 보기 ↗</a></div>
   {% endif %}
   {# 원문·본문·표·그림을 한 자리에서 바꿔 본다. 검색은 추출된 글 전체에서 찾고
      결과를 누르면 그 쪽의 원문이나 본문 위치로 간다 #}
@@ -49,7 +49,7 @@
     <div class="docsearch-results" id="docSearchResults" hidden></div>
     {% if has_pdf %}
     <div class="docpane" data-pane="pdf">
-      <div class="docview"><iframe id="docPdf" src="/doc/{{ doc.id }}/restored.pdf" title="{{ doc.filename }}" loading="lazy"></iframe></div>
+      <div class="docview"><iframe id="docPdf" src="/doc/{{ doc.id }}/restored.pdf#view=FitH" title="{{ doc.filename }}" loading="lazy"></iframe></div>
     </div>
     {% endif %}
     <div class="docpane" data-pane="extract" {% if has_pdf %}hidden{% endif %}>

@@ -1,5 +1,12 @@
 # Codex 작업 기록
 
+## C-20260927-106 — 엑셀 시트 비율 미리보기
+
+진행 Codex: office_pdf.py, _document_source.html, document-workspace.js.
+Claude main.py/gdocs_agent.py/dev-now 진행 변경은 보존. 방금 추가된 원문 PDF
+경로 재사용. Calc SinglePageSheets로 열 분할 없이 시트별 1쪽, PDF FitH 기본.
+공식 문서상 숨김 시트도 포함하므로 안내 명시. 새 캐시명으로 기존 분할 PDF 보존.
+
 ## C-20260927-105 — 엑셀 추출 표 열 폭 보존
 
 Codex _document_source.html/document-workspace.css. 스프레드시트 확장자만

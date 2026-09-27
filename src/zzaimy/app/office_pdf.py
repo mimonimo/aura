@@ -15,6 +15,7 @@ from pathlib import Path
 
 OFFICE_EXTS = {".hwp", ".hwpx", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".odt", ".ods", ".odp"}
 VIEW_NAME = "열람.pdf"
+SHEET_EXTS = {".xlsx", ".xls", ".ods"}
 SOFFICE_TIMEOUT = 300
 
 
@@ -23,7 +24,8 @@ def is_office(path: str | Path) -> bool:
 
 
 def view_path(doc: dict) -> Path:
-    return Path(doc.get("stored_path") or "").parent / VIEW_NAME
+    source = Path(doc.get("stored_path") or "")
+    return source.parent / ("열람-시트전체-v1.pdf" if source.suffix.lower() in SHEET_EXTS else VIEW_NAME)
 
 
 def soffice() -> str | None:
@@ -60,8 +62,10 @@ def to_pdf(src: Path, out_dir: Path, timeout: int = SOFFICE_TIMEOUT) -> Path | N
     profile = Path(tempfile.mkdtemp(prefix="zz-soffice-"))
     try:
         env = {"HOME": str(profile), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "ko_KR.UTF-8"}
+        pdf_filter = ('pdf:calc_pdf_Export:{"SinglePageSheets":{"type":"boolean","value":"true"}}'
+                      if src.suffix.lower() in SHEET_EXTS else "pdf")
         cmd = [exe, "--headless", "--norestore", f"-env:UserInstallation=file://{profile}/profile",
-               "--convert-to", "pdf", "--outdir", str(out_dir), str(src)]
+               "--convert-to", pdf_filter, "--outdir", str(out_dir), str(src)]
         subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
         out = out_dir / (src.stem + ".pdf")
         return out if out.exists() and out.stat().st_size > 0 else None

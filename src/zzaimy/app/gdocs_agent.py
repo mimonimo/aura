@@ -54,12 +54,16 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 - 글은 문서의 말투와 격식을 따른다. 수치·금액·날짜는 아래 근거 조각이나 문서에 있는 것만 쓰고 지어내지 않는다.
 - insert 의 text 에는 새 글만 담는다. 문서에 이미 있는 문장을 다시 쓰지 않는다(그 절의 마지막 문장을 따라 적지 않는다).
 - 개인정보(전화·주민번호·계좌)는 쓰지 않는다. 편집 reply는 계획 요약이며 실행 성공을 미리 단정하지 않는다. 질문/검토 reply에는 필요한 설명을 충분히 쓴다.
+- 절을 작성하라는 지시면: 그 절의 [양식 안내·작성방법]이 요구하는 항목을 모두 다루는 본문 문단들을 insert(section=그 절)로 쓴다.
+  [지난 사업 자료]는 이 대학의 실제 여건·실적·계획이므로 그 사실·수치·명칭을 바탕으로 쓰되, 자료를 그대로 베끼지 말고 이 양식의 절 구성과
+  평가지표에 맞게 재구성한다. 작성방법 상자의 안내문 자체는 옮기지 않는다. 표를 요구하면 table 로 낸다. 자료에 없는 수치는 만들지 않는다.
 
 [문서 제목] {title}
 [절 구조] (번호 · 제목 · 글자 수)
 {outline}
-[문서 본문]
+[문서 본문]{focus_note}
 {text}
+{materials}
 [근거 조각]
 {evidence}
 [담당자 지시]
@@ -71,14 +75,26 @@ def _outline_lines(info: dict) -> str:
     return "\n".join(f"{s['index']} · {s['heading']} · {s['chars']}자" for s in info["sections"])
 
 
-def plan(client, command: str, info: dict, evidence: list[dict] | None = None, max_text: int = 12000) -> dict:
-    """27B 에게 편집 계획을 받는다. client 는 VllmClient(.client 는 OpenAI 호환, .model, ._extra)."""
+def plan(client, command: str, info: dict, evidence: list[dict] | None = None, max_text: int = 12000,
+         materials: str = "", focus: dict | None = None) -> dict:
+    """27B 에게 편집 계획을 받는다. client 는 VllmClient(.client 는 OpenAI 호환, .model, ._extra).
+
+    materials 는 절 작성 재료(작성방법·평가지표·지난 자료·기관 정보, drafting.render_materials). focus 가 있으면 [문서 본문]에는
+    그 절의 글만 준다(긴 문서는 앞 12000자만 보여 대상 절이 빠지던 문제)."""
     ev = "\n".join(f"- ({c.get('reg_title') or c.get('doc_title') or ''}) {str(c.get('content') or '')[:400]}"
                    for c in (evidence or [])[:5]) or "(없음)"
-    visible_text = info["text"][:max_text]
-    if len(info["text"]) > max_text:
-        visible_text += "\n[본문 일부만 제공됨: 이후 내용은 확인하지 못했으므로 전체 검토 완료로 보고하지 마세요.]"
-    prompt = _PROMPT.format(title=info["title"], outline=_outline_lines(info), text=visible_text,
+    focus_note = ""
+    if focus is not None:
+        from zzaimy.app import drafting
+
+        visible_text = drafting.section_text(info, focus)[:max_text] or info["text"][:max_text]
+        focus_note = f" (대상 절 「{focus.get('heading', '')}」 의 현재 글만)"
+    else:
+        visible_text = info["text"][:max_text]
+        if len(info["text"]) > max_text:
+            visible_text += "\n[본문 일부만 제공됨: 이후 내용은 확인하지 못했으므로 전체 검토 완료로 보고하지 마세요.]"
+    prompt = _PROMPT.format(title=info["title"], outline=_outline_lines(info), text=visible_text, focus_note=focus_note,
+                            materials=(materials.strip() + "\n") if materials.strip() else "",
                             evidence=ev, command=command.strip())
     resp = client.client.chat.completions.create(
         model=client.model,
@@ -192,10 +208,18 @@ def describe(ops: list[dict], info: dict) -> str:
 
 
 def run(db, session_id: int, owner: str, command: str, link: dict, *, client, data_dir: Path, scrub=None,
-        evidence: list[dict] | None = None, confirm: bool = False, http=None) -> tuple[str, list[dict]]:
-    """명령 하나를 처리해 (채팅에 남길 글, 적용/보류한 ops) 를 돌려준다."""
-    info = gdocs.get(link["account"], link["doc"], http)
-    p = plan(client, command, info, evidence)
+        evidence: list[dict] | None = None, confirm: bool = False, http=None, materials: str = "",
+        focus: dict | None = None, info: dict | None = None, references: list[dict] | None = None) -> tuple[str, list[dict]]:
+    """명령 하나를 처리해 (채팅에 남길 글, 적용/보류한 ops) 를 돌려준다.
+
+    절 작성이면(focus) 재료와 함께 부르고, 실행 기록(재료·지시·모델의 초안·참고 정답)을 남긴다 — Writer 학습 데이터 공방의 재료."""
+    info = info or gdocs.get(link["account"], link["doc"], http)
+    p = plan(client, command, info, evidence, materials=materials, focus=focus)
+    if focus is not None:
+        _episode(data_dir, {"session": session_id, "user": owner, "doc": gdocs.doc_id(link["doc"]), "section": focus.get("heading"),
+                            "command": command, "materials": materials, "reply": p["reply"],
+                            "draft": [{"op": o.get("op"), "text": o.get("text")} for o in p["ops"]],
+                            "references": references or []})
     if not p["ops"]:
         return p["reply"] or "문서를 고칠 내용은 없습니다.", []
     if confirm:
@@ -216,3 +240,15 @@ def apply_pending(db, session_id: int, owner: str, link: dict, *, data_dir: Path
     lines = apply(ops, link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http)
     db.set_setting(f"chat_google_doc_pending:{session_id}", "")
     return lines
+
+
+def _episode(data_dir: Path, rec: dict) -> None:
+    """절 작성 한 번의 기록 — data/platform/drafting_episodes.jsonl. 재료·지시·초안·참고 정답을 함께 두어 학습 재료로 고를 수 있게."""
+    import datetime as _dt
+
+    try:
+        rec = dict(rec, at=_dt.datetime.now().astimezone().isoformat(timespec="seconds"))
+        with (Path(data_dir) / "drafting_episodes.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
