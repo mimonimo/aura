@@ -219,9 +219,10 @@ def test_ambiguous_document_reference_asks_instead_of_guessing(tmp_path, monkeyp
 
 
 def test_project_evidence_uses_intake_documents(tmp_path, monkeypatch):
-    """양식을 채울 재료는 프로젝트의 접수 문서(합본·지난 계획서)에 있다 — 명령과 낱말이 겹치는 조각이 근거로 붙는다."""
+    """절 작성 지시면 재료는 프로젝트의 접수 문서(합본·지난 계획서)에서 온다 — 같은 절이 없으면 낱말이 겹치는 조각이 재료로 붙고,
+    27B 는 그 재료와 대상 절 본문을 받아 쓴다(2026-09-27 절 작성 에이전트)."""
     from zzaimy.app import gdocs_agent
-    from zzaimy.ingest import gdrive
+    from zzaimy.ingest import gdocs, gdrive
     import json
 
     app, c = _client(tmp_path)
@@ -237,15 +238,24 @@ def test_project_evidence_uses_intake_documents(tmp_path, monkeypatch):
     from zzaimy.app import chat_documents
     monkeypatch.setattr(chat_documents, "material", lambda db_, sid_, owner_: "[연결 문서] 사업계획서 작성서식 작업본")
     monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
-    def fake_run(db_, session_id, owner, command, link, *, client, data_dir, scrub=None, evidence=None, confirm=False, http=None):
-        seen["evidence"] = evidence or []
-        return "적용됨: 1곳", []
+    info = {"title": "작업본", "end": 200, "text": "1. 대학의 여건\n1.1. 대학의 AI·DX 교육여건 분석\n【작성방법】 지역 동향·인력수요 | 표\n1.2. 특성화 방향\n【작성방법】 비전",
+            "sections": [{"index": 1, "level": 2, "heading": "1. 대학의 여건", "start": 1, "end": 10, "chars": 0, "table_end": 0},
+                         {"index": 2, "level": 3, "heading": "1.1. 대학의 AI·DX 교육여건 분석", "start": 10, "end": 30, "chars": 0, "table_end": 60},
+                         {"index": 3, "level": 3, "heading": "1.2. 특성화 방향", "start": 60, "end": 90, "chars": 0, "table_end": 120}]}
+    monkeypatch.setattr(gdocs, "get", lambda email, doc, http=None: info)
+    def fake_run(db_, session_id, owner, command, link, *, client, data_dir, scrub=None, evidence=None, confirm=False, http=None, **kw):
+        seen["command"] = command; seen["materials"] = kw.get("materials", ""); seen["focus"] = kw.get("focus"); seen["refs"] = kw.get("references")
+        return "「1.1」 아래에 300자 추가", [{"op": "insert", "section": 2, "text": "…"}]
     monkeypatch.setattr(gdocs_agent, "run", fake_run)
     from zzaimy.generate import client as _gc
     monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: object())
-    c.post("/chat/send", data={"question": "합본의 대학 AI·DX 교육여건 분석 내용으로 1.1 절을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
-    ev = seen["evidence"]
-    assert ev and ev[0]["origin"] == "프로젝트 문서" and "교육여건" in ev[0]["content"] and ev[0]["reg_title"] == "사업계획서 합본"
+    r = c.post("/chat/send", data={"question": "합본의 대학 AI·DX 교육여건 분석 내용으로 1.1 절을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert seen["focus"]["heading"].startswith("1.1.") and "1.1." in seen["command"]
+    assert "《사업계획서 합본》 (낱말 겹침)" in seen["materials"] and "교육여건 분석" in seen["materials"] and "작성방법" in seen["materials"]
+    last = db.list_chats(sid)[-1]
+    assert last["role"] == "assistant", last
+    assert "300자 추가" in last["content"], last["content"]
+    assert "이어서 다음 절 작성" in c.get(r.headers["location"]).text          # 남은 빈 절(1.2)이 있어 이어가기 선택지
 
 
 def test_text_layer_cleans_bad_glyphs():

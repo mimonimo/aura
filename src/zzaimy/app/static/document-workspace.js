@@ -177,7 +177,7 @@
     if (!frame || !pdfUrl) return;
     show('pdf');
     // 크롬 뷰어는 #page 로 쪽을 옮긴다. #search 는 지원하는 뷰어에서만 쓰인다
-    frame.src = `${pdfUrl}#page=${page}&search=${encodeURIComponent(q)}`;
+    frame.src = `${pdfUrl}#page=${page}&view=FitH&search=${encodeURIComponent(q)}`;
   }
 
   function run() {

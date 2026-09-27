@@ -44,3 +44,19 @@ def test_non_office_and_missing_soffice(tmp_path, monkeypatch):
     monkeypatch.setattr(office_pdf, "soffice", lambda: None)
     assert office_pdf.render(FakeDb(), {"id": 2, "stored_path": str(xlsx)}) is None     # 렌더러가 없으면 조용히 없음
     assert office_pdf.is_office("a.hwp") and office_pdf.is_office("b.XLSX") and not office_pdf.is_office("c.pdf")
+
+
+def test_sheet_pdf_preserves_whole_sheet_and_uses_new_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(office_pdf, "soffice", lambda: "/usr/bin/soffice")
+    commands = []
+    def run(cmd, **kwargs):
+        commands.append(cmd)
+        (tmp_path / "sheet.pdf").write_bytes(b"%PDF")
+    monkeypatch.setattr(office_pdf.subprocess, "run", run)
+    for ext in (".xlsx", ".xls", ".ods"):
+        src = tmp_path / ("sheet" + ext)
+        assert office_pdf.to_pdf(src, tmp_path)
+        assert 'SinglePageSheets' in commands[-1][commands[-1].index('--convert-to') + 1]
+        assert office_pdf.view_path({'stored_path': str(src)}).name != office_pdf.VIEW_NAME
+    office_pdf.to_pdf(tmp_path / "sheet.docx", tmp_path)
+    assert commands[-1][commands[-1].index('--convert-to') + 1] == 'pdf'

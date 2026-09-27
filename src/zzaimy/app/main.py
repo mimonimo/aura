@@ -1096,7 +1096,7 @@ def create_app(
     def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
         """연결된 구글 독스에 대한 명령 — 근거 조각을 붙여 편집 계획을 받고 적용한 결과를 채팅에 남긴다."""
         from zzaimy.app import access_guard as ag
-        from zzaimy.app import chat_documents, gdocs_agent
+        from zzaimy.app import chat_documents, drafting, gdocs_agent, section_context
         from zzaimy.app.regulations import find_relevant
 
         link = chat_documents.binding(db, session_id, owner)
@@ -1127,6 +1127,55 @@ def create_app(
             from zzaimy.generate.client import VllmClient
 
             client = VllmClient(role="answer")
+            if drafting.looks_like_section_draft(q):
+                # 절 작성 에이전트(사용자 지시 2026-09-27): 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
+                # 절마다 재료(작성방법·평가지표·지난 자료의 같은 절·기관 정보)를 모아 27B 가 쓰고 넣는다. 한 번에 몇 절씩, 이어서는 선택지로.
+                from zzaimy.app import institution
+                from zzaimy.app.regulations import extract_nouns
+                from zzaimy.ingest import gdocs as _gd
+
+                info = _gd.get(link["account"], link["doc"])
+                targets = drafting.target_sections(info, q)
+                if not targets:
+                    text = "쓸 절을 찾지 못했습니다. 절 번호(예: 1.1)를 말해 주거나, 빈 절이 없으면 어느 절을 다시 쓸지 골라 주세요."
+                    _set_options(session_id, [{"kind": "pick", "text": f"「{s_['heading'][:24]}」 다시 쓰기", "question": f"{section_context.split_number(s_['heading'])[0]} 절을 다시 써 줘"}
+                                              for s_ in [x for x in info["sections"] if drafting.writable(x)][:3]])
+                    db.add_chat(session_id, "assistant", ag.scrub(text))
+                    return
+                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+                sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
+                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [])
+                inst = institution.facts(db)
+                parts_: list[str] = []
+                all_ops: list[dict] = []
+                for sec in targets:
+                    m = mats.for_section(info, sec, q, storage.title_of)
+                    cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 작성해 줘. 담당자 지시: {q}"
+                    refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
+                    t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=ag.scrub_for_writing,
+                                             evidence=m["criteria"], confirm=confirm, materials=drafting.render_materials(m, inst),
+                                             focus=sec, references=refs)
+                    used = ", ".join(f"{p_['title'][:18]}({p_['how']})" for p_ in m["past"]) or "없음"
+                    parts_.append(f"[{sec['heading'][:40]}]\n{t_}\n재료 — 지난 자료: {used} · 기준 조각 {len(m['criteria'])}건")
+                    all_ops += o_
+                    info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
+                missing = [k for k, v in inst.items() if not v]
+                if missing:
+                    parts_.append("기관 정보 중 문서함에 없어 비워 둔 값: " + ", ".join(missing) + " — 설정(institution)으로 넣으면 다음부터 채웁니다.")
+                text = "\n\n".join(parts_)
+                _ops = all_ops
+                left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x)]
+                opts = []
+                if left:
+                    opts.append({"kind": "continue", "text": f"이어서 다음 절 작성 (남은 절 {len(left)}개)", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
+                opts += [{"kind": "review", "text": "방금 쓴 절 검토", "question": "방금 쓴 절을 평가지표·공고 기준으로 검토해 줘"},
+                         {"kind": "redo", "text": "다시 써 줘", "question": f"{section_context.split_number(targets[-1]['heading'])[0]} 절을 더 구체적인 수치와 근거로 다시 써 줘"}]
+                _set_options(session_id, opts)
+                text = ag.scrub(text)
+                if scope_msg:
+                    text = scope_msg + "\n\n" + text
+                db.add_chat(session_id, "assistant", text)
+                return
             text, _ops = gdocs_agent.run(db, session_id, owner, q, link, client=client, data_dir=data_dir,
                                          scrub=ag.scrub_for_writing, evidence=hits, confirm=confirm)
             if not _ops and not proj_hits:
