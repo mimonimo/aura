@@ -214,3 +214,27 @@ def family_text(info: dict, section: dict) -> str:
     for s in subsections(info, section):
         parts.append(f"[절 {s['index']}] " + (section_text(info, s) or s.get("heading", "")))
     return "\n".join(p for p in parts if p)
+
+
+_NUM_TOKEN = re.compile(r"\d[\d,.]*\s*(?:%|억|만|천|백|명|개|건|년|월|일|점|호|회|시간|학점|과목|원)?")
+_TERM_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9+·\-]{2,}|[가-힣]{2,}(?:추진단|대학|센터|위원회|사업단|플랫폼|시스템|아카데미|랩|스쿨|모델|트랙|프로그램)")
+
+
+def key_facts(text: str) -> tuple[set[str], set[str]]:
+    """정답지의 '핵심 사실' — 수치(단위 포함)와 고유명사꼴 낱말(영문 약어·기관·조직 이름). 채점의 기준."""
+    nums = {m.group(0).replace(" ", "").strip(",.") for m in _NUM_TOKEN.finditer(text or "")}
+    nums = {n for n in nums if any(ch.isdigit() for ch in n) and len(n) >= 2}
+    terms = {m.group(0) for m in _TERM_TOKEN.finditer(text or "")}
+    return nums, terms
+
+
+def score_against_reference(draft: str, reference: str) -> dict:
+    """초안이 정답지의 핵심 사실을 얼마나 담았나 — {covered, total, ratio, missing:[...]} (수치·고유명사 기준, 0~1)."""
+    nums, terms = key_facts(reference)
+    facts = nums | terms
+    if not facts:
+        return {"covered": 0, "total": 0, "ratio": None, "missing": []}
+    body = (draft or "").replace(" ", "")
+    hit = {f for f in facts if f.replace(" ", "") in body}
+    missing = sorted(facts - hit, key=lambda x: (x in terms, x))[:12]
+    return {"covered": len(hit), "total": len(facts), "ratio": round(len(hit) / len(facts), 2), "missing": missing}

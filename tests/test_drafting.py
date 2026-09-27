@@ -73,3 +73,12 @@ def test_family_text_includes_form_subheadings():
     assert [s["index"] for s in subs] == [6, 7]
     fam = drafting.family_text(info, info["sections"][0])
     assert "[절 6] 1. 대외여건 분석" in fam and "[절 7] 1) 지역 동향" in fam and "1.2." not in fam
+
+
+def test_score_against_reference_counts_numbers_and_terms():
+    ref = "AI-X추진단을 신설하고 82개 교과목을 편성했다. NCSI 13년 연속 1위. VISION2030 수립. 사업비 240억원."
+    draft = "총장 직속 AI-X추진단을 두고 82개 교과목을 편성하였다. VISION2030 과 연계한다."
+    sc = drafting.score_against_reference(draft, ref)
+    assert sc["total"] >= 5 and sc["covered"] >= 3 and 0 < sc["ratio"] < 1
+    assert any("240억" in x for x in sc["missing"]) and not any("82개" in x for x in sc["missing"])
+    assert drafting.score_against_reference("x", "")["ratio"] is None

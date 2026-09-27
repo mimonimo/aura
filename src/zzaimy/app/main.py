@@ -1186,6 +1186,13 @@ def create_app(
                                              focus=sec, references=refs, before_apply=before_apply)
                     used = ", ".join(f"{p_['title'][:18]}({p_['how']})" for p_ in m["past"]) or "없음"
                     parts_.append(f"[{sec['heading'][:40]}]\n{t_}\n재료 — 지난 자료: {used} · 기준 조각 {len(m['criteria'])}건")
+                    # 정답지(같은 절이 있는 완성본)와 견준 반영률 — 초안이 넣은 글 대 그 절의 핵심 사실(수치·고유명사)
+                    if refs and o_:
+                        draft_text = "\n".join(str(o.get("text") or "") for o in o_)
+                        sc = drafting.score_against_reference(draft_text, "\n".join(r_["text"] for r_ in refs))
+                        if sc["ratio"] is not None:
+                            miss = (" · 빠진 것: " + ", ".join(sc["missing"][:8])) if sc["missing"] else ""
+                            parts_.append(f"완성본 대비 핵심 사실 반영 {sc['covered']}/{sc['total']} ({int(sc['ratio'] * 100)}%){miss}")
                     all_ops += o_
                     info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
                 db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
@@ -1230,7 +1237,7 @@ def create_app(
                 return
             review_focus = None
             review_mat = ""
-            if re.search(r"검토|점검|평가해|맞는지", q):
+            if re.search(r"검토|점검|평가해|맞는지|채점|비교해", q):
                 # 절 검토: 지목한 절(번호) 또는 방금 쓴 절을 재료(작성방법·평가지표·지난 자료 같은 절)와 함께 준다 — 긴 문서의 앞 12000자만 보던 문제
                 from zzaimy.app import institution
                 from zzaimy.app.regulations import extract_nouns
