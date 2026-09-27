@@ -541,3 +541,30 @@ def test_outline_carries_each_sections_text(docs_env):
     sec = info["sections"][1]
     assert sec["heading"] == "1. 추진 배경" and sec["text"].startswith("1. 추진 배경") and "지역 산업 수요가 늘고 있다." in sec["text"]
     assert "2. 추진 계획" not in sec["text"]
+
+
+def test_clear_section_body_keeps_heading_and_instruction_box(monkeypatch, tmp_path):
+    """다시 쓰기 전 비우기 — 제목과 【작성방법】 상자만 남기고 상자 앞뒤 문단·모델이 넣은 표를 지운다."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": style},
+                                                                 "elements": [{"textRun": {"content": text}}]}}
+
+    def table(st, en, text):
+        return {"startIndex": st, "endIndex": en, "table": {"tableRows": [{"tableCells": [{"content": [para(st + 1, en - 1, text)]}]}]}}
+
+    body = [para(1, 20, "1.1. 교육여건 분석\n", "HEADING_2"), para(20, 22, " \n"), table(22, 80, "【작성방법】 지역 동향을 쓴다"),
+            para(80, 200, "옛 문단\n"), table(200, 300, "SWOT | 내용"), para(300, 302, " \n"), para(302, 330, "1.2. 특성화 방향\n", "HEADING_2"),
+            para(330, 340, "끝\n")]
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"title": "t", "body": {"content": body}})
+        sent.append(json.loads(req.content)["requests"]); return httpx.Response(200, json={"documentId": "d"})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    r = gdocs.clear_section_body("a@b", "d", 1, user="u", data_dir=tmp_path, http=http)
+    ranges = [(q["deleteContentRange"]["range"]["startIndex"], q["deleteContentRange"]["range"]["endIndex"]) for q in sent[0]]
+    assert ranges == [(80, 301), (20, 22)] and r["chars"] == 223          # 상자 뒤(옛 문단+표), 상자 앞의 빈 문단 — 뒤에서부터
