@@ -229,10 +229,16 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     info = info or gdocs.get(link["account"], link["doc"], http)
     p = plan(client, command, info, evidence, materials=materials, focus=focus)
     if focus is not None:
+        score = None
+        if references and p["ops"]:
+            from zzaimy.app import drafting
+
+            score = drafting.score_against_reference("\n".join(str(o.get("text") or "") for o in p["ops"]),
+                                                     "\n".join(r.get("text") or "" for r in references))
         _episode(data_dir, {"session": session_id, "user": owner, "doc": gdocs.doc_id(link["doc"]), "section": focus.get("heading"),
                             "command": command, "materials": materials, "reply": p["reply"],
                             "draft": [{"op": o.get("op"), "text": o.get("text")} for o in p["ops"]],
-                            "references": references or []})
+                            "references": references or [], "score": score})
     if not p["ops"]:
         return p["reply"] or "문서를 고칠 내용은 없습니다.", []
     if confirm:
