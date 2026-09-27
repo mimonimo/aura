@@ -131,7 +131,7 @@ def outline(document: dict) -> dict:
     doc_end = int(body[-1].get("endIndex", 1)) if body else 1
     styled = any(HEADING_LEVELS.get(st) is not None and t.strip() for _s, _e, st, t, tb in items if not tb)
     sections: list[dict] = []
-    cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0, "table_end": 0, "text": ""}
+    cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0, "table_end": 0, "text": "", "body_chars": 0}
     for start, end, style, text, is_table in items:
         # 제목 스타일이 있어도 번호 문단(Ⅰ. / 1.1.)은 절이다 — 변환한 한글 문서는 개요 스타일이 몇 개뿐이고 절 제목이 굵은 보통
         # 문단이라(실측 2026-09-24 사업계획서: 스타일 제목 3개, 번호 절 수십 개) 스타일만 보면 절이 3개로 잡힌다
@@ -144,7 +144,7 @@ def outline(document: dict) -> dict:
             if cur["chars"] or cur["index"] > 0:        # 글 없는 앞머리는 절로 세지 않는다
                 sections.append(cur)
             cur = {"index": len(sections) + 1, "level": lvl, "heading": text.strip()[:80],
-                   "start": start, "end": end, "chars": 0, "table_end": 0, "text": text.strip()}
+                   "start": start, "end": end, "chars": 0, "table_end": 0, "text": text.strip(), "body_chars": 0}
             continue
         if is_table:
             cur["table_end"] = end                     # 절이 표(작성방법 상자)로 끝나면 글은 그 표 뒤에 들어가야 한다
@@ -155,6 +155,8 @@ def outline(document: dict) -> dict:
         cur["chars"] += len(text.strip())
         if text.strip():
             cur["text"] = (cur["text"] + "\n" + text.rstrip("\n")).strip()      # 절의 글(표는 칸을 ' | ' 로) — 목차의 같은 제목과 헷갈리지 않게 구조에서 자른다
+            if not (is_table and "작성방법" in text):
+                cur["body_chars"] += len(text.strip())                          # 본문 글자 — 양식의 작성방법 상자는 본문이 아니다
     sections.append(cur)
     text = "\n".join(t.rstrip("\n") for _s, _e, _st, t, _tb in items)
     return {"title": document.get("title", ""), "end": doc_end, "sections": sections, "text": text}
