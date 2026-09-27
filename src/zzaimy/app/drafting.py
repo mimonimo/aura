@@ -32,7 +32,10 @@ def looks_like_section_draft(command: str) -> bool:
 
 
 def is_unfilled(section: dict) -> bool:
-    """본문이 없는 절 — 작성방법 상자(표)만 있거나 글이 없다."""
+    """본문이 없는 절 — 작성방법 상자를 뺀 본문 글자(outline 의 body_chars)가 0. 옛 구조(body_chars 없음)면 '상자로 끝나거나 글이 없음'.
+    실측 2026-09-27: 모델이 절 끝에 SWOT 표를 넣자 '상자로 끝남'으로 보여 빈 절로 취급, 다시 쓰기가 비우지 않고 덧붙였다."""
+    if "body_chars" in section:
+        return int(section.get("body_chars") or 0) == 0
     return int(section.get("table_end") or 0) > int(section.get("end") or 0) - 1 or int(section.get("chars") or 0) == 0
 
 

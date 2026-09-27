@@ -56,3 +56,8 @@ def test_materials_prefer_aligned_section_then_keywords():
     assert "지난 계획서" in titles and titles["지난 계획서"]["how"] == "같은 절" and "지역 산업 수요" in titles["지난 계획서"]["text"]
     assert "서식" not in titles                                     # 작업본의 원본 서식은 재료가 아니다
     assert titles["현황표"]["how"] == "낱말 겹침"
+
+
+def test_unfilled_uses_body_chars_when_present():
+    assert drafting.is_unfilled({"body_chars": 0, "chars": 300, "table_end": 0, "end": 10})       # 상자 글자만
+    assert not drafting.is_unfilled({"body_chars": 120, "chars": 420, "table_end": 99, "end": 90})  # 모델이 넣은 표로 끝나도 본문 있음

@@ -541,6 +541,7 @@ def test_outline_carries_each_sections_text(docs_env):
     sec = info["sections"][1]
     assert sec["heading"] == "1. 추진 배경" and sec["text"].startswith("1. 추진 배경") and "지역 산업 수요가 늘고 있다." in sec["text"]
     assert "2. 추진 계획" not in sec["text"]
+    assert sec["body_chars"] == len("지역 산업 수요가 늘고 있다.")
 
 
 def test_clear_section_body_keeps_heading_and_instruction_box(monkeypatch, tmp_path):
