@@ -60,3 +60,14 @@ def test_sheet_pdf_preserves_whole_sheet_and_uses_new_cache(tmp_path, monkeypatc
         assert office_pdf.view_path({'stored_path': str(src)}).name != office_pdf.VIEW_NAME
     office_pdf.to_pdf(tmp_path / "sheet.docx", tmp_path)
     assert commands[-1][commands[-1].index('--convert-to') + 1] == 'pdf'
+
+
+def test_soffice_prefers_env_then_home_bundle(tmp_path, monkeypatch):
+    exe = tmp_path / "opt" / "lo" / "opt" / "libreoffice25.8" / "program" / "soffice"
+    exe.parent.mkdir(parents=True); exe.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("HOME", str(tmp_path)); monkeypatch.delenv("ZZAIMY_SOFFICE", raising=False)
+    monkeypatch.setattr(office_pdf.Path, "home", classmethod(lambda cls: tmp_path))
+    assert office_pdf.soffice() == str(exe)
+    custom = tmp_path / "soffice"; custom.write_text("")
+    monkeypatch.setenv("ZZAIMY_SOFFICE", str(custom))
+    assert office_pdf.soffice() == str(custom)
