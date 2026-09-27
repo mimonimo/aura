@@ -349,9 +349,14 @@ def data_dir_default() -> Path:
     return Path(os.environ.get("ZZAIMY_DATA_DIR", "data/platform"))
 
 
+def _is_instruction_box(tbl: dict) -> bool:
+    return "작성방법" in _table_text(tbl)
+
+
 def clear_section_body(email: str, doc: str, section_index: int, *, user: str, data_dir: Path, http=None) -> dict:
-    """절의 본문 글을 지운다 — 제목과 작성방법 상자(표)만 남기고, 상자 앞·뒤의 문단을 모두. '다시 써 줘' 가 덧붙이지 않고
-    바꿔 쓰게 하기 위한 것(실측 2026-09-27: 상자 앞에 남은 옛 문단을 모델이 '기존 글'로 보고 한 문장만 고쳤다). 지운 글자 수를 돌려준다."""
+    """절의 본문을 지운다 — 제목과 작성방법 상자(【작성방법】이 든 표)만 남기고 그 밖의 문단·표(모델이 넣은 표 포함)를 모두.
+    '다시 써 줘' 가 덧붙이지 않고 바꿔 쓰게 하기 위한 것(실측 2026-09-27: 상자 앞에 남은 옛 문단을 모델이 기존 글로 보고
+    한 문장만 고쳤고, 모델이 넣은 SWOT 표가 상자로 취급돼 남았다). 지운 글자 수를 돌려준다."""
     http = http or _http()
     info = get(email, doc, http)
     sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
@@ -362,21 +367,17 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
     body = body_content(r.json())
     nxt = next((s for s in info["sections"] if s.get("start", 0) > sec["start"]), None)
     end_limit = int(nxt["start"]) if nxt else int(info["end"]) - 1
+    els = [el for el in body if int(sec["start"]) <= int(el.get("startIndex", 0)) < end_limit]
+    if not els:
+        return {"ok": True, "chars": 0}
+    head_end = int(els[0].get("endIndex", 0))                 # 제목 문단 뒤부터
+    box = next((el for el in els[1:] if "table" in el and _is_instruction_box(el["table"])), None)
     ranges: list[tuple[int, int]] = []
-    cursor = None
-    for el in body:
-        st, en = int(el.get("startIndex", 0)), int(el.get("endIndex", 0))
-        if st < sec["start"] or st >= end_limit:
-            continue
-        if st == sec["start"]:
-            cursor = en                                    # 제목 문단 뒤부터
-            continue
-        if "table" in el:
-            if cursor is not None and st > cursor:
-                ranges.append((cursor, st))                # 상자 앞의 문단들
-            cursor = en                                    # 상자 뒤부터
-    if cursor is not None and end_limit - 1 > cursor:
-        ranges.append((cursor, end_limit - 1))             # 상자 뒤(또는 제목 뒤)의 문단들
+    if box is not None:
+        ranges.append((head_end, int(box["startIndex"])))
+        ranges.append((int(box["endIndex"]), end_limit - 1))
+    else:
+        ranges.append((head_end, end_limit - 1))
     ranges = [(a, b) for a, b in ranges if b > a]
     if not ranges:
         return {"ok": True, "chars": 0}
