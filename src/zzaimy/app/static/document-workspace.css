@@ -29,6 +29,10 @@
 .document-opinion { padding:12px 0; border-bottom:1px solid var(--line); }
 .document-opinion p { white-space:pre-wrap; overflow-wrap:anywhere; margin:0 0 5px; }
 .document-opinion time { font-size:12px; }
+.review-memo > summary { cursor:pointer; font-weight:600; font-size:14px; line-height:1.8; }
+.review-memo > summary .muted { font-size:12px; font-weight:400; margin-left:8px; }
+.review-memo > summary:focus-visible { outline:2px solid var(--navy); outline-offset:4px; border-radius:4px; }
+.review-memo[open] > summary { margin-bottom:18px; }
 #documentWorkspace [id] { scroll-margin-top:90px; }
 #documentWorkspace .card { border-radius:12px; box-shadow:none; border:1px solid #DFE5EC; padding:0; background:#fff; }
 #documentWorkspace .card-in { padding:22px; box-shadow:none; border-radius:12px; }

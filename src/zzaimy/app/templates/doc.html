@@ -98,7 +98,7 @@
         <span class="pill reviewed" {% if doc.parse_note %}title="{{ doc.parse_note }}"{% endif %}>{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
       {% else %}
         <span class="pill {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
-        <span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>
+        {% if doc.doc_type in ('recruit', 'admission') %}<span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>{% endif %}
       {% endif %}
       {% if related %}<span class="pill">대상: {{ doc_name(related) }}</span>{% endif %}
       {% for sc in suggested_criteria or [] %}
@@ -180,13 +180,13 @@
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:chat-square-check-linear"></iconify-icon>에이전트 검토 의견</h2>
     <div class="draft-body">{{ doc.ai_review | md_view }}</div>
-    <p class="notice">원문과 연결 기준을 확인한 뒤 보완할 내용을 담당자 의견에 남겨 주세요.</p>
+    <p class="notice">원문과 연결 기준을 확인하고, 필요한 사항은 아래 검토 메모에 기록하세요.</p>
   </div></div>
   {% endif %}
   {# 계획서 초안은 개별 문서 화면이 아니라 에이전트 대화에서 쓴다(사용자 지시 2026-09-27) — 이 화면은 검토(원문·본문·의견·판정)만 #}
   {% include "_document_feedback.html" %}
-  {# 담당자 판정 — 검토 의견 유무와 무관하게 reviewed면 항상 노출(생성 서버 미연결 대비) #}
-  {% if doc.status == "reviewed" %}
+  {# 참고자료에는 결재를 요구하지 않는다. 채용·입학 서류의 기존 판정 흐름만 유지. #}
+  {% if doc.status == "reviewed" and doc.doc_type in ('recruit', 'admission') %}
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:gavel-linear"></iconify-icon>담당자 판정
       {% if doc.decision and doc.decision != "pending" %}
