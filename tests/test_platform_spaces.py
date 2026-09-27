@@ -90,7 +90,7 @@ def test_ui_initial_state_and_project_tools_remain_available(tmp_path, monkeypat
     # 접수는 묶음 접수 경로 하나로(아스트라 6ad908fc): 파일 하나든 여럿이든 /project/{id}/bundle
     for action in (f'/project/{pid}/bundle', '/chat/send', f'/project/{pid}/notes', f'/projects/{pid}/rename', '/criteria/upload'):
         assert f'action="{action}"' in page
-    assert 'data-modal-open="#hwpTargetModal"' in page
+    # 한글 에이전트 대상 창은 프로젝트 화면에서 뺐다(아스트라 C-95, 한글 에이전트는 지금 우선순위 아님)
     assert '일반휴학' not in page
 
 

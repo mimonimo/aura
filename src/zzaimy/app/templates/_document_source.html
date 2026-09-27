@@ -8,6 +8,7 @@
   {% endif %}
 {% endmacro %}
 {% set has_pdf = doc.status == 'reviewed' and original_kind %}
+{% set is_spreadsheet = doc.filename.lower().endswith(('.xlsx', '.xls', '.csv', '.ods')) %}
 <div class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 보기
     <a class="btn-ghost" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener">원본 열기 ↗</a>
@@ -26,6 +27,9 @@
     </span>
   </h2>
   {% if doc.status == 'reviewed' %}
+  {% if is_spreadsheet %}
+  <div class="spreadsheet-help"><p>표는 열 너비를 유지해 표시합니다. 좌우로 스크롤해 확인하세요.</p><a class="btn-ghost" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener">스프레드시트로 보기 ↗</a></div>
+  {% endif %}
   {# 원문·본문·표·그림을 한 자리에서 바꿔 본다. 검색은 추출된 글 전체에서 찾고
      결과를 누르면 그 쪽의 원문이나 본문 위치로 간다 #}
   <div class="docview-wrap" id="docViewer" data-pdf="{{ '/doc/%d/restored.pdf' % doc.id if has_pdf else '' }}">
@@ -50,9 +54,9 @@
     {% endif %}
     <div class="docpane" data-pane="extract" {% if has_pdf %}hidden{% endif %}>
       <nav class="extract-nav" id="extractNav" aria-label="본문 목차" hidden></nav>
-      <div class="extract-doc document-extract" id="extractBody" data-show="{{ 'text' if not has_pdf else 'text' }}">{{ extracted() }}</div>
+      <div class="extract-doc document-extract{% if is_spreadsheet %} spreadsheet-extract{% endif %}" id="extractBody" data-show="{{ 'text' if not has_pdf else 'text' }}" {% if is_spreadsheet %}tabindex="0" aria-label="추출된 스프레드시트, 좌우 스크롤 가능"{% endif %}>{{ extracted() }}</div>
     </div>
-    <p class="viewnote muted">{% if has_pdf %}인식한 글자는 원본과 다를 수 있습니다. 수치와 표는 원본을 함께 확인하세요.{% else %}문서 뷰어로 열 수 없어 추출된 글과 표를 표시합니다. 원래 서식은 원본 파일에서 확인하세요.{% endif %}</p>
+    <p class="viewnote muted">{% if original_kind == 'office' %}원문은 반입 때 변환한 열람 PDF 입니다. 서식이 원본과 조금 다를 수 있습니다.{% elif has_pdf %}인식한 글자는 원본과 다를 수 있습니다. 수치와 표는 원본을 함께 확인하세요.{% else %}문서 뷰어로 열 수 없어 추출된 글과 표를 표시합니다. 원래 서식은 원본 파일에서 확인하세요.{% endif %}</p>
   </div>
   {% else %}
     <p class="muted">{{ '처리에 실패했습니다. 원본 파일은 위 버튼으로 열 수 있습니다.' if doc.status == 'failed' else '처리가 끝나면 추출 결과가 표시됩니다.' }}</p>
