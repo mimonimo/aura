@@ -12,6 +12,9 @@
 <div class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 보기
     <a class="btn-ghost" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener">원본 열기 ↗</a>
+    {% if doc.status == 'reviewed' and doc.doc_type not in ('regulation', 'ocr') %}
+    <button type="button" id="documentWidthToggle" class="btn-ghost" aria-pressed="false" aria-controls="documentSource documentWork" hidden>넓게 보기</button>
+    {% endif %}
     <span class="menu-wrap" style="margin-left:auto;">
       <button type="button" id="expBtn" class="btn-ghost" aria-expanded="false" aria-controls="expMenu">내보내기</button>
       <div id="expMenu" class="menu-list" hidden>

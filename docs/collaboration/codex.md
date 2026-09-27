@@ -1,5 +1,11 @@
 # Codex 작업 기록
 
+## C-20260927-107 — 문서 검토 화면 넓게 보기
+
+진행: 문서 원문·검토 의견 고정 분할을 사용자 선택으로 전환. `_document_source.html`, document-workspace CSS/JS, UI 테스트만 수정. iframe·입력값을 유지하고 모바일은 기존 단일 열 유지. main.py/작성 에이전트는 건드리지 않음. Calc 미설치에 따른 실제 Excel PDF 검증은 C106의 미완료 항목.
+
+검증: 문서/분석/office PDF/프로젝트 UI pytest 10건 통과, JS 문법·diff 검사 통과. `node tests/chat_documents_browser.mjs` PASS(합성 iframe): 분할 폭·이미지·Drive 폴더 선택·제안 클릭 시 편집기 유지·새 세션 연결. 실제 Google 편집기/문서 작성 성공 검증과는 별개. Claude 백엔드 미커밋 변경은 제외하고 UI만 커밋. 동시 운영 재시작 방지를 위해 이번 UI는 Claude 통합 배포 요청 상태로 남김.
+
 ## C-20260927-106 — 엑셀 시트 비율 미리보기
 
 검증/막힘: Claude 06bff57d에 함께 통합돼 VM HEAD도 일치/service active.

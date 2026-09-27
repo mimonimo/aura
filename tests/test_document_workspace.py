@@ -26,6 +26,8 @@ def test_document_keeps_project_context_and_evidence_first(workspace):
     assert 'href="/project/1" class="btn-ghost"' in page
     assert page.index('id="documentSource"') < page.index('id="documentWork"')
     assert page.index('id="documentFeedback"') < page.index('>담당자 판정')
+    assert 'id="documentWidthToggle"' in page
+    assert 'aria-controls="documentSource documentWork"' in page
 
 
 def test_processing_document_only_offers_original_export(workspace):
@@ -36,6 +38,7 @@ def test_processing_document_only_offers_original_export(workspace):
     assert '/doc/1/original' in page
     assert '/doc/1/export.docx' not in page
     assert '/doc/1/decision' not in page
+    assert 'id="documentWidthToggle"' not in page
 
 
 def test_empty_regulation_summary_can_be_requested(workspace):
@@ -46,6 +49,7 @@ def test_empty_regulation_summary_can_be_requested(workspace):
     page = client.get(f'/doc/{doc_id}').text
     assert f'action="/doc/{doc_id}/analyze"' in page
     assert 'id="documentFeedback"' not in page
+    assert 'id="documentWidthToggle"' not in page
 
 
 def test_draft_generation_exposes_status_poll_without_inline_reload(workspace):
