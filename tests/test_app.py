@@ -151,8 +151,9 @@ def test_review_prompt_differs_by_doc_type():
     assert "행정" in grant
 
 
-def _uploaded(client):
-    client.post("/upload", files={"file": ("a.pdf", b"%PDF fake", "application/pdf")})
+def _uploaded(client, doc_type: str = "recruit"):
+    # 판정(승인·반려)은 채용·입학 서류에만 있다(아스트라 4dd3c0c1) — 판정 흐름 테스트는 채용 서류로
+    client.post("/upload", data={"doc_type": doc_type}, files={"file": ("a.pdf", b"%PDF fake", "application/pdf")})
     return client
 
 

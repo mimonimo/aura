@@ -396,3 +396,31 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
     n = sum(b - a for a, b in ranges)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "clear", "section": sec["heading"], "chars": n})
     return {"ok": True, "chars": n}
+
+
+_GUIDE_BOX = re.compile(r"【\s*(작성방법|증빙자료|작성\s*가이드|작성\s*요령|유의사항)\s*】")
+
+
+def remove_instruction_boxes(email: str, doc: str, *, user: str, data_dir: Path, http=None, dry_run: bool = False) -> dict:
+    """양식의 안내 상자를 지운다 — 【작성방법】·【증빙자료】 같은 표와 그 표시만 있는 문단. 제출 전 마무리 단계
+    (양식 지침: '본문에 제시된 【작성방법】,【증빙자료】, 작성 가이드 박스 등은 삭제한 후 작성'). dry_run 이면 세기만."""
+    http = http or _http()
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    _raise(r)
+    body = body_content(r.json())
+    ranges: list[tuple[int, int]] = []
+    for el in body:
+        st, en = int(el.get("startIndex", 0)), int(el.get("endIndex", 0))
+        if "table" in el and _GUIDE_BOX.search(_table_text(el["table"])):
+            ranges.append((st, en))
+        elif "paragraph" in el:
+            t = _para_text(el["paragraph"]).strip()
+            if t and _GUIDE_BOX.fullmatch(t):
+                ranges.append((st, en))
+    n = len(ranges)
+    if n and not dry_run:
+        # 표는 그 범위 전체를, 문단은 줄 끝까지 — 뒤에서부터 지워 앞 인덱스가 밀리지 않게
+        reqs = [{"deleteContentRange": {"range": {"startIndex": a, "endIndex": b}}} for a, b in sorted(ranges, reverse=True)]
+        _batch(email, doc, reqs, http)
+        _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "remove_boxes", "count": n})
+    return {"ok": True, "count": n}

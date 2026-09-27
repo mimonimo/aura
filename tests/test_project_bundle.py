@@ -480,3 +480,45 @@ def test_document_store_page_lists_intake_documents_and_basic_plan_kind(tmp_path
     db.update_document(d, status="reviewed"); db.set_document_kind(d, "plan")
     page = c.get("/criteria").text
     assert "접수·첨부 문서" in page and "사업계획서 합본" in page and f'href="/doc/{d}"' in page and "AID" in page
+
+
+def test_finishing_command_asks_before_removing_boxes(tmp_path, monkeypatch):
+    from zzaimy.app import chat_documents
+    from zzaimy.ingest import gdocs, gdrive
+    import json
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    sid = db.create_chat_session("작성", owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    monkeypatch.setattr(chat_documents, "material", lambda db_, sid_, owner_: "[연결 문서] 작업본")
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
+    calls = []
+    monkeypatch.setattr(gdocs, "remove_instruction_boxes", lambda email, doc, *, user, data_dir, http=None, dry_run=False: (calls.append(dry_run) or {"ok": True, "count": 7}))
+    from zzaimy.generate import client as _gc
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: object())
+    c.post("/chat/send", data={"question": "작성방법 상자 지워 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert calls == [True] and "7개" in db.list_chats(sid)[-1]["content"] and db.get_setting(f"chat_pending_boxes:{sid}", "") == "1"
+    c.post("/chat/send", data={"question": "안내 상자 삭제 확인, 지워 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert calls == [True, False] and "7개를 지웠습니다" in db.list_chats(sid)[-1]["content"]
+
+
+def test_receipt_number_can_be_changed_and_institution_saved(tmp_path):
+    app, c = _client(tmp_path)
+    db = app.state.db
+    d1 = db.add_document(filename="a.pdf", stored_path=str(tmp_path / "a.pdf"), doc_type="grant")
+    d2 = db.add_document(filename="b.pdf", stored_path=str(tmp_path / "b.pdf"), doc_type="grant")
+    r = c.post(f"/doc/{d1}/receipt", data={"receipt_no": "2026-국고-0099"}, follow_redirects=False)
+    assert r.status_code == 303 and db.get_document(d1)["receipt_no"] == "2026-국고-0099"
+    r = c.post(f"/doc/{d2}/receipt", data={"receipt_no": "2026-국고-0099"}, follow_redirects=False)
+    assert r.headers["location"].endswith("err=receipt_dup")
+    r = c.post(f"/doc/{d2}/receipt", data={"receipt_no": "이상한번호"}, follow_redirects=False)
+    assert r.headers["location"].endswith("err=receipt")
+    page = c.get(f"/doc/{d1}").text
+    assert 'name="receipt_no" value="2026-국고-0099"' in page
+    c.post("/institution", data={"대학명": "영남이공대학교", "주소": "", "총장": "홍길동", "대표전화": ""}, follow_redirects=False)
+    from zzaimy.app import institution
+    f = institution.facts(db)
+    assert f["대학명"] == "영남이공대학교" and f["총장"] == "홍길동"
+    page = c.get("/criteria").text
+    assert 'id="institution"' in page and 'value="홍길동"' in page and "(설정값)" in page
