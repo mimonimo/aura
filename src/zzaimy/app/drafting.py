@@ -63,7 +63,10 @@ def target_sections(info: dict, command: str, filled_ok: bool = False) -> list[d
 
 
 def section_text(info: dict, section: dict) -> str:
-    """그 절의 현재 글(작성방법 상자 포함) — 문서 본문에서 제목부터 다음 절 앞까지."""
+    """그 절의 현재 글(작성방법 상자 포함). 독스 구조에서 자른 절 글(outline 의 text)이 있으면 그것 —
+    본문에서 제목 글자를 찾으면 앞쪽 목차의 같은 제목에 걸린다(실측 2026-09-27: 1.2 절의 작성방법이 모델에 안 갔다)."""
+    if (section.get("text") or "").strip():
+        return section["text"].strip()
     text = info.get("text") or ""
     heading = (section.get("heading") or "").strip()
     i = text.find(heading)
