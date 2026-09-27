@@ -495,6 +495,7 @@ def create_app(
         project: int | None = None,
         flt: str | None = None,
         page: int = 0,
+        group: str = "all",
     ):
         if request.url.path == "/" and not any((type, q, project, flt, page)):
             return RedirectResponse("/chat", status_code=303)
@@ -504,8 +505,17 @@ def create_app(
                 doc_type, q=q, project_id=project,
                 owner=getattr(request.state, "user", "zzaimy"),
             )
-            if d["doc_type"] not in ("regulation", "ocr")
+            if _visible(d, dept=getattr(request.state, "dept", "") or None,
+                        user=getattr(request.state, "user", "zzaimy"),
+                        role=getattr(request.state, "role", "staff"))
         ]
+        group = group if group in ("all", "reference", "criteria", "extract") else "all"
+        if group == "criteria":
+            all_docs = [d for d in all_docs if d["doc_type"] == "regulation"]
+        elif group == "extract":
+            all_docs = [d for d in all_docs if d["doc_type"] == "ocr"]
+        elif group == "reference":
+            all_docs = [d for d in all_docs if d["doc_type"] not in ("regulation", "ocr")]
         stats = {
             "total": len(all_docs),
             "processing": sum(1 for d in all_docs if d["status"] in ("received", "processing")),
@@ -545,7 +555,7 @@ def create_app(
             request,
             "index.html",
             ctx(request, {
-                "documents": docs, "active_tab": doc_type or "all", "q": q or "",
+                "documents": docs, "active_tab": doc_type or "all", "q": q or "", "document_group": group,
                 "sector_criteria": sector_criteria,
                 "projects": projects, "active_project": project,
                 "stats": stats, "active_flt": flt, "recent_activity": recent,

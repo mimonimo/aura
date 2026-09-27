@@ -41,6 +41,19 @@ def test_processing_document_only_offers_original_export(workspace):
     assert 'id="documentWidthToggle"' not in page
 
 
+def test_library_lists_all_registered_types_without_search(workspace):
+    client, db = workspace
+    criteria = db.add_document(filename='library-criteria.txt', stored_path='absent', doc_type='regulation')
+    extract = db.add_document(filename='library-extract.txt', stored_path='absent', doc_type='ocr')
+    page = client.get('/inbox?type=all').text
+    for doc_id in (1, criteria, extract):
+        assert f'href="/doc/{doc_id}"' in page
+    filtered = client.get('/inbox?type=all&group=criteria').text
+    assert f'href="/doc/{criteria}"' in filtered
+    assert f'href="/doc/{extract}"' not in filtered
+    assert 'name="group"' in filtered
+
+
 def test_office_preview_requires_generated_pdf(workspace, tmp_path, monkeypatch):
     from zzaimy.app import office_pdf
     client, db = workspace

@@ -1,5 +1,11 @@
 # Codex 작업 기록
 
+## C-20260927-109 — 라이브러리 통합 문서 목록
+
+진행: clean 확인 후 main.index 및 index/criteria 템플릿 수정. 검색해야만 나타나던 문서 목록 상시 표시, 기준·추출 문서 포함, 문서 갈래 필터와 페이지 유지. 기존 owner 범위를 유지하고 열람 등급도 필터링. Drive만의 파일은 플랫폼 등록 문서와 별개임을 명시. 작성 에이전트 로직 제외.
+
+검증: document_workspace/platform_spaces/doc_visibility 14건 통과. 검색 시 제목은 검색 결과, 기본 목록은 등록 문서로 구분. Claude cdd3dbcb에서 개별 문서 초안 카드 제거도 확인. 통합 배포 요청(아직 이번 목록 변경 운영 확인 전).
+
 ## C-20260927-108 — 미생성 PDF 원문 표시 오류
 
 진행: 사용자 화면에 PDF 변환 실패 JSON 노출. 실행 파일 존재만으로 PDF 준비로 판단하는 것이 원인. main.py는 현재 clean 확인, detail의 original_kind 조건 한 줄만 수정(작성 로직 제외). 실제 생성된 비어 있지 않은 PDF일 때만 원문 탭 제공. 미생성 시 Sheets 열기 안내 유지. Claude에게 해당 조건 변경 인계.
