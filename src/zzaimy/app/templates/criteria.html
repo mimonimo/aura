@@ -35,6 +35,28 @@
   #criteriaTable td { padding:16px 12px; vertical-align:top; }
   #criteriaTable td a { display:block; overflow-wrap:anywhere; line-height:1.6; text-decoration:none; font-weight:500; }
   #criteriaTable td a:hover { text-decoration:underline; }
+  :is(#criteriaTable, #intakeTable) .pill { display:inline-flex; align-items:center; white-space:nowrap; flex-shrink:0; line-height:1.4; padding:4px 10px; }
+  #intakeTable { width:100%; table-layout:fixed; }
+  #intakeTable th:nth-child(1) { width:145px; }
+  #intakeTable th:nth-child(3) { width:19%; }
+  #intakeTable th:nth-child(4), #intakeTable th:nth-child(5) { width:100px; }
+  #intakeTable th:nth-child(6) { width:80px; white-space:nowrap; }
+  #intakeTable th:nth-child(7) { width:145px; }
+  #intakeTable td { padding:16px 12px; vertical-align:top; }
+  #intakeTable td a { display:block; overflow-wrap:anywhere; line-height:1.6; text-decoration:none; font-weight:500; }
+  #intakeTable td a:hover { text-decoration:underline; }
+  #intakeTable td:nth-child(3) a { display:inline-block; font-size:12px; padding:4px 8px; border:1px solid var(--line); border-radius:8px; background:var(--panel); }
+  :is(#criteriaTable, #intakeTable) a:focus-visible { outline:2px solid var(--navy); outline-offset:3px; border-radius:4px; }
+  #intakeTable td:nth-child(7) { font-size:12px; line-height:1.6; }
+  @media(max-width:1400px) {
+    #intakeTable, #intakeTable tbody { display:block; }
+    #intakeTable tr:first-child { display:none; }
+    #intakeTable tr:not(:first-child) { display:flex; flex-wrap:wrap; gap:8px 14px; padding:16px 0; border-bottom:1px solid var(--line); }
+    #intakeTable td { display:block; border:0; padding:0; font-size:12px; min-width:0; max-width:100%; }
+    #intakeTable td:nth-child(2) { order:-1; flex:0 0 100%; font-size:14px; }
+    #intakeTable td:nth-child(3) { flex:0 0 100%; }
+    #intakeTable td:nth-child(6)::before { content:'검색 자료 '; }
+  }
   @media(max-width:1100px) {
     #criteriaTable, #criteriaTable tbody { display:block; }
     #criteriaTable tr:first-child { display:none; }
