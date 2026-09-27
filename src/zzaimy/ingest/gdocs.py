@@ -355,10 +355,11 @@ def _is_instruction_box(tbl: dict) -> bool:
     return "작성방법" in _table_text(tbl)
 
 
-def clear_section_body(email: str, doc: str, section_index: int, *, user: str, data_dir: Path, http=None) -> dict:
-    """절의 본문을 지운다 — 제목과 작성방법 상자(【작성방법】이 든 표)만 남기고 그 밖의 문단·표(모델이 넣은 표 포함)를 모두.
-    '다시 써 줘' 가 덧붙이지 않고 바꿔 쓰게 하기 위한 것(실측 2026-09-27: 상자 앞에 남은 옛 문단을 모델이 기존 글로 보고
-    한 문장만 고쳤고, 모델이 넣은 SWOT 표가 상자로 취급돼 남았다). 지운 글자 수를 돌려준다."""
+def clear_section_body(email: str, doc: str, section_index: int, *, user: str, data_dir: Path, http=None,
+                       end_index: int | None = None, keep_headings: set[str] | None = None) -> dict:
+    """절의 본문을 지운다 — 제목·작성방법 상자(【작성방법】이 든 표)·소제목 문단(keep_headings)은 남기고, 상자 뒤(상자가 없으면
+    제목 뒤)의 문단·표를 지운다. end_index 를 주면 그 앞까지(소제목 절들까지 한 절로 볼 때). '다시 써 줘' 가 덧붙이지 않게.
+    독스는 표 바로 앞의 빈 문단을 지우지 못하므로 상자 앞은 건드리지 않는다(실측 2026-09-27 400)."""
     http = http or _http()
     info = get(email, doc, http)
     sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
@@ -368,19 +369,26 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
     _raise(r)
     body = body_content(r.json())
     nxt = next((s for s in info["sections"] if s.get("start", 0) > sec["start"]), None)
-    end_limit = int(nxt["start"]) if nxt else int(info["end"]) - 1
+    end_limit = int(end_index) if end_index else (int(nxt["start"]) if nxt else int(info["end"]) - 1)
+    end_limit = min(end_limit, int(info["end"]) - 1)
     els = [el for el in body if int(sec["start"]) <= int(el.get("startIndex", 0)) < end_limit]
     if not els:
         return {"ok": True, "chars": 0}
-    head_end = int(els[0].get("endIndex", 0))                 # 제목 문단 뒤부터
     box = next((el for el in els[1:] if "table" in el and _is_instruction_box(el["table"])), None)
+    cursor = int(box["endIndex"]) if box is not None else int(els[0].get("endIndex", 0))
+    keep = {h.strip() for h in (keep_headings or set())}
     ranges: list[tuple[int, int]] = []
-    if box is not None:
-        ranges.append((head_end, int(box["startIndex"])))
-        ranges.append((int(box["endIndex"]), end_limit - 1))
-    else:
-        ranges.append((head_end, end_limit - 1))
-    ranges = [(a, b) for a, b in ranges if b > a]
+    for el in els:
+        st, en = int(el.get("startIndex", 0)), int(el.get("endIndex", 0))
+        if st < cursor:
+            continue
+        if "paragraph" in el and _para_text(el["paragraph"]).strip() in keep:
+            if st > cursor:
+                ranges.append((cursor, st))
+            cursor = en                                     # 소제목은 남긴다
+    if end_limit - 1 > cursor:
+        ranges.append((cursor, end_limit - 1))
+    ranges = [(a, b) for a, b in ranges if b - a >= 2]
     if not ranges:
         return {"ok": True, "chars": 0}
     reqs = [{"deleteContentRange": {"range": {"startIndex": a, "endIndex": b}}} for a, b in sorted(ranges, reverse=True)]

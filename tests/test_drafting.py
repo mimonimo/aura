@@ -61,3 +61,15 @@ def test_materials_prefer_aligned_section_then_keywords():
 def test_unfilled_uses_body_chars_when_present():
     assert drafting.is_unfilled({"body_chars": 0, "chars": 300, "table_end": 0, "end": 10})       # 상자 글자만
     assert not drafting.is_unfilled({"body_chars": 120, "chars": 420, "table_end": 99, "end": 90})  # 모델이 넣은 표로 끝나도 본문 있음
+
+
+def test_family_text_includes_form_subheadings():
+    info = {"text": "", "sections": [
+        {"index": 5, "level": 3, "heading": "1.1. 교육여건 분석", "start": 10, "end": 20, "chars": 0, "table_end": 30, "text": "1.1. 교육여건 분석\n【작성방법】 지역 동향"},
+        {"index": 6, "level": 2, "heading": "1. 대외여건 분석", "start": 30, "end": 35, "chars": 0, "table_end": 0, "text": "1. 대외여건 분석"},
+        {"index": 7, "level": 2, "heading": "1) 지역 동향", "start": 35, "end": 40, "chars": 0, "table_end": 0, "text": "1) 지역 동향"},
+        {"index": 8, "level": 3, "heading": "1.2. 특성화 방향", "start": 40, "end": 50, "chars": 0, "table_end": 0, "text": "1.2. 특성화 방향"}]}
+    subs = drafting.subsections(info, info["sections"][0])
+    assert [s["index"] for s in subs] == [6, 7]
+    fam = drafting.family_text(info, info["sections"][0])
+    assert "[절 6] 1. 대외여건 분석" in fam and "[절 7] 1) 지역 동향" in fam and "1.2." not in fam
