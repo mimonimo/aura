@@ -112,22 +112,27 @@
     </div>
   </div>
 </div>
-{% if q or active_flt or active_project %}
-{% set base_qs = "type=" ~ active_tab ~ (("&project=" ~ active_project) if active_project else "") ~ (("&q=" ~ (q | urlencode)) if q else "") %}
+{% set base_qs = "type=" ~ active_tab ~ "&group=" ~ document_group ~ (("&project=" ~ active_project) if active_project else "") ~ (("&q=" ~ (q | urlencode)) if q else "") %}
 <div class="card reveal">
   <div class="card-in">
     {% set flt_labels = {"processing": "처리 중", "reviewed": "검토 완료", "pending": "판정 대기"} %}
-    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>문서 검색 결과
+    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{{ '문서 검색 결과' if q else '등록 문서' }} {{ total_docs }}건
       {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
       {% if q %}<span class="muted" style="margin-left:auto; font-size:12.5px; font-weight:500;">검색 {{ total_docs }}건</span>{% endif %}</h2>
     <form action="/" method="get" class="intake-toolbar" role="search" aria-label="현재 업무 문서 검색">
       <input type="hidden" name="type" value="{{ active_tab }}">
+      <select name="group" aria-label="문서 갈래">
+        {% for key, label in [('all', '전체 문서'), ('reference', '접수·첨부'), ('criteria', '공고·기준'), ('extract', '추출 문서')] %}
+        <option value="{{ key }}" {% if document_group == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
       {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
       {% if active_flt %}<input type="hidden" name="flt" value="{{ active_flt }}">{% endif %}
-      <input type="search" name="q" value="{{ q }}" placeholder="이 업무의 문서명 검색" aria-label="문서명 검색">
+      <input type="search" name="q" value="{{ q }}" placeholder="등록 문서명 검색" aria-label="문서명 검색">
       <button type="submit" class="secondary">검색</button>
       {% if q or active_flt %}<a class="btn-ghost" href="/?type={{ active_tab }}{% if active_project %}&amp;project={{ active_project }}{% endif %}">필터 해제</a>{% endif %}
     </form>
+    <p class="muted">플랫폼에 등록된 문서입니다. Google Drive 작업 파일은 대화의 문서함에서 확인하세요.</p>
     {% if documents %}
     <div class="table-scroll">
       <table class="intake-table">
@@ -140,7 +145,7 @@
               <iconify-icon icon="solar:folder-2-linear" style="font-size:12px;"></iconify-icon>{{ d.project_name }}</span>{% endif %}</td>
           <td><span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span></td>
           <td><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
-          <td><span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span></td>
+          <td>{% if d.doc_type in ('regulation', 'ocr') %}<span class="muted">해당 없음</span>{% else %}<span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}</td>
           <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
         </tr>
         {% endfor %}
@@ -163,5 +168,4 @@
     {% endif %}
   </div>
 </div>
-{% endif %}
 {% endblock %}
