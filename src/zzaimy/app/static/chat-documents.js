@@ -1,7 +1,8 @@
 (() => {
  const workspace=document.getElementById('chatWorkspace'), opener=document.getElementById('chatDocumentOpen');
  if(!workspace||!opener)return;
- const sid=workspace.dataset.session, main=workspace.parentElement;
+ let sid=workspace.dataset.session;
+ const main=workspace.parentElement;
  let linked=null, panel=null;
  let fitObserver=null;
  function clearPanel(){fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
@@ -131,7 +132,21 @@
    panel.querySelector('[data-list]').onclick=showFiles;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
    // 독스 문서면 "이 문서로 작업" — 복제본을 만들어 이 대화의 작업 문서로 잇는다(원본 서식은 그대로)
    if(v.is_doc&&sid){const work=document.createElement('button');work.type='button';work.className='secondary';work.textContent='이 문서로 작업';work.title='복제본을 만들어 이 대화에 연결합니다';
-     work.onclick=async()=>{work.disabled=true;work.textContent='복제본 만드는 중…';try{await api('/api/chat/'+sid+'/work-on/'+v.doc_id,{method:'POST'});const d=await api('/api/chat-documents/'+sid);linked=d;clearPanel();setRatio(50);show();location.reload();}catch(e){work.textContent=e.message;}};
+     let ready=null;
+     work.onclick=async()=>{
+       if(ready){linked=ready;clearPanel();show();return;}
+       const current=panel, session=sid;
+       work.disabled=true;work.textContent='복제본 만드는 중…';
+       try{
+         await api('/api/chat/'+session+'/work-on/'+v.doc_id,{method:'POST'});
+         const d=await api('/api/chat-documents/'+session);
+         if(session!==sid)return;
+         linked=d;ready=d;
+         // 요청 중 사용자가 다른 문서를 열거나 패널을 접었다면 그 선택을 유지한다.
+         if(panel===current&&!panel.hidden){clearPanel();show();}
+       }catch(e){work.textContent=e.message;}
+       finally{work.disabled=false;if(work.isConnected&&ready)work.textContent='작업 문서 열기';}
+     };
      panel.querySelector('header').insertBefore(work,panel.querySelector('[data-hide]'));}
    main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(50,false);visibility(true);fitEditor();
    const fit=panel.querySelector('[data-fit]');if(fit&&!/document\//.test(v.embed_url))fit.click();   // 시트·슬라이드·PDF 는 원래 크기
@@ -289,19 +304,37 @@
      const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='다른 폴더에서 가져오기';connectButton.onclick=connect;workDocs.after(connectButton);
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
- const initialized=sid?api('/api/chat-documents/'+sid).then(data=>{if(data.connected)linked=data;}).catch(error=>{loadError=error.message;}):Promise.resolve();
+ let initialized=Promise.resolve();
  // 새로 생성된 문서만 자동으로 연다. 기존 문서는 문서 버튼에서 목록을 먼저 표시한다.
  let watch=null;
  async function checkCreatedDocument(){
-   if(linked||!workspace.isConnected)return;
+   const session=sid;
+   if(!session||linked||!workspace.isConnected)return;
    try{
-     const data=await api('/api/chat-documents/'+sid);
+     const data=await api('/api/chat-documents/'+session);
      // 요청 중 사용자가 목록에서 다른 문서를 선택했다면 그 선택을 보존한다.
+     if(session!==sid)return;
      if(!linked&&data.connected){linked=data;setRatio(50);show();}
    }catch(_){}
-   if(!linked&&workspace.isConnected)watch=setTimeout(checkCreatedDocument,6000);
+   if(session===sid&&!linked&&workspace.isConnected)watch=setTimeout(checkCreatedDocument,6000);
  }
- initialized.then(()=>{if(sid&&!linked)watch=setTimeout(checkCreatedDocument,6000);});
+ function initializeSession(){
+   const session=sid;
+   clearTimeout(watch);
+   initialized=session?api('/api/chat-documents/'+session).then(data=>{
+     if(session===sid&&data.connected)linked=data;
+   }).catch(error=>{if(session===sid)loadError=error.message;}):Promise.resolve();
+   initialized.then(()=>{if(session===sid&&sid&&!linked)watch=setTimeout(checkCreatedDocument,6000);});
+ }
+ workspace.addEventListener('chat-session-updated',()=>{
+   const next=workspace.dataset.session;
+   if(next===sid)return; // 같은 대화의 답변 갱신은 iframe·분할 비율을 그대로 둔다.
+   sid=next;linked=null;loadError='';
+   visibility(false);clearPanel();
+   ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||50;
+   initializeSession();
+ });
+ initializeSession();
  window.addEventListener('pagehide',()=>clearTimeout(watch));
  opener.onclick=async()=>{await initialized;if(panel&&!panel.hidden)visibility(false);else showFiles();};
 })();

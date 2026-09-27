@@ -1,5 +1,7 @@
 /* 업무 기능은 유지하고 탐색·대화·문서 작업의 시각적 위계를 통일한다. */
 :root { --bg:#fff; --panel:#f7f7f8; --line:#e5e7eb; --ink:#25282d; --muted:#686f79; }
+#bellPop .notification-help{font-size:12px;line-height:1.6;color:var(--muted);margin:8px 12px 14px}
+#bellPop .notification-section{font-size:12px;color:var(--muted);margin:12px}
 /* Common controls: one inset keyboard focus edge, without adjacent overlap. */
 body :is(button,.btn,.btn-ghost,input,select,textarea):focus-visible { outline:2px solid #607c9e; outline-offset:-2px; box-shadow:none; }
 body :is(button,.btn,.btn-ghost):focus:not(:focus-visible) { outline:none; }

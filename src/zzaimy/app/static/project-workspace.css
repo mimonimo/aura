@@ -1,4 +1,21 @@
 #projectWorkspace { max-width:1160px; margin:0 auto; }
+#linkModal>.card{width:min(720px,calc(100vw - 32px));max-width:none}
+#linkModal .card-in{padding:24px;max-height:calc(100dvh - 64px);box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden}
+#linkModal .modal-head{flex:none;margin-bottom:12px}
+#linkModal .criteria-picker-help{font-size:13px;line-height:1.6;color:var(--muted);margin:0 0 16px}
+#linkModal .criteria-picker-search{flex:none;margin-bottom:16px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;box-shadow:none}
+#linkModal .criteria-picker-search:focus-within{border-color:#607c9e;box-shadow:0 0 0 3px #607c9e18}
+#linkModal #criteriaFilter{width:100%;min-width:0;border:0!important;outline:none!important;box-shadow:none!important;background:transparent;padding:0;border-radius:0;font:inherit}
+#linkModal form{display:flex;flex-direction:column;min-height:0}
+#criteriaList{overflow-y:auto;min-height:0;max-height:48dvh;display:flex;flex-direction:column;gap:8px;padding:2px}
+#criteriaList .criteria-picker-item{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid var(--line);border-radius:12px;font-size:14px;cursor:pointer}
+#criteriaList .criteria-picker-item:has(input:checked){background:#f0f5fc;border-color:#bdcee4}
+#criteriaList .criteria-picker-item:focus-within{outline:2px solid #607c9e;outline-offset:-2px}
+#criteriaList input{width:17px;height:17px;flex:none;margin:4px 0;accent-color:#36577f}
+.criteria-picker-name{flex:1;min-width:0;overflow-wrap:anywhere;line-height:1.65}
+.criteria-picker-footer{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px;padding-top:18px;margin-top:16px;border-top:1px solid var(--line);flex:none}
+.criteria-picker-footer #linkedCount{margin-right:auto;font-size:13px}
+@media(max-width:600px){#linkModal .card-in{padding:18px}#criteriaList .criteria-picker-item{flex-wrap:wrap;gap:8px}.criteria-picker-name{flex-basis:calc(100% - 30px)}#criteriaList .pill{margin-left:25px}}
 #projectWorkspace .project-start { margin:8px 0 28px; }
 #projectWorkspace .project-start form { display:flex; gap:10px; box-sizing:border-box; }
 #projectWorkspace .project-start input[name=question] { flex:1; min-width:0; font-size:14px; }

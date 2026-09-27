@@ -62,6 +62,7 @@
     root.dataset.session = next.dataset.session;
     waiting = next.dataset.waiting === 'true';
     root.dataset.waiting = String(waiting);
+    root.dispatchEvent(new CustomEvent('chat-session-updated', {detail:{session:next.dataset.session, waiting}}));
     let sessionField = form.querySelector('[name="session_id"]');
     if (!sessionField) {
       sessionField = document.createElement('input');

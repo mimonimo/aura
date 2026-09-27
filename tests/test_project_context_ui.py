@@ -13,6 +13,8 @@ def test_project_context_and_unified_intake(client):
     assert 'id="bundleForm"' not in page
     assert '묶음 접수' not in page
     assert '그래프에서 보기' not in page
+    assert '한글 문서 연결' not in page
+    assert 'id="hwpTargetModal"' not in page
     assert '기준 문서 2건, 접수 문서 3건' in page
     assert '연결된 기준 문서' in page
     assert 'class="project-overview-grid"' in page
@@ -29,3 +31,6 @@ def test_linked_criteria_has_readable_title_and_separate_actions(client):
     assert 'class="project-criterion-title"' in page
     assert 'class="project-criterion-open project-action-link"' in page
     assert '원본 문서는 유지됩니다.' in page
+    assert 'class="criteria-picker-item"' in page
+    assert 'class="criteria-picker-name"' in page
+    assert 'id="criteriaEmpty"' in page
