@@ -11,6 +11,7 @@ def _chunks():
         seq += 1
         out.append({"page_no": page, "seq": seq, "kind": "text", "content": f"{hdr}\r\n{page - 10}\r\n"})
     out += [
+        {"page_no": 9, "seq": 90, "kind": "text", "content": "목 차\n1.1. 대학의 AI·DX 교육여건 분석 ·········· 1\n1.2. 대학의 AI·DX 특성화 방향 ··········· 3\n2.1. 사업추진 목표   5"},
         {"page_no": 11, "seq": 100, "kind": "heading", "content": "1.1. 대학의 AI·DX 교육여건 분석"},
         {"page_no": 11, "seq": 101, "kind": "text", "content": "**국가 정책 동향**\nq 'AI 3개 강국' 도약\n§ 100조원 규모 투자"},
         {"page_no": 12, "seq": 102, "kind": "text", "content": "강점(S)\n지역 산업 연계 교육 기반"},
@@ -35,7 +36,7 @@ def test_plan_aligns_sections_by_number_and_drops_running_headers():
     plan = section_context.plan(SECTIONS, _chunks())
     by = {p["heading"][:3]: p for p in plan}
     s11 = by["1.1"]
-    assert s11["matched"] and 11 in s11["pages"]
+    assert s11["matched"] and 11 in s11["pages"] and 9 not in s11["pages"]          # 목차 줄에는 안 걸린다
     text = s11["parts"][0][1]
     assert "국가 정책 동향" in text and "**" not in text and "○ 'AI 3개 강국' 도약" in text and "- 100조원" in text
     assert "사업추진 목표" not in text and "\n1\n" not in text                   # 쪽 머리말·쪽 번호는 버린다

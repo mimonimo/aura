@@ -1148,7 +1148,17 @@ def create_app(
                 inst = institution.facts(db)
                 parts_: list[str] = []
                 all_ops: list[dict] = []
+                redo = bool(re.search(r"다시\s*(?:써|쓰|작성)|새로\s*(?:써|쓰|작성)|바꿔\s*(?:써|쓰)", q))
                 for sec in targets:
+                    if redo and not drafting.is_unfilled(sec):
+                        try:
+                            cleared = _gd.clear_section_body(link["account"], link["doc"], sec["index"], user=owner, data_dir=data_dir)
+                            if cleared.get("chars"):
+                                parts_.append(f"「{sec['heading'][:30]}」 의 기존 초안 {cleared['chars']}자를 지우고 다시 씁니다.")
+                            info = _gd.get(link["account"], link["doc"])
+                            sec = next((x for x in info["sections"] if x["heading"] == sec["heading"]), sec)
+                        except Exception as e:
+                            parts_.append(f"기존 초안을 지우지 못해 덧붙입니다({type(e).__name__}).")
                     m = mats.for_section(info, sec, q, storage.title_of)
                     cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 작성해 줘. 담당자 지시: {q}"
                     refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
@@ -1159,6 +1169,7 @@ def create_app(
                     parts_.append(f"[{sec['heading'][:40]}]\n{t_}\n재료 — 지난 자료: {used} · 기준 조각 {len(m['criteria'])}건")
                     all_ops += o_
                     info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
+                db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
                 missing = [k for k, v in inst.items() if not v]
                 if missing:
                     parts_.append("기관 정보 중 문서함에 없어 비워 둔 값: " + ", ".join(missing) + " — 설정(institution)으로 넣으면 다음부터 채웁니다.")
@@ -1176,8 +1187,33 @@ def create_app(
                     text = scope_msg + "\n\n" + text
                 db.add_chat(session_id, "assistant", text)
                 return
+            review_focus = None
+            review_mat = ""
+            if re.search(r"검토|점검|평가해|맞는지", q):
+                # 절 검토: 지목한 절(번호) 또는 방금 쓴 절을 재료(작성방법·평가지표·지난 자료 같은 절)와 함께 준다 — 긴 문서의 앞 12000자만 보던 문제
+                from zzaimy.app import institution
+                from zzaimy.app.regulations import extract_nouns
+                from zzaimy.ingest import gdocs as _gd
+
+                try:
+                    info = _gd.get(link["account"], link["doc"])
+                    cands = drafting.target_sections(info, q, filled_ok=True)
+                    last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
+                    if not cands and last:
+                        cands = [x for x in info["sections"] if x["heading"] == last]
+                    if cands:
+                        review_focus = cands[0]
+                        proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+                        sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
+                        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [])
+                        mm = mats.for_section(info, review_focus, q, storage.title_of)
+                        review_mat = drafting.render_materials(mm, institution.facts(db))
+                        hits = mm["criteria"] or hits
+                except Exception:
+                    review_focus, review_mat = None, ""
+            extra_kw = {"materials": review_mat, "focus": review_focus} if review_focus is not None else {}
             text, _ops = gdocs_agent.run(db, session_id, owner, q, link, client=client, data_dir=data_dir,
-                                         scrub=ag.scrub_for_writing, evidence=hits, confirm=confirm)
+                                         scrub=ag.scrub_for_writing, evidence=hits, confirm=confirm, **extra_kw)
             if not _ops and not proj_hits:
                 session_ = db.get_chat_session(session_id) or {}
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
