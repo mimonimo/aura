@@ -1,5 +1,12 @@
 # Codex 작업 기록
 
+## C-20260927-105 — 엑셀 추출 표 열 폭 보존
+
+Codex _document_source.html/document-workspace.css. 스프레드시트 확장자만
+별도 표 스타일: 열 최소100px, 표는 내용 폭 유지/가로 스크롤. 기존 min-width:0과
+overflow-wrap:anywhere로 한 글자씩 접히던 문제 제거. 기존 /doc/id/view
+Google 열람 경로 버튼을 표 위에 제공. PDF 변환은 구현하지 않음.
+
 ## C-20260927-104 — 사용자 요청으로 C-102/103 배포 (Codex 담당)
 
 배포 진행: 사용자 명시 요청에 따라 이번 UI 변경만 Codex가 커밋·푸시·배포.

@@ -1549,6 +1549,23 @@ def create_app(
             _auto_route(db_, doc_id, user_chose_type)
         except Exception:
             pass
+        # 사무 문서(한글·워드·엑셀·PPT)의 열람 PDF 도 반입 때 만든다(사용자 지시 2026-09-27) — 문서 화면 '원문' 탭이 바로 열린다
+        try:
+            from zzaimy.app import office_pdf
+
+            doc_ = db_.get_document(doc_id) or {}
+            if office_pdf.is_office(doc_.get("stored_path") or ""):
+                office_pdf.render(db_, doc_)
+        except Exception:
+            pass
+        # 맥락 분석도 반입 때 해 둔다(사용자 지시 2026-09-27: 반입하면 자동 분석) — 버튼을 누르게 하지 않는다. 실패해도 접수는 유지
+        try:
+            doc_ = db_.get_document(doc_id) or {}
+            if doc_.get("status") == "reviewed" and not (doc_.get("ai_review") or "").strip():
+                db_.update_document(doc_id, coverage="분석 중입니다 (30초~1분)")
+                processor.analyze(db_, doc_id)
+        except Exception:
+            pass
 
     def _identify_document(db_, doc_id: int) -> dict:
         """문서 본문에서 정체를 인출해 저장한다. 확인된 값이 없으면 저장하지 않는다."""
@@ -5253,9 +5270,12 @@ def create_app(
         suffix = src_path.suffix.lower()
         original_kind = None
         if src_path.exists():
+            from zzaimy.app import office_pdf
+
             original_kind = (
                 "pdf" if suffix == ".pdf"
-                else "image" if suffix in (".png", ".jpg", ".jpeg") else None
+                else "image" if suffix in (".png", ".jpg", ".jpeg")
+                else "office" if office_pdf.is_office(src_path) and (office_pdf.view_path(doc).exists() or office_pdf.soffice()) else None
             )
 
         all_assets = db.list_doc_assets(doc_id)
@@ -5457,6 +5477,13 @@ def create_app(
         if not src.exists():
             raise HTTPException(404)
         suffix = src.suffix.lower()
+        from zzaimy.app import office_pdf
+
+        if office_pdf.is_office(src):
+            out = office_pdf.render(db, doc)        # 반입 때 만든 열람 PDF, 없으면 지금 만든다
+            if out is None:
+                raise HTTPException(404, "열람 PDF 를 만들지 못했습니다")
+            return FileResponse(out, media_type="application/pdf", content_disposition_type="inline")
 
         if suffix == ".pdf":
             try:

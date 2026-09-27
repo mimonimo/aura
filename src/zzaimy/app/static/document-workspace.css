@@ -16,6 +16,10 @@
 .document-extract { max-height:65vh; overflow:auto; margin-top:12px; }
 .document-extract .table-scroll { max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; }
 .document-extract table.extract :is(td,th) { min-width:0; overflow-wrap:anywhere; word-break:normal; }
+.document-extract.spreadsheet-extract table.extract{width:max-content;min-width:100%;table-layout:auto}
+.document-extract.spreadsheet-extract table.extract :is(td,th){min-width:100px;max-width:360px;white-space:pre-wrap;word-break:keep-all;overflow-wrap:break-word;padding:10px 12px;vertical-align:top}
+.spreadsheet-help{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:14px 0;padding:12px;background:#f4f7fb;border-radius:10px}
+.spreadsheet-help p{font-size:12px;line-height:1.6;color:var(--muted);margin:0}
 .document-form-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:10px; }
 .document-form-actions .muted { font-size:12px; }
 .document-opinion { padding:12px 0; border-bottom:1px solid var(--line); }
