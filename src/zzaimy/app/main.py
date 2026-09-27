@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from urllib.parse import urlencode
+import logging
 import re
 import time
 import secrets
@@ -1250,6 +1251,7 @@ def create_app(
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
 
+            logging.getLogger("zzaimy.app.gdocs").exception("연결 문서 명령 실패 (대화 %s): %s", session_id, q[:80])
             text = describe_llm_error(e) + ". 문서는 바꾸지 않았습니다."
         text = ag.scrub(text)
         if scope_msg:
