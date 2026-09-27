@@ -350,8 +350,8 @@ def data_dir_default() -> Path:
 
 
 def clear_section_body(email: str, doc: str, section_index: int, *, user: str, data_dir: Path, http=None) -> dict:
-    """절의 본문 글을 지운다 — 작성방법 상자(표) 뒤부터 절 끝까지(상자가 없으면 제목 다음부터). 제목·상자는 남긴다.
-    '다시 써 줘' 가 덧붙이지 않고 바꿔 쓰게 하기 위한 것. 지운 글자 수를 돌려준다."""
+    """절의 본문 글을 지운다 — 제목과 작성방법 상자(표)만 남기고, 상자 앞·뒤의 문단을 모두. '다시 써 줘' 가 덧붙이지 않고
+    바꿔 쓰게 하기 위한 것(실측 2026-09-27: 상자 앞에 남은 옛 문단을 모델이 '기존 글'로 보고 한 문장만 고쳤다). 지운 글자 수를 돌려준다."""
     http = http or _http()
     info = get(email, doc, http)
     sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
@@ -360,25 +360,28 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
     r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
     _raise(r)
     body = body_content(r.json())
-    # 절 범위 안의 요소 — 제목 문단 뒤부터 절 끝(다음 절 제목 앞)까지. 표(작성방법 상자)가 있으면 그 표 뒤부터.
     nxt = next((s for s in info["sections"] if s.get("start", 0) > sec["start"]), None)
     end_limit = int(nxt["start"]) if nxt else int(info["end"]) - 1
-    lo = int(sec["end"]) if not sec.get("table_end") else 0
-    start_at = None
+    ranges: list[tuple[int, int]] = []
+    cursor = None
     for el in body:
         st, en = int(el.get("startIndex", 0)), int(el.get("endIndex", 0))
         if st < sec["start"] or st >= end_limit:
             continue
-        if "table" in el:
-            start_at = en                              # 표 뒤부터
+        if st == sec["start"]:
+            cursor = en                                    # 제목 문단 뒤부터
             continue
-        if start_at is None and st == sec["start"]:
-            start_at = en                              # 제목 문단 뒤부터
-    if start_at is None or start_at >= end_limit:
+        if "table" in el:
+            if cursor is not None and st > cursor:
+                ranges.append((cursor, st))                # 상자 앞의 문단들
+            cursor = en                                    # 상자 뒤부터
+    if cursor is not None and end_limit - 1 > cursor:
+        ranges.append((cursor, end_limit - 1))             # 상자 뒤(또는 제목 뒤)의 문단들
+    ranges = [(a, b) for a, b in ranges if b > a]
+    if not ranges:
         return {"ok": True, "chars": 0}
-    n = end_limit - start_at
-    if n <= 1:
-        return {"ok": True, "chars": 0}
-    _batch(email, doc, [{"deleteContentRange": {"range": {"startIndex": start_at, "endIndex": end_limit - 1}}}], http)
-    _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "clear", "section": sec["heading"], "chars": n - 1})
-    return {"ok": True, "chars": n - 1}
+    reqs = [{"deleteContentRange": {"range": {"startIndex": a, "endIndex": b}}} for a, b in sorted(ranges, reverse=True)]
+    _batch(email, doc, reqs, http)
+    n = sum(b - a for a, b in ranges)
+    _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "clear", "section": sec["heading"], "chars": n})
+    return {"ok": True, "chars": n}
