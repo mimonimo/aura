@@ -47,7 +47,7 @@ def _section() -> str:
 {box}
 <hp:p id="0" paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="1"><hp:t>1.2. 특성화 방향</hp:t></hp:run>{LINESEG}</hp:p>
 {body_table}
-<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>끝.</hp:t></hp:run>{LINESEG}</hp:p>
+<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>마무리 문단.</hp:t></hp:run>{LINESEG}</hp:p>
 </hs:sec>"""
 
 
@@ -121,3 +121,50 @@ def test_table_border_injected_when_form_has_no_body_table(tmp_path):
     assert bf == "4" and 'itemCnt="4"' in head2 and '<hh:borderFill id="4"' in head2 and head2.count("<hh:borderFill ") == 4
     assert hwpx_fill._solid_border_ids(HEADER) == {"3"}
     assert "3" not in hwpx_fill._solid_border_ids(header)
+
+
+def _bodies_from_form_plus_edits():
+    """작업본은 서식의 변환본이라 서식 글·표가 그대로 들어 있고, 거기에 에이전트가 쓴 것이 더해진다."""
+    return [
+        {"heading": "1.1. 대학의 여건 분석", "items": [
+            ("text", "새로 쓴 문단"),
+        ]},
+        {"heading": "1) 강점(S)", "items": [("text", "지역 산업 연계 기반")]},          # 에이전트 소제목 — 앞 절(1.1)에 잇는다
+        {"heading": "1.2 특성화 방향", "items": [
+            ("table", [["구분", "값"]]),                                                   # 서식 표 그대로 — 다시 넣지 않고 지나간다
+            ("text", "마무리 문단."),                                                              # 서식 문단 그대로 — 지나간다
+            ("text", "표 뒤에 이어 쓴 문단"),
+        ]},
+        {"heading": "9.9. 없는 절", "items": [("text", "안 들어간다")]},                   # 점 번호 제목이 없으면 건너뛴다
+    ]
+
+
+def test_fill_skips_form_content_and_folds_agent_subheadings(tmp_path):
+    src = _hwpx(tmp_path)
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(src, _bodies_from_form_plus_edits(), out)
+    assert rep["filled"] == ["1.1. 대학의 여건 분석", "1.2 특성화 방향"]
+    assert rep["folded"] == ["1) 강점(S)"] and rep["skipped"] == ["9.9. 없는 절"]
+    assert rep["tables"] == 0 and rep["existing_kept"] == 2 and rep["paragraphs"] == 4
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+    assert xml.count("<hp:tbl ") == 2                                              # 서식 표 2개 그대로, 새 표 없음
+    i_new, i_sub, i_subbody = xml.index("새로 쓴 문단"), xml.index("1) 강점(S)"), xml.index("지역 산업 연계 기반")
+    i_box, i_12, i_tbl, i_end, i_after = xml.index("【작성방법】"), xml.index("1.2. 특성화 방향"), xml.index('<hp:tbl id="901"'), xml.index("마무리 문단."), xml.index("표 뒤에 이어 쓴 문단")
+    assert i_box < i_new < i_sub < i_subbody < i_12 < i_tbl < i_end < i_after      # 서식 문단 '끝.' 뒤에 이어 썼다
+
+
+def test_fill_updates_form_table_cells_in_place(tmp_path):
+    src = _hwpx(tmp_path)
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(src, [{"heading": "1.2 특성화 방향", "items": [("table", [["구분", "1,234"]])]}], out)
+    assert rep["tables_updated"] == 1 and rep["tables"] == 0
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+    assert xml.count("<hp:tbl ") == 2 and "1,234" in xml and ">값<" not in xml
+    tbl = xml[xml.index('<hp:tbl id="901"'):]
+    # 칸의 문단·글자 모양 참조는 서식 것 그대로
+    assert '<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>1,234</hp:t></hp:run></hp:p>' in tbl
+
+
+def test_heading_with_tab_inside_text_is_found():
+    xml = '<hp:p id="1"><hp:run charPrIDRef="0"><hp:t>1.1. 대학의 재정투자 전략<hp:tab width="3036" leader="0" type="1"/></hp:t></hp:run></hp:p>'
+    assert hwpx_fill._para_text(xml) == "1.1. 대학의 재정투자 전략"

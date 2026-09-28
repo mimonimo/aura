@@ -394,6 +394,8 @@ def create_app(
     app.include_router(project_search_router)
     # 대화에 구글 독스를 연결해 읽고(요청마다), 담당자가 확인한 삽입만 쓴다 (Codex C-73, 독립 라우터)
     app.include_router(chat_documents_router)
+    from zzaimy.app.notifications import router as notifications_router
+    app.include_router(notifications_router)
 
     @app.on_event("startup")
     def _recover_dangling_chats() -> None:
@@ -467,6 +469,10 @@ def create_app(
         for d in pending:
             by_type[d["doc_type"]] = by_type.get(d["doc_type"], 0) + 1
         failed = db.failed_documents(owner=owner)
+        from zzaimy.app.notifications import unread
+        actionable = unread(db, owner, actionable)
+        failed = unread(db, owner, failed)
+        recent_reviewed = unread(db, owner, db.reviewed_documents(owner))
         from zzaimy.generate import model_config as _mc2
 
         try:
@@ -478,7 +484,7 @@ def create_app(
             "chat_sessions": chat_history.sessions(owner, limit=12),
             "pending_docs": pending[:8],
             "notification_pending": actionable[:8],
-            "recent_reviewed": db.reviewed_documents(owner),
+            "recent_reviewed": recent_reviewed,
             "pending_count": len(pending),
             "pending_by_type": by_type,
             "failed_docs": failed,
@@ -1285,7 +1291,7 @@ def create_app(
                 email = link["account"]
                 remove = bool(re.search(r"제출본|(안내\s*상자|작성방법)\s*(없이|빼고|지우고|삭제하고)", q))
                 try:
-                    bodies = [b for b in _gd.section_bodies(email, link["doc"]) if b.get("items")]
+                    bodies = _gd.section_bodies(email, link["doc"])              # 빈 절도 함께 — 소제목의 부모를 알기 위해
                     out_dir = Path(tempfile.mkdtemp(prefix="zz-fill-"))
                     rep = _hf.fill(src_path, bodies, out_dir / "완성본.hwpx", remove_boxes=remove)
                     data = (out_dir / "완성본.hwpx").read_bytes()
@@ -1297,10 +1303,14 @@ def create_app(
                     folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
                     up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
                     db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
-                    text = (f"「{name}」 을 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(문단 {rep['paragraphs']}·표 {rep['tables']})를 "
-                            f"서식 그대로 넣었습니다. {up['url']}")
+                    text = (f"「{name}」 을 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
+                            f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {up['url']}")
+                    if rep["folded"]:
+                        text += f"\n서식에 없는 소제목 {len(rep['folded'])}개는 바로 앞 절의 본문으로 이어 넣었습니다(" + ", ".join(h[:16] for h in rep["folded"][:5]) + ("…" if len(rep["folded"]) > 5 else "") + ")."
                     if rep["skipped"]:
                         text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in rep["skipped"])
+                    if rep["duplicates"]:
+                        text += f"\n작업본에 같은 문단·표가 두 번 있는 곳 {len(rep['duplicates'])}건은 앞의 것만 넣었습니다 — 작업본에서 정리해 주세요: " + "; ".join(rep["duplicates"][:3])
                     if remove:
                         text += f"\n안내 상자 {rep['boxes_removed']}개를 뺀 제출본입니다. 한글에서 열어 표지·직인란·쪽수를 확인하세요."
                     else:
