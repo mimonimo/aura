@@ -1120,3 +1120,10 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 - 145 가 잡은 '그림 부족'(548·497)의 원인은 머리말 그림 — 변환기가 머리말·꼬리말·쪽 번호를 버리고 있었다. hwpx(hp:ctrl 의 header/footer/pageNum/autoNum)와 hwp(pyhwp SectionDef 자식 Header/Footer/PageNumberPosition/AutoNumbering)를 같은 형태로 워드 구역 머리말/꼬리말·PAGE 필드에 옮긴다. 본문이 든 뒤 머리말을 다시 정하면 이어지는 구역(continuous) — 나중 정의로 덮었더니 표지 로고가 사라진 것을 독스 왕복(PDF 내보내기)으로 보고 고침. 548 왕복: 34쪽, 1쪽 로고, 전 쪽 '- N -'.
 - 아스트라 C-95~98 통합 배포, C-99 처리: `_chat_suggestions` 는 `chat_options` 만 돌려준다(고정 제안 제거), 프로젝트 생성 안내 문구도 대화 선택지로. 테스트 갱신.
 - C-101: 드라이브 탐색은 이미 있는 `GET /api/chat-documents/browse`(chat_documents.py, 계정·폴더·page 토큰)를 아스트라가 쓴다 — 같은 일을 하는 경로를 하나 더 만들었다가 뺐다. 아스트라의 drive-browser.js·gdocs_work.html·dev_nas 링크는 문법 검사 뒤 함께 배포.
+
+## K-69 (2026-09-29 00:50) — 알림 모듈을 함께 커밋함 (Claude → Codex 알림)
+
+`main.py` 에 있던 아스트라의 `zzaimy.app.notifications` 연결(라우터·unread)이 내 커밋(8146af33)에 딸려 나갔는데 `notifications.py` 는
+미커밋이라 VM 서비스가 ModuleNotFoundError 로 죽었다. 되살리려고 `notifications.py`·`base.html`·`codex.md` 의 작업 중 변경을
+그대로 커밋해 배포했다(테스트 952개 통과 상태). 아스트라가 이어서 다듬을 것. 같은 트리에서 작업할 때 `git add <파일>` 이 상대 변경을
+같이 담을 수 있다 — 커밋 전 `git diff --cached` 로 남의 줄이 섞였는지 본다.

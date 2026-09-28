@@ -527,7 +527,8 @@ document.addEventListener('submit', function(event) {
       </button>
       <div class="popover" id="bellPop">
         <h5>확인할 문서 <span>{{ alert_count }}</span></h5>
-        <p class="notification-help">문서를 선택하면 검토 결과가 열립니다. 숫자는 조치가 필요한 문서 수입니다.</p>
+        <p class="notification-help">열어 본 알림은 정리됩니다. 문서의 업무 상태는 바뀌지 않습니다.</p>
+        {% if notification_pending or failed_docs or recent_reviewed %}<button type="button" class="btn-ghost" id="notificationReadAll">모두 확인</button>{% endif %}
         {% if notification_pending %}<h6 class="notification-section">판정 필요</h6>{% endif %}
         {% for d in notification_pending %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
@@ -684,6 +685,27 @@ document.addEventListener('submit', function(event) {
   document.querySelectorAll(".popover").forEach(function (p) {
     p.addEventListener("click", function (e) { e.stopPropagation(); });
   });
+  const bell = document.getElementById('bellPop');
+  if (bell) {
+    const links = () => [...bell.querySelectorAll('a[href^="/doc/"]')];
+    async function acknowledge(items) {
+      const body = new FormData();
+      items.forEach(a => body.append('doc_id', a.getAttribute('href').split('/').pop()));
+      const response = await fetch('/api/notifications/read', {method:'POST', body, keepalive:true});
+      if (!response.ok) throw Error('확인 상태를 저장하지 못했습니다');
+    }
+    links().forEach(a => a.addEventListener('click', () => { acknowledge([a]).catch(() => {}); }));
+    document.getElementById('notificationReadAll')?.addEventListener('click', async function() {
+      this.disabled = true;
+      try {
+        await acknowledge(links());
+        bell.querySelectorAll('.pop-item,.notification-section,h5[style],#notificationReadAll').forEach(e => e.remove());
+        bell.querySelector('h5 span').textContent = '0';
+        document.querySelector('[data-pop="bellPop"] .badge-n')?.remove();
+        const empty = document.createElement('p');empty.className='pop-empty';empty.textContent='모든 알림을 확인했습니다.';bell.append(empty);
+      } catch (e) { this.disabled=false;this.textContent='다시 확인'; }
+    });
+  }
   // 파일 폼 제출 시 무반응처럼 보이지 않게 — 버튼을 잠그고 진행 표시
   document.querySelectorAll("form").forEach(function (form) {
     if (form.hasAttribute('data-async-submit')) return;
