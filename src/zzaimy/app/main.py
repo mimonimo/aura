@@ -1243,9 +1243,20 @@ def create_app(
 
                 src_doc_id = next((int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")), None)
                 src = db.get_document(src_doc_id) if src_doc_id else None
+                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+                if not src and proj_:
+                    # 장부에 원본이 없으면(옛 연결) 프로젝트의 양식 문서로 — 하나뿐일 때만, 여럿이면 고르게 한다
+                    forms = [d_ for d_ in db.list_documents(proj_["sector"], project_id=int(proj_["id"])) if d_.get("kind") == "form" and d_.get("status") == "reviewed"]
+                    if len(forms) == 1:
+                        src = forms[0]
+                    elif len(forms) > 1:
+                        _set_options(session_id, [{"kind": "pick", "text": f"「{storage.title_of(d_.get('filename') or '')[:24]}」 으로", "question": f"{storage.title_of(d_.get('filename') or '')} 으로 작업본 새로 만들어 줘"} for d_ in forms[:4]])
+                        db.add_chat(session_id, "assistant", "어느 양식으로 새 작업본을 만들지 골라 주세요."); return
+                    named = _project_doc_named(proj_, session_id, q)
+                    if named is not None:
+                        src = named
                 if not src:
                     db.add_chat(session_id, "assistant", "이 작업본의 원본 서식(문서함 문서)을 찾지 못해 새로 만들 수 없습니다. 문서함에서 '이 문서로 작업'을 다시 골라 주세요."); return
-                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 acct_ = accounts.get(owner, {}) if password is not None else {}
                 email = link["account"]
                 try:
