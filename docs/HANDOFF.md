@@ -243,4 +243,4 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 
 운영 VM 은 바로 인터넷을 쓴다. 옛 프록시 시절의 apt 설정(127.0.0.1:3128)은 2026-09-27 에 지웠고, 맥 쪽 터널 스크립트·launchd·ssh 설정에도 남은 것이 없음을 확인했다.
 
-한글 읽기 어댑터 kordoc(ADR-0033): VM 에 root 없이 `~/opt/node`(공식 tar, v24 LTS)와 `~/opt/kordoc`(`npm install kordoc`, 4.15.7)로 설치돼 있다. 어댑터는 `~/opt/kordoc/node_modules/.bin/kordoc` 을 찾고(다른 자리는 `ZZAIMY_KORDOC`), 끄려면 `ZZAIMY_KORDOC_OFF=1`. 판 갱신은 `cd ~/opt/kordoc && npm install kordoc@<판>` 뒤 `scripts/147_kordoc_parity.py` 통과 확인. 포크는 github.com/mimonimo/kordoc.
+한글 읽기 어댑터 kordoc(ADR-0033): VM 에 root 없이 `~/opt/node`(공식 tar, v24 LTS)와 `~/opt/kordoc`(`npm install kordoc`, 4.15.7)로 설치돼 있다. 어댑터는 `~/opt/kordoc/node_modules/.bin/kordoc` 을 찾고(다른 자리는 `ZZAIMY_KORDOC`), 끄려면 `ZZAIMY_KORDOC_OFF=1`. 판 갱신은 `cd ~/opt/kordoc && npm install kordoc@<판>` 뒤 `scripts/147_kordoc_parity.py` 통과 확인. 포크는 github.com/mimonimo/kordoc. 폐쇄망 재설치 묶음은 `~/opt/dist/`(Node tar + 설치본 tgz + `install_offline.sh`, 36MB) — 판을 올리면 묶음도 다시 만든다(`tar -czf ~/opt/dist/kordoc-installed-<판>.tgz -C ~/opt kordoc`).
