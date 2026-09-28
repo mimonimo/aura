@@ -424,3 +424,73 @@ def remove_instruction_boxes(email: str, doc: str, *, user: str, data_dir: Path,
         _batch(email, doc, reqs, http)
         _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "remove_boxes", "count": n})
     return {"ok": True, "count": n}
+
+
+def _norm_heading(h: str) -> str:
+    return re.sub(r"[^0-9a-z가-힣]", "", (h or "").lower().replace("\ue907", "").replace("ž", "").replace("･", "").replace("·", ""))
+
+
+def section_bodies(email: str, doc: str, http=None) -> list[dict]:
+    """절마다 담당자·에이전트가 쓴 본문 — [{heading, items:[("text", 글)|("table", 행렬)]}]. 제목과 【작성방법】 상자는 뺀다.
+    작업본을 새 서식 변환본으로 옮길 때(migrate_bodies) 쓴다."""
+    http = http or _http()
+    info = get(email, doc, http)
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    _raise(r)
+    body = body_content(r.json())
+    secs = sorted(info["sections"], key=lambda s: s.get("start", 0))
+    out: list[dict] = []
+    for i, sec in enumerate(secs):
+        if sec.get("index", 0) == 0:
+            continue
+        end_limit = int(secs[i + 1]["start"]) if i + 1 < len(secs) else int(info["end"])
+        items: list[tuple[str, object]] = []
+        buf: list[str] = []
+        for el in body:
+            st = int(el.get("startIndex", 0))
+            if st < int(sec["start"]) or st >= end_limit:
+                continue
+            if "paragraph" in el:
+                t = _para_text(el["paragraph"]).strip()
+                if st == int(sec["start"]) or not t:
+                    continue
+                buf.append(t)
+            elif "table" in el:
+                if _is_instruction_box(el["table"]):
+                    continue
+                if buf:
+                    items.append(("text", "\n".join(buf))); buf = []
+                rows = []
+                for row in el["table"].get("tableRows", []):
+                    rows.append([" ".join(_para_text(e["paragraph"]).strip() for e in cell.get("content", []) if "paragraph" in e).strip()
+                                 for cell in row.get("tableCells", [])])
+                if any(any(c for c in rw) for rw in rows):
+                    items.append(("table", rows))
+        if buf:
+            items.append(("text", "\n".join(buf)))
+        if items:
+            out.append({"heading": sec["heading"], "items": items})
+    return out
+
+
+def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path, scrub=None, http=None) -> list[dict]:
+    """옛 작업본의 절 본문을 새 작업본의 같은 제목 절로 옮긴다(글은 insert, 표는 insert_table, 순서대로). 절마다 결과를 돌려준다."""
+    http = http or _http()
+    bodies = section_bodies(email, src, http)
+    results: list[dict] = []
+    for b in bodies:
+        info = get(email, dst, http)
+        key = _norm_heading(b["heading"])
+        sec = next((s for s in info["sections"] if _norm_heading(s["heading"]) == key), None)
+        if sec is None:
+            results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"}); continue
+        chars = tables = 0
+        for kind, payload in b["items"]:
+            if kind == "text":
+                r = insert_into_section(email, dst, sec["index"], str(payload), user=user, data_dir=data_dir, scrub=scrub, http=http)
+                chars += int(r.get("chars") or 0)
+            else:
+                insert_table(email, dst, sec["index"], payload, user=user, data_dir=data_dir, scrub=scrub, http=http)
+                tables += 1
+        results.append({"heading": b["heading"], "done": "ok", "chars": chars, "tables": tables})
+    return results

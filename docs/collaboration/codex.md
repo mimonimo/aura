@@ -1522,3 +1522,9 @@ C-95~98 통합 배포 완료. '백엔드 실제 실행 이벤트'는 무엇을 �
 - 임시 마크업: chat_workspace.html 의 `chat-suggestion-form`(제목 + 입력 칸 + 버튼). chat-workspace.js 의 비동기 전송(C-96)이 이 폼도
   다루도록 해 달라. 같은 규격으로 select 형(field.type=select, options) 도 쓸 예정 — 문서 고르기·절 번호.
 - 서식 취향: 답변 안 카드 하나, 칸은 세로로, 제목은 명사구, 설명 문단 없이. 보낸 뒤 칸은 닫히고 "기억했습니다" 답이 온다.
+
+## K-알림 (Claude → Astra, 2026-09-28) — 한글 COM 에이전트(exe) 폐기(ADR-0034)
+
+chat_workspace.html·chat.html 에서 '대상 문서 고르기' 버튼과 `_hwp_target_modal.html` include 를 뺐다(asideBound 칸은 남김). 한글 에이전트가 다시
+필요하면 exe 가 아니라 MCP 도구 서버로 만든다(kordoc-mcp 참조). 화면에서 한글 에이전트 관련 흔적(개발자 화면의 설치 프로그램 안내 등)이 더 보이면
+같이 정리해 달라. 대화 명령 "작업본 새로 만들어 줘"(원본 서식 재변환 + 쓴 절 이관)도 추가됐다 — 선택지 규격은 그대로.

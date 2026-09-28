@@ -243,9 +243,7 @@
     <div class="aside-sec">
       <h3>대상 문서</h3>
       <div id="asideBound" class="aside-empty">확인 중…</div>
-      <button type="button" class="secondary" data-modal-open="#hwpTargetModal"
-              style="width:100%; margin-top:8px; justify-content:center;">
-        <iconify-icon icon="solar:document-text-linear"></iconify-icon>대상 문서 고르기</button>
+      {# 한글 COM 에이전트의 대상 문서 고르기는 뺐다(ADR-0034) — 문서 작업은 독스 작업본으로 #}
     </div>
 
     <div class="aside-sec">
@@ -333,7 +331,6 @@
   })();
 </script>
 
-{% include "_hwp_target_modal.html" %}
 
 <script>
 (function () {

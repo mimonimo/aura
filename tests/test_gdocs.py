@@ -602,3 +602,41 @@ def test_remove_instruction_boxes_counts_and_deletes(monkeypatch, tmp_path):
     r = gdocs.remove_instruction_boxes("a@b", "d", user="u", data_dir=tmp_path, http=http)
     ranges = [(q["deleteContentRange"]["range"]["startIndex"], q["deleteContentRange"]["range"]["endIndex"]) for q in sent[0]]
     assert r["count"] == 2 and ranges == [(60, 70), (10, 50)]          # 데이터 표(구분|값)는 남는다
+
+
+def test_section_bodies_and_migrate_skip_box_and_keep_order(monkeypatch, tmp_path):
+    """옛 작업본의 절 본문(글·표, 작성방법 상자 제외)을 새 작업본의 같은 제목 절로 순서대로 옮긴다."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text}}]}}
+
+    def table(st, en, rows):
+        return {"startIndex": st, "endIndex": en, "table": {"tableRows": [{"tableCells": [{"content": [para(st + 1, st + 2, c)]} for c in r]} for r in rows]}}
+
+    src = [para(1, 20, "1.1. 교육여건 분석\n", "HEADING_2"), table(20, 60, [["【작성방법】 지역 동향"]]), para(60, 90, "지역 산업 수요가 늘고 있다.\n"),
+           table(90, 140, [["강점", "약점"], ["S1", "W1"]]), para(140, 160, "끝 문단\n"), para(160, 190, "1.2. 특성화 방향\n", "HEADING_2"), para(190, 200, " \n")]
+    dst = [para(1, 20, "1.1. 교육여건 분석\n", "HEADING_2"), table(20, 60, [["【작성방법】 지역 동향"]]), para(60, 62, " \n"),
+           para(62, 90, "1.2. 특성화 방향\n", "HEADING_2"), para(90, 92, " \n")]
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            which = src if "/v1/documents/old" in req.url.path else dst
+            return httpx.Response(200, json={"title": "t", "body": {"content": which}})
+        reqs = json.loads(req.content)["requests"]; sent.append(reqs)
+        for q in reqs:                                       # 실제 독스처럼 넣은 표가 다음 읽기에 보이게 한다
+            if "insertTable" in q:
+                at = q["insertTable"]["location"]["index"]
+                dst.append(table(at, at + 30, [["", ""], ["", ""]]))
+                dst.sort(key=lambda e: e["startIndex"])
+        return httpx.Response(200, json={"documentId": "new", "replies": []})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    bodies = gdocs.section_bodies("a@b", "old", http=http)
+    assert [b["heading"] for b in bodies] == ["1.1. 교육여건 분석"]
+    assert [k for k, _ in bodies[0]["items"]] == ["text", "table", "text"] and bodies[0]["items"][1][1] == [["강점", "약점"], ["S1", "W1"]]
+    res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http)
+    assert res == [{"heading": "1.1. 교육여건 분석", "done": "ok", "chars": len("지역 산업 수요가 늘고 있다.") + len("끝 문단"), "tables": 1}]
+    kinds = [list(q.keys())[0] for batch in sent for q in batch]
+    assert "insertText" in kinds and "insertTable" in kinds
