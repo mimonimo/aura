@@ -39,14 +39,15 @@ FONT_MAP = {"고딕": "Nanum Gothic", "명조": "Nanum Myeongjo"}
 
 
 def docs_font(face: str) -> str:
+    """한글 글꼴 → 독스에 있는 한글 글꼴. 고딕·명조 두 계열로만 대응한다(ZZAIMY_DOCS_SANS / ZZAIMY_DOCS_SERIF 로 실험 가능, 148 로 고름)."""
     if not face:
         return ""
     f = face.strip()
-    if f in ("Nanum Gothic", "Nanum Myeongjo", "Noto Sans KR", "Noto Serif KR", "Arial", "Times New Roman"):
+    if f in ("Nanum Gothic", "Nanum Myeongjo", "Noto Sans KR", "Noto Serif KR", "Gothic A1", "Arial", "Times New Roman"):
         return f
     if any(h.lower() in f.lower() for h in _SERIF_HINT):
-        return FONT_MAP["명조"]
-    return FONT_MAP["고딕"]
+        return os.environ.get("ZZAIMY_DOCS_SERIF") or FONT_MAP["명조"]
+    return os.environ.get("ZZAIMY_DOCS_SANS") or FONT_MAP["고딕"]
 
 
 def _local(tag: str) -> str:
