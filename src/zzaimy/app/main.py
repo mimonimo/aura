@@ -1110,6 +1110,27 @@ def create_app(
         scored.sort(key=lambda x: -x[0])
         return [h for _, h in scored[:limit]]
 
+    def _working_copy_source(session_id: int, session_: dict, q: str, purpose: str) -> dict | None:
+        """이 대화 작업본의 원본 서식(문서함 문서). 장부(files google → doc_id)에서, 없으면 프로젝트의 양식 문서(하나뿐일 때) 또는
+        질문이 지목한 문서. 못 찾으면 안내를 남기고 None — 여럿이면 고르는 선택지를 낸다."""
+        src_doc_id = next((int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")), None)
+        src = db.get_document(src_doc_id) if src_doc_id else None
+        proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+        if not src and proj_:
+            forms = [d_ for d_ in db.list_documents(proj_["sector"], project_id=int(proj_["id"])) if d_.get("kind") == "form" and d_.get("status") == "reviewed"]
+            if len(forms) == 1:
+                src = forms[0]
+            elif len(forms) > 1:
+                _set_options(session_id, [{"kind": "pick", "text": f"「{storage.title_of(d_.get('filename') or '')[:24]}」 으로", "question": f"{storage.title_of(d_.get('filename') or '')} 으로 {q}"} for d_ in forms[:4]])
+                db.add_chat(session_id, "assistant", f"어느 양식으로 {purpose}지 골라 주세요.")
+                return None
+            named = _project_doc_named(proj_, session_id, q)
+            if named is not None:
+                src = named
+        if not src:
+            db.add_chat(session_id, "assistant", f"이 작업본의 원본 서식(문서함 문서)을 찾지 못해 {purpose} 수 없습니다. 문서함에서 '이 문서로 작업'을 다시 골라 주세요.")
+        return src
+
     def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
         """연결된 구글 독스에 대한 명령 — 근거 조각을 붙여 편집 계획을 받고 적용한 결과를 채팅에 남긴다."""
         from zzaimy.app import access_guard as ag
@@ -1243,26 +1264,62 @@ def create_app(
                     text = scope_msg + "\n\n" + text
                 db.add_chat(session_id, "assistant", text)
                 return
+            if re.search(r"(한글|hwpx?)\s*(파일|문서|서식|완성본)?\s*(로|으로)?\s*(내보내|저장|만들|뽑|출력|채워|완성)", q, re.I) and not re.search(r"작업본", q):
+                # 한글 완성본(2026-09-28, ADR-0035): 작업본의 절 본문을 원본 서식(hwpx)에 서식을 보존한 채 넣어 프로젝트 '작성' 폴더에 올린다.
+                # 협업은 독스에서, 최종본은 원본 서식으로 — 스크립트가 정답을 채우는 것이 아니라 에이전트·담당자가 쓴 작업본을 옮기는 것
+                import tempfile
+                from datetime import date as _date
+
+                from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf, hwpx_fill as _hf
+
+                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+                src = _working_copy_source(session_id, session_, q, "한글 완성본을 만들")
+                if not src:
+                    return
+                src_path = Path(src.get("stored_path") or "")
+                if src_path.suffix.lower() != ".hwpx" or not src_path.exists():
+                    text = (f"원본 서식 「{storage.title_of(src.get('filename') or '')}」 이 hwpx 가 아니라(또는 파일이 없어) 서식 보존 채우기를 할 수 없습니다. "
+                            "한글에서 'hwpx 로 저장'한 서식을 문서함에 반입한 뒤 다시 요청해 주세요.")
+                    db.add_chat(session_id, "assistant", ag.scrub(text))
+                    return
+                email = link["account"]
+                remove = bool(re.search(r"제출본|(안내\s*상자|작성방법)\s*(없이|빼고|지우고|삭제하고)", q))
+                try:
+                    bodies = [b for b in _gd.section_bodies(email, link["doc"]) if b.get("items")]
+                    out_dir = Path(tempfile.mkdtemp(prefix="zz-fill-"))
+                    rep = _hf.fill(src_path, bodies, out_dir / "완성본.hwpx", remove_boxes=remove)
+                    data = (out_dir / "완성본.hwpx").read_bytes()
+                    title = storage.title_of(src.get("filename") or "")
+                    name = f"{title} 완성본 {_date.today().isoformat()}.hwpx"
+                    storage.save_generated(db, data, ref=src.get("receipt_no") or f"대화-{session_id}", kind="한글 완성본", ext="hwpx",
+                                           doc_id=int(src["id"]), session_id=session_id)
+                    acct_ = accounts.get(owner, {}) if password is not None else {}
+                    folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
+                    up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
+                    db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
+                    text = (f"「{name}」 을 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(문단 {rep['paragraphs']}·표 {rep['tables']})를 "
+                            f"서식 그대로 넣었습니다. {up['url']}")
+                    if rep["skipped"]:
+                        text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in rep["skipped"])
+                    if remove:
+                        text += f"\n안내 상자 {rep['boxes_removed']}개를 뺀 제출본입니다. 한글에서 열어 표지·직인란·쪽수를 확인하세요."
+                    else:
+                        text += "\n안내 상자(【작성방법】)는 그대로 두었습니다. 제출본이면 '안내 상자 없이 한글로 내보내 줘'."
+                    _set_options(session_id, [{"kind": "review", "text": "작업본 전체 검토", "question": "문서 전체를 공고·평가지표 기준으로 검토해 줘"},
+                                              {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
+                except Exception as e:
+                    logging.getLogger("zzaimy.app.gdocs").exception("한글 완성본 만들기 실패 (대화 %s)", session_id)
+                    text = f"한글 완성본을 만들지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
+                db.add_chat(session_id, "assistant", ag.scrub(text))
+                return
             if re.search(r"작업본\s*(?:을|를)?\s*(?:새로|다시)\s*(?:만들|떠|뜨|생성)|새\s*작업본|작업본\s*갱신", q):
                 # 작업본 새로 만들기(2026-09-28): 변환기가 좋아진 뒤 원본 서식을 다시 변환해 새 복제본을 만들고, 지금까지 쓴 절 본문을 옮긴다
                 from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf
 
-                src_doc_id = next((int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")), None)
-                src = db.get_document(src_doc_id) if src_doc_id else None
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
-                if not src and proj_:
-                    # 장부에 원본이 없으면(옛 연결) 프로젝트의 양식 문서로 — 하나뿐일 때만, 여럿이면 고르게 한다
-                    forms = [d_ for d_ in db.list_documents(proj_["sector"], project_id=int(proj_["id"])) if d_.get("kind") == "form" and d_.get("status") == "reviewed"]
-                    if len(forms) == 1:
-                        src = forms[0]
-                    elif len(forms) > 1:
-                        _set_options(session_id, [{"kind": "pick", "text": f"「{storage.title_of(d_.get('filename') or '')[:24]}」 으로", "question": f"{storage.title_of(d_.get('filename') or '')} 으로 작업본 새로 만들어 줘"} for d_ in forms[:4]])
-                        db.add_chat(session_id, "assistant", "어느 양식으로 새 작업본을 만들지 골라 주세요."); return
-                    named = _project_doc_named(proj_, session_id, q)
-                    if named is not None:
-                        src = named
+                src = _working_copy_source(session_id, session_, q, "새 작업본을 만들")
                 if not src:
-                    db.add_chat(session_id, "assistant", "이 작업본의 원본 서식(문서함 문서)을 찾지 못해 새로 만들 수 없습니다. 문서함에서 '이 문서로 작업'을 다시 골라 주세요."); return
+                    return
                 acct_ = accounts.get(owner, {}) if password is not None else {}
                 email = link["account"]
                 try:
