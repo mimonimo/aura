@@ -62,9 +62,12 @@ def _pdf_text(pdf: Path) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
-    ap.add_argument("--ids", required=True)
+    ap.add_argument("--ids", default="", help="문서함 문서 번호(쉼표)")
+    ap.add_argument("--files", default="", help="문서함 밖 파일 경로(쉼표) — 등록하지 않고 검사만")
     ap.add_argument("--out", default="/tmp/rt")
     args = ap.parse_args()
+    if not args.ids and not args.files:
+        ap.error("--ids 또는 --files")
     import httpx
 
     from zzaimy.app import office_pdf
@@ -77,10 +80,17 @@ def main() -> int:
     h = httpx.Client(timeout=httpx.Timeout(600, connect=30))
     folder = gdrive_files.ensure_folder(acct, ["ZZAIMY", "_검증임시"], http=h)
     worst_total = 0
-    for did in [int(x) for x in args.ids.split(",")]:
-        doc = db.get_document(did)
-        if not doc:
-            print(did, "없음"); continue
+    targets: list[tuple[str, dict]] = []
+    for x in [x for x in args.ids.split(",") if x.strip()]:
+        doc = db.get_document(int(x))
+        if doc:
+            targets.append((str(doc["id"]), doc))
+        else:
+            print(x, "없음")
+    for i, f in enumerate([f for f in args.files.split(",") if f.strip()], 1):
+        fp = Path(f)
+        targets.append((f"f{i}", {"stored_path": str(fp), "filename": fp.parent.name if fp.name.startswith("원본") else fp.name}))
+    for did, doc in targets:
         src = Path(doc["stored_path"])
         conv = office_pdf.docx_for(src)
         if conv is None or conv[1] != ".docx":
@@ -116,7 +126,7 @@ def main() -> int:
         if not 0.9 <= ratio <= 1.1:
             flags.append(f"글자 비율 {ratio:.2f}")
         worst_total += len(flags)
-        print(f"{did:>4} {src.suffix[1:]:4} LO {len(a):>3}쪽 · 독스 {len(b):>3}쪽 · 빈쪽 {blank_lo}/{blank_docs} · 글자비 {ratio:.2f} · "
+        print(f"{str(did):>4} {src.suffix[1:]:4} LO {len(a):>3}쪽 · 독스 {len(b):>3}쪽 · 빈쪽 {blank_lo}/{blank_docs} · 글자비 {ratio:.2f} · "
               f"{'OK' if not flags else 'WARN ' + ' / '.join(flags)}  {doc['filename'][:36]}")
         # 사람이 볼 쪽: 왼쪽 밖 잉크가 있는 쪽 + 독스 빈 쪽 앞 3개
         keep = set(left_pages[:3]) | {s["page"] for s in b if s["ink"] < BLANK_INK}
