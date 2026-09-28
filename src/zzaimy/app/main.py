@@ -1237,6 +1237,46 @@ def create_app(
                     text = scope_msg + "\n\n" + text
                 db.add_chat(session_id, "assistant", text)
                 return
+            if re.search(r"작업본\s*(?:을|를)?\s*(?:새로|다시)\s*(?:만들|떠|뜨|생성)|새\s*작업본|작업본\s*갱신", q):
+                # 작업본 새로 만들기(2026-09-28): 변환기가 좋아진 뒤 원본 서식을 다시 변환해 새 복제본을 만들고, 지금까지 쓴 절 본문을 옮긴다
+                from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf
+
+                src_doc_id = next((int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")), None)
+                src = db.get_document(src_doc_id) if src_doc_id else None
+                if not src:
+                    db.add_chat(session_id, "assistant", "이 작업본의 원본 서식(문서함 문서)을 찾지 못해 새로 만들 수 없습니다. 문서함에서 '이 문서로 작업'을 다시 골라 주세요."); return
+                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+                acct_ = accounts.get(owner, {}) if password is not None else {}
+                email = link["account"]
+                try:
+                    folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="첨부")
+                    made = _gf.google_copy(db, src, email, folder, refresh=True)
+                    from datetime import date as _date
+
+                    title = storage.title_of(src.get("filename") or "")
+                    work_title = f"{title} 작업본 {_date.today().isoformat()}"
+                    work_folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
+                    copy = _gf.copy_document(email, made["id"], work_title, work_folder)
+                    moved = _gd.migrate_bodies(email, link["doc"], copy["id"], user=owner, data_dir=data_dir, scrub=ag.scrub_for_writing)
+                    try:
+                        _gf.rename_document(email, link["doc"], f"{_gd.get(email, link['doc'])['title']} (이전)")
+                    except Exception:
+                        pass
+                    db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": copy["id"], "account": email}))
+                    db.add_file("google", copy["url"], name=work_title, session_id=session_id, doc_id=int(src["id"]))
+                    ok = [r for r in moved if r["done"] == "ok"]
+                    text = (f"「{work_title}」 을 새로 만들어 이 대화에 연결했습니다(원본 서식을 지금 변환기로 다시 변환). "
+                            f"옮긴 절 {len(ok)}개 · 글 {sum(r['chars'] for r in ok):,}자 · 표 {sum(r['tables'] for r in ok)}개. 이전 작업본은 이름 뒤에 '(이전)'을 붙여 두었습니다. {copy['url']}")
+                    skipped = [r for r in moved if r["done"] != "ok"]
+                    if skipped:
+                        text += "\n옮기지 못한 절: " + ", ".join(r["heading"][:24] for r in skipped)
+                    _set_options(session_id, [{"kind": "review", "text": "옮긴 내용 검토", "question": "옮긴 절들이 빠짐없이 들어갔는지 검토해 줘"},
+                                              {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
+                except Exception as e:
+                    logging.getLogger("zzaimy.app.gdocs").exception("작업본 새로 만들기 실패 (대화 %s)", session_id)
+                    text = f"작업본을 새로 만들지 못했습니다({type(e).__name__}). 이전 작업본은 그대로 연결돼 있습니다."
+                db.add_chat(session_id, "assistant", ag.scrub(text))
+                return
             if re.search(r"(작성방법|안내|가이드)\s*(상자|박스|표)?[을를은는]?\s*(지워|삭제|없애|정리)|제출본|마무리\s*(해|정리)", q):
                 # 마무리 — 양식의 안내 상자(【작성방법】·【증빙자료】)를 지운다. 되돌릴 수 없으니 몇 개인지 먼저 세어 확인을 받는다
                 from zzaimy.ingest import gdocs as _gd
