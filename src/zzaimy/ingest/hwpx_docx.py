@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import zipfile
 from dataclasses import dataclass, field
@@ -378,8 +379,17 @@ class Converter:
 
             # 한글 양식은 여백용 빈 문단을 0.5pt 글자로 둔다(표지, 실측 2026-09-24) — 하한을 크게 두면 표지가 넘친다
             size_pt = self._para_font_pt(p_el)
-            pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
-            pf.line_spacing = Pt(max(1.0, size_pt * max(0.8, min(ps.line_pct / 100.0, 3.0))))
+            pct = max(0.8, min(ps.line_pct / 100.0, 3.0))
+            rule = os.environ.get("ZZAIMY_LINE_RULE", "exact").lower()          # 독스 왕복 검사(148)로 고를 실험 스위치(2026-09-28)
+            if rule == "auto":
+                pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+                pf.line_spacing = pct
+            elif rule == "atleast":
+                pf.line_spacing_rule = WD_LINE_SPACING.AT_LEAST
+                pf.line_spacing = Pt(max(1.0, size_pt * pct))
+            else:
+                pf.line_spacing_rule = WD_LINE_SPACING.EXACTLY
+                pf.line_spacing = Pt(max(1.0, size_pt * pct))
         if p_el.get("pageBreak") == "1" and not self._just_sectioned:
             pf.page_break_before = True
 

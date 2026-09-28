@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -83,6 +84,43 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 """
 
 
+CONTEXT_TOKENS = int(os.environ.get("ZZAIMY_WRITER_CONTEXT", "16384"))
+_CHARS_PER_TOKEN = 1.5
+_MIN_OUTPUT = 3000
+
+
+def _est_tokens(text: str) -> int:
+    return int(len(text) / _CHARS_PER_TOKEN) + 64
+
+
+def _fit_context(prompt: str, max_tokens: int, materials: str, text: str) -> tuple[str, int]:
+    """입력+출력이 문맥 한도를 넘으면 재료 → 본문 순으로 뒤를 잘라 맞춘다. 출력 예산은 _MIN_OUTPUT 아래로는 안 내린다."""
+    limit = CONTEXT_TOKENS - 256
+    over = _est_tokens(prompt) + max_tokens - limit
+    if over <= 0:
+        return prompt, max_tokens
+    # 1) 출력 예산을 절반까지 양보
+    give = min(over, max(max_tokens - _MIN_OUTPUT, 0))
+    max_tokens -= give
+    over -= give
+    if over <= 0:
+        return prompt, max_tokens
+    # 2) 재료 뒤를 자른다(표·지난 자료가 길 때)
+    cut_chars = int(over * _CHARS_PER_TOKEN) + 200
+    if materials and len(materials) > cut_chars + 500:
+        shorter = materials[: len(materials) - cut_chars].rstrip() + "\n(재료 일부 생략)"
+        prompt = prompt.replace(materials, shorter, 1)
+        over = _est_tokens(prompt) + max_tokens - limit
+        if over <= 0:
+            return prompt, max_tokens
+        cut_chars = int(over * _CHARS_PER_TOKEN) + 200
+    # 3) 본문 뒤를 자른다
+    if text and len(text) > cut_chars + 500:
+        shorter = text[: len(text) - cut_chars].rstrip() + "\n[본문 일부만 제공됨]"
+        prompt = prompt.replace(text, shorter, 1)
+    return prompt, max_tokens
+
+
 def _outline_lines(info: dict) -> str:
     return "\n".join(f"{s['index']} · {s['heading']} · {s['chars']}자" for s in info["sections"])
 
@@ -111,6 +149,9 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     # 절 하나를 통째로 쓰면 JSON 이 2048 토큰을 넘어 잘린다(실측 2026-09-27: 1.1 절 재작성이 'Unterminated string' 으로 실패).
     # 절 작성(focus)은 넉넉히, 잘리면 한 번 더 짧게 쓰라고 청한다.
     max_tokens = 8192 if focus is not None else 2048
+    # 서빙 모델의 문맥 한도(토르 vLLM 16,384) 안에 입력+출력이 들어가야 한다(실측 2026-09-28: 재료가 길어 400 오류).
+    # 한글은 대략 1.5자에 토큰 하나 — 입력을 먼저 재료·본문 순으로 줄이고, 그래도 넘치면 출력 예산을 낮춘다.
+    prompt, max_tokens = _fit_context(prompt, max_tokens, materials, visible_text)
     data = None
     for attempt in range(2):
         resp = client.client.chat.completions.create(
