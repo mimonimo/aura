@@ -624,6 +624,29 @@ class Converter:
             section.bottom_margin = Emu(int((_hu(m.get("bottom")) + _hu(m.get("footer"))) * EMU_PER_HWPUNIT))
 
     # -- 표 ----------------------------------------------------------------------------------------
+    def _usable_width_hu(self) -> int:
+        """현재 구역의 본문 폭(쪽 너비 − 좌우 여백, HWPUNIT). 모르면 0."""
+        try:
+            sec = self.doc.sections[-1]
+            w = int(sec.page_width) - int(sec.left_margin) - int(sec.right_margin)
+            return max(int(w / EMU_PER_HWPUNIT), 0)
+        except Exception:
+            return 0
+
+    def _fit_to_text_width(self, col_hu: list[int], container) -> list[int]:
+        """본문에 놓이는 표가 본문 폭보다 넓으면 열 폭을 같은 비율로 줄인다 — 독스는 넓은 표를 가운데 맞춰 왼쪽이 쪽 밖으로 나가
+        글이 잘린다(실측 2026-09-28: 작성서식 작업본 8·12쪽의 작성방법 상자·요약서 표). 한글은 쪽 여백을 침범한 표를 그대로 둔다."""
+        if container is not self.doc:
+            return col_hu
+        usable = self._usable_width_hu()
+        total = sum(col_hu)
+        if not usable or total <= usable or total <= 0:
+            return col_hu
+        k = usable / total
+        out = [max(int(w * k), 1) for w in col_hu]
+        self.stats["tables_narrowed"] = self.stats.get("tables_narrowed", 0) + 1
+        return out
+
     def _separate_from_previous_table(self, container) -> None:
         """표 바로 뒤에 표가 오면 사이에 아주 낮은 빈 문단을 둔다 — 워드·구글 독스는 붙어 있는 두 표를 한 표로 합쳐 버려
         뒤 표의 글이 앞 표의 좁은 열에 끼어 한 글자씩 세로로 늘어졌다(실측 2026-09-25 사업계획서 독스 199쪽)."""
@@ -695,6 +718,7 @@ class Converter:
             return
         table = _add_table(container, n_rows, n_cols)
         table.autofit = False
+        col_hu = self._fit_to_text_width(col_hu, container)
         _table_fixed_layout(table, [int(w * TWIPS_PER_HWPUNIT) for w in col_hu])
         for c in range(n_cols):
             for row in table.rows:
@@ -828,7 +852,7 @@ class Converter:
                     break
             w_hu = min(max(w_hu, 4 * HWPUNIT_PER_INCH // 4), 47000)       # 최소 1인치, 최대 본문 폭쯤
             box = _add_table(container, 1, 1)
-            _table_fixed_layout(box, [int(w_hu * TWIPS_PER_HWPUNIT)])
+            _table_fixed_layout(box, [int(self._fit_to_text_width([w_hu], container)[0] * TWIPS_PER_HWPUNIT)])
             cell = box.cell(0, 0)
             cell.width = __import__("docx.shared", fromlist=["Emu"]).Emu(int(w_hu * EMU_PER_HWPUNIT))
             _set_cell_borders(cell, BorderFill(sides={s: ("SOLID", 0.12) for s in ("left", "right", "top", "bottom")}))
