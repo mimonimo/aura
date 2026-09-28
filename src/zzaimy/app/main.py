@@ -1307,8 +1307,9 @@ def create_app(
                             f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {up['url']}")
                     if rep["folded"]:
                         text += f"\n서식에 없는 소제목 {len(rep['folded'])}개는 바로 앞 절의 본문으로 이어 넣었습니다(" + ", ".join(h[:16] for h in rep["folded"][:5]) + ("…" if len(rep["folded"]) > 5 else "") + ")."
-                    if rep["skipped"]:
-                        text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in rep["skipped"])
+                    real_skipped = [h for h in rep["skipped"] if re.search(r"[가-힣A-Za-z]", h)]   # '2cm' 같은 변환 찌꺼기 제목은 알릴 것이 아니다
+                    if real_skipped:
+                        text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in real_skipped)
                     if rep["duplicates"]:
                         text += f"\n작업본에 같은 문단·표가 두 번 있는 곳 {len(rep['duplicates'])}건은 앞의 것만 넣었습니다 — 작업본에서 정리해 주세요: " + "; ".join(rep["duplicates"][:3])
                     if remove:
@@ -5400,6 +5401,15 @@ def create_app(
         ]
         # 이 섹터 전용 기준을 공통보다 위에 보여준다
         sector_criteria.sort(key=lambda d: d["sector"] != proj_sector)
+        from zzaimy.app.doc_routing import KINDS
+        criteria_kinds = {}
+        for criterion in sector_criteria:
+            kind = criterion.get("kind") or ""
+            if kind not in KINDS:
+                kind = ""
+            criterion["picker_kind"] = kind
+            criterion["kind_label"] = KINDS.get(kind, "미분류")
+            criteria_kinds[kind] = criteria_kinds.get(kind, 0) + 1
         # 구버전 단일 지침·메모는 노트로 한 번만 이관한다 (지침·메모 통합)
         legacy_memo = (proj.get("memo") or "").strip()
         legacy_inst = (proj.get("instructions") or "").strip()
@@ -5417,6 +5427,7 @@ def create_app(
                 "project": proj, "documents": docs, "active_tab": proj["sector"],
                 "suggestions": _project_suggestions(proj),
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
+                "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
                 "project_chats": db.list_project_chat_sessions(project_id),
                 "project_notes": db.list_project_notes(project_id),
             }),
