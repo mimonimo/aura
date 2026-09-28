@@ -4,6 +4,8 @@
 
 진행 Codex 배포 담당: 운영 HEAD 9c335720, 입력 스타일 수정 0c9ad70a 미반영 확인. 로컬/VM clean. 운영 코드 백업 후 Git 배포·재시작 예정. 다른 운영 작업과 중복하지 말 것.
 
+완료: 256e5dfa 푸시/99_deploy --restart 성공. VM HEAD 일치, service active, login HTTP200, HTTPS static/document-workspace.css에서 receipt-edit input 규격 제공 확인. 백업 data/platform/backup/pre-input-ui-20260928-113.tar.gz. 배포 중 생긴 Claude 미커밋 백엔드 변경은 미포함. 로그인된 운영 화면 육안 확인은 미실시.
+
 ## C-20260928-112 — 검토 메모 UI 제거·입력 기본 스타일
 
 진행: 사용자 최신 지시로 doc 화면의 feedback include 제거(기존 데이터/저장 API 보존), 기본 토글 없음. base의 텍스트 입력 기본 border/padding 누락 보완 및 접수번호 form 규격 정리. 템플릿/CSS/tests만 수정.

@@ -44,3 +44,30 @@ def facts(db) -> dict:
 def set_fact(db, key: str, value: str) -> None:
     if key in KEYS:
         db.set_setting(f"institution:{key}", (value or "").strip())
+
+
+_ANSWER = {
+    "총장": re.compile(r"총장(?:님)?(?:\s*(?:은|는|:|：|이름은|성명은))?\s*([가-힣]{2,4})(?=\s|[,.;·]|$|입니다|이다|이고|이며)"),
+    "대표전화": re.compile(r"(?:대표\s*전화|대표번호|전화번호|전화)(?:\s*(?:는|은|:|：))?\s*(0\d{1,2}[-. )]?\d{3,4}[-. ]?\d{4})"),
+    "주소": re.compile(r"주소(?:\s*(?:는|은|:|：))?\s*((?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충청?[북남]|전라?[북남]|경상?[북남]|제주)[^,;\n]{6,60})"),
+    "대학명": re.compile(r"대학명(?:\s*(?:은|는|:|：))?\s*([가-힣]{2,12}대학교?)"),
+}
+
+
+def parse_answer(text: str) -> dict:
+    """담당자가 대화로 알려 준 기관 정보 — '총장은 홍길동, 대표전화는 053-650-9000' 같은 말에서 값을 꺼낸다."""
+    out: dict = {}
+    for k, rx in _ANSWER.items():
+        m = rx.search(text or "")
+        if m:
+            out[k] = m.group(1).strip()
+    return out
+
+
+def ask_for_missing(facts: dict) -> str:
+    """비어 있는 값을 묻는 한 줄 — 에이전트가 모르는 값을 지어내지 않고 요청한다(사용자 지시 2026-09-28)."""
+    missing = [k for k in KEYS if not (facts.get(k) or "").strip()]
+    if not missing:
+        return ""
+    return ("기관 정보 중 " + "·".join(missing) + " 을(를) 문서함에서 찾지 못했습니다. 알려 주시면 기억해 두고 이후 작성에 넣겠습니다"
+            " — 예: \"총장은 홍길동, 대표전화는 053-650-9000\".")

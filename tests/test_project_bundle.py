@@ -522,3 +522,24 @@ def test_receipt_number_can_be_changed_and_institution_saved(tmp_path):
     assert f["대학명"] == "영남이공대학교" and f["총장"] == "홍길동"
     page = c.get("/criteria").text
     assert 'id="institution"' in page and 'value="홍길동"' in page and "(설정값)" in page
+
+
+def test_agent_remembers_institution_info_given_in_chat(tmp_path, monkeypatch):
+    from zzaimy.app import chat_documents, institution
+    from zzaimy.ingest import gdrive
+    import json
+
+    app, c = _client(tmp_path)
+    db = app.state.db
+    sid = db.create_chat_session("작성", owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    db.set_setting(f"chat_last_section:{sid}", "1.2. 특성화 방향")
+    monkeypatch.setattr(chat_documents, "material", lambda db_, sid_, owner_: "[연결 문서] 작업본")
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
+    from zzaimy.generate import client as _gc
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: object())
+    c.post("/chat/send", data={"question": "총장은 홍길동, 대표전화는 053-650-9000", "session_id": str(sid)}, follow_redirects=False)
+    last = db.list_chats(sid)[-1]["content"]
+    assert "기억했습니다" in last and institution.facts(db)["총장"] == "홍길동"
+    opts = json.loads(db.get_setting(f"chat_options:{sid}", ""))
+    assert opts[0]["kind"] == "redo" and "1.2" in opts[0]["question"]

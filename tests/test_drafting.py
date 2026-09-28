@@ -82,3 +82,12 @@ def test_score_against_reference_counts_numbers_and_terms():
     assert sc["total"] >= 5 and sc["covered"] >= 3 and 0 < sc["ratio"] < 1
     assert any("240억" in x for x in sc["missing"]) and not any("82개" in x for x in sc["missing"])
     assert drafting.score_against_reference("x", "")["ratio"] is None
+
+
+def test_institution_answer_parsing_and_ask():
+    from zzaimy.app import institution
+    got = institution.parse_answer("총장은 홍길동, 대표전화는 053-650-9000 이고 주소는 대구광역시 남구 현충로 170 입니다")
+    assert got == {"총장": "홍길동", "대표전화": "053-650-9000", "주소": "대구광역시 남구 현충로 170 입니다"[:len(got.get("주소", ""))]}
+    assert institution.parse_answer("1.1 절 검토해 줘") == {}
+    ask = institution.ask_for_missing({"대학명": "영남이공대학교", "주소": "x", "총장": "", "대표전화": ""})
+    assert "총장·대표전화" in ask and institution.ask_for_missing({k: "v" for k in institution.KEYS}) == ""

@@ -96,8 +96,9 @@ def test_reviewer_opinion_is_saved(client):
     r = client.post("/doc/1/review", data={"opinion": "검토자 의견: 보완 필요"},
                     follow_redirects=False)
     assert r.status_code == 303
-    r = client.get("/doc/1")
-    assert "보완 필요" in r.text
+    # 검토 메모 UI 는 문서 화면에서 뺐다(아스트라 0c9ad70a) — 저장 자체를 확인한다
+    assert any("보완 필요" in (rv.get("opinion") or "") for rv in client.app.state.db.get_reviews(1))
+    assert client.get("/doc/1").status_code == 200
 
 
 def test_unknown_document_returns_404(client):
