@@ -347,3 +347,20 @@ def test_metafile_pictures_are_kept_as_native_parts(tmp_path):
         assert 'Extension="wmf"' in z.read("[Content_Types].xml").decode()
     d = Document(io.BytesIO(data))
     assert d.paragraphs[1].text.startswith("확인") and d.paragraphs[1]._p.find(".//" + qn("w:drawing")) is not None
+
+
+def test_tables_wider_than_the_text_area_are_narrowed(tmp_path):
+    """본문 폭(A4 210mm − 여백 40mm ≈ 48,190 HWPUNIT)보다 넓은 표는 같은 비율로 줄인다 — 독스에서 왼쪽이 잘리지 않게."""
+    section = SECTION.replace('<hp:tbl rowCnt="2" colCnt="2" borderFillIDRef="2"><hp:sz width="40000"/>', '<hp:tbl rowCnt="2" colCnt="2" borderFillIDRef="2"><hp:sz width="60000"/>')
+    section = section.replace('<hp:cellSz width="40000" height="1000"/>', '<hp:cellSz width="60000" height="1000"/>')
+    section = section.replace('<hp:cellSz width="10000" height="90000"/>', '<hp:cellSz width="15000" height="90000"/>')
+    section = section.replace('<hp:cellSz width="30000" height="1000"/>', '<hp:cellSz width="45000" height="1000"/>')
+    p = tmp_path / "wide.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+    data, stats = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    sec = d.sections[0]
+    usable_twips = int((int(sec.page_width) - int(sec.left_margin) - int(sec.right_margin)) / 635)
+    grid = [int(g.get(qn("w:w"))) for g in d.tables[0]._tbl.tblGrid.findall(qn("w:gridCol"))]
+    assert stats.get("tables_narrowed", 0) >= 1 and sum(grid) <= usable_twips and abs(grid[0] / grid[1] - 15000 / 45000) < 0.05
