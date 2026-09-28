@@ -2067,12 +2067,27 @@ class DocumentProcessor:
         hwp5txt는 표를 '<표>' 자리표시로 접어 서식(신청서·계획서) 내용이 통째로
         사라지므로, 표가 살아 있는 HTML 변환 경로를 우선한다.
         """
+        keep_dir = file_path.parent / f"{file_path.stem}_imgs"
+        # 1순위 kordoc(ADR-0033): 옛 hwp 를 1초에 읽고 표의 중첩·병합을 낸다. 없거나 실패하면 pyhwp 경로 그대로
+        try:
+            from zzaimy.ingest.parsers import kordoc as _kordoc
+
+            if _kordoc.available():
+                import tempfile
+
+                with tempfile.TemporaryDirectory(prefix="zz-kordoc-") as tmp:
+                    parsed = _kordoc.KordocParser().parse(file_path, work_dir=Path(tmp))
+                    if not parsed.entries:
+                        raise ValueError("구조 항목 없음")
+                    images = self._keep_images(parsed.images, keep_dir)
+                return self._finish_hwp_parse(parsed, images, f"한글(HWP) 구조 추출(kordoc {_kordoc.version()})")
+        except Exception as e:
+            log.warning("kordoc 추출 실패(%s) — pyhwp 경로로", type(e).__name__)
         try:
             import tempfile
 
             from zzaimy.ingest.parsers.hwp5 import Hwp5Parser
 
-            keep_dir = file_path.parent / f"{file_path.stem}_imgs"
             with tempfile.TemporaryDirectory(prefix="zz-hwp5-") as tmp:
                 parsed = Hwp5Parser().parse(file_path, work_dir=Path(tmp))
                 if not parsed.entries:
