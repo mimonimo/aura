@@ -33,6 +33,9 @@ def test_document_keeps_project_context_and_evidence_first(workspace):
     assert 'aria-controls="documentSource documentWork"' in page
     assert 'class="document-columns source-expanded"' in page
     assert 'hidden>나란히 보기</button>' in page
+    assert 'data-modal-open="#documentManageModal"' in page
+    assert page.index('id="receiptEditModal"') < page.index('id="receiptNumber"')
+    assert '문서 폴더 이름도 함께 변경됩니다' in page
 
 
 def test_memo_preserves_saved_reviews_and_admission_decisions(workspace):
