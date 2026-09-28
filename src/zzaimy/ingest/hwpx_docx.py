@@ -35,7 +35,9 @@ TWIPS_PER_HWPUNIT = 1440 / HWPUNIT_PER_INCH          # 0.2
 # 구글 독스에 있는 한글 글꼴로 맞춘다 — 한글 문서의 글꼴 이름(맑은 고딕·휴먼명조·HY헤드라인M …)을 그대로 두면 독스가 Arial 로
 # 대신 그려 한글 모양이 달라진다(실측 2026-09-24). 고딕 계열은 Nanum Gothic, 명조·바탕 계열은 Nanum Myeongjo.
 _SERIF_HINT = ("명조", "바탕", "신명조", "Batang", "Myeongjo", "Myungjo", "궁서", "Gungsuh")
-FONT_MAP = {"고딕": "Nanum Gothic", "명조": "Nanum Myeongjo"}
+# 독스에 있는 한글 글꼴 두 계열. 고딕은 나눔바른고딕 — 148 왕복 실측(2026-09-28, 작성서식 원본 62쪽): 나눔고딕 67쪽·빈 쪽 7,
+# Noto Sans KR 70, Gothic A1 69, 나눔바른고딕 61쪽·빈 쪽 2(행 높이가 한글 조판에 가장 가깝다). 쪽 그림으로 겹침·잘림 없음 확인
+FONT_MAP = {"고딕": "Nanum Barun Gothic", "명조": "Nanum Myeongjo"}
 
 
 def docs_font(face: str) -> str:
@@ -43,7 +45,7 @@ def docs_font(face: str) -> str:
     if not face:
         return ""
     f = face.strip()
-    if f in ("Nanum Gothic", "Nanum Myeongjo", "Noto Sans KR", "Noto Serif KR", "Gothic A1", "Arial", "Times New Roman"):
+    if f in ("Nanum Gothic", "Nanum Barun Gothic", "Nanum Myeongjo", "Noto Sans KR", "Noto Serif KR", "Gothic A1", "Arial", "Times New Roman"):
         return f
     if any(h.lower() in f.lower() for h in _SERIF_HINT):
         return os.environ.get("ZZAIMY_DOCS_SERIF") or FONT_MAP["명조"]
