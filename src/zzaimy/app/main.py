@@ -1184,7 +1184,7 @@ def create_app(
                 redo = bool(re.search(r"다시\s*(?:써|쓰|작성)|새로\s*(?:써|쓰|작성)|바꿔\s*(?:써|쓰)", q))
                 for sec in targets:
                     before_apply = None
-                    if redo and not drafting.is_unfilled(sec):
+                    if redo and not drafting.family_unfilled(info, sec):        # 소제목에 나눠 쓴 절도 다시 쓰기면 비운다
                         # 다시 쓰기 — 모델의 계획이 나온 뒤에 기존 초안을 비우고 넣는다(모델이 실패하면 문서는 그대로).
                         # 모델에게는 비운 뒤의 모습(제목·작성방법 상자만)을 보인다.
                         subs = drafting.subsections(info, sec)
