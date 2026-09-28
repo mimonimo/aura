@@ -4,6 +4,31 @@
  let sid=workspace.dataset.session;
  const main=workspace.parentElement;
  let linked=null, panel=null;
+ function jumpToSection(section){
+   if(!section.heading_id||!linked)return;
+   show();visibility(true);
+   const frame=panel.querySelector('iframe');
+   const url=new URL(frame.src);
+   const hash=new URLSearchParams();if(section.tab_id)hash.set('tab',section.tab_id);
+   hash.set('heading',section.heading_id);url.hash=hash.toString();frame.src=url.href;
+   const select=panel.querySelector('[data-section-jump]');if(select)select.value=String(section.index);
+ }
+ function addLocationButtons(){
+   if(!linked)return;
+   const normalize=value=>value.replace(/\s+/g,' ').trim();
+   workspace.querySelectorAll('[data-section-location]').forEach(button=>{if(button.dataset.locationDoc!==String(linked.doc||''))button.remove();});
+   workspace.querySelectorAll('.turn.assistant .msg.assistant').forEach(message=>{
+     const text=normalize(message.textContent);
+     (linked.sections||[]).filter(s=>s.heading_id&&s.heading.length>=6&&text.includes(normalize(s.heading))).slice(0,3).forEach(s=>{
+       if(message.querySelector(`[data-section-location="${s.index}"]`))return;
+       const button=document.createElement('button');button.type='button';button.className='secondary chat-location-button';button.dataset.sectionLocation=s.index;
+       const documentId=String(linked.doc||'');button.dataset.locationDoc=documentId;
+       button.textContent='문서에서 보기 · '+s.heading;button.onclick=()=>{if(String(linked?.doc||'')===documentId)jumpToSection(s);};message.append(button);
+     });
+   });
+ }
+ let locationRefresh;
+ new MutationObserver(()=>{clearTimeout(locationRefresh);locationRefresh=setTimeout(addLocationButtons,100);}).observe(workspace,{childList:true,subtree:true});
  let fitObserver=null;
  let cancelFormatTransition=null;
  function clearPanel(){cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
@@ -185,6 +210,15 @@
    more.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();more.open=false;summary.focus();}});
    menu.addEventListener('click',e=>{if(e.target.closest('a,button'))more.open=false;});
    tools.append(header.querySelector('.chat-doc-toolbar'),more);
+   const destinations=(linked.sections||[]).filter(s=>s.heading_id);
+   if(destinations.length){
+     const select=document.createElement('select');select.dataset.sectionJump='';select.setAttribute('aria-label','문서 제목 위치로 이동');
+     const prompt=document.createElement('option');prompt.value='';prompt.textContent='문서 위치 이동';select.append(prompt);
+     destinations.forEach(s=>{const option=document.createElement('option');option.value=s.index;option.textContent=s.heading;select.append(option);});
+     select.onchange=()=>{const section=destinations.find(s=>String(s.index)===select.value);if(section)jumpToSection(section);};
+     tools.prepend(select);
+   }
+   addLocationButtons();
    header.append(titleRow,tools);
    panel.querySelector('.chat-doc-note')?.remove();
  }

@@ -138,11 +138,13 @@ class Materials:
         return section_context.context_for(section, self._plans[did], budget=budget)
 
     def keyword_hits(self, doc: dict, query: str, limit: int = 3) -> list[str]:
+        from zzaimy.app.chunk_path import attach_paths
+
         nouns = self.extract_nouns(query)
         if not nouns:
             return []
         scored = []
-        for ch in self._chunks_of(int(doc["id"])):
+        for ch in attach_paths(self._chunks_of(int(doc["id"]))):
             text = ch.get("content") or ""
             if ch.get("kind") == "table":
                 try:
@@ -152,9 +154,10 @@ class Materials:
                     pass
             hit = len(nouns & self.extract_nouns(text[:1500]))
             if hit:
-                scored.append((hit, text))
+                where = ch.get("path_text") or ""
+                scored.append((hit, (f"[{where}] " if where else "") + text))      # 어느 절의 글인지 모델이 알게(제목 계층)
         scored.sort(key=lambda x: -x[0])
-        return [t[:500] for _h, t in scored[:limit]]
+        return [t[:560] for _h, t in scored[:limit]]
 
     def for_section(self, info: dict, section: dict, command: str, title_of, budget: int = 3500) -> dict:
         instructions = section_text(info, section)

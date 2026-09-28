@@ -100,7 +100,8 @@ def current(request: Request, sid: int):
     info = read_document(link['account'], link['doc'])
     return {'connected':True, **link, 'title':info['title'], 'embed_url':gdocs.embed_url(link['doc']),
             'embed_url_toolbar':gdocs.embed_url(link['doc'], toolbar=True),
-            'sections':[{'index':s['index'],'heading':s['heading']} for s in info['sections']]}
+            'sections':[{'index':s['index'],'heading':s['heading'],
+                         'heading_id':s.get('heading_id'),'tab_id':s.get('tab_id')} for s in info['sections']]}
 
 
 @router.delete('/api/chat-documents/{sid}')

@@ -16,6 +16,7 @@ try {
  const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
  const css=(await readFile(root+'chat-documents.css','utf8'))+(await readFile(root+'platform-spaces.css','utf8'));const js=await readFile(root+'chat-documents.js','utf8');
  await evaluate(`document.head.innerHTML='';document.body.innerHTML='<main style="display:flex;height:900px;width:1500px"><section id="chatWorkspace" data-session="1"><button id="chatDocumentOpen">문서</button></section></main>';const style=document.createElement('style');style.textContent=${JSON.stringify(css)};document.head.append(style);window.fetch=async(url)=>({ok:true,redirected:false,json:async()=>url.endsWith('/files')?{account:'test@example.test',folder_url:'https://drive.google.com/drive/folders/test',files:[{id:'docA',name:'시험 문서',mime_type:'application/vnd.google-apps.document'}]}:url.endsWith('/folder')?{url:null}:{connected:true,title:'시험 문서',embed_url:'about:blank',sections:[]}});`);
+ await evaluate(`const fixtureFetch=window.fetch;window.fetch=async(...args)=>{const response=await fixtureFetch(...args);const json=response.json;response.json=async()=>{const data=await json();if(data.connected){data.doc='docA';data.sections=[{index:1,heading:'1. 추진 배경',heading_id:'h.test',tab_id:'t.test'}];}return data;};return response;};`);
  await evaluate(js);await evaluate(`document.getElementById('chatDocumentOpen').click()`);await new Promise(r=>setTimeout(r,150));
  assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);
  assert.equal(await evaluate(`document.querySelectorAll('iframe').length`),0);
@@ -25,6 +26,10 @@ try {
  const wide=await evaluate(`(()=>{const f=document.querySelector('iframe');return {width:f.getBoundingClientRect().width,scale:new DOMMatrix(getComputedStyle(f).transform).a,viewport:f.parentElement.clientWidth}})()`);
  assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'50%');
  assert.ok(Math.abs(wide.width-wide.viewport)<2);assert.ok(wide.scale<1);
+ await evaluate(`const section=document.querySelector('[data-section-jump]');section.value='1';section.dispatchEvent(new Event('change'));`);
+ assert.ok(await evaluate(`document.querySelector('iframe').src.includes('heading=h.test')`));
+ await evaluate(`const turn=document.createElement('div');turn.className='turn assistant';turn.innerHTML='<div class="msg assistant">1. 추진 배경 내용을 확인했습니다.</div>';document.getElementById('chatWorkspace').append(turn);`);await new Promise(r=>setTimeout(r,250));
+ assert.equal(await evaluate(`document.querySelectorAll('[data-section-location]').length`),1);
  await evaluate(`const tb=document.querySelector('[data-toolbar]');tb.checked=true;tb.dispatchEvent(new Event('change'));`);await new Promise(r=>setTimeout(r,150));
  const formatted=await evaluate(`(()=>{const f=document.querySelector('iframe');return {scale:new DOMMatrix(getComputedStyle(f).transform).a,width:f.getBoundingClientRect().width,viewport:f.parentElement.clientWidth}})()`);
  assert.ok(formatted.scale<1&&formatted.scale<=wide.scale);assert.ok(Math.abs(formatted.width-formatted.viewport)<2);

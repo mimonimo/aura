@@ -47,7 +47,8 @@ def test_materials_prefer_aligned_section_then_keywords():
             if did == 9:
                 return [{"page_no": 1, "seq": 1, "kind": "text", "content": "1.1. 교육여건 분석\n지역 산업 수요가 는다"},
                         {"page_no": 2, "seq": 2, "kind": "text", "content": "1.2. 특성화 방향\n비전"}]
-            return [{"page_no": 1, "seq": 1, "kind": "text", "content": "교육여건 분석 관련 현황 인력수요 표"}]
+            return [{"page_no": 1, "seq": 0, "kind": "heading", "content": "Ⅱ. 현황"},
+                    {"page_no": 1, "seq": 1, "kind": "text", "content": "교육여건 분석 관련 현황 인력수요 표"}]
 
     nouns = lambda t: frozenset(w for w in t.replace("\n", " ").split() if len(w) >= 2)
     mats = drafting.Materials(DB(), {"id": 1, "sector": "grant"}, {3}, lambda *a, **k: [], nouns, [])
@@ -55,7 +56,7 @@ def test_materials_prefer_aligned_section_then_keywords():
     titles = {p["title"]: p for p in m["past"]}
     assert "지난 계획서" in titles and titles["지난 계획서"]["how"] == "같은 절" and "지역 산업 수요" in titles["지난 계획서"]["text"]
     assert "서식" not in titles                                     # 작업본의 원본 서식은 재료가 아니다
-    assert titles["현황표"]["how"] == "낱말 겹침"
+    assert titles["현황표"]["how"] == "낱말 겹침" and titles["현황표"]["text"].startswith("[Ⅱ. 현황] ")     # 제목 계층이 앞에
 
 
 def test_unfilled_uses_body_chars_when_present():

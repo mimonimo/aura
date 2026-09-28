@@ -158,6 +158,12 @@ def outline(document: dict) -> dict:
             if not (is_table and "작성방법" in text):
                 cur["body_chars"] += len(text.strip())                          # 본문 글자 — 양식의 작성방법 상자는 본문이 아니다
     sections.append(cur)
+    anchors = {int(el.get("startIndex", 0)): el.get("paragraph", {}).get("paragraphStyle", {}).get("headingId") for el in body}
+    tab_id = next((tab.get("tabProperties", {}).get("tabId") for tab in document.get("tabs", []) or []
+                   if tab.get("documentTab", {}).get("body", {}).get("content") is body), None)
+    for section in sections:
+        section["heading_id"] = anchors.get(section["start"])
+        section["tab_id"] = tab_id
     text = "\n".join(t.rstrip("\n") for _s, _e, _st, t, _tb in items)
     return {"title": document.get("title", ""), "end": doc_end, "sections": sections, "text": text}
 
