@@ -507,7 +507,11 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
         if sec is None:
             sec = parent_of(b["heading"], info["sections"])
             if sec is not None:
-                items = [("text", b["heading"])] + items          # 소제목 글줄을 앞에 두고 부모 절 끝에 잇는다
+                # 소제목 글줄과 첫 본문을 한 번에 넣는다 — 따로 넣으면 소제목 줄이 새 절 경계가 돼 본문이 그 위에 들어간다(실측 2026-09-28)
+                if items and items[0][0] == "text":
+                    items = [("text", b["heading"] + "\n" + str(items[0][1]))] + items[1:]
+                else:
+                    items = [("text", b["heading"])] + items
                 fallback = True
         if sec is None:
             results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"}); continue
