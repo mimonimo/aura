@@ -39,6 +39,13 @@ def is_unfilled(section: dict) -> bool:
     return int(section.get("table_end") or 0) > int(section.get("end") or 0) - 1 or int(section.get("chars") or 0) == 0
 
 
+def family_unfilled(info: dict, section: dict) -> bool:
+    """절과 그 소제목 절들에 모두 본문이 없는가 — 소제목 뼈대에 나눠 쓴 절(1.1)은 절 자체가 비어 보여도 쓴 절이다(실측 2026-09-28)."""
+    if not is_unfilled(section):
+        return False
+    return all(is_unfilled(s) for s in subsections(info, section))
+
+
 def writable(section: dict) -> bool:
     """쓸 수 있는 절 — 번호가 두 마디 이상(1.1, 2.1.1)인 본문 절. 장 제목(1., Ⅰ.)이나 앞머리는 아니다."""
     num, _ = section_context.split_number(section.get("heading") or "")
@@ -57,7 +64,7 @@ def target_sections(info: dict, command: str, filled_ok: bool = False) -> list[d
             if hit is not None and hit not in out:
                 out.append(hit)
         return out[:MAX_SECTIONS_PER_TURN]
-    empties = [s for s in secs if writable(s) and (filled_ok or is_unfilled(s))]
+    empties = [s for s in secs if writable(s) and (filled_ok or family_unfilled(info, s))]
     if _ALL.search(c):
         return empties[:MAX_SECTIONS_PER_TURN]
     if _NEXT.search(c) or _DRAFT.search(c):
@@ -220,11 +227,14 @@ _NUM_TOKEN = re.compile(r"\d[\d,.]*\s*(?:%|억|만|천|백|명|개|건|년|월|�
 _TERM_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9+·\-]{2,}|[가-힣]{2,}(?:추진단|대학|센터|위원회|사업단|플랫폼|시스템|아카데미|랩|스쿨|모델|트랙|프로그램)")
 
 
+_JUNK = re.compile(r"^(?:BIN\d+|IMG\d+|image\d+|0\d{3,}|png|jpg|jpeg|gif|bmp|pdf|hwp|docx?)$", re.I)      # 그림 참조·파일 확장자·0으로 시작하는 번호
+
+
 def key_facts(text: str) -> tuple[set[str], set[str]]:
     """정답지의 '핵심 사실' — 수치(단위 포함)와 고유명사꼴 낱말(영문 약어·기관·조직 이름). 채점의 기준."""
     nums = {re.sub(r"[^0-9A-Za-z가-힣%]", "", m.group(0)) for m in _NUM_TOKEN.finditer(text or "")}
-    nums = {n for n in nums if any(ch.isdigit() for ch in n) and len(n) >= 2}
-    terms = {m.group(0) for m in _TERM_TOKEN.finditer(text or "")}
+    nums = {n for n in nums if any(ch.isdigit() for ch in n) and len(n) >= 2 and not _JUNK.match(n)}
+    terms = {t for t in (m.group(0) for m in _TERM_TOKEN.finditer(text or "")) if not _JUNK.match(t)}
     return nums, terms
 
 

@@ -70,4 +70,4 @@ def ask_for_missing(facts: dict) -> str:
     if not missing:
         return ""
     return ("기관 정보 중 " + "·".join(missing) + " 을(를) 문서함에서 찾지 못했습니다. 알려 주시면 기억해 두고 이후 작성에 넣겠습니다"
-            " — 예: \"총장은 홍길동, 대표전화는 053-650-9000\".")
+            " — 예: \"총장은 홍길동, 대표전화는 (번호)\".")

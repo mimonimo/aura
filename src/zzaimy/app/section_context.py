@@ -108,8 +108,11 @@ def running_lines(items: list[Item]) -> set[str]:
     return {k for k, ps in pages.items() if len(ps) >= RUNNING_MIN_PAGES}
 
 
+_ASSET_REF = re.compile(r"\b(?:BIN|IMG|image)\d+(?:\.(?:png|jpg|jpeg|gif|bmp))?\b", re.I)
+
+
 def clean_line(line: str) -> str:
-    s = line.strip()
+    s = _ASSET_REF.sub("", line).strip()
     for k, v in _GLYPHS.items():
         s = s.replace(k, v)
     s = _BOLD_RE.sub(r"\1", s)
