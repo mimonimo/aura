@@ -6,25 +6,20 @@
  let linked=null, panel=null;
  let fitObserver=null;
  function clearPanel(){fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
- function fitEditor(){
+ function fitEditor(autoFit=true){
    const frame=panel.querySelector('iframe');if(!frame||frame.parentElement.classList.contains('chat-doc-viewport'))return;
    const viewport=document.createElement('div');viewport.className='chat-doc-viewport';
    frame.before(viewport);viewport.append(frame);
-   const toggle=document.createElement('button');toggle.type='button';toggle.className='secondary';toggle.dataset.fit='';toggle.textContent='너비 맞춤';toggle.setAttribute('aria-pressed','true');
-   panel.querySelector('header').insertBefore(toggle,panel.querySelector('[data-hide]'));
-   let fit=true;
    const toolbar=panel.querySelector('[data-toolbar]');
    const resize=()=>{
      const width=viewport.clientWidth,height=viewport.clientHeight;if(!width||!height)return;
      const nativeTools=Boolean(toolbar?.checked);
      // Full Docs chrome includes its document-tabs sidebar. Keep it in the
      // fitted viewport instead of forcing 100% when formatting is enabled.
-     const scale=fit?Math.min(1,width/(nativeTools?1440:1100)):1;
-     toggle.title=`편집기 표시 배율 ${Math.round(scale*100)}% · ${fit?'원래 크기로 전환':'패널 너비에 맞추기'}`;
+     const scale=autoFit?Math.min(1,width/(nativeTools?1440:1100)):1;
      frame.style.cssText=`position:absolute;left:0;top:0;width:${width/scale}px;height:${height/scale}px;transform:scale(${scale});transform-origin:top left;max-width:none;`;
    };
-   toolbar?.addEventListener('change',()=>{fit=true;toggle.setAttribute('aria-pressed','true');toggle.textContent='너비 맞춤';resize();});
-   toggle.onclick=()=>{fit=!fit;toggle.setAttribute('aria-pressed',String(fit));toggle.textContent=fit?'너비 맞춤':'원래 크기';resize();};
+   toolbar?.addEventListener('change',resize);
    fitObserver=new ResizeObserver(resize);fitObserver.observe(viewport);
  }
  const divider=document.createElement('div');
@@ -150,8 +145,7 @@
        finally{work.disabled=false;if(work.isConnected&&ready)work.textContent='작업 문서 열기';}
      };
      panel.querySelector('header').insertBefore(work,panel.querySelector('[data-hide]'));}
-   main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(50,false);visibility(true);fitEditor();
-   const fit=panel.querySelector('[data-fit]');if(fit&&!/document\//.test(v.embed_url))fit.click();   // 시트·슬라이드·PDF 는 원래 크기
+   main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(50,false);visibility(true);fitEditor(/document\//.test(v.embed_url));
    panel.querySelectorAll('header a,header button').forEach(el=>el.classList.add('chat-doc-mini'));
  }
  const createPanel=show;
@@ -173,7 +167,7 @@
    more.append(summary,menu);
    more.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();more.open=false;summary.focus();}});
    menu.addEventListener('click',e=>{if(e.target.closest('a,button'))more.open=false;});
-   tools.append(header.querySelector('.chat-doc-toolbar'),header.querySelector('[data-fit]'),more);
+   tools.append(header.querySelector('.chat-doc-toolbar'),more);
    header.append(titleRow,tools);
    panel.querySelector('.chat-doc-note')?.remove();
  }
