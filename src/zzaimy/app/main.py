@@ -1138,6 +1138,28 @@ def create_app(
             from zzaimy.generate.client import VllmClient
 
             client = VllmClient(role="answer")
+            from zzaimy.app import institution as _inst
+
+            given = _inst.parse_answer(q) if re.search(r"총장|대표\s*전화|전화번호|주소|대학명", q) and not drafting.looks_like_section_draft(q) else {}
+            given = {k: v for k, v in given.items() if not re.fullmatch(r"[○◯]{2,}|0{3}-0{3}-0{4}", v)}
+            if given:
+                # 담당자가 알려 준 기관 정보 — 기억해 두고(설정), 다음 작성부터 넣는다. 지어내지 않고 물어서 받는 길(2026-09-28)
+                for k, v in given.items():
+                    _inst.set_fact(db, k, v)
+                facts_now = _inst.facts(db)
+                text = "기억했습니다 — " + ", ".join(f"{k}: {v}" for k, v in given.items()) + ". 이후 작성하는 절과 기입란에 넣습니다."
+                ask = _inst.ask_for_missing(facts_now)
+                if ask:
+                    text += "\n" + ask
+                last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
+                opts = [{"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}]
+                if last:
+                    num = section_context.split_number(last)[0]
+                    if num:
+                        opts.insert(0, {"kind": "redo", "text": f"{num} 절에 기관 정보 반영해 다시 쓰기", "question": f"{num} 절을 기관 정보를 반영해 다시 써 줘"})
+                _set_options(session_id, opts)
+                db.add_chat(session_id, "assistant", ag.scrub(text))
+                return
             if drafting.looks_like_section_draft(q):
                 # 절 작성 에이전트(사용자 지시 2026-09-27): 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
                 # 절마다 재료(작성방법·평가지표·지난 자료의 같은 절·기관 정보)를 모아 27B 가 쓰고 넣는다. 한 번에 몇 절씩, 이어서는 선택지로.
@@ -1196,13 +1218,15 @@ def create_app(
                     all_ops += o_
                     info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
                 db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
-                missing = [k for k, v in inst.items() if not v]
-                if missing:
-                    parts_.append("기관 정보 중 문서함에 없어 비워 둔 값: " + ", ".join(missing) + " — 설정(institution)으로 넣으면 다음부터 채웁니다.")
+                ask = institution.ask_for_missing(inst)
+                if ask:
+                    parts_.append(ask)
                 text = "\n\n".join(parts_)
                 _ops = all_ops
                 left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x)]
                 opts = []
+                if ask:
+                    opts.append({"kind": "ask", "text": "기관 정보 알려주기", "question": "총장은 ○○○, 대표전화는 000-000-0000"})
                 if left:
                     opts.append({"kind": "continue", "text": f"이어서 다음 절 작성 (남은 절 {len(left)}개)", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
                 opts += [{"kind": "review", "text": "방금 쓴 절 검토", "question": "방금 쓴 절을 평가지표·공고 기준으로 검토해 줘"},
