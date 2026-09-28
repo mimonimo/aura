@@ -644,7 +644,8 @@ def test_section_bodies_and_migrate_skip_box_and_keep_order(monkeypatch, tmp_pat
     monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
     http = httpx.Client(transport=httpx.MockTransport(handler))
     bodies = gdocs.section_bodies("a@b", "old", http=http)
-    assert [b["heading"] for b in bodies] == ["1.1. 교육여건 분석"]
+    # 본문이 빈 절(1.2)도 차례에 있다 — 서식 채우기가 소제목의 부모를 알 수 있게(2026-09-29). 옮기기는 빈 절을 건너뛴다
+    assert [(b["heading"], bool(b["items"])) for b in bodies] == [("1.1. 교육여건 분석", True), ("1.2. 특성화 방향", False)]
     assert [k for k, _ in bodies[0]["items"]] == ["text", "table", "text"] and bodies[0]["items"][1][1] == [["강점", "약점"], ["S1", "W1"]]
     res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http)
     assert res == [{"heading": "1.1. 교육여건 분석", "done": "ok", "chars": len("지역 산업 수요가 늘고 있다.") + len("끝 문단"), "tables": 1, "under": ""}]

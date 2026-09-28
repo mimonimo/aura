@@ -474,8 +474,9 @@ def section_bodies(email: str, doc: str, http=None) -> list[dict]:
                     items.append(("table", rows))
         if buf:
             items.append(("text", "\n".join(buf)))
-        if items:
-            out.append({"heading": sec["heading"], "items": items})
+        # 본문이 빈 절도 차례에 넣는다 — 서식 채우기(hwpx_fill)가 소제목에 나눠 쓴 절의 부모를 알 수 있게(2026-09-29: 1.1 이 빠지자
+        # 그 소제목들이 앞 절로 들어갔다). 옮기기(migrate_bodies)는 빈 절을 건너뛴다.
+        out.append({"heading": sec["heading"], "items": items})
     return out
 
 
@@ -505,6 +506,8 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
     for b in bodies:
         if only_headings is not None and b["heading"] not in only_headings:
             continue
+        if not b["items"]:
+            continue                                                   # 본문 없는 절은 옮길 것이 없다
         info = get(email, dst, http)
         key = _norm_heading(b["heading"])
         sec = next((s for s in info["sections"] if _norm_heading(s["heading"]) == key), None)

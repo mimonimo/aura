@@ -7,8 +7,16 @@ kordoc(roundtrip/patcher·source-map·zip-patch·table-insert)에서 흡수한 �
 - 구역 XML 을 다시 직렬화하지 않고 글자열 위치에 끼워 넣는다(바이트 보존). 손대지 않은 문단은 한 글자도 안 바뀐다.
 - 글이 바뀐 구역은 줄 배치 캐시(hp:linesegarray)를 전부 지운다 — 한글이 다시 계산하고, 변조 경고·옛 줄배치 렌더를 막는다.
 - ZIP 은 원본 항목 순서·압축 방식을 그대로 두고 바뀐 항목만 다시 쓴다(mimetype 첫 항목·무압축 규약이 자동 보존).
-- 새 표의 id 는 문서 전체 숫자 id 최댓값 다음부터(충돌 없음). 표 테두리는 그 구역 표들이 가장 많이 쓰는 borderFill 을 승계하고,
+- 새 표의 id 는 문서 전체 숫자 id 최댓값 다음부터(충돌 없음). 표 테두리는 그 구역 본문 표가 가장 많이 쓰는 실선 borderFill 을 승계하고,
   표가 하나도 없는 서식이면 실선 borderFill 하나를 header 에 추가(itemCnt 갱신)한다.
+
+작업본은 서식의 변환본이라 서식 자체의 글·표도 들어 있다(첫 실측 2026-09-29: 그대로 넣으니 표 63→110 개로 겹침). 그래서 작업본 내용을
+서식과 견줘 넣는다 — 일반 규칙이지 특정 서식 규칙이 아니다:
+- 서식에 이미 있는 문단·표(글자 집합이 서식 표에 포함)는 다시 넣지 않고, 그 자리를 지나 뒤에 이어 쓴다(작업본 순서 유지).
+- 서식 표를 작업본에서 고쳐 썼으면(칸 값이 달라짐) 서식 표의 칸에 그 값을 써 넣는다 — 표 서식(병합·테두리·열 폭)은 그대로.
+  칸 대응은 행 수가 같고 행마다 칸 수가 같거나(순서대로) 작업본 행이 격자 열 수와 같을 때(colAddr 로). 못 맞추면 새 표로 넣는다.
+- 작업본에서 에이전트가 만든 소제목(서식에 없는 '1) 강점(S)' 같은 것)은 바로 앞 절의 본문으로 이어 넣는다. 점 번호(1.1 같은) 제목이
+  서식에 없으면 건너뛰고 보고한다(서식 구조가 다른 것이므로 사람이 본다).
 
 원칙(특정 서식에 맞추지 않는다):
 - 문단 서식은 문서의 기본 스타일('바탕글', style id 0)의 문단·글자 모양 참조를 빌린다 — 서식의 글꼴·크기·줄 간격이 그대로.
@@ -20,56 +28,194 @@ from __future__ import annotations
 import re
 import zipfile
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape, unescape
 
 from zzaimy.app import section_context as sc
 
-_P_OPEN = re.compile(r"<hp:p\b[^>]*>")
-_P_CLOSE = "</hp:p>"
-_T = re.compile(r"<hp:t>([^<]*)</hp:t>")
+_T_ANY = re.compile(r"<hp:t(?:\s[^>]*)?>(.*?)</hp:t>", re.S)
+_TAG = re.compile(r"<[^>]+>")
 _SEC_RE = re.compile(r"Contents/section(\d+)\.xml$")
 _LINESEG = re.compile(r"<(\w+:)?linesegarray\b[^>]*?(?:/>|>.*?</\1linesegarray>)", re.S)
 _NUM_ID = re.compile(r"\bid(?:Ref)?=\"(\d{1,10})\"")
 _BOX_RE = re.compile(r"【\s*(작성방법|증빙자료|작성\s*가이드|작성\s*요령)\s*】")
+_DOTTED = re.compile(r"^\s*\d+(\.\d+)+\.?\s")
+_NONWORD = re.compile(r"[^\w]+")
+
+
+def _norm(s: str) -> str:
+    """겹침 판정용 — 공백·기호·사설 글자(･ 의  같은 것)를 빼고 소문자."""
+    return _NONWORD.sub("", s or "").lower()
+
+
+def _top_level(xml: str, tag: str, start: int = 0, end: int | None = None) -> list[tuple[int, int]]:
+    """[start, end) 안에서 <tag ...>…</tag> 의 최상위 범위 — 같은 태그가 안에 겹치면(표 안 표) 깊이로 건너뛴다."""
+    end = len(xml) if end is None else end
+    open_re = re.compile(rf"<{re.escape(tag)}\b[^>]*?(/?)>")
+    close = f"</{tag}>"
+    out: list[tuple[int, int]] = []
+    pos = start
+    while True:
+        m = open_re.search(xml, pos, end)
+        if not m:
+            break
+        if m.group(1) == "/":
+            out.append((m.start(), m.end()))
+            pos = m.end()
+            continue
+        depth = 1
+        i = m.end()
+        while depth and i < end:
+            nxt = open_re.search(xml, i, end)
+            c = xml.find(close, i, end)
+            if c < 0:
+                i = end
+                break
+            if nxt and nxt.start() < c:
+                if nxt.group(1) != "/":
+                    depth += 1
+                i = nxt.end()
+            else:
+                depth -= 1
+                i = c + len(close)
+        out.append((m.start(), i))
+        pos = i
+    return out
 
 
 def _top_level_paragraphs(xml: str) -> list[tuple[int, int]]:
-    """구역 XML 의 최상위 문단 범위 [(start, end)] — 표 안 문단은 겹침으로 건너뛴다."""
-    out: list[tuple[int, int]] = []
-    pos = 0
-    n = len(xml)
-    while True:
-        m = _P_OPEN.search(xml, pos)
-        if not m:
-            break
-        start = m.start()
-        depth = 0
-        i = start
-        while i < n:
-            nxt_open = _P_OPEN.search(xml, i)
-            nxt_close = xml.find(_P_CLOSE, i)
-            if nxt_close < 0:
-                i = n
-                break
-            if nxt_open and nxt_open.start() < nxt_close:
-                depth += 1
-                i = nxt_open.end()
-            else:
-                depth -= 1
-                i = nxt_close + len(_P_CLOSE)
-                if depth == 0:
-                    break
-        out.append((start, i))
-        pos = i
-    return out
+    return _top_level(xml, "hp:p")
+
+
+def _texts(fragment: str) -> list[str]:
+    """hp:t 안의 글(탭 같은 안쪽 태그는 공백으로)."""
+    return [" ".join(unescape(_TAG.sub(" ", m.group(1))).split()) for m in _T_ANY.finditer(fragment)]
 
 
 def _para_text(block: str) -> str:
     """문단 글(표 안 글 제외) — 첫 표 태그 앞까지의 hp:t 만."""
     cut = block.find("<hp:tbl")
     head = block if cut < 0 else block[:cut]
-    return " ".join(" ".join(_T.findall(head)).split())
+    return " ".join(" ".join(_texts(head)).split())
+
+
+_WALK = re.compile(r"<hp:p\b[^>]*>|</hp:p>|<hp:subList\b[^>]*>|</hp:subList>|<hp:tbl\b[^>]*>|</hp:tbl>|<hp:t(?:\s[^>]*)?>(.*?)</hp:t>", re.S)
+
+
+class _Known:
+    """서식에 이미 있는 글 — 작업본 내용이 서식 것인지 볼 때. 어느 깊이든 모든 문단의 글과, 담는 단위(셀·글상자 subList·표·구역 본문)마다
+    문단 차례를 둔다. 독스 변환본은 글상자의 여러 문단이나 목차 표의 여러 칸을 한 칸 글로 합치므로, 이어진 문단들을 붙인 것도 '있는 글'로 본다."""
+
+    def __init__(self) -> None:
+        self.paras: set[str] = set()
+        self.runs: list[list[str]] = []
+        self.joined: set[str] = set()
+
+    def add_xml(self, xml: str) -> None:
+        stack: list[list[str]] = []          # 문단 글 버퍼
+        containers: list[list[str]] = [[]]   # subList·tbl 마다 문단 norm 차례(맨 아래는 구역 본문)
+        for m in _WALK.finditer(xml):
+            tok = m.group(0)
+            if tok.startswith("</hp:p>"):
+                if stack:
+                    t = _norm(" ".join(stack.pop()))
+                    if t:
+                        self.paras.add(t)
+                        containers[-1].append(t)
+            elif tok.startswith("<hp:p"):
+                stack.append([])
+            elif tok.startswith("<hp:subList") or tok.startswith("<hp:tbl"):
+                containers.append([])
+            elif tok.startswith("</hp:subList>") or tok.startswith("</hp:tbl>"):
+                run = containers.pop()
+                if run:
+                    self.runs.append(run)
+                    self.joined.add("".join(run))
+                    containers[-1].extend(run)       # 바깥 단위(표 전체·구역)에서도 이어 붙일 수 있게
+            elif stack:
+                stack[-1].append(unescape(_TAG.sub(" ", m.group(1))))
+        if containers and containers[0]:
+            self.runs.append(containers[0])
+
+    def has(self, n: str) -> bool:
+        """정규화한 글 n 이 서식에 있는가 — 문단 하나, 담는 단위 전체, 또는 한 단위 안의 이어진 문단들을 붙인 것."""
+        if not n:
+            return True
+        if n in self.paras or n in self.joined:
+            return True
+        if len(n) < 8:
+            return False
+        for run in self.runs:
+            for i, first in enumerate(run):
+                if not first or not n.startswith(first):
+                    continue
+                acc = first
+                j = i + 1
+                while acc != n and j < len(run) and n.startswith(acc + run[j]):
+                    acc += run[j]
+                    j += 1
+                if acc == n:
+                    return True
+        return False
+
+
+def _without_tables(fragment: str) -> str:
+    for a, b in sorted(_top_level(fragment, "hp:tbl"), reverse=True):
+        fragment = fragment[:a] + fragment[b:]
+    return fragment
+
+
+@dataclass
+class _Cell:
+    tc: tuple[int, int]
+    inner: tuple[int, int]            # subList 안쪽 범위(문단들)
+    col: int
+    text: str
+    nested: bool
+    p_open: str                       # 첫 문단 여는 태그(속성 승계용)
+    char_ref: str
+    full: str = ""                    # 안쪽 표까지 합친 글(대조용)
+
+
+@dataclass
+class _FormTable:
+    para: tuple[int, int]             # 표를 담은 최상위 문단
+    rows: list[list[_Cell]]
+    col_cnt: int
+    cells: set[str] = field(default_factory=set)
+    consumed: bool = False
+
+
+def _parse_table(xml: str, para: tuple[int, int]) -> _FormTable | None:
+    tbls = _top_level(xml, "hp:tbl", para[0], para[1])
+    if not tbls:
+        return None
+    ta, tb = tbls[0]
+    open_tag = xml[ta:xml.index(">", ta) + 1]
+    cc = re.search(r"colCnt=\"(\d+)\"", open_tag)
+    rows: list[list[_Cell]] = []
+    for ra, rb in _top_level(xml, "hp:tr", ta, tb):
+        row: list[_Cell] = []
+        for ca, cb in _top_level(xml, "hp:tc", ra, rb):
+            subs = _top_level(xml, "hp:subList", ca, cb)
+            if not subs:
+                continue
+            sa, sb = subs[0]
+            ia = xml.index(">", sa) + 1
+            ib = sb - len("</hp:subList>")
+            inner = xml[ia:ib]
+            addr = re.search(r"<hp:cellAddr\b[^>]*colAddr=\"(\d+)\"", xml[ca:cb])
+            pm = re.search(r"<hp:p\b[^>]*>", inner)
+            cm = re.search(r"charPrIDRef=\"(\d+)\"", inner)
+            row.append(_Cell(tc=(ca, cb), inner=(ia, ib), col=int(addr.group(1)) if addr else len(row),
+                             text=" ".join(" ".join(_texts(_without_tables(inner))).split()),
+                             nested="<hp:tbl" in inner, p_open=pm.group(0) if pm else "", char_ref=cm.group(1) if cm else "0",
+                             full=_norm(" ".join(_texts(inner)))))
+        rows.append(row)
+    t = _FormTable(para=para, rows=rows, col_cnt=int(cc.group(1)) if cc else max((len(r) for r in rows), default=0))
+    t.cells = {n for r in rows for c in r for n in (_norm(c.text), c.full) if n}
+    return t
 
 
 def _default_refs(header_xml: str) -> tuple[str, str]:
@@ -240,66 +386,199 @@ def _remove_boxes(xml: str) -> tuple[str, int]:
     return xml, len(drop)
 
 
+def _docs_cells(rows: list[list[str]]) -> set[str]:
+    return {_norm(str(c)) for r in rows for c in r if _norm(str(c))}
+
+
+def _map_cells(form: _FormTable, rows: list[list[str]]) -> list[tuple[_Cell, str]] | None:
+    """작업본 표의 칸 → 서식 표의 칸. 행 수가 같고, 행마다 칸 수가 같거나(순서대로) 작업본 행이 격자 열 수와 같을 때(colAddr)."""
+    if len(rows) != len(form.rows):
+        return None
+    pairs: list[tuple[_Cell, str]] = []
+    for drow, frow in zip(rows, form.rows):
+        if len(drow) == len(frow):
+            pairs += [(fc, str(dc)) for fc, dc in zip(frow, drow)]
+        elif len(drow) == form.col_cnt:
+            by_col = {fc.col: fc for fc in frow}
+            for c, dc in enumerate(drow):
+                if c in by_col:
+                    pairs.append((by_col[c], str(dc)))
+                elif _norm(str(dc)):
+                    return None                                  # 병합에 가려진 칸에 값이 있다 — 대응 불가
+        else:
+            return None
+    return pairs
+
+
+class _Section:
+    def __init__(self, name: str, xml: str, solid: set[str]) -> None:
+        self.name = name
+        self.xml = xml
+        self.paras = _top_level_paragraphs(xml)
+        self.texts = [_para_text(xml[a:b]) for a, b in self.paras]
+        self.tables: list[_FormTable] = []
+        for p in self.paras:
+            if "<hp:tbl" in xml[p[0]:p[1]]:
+                t = _parse_table(xml, p)
+                if t:
+                    self.tables.append(t)
+        self.width = _text_width_hu(xml)
+        self.bf, self.margin = _table_template(xml, solid)
+        self.splices: list[tuple[int, int, str]] = []
+
+
 def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: bool = False) -> dict:
     """bodies = [{"heading": 절 제목, "items": [("text", 글) | ("table", 행렬), ...]}] 를 원본 서식에 넣어 out 에 저장.
-    돌려주는 것: {"filled": [제목…], "skipped": [제목…], "paragraphs": n, "tables": n, "boxes_removed": n, "linesegs_removed": n,
-    "sections_changed": [항목 이름…]}"""
+    돌려주는 것: {"filled": [제목…], "skipped": [제목…], "folded": [소제목…], "paragraphs": n, "tables": n, "tables_updated": n,
+    "existing_kept": n, "boxes_removed": n, "linesegs_removed": n, "sections_changed": [항목 이름…]}"""
     src, out = Path(src), Path(out)
     with zipfile.ZipFile(src) as z:
         names = z.namelist()
         header = z.read("Contents/header.xml").decode("utf-8")
-        sections = {n: z.read(n).decode("utf-8") for n in names if _SEC_RE.search(n)}
+        raw = {n: z.read(n).decode("utf-8") for n in names if _SEC_RE.search(n)}
     pp, cp = _default_refs(header)
     solid = _solid_border_ids(header)
-    next_id = _max_numeric_id([header, *sections.values()]) + 1
-    report = {"filled": [], "skipped": [], "paragraphs": 0, "tables": 0, "boxes_removed": 0,
-              "linesegs_removed": 0, "sections_changed": []}
-    pending = list(bodies)
-    replaced: dict[str, bytes] = {}
+    next_id = _max_numeric_id([header, *raw.values()]) + 1
+    secs = [_Section(n, raw[n], solid) for n in sorted(raw, key=lambda n: int(_SEC_RE.search(n).group(1)))]
+    known = _Known()
+    for s in secs:
+        known.add_xml(s.xml)
+    seen_texts: set[str] = set()
+    seen_tables: set[frozenset] = set()
+    all_tables = [t for s in secs for t in s.tables]
+    report = {"filled": [], "skipped": [], "folded": [], "duplicates": [], "paragraphs": 0, "tables": 0, "tables_updated": 0,
+              "existing_kept": 0, "boxes_removed": 0, "linesegs_removed": 0, "sections_changed": []}
+
+    # 1) 절 제목 자리 찾기 — 못 찾은 소제목(점 번호 없음)은 바로 앞 절에 잇는다
+    located: list[tuple[_Section, int, dict, list]] = []          # (구역, 삽입 위치, body, items)
+    for body in bodies:
+        hit = None
+        for s in secs:
+            idx = next((i for i, t in enumerate(s.texts) if t and _heading_matches(t, body["heading"])), None)
+            if idx is not None:
+                hit = (s, idx)
+                break
+        if hit is None:
+            if located and not _DOTTED.match(body["heading"] or ""):
+                located[-1][3].append(("text", body["heading"]))
+                located[-1][3].extend(body.get("items", []))
+                report["folded"].append(body["heading"])
+            else:
+                report["skipped"].append(body["heading"])
+            continue
+        s, idx = hit
+        at = s.paras[idx][1]
+        if idx + 1 < len(s.paras):
+            nxt = s.xml[s.paras[idx + 1][0]:s.paras[idx + 1][1]]
+            if "<hp:tbl" in nxt and _BOX_RE.search(nxt):
+                at = s.paras[idx + 1][1]
+        located.append((s, at, body, list(body.get("items", []))))
+
     injected_bf: str | None = None
-    for name in sorted(sections, key=lambda n: int(_SEC_RE.search(n).group(1))):
-        xml = sections[name]
-        width = _text_width_hu(xml)
-        bf, margin = _table_template(xml, solid)
-        paras = _top_level_paragraphs(xml)
-        texts = [_para_text(xml[a:b]) for a, b in paras]
-        inserts: list[tuple[int, str, dict]] = []
-        for body in list(pending):
-            idx = next((i for i, t in enumerate(texts) if t and _heading_matches(t, body["heading"])), None)
-            if idx is None:
-                continue
-            at = paras[idx][1]
-            # 바로 뒤 문단이 【작성방법】 상자(표)면 그 뒤에
-            if idx + 1 < len(paras):
-                nxt = xml[paras[idx + 1][0]:paras[idx + 1][1]]
-                if "<hp:tbl" in nxt and _BOX_RE.search(nxt):
-                    at = paras[idx + 1][1]
-            chunks: list[str] = []
-            for kind, payload in body.get("items", []):
-                if kind == "text":
-                    for line in str(payload).split("\n"):
-                        if line.strip():
-                            chunks.append(paragraph_xml(line.strip(), pp, cp))
-                            report["paragraphs"] += 1
-                elif kind == "table" and payload:
-                    if bf is None:
-                        if injected_bf is None:
-                            header, injected_bf = _inject_border_fill(header)
-                            replaced["Contents/header.xml"] = header.encode("utf-8")
-                        bf = injected_bf
-                    t = table_xml([[str(c) for c in r] for r in payload], pp, cp, width, bf, margin, next_id)
-                    if t:
-                        chunks.append(t)
-                        report["tables"] += 1
-                        next_id += 1
-            if chunks:
-                inserts.append((at, "".join(chunks), body))
-            pending.remove(body)
-        # 뒤에서부터 끼워 넣어 앞 위치가 밀리지 않게 — 원문 조각은 그대로 잇는다
-        for at, chunk, body in sorted(inserts, key=lambda x: -x[0]):
-            xml = xml[:at] + chunk + xml[at:]
-        report["filled"] += [body["heading"] for at, chunk, body in sorted(inserts, key=lambda x: x[0])]   # 문서 순서로 보고
-        changed = bool(inserts)
+    replaced: dict[str, bytes] = {}
+
+    # 2) 절마다 작업본 내용을 서식과 견줘 넣는다 — 커서는 서식 안 위치, 이미 있는 것은 지나가고 새것은 커서에 쌓는다
+    for s, cursor, body, items in located:
+        pending: list[str] = []
+        put_any = False
+
+        def flush() -> None:
+            nonlocal pending
+            if pending:
+                s.splices.append((cursor, cursor, "".join(pending)))
+                pending = []
+
+        for kind, payload in items:
+            if kind == "text":
+                for line in str(payload).split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    n = _norm(line)
+                    if len(n) > 1 and known.has(n):
+                        # 서식에 있는 문단 — 이 구역의 커서 뒤에 있으면 그 뒤로 옮겨 간다
+                        j = next((i for i, (a, b) in enumerate(s.paras) if a >= cursor and _norm(s.texts[i]) == n), None)
+                        report["existing_kept"] += 1
+                        if j is not None:
+                            flush()
+                            cursor = s.paras[j][1]
+                        continue
+                    if len(n) >= 30:
+                        if n in seen_texts:                       # 작업본 안에서 같은 새 문단이 또 나옴 — 앞의 것만 넣고 보고
+                            report["duplicates"].append(f"{body['heading'][:20]}: {line[:40]}")
+                            continue
+                        seen_texts.add(n)
+                    pending.append(paragraph_xml(line, pp, cp))
+                    report["paragraphs"] += 1
+                    put_any = True
+            elif kind == "table" and payload:
+                rows = [[str(c) for c in r] for r in payload]
+                dcells = _docs_cells(rows)
+                if not dcells:
+                    continue
+                if all(known.has(c) for c in dcells) or any(dcells <= t.cells for t in all_tables):
+                    # 서식에 그대로 있는 표 — 이 구역 커서 뒤의 것이면 그 뒤로
+                    here = next((t for t in s.tables if t.para[0] >= cursor and dcells <= t.cells), None)
+                    report["existing_kept"] += 1
+                    if here is not None:
+                        flush()
+                        cursor = here.para[1]
+                        here.consumed = True
+                    continue
+                key = frozenset(dcells)
+                if len(dcells) >= 3:
+                    if key in seen_tables:                        # 작업본 안에서 같은 새 표가 또 나옴
+                        report["duplicates"].append(f"{body['heading'][:20]}: 표 {rows[0][0][:20] if rows[0] else ''}")
+                        continue
+                    seen_tables.add(key)
+                # 서식 표를 고쳐 쓴 것인가 — 이 구역에서 칸이 가장 많이 겹치는 표(첫 행이 같으면 우선)에 칸 대응이 되면 그 칸에 써 넣는다
+                cand = None
+                best = 0.0
+                for t in s.tables:
+                    if t.consumed or _BOX_RE.search(s.xml[t.para[0]:t.para[1]]):
+                        continue
+                    first_same = bool(t.rows and rows) and [_norm(c.text) for c in t.rows[0] if _norm(c.text)] == [_norm(c) for c in rows[0] if _norm(c)]
+                    score = len(dcells & t.cells) / len(dcells) + (1.0 if first_same else 0.0) + (0.1 if t.para[0] >= cursor else 0.0)
+                    if score > best:
+                        best, cand = score, t
+                pairs = _map_cells(cand, rows) if cand is not None and best >= 0.4 else None
+                if pairs:
+                    flush()
+                    for fc, text in pairs:
+                        if fc.nested or _norm(fc.text) == _norm(text):
+                            continue
+                        p_open = fc.p_open or f'<hp:p id="0" paraPrIDRef="{pp}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+                        paras_xml = "".join(f'{p_open}<hp:run charPrIDRef="{fc.char_ref}"><hp:t>{escape(ln.strip())}</hp:t></hp:run></hp:p>'
+                                            for ln in (text.split("\n") or [""]))
+                        s.splices.append((fc.inner[0], fc.inner[1], paras_xml))
+                    cand.consumed = True
+                    report["tables_updated"] += 1
+                    put_any = True
+                    if cand.para[0] >= cursor:
+                        cursor = cand.para[1]
+                    continue
+                bf = s.bf
+                if bf is None:
+                    if injected_bf is None:
+                        header, injected_bf = _inject_border_fill(header)
+                        replaced["Contents/header.xml"] = header.encode("utf-8")
+                    bf = s.bf = injected_bf
+                t = table_xml(rows, pp, cp, s.width, bf, s.margin, next_id)
+                if t:
+                    pending.append(t)
+                    report["tables"] += 1
+                    next_id += 1
+                    put_any = True
+        flush()
+        if put_any:
+            report["filled"].append(body["heading"])
+
+    # 3) 구역마다 splice 를 뒤에서부터 적용(앞 위치가 밀리지 않게), 바뀐 구역은 줄 배치 캐시를 지운다
+    for s in secs:
+        xml = s.xml
+        changed = bool(s.splices)
+        for a, b, chunk in sorted(s.splices, key=lambda x: -x[0]):
+            xml = xml[:a] + chunk + xml[b:]
         if remove_boxes:
             xml, n = _remove_boxes(xml)
             report["boxes_removed"] += n
@@ -307,9 +586,8 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
         if changed:
             xml, n = strip_linesegs(xml)
             report["linesegs_removed"] += n
-            replaced[name] = xml.encode("utf-8")
-            report["sections_changed"].append(name)
-    report["skipped"] = [b["heading"] for b in pending]
+            replaced[s.name] = xml.encode("utf-8")
+            report["sections_changed"].append(s.name)
     out.parent.mkdir(parents=True, exist_ok=True)
     _write_patched(src, out, replaced)
     return report
