@@ -380,7 +380,9 @@ class Converter:
             # 한글 양식은 여백용 빈 문단을 0.5pt 글자로 둔다(표지, 실측 2026-09-24) — 하한을 크게 두면 표지가 넘친다
             size_pt = self._para_font_pt(p_el)
             pct = max(0.8, min(ps.line_pct / 100.0, 3.0))
-            rule = os.environ.get("ZZAIMY_LINE_RULE", "exact").lower()          # 독스 왕복 검사(148)로 고를 실험 스위치(2026-09-28)
+            # 줄 간격 규칙(148 왕복 검사 실측 2026-09-28, 작성서식 원본 62쪽): exact 는 LibreOffice 64·독스 77, auto 는 80·79,
+            # atleast 는 66·67 — 두 렌더러가 같은 쪽수에 가장 가깝다. 독스는 '고정'을 나눔 글꼴 행 높이로 다시 계산해 늘리므로 '최소'가 맞다
+            rule = os.environ.get("ZZAIMY_LINE_RULE", "atleast").lower()
             if rule == "auto":
                 pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
                 pf.line_spacing = pct
