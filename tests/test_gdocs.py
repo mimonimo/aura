@@ -20,6 +20,16 @@ def _para(start: int, text: str, style: str = "NORMAL_TEXT") -> dict:
                           "elements": [{"textRun": {"content": text}}]}}
 
 
+def test_outline_keeps_real_heading_and_tab_anchors():
+    paragraph = _para(1, '1. 추진 배경\n', 'HEADING_1')
+    paragraph['paragraph']['paragraphStyle']['headingId'] = 'h.real'
+    document = {'tabs': [{'tabProperties': {'tabId': 't.real'}, 'documentTab': {'body': {'content': [paragraph, _para(20, '2. 추진 계획\n')]}}}]}
+    sections = gdocs.outline(document)['sections']
+    assert sections[0]['heading_id'] == 'h.real'
+    assert sections[0]['tab_id'] == 't.real'
+    assert sections[1]['heading_id'] is None
+
+
 DOC = {"documentId": "docA", "title": "2026 사업계획서", "body": {"content": [
     {"startIndex": 0, "endIndex": 1, "sectionBreak": {}},
     _para(1, "2026 사업계획서\n", "TITLE"),

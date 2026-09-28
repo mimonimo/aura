@@ -1087,8 +1087,10 @@ def create_app(
             return []
         titles = {did: storage.title_of((db.get_document(did) or {}).get("filename") or "") for did in dict.fromkeys(doc_ids)}
         scored: list[tuple[float, dict]] = []
+        from zzaimy.app.chunk_path import attach_paths
+
         for did in dict.fromkeys(doc_ids):
-            for ch in db.list_doc_chunks(did):
+            for ch in attach_paths(db.list_doc_chunks(did)):
                 text = ch.get("content") or ""
                 if ch.get("kind") == "table":
                     try:
@@ -1099,7 +1101,8 @@ def create_app(
                     continue
                 overlap = len(q_nouns & extract_nouns(text[:1500]))
                 if overlap >= 2:
-                    scored.append((overlap / (1 + len(text) / 2000), {"reg_title": titles[did], "heading": f"{ch.get('page_no') or ''}쪽",
+                    where = ch.get("path_text") or f"{ch.get('page_no') or ''}쪽"        # 제목 계층(breadcrumb)이 있으면 그것이 자리다
+                    scored.append((overlap / (1 + len(text) / 2000), {"reg_title": titles[did], "heading": where,
                                                                        "content": text[:900], "doc_id": did, "origin": "프로젝트 문서"}))
         scored.sort(key=lambda x: -x[0])
         return [h for _, h in scored[:limit]]

@@ -1,5 +1,11 @@
 # Codex 작업 기록
 
+## C-20260928-117 — 실제 제목 앵커 기반 문서 위치 이동
+
+진행: clean 확인. gdocs outline에 원본 paragraphStyle.headingId 및 본문 탭ID 보존, current API 전달, 문서 도구줄 절 선택과 답변 내 정확히 일치하는 제목에 위치 버튼. 없는 앵커를 생성/추정하지 않음. 본문/서식 수정 없음. 번호 문단뿐인 양식의 이동은 미지원으로 구분.
+
+검증: gdocs/chat_documents pytest 30건 통과. 합성 브라우저 제목 선택→heading/tab hash, 답변 위치 버튼 생성, 서식 전환/입력/패널 유지 PASS. 실제 Google Docs 내부 이동은 미확인, 표/번호 문단 이동 및 자연어 페이지 이동 미완료. Claude 미커밋 drafting/main/chunk_path 변경 제외. Codex 배포 담당: 백업 후 Git 배포 진행.
+
 ## C-20260928-116 — 서식 화면 전환 상태
 
 진행: iframe 주소 전환 중 로딩 가림/중복입력 방지/지연 안내, 명시적 hash anchor 보존. cross-origin 내부 스크롤은 읽을 수 없어 수동 스크롤 위치 보존은 미해결. 페이지 이동/에이전트 작업 위치 연동도 C115의 별도 미완료 항목. 문서 내부 수정 없음.
