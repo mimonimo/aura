@@ -290,22 +290,72 @@ def test_stage_models_save_once_atomically(client, monkeypatch, tmp_path):
 def test_weekly_report_card_and_template(client, tmp_path):
     """논문 자료 화면에 주간 보고서 칸 — 이번 주 만들기·지난 보고 목록. 양식 파일이 있으면 그 구성을 쓴다."""
     page = client.get("/dev/docs").text
-    assert "주간 보고서" in page and "/dev/weekly.docx" in page and "다시 만들기" in page
-    assert "/dev/weekly/rebuild" in page and "지난 보고서" in page          # 뒤에서 다시 쓰기 + 목록
+    assert "주간 보고서" in page and "보고서 생성" in page
+    assert "/dev/weekly.docx" not in page and "다시 만들기" not in page
+    assert "/dev/weekly/generate" in page and "지난 보고서" in page
+    assert 'name="feedback"' not in page and "docs/weekly/양식.md 적용" not in page
     st = client.get("/dev/weekly/status").json()
     assert set(st) == {"running", "error", "exists"}
     r = client.get("/dev/weekly.md")
     assert r.status_code == 200 and "주간업무보고" in r.text
 
 
-def test_weekly_feedback_is_saved_and_used(client):
-    """피드백을 붙여 넣으면 저장되고 보고서 원자료에 들어간다."""
-    r = client.post("/dev/weekly/feedback", data={"feedback": "GPU 서버 10월 초 배정. 규정은 검색으로."}, follow_redirects=False)
+def test_weekly_feedback_is_saved_and_used(client, tmp_path, monkeypatch):
+    """지난 보고서의 피드백은 그 보고서에만 적용하고 이전 본문을 보관한다."""
+    from types import SimpleNamespace as NS
+    import time
+    from zzaimy.app import storage
+    from zzaimy.generate import client as llm
+    folder = storage.report_dir(tmp_path, "주간")
+    report = folder / "2026-09-21.md"
+    report.write_text("# 지난 보고서\n\n기존 성과", encoding="utf-8")
+    prompts = []
+    def create(**kw):
+        prompts.append(kw["messages"][0]["content"])
+        return NS(choices=[NS(message=NS(content="# 지난 보고서\n\n개선된 성과"))])
+    monkeypatch.setattr(llm, "VllmClient", lambda **kw: NS(model="fake", client=NS(chat=NS(completions=NS(create=create)))))
+    r = client.post("/dev/weekly/feedback", data={"stem": "2026-09-21", "feedback": "성과를 간결하게"}, follow_redirects=False)
     assert r.status_code == 303
+    assert r.headers["location"] == "/dev/weekly/2026-09-21"
+    for _ in range(100):
+        if not client.get("/dev/weekly/status").json()["running"]:
+            break
+        time.sleep(.01)
+    assert "개선된 성과" in report.read_text()
+    assert "기존 성과" in prompts[0] and "성과를 간결하게" in prompts[0]
+    assert len(list((folder / "history" / "2026-09-21").glob("*.md"))) == 1
     page = client.get("/dev/docs").text
-    assert "GPU 서버 10월 초 배정" in page
-    md = client.get("/dev/weekly.md?fresh=1").text
-    assert "주간업무보고" in md
+    assert "2026-09-21.feedback" not in page and "성과를 간결하게" not in page
+    detail = client.get("/dev/weekly/2026-09-21").text
+    assert "보고서 다듬기" in detail and "성과를 간결하게" in detail
+    assert client.get("/dev/weekly/2026-09-21.feedback").status_code == 404
+
+
+def test_weekly_schedule_korean_monday():
+    from datetime import datetime
+    from zzaimy.app.weekly_schedule import scheduled_week
+    assert scheduled_week(datetime.fromisoformat("2026-09-28T00:00:00+00:00")) == "2026-09-28"
+    assert scheduled_week(datetime.fromisoformat("2026-09-27T23:59:00+00:00")) is None
+    assert scheduled_week(datetime.fromisoformat("2026-09-29T00:00:00+00:00")) is None
+
+
+def test_weekly_failure_keeps_existing_report(client, tmp_path, monkeypatch):
+    import time
+    from zzaimy.app import storage
+    from zzaimy.generate import client as llm
+    folder = storage.report_dir(tmp_path, "주간")
+    report = folder / "2026-09-21.md"
+    report.write_text("# 기존 보고\n\n유지할 내용", encoding="utf-8")
+    def fail(**kw):
+        raise RuntimeError("test unavailable")
+    monkeypatch.setattr(llm, "VllmClient", fail)
+    client.post("/dev/weekly/feedback", data={"stem": "2026-09-21", "feedback": "수정"}, follow_redirects=False)
+    for _ in range(100):
+        if not client.get("/dev/weekly/status").json()["running"]:
+            break
+        time.sleep(.01)
+    assert "유지할 내용" in report.read_text()
+    assert "기존 보고서는 유지됩니다" in client.get("/dev/weekly/2026-09-21").text
 
 
 def test_weekly_markdown_is_tidied_for_screen_and_export():
