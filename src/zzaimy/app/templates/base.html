@@ -202,6 +202,11 @@
   input[type=file]::file-selector-button:hover {
       background: var(--panel); border-color: #94A3B8; }
   /* 텍스트·검색·선택 입력 공통 — 폼마다 인라인 스타일이 빠져도 최소 룩 유지 */
+  :where(input[type=text], input[type=search], input[type=password], input[type=email], input[type=url], input[type=number]) {
+      box-sizing:border-box; border:1px solid #CAD4E0; border-radius:8px;
+      padding:9px 12px; background:#fff; font:inherit; font-size:13px; min-width:0; }
+  :where(input[type=text], input[type=search], input[type=password], input[type=email], input[type=url], input[type=number]):focus-visible {
+      outline:2px solid #607C9E; outline-offset:2px; }
   input[type=text], input[type=search], input[type=password], select, textarea {
       font-family: inherit; color: var(--ink); }
   .file-name { color: var(--muted); font-size: 13px; max-width: 240px;

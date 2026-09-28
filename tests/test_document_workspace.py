@@ -25,20 +25,23 @@ def test_document_keeps_project_context_and_evidence_first(workspace):
     page = client.get('/doc/1').text
     assert 'href="/project/1" class="btn-ghost"' in page
     assert page.index('id="documentSource"') < page.index('id="documentWork"')
-    assert 'id="documentFeedback"' in page
+    assert 'id="documentFeedback"' not in page
     assert '>담당자 판정' not in page
     assert '/doc/1/decision' not in page
-    assert '<details class="review-memo" id="reviewMemo">' in page
+    assert 'id="reviewMemo"' not in page
     assert 'id="documentWidthToggle"' in page
     assert 'aria-controls="documentSource documentWork"' in page
+    assert 'class="document-columns source-expanded"' in page
+    assert 'hidden>나란히 보기</button>' in page
 
 
 def test_memo_preserves_saved_reviews_and_admission_decisions(workspace):
     client, db = workspace
     db.add_review(1, '기존 근거 메모 보존')
     page = client.get('/doc/1').text
-    assert '기존 근거 메모 보존' in page
-    assert 'action="/doc/1/review"' in page
+    assert db.get_reviews(1)[0]['opinion'] == '기존 근거 메모 보존'
+    assert 'action="/doc/1/review"' not in page
+    assert 'id="reviewOpinion"' not in page
     for kind in ('recruit', 'admission'):
         did = db.add_document(filename='합성.txt', stored_path='absent', doc_type=kind)
         db.update_document(did, status='reviewed')

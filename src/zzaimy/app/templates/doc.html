@@ -106,9 +106,10 @@
          title="연관성으로 자동 연결된 기준">
         <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}</a>
       {% endfor %}
-      <form action="/doc/{{ doc.id }}/receipt" method="post" class="muted" style="margin:0 0 0 6px; display:inline-flex; align-items:center; gap:4px;" title="접수번호 — 연도-유형-일련(예 2026-국고-0004). 바꾸면 문서 폴더 이름도 따라갑니다">
-        <input type="text" name="receipt_no" value="{{ doc.receipt_no or '' }}" pattern="\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}" aria-label="접수번호" style="width:150px; font-size:12px; padding:2px 6px;">
-        <button type="submit" class="btn-ghost" style="padding:2px 8px; font-size:11.5px;">변경</button>
+      <form action="/doc/{{ doc.id }}/receipt" method="post" class="muted receipt-edit" title="접수번호 — 연도-유형-일련(예 2026-국고-0004). 바꾸면 문서 폴더 이름도 따라갑니다">
+        <label for="receiptNumber">접수번호</label>
+        <input id="receiptNumber" type="text" name="receipt_no" value="{{ doc.receipt_no or '' }}" pattern="\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}" aria-label="접수번호">
+        <button type="submit" class="btn-ghost">변경</button>
         <span>· 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
         {% if request.query_params.get('err') == 'receipt' %}<span style="color:var(--red);">형식은 2026-국고-0004 처럼</span>{% elif request.query_params.get('err') == 'receipt_dup' %}<span style="color:var(--red);">이미 쓰는 번호</span>{% endif %}
       </form>
@@ -168,7 +169,7 @@
   {% endif %}
 {% endif %}
 {# 기준·추출 문서는 읽는 것이 일이므로 문서 보기를 전체 폭으로 두고 분석을 아래에 둔다 #}
-<div class="document-columns{{ ' stacked' if doc.doc_type in ('regulation', 'ocr') }}">
+<div class="document-columns{{ ' stacked' if doc.doc_type in ('regulation', 'ocr') else ' source-expanded' }}">
   <section id="documentSource" class="document-source" aria-label="검토할 문서">
     {% include "_document_source.html" %}
   </section>
@@ -185,11 +186,10 @@
   <div class="card reveal"><div class="card-in">
     <h2><iconify-icon icon="solar:chat-square-check-linear"></iconify-icon>에이전트 검토 의견</h2>
     <div class="draft-body">{{ doc.ai_review | md_view }}</div>
-    <p class="notice">원문과 연결 기준을 확인하고, 필요한 사항은 아래 검토 메모에 기록하세요.</p>
+    <p class="notice">검토 결과의 수치와 근거는 원문 및 연결 기준과 함께 확인하세요.</p>
   </div></div>
   {% endif %}
   {# 계획서 초안은 개별 문서 화면이 아니라 에이전트 대화에서 쓴다(사용자 지시 2026-09-27) — 이 화면은 검토(원문·본문·의견·판정)만 #}
-  {% include "_document_feedback.html" %}
   {# 참고자료에는 결재를 요구하지 않는다. 채용·입학 서류의 기존 판정 흐름만 유지. #}
   {% if doc.status == "reviewed" and doc.doc_type in ('recruit', 'admission') %}
   <div class="card reveal"><div class="card-in">
@@ -201,7 +201,7 @@
     <p class="notice"><iconify-icon icon="solar:info-circle-linear"></iconify-icon><span>
       검토 의견 생성은 대기 중이지만 색인·분류는 끝났습니다 — 담당자가 직접 판정할 수 있습니다.</span></p>
     {% endif %}
-    <p class="muted">보완할 내용은 위 의견란에 먼저 저장한 뒤 재검토를 요청하세요.</p>
+    <p class="muted">검토 결과를 확인한 뒤 판정하거나 재검토를 요청하세요.</p>
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
       <form action="/doc/{{ doc.id }}/decision" method="post">
         <input type="hidden" name="decision" value="approved">

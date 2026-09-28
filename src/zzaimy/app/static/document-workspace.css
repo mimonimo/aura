@@ -2,6 +2,9 @@
 .document-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start; }
 .document-source, .document-work { min-width:0; scroll-margin-top:24px; }
 .document-source { position:sticky; top:88px; }
+.receipt-edit { display:inline-flex; align-items:center; flex-wrap:wrap; gap:8px; margin:0 0 0 6px; font-size:12px; }
+.receipt-edit input { width:170px; min-height:36px; padding:8px 10px; border:1px solid #CAD4E0; border-radius:8px; background:#FCFDFE; font-size:12px; }
+.receipt-edit label { white-space:nowrap; }
 .document-columns.source-expanded { grid-template-columns:minmax(0,1fr); }
 .document-columns.source-expanded .document-source { position:static; }
 #documentWorkspace .source-expanded .docview iframe { height:78vh; }
