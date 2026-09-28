@@ -87,3 +87,8 @@ def test_score_against_reference_counts_numbers_and_terms():
 def test_render_materials_shows_given_values():
     out = drafting.render_materials({"instructions": "x", "criteria": [], "past": []}, {"대학명": "영남이공대학교", "사업단명": "AI-X 사업단", "총장": ""})
     assert "[담당자가 알려 준 값·기관 정보]" in out and "사업단명: AI-X 사업단" in out and "총장" not in out
+
+
+def test_score_ignores_bare_small_numbers():
+    sc = drafting.score_against_reference("본문", "표 17 18 19 000 2026년 240억원 16건")
+    assert not any(x in sc["missing"] for x in ("17", "18", "000")) and "240억원" in sc["missing"] and "16건" in sc["missing"]
