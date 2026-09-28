@@ -25,6 +25,12 @@ try {
  const wide=await evaluate(`(()=>{const f=document.querySelector('iframe');return {width:f.getBoundingClientRect().width,scale:new DOMMatrix(getComputedStyle(f).transform).a,viewport:f.parentElement.clientWidth}})()`);
  assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'50%');
  assert.ok(Math.abs(wide.width-wide.viewport)<2);assert.ok(wide.scale<1);
+ await evaluate(`const tb=document.querySelector('[data-toolbar]');tb.checked=true;tb.dispatchEvent(new Event('change'));`);await new Promise(r=>setTimeout(r,150));
+ const formatted=await evaluate(`(()=>{const f=document.querySelector('iframe'),b=document.querySelector('[data-fit]');return {scale:new DOMMatrix(getComputedStyle(f).transform).a,width:f.getBoundingClientRect().width,viewport:f.parentElement.clientWidth,buttonVisible:!b.hidden}})()`);
+ assert.ok(formatted.scale<1&&formatted.scale<=wide.scale);assert.ok(Math.abs(formatted.width-formatted.viewport)<2);assert.ok(formatted.buttonVisible);
+ await evaluate(`document.querySelector('[data-fit]').click()`);
+ assert.equal(await evaluate(`new DOMMatrix(getComputedStyle(document.querySelector('iframe')).transform).a`),1);
+ await evaluate(`const tb2=document.querySelector('[data-toolbar]');tb2.checked=false;tb2.dispatchEvent(new Event('change'));`);await new Promise(r=>setTimeout(r,150));
  await evaluate(`const d=document.querySelector('.chat-doc-divider');for(let i=0;i<14;i++)d.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));`);await new Promise(r=>setTimeout(r,400));
  const narrow=await evaluate(`(()=>{const f=document.querySelector('iframe');f.contentDocument.body.innerHTML='<input id="test" style="margin:20px">';const r=f.contentDocument.querySelector('input').getBoundingClientRect(),b=f.getBoundingClientRect(),s=new DOMMatrix(getComputedStyle(f).transform).a;return {scale:s,width:b.width,viewport:f.parentElement.clientWidth,x:b.left+(r.x+5)*s,y:b.top+(r.y+5)*s}})()`);
  assert.ok(narrow.scale<wide.scale);assert.ok(Math.abs(narrow.width-narrow.viewport)<2);

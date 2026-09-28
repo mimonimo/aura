@@ -17,11 +17,13 @@
    const resize=()=>{
      const width=viewport.clientWidth,height=viewport.clientHeight;if(!width||!height)return;
      const nativeTools=Boolean(toolbar?.checked);
-     toggle.hidden=nativeTools;
-     const scale=fit&&!nativeTools?Math.min(1,width/1100):1;
+     // Full Docs chrome includes its document-tabs sidebar. Keep it in the
+     // fitted viewport instead of forcing 100% when formatting is enabled.
+     const scale=fit?Math.min(1,width/(nativeTools?1440:1100)):1;
+     toggle.title=`편집기 표시 배율 ${Math.round(scale*100)}% · ${fit?'원래 크기로 전환':'패널 너비에 맞추기'}`;
      frame.style.cssText=`position:absolute;left:0;top:0;width:${width/scale}px;height:${height/scale}px;transform:scale(${scale});transform-origin:top left;max-width:none;`;
    };
-   toolbar?.addEventListener('change',resize);
+   toolbar?.addEventListener('change',()=>{fit=true;toggle.setAttribute('aria-pressed','true');toggle.textContent='너비 맞춤';resize();});
    toggle.onclick=()=>{fit=!fit;toggle.setAttribute('aria-pressed',String(fit));toggle.textContent=fit?'너비 맞춤':'원래 크기';resize();};
    fitObserver=new ResizeObserver(resize);fitObserver.observe(viewport);
  }
