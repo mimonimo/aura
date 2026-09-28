@@ -53,11 +53,17 @@ def version() -> str:
     b = _bin()
     if not b:
         return ""
-    pkg = b.resolve().parent.parent / "kordoc" / "package.json"
-    try:
-        return json.loads(pkg.read_text(encoding="utf-8")).get("version", "")
-    except Exception:
-        return ""
+    # .bin/kordoc 은 node_modules/kordoc/dist/cli.js 로의 링크 — 위로 올라가며 이름이 kordoc 인 package.json 을 찾는다
+    for base in (b.resolve(), b):
+        for parent in [base] + list(base.parents):
+            pkg = parent / "package.json"
+            try:
+                data = json.loads(pkg.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if data.get("name") == "kordoc":
+                return str(data.get("version", ""))
+    return ""
 
 
 def _cell_text(raw: str) -> str:
@@ -75,15 +81,16 @@ def _table(tb: dict, page_no: int) -> ParsedTable | None:
     n_cols = int(tb.get("cols") or max((len(r) for r in rows), default=0))
     if not rows or n_rows <= 0 or n_cols <= 0:
         return None
+    # kordoc 의 cells 는 행마다 열 수만큼 다 채운 격자다 — 병합 셀 뒤에는 빈 자리표 셀이 온다(실측 2026-09-28: 앞판은 자리표를
+    # 새 셀로 세어 열이 밀리고 7천 자를 잃었다). 격자 좌표를 그대로 쓰고, 앞 셀의 span 이 덮는 자리는 건너뛴다.
+    n_rows = max(n_rows, len(rows))
+    n_cols = max(n_cols, max((len(r) for r in rows), default=0))
     occupied: set[tuple[int, int]] = set()
     cells: list[TableCell] = []
-    for r, row in enumerate(rows[:n_rows]):
-        c = 0
-        for cell in row:
-            while (r, c) in occupied:
-                c += 1
-            if c >= n_cols:
-                break
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            if (r, c) in occupied:
+                continue
             rs = max(int(cell.get("rowSpan") or 1), 1)
             cs = max(int(cell.get("colSpan") or 1), 1)
             cells.append(TableCell(row=r, col=c, text=_cell_text(cell.get("text")), row_span=rs, col_span=cs,
@@ -91,7 +98,6 @@ def _table(tb: dict, page_no: int) -> ParsedTable | None:
             for dr in range(rs):
                 for dc in range(cs):
                     occupied.add((r + dr, c + dc))
-            c += cs
     return ParsedTable(page_no=page_no, n_rows=n_rows, n_cols=n_cols, cells=tuple(cells))
 
 
