@@ -66,3 +66,6 @@ button.chat-doc-file.chat-doc-file{display:flex!important;align-items:center;gap
 .chat-doc-tag{font-size:11px;padding:1px 6px;border-radius:999px;background:var(--surface-2,#eef1f5);color:var(--faint);flex:none}
 .chat-doc-viewer header{flex-wrap:wrap;row-gap:4px}
 .chat-doc-viewer header .chat-doc-mini{font-size:12px;padding:4px 8px}
+body .doc-view-tools{flex-wrap:wrap;min-width:0}
+body .doc-view-tools .chat-doc-toolbar{white-space:nowrap;flex-shrink:0}
+body .doc-view-tools button[data-fit]{white-space:nowrap;min-height:34px}

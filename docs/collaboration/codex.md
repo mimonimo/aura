@@ -1,5 +1,13 @@
 # Codex 작업 기록
 
+## C-20260928-115 — 서식 도구 사용 시 편집기 배율
+
+진행: chat-documents fitEditor가 서식 도구 켜면 fit 숨김/scale1 강제하던 원인 수정. 전체 도구 모드1440px 가상 폭을 패널 너비에 맞춤, 맞춤 버튼 유지. 좁은 도구줄 wrap. 합성 iframe 회귀 검사 추가(실제 Google 내부 DOM 제어 아님).
+
+검증: node tests/chat_documents_browser.mjs PASS — 서식 켜기 배율<=기존 배율, frame폭=패널폭, 맞춤 버튼 유지, 100% 전환, 서식 끄면 맞춤 복원, 입력·파일 선택·제안 패널 유지. JS/diff 검사 통과. Codex 코드 백업 후 Git 배포 예정.
+
+별도 미완료: 사용자 요청한 답변→오른쪽 문서 위치 이동. 현재 API는 절 index/heading만 반환하며 anchor는 없음. headingId/탭 ID와 실제 실행 대상 전달 필요. Google Docs 쪽 번호로 점프한다고 가장하지 말 것. 공식 Docs API ParagraphStyle.headingId 확인, 번호 문단에는 앵커 없을 수 있음. 아직 구현/운영 검증하지 않음.
+
 ## C-20260928-114 — 문서 관리 버튼
 
 진행: 사용자 요청. doc.html 접수번호는 텍스트, 관리 모달에서 수정/삭제 선택, 별도 접수번호 수정 모달 및 폴더명 변경 안내. 백엔드 변경 없음.
