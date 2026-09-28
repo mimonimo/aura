@@ -462,6 +462,7 @@ def create_app(
         # 작업물(문서함·프로젝트·채팅)은 계정별 분리 — 기준·OCR 저장소는 공용
         owner = getattr(request.state, "user", "zzaimy")
         pending = db.pending_documents(limit=50, owner=owner)
+        actionable = [d for d in pending if d["doc_type"] in ("recruit", "admission")]
         by_type: dict[str, int] = {}
         for d in pending:
             by_type[d["doc_type"]] = by_type.get(d["doc_type"], 0) + 1
@@ -476,10 +477,12 @@ def create_app(
             "llm_status": llm_status,
             "chat_sessions": chat_history.sessions(owner, limit=12),
             "pending_docs": pending[:8],
+            "notification_pending": actionable[:8],
+            "recent_reviewed": db.reviewed_documents(owner),
             "pending_count": len(pending),
             "pending_by_type": by_type,
             "failed_docs": failed,
-            "alert_count": len(pending) + len(failed),
+            "alert_count": len(actionable) + len(failed),
             "side_projects": db.list_all_projects(owner=owner),
             "profile_name": db.get_setting("name"),
             "profile_dept": db.get_setting("dept"),

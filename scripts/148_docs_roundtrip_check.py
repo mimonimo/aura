@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import io
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -127,6 +128,20 @@ def main() -> int:
                 s["png"].unlink(missing_ok=True)
         if keep:
             print(f"      확인용 쪽 그림: {out} (쪽 {sorted(keep)[:8]})")
+            # 원본 배치(kordoc 렌더 SVG → PNG)도 같은 쪽 번호로 남긴다 — 사람이 원본·독스를 나란히 본다(rsvg-convert 필요)
+            try:
+                from zzaimy.ingest.parsers import kordoc as _kd
+
+                exe = _kd._bin()
+                if exe and shutil.which("rsvg-convert") and src.suffix.lower() in (".hwpx", ".hwp"):
+                    for pg in sorted(keep)[:6]:
+                        svg = out / f"orig-{pg}.svg"
+                        subprocess.run([str(exe), "render", str(src), "-p", str(pg), "-o", str(svg)], capture_output=True, env=_kd._env(), timeout=120)
+                        if svg.exists():
+                            subprocess.run(["rsvg-convert", "-w", "420", str(svg), "-o", str(out / f"orig-{pg}.png")], capture_output=True)
+                            svg.unlink(missing_ok=True)
+            except Exception as e:      # 원본 렌더는 보조 — 실패해도 검사는 유효
+                print(f"      원본 렌더 생략({type(e).__name__})")
     return 1 if worst_total else 0
 
 
