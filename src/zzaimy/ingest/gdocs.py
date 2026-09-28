@@ -473,24 +473,41 @@ def section_bodies(email: str, doc: str, http=None) -> list[dict]:
     return out
 
 
-def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path, scrub=None, http=None) -> list[dict]:
-    """옛 작업본의 절 본문을 새 작업본의 같은 제목 절로 옮긴다(글은 insert, 표는 insert_table, 순서대로). 절마다 결과를 돌려준다."""
+def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path, scrub=None, http=None,
+                   only_headings: set[str] | None = None) -> list[dict]:
+    """옛 작업본의 절 본문을 새 작업본의 같은 제목 절로 옮긴다(글은 insert, 표는 insert_table, 순서대로). 절마다 결과를 돌려준다.
+    only_headings 를 주면 그 제목의 절만 옮긴다(앞선 이관에서 빠진 절을 다시 옮길 때) — 직전 절 추적은 전체를 본다."""
     http = http or _http()
     bodies = section_bodies(email, src, http)
     results: list[dict] = []
+    last_heading: str | None = None                      # 직전에 맞춘 절 — 새 작업본에 없는 소제목(모델이 만든 것 등)은 그 절 아래로
     for b in bodies:
+        if only_headings is not None and b["heading"] not in only_headings:
+            info = get(email, dst, http)
+            if any(_norm_heading(s["heading"]) == _norm_heading(b["heading"]) for s in info["sections"]):
+                last_heading = b["heading"]
+            continue
         info = get(email, dst, http)
         key = _norm_heading(b["heading"])
         sec = next((s for s in info["sections"] if _norm_heading(s["heading"]) == key), None)
+        items = list(b["items"])
+        fallback = False
+        if sec is None and last_heading:
+            sec = next((s for s in info["sections"] if _norm_heading(s["heading"]) == _norm_heading(last_heading)), None)
+            if sec is not None:
+                items = [("text", b["heading"])] + items          # 소제목 글줄을 앞에 두고 그 절 끝에 잇는다
+                fallback = True
         if sec is None:
             results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"}); continue
+        if not fallback:
+            last_heading = sec["heading"]
         chars = tables = 0
-        for kind, payload in b["items"]:
+        for kind, payload in items:
             if kind == "text":
                 r = insert_into_section(email, dst, sec["index"], str(payload), user=user, data_dir=data_dir, scrub=scrub, http=http)
                 chars += int(r.get("chars") or 0)
             else:
                 insert_table(email, dst, sec["index"], payload, user=user, data_dir=data_dir, scrub=scrub, http=http)
                 tables += 1
-        results.append({"heading": b["heading"], "done": "ok", "chars": chars, "tables": tables})
+        results.append({"heading": b["heading"], "done": "ok", "chars": chars, "tables": tables, "under": sec["heading"] if fallback else ""})
     return results
