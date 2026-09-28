@@ -35,8 +35,16 @@ PLAN_SCHEMA = {
                 "required": ["op", "section", "old", "text"],
             },
         },
+        "asks": {
+            "type": "array",
+            "description": "자료·문서·기관 정보 어디에도 없어 비워 둔 값 — 담당자에게 물을 것(무엇이든: 사업단명·책임자·예산·일정·수치). 없으면 빈 배열",
+            "items": {"type": "object",
+                      "properties": {"name": {"type": "string", "description": "값 이름(짧게, 예: 사업단명, 총괄책임자 성명, 1차년도 예산)"},
+                                     "hint": {"type": "string", "description": "어디에 쓰이는 값인지 한 구절"}},
+                      "required": ["name", "hint"]},
+        },
     },
-    "required": ["reply", "ops"],
+    "required": ["reply", "ops", "asks"],
 }
 
 _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. 담당자가 구글 독스 문서를 열어 두고 채팅으로 지시한다.
@@ -54,6 +62,8 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 - 글은 문서의 말투와 격식을 따른다. 수치·금액·날짜는 아래 근거 조각이나 문서에 있는 것만 쓰고 지어내지 않는다.
 - insert 의 text 에는 새 글만 담는다. 문서에 이미 있는 문장을 다시 쓰지 않는다(그 절의 마지막 문장을 따라 적지 않는다).
 - 개인정보(전화·주민번호·계좌)는 쓰지 않는다. 편집 reply는 계획 요약이며 실행 성공을 미리 단정하지 않는다. 질문/검토 reply에는 필요한 설명을 충분히 쓴다.
+- 자료·문서·기관 정보·[담당자가 알려 준 값] 어디에도 없어 비워 둔 값(사업단명, 책임자 성명, 예산액, 일정, 수치 등 무엇이든)은 지어내지 말고
+  asks 에 이름과 쓰임을 적는다 — 화면이 담당자에게 입력 칸으로 묻는다. 담당자가 이미 알려 준 값은 그대로 쓴다.
 - 절을 작성하라는 지시면: 그 절의 [양식 안내·작성방법]이 요구하는 항목을 모두 다루는 본문 문단들을 insert(section=그 절)로 쓴다.
   [지난 사업 자료]는 이 대학의 실제 여건·실적·계획이므로 그 사실·수치·명칭을 바탕으로 쓰되, 자료를 그대로 베끼지 말고 이 양식의 절 구성과
   평가지표에 맞게 재구성한다. 작성방법 상자의 안내문 자체는 옮기지 않는다. 표를 요구하면 table 로 낸다. 자료에 없는 수치는 만들지 않는다.
@@ -121,7 +131,9 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "rename", "move")
            and ((o.get("text") or "").strip() or o.get("op") == "bold")]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
-    return {"reply": (data.get("reply") or "").strip(), "ops": ops}
+    asks = [{"name": str(a.get("name") or "").strip()[:40], "hint": str(a.get("hint") or "").strip()[:80]}
+            for a in (data.get("asks") or []) if isinstance(a, dict) and str(a.get("name") or "").strip()][:6]
+    return {"reply": (data.get("reply") or "").strip(), "ops": ops, "asks": asks}
 
 
 _RENAME_CUE = re.compile(r"(?:이름|제목|파일명|문서명).{0,12}(?:바꿔|바꾸|변경|수정|고쳐|해\s*줘|으로|로)|(?:으로|로)\s*(?:이름|제목).{0,6}(?:바꿔|바꾸|변경|지어|해)|이름\s*지어|제목\s*지어")
@@ -228,6 +240,14 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     절 작성이면(focus) 재료와 함께 부르고, 실행 기록(재료·지시·모델의 초안·참고 정답)을 남긴다 — Writer 학습 데이터 공방의 재료."""
     info = info or gdocs.get(link["account"], link["doc"], http)
     p = plan(client, command, info, evidence, materials=materials, focus=focus)
+    # 모델이 물어야 한다고 한 값 — 호출부가 입력 양식 선택지로 띄운다(chat_asks 에 쌓아 둠, 답이 오면 지운다)
+    if p.get("asks"):
+        try:
+            prev = json.loads(db.get_setting(f"chat_asks:{session_id}", "") or "[]")
+        except Exception:
+            prev = []
+        names = {a["name"] for a in prev}
+        db.set_setting(f"chat_asks:{session_id}", json.dumps(prev + [a for a in p["asks"] if a["name"] not in names], ensure_ascii=False))
     if focus is not None:
         score = None
         if references and p["ops"]:

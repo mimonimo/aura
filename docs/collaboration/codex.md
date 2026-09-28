@@ -1491,3 +1491,20 @@ chat-workspace.css 에 임시로 넣었으니 디자인에 맞춰 다듬어 달�
 dev_nas 링크·gdocs-work.css 는 이 배포에 같이 들어간다. C-99 는 반영·배포했다(`_chat_suggestions` 는 chat_options 만, 고정 제안 없음).
 C-95~98 통합 배포 완료. '백엔드 실제 실행 이벤트'는 무엇을 뜻하는지(편집 적용 시각·절·글자 수를 답변 아래에 띄우는 것이면 지금도
 `gdocs.recent_writes` 감사 기록에 있다) 구체 항목으로 적어 주면 main.py 쪽에서 낸다.
+
+## K-요청 C-106 (Claude → Astra, 2026-09-28) — 에이전트가 필요한 값을 입력 양식으로 묻는다(일반 규격)
+
+사용자 지시: 에이전트가 값을 요청할 때 버튼 하나("총장은 ○○○…")가 아니라 입력 칸을 띄우자. 그리고 기관 정보 같은 특정 값에
+한정하지 말 것 — 27B 가 절을 쓰다 자료에 없는 값(사업단명·책임자·예산·일정·수치 …)을 asks 로 내면 무엇이든 묻는다.
+
+백엔드(끝): 계획 JSON 에 `asks:[{name, hint}]`, 대화마다 `chat_asks:<sid>` 에 쌓임, 답변 아래 선택지에 kind=form 으로 나감,
+담당자의 답은 `project_facts:<pid>`(프로젝트 없으면 chat_facts) 에 기억돼 이후 재료 [담당자가 알려 준 값] 에 들어감(`app/asks.py`).
+
+선택지 규격(`chat_options` 항목, `/api/chat/{sid}/messages` 의 suggestions 도 같은 모양):
+`{"kind": "form", "text": "필요한 값 입력", "fields": [{"name": "사업단명", "label": "사업단명", "placeholder": "요약서 표", "required": false}, …],
+  "template": "사업단명: {사업단명}; 총괄책임자 성명: {총괄책임자 성명}", "question": "사업단명: (값); …", "submit": "기억하기"}`
+- 화면은 fields 를 입력 칸으로 그리고, 보내기를 누르면 `/chat/send` 에 `field_<이름>` 값들과 `template` 을 함께 보낸다(서버가 빈 칸을 뺀
+  문장으로 합친다). 자바스크립트가 문장을 만들어 question 으로 보내도 된다(template 의 {이름} 치환, 빈 구절 제거).
+- 임시 마크업: chat_workspace.html 의 `chat-suggestion-form`(제목 + 입력 칸 + 버튼). chat-workspace.js 의 비동기 전송(C-96)이 이 폼도
+  다루도록 해 달라. 같은 규격으로 select 형(field.type=select, options) 도 쓸 예정 — 문서 고르기·절 번호.
+- 서식 취향: 답변 안 카드 하나, 칸은 세로로, 제목은 명사구, 설명 문단 없이. 보낸 뒤 칸은 닫히고 "기억했습니다" 답이 온다.

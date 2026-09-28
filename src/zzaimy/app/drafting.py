@@ -193,8 +193,8 @@ def render_materials(m: dict, institution: dict | None = None) -> str:
         lines.append("[문서함의 지난 사업 자료 — 이 절과 관련된 부분]\n" + "\n\n".join(blocks))
     if institution:
         known = [f"{k}: {v}" for k, v in institution.items() if v]
-        unknown = [k for k, v in institution.items() if not v]
-        lines.append("[기관 정보]\n" + ("\n".join(known) if known else "(없음)") + (f"\n모르는 값: {', '.join(unknown)} — 지어내지 말고 ○○○ 로 둔다" if unknown else ""))
+        if known:
+            lines.append("[담당자가 알려 준 값·기관 정보]\n" + "\n".join(known))
     return "\n\n".join(lines)
 
 
