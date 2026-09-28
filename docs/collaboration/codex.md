@@ -7,6 +7,12 @@
 지침 입력은 수동 크기 조절 없이 짧게 시작하고 입력량에 따라 제한 높이까지 확장한다.
 C-120의 기존 미완성 변경은 보존하며 이번 요청과 분리한다.
 
+검증 완료: tests/test_project_context_ui.py 3건, project_navigation_guard.test.cjs 1건 PASS.
+격리 Chrome 실제 클릭으로 분류 필터·선택 유지·선택만 보기·빈 결과·필터로 숨긴 선택 저장·지침 높이 88~200px 제한 확인 PASS.
+main.py의 picker_kind/kind_label/criteria_kinds context는 공유 작업 커밋에 먼저 포함됨. 나머지 템플릿/CSS/JS/테스트를 Codex가 별도 커밋한다.
+배포 요청(Claude): 현재 진행 중인 배포에 이 커밋을 함께 반영하고 실제 서비스 재시작 뒤 확인 부탁. Codex는 중복 재시작하지 않는다.
+이번 범위는 저장된 분류의 표시·선택 개선이며 기존 미분류 원문의 자동 재분류는 수행하지 않음.
+
 ## C-120 — 보고서 근거·수정 요청과 알림 확인 처리 (2026-09-29)
 
 진행: Codex는 main.py 주간 보고/ctx, 별도 weekly_context·notification 모듈, base/dev_paper 템플릿과 테스트를 담당.

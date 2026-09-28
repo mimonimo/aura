@@ -3,6 +3,13 @@
   if (!root) return;
   const tabs = [...root.querySelectorAll('[data-project-tab]')];
   const key = 'projectTab:' + location.pathname;
+  const noteInput = document.getElementById('noteInput');
+  function fitNote() {
+    if (!noteInput || !noteInput.getClientRects().length) return;
+    noteInput.style.height = '88px';
+    noteInput.style.height = Math.min(200, Math.max(88, noteInput.scrollHeight + 2)) + 'px';
+  }
+  if (noteInput) noteInput.addEventListener('input', fitNote);
   function activate(id, focus=false) {
     if (!tabs.some(tab => tab.dataset.projectTab === id)) return;
     tabs.forEach(tab => {
@@ -12,6 +19,7 @@
       if (active && focus) tab.focus();
     });
     try { sessionStorage.setItem(key, id); } catch (_) {}
+    fitNote();
   }
   tabs.forEach((tab,index) => {
     tab.addEventListener('click', () => activate(tab.dataset.projectTab));

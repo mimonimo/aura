@@ -15,7 +15,7 @@ test('project navigation warns only for unsaved user fields', async () => {
     addEventListener: (type, fn) => {handlers[type] = fn;}
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../src/zzaimy/app/static/project-workspace.js'),'utf8'), {
-    document:{getElementById:()=>root}, location:{pathname:'/project/1'},
+    document:{getElementById:id=>id==='projectWorkspace'?root:null}, location:{pathname:'/project/1'},
     sessionStorage:{getItem:()=>null}, queueMicrotask,
     window:{addEventListener:(type,fn)=>{handlers[type]=fn;}}
   });

@@ -34,3 +34,24 @@ def test_linked_criteria_has_readable_title_and_separate_actions(client):
     assert 'class="criteria-picker-item"' in page
     assert 'class="criteria-picker-name"' in page
     assert 'id="criteriaEmpty"' in page
+
+
+def test_criteria_picker_uses_saved_classification_and_retains_hidden_selection(client):
+    client.post('/projects', data={'sector': 'grant', 'name': '분류 검수'})
+    db = client.app.state.db
+    ids = []
+    for kind in ('announcement', 'criteria', None, 'unknown-kind'):
+        ident = db.add_document('같은 문서 이름.pdf', '/tmp/fixture.pdf', doc_type='regulation')
+        db.update_document(ident, status='reviewed')
+        db.set_document_sector(ident, 'grant')
+        db.set_document_kind(ident, kind)
+        ids.append(ident)
+    client.post('/project/1/criteria', data={'criteria': [str(ids[0]), str(ids[2])]})
+    page = client.get('/project/1').text
+    assert 'data-criteria-kind="announcement"' in page
+    assert 'data-criteria-kind="criteria"' in page
+    assert 'data-criteria-kind="" aria-pressed="false">미분류 <span>2</span>' in page
+    assert '심사·평가 기준' in page
+    assert 'id="criteriaSelectedOnly"' in page
+    assert '문서명·접수번호 검색' in page
+    assert set(db.get_project_criteria_ids(1)) == {ids[0], ids[2]}
