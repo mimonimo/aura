@@ -106,20 +106,14 @@
          title="연관성으로 자동 연결된 기준">
         <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}</a>
       {% endfor %}
-      <form action="/doc/{{ doc.id }}/receipt" method="post" class="muted receipt-edit" title="접수번호 — 연도-유형-일련(예 2026-국고-0004). 바꾸면 문서 폴더 이름도 따라갑니다">
-        <label for="receiptNumber">접수번호</label>
-        <input id="receiptNumber" type="text" name="receipt_no" value="{{ doc.receipt_no or '' }}" pattern="\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}" aria-label="접수번호">
-        <button type="submit" class="btn-ghost">변경</button>
-        <span>· 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
-        {% if request.query_params.get('err') == 'receipt' %}<span style="color:var(--red);">형식은 2026-국고-0004 처럼</span>{% elif request.query_params.get('err') == 'receipt_dup' %}<span style="color:var(--red);">이미 쓰는 번호</span>{% endif %}
-      </form>
+      <span class="muted">접수번호 {{ doc.receipt_no or '미지정' }} · 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
       <a class="pill" href="/graph?focus=d{{ doc.id }}" style="text-decoration:none;" title="이 문서의 연결을 그래프에서 봅니다">
         <iconify-icon icon="solar:graph-new-linear" style="font-size:12px;"></iconify-icon>그래프</a>
-      <form action="/doc/{{ doc.id }}/delete" method="post" style="margin:0 0 0 auto;"
-            onsubmit="return confirm('이 문서와 관련 기록을 삭제할까요?');">
-        <button type="submit" class="btn-ghost" style="padding:3px 10px; font-size:12px; color:var(--red); border-color:#E7B9B8;">삭제</button>
-      </form>
+      <button type="button" class="btn-ghost" data-modal-open="#documentManageModal" style="margin-left:auto;">관리</button>
     </div>
+    {% if request.query_params.get('err') in ('receipt', 'receipt_dup') %}
+    <p class="notice" role="alert">{{ '이미 사용하는 접수번호입니다.' if request.query_params.get('err') == 'receipt_dup' else '접수번호 형식을 확인해 주세요. 예: 2026-국고-0004' }} <button type="button" class="btn-ghost" data-modal-open="#receiptEditModal">다시 수정</button></p>
+    {% endif %}
     {% if doc.doc_type not in ('regulation', 'ocr') %}{{ program_meta() }}{% endif %}
     {% if doc.status == "failed" %}
       <p class="notice"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>처리 실패: {{ doc.error }}</span></p>
@@ -129,6 +123,30 @@
   </div>
 </div>
 
+<div id="documentManageModal" class="modal-back">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2>문서 관리</h2><button type="button" class="icon-btn" data-modal-close aria-label="닫기">×</button></div>
+    <p class="muted">{{ doc_name(doc) }}</p>
+    <div class="document-form-actions">
+      <button type="button" class="secondary" data-modal-close data-modal-open="#receiptEditModal">접수번호 수정</button>
+      <form action="/doc/{{ doc.id }}/delete" method="post" onsubmit="return confirm('이 문서와 관련 기록을 삭제할까요?');">
+        <button type="submit" class="btn-ghost" style="color:var(--red);">문서 삭제</button>
+      </form>
+    </div>
+  </div></div>
+</div>
+<div id="receiptEditModal" class="modal-back">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2>접수번호 수정</h2><button type="button" class="icon-btn" data-modal-close aria-label="닫기">×</button></div>
+    <form action="/doc/{{ doc.id }}/receipt" method="post">
+      <label class="form-row" for="receiptNumber">접수번호
+        <input id="receiptNumber" type="text" name="receipt_no" required value="{{ doc.receipt_no or '' }}" pattern="\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}" aria-describedby="receiptEditHelp">
+      </label>
+      <p id="receiptEditHelp" class="muted">예: 2026-국고-0004. 저장하면 문서 폴더 이름도 함께 변경됩니다.</p>
+      <div class="document-form-actions"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">변경 저장</button></div>
+    </form>
+  </div></div>
+</div>
 <div id="documentUpdate" class="notice" role="status" hidden>
   <span>처리가 완료되었습니다. 작성 중인 내용을 저장한 뒤 새 결과를 확인하세요.</span>
   <button type="button" class="secondary" id="documentRefresh">새 결과 보기</button>
