@@ -479,28 +479,38 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
     only_headings 를 주면 그 제목의 절만 옮긴다(앞선 이관에서 빠진 절을 다시 옮길 때) — 직전 절 추적은 전체를 본다."""
     http = http or _http()
     bodies = section_bodies(email, src, http)
+    src_order = [s["heading"] for s in sorted(get(email, src, http)["sections"], key=lambda s: s.get("start", 0)) if s.get("index", 0) > 0]
     results: list[dict] = []
-    last_heading: str | None = None                      # 직전에 맞춘 절 — 새 작업본에 없는 소제목(모델이 만든 것 등)은 그 절 아래로
+
+    def parent_of(heading: str, dst_secs: list[dict]) -> dict | None:
+        """새 작업본에 없는 소제목의 부모 — 옛 작업본 차례에서 바로 앞쪽으로 올라가며 새 작업본에 있는 첫 제목
+        (실측 2026-09-28: '직전에 옮긴 절'로 잡자 1.1 의 SWOT 소제목이 1.2 아래로 들어갔다)."""
+        try:
+            i = src_order.index(heading)
+        except ValueError:
+            return None
+        keys = {_norm_heading(s["heading"]): s for s in dst_secs}
+        for h in reversed(src_order[:i]):
+            hit = keys.get(_norm_heading(h))
+            if hit is not None:
+                return hit
+        return None
+
     for b in bodies:
         if only_headings is not None and b["heading"] not in only_headings:
-            info = get(email, dst, http)
-            if any(_norm_heading(s["heading"]) == _norm_heading(b["heading"]) for s in info["sections"]):
-                last_heading = b["heading"]
             continue
         info = get(email, dst, http)
         key = _norm_heading(b["heading"])
         sec = next((s for s in info["sections"] if _norm_heading(s["heading"]) == key), None)
         items = list(b["items"])
         fallback = False
-        if sec is None and last_heading:
-            sec = next((s for s in info["sections"] if _norm_heading(s["heading"]) == _norm_heading(last_heading)), None)
+        if sec is None:
+            sec = parent_of(b["heading"], info["sections"])
             if sec is not None:
-                items = [("text", b["heading"])] + items          # 소제목 글줄을 앞에 두고 그 절 끝에 잇는다
+                items = [("text", b["heading"])] + items          # 소제목 글줄을 앞에 두고 부모 절 끝에 잇는다
                 fallback = True
         if sec is None:
             results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"}); continue
-        if not fallback:
-            last_heading = sec["heading"]
         chars = tables = 0
         for kind, payload in items:
             if kind == "text":

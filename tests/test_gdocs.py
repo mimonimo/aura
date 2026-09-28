@@ -644,7 +644,7 @@ def test_section_bodies_and_migrate_skip_box_and_keep_order(monkeypatch, tmp_pat
     src.extend([para(200, 230, "1. 거버넌스 기반 추진 체계\n", "HEADING_3"), para(230, 260, "거버넌스 본문\n")])
     sent.clear()
     res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http)
-    assert res[-1]["heading"] == "1. 거버넌스 기반 추진 체계" and res[-1]["done"] == "ok" and res[-1]["under"] == "1.1. 교육여건 분석"
+    assert res[-1]["heading"] == "1. 거버넌스 기반 추진 체계" and res[-1]["done"] == "ok" and res[-1]["under"] == "1.2. 특성화 방향"   # 옛 차례에서 바로 앞 절
     sent.clear()
     res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http, only_headings={"1. 거버넌스 기반 추진 체계"})
-    assert [r["heading"] for r in res] == ["1. 거버넌스 기반 추진 체계"] and res[0]["under"] == "1.1. 교육여건 분석"
+    assert [r["heading"] for r in res] == ["1. 거버넌스 기반 추진 체계"] and res[0]["under"] == "1.2. 특성화 방향"
