@@ -1,0 +1,123 @@
+"""서식 보존 채우기(hwpx_fill) — 절 제목 뒤(안내 상자 뒤)에 문단·표를 끼워 넣고, 손대지 않은 것은 바이트 그대로."""
+
+import io
+import zipfile
+
+from docx import Document
+
+from zzaimy.ingest import hwpx_docx, hwpx_fill
+
+HEADER = """<?xml version="1.0" encoding="UTF-8"?>
+<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">
+<hh:refList>
+<hh:fontfaces><hh:fontface lang="HANGUL"><hh:font id="0" face="맑은 고딕" type="TTF"/></hh:fontface></hh:fontfaces>
+<hh:borderFills itemCnt="3">
+ <hh:borderFill id="1"><hh:leftBorder type="NONE" width="0.1 mm"/><hh:rightBorder type="NONE" width="0.1 mm"/><hh:topBorder type="NONE" width="0.1 mm"/><hh:bottomBorder type="NONE" width="0.1 mm"/></hh:borderFill>
+ <hh:borderFill id="2"><hh:leftBorder type="DASH" width="0.12 mm"/><hh:rightBorder type="DASH" width="0.12 mm"/><hh:topBorder type="DASH" width="0.12 mm"/><hh:bottomBorder type="DASH" width="0.12 mm"/></hh:borderFill>
+ <hh:borderFill id="3"><hh:leftBorder type="SOLID" width="0.12 mm"/><hh:rightBorder type="SOLID" width="0.12 mm"/><hh:topBorder type="SOLID" width="0.12 mm"/><hh:bottomBorder type="SOLID" width="0.12 mm"/></hh:borderFill>
+</hh:borderFills>
+<hh:charProperties itemCnt="2">
+ <hh:charPr id="0" height="1000" textColor="#000000"><hh:fontRef hangul="0"/></hh:charPr>
+ <hh:charPr id="1" height="1600" textColor="#2525F5"><hh:fontRef hangul="0"/><hh:bold/></hh:charPr>
+</hh:charProperties>
+<hh:paraProperties itemCnt="2">
+ <hh:paraPr id="0"><hh:align horizontal="JUSTIFY"/><hh:heading type="NONE" level="0"/></hh:paraPr>
+ <hh:paraPr id="1"><hh:align horizontal="CENTER"/><hh:heading type="OUTLINE" level="0"/></hh:paraPr>
+</hh:paraProperties>
+<hh:styles itemCnt="1"><hh:style id="0" type="PARA" name="바탕글" paraPrIDRef="0" charPrIDRef="0"/></hh:styles>
+</hh:refList></hh:head>"""
+
+LINESEG = '<hp:linesegarray><hp:lineseg textpos="0" vertpos="0" vertsize="1000" textheight="1000" baseline="850" spacing="600" horzpos="0" horzsize="48188" flags="393216"/></hp:linesegarray>'
+
+
+def _cell(text: str, bf: str, r: int, c: int) -> str:
+    return (f'<hp:tc borderFillIDRef="{bf}"><hp:subList><hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>{text}</hp:t></hp:run>{LINESEG}</hp:p></hp:subList>'
+            f'<hp:cellAddr rowAddr="{r}" colAddr="{c}"/><hp:cellSpan rowSpan="1" colSpan="1"/><hp:cellSz width="20000" height="1000"/><hp:cellMargin left="141" right="141" top="141" bottom="141"/></hp:tc>')
+
+
+def _section() -> str:
+    box = (f'<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl id="900" rowCnt="1" colCnt="1" borderFillIDRef="2"><hp:sz width="40000"/><hp:tr>'
+           f'{_cell("【작성방법】 1) 현황을 쓴다", "2", 0, 0)}</hp:tr></hp:tbl></hp:run>{LINESEG}</hp:p>')
+    body_table = (f'<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl id="901" rowCnt="1" colCnt="2" borderFillIDRef="3"><hp:sz width="40000"/><hp:tr>'
+                  f'{_cell("구분", "3", 0, 0)}{_cell("값", "3", 0, 1)}</hp:tr></hp:tbl></hp:run>{LINESEG}</hp:p>')
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">
+<hp:p id="0" paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="0"><hp:secPr><hp:pagePr landscape="WIDELY" width="59528" height="84188"><hp:margin left="5669" right="5669" top="4251" bottom="2834" header="2834" footer="2834" gutter="0"/></hp:pagePr></hp:secPr></hp:run><hp:run charPrIDRef="1"><hp:t>1. 사업 개요</hp:t></hp:run>{LINESEG}</hp:p>
+<hp:p id="0" paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="1"><hp:t>1.1. 대학의 여건 분석</hp:t></hp:run>{LINESEG}</hp:p>
+{box}
+<hp:p id="0" paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="1"><hp:t>1.2. 특성화 방향</hp:t></hp:run>{LINESEG}</hp:p>
+{body_table}
+<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>끝.</hp:t></hp:run>{LINESEG}</hp:p>
+</hs:sec>"""
+
+
+def _hwpx(tmp_path, two_sections: bool = False):
+    p = tmp_path / "form.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("Contents/header.xml", HEADER, compress_type=zipfile.ZIP_DEFLATED)
+        zf.writestr("BinData/image1.png", b"\x89PNG-not-really", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("Contents/section0.xml", _section(), compress_type=zipfile.ZIP_DEFLATED)
+        if two_sections:
+            zf.writestr("Contents/section1.xml", _section().replace("1.1. 대학의 여건 분석", "3.1. 성과관리 계획"), compress_type=zipfile.ZIP_DEFLATED)
+    return p
+
+
+BODIES = [
+    {"heading": "1.1. 대학의 여건 분석", "items": [("text", "첫 문단 <검증> & 둘.\n둘째 문단"), ("table", [["구분", "2025", "2026"], ["재학생", "1,000", "1,100"]]), ("text", "표 뒤 문단")]},
+    {"heading": "1.2 특성화 방향", "items": [("text", "특성화 문단")]},
+    {"heading": "9.9. 없는 절", "items": [("text", "안 들어간다")]},
+]
+
+
+def test_fill_inserts_after_box_and_keeps_untouched_bytes(tmp_path):
+    src = _hwpx(tmp_path)
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(src, BODIES, out)
+    assert rep["filled"] == ["1.1. 대학의 여건 분석", "1.2 특성화 방향"] and rep["skipped"] == ["9.9. 없는 절"]
+    assert rep["paragraphs"] == 4 and rep["tables"] == 1 and rep["sections_changed"] == ["Contents/section0.xml"]
+    zi, zo = zipfile.ZipFile(src), zipfile.ZipFile(out)
+    # 항목 순서·압축 방식 보존, mimetype 첫 항목 무압축, 안 바뀐 항목은 CRC 동일
+    assert [i.filename for i in zi.infolist()] == [i.filename for i in zo.infolist()]
+    assert zo.infolist()[0].filename == "mimetype" and zo.infolist()[0].compress_type == zipfile.ZIP_STORED
+    assert all(a.compress_type == b.compress_type for a, b in zip(zi.infolist(), zo.infolist()))
+    assert {i.filename for i in zi.infolist() if i.CRC != zo.getinfo(i.filename).CRC} == {"Contents/section0.xml"}
+    xml = zo.read("Contents/section0.xml").decode()
+    # 1.1 본문은 안내 상자 뒤·1.2 제목 앞, 1.2 본문은 1.2 제목 뒤(번호 끝 점 유무는 상관없다)
+    i_box, i_body, i_12, i_12body = xml.index("【작성방법】"), xml.index("첫 문단"), xml.index("1.2. 특성화 방향"), xml.index("특성화 문단")
+    assert i_box < i_body < i_12 < i_12body
+    assert "&lt;검증&gt; &amp; 둘." in xml and "안 들어간다" not in xml
+    # 줄 배치 캐시는 전부 사라지고, 새 표는 본문 표의 실선 테두리(3, 점선 안내 상자 2 가 아님)·문서 최댓값 다음 id
+    assert "linesegarray" not in xml and rep["linesegs_removed"] > 0
+    new_tbl = xml[i_body:i_12]
+    assert 'borderFillIDRef="3"' in new_tbl and 'borderFillIDRef="2"' not in new_tbl and '<hp:tbl id="902"' in new_tbl
+    assert 'rowCnt="2" colCnt="3"' in new_tbl and "재학생" in new_tbl
+    # 문단·글자 모양은 바탕글(style 0)의 참조
+    assert '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="0"><hp:t>첫 문단' in xml
+    # 우리 변환기로 다시 읽힌다
+    data, _ = hwpx_docx.convert(out)
+    d = Document(io.BytesIO(data))
+    texts = [p.text for p in d.paragraphs]
+    assert "첫 문단 <검증> & 둘." in texts and "표 뒤 문단" in texts and "특성화 문단" in texts
+    assert any(c.text == "1,100" for t in d.tables for r in t.rows for c in r.cells)
+
+
+def test_fill_only_touches_sections_it_changes_and_can_drop_boxes(tmp_path):
+    src = _hwpx(tmp_path, two_sections=True)
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(src, [{"heading": "3.1. 성과관리 계획", "items": [("text", "성과관리")]}], out, remove_boxes=True)
+    assert rep["filled"] == ["3.1. 성과관리 계획"] and rep["boxes_removed"] == 2
+    zo = zipfile.ZipFile(out)
+    s0, s1 = zo.read("Contents/section0.xml").decode(), zo.read("Contents/section1.xml").decode()
+    assert "【작성방법】" not in s0 and "【작성방법】" not in s1 and "성과관리" in s1 and "성과관리" not in s0
+    assert rep["sections_changed"] == ["Contents/section0.xml", "Contents/section1.xml"]   # 상자를 지운 구역도 바뀐 구역
+    assert "linesegarray" not in s0 and "linesegarray" not in s1
+    assert "구분" in s0                                                               # 본문 표는 남는다
+
+
+def test_table_border_injected_when_form_has_no_body_table(tmp_path):
+    header = HEADER.replace('<hh:borderFill id="3">', '<hh:borderFill id="3"><hh:leftBorder type="NONE" width="0.1 mm"/>', 1)
+    head2, bf = hwpx_fill._inject_border_fill(HEADER)
+    assert bf == "4" and 'itemCnt="4"' in head2 and '<hh:borderFill id="4"' in head2 and head2.count("<hh:borderFill ") == 4
+    assert hwpx_fill._solid_border_ids(HEADER) == {"3"}
+    assert "3" not in hwpx_fill._solid_border_ids(header)

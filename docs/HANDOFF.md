@@ -244,3 +244,5 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 운영 VM 은 바로 인터넷을 쓴다. 옛 프록시 시절의 apt 설정(127.0.0.1:3128)은 2026-09-27 에 지웠고, 맥 쪽 터널 스크립트·launchd·ssh 설정에도 남은 것이 없음을 확인했다.
 
 한글 읽기 어댑터 kordoc(ADR-0033): VM 에 root 없이 `~/opt/node`(공식 tar, v24 LTS)와 `~/opt/kordoc`(`npm install kordoc`, 4.15.7)로 설치돼 있다. 어댑터는 `~/opt/kordoc/node_modules/.bin/kordoc` 을 찾고(다른 자리는 `ZZAIMY_KORDOC`), 끄려면 `ZZAIMY_KORDOC_OFF=1`. 판 갱신은 `cd ~/opt/kordoc && npm install kordoc@<판>` 뒤 `scripts/147_kordoc_parity.py` 통과 확인. 포크는 github.com/mimonimo/kordoc. 폐쇄망 재설치 묶음은 `~/opt/dist/`(Node tar + 설치본 tgz + `install_offline.sh`, 36MB) — 판을 올리면 묶음도 다시 만든다(`tar -czf ~/opt/dist/kordoc-installed-<판>.tgz -C ~/opt kordoc`).
+
+최종 한글본(ADR-0035): 채팅 "한글 파일로 내보내 줘" → `ingest/hwpx_fill.py` 가 작업본 절 본문을 원본 hwpx 에 서식 보존으로 넣어 `생성/` 보관 + 드라이브 `작성/` 업로드. 원본이 .hwp 면 hwpx 반입 안내. 검증은 `tests/test_hwpx_fill.py` 와 kordoc `validate`(맥 스크래치 설치 또는 VM `~/opt/kordoc`).
