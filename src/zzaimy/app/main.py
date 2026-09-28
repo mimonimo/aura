@@ -1138,32 +1138,31 @@ def create_app(
             from zzaimy.generate.client import VllmClient
 
             client = VllmClient(role="answer")
-            from zzaimy.app import institution as _inst
+            from zzaimy.app import asks as _asks
 
-            given = _inst.parse_answer(q) if re.search(r"총장|대표\s*전화|전화번호|주소|대학명", q) and not drafting.looks_like_section_draft(q) else {}
-            given = {k: v for k, v in given.items() if not re.fullmatch(r"[○◯]{2,}|0{3}-0{3}-0{4}", v)}
+            pend = _asks.pending(db, session_id)
+            given = _asks.parse_pairs(q, [a["name"] for a in pend]) if pend else {}
             if given:
-                # 담당자가 알려 준 기관 정보 — 기억해 두고(설정), 다음 작성부터 넣는다. 지어내지 않고 물어서 받는 길(2026-09-28)
-                for k, v in given.items():
-                    _inst.set_fact(db, k, v)
-                facts_now = _inst.facts(db)
+                # 담당자가 물었던 값을 알려 줌 — 기억해 두고(프로젝트 값·기관 정보) 남은 질문만 다시 띄운다. 지어내지 않고 물어서 받는 길
+                _asks.remember(db, session_, given)
+                left_asks = [a for a in pend if a["name"] not in given]
+                _asks.set_pending(db, session_id, left_asks)
                 text = "기억했습니다 — " + ", ".join(f"{k}: {v}" for k, v in given.items()) + ". 이후 작성하는 절과 기입란에 넣습니다."
-                ask = _inst.ask_for_missing(facts_now)
-                if ask:
-                    text += "\n" + ask
+                opts = []
+                if left_asks:
+                    text += "\n아직 못 받은 값: " + ", ".join(a["name"] for a in left_asks)
+                    opts.append(_asks.form_option(left_asks))
                 last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
-                opts = [{"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}]
-                if last:
-                    num = section_context.split_number(last)[0]
-                    if num:
-                        opts.insert(0, {"kind": "redo", "text": f"{num} 절에 기관 정보 반영해 다시 쓰기", "question": f"{num} 절을 기관 정보를 반영해 다시 써 줘"})
+                num = section_context.split_number(last)[0] if last else ""
+                if num:
+                    opts.append({"kind": "redo", "text": f"{num} 절에 반영해 다시 쓰기", "question": f"{num} 절을 알려 준 값을 반영해 다시 써 줘"})
+                opts.append({"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
                 _set_options(session_id, opts)
                 db.add_chat(session_id, "assistant", ag.scrub(text))
                 return
             if drafting.looks_like_section_draft(q):
                 # 절 작성 에이전트(사용자 지시 2026-09-27): 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
                 # 절마다 재료(작성방법·평가지표·지난 자료의 같은 절·기관 정보)를 모아 27B 가 쓰고 넣는다. 한 번에 몇 절씩, 이어서는 선택지로.
-                from zzaimy.app import institution
                 from zzaimy.app.regulations import extract_nouns
                 from zzaimy.ingest import gdocs as _gd
 
@@ -1178,7 +1177,7 @@ def create_app(
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
                 mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [])
-                inst = institution.facts(db)
+                inst = _asks.facts(db, session_)
                 parts_: list[str] = []
                 all_ops: list[dict] = []
                 redo = bool(re.search(r"다시\s*(?:써|쓰|작성)|새로\s*(?:써|쓰|작성)|바꿔\s*(?:써|쓰)", q))
@@ -1218,15 +1217,16 @@ def create_app(
                     all_ops += o_
                     info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
                 db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
-                ask = institution.ask_for_missing(inst)
-                if ask:
-                    parts_.append(ask)
+                pend = _asks.pending(db, session_id)
+                if pend:
+                    parts_.append("자료에서 찾지 못해 비워 둔 값이 있습니다 — " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in pend[:6])
+                                  + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다.")
                 text = "\n\n".join(parts_)
                 _ops = all_ops
                 left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x)]
                 opts = []
-                if ask:
-                    opts.append({"kind": "ask", "text": "기관 정보 알려주기", "question": "총장은 ○○○, 대표전화는 000-000-0000"})
+                if pend:
+                    opts.append(_asks.form_option(pend))
                 if left:
                     opts.append({"kind": "continue", "text": f"이어서 다음 절 작성 (남은 절 {len(left)}개)", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
                 opts += [{"kind": "review", "text": "방금 쓴 절 검토", "question": "방금 쓴 절을 평가지표·공고 기준으로 검토해 줘"},
@@ -1263,7 +1263,6 @@ def create_app(
             review_mat = ""
             if re.search(r"검토|점검|평가해|맞는지|채점|비교해", q):
                 # 절 검토: 지목한 절(번호) 또는 방금 쓴 절을 재료(작성방법·평가지표·지난 자료 같은 절)와 함께 준다 — 긴 문서의 앞 12000자만 보던 문제
-                from zzaimy.app import institution
                 from zzaimy.app.regulations import extract_nouns
                 from zzaimy.ingest import gdocs as _gd
 
@@ -1279,7 +1278,7 @@ def create_app(
                         sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
                         mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [])
                         mm = mats.for_section(info, review_focus, q, storage.title_of)
-                        review_mat = drafting.render_materials(mm, institution.facts(db))
+                        review_mat = drafting.render_materials(mm, _asks.facts(db, session_))
                         hits = mm["criteria"] or hits
                 except Exception:
                     review_focus, review_mat = None, ""
@@ -1343,11 +1342,21 @@ def create_app(
                            lambda sid: sid in _chat_running, inbox_dir,
                            ALLOWED_EXTENSIONS, _chat_sources)
 
+    async def _form_fields(request: Request) -> dict:
+        """선택지 입력 양식(kind=form)의 칸 값 — field_<이름> 폼 필드와 template 를 모아 문장을 만든다(자바스크립트 없이도 됨)."""
+        try:
+            form = await request.form()
+        except Exception:
+            return {}
+        vals = {k[6:]: str(v).strip() for k, v in form.multi_items() if k.startswith("field_") and not hasattr(v, "filename")}
+        return {"values": vals, "template": str(form.get("template") or "")} if vals else {}
+
     @app.post("/chat/send")
     def chat_send(
         request: Request,
         background: BackgroundTasks,
         question: str = Form(...),
+        form_fields: dict = Depends(_form_fields),
         session_id: int | None = Form(None),
         criteria: list[int] = Form([]),
         attachment: list[UploadFile] = File([]),
@@ -1355,6 +1364,12 @@ def create_app(
         external: str = Form(""),
     ):
         q = question.strip()
+        if form_fields.get("values"):
+            from zzaimy.app import asks as _asks
+
+            composed = _asks.compose(form_fields.get("template") or "; ".join(f"{k}: {{{k}}}" for k in form_fields["values"]), form_fields["values"])
+            if composed:
+                q = composed
         if not q:
             return RedirectResponse("/chat", status_code=303)
         files = [f for f in (attachment or []) if f is not None and f.filename]

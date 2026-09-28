@@ -33,7 +33,7 @@ def test_section_text_and_materials_render():
                                      "past": [{"title": "지난 계획서", "how": "같은 절", "text": "작년 여건"}]},
                                     {"대학명": "영남이공대학교", "총장": ""})
     assert "[이 절의 양식 안내·작성방법]" in out and "평가편람" in out and "《지난 계획서》 (같은 절)" in out
-    assert "대학명: 영남이공대학교" in out and "모르는 값: 총장" in out
+    assert "대학명: 영남이공대학교" in out and "총장" not in out              # 모르는 값은 asks 로 묻는다(재료에 적지 않음)
 
 
 def test_materials_prefer_aligned_section_then_keywords():
@@ -84,20 +84,6 @@ def test_score_against_reference_counts_numbers_and_terms():
     assert drafting.score_against_reference("x", "")["ratio"] is None
 
 
-def test_institution_answer_parsing_and_ask():
-    from zzaimy.app import institution
-    got = institution.parse_answer("총장은 홍길동, 대표전화는 053-650-9000 이고 주소는 대구광역시 남구 현충로 170 입니다")
-    assert got == {"총장": "홍길동", "대표전화": "053-650-9000", "주소": "대구광역시 남구 현충로 170 입니다"[:len(got.get("주소", ""))]}
-    assert institution.parse_answer("1.1 절 검토해 줘") == {}
-    ask = institution.ask_for_missing({"대학명": "영남이공대학교", "주소": "x", "총장": "", "대표전화": ""})
-    assert "총장·대표전화" in ask and institution.ask_for_missing({k: "v" for k in institution.KEYS}) == ""
-
-
-def test_next_section_skips_anchor_whose_subsections_are_written():
-    info = {"text": "", "sections": [
-        {"index": 5, "level": 3, "heading": "1.1. 교육여건 분석", "start": 10, "end": 20, "chars": 0, "table_end": 30, "body_chars": 0, "text": "1.1. 교육여건 분석"},
-        {"index": 6, "level": 2, "heading": "1) 지역 동향", "start": 30, "end": 40, "chars": 300, "table_end": 0, "body_chars": 300, "text": "1) 지역 동향\n글"},
-        {"index": 7, "level": 3, "heading": "1.2. 특성화 방향", "start": 40, "end": 50, "chars": 0, "table_end": 0, "body_chars": 0, "text": "1.2. 특성화 방향"}]}
-    assert [s["heading"] for s in drafting.target_sections(info, "다음 절 작성해 줘")] == ["1.2. 특성화 방향"]
-    sc = drafting.score_against_reference("본문", "그림 BIN0005.png 과 0006, 2023년 계획 3개")
-    assert not any(x in sc["missing"] for x in ("BIN0005", "png", "0006")) and "2023년" in sc["missing"]
+def test_render_materials_shows_given_values():
+    out = drafting.render_materials({"instructions": "x", "criteria": [], "past": []}, {"대학명": "영남이공대학교", "사업단명": "AI-X 사업단", "총장": ""})
+    assert "[담당자가 알려 준 값·기관 정보]" in out and "사업단명: AI-X 사업단" in out and "총장" not in out

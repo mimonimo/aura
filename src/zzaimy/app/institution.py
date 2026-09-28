@@ -71,3 +71,15 @@ def ask_for_missing(facts: dict) -> str:
         return ""
     return ("기관 정보 중 " + "·".join(missing) + " 을(를) 문서함에서 찾지 못했습니다. 알려 주시면 기억해 두고 이후 작성에 넣겠습니다"
             " — 예: \"총장은 홍길동, 대표전화는 (번호)\".")
+
+
+def form_option(facts: dict) -> dict:
+    """대화 선택지에 실어 보내는 입력 양식 — 화면은 fields 를 입력 칸으로 그리고, 채운 값을 template 에 넣은 문장을 질문으로 보낸다
+    (kind=form 규격, 2026-09-28: 버튼 대신 입력 칸). 양식을 못 그리는 화면은 question 을 버튼으로 쓴다."""
+    missing = [k for k in KEYS if not (facts.get(k) or "").strip()]
+    hints = {"총장": "예: 홍길동", "대표전화": "예: 053-000-0000", "주소": "예: 대구광역시 남구 현충로 170", "대학명": "예: 영남이공대학교"}
+    fields = [{"name": k, "label": k + (" 성명" if k == "총장" else ""), "placeholder": hints.get(k, ""), "required": False} for k in missing]
+    template = ", ".join(f"{k}은 {{{k}}}" if k in ("총장", "대학명") else f"{k}는 {{{k}}}" for k in missing)
+    return {"kind": "form", "text": "기관 정보 입력", "fields": fields, "template": template,
+            "question": ", ".join(f"{k}은 ○○○" if k in ("총장", "대학명") else f"{k}는 (값)" for k in missing),
+            "submit": "기억하기"}

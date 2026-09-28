@@ -515,7 +515,7 @@ def test_receipt_number_can_be_changed_and_institution_saved(tmp_path):
     r = c.post(f"/doc/{d2}/receipt", data={"receipt_no": "이상한번호"}, follow_redirects=False)
     assert r.headers["location"].endswith("err=receipt")
     page = c.get(f"/doc/{d1}").text
-    assert 'name="receipt_no" value="2026-국고-0099"' in page
+    assert 'name="receipt_no"' in page and 'value="2026-국고-0099"' in page          # 접수번호 수정 창(아스트라 f83d1731: 관리 모달)
     c.post("/institution", data={"대학명": "영남이공대학교", "주소": "", "총장": "홍길동", "대표전화": ""}, follow_redirects=False)
     from zzaimy.app import institution
     f = institution.facts(db)
@@ -524,22 +524,38 @@ def test_receipt_number_can_be_changed_and_institution_saved(tmp_path):
     assert 'id="institution"' in page and 'value="홍길동"' in page and "(설정값)" in page
 
 
-def test_agent_remembers_institution_info_given_in_chat(tmp_path, monkeypatch):
-    from zzaimy.app import chat_documents, institution
-    from zzaimy.ingest import gdrive
+def test_agent_asks_for_missing_values_with_a_form_and_remembers_the_answer(tmp_path, monkeypatch):
+    """절을 쓰다 모델이 asks 를 내면 답 아래 입력 양식(kind=form)이 뜨고, 담당자의 답은 프로젝트 값으로 기억돼 다음 재료에 들어간다."""
+    from zzaimy.app import asks, chat_documents, gdocs_agent
+    from zzaimy.ingest import gdocs, gdrive
     import json
 
     app, c = _client(tmp_path)
     db = app.state.db
-    sid = db.create_chat_session("작성", owner="zzaimy")
+    pid = db.create_project("grant", "AID", owner="zzaimy")
+    sid = db.create_chat_session("작성", project_id=pid, owner="zzaimy")
     db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
-    db.set_setting(f"chat_last_section:{sid}", "1.2. 특성화 방향")
     monkeypatch.setattr(chat_documents, "material", lambda db_, sid_, owner_: "[연결 문서] 작업본")
     monkeypatch.setattr(gdrive, "list_accounts", lambda: ["staff@example.ac.kr"])
+    info = {"title": "작업본", "end": 100, "text": "1.1. 요약\n【작성방법】 사업단명을 쓴다",
+            "sections": [{"index": 1, "level": 3, "heading": "1.1. 요약", "start": 1, "end": 20, "chars": 0, "table_end": 40, "body_chars": 0, "text": "1.1. 요약\n【작성방법】 사업단명을 쓴다"}]}
+    monkeypatch.setattr(gdocs, "get", lambda email, doc, http=None: info)
+    seen = {}
+    def fake_run(db_, session_id, owner, command, link, *, client, data_dir, scrub=None, evidence=None, confirm=False, http=None, **kw):
+        seen["materials"] = kw.get("materials", "")
+        asks.add_pending(db_, session_id, [{"name": "사업단명", "hint": "요약서 표"}])       # 모델이 물어야 한다고 낸 값
+        return "「1.1」 아래에 120자 추가", [{"op": "insert", "section": 1, "text": "…"}]
+    monkeypatch.setattr(gdocs_agent, "run", fake_run)
     from zzaimy.generate import client as _gc
     monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: object())
-    c.post("/chat/send", data={"question": "총장은 홍길동, 대표전화는 053-650-9000", "session_id": str(sid)}, follow_redirects=False)
+    c.post("/chat/send", data={"question": "1.1 절 작성해 줘", "session_id": str(sid)}, follow_redirects=False)
     last = db.list_chats(sid)[-1]["content"]
-    assert "기억했습니다" in last and institution.facts(db)["총장"] == "홍길동"
     opts = json.loads(db.get_setting(f"chat_options:{sid}", ""))
-    assert opts[0]["kind"] == "redo" and "1.2" in opts[0]["question"]
+    assert "사업단명" in last and opts[0]["kind"] == "form" and opts[0]["fields"][0]["name"] == "사업단명"
+    # 입력 양식 제출(field_<이름> + template) → 서버가 문장으로 합쳐 기억한다
+    c.post("/chat/send", data={"question": opts[0]["question"], "template": opts[0]["template"], "field_사업단명": "AI-X 사업단", "session_id": str(sid)}, follow_redirects=False)
+    last = db.list_chats(sid)[-1]["content"]
+    assert "기억했습니다" in last and "AI-X 사업단" in last and asks.pending(db, sid) == []
+    assert asks.facts(db, {"id": sid, "project_id": pid})["사업단명"] == "AI-X 사업단"
+    c.post("/chat/send", data={"question": "1.1 절을 다시 써 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert "사업단명: AI-X 사업단" in seen["materials"]                       # 다음 작성 재료에 들어간다
