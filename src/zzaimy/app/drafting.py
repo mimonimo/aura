@@ -233,7 +233,9 @@ _JUNK = re.compile(r"^(?:BIN\d+|IMG\d+|image\d+|0\d{3,}|png|jpg|jpeg|gif|bmp|pdf
 def key_facts(text: str) -> tuple[set[str], set[str]]:
     """정답지의 '핵심 사실' — 수치(단위 포함)와 고유명사꼴 낱말(영문 약어·기관·조직 이름). 채점의 기준."""
     nums = {re.sub(r"[^0-9A-Za-z가-힣%]", "", m.group(0)) for m in _NUM_TOKEN.finditer(text or "")}
-    nums = {n for n in nums if any(ch.isdigit() for ch in n) and len(n) >= 2 and not _JUNK.match(n)}
+    # 단위 없는 한두 자리 수(표의 행 번호·쪽수)와 0 만의 수는 사실이 아니다
+    nums = {n for n in nums if any(ch.isdigit() for ch in n) and not _JUNK.match(n)
+            and not (n.isdigit() and (len(n) <= 2 or set(n) == {"0"}))}
     terms = {t for t in (m.group(0) for m in _TERM_TOKEN.finditer(text or "")) if not _JUNK.match(t)}
     return nums, terms
 
