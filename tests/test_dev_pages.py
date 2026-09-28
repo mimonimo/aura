@@ -339,6 +339,20 @@ def test_weekly_schedule_korean_monday():
     assert scheduled_week(datetime.fromisoformat("2026-09-29T00:00:00+00:00")) is None
 
 
+def test_notification_grant_has_no_decision_alert(client):
+    from bs4 import BeautifulSoup
+    client.post('/upload', data={'doc_type': 'grant'},
+                files={'file': ('notification-test.pdf', b'%PDF', 'application/pdf')})
+    page = BeautifulSoup(client.get('/dev/docs').text, 'html.parser')
+    bell = page.select_one('#bellPop')
+    assert '판정' not in bell.get_text()
+    assert '최근 검토 완료' in bell.get_text()
+    assert page.select_one('[data-pop="bellPop"] .badge-n') is None
+    link = bell.select_one('a.pop-item')
+    assert link and link.has_attr('data-force-navigation')
+    assert client.get(link['href']).status_code == 200
+
+
 def test_weekly_failure_keeps_existing_report(client, tmp_path, monkeypatch):
     import time
     from zzaimy.app import storage

@@ -531,6 +531,15 @@ class Database:
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
+    def reviewed_documents(self, owner: str, limit: int = 5) -> list[dict]:
+        """최근 접수된 검토 완료 문서. 읽지 않은 알림 개수가 아니다."""
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(
+                "SELECT * FROM documents WHERE owner = ? AND status = 'reviewed' "
+                "AND doc_type NOT IN ('regulation', 'ocr') ORDER BY id DESC LIMIT ?",
+                (owner, limit),
+            ).fetchall()]
+
     def create_chat_session(
         self, title: str, project_id: int | None = None, owner: str = "zzaimy"
     ) -> int:

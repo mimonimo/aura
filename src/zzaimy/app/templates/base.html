@@ -527,22 +527,32 @@ document.addEventListener('submit', function(event) {
       </button>
       <div class="popover" id="bellPop">
         <h5>확인할 문서 <span>{{ alert_count }}</span></h5>
-        <p class="notification-help">새 알림이 아닌 판정 대기·처리 실패 문서입니다.</p>
-        {% if pending_docs %}<h6 class="notification-section">판정 대기</h6>{% endif %}
-        {% for d in pending_docs %}
-        <a class="pop-item" href="/doc/{{ d.id }}">
+        <p class="notification-help">문서를 선택하면 검토 결과가 열립니다. 숫자는 조치가 필요한 문서 수입니다.</p>
+        {% if notification_pending %}<h6 class="notification-section">판정 필요</h6>{% endif %}
+        {% for d in notification_pending %}
+        <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
           <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 확인 후 판정{% if d.receipt_no %} · {{ d.receipt_no }}{% endif %}</small></span>
         </a>
         {% else %}
-        {% if not failed_docs %}<div class="pop-empty">확인할 문서가 없습니다.</div>{% endif %}
+        {% if not failed_docs and not recent_reviewed %}<div class="pop-empty">확인할 문서가 없습니다.</div>{% endif %}
         {% endfor %}
         {% if failed_docs %}
         <h5 style="margin-top:10px;">처리 실패 {{ failed_docs|length }}</h5>
         {% for d in failed_docs %}
-        <a class="pop-item" href="/doc/{{ d.id }}">
+        <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:danger-triangle-linear" style="color:var(--red);"></iconify-icon>
           <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>처리 실패 · 문서에서 원인을 확인해 주세요.</small></span>
+        </a>
+        {% endfor %}
+        {% endif %}
+        {% if recent_reviewed %}
+        <h6 class="notification-section">최근 검토 완료</h6>
+        {% for d in recent_reviewed if d not in notification_pending %}
+        <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
+          <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
+          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 보기{% if d.receipt_no %} · {{ d.receipt_no }}{% endif %}</small></span>
+          <iconify-icon icon="solar:alt-arrow-right-linear" aria-hidden="true"></iconify-icon>
         </a>
         {% endfor %}
         {% endif %}
