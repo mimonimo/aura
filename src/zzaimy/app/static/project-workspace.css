@@ -84,9 +84,10 @@
 #projectWorkspace .project-context-intro { margin:20px 0; }
 #projectWorkspace .project-context-intro h2 { font-size:17px; margin:0 0 8px; }
 #projectWorkspace .project-context-intro p,.project-intake-help { font-size:13px; line-height:1.7; color:var(--muted); margin:0; }
-#projectWorkspace .project-note-compose { display:grid; gap:12px; padding:20px; background:var(--panel); border:1px solid var(--line); border-radius:12px; }
+#projectWorkspace .project-note-compose { display:grid; gap:10px; padding:0; background:transparent; border:0; }
 #projectWorkspace .project-note-compose label { font-size:14px; font-weight:600; }
-#projectWorkspace .project-note-compose textarea { width:100%; box-sizing:border-box; min-height:130px; resize:vertical; font:inherit; font-size:14px; line-height:1.7; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:white; }
+#projectWorkspace .project-note-compose textarea { width:100%; box-sizing:border-box; height:88px; min-height:88px; max-height:200px; resize:none; overflow-y:auto; font:inherit; font-size:14px; line-height:1.7; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:white; }
+#projectWorkspace .project-note-compose textarea:focus { outline:2px solid #c7d8ee; outline-offset:2px; border-color:#718cac; }
 #projectWorkspace .project-context-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 #projectWorkspace .project-context-footer span { font-size:12px; color:var(--muted); }
 #projectWorkspace .project-context-footer button { flex:none; }
@@ -107,10 +108,21 @@
 #projectWorkspace .project-criterion-item button,.project-criterion-open { font-size:12px; white-space:nowrap; }
 #projectWorkspace .project-criterion-open { text-decoration:none; color:var(--navy); }
 @media(max-width:650px){
- #projectWorkspace .project-note-compose { padding:14px; }
+ #projectWorkspace .project-note-compose { padding:0; }
  #projectWorkspace .project-context-footer { align-items:flex-start; flex-wrap:wrap; }
  #projectWorkspace .project-context-footer button { margin-left:auto; }
  #projectWorkspace .project-criterion-item { flex-wrap:wrap; gap:12px; }
  #projectWorkspace .project-criterion-title { flex-basis:calc(100% - 40px); }
  #projectWorkspace .project-criterion-open { margin-left:auto; }
 }
+
+#linkModal .criteria-picker-filters { display:flex; flex-wrap:wrap; gap:7px; margin:14px 0; }
+#linkModal .criteria-picker-filters button { padding:7px 11px; font-size:12px; border-radius:18px; white-space:nowrap; }
+#linkModal .criteria-picker-filters button[aria-pressed="true"] { background:#eaf1fb; border-color:#a9bfdc; color:#274d7a; }
+#linkModal .criteria-picker-filters button span { margin-left:5px; color:var(--muted); }
+#linkModal .criteria-picker-summary { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:0 0 12px; font-size:12px; color:var(--muted); }
+#linkModal .criteria-picker-summary label { display:flex; align-items:center; gap:7px; }
+#linkModal .criteria-picker-meta { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:7px; font-size:12px; color:var(--muted); }
+#linkModal .criteria-kind-label { background:#eef2f6; color:#526174; border-radius:6px; padding:2px 7px; white-space:nowrap; }
+#linkModal .criteria-picker-item[hidden] { display:none; }
+#linkModal .criteria-picker-item > .pill { white-space:nowrap; }

@@ -116,7 +116,7 @@
     <div class="project-context-intro"><h2 id="projectGuideHeading">작업 지침</h2><p>AI가 이 프로젝트에서 지켜야 할 작성 원칙과 업무 조건입니다. 저장한 내용은 검토·작성·대화에 함께 적용됩니다.</p></div>
     <form action="/project/{{ project.id }}/notes" method="post" class="project-note-compose">
       <label for="noteInput">지침 추가</label>
-      <textarea name="content" required rows="4" id="noteInput" aria-describedby="noteHelp"
+      <textarea name="content" required rows="2" id="noteInput" aria-describedby="noteHelp"
                 placeholder="예: 검토 의견에는 근거 조항을 함께 적고, 확인되지 않은 내용은 구분해 주세요."></textarea>
       <div class="project-context-footer"><span id="noteHelp">개인 메모가 아닌 프로젝트 공통 지침입니다.</span><button type="submit">지침 저장</button></div>
     </form>
@@ -146,7 +146,7 @@
       {% for c in linked_docs %}
       <article class="project-criterion-item">
         <iconify-icon icon="solar:document-text-linear" style="color:var(--navy); flex:none;"></iconify-icon>
-        <div class="project-criterion-title"><a href="/doc/{{ c.id }}">{{ doc_name(c) }}</a><span>기준 문서{% if c.receipt_no %} · {{ c.receipt_no }}{% endif %}</span></div>
+        <div class="project-criterion-title"><a href="/doc/{{ c.id }}">{{ doc_name(c) }}</a><span>{{ c.kind_label }}{% if c.receipt_no %} · {{ c.receipt_no }}{% endif %}</span></div>
         <a class="project-criterion-open project-action-link" href="/doc/{{ c.id }}"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>문서 열기</a>
         <form action="/project/{{ project.id }}/criteria/unlink" method="post" onsubmit="return confirm('이 기준 문서의 연결을 해제할까요? 원본 문서는 유지됩니다.');">
           <input type="hidden" name="criteria_doc_id" value="{{ c.id }}">
@@ -191,23 +191,30 @@
       <p class="criteria-picker-help">이 프로젝트에서 참고할 공고·평가 기준·지침을 선택하세요.</p>
       <div class="searchbox criteria-picker-search">
         <iconify-icon icon="solar:magnifer-linear"></iconify-icon>
-        <input type="search" id="criteriaFilter" placeholder="문서 이름으로 검색" aria-label="기준 문서 검색">
+        <input type="search" id="criteriaFilter" placeholder="문서명·접수번호 검색" aria-label="기준 문서 검색">
       </div>
+      <div class="criteria-picker-filters" aria-label="문서 분류">
+        <button type="button" class="secondary" data-criteria-kind="all" aria-pressed="true">전체 <span>{{ sector_criteria|length }}</span></button>
+        {% for kind, count in criteria_kinds.items() %}
+        <button type="button" class="secondary" data-criteria-kind="{{ kind }}" aria-pressed="false">{{ kind_labels.get(kind, '미분류') }} <span>{{ count }}</span></button>
+        {% endfor %}
+      </div>
+      <div class="criteria-picker-summary"><span id="criteriaResultCount" role="status">{{ sector_criteria|length }}개 문서</span><label><input type="checkbox" id="criteriaSelectedOnly"> 선택한 문서만</label></div>
       <form action="/project/{{ project.id }}/criteria" method="post">
         <div id="criteriaList">
           {% for c in sector_criteria %}
-          <label data-name="{{ c.filename }}" data-linked="{{ '1' if c.id in linked_criteria else '' }}"
+          <label data-name="{{ doc_name(c) }} {{ c.filename }} {{ c.receipt_no or '' }}" data-kind="{{ c.picker_kind }}" data-linked="{{ '1' if c.id in linked_criteria else '' }}"
                  class="criteria-picker-item">
             <input type="checkbox" name="criteria" value="{{ c.id }}"
                    {% if c.id in linked_criteria %}checked{% endif %}>
-            <span class="criteria-picker-name">{{ doc_name(c) }}</span>
+            <span class="criteria-picker-name">{{ doc_name(c) }}<span class="criteria-picker-meta"><span class="criteria-kind-label">{{ c.kind_label }}</span>{% if c.receipt_no %}<span>{{ c.receipt_no }}</span>{% endif %}</span></span>
             <span class="pill" style="flex:none; font-size:11px; padding:2px 8px;
                   {% if c.sector == project.sector %}background:#E8EFFC; color:var(--navy);{% endif %}">
               {{ sector_labels.get(c.sector, c.sector) }}</span>
           </label>
           {% endfor %}
         </div>
-        <p id="criteriaEmpty" class="criteria-picker-help" hidden>검색 결과가 없습니다. 다른 문서 이름으로 검색해 주세요.</p>
+        <p id="criteriaEmpty" class="criteria-picker-help" hidden>조건에 맞는 문서가 없습니다. 검색어나 분류를 바꿔 주세요.</p>
         <div class="criteria-picker-footer">
           <span class="muted" id="linkedCount" aria-live="polite">{{ linked_criteria|length }}개 선택</span>
           <button type="button" data-modal-close class="secondary">닫기</button>
@@ -318,20 +325,40 @@
       .forEach(function (el) { list.appendChild(el); });
   }
   var filter = document.getElementById("criteriaFilter");
-  if (filter) {
-    filter.addEventListener("input", function () {
-      var q = filter.value.trim().toLowerCase();
-      Array.from(list.children).forEach(function (el) {
-        el.style.display = !q || el.dataset.name.toLowerCase().indexOf(q) !== -1 ? "" : "none";
-      });
-      document.getElementById('criteriaEmpty').hidden = Array.from(list.children).some(function (el) { return el.style.display !== 'none'; });
+  var selectedOnly = document.getElementById('criteriaSelectedOnly');
+  var kindButtons = Array.from(document.querySelectorAll('[data-criteria-kind]'));
+  var selectedKind = 'all';
+  function filterCriteria() {
+    if (!list || !filter) return;
+    var q = filter.value.trim().toLocaleLowerCase();
+    var visible = 0;
+    Array.from(list.children).forEach(function (el) {
+      var show = (!q || el.dataset.name.toLocaleLowerCase().includes(q)) &&
+        (selectedKind === 'all' || el.dataset.kind === selectedKind) &&
+        (!selectedOnly.checked || el.querySelector('input').checked);
+      el.hidden = !show;
+      if (show) visible++;
     });
+    document.getElementById('criteriaEmpty').hidden = visible > 0;
+    document.getElementById('criteriaResultCount').textContent = visible + '개 문서';
+  }
+  kindButtons.forEach(function (button) {
+    button.addEventListener('click', function () {
+      selectedKind = button.dataset.criteriaKind;
+      kindButtons.forEach(function (item) { item.setAttribute('aria-pressed', String(item === button)); });
+      filterCriteria();
+    });
+  });
+  if (selectedOnly) selectedOnly.addEventListener('change', filterCriteria);
+  if (filter) {
+    filter.addEventListener("input", filterCriteria);
   }
   if (list) {
     list.addEventListener("change", function () {
       var n = list.querySelectorAll("input:checked").length;
       var c = document.getElementById("linkedCount");
       if (c) c.textContent = n + "건 선택됨 (저장 필요)";
+      filterCriteria();
     });
   }
 </script>
