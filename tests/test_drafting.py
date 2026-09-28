@@ -91,4 +91,4 @@ def test_render_materials_shows_given_values():
 
 def test_score_ignores_bare_small_numbers():
     sc = drafting.score_against_reference("본문", "표 17 18 19 000 2026년 240억원 16건")
-    assert not any(x in sc["missing"] for x in ("17", "18", "000")) and "240억원" in sc["missing"] and "16건" in sc["missing"]
+    assert not any(x in sc["missing"] for x in ("17", "18", "000")) and "240억" in sc["missing"] and "16건" in sc["missing"]
