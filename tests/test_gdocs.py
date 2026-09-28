@@ -637,6 +637,14 @@ def test_section_bodies_and_migrate_skip_box_and_keep_order(monkeypatch, tmp_pat
     assert [b["heading"] for b in bodies] == ["1.1. 교육여건 분석"]
     assert [k for k, _ in bodies[0]["items"]] == ["text", "table", "text"] and bodies[0]["items"][1][1] == [["강점", "약점"], ["S1", "W1"]]
     res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http)
-    assert res == [{"heading": "1.1. 교육여건 분석", "done": "ok", "chars": len("지역 산업 수요가 늘고 있다.") + len("끝 문단"), "tables": 1}]
+    assert res == [{"heading": "1.1. 교육여건 분석", "done": "ok", "chars": len("지역 산업 수요가 늘고 있다.") + len("끝 문단"), "tables": 1, "under": ""}]
     kinds = [list(q.keys())[0] for batch in sent for q in batch]
     assert "insertText" in kinds and "insertTable" in kinds
+    # 새 작업본에 없는 소제목(모델이 만든 것)은 직전에 맞춘 절 아래에 소제목 줄과 함께 들어간다
+    src.extend([para(200, 230, "1. 거버넌스 기반 추진 체계\n", "HEADING_3"), para(230, 260, "거버넌스 본문\n")])
+    sent.clear()
+    res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http)
+    assert res[-1]["heading"] == "1. 거버넌스 기반 추진 체계" and res[-1]["done"] == "ok" and res[-1]["under"] == "1.1. 교육여건 분석"
+    sent.clear()
+    res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http, only_headings={"1. 거버넌스 기반 추진 체계"})
+    assert [r["heading"] for r in res] == ["1. 거버넌스 기반 추진 체계"] and res[0]["under"] == "1.1. 교육여건 분석"
