@@ -5,7 +5,24 @@
  const main=workspace.parentElement;
  let linked=null, panel=null;
  let fitObserver=null;
- function clearPanel(){fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
+ let cancelFormatTransition=null;
+ function clearPanel(){cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
+ function switchFormatting(event){
+   cancelFormatTransition?.();
+   const control=event.target, frame=panel.querySelector('iframe'), viewport=frame.parentElement;
+   const next=new URL(control.checked?(linked.embed_url_toolbar||linked.embed_url):linked.embed_url,location.href);
+   // Preserve an explicit navigation anchor. Cross-origin editor scroll is not readable.
+   if(new URL(frame.src).hash)next.hash=new URL(frame.src).hash;
+   if(frame.src===next.href)return;
+   const cover=document.createElement('div');cover.className='chat-doc-loading';cover.setAttribute('role','status');cover.textContent='편집 화면을 전환하고 있습니다…';
+   viewport.append(cover);viewport.setAttribute('aria-busy','true');control.disabled=true;
+   let timer;
+   const done=()=>{clearTimeout(timer);frame.removeEventListener('load',done);cover.remove();viewport.removeAttribute('aria-busy');control.disabled=false;cancelFormatTransition=null;};
+   cancelFormatTransition=done;
+   frame.addEventListener('load',done,{once:true});
+   timer=setTimeout(()=>{cover.textContent='불러오기가 지연되고 있습니다. 잠시 기다리거나 새 창에서 열어 주세요.';control.disabled=false;},15000);
+   frame.src=next.href;
+ }
  function fitEditor(autoFit=true){
    const frame=panel.querySelector('iframe');if(!frame||frame.parentElement.classList.contains('chat-doc-viewport'))return;
    const viewport=document.createElement('div');viewport.className='chat-doc-viewport';
@@ -116,7 +133,7 @@
  let confirmed=false;f.addEventListener('input',()=>{confirmed=false;fields.querySelector('[data-confirmation]').hidden=true;submit.textContent='내용 확인';});
  f.onsubmit=async e=>{e.preventDefault();if(!confirmed){confirmed=true;const p=fields.querySelector('[data-confirmation]');p.textContent='「'+f.elements.section.selectedOptions[0].textContent+'」 아래에 '+f.elements.text.value.length+'자를 삽입합니다.';p.hidden=false;submit.textContent='삽입 확정';return;}submit.disabled=true;status.textContent='삽입 중…';const body=new FormData(f);body.set('confirmed','true');try{await api('/api/chat-documents/'+sid+'/insert',{method:'POST',body});status.textContent='삽입했습니다. 문서에서 확인하세요.';submit.hidden=true;f.querySelector('[data-cancel]').textContent='닫기';f.querySelectorAll('input,select,textarea').forEach(el=>el.disabled=true);}catch(error){status.textContent=error.message;submit.disabled=false;confirmed=false;submit.textContent='내용 확인';}};}
  function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 서식 도구</label><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
- panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=e=>{panel.querySelector('iframe').src=e.target.checked?(linked.embed_url_toolbar||linked.embed_url):linked.embed_url;};panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
+ panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=switchFormatting;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
  panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;opener.title='문서 열기';opener.setAttribute('aria-label',opener.title);opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
  // 플랫폼 문서(첨부·접수·기준)의 구글 열람본을 같은 자리(iframe)에 연다 — 연결 문서와 달리 에이전트 편집 대상은 아니다
  function showViewer(v){

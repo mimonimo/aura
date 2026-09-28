@@ -67,3 +67,4 @@ button.chat-doc-file.chat-doc-file{display:flex!important;align-items:center;gap
 .chat-doc-viewer header .chat-doc-mini{font-size:12px;padding:4px 8px}
 body .doc-view-tools{flex-wrap:wrap;min-width:0}
 body .doc-view-tools .chat-doc-toolbar{white-space:nowrap;flex-shrink:0}
+.chat-doc-loading{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;padding:24px;background:#f6f7f9;color:#536477;font-size:13px;text-align:center}
