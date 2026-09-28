@@ -102,27 +102,21 @@
         {% elif weekly.error %}
         <span class="weekly-st err">{{ weekly.error }}</span>
         {% elif not weekly.auto %}
-        <span class="weekly-st err">모델 연결이 없어 자동 작성을 못 합니다 — 연결 화면에서 답변 용도를 지정하면 이 화면을 열 때 스스로 씁니다</span>
+        <span class="weekly-st err">모델 연결이 필요합니다</span>
         {% else %}
         <span class="weekly-st">아직 없음</span>
         {% endif %}
       </div>
       <div class="weekly-actions">
-        {% if weekly.exists %}<a class="btn-ghost" href="/dev/weekly/{{ weekly.stem }}">보기</a>{% endif %}
-        <a class="btn-ghost" href="/dev/weekly.md">md</a>
-        <a class="btn-ghost" href="/dev/weekly.docx">docx</a>
-        <a class="btn-ghost" href="/dev/weekly.hwpx">hwpx</a>
-        <a class="btn-ghost" href="/dev/weekly/rebuild" title="원자료를 다시 읽어 뒤에서 새로 씁니다">다시 만들기</a>
-        <span class="muted">양식: {% if weekly_template %}docs/weekly/양식.md 적용{% else %}기본 구성 (docs/weekly/양식.md 를 두면 그 구성으로){% endif %}</span>
+        {% if weekly.exists %}
+        <a class="btn-ghost" href="/dev/weekly/{{ weekly.stem }}">보고서 열기</a>
+        {% else %}
+        <form method="post" action="/dev/weekly/generate">
+          <button type="submit" {% if weekly.running %}disabled{% endif %}>보고서 생성</button>
+        </form>
+        {% endif %}
+        <span class="muted">매주 월요일 오전 9시 자동 생성 · 한국시간</span>
       </div>
-      {% if weekly.preview %}
-      <div class="weekly-preview">{{ weekly.preview | md_view }}</div>
-      {% endif %}
-      <form method="post" action="/dev/weekly/feedback" class="weekly-feedback">
-        <label for="weekly-fb" class="muted">이번 주 피드백 (미팅 결정·지도교수 의견) — 저장하면 이 내용을 먼저 반영해 보고서를 다시 씁니다</label>
-        <textarea id="weekly-fb" name="feedback" rows="4" placeholder="예) GPU 서버는 10월 초 배정 예정. 규정 문서는 학습하지 말고 검색으로.">{{ weekly_feedback }}</textarea>
-        <button type="submit" class="btn-ghost">피드백 저장</button>
-      </form>
       <div class="doc-sub">지난 보고서</div>
       {{ rows(weekly_docs) }}
       <script>

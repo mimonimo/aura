@@ -99,6 +99,30 @@
     <article class="doc-body">{{ doc.html }}</article>
   </div>
 </div></div>
+{% if weekly_stem %}
+<section class="card" aria-labelledby="weekly-edit-title"><div class="card-in">
+  <h2 id="weekly-edit-title">보고서 다듬기</h2>
+  <p class="muted">미팅 결정이나 수정할 내용을 알려 주세요. 이 보고서에 반영하며, 이전 내용은 보관합니다.</p>
+  {% if weekly_error %}<p role="alert">{{ weekly_error }}. 기존 보고서는 유지됩니다.</p>{% endif %}
+  <form method="post" action="/dev/weekly/feedback" style="display:grid;gap:12px;">
+    <input type="hidden" name="stem" value="{{ weekly_stem }}">
+    <label for="weekly-feedback">수정 요청</label>
+    <textarea id="weekly-feedback" name="feedback" rows="4" required maxlength="10000"
+      placeholder="예: 이번 주 성과는 짧게 정리하고, 다음 주 계획을 구체적으로 써 주세요.">{{ weekly_feedback }}</textarea>
+    <div><button type="submit" {% if weekly_running %}disabled{% endif %}>{{ '수정 중…' if weekly_running else '수정 요청 반영' }}</button></div>
+  </form>
+  {% if weekly_running %}
+  <p role="status">보고서를 수정하고 있습니다. 완료되면 새 내용을 확인할 수 있습니다.</p>
+  <script>
+    (function poll(){setTimeout(async function(){
+      try {const r=await fetch('/dev/weekly/status');if(!r.ok)throw Error();
+        const s=await r.json();if(!s.running){location.reload();return;}
+      }catch(e){} poll();
+    },8000);})();
+  </script>
+  {% endif %}
+</div></section>
+{% endif %}
 <script>
   (function () {
     var toc = document.getElementById("docToc");

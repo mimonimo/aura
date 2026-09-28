@@ -4970,7 +4970,7 @@ def create_app(
             if not folder.exists():
                 continue
             for f in folder.glob("*.md"):
-                if f.name == "양식.md" or f.stem in seen:
+                if f.name == "양식.md" or f.name.endswith(".feedback.md") or f.stem in seen:
                     continue
                 m = re.search(r"\d{4}-\d{2}-\d{2}", f.stem)
                 title = f.stem
@@ -4986,9 +4986,10 @@ def create_app(
         out.sort(key=lambda d: d["date"], reverse=True)
         return out
 
-    def _compose_weekly(monday: str, today: str, fresh: bool = False) -> str:
+    def _compose_weekly(monday: str, today: str, fresh: bool = False,
+                        revision: str = "", feedback: str = "") -> str:
         """주간 보고 본문 — LLM이 원자료를 읽고 문장으로 쓴다. 결과는 캐시."""
-        cache_dir = Path(db_path).parent / "weekly"
+        cache_dir = _weekly_dir()
         cache_dir.mkdir(exist_ok=True)
         cache = cache_dir / f"{monday}.md"
         if cache.exists() and not fresh:
@@ -5029,7 +5030,11 @@ def create_app(
             client = VllmClient(role="answer")
             resp = client.client.chat.completions.create(
                 model=client.model,
-                messages=[{"role": "user", "content": _WEEKLY_PROMPT.format(
+                messages=[{"role": "user", "content": (
+                    "다음 주간 보고서를 수정 요청에 맞게 개선하세요. 보고 기간과 기존 사실·수치를 유지하고, "
+                    "근거 없는 실적을 추가하지 마세요. 설명 없이 수정된 보고서 전체를 마크다운으로 반환하세요.\n\n"
+                    f"[기존 보고서]\n{revision}\n\n[수정 요청]\n{feedback}"
+                ) if revision else _WEEKLY_PROMPT.format(
                     sections=_weekly_sections()[0],
                     frame=frame or "(없음)",
                     feedback=_weekly_feedback(monday) or "(없음)",
@@ -5065,12 +5070,22 @@ def create_app(
         # 양식 밖의 것은 붙이지 않는다(2026-09-22 사용자: "너무 어렵게 적혀 있다"). 기간은 제목에 있다.
         full = _tidy_weekly_md(body) + "\n"
         _ = (base_tbl, embed_tbl, scale)      # 지표는 화면(측정 기록)에서 본다
-        cache.write_text(full, encoding="utf-8")
+        if cache.exists():
+            import shutil
+            from datetime import datetime as _dt
+            history = cache_dir / "history" / monday
+            history.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(cache, history / f"{_dt.now():%Y%m%d-%H%M%S-%f}.md")
+        pending = cache.with_suffix(".tmp")
+        pending.write_text(full, encoding="utf-8")
+        pending.replace(cache)
         return full
 
     # 자동 작성 — 논문 자료 화면을 열면 이번 주 보고서가 없을 때 뒤에서 만든다(2026-09-22 사용자: "생성은 자동인가?").
     # 피드백 저장·다시 만들기도 뒤에서 돌고, 화면은 끝나면 스스로 새로 고친다.
     _weekly_state: dict = {"monday": "", "running": False, "started": "", "error": ""}
+    import threading as _weekly_threading
+    _weekly_lock = _weekly_threading.Lock()
 
     def _weekly_can_auto() -> bool:
         """답변 용도로 부를 모델 연결이 있는가 — 없으면 자동 작성을 시도하지 않고 화면에 그 사실을 적는다."""
@@ -5081,18 +5096,20 @@ def create_app(
         except Exception:
             return False
 
-    def _weekly_kick(monday: str, today: str, fresh: bool = False) -> bool:
+    def _weekly_kick(monday: str, today: str, fresh: bool = False,
+                     revision: str = "", feedback: str = "") -> bool:
         """이번 주 보고서를 뒤에서 만든다. 이미 만드는 중이면 False."""
         import threading
         from datetime import datetime as _dt
 
-        if _weekly_state["running"]:
-            return False
-        _weekly_state.update(monday=monday, running=True, started=_dt.now().strftime("%H:%M"), error="")
+        with _weekly_lock:
+            if _weekly_state["running"]:
+                return False
+            _weekly_state.update(monday=monday, running=True, started=_dt.now().strftime("%H:%M"), error="")
 
         def run():
             try:
-                body = _compose_weekly(monday, today, fresh=fresh)
+                body = _compose_weekly(monday, today, fresh=fresh, revision=revision, feedback=feedback)
                 if body.startswith("(모델이 응답하지 않아"):
                     _weekly_state["error"] = "모델이 응답하지 않아 작성하지 못했습니다"
             except Exception:
@@ -5109,10 +5126,7 @@ def create_app(
 
         cache = _weekly_dir() / f"{monday}.md"
         auto = _weekly_can_auto()
-        if (not cache.exists() and auto and not _weekly_state["running"]
-                and os.environ.get("ZZAIMY_WEEKLY_AUTO", "1") != "0"):
-            _weekly_kick(monday, today)
-        info = {"exists": cache.exists(), "running": _weekly_state["running"],
+        info = {"exists": cache.exists(), "running": _weekly_state["running"] and _weekly_state["monday"] == monday,
                 "started": _weekly_state["started"], "error": _weekly_state["error"],
                 "auto": auto, "preview": "", "made_at": "", "stem": monday}
         if cache.exists():
@@ -5130,7 +5144,7 @@ def create_app(
         return {"running": _weekly_state["running"], "error": _weekly_state["error"],
                 "exists": (_weekly_dir() / f"{monday}.md").exists()}
 
-    @app.get("/dev/weekly/rebuild")
+    @app.post("/dev/weekly/generate")
     def dev_weekly_rebuild():
         """다시 만들기 — 뒤에서 새로 쓰고 화면으로 돌아간다."""
         from datetime import date as _date, timedelta as _td
@@ -5138,8 +5152,27 @@ def create_app(
 
         today = _date.today()
         monday = (today - _td(days=today.weekday())).isoformat()
-        _weekly_kick(monday, today.isoformat(), fresh=True)
+        if not (_weekly_dir() / f"{monday}.md").exists():
+            _weekly_kick(monday, today.isoformat())
         return RedirectResponse("/dev/docs#weekly", status_code=303)
+
+    _weekly_stop = _weekly_threading.Event()
+
+    @app.on_event("startup")
+    def _start_weekly_schedule():
+        if os.environ.get("ZZAIMY_WEEKLY_AUTO", "1") == "0":
+            return
+        from zzaimy.app.weekly_schedule import run_schedule
+        _weekly_stop.clear()
+        def generate(stem, today):
+            if not (_weekly_dir() / f"{stem}.md").exists() and _weekly_can_auto():
+                _weekly_kick(stem, today)
+        _weekly_threading.Thread(target=run_schedule, args=(_weekly_stop, generate),
+                                 daemon=True, name="weekly-schedule").start()
+
+    @app.on_event("shutdown")
+    def _stop_weekly_schedule():
+        _weekly_stop.set()
 
     @app.get("/dev/weekly.{fmt}")
     def dev_weekly_report(fmt: str, fresh: int = 0):
@@ -5205,7 +5238,7 @@ def create_app(
         })
 
     def _weekly_file(stem: str) -> Path:
-        if "/" in stem or ".." in stem or not stem:
+        if "/" in stem or "\\" in stem or ".." in stem or not stem or stem.endswith(".feedback"):
             raise HTTPException(404)
         for folder in (_weekly_dir(), _DOCS_DIR / "weekly"):
             f = folder / f"{stem}.md"
@@ -5215,22 +5248,22 @@ def create_app(
 
     @app.post("/dev/weekly/feedback")
     async def dev_weekly_feedback(request: Request):
-        """이번 주 피드백(미팅 결정·지도교수 의견)을 저장한다 — 보고서는 이 내용을 먼저 반영한다."""
-        from datetime import date as _date, timedelta as _td
+        """선택한 보고서의 기존 내용에 수정 요청을 적용한다. 실패해도 원본은 남긴다."""
+        from datetime import date as _date
         from fastapi.responses import RedirectResponse
 
         form = await request.form()
-        today = _date.today()
-        monday = (today - _td(days=today.weekday())).isoformat()
+        stem = str(form.get("stem") or "")
+        report = _weekly_file(stem)
         text = str(form.get("feedback") or "").strip()
-        f = _weekly_feedback_path(monday)
+        if not text or len(text) > 10000:
+            raise HTTPException(400, "수정 요청은 1~10,000자로 입력해 주세요")
+        if not _weekly_kick(stem, _date.today().isoformat(), fresh=True,
+                            revision=report.read_text(encoding="utf-8"), feedback=text):
+            raise HTTPException(409, "보고서를 작성 중입니다. 완료 후 다시 요청해 주세요")
+        f = _weekly_feedback_path(stem)
         f.write_text(text, encoding="utf-8")
-        cache = _weekly_dir() / f"{monday}.md"
-        if cache.exists():
-            cache.unlink()                 # 피드백이 바뀌면 보고서를 다시 쓴다
-        if _weekly_can_auto() and os.environ.get("ZZAIMY_WEEKLY_AUTO", "1") != "0":
-            _weekly_kick(monday, today.isoformat(), fresh=True)
-        return RedirectResponse("/dev/docs#weekly", status_code=303)
+        return RedirectResponse(f"/dev/weekly/{stem}", status_code=303)
 
     @app.get("/dev/weekly/{stem}.{fmt}")
     def dev_weekly_past(stem: str, fmt: str):
@@ -5250,6 +5283,9 @@ def create_app(
             "fname": f.name, "doc": _dev_doc_view(f.read_text(encoding="utf-8"), f.name),
             "papers": [], "show_export": False, "page_title": "주간 보고서",
             "weekly_stem": stem,
+            "weekly_feedback": _weekly_feedback(stem),
+            "weekly_running": _weekly_state["running"] and _weekly_state["monday"] == stem,
+            "weekly_error": _weekly_state["error"] if _weekly_state["monday"] == stem else "",
         }))
 
     @app.get("/settings", response_class=HTMLResponse)
