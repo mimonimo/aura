@@ -100,13 +100,16 @@ def bind_account(db, user: str, email: str) -> None:
 
 
 def account_for(db, user: str | None, dept: str | None = None) -> str:
-    """이 담당자가 쓸 구글 계정 — 본인 계정 → 부서 공용 계정 → (허용 계정이 하나뿐이면) 그것. 없으면 빈 문자열."""
+    """이 담당자가 쓸 구글 계정 — 본인 계정 → 부서 공용 계정 → (허용 계정이 하나뿐이고 공용 대체가 켜져 있으면) 그것. 없으면 빈 문자열."""
     ok = {a["email"] for a in gdrive.list_accounts() if gdocs.has_docs_scope(a["email"])}
     for key in ((f"google_account:{user}" if user else ""), (f"google_account_dept:{dept}" if dept else "")):
         if key:
             email = (db.get_setting(key, "") or "").strip()
             if email in ok:
                 return email
+    # 미연결 사용자의 대체(허용 계정이 하나뿐일 때 그것) — 관리자가 끌 수 있다(/dev/google, 사용자마다 본인 계정을 잇게 할 때)
+    if (db.get_setting("google_fallback_shared", "1") or "1") == "0":
+        return ""
     return next(iter(ok)) if len(ok) == 1 else ""
 
 

@@ -314,7 +314,8 @@ def create_app(
             request.state.role = accounts.get(user, {}).get("role", "staff")
             request.state.dept = accounts.get(user, {}).get("dept", "")     # 검색·대화 범위(부서). 비면 전체
             request.state.user = user
-            if request.url.path.startswith("/dev") and request.state.role != "dev":
+            # 구글 허용 콜백은 로그인한 누구나 — 사용자마다 자기 학교 계정을 잇는다(user_admin, 콘솔에 등록된 주소 그대로)
+            if request.url.path.startswith("/dev") and request.state.role != "dev" and request.url.path != "/dev/gdrive/callback":
                 raise HTTPException(403, "개발자 계정 전용입니다")
             # 열람 등급은 검색만이 아니라 문서 경로 전부(화면·원본·쪽 그림·복원·내보내기·삭제)에 강제한다(브리프 절대 규칙 4).
             # 라우트마다 검사를 넣지 않고 여기서 한 번에 — 앞으로 생기는 /doc/{id}/… 경로도 저절로 막힌다.
@@ -401,6 +402,13 @@ def create_app(
     app.include_router(chat_documents_router)
     from zzaimy.app.notifications import router as notifications_router
     app.include_router(notifications_router)
+    # 사용자 관리·사용자별 구글 계정 연결(/dev/users, /account/google) — 계정 표와 저장 함수를 라우터에 넘긴다
+    from zzaimy.app.user_admin import router as user_admin_router
+    app.state.accounts = accounts
+    app.state.save_accounts = _save_accounts
+    app.state.set_pw = _set_pw
+    app.state.new_account = _new_account
+    app.include_router(user_admin_router)
 
     @app.on_event("startup")
     def _recover_dangling_chats() -> None:
@@ -445,6 +453,7 @@ def create_app(
         threading.Thread(target=warm, daemon=True).start()
     inbox_dir.mkdir(parents=True, exist_ok=True)
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+    app.state.templates = templates
     templates.env.globals["status_labels"] = STATUS_LABELS
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
     templates.env.globals["decision_labels"] = DECISION_LABELS
@@ -3804,16 +3813,30 @@ def create_app(
     def dev_gdrive_callback(request: Request, code: str = "", state: str = "", error: str = ""):
         from zzaimy.ingest import gdrive
 
+        from urllib.parse import quote as _q
+
+        back = request.cookies.get("zz_google_back", "")
+        if getattr(request.state, "role", "") != "dev" and not back:
+            back = "/settings"
+
+        def done(msg: str, ok: bool = True):
+            if not back:
+                return _nas_redirect(msg, ok=ok)
+            sep = "&" if "?" in back else "?"
+            resp = RedirectResponse(f"{back}{sep}{'ok' if ok else 'err'}={_q(msg)}", status_code=303)
+            resp.delete_cookie("zz_google_back")
+            return resp
+
         if error or not code:
-            return _nas_redirect(f"구글 허용이 취소됐습니다({error or '코드 없음'})", ok=False)
+            return done(f"구글 허용이 취소됐습니다({error or '코드 없음'})", ok=False)
         try:
             email = gdrive.exchange_code(code, state, _gdrive_redirect_uri(request))
         except ValueError as e:
-            return _nas_redirect(str(e), ok=False)
+            return done(str(e), ok=False)
         from zzaimy.ingest import gdrive_files
 
         gdrive_files.bind_account(db, getattr(request.state, "user", ""), email)   # 허용을 누른 계정에 묶인다
-        return _nas_redirect(f"구글 계정 {email} 을 허용했습니다 — 이 플랫폼 계정의 문서는 그 드라이브에 만들어집니다")
+        return done(f"구글 계정 {email} 을 연결했습니다 — 이 플랫폼 계정의 문서는 그 드라이브에 만들어집니다")
 
     # ---- 문서 작업 — 구글 독스를 화면 안에 두고 에이전트가 같은 문서를 읽고, 담당자가 누른 자리에만 쓴다(ADR-0029) ----
 
@@ -5399,12 +5422,22 @@ def create_app(
             "weekly_error": _weekly_state["error"] if _weekly_state["monday"] == stem else "",
         }))
 
+    def _user_admin_status(request: Request) -> dict | None:
+        """설정 화면의 '내 구글 계정' — 인증 없는 로컬 모드에는 계정이 없다."""
+        if password is None:
+            return None
+        from zzaimy.app.user_admin import user_status
+
+        uid = getattr(request.state, "user", "")
+        return user_status(db, uid, accounts.get(uid, {}).get("dept") or None)
+
     @app.get("/settings", response_class=HTMLResponse)
-    def settings_page(request: Request):
+    def settings_page(request: Request, ok: str = "", err: str = ""):
         return templates.TemplateResponse(
             request, "settings.html",
             ctx(request, {"s": db.all_settings(), "active_tab": "all",
-                          "departments": db.department_counts()}),
+                          "departments": db.department_counts(),
+                          "google": _user_admin_status(request), "ok": ok, "err": err}),
         )
 
     @app.post("/settings")
@@ -6328,6 +6361,7 @@ figure img{{width:100%;display:block}}
         db.add_review(doc_id, opinion.strip())
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
+    app.state.page_ctx = ctx
     return app
 
 

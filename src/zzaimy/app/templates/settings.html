@@ -15,6 +15,8 @@
 </style>
 {% endblock %}
 {% block content %}
+{% if err %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ err }}</span></p>{% endif %}
+{% if ok %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>{% endif %}
 
 <div class="card reveal profile-settings">
   <div class="card-in">
@@ -62,4 +64,22 @@
     </form>
   </div>
 </div>
+
+{% if google %}
+<div class="card reveal profile-settings" id="myGoogle">
+  <div class="card-in">
+    <h2><iconify-icon icon="solar:link-circle-linear"></iconify-icon>내 구글 계정</h2>
+    {% if google.bound and google.bound_ok %}
+    <p style="margin:0 0 6px;">{{ google.bound }}</p>
+    <p class="muted" style="margin:0 0 14px;">작성하는 문서는 이 계정의 드라이브에 만들어집니다.</p>
+    <form action="/account/google/disconnect" method="post" onsubmit="return confirm('구글 계정 연결을 해제할까요? 이미 만든 문서는 드라이브에 그대로 남습니다.')">
+      <button type="submit" class="secondary">연결 해제</button>
+    </form>
+    {% else %}
+    <p class="muted" style="margin:0 0 14px;">{% if google.bound %}{{ google.bound }} 연결이 끊겼습니다. 다시 연결해 주세요.{% elif google.effective %}연결 전 — 지금은 {{ google.via }} 계정({{ google.effective }})으로 문서가 만들어집니다.{% else %}연결 전 — 문서를 만들려면 학교 계정을 연결하세요.{% endif %}{% if google.domain %} {{ google.domain }} 계정만 연결할 수 있습니다.{% endif %}</p>
+    {% if google.app_ready %}<a class="btn" href="/account/google/connect">구글 계정 연결</a>{% else %}<p class="muted">관리자가 구글 앱을 등록한 뒤 연결할 수 있습니다.</p>{% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
 {% endblock %}
