@@ -76,20 +76,62 @@ def test_deactivate_and_reset_password(tmp_path, monkeypatch):
     c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff"})                            # 사용 끔
     assert c2.get("/settings", follow_redirects=False).status_code in (303, 401)               # 세션 즉시 무효
     assert not _login(TestClient(c.app), "zzaimy", "reset-pass-9")
+    c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "active": "1"})
+    assert _login(TestClient(c.app), "zzaimy", "reset-pass-9")
 
 
-def test_google_settings_domain_fallback_and_dept(tmp_path, monkeypatch):
+def test_account_status_ui_new_edit_and_reopen(tmp_path, monkeypatch):
+    import re
+    import shutil
+    import subprocess
+    import pytest
+
+    _fake_google(monkeypatch)
+    page = _dev(tmp_path).get("/dev/users").text
+    assert 'data-account-status hidden' in page
+    assert 'name="suspended"' in page and '계정 사용 중지' in page
+    assert '계정과 기존 자료는 삭제되지 않습니다.' in page
+    assert 'name="active" value="1" checked' not in page
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("JavaScript runtime unavailable")
+    script = next(s for s in re.findall(r'<script[^>]*>(.*?)</script>', page, re.S) if 'syncAccountStatus' in s)
+    harness = r'''
+const assert = require('node:assert/strict');
+const control = () => ({value:'', checked:false, addEventListener(k, fn) { this[k] = fn; }});
+const f = {elements:{}, addEventListener(k, fn) { this[k] = fn; }};
+for (const key of ['is_new','uid','name','role','dept','google','active','suspended','new_pw']) f.elements[key] = f[key] = control();
+let isNew = true;
+const btn = {dataset:{user:'worker',role:'staff',active:'1'}, hasAttribute() {return isNew;}, addEventListener(k, fn) {this[k] = fn;}};
+const status = {hidden:true}, title = {}, save = {}, pw = {};
+global.document = {
+ querySelector(s) { return s.endsWith(' form') ? f : s.includes('data-account-status') ? status : s.includes('data-save-user') ? save : s.includes('data-pw-label') ? pw : title; },
+ querySelectorAll(s) { return s === '[data-modal-open="#userEdit"]' ? [btn] : []; }
+};
+'''
+    checks = r'''
+btn.click(); assert.equal(status.hidden, true); assert.equal(f.suspended.disabled, true); assert.equal(f.active.value, '1'); assert.equal(save.textContent, '사용자 추가');
+isNew = false; btn.click(); assert.equal(status.hidden, false); assert.equal(f.suspended.checked, false); assert.equal(f.suspended.disabled, false);
+f.suspended.checked = true; f.suspended.change(); assert.equal(f.active.value, '');
+btn.dataset.active = ''; btn.click(); assert.equal(f.suspended.checked, true);
+f.suspended.checked = false; f.submit(); assert.equal(f.active.value, '1');
+isNew = true; btn.click(); assert.equal(status.hidden, true); assert.equal(f.suspended.checked, false); assert.equal(f.active.value, '1');
+'''
+    subprocess.run([node, '-e', harness + script + checks], check=True, capture_output=True, text=True)
+
+
+def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, monkeypatch):
     revoked = []
     _fake_google(monkeypatch, emails=("dev@ync.ac.kr",), revoked=revoked)
     c = _dev(tmp_path)
     db = c.app.state.db
-    # 허용 계정이 하나뿐이면 미연결 사용자도 그것을 쓴다 — 끄면 쓰지 않는다
-    assert c.get("/dev/users").text.count("공용") >= 1
-    c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
-    assert db.get_setting("google_fallback_shared") == "0" and gdrive.allowed_domain() == "ync.ac.kr"
+    # 허용 계정이 하나뿐이어도 연결하지 않은 사용자에게 빌려주지 않는다 — 문서 작성은 각자 연결한 학교 계정으로
     c2 = TestClient(c.app)
     _login(c2, "zzaimy", "boot-pass-1")
     assert c2.get("/account/google").json()["effective"] == ""
+    assert "본인 연결 필요" in c.get("/dev/users").text
+    c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
+    assert gdrive.allowed_domain() == "ync.ac.kr"
     assert "err=" in c.post("/dev/google/settings", data={"domain": "not a domain"}, follow_redirects=False).headers["location"]
     # 부서 공용 계정·공유 드라이브(주소에서 id 를 뽑는다)
     c.post("/dev/google/dept", data={"dept": "산학협력단", "account": "dev@ync.ac.kr",
