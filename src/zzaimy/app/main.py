@@ -2066,7 +2066,6 @@ def create_app(
         대화는 제목·프로젝트·사업(주제)뿐 아니라 주고받은 글에서도 찾는다. 근거 조각은
         어휘 검색(Kiwi 명사 겹침)만 쓴다 — 검색창 한 번에 모델을 부르지 않기 위해서다.
         """
-        import sqlite3 as _sq
 
         term = (q or "").strip()[:200]
         docs, chats, chunks, docs_more = [], [], [], False
@@ -2074,8 +2073,7 @@ def create_app(
             owner = getattr(request.state, "user", "zzaimy")
             found = db.list_documents(q=term)
             seen = {d["id"] for d in found}
-            with _sq.connect(db_path) as conn:      # 이름뿐 아니라 본문에서도 찾는다
-                conn.row_factory = _sq.Row
+            with db._conn() as conn:      # 이름뿐 아니라 본문에서도 찾는다
                 for r in conn.execute(
                     "SELECT * FROM documents WHERE instr(lower(COALESCE(masked_text,'')), lower(?)) > 0"
                     " ORDER BY id DESC LIMIT 20", (term,)):
@@ -2627,9 +2625,8 @@ def create_app(
 
     def _data_overview() -> dict:
         """데이터 열람용 통계 개요 — 핵심 지표 타일 + 주요 현황 분해."""
-        import sqlite3
-
-        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        from zzaimy.app.database_backend import connect
+        conn = connect(db_path, readonly=True)
         q = conn.execute
 
         def one(sql: str):
@@ -2652,8 +2649,9 @@ def create_app(
 
         n_docs = one("SELECT COUNT(*) FROM documents")
         n_reviewed = one("SELECT COUNT(*) FROM documents WHERE status='reviewed'")
-        n_recent = one(
-            "SELECT COUNT(*) FROM documents WHERE created_at >= datetime('now','-7 days')")
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now().astimezone() - timedelta(days=7)).isoformat(timespec='seconds')
+        n_recent = q('SELECT COUNT(*) FROM documents WHERE created_at >= ?', (cutoff,)).fetchone()[0]
         n_proj = one("SELECT COUNT(*) FROM projects")
         n_sess = one("SELECT COUNT(*) FROM chat_sessions")
         n_msg = one("SELECT COUNT(*) FROM chat_messages")
@@ -2761,22 +2759,22 @@ def create_app(
 
     def _run_dev_query(sql: str) -> dict:
         """읽기 전용 SELECT 1문만, 상한 50행 — 개발자 DB 점검용."""
-        import sqlite3
+        from zzaimy.app.database_backend import connect
 
         q = sql.strip().rstrip(";")
         if not q.lower().startswith("select") or ";" in q:
             return {"error": "SELECT 한 문장만 실행할 수 있습니다."}
         try:
-            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-            cur = conn.execute(q)
-            cols = [d[0] for d in cur.description or []]
-            rows = [
-                [str(v)[:200] if v is not None else "" for v in r]
-                for r in cur.fetchmany(50)
-            ]
-            conn.close()
+            from contextlib import closing
+            with closing(connect(db_path, readonly=True)) as conn:
+                cur = conn.execute(q)
+                cols = [d[0] for d in cur.description or []]
+                rows = [
+                    [str(v)[:200] if v is not None else "" for v in r]
+                    for r in cur.fetchmany(50)
+                ]
             return {"cols": cols, "rows": rows, "sql": sql}
-        except sqlite3.Error as e:
+        except Exception as e:
             return {"error": str(e), "sql": sql}
 
     def _dev_progress() -> dict:

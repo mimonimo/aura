@@ -1,5 +1,12 @@
 # Codex 작업 기록
 
+## C-126 — PostgreSQL 런타임 연결 계층 (2026-09-29)
+
+진행: database_backend.py, db.py, chat_history/topics/revisions.py, main.py의 직접 DB 조회와
+PostgreSQL 전용 회귀 테스트 담당. 명시적 DSN 및 플랫폼 SQLite 경로 일치 때만 PG 사용,
+별도 코퍼스 DB는 SQLite 유지. 운영 환경변수 변경/재시작은 PG 기능 검증 통과 전 금지.
+단순 SQL 문자열 치환으로 질문 수정의 잠금 의미를 잃지 않도록 명시적 잠금 경로를 적용한다.
+
 ### C-125 진행 결과 — 1차 실제 데이터 대조 통과
 
 VM 별도 DB `aura_stage` / 스키마 `aura_stage_c125_first`: 사용자 테이블 24개, 총 5,106행

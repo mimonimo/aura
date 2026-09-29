@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from .database_backend import connect
 from collections import Counter
 from contextlib import closing
 from datetime import datetime, timezone
@@ -38,9 +39,7 @@ class ChatTopics:
             conn.executescript(_DDL)
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return connect(self.path)
 
     def record(self, session_id: int, sources: list[dict]) -> None:
         """한 답변의 근거를 남긴다. 근거가 없으면 남기지 않는다."""
