@@ -9,6 +9,14 @@
 
 ## 1. 지금 어떤 구성으로 도는가
 
+2026-09-29 DB 변경: 플랫폼 운영 DB는 PostgreSQL 14, DB `aura_platform`, 스키마
+`aura_app_c129_live`(VM 로컬 UNIX socket/peer 인증). `.env.local`의 DB 키를
+`database_backend.connect`가 서비스·CLI 공통으로 읽는다. 별도 코퍼스는 SQLite 유지.
+`data/platform/platform.db`는 이제 구형 직접 연결을 막는 안내 파일이며 SQLite DB가 아니다.
+옛 DB는 `platform.retired-c129.sqlite3`, 최종 스냅샷·환경 백업·대조 결과는
+`data/platform/backup/pg-final-c129/`. 새 쓰기는 PG에만 있으므로 SQLite로 단순 복귀 금지.
+구형 작업 스크립트의 sqlite3.connect는 backend.connect로 옮긴 뒤 사용한다.
+
 ```
 [Windows PC · 한글]  ──브라우저──▶  [운영 서버 VM · CPU]  ──API──▶  [토르 02 · Writer 27B NVFP4 :8001]   대화·초안 (answer)
   실사용·한글 편집                웹·검색·OCR·문서관리      ──API──▶  [토르 03 · Writer 27B NVFP4 :8001]   반입 검토·이미지 판독·질의 확장 (review·vision)
