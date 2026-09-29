@@ -1,5 +1,48 @@
 # Codex 작업 기록
 
+## C-136 — 완성본 기반 질문–정답 Label Studio 별도 묶음
+
+사용자 재강조: 검증 도구만 아니라 질문–답 후보를 생성해 Label Studio에서 볼 수 있어야 함.
+Codex 담당 신규 question_tree_review.py / build_question_tree_review.py / 전용 테스트.
+Claude 수정 중 생성기는 건드리지 않고 기존 real_pairs에서 완성본 본문·표를 추출해
+양식 트리 위치(절 index)에 연결. 하위 항목 탐색/절 내용 설명/표 내용 확인으로 분류.
+사업·경로·질문·정답·선정 근거·원문 위치를 별도 필드로 표시, 새 타임스탬프 프로젝트만
+생성(삭제 없음). 후보이며 검수 미완료, 원문 쪽 번호 미확인 명시. SFT 승인본으로 내보내지 않음.
+생성 배치에는 기존 real_pairs의 추출 오류가 남을 수 있어 후속 검수 필요.
+
+## C-135 — 모델 독립 데이터 품질 관문 (진행, Claude에게 연결 요청)
+
+사용자 우선순위는 실문서 7개 기반 데이터 분류·라벨링·SFT 품질.
+현재 Claude가 real_pairs/tree_cot/labelstudio 및 152/153을 수정 중이므로 보존.
+Codex는 독립 dataset/quality_gate.py, scripts/audit_sft_quality.py, 전용 테스트 담당.
+질문별 program_id/node_path/evidence_records(문서·조각·인용문·turn), 검수 판정/검수자/
+grounding·structure·context·privacy 체크를 요구. 생성 건수와 학습 가능 건수는 별도.
+누락 메타는 추측해 채우지 않고 보류, 마지막 답만 아닌 모든 assistant 턴 검사.
+기존 63건에 읽기 전용 검사 수행 예정. 새 데이터 생성기 연결은 Claude에게 요청하며
+연결 완료 전 생성 스크립트의 자동 SFT 출력을 검수 완료본으로 취급하지 말 것.
+
+## C-134 — 실문서 학습쌍 독립 품질 점검 (Claude에게 검토 요청)
+
+사용자가 Label Studio 스크린샷 두 장을 주며 공동 점검 요청.
+tree_cot.py / 153_build_tree_cot.py / test_tree_cot.py는 Claude 진행 중 파일이므로 편집하지 않음.
+Codex는 별도 tests/test_dataset_evidence_audit.py와 진단 노트 담당. 실제 문서·태스크 삭제,
+외부 모델 전송, 학습 실행은 하지 않음. 아래 점검 결과는 합성 입력 재현이며 운영 전수 통계 아님.
+
+코드상 우선 확인 요청:
+1. real_pairs.fact_sheet는 본문에서 주로 수치 주변만 인출하지만 출력 insert는 본문 전체.
+   수치 없는 고유 사업·행동·기관 정보가 입력에 없는데 정답에 들어갈 수 있음.
+2. tree_cot.missing_numbers는 한 자리 수를 제외하고 구조 단계에서는 두 자리 수도 제외.
+   실제 참여인원/금액까지 통과할 수 있으므로 절 번호와 사실 수치를 구분할 것.
+3. step3 출력은 node.instructions에서 만들지만 human에 instructions 자체가 없음.
+   검색한 criteria에 그 요구가 없으면 입력으로 풀 수 없는 정답쌍이 됨.
+4. scripts/153은 keep(s1/s2) 실패와 무관하게 s1/s2를 chain에 넣을 수 있고,
+   chain_conversation은 최종 대화의 근거 검증을 하지 않음.
+5. [질문 파악/근거 확인/구조 도출] 문구는 템플릿으로 생성됨. 실제 관찰된 사고 과정이라고
+   부르지 말고 검증 가능한 근거 설명으로 취급. 부족 근거에서 단정하는 설명은 제외 필요.
+6. 검수는 질문/근거(문서·쪽·표 좌표)/정답/근거 설명을 분리하고 시스템 지침은 기본 숨김 권고.
+   meta.shown 수정이 원본 ops JSON에 자동 반영되지 않는 문제는 ADR-0039에도 미해결로 명시됨.
+Claude에게 위 생성기 수정 요청. 별도 검증 파일로 재현을 남기며 기존 태스크는 보존.
+
 ## C-133 — 웹 출처 링크·질문 모드 이력 (진행)
 
 사용자 최신 요청: 출처 URL 대신 제목 새 탭 링크, 문서 작업 선택 시 웹 해제,
