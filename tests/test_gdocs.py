@@ -617,6 +617,38 @@ def test_remove_instruction_boxes_counts_and_deletes(monkeypatch, tmp_path):
     assert r["count"] == 2 and ranges == [(60, 70), (10, 50)]          # 데이터 표(구분|값)는 남는다
 
 
+def test_section_bodies_downloads_inline_figures_in_place(monkeypatch, tmp_path):
+    """작업본 도식(인라인 그림)은 그 자리에서 내려받아 ("image", …) 로 낸다 — 탭 문서의 inlineObjects, 크기는 pt. 옮기기용(images=False)은 받지 않는다."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT", obj=None):
+        els = [{"textRun": {"content": text}}] if text else []
+        if obj:
+            els.append({"inlineObjectElement": {"inlineObjectId": obj}})
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": els}}
+
+    content = [para(1, 20, "1.1. 교육여건 분석\n", "HEADING_2"), para(20, 40, "도식 앞\n"), para(40, 42, "", obj="kix.fig"),
+               para(42, 60, "도식 뒤\n"), para(60, 62, "", obj="kix.gone")]
+    objects = {"kix.fig": {"inlineObjectProperties": {"embeddedObject": {"imageProperties": {"contentUri": "https://lh.example/fig"},
+                                                                         "size": {"width": {"magnitude": 450, "unit": "PT"}, "height": {"magnitude": 225, "unit": "PT"}}}}},
+               "kix.gone": {"inlineObjectProperties": {"embeddedObject": {"imageProperties": {"contentUri": "https://lh.example/gone"}}}}}
+    fetched = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host == "lh.example":
+            fetched.append(req.url.path)
+            assert req.headers["authorization"] == "Bearer AT"
+            return httpx.Response(200, content=b"\x89PNGfig") if req.url.path == "/fig" else httpx.Response(403)
+        return httpx.Response(200, json={"title": "t", "tabs": [{"documentTab": {"body": {"content": content}, "inlineObjects": objects}}]})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    items = gdocs.section_bodies("a@b", "d", http=http)[0]["items"]
+    assert items == [("text", "도식 앞"), ("image", {"data": b"\x89PNGfig", "width_pt": 450.0, "height_pt": 225.0}), ("text", "도식 뒤")]
+    fetched.clear()
+    items = gdocs.section_bodies("a@b", "d", http=http, images=False)[0]["items"]
+    assert items == [("text", "도식 앞\n도식 뒤")] and not fetched
+
+
 def test_section_bodies_and_migrate_skip_box_and_keep_order(monkeypatch, tmp_path):
     """옛 작업본의 절 본문(글·표, 작성방법 상자 제외)을 새 작업본의 같은 제목 절로 순서대로 옮긴다."""
     import httpx
@@ -807,3 +839,18 @@ def test_fill_table_redirects_covered_cells_to_merge_origin_and_clears_hidden_te
     # 덮인 칸의 숨은 글 '옛'(50..52)은 지운다
     assert any(q.get("deleteContentRange", {}).get("range") == {"startIndex": 50, "endIndex": 51} for q in reqs)
     assert any(q.get("insertText") == {"location": {"index": 54}, "text": "18.3"} for q in reqs)
+
+
+def test_pipe_text_in_insert_becomes_table_op():
+    """모델이 표를 ' | ' 글로 내면 그 부분만 table 동작으로 — 앞뒤 글은 insert 로 남고 순서 유지, 구분 줄·양 끝 | 는 뗀다."""
+    from zzaimy.app.gdocs_agent import split_pipe_tables
+
+    text = ("현황은 다음과 같다.\n| 구분 | 2025 | 2026 |\n|---|---:|---|\n| 재학생 | 1,000 | 1,100 |\n| 교원 | 50 | 55 |\n"
+            "표 뒤 설명 — 강점 | 약점 은 한 줄뿐이라 글이다.\n----")
+    ops = split_pipe_tables([{"op": "insert", "section": 3, "text": text}, {"op": "style", "section": 3, "text": "HEADING_2"}])
+    assert [(o["op"], o["section"]) for o in ops] == [("insert", 3), ("table", 3), ("insert", 3), ("style", 3)]
+    assert ops[0]["text"] == "현황은 다음과 같다."
+    assert ops[1]["text"] == "구분 | 2025 | 2026\n재학생 | 1,000 | 1,100\n교원 | 50 | 55"
+    assert ops[2]["text"] == "표 뒤 설명 — 강점 | 약점 은 한 줄뿐이라 글이다.\n----"
+    plain = [{"op": "insert", "section": 1, "text": "표 없음"}]
+    assert split_pipe_tables(plain) == plain
