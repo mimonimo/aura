@@ -27,11 +27,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 REVIEW_CONFIG = """<View>
-  <Header value="양식 절 작성 — 입력(작성방법·근거·사실 목록·양식 표 격자)을 보고 AI 출력(완성본에서 옮긴 절)이 학습에 쓸 만한지 판정"/>
-  <View style="display:flex; gap:1em">
-    <View style="width:50%"><Header value="입력"/><Text name="input" value="$input"/></View>
-    <View style="width:50%"><Header value="출력 (문단·표·양식 표 채움)"/><Text name="output" value="$output"/></View>
-  </View>
+  <Header value="양식 절 작성 — 지시와 재료(작성방법·근거·사실 목록·양식 표 격자)에 대해 출력(완성본에서 옮긴 절)이 학습에 쓸 만한지 판정"/>
+  <Header value="담당자 지시"/><Text name="question" value="$question"/>
+  <Header value="출력 (문단·표·양식 표 채움·도식)"/><Text name="output" value="$answer"/>
+  <Collapse><Panel value="재료 (작성방법·근거·사실 목록·양식 표)"><Text name="evidence" value="$evidence"/></Panel></Collapse>
+  <Collapse><Panel value="원문 입력 전체(시스템 지침 포함)"><Text name="input" value="$input"/></Panel></Collapse>
   <Choices name="decision" toName="output" choice="single" showInline="true" required="true">
     <Choice value="채택"/><Choice value="수정"/><Choice value="폐기"/>
   </Choices>
@@ -109,7 +109,9 @@ def main() -> int:
             continue
         pairs.append({"conversations": [{"from": "human", "value": pr["human"]}, {"from": "gpt", "value": pr["output"]}],
                       "meta": {"source": "real-section", "doc_id": args.done, "form_id": args.form, "section": sec.heading,
-                               "shown": pr["shown"], "stats": st}})
+                               "shown": pr["shown"], "stats": st,
+                               "view": {"question": pr["human"].rpartition("[담당자 지시]")[-1].strip(), "evidence": pr["materials"],
+                                        "reasoning": "", "answer": pr["shown"]}}})
         # 표 채우기 쌍 — 같은 절의 표 부분만 따로
         used_grids: set = set()
         for kind, payload in e["parts"]:
@@ -122,7 +124,9 @@ def main() -> int:
             if fp and not fp["missing_numbers"]:
                 pairs.append({"conversations": [{"from": "human", "value": fp["human"]}, {"from": "gpt", "value": fp["output"]}],
                               "meta": {"source": "real-fill", "doc_id": args.done, "form_id": args.form, "section": sec.heading,
-                                       "shown": fp["shown"], "stats": fp["stats"]}})
+                                       "shown": fp["shown"], "stats": fp["stats"],
+                                       "view": {"question": fp["human"].rpartition("[담당자 지시]")[-1].strip(), "evidence": fp["materials"],
+                                                "reasoning": "", "answer": fp["shown"]}}})
 
     # DPO — 같은 절의 에이전트 초안(drafting_episodes)을 rejected, 완성본 편집 계획을 chosen 으로
     dpo: list[dict] = []

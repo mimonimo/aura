@@ -93,6 +93,17 @@ def test_section_pair_is_serving_shaped_and_numbers_come_from_input(tmp_path):
     assert pr["missing_numbers"] == []
     assert "[담당자 지시]" in pr["human"] and "[이 절의 양식 안내·작성방법]" in pr["human"] and "72.5%" in pr["human"]
     assert "1,000명" in pr["shown"]
+    assert "재학생은 1,000명이며 취업률은 72.5% 이다." in pr["human"]          # 수치 없는 사실도 문장째 입력에(C-134)
+
+
+def test_sentence_facts_keep_leading_numbers_but_drop_numbering():
+    facts = rp.sentence_facts("1) 100조원 규모 투자 기반 조성\n• 82개 교과목 지침서 개발\n(2) 2025년 12월 컨트롤타워 신설")
+    assert facts == ["100조원 규모 투자 기반 조성", "82개 교과목 지침서 개발", "2025년 12월 컨트롤타워 신설"]
+
+
+def test_fact_numbers_units_and_section_forms():
+    assert rp.fact_numbers("참여자 9명, 절 1.2, Step 1, 3-Tier, 2026년, 12.5%, 1,250백만원", strict=False) == {"9", "2026", "12.5%", "1250"}
+    assert "27" in rp.fact_numbers("위원 27") and "27" not in rp.fact_numbers("위원 27", strict=False)
 
 
 def test_section_parts_keep_table_cells_with_spans():

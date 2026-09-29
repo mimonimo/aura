@@ -20,7 +20,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from zzaimy.dataset.real_pairs import FormSection, _numbers
+from zzaimy.dataset.real_pairs import FormSection, _numbers, fact_numbers
 
 _ROMAN = "ⅠⅡⅢⅣⅤⅥⅦⅧ"
 _SUBHEAD = re.compile(r"^\s*(?:\(\d+\)|[❑❐□■○◎◇◆▣▶►]|[가-힣]\.|\d+\)|[①-⑳]|[-])\s*\S")
@@ -174,7 +174,7 @@ def overview_lines(evidence: list[str], limit: int = 8) -> list[str]:
         for piece in re.split(r"\s*[◦○□■※▪•]\s*", text):
             piece = " ".join(piece.split()).strip(" .")
             piece = re.sub(r"\s+\d+\.\s*[가-힣 ]{2,10}$", "", piece)          # 뒤에 붙은 다음 제목('2. 사업 개요')
-            if len(piece) >= 8 and not _DROP_LINE.search(piece):
+            if len(piece) >= 8 and not _DROP_LINE.search(piece) and not piece.endswith("공고"):   # 공고 제목 줄은 이름이지 개요가 아니다
                 out.append(piece)
     dedup: list[str] = []
     for x in out:
@@ -253,16 +253,17 @@ def step_part(program: str, overview: str, roots: list[Node], root: Node, criter
 def step3(program: str, overview: str, roots: list[Node], node: Node, criteria: list[str]) -> dict | None:
     """목차 → 절의 요구 항목."""
     items = required_items(node.instructions)
-    if not items:
+    if not items or not criteria:
         return None
-    ev = "\n".join(f"- {c}" for c in criteria) or "- (없음)"
+    ev = "\n".join(f"- {c}" for c in criteria)
+    box = " ".join(re.sub(r"【[^】]*】", " ", node.instructions).split())[:1200]
     human = (f"{PREFACE}\n\n[사업명] {program}\n[개요]\n{overview}\n[목차]\n{outline_text(roots)}\n\n"
-             f"[근거: 이 절의 평가 착안점]\n{ev}\n\n[질문] 「{node.heading}」 절에는 무엇을 써야 해?")
+             f"[근거: 이 절의 평가 착안점]\n{ev}\n[근거: 양식의 작성방법 상자]\n{box}\n\n[질문] 「{node.heading}」 절에는 무엇을 써야 해?")
     v = sum(map(ord, node.heading)) % 3
     gpt = _think(("질문 파악", _pick(v, f"「{node.heading}」 절에 써야 할 것을 묻는다 — 이 절은 {node.part} 아래 절이다.",
                                 f"「{node.heading}」 은 {node.part} 의 절이다. 이 절이 다룰 항목을 묻는다.",
                                 f"질문의 대상은 {node.part} 아래 「{node.heading}」 절 하나다.")),
-                 ("근거 확인", (f"착안점은 {_cite(criteria[0], 70)} 라고 묻는다. " if criteria else "이 절의 착안점 근거는 없다. ") +
+                 ("근거 확인", f"착안점은 {_cite(criteria[0], 70)} 라고 묻고, 양식의 작성방법 상자가 같은 요구를 항목으로 적어 두었다. "
                   "평가가 구체적으로 제시했는지 묻는 것이 곧 써야 할 항목이다."),
                  ("항목화", _pick(v, f"착안점의 요구를 {len(items)}개 항목으로 나누고, 수치·증빙은 나중에 근거로 채울 자리로 남긴다.",
                                f"요구를 항목 {len(items)}개로 쪼갠다. 각 항목은 뒤에서 소제목이나 표가 된다.",
@@ -300,16 +301,14 @@ def step4(program: str, overview: str, roots: list[Node], node: Node) -> dict | 
     return {"human": human, "gpt": gpt, "step": 4, "node": node.heading}
 
 
-_SECTION_NO = re.compile(r"^\d{1,2}(?:\.\d{1,2}){1,3}\.?$")
-
-
 def missing_numbers(rec: dict) -> set[str]:
-    """답에 있고 입력에 없는 수치. 1단계(개요)는 두 자리 이상 전부, 구조 단계(2 이후)는 절 번호(1.2·2.1.1)와 두 자리 이하 수
-    ('3-Tier'·'2개년'·'Step 1')를 구조 표기로 보고 세 자리 이상·백분율·소수만 사실로 본다."""
-    miss = {m for m in _numbers(rec["gpt"]) - _numbers(rec["human"]) if len(m.strip("%.")) > 1}
-    if rec["step"] != 1:
-        miss = {m for m in miss if not _SECTION_NO.match(m) and (len(m.strip("%").replace(".", "")) >= 3 or "%" in m)}
-    return miss
+    """답에 있고 입력에 없는 사실 수치(real_pairs.fact_numbers) — 단위 붙은 수는 자릿수와 상관없이 사실(9명·27명),
+    절 번호꼴(1.2·2.1.1)과 단위 없는 두 자리 이하 수('3-Tier'·'Step 1')는 구조 단계(2 이후)에서 구조 표기로 본다."""
+    reasoning, _, answer = rec["gpt"].partition("[답]")
+    # 근거 설명의 '부 4개·항목 3개·개요 8줄' 은 답을 세어 나온 수라 근거가 답 자체다 — 셈 단위(개·줄·단계·턴)는 뺀다
+    counted = {re.sub(r"[^\d]", "", m.group(0)) for m in re.finditer(r"\d+\s*(?:개|줄|단계|턴)", reasoning)}
+    miss = fact_numbers(answer, strict=rec["step"] == 1) | (fact_numbers(reasoning, strict=False) - counted)
+    return miss - _numbers(rec["human"])
 
 
 def to_pair(rec: dict, program: str, doc_id: int) -> dict | None:
@@ -318,7 +317,15 @@ def to_pair(rec: dict, program: str, doc_id: int) -> dict | None:
         return None
     return {"conversations": [{"from": "human", "value": rec["human"]}, {"from": "gpt", "value": rec["gpt"]}],
             "meta": {"source": f"tree-step{rec['step']}".replace(".5", "p"), "doc_id": doc_id, "section": rec["node"], "program": program,
-                     "shown": rec["gpt"], "step": rec["step"]}}
+                     "shown": rec["gpt"], "step": rec["step"], "view": view_fields(rec["human"], rec["gpt"])}}
+
+
+def view_fields(human: str, gpt: str) -> dict:
+    """검수 화면에 따로 보일 네 칸 — 질문 / 근거(사슬 포함, 머리말은 뺌) / 근거 설명([N단계] 줄) / 답."""
+    head, _, question = human.rpartition("[질문]")
+    reasoning, _, answer = gpt.partition("[답]")
+    return {"question": question.strip() or human, "evidence": head.replace(PREFACE, "").strip(), "reasoning": reasoning.strip(),
+            "answer": answer.strip()}
 
 
 def chain_conversation(steps: list[dict], program: str, doc_id: int) -> dict:
@@ -335,7 +342,9 @@ def chain_conversation(steps: list[dict], program: str, doc_id: int) -> dict:
                 human = "[질문] " + human
         convs += [{"from": "human", "value": human}, {"from": "gpt", "value": st["gpt"]}]
     return {"conversations": convs, "meta": {"source": "tree-chain", "doc_id": doc_id, "section": steps[-1]["node"], "program": program,
-                                            "shown": steps[-1]["gpt"], "step": len(steps)}}
+                                            "shown": steps[-1]["gpt"], "step": len(steps),
+                                            "view": dict(view_fields(steps[-1]["human"], steps[-1]["gpt"]),
+                                                         evidence="\n\n".join(f"[{i + 1}턴 답]\n{st['gpt']}" for i, st in enumerate(steps[:-1])))}}
 
 
 def to_alpaca(pair: dict) -> dict | None:

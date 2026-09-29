@@ -79,6 +79,8 @@ def export_to_label_studio(pairs: list[dict]) -> list[dict]:
                 "input": input_text,
                 # 편집 계획(JSON) 쌍은 검수자에게 읽히는 글(meta.shown)을 보여 준다 — 원쌍은 _pair 에 그대로
                 "output": meta.get("shown") or output,
+                # 검수 화면용 분리 칸(질문·근거·근거 설명·답) — 있으면 라벨 설정이 $question 등으로 보여 준다(C-134)
+                **{k: v for k, v in (meta.get("view") or {}).items() if k in ("question", "evidence", "reasoning", "answer")},
                 "source": meta.get("source", ""),
                 "doc_id": meta.get("doc_id"),
                 "_pair": pair,   # 복원용 원쌍(표시용 아님)

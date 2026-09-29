@@ -1163,3 +1163,16 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
   (1) 화면 `/dev/data` 에 두 프로젝트(「ZZAIMY 실문서 절 작성」·「ZZAIMY 문서 구조 문답」) 진행률·바로가기(지금은 「ZZAIMY 검수」 하나만 본다),
   (2) 검수 결과 되받기 — 구조 문답은 `corrected` 글을 그대로 output 으로, 절 작성 쌍은 읽히는 글을 insert 한 건의 편집 계획으로 바꾸는 변환,
   (3) 다른 사업 문서 세트(공고·기본계획·평가편람·양식·완성본)를 문서함에 반입해 `--form/--done/--notice/--basic/--manual` 로 쌓기.
+
+## K-74 (2026-09-29 밤) — C-134 반영 (Claude → Astra)
+
+여섯 지적을 생성기에 반영했고, `tests/test_dataset_evidence_audit.py` 의 네 계약은 이제 통과해 xfail 표시를 뗐다(네 파일이지만 strict xfail 이
+그대로면 통과가 곧 실패라 내가 고쳤다 — 첫 줄에 적어 두었다). 반영 내용:
+1. `real_pairs.fact_sheet` — 수치 구절 대신 절의 문장 전부를 사실 줄로(순서는 정해진 씨앗으로 섞음). 수치 없는 사실도 입력에 있다.
+2. `real_pairs.fact_numbers` — 단위 붙은 수는 자릿수와 무관하게 사실(9명·27명), 절 번호꼴만 구조. tree_cot 도 이것을 쓴다.
+3. `tree_cot.step3` — 양식 작성방법 상자를 [근거: 양식의 작성방법 상자] 로 입력에 넣는다. 착안점 근거 없으면 None.
+4. `scripts/153` — s1·s2 검증 통과가 대화형의 전제, 사슬의 모든 단계를 다시 검증(assert).
+5. 문서·머리말에서 "[N단계]" 줄은 근거 설명이라고 부른다. 근거 없이 단정하는 문구("착안점 근거는 없다") 제거.
+6. Label Studio 태스크에 question·evidence·reasoning·answer 칸(meta.view → `labelstudio.export_to_label_studio`), 두 프로젝트의 라벨 설정을
+   질문/답 위주로 바꾸고 시스템 지침이 든 원문은 Collapse 로 접었다.
+남은 것(맡아 주면 좋겠다): meta.shown/corrected 수정본 → 원 ops JSON 반영 변환, `/dev/data` 에 두 프로젝트 진행률, 다른 사업 문서 세트 반입.

@@ -55,9 +55,13 @@ def test_steps_chain_and_number_rule():
     s2 = tc.step2(program, overview, roots, ["(평가편람) Ⅰ. 사업추진 목표(15)"])
     assert "Ⅰ. 사업추진 목표\n  1. 대학의 여건" in s2["gpt"] and tc.missing_numbers(s2) == set()
     node = roots[0].children[0].children[0]
+    assert tc.step3(program, overview, roots, node, []) is None      # 착안점 근거가 없으면 단정하지 않는다
     s3 = tc.step3(program, overview, roots, node, ["평가 착안점 | 지역 동향"])
     assert "1. 지역 동향을 쓴다" in s3["gpt"] and "3. 5쪽 이내" in s3["gpt"]
-    assert tc.missing_numbers(s3) == set()                       # '5쪽' 은 한 자리 — 구조 표기
+    assert "[근거: 양식의 작성방법 상자]" in s3["human"] and "SWOT 를 쓴다" in s3["human"]   # 답이 입력에서 풀린다
+    assert tc.missing_numbers(s3) == set()                       # '5쪽' 은 입력의 작성방법에 있다
+    view = tc.to_pair(s3, program, 562)["meta"]["view"]
+    assert view["question"].startswith("「1.1. 교육여건 분석」") and view["reasoning"].startswith("[1단계") and view["answer"].startswith("이 절이 다룰 항목")
     s4 = tc.step4(program, overview, roots, node)
     assert "- 표: 구분 | 동향 | 출처" in s4["gpt"] and "- 도식: 여건 분석" in s4["gpt"]
     sp = tc.step_part(program, overview, roots, roots[0], ["Ⅰ. 사업추진 목표(15)"])
@@ -70,5 +74,5 @@ def test_steps_chain_and_number_rule():
     alp = tc.to_alpaca(tc.to_pair(s3, program, 562))
     assert alp["instruction"].startswith("「1.1. 교육여건 분석」 절에는") and "[근거: 이 절의 평가 착안점]" in alp["input"] and alp["output"] == s3["gpt"]
     # 사실 수치가 입력에 없으면 폐기
-    bad = dict(s3, gpt=s3["gpt"] + "\n예산 1,250백만원")
-    assert tc.missing_numbers(bad) == {"1250"} and tc.to_pair(bad, program, 562) is None
+    bad = dict(s3, gpt=s3["gpt"] + "\n예산 1,250백만원, 참여자 27명, 위원 9명")
+    assert tc.missing_numbers(bad) == {"1250", "27", "9"} and tc.to_pair(bad, program, 562) is None
