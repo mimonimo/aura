@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2,<4"]
 # 파서 bake-off (TASK-04) — 무겁다. Spark에서만 설치해도 된다
 parsers = [
     "docling>=2.0",
