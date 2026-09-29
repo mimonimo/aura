@@ -139,11 +139,18 @@ def test_hanging_indent_and_exact_line_spacing(tmp_path):
     p = tmp_path / "i.hwpx"
     with zipfile.ZipFile(p, "w") as zf:
         zf.writestr("Contents/header.xml", header); zf.writestr("Contents/section0.xml", SECTION)
-    data, _ = hwpx_docx.convert(p)
+    data, _ = hwpx_docx.convert(p, line_rule="exact")          # LibreOffice(PDF) 용: 글자 크기 × 비율을 고정 값으로
     d = Document(io.BytesIO(data))
     pf = d.paragraphs[1].paragraph_format                     # '첫 줄/둘째 줄' 문단(10pt)
     assert round(pf.left_indent.inches, 3) == round(1000 / 7200, 3) and round(pf.first_line_indent.inches, 3) == -round(1000 / 7200, 3)
     assert pf.line_spacing.pt == 16.0
+    # 독스용(기본): 독스 글꼴의 자연 행 높이(1.3em)로 나눈 배수 — 1.6/1.3
+    data, _ = hwpx_docx.convert(p)
+    pf = Document(io.BytesIO(data)).paragraphs[1].paragraph_format
+    assert round(pf.line_spacing, 2) == round(1.6 / 1.3, 2)
+    # 표 안 문단은 마지막 줄의 여분을 빼서(한 줄 칸이면 배수 1.0/1.3) — 한글은 셀 높이에 마지막 줄 간격을 넣지 않는다
+    cell_p = Document(io.BytesIO(data)).tables[0].cell(1, 1).paragraphs[0].paragraph_format
+    assert round(cell_p.line_spacing, 2) == round(1.0 / 1.3, 2)
 
 
 def test_normalize_image_reencodes_icc_jpeg_and_bmp():

@@ -118,6 +118,18 @@ class Styles:
     bullets: dict = field(default_factory=dict)          # bullet id → 문자
 
 
+def _line_count(p_el: ET.Element) -> int:
+    """문단이 한글에서 몇 줄로 놓였나 — hwp5 번역은 lines 속성, hwpx 는 hp:linesegarray 의 lineseg 수. 모르면 1."""
+    v = p_el.get("lines")
+    if v and v.isdigit():
+        return max(int(v), 1)
+    arr = _child(p_el, "linesegarray")
+    if arr is not None:
+        n = sum(1 for c in arr if _local(c.tag) == "lineseg")
+        return max(n, 1)
+    return 1
+
+
 def _hu(value: str | None) -> int:
     try:
         return int(float(value or 0))
@@ -258,15 +270,25 @@ def _set_cell_valign(cell, valign: str) -> None:
         valign, WD_ALIGN_VERTICAL.TOP)
 
 
-def _set_cell_margins(cell, hu: int = 141) -> None:
+def _cell_margins_hu(tc: ET.Element | None) -> dict[str, int]:
+    """셀의 안쪽 여백(HWPUNIT) — hp:cellMargin 이 있으면 그 값, 없으면 한글 기본 1.41mm(141).
+    표마다 다르다(실측 2026-09-29 사업계획서 hwp: 위원회 표는 위·아래 0, 좌우 538) — 한 값으로 두면 행이 부푼다."""
+    m = _child(tc, "cellMargin") if tc is not None else None
+    if m is None:
+        return {"top": 141, "left": 141, "bottom": 141, "right": 141}
+    return {side: _hu(m.get(side)) if m.get(side) is not None else 141 for side in ("top", "left", "bottom", "right")}
+
+
+def _set_cell_margins(cell, hu: int | dict[str, int] = 141) -> None:
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
 
+    sides = hu if isinstance(hu, dict) else {s: hu for s in ("top", "left", "bottom", "right")}
     tcPr = cell._tc.get_or_add_tcPr()
     mar = OxmlElement("w:tcMar")
     for side in ("top", "left", "bottom", "right"):
         el = OxmlElement(f"w:{side}")
-        el.set(qn("w:w"), str(int(hu * TWIPS_PER_HWPUNIT)))
+        el.set(qn("w:w"), str(int(sides[side] * TWIPS_PER_HWPUNIT)))
         el.set(qn("w:type"), "dxa")
         mar.append(el)
     _set_tcpr(tcPr, mar)
@@ -320,6 +342,10 @@ def _table_fixed_layout(table, col_twips: list[int]) -> None:
         gc.set(qn("w:w"), str(w))
 
 
+DOCS_LINE_EM = float(os.environ.get("ZZAIMY_DOCS_LINE_EM", "1.3"))   # 독스 글꼴의 자연 행 높이(em) 기본값 — 나눔바른고딕 실측 1.3(2026-09-29)
+# 글꼴마다 다르다(독스 표 행 간격 실험 2026-09-29, 11pt 한 줄·배수 1.0·셀 여백 1mm 제외): 나눔바른고딕 1.28, 나눔명조 1.74, 나눔고딕 1.74,
+# Noto Sans KR 1.92, Gothic A1 1.74. 배수 = 한글 비율 ÷ 이 값이면 독스 줄 간격이 한글(글자 크기 × 비율)과 같아진다
+DOCS_LINE_EM_BY_FONT = {"Nanum Barun Gothic": 1.3, "Nanum Myeongjo": 1.74, "Nanum Gothic": 1.74, "Noto Sans KR": 1.92, "Gothic A1": 1.74}
 MAX_ROW_HU = 5 * HWPUNIT_PER_INCH     # 행 높이 상한 5인치 — 쪽 전체를 차지하는 배치용 표 행이 빈 쪽을 만든다(실측 2026-09-24)
 
 
@@ -335,10 +361,14 @@ def _row_height(row, hu: int) -> None:
 # ---- 본문 걷기 -------------------------------------------------------------------------------------
 
 class Converter:
-    def __init__(self, styles: Styles, zf: zipfile.ZipFile, bin_map: dict[str, str]) -> None:
+    def __init__(self, styles: Styles, zf: zipfile.ZipFile, bin_map: dict[str, str], line_rule: str | None = None) -> None:
         self.st = styles
         self.zf = zf
         self.bin_map = bin_map
+        # 줄 간격 규칙 — 렌더러마다 다르다(실측 2026-09-29, 표 행 간격 실험): 독스는 '최소·고정'을 글꼴 자연 행 높이(나눔바른고딕 1.3em)
+        # 아래로 못 내리지만 배수 1 미만은 그대로 따르므로 배수 = 비율/1.3 이 한글의 줄 간격(글자 크기 × 비율)을 재현한다("docs").
+        # LibreOffice(PDF 열람)는 '고정'을 그대로 따른다("exact"). 기본은 ZZAIMY_LINE_RULE, 없으면 docs
+        self.line_rule = (line_rule or os.environ.get("ZZAIMY_LINE_RULE", "docs")).lower()
         from docx import Document
 
         self.doc = Document()
@@ -351,7 +381,7 @@ class Converter:
         self.stats = {"paragraphs": 0, "tables": 0, "nested_tables": 0, "images": 0, "textboxes": 0}
 
     # -- 문단 ---------------------------------------------------------------------------------------
-    def _apply_para_style(self, para, p_el: ET.Element) -> None:
+    def _apply_para_style(self, para, p_el: ET.Element, in_cell: bool = False, last_in_cell: bool = False) -> None:
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         from docx.shared import Emu, Pt
 
@@ -383,10 +413,20 @@ class Converter:
             # 한글 양식은 여백용 빈 문단을 0.5pt 글자로 둔다(표지, 실측 2026-09-24) — 하한을 크게 두면 표지가 넘친다
             size_pt = self._para_font_pt(p_el)
             pct = max(0.8, min(ps.line_pct / 100.0, 3.0))
+            if in_cell and last_in_cell and pct > 1.0:
+                # 한글의 셀 높이 = 글자 높이 합 + 셀의 맨 마지막 줄을 뺀 줄 간격 여분 + 안쪽 여백(실측 2026-09-29, 원본 셀 높이·LineSeg 로
+                # 검산: 12pt·160% 한 줄 칸 = 1200HU, 10pt·130% 세 줄 칸 = 3883HU; 문단마다 빼는 모형은 400셀 중 3개만 맞고 셀 마지막 줄만
+                # 빼는 모형이 39개로 가장 맞음). 워드·독스는 모든 줄에 여분을 주므로 셀의 마지막 문단만 원본 줄 수(n)로 비율을
+                # 낮춘다: pct − (pct−1)/n. 줄 수는 한글이 저장한 줄 배치(linesegarray·LineSeg) 개수
+                n = _line_count(p_el)
+                pct = pct - (pct - 1.0) / max(n, 1)
             # 줄 간격 규칙(148 왕복 검사 실측 2026-09-28, 작성서식 원본 62쪽): exact 는 LibreOffice 64·독스 77, auto 는 80·79,
             # atleast 는 66·67 — 두 렌더러가 같은 쪽수에 가장 가깝다. 독스는 '고정'을 나눔 글꼴 행 높이로 다시 계산해 늘리므로 '최소'가 맞다
-            rule = os.environ.get("ZZAIMY_LINE_RULE", "atleast").lower()
-            if rule == "auto":
+            rule = self.line_rule
+            if rule == "docs":
+                pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+                pf.line_spacing = round(pct / DOCS_LINE_EM_BY_FONT.get(self._para_docs_font(p_el), DOCS_LINE_EM), 3)
+            elif rule == "auto":
                 pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
                 pf.line_spacing = pct
             elif rule == "atleast":
@@ -397,6 +437,14 @@ class Converter:
                 pf.line_spacing = Pt(max(1.0, size_pt * pct))
         if p_el.get("pageBreak") == "1" and not self._just_sectioned:
             pf.page_break_before = True
+
+    def _para_docs_font(self, p_el: ET.Element) -> str:
+        """문단이 독스에서 쓰는 글꼴 — 첫 런의 글자 모양으로(줄 간격 배수는 글꼴의 자연 행 높이에 달렸다)."""
+        for run in _children(p_el, "run"):
+            cs = self.st.chars.get(str(run.get("charPrIDRef")))
+            if cs is not None:
+                return docs_font(cs.font) if cs.font else FONT_MAP["고딕"]
+        return FONT_MAP["고딕"]
 
     def _para_font_pt(self, p_el: ET.Element) -> float:
         """문단의 글자 크기 — 첫 런의 글자 모양(없으면 10pt)."""
@@ -447,7 +495,7 @@ class Converter:
             if ch.tail:
                 self._apply_run_style(para.add_run(ch.tail), char_id)
 
-    def paragraph(self, p_el: ET.Element, container, heading_ok: bool = True) -> None:
+    def paragraph(self, p_el: ET.Element, container, heading_ok: bool = True, last_in_cell: bool = False) -> None:
         """hp:p 하나 → 문단(그 안의 표·글상자·그림은 문단 뒤에 이어서)."""
         level = self.st.heading_styles.get(str(p_el.get("styleIDRef")), 0)
         ps = self.st.paras.get(str(p_el.get("paraPrIDRef")))
@@ -478,13 +526,13 @@ class Converter:
                 if n == "t":
                     if para is None:
                         para = self._new_para(container, level if heading_ok else 0)
-                        self._apply_para_style(para, p_el)
+                        self._apply_para_style(para, p_el, in_cell=container is not self.doc, last_in_cell=last_in_cell)
                     self._emit_text(para, obj, char_id)
                 elif n == "pic" and (_child(obj, "pos") is not None and (_child(obj, "pos").get("treatAsChar") or "0") == "1"):
                     # 글자처럼 놓인 그림(표지의 로고 여러 개)은 같은 문단 안에 나란히 — 문단마다 따로 두면 쪽이 넘친다(실측 2026-09-24)
                     if para is None:
                         para = self._new_para(container, 0)
-                        self._apply_para_style(para, p_el)
+                        self._apply_para_style(para, p_el, in_cell=container is not self.doc, last_in_cell=last_in_cell)
                     self.picture(obj, container, para=para)
                 elif n == "line":
                     continue                                   # 장식 선 — 내용이 아니다(간지 쪽의 선만 있는 문단이 내용으로 잡혀 빈 쪽을 만들었다)
@@ -504,7 +552,7 @@ class Converter:
                 elif n == "ctrl":
                     if any(_local(c.tag) == "autoNum" for c in obj) and para is None:
                         para = self._new_para(container, 0)
-                        self._apply_para_style(para, p_el)
+                        self._apply_para_style(para, p_el, in_cell=container is not self.doc, last_in_cell=last_in_cell)
                     self._control(obj, para, page_nums, char_id)
         for c in page_nums:
             self.page_number(c)
@@ -522,7 +570,7 @@ class Converter:
             # 그림이 '빈 문단 정리'에 지워져 그림 2장이 사라짐)
             if para is None:
                 para = self._new_para(container, 0)
-                self._apply_para_style(para, p_el)
+                self._apply_para_style(para, p_el, in_cell=container is not self.doc, last_in_cell=last_in_cell)
             if container is self.doc:
                 if is_pb:
                     self._prev_pb_empty = para
@@ -789,7 +837,7 @@ class Converter:
                     covered.add((rr, cc))
             bf = self.st.borders.get(str(tc.get("borderFillIDRef"))) or default_bf
             _set_cell_borders(cell, bf)
-            _set_cell_margins(cell)
+            _set_cell_margins(cell, _cell_margins_hu(tc))
             sub = _child(tc, "subList")
             _set_cell_valign(cell, (sub.get("vertAlign") if sub is not None else "TOP") or "TOP")
             # 셀의 첫 빈 문단을 지우고 원본 문단으로 채운다
@@ -798,9 +846,9 @@ class Converter:
                 paras = _children(sub, "p")
                 for i, p_el in enumerate(paras):
                     if i == 0:
-                        self._fill_para_into(first_p, p_el, cell)
+                        self._fill_para_into(first_p, p_el, cell, last_in_cell=len(paras) == 1)
                     else:
-                        self.paragraph(p_el, cell, heading_ok=False)
+                        self.paragraph(p_el, cell, heading_ok=False, last_in_cell=i == len(paras) - 1)
         # 병합에 덮이지 않은 빈 칸도 테두리를 준다
         for rr in range(n_rows):
             for cc in range(n_cols):
@@ -816,9 +864,9 @@ class Converter:
         if container is not self.doc:
             return
 
-    def _fill_para_into(self, para, p_el: ET.Element, cell) -> None:
+    def _fill_para_into(self, para, p_el: ET.Element, cell, last_in_cell: bool = False) -> None:
         """이미 있는 문단(셀의 첫 문단)에 hp:p 내용을 채운다."""
-        self._apply_para_style(para, p_el)
+        self._apply_para_style(para, p_el, in_cell=True, last_in_cell=last_in_cell)
         pending = []
         page_nums: list[ET.Element] = []
         for run in _children(p_el, "run"):
@@ -890,9 +938,9 @@ class Converter:
             _set_cell_margins(cell)
             for i, p_el in enumerate(paras):
                 if i == 0:
-                    self._fill_para_into(cell.paragraphs[0], p_el, cell)
+                    self._fill_para_into(cell.paragraphs[0], p_el, cell, last_in_cell=len(paras) == 1)
                 else:
-                    self.paragraph(p_el, cell, heading_ok=False)
+                    self.paragraph(p_el, cell, heading_ok=False, last_in_cell=i == len(paras) - 1)
         else:
             for p_el in paras:
                 self.paragraph(p_el, container, heading_ok=False)
@@ -1144,14 +1192,14 @@ def _binary_map(zf: zipfile.ZipFile, names: list[str]) -> dict[str, str]:
     return out
 
 
-def convert(path: Path | str) -> tuple[bytes, dict]:
-    """HWPX 파일 → (docx 바이트, 통계). 암호화(배포용)면 ValueError."""
+def convert(path: Path | str, line_rule: str | None = None) -> tuple[bytes, dict]:
+    """HWPX 파일 → (docx 바이트, 통계). 암호화(배포용)면 ValueError. line_rule: docs(기본)·exact(LibreOffice)·atleast·auto."""
     path = Path(path)
     with zipfile.ZipFile(path) as zf:
         names = zf.namelist()
         header = next((n for n in names if n.endswith("Contents/header.xml")), None)
         styles = load_styles(_fromstring(zf.read(header))) if header else Styles()
-        conv = Converter(styles, zf, _binary_map(zf, names))
+        conv = Converter(styles, zf, _binary_map(zf, names), line_rule=line_rule)
         sections = sorted((n for n in names if _SECTION_RE.search(n)),
                           key=lambda n: int(_SECTION_RE.search(n).group(1)))  # type: ignore[union-attr]
         for sec in sections:

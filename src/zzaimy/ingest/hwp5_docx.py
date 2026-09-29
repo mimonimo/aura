@@ -194,7 +194,8 @@ def _translate_control(node: ET.Element, run: ET.Element) -> None:
 
 def _translate_paragraph(p_el: ET.Element) -> ET.Element:
     p = ET.Element("p", {"paraPrIDRef": p_el.get("parashape-id") or "0", "styleIDRef": p_el.get("style-id") or "0",
-                         "pageBreak": "1" if p_el.get("new-page") == "1" else "0"})
+                         "pageBreak": "1" if p_el.get("new-page") == "1" else "0",
+                         "lines": str(len(p_el.findall("LineSeg")) or 1)})          # 한글이 놓은 줄 수(셀 줄 간격 보정용)
     run = None
     cur_t = None
     last_char = "0"
@@ -291,6 +292,8 @@ def _translate_table(tc_el: ET.Element) -> ET.Element:
             ET.SubElement(tc, "cellAddr", {"rowAddr": cell.get("row") or "0", "colAddr": cell.get("col") or "0"})
             ET.SubElement(tc, "cellSpan", {"rowSpan": cell.get("rowspan") or "1", "colSpan": cell.get("colspan") or "1"})
             ET.SubElement(tc, "cellSz", {"width": cell.get("width") or "0", "height": cell.get("height") or "0"})
+            ET.SubElement(tc, "cellMargin", {side: cell.get(f"padding-{side}") or (body.get(f"padding-{side}") if body is not None else None) or "141"
+                                             for side in ("left", "right", "top", "bottom")})
     return tbl
 
 
@@ -337,15 +340,15 @@ def _translate_component(comp: ET.Element, holder: ET.Element, inline: str, widt
             sub.append(_translate_paragraph(para))
 
 
-def convert_xml(xml_path: Path) -> tuple[bytes, dict]:
-    """구조 XML → (docx 바이트, 통계)."""
+def convert_xml(xml_path: Path, line_rule: str | None = None) -> tuple[bytes, dict]:
+    """구조 XML → (docx 바이트, 통계). line_rule 은 hwpx_docx.convert 와 같다."""
     tree = _parse(str(xml_path))
     root = tree.getroot()
     docinfo = root.find("DocInfo")
     if docinfo is None:
         raise ValueError("DocInfo 가 없는 구조 XML")
     styles, blobs = _load_styles(docinfo)
-    conv = Converter(styles, _BinStore(blobs), {k: k for k in blobs})
+    conv = Converter(styles, _BinStore(blobs), {k: k for k in blobs}, line_rule=line_rule)
     body = root.find("BodyText")
     # 실물 구조(실측 2026-09-24): HwpDoc/BodyText/SectionDef/ColumnSet/Paragraph. 쪽 설정(PageDef)은 SectionDef 아래에 있다.
     sections = (body.findall("SectionDef") + body.findall("Section")) if body is not None else []
@@ -376,6 +379,6 @@ def convert_xml(xml_path: Path) -> tuple[bytes, dict]:
     return buf.getvalue(), conv.stats
 
 
-def convert(src: Path | str) -> tuple[bytes, dict]:
+def convert(src: Path | str, line_rule: str | None = None) -> tuple[bytes, dict]:
     """.hwp → (docx 바이트, 통계). pyhwp 가 없으면 RuntimeError."""
-    return convert_xml(dump_xml(Path(src)))
+    return convert_xml(dump_xml(Path(src)), line_rule=line_rule)
