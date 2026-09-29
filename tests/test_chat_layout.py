@@ -10,8 +10,11 @@ def test_chat_header_has_only_document_control(client):
     assert 'href="/chat"' not in header
     assert 'id="chatHistory"' not in response.text
     tools = response.text.split('id="chatTools"', 1)[1].split('</div>', 1)[0]
-    assert 'id="chatContextOpen"' in tools
-    assert response.text.count('id="chatContextOpen"') == 1
+    assert 'id="chatContextOpen"' not in response.text
+    assert 'id="webSearchToggle"' in tools
+    assert 'id="answerMode"' in response.text
+    assert 'id="webSearchChip"' in response.text
+    assert 'id="modeBadge"' not in response.text
     assert 'data-chat-tool="file"' in tools
     assert 'chatKeyboardHint' not in response.text
     assert 'Enter 전송 · Shift+Enter 줄바꿈' not in response.text

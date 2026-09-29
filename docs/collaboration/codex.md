@@ -1,5 +1,14 @@
 # Codex 작업 기록
 
+## C-131 — 입력창 모드 배치 수정 (사용자 최신 지시 15:24)
+
+chat_workspace.html/chat-workspace.css: +에는 첨부·웹 검색만, 작업 패널 항목 삭제 및 null 접근 제거.
+웹 검색은 왼쪽 한 줄 칩(클릭 해제), 보내기 옆 select는 문서 작업/27B 자체 답변.
+웹 검색 해제 시 기존 select 모드 복귀. 이전 세로 modeBadge 제거.
+520px 이하 컨테이너/모바일은 입력 줄과 도구 줄을 나눠 좁은 문서 분할 화면에서도 유지.
+레이아웃 pytest PASS, Chrome 회귀 PASS(모드 값/복귀·360px overflow 없음·칩 높이 확인).
+캡처 확인 완료. 이번 UI 배포는 Codex 진행(재시작 없이 템플릿/정적 파일 적용).
+
 ## C-130 — 문서함 UI / 외부 검색 협업 요청 (진행)
 
 사용자가 Claude와 외부 검색 모드를 같이 작업하도록 요청. 현재 main.py/chat.html/
