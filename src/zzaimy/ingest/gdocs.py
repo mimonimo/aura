@@ -487,6 +487,23 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
     return {"ok": True, "section": t["sec"]["heading"], "table": int(table_n), "cells": len(edits), "skipped": skipped}
 
 
+def insert_image(email: str, doc: str, section_index: int, uri: str, *, user: str, data_dir: Path, width_pt: float = 450.0,
+                 http=None, caption: str = "") -> dict:
+    """절 끝에 그림(공개 URL)을 넣는다 — 도식(인포그래픽). 폭만 주면 독스가 비율을 지킨다."""
+    http = http or _http()
+    info = get(email, doc, http)
+    sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
+    if sec is None:
+        raise ValueError("절을 다시 골라 주세요")
+    at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
+    reqs = [{"insertInlineImage": {"location": {"index": at}, "uri": uri, "objectSize": {"width": {"magnitude": float(width_pt), "unit": "PT"}}}}]
+    if caption:
+        reqs.insert(0, {"insertText": {"location": {"index": at}, "text": "\n" + caption.strip()}})
+    _batch(email, doc, reqs, http)
+    _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "figure", "section": sec["heading"], "caption": caption[:60]})
+    return {"ok": True, "section": sec["heading"]}
+
+
 def data_dir_default() -> Path:
     return Path(os.environ.get("ZZAIMY_DATA_DIR", "data/platform"))
 
