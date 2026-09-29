@@ -70,12 +70,8 @@ REGISTRY: tuple[Action, ...] = (
            ("연결 확인", "접속", "살아"), True, auto=True),
 
     # ---- 외부 참조 ----
-    Action("egress.page", "외부 참조 창구", "/dev/egress", "get", (),
-           ("외부", "참조", "반출", "내보내")),
-    Action("egress.on", "외부 전송 켜기", "/dev/egress/enable", "post", (),
-           ("외부 전송", "외부 켜", "켜줘", "허용"), True),
-    Action("egress.off", "외부 전송 끄기", "/dev/egress/disable", "post", (),
-           ("외부 끄", "차단", "막아"), True),
+    Action("egress.page", "외부 구독 연결", "/dev/pii?view=external", "get", (),
+           ("외부", "참조", "구독", "로그인")),
 
     # ---- 자료 관리 ----
     Action("nas.page", "문서 가져오기", "/dev/nas", "get", (),

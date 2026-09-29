@@ -9,6 +9,10 @@
 
 ## 1. 지금 어떤 구성으로 도는가
 
+2026-09-29 외부 참조 정리: 기존 API 전송·승인·재시도 UI/실행 경로 제거(ADR-0043).
+과거 DB 기록은 보존. 웹 검색과 구독 인증 상태 확인은 유지하며, 구독 로그인 시작과
+작업 세션 실행은 아직 미구현이다. 현재 배포 여부는 collaboration/codex.md C-142 참조.
+
 2026-09-29 DB 변경: 플랫폼 운영 DB는 PostgreSQL 14, DB `aura_platform`, 스키마
 `aura_app_c129_live`(VM 로컬 UNIX socket/peer 인증). `.env.local`의 DB 키를
 `database_backend.connect`가 서비스·CLI 공통으로 읽는다. 별도 코퍼스는 SQLite 유지.

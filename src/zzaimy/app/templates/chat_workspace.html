@@ -213,7 +213,6 @@
   <div id="criteriaInputs" hidden></div>
   <div class="dock-row">
     <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
-    <input type="hidden" name="external" id="extField" value="">
     <input type="hidden" name="web" id="webField" value="">
     <button type="button" class="dock-btn" id="attachButton" title="도구 추가" aria-label="도구 추가" aria-expanded="false" aria-controls="chatTools"><iconify-icon icon="solar:add-linear"></iconify-icon></button>
     <div id="chatTools" class="chat-tools" popover aria-label="채팅 도구">
@@ -389,14 +388,6 @@
     });
   });
 
-  /* ---- 외부 참조 켜고 끄기 ---- */
-  var extBtn = document.getElementById("extBtn");
-  var extField = document.getElementById("extField");
-  var extNote = document.getElementById("extNote");
-  if (extBtn) extBtn.addEventListener("change", function () {
-    extField.value = extBtn.checked ? "1" : "";
-    if (extNote) extNote.hidden = !extBtn.checked;
-  });
   /* ---- 답변 모드: 기본(문서 작업) · 외부 검색(웹) · 27B 자체 답변 — + 메뉴에서 고르고 입력창 옆에 켜짐 표시 ---- */
   var webBtn = document.getElementById("webBtn");
   var webField = document.getElementById("webField");

@@ -1,6 +1,6 @@
 """외부 참조 이그레스 게이트웨이 — 내부 정보 유출 차단 (ADR-0008).
 
-외부 Claude API로 나가는 모든 질의는 이 모듈을 통과한다. 세척(scrub)으로
+외부 전송 전 텍스트 검사용 유틸리티다. API 전송 기능은 제공하지 않는다. 세척(scrub)으로
 개인정보·기관 식별자를 제거하고, 분류(classify)로 안전/승인대기/차단을 정한다.
 확신하지 못하는 질의는 절대 safe가 아니다(fail-closed).
 
@@ -10,12 +10,8 @@
 
 from __future__ import annotations
 
-import json as _json
-import os as _os
 import re
 from dataclasses import dataclass, field
-from datetime import datetime as _dt
-from datetime import timezone as _tz
 from enum import Enum
 
 
@@ -154,164 +150,3 @@ def classify(result: ScrubResult) -> Verdict:
         # 개인정보를 지웠다 — 잔여 문맥 확인 위해 최소 review.
         return Verdict.REVIEW
     return Verdict.SAFE
-
-
-# ---------------------------------------------------------------------------
-# 게이트웨이 오케스트레이션 — 제출·기록·승인·전송 (ADR-0008 3·4단계)
-#
-# 상태 흐름:
-#   blocked                          차단 (종결)
-#   queued  → denied                 승인 대기 → 거부 (종결)
-#   queued  → approved → answered    승인 → 전송 성공
-#   safe    → held     → answered    자동 허용 → (전송 가능해지면) 전송 성공
-#   …      → failed                  전송 시도 중 오류 (재전송 가능)
-#
-# held/approved는 "나가도 된다고 판정됐지만 아직 안 나간" 상태다. 외부 전송이
-# 비활성(아웃바운드 차단·키 없음)이어도 판정·감사 흐름은 그대로 동작한다.
-# ---------------------------------------------------------------------------
-
-# 전송 가능 상태 — 이 상태의 건만 실제 외부 호출을 시도한다.
-_SENDABLE = {"held", "approved", "failed"}
-
-# 상태의 화면 표시명 — 오류 문구에 영문 키 대신 쓴다 (저장 값은 그대로).
-_STATUS_LABELS = {
-    "blocked": "차단", "queued": "승인 대기", "approved": "승인됨", "denied": "거부",
-    "held": "전송 대기", "answered": "응답 수신", "failed": "전송 실패",
-}
-
-_EXTERNAL_SYSTEM = (
-    "너는 한국 정부 국고보조사업·대학 행정의 일반 지식을 답하는 참고 조수다. "
-    "일반적인 절차·규정 상식·문서 작성 관행만 답하고, 질문자의 소속 기관이나 "
-    "개인을 특정하는 정보를 되묻지 않는다. 확실하지 않은 내용은 모른다고 답한다."
-)
-
-
-def _now_iso() -> str:
-    return _dt.now(_tz.utc).astimezone().isoformat(timespec="seconds")
-
-
-def _external_conn() -> dict | None:
-    """화면에서 '외부 AI 참조용'으로 지정한 외부 기관 GPU 서버 연결(주소·키·모델). 없으면 None."""
-    try:
-        from zzaimy.generate import llm_connections
-
-        return llm_connections.external_credentials()
-    except Exception:
-        return None
-
-
-def external_status() -> tuple[bool, str]:
-    """구독 세션 전환 정책: 기존 API 전송은 사용하지 않는다."""
-    return False, "API 호출 미사용 — 구독 로그인·작업 세션 연결로 전환 중"
-
-
-def _send_external(text: str, system: str | None = None) -> str:
-    """세척 완료 텍스트를 지정된 외부 기관 GPU 서버로 보낸다 — 게이트웨이 밖에서 호출 금지."""
-    raise RuntimeError("API 호출 미사용 — 구독 세션 연결 필요")
-
-
-_TOKENIZE_SYSTEM = (
-    "입력에는 [[...]] 형태의 자리표시자가 들어 있습니다. 이는 개인정보를 가린 토큰입니다. "
-    "답변에서 그 토큰은 절대 바꾸지 말고 원문 그대로 유지하세요. 토큰의 실제 값을 추측하지 마세요."
-)
-
-
-def process_external_tokenized(text: str) -> dict:
-    """외부 처리 — 민감정보를 되돌릴 수 있는 토큰으로 바꿔 외부 모델에 보내고, 결과의 값을 교내에서 복원한다.
-
-    외부에는 토큰본만 나가고, 토큰↔원값 대응표(vault)는 교내에만 있다. 값 복원은 결정론적 치환이며
-    생성이 아니다. 반출은 external_status()(ZZAIMY_EXTERNAL_ENABLED + 외부 연결 + 키)가 켜져야 시도한다.
-    """
-    ok, why = external_status()
-    if not ok:
-        return {"ok": False, "error": why, "tokens": 0}
-    from zzaimy.ingest.pii import PiiMasker
-
-    masker = _get_masker()[0]
-    tok_text, vault = masker.tokenize(text)
-    try:
-        raw = _send_external(tok_text, system=_TOKENIZE_SYSTEM)
-    except Exception as e:  # 연결 실패 등 — 사람 말로
-        from zzaimy.generate.client import describe_llm_error
-
-        return {"ok": False, "error": describe_llm_error(e), "tokens": len(vault)}
-    restored = PiiMasker.restore(raw, vault)
-    types: dict[str, int] = {}
-    for tok in vault:
-        ent = tok[2:-2].rsplit("_", 1)[0]
-        types[ent] = types.get(ent, 0) + 1
-    return {"ok": True, "result": restored, "external_result": raw, "sent_text": tok_text,
-            "tokens": len(vault), "types": types}
-
-
-def submit(db, text: str, requester: str, source: str = "manual") -> dict:
-    """외부 참조 질의 제출 — 세척·분류·기록까지 무조건, 전송은 safe일 때만 시도."""
-    result = scrub(text)
-    verdict = classify(result)
-    status = {
-        Verdict.BLOCKED: "blocked",
-        Verdict.REVIEW: "queued",
-        Verdict.SAFE: "held",
-    }[verdict]
-    req_id = db.add_egress_request(
-        requester=requester,
-        source=source,
-        original=result.original,
-        scrubbed=result.text,
-        removed=_json.dumps(result.removed, ensure_ascii=False),
-        verdict=verdict.value,
-        status=status,
-    )
-    if status == "held":
-        _try_send(db, req_id)
-    return db.get_egress_request(req_id)
-
-
-def decide(db, req_id: int, approve: bool, decided_by: str) -> dict:
-    """승인 대기 건의 사람 판정. 승인이면 전송을 시도한다."""
-    row = db.get_egress_request(req_id)
-    if row is None:
-        raise ValueError(f"없는 요청입니다: {req_id}")
-    if row["status"] != "queued":
-        raise ValueError(
-            f"승인 대기 상태가 아닙니다: {_STATUS_LABELS.get(row['status'], row['status'])}"
-        )
-    db.update_egress_request(
-        req_id,
-        status="approved" if approve else "denied",
-        decided_by=decided_by,
-        decided_at=_now_iso(),
-    )
-    if approve:
-        _try_send(db, req_id)
-    return db.get_egress_request(req_id)
-
-
-def retry_send(db, req_id: int) -> dict:
-    """전송 대기·실패 건 재전송 — 아웃바운드가 열린 뒤 수동으로 민다."""
-    row = db.get_egress_request(req_id)
-    if row is None:
-        raise ValueError(f"없는 요청입니다: {req_id}")
-    if row["status"] not in _SENDABLE:
-        raise ValueError(
-            f"전송할 수 있는 상태가 아닙니다: {_STATUS_LABELS.get(row['status'], row['status'])}"
-        )
-    _try_send(db, req_id)
-    return db.get_egress_request(req_id)
-
-
-def _try_send(db, req_id: int) -> None:
-    """전송 시도 — 비활성이면 상태를 그대로 두고, 오류는 기록한다."""
-    enabled, reason = external_status()
-    if not enabled:
-        db.update_egress_request(req_id, error=f"전송 보류: {reason}")
-        return
-    row = db.get_egress_request(req_id)
-    try:
-        answer = _send_external(row["scrubbed"])
-    except Exception as exc:  # 네트워크·API 오류 — 감사 기록에 남기고 재시도 가능
-        db.update_egress_request(req_id, status="failed", error=str(exc)[:500])
-        return
-    db.update_egress_request(
-        req_id, status="answered", response=answer, sent_at=_now_iso(), error=None
-    )

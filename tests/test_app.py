@@ -1009,46 +1009,17 @@ def test_dev_egress_page_renders(client):
     assert "외부 참조 AI · 구독 연결 확인" in r.text
 
 
-def test_dev_egress_submit_and_approve_flow(client):
-    # 내부 기관명이 든 질의 — 승인 대기 큐로 가야 한다
-    r = client.post(
-        "/dev/egress/submit",
-        data={"query": "영남이공대학교의 국고사업 일반 절차는?"},
-        follow_redirects=False,
-    )
-    assert r.status_code == 303
-
+@pytest.mark.parametrize("path", [
+    "/dev/egress/submit", "/dev/egress/tokenized", "/dev/egress/1/decide",
+    "/dev/egress/1/retry", "/dev/egress/enable", "/dev/egress/disable",
+    "/dev/llm/old/external", "/dev/llm/external/clear",
+])
+def test_removed_egress_routes_cannot_mutate_data(client, path):
     db = client.app.state.db
-    rows = db.list_egress_requests()
-    assert rows and rows[0]["status"] == "queued"
-    assert "영남이공대" not in rows[0]["scrubbed"]
-
-    r = client.post(
-        f"/dev/egress/{rows[0]['id']}/decide",
-        data={"action": "approve"},
-        follow_redirects=False,
-    )
-    assert r.status_code == 303
-    row = db.get_egress_request(rows[0]["id"])
-    # 외부 전송 비활성 환경 — 승인됐지만 나가지 않고 대기
-    assert row["status"] == "approved"
-    assert row["decided_by"]
-
-
-def test_dev_egress_decide_rejects_bad_state(client):
-    client.post(
-        "/dev/egress/submit",
-        data={"query": "국고 보조사업의 일반적인 정산 절차는?"},  # safe → held
-        follow_redirects=False,
-    )
-    db = client.app.state.db
-    row = db.list_egress_requests()[0]
-    r = client.post(
-        f"/dev/egress/{row['id']}/decide",
-        data={"action": "approve"},
-        follow_redirects=False,
-    )
-    assert r.status_code == 400
+    before = db.list_egress_requests()
+    r = client.post(path, data={"query": "test", "text": "test", "action": "approve"})
+    assert r.status_code in (404, 405)
+    assert db.list_egress_requests() == before
 
 
 def test_quality_report_loop(client):
@@ -1385,13 +1356,9 @@ def test_llm_connections_manage_and_apply(client, monkeypatch, tmp_path):
     ext = [c for c in lc.list_public() if c["name"] == "외부 기관"][0]
     assert ext["kind_label"] == "외부 GPU 서버" and ext["api_key_masked"] == "…1234"
     page = client.get("/dev/train").text
-    assert "sk-secret-1234" not in page and "…1234" in page and "외부 참조 전용" in page and f"llmAct-{ext['id']}" in page
+    assert "sk-secret-1234" not in page and "…1234" in page and "외부 참조 전용" not in page and f"llmAct-{ext['id']}" in page
     assert "err=" in client.post(f"/dev/llm/{ext['id']}/activate", follow_redirects=False).headers["location"]
-    assert "ok=" in client.post(f"/dev/llm/{ext['id']}/external", follow_redirects=False).headers["location"]
     assert model_config.current()["base_url"] == "http://gpu:8000/v1"                 # 문서 작업은 아직 교내
-    cred = lc.external_credentials()
-    assert cred["api_key"] == "sk-secret-1234" and cred["kind"] == "partner" and cred["model"] == "gpt-x"
-    assert "err=" in client.post(f"/dev/llm/{cid}/external", follow_redirects=False).headers["location"]  # 교내는 참조용 불가
     assert "ok=" in client.post(f"/dev/llm/{ext['id']}/activate", data={"ack": "1"}, follow_redirects=False).headers["location"]
     assert model_config.current()["base_url"] == "https://llm.partner.ac.kr/v1" and model_config.current()["external"]
     client.post(f"/dev/llm/{cid}/activate")                                           # 다시 교내로
