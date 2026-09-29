@@ -118,6 +118,23 @@ class Styles:
     bullets: dict = field(default_factory=dict)          # bullet id → 문자
 
 
+def _thin_paragraph():
+    """표와 표 사이에 두는 아주 낮은 빈 문단(_separate_from_previous_table 와 같은 모양)."""
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    p = OxmlElement("w:p")
+    ppr = OxmlElement("w:pPr")
+    sp = OxmlElement("w:spacing")
+    sp.set(qn("w:before"), "0")
+    sp.set(qn("w:after"), "0")
+    sp.set(qn("w:line"), "20")
+    sp.set(qn("w:lineRule"), "exact")
+    ppr.append(sp)
+    p.append(ppr)
+    return p
+
+
 def _line_count(p_el: ET.Element) -> int:
     """문단이 한글에서 몇 줄로 놓였나 — hwp5 번역은 lines 속성, hwpx 는 hp:linesegarray 의 lineseg 수. 모르면 1."""
     v = p_el.get("lines")
@@ -563,6 +580,9 @@ class Converter:
             self._emit_objects(before, container)
             for el in [e for e in host if not any(e is o for o in existing)]:
                 para._element.addprevious(el)
+                prev = el.getprevious()
+                if el.tag.endswith("}tbl") and prev is not None and prev.tag.endswith("}tbl"):
+                    el.addprevious(_thin_paragraph())            # 앞 표와 붙지 않게(붙은 두 표는 독스가 한 표로 합친다)
             before = []
         pending = before + pending
         if (para is None or not _para_has_content(para)) and not pending:
