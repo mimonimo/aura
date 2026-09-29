@@ -1127,3 +1127,14 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 미커밋이라 VM 서비스가 ModuleNotFoundError 로 죽었다. 되살리려고 `notifications.py`·`base.html`·`codex.md` 의 작업 중 변경을
 그대로 커밋해 배포했다(테스트 952개 통과 상태). 아스트라가 이어서 다듬을 것. 같은 트리에서 작업할 때 `git add <파일>` 이 상대 변경을
 같이 담을 수 있다 — 커밋 전 `git diff --cached` 로 남의 줄이 섞였는지 본다.
+
+## K-70 (2026-09-29 새벽) — 서식 보존 채우기 실전 · hwp→독스 품질 실측과 렌더러별 줄 간격
+
+- 한글 완성본(ADR-0035)을 대화 18 작업본으로 실제로 만들었다. 첫 결과에서 서식 표가 63→110 으로 겹쳐 '서식과 견줘 넣기'(서식 글·표 유지,
+  고쳐 쓴 서식 표는 칸에 써 넣기, 서식에 없는 소제목은 앞 절 본문으로, 빈 절도 차례에)를 더했고, 재실행은 표 63→63·새 문단 109. `section_bodies`
+  가 이제 빈 절도 낸다(옮기기는 빈 절을 건너뜀).
+- hwp → 독스 품질을 합본 PDF·kordoc 렌더와 나란히 봤다(ADR-0036·docs/notes/2026-09-29-line-spacing-measurement.md). 고친 것: 글보다 앞에
+  앵커된 표를 글 앞에 그리기, 독스용 줄 간격 배수(비율 ÷ 글꼴 자연 행 높이)·LibreOffice 용 고정값, 셀 마지막 줄 여분 제외, 셀 여백 실제 값.
+  작성서식 독스 61→57쪽(한글 53), 사업계획서 98→95쪽(한글 73). 남은 격차는 장평·글꼴 폭(좁은 칸의 줄 넘김).
+- 변환기 인터페이스: `hwpx_docx.convert(path, line_rule=None)`·`hwp5_docx.convert(src, line_rule=None)`; 열람 PDF 는 `office_pdf.docx_for` 가
+  `exact` 를 준다. 화면 쪽에서 변환기를 부를 일이 있으면 규칙을 명시할 것.
