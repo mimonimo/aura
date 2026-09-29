@@ -107,6 +107,11 @@ try {
  const productionCss=baseCss+(await readFile(root+'chat-documents.css','utf8'))+template.split('<style>')[1].split('</style>')[0]+dockCss+(await readFile(root+'platform-spaces.css','utf8'));
  await evaluate(`document.body.innerHTML='<form id="chatForm" class="chat-dock" style="width:780px;margin:60px auto"><div class="dock-row">'+${JSON.stringify(row)}+'</form>';document.head.querySelector('style').textContent=${JSON.stringify(productionCss)};`);
  await evaluate('var webBtn ='+modeScript);
+ await evaluate(`document.getElementById('webSearchToggle').click()`);
+ assert.equal(await evaluate(`answerMode.value`),'model');
+ await evaluate(`answerMode.value='';answerMode.dispatchEvent(new Event('change'));`);
+ assert.equal(await evaluate(`webField.value`),'');
+ assert.equal(await evaluate(`document.getElementById('webSearchChip').hidden`),true);
  await evaluate(`document.getElementById('answerMode').value='model';document.getElementById('answerMode').dispatchEvent(new Event('change'));document.getElementById('webSearchToggle').click();`);
  assert.equal(await evaluate(`document.getElementById('webField').value`),'1');
  assert.equal(await evaluate(`document.getElementById('webSearchChip').hidden`),false);

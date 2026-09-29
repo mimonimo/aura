@@ -13,6 +13,35 @@ def candidate_client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
+def test_question_modes_survive_reload_and_regeneration(tmp_path, monkeypatch):
+    from zzaimy.app import web_search
+    calls = []
+    def model(q):
+        calls.append('model')
+        return {'answer': '기본 답변'}
+    def web(q):
+        calls.append('web')
+        return {'answer': '웹 답변', 'sources': [{'n': 1, 'title': '공식 자료', 'url': 'https://example.com/'}]}
+    monkeypatch.setattr(web_search, 'answer_from_model', model)
+    monkeypatch.setattr(web_search, 'answer_with_web', web)
+    client = candidate_client(tmp_path, monkeypatch)
+    for value, expected, label in [('', 'document', '문서 작업'), ('model', 'model', '기본 대화'), ('1', 'web', '기본 대화 · 웹 검색')]:
+        client.post('/chat/send', data={'question': '모드 질문', 'web': value})
+        sid = {'document': 1, 'model': 2, 'web': 3}[expected]
+        rows = client.app.state.db.list_chats(sid)
+        assert rows[0]['mode'] == expected
+        assert f'class="chat-message-mode">{label}</span>' in client.get(f'/chat/{sid}').text
+        if value:
+            response = client.post(f'/chat/{sid}/messages/{rows[0]["id"]}/edit', data={
+                'question': '수정 질문', 'expected_content': rows[0]['content'], 'expected_tail_id': rows[-1]['id']})
+            assert response.status_code == 200
+            assert calls[-1] == expected
+            assert client.post(f'/chat/{sid}/retry').json()['ok'] is True
+            assert calls[-1] == expected
+        assert client.get(f'/chat/{sid}/messages').json()['messages'][0]['mode'] == expected
+    assert 'target="_blank"' in client.get('/chat/3').text
+
+
 def test_regenerate_same_question_keeps_id_and_archives_followups(tmp_path, monkeypatch):
     client = candidate_client(tmp_path, monkeypatch)
     client.post('/chat/send', data={'question': '첫 질문'})

@@ -1,5 +1,19 @@
 # Codex 작업 기록
 
+## C-133 — 웹 출처 링크·질문 모드 이력 (진행)
+
+사용자 최신 요청: 출처 URL 대신 제목 새 탭 링크, 문서 작업 선택 시 웹 해제,
+웹 켜면 기본 대화 전환, 질문별 실제 모드 표시. Codex 담당: citations.py,
+chat_workspace.html, db.py 모드 열과 add_chat, main.py 전송 시 모드 인수 한 곳,
+chat_revisions.py 재실행 모드 보존, 관련 테스트. 현재 worktree clean 확인.
+DB 추가 열은 기존 메시지 NULL 유지(과거 모드 추측 금지). 다른 기능은 변경하지 않음.
+
+구현 완료: 제목 링크는 기존 저장 답변에도 적용, http(s)만 허용/escape/새 탭 noopener.
+질문별 mode DB 저장, 수정/재생성 시 모드 보존, messages API에도 포함.
+로컬 관련 테스트 28 PASS, PG 전용 3 SKIP(별도 테스트 DSN 없음), Chrome 회귀 PASS.
+운영 백업 data/platform/backup/chat-mode-c133-XYZAfA/before.dump 생성 및 목록 검증.
+Codex가 커밋·배포/서비스 재시작 진행 예정. 실제 웹 검색 호출은 이 회귀에서 mock 사용.
+
 ## C-132 — 입력창 공통 스타일 충돌 수정 (15:28 스크린샷)
 
 platform-spaces.css가 마지막에 3열 grid를 적용해 모드 선택이 자동으로 다음 줄 왼쪽에 배치됨.
