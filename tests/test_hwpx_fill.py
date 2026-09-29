@@ -386,3 +386,42 @@ def test_form_table_whose_blank_row_is_under_a_vertical_merge_is_not_grown(tmp_p
     work = [["비목", "금액"], ["인건비", "30"], ["장학금", "20"], ["합계", "50"]]
     rep = hwpx_fill.fill(_budget_form(tmp_path, merged=True), [{"heading": "1.2 특성화 방향", "items": [("table", work)]}], out)
     assert rep["tables_grown"] == 0 and rep["tables"] == 1                   # 복제할 빈 행이 병합에 덮이면 안전하게 새 표로
+
+
+def test_long_marker_paragraph_gets_hanging_indent_and_auto_tab(tmp_path):
+    """두 줄로 넘어갈 '□ …' 문단은 바탕 모양을 복제해 내어쓰기(intent 음수, case·default 두 벌)와 자동 탭을 붙인 새 paraPr 로,
+    부호 뒤는 탭. 같은 사양은 한 번만 등록하고 itemCnt 를 올린다. 짧은 부호 줄과 자동 탭이 없는 서식은 그대로."""
+    pr = ('<hh:paraPr id="{id}" tabPrIDRef="0"><hh:align horizontal="JUSTIFY"/><hp:switch><hp:case hp:required-namespace="x">'
+          '<hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/></hh:margin></hp:case><hp:default>'
+          '<hh:margin><hc:intent value="0" unit="HWPUNIT"/><hc:left value="0" unit="HWPUNIT"/></hh:margin></hp:default></hp:switch></hh:paraPr>')
+    head = (HEADER.replace('<hh:paraProperties itemCnt="2">', '<hh:paraProperties itemCnt="2">')
+            .replace('<hh:paraPr id="0"><hh:align horizontal="JUSTIFY"/><hh:heading type="NONE" level="0"/></hh:paraPr>', pr.format(id=0))
+            .replace("<hh:refList>", '<hh:refList><hh:tabProperties itemCnt="2"><hh:tabPr id="0" autoTabLeft="0" autoTabRight="0"/>'
+                                     '<hh:tabPr id="1" autoTabLeft="1" autoTabRight="0"/></hh:tabProperties>')
+            .replace('xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core"', 'xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph"'))
+    src = tmp_path / "form.hwpx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("Contents/header.xml", head)
+        zf.writestr("Contents/section0.xml", _section())
+    out = tmp_path / "out.hwpx"
+    long1 = "□ 지역 산업 수요와 연계해 교육과정을 바꾸고 현장 실습을 늘리는 방안을 단계적으로 추진한다"
+    long2 = "□ 두 번째 긴 부호 문단도 같은 사양이므로 새 문단 모양을 다시 등록하지 않고 같은 것을 쓴다"
+    rep = hwpx_fill.fill(src, [{"heading": "1.1. 대학의 여건 분석", "items": [("text", f"{long1}\n{long2}\n□ 짧은 줄")]}], out)
+    assert rep["checks"] == []
+    z = zipfile.ZipFile(out)
+    h = z.read("Contents/header.xml").decode()
+    assert '<hh:paraProperties itemCnt="3">' in h
+    new = re.search(r'<hh:paraPr id="2" tabPrIDRef="1">.*?</hh:paraPr>', h, re.S).group(0)
+    hang = int(re.search(r'<hp:default><hh:margin><hc:intent value="(-\d+)"', new).group(1))
+    case = int(re.search(r'<hp:case[^>]*><hh:margin><hc:intent value="(-\d+)"', new).group(1))
+    assert hang == -1500 and case == -750                                  # 10pt × (□ 1em + 0.5em), case 는 절반
+    xml = z.read("Contents/section0.xml").decode()
+    assert xml.count('paraPrIDRef="2"') == 2 and '<hp:t>□<hp:tab width="1500" leader="0" type="1"/>지역 산업' in xml
+    assert '<hp:t>□ 짧은 줄</hp:t>' in xml
+
+
+def test_no_hanging_registry_without_auto_tab(tmp_path):
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(_hwpx(tmp_path), [{"heading": "1.1. 대학의 여건 분석", "items": [("text", "□ 서른 자를 넘기는 긴 부호 문단이지만 자동 탭 설정이 없는 서식이다 그러니 그대로")]}], out)
+    assert rep["checks"] == [] and "<hp:tab" not in zipfile.ZipFile(out).read("Contents/section0.xml").decode()
