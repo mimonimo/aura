@@ -147,10 +147,10 @@ def test_hanging_indent_and_exact_line_spacing(tmp_path):
     # 독스용(기본): 독스 글꼴의 자연 행 높이(나눔바른고딕 1.2em)로 나눈 배수 — 1.6/1.2
     data, _ = hwpx_docx.convert(p)
     pf = Document(io.BytesIO(data)).paragraphs[1].paragraph_format
-    assert round(pf.line_spacing, 2) == round(1.6 / 1.2, 2)
+    assert round(pf.line_spacing, 2) == round(1.6 / hwpx_docx.DOCS_LINE_EM_BY_FONT[hwpx_docx.FONT_MAP["고딕"]], 2)   # 글꼴 자연 행 높이(ADR-0036·0045)
     # 표 안 문단은 마지막 줄의 여분을 빼서(한 줄 칸이면 배수 1.0/1.2) — 한글은 셀 높이에 마지막 줄 간격을 넣지 않는다
     cell_p = Document(io.BytesIO(data)).tables[0].cell(1, 1).paragraphs[0].paragraph_format
-    assert round(cell_p.line_spacing, 2) == round(1.0 / 1.2, 2)
+    assert round(cell_p.line_spacing, 2) == round(1.0 / hwpx_docx.DOCS_LINE_EM_BY_FONT[hwpx_docx.FONT_MAP["고딕"]], 2)
 
 
 def test_normalize_image_reencodes_icc_jpeg_and_bmp():

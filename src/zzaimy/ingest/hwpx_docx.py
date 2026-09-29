@@ -37,7 +37,8 @@ TWIPS_PER_HWPUNIT = 1440 / HWPUNIT_PER_INCH          # 0.2
 _SERIF_HINT = ("명조", "바탕", "신명조", "Batang", "Myeongjo", "Myungjo", "궁서", "Gungsuh")
 # 독스에 있는 한글 글꼴 두 계열. 고딕은 나눔바른고딕 — 148 왕복 실측(2026-09-28, 작성서식 원본 62쪽): 나눔고딕 67쪽·빈 쪽 7,
 # Noto Sans KR 70, Gothic A1 69, 나눔바른고딕 61쪽·빈 쪽 2(행 높이가 한글 조판에 가장 가깝다). 쪽 그림으로 겹침·잘림 없음 확인
-FONT_MAP = {"고딕": "Nanum Barun Gothic", "명조": "Nanum Myeongjo"}
+# 고딕은 Nanum Gothic(ADR-0045) — 독스 글꼴 목록에 'Nanum Barun Gothic' 이 없어 굴림으로 바뀌고 한글 굵게가 사라졌다(2026-09-30 실측)
+FONT_MAP = {"고딕": "Nanum Gothic", "명조": "Nanum Myeongjo"}
 
 
 def docs_font(face: str) -> str:
