@@ -102,15 +102,15 @@ class LabelStudioClient:
             break
         return st
 
-    def ensure_project(self, title: str) -> int:
-        """같은 제목 프로젝트가 있으면 그 id, 없으면 우리 라벨링 설정으로 생성."""
+    def ensure_project(self, title: str, label_config: str | None = None, description: str | None = None) -> int:
+        """같은 제목 프로젝트가 있으면 그 id, 없으면 라벨링 설정(기본은 검수 설정)으로 생성."""
         for p in self._projects():
             if p.get("title") == title:
                 return int(p["id"])
         created = self._req("POST", "/api/projects", json={
             "title": title,
-            "label_config": LABEL_CONFIG,
-            "description": "ZZAIMY 데이터 공방 검수 (자동 생성)",
+            "label_config": label_config or LABEL_CONFIG,
+            "description": description or "ZZAIMY 데이터 공방 검수 (자동 생성)",
         })
         return int(created["id"])
 
@@ -125,6 +125,17 @@ class LabelStudioClient:
             json=[t["data"] for t in tasks],
         )
         return len(tasks)
+
+    def clear_tasks(self, project_id: int) -> int:
+        """프로젝트의 태스크를 전부 지운다(다시 만들어 올릴 때) — 반환: 지우기 전 건수."""
+        before = int((self.progress(project_id) or {}).get("total") or 0)
+        try:
+            self._req("DELETE", f"/api/projects/{project_id}/tasks/")
+        except LabelStudioError:
+            tasks = self._req("GET", f"/api/tasks?project={project_id}&page_size=1000")
+            for t in (tasks.get("tasks") if isinstance(tasks, dict) else tasks) or []:
+                self._req("DELETE", f"/api/tasks/{t['id']}")
+        return before
 
     def progress(self, project_id: int, timeout: float | None = None) -> dict:
         """검수 진행률 — 전체·완료(annotation 있는) 태스크 수."""
