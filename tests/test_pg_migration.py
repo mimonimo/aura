@@ -4,7 +4,51 @@ import uuid
 
 import pytest
 
-from zzaimy.app.pg_migration import copy_to_staging, pg_type, quote, row_digest, snapshot, table_digest
+from zzaimy.app.pg_migration import copy_to_staging, pg_type, quote, row_digest, snapshot, table_digest, prepare_runtime_snapshot
+
+
+def test_cleanup_only_approved_orphans_preserves_source(tmp_path):
+    source, target = tmp_path / 'source.db', tmp_path / 'clean.db'
+    with sqlite3.connect(source) as db:
+        db.executescript('''
+            CREATE TABLE documents(id INTEGER PRIMARY KEY);
+            CREATE TABLE entities(id INTEGER PRIMARY KEY);
+            CREATE TABLE doc_entities(doc_id INTEGER REFERENCES documents(id),
+                                      entity_id INTEGER REFERENCES entities(id));
+            CREATE TABLE mask_events(id INTEGER PRIMARY KEY, doc_id INTEGER REFERENCES documents(id));
+            INSERT INTO documents VALUES (1);
+            INSERT INTO entities VALUES (1);
+            INSERT INTO doc_entities VALUES (1,1), (2,2), (2,1);
+            INSERT INTO mask_events VALUES (1,1), (2,2);
+        ''')
+    result = prepare_runtime_snapshot(source, target)
+    assert result['removed'] == {'doc_entities': 2, 'mask_events': 1}
+    with sqlite3.connect(source) as db:
+        assert len(db.execute('PRAGMA foreign_key_check').fetchall()) == 4
+    with sqlite3.connect(target) as db:
+        assert db.execute('PRAGMA foreign_key_check').fetchall() == []
+        assert db.execute('SELECT * FROM doc_entities').fetchall() == [(1, 1)]
+        assert db.execute('SELECT * FROM mask_events').fetchall() == [(1, 1)]
+        assert db.execute('SELECT * FROM documents').fetchall() == [(1,)]
+    with pytest.raises(FileExistsError):
+        prepare_runtime_snapshot(source, target)
+
+
+def test_cleanup_rejects_unapproved_orphans_without_partial_delete(tmp_path):
+    source, target = tmp_path / 'source.db', tmp_path / 'clean.db'
+    with sqlite3.connect(source) as db:
+        db.executescript('''
+            CREATE TABLE documents(id INTEGER PRIMARY KEY);
+            CREATE TABLE mask_events(doc_id INTEGER REFERENCES documents(id));
+            CREATE TABLE reviews(doc_id INTEGER REFERENCES documents(id));
+            INSERT INTO mask_events VALUES (7);
+            INSERT INTO reviews VALUES (7);
+        ''')
+    with pytest.raises(ValueError, match='Unexpected'):
+        prepare_runtime_snapshot(source, target)
+    with sqlite3.connect(target) as db:
+        assert db.execute('SELECT * FROM mask_events').fetchall() == [(7,)]
+        assert len(db.execute('PRAGMA foreign_key_check').fetchall()) == 2
 
 
 def test_snapshot_includes_wal_and_never_overwrites(tmp_path):
