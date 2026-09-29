@@ -41,18 +41,19 @@ def soffice() -> str | None:
 
 
 def docx_for(src: Path) -> tuple[bytes, str] | None:
-    """한글은 docx 로(독스 열람본과 같은 변환기). 돌려주는 것은 (바이트, 확장자). 못 바꾸면 None."""
+    """한글은 docx 로(독스 열람본과 같은 변환기). 돌려주는 것은 (바이트, 확장자). 못 바꾸면 None.
+    줄 간격은 LibreOffice 용 '고정'(exact) — 독스용 배수(docs)와 다르다(hwpx_docx.Converter 참조)."""
     ext = src.suffix.lower()
     if ext == ".hwpx":
         from zzaimy.ingest import hwpx_docx
 
-        data, _ = hwpx_docx.convert(src)
+        data, _ = hwpx_docx.convert(src, line_rule="exact")
         return data, ".docx"
     if ext == ".hwp":
         try:
             from zzaimy.ingest import hwp5_docx
 
-            data, _ = hwp5_docx.convert(src)
+            data, _ = hwp5_docx.convert(src, line_rule="exact")
             return data, ".docx"
         except Exception:
             from zzaimy.ingest import hwp_html
