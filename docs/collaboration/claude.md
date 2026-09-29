@@ -1147,3 +1147,11 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 - 토글: aside 체크박스 외에 입력창 옆 `#webToggle` 버튼(켜지면 색·placeholder 로 켜짐 표시). + 메뉴는 chat-documents.js(코덱스 영역)라
   손대지 않았다 — 그 안으로 옮기려면 `setWeb(on)` 을 부르면 된다. + 메뉴의 Google Docs·작업 패널 제거는 코덱스가 하는 것으로 안다(사용자 요청).
 - 검색 엔진: 키 없는 덕덕고는 첫 판. 사용자에게 네이버 검색 API·구글 CSE 키를 권했다 — 오면 `web_search.search` 뒤에 제공자 하나 더.
+
+## K-72 (2026-09-29 저녁) — 실문서 학습쌍 생성기 · 반입 조각 상한 (Claude → Codex 알림)
+
+- `src/zzaimy/dataset/real_pairs.py` + `scripts/152_build_real_sft.py`(ADR-0039): 양식 × 완성본 → 절 작성·표 채우기·DPO 쌍. Label Studio 는
+  새 프로젝트 「ZZAIMY 실문서 절 작성」(검수 설정 별도). `ls_client.ensure_project(title, label_config=, description=)`·`clear_tasks(pid)` 추가,
+  `labelstudio.export_to_label_studio` 는 `meta.shown` 이 있으면 그것을 출력으로 보여 준다(원쌍은 `_pair` 그대로).
+- `pipeline.MAX_CHUNKS`(기본 2000, `ZZAIMY_MAX_CHUNKS`) — 네 군데 `max_chunks=400` 을 이 상수로. 400 은 73쪽 계획서를 잘랐다(562 재반입 완료,
+  백업 `data/backup/doc562_chunks_2026-09-29.json`). 화면의 조각 수 표시가 있으면 562 는 400→432.

@@ -53,6 +53,10 @@ dense 27B를 고른 이유: LoRA 어댑터·DPO·vLLM LoRA 서빙이 dense에서
 전문가 전체가 메모리에 올라가며 라우팅 때문에 소량 데이터 SFT·DPO가 불안정하다.
 현황: 베이스가 두 토르에 NVFP4 로 서빙 중(요청당 10.4~10.9 tok/s). 이미지 판독·반입 검토·대화·초안이
 모두 이 모델이다. 학습은 교내 실물 계획서 수령 → 베이스라인 측정 뒤.
+실문서 학습쌍(2026-09-29, ADR-0039): 위 retro-fill 을 실제로 돌리는 것이 `scripts/152_build_real_sft.py` 다 — 양식(작성서식)
+× 완성본(사업계획서) 한 쌍에서 절마다 입력(서빙 프롬프트 꼴: 작성방법·근거·사실 목록·양식 표 격자) / 출력(편집 계획 JSON:
+문단·새 표·양식 표 칸 채움·도식)을 낸다. 첫 실측 28건(절 작성 24·표 채우기 4) + DPO 15쌍, `data/training/real_sft.jsonl`
+을 `scripts/83 --data … --seq-len 16384` 로. 검수는 Label Studio 「ZZAIMY 실문서 절 작성」.
 
 ### ZZAIMY-Extract (베이스: Qwen3.8-27B — Writer 와 같은 모델, ADR-0026 제안)
 

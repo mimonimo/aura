@@ -150,7 +150,12 @@ def pick_review_prompt(doc_type: str) -> str:
     return _GRANT_PROMPT
 
 
-def _split_chunks(text: str, max_chunks: int = 400) -> list[dict]:
+# 문서 한 건의 조각 상한 — 400 은 73쪽 사업계획서(표 112개)를 Ⅴ장 중간에서 잘랐다(2026-09-29 실측, 문서 562).
+# 폭주 방지용 상한이지 분량 기준이 아니므로 넉넉히 둔다.
+MAX_CHUNKS = int(os.environ.get("ZZAIMY_MAX_CHUNKS", "2000"))
+
+
+def _split_chunks(text: str, max_chunks: int = MAX_CHUNKS) -> list[dict]:
     """마스킹본을 문단 단위 조각으로 나눈다. ' | ' 줄이 과반이면 표 조각으로 표시."""
     chunks: list[dict] = []
     for para in text.split("\n\n"):
@@ -1462,7 +1467,7 @@ class DocumentProcessor:
             log.warning("판본 판정 실패(%s) — 그대로 반입", type(e).__name__)
         return False
 
-    def _md_chunks(self, do_mask: bool = True, max_chunks: int = 400) -> list[dict] | None:
+    def _md_chunks(self, do_mask: bool = True, max_chunks: int = MAX_CHUNKS) -> list[dict] | None:
         """비전 판독의 쪽별 마크다운 → 제목·문단·표(셀 JSON) 조각. 없으면 None."""
         pages = getattr(self, "_last_md", None)
         if not pages:
@@ -1475,7 +1480,7 @@ class DocumentProcessor:
                 break
         return out[:max_chunks] or None
 
-    def _page_chunks(self, do_mask: bool = True, max_chunks: int = 400) -> list[dict] | None:
+    def _page_chunks(self, do_mask: bool = True, max_chunks: int = MAX_CHUNKS) -> list[dict] | None:
         """글자층 직독의 쪽별 본문을 쪽 번호가 붙은 문단 조각으로 — 쪽별 본문이 없으면 None."""
         pages = getattr(self, "_last_pages", None)
         if not pages:
@@ -1490,7 +1495,7 @@ class DocumentProcessor:
         return out or None
 
     def _structured_chunks(
-        self, do_mask: bool = True, max_chunks: int = 400
+        self, do_mask: bool = True, max_chunks: int = MAX_CHUNKS
     ) -> list[dict] | None:
         """파서 구조(페이지·표)를 유지한 조각 목록 — 표는 병합 셀까지 JSON으로.
 

@@ -108,3 +108,11 @@ def test_label_config_has_controls():
     assert isinstance(LABEL_CONFIG, str) and LABEL_CONFIG.strip()
     for token in ("채택", "수정", "폐기", "$input", "$output", "Choices", "TextArea"):
         assert token in LABEL_CONFIG
+
+
+def test_export_shows_readable_output_when_pair_has_shown_meta():
+    pair = _pair("입력", '{"reply": "r", "ops": []}')
+    pair["meta"]["shown"] = "읽히는 글"
+    task = export_to_label_studio([pair])[0]
+    assert task["data"]["output"] == "읽히는 글"
+    assert task["data"]["_pair"]["conversations"][1]["value"].startswith("{")

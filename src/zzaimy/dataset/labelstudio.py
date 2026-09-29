@@ -77,7 +77,8 @@ def export_to_label_studio(pairs: list[dict]) -> list[dict]:
             "id": i,
             "data": {
                 "input": input_text,
-                "output": output,
+                # 편집 계획(JSON) 쌍은 검수자에게 읽히는 글(meta.shown)을 보여 준다 — 원쌍은 _pair 에 그대로
+                "output": meta.get("shown") or output,
                 "source": meta.get("source", ""),
                 "doc_id": meta.get("doc_id"),
                 "_pair": pair,   # 복원용 원쌍(표시용 아님)
