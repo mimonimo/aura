@@ -1245,9 +1245,18 @@ def create_app(
                             materials_ += "\n\n" + _gd.render_table_grids(grids_)
                     except Exception:
                         logging.getLogger("zzaimy.app.gdocs").exception("표 격자 읽기 실패 (대화 %s)", session_id)
+                    fig_folder = None
+                    try:
+                        if proj_:
+                            from zzaimy.ingest import gdrive_files as _gf2
+
+                            acct_ = accounts.get(owner, {}) if password is not None else {}
+                            fig_folder = _gf2.project_folder_for(db, link["account"], proj_, acct_.get("dept") or None, sub="그림")
+                    except Exception:
+                        fig_folder = None
                     t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=ag.scrub_for_writing,
                                              evidence=m["criteria"], confirm=confirm, materials=materials_,
-                                             focus=sec, references=refs, before_apply=before_apply)
+                                             focus=sec, references=refs, before_apply=before_apply, figure_folder=fig_folder)
                     used = ", ".join(f"{p_['title'][:18]}({p_['how']})" for p_ in m["past"]) or "없음"
                     parts_.append(f"[{sec['heading'][:40]}]\n{t_}\n재료 — 지난 자료: {used} · 기준 조각 {len(m['criteria'])}건")
                     # 정답지(같은 절이 있는 완성본)와 견준 반영률 — 초안이 넣은 글 대 그 절의 핵심 사실(수치·고유명사)

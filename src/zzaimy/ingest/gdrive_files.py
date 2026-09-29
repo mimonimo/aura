@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import httpx
+
 import json
 from datetime import datetime
 
@@ -268,6 +270,19 @@ def upload_file(email: str, data: bytes, name: str, source_mime: str, folder_id:
     out = r.json()
     return {"id": out["id"], "mime": out.get("mimeType", ""), "name": out.get("name", name),
             "url": view_url(out["id"], out.get("mimeType", ""))}
+
+
+def share_anyone(email: str, file_id: str, http=None) -> str:
+    """파일을 '링크가 있는 누구나 보기'로 잠깐 연다(독스 API 는 공개 URL 의 그림만 가져온다). 돌려주는 권한 id 로 곧 닫는다."""
+    http = http or httpx.Client(timeout=60)
+    r = http.post(f"{gdrive.API}/files/{file_id}/permissions", headers=_headers(email, http), json={"role": "reader", "type": "anyone"})
+    r.raise_for_status()
+    return r.json()["id"]
+
+
+def unshare(email: str, file_id: str, permission_id: str, http=None) -> None:
+    http = http or httpx.Client(timeout=60)
+    http.delete(f"{gdrive.API}/files/{file_id}/permissions/{permission_id}", headers=_headers(email, http))
 
 
 def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:

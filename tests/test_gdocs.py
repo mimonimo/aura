@@ -715,3 +715,22 @@ def test_table_grids_and_fill_table_write_only_value_cells(monkeypatch, tmp_path
     assert reqs[1]["insertText"] == {"location": {"index": old_start}, "text": "95.7"}
     empty_start = grid["table"]["tableRows"][1]["tableCells"][2]["content"][0]["startIndex"]
     assert reqs[2]["insertText"] == {"location": {"index": empty_start}, "text": "4.6"}
+
+
+def test_figure_op_renders_uploads_shares_briefly_and_inserts_image(monkeypatch, tmp_path):
+    """figure: 모델의 도식 JSON → PNG → 드라이브 올림 → 잠깐 공개 → 절 끝에 그림 → 공개 닫기."""
+    from zzaimy.app import gdocs_agent
+    from zzaimy.ingest import gdrive_files
+    calls = []
+    monkeypatch.setattr(gdrive_files, "upload_file", lambda email, data, name, mime, folder, http=None, reuse=True: (calls.append(("upload", name, mime, folder, len(data) > 1000)), {"id": "IMG1", "url": "u"})[1])
+    monkeypatch.setattr(gdrive_files, "share_anyone", lambda email, fid, http=None: (calls.append(("share", fid)), "PERM")[1])
+    monkeypatch.setattr(gdrive_files, "unshare", lambda email, fid, perm, http=None: calls.append(("unshare", fid, perm)))
+    monkeypatch.setattr(gdocs, "insert_image", lambda email, doc, sec, uri, **kw: (calls.append(("insert", sec, uri)), {"ok": True, "section": "1.1 절"})[1])
+    spec = '{"title": "정책 동향", "layout": "cards", "blocks": [{"title": "국가", "items": ["AI 3대 강국"]}, {"title": "지역", "items": ["D5 육성"]}]}'
+    lines = gdocs_agent.apply([{"op": "figure", "section": 3, "old": "", "text": spec, "table": 0, "cells": []}], "a@b", "d",
+                              user="u", data_dir=tmp_path, figure_folder="F")
+    assert lines == ["「1.1 절」 아래에 도식 「정책 동향」 (상자 2개)"]
+    assert [c[0] for c in calls] == ["upload", "share", "insert", "unshare"]
+    assert calls[0][1:] == ("도식 정책 동향.png", "image/png", "F", True) and calls[2][2].endswith("id=IMG1") and calls[3] == ("unshare", "IMG1", "PERM")
+    # 도식 JSON 이 아니면 건너뛴다
+    assert gdocs_agent.apply([{"op": "figure", "section": 3, "old": "", "text": "그냥 글", "table": 0, "cells": []}], "a@b", "d", user="u", data_dir=tmp_path) == ["도식 내용(JSON)이 아니라 건너뜀"]

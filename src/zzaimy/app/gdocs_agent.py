@@ -28,10 +28,10 @@ PLAN_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["insert", "replace", "style", "bold", "table", "fill", "rename", "move"]},
-                    "section": {"type": "integer", "description": "insert·style·table·fill 일 때 대상 절 번호"},
+                    "op": {"type": "string", "enum": ["insert", "replace", "style", "bold", "table", "fill", "figure", "rename", "move"]},
+                    "section": {"type": "integer", "description": "insert·style·table·fill·figure 일 때 대상 절 번호"},
                     "old": {"type": "string", "description": "replace 일 때 문서에 있는 그대로의 글, bold 일 때 굵게 할 글귀"},
-                    "text": {"type": "string", "description": "insert·replace 의 글. style 이면 TITLE|HEADING_1|HEADING_2|HEADING_3|NORMAL_TEXT. table 이면 행을 줄바꿈, 칸을 ' | ' 로 나눈 글. rename 이면 새 문서 이름. move 이면 옮길 프로젝트 이름. fill 이면 빈 글"},
+                    "text": {"type": "string", "description": "insert·replace 의 글. style 이면 TITLE|HEADING_1|HEADING_2|HEADING_3|NORMAL_TEXT. table 이면 행을 줄바꿈, 칸을 ' | ' 로 나눈 글. rename 이면 새 문서 이름. move 이면 옮길 프로젝트 이름. fill 이면 빈 글. figure 이면 도식 JSON"},
                     "table": {"type": "integer", "description": "fill 일 때 절 안의 표 번호([이 절에 이미 있는 양식 표] 의 '표 n'), 그 밖에는 0"},
                     "cells": {"type": "array", "description": "fill 일 때 넣을 칸들(row·col 은 0부터, 빈 칸 _ 자리). 그 밖에는 빈 배열",
                               "items": {"type": "object", "properties": {"row": {"type": "integer"}, "col": {"type": "integer"}, "text": {"type": "string"}},
@@ -75,6 +75,9 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 - 절을 작성하라는 지시면: 그 절의 [양식 안내·작성방법]이 요구하는 항목을 모두 다루는 본문 문단들을 insert(section=그 절)로 쓴다.
   [지난 사업 자료]는 이 대학의 실제 여건·실적·계획이므로 그 사실·수치·명칭을 바탕으로 쓰되, 자료를 그대로 베끼지 말고 이 양식의 절 구성과
   평가지표에 맞게 재구성한다. 작성방법 상자의 안내문 자체는 옮기지 않는다. 자료에 없는 수치는 만들지 않는다.
+- 완성본에서 그림(인포그래픽)으로 보이던 자리 — 정책 동향·산업 수요·대학 여건·대응 방향 같은 요약 도식, 추진 단계 흐름, 추진체계 도식 —
+  는 figure 로 낸다: text 에 JSON {{"title": 큰 제목, "layout": "cards" 또는 "flow", "blocks": [{{"title": 상자 제목, "items": [요점 …]}} …], "footer": 아래 띠}}
+  (상자 2~6개, 상자마다 요점 2~4줄, 요점은 40자 안). 사진·일러스트는 만들 수 없으니 그림 자리는 이런 도식으로 대신한다. 도식의 사실도 자료에 있는 것만.
 - 완성된 사업계획서는 본문 문단만이 아니라 표·상자로 짜여 있다. [지난 사업 자료]의 같은 절이 표(칸을 ' | ' 로 적은 행)로 구성돼 있으면
   같은 머리 칸 구성의 표를 table 로 만들어 이 대학의 값을 넣는다(세부추진과제 표: 추진목표·주요 추진 내용 및 방법·1차년도·2차년도·성과지표,
   총괄표, 지표 근거표 등). 본문 문단과 표를 절의 흐름대로 섞어 낸다 — 문단 몇 개로 끝내지 않는다. 표에 넣을 값이 자료에 없으면 그 칸은 비운다.
@@ -179,7 +182,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
         except json.JSONDecodeError:
             if attempt == 1:
                 raise
-    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "fill", "rename", "move")
+    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "fill", "figure", "rename", "move")
            and ((o.get("text") or "").strip() or o.get("op") == "bold"
                 or (o.get("op") == "fill" and isinstance(o.get("cells"), list) and any(str(c.get("text") or "").strip() for c in o["cells"] if isinstance(c, dict))))]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
@@ -225,8 +228,9 @@ def _drop_existing(text: str, doc_text: str) -> str:
 
 
 def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None,
-          doc_text: str = "") -> list[str]:
-    """계획을 문서에 적용하고 한 줄씩 결과를 돌려준다. 한 항목이 실패해도 나머지는 계속한다."""
+          doc_text: str = "", figure_folder: str | None = None) -> list[str]:
+    """계획을 문서에 적용하고 한 줄씩 결과를 돌려준다. 한 항목이 실패해도 나머지는 계속한다.
+    figure_folder 는 도식 그림(PNG)을 올릴 드라이브 폴더(프로젝트 그림 폴더)."""
     lines: list[str] = []
     for o in ops:
         if o["op"] == "insert" and doc_text:
@@ -264,6 +268,9 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                 rows = [[c.strip() for c in ln.split("|")] for ln in (o.get("text") or "").splitlines() if ln.strip()]
                 r = gdocs.insert_table(account, doc, int(o["section"]), rows, user=user, data_dir=data_dir, scrub=scrub, http=http)
                 lines.append(f"「{r['section']}」 아래에 표 {r['rows']}×{r['cols']}")
+            elif o["op"] == "figure":
+                r = _apply_figure(o, account, doc, user=user, data_dir=data_dir, http=http, folder=figure_folder)
+                lines.append(r)
             elif o["op"] == "fill":
                 r = gdocs.fill_table(account, doc, int(o["section"]), int(o.get("table") or 1), [c for c in (o.get("cells") or []) if isinstance(c, dict)],
                                      user=user, data_dir=data_dir, scrub=scrub, http=http)
@@ -271,6 +278,26 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
         except Exception as e:      # 계정·문서 상태 문제 — 무엇이 안 됐는지 채팅에 남긴다
             lines.append(f"적용 실패({type(e).__name__}): {str(e)[:80]}")
     return lines
+
+
+def _apply_figure(o: dict, account: str, doc: str, *, user: str, data_dir: Path, http=None, folder: str | None) -> str:
+    """도식: 모델의 spec → PNG → 드라이브에 올려 잠깐 공개 → 절 끝에 그림 → 공개 닫기. 그림 파일은 프로젝트 그림 폴더에 남는다."""
+    from zzaimy.app import infographic
+    from zzaimy.ingest import gdrive_files
+
+    spec = infographic.parse_spec(o.get("text") or "")
+    if not spec:
+        return "도식 내용(JSON)이 아니라 건너뜀"
+    png = infographic.render(spec)
+    name = f"도식 {str(spec.get('title') or '')[:30] or o.get('section')}.png"
+    up = gdrive_files.upload_file(account, png, name, "image/png", folder, http=http, reuse=False)
+    perm = gdrive_files.share_anyone(account, up["id"], http=http)
+    try:
+        r = gdocs.insert_image(account, doc, int(o["section"]), f"https://drive.google.com/uc?export=download&id={up['id']}",
+                               user=user, data_dir=data_dir, http=http)
+    finally:
+        gdrive_files.unshare(account, up["id"], perm, http=http)
+    return f"「{r['section']}」 아래에 도식 「{str(spec.get('title') or '')[:24]}」 (상자 {len(spec.get('blocks') or [])}개)"
 
 
 def describe(ops: list[dict], info: dict) -> str:
@@ -282,6 +309,8 @@ def describe(ops: list[dict], info: dict) -> str:
             out.append(f"{i}) 「{heads.get(int(o['section']), o['section'])}」 아래에 추가:\n{o['text']}")
         elif o["op"] == "replace":
             out.append(f"{i}) 바꾸기: 「{o.get('old', '')[:60]}」 → 「{o['text'][:60]}」")
+        elif o["op"] == "figure":
+            out.append(f"{i}) 「{heads.get(int(o['section']), o['section'])}」 아래에 도식: {o['text'][:80]}")
         elif o["op"] == "fill":
             cells = [c for c in (o.get("cells") or []) if isinstance(c, dict)]
             out.append(f"{i}) 「{heads.get(int(o['section']), o['section'])}」 표 {o.get('table')} 채우기: " +
@@ -294,7 +323,7 @@ def describe(ops: list[dict], info: dict) -> str:
 def run(db, session_id: int, owner: str, command: str, link: dict, *, client, data_dir: Path, scrub=None,
         evidence: list[dict] | None = None, confirm: bool = False, http=None, materials: str = "",
         focus: dict | None = None, info: dict | None = None, references: list[dict] | None = None,
-        before_apply=None) -> tuple[str, list[dict]]:
+        before_apply=None, figure_folder: str | None = None) -> tuple[str, list[dict]]:
     """명령 하나를 처리해 (채팅에 남길 글, 적용/보류한 ops) 를 돌려준다.
 
     절 작성이면(focus) 재료와 함께 부르고, 실행 기록(재료·지시·모델의 초안·참고 정답)을 남긴다 — Writer 학습 데이터 공방의 재료."""
@@ -332,7 +361,7 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         except Exception as e:
             pre = [f"비우기 실패({type(e).__name__}) — 덧붙입니다"]
     lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http,
-                  doc_text=info["text"] if not pre else "")
+                  doc_text=info["text"] if not pre else "", figure_folder=figure_folder)
     return (p["reply"] + "\n\n적용됨:\n" + "\n".join(f"- {ln}" for ln in pre + lines)), p["ops"]
 
 
