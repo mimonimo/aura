@@ -205,6 +205,14 @@ def _batch(email: str, doc: str, requests: list[dict], http) -> dict:
     return r.json()
 
 
+def _body_style(start: int, end: int) -> dict:
+    """넣은 글의 문단 모양을 본문으로 — 변환본의 표 사이 얇은 문단(고정 1pt)이나 제목 모양을 물려받아 글이 겹치던 문제(실측 2026-09-29, 1.2 절)."""
+    return {"updateParagraphStyle": {"range": {"startIndex": start, "endIndex": end},
+                                     "paragraphStyle": {"namedStyleType": "NORMAL_TEXT", "lineSpacing": 115,
+                                                        "spaceAbove": {"magnitude": 0, "unit": "PT"}, "spaceBelow": {"magnitude": 4, "unit": "PT"}},
+                                     "fields": "namedStyleType,lineSpacing,spaceAbove,spaceBelow"}}
+
+
 def insert_into_section(email: str, doc: str, section_index: int, text: str, *, user: str,
                         data_dir: Path, scrub=None, http=None) -> dict:
     """절(제목 아래) 끝에 글을 넣는다. 글은 scrub(개인정보 검사기)을 거친다. 감사 기록을 남긴다."""
@@ -225,13 +233,13 @@ def insert_into_section(email: str, doc: str, section_index: int, text: str, *, 
         at = min(int(sec["table_end"]), int(info["end"]) - 1)
         payload = text + "\n"
         reqs = [{"insertText": {"location": {"index": at}, "text": payload}},
-                {"updateParagraphStyle": {"range": {"startIndex": at, "endIndex": at + len(payload)},
-                                          "paragraphStyle": {"namedStyleType": "NORMAL_TEXT"}, "fields": "namedStyleType"}}]
+                _body_style(at, at + len(payload))]
     else:
         # 절의 마지막 문단 끝(줄바꿈 앞)에 새 문단으로 넣는다. 문서 끝이면 끝 인덱스 - 1.
         at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
         payload = "\n" + text
-        reqs = [{"insertText": {"location": {"index": at}, "text": payload}}]
+        reqs = [{"insertText": {"location": {"index": at}, "text": payload}},
+                _body_style(at + 1, at + len(payload))]
     res = _batch(email, doc, reqs, http)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "insert", "section": sec["heading"],
                       "chars": len(text)})
