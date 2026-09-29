@@ -124,6 +124,19 @@ def test_import_route_idempotent_and_revoked_snapshot_not_downloadable(tmp_path,
     assert report['approved'] == 0 and report['held'] == 1
 
 
+def test_export_includes_unreviewed_tasks(monkeypatch):
+    from zzaimy.dataset.ls_client import LabelStudioClient
+    client = LabelStudioClient('http://example.invalid', 'test-token')
+    rows = [{'id': 1, 'annotations': []}]
+    calls = []
+    def request(method, path):
+        calls.append((method, path))
+        return rows
+    monkeypatch.setattr(client, '_req', request)
+    assert client.export_tasks(5) == rows
+    assert calls == [('GET', '/api/projects/5/export?exportType=JSON&download_all_tasks=true')]
+
+
 def test_staff_cannot_import_or_change_review_config(tmp_path):
     from fastapi.testclient import TestClient
     from tests.test_accounts import _app, _login
