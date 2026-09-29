@@ -1,5 +1,5 @@
 import {spawn} from 'node:child_process';
-import {readFile} from 'node:fs/promises';
+import {readFile,writeFile} from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const root=process.cwd()+'/src/zzaimy/app/static/';
 const chrome=spawn(process.env.CHROME_BIN || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless','--disable-gpu','--no-first-run','--remote-debugging-port=0','--user-data-dir=/private/tmp/aura-fit-browser','about:blank'],{stdio:['ignore','ignore','pipe']});
@@ -91,5 +91,12 @@ try {
  assert.equal(await evaluate(`document.querySelector('.chat-work-files button').dataset.driveDoc`),'current');
  await evaluate(`window.library=document.querySelector('.chat-file-library');window.requestCount=listCalls.length;document.getElementById('chatDocumentOpen').click();document.getElementById('chatDocumentOpen').click();`);
  assert.equal(await evaluate(`library===document.querySelector('.chat-file-library')&&!library.hidden&&listCalls.length===requestCount`),true);
- console.log(JSON.stringify({pass:true,wide,narrow,autoCreationFromList:true,imageModal:true,folderPicker:true,suggestionPreservesEditor:true,newSessionBinding:true,syntheticIframeOnly:true}));
+ await evaluate(`window.fetch=async(url)=>({ok:true,json:async()=>url.endsWith('/files')?{files:[]}:url.endsWith('/documents')?{documents:[]}:{connected:false}});document.querySelector('.chat-file-library .doc-icon-button').click();`);
+ await new Promise(r=>setTimeout(r,150));
+ assert.equal(await evaluate(`document.querySelectorAll('.chat-file-count').length`),2);
+ assert.equal(await evaluate(`document.querySelector('.chat-file-library [role=status]').textContent`),'');
+ assert.equal(await evaluate(`document.querySelector('.chat-file-library .doc-icon-button').getBoundingClientRect().width`),32);
+ assert.equal(await evaluate(`getComputedStyle(document.querySelector('.chat-file-library .chat-doc-files')).flexGrow`),'1');
+ if(process.env.UI_SCREENSHOT){const shot=await send('Page.captureScreenshot',{format:'png'});await writeFile(process.env.UI_SCREENSHOT,Buffer.from(shot.data,'base64'));}
+ console.log(JSON.stringify({pass:true,wide,narrow,autoCreationFromList:true,imageModal:true,folderPicker:true,suggestionPreservesEditor:true,newSessionBinding:true,emptyLibrary:true,syntheticIframeOnly:true}));
 } finally {ws?.close();chrome.kill();}

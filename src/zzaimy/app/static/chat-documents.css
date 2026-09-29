@@ -70,3 +70,19 @@ body .doc-view-tools .chat-doc-toolbar{white-space:nowrap;flex-shrink:0}
 body .doc-view-tools [data-section-jump]{flex:1;min-width:120px;max-width:100%;width:180px;border-radius:8px;font-size:12px;padding:7px 10px}
 body .chat-location-button{display:block;margin-top:12px;max-width:100%;white-space:normal;text-align:left;font-size:12px}
 .chat-doc-loading{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;padding:24px;background:#f6f7f9;color:#536477;font-size:13px;text-align:center}
+/* Library controls stay compact regardless of global button styles. */
+.chat-file-library{background:#fff}
+.chat-file-library>header{padding:12px 16px;gap:8px;flex-wrap:nowrap;min-height:56px;box-sizing:border-box}
+.chat-file-library>header strong{min-width:0;font-size:14px}
+.chat-file-library>header :is(button,a){display:inline-flex;align-items:center;justify-content:center;flex:none;min-height:32px;height:32px;box-sizing:border-box;padding:0 10px;border:1px solid #dfe5ed;border-radius:8px;background:#fff;color:#526176;text-decoration:none;box-shadow:none;white-space:nowrap}
+.chat-file-library>header :is(.doc-icon-button,[data-close]){width:32px;padding:0;font-size:18px}
+.chat-file-library>header :is(button,a):hover{background:#f1f5fa;border-color:#b6c7dc}
+.chat-file-library :is(button,a):focus-visible{outline:2px solid #497bfb;outline-offset:2px}
+.chat-file-library .chat-doc-files{flex:1;padding:20px 16px;gap:10px}
+.chat-file-library h3{display:flex;align-items:center;gap:7px;font-size:13px;line-height:1.6}
+.chat-file-count{display:inline-flex;align-items:center;justify-content:center;min-width:20px;padding:0 5px;box-sizing:border-box;border-radius:6px;background:#f0f3f7;color:#697789;font-size:11px;font-weight:500}
+.chat-file-library .chat-file-empty{padding:14px 12px;border:1px dashed #dfe5ed;border-radius:10px;background:#fafbfd;line-height:1.6}
+.chat-file-library .chat-file-import{display:flex;align-items:center;justify-content:center;gap:6px;min-height:36px;margin:0 0 8px;padding:8px 12px;border:1px solid #d5e1ef;border-radius:9px;background:#f3f7fc;color:#365d8a;font-size:12px;line-height:1.5;box-shadow:none}
+.chat-file-import::before{content:'+';font-size:18px;font-weight:400;line-height:1}
+.chat-file-library .chat-file-import:hover{background:#e9f1fc;border-color:#aac0dd}
+.chat-file-library [hidden]{display:none!important}
