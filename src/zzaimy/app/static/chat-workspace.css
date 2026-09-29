@@ -107,6 +107,17 @@ body .chat-head-actions { display:flex; align-items:center; gap:8px; margin-left
 body .chat-workspace-head h1 { font-size:16px; line-height:1.5; }
 body #chatForm .dock-row { padding:12px 14px; border-radius:18px; background:#fff; align-items:center; box-shadow:0 4px 20px #15243c08; }
 body #chatForm .dock-row textarea { min-height:44px; padding:10px 0; }
+body #chatForm .dock-row { display:flex; flex-wrap:nowrap; min-width:0; }
+body #chatForm{container-type:inline-size}
+@container(max-width:520px){body #chatForm .dock-row{flex-wrap:wrap}body #chatForm .dock-row textarea{flex-basis:calc(100% - 56px);order:1}body #chatForm #attachButton{order:0}body #chatForm .chat-web-chip{order:2}body #chatForm .chat-answer-mode{order:3;margin-left:auto}body #chatForm #sendBtn{order:4}}
+body #chatForm .chat-answer-mode { flex:0 0 auto; width:128px; max-width:38%; min-width:0; height:36px; margin:0 4px; padding:0 24px 0 12px; border:1px solid transparent; border-radius:999px; background-color:#f1f3f6; color:#526176; font:inherit; font-size:12px; line-height:1.4; cursor:pointer; box-shadow:none; }
+body #chatForm .chat-answer-mode.on { color:#285f95; background-color:#edf4fc; border-color:#d8e5f5; }
+body #chatForm .chat-answer-mode:focus-visible { outline:2px solid #497bfb; outline-offset:2px; }
+body #chatForm .chat-web-chip{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;width:auto;white-space:nowrap;padding:6px 8px;border:0;border-left:1px solid #e0e6ef;border-radius:0;background:transparent;color:#376b9e;font-size:12px;box-shadow:none;line-height:20px}
+body #chatForm .chat-web-chip[hidden]{display:none!important}
+.chat-tools #webSearchToggle[aria-pressed=true]{background:#edf4fc;color:#285f95}
+@media(max-width:600px){body #chatForm .dock-row{flex-wrap:wrap}body #chatForm .dock-row textarea{flex-basis:calc(100% - 56px);order:1}body #chatForm #attachButton{order:0}body #chatForm .chat-web-chip{order:2}body #chatForm .chat-answer-mode{order:3;margin-left:auto}body #chatForm #sendBtn{order:4}}
+@media(max-width:600px){body #chatForm .chat-answer-mode{width:112px;padding-left:8px;margin:0;font-size:11px}body #chatForm .dock-row{padding:8px;gap:4px}}
 body #chatForm .dock-btn { background:transparent; }
 body .chat-tools button { justify-content:flex-start; }
 body .chat-doc-editor { margin:12px 0; height:calc(100% - 24px); border:1px solid var(--line); border-radius:14px; overflow:hidden; }

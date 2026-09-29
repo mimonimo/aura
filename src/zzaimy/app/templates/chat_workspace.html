@@ -41,7 +41,6 @@
            max-width: 900px; width: 100%; margin: 0 auto; padding: 8px 10px; }
     .chat-dock.warn { border-color: var(--amber); }
     .dock-row { display: flex; align-items: flex-end; gap: 8px; }
-    .mode-badge { flex: none; align-self: center; font-size: 11px; color: #2e75b6; background: #eef4fb; border: 1px solid #2e75b6; border-radius: 999px; padding: 2px 8px; }
     .chat-tools [data-answer-mode].on { color: #2e75b6; font-weight: 600; }
     .dock-row textarea { flex: 1; border: 0; outline: none; resize: none;
                  font-size: 14.5px; line-height: 1.6; padding: 10px 8px; font-family: inherit;
@@ -219,13 +218,15 @@
     <button type="button" class="dock-btn" id="attachButton" title="도구 추가" aria-label="도구 추가" aria-expanded="false" aria-controls="chatTools"><iconify-icon icon="solar:add-linear"></iconify-icon></button>
     <div id="chatTools" class="chat-tools" popover aria-label="채팅 도구">
       <button type="button" data-chat-tool="file"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 또는 사진 추가</button>
-      <button type="button" id="chatContextOpen" data-chat-tool="context" aria-controls="chatAside"><iconify-icon icon="solar:folder-linear"></iconify-icon>작업 패널</button>
-      <button type="button" data-answer-mode="web" aria-pressed="false"><iconify-icon icon="solar:global-linear"></iconify-icon>외부 검색 모드 (웹)</button>
-      <button type="button" data-answer-mode="model" aria-pressed="false"><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>27B 자체 답변 모드</button>
+      <button type="button" id="webSearchToggle" aria-pressed="false"><iconify-icon icon="solar:global-linear"></iconify-icon>웹 검색</button>
     </div>
-    <span id="modeBadge" class="mode-badge" hidden></span>
+    <button type="button" id="webSearchChip" class="chat-web-chip" aria-label="웹 검색 끄기" hidden><iconify-icon icon="solar:global-linear"></iconify-icon><span>웹 검색</span><span aria-hidden="true">×</span></button>
     <textarea name="question" id="chatInput" rows="1" placeholder="질문이나 수정할 내용을 입력하세요"
               aria-label="질문 또는 수정 요청" autofocus autocomplete="off"></textarea>
+    <select id="answerMode" class="chat-answer-mode" aria-label="답변 모드">
+      <option value="">문서 작업</option>
+      <option value="model">27B 자체 답변</option>
+    </select>
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
       <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
   </div>
@@ -400,7 +401,7 @@
   var webBtn = document.getElementById("webBtn");
   var webField = document.getElementById("webField");
   var webNote = document.getElementById("webNote");
-  var modeBadge = document.getElementById("modeBadge");
+  var answerMode = document.getElementById("answerMode");
   var chatInputEl = document.getElementById("chatInput");
   var MODE_LABEL = { "1": "외부 검색 모드", "model": "27B 자체 답변 모드" };
   function setMode(mode) {
@@ -411,9 +412,19 @@
     });
     if (webBtn) webBtn.checked = mode === "1";
     if (webNote) webNote.hidden = mode !== "1";
-    if (modeBadge) { modeBadge.hidden = !mode; modeBadge.textContent = mode ? MODE_LABEL[mode] + " 켜짐" : ""; }
-    if (chatInputEl) chatInputEl.placeholder = mode === "1" ? "외부 검색 켜짐 — 질문 글만 밖으로 나갑니다" : mode === "model" ? "27B 자체 답변 켜짐 — 출처 없이 모델 지식으로 답합니다" : "질문이나 수정할 내용을 입력하세요";
+    if (answerMode) { if(mode !== '1') answerMode.value = mode || ""; answerMode.classList.toggle('on', answerMode.value === 'model'); }
+    var webToggle = document.getElementById('webSearchToggle'), webChip = document.getElementById('webSearchChip');
+    if(webToggle) webToggle.setAttribute('aria-pressed', String(mode === '1'));
+    if(webChip) webChip.hidden = mode !== '1';
+    if (chatInputEl) chatInputEl.placeholder = mode === "1" ? "웹에서 찾아볼 내용을 입력하세요" : mode === "model" ? "궁금한 내용을 입력하세요" : "질문이나 수정할 내용을 입력하세요";
   }
+  if (answerMode) answerMode.addEventListener('change', function () { setMode(answerMode.value); });
+  document.getElementById('webSearchToggle').addEventListener('click', function () {
+    setMode(webField.value === '1' ? answerMode.value : '1');
+    document.getElementById('chatTools').hidePopover();
+    chatInputEl.focus();
+  });
+  document.getElementById('webSearchChip').addEventListener('click', function () { setMode(answerMode.value); chatInputEl.focus(); });
   document.querySelectorAll("[data-answer-mode]").forEach(function (b) {
     b.addEventListener("click", function () {
       var want = b.getAttribute("data-answer-mode") === "web" ? "1" : "model";
@@ -682,14 +693,9 @@
     document.getElementById('chatWorkspace').inert = open;
     if (open) closeBtn.focus();
     else if (aside.contains(document.activeElement)) document.getElementById('attachButton').focus();
-    document.getElementById('chatContextOpen').setAttribute('aria-expanded', String(open));
     if (openBtn) openBtn.hidden = open;
   }
   setAside(!aside.classList.contains('closed'));
-  document.getElementById('chatContextOpen').addEventListener('click', function() {
-    setAside(aside.classList.contains('closed'));
-    if (!aside.classList.contains('closed')) closeBtn.focus();
-  });
   document.addEventListener('keydown', function(event) {
     if (aside.classList.contains('closed') || document.querySelector('.modal-back.open, dialog[open]')) return;
     if (event.key === 'Escape') { setAside(false); document.getElementById('attachButton').focus(); }

@@ -97,6 +97,21 @@ try {
  assert.equal(await evaluate(`document.querySelector('.chat-file-library [role=status]').textContent`),'');
  assert.equal(await evaluate(`document.querySelector('.chat-file-library .doc-icon-button').getBoundingClientRect().width`),32);
  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.chat-file-library .chat-doc-files')).flexGrow`),'1');
+ const template=await readFile(process.cwd()+'/src/zzaimy/app/templates/chat_workspace.html','utf8');
+ const row=template.split('<div class="dock-row">')[1].split('<div class="dock-hint"')[0];
+ const modeScript=template.split('  var webBtn =')[1].split('  /* ---- 답변 복사')[0];
+ const dockCss=await readFile(root+'chat-workspace.css','utf8');
+ await evaluate(`document.body.innerHTML='<form id="chatForm" style="width:800px;margin:60px auto"><div class="dock-row">'+${JSON.stringify(row)}+'</form>';document.head.querySelector('style').textContent+=${JSON.stringify(dockCss)}+'#chatInput{flex:1;min-width:0}#sendBtn,#attachButton{width:40px;height:40px;flex:none}';`);
+ await evaluate('var webBtn ='+modeScript);
+ await evaluate(`document.getElementById('answerMode').value='model';document.getElementById('answerMode').dispatchEvent(new Event('change'));document.getElementById('webSearchToggle').click();`);
+ assert.equal(await evaluate(`document.getElementById('webField').value`),'1');
+ assert.equal(await evaluate(`document.getElementById('webSearchChip').hidden`),false);
+ await evaluate(`document.getElementById('webSearchChip').click()`);
+ assert.equal(await evaluate(`document.getElementById('webField').value`),'model');
+ await evaluate(`document.getElementById('webSearchToggle').click();document.getElementById('chatForm').style.width='360px';`);
+ await new Promise(r=>setTimeout(r,100));
+ assert.ok(await evaluate(`document.getElementById('chatForm').scrollWidth<=document.getElementById('chatForm').clientWidth`));
+ assert.ok(await evaluate(`document.getElementById('webSearchChip').getBoundingClientRect().height<40`));
  if(process.env.UI_SCREENSHOT){const shot=await send('Page.captureScreenshot',{format:'png'});await writeFile(process.env.UI_SCREENSHOT,Buffer.from(shot.data,'base64'));}
  console.log(JSON.stringify({pass:true,wide,narrow,autoCreationFromList:true,imageModal:true,folderPicker:true,suggestionPreservesEditor:true,newSessionBinding:true,emptyLibrary:true,syntheticIframeOnly:true}));
 } finally {ws?.close();chrome.kill();}
