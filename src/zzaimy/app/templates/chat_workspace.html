@@ -170,7 +170,7 @@
 
   {% for m in messages %}
     <div class="turn {{ m.role }}" data-message-id="{{ m.id }}">
-      <div class="chat-speaker">{{ '나' if m.role == 'user' else '행정 에이전트' }}</div>
+      <div class="chat-speaker">{{ '나' if m.role == 'user' else '행정 에이전트' }}{% if m.role == 'user' and m.mode %}<span class="chat-message-mode">{{ {'document': '문서 작업', 'model': '기본 대화', 'web': '기본 대화 · 웹 검색'}.get(m.mode, '') }}</span>{% endif %}</div>
       {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
@@ -225,7 +225,7 @@
               aria-label="질문 또는 수정 요청" autofocus autocomplete="off"></textarea>
     <select id="answerMode" class="chat-answer-mode" aria-label="답변 모드">
       <option value="">문서 작업</option>
-      <option value="model">27B 자체 답변</option>
+          <option value="model">기본 대화</option>
     </select>
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
       <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
@@ -412,7 +412,7 @@
     });
     if (webBtn) webBtn.checked = mode === "1";
     if (webNote) webNote.hidden = mode !== "1";
-    if (answerMode) { if(mode !== '1') answerMode.value = mode || ""; answerMode.classList.toggle('on', answerMode.value === 'model'); }
+    if (answerMode) { answerMode.value = mode === '1' ? 'model' : mode || ""; answerMode.classList.toggle('on', answerMode.value === 'model'); }
     var webToggle = document.getElementById('webSearchToggle'), webChip = document.getElementById('webSearchChip');
     if(webToggle) webToggle.setAttribute('aria-pressed', String(mode === '1'));
     if(webChip) webChip.hidden = mode !== '1';

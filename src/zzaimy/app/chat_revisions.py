@@ -128,5 +128,11 @@ def install_routes(app, db, store, schedule_answer, is_running, inbox, allowed_e
                 stored.unlink(missing_ok=True)  # 이 요청에서 새로 저장한 파일만 정리
             raise
         sources.pop(session_id, None)
-        schedule_answer(background, session_id, question, stored, criteria)
+        original = next((m for m in db.list_chats(session_id) if m['id'] == message_id), {})
+        mode = original.get('mode')
+        if mode in ('web', 'model'):
+            schedule_answer(background, session_id, question, stored, criteria,
+                            web='1' if mode == 'web' else 'model')
+        else:
+            schedule_answer(background, session_id, question, stored, criteria)
         return {'ok': True, 'session_id': session_id}

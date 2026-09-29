@@ -1614,7 +1614,7 @@ def create_app(
             shown = "\n".join(markers) + "\n" + q
 
         _set_options(session_id, [])
-        db.add_chat(session_id, "user", shown)
+        db.add_chat(session_id, "user", shown, mode="model" if web == "model" else "web" if web else "document")
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
         _schedule_answer(background, session_id, q, stored, criteria, bool(external), (web or "").strip().lower()[:8])   # "1"=웹 검색, "model"=모델 지식
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
@@ -1636,7 +1636,7 @@ def create_app(
             "waiting": session_id in _chat_running or (bool(rows) and rows[-1]["role"] == "user"),
             "suggestions": _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
             "messages": [
-                {"id": m["id"], "role": m["role"], "content": m["content"]} for m in rows
+                {"id": m["id"], "role": m["role"], "content": m["content"], "mode": m.get("mode")} for m in rows
             ],
         }
 
@@ -1650,9 +1650,11 @@ def create_app(
         if session_id in _chat_running or rows[-1]["role"] == "user":
             return {"ok": False, "error": "답변을 기다리는 중입니다"}
         question = ""
+        question_mode = None
         for m in reversed(rows):
             if m["role"] == "user":
                 question = _strip_attach_prefix(m["content"])
+                question_mode = m.get("mode")
                 break
         if not question:
             return {"ok": False, "error": "다시 보낼 질문이 없습니다"}
@@ -1661,7 +1663,8 @@ def create_app(
         session = db.get_chat_session(session_id)
         if session and session.get("project_id"):
             criteria = db.get_project_criteria_ids(int(session["project_id"]))
-        _schedule_answer(background, session_id, question, None, criteria)
+        _schedule_answer(background, session_id, question, None, criteria,
+                         web="1" if question_mode == "web" else "model" if question_mode == "model" else "")
         return {"ok": True}
 
     from zzaimy.generate import llm_connections

@@ -9,9 +9,29 @@
 from __future__ import annotations
 
 import re
-from urllib.parse import quote
+from html import escape, unescape
+from urllib.parse import quote, urlsplit
 
 _TAG = re.compile(r"(<[^>]+>)")
+
+
+def web_links(html: str) -> str:
+    """저장된 웹 출처 줄도 제목 링크로 표시한다. 원본 URL은 데이터에 보존."""
+    def replace(match):
+        number, title, raw_url = match.groups()
+        url = unescape(raw_url).strip()
+        try:
+            parsed = urlsplit(url)
+            if parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username:
+                return match.group(0)
+        except ValueError:
+            return match.group(0)
+        title = unescape(re.sub(r'<[^>]+>', '', title)).strip()
+        return (f'<p class="web-citation"><span>[{number}]</span> '
+                f'<a href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer" '
+                f'title="새 탭에서 출처 열기">{escape(title)}</a></p>')
+    return re.sub(r'<p\b[^>]*>\[(\d+)\]\s+(.+?)\s+—\s+(https?://[^<\s]+)</p>',
+                  replace, html)
 
 
 def _targets(sources: list[dict]) -> list[tuple[str, str]]:
@@ -29,13 +49,21 @@ def _targets(sources: list[dict]) -> list[tuple[str, str]]:
 
 def linkify(html: str, sources: list[dict]) -> str:
     """이미 렌더된 HTML 의 글자 부분에서만 문서 이름을 링크로 바꾼다."""
+    html = web_links(html)
     targets = _targets(sources)
     if not targets:
         return html
     parts = _TAG.split(html)
+    in_link = False
     for i, part in enumerate(parts):
         if part.startswith("<"):
+            if re.match(r'<a\b', part):
+                in_link = True
+            elif part.startswith('</a'):
+                in_link = False
             continue                      # 태그 안은 건드리지 않는다
+        if in_link:
+            continue
         for title, href in targets:
             if title in part:
                 part = part.replace(

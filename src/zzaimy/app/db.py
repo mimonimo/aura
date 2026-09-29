@@ -224,6 +224,7 @@ class Database:
         "ALTER TABLE documents ADD COLUMN related_criteria_id INTEGER",
         "ALTER TABLE documents ADD COLUMN receipt_no TEXT",
         "ALTER TABLE chat_messages ADD COLUMN session_id INTEGER",
+        "ALTER TABLE chat_messages ADD COLUMN mode TEXT",
         "ALTER TABLE documents ADD COLUMN project_id INTEGER",
         "ALTER TABLE projects ADD COLUMN instructions TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN memo TEXT NOT NULL DEFAULT ''",
@@ -615,13 +616,15 @@ class Database:
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-    def add_chat(self, session_id: int, role: str, content: str) -> None:
+    def add_chat(self, session_id: int, role: str, content: str, mode: str | None = None) -> None:
+        if mode not in (None, 'document', 'model', 'web'):
+            raise ValueError('Invalid chat mode')
         with self._conn() as conn:
             lock_session(conn, session_id)
             conn.execute(
-                "INSERT INTO chat_messages (session_id, role, content, created_at)"
-                " VALUES (?, ?, ?, ?)",
-                (session_id, role, content, _now()),
+                "INSERT INTO chat_messages (session_id, role, content, created_at, mode)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (session_id, role, content, _now(), mode),
             )
 
     def delete_chat_message(self, message_id: int) -> None:
