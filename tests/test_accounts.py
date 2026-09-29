@@ -95,7 +95,7 @@ def test_ls_password_reset_lives_on_train_page(client, monkeypatch):
     monkeypatch.setattr(ls_admin, "set_password", lambda pw: (True, "PASS: ok"))
     r = client.post("/dev/train/ls-password", data={"new_pw": "abcdefgh", "confirm": "abcdefgh"},
                     follow_redirects=False)
-    assert r.headers["location"].startswith("/dev/train?ok=")
+    assert r.headers["location"].startswith("/dev/train?tab=settings&ok=")
     assert client.post("/dev/accounts/ls-password", data={"new_pw": "abcdefgh", "confirm": "abcdefgh"}).status_code == 404
 
 

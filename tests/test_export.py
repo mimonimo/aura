@@ -37,7 +37,7 @@ def test_bundle_has_manifest_and_rag(db, tmp_path):
         assert "휴학 규정" in chunks
 
 
-def test_bundle_includes_datasets(db, tmp_path):
+def test_bundle_excludes_unreviewed_datasets(db, tmp_path):
     from pathlib import Path
     sft = Path("data/interim/sft")
     sft.mkdir(parents=True)
@@ -47,7 +47,23 @@ def test_bundle_includes_datasets(db, tmp_path):
 
     _data, manifest = build_bundle(db)
     kinds = {a["kind"] for a in manifest["artifacts"]}
-    assert "training_data" in kinds
+    assert "training_data" not in kinds
+
+
+def test_bundle_only_exports_exact_approved_bytes(db, tmp_path):
+    from tests.test_privacy_policy import accepted_pair
+    from zzaimy.export.bundle import single_file
+    path = tmp_path / "approved.jsonl"
+    raw = (json.dumps(accepted_pair(), ensure_ascii=False) + "\n").encode()
+    path.write_bytes(raw)
+    data, _ = build_bundle(db, sft_dir=tmp_path, include={"datasets"})
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        assert archive.read("datasets/approved.jsonl") == raw
+    assert single_file(db, "datasets/approved.jsonl", sft_dir=tmp_path) == raw
+    pair = accepted_pair()
+    pair["meta"]["review"]["checks"]["privacy"] = False
+    path.write_text(json.dumps(pair))
+    assert single_file(db, "datasets/approved.jsonl", sft_dir=tmp_path) is None
 
 
 def test_bundle_includes_model_when_present(db, tmp_path):

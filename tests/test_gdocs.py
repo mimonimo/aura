@@ -196,8 +196,8 @@ def test_linked_doc_command_is_applied_to_the_document(docs_env, tmp_path, monke
     assert "추진 배경을 보강했습니다" in page and "적용됨" in page and "아래에" in page and "곳" in page
     batch = [c for c in docs_env[1] if c[1].endswith(":batchUpdate")]
     assert len(batch) - calls_before == 2
-    # 문서에 써 넣는 글: 담당자 업무 연락처는 남기고(신청서·공문에 적어야 한다, 2026-09-24) 주민번호 같은 식별 번호만 가린다
-    assert "010-9999-8888" in batch[-2][2] and "900101-1234568" not in batch[-2][2]
+    # 내부 기본 정책은 원문 활용이다. 학습 반출 보호는 별도 경로에서 검증한다.
+    assert "010-9999-8888" in batch[-2][2] and "900101-1234568" in batch[-2][2]
     assert "담당자 지시" in fake.prompts[-1] and "지역 산업 수요가 늘고 있다" in fake.prompts[-1]
     # 확인 후 적용 모드: 계획만 보여 주고 쓰지 않는다 → 적용을 누르면 쓴다
     client.post(f"/api/chat-documents/{sid}/confirm-mode", data={"on": "1"})

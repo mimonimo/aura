@@ -43,7 +43,7 @@ def test_stage_model_rows_do_not_nest_and_help_copy_is_removed(client, monkeypat
         lc.activate(conn['id'])
         monkeypatch.setattr(main, '_live_models_cached', lambda *a, **kw: {
             'ok': True, 'models': [{'id': 'long-model-name'}], 'error': ''})
-        page = client.get('/dev/train')
+        page = client.get('/dev/train?tab=settings')
         assert page.status_code == 200
         parsed = Rows()
         parsed.feed(page.text)

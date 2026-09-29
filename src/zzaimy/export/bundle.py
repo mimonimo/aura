@@ -15,6 +15,7 @@ import json
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from zzaimy.dataset.privacy import approved_bytes
 
 
 def _git_commit() -> str:
@@ -58,10 +59,14 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
     ds_files = []
     if sft.exists():
         for jf in sorted(sft.glob("*.jsonl")):
+            try:
+                approved_bytes(jf)
+            except ValueError:
+                continue
             ds_files.append({"path": f"datasets/{jf.name}",
                              "bytes": jf.stat().st_size})
     tree.append({"group": "datasets", "label": "학습 데이터",
-                 "desc": f"JSONL {len(ds_files)}개" if ds_files else "아직 없음",
+                 "desc": f"검수 승인 JSONL {len(ds_files)}개" if ds_files else "승인된 학습 데이터 없음 · 후보는 검수 탭에서 확인",
                  "files": ds_files})
 
     # 모델
@@ -109,19 +114,23 @@ def collect_files(db, sft_dir: Path | str = "data/interim/sft",
             "reproduce": "chunks.jsonl을 embedding_model로 임베딩해 재색인",
         })
 
-    # 학습 데이터 (마스킹·수치검증 통과분)
+    # 학습 데이터 (근거·구조·맥락·개인정보 검수 승인 및 자동 검사 통과분)
     if "datasets" in include:
         sft = Path(sft_dir)
         datasets = []
         if sft.exists():
             for jf in sorted(sft.glob("*.jsonl")):
-                files[f"datasets/{jf.name}"] = jf.read_bytes()
-                n = sum(1 for _ in jf.open(encoding="utf-8"))
+                try:
+                    raw = approved_bytes(jf)
+                except ValueError:
+                    continue
+                files[f"datasets/{jf.name}"] = raw
+                n = len(raw.splitlines())
                 datasets.append({"file": jf.name, "n_pairs": n})
         if datasets:
             artifacts.append({
                 "kind": "training_data", "format": "jsonl(sharegpt)",
-                "files": datasets, "note": "인풋 유래는 마스킹본·수치검증 통과분만",
+                "files": datasets, "note": "파일별 근거·구조·맥락·개인정보 검수 승인 및 자동 검사 통과분. 통합 학습 전 사업별 분리·중복 재검증 필요",
             })
 
     # 모델 (있을 때만 — DGX 학습 후)

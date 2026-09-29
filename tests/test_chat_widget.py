@@ -225,19 +225,19 @@ def test_graph_evidence_rejects_non_document_source(tmp_path):
 
 # ---- 외부 참조 — 토큰화 후 외부 처리, 답은 교내 모델이 만든다 ----
 
-def test_chat_offers_external_reference(tmp_path):
+def test_chat_no_longer_offers_legacy_external_api(tmp_path):
     page = _client(tmp_path).get("/chat").text
     assert 'id="extBtn"' in page
-    assert 'name="external"' in page
+    assert 'name="external"' not in page
 
 
-def test_external_reference_reports_when_unavailable(tmp_path, monkeypatch):
-    # 외부 전송이 꺼져 있으면 그 사실을 남기고 교내 자료만으로 답한다
+def test_legacy_external_flag_does_not_trigger_external_reference(tmp_path, monkeypatch):
+    # 제거된 external 필드는 외부 호출을 활성화하지 않는다.
     c = _client(tmp_path)
     c.post("/chat/send", data={"question": "지원 자격을 알려주세요.", "external": "1"})
     msgs = c.get("/chat/1/messages").json()["messages"]
     texts = [m["content"] for m in msgs]
-    assert any("외부 참조를 쓰지 못했습니다" in t for t in texts)
+    assert not any("외부 참조를 쓰지 못했습니다" in t for t in texts)
     assert any("합성 답변" in t for t in texts)      # 답변 자체는 계속된다
 
 
@@ -289,7 +289,7 @@ def test_agent_starts_a_project_from_an_announcement(tmp_path):
 def test_agent_leaves_outward_actions_as_buttons(tmp_path):
     body = _client(tmp_path).post("/chat/ask", data={"question": "외부 전송 켜줘"}).json()
     labels = [a["label"] for a in body["actions"]]
-    assert "외부 전송 켜기" in labels          # 밖으로 나가는 일은 확인을 받는다
+    assert "외부 구독 연결" in labels          # 상태 확인 화면만 연결하며 자동 실행하지 않는다
     assert body["done"] == []
 
 

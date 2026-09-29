@@ -90,8 +90,8 @@
    "left": "복합 표·그림·원본 비율·에이전트 이동 동작 실문서 회귀",
    "links": [
     {
-     "label": "결정 ADR-0014",
-     "href": "/dev/doc/decisions/0014-hwp-authoring-com-agent-md-ir.md"
+     "label": "COM 폐기 · MCP 방향",
+     "href": "/dev/doc/decisions/0034-drop-com-agent-use-mcp.md"
     },
     {
      "label": "현재 작업",
@@ -102,7 +102,7 @@
   {
    "name": "규정 검색 (하이브리드+리랭커)",
    "status": "done",
-   "note": "문서 194건·조각 3,503(9/22). 학습본 Embed v2·Rerank v1 운영, 한 번에 맞히는 비율 0.72·상위 10 안 0.91(표본 300, 합성 질의)",
+   "note": "학습본 Embed v2·Rerank v1 채택. 과거 코퍼스 건수와 9/22 측정치를 현재 성능으로 사용하지 않는다. 최신 측정일·질의·조각 수·방식별 지표는 품질·성능 화면에서 확인",
    "area": "규정 검색·근거",
    "left": "실물 골드셋 측정, 상황 질의(못 찾는 몫 22.7%) 보강",
    "links": [
@@ -238,17 +238,17 @@
   {
    "name": "개인정보 처리·반출 점검",
    "status": "doing",
-   "note": "정책·외부 연결·진단·과거 기록 분리. 과거 검사 통과는 현재 데이터 안전 보증이 아님. 내부 원문 보존 정책 전환 미완료",
+   "note": "내부 마스킹 켜기·끄기와 항목별 저장 설정 구현, 기본값은 꺼짐. 학습 사본 보호·승인 반출은 독립 적용. 과거 기록은 검색·유형 필터·10건 페이지로 조회",
    "area": "운영·보안",
-   "left": "내부 마스킹 전체/항목별 설정 연결, 권한 검증과 학습 반출 보호 동시 적용. 라벨 없는 이름 탐지 한계 보완",
+   "left": "기존 가림 본문의 원본 재추출은 별도. 라벨 없는 이름 탐지 한계와 부서 권한 실문서 검증 보완",
    "links": [
     {
      "label": "점검 화면",
      "href": "/dev/pii"
     },
     {
-     "label": "원칙 ADR-0006",
-     "href": "/dev/doc/decisions/0006-criteria-no-masking.md"
+     "label": "내부 처리·학습 보호 분리",
+     "href": "/dev/doc/decisions/0044-internal-privacy-training-boundary.md"
     }
    ]
   },

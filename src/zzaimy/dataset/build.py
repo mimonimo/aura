@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from zzaimy.verify.numbers import verify_numbers
+from zzaimy.dataset.privacy import protect_candidate
 
 SFT_DIR = Path("data/interim/sft")
 
@@ -41,13 +42,13 @@ class BuildResult:
 
 def _pair(instruction: str, evidence: str, output: str, meta: dict) -> dict:
     human = instruction + ("\n\n" + evidence if evidence else "")
-    return {
+    return protect_candidate({
         "conversations": [
             {"from": "human", "value": human},
             {"from": "gpt", "value": output},
         ],
         "meta": meta,
-    }
+    })
 
 
 def _passes(result: BuildResult, output: str, evidence: list[str]) -> bool:
@@ -131,10 +132,10 @@ def build_chat_pairs(db) -> BuildResult:
         answers = "\n".join(t["value"] for t in turns if t["from"] == "gpt")
         if not _passes(out, answers, evidence):
             continue
-        out.pairs.append({
+        out.pairs.append(protect_candidate({
             "conversations": turns,
             "meta": {"source": "chat", "session_id": s["id"]},
-        })
+        }))
     return out
 
 
@@ -193,12 +194,12 @@ def build_preference_pairs(db) -> list[dict]:
         prev = (hist[-1]["draft"] or "").strip()
         if not prev or prev == cur:
             continue
-        out.append({
+        out.append(protect_candidate({
             "prompt": _DRAFT_INSTRUCTION + f"\n\n[재료 문서]\n{body[:5000]}",
             "chosen": cur,
             "rejected": prev,
             "meta": {"source": "dpo", "doc_id": d["id"]},
-        })
+        }))
     return out
 
 

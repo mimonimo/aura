@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% block title %}모델 학습{% endblock %}
-{% block pagetitle %}모델 학습{% endblock %}
+{% block title %}데이터·모델 개발{% endblock %}
+{% block pagetitle %}데이터·모델 개발{% endblock %}
 {% block content %}
+{% include "_development_nav.html" %}
 <style>
   /* 도구 카드 3장 — 같은 구조(단계·이름·상태·역할·열기·설정), 같은 높이 */
   /* 도구 카드 3장: 3열 → 좁으면 1열 (2+1 처럼 한 장만 남는 줄이 생기지 않는다) */
@@ -32,6 +33,9 @@
   .steps { list-style:none; margin:0; padding:0; }
   .steps li { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--panel); }
   .steps li:last-child { border-bottom:0; }
+  .steps .pill{white-space:normal;overflow-wrap:anywhere;line-height:1.5;max-width:100%}
+  .steps li > div{min-width:0}
+  @media(max-width:700px){.steps li{flex-wrap:wrap}.steps li > .pill{margin-left:38px!important}}
   .step-n { width:26px; height:26px; border-radius:50%; background:#CBD5E1; color:#fff; font-size:12.5px; font-weight:700;
             display:inline-flex; align-items:center; justify-content:center; flex:none; }
   .steps li.done .step-n { background:var(--green); }
@@ -49,6 +53,7 @@
 <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
 {% endif %}
 
+{% if development_tab == 'models' %}
 {% include "_model_tracks.html" %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:map-arrow-right-linear"></iconify-icon>Writer 학습 준비와 실행 순서</h2>
@@ -66,6 +71,10 @@
   </ol>
 </div></div>
 
+<p class="muted">검수한 데이터의 개인정보·수치 처리와 평가셋 분리를 확인한 뒤 학습합니다. <a href="/dev/train?tab=data">데이터·검수</a> · <a href="/dev/quality">품질·성능 측정</a></p>
+{% endif %}
+
+{% if development_tab in ['models', 'settings'] %}
 <div class="tool-grid">
   {% for t in tools %}
   <div class="card reveal"><div class="card-in">
@@ -148,6 +157,8 @@
 </div>
 {% endfor %}
 
+{% endif %}
+{% if development_tab == 'settings' %}
 <style>
   .llm-conns { display:flex; flex-direction:column; gap:12px; }
   .llm-conn { border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:flex; flex-direction:column; gap:8px; background:#fff; }
@@ -679,6 +690,8 @@ document.addEventListener("DOMContentLoaded", function () {
   })();
 </script>
 
+{% endif %}
+{% if development_tab == 'exports' %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:export-linear"></iconify-icon>산출물 반출</h2>
   <p class="muted">아래 학습 파일은 서버에 저장된 JSONL입니다. Label Studio의 프로젝트·태스크 목록과 다르며, 새 검수 결과가 자동 동기화되지는 않습니다.</p>
@@ -714,4 +727,5 @@ document.addEventListener("DOMContentLoaded", function () {
   </form>
 </div></div>
 
+{% endif %}
 {% endblock %}
