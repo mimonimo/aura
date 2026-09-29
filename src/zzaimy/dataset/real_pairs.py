@@ -102,14 +102,32 @@ def render_grids(grids: list[dict], max_rows: int = 40) -> str:
     return render_table_grids(grids, max_rows=max_rows)
 
 
+def sentence_facts(text: str, limit: int = 120) -> list[str]:
+    """글의 문장·구절을 사실 줄로 — 글머리·번호를 떼고 200자 안으로. 수치가 없는 사실(기관·프로그램·행동)도 입력에 있어야
+    출력이 입력에서 풀린다(C-134). 순서는 뒤에서 섞는다(양식 순서로 재구성하는 능력을 배우게)."""
+    out: list[str] = []
+    for ln in (text or "").split("\n"):
+        # 글머리·번호만 뗀다('1) '·'(2) '·'① '·'• ') — '100조원 …'·'82개 …' 처럼 수로 시작하는 내용은 남긴다
+        s = re.sub(r"^(?:\s*(?:\(\d{1,2}\)|\d{1,2}[.)]|[①-⑳]|[•▪∙·\-–※○□■❑❐◦]|[\ue000-\uf8ff]))+\s*", "", ln).strip()
+        if len(s) < 6:
+            continue
+        for sent in re.split(r"(?<=[.다])\s+(?=[가-힣A-Z(\[])", s):
+            sent = sent.strip()
+            if len(sent) >= 6 and sent not in out:
+                out.append(sent[:200])
+    return out[:limit]
+
+
 def fact_sheet(parts: list[tuple[str, object]], limit: int = 400) -> list[str]:
-    """완성본 절의 사실 목록 — 수치는 앞뒤 낱말과 함께(무슨 수치인지 알게), 표 값은 '행 이름 · 열 머리: 값'."""
+    """완성본 절의 사실 목록 — 글은 문장 단위로 전부(섞어서), 수치는 앞뒤 낱말과 함께, 표 값은 '행 이름 · 열 머리: 값'."""
     facts: list[str] = []
     seen: set[str] = set()
     n_text = 0
+    sentences: list[str] = []
     for kind, payload in parts:
         if kind == "text":
-            for m in _NUM.finditer(str(payload)):
+            sentences += [x for x in sentence_facts(str(payload)) if x not in sentences]
+            for m in _NUM.finditer(""):                               # 글의 수치는 문장 사실이 덮는다 — 구절 조각을 따로 내지 않는다
                 if not any(ch.isdigit() for ch in m.group(0)) or (m.group(0).isdigit() and len(m.group(0)) <= 1):
                     continue
                 a, b = max(0, m.start() - 14), min(len(str(payload)), m.end() + 6)
@@ -137,20 +155,23 @@ def fact_sheet(parts: list[tuple[str, object]], limit: int = 400) -> list[str]:
                     if phrase not in seen:
                         seen.add(phrase)
                         facts.append(phrase)
-            # 글 칸(머리 행 포함) 속 수치 — '82개 AI교과목', '[증빙 2-35]', '32건' 도 문맥 구절로(실적 표는 값 칸 없이 글 칸뿐이다)
+            # 글 칸(머리 행 포함)은 칸 글 통째로 — '82개 AI교과목 편성', '[증빙 2-35]' 같은 사실이 조각나지 않게(실적 표는 값 칸 없이 글 칸뿐이다)
+            numeric_x = [(g["x0"], g["x1"]) for g in groups if g["numeric"]]
             for r, c, rs, csn, t in cells:
-                if _is_value(t) and r >= head_n:
+                in_numeric = any(not (c + csn - 1 < x0 or c > x1) for x0, x1 in numeric_x)
+                if not t.strip() or (_is_value(t) and r >= head_n and in_numeric):   # 값 열의 값은 위에서 '행 · 열: 값' 으로 냈다
                     continue
-                for m in _NUM.finditer(t):
-                    if not any(ch.isdigit() for ch in m.group(0)):
-                        continue
-                    a, b = max(0, m.start() - 14), min(len(t), m.end() + 6)
-                    phrase = " ".join(t[a:b].split())
-                    if phrase not in seen:
-                        seen.add(phrase)
-                        facts.append(phrase)
-    # 글의 수치 구절은 limit 까지, 표의 값은 전부(값을 빼면 출력의 수치가 입력에 없게 된다)
-    return facts
+                phrase = " ".join(t.split())[:1000]                    # 칸 글은 자르지 않는다(자르면 뒤의 수치가 입력에서 빠진다)
+                if phrase not in seen and len(phrase) >= 4:
+                    seen.add(phrase)
+                    facts.append(phrase)
+    # 문장 사실은 정해진 순서로 섞어 앞에(같은 입력이면 같은 순서), 수치 구절은 limit 까지, 표의 값은 전부
+    import random
+
+    rnd = random.Random(sum(len(x) for x in sentences))
+    rnd.shuffle(sentences)
+    number_only = [f for f in facts if not any(f in x for x in sentences)]
+    return sentences + number_only
 
 
 def table_cells(raw: str) -> list[tuple[int, int, int, int, str]]:
@@ -388,6 +409,25 @@ def _numbers(text: str) -> set[str]:
     return {re.sub(r"[^\d.%]", "", m.group(0)) for m in _NUM.finditer(text or "") if any(ch.isdigit() for ch in m.group(0))}
 
 
+_UNIT = re.compile(r"\d[\d,]*(?:\.\d+)?\s*(?:%|명|건|개|회|점|억|백만|천원|만원|원|시간|학점|과목|학과|팀|종|대|기|차|년|월|일|주|쪽|배|호|급|인)")
+_SECTION_FORM = re.compile(r"^\d{1,2}(?:\.\d{1,2}){1,3}\.?$")
+
+
+def fact_numbers(text: str, strict: bool = True) -> set[str]:
+    """사실 수치 — 단위가 붙은 수(9명·27건·1,250백만원)는 자릿수와 상관없이, 그 밖에는 세 자리 이상·소수·백분율.
+    strict 면 두 자리 맨 수도 사실로 본다. 절 번호꼴(1.2·2.1.1)은 구조 표기라 뺀다. (C-134: 참여 인원이 절 번호로 빠지지 않게)"""
+    out: set[str] = set()
+    for m in _UNIT.finditer(text or ""):
+        out.add(re.sub(r"[^\d.%]", "", m.group(0).split()[0] if " " in m.group(0) else re.match(r"[\d,]+(?:\.\d+)?%?", m.group(0)).group(0)))
+    for n in _numbers(text):
+        core = n.strip("%")
+        if _SECTION_FORM.match(n) or not core:
+            continue
+        if len(core.replace(".", "")) >= 3 or "." in core or "%" in n or (strict and len(core) == 2):
+            out.add(n)
+    return out
+
+
 def _prompt(sec: FormSection, sections: list[FormSection], title: str, materials: str, command: str) -> str:
     """서빙 때 에이전트가 보는 프롬프트와 같은 틀(gdocs_agent._PROMPT) — 학습 입력과 운영 입력이 같아야 학습이 능력이 된다."""
     from zzaimy.app.gdocs_agent import _PROMPT
@@ -451,8 +491,7 @@ def build_section_pair(sec: FormSection, sections: list[FormSection], parts: lis
     ] if x)
     human = _prompt(sec, sections, title, materials, command)
     out_text = json.dumps(output, ensure_ascii=False)
-    missing = _numbers(out_text) - _numbers(human)
-    missing = {m for m in missing if len(m.strip("%.")) > 1}
+    missing = fact_numbers(out_text) - _numbers(human)
     shown = []
     for o in ops:
         if o["op"] == "insert":
@@ -493,6 +532,14 @@ _APPENDIX = re.compile(r"^(증빙\s*자료|별첨|부록|첨부\s*자료?)(\s*�
 _FIGURE_MARK = "\ue000FIG:"
 
 
+def _clip(text: str, n: int) -> str:
+    """n 자 안으로 자르되 수·낱말 가운데를 끊지 않는다(끊긴 '202' 가 학습 목표에 남지 않게)."""
+    if len(text) <= n:
+        return text
+    cut = text[:n]
+    return cut[:cut.rfind(" ")].rstrip() if " " in cut[n // 2:] else cut
+
+
 def figure_spec(image_text: str) -> dict | None:
     """그림 판독 조각('글자:' 줄들 + '설명:') → 도식 명세 {"title","layout","blocks":[{"title","items"}],"footer"}.
     글줄이 상자 제목(글머리 없는 줄)과 요점(• 줄)으로 읽히면 도식, 로고·사진처럼 글이 몇 줄 없으면 None."""
@@ -506,13 +553,13 @@ def figure_spec(image_text: str) -> dict | None:
         if _BULLET.match(ln):                                        # 요점 — 현재 상자에
             if not blocks:
                 blocks.append({"title": "", "items": []})
-            blocks[-1]["items"].append(_BULLET.sub("", ln)[:60])
+            blocks[-1]["items"].append(_clip(_BULLET.sub("", ln), 60))
         elif ln.startswith("출처") and blocks and blocks[-1]["items"]:   # 출처 줄은 앞 요점에 붙인다
-            blocks[-1]["items"][-1] = (blocks[-1]["items"][-1] + " (" + ln + ")")[:80]
+            blocks[-1]["items"][-1] = _clip(blocks[-1]["items"][-1] + " (" + ln + ")", 80)
         elif not blocks or (len(ln) <= 16 and _BULLET.match(nxt) and blocks[-1]["items"]):   # 짧은 이름표 + 다음 줄이 요점 = 새 상자
             blocks.append({"title": ln[:40], "items": []})
         elif blocks and blocks[-1]["items"]:                         # 글머리 없는 이어지는 줄 — 앞 요점의 계속
-            blocks[-1]["items"][-1] = (blocks[-1]["items"][-1] + " " + ln)[:80]
+            blocks[-1]["items"][-1] = _clip(blocks[-1]["items"][-1] + " " + ln, 80)
         elif blocks and not blocks[-1]["items"] and len(blocks[-1]["title"]) < 30:
             blocks[-1]["title"] = (blocks[-1]["title"] + " " + ln).strip()[:40]
         else:
@@ -602,7 +649,7 @@ def build_fill_pair(sec: FormSection, sections: list[FormSection], grid: dict, f
     op = {"op": "fill", "section": sec.index, "old": "", "text": "", "table": grid["n"], "cells": cells}
     reply = f"「{sec.heading}」 절의 표 {grid['n']} 에 {len(cells)}칸을 채웠습니다. 자료에 없는 칸은 비워 두었습니다."
     out_text = json.dumps({"reply": reply, "ops": [op], "asks": []}, ensure_ascii=False)
-    missing = {m for m in _numbers(out_text) - _numbers(human) if len(m.strip("%.")) > 1}
+    missing = fact_numbers(out_text) - _numbers(human)
     shown = f"[양식 표 {grid['n']} 채우기] " + ", ".join(f"r{c['row']} c{c['col']} = {c['text']}" for c in cells)
     return {"human": human, "output": out_text, "shown": shown, "missing_numbers": sorted(missing), "materials": materials,
             "stats": {"filled": len(cells), "facts": len(facts)}}

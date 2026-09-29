@@ -21,11 +21,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 REVIEW_CONFIG = """<View>
-  <Header value="문서 구조 단계 문답 — 근거·사슬·질문(입력)에 대한 [생각]+[답]이 맞는지 판정"/>
+  <Header value="문서 구조 단계 문답 — 질문과 근거에 대해 근거 설명과 답이 맞는지 판정 (시스템 지침은 접어 둠)"/>
+  <Header value="질문"/><Text name="question" value="$question"/>
   <View style="display:flex; gap:1em">
-    <View style="width:50%"><Header value="입력"/><Text name="input" value="$input"/></View>
-    <View style="width:50%"><Header value="출력"/><Text name="output" value="$output"/></View>
+    <View style="width:50%"><Header value="근거 설명 ([N단계] 줄)"/><Text name="reasoning" value="$reasoning"/></View>
+    <View style="width:50%"><Header value="답"/><Text name="output" value="$answer"/></View>
   </View>
+  <Collapse><Panel value="근거·사슬 (입력)"><Text name="evidence" value="$evidence"/></Panel></Collapse>
+  <Collapse><Panel value="원문 입력 전체(시스템 지침 포함)"><Text name="input" value="$input"/></Panel></Collapse>
   <Choices name="decision" toName="output" choice="single" showInline="true" required="true">
     <Choice value="채택"/><Choice value="수정"/><Choice value="폐기"/>
   </Choices>
@@ -101,7 +104,8 @@ def main() -> int:
         dropped.append(f"단계 {rec['step']} {rec['node']}: {', '.join(sorted(tc.missing_numbers(rec))[:6])}")
         return False
 
-    for v in range(3):                                               # 질문 표현을 바꾼 변형 셋
+    base_ok = keep(s1) and keep(s2)                                  # 사슬의 첫 두 단계 — 검증을 통과해야 대화형에 들어간다
+    for v in range(1, 3):                                            # 질문 표현을 바꾼 변형
         keep(tc.step1(program, overview_evidence, variant=v))
         keep(tc.step2(program, overview, roots, area_evidence, variant=v))
     part_recs: dict[str, dict] = {}
@@ -130,8 +134,9 @@ def main() -> int:
             ok3 = bool(s3) and keep(s3)
             ok4 = bool(s4) and keep(s4)
             chain = ""
-            if ok3 and ok4:
+            if ok3 and ok4 and base_ok:
                 steps = [s1, s2] + ([part_recs[node.part]] if node.part in part_recs else []) + [s3, s4]
+                assert all(not tc.missing_numbers(st) for st in steps)   # 대화형은 검증 통과한 단계만으로
                 pairs.append(tc.chain_conversation(steps, program, args.done))
                 n_chain += 1
                 chain = "O"
