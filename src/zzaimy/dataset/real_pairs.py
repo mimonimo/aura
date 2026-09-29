@@ -118,8 +118,9 @@ def sentence_facts(text: str, limit: int = 120) -> list[str]:
     return out[:limit]
 
 
-def fact_sheet(parts: list[tuple[str, object]], limit: int = 400) -> list[str]:
-    """완성본 절의 사실 목록 — 글은 문장 단위로 전부(섞어서), 수치는 앞뒤 낱말과 함께, 표 값은 '행 이름 · 열 머리: 값'."""
+def fact_sheet(parts: list[tuple[str, object]], limit: int = 400, src: dict | None = None) -> list[str]:
+    """완성본 절의 사실 목록 — 글은 문장 단위로 전부(섞어서), 수치는 앞뒤 낱말과 함께, 표 값은 '행 이름 · 열 머리: 값'.
+    src 를 주면 표에서 나온 사실 줄마다 그 표 조각의 id 를 적는다(근거 기록용 — 표 사실은 칸을 이어 만든 글이라 찾아서는 못 잇는다)."""
     facts: list[str] = []
     seen: set[str] = set()
     n_text = 0
@@ -137,6 +138,9 @@ def fact_sheet(parts: list[tuple[str, object]], limit: int = 400) -> list[str]:
                     facts.append(phrase)
                     n_text += 1
         else:
+            cid = payload.get("chunk_id") if isinstance(payload, dict) else None
+            payload = payload["cells"] if isinstance(payload, dict) else payload
+            n_before = len(facts)
             cells = payload if payload and isinstance(payload[0], tuple) else table_cells("\n".join(" | ".join(r) for r in payload))
             groups, head_n = column_groups(cells)
             labels = [g for g in groups if not g["numeric"]]
@@ -165,6 +169,9 @@ def fact_sheet(parts: list[tuple[str, object]], limit: int = 400) -> list[str]:
                 if phrase not in seen and len(phrase) >= 4:
                     seen.add(phrase)
                     facts.append(phrase)
+            if src is not None and cid:
+                for f in facts[n_before:]:
+                    src.setdefault(f, cid)
     # 문장 사실은 정해진 순서로 섞어 앞에(같은 입력이면 같은 순서), 수치 구절은 limit 까지, 표의 값은 전부
     import random
 
@@ -243,12 +250,17 @@ def column_groups(cells: list[tuple[int, int, int, int, str]], head_n: int | Non
     for c in cells:
         by_row.setdefault(c[0], []).append(c)
     shadow = {(r + dr, c + dc) for r, c, rs, cs, _ in cells for dr in range(1, rs) for dc in range(cs)}
+    # 맨 위 행이 글 칸 하나뿐이고 그 칸이 표 너비의 절반 넘게 덮으면 '(단위: 백만원)' 같은 표 설명 줄 — 열 이름으로 쓰지 않는다
+    cap = 0
+    top = [c for c in by_row.get(0, []) if c[4].strip()]
+    if n_rows > 2 and len(top) == 1 and top[0][3] * 2 >= n_cols and n_cols > 1:
+        cap = 1
     if head_n is None:
         # 머리 행: 순수 수치 칸이 없고, 빈 칸이 있다면 그 자리 위에 이미 머리 글이 있는 행(세로 병합 아래 자리).
         # '2026년'·'1차년도' 는 머리 글이다. 글뿐인 표(실적표)는 모든 행이 머리처럼 보이므로 첫 행만 머리로 둔다
         head_n = 0
         seen_label = [False] * n_cols
-        for ri in range(n_rows):
+        for ri in range(cap, n_rows):
             row = [c for c in by_row.get(ri, []) if (c[0], c[1]) not in shadow]
             if not _header_row_ok([t for *_, t in row], form_texts):
                 break
@@ -259,9 +271,9 @@ def column_groups(cells: list[tuple[int, int, int, int, str]], head_n: int | Non
                 if t.strip():
                     for x in range(c, min(c + cs, n_cols)):
                         seen_label[x] = True
-        head_n = 1 if head_n >= n_rows else max(1, min(head_n, 3))
+        head_n = cap + (1 if head_n >= n_rows - cap else max(1, min(head_n, 3)))
     label_at = ["" for _ in range(n_cols)]
-    for ri in range(head_n):
+    for ri in range(cap if head_n > cap else 0, head_n):
         for _, c, rs, cs, t in by_row.get(ri, []):
             for x in range(c, min(c + cs, n_cols)):
                 label_at[x] = t or label_at[x]
@@ -446,7 +458,8 @@ def build_section_pair(sec: FormSection, sections: list[FormSection], parts: lis
     figure_parts = [p for k, p in parts if k == "figure" and p]
     if not text_parts and not table_parts and not figure_parts:
         return None
-    facts = fact_sheet([("table", p["cells"]) if k == "table" else ("text", _figure_text(p) if k == "figure" else p) for k, p in parts])
+    fact_src: dict = {}
+    facts = fact_sheet([("table", p) if k == "table" else ("text", _figure_text(p) if k == "figure" else p) for k, p in parts], src=fact_src)
     ops: list[dict] = []
     filled = 0
     used_grids: set = set()
@@ -477,8 +490,8 @@ def build_section_pair(sec: FormSection, sections: list[FormSection], parts: lis
     n_ins = sum(1 for o in ops if o["op"] == "insert")
     n_tbl = sum(1 for o in ops if o["op"] == "table")
     n_fig = sum(1 for o in ops if o["op"] == "figure")
-    parts_desc = [x for x in [f"문단 {n_ins}건" if n_ins else "", f"표 {n_tbl}개" if n_tbl else "", f"도식 {n_fig}개" if n_fig else "",
-                              f"양식 표 {filled}칸 채움" if filled else ""] if x]
+    # 셈(문단 몇 건·몇 칸)은 답에 적지 않는다 — 품질 관문의 수치 대조는 답의 모든 수를 근거에서 찾는다
+    parts_desc = [x for x in ["본문 문단" if n_ins else "", "표" if n_tbl else "", "도식" if n_fig else "", "양식 표 채움" if filled else ""] if x]
     reply = f"「{sec.heading}」 절을 작성방법에 맞춰 작성했습니다 — {', '.join(parts_desc)}. 수치·명칭은 지난 자료의 사실 목록에 있는 것만 썼습니다."
     output = {"reply": reply, "ops": ops, "asks": []}
     command = command or f"「{sec.heading}」 절을 작성방법에 맞춰 작성해 줘. 담당자 지시: 지난 자료의 사실만 쓰고, 양식 표는 채워 줘"
@@ -505,6 +518,7 @@ def build_section_pair(sec: FormSection, sections: list[FormSection], parts: lis
         else:
             shown.append(f"[양식 표 {o['table']} 채우기] " + ", ".join(f"r{c['row']} c{c['col']} = {c['text']}" for c in o["cells"]))
     return {"human": human, "output": out_text, "shown": "\n\n".join(shown), "missing_numbers": sorted(missing), "materials": materials,
+            "fact_sources": {f"- {k}": v for k, v in fact_src.items()},
             "stats": {"inserts": n_ins, "tables": n_tbl, "figures": n_fig, "filled": filled, "facts": len(facts), "chars": sum(len(t) for t in text_parts)}}
 
 
@@ -595,6 +609,7 @@ def section_parts(sections: list[FormSection], chunks: list[dict]) -> list[dict]
             kept.append(dict(ch, kind="text", content=_FIGURE_MARK + json.dumps(spec, ensure_ascii=False)))
             continue
         kept.append(ch)
+    table_id = {(ch.get("content") or ""): ch.get("id") for ch in kept if (ch.get("kind") or "") == "table"}
     items = sc.stream(kept)
     running = sc.running_lines(items)
     spans = sc.align([{"index": s.index, "heading": s.heading} for s in sections], items)
@@ -615,7 +630,8 @@ def section_parts(sections: list[FormSection], chunks: list[dict]) -> list[dict]
             if k == "table":
                 raw = raws[ti] if ti < len(raws) else ""
                 ti += 1
-                fixed.append(("table", {"rows": p, "cells": table_cells(raw) if raw else table_cells("\n".join(" | ".join(r) for r in p))}))
+                fixed.append(("table", {"rows": p, "cells": table_cells(raw) if raw else table_cells("\n".join(" | ".join(r) for r in p)),
+                                        "chunk_id": table_id.get(raw)}))
                 continue
             # 글 덩어리 안의 도식 표시 줄을 figure 부분으로 떼어 낸다
             buf: list[str] = []
@@ -637,19 +653,22 @@ def section_parts(sections: list[FormSection], chunks: list[dict]) -> list[dict]
     return out
 
 
-def build_fill_pair(sec: FormSection, sections: list[FormSection], grid: dict, fin_cells: list, title: str = "") -> dict | None:
+def build_fill_pair(sec: FormSection, sections: list[FormSection], grid: dict, fin_cells: list, title: str = "",
+                    chunk_id: object = None) -> dict | None:
     """표 채우기만 따로 — 입력은 격자와 값 목록(행 이름·열 머리: 값), 출력은 fill 한 건. 절 쌍보다 짧아 표 좌표 능력을 집중해 가르친다."""
     cells = _fill_from_table(grid, fin_cells)
     if len(cells) < 3:
         return None
-    facts = fact_sheet([("table", fin_cells)])
+    fact_src: dict = {}
+    facts = fact_sheet([("table", {"cells": fin_cells, "chunk_id": chunk_id})], src=fact_src)
     command = f"「{sec.heading}」 절의 표 {grid['n']} 을 지난 자료의 값으로 채워 줘"
     materials = "[문서함의 지난 사업 자료 — 이 표에 넣을 값]\n" + "\n".join(f"- {f}" for f in facts) + "\n\n" + render_grids([grid])
     human = _prompt(sec, sections, title, materials, command)
     op = {"op": "fill", "section": sec.index, "old": "", "text": "", "table": grid["n"], "cells": cells}
-    reply = f"「{sec.heading}」 절의 표 {grid['n']} 에 {len(cells)}칸을 채웠습니다. 자료에 없는 칸은 비워 두었습니다."
+    reply = f"「{sec.heading}」 절의 양식 표를 지난 자료의 값으로 채웠습니다. 자료에 없는 칸은 비워 두었습니다."
     out_text = json.dumps({"reply": reply, "ops": [op], "asks": []}, ensure_ascii=False)
     missing = fact_numbers(out_text) - _numbers(human)
     shown = f"[양식 표 {grid['n']} 채우기] " + ", ".join(f"r{c['row']} c{c['col']} = {c['text']}" for c in cells)
     return {"human": human, "output": out_text, "shown": shown, "missing_numbers": sorted(missing), "materials": materials,
+            "fact_sources": {f"- {k}": v for k, v in fact_src.items()},
             "stats": {"filled": len(cells), "facts": len(facts)}}

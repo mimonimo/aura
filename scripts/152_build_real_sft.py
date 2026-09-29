@@ -54,7 +54,9 @@ def main() -> int:
 
     from zzaimy.app.db import Database
     from zzaimy.app.regulations import find_relevant
+    from zzaimy.dataset import provenance as pv
     from zzaimy.dataset import real_pairs as rp
+    from zzaimy.dataset import tree_cot as tc
 
     db = Database(ROOT / "data" / "platform" / "platform.db")
     form_doc, done_doc = db.get_document(args.form), db.get_document(args.done)
@@ -77,6 +79,19 @@ def main() -> int:
     crit_chunks = db.chunks_for_docs(crit_ids)
     print(f"근거 문서 {len(crit_ids)}건, 조각 {len(crit_chunks)}개")
 
+    # 근거 기록(아스트라 C-135 품질 관문): 입력 줄마다 문서·조각을 단다. 검수 판정은 사람이 남긴다
+    program_id = f"docset:{args.form}:{args.done}"
+    sources = (pv.Sources().add("form", db.list_doc_chunks(args.form)).add("done", done_chunks)
+               .add("criteria", crit_chunks, prefix="reg:"))
+    path_of: dict[str, list[str]] = {}
+
+    def fill_paths(n, trail):
+        path_of[n.heading] = trail + [n.heading]
+        for c in n.children:
+            fill_paths(c, trail + [n.heading])
+
+    for r in tc.build_tree(sections, tc.part_titles(done_chunks), plan_):
+        fill_paths(r, [])
     by_index = {s.index: s for s in sections}
     pairs: list[dict] = []
     dropped: list[tuple[str, str]] = []
@@ -109,7 +124,7 @@ def main() -> int:
             continue
         pairs.append({"conversations": [{"from": "human", "value": pr["human"]}, {"from": "gpt", "value": pr["output"]}],
                       "meta": {"source": "real-section", "doc_id": args.done, "form_id": args.form, "section": sec.heading,
-                               "shown": pr["shown"], "stats": st,
+                               "shown": pr["shown"], "stats": st, "_known": {k: (args.done, str(v)) for k, v in pr["fact_sources"].items()},
                                "view": {"question": pr["human"].rpartition("[담당자 지시]")[-1].strip(), "evidence": pr["materials"],
                                         "reasoning": "", "answer": pr["shown"]}}})
         # 표 채우기 쌍 — 같은 절의 표 부분만 따로
@@ -120,11 +135,12 @@ def main() -> int:
             g = rp.match_grid(sec, payload["cells"], used_grids)
             if g is None:
                 continue
-            fp = rp.build_fill_pair(sec, sections, g, payload["cells"], title=title)
+            fp = rp.build_fill_pair(sec, sections, g, payload["cells"], title=title, chunk_id=payload.get("chunk_id"))
             if fp and not fp["missing_numbers"]:
                 pairs.append({"conversations": [{"from": "human", "value": fp["human"]}, {"from": "gpt", "value": fp["output"]}],
                               "meta": {"source": "real-fill", "doc_id": args.done, "form_id": args.form, "section": sec.heading,
                                        "shown": fp["shown"], "stats": fp["stats"],
+                                       "_known": {k: (args.done, str(v)) for k, v in fp["fact_sources"].items()},
                                        "view": {"question": fp["human"].rpartition("[담당자 지시]")[-1].strip(), "evidence": fp["materials"],
                                                 "reasoning": "", "answer": fp["shown"]}}})
 
@@ -147,6 +163,9 @@ def main() -> int:
             dpo.append({"prompt": ch["conversations"][0]["value"], "chosen": ch["conversations"][1]["value"], "rejected": rejected,
                         "meta": {"section": rec.get("section"), "episode_at": rec.get("at"), "episode_score": rec.get("score")}})
 
+    pairs = [pv.attach(dict(p, meta={k: v for k, v in p["meta"].items() if k != "_known"}), sources, program_id,
+                       [title] + path_of.get(p["meta"]["section"], [p["meta"]["section"]]), known=p["meta"].get("_known"))
+             for p in pairs]
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "real_pairs.jsonl").write_text("".join(json.dumps(p, ensure_ascii=False) + "\n" for p in pairs), encoding="utf-8")
