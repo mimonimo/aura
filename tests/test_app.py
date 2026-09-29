@@ -1006,7 +1006,7 @@ def test_searchable_pdf_export(client, tmp_path):
 def test_dev_egress_page_renders(client):
     r = client.get("/dev/egress")
     assert r.status_code == 200
-    assert "외부 AI 참조 관리" in r.text
+    assert "외부 참조 AI · 구독 연결 확인" in r.text
 
 
 def test_dev_egress_submit_and_approve_flow(client):

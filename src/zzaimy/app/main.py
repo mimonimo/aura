@@ -3344,7 +3344,7 @@ def create_app(
         플랫폼 DB와, 옆에 있으면 코퍼스 파일럿 DB(스크립트 74 기본 대상)까지
         본다. 자가 점검 결과는 DB와 무관하므로 플랫폼 DB settings에만 둔다.
         """
-        from zzaimy.app import access_guard, pii_audit
+        from zzaimy.app import access_guard, pii_audit, egress, web_search
 
         sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True)]
         corpus_path = pii_audit.corpus_db_path(db)
@@ -3353,6 +3353,10 @@ def create_app(
                 Database(corpus_path), name="국고 코퍼스 (별도 DB)", linkable=False,
             ))
         return templates.TemplateResponse(request, "dev_pii.html", ctx(request, {
+            "external_status": egress.external_status(),
+            "search_provider": web_search.provider(),
+            "egress_stats": db.egress_stats(),
+            "subscription_checks": _aj.loads(db.get_setting("subscription_checks", "{}")),
             "sources": sources,
             "selftest": pii_audit.load_json(db, pii_audit.SELFTEST_KEY),
             "policy": pii_audit.MASK_POLICY,
@@ -3372,6 +3376,15 @@ def create_app(
             "role_choices": access_guard.ROLES,
             "dept_choices": [d.get("dept") for d in db.department_counts() if d.get("dept")],
         }))
+
+    @app.post("/dev/pii/subscriptions/check")
+    def dev_subscription_check():
+        from zzaimy.app.subscription_status import probe
+        from datetime import datetime, timezone
+        checks = {name: probe(name) for name in ("claude", "codex")}
+        checks["at"] = datetime.now(timezone.utc).isoformat()
+        db.set_setting("subscription_checks", _aj.dumps(checks))
+        return RedirectResponse("/dev/pii?view=external", status_code=303)
 
     @app.post("/dev/pii/selftest")
     def dev_pii_selftest():
@@ -4942,7 +4955,7 @@ def create_app(
 
     @app.get("/dev/egress", response_class=HTMLResponse)
     def dev_egress(request: Request):
-        return _egress_ctx(request)
+        return RedirectResponse("/dev/pii?view=external", status_code=303)
 
     @app.post("/dev/egress/tokenized", response_class=HTMLResponse)
     def dev_egress_tokenized(request: Request, text: str = Form(...)):

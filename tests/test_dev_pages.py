@@ -73,6 +73,24 @@ def test_dev_dashboard_labels(client):
     assert r2.status_code == 200 and "전송 실패" in r2.text
     r3 = client.get("/dev/corpus")
     assert r3.status_code == 200
+    assert '>문서 추출</h2>' not in r.text
+    assert '>문서 가져오기</h2>' not in r.text
+    assert 'href="/dev/egress"' not in r.text
+
+
+def test_privacy_tabs_and_subscription_check(client, monkeypatch):
+    from zzaimy.app import subscription_status
+    monkeypatch.setattr(subscription_status, 'probe', lambda p: {'provider': p, 'installed': False, 'state': 'missing'})
+    response = client.post('/dev/pii/subscriptions/check')
+    assert response.status_code == 200
+    assert 'CLI 미설치' in response.text
+    assert '아스트라 · Codex' in response.text and 'Claude Code' in response.text
+    assert 'API 호출 미사용' in response.text
+    assert 'action="/dev/egress/submit"' not in response.text
+    assert '마스킹 기록 —' not in response.text
+    invalid = client.get('/dev/pii?view=invalid').text
+    assert '현재 적용 상태' in invalid
+    assert '<details' not in invalid
 
 
 def test_export_selection_is_honored(client):

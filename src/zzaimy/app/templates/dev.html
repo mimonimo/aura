@@ -169,25 +169,9 @@
     <a href="/dev/hwp" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
   </div></div>
   <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:scanner-linear"></iconify-icon>문서 추출</h2>
-    <p class="muted" style="font-size:12.5px;">스캔 문서·사진에서 글·표·그림 뽑기</p>
-    <a href="/ocr" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:server-path-linear"></iconify-icon>문서 가져오기</h2>
-    <p class="muted" style="font-size:12.5px;">마운트된 공유 폴더·NAS에서 기준 문서·문서 추출로 자동 가져오기</p>
-    <a href="/dev/nas" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:eye-closed-linear"></iconify-icon>개인정보 마스킹</h2>
-    <p class="muted" style="font-size:12.5px;">마스킹 정책 · 자가 점검 · 잔여 검사 · 문서별 기록</p>
+    <h2 style="font-size:15px;"><iconify-icon icon="solar:shield-check-linear"></iconify-icon>개인정보 처리·반출 점검</h2>
+    <p class="muted" style="font-size:12.5px;">처리 정책 · 진단 도구 · 과거 처리 기록</p>
     <a href="/dev/pii" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:shield-check-linear"></iconify-icon>외부 AI 참조 관리
-      {% if egress.get("queued", 0) %}<span class="pill processing" style="margin-left:6px;">대기 {{ egress.queued }}</span>{% endif %}</h2>
-    <p class="muted" style="font-size:12.5px;">민감정보 제거 · 자동 분류 · 승인 · 감사 기록 (접수 {{ egress.get("total", 0) }} · 차단 {{ egress.get("blocked", 0) }})</p>
-    <a href="/dev/egress" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
   </div></div>
 </div>
 
