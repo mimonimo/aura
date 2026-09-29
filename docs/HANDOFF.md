@@ -183,8 +183,9 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
    이 기록이 없으면 학습 스크립트가 돌지 않는다.
 4. 학습 자료: 양식 × 완성본 실문서 쌍에서 `scripts/152_build_real_sft.py --form <양식 id> --done <완성본 id> --push --replace`
    (VM, `.env.local` 과 함께) 로 절 작성·표 채우기 쌍을 만든다 → `data/training/real_sft.jsonl`(학습)·`real_dpo.jsonl`·`real_report.md`,
-   Label Studio 「ZZAIMY 실문서 절 작성」에서 검수(ADR-0039). 첫 실측 557×562: 28건 + DPO 15쌍. `/dev/data` 데이터 공방의
-   검토 의견·초안·대화 쌍은 보조.
+   Label Studio 「ZZAIMY 실문서 절 작성」에서 검수(ADR-0039). 첫 실측 557×562: 28건 + DPO 15쌍. 구조 단계 문답(사업명→개요→목차→
+   절 항목→절 뼈대, "[N단계: …]" 추론 + [답])은 `scripts/153_build_tree_cot.py --push --replace` → `tree_cot_sft.jsonl` 63건,
+   「ZZAIMY 문서 구조 문답」(ADR-0040). 학습은 두 파일을 이어 한 어댑터로. `/dev/data` 데이터 공방의 검토 의견·초안·대화 쌍은 보조.
 5. 학습(DGX): `baseline.json` 과 `sft.jsonl` 을 DGX 의 같은 자리로 복사한 뒤
    `env PYTHONPATH=src .venv-train/bin/python scripts/83_sft_writer_qlora.py --base ~/zzaimy/models/Qwen3.8-27B --data data/training/real_sft.jsonl --seq-len 16384 --out ~/zzaimy/train/writer-v1`
    (실문서 쌍은 입력이 최대 1만9천 자라 기본 4096 은 잘린다).
@@ -199,7 +200,7 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 | sLLM 서빙 연결 | **완료(9/20)** | DGX(.110)·토르 02·03 연결 등록. 학습본 서빙 경로는 95 자가 점검 통과 |
 | ②Rerank 파인튜닝 | **완료·운영 적용(9/20)** | 베이스라인(GPU 조건) 먼저 측정 → 학습(`scripts/104`) → 홀드아웃 검증(`106`) → 하한 재측정(`105`) → 8015 서빙. 홀드아웃 R@1 0.649→0.711. ADR-0020·모델 카드 |
 | ①Embed 파인튜닝 | **완료·운영 적용(9/20, ADR-0021)** | v1 은 조밀 단독만 올라 보류. v2 는 오답을 융합 후 후보에서 뽑아 재학습(`scripts/108`), 홀드아웃 진입률 0.889→0.933 · R@1 0.811→0.856, 8016 서빙. 공개 KURE-v2 다중 벡터 경로는 재서 채택하지 않음(ADR-0025) |
-| Writer/Extract 파인튜닝 | 준비 완료 · 실문서 학습쌍 28건+DPO 15쌍(9/29, ADR-0039), 검수 뒤 학습 | DGX(.110)에 학습 환경 설치, 27B 가중치 52GB 반입, 스모크 2스텝 통과(최고 52.7GB), 공개 공고 3건으로 학습 전 베이스라인 기록(`data/train/baselines/writer/baseline.json`: 수치 위반 3.0건/문서, 배점 반영은 재료 없음, 문서당 275초). 실물 계획서·결과보고서와 골드 세트가 오면 §3-1 절차대로 학습 |
+| Writer/Extract 파인튜닝 | 준비 완료 · 실문서 절 작성 28건+DPO 15쌍(ADR-0039), 구조 단계 문답 63건(ADR-0040), 검수 뒤 학습 | DGX(.110)에 학습 환경 설치, 27B 가중치 52GB 반입, 스모크 2스텝 통과(최고 52.7GB), 공개 공고 3건으로 학습 전 베이스라인 기록(`data/train/baselines/writer/baseline.json`: 수치 위반 3.0건/문서, 배점 반영은 재료 없음, 문서당 275초). 실물 계획서·결과보고서와 골드 세트가 오면 §3-1 절차대로 학습 |
 | 검색 서빙 GPU 이관 | **완료(9/20)** | 리랭커·질의 임베딩을 토르 서비스로(§1 표). 리랭킹 3.75초→0.07초, 후보 10→20, 운영 지표 정확한 질문 R@1 0.753·상황 0.587. 점검 `scripts/110` |
 | 이그레스 에이전트 연동 | 예정 | 채팅·초안에서 관문 경유 외부 참조. 허브 개발 키 등록 뒤 |
 | 이그레스 실전송 개방 | 통신 개방됨(9/17) | 서버존 나가는 웹은 Imperva WAF 에서 허용 완료. 남은 것: 허브 개발 키를 LLM 연결에 등록(화면 수정 창) + 외부 참조용 지정 + ZZAIMY_EXTERNAL_ENABLED |
