@@ -55,7 +55,7 @@ def test_hwp5_xml_converts_like_hwpx(tmp_path):
     assert not h.runs[0].font.underline                        # pyhwp 의 정의 안 된 밑줄 값은 밑줄이 아니다
     assert len(d.paragraphs[1]._p.findall(".//" + qn("w:br"))) == 1
     assert d.paragraphs[2].text == "❍ 글머리표 항목"                 # 자동 글머리표는 글로 붙는다
-    assert d.paragraphs[0].runs[0].font.name == "Nanum Barun Gothic"  # 맑은 고딕 → 독스에 있는 한글 글꼴(148 실측으로 고름)
+    assert d.paragraphs[0].runs[0].font.name == "Nanum Gothic"  # 맑은 고딕 → 독스에 있는 한글 글꼴(ADR-0045)
     t = d.tables[0]
     assert t.cell(0, 0).text == "제목 칸" and t.cell(0, 0)._tc is t.cell(0, 1)._tc
     assert t.cell(0, 0)._tc.tcPr.find(qn("w:shd")).get(qn("w:fill")) == "D6D6D6"
