@@ -355,9 +355,37 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
     reqs = [{"insertText": {"location": {"index": idx}, "text": text}} for idx, text in sorted(fills, reverse=True)]
     if reqs:
         _batch(email, doc, reqs, http)
+    # 표의 꼴 — 머리 행은 옅은 음영과 굵은 글자(완성본의 표처럼 보이게, 2026-09-29). 실패해도 표 자체는 들어갔으니 조용히 넘어간다
+    try:
+        _style_table_header(email, doc, at, n_cols, http)
+    except Exception:
+        pass
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "table", "section": sec["heading"],
                       "rows": len(rows), "cols": n_cols})
     return {"ok": True, "rows": len(rows), "cols": n_cols, "section": sec["heading"]}
+
+
+def _style_table_header(email: str, doc: str, at: int, n_cols: int, http) -> None:
+    """방금 넣은 표(위치 at 이후 첫 표)의 머리 행에 음영·굵게."""
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    _raise(r)
+    body = body_content(r.json())
+    el = next((e for e in body if e.get("table") and int(e.get("startIndex", -1)) >= at), None)
+    if not el:
+        return
+    reqs: list[dict] = [{"updateTableCellStyle": {
+        "tableRange": {"tableCellLocation": {"tableStartLocation": {"index": int(el["startIndex"])}, "rowIndex": 0, "columnIndex": 0},
+                       "rowSpan": 1, "columnSpan": n_cols},
+        "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": {"red": 0.93, "green": 0.93, "blue": 0.93}}}},
+        "fields": "backgroundColor"}}]
+    head = (el["table"].get("tableRows") or [{}])[0]
+    for cell in head.get("tableCells", []):
+        paras = [e for e in cell.get("content", []) if "paragraph" in e and e.get("endIndex")]
+        if paras:
+            a, b = int(paras[0]["startIndex"]), int(paras[-1]["endIndex"]) - 1
+            if b > a:
+                reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": b}, "textStyle": {"bold": True}, "fields": "bold"}})
+    _batch(email, doc, reqs, http)
 
 
 def _section_tables(body: list[dict], info: dict, section_index: int) -> list[dict]:
