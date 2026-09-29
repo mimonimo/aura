@@ -5,11 +5,14 @@
 "27B 를 받아 놨는데 왜 안 쓰나" 같은 어긋남이 생긴다. 한 곳에서 모아 본다.
 
 계획(docs/model-plan.md): ①Embed KURE-v1 ②Rerank bge-reranker-v2-m3
-③Writer Qwen3.8-27B ④Extract Qwen3-4B. 학습은 DGX, 서빙은 토르가 맡는다.
+③Writer Qwen3.8-27B ④Extract Writer 공용 27B. 학습은 DGX, 서빙은 토르가 맡는다.
 """
 from __future__ import annotations
 
 import os
+from zzaimy.app.model_tracks import TRACKS
+
+_BASES = {t["key"]: t["base"] for t in TRACKS}
 
 PLAN = [
     {"key": "embed", "name": "①ZZAIMY-Embed", "base": "KURE-v1",
@@ -18,9 +21,9 @@ PLAN = [
      "role": "후보 재정렬", "kind": "service", "env": "ZZAIMY_RERANK_URL"},
     {"key": "answer", "name": "③ZZAIMY-Writer", "base": "Qwen3.8-27B",
      "role": "문서 작업 — 채팅·검토·초안", "kind": "chat"},
-    {"key": "extract", "name": "④ZZAIMY-Extract", "base": "Qwen3-4B",
+    {"key": "extract", "name": "④ZZAIMY-Extract", "base": _BASES["extract"],
      "role": "실적 카드 추출", "kind": "planned",
-     "note": "추출 경로는 아직 만들지 않았습니다 — 계획 단계"},
+     "note": "Writer 공용 27B 계획 · 전용 추출 학습본과 평가는 준비 전"},
     {"key": "review", "name": "반입 검토", "base": "Qwen3.8-27B (③Writer)",
      "role": "문서를 들일 때 요약·판정 — 문서 작업이므로 Writer 가 한다", "kind": "chat"},
     {"key": "vision", "name": "문서 이미지 판독", "base": "Qwen3.8-27B (③Writer, 멀티모달)",

@@ -76,8 +76,7 @@
     {% endfor %}
   </ol>
   <p class="gd-next" role="status">{% if not gdrive.configured %}앱 설정을 등록하세요.{% elif not gdrive.accounts %}문서를 가져올 Google 계정을 연결하세요.{% elif not drive_sources %}가져올 Drive 폴더를 연결하세요.{% elif not runs %}연결한 폴더에서 ‘지금 가져오기’를 실행하세요.{% else %}연결 설정이 완료되었습니다. 아래에서 가져오기 결과를 확인하세요.{% endif %}</p>
-  <details class="gd-settings-details" {% if not gdrive.configured or not gdrive.accounts %}open{% endif %}>
-  <summary><span>앱 설정·연결 계정</span><small>{{ gdrive.accounts|length }}개 계정 연결 · {{ '앱 등록 완료' if gdrive.configured else '앱 등록 필요' }}</small></summary>
+  <section aria-label="연결 계정과 앱 설정">
   <div class="gd-connect-grid">
     <section id="googleApp" class="gd-app-settings">
     <div class="gd-app-summary"><h3>Google 앱</h3>
@@ -96,7 +95,7 @@
       </fieldset>
     </div>
   </div>
-  </details>
+  </section>
   {% if storage and storage.available %}<p class="muted" style="font-size:12px; margin:10px 0 0;">문서 저장 공간: 사용 {{ (storage.used_bytes / 1073741824) | round(1) }}GB / 전체 {{ (storage.total_bytes / 1073741824) | round(1) }}GB ({{ storage.used_percent }}%){% if storage.low_space %} · 남은 공간이 적습니다{% endif %}</p>{% endif %}
 </div></div>
 
@@ -126,7 +125,7 @@
       {% if s.run.running %}<p class="pill processing">가져오는 중 {{ s.run.progress }}</p>{% endif %}
       <p class="gd-source-meta">{{ s.username or '계정 미지정' }} · {{ s.dept or '공통' }} · {{ levels.get(s.access_level, s.access_level or '자동') }}</p>
       <dl><div><dt>폴더 경로</dt><dd>{{ s.root }}</dd></div><div><dt>등록 용도</dt><dd>{{ s.target_label }}{% if s.target == "regulation" %} · {{ s.sector_label }}{% endif %}</dd></div><div><dt>가져오기</dt><dd>{% if s.auto %}{{ s.interval_min }}분마다 자동{% else %}수동 실행{% endif %}</dd></div></dl>
-      <details class="nas-file-types"><summary>대상 파일 형식 {{ s.extensions|length }}개</summary><p>{{ s.extensions | join(' · ') }}</p></details>
+      <p class="muted">대상 형식: {{ s.extensions | join(' · ') }}</p>
       <div class="nas-source-result"><span>최근 가져오기</span>{% if s.last_run %}<time>{{ s.last_run }}</time><p>{{ s.last_summary }}</p>{% else %}<p>아직 가져온 기록이 없습니다. 미리보기로 대상 파일을 확인하세요.</p>{% endif %}{% if s.run.last and s.run.last.error %}<p class="gd-source-error">{{ s.run.last.error }}</p>{% endif %}</div>
       <footer class="gd-source-actions">
         <form action="/dev/nas/{{ s.id }}/probe" method="post" style="display:inline;"><button type="submit" class="secondary" style="padding:4px 10px; font-size:12px;">연결 확인</button></form>

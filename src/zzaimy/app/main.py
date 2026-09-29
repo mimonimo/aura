@@ -461,6 +461,7 @@ def create_app(
     templates.env.filters["md_lite"] = md_lite
 
     def ctx(request: Request, extra: dict) -> dict:
+        from zzaimy.app.model_tracks import TRACKS, UPDATED
         # 작업물(문서함·프로젝트·채팅)은 계정별 분리 — 기준·OCR 저장소는 공용
         owner = getattr(request.state, "user", "zzaimy")
         pending = db.pending_documents(limit=50, owner=owner)
@@ -480,6 +481,7 @@ def create_app(
         except Exception:
             llm_status = {"ok": False, "configured": False, "model": "", "models": [], "error": "확인 실패"}
         return {
+            "model_tracks": TRACKS, "model_tracks_updated": UPDATED,
             "llm_status": llm_status,
             "chat_sessions": chat_history.sessions(owner, limit=12),
             "pending_docs": pending[:8],
@@ -4438,14 +4440,14 @@ def create_app(
         measured = (ev.get("measured_at") or "")[:10]
         steps = [
             {"title": "학습 데이터 준비", "desc": "데이터 공방에서 예시 생성, Label Studio 검수",
-             "status": f"묶음 {len(datasets)}개" if datasets else "데이터 없음",
-             "state": "done" if datasets else "todo"},
+             "status": "문답·근거 검수 중 · 학습 승인 별도",
+             "state": "doing"},
             {"title": "베이스라인 측정", "desc": "학습 전 성능 기록 (개선폭의 기준)",
              "status": (f"검색 정확도 측정 {measured}" if measured else "검색 정확도 측정 전")
-             + " · 작성 모델 측정 전",
+             + " · Writer 공개 표본 측정 기록 있음 / 실문서 평가셋 재측정 필요",
              "state": "doing" if measured else "todo"},
             {"title": "SFT 실행", "desc": "LLaMA Board에서 능력 학습, TensorBoard로 진행 확인",
-             "status": "LLaMA Board 연결됨" if llamaboard_url else "GPU 대기",
+             "status": "도구 주소 설정됨 · 학습 시작 전" if llamaboard_url else "도구 주소 미설정",
              "state": "todo"},
             {"title": "DPO", "desc": "담당자 판정·재작성 이력으로 선호 학습",
              "status": "SFT 후", "state": "todo"},

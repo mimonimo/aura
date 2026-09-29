@@ -30,7 +30,7 @@ def test_search_scope_and_allowed_docs(tmp_path):
 
     assert ag.search_scope("학생처", "staff", "kim") == {"user": "kim", "dept": "학생처"}
     assert ag.search_scope("", "student") == {"dept": "공통", "levels": ("public",)}
-    assert ag.search_scope("학생처", "dev") == {} and ag.search_scope(None, "staff") == {"user": ""}
+    assert ag.search_scope("학생처", "dev") == {} and ag.search_scope(None, "staff") == {"user": "", "dept": "공통"}
     db = Database(tmp_path / "t.db")
     a = db.add_document("공통규정.txt", "x", doc_type="regulation")
     b = db.add_document("산단서류.txt", "y", doc_type="auto", dept="산학협력단")     # 부서 제한 접수 문서

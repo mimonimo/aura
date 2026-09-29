@@ -1,0 +1,14 @@
+<div class="card"><div class="card-in">
+  <h2>모델 개발 트랙 (4종)</h2>
+  <p class="muted">{{ model_tracks_updated }} 기준 · 계획·검증 기록입니다. 현재 서버 연결 상태와 학습 완료 여부는 다릅니다.</p>
+  <div class="table-scroll"><table>
+    <thead><tr><th>모델 / 베이스</th><th>역할·학습 방식</th><th>현재 단계</th><th>다음 검증</th></tr></thead>
+    <tbody>{% for t in model_tracks %}<tr>
+      <td><b>{{ t.name }}</b><br><span class="muted">{{ t.base }}</span></td>
+      <td>{{ t.role }}<br><span class="muted">{{ t.method }}</span></td>
+      <td>{{ t.status }}</td><td>{{ t.next }}</td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="muted">우선순위: 사업·문서·실제 목차에 연결된 문답과 근거 검수. 생성 건수는 학습 승인 건수가 아닙니다.</p>
+  <a href="/dev/data">데이터 공방</a> · <a href="/dev/doc/model-plan.md">모델 계획</a>
+</div></div>
