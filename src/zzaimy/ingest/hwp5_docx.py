@@ -210,7 +210,7 @@ def _translate_paragraph(p_el: ET.Element) -> ET.Element:
         return run
 
     for seg in p_el.findall("LineSeg"):
-        for node in seg:
+        for node in _inline(seg):
             tag = node.tag
             if tag == "SectionDef":
                 r = new_run(last_char)
@@ -257,6 +257,16 @@ def _translate_paragraph(p_el: ET.Element) -> ET.Element:
                 r = new_run(last_char)
                 _translate_shape(node, r)
     return p
+
+
+def _inline(seg: ET.Element):
+    """줄 안의 요소들 — 필드(FieldFormula·FieldClickHere·FieldHyperlink …) 안은 펴서 낸다. 표 계산식 칸의 값(=SUM 결과)은
+    FieldFormula 안의 Text 로 들어 있어, 필드를 건너뛰면 합계·소계 칸이 비었다(실측 2026-09-30 사업계획서: 필드 25개)."""
+    for node in seg:
+        if node.tag.startswith("Field"):
+            yield from _inline(node)
+        else:
+            yield node
 
 
 def _append_text(t: ET.Element, text: str) -> None:
