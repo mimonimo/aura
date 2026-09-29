@@ -455,6 +455,10 @@ document.addEventListener('submit', function(event) {
   </a>
   <p class="sidebar-service-name">행정 에이전트 플랫폼</p>
   </div>
+  {% set developer_space = request.url.path.startswith('/dev') and request.state.role == 'dev' %}
+  {% if developer_space %}
+    {% include "_developer_sidebar.html" %}
+  {% else %}
   <nav class="side-nav">
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
@@ -488,11 +492,16 @@ document.addEventListener('submit', function(event) {
       <span class="side-item">채팅 기록이 없습니다</span>
     {% endfor %}
   </div>
+  {% endif %}
   <div class="side-bottom side-nav">
+    {% if developer_space %}
+    <a href="/chat"><iconify-icon icon="solar:arrow-left-linear"></iconify-icon>업무 화면으로</a>
+    {% else %}
     {% if request.state.role == 'dev' %}
     <a href="/dev" class="{{ 'active' if request.url.path.startswith('/dev') else '' }}"
        style="opacity:.7; font-size:12.5px;">
       <iconify-icon icon="solar:code-square-linear"></iconify-icon>개발 현황 (개발자)</a>
+    {% endif %}
     {% endif %}
     {% if llm_status is defined %}
     <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok else '' }}">

@@ -234,7 +234,7 @@ def test_corpus_tab_without_db_and_with_search(db):
 
 
 def test_normalize_tab_maps_legacy_table_urls():
-    assert dx.normalize_tab("corpus") == "corpus"
+    assert dx.normalize_tab("corpus") == "docs"  # retired pilot collection
     assert dx.normalize_tab("", "regulation_chunks") == "regulation"
     assert dx.normalize_tab("", "chat_messages") == "chat"
     assert dx.normalize_tab("nope", "documents") == "docs"
@@ -249,8 +249,9 @@ def test_dev_db_renders_tabs_and_document_detail(client):
                 files={"file": (long + ".pdf", b"%PDF", "application/pdf")})
     r = client.get("/dev/db")
     assert r.status_code == 200
-    for key in ("tab=docs", "tab=regulation", "tab=corpus", "tab=chat"):
+    for key in ("tab=docs", "tab=regulation", "tab=chat"):
         assert f'href="/dev/db?{key}"' in r.text
+    assert 'href="/dev/db?tab=corpus"' not in r.text
     assert f'title="{long}.pdf"' in r.text and (long + ".pdf") not in r.text.split('title="')[0]
     assert "추출·검색 자료" in r.text
 
@@ -265,7 +266,7 @@ def test_dev_db_renders_tabs_and_document_detail(client):
 def test_dev_db_other_tabs_and_legacy_urls(client):
     assert client.get("/dev/db?tab=regulation").status_code == 200
     corpus = client.get("/dev/db?tab=corpus")   # 코퍼스 DB는 작업 폴더 기준 — 있으면 검색 화면, 없으면 안내
-    assert corpus.status_code == 200 and ("등록된 공개 문서 모음이 없습니다." in corpus.text or "공개 문서 검색" in corpus.text)
+    assert corpus.status_code == 200 and "공개 문서 검색" not in corpus.text
     chat = client.get("/dev/db?tab=chat")
     assert chat.status_code == 200 and "채팅 기록 없음" in chat.text
     legacy = client.get("/dev/db?table=regulation_chunks")

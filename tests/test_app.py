@@ -1252,7 +1252,7 @@ def test_md_view_renders_code_fence_not_raw(client):
 
 def test_dev_train_page_and_url_save(client):
     """모델 학습 도구 연결 — 주소 저장, 잘못된 주소 거부."""
-    r = client.get("/dev/train")
+    r = client.get("/dev/train?tab=settings")
     assert r.status_code == 200
     assert "Label Studio" in r.text and "TensorBoard" in r.text
 

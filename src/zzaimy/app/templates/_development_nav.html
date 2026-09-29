@@ -1,12 +1,1 @@
-<style>
-.development-nav{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 20px}
-.development-nav a{padding:10px 16px;border:1px solid var(--line);border-radius:10px;color:var(--muted);text-decoration:none}
-.development-nav a[aria-current=page]{background:var(--navy,#1b3b75);color:white;border-color:transparent}
-.development-nav a:focus-visible{outline:2px solid #497bfb;outline-offset:2px}
-@media(max-width:600px){.development-nav a{flex:1 1 40%;text-align:center}}
-</style>
-<nav class="development-nav" aria-label="데이터·모델 개발">
-{% for key, label in [('data','데이터·검수'),('models','학습·평가'),('settings','연결 설정'),('exports','산출물')] %}
-<a href="/dev/train?tab={{ key }}" {% if development_tab == key %}aria-current="page"{% endif %}>{{ label }}</a>
-{% endfor %}
-</nav>
+<p class="muted" style="font-size:13px; margin:0 0 18px;">{{ {'data':'문답 데이터와 검수', 'models':'모델 학습과 평가', 'settings':'학습 도구와 모델 서버 연결', 'exports':'검수 승인된 학습 산출물'}.get(development_tab, '데이터·모델 개발') }}</p>

@@ -126,18 +126,6 @@
   {% endif %}
 </div></div>
 
-<div class="card reveal" id="institution"><div class="card-in">
-  <h2><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>기관 정보
-    <span class="muted" style="font-weight:500;">문서 작성 때 기입란에 들어가는 값 — 문서함에서 인출한 값이며 여기서 바로잡거나 없는 값을 채웁니다</span></h2>
-  <form action="/institution" method="post" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:10px; align-items:end;">
-    {% for k in ("대학명", "주소", "총장", "대표전화") %}
-    <label style="display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted);">{{ k }}{% if institution_set.get(k) %} <span class="muted">(설정값)</span>{% elif institution.get(k) %} <span class="muted">(문서에서 인출)</span>{% else %} <span style="color:var(--red);">(없음 — 문서에 ○○○ 로 남습니다)</span>{% endif %}
-      <input type="text" name="{{ k }}" value="{{ institution.get(k) or '' }}" style="font-size:13px;"></label>
-    {% endfor %}
-    <div><button type="submit">저장</button></div>
-  </form>
-</div></div>
-
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수·첨부 문서
     <span class="muted" style="font-weight:500;">{{ intake|length }}건 · 프로젝트 접수와 대화 첨부로 들어온 검토 대상</span></h2>
