@@ -3,7 +3,8 @@
 구글 API(앱 등록, OAuth 클라이언트)는 개발자 계정이 한 번 해 두고, 관리자가 플랫폼 계정을 만들면 사용자마다 자기 학교 계정
 (ync.ac.kr)을 연결한다. 구글 허용은 그 계정 주인이 로그인해야 하므로 본인만 할 수 있다(설정 화면의 '내 구글 계정'). 관리자는
 /dev/users 에서 계정을 만들고(역할·부서·사용 여부·비밀번호 초기화), 누가 어느 구글 계정에 이어졌는지 보고, 이음을 풀거나 이미
-연결된 계정으로 다시 지정하고, 허용 도메인·부서 공용 계정·부서 공유 드라이브·미연결 사용자의 공용 계정 사용 여부를 정한다.
+연결된 계정으로 다시 지정하고, 허용 도메인·부서 공용 계정·부서 공유 드라이브를 정한다. 문서 작성은 각자 연결한 학교 계정으로
+한다(사용자 확정 2026-09-30, 공용 계정 대체 없음).
 
 - 사용자: GET /account/google(상태 JSON), GET /account/google/connect(허용 화면으로), POST /account/google/disconnect
 - 관리자(/dev 는 개발자 역할만 — main.py 의 check_auth): GET /dev/users, POST /dev/users/save,
@@ -52,10 +53,6 @@ def bindings(db, uids) -> dict[str, str]:
     return {uid: (db.get_setting(f"google_account:{uid}", "") or "").strip() for uid in uids}
 
 
-def fallback_on(db) -> bool:
-    return (db.get_setting("google_fallback_shared", "1") or "1") != "0"
-
-
 def user_status(db, uid: str, dept: str | None) -> dict:
     """한 사용자의 연결 상태 — 이어진 계정, 그 허용이 살아 있는지, 문서를 실제로 만들 계정과 그 출처(본인·부서 공용·공용)."""
     conn = connected_emails()
@@ -64,7 +61,7 @@ def user_status(db, uid: str, dept: str | None) -> dict:
     dept_acct = (db.get_setting(f"google_account_dept:{dept}", "") or "").strip() if dept else ""
     via = ""
     if effective:
-        via = "본인" if effective == bound else "부서 공용" if effective == dept_acct else "공용"
+        via = "본인" if effective == bound else "부서 공용" if effective == dept_acct else ""
     return {"user": uid, "bound": bound, "bound_ok": bool(bound) and bound in conn, "effective": effective, "via": via,
             "domain": gdrive.allowed_domain(), "app_ready": gdrive.configured()}
 
@@ -88,7 +85,7 @@ def overview(db, accounts: dict) -> dict:
     emails = [{"email": e, "users": owners.get(e, []), "docs_ok": gdocs.has_docs_scope(e),
                "granted_at": conn[e].get("granted_at", "")} for e in sorted(conn)]
     return {"users": users, "depts": dept_rows, "emails": emails, "domain": gdrive.allowed_domain(),
-            "fallback": fallback_on(db), "app": gdrive.public_status(), "roles": ROLES,
+            "app": gdrive.public_status(), "roles": ROLES,
             "me": ""}
 
 
@@ -208,13 +205,12 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
 # ---------------- 관리자: 구글 연동 ----------------
 
 @router.post("/dev/google/settings")
-def dev_google_settings(request: Request, domain: str = Form(""), fallback: str = Form("")):
+def dev_google_settings(request: Request, domain: str = Form("")):
     try:
         d = gdrive.set_domain(domain)
     except ValueError as e:
         return _back(str(e), ok=False)
-    request.app.state.db.set_setting("google_fallback_shared", "1" if fallback else "0")
-    return _back(f"구글 연동 설정을 저장했습니다(허용 도메인 {d or '제한 없음'}, 미연결 사용자 공용 계정 {'사용' if fallback else '사용 안 함'})")
+    return _back(f"허용 도메인을 저장했습니다({d or '제한 없음'})")
 
 
 @router.post("/dev/google/dept")

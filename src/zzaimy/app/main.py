@@ -402,6 +402,9 @@ def create_app(
     app.include_router(chat_documents_router)
     from zzaimy.app.notifications import router as notifications_router
     app.include_router(notifications_router)
+    if password is None and not db.get_setting("google_fallback_shared", ""):
+        # 인증 없는 로컬 모드는 사용자가 한 사람뿐 — 연결된 계정 하나를 그대로 쓴다(운영은 각자 연결, gdrive_files.account_for)
+        db.set_setting("google_fallback_shared", "1")
     # 사용자 관리·사용자별 구글 계정 연결(/dev/users, /account/google) — 계정 표와 저장 함수를 라우터에 넘긴다
     from zzaimy.app.user_admin import router as user_admin_router
     app.state.accounts = accounts
@@ -972,7 +975,7 @@ def create_app(
         acct_ = accounts.get(owner, {}) if password is not None else {}
         email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
         if not email or not gdrive_files.has_file_scope(email):
-            return False, "구글 계정 허용이 없어 문서를 독스로 열지 못합니다 — 원천 관리에서 구글 계정 허용을 해 주세요."
+            return False, gdrive_files.NEED_ACCOUNT
         title = storage.title_of(doc.get("filename") or "")
         try:
             folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
@@ -2409,7 +2412,7 @@ def create_app(
         acct_ = accounts.get(owner, {}) if password is not None else {}
         email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
         if not email or not gdrive_files.has_file_scope(email):
-            raise HTTPException(400, "구글 열람본을 만들 허용 계정이 없습니다 — 개발자 도구 → 구글 드라이브에서 연결해 주세요")
+            raise HTTPException(400, gdrive_files.NEED_ACCOUNT)
         project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
         try:
             folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
