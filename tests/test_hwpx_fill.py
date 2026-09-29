@@ -179,3 +179,30 @@ def test_new_table_uses_working_copy_column_ratios(tmp_path):
     xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
     ws = [int(w) for w in re.findall(r'<hp:cellSz width="(\d+)"', xml[xml.index('<hp:tbl id="902"'):])]
     assert ws[0] * 3 - ws[1] <= 3 and ws[0] < ws[1]                       # 1:3 비율, 본문 폭 안
+
+
+def test_docs_grid_with_merged_cells_maps_values_by_x_position(tmp_path):
+    """독스는 병합 표를 잘게 나눈 격자로 낸다(서식 3열 → 독스 5열, 열 너비 동봉). 값 칸을 x 위치로 서식 칸에 맞춰 써 넣는다."""
+    def cell(text, bf, r, c, w):
+        return (f'<hp:tc borderFillIDRef="{bf}"><hp:subList><hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>{text}</hp:t></hp:run></hp:p></hp:subList>'
+                f'<hp:cellAddr rowAddr="{r}" colAddr="{c}"/><hp:cellSpan rowSpan="1" colSpan="1"/><hp:cellSz width="{w}" height="1000"/><hp:cellMargin left="141" right="141" top="141" bottom="141"/></hp:tc>')
+    # 서식 표: [지표명(20000)] [단위(4000)] [기준값(6000)] — 두 행
+    rows_xml = "".join("<hp:tr>" + cell(a, "3", r, 0, 20000) + cell(b, "3", r, 1, 4000) + cell(c, "3", r, 2, 6000) + "</hp:tr>"
+                       for r, (a, b, c) in enumerate([("지표명", "단위", "기준값"), ("AI 이수율", "%", "")]))
+    form_tbl = (f'<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl id="901" rowCnt="2" colCnt="3" borderFillIDRef="3"><hp:sz width="30000"/>'
+                f'{rows_xml}</hp:tbl></hp:run>{LINESEG}</hp:p>')
+    section = _section().replace(_section()[_section().index('<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl id="901"'):_section().index("<hp:p id=\"0\" paraPrIDRef=\"0\" styleIDRef=\"0\"><hp:run charPrIDRef=\"0\"><hp:t>마무리")], form_tbl)
+    src = tmp_path / "form.hwpx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("Contents/header.xml", HEADER); zf.writestr("Contents/section0.xml", section)
+    # 독스 격자: 5열(지표명 12000+8000 로 갈라짐, 단위 4000, 기준값 4000+2000) — 값 4.6 은 넷째 칸
+    bodies = [{"heading": "1.2 특성화 방향", "items": [("widths", [120.0, 80.0, 40.0, 40.0, 20.0]),
+                                                  ("table", [["지표명", "", "단위", "기준값", ""], ["AI 이수율", "", "%", "4.6", ""]])]}]
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(src, bodies, out)
+    assert rep["tables_updated"] == 1 and rep["tables"] == 0
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+    assert xml.count("<hp:tbl ") == 2 and "<hp:t>4.6</hp:t>" in xml
+    tbl = xml[xml.index('<hp:tbl id="901"'):]
+    assert 'rowAddr="1" colAddr="2"' in tbl and tbl.index("<hp:t>4.6</hp:t>") < tbl.index('rowAddr="1" colAddr="2"')   # 기준값 칸(2열)에 들어갔다

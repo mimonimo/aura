@@ -176,6 +176,7 @@ class _Cell:
     p_open: str                       # 첫 문단 여는 태그(속성 승계용)
     char_ref: str
     full: str = ""                    # 안쪽 표까지 합친 글(대조용)
+    width: int = 0                    # cellSz width(HWPUNIT) — 작업본 격자와 x 위치로 맞출 때
 
 
 @dataclass
@@ -208,10 +209,11 @@ def _parse_table(xml: str, para: tuple[int, int]) -> _FormTable | None:
             addr = re.search(r"<hp:cellAddr\b[^>]*colAddr=\"(\d+)\"", xml[ca:cb])
             pm = re.search(r"<hp:p\b[^>]*>", inner)
             cm = re.search(r"charPrIDRef=\"(\d+)\"", inner)
+            wm = re.search(r"<hp:cellSz\b[^>]*width=\"(\d+)\"", xml[ca:cb])
             row.append(_Cell(tc=(ca, cb), inner=(ia, ib), col=int(addr.group(1)) if addr else len(row),
                              text=" ".join(" ".join(_texts(_without_tables(inner))).split()),
                              nested="<hp:tbl" in inner, p_open=pm.group(0) if pm else "", char_ref=cm.group(1) if cm else "0",
-                             full=_norm(" ".join(_texts(inner)))))
+                             full=_norm(" ".join(_texts(inner))), width=int(wm.group(1)) if wm else 0))
         rows.append(row)
     t = _FormTable(para=para, rows=rows, col_cnt=int(cc.group(1)) if cc else max((len(r) for r in rows), default=0))
     t.cells = {n for r in rows for c in r for n in (_norm(c.text), c.full) if n}
@@ -395,11 +397,35 @@ def _docs_cells(rows: list[list[str]]) -> set[str]:
     return {_norm(str(c)) for r in rows for c in r if _norm(str(c))}
 
 
-def _map_cells(form: _FormTable, rows: list[list[str]]) -> list[tuple[_Cell, str]] | None:
-    """작업본 표의 칸 → 서식 표의 칸. 행 수가 같고, 행마다 칸 수가 같거나(순서대로) 작업본 행이 격자 열 수와 같을 때(colAddr)."""
+def _map_cells(form: _FormTable, rows: list[list[str]], widths: list[float] | None = None) -> list[tuple[_Cell, str]] | None:
+    """작업본 표의 칸 → 서식 표의 칸. 행 수가 같아야 한다. 행마다 칸 수가 같으면 순서대로, 작업본 행이 격자 열 수와 같으면 colAddr 로,
+    작업본에 열 너비가 오면(독스는 병합 표를 잘게 나눈 격자로 낸다 — 실측 2026-09-29: 서식 6열이 독스 14열) x 위치로 맞춘다."""
     if len(rows) != len(form.rows):
         return None
-    pairs: list[tuple[_Cell, str]] = []
+    if widths and all(len(r) == len(widths) for r in rows) and sum(widths) > 0 and all(c.width for r in form.rows for c in r):
+        total_d = float(sum(widths))
+        pairs: list[tuple[_Cell, str]] = []
+        for drow, frow in zip(rows, form.rows):
+            total_f = float(sum(c.width for c in frow)) or 1.0
+            starts_f: list[tuple[float, float, _Cell]] = []
+            x = 0.0
+            for fc in frow:
+                starts_f.append((x / total_f, fc.width / total_f, fc))
+                x += fc.width
+            used: set[int] = set()
+            xd = 0.0
+            for ci, dc in enumerate(drow):
+                if str(dc).strip():
+                    pos = xd / total_d
+                    best = min(range(len(starts_f)), key=lambda i: abs(starts_f[i][0] - pos))
+                    if abs(starts_f[best][0] - pos) <= max(0.3 * starts_f[best][1], 0.01) and best not in used:
+                        used.add(best)
+                        pairs.append((starts_f[best][2], str(dc)))
+                    else:
+                        return None                                  # 자리가 안 맞는 값 칸이 있다 — 대응 불가
+                xd += float(widths[ci])
+        return pairs
+    pairs = []
     for drow, frow in zip(rows, form.rows):
         if len(drow) == len(frow):
             pairs += [(fc, str(dc)) for fc, dc in zip(frow, drow)]
@@ -551,7 +577,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                     score = len(dcells & t.cells) / len(dcells) + (1.0 if first_same else 0.0) + (0.1 if t.para[0] >= cursor else 0.0)
                     if score > best:
                         best, cand = score, t
-                pairs = _map_cells(cand, rows) if cand is not None and best >= 0.4 else None
+                pairs = _map_cells(cand, rows, widths_here) if cand is not None and best >= 0.4 else None
                 if pairs:
                     flush()
                     for fc, text in pairs:
