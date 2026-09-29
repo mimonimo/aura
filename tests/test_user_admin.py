@@ -104,8 +104,10 @@ for (const key of ['is_new','uid','name','role','dept','google','active','suspen
 let isNew = true;
 const btn = {dataset:{user:'worker',role:'staff',active:'1'}, hasAttribute() {return isNew;}, addEventListener(k, fn) {this[k] = fn;}};
 const status = {hidden:true}, title = {}, save = {}, pw = {};
+const options = {hidden:true, open:false, insertBefore(){}, querySelector(){return {};}};
+const initial = {appendChild(){}};
 global.document = {
- querySelector(s) { return s.endsWith(' form') ? f : s.includes('data-account-status') ? status : s.includes('data-save-user') ? save : s.includes('data-pw-label') ? pw : title; },
+ querySelector(s) { return s.endsWith(' form') ? f : s.includes('data-account-options') ? options : s.includes('data-initial-password') ? initial : s.includes('data-password-field') ? {} : s.includes('data-account-status') ? status : s.includes('data-save-user') ? save : s.includes('data-pw-label') ? pw : title; },
  querySelectorAll(s) { return s === '[data-modal-open="#userEdit"]' ? [btn] : []; }
 };
 '''
@@ -125,6 +127,8 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
     _fake_google(monkeypatch, emails=("dev@ync.ac.kr",), revoked=revoked)
     c = _dev(tmp_path)
     db = c.app.state.db
+    monkeypatch.setattr('zzaimy.ingest.folder_picker.folder', lambda *a: {'id': '0AbCdEfGhIjKlMnOp', 'name': '부서 자료', 'writable': True})
+    db.set_setting('google_account:zzdev', 'dev@ync.ac.kr')
     # 허용 계정이 하나뿐이어도 연결하지 않은 사용자에게 빌려주지 않는다 — 문서 작성은 각자 연결한 학교 계정으로
     c2 = TestClient(c.app)
     _login(c2, "zzaimy", "boot-pass-1")

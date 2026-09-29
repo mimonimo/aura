@@ -18,6 +18,37 @@
   .ua-form .row { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
   .ua-form .check { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
   .ua-form footer { display:flex; gap:8px; justify-content:flex-end; }
+  #deptEdit { padding:16px; box-sizing:border-box; }
+  #deptEdit > .card { width:560px; max-height:calc(100dvh - 32px); overflow:hidden; border-radius:18px; }
+  #deptEdit .card-in { padding:0; display:flex; flex-direction:column; max-height:calc(100dvh - 32px); }
+  #deptEdit .modal-head { padding:20px; margin:0; flex:none; border-bottom:1px solid var(--line); }
+  #deptEdit .ua-form { padding:20px; min-height:0; overflow:auto; }
+  #deptEdit .ua-footer { flex:none; display:flex; gap:8px; justify-content:flex-end; padding:16px 20px; border-top:1px solid var(--line); }
+  .folder-toolbar { display:flex; flex-wrap:wrap; gap:8px; }
+  .folder-list { border:1px solid var(--line); border-radius:10px; max-height:220px; overflow:auto; }
+  .folder-list:empty { display:none; }
+  .folder-list button { display:flex; width:100%; justify-content:space-between; text-align:left; border:0; border-radius:0; background:transparent; padding:12px; overflow-wrap:anywhere; }
+  .folder-list button + button { border-top:1px solid var(--line); }
+  .folder-list button:hover { background:var(--bg); }
+  .folder-selection { background:var(--bg); border-radius:8px; padding:12px; font-size:13px; overflow-wrap:anywhere; }
+  #userEdit { padding:20px; box-sizing:border-box; }
+  #userEdit > .card { width:540px; max-width:100%; max-height:calc(100dvh - 40px); overflow:hidden; border-radius:20px; box-shadow:0 24px 80px #10213b30; }
+  #userEdit > .card > .card-in { padding:0; display:flex; flex-direction:column; max-height:calc(100dvh - 40px); }
+  #userEdit .modal-head { flex:none; padding:22px 24px 18px; margin:0; border-bottom:1px solid var(--line); }
+  #userEdit .modal-head h2 { font-size:18px; letter-spacing:-.4px; }
+  #userEdit .ua-form { padding:22px 24px; overflow-y:auto; min-height:0; gap:18px; }
+  #userEdit .ua-form label { font-size:12px; font-weight:600; gap:7px; }
+  #userEdit input[type=text], #userEdit input[type=password], #userEdit select { width:100%; min-width:0; box-sizing:border-box; min-height:42px; border-width:1px; border-radius:8px; font-size:14px; }
+  #userEdit input[readonly] { background:var(--bg); color:var(--muted); }
+  #userEdit .ua-hint { margin:0; font-size:12px; line-height:1.6; color:var(--muted); font-weight:400; }
+  #userEdit .ua-options { border-top:1px solid var(--line); padding-top:16px; }
+  #userEdit .ua-options summary { cursor:pointer; font-size:13px; color:var(--muted); }
+  #userEdit .ua-options[open] summary { margin-bottom:16px; }
+  #userEdit .ua-options label.check { margin-top:18px; }
+  #userEdit .ua-footer { flex:none; display:flex; justify-content:flex-end; gap:8px; padding:16px 24px; border-top:1px solid var(--line); background:var(--bg); }
+  #userEdit .ua-footer button { min-height:40px; border-radius:8px; padding:8px 18px; }
+  #userEdit [hidden] { display:none !important; }
+  @media (max-width:640px) { #userEdit { padding:12px; } #userEdit > .card, #userEdit > .card > .card-in { max-height:calc(100dvh - 24px); } #userEdit .modal-head, #userEdit .ua-form, #userEdit .ua-footer { padding:18px; } }
   @media (max-width:640px) { .ua-form .row { grid-template-columns:1fr; } .ua-table .wide { display:none; } }
 </style>
 
@@ -49,8 +80,8 @@
 </div></div>
 
 <div class="card reveal"><div class="card-in">
-  <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>구글 연동
-    <button type="button" class="secondary spacer" data-modal-open="#googleSettings" style="padding:6px 12px; font-size:12.5px;">설정</button></h2>
+  <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
+    <a class="secondary spacer" href="/settings">내 학교 계정 연결</a></h2>
   <div class="ua-chips">
     <span class="pill">{{ '앱 등록 완료' if app.configured else '앱 등록 필요' }}</span>
     <span class="pill">허용 도메인 {{ domain or '제한 없음' }}</span>
@@ -98,9 +129,9 @@
 
 <div class="modal-back" id="userEdit">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:15px;" data-title>사용자</h2>
+    <div class="modal-head"><h2 data-title>사용자</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form action="/dev/users/save" method="post" class="ua-form">
+    <form id="userEditForm" action="/dev/users/save" method="post" class="ua-form">
       <input type="hidden" name="is_new" value="">
       <div class="row">
         <label>아이디<input type="text" name="uid" autocomplete="off" required pattern="[a-z0-9][a-z0-9_\-]{2,31}"></label>
@@ -111,41 +142,45 @@
         <label>부서<input type="text" name="dept" list="uaDepts" autocomplete="off" placeholder="비우면 전체"></label>
       </div>
       <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
-      <label><span data-pw-label>비밀번호</span><input type="password" name="new_pw" autocomplete="new-password" minlength="8"></label>
-      <label>구글 계정<select name="google"><option value="">연결 전(본인이 설정 화면에서 연결)</option>
+      <label>구글 계정<select name="google"><option value="">연결 안 됨</option>
         {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}</option>{% endfor %}</select></label>
+      <p class="ua-hint">사용자가 로그인 후 설정에서 본인 계정을 연결할 수 있습니다.</p>
+      <div data-initial-password></div>
       <input type="hidden" name="active" value="1">
+      <details class="ua-options" data-account-options hidden>
+        <summary>비밀번호 및 계정 상태</summary>
+        <label data-password-field><span data-pw-label>새 비밀번호</span><input type="password" name="new_pw" autocomplete="new-password" minlength="8" placeholder="8자 이상"></label>
+        <p class="ua-hint">비워두면 기존 비밀번호를 유지합니다.</p>
       <div data-account-status hidden>
         <label class="check"><input type="checkbox" name="suspended" aria-describedby="accountStatusHelp">계정 사용 중지</label>
-        <p class="muted" id="accountStatusHelp" style="font-size:12px; margin:6px 0 0;">선택 후 저장하면 이 계정의 로그인이 차단됩니다. 계정과 기존 자료는 삭제되지 않습니다.</p>
+        <p class="ua-hint" id="accountStatusHelp">선택 후 저장하면 로그인이 차단됩니다. 계정과 기존 자료는 삭제되지 않습니다.</p>
       </div>
-      <footer><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" data-save-user>사용자 추가</button></footer>
+      </details>
     </form>
-  </div></div>
-</div>
-
-<div class="modal-back" id="googleSettings">
-  <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:15px;">허용 도메인</h2>
-      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form action="/dev/google/settings" method="post" class="ua-form">
-      <label>허용 도메인<input type="text" name="domain" value="{{ domain }}" placeholder="ync.ac.kr" autocomplete="off"></label>
-      <footer><button type="button" class="secondary" data-modal-close>닫기</button><button type="submit">저장</button></footer>
-    </form>
+    <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="userEditForm" data-save-user>사용자 추가</button></footer>
   </div></div>
 </div>
 
 <div class="modal-back" id="deptEdit">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:15px;">부서 공용</h2>
+    <div class="modal-head"><h2 style="font-size:17px;">부서 문서 저장 위치</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
-    <form action="/dev/google/dept" method="post" class="ua-form">
+    <form id="departmentFolderForm" action="/dev/google/dept" method="post" class="ua-form">
       <label>부서<input type="text" name="dept" list="uaDepts" required autocomplete="off"></label>
-      <label>공용 계정<select name="account"><option value="">없음</option>
-        {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}</option>{% endfor %}</select></label>
-      <label>공유 드라이브 폴더<input type="text" name="root" placeholder="폴더 주소 또는 id, 비우면 각자 드라이브" autocomplete="off"></label>
-      <footer><button type="button" class="secondary" data-modal-close>닫기</button><button type="submit">저장</button></footer>
+      <input type="hidden" name="account" value="">
+      <input type="hidden" name="root" value="">
+      <p class="muted" style="margin:0; font-size:13px;">부서 문서의 저장 위치를 선택하세요. 각 사용자는 본인의 학교 계정으로 작성하며, 해당 폴더의 쓰기 권한이 필요합니다.</p>
+      <div class="folder-toolbar"><button type="button" class="secondary" data-folder-home="root">내 드라이브</button><button type="button" class="secondary" data-folder-home="drives">공유 드라이브</button></div>
+      <div class="folder-toolbar"><button type="button" class="secondary" data-folder-back>상위 폴더</button><input type="search" data-folder-search aria-label="현재 위치에서 폴더 검색" placeholder="현재 위치에서 폴더 검색" style="min-width:0; flex:1;"><button type="button" class="secondary" data-folder-find>검색</button></div>
+      <p data-folder-path class="muted" style="margin:0; font-size:12px; overflow-wrap:anywhere;"></p>
+      <p data-folder-status role="status" style="margin:0; font-size:13px;"></p>
+      <a href="/account/google/connect" data-folder-connect hidden>학교 계정 연결</a>
+      <div class="folder-list" data-folder-list></div>
+      <div class="folder-toolbar"><button type="button" class="secondary" data-folder-more hidden>더 보기</button><button type="button" data-folder-select disabled>현재 폴더 선택</button></div>
+      <div class="folder-selection" data-folder-selection>저장 위치: 각자 내 드라이브</div>
+      <button type="button" class="secondary" data-folder-clear>각자 내 드라이브 사용</button>
     </form>
+    <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="departmentFolderForm">저장 위치 적용</button></footer>
   </div></div>
 </div>
 
@@ -171,6 +206,12 @@
       f.elements.suspended.checked = !isNew && btn.dataset.active !== '1';
       f.elements.suspended.disabled = isNew;
       document.querySelector('#userEdit [data-account-status]').hidden = isNew;
+      var options = document.querySelector('#userEdit [data-account-options]');
+      options.hidden = isNew;
+      options.open = !isNew && f.elements.suspended.checked;
+      var passwordField = document.querySelector('#userEdit [data-password-field]');
+      if (isNew) document.querySelector('#userEdit [data-initial-password]').appendChild(passwordField);
+      else options.insertBefore(passwordField, options.querySelector('.ua-hint'));
       syncAccountStatus();
       f.new_pw.value = '';
       f.new_pw.required = isNew;
@@ -186,6 +227,8 @@
       f.dept.readOnly = !isNew;
       f.account.value = isNew ? '' : (btn.dataset.account || '');
       f.root.value = isNew ? '' : (btn.dataset.root || '');
+      document.querySelector('[data-folder-selection]').textContent = f.root.value ? '기존 저장 위치 유지 · 변경하려면 폴더를 선택하세요' : '저장 위치: 각자 내 드라이브';
+      window.openDepartmentFolders();
     });
   });
   document.querySelectorAll('form[data-confirm]').forEach(function (f) {
@@ -193,4 +236,5 @@
   });
 })();
 </script>
+<script src="/static/folder-picker.js" defer></script>
 {% endblock %}
