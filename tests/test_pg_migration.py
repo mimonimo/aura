@@ -131,3 +131,42 @@ def test_postgres_failure_rolls_back_whole_schema(tmp_path, postgres_stage):
         copy_to_staging(source, dsn, schema)
     with psycopg.connect(dsn) as db:
         assert db.execute('SELECT count(*) FROM pg_namespace WHERE nspname=%s', (schema,)).fetchone()[0] == 0
+
+
+def test_runtime_copy_preserves_values_defaults_and_sequence(tmp_path, postgres_stage, monkeypatch):
+    import psycopg
+    from zzaimy.app.db import Database
+    from zzaimy.app.chat_history import ChatHistory
+    from zzaimy.app.chat_topics import ChatTopics
+    from zzaimy.app.chat_revisions import ChatRevisions
+    from zzaimy.app.pg_migration import copy_to_runtime
+    dsn, staging = postgres_stage
+    schema = staging.replace('aura_stage_', 'aura_app_')
+    source = tmp_path / 'source.db'
+    db = Database(source)
+    ChatHistory(source); ChatTopics(source); ChatRevisions(source)
+    project = db.create_project('grant', '이관 검증')
+    doc = db.add_document('근거.pdf', '/fixture', project_id=project)
+    db.set_project_criteria(project, [doc])
+    db.replace_doc_entities(doc, [('기관', 'org', 2)])
+    deleted = db.add_document('지운 문서.pdf', '/fixture')
+    db.delete_document(deleted)
+    try:
+        report = copy_to_runtime(source, dsn, schema)
+        assert report['verified'] and len(report['tables']) == 24
+        monkeypatch.setenv('ZZAIMY_DATABASE_URL', dsn)
+        monkeypatch.setenv('ZZAIMY_DATABASE_SCHEMA', schema)
+        monkeypatch.setenv('ZZAIMY_PLATFORM_SQLITE_PATH', str(source))
+        runtime = Database(source)
+        assert runtime.get_document(doc)['filename'] == '근거.pdf'
+        new = runtime.add_document('새 문서.pdf', '/fixture')
+        assert new > deleted
+        assert runtime.get_document(new)['status'] == 'received'
+        runtime.delete_document(doc)
+        assert runtime.get_document(doc) is None
+        assert runtime.get_project_criteria_ids(project) == []
+        with pytest.raises(psycopg.errors.DuplicateSchema):
+            copy_to_runtime(source, dsn, schema)
+    finally:
+        with psycopg.connect(dsn) as pg:
+            pg.execute(psycopg.sql.SQL('DROP SCHEMA IF EXISTS {} CASCADE').format(psycopg.sql.Identifier(schema)))

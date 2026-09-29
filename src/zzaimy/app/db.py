@@ -1037,6 +1037,15 @@ class Database:
             conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
             conn.execute("DELETE FROM doc_chunks WHERE doc_id = ?", (doc_id,))
             conn.execute("DELETE FROM doc_assets WHERE doc_id = ?", (doc_id,))
+            for table in ('doc_entities', 'mask_events', 'quality_reports', 'draft_history'):
+                conn.execute(f"DELETE FROM {table} WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM project_criteria WHERE criteria_doc_id = ?", (doc_id,))
+            # Keep file registry and historical chat citations, but detach deleted IDs.
+            conn.execute("UPDATE files SET doc_id = NULL WHERE doc_id = ?", (doc_id,))
+            if 'chat_sources' in table_names(conn):
+                conn.execute("UPDATE chat_sources SET doc_id = NULL WHERE doc_id = ?", (doc_id,))
+            conn.execute("UPDATE documents SET related_criteria_id = NULL WHERE related_criteria_id = ?", (doc_id,))
+            conn.execute("UPDATE documents SET version_of = NULL WHERE version_of = ?", (doc_id,))
             conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
 
     def add_regulation_chunks(
