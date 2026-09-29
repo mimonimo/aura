@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import httpx
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -228,9 +229,33 @@ def dev_google_dept(request: Request, dept: str = Form(""), account: str = Form(
         if not m:
             return _back("공유 드라이브는 폴더 주소나 폴더 id 로 적어 주세요", ok=False)
         folder = m.group(1) or m.group(2)
+        from zzaimy.ingest.folder_picker import folder as check_folder
+        email = (db.get_setting(f"google_account:{_user(request)}", "") or "").strip()
+        if not email or email not in connected_emails():
+            return _back("먼저 본인의 학교 계정을 연결해 주세요", ok=False)
+        try:
+            selected = check_folder(email, folder)
+            if not selected['writable']:
+                return _back("이 폴더에 문서를 저장할 권한이 없습니다", ok=False)
+        except (ValueError, httpx.HTTPError):
+            return _back("저장 위치를 확인하지 못했습니다. 계정 연결과 쓰기 권한을 확인해 주세요", ok=False)
+        db.set_setting(f"google_root_name:{dept}", selected['name'])
     db.set_setting(f"google_account_dept:{dept}", account)
     db.set_setting(f"google_root:{dept}", folder)
     return _back(f"부서 {dept} 설정을 저장했습니다")
+
+
+@router.get("/dev/google/folders")
+def dev_google_folders(request: Request, parent: str = 'root', q: str = '', token: str = ''):
+    from zzaimy.ingest.folder_picker import browse
+    import httpx
+    email = (request.app.state.db.get_setting(f"google_account:{_user(request)}", "") or "").strip()
+    if not email or email not in connected_emails():
+        return JSONResponse({'error': '본인의 학교 계정을 먼저 연결해 주세요.', 'connect': '/account/google/connect'}, status_code=409)
+    try:
+        return JSONResponse(browse(email, parent, q, token))
+    except (ValueError, httpx.HTTPError):
+        return JSONResponse({'error': '목록을 불러오지 못했습니다. 계정 연결과 폴더 권한을 확인한 뒤 다시 시도해 주세요.'}, status_code=400)
 
 
 @router.post("/dev/google/revoke")
