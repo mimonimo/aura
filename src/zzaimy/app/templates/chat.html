@@ -199,6 +199,7 @@
   <div class="dock-row">
     <input type="file" name="attachment" id="chatFile" hidden>
     <input type="hidden" name="external" id="extField" value="">
+    <input type="hidden" name="web" id="webField" value="">
     <textarea name="question" id="chatInput" rows="1" placeholder="메시지를 입력하세요"
               autofocus autocomplete="off" {% if waiting %}disabled{% endif %}></textarea>
     <button type="submit" id="sendBtn" {% if waiting %}disabled style="opacity:.5;"{% endif %}>
@@ -231,6 +232,11 @@
         <span class="badge-n" id="criteriaCount" hidden>0</span>
       </label>
       <div class="aside-empty" id="extNote" hidden>민감정보는 토큰으로 바뀌어 나가고, 답은 교내 모델이 만듭니다.</div>
+      <label class="aside-item" style="cursor:pointer;">
+        <input type="checkbox" id="webBtn" style="flex:none;">
+        <span class="nm">외부 검색 모드 (웹)</span>
+      </label>
+      <div class="aside-empty" id="webNote" hidden>문서 작업이 아닌 일반 질문을 웹 검색 결과로 답합니다. 질문 글만 밖으로 나가고 문서·첨부는 나가지 않습니다. 답은 교내 모델이 출처 번호와 함께 만듭니다.</div>
     </div>
 
     <div class="aside-sec">
@@ -368,6 +374,13 @@
   if (extBtn) extBtn.addEventListener("change", function () {
     extField.value = extBtn.checked ? "1" : "";
     if (extNote) extNote.hidden = !extBtn.checked;
+  });
+  var webBtn = document.getElementById("webBtn");
+  var webField = document.getElementById("webField");
+  var webNote = document.getElementById("webNote");
+  if (webBtn) webBtn.addEventListener("change", function () {
+    webField.value = webBtn.checked ? "1" : "";
+    if (webNote) webNote.hidden = !webBtn.checked;
   });
 
   /* ---- 답변 복사·다시 시도 ---- */
