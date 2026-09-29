@@ -77,7 +77,8 @@ def test_tool_accounts_live_on_train_page(tmp_path):
                   headers={"Content-Type": "application/x-www-form-urlencoded"}).status_code == 403
     d = TestClient(_app(tmp_path))
     _login(d, "zzdev", "devpass")
-    page = d.get("/dev/train").text
+    assert 'class="tool-grid"' not in d.get("/dev/train").text
+    page = d.get("/dev/train?tab=settings").text
     assert "toolModal-labelstudio" in page and "로그인 아이디" in page and "비밀번호 변경" in page
     assert "플랫폼 계정" not in page and "계정 추가" not in page   # 시스템 계정 관리는 여기 없다
     assert d.post("/dev/accounts/add", data={"uid": "x1", "new_pw": "abcdefgh", "confirm": "abcdefgh"}).status_code == 404
@@ -90,7 +91,7 @@ def test_ls_password_reset_lives_on_train_page(client, monkeypatch):
 
     monkeypatch.setattr(ls_admin, "available", lambda: True)
     client.app.state.db.set_setting("labelstudio_username", "zzdev@example.org")
-    page = client.get("/dev/train").text
+    page = client.get("/dev/train?tab=settings").text
     assert "zzdev@example.org" in page and "/dev/train/ls-password" in page
     monkeypatch.setattr(ls_admin, "set_password", lambda pw: (True, "PASS: ok"))
     r = client.post("/dev/train/ls-password", data={"new_pw": "abcdefgh", "confirm": "abcdefgh"},

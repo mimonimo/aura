@@ -521,7 +521,9 @@ def test_receipt_number_can_be_changed_and_institution_saved(tmp_path):
     f = institution.facts(db)
     assert f["대학명"] == "영남이공대학교" and f["총장"] == "홍길동"
     page = c.get("/criteria").text
-    assert 'id="institution"' in page and 'value="홍길동"' in page and "(설정값)" in page
+    assert 'id="institution"' not in page
+    assert 'action="/institution"' not in page
+    assert "없음 — 문서에 ○○○ 로 남습니다" not in page
 
 
 def test_agent_asks_for_missing_values_with_a_form_and_remembers_the_answer(tmp_path, monkeypatch):

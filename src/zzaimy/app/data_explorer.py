@@ -28,7 +28,6 @@ META_PATH = _paths.index_meta()
 TABS: list[tuple[str, str]] = [
     ("docs", "문서"),
     ("regulation", "규정"),
-    ("corpus", "국고 코퍼스"),
     ("chat", "채팅 기록"),
 ]
 _TAB_KEYS = {k for k, _ in TABS}

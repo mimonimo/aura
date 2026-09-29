@@ -64,17 +64,19 @@
       <div style="flex:1; min-width:0;">
         <div style="font-weight:700; font-size:13.5px;">{{ st.title }}</div>
         <div class="muted" style="font-size:12.5px;">{{ st.desc }}</div>
+        <p style="font-size:12px;line-height:1.6;margin:6px 0 0;overflow-wrap:anywhere">{{ st.status }}</p>
       </div>
-      <span class="pill {{ 'reviewed' if st.state == 'done' else ('type' if st.state == 'doing' else '') }}" style="flex:none;">{{ st.status }}</span>
+      <span class="pill {{ 'reviewed' if st.state == 'done' else ('type' if st.state == 'doing' else '') }}" style="flex:none;">{{ '확인됨' if st.state == 'done' else '준비 중' if st.state == 'doing' else '대기' }}</span>
     </li>
     {% endfor %}
   </ol>
 </div></div>
 
-<p class="muted">검수한 데이터의 개인정보·수치 처리와 평가셋 분리를 확인한 뒤 학습합니다. <a href="/dev/train?tab=data">데이터·검수</a> · <a href="/dev/quality">품질·성능 측정</a></p>
+<p class="muted">검수한 데이터의 개인정보·수치 처리와 평가셋 분리를 확인한 뒤 학습합니다.</p>
+<nav style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px" aria-label="다음 작업"><a class="btn-ghost" href="/dev/train?tab=data">문답 검수</a><a class="btn-ghost" href="/dev/quality">품질·성능 측정</a><a class="btn-ghost" href="/dev/train?tab=settings">학습 도구 연결·실행</a></nav>
 {% endif %}
 
-{% if development_tab in ['models', 'settings'] %}
+{% if development_tab == 'settings' %}
 <div class="tool-grid">
   {% for t in tools %}
   <div class="card reveal"><div class="card-in">
