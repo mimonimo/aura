@@ -37,6 +37,8 @@ def classify(doc_type: str | None, *, owner: str | None = None, dept: str | None
 
 def visible(doc: dict, *, dept: str | None, user: str | None, role: str) -> bool:
     """이 문서를 이 사용자가 볼 수 있는가 — 검색 SQL 과 같은 규칙(테스트·자가 점검에서 대조)."""
+    if not doc:
+        return False
     if role == "dev":
         return True
     level = doc.get("access_level") or "public"
@@ -46,5 +48,5 @@ def visible(doc: dict, *, dept: str | None, user: str | None, role: str) -> bool
     if level == "public":
         return True
     if level == "dept":
-        return d == DEFAULT_DEPT or not dept or d == dept
+        return d == DEFAULT_DEPT or (bool(dept) and d == dept)
     return bool(user) and doc.get("owner") == user

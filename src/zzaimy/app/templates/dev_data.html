@@ -27,10 +27,11 @@
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:box-minimalistic-linear"></iconify-icon>데이터 공방</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    검토 의견·초안·대화 기록에서 학습 예시를 만듭니다.</p>
+    사업·문서·목차의 맥락을 유지한 문답을 검수합니다. 운영 검색 자료, 생성 후보, 검수 결과, 학습 승인본을 구분합니다.</p>
+  <p class="muted">현재 우선 작업: 실문서 7개의 구조·근거·질문 범위 대조. 전체 목차 대비 문답 커버리지와 승인 건수는 아직 집계되지 않았습니다.</p>
   <div class="flow-steps">
     <div class="flow-step"><span class="step-n">1</span><span><b>예시 만들기</b><br>
-      <span class="muted">쌓인 기록 → 학습 예시</span></span></div>
+      <span class="muted">원문·목차·표 → 문답 후보</span></span></div>
     <div class="flow-arrow2"><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></div>
     <div class="flow-step"><span class="step-n">2</span><span><b>사람 검수</b><br>
       <span class="muted">Label Studio에서 채택·수정</span></span></div>
@@ -50,9 +51,9 @@
 {% endif %}
 
 <div class="card reveal"><div class="card-in">
-  <h2><span class="step-n">1</span>학습 예시 만들기</h2>
+  <h2><span class="step-n">1</span>기록 기반 후보 생성 (보조 경로)</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
-    고른 기록을 입력과 정답 예시로 변환합니다. 정답의 수치가 근거에 없으면 그 예시는 버립니다.</p>
+    아래 도구는 기존 검토·초안·대화 기록을 변환합니다. 문서 전체의 구조 문답을 자동 완성하는 기능은 아닙니다. 수치 검사 통과만으로 정답을 승인하지 않습니다.</p>
   <form action="/dev/data/build-and-push" method="post" id="datasetBuildForm">
     {# 소스별 숫자는 실제 변환기를 돌린 미리보기(저장 없음) — 무엇이 몇 건 만들어지고 왜 탈락하는지 #}
     <div class="table-scroll" style="margin:2px 0 14px;">
@@ -85,7 +86,8 @@
     {% if ls.ok %}<span class="pill reviewed" style="margin-left:6px;">연결됨</span>
     {% else %}<span class="pill processing" style="margin-left:6px;">미연결</span>{% endif %}</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
-    ①에서 보낸 예시를 Label Studio에서 채택·수정·폐기하고, 되받기로 확정합니다.</p>
+    기존 기록 검수 프로젝트의 채택·수정 결과를 되받습니다. 별도 구조 문답 프로젝트는 아직 이 되받기에 통합되지 않았습니다.</p>
+  <p><a href="{{ labelstudio_url or '/dev/train' }}" target="_blank" rel="noopener">Label Studio 전체 프로젝트 확인</a></p>
 
   {% if request.query_params.get("ls_pushed") %}
   <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>
@@ -93,7 +95,7 @@
     <a href="{{ labelstudio_url }}" target="_blank" rel="noopener">Label Studio 열기</a>에서 검수하세요.</span></p>
   {% elif request.query_params.get("ls_pulled") %}
   <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>
-    검수 완료 {{ request.query_params.get("ls_pulled") }}건을 학습 데이터로 확정했습니다.</span></p>
+    검수 결과 {{ request.query_params.get("ls_pulled") }}건을 저장했습니다. 학습 전 근거·맥락·중복·개인정보 및 평가셋 분리를 확인하세요.</span></p>
   {% endif %}
 
   {% if ls.ok %}
@@ -118,7 +120,7 @@
 <div class="card reveal"><div class="card-in">
   <h2><span class="step-n">3</span>학습 — LLaMA Board</h2>
   <p class="muted" style="font-size:12.5px; margin:0; line-height:1.6;">
-    검수 완료 예시로 파인튜닝합니다. 실행은 <a href="/dev/train">모델 학습</a> 화면에서 합니다.</p>
+    검수 결과를 점검하고 사업·문서 계열별로 학습/평가를 분리한 뒤 베이스라인을 측정합니다. 승인된 묶음으로만 <a href="/dev/train">모델 학습</a>을 진행합니다.</p>
 </div></div>
 
 <div class="card reveal"><div class="card-in">
@@ -129,7 +131,7 @@
   {% set source_labels = {"review": "검토 의견", "draft": "초안", "chat": "대화", "labelstudio": "Label Studio 검수"} %}
   <div class="table-scroll">
   <table style="font-size:12.5px;">
-    <tr><th>#</th><th>이름</th><th>원천 기록</th><th>학습 예시</th>
+    <tr><th>#</th><th>이름</th><th>원천 기록</th><th>저장 후보</th>
         <th>수치 탈락</th><th>빈약 탈락</th><th>생성 시각</th><th>이어서 작업</th></tr>
     {% for ds in datasets %}
     <tr>
@@ -167,7 +169,7 @@
     <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">
       변환 현황판 · 문서 {{ rag_rows|length }}건</span></h2>
   <p class="muted" style="font-size:11.5px; margin:0 0 10px;">
-    <b>색인</b> = 검색(RAG) 등재 여부 · <b>학습 재료</b> = 이 문서에서 뽑을 수 있는 예시 종류</p>
+    <b>색인</b> = 검색(RAG) 등재 여부 · <b>학습 재료</b> = 생성 가능한 유형이며 학습 채택 여부가 아닙니다. 교내 규정이 여기에 보여도 자동으로 SFT에 포함되지 않습니다.</p>
   {% if rag_rows %}
   <div class="table-scroll">
   <table style="font-size:12.5px;">

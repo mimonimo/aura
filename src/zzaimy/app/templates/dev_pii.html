@@ -1,13 +1,15 @@
 {% extends "base.html" %}
-{% block title %}개인정보 마스킹{% endblock %}
-{% block pagetitle %}개인정보 마스킹{% endblock %}
+{% block title %}개인정보 처리·반출 점검{% endblock %}
+{% block pagetitle %}개인정보 처리·반출 점검{% endblock %}
 {% block content %}
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:eye-closed-linear"></iconify-icon>개인정보 마스킹 감사
+  <h2><iconify-icon icon="solar:eye-closed-linear"></iconify-icon>개인정보 처리 정책 전환
     <a href="/dev/doc/decisions/0006-criteria-no-masking.md" class="h-link"><iconify-icon icon="solar:document-text-linear"></iconify-icon>마스킹 제외 근거 (ADR-0006)</a></h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    개인정보는 색인 전에 가립니다. 마스킹 기록(유형별 건수), 합성 표본 자가 점검, 저장 본문 잔여 검사로 확인합니다. 마스킹 기록에는 유형과 건수만 저장하고, 원본 파일은 문서 폴더에 따로 보관합니다(열람 등급 적용).</p>
+    내부 검색·검토·초안 작성은 권한 있는 원문을 보존하고, 외부 전송·학습용 반출 사본을 별도로 보호하는 정책으로 변경합니다.</p>
+  <p role="status"><strong>전환 미완료:</strong> 현재 반입·채팅 응답 경로에는 기존 마스킹이 남아 있습니다. 아래 표는 현재 코드의 처리 상태이며, 원문 보존 전환이 완료됐다는 표시가 아닙니다.</p>
+  <p class="muted">자가 점검은 마스킹 도구의 시험 결과이지 내부 마스킹을 켜는 스위치가 아닙니다. 과거 기록은 보존하며, 이미 가려진 본문은 원본 재추출이 필요합니다.</p>
   {% set scan0 = sources[0].scan if sources else none %}
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
     {% if selftest and not selftest.error %}
@@ -21,7 +23,7 @@
 </div></div>
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:list-check-linear"></iconify-icon>문서 유형별 마스킹 정책</h2>
+  <h2><iconify-icon icon="solar:list-check-linear"></iconify-icon>현재 반입 처리 (전환 대상)</h2>
   <div class="table-scroll">
   <table style="font-size:12.5px;">
     <tr><th>문서 유형</th><th>처리</th><th>시점</th><th>이유</th><th>기록(문서·가린 항목)</th></tr>

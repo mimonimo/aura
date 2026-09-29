@@ -132,40 +132,7 @@
   </div>
 </div></div>
 
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:widget-5-linear"></iconify-icon>모델 개발 트랙 (4종)
-    <a href="/dev/doc/model-plan.md" class="h-link"><iconify-icon icon="solar:document-text-linear"></iconify-icon>상세</a></h2>
-  <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
-    오픈웨이트 4종을 국고 문서에 맞춰 능력만 학습하고, 개선폭을 측정합니다.</p>
-  <div class="table-scroll">
-  <table style="font-size:12.5px;">
-    <tr><th>모델</th><th>베이스</th><th>역할</th><th>학습 방식</th><th>상태 (2026-09-22)</th></tr>
-    <tr>
-      <td style="font-weight:600;">ZZAIMY-Embed</td><td>KURE-v1</td>
-      <td>도메인 특화 임베딩(문장을 검색용 벡터로 바꾸는 모델)</td><td>대조학습 — 합성 질의쌍, 문서 단위 홀드아웃</td>
-      <td><span class="pill reviewed">v2 운영 채택 (9/20)</span>
-        <a href="/dev/doc/model-cards/zzaimy-embed-v2.md" class="muted" style="font-size:11.5px; margin-left:4px;">모델 카드</a>
-        <a href="/dev/doc/embed-v0-report.md" class="muted" style="font-size:11.5px; margin-left:4px;">리허설 결과</a></td></tr>
-    <tr>
-      <td style="font-weight:600;">ZZAIMY-Rerank</td><td>bge-reranker-v2-m3</td>
-      <td>검색 결과 재정렬(리랭커)</td><td>운영 후보 20개로 목록 학습</td>
-      <td><span class="pill reviewed">v1 운영 채택 (9/20)</span>
-        <a href="/dev/doc/model-cards/zzaimy-rerank-v1.md" class="muted" style="font-size:11.5px; margin-left:4px;">모델 카드</a></td></tr>
-    <tr>
-      <td style="font-weight:600;">ZZAIMY-Writer</td><td>Qwen3.8-27B (dense, 멀티모달)</td>
-      <td>계획서 섹션 생성 · 이미지 판독 · 검토 · 대화</td><td>bf16 LoRA SFT → DPO (DGX), NVFP4 로 서빙</td>
-      <td><span class="pill type">베이스 서빙 중 · 학습 환경 준비됨</span>
-        <span class="muted" style="font-size:11.5px; margin-left:4px;">두 토르 NVFP4, DGX .venv-train, 베이스라인 기록(9/22, 공개 공고 3건). 학습은 실물 문서 뒤</span></td></tr>
-    <tr>
-      <td style="font-weight:600;">ZZAIMY-Extract</td><td>Qwen3.8-27B (Writer 공용)</td>
-      <td>실적 카드 추출(형식 강제)</td><td>27B 추출 → 사람 검수 → 같은 베이스 어댑터</td>
-      <td><span class="pill processing">예정 · 결과보고서 수령 후</span>
-        <span class="muted" style="font-size:11.5px; margin-left:4px;">소형 4B 는 처리량이 문제될 때만(ADR-0026)</span></td></tr>
-  </table>
-  </div>
-  <p class="muted" style="font-size:11.5px; margin:10px 0 0; line-height:1.6;">
-    학습·연결 상태는 <a href="/dev/train">모델 학습</a>에서, 검색 성능은 <a href="/dev/quality">품질 점검</a>에서 확인할 수 있습니다.</p>
-</div></div>
+{% include "_model_tracks.html" %}
 
 <div class="dev-section" id="sec-flow">모델 개발 흐름</div>
 

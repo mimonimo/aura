@@ -95,9 +95,8 @@ def search_scope(dept: str | None, role: str, user: str | None = None) -> dict:
         return {"dept": "공통", "levels": ("public",)}
     if role == "dev":
         return {}
-    scope: dict = {"user": user or ""}
-    if dept:
-        scope["dept"] = dept
+    # 부서 미지정은 전체 접근 권한이 아니다. 공개/공통 범위로 좁힌다.
+    scope: dict = {"user": user or "", "dept": dept or "공통"}
     return scope
 
 

@@ -49,8 +49,9 @@
 <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
 {% endif %}
 
+{% include "_model_tracks.html" %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:map-arrow-right-linear"></iconify-icon>학습 순서</h2>
+  <h2><iconify-icon icon="solar:map-arrow-right-linear"></iconify-icon>Writer 학습 준비와 실행 순서</h2>
   <ol class="steps">
     {% for st in steps %}
     <li class="{{ st.state }}">
@@ -73,7 +74,7 @@
       {% if t.key == "labelstudio" %}
         {% if t.connected %}<span class="pill reviewed">연결됨</span>
         {% else %}<span class="pill processing">미연결</span>{% endif %}
-      {% elif t.url %}<span class="pill reviewed">연결됨</span>
+      {% elif t.url %}<span class="pill">주소 설정됨</span>
       {% else %}<span class="pill" style="background:#FDF3E7; color:var(--amber);">GPU 대기</span>{% endif %}
     </div>
     <p class="tool-role">{{ t.role }}</p>
@@ -355,7 +356,8 @@
   {% endif %}
 
   {# 계획서 모델 4종이 지금 어디서 도는지 — 계획과 다르면 그 자리에서 보이게 #}
-  <div class="srv-head muted">계획 대비 지금</div>
+  <div class="srv-head muted">계획 모델과 현재 서빙 연결</div>
+  <p class="muted">서버 응답 여부를 표시합니다. 정상 연결은 SFT 완료나 품질 검증 완료를 뜻하지 않습니다.</p>
   <div class="plan-list">
     {% for p in serving_plan %}
     <div class="plan-row">
@@ -365,10 +367,11 @@
       <span class="use-model">{{ p.model or "미지정" }}</span>
       {% if p.train_state %}<span class="pill use-tag">{{ p.train_state }}</span>{% endif %}
       <span class="muted srv-n">{{ p.where or "—" }}</span>
-      {% if p.ok and p.matches_plan %}<span class="pill reviewed">정상</span>
+      {% if p.kind == 'planned' %}<span class="pill">학습·평가 준비</span>
+      {% elif p.ok and p.matches_plan %}<span class="pill reviewed">연결 확인</span>
       {% elif p.ok %}<span class="pill type">다른 모델</span>
       {% else %}<span class="pill processing">준비 안 됨</span>{% endif %}
-      {% if p.detail %}<span class="srv-bad">{{ p.detail }}</span>{% endif %}
+      {% if p.detail %}<span class="{{ 'muted' if p.ok or p.kind == 'planned' else 'srv-bad' }}">{{ p.detail }}</span>{% endif %}
     </div>
     {% endfor %}
   </div>
@@ -684,6 +687,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:export-linear"></iconify-icon>산출물 반출</h2>
+  <p class="muted">아래 학습 파일은 서버에 저장된 JSONL입니다. Label Studio의 프로젝트·태스크 목록과 다르며, 새 검수 결과가 자동 동기화되지는 않습니다.</p>
+  <p><a href="/dev/data">데이터 공방에서 검수 결과 되받기</a> 후 반출 목록을 확인하세요. 파일 존재만으로 학습 승인이나 개인정보 점검 완료를 보장하지 않습니다.</p>
   <form action="/dev/train/export.zip" method="get">
     <div style="display:flex; flex-direction:column; gap:8px; margin:0 0 14px;">
       {% for g in export_preview %}

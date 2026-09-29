@@ -96,7 +96,7 @@ def test_train_page_holds_tool_accounts_once(client):
     assert "toolModal-labelstudio" in page and "/dev/accounts" not in page
     # 비밀번호는 같은 창 안에서 화면만 바꿔 받는다 — 접이식(details)으로 펼치지 않는다
     assert "비밀번호 변경" in page and "data-pw-open" in page and "<details" not in page
-    assert 'href="/dev/data"' not in page                # 데이터 공방 진입은 허브에서만
+    assert 'href="/dev/data"' in page                    # 반출 전에 검수 원천으로 이동
     assert "준비된 학습 데이터" not in page                 # 목록은 데이터 공방이 원본
 
 
@@ -236,7 +236,7 @@ def test_search_stages_show_where_they_run_not_a_picker(client, monkeypatch):
     assert not got["rerank"]["remote"] and "VM" in got["rerank"]["where"]
     page = client.get("/dev/train").text
     # 계획서 모델 4종이 지금 어디서 도는지 한 표에서 보인다
-    assert "계획 대비 지금" in page and "②ZZAIMY-Rerank" in page and "계획 KURE-v1" in page
+    assert "계획 모델과 현재 서빙 연결" in page and "②ZZAIMY-Rerank" in page and "계획 KURE-v1" in page
     # 쓰이지 않는 단계를 고르게 두지 않는다 — 학습 서버 지정 칸은 없다
     assert 'value="train"' not in page
     search_serving.clear_cache()
