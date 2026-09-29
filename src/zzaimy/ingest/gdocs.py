@@ -65,7 +65,8 @@ def _raise(r) -> None:
 
 
 def _para_text(p: dict) -> str:
-    return "".join(e.get("textRun", {}).get("content", "") for e in p.get("elements", []))
+    # 문단 안 줄 바꿈(Shift+Enter)은 API 에서 \x0b 로 온다 — 줄로 바꿔 둔다(그대로 hwpx 에 들어가면 한글이 문서를 못 연다)
+    return "".join(e.get("textRun", {}).get("content", "") for e in p.get("elements", [])).replace("\x0b", "\n")
 
 
 def body_content(document: dict) -> list[dict]:

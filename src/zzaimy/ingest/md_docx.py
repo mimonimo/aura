@@ -21,8 +21,8 @@ import re
 from html.parser import HTMLParser
 from pathlib import Path
 
-from zzaimy.ingest.hwpx_docx import (DOCS_LINE_EM_BY_FONT, FONT_MAP, BorderFill, _set_cell_borders, _set_cell_margins,
-                                     _table_fixed_layout)
+from zzaimy.ingest.hwpx_docx import (DOCS_LINE_EM_BY_FONT, BorderFill, _set_cell_borders, _set_cell_margins, _table_fixed_layout,
+                                     docs_font)
 
 BULLETS = ("□", "○", "-", "ㆍ")
 HEAD_FILL = "DFE6F7"
@@ -39,7 +39,8 @@ _NUMERIC = re.compile(r"^[\s\-+±△▲▼()%.,:~/원천만억개명건회년월
 
 
 def _font() -> str:
-    return FONT_MAP["고딕"]
+    """한글 변환기와 같은 고딕 글꼴(독스에 있는 이름이어야 한다 — 없으면 독스가 굴림으로 바꾸고 굵게가 사라진다, 2026-09-30 실측)."""
+    return docs_font("고딕")
 
 
 def _line_mult(font: str) -> float:
@@ -665,5 +666,6 @@ def _wide(data: bytes) -> bool:
 def convert(md: str, base_dir: Path | str | None = None, images: dict[str, bytes] | None = None) -> tuple[bytes, dict]:
     """마크다운 글 → (docx 바이트, 통계). base_dir 은 상대 경로 그림을 찾을 곳(그 밖으로는 나가지 않는다)."""
     conv = Converter(Path(base_dir) if base_dir else None, images)
+    md = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", md)        # python-docx 가 거부하는 제어문자(XML 1.0 금지)
     data = conv.run(md)
     return data, conv.stats
