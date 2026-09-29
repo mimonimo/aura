@@ -1,6 +1,7 @@
 """서식 보존 채우기(hwpx_fill) — 절 제목 뒤(안내 상자 뒤)에 문단·표를 끼워 넣고, 손대지 않은 것은 바이트 그대로."""
 
 import io
+import re
 import zipfile
 
 from docx import Document
@@ -168,3 +169,13 @@ def test_fill_updates_form_table_cells_in_place(tmp_path):
 def test_heading_with_tab_inside_text_is_found():
     xml = '<hp:p id="1"><hp:run charPrIDRef="0"><hp:t>1.1. 대학의 재정투자 전략<hp:tab width="3036" leader="0" type="1"/></hp:t></hp:run></hp:p>'
     assert hwpx_fill._para_text(xml) == "1.1. 대학의 재정투자 전략"
+
+
+def test_new_table_uses_working_copy_column_ratios(tmp_path):
+    src = _hwpx(tmp_path)
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(src, [{"heading": "1.1. 대학의 여건 분석", "items": [("widths", [100.0, 300.0]), ("table", [["구분", "내용"], ["가", "나"]])]}], out)
+    assert rep["tables"] == 1
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+    ws = [int(w) for w in re.findall(r'<hp:cellSz width="(\d+)"', xml[xml.index('<hp:tbl id="902"'):])]
+    assert ws[0] * 3 - ws[1] <= 3 and ws[0] < ws[1]                       # 1:3 비율, 본문 폭 안

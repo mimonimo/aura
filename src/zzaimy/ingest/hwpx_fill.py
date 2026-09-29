@@ -312,12 +312,17 @@ def paragraph_xml(text: str, pp: str, cp: str) -> str:
             f'<hp:run charPrIDRef="{cp}"><hp:t>{escape(text)}</hp:t></hp:run></hp:p>')
 
 
-def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, margin: str, table_id: int) -> str:
+def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, margin: str, table_id: int,
+              widths: list[float] | None = None) -> str:
+    """새 표 XML. widths(작업본 표의 열 너비, 단위 무관)가 있으면 그 비율로, 없으면 본문 폭을 균등 분할."""
     n_rows = len(rows)
     n_cols = max((len(r) for r in rows), default=0)
     if not n_rows or not n_cols:
         return ""
-    col_w = max(int(width_hu / n_cols), 1000)
+    if widths and len(widths) == n_cols and sum(widths) > 0:
+        col_ws = [max(int(width_hu * w / sum(widths)), 1000) for w in widths]
+    else:
+        col_ws = [max(int(width_hu / n_cols), 1000)] * n_cols
     row_h = 1200
     trs = []
     for r, row in enumerate(rows):
@@ -330,9 +335,9 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
                        f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" '
                        f'textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">{paras}</hp:subList>'
                        f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="1" rowSpan="1"/>'
-                       f'<hp:cellSz width="{col_w}" height="{row_h}"/>{margin}</hp:tc>')
+                       f'<hp:cellSz width="{col_ws[c]}" height="{row_h}"/>{margin}</hp:tc>')
         trs.append("<hp:tr>" + "".join(tcs) + "</hp:tr>")
-    total_w = col_w * n_cols
+    total_w = sum(col_ws)
     tbl = (f'<hp:tbl id="{table_id}" zOrder="0" numberingType="TABLE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
            f'pageBreak="CELL" repeatHeader="1" rowCnt="{n_rows}" colCnt="{n_cols}" cellSpacing="0" borderFillIDRef="{bf}" noAdjust="0">'
            f'<hp:sz width="{total_w}" widthRelTo="ABSOLUTE" height="{row_h * n_rows}" heightRelTo="ABSOLUTE" protect="0"/>'
@@ -481,6 +486,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
     for s, cursor, body, items in located:
         pending: list[str] = []
         put_any = False
+        widths: list[float] | None = None                  # 바로 다음 표의 열 너비(작업본에서 온 것)
 
         def flush() -> None:
             nonlocal pending
@@ -489,6 +495,9 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                 pending = []
 
         for kind, payload in items:
+            if kind == "widths":
+                widths = list(payload) if payload else None
+                continue
             if kind == "text":
                 for line in str(payload).split("\n"):
                     line = line.strip()
@@ -516,6 +525,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                 dcells = _docs_cells(rows)
                 if not dcells:
                     continue
+                widths_here, widths = widths, None                  # 이 표에 딸린 열 너비(새 표로 넣을 때만 쓴다)
                 if all(known.has(c) for c in dcells) or any(dcells <= t.cells for t in all_tables):
                     # 서식에 그대로 있는 표 — 이 구역 커서 뒤의 것이면 그 뒤로
                     here = next((t for t in s.tables if t.para[0] >= cursor and dcells <= t.cells), None)
@@ -563,7 +573,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                         header, injected_bf = _inject_border_fill(header)
                         replaced["Contents/header.xml"] = header.encode("utf-8")
                     bf = s.bf = injected_bf
-                t = table_xml(rows, pp, cp, s.width, bf, s.margin, next_id)
+                t = table_xml(rows, pp, cp, s.width, bf, s.margin, next_id, widths_here)
                 if t:
                     pending.append(t)
                     report["tables"] += 1

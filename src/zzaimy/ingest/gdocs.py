@@ -471,6 +471,11 @@ def section_bodies(email: str, doc: str, http=None) -> list[dict]:
                     rows.append([" ".join(_para_text(e["paragraph"]).strip() for e in cell.get("content", []) if "paragraph" in e).strip()
                                  for cell in row.get("tableCells", [])])
                 if any(any(c for c in rw) for rw in rows):
+                    # 열 너비(pt) — 독스가 고정 폭을 주면 함께 낸다. 서식 채우기(hwpx_fill)가 새 표의 열 비율로 쓴다; 옮기기는 무시
+                    cols = (el["table"].get("tableStyle") or {}).get("tableColumnProperties") or []
+                    widths = [float((c.get("width") or {}).get("magnitude") or 0) for c in cols]
+                    if widths and all(w > 0 for w in widths) and len(widths) == max(len(r) for r in rows):
+                        items.append(("widths", widths))
                     items.append(("table", rows))
         if buf:
             items.append(("text", "\n".join(buf)))
