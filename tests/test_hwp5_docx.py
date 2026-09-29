@@ -111,3 +111,15 @@ def test_paragraphs_under_a_column_set_inside_a_cell_are_kept(tmp_path):
     assert stats["images"] == 2
     cell = d.tables[0].cell(1, 1)
     assert "다단 오른쪽" in cell.text and cell._tc.findall(".//" + qn("w:drawing"))
+
+
+def test_formula_field_values_in_cells_are_kept(tmp_path):
+    """표 계산식 칸(=SUM 결과)은 FieldFormula 안의 Text 에 있다 — 필드를 건너뛰면 합계·소계 칸이 빈다(실측 2026-09-30)."""
+    cell = ('<Paragraph parashape-id="0" style-id="0" new-page="0"><LineSeg><Text charshape-id="0">소계 </Text>'
+            '<FieldFormula chid="%fmu" command="=SUM(?13:?21)??%g,;;1,044"><Text charshape-id="0">1,044</Text></FieldFormula>'
+            '<Text charshape-id="0"> 백만 원</Text></LineSeg></Paragraph>')
+    xml = XML.replace('<Paragraph parashape-id="0" style-id="0" new-page="0"><LineSeg><Text charshape-id="0">첫 줄</Text>', cell + '<Paragraph parashape-id="0" style-id="0" new-page="0"><LineSeg><Text charshape-id="0">첫 줄</Text>')
+    p = tmp_path / "plan.xml"
+    p.write_text(xml, encoding="utf-8")
+    data, _ = hwp5_docx.convert_xml(p)
+    assert "소계 1,044 백만 원" in [q.text for q in Document(io.BytesIO(data)).paragraphs]
