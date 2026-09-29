@@ -247,4 +247,6 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 
 최종 한글본(ADR-0035): 채팅 "한글 파일로 내보내 줘" → `ingest/hwpx_fill.py` 가 작업본 절 본문을 원본 hwpx 에 서식 보존으로 넣어 `생성/` 보관 + 드라이브 `작성/` 업로드. 원본이 .hwp 면 hwpx 반입 안내. 검증은 `tests/test_hwpx_fill.py` 와 kordoc `validate`(맥 스크래치 설치 또는 VM `~/opt/kordoc`).
 
+절 작성은 본문 insert 외에 양식 표 채우기(fill)·표 만들기(table, 머리 행 음영)·도식(figure → app/infographic.py, 프로젝트 그림/ 폴더)로 완성본 구성을 낸다(ADR-0037).
+
 한글 → docx 줄 간격은 렌더러별(ADR-0036): 독스용 기본 `docs`(비율 ÷ 글꼴 자연 행 높이), 열람 PDF 는 `office_pdf.docx_for` 가 `exact`. `ZZAIMY_LINE_RULE` 로 바꿀 수 있고 실험 기록은 `docs/notes/2026-09-29-line-spacing-measurement.md`.
