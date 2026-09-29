@@ -108,6 +108,9 @@ def _load_styles(docinfo: ET.Element) -> tuple[Styles, dict[str, bytes]]:
             idx = _int(ff.get("ko"))
             if 0 <= idx < len(ko_faces):
                 cs.font = ko_faces[idx]
+        wx = cs_el.find("LetterWidthExpansion")
+        if wx is not None:
+            cs.width_pct = _int(wx.get("ko"), 100) or 100
         st.chars[str(i)] = cs
     for i, b in enumerate(docinfo.iter("Bullet"), start=1):          # numbering-bullet-id 는 1부터
         st.bullets[str(i)] = (b.get("char") or "").strip()

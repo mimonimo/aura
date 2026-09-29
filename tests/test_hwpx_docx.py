@@ -144,13 +144,13 @@ def test_hanging_indent_and_exact_line_spacing(tmp_path):
     pf = d.paragraphs[1].paragraph_format                     # '첫 줄/둘째 줄' 문단(10pt)
     assert round(pf.left_indent.inches, 3) == round(1000 / 7200, 3) and round(pf.first_line_indent.inches, 3) == -round(1000 / 7200, 3)
     assert pf.line_spacing.pt == 16.0
-    # 독스용(기본): 독스 글꼴의 자연 행 높이(1.3em)로 나눈 배수 — 1.6/1.3
+    # 독스용(기본): 독스 글꼴의 자연 행 높이(나눔바른고딕 1.2em)로 나눈 배수 — 1.6/1.2
     data, _ = hwpx_docx.convert(p)
     pf = Document(io.BytesIO(data)).paragraphs[1].paragraph_format
-    assert round(pf.line_spacing, 2) == round(1.6 / 1.3, 2)
-    # 표 안 문단은 마지막 줄의 여분을 빼서(한 줄 칸이면 배수 1.0/1.3) — 한글은 셀 높이에 마지막 줄 간격을 넣지 않는다
+    assert round(pf.line_spacing, 2) == round(1.6 / 1.2, 2)
+    # 표 안 문단은 마지막 줄의 여분을 빼서(한 줄 칸이면 배수 1.0/1.2) — 한글은 셀 높이에 마지막 줄 간격을 넣지 않는다
     cell_p = Document(io.BytesIO(data)).tables[0].cell(1, 1).paragraphs[0].paragraph_format
-    assert round(cell_p.line_spacing, 2) == round(1.0 / 1.3, 2)
+    assert round(cell_p.line_spacing, 2) == round(1.0 / 1.2, 2)
 
 
 def test_normalize_image_reencodes_icc_jpeg_and_bmp():
