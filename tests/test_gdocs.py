@@ -734,3 +734,34 @@ def test_figure_op_renders_uploads_shares_briefly_and_inserts_image(monkeypatch,
     assert calls[0][1:] == ("도식 정책 동향.png", "image/png", "F", True) and calls[2][2].endswith("id=IMG1") and calls[3] == ("unshare", "IMG1", "PERM")
     # 도식 JSON 이 아니면 건너뛴다
     assert gdocs_agent.apply([{"op": "figure", "section": 3, "old": "", "text": "그냥 글", "table": 0, "cells": []}], "a@b", "d", user="u", data_dir=tmp_path) == ["도식 내용(JSON)이 아니라 건너뜀"]
+
+
+def test_migrate_skips_form_native_paragraphs_and_tables(monkeypatch, tmp_path):
+    """새 작업본(서식 변환본)에 이미 있는 서식 표·문단은 옮기지 않는다 — 재생성 뒤 같은 표가 두 벌이던 문제(2026-09-29)."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text}}]}}
+
+    def table(st, en, rows):
+        return {"startIndex": st, "endIndex": en, "table": {"tableRows": [{"tableCells": [{"content": [para(st + 1, st + 2, c)]} for c in r]} for r in rows]}}
+    form_tbl = [["지표명", "단위", "기준값"], ["AI 이수율", "%", ""]]
+    src = [para(1, 20, "2.1. 절\n", "HEADING_2"), table(20, 60, form_tbl), para(60, 90, "이 절의 목표는 AI 이수율 향상이다.\n"), table(90, 140, [["구분", "값"], ["가", "나"]]), para(140, 160, "2.2. 다음\n", "HEADING_2")]
+    dst = [para(1, 20, "2.1. 절\n", "HEADING_2"), table(20, 60, form_tbl), para(60, 62, " \n"), para(62, 90, "2.2. 다음\n", "HEADING_2"), para(90, 92, " \n")]
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"title": "t", "body": {"content": src if "/old" in req.url.path else dst}})
+        reqs = json.loads(req.content)["requests"]; sent.append(reqs)
+        for q in reqs:                                       # 넣은 표가 다음 읽기에 보이게
+            if "insertTable" in q:
+                at = q["insertTable"]["location"]["index"]
+                dst.append(table(at, at + 30, [["", ""], ["", ""]])); dst.sort(key=lambda e: e["startIndex"])
+        return httpx.Response(200, json={"documentId": "new", "replies": []})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http)
+    assert res[0]["tables"] == 1 and res[0]["chars"] > 0                     # 서식 표(지표명…)는 안 옮기고 새 표(구분|값)만
+    kinds = [list(q.keys())[0] for b in sent for q in b]
+    assert kinds.count("insertTable") == 1
