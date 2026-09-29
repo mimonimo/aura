@@ -342,8 +342,9 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         if references and p["ops"]:
             from zzaimy.app import drafting
 
-            score = drafting.score_against_reference("\n".join(str(o.get("text") or "") for o in p["ops"]),
-                                                     "\n".join(r.get("text") or "" for r in references))
+            draft_text = "\n".join(str(o.get("text") or "") for o in p["ops"]) + "\n" + "\n".join(
+                str(c.get("text") or "") for o in p["ops"] if o.get("op") == "fill" for c in (o.get("cells") or []) if isinstance(c, dict))
+            score = drafting.score_against_reference(draft_text, "\n".join(r.get("text") or "" for r in references))
         _episode(data_dir, {"session": session_id, "user": owner, "doc": gdocs.doc_id(link["doc"]), "section": focus.get("heading"),
                             "command": command, "materials": materials, "reply": p["reply"],
                             "draft": [{"op": o.get("op"), "text": o.get("text"), **({"table": o.get("table"), "cells": o.get("cells")} if o.get("op") == "fill" else {})} for o in p["ops"]],

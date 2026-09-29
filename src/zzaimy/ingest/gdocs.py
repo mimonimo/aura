@@ -404,8 +404,24 @@ def _section_tables(body: list[dict], info: dict, section_index: int) -> list[di
     return out
 
 
+def _covered_cells(tbl: dict) -> dict[tuple[int, int], tuple[int, int]]:
+    """병합에 덮인 칸 → 병합 원점 칸. 독스 API 는 덮인 칸도 tableCells 에 두므로(실측 2026-09-29: 총괄표 14열 중 절반이 덮인 칸)
+    거기에 글을 넣으면 보이지 않는다. 원점 칸의 rowSpan·columnSpan 으로 덮인 좌표를 센다."""
+    covered: dict[tuple[int, int], tuple[int, int]] = {}
+    for ri, row in enumerate(tbl.get("tableRows", [])):
+        for ci, cell in enumerate(row.get("tableCells", [])):
+            st = cell.get("tableCellStyle") or {}
+            rs, cs = int(st.get("rowSpan") or 1), int(st.get("columnSpan") or 1)
+            for dr in range(rs):
+                for dc in range(cs):
+                    if (dr, dc) != (0, 0):
+                        covered[(ri + dr, ci + dc)] = (ri, ci)
+    return covered
+
+
 def table_grids(email: str, doc: str, section_index: int, http=None, info: dict | None = None) -> list[dict]:
-    """절의 표 격자 — [{n, rows:[[글…]], sec}] 모델이 fill 로 칸을 지목할 수 있게(row·col 은 0부터)."""
+    """절의 표 격자 — [{n, rows:[[글…]], covered:{(r,c)}, sec}] 모델이 fill 로 칸을 지목할 수 있게(row·col 은 0부터).
+    covered 는 병합에 덮인 칸 — 값을 넣을 수 없어 격자에서 뺀다."""
     http = http or _http()
     info = info or get(email, doc, http)
     r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
@@ -415,21 +431,23 @@ def table_grids(email: str, doc: str, section_index: int, http=None, info: dict 
     for t in _section_tables(body, info, section_index):
         rows = [[" ".join(_para_text(e["paragraph"]).strip() for e in c.get("content", []) if "paragraph" in e).strip()
                  for c in row.get("tableCells", [])] for row in t["el"]["table"].get("tableRows", [])]
-        out.append({"n": t["n"], "rows": rows, "section": t["sec"]["heading"]})
+        out.append({"n": t["n"], "rows": rows, "covered": set(_covered_cells(t["el"]["table"]).keys()), "section": t["sec"]["heading"]})
     return out
 
 
 def render_table_grids(grids: list[dict], max_rows: int = 40) -> str:
-    """표 격자를 모델이 읽을 글로 — 빈 칸은 '_'. 채울 칸의 row·col 을 여기서 센다."""
+    """표 격자를 모델이 읽을 글로 — 보이는 칸만 [c열] 번호와 함께, 빈 칸은 '_'. 병합에 덮인 칸은 적지 않는다(넣어도 안 보인다)."""
     if not grids:
         return ""
-    lines = ["[이 절에 이미 있는 양식 표 — 새 표를 만들지 말고 fill 로 빈 칸(_)에 값을 넣는다. row·col 은 0부터]"]
+    lines = ["[이 절에 이미 있는 양식 표 — 새 표를 만들지 말고 fill 로 빈 칸(_)에 값을 넣는다. row 는 r번호, col 은 칸 앞의 [c번호]만 쓴다]"]
     for g in grids:
         rows = g["rows"]
+        covered = g.get("covered") or set()
         n_cols = max((len(r) for r in rows), default=0)
         lines.append(f"표 {g['n']} ({len(rows)}행×{n_cols}열)")
         for ri, row in enumerate(rows[:max_rows]):
-            lines.append(f"  r{ri}: " + " | ".join((c[:24] if c else "_") for c in row))
+            cells = [f"[c{ci}] " + (c[:24] if c else "_") for ci, c in enumerate(row) if (ri, ci) not in covered]
+            lines.append(f"  r{ri}: " + " | ".join(cells))
         if len(rows) > max_rows:
             lines.append(f"  … ({len(rows) - max_rows}행 더)")
     return "\n".join(lines)
@@ -449,8 +467,10 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
     if t is None:
         raise ValueError(f"절에 표 {table_n} 이 없습니다(표 {len(tables)}개)")
     rows = t["el"]["table"].get("tableRows", [])
+    covered = _covered_cells(t["el"]["table"])
     edits: list[tuple[int, int, str]] = []          # (start, end(지울 끝, 없으면 start), 글)
     skipped = 0
+    seen: set[tuple[int, int]] = set()
     for c in cells:
         try:
             ri, ci = int(c.get("row")), int(c.get("col"))
@@ -463,6 +483,10 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         if not text or ri < 0 or ri >= len(rows):
             skipped += 1
             continue
+        ri, ci = covered.get((ri, ci), (ri, ci))         # 덮인 칸을 지목했으면 병합 원점 칸에 넣는다
+        if (ri, ci) in seen:
+            continue
+        seen.add((ri, ci))
         tcs = rows[ri].get("tableCells", [])
         if ci < 0 or ci >= len(tcs):
             skipped += 1
@@ -475,16 +499,24 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         existing = " ".join(_para_text(e["paragraph"]) for e in content).strip()
         end = int(content[-1]["endIndex"]) - 1 if existing else start        # 마지막 줄바꿈은 칸의 것 — 지우지 않는다
         edits.append((start, end, text))
+        # 원점 칸이 덮은 칸에 남은(보이지 않는) 글은 지운다 — 예전 채우기가 덮인 칸에 넣은 값이 완성본으로 새지 않게
+        for (cr, cc), origin in covered.items():
+            if origin == (ri, ci) and cr < len(rows) and cc < len(rows[cr].get("tableCells", [])):
+                hid = [e for e in rows[cr]["tableCells"][cc].get("content", []) if "paragraph" in e]
+                if hid and " ".join(_para_text(e["paragraph"]) for e in hid).strip():
+                    edits.append((int(hid[0]["startIndex"]), int(hid[-1]["endIndex"]) - 1, ""))
     reqs: list[dict] = []
     for start, end, text in sorted(edits, key=lambda x: -x[0]):
         if end > start:
             reqs.append({"deleteContentRange": {"range": {"startIndex": start, "endIndex": end}}})
-        reqs.append({"insertText": {"location": {"index": start}, "text": text}})
+        if text:
+            reqs.append({"insertText": {"location": {"index": start}, "text": text}})
     if reqs:
         _batch(email, doc, reqs, http)
+    n_written = sum(1 for _s, _e, tx in edits if tx)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "fill", "section": t["sec"]["heading"], "table": int(table_n),
-                      "cells": len(edits), "skipped": skipped})
-    return {"ok": True, "section": t["sec"]["heading"], "table": int(table_n), "cells": len(edits), "skipped": skipped}
+                      "cells": n_written, "skipped": skipped})
+    return {"ok": True, "section": t["sec"]["heading"], "table": int(table_n), "cells": n_written, "skipped": skipped}
 
 
 def insert_image(email: str, doc: str, section_index: int, uri: str, *, user: str, data_dir: Path, width_pt: float = 450.0,
