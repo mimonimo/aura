@@ -11,6 +11,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from .database_backend import connect, table_names, column_names, lock_session, install_functions
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS documents (
@@ -233,15 +234,18 @@ class Database:
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
             for stmt in self._MIGRATIONS:
+                if getattr(conn, 'dialect', '') == 'postgres':
+                    conn.execute(stmt.replace('ADD COLUMN ', 'ADD COLUMN IF NOT EXISTS '))
+                    continue
                 try:
                     conn.execute(stmt)
                 except sqlite3.OperationalError:
                     pass  # 이미 있는 컬럼
+            if getattr(conn, 'dialect', '') == 'postgres':
+                install_functions(conn)
 
     def _conn(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return connect(self.path)
 
     _TYPE_CODES = {
         "grant": "국고", "recruit": "채용", "admission": "입학",
@@ -270,6 +274,8 @@ class Database:
         code = self._TYPE_CODES.get(doc_type, "문서")
         with self._conn() as conn:
             # 접수번호 = 연도-유형코드-일련번호(4자리). 일련번호는 그해·그 유형의 기존 최대값+1.
+            if getattr(conn, 'dialect', '') == 'postgres':
+                conn.execute('SELECT pg_advisory_xact_lock(26092901)')
             # (COUNT+1 방식은 문서를 지우면 번호가 겹쳤다 — 번호는 한 번 쓰면 다시 쓰지 않는다)
             prefix = f"{year}-{code}-"
             row = conn.execute(
@@ -558,12 +564,13 @@ class Database:
     def delete_chat_session(self, session_id: int) -> bool:
         """대화와 딸린 것(메시지·문맥·수정 이력·설정·근거·문서 연결 설정)을 지운다. 첨부 문서는 문서함에 남는다."""
         with self._conn() as conn:
+            lock_session(conn, session_id)
             if conn.execute("SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,)).fetchone() is None:
                 return False
-            names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            names = table_names(conn)
             for t in ("chat_messages", "chat_message_context", "chat_revisions", "chat_session_preferences", "chat_sources"):
                 if t in names:
-                    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({t})")}
+                    cols = column_names(conn, t)
                     if "session_id" in cols:
                         conn.execute(f"DELETE FROM {t} WHERE session_id = ?", (session_id,))
             conn.execute("DELETE FROM settings WHERE key LIKE ?", (f"chat_google_doc%:{session_id}",))
@@ -602,6 +609,7 @@ class Database:
 
     def add_chat(self, session_id: int, role: str, content: str) -> None:
         with self._conn() as conn:
+            lock_session(conn, session_id)
             conn.execute(
                 "INSERT INTO chat_messages (session_id, role, content, created_at)"
                 " VALUES (?, ?, ?, ?)",
@@ -940,8 +948,8 @@ class Database:
                 "DELETE FROM project_criteria WHERE project_id = ?", (project_id,)
             )
             conn.executemany(
-                "INSERT OR IGNORE INTO project_criteria (project_id, criteria_doc_id)"
-                " VALUES (?, ?)",
+                "INSERT INTO project_criteria (project_id, criteria_doc_id)"
+                " VALUES (?, ?) ON CONFLICT(project_id, criteria_doc_id) DO NOTHING",
                 [(project_id, cid) for cid in criteria_doc_ids],
             )
 
@@ -972,8 +980,8 @@ class Database:
     def add_project_criteria(self, project_id: int, criteria_doc_ids: list[int]) -> None:
         with self._conn() as conn:
             conn.executemany(
-                "INSERT OR IGNORE INTO project_criteria (project_id, criteria_doc_id)"
-                " VALUES (?, ?)",
+                "INSERT INTO project_criteria (project_id, criteria_doc_id)"
+                " VALUES (?, ?) ON CONFLICT(project_id, criteria_doc_id) DO NOTHING",
                 [(project_id, cid) for cid in criteria_doc_ids],
             )
 
@@ -1192,8 +1200,9 @@ class Database:
                 )
                 entity_id = cur.fetchone()[0]
                 conn.execute(
-                    "INSERT OR REPLACE INTO doc_entities"
-                    " (doc_id, entity_id, n_mentions) VALUES (?, ?, ?)",
+                    "INSERT INTO doc_entities"
+                    " (doc_id, entity_id, n_mentions) VALUES (?, ?, ?)"
+                    " ON CONFLICT(doc_id, entity_id) DO UPDATE SET n_mentions=excluded.n_mentions",
                     (doc_id, entity_id, count),
                 )
             # 어느 문서에서도 언급되지 않는 고아 개체 정리
@@ -1209,7 +1218,7 @@ class Database:
                 """
                 SELECT e.id, e.name, e.kind, COUNT(DISTINCT de.doc_id) AS n_docs
                 FROM entities e JOIN doc_entities de ON de.entity_id = e.id
-                GROUP BY e.id HAVING n_docs >= ?
+                GROUP BY e.id HAVING COUNT(DISTINCT de.doc_id) >= ?
                 """,
                 (min_docs,),
             ).fetchall()]

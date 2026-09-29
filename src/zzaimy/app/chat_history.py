@@ -1,6 +1,7 @@
 """계정별 통합 채팅 기록. 보관은 가역적인 목록 상태이며 대화를 삭제하지 않는다."""
 from contextlib import closing
 import sqlite3
+from .database_backend import connect, table_names, lock_session
 
 from fastapi import Form, HTTPException, Request
 
@@ -18,9 +19,7 @@ class ChatHistory:
             ''')
 
     def connect(self):
-        conn = sqlite3.connect(self.path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return connect(self.path)
 
     def sessions(self, owner, query='', archived=False, offset=0, limit=30, topic_match=None, scope='title'):
         """계정의 대화 목록. topic_match 는 주제(근거 문서의 사업·규정 이름) 검색 조건을 함께 건다.
@@ -64,14 +63,14 @@ class ChatHistory:
 
     def delete(self, owner, session_id):
         with closing(self.connect()) as conn, conn:
-            conn.execute('BEGIN IMMEDIATE')
+            lock_session(conn, session_id)
             if not conn.execute('SELECT 1 FROM chat_sessions WHERE id=? AND owner=?', (session_id, owner)).fetchone():
                 raise HTTPException(404, '대화를 찾을 수 없습니다.')
             last = conn.execute('SELECT role FROM chat_messages WHERE session_id=? ORDER BY id DESC LIMIT 1', (session_id,)).fetchone()
             if last and last['role'] == 'user':
                 raise HTTPException(409, '답변이 끝난 뒤 삭제해 주세요.')
             # Context tables are installed separately. Never delete shared documents or files.
-            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            tables = table_names(conn)
             if 'chat_message_context' in tables:
                 conn.execute('DELETE FROM chat_message_context WHERE message_id IN (SELECT id FROM chat_messages WHERE session_id=?)', (session_id,))
             if 'chat_revisions' in tables:

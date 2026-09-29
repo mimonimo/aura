@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from .database_backend import connect, lock_session
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,14 +28,12 @@ class ChatRevisions:
             """)
 
     def connect(self):
-        conn = sqlite3.connect(self.path, timeout=10)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return connect(self.path)
 
     def remember(self, message_id: int, attachment: Path | None, criteria: list[int]):
         with self.connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO chat_message_context VALUES (?, ?, ?)",
+                "INSERT INTO chat_message_context VALUES (?, ?, ?) ON CONFLICT(message_id) DO UPDATE SET attachment=excluded.attachment, criteria=excluded.criteria",
                 (message_id, str(attachment) if attachment else None, json.dumps(criteria)),
             )
 
@@ -51,7 +50,7 @@ class ChatRevisions:
         if not question:
             raise HTTPException(400, "질문을 입력하세요.")
         with self.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+            lock_session(conn, session_id)
             session = conn.execute("SELECT * FROM chat_sessions WHERE id=? AND owner=?",
                                    (session_id, owner)).fetchone()
             if session is None:
@@ -84,7 +83,7 @@ class ChatRevisions:
             conn.execute("DELETE FROM chat_messages WHERE session_id=? AND id>?", (session_id, message_id))
             conn.execute("UPDATE chat_messages SET content=? WHERE id=? AND session_id=?",
                          (shown, message_id, session_id))
-            conn.execute("INSERT OR REPLACE INTO chat_message_context VALUES(?,?,?)",
+            conn.execute("INSERT INTO chat_message_context VALUES(?,?,?) ON CONFLICT(message_id) DO UPDATE SET attachment=excluded.attachment, criteria=excluded.criteria",
                          (message_id, str(stored) if stored else None, json.dumps(criteria)))
             if rows[0]["id"] == message_id and session["title"] == message["content"][:60]:
                 conn.execute("UPDATE chat_sessions SET title=? WHERE id=?", (question[:60], session_id))

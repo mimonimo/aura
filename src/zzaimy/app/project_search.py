@@ -10,11 +10,12 @@ def search(db, owner: str, q: str = "", offset: int = 0) -> dict:
     pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     sector = next((key for key, label in SECTORS.items() if label == term), "")
     with db._conn() as conn:
+        latest = 'GREATEST' if getattr(conn, 'dialect', '') == 'postgres' else 'MAX'
         rows = conn.execute(
-            """SELECT p.id, p.name, p.sector, p.created_at,
+            f"""SELECT p.id, p.name, p.sector, p.created_at,
                 (SELECT COUNT(*) FROM documents d WHERE d.project_id=p.id AND d.owner=p.owner) AS n_docs,
                 (SELECT COUNT(*) FROM chat_sessions c WHERE c.project_id=p.id AND c.owner=p.owner) AS n_chats,
-                MAX(p.created_at,
+                {latest}(p.created_at,
                     COALESCE((SELECT MAX(d.created_at) FROM documents d
                               WHERE d.project_id=p.id AND d.owner=p.owner), p.created_at),
                     COALESCE((SELECT MAX(m.created_at) FROM chat_messages m
