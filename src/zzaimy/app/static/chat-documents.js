@@ -302,7 +302,7 @@
  async function showFiles(){
    clearPanel();showEmpty();setRatio(70,false);
    panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서함';
-   const refresh=document.createElement('button');refresh.type='button';refresh.className='secondary doc-icon-button';refresh.textContent='↻';refresh.title='문서 목록 새로고침';refresh.setAttribute('aria-label',refresh.title);refresh.onclick=showFiles;
+   const refresh=document.createElement('button');refresh.type='button';refresh.className='secondary doc-icon-button';refresh.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7"/></svg>';refresh.title='목록 새로고침';refresh.setAttribute('aria-label',refresh.title);refresh.onclick=showFiles;
    panel.querySelector('header').insertBefore(refresh,panel.querySelector('[data-close]'));
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
    const status=document.createElement('p');status.setAttribute('role','status');status.textContent='파일을 불러오는 중…';body.append(status);
@@ -321,7 +321,7 @@
    const mineRequest=sid?api('/api/chat/'+sid+'/documents').catch(error=>({documents:[],error:error.message})):Promise.resolve({documents:[]});
    try{
      const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
-     status.textContent=data.files.length?'':'연결된 폴더에 표시할 파일이 없습니다.';
+     status.textContent='';
      if(data.folder_url){const folder=document.createElement('a');folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='폴더 열기 ↗';panel.querySelector('header').insertBefore(folder,panel.querySelector('[data-close]'));}
      for(const file of [...data.files].sort((a,b)=>Number(b.id===linked?.doc)-Number(a.id===linked?.doc))){
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
@@ -359,13 +359,17 @@
      }catch(error){status.textContent='프로젝트 문서를 불러오지 못했습니다. 문서함을 다시 열어 주세요.';}}
      if(data.error)status.textContent='Drive 목록: '+data.error;
      else if(workDocs.children.length||docs.children.length||images.children.length)status.textContent='';
-     workHeading.textContent='작업 문서 '+workDocs.children.length;
-     docsHeading.textContent='참고·첨부 문서 '+docs.children.length;
+     const countHeading=(heading,label,count)=>{heading.textContent=label+' ';const badge=document.createElement('span');badge.className='chat-file-count';badge.textContent=count;heading.append(badge);};
+     countHeading(workHeading,'작업 문서',workDocs.children.length);
+     countHeading(docsHeading,'참고·첨부 문서',docs.children.length);
      if(!workDocs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=data.error?'작업 문서 목록을 불러오지 못했습니다.':'아직 작업 문서가 없습니다.';workDocs.append(empty);}
      if(!docs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent='표시할 참고·첨부 문서가 없습니다.';docs.append(empty);}
      imagesHeading.textContent='콘텐츠 '+images.children.length;
      imagesHeading.hidden=images.hidden=!images.children.length;
      const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='다른 폴더에서 가져오기';connectButton.onclick=connect;workDocs.after(connectButton);
+     connectButton.classList.add('chat-file-import');
+     workNote.hidden=!workDocs.querySelector('.chat-doc-file');
+     referenceNote.hidden=!docs.querySelector('.chat-doc-file');
      markCurrentFile();
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }

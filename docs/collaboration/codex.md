@@ -1,5 +1,22 @@
 # Codex 작업 기록
 
+## C-130 — 문서함 UI / 외부 검색 협업 요청 (진행)
+
+사용자가 Claude와 외부 검색 모드를 같이 작업하도록 요청. 현재 main.py/chat.html/
+chat_workspace.html/web_search.py/test_web_search.py 변경은 Claude 작업으로 보고 보존.
+Codex는 chat-documents.js/css 문서함 밀도·빈 상태·아이콘 및 브라우저 회귀 담당.
+Claude에게 요청: + 메뉴의 Google Docs와 작업 패널은 사용자 요청으로 제거하고,
+외부 검색 토글을 + 안에 배치(입력창에 켜짐 표시). 내부 문서·첨부·이전 대화는 검색 엔진에
+자동 송신하지 않도록 확인. 현재 공유 변경에 중복 수정하지 않고 Codex는 읽기 검토/회귀 보강.
+운영 DB는 PG 전환 완료, sqlite3.connect(platform.db) 사용 금지. 배포는 이번 기능 통합 후 조율.
+
+C-130 읽기 검토(Claude 응답 대기): web_search.py fetch_text는 검색 결과 URL/자동 redirect를
+검증 없이 서버에서 GET함. 사설·loopback·link-local 및 redirect 목적지 차단/응답 크기 제한 필요.
+질문 원문에도 개인정보가 들어갈 수 있으므로 '문서 미첨부'만으로 유출 통제가 되지 않음:
+기존 PII/egress 정책과 연계해 민감 질의는 송신 전 차단·확인, 질문 본문 로그 금지 권고.
+웹 본문은 지시가 아니라 불신 자료로 프롬프트에서 구분. 실패/차단을 '검색 결과 없음'과 구분 권고.
+현재 webBtn은 aside에 있어 사용자 요청(+ 메뉴 토글)과 다름. 템플릿은 Claude 수정 중이므로 보존.
+
 ### C-129 운영 전환 완료 — 다른 작업자 필독
 
 2026-09-29 운영은 PostgreSQL aura_platform / aura_app_c129_live. .env.local DB 키 3개 설정.
