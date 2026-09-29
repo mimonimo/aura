@@ -38,7 +38,7 @@
       <td>{{ u.role_label }}</td>
       <td>{{ u.dept or '전체' }}</td>
       <td>{% if u.bound and u.bound_ok %}{{ u.bound }}{% elif u.bound %}{{ u.bound }}<span class="ua-sub">연결 끊김</span>{% else %}<span class="muted">연결 전</span>{% endif %}</td>
-      <td class="wide">{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% else %}<span class="muted">없음</span>{% endif %}</td>
+      <td class="wide">{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% else %}<span class="muted">본인 연결 필요</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
             data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}"
             data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}">편집</button></td>
@@ -54,7 +54,6 @@
   <div class="ua-chips">
     <span class="pill">{{ '앱 등록 완료' if app.configured else '앱 등록 필요' }}</span>
     <span class="pill">허용 도메인 {{ domain or '제한 없음' }}</span>
-    <span class="pill">미연결 사용자 {{ '공용 계정 사용' if fallback else '본인 연결 필요' }}</span>
   </div>
   {% if not app.configured %}<p class="muted" style="margin:0 0 10px;">앱 등록은 <a href="/dev/nas">문서 가져오기</a>의 Google 앱 설정에서 합니다.</p>{% endif %}
   {% if emails %}
@@ -115,19 +114,22 @@
       <label><span data-pw-label>비밀번호</span><input type="password" name="new_pw" autocomplete="new-password" minlength="8"></label>
       <label>구글 계정<select name="google"><option value="">연결 전(본인이 설정 화면에서 연결)</option>
         {% for e in emails %}<option value="{{ e.email }}">{{ e.email }}</option>{% endfor %}</select></label>
-      <label class="check"><input type="checkbox" name="active" value="1" checked>사용</label>
-      <footer><button type="button" class="secondary" data-modal-close>닫기</button><button type="submit">저장</button></footer>
+      <input type="hidden" name="active" value="1">
+      <div data-account-status hidden>
+        <label class="check"><input type="checkbox" name="suspended" aria-describedby="accountStatusHelp">계정 사용 중지</label>
+        <p class="muted" id="accountStatusHelp" style="font-size:12px; margin:6px 0 0;">선택 후 저장하면 이 계정의 로그인이 차단됩니다. 계정과 기존 자료는 삭제되지 않습니다.</p>
+      </div>
+      <footer><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" data-save-user>사용자 추가</button></footer>
     </form>
   </div></div>
 </div>
 
 <div class="modal-back" id="googleSettings">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:15px;">구글 연동 설정</h2>
+    <div class="modal-head"><h2 style="font-size:15px;">허용 도메인</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form action="/dev/google/settings" method="post" class="ua-form">
       <label>허용 도메인<input type="text" name="domain" value="{{ domain }}" placeholder="ync.ac.kr" autocomplete="off"></label>
-      <label class="check"><input type="checkbox" name="fallback" value="1" {{ 'checked' if fallback }}>구글 계정을 연결하지 않은 사용자는 공용 계정으로 문서 작성</label>
       <footer><button type="button" class="secondary" data-modal-close>닫기</button><button type="submit">저장</button></footer>
     </form>
   </div></div>
@@ -149,6 +151,12 @@
 
 <script>
 (function () {
+  var userForm = document.querySelector('#userEdit form');
+  function syncAccountStatus() {
+    userForm.elements.active.value = userForm.elements.is_new.value === '1' || !userForm.elements.suspended.checked ? '1' : '';
+  }
+  userForm.elements.suspended.addEventListener('change', syncAccountStatus);
+  userForm.addEventListener('submit', syncAccountStatus);
   // 편집 버튼의 값을 관리 창에 채운다 — 창은 하나, 새로 만들기와 고치기를 같이 쓴다
   document.querySelectorAll('[data-modal-open="#userEdit"]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -160,10 +168,14 @@
       f.role.value = isNew ? 'staff' : btn.dataset.role;
       f.dept.value = isNew ? '' : (btn.dataset.dept || '');
       f.google.value = isNew ? '' : (btn.dataset.google || '');
-      f.active.checked = isNew || btn.dataset.active === '1';
+      f.elements.suspended.checked = !isNew && btn.dataset.active !== '1';
+      f.elements.suspended.disabled = isNew;
+      document.querySelector('#userEdit [data-account-status]').hidden = isNew;
+      syncAccountStatus();
       f.new_pw.value = '';
       f.new_pw.required = isNew;
       document.querySelector('#userEdit [data-title]').textContent = isNew ? '사용자 추가' : '사용자 편집';
+      document.querySelector('#userEdit [data-save-user]').textContent = isNew ? '사용자 추가' : '변경 사항 저장';
       document.querySelector('#userEdit [data-pw-label]').textContent = isNew ? '초기 비밀번호(8자 이상)' : '비밀번호 초기화(바꿀 때만)';
     });
   });
