@@ -480,7 +480,7 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         text = str(c.get("text") or "").strip()
         if scrub:
             text = scrub(text)
-        if not text or ri < 0 or ri >= len(rows):
+        if ri < 0 or ri >= len(rows):
             skipped += 1
             continue
         ri, ci = covered.get((ri, ci), (ri, ci))         # 덮인 칸을 지목했으면 병합 원점 칸에 넣는다
@@ -498,7 +498,10 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         start = int(content[0]["startIndex"])
         existing = " ".join(_para_text(e["paragraph"]) for e in content).strip()
         end = int(content[-1]["endIndex"]) - 1 if existing else start        # 마지막 줄바꿈은 칸의 것 — 지우지 않는다
-        edits.append((start, end, text))
+        if not text and not existing:
+            skipped += 1                                      # 빈 칸을 비우라는 것 — 할 일이 없다
+            continue
+        edits.append((start, end, text))                     # text 가 비면 칸을 비운다(모델이 잘못 든 값을 지울 때)
         # 원점 칸이 덮은 칸에 남은(보이지 않는) 글은 지운다 — 예전 채우기가 덮인 칸에 넣은 값이 완성본으로 새지 않게
         for (cr, cc), origin in covered.items():
             if origin == (ri, ci) and cr < len(rows) and cc < len(rows[cr].get("tableCells", [])):
@@ -514,9 +517,10 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
     if reqs:
         _batch(email, doc, reqs, http)
     n_written = sum(1 for _s, _e, tx in edits if tx)
+    n_cleared = sum(1 for _s, e_, tx in edits if not tx and e_ > _s)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "fill", "section": t["sec"]["heading"], "table": int(table_n),
-                      "cells": n_written, "skipped": skipped})
-    return {"ok": True, "section": t["sec"]["heading"], "table": int(table_n), "cells": n_written, "skipped": skipped}
+                      "cells": n_written, "cleared": n_cleared, "skipped": skipped})
+    return {"ok": True, "section": t["sec"]["heading"], "table": int(table_n), "cells": n_written, "cleared": n_cleared, "skipped": skipped}
 
 
 def insert_image(email: str, doc: str, section_index: int, uri: str, *, user: str, data_dir: Path, width_pt: float = 450.0,

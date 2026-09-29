@@ -704,12 +704,14 @@ def test_table_grids_and_fill_table_write_only_value_cells(monkeypatch, tmp_path
     assert [g["n"] for g in grids] == [1] and grids[0]["rows"][1] == ["AI 이수율", "%", ""]
     text = gdocs.render_table_grids(grids)
     assert "표 1 (3행×3열)" in text and "r1: [c0] AI 이수율 | [c1] % | [c2] _" in text
-    r = gdocs.fill_table("a@b", "d", sec["index"], 1, [{"row": 1, "col": 2, "text": "4.6"}, {"row": 2, "col": 2, "text": "95.7"}, {"row": 9, "col": 0, "text": "x"}],
+    r = gdocs.fill_table("a@b", "d", sec["index"], 1, [{"row": 1, "col": 2, "text": "4.6"}, {"row": 2, "col": 2, "text": "95.7"}, {"row": 9, "col": 0, "text": "x"},
+                                                      {"row": 2, "col": 1, "text": ""}],       # 빈 값 = 그 칸('점')을 비운다
                          user="u", data_dir=tmp_path, http=http)
-    assert r["cells"] == 2 and r["skipped"] == 1
+    assert r["cells"] == 2 and r["skipped"] == 1 and r["cleared"] == 1
     reqs = sent[0]
     kinds = [list(q.keys())[0] for q in reqs]
-    assert kinds == ["deleteContentRange", "insertText", "insertText"]           # 뒤 칸(옛값 바꾸기)부터, 빈 칸은 넣기만
+    assert kinds == ["deleteContentRange", "insertText", "deleteContentRange", "insertText"]   # 뒤 칸(옛값 바꾸기)부터, 비우기, 빈 칸은 넣기만
+    reqs = [q for q in reqs if not (q.get("deleteContentRange") and q["deleteContentRange"]["range"]["startIndex"] == grid["table"]["tableRows"][2]["tableCells"][1]["content"][0]["startIndex"])]
     old_start = grid["table"]["tableRows"][2]["tableCells"][2]["content"][0]["startIndex"]
     assert reqs[0]["deleteContentRange"]["range"] == {"startIndex": old_start, "endIndex": old_start + len("옛값")}
     assert reqs[1]["insertText"] == {"location": {"index": old_start}, "text": "95.7"}
