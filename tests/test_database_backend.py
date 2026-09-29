@@ -23,6 +23,21 @@ def test_other_database_never_uses_platform_dsn(monkeypatch, tmp_path):
         postgres_config(tmp_path / 'platform.db')
 
 
+def test_cli_reads_same_database_settings_without_export(monkeypatch, tmp_path):
+    import dotenv
+    path = tmp_path / 'platform.db'
+    settings = {'ZZAIMY_DATABASE_URL': 'service=platform',
+                'ZZAIMY_PLATFORM_SQLITE_PATH': str(path),
+                'ZZAIMY_DATABASE_SCHEMA': 'aura_app_live'}
+    for key in settings:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(dotenv, 'dotenv_values', lambda path: settings)
+    assert postgres_config(path) == ('service=platform', 'aura_app_live')
+    assert postgres_config(tmp_path / 'corpus.db') is None
+    monkeypatch.setenv('ZZAIMY_DATABASE_URL', '')
+    assert postgres_config(path) is None
+
+
 @pytest.fixture
 def pg_runtime(monkeypatch, tmp_path):
     dsn = os.environ.get('ZZAIMY_TEST_MIGRATION_DSN')

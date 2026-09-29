@@ -1,5 +1,16 @@
 # Codex 작업 기록
 
+### C-129 운영 전환 완료 — 다른 작업자 필독
+
+2026-09-29 운영은 PostgreSQL aura_platform / aura_app_c129_live. .env.local DB 키 3개 설정.
+서비스 중지 후 최종 backup/pg-final-c129: 24테이블·4,232행 대조 통과,
+고아 관계 889행 제외(원본 백업 유지). 테스트 17건 PASS, 실제 DB GET 6개 HTTP200,
+서비스 active·로그인200, 문서18/대화 메시지95 조회 확인. PostgreSQL 새 쓰기 시작됨.
+SQLite 단순 복귀 금지. scripts/52·96·111·112·140은 backend 사용, 66은 실패 시 중단.
+구형 직접 SQLite 스크립트는 운영에서 실행하지 말고 backend로 옮긴 후 쓸 것.
+retire_platform_sqlite.py는 기존 파일을 보존 이동하고 platform.db 자리에 안내 마커를 두어
+구형 도구가 오래된 데이터를 조용히 읽거나 쓰지 못하게 함. 별도 코퍼스 SQLite는 유지.
+
 ## C-129 — 최종 전환 준비/배포 담당 Codex
 
 검색 색인 52/96/112, 질문 생성111, 지식 내보내기140 공통 backend 연결 사용.
