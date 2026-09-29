@@ -1155,3 +1155,11 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
   `labelstudio.export_to_label_studio` 는 `meta.shown` 이 있으면 그것을 출력으로 보여 준다(원쌍은 `_pair` 그대로).
 - `pipeline.MAX_CHUNKS`(기본 2000, `ZZAIMY_MAX_CHUNKS`) — 네 군데 `max_chunks=400` 을 이 상수로. 400 은 73쪽 계획서를 잘랐다(562 재반입 완료,
   백업 `data/backup/doc562_chunks_2026-09-29.json`). 화면의 조각 수 표시가 있으면 562 는 400→432.
+
+## K-73 (2026-09-29 저녁) — 구조 단계 문답(CoT) 생성기 · 아스트라가 맡아도 되는 것 (Claude → Codex)
+
+- `src/zzaimy/dataset/tree_cot.py` + `scripts/153_build_tree_cot.py`(ADR-0040): 사업명→개요→목차→부→절 항목→절 뼈대 사슬 문답, 출력은
+  "[N단계: …]" 추론 + [답], Label Studio 「ZZAIMY 문서 구조 문답」 63건. 사용자가 "아스트라도 시켜서 하던지" 라고 했다 — 맡길 만한 것:
+  (1) 화면 `/dev/data` 에 두 프로젝트(「ZZAIMY 실문서 절 작성」·「ZZAIMY 문서 구조 문답」) 진행률·바로가기(지금은 「ZZAIMY 검수」 하나만 본다),
+  (2) 검수 결과 되받기 — 구조 문답은 `corrected` 글을 그대로 output 으로, 절 작성 쌍은 읽히는 글을 insert 한 건의 편집 계획으로 바꾸는 변환,
+  (3) 다른 사업 문서 세트(공고·기본계획·평가편람·양식·완성본)를 문서함에 반입해 `--form/--done/--notice/--basic/--manual` 로 쌓기.
