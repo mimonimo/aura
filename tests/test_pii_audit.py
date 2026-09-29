@@ -268,14 +268,16 @@ def test_dev_pii_page_actions_and_shortcut(client):
     assert r.status_code == 200
     assert "자가 점검" in r.text and "잔여 검사" in r.text
     assert "원문 유지" in r.text and "ADR-0006" in r.text
-    assert "아직 실행하지 않음" in r.text
+    assert "전환 미완료" in r.text
+    assert 'action="/dev/pii/scan"' not in r.text
+    assert "마스킹 기록 —" not in r.text
 
     r = client.post("/dev/pii/selftest", follow_redirects=False)
     assert r.status_code == 303
     r = client.post("/dev/pii/scan", follow_redirects=False)
     assert r.status_code == 303
 
-    page = client.get("/dev/pii").text
+    page = client.get("/dev/pii?view=checks").text
     selftest = pii_audit.load_json(client.app.state.db, pii_audit.SELFTEST_KEY)
     if selftest["error"]:
         assert "마스커 로드 실패" in page
@@ -286,7 +288,7 @@ def test_dev_pii_page_actions_and_shortcut(client):
     if scan["error"]:
         assert "탐지기 로드 실패" in page
     else:
-        assert "잔여 개인정보 없음(정규식 기준)" in page
+        assert "정규식 탐지 0건" in page
 
 
 def test_dev_dashboard_has_pii_shortcut(client):
@@ -300,7 +302,7 @@ def test_dev_pii_page_shows_load_failure_without_500(client, monkeypatch):
     monkeypatch.setattr(pii_audit, "_load_masker", boom)
     r = client.post("/dev/pii/selftest", follow_redirects=False)
     assert r.status_code == 303
-    page = client.get("/dev/pii")
+    page = client.get("/dev/pii?view=checks")
     assert page.status_code == 200
     assert "마스커 로드 실패: RuntimeError: spacy 모델 없음" in page.text
 
@@ -322,7 +324,7 @@ def test_dev_pii_page_lists_recorded_documents_and_corpus_db(client, tmp_path):
     c_id = cdb.add_document("공고.pdf", "/tmp/c.pdf", doc_type="regulation", owner="corpus")
     cdb.replace_mask_events(c_id, [{"entity_type": "EMAIL", "n": 1, "context": "[EMAIL]"}])
 
-    page = client.get("/dev/pii").text
+    page = client.get("/dev/pii?view=history").text
     assert f'href="/doc/{doc_id}"' in page and "전화번호 3" in page
     assert "기록이 없는 문서 1건" in page
     assert "규정.pdf" not in page          # 기준 문서는 마스킹 대상 표에 없다

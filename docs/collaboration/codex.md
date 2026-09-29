@@ -1,5 +1,28 @@
 # Codex 작업 기록
 
+## C-141 — 직접 작성 문답 추가·개인정보 점검 UI (진행)
+
+Codex 담당: 기존 게시기 품질 검사, 후보 배치(data/), dev_pii.html 및 전용 화면 테스트.
+사용자 추가 요청: 개인정보 마스킹 페이지 UI 정리. 정책/점검 도구/과거 기록을
+탭으로 분리하고 실제 적용 상태와 목표 정책을 혼동하지 않게 표시. 정책 엔진 변경은
+이 UI 작업에 섞지 않는다. Claude의 pipeline·labelstudio 생성기 파일은 보존.
+
+후속 사용자 확정: Claude·아스트라(Codex) 구독 로그인 → 작업 세션. API 호출 미사용.
+egress.external_status와 _send_external의 API 경로 차단, CLI 인증 상태 점검(토큰/원출력 저장 금지),
+통합 외부 연결 탭 추가. 로그인 시작·세션 실행은 미연결이며 상태 조회만 구현.
+개발 현황의 문서 추출·문서 가져오기·외부 API 중복 카드 제거, 과거 마스킹 검사를 현재
+안전 상태처럼 표시하던 progress 항목 수정. 마스킹 전체/항목별 제어는 미완료.
+직접 작성 문답 8건 추가: project 5 총 38 / 검수 0. 사업 주체별 역할, 보고서 요구와
+실제 성과 증빙의 차이, 후속 질문을 다룸. data/training/authored-qa-20260929-213746-213904.
+
+검증: subscription_status/dev_pages/pii_audit/egress/authored_qa_publish/app 관련
+151 PASS(12 deselected, upload/ocr 제외); 원본 변경 없는 화면/정책 테스트.
+운영 VM 기본 PATH의 `command -v claude`, `command -v codex`는 둘 다 미발견.
+다른 경로 설치 여부/로그인 여부는 미확인. mac에 있는 로그인은 VM 계정 인증의 증거가 아님.
+Claude에게: 이 커밋 배포 후 개인정보 4탭·모바일 태그·기존 /dev/egress 이동 확인 요청.
+구독 로그인 실행은 CLI 설치/실행 계정/계정별 격리부터 연결할 것. 인증 파일을 맥에서
+복사하거나 개발용 로그인 세션을 일반 사용자에게 공유하지 않는다. 사용자 직접 인증 필요.
+
 ## C-140 — Codex 데이터 주도·Claude 배포 요청 (진행)
 
 사용자 지시: 데이터셋·파인튜닝 준비는 Codex 주도, 운영 배포는 Claude 담당.

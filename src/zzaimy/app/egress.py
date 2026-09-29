@@ -201,37 +201,13 @@ def _external_conn() -> dict | None:
 
 
 def external_status() -> tuple[bool, str]:
-    """외부 전송 가능 여부와 사유. 플래그·지정된 외부 기관 서버 연결·키·SDK 가 모두 필요하다."""
-    if _os.environ.get("ZZAIMY_EXTERNAL_ENABLED") != "1":
-        return False, "ZZAIMY_EXTERNAL_ENABLED 미설정"
-    conn = _external_conn()
-    if conn is None:
-        return False, "외부 AI 참조용 연결 미지정 (모델 학습 화면의 LLM 연결)"
-    if not conn["api_key"]:
-        return False, f"외부 기관 서버 연결 「{conn['name']}」에 API 키 없음"
-    try:
-        import openai  # noqa: F401
-    except ImportError:
-        return False, "openai 패키지 미설치"
-    return True, ""
+    """구독 세션 전환 정책: 기존 API 전송은 사용하지 않는다."""
+    return False, "API 호출 미사용 — 구독 로그인·작업 세션 연결로 전환 중"
 
 
 def _send_external(text: str, system: str | None = None) -> str:
     """세척 완료 텍스트를 지정된 외부 기관 GPU 서버로 보낸다 — 게이트웨이 밖에서 호출 금지."""
-    from openai import OpenAI
-
-    conn = _external_conn()
-    if conn is None:
-        raise RuntimeError("외부 AI 참조용 연결이 없습니다")
-    client = OpenAI(base_url=conn["base_url"], api_key=conn["api_key"])
-    model = conn["model"] or client.models.list().data[0].id
-    resp = client.chat.completions.create(
-        model=model,
-        max_tokens=int(_os.environ.get("ZZAIMY_EXTERNAL_MAX_TOKENS", "4096")),
-        messages=[{"role": "system", "content": system or _EXTERNAL_SYSTEM},
-                  {"role": "user", "content": text}],
-    )
-    return (resp.choices[0].message.content or "").strip()
+    raise RuntimeError("API 호출 미사용 — 구독 세션 연결 필요")
 
 
 _TOKENIZE_SYSTEM = (
