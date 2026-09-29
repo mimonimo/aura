@@ -179,3 +179,30 @@ def render(result: dict) -> str:
     lines = [result["answer"], "", "출처(외부 검색):"]
     lines += [f"[{s['n']}] {s['title']} — {s['url']}" for s in result["sources"]]
     return "\n".join(lines)
+
+
+_MODEL_PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 지금은 문서·검색 없이 당신이 학습한 지식만으로 답하는 모드다.
+- 아는 범위에서 담백하게 답하고, 확실하지 않은 수치·날짜·최신 정보는 "확실하지 않다"고 밝힌다. 지어내지 않는다.
+- 한국어로, 서술형으로. 규정·공고 같은 교내 문서 근거가 필요한 질문이면 그렇다고 말한다.
+
+[질문]
+{question}
+"""
+
+
+def answer_from_model(question: str, client=None, max_tokens: int = 1200) -> dict:
+    """검색 없이 27B 의 학습 지식만으로 답한다(사용자 제안 2026-09-29). 밖으로 나가는 것이 없다. 출처가 없으므로 화면이 그 사실을 붙인다."""
+    if client is None:
+        from zzaimy.generate.client import VllmClient
+
+        client = VllmClient()
+    resp = client.client.chat.completions.create(
+        model=client.model, messages=[{"role": "user", "content": _MODEL_PROMPT.format(question=question.strip())}],
+        temperature=0.3, max_tokens=max_tokens, extra_body=getattr(client, "_extra", None) or {})
+    return {"answer": (resp.choices[0].message.content or "").strip(), "sources": [], "mode": "model"}
+
+
+def render_model(result: dict) -> str:
+    if not result.get("answer"):
+        return "모델이 답을 내지 못했습니다."
+    return "(모델 지식 기반 답변 — 출처 없음, 학습 시점 이후 정보나 세부 수치는 확인이 필요합니다)\n\n" + result["answer"]

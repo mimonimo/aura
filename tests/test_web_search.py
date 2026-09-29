@@ -78,3 +78,12 @@ def test_private_targets_and_sensitive_questions_are_blocked(monkeypatch):
     monkeypatch.setattr(access_guard, "scrub", lambda text: text.replace("900101-1234567", "[주민번호]"))
     assert web_search.screen_question("주민번호 900101-1234567 확인해 줘") is True
     assert web_search.screen_question("B200 과 H200 의 차이") is False
+
+
+
+def test_model_knowledge_mode_has_no_network_and_flags_no_sources():
+    fc = FakeClient()
+    res = web_search.answer_from_model("B200 과 H200 의 차이", client=fc)
+    assert res["mode"] == "model" and res["sources"] == [] and "학습한 지식만으로" in fc.prompts[0]
+    out = web_search.render_model(res)
+    assert out.startswith("(모델 지식 기반 답변 — 출처 없음") and "B200" in out
