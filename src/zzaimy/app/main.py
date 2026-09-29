@@ -704,8 +704,18 @@ def create_app(
 
     def _answer_task_impl(
         session_id: int, q: str, stored: Path | None, criteria: list[int],
-        external: bool = False, web: bool = False,
+        external: bool = False, web: str = "",
     ) -> None:
+        # 모델 지식 모드(2026-09-29): 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 머리에 붙인다
+        if web == "model":
+            from zzaimy.app import web_search
+
+            try:
+                db.add_chat(session_id, "assistant", web_search.render_model(web_search.answer_from_model(q)))
+            except Exception as e:
+                logging.getLogger("zzaimy.app.web").warning("모델 지식 답변 실패 (대화 %s): %s", session_id, type(e).__name__)
+                db.add_chat(session_id, "assistant", f"모델 지식 답변을 만들지 못했습니다({type(e).__name__}). 잠시 뒤 다시 해 주세요.")
+            return
         # 외부 검색 모드(2026-09-29): 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
         if web:
             from zzaimy.app import web_search
@@ -1486,13 +1496,13 @@ def create_app(
             text = scope_msg + "\n\n" + text
         db.add_chat(session_id, "assistant", text)
 
-    def _answer_task(session_id, q, stored, criteria, external=False, web=False):
+    def _answer_task(session_id, q, stored, criteria, external=False, web=""):
         try:
             _answer_task_impl(session_id, q, stored, criteria, external, web)
         finally:
             _chat_running.discard(session_id)
 
-    def _schedule_answer(background, session_id, q, stored, criteria, external=False, web=False):
+    def _schedule_answer(background, session_id, q, stored, criteria, external=False, web=""):
         _chat_running.add(session_id)
         background.add_task(_answer_task, session_id, q, stored, criteria, external, web)
 
@@ -1606,7 +1616,7 @@ def create_app(
         _set_options(session_id, [])
         db.add_chat(session_id, "user", shown)
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
-        _schedule_answer(background, session_id, q, stored, criteria, bool(external), bool(web))
+        _schedule_answer(background, session_id, q, stored, criteria, bool(external), (web or "").strip().lower()[:8])   # "1"=웹 검색, "model"=모델 지식
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
     def _strip_attach_prefix(text: str) -> str:

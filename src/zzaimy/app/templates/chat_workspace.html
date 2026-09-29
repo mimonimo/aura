@@ -41,6 +41,8 @@
            max-width: 900px; width: 100%; margin: 0 auto; padding: 8px 10px; }
     .chat-dock.warn { border-color: var(--amber); }
     .dock-row { display: flex; align-items: flex-end; gap: 8px; }
+    .mode-badge { flex: none; align-self: center; font-size: 11px; color: #2e75b6; background: #eef4fb; border: 1px solid #2e75b6; border-radius: 999px; padding: 2px 8px; }
+    .chat-tools [data-answer-mode].on { color: #2e75b6; font-weight: 600; }
     .dock-row textarea { flex: 1; border: 0; outline: none; resize: none;
                  font-size: 14.5px; line-height: 1.6; padding: 10px 8px; font-family: inherit;
                  background: transparent; min-width: 0; max-height: 190px; }
@@ -217,9 +219,11 @@
     <button type="button" class="dock-btn" id="attachButton" title="도구 추가" aria-label="도구 추가" aria-expanded="false" aria-controls="chatTools"><iconify-icon icon="solar:add-linear"></iconify-icon></button>
     <div id="chatTools" class="chat-tools" popover aria-label="채팅 도구">
       <button type="button" data-chat-tool="file"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 또는 사진 추가</button>
-      <button type="button" data-chat-tool="document"><iconify-icon icon="solar:document-text-linear"></iconify-icon>Google Docs</button>
       <button type="button" id="chatContextOpen" data-chat-tool="context" aria-controls="chatAside"><iconify-icon icon="solar:folder-linear"></iconify-icon>작업 패널</button>
+      <button type="button" data-answer-mode="web" aria-pressed="false"><iconify-icon icon="solar:global-linear"></iconify-icon>외부 검색 모드 (웹)</button>
+      <button type="button" data-answer-mode="model" aria-pressed="false"><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>27B 자체 답변 모드</button>
     </div>
+    <span id="modeBadge" class="mode-badge" hidden></span>
     <textarea name="question" id="chatInput" rows="1" placeholder="질문이나 수정할 내용을 입력하세요"
               aria-label="질문 또는 수정 요청" autofocus autocomplete="off"></textarea>
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
@@ -392,13 +396,32 @@
     extField.value = extBtn.checked ? "1" : "";
     if (extNote) extNote.hidden = !extBtn.checked;
   });
+  /* ---- 답변 모드: 기본(문서 작업) · 외부 검색(웹) · 27B 자체 답변 — + 메뉴에서 고르고 입력창 옆에 켜짐 표시 ---- */
   var webBtn = document.getElementById("webBtn");
   var webField = document.getElementById("webField");
   var webNote = document.getElementById("webNote");
-  if (webBtn) webBtn.addEventListener("change", function () {
-    webField.value = webBtn.checked ? "1" : "";
-    if (webNote) webNote.hidden = !webBtn.checked;
+  var modeBadge = document.getElementById("modeBadge");
+  var chatInputEl = document.getElementById("chatInput");
+  var MODE_LABEL = { "1": "외부 검색 모드", "model": "27B 자체 답변 모드" };
+  function setMode(mode) {
+    webField.value = mode || "";
+    document.querySelectorAll("[data-answer-mode]").forEach(function (b) {
+      var on = (b.getAttribute("data-answer-mode") === "web" && mode === "1") || (b.getAttribute("data-answer-mode") === "model" && mode === "model");
+      b.setAttribute("aria-pressed", on ? "true" : "false"); b.classList.toggle("on", on);
+    });
+    if (webBtn) webBtn.checked = mode === "1";
+    if (webNote) webNote.hidden = mode !== "1";
+    if (modeBadge) { modeBadge.hidden = !mode; modeBadge.textContent = mode ? MODE_LABEL[mode] + " 켜짐" : ""; }
+    if (chatInputEl) chatInputEl.placeholder = mode === "1" ? "외부 검색 켜짐 — 질문 글만 밖으로 나갑니다" : mode === "model" ? "27B 자체 답변 켜짐 — 출처 없이 모델 지식으로 답합니다" : "질문이나 수정할 내용을 입력하세요";
+  }
+  document.querySelectorAll("[data-answer-mode]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var want = b.getAttribute("data-answer-mode") === "web" ? "1" : "model";
+      setMode(webField.value === want ? "" : want);
+      var pop = document.getElementById("chatTools"); if (pop && pop.hidePopover) { try { pop.hidePopover(); } catch (e) {} }
+    });
   });
+  if (webBtn) webBtn.addEventListener("change", function () { setMode(webBtn.checked ? "1" : ""); });
 
   /* ---- 답변 복사·다시 시도 ---- */
   document.getElementById('chatScroll').addEventListener('click', function(event) {
