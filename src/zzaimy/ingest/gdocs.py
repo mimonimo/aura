@@ -681,13 +681,23 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
         if sec is None:
             results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"}); continue
         chars = tables = 0
+        # 새 작업본(서식 변환본)에 이미 있는 글·표는 옮기지 않는다 — 옛 작업본도 서식 변환본이라 서식 자체의 표·문단이 들어 있고, 그대로 옮기면
+        # 같은 표가 두 벌이 된다(실측 2026-09-29: 재생성 뒤 표 29개 이동, 대부분 서식 표). 문단은 글로, 표는 칸 글자 집합으로 견준다
+        dst_norm = _norm_heading(info.get("text") or "")
+        dst_cells = {_norm_heading(c) for ln in (info.get("text") or "").split("\n") if " | " in ln for c in ln.split(" | ") if c.strip()}
         for kind, payload in items:
             if kind == "widths":
                 continue                                               # 열 너비는 서식 채우기용 — 옮기기에는 안 쓴다
             if kind == "text":
-                r = insert_into_section(email, dst, sec["index"], str(payload), user=user, data_dir=data_dir, scrub=scrub, http=http)
+                keep = [ln for ln in str(payload).split("\n") if ln.strip() and not (len(_norm_heading(ln)) > 8 and _norm_heading(ln) in dst_norm)]
+                if not keep:
+                    continue
+                r = insert_into_section(email, dst, sec["index"], "\n".join(keep), user=user, data_dir=data_dir, scrub=scrub, http=http)
                 chars += int(r.get("chars") or 0)
-            else:
+            elif kind == "table":
+                cells = {_norm_heading(str(c)) for r in payload for c in r if str(c).strip()}
+                if cells and cells <= dst_cells:
+                    continue                                           # 서식에 있는 표 그대로 — 새 작업본에도 이미 있다
                 insert_table(email, dst, sec["index"], payload, user=user, data_dir=data_dir, scrub=scrub, http=http)
                 tables += 1
         results.append({"heading": b["heading"], "done": "ok", "chars": chars, "tables": tables, "under": sec["heading"] if fallback else ""})
