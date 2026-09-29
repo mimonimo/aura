@@ -40,6 +40,36 @@ def pg_type(declared: str) -> str:
     return types[declared.upper()]
 
 
+def prepare_runtime_snapshot(source: Path, destination: Path) -> dict:
+    """Preserve source; remove only approved orphan relationships from a new copy.
+
+    Unexpected violations abort the transaction. No document, chat, or file is
+    removed. The untouched source snapshot remains the recovery artifact.
+    """
+    snapshot(source, destination)
+    allowed = {('mask_events', 'documents'), ('doc_entities', 'documents'),
+               ('doc_entities', 'entities')}
+    with closing(sqlite3.connect(destination)) as db:
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            violations = db.execute('PRAGMA foreign_key_check').fetchall()
+            if any((table, parent) not in allowed or rowid is None
+                   for table, rowid, parent, _ in violations):
+                raise ValueError('Unexpected foreign key violation; no cleanup applied')
+            affected = {}
+            for table, rowid, _, _ in violations:
+                affected.setdefault(table, set()).add(rowid)
+            for table, rowids in affected.items():
+                db.executemany(f'DELETE FROM {quote(table)} WHERE rowid=?',
+                               [(rowid,) for rowid in sorted(rowids)])
+            if db.execute('PRAGMA foreign_key_check').fetchone():
+                raise ValueError('Foreign key violations remain; cleanup rolled back')
+            if db.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                raise ValueError('Integrity check failed; cleanup rolled back')
+    return {'removed': {table: len(ids) for table, ids in sorted(affected.items())},
+            'foreign_key_check': 'ok', 'source_changed': False}
+
+
 def row_digest(row) -> str:
     """Typed digest; preserves NULL vs empty, integers vs strings, and blobs."""
     cells = []
