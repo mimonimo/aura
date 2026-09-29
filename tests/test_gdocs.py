@@ -343,8 +343,11 @@ def test_formatting_ops_style_bold_and_table(docs_env, tmp_path, monkeypatch):
     assert req["range"] == {"startIndex": 20, "endIndex": 25} and req["textStyle"]["bold"] is True
     t = gdocs.insert_table("staff@example.ac.kr", "docA", 2, [["항목", "값"], ["예산", "100"]], user="k", data_dir=tmp_path)
     assert t["rows"] == 2 and t["cols"] == 2
-    fills = json.loads([c for c in calls if c[1].endswith(":batchUpdate")][-1][2])["requests"]
+    batches = [json.loads(c[2])["requests"] for c in calls if c[1].endswith(":batchUpdate")]
+    fills = [q for q in batches[-2] if "insertText" in q]
     assert [f["insertText"]["location"]["index"] for f in fills] == [48, 45, 41, 38]      # 뒤에서부터
+    style = batches[-1]                                                                 # 머리 행 음영(굵게는 endIndex 가 있을 때만)
+    assert style[0]["updateTableCellStyle"]["tableRange"]["columnSpan"] == 2 and style[0]["updateTableCellStyle"]["tableRange"]["tableCellLocation"]["tableStartLocation"]["index"] == 36
     assert [a["action"] for a in gdocs.recent_writes(tmp_path, 3)] == ["table", "bold", "style"]
     assert gdocs.embed_url("docA", toolbar=True).endswith("/docA/edit") and "rm=minimal" in gdocs.embed_url("docA")
 
