@@ -392,6 +392,8 @@ class _ParaStyles:
 
     def __init__(self, sections: list["_Section"], header_xml: str) -> None:
         self.bold = {m.group(1) for m in re.finditer(r"<hh:charPr\b[^>]*\bid=\"(\d+)\"[^>]*>(?:(?!</hh:charPr>).)*<hh:bold\b", header_xml, re.S)}
+        heights = {m.group(1): int(m.group(2)) for m in re.finditer(r'<hh:charPr\b[^>]*\bid="(\d+)"[^>]*\bheight="(\d+)"', header_xml)}
+        body_h = heights.get(_default_refs(header_xml)[1], 1000)
         self.by: dict[tuple[str, bool], Counter] = {}
         for s in sections:
             for (a, b), t in zip(s.paras, s.texts):
@@ -406,6 +408,8 @@ class _ParaStyles:
                 if not pp or not cp:
                     continue
                 head_like = len(t) <= self.SHORT and cp.group(1) in self.bold
+                if not head_like and heights.get(cp.group(1), body_h) > body_h + 100:
+                    continue                                    # 본문보다 큰 글자는 번호 붙은 제목 — 긴 문장의 본으로 쓰지 않는다
                 self.by.setdefault((mk, head_like), Counter())[(pp.group(1), cp.group(1))] += 1
 
     def pick(self, line: str) -> tuple[str, str] | None:
@@ -415,6 +419,76 @@ class _ParaStyles:
         head_like = len(line) <= self.SHORT
         got = self.by.get((mk, head_like))
         return got.most_common(1)[0][0] if got else None
+
+
+def _marker_em(mk: str) -> float:
+    """부호 폭(글자 크기 배수) 어림 — 전각 부호 1, 숫자·반각 문자는 좁게. 한글이 조판 때 탭 폭을 다시 계산하므로 어림이면 된다."""
+    if not mk:
+        return 0.0
+    return sum(0.55 if ch.isascii() and ch not in "-" else 0.4 if ch == "-" else 1.0 for ch in mk)
+
+
+class _HangRegistry:
+    """개조식 내어쓰기 문단 모양 등록기(kordoc style-registry 의 원리) — 바탕 모양을 복제해 내어쓰기(intent 음수)와 자동 탭을 붙인
+    새 paraPr 를 header 에 한 번만 등록한다(같은 사양은 같은 id). 한컴 paraPr 여백은 hp:case(HwpUnitChar, 값이 절반)와 hp:default
+    두 벌이라 둘 다 바꾼다. 바탕 모양이 이미 내어쓰기·들여쓰기를 가지면 서식 작성자의 뜻이라 건드리지 않는다."""
+
+    def __init__(self, header_xml: str) -> None:
+        self.header = header_xml
+        self.cache: dict[tuple[str, int], str] = {}
+        m = re.search(r'<hh:tabPr\b[^>]*\bid="(\d+)"[^>]*\bautoTabLeft="1"', header_xml)
+        self.auto_tab = m.group(1) if m else ""
+        self.changed = False
+
+    def char_height(self, cp: str) -> int:
+        m = re.search(rf'<hh:charPr\b[^>]*\bid="{cp}"[^>]*\bheight="(\d+)"', self.header)
+        return int(m.group(1)) if m else 1000
+
+    def hanging(self, pp: str, cp: str, mk: str) -> tuple[str, int]:
+        """(쓸 paraPr id, 내어쓰기 폭 HWPUNIT). 등록할 수 없으면 (pp, 0)."""
+        if not self.auto_tab or not mk:
+            return pp, 0
+        hang = int(self.char_height(cp) * (_marker_em(mk) + 0.5))
+        key = (pp, hang)
+        if key in self.cache:
+            return self.cache[key], hang
+        m = re.search(rf'<hh:paraPr\b[^>]*\bid="{pp}"[^>]*>.*?</hh:paraPr>', self.header, re.S)
+        if not m or re.search(r'<hc:intent value="-?[1-9]', m.group(0)):
+            return pp, 0
+        ids = [int(x) for x in re.findall(r'<hh:paraPr\b[^>]*\bid="(\d+)"', self.header)]
+        new_id = str(max(ids) + 1)
+        body = m.group(0)
+        body = re.sub(r'(<hh:paraPr\b[^>]*\bid=")\d+(")', rf"\g<1>{new_id}\2", body, count=1)
+        body = re.sub(r'(<hh:paraPr\b[^>]*\btabPrIDRef=")\d+(")', rf"\g<1>{self.auto_tab}\2", body, count=1)
+        case = re.search(r"<hp:case\b.*?</hp:case>", body, re.S)
+        if case:
+            body = body[:case.start()] + case.group(0).replace('<hc:intent value="0"', f'<hc:intent value="{-(hang // 2)}"') + body[case.end():]
+        dflt = re.search(r"<hp:default>.*?</hp:default>", body, re.S)
+        if dflt:
+            body = body[:dflt.start()] + dflt.group(0).replace('<hc:intent value="0"', f'<hc:intent value="{-hang}"') + body[dflt.end():]
+        elif not case:
+            body = body.replace('<hc:intent value="0"', f'<hc:intent value="{-hang}"', 1)
+        close = self.header.find("</hh:paraProperties>")
+        if close < 0:
+            return pp, 0
+        head = self.header[:close] + body + self.header[close:]
+        cnt = re.search(r'(<hh:paraProperties\b[^>]*\bitemCnt=")(\d+)(")', head)
+        if cnt:
+            head = head[:cnt.start(2)] + str(int(cnt.group(2)) + 1) + head[cnt.end(2):]
+        self.header = head
+        self.cache[key] = new_id
+        self.changed = True
+        return new_id, hang
+
+
+def marker_paragraph_xml(text: str, pp: str, cp: str, tab_hu: int) -> str:
+    """부호 문단 — 부호 뒤 공백 대신 탭(자동 탭이 내어쓰기 자리로 보낸다). 부호가 없거나 탭을 못 쓰면 보통 문단."""
+    m = _MARK.match(text or "")
+    if not m or not tab_hu:
+        return paragraph_xml(text, pp, cp)
+    head, rest = text[:m.end()], text[m.end():].lstrip()
+    return (f'<hp:p id="0" paraPrIDRef="{pp}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+            f'<hp:run charPrIDRef="{cp}"><hp:t>{xml_text(head.strip())}<hp:tab width="{tab_hu}" leader="0" type="1"/>{xml_text(rest)}</hp:t></hp:run></hp:p>')
 
 
 def _slot_style(s: "_Section", cursor: int) -> tuple[str, str] | None:
@@ -873,6 +947,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
     all_tables = [t for s in secs for t in s.tables]
     roles = _role_styles(secs, header)                  # 새 표의 머리 행·라벨 열·본문 칸 모양(서식 표에서)
     para_styles = _ParaStyles(secs, header)             # 새 문단의 부호별 모양(서식 본문 문단에서)
+    hangs = _HangRegistry(header)                       # 부호 문단의 내어쓰기 모양(없으면 등록)
     report = {"filled": [], "skipped": [], "folded": [], "duplicates": [], "paragraphs": 0, "tables": 0, "tables_updated": 0,
               "existing_kept": 0, "tables_grown": 0, "images": 0, "images_skipped": 0, "boxes_removed": 0, "linesegs_removed": 0, "sections_changed": []}
     added: dict[str, bytes] = {}
@@ -972,7 +1047,12 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                             continue
                         seen_texts.add(n)
                     lp, lc = para_styles.pick(line) or slot or (pp, cp)
-                    pending.append(paragraph_xml(line, lp, lc))
+                    mk = marker_of(line)
+                    if mk and len(line) > _ParaStyles.SHORT:            # 두 줄로 넘어갈 부호 문단 — 둘째 줄을 내용 시작에 맞춘다
+                        lp, tab_hu = hangs.hanging(lp, lc, line[:_MARK.match(line).end()].strip())
+                        pending.append(marker_paragraph_xml(line, lp, lc, tab_hu))
+                    else:
+                        pending.append(paragraph_xml(line, lp, lc))
                     report["paragraphs"] += 1
                     put_any = True
             elif kind == "table" and payload:
@@ -1066,6 +1146,18 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
             report["linesegs_removed"] += n
             replaced[s.name] = xml.encode("utf-8")
             report["sections_changed"].append(s.name)
+    if hangs.changed:
+        # 내어쓰기 모양을 등록한 header — 앞서 테두리를 덧붙였으면 그 위에(같은 header 문자열을 이어 쓴다)
+        base = replaced.get("Contents/header.xml")
+        head_now = base.decode("utf-8") if base else header
+        merged = head_now
+        for body in re.findall(r'<hh:paraPr\b[^>]*\bid="(?:%s)"[^>]*>.*?</hh:paraPr>' % "|".join(hangs.cache.values()), hangs.header, re.S):
+            close = merged.find("</hh:paraProperties>")
+            merged = merged[:close] + body + merged[close:]
+        cnt = re.search(r'(<hh:paraProperties\b[^>]*\bitemCnt=")(\d+)(")', merged)
+        if cnt:
+            merged = merged[:cnt.start(2)] + str(int(cnt.group(2)) + len(hangs.cache)) + merged[cnt.end(2):]
+        replaced["Contents/header.xml"] = merged.encode("utf-8")
     if added:
         replaced["Contents/content.hpf"] = hpf.encode("utf-8")
     out.parent.mkdir(parents=True, exist_ok=True)
