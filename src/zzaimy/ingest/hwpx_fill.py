@@ -397,6 +397,27 @@ def _docs_cells(rows: list[list[str]]) -> set[str]:
     return {_norm(str(c)) for r in rows for c in r if _norm(str(c))}
 
 
+def _grid_starts(form: _FormTable) -> dict[int, tuple[float, float]]:
+    """표 격자 열의 x 시작(비율)과 너비(비율) — colAddr 별. 표 폭을 다 덮는 행(칸 너비 합이 가장 큰 행)의 칸으로 격자를 세우고,
+    그 행에 없는 colAddr 는 다른 행의 칸 위치로 채운다. 위 행 rowSpan 에 가려 칸이 몇 개뿐인 행도 이 격자로 자리를 안다."""
+    if not form.rows:
+        return {}
+    ref = max(form.rows, key=lambda r: sum(c.width for c in r))
+    total = float(sum(c.width for c in ref)) or 1.0
+    starts: dict[int, tuple[float, float]] = {}
+    x = 0.0
+    for c in ref:
+        starts[c.col] = (x / total, c.width / total)
+        x += c.width
+    for row in form.rows:                                          # 참조 행에 없는 열(병합으로 갈라진 자리)은 앞 칸의 끝으로
+        x = 0.0
+        for c in row:
+            if c.col not in starts:
+                starts[c.col] = (x / total, c.width / total)
+            x = (starts[c.col][0] * total) + c.width
+    return starts
+
+
 def _map_cells(form: _FormTable, rows: list[list[str]], widths: list[float] | None = None) -> list[tuple[_Cell, str]] | None:
     """작업본 표의 칸 → 서식 표의 칸. 행 수가 같아야 한다. 행마다 칸 수가 같으면 순서대로, 작업본 행이 격자 열 수와 같으면 colAddr 로,
     작업본에 열 너비가 오면(독스는 병합 표를 잘게 나눈 격자로 낸다 — 실측 2026-09-29: 서식 6열이 독스 14열) x 위치로 맞춘다."""
@@ -404,23 +425,21 @@ def _map_cells(form: _FormTable, rows: list[list[str]], widths: list[float] | No
         return None
     if widths and all(len(r) == len(widths) for r in rows) and sum(widths) > 0 and all(c.width for r in form.rows for c in r):
         total_d = float(sum(widths))
+        grid = _grid_starts(form)                                    # colAddr → 표 왼쪽부터의 x(비율). 위 행의 rowSpan 에 가려 짧은 행도 맞는다
+        if not grid:
+            return None
         pairs: list[tuple[_Cell, str]] = []
         for drow, frow in zip(rows, form.rows):
-            total_f = float(sum(c.width for c in frow)) or 1.0
-            starts_f: list[tuple[float, float, _Cell]] = []
-            x = 0.0
-            for fc in frow:
-                starts_f.append((x / total_f, fc.width / total_f, fc))
-                x += fc.width
             used: set[int] = set()
             xd = 0.0
             for ci, dc in enumerate(drow):
                 if str(dc).strip():
                     pos = xd / total_d
-                    best = min(range(len(starts_f)), key=lambda i: abs(starts_f[i][0] - pos))
-                    if abs(starts_f[best][0] - pos) <= max(0.3 * starts_f[best][1], 0.01) and best not in used:
+                    cands = [(abs(grid.get(fc.col, (9.0, 0.0))[0] - pos), i, fc) for i, fc in enumerate(frow)]
+                    diff, best, fc = min(cands, key=lambda c_: c_[0])
+                    if diff <= max(0.3 * grid.get(fc.col, (0.0, 0.05))[1], 0.01) and best not in used:
                         used.add(best)
-                        pairs.append((starts_f[best][2], str(dc)))
+                        pairs.append((fc, str(dc)))
                     else:
                         return None                                  # 자리가 안 맞는 값 칸이 있다 — 대응 불가
                 xd += float(widths[ci])
