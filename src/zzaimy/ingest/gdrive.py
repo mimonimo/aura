@@ -77,8 +77,9 @@ def set_client(client_id: str, client_secret: str) -> None:
     if not client_secret:
         raise ValueError("클라이언트 비밀을 적어 주세요")
     with _lock:
+        keep = {k: v for k, v in client_config().items() if k == "domain"}      # 앱을 바꿔도 허용 도메인은 유지
         _write(_data_dir() / "gdrive_oauth.json", {"client_id": client_id, "client_secret": client_secret,
-                                                   "set_at": time.strftime("%Y-%m-%d %H:%M")})
+                                                   "set_at": time.strftime("%Y-%m-%d %H:%M"), **keep})
 
 
 def configured() -> bool:
@@ -91,7 +92,7 @@ def public_status() -> dict:
     c = client_config()
     cid = c.get("client_id", "")
     return {"configured": configured(), "client_id_hint": (cid[:12] + "…") if cid else "",
-            "set_at": c.get("set_at", ""), "accounts": list_accounts(), "scopes": SCOPES}
+            "set_at": c.get("set_at", ""), "accounts": list_accounts(), "scopes": SCOPES, "domain": allowed_domain()}
 
 
 # ---------------- 계정 토큰 ----------------
@@ -112,6 +113,30 @@ def revoke(email: str) -> None:
         _write(_data_dir() / "gdrive_tokens.json", t)
 
 
+_DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
+
+
+def allowed_domain() -> str:
+    """허용할 구글 계정 도메인 — 교내 워크스페이스 계정만 쓴다(사용자 확정 2026-09-30: ync.ac.kr 만).
+    화면(원천 관리 → Google 앱 설정)에서 저장한 값이 먼저, 없으면 ZZAIMY_GOOGLE_DOMAIN, 그것도 없으면 ync.ac.kr. 빈 값으로 저장하면 제한 없음."""
+    c = client_config()
+    if "domain" in c:
+        return str(c["domain"]).strip().lower()
+    return os.environ.get("ZZAIMY_GOOGLE_DOMAIN", "ync.ac.kr").strip().lower()
+
+
+def set_domain(domain: str) -> str:
+    """허용 도메인을 저장한다('@' 뒤 부분만, 빈 값은 제한 해제). 이미 연결된 다른 도메인 계정은 그대로 두고 화면에 표시만 한다."""
+    d = domain.strip().lower().lstrip("@")
+    if d and not _DOMAIN_RE.match(d):
+        raise ValueError("도메인은 'ync.ac.kr' 처럼 적어 주세요")
+    with _lock:
+        c = client_config()
+        c["domain"] = d
+        _write(_data_dir() / "gdrive_oauth.json", c)
+    return d
+
+
 def auth_url(redirect_uri: str) -> str:
     """담당자를 구글 허용 화면으로 보낸다. state 는 되돌아올 때 대조한다(10분)."""
     c = client_config()
@@ -126,6 +151,8 @@ def auth_url(redirect_uri: str) -> str:
     q = {"client_id": c["client_id"], "redirect_uri": redirect_uri, "response_type": "code",
          "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent", "state": state,
          "include_granted_scopes": "true"}
+    if allowed_domain():
+        q["hd"] = allowed_domain()                   # 구글 계정 고르기 화면에 이 도메인 계정만 보인다(안내일 뿐, 검사는 exchange_code)
     return f"{AUTH_URL}?{urlencode(q)}"
 
 
@@ -152,6 +179,11 @@ def exchange_code(code: str, state: str, redirect_uri: str, http=None) -> str:
     if not tok.get("refresh_token"):
         raise ValueError("갱신 토큰이 오지 않았습니다 — 구글 계정 설정에서 이 앱의 접근 권한을 지우고 다시 허용해 주세요")
     email = _whoami(tok["access_token"], http) or f"account-{secrets.token_hex(3)}"
+    dom = allowed_domain()
+    if dom and not email.lower().endswith("@" + dom):
+        # 받은 토큰은 보관하지 않고 구글 쪽 허용도 거둔다 — 교외 계정으로 문서가 만들어지지 않게
+        http.post("https://oauth2.googleapis.com/revoke", params={"token": tok["refresh_token"]})
+        raise ValueError(f"{dom} 계정만 쓸 수 있습니다 — 학교 구글 계정으로 다시 허용해 주세요 (받은 계정: {email})")
     with _lock:
         t = _tokens()
         t[email] = {"refresh_token": tok["refresh_token"], "access_token": tok.get("access_token", ""),
