@@ -2089,8 +2089,7 @@ def create_app(
             rows = chat_history.sessions(owner, term, False, 0, 10,
                                          chat_topics.match_clause(term), 'all')
             names = chat_topics.topics([r["id"] for r in rows])
-            with _sq.connect(db_path) as conn:
-                conn.row_factory = _sq.Row
+            with db._conn() as conn:
                 for r in rows:
                     hit = conn.execute(
                         "SELECT content FROM chat_messages WHERE session_id = ?"
