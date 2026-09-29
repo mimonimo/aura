@@ -93,3 +93,22 @@ def test_postgres_concurrent_receipts_and_readonly(pg_runtime):
         assert conn.execute('SELECT count(*) FROM documents').fetchone()[0] == 12
         with pytest.raises(psycopg.errors.ReadOnlySqlTransaction):
             conn.execute("DELETE FROM documents")
+
+
+def test_postgres_http_pages_and_search(pg_runtime):
+    from fastapi.testclient import TestClient
+    from tests.test_app import FakeDrafter, FakeProcessor
+    from zzaimy.app.main import create_app
+    app = create_app(db_path=pg_runtime, inbox_dir=pg_runtime.parent / 'inbox',
+                     processor=FakeProcessor(), drafter=FakeDrafter())
+    client = TestClient(app)
+    assert client.post('/projects', data={'sector': 'grant', 'name': '사업 검색'}).status_code == 200
+    db = app.state.db
+    project = db.list_all_projects()[0]['id']
+    doc = db.add_document('검증 문서.pdf', '/fixture.pdf', 'regulation', project_id=project)
+    db.update_document(doc, status='reviewed', masked_text='검증 문서 본문')
+    for url in ('/project/' + str(project), '/criteria', '/search?q=검증',
+                '/dev/db', '/api/chat/sessions', '/api/projects/search?q=사업'):
+        response = client.get(url)
+        assert response.status_code == 200, url
+    assert not pg_runtime.exists()
