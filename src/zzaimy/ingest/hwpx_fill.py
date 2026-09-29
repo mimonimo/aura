@@ -648,6 +648,115 @@ def _map_cells(form: _FormTable, rows: list[list[str]], widths: list[float] | No
     return pairs
 
 
+def _cell_with_text(tc_xml: str, text: str) -> str:
+    """칸 XML 의 글을 바꾼다 — 첫 문단의 여는 태그·글자 모양을 이어 쓰고, 줄마다 문단 하나. 줄 배치 캐시는 버린다."""
+    sa = tc_xml.find("<hp:subList")
+    if sa < 0:
+        return tc_xml
+    ia = tc_xml.index(">", sa) + 1
+    ib = tc_xml.rfind("</hp:subList>")
+    inner = tc_xml[ia:ib]
+    pm = re.search(r"<hp:p\b[^>]*>", inner)
+    cm = re.search(r"charPrIDRef=\"(\d+)\"", inner)
+    p_open = pm.group(0) if pm else '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
+    cp = cm.group(1) if cm else "0"
+    paras = "".join(f'{p_open}<hp:run charPrIDRef="{cp}"><hp:t>{xml_text(ln.strip())}</hp:t></hp:run></hp:p>'
+                    for ln in (split_lines(text) or [""]))
+    return tc_xml[:ia] + paras + tc_xml[ib:]
+
+
+def grow_table(xml: str, form: _FormTable, rows: list[list[str]]) -> str | None:
+    """서식 표에 작업본 행을 채우고 모자라면 빈 입력 행을 복제해 늘린 표 문단 XML(원래 표 문단을 통째로 바꿀 것). 못 하면 None.
+
+    서식에서 글이 있는 행(머리 행·소계·합계 행)을 닻으로 작업본 행과 차례대로 맞추고, 닻 사이의 빈 입력 행에 작업본 데이터 행을
+    넣는다. 모자라면 그 구간의 마지막 빈 행을 복제한다(kordoc table-rows 의 원리: 행 복제·rowAddr 다시 매김·rowCnt·표 높이).
+    머리 행의 세로 병합은 괜찮다. 복제할 행이 병합에 덮이거나 병합을 시작하거나, 끼워 넣을 자리를 병합이 가로지르면, 또는 중첩 표·
+    칸 수가 안 맞으면 하지 않는다 — 안전하게 새 표로 넣고 보고하는 쪽이 낫다. 칸 수가 다른 닻 행(머리 병합)은 글을 건드리지 않는다."""
+    a, b = form.para
+    para = xml[a:b]
+    tbls = _top_level(para, "hp:tbl")
+    if not tbls:
+        return None
+    ta, tb = tbls[0]
+    tbl = para[ta:tb]
+    if tbl.count("<hp:tbl") > 1:
+        return None
+    trs = _top_level(tbl, "hp:tr")
+    frows = []
+    span_end: list[int] = []                                # 행마다 그 행에서 시작한 세로 병합이 끝나는 행(없으면 자기 행)
+    for i, (ra, rb) in enumerate(trs):
+        tr = tbl[ra:rb]
+        tcs = [tr[x:y] for x, y in _top_level(tr, "hp:tc")]
+        texts = [_norm(" ".join(_texts(tc))) for tc in tcs]
+        spans = [int(m) for tc in tcs for m in re.findall(r'<hp:cellSpan\b[^>]*rowSpan="(\d+)"', tc)]
+        span_end.append(i + max(spans + [1]) - 1)
+        frows.append({"xml": tr, "tcs": tcs, "texts": texts, "blank": not any(texts), "i": i, "spans": max(spans + [1])})
+    covered = [any(span_end[k] >= i for k in range(i)) for i in range(len(trs))]   # 위 행의 세로 병합에 덮인 행
+    if len(rows) <= len(frows) or not frows:
+        return None
+    norm_rows = [[_norm(str(c)) for c in r] for r in rows]
+    # 닻 맞추기 — 서식의 글 있는 행은 그 칸 글이 모두 작업본 행에 들어 있어야 한다(차례대로)
+    anchors: list[tuple[int, int]] = []
+    j = 0
+    for fi, fr in enumerate(frows):
+        if fr["blank"]:
+            continue
+        want = {t for t in fr["texts"] if t}
+        while j < len(rows) and not want <= set(norm_rows[j]):
+            j += 1
+        if j >= len(rows):
+            return None
+        anchors.append((fi, j))
+        j += 1
+    bounds = [(-1, -1)] + anchors + [(len(frows), len(rows))]
+    plan: list[tuple[dict, list[str] | None]] = []        # (서식 행, 넣을 작업본 행)
+    for (f0, w0), (f1, w1) in zip(bounds, bounds[1:]):
+        if f0 >= 0:
+            plan.append((frows[f0], rows[w0]))
+        blanks = frows[f0 + 1:f1]
+        data = rows[w0 + 1:w1]
+        if len(data) > len(blanks) and not blanks:
+            return None                                       # 복제할 빈 행이 없는 구간
+        for k, d in enumerate(data):
+            tpl = blanks[k] if k < len(blanks) else blanks[-1]
+            if len(d) != len(tpl["tcs"]):
+                return None
+            if k >= len(blanks):
+                # 복제할 행은 병합에 덮이지도, 병합을 시작하지도 않아야 하고, 그 뒤 자리를 가로지르는 병합이 없어야 한다
+                t_i = tpl["i"]
+                if covered[t_i] or tpl["spans"] > 1 or (t_i + 1 < len(covered) and covered[t_i + 1]
+                                                         and any(span_end[q] > t_i for q in range(t_i + 1))):
+                    return None
+            plan.append((tpl, d))
+        plan.extend((bl, None) for bl in blanks[len(data):])
+    # 새 행들 — 칸 글을 바꾸고 rowAddr 를 차례로
+    new_trs, grown = [], 0
+    seen: set[int] = set()
+    for r, (fr, d) in enumerate(plan):
+        clone = id(fr) in seen
+        seen.add(id(fr))
+        grown += clone
+        tcs = []
+        for c, tc in enumerate(fr["tcs"]):
+            if d is not None and len(d) == len(fr["tcs"]) and (clone or _norm(str(d[c])) != fr["texts"][c]):
+                tc = _cell_with_text(tc, str(d[c]))
+            elif clone:
+                tc = _cell_with_text(tc, "")
+            tcs.append(re.sub(r'(<hp:cellAddr\b[^>]*\browAddr=")\d+(")', rf"\g<1>{r}\2", tc))
+        tr = fr["xml"]
+        head_end = tr.index(">") + 1
+        new_trs.append(tr[:head_end] + "".join(tcs) + "</hp:tr>")
+    body = tbl[:trs[0][0]] + "".join(new_trs) + tbl[trs[-1][1]:]
+    open_end = body.index(">") + 1
+    head = re.sub(r'\browCnt="\d+"', f'rowCnt="{len(plan)}"', body[:open_end])
+    body = head + body[open_end:]
+    if grown:
+        tpl_h = max((int(h) for h in re.findall(r'<hp:cellSz\b[^>]*height="(\d+)"', frows[-1]["xml"])), default=0)
+        body = re.sub(r'(<hp:sz\b[^>]*height=")(\d+)(")', lambda m: f"{m.group(1)}{int(m.group(2)) + grown * tpl_h}{m.group(3)}", body, count=1)
+    body, _n = strip_linesegs(body)
+    return para[:ta] + body + para[tb:]
+
+
 class _Section:
     def __init__(self, name: str, xml: str, solid: set[str]) -> None:
         self.name = name
@@ -765,7 +874,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
     roles = _role_styles(secs, header)                  # 새 표의 머리 행·라벨 열·본문 칸 모양(서식 표에서)
     para_styles = _ParaStyles(secs, header)             # 새 문단의 부호별 모양(서식 본문 문단에서)
     report = {"filled": [], "skipped": [], "folded": [], "duplicates": [], "paragraphs": 0, "tables": 0, "tables_updated": 0,
-              "existing_kept": 0, "images": 0, "images_skipped": 0, "boxes_removed": 0, "linesegs_removed": 0, "sections_changed": []}
+              "existing_kept": 0, "tables_grown": 0, "images": 0, "images_skipped": 0, "boxes_removed": 0, "linesegs_removed": 0, "sections_changed": []}
     added: dict[str, bytes] = {}
     used_bin = set(_MANIFEST_ID.findall(hpf or "")) | {Path(n).stem for n in names if n.startswith("BinData/")}
 
@@ -898,6 +1007,17 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                     if score > best:
                         best, cand = score, t
                 pairs = _map_cells(cand, rows, widths_here) if cand is not None and best >= 0.4 else None
+                grown_xml = grow_table(s.xml, cand, rows) if pairs is None and cand is not None and best >= 0.4 else None
+                if grown_xml:
+                    # 행이 늘어난 서식 표 — 표 문단을 통째로 바꾼다(표 서식·병합·열 폭은 그대로, 빈 입력 행을 복제)
+                    flush()
+                    s.splices.append((cand.para[0], cand.para[1], grown_xml))
+                    cand.consumed = True
+                    report["tables_grown"] += 1
+                    put_any = True
+                    if cand.para[0] >= cursor:
+                        cursor = cand.para[1]
+                    continue
                 if pairs:
                     flush()
                     for fc, text in pairs:
