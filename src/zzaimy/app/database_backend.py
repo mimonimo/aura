@@ -65,7 +65,7 @@ class Cursor:
 _IDENTITY_TABLES = frozenset(('documents', 'reviews', 'chat_sessions', 'chat_messages',
     'projects', 'project_notes', 'doc_chunks', 'files', 'doc_assets', 'regulation_chunks',
     'entities', 'datasets', 'quality_reports', 'egress_requests', 'draft_history',
-    'mask_events', 'chat_sources', 'chat_revisions'))
+    'mask_events', 'chat_sources', 'chat_revisions', 'chunk_questions'))
 
 
 class PostgresConnection:
