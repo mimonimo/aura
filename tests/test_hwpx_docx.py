@@ -364,3 +364,30 @@ def test_tables_wider_than_the_text_area_are_narrowed(tmp_path):
     usable_twips = int((int(sec.page_width) - int(sec.left_margin) - int(sec.right_margin)) / 635)
     grid = [int(g.get(qn("w:w"))) for g in d.tables[0]._tbl.tblGrid.findall(qn("w:gridCol"))]
     assert stats.get("tables_narrowed", 0) >= 1 and sum(grid) <= usable_twips and abs(grid[0] / grid[1] - 15000 / 45000) < 0.05
+
+
+def test_object_anchored_before_text_is_drawn_before_the_paragraph(tmp_path):
+    """한글은 글자처럼 취급하지 않는 표의 앵커를 다음 문단 첫머리에 두곤 한다 — 그 문단 글보다 표가 앞에 보여야 한다(실측 2026-09-29)."""
+    table = ('<hp:tbl rowCnt="1" colCnt="1" borderFillIDRef="2"><hp:sz width="10000"/><hp:tr><hp:tc borderFillIDRef="2"><hp:subList><hp:p paraPrIDRef="0">'
+             '<hp:run charPrIDRef="0"><hp:t>표 셋</hp:t></hp:run></hp:p></hp:subList><hp:cellAddr rowAddr="0" colAddr="0"/><hp:cellSpan rowSpan="1" colSpan="1"/>'
+             '<hp:cellSz width="10000" height="500"/></hp:tc></hp:tr></hp:tbl>')
+    section = SECTION.split("<hp:p paraPrIDRef=\"0\" styleIDRef=\"0\"><hp:run charPrIDRef=\"0\"><hp:t>첫 줄")[0] + (
+        '<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>(3) 셋째 제목</hp:t></hp:run></hp:p>'
+        f'<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0">{table}</hp:run><hp:run charPrIDRef="0"><hp:t>(4) 넷째 제목</hp:t></hp:run></hp:p>'
+        '</hs:sec>')
+    p = tmp_path / "t.hwpx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("mimetype", "application/hwp+zip")
+        zf.writestr("Contents/header.xml", HEADER)
+        zf.writestr("Contents/section0.xml", section)
+    data, _ = hwpx_docx.convert(p)
+    d = Document(io.BytesIO(data))
+    seq = []
+    for el in d.element.body.iterchildren():
+        if el.tag == qn("w:tbl"):
+            seq.append("T")
+        elif el.tag == qn("w:p"):
+            t = "".join(x.text or "" for x in el.iter(qn("w:t")))
+            if "제목" in t:
+                seq.append(t)
+    assert seq == ["(3) 셋째 제목", "T", "(4) 넷째 제목"]
