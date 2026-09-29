@@ -24,9 +24,16 @@ def protect_candidate(value):
     return value
 
 
-def approved_bytes(path):
+def approved_bytes(path, *, check_current=True):
     """Read once, audit the exact bytes returned. Fail closed on malformed/unreviewed data."""
     from zzaimy.dataset.quality_gate import audit_dataset
+    if check_current and path.name.startswith('grounded-reviewed-'):
+        try:
+            active = json.loads((path.parent / 'grounded-current.json').read_text())
+            if active.get('filename') != path.name:
+                raise ValueError()
+        except (OSError, ValueError, AttributeError) as exc:
+            raise ValueError('현재 검수 승인본이 아닙니다. 최신 검수 결과를 가져오세요.') from exc
     raw = path.read_bytes()
     try:
         pairs = [json.loads(line) for line in raw.decode("utf-8").splitlines() if line.strip()]

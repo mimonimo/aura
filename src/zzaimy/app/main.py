@@ -4800,7 +4800,12 @@ def create_app(
                 dataset["export_ready"] = True
             except (ValueError, OSError):
                 dataset["export_ready"] = False
+        try:
+            review_report = _aj.loads(db.get_setting('grounded_review_report', '{}') or '{}')
+        except ValueError:
+            review_report = {}
         return templates.TemplateResponse(request, "dev_data.html", ctx(request, {
+            "grounded_review_report": review_report,
             "development_tab": "data",
             "grounded_ls": _grounded_ls_status(),
             "rag_rows": rag_status(db),
@@ -4947,6 +4952,97 @@ def create_app(
         db.add_dataset(name=name, sources="labelstudio", path=str(path),
                        n_pairs=len(pairs))
         return RedirectResponse(f"/dev/data?ls_pulled={len(pairs)}", status_code=303)
+
+    @app.post("/dev/data/grounded-review-config")
+    def dev_grounded_review_config():
+        from zzaimy.dataset.authored_review import PROJECT, upgrade_config
+        from zzaimy.dataset.ls_client import LabelStudioError
+        from datetime import datetime, timezone
+        from urllib.parse import urlencode
+        from xml.etree.ElementTree import ParseError
+        try:
+            cli = _ls_client()
+            status = cli.status(PROJECT)
+            if not status.get('ok') or not status.get('project_id'):
+                raise ValueError('검수 프로젝트 연결을 확인하세요.')
+            pid = status['project_id']
+            project = cli._req('GET', f'/api/projects/{pid}')
+            old = project.get('label_config', '')
+            new = upgrade_config(old)
+            if new != old:
+                backup = Path(db_path).parent / 'labelstudio-backup'
+                backup.mkdir(parents=True, exist_ok=True, mode=0o700)
+                stamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
+                target = backup / f'project-{pid}-config-{stamp}.json'
+                with target.open('x', encoding='utf-8') as out:
+                    _aj.dump({'project_id': pid, 'label_config': old}, out, ensure_ascii=False)
+                target.chmod(0o600)
+                cli._req('PATCH', f'/api/projects/{pid}', json={'label_config': new})
+            params = {'tab': 'data', 'ok': '검수 4항목을 준비했습니다. 기존 주석은 보존하며 자동 승인하지 않습니다.'}
+        except (LabelStudioError, ValueError, ParseError):
+            params = {'tab': 'data', 'err': '검수 설정을 변경하지 못했습니다. 연결 상태와 기존 라벨 설정을 확인하세요.'}
+        return RedirectResponse('/dev/train?' + urlencode(params), status_code=303)
+
+    @app.post("/dev/data/grounded-pull")
+    def dev_grounded_pull():
+        from zzaimy.dataset.authored_review import PROJECT, convert_tasks
+        from zzaimy.dataset.build import SFT_DIR
+        from zzaimy.dataset.ls_client import LabelStudioError
+        from zzaimy.dataset.privacy import approved_bytes
+        from urllib.parse import urlencode
+        source_cache = {}
+
+        def resolve(doc_id, chunk_id):
+            if doc_id not in source_cache:
+                source_cache[doc_id] = {c['id']: c for c in db.list_doc_chunks(doc_id)} if db.get_document(doc_id) else {}
+            chunk = source_cache[doc_id].get(chunk_id)
+            if not chunk:
+                return None
+            content = chunk['content']
+            if chunk['kind'] == 'table':
+                content = _aj.loads(content).get('text', content)
+            return content
+
+        try:
+            cli = _ls_client()
+            status = cli.status(PROJECT)
+            if not status.get('ok') or not status.get('project_id'):
+                raise ValueError('검수 프로젝트 미연결')
+            pairs, report = convert_tasks(cli.export_tasks(status['project_id']), resolve)
+            from datetime import datetime, timezone
+            report['checked_at'] = datetime.now(timezone.utc).isoformat(timespec='seconds')
+            SFT_DIR.mkdir(parents=True, exist_ok=True)
+            active_filename = ''
+            if pairs:
+                raw = ''.join(_aj.dumps(p, ensure_ascii=False, sort_keys=True) + '\n' for p in pairs).encode('utf-8')
+                digest = hashlib.sha256(raw).hexdigest()
+                SFT_DIR.mkdir(parents=True, exist_ok=True)
+                path = SFT_DIR / f'grounded-reviewed-{digest}.jsonl'
+                try:
+                    with path.open('xb') as out:
+                        out.write(raw)
+                    path.chmod(0o600)
+                except FileExistsError:
+                    if path.read_bytes() != raw:
+                        raise ValueError('기존 승인 파일 불일치')
+                approved_bytes(path, check_current=False)
+                active_filename = path.name
+                # Content-addressed imports do not duplicate identical snapshots.
+                if not db.get_setting('grounded_import:' + digest):
+                    dsid = db.add_dataset(name='근거 문답 검수 승인', sources='labelstudio', path=str(path), n_pairs=len(pairs))
+                    db.set_setting('grounded_import:' + digest, str(dsid))
+            # A changed/revoked review supersedes older imports, including zero approvals.
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode='w', dir=SFT_DIR, suffix='.tmp', delete=False) as active:
+                _aj.dump({'filename': active_filename}, active)
+                active_path = Path(active.name)
+            active_path.replace(SFT_DIR / 'grounded-current.json')
+            db.set_setting('grounded_review_report', _aj.dumps(report, ensure_ascii=False))
+            _grounded_cache['value'] = None
+            params = {'tab': 'data', 'ok': f"검수 확인: 승인 {report['approved']}건 · 보류 {report['held']}건. 같은 승인본은 중복 등록하지 않습니다."}
+        except (LabelStudioError, ValueError, TypeError, KeyError):
+            params = {'tab': 'data', 'err': '검수 결과를 가져오지 못했습니다. 연결·원문·검수 형식을 확인하세요. 기존 승인본은 보존됩니다.'}
+        return RedirectResponse('/dev/train?' + urlencode(params), status_code=303)
 
     @app.get("/dev/data/{dataset_id}.jsonl")
     def dev_data_download(dataset_id: int):
