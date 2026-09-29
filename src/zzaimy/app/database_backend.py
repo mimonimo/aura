@@ -12,11 +12,17 @@ import sqlite3
 
 
 def postgres_config(path):
-    dsn = os.environ.get('ZZAIMY_DATABASE_URL', '')
-    selected = Path(os.environ.get('ZZAIMY_PLATFORM_SQLITE_PATH', 'data/platform/platform.db'))
+    # CLI/index jobs must select the same backend as systemd, even when their
+    # shell did not export EnvironmentFile. Read only DB keys, never mutate env.
+    from dotenv import dotenv_values
+    local = dotenv_values(Path(__file__).resolve().parents[3] / '.env.local')
+    def setting(key, default=''):
+        return os.environ.get(key, local.get(key) or default)
+    dsn = setting('ZZAIMY_DATABASE_URL')
+    selected = Path(setting('ZZAIMY_PLATFORM_SQLITE_PATH', 'data/platform/platform.db'))
     if not dsn or Path(path).resolve() != selected.resolve():
         return None
-    schema = os.environ.get('ZZAIMY_DATABASE_SCHEMA', '')
+    schema = setting('ZZAIMY_DATABASE_SCHEMA')
     if not re.fullmatch(r'aura_(?:app|test)_[a-z0-9_]{1,40}', schema):
         raise ValueError('An explicit aura_app_* or aura_test_* runtime schema is required')
     return dsn, schema

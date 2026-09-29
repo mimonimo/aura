@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from zzaimy.app.database_backend import connect
 from pathlib import Path
 
 MODEL = "nlpai-lab/KURE-v1"
@@ -35,9 +36,8 @@ def main() -> None:
     import numpy as np
     from sentence_transformers import SentenceTransformer
 
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    rows = [dict(r) for r in conn.execute("SELECT * FROM regulation_chunks ORDER BY id")]
+    with connect(DB, readonly=True) as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM regulation_chunks ORDER BY id")]
     print(f"조각 {len(rows)}개 임베딩 시작 ({MODEL})", flush=True)
 
     # vLLM이 GPU 메모리를 점유 중이라 기본은 CPU (546조각이면 CPU로 충분)

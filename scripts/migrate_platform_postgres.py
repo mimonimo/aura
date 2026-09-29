@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 
-from zzaimy.app.pg_migration import copy_to_staging, snapshot
+from zzaimy.app.pg_migration import copy_to_staging, copy_to_runtime, prepare_runtime_snapshot, snapshot
 
 
 def main():
@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--source', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path, help='New private backup directory')
     parser.add_argument('--schema', required=True, help='New aura_stage_* schema')
+    parser.add_argument('--runtime', action='store_true', help='Provision runtime schema; caller must stop writers for final migration')
     args = parser.parse_args()
     dsn = os.environ.get('ZZAIMY_MIGRATION_DSN')
     if not dsn:
@@ -23,7 +24,13 @@ def main():
     backup = args.output / 'platform.sqlite3'
     try:
         snapshot(args.source, backup)
-        report = copy_to_staging(backup, dsn, args.schema)
+        if args.runtime:
+            clean = args.output / 'runtime.sqlite3'
+            cleanup = prepare_runtime_snapshot(backup, clean)
+            report = copy_to_runtime(clean, dsn, args.schema)
+            report['cleanup'] = cleanup
+        else:
+            report = copy_to_staging(backup, dsn, args.schema)
         report['snapshot_created_at'] = datetime.fromtimestamp(backup.stat().st_mtime, timezone.utc).isoformat()
         path = args.output / 'verification.json'
         with path.open('x', encoding='utf-8') as output:
