@@ -28,12 +28,16 @@ PLAN_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "op": {"type": "string", "enum": ["insert", "replace", "style", "bold", "table", "rename", "move"]},
-                    "section": {"type": "integer", "description": "insert·style·table 일 때 대상 절 번호"},
+                    "op": {"type": "string", "enum": ["insert", "replace", "style", "bold", "table", "fill", "rename", "move"]},
+                    "section": {"type": "integer", "description": "insert·style·table·fill 일 때 대상 절 번호"},
                     "old": {"type": "string", "description": "replace 일 때 문서에 있는 그대로의 글, bold 일 때 굵게 할 글귀"},
-                    "text": {"type": "string", "description": "insert·replace 의 글. style 이면 TITLE|HEADING_1|HEADING_2|HEADING_3|NORMAL_TEXT. table 이면 행을 줄바꿈, 칸을 ' | ' 로 나눈 글. rename 이면 새 문서 이름. move 이면 옮길 프로젝트 이름"},
+                    "text": {"type": "string", "description": "insert·replace 의 글. style 이면 TITLE|HEADING_1|HEADING_2|HEADING_3|NORMAL_TEXT. table 이면 행을 줄바꿈, 칸을 ' | ' 로 나눈 글. rename 이면 새 문서 이름. move 이면 옮길 프로젝트 이름. fill 이면 빈 글"},
+                    "table": {"type": "integer", "description": "fill 일 때 절 안의 표 번호([이 절에 이미 있는 양식 표] 의 '표 n'), 그 밖에는 0"},
+                    "cells": {"type": "array", "description": "fill 일 때 넣을 칸들(row·col 은 0부터, 빈 칸 _ 자리). 그 밖에는 빈 배열",
+                              "items": {"type": "object", "properties": {"row": {"type": "integer"}, "col": {"type": "integer"}, "text": {"type": "string"}},
+                                        "required": ["row", "col", "text"]}},
                 },
-                "required": ["op", "section", "old", "text"],
+                "required": ["op", "section", "old", "text", "table", "cells"],
             },
         },
         "asks": {
@@ -53,6 +57,9 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 - 지시가 문서를 고치라는 것이면 ops 에 넣기(insert: 해당 절의 끝에 새 문단)나 바꾸기(replace: old 를 text 로, old 는 문서에 있는 글 그대로)를 담는다.
 - 서식 지시는 style(절 제목의 단계: TITLE·HEADING_1·HEADING_2·HEADING_3·NORMAL_TEXT), bold(old 에 적은 글귀를 굵게), table(section 절 끝에 표 —
   text 는 행마다 줄바꿈, 칸은 ' | ' 로) 로 낸다.
+- 절에 이미 있는 양식 표(성과지표 총괄표·예산표·현황표·추진체계표 등, [이 절에 이미 있는 양식 표] 에 격자가 있다)는 새 표를 만들지 말고
+  fill 로 채운다: section=그 절, table=표 번호, cells=[{{row, col, text}}] — 빈 칸(_)에만 값을 넣고 머리 칸·항목 이름 칸은 두며,
+  값은 [지난 사업 자료]·근거·담당자가 알려 준 값에 있는 것만 넣는다. 자료에 없는 칸은 비워 두고 asks 에 적는다.
 - 기관명·총장·담당자·연락처 같은 기입란은 담당자의 말·프로젝트 정보·근거에 있는 값만 넣는다. 모르는 값은 지어내지 말고
   원본의 ○○○·빈칸을 그대로 두고 reply 에 무엇이 비었는지 적는다.
 - 문서 이름(제목)을 바꾸라는 지시는 rename(text 에 새 이름, 예: 사업명·연도·서류 종류)으로 낸다.
@@ -169,8 +176,9 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
         except json.JSONDecodeError:
             if attempt == 1:
                 raise
-    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "rename", "move")
-           and ((o.get("text") or "").strip() or o.get("op") == "bold")]
+    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "fill", "rename", "move")
+           and ((o.get("text") or "").strip() or o.get("op") == "bold"
+                or (o.get("op") == "fill" and isinstance(o.get("cells"), list) and any(str(c.get("text") or "").strip() for c in o["cells"] if isinstance(c, dict))))]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
     asks = [{"name": str(a.get("name") or "").strip()[:40], "hint": str(a.get("hint") or "").strip()[:80]}
             for a in (data.get("asks") or []) if isinstance(a, dict) and str(a.get("name") or "").strip()][:6]
@@ -253,6 +261,10 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                 rows = [[c.strip() for c in ln.split("|")] for ln in (o.get("text") or "").splitlines() if ln.strip()]
                 r = gdocs.insert_table(account, doc, int(o["section"]), rows, user=user, data_dir=data_dir, scrub=scrub, http=http)
                 lines.append(f"「{r['section']}」 아래에 표 {r['rows']}×{r['cols']}")
+            elif o["op"] == "fill":
+                r = gdocs.fill_table(account, doc, int(o["section"]), int(o.get("table") or 1), [c for c in (o.get("cells") or []) if isinstance(c, dict)],
+                                     user=user, data_dir=data_dir, scrub=scrub, http=http)
+                lines.append(f"「{r['section']}」 표 {r['table']} 의 칸 {r['cells']}개 채움" + (f"(건너뜀 {r['skipped']})" if r["skipped"] else ""))
         except Exception as e:      # 계정·문서 상태 문제 — 무엇이 안 됐는지 채팅에 남긴다
             lines.append(f"적용 실패({type(e).__name__}): {str(e)[:80]}")
     return lines
@@ -267,6 +279,10 @@ def describe(ops: list[dict], info: dict) -> str:
             out.append(f"{i}) 「{heads.get(int(o['section']), o['section'])}」 아래에 추가:\n{o['text']}")
         elif o["op"] == "replace":
             out.append(f"{i}) 바꾸기: 「{o.get('old', '')[:60]}」 → 「{o['text'][:60]}」")
+        elif o["op"] == "fill":
+            cells = [c for c in (o.get("cells") or []) if isinstance(c, dict)]
+            out.append(f"{i}) 「{heads.get(int(o['section']), o['section'])}」 표 {o.get('table')} 채우기: " +
+                       ", ".join(f"({c.get('row')},{c.get('col')})={str(c.get('text') or '')[:16]}" for c in cells[:8]) + (" …" if len(cells) > 8 else ""))
         else:
             out.append(f"{i}) 서식({o['op']}): 절 {o.get('section')} · {o.get('old') or ''} {o.get('text') or ''}"[:120])
     return "\n".join(out)
@@ -298,7 +314,7 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
                                                      "\n".join(r.get("text") or "" for r in references))
         _episode(data_dir, {"session": session_id, "user": owner, "doc": gdocs.doc_id(link["doc"]), "section": focus.get("heading"),
                             "command": command, "materials": materials, "reply": p["reply"],
-                            "draft": [{"op": o.get("op"), "text": o.get("text")} for o in p["ops"]],
+                            "draft": [{"op": o.get("op"), "text": o.get("text"), **({"table": o.get("table"), "cells": o.get("cells")} if o.get("op") == "fill" else {})} for o in p["ops"]],
                             "references": references or [], "score": score})
     if not p["ops"]:
         return p["reply"] or "문서를 고칠 내용은 없습니다.", []

@@ -93,3 +93,10 @@ def test_render_materials_shows_given_values():
 def test_score_ignores_bare_small_numbers():
     sc = drafting.score_against_reference("본문", "표 17 18 19 000 2026년 240억원 16건")
     assert not any(x in sc["missing"] for x in ("17", "18", "000")) and "240억" in sc["missing"] and "16건" in sc["missing"]
+
+
+def test_section_with_only_empty_form_table_counts_as_unfilled():
+    from zzaimy.app import drafting
+    assert drafting.is_unfilled({"body_chars": 40, "para_chars": 0, "tbl_cells": 12, "tbl_empty": 8})        # 머리 칸만 있는 총괄표
+    assert not drafting.is_unfilled({"body_chars": 40, "para_chars": 0, "tbl_cells": 12, "tbl_empty": 2})    # 값이 찬 표
+    assert not drafting.is_unfilled({"body_chars": 40, "para_chars": 30, "tbl_cells": 12, "tbl_empty": 8})   # 글 문단이 있으면 쓴 절

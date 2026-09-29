@@ -1235,8 +1235,18 @@ def create_app(
                     m = mats.for_section(info, sec, q, storage.title_of)
                     cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 {'새로 ' if redo else ''}작성해 줘. 담당자 지시: {q}"
                     refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
+                    # 절에 양식 표가 있으면 격자를 재료에 붙인다 — 모델이 fill 로 칸을 채운다(2026-09-29, 실측: 표 채움 0건이던 문제)
+                    materials_ = drafting.render_materials(m, inst)
+                    try:
+                        grids_ = _gd.table_grids(link["account"], link["doc"], sec["index"], info=info)
+                        for x in drafting.subsections(info, sec):
+                            grids_ += _gd.table_grids(link["account"], link["doc"], x["index"], info=info)
+                        if grids_:
+                            materials_ += "\n\n" + _gd.render_table_grids(grids_)
+                    except Exception:
+                        logging.getLogger("zzaimy.app.gdocs").exception("표 격자 읽기 실패 (대화 %s)", session_id)
                     t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=ag.scrub_for_writing,
-                                             evidence=m["criteria"], confirm=confirm, materials=drafting.render_materials(m, inst),
+                                             evidence=m["criteria"], confirm=confirm, materials=materials_,
                                              focus=sec, references=refs, before_apply=before_apply)
                     used = ", ".join(f"{p_['title'][:18]}({p_['how']})" for p_ in m["past"]) or "없음"
                     parts_.append(f"[{sec['heading'][:40]}]\n{t_}\n재료 — 지난 자료: {used} · 기준 조각 {len(m['criteria'])}건")

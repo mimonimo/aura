@@ -157,6 +157,13 @@ def outline(document: dict) -> dict:
             cur["text"] = (cur["text"] + "\n" + text.rstrip("\n")).strip()      # 절의 글(표는 칸을 ' | ' 로) — 목차의 같은 제목과 헷갈리지 않게 구조에서 자른다
             if not (is_table and "작성방법" in text):
                 cur["body_chars"] += len(text.strip())                          # 본문 글자 — 양식의 작성방법 상자는 본문이 아니다
+                if is_table:
+                    # 양식 표의 빈 칸 비율 — 머리 칸만 있고 값 칸이 빈 표는 '아직 안 쓴 절'의 표시(2026-09-29: 표 채우기)
+                    cells = [c for row in text.split("\n") for c in row.split(" | ")]
+                    cur["tbl_cells"] = cur.get("tbl_cells", 0) + len(cells)
+                    cur["tbl_empty"] = cur.get("tbl_empty", 0) + sum(1 for c in cells if not c.strip())
+                else:
+                    cur["para_chars"] = cur.get("para_chars", 0) + len(text.strip())
     sections.append(cur)
     anchors = {int(el.get("startIndex", 0)): el.get("paragraph", {}).get("paragraphStyle", {}).get("headingId") for el in body}
     tab_id = next((tab.get("tabProperties", {}).get("tabId") for tab in document.get("tabs", []) or []
@@ -351,6 +358,105 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "table", "section": sec["heading"],
                       "rows": len(rows), "cols": n_cols})
     return {"ok": True, "rows": len(rows), "cols": n_cols, "section": sec["heading"]}
+
+
+def _section_tables(body: list[dict], info: dict, section_index: int) -> list[dict]:
+    """절 안의 표(작성방법 상자 제외) — [{n, el}] (n 은 절 안 차례, 1부터)."""
+    secs = sorted(info["sections"], key=lambda s: s.get("start", 0))
+    sec = next((s for s in secs if s["index"] == int(section_index)), None)
+    if sec is None:
+        return []
+    i = secs.index(sec)
+    end = int(secs[i + 1]["start"]) if i + 1 < len(secs) else int(info["end"])
+    out = []
+    for el in body:
+        st = int(el.get("startIndex", 0))
+        if "table" in el and int(sec["start"]) <= st < end and not _is_instruction_box(el["table"]):
+            out.append({"n": len(out) + 1, "el": el, "sec": sec})
+    return out
+
+
+def table_grids(email: str, doc: str, section_index: int, http=None, info: dict | None = None) -> list[dict]:
+    """절의 표 격자 — [{n, rows:[[글…]], sec}] 모델이 fill 로 칸을 지목할 수 있게(row·col 은 0부터)."""
+    http = http or _http()
+    info = info or get(email, doc, http)
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    _raise(r)
+    body = body_content(r.json())
+    out = []
+    for t in _section_tables(body, info, section_index):
+        rows = [[" ".join(_para_text(e["paragraph"]).strip() for e in c.get("content", []) if "paragraph" in e).strip()
+                 for c in row.get("tableCells", [])] for row in t["el"]["table"].get("tableRows", [])]
+        out.append({"n": t["n"], "rows": rows, "section": t["sec"]["heading"]})
+    return out
+
+
+def render_table_grids(grids: list[dict], max_rows: int = 40) -> str:
+    """표 격자를 모델이 읽을 글로 — 빈 칸은 '_'. 채울 칸의 row·col 을 여기서 센다."""
+    if not grids:
+        return ""
+    lines = ["[이 절에 이미 있는 양식 표 — 새 표를 만들지 말고 fill 로 빈 칸(_)에 값을 넣는다. row·col 은 0부터]"]
+    for g in grids:
+        rows = g["rows"]
+        n_cols = max((len(r) for r in rows), default=0)
+        lines.append(f"표 {g['n']} ({len(rows)}행×{n_cols}열)")
+        for ri, row in enumerate(rows[:max_rows]):
+            lines.append(f"  r{ri}: " + " | ".join((c[:24] if c else "_") for c in row))
+        if len(rows) > max_rows:
+            lines.append(f"  … ({len(rows) - max_rows}행 더)")
+    return "\n".join(lines)
+
+
+def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: list[dict], *, user: str, data_dir: Path,
+               scrub=None, http=None) -> dict:
+    """절의 n 번째 양식 표의 칸에 값을 넣는다(cells = [{row, col, text}], 0부터). 칸에 글이 있으면 바꾼다.
+    뒤 칸부터 써서 앞 인덱스가 밀리지 않게 한다. 표 구조(병합·테두리)는 그대로다."""
+    http = http or _http()
+    info = get(email, doc, http)
+    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    _raise(r)
+    body = body_content(r.json())
+    tables = _section_tables(body, info, section_index)
+    t = next((x for x in tables if x["n"] == int(table_n)), None)
+    if t is None:
+        raise ValueError(f"절에 표 {table_n} 이 없습니다(표 {len(tables)}개)")
+    rows = t["el"]["table"].get("tableRows", [])
+    edits: list[tuple[int, int, str]] = []          # (start, end(지울 끝, 없으면 start), 글)
+    skipped = 0
+    for c in cells:
+        try:
+            ri, ci = int(c.get("row")), int(c.get("col"))
+        except (TypeError, ValueError):
+            skipped += 1
+            continue
+        text = str(c.get("text") or "").strip()
+        if scrub:
+            text = scrub(text)
+        if not text or ri < 0 or ri >= len(rows):
+            skipped += 1
+            continue
+        tcs = rows[ri].get("tableCells", [])
+        if ci < 0 or ci >= len(tcs):
+            skipped += 1
+            continue
+        content = [e for e in tcs[ci].get("content", []) if "paragraph" in e]
+        if not content:
+            skipped += 1
+            continue
+        start = int(content[0]["startIndex"])
+        existing = " ".join(_para_text(e["paragraph"]) for e in content).strip()
+        end = int(content[-1]["endIndex"]) - 1 if existing else start        # 마지막 줄바꿈은 칸의 것 — 지우지 않는다
+        edits.append((start, end, text))
+    reqs: list[dict] = []
+    for start, end, text in sorted(edits, key=lambda x: -x[0]):
+        if end > start:
+            reqs.append({"deleteContentRange": {"range": {"startIndex": start, "endIndex": end}}})
+        reqs.append({"insertText": {"location": {"index": start}, "text": text}})
+    if reqs:
+        _batch(email, doc, reqs, http)
+    _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "fill", "section": t["sec"]["heading"], "table": int(table_n),
+                      "cells": len(edits), "skipped": skipped})
+    return {"ok": True, "section": t["sec"]["heading"], "table": int(table_n), "cells": len(edits), "skipped": skipped}
 
 
 def data_dir_default() -> Path:

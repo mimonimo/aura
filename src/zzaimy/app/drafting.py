@@ -35,7 +35,11 @@ def is_unfilled(section: dict) -> bool:
     """본문이 없는 절 — 작성방법 상자를 뺀 본문 글자(outline 의 body_chars)가 0. 옛 구조(body_chars 없음)면 '상자로 끝나거나 글이 없음'.
     실측 2026-09-27: 모델이 절 끝에 SWOT 표를 넣자 '상자로 끝남'으로 보여 빈 절로 취급, 다시 쓰기가 비우지 않고 덧붙였다."""
     if "body_chars" in section:
-        return int(section.get("body_chars") or 0) == 0
+        if int(section.get("body_chars") or 0) == 0:
+            return True
+        # 글 문단은 없고 양식 표만 있는데 그 표의 칸이 절반 넘게 비었으면 아직 안 쓴 절이다(표 채우기, 2026-09-29) — 머리 칸만 있는 총괄표·예산표
+        cells, empty = int(section.get("tbl_cells") or 0), int(section.get("tbl_empty") or 0)
+        return int(section.get("para_chars") or 0) == 0 and cells > 0 and empty * 2 >= cells
     return int(section.get("table_end") or 0) > int(section.get("end") or 0) - 1 or int(section.get("chars") or 0) == 0
 
 
