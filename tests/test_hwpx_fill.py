@@ -289,3 +289,35 @@ def test_self_check_passes_on_fill_and_catches_broken_references(tmp_path):
             zout.writestr(info, data)
     probs = hwpx_fill.check(bad)
     assert any("charPrIDRef 77" in p for p in probs) and any("rowCnt 3" in p for p in probs) and any("itemCnt 5" in p for p in probs)
+
+
+def test_new_table_inherits_form_table_roles(tmp_path):
+    """서식 본문 표가 머리 행 음영(borderFill 4·굵은 글자 1)을 쓰면 새 표 머리 행도 그 모양, 본문 칸은 서식 본문 칸 모양.
+    첫 열이 라벨 같으면(짧은 글 + 나머지 수치) 라벨 열 모양도 — 음영이 있을 때만."""
+    head = HEADER.replace('<hh:borderFills itemCnt="3">', '<hh:borderFills itemCnt="5">').replace(
+        "</hh:borderFills>",
+        '<hh:borderFill id="4"><hh:leftBorder type="SOLID" width="0.12 mm"/><hh:rightBorder type="SOLID" width="0.12 mm"/>'
+        '<hh:topBorder type="SOLID" width="0.12 mm"/><hh:bottomBorder type="SOLID" width="0.12 mm"/>'
+        '<hc:fillBrush><hc:winBrush faceColor="#DFE6F7" hatchColor="#000000" alpha="0"/></hc:fillBrush></hh:borderFill>'
+        '<hh:borderFill id="5"><hh:leftBorder type="SOLID" width="0.12 mm"/><hh:rightBorder type="SOLID" width="0.12 mm"/>'
+        '<hh:topBorder type="SOLID" width="0.12 mm"/><hh:bottomBorder type="SOLID" width="0.12 mm"/>'
+        '<hc:fillBrush><hc:winBrush faceColor="#F2F2F2" hatchColor="#000000" alpha="0"/></hc:fillBrush></hh:borderFill></hh:borderFills>')
+    shaded = (f'<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl id="905" rowCnt="2" colCnt="2" borderFillIDRef="3"><hp:sz width="40000"/>'
+              f'<hp:tr>{_cell("항목", "4", 0, 0).replace("charPrIDRef=\"0\"", "charPrIDRef=\"1\"")}{_cell("값", "4", 0, 1).replace("charPrIDRef=\"0\"", "charPrIDRef=\"1\"")}</hp:tr>'
+              f'<hp:tr>{_cell("학생", "5", 1, 0)}{_cell("10", "3", 1, 1)}</hp:tr></hp:tbl></hp:run>{LINESEG}</hp:p>')
+    sec = _section().replace('<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>마무리 문단.', shaded + '<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>마무리 문단.')
+    src = tmp_path / "form.hwpx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("Contents/header.xml", head)
+        zf.writestr("Contents/section0.xml", sec)
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(src, [{"heading": "1.1. 대학의 여건 분석", "items": [("table", [["구분", "2025", "2026"], ["재학생", "1,000", "1,100"], ["교원", "50", "55"]])]}], out)
+    assert rep["tables"] == 1 and rep["checks"] == []
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+    new = xml[xml.index("구분") - 900: xml.index(">55<") + 50]
+    heads = re.findall(r'borderFillIDRef="(\d+)"><hp:subList[^>]*><hp:p [^>]*><hp:run charPrIDRef="(\d+)"><hp:t>(구분|2025|재학생|1,000|교원)<', new)
+    got = {t: (b, c) for b, c, t in heads}
+    assert got["구분"] == ("4", "1") and got["2025"] == ("4", "1")          # 머리 행 = 서식 머리 행
+    assert got["재학생"] == ("5", "0") and got["교원"] == ("5", "0")        # 라벨 열 = 서식 라벨 열(음영 있음)
+    assert got["1,000"] == ("3", "0")                                        # 본문 칸

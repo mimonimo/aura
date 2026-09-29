@@ -309,6 +309,59 @@ def _table_template(section_xml: str, solid: set[str] | None = None) -> tuple[st
     return bf, margin
 
 
+def _filled_border_ids(header_xml: str) -> set[str]:
+    """채움색(음영)이 있는 borderFill id — 머리 행·라벨 열 음영의 후보."""
+    out: set[str] = set()
+    for m in re.finditer(r"<hh:borderFill\b[^>]*\bid=\"(\d+)\"[^>]*>(.*?)</hh:borderFill>", header_xml, re.S):
+        face = re.search(r"<hc:winBrush\b[^>]*faceColor=\"(#[0-9A-Fa-f]{6})\"", m.group(2))
+        if face and face.group(1).upper() not in ("#FFFFFF",):
+            out.add(m.group(1))
+    return out
+
+
+_ROLE_NUM = re.compile(r"^[\s\d,.\-+%()~/△▲▼±]*\d[\s\d,.\-+%()~/△▲▼±원천만억개명건회년월일점배]*$")
+
+
+def _role_styles(sections: list["_Section"], header_xml: str) -> dict[str, tuple[str, str, str]]:
+    """서식 본문 표들의 역할별 최빈 모양 {head|label|body: (borderFillIDRef, paraPrIDRef, charPrIDRef)} — 새 표가 서식 표처럼
+    보이게(kordoc 표 서식 프로필의 원리를 역할 단위로: 표 통째 복제는 새 표와 앵커가 맞지 않는다, 2026-09-30 조사).
+    머리·라벨은 음영이 있을 때만 낸다(음영 없는 서식이면 지금처럼 한 모양)."""
+    filled = _filled_border_ids(header_xml)
+    count: dict[str, Counter] = {"head": Counter(), "label": Counter(), "body": Counter()}
+    for s in sections:
+        for t in s.tables:
+            if len(t.rows) < 2 or _BOX_RE.search(s.xml[t.para[0]:t.para[1]]):
+                continue
+            for r, row in enumerate(t.rows):
+                for c in row:
+                    if c.nested:
+                        continue
+                    tc_open = s.xml[c.tc[0]:s.xml.index(">", c.tc[0]) + 1]
+                    bf = re.search(r"borderFillIDRef=\"(\d+)\"", tc_open)
+                    pp = re.search(r"paraPrIDRef=\"(\d+)\"", c.p_open)
+                    if not bf or not pp:
+                        continue
+                    role = "head" if r == 0 else "label" if c.col == 0 else "body"
+                    count[role][(bf.group(1), pp.group(1), c.char_ref)] += 1
+    out: dict[str, tuple[str, str, str]] = {}
+    for role, cnt in count.items():
+        if not cnt:
+            continue
+        best = cnt.most_common(1)[0][0]
+        if role == "body" or best[0] in filled:
+            out[role] = best
+    return out
+
+
+def _label_like(rows: list[list[str]]) -> bool:
+    """새 표의 첫 열이 라벨 열인가 — 첫 열이 짧은 글이고 나머지 칸의 반 이상이 수치나 긴 글(md_docx 와 같은 판정)."""
+    body = rows[1:]
+    first = [r[0] for r in body if r and str(r[0]).strip()]
+    rest = [str(x) for r in body for x in r[1:] if str(x).strip()]
+    return (len(body) >= 2 and bool(first) and all(len(x) <= 16 and not _ROLE_NUM.match(x) for x in first) and bool(rest)
+            and sum(1 for x in rest if _ROLE_NUM.match(x) or len(x) > 16) / len(rest) >= 0.5)
+
+
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
 
 
@@ -329,8 +382,11 @@ def paragraph_xml(text: str, pp: str, cp: str) -> str:
 
 
 def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, margin: str, table_id: int,
-              widths: list[float] | None = None) -> str:
-    """새 표 XML. widths(작업본 표의 열 너비, 단위 무관)가 있으면 그 비율로, 없으면 본문 폭을 균등 분할."""
+              widths: list[float] | None = None, roles: dict[str, tuple[str, str, str]] | None = None) -> str:
+    """새 표 XML. widths(작업본 표의 열 너비, 단위 무관)가 있으면 그 비율로, 없으면 본문 폭을 균등 분할.
+    roles(서식 표의 역할별 모양, _role_styles)가 있으면 머리 행·라벨 열·본문 칸에 그 테두리·문단·글자 모양을 쓴다."""
+    roles = roles or {}
+    label = "label" in roles and _label_like(rows)
     n_rows = len(rows)
     n_cols = max((len(r) for r in rows), default=0)
     if not n_rows or not n_cols:
@@ -346,8 +402,10 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
         for c in range(n_cols):
             cell = row[c] if c < len(row) else ""
             lines = split_lines(str(cell)) or [""]
-            paras = "".join(paragraph_xml(ln, pp, cp) for ln in lines)
-            tcs.append(f'<hp:tc name="" header="{1 if r == 0 else 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{bf}">'
+            role = "head" if r == 0 and "head" in roles else "label" if c == 0 and label else "body" if "body" in roles else ""
+            cbf, cpp, ccp = roles[role] if role else (bf, pp, cp)
+            paras = "".join(paragraph_xml(ln, cpp, ccp) for ln in lines)
+            tcs.append(f'<hp:tc name="" header="{1 if r == 0 else 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{cbf}">'
                        f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" '
                        f'textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">{paras}</hp:subList>'
                        f'<hp:cellAddr colAddr="{c}" rowAddr="{r}"/><hp:cellSpan colSpan="1" rowSpan="1"/>'
@@ -635,6 +693,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
     seen_texts: set[str] = set()
     seen_tables: set[frozenset] = set()
     all_tables = [t for s in secs for t in s.tables]
+    roles = _role_styles(secs, header)                  # 새 표의 머리 행·라벨 열·본문 칸 모양(서식 표에서)
     report = {"filled": [], "skipped": [], "folded": [], "duplicates": [], "paragraphs": 0, "tables": 0, "tables_updated": 0,
               "existing_kept": 0, "images": 0, "images_skipped": 0, "boxes_removed": 0, "linesegs_removed": 0, "sections_changed": []}
     added: dict[str, bytes] = {}
@@ -788,7 +847,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                         header, injected_bf = _inject_border_fill(header)
                         replaced["Contents/header.xml"] = header.encode("utf-8")
                     bf = s.bf = injected_bf
-                t = table_xml(rows, pp, cp, s.width, bf, s.margin, next_id, widths_here)
+                t = table_xml(rows, pp, cp, s.width, bf, s.margin, next_id, widths_here, roles)
                 if t:
                     pending.append(t)
                     report["tables"] += 1
