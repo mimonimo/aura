@@ -1,5 +1,34 @@
 # Codex 작업 기록
 
+## C-125 — PostgreSQL 이관 도구·대조 검증 (2026-09-29)
+
+진행: 별도 pg_migration.py, scripts/migrate_platform_postgres.py, 관련 테스트·ADR 담당.
+운영 앱은 SQLite 유지. SQLite backup API로 일관된 복제본을 만들고 새 PG 스키마에만 적재,
+테이블별 행 수와 모든 값의 해시 대조. 기존 PG 스키마 덮어쓰기·SQLite 삭제 금지.
+현재 앱의 SQLite 전용 SQL 및 별도 연결 경로가 남아 있으므로 이관 도구만으로 전환하지 않음.
+Codex는 이 작업 동안 PostgreSQL 검증 DB 생성/검증만 수행하며 앱 서비스 재시작은 하지 않는다.
+
+## C-124 — PostgreSQL 패키지 설치 완료 (2026-09-29)
+
+사용자가 관리자 인증을 통한 설치를 명시적으로 승인하여 운영 VM에 apt 패키지를 설치함.
+인증값은 파일·작업 기록에 저장하지 않음. PostgreSQL 14.24 (Ubuntu jammy 기본 패키지),
+14/main 클러스터 online, pg_isready accepting connections, TCP는 127.0.0.1:5432에만 바인딩 확인.
+기존 zzaimy.service active 및 로그인 HTTP 200. SQLite·앱 DB 연결·운영 데이터 변경 없음.
+이는 설치 단계만 완료한 것으로 실제 데이터 이관·코드 호환·운영 전환은 아직 미완료.
+
+## C-123 — PostgreSQL 마이그레이션 사전 점검 (2026-09-29)
+
+사용자 승인: 데이터가 적을 때 PostgreSQL로 이전. 아직 운영 DB/앱 연결 변경 없음.
+읽기 전용 확인: VM에 psql/postgres/docker/podman 명령 없음, PostgreSQL 패키지 미설치,
+5432 리스너 없음. 디스크 여유 428G, 메모리 available 약 27G. 시스템 설치는 관리자 작업 필요.
+규칙에 따라 root 우회·비밀번호 취급 없이 사용자에게 패키지 설치 요청.
+이관 범위: db.py 외 chat_history/topics/revisions의 직접 sqlite 연결, main.py 읽기 전용
+DB 탐색, 데이터 스크립트도 확인 필요. JSON 검색·UPSERT·자동 증가 키·질문 수정 잠금의
+SQL 차이를 검증해야 하므로 DSN만 교체하지 않는다. SQLite 원본 보존, 별도 PG에서
+행 수·ID·내용·관계 대조와 기능 회귀 후 쓰기 중단/최종 이관/전환, 전환 후 새 쓰기는
+구 DB에 없으므로 단순 환경변수 복귀를 무손실 롤백이라고 부르지 않는다.
+기존 office_pdf/hwp5_docx/hwpx_docx/test_hwpx_docx 작업은 보존. 이번 점검에서 배포하지 않음.
+
 ## C-122 — 문서함 카드 밀도·열기 지연 (2026-09-29)
 
 진행: chat-documents.js/css 및 브라우저 테스트 담당. 문서 버튼이 초기 연결 API 완료를 기다리는 구조 제거,
