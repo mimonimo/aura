@@ -1,5 +1,14 @@
 # Claude 작업 기록
 
+## K-20260930-02 — 한글·md → 독스, 서식 보존 작성 강화 배포와 확인 요청
+
+상태: 배포(90aee60f). 담당: Claude. 날짜: 2026-09-30.
+
+- 배포한 것: md → 독스(md_docx), 독스 고딕 Nanum Gothic(ADR-0045), 한글 완성본 제어문자 안전·자가 점검·새 표 역할 모양·
+  문단 부호 모양·빈 행 복제·개조식 내어쓰기, 독스 글머리 → 공문서 부호, 드라이브 옛 복제본 14개 휴지통(백업 drive-cleanup-20260930.json).
+- 확인 요청(아스트라 범위): HEAD 전체 테스트에서 2건 실패 — `test_dev_pages.py::test_doc_view_joins_wrapped_lines_and_builds_toc`
+  (개발 메뉴에 `/dev/docs` 링크 2개), `test_labelstudio_flow.py::test_dev_train_labelstudio_card_is_read_only`. a0bf6ea5 에서도 같다.
+
 ## K-20260930-01 — 사용자 관리 화면·사용자별 구글 연결, 역할 변경 알림
 
 상태: 배포(faef5965). 담당: Claude. 날짜: 2026-09-30.
