@@ -269,7 +269,7 @@
  function fileCard(button,name,subtitle,imageUrl,originalFormat){
    button.classList.add('chat-file-card');button.title=name;button.replaceChildren();
    const visual=document.createElement('span');visual.className='chat-file-visual';
-   const format=originalLabel(originalFormat||name.match(/\.([a-z0-9]+)$/i)?.[1]);visual.textContent=format;
+   const format=originalLabel(originalFormat||name.match(/\.([a-z0-9]+)$/i)?.[1]);visual.textContent=format.replace('한글 (','').replace(')','');
    if(originalFormat==='Google Docs'){
      visual.textContent='';const icon=document.createElement('iconify-icon');icon.setAttribute('icon','solar:document-text-linear');icon.setAttribute('aria-hidden','true');visual.append(icon);
    }
@@ -289,31 +289,47 @@
    modal.addEventListener('click',e=>{if(e.target===modal)modal.close();});
    modal.addEventListener('close',()=>{modal.remove();if(trigger.isConnected)trigger.focus();});modal.showModal();
  }
+ function markCurrentFile(){
+   const list=panel?.querySelector('.chat-work-files');if(!list)return;
+   list.querySelectorAll('[data-drive-doc]').forEach(button=>{
+     const active=button.dataset.driveDoc===linked?.doc;
+     button.classList.toggle('chat-file-current',active);
+     if(active)button.setAttribute('aria-current','true');else button.removeAttribute('aria-current');
+     button.querySelector('small').textContent=active?'현재 작업 중 · Google Docs':'Google Docs · 작업 문서';
+   });
+   const current=list.querySelector('[aria-current="true"]');if(current)list.prepend(current);
+ }
  async function showFiles(){
    clearPanel();showEmpty();setRatio(70,false);
    panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서함';
+   const refresh=document.createElement('button');refresh.type='button';refresh.className='secondary doc-icon-button';refresh.textContent='↻';refresh.title='문서 목록 새로고침';refresh.setAttribute('aria-label',refresh.title);refresh.onclick=showFiles;
+   panel.querySelector('header').insertBefore(refresh,panel.querySelector('[data-close]'));
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
    const status=document.createElement('p');status.setAttribute('role','status');status.textContent='파일을 불러오는 중…';body.append(status);
    const workHeading=document.createElement('h3');workHeading.textContent='작업 문서';
    const workDocs=document.createElement('div');workDocs.className='chat-file-list chat-work-files';
-   const workNote=document.createElement('p');workNote.className='chat-file-section-note';workNote.textContent='Google Drive 문서를 열어 채팅과 함께 작업합니다.';
+   const workNote=document.createElement('p');workNote.className='chat-file-section-note';workNote.textContent='채팅과 함께 편집하는 문서';
    const docsHeading=document.createElement('h3');docsHeading.textContent='참고·첨부 문서';
    const docs=document.createElement('div');docs.className='chat-file-list';
-   const referenceNote=document.createElement('p');referenceNote.className='chat-file-section-note';referenceNote.textContent='플랫폼의 접수·기준·첨부 문서와 참고 파일입니다.';
+   const referenceNote=document.createElement('p');referenceNote.className='chat-file-section-note';referenceNote.textContent='기준·접수 문서와 Drive 참고 파일';
    const imagesHeading=document.createElement('h3');imagesHeading.textContent='콘텐츠';
    const images=document.createElement('div');images.className='chat-image-grid';
    body.append(workHeading,workNote,workDocs,docsHeading,referenceNote,docs,imagesHeading,images);
    const imageFile=name=>/\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+   // Start independent requests together; a slow Drive request must not add
+   // another full round trip before requesting the platform documents.
+   const mineRequest=sid?api('/api/chat/'+sid+'/documents').catch(error=>({documents:[],error:error.message})):Promise.resolve({documents:[]});
    try{
      const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
      status.textContent=data.files.length?'':'연결된 폴더에 표시할 파일이 없습니다.';
      if(data.folder_url){const folder=document.createElement('a');folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='폴더 열기 ↗';panel.querySelector('header').insertBefore(folder,panel.querySelector('[data-close]'));}
-     for(const file of data.files){
+     for(const file of [...data.files].sort((a,b)=>Number(b.id===linked?.doc)-Number(a.id===linked?.doc))){
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
        const isImage=file.mime_type.startsWith('image/')||imageFile(file.name);
        const editable=file.mime_type==='application/vnd.google-apps.document',active=editable&&linked?.doc===file.id;
        fileCard(button,file.name,isImage?'이미지 · Google Drive':editable?(active?'현재 작업 중 · Google Docs':'Google Docs · 작업 문서'):'Google Drive · 참고 파일',null,editable?'Google Docs':null);
        if(active){button.classList.add('chat-file-current');button.setAttribute('aria-current','true');}
+       button.dataset.driveDoc=file.id;
        (isImage?images:editable?workDocs:docs).append(button);
        button.onclick=async()=>{
          if(file.mime_type!=='application/vnd.google-apps.document'){
@@ -330,7 +346,8 @@
        };
      }
      // 플랫폼 문서 — 이 대화의 첨부, 프로젝트의 기준·접수 문서. 클릭하면 구글 열람본(없으면 만들어서)으로 연다.
-     if(sid){try{const mine=await api('/api/chat/'+sid+'/documents');if(panel!==current)return;
+     if(sid){try{const mine=await mineRequest;if(panel!==current)return;
+       if(mine.error)throw new Error(mine.error);
        if(mine.documents.length){status.textContent='';
          for(const d of mine.documents){const a=document.createElement('button');a.type='button';a.className='chat-doc-file';a.title=(d.kind||'')+(d.status?' · '+d.status:'');
            const isImage=imageFile(d.name),imageUrl='/doc/'+encodeURIComponent(d.id)+'/original';
@@ -347,8 +364,9 @@
      if(!workDocs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=data.error?'작업 문서 목록을 불러오지 못했습니다.':'아직 작업 문서가 없습니다.';workDocs.append(empty);}
      if(!docs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent='표시할 참고·첨부 문서가 없습니다.';docs.append(empty);}
      imagesHeading.textContent='콘텐츠 '+images.children.length;
-     if(!images.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent='첨부된 이미지가 없습니다.';images.append(empty);}
+     imagesHeading.hidden=images.hidden=!images.children.length;
      const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='다른 폴더에서 가져오기';connectButton.onclick=connect;workDocs.after(connectButton);
+     markCurrentFile();
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
  let initialized=Promise.resolve();
@@ -369,7 +387,7 @@
    const session=sid;
    clearTimeout(watch);
    initialized=session?api('/api/chat-documents/'+session).then(data=>{
-     if(session===sid&&data.connected)linked=data;
+     if(session===sid&&data.connected){linked=data;markCurrentFile();}
    }).catch(error=>{if(session===sid)loadError=error.message;}):Promise.resolve();
    initialized.then(()=>{if(session===sid&&sid&&!linked)watch=setTimeout(checkCreatedDocument,6000);});
  }
@@ -383,5 +401,9 @@
  });
  initializeSession();
  window.addEventListener('pagehide',()=>clearTimeout(watch));
- opener.onclick=async()=>{await initialized;if(panel&&!panel.hidden)visibility(false);else showFiles();};
+ opener.onclick=()=>{
+   if(panel&&!panel.hidden)visibility(false);
+   else if(panel?.classList.contains('chat-file-library'))visibility(true);
+   else showFiles();
+ };
 })();
