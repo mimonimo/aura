@@ -88,6 +88,7 @@ class CharStyle:
     font: str = ""
     superscript: bool = False
     subscript: bool = False
+    width_pct: int = 100              # 장평(%) — 워드 w:w. LibreOffice 는 따르고 독스는 무시한다(실측 2026-09-29)
 
 
 @dataclass
@@ -183,6 +184,8 @@ def load_styles(root: ET.Element) -> Styles:
                     cs.subscript = True
                 elif n == "fontRef":
                     cs.font = st.fonts.get(str(ch.get("hangul")), "")
+                elif n == "ratio":
+                    cs.width_pct = _hu(ch.get("hangul")) or 100
             st.chars[str(cp.get("id"))] = cs
         elif name == "paraPr":
             ps = ParaStyle()
@@ -359,10 +362,10 @@ def _table_fixed_layout(table, col_twips: list[int]) -> None:
         gc.set(qn("w:w"), str(w))
 
 
-DOCS_LINE_EM = float(os.environ.get("ZZAIMY_DOCS_LINE_EM", "1.3"))   # 독스 글꼴의 자연 행 높이(em) 기본값 — 나눔바른고딕 실측 1.3(2026-09-29)
-# 글꼴마다 다르다(독스 표 행 간격 실험 2026-09-29, 11pt 한 줄·배수 1.0·셀 여백 1mm 제외): 나눔바른고딕 1.28, 나눔명조 1.74, 나눔고딕 1.74,
-# Noto Sans KR 1.92, Gothic A1 1.74. 배수 = 한글 비율 ÷ 이 값이면 독스 줄 간격이 한글(글자 크기 × 비율)과 같아진다
-DOCS_LINE_EM_BY_FONT = {"Nanum Barun Gothic": 1.3, "Nanum Myeongjo": 1.74, "Nanum Gothic": 1.74, "Noto Sans KR": 1.92, "Gothic A1": 1.74}
+DOCS_LINE_EM = float(os.environ.get("ZZAIMY_DOCS_LINE_EM", "1.2"))   # 독스 글꼴의 자연 행 높이(em) 기본값 — 나눔바른고딕 본문 실측 1.2(2026-09-29)
+# 글꼴마다 다르다(독스 본문 문단 실측 2026-09-29, 10·11pt 배수 1.0·0.75 에서 같은 값): 나눔바른고딕 1.20, 나눔명조 1.625, 나눔고딕 1.625.
+# Noto Sans KR·Gothic A1 은 표 실험(여백 포함)에서 나눔고딕과의 비율로 추정. 배수 = 한글 비율 ÷ 이 값이면 독스 줄 간격이 한글(글자 크기 × 비율)과 같다
+DOCS_LINE_EM_BY_FONT = {"Nanum Barun Gothic": 1.2, "Nanum Myeongjo": 1.625, "Nanum Gothic": 1.625, "Noto Sans KR": 1.79, "Gothic A1": 1.625}
 MAX_ROW_HU = 5 * HWPUNIT_PER_INCH     # 행 높이 상한 5인치 — 쪽 전체를 차지하는 배치용 표 행이 빈 쪽을 만든다(실측 2026-09-24)
 
 
@@ -492,6 +495,12 @@ class Converter:
         face = docs_font(cs.font) if cs.font else FONT_MAP["고딕"]
         run.font.name = face
         rpr = run._r.get_or_add_rPr()
+        if cs.width_pct and cs.width_pct != 100 and 50 <= cs.width_pct <= 200:
+            from docx.oxml import OxmlElement
+
+            w_el = OxmlElement("w:w")
+            w_el.set(qn("w:val"), str(int(cs.width_pct)))
+            rpr.append(w_el)
         rfonts = rpr.find(qn("w:rFonts"))
         if rfonts is not None:
             rfonts.set(qn("w:eastAsia"), face)
