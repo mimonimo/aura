@@ -1362,6 +1362,9 @@ def create_app(
                         text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in real_skipped)
                     if rep["duplicates"]:
                         text += f"\n작업본에 같은 문단·표가 두 번 있는 곳 {len(rep['duplicates'])}건은 앞의 것만 넣었습니다 — 작업본에서 정리해 주세요: " + "; ".join(rep["duplicates"][:3])
+                    if rep.get("checks"):
+                        text += (f"\n자가 점검에서 문제 {len(rep['checks'])}건이 나왔습니다 — 한글에서 열리지 않거나 모양이 틀릴 수 있어 제출하지 마세요: "
+                                 + "; ".join(rep["checks"][:3]))
                     if remove:
                         text += f"\n안내 상자 {rep['boxes_removed']}개를 뺀 제출본입니다. 한글에서 열어 표지·직인란·쪽수를 확인하세요."
                     else:

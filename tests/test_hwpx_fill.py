@@ -257,3 +257,35 @@ def test_figure_without_manifest_is_reported_not_inserted(tmp_path):
                          tmp_path / "out.hwpx")
     assert rep["images"] == 0 and rep["images_skipped"] == 1
     assert "BinData/image2.png" not in zipfile.ZipFile(tmp_path / "out.hwpx").namelist()
+
+
+def test_control_characters_never_reach_the_section_xml(tmp_path):
+    """독스의 문단 안 줄 바꿈(\\x0b)은 새 문단으로, 그 밖의 금지 제어문자는 지운다 — 한 글자만 섞여도 한글이 문서를 못 연다."""
+    from xml.dom.minidom import parseString
+
+    out = tmp_path / "out.hwpx"
+    bodies = [{"heading": "1.1. 대학의 여건 분석", "items": [("text", "첫 줄\x0b둘째 줄\x01끝"), ("table", [["구분", "값\x0b둘"], ["가\x02", "1"]])]}]
+    rep = hwpx_fill.fill(_hwpx(tmp_path), bodies, out)
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml")
+    parseString(xml)
+    text = xml.decode()
+    assert rep["paragraphs"] == 2 and ">첫 줄<" in text and ">둘째 줄끝<" in text and "\x0b" not in text and "\x01" not in text
+    assert ">값<" in text and ">둘<" in text and ">가<" in text
+
+
+def test_self_check_passes_on_fill_and_catches_broken_references(tmp_path):
+    out = tmp_path / "out.hwpx"
+    rep = hwpx_fill.fill(_hwpx(tmp_path), BODIES, out)
+    assert rep["checks"] == []
+    # 없는 글자 모양·틀린 rowCnt·itemCnt 를 넣은 사본은 잡힌다
+    bad = tmp_path / "bad.hwpx"
+    with zipfile.ZipFile(out) as zin, zipfile.ZipFile(bad, "w") as zout:
+        for info in zin.infolist():
+            data = zin.read(info.filename)
+            if info.filename == "Contents/section0.xml":
+                data = data.decode().replace('charPrIDRef="1"', 'charPrIDRef="77"', 1).replace('rowCnt="1" colCnt="2"', 'rowCnt="3" colCnt="2"', 1).encode()
+            if info.filename == "Contents/header.xml":
+                data = data.decode().replace('<hh:charProperties itemCnt="2">', '<hh:charProperties itemCnt="5">').encode()
+            zout.writestr(info, data)
+    probs = hwpx_fill.check(bad)
+    assert any("charPrIDRef 77" in p for p in probs) and any("rowCnt 3" in p for p in probs) and any("itemCnt 5" in p for p in probs)

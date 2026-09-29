@@ -309,9 +309,23 @@ def _table_template(section_xml: str, solid: set[str] | None = None) -> tuple[st
     return bf, margin
 
 
+_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
+
+
+def xml_text(text: str) -> str:
+    """새 글을 XML 글자로 — XML 1.0 이 금하는 제어문자를 지운다(한 글자만 섞여도 구역이 깨져 한글이 문서를 못 연다, kordoc
+    escapeXmlText 의 원리). 줄 나눔은 부르는 쪽이 문단으로 나눈 뒤라 여기 오는 \x0b 등은 버린다."""
+    return escape(_CTRL.sub("", text))
+
+
+def split_lines(text: str) -> list[str]:
+    """문단 나누기 — 독스의 문단 안 줄 바꿈(Shift+Enter 는 API 에서 \x0b)과 \r 도 줄로 본다."""
+    return re.split(r"\r\n|[\n\r\x0b\x0c\u2028\u2029]", text)
+
+
 def paragraph_xml(text: str, pp: str, cp: str) -> str:
     return (f'<hp:p id="0" paraPrIDRef="{pp}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
-            f'<hp:run charPrIDRef="{cp}"><hp:t>{escape(text)}</hp:t></hp:run></hp:p>')
+            f'<hp:run charPrIDRef="{cp}"><hp:t>{xml_text(text)}</hp:t></hp:run></hp:p>')
 
 
 def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, margin: str, table_id: int,
@@ -331,7 +345,7 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
         tcs = []
         for c in range(n_cols):
             cell = row[c] if c < len(row) else ""
-            lines = [ln for ln in str(cell).split("\n")] or [""]
+            lines = split_lines(str(cell)) or [""]
             paras = "".join(paragraph_xml(ln, pp, cp) for ln in lines)
             tcs.append(f'<hp:tc name="" header="{1 if r == 0 else 0}" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="{bf}">'
                        f'<hp:subList id="" textDirection="HORIZONTAL" lineWrap="BREAK" vertAlign="CENTER" linkListIDRef="0" linkListNextIDRef="0" '
@@ -524,10 +538,87 @@ class _Section:
         self.splices: list[tuple[int, int, str]] = []
 
 
+_HEAD_LISTS = (("paraProperties", "paraPr", "paraPrIDRef"), ("charProperties", "charPr", "charPrIDRef"),
+               ("borderFills", "borderFill", "borderFillIDRef"), ("styles", "style", "styleIDRef"))
+
+
+def check(path: Path | str) -> list[str]:
+    """채운 한글 파일의 자가 점검 — 문제 목록(비면 통과). kordoc validate 가 보는 것(ZIP 규약·웰폼드·secCnt·manifest)에 더해
+    그것이 안 보는 참조 무결성(본문이 가리키는 문단·글자·테두리·스타일 id 가 header 에 있는지, 목록 itemCnt, 그림 참조)과
+    표 격자(rowCnt = 행 수, 칸 덮개 합 = rowCnt × colCnt)를 본다. 모양을 새로 등록하거나 행을 늘릴 때의 회귀 방지선."""
+    import xml.etree.ElementTree as ET
+
+    probs: list[str] = []
+    try:
+        z = zipfile.ZipFile(path)
+    except zipfile.BadZipFile:
+        return ["ZIP 이 아니다"]
+    infos = z.infolist()
+    if not infos or infos[0].filename != "mimetype" or infos[0].compress_type != zipfile.ZIP_STORED \
+            or z.read("mimetype").strip() != b"application/hwp+zip":
+        probs.append("mimetype 이 무압축 첫 항목(application/hwp+zip)이 아니다")
+    names = set(z.namelist())
+    trees: dict[str, ET.Element] = {}
+    for n in sorted(names):
+        if n.endswith((".xml", ".hpf", ".rdf")):
+            try:
+                trees[n] = ET.fromstring(z.read(n))
+            except ET.ParseError as e:
+                probs.append(f"{n} 웰폼드 아님: {e}")
+    head = trees.get("Contents/header.xml")
+    secs = sorted(n for n in trees if _SEC_RE.search(n))
+    if head is None:
+        return probs + ["header.xml 없음"]
+
+    def local(t: str) -> str:
+        return t.rsplit("}", 1)[-1]
+    if head.get("secCnt") and int(head.get("secCnt")) != len(secs):
+        probs.append(f"secCnt {head.get('secCnt')} ≠ 구역 {len(secs)}")
+    ids: dict[str, set[str]] = {}
+    for lst, item, _ref in _HEAD_LISTS:
+        box = next((e for e in head.iter() if local(e.tag) == lst), None)
+        got = [e for e in (box if box is not None else []) if local(e.tag) == item]
+        ids[item] = {e.get("id") for e in got}
+        if box is not None and box.get("itemCnt") and int(box.get("itemCnt")) != len(got):
+            probs.append(f"{lst} itemCnt {box.get('itemCnt')} ≠ 실제 {len(got)}")
+    hpf = trees.get("Contents/content.hpf")
+    manifest = {}
+    if hpf is not None:
+        for e in hpf.iter():
+            if local(e.tag) == "item":
+                manifest[e.get("id")] = e.get("href")
+                if e.get("href") and e.get("href") not in names:
+                    probs.append(f"manifest 항목 {e.get('id')} 의 파일 {e.get('href')} 없음")
+    for n in secs:
+        missing: dict[str, set[str]] = {}
+        for e in trees[n].iter():
+            for _lst, item, ref in _HEAD_LISTS:
+                v = e.get(ref)
+                if v is not None and v not in ids[item] and not (ref == "styleIDRef" and not ids[item]):
+                    missing.setdefault(ref, set()).add(v)
+            if local(e.tag) == "img" and e.get("binaryItemIDRef") and e.get("binaryItemIDRef") not in manifest:
+                missing.setdefault("binaryItemIDRef", set()).add(e.get("binaryItemIDRef"))
+            if local(e.tag) == "tbl":
+                rows = [r for r in e if local(r.tag) == "tr"]
+                rc, cc = int(e.get("rowCnt") or 0), int(e.get("colCnt") or 0)
+                if rc != len(rows):
+                    probs.append(f"{n} 표 {e.get('id')}: rowCnt {rc} ≠ 행 {len(rows)}")
+                cover = 0
+                for r in rows:
+                    for tc in (c for c in r if local(c.tag) == "tc"):
+                        span = next((x for x in tc if local(x.tag) == "cellSpan"), None)
+                        cover += (int(span.get("colSpan") or 1) * int(span.get("rowSpan") or 1)) if span is not None else 1
+                if rc and cc and cover != rc * cc:
+                    probs.append(f"{n} 표 {e.get('id')}: 칸 덮개 {cover} ≠ {rc}×{cc}")
+        for ref, vals in missing.items():
+            probs.append(f"{n}: header 에 없는 {ref} {', '.join(sorted(vals)[:5])}")
+    return probs
+
+
 def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: bool = False) -> dict:
     """bodies = [{"heading": 절 제목, "items": [("text", 글) | ("table", 행렬) | ("image", {data, width_pt, height_pt}), ...]}] 를 원본 서식에 넣어 out 에 저장.
     돌려주는 것: {"filled": [제목…], "skipped": [제목…], "folded": [소제목…], "paragraphs": n, "tables": n, "tables_updated": n,
-    "existing_kept": n, "images": n, "images_skipped": n, "boxes_removed": n, "linesegs_removed": n, "sections_changed": [항목 이름…]}"""
+    "existing_kept": n, "images": n, "images_skipped": n, "boxes_removed": n, "checks": [문제…], "linesegs_removed": n, "sections_changed": [항목 이름…]}"""
     src, out = Path(src), Path(out)
     with zipfile.ZipFile(src) as z:
         names = z.namelist()
@@ -623,7 +714,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                 put_any = True
                 continue
             if kind == "text":
-                for line in str(payload).split("\n"):
+                for line in split_lines(str(payload)):
                     line = line.strip()
                     if not line:
                         continue
@@ -682,8 +773,8 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                         if fc.nested or _norm(fc.text) == _norm(text):
                             continue
                         p_open = fc.p_open or f'<hp:p id="0" paraPrIDRef="{pp}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0">'
-                        paras_xml = "".join(f'{p_open}<hp:run charPrIDRef="{fc.char_ref}"><hp:t>{escape(ln.strip())}</hp:t></hp:run></hp:p>'
-                                            for ln in (text.split("\n") or [""]))
+                        paras_xml = "".join(f'{p_open}<hp:run charPrIDRef="{fc.char_ref}"><hp:t>{xml_text(ln.strip())}</hp:t></hp:run></hp:p>'
+                                            for ln in (split_lines(text) or [""]))
                         s.splices.append((fc.inner[0], fc.inner[1], paras_xml))
                     cand.consumed = True
                     report["tables_updated"] += 1
@@ -728,4 +819,5 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
         replaced["Contents/content.hpf"] = hpf.encode("utf-8")
     out.parent.mkdir(parents=True, exist_ok=True)
     _write_patched(src, out, replaced, added)
+    report["checks"] = check(out)
     return report
