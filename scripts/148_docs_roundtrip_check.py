@@ -92,10 +92,12 @@ def main() -> int:
         targets.append((f"f{i}", {"stored_path": str(fp), "filename": fp.parent.name if fp.name.startswith("원본") else fp.name}))
     for did, doc in targets:
         src = Path(doc["stored_path"])
-        conv = office_pdf.docx_for(src)
+        conv = office_pdf.docx_for(src)                     # LibreOffice 용(줄 간격 '고정', ADR-0036)
         if conv is None or conv[1] != ".docx":
             print(did, "docx 변환 대상 아님", src.suffix); continue
         data = conv[0]
+        # 독스에 올리는 것은 독스용 규칙(비율 ÷ 글꼴 자연 행 높이)으로 따로 변환한다 — 실제 열람 경로(gdrive_files.bytes_for_view)와 같게
+        docs_data = gdrive_files.bytes_for_view(None, {"stored_path": str(src), "filename": src.name})[0]
         out = Path(args.out) / str(did)
         out.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory() as tmp:
@@ -104,7 +106,7 @@ def main() -> int:
             if lo is None:
                 print(did, "LibreOffice 렌더 실패"); continue
             lo_pdf = out / "lo.pdf"; lo_pdf.write_bytes(lo.read_bytes())
-        up = gdrive_files.upload_file(acct, data, f"왕복검사 {did}.docx", gdrive_files.CONVERT[".docx"][0], folder,
+        up = gdrive_files.upload_file(acct, docs_data, f"왕복검사 {did}.docx", gdrive_files.CONVERT[".docx"][0], folder,
                                      convert_to="application/vnd.google-apps.document", http=h, reuse=False)
         try:
             r = h.get(f"{gdrive.API}/files/{up['id']}/export", headers=_headers(acct, h), params={"mimeType": "application/pdf"})
