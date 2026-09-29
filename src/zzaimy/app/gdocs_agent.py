@@ -184,7 +184,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
                 raise
     ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "fill", "figure", "rename", "move")
            and ((o.get("text") or "").strip() or o.get("op") == "bold"
-                or (o.get("op") == "fill" and isinstance(o.get("cells"), list) and any(str(c.get("text") or "").strip() for c in o["cells"] if isinstance(c, dict))))]
+                or (o.get("op") == "fill" and isinstance(o.get("cells"), list) and any(isinstance(c, dict) for c in o["cells"])))]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
     asks = [{"name": str(a.get("name") or "").strip()[:40], "hint": str(a.get("hint") or "").strip()[:80]}
             for a in (data.get("asks") or []) if isinstance(a, dict) and str(a.get("name") or "").strip()][:6]
@@ -274,7 +274,7 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
             elif o["op"] == "fill":
                 r = gdocs.fill_table(account, doc, int(o["section"]), int(o.get("table") or 1), [c for c in (o.get("cells") or []) if isinstance(c, dict)],
                                      user=user, data_dir=data_dir, scrub=scrub, http=http)
-                lines.append(f"「{r['section']}」 표 {r['table']} 의 칸 {r['cells']}개 채움" + (f"(건너뜀 {r['skipped']})" if r["skipped"] else ""))
+                lines.append(f"「{r['section']}」 표 {r['table']} 의 칸 {r['cells']}개 채움" + (f"·{r['cleared']}개 비움" if r.get("cleared") else "") + (f"(건너뜀 {r['skipped']})" if r["skipped"] else ""))
         except Exception as e:      # 계정·문서 상태 문제 — 무엇이 안 됐는지 채팅에 남긴다
             lines.append(f"적용 실패({type(e).__name__}): {str(e)[:80]}")
     return lines
