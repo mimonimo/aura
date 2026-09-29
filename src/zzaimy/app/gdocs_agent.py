@@ -227,12 +227,60 @@ def _drop_existing(text: str, doc_text: str) -> str:
     return "\n".join(kept_lines)
 
 
+_PIPE_SEP = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+
+
+def _pipe_cells(line: str) -> list[str] | None:
+    """' | ' 로 나눈 표 행이면 칸 목록(양 끝 | 는 뗀다), 아니면 None."""
+    if "|" not in line:
+        return None
+    body = line.strip()
+    body = body[1:] if body.startswith("|") else body
+    body = body[:-1] if body.endswith("|") else body
+    cells = [c.strip() for c in body.split("|")]
+    return cells if len(cells) >= 2 else None
+
+
+def split_pipe_tables(ops: list[dict]) -> list[dict]:
+    """insert 글 속의 ' | ' 표(칸 수가 같은 줄이 둘 이상 이어짐)를 table 동작으로 떼어 낸다 — 모델이 표를 글로 내면 독스에
+    '가 | 나' 글줄이 그대로 들어갔다(실측 2026-09-29). 앞뒤 글은 insert 로 남고 순서는 그대로(둘 다 절 끝에 붙는다)."""
+    out: list[dict] = []
+    for o in ops:
+        if o.get("op") != "insert" or "|" not in (o.get("text") or ""):
+            out.append(o)
+            continue
+        lines = [ln for ln in o["text"].splitlines() if not ("|" in ln and _PIPE_SEP.match(ln))]     # 마크다운 구분 줄(---|---)
+        parts: list[tuple[str, list[str]]] = []                 # ("text"|"table", 줄들)
+        i = 0
+        while i < len(lines):
+            cells = _pipe_cells(lines[i])
+            j = i
+            if cells is not None:
+                while j + 1 < len(lines) and (c := _pipe_cells(lines[j + 1])) is not None and len(c) == len(cells):
+                    j += 1
+            if cells is not None and j > i:
+                parts.append(("table", lines[i:j + 1]))
+                i = j + 1
+                continue
+            if parts and parts[-1][0] == "text":
+                parts[-1][1].append(lines[i])
+            else:
+                parts.append(("text", [lines[i]]))
+            i += 1
+        for kind, ls in parts:
+            if kind == "table":
+                out.append(dict(o, op="table", text="\n".join(" | ".join(_pipe_cells(ln) or []) for ln in ls)))
+            elif "\n".join(ls).strip():
+                out.append(dict(o, text="\n".join(ls)))
+    return out
+
+
 def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None,
           doc_text: str = "", figure_folder: str | None = None) -> list[str]:
     """계획을 문서에 적용하고 한 줄씩 결과를 돌려준다. 한 항목이 실패해도 나머지는 계속한다.
     figure_folder 는 도식 그림(PNG)을 올릴 드라이브 폴더(프로젝트 그림 폴더)."""
     lines: list[str] = []
-    for o in ops:
+    for o in split_pipe_tables(ops):
         if o["op"] == "insert" and doc_text:
             o = dict(o, text=_drop_existing(o["text"], doc_text))
             if not o["text"].strip():

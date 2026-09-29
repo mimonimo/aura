@@ -206,3 +206,54 @@ def test_docs_grid_with_merged_cells_maps_values_by_x_position(tmp_path):
     assert xml.count("<hp:tbl ") == 2 and "<hp:t>4.6</hp:t>" in xml
     tbl = xml[xml.index('<hp:tbl id="901"'):]
     assert 'rowAddr="1" colAddr="2"' in tbl and tbl.index("<hp:t>4.6</hp:t>") < tbl.index('rowAddr="1" colAddr="2"')   # 기준값 칸(2열)에 들어갔다
+
+
+HPF = ('<?xml version="1.0" encoding="UTF-8"?><opf:package xmlns:opf="http://www.idpf.org/2007/opf/"><opf:manifest>'
+       '<opf:item id="header" href="Contents/header.xml" media-type="application/xml"/>'
+       '<opf:item id="image1" href="BinData/image1.png" media-type="image/png" isEmbeded="1"/>'
+       '<opf:item id="section0" href="Contents/section0.xml" media-type="application/xml"/></opf:manifest></opf:package>')
+
+
+def _png(w: int, h: int) -> bytes:
+    import struct
+    import zlib
+    raw = b"".join(b"\x00" + b"\xff\x00\x00" * w for _ in range(h))
+    def chunk(t, d):
+        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def test_figure_goes_into_bindata_manifest_and_picture_paragraph(tmp_path):
+    src = _hwpx(tmp_path)
+    with zipfile.ZipFile(src, "a") as zf:
+        zf.writestr("Contents/content.hpf", HPF)
+    img = _png(40, 20)
+    out = tmp_path / "out.hwpx"
+    bodies = [{"heading": "1.1. 대학의 여건 분석", "items": [("text", "도식 앞 문단"), ("image", {"data": img, "width_pt": 900.0, "height_pt": 0}),
+                                                      ("image", {"data": b"not an image"}), ("text", "도식 뒤 문단")]}]
+    rep = hwpx_fill.fill(src, bodies, out)
+    assert rep["images"] == 1 and rep["images_skipped"] == 1 and rep["paragraphs"] == 2
+    zo = zipfile.ZipFile(out)
+    # 이미 있는 image1 과 겹치지 않는 새 항목, 원본 그대로 무압축, 매니페스트 등록
+    assert zo.read("BinData/image2.png") == img and zo.getinfo("BinData/image2.png").compress_type == zipfile.ZIP_STORED
+    assert zo.read("BinData/image1.png") == b"\x89PNG-not-really"
+    hpf = zo.read("Contents/content.hpf").decode()
+    assert '<opf:item id="image2" href="BinData/image2.png" media-type="image/png" isEmbeded="1"/></opf:manifest>' in hpf
+    xml = zo.read("Contents/section0.xml").decode()
+    i_before, i_pic, i_after = xml.index("도식 앞 문단"), xml.index("<hp:pic "), xml.index("도식 뒤 문단")
+    assert i_before < i_pic < i_after < xml.index("1.2. 특성화 방향")
+    pic = xml[i_pic:xml.index("</hp:pic>")]
+    # 900pt 는 본문 폭(59528-5669*2=48190)으로 줄이고 가로:세로 2:1 유지, 원본 크기는 픽셀×75
+    assert 'binaryItemIDRef="image2"' in pic and '<hp:sz width="48190" widthRelTo="ABSOLUTE" height="24095"' in pic
+    assert '<hp:orgSz width="3000" height="1500"/>' in pic and 'treatAsChar="1"' in pic
+    assert 'xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core"' in xml[:400]
+    from xml.dom.minidom import parseString
+    parseString(zo.read("Contents/section0.xml"))
+
+
+def test_figure_without_manifest_is_reported_not_inserted(tmp_path):
+    rep = hwpx_fill.fill(_hwpx(tmp_path), [{"heading": "1.2 특성화 방향", "items": [("image", {"data": _png(4, 4), "width_pt": 100.0})]}],
+                         tmp_path / "out.hwpx")
+    assert rep["images"] == 0 and rep["images_skipped"] == 1
+    assert "BinData/image2.png" not in zipfile.ZipFile(tmp_path / "out.hwpx").namelist()

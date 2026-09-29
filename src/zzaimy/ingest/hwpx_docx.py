@@ -456,7 +456,8 @@ class Converter:
             elif rule == "auto":
                 pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
                 pf.line_spacing = pct
-            elif rule == "atleast":
+            elif rule == "atleast" or any(_local(e.tag) == "pic" for e in p_el.iter()):
+                # 그림이 든 문단은 '고정'이면 그림이 한 줄 높이로 잘린다 — 한글은 글자처럼 취급한 그림 높이만큼 줄을 늘린다(실측 2026-09-30, 완성본 도식)
                 pf.line_spacing_rule = WD_LINE_SPACING.AT_LEAST
                 pf.line_spacing = Pt(max(1.0, size_pt * pct))
             else:

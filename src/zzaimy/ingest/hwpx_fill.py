@@ -351,6 +351,51 @@ def table_xml(rows: list[list[str]], pp: str, cp: str, width_hu: int, bf: str, m
             f'<hp:run charPrIDRef="{cp}">{tbl}</hp:run><hp:run charPrIDRef="{cp}"><hp:t/></hp:run></hp:p>')
 
 
+_IMG_KINDS = ((b"\x89PNG", "png", "image/png"), (b"\xff\xd8", "jpg", "image/jpg"), (b"GIF8", "gif", "image/gif"), (b"BM", "bmp", "image/bmp"))
+_MANIFEST_ID = re.compile(r'<opf:item\s[^>]*?\bid="([^"]+)"')
+
+
+def image_kind(data: bytes) -> tuple[str, str] | None:
+    """그림 바이트의 (확장자, media-type) — 한글이 읽는 네 가지만."""
+    return next(((ext, mt) for magic, ext, mt in _IMG_KINDS if data.startswith(magic)), None)
+
+
+def _image_px(data: bytes) -> tuple[int, int] | None:
+    """PNG·JPEG 픽셀 크기(가로·세로 비율용). 모르면 None."""
+    if data.startswith(b"\x89PNG") and len(data) >= 24:
+        return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+    if data.startswith(b"\xff\xd8"):
+        i = 2
+        while i + 9 < len(data):
+            if data[i] != 0xFF:
+                return None
+            marker, seg = data[i + 1], int.from_bytes(data[i + 2:i + 4], "big")
+            if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+                return int.from_bytes(data[i + 7:i + 9], "big"), int.from_bytes(data[i + 5:i + 7], "big")
+            i += 2 + seg
+    return None
+
+
+def picture_xml(bin_id: str, pic_id: int, width_hu: int, height_hu: int, org_w: int, org_h: int, pp: str, cp: str) -> str:
+    """글자처럼 취급하는 그림 한 개를 담은 문단 — 실물 hwpx 의 hp:pic 모양(treatAsChar·위아래 배치) 그대로, 크기만 우리 값."""
+    return (f'<hp:p id="0" paraPrIDRef="{pp}" styleIDRef="0" pageBreak="0" columnBreak="0" merged="0"><hp:run charPrIDRef="{cp}">'
+            f'<hp:pic id="{pic_id}" zOrder="0" numberingType="PICTURE" textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" '
+            f'href="" groupLevel="0" instid="{pic_id}" reverse="0"><hp:offset x="0" y="0"/><hp:orgSz width="{org_w}" height="{org_h}"/>'
+            f'<hp:curSz width="{width_hu}" height="{height_hu}"/><hp:flip horizontal="0" vertical="0"/>'
+            f'<hp:rotationInfo angle="0" centerX="{width_hu // 2}" centerY="{height_hu // 2}" rotateimage="1"/>'
+            f'<hp:renderingInfo><hc:transMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/>'
+            f'<hc:scaMatrix e1="{width_hu / org_w:.6f}" e2="0" e3="0" e4="0" e5="{height_hu / org_h:.6f}" e6="0"/>'
+            f'<hc:rotMatrix e1="1" e2="0" e3="0" e4="0" e5="1" e6="0"/></hp:renderingInfo>'
+            f'<hp:imgRect><hc:pt0 x="0" y="0"/><hc:pt1 x="{org_w}" y="0"/><hc:pt2 x="{org_w}" y="{org_h}"/><hc:pt3 x="0" y="{org_h}"/></hp:imgRect>'
+            f'<hp:imgClip left="0" right="{org_w}" top="0" bottom="{org_h}"/><hp:inMargin left="0" right="0" top="0" bottom="0"/>'
+            f'<hp:imgDim dimwidth="{org_w}" dimheight="{org_h}"/>'
+            f'<hc:img binaryItemIDRef="{bin_id}" bright="0" contrast="0" effect="REAL_PIC" alpha="0"/><hp:effects/>'
+            f'<hp:sz width="{width_hu}" widthRelTo="ABSOLUTE" height="{height_hu}" heightRelTo="ABSOLUTE" protect="0"/>'
+            f'<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="1" holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" '
+            f'vertAlign="TOP" horzAlign="LEFT" vertOffset="0" horzOffset="0"/><hp:outMargin left="0" right="0" top="0" bottom="0"/>'
+            f'</hp:pic></hp:run><hp:run charPrIDRef="{cp}"><hp:t/></hp:run></hp:p>')
+
+
 def _heading_matches(text: str, heading: str) -> bool:
     num, title = sc.split_number(heading)
     tnum, ttitle = sc.split_number(text)
@@ -367,8 +412,8 @@ def strip_linesegs(xml: str) -> tuple[str, int]:
     return out, n
 
 
-def _write_patched(src: Path, out: Path, replaced: dict[str, bytes]) -> None:
-    """원본 ZIP 의 항목 순서·압축 방식을 지키고 바뀐 항목만 새 내용으로 쓴다(kordoc zip-patch 의 원리)."""
+def _write_patched(src: Path, out: Path, replaced: dict[str, bytes], added: dict[str, bytes] | None = None) -> None:
+    """원본 ZIP 의 항목 순서·압축 방식을 지키고 바뀐 항목만 새 내용으로 쓴다(kordoc zip-patch 의 원리). 새 항목(그림)은 끝에 무압축으로."""
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w") as zout:
         for info in zin.infolist():
             data = replaced.get(info.filename)
@@ -378,6 +423,8 @@ def _write_patched(src: Path, out: Path, replaced: dict[str, bytes]) -> None:
             ni.compress_type = info.compress_type if info.compress_type in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED) else zipfile.ZIP_DEFLATED
             ni.external_attr = info.external_attr
             zout.writestr(ni, data)
+        for name, data in (added or {}).items():
+            zout.writestr(zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0)), data, compress_type=zipfile.ZIP_STORED)
 
 
 def _remove_boxes(xml: str) -> tuple[str, int]:
@@ -478,14 +525,15 @@ class _Section:
 
 
 def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: bool = False) -> dict:
-    """bodies = [{"heading": 절 제목, "items": [("text", 글) | ("table", 행렬), ...]}] 를 원본 서식에 넣어 out 에 저장.
+    """bodies = [{"heading": 절 제목, "items": [("text", 글) | ("table", 행렬) | ("image", {data, width_pt, height_pt}), ...]}] 를 원본 서식에 넣어 out 에 저장.
     돌려주는 것: {"filled": [제목…], "skipped": [제목…], "folded": [소제목…], "paragraphs": n, "tables": n, "tables_updated": n,
-    "existing_kept": n, "boxes_removed": n, "linesegs_removed": n, "sections_changed": [항목 이름…]}"""
+    "existing_kept": n, "images": n, "images_skipped": n, "boxes_removed": n, "linesegs_removed": n, "sections_changed": [항목 이름…]}"""
     src, out = Path(src), Path(out)
     with zipfile.ZipFile(src) as z:
         names = z.namelist()
         header = z.read("Contents/header.xml").decode("utf-8")
         raw = {n: z.read(n).decode("utf-8") for n in names if _SEC_RE.search(n)}
+        hpf = z.read("Contents/content.hpf").decode("utf-8") if "Contents/content.hpf" in names else None
     pp, cp = _default_refs(header)
     solid = _solid_border_ids(header)
     next_id = _max_numeric_id([header, *raw.values()]) + 1
@@ -497,7 +545,9 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
     seen_tables: set[frozenset] = set()
     all_tables = [t for s in secs for t in s.tables]
     report = {"filled": [], "skipped": [], "folded": [], "duplicates": [], "paragraphs": 0, "tables": 0, "tables_updated": 0,
-              "existing_kept": 0, "boxes_removed": 0, "linesegs_removed": 0, "sections_changed": []}
+              "existing_kept": 0, "images": 0, "images_skipped": 0, "boxes_removed": 0, "linesegs_removed": 0, "sections_changed": []}
+    added: dict[str, bytes] = {}
+    used_bin = set(_MANIFEST_ID.findall(hpf or "")) | {Path(n).stem for n in names if n.startswith("BinData/")}
 
     # 1) 절 제목 자리 찾기 — 못 찾은 소제목(점 번호 없음)은 바로 앞 절에 잇는다
     located: list[tuple[_Section, int, dict, list]] = []          # (구역, 삽입 위치, body, items)
@@ -542,6 +592,35 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
         for kind, payload in items:
             if kind == "widths":
                 widths = list(payload) if payload else None
+                continue
+            if kind == "image":
+                # 작업본의 도식(그림) — BinData 에 새 항목, 매니페스트에 등록, 글자처럼 취급하는 그림 문단. 폭은 작업본 폭(pt, 1pt=100)을 본문 폭 안에서
+                data = (payload or {}).get("data") or b""
+                kinds = image_kind(data)
+                if kinds is None or hpf is None:
+                    report["images_skipped"] += 1
+                    continue
+                ext, media = kinds
+                n = 1
+                while f"image{n}" in used_bin:
+                    n += 1
+                bin_id = f"image{n}"
+                used_bin.add(bin_id)
+                added[f"BinData/{bin_id}.{ext}"] = data
+                hpf = hpf.replace("</opf:manifest>", f'<opf:item id="{bin_id}" href="BinData/{bin_id}.{ext}" media-type="{media}" isEmbeded="1"/></opf:manifest>', 1)
+                px = _image_px(data)
+                w_pt, h_pt = float(payload.get("width_pt") or 0), float(payload.get("height_pt") or 0)
+                if not h_pt and w_pt and px:
+                    h_pt = w_pt * px[1] / px[0]
+                org_w, org_h = (px[0] * 75, px[1] * 75) if px else (int(w_pt * 100) or s.width, int(h_pt * 100) or s.width // 2)   # 96dpi 픽셀 = 75 HU
+                w_hu = int(w_pt * 100) if w_pt else org_w
+                h_hu = int(h_pt * 100) if h_pt else int(w_hu * org_h / org_w)
+                if w_hu > s.width:
+                    w_hu, h_hu = s.width, int(h_hu * s.width / w_hu)
+                pending.append(picture_xml(bin_id, next_id, w_hu, h_hu, org_w, org_h, pp, cp))
+                next_id += 1
+                report["images"] += 1
+                put_any = True
                 continue
             if kind == "text":
                 for line in str(payload).split("\n"):
@@ -634,6 +713,8 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
         changed = bool(s.splices)
         for a, b, chunk in sorted(s.splices, key=lambda x: -x[0]):
             xml = xml[:a] + chunk + xml[b:]
+        if "<hc:" in xml and "xmlns:hc=" not in xml[:xml.find(">", xml.find("<hs:sec")) + 1]:
+            xml = xml.replace("<hs:sec ", '<hs:sec xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" ', 1)   # 그림의 hc: 요소용 선언
         if remove_boxes:
             xml, n = _remove_boxes(xml)
             report["boxes_removed"] += n
@@ -643,6 +724,8 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
             report["linesegs_removed"] += n
             replaced[s.name] = xml.encode("utf-8")
             report["sections_changed"].append(s.name)
+    if added:
+        replaced["Contents/content.hpf"] = hpf.encode("utf-8")
     out.parent.mkdir(parents=True, exist_ok=True)
-    _write_patched(src, out, replaced)
+    _write_patched(src, out, replaced, added)
     return report

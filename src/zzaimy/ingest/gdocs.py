@@ -11,12 +11,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import datetime
 from pathlib import Path
 
 from zzaimy.ingest import gdrive
+
+log = logging.getLogger(__name__)
 
 DOCS_API = "https://docs.googleapis.com/v1/documents"
 DOCS_SCOPE = "https://www.googleapis.com/auth/documents"
@@ -631,14 +634,47 @@ def _norm_heading(h: str) -> str:
     return re.sub(r"[^0-9a-z가-힣]", "", (h or "").lower().replace("\ue907", "").replace("ž", "").replace("･", "").replace("·", ""))
 
 
-def section_bodies(email: str, doc: str, http=None) -> list[dict]:
-    """절마다 담당자·에이전트가 쓴 본문 — [{heading, items:[("text", 글)|("table", 행렬)]}]. 제목과 【작성방법】 상자는 뺀다.
-    작업본을 새 서식 변환본으로 옮길 때(migrate_bodies) 쓴다."""
+def _inline_objects(document: dict) -> dict:
+    """인라인 개체(그림) 표 — body_content 와 같은 자리(탭 문서면 첫 탭)에서."""
+    if document.get("body", {}).get("content"):
+        return document.get("inlineObjects") or {}
+    for tab in document.get("tabs", []) or []:
+        dt = tab.get("documentTab", {})
+        if dt.get("body", {}).get("content"):
+            return dt.get("inlineObjects") or {}
+    return {}
+
+
+def _inline_image(email: str, http, objects: dict, oid: str) -> dict | None:
+    """인라인 그림 하나를 내려받는다 — {"data", "width_pt", "height_pt"}. contentUri 는 짧게 사는 인증 주소라 바로 받는다."""
+    emb = ((objects.get(oid) or {}).get("inlineObjectProperties") or {}).get("embeddedObject") or {}
+    uri = (emb.get("imageProperties") or {}).get("contentUri")
+    if not uri:
+        return None
+    try:
+        r = http.get(uri, headers=_headers(email, http))
+        _raise(r)
+    except Exception:
+        log.warning("작업본 그림 %s 를 받지 못했다", oid, exc_info=True)
+        return None
+    size = emb.get("size") or {}
+
+    def pt(d: dict) -> float:
+        v = float((d or {}).get("magnitude") or 0)
+        return v if (d or {}).get("unit", "PT") == "PT" else v * 72 / 914400      # EMU → pt
+    return {"data": r.content, "width_pt": pt(size.get("width")), "height_pt": pt(size.get("height"))}
+
+
+def section_bodies(email: str, doc: str, http=None, images: bool = True) -> list[dict]:
+    """절마다 담당자·에이전트가 쓴 본문 — [{heading, items:[("text", 글)|("table", 행렬)|("image", {data,width_pt,height_pt})]}].
+    제목과 【작성방법】 상자는 뺀다. images 면 본문 그림(도식)도 내려받아 제자리에 낸다(한글 완성본용 — 옮기기는 images=False)."""
     http = http or _http()
     info = get(email, doc, http)
     r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
     _raise(r)
-    body = body_content(r.json())
+    document = r.json()
+    body = body_content(document)
+    objects = _inline_objects(document) if images else {}
     secs = sorted(info["sections"], key=lambda s: s.get("start", 0))
     out: list[dict] = []
     for i, sec in enumerate(secs):
@@ -653,6 +689,17 @@ def section_bodies(email: str, doc: str, http=None) -> list[dict]:
                 continue
             if "paragraph" in el:
                 t = _para_text(el["paragraph"]).strip()
+                oids = [e["inlineObjectElement"].get("inlineObjectId") for e in el["paragraph"].get("elements", []) if "inlineObjectElement" in e]
+                if objects and oids and st != int(sec["start"]):
+                    if t:
+                        buf.append(t)
+                    if buf:
+                        items.append(("text", "\n".join(buf))); buf = []
+                    for oid in oids:
+                        img = _inline_image(email, http, objects, oid)
+                        if img:
+                            items.append(("image", img))
+                    continue
                 if st == int(sec["start"]) or not t:
                     continue
                 buf.append(t)
@@ -685,7 +732,7 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
     """옛 작업본의 절 본문을 새 작업본의 같은 제목 절로 옮긴다(글은 insert, 표는 insert_table, 순서대로). 절마다 결과를 돌려준다.
     only_headings 를 주면 그 제목의 절만 옮긴다(앞선 이관에서 빠진 절을 다시 옮길 때) — 직전 절 추적은 전체를 본다."""
     http = http or _http()
-    bodies = section_bodies(email, src, http)
+    bodies = section_bodies(email, src, http, images=False)
     src_order = [s["heading"] for s in sorted(get(email, src, http)["sections"], key=lambda s: s.get("start", 0)) if s.get("index", 0) > 0]
     results: list[dict] = []
 
