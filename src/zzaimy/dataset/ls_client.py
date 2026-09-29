@@ -155,7 +155,9 @@ class LabelStudioClient:
 
     def export_tasks(self, project_id: int) -> list[dict]:
         """Export review records unchanged; predictions are not approvals."""
-        data = self._req('GET', f'/api/projects/{int(project_id)}/export?exportType=JSON')
+        # Unreviewed tasks must remain visible as held candidates, not disappear
+        # from the denominator through Label Studio's annotated-only default.
+        data = self._req('GET', f'/api/projects/{int(project_id)}/export?exportType=JSON&download_all_tasks=true')
         tasks = data if isinstance(data, list) else data.get('results') if isinstance(data, dict) else None
         if not isinstance(tasks, list) or any(not isinstance(t, dict) for t in tasks):
             raise LabelStudioError('검수 내보내기 형식 오류')
