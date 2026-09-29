@@ -120,18 +120,18 @@ isNew = true; btn.click(); assert.equal(status.hidden, true); assert.equal(f.sus
     subprocess.run([node, '-e', harness + script + checks], check=True, capture_output=True, text=True)
 
 
-def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, monkeypatch):
+def test_google_settings_domain_fallback_and_dept(tmp_path, monkeypatch):
     revoked = []
     _fake_google(monkeypatch, emails=("dev@ync.ac.kr",), revoked=revoked)
     c = _dev(tmp_path)
     db = c.app.state.db
-    # 허용 계정이 하나뿐이어도 연결하지 않은 사용자에게 빌려주지 않는다 — 문서 작성은 각자 연결한 학교 계정으로
+    # 허용 계정이 하나뿐이면 미연결 사용자도 그것을 쓴다 — 끄면 쓰지 않는다
+    assert c.get("/dev/users").text.count("공용") >= 1
+    c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
+    assert db.get_setting("google_fallback_shared") == "0" and gdrive.allowed_domain() == "ync.ac.kr"
     c2 = TestClient(c.app)
     _login(c2, "zzaimy", "boot-pass-1")
     assert c2.get("/account/google").json()["effective"] == ""
-    assert "본인 연결 필요" in c.get("/dev/users").text
-    c.post("/dev/google/settings", data={"domain": "ync.ac.kr"})
-    assert gdrive.allowed_domain() == "ync.ac.kr"
     assert "err=" in c.post("/dev/google/settings", data={"domain": "not a domain"}, follow_redirects=False).headers["location"]
     # 부서 공용 계정·공유 드라이브(주소에서 id 를 뽑는다)
     c.post("/dev/google/dept", data={"dept": "산학협력단", "account": "dev@ync.ac.kr",
