@@ -362,6 +362,75 @@ def _label_like(rows: list[list[str]]) -> bool:
             and sum(1 for x in rest if _ROLE_NUM.match(x) or len(x) > 16) / len(rest) >= 0.5)
 
 
+_MARK = re.compile(r"^\s*([□■○◦ㅇ●◎◇◆▪▫•ㆍ·※\-–]|\d{1,2}\)|[가-하]\)|\d{1,2}\.(?!\d)|[가-하]\.|[①-⑳])")
+
+
+def marker_of(text: str) -> str:
+    """문단 첫 부호(개조식) — 번호는 꼴만 본다(1) 과 3) 은 같은 꼴 'n)')."""
+    m = _MARK.match(text or "")
+    if not m:
+        return ""
+    k = m.group(1)
+    if re.fullmatch(r"\d{1,2}\)", k):
+        return "n)"
+    if re.fullmatch(r"[가-하]\)", k):
+        return "가)"
+    if re.fullmatch(r"\d{1,2}\.", k):
+        return "n."
+    if re.fullmatch(r"[가-하]\.", k):
+        return "가."
+    if re.fullmatch(r"[①-⑳]", k):
+        return "①"
+    return {"·": "ㆍ", "–": "-", "▫": "▪"}.get(k, k)
+
+
+class _ParaStyles:
+    """서식 본문 문단(표·상자 밖 최상위)의 모양 — 부호별 최빈 (문단 모양, 글자 모양), 짧은 굵은 줄(소제목)과 긴 문장(본문)을 나눠 센다.
+    새 문단이 서식 작성자가 정한 위계를 따르게(kordoc 조사 5순위, 2026-09-30). 서식에서 뽑는 일반 규칙이다."""
+
+    SHORT = 30
+
+    def __init__(self, sections: list["_Section"], header_xml: str) -> None:
+        self.bold = {m.group(1) for m in re.finditer(r"<hh:charPr\b[^>]*\bid=\"(\d+)\"[^>]*>(?:(?!</hh:charPr>).)*<hh:bold\b", header_xml, re.S)}
+        self.by: dict[tuple[str, bool], Counter] = {}
+        for s in sections:
+            for (a, b), t in zip(s.paras, s.texts):
+                block = s.xml[a:b]
+                if not t or "<hp:tbl" in block or "<hp:pic" in block or "<hp:secPr" in block:
+                    continue
+                mk = marker_of(t)
+                if not mk:
+                    continue
+                pp = re.search(r"paraPrIDRef=\"(\d+)\"", block[:block.index(">") + 1])
+                cp = re.search(r"<hp:run\b[^>]*charPrIDRef=\"(\d+)\"", block)
+                if not pp or not cp:
+                    continue
+                head_like = len(t) <= self.SHORT and cp.group(1) in self.bold
+                self.by.setdefault((mk, head_like), Counter())[(pp.group(1), cp.group(1))] += 1
+
+    def pick(self, line: str) -> tuple[str, str] | None:
+        mk = marker_of(line)
+        if not mk:
+            return None
+        head_like = len(line) <= self.SHORT
+        got = self.by.get((mk, head_like))
+        return got.most_common(1)[0][0] if got else None
+
+
+def _slot_style(s: "_Section", cursor: int) -> tuple[str, str] | None:
+    """서식이 절 제목(또는 안내 상자) 바로 뒤에 남겨 둔 빈 쓰기 자리의 모양 — 부호 없는 본문 문장에 쓴다."""
+    for (a, b), t in zip(s.paras, s.texts):
+        if a < cursor:
+            continue
+        block = s.xml[a:b]
+        if t or "<hp:tbl" in block or "<hp:pic" in block:
+            return None                                        # 바로 뒤가 글·표면 쓰기 자리가 없는 서식
+        pp = re.search(r"paraPrIDRef=\"(\d+)\"", block[:block.index(">") + 1])
+        cp = re.search(r"charPrIDRef=\"(\d+)\"", block)
+        return (pp.group(1), cp.group(1)) if pp and cp else None
+    return None
+
+
 _CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
 
 
@@ -694,6 +763,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
     seen_tables: set[frozenset] = set()
     all_tables = [t for s in secs for t in s.tables]
     roles = _role_styles(secs, header)                  # 새 표의 머리 행·라벨 열·본문 칸 모양(서식 표에서)
+    para_styles = _ParaStyles(secs, header)             # 새 문단의 부호별 모양(서식 본문 문단에서)
     report = {"filled": [], "skipped": [], "folded": [], "duplicates": [], "paragraphs": 0, "tables": 0, "tables_updated": 0,
               "existing_kept": 0, "images": 0, "images_skipped": 0, "boxes_removed": 0, "linesegs_removed": 0, "sections_changed": []}
     added: dict[str, bytes] = {}
@@ -729,6 +799,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
 
     # 2) 절마다 작업본 내용을 서식과 견줘 넣는다 — 커서는 서식 안 위치, 이미 있는 것은 지나가고 새것은 커서에 쌓는다
     for s, cursor, body, items in located:
+        slot = _slot_style(s, cursor)
         pending: list[str] = []
         put_any = False
         widths: list[float] | None = None                  # 바로 다음 표의 열 너비(작업본에서 온 것)
@@ -791,7 +862,8 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                             report["duplicates"].append(f"{body['heading'][:20]}: {line[:40]}")
                             continue
                         seen_texts.add(n)
-                    pending.append(paragraph_xml(line, pp, cp))
+                    lp, lc = para_styles.pick(line) or slot or (pp, cp)
+                    pending.append(paragraph_xml(line, lp, lc))
                     report["paragraphs"] += 1
                     put_any = True
             elif kind == "table" and payload:

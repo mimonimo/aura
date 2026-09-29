@@ -321,3 +321,29 @@ def test_new_table_inherits_form_table_roles(tmp_path):
     assert got["구분"] == ("4", "1") and got["2025"] == ("4", "1")          # 머리 행 = 서식 머리 행
     assert got["재학생"] == ("5", "0") and got["교원"] == ("5", "0")        # 라벨 열 = 서식 라벨 열(음영 있음)
     assert got["1,000"] == ("3", "0")                                        # 본문 칸
+
+
+def test_new_paragraphs_follow_form_marker_styles_and_writing_slot(tmp_path):
+    """서식의 '◦ 짧은 굵은 줄'(문단 1·글자 1 굵게)은 소제목 모양, 부호 없는 문장은 제목 뒤 빈 쓰기 자리(문단 1·글자 0) 모양."""
+    extra = ('<hp:p id="0" paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="1"><hp:t>◦ 추진 전략</hp:t></hp:run></hp:p>'
+             '<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>◦ 이 문장은 소제목이 아니라 서른 자를 훌쩍 넘기는 긴 본문 문장이다</hp:t></hp:run></hp:p>')
+    sec = _section().replace('<hp:p id="0" paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="1"><hp:t>1.2. 특성화 방향</hp:t>',
+                             '<hp:p id="0" paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="0"/></hp:p>'
+                             + extra + '<hp:p id="0" paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="1"><hp:t>1.2. 특성화 방향</hp:t>')
+    src = tmp_path / "form.hwpx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("Contents/header.xml", HEADER)
+        zf.writestr("Contents/section0.xml", sec)
+    out = tmp_path / "out.hwpx"
+    lines = "◦ 인력 양성\n◦ 지역 산업 수요와 연계해 교육과정을 바꾸고 현장 실습을 늘리는 방안을 단계적으로 추진한다\n부호 없는 본문 문장이다."
+    rep = hwpx_fill.fill(src, [{"heading": "1.1. 대학의 여건 분석", "items": [("text", lines)]}], out)
+    assert rep["paragraphs"] == 3 and rep["checks"] == []
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+
+    def style(text):
+        m = re.search(r'<hp:p id="0" paraPrIDRef="(\d+)"[^>]*><hp:run charPrIDRef="(\d+)"><hp:t>' + re.escape(text), xml)
+        return m.groups()
+    assert style("◦ 인력 양성") == ("1", "1")                              # 짧은 굵은 ◦ 줄 = 서식 소제목 모양
+    assert style("◦ 지역 산업") == ("0", "0")                              # 긴 ◦ 문장 = 서식 ◦ 본문 모양
+    assert style("부호 없는 본문") == ("1", "0")                           # 부호 없음 = 빈 쓰기 자리 모양
