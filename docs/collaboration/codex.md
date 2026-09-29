@@ -1,5 +1,22 @@
 # Codex 작업 기록
 
+### C-126 검증 결과 및 운영 전환 보류 사유
+
+PG 연결 계층 4c983656까지 별도 worktree `data/platform/pg-runtime-c126`에서 검증.
+tests/test_database_backend.py 실서버 5건 PASS: 문서/프로젝트/기준 연결, 설정 upsert,
+그래프, 대화·질문 수정·삭제, 주제 검색, 동시 접수번호, 읽기 전용, HTTP 화면/검색.
+기존 SQLite 회귀(앱/DB/대화/프로젝트/접근권한/저장소) 선택 실행도 실패 없음.
+DSN은 환경변수 ZZAIMY_DATABASE_URL, 플랫폼 경로 ZZAIMY_PLATFORM_SQLITE_PATH와 일치할 때만
+적용. 명시적 aura_app_* 스키마 필수. 코퍼스는 별도 SQLite 유지. 운영 설정은 변경 안 함.
+
+중요 발견: C125 스냅샷 foreign_key_check 결과 총 위반 1,286건, 영향 행은 **889행**.
+mask_events → documents 272건; doc_entities → documents 617건,
+doc_entities → entities 397건(위 617행과 중복). 원본 값 복사는 일치하지만 관계는 이미 끊어져 있음.
+이를 삭제하거나 FK를 몰래 제거해 넘기지 않음. 권고: 889행을 출처·원본 키와 함께 별도
+이관 보관 테이블에 보존하고 정상 업무 데이터에는 유효 참조만 적재. 사용자 결정 전 보류.
+또한 기존 delete_document는 doc_entities/mask_events 등 참조 정리를 하지 않으므로
+PG 전환 전에 문서 삭제 정책/이력 보존과 맞춰 처리 필요. 전환 완료 아님.
+
 ## C-126 — PostgreSQL 런타임 연결 계층 (2026-09-29)
 
 진행: database_backend.py, db.py, chat_history/topics/revisions.py, main.py의 직접 DB 조회와
