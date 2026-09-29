@@ -1,5 +1,15 @@
 # Codex 작업 기록
 
+## C-132 — 입력창 공통 스타일 충돌 수정 (15:28 스크린샷)
+
+platform-spaces.css가 마지막에 3열 grid를 적용해 모드 선택이 자동으로 다음 줄 왼쪽에 배치됨.
+웹 칩·입력·모드·전송의 열을 명시하고 520px 이하에서는 입력/도구 두 줄로 배치.
+기존 C-131 브라우저 fixture는 workspace CSS를 마지막에 붙여 충돌을 놓쳤음.
+실제 base→inline→workspace→platform 순서로 회귀 보강. 280/360/520/780px,
+웹 검색 on/off 8개 배치에서 겹침·overflow·모드/전송 정렬 검증 PASS.
+Chrome fixture 캡처 확인, test_chat_layout PASS. 아이콘 네트워크 로딩/실제 Google iframe은 별도 범위.
+UI CSS만 배포 예정(서비스 재시작 없음). ingest/gdocs.py의 동시 변경은 건드리지 않음.
+
 ## C-131 — 입력창 모드 배치 수정 (사용자 최신 지시 15:24)
 
 chat_workspace.html/chat-workspace.css: +에는 첨부·웹 검색만, 작업 패널 항목 삭제 및 null 접근 제거.

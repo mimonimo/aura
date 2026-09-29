@@ -101,7 +101,11 @@ try {
  const row=template.split('<div class="dock-row">')[1].split('<div class="dock-hint"')[0];
  const modeScript=template.split('  var webBtn =')[1].split('  /* ---- 답변 복사')[0];
  const dockCss=await readFile(root+'chat-workspace.css','utf8');
- await evaluate(`document.body.innerHTML='<form id="chatForm" style="width:800px;margin:60px auto"><div class="dock-row">'+${JSON.stringify(row)}+'</form>';document.head.querySelector('style').textContent+=${JSON.stringify(dockCss)}+'#chatInput{flex:1;min-width:0}#sendBtn,#attachButton{width:40px;height:40px;flex:none}';`);
+ // Match production order: base, page inline, workspace, then platform overrides.
+ const base=await readFile(process.cwd()+'/src/zzaimy/app/templates/base.html','utf8');
+ const baseCss=[...base.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map(m=>m[1]).join('\n');
+ const productionCss=baseCss+(await readFile(root+'chat-documents.css','utf8'))+template.split('<style>')[1].split('</style>')[0]+dockCss+(await readFile(root+'platform-spaces.css','utf8'));
+ await evaluate(`document.body.innerHTML='<form id="chatForm" class="chat-dock" style="width:780px;margin:60px auto"><div class="dock-row">'+${JSON.stringify(row)}+'</form>';document.head.querySelector('style').textContent=${JSON.stringify(productionCss)};`);
  await evaluate('var webBtn ='+modeScript);
  await evaluate(`document.getElementById('answerMode').value='model';document.getElementById('answerMode').dispatchEvent(new Event('change'));document.getElementById('webSearchToggle').click();`);
  assert.equal(await evaluate(`document.getElementById('webField').value`),'1');
@@ -112,6 +116,22 @@ try {
  await new Promise(r=>setTimeout(r,100));
  assert.ok(await evaluate(`document.getElementById('chatForm').scrollWidth<=document.getElementById('chatForm').clientWidth`));
  assert.ok(await evaluate(`document.getElementById('webSearchChip').getBoundingClientRect().height<40`));
+ for(const width of [280,360,520,780]) {
+  for(const web of [false,true]) {
+   await evaluate(`document.getElementById('chatForm').style.width='${width}px';setMode(${JSON.stringify(web?'1':'model')});`);
+   const layout=await evaluate(`(()=>{const r=id=>{const b=document.getElementById(id).getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom}};return {input:r('chatInput'),mode:r('answerMode'),send:r('sendBtn'),chip:r('webSearchChip'),overflow:chatForm.scrollWidth>chatForm.clientWidth}})()`);
+   assert.equal(layout.overflow,false,JSON.stringify({width,web,layout}));
+   assert.ok(layout.mode.right<=layout.send.left,JSON.stringify({width,web,layout}));
+   assert.ok(Math.abs(layout.mode.top-layout.send.top)<2);
+   if(width>520) {
+    assert.ok(layout.input.right<=layout.mode.left);
+    if(web)assert.ok(layout.chip.right<=layout.input.left);
+   } else {
+    assert.ok(layout.input.bottom<=layout.mode.top);
+    if(web)assert.ok(layout.chip.right<=layout.mode.left);
+   }
+  }
+ }
  if(process.env.UI_SCREENSHOT){const shot=await send('Page.captureScreenshot',{format:'png'});await writeFile(process.env.UI_SCREENSHOT,Buffer.from(shot.data,'base64'));}
  console.log(JSON.stringify({pass:true,wide,narrow,autoCreationFromList:true,imageModal:true,folderPicker:true,suggestionPreservesEditor:true,newSessionBinding:true,emptyLibrary:true,syntheticIframeOnly:true}));
 } finally {ws?.close();chrome.kill();}
