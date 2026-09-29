@@ -49,7 +49,7 @@ def test_search_fetch_and_answer_with_sources(monkeypatch):
     assert res["searched"] == 2 and [s["n"] for s in res["sources"]] == [1, 2]
     assert "[웹 자료]" in fc.prompts[0] and "[1] NVIDIA B200 사양 (https://example.org/b200)" in fc.prompts[0]
     out = web_search.render(res)
-    assert "[1]" in out and "출처(외부 검색):" in out and "[2] H200 소개 — https://example.org/h200" in out
+    assert "[1]" in out and "출처(외부 검색 · duckduckgo):" in out and "[2] H200 소개 — https://example.org/h200" in out
     assert "찾지 못했습니다" in web_search.render({"answer": "", "sources": [], "searched": 0})
 
 
@@ -87,3 +87,26 @@ def test_model_knowledge_mode_has_no_network_and_flags_no_sources():
     assert res["mode"] == "model" and res["sources"] == [] and "학습한 지식만으로" in fc.prompts[0]
     out = web_search.render_model(res)
     assert out.startswith("(모델 지식 기반 답변 — 출처 없음") and "B200" in out
+
+
+
+def test_search_provider_switches_with_keys(monkeypatch):
+    monkeypatch.delenv("ZZAIMY_WEB_SEARCH", raising=False)
+    for k in ("ZZAIMY_GOOGLE_CSE_KEY", "ZZAIMY_GOOGLE_CSE_CX", "ZZAIMY_NAVER_CLIENT_ID", "ZZAIMY_NAVER_CLIENT_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    assert web_search.provider() == "duckduckgo"
+    monkeypatch.setenv("ZZAIMY_NAVER_CLIENT_ID", "id"); monkeypatch.setenv("ZZAIMY_NAVER_CLIENT_SECRET", "sec")
+    assert web_search.provider() == "naver"
+    monkeypatch.setenv("ZZAIMY_GOOGLE_CSE_KEY", "key"); monkeypatch.setenv("ZZAIMY_GOOGLE_CSE_CX", "cx")
+    assert web_search.provider() == "google"                      # 둘 다 있으면 구글
+    seen = []
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(str(req.url))
+        if req.url.host == "www.googleapis.com":
+            assert req.url.params["cx"] == "cx" and req.url.params["q"] == "B200"
+            return httpx.Response(200, json={"items": [{"title": "NVIDIA B200", "link": "https://example.org/b", "snippet": "설명"}]})
+        return httpx.Response(200, json={"items": [{"title": "<b>B200</b> 소개", "link": "https://example.org/n", "description": "네이버 &amp; 설명"}]})
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    assert web_search.search("B200", http=http) == [{"title": "NVIDIA B200", "url": "https://example.org/b", "snippet": "설명"}]
+    monkeypatch.setenv("ZZAIMY_WEB_SEARCH", "naver")
+    assert web_search.search("B200", http=http) == [{"title": "B200 소개", "url": "https://example.org/n", "snippet": "네이버 & 설명"}]

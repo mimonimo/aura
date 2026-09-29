@@ -257,4 +257,6 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 
 절 작성은 본문 insert 외에 양식 표 채우기(fill)·표 만들기(table, 머리 행 음영)·도식(figure → app/infographic.py, 프로젝트 그림/ 폴더)로 완성본 구성을 낸다(ADR-0037).
 
+외부 검색 모드(ADR-0038)의 검색 제공자는 `.env.local` 키로 정한다: `ZZAIMY_GOOGLE_CSE_KEY`+`ZZAIMY_GOOGLE_CSE_CX`(구글 Custom Search, 하루 100건 무료) 또는 `ZZAIMY_NAVER_CLIENT_ID`+`ZZAIMY_NAVER_CLIENT_SECRET`(네이버 웹문서, 하루 25,000건 무료), 둘 다 없으면 덕덕고 HTML. `ZZAIMY_WEB_SEARCH=google|naver|duckduckgo` 로 고정 가능.
+
 한글 → docx 줄 간격은 렌더러별(ADR-0036): 독스용 기본 `docs`(비율 ÷ 글꼴 자연 행 높이), 열람 PDF 는 `office_pdf.docx_for` 가 `exact`. `ZZAIMY_LINE_RULE` 로 바꿀 수 있고 실험 기록은 `docs/notes/2026-09-29-line-spacing-measurement.md`.

@@ -82,10 +82,60 @@ def _real_url(href: str) -> str:
     return href if href.startswith("http") else "https:" + href if href.startswith("//") else href
 
 
-def search(query: str, k: int = 5, http=None) -> list[dict]:
-    """[{title, url, snippet}] — 결과가 없거나 막히면 빈 목록."""
+def provider() -> str:
+    """검색 제공자 — 키가 있으면 구글 CSE(ZZAIMY_GOOGLE_CSE_KEY·ZZAIMY_GOOGLE_CSE_CX) 또는 네이버(ZZAIMY_NAVER_CLIENT_ID·SECRET),
+    없으면 덕덕고. ZZAIMY_WEB_SEARCH 로 고정할 수 있다(google|naver|duckduckgo)."""
+    import os
+
+    forced = (os.environ.get("ZZAIMY_WEB_SEARCH") or "").strip().lower()
+    if forced:
+        return forced
+    if os.environ.get("ZZAIMY_GOOGLE_CSE_KEY") and os.environ.get("ZZAIMY_GOOGLE_CSE_CX"):
+        return "google"
+    if os.environ.get("ZZAIMY_NAVER_CLIENT_ID") and os.environ.get("ZZAIMY_NAVER_CLIENT_SECRET"):
+        return "naver"
+    return "duckduckgo"
+
+
+def search_google(query: str, k: int = 5, http=None) -> list[dict]:
+    """Google Custom Search JSON API — 키·cx 필요(하루 100건 무료)."""
+    import os
+
     import httpx
 
+    http = http or httpx.Client(timeout=20)
+    r = http.get("https://www.googleapis.com/customsearch/v1",
+                 params={"key": os.environ["ZZAIMY_GOOGLE_CSE_KEY"], "cx": os.environ["ZZAIMY_GOOGLE_CSE_CX"], "q": query, "num": min(k, 10), "hl": "ko"})
+    if r.status_code != 200:
+        raise RuntimeError(f"구글 검색 API 오류 {r.status_code}")
+    return [{"title": it.get("title", "")[:120], "url": it.get("link", ""), "snippet": it.get("snippet", "")[:300]}
+            for it in (r.json().get("items") or [])[:k] if (it.get("link") or "").startswith("http")]
+
+
+def search_naver(query: str, k: int = 5, http=None) -> list[dict]:
+    """네이버 검색 API(웹문서) — 클라이언트 ID·시크릿 필요(하루 25,000건 무료)."""
+    import os
+
+    import httpx
+
+    http = http or httpx.Client(timeout=20)
+    r = http.get("https://openapi.naver.com/v1/search/webkr.json", params={"query": query, "display": min(k, 10)},
+                 headers={"X-Naver-Client-Id": os.environ["ZZAIMY_NAVER_CLIENT_ID"], "X-Naver-Client-Secret": os.environ["ZZAIMY_NAVER_CLIENT_SECRET"]})
+    if r.status_code != 200:
+        raise RuntimeError(f"네이버 검색 API 오류 {r.status_code}")
+    return [{"title": _text(it.get("title", ""))[:120], "url": it.get("link", ""), "snippet": _text(it.get("description", ""))[:300]}
+            for it in (r.json().get("items") or [])[:k] if (it.get("link") or "").startswith("http")]
+
+
+def search(query: str, k: int = 5, http=None) -> list[dict]:
+    """[{title, url, snippet}] — 제공자(구글·네이버·덕덕고)에 따라. 결과가 없거나 막히면 빈 목록."""
+    import httpx
+
+    which = provider()
+    if which == "google":
+        return search_google(query, k, http)
+    if which == "naver":
+        return search_naver(query, k, http)
     http = http or httpx.Client(timeout=20, headers=_UA, follow_redirects=True)
     r = http.post(SEARCH_URL, data={"q": query, "kl": "kr-kr"}, headers=_UA)
     if r.status_code != 200:
@@ -176,7 +226,7 @@ def render(result: dict) -> str:
     """채팅에 남길 글 — 답 + 출처 목록."""
     if not result.get("answer"):
         return "외부 검색에서 쓸 만한 자료를 찾지 못했습니다. 질문을 더 구체적으로 적어 주세요."
-    lines = [result["answer"], "", "출처(외부 검색):"]
+    lines = [result["answer"], "", f"출처(외부 검색 · {provider()}):"]
     lines += [f"[{s['n']}] {s['title']} — {s['url']}" for s in result["sources"]]
     return "\n".join(lines)
 
