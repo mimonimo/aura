@@ -30,7 +30,10 @@ class FakeClient:
         self.client = type("K", (), {"chat": type("Ch", (), {"completions": _Comp()})()})()
 
 
-def test_search_fetch_and_answer_with_sources():
+def test_search_fetch_and_answer_with_sources(monkeypatch):
+    monkeypatch.setattr(web_search, "_safe_url", lambda url: True)          # 시험에서는 DNS 를 안 본다
+    monkeypatch.setattr(web_search, "screen_question", lambda q: False)
+
     def handler(req: httpx.Request) -> httpx.Response:
         if req.url.host == "html.duckduckgo.com":
             assert req.method == "POST" and "b200" in req.content.decode().lower()
@@ -48,3 +51,30 @@ def test_search_fetch_and_answer_with_sources():
     out = web_search.render(res)
     assert "[1]" in out and "출처(외부 검색):" in out and "[2] H200 소개 — https://example.org/h200" in out
     assert "찾지 못했습니다" in web_search.render({"answer": "", "sources": [], "searched": 0})
+
+
+
+def test_private_targets_and_sensitive_questions_are_blocked(monkeypatch):
+    """사설망·루프백 주소는 받지 않고, 개인정보가 든 질문은 밖으로 보내지 않는다(아스트라 검토 C-130)."""
+    import pytest
+    for bad in ("http://127.0.0.1/x", "http://10.0.0.5/", "http://192.168.16.226/login", "http://169.254.169.254/latest", "http://localhost/", "ftp://example.org/"):
+        assert web_search._safe_url(bad) is False
+    assert web_search._safe_url("http://8.8.8.8/") is True
+    # 리다이렉트 목적지가 사설망이면 따라가지 않는다
+    calls = []
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls.append(str(req.url))
+        if req.url.host == "8.8.8.8":
+            return httpx.Response(302, headers={"location": "http://10.0.0.5/secret"})
+        return httpx.Response(200, text="<p>비밀 자료 비밀 자료 비밀 자료 비밀 자료</p>", headers={"content-type": "text/html"})
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    assert web_search.fetch_text("http://8.8.8.8/", http=http) == "" and calls == ["http://8.8.8.8/"]
+    monkeypatch.setattr(web_search, "screen_question", lambda q: True)
+    with pytest.raises(web_search.Blocked):
+        web_search.answer_with_web("주민번호 900101-1234567 인 사람의 …", client=FakeClient(), http=http)
+    # 검사기는 접수 문서 마스킹과 같은 것(access_guard.scrub) — 가려지는 글자가 있으면 보내지 않는다
+    monkeypatch.undo()
+    from zzaimy.app import access_guard
+    monkeypatch.setattr(access_guard, "scrub", lambda text: text.replace("900101-1234567", "[주민번호]"))
+    assert web_search.screen_question("주민번호 900101-1234567 확인해 줘") is True
+    assert web_search.screen_question("B200 과 H200 의 차이") is False

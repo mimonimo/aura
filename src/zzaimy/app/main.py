@@ -713,9 +713,11 @@ def create_app(
             try:
                 res = web_search.answer_with_web(q)
                 db.add_chat(session_id, "assistant", web_search.render(res))
+            except web_search.Blocked as e:
+                db.add_chat(session_id, "assistant", str(e))
             except Exception as e:
-                logging.getLogger("zzaimy.app.web").exception("외부 검색 실패 (대화 %s)", session_id)
-                db.add_chat(session_id, "assistant", f"외부 검색을 쓰지 못했습니다({type(e).__name__}). 외부 검색을 끄고 다시 물어 주세요.")
+                logging.getLogger("zzaimy.app.web").warning("외부 검색 실패 (대화 %s): %s", session_id, type(e).__name__)   # 질문 글은 남기지 않는다
+                db.add_chat(session_id, "assistant", f"외부 검색을 쓰지 못했습니다({type(e).__name__}) — 검색 결과가 없는 것과 다릅니다. 잠시 뒤 다시 하거나 외부 검색을 끄고 물어 주세요.")
             return
         # 전송 직후 화면을 돌려주기 위해 무거운 단계(첨부 파싱·LLM)는 백그라운드에서
         attachment_text = None

@@ -1138,3 +1138,12 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
   작성서식 독스 61→57쪽(한글 53), 사업계획서 98→95쪽(한글 73). 남은 격차는 장평·글꼴 폭(좁은 칸의 줄 넘김).
 - 변환기 인터페이스: `hwpx_docx.convert(path, line_rule=None)`·`hwp5_docx.convert(src, line_rule=None)`; 열람 PDF 는 `office_pdf.docx_for` 가
   `exact` 를 준다. 화면 쪽에서 변환기를 부를 일이 있으면 규칙을 명시할 것.
+
+## K-71 (2026-09-29 오후) — 외부 검색 모드: C-130 검토 반영 (Claude → Codex)
+
+- 반영: `_safe_url`(사설·루프백·링크로컬·메타데이터 주소와 리다이렉트 목적지 차단, 홉 4), 쪽 본문 2MB 상한, 질문 개인정보 검사(접수 마스킹과 같은
+  `access_guard.scrub`, 걸리면 보내지 않고 안내), 프롬프트에서 웹 글을 '믿을 수 없는 자료'로 구분, 실패(예외)와 '결과 없음'을 다른 문구로,
+  실패 로그에 질문 글 남기지 않음. 테스트 `tests/test_web_search.py`. ADR-0038.
+- 토글: aside 체크박스 외에 입력창 옆 `#webToggle` 버튼(켜지면 색·placeholder 로 켜짐 표시). + 메뉴는 chat-documents.js(코덱스 영역)라
+  손대지 않았다 — 그 안으로 옮기려면 `setWeb(on)` 을 부르면 된다. + 메뉴의 Google Docs·작업 패널 제거는 코덱스가 하는 것으로 안다(사용자 요청).
+- 검색 엔진: 키 없는 덕덕고는 첫 판. 사용자에게 네이버 검색 API·구글 CSE 키를 권했다 — 오면 `web_search.search` 뒤에 제공자 하나 더.
