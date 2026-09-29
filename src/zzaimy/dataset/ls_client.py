@@ -152,3 +152,11 @@ class LabelStudioClient:
         )
         anns = data if isinstance(data, list) else data.get("results", [])
         return import_from_label_studio(anns)
+
+    def export_tasks(self, project_id: int) -> list[dict]:
+        """Export review records unchanged; predictions are not approvals."""
+        data = self._req('GET', f'/api/projects/{int(project_id)}/export?exportType=JSON')
+        tasks = data if isinstance(data, list) else data.get('results') if isinstance(data, dict) else None
+        if not isinstance(tasks, list) or any(not isinstance(t, dict) for t in tasks):
+            raise LabelStudioError('검수 내보내기 형식 오류')
+        return tasks

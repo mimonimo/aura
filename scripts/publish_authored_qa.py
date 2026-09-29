@@ -109,6 +109,9 @@ CONFIG = '''<View><Header value="직접 작성 문답 — 원문 대조 검수"/
 <TextArea name="corrected" toName="answer" rows="6" editable="true" maxSubmissions="1"/>
 </View>'''
 
+from zzaimy.dataset.authored_review import upgrade_config
+CONFIG = upgrade_config(CONFIG)
+
 if __name__ == '__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('input',type=Path)
     p.add_argument('--project',default='ZZAIMY 근거 기반 문답 검수')

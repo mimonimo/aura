@@ -56,10 +56,24 @@
 {% if grounded_ls.ok and grounded_ls.project_id %}<p>후보 {{ grounded_ls.total }}건 · 주석 작성 {{ grounded_ls.done }}건 · 대기 {{ grounded_ls.pending }}건</p><a class="btn-ghost" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">문답 검수 열기 ↗</a>
 {% else %}<p class="muted">검수 현황 {{ grounded_ls.error or '프로젝트 미확인' }}</p>{% endif %}
 <p class="muted">주석 작성은 학습 승인과 다릅니다. 근거·구조·맥락·개인정보 승인이 완료되고 품질 관문을 통과한 파일만 산출물에 표시합니다.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+<form method="post" action="/dev/data/grounded-review-config"><button class="secondary" type="submit">검수 4항목 준비</button></form>
+<form method="post" action="/dev/data/grounded-pull"><button type="submit">승인 문답 가져오기</button></form>
+</div>
+<p class="muted">처음에는 ‘검수 4항목 준비’를 누른 뒤 Label Studio에서 근거·구조·맥락·개인정보를 확인하세요. 수정 답변·이전 대화·원문 변경을 다시 검사하며, 기존 주석과 문서는 삭제하지 않습니다.</p>
+{% if grounded_review_report %}
+<div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px">
+<strong>최근 검수 반영</strong>
+<p>확인 {{ grounded_review_report.total }}건 · 승인 {{ grounded_review_report.approved }}건 · 보류 {{ grounded_review_report.held }}건</p>
+<p class="muted">확인 시각 {{ grounded_review_report.checked_at }} · 최신 승인본만 반출합니다. 검수 변경 후 다시 가져오세요.</p>
+{% if grounded_review_report.issues %}<details><summary>보류 사유</summary><ul>{% for reason, count in grounded_review_report.issues.items() %}<li>{{ {'review_missing_or_ambiguous':'검수 누락 또는 복수 검수 충돌', 'review_incomplete':'검수 4항목 확인 필요', 'not_accepted':'채택되지 않음', 'source_changed_or_missing':'원문 변경 또는 삭제', 'history_changed':'이전 대화 변경', 'parent_missing':'앞선 문답 누락', 'privacy_requires_revision':'개인정보 수정 필요', 'unsupported_number':'근거에 없는 수치', 'duplicate_conversation':'중복 문답'}.get(reason, '문답 구조·검수 기록 재확인') }}: {{ count }}건</li>{% endfor %}</ul></details>{% endif %}
+</div>
+{% endif %}
 </div></section>
 
-<div class="card reveal"><div class="card-in">
-  <h2><span class="step-n">1</span>기록 기반 후보 생성 (보조 경로)</h2>
+<details class="card" {% if request.query_params.get('ls_pushed') or request.query_params.get('ls_pulled') %}open{% endif %}><summary style="padding:18px 24px;cursor:pointer;font-weight:600">기존 기록 변환·옛 검수 프로젝트 (보조 도구)</summary>
+<div class="card-in">
+  <h2>기록 기반 후보 생성 (보조 경로)</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
     아래 도구는 기존 검토·초안·대화 기록을 변환합니다. 문서 전체의 구조 문답을 자동 완성하는 기능은 아닙니다. 수치 검사 통과만으로 정답을 승인하지 않습니다.</p>
   <form action="/dev/data/build-and-push" method="post" id="datasetBuildForm">
@@ -87,10 +101,10 @@
       <span class="muted" style="font-size:11.5px;">Label Studio가 연결돼 있으면 만든 즉시 검수 프로젝트로 <b>자동 주입</b>됩니다.</span>
     </div>
   </form>
-</div></div>
+</div>
 
-<div class="card reveal"><div class="card-in">
-  <h2><span class="step-n">2</span>사람 검수 — Label Studio
+<div class="card-in" style="border-top:1px solid var(--line)">
+  <h2>기존 기록 검수 — Label Studio
     {% if ls.ok %}<span class="pill reviewed" style="margin-left:6px;">연결됨</span>
     {% else %}<span class="pill processing" style="margin-left:6px;">미연결</span>{% endif %}</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
@@ -123,16 +137,10 @@
     Label Studio에 연결되지 않았습니다{% if ls.error %} ({{ ls.error }}){% endif %}.
     <a href="/dev/train?tab=settings">연결 설정</a></span></p>
   {% endif %}
-</div></div>
+</div></details>
 
 <div class="card reveal"><div class="card-in">
-  <h2><span class="step-n">3</span>학습 — LLaMA Board</h2>
-  <p class="muted" style="font-size:12.5px; margin:0; line-height:1.6;">
-    검수 결과를 점검하고 사업·문서 계열별로 학습/평가를 분리한 뒤 베이스라인을 측정합니다. 승인된 묶음으로만 <a href="/dev/train">모델 학습</a>을 진행합니다.</p>
-</div></div>
-
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>만든 예시 묶음
+  <h2><iconify-icon icon="solar:clipboard-list-linear"></iconify-icon>데이터 묶음 이력
     <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">데이터셋 대장</span></h2>
   {% if datasets %}
   {# 원천 기록은 영문 키("review,draft")로 저장된다 — 화면에는 한글 이름으로 #}
@@ -172,7 +180,7 @@
   {% endif %}
 </div></div>
 
-<div class="card reveal"><div class="card-in">
+<details class="card"><summary style="padding:18px 24px;cursor:pointer;font-weight:600">원천 문서·검색 색인 상태 보기 ({{ rag_rows|length }}건)</summary><div class="card-in">
   <h2><iconify-icon icon="solar:layers-minimalistic-linear"></iconify-icon>문서별 상태
     <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">
       변환 현황판 · 문서 {{ rag_rows|length }}건</span></h2>
@@ -205,7 +213,7 @@
   {% else %}
   <p class="muted" style="margin:0;">등록된 문서가 없습니다.</p>
   {% endif %}
-</div></div>
+</div></details>
 
 
 {% for sp in source_preview if sp.sample %}

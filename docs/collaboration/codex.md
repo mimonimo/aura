@@ -1,6 +1,10 @@
 # Codex 작업 기록
 
-## C-148 — 실문서 외 자료 제외·개발 메뉴 통합 (진행)
+## C-148 — 실문서 외 자료 제외·개발 메뉴 통합 (배포 완료)
+
+a0bf6ea5 운영 배포, 재시작 후 로그인200. 관련 회귀154 PASS.
+전체 개발 페이지 감사 완료를 뜻하지 않는다. C-145 검수→SFT 변환기와 dev_data 변경은
+미검증·미배포로 작업 트리에 남겼다. Google 실계정 조회/SSO도 별도 미완료다.
 
 운영 자료 제외 완료: 실제 연결 PostgresConnection, current_database=aura_platform,
 current_schema=aura_app_c129_live 확인. PG dump 및 별도 SQLite backup/integrity_check 후
@@ -49,6 +53,12 @@ Claude의 다른 진행 파일은 변경하지 않는다.
 Codex가 이 UI 수정 커밋만 푸시하고 99_deploy --restart로 배포한다.
 
 ## C-145 — 근거 기반 문답 검수 → SFT 승인본 연결 (진행)
+
+9/30 마무리: malformed 레코드 보류·오류 메시지 원문 비노출, 동일 승인본 재반영 중복 방지,
+grounded-current.json 원자 교체로 최신 승인본만 개별/묶음 반출. 승인0으로 바뀌면 이전본도 차단.
+되받기 보고서(시각/승인/보류/사유)를 데이터 화면에 표시하고 옛 보조 경로는 접는다.
+추가 검증: 부모 답 수정 시 후속 대화 보류, 원문 변경, 개인정보/수치 관문, 실제 라우트
+반영→동일 재반영→승인 철회→구본 다운로드409, 일반 사용자403. 자동 의미 검수는 아님.
 
 Codex 범위: 독립 authored_review 변환기·검수 4항목 설정·main 데이터 되받기 버튼·회귀 테스트.
 기존 gdrive.py와 scripts/154_docs_path_compare.py는 Claude 진행 작업으로 보존한다.
