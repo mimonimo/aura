@@ -7,6 +7,13 @@ mask_events/doc_entities의 끊어진 참조만. 정상 문서·대화·Drive �
 pg_migration.py 및 테스트 담당. 원본 백업은 보존하고 새 이관 복제본에서만 정리한다.
 알려지지 않은 테이블의 위반은 자동 삭제하지 않고 중단. 운영 전환은 별도 검증 후.
 
+실행 결과: 원본 C125 백업에서 runtime-clean-c127.sqlite3 새 복제본 생성.
+doc_entities 617행·mask_events 272행만 정리, foreign_key_check 및 integrity_check 통과.
+원본/운영 SQLite·실제 파일·Drive 문서는 변경 없음. 복구는 원본 platform.sqlite3 사용.
+운영 최종 스냅샷에서는 같은 검사 재실행 필요(이번 복제본은 C125 시점).
+남은 일: 문서 삭제의 자식 참조 정리, 운영 스키마 적재/sequence·인덱스 검증,
+쓰기 중지 및 최종 복사 후 운영 연결 전환. 아직 PostgreSQL 운영 전환 완료 아님.
+
 ### C-126 검증 결과 및 운영 전환 보류 사유
 
 PG 연결 계층 4c983656까지 별도 worktree `data/platform/pg-runtime-c126`에서 검증.
