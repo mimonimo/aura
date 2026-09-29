@@ -381,11 +381,44 @@ def test_form_table_grows_rows_by_cloning_blank_row(tmp_path):
     assert re.findall(r'rowAddr="(\d+)"', tbl) == ["0", "0", "1", "1", "2", "2", "3", "3", "4", "4"]
 
 
-def test_form_table_whose_blank_row_is_under_a_vertical_merge_is_not_grown(tmp_path):
+def _group_form(tmp_path):
+    """첫 열 '영역' 칸이 두 행을 묶는 표: 머리 | 영역A(rowSpan 2)·빈 행 둘 | 합계(colSpan 2)."""
+    def cell(text, r, c, rs=1, cs=1, h=1000):
+        return (f'<hp:tc borderFillIDRef="3"><hp:subList><hp:p paraPrIDRef="0"><hp:run charPrIDRef="0"><hp:t>{text}</hp:t></hp:run>{LINESEG}</hp:p></hp:subList>'
+                f'<hp:cellAddr rowAddr="{r}" colAddr="{c}"/><hp:cellSpan rowSpan="{rs}" colSpan="{cs}"/><hp:cellSz width="10000" height="{h}"/>'
+                f'<hp:cellMargin left="141" right="141" top="141" bottom="141"/></hp:tc>')
+    rows = (f'<hp:tr>{cell("영역", 0, 0)}{cell("항목", 0, 1)}{cell("금액", 0, 2)}</hp:tr>'
+            f'<hp:tr>{cell("영역A", 1, 0, rs=2, h=2000)}{cell("", 1, 1)}{cell("", 1, 2)}</hp:tr>'
+            f'<hp:tr>{cell("", 2, 1)}{cell("", 2, 2)}</hp:tr>'
+            f'<hp:tr>{cell("합계", 3, 0, cs=2)}{cell("", 3, 2)}</hp:tr>')
+    tbl = (f'<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl id="920" rowCnt="4" colCnt="3" borderFillIDRef="3">'
+           f'<hp:sz width="30000" height="4000"/>{rows}</hp:tbl></hp:run>{LINESEG}</hp:p>')
+    sec = _section().replace('<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>마무리 문단.', tbl + '<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>마무리 문단.')
+    src = tmp_path / "form.hwpx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("Contents/header.xml", HEADER)
+        zf.writestr("Contents/section0.xml", sec)
+    return src
+
+
+def test_rows_grow_inside_a_vertical_merge_group(tmp_path):
+    """묶음 안 빈 행을 복제하면 묶음 머리 칸(영역A)의 rowSpan·높이가 늘어 격자가 유지된다. 작업본은 독스 격자(가려진 열은 빈칸)로 온다."""
     out = tmp_path / "out.hwpx"
-    work = [["비목", "금액"], ["인건비", "30"], ["장학금", "20"], ["합계", "50"]]
-    rep = hwpx_fill.fill(_budget_form(tmp_path, merged=True), [{"heading": "1.2 특성화 방향", "items": [("table", work)]}], out)
-    assert rep["tables_grown"] == 0 and rep["tables"] == 1                   # 복제할 빈 행이 병합에 덮이면 안전하게 새 표로
+    work = [["영역", "항목", "금액"], ["영역A", "가", "1"], ["", "나", "2"], ["", "다", "3"], ["", "라", "4"], ["합계", "", "10"]]
+    rep = hwpx_fill.fill(_group_form(tmp_path), [{"heading": "1.2 특성화 방향", "items": [("table", work)]}], out)
+    assert rep["tables_grown"] == 1 and rep["checks"] == []
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+    tbl = xml[xml.index('<hp:tbl id="920"'):xml.index("</hp:tbl>", xml.index('<hp:tbl id="920"'))]
+    assert 'rowCnt="6"' in tbl and 'rowSpan="4"' in tbl and 'height="6000"' in tbl
+    assert re.findall(r"<hp:t>([^<]*)</hp:t>", tbl) == ["영역", "항목", "금액", "영역A", "가", "1", "나", "2", "다", "3", "라", "4", "합계", "10"]
+
+
+def test_value_in_a_merged_away_column_blocks_growth(tmp_path):
+    out = tmp_path / "out.hwpx"
+    work = [["영역", "항목", "금액"], ["영역A", "가", "1"], ["영역B", "나", "2"], ["", "다", "3"], ["합계", "", "6"]]
+    rep = hwpx_fill.fill(_group_form(tmp_path), [{"heading": "1.2 특성화 방향", "items": [("table", work)]}], out)
+    assert rep["tables_grown"] == 0 and rep["tables"] == 1                   # 묶음에 가려진 칸에 다른 값(영역B) — 새 표로
 
 
 def test_long_marker_paragraph_gets_hanging_indent_and_auto_tab(tmp_path):
