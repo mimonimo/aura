@@ -1261,7 +1261,8 @@ def create_app(
                     parts_.append(f"[{sec['heading'][:40]}]\n{t_}\n재료 — 지난 자료: {used} · 기준 조각 {len(m['criteria'])}건")
                     # 정답지(같은 절이 있는 완성본)와 견준 반영률 — 초안이 넣은 글 대 그 절의 핵심 사실(수치·고유명사)
                     if refs and o_:
-                        draft_text = "\n".join(str(o.get("text") or "") for o in o_)
+                        draft_text = "\n".join(str(o.get("text") or "") for o in o_) + "\n" + "\n".join(
+                            str(c.get("text") or "") for o in o_ if o.get("op") == "fill" for c in (o.get("cells") or []) if isinstance(c, dict))
                         sc = drafting.score_against_reference(draft_text, "\n".join(r_["text"] for r_ in refs))
                         if sc["ratio"] is not None:
                             miss = (" · 빠진 것: " + ", ".join(sc["missing"][:8])) if sc["missing"] else ""

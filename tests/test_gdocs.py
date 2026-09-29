@@ -703,7 +703,7 @@ def test_table_grids_and_fill_table_write_only_value_cells(monkeypatch, tmp_path
     grids = gdocs.table_grids("a@b", "d", sec["index"], http=http, info=info)
     assert [g["n"] for g in grids] == [1] and grids[0]["rows"][1] == ["AI 이수율", "%", ""]
     text = gdocs.render_table_grids(grids)
-    assert "표 1 (3행×3열)" in text and "r1: AI 이수율 | % | _" in text
+    assert "표 1 (3행×3열)" in text and "r1: [c0] AI 이수율 | [c1] % | [c2] _" in text
     r = gdocs.fill_table("a@b", "d", sec["index"], 1, [{"row": 1, "col": 2, "text": "4.6"}, {"row": 2, "col": 2, "text": "95.7"}, {"row": 9, "col": 0, "text": "x"}],
                          user="u", data_dir=tmp_path, http=http)
     assert r["cells"] == 2 and r["skipped"] == 1
@@ -765,3 +765,43 @@ def test_migrate_skips_form_native_paragraphs_and_tables(monkeypatch, tmp_path):
     assert res[0]["tables"] == 1 and res[0]["chars"] > 0                     # 서식 표(지표명…)는 안 옮기고 새 표(구분|값)만
     kinds = [list(q.keys())[0] for b in sent for q in b]
     assert kinds.count("insertTable") == 1
+
+
+
+def test_fill_table_redirects_covered_cells_to_merge_origin_and_clears_hidden_text(monkeypatch, tmp_path):
+    """병합에 덮인 칸(독스 API 에도 있음)을 지목하면 원점 칸에 넣고, 덮인 칸에 남은 보이지 않는 글은 지운다."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text}}]}}
+
+    def cell(st, text, span=(1, 1)):
+        return {"content": [para(st, st + len(text) + 1, text + "\n")], "tableCellStyle": {"rowSpan": span[0], "columnSpan": span[1]}}
+    # 1행: [지표명(2열 병합)] [덮임] [기준값] ; 2행: [AI 이수율(2열 병합)] [덮임: 숨은 글 '옛'] [빈 값칸]
+    tbl = {"startIndex": 20, "endIndex": 120, "table": {"tableRows": [
+        {"tableCells": [cell(21, "지표명", (1, 2)), cell(28, ""), cell(30, "기준값")]},
+        {"tableCells": [cell(40, "AI 이수율", (1, 2)), cell(50, "옛"), cell(54, "")]}]}}
+    body = [para(1, 20, "2.1.1. 총괄표\n", "HEADING_2"), tbl, para(120, 122, " \n"), para(122, 140, "2.2. 다음\n", "HEADING_2")]
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"title": "t", "body": {"content": body}})
+        sent.append(json.loads(req.content)["requests"]); return httpx.Response(200, json={"documentId": "d"})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    info = gdocs.get("a@b", "d", http)
+    sec = next(s for s in info["sections"] if s["heading"].startswith("2.1.1"))
+    grids = gdocs.table_grids("a@b", "d", sec["index"], http=http, info=info)
+    text = gdocs.render_table_grids(grids)
+    assert "r0: [c0] 지표명 | [c2] 기준값" in text and "r1: [c0] AI 이수율 | [c2] _" in text     # 덮인 c1 은 격자에 없다
+    r = gdocs.fill_table("a@b", "d", sec["index"], 1, [{"row": 1, "col": 1, "text": "4.6"}, {"row": 1, "col": 2, "text": "18.3"}],
+                         user="u", data_dir=tmp_path, http=http)
+    assert r["cells"] == 2 and r["skipped"] == 0
+    reqs = sent[0]
+    # (1,1) 은 덮인 칸 → 원점 (1,0) 'AI 이수율' 을 바꾸지 않고… 아니, 원점은 값 칸이 아니므로 덮인 칸을 지목했으면 원점에 쓴다(여기선 라벨 칸을 덮어씀)
+    kinds = [list(q.keys())[0] for q in reqs]
+    assert "insertText" in kinds
+    # 덮인 칸의 숨은 글 '옛'(50..52)은 지운다
+    assert any(q.get("deleteContentRange", {}).get("range") == {"startIndex": 50, "endIndex": 51} for q in reqs)
+    assert any(q.get("insertText") == {"location": {"index": 54}, "text": "18.3"} for q in reqs)
