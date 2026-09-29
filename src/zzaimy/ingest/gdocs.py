@@ -637,6 +637,8 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
             results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"}); continue
         chars = tables = 0
         for kind, payload in items:
+            if kind == "widths":
+                continue                                               # 열 너비는 서식 채우기용 — 옮기기에는 안 쓴다
             if kind == "text":
                 r = insert_into_section(email, dst, sec["index"], str(payload), user=user, data_dir=data_dir, scrub=scrub, http=http)
                 chars += int(r.get("chars") or 0)
