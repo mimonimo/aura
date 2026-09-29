@@ -347,3 +347,42 @@ def test_new_paragraphs_follow_form_marker_styles_and_writing_slot(tmp_path):
     assert style("◦ 인력 양성") == ("1", "1")                              # 짧은 굵은 ◦ 줄 = 서식 소제목 모양
     assert style("◦ 지역 산업") == ("0", "0")                              # 긴 ◦ 문장 = 서식 ◦ 본문 모양
     assert style("부호 없는 본문") == ("1", "0")                           # 부호 없음 = 빈 쓰기 자리 모양
+
+
+def _budget_form(tmp_path, merged: bool = False):
+    span = '<hp:cellSpan rowSpan="1" colSpan="1"/>'
+    rows = (f'<hp:tr>{_cell("비목", "3", 0, 0)}{_cell("금액", "3", 0, 1)}</hp:tr>'
+            f'<hp:tr>{_cell("", "3", 1, 0)}{_cell("", "3", 1, 1)}</hp:tr>'
+            f'<hp:tr>{_cell("합계", "3", 2, 0)}{_cell("", "3", 2, 1)}</hp:tr>')
+    if merged:
+        rows = rows.replace(span, '<hp:cellSpan rowSpan="2" colSpan="1"/>', 1)
+    tbl = (f'<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl id="910" rowCnt="3" colCnt="2" borderFillIDRef="3">'
+           f'<hp:sz width="40000" height="3000"/>{rows}</hp:tbl></hp:run>{LINESEG}</hp:p>')
+    sec = _section().replace('<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>마무리 문단.', tbl + '<hp:p id="0" paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>마무리 문단.')
+    src = tmp_path / "form.hwpx"
+    with zipfile.ZipFile(src, "w") as zf:
+        zf.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", compress_type=zipfile.ZIP_STORED)
+        zf.writestr("Contents/header.xml", HEADER)
+        zf.writestr("Contents/section0.xml", sec)
+    return src
+
+
+def test_form_table_grows_rows_by_cloning_blank_row(tmp_path):
+    """작업본 행이 더 많으면 새 표가 아니라 서식 표의 빈 입력 행을 복제해 늘리고 합계 행은 제자리에(행 번호·rowCnt·높이 갱신)."""
+    out = tmp_path / "out.hwpx"
+    work = [["비목", "금액"], ["인건비", "30"], ["장학금", "20"], ["운영비", "10"], ["합계", "60"]]
+    rep = hwpx_fill.fill(_budget_form(tmp_path), [{"heading": "1.2 특성화 방향", "items": [("table", work)]}], out)
+    assert rep["tables_grown"] == 1 and rep["tables"] == 0 and rep["checks"] == []
+    xml = zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+    tbl = xml[xml.index('<hp:tbl id="910"'):xml.index("</hp:tbl>", xml.index('<hp:tbl id="910"'))]
+    assert 'rowCnt="5"' in tbl and 'height="5000"' in tbl
+    order = re.findall(r"<hp:t>([^<]*)</hp:t>", tbl)
+    assert order == ["비목", "금액", "인건비", "30", "장학금", "20", "운영비", "10", "합계", "60"]
+    assert re.findall(r'rowAddr="(\d+)"', tbl) == ["0", "0", "1", "1", "2", "2", "3", "3", "4", "4"]
+
+
+def test_form_table_whose_blank_row_is_under_a_vertical_merge_is_not_grown(tmp_path):
+    out = tmp_path / "out.hwpx"
+    work = [["비목", "금액"], ["인건비", "30"], ["장학금", "20"], ["합계", "50"]]
+    rep = hwpx_fill.fill(_budget_form(tmp_path, merged=True), [{"heading": "1.2 특성화 방향", "items": [("table", work)]}], out)
+    assert rep["tables_grown"] == 0 and rep["tables"] == 1                   # 복제할 빈 행이 병합에 덮이면 안전하게 새 표로
