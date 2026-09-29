@@ -161,7 +161,7 @@ def fact_sheet(parts: list[tuple[str, object]], limit: int = 400) -> list[str]:
                 in_numeric = any(not (c + csn - 1 < x0 or c > x1) for x0, x1 in numeric_x)
                 if not t.strip() or (_is_value(t) and r >= head_n and in_numeric):   # 값 열의 값은 위에서 '행 · 열: 값' 으로 냈다
                     continue
-                phrase = " ".join(t.split())[:1000]                    # 칸 글은 자르지 않는다(자르면 뒤의 수치가 입력에서 빠진다)
+                phrase = " ".join(t.split())[:4000]                    # 칸 글은 자르지 않는다(자르면 뒤의 수치가 입력에서 빠진다 — 자율지표 표 칸은 1천 자를 넘는다)
                 if phrase not in seen and len(phrase) >= 4:
                     seen.add(phrase)
                     facts.append(phrase)
