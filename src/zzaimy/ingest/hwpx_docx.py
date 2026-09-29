@@ -389,6 +389,8 @@ class Converter:
         # 아래로 못 내리지만 배수 1 미만은 그대로 따르므로 배수 = 비율/1.3 이 한글의 줄 간격(글자 크기 × 비율)을 재현한다("docs").
         # LibreOffice(PDF 열람)는 '고정'을 그대로 따른다("exact"). 기본은 ZZAIMY_LINE_RULE, 없으면 docs
         self.line_rule = (line_rule or os.environ.get("ZZAIMY_LINE_RULE", "docs")).lower()
+        # 장평 흉내(실험, 2026-09-29): 독스에는 글자 폭 조절이 없어 장평 95% 글을 크기 95% 로 주고 줄 간격 배수는 그만큼 올려 pitch 를 지킨다
+        self.width_emulate = self.line_rule == "docs" and os.environ.get("ZZAIMY_DOCS_WIDTH_EMULATE", "0") == "1"
         from docx import Document
 
         self.doc = Document()
@@ -445,7 +447,12 @@ class Converter:
             rule = self.line_rule
             if rule == "docs":
                 pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
-                pf.line_spacing = round(pct / DOCS_LINE_EM_BY_FONT.get(self._para_docs_font(p_el), DOCS_LINE_EM), 3)
+                mult = pct / DOCS_LINE_EM_BY_FONT.get(self._para_docs_font(p_el), DOCS_LINE_EM)
+                if self.width_emulate:
+                    wp = self._para_width_pct(p_el)
+                    if wp and wp != 100:
+                        mult = mult * 100.0 / wp             # 글자를 줄인 만큼 배수를 올려 줄 pitch 는 원본 그대로
+                pf.line_spacing = round(mult, 3)
             elif rule == "auto":
                 pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
                 pf.line_spacing = pct
@@ -466,6 +473,13 @@ class Converter:
                 return docs_font(cs.font) if cs.font else FONT_MAP["고딕"]
         return FONT_MAP["고딕"]
 
+    def _para_width_pct(self, p_el: ET.Element) -> int:
+        for run in _children(p_el, "run"):
+            cs = self.st.chars.get(str(run.get("charPrIDRef")))
+            if cs is not None:
+                return cs.width_pct or 100
+        return 100
+
     def _para_font_pt(self, p_el: ET.Element) -> float:
         """문단의 글자 크기 — 첫 런의 글자 모양(없으면 10pt)."""
         for run in _children(p_el, "run"):
@@ -481,7 +495,10 @@ class Converter:
         cs = self.st.chars.get(str(char_id))
         if cs is None:
             return
-        run.font.size = Pt(max(cs.size_pt, 4.0))
+        size = cs.size_pt
+        if self.width_emulate and cs.width_pct and cs.width_pct != 100:
+            size = size * cs.width_pct / 100.0          # 독스는 장평이 없어 글자 크기로 폭을 흉내 낸다(줄 pitch 는 문단 배수에서 되돌린다)
+        run.font.size = Pt(max(round(size * 2) / 2, 4.0))
         run.font.bold = cs.bold
         run.font.italic = cs.italic
         if cs.underline:

@@ -661,3 +661,52 @@ def test_section_bodies_and_migrate_skip_box_and_keep_order(monkeypatch, tmp_pat
     sent.clear()
     res = gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http, only_headings={"1. 거버넌스 기반 추진 체계"})
     assert [r["heading"] for r in res] == ["1. 거버넌스 기반 추진 체계"] and res[0]["under"] == "1.2. 특성화 방향"
+
+
+def test_table_grids_and_fill_table_write_only_value_cells(monkeypatch, tmp_path):
+    """양식 표(총괄표)의 빈 칸을 fill 로 채운다 — 작성방법 상자는 표로 세지 않고, 글이 있는 칸은 바꾸며, 뒤 칸부터 써 인덱스가 안 밀린다."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text}}]}}
+
+    def table(st, rows):
+        idx = st + 1; trs = []
+        for r in rows:
+            tcs = []
+            for c in r:
+                tcs.append({"content": [para(idx, idx + len(c) + 1, c + "\n")]}); idx += len(c) + 2
+            trs.append({"tableCells": tcs})
+        return {"startIndex": st, "endIndex": idx + 1, "table": {"tableRows": trs}}, idx + 1
+
+    box, e1 = table(20, [["【작성방법】 지표를 쓴다"]])
+    grid, e2 = table(e1, [["지표명", "단위", "기준값"], ["AI 이수율", "%", ""], ["만족도", "점", "옛값"]])
+    body = [para(1, 20, "2.1.1. 핵심 성과지표 총괄표\n", "HEADING_2"), box, grid, para(e2, e2 + 2, " \n"), para(e2 + 2, e2 + 20, "2.2. 자율 성과지표\n", "HEADING_2")]
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"title": "t", "body": {"content": body}})
+        sent.append(json.loads(req.content)["requests"]); return httpx.Response(200, json={"documentId": "d"})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    info = gdocs.get("a@b", "d", http)
+    sec = next(s for s in info["sections"] if s["heading"].startswith("2.1.1"))
+    # 양식 표만 있고 값 칸이 비었으면 '아직 안 쓴 절'
+    from zzaimy.app import drafting
+    assert sec["tbl_cells"] == 9 and sec["tbl_empty"] == 1 and sec.get("para_chars", 0) == 0
+    grids = gdocs.table_grids("a@b", "d", sec["index"], http=http, info=info)
+    assert [g["n"] for g in grids] == [1] and grids[0]["rows"][1] == ["AI 이수율", "%", ""]
+    text = gdocs.render_table_grids(grids)
+    assert "표 1 (3행×3열)" in text and "r1: AI 이수율 | % | _" in text
+    r = gdocs.fill_table("a@b", "d", sec["index"], 1, [{"row": 1, "col": 2, "text": "4.6"}, {"row": 2, "col": 2, "text": "95.7"}, {"row": 9, "col": 0, "text": "x"}],
+                         user="u", data_dir=tmp_path, http=http)
+    assert r["cells"] == 2 and r["skipped"] == 1
+    reqs = sent[0]
+    kinds = [list(q.keys())[0] for q in reqs]
+    assert kinds == ["deleteContentRange", "insertText", "insertText"]           # 뒤 칸(옛값 바꾸기)부터, 빈 칸은 넣기만
+    old_start = grid["table"]["tableRows"][2]["tableCells"][2]["content"][0]["startIndex"]
+    assert reqs[0]["deleteContentRange"]["range"] == {"startIndex": old_start, "endIndex": old_start + len("옛값")}
+    assert reqs[1]["insertText"] == {"location": {"index": old_start}, "text": "95.7"}
+    empty_start = grid["table"]["tableRows"][1]["tableCells"][2]["content"][0]["startIndex"]
+    assert reqs[2]["insertText"] == {"location": {"index": empty_start}, "text": "4.6"}
