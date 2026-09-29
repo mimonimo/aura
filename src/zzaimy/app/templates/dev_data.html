@@ -1,7 +1,8 @@
 {% extends "base.html" %}
-{% block title %}데이터 공방{% endblock %}
-{% block pagetitle %}데이터 공방{% endblock %}
+{% block title %}데이터·모델 개발{% endblock %}
+{% block pagetitle %}데이터·모델 개발{% endblock %}
 {% block content %}
+{% include "_development_nav.html" %}
 
 <style>
   .step-n { width:26px; height:26px; border-radius:50%; background:#eaf0f7; color:#294b73;
@@ -25,7 +26,7 @@
 </style>
 
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:box-minimalistic-linear"></iconify-icon>데이터 공방</h2>
+  <h2><iconify-icon icon="solar:box-minimalistic-linear"></iconify-icon>데이터 준비·검수</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
     사업·문서·목차의 맥락을 유지한 문답을 검수합니다. 운영 검색 자료, 생성 후보, 검수 결과, 학습 승인본을 구분합니다.</p>
   <p class="muted">현재 우선 작업: 실문서 7개의 구조·근거·질문 범위 대조. 전체 목차 대비 문답 커버리지와 승인 건수는 아직 집계되지 않았습니다.</p>
@@ -49,6 +50,13 @@
   <p class="notice" style="margin:0;"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
 </div></div>
 {% endif %}
+
+<section class="card"><div class="card-in"><h2>근거 기반 문답 검수 · 주요 작업</h2>
+<p>사업·목차 경로와 근거를 유지한 질문–답변을 검수합니다. 아래 기존 기록 변환과 별도인 누적 프로젝트입니다.</p>
+{% if grounded_ls.ok and grounded_ls.project_id %}<p>후보 {{ grounded_ls.total }}건 · 주석 작성 {{ grounded_ls.done }}건 · 대기 {{ grounded_ls.pending }}건</p><a class="btn-ghost" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">문답 검수 열기 ↗</a>
+{% else %}<p class="muted">검수 현황 {{ grounded_ls.error or '프로젝트 미확인' }}</p>{% endif %}
+<p class="muted">주석 작성은 학습 승인과 다릅니다. 근거·구조·맥락·개인정보 승인이 완료되고 품질 관문을 통과한 파일만 산출물에 표시합니다.</p>
+</div></section>
 
 <div class="card reveal"><div class="card-in">
   <h2><span class="step-n">1</span>기록 기반 후보 생성 (보조 경로)</h2>
@@ -113,7 +121,7 @@
   {% else %}
   <p class="notice" style="margin:0;"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>
     Label Studio에 연결되지 않았습니다{% if ls.error %} ({{ ls.error }}){% endif %}.
-    <a href="/dev/train">연결 설정</a></span></p>
+    <a href="/dev/train?tab=settings">연결 설정</a></span></p>
   {% endif %}
 </div></div>
 
@@ -143,10 +151,10 @@
       <td>{{ ds.n_dropped_short }}</td>
       <td style="white-space:nowrap;">{{ ds.created_at[:16] }}</td>
       <td style="white-space:nowrap;">
-        <a href="/dev/data/{{ ds.id }}.jsonl" class="btn-ghost" style="font-size:11.5px;">JSONL</a>
+        {% if ds.export_ready %}<a href="/dev/data/{{ ds.id }}.jsonl" class="btn-ghost" style="font-size:11.5px;">승인 JSONL</a>{% else %}<span class="pill processing">검수·근거 확인 필요</span>{% endif %}
         {% if labelstudio_url %}<a href="{{ labelstudio_url }}" target="_blank" rel="noopener"
            class="btn-ghost" style="font-size:11.5px;">검수</a>{% endif %}
-        {% if llamaboard_url %}<a href="{{ llamaboard_url }}" target="_blank" rel="noopener"
+        {% if llamaboard_url and ds.export_ready %}<a href="{{ llamaboard_url }}" target="_blank" rel="noopener"
            class="btn-ghost" style="font-size:11.5px;">학습</a>{% endif %}
       </td>
     </tr>

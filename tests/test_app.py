@@ -1074,7 +1074,7 @@ def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
         ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
     )
     r = client.get("/dev/data")
-    assert r.status_code == 200 and "데이터 공방" in r.text
+    assert r.status_code == 200 and "데이터·모델 개발" in r.text
 
     r = client.post(
         "/dev/data/build",
@@ -1086,8 +1086,7 @@ def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
     assert ds["n_pairs"] == 1
 
     r = client.get(f"/dev/data/{ds['id']}.jsonl")
-    assert r.status_code == 200
-    assert '"from": "gpt"' in r.text
+    assert r.status_code == 409  # 후보 생성은 학습 승인과 다르다.
 
 
 def test_hwp_agent_channel_roundtrip(client):
@@ -1127,7 +1126,7 @@ def test_hwp_agent_channel_roundtrip(client):
     })
     assert r.status_code == 200
 
-    page = client.get("/dev/hwp")
+    page = client.get("/dev/hwp?legacy=1")
     assert page.status_code == 200 and cid in page.text
 
 
@@ -1223,7 +1222,7 @@ def test_hwp_multi_doc_and_ops(client):
             {"id": 1, "name": "빈 문서", "path": "", "active": True, "bound": True},
         ]},
     })
-    page = client.get("/dev/hwp")
+    page = client.get("/dev/hwp?legacy=1")
     assert "열린 문서" in page.text and "보고서.hwp" in page.text
 
 
@@ -1294,7 +1293,7 @@ def test_dev_train_export_bundle(client, monkeypatch, tmp_path):
 
 def test_hwp_installer_upload_download_delete(client, tmp_path, monkeypatch):
     monkeypatch.setenv("ZZAIMY_DIST_DIR", str(tmp_path / "dist"))
-    page = client.get("/dev/hwp").text
+    page = client.get("/dev/hwp?legacy=1").text
     assert "올라온 설치파일이 없습니다" in page and 'action="/dev/hwp/installer"' in page
     assert client.get("/hwp/setup.exe").status_code == 404
     # 확장자·PE 서명 검사
@@ -1308,7 +1307,7 @@ def test_hwp_installer_upload_download_delete(client, tmp_path, monkeypatch):
                     files={"file": ("zzaimy-agent-setup.exe", body)}, follow_redirects=False)
     assert r.status_code == 303 and "ok=" in r.headers["location"]
     assert (tmp_path / "dist" / "zzaimy-agent-setup.exe").read_bytes() == body
-    page = client.get("/dev/hwp").text
+    page = client.get("/dev/hwp?legacy=1").text
     assert "v1.2.0" in page and 'href="/hwp/setup.exe"' in page and "sha256" in page
     d = client.get("/hwp/setup.exe")
     assert d.status_code == 200 and d.content == body
@@ -1322,8 +1321,9 @@ def test_hwp_installer_upload_download_delete(client, tmp_path, monkeypatch):
 # ---- 산출물 반출 — 파일 하나는 zip 없이, 목록 밖 경로는 404 ----
 
 def test_export_single_file_and_path_guard(client):
-    page = client.get("/dev/train").text
+    page = client.get("/dev/train?tab=exports").text
     assert "/dev/train/export/file?path=rag/chunks.jsonl" in page
+    page = client.get("/dev/train?tab=models").text
     assert "학습 순서" in page and "학습 데이터 준비" in page and "모델 서버 연결" in page
     r = client.get("/dev/train/export/file", params={"path": "rag/chunks.jsonl"})
     assert r.status_code == 200 and "chunks.jsonl" in r.headers["content-disposition"]
@@ -1340,13 +1340,13 @@ def test_llm_connections_manage_and_apply(client, monkeypatch, tmp_path):
 
     lc.configure(tmp_path / "llm_connections.json"); model_config.set_override("", ""); model_config.reset_status_cache()
     monkeypatch.setattr(model_config, "probe", lambda base_url=None, timeout=3.0: {"ok": True, "models": ["qwen-a"], "error": ""})
-    page = client.get("/dev/train").text
+    page = client.get("/dev/train?tab=settings").text
     assert "LLM 연결" in page and 'action="/dev/llm/add"' in page and "등록된 서버가 없습니다" in page
     # 내부 연결 추가 → 동의 없이 기본 지정
     r = client.post("/dev/llm/add", data={"name": "교내 GPU", "kind": "vllm", "base_url": "http://gpu:8000/v1", "model": "", "api_key": ""}, follow_redirects=False)
     assert "ok=" in r.headers["location"]
     cid = lc.list_public()[0]["id"]
-    assert client.post(f"/dev/llm/{cid}/activate", follow_redirects=False).headers["location"].startswith("/dev/train?ok=")
+    assert client.post(f"/dev/llm/{cid}/activate", follow_redirects=False).headers["location"].startswith("/dev/train?tab=settings&ok=")
     cfg = model_config.current()
     assert cfg["base_url"] == "http://gpu:8000/v1" and cfg["kind"] == "vllm" and not cfg["external"]
     # 외부 기관 GPU 서버: https 강제, 키는 화면에 끝 4자리만, 기관 승인 확인 없이는 문서 작업 기본 지정 거부
@@ -1355,7 +1355,7 @@ def test_llm_connections_manage_and_apply(client, monkeypatch, tmp_path):
     client.post("/dev/llm/add", data={"name": "외부 기관", "kind": "partner", "base_url": "https://llm.partner.ac.kr/v1", "model": "gpt-x", "api_key": "sk-secret-1234"})
     ext = [c for c in lc.list_public() if c["name"] == "외부 기관"][0]
     assert ext["kind_label"] == "외부 GPU 서버" and ext["api_key_masked"] == "…1234"
-    page = client.get("/dev/train").text
+    page = client.get("/dev/train?tab=settings").text
     assert "sk-secret-1234" not in page and "…1234" in page and "외부 참조 전용" not in page and f"llmAct-{ext['id']}" in page
     assert "err=" in client.post(f"/dev/llm/{ext['id']}/activate", follow_redirects=False).headers["location"]
     assert model_config.current()["base_url"] == "http://gpu:8000/v1"                 # 문서 작업은 아직 교내
@@ -1424,7 +1424,7 @@ def test_connection_screen_uses_only_live_models(client, monkeypatch, tmp_path):
     assert [m["id"] for m in got["models"]] == ["exaone-4.0-32b", "ax-3.1"]
     r = lc.refresh_models(lc.get(conn["id"]))
     assert r["ok"] and [m["id"] for m in r["models"]] == ["exaone-4.0-32b", "ax-3.1"]
-    page = client.get("/dev/train").text
+    page = client.get("/dev/train?tab=settings").text
     assert "카탈로그" not in page
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
 
@@ -1456,7 +1456,7 @@ def test_client_records_usage_and_describes_errors(client, monkeypatch, tmp_path
     c.client.chat.completions.create(model="qwen-a", messages=[]); c.client.chat.completions.create(model="qwen-a", messages=[])
     u = model_config.usage_today(conn["id"])
     assert u["requests"] == 2 and u["prompt"] == 240 and u["total"] == 300
-    page = client.get("/dev/train").text
+    page = client.get("/dev/train?tab=settings").text
     assert "2회 · 300" in page and "오늘 2회 · 300 토큰" in page
     # 오류를 사람 말로 — 예외 이름 없음
     class RateLimitError(Exception):
@@ -1501,7 +1501,7 @@ def test_llm_probe_diagnoses_network_in_plain_words(client, tmp_path):
     loc = unquote(client.post(f"/dev/llm/{hub['id']}/test", follow_redirects=False).headers["location"])
     assert "연결 실패 — 서버까지 통신이 막혀 있음" in loc and "관리자에게 요청하세요" in loc
     # 통신이 막힌 연결은 화면에서 '응답 없음' 으로 보이고, 실패 사유가 사람 말로 남는다
-    page = client.get("/dev/train").text
+    page = client.get("/dev/train?tab=settings").text
     assert "응답 없음" in page and "서버까지 통신이 막혀 있음" in page
     lc.configure(tmp_path / "none.json"); model_config.set_override("", ""); model_config.reset_status_cache()
 

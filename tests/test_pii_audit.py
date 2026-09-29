@@ -267,8 +267,8 @@ def test_dev_pii_page_actions_and_shortcut(client):
     r = client.get("/dev/pii")
     assert r.status_code == 200
     assert "자가 점검" in r.text and "잔여 검사" in r.text
-    assert "원문 유지" in r.text and "ADR-0006" in r.text
-    assert "전환 미완료" in r.text
+    assert "원문 유지" in r.text and 'action="/dev/pii/policy"' in r.text
+    assert "내부 마스킹 꺼짐" in r.text
     assert 'action="/dev/pii/scan"' not in r.text
     assert "마스킹 기록 —" not in r.text
 
@@ -328,6 +328,7 @@ def test_dev_pii_page_lists_recorded_documents_and_corpus_db(client, tmp_path):
     assert f'href="/doc/{doc_id}"' in page and "전화번호 3" in page
     assert "기록이 없는 문서 1건" in page
     assert "규정.pdf" not in page          # 기준 문서는 마스킹 대상 표에 없다
+    page = client.get("/dev/pii?view=history&source=corpus").text
     assert "국고 코퍼스 (별도 DB)" in page and "공고.pdf" in page
     assert "이메일 1" in page
 
@@ -350,6 +351,8 @@ def _processor(monkeypatch):
 @pytest.mark.parametrize("doc_type", ["recruit", "ocr"])
 def test_pipeline_records_mask_events(tmp_path, monkeypatch, masker, doc_type):
     db = Database(tmp_path / "t.db")
+    from zzaimy.app.privacy_policy import save, ENTITIES
+    save(db, True, list(ENTITIES), "tester")
     src = tmp_path / "입력.txt"
     src.write_text(f"지원자 연락처 {SYN_PHONE}\n메일 {SYN_EMAIL}\n", encoding="utf-8")
     doc_id = db.add_document("입력.txt", str(src), doc_type=doc_type)

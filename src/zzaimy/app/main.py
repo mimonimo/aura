@@ -354,6 +354,11 @@ def create_app(
         name="static",
     )
     db = Database(db_path)
+    from zzaimy.app import privacy_policy
+    from functools import partial
+    _scrub_internal = partial(privacy_policy.scrub_internal, db)
+    if hasattr(processor, "configure_privacy"):
+        processor.configure_privacy(db)
     from zzaimy.app.chat_revisions import ChatRevisions, install_routes as install_chat_revisions
 
     chat_revisions = ChatRevisions(Path(db_path))
@@ -839,7 +844,7 @@ def create_app(
             from zzaimy.generate.client import describe_llm_error
 
             answer = describe_llm_error(e) + ". 검색된 근거 자료는 아래에 표시됩니다."
-        answer = ag.scrub(answer)                       # 답변에 남은 식별 정보는 한 번 더 가린다
+        answer = _scrub_internal(answer)                       # 답변에 남은 식별 정보는 한 번 더 가린다
         if scope_msg:
             answer = scope_msg + "\n\n" + answer
         # 근거(연관 자료)는 LLM 성공·실패와 무관하게 저장 — 검색은 CPU로 동작
@@ -1204,7 +1209,7 @@ def create_app(
                     opts.append({"kind": "redo", "text": f"{num} 절에 반영해 다시 쓰기", "question": f"{num} 절을 알려 준 값을 반영해 다시 써 줘"})
                 opts.append({"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
                 _set_options(session_id, opts)
-                db.add_chat(session_id, "assistant", ag.scrub(text))
+                db.add_chat(session_id, "assistant", _scrub_internal(text))
                 return
             if drafting.looks_like_section_draft(q):
                 # 절 작성 에이전트(사용자 지시 2026-09-27): 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
@@ -1218,7 +1223,7 @@ def create_app(
                     text = "쓸 절을 찾지 못했습니다. 절 번호(예: 1.1)를 말해 주거나, 빈 절이 없으면 어느 절을 다시 쓸지 골라 주세요."
                     _set_options(session_id, [{"kind": "pick", "text": f"「{s_['heading'][:24]}」 다시 쓰기", "question": f"{section_context.split_number(s_['heading'])[0]} 절을 다시 써 줘"}
                                               for s_ in [x for x in info["sections"] if drafting.writable(x)][:3]])
-                    db.add_chat(session_id, "assistant", ag.scrub(text))
+                    db.add_chat(session_id, "assistant", _scrub_internal(text))
                     return
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
@@ -1267,7 +1272,7 @@ def create_app(
                             fig_folder = _gf2.project_folder_for(db, link["account"], proj_, acct_.get("dept") or None, sub="그림")
                     except Exception:
                         fig_folder = None
-                    t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=ag.scrub_for_writing,
+                    t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=_scrub_internal,
                                              evidence=m["criteria"], confirm=confirm, materials=materials_,
                                              focus=sec, references=refs, before_apply=before_apply, figure_folder=fig_folder)
                     used = ", ".join(f"{p_['title'][:18]}({p_['how']})" for p_ in m["past"]) or "없음"
@@ -1298,7 +1303,7 @@ def create_app(
                 opts += [{"kind": "review", "text": "방금 쓴 절 검토", "question": "방금 쓴 절을 평가지표·공고 기준으로 검토해 줘"},
                          {"kind": "redo", "text": "다시 써 줘", "question": f"{section_context.split_number(targets[-1]['heading'])[0]} 절을 더 구체적인 수치와 근거로 다시 써 줘"}]
                 _set_options(session_id, opts)
-                text = ag.scrub(text)
+                text = _scrub_internal(text)
                 if scope_msg:
                     text = scope_msg + "\n\n" + text
                 db.add_chat(session_id, "assistant", text)
@@ -1319,7 +1324,7 @@ def create_app(
                 if src_path.suffix.lower() != ".hwpx" or not src_path.exists():
                     text = (f"원본 서식 「{storage.title_of(src.get('filename') or '')}」 이 hwpx 가 아니라(또는 파일이 없어) 서식 보존 채우기를 할 수 없습니다. "
                             "한글에서 'hwpx 로 저장'한 서식을 문서함에 반입한 뒤 다시 요청해 주세요.")
-                    db.add_chat(session_id, "assistant", ag.scrub(text))
+                    db.add_chat(session_id, "assistant", _scrub_internal(text))
                     return
                 email = link["account"]
                 remove = bool(re.search(r"제출본|(안내\s*상자|작성방법)\s*(없이|빼고|지우고|삭제하고)", q))
@@ -1354,7 +1359,7 @@ def create_app(
                 except Exception as e:
                     logging.getLogger("zzaimy.app.gdocs").exception("한글 완성본 만들기 실패 (대화 %s)", session_id)
                     text = f"한글 완성본을 만들지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
-                db.add_chat(session_id, "assistant", ag.scrub(text))
+                db.add_chat(session_id, "assistant", _scrub_internal(text))
                 return
             if re.search(r"작업본\s*(?:을|를)?\s*(?:새로|다시)\s*(?:만들|떠|뜨|생성)|새\s*작업본|작업본\s*갱신", q):
                 # 작업본 새로 만들기(2026-09-28): 변환기가 좋아진 뒤 원본 서식을 다시 변환해 새 복제본을 만들고, 지금까지 쓴 절 본문을 옮긴다
@@ -1375,7 +1380,7 @@ def create_app(
                     work_title = f"{title} 작업본 {_date.today().isoformat()}"
                     work_folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
                     copy = _gf.copy_document(email, made["id"], work_title, work_folder)
-                    moved = _gd.migrate_bodies(email, link["doc"], copy["id"], user=owner, data_dir=data_dir, scrub=ag.scrub_for_writing)
+                    moved = _gd.migrate_bodies(email, link["doc"], copy["id"], user=owner, data_dir=data_dir, scrub=_scrub_internal)
                     try:
                         _gf.rename_document(email, link["doc"], f"{_gd.get(email, link['doc'])['title']} (이전)")
                     except Exception:
@@ -1393,7 +1398,7 @@ def create_app(
                 except Exception as e:
                     logging.getLogger("zzaimy.app.gdocs").exception("작업본 새로 만들기 실패 (대화 %s)", session_id)
                     text = f"작업본을 새로 만들지 못했습니다({type(e).__name__}). 이전 작업본은 그대로 연결돼 있습니다."
-                db.add_chat(session_id, "assistant", ag.scrub(text))
+                db.add_chat(session_id, "assistant", _scrub_internal(text))
                 return
             if re.search(r"(작성방법|안내|가이드)\s*(상자|박스|표)?[을를은는]?\s*(지워|삭제|없애|정리)|제출본|마무리\s*(해|정리)", q):
                 # 마무리 — 양식의 안내 상자(【작성방법】·【증빙자료】)를 지운다. 되돌릴 수 없으니 몇 개인지 먼저 세어 확인을 받는다
@@ -1409,13 +1414,13 @@ def create_app(
                                                   {"kind": "skip", "text": "아직 두기", "question": "안내 상자는 아직 두고 다음 절을 작성해 줘"}])
                     else:
                         text = "지울 안내 상자가 없습니다."
-                    db.add_chat(session_id, "assistant", ag.scrub(text))
+                    db.add_chat(session_id, "assistant", _scrub_internal(text))
                     return
                 db.set_setting(f"chat_pending_boxes:{session_id}", "")
                 res = _gd.remove_instruction_boxes(link["account"], link["doc"], user=owner, data_dir=data_dir)
                 text = f"안내 상자 {res['count']}개를 지웠습니다. 제출 전에 표지의 대학명·직인란과 쪽수를 확인하세요."
                 _set_options(session_id, [{"kind": "review", "text": "전체 검토", "question": "문서 전체를 공고·평가지표 기준으로 검토해 줘"}])
-                db.add_chat(session_id, "assistant", ag.scrub(text))
+                db.add_chat(session_id, "assistant", _scrub_internal(text))
                 return
             review_focus = None
             review_mat = ""
@@ -1442,7 +1447,7 @@ def create_app(
                     review_focus, review_mat = None, ""
             extra_kw = {"materials": review_mat, "focus": review_focus} if review_focus is not None else {}
             text, _ops = gdocs_agent.run(db, session_id, owner, q, link, client=client, data_dir=data_dir,
-                                         scrub=ag.scrub_for_writing, evidence=hits, confirm=confirm, **extra_kw)
+                                         scrub=_scrub_internal, evidence=hits, confirm=confirm, **extra_kw)
             if not _ops and not proj_hits:
                 session_ = db.get_chat_session(session_id) or {}
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
@@ -1481,7 +1486,7 @@ def create_app(
 
             logging.getLogger("zzaimy.app.gdocs").exception("연결 문서 명령 실패 (대화 %s)", session_id)
             text = describe_llm_error(e) + ". 문서는 바꾸지 않았습니다."
-        text = ag.scrub(text)
+        text = _scrub_internal(text)
         if scope_msg:
             text = scope_msg + "\n\n" + text
         db.add_chat(session_id, "assistant", text)
@@ -3195,6 +3200,8 @@ def create_app(
             "reindex_running": _reindex_running(),
             "quality": db.quality_report_stats(),
             "quality_open": db.list_quality_reports(status="open", limit=10),
+            "grounded_ls": _grounded_ls_status(),
+            "labelstudio_url": db.get_setting("labelstudio_url"),
         }))
 
     _doc_dates: dict[str, str] = {}
@@ -3222,8 +3229,11 @@ def create_app(
         return out
 
     @app.get("/dev/docs", response_class=HTMLResponse)
-    def dev_docs(request: Request):
+    def dev_docs(request: Request, view: str = "current", q: str = "", page: int = 1):
         """논문 자료·설계 결정·기술 검토·측정 기록 목록."""
+        if view not in {"current", "decisions", "records"}:
+            view = "current"
+        page = max(1, page)
         date_re = re.compile(r"\d{4}-\d{2}-\d{2}")
         head_re = re.compile(r"^-\s*\**(상태|날짜)\**\s*:\s*(.+)$")
 
@@ -3245,6 +3255,12 @@ def create_app(
                     meta[key] = m.group(2).strip()
                 elif not first_date and (d := date_re.search(ln)):
                     first_date = d.group(0)
+                # 최신 ADR은 한 줄에 날짜·상태를 기록한다.
+                if inline := re.search(r"(?:^|·)\s*상태:\s*([^·]+)", ln):
+                    meta["status"] = inline.group(1).strip()
+            # 대체 고지가 과거의 '확정' 메타데이터보다 우선한다.
+            if any(re.match(r"^>\s*(대체됨|폐기됨)", ln) for ln in head):
+                meta["status"] = "대체됨"
             if meta["date"] and (d := date_re.search(meta["date"])):
                 meta["date"] = d.group(0)
             if not meta["date"] and not first_date:
@@ -3255,7 +3271,7 @@ def create_app(
             title = title or rel.rsplit("/", 1)[-1]
             # ADR 제목은 '# NNNN. 제목' 이 규칙이지만 'ADR-NNNN' · 'NNNN ·' 꼴도 번호로 읽는다(2026-09-22)
             if m := re.match(r"^(?:ADR-)?(\d{4})\s*[.·:]?\s+(.+)$", title):
-                num, title = m.group(1), m.group(2)
+                num, title = m.group(1), m.group(2).lstrip("—– ")
             return {"href": href, "title": title, "num": num, "status": status,
                     "date": meta["date"] or first_date, "desc": _DOC_DESC.get(rel, "")}
 
@@ -3263,6 +3279,7 @@ def create_app(
 
         _today = _date.today()
         return templates.TemplateResponse(request, "dev_docs.html", ctx(request, {
+            "docs_view": view, "docs_query": q.strip(), "docs_page": page,
             "weekly_docs": _weekly_list(),
             "weekly_template": _weekly_sections()[1],
             "weekly_monday": (_today - _td(days=_today.weekday())).isoformat(),
@@ -3325,7 +3342,7 @@ def create_app(
         return RedirectResponse("/dev/db?" + urlencode(params), status_code=301)
 
     @app.get("/dev/pii", response_class=HTMLResponse)
-    def dev_pii(request: Request):
+    def dev_pii(request: Request, q: str = "", entity: str = "", page: int = 1, source: str = "platform"):
         """개인정보 마스킹 감사 — 기록·자가 점검·잔여 검사 (절대 규칙 3).
 
         플랫폼 DB와, 옆에 있으면 코퍼스 파일럿 DB(스크립트 74 기본 대상)까지
@@ -3333,13 +3350,17 @@ def create_app(
         """
         from zzaimy.app import access_guard, pii_audit, web_search
 
-        sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True)]
+        sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True, q=q, entity=entity, page=page)]
         corpus_path = pii_audit.corpus_db_path(db)
         if corpus_path is not None:
             sources.append(pii_audit.source_view(
-                Database(corpus_path), name="국고 코퍼스 (별도 DB)", linkable=False,
+                Database(corpus_path), name="국고 코퍼스 (별도 DB)", linkable=False, q=q, entity=entity, page=page,
             ))
         return templates.TemplateResponse(request, "dev_pii.html", ctx(request, {
+            "internal_policy": privacy_policy.load(db),
+            "masking_entities": privacy_policy.ENTITIES,
+            "history_source": "corpus" if source == "corpus" and len(sources) > 1 else "platform",
+            "history_q": q, "history_entity": entity,
             "search_provider": web_search.provider(),
             "subscription_checks": _aj.loads(db.get_setting("subscription_checks", "{}")),
             "sources": sources,
@@ -3371,13 +3392,23 @@ def create_app(
         db.set_setting("subscription_checks", _aj.dumps(checks))
         return RedirectResponse("/dev/pii?view=external", status_code=303)
 
+    @app.post("/dev/pii/policy")
+    def dev_privacy_policy(request: Request, enabled: str = Form(...), entities: list[str] = Form([])):
+        if enabled not in {"on", "off"}:
+            raise HTTPException(400, "켜짐 또는 꺼짐을 선택하세요.")
+        try:
+            privacy_policy.save(db, enabled == "on", entities, request.state.user)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return RedirectResponse("/dev/pii?view=policy&saved=1", status_code=303)
+
     @app.post("/dev/pii/selftest")
     def dev_pii_selftest():
         """합성 표본으로 실제 마스커를 검증 — 결과는 settings에 남는다."""
         from zzaimy.app import pii_audit
 
         pii_audit.run_selftest(db)
-        return RedirectResponse("/dev/pii", status_code=303)
+        return RedirectResponse("/dev/pii?view=checks", status_code=303)
 
     @app.post("/dev/pii/scan")
     def dev_pii_scan():
@@ -3388,7 +3419,7 @@ def create_app(
         corpus_path = pii_audit.corpus_db_path(db)
         if corpus_path is not None:
             pii_audit.run_scan(Database(corpus_path))
-        return RedirectResponse("/dev/pii", status_code=303)
+        return RedirectResponse("/dev/pii?view=checks", status_code=303)
 
     _REINDEX_LOG = Path("/tmp/reindex.log")
     _reindex_proc: dict = {"p": None}
@@ -3431,6 +3462,11 @@ def create_app(
 
         return dashboard_state(Path(db_path).parent / "eval")
 
+    @app.get("/dev/eval/status")
+    def dev_eval_status():
+        state = _retrieval_eval_state()
+        return {"running": bool(state["running"]), "failed": bool(state["last_error"])}
+
     @app.post("/dev/eval/run")
     def dev_eval_run():
         """규정 검색 품질 재측정 — 재색인과 같은 방식(배경 실행·같은 잠금)으로 53을 돌린다.
@@ -3456,7 +3492,7 @@ def create_app(
             cwd=root,
             env={**os.environ, "PYTHONPATH": str(root / "src")},
         )
-        return RedirectResponse("/dev", status_code=303)
+        return RedirectResponse("/dev/quality", status_code=303)
 
     @app.post("/account/password")
     def account_password(
@@ -3485,7 +3521,7 @@ def create_app(
     # ---- 학습 도구 계정·연결 — 모델 학습 화면의 도구 카드에서 다룬다 ----
 
     def _train_redirect(msg: str, ok: bool = True) -> RedirectResponse:
-        return RedirectResponse(f"/dev/train?{'ok' if ok else 'err'}={msg}", status_code=303)
+        return _llm_redirect(msg, ok)
 
     @app.post("/dev/account/scope")
     def dev_account_scope(request: Request, uid: str = Form(...), dept: str = Form(""), role: str = Form("staff")):
@@ -3846,7 +3882,7 @@ def create_app(
             from zzaimy.generate.client import describe_llm_error
 
             answer = describe_llm_error(e)
-        answer = ag.scrub(answer)
+        answer = _scrub_internal(answer)
         return _gdocs_page(request, doc, account, question=q, answer=answer, draft_text=answer)
 
     @app.post("/gdocs/insert")
@@ -3858,7 +3894,7 @@ def create_app(
         owner = getattr(request.state, "user", "zzaimy")
         try:
             r = gdocs.insert_into_section(account, doc, section, text, user=owner, data_dir=Path(db_path).parent,
-                                          scrub=ag.scrub)
+                                          scrub=_scrub_internal)
         except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
             return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
         msg = f"「{r['section']}」 아래에 {r['chars']}자를 넣었습니다"
@@ -3872,7 +3908,7 @@ def create_app(
 
         owner = getattr(request.state, "user", "zzaimy")
         try:
-            r = gdocs.replace_text(account, doc, old, new, user=owner, data_dir=Path(db_path).parent, scrub=ag.scrub)
+            r = gdocs.replace_text(account, doc, old, new, user=owner, data_dir=Path(db_path).parent, scrub=_scrub_internal)
         except (ValueError, PermissionError, FileNotFoundError, RuntimeError) as e:
             return RedirectResponse(f"/gdocs/work?{urlencode({'doc': doc, 'account': account, 'err': str(e)})}", status_code=303)
         msg = f"{r['count']}곳을 바꿨습니다"
@@ -3950,7 +3986,7 @@ def create_app(
         link = chat_documents.binding(db, sid, owner)
         if not link:
             raise HTTPException(400, "연결된 문서가 없습니다")
-        lines = gdocs_agent.apply_pending(db, sid, owner, link, data_dir=Path(db_path).parent, scrub=ag.scrub)
+        lines = gdocs_agent.apply_pending(db, sid, owner, link, data_dir=Path(db_path).parent, scrub=_scrub_internal)
         if lines:
             db.add_chat(sid, "assistant", "적용됨:\n" + "\n".join(f"- {ln}" for ln in lines))
         return {"ok": True, "applied": lines}
@@ -4406,14 +4442,18 @@ def create_app(
     ]
 
     @app.get("/dev/train", response_class=HTMLResponse)
-    def dev_train(request: Request, err: str = "", ok: str = ""):
+    def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "models", ds_page: int = 0):
+        if tab not in {"data", "models", "settings", "exports"}:
+            tab = "models"
+        if tab == "data":
+            return _dev_data_view(request, err, ok, ds_page)
         # 연결마다 서버가 지금 내어 주는 모델 목록 — 저장된 값이 아니라 실시간(짧게 캐시)
         # Label Studio 는 실제 연결 여부(connected)로 표시 — 주소만 있다고 연결됨이 아니다.
         # 도구 계정·주소(LS 아이디·비밀번호 재설정, GPU 도구 주소)도 이 화면의 도구 카드에서 다룬다.
         from zzaimy.dataset import ls_admin
         from zzaimy.generate import llm_connections, model_config
 
-        ls = _ls_status()
+        ls = _ls_status() if tab in {"models", "settings"} else {"ok": False}
         tools = [
             {**t, "url": db.get_setting(t["setting"], ""),
              "connected": ls["ok"] if t["key"] == "labelstudio" else None}
@@ -4422,14 +4462,14 @@ def create_app(
         from zzaimy.export.bundle import preview_bundle
         try:
             export_preview = preview_bundle(
-                db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
+                db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR")) if tab == "exports" else []
         except Exception:
             export_preview = []
         # 학습 순서 — 단계별 상태는 DB(학습 데이터 묶음), 측정 산출물(검색 정확도), 설정(도구 주소)에서만
         datasets = db.list_datasets(limit=10)
         llamaboard_url = db.get_setting("llamaboard_url", "")
         llm = model_config.current()
-        llm_probe = model_config.probe() if llm["configured"] else {"ok": False, "models": [], "error": "주소 없음"}
+        llm_probe = model_config.probe() if llm["configured"] and tab != "exports" else {"ok": False, "models": [], "error": "미확인"}
         llm_url = llm["base_url"] if llm["configured"] else ""
         try:
             ev = _retrieval_eval_state().get("result") or {}
@@ -4455,6 +4495,7 @@ def create_app(
              "state": "done" if llm_probe["ok"] else "todo"},
         ]
         return templates.TemplateResponse(request, "dev_train.html", ctx(request, {
+            "development_tab": tab,
             "err": err, "ok": ok,
             "tools": tools,
             "steps": steps,
@@ -4466,15 +4507,15 @@ def create_app(
             "llm": llm, "llm_probe": llm_probe,
             "connections": [dict(c, usage=model_config.usage_today(c["id"]),
                                  live=_live_models_cached(c["id"]))
-                            for c in llm_connections.list_public()],
+                            for c in llm_connections.list_public()] if tab == "settings" else [],
             "llm_kinds": llm_connections.KINDS,
             "usage_all": model_config.usage_today(),
             "datasets": datasets,
             "export_preview": export_preview,
             "llm_roles": llm_connections.roles_public(),
             "role_labels": llm_connections.ROLES,
-            "search_serving": search_serving.status(),
-            "serving_plan": serving_plan.status(_live_models_cached),
+            "search_serving": search_serving.status() if tab == "settings" else [],
+            "serving_plan": serving_plan.status(_live_models_cached) if tab == "settings" else [],
             "train_host": serving_plan.training_box(),
         }))
 
@@ -4498,7 +4539,7 @@ def create_app(
             include = {k for k, on in flags if on}
         if not include:
             return RedirectResponse(
-                "/dev/train?err=반출할 항목을 하나 이상 선택하세요", status_code=303
+                "/dev/train?tab=exports&err=반출할 항목을 하나 이상 선택하세요", status_code=303
             )
         model_dir = os.environ.get("ZZAIMY_MODEL_DIR")
         data, _manifest = build_bundle(db, model_dir=model_dir, include=include)
@@ -4514,7 +4555,9 @@ def create_app(
     # ---- LLM 연결 관리 — 내부 vLLM·외부 API 등록, 확인, 기본 지정 (키는 서버 파일에만) ----
 
     def _llm_redirect(msg: str, ok: bool = True) -> RedirectResponse:
-        return RedirectResponse(f"/dev/train?{'ok' if ok else 'err'}={msg}", status_code=303)
+        from urllib.parse import urlencode
+        from urllib.parse import quote
+        return RedirectResponse("/dev/train?" + urlencode({"tab": "settings", "ok" if ok else "err": msg}, quote_via=quote), status_code=303)
 
     @app.post("/dev/llm/add")
     def dev_llm_add(name: str = Form(""), kind: str = Form("vllm"), base_url: str = Form(""),
@@ -4692,7 +4735,7 @@ def create_app(
             "Label Studio 비밀번호를 재설정했습니다 — 새 비밀번호로 로그인하세요")
 
     @app.post("/dev/train/url")
-    def dev_tool_url(setting: str = Form(...), url: str = Form(""), back: str = Form("/dev/train")):
+    def dev_tool_url(setting: str = Form(...), url: str = Form(""), back: str = Form("/dev/train?tab=settings")):
         # Label Studio 주소는 구축 스크립트(scripts/68_labelstudio_token.sh)가 넣는다 —
         # 화면에서는 GPU 도구(LLaMA Board·TensorBoard) 주소만 바꾼다
         valid = {t["setting"] for t in _TRAIN_TOOLS if t["key"] != "labelstudio"}
@@ -4702,22 +4745,38 @@ def create_app(
         if url and not url.startswith(("http://", "https://")):
             raise HTTPException(400, "http(s):// 주소여야 합니다")
         db.set_setting(setting, url)
-        dest = back if back.startswith("/dev/") else "/dev/train"
+        dest = back if back.startswith("/dev/") else "/dev/train?tab=settings"
         return RedirectResponse(dest, status_code=303)
 
     # ---- 데이터 공방 — 기록 → 학습 데이터(JSONL) 변환 (개발자 전용) ----
 
     @app.get("/dev/data", response_class=HTMLResponse)
     def dev_data(request: Request, err: str = "", ok: str = "", ds_page: int = 0):
+        from urllib.parse import urlencode
+        params = dict(request.query_params)
+        params["tab"] = "data"
+        return RedirectResponse("/dev/train?" + urlencode(params), status_code=303)
+
+    def _dev_data_view(request: Request, err: str = "", ok: str = "", ds_page: int = 0):
         from zzaimy.dataset.build import preview_sources, rag_status
 
         ds_page = max(ds_page, 0)
         DS_PER = 20
         ds_total = db.count_datasets()
+        datasets = db.list_datasets(limit=DS_PER, offset=ds_page * DS_PER)
+        from zzaimy.dataset.privacy import approved_bytes
+        for dataset in datasets:
+            try:
+                approved_bytes(Path(dataset["path"]))
+                dataset["export_ready"] = True
+            except (ValueError, OSError):
+                dataset["export_ready"] = False
         return templates.TemplateResponse(request, "dev_data.html", ctx(request, {
+            "development_tab": "data",
+            "grounded_ls": _grounded_ls_status(),
             "rag_rows": rag_status(db),
             "source_preview": preview_sources(db),
-            "datasets": db.list_datasets(limit=DS_PER, offset=ds_page * DS_PER),
+            "datasets": datasets,
             "ds_page": ds_page, "ds_total": ds_total, "ds_per": DS_PER,
             "ds_has_next": (ds_page + 1) * DS_PER < ds_total,
             "err": err, "ok": ok,
@@ -4811,18 +4870,38 @@ def create_app(
     def _ls_status_reset() -> None:
         _ls_status_cache["value"] = None
 
+    _grounded_cache: dict = {"at": 0.0, "value": None}
+
+    def _grounded_ls_status():
+        from zzaimy.dataset.ls_client import LabelStudioError
+        now = _time.monotonic()
+        if _grounded_cache["value"] is not None and now - _grounded_cache["at"] < 30:
+            return _grounded_cache["value"]
+        try:
+            value = _ls_client().status("ZZAIMY 근거 기반 문답 검수")
+        except LabelStudioError:
+            value = {"ok": False, "error": "연결 설정 없음", "total": 0, "done": 0, "pending": 0, "project_id": None}
+        _grounded_cache.update(at=now, value=value)
+        return value
+
     @app.post("/dev/data/ls-pull")
     def dev_data_ls_pull(name: str = Form("검수완료")):
         """Label Studio 검수 결과를 API로 가져와 학습 데이터로 확정."""
         from pathlib import Path as _P
 
         from zzaimy.dataset.build import SFT_DIR
+        from zzaimy.dataset.privacy import protect_candidate
         from zzaimy.dataset.ls_client import LabelStudioError
 
         try:
             cli = _ls_client()
             pid = cli.ensure_project(_LS_PROJECT)
             pairs = cli.pull_reviewed(pid)
+            protected = protect_candidate(pairs)
+            if protected != pairs:
+                for pair in protected:
+                    pair.setdefault("meta", {}).pop("review", None)
+            pairs = protected
         except LabelStudioError as e:
             return RedirectResponse(f"/dev/data?err=Label Studio: {e}", status_code=303)
         if not pairs:
@@ -4842,15 +4921,18 @@ def create_app(
 
     @app.get("/dev/data/{dataset_id}.jsonl")
     def dev_data_download(dataset_id: int):
-        from fastapi.responses import FileResponse
+        from fastapi.responses import Response
+        from zzaimy.dataset.privacy import approved_bytes
 
         ds = db.get_dataset(dataset_id)
         if ds is None or not Path(ds["path"]).exists():
             raise HTTPException(404, "데이터셋 파일이 없습니다")
-        return FileResponse(
-            ds["path"], media_type="application/jsonl",
-            filename=Path(ds["path"]).name,
-        )
+        try:
+            payload = approved_bytes(Path(ds["path"]))
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        return Response(payload, media_type="application/jsonl",
+                        headers={"Content-Disposition": f'attachment; filename="dataset-{dataset_id}.jsonl"'})
 
     # ---- 추출 품질 신고 루프 (품질 체계 5계층, docs/quality-system.md) ----
 

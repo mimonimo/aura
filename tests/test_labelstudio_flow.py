@@ -131,7 +131,7 @@ def test_page_unreachable_shows_fix_sentence_without_paste_box(client, monkeypat
     _fake_requests(monkeypatch, exc=requests.ConnectionError("refused"))
     r = client.get("/dev/data")
     assert r.status_code == 200
-    assert "미연결" in r.text and '<a href="/dev/train">연결 설정</a>' in r.text
+    assert "미연결" in r.text and '<a href="/dev/train?tab=settings">연결 설정</a>' in r.text
     assert 'name="token"' not in r.text          # 토큰 붙여넣기 칸 없음
     assert "label-export" not in r.text and "label-import" not in r.text  # 수동 파일 교환 없음
 
@@ -151,16 +151,18 @@ def test_page_without_settings_never_touches_network(client, monkeypatch):
     _fake_requests(monkeypatch, exc=AssertionError("설정이 없으면 네트워크에 나가면 안 된다"))
     r = client.get("/dev/data")
     assert r.status_code == 200
-    assert "미연결" in r.text and '<a href="/dev/train">연결 설정</a>' in r.text
+    assert "미연결" in r.text and '<a href="/dev/train?tab=settings">연결 설정</a>' in r.text
 
 
 def test_status_is_cached_between_page_loads(client, monkeypatch):
     _configure(client)
     calls = _fake_requests(monkeypatch, {"/api/projects": (200, PROJECT_LIST)})
     client.get("/dev/data")
+    # 기존 검수와 근거 기반 문답은 각각 한 번 조회하고 이후에는 캐시한다.
+    assert len(calls) == 2
     client.get("/dev/data")
     client.get("/dev/train")
-    assert len(calls) == 1
+    assert len(calls) == 2
 
 
 # ---- 되받기는 그대로, 수동 라우트는 사라졌다 ----

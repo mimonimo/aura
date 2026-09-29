@@ -6,7 +6,12 @@
 .privacy-page{max-width:1200px;margin:0 auto;min-width:0}
 .privacy-page .card{margin-bottom:20px}
 .privacy-page h2{flex-wrap:wrap;gap:12px}
-.privacy-page .pill{white-space:nowrap;flex-shrink:0}
+.privacy-page .pill{display:inline-flex;white-space:normal;overflow-wrap:anywhere;flex-shrink:0;line-height:1.5;margin:2px;max-width:100%}
+.privacy-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;margin:16px 0}
+.privacy-options label{display:flex;gap:8px;align-items:center}.privacy-options input{width:auto}
+.privacy-page fieldset{border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:12px 0;min-width:0}.privacy-page legend{font-size:13px;padding:0 6px}
+.privacy-record{border-top:1px solid var(--line);padding:14px 0;overflow-wrap:anywhere}
+.privacy-record h3{font-size:14px;margin:0 0 8px}.privacy-record p{font-size:13px;line-height:1.7}
 .privacy-page .table-scroll{overflow-x:auto}
 .privacy-page table{min-width:640px}
 .privacy-nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
@@ -32,8 +37,8 @@
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>문서 활용과 개인정보 보호</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    내부 검색·검토·초안 작성은 권한 있는 원문을 보존하고, 외부 전송·학습용 반출 사본을 별도로 보호하는 정책으로 변경합니다.</p>
-  <div class="privacy-notice" role="status"><strong>내부 원문 보존 전환 미완료</strong><br>현재 반입·채팅 응답에는 기존 마스킹이 남아 있습니다. 이 화면의 정책 안내나 검사 실행이 실제 처리 설정을 바꾸지는 않습니다.</div>
+    내부 검색·검토·초안은 문서 접근 권한을 따릅니다. 학습·외부 전송 사본은 내부 설정과 별도로 보호합니다.</p>
+  <div class="privacy-notice" role="status"><strong>내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong><br>이후 처리에 적용됩니다. 이전에 가린 본문은 자동 복원되지 않으며, 다른 부서의 문서 권한이 열리지는 않습니다.</div>
   {% set scan0 = sources[0].scan if sources else none %}
   <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
     {% if selftest and not selftest.error %}
@@ -54,23 +59,34 @@
 
 {% if selected == 'policy' %}
 <div class="card"><div class="card-in">
-  <h2>현재 적용 상태</h2>
-  <p><span class="pill processing">내부 반입 마스킹 · 적용 경로 남아 있음</span></p>
-  <p class="privacy-help">현재 코드에는 전체 켜기·끄기 및 항목별 저장 설정이 연결되어 있지 않습니다. 기존 검사 결과의 ‘정상’은 기능이 꺼져 있다는 뜻이 아닙니다. 기준 문서의 원문 유지 예외는 아래 유형별 표를 확인하세요.</p>
+  <h2>내부 마스킹 설정</h2>
+  {% if request.query_params.get('saved') %}<p role="status">설정을 저장했습니다. 이후 처리부터 적용됩니다.</p>{% endif %}
+  <form method="post" action="/dev/pii/policy">
+  <fieldset><legend>새 반입·첨부·내부 응답에 적용</legend><div class="privacy-options">
+  <label><input type="radio" name="enabled" value="off" {% if not internal_policy.enabled %}checked{% endif %}>꺼짐 — 원문 활용</label>
+  <label><input type="radio" name="enabled" value="on" {% if internal_policy.enabled %}checked{% endif %}>켜짐 — 선택 항목 가림</label>
+  </div></fieldset>
+  <fieldset><legend>켜졌을 때 가릴 항목</legend><div class="privacy-options">
+  {% for key,label in masking_entities.items() %}<label><input type="checkbox" name="entities" value="{{ key }}" {% if key in internal_policy.entities %}checked{% endif %}>{{ label }}</label>{% endfor %}
+  </div></fieldset>
+  <p class="privacy-help">기준 문서의 원문 유지 예외는 유지합니다. 원본 파일·기존 본문·검색 조각을 소급 변경하지 않습니다.</p>
+  <button type="submit">설정 저장</button></form>
+  <p class="privacy-help">마지막 변경: {{ internal_policy.updated_at or '기본값 · 내부 마스킹 꺼짐' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</p>
 </div></div>
 <div class="card"><div class="card-in">
-  <h2>적용할 처리 원칙</h2>
-  <p class="privacy-help">사용자와 정한 목표 정책입니다. 아래 원칙이 모든 경로에 적용됐다는 의미는 아닙니다.</p>
+  <h2>학습·외부 전송은 별도 보호</h2>
+  <p class="privacy-help">내부 마스킹 설정으로 학습 반출 검수를 끌 수 없습니다. 자동 탐지는 자유 문장 속 성명·주소 등을 놓칠 수 있어 사람 검수를 대신하지 않습니다.</p>
   <div class="privacy-principles">
     <article><h3>내부 문서 활용</h3><p>권한 있는 사용자의 검색·검토·초안 작성에는 원문 값을 활용합니다. 이름·수치를 일괄적으로 가리지 않습니다.</p></article>
     <article><h3>권한으로 접근 제한</h3><p>소속 부서와 문서 열람 등급에 따라 접근을 제한합니다. 원문 보존이 전 직원 공개를 뜻하지 않습니다.</p></article>
     <article><h3>외부 전송·학습 사본</h3><p>외부로 보내는 내용과 학습 데이터는 별도로 점검합니다. 개인정보를 제외하고, 답변 값은 제공된 근거에서 찾도록 학습합니다.</p></article>
   </div>
   <p class="privacy-help">기존 마스킹 본문은 자동 복원되지 않습니다. 원본 재추출과 권한·반출 경로 검증을 함께 진행해야 합니다.</p>
-  <a href="/dev/egress">외부 전송 기록</a> · <a href="/dev/data">학습 데이터 검수</a>
+  <a href="/dev/pii?view=external">외부 연결 확인</a> · <a href="/dev/train?tab=data">학습 데이터 검수</a>
 </div></div>
+{% if request.query_params.get('legacy') == '1' %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:list-check-linear"></iconify-icon>현재 반입 처리 (전환 대상)</h2>
+  <h2><iconify-icon icon="solar:list-check-linear"></iconify-icon>과거 유형별 처리 정책</h2>
   <div class="table-scroll">
   <table style="font-size:12.5px;">
     <tr><th>문서 유형</th><th>처리</th><th>시점</th><th>이유</th><th>기록(문서·가린 항목)</th></tr>
@@ -94,6 +110,7 @@
     채팅 첨부 파일도 같은 마스커를 거치지만 문서 대장에 남지 않아 여기 집계되지 않습니다.</p>
 </div></div>
 <p class="privacy-help"><a href="/dev/doc/decisions/0006-criteria-no-masking.md">기존 기준 문서 예외 정책 (ADR-0006)</a> · 과거 정책 근거이며 새 처리 원칙의 구현 완료 증거는 아닙니다.</p>
+{% endif %}
 {% endif %}
 
 {% if selected == 'external' %}
@@ -121,7 +138,7 @@
 {% endif %}
 
 {% if selected == 'checks' %}
-<p class="privacy-help">읽기 전용 진단입니다. 탐지 결과만으로 내부 문서를 위험 자료로 판단하거나 학습용 반출을 승인하지 않습니다.</p>
+<p class="privacy-help">읽기 전용 진단입니다. 내부 마스킹이 꺼져 있을 때 원문에서 개인정보가 탐지되는 것은 예상되는 결과입니다. 검사 결과로 반출을 승인하거나 처리 설정을 바꾸지 않습니다.</p>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:test-tube-linear"></iconify-icon>마스커 자가 점검
     <form method="post" action="/dev/pii/selftest" style="margin-left:auto;">
@@ -149,7 +166,7 @@
   <div class="table-scroll">
   <table style="font-size:12.5px;">
     <tr><th>항목</th><th>판정</th><th>마스킹 결과</th><th>비고</th></tr>
-    {% for c in selftest.checks %}
+    {% for c in selftest.checks if request.query_params.get('detail') == 'selftest' or not c.passed %}
     <tr>
       <td style="white-space:nowrap;">
         {% if c.kind == 'mask' %}<span class="pill type" style="font-size:11px;">{{ c.entity_type }}</span>
@@ -175,6 +192,7 @@
   </table>
   </div>
   <p class="muted" style="margin:8px 0 0; font-size:12px;">지원 유형: {{ selftest.supported | join(', ') }}</p>
+  <a href="/dev/pii?view=checks&amp;detail=selftest">전체 항목별 결과 보기</a>
   {% endif %}
 </div></div>
 
@@ -214,8 +232,9 @@
     </div>
     <div class="table-scroll">
     <table style="font-size:12.5px;">
+      <caption style="text-align:left;padding:8px 0">탐지 문서 표본 · 최대 10건 표시</caption>
       <tr><th>문서</th><th>유형</th><th>잔여</th><th>위치</th><th>문맥 표본(값은 가림)</th></tr>
-      {% for d in scan.docs %}
+      {% for d in scan.docs[:10] %}
       <tr>
         <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
           {% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>
@@ -244,7 +263,12 @@
 
 {% if selected == 'history' %}
 <p class="privacy-help">과거 실행 때 남긴 기록입니다. 현재 정책의 활성화 여부나 개인정보가 없는 상태를 보증하지 않습니다.</p>
-{% for src in sources %}
+<form method="get" action="/dev/pii" class="privacy-nav">
+<input type="hidden" name="view" value="history">
+<select name="source" aria-label="기록 저장소"><option value="platform">플랫폼 DB</option>{% if sources|length > 1 %}<option value="corpus" {% if history_source=='corpus' %}selected{% endif %}>국고 코퍼스 (별도 DB)</option>{% endif %}</select>
+<input type="text" name="q" value="{{ history_q }}" placeholder="문서명 검색" aria-label="문서명 검색">
+<select name="entity" aria-label="개인정보 유형"><option value="">전체 유형</option>{% for key,label in masking_entities.items() %}<option value="{{ key }}" {% if history_entity==key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><button type="submit">조회</button></form>
+{% for src in [sources[1] if history_source=='corpus' else sources[0]] %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>마스킹 기록 — {{ src.name }}</h2>
   <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:12px;">
@@ -284,39 +308,18 @@
   {% endif %}
 
   {% if src.docs %}
-  <div class="table-scroll">
-  <table style="font-size:12.5px;">
-    <tr><th>문서</th><th>유형</th><th>상태</th><th>마스킹(유형별)</th><th>문맥 표본</th><th>기록 시각</th></tr>
-    {% for d in src.docs %}
-    <tr>
-      <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-        {% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>
-        {% else %}{{ doc_name(d) }}{% endif %}</td>
-      <td style="white-space:nowrap;">{{ type_names.get(d.doc_type, d.doc_type) }}
-        {% if d.owner == 'corpus' %}<span class="muted" style="font-size:11px;">코퍼스</span>{% endif %}</td>
-      <td style="white-space:nowrap;"><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
-      <td>
-        {% if not d.recorded %}<span class="muted" style="font-size:12px;">기록 없음</span>
-        {% elif d.total == 0 %}<span class="pill" style="font-size:11px;">0건</span>
-        {% else %}
-          {% for k, v in d.by_type.items() %}
-          <span class="pill type" style="font-size:11px;">{{ entity_labels.get(k, k) }} {{ v }}</span>
-          {% endfor %}
-        {% endif %}</td>
-      <td style="font-size:12px; color:#33425c; max-width:360px;">
-        {% for c in d.contexts[:2] %}
-        <div style="font-family:ui-monospace, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">… {{ c.context }} …</div>
-        {% endfor %}</td>
-      <td class="muted" style="font-size:12px; white-space:nowrap;">{{ ((d.recorded_at or '')[:16] | replace('T', ' ')) or '—' }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  </div>
-  {% if src.docs_truncated %}
-  <p class="muted" style="margin:8px 0 0; font-size:12px;">그 밖에 {{ src.docs_truncated }}건은 표시하지 않았습니다.</p>
-  {% endif %}
+  <p class="privacy-help">검색 결과 {{ src.filtered_total }}건 · 한 페이지 10건</p>
+  {% for d in src.docs %}<article class="privacy-record">
+  <h3>{% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>{% else %}{{ doc_name(d) }}{% endif %}</h3>
+  <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ d.recorded_at or '기록 없음' }}</p>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">{% for key,n in d.by_type.items() %}<span class="pill type">{{ entity_labels.get(key,key) }} {{ n }}</span>{% else %}<span class="pill">{{ '0건' if d.recorded else '기록 없음' }}</span>{% endfor %}</div>
+  {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}">가린 문맥 표본 보기</a>{% endif %}
+  </article>{% endfor %}
+  <nav class="privacy-nav" aria-label="기록 페이지">
+  {% if src.page>1 %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page-1 }}">이전</a>{% endif %}<span>{{ src.page }} / {{ src.pages }}</span>
+  {% if src.page<src.pages %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page+1 }}">다음</a>{% endif %}</nav>
   {% else %}
-  <p class="muted" style="margin:0; font-size:12.5px;">마스킹 대상 문서가 아직 없습니다.</p>
+  <p class="muted" style="margin:0; font-size:12.5px;">조건에 맞는 기록이 없습니다.</p>
   {% endif %}
 </div></div>
 {% endfor %}

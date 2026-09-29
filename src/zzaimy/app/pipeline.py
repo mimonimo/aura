@@ -58,19 +58,16 @@ def _vision_switch_off() -> None:
     _vision_state["off_at"] = _t.time()
 
 
-_MASK_PROBE = "성명: 김민수 연락처 010-1234-5678"
-_mask_probe_cache: dict = {}
 
 
 def _masking_active(mk) -> bool:
     """이 가리기 함수가 실제로 가리는가 — 가리지 않는 정책(기준 문서)이면 행 단위 성명 가리기도 건너뛴다."""
-    key = id(getattr(mk, "__func__", mk))
-    if key not in _mask_probe_cache:
-        try:
-            _mask_probe_cache[key] = mk(_MASK_PROBE) != _MASK_PROBE
-        except Exception:
-            _mask_probe_cache[key] = False
-    return _mask_probe_cache[key]
+    # 정책은 실행 중 변경된다. 함수 ID 캐시는 꺼짐→켜짐 변경을 놓친다.
+    # 행 단위 성명 처리도 성명 항목을 선택했을 때만 적용한다.
+    try:
+        return mk("성명: 김민수") != "성명: 김민수"
+    except Exception:
+        raise  # 검사 실패를 꺼짐으로 간주하지 않는다.
 
 
 def _vision_model_name() -> str:
@@ -264,6 +261,7 @@ class DocumentProcessor:
     """실제 처리기. 테스트에서는 FakeProcessor로 대체된다."""
 
     def __init__(self) -> None:
+        self._privacy_db = None
         self._masker: PiiMasker | None = None
         self._last_images: list[tuple[int, Path]] = []
         self._last_parse_note = ""
@@ -1317,6 +1315,7 @@ class DocumentProcessor:
         """접수 문서의 그림 쪽을 비전 모델로 판독해 조각으로 덧붙인다 — 양식을 채울 재료가 그림 쪽에 있을 때(실측 2026-09-24 합본).
 
         글자층 직독 문서는 반입 때 판독을 거치지 않으므로 여기서 요청 시에만 읽는다. 마스킹 대상 문서면 가린다."""
+        self.configure_privacy(db)
         doc = db.get_document(doc_id)
         if not doc:
             return {"read": 0, "pages": []}
@@ -1420,10 +1419,23 @@ class DocumentProcessor:
         except Exception:
             return True  # 판별 실패 시엔 남긴다
 
+    def configure_privacy(self, db) -> None:
+        self._privacy_db = db
+
+    def _mask_document(self, document):
+        from zzaimy.app.privacy_policy import apply
+        def factory():
+            if self._masker is None:
+                self._masker = PiiMasker()
+            return self._masker
+        if self._privacy_db is not None:
+            return apply(self._privacy_db, document, factory)
+        return factory().mask(document)
+
     def _mask_str(self, s: str) -> str:
         if self._masker is None:
             self._masker = PiiMasker()
-        masked, _ = self._masker.mask(RawDocument(doc_id="chunk", text=s))
+        masked, _ = self._mask_document(RawDocument(doc_id="chunk", text=s))
         return masked.text
 
     @staticmethod
@@ -2203,10 +2215,11 @@ class DocumentProcessor:
         raw = self._parse(file_path)
         if self._masker is None:
             self._masker = PiiMasker()
-        masked, _ = self._masker.mask(RawDocument(doc_id="chat", text=raw))
+        masked, _ = self._mask_document(RawDocument(doc_id="chat", text=raw))
         return masked.text
 
     def process(self, db: Database, doc_id: int, file_path: Path) -> None:
+        self.configure_privacy(db)
         # 같은 파일이 두 번 올라오면(이름만 다른 채) 하나만 들인다 — 같은 조각이 둘이면
         # 검색이 같은 근거를 두 번 올리고 그래프가 쌍둥이를 잇는다.
         import hashlib
@@ -2450,11 +2463,13 @@ class DocumentProcessor:
                         if self._last_parse_note:
                             self._last_parse_note += " · 직인" if i == 0 else ""
 
-                masked, ocr_events = self._masker.mask(
+                masked, ocr_events = self._mask_document(
                     RawDocument(doc_id=str(doc_id), text=raw_text)
                 )
                 # 마스킹 기록 — 유형·건수·마스킹본 문맥만 (원문 값 없음)
-                record_mask_events(db, doc_id, masked.text, ocr_events)
+                from zzaimy.app.privacy_policy import load as load_privacy
+                if load_privacy(db)["enabled"]:
+                    record_mask_events(db, doc_id, masked.text, ocr_events)
                 if parsed_chunks is None:
                     parsed_chunks = self._structured_chunks() or self._md_chunks() or self._page_chunks() or _split_chunks(masked.text)
                     if self._llm_correct_chunks(parsed_chunks):
@@ -2487,12 +2502,14 @@ class DocumentProcessor:
             # 인풋 문서 — 개인식별 정보가 들어올 수 있으므로 여기서만 마스킹한다
             if self._masker is None:
                 self._masker = PiiMasker()
-            masked, events = self._masker.mask(
+            masked, events = self._mask_document(
                 RawDocument(doc_id=str(doc_id), text=raw_text)
             )
             log.info("doc %d: PII %d건 마스킹", doc_id, len(events))
             # 마스킹 기록 — 유형·건수·마스킹본 문맥만 (원문 값 없음)
-            record_mask_events(db, doc_id, masked.text, events)
+            from zzaimy.app.privacy_policy import load as load_privacy
+            if load_privacy(db)["enabled"]:
+                record_mask_events(db, doc_id, masked.text, events)
             self._assign_kind(db, doc_id, (doc or {}).get("filename") or "", masked.text, doc_type)
 
             # 파싱 결과 DB화 — 구조(페이지·표) 보존 조각, 없으면 문단 분할 (연관성·작성 재료)

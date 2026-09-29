@@ -3,7 +3,7 @@
 {% block pagetitle %}논문·설계 문서{% endblock %}
 {% block content %}
 <style>
-  /* 종류별 카드 두 열 — 왼쪽 논문 자료·주간 보고서·설계 결정, 오른쪽 현황·설계 → 측정 기록·모델 카드 → 기술 검토(작업 메모는 접힘) */
+  /* 현재 자료와 과거 기록은 탭별로 분리한다. */
   .weekly-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:4px 0 10px; font-size:13px; }
   .weekly-actions .btn-ghost { padding:4px 10px; min-height:30px; }
   .weekly-feedback { display:flex; flex-direction:column; gap:6px; margin:6px 0 10px; }
@@ -40,9 +40,16 @@
                       letter-spacing: .04em; margin: 14px 0 2px; }
   .doc-memo summary::-webkit-details-marker { display: none; }
   .doc-m { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
-           color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+           color: var(--muted); font-variant-numeric: tabular-nums; flex-wrap:wrap; max-width:160px; }
+  .doc-st { white-space:normal; overflow-wrap:anywhere; min-width:0; }
+  .docs-nav { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
+  .docs-nav [aria-current="page"] { background:var(--navy); color:white; }
+  .docs-search { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px; }
+  .docs-search input { flex:1; min-width:140px; }
+  .doc-cols.history-view { display:block; }
+  .doc-cols.history-view > div:first-child { display:none; }
   .doc-st { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
-  .doc-st::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #CBD5E1; }
+  .doc-st::before { content: ""; flex:none; width: 6px; height: 6px; border-radius: 50%; background: #CBD5E1; }
   .doc-st.ok::before { background: var(--green); }
   .doc-st.open::before { background: var(--amber); }
   .doc-go { flex: none; align-self: center; font-size: 15px; color: var(--faint);
@@ -62,6 +69,12 @@
 <p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
   <a href="/dev" class="btn-ghost">← 개발 현황</a>
 </p>
+<p class="muted">현재 설계와 논문 자료를 먼저 확인합니다. 과거 결정·실험은 이력으로 보존하며, 채택 결정이 구현 완료를 뜻하지는 않습니다.</p>
+<nav class="docs-nav" aria-label="문서 분류">
+{% for key, label in [('current','현재 자료'), ('decisions','설계 결정'), ('records','실험·검토 이력')] %}
+<a class="btn-ghost" href="/dev/docs?view={{ key }}" {% if docs_view == key %}aria-current="page"{% endif %}>{{ label }}</a>
+{% endfor %}
+</nav>
 
 {% macro rows(items) %}
 <ul class="doc-list">
@@ -82,8 +95,35 @@
 </ul>
 {% endmacro %}
 
-<div class="doc-cols">
+{% if docs_view == 'decisions' %}
+<form class="docs-search" method="get" action="/dev/docs">
+  <input type="hidden" name="view" value="decisions">
+  <input type="text" name="q" value="{{ docs_query }}" placeholder="결정 제목·번호 검색" aria-label="결정 제목·번호 검색">
+  <button type="submit">검색</button>
+</form>
+{% set found = namespace(items=[]) %}
+{% for d in adr_docs|reverse %}
+{% if not docs_query or docs_query|lower in d.title|lower or docs_query in d.num %}
+{% set found.items = found.items + [d] %}
+{% endif %}
+{% endfor %}
+{% set total_pages = [1, (found.items|length + 11) // 12]|max %}
+{% set selected_page = [docs_page, total_pages]|min %}
+<section class="card"><div class="card-in">
+<h2>설계 결정 <span class="doc-cnt">{{ found.items|length }}건</span></h2>
+<p class="muted">최근 번호 순 · 대체된 결정은 과거 이력입니다. 같은 번호의 기록은 제목으로 구분합니다.</p>
+{{ rows(found.items[(selected_page-1)*12:selected_page*12]) }}
+{% if not found.items %}<p>검색 결과가 없습니다.</p>{% endif %}
+<nav class="docs-nav" aria-label="설계 결정 페이지">
+{% if selected_page > 1 %}<a class="btn-ghost" href="/dev/docs?view=decisions&amp;q={{ docs_query|urlencode }}&amp;page={{ selected_page-1 }}">이전</a>{% endif %}
+<span>{{ selected_page }} / {{ total_pages }}</span>
+{% if selected_page < total_pages %}<a class="btn-ghost" href="/dev/docs?view=decisions&amp;q={{ docs_query|urlencode }}&amp;page={{ selected_page+1 }}">다음</a>{% endif %}
+</nav>
+</div></section>
+{% endif %}
+<div class="doc-cols {{ 'history-view' if docs_view != 'current' else '' }}">
   <div>
+    {% if docs_view == 'current' %}
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문 자료
         <span class="doc-cnt">{{ papers|length }}</span></h2>
@@ -132,14 +172,11 @@
       </script>
     </div></div>
 
-    <div class="card"><div class="card-in">
-      <h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>설계 결정 (ADR)
-        <span class="doc-cnt">{{ adr_docs|length }}</span></h2>
-      {{ rows(adr_docs) }}
-    </div></div>
+    {% endif %}
   </div>
 
   <div>
+    {% if docs_view == 'current' %}
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:compass-linear"></iconify-icon>현황·설계
         <span class="doc-cnt">{{ status_docs|length + plan_docs|length }}</span></h2>
@@ -148,7 +185,15 @@
       <div class="doc-sub">설계·계획</div>
       {{ rows(plan_docs) }}
     </div></div>
+    <div class="card"><div class="card-in">
+      <h2>운영 상태 확인</h2>
+      <p><a href="/dev/train?tab=data">근거 기반 문답 · 데이터 검수</a></p>
+      <p><a href="/dev/quality">검색·데이터 품질 측정</a></p>
+      <p class="muted">과거 실험 수치를 현재 성능으로 사용하지 않습니다. 학습 후보와 검수 승인 데이터는 구분합니다.</p>
+    </div></div>
+    {% endif %}
 
+    {% if docs_view == 'records' %}
     <div class="card"><div class="card-in">
       <h2><iconify-icon icon="solar:chart-square-linear"></iconify-icon>측정 기록·모델 카드
         <span class="doc-cnt">{{ bench_docs|length + card_docs|length }}</span></h2>
@@ -167,6 +212,7 @@
         {{ rows(memo_docs) }}
       </details>
     </div></div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

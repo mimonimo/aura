@@ -475,7 +475,7 @@ def corpus_db_path(db: Database) -> Path | None:
     return None
 
 
-def source_view(db: Database, name: str, linkable: bool) -> dict:
+def source_view(db: Database, name: str, linkable: bool, *, q: str = "", entity: str = "", page: int = 1, page_size: int = 10) -> dict:
     """한 DB의 마스킹 현황 — 요약·문서별 기록·마지막 잔여 검사."""
     stats = db.mask_event_stats()
     recorded = {d["doc_id"]: d for d in db.mask_events_by_doc(limit=100_000)}
@@ -506,14 +506,20 @@ def source_view(db: Database, name: str, linkable: bool) -> dict:
             "recorded_at": (rec or {}).get("created_at"),
         })
     unrecorded = sum(1 for s in subjects if not s["recorded"] and s["status"] == "reviewed")
+    filtered = sorted([s for s in subjects if (not q or q.casefold() in s["filename"].casefold())
+                       and (not entity or entity in s["by_type"])],
+                      key=lambda s: (s["recorded_at"] or "", s["doc_id"]), reverse=True)
+    pages = max(1, (len(filtered) + page_size - 1) // page_size)
+    page = min(max(1, page), pages)
     return {
         "name": name,
         "linkable": linkable,
         "stats": stats,
         "subject_docs": len(subjects),
         "unrecorded": unrecorded,   # 처리는 끝났는데 기록이 없는 문서 — 기능 도입 전 처리분
-        "docs": subjects[:300],
-        "docs_truncated": max(0, len(subjects) - 300),
+        "docs": filtered[(page-1)*page_size:page*page_size],
+        "docs_truncated": max(0, len(filtered) - page*page_size),
+        "page": page, "pages": pages, "filtered_total": len(filtered),
         "unknown_types": sorted(unknown_types),
         "by_doc_type": by_doc_type,
         "scan": load_json(db, SCAN_KEY),
