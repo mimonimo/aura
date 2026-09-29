@@ -1,5 +1,18 @@
 # Codex 작업 기록
 
+### C-125 진행 결과 — 1차 실제 데이터 대조 통과
+
+VM 별도 DB `aura_stage` / 스키마 `aura_stage_c125_first`: 사용자 테이블 24개, 총 5,106행
+복사 및 타입 포함 전체 값 해시 일치. 원본 스냅샷/검증 결과는
+`data/platform/backup/pg-stage-c125-first/`에 0700 디렉터리·0600 파일로 보관.
+Git 도구 반영 410f3cc4, psycopg 3.3.6 설치. 실서버 tests/test_pg_migration.py 5건 PASS:
+WAL 스냅샷, 기존 백업 거부, 값 타입 대조, 기존 스키마 거부, 실패 시 전체 스키마 롤백.
+테스트 전용 무작위 스키마는 테스트 종료 때 삭제, 실데이터 검증 스키마/SQLite 원본은 보존.
+기존 플랫폼 서비스 active, 로그인 HTTP 200. 앱 연결은 여전히 SQLite이며 운영 이관 완료 아님.
+남은 필수 작업: runtime DB 계층/SQLite SQL·직접 연결 대체, PG 운영 스키마와 ID sequence·인덱스,
+무결성 검사·앱 회귀, 쓰기 중지 후 최종 스냅샷과 운영 전환. 지금 staging 테이블에는
+운영 기본값/자동 ID/외래키가 없으므로 연결 대상으로 사용 금지.
+
 ## C-125 — PostgreSQL 이관 도구·대조 검증 (2026-09-29)
 
 진행: 별도 pg_migration.py, scripts/migrate_platform_postgres.py, 관련 테스트·ADR 담당.
