@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from zzaimy.app import paths  # noqa: E402
+from zzaimy.app.database_backend import connect, table_names
 
 DOC_COLS = ("id", "receipt_no", "filename", "doc_type", "kind", "sector", "dept", "access_level", "family", "version_of",
             "related_criteria_id", "created_at", "parse_note", "masked_text")
@@ -36,8 +37,7 @@ def _rows(conn, sql, params=()):
 
 
 def export(db_path: Path, out_dir: Path, levels: tuple[str, ...], base: Path | None = None, make_zip: bool = False) -> dict:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect(db_path, readonly=True)
     marks = ",".join("?" for _ in levels)
     docs = _rows(conn, f"SELECT * FROM documents WHERE status <> 'failed' AND COALESCE(access_level,'public') IN ({marks})", levels)
     doc_ids = {d["id"] for d in docs}
@@ -75,7 +75,7 @@ def export(db_path: Path, out_dir: Path, levels: tuple[str, ...], base: Path | N
 
 
 def _table(conn, name: str) -> bool:
-    return conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
+    return name in table_names(conn)
 
 
 def _jsonl(path: Path, rows: list[dict]) -> None:

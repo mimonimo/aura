@@ -5,7 +5,7 @@
 # 운영 VM(GPU·LLM 없음) 기준. 합성 질의(51)는 LLM이 필요해 VLLM_BASE_URL이
 # 설정된 경우에만 돌린다 — 생략되면 53 평가는 낡은 질의 세트라 무효이며,
 # LLM 연결 후 이 체인을 다시 돌려야 한다.
-set -uo pipefail
+set -euo pipefail
 cd "$(dirname "$0")/.."
 # 오프라인 자립 — 모델은 로컬 캐시에서만. 미설정 시 허브 접속 재시도로
 # 수십 분을 허비한다 (VM은 외부 인터넷 차단, 2026-09-08 실측)
@@ -19,6 +19,9 @@ NCPU=$(nproc 2>/dev/null || echo 8)
 OMP=$(( NCPU / 2 )); [ "$OMP" -lt 1 ] && OMP=1
 PY=.venv/bin/python
 [ -x .venv-train/bin/python ] && PY=.venv-train/bin/python
+# PostgreSQL driver must exist in the embedding interpreter too; fail before
+# removing the invalidation marker or restarting the app if it is missing.
+env PYTHONPATH=src "$PY" -c 'from zzaimy.app.database_backend import connect; c=connect("data/platform/platform.db", readonly=True); c.execute("SELECT 1"); c.close()'
 
 # LLM 이 붙어 있는가 — 환경변수 또는 화면에서 등록한 기본 연결
 has_llm() {

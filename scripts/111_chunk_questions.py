@@ -75,14 +75,13 @@ def main() -> int:
     extra = ({"reasoning_effort": "none"} if gen.is_ollama(args.url)
              else {"chat_template_kwargs": {"enable_thinking": False}})
 
-    conn = sqlite3.connect(args.db, timeout=30)
-    conn.row_factory = sqlite3.Row
-    with conn:
-        conn.executescript(_DDL)
-    todo = conn.execute(
-        "SELECT c.id, c.reg_title, c.heading, c.content FROM regulation_chunks c"
-        " WHERE NOT EXISTS (SELECT 1 FROM chunk_questions q WHERE q.chunk_id = c.id)"
-        " ORDER BY c.id" + (f" LIMIT {args.limit}" if args.limit else "")).fetchall()
+    from zzaimy.app.db import Database
+    db = Database(args.db)
+    with db._conn() as conn:
+        todo = conn.execute(
+            "SELECT c.id, c.reg_title, c.heading, c.content FROM regulation_chunks c"
+            " WHERE NOT EXISTS (SELECT 1 FROM chunk_questions q WHERE q.chunk_id = c.id)"
+            " ORDER BY c.id" + (f" LIMIT {args.limit}" if args.limit else "")).fetchall()
     print(f"질문을 만들 조각 {len(todo)}개 · 모델 {args.model}", flush=True)
     if not todo:
         return 0
@@ -108,7 +107,7 @@ def main() -> int:
         for cid, qs in pool.map(ask, todo):
             done += 1
             if qs:
-                with conn:
+                with db._conn() as conn:
                     conn.executemany(
                         "INSERT INTO chunk_questions (chunk_id, question, model, created_at)"
                         " VALUES (?,?,?,?)", [(cid, q, args.model, now) for q in qs])

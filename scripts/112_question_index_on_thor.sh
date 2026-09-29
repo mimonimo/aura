@@ -18,8 +18,9 @@ WORK=/tmp/zz-qidx-$STAMP
 
 echo "[$(date +%T)] 1/3 VM 에서 질문 내보내기"
 ssh "$VM" "cd ~/zzaimy-capstone && .venv/bin/python -c '
-import json, sqlite3
-c = sqlite3.connect(\"data/platform/platform.db\"); c.row_factory = sqlite3.Row
+import json
+from zzaimy.app.database_backend import connect
+c = connect(\"data/platform/platform.db\", readonly=True)
 rows = c.execute(\"SELECT id, chunk_id, question FROM chunk_questions ORDER BY id\").fetchall()
 for r in rows:
     print(json.dumps({\"id\": r[\"id\"], \"chunk\": r[\"chunk_id\"], \"text\": r[\"question\"]}, ensure_ascii=False))

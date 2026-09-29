@@ -1,5 +1,12 @@
 # Codex 작업 기록
 
+## C-129 — 최종 전환 준비/배포 담당 Codex
+
+검색 색인 52/96/112, 질문 생성111, 지식 내보내기140 공통 backend 연결 사용.
+서비스와 CLI가 같은 .env.local DB 키를 읽도록 보완. 66 재색인 실패 시 마커 삭제/재시작 금지.
+runtime 이관 CLI 및 서비스 중지 상태에서만 환경 파일 DB 키를 바꾸는 운영 도구 추가.
+Codex가 검증 후 최신 스냅샷 이관/운영 재시작을 담당. 동시 배포·DB 쓰기 작업 피할 것.
+
 ## C-128 — 운영 스키마 적재 검증 진행
 
 db.py 문서 삭제의 자식 참조 정리, pg_migration.py runtime 복사 및 tests/test_pg_migration.py 담당.

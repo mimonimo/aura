@@ -24,8 +24,9 @@ WORK=/tmp/zz-embed-$STAMP
 
 echo "[$(date +%T)] 1/4 VM 에서 조각 글 내보내기"
 ssh "$VM" "cd ~/zzaimy-capstone && .venv/bin/python -c '
-import json, sqlite3
-c = sqlite3.connect(\"data/platform/platform.db\"); c.row_factory = sqlite3.Row
+import json
+from zzaimy.app.database_backend import connect
+c = connect(\"data/platform/platform.db\", readonly=True)
 for r in c.execute(\"SELECT id, reg_title, heading, content FROM regulation_chunks ORDER BY id\"):
     print(json.dumps({\"id\": r[\"id\"], \"text\": f\"{r[\"reg_title\"]} {r[\"heading\"]}\n{r[\"content\"][:1200]}\"}, ensure_ascii=False))
 '" | ssh -p $TP "$THOR" "mkdir -p $WORK && cat > $WORK/chunks.jsonl && wc -l < $WORK/chunks.jsonl"
@@ -64,7 +65,8 @@ if [ "$MODEL" = "/models/KURE-v1" ]; then
 import random, sqlite3, numpy as np
 from sentence_transformers import SentenceTransformer
 d = np.load('/tmp/$OUT_NAME'); ids, V = list(d['ids']), d['vectors']
-c = sqlite3.connect('data/platform/platform.db'); c.row_factory = sqlite3.Row
+from zzaimy.app.database_backend import connect
+c = connect('data/platform/platform.db', readonly=True)
 rows = {r['id']: r for r in c.execute('SELECT id, reg_title, heading, content FROM regulation_chunks')}
 pick = random.Random(7).sample(range(len(ids)), 20)
 m = SentenceTransformer('nlpai-lab/KURE-v1', device='cpu')
