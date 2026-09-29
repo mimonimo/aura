@@ -744,8 +744,9 @@ def grow_table(xml: str, form: _FormTable, rows: list[list[str]]) -> str | None:
 
     서식에서 글이 있는 행(머리 행·소계·합계 행)을 닻으로 작업본 행과 차례대로 맞추고, 닻 사이의 빈 입력 행에 작업본 데이터 행을
     넣는다. 모자라면 그 구간의 마지막 빈 행을 복제한다(kordoc table-rows 의 원리: 행 복제·rowAddr 다시 매김·rowCnt·표 높이).
-    머리 행의 세로 병합은 괜찮다. 복제할 행이 병합에 덮이거나 병합을 시작하거나, 끼워 넣을 자리를 병합이 가로지르면, 또는 중첩 표·
-    칸 수가 안 맞으면 하지 않는다 — 안전하게 새 표로 넣고 보고하는 쪽이 낫다. 칸 수가 다른 닻 행(머리 병합)은 글을 건드리지 않는다."""
+    복제할 행이 세로 병합 묶음 안(첫 열 '영역' 칸 아래 등)이면 그 묶음 머리 칸의 rowSpan·높이를 복제한 만큼 늘린다(kordoc 이 막아 둔
+    경우를 더한 것). 복제할 행 자체가 병합을 시작하거나 중첩 표·칸 수가 안 맞으면 하지 않는다 — 안전하게 새 표로 넣고 보고한다.
+    칸 수가 다른 닻 행(머리 병합)은 글을 건드리지 않는다."""
     a, b = form.para
     para = xml[a:b]
     tbls = _top_level(para, "hp:tbl")
@@ -757,15 +758,27 @@ def grow_table(xml: str, form: _FormTable, rows: list[list[str]]) -> str | None:
         return None
     trs = _top_level(tbl, "hp:tr")
     frows = []
-    span_end: list[int] = []                                # 행마다 그 행에서 시작한 세로 병합이 끝나는 행(없으면 자기 행)
+    cc = re.search(r'colCnt="(\d+)"', tbl[:tbl.index(">") + 1])
+    col_cnt = int(cc.group(1)) if cc else 0
     for i, (ra, rb) in enumerate(trs):
         tr = tbl[ra:rb]
         tcs = [tr[x:y] for x, y in _top_level(tr, "hp:tc")]
         texts = [_norm(" ".join(_texts(tc))) for tc in tcs]
         spans = [int(m) for tc in tcs for m in re.findall(r'<hp:cellSpan\b[^>]*rowSpan="(\d+)"', tc)]
-        span_end.append(i + max(spans + [1]) - 1)
-        frows.append({"xml": tr, "tcs": tcs, "texts": texts, "blank": not any(texts), "i": i, "spans": max(spans + [1])})
-    covered = [any(span_end[k] >= i for k in range(i)) for i in range(len(trs))]   # 위 행의 세로 병합에 덮인 행
+        cols = [int(m.group(1)) if (m := re.search(r'<hp:cellAddr\b[^>]*colAddr="(\d+)"', tc)) else k for k, tc in enumerate(tcs)]
+        frows.append({"xml": tr, "tcs": tcs, "texts": texts, "blank": not any(texts), "i": i, "spans": max(spans + [1]), "cols": cols})
+
+    def values(fr: dict, d: list[str]) -> list[str] | None:
+        """작업본 행의 값을 서식 행의 칸 차례로 — 칸 수가 같으면 차례대로, 작업본 행이 격자 열 수이면 colAddr 로(병합에 가려진 열의
+        값은 비어 있거나 묶음 머리 글과 같아야 한다). 못 맞추면 None."""
+        if len(d) == len(fr["tcs"]):
+            return [str(x) for x in d]
+        if col_cnt and len(d) == col_cnt:
+            hidden = [str(d[c]) for c in range(col_cnt) if c not in fr["cols"]]
+            if any(_norm(x) for x in hidden):
+                return None
+            return [str(d[c]) for c in fr["cols"]]
+        return None
     if len(rows) <= len(frows) or not frows:
         return None
     norm_rows = [[_norm(str(c)) for c in r] for r in rows]
@@ -793,16 +806,29 @@ def grow_table(xml: str, form: _FormTable, rows: list[list[str]]) -> str | None:
             return None                                       # 복제할 빈 행이 없는 구간
         for k, d in enumerate(data):
             tpl = blanks[k] if k < len(blanks) else blanks[-1]
-            if len(d) != len(tpl["tcs"]):
+            if values(tpl, d) is None:
                 return None
-            if k >= len(blanks):
-                # 복제할 행은 병합에 덮이지도, 병합을 시작하지도 않아야 하고, 그 뒤 자리를 가로지르는 병합이 없어야 한다
-                t_i = tpl["i"]
-                if covered[t_i] or tpl["spans"] > 1 or (t_i + 1 < len(covered) and covered[t_i + 1]
-                                                         and any(span_end[q] > t_i for q in range(t_i + 1))):
-                    return None
+            if k >= len(blanks) and tpl["spans"] > 1:
+                return None                                   # 복제할 행이 세로 병합을 시작한다 — 복제하면 격자가 깨진다
             plan.append((tpl, d))
         plan.extend((bl, None) for bl in blanks[len(data):])
+    # 복제 수 — 행마다. 복제할 행을 덮는 세로 병합(묶음 머리 칸)은 그만큼 rowSpan·높이를 늘린다(묶음 안에 행 넣기)
+    clones: dict[int, int] = {}
+    seen_ids: set[int] = set()
+    for fr, _d in plan:
+        if id(fr) in seen_ids:
+            clones[fr["i"]] = clones.get(fr["i"], 0) + 1
+        seen_ids.add(id(fr))
+    tpl_h = {i: max((int(h) for h in re.findall(r'<hp:cellSz\b[^>]*height="(\d+)"', frows[i]["xml"])), default=0) for i in clones}
+    grow_span: dict[tuple[int, int], tuple[int, int]] = {}     # (행, 칸) → (더할 행 수, 더할 높이)
+    for q, fr in enumerate(frows):
+        for c, tc in enumerate(fr["tcs"]):
+            m = re.search(r'<hp:cellSpan\b[^>]*rowSpan="(\d+)"', tc)
+            rs = int(m.group(1)) if m else 1
+            if rs > 1:
+                inside = [t for t in clones if q < t <= q + rs - 1]
+                if inside:
+                    grow_span[(q, c)] = (sum(clones[t] for t in inside), sum(clones[t] * tpl_h[t] for t in inside))
     # 새 행들 — 칸 글을 바꾸고 rowAddr 를 차례로
     new_trs, grown = [], 0
     seen: set[int] = set()
@@ -811,9 +837,14 @@ def grow_table(xml: str, form: _FormTable, rows: list[list[str]]) -> str | None:
         seen.add(id(fr))
         grown += clone
         tcs = []
+        vals = values(fr, d) if d is not None else None
         for c, tc in enumerate(fr["tcs"]):
-            if d is not None and len(d) == len(fr["tcs"]) and (clone or _norm(str(d[c])) != fr["texts"][c]):
-                tc = _cell_with_text(tc, str(d[c]))
+            if not clone and (fr["i"], c) in grow_span:
+                add_r, add_h = grow_span[(fr["i"], c)]
+                tc = re.sub(r'(<hp:cellSpan\b[^>]*rowSpan=")(\d+)(")', lambda m: f"{m.group(1)}{int(m.group(2)) + add_r}{m.group(3)}", tc, count=1)
+                tc = re.sub(r'(<hp:cellSz\b[^>]*height=")(\d+)(")', lambda m: f"{m.group(1)}{int(m.group(2)) + add_h}{m.group(3)}", tc, count=1)
+            if vals is not None and (clone or _norm(vals[c]) != fr["texts"][c]):
+                tc = _cell_with_text(tc, vals[c])
             elif clone:
                 tc = _cell_with_text(tc, "")
             tcs.append(re.sub(r'(<hp:cellAddr\b[^>]*\browAddr=")\d+(")', rf"\g<1>{r}\2", tc))
@@ -825,8 +856,8 @@ def grow_table(xml: str, form: _FormTable, rows: list[list[str]]) -> str | None:
     head = re.sub(r'\browCnt="\d+"', f'rowCnt="{len(plan)}"', body[:open_end])
     body = head + body[open_end:]
     if grown:
-        tpl_h = max((int(h) for h in re.findall(r'<hp:cellSz\b[^>]*height="(\d+)"', frows[-1]["xml"])), default=0)
-        body = re.sub(r'(<hp:sz\b[^>]*height=")(\d+)(")', lambda m: f"{m.group(1)}{int(m.group(2)) + grown * tpl_h}{m.group(3)}", body, count=1)
+        add_h = sum(n * tpl_h[t] for t, n in clones.items())
+        body = re.sub(r'(<hp:sz\b[^>]*height=")(\d+)(")', lambda m: f"{m.group(1)}{int(m.group(2)) + add_h}{m.group(3)}", body, count=1)
     body, _n = strip_linesegs(body)
     return para[:ta] + body + para[tb:]
 
