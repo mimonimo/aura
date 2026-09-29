@@ -99,18 +99,22 @@ def bind_account(db, user: str, email: str) -> None:
         db.set_setting(f"google_account:{user}", email)
 
 
+NEED_ACCOUNT = "문서를 만들 구글 계정이 연결되지 않았습니다 — 설정 → 내 구글 계정에서 학교 계정(ync.ac.kr)을 연결해 주세요"
+
+
 def account_for(db, user: str | None, dept: str | None = None) -> str:
-    """이 담당자가 쓸 구글 계정 — 본인 계정 → 부서 공용 계정 → (허용 계정이 하나뿐이고 공용 대체가 켜져 있으면) 그것. 없으면 빈 문자열."""
+    """이 담당자가 문서를 만들 구글 계정 — 본인이 연결한 계정 → (관리자가 정한) 부서 공용 계정. 없으면 빈 문자열."""
     ok = {a["email"] for a in gdrive.list_accounts() if gdocs.has_docs_scope(a["email"])}
     for key in ((f"google_account:{user}" if user else ""), (f"google_account_dept:{dept}" if dept else "")):
         if key:
             email = (db.get_setting(key, "") or "").strip()
             if email in ok:
                 return email
-    # 미연결 사용자의 대체(허용 계정이 하나뿐일 때 그것) — 관리자가 끌 수 있다(/dev/google, 사용자마다 본인 계정을 잇게 할 때)
-    if (db.get_setting("google_fallback_shared", "1") or "1") == "0":
-        return ""
-    return next(iter(ok)) if len(ok) == 1 else ""
+    # 문서 작성은 각자 연결한 학교 계정으로 한다(사용자 확정 2026-09-30) — 예전의 '허용 계정이 하나뿐이면 그것' 대체는 없앴다.
+    # 설정값 google_fallback_shared=1 은 인증 없는 로컬 개발 모드용으로만 남긴다(화면에는 없다)
+    if (db.get_setting("google_fallback_shared", "0") or "0") == "1":
+        return next(iter(ok)) if len(ok) == 1 else ""
+    return ""
 
 
 def root_for(db, dept: str | None) -> str:
@@ -151,7 +155,7 @@ def auto_document(db, session_id: int, owner: str, title: str, project_name: str
     """대화에 문서가 없으면 드라이브 폴더와 문서를 만들어 잇는다. 돌려주는 것은 {doc, account, folder}."""
     email = email or account_for(db, owner, dept)
     if not email:
-        raise ValueError("이 계정에 이어진 구글 계정이 없습니다 — 원천 관리에서 구글 계정 허용을 해 주세요")
+        raise ValueError(NEED_ACCOUNT)
     if not has_file_scope(email):
         raise PermissionError("드라이브에 파일을 만들 권한이 없습니다 — 원천 관리에서 구글 계정 허용을 다시 해 주세요")
     http = http or gdrive._http()
@@ -319,6 +323,15 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
             return html, name[: -len(ext)] + ".html", "text/html", CONVERT[".docx"][1]
         except Exception:
             pass                                                   # pyhwp 없음·실패 — 아래 조각 복원으로
+    if ext in (".md", ".markdown"):
+        # 마크다운은 공문서 모양 docx 로 바꿔 올린다 — 평문으로 올리면 '#'·'|'·'**' 가 글자로 남는다(md_docx, 2026-09-30)
+        try:
+            from zzaimy.ingest import md_docx
+
+            data, _stats = md_docx.convert(src.read_text(encoding="utf-8", errors="replace"), base_dir=src.parent)
+            return data, name[: -len(ext)] + ".docx", CONVERT[".docx"][0], CONVERT[".docx"][1]
+        except Exception:
+            pass                                                   # 변환 실패 — 아래 평문 업로드로
     if ext in (".hwp", ".hwpx"):
         src_id = int(doc["id"])
         chunks = db.list_doc_chunks(src_id)

@@ -38,7 +38,7 @@
       <td>{{ u.role_label }}</td>
       <td>{{ u.dept or '전체' }}</td>
       <td>{% if u.bound and u.bound_ok %}{{ u.bound }}{% elif u.bound %}{{ u.bound }}<span class="ua-sub">연결 끊김</span>{% else %}<span class="muted">연결 전</span>{% endif %}</td>
-      <td class="wide">{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% else %}<span class="muted">없음</span>{% endif %}</td>
+      <td class="wide">{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% else %}<span class="muted">본인 연결 필요</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
             data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}"
             data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}">편집</button></td>
@@ -54,7 +54,6 @@
   <div class="ua-chips">
     <span class="pill">{{ '앱 등록 완료' if app.configured else '앱 등록 필요' }}</span>
     <span class="pill">허용 도메인 {{ domain or '제한 없음' }}</span>
-    <span class="pill">미연결 사용자 {{ '공용 계정 사용' if fallback else '본인 연결 필요' }}</span>
   </div>
   {% if not app.configured %}<p class="muted" style="margin:0 0 10px;">앱 등록은 <a href="/dev/nas">문서 가져오기</a>의 Google 앱 설정에서 합니다.</p>{% endif %}
   {% if emails %}
@@ -127,8 +126,7 @@
 
 <div class="modal-back" id="googleSettings">
   <div class="card"><div class="card-in">
-      <label class="check"><input type="checkbox" name="fallback" value="1" {{ 'checked' if fallback }}>구글 계정을 연결하지 않은 사용자는 공용 계정으로 문서 작성</label>
-    <div class="modal-head"><h2 style="font-size:15px;">구글 연동 설정</h2>
+    <div class="modal-head"><h2 style="font-size:15px;">허용 도메인</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form action="/dev/google/settings" method="post" class="ua-form">
       <label>허용 도메인<input type="text" name="domain" value="{{ domain }}" placeholder="ync.ac.kr" autocomplete="off"></label>

@@ -31,6 +31,7 @@ app = [
     "fastapi>=0.115",
     "uvicorn>=0.30",
     "python-docx>=1.1",  # 추출 결과 전자 문서(.docx) 복원
+    "markdown-it-py>=3.0",  # 마크다운 → docx(독스) 변환(md_docx)
     "pypdf>=4.0",        # 검색 가능 PDF — 원본에 OCR 텍스트 레이어 합성
     "reportlab>=4.0",
     "jinja2>=3.1",

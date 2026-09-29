@@ -263,6 +263,9 @@ def test_auto_document_creates_folder_chain_and_binds_session(docs_env, tmp_path
     monkeypatch.setattr(gdrive, "_http", lambda: _drive_files_transport(calls, folders))
     db = Database(tmp_path / "t.db")
     sid = db.create_chat_session("지역혁신 계획서", owner="zzaimy")
+    with pytest.raises(ValueError, match="내 구글 계정"):                       # 연결 전에는 남의 계정을 빌리지 않는다
+        gdrive_files.auto_document(db, sid, "zzaimy", "지역혁신 계획서", project_name="RISE 2026")
+    gdrive_files.bind_account(db, "zzaimy", "staff@example.ac.kr")
     made = gdrive_files.auto_document(db, sid, "zzaimy", "지역혁신 계획서", project_name="RISE 2026")
     assert made["doc"] == "newdoc" and made["url"].endswith("/newdoc/edit")
     names = [n for n, _p in folders.values()]
