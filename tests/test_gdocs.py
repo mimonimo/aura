@@ -857,3 +857,31 @@ def test_pipe_text_in_insert_becomes_table_op():
     assert ops[2]["text"] == "표 뒤 설명 — 강점 | 약점 은 한 줄뿐이라 글이다.\n----"
     plain = [{"op": "insert", "section": 1, "text": "표 없음"}]
     assert split_pipe_tables(plain) == plain
+
+
+def test_section_bodies_turns_docs_bullets_into_gongmun_markers(monkeypatch, tmp_path):
+    """독스 글머리 목록은 부호가 글에 없다 — 단계별 □ ○ 와 번호 1. 가. 로 글에 붙여 낸다(번호는 윗 단계로 돌아오면 새로)."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT", bullet=None):
+        p = {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text}}]}
+        if bullet:
+            p["bullet"] = bullet
+        return {"startIndex": st, "endIndex": en, "paragraph": p}
+
+    content = [para(1, 10, "1.1. 절\n", "HEADING_2"),
+               para(10, 20, "과제\n", bullet={"listId": "u", "nestingLevel": 0}),
+               para(20, 30, "세부\n", bullet={"listId": "u", "nestingLevel": 1}),
+               para(30, 40, "준비\n", bullet={"listId": "o", "nestingLevel": 0}),
+               para(40, 50, "하위\n", bullet={"listId": "o", "nestingLevel": 1}),
+               para(50, 60, "실행\n", bullet={"listId": "o", "nestingLevel": 0}),
+               para(60, 70, "다시 하위\n", bullet={"listId": "o", "nestingLevel": 1}),
+               para(70, 80, "평문\n")]
+    lists = {"u": {"listProperties": {"nestingLevels": [{"glyphSymbol": "●"}, {"glyphSymbol": "○"}]}},
+             "o": {"listProperties": {"nestingLevels": [{"glyphType": "DECIMAL"}, {"glyphType": "ALPHA"}]}}}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"title": "t", "body": {"content": content}, "lists": lists})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    items = gdocs.section_bodies("a@b", "d", http=httpx.Client(transport=httpx.MockTransport(handler)))[0]["items"]
+    assert items == [("text", "□ 과제\n○ 세부\n1. 준비\n가. 하위\n2. 실행\n가. 다시 하위\n평문")]

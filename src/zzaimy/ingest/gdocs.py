@@ -666,6 +666,37 @@ def _inline_image(email: str, http, objects: dict, oid: str) -> dict | None:
     return {"data": r.content, "width_pt": pt(size.get("width")), "height_pt": pt(size.get("height"))}
 
 
+def _doc_lists(document: dict) -> dict:
+    """글머리 목록 정의 — body_content 와 같은 자리(탭 문서면 첫 탭)에서."""
+    if document.get("body", {}).get("content"):
+        return document.get("lists") or {}
+    for tab in document.get("tabs", []) or []:
+        dt = tab.get("documentTab", {})
+        if dt.get("body", {}).get("content"):
+            return dt.get("lists") or {}
+    return {}
+
+
+def bullet_marker(paragraph: dict, lists: dict, counters: dict) -> str:
+    """독스 글머리 목록 문단의 공문서 부호 — 글머리표는 단계별 □ ○ - ㆍ, 번호 목록은 1. 가. 1) 가.)(md_docx 와 같은 위계).
+    독스는 부호를 글이 아니라 목록 속성으로 가진다 — 그대로 읽으면 부호와 단계가 사라진 평문이 된다(kordoc 조사 2026-09-30)."""
+    from zzaimy.ingest.md_docx import BULLETS, _number
+
+    b = paragraph.get("bullet")
+    if not b:
+        return ""
+    lid, lvl = b.get("listId", ""), int(b.get("nestingLevel") or 0)
+    levels = (((lists.get(lid) or {}).get("listProperties") or {}).get("nestingLevels") or [])
+    spec = levels[lvl] if lvl < len(levels) else {}
+    for k in [k for k in counters if k[0] == lid and k[1] > lvl]:
+        counters.pop(k)                                       # 윗 단계로 돌아오면 아래 단계 번호는 새로
+    ordered = spec.get("glyphType") not in (None, "", "GLYPH_TYPE_UNSPECIFIED", "NONE") and not spec.get("glyphSymbol")
+    if not ordered:
+        return BULLETS[lvl % len(BULLETS)]
+    counters[(lid, lvl)] = counters.get((lid, lvl), int(spec.get("startNumber") or 1) - 1) + 1
+    return _number(lvl, counters[(lid, lvl)])
+
+
 def section_bodies(email: str, doc: str, http=None, images: bool = True) -> list[dict]:
     """절마다 담당자·에이전트가 쓴 본문 — [{heading, items:[("text", 글)|("table", 행렬)|("image", {data,width_pt,height_pt})]}].
     제목과 【작성방법】 상자는 뺀다. images 면 본문 그림(도식)도 내려받아 제자리에 낸다(한글 완성본용 — 옮기기는 images=False)."""
@@ -676,6 +707,8 @@ def section_bodies(email: str, doc: str, http=None, images: bool = True) -> list
     document = r.json()
     body = body_content(document)
     objects = _inline_objects(document) if images else {}
+    lists = _doc_lists(document)
+    counters: dict = {}
     secs = sorted(info["sections"], key=lambda s: s.get("start", 0))
     out: list[dict] = []
     for i, sec in enumerate(secs):
@@ -690,6 +723,9 @@ def section_bodies(email: str, doc: str, http=None, images: bool = True) -> list
                 continue
             if "paragraph" in el:
                 t = _para_text(el["paragraph"]).strip()
+                mark = bullet_marker(el["paragraph"], lists, counters) if t else ""
+                if mark and not t.startswith(mark):
+                    t = f"{mark} {t}"
                 oids = [e["inlineObjectElement"].get("inlineObjectId") for e in el["paragraph"].get("elements", []) if "inlineObjectElement" in e]
                 if objects and oids and st != int(sec["start"]):
                     if t:
