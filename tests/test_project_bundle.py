@@ -102,7 +102,7 @@ def test_doc_google_api_without_account_says_so(tmp_path, monkeypatch):
     app, c = _client(tmp_path)
     did = app.state.db.add_document(filename="a.xlsx", stored_path=str(tmp_path / "a.xlsx"), doc_type="grant")
     r = c.get(f"/api/doc/{did}/google")
-    assert r.status_code == 400 and "허용 계정" in r.json()["detail"]
+    assert r.status_code == 400 and "내 구글 계정" in r.json()["detail"]        # 각자 학교 계정을 연결하라는 안내
     assert gdrive_files.embed_url("X", "application/vnd.google-apps.presentation") == "https://docs.google.com/presentation/d/X/edit?rm=minimal"
     assert gdrive_files.embed_url("X", "application/pdf") == "https://drive.google.com/file/d/X/preview"
 
