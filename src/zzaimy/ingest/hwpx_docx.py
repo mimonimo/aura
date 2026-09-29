@@ -391,7 +391,8 @@ class Converter:
         # LibreOffice(PDF 열람)는 '고정'을 그대로 따른다("exact"). 기본은 ZZAIMY_LINE_RULE, 없으면 docs
         self.line_rule = (line_rule or os.environ.get("ZZAIMY_LINE_RULE", "docs")).lower()
         # 장평 흉내(실험, 2026-09-29): 독스에는 글자 폭 조절이 없어 장평 95% 글을 크기 95% 로 주고 줄 간격 배수는 그만큼 올려 pitch 를 지킨다
-        self.width_emulate = self.line_rule == "docs" and os.environ.get("ZZAIMY_DOCS_WIDTH_EMULATE", "0") == "1"
+        # 장평 흉내(독스 전용, ADR-0046): 기본 켬 — 사업계획서 95→91쪽, 작성서식·평가편람 그대로(2026-09-30 실측). 끄려면 0
+        self.width_emulate = self.line_rule == "docs" and os.environ.get("ZZAIMY_DOCS_WIDTH_EMULATE", "1") == "1"
         from docx import Document
 
         self.doc = Document()
