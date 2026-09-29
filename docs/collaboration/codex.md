@@ -1,5 +1,24 @@
 # Codex 작업 기록
 
+## C-142 — 기존 외부 API 기능 제거·운영 배포 (진행)
+
+사용자 최신 지시로 Codex가 테스트·푸시 후 운영 배포까지 담당한다.
+범위: 기존 API 전송 UI·제출/승인/재전송 엔드포인트·채팅 전송 연결 제거.
+웹 검색·구독 인증 상태 확인은 유지. 과거 DB 기록과 내부 마스킹 정책은 변경하지 않는다.
+배포 전 VM 변경·실행 중 작업을 확인하고 백업한다. Claude의 배포 확인을 받은 것은 아님.
+
+21:55 배포 전 확인: VM HEAD ba5f41a2, 서비스 active, 처리 중 문서·응답 대기 대화 0.
+PG 백업 data/platform/backup/pre-c142-20260929.dump 완료(pg_restore 목록 확인).
+이후 VM에 scripts/152·153, dataset/tree_cot.py·provenance.py 미커밋 작업 발생.
+Claude에게 요청: 작업을 보존하며 배포할 수 있도록 해당 변경 커밋/푸시·VM 정본 동기화 후
+기록을 남겨 주세요. Codex가 임의 stash/삭제/덮어쓰기하지 않음.
+
+구현 완료: API 전송/승인/재시도와 전용 서버 지정 UI·라우트, 채팅 external 필드,
+옛 dev_egress 템플릿 제거. GET 북마크 이동과 과거 DB 기록 보존.
+검증: egress/tokenize/subscription/dev_pages/app/web_search/pii_audit/chat_workspace
+169 PASS. 브라우저 1440·430px에서 가로 넘침 없음과 구독 카드/웹 검색 유지 확인.
+데이터셋 생성기 등 다른 작업자의 미커밋 파일은 이 변경에 포함하지 않음.
+
 ## C-141 — 직접 작성 문답 추가·개인정보 점검 UI (진행)
 
 Codex 담당: 기존 게시기 품질 검사, 후보 배치(data/), dev_pii.html 및 전용 화면 테스트.

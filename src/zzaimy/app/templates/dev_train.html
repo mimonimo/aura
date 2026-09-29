@@ -258,7 +258,6 @@
       {% if c.live.ok %}<span class="pill reviewed">연결됨</span>
       {% else %}<span class="pill processing">응답 없음</span>{% endif %}
       {% if c.active %}<span class="pill use-tag">기본</span>{% endif %}
-      {% if c.external_use %}<span class="pill type">외부 참조</span>{% endif %}
       <code class="srv-url">{{ c.base_url }}</code>
       <span class="muted srv-n">{% if c.live.ok %}모델 {{ c.live.models | length }}개{% else %}{{ c.live.error or "주소를 확인하세요" }}{% endif %}</span>
       {% if not c.live.ok and c.checked_at %}<span class="srv-bad">{{ c.checked_at[5:] }} 확인 · {{ c.check_text }}</span>{% endif %}
@@ -424,11 +423,6 @@
         {% else %}
         <form action="/dev/llm/{{ c.id }}/activate" method="post" style="margin:0;"><button type="submit" class="secondary">기본 서버로 지정</button></form>
         {% endif %}
-        {% if c.external %}{% if c.external_use %}
-        <form action="/dev/llm/external/clear" method="post" style="margin:0;"><button type="submit" class="secondary">외부 참조 해제</button></form>
-        {% else %}
-        <form action="/dev/llm/{{ c.id }}/external" method="post" style="margin:0;"><button type="submit" class="secondary">외부 참조 전용으로</button></form>
-        {% endif %}{% endif %}
       </div>
     </div>
     <div class="modal-sec">

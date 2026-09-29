@@ -706,7 +706,7 @@ def create_app(
 
     def _answer_task_impl(
         session_id: int, q: str, stored: Path | None, criteria: list[int],
-        external: bool = False, web: str = "",
+        web: str = "",
     ) -> None:
         # 모델 지식 모드(2026-09-29): 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 머리에 붙인다
         if web == "model":
@@ -740,19 +740,7 @@ def create_app(
                 log_note = f"(첨부 처리 실패: {type(e).__name__})"
                 db.add_chat(session_id, "assistant", f"첨부 문서를 읽지 못했습니다 {log_note}")
                 return
-        # 외부 참조가 필요한 질문이면, 민감정보를 토큰으로 바꿔 외부에서 먼저 처리하고
-        # 되돌린 결과를 교내 모델에 자료로 건넨다. 최종 답은 교내 모델이 만든다.
-        if external:
-            from zzaimy.app.egress import process_external_tokenized
 
-            out = process_external_tokenized(q)
-            if out.get("ok"):
-                q = (f"{q}\n\n[외부에서 받은 참고 자료]\n{out['result']}\n"
-                     "위 자료는 참고용입니다. 교내 규정·공고에 근거해 답하십시오.")
-            else:
-                db.add_chat(session_id, "assistant",
-                            f"외부 참조를 쓰지 못했습니다 — {out.get('error', '사유 미상')}."
-                            " 교내 자료만으로 답합니다.")
         r = responder or _default_responder()
         # 프로젝트에 묶인 세션이면 지침·메모를 맥락으로, 연결 기준을 기본 근거로 쓴다
         session = db.get_chat_session(session_id)
@@ -1498,15 +1486,15 @@ def create_app(
             text = scope_msg + "\n\n" + text
         db.add_chat(session_id, "assistant", text)
 
-    def _answer_task(session_id, q, stored, criteria, external=False, web=""):
+    def _answer_task(session_id, q, stored, criteria, web=""):
         try:
-            _answer_task_impl(session_id, q, stored, criteria, external, web)
+            _answer_task_impl(session_id, q, stored, criteria, web)
         finally:
             _chat_running.discard(session_id)
 
-    def _schedule_answer(background, session_id, q, stored, criteria, external=False, web=""):
+    def _schedule_answer(background, session_id, q, stored, criteria, web=""):
         _chat_running.add(session_id)
-        background.add_task(_answer_task, session_id, q, stored, criteria, external, web)
+        background.add_task(_answer_task, session_id, q, stored, criteria, web)
 
     install_chat_revisions(app, db, chat_revisions, _schedule_answer,
                            lambda sid: sid in _chat_running, inbox_dir,
@@ -1531,7 +1519,6 @@ def create_app(
         criteria: list[int] = Form([]),
         attachment: list[UploadFile] = File([]),
         project_id: int | None = Form(None),
-        external: str = Form(""),
         web: str = Form(""),
     ):
         q = question.strip()
@@ -1618,7 +1605,7 @@ def create_app(
         _set_options(session_id, [])
         db.add_chat(session_id, "user", shown, mode="model" if web == "model" else "web" if web else "document")
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
-        _schedule_answer(background, session_id, q, stored, criteria, bool(external), (web or "").strip().lower()[:8])   # "1"=웹 검색, "model"=모델 지식
+        _schedule_answer(background, session_id, q, stored, criteria, (web or "").strip().lower()[:8])   # "1"=웹 검색, "model"=모델 지식
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
     def _strip_attach_prefix(text: str) -> str:
@@ -3344,7 +3331,7 @@ def create_app(
         플랫폼 DB와, 옆에 있으면 코퍼스 파일럿 DB(스크립트 74 기본 대상)까지
         본다. 자가 점검 결과는 DB와 무관하므로 플랫폼 DB settings에만 둔다.
         """
-        from zzaimy.app import access_guard, pii_audit, egress, web_search
+        from zzaimy.app import access_guard, pii_audit, web_search
 
         sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True)]
         corpus_path = pii_audit.corpus_db_path(db)
@@ -3353,9 +3340,7 @@ def create_app(
                 Database(corpus_path), name="국고 코퍼스 (별도 DB)", linkable=False,
             ))
         return templates.TemplateResponse(request, "dev_pii.html", ctx(request, {
-            "external_status": egress.external_status(),
             "search_provider": web_search.provider(),
-            "egress_stats": db.egress_stats(),
             "subscription_checks": _aj.loads(db.get_setting("subscription_checks", "{}")),
             "sources": sources,
             "selftest": pii_audit.load_json(db, pii_audit.SELFTEST_KEY),
@@ -4578,23 +4563,6 @@ def create_app(
         model_config.reset_status_cache()
         return _llm_redirect(f"「{conn['name']}」을 문서 작업 기본 연결로 지정했습니다")
 
-    @app.post("/dev/llm/{cid}/external")
-    def dev_llm_external(cid: str):
-        from zzaimy.generate import llm_connections
-
-        try:
-            conn = llm_connections.set_external(cid)
-        except ValueError as e:
-            return _llm_redirect(str(e), ok=False)
-        return _llm_redirect(f"「{conn['name']}」을 외부 AI 참조용 연결로 지정했습니다")
-
-    @app.post("/dev/llm/external/clear")
-    def dev_llm_external_clear():
-        from zzaimy.generate import llm_connections
-
-        llm_connections.clear_external()
-        return _llm_redirect("외부 AI 참조용 연결을 해제했습니다")
-
     @app.post("/dev/llm/deactivate")
     def dev_llm_deactivate():
         from zzaimy.generate import llm_connections, model_config
@@ -4926,79 +4894,10 @@ def create_app(
 
         return JSONResponse(build_graph(db, dept=dept or None))
 
-    # ---- 외부 참조 이그레스 게이트웨이 (ADR-0008) — 감사·승인·모니터링 ----
-
-    def _egress_ctx(request: Request, extra: dict | None = None):
-        from zzaimy.app import egress as _egress
-
-        enabled, reason = _egress.external_status()
-        rows = db.list_egress_requests(limit=50)
-        queued = db.list_egress_requests(status="queued", limit=50)
-        for r in rows + queued:
-            try:
-                r["removed_list"] = _aj.loads(r.get("removed") or "[]")
-            except ValueError:
-                r["removed_list"] = []
-        base = {
-            "egress_stats": db.egress_stats(),
-            "rows": rows,
-            "queued": queued,
-            "external_enabled": enabled,
-            "external_reason": reason,
-            "egress_verdict_labels": EGRESS_VERDICT_LABELS,
-            "egress_source_labels": EGRESS_SOURCE_LABELS,
-            "egress_removed_labels": EGRESS_REMOVED_LABELS,
-            "tokenized": None,
-        }
-        base.update(extra or {})
-        return templates.TemplateResponse(request, "dev_egress.html", ctx(request, base))
-
+    # 이전 주소의 북마크만 새 구독 연결 화면으로 안내한다.
     @app.get("/dev/egress", response_class=HTMLResponse)
     def dev_egress(request: Request):
         return RedirectResponse("/dev/pii?view=external", status_code=303)
-
-    @app.post("/dev/egress/tokenized", response_class=HTMLResponse)
-    def dev_egress_tokenized(request: Request, text: str = Form(...)):
-        from zzaimy.app import egress as _egress
-
-        t = text.strip()
-        result = (_egress.process_external_tokenized(t) if t
-                  else {"ok": False, "error": "내용이 비어 있습니다", "tokens": 0})
-        result["input"] = t
-        return _egress_ctx(request, {"tokenized": result})
-
-    @app.post("/dev/egress/submit")
-    def dev_egress_submit(request: Request, query: str = Form(...)):
-        from zzaimy.app import egress as _egress
-
-        q = query.strip()
-        if q:
-            _egress.submit(db, q, requester=request.state.user, source="manual")
-        return RedirectResponse("/dev/egress", status_code=303)
-
-    @app.post("/dev/egress/{req_id}/decide")
-    def dev_egress_decide(request: Request, req_id: int, action: str = Form(...)):
-        from zzaimy.app import egress as _egress
-
-        try:
-            _egress.decide(
-                db, req_id,
-                approve=(action == "approve"),
-                decided_by=request.state.user,
-            )
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-        return RedirectResponse("/dev/egress", status_code=303)
-
-    @app.post("/dev/egress/{req_id}/retry")
-    def dev_egress_retry(req_id: int):
-        from zzaimy.app import egress as _egress
-
-        try:
-            _egress.retry_send(db, req_id)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc))
-        return RedirectResponse("/dev/egress", status_code=303)
 
     _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼)의 주간 업무 보고를 쓴다. 독자는 지도교수이고
 개발자가 아니다. 아래 원자료를 바탕으로 쓰되 원자료를 옮겨 적지 말고, 무엇을 했고 무엇이 되었는지만 짧게 쓴다.

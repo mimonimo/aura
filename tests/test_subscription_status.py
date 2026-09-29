@@ -30,9 +30,9 @@ def test_missing_cli_and_invalid_provider(monkeypatch):
         module.probe('sh')
 
 
-def test_legacy_api_is_disabled_even_with_old_flag(monkeypatch):
+
+def test_legacy_api_helpers_removed():
     from zzaimy.app import egress
-    monkeypatch.setenv('ZZAIMY_EXTERNAL_ENABLED', '1')
-    assert egress.external_status()[0] is False
-    with pytest.raises(RuntimeError, match='API 호출 미사용'):
-        egress._send_external('must not send')
+    for name in ("external_status", "_send_external", "process_external_tokenized",
+                 "submit", "decide", "retry_send"):
+        assert not hasattr(egress, name)

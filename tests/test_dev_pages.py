@@ -70,7 +70,7 @@ def test_dev_dashboard_labels(client):
     hpage = client.get("/dev/history").text
     assert "전체 변경 목록" in hpage and "/dev/docs#weekly" in hpage     # 주간 보고서는 논문 자료 칸으로
     r2 = client.get("/dev/egress")
-    assert r2.status_code == 200 and "전송 실패" in r2.text
+    assert r2.status_code == 200 and "외부 참조 AI · 구독 연결 확인" in r2.text
     r3 = client.get("/dev/corpus")
     assert r3.status_code == 200
     assert '>문서 추출</h2>' not in r.text
@@ -85,7 +85,8 @@ def test_privacy_tabs_and_subscription_check(client, monkeypatch):
     assert response.status_code == 200
     assert 'CLI 미설치' in response.text
     assert '아스트라 · Codex' in response.text and 'Claude Code' in response.text
-    assert 'API 호출 미사용' in response.text
+    assert '기존 외부 API' not in response.text
+    assert 'API 호출 미사용' not in response.text
     assert 'action="/dev/egress/submit"' not in response.text
     assert '마스킹 기록 —' not in response.text
     invalid = client.get('/dev/pii?view=invalid').text
