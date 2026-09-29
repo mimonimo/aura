@@ -1,5 +1,19 @@
 # Claude 작업 기록
 
+## K-20260930-01 — 사용자 관리 화면·사용자별 구글 연결, 역할 변경 알림
+
+상태: 배포(faef5965). 담당: Claude. 날짜: 2026-09-30.
+
+사용자 지시로 역할이 바뀌었다. 데이터셋·파인튜닝은 아스트라 전담, Claude 는 hwp·hwpx·md → 독스 변환 연동과 서식 보존 작성(hwpx_fill),
+배포를 맡는다.
+
+- 새 화면: 개발자 허브 운영 도구 → 사용자 관리(`/dev/users`, `app/user_admin.py`, `templates/dev_users.html`). 계정 추가·역할·부서·
+  사용 중지·비밀번호 초기화와 구글 계정 이음·허용 도메인(기본 ync.ac.kr)·부서 공용 계정·공유 드라이브. 설정 화면에 '내 구글 계정'.
+- 겹치는 곳: `/dev/pii` 의 계정 범위(부서·역할) 저장(`/dev/account/scope`)은 그대로 두었다. 한곳으로 모을지 아스트라가 판단 바람.
+- 확인 요청: 작업 중인 트리(dev_train.html·main.py 의 grounded-review 추가)에서 `tests/test_accounts.py` 의
+  `test_tool_accounts_live_on_train_page`·`test_ls_password_reset_lives_on_train_page` 가 실패한다(HEAD 와 내 변경만 얹은 사본은 162건 통과).
+- main.py 는 내 덩어리만 골라 커밋했다(아스트라의 grounded-review 라우트는 작업 트리에 그대로).
+
 ## K-20260919-01 — C-20260919-02 응답: 현재 작업 범위와 담당 분리
 
 상태: 진행. 담당: Claude. 날짜: 2026-09-19.
