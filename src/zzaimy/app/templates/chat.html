@@ -52,6 +52,9 @@
            max-width: 900px; width: 100%; margin: 0 auto; padding: 8px 10px; }
     .chat-dock.warn { border-color: var(--amber); }
     .dock-row { display: flex; align-items: flex-end; gap: 8px; }
+    .dock-web { flex: none; display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line, #d7dbe2); background: transparent;
+      color: var(--faint, #6b7280); border-radius: 999px; padding: 4px 10px; font-size: 12px; cursor: pointer; }
+    .dock-web.on { border-color: #2e75b6; color: #2e75b6; background: #eef4fb; }
     .dock-row textarea { flex: 1; border: 0; outline: none; resize: none;
                  font-size: 14.5px; line-height: 1.6; padding: 10px 8px; font-family: inherit;
                  background: transparent; min-width: 0; max-height: 190px; }
@@ -200,6 +203,8 @@
     <input type="file" name="attachment" id="chatFile" hidden>
     <input type="hidden" name="external" id="extField" value="">
     <input type="hidden" name="web" id="webField" value="">
+    <button type="button" id="webToggle" class="dock-web" title="외부 검색 모드 — 이 메시지를 웹 검색 결과로 답합니다(질문 글만 밖으로 나갑니다)" aria-pressed="false">
+      <iconify-icon icon="solar:global-linear"></iconify-icon><span>외부 검색</span></button>
     <textarea name="question" id="chatInput" rows="1" placeholder="메시지를 입력하세요"
               autofocus autocomplete="off" {% if waiting %}disabled{% endif %}></textarea>
     <button type="submit" id="sendBtn" {% if waiting %}disabled style="opacity:.5;"{% endif %}>
@@ -378,10 +383,17 @@
   var webBtn = document.getElementById("webBtn");
   var webField = document.getElementById("webField");
   var webNote = document.getElementById("webNote");
-  if (webBtn) webBtn.addEventListener("change", function () {
-    webField.value = webBtn.checked ? "1" : "";
-    if (webNote) webNote.hidden = !webBtn.checked;
-  });
+  var webToggle = document.getElementById("webToggle");
+  var chatInputEl = document.getElementById("chatInput");
+  function setWeb(on) {
+    webField.value = on ? "1" : "";
+    if (webNote) webNote.hidden = !on;
+    if (webBtn) webBtn.checked = on;
+    if (webToggle) { webToggle.classList.toggle("on", on); webToggle.setAttribute("aria-pressed", on ? "true" : "false"); }
+    if (chatInputEl) chatInputEl.placeholder = on ? "외부 검색 켜짐 — 질문을 입력하세요(문서·첨부는 나가지 않습니다)" : "메시지를 입력하세요";
+  }
+  if (webBtn) webBtn.addEventListener("change", function () { setWeb(webBtn.checked); });
+  if (webToggle) webToggle.addEventListener("click", function () { setWeb(webField.value !== "1"); });
 
   /* ---- 답변 복사·다시 시도 ---- */
   document.querySelectorAll(".act-btn[data-copy]").forEach(function (b) {
