@@ -14,6 +14,14 @@ from pathlib import Path
 from .database_backend import connect, table_names, column_names, lock_session, install_functions
 
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS chunk_questions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  chunk_id INTEGER NOT NULL,
+  question TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chunk_questions_chunk ON chunk_questions(chunk_id);
 CREATE TABLE IF NOT EXISTS documents (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   filename     TEXT NOT NULL,
@@ -1034,6 +1042,7 @@ class Database:
         """문서와 파생물(검토 의견·규정 조각)을 함께 지운다. 저장 파일은 호출부에서."""
         with self._conn() as conn:
             conn.execute("DELETE FROM reviews WHERE doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM chunk_questions WHERE chunk_id IN (SELECT id FROM regulation_chunks WHERE doc_id = ?)", (doc_id,))
             conn.execute("DELETE FROM regulation_chunks WHERE doc_id = ?", (doc_id,))
             conn.execute("DELETE FROM doc_chunks WHERE doc_id = ?", (doc_id,))
             conn.execute("DELETE FROM doc_assets WHERE doc_id = ?", (doc_id,))
