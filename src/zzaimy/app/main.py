@@ -704,8 +704,19 @@ def create_app(
 
     def _answer_task_impl(
         session_id: int, q: str, stored: Path | None, criteria: list[int],
-        external: bool = False,
+        external: bool = False, web: bool = False,
     ) -> None:
+        # 외부 검색 모드(2026-09-29): 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
+        if web:
+            from zzaimy.app import web_search
+
+            try:
+                res = web_search.answer_with_web(q)
+                db.add_chat(session_id, "assistant", web_search.render(res))
+            except Exception as e:
+                logging.getLogger("zzaimy.app.web").exception("외부 검색 실패 (대화 %s)", session_id)
+                db.add_chat(session_id, "assistant", f"외부 검색을 쓰지 못했습니다({type(e).__name__}). 외부 검색을 끄고 다시 물어 주세요.")
+            return
         # 전송 직후 화면을 돌려주기 위해 무거운 단계(첨부 파싱·LLM)는 백그라운드에서
         attachment_text = None
         if stored is not None:
@@ -1473,15 +1484,15 @@ def create_app(
             text = scope_msg + "\n\n" + text
         db.add_chat(session_id, "assistant", text)
 
-    def _answer_task(session_id, q, stored, criteria, external=False):
+    def _answer_task(session_id, q, stored, criteria, external=False, web=False):
         try:
-            _answer_task_impl(session_id, q, stored, criteria, external)
+            _answer_task_impl(session_id, q, stored, criteria, external, web)
         finally:
             _chat_running.discard(session_id)
 
-    def _schedule_answer(background, session_id, q, stored, criteria, external=False):
+    def _schedule_answer(background, session_id, q, stored, criteria, external=False, web=False):
         _chat_running.add(session_id)
-        background.add_task(_answer_task, session_id, q, stored, criteria, external)
+        background.add_task(_answer_task, session_id, q, stored, criteria, external, web)
 
     install_chat_revisions(app, db, chat_revisions, _schedule_answer,
                            lambda sid: sid in _chat_running, inbox_dir,
@@ -1507,6 +1518,7 @@ def create_app(
         attachment: list[UploadFile] = File([]),
         project_id: int | None = Form(None),
         external: str = Form(""),
+        web: str = Form(""),
     ):
         q = question.strip()
         if form_fields.get("values"):
@@ -1592,7 +1604,7 @@ def create_app(
         _set_options(session_id, [])
         db.add_chat(session_id, "user", shown)
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
-        _schedule_answer(background, session_id, q, stored, criteria, bool(external))
+        _schedule_answer(background, session_id, q, stored, criteria, bool(external), bool(web))
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
     def _strip_attach_prefix(text: str) -> str:
