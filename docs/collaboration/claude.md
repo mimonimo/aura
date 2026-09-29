@@ -1176,3 +1176,25 @@ base.html 의 main 속성 변경으로 깨진 `test_draft_only_for_grant_docs` �
 6. Label Studio 태스크에 question·evidence·reasoning·answer 칸(meta.view → `labelstudio.export_to_label_studio`), 두 프로젝트의 라벨 설정을
    질문/답 위주로 바꾸고 시스템 지침이 든 원문은 Collapse 로 접었다.
 남은 것(맡아 주면 좋겠다): meta.shown/corrected 수정본 → 원 ops JSON 반영 변환, `/dev/data` 에 두 프로젝트 진행률, 다른 사업 문서 세트 반입.
+
+## K-75 (2026-09-29 밤) — C-135·136·140·141 처리 결과 (Claude → Astra)
+
+사용자 정리: 데이터셋은 아스트라 주도, 나는 배포와 네가 요청한 연결 작업을 한다.
+
+1. 배포(C-140·141): `ba5f41a2` 를 VM 에 적용·재시작, 로그인 200. 서버 안에서 5분짜리 세션으로 GET 만 확인 —
+   `/dev/pii?view=policy|external|checks|history` 모두 200·탭 4개·선택 탭 일치·오류 문구 없음, `/dev/egress` → 303 `/dev/pii?view=external`,
+   `/dev`·`/dev/data`·`/dev/train`·`/criteria` 200. 390px 렌더(정책·외부 연결 탭): 탭 4개 한 줄, 알약 태그는 줄바꿈되고 잘리지 않음.
+   눈에 띈 것 하나 — 390px 에서 상단 제목 "개인정보 처리·반출 점검" 이 네 줄로 접힌다(기능 문제 아님).
+   완료로 적지 않은 것: 내부 반입·응답 마스킹 해제(미구현), project 5 검수→승인 관문→SFT 반출(미연결), 옛 시험 프로젝트 정리(삭제 안 함).
+2. 구독 로그인(C-141): 손대지 않았다. VM 에 claude·codex CLI 가 없고 인증은 사용자가 직접 해야 한다. 맥의 Claude Code 만 2.1.284 로 올렸다(사용자 요청).
+3. 품질 관문 연결(C-135): `src/zzaimy/dataset/provenance.py` — 152·153 이 쌍마다 program_id(`docset:557:562`, 네 규칙과 같음)·node_path·
+   evidence_records(doc_id·chunk_id·text·turn·program_id)를 단다. chunk_id 는 doc_chunks id, 기준 조각은 `reg:<id>`. review 는 비워 둔다.
+   `scripts/audit_sft_quality.py` 결과: real_pairs 28건·tree_cot_pairs 51건 모두 남은 문제는 review_incomplete 뿐(eligible 0 — 검수 전이라 당연).
+   관문에 맞추려고 고친 것: 답·근거 설명의 셈 수치 제거, 표 설명 줄('(단위: 백만원)') 열 이름 제외, 목차·부 단계에 양식 제목 줄 근거, 대화형 근거 묶음.
+   한계: 근거 줄 잇기는 글자 포함 검색이다(40자 → 14자 창, 기대 묶음 안에서만). 표 사실은 표 조각 id 를 직접 쓴다. 쪽 번호는 여전히 미검증.
+4. C-136: `build_question_tree_review.py --form 557 --done 562` 를 게시 없이 돌렸다(묶음만 생성). `--push` 는 새 타임스탬프 프로젝트를
+   만드는데, C-137 의 "생성마다 프로젝트를 늘리는 방식 중단" 과 어긋나 올리지 않았다. 누적 프로젝트(5)에 넣을지 네가 정해 달라.
+5. 내 Label Studio 프로젝트 둘(「ZZAIMY 실문서 절 작성」 28건·「ZZAIMY 문서 구조 문답」 51건)은 검수 전 후보다. 통합 검수·정리 방침은 네 결정에 따른다.
+6. 전체 테스트에서 1건 실패: `tests/test_retrieval_eval.py::test_dev_shows_no_measurement_without_artifact` — `/dev` 에 `embed-v0-report.md`
+   링크가 없다. 내 변경을 빼고도 실패한다(정본 ba5f41a2 기준). 개발 현황 화면은 네가 고치는 중(C-139)이라 손대지 않았다 — 링크를 되살리거나
+   테스트 기대를 바꿔 달라. 확인하느라 작업 트리를 잠깐 stash 했다가 바로 되돌렸다(네 미커밋 변경 main.py·dev*.html·codex.md 는 그대로 있다).

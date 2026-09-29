@@ -200,7 +200,7 @@ def step1(program: str, overview_evidence: list[str], variant: int = 0) -> dict:
                                     "묻는 것은 사업의 정체다. 답의 범위는 사업명과 개요이고, 계획서 구조는 다음 질문에서 다룬다.",
                                     "'뭐야'는 개요를 묻는 말이다. 사업명·목적·방향·규모 순으로 짧게 답한다.")),
                  ("근거 확인", f"근거는 {', '.join(srcs)} 이다. 사업명은 공고 제목 그대로, 목적은 {_cite(first)} 에서 시작한다."),
-                 ("정리", f"근거의 글머리 줄을 그대로 옮겨 개요 {len(lines)}줄로 정리한다. 근거에 없는 사실은 더하지 않는다.")) + \
+                 ("정리", "근거의 글머리 줄을 그대로 옮겨 사업명 아래 개요로 정리한다. 근거에 없는 사실은 더하지 않는다.")) + \
         f"\n[답] 사업명: {program}\n개요:\n" + "\n".join(f"- {x}" for x in lines)
     return {"human": human, "gpt": gpt, "step": 1, "node": program}
 
@@ -209,7 +209,8 @@ def step2(program: str, overview: str, roots: list[Node], area_evidence: list[st
     """개요 → 목차."""
     ev = "\n".join(f"- {e}" for e in area_evidence)
     qs = ["이 사업의 계획서는 어떤 목차로 써야 해?", "사업계획서 구조(부·절)를 잡아 줘", "계획서 목차부터 세워 줘"]
-    human = (f"{PREFACE}\n\n[사업명] {program}\n[개요]\n{overview}\n\n[근거: 평가편람의 평가영역]\n{ev}\n\n"
+    titles = "\n".join(f"- {ln.strip()}" for ln in outline_text(roots).split("\n") if not re.match(r"^[" + _ROMAN + r"]", ln.strip()))   # 모든 단계의 절 제목(부 제목은 빼고)
+    human = (f"{PREFACE}\n\n[사업명] {program}\n[개요]\n{overview}\n\n[근거: 평가편람의 평가영역]\n{ev}\n[근거: 양식의 제목 줄]\n{titles}\n\n"
              f"[질문] {qs[variant % len(qs)]}")
     parts = "\n".join(f"{r.heading}\n" + "\n".join(f"  {c.heading}" for c in r.children) for r in roots)
     areas = _areas(area_evidence)
@@ -219,7 +220,7 @@ def step2(program: str, overview: str, roots: list[Node], area_evidence: list[st
                                     "구조를 세우라는 요청이다 — 부와 절의 뼈대만 잡고 각 절의 내용은 뒤로 미룬다.",
                                     "목차를 묻는다. 어디서 목차의 근거를 찾을지가 먼저다.")),
                  ("근거 확인", seen + " 계획서는 평가 항목 순서대로 심사되므로 목차도 이를 따른다."),
-                 ("구조 도출", f"영역이 부(Ⅰ·Ⅱ…)가 되고 지표가 절이 된다. 부 {len(roots)}개, 절 {sum(len(r.children) for r in roots)}개, 절 번호는 부마다 1부터.")) + f"\n[답]\n{parts}"
+                 ("구조 도출", "영역이 부(Ⅰ·Ⅱ…)가 되고 지표가 절이 된다. 절 제목은 양식의 제목 줄을 그대로 쓰고, 절 번호는 부마다 새로 시작한다.")) + f"\n[답]\n{parts}"
     return {"human": human, "gpt": gpt, "step": 2, "node": "목차"}
 
 
@@ -230,22 +231,25 @@ def step_part(program: str, overview: str, roots: list[Node], root: Node, criter
     ev = "\n".join(f"- {c}" for c in criteria) or "- (없음)"
     parts = "\n".join(f"{r.heading}\n" + "\n".join(f"  {c.heading}" for c in r.children) for r in roots)
     lines: list[str] = []
+    form_lines: list[str] = []
 
     def walk(n: Node):
         first = required_items(n.instructions, limit=1)
         lines.append(("  " * (n.level - 1)) + n.heading + (f" — {first[0][:70]}" if first else ""))
+        form_lines.append(f"- {n.heading}" + (f": {first[0][:70]}" if first else ""))
         for c in n.children:
             walk(c)
 
     for c in root.children:
         walk(c)
-    human = (f"{PREFACE}\n\n[사업명] {program}\n[개요]\n{overview}\n[목차]\n{parts}\n\n[근거: 이 부의 평가지표]\n{ev}\n\n"
-             f"[질문] 「{root.heading}」 에는 어떤 절이 들어가고, 절마다 무엇을 다뤄?")
+    human = (f"{PREFACE}\n\n[사업명] {program}\n[개요]\n{overview}\n[목차]\n{parts}\n\n[근거: 이 부의 평가지표]\n{ev}\n"
+             f"[근거: 양식의 제목 줄과 작성방법 첫 줄]\n" + "\n".join(form_lines) +
+             f"\n\n[질문] 「{root.heading}」 에는 어떤 절이 들어가고, 절마다 무엇을 다뤄?")
     areas = _areas(criteria)
     gpt = _think(("질문 파악", f"목차 가운데 「{root.heading}」 한 부의 절 구성을 묻는다."),
                  ("근거 확인", (f"평가지표에 {'·'.join(areas[:3])} 가 보인다 — " if areas else "") +
                   f"이 부의 평가지표와 배점이 절의 순서·무게를 정한다. 첫 지표는 {_cite(criteria[0]) if criteria else '(근거 없음)'} 이다."),
-                 ("구조 도출", f"지표를 절 {len(root.children)}개와 그 소절로 펼치고, 절마다 평가가 먼저 요구하는 것을 한 줄로 단다. 세부 뼈대는 절을 골라 따로 잡는다.")) + \
+                 ("구조 도출", "지표를 절과 그 소절로 펼치고, 절마다 평가가 먼저 요구하는 것을 한 줄로 단다. 세부 뼈대는 절을 골라 따로 잡는다.")) + \
         "\n[답]\n" + "\n".join(lines)
     return {"human": human, "gpt": gpt, "step": 2.5, "node": root.heading}
 
@@ -265,9 +269,9 @@ def step3(program: str, overview: str, roots: list[Node], node: Node, criteria: 
                                 f"질문의 대상은 {node.part} 아래 「{node.heading}」 절 하나다.")),
                  ("근거 확인", f"착안점은 {_cite(criteria[0], 70)} 라고 묻고, 양식의 작성방법 상자가 같은 요구를 항목으로 적어 두었다. "
                   "평가가 구체적으로 제시했는지 묻는 것이 곧 써야 할 항목이다."),
-                 ("항목화", _pick(v, f"착안점의 요구를 {len(items)}개 항목으로 나누고, 수치·증빙은 나중에 근거로 채울 자리로 남긴다.",
-                               f"요구를 항목 {len(items)}개로 쪼갠다. 각 항목은 뒤에서 소제목이나 표가 된다.",
-                               f"{len(items)}개 항목으로 정리한다. 값은 아직 없으니 항목 이름만 둔다."))) + \
+                 ("항목화", _pick(v, "착안점과 작성방법의 요구를 항목으로 나누고, 수치·증빙은 나중에 근거로 채울 자리로 남긴다.",
+                               "요구를 항목으로 쪼갠다. 각 항목은 뒤에서 소제목이나 표가 된다.",
+                               "작성방법의 순서대로 항목을 정리한다. 값은 아직 없으니 항목 이름만 둔다."))) + \
         "\n[답] 이 절이 다룰 항목:\n" + "\n".join(f"{i}. {it}" for i, it in enumerate(items, 1))
     return {"human": human, "gpt": gpt, "step": 3, "node": node.heading}
 
@@ -296,7 +300,7 @@ def step4(program: str, overview: str, roots: list[Node], node: Node) -> dict | 
                                 f"이번엔 「{node.heading}」 의 틀이다 — 자리만 잡고 칸은 비운다.",
                                 f"「{node.heading}」 절을 어떤 소제목·표·도식으로 짤지 묻는다.")),
                  ("형식 결정", "; ".join(how) + ". 실적·계획·지표처럼 나열되는 것은 표, 여건·체계·흐름처럼 한눈에 보일 것은 도식이다."),
-                 ("뼈대 배치", f"소제목 {len(node.skeleton) - n_tbl - n_fig}개, 표 {n_tbl}개, 도식 {n_fig}개를 절의 흐름대로 놓는다. 표는 머리 칸만, 도식은 상자 제목만 적는다.")) + \
+                 ("뼈대 배치", "소제목" + ("·표" if n_tbl else "") + ("·도식" if n_fig else "") + " 자리를 절의 흐름대로 놓는다. 표는 머리 칸만, 도식은 상자 제목만 적는다.")) + \
         "\n[답]\n" + "\n".join(f"- {s}" for s in node.skeleton)
     return {"human": human, "gpt": gpt, "step": 4, "node": node.heading}
 
@@ -335,9 +339,9 @@ def chain_conversation(steps: list[dict], program: str, doc_id: int) -> dict:
         human = st["human"] if i == 0 else st["human"].split("[질문]", 1)[-1].strip()
         if i > 0:
             # 앞 턴에 없던 근거만 다시 준다
-            ev = re.search(r"\[근거[^\]]*\]\n(?:- .*\n?)+", st["human"])
+            ev = re.findall(r"\[근거[^\]]*\]\n(?:(?!\[)\S.*\n?)+", st["human"])   # 그 단계의 근거 묶음 전부(평가편람·양식 제목 줄·작성방법)
             if ev:
-                human = ev.group(0).strip() + "\n\n[질문] " + human
+                human = "\n".join(x.strip() for x in ev) + "\n\n[질문] " + human
             else:
                 human = "[질문] " + human
         convs += [{"from": "human", "value": human}, {"from": "gpt", "value": st["gpt"]}]

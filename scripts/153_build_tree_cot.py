@@ -37,14 +37,15 @@ REVIEW_CONFIG = """<View>
 </View>"""
 
 
-def _heading_block(chunks: list[dict], pattern: str, n_after: int = 3, limit: int = 600) -> str:
-    """제목 조각(정규식) 다음의 글 조각 몇 개."""
+def _heading_block(chunks: list[dict], pattern: str, n_after: int = 3, limit: int = 300) -> list[str]:
+    """제목 조각(정규식) 다음의 글 조각 몇 개 — 조각마다 한 줄(근거 기록이 조각 하나에 이어지게)."""
     for k, c in enumerate(chunks):
         if c.get("kind") == "heading" and re.search(pattern, c.get("content") or ""):
-            text = " ".join(" ".join((x.get("content") or "").split()) for x in chunks[k + 1:k + 1 + n_after] if x.get("kind") == "text")
-            if text.strip():
-                return text[:limit]
-    return ""
+            out = [" ".join((x.get("content") or "").split())[:limit] for x in chunks[k + 1:k + 1 + n_after] if x.get("kind") == "text"]
+            out = [x for x in out if len(x) > 10]
+            if out:
+                return out
+    return []
 
 
 def main() -> int:
@@ -62,6 +63,7 @@ def main() -> int:
 
     from zzaimy.app.db import Database
     from zzaimy.app.regulations import find_relevant
+    from zzaimy.dataset import provenance as pv
     from zzaimy.dataset import real_pairs as rp
     from zzaimy.dataset import tree_cot as tc
 
@@ -76,17 +78,23 @@ def main() -> int:
     notice, basic = db.list_doc_chunks(args.notice), db.list_doc_chunks(args.basic)
     title_line = next((c["content"] for c in notice if c.get("kind") == "heading"), "") or db.get_document(args.notice)["filename"]
     program = re.sub(r"[-]", "", title_line).replace("공고", "").strip(" .\n")
-    overview_evidence = [e for e in [
-        "(공고 제목) " + program + " 공고",
-        "(공고 · 사업 목적) " + _heading_block(notice, r"사업\s*목적"),
-        "(기본계획 · 목적) " + _heading_block(basic, r"^□\s*목적"),
-        "(기본계획 · 추진 방향) " + _heading_block(basic, r"^□\s*추진\s*방향"),
-        "(기본계획 · 사업 개요) " + _heading_block(basic, r"^사업\s*개요"),
-    ] if len(e.split(") ", 1)[-1].strip()) > 10]
+    overview_evidence = (["(공고 제목) " + program + " 공고"]
+                         + ["(공고 · 사업 목적) " + x for x in _heading_block(notice, r"사업\s*목적")]
+                         + ["(기본계획 · 목적) " + x for x in _heading_block(basic, r"^□\s*목적")]
+                         + ["(기본계획 · 추진 방향) " + x for x in _heading_block(basic, r"^□\s*추진\s*방향")]
+                         + ["(기본계획 · 사업 개요) " + x for x in _heading_block(basic, r"^사업\s*개요")])
+    if len(overview_evidence) < 2:
+        overview_evidence = []
     if not overview_evidence:
         print("공고·기본계획에서 사업 목적·개요를 찾지 못했습니다", file=sys.stderr)
         return 2
     manual_chunks = db.chunks_for_docs([args.manual])
+    # 근거 기록(아스트라 C-135 품질 관문): 입력 줄마다 문서·조각을 단다. 검수 판정은 사람이 남긴다
+    program_id = f"docset:{args.form}:{args.done}"
+    sources = (pv.Sources().add("form", db.list_doc_chunks(args.form)).add("done", done_chunks)
+               .add("criteria", manual_chunks, prefix="reg:").add("criteria", db.list_doc_chunks(args.manual))
+               .add("notice", notice).add("notice", basic))
+    path_of: dict[str, list[str]] = {}
     area_hits = find_relevant(db, "평가영역 평가지표 배점 " + " ".join(r.heading for r in roots), top_k=4, chunks=manual_chunks) if manual_chunks else []
     area_evidence = [f"({c.get('reg_title') or ''}) " + " ".join(str(c.get("content") or "").split())[:300] for c in area_hits] or ["(없음)"]
 
@@ -96,14 +104,24 @@ def main() -> int:
     pairs: list[dict] = []
     dropped: list[str] = []
 
+    def node_path(name: str) -> list[str]:
+        return [program] + path_of.get(name, [] if name in (program, "목차") else [name])
+
     def keep(rec) -> bool:
         p = tc.to_pair(rec, program, args.done)
         if p:
-            pairs.append(p)
+            pairs.append(pv.attach(p, sources, program_id, node_path(rec["node"])))
             return True
         dropped.append(f"단계 {rec['step']} {rec['node']}: {', '.join(sorted(tc.missing_numbers(rec))[:6])}")
         return False
 
+    def fill_paths(n, trail):
+        path_of[n.heading] = trail + [n.heading]
+        for c in n.children:
+            fill_paths(c, trail + [n.heading])
+
+    for r in roots:
+        fill_paths(r, [])
     base_ok = keep(s1) and keep(s2)                                  # 사슬의 첫 두 단계 — 검증을 통과해야 대화형에 들어간다
     for v in range(1, 3):                                            # 질문 표현을 바꾼 변형
         keep(tc.step1(program, overview_evidence, variant=v))
@@ -137,7 +155,7 @@ def main() -> int:
             if ok3 and ok4 and base_ok:
                 steps = [s1, s2] + ([part_recs[node.part]] if node.part in part_recs else []) + [s3, s4]
                 assert all(not tc.missing_numbers(st) for st in steps)   # 대화형은 검증 통과한 단계만으로
-                pairs.append(tc.chain_conversation(steps, program, args.done))
+                pairs.append(pv.attach(tc.chain_conversation(steps, program, args.done), sources, program_id, node_path(node.heading)))
                 n_chain += 1
                 chain = "O"
             report.append(f"| {node.heading} | {len(tc.required_items(node.instructions))} | {len(node.skeleton)} | {'O' if ok3 else ''} | {'O' if ok4 else ''} | {chain} |")
