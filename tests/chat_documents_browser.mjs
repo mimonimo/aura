@@ -82,5 +82,14 @@ try {
  await new Promise(r=>setTimeout(r,150));
  assert.equal(await evaluate(`sessionRequests.includes('/api/chat-documents/9')`),true);
  assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-editor').length`),0);
+ // A pending connection lookup must not delay opening the library. Both list
+ // endpoints start immediately, and closing/reopening preserves the loaded DOM.
+ await evaluate(`window.listCalls=[];window.fetch=async(url)=>{listCalls.push(url);if(url==='/api/chat-documents/10')return new Promise(resolve=>{window.finishLookup=()=>resolve({ok:true,json:async()=>({connected:true,doc:'current',account:'test'})});});if(url.endsWith('/files'))return {ok:true,json:async()=>({account:'test',files:[{id:'old',name:'이전 문서',mime_type:'application/vnd.google-apps.document'},{id:'current',name:'현재 문서',mime_type:'application/vnd.google-apps.document'}]})};return {ok:true,json:async()=>({documents:[]})};};document.getElementById('chatWorkspace').dataset.session='10';document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-session-updated'));document.getElementById('chatDocumentOpen').click();`);
+ assert.equal(await evaluate(`Boolean(document.querySelector('.chat-file-library:not([hidden])'))`),true);
+ assert.equal(await evaluate(`listCalls.includes('/api/chat-documents/10/files')&&listCalls.includes('/api/chat/10/documents')`),true);
+ await evaluate('finishLookup()');await new Promise(r=>setTimeout(r,100));
+ assert.equal(await evaluate(`document.querySelector('.chat-work-files button').dataset.driveDoc`),'current');
+ await evaluate(`window.library=document.querySelector('.chat-file-library');window.requestCount=listCalls.length;document.getElementById('chatDocumentOpen').click();document.getElementById('chatDocumentOpen').click();`);
+ assert.equal(await evaluate(`library===document.querySelector('.chat-file-library')&&!library.hidden&&listCalls.length===requestCount`),true);
  console.log(JSON.stringify({pass:true,wide,narrow,autoCreationFromList:true,imageModal:true,folderPicker:true,suggestionPreservesEditor:true,newSessionBinding:true,syntheticIframeOnly:true}));
 } finally {ws?.close();chrome.kill();}
