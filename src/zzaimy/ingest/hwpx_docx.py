@@ -454,6 +454,7 @@ class Converter:
         if not level and ps and ps.outline_level:
             level = ps.outline_level
         pending: list[tuple[str, ET.Element]] = []
+        before: list[tuple[str, ET.Element]] = []      # 문단 글보다 앞에 놓인(글 없이 앞서 앵커된) 표·글상자 — 글 앞에 그린다
         page_nums: list[ET.Element] = []
         para = None
         is_pb = container is self.doc and p_el.get("pageBreak") == "1" and not self._just_sectioned
@@ -488,12 +489,15 @@ class Converter:
                 elif n == "line":
                     continue                                   # 장식 선 — 내용이 아니다(간지 쪽의 선만 있는 문단이 내용으로 잡혀 빈 쪽을 만들었다)
                 elif n in ("tbl", "pic"):
-                    pending.append((n, obj))
+                    # 한글은 글자처럼 취급하지 않는 표의 앵커를 다음 문단 첫머리에 두는 일이 많다("(3) 제목" 문단 뒤 "(4) 제목" 문단의
+                    # 첫 글자 앞에 (3)의 표) — 그러면 표가 그 문단 글보다 앞에 보인다. 글이 아직 없을 때 만난 개체는 글 앞에 그린다
+                    # (실측 2026-09-29: 사업계획서 hwp 의 (3)·(4) 제목이 붙어 나오고 표 둘이 그 아래 몰림)
+                    (before if para is None or not _para_has_content(para) else pending).append((n, obj))
                 elif n in ("rect", "container", "ellipse", "polygon", "curve", "arc", "ole", "equation"):
                     has_text = any((t.text or "").strip() for t in obj.iter() if _local(t.tag) == "t")
                     has_obj = any(_local(x.tag) in ("tbl", "pic") for x in obj.iter())
                     if has_text or has_obj:
-                        pending.append((n, obj))
+                        (before if para is None or not _para_has_content(para) else pending).append((n, obj))
                 elif n in ("secPr",):
                     self._section(obj)
                     self._just_sectioned = True          # 구역 시작이 이미 새 쪽이다 — 같은 문단의 쪽 나눔은 겹치지 않게
@@ -504,6 +508,15 @@ class Converter:
                     self._control(obj, para, page_nums, char_id)
         for c in page_nums:
             self.page_number(c)
+        if para is not None and _para_has_content(para) and before:
+            # 글 앞에 앵커된 개체: 문단 뒤에 그린 뒤 문단 앞으로 옮긴다(같은 담는 곳 안에서 순서만 바꾼다)
+            host = para._element.getparent()
+            existing = list(host)                      # python-docx 는 본문 끝의 sectPr 앞에 끼워 넣으므로 '새 요소'는 자리로 못 찾는다
+            self._emit_objects(before, container)
+            for el in [e for e in host if not any(e is o for o in existing)]:
+                para._element.addprevious(el)
+            before = []
+        pending = before + pending
         if (para is None or not _para_has_content(para)) and not pending:
             # 빈 문단(공백만 있는 문단 포함) — 원본의 줄 간격을 지킨다. 그림만 든 문단은 빈 문단이 아니다(실측 2026-09-25: 표지·본문
             # 그림이 '빈 문단 정리'에 지워져 그림 2장이 사라짐)
@@ -521,7 +534,13 @@ class Converter:
             self._trailing_empty = []
             self._content_since_pb = True
             self._section_has_content = True
-        for n, obj in pending:
+        self._emit_objects(pending, container)
+        if pending and container is self.doc:
+            self._trailing_empty = []
+        self._just_sectioned = False
+
+    def _emit_objects(self, objs: list[tuple[str, ET.Element]], container) -> None:
+        for n, obj in objs:
             if n == "tbl":
                 self.table(obj, container)
             elif n == "pic":
@@ -530,9 +549,6 @@ class Converter:
                 continue
             else:
                 self.shape(obj, container)
-        if pending and container is self.doc:
-            self._trailing_empty = []
-        self._just_sectioned = False
 
     def _new_para(self, container, level: int):
         if level and container is self.doc:
