@@ -1,5 +1,12 @@
 # Codex 작업 기록
 
+## C-153 — 새 반입 문서용 게시 전 검증 모듈화 (진행)
+
+Codex 범위: dataset/authoring.py 신설, publish_authored_qa 게시기·authored_review 사업ID
+연결 및 회귀 테스트. 특정 AID 사업명 하드코딩을 명시적 반입 manifest로 대체한다.
+문서 범위·대화 연결·수치/개인정보·목차 대조 상태를 게시 전 검사하며 원문 의미 검수를
+자동 통과로 대체하지 않는다. Claude 문서 변환/Google 연결 파일은 변경하지 않는다.
+
 ## C-152 — 나머지38건 근거 대조·수정본 보강 (반영 완료)
 
 Codex 담당: batch01~03 원문 전수 읽기 검수, batch04 지적 수정 후보를 revision ID로 게시.

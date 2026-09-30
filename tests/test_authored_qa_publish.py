@@ -26,3 +26,11 @@ def test_followup_retains_parent():
 def test_rejects_invalid_candidates(rows):
     with pytest.raises(ValueError):
         publisher.validate_rows(rows)
+
+
+def test_remote_adapter_compiles_and_uses_shared_preflight():
+    compile(publisher.REMOTE, '<remote-publisher>', 'exec')
+    assert 'prepare_tasks(' in publisher.REMOTE
+    assert "payload['manifest']" in publisher.REMOTE
+    assert "payload.get('dry_run')" in publisher.REMOTE
+    assert '2026학년도 AID' not in publisher.REMOTE
