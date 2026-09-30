@@ -4,6 +4,13 @@
 {% block content %}
 
 <style>
+  .review-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:16px 0 12px; }
+  .review-actions form { display:flex; margin:0; }
+  .review-actions .review-primary { background:var(--navy); border-color:var(--navy); color:white; }
+  .review-actions .review-primary:hover { background:#244b89; color:white; }
+  .review-summary { display:flex; align-items:baseline; gap:8px 20px; flex-wrap:wrap; margin:0; font-size:13px; }
+  .review-summary strong { color:var(--ink); font-size:18px; font-variant-numeric:tabular-nums; }
+  .review-summary small { font-size:12px; color:var(--muted); }
   .step-n { width:26px; height:26px; border-radius:50%; background:#eaf0f7; color:#294b73;
     display:inline-flex; align-items:center; justify-content:center; font-size:13px;
     font-weight:800; flex:none; }
@@ -35,11 +42,11 @@
 
 <section class="card"><div class="card-in"><h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>문답 검수
 <a class="h-link" href="/dev/train?tab=data&amp;view={{ 'main' if request.query_params.get('view') == 'legacy' else 'legacy' }}">{{ '검수로 돌아가기' if request.query_params.get('view') == 'legacy' else '이전 기록·이력' }}</a></h2>
-{% if grounded_ls.ok and grounded_ls.project_id %}<p>전체 기록 {{ grounded_ls.total }}건(이전 버전 포함) · 사람 검수 주석 {{ grounded_ls.done }}건</p><a class="btn-ghost" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">원문과 답변 검수하기 ↗</a>
+{% if grounded_ls.ok and grounded_ls.project_id %}<div class="review-summary"><span>전체 기록 <strong>{{ grounded_ls.total }}</strong> <small>이전 버전 포함</small></span><span>사람 검수 주석 <strong>{{ grounded_ls.done }}</strong></span></div>
 {% else %}<p class="muted">검수 현황 {{ grounded_ls.error or '프로젝트 미확인' }}</p>{% endif %}
-<div style="display:flex;gap:8px;flex-wrap:wrap">
-
-<form method="post" action="/dev/data/grounded-pull"><button type="submit" {% if not grounded_ls.ok or not grounded_ls.project_id %}disabled{% endif %}>완료한 검수 결과 반영</button></form>
+<div class="review-actions">
+{% if grounded_ls.ok and grounded_ls.project_id %}<a class="btn-ghost review-primary" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">원문과 답변 검수하기 <span aria-hidden="true">↗</span></a>{% endif %}
+<form method="post" action="/dev/data/grounded-pull"><button class="secondary" type="submit" {% if not grounded_ls.ok or not grounded_ls.project_id %}disabled{% endif %}><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form>
 </div>
 <p class="muted">근거·구조·맥락·개인정보를 확인한 뒤 결과를 반영합니다. 주석 작성·AI 자체 검수는 학습 승인이 아닙니다.</p>
 {% if grounded_review_report %}
