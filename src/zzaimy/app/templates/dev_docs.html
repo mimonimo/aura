@@ -66,9 +66,6 @@
     .doc-go { grid-area: go; align-self: center; }
   }
 </style>
-<p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-  <a href="/dev" class="btn-ghost">← 개발 현황</a>
-</p>
 <p class="muted">현재 설계와 논문 자료를 먼저 확인합니다. 과거 결정·실험은 이력으로 보존하며, 채택 결정이 구현 완료를 뜻하지는 않습니다.</p>
 <nav class="docs-nav" aria-label="문서 분류">
 {% for key, label in [('current','현재 자료'), ('decisions','설계 결정'), ('records','실험·검토 이력')] %}
@@ -184,12 +181,6 @@
       {{ rows(status_docs) }}
       <div class="doc-sub">설계·계획</div>
       {{ rows(plan_docs) }}
-    </div></div>
-    <div class="card"><div class="card-in">
-      <h2>운영 상태 확인</h2>
-      <p><a href="/dev/train?tab=data">근거 기반 문답 · 데이터 검수</a></p>
-      <p><a href="/dev/quality">검색·데이터 품질 측정</a></p>
-      <p class="muted">과거 실험 수치를 현재 성능으로 사용하지 않습니다. 학습 후보와 검수 승인 데이터는 구분합니다.</p>
     </div></div>
     {% endif %}
 

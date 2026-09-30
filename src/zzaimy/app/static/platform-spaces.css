@@ -136,7 +136,14 @@ html:not(.sidebar-collapsed) .sidebar, body.nav-open .sidebar { transition-delay
 .side-bottom { flex-shrink:0; }
 .topbar { min-height:64px; gap:14px; border-bottom:1px solid #f0f0f2; }
 .page-title { font-size:15px; font-weight:600; color:#414750; }
-.topbar .searchbox { border-radius:10px; background:#f8f8f9; padding:8px 12px; }
+/* Developer actions stay compact; icon controls and mobile touch targets keep their own sizing. */
+.developer-space main :is(button,.btn,.btn-ghost):not(.icon-btn):not([role=switch]) { min-height:32px; padding:6px 11px; font-size:12px; line-height:1.4; border-radius:7px; }
+.developer-space main .pill { white-space:nowrap; flex-shrink:0; }
+.developer-space main a:not(.btn):not(.btn-ghost):not(.doc-body a) { text-decoration:none; }
+.developer-space main a:hover { text-decoration:underline; }
+@media(pointer:coarse){.developer-space main :is(button,.btn,.btn-ghost):not(.icon-btn):not([role=switch]){min-height:44px}}
+body .topbar .searchbox { border-radius:8px; background:#f8f8f9; height:36px; padding:0 10px; }
+body .topbar .searchbox input { padding:0; height:32px; min-height:0; line-height:1.4; font-size:13px; }
 .topbar .icon-btn { border-color:transparent; background:transparent; border-radius:10px; }
 .topbar .user-chip { border-color:#eceef0; box-shadow:none; border-radius:10px; }
 .topbar .avatar { background:#eef0f4; color:#51627a; box-shadow:none; }

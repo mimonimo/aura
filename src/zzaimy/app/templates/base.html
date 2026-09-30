@@ -445,7 +445,7 @@ document.addEventListener('submit', function(event) {
 {% block head %}{% endblock %}
 <link rel="stylesheet" href="/static/platform-spaces.css">
 </head>
-<body>
+<body class="{{ 'developer-space' if request.url.path.startswith('/dev') else '' }}">
 <a class="skip-content" href="#workspaceContent">본문으로 이동</a>
 <aside class="sidebar" id="workspaceSidebar" aria-label="업무 탐색">
   <div class="sidebar-header">

@@ -1,8 +1,7 @@
 {% extends "base.html" %}
-{% block title %}데이터·모델 개발{% endblock %}
-{% block pagetitle %}데이터·모델 개발{% endblock %}
+{% block title %}{{ {'models':'학습·평가','settings':'도구·모델 연결','exports':'승인 산출물'}.get(development_tab,'데이터·모델 개발') }}{% endblock %}
+{% block pagetitle %}{{ {'models':'학습·평가','settings':'도구·모델 연결','exports':'승인 산출물'}.get(development_tab,'데이터·모델 개발') }}{% endblock %}
 {% block content %}
-{% include "_development_nav.html" %}
 <style>
   /* 도구 카드 3장 — 같은 구조(단계·이름·상태·역할·열기·설정), 같은 높이 */
   /* 도구 카드 3장: 3열 → 좁으면 1열 (2+1 처럼 한 장만 남는 줄이 생기지 않는다) */
@@ -52,28 +51,27 @@
 {% if ok %}
 <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
 {% endif %}
-
 {% if development_tab == 'models' %}
-{% include "_model_tracks.html" %}
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:map-arrow-right-linear"></iconify-icon>Writer 학습 준비와 실행 순서</h2>
-  <ol class="steps">
-    {% for st in steps %}
-    <li class="{{ st.state }}">
-      <span class="step-n">{{ loop.index }}</span>
-      <div style="flex:1; min-width:0;">
-        <div style="font-weight:700; font-size:13.5px;">{{ st.title }}</div>
-        <div class="muted" style="font-size:12.5px;">{{ st.desc }}</div>
-        <p style="font-size:12px;line-height:1.6;margin:6px 0 0;overflow-wrap:anywhere">{{ st.status }}</p>
-      </div>
-      <span class="pill {{ 'reviewed' if st.state == 'done' else ('type' if st.state == 'doing' else '') }}" style="flex:none;">{{ '확인됨' if st.state == 'done' else '준비 중' if st.state == 'doing' else '대기' }}</span>
-    </li>
-    {% endfor %}
-  </ol>
-</div></div>
-
-<p class="muted">검수한 데이터의 개인정보·수치 처리와 평가셋 분리를 확인한 뒤 학습합니다.</p>
-<nav style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px" aria-label="다음 작업"><a class="btn-ghost" href="/dev/train?tab=data">문답 검수</a><a class="btn-ghost" href="/dev/quality">품질·성능 측정</a><a class="btn-ghost" href="/dev/train?tab=settings">학습 도구 연결·실행</a></nav>
+<div class="tool-grid">
+  {% for t in tools if t.key != 'labelstudio' %}
+  <section class="card"><div class="card-in">
+    <div class="tool-step">{{ t.step }}</div>
+    <div class="tool-head"><b>{{ t.name }}</b><span class="pill">{{ '주소 설정됨' if t.url else '설정 필요' }}</span></div>
+    <p class="tool-role">{{ t.role }}</p>
+    <div class="tool-foot">
+      {% if t.url %}<a class="btn-ghost" href="{{ t.url }}" target="_blank" rel="noopener noreferrer">{{ '학습 도구 실행' if t.key == 'llamaboard' else '학습 그래프 확인' }}</a>
+      {% else %}<span class="muted">도구·모델 연결에서 주소를 등록하세요.</span>{% endif %}
+    </div>
+  </div></section>
+  {% endfor %}
+  <section class="card"><div class="card-in">
+    <div class="tool-step">평가</div>
+    <div class="tool-head"><b>품질·성능 측정</b></div>
+    <p class="tool-role">검색 평가 결과를 비교하고 다시 측정합니다.</p>
+    <div class="tool-foot"><a class="btn-ghost" href="/dev/quality">평가 결과·측정 열기</a></div>
+  </div></section>
+</div>
+<p class="muted">도구 열기는 학습 시작이 아닙니다. 승인 데이터와 평가셋 분리를 확인한 뒤 학습 도구에서 실행하세요.</p>
 {% endif %}
 
 {% if development_tab == 'settings' %}
@@ -90,9 +88,6 @@
     </div>
     <p class="tool-role">{{ t.role }}</p>
     <div class="tool-foot">
-      {% if t.url and (t.key != "labelstudio" or t.connected) %}
-      <a href="{{ t.url }}" target="_blank" rel="noopener" class="btn-ghost">열기</a>
-      {% else %}<span class="btn-ghost off">열기</span>{% endif %}
       <button type="button" class="secondary" data-modal-open="#toolModal-{{ t.key }}">
         <iconify-icon icon="solar:settings-linear"></iconify-icon>{{ "계정·연결" if t.key == "labelstudio" else "연결 설정" }}</button>
     </div>
@@ -106,6 +101,11 @@
     <div class="modal-head"><h2 style="font-size:15px;">{{ t.name }} {{ "계정·연결" if t.key == "labelstudio" else "연결 설정" }}</h2>
       <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     {% if t.key == "labelstudio" %}
+    <form class="modal-sec" action="/dev/data/grounded-review-config" method="post">
+      <h4>문답 검수 항목 설정</h4>
+      <p class="muted">근거·구조·맥락·개인정보의 승인 항목을 검수 프로젝트에 준비합니다. 기존 주석은 보존됩니다.</p>
+      <button class="secondary" type="submit">검수 4항목 준비</button>
+    </form>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px;">{{ t.role }}</p>
     <dl class="kv">
       <dt>상태</dt><dd>{% if t.connected %}연결됨{% else %}미연결{% if ls.error %} — {{ ls.error }}{% endif %}{% endif %}</dd>

@@ -77,7 +77,9 @@ def test_tool_accounts_live_on_train_page(tmp_path):
                   headers={"Content-Type": "application/x-www-form-urlencoded"}).status_code == 403
     d = TestClient(_app(tmp_path))
     _login(d, "zzdev", "devpass")
-    assert 'class="tool-grid"' not in d.get("/dev/train").text
+    model_page = d.get("/dev/train").text
+    assert 'id="toolModal-labelstudio"' not in model_page
+    assert 'LLaMA Board' in model_page and 'TensorBoard' in model_page
     page = d.get("/dev/train?tab=settings").text
     assert "toolModal-labelstudio" in page and "로그인 아이디" in page and "비밀번호 변경" in page
     assert "플랫폼 계정" not in page and "계정 추가" not in page   # 시스템 계정 관리는 여기 없다

@@ -6,7 +6,20 @@
 .privacy-page{max-width:1200px;margin:0 auto;min-width:0}
 .privacy-page .card{margin-bottom:20px}
 .privacy-page h2{flex-wrap:wrap;gap:12px}
-.privacy-page .pill{display:inline-flex;white-space:normal;overflow-wrap:anywhere;flex-shrink:0;line-height:1.5;margin:2px;max-width:100%}
+.privacy-page .pill{display:inline-flex;white-space:nowrap;flex-shrink:0;line-height:1.5;margin:2px;width:max-content;max-width:none}
+.privacy-page a:not(.privacy-nav a){text-decoration:none}
+.privacy-page a:not(.privacy-nav a):hover{text-decoration:underline}
+.privacy-page a:focus-visible{outline:2px solid #607c9e;outline-offset:3px}
+.privacy-page .privacy-record h3 a{display:flex;align-items:center;gap:10px;color:var(--ink)}
+.privacy-page .privacy-record h3 a::after{content:'›';margin-left:auto;color:var(--muted)}
+.privacy-switch-row{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:12px 0}
+.privacy-switch-row label{display:flex;align-items:center;gap:12px;font-weight:600;cursor:pointer}
+.privacy-switch-row input{appearance:none;width:42px;height:24px;border:0;border-radius:20px;background:#b5bcc6;position:relative;cursor:pointer;flex:none;margin:0}
+.privacy-switch-row input::before{content:'';position:absolute;width:18px;height:18px;top:3px;left:3px;background:white;border-radius:50%;transition:transform .15s}
+.privacy-switch-row input:checked{background:var(--navy)}
+.privacy-switch-row input:checked::before{transform:translateX(18px)}
+.privacy-switch-row input:focus-visible{outline:2px solid #607c9e;outline-offset:3px}
+.privacy-policy-note{border-top:1px solid var(--line);padding-top:16px;margin-top:20px}
 .privacy-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:12px;margin:16px 0}
 .privacy-options label{display:flex;gap:8px;align-items:center}.privacy-options input{width:auto}
 .privacy-page fieldset{border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin:12px 0;min-width:0}.privacy-page legend{font-size:13px;padding:0 6px}
@@ -15,7 +28,7 @@
 .privacy-page .table-scroll{overflow-x:auto}
 .privacy-page table{min-width:640px}
 .privacy-nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
-.privacy-nav a{padding:10px 16px;border-radius:10px;text-decoration:none;color:var(--muted);border:1px solid var(--border,#dfe4ec)}
+.privacy-nav a{padding:7px 12px;font-size:12px;border-radius:7px;text-decoration:none;color:var(--muted);border:1px solid var(--border,#dfe4ec)}
 .privacy-nav a[aria-current=page]{background:var(--navy,#203b61);color:white;border-color:transparent}
 .privacy-nav a:focus-visible{outline:2px solid #416ca4;outline-offset:3px}
 .privacy-notice{padding:14px 16px;background:#fff8eb;border:1px solid #ead9b9;border-radius:12px;line-height:1.7;margin:16px 0}
@@ -34,13 +47,14 @@
 {% if selected not in ['policy', 'checks', 'history', 'external'] %}{% set selected = 'policy' %}{% endif %}
 <div class="privacy-page">
 
+{% if selected == 'checks' %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>문서 활용과 개인정보 보호</h2>
   <p style="margin:0; font-size:13.5px; line-height:1.7;">
     내부 검색·검토·초안은 문서 접근 권한을 따릅니다. 학습·외부 전송 사본은 내부 설정과 별도로 보호합니다.</p>
-  <div class="privacy-notice" role="status"><strong>내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong><br>이후 처리에 적용됩니다. 이전에 가린 본문은 자동 복원되지 않으며, 다른 부서의 문서 권한이 열리지는 않습니다.</div>
+  <p class="privacy-help" role="status">현재 저장된 상태: <strong>내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong></p>
   {% set scan0 = sources[0].scan if sources else none %}
-  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
+  {% if selected == 'checks' %}<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
     {% if selftest and not selftest.error %}
       <span class="pill {{ 'reviewed' if selftest.ok else 'failed' }}">자가 점검 {{ selftest.passed }}/{{ selftest.total }} · {{ (selftest.at or '')[:16] | replace('T', ' ') }}</span>
     {% else %}<span class="pill processing">자가 점검 미실행</span>{% endif %}
@@ -48,8 +62,9 @@
       <span class="pill {{ 'reviewed' if scan0.hits == 0 else 'processing' }}">최근 정규식 탐지 {{ scan0.hits }}건 · {{ (scan0.at or '')[:16] | replace('T', ' ') }}</span>
     {% else %}<span class="pill processing">잔여 검사 미실행</span>{% endif %}
     {% if sources %}<span class="pill type">기록 있는 문서 {{ sources[0].stats.docs }} / 대상 {{ sources[0].subject_docs }}</span>{% endif %}
-  </div>
+  </div>{% endif %}
 </div></div>
+{% endif %}
 
 <nav class="privacy-nav" aria-label="개인정보 점검 메뉴">
 {% for key, label in [('policy','처리 정책'),('external','외부 연결'),('checks','점검 도구'),('history','과거 처리 기록')] %}
@@ -60,29 +75,35 @@
 {% if selected == 'policy' %}
 <div class="card"><div class="card-in">
   <h2>내부 마스킹 설정</h2>
+  <p class="privacy-help" role="status">현재 저장된 상태: <strong>내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong></p>
   {% if request.query_params.get('saved') %}<p role="status">설정을 저장했습니다. 이후 처리부터 적용됩니다.</p>{% endif %}
-  <form method="post" action="/dev/pii/policy">
-  <fieldset><legend>새 반입·첨부·내부 응답에 적용</legend><div class="privacy-options">
-  <label><input type="radio" name="enabled" value="off" {% if not internal_policy.enabled %}checked{% endif %}>꺼짐 — 원문 활용</label>
-  <label><input type="radio" name="enabled" value="on" {% if internal_policy.enabled %}checked{% endif %}>켜짐 — 선택 항목 가림</label>
-  </div></fieldset>
-  <fieldset><legend>켜졌을 때 가릴 항목</legend><div class="privacy-options">
+  <form method="post" action="/dev/pii/policy" id="privacyPolicyForm">
+  <input type="hidden" name="enabled" id="privacyEnabledValue" value="{{ 'on' if internal_policy.enabled else 'off' }}">
+  <div class="privacy-switch-row"><div><strong>내부 문서의 개인정보 가리기</strong><p class="privacy-help">새 반입·첨부·내부 응답에 적용</p></div>
+  <label><input type="checkbox" role="switch" id="privacyEnabled" aria-label="내부 마스킹" aria-controls="privacyEntities" {% if internal_policy.enabled %}checked{% endif %}><span id="privacySwitchLabel">{{ '켜짐' if internal_policy.enabled else '꺼짐' }}</span></label></div>
+  <fieldset id="privacyEntities" {% if not internal_policy.enabled %}hidden{% endif %}><legend>가릴 항목</legend><div class="privacy-options">
   {% for key,label in masking_entities.items() %}<label><input type="checkbox" name="entities" value="{{ key }}" {% if key in internal_policy.entities %}checked{% endif %}>{{ label }}</label>{% endfor %}
   </div></fieldset>
   <p class="privacy-help">기준 문서의 원문 유지 예외는 유지합니다. 원본 파일·기존 본문·검색 조각을 소급 변경하지 않습니다.</p>
-  <button type="submit">설정 저장</button></form>
+  <div class="privacy-switch-row"><span id="privacySaveStatus" class="privacy-help" role="status">변경 후 저장하면 적용됩니다.</span><button type="submit">설정 저장</button></div></form>
+  <script>
+  (function(){
+    var form=document.getElementById('privacyPolicyForm'), toggle=document.getElementById('privacyEnabled');
+    form.addEventListener('change',function(){
+      document.getElementById('privacyEnabledValue').value=toggle.checked?'on':'off';
+      document.getElementById('privacyEntities').hidden=!toggle.checked;
+      document.getElementById('privacySwitchLabel').textContent=toggle.checked?'켜짐':'꺼짐';
+      document.getElementById('privacySaveStatus').textContent='저장하지 않은 변경사항이 있습니다.';
+    });
+  })();
+  </script>
+  <noscript>설정 변경에는 JavaScript가 필요합니다. 현재 저장된 설정은 유지됩니다.</noscript>
   <p class="privacy-help">마지막 변경: {{ internal_policy.updated_at or '기본값 · 내부 마스킹 꺼짐' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</p>
-</div></div>
-<div class="card"><div class="card-in">
-  <h2>학습·외부 전송은 별도 보호</h2>
+  <div class="privacy-policy-note">
   <p class="privacy-help">내부 마스킹 설정으로 학습 반출 검수를 끌 수 없습니다. 자동 탐지는 자유 문장 속 성명·주소 등을 놓칠 수 있어 사람 검수를 대신하지 않습니다.</p>
-  <div class="privacy-principles">
-    <article><h3>내부 문서 활용</h3><p>권한 있는 사용자의 검색·검토·초안 작성에는 원문 값을 활용합니다. 이름·수치를 일괄적으로 가리지 않습니다.</p></article>
-    <article><h3>권한으로 접근 제한</h3><p>소속 부서와 문서 열람 등급에 따라 접근을 제한합니다. 원문 보존이 전 직원 공개를 뜻하지 않습니다.</p></article>
-    <article><h3>외부 전송·학습 사본</h3><p>외부로 보내는 내용과 학습 데이터는 별도로 점검합니다. 개인정보를 제외하고, 답변 값은 제공된 근거에서 찾도록 학습합니다.</p></article>
-  </div>
+  <p class="privacy-help">문서 접근 권한은 별도로 유지합니다. 마스킹을 꺼도 다른 부서의 문서 권한이 열리지 않습니다.</p>
   <p class="privacy-help">기존 마스킹 본문은 자동 복원되지 않습니다. 원본 재추출과 권한·반출 경로 검증을 함께 진행해야 합니다.</p>
-  <a href="/dev/pii?view=external">외부 연결 확인</a> · <a href="/dev/train?tab=data">학습 데이터 검수</a>
+  </div>
 </div></div>
 {% if request.query_params.get('legacy') == '1' %}
 <div class="card reveal"><div class="card-in">
@@ -163,6 +184,7 @@
     {% if selftest.ok %}<span class="pill reviewed">정상</span>
     {% else %}<span class="pill failed">실패 있음</span>{% endif %}
   </div>
+  {% if request.query_params.get('detail') == 'selftest' or not selftest.ok or selftest.uncovered %}
   <div class="table-scroll">
   <table style="font-size:12.5px;">
     <tr><th>항목</th><th>판정</th><th>마스킹 결과</th><th>비고</th></tr>
@@ -191,6 +213,7 @@
     {% endfor %}
   </table>
   </div>
+  {% else %}<p class="muted">실패 항목 없음</p>{% endif %}
   <p class="muted" style="margin:8px 0 0; font-size:12px;">지원 유형: {{ selftest.supported | join(', ') }}</p>
   <a href="/dev/pii?view=checks&amp;detail=selftest">전체 항목별 결과 보기</a>
   {% endif %}
