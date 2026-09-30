@@ -890,7 +890,7 @@ class Database:
                   UNION ALL
                   SELECT created_at, title, id AS ref_id, 'chat' AS kind
                   FROM chat_sessions
-                ) ORDER BY created_at DESC LIMIT ?
+                ) AS activity ORDER BY created_at DESC LIMIT ?
                 """,
                 (limit,),
             ).fetchall()

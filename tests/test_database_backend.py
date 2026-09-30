@@ -78,6 +78,9 @@ def test_postgres_runtime_documents_chat_search_revision(pg_runtime):
     db.replace_doc_entities(doc, [('검증사업', 'program', 1)])
     assert db.graph_entities(1)['entities']
     session = db.create_chat_session('질문', project_id=project)
+    recent = db.recent_activity()
+    assert any(r['kind'] == 'criteria' and r['ref_id'] == doc for r in recent)
+    assert any(r['kind'] == 'chat' and r['ref_id'] == session for r in recent)
     db.add_chat(session, 'user', '질문')
     db.add_chat(session, 'assistant', '답변')
     rows = db.list_chats(session)
