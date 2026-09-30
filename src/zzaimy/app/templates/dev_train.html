@@ -16,6 +16,11 @@
   .tool-foot { display:flex; gap:8px; margin-top:16px; }
   .tool-foot .btn-ghost, .tool-foot button { flex:1; justify-content:center; padding:8px 10px; font-size:12.5px; white-space:nowrap; }
   .tool-foot .off { background:var(--panel); color:var(--faint); border-color:var(--line); cursor:default; }
+  .tool-status-row { display:grid; grid-template-columns:minmax(150px,1fr) minmax(0,2fr) auto; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--line); }
+  .tool-status-row:last-child { border-bottom:0; }
+  .tool-status-name { display:flex; flex-direction:column; gap:4px; font-size:13px; }
+  .tool-status-detail { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12px; }
+  @media(max-width:640px) { .tool-status-row { grid-template-columns:minmax(0,1fr) auto; } .tool-status-detail { grid-column:1; grid-row:2; } .tool-status-row > button { grid-column:2; grid-row:1 / 3; } }
   .modal-back .card { width:560px; }
   .modal-sec { border-top:1px solid var(--line); padding-top:12px; margin-top:14px; }
   .modal-sec h4 { margin:0 0 8px; font-size:13px; }
@@ -75,25 +80,22 @@
 {% endif %}
 
 {% if development_tab == 'settings' %}
-<div class="tool-grid">
+<section class="card"><div class="card-in">
+  <h2><iconify-icon icon="solar:server-linear"></iconify-icon>학습 도구 상태</h2>
   {% for t in tools %}
-  <div class="card reveal"><div class="card-in">
-    <div class="tool-step">{{ t.step }}</div>
-    <div class="tool-head"><b>{{ t.name }}</b>
+  <div class="tool-status-row">
+    <div class="tool-status-name"><b>{{ t.name }}</b><span class="muted">{{ t.step }}</span></div>
+    <div class="tool-status-detail">
       {% if t.key == "labelstudio" %}
         {% if t.connected %}<span class="pill reviewed">연결됨</span>
         {% else %}<span class="pill processing">미연결</span>{% endif %}
-      {% elif t.url %}<span class="pill">주소 설정됨</span>
-      {% else %}<span class="pill" style="background:#FDF3E7; color:var(--amber);">GPU 대기</span>{% endif %}
+      {% elif t.url %}<span class="pill">주소 등록됨</span><span class="muted">접속 상태 미확인</span>
+      {% else %}<span class="pill processing">주소 미등록</span>{% endif %}
     </div>
-    <p class="tool-role">{{ t.role }}</p>
-    <div class="tool-foot">
-      <button type="button" class="secondary" data-modal-open="#toolModal-{{ t.key }}">
-        <iconify-icon icon="solar:settings-linear"></iconify-icon>{{ "계정·연결" if t.key == "labelstudio" else "연결 설정" }}</button>
-    </div>
-  </div></div>
+    <button type="button" class="secondary" aria-label="{{ t.name }} {{ '계정 관리' if t.key == 'labelstudio' else '주소 변경' }}" data-modal-open="#toolModal-{{ t.key }}">{{ '계정 관리' if t.key == 'labelstudio' else '주소 변경' }}</button>
+  </div>
   {% endfor %}
-</div>
+</div></section>
 
 {% for t in tools %}
 <div class="modal-back" id="toolModal-{{ t.key }}">
@@ -101,11 +103,6 @@
     <div class="modal-head"><h2 style="font-size:15px;">{{ t.name }} {{ "계정·연결" if t.key == "labelstudio" else "연결 설정" }}</h2>
       <button type="button" class="icon-btn" data-modal-close><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     {% if t.key == "labelstudio" %}
-    <form class="modal-sec" action="/dev/data/grounded-review-config" method="post">
-      <h4>문답 검수 항목 설정</h4>
-      <p class="muted">근거·구조·맥락·개인정보의 승인 항목을 검수 프로젝트에 준비합니다. 기존 주석은 보존됩니다.</p>
-      <button class="secondary" type="submit">검수 4항목 준비</button>
-    </form>
     <p class="muted" style="font-size:12.5px; margin:0 0 10px;">{{ t.role }}</p>
     <dl class="kv">
       <dt>상태</dt><dd>{% if t.connected %}연결됨{% else %}미연결{% if ls.error %} — {{ ls.error }}{% endif %}{% endif %}</dd>

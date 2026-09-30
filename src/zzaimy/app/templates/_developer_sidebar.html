@@ -3,7 +3,7 @@
 <div style="overflow-y:auto; min-height:0; flex:1;" data-developer-navigation>
 {% for heading, links in [
  ('개발', [('/dev','전체 현황',path == '/dev')]),
- ('데이터·모델', [('/dev/train?tab=data','문답 데이터·검수',path == '/dev/data' or (path == '/dev/train' and train_tab == 'data')),('/dev/train?tab=models','학습·평가',path == '/dev/train' and train_tab == 'models'),('/dev/train?tab=exports','승인 산출물',path == '/dev/train' and train_tab == 'exports'),('/dev/db','원천 데이터',path == '/dev/db')]),
+ ('데이터·모델', [('/dev/train','데이터·학습',path == '/dev/data' or (path == '/dev/train' and train_tab != 'settings')),('/dev/db','원천 데이터',path == '/dev/db')]),
  ('운영', [('/dev/train?tab=settings','도구·모델 연결',path == '/dev/train' and train_tab == 'settings'),('/dev/users','사용자·계정',path == '/dev/users'),('/dev/pii','개인정보·반출 정책',path == '/dev/pii')]),
  ('기록', [('/dev/quality','품질·성능',path == '/dev/quality'),('/dev/docs','논문·설계 문서',path.startswith('/dev/doc'))])
 ] %}

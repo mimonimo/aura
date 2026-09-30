@@ -60,6 +60,8 @@ def test_user_save_rejects_bad_input_and_self_lockout(tmp_path, monkeypatch):
     assert err({"uid": "kim.ops", "is_new": "1", "role": "staff", "new_pw": "init-pass-1"})        # 점(세션 토큰 구분자)
     assert err({"uid": "zzaimy", "is_new": "1", "role": "staff", "new_pw": "init-pass-1"})         # 중복
     assert err({"uid": "newbie", "is_new": "1", "role": "staff", "new_pw": "short"})               # 비밀번호 짧음
+    assert err({"uid": "newbie", "is_new": "1", "role": "student", "new_pw": "init-pass-1"})
+    assert err({"uid": "zzaimy", "role": "student", "active": "1"})
     assert err({"uid": "newbie", "is_new": "1", "role": "staff", "new_pw": "init-pass-1", "google": "x@gmail.com"})   # 미연결
     assert err({"uid": "zzdev", "role": "staff", "active": "1"})                                   # 스스로 강등
     assert err({"uid": "zzdev", "role": "dev"})                                                    # 스스로 끄기
@@ -88,6 +90,7 @@ def test_account_status_ui_new_edit_and_reopen(tmp_path, monkeypatch):
 
     _fake_google(monkeypatch)
     page = _dev(tmp_path).get("/dev/users").text
+    assert '<details' not in page and '<option value="student">' not in page
     assert 'data-account-status hidden' in page
     assert 'name="suspended"' in page and '계정 사용 중지' in page
     assert '계정과 기존 자료는 삭제되지 않습니다.' in page
@@ -106,8 +109,12 @@ const btn = {dataset:{user:'worker',role:'staff',active:'1'}, hasAttribute() {re
 const status = {hidden:true}, title = {}, save = {}, pw = {};
 const options = {hidden:true, open:false, insertBefore(){}, querySelector(){return {};}};
 const initial = {appendChild(){}};
+const passwordToggle = {addEventListener(k, fn){this[k]=fn;}, setAttribute(){}};
+f.role.querySelectorAll = () => [];
+f.role.options = [{value:'staff'}, {value:'head'}, {value:'dev'}];
 global.document = {
- querySelector(s) { return s.endsWith(' form') ? f : s.includes('data-account-options') ? options : s.includes('data-initial-password') ? initial : s.includes('data-password-field') ? {} : s.includes('data-account-status') ? status : s.includes('data-save-user') ? save : s.includes('data-pw-label') ? pw : title; },
+ getElementById() { return options; },
+ querySelector(s) { return s.includes('data-password-toggle') ? passwordToggle : s.endsWith(' form') ? f : s.includes('data-account-options') ? options : s.includes('data-initial-password') ? initial : s.includes('data-password-field') ? {} : s.includes('data-account-status') ? status : s.includes('data-save-user') ? save : s.includes('data-pw-label') ? pw : title; },
  querySelectorAll(s) { return s === '[data-modal-open="#userEdit"]' ? [btn] : []; }
 };
 '''
