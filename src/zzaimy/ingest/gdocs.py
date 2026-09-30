@@ -53,6 +53,32 @@ def _headers(email: str, http) -> dict:
     return {"Authorization": f"Bearer {gdrive.access_token(email, http)}"}
 
 
+READ_RETRIES = (5, 15, 45)            # 문서 읽기 재시도 간격(초)
+
+
+def _read(email: str, doc: str, http):
+    """문서 읽기(documents.get) — 시간 초과·429·5xx 는 간격을 두고 다시 읽는다. 큰 문서(사업계획서 95쪽)는 한 번에 3분을 넘기기도
+    한다(실측 2026-09-30: 작업본 옮기기가 ReadTimeout 으로 끊겼다). 읽기라 다시 해도 안전하다 — 쓰기(batchUpdate)는 다시 하지 않는다."""
+    import time
+
+    import httpx
+
+    last: Exception | None = None
+    for wait in (0, *READ_RETRIES):
+        if wait:
+            time.sleep(wait)
+        try:
+            r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            last = e
+            continue
+        if r.status_code in (429, 500, 502, 503, 504):
+            last = RuntimeError(f"구글 독스 응답 {r.status_code}")
+            continue
+        return r
+    raise last or RuntimeError("구글 독스 읽기 실패")
+
+
 def _raise(r) -> None:
     if r.status_code == 401:
         raise PermissionError("구글 접근 권한이 없습니다 — 계정 허용을 다시 해 주세요")
@@ -182,7 +208,7 @@ def outline(document: dict) -> dict:
 def get(email: str, doc: str, http=None) -> dict:
     """문서를 읽어 구조와 평문을 돌려준다."""
     http = http or _http()
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     return outline(r.json())
 
@@ -307,7 +333,7 @@ def emphasize(email: str, doc: str, phrase: str, *, user: str, data_dir: Path, b
     phrase = (phrase or "").strip()
     if not phrase:
         raise ValueError("굵게 할 글귀를 적어 주세요")
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())
     reqs = []
@@ -350,7 +376,7 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
         raise ValueError("절을 다시 골라 주세요")
     at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
     _batch(email, doc, [{"insertTable": {"location": {"index": at}, "rows": len(rows), "columns": n_cols}}], http)
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())
     table = next((el["table"] for el in body if el.get("table") and int(el.get("startIndex", -1)) >= at), None)
@@ -379,7 +405,7 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
 
 def _style_table_header(email: str, doc: str, at: int, n_cols: int, http) -> None:
     """방금 넣은 표(위치 at 이후 첫 표)의 머리 행에 음영·굵게."""
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())
     el = next((e for e in body if e.get("table") and int(e.get("startIndex", -1)) >= at), None)
@@ -436,7 +462,7 @@ def table_grids(email: str, doc: str, section_index: int, http=None, info: dict 
     covered 는 병합에 덮인 칸 — 값을 넣을 수 없어 격자에서 뺀다."""
     http = http or _http()
     info = info or get(email, doc, http)
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())
     out = []
@@ -471,7 +497,7 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
     뒤 칸부터 써서 앞 인덱스가 밀리지 않게 한다. 표 구조(병합·테두리)는 그대로다."""
     http = http or _http()
     info = get(email, doc, http)
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())
     tables = _section_tables(body, info, section_index)
@@ -570,7 +596,7 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
     sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
     if sec is None:
         raise ValueError("절을 다시 골라 주세요 — 문서 구조가 바뀌었습니다")
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())
     nxt = next((s for s in info["sections"] if s.get("start", 0) > sec["start"]), None)
@@ -610,7 +636,7 @@ def remove_instruction_boxes(email: str, doc: str, *, user: str, data_dir: Path,
     """양식의 안내 상자를 지운다 — 【작성방법】·【증빙자료】 같은 표와 그 표시만 있는 문단. 제출 전 마무리 단계
     (양식 지침: '본문에 제시된 【작성방법】,【증빙자료】, 작성 가이드 박스 등은 삭제한 후 작성'). dry_run 이면 세기만."""
     http = http or _http()
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     body = body_content(r.json())
     ranges: list[tuple[int, int]] = []
@@ -702,7 +728,7 @@ def section_bodies(email: str, doc: str, http=None, images: bool = True) -> list
     제목과 【작성방법】 상자는 뺀다. images 면 본문 그림(도식)도 내려받아 제자리에 낸다(한글 완성본용 — 옮기기는 images=False)."""
     http = http or _http()
     info = get(email, doc, http)
-    r = http.get(f"{DOCS_API}/{doc_id(doc)}", headers=_headers(email, http), params={"includeTabsContent": "true"})
+    r = _read(email, doc, http)
     _raise(r)
     document = r.json()
     body = body_content(document)

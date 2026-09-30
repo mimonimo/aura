@@ -885,3 +885,22 @@ def test_section_bodies_turns_docs_bullets_into_gongmun_markers(monkeypatch, tmp
     monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
     items = gdocs.section_bodies("a@b", "d", http=httpx.Client(transport=httpx.MockTransport(handler)))[0]["items"]
     assert items == [("text", "□ 과제\n○ 세부\n1. 준비\n가. 하위\n2. 실행\n가. 다시 하위\n평문")]
+
+
+def test_document_read_retries_timeouts_and_server_errors(monkeypatch):
+    """문서 읽기는 시간 초과·503 뒤에도 다시 읽어 성공한다(쓰기는 다시 하지 않는다)."""
+    import httpx
+
+    monkeypatch.setattr(gdocs, "READ_RETRIES", (0, 0, 0))
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    seen = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(1)
+        if len(seen) == 1:
+            raise httpx.ReadTimeout("slow", request=req)
+        if len(seen) == 2:
+            return httpx.Response(503)
+        return httpx.Response(200, json={"title": "t", "body": {"content": []}})
+    info = gdocs.get("a@b", "d", http=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert info["title"] == "t" and len(seen) == 3
