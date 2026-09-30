@@ -16,17 +16,11 @@
 .quality-bars meter { display:block; width:100%; height:12px; }
 @media(max-width:700px){.quality-report { grid-template-columns:minmax(0,1fr); }.card h2 { flex-wrap:wrap; }}
 </style>
-<p style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-  <a href="/dev" class="btn-ghost">← 개발 현황</a>
-</p>
 <section class="card"><div class="card-in"><h2>문답 학습 데이터 품질</h2>
-<p>사업 → 문서 → 목차 항목 → 근거 → 질문·답변 단위로 검수합니다. 개수만 늘리거나 수치 검사만 통과한 후보를 학습 정답으로 확정하지 않습니다.</p>
 {% if grounded_ls.ok and grounded_ls.project_id %}
-<p>근거 기반 문답 후보 {{ grounded_ls.total }}건 · 주석 작성 {{ grounded_ls.done }}건 · 대기 {{ grounded_ls.pending }}건</p>
-<p><a href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">문답 검수 프로젝트 열기 ↗</a></p>
+<p>전체 기록 {{ grounded_ls.total }}건(이전 버전 포함) · 사람 검수 주석 {{ grounded_ls.done }}건</p>
 {% else %}<p class="muted">문답 검수 현황 {{ grounded_ls.error or '프로젝트 미확인' }} · 연결되지 않은 상태를 0건으로 표시하지 않습니다.</p>{% endif %}
-<p class="muted">주석 작성 수는 SFT 승인 수가 아닙니다. 파일별 근거·구조·사업 맥락·개인정보 검수와 중복·분리 검사를 통과해야 반출됩니다. 여러 파일을 합쳐 학습할 때는 사업별 평가셋 분리·중복을 다시 검사합니다.</p>
-<a class="btn-ghost" href="/dev/train?tab=data">데이터·검수</a> <a class="btn-ghost" href="/dev/train?tab=exports">승인 산출물 확인</a>
+<p class="muted">사람 검수 주석 수는 학습 승인 수가 아닙니다. 승인 여부는 검수 반영 결과에서 확인합니다.</p>
 </div></section>
 
 <div class="card reveal"><div class="card-in">

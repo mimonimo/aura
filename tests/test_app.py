@@ -1074,7 +1074,7 @@ def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
         ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
     )
     r = client.get("/dev/data")
-    assert r.status_code == 200 and "데이터·모델 개발" in r.text
+    assert r.status_code == 200 and "문답 데이터·검수" in r.text
 
     r = client.post(
         "/dev/data/build",
@@ -1324,7 +1324,9 @@ def test_export_single_file_and_path_guard(client):
     page = client.get("/dev/train?tab=exports").text
     assert "/dev/train/export/file?path=rag/chunks.jsonl" in page
     page = client.get("/dev/train?tab=models").text
-    assert "학습 순서" in page and "학습 데이터 준비" in page and "모델 서버 연결" in page
+    assert '평가 결과·측정 열기' in page and 'LLaMA Board' in page and 'TensorBoard' in page
+    assert 'Writer 학습 준비와 실행 순서' not in page
+    assert '학습·평가 순서' in client.get('/dev').text
     r = client.get("/dev/train/export/file", params={"path": "rag/chunks.jsonl"})
     assert r.status_code == 200 and "chunks.jsonl" in r.headers["content-disposition"]
     assert client.get("/dev/train/export/file", params={"path": "../etc/passwd"}).status_code == 404

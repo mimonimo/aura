@@ -134,61 +134,6 @@
 
 {% include "_model_tracks.html" %}
 
-<div class="dev-section" id="sec-flow">모델 개발 흐름</div>
-
-<div class="dev-tools">
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:database-linear"></iconify-icon>데이터 열람</h2>
-    <p class="muted" style="font-size:12.5px;">등록 문서·공개 문서 모음 · 추출 내용과 연결 정보</p>
-    <a href="/dev/db" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:cpu-bolt-linear"></iconify-icon>데이터·모델 개발</h2>
-    <p class="muted" style="font-size:12.5px;">데이터 준비·검수 → 학습·평가 → 산출물 · 연결 설정</p>
-    <a href="/dev/train" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:chart-2-linear"></iconify-icon>품질·성능
-      {% if quality.open %}<span class="pill processing" style="margin-left:6px;">미처리 {{ quality.open }}</span>{% endif %}</h2>
-    <p class="muted" style="font-size:12.5px;">검색 정확도{% if retrieval_eval and retrieval_eval.measured_at %} (측정 {{ retrieval_eval.measured_at[:10] }}){% else %} (측정 전){% endif %} · 추출 품질 백로그</p>
-    <a href="/dev/quality" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-</div>
-
-<div class="dev-section" id="sec-tools">운영 도구</div>
-
-<div class="dev-tools">
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:users-group-rounded-linear"></iconify-icon>사용자 관리</h2>
-    <p class="muted" style="font-size:12.5px;">계정 · 역할·부서 · 구글 계정 연결</p>
-    <a href="/dev/users" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:monitor-smartphone-linear"></iconify-icon>한글 에이전트</h2>
-    <p class="muted" style="font-size:12.5px;">접속 키 · 설치파일 · 연결 상태 · 명령 전송</p>
-    <a href="/dev/hwp" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:shield-check-linear"></iconify-icon>개인정보 처리·반출 점검</h2>
-    <p class="muted" style="font-size:12.5px;">처리 정책 · 진단 도구 · 과거 처리 기록</p>
-    <a href="/dev/pii" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-</div>
-
-<div class="dev-section" id="sec-docs">문서·기록</div>
-
-<div class="dev-tools">
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:book-2-linear"></iconify-icon>논문·설계 문서</h2>
-    <p class="muted" style="font-size:12.5px;">논문 자료 · 설계 결정(ADR) · 기술 검토 · 측정 기록</p>
-    <a href="/dev/docs" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-  <div class="card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:history-linear"></iconify-icon>변경 이력</h2>
-    <p class="muted" style="font-size:12.5px;">작업 기록 · 주간 보고서 · 전체 변경 목록</p>
-    <a href="/dev/history" class="btn-ghost tool-open" style="font-weight:600;">열기</a>
-  </div></div>
-</div>
 
 <script>
   // 프로젝트 현황 탭 — 마지막 선택을 브라우저에 기억

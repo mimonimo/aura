@@ -83,6 +83,20 @@ def test_dev_dashboard_labels(client):
     assert 'href="/dev/egress"' not in r.text
 
 
+def test_developer_work_pages_have_actions_not_duplicate_plans(client):
+    page = client.get('/dev/train?tab=data').text
+    assert '완료한 검수 결과 반영' in page
+    assert 'action="/dev/data/grounded-review-config"' not in page
+    assert 'id="datasetBuildForm"' not in page and '<details' not in page
+    legacy = client.get('/dev/train?tab=data&view=legacy').text
+    assert 'id="datasetBuildForm"' in legacy and '데이터 묶음 이력' in legacy
+    settings = client.get('/dev/train?tab=settings').text
+    assert 'action="/dev/data/grounded-review-config"' in settings
+    for url in ['/dev/docs', '/dev/quality', '/dev/pii']:
+        page = client.get(url).text
+        assert '← 개발 현황' not in page
+
+
 def test_privacy_tabs_and_subscription_check(client, monkeypatch):
     from zzaimy.app import subscription_status
     monkeypatch.setattr(subscription_status, 'probe', lambda p: {'provider': p, 'installed': False, 'state': 'missing'})
@@ -199,7 +213,7 @@ def test_doc_view_joins_wrapped_lines_and_builds_toc(client):
     assert 'class="doc-toc"' in page and body.count('<h4 id="s') == n_h2   # 목차는 ##·### 제목에서
     title = next(ln[2:].strip() for ln in src if ln.startswith("# "))
     assert title in page.split("<article", 1)[0] and "<h3" not in body      # 제목은 머리에 한 번만
-    assert page.count('href="/dev/docs"') == 1                             # 뒤로가기 하나
+    assert page.count('href="/dev/docs"') == 2  # sidebar + document-list return
 
 
 def test_doc_view_renders_quote_code_and_rule(client):

@@ -129,7 +129,7 @@ def test_status_bad_token_and_missing_project(monkeypatch):
 def test_page_unreachable_shows_fix_sentence_without_paste_box(client, monkeypatch):
     _configure(client)
     _fake_requests(monkeypatch, exc=requests.ConnectionError("refused"))
-    r = client.get("/dev/data")
+    r = client.get("/dev/train?tab=data&view=legacy")
     assert r.status_code == 200
     assert "미연결" in r.text and '<a href="/dev/train?tab=settings">연결 설정</a>' in r.text
     assert 'name="token"' not in r.text          # 토큰 붙여넣기 칸 없음
@@ -139,17 +139,17 @@ def test_page_unreachable_shows_fix_sentence_without_paste_box(client, monkeypat
 def test_page_connected_shows_progress_and_buttons(client, monkeypatch):
     _configure(client)
     _fake_requests(monkeypatch, {"/api/projects": (200, PROJECT_LIST)})
-    r = client.get("/dev/data")
+    r = client.get("/dev/train?tab=data&view=legacy")
     assert r.status_code == 200
     assert "연결됨" in r.text
     assert "전체 5" in r.text and "완료 2" in r.text and "대기 3" in r.text
-    assert "Label Studio에서 검수" in r.text and 'action="/dev/data/ls-pull"' in r.text
+    assert "이전 기록 검수 열기" in r.text and 'action="/dev/data/ls-pull"' in r.text
     assert f'href="{LS_URL}"' in r.text
 
 
 def test_page_without_settings_never_touches_network(client, monkeypatch):
     _fake_requests(monkeypatch, exc=AssertionError("설정이 없으면 네트워크에 나가면 안 된다"))
-    r = client.get("/dev/data")
+    r = client.get("/dev/train?tab=data&view=legacy")
     assert r.status_code == 200
     assert "미연결" in r.text and '<a href="/dev/train?tab=settings">연결 설정</a>' in r.text
 

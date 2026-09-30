@@ -62,14 +62,13 @@
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>사용자 추가</button></h2>
   <div class="table-scroll">
   <table class="ua-table">
-    <tr><th>아이디</th><th>역할</th><th>부서</th><th>구글 계정</th><th class="wide">문서 작성 계정</th><th></th></tr>
+    <tr><th>아이디</th><th>역할</th><th>부서</th><th>문서 작업 계정</th><th></th></tr>
     {% for u in users %}
     <tr class="{{ '' if u.active else 'off' }}">
       <td>{{ u.user }}{% if u.user == me %} <span class="pill">나</span>{% endif %}<span class="ua-sub">{{ u.name or '' }}{% if not u.active %} · 사용 중지{% endif %}</span></td>
       <td>{{ u.role_label }}</td>
       <td>{{ u.dept or '전체' }}</td>
-      <td>{% if u.bound and u.bound_ok %}{{ u.bound }}{% elif u.bound %}{{ u.bound }}<span class="ua-sub">연결 끊김</span>{% else %}<span class="muted">연결 전</span>{% endif %}</td>
-      <td class="wide">{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% else %}<span class="muted">본인 연결 필요</span>{% endif %}</td>
+      <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted">본인 연결 필요</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
             data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}"
             data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}">편집</button></td>
@@ -81,7 +80,7 @@
 
 <div class="card reveal"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
-    <a class="secondary spacer" href="/settings">내 학교 계정 연결</a></h2>
+    <a class="btn-ghost spacer" href="/settings">내 학교 계정 연결</a></h2>
   <div class="ua-chips">
     <span class="pill">{{ '앱 등록 완료' if app.configured else '앱 등록 필요' }}</span>
     <span class="pill">허용 도메인 {{ domain or '제한 없음' }}</span>
