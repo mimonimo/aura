@@ -904,3 +904,43 @@ def test_document_read_retries_timeouts_and_server_errors(monkeypatch):
         return httpx.Response(200, json={"title": "t", "body": {"content": []}})
     info = gdocs.get("a@b", "d", http=httpx.Client(transport=httpx.MockTransport(handler)))
     assert info["title"] == "t" and len(seen) == 3
+
+
+def test_section_append_requests_computes_table_cells_without_rereading():
+    """절 끝에 글·표·글을 한 요청으로 — 표 칸 자리는 넣은 자리로 계산(칸(r,c) = 자리+4+r(2열+1)+2c, 독스 실측), 칸은 뒤에서부터 채우고
+    머리 행은 칸마다 굵게, 다음 글은 표 뒤 문단에 붙는다."""
+    sec = {"index": 2, "heading": "1.1 절", "start": 10, "end": 30}
+    reqs = gdocs._section_append_requests(sec, 100, [("text", "앞 글"), ("table", [["구분", "값"], ["가", "1"]]), ("text", "뒤 글")])
+    kinds = [next(iter(r)) for r in reqs]
+    assert kinds[:3] == ["insertText", "updateParagraphStyle", "insertTable"]
+    at = 29 + len("\n앞 글")                                       # 절 끝(29)에 넣은 글의 끝
+    assert reqs[0]["insertText"] == {"location": {"index": 29}, "text": "\n앞 글"}
+    assert reqs[2]["insertTable"] == {"location": {"index": at}, "rows": 2, "columns": 2}
+    fills = [r["insertText"] for r in reqs if "insertText" in r][1:5]
+    assert [f["location"]["index"] for f in fills] == [at + 11, at + 9, at + 6, at + 4]     # 뒤에서부터
+    assert [f["text"] for f in fills] == ["1", "가", "값", "구분"]
+    bolds = [r["updateTextStyle"]["range"] for r in reqs if "updateTextStyle" in r]
+    assert bolds == [{"startIndex": at + 4, "endIndex": at + 6}, {"startIndex": at + 6 + 2, "endIndex": at + 8 + 1}]
+    tail = reqs[-2]["insertText"]
+    assert tail["text"] == "\n뒤 글" and tail["location"]["index"] == at + 1 + 2 + 2 * 5 + len("구분값가1")
+
+
+def test_migrate_reads_destination_once_and_skips_repeated_tables(monkeypatch, tmp_path):
+    """새 작업본은 한 번만 읽고(절마다 다시 읽지 않는다), 앞 절에서 넣은 표와 같은 표가 뒤에 또 나오면 건너뛴다."""
+    calls = {"dst_reads": 0, "batches": []}
+    monkeypatch.setattr(gdocs, "section_bodies", lambda email, doc, http=None, images=True: [
+        {"heading": "1. 가", "items": [("table", [["항목", "값"], ["x", "1"]])]},
+        {"heading": "2. 나", "items": [("table", [["항목", "값"], ["x", "1"]]), ("text", "새 글")]}])
+    def fake_get(email, doc, http=None):
+        if doc == "dst":
+            calls["dst_reads"] += 1
+        secs = [{"index": 1, "heading": "1. 가", "start": 1, "end": 10}, {"index": 2, "heading": "2. 나", "start": 10, "end": 20}]
+        return {"sections": secs, "end": 21, "text": ""}
+    monkeypatch.setattr(gdocs, "get", fake_get)
+    monkeypatch.setattr(gdocs, "_batch", lambda email, doc, reqs, http: calls["batches"].append(reqs) or {})
+    res = gdocs.migrate_bodies("a@b", "src", "dst", user="u", data_dir=tmp_path, http=object())
+    assert calls["dst_reads"] == 1 and len(calls["batches"]) == 2
+    assert [(r["heading"], r["tables"]) for r in res] == [("1. 가", 1), ("2. 나", 0)]
+    first, second = calls["batches"]                                # 뒤쪽 절(2. 나)부터
+    assert not any("insertTable" in r for r in first) and any(r.get("insertText", {}).get("text") == "\n새 글" for r in first)
+    assert any("insertTable" in r for r in second)

@@ -790,6 +790,55 @@ def section_bodies(email: str, doc: str, http=None, images: bool = True) -> list
     return out
 
 
+def _section_append_requests(sec: dict, doc_end: int, items: list[tuple[str, object]]) -> list[dict]:
+    """절 끝에 글·표를 차례로 붙이는 요청 목록(한 batchUpdate). insert_into_section·insert_table 과 같은 자리 규칙을 커서로 따라간다 —
+    절이 표(작성방법 상자)로 끝나면 표 바로 뒤에 새 문단부터, 아니면 절 마지막 문단 끝에 새 문단으로."""
+    reqs: list[dict] = []
+    if not items:
+        return reqs
+    if int(sec.get("table_end") or 0) > int(sec["end"]) - 1:
+        cur = min(int(sec["table_end"]), doc_end - 1)
+        first_kind, first = items[0]
+        if first_kind == "text":
+            payload = str(first) + "\n"
+            reqs += [{"insertText": {"location": {"index": cur}, "text": payload}}, _body_style(cur, cur + len(payload))]
+            cur += len(payload) - 1                                    # 넣은 문단의 끝(줄바꿈 앞)
+            items = items[1:]
+        else:
+            reqs += [{"insertText": {"location": {"index": cur}, "text": "\n"}}, _body_style(cur, cur + 1)]
+    else:
+        cur = max(1, min(int(sec["end"]) - 1, doc_end - 1))
+    for kind, payload in items:
+        if kind == "text":
+            text = str(payload)
+            reqs += [{"insertText": {"location": {"index": cur}, "text": "\n" + text}}, _body_style(cur + 1, cur + 1 + len(text))]
+            cur += 1 + len(text)
+        elif kind == "table":
+            rows = payload
+            n_rows, n_cols = len(rows), max(len(r) for r in rows)
+            reqs.append({"insertTable": {"location": {"index": cur}, "rows": n_rows, "columns": n_cols}})
+            start = cur + 1
+            fills = [(cur + 4 + ri * (2 * n_cols + 1) + 2 * ci, str(rows[ri][ci]))
+                     for ri in range(n_rows) for ci in range(n_cols) if ci < len(rows[ri]) and str(rows[ri][ci])]
+            reqs += [{"insertText": {"location": {"index": i}, "text": t}} for i, t in sorted(fills, reverse=True)]
+            reqs.append({"updateTableCellStyle": {
+                "tableRange": {"tableCellLocation": {"tableStartLocation": {"index": start}, "rowIndex": 0, "columnIndex": 0},
+                               "rowSpan": 1, "columnSpan": n_cols},
+                "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": {"red": 0.93, "green": 0.93, "blue": 0.93}}}},
+                "fields": "backgroundColor"}})
+            shift = 0                                                  # 머리 행 칸마다 굵게 — 앞 칸에 넣은 글만큼 밀린 자리
+            for ci in range(n_cols):
+                t = str(rows[0][ci]) if ci < len(rows[0]) else ""
+                a = cur + 4 + 2 * ci + shift
+                if t:
+                    reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": a + len(t)},
+                                                     "textStyle": {"bold": True}, "fields": "bold"}})
+                shift += len(t)
+            table_len = 2 + n_rows * (2 * n_cols + 1) + sum(len(t) for _i, t in fills)
+            cur = start + table_len                                    # 표 뒤 문단(줄바꿈 앞)
+    return reqs
+
+
 def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path, scrub=None, http=None,
                    only_headings: set[str] | None = None) -> list[dict]:
     """옛 작업본의 절 본문을 새 작업본의 같은 제목 절로 옮긴다(글은 insert, 표는 insert_table, 순서대로). 절마다 결과를 돌려준다.
@@ -813,46 +862,68 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
                 return hit
         return None
 
+    # 문서는 한 번만 읽는다 — 절마다(항목마다) 다시 읽으면 큰 작업본(95쪽)은 읽기 100번 가까이·30분이 넘었다(실측 2026-09-30).
+    # 절마다 넣을 것을 한 요청(batchUpdate)으로 만들고, 문서 뒤쪽 절부터 넣어 앞 절의 위치가 밀리지 않게 한다.
+    # 새 표의 칸 위치는 넣은 자리로 계산한다: 칸(r, c) = 자리 + 4 + r × (2 × 열 수 + 1) + 2 × c (독스 실측)
+    info = get(email, dst, http)
+    dst_norm = _norm_heading(info.get("text") or "")
+    dst_cells = {_norm_heading(c) for ln in (info.get("text") or "").split("\n") if " | " in ln for c in ln.split(" | ") if c.strip()}
+    plans: dict[int, dict] = {}                                        # 대상 절 index → {sec, items, heads}
     for b in bodies:
         if only_headings is not None and b["heading"] not in only_headings:
             continue
-        if not b["items"]:
-            continue                                                   # 본문 없는 절은 옮길 것이 없다
-        info = get(email, dst, http)
         key = _norm_heading(b["heading"])
         sec = next((s for s in info["sections"] if _norm_heading(s["heading"]) == key), None)
+        if not b["items"] and sec is not None:
+            continue                                                   # 본문 없는 절은 옮길 것이 없다(제목은 새 작업본에 있다)
         items = list(b["items"])
         fallback = False
         if sec is None:
             sec = parent_of(b["heading"], info["sections"])
             if sec is not None:
                 # 소제목 글줄과 첫 본문을 한 번에 넣는다 — 따로 넣으면 소제목 줄이 새 절 경계가 돼 본문이 그 위에 들어간다(실측 2026-09-28)
+                # 본문이 그림뿐이라 옮길 항목이 없는 소제목도 제목 줄은 넣는다(실측 2026-09-30: '4) 위협(T)'·'1. 비전' 이 빠졌다)
                 if items and items[0][0] == "text":
                     items = [("text", b["heading"] + "\n" + str(items[0][1]))] + items[1:]
                 else:
                     items = [("text", b["heading"])] + items
                 fallback = True
         if sec is None:
-            results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"}); continue
-        chars = tables = 0
-        # 새 작업본(서식 변환본)에 이미 있는 글·표는 옮기지 않는다 — 옛 작업본도 서식 변환본이라 서식 자체의 표·문단이 들어 있고, 그대로 옮기면
-        # 같은 표가 두 벌이 된다(실측 2026-09-29: 재생성 뒤 표 29개 이동, 대부분 서식 표). 문단은 글로, 표는 칸 글자 집합으로 견준다
-        dst_norm = _norm_heading(info.get("text") or "")
-        dst_cells = {_norm_heading(c) for ln in (info.get("text") or "").split("\n") if " | " in ln for c in ln.split(" | ") if c.strip()}
+            if b["items"]:
+                results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"})
+            continue
+        # 새 작업본(서식 변환본)에 이미 있는 글·표는 옮기지 않는다 — 옛 작업본도 서식 변환본이라 서식 자체의 표·문단이 들어 있다
+        # (실측 2026-09-29: 재생성 뒤 표 29개 이동, 대부분 서식 표). 문단은 글로, 표는 칸 글자 집합으로 견준다
+        kept: list[tuple[str, object]] = []
         for kind, payload in items:
-            if kind == "widths":
-                continue                                               # 열 너비는 서식 채우기용 — 옮기기에는 안 쓴다
             if kind == "text":
                 keep = [ln for ln in str(payload).split("\n") if ln.strip() and not (len(_norm_heading(ln)) > 8 and _norm_heading(ln) in dst_norm)]
-                if not keep:
-                    continue
-                r = insert_into_section(email, dst, sec["index"], "\n".join(keep), user=user, data_dir=data_dir, scrub=scrub, http=http)
-                chars += int(r.get("chars") or 0)
+                if keep:
+                    text = "\n".join(keep)
+                    kept.append(("text", scrub(text) if scrub else text))
+                    dst_norm += _norm_heading(text)                    # 넣은 것도 '이미 있음'으로 — 뒤에 같은 글이 또 나오면 건너뛴다
             elif kind == "table":
-                cells = {_norm_heading(str(c)) for r in payload for c in r if str(c).strip()}
-                if cells and cells <= dst_cells:
-                    continue                                           # 서식에 있는 표 그대로 — 새 작업본에도 이미 있다
-                insert_table(email, dst, sec["index"], payload, user=user, data_dir=data_dir, scrub=scrub, http=http)
-                tables += 1
-        results.append({"heading": b["heading"], "done": "ok", "chars": chars, "tables": tables, "under": sec["heading"] if fallback else ""})
+                rows = [[scrub(str(c)) if scrub else str(c) for c in r] for r in payload if r]
+                cells = {_norm_heading(str(c)) for r in rows for c in r if str(c).strip()}
+                if rows and not (cells and cells <= dst_cells):
+                    kept.append(("table", rows))
+                    dst_cells |= cells                                 # 같은 표가 뒤에 또 나오면 건너뛴다(예전엔 절마다 다시 읽어 그랬다)
+        plan = plans.setdefault(int(sec["index"]), {"sec": sec, "items": [], "heads": []})
+        plan["items"].extend(kept)
+        plan["heads"].append((b["heading"], sum(len(str(x)) for k, x in kept if k == "text"),
+                              sum(1 for k, _x in kept if k == "table"), sec["heading"] if fallback else ""))
+    # 뒤쪽 절부터 — 각 절은 한 요청
+    for idx in sorted(plans, key=lambda i: -int(plans[i]["sec"]["start"])):
+        plan = plans[idx]
+        sec, items = plan["sec"], plan["items"]
+        reqs = _section_append_requests(sec, int(info["end"]), items)
+        if reqs:
+            _batch(email, dst, reqs, http)
+            _audit(data_dir, {"user": user, "doc": doc_id(dst), "action": "migrate", "section": sec["heading"],
+                              "items": len(items)})
+    order = {h: i for i, h in enumerate(src_order)}
+    for idx, plan in plans.items():
+        for heading, chars, tables, under in plan["heads"]:
+            results.append({"heading": heading, "done": "ok", "chars": chars, "tables": tables, "under": under})
+    results.sort(key=lambda r: order.get(r["heading"], 10 ** 6))
     return results
