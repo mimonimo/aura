@@ -6,43 +6,7 @@ import argparse
 import json
 import subprocess
 from pathlib import Path
-
-
-def validate_rows(rows):
-    """게시 형식·대화 연결만 검사한다. 사실 정확성/개인정보 검수를 대체하지 않는다."""
-    if not isinstance(rows, list) or not rows:
-        raise ValueError('비어 있지 않은 문답 목록이 필요합니다.')
-    by_id = {}
-    questions = set()
-    for row in rows:
-        if not isinstance(row, dict):
-            raise ValueError('문답은 객체여야 합니다.')
-        for key in ('id', 'kind', 'question', 'answer', 'rationale'):
-            if not isinstance(row.get(key), str) or not row[key].strip():
-                raise ValueError(f'필수 문자열 누락: {key}')
-        if row['id'] in by_id:
-            raise ValueError('중복 sample_id')
-        by_id[row['id']] = row
-        path = row.get('path')
-        if not isinstance(path, list) or not path or any(not isinstance(p, str) or not p.strip() for p in path):
-            raise ValueError('목차 경로가 필요합니다.')
-        refs = row.get('refs')
-        if not isinstance(refs, list) or not refs:
-            raise ValueError('원문 연결이 필요합니다.')
-        if any(not isinstance(ref, list) or len(ref) != 2 or any(type(v) is not int or v <= 0 for v in ref) for ref in refs):
-            raise ValueError('원문 연결은 양의 정수 [문서, 조각]이어야 합니다.')
-        key = (row.get('parent'), ' '.join(row['question'].split()))
-        if key in questions:
-            raise ValueError('같은 대화 맥락의 질문 중복')
-        questions.add(key)
-    for row in rows:
-        seen = {row['id']}
-        parent = row.get('parent')
-        while parent is not None:
-            if not isinstance(parent, str) or parent not in by_id or parent in seen:
-                raise ValueError('대화 연결 누락 또는 순환')
-            seen.add(parent)
-            parent = by_id[parent].get('parent')
+from zzaimy.dataset.authoring import validate_rows, validate_manifest
 
 
 REMOTE = r'''
@@ -51,27 +15,21 @@ from pathlib import Path
 from datetime import datetime
 from zzaimy.app.db import Database
 from zzaimy.dataset.ls_client import LabelStudioClient
+from zzaimy.dataset.authoring import prepare_tasks
 payload=json.loads(sys.stdin.read())
 db=Database(Path.cwd()/'data/platform/platform.db')
-rows=payload['rows']; by_id={r['id']:r for r in rows}; tasks=[]
-for r in rows:
- evidence=[]; locations=[]
- for docid,cid in r['refs']:
+def resolve(docid,cid):
   doc=db.get_document(docid)
   chunk=next((c for c in db.list_doc_chunks(docid) if c['id']==cid),None)
-  if not doc or not chunk: raise ValueError('원문 연결 실패')
+  if not doc or not chunk: return None
   content=chunk['content']
   if chunk['kind']=='table': content=json.loads(content).get('text',content)
-  evidence.append(content); locations.append(f"{doc['filename']} · 추출 쪽 {chunk['page_no']} · 조각 {cid}")
- history=[]; parent=r.get('parent'); seen=set()
- while parent:
-  if parent in seen or parent not in by_id: raise ValueError('대화 연결 오류')
-  seen.add(parent); p=by_id[parent]; history.insert(0,{'question':p['question'],'answer':p['answer']}); parent=p.get('parent')
- tasks.append({'data':{'sample_id':r['id'],'ai_review_summary':'AI 검수 미진행 · 사람 승인과 별도','program':'2026학년도 AID 전환 중점 전문대학 지원사업',
-  'path':' → '.join(r['path']),'kind':r['kind'],'question':r['question'],'answer':r['answer'],
-  'rationale':r['rationale'],'history':'\n\n'.join('질문: '+p['question']+'\n답변: '+p['answer'] for p in history) or '단독 질문',
-  'source':'\n'.join(locations),'evidence':'\n\n'.join(evidence),
-  '_record':dict(r,history=history,author='Codex',reviewed=False,source_texts=evidence)}})
+  return {'text':content,'location':f"{doc['filename']} · 추출 쪽 {chunk['page_no']} · 조각 {cid}"}
+tasks,report=prepare_tasks(payload['rows'],payload['manifest'],resolve,author=payload['author'])
+# The complete report is returned even on a dry run; no LS writes on a hold.
+if report['held'] or payload.get('dry_run'):
+ print(json.dumps({'preflight':report,'published':False},ensure_ascii=False))
+ sys.exit(2 if report['held'] else 0)
 stamp=datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 out=Path('data/training')/('authored-qa-'+stamp);out.mkdir(mode=0o700)
 (out/'tasks.json').write_text(json.dumps(tasks,ensure_ascii=False,indent=2))
@@ -89,12 +47,12 @@ pending=[]
 for task in tasks:
  data=task['data']; old=existing.get(data['sample_id'])
  if old:
-  if any(old.get(k)!=data.get(k) for k in ('question','answer','evidence','path','history','kind','rationale','source','program')):
+  if any(old.get(k)!=data.get(k) for k in ('question','answer','evidence','path','history','kind','rationale','source','program','program_id')):
    raise ValueError('동일 sample_id의 내용이 변경되었습니다. 기존 검수본 보존을 위해 새 revision ID를 사용하세요.')
  else: pending.append(task)
 if pending: client._req('POST',f'/api/projects/{pid}/import',json=pending)
 progress=client.progress(pid)
-print(json.dumps({'project_id':pid,'url':f'{client.base}/projects/{pid}/data','uploaded':len(pending),'skipped':len(tasks)-len(pending),'progress':progress,'saved':str(out)},ensure_ascii=False))
+print(json.dumps({'project_id':pid,'url':f'{client.base}/projects/{pid}/data','uploaded':len(pending),'skipped':len(tasks)-len(pending),'progress':progress,'saved':str(out),'preflight':report},ensure_ascii=False))
 '''
 
 CONFIG = '''<View><Header value="직접 작성 문답 — 원문 대조 검수"/>
@@ -115,10 +73,16 @@ CONFIG = upgrade_config(CONFIG)
 if __name__ == '__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('input',type=Path)
     p.add_argument('--project',default='ZZAIMY 근거 기반 문답 검수')
+    p.add_argument('--manifest',type=Path,required=True,help='사업 ID·사업명·반입 문서 ID 목록 JSON')
+    p.add_argument('--author',required=True,help='실제 생성 주체; 검수자와 별도')
+    p.add_argument('--dry-run',action='store_true',help='원문 대조 검사만 수행; 게시·파일 생성 없음')
     a=p.parse_args()
     rows=json.loads(a.input.read_text())
     validate_rows(rows)
+    manifest=json.loads(a.manifest.read_text())
+    validate_manifest(manifest)
     import shlex
     cmd='cd /home/aura/zzaimy-capstone && .venv/bin/python -c '+shlex.quote(REMOTE)
     subprocess.run(['ssh','-o','ConnectTimeout=10','aura@192.168.16.226',cmd],
-                   input=json.dumps({'rows':rows,'config':CONFIG,'project':a.project},ensure_ascii=False),text=True,check=True)
+                   input=json.dumps({'rows':rows,'config':CONFIG,'project':a.project,'manifest':manifest,
+                                     'author':a.author,'dry_run':a.dry_run},ensure_ascii=False),text=True,check=True)

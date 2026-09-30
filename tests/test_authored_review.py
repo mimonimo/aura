@@ -57,6 +57,19 @@ def test_superseded_review_and_its_followup_are_not_exported():
     assert report['issues'] == {'superseded_sample': 2}
 
 
+def test_explicit_program_identity_is_preserved_and_cross_program_parent_held():
+    parent = task(); child = task('two')
+    for t, pid in ((parent,'program-a'),(child,'program-b')):
+        t['data']['program_id'] = pid
+        t['data']['_record']['program_id'] = pid
+    child['data']['_record']['parent'] = 'one'
+    pairs, report = convert([parent,child])
+    assert pairs[0]['meta']['program_id'] == 'program-a'
+    assert report['issues'] == {'cross_program_parent':1}
+    parent['data']['_record']['program_id'] = 'changed'
+    assert convert([parent])[1]['issues'] == {'invalid_program_identity':1}
+
+
 def test_corrected_parent_invalidates_old_followup():
     parent = task(); child = task('two')
     history = [{'question':parent['data']['question'], 'answer':parent['data']['answer']}]

@@ -198,7 +198,10 @@ def test_dev_train_labelstudio_card_is_read_only(client, monkeypatch):
     assert r.status_code == 200
     assert "미연결" in r.text and "/dev/accounts" not in r.text
     assert 'href="/dev/data"' not in r.text               # 데이터 공방 진입은 허브 카드 하나 — 여기엔 없다
-    assert "toolModal-tensorboard" in r.text and "toolModal-labelstudio" in r.text   # 도구 설정 창은 이 화면에
+    assert "toolModal-tensorboard" not in r.text and "toolModal-labelstudio" not in r.text
+    r = client.get("/dev/train?tab=settings")
+    assert r.status_code == 200
+    assert "toolModal-tensorboard" in r.text and "toolModal-labelstudio" in r.text   # 설정에만 표시
     assert 'name="url"' in r.text and "labelstudio_url" not in r.text   # LS 주소 입력란은 없다
     r = client.post("/dev/train/url", data={"setting": "labelstudio_url", "url": "http://x"})
     assert r.status_code == 400                          # Label Studio 주소는 화면에서 못 바꾼다

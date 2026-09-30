@@ -109,7 +109,13 @@ def convert_tasks(tasks, resolve_source):
         program = data.get('program')
         if not isinstance(program, str) or not program.strip():
             raise ValueError('missing_program')
-        program_id = 'program:' + hashlib.sha256(program.strip().encode()).hexdigest()[:20]
+        program_id = data.get('program_id')
+        if program_id is not None:
+            if (not isinstance(program_id, str) or not program_id.strip()
+                    or record.get('program_id') != program_id):
+                raise ValueError('invalid_program_identity')
+        else:
+            program_id = 'program:' + hashlib.sha256(program.strip().encode()).hexdigest()[:20]
         turns, evidence, chain = [], [], []
         parent = record.get('parent')
         if parent:
