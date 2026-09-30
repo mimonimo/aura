@@ -931,12 +931,21 @@ def test_migrate_reads_destination_once_and_skips_repeated_tables(monkeypatch, t
     monkeypatch.setattr(gdocs, "section_bodies", lambda email, doc, http=None, images=True: [
         {"heading": "1. 가", "items": [("table", [["항목", "값"], ["x", "1"]])]},
         {"heading": "2. 나", "items": [("table", [["항목", "값"], ["x", "1"]]), ("text", "새 글")]}])
-    def fake_get(email, doc, http=None):
+    secs = [{"index": 1, "heading": "1. 가", "start": 1, "end": 10}, {"index": 2, "heading": "2. 나", "start": 10, "end": 20}]
+
+    class R:
+        status_code = 200
+
+        def json(self):
+            return {"body": {"content": []}}
+
+    def fake_read(email, doc, http=None):
         if doc == "dst":
             calls["dst_reads"] += 1
-        secs = [{"index": 1, "heading": "1. 가", "start": 1, "end": 10}, {"index": 2, "heading": "2. 나", "start": 10, "end": 20}]
-        return {"sections": secs, "end": 21, "text": ""}
-    monkeypatch.setattr(gdocs, "get", fake_get)
+        return R()
+    monkeypatch.setattr(gdocs, "_read", fake_read)
+    monkeypatch.setattr(gdocs, "outline", lambda document: {"sections": secs, "end": 21, "text": ""})
+    monkeypatch.setattr(gdocs, "get", lambda email, doc, http=None: {"sections": secs, "end": 21, "text": ""})
     monkeypatch.setattr(gdocs, "_batch", lambda email, doc, reqs, http: calls["batches"].append(reqs) or {})
     res = gdocs.migrate_bodies("a@b", "src", "dst", user="u", data_dir=tmp_path, http=object())
     assert calls["dst_reads"] == 1 and len(calls["batches"]) == 2
@@ -944,3 +953,38 @@ def test_migrate_reads_destination_once_and_skips_repeated_tables(monkeypatch, t
     first, second = calls["batches"]                                # 뒤쪽 절(2. 나)부터
     assert not any("insertTable" in r for r in first) and any(r.get("insertText", {}).get("text") == "\n새 글" for r in first)
     assert any("insertTable" in r for r in second)
+
+
+def test_section_append_counts_positions_in_utf16():
+    """확장 영역 문자(󰊱, UTF-16 두 칸)가 든 표 뒤의 자리는 두 칸으로 센다 — 파이썬 글자 수로 세면 다음 표가 앞 표 칸 안으로 들어간다."""
+    sec = {"index": 2, "heading": "절", "start": 10, "end": 30}
+    wide = "\U000f02b1 지표"
+    reqs = gdocs._section_append_requests(sec, 100, [("table", [[wide]]), ("table", [["다음"]])])
+    tables = [r["insertTable"]["location"]["index"] for r in reqs if "insertTable" in r]
+    first_start = 29 + 1
+    assert tables == [29, first_start + 2 + 1 * 3 + len(wide) + 1]            # 󰊱 는 두 칸
+
+
+def test_migrate_fills_form_table_cells_in_place(monkeypatch, tmp_path):
+    """새 작업본 같은 절에 행·열이 같고 서식 칸 글이 모두 들어 있는 표가 있으면, 새 표를 붙이지 않고 그 표의 빈 칸에 값을 채운다."""
+    secs = [{"index": 1, "heading": "2.1.1 총괄표", "start": 1, "end": 60}]
+    def cell(start, text):
+        return {"content": [{"startIndex": start, "endIndex": start + len(text) + 1,
+                             "paragraph": {"elements": [{"textRun": {"content": text + "\n"}}]}}]}
+    form = {"startIndex": 5, "endIndex": 40, "table": {"tableRows": [
+        {"tableCells": [cell(8, "지표"), cell(12, "목표")]}, {"tableCells": [cell(20, "이수율"), cell(28, "")]}]}}
+
+    class R:
+        status_code = 200
+
+        def json(self):
+            return {"body": {"content": [form]}}
+    monkeypatch.setattr(gdocs, "_read", lambda email, doc, http=None: R())
+    monkeypatch.setattr(gdocs, "outline", lambda document: {"sections": secs, "end": 61, "text": ""})
+    monkeypatch.setattr(gdocs, "get", lambda email, doc, http=None: {"sections": secs, "end": 61, "text": ""})
+    monkeypatch.setattr(gdocs, "section_bodies", lambda email, doc, http=None, images=True: [
+        {"heading": "2.1.1 총괄표", "items": [("table", [["지표", "목표"], ["이수율", "80%"]])]}])
+    batches = []
+    monkeypatch.setattr(gdocs, "_batch", lambda email, doc, reqs, http: batches.append(reqs) or {})
+    res = gdocs.migrate_bodies("a@b", "src", "dst", user="u", data_dir=tmp_path, http=object())
+    assert res[0]["tables"] == 1 and batches == [[{"insertText": {"location": {"index": 28}, "text": "80%"}}]]
