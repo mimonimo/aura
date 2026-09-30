@@ -48,6 +48,15 @@ def test_source_change_and_malformed_data_do_not_leak_text():
     assert convert_tasks([task()], bad)[1]['issues'] == {'invalid_record':1}
 
 
+def test_superseded_review_and_its_followup_are_not_exported():
+    parent = task(); child = task('two')
+    parent['data']['superseded_by'] = 'one-r2'
+    child['data']['_record']['parent'] = 'one'
+    pairs, report = convert([parent, child])
+    assert not pairs
+    assert report['issues'] == {'superseded_sample': 2}
+
+
 def test_corrected_parent_invalidates_old_followup():
     parent = task(); child = task('two')
     history = [{'question':parent['data']['question'], 'answer':parent['data']['answer']}]

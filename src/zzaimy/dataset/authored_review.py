@@ -99,6 +99,8 @@ def convert_tasks(tasks, resolve_source):
         task = by_id[sid]
         data = task['data']
         record = data['_record']
+        if data.get('superseded_by'):
+            raise ValueError('superseded_sample')
         corrected, review = _annotation(task)
         if (record['id'] != sid or data['question'] != record['question']
                 or data['answer'] != record['answer'] or data['path'] != ' → '.join(record['path'])
