@@ -67,7 +67,7 @@ for r in rows:
  while parent:
   if parent in seen or parent not in by_id: raise ValueError('대화 연결 오류')
   seen.add(parent); p=by_id[parent]; history.insert(0,{'question':p['question'],'answer':p['answer']}); parent=p.get('parent')
- tasks.append({'data':{'sample_id':r['id'],'program':'2026학년도 AID 전환 중점 전문대학 지원사업',
+ tasks.append({'data':{'sample_id':r['id'],'ai_review_summary':'AI 검수 미진행 · 사람 승인과 별도','program':'2026학년도 AID 전환 중점 전문대학 지원사업',
   'path':' → '.join(r['path']),'kind':r['kind'],'question':r['question'],'answer':r['answer'],
   'rationale':r['rationale'],'history':'\n\n'.join('질문: '+p['question']+'\n답변: '+p['answer'] for p in history) or '단독 질문',
   'source':'\n'.join(locations),'evidence':'\n\n'.join(evidence),
