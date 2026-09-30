@@ -1,27 +1,38 @@
 <style>
   #approved-data, #training-tools { scroll-margin-top:100px; }
-  .training-output-row, .training-tool-row { display:flex; flex-wrap:wrap; gap:10px 20px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+  .training-output-row, .training-tool-row { display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; padding:14px 0; border-bottom:1px solid var(--line); }
   .training-output-row:last-child, .training-tool-row:last-child { border-bottom:0; }
   .training-output-row > div, .training-tool-row > div { flex:1; min-width:160px; }
   .training-output-row p, .training-tool-row p { margin:4px 0 0; font-size:12px; }
-  .training-files { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; overflow-wrap:anywhere; }
-  .training-files a { font-size:12px; }
+  .training-files { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .training-files a { display:inline-flex; align-items:center; gap:7px; max-width:100%; padding:6px 10px; border:1px solid var(--line); border-radius:7px; font-size:12px; background:var(--panel); }
+  .training-files a span { overflow-wrap:anywhere; min-width:0; }
+  .training-files a iconify-icon { flex-shrink:0; }
+  .training-files a:hover { border-color:var(--navy); text-decoration:none; }
+  .output-heading { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:13px; }
+  .output-count { font-size:11px; font-weight:500; color:var(--muted); }
+  .output-selection { display:flex; align-items:center; gap:8px; cursor:pointer; }
+  .output-selection input { margin:0; }
+  .output-empty { color:var(--muted); font-size:12px; }
+  .output-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding-top:14px; }
+  .output-footer p { margin:0; font-size:12px; }
 </style>
 <section class="card" id="approved-data"><div class="card-in">
   <h2><iconify-icon icon="solar:export-linear"></iconify-icon>승인 데이터·산출물</h2>
-  <p class="muted">검수 결과를 반영한 뒤 내려받습니다. 학습 데이터는 승인·개인정보·품질 검사를 통과한 파일만 제공됩니다.</p>
+  <p class="muted" style="font-size:12px;">학습 파일은 승인·개인정보·품질 검사 통과분만 제공됩니다. 검색 인덱스는 별도 산출물입니다.</p>
   <form action="/dev/train/export.zip" method="get">
     {% for g in export_preview %}
     <div class="training-output-row">
       <input type="hidden" name="{{ g.group }}" value="0">
-      <input type="checkbox" name="{{ g.group }}" value="1" aria-label="{{ g.label }} 선택" {% if g.files %}checked{% else %}disabled{% endif %}>
-      <div><b>{{ g.label }}</b><p class="muted">{{ g.desc }}</p>
-        <div class="training-files">{% for f in g.files %}<a href="/dev/train/export/file?path={{ f.path | urlencode }}">{{ f.path.rsplit('/', 1)[-1] }}</a>{% else %}<span class="muted">내려받을 파일 없음</span>{% endfor %}</div>
+      <div><div class="output-heading">
+        {% if g.files %}<label class="output-selection"><input type="checkbox" name="{{ g.group }}" value="1" checked><b>{{ g.label }}</b></label><span class="output-count">파일 {{ g.files | length }}개</span>
+        {% else %}<b>{{ g.label }}</b><span class="output-empty">아직 없음</span>{% endif %}
+        </div><p class="muted">{{ g.desc }}</p>
+        {% if g.files %}<div class="training-files">{% for f in g.files %}<a href="/dev/train/export/file?path={{ f.path | urlencode }}" aria-label="{{ f.path.rsplit('/', 1)[-1] }} 다운로드"><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon><span>{{ f.path.rsplit('/', 1)[-1] }}</span></a>{% endfor %}</div>{% endif %}
       </div>
-      <span class="muted">{{ g.files | length }}개</span>
     </div>
     {% else %}<p class="muted">산출물 목록을 불러오지 못했습니다. 새로고침 후 다시 확인하세요.</p>{% endfor %}
-    <button type="submit" class="secondary" style="margin-top:12px;" {% if not export_preview or not export_preview | selectattr('files') | list %}disabled{% endif %}>선택 항목 내려받기</button>
+    {% if export_preview | selectattr('files') | list %}<div class="output-footer"><p class="muted">파일은 개별로, 선택한 항목은 ZIP으로 내려받습니다.</p><button type="submit" class="secondary"><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon>선택 항목 내려받기</button></div>{% endif %}
   </form>
 </div></section>
 <section class="card" id="training-tools"><div class="card-in">

@@ -3,34 +3,27 @@
     <a class="h-link" href="/dev/doc/model-plan.md">모델 개발 계획 <span aria-hidden="true">↗</span></a>
   </h2>
   <p class="muted">{{ model_tracks_updated }} 기준 · 계획·검증 기록입니다. 현재 서버 연결 상태와 학습 완료 여부는 다릅니다.</p>
-  <div class="feat-area" data-model-progress>
-    <h3 class="feat-area-h">모델별 현황 <span class="muted">{{ model_tracks | length }}종</span></h3>
+  <div class="model-comparison" data-model-progress>
+    <div class="model-columns" aria-hidden="true"><span>모델 · 역할</span><span>현재 단계</span><span>다음 검증</span></div>
     {% for t in model_tracks %}
-    <div class="feat-row">
-      <div class="model-identity"><span class="feat-name">{{ t.name }}</span><span class="muted">{{ t.base }}</span></div>
-      <dl class="feat-body model-facts">
-        <div><dt class="feat-k">역할</dt><dd>{{ t.role }} · {{ t.method }}</dd></div>
-        <div><dt class="feat-k">지금</dt><dd>{{ t.status }}</dd></div>
-        <div><dt class="feat-k">남은 것</dt><dd>{{ t.next }}</dd></div>
-      </dl>
+    <div class="model-comparison-row">
+      <div class="model-identity"><span class="feat-name">{{ t.name }}</span><span class="muted">{{ t.base }}</span><span class="model-role">{{ t.role }}</span></div>
+      <div class="model-stage"><span class="model-mobile-label">현재 단계</span>{{ t.status }}<small>{{ t.method }}</small></div>
+      <div class="model-next"><span class="model-mobile-label">다음 검증</span>{{ t.next }}</div>
     </div>
     {% endfor %}
   </div>
-  <div class="feat-area" data-learning-sequence>
-    <h3 class="feat-area-h">학습·평가 순서</h3>
+  <div class="learning-sequence" data-learning-sequence>
+    <h3>학습·평가 순서 <span class="muted">진행 기준</span></h3>
+    <ol class="learning-flow">
     {% for name, requirement, output in [
       ('1. 데이터 검수', '사업·문서·목차에 연결된 문답과 원문 근거 대조', '근거·구조·맥락·개인정보 검수를 통과한 승인 데이터'),
       ('2. 평가 준비', '학습 데이터와 평가셋 분리, 중복 검사', '학습 전 베이스라인 측정 결과'),
       ('3. 학습·비교', '승인 데이터와 베이스라인 확보 후 SFT', '같은 평가셋으로 학습 전후 비교 · DPO는 SFT 이후 검토')
     ] %}
-    <div class="feat-row">
-      <div class="feat-head"><span class="feat-name">{{ name }}</span></div>
-      <dl class="feat-body model-facts">
-        <div><dt class="feat-k">확인</dt><dd>{{ requirement }}</dd></div>
-        <div><dt class="feat-k">결과</dt><dd>{{ output }}</dd></div>
-      </dl>
-    </div>
+    <li><b>{{ name }}</b><p>{{ requirement }}</p><p class="muted">{{ output }}</p></li>
     {% endfor %}
+    </ol>
   </div>
   <p class="muted model-note">위 순서는 진행 기준입니다. 후보 생성이나 서버 연결만으로 검수·학습이 완료되지는 않습니다.</p>
 </div></section>

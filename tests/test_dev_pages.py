@@ -157,6 +157,37 @@ def test_training_workflow_is_one_page(client):
     assert '모델 계획 읽기' not in overview
 
 
+def test_training_actions_and_empty_outputs_are_compact(client, monkeypatch):
+    from html.parser import HTMLParser
+    class Tags(HTMLParser):
+        def __init__(self, text):
+            super().__init__()
+            self.tags = []
+            self.feed(text)
+        def handle_starttag(self, tag, attrs):
+            self.tags.append((tag, dict(attrs)))
+    from zzaimy.dataset.ls_client import LabelStudioClient
+    client.app.state.db.set_setting('labelstudio_url', 'http://127.0.0.1:9')
+    client.app.state.db.set_setting('labelstudio_token', 'test-placeholder')
+    monkeypatch.setattr(LabelStudioClient, 'status', lambda self, project: {
+        'ok': True, 'project_id': 1, 'total': 12, 'done': 0, 'pending': 12,
+    })
+    text = client.get('/dev/train').text
+    actions = text.split('<div class="review-actions">', 1)[1].split('</div>', 1)[0]
+    assert 'review-primary' in actions and 'action="/dev/data/grounded-pull"' in actions
+    for row in text.split('<div class="training-output-row">')[1:]:
+        row = row.split('</div>\n    ', 1)[0]
+        if 'output-empty' in row:
+            assert 'type="checkbox"' not in row
+    tags = Tags(text).tags
+    for tag, attrs in tags:
+        if tag == 'a' and attrs.get('href', '').startswith('/dev/train/export/file?'):
+            assert '다운로드' in attrs['aria-label']
+    overview = client.get('/dev').text
+    assert overview.count('class="model-comparison-row"') == 4
+    assert overview.split('class="learning-flow"', 1)[1].split('</ol>', 1)[0].count('<li>') == 3
+
+
 def test_receipt_no_never_reused_after_delete(tmp_path):
     from zzaimy.app.db import Database
 
