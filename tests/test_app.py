@@ -1074,7 +1074,7 @@ def test_dev_data_page_and_build(client, monkeypatch, tmp_path):
         ai_review="예산 1,000천원 확인. 형식 적합. " + "이상 없음. " * 6,
     )
     r = client.get("/dev/data")
-    assert r.status_code == 200 and "문답 데이터·검수" in r.text
+    assert r.status_code == 200 and "데이터·학습" in r.text
 
     r = client.post(
         "/dev/data/build",

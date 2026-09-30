@@ -91,7 +91,7 @@ def test_developer_work_pages_have_actions_not_duplicate_plans(client):
     legacy = client.get('/dev/train?tab=data&view=legacy').text
     assert 'id="datasetBuildForm"' in legacy and '데이터 묶음 이력' in legacy
     settings = client.get('/dev/train?tab=settings').text
-    assert 'action="/dev/data/grounded-review-config"' in settings
+    assert 'action="/dev/data/grounded-review-config"' not in settings
     for url in ['/dev/docs', '/dev/quality', '/dev/pii']:
         page = client.get(url).text
         assert '← 개발 현황' not in page
@@ -134,8 +134,27 @@ def test_train_page_holds_tool_accounts_once(client):
     assert "toolModal-labelstudio" in page and "/dev/accounts" not in page
     # 비밀번호는 같은 창 안에서 화면만 바꿔 받는다 — 접이식(details)으로 펼치지 않는다
     assert "비밀번호 변경" in page and "data-pw-open" in page and "<details" not in page
-    assert 'href="/dev/train?tab=data"' in page
+    assert 'href="/dev/train"' in page
+    assert 'grounded-review-config' not in page
+    assert 'tool-status-row' in page
     assert "준비된 학습 데이터" not in page                 # 목록은 데이터 공방이 원본
+
+
+def test_training_workflow_is_one_page(client):
+    for url in ("/dev/train", "/dev/train?tab=data", "/dev/train?tab=models", "/dev/train?tab=exports"):
+        response = client.get(url)
+        assert response.status_code == 200
+        page = response.text
+        assert '<title>데이터·학습' in page
+        assert 'action="/dev/data/grounded-pull"' in page
+        assert 'id="approved-data"' in page and 'id="training-tools"' in page
+        assert 'action="/dev/train/export.zip"' in page
+        assert page.count('>데이터·학습</a>') == 1
+        assert '>승인 산출물</a>' not in page
+        assert '데이터는 자동 전달되지 않으며' in page
+    overview = client.get('/dev').text
+    assert 'data-model-progress' in overview and 'data-learning-sequence' in overview
+    assert '모델 계획 읽기' not in overview
 
 
 def test_receipt_no_never_reused_after_delete(tmp_path):

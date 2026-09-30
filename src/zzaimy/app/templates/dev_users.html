@@ -42,8 +42,7 @@
   #userEdit input[readonly] { background:var(--bg); color:var(--muted); }
   #userEdit .ua-hint { margin:0; font-size:12px; line-height:1.6; color:var(--muted); font-weight:400; }
   #userEdit .ua-options { border-top:1px solid var(--line); padding-top:16px; }
-  #userEdit .ua-options summary { cursor:pointer; font-size:13px; color:var(--muted); }
-  #userEdit .ua-options[open] summary { margin-bottom:16px; }
+  #userPasswordFields { margin-top:16px; }
   #userEdit .ua-options label.check { margin-top:18px; }
   #userEdit .ua-footer { flex:none; display:flex; justify-content:flex-end; gap:8px; padding:16px 24px; border-top:1px solid var(--line); background:var(--bg); }
   #userEdit .ua-footer button { min-height:40px; border-radius:8px; padding:8px 18px; }
@@ -146,15 +145,17 @@
       <p class="ua-hint">사용자가 로그인 후 설정에서 본인 계정을 연결할 수 있습니다.</p>
       <div data-initial-password></div>
       <input type="hidden" name="active" value="1">
-      <details class="ua-options" data-account-options hidden>
-        <summary>비밀번호 및 계정 상태</summary>
+      <section class="ua-options" data-account-options hidden>
+        <button type="button" class="secondary" data-password-toggle aria-expanded="false" aria-controls="userPasswordFields">비밀번호 변경</button>
+        <div id="userPasswordFields" hidden>
         <label data-password-field><span data-pw-label>새 비밀번호</span><input type="password" name="new_pw" autocomplete="new-password" minlength="8" placeholder="8자 이상"></label>
         <p class="ua-hint">비워두면 기존 비밀번호를 유지합니다.</p>
+        </div>
       <div data-account-status hidden>
         <label class="check"><input type="checkbox" name="suspended" aria-describedby="accountStatusHelp">계정 사용 중지</label>
         <p class="ua-hint" id="accountStatusHelp">선택 후 저장하면 로그인이 차단됩니다. 계정과 기존 자료는 삭제되지 않습니다.</p>
       </div>
-      </details>
+      </section>
     </form>
     <footer class="ua-footer"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit" form="userEditForm" data-save-user>사용자 추가</button></footer>
   </div></div>
@@ -186,6 +187,15 @@
 <script>
 (function () {
   var userForm = document.querySelector('#userEdit form');
+  var passwordToggle = document.querySelector('[data-password-toggle]');
+  var passwordFields = document.getElementById('userPasswordFields');
+  passwordToggle.addEventListener('click', function () {
+    passwordFields.hidden = !passwordFields.hidden;
+    passwordToggle.setAttribute('aria-expanded', String(!passwordFields.hidden));
+    passwordToggle.textContent = passwordFields.hidden ? '비밀번호 변경' : '비밀번호 변경 취소';
+    if (passwordFields.hidden) userForm.elements.new_pw.value = '';
+    else userForm.elements.new_pw.focus();
+  });
   function syncAccountStatus() {
     userForm.elements.active.value = userForm.elements.is_new.value === '1' || !userForm.elements.suspended.checked ? '1' : '';
   }
@@ -199,7 +209,14 @@
       f.uid.value = isNew ? '' : btn.dataset.user;
       f.uid.readOnly = !isNew;
       f.name.value = isNew ? '' : (btn.dataset.name || '');
-      f.role.value = isNew ? 'staff' : btn.dataset.role;
+      f.role.querySelectorAll('[data-legacy-role]').forEach(function (option) { option.remove(); });
+      var role = isNew ? 'staff' : btn.dataset.role;
+      if (!Array.from(f.role.options).some(function (option) { return option.value === role; })) {
+        var legacy = new Option('기존 역할 유지', role);
+        legacy.dataset.legacyRole = '1';
+        f.role.add(legacy);
+      }
+      f.role.value = role;
       f.dept.value = isNew ? '' : (btn.dataset.dept || '');
       f.google.value = isNew ? '' : (btn.dataset.google || '');
       f.elements.suspended.checked = !isNew && btn.dataset.active !== '1';
@@ -207,10 +224,12 @@
       document.querySelector('#userEdit [data-account-status]').hidden = isNew;
       var options = document.querySelector('#userEdit [data-account-options]');
       options.hidden = isNew;
-      options.open = !isNew && f.elements.suspended.checked;
+      passwordFields.hidden = true;
+      passwordToggle.setAttribute('aria-expanded', 'false');
+      passwordToggle.textContent = '비밀번호 변경';
       var passwordField = document.querySelector('#userEdit [data-password-field]');
       if (isNew) document.querySelector('#userEdit [data-initial-password]').appendChild(passwordField);
-      else options.insertBefore(passwordField, options.querySelector('.ua-hint'));
+      else passwordFields.insertBefore(passwordField, passwordFields.querySelector('.ua-hint'));
       syncAccountStatus();
       f.new_pw.value = '';
       f.new_pw.required = isNew;

@@ -4474,7 +4474,7 @@ def create_app(
     def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "models", ds_page: int = 0):
         if tab not in {"data", "models", "settings", "exports"}:
             tab = "models"
-        if tab == "data":
+        if tab != "settings":
             return _dev_data_view(request, err, ok, ds_page)
         # 연결마다 서버가 지금 내어 주는 모델 목록 — 저장된 값이 아니라 실시간(짧게 캐시)
         # Label Studio 는 실제 연결 여부(connected)로 표시 — 주소만 있다고 연결됨이 아니다.
@@ -4788,6 +4788,12 @@ def create_app(
 
     def _dev_data_view(request: Request, err: str = "", ok: str = "", ds_page: int = 0):
         from zzaimy.dataset.build import preview_sources, rag_status
+        from zzaimy.export.bundle import preview_bundle
+
+        try:
+            export_preview = preview_bundle(db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
+        except Exception:
+            export_preview = []
 
         ds_page = max(ds_page, 0)
         DS_PER = 20
@@ -4807,6 +4813,8 @@ def create_app(
         return templates.TemplateResponse(request, "dev_data.html", ctx(request, {
             "grounded_review_report": review_report,
             "development_tab": "data",
+            "export_preview": export_preview,
+            "tensorboard_url": db.get_setting("tensorboard_url", ""),
             "grounded_ls": _grounded_ls_status(),
             "rag_rows": rag_status(db),
             "source_preview": preview_sources(db),

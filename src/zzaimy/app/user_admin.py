@@ -29,6 +29,7 @@ from zzaimy.ingest import gdocs, gdrive, gdrive_files
 router = APIRouter()
 
 _UID = re.compile(r"^[a-z0-9][a-z0-9_-]{2,31}$")          # 점은 안 된다 — 세션 토큰이 '만료.아이디.서명' 꼴
+ASSIGNABLE_ROLES = {key: ROLES[key] for key in ("staff", "head", "dev")}
 _FOLDER_ID = re.compile(r"(?:/folders/|[?&]id=)([A-Za-z0-9_-]{10,})|^([A-Za-z0-9_-]{10,})$")
 
 
@@ -86,7 +87,7 @@ def overview(db, accounts: dict) -> dict:
     emails = [{"email": e, "users": owners.get(e, []), "docs_ok": gdocs.has_docs_scope(e),
                "granted_at": conn[e].get("granted_at", "")} for e in sorted(conn)]
     return {"users": users, "depts": dept_rows, "emails": emails, "domain": gdrive.allowed_domain(),
-            "app": gdrive.public_status(), "roles": ROLES,
+            "app": gdrive.public_status(), "roles": ASSIGNABLE_ROLES,
             "me": ""}
 
 
@@ -161,6 +162,8 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
     new = bool(is_new)
     if role not in ROLES:
         return _back("역할 값이 올바르지 않습니다", ok=False)
+    if role not in ASSIGNABLE_ROLES and (new or accounts.get(uid, {}).get("role") != role):
+        return _back("새로 지정할 수 없는 역할입니다", ok=False)
     if new:
         if not _UID.match(uid):
             return _back("아이디는 영문 소문자·숫자로 3~32자입니다(_ - 가능)", ok=False)

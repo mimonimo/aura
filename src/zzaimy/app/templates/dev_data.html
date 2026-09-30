@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}문답 데이터·검수{% endblock %}
-{% block pagetitle %}문답 데이터·검수{% endblock %}
+{% block title %}데이터·학습{% endblock %}
+{% block pagetitle %}데이터·학습{% endblock %}
 {% block content %}
 
 <style>
@@ -33,16 +33,15 @@
 </div></div>
 {% endif %}
 
-<section class="card"><div class="card-in"><h2>문답 검수</h2>
-<p>문서에서 만든 질문과 답변을 원문과 비교하고, 맞는 답변만 학습용으로 승인합니다.</p>
+<section class="card"><div class="card-in"><h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>문답 검수
+<a class="h-link" href="/dev/train?tab=data&amp;view={{ 'main' if request.query_params.get('view') == 'legacy' else 'legacy' }}">{{ '검수로 돌아가기' if request.query_params.get('view') == 'legacy' else '이전 기록·이력' }}</a></h2>
 {% if grounded_ls.ok and grounded_ls.project_id %}<p>전체 기록 {{ grounded_ls.total }}건(이전 버전 포함) · 사람 검수 주석 {{ grounded_ls.done }}건</p><a class="btn-ghost" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">원문과 답변 검수하기 ↗</a>
 {% else %}<p class="muted">검수 현황 {{ grounded_ls.error or '프로젝트 미확인' }}</p>{% endif %}
-<p class="muted">주석 작성은 학습 승인과 다릅니다. 근거·구조·맥락·개인정보 승인이 완료되고 품질 관문을 통과한 파일만 산출물에 표시합니다.</p>
 <div style="display:flex;gap:8px;flex-wrap:wrap">
 
 <form method="post" action="/dev/data/grounded-pull"><button type="submit" {% if not grounded_ls.ok or not grounded_ls.project_id %}disabled{% endif %}>완료한 검수 결과 반영</button></form>
 </div>
-<p class="muted">검수 화면에서 근거·구조·맥락·개인정보를 확인한 뒤 결과를 반영하세요. AI 자체 검수와 사람의 학습 승인은 별개입니다.</p>
+<p class="muted">근거·구조·맥락·개인정보를 확인한 뒤 결과를 반영합니다. 주석 작성·AI 자체 검수는 학습 승인이 아닙니다.</p>
 {% if grounded_review_report %}
 <div style="border-top:1px solid var(--line);padding-top:14px;margin-top:14px">
 <strong>최근 검수 반영</strong>
@@ -211,9 +210,13 @@
 {% endfor %}
 
 {% endif %}
-<p><a class="btn-ghost" href="/dev/train?tab=data&amp;view={{ 'main' if request.query_params.get('view') == 'legacy' else 'legacy' }}">{{ '문답 검수로 돌아가기' if request.query_params.get('view') == 'legacy' else '이전 기록 변환·이력' }}</a></p>
+{% if request.query_params.get('view') != 'legacy' %}
+{% include "_training_outputs.html" %}
+{% endif %}
 <script>
 (() => {
+  const section = {{ request.query_params.get('tab', '') | tojson }};
+  if (section === 'exports' || section === 'models') document.getElementById(section === 'exports' ? 'approved-data' : 'training-tools')?.scrollIntoView();
   const form = document.getElementById('datasetBuildForm');
   const status = document.getElementById('datasetSelectionStatus');
   if (!form || !status) return;

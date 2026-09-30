@@ -1,17 +1,36 @@
-<div class="card"><div class="card-in">
-  <h2>모델 개발 트랙 (4종)</h2>
+<section class="card" aria-labelledby="model-progress-title"><div class="card-in">
+  <h2 id="model-progress-title"><iconify-icon icon="solar:cpu-linear" aria-hidden="true"></iconify-icon>모델 개발·학습 현황
+    <a class="h-link" href="/dev/doc/model-plan.md">모델 개발 계획 <span aria-hidden="true">↗</span></a>
+  </h2>
   <p class="muted">{{ model_tracks_updated }} 기준 · 계획·검증 기록입니다. 현재 서버 연결 상태와 학습 완료 여부는 다릅니다.</p>
-  <div class="table-scroll"><table>
-    <thead><tr><th>모델 / 베이스</th><th>역할·학습 방식</th><th>현재 단계</th><th>다음 검증</th></tr></thead>
-    <tbody>{% for t in model_tracks %}<tr>
-      <td><b>{{ t.name }}</b><br><span class="muted">{{ t.base }}</span></td>
-      <td>{{ t.role }}<br><span class="muted">{{ t.method }}</span></td>
-      <td>{{ t.status }}</td><td>{{ t.next }}</td>
-    </tr>{% endfor %}</tbody>
-  </table></div>
-  <p class="muted">우선순위: 사업·문서·실제 목차에 연결된 문답과 근거 검수. 생성 건수는 학습 승인 건수가 아닙니다.</p>
-  <div><h3>학습·평가 순서</h3>
-    <p class="muted">근거 문답 검수 → 승인 데이터와 평가셋 분리 → 베이스라인 측정 → SFT → 학습 전후 비교. DPO는 SFT 이후 검토합니다.</p>
-    <a class="btn-ghost" href="/dev/doc/model-plan.md">모델 계획 읽기</a>
+  <div class="feat-area" data-model-progress>
+    <h3 class="feat-area-h">모델별 현황 <span class="muted">{{ model_tracks | length }}종</span></h3>
+    {% for t in model_tracks %}
+    <div class="feat-row">
+      <div class="model-identity"><span class="feat-name">{{ t.name }}</span><span class="muted">{{ t.base }}</span></div>
+      <dl class="feat-body model-facts">
+        <div><dt class="feat-k">역할</dt><dd>{{ t.role }} · {{ t.method }}</dd></div>
+        <div><dt class="feat-k">지금</dt><dd>{{ t.status }}</dd></div>
+        <div><dt class="feat-k">남은 것</dt><dd>{{ t.next }}</dd></div>
+      </dl>
+    </div>
+    {% endfor %}
   </div>
-</div></div>
+  <div class="feat-area" data-learning-sequence>
+    <h3 class="feat-area-h">학습·평가 순서</h3>
+    {% for name, requirement, output in [
+      ('1. 데이터 검수', '사업·문서·목차에 연결된 문답과 원문 근거 대조', '근거·구조·맥락·개인정보 검수를 통과한 승인 데이터'),
+      ('2. 평가 준비', '학습 데이터와 평가셋 분리, 중복 검사', '학습 전 베이스라인 측정 결과'),
+      ('3. 학습·비교', '승인 데이터와 베이스라인 확보 후 SFT', '같은 평가셋으로 학습 전후 비교 · DPO는 SFT 이후 검토')
+    ] %}
+    <div class="feat-row">
+      <div class="feat-head"><span class="feat-name">{{ name }}</span></div>
+      <dl class="feat-body model-facts">
+        <div><dt class="feat-k">확인</dt><dd>{{ requirement }}</dd></div>
+        <div><dt class="feat-k">결과</dt><dd>{{ output }}</dd></div>
+      </dl>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="muted model-note">위 순서는 진행 기준입니다. 후보 생성이나 서버 연결만으로 검수·학습이 완료되지는 않습니다.</p>
+</div></section>

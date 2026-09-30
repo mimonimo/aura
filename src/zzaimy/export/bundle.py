@@ -66,7 +66,7 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
             ds_files.append({"path": f"datasets/{jf.name}",
                              "bytes": jf.stat().st_size})
     tree.append({"group": "datasets", "label": "학습 데이터",
-                 "desc": f"검수 승인 JSONL {len(ds_files)}개" if ds_files else "승인된 학습 데이터 없음 · 후보는 검수 탭에서 확인",
+                 "desc": f"검수 승인 JSONL {len(ds_files)}개" if ds_files else "승인된 학습 데이터 없음 · 문답 검수 후 결과 반영 필요",
                  "files": ds_files})
 
     # 모델
