@@ -790,19 +790,26 @@ def section_bodies(email: str, doc: str, http=None, images: bool = True) -> list
     return out
 
 
+def _u16(text: str) -> int:
+    """독스 위치는 UTF-16 단위로 센다 — 기호 글꼴의 확장 영역 문자(󰊱 등)는 2칸이다. 파이썬 len 으로 세면 그 개수만큼 다음 자리가
+    어긋나 다음 표가 앞 표의 칸 안으로 들어갔다(실측 2026-09-30: 2.1.1 설정 근거 표가 사라짐)."""
+    return len(text.encode("utf-16-le")) // 2
+
+
 def _section_append_requests(sec: dict, doc_end: int, items: list[tuple[str, object]]) -> list[dict]:
     """절 끝에 글·표를 차례로 붙이는 요청 목록(한 batchUpdate). insert_into_section·insert_table 과 같은 자리 규칙을 커서로 따라간다 —
     절이 표(작성방법 상자)로 끝나면 표 바로 뒤에 새 문단부터, 아니면 절 마지막 문단 끝에 새 문단으로."""
     reqs: list[dict] = []
     if not items:
         return reqs
+    u = _u16
     if int(sec.get("table_end") or 0) > int(sec["end"]) - 1:
         cur = min(int(sec["table_end"]), doc_end - 1)
         first_kind, first = items[0]
         if first_kind == "text":
             payload = str(first) + "\n"
-            reqs += [{"insertText": {"location": {"index": cur}, "text": payload}}, _body_style(cur, cur + len(payload))]
-            cur += len(payload) - 1                                    # 넣은 문단의 끝(줄바꿈 앞)
+            reqs += [{"insertText": {"location": {"index": cur}, "text": payload}}, _body_style(cur, cur + u(payload))]
+            cur += u(payload) - 1                                    # 넣은 문단의 끝(줄바꿈 앞)
             items = items[1:]
         else:
             reqs += [{"insertText": {"location": {"index": cur}, "text": "\n"}}, _body_style(cur, cur + 1)]
@@ -811,8 +818,8 @@ def _section_append_requests(sec: dict, doc_end: int, items: list[tuple[str, obj
     for kind, payload in items:
         if kind == "text":
             text = str(payload)
-            reqs += [{"insertText": {"location": {"index": cur}, "text": "\n" + text}}, _body_style(cur + 1, cur + 1 + len(text))]
-            cur += 1 + len(text)
+            reqs += [{"insertText": {"location": {"index": cur}, "text": "\n" + text}}, _body_style(cur + 1, cur + 1 + u(text))]
+            cur += 1 + u(text)
         elif kind == "table":
             rows = payload
             n_rows, n_cols = len(rows), max(len(r) for r in rows)
@@ -831,10 +838,10 @@ def _section_append_requests(sec: dict, doc_end: int, items: list[tuple[str, obj
                 t = str(rows[0][ci]) if ci < len(rows[0]) else ""
                 a = cur + 4 + 2 * ci + shift
                 if t:
-                    reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": a + len(t)},
+                    reqs.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": a + u(t)},
                                                      "textStyle": {"bold": True}, "fields": "bold"}})
-                shift += len(t)
-            table_len = 2 + n_rows * (2 * n_cols + 1) + sum(len(t) for _i, t in fills)
+                shift += u(t)
+            table_len = 2 + n_rows * (2 * n_cols + 1) + sum(u(t) for _i, t in fills)
             cur = start + table_len                                    # 표 뒤 문단(줄바꿈 앞)
     return reqs
 
@@ -865,7 +872,38 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
     # 문서는 한 번만 읽는다 — 절마다(항목마다) 다시 읽으면 큰 작업본(95쪽)은 읽기 100번 가까이·30분이 넘었다(실측 2026-09-30).
     # 절마다 넣을 것을 한 요청(batchUpdate)으로 만들고, 문서 뒤쪽 절부터 넣어 앞 절의 위치가 밀리지 않게 한다.
     # 새 표의 칸 위치는 넣은 자리로 계산한다: 칸(r, c) = 자리 + 4 + r × (2 × 열 수 + 1) + 2 × c (독스 실측)
-    info = get(email, dst, http)
+    raw = _read(email, dst, http)
+    _raise(raw)
+    info = outline(raw.json())
+    dst_body = body_content(raw.json())
+    used_tables: set[int] = set()                                      # 제자리 채움에 쓴 새 작업본 표(시작 위치)
+
+    def form_table_for(sec: dict, rows: list[list[str]]) -> dict | None:
+        """이 절 안에서 행·열 수가 같고 서식 칸 글이 모두 작업본 표에 들어 있는 새 작업본 표 — 에이전트가 서식 표 칸을 채운 것은
+        새 표로 붙이지 않고 그 표의 빈 칸에 제자리로 채운다(절 끝에 붙이면 빈 서식 표와 두 벌이 되고 완성본의 서식 채움도 빠진다)."""
+        lo, hi = int(sec["start"]), int(sec["end"])
+        want = [[_norm_heading(str(c)) for c in r] for r in rows]
+        for el in dst_body:
+            st = int(el.get("startIndex", 0))
+            if "table" not in el or not (lo <= st < hi) or st in used_tables:
+                continue
+            trows = el["table"].get("tableRows", [])
+            if len(trows) != len(rows) or any(len(tr.get("tableCells", [])) != len(r) for tr, r in zip(trows, rows)):
+                continue
+            ok, filled = True, 0
+            for tr, wr in zip(trows, want):
+                for cell, w in zip(tr["tableCells"], wr):
+                    have = _norm_heading(" ".join(_para_text(e["paragraph"]) for e in cell.get("content", []) if "paragraph" in e))
+                    if have and have != w:
+                        ok = False
+                        break
+                    filled += bool(w and not have)
+                if not ok:
+                    break
+            if ok and filled:
+                return el
+        return None
+
     dst_norm = _norm_heading(info.get("text") or "")
     dst_cells = {_norm_heading(c) for ln in (info.get("text") or "").split("\n") if " | " in ln for c in ln.split(" | ") if c.strip()}
     plans: dict[int, dict] = {}                                        # 대상 절 index → {sec, items, heads}
@@ -906,17 +944,31 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
                 rows = [[scrub(str(c)) if scrub else str(c) for c in r] for r in payload if r]
                 cells = {_norm_heading(str(c)) for r in rows for c in r if str(c).strip()}
                 if rows and not (cells and cells <= dst_cells):
-                    kept.append(("table", rows))
+                    form = form_table_for(sec, rows)
+                    if form is not None:
+                        used_tables.add(int(form["startIndex"]))
+                        kept.append(("fill", (form, rows)))
+                    else:
+                        kept.append(("table", rows))
                     dst_cells |= cells                                 # 같은 표가 뒤에 또 나오면 건너뛴다(예전엔 절마다 다시 읽어 그랬다)
         plan = plans.setdefault(int(sec["index"]), {"sec": sec, "items": [], "heads": []})
         plan["items"].extend(kept)
         plan["heads"].append((b["heading"], sum(len(str(x)) for k, x in kept if k == "text"),
-                              sum(1 for k, _x in kept if k == "table"), sec["heading"] if fallback else ""))
+                              sum(1 for k, _x in kept if k in ("table", "fill")), sec["heading"] if fallback else ""))
     # 뒤쪽 절부터 — 각 절은 한 요청
     for idx in sorted(plans, key=lambda i: -int(plans[i]["sec"]["start"])):
         plan = plans[idx]
         sec, items = plan["sec"], plan["items"]
-        reqs = _section_append_requests(sec, int(info["end"]), items)
+        # 절 끝에 붙이는 것(높은 자리)을 먼저, 서식 표 제자리 채움(낮은 자리)은 뒤에서부터 — 앞 요청이 뒤 요청의 자리를 밀지 않게
+        reqs = _section_append_requests(sec, int(info["end"]), [it for it in items if it[0] != "fill"])
+        fills = []
+        for kind, (form, rows) in (it for it in items if it[0] == "fill"):
+            for tr, r in zip(form["table"]["tableRows"], rows):
+                for cell, v in zip(tr["tableCells"], r):
+                    have = " ".join(_para_text(e["paragraph"]) for e in cell.get("content", []) if "paragraph" in e).strip()
+                    if str(v).strip() and not have and cell.get("content"):
+                        fills.append((int(cell["content"][0]["startIndex"]), str(v)))
+        reqs += [{"insertText": {"location": {"index": i}, "text": v}} for i, v in sorted(fills, reverse=True)]
         if reqs:
             _batch(email, dst, reqs, http)
             _audit(data_dir, {"user": user, "doc": doc_id(dst), "action": "migrate", "section": sec["heading"],
