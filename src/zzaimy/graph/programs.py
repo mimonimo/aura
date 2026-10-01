@@ -48,6 +48,11 @@ def _is_acr(a: str) -> bool:
     return bool(re.match(r"[A-Za-z]", a)) and not re.search(r"[a-z]{3}", a) and not re.match(r"(?i)^v(?:er)?[\s._]*\d", a)
 
 
+_KOR_PAREN = re.compile(r"(?<=[가-힣\s])\(([가-힣]{2,4})\)")
+# 이름이 바뀌었음을 알리는 표기 — 「RISE(現 앵커)」·「앵커 추진방안(RISE 재구조화)」·「명칭 변경」
+_RENAMED = re.compile(r"[現현]\s*[가-힣A-Za-z]|재구조화|명칭\s*(?:을\s*)?변경|개편")
+
+
 def _name_ok(name: str) -> bool:
     core = re.sub(r"[\s()·]", "", _TIME_WORDS.sub("", name)).replace("사업", "")
     return len(re.findall(r"[가-힣A-Za-z]", core)) >= 4
@@ -75,6 +80,7 @@ class ProgramCard:
     key: str                                   # 대표 키(program_key)
     names: Counter = field(default_factory=Counter)
     acrs: Counter = field(default_factory=Counter)
+    renamed: list[str] = field(default_factory=list)      # 이름이 바뀐 같은 사업이라는 문서 근거(제목)
 
     @property
     def name(self) -> str:
@@ -101,6 +107,9 @@ def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     acrs = [f"{m.group(1)}{m.group(2)}" for m in _VERSIONED.finditer(text or "")]
     acrs += _BARE_ACR.findall(text or "")                     # 「RISE사업(2025~)」 — 홀로 쓰인 약칭+사업
     for n in names:
+        # 괄호 속 한글 약칭 후보(「지역성장 인재양성체계(앵커)사업」의 앵커) — build_cards 가 다른 제목에서 「앵커사업」으로도 쓰이는지 본다
+        for k in _KOR_PAREN.findall(n):
+            pairs.append((n, "k:" + k))
         inner = [a for a in _LATIN_ACR.findall(n) if _is_acr(a)]          # 「(AI+Digital)」은 풀이, 「(ver.4)」는 판 표기
         acrs += inner
         pairs += [(n, a) for a in inner]                      # 「지역혁신중심 대학지원체계(RISE)사업」 — 이름 속 약칭과 같은 사업
@@ -129,9 +138,12 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
     names: dict[str, Counter] = defaultdict(Counter)
     acr_seen: dict[str, Counter] = defaultdict(Counter)
     titled: set[str] = set()                    # 파일 이름·경로에 나온 키
+    kor_alias: dict[str, set] = defaultdict(set)  # 괄호 속 한글 약칭 → 그 약칭을 품은 긴 이름 키
+    title_texts: list[str] = []
     head_docs: dict[str, set] = defaultdict(set)  # 앞머리에만 나온 키 → 문서들
     for d in docs:
         tp = f"{clean_title(d.get('filename') or '')}\n{d.get('path') or ''}"
+        title_texts.append(tp)
         tn, ta, tpairs = _mentions(tp)
         titled.update("n:" + program_key(n) for n in tn)
         titled.update("a:" + _acr(a) for a in ta)
@@ -151,6 +163,9 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             find(k)
             acr_seen[k][a.strip()] += 1
         for long_, short in pairs:                              # 문서가 알려 주는 다른 이름
+            if short.startswith("k:"):
+                kor_alias[short[2:]].add("n:" + program_key(long_))
+                continue
             kn, ka = "n:" + program_key(long_), "a:" + _acr(short)
             names[kn][long_] += 1
             acr_seen[ka][short] += 1
@@ -167,6 +182,36 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
                     and sum(x != y for x, y in zip(a, b)) == 2:
                 union(k2, k)
                 break
+    # 괄호 속 한글 약칭은 다른 제목에서도 「약칭+사업」으로 쓰일 때만 약칭이다(「앵커사업」) — 「(주관)」·「(안)」은 그렇게 안 쓰인다
+    joined = "\n".join(title_texts)
+    for alias, longs in kor_alias.items():
+        if re.search(rf"{re.escape(alias)}\s*사업(?![가-힣]*계획서)", joined) or re.search(rf"{re.escape(alias)}\s*\(", joined):
+            ka = "a:" + alias
+            acr_seen[ka][alias] += 1
+            titled.add(ka)
+            for kn in longs:
+                union(kn, ka)
+            # 「대구 앵커사업」 — 앞말 하나 + 받아들인 약칭 + 사업(영문 약칭의 「대구 RISE사업」과 같은 규칙)
+            for k in list(parent):
+                if k.startswith("n:") and re.fullmatch(rf"(?:[가-힣]{{2,10}})?{re.escape(alias)}(?:사업)?", k[2:]):
+                    union(k, ka)
+    # 이름 바뀜 — 한 제목이 두 사업을 함께 말하며 「現·재구조화·명칭 변경」을 쓰면 같은 사업이다(교육부 2026: RISE → 앵커)
+    renamed_ev: dict[str, list[str]] = defaultdict(list)
+    for tp in title_texts:
+        if not _RENAMED.search(tp):
+            continue
+        flat_tp = re.sub(_FLAT, "", tp).upper()
+        hit = []
+        for k in list(parent):
+            surf = k[2:]
+            if len(surf) >= 2 and re.sub(_FLAT, "", surf).upper() in flat_tp:
+                hit.append(k)
+        roots = {find(k) for k in hit}
+        if len(roots) >= 2:
+            ks = sorted(roots)
+            for k in ks[1:]:
+                union(ks[0], k)
+            renamed_ev[find(ks[0])].append(tp.split("\n")[0][:120])
     # 본문 앞머리 구절 하나가 사업이 되지 않게(「대상으로 사업」·「각종 결재 시 … 해당사업」): 파일 이름·경로에 나오거나
     # 문서 세 건 이상의 앞머리에 나온 표기가 하나라도 있는 묶음만 사업 카드로 둔다
     keep_root: set[str] = set()
@@ -179,6 +224,8 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             continue
         root = find(k)
         card = groups.setdefault(root, ProgramCard(key=root.split(":", 1)[1]))
+        if not card.renamed and renamed_ev.get(root):
+            card.renamed = sorted(set(renamed_ev[root]))[:5]
         if k.startswith("n:"):
             card.names.update(names[k])
         else:

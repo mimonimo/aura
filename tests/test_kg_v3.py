@@ -434,3 +434,20 @@ def test_title_key_keeps_first_syllable_and_code_units():
     assert "#2-3" in got and got["#2-3"].docs == {1, 2}
     assert any(k.startswith("#2-3/") for k in got) and not any(k.startswith("#1-1/") for k in got)
     assert "과제배경및목표" not in got
+
+
+def test_renamed_program_merges_with_document_evidence():
+    from zzaimy.graph import programs
+
+    docs = [{"id": 1, "filename": "대구 RISE사업 운영 지침.hwp", "path": "", "head": ""},
+            {"id": 2, "filename": "2026년 지역성장 인재양성체계(앵커)사업 수정계획서 제출 안내.hwp", "path": "", "head": ""},
+            {"id": 3, "filename": "[붙임] RISE(現 앵커) 사업비 집행 및 관리 지침 FAQ.hwpx", "path": "", "head": ""},
+            {"id": 4, "filename": "2026년 대구 앵커사업 사업비 2차 교부 제출서류.hwp", "path": "", "head": ""},
+            {"id": 5, "filename": "산학공동 기술개발과제 협약(주관) 사업계획서.hwp", "path": "", "head": ""}]
+    cards = programs.build_cards(docs)
+    rise = [c for c in cards if "RISE" in c.acrs]
+    assert len(rise) == 1 and "앵커" in rise[0].acrs and rise[0].renamed
+    assert any("대구 앵커사업" in n for n in rise[0].names)
+    assert not any("주관" in a for c in cards for a in c.acrs)
+    res = {a.doc_id: a for a in programs.classify(docs, cards)}
+    assert res[4].program == res[1].program == res[2].program

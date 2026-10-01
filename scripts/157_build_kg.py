@@ -109,8 +109,21 @@ def main() -> int:
                     a.round = r
                     a.evidence = list(a.evidence) + [f"{a.year}년 = {r}차년도(같은 사업 문서 {n}건)"]
     by_year: dict[str, list[int]] = defaultdict(list)
+    # 외부 확인 장부(data/platform/kg_external.json) — 사업이 같은지·이름이 바뀌었는지 같은 판단을 외부 검색으로 확인한 사실과 출처.
+    # 그래프 관계는 문서 근거로 만들고, 장부는 그 판단의 외부 확인으로 붙인다(사용자 2026-10-02: 판단이 필요하면 외부 검색으로 도움)
+    ext = []
+    ext_path = ROOT / "data" / "platform" / "kg_external.json"
+    if ext_path.is_file():
+        ext = json.loads(ext_path.read_text(encoding="utf-8")).get("facts", [])
     for c in cards:
-        nodes.append((c.node_id, "program", c.name, {"names": sorted(c.names), "acronyms": sorted(c.acrs)}, None))
+        props = {"names": sorted(c.names), "acronyms": sorted(c.acrs)}
+        if c.renamed:
+            props["renamed_evidence"] = c.renamed
+        surf = {re.sub(r"[\s.]+", "", x).upper() for x in list(c.names) + list(c.acrs)}
+        facts = [f for f in ext if all(any(re.sub(r"[\s.]+", "", t).upper() in s_ for s_ in surf) for t in f.get("terms", []))]
+        if facts:
+            props["external"] = facts
+        nodes.append((c.node_id, "program", c.name, props, None))
     for d in docs:
         a = assigns[d["id"]]
         dnode = f"doc:{d['id']}"
