@@ -185,3 +185,15 @@ def test_listed_program_names_stay_separate_and_expansions_are_not_acronyms():
     assert all(("COSS" in n) != ("HiVE" in n) for n, _a in pairs)
     _n, acrs2, _p = programs._mentions("AID(AI+Digital) 전환 중점 전문대학 지원사업")
     assert "AI+Digital" not in acrs2
+
+
+def test_file_name_outweighs_folder_for_program():
+    from zzaimy.graph import programs
+
+    docs = [{"id": i, "filename": f"LINC3.0 실적 {i}.hwp", "path": "링크/LINC3.0 업무", "head": ""} for i in range(3)]
+    docs += [{"id": 9, "filename": "2023년 전문대학 혁신지원사업 최종사업계획서.hwp", "path": "링크/LINC3.0 업무", "head": ""},
+             {"id": 10, "filename": "붙임1.hwp", "path": "링크/LINC3.0 업무", "head": ""}]
+    cards = programs.build_cards(docs)
+    res = {a.doc_id: a for a in programs.classify(docs, cards)}
+    assert res[9].status == "review" and "혁신지원" in res[9].program_name
+    assert res[10].status == "auto" and res[10].program == res[0].program

@@ -66,6 +66,8 @@ def stem(name: str) -> str:
     if unit and heads:
         return f"{heads[-1][1]}#{unit.group(1).lstrip('0')}"
 
+    s = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", s)                      # 괄호 속 꾸밈(작업자·메모·서식 번호)
+    s = re.sub(r"(?<![\d.])\d+\s*차(?!\s*년도)\s*(?:합본|편집본?|수정)?", " ", s)   # 작업 차수(2차 합본)
     s = _VERSION_BITS.sub(" ", s)
     return re.sub(r"[\s_\-().\[\]]+", "", s).lower()
 
