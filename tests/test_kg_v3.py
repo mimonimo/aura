@@ -378,3 +378,12 @@ def test_renumbered_case_matched_by_content():
     assert case == [("[공유·협업] 우수사례 1", "[공유·협업] 우수사례 2")]
     kids = [(x, y) for x, y, _w in pairs if x.title.startswith("1. 추진배경")]
     assert len(kids) == 1 and {s.path: s for s in b}[kids[0][1].parent].title == "[공유·협업] 우수사례 2"
+
+
+def test_body_phrase_alone_is_not_a_program():
+    from zzaimy.graph import programs
+
+    docs = [{"id": 1, "filename": "2025 자체평가 보고서.hwp", "path": "", "head": "각종 결재 시 반드시 산학협력단 해당사업 확인"},
+            {"id": 2, "filename": "대구 RISE사업 운영 지침.hwp", "path": "", "head": ""}]
+    names = {c.name for c in programs.build_cards(docs)}
+    assert not any("각종" in n for n in names) and any("RISE" in n for n in names)

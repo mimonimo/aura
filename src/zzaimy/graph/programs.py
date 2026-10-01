@@ -128,9 +128,20 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
 
     names: dict[str, Counter] = defaultdict(Counter)
     acr_seen: dict[str, Counter] = defaultdict(Counter)
+    titled: set[str] = set()                    # 파일 이름·경로에 나온 키
+    head_docs: dict[str, set] = defaultdict(set)  # 앞머리에만 나온 키 → 문서들
     for d in docs:
-        text = f"{clean_title(d.get('filename') or '')}\n{d.get('path') or ''}\n{(d.get('head') or '')[:HEAD_CHARS]}"
+        tp = f"{clean_title(d.get('filename') or '')}\n{d.get('path') or ''}"
+        tn, ta, tpairs = _mentions(tp)
+        titled.update("n:" + program_key(n) for n in tn)
+        titled.update("a:" + _acr(a) for a in ta)
+        titled.update("n:" + program_key(l_) for l_, _s in tpairs)
+        text = f"{tp}\n{(d.get('head') or '')[:HEAD_CHARS]}"
         ns, acs, pairs = _mentions(text)
+        for n in ns:
+            head_docs["n:" + program_key(n)].add(d.get("id"))
+        for a in acs:
+            head_docs["a:" + _acr(a)].add(d.get("id"))
         for n in ns:
             k = "n:" + program_key(n)
             find(k)
@@ -156,8 +167,16 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
                     and sum(x != y for x, y in zip(a, b)) == 2:
                 union(k2, k)
                 break
+    # 본문 앞머리 구절 하나가 사업이 되지 않게(「대상으로 사업」·「각종 결재 시 … 해당사업」): 파일 이름·경로에 나오거나
+    # 문서 세 건 이상의 앞머리에 나온 표기가 하나라도 있는 묶음만 사업 카드로 둔다
+    keep_root: set[str] = set()
+    for k in list(parent):
+        if k in titled or len(head_docs.get(k, ())) >= 3:
+            keep_root.add(find(k))
     groups: dict[str, ProgramCard] = {}
     for k in list(parent):
+        if find(k) not in keep_root:
+            continue
         root = find(k)
         card = groups.setdefault(root, ProgramCard(key=root.split(":", 1)[1]))
         if k.startswith("n:"):
