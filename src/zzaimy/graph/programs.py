@@ -84,13 +84,15 @@ def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     """(사업명들, 약칭들, (긴 이름, 약칭) 짝들)."""
     names = [_norm_name(m.group(0)) for m in _PROGRAM.finditer(text or "") if m.group(0) not in _GENERIC]
     names += [_norm_name(t) for t in (_trim_name(m.group(1)) for m in _SPACED.finditer(text or "")) if t and t not in _GENERIC]
+    # 띄어 쓴 가운뎃점·쉼표·빗금은 사업 둘을 늘어놓은 것이다(「…(COSS)사업 · …(HiVE)사업」) — 한 이름으로 묶지 않는다
+    names = [_norm_name(part) for n in names for part in re.split(r"\s+[·,/]\s+", n) if part.endswith("사업")]
     names = [n for n in names if n and n not in _GENERIC and _name_ok(n)]
     pairs = [(t, m.group(2).strip()) for m in _PAIR.finditer(text or "")
              if (t := _norm_name(_trim_name(m.group(1).strip()))) and _name_ok(t) and re.match(r"[A-Za-z]", m.group(2).strip())]
     acrs = [f"{m.group(1)}{m.group(2)}" for m in _VERSIONED.finditer(text or "")]
     acrs += _BARE_ACR.findall(text or "")                     # 「RISE사업(2025~)」 — 홀로 쓰인 약칭+사업
     for n in names:
-        inner = _LATIN_ACR.findall(n)
+        inner = [a for a in _LATIN_ACR.findall(n) if not re.search(r"[a-z]{3}", a)]   # 「(AI+Digital)」은 풀이지 약칭이 아니다
         acrs += inner
         pairs += [(n, a) for a in inner]                      # 「지역혁신중심 대학지원체계(RISE)사업」 — 이름 속 약칭과 같은 사업
         m = _ACR_NAME.match(n)

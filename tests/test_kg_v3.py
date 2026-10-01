@@ -175,3 +175,13 @@ def test_transposed_acronym_typo_joins_frequent_spelling():
     cards = programs.build_cards(docs)
     rise = [c for c in cards if "RISE" in {a.upper() for a in c.acrs}]
     assert len(rise) == 1 and "RSIE" in {a.upper() for a in rise[0].acrs}
+
+
+def test_listed_program_names_stay_separate_and_expansions_are_not_acronyms():
+    from zzaimy.graph import programs
+
+    names, acrs, pairs = programs._mentions("첨단분야 혁신융합대학(COSS)사업 · 전문대학 혁신지원(HiVE)사업")
+    assert len(names) == 2 and {p[1] for p in pairs} == {"COSS", "HiVE"}
+    assert all(("COSS" in n) != ("HiVE" in n) for n, _a in pairs)
+    _n, acrs2, _p = programs._mentions("AID(AI+Digital) 전환 중점 전문대학 지원사업")
+    assert "AI+Digital" not in acrs2
