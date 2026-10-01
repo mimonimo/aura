@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from collections import Counter, defaultdict
@@ -47,6 +48,16 @@ def main() -> int:
     args = ap.parse_args()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
 
+    # 원본 보관소(DGX) 경로 장부 — 156 --origin-base 가 적는다. 폴더 경로가 사업의 강한 단서다
+    origins = {}
+    led = ROOT / "data" / "platform" / "origins.jsonl"
+    if led.is_file():
+        for line in led.read_text(encoding="utf-8").splitlines():
+            try:
+                o = json.loads(line)
+                origins[int(o["doc_id"])] = o["origin"]
+            except (ValueError, KeyError):
+                continue
     docs, chunk_map = [], {}
     for did in _ids(args.docs):
         d = db.get_document(did)
@@ -57,7 +68,9 @@ def main() -> int:
         head = "\n".join(str(c["content"]) for c in chunks[:30])
         proj = db.get_project(int(d["project_id"])) if d.get("project_id") else None
         # 문서함 프로젝트(담당자가 정한 소속)는 폴더 경로처럼 강한 근거다
-        docs.append({"id": did, "filename": d["filename"], "head": head, "path": (proj or {}).get("name", "")})
+        origin = origins.get(did, "")
+        path = str(Path(origin).parent) if origin else (proj or {}).get("name", "")
+        docs.append({"id": did, "filename": d["filename"], "head": head, "path": path, "origin": origin})
     cards = programs.build_cards(docs)
     assigns = {a.doc_id: a for a in programs.classify(docs, cards)}
     used = {a.program for a in assigns.values() if a.program}
