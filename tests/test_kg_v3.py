@@ -374,7 +374,7 @@ def test_renumbered_case_matched_by_content():
     text = {id(x): " ".join(ta.get(q, "") for q in x.chunks) for x in a}
     text.update({id(y): " ".join(tb.get(q, "") for q in y.chunks) for y in b})
     pairs = sections.align_context(a, b, text_of=lambda s: text.get(id(s), ""))
-    case = [(x.title, y.title) for x, y, _w in pairs if "우수사례" in x.title]
+    case = [(x.title, y.title) for x, y, _w in pairs if x.title.startswith("[")]
     assert case == [("[공유·협업] 우수사례 1", "[공유·협업] 우수사례 2")]
     kids = [(x, y) for x, y, _w in pairs if x.title.startswith("1. 추진배경")]
     assert len(kids) == 1 and {s.path: s for s in b}[kids[0][1].parent].title == "[공유·협업] 우수사례 2"
