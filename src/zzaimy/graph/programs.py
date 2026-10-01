@@ -50,7 +50,8 @@ def _is_acr(a: str) -> bool:
 
 _KOR_PAREN = re.compile(r"(?<=[가-힣\s])\(([가-힣]{2,4})\)")
 # 이름이 바뀌었음을 알리는 표기 — 「RISE(現 앵커)」·「앵커 추진방안(RISE 재구조화)」·「명칭 변경」
-_RENAMED = re.compile(r"[現현]\s*[가-힣A-Za-z]|재구조화|명칭\s*(?:을\s*)?변경|개편")
+# 「현」 한 글자는 「현황」 같은 낱말에도 있다 — 「現」 또는 괄호 안의 「(현 X)」만
+_RENAMED = re.compile(r"現\s*[가-힣A-Za-z]|\(\s*현\s+[가-힣A-Za-z]|재구조화|명칭\s*(?:을\s*)?변경")
 
 
 def _name_ok(name: str) -> bool:
@@ -198,6 +199,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
     # 이름 바뀜 — 한 제목이 두 사업을 함께 말하며 「現·재구조화·명칭 변경」을 쓰면 같은 사업이다(교육부 2026: RISE → 앵커)
     renamed_ev: dict[str, list[str]] = defaultdict(list)
     for tp in title_texts:
+        tp = tp.split("\n")[0]                     # 파일 이름만 — 폴더 경로에는 여러 사업이 함께 나온다(「업무공유(LINC사업단)」 아래 LINC+·LINC3.0)
         if not _RENAMED.search(tp):
             continue
         flat_tp = re.sub(_FLAT, "", tp).upper()

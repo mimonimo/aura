@@ -78,6 +78,20 @@ def main() -> int:
         path = str(Path(origin).parent) if origin else (proj or {}).get("name", "")
         docs.append({"id": did, "filename": d["filename"], "head": head, "path": path, "origin": origin})
     cards = programs.build_cards(docs)
+    # 외부 확인 장부의 「이름 바뀜」 사실(출처 있는 것만)은 사업 카드의 다른 이름으로 — 문서만으로 약칭이 서지 않을 때(VM 뼈대 문서에 「앵커사업」 꼴이 없음)
+    ext_path = ROOT / "data" / "platform" / "kg_external.json"
+    ext_facts = json.loads(ext_path.read_text(encoding="utf-8")).get("facts", []) if ext_path.is_file() else []
+    for f in ext_facts:
+        if f.get("relation") != "renamed" or not f.get("sources"):
+            continue
+        terms = f.get("terms", [])
+        for c in cards:
+            surf = {x.upper() for x in c.surfaces()}
+            if any(re.sub(r"[\s.]+", "", t).upper() in surf for t in terms):
+                for t in terms:
+                    c.acrs[t] += 0
+                    c.acrs[t] = max(c.acrs[t], 1)
+                c.renamed = list(c.renamed) + [f"외부 확인: {f.get('fact', '')[:80]}"]
     assigns = {a.doc_id: a for a in programs.classify(docs, cards)}
     used = {a.program for a in assigns.values() if a.program}
     cards = [c for c in cards if c.node_id in used]
