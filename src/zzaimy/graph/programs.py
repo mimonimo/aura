@@ -188,6 +188,11 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
     """문서마다 사업·연차·갈래를 정한다. 제목 언급 무게 3, 경로 2, 앞머리 1. 1등이 3점 미만이거나 2등의 두 배에 못 미치면 검토 대기."""
     from zzaimy.app.doc_routing import guess_kind
 
+    # 긴 표기부터. 영문 약칭은 낱말 경계에서만(「DIGITECH」 속 「TECH」는 아니다)
+    pool = [(su, c, re.compile((r"(?<![A-Z])" if su[:1].isascii() and su[:1].isalpha() else "") + re.escape(su)
+                               + (r"(?![A-Z])" if su[-1:].isascii() and su[-1:].isalpha() else "")))
+            for su, c in sorted(((su, c) for c in cards for su in {x.upper() for x in c.surfaces()} if len(su) >= 3),
+                                key=lambda t: -len(t[0]))]
     out = []
     for d in docs:
         title = clean_title(d.get("filename") or "")
@@ -199,22 +204,20 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
         why: dict[str, list[str]] = defaultdict(list)
         # 긴 표기부터 대조하고 대조된 자리는 가린다 — 짧은 이름('전문대학 지원사업')이 긴 이름('AID 전환 중점 전문대학 지원사업')
         # 안에서 또 세지면 모든 언급이 두 사업으로 갈린다(실측 2026-10-01: 1등 몫 0.3 대)
-        pool = sorted(((su, c) for c in cards for su in {x.upper() for x in c.surfaces()} if len(su) >= 3),
-                      key=lambda t: -len(t[0]))
-        for su, c in pool:
-            if su in flat_title:
+        for su, c, rx in pool:
+            if rx.search(flat_title):
                 scores[c.node_id] += 3
                 why[c.node_id].append(f"제목에 「{su}」")
-                flat_title = flat_title.replace(su, "\0" * len(su))
-            if su in flat_path:                                 # 폴더는 파일 제 이름보다 약한 단서 — 다른 사업 문서가 섞여 들어 있다
+                flat_title = rx.sub(lambda m: "\0" * len(m.group(0)), flat_title)
+            if rx.search(flat_path):                            # 폴더는 파일 제 이름보다 약한 단서 — 다른 사업 문서가 섞여 들어 있다
                 scores[c.node_id] += 2
                 why[c.node_id].append(f"경로에 「{su}」")
-                flat_path = flat_path.replace(su, "\0" * len(su))
-            n = flat_head.count(su)
+                flat_path = rx.sub(lambda m: "\0" * len(m.group(0)), flat_path)
+            n = len(rx.findall(flat_head))
             if n:
                 scores[c.node_id] += min(n, 5)
                 why[c.node_id].append(f"앞머리에 「{su}」 {n}회")
-                flat_head = flat_head.replace(su, "\0" * len(su))
+                flat_head = rx.sub(lambda m: "\0" * len(m.group(0)), flat_head)
         a = Assignment(doc_id=int(d["id"]))
         if scores:
             best, top = scores.most_common(1)[0]
