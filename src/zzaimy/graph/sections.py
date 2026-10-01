@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 
@@ -31,15 +32,68 @@ def title_key(title: str) -> str:
     return re.sub(r"[^0-9A-Za-z가-힣]", "", t)
 
 
+# 글머리표로 시작하는 줄은 제목이 아니라 본문 항목이다(「□ 사업목표」·「❐ …」·「○ …」)
+_BULLET = re.compile(r"^\s*[□■❐❏○◦●◎▶▷►◆◇•·∙※\-–]")
+# 개요 번호: Ⅰ. / 1. / 1.1. / 15-2. / 가. / (1) / 1)
+_OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|\d{1,2}(?:[.\-]\d{1,2}){0,3}[.．)]|[가-하][.．)]|\(\d{1,2}\))\s*(?=[가-힣A-Za-z「『\[(])")
+_HYPHEN = re.compile(r"^\s*(\d{1,2}(?:-\d{1,2})+)[.．)]?\s")
+_SENTENCE_END = re.compile(r"(?:다|함|음|임|됨|요)\s*[.。]?\s*$")
+TEXT_HEADING_MAX = 60
+
+
+def _level(title: str) -> int | None:
+    """제목 깊이. 글머리표 줄은 None(제목 아님), 번호 없는 제목은 0(지금 깊이 아래 잎)."""
+    if _BULLET.match(title):
+        return None
+    m = _HYPHEN.match(title)
+    if m:                                          # 「15-2.」 = 15 아래 2 — 「1.1.」과 같은 깊이
+        return min(2 + m.group(1).count("-"), 6)
+    return level_of(title)
+
+
+def heading_text(c: dict) -> str | None:
+    """조각이 제목 노릇을 하면 제목 글을 돌려준다. 처리기가 제목으로 표시한 조각 말고도 우리 공문서에 흔한 두 꼴을 제목으로 본다:
+    한두 칸짜리 띠 표(「Ⅰ | 사업비전 및 목표」 — 장 제목을 표로 그린다), 개요 번호로 시작하는 짧은 한 줄 본문(「1. 추진의 필요성…」)."""
+    kind = c.get("kind")
+    content = str(c.get("content") or "")
+    if kind == "heading":
+        return " ".join(content.split())[:200]
+    if kind == "text":
+        line = " ".join(content.split())
+        if "\n" in content.strip() or not (2 <= len(line) <= TEXT_HEADING_MAX):
+            return None
+        if _OUTLINE.match(line) and not _SENTENCE_END.search(line) and not _BULLET.match(line):
+            return line
+        return None
+    if kind == "table":
+        try:
+            t = json.loads(content)
+        except ValueError:
+            return None
+        cells = [str(x[-1]).strip() for x in t.get("cells") or [] if str(x[-1]).strip()]
+        if t.get("n_rows", 9) > 2 or not (1 <= len(cells) <= 3):
+            return None
+        text = " ".join(" ".join(cells).split())
+        if len(text) > TEXT_HEADING_MAX or "![" in text:
+            return None
+        if re.fullmatch(r"[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|\d{1,2}", cells[0]) and len(cells) >= 2:
+            return f"{cells[0]}. {' '.join(cells[1:])}"
+        if _OUTLINE.match(text) and not _SENTENCE_END.search(text):
+            return text
+    return None
+
+
 def build(chunks: list[dict]) -> list[Section]:
     """chunks = doc_chunks(seq 순). 제목 조각이 없으면 빈 목록."""
     sections: list[Section] = []
     stack: list[Section] = []
     counters: dict[tuple[str, int], int] = {}
     for c in sorted(chunks, key=lambda c: c["seq"]):
-        if c.get("kind") == "heading":
-            title = " ".join(str(c.get("content") or "").split())[:200]
-            lvl = level_of(title)
+        title = heading_text(c)
+        lvl = _level(title) if title else None
+        if title and lvl is not None:
+            if lvl == 0:                               # 번호 없는 제목 — 지금 절 아래 잎(맨 위로 올리지 않는다)
+                lvl = min((stack[-1].level + 1) if stack else 1, 7)
             while stack and stack[-1].level >= lvl:
                 stack.pop()
             parent = stack[-1].path if stack else ""
