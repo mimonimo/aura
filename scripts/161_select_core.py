@@ -36,8 +36,37 @@ _VERSION_BITS = re.compile(r"(?:최종\s*제출본?|최종본?|제출본?|수정
                            r"\(\d{1,2}\)|\(\d{8}[^)]*\)|(?<![\d.])\d{4,8}(?![\d.])|회색조|복사본|사본|copy|\s+\d+$)", re.I)
 
 
+# 파일 이름의 일 단위 코드(단위과제 2-3, 평가지표 2-11) — 폴더 순번(「01-2_」)과 섞이지 않게 파일 이름에서만 본다
+_UNIT = re.compile(r"(?<![\d.\-])\[?(\d{1,2}-\d{1,2})\]?(?![\d.\-])")
+# 문서의 머리 낱말 — 판본마다 앞뒤 꾸밈(서식 번호·기관명·작업자·편집완료)이 달라도 이것과 일 단위 코드는 같다
+_HEAD = re.compile(r"(수정\s*)?(과제계획서|사업계획서|수행계획서|운영계획서|실적보고서|연차보고서|결과보고서|성과보고서|"
+                   r"평가\s*결과|종합\s*의견서?|기본계획|시행계획|공고문?|지침|편람|매뉴얼|계획서|보고서)")
+
+
+# 사업 단위의 계획·보고 — 이 머리 낱말이 아니면(행사 운영계획·강의계획서 등) 사업 이름이 파일 이름에 있어야 뼈대로 본다
+_BUSINESS_HEAD = re.compile(r"과제계획서|사업계획서|수행계획서|실적보고서|연차보고서|결과보고서|성과보고서|기본계획|시행계획|"
+                            r"자체평가|선정평가|종합\s*의견|평가\s*결과")
+
+
+def is_core(d: dict, kind: str, surfaces: set[str]) -> bool:
+    if kind not in ("plan", "report"):
+        return True
+    name = Path(d["filename"]).stem
+    if re.search(r"강의|수업", name):
+        return False
+    if _BUSINESS_HEAD.search(name):
+        return True
+    flat = re.sub(programs._FLAT, "", name).upper()
+    return any(len(su) >= 3 and su.upper() in flat for su in surfaces)
+
+
 def stem(name: str) -> str:
     s = Path(name).stem
+    unit = _UNIT.search(s)
+    heads = _HEAD.findall(s)
+    if unit and heads:
+        return f"{heads[-1][1]}#{unit.group(1).lstrip('0')}"
+
     s = _VERSION_BITS.sub(" ", s)
     return re.sub(r"[\s_\-().\[\]]+", "", s).lower()
 
@@ -50,6 +79,12 @@ def version_rank(name: str) -> tuple:
     ver = max([float(x) for x in re.findall(r"ver[._\s]*(\d+(?:\.\d+)?)|v(\d+\.\d+)", s, re.I) for x in x if x] or [0.0])
     date = max([x for x in re.findall(r"(?<!\d)(\d{6,8})(?!\d)", s)] or ["0"])
     return (submitted + final, rev, ver, date)
+
+
+def latest_key(d: dict) -> tuple:
+    """판본 고르기 — 제출·최종 > 수정 차수 > 판 번호 > 고친 시각(rclone 이 원본 시각을 지킨다) > 이름 속 날짜."""
+    sub_final, rev, ver, date = version_rank(d["filename"])
+    return (sub_final, rev, ver, d.get("mtime", 0), date)
 
 
 def main() -> int:
@@ -68,8 +103,9 @@ def main() -> int:
             continue
         seen.add(key)
         rel = f.relative_to(root)
+        st = f.stat()
         docs.append({"id": len(docs), "filename": f.name, "path": str(rel.parent), "head": "", "abs": str(f),
-                     "size": f.stat().st_size})
+                     "size": st.st_size, "mtime": int(st.st_mtime)})
     cards = programs.build_cards(docs)
     res = programs.classify(docs, cards)
     programs.inherit_by_folder(docs, res)
@@ -83,16 +119,20 @@ def main() -> int:
     for pid, items in sorted(per_prog.items(), key=lambda t: -len(t[1])):
         if len(items) < args.min_files:
             continue
+        card = next((c for c in cards if c.node_id == pid), None)
+        surfaces = card.surfaces() if card else set()
         groups = defaultdict(list)
         for d, a in items:
             ext = Path(d["filename"]).suffix.lower().lstrip(".")
             if a.kind not in CORE or ext not in DOC_RANK or EVIDENCE.search(f"{d['path']}/{d['filename']}"):
                 continue
+            if not is_core(d, a.kind, surfaces):
+                continue
             when = a.round or a.year or (programs._PATH_YEAR.findall(d["path"]) or [""])[-1]
             groups[(a.kind, str(when), stem(d["filename"]))].append((d, a))
         chosen = []
         for (kind, when, _s), cands in groups.items():
-            best = max(cands, key=lambda t: (version_rank(t[0]["filename"]),
+            best = max(cands, key=lambda t: (latest_key(t[0]),
                                               -DOC_RANK[Path(t[0]["filename"]).suffix.lower().lstrip(".")]))
             chosen.append({"kind": kind, "when": when, "path": best[0]["abs"], "mb": round(best[0]["size"] / 1e6, 1),
                            "versions": len(cands), "status": best[1].status})
