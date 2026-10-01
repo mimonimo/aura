@@ -47,13 +47,17 @@ _HEAD = re.compile(r"(수정\s*)?(과제계획서|사업계획서|수행계획�
 # 그 사업의 실적 근거이지 뼈대가 아니다. 양식·샘플·신청서는 빈 틀이다.
 _BUSINESS_HEAD = re.compile(r"과제계획서|사업\s*계획서|사업\s*수행\s*계획서|실적\s*보고서|연차\s*보고서|성과\s*보고서|기본\s*계획|"
                             r"시행\s*계획|자체\s*평가|선정\s*평가|종합\s*의견|평가\s*결과")
+# 문서의 일부만 떼어 낸 파일(표지·앞 두 장·예산 부분·발췌·간지) — 뼈대는 전체 문서여야 한다
+_FRAGMENT = re.compile(r"표지|앞\s*\S{0,2}\s*장|부분(?:$|[_)\s])|발췌|간지|목차만")
 _BLANK_FORM = re.compile(r"양식|서식\s*\d|샘플|신청서|작성\s*요령")
 
 
 def is_core(d: dict, kind: str, surfaces: set[str]) -> bool:
     if kind not in ("plan", "report"):
-        return True
+        return not _FRAGMENT.search(Path(d["filename"]).stem)
     name = Path(d["filename"]).stem
+    if _FRAGMENT.search(name):
+        return False
     if _BLANK_FORM.search(name) and not re.search(r"과제계획서|사업\s*계획서", name):
         return False                                      # 「[서식6] 2차년도 과제계획서_2-3」은 채운 계획서다
     return bool(_BUSINESS_HEAD.search(name))
