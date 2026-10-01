@@ -51,6 +51,11 @@ def _sha1(p: Path) -> str:
     return h.hexdigest()
 
 
+def _completed_ok(exitcode: int | None, doc: dict, *, timed_out: bool = False) -> bool:
+    """A normal worker exit alone does not mean the pipeline accepted the document."""
+    return not timed_out and exitcode == 0 and doc.get("status") == "reviewed"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="+")
@@ -113,21 +118,21 @@ def main() -> int:
             over = time.time() - job["t0"] > args.timeout * 60
             if child.is_alive() and not over:
                 continue
-            if child.is_alive():
+            timed_out = child.is_alive()
+            if timed_out:
                 child.terminate()
                 child.join(10)
                 db.update_document(job["doc_id"], status="failed", error=f"시간 초과 — {args.timeout}분")
-                fail += 1
-            elif child.exitcode == 0:
+            doc = db.get_document(job["doc_id"]) or {}
+            if _completed_ok(child.exitcode, doc, timed_out=timed_out):
                 ok += 1
             else:
                 fail += 1
-            doc = db.get_document(job["doc_id"]) or {}
             print(f"  끝 #{job['doc_id']} {doc.get('status')} {(time.time() - job['t0']) / 60:.1f}분 {job['name']}"
                   + (f" — {doc.get('error')}" if doc.get("status") == "failed" else ""), flush=True)
             running.remove(job)
     print(f"반입 완료 — 성공 {ok} 실패 {fail} ({(time.time() - t0) / 60:.1f}분). 다음: 색인(scripts/96 --apply)·개체 그래프")
-    return 0
+    return 1 if fail else 0
 
 
 if __name__ == "__main__":
