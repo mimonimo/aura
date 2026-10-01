@@ -51,3 +51,53 @@ def build(chunks: list[dict]) -> list[Section]:
         elif stack:
             stack[-1].chunks.append(int(c["seq"]))
     return sections
+
+
+def align(a: list[Section], b: list[Section], min_key: int = 4) -> list[tuple[Section, Section, str]]:
+    """두 문서의 같은 절 짝 — 제목이 같고, 제목이 문서 안에서 반복되면 상위 절 제목까지 같아야 한다(한 절은 짝 하나).
+    '4. 기대효과 및 향후 과제'처럼 과제마다 되풀이되는 제목이 서로 다른 과제끼리 이어지던 것(실측 2026-10-01: 계획↔실적 절 연결의
+    83% 가 모호)을 막는다. 돌려주는 것: (a 절, b 절, 근거 설명)."""
+    def index(secs: list[Section]):
+        by_path = {x.path: x for x in secs}
+
+        def ancestors(x: Section) -> tuple[str, ...]:
+            out, cur = [], x.parent
+            while cur and len(out) < 3:
+                par = by_path.get(cur)
+                if not par:
+                    break
+                out.append(title_key(par.title))
+                cur = par.parent
+            return tuple(out)
+        groups: dict[str, list[tuple[Section, tuple[str, ...]]]] = {}
+        for x in secs:
+            k = title_key(x.title)
+            if len(k) >= min_key:
+                groups.setdefault(k, []).append((x, ancestors(x)))
+        return groups
+    ga, gb = index(a), index(b)
+    pairs, used_b = [], set()
+    for k, xs in ga.items():
+        ys = gb.get(k)
+        if not ys:
+            continue
+        if len(xs) == 1 and len(ys) == 1:
+            x, y = xs[0][0], ys[0][0]
+            pairs.append((x, y, "제목이 두 문서에서 하나뿐"))
+            used_b.add(id(y))
+            continue
+        for x, ax in xs:
+            def depth(ay: tuple[str, ...]) -> int:
+                n = 0
+                for p_, q_ in zip(ax, ay):
+                    if p_ != q_:
+                        break
+                    n += 1
+                return n
+            scored = sorted(((depth(ay), y) for y, ay in ys if id(y) not in used_b), key=lambda t: -t[0])
+            if not scored or scored[0][0] == 0 or (len(scored) > 1 and scored[1][0] == scored[0][0]):
+                continue                                         # 상위 절이 안 맞거나 같은 점수 후보가 여럿 — 잇지 않는다
+            y = scored[0][1]
+            used_b.add(id(y))
+            pairs.append((x, y, f"제목과 상위 절 {scored[0][0]}단계가 같음"))
+    return pairs
