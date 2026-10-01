@@ -24,8 +24,15 @@ sys.path.insert(0, str(ROOT / "src"))
 from zzaimy.app.db import Database  # noqa: E402
 from zzaimy.graph import kg_store, sections  # noqa: E402
 
-PROMPT = ("다음은 같은 사업·같은 연차의 사업계획서 절과 사업실적보고서 절이다. 두 절이 같은 과제·평가 항목에 대한 계획과 그 실적인가?\n"
+PROMPT_V1 = ("다음은 같은 사업·같은 연차의 사업계획서 절과 사업실적보고서 절이다. 두 절이 같은 과제·평가 항목에 대한 계획과 그 실적인가?\n"
           "제목이 같아도 다른 과제 아래의 절이면 아니다. 절 번호(20-2, 25-2 등)는 문서마다 원래 다르므로 번호로 판단하지 말고 내용과 상위 과제로 판단한다.\n"
+          "JSON 한 줄로만 답한다: {{\"same\": true 또는 false, \"why\": \"한 문장\"}}\n\n"
+          "[계획서 절] 「{pt}」 (상위: {pp})\n{pb}\n\n[실적보고서 절] 「{rt}」 (상위: {rp})\n{rb}")
+# v2(11차 반복 뒤): 판정자가 상위 장 이름·사례 번호로 판단해 본문이 같은 사례(겹침 0.9)를 '다르다'고 했다. 보고서는 장을 다시 짜고
+# (사례를 「컨설팅 결과 반영」 장에 모음) 사례 번호를 바꾼다 — 절 번호와 같은 이유로 내용으로 판단하게 한다. v1 수치와 함께 낸다.
+PROMPT = ("다음은 같은 사업·같은 연차의 사업계획서 절과 사업실적보고서 절이다. 두 절이 같은 과제·평가 항목(또는 같은 사례)에 대한 계획과 그 실적인가?\n"
+          "절 번호(20-2, 25-2 등), 사례 번호(우수사례 1·2), 상위 장의 이름과 위치는 보고서가 계획서와 다르게 짜는 일이 많으므로 그것만으로 판단하지 말고 "
+          "본문이 같은 과제·사례를 다루는지로 판단한다. 본문이 다른 과제·사례를 다루면 제목이 같아도 아니다.\n"
           "JSON 한 줄로만 답한다: {{\"same\": true 또는 false, \"why\": \"한 문장\"}}\n\n"
           "[계획서 절] 「{pt}」 (상위: {pp})\n{pb}\n\n[실적보고서 절] 「{rt}」 (상위: {rp})\n{rb}")
 
@@ -44,6 +51,7 @@ def main() -> int:
     ap.add_argument("--all-kept", action="store_true", help="이은 쌍은 표본 대신 전부 판정")
     ap.add_argument("--sample-kept", type=int, default=0, help="이은 쌍을 사업마다 이만큼 표본(사업 여럿을 고르게 잴 때)")
     ap.add_argument("--out", default="kg_judge.json")
+    ap.add_argument("--prompt", choices=("v1", "v2"), default="v2", help="판정 지시 판(v1=상위 과제로도 판단, v2=내용으로)")
     args = ap.parse_args()
     from zzaimy.generate import llm_connections
     from zzaimy.generate.client import VllmClient
@@ -99,7 +107,7 @@ def main() -> int:
         rows = []
         for a, b in sample:
             pa, pb = _text(db, secs[a]["doc_id"], secs[a], secs), _text(db, secs[b]["doc_id"], secs[b], secs)
-            msg = PROMPT.format(pt=secs[a]["label"], pp=pa[1], pb=pa[0], rt=secs[b]["label"], rp=pb[1], rb=pb[0])
+            msg = (PROMPT_V1 if args.prompt == "v1" else PROMPT).format(pt=secs[a]["label"], pp=pa[1], pb=pa[0], rt=secs[b]["label"], rp=pb[1], rb=pb[0])
             resp = client.client.chat.completions.create(
                 model=client.model, messages=[{"role": "user", "content": msg}], temperature=0, max_tokens=400,
                 extra_body={"chat_template_kwargs": {"enable_thinking": False}})
