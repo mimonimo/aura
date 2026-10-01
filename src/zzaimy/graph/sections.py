@@ -294,7 +294,8 @@ _INSTANCE = re.compile(r"[가-힣A-Za-z]\s*\d{1,2}(?=\s|$)")
 
 def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_key: int = 4,
                   accept: float = 0.25, margin: float = 0.08, generic_parent: float = 0.5,
-                  generic_body: float = 0.15, skip_b: re.Pattern | None = None) -> list[tuple[Section, Section, str]]:
+                  generic_body: float = 0.15, skip_b: re.Pattern | None = None,
+                  instance_min: float = 0.5) -> list[tuple[Section, Section, str]]:
     """같은 제목의 절 짝을 맥락 점수로 고른다(2차 반복, 2026-10-01).
     점수 = 0.5 × 상위 절 제목 글자 겹침(가까운 조상일수록 무게) + 0.5 × 본문·하위 절 제목 낱말 겹침.
     1차(상위 절 제목이 정확히 같아야)는 계획서·보고서가 상위 제목을 조금씩 다르게 써서 맞는 짝을 놓쳤고(버린 후보의 15% 가 같은
@@ -373,19 +374,40 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         cb, _ = ib[id(y)]
         return _jac(ca[0], cb[0]) if ca and cb else (1.0 if not ca and not cb else 0.0)
 
+    # 번호 붙은 사례 — 이름표(「우수사례 1」)는 문서마다 번호가 바뀐다(계획서 사례 1 = 보고서 사례 2, 실측 0.91). 사례끼리 본문만 견줘
+    # 1:1 로 잇는다(같은 사례 0.73~0.96, 다른 사례 0.1~0.3 실측)
+    inst_a = [x for x in a if _INSTANCE.search(x.title) and id(x) in ia["own"]]
+    inst_b = [y for y in b if _INSTANCE.search(y.title) and id(y) in ib["own"]]
+    inst_c = sorted(((_jac(ia["own"][id(x)], ib["own"][id(y)]), x, y) for x in inst_a for y in inst_b), key=lambda t: -t[0])
+    inst_pairs, ua, ub = [], set(), set()
+    for sc, x, y in inst_c:
+        if sc < instance_min or id(x) in ua or id(y) in ub:
+            continue
+        ua.add(id(x))
+        ub.add(id(y))
+        inst_pairs.append((x, y, f"사례 본문 겹침 {sc:.2f}"))
+    inst_linked = {(id(x), id(y)) for x, y, _w in inst_pairs}
+
     cands = []
     for k, xs in ga.items():
         ys = gb.get(k, [])
         # 문서 안에서 3번 이상 되풀이되는 흔한 제목('1. 추진배경 및 개요')은 바로 위 절 제목이 충분히 같아야 한다(3차 반복:
         # 상위 과제 이름이 '성과'만 겹쳐도 이어지던 오류)
-        generic = len(xs) >= 3 or len(ys) >= 3 or any(_INSTANCE.search(z.title) for z in xs[:1] + ys[:1])
+        if any(_INSTANCE.search(z.title) for z in xs[:1] + ys[:1]):
+            continue                                          # 번호 붙은 사례는 아래에서 본문으로 따로 맞춘다
+        generic = len(xs) >= 3 or len(ys) >= 3
         for x in xs:
             for y in ys:
-                if generic and anc_sim(x, y) < generic_parent:
+                px, py = by_a.get(x.parent), by_b.get(y.parent)
+                under_instances = px is not None and py is not None and _INSTANCE.search(px.title) and _INSTANCE.search(py.title)
+                if under_instances:
+                    if (id(px), id(py)) not in inst_linked:
+                        continue                              # 다른 사례의 「1. 추진배경 및 개요」
+                elif generic and anc_sim(x, y) < generic_parent:
                     continue
                 cands.append((score(x, y, generic), x, y, generic))
     cands.sort(key=lambda t: -t[0])
-    pairs, used_a, used_b = [], set(), set()
+    pairs, used_a, used_b = list(inst_pairs), set(), set()
     for sc, x, y, generic in cands:
         if sc < accept:
             continue
