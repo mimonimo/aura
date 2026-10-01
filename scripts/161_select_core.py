@@ -43,21 +43,20 @@ _HEAD = re.compile(r"(수정\s*)?(과제계획서|사업계획서|수행계획�
                    r"평가\s*결과|종합\s*의견서?|기본계획|시행계획|공고문?|지침|편람|매뉴얼|계획서|보고서)")
 
 
-# 사업 단위의 계획·보고 — 이 머리 낱말이 아니면(행사 운영계획·강의계획서 등) 사업 이름이 파일 이름에 있어야 뼈대로 본다
-_BUSINESS_HEAD = re.compile(r"과제계획서|사업계획서|수행계획서|실적보고서|연차보고서|결과보고서|성과보고서|기본계획|시행계획|"
-                            r"자체평가|선정평가|종합\s*의견|평가\s*결과")
+# 사업 단위의 계획·보고만 뼈대다 — 프로그램 단위(캡스톤 실시계획서·공용장비 결과보고서·기자재 구입계획서·과제 수행계획서)는
+# 그 사업의 실적 근거이지 뼈대가 아니다. 양식·샘플·신청서는 빈 틀이다.
+_BUSINESS_HEAD = re.compile(r"과제계획서|사업\s*계획서|사업\s*수행\s*계획서|실적\s*보고서|연차\s*보고서|성과\s*보고서|기본\s*계획|"
+                            r"시행\s*계획|자체\s*평가|선정\s*평가|종합\s*의견|평가\s*결과")
+_BLANK_FORM = re.compile(r"양식|서식\s*\d|샘플|신청서|작성\s*요령")
 
 
 def is_core(d: dict, kind: str, surfaces: set[str]) -> bool:
     if kind not in ("plan", "report"):
         return True
     name = Path(d["filename"]).stem
-    if re.search(r"강의|수업", name):
-        return False
-    if _BUSINESS_HEAD.search(name):
-        return True
-    flat = re.sub(programs._FLAT, "", name).upper()
-    return any(len(su) >= 3 and su.upper() in flat for su in surfaces)
+    if _BLANK_FORM.search(name) and not re.search(r"과제계획서|사업\s*계획서", name):
+        return False                                      # 「[서식6] 2차년도 과제계획서_2-3」은 채운 계획서다
+    return bool(_BUSINESS_HEAD.search(name))
 
 
 def stem(name: str) -> str:
