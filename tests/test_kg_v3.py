@@ -244,3 +244,33 @@ def test_sections_promote_banner_tables_and_outline_lines():
     assert "□ 사업목표" not in titles and 3 in titles["1. 추진의 필요성 및 정책목표와의 연계성"].chunks
     assert "1. 2017년 6월 사업단을 설치하였다." not in titles
     assert titles["15-2. 가족회사 운영 및 활성화"].level == 3
+
+
+def test_sections_skip_toc_runs_and_follow_page_order():
+    from zzaimy.graph import sections
+
+    toc = [{"seq": 10 + i, "kind": "text", "content": f"{i + 1}. 목차 항목 {i + 1}", "page_no": 2} for i in range(6)]
+    chunks = [{"seq": 1, "kind": "text", "content": "Ⅰ. 비전 및 체제", "page_no": 5},      # 간지 제목이 앞 seq 로
+              {"seq": 2, "kind": "text", "content": "Ⅱ. 인력양성", "page_no": 9}] + toc + [
+              {"seq": 30, "kind": "heading", "content": "1. 사업 비전 및 목표", "page_no": 5},
+              {"seq": 31, "kind": "text", "content": "비전은 지역과 함께 성장하는 것이다.", "page_no": 6},
+              {"seq": 32, "kind": "heading", "content": "2. 교육과정", "page_no": 9},
+              {"seq": 33, "kind": "text", "content": "교육과정을 개편하였다.", "page_no": 10}]
+    tree = sections.build(chunks)
+    titles = {s.title: s for s in tree}
+    assert not any(t.startswith("1. 목차") for t in titles)
+    assert titles["1. 사업 비전 및 목표"].parent == titles["Ⅰ. 비전 및 체제"].path
+    assert titles["2. 교육과정"].parent == titles["Ⅱ. 인력양성"].path
+
+
+def test_section_ids_unique_and_round_bullets_are_body():
+    from zzaimy.graph import sections
+
+    chunks = [{"seq": 0, "kind": "heading", "content": "1. 결과 통보 공문"},
+              {"seq": 1, "kind": "heading", "content": "Ⅰ. 사업 개요"},
+              {"seq": 2, "kind": "heading", "content": "❍ 별도 계좌 개설"},
+              {"seq": 3, "kind": "heading", "content": "1. 일반현황"}]
+    tree = sections.build(chunks)
+    ids = [s.path for s in tree]
+    assert len(ids) == len(set(ids))
+    assert not any(s.title.startswith("❍") for s in tree)
