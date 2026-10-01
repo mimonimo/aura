@@ -412,6 +412,9 @@ def create_app(
     app.state.set_pw = _set_pw
     app.state.new_account = _new_account
     app.include_router(user_admin_router)
+    # 사업 중심 그래프(온톨로지 v3, ADR-0048) — kg_nodes·kg_edges 를 사업 하나 기준으로 펼친다
+    from zzaimy.app.kg_view import router as kg_view_router
+    app.include_router(kg_view_router)
 
     @app.on_event("startup")
     def _recover_dangling_chats() -> None:
