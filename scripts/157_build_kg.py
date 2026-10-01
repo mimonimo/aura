@@ -43,6 +43,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--docs", required=True, help="문서 id 목록(예: 557-585,601)")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--generic-parent", type=float, default=0.5, help="흔한 반복 제목의 바로 위 절 제목 겹침 하한(0 이면 끔)")
     args = ap.parse_args()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
 
@@ -115,7 +116,7 @@ def main() -> int:
         for p in plans:
             for r in reports:
                 edges.append((f"doc:{p}", f"doc:{r}", "plans_reports", "식별자 일치", [f"같은 사업·연차({ynode})의 계획서와 실적보고서"]))
-                for ps, s, why in sections.align_context(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_of):
+                for ps, s, why in sections.align_context(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_of, generic_parent=args.generic_parent):
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
         for e in evals:
@@ -131,7 +132,7 @@ def main() -> int:
         for (k1, y1), (k2, y2) in zip(ys, ys[1:]):
             for p1 in (i for i in by_year[y1] if assigns[i].kind == "plan"):
                 for p2 in (i for i in by_year[y2] if assigns[i].kind == "plan"):
-                    for s, t, why in sections.align_context(docs_by_id[p1]["sections"], docs_by_id[p2]["sections"], text_of):
+                    for s, t, why in sections.align_context(docs_by_id[p1]["sections"], docs_by_id[p2]["sections"], text_of, generic_parent=args.generic_parent):
                         edges.append((f"doc:{p1}:sec:{s.path}", f"doc:{p2}:sec:{t.path}", "continues", "식별자 일치",
                                       [f"{y1} 「{s.title[:50]}」", f"{y2} 「{t.title[:50]}」", why]))
 
