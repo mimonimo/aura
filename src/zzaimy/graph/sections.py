@@ -288,9 +288,13 @@ def _wjac(a: set, b: set, idf: dict) -> float:
     return w(a & b) / (w(a | b) or 1.0)
 
 
+# 번호 붙은 사례·과제(「[인력양성] 우수사례 1」) — 제목은 자리 표시일 뿐, 무엇인지는 본문이 정한다
+_INSTANCE = re.compile(r"[가-힣A-Za-z]\s*\d{1,2}(?=\s|$)")
+
+
 def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_key: int = 4,
                   accept: float = 0.25, margin: float = 0.08, generic_parent: float = 0.5,
-                  generic_body: float = 0.15) -> list[tuple[Section, Section, str]]:
+                  generic_body: float = 0.15, skip_b: re.Pattern | None = None) -> list[tuple[Section, Section, str]]:
     """같은 제목의 절 짝을 맥락 점수로 고른다(2차 반복, 2026-10-01).
     점수 = 0.5 × 상위 절 제목 글자 겹침(가까운 조상일수록 무게) + 0.5 × 본문·하위 절 제목 낱말 겹침.
     1차(상위 절 제목이 정확히 같아야)는 계획서·보고서가 상위 제목을 조금씩 다르게 써서 맞는 짝을 놓쳤고(버린 후보의 15% 가 같은
@@ -310,6 +314,13 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
                 chain.append(_bigrams(_NUM.sub("", par.title)))
                 cur = par.parent
             info[id(x)] = (chain, _words(" ".join(kids.get(x.path, [])) + " " + (text_of(x) or "")))
+        # 사례 절은 하위 절 제목이 틀(추진배경·추진과정)이라 같아 보인다 — 자기와 하위 절의 본문 글만 따로
+        own: dict[int, set] = {}
+        for x in secs:
+            if _INSTANCE.search(x.title):
+                desc = [y for y in secs if y.path.startswith(x.path + ".")]
+                own[id(x)] = _words(" ".join([text_of(x) or ""] + [text_of(y) or "" for y in desc]))
+        info["own"] = own
         groups: dict[str, list[Section]] = {}
         for x in secs:
             k = title_key(x.title)
@@ -318,9 +329,21 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         return groups, info
     ga, ia = index(a)
     gb, ib = index(b)
+    by_a = {x.path: x for x in a}
+    by_b = {x.path: x for x in b}
+    if skip_b is not None:
+        # 실적보고서 끝의 「차년도 사업계획」 아래 절은 다음 연차 계획이다 — 같은 연차 계획서와 잇지 않는다(9차 반복 오류의 1/4)
+        def under_skip(y: Section) -> bool:
+            cur = y
+            while cur is not None:
+                if skip_b.search(cur.title):
+                    return True
+                cur = by_b.get(cur.parent)
+            return False
+        gb = {k: [y for y in ys if not under_skip(y)] for k, ys in gb.items()}
     # 두 문서의 절 본문을 문서 모음으로 보고 낱말 희소성(idf)을 잰다
     import math
-    bags = [w for _c, w in ia.values()] + [w for _c, w in ib.values()]
+    bags = [v[1] for k, v in ia.items() if k != "own"] + [v[1] for k, v in ib.items() if k != "own"]
     df: dict[str, int] = {}
     for bag in bags:
         for wd in bag:
@@ -338,6 +361,8 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         if not wa and not wb:
             return 0.0                                        # 본문도 하위 절도 없는 머리글(표지 줄 등)끼리는 잇지 않는다(5차)
         body = _wjac(wa, wb, idf)
+        if id(x) in ia["own"] and id(y) in ib["own"]:
+            body = _wjac(ia["own"][id(x)], ib["own"][id(y)], idf)
         if generic:
             # 흔한 제목('1. 추진배경 및 개요')은 같은 상위 제목 아래 과제 사례마다 되풀이된다 — 무엇에 대한 절인지는 본문이 정한다(4차)
             return 0.3 * anc + 0.7 * body if body >= generic_body else 0.0
@@ -353,7 +378,7 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         ys = gb.get(k, [])
         # 문서 안에서 3번 이상 되풀이되는 흔한 제목('1. 추진배경 및 개요')은 바로 위 절 제목이 충분히 같아야 한다(3차 반복:
         # 상위 과제 이름이 '성과'만 겹쳐도 이어지던 오류)
-        generic = len(xs) >= 3 or len(ys) >= 3
+        generic = len(xs) >= 3 or len(ys) >= 3 or any(_INSTANCE.search(z.title) for z in xs[:1] + ys[:1])
         for x in xs:
             for y in ys:
                 if generic and anc_sim(x, y) < generic_parent:
@@ -378,4 +403,19 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         used_a.add(id(x))
         used_b.add(id(y))
         pairs.append((x, y, f"흔한 제목·본문 맥락 점수 {sc:.2f}"))
-    return pairs
+    # 흔한 제목 짝은 부모끼리도 이어져야 한다 — 부모 제목이 같은데(같은 「우수사례 1」) 부모 짝이 안 이어졌으면 다른 사례의 절이다.
+    # 부모가 떨어지면 그 아래도 떨어지므로 바뀌지 않을 때까지 되풀이
+    while True:
+        linked = {(id(x), id(y)) for x, y, _w in pairs}
+        keep = []
+        for x, y, why in pairs:
+            px, py = by_a.get(x.parent), by_b.get(y.parent)
+            same_parent_title = px is not None and py is not None and title_key(px.title) == title_key(py.title) \
+                and len(title_key(px.title)) >= min_key
+            is_generic = why.startswith("흔한")
+            if (is_generic or _INSTANCE.search(px.title if px else "")) and same_parent_title and (id(px), id(py)) not in linked:
+                continue
+            keep.append((x, y, why))
+        if len(keep) == len(pairs):
+            return pairs
+        pairs = keep

@@ -329,3 +329,29 @@ def test_banner_with_ascii_roman_or_decorated_second_cell():
     b5 = _json.dumps({"n_rows": 2, "n_cols": 3, "cells": [[0, 0, 2, 1, 0, "Ⅴ. 지속가능성"], [0, 1, 1, 2, 0, "미래가치 1등 직업교육대학 " * 6]]})
     assert sections.heading_text({"kind": "table", "content": b3}).startswith("III. 기업가치 창출")
     assert sections.heading_text({"kind": "table", "content": b5}) == "Ⅴ. 지속가능성"
+
+
+def test_align_instances_need_body_and_children_follow_parents():
+    from zzaimy.graph import sections
+
+    def doc(case_body):
+        chunks = [{"seq": 0, "kind": "heading", "content": "Ⅵ. 우수사례"},
+                  {"seq": 1, "kind": "heading", "content": "[인력양성] 우수사례 1"},
+                  {"seq": 2, "kind": "text", "content": case_body},
+                  {"seq": 3, "kind": "heading", "content": "1. 추진배경 및 개요"},
+                  {"seq": 4, "kind": "text", "content": case_body + " 배경"},
+                  {"seq": 5, "kind": "heading", "content": "9. 차년도 사업계획"},
+                  {"seq": 6, "kind": "heading", "content": "9-1. 특화분야 산학협력 브랜드 창출"},
+                  {"seq": 7, "kind": "text", "content": "브랜드 창출 계획 특화분야 협력 확산"}]
+        return sections.build(chunks)
+    body_a = "하이드로젤 소재 공동연구 기능성 의료 소재 개발"
+    body_b = "배달 로봇 부품 시제품 소스 개발 현장실습"
+    a, b = doc(body_a), doc(body_b)
+    text = {id(x): (body_a if x.chunks and x.title != "9-1. 특화분야 산학협력 브랜드 창출" else "") for x in a}
+    text.update({id(y): (body_b if y.chunks and y.title != "9-1. 특화분야 산학협력 브랜드 창출" else "") for y in b})
+    import re as _re
+    pairs = sections.align_context(a, b, text_of=lambda s: text.get(id(s), ""), skip_b=_re.compile(r"차년도"))
+    titles = {(x.title, y.title) for x, y, _w in pairs}
+    assert ("[인력양성] 우수사례 1", "[인력양성] 우수사례 1") not in titles
+    assert ("1. 추진배경 및 개요", "1. 추진배경 및 개요") not in titles
+    assert not any(y.title.startswith("9-1.") for _x, y, _w in pairs)

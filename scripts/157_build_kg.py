@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -38,6 +39,10 @@ def _ids(spec: str) -> list[int]:
         elif part.strip():
             out.append(int(part))
     return out
+
+
+# 실적보고서 안의 다음 연차 계획 부분(「차년도 사업계획」·「향후 추진 계획」) — 같은 연차 계획서와 짝짓지 않는다
+NEXT_YEAR = re.compile(r"차년도\s*(?:사업\s*)?계획|향후\s*(?:추진\s*)?계획|다음\s*연도")
 
 
 def main() -> int:
@@ -129,7 +134,8 @@ def main() -> int:
         for p in plans:
             for r in reports:
                 edges.append((f"doc:{p}", f"doc:{r}", "plans_reports", "식별자 일치", [f"같은 사업·연차({ynode})의 계획서와 실적보고서"]))
-                for ps, s, why in sections.align_context(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_of, generic_parent=args.generic_parent):
+                for ps, s, why in sections.align_context(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_of, generic_parent=args.generic_parent,
+                                                         skip_b=NEXT_YEAR):
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
         for e in evals:
