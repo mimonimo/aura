@@ -15,6 +15,7 @@ from zzaimy.graph import kg_store
 router = APIRouter()
 
 ROWS = [("plan", "계획서"), ("report", "실적보고서"), ("evaluation", "평가 결과")]
+KIND_KO = {"contains": "포함", "plans_reports": "계획↔실적", "continues": "연차 이어짐", "evaluates": "평가"}
 
 
 def program_view(db, program_id: str | None) -> dict:
@@ -22,8 +23,16 @@ def program_view(db, program_id: str | None) -> dict:
     progs = kg_store.nodes(db, "program")
     if not progs:
         return {"programs": [], "program": None}
-    prog = next((p for p in progs if p["id"] == program_id), progs[0])
     edges = kg_store.edges(db)
+    n_docs: dict[str, int] = defaultdict(int)
+    for e in edges:
+        if e["kind"] == "contains" and e["basis"] == "분류" and e["dst"].startswith("doc:"):
+            n_docs[e["src"]] += 1
+    # 고른 사업이 없으면 문서가 가장 많은 사업(연차 노드 아래 문서도 그 사업 몫)
+    for e in edges:
+        if e["kind"] == "contains" and e["src"].startswith("program:") and e["dst"].startswith("year:"):
+            n_docs[e["src"]] += n_docs.get(e["dst"], 0)
+    prog = next((p for p in progs if p["id"] == program_id), None) or max(progs, key=lambda p: n_docs.get(p["id"], 0))
     nodes = {n["id"]: n for n in kg_store.nodes(db)}
     out_of = defaultdict(list)
     for e in edges:
@@ -72,7 +81,7 @@ def program_view(db, program_id: str | None) -> dict:
             counts[(e["kind"], e["basis"])] += 1
     return {"programs": progs, "program": prog, "cols": cols, "loose": loose, "rows": ROWS,
             "plans_reports": dict(plans_reports), "continues": continues, "evaluates": evaluates,
-            "counts": sorted(((k[0], k[1], v) for k, v in counts.items()), key=lambda t: -t[2]),
+            "counts": sorted(((KIND_KO.get(k[0], k[0]), k[1], v) for k, v in counts.items()), key=lambda t: -t[2]),
             "n_sections": sum(1 for n in nodes.values() if n["type"] == "section" and doc_of(n["id"]) in prog_docs)}
 
 
