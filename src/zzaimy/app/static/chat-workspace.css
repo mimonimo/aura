@@ -133,3 +133,6 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 .web-citation { display:flex; align-items:baseline; gap:6px; font-size:13px; line-height:1.6; }
 .web-citation a { min-width:0; overflow-wrap:anywhere; color:#315c91; text-decoration:none; }
 .web-citation a:hover { text-decoration:underline; }
+.msg .chat-output-link{display:inline-flex;align-items:center;padding:0 5px;border-radius:4px;background:#edf2fa;color:#254b85;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;vertical-align:baseline}
+.msg .chat-output-link:hover{background:#dfe9f8}
+.msg .chat-output-link:focus-visible{outline:2px solid #254b85;outline-offset:2px}

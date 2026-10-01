@@ -17,7 +17,9 @@
 
 | 문서 | 용도 |
 |---|---|
-| [architecture.md](architecture.md) | 아키텍처 설계 (P1, 현황 주석 2026-09-22) |
+| [architecture.md](architecture.md) | 초기 설계와 현행 구현 구분(2026-10-01 점검) |
+| [dataset-authoring.md](dataset-authoring.md) | 사업별 맥락 문답 생성·검수·승인 계약 |
+| [document-work-flow.md](document-work-flow.md) | 실문서 반입·Google Docs 작업·산출 흐름 |
 | [eval-plan.md](eval-plan.md) | 평가 계획(지표·분리 원칙) |
 | [capstone-plan.md](capstone-plan.md) | 13주 실행계획 (구간별 현황) |
 | [pilot-plan.md](pilot-plan.md) | 파일럿 계획 |
@@ -33,7 +35,7 @@
 | [retrieval-weight-sweep.md](retrieval-weight-sweep.md) | 하이브리드 가중 스윕 | 2026-09-04 |
 | [rerank-baseline.md](rerank-baseline.md) | 리랭커 학습 전 베이스라인 | 2026-09-04 |
 | [llm-rerank-eval.md](llm-rerank-eval.md) | 리랭커·LLM 리랭킹 평가 | 2026-09-20 |
-| `data/platform/eval/retrieval-latest.json` (VM) | 현행 검색 측정 정본 — 재반입 코퍼스, 운영 R@1 0.763 | 2026-09-21, 요약은 paper/실험-로그 5절 |
+| `data/platform/eval/retrieval-latest.json` (VM) | 검색 측정 산출물 — 실행 날짜·코퍼스·설정 확인 필수 | 과거 공개 코퍼스 성능을 현재 실문서 성능으로 쓰지 않음 |
 | [embed-v0-report.md](embed-v0-report.md) | 임베딩 v0.0 리허설 | 2026-09-03, 미배포(이력) |
 | [ocr-cer-bench.md](ocr-cer-bench.md) · [ocr-duel.md](ocr-duel.md) | 판독(OCR) 벤치·대결 | 2026-09-07/08 |
 | [env-report.md](env-report.md) | DGX Spark 환경 점검 | 2026-09-01, Spark 는 사용 금지(이력) |
@@ -62,3 +64,6 @@
   저장소 사본은 `--report` 를 붙일 때만 갱신한다.
 - 결정은 ADR로 남긴다. 문서 본문에서 결론만 바꾸고 근거를 남기지 않는 방식은 쓰지 않는다.
 - 운영 접속 절차·자격 증명은 저장소에 두지 않는다.
+- 기능 변경 완료 전 루트 안내·인수인계·관련 설계/실행 문서도 대조한다. 폐기 기능은
+  현행 안내에서 제거하며, 과거 ADR·측정·주간 보고는 날짜가 있는 이력으로 보존한다.
+  문서 수정·커밋·푸시·운영 배포는 서로 다른 상태로 기록한다.

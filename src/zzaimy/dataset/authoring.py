@@ -8,6 +8,7 @@ from copy import deepcopy
 import hashlib
 import json
 import unicodedata
+from zzaimy.dataset.question_context import question_issues
 
 
 def _text(value):
@@ -55,6 +56,9 @@ def validate_rows(rows):
 def validate_manifest(manifest):
     if not isinstance(manifest, dict) or any(not _text(manifest.get(k)) for k in ('program_id', 'program')):
         raise ValueError('explicit_program_required')
+    aliases = manifest.get('program_aliases', [])
+    if not isinstance(aliases, list) or any(not _text(alias) for alias in aliases):
+        raise ValueError('invalid_program_aliases')
     ids = manifest.get('document_ids')
     if (not isinstance(ids, list) or not ids or any(type(i) is not int or i <= 0 for i in ids)
             or len(ids) != len(set(ids))):
@@ -137,7 +141,8 @@ def prepare_tasks(rows, manifest, resolve_source, *, author, privacy_check=None,
                     ai_review_summary='AI 검수 미진행 · 사람 승인과 별도')
         data['_record'] = dict(deepcopy(row), program_id=program_id, history=chain,
                                source_texts=evidence, author=author, reviewed=False)
-        found = []
+        found = question_issues(row['question'], program, parent=bool(row.get('parent')),
+                                aliases=manifest.get('program_aliases', []))
         if not privacy_check(data):
             found.append('privacy_requires_revision')
         if not number_check(row['answer'], number_sources):

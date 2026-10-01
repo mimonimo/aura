@@ -15,6 +15,39 @@ from urllib.parse import quote, urlsplit
 _TAG = re.compile(r"(<[^>]+>)")
 
 
+def document_links(html: str) -> str:
+    """Compact output links without touching existing anchors or code."""
+    pattern = re.compile(r'https://(?:docs\.google\.com/document/d/|drive\.google\.com/file/d/)[A-Za-z0-9_-]+[^\s<>"\]\)]*')
+    numbers: dict[str, int] = {}
+
+    def replace(match):
+        raw = match[0]
+        url = unescape(raw.rstrip('.,;。'))
+        parsed = urlsplit(url)
+        kind = '문서' if parsed.hostname == 'docs.google.com' else '파일'
+        key = parsed.hostname + parsed.path.split('/d/')[1].split('/')[0]
+        number = numbers.setdefault(key, len(numbers) + 1)
+        return (f'<a class="chat-output-link" data-document-link="true" '
+                f'href="{escape(url, quote=True)}" target="_blank" rel="noopener noreferrer" '
+                f'title="{kind} {number} 미리보기">[{kind} {number}]</a>'
+                + raw[len(raw.rstrip('.,;。')):])
+
+    parts = _TAG.split(html)
+    blocked = []
+    for i, part in enumerate(parts):
+        if part.startswith('<'):
+            tag = re.match(r'<(/?)(a|pre|code|script|style)\b', part, re.I)
+            if tag:
+                if tag[1]:
+                    if blocked and blocked[-1] == tag[2].lower():
+                        blocked.pop()
+                else:
+                    blocked.append(tag[2].lower())
+        elif not blocked:
+            parts[i] = pattern.sub(replace, part)
+    return ''.join(parts)
+
+
 def web_links(html: str) -> str:
     """저장된 웹 출처 줄도 제목 링크로 표시한다. 원본 URL은 데이터에 보존."""
     def replace(match):
@@ -49,7 +82,7 @@ def _targets(sources: list[dict]) -> list[tuple[str, str]]:
 
 def linkify(html: str, sources: list[dict]) -> str:
     """이미 렌더된 HTML 의 글자 부분에서만 문서 이름을 링크로 바꾼다."""
-    html = web_links(html)
+    html = document_links(web_links(html))
     targets = _targets(sources)
     if not targets:
         return html

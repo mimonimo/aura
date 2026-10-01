@@ -92,6 +92,9 @@ def test_quality_report_full_note_and_resolution_preserved(client):
 def test_data_build_sources_have_labels_and_selection_status(client):
     page = client.get('/dev/data')
     assert page.status_code == 200
+    assert 'id="datasetBuildForm"' not in page.text
+    page = client.get('/dev/train?tab=data&view=legacy')
+    assert page.status_code == 200
     assert 'id="datasetBuildForm"' in page.text
     assert 'id="datasetSelectionStatus" role="status"' in page.text
     assert '원천 선택"' in page.text

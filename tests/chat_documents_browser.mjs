@@ -18,6 +18,10 @@ try {
  await evaluate(`document.head.innerHTML='';document.body.innerHTML='<main style="display:flex;height:900px;width:1500px"><section id="chatWorkspace" data-session="1"><button id="chatDocumentOpen">문서</button></section></main>';const style=document.createElement('style');style.textContent=${JSON.stringify(css)};document.head.append(style);window.fetch=async(url)=>({ok:true,redirected:false,json:async()=>url.endsWith('/files')?{account:'test@example.test',folder_url:'https://drive.google.com/drive/folders/test',files:[{id:'docA',name:'시험 문서',mime_type:'application/vnd.google-apps.document'}]}:url.endsWith('/folder')?{url:null}:{connected:true,title:'시험 문서',embed_url:'about:blank',sections:[]}});`);
  await evaluate(`const fixtureFetch=window.fetch;window.fetch=async(...args)=>{const response=await fixtureFetch(...args);const json=response.json;response.json=async()=>{const data=await json();if(data.connected){data.doc='docA';data.sections=[{index:1,heading:'1. 추진 배경',heading_id:'h.test',tab_id:'t.test'}];}return data;};return response;};`);
  await evaluate(js);await evaluate(`document.getElementById('chatDocumentOpen').click()`);await new Promise(r=>setTimeout(r,150));
+ await evaluate(`const output=document.createElement('a');output.dataset.documentLink='true';output.href='https://docs.google.com/document/d/test_output/edit';output.textContent='[문서 1]';workspaceLink=document.getElementById('chatWorkspace');workspaceLink.append(output);output.click();`);
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-viewer iframe').src`),'https://docs.google.com/document/d/test_output/preview');
+ assert.equal(await evaluate(`Array.from(document.querySelectorAll('.chat-doc-viewer button')).some(b=>b.textContent==='이 문서로 작업')`),false);
+ await evaluate(`document.querySelector('.chat-doc-viewer [data-list]').click()`);await new Promise(r=>setTimeout(r,150));
  assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);
  assert.equal(await evaluate(`document.querySelectorAll('iframe').length`),0);
  await new Promise(r=>setTimeout(r,400));

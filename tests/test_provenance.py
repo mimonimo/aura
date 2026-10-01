@@ -35,3 +35,12 @@ def test_attached_pair_passes_gate_except_review_and_holds_unsupported_numbers()
     assert audit_pair(ok) == ["review_incomplete"]                       # 검수만 남는다 — 검수는 사람이 한다
     bad = pv.attach(dict(pair, conversations=[pair["conversations"][0], {"from": "gpt", "value": "[답] 기준값은 7.3 이다."}]), _sources(), "docset:557:562", ["사업"])
     assert "unsupported_number" in audit_pair(bad)
+def test_question_context_and_instructions_are_not_original_evidence():
+    from zzaimy.dataset.provenance import Sources, records_for
+    sources = Sources().add('form', [{'id':1,'doc_id':1,'content':'사업: 합성 사업 / 범위: 운영 목표\n지원 규모는 원문에서 확인한다'}])
+    human = ('[근거: 양식의 제목]\n지원 규모는 원문에서 확인한다\n'
+             '[질문] 사업: 합성 사업 / 범위: 운영 목표\n지원 규모는 원문에서 확인한다\n'
+             '[담당자 지시]\n사업: 합성 사업 / 범위: 운영 목표')
+    records = records_for(human, sources, 'program:example')
+    assert len(records) == 1
+    assert records[0]['text'] == '지원 규모는 원문에서 확인한다'
