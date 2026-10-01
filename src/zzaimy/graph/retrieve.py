@@ -19,6 +19,16 @@ _KIND_WORDS = {"plan": r"계획서|사업계획|계획(?!\s*대비)", "report": 
 _STOP = {"무엇", "어떻게", "있어", "있나", "알려", "줘", "대한", "관련", "사업", "내용", "해당", "그리고", "에서", "으로"}
 
 
+_LEAD_ACRONYM = re.compile(r"^\s*([A-Z][A-Z0-9.]{2,})(?=[\s(]|$)")
+
+
+def _surfaces(props: dict) -> set[str]:
+    """사업을 부르는 표면형 — 이름·약칭에 더해 이름 앞의 영문 대문자 약칭(「AID (AI+Digital) …」의 AID)."""
+    names = list(props.get("names") or []) + list(props.get("acronyms") or [])
+    names += [m.group(1) for n in props.get("names") or [] if (m := _LEAD_ACRONYM.match(n))]
+    return {re.sub(r"[\s.]+", "", s).upper() for s in names}
+
+
 def _words(t: str) -> set[str]:
     return {w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", t or "") if w not in _STOP}
 
@@ -45,13 +55,13 @@ class Trace:
 
 
 def retrieve(db, question: str, k: int = 5, chunk_text=None) -> Trace:
-    """chunk_text(doc_id, seqs) → 본문(선택). 없으면 절 제목만으로 매긴다."""
+    """chunk_text(doc_id, seqs) → 본문(선택). seqs 가 None 이면 [(seq, 본문)] 전부를 돌려준다. 없으면 절 제목만으로 매긴다."""
     tr = Trace(question=question)
     q_flat = re.sub(r"[\s.]+", "", question or "").upper()
     progs = kg_store.nodes(db, "program")
     best = (0, None)
     for p in progs:
-        surfaces = {re.sub(r"[\s.]+", "", s).upper() for s in (p["props"].get("names") or []) + (p["props"].get("acronyms") or [])}
+        surfaces = _surfaces(p["props"])
         hit = max((len(s) for s in surfaces if len(s) >= 3 and s in q_flat), default=0)
         if hit > best[0]:
             best = (hit, p)
@@ -74,10 +84,14 @@ def retrieve(db, question: str, k: int = 5, chunk_text=None) -> Trace:
         children.setdefault(e["src"], []).append(e["dst"])
     years = [c for c in children.get(tr.program, []) if c.startswith("year:")] if tr.program else \
         [c for p in progs for c in children.get(p["id"], []) if c.startswith("year:")]
+    narrowed = years
     if tr.round:
-        years = [y_ for y_ in years if y_.endswith(f":r{tr.round}")] or years
+        narrowed = [y_ for y_ in years if y_.endswith(f":r{tr.round}")]
     elif tr.year:
-        years = [y_ for y_ in years if y_.endswith(f":y{tr.year}") or (nodes.get(y_, {}).get("props", {}).get("year") == tr.year)] or years
+        narrowed = [y_ for y_ in years if y_.endswith(f":y{tr.year}") or (nodes.get(y_, {}).get("props", {}).get("year") == tr.year)]
+    if (tr.round or tr.year) and not narrowed:
+        tr.steps.append("그 연차의 문서가 그래프에 없음 — 모든 연차에서 찾는다(답할 때 연차가 다름을 밝힌다)")
+    years = narrowed or years
     docs = [d for y_ in years for d in children.get(y_, []) if d.startswith("doc:")]
     if tr.program:
         docs += [d for d in children.get(tr.program, []) if d.startswith("doc:")]
@@ -89,6 +103,17 @@ def retrieve(db, question: str, k: int = 5, chunk_text=None) -> Trace:
     qw = _words(question)
     hits: list[Hit] = []
     for d in docs:
+        if chunk_text and not any(":sec:" in c for c in children.get(d, [])):
+            # 절 구조가 없는 문서(평가 종합의견 등)는 본문 조각을 그대로 후보로 둔다
+            dn = nodes[d]
+            for seq, text in chunk_text(dn["doc_id"], None) or []:
+                sc = len(qw & _words(text)) / (len(qw) or 1)
+                if sc > 0:
+                    label = f"본문 {seq + 1}"
+                    path = [tr.program_label or "", nodes.get(year_of.get(d, ""), {}).get("label", ""), dn["label"], label]
+                    hits.append(Hit(section=f"{d}:chunk:{seq}", title=label, path=[p_ for p_ in path if p_],
+                                    score=round(sc, 3), doc_id=int(dn["doc_id"] or 0)))
+            continue
         stack = list(children.get(d, []))
         while stack:
             sid = stack.pop()
@@ -101,11 +126,20 @@ def retrieve(db, question: str, k: int = 5, chunk_text=None) -> Trace:
             bw = _words(body)
             sc = 2 * len(qw & tw) / (len(qw) or 1) + len(qw & bw) / (len(qw) or 1)
             if sc > 0:
-                path = [tr.program_label or "", nodes.get(year_of.get(d, ""), {}).get("label", ""), nodes[d]["label"], sec["label"]]
+                parent = nodes.get(sid.rsplit(".", 1)[0]) if "." in sid.split(":sec:")[1] else None
+                path = [tr.program_label or "", nodes.get(year_of.get(d, ""), {}).get("label", ""), nodes[d]["label"],
+                        (parent or {}).get("label", ""), sec["label"]]
                 hits.append(Hit(section=sid, title=sec["label"], path=[p_ for p_ in path if p_], score=round(sc, 3),
                                 doc_id=int(sec["doc_id"] or 0)))
     hits.sort(key=lambda h: -h.score)
-    tr.hits = hits[:k]
+    seen: set[tuple] = set()
+    uniq = []
+    for h in hits:                                   # 같은 문서·같은 경로(목차 줄과 본문 절 등)는 한 번만
+        key = (h.doc_id, tuple(h.path[-2:]))
+        if key not in seen:
+            seen.add(key)
+            uniq.append(h)
+    tr.hits = uniq[:k]
     tr.steps.append(f"[3단계: 근거 선택] 절 {len(hits)}개 중 상위 {len(tr.hits)}: "
                     + "; ".join(f"「{h.title[:30]}」({h.score})" for h in tr.hits[:3]))
     return tr
