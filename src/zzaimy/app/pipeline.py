@@ -264,10 +264,15 @@ def _format_mismatch(file_path: Path) -> str | None:
     if not want:
         return None
     try:
-        head = file_path.read_bytes()[:512]
+        with file_path.open("rb") as fh:
+            head = fh.read(1024)
     except OSError:
         return None
     if head.startswith(want):
+        return None
+    # 전자결재 포장(「Handysoft Approval Document File」 머리 뒤에 PDF) — PDF 머리가 앞 1024 바이트 안에 있으면 PDF 판독기가 그대로
+    # 읽는다(PDF 규격이 허용, pdfium 확인). 실측 2026-10-01: 대구RISE 자체평가 결과 공문(429 바이트 뒤 %PDF-1.6)
+    if want == b"%PDF" and b"%PDF-" in head:
         return None
     kind = file_path.suffix.lstrip(".").upper()
     size = file_path.stat().st_size
