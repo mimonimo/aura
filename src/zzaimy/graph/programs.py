@@ -179,14 +179,15 @@ class Assignment:
 
 
 def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
-    """문서마다 사업·연차·갈래를 정한다. 제목·경로 언급 무게 3, 앞머리 1. 1등이 3점 미만이거나 2등의 두 배에 못 미치면 검토 대기."""
+    """문서마다 사업·연차·갈래를 정한다. 제목 언급 무게 3, 경로 2, 앞머리 1. 1등이 3점 미만이거나 2등의 두 배에 못 미치면 검토 대기."""
     from zzaimy.app.doc_routing import guess_kind
 
     out = []
     for d in docs:
         title = clean_title(d.get("filename") or "")
         head = (d.get("head") or "")[:HEAD_CHARS]
-        flat_title = re.sub(_FLAT, "", f"{title} {d.get('path') or ''}").upper()       # 약칭은 점·밑줄 없이 대조(LINC_3.0 = LINC30)
+        flat_title = re.sub(_FLAT, "", title).upper()                       # 약칭은 점·밑줄 없이 대조(LINC_3.0 = LINC30)
+        flat_path = re.sub(_FLAT, "", d.get("path") or "").upper()
         flat_head = re.sub(_FLAT, "", head).upper()
         scores: Counter = Counter()
         why: dict[str, list[str]] = defaultdict(list)
@@ -197,8 +198,12 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
         for su, c in pool:
             if su in flat_title:
                 scores[c.node_id] += 3
-                why[c.node_id].append(f"제목·경로에 「{su}」")
+                why[c.node_id].append(f"제목에 「{su}」")
                 flat_title = flat_title.replace(su, "\0" * len(su))
+            if su in flat_path:                                 # 폴더는 파일 제 이름보다 약한 단서 — 다른 사업 문서가 섞여 들어 있다
+                scores[c.node_id] += 2
+                why[c.node_id].append(f"경로에 「{su}」")
+                flat_path = flat_path.replace(su, "\0" * len(su))
             n = flat_head.count(su)
             if n:
                 scores[c.node_id] += min(n, 5)
@@ -212,7 +217,9 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
             a.share = round(top / sum(scores.values()), 2)
             second = scores.most_common(2)[1][1] if len(scores) > 1 else 0
             # 다른 사업을 함께 언급하는 문서가 많다(LINC3.0 보고서의 RISE·혁신지원 언급) — 몫보다 2등과의 차이로 판정한다
-            a.status = "auto" if top >= 3 and top >= 2 * second else "review"
+            # 경로만 말하는 파일(「RISE사업(2025~)/…/붙임1.hwp」)은 경로 2점으로 확정한다. 제 이름이 다른 사업을 말하면(3점) 2등의 두 배를 못 넘어 검토로 간다
+            floor = 2 if any(w.startswith("경로") for w in why[best]) else 3
+            a.status = "auto" if top >= floor and top >= 2 * second else "review"
             a.evidence = why[best][:4]
         else:
             a.evidence = ["사업명 언급을 찾지 못함"]
