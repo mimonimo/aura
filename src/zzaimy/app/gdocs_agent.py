@@ -107,7 +107,10 @@ def _est_tokens(text: str) -> int:
 
 
 def _fit_context(prompt: str, max_tokens: int, materials: str, text: str) -> tuple[str, int]:
-    """입력+출력이 문맥 한도를 넘으면 재료 → 본문 순으로 뒤를 잘라 맞춘다. 출력 예산은 _MIN_OUTPUT 아래로는 안 내린다."""
+    """재료·본문을 완결된 줄 단위로 축약하고, 고정 지시가 넘치면 전송 전에 거절한다.
+
+    토큰 수는 문자 기반 추정이며 실제 토크나이저 계측을 대체하지 않는다.
+    """
     limit = CONTEXT_TOKENS - 256
     over = _est_tokens(prompt) + max_tokens - limit
     if over <= 0:
@@ -118,20 +121,23 @@ def _fit_context(prompt: str, max_tokens: int, materials: str, text: str) -> tup
     over -= give
     if over <= 0:
         return prompt, max_tokens
-    # 2) 재료 뒤를 자른다(표·지난 자료가 길 때)
-    cut_chars = int(over * _CHARS_PER_TOKEN) + 200
-    if materials and len(materials) > cut_chars + 500:
-        shorter = materials[: len(materials) - cut_chars].rstrip() + "\n(재료 일부 생략)"
-        prompt = prompt.replace(materials, shorter, 1)
+    # 2) 재료 → 본문. 지시에도 같은 문자열이 있으면 임의 위치를 바꾸지 않는다.
+    for block, marker in ((materials, "\n[재료 일부 생략: 생략 범위의 사실은 확인하지 못함]\n"),
+                          (text, "\n[본문 일부만 제공됨: 전체 검토 완료로 보고하지 마세요.]\n")):
+        if not block or prompt.count(block) != 1:
+            continue
+        cut_chars = int(over * _CHARS_PER_TOKEN) + len(marker) + 200
+        keep = max(0, len(block) - cut_chars)
+        # 숫자·조건·표 셀을 문장 중간에서 자르지 않는다.
+        boundary = block.rfind("\n", 0, keep + 1)
+        shorter = (block[:boundary].rstrip() if boundary >= 0 else "") + marker
+        if len(shorter) >= len(block):
+            continue
+        prompt = prompt.replace(block, shorter, 1)
         over = _est_tokens(prompt) + max_tokens - limit
         if over <= 0:
             return prompt, max_tokens
-        cut_chars = int(over * _CHARS_PER_TOKEN) + 200
-    # 3) 본문 뒤를 자른다
-    if text and len(text) > cut_chars + 500:
-        shorter = text[: len(text) - cut_chars].rstrip() + "\n[본문 일부만 제공됨]"
-        prompt = prompt.replace(text, shorter, 1)
-    return prompt, max_tokens
+    raise ValueError("문맥 한도 안에서 지시와 근거를 보존할 수 없습니다. 대상 절이나 자료 범위를 좁혀 주세요.")
 
 
 def _outline_lines(info: dict) -> str:
@@ -156,15 +162,16 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
         visible_text = info["text"][:max_text]
         if len(info["text"]) > max_text:
             visible_text += "\n[본문 일부만 제공됨: 이후 내용은 확인하지 못했으므로 전체 검토 완료로 보고하지 마세요.]"
+    rendered_materials = (materials.strip() + "\n") if materials.strip() else ""
     prompt = _PROMPT.format(title=info["title"], outline=_outline_lines(info), text=visible_text, focus_note=focus_note,
-                            materials=(materials.strip() + "\n") if materials.strip() else "",
+                            materials=rendered_materials,
                             evidence=ev, command=command.strip())
     # 절 하나를 통째로 쓰면 JSON 이 2048 토큰을 넘어 잘린다(실측 2026-09-27: 1.1 절 재작성이 'Unterminated string' 으로 실패).
     # 절 작성(focus)은 넉넉히, 잘리면 한 번 더 짧게 쓰라고 청한다.
     max_tokens = 8192 if focus is not None else 2048
     # 서빙 모델의 문맥 한도(토르 vLLM 16,384) 안에 입력+출력이 들어가야 한다(실측 2026-09-28: 재료가 길어 400 오류).
     # 한글은 대략 1.5자에 토큰 하나 — 입력을 먼저 재료·본문 순으로 줄이고, 그래도 넘치면 출력 예산을 낮춘다.
-    prompt, max_tokens = _fit_context(prompt, max_tokens, materials, visible_text)
+    prompt, max_tokens = _fit_context(prompt, max_tokens, rendered_materials, visible_text)
     data = None
     for attempt in range(2):
         resp = client.client.chat.completions.create(

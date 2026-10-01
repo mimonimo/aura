@@ -87,6 +87,26 @@ def _cite(hit: dict) -> str:
     return f"{head}\n{(hit.get('content') or '')[:600]}"
 
 
+def pack_criteria_context(ordered: list[dict], budget: int = 6000) -> tuple[str, list[dict]]:
+    """Only advertise sources whose evidence was actually included in the prompt."""
+    header = "[선택된 기준 문서 — 이 기준으로 판단하고 인용하라]\n\n"
+    remaining = budget - len(header)
+    parts, included = [], []
+    for chunk in ordered:
+        if not str(chunk.get("content") or "").strip():
+            continue
+        piece = _cite(chunk)
+        cost = len(piece) + (2 if parts else 0)
+        if cost > remaining:
+            continue
+        parts.append(piece)
+        included.append(chunk)
+        remaining -= cost
+    if not parts:
+        return NO_EVIDENCE_NOTE, []
+    return header + "\n\n".join(parts), included
+
+
 def compose_system(profile: dict) -> str:
     """기본 시스템 프롬프트에 담당자 프로필·지침을 얹는다 (설정 화면에서 저장)."""
     parts = [_SYSTEM]
@@ -150,15 +170,7 @@ class AgentResponder:
             # 질문과의 관련도로 고르고, 기준 문서마다 적어도 한 조각은 들어가게 한다.
             chunks = db.chunks_for_docs(criteria_ids)
             ordered = rank_criteria_chunks(db, question, chunks, criteria_ids)
-            budget, parts = 6000, []
-            for c in ordered:
-                piece = _cite(c)
-                if budget - len(piece) < 0:
-                    break
-                budget -= len(piece)
-                parts.append(piece)
-            context = "[선택된 기준 문서 — 이 기준으로 판단하고 인용하라]\n\n" + "\n\n".join(parts)
-            hits = ordered[:8]
+            context, hits = pack_criteria_context(ordered)
         else:
             # 교내 규정(platform) + 국고 공고 코퍼스(corpus_pilot) 교차 검색
             hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"),
