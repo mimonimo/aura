@@ -441,3 +441,58 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         if len(keep) == len(pairs):
             return pairs
         pairs = keep
+
+
+def align_content(a: list[Section], b: list[Section], text_of, skip_b_paths: set[str] = frozenset(),
+                  min_sim: float = 0.2, margin: float = 0.05, min_chars: int = 200,
+                  skip_b: re.Pattern | None = None) -> list[tuple[Section, Section, str]]:
+    """제목이 아니라 본문으로 잇기(근거 '유사도') — 계획서와 실적보고서의 목차 틀이 다른 사업(LINC+: 계획서는 평가 항목별, 대구시
+    실적보고서는 프로그램별)에서 제목 짝이 하나도 없을 때. 보고서 절(본문 min_chars 이상)마다 계획서 절(자기+하위 절 본문)과
+    희소 낱말 가중 겹침을 재서 1등이 min_sim 을 넘고 2등과 margin 이상 차이 나면 잇는다. 이미 제목으로 이어진 보고서 절은 건너뛴다."""
+    import math
+
+    def full(tree: list[Section]) -> dict[int, str]:
+        out = {}
+        for x in tree:
+            desc = [y for y in tree if y.path == x.path or y.path.startswith(x.path + ".")]
+            out[id(x)] = " ".join(text_of(y) or "" for y in desc)[:6000]
+        return out
+    by_b = {y.path: y for y in b}
+
+    def under_skip(y: Section) -> bool:
+        cur = y
+        while cur is not None and skip_b is not None:
+            if skip_b.search(cur.title):
+                return True
+            cur = by_b.get(cur.parent)
+        return False
+    fa, fb = full(a), full(b)
+    wa = {id(x): _words(t) for x in a if len(t := fa[id(x)]) >= min_chars}
+    leaf_b = [y for y in b if y.path not in skip_b_paths and not under_skip(y)
+              and len(text_of(y) or "") >= min_chars and not any(z.parent == y.path for z in b)]
+    wb = {id(y): _words(text_of(y) or "") for y in leaf_b}
+    bags = list(wa.values()) + list(wb.values())
+    df: dict[str, int] = {}
+    for bag in bags:
+        for wd in bag:
+            df[wd] = df.get(wd, 0) + 1
+    idf = {wd: math.log((len(bags) + 1) / (c + 0.5)) for wd, c in df.items()}
+    a_by_id = {id(x): x for x in a}
+    pairs = []
+    for y in leaf_b:
+        scored = sorted(((_wjac(wa[k], wb[id(y)], idf), k) for k in wa), reverse=True)
+        if not scored:
+            continue
+        top, k = scored[0]
+        second = scored[1][0] if len(scored) > 1 else 0.0
+        # 같은 갈래(조상·자손) 절끼리의 2등은 경쟁자가 아니다 — 하위 절이 상위 절 본문의 일부라서 점수가 비슷하다
+        x = a_by_id[k]
+        rivals = [s_ for s_, k2 in scored[1:] if not (a_by_id[k2].path.startswith(x.path + ".") or x.path.startswith(a_by_id[k2].path + "."))]
+        second = rivals[0] if rivals else 0.0
+        if top >= min_sim and top - second >= margin:
+            # 가장 깊은(구체적인) 같은 갈래 절로 내린다 — 점수가 1등과 거의 같으면
+            deeper = [a_by_id[k2] for s_, k2 in scored if s_ >= top - 0.02 and a_by_id[k2].path.startswith(x.path + ".")]
+            if deeper:
+                x = max(deeper, key=lambda z: z.path.count("."))
+            pairs.append((x, y, f"본문 낱말 겹침 {top:.2f}(2등 {second:.2f})"))
+    return pairs

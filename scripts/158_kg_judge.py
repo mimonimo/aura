@@ -60,6 +60,7 @@ def main() -> int:
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     secs = {n["id"]: n for n in kg_store.nodes(db, "section")}
     kept = [(e["src"], e["dst"]) for e in kg_store.edges(db, "plans_reports") if ":sec:" in e["src"]]
+    basis_of = {(e["src"], e["dst"]): e["basis"] for e in kg_store.edges(db, "plans_reports") if ":sec:" in e["src"]}
     kept_set = set(kept)
     docs = {n["doc_id"]: n for n in kg_store.nodes(db, "doc")}
     dropped = []
@@ -97,7 +98,7 @@ def main() -> int:
         if name == "kept" and args.sample_kept:
             groups: dict[str, list] = {}
             for pr in pool:
-                groups.setdefault(prog_of(pr[0]), []).append(pr)
+                groups.setdefault(prog_of(pr[0]) + basis_of.get(pr, ""), []).append(pr)
             sample = [x for g in groups.values() for x in rnd.sample(g, min(args.sample_kept, len(g)))]
         elif name == "kept" and args.all_kept:
             sample = list(pool)
@@ -120,14 +121,15 @@ def main() -> int:
             same = bool(v.get("same"))
             yes += same
             rows.append({"plan": secs[a]["label"], "report": secs[b]["label"], "same": same, "why": str(v.get("why", ""))[:120],
-                         "program": prog_of(a), "plan_id": a, "report_id": b})
+                         "program": prog_of(a), "plan_id": a, "report_id": b, "basis": basis_of.get((a, b), "")})
         out[name] = {"pool": len(pool), "n": len(sample), "same": yes, "rate": round(yes / max(len(sample), 1), 2), "rows": rows}
         print(f"{name}: 후보 {len(pool)} · 표본 {len(sample)} · 같다 {yes} ({out[name]['rate']:.0%})", flush=True)
         by_prog: dict[str, list[int]] = {}
         for r in rows:
-            by_prog.setdefault(r["program"], [0, 0])
-            by_prog[r["program"]][0] += 1
-            by_prog[r["program"]][1] += r["same"]
+            key = r["program"] + (f" [{r['basis']}]" if r.get("basis") else "")
+            by_prog.setdefault(key, [0, 0])
+            by_prog[key][0] += 1
+            by_prog[key][1] += r["same"]
         out[name]["by_program"] = {k: {"n": n, "same": y, "rate": round(y / n, 2)} for k, (n, y) in by_prog.items()}
         for k, (n, y) in sorted(by_prog.items()):
             print(f"   {k}: {y}/{n} ({y / max(n, 1):.0%})", flush=True)

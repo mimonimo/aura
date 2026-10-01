@@ -92,6 +92,22 @@ def main() -> int:
 
     nodes: list[tuple] = []
     edges: list[tuple] = []
+    # 사업마다 연도 → 차수 대응을 문서에서 배운다(「2017년도(1차년도) 실적보고서」). 연도만 있는 문서도 그 차수 노드로 보내
+    # 같은 연차가 r1·y2017 두 노드로 갈라지지 않게 한다(RISE r1/y2025, LINC+ r1/y2017 실측)
+    year_round: dict[tuple[str, int], Counter] = defaultdict(Counter)
+    for d in docs:
+        a = assigns[d["id"]]
+        if a.program and a.round and a.year:
+            year_round[(a.program, a.year)][a.round] += 1
+    for d in docs:
+        a = assigns[d["id"]]
+        if a.program and a.year and not a.round:
+            got = year_round.get((a.program, a.year))
+            if got:
+                r, n = got.most_common(1)[0]
+                if n >= 1 and n >= 2 * sum(v for k, v in got.items() if k != r):
+                    a.round = r
+                    a.evidence = list(a.evidence) + [f"{a.year}년 = {r}차년도(같은 사업 문서 {n}건)"]
     by_year: dict[str, list[int]] = defaultdict(list)
     for c in cards:
         nodes.append((c.node_id, "program", c.name, {"names": sorted(c.names), "acronyms": sorted(c.acrs)}, None))
@@ -126,6 +142,10 @@ def main() -> int:
     def text_of(s) -> str:
         """절 본문 앞부분(낱말 겹침용)."""
         return " ".join(content.get((sec_doc.get(id(s)), q), "")[:300] for q in s.chunks[:6])
+
+    def text_full(s) -> str:
+        """절 본문 전체(본문으로 잇기용, 4000자까지)."""
+        return " ".join(content.get((sec_doc.get(id(s)), q), "") for q in s.chunks)[:4000]
     # 같은 사업·연차의 계획 ↔ 실적, 평가 → 대상
     for ynode, ids in by_year.items():
         plans = [i for i in ids if assigns[i].kind == "plan"]
@@ -134,9 +154,16 @@ def main() -> int:
         for p in plans:
             for r in reports:
                 edges.append((f"doc:{p}", f"doc:{r}", "plans_reports", "식별자 일치", [f"같은 사업·연차({ynode})의 계획서와 실적보고서"]))
+                linked_b = set()
                 for ps, s, why in sections.align_context(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_of, generic_parent=args.generic_parent,
                                                          skip_b=NEXT_YEAR):
+                    linked_b.add(s.path)
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
+                                  [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
+                # 제목 짝이 없는 보고서 절은 본문으로(목차 틀이 다른 계획서·보고서)
+                for ps, s, why in sections.align_content(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_full,
+                                                         skip_b_paths=linked_b, skip_b=NEXT_YEAR):
+                    edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "유사도",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
         for e in evals:
             for t in plans + reports:
