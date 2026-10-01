@@ -114,3 +114,23 @@ def test_graph_retrieve_narrows_program_year_kind_and_traces_steps(tmp_path):
     assert tr.program == "program:linc30" and tr.round == 3 and tr.kinds == ["report"]
     assert tr.hits and tr.hits[0].section == "doc:31:sec:1" and tr.hits[0].path[-1] == "가족회사 운영 및 활성화"
     assert tr.steps[0].startswith("[1단계: 질문 파악]") and any(s.startswith("[3단계") for s in tr.steps)
+
+
+def test_graph_retrieve_leading_acronym_and_sectionless_doc_fallback(tmp_path):
+    from zzaimy.app.db import Database
+    from zzaimy.graph import retrieve
+
+    db = Database(tmp_path / "t.db")
+    kg_store.ensure(db)
+    with db._conn() as c:
+        kg_store.put_node(c, "program:aid", "program", "AID 전환 중점 전문대학 지원사업",
+                          {"names": ["AID (AI+Digital) 전환 중점 전문대학 지원사업"], "acronyms": []})
+        kg_store.put_node(c, "doc:7", "doc", "평가 종합의견", {"kind": "evaluation"}, 7)
+        kg_store.put_edge(c, "program:aid", "doc:7", "contains", "분류", ["분류"])
+    body = {0: "총평 문단", 1: "현장실습 운영 지적 사항: 참여 기업 확대 필요"}
+
+    def chunk_text(doc_id, seqs):
+        return list(body.items()) if seqs is None else "\n".join(body[s] for s in seqs)
+    tr = retrieve.retrieve(db, "AID 사업 평가에서 현장실습 지적 사항은?", chunk_text=chunk_text)
+    assert tr.program == "program:aid"
+    assert tr.hits and tr.hits[0].section == "doc:7:chunk:1" and tr.hits[0].path[-1] == "본문 2"
