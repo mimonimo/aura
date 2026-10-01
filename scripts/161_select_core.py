@@ -60,14 +60,15 @@ def is_core(d: dict, kind: str, surfaces: set[str]) -> bool:
 
 
 def stem(name: str) -> str:
-    s = Path(name).stem
+    s = re.sub(r"^[\d\s_.\-]+(?=[^\d\s_.\-])", "", Path(name).stem)    # 앞머리 순번(「01-1_」)은 과제 번호가 아니다
     unit = _UNIT.search(s)
     heads = _HEAD.findall(s)
     if unit and heads:
         return f"{heads[-1][1]}#{unit.group(1).lstrip('0')}"
 
     s = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", s)                      # 괄호 속 꾸밈(작업자·메모·서식 번호)
-    s = re.sub(r"(?<![\d.])\d+\s*차(?!\s*년도)\s*(?:합본|편집본?|수정)?", " ", s)   # 작업 차수(2차 합본)
+    s = re.sub(r"^[\d\s_.\-]+(?=[^\d\s_.\-])", "", s)                    # 앞머리 순번(「01-1_」·「02-4_」)
+    s = re.sub(r"(?<![\d.])\d+\s*차(?!\s*년도)", " ", s)                      # 작업 차수(「4차 합본」의 4차)
     s = _VERSION_BITS.sub(" ", s)
     return re.sub(r"[\s_\-().\[\]]+", "", s).lower()
 
