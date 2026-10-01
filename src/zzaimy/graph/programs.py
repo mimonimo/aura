@@ -225,7 +225,8 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
     return out
 
 
-_PATH_YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+# 경로·이름의 연도 — 「2022~2027」 같은 기간 표기(사업 전체 기간)는 연도가 아니다
+_PATH_YEAR = re.compile(r"(?<![\d~])((?:19|20)\d{2})(?!\d|\s*~)")
 
 
 def inherit_by_folder(docs: list[dict], assigned: list[Assignment], min_n: int = 10, share: float = 0.7,
