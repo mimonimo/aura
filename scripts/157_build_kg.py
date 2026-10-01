@@ -101,6 +101,12 @@ def main() -> int:
             parent = f"{dnode}:sec:{s.parent}" if s.parent else dnode
             edges.append((parent, snode, "contains", "구조", [f"목차: {s.title}"]))
     docs_by_id = {d["id"]: d for d in docs}
+    content = {(did, int(c["seq"])): str(c["content"]) for did, chunks in chunk_map.items() for c in chunks}
+    sec_doc = {id(s): d["id"] for d in docs for s in d["sections"]}
+
+    def text_of(s) -> str:
+        """절 본문 앞부분(낱말 겹침용)."""
+        return " ".join(content.get((sec_doc.get(id(s)), q), "")[:300] for q in s.chunks[:6])
     # 같은 사업·연차의 계획 ↔ 실적, 평가 → 대상
     for ynode, ids in by_year.items():
         plans = [i for i in ids if assigns[i].kind == "plan"]
@@ -109,7 +115,7 @@ def main() -> int:
         for p in plans:
             for r in reports:
                 edges.append((f"doc:{p}", f"doc:{r}", "plans_reports", "식별자 일치", [f"같은 사업·연차({ynode})의 계획서와 실적보고서"]))
-                for ps, s, why in sections.align(docs_by_id[p]["sections"], docs_by_id[r]["sections"]):
+                for ps, s, why in sections.align_context(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_of):
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
         for e in evals:
@@ -125,7 +131,7 @@ def main() -> int:
         for (k1, y1), (k2, y2) in zip(ys, ys[1:]):
             for p1 in (i for i in by_year[y1] if assigns[i].kind == "plan"):
                 for p2 in (i for i in by_year[y2] if assigns[i].kind == "plan"):
-                    for s, t, why in sections.align(docs_by_id[p1]["sections"], docs_by_id[p2]["sections"]):
+                    for s, t, why in sections.align_context(docs_by_id[p1]["sections"], docs_by_id[p2]["sections"], text_of):
                         edges.append((f"doc:{p1}:sec:{s.path}", f"doc:{p2}:sec:{t.path}", "continues", "식별자 일치",
                                       [f"{y1} 「{s.title[:50]}」", f"{y2} 「{t.title[:50]}」", why]))
 

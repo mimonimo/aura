@@ -101,3 +101,76 @@ def align(a: list[Section], b: list[Section], min_key: int = 4) -> list[tuple[Se
             used_b.add(id(y))
             pairs.append((x, y, f"제목과 상위 절 {scored[0][0]}단계가 같음"))
     return pairs
+
+
+def _bigrams(t: str) -> set[str]:
+    t = re.sub(r"[^0-9A-Za-z가-힣]", "", t or "")
+    return {t[i:i + 2] for i in range(len(t) - 1)} or ({t} if t else set())
+
+
+def _words(t: str) -> set[str]:
+    return {w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", t or "")}
+
+
+def _jac(a: set, b: set) -> float:
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_key: int = 4,
+                  accept: float = 0.25, margin: float = 0.08) -> list[tuple[Section, Section, str]]:
+    """같은 제목의 절 짝을 맥락 점수로 고른다(2차 반복, 2026-10-01).
+    점수 = 0.5 × 상위 절 제목 글자 겹침(가까운 조상일수록 무게) + 0.5 × 본문·하위 절 제목 낱말 겹침.
+    1차(상위 절 제목이 정확히 같아야)는 계획서·보고서가 상위 제목을 조금씩 다르게 써서 맞는 짝을 놓쳤고(버린 후보의 15% 가 같은
+    과제), 제목이 하나뿐인 짝은 맥락을 안 봐 30% 가 틀렸다. 1등이 accept 를 넘고 2등과 margin 이상 차이 날 때만 잇는다."""
+    def index(secs: list[Section]):
+        by_path = {x.path: x for x in secs}
+        kids: dict[str, list[str]] = {}
+        for x in secs:
+            kids.setdefault(x.parent, []).append(x.title)
+        info = {}
+        for x in secs:
+            chain, cur = [], x.parent
+            while cur and len(chain) < 3:
+                par = by_path.get(cur)
+                if not par:
+                    break
+                chain.append(_bigrams(_NUM.sub("", par.title)))
+                cur = par.parent
+            info[id(x)] = (chain, _words(" ".join(kids.get(x.path, [])) + " " + (text_of(x) or "")))
+        groups: dict[str, list[Section]] = {}
+        for x in secs:
+            k = title_key(x.title)
+            if len(k) >= min_key:
+                groups.setdefault(k, []).append(x)
+        return groups, info
+    ga, ia = index(a)
+    gb, ib = index(b)
+
+    def score(x: Section, y: Section) -> float:
+        ca, wa = ia[id(x)]
+        cb, wb = ib[id(y)]
+        weights = (0.6, 0.3, 0.1)
+        anc = sum(w * _jac(p_, q_) for w, p_, q_ in zip(weights, ca, cb)) / (sum(weights[:min(len(ca), len(cb))]) or 1)
+        if not ca and not cb:
+            anc = 1.0                                         # 둘 다 최상위 절
+        return 0.5 * anc + 0.5 * _jac(wa, wb)
+
+    cands = []
+    for k, xs in ga.items():
+        for x in xs:
+            for y in gb.get(k, []):
+                cands.append((score(x, y), x, y))
+    cands.sort(key=lambda t: -t[0])
+    pairs, used_a, used_b = [], set(), set()
+    for sc, x, y in cands:
+        if id(x) in used_a or id(y) in used_b or sc < accept:
+            continue
+        # 같은 절이 걸린 다른 후보(아직 안 쓰인 것) 중 가장 높은 점수와 margin 이상 차이 나야 잇는다
+        rival = max((s2 for s2, x2, y2 in cands
+                     if (x2 is x) != (y2 is y) and id(x2) not in used_a and id(y2) not in used_b), default=0.0)
+        if sc - rival < margin:
+            continue
+        used_a.add(id(x))
+        used_b.add(id(y))
+        pairs.append((x, y, f"제목 같음·맥락 점수 {sc:.2f}"))
+    return pairs
