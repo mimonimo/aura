@@ -91,3 +91,26 @@ def test_align_context_prefers_similar_parent_and_body():
     pairs = {(x.path, y.path) for x, y, _ in sections.align_context(plan, report, lambda s: body.get((s.path, side[id(s)]), ""))}
     assert ("1.1", "2.1") in pairs and ("2.1", "1.1") in pairs                # 상위 제목이 조금 달라도(계획/실적) 맥락으로
     assert ("1.1", "1.1") not in pairs
+
+
+def test_graph_retrieve_narrows_program_year_kind_and_traces_steps(tmp_path):
+    from zzaimy.app.db import Database
+    from zzaimy.graph import retrieve
+
+    db = Database(tmp_path / "t.db")
+    kg_store.ensure(db)
+    with db._conn() as c:
+        kg_store.put_node(c, "program:linc30", "program", "3단계 산학연협력 선도전문대학 육성사업", {"names": ["3단계 산학연협력 선도전문대학 육성사업"], "acronyms": ["LINC3.0"]})
+        kg_store.put_node(c, "program:aid", "program", "AID 전환 중점 전문대학 지원사업", {"names": ["AID 전환 중점 전문대학 지원사업"], "acronyms": []})
+        for r in (1, 3):
+            kg_store.put_node(c, f"year:linc30:r{r}", "year", f"LINC {r}차년도", {"round": r})
+            kg_store.put_edge(c, "program:linc30", f"year:linc30:r{r}", "contains", "분류", ["분류"])
+            for kind, did in (("plan", r * 10), ("report", r * 10 + 1)):
+                kg_store.put_node(c, f"doc:{did}", "doc", f"{r}차년도 {kind}", {"kind": kind}, did)
+                kg_store.put_edge(c, f"year:linc30:r{r}", f"doc:{did}", "contains", "분류", ["분류"])
+                kg_store.put_node(c, f"doc:{did}:sec:1", "section", "가족회사 운영 및 활성화", {"chunks": []}, did)
+                kg_store.put_edge(c, f"doc:{did}", f"doc:{did}:sec:1", "contains", "구조", ["목차"])
+    tr = retrieve.retrieve(db, "LINC3.0 3차년도 실적보고서에서 가족회사 운영 실적은?")
+    assert tr.program == "program:linc30" and tr.round == 3 and tr.kinds == ["report"]
+    assert tr.hits and tr.hits[0].section == "doc:31:sec:1" and tr.hits[0].path[-1] == "가족회사 운영 및 활성화"
+    assert tr.steps[0].startswith("[1단계: 질문 파악]") and any(s.startswith("[3단계") for s in tr.steps)
