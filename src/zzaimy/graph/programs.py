@@ -133,7 +133,7 @@ class Assignment:
 
 
 def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
-    """문서마다 사업·연차·갈래를 정한다. 제목·경로 언급 무게 3, 앞머리 1. 1등 몫이 AUTO_MIN 미만이면 검토 대기."""
+    """문서마다 사업·연차·갈래를 정한다. 제목·경로 언급 무게 3, 앞머리 1. 1등이 3점 미만이거나 2등의 두 배에 못 미치면 검토 대기."""
     from zzaimy.app.doc_routing import guess_kind
 
     out = []
