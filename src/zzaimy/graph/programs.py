@@ -14,9 +14,23 @@ from dataclasses import dataclass, field
 
 from zzaimy.graph.entities import _GENERIC, _PROGRAM, acronyms, clean_title, program_key
 
-# 버전이 붙은 영문 약칭(LINC 3.0·LINC3.0·HiVE 2) — 사업명 옆 괄호가 없어도 제목에 홀로 쓰인다
-_VERSIONED = re.compile(r"(?<![A-Za-z])([A-Z][A-Za-z+]{1,9})\s?(\d(?:\.\d)?)(?![\d.])")
+# 소수점 판번호가 붙은 영문 약칭(LINC 3.0·LINC3.0) — 사업명 옆 괄호가 없어도 제목에 홀로 쓰인다. 'Track7' 같은 번호 매김은 아니다
+_VERSIONED = re.compile(r"(?<![A-Za-z])([A-Z]{2,}[A-Za-z+]{0,8})\s?(\d\.\d)(?![\d.])")
 _PAIR = re.compile(r"([가-힣A-Za-z0-9·()+ ]{4,40}?(?:사업|사업단))\s*\(([A-Za-z][A-Za-z0-9+. ]{1,14})\)")
+# 띄어 쓴 사업명 — 'AID(AI+Digital) 전환 중점 전문대학 지원사업'. 낱말 2~7개가 …사업으로 끝난다
+_SPACED = re.compile(r"((?:[가-힣A-Za-z0-9()·+]+ ){1,6}[가-힣A-Za-z0-9()·+]*(?:지원|육성|혁신|선도|중점)?사업)(?![가-힣])")   # 한 줄 안에서만
+_LEAD_DROP = re.compile(r"^(?:\d{6}_?|(?:19|20)\d{2}(?:학년도|년도|년)?|학년도|년도|제?\d+(?:차|단계)?|[가-힣]*[은는이가을를의에와과및]|및|등|위한|대한|관한|따른)$")
+
+
+def _trim_name(name: str) -> str:
+    """사업명 앞에 붙은 연도·조사로 끝나는 말·접속어를 뗀다('본인 및 참여 인력은 3단계 …사업' → '3단계 …사업')."""
+    toks = name.split()
+    cut = 0
+    for i, t in enumerate(toks[:-1]):
+        if _LEAD_DROP.match(t) and not re.match(r"^\d+단계$", t):
+            cut = i + 1
+    out = " ".join(toks[cut:]).strip()
+    return out if len(re.sub(r"\s", "", out)) >= 6 else ""
 _ROUND = re.compile(r"([1-9])\s*차\s*년도")
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*(?:년|학년도|\.)")
 _EVAL_RESULT = re.compile(r"평가\s*(?:결과|의견)|종합\s*의견")
@@ -44,13 +58,14 @@ class ProgramCard:
         return "program:" + (re.sub(r"[^0-9a-z가-힣]+", "", a.lower()) or self.key)
 
     def surfaces(self) -> set[str]:
-        return {re.sub(r"\s+", "", n) for n in self.names} | {_acr(a) for a in self.acrs}
+        return {re.sub(r"[\s.]+", "", n) for n in self.names} | {_acr(a) for a in self.acrs}
 
 
 def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     """(사업명들, 약칭들, (긴 이름, 약칭) 짝들)."""
     names = [m.group(0) for m in _PROGRAM.finditer(text or "") if m.group(0) not in _GENERIC]
-    pairs = [(m.group(1).strip(), m.group(2).strip()) for m in _PAIR.finditer(text or "")]
+    names += [t for t in (_trim_name(m.group(1)) for m in _SPACED.finditer(text or "")) if t and t not in _GENERIC]
+    pairs = [(t, m.group(2).strip()) for m in _PAIR.finditer(text or "") if (t := _trim_name(m.group(1).strip()))]
     acrs = [f"{m.group(1)}{m.group(2)}" for m in _VERSIONED.finditer(text or "")]
     for n in names:
         acrs += acronyms(n)
@@ -126,8 +141,8 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
     for d in docs:
         title = clean_title(d.get("filename") or "")
         head = (d.get("head") or "")[:HEAD_CHARS]
-        flat_title = re.sub(r"\s+", "", f"{title} {d.get('path') or ''}").upper()
-        flat_head = re.sub(r"\s+", "", head).upper()
+        flat_title = re.sub(r"[\s.]+", "", f"{title} {d.get('path') or ''}").upper()       # 약칭은 점 없이 대조(LINC3.0 = LINC30)
+        flat_head = re.sub(r"[\s.]+", "", head).upper()
         scores: Counter = Counter()
         why: dict[str, list[str]] = defaultdict(list)
         for c in cards:

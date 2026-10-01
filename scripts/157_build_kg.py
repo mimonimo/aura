@@ -54,7 +54,9 @@ def main() -> int:
         chunks = db.list_doc_chunks(did)
         chunk_map[did] = chunks
         head = "\n".join(str(c["content"]) for c in chunks[:30])
-        docs.append({"id": did, "filename": d["filename"], "head": head})
+        proj = db.get_project(int(d["project_id"])) if d.get("project_id") else None
+        # 문서함 프로젝트(담당자가 정한 소속)는 폴더 경로처럼 강한 근거다
+        docs.append({"id": did, "filename": d["filename"], "head": head, "path": (proj or {}).get("name", "")})
     cards = programs.build_cards(docs)
     assigns = {a.doc_id: a for a in programs.classify(docs, cards)}
     used = {a.program for a in assigns.values() if a.program}
