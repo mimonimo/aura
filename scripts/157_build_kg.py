@@ -85,7 +85,7 @@ def main() -> int:
         if a.program:
             tag = f"{a.round}차년도" if a.round else (str(a.year) if a.year else "")
             if tag:
-                ynode = f"year:{a.program.split(':', 1)[1]}:{a.round or a.year}"
+                ynode = f"year:{a.program.split(':', 1)[1]}:" + (f"r{a.round}" if a.round else f"y{a.year}")
                 label = f"{a.program_name} {tag}" + (f" ({a.year})" if a.round and a.year else "")
                 nodes.append((ynode, "year", label, {"round": a.round, "year": a.year}, None))
                 edges.append((a.program, ynode, "contains", "분류", [f"문서 #{d['id']} 분류: " + "; ".join(a.evidence[:2])]))
@@ -122,7 +122,7 @@ def main() -> int:
     prog_years = defaultdict(list)
     for ynode in by_year:
         prog, key = ynode.rsplit(":", 1)
-        prog_years[prog].append((int(key), ynode))
+        prog_years[(prog, key[0])].append((int(key[1:]), ynode))      # 차수끼리(r)·연도끼리(y)만 잇는다
     for prog, ys in prog_years.items():
         ys.sort()
         for (k1, y1), (k2, y2) in zip(ys, ys[1:]):
