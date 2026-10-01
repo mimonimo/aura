@@ -6,7 +6,7 @@
 
   산출(data/training/): tree_cot_pairs.jsonl(검수용) · tree_cot_sft.jsonl(messages, 단발+대화형) · tree_cot_alpaca.jsonl(instruction·input·output,
   단발형) · tree_cot_report.md
-  VM 에서: set -a; . .env.local; set +a; .venv/bin/python scripts/153_build_tree_cot.py --push --replace
+  모든 원문 ID와 사업 ID/명칭을 명시한다. 기존 검수 과업을 삭제·대체하지 않는다.
 """
 
 from __future__ import annotations
@@ -48,18 +48,26 @@ def _heading_block(chunks: list[dict], pattern: str, n_after: int = 3, limit: in
     return []
 
 
-def main() -> int:
+def parse_args(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--form", type=int, default=557)
-    ap.add_argument("--done", type=int, default=562)
-    ap.add_argument("--notice", type=int, default=561, help="공고 문서 id")
-    ap.add_argument("--basic", type=int, default=560, help="기본계획 문서 id")
-    ap.add_argument("--manual", type=int, default=564, help="평가편람 문서 id")
+    for role in ('form', 'done', 'notice', 'basic', 'manual'):
+        ap.add_argument('--'+role, type=int, required=True)
+    ap.add_argument('--program-id', required=True, help='공유 사업 카드의 고정 ID')
+    ap.add_argument('--program', required=True, help='원문에서 확인한 사업명')
+    ap.add_argument('--program-year', help='원문에서 확인한 연차. 미확인은 생략')
     ap.add_argument("--out", default=str(ROOT / "data" / "training"))
     ap.add_argument("--push", action="store_true")
-    ap.add_argument("--replace", action="store_true")
     ap.add_argument("--project", default="ZZAIMY 문서 구조 문답")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+    if not args.program.strip() or not args.program_id.startswith('program:') or not args.program_id[8:].strip():
+        ap.error('공유 사업 ID(program:...)와 사업명이 필요합니다')
+    if any(getattr(args, role) <= 0 for role in ('form', 'done', 'notice', 'basic', 'manual')):
+        ap.error('문서 ID는 양수여야 합니다')
+    return args
+
+
+def main() -> int:
+    args = parse_args()
 
     from zzaimy.app.db import Database
     from zzaimy.app.regulations import find_relevant
@@ -69,6 +77,9 @@ def main() -> int:
 
     db = Database(ROOT / "data" / "platform" / "platform.db")
     form_doc = db.get_document(args.form)
+    for role in ('form', 'done', 'notice', 'basic', 'manual'):
+        if db.get_document(getattr(args, role)) is None:
+            raise ValueError(f'missing_document:{role}')
     sections = rp.form_model(ROOT / form_doc["stored_path"])
     done_chunks = db.list_doc_chunks(args.done)
     plan = rp.section_parts(sections, done_chunks)
@@ -77,8 +88,8 @@ def main() -> int:
 
     notice, basic = db.list_doc_chunks(args.notice), db.list_doc_chunks(args.basic)
     title_line = next((c["content"] for c in notice if c.get("kind") == "heading"), "") or db.get_document(args.notice)["filename"]
-    program = re.sub(r"[-]", "", title_line).replace("공고", "").strip(" .\n")
-    overview_evidence = (["(공고 제목) " + program + " 공고"]
+    program = args.program.strip()
+    overview_evidence = (["(공고 제목) " + title_line]
                          + ["(공고 · 사업 목적) " + x for x in _heading_block(notice, r"사업\s*목적")]
                          + ["(기본계획 · 목적) " + x for x in _heading_block(basic, r"^□\s*목적")]
                          + ["(기본계획 · 추진 방향) " + x for x in _heading_block(basic, r"^□\s*추진\s*방향")]
@@ -90,11 +101,10 @@ def main() -> int:
         return 2
     manual_chunks = db.chunks_for_docs([args.manual])
     # 근거 기록(아스트라 C-135 품질 관문): 입력 줄마다 문서·조각을 단다. 검수 판정은 사람이 남긴다
-    program_id = f"docset:{args.form}:{args.done}"
+    program_id = args.program_id.strip()
     sources = (pv.Sources().add("form", db.list_doc_chunks(args.form)).add("done", done_chunks)
                .add("criteria", manual_chunks, prefix="reg:").add("criteria", db.list_doc_chunks(args.manual))
                .add("notice", notice).add("notice", basic))
-    path_of: dict[str, list[str]] = {}
     area_hits = find_relevant(db, "평가영역 평가지표 배점 " + " ".join(r.heading for r in roots), top_k=4, chunks=manual_chunks) if manual_chunks else []
     area_evidence = [f"({c.get('reg_title') or ''}) " + " ".join(str(c.get("content") or "").split())[:300] for c in area_hits] or ["(없음)"]
 
@@ -104,24 +114,21 @@ def main() -> int:
     pairs: list[dict] = []
     dropped: list[str] = []
 
-    def node_path(name: str) -> list[str]:
-        return [program] + path_of.get(name, [] if name in (program, "목차") else [name])
+    def node_path(rec) -> list[str]:
+        return [program] + rec.get('node_path', [rec['node']])
 
     def keep(rec) -> bool:
+        rec['document_title'] = (db.get_document(args.notice)['filename'] if rec['step'] == 1
+                                 else form_doc['filename'])
+        if args.program_year:
+            rec['program_year'] = args.program_year
         p = tc.to_pair(rec, program, args.done)
         if p:
-            pairs.append(pv.attach(p, sources, program_id, node_path(rec["node"])))
+            pairs.append(pv.attach(p, sources, program_id, node_path(rec)))
             return True
         dropped.append(f"단계 {rec['step']} {rec['node']}: {', '.join(sorted(tc.missing_numbers(rec))[:6])}")
         return False
 
-    def fill_paths(n, trail):
-        path_of[n.heading] = trail + [n.heading]
-        for c in n.children:
-            fill_paths(c, trail + [n.heading])
-
-    for r in roots:
-        fill_paths(r, [])
     base_ok = keep(s1) and keep(s2)                                  # 사슬의 첫 두 단계 — 검증을 통과해야 대화형에 들어간다
     for v in range(1, 3):                                            # 질문 표현을 바꾼 변형
         keep(tc.step1(program, overview_evidence, variant=v))
@@ -155,13 +162,14 @@ def main() -> int:
             if ok3 and ok4 and base_ok:
                 steps = [s1, s2] + ([part_recs[node.part]] if node.part in part_recs else []) + [s3, s4]
                 assert all(not tc.missing_numbers(st) for st in steps)   # 대화형은 검증 통과한 단계만으로
-                pairs.append(pv.attach(tc.chain_conversation(steps, program, args.done), sources, program_id, node_path(node.heading)))
+                pairs.append(pv.attach(tc.chain_conversation(steps, program, args.done), sources, program_id, node_path(s3)))
                 n_chain += 1
                 chain = "O"
             report.append(f"| {node.heading} | {len(tc.required_items(node.instructions))} | {len(node.skeleton)} | {'O' if ok3 else ''} | {'O' if ok4 else ''} | {chain} |")
 
-    out = Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
+    from datetime import datetime
+    out = Path(args.out) / ('tree-cot-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+    out.mkdir(parents=True, exist_ok=False)
     (out / "tree_cot_pairs.jsonl").write_text("".join(json.dumps(p, ensure_ascii=False) + "\n" for p in pairs), encoding="utf-8")
     (out / "tree_cot_sft.jsonl").write_text("".join(json.dumps(tc.to_messages(p), ensure_ascii=False) + "\n" for p in pairs), encoding="utf-8")
     alp = [a for a in (tc.to_alpaca(p) for p in pairs) if a]
@@ -181,8 +189,6 @@ def main() -> int:
 
         client = LabelStudioClient(db.get_setting("labelstudio_url"), db.get_setting("labelstudio_token"))
         pid = client.ensure_project(args.project, label_config=REVIEW_CONFIG, description="사업명→개요→목차→절 항목→절 뼈대 단계 문답 검수")
-        if args.replace:
-            print(f"기존 태스크 {client.clear_tasks(pid)}건 삭제")
         print(f"Label Studio 「{args.project}」(id {pid}) 에 {client.push_tasks(pid, pairs)}건 올렸습니다")
     return 0
 

@@ -37,6 +37,7 @@ class Node:
     instructions: str = ""
     skeleton: list[str] = field(default_factory=list)
     children: list["Node"] = field(default_factory=list)
+    node_path: list[str] = field(default_factory=list)
 
 
 def part_titles(chunks: list[dict], limit: int = 8) -> list[str]:
@@ -54,7 +55,9 @@ def part_titles(chunks: list[dict], limit: int = 8) -> list[str]:
 
 def build_tree(sections: list[FormSection], parts: list[str], plan: list[dict]) -> list[Node]:
     """양식 절 목록 → 부(번호가 1 로 되돌아가는 자리)별 절 나무. 절 뼈대는 완성본의 같은 절에서(소제목·표 머리·도식 제목)."""
-    by_heading = {e["heading"]: e for e in plan}
+    by_heading = {}
+    for entry in plan:
+        by_heading.setdefault(entry['heading'], []).append(entry)
     roots: list[Node] = []
     stack: list[Node] = []
     for sec in sections:
@@ -66,10 +69,13 @@ def build_tree(sections: list[FormSection], parts: list[str], plan: list[dict]) 
         if not roots:
             roots.append(Node(heading="Ⅰ. 본문", level=0))
             stack = [roots[-1]]
+        matches = by_heading.get(sec.heading, [])
+        # Repeated section titles do not identify a unique completed section.
         node = Node(heading=sec.heading, level=sec.level, part=roots[-1].heading, instructions=sec.instructions,
-                    skeleton=skeleton_of(by_heading.get(sec.heading)))
+                    skeleton=skeleton_of(matches[0] if len(matches) == 1 else None))
         while len(stack) > 1 and stack[-1].level >= sec.level:
             stack.pop()
+        node.node_path = [n.heading for n in stack] + [node.heading]
         stack[-1].children.append(node)
         stack.append(node)
     return roots
@@ -251,7 +257,7 @@ def step_part(program: str, overview: str, roots: list[Node], root: Node, criter
                   f"이 부의 평가지표와 배점이 절의 순서·무게를 정한다. 첫 지표는 {_cite(criteria[0]) if criteria else '(근거 없음)'} 이다."),
                  ("구조 도출", "지표를 절과 그 소절로 펼치고, 절마다 평가가 먼저 요구하는 것을 한 줄로 단다. 세부 뼈대는 절을 골라 따로 잡는다.")) + \
         "\n[답]\n" + "\n".join(lines)
-    return {"human": human, "gpt": gpt, "step": 2.5, "node": root.heading}
+    return {"human": human, "gpt": gpt, "step": 2.5, "node": root.heading, "node_path": [root.heading]}
 
 
 def step3(program: str, overview: str, roots: list[Node], node: Node, criteria: list[str]) -> dict | None:
@@ -273,7 +279,7 @@ def step3(program: str, overview: str, roots: list[Node], node: Node, criteria: 
                                "요구를 항목으로 쪼갠다. 각 항목은 뒤에서 소제목이나 표가 된다.",
                                "작성방법의 순서대로 항목을 정리한다. 값은 아직 없으니 항목 이름만 둔다."))) + \
         "\n[답] 이 절이 다룰 항목:\n" + "\n".join(f"{i}. {it}" for i, it in enumerate(items, 1))
-    return {"human": human, "gpt": gpt, "step": 3, "node": node.heading}
+    return {"human": human, "gpt": gpt, "step": 3, "node": node.heading, "node_path": node.node_path or [node.part, node.heading]}
 
 
 def step4(program: str, overview: str, roots: list[Node], node: Node) -> dict | None:
@@ -302,7 +308,7 @@ def step4(program: str, overview: str, roots: list[Node], node: Node) -> dict | 
                  ("형식 결정", "; ".join(how) + ". 실적·계획·지표처럼 나열되는 것은 표, 여건·체계·흐름처럼 한눈에 보일 것은 도식이다."),
                  ("뼈대 배치", "소제목" + ("·표" if n_tbl else "") + ("·도식" if n_fig else "") + " 자리를 절의 흐름대로 놓는다. 표는 머리 칸만, 도식은 상자 제목만 적는다.")) + \
         "\n[답]\n" + "\n".join(f"- {s}" for s in node.skeleton)
-    return {"human": human, "gpt": gpt, "step": 4, "node": node.heading}
+    return {"human": human, "gpt": gpt, "step": 4, "node": node.heading, "node_path": node.node_path or [node.part, node.heading]}
 
 
 def missing_numbers(rec: dict) -> set[str]:
@@ -315,13 +321,38 @@ def missing_numbers(rec: dict) -> set[str]:
     return miss - _numbers(rec["human"])
 
 
+def contextual_human(rec: dict, program: str) -> str:
+    """Keep the question independently scoped, including in later turns.
+
+    Only supplied identity is used; do not infer a program year from a date.
+    """
+    if not program.strip():
+        raise ValueError('missing_program_context')
+    head, sep, question = rec['human'].rpartition('[질문]')
+    if not sep:
+        raise ValueError('missing_question_marker')
+    context = [f"사업: {program.strip()}"]
+    if rec.get('program_year'):
+        context.append(f"연차: {rec['program_year']}")
+    if rec.get('document_title'):
+        context.append(f"문서: {rec['document_title']}")
+    elif rec['step'] != 1:
+        context.append('문서 종류: 사업계획서·작성서식')
+    path = rec.get('node_path') or [rec.get('node', '')]
+    if isinstance(path, str):
+        path = [path]
+    context.append('범위: ' + ' → '.join(str(p) for p in path if p))
+    return head + '[질문] ' + ' / '.join(context) + '\n' + question.strip()
+
+
 def to_pair(rec: dict, program: str, doc_id: int) -> dict | None:
     """단발 학습쌍(conversations + meta). 답의 수치가 입력에 없으면 None."""
     if missing_numbers(rec):
         return None
-    return {"conversations": [{"from": "human", "value": rec["human"]}, {"from": "gpt", "value": rec["gpt"]}],
+    human = contextual_human(rec, program)
+    return {"conversations": [{"from": "human", "value": human}, {"from": "gpt", "value": rec["gpt"]}],
             "meta": {"source": f"tree-step{rec['step']}".replace(".5", "p"), "doc_id": doc_id, "section": rec["node"], "program": program,
-                     "shown": rec["gpt"], "step": rec["step"], "view": view_fields(rec["human"], rec["gpt"])}}
+                     "shown": rec["gpt"], "step": rec["step"], "view": view_fields(human, rec["gpt"])}}
 
 
 def view_fields(human: str, gpt: str) -> dict:
@@ -333,10 +364,11 @@ def view_fields(human: str, gpt: str) -> dict:
 
 
 def chain_conversation(steps: list[dict], program: str, doc_id: int) -> dict:
-    """대화형 — 1·2·3·4 단계를 한 대화로 잇는다. 뒤 턴의 질문은 앞 턴의 답을 전제로 짧게 묻는다."""
+    """대화형 — 근거 이력은 유지하고 모든 질문에 사업·문서 범위를 명시한다."""
     convs: list[dict] = []
     for i, st in enumerate(steps):
-        human = st["human"] if i == 0 else st["human"].split("[질문]", 1)[-1].strip()
+        scoped = contextual_human(st, program)
+        human = scoped if i == 0 else scoped.rpartition("[질문]")[-1].strip()
         if i > 0:
             # 앞 턴에 없던 근거만 다시 준다
             ev = re.findall(r"\[근거[^\]]*\]\n(?:(?!\[)\S.*\n?)+", st["human"])   # 그 단계의 근거 묶음 전부(평가편람·양식 제목 줄·작성방법)
@@ -347,7 +379,7 @@ def chain_conversation(steps: list[dict], program: str, doc_id: int) -> dict:
         convs += [{"from": "human", "value": human}, {"from": "gpt", "value": st["gpt"]}]
     return {"conversations": convs, "meta": {"source": "tree-chain", "doc_id": doc_id, "section": steps[-1]["node"], "program": program,
                                             "shown": steps[-1]["gpt"], "step": len(steps),
-                                            "view": dict(view_fields(steps[-1]["human"], steps[-1]["gpt"]),
+                                            "view": dict(view_fields(contextual_human(steps[-1], program), steps[-1]["gpt"]),
                                                          evidence="\n\n".join(f"[{i + 1}턴 답]\n{st['gpt']}" for i, st in enumerate(steps[:-1])))}}
 
 

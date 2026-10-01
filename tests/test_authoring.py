@@ -4,7 +4,7 @@ from zzaimy.dataset.authoring import prepare_tasks, validate_rows, validate_mani
 
 
 def row(**kw):
-    return dict(dict(id='one', kind='설명', question='목적은?', answer='교육 개선', rationale='원문 요약',
+    return dict(dict(id='one', kind='설명', question='가상 교육 사업의 목적은?', answer='교육 개선', rationale='원문 요약',
                      path=['개요'], refs=[[1, 2]]), **kw)
 
 
@@ -114,7 +114,7 @@ def test_same_names_different_program_ids_remain_distinct():
 def test_followup_numbers_can_use_ancestor_evidence_but_not_sibling_evidence():
     parent = row(answer='참여자 7명', refs=[[1,2]])
     child = row(id='child',question='그 인원은?',parent='one',answer='7명',refs=[[1,4]])
-    unrelated = row(id='other',question='별도 질문?',answer='7명',refs=[[1,4]])
+    unrelated = row(id='other',question='가상 교육 사업의 별도 인원은?',answer='7명',refs=[[1,4]])
     def source(d,c):
         return {'text':'참여자 7명' if c==2 else '교육 안내','location':'조각'}
     tasks, report = prepare([child,parent,unrelated], resolver=source,

@@ -186,7 +186,14 @@
   </div>
   {% endif %}
 {% endif %}
-{# 기준·추출 문서는 읽는 것이 일이므로 문서 보기를 전체 폭으로 두고 분석을 아래에 둔다 #}
+{% if doc.doc_type not in ('regulation', 'ocr') and doc.ai_review %}
+<section class="card reveal document-review-summary" aria-label="에이전트 결과 요약"><div class="card-in">
+  <h2><iconify-icon icon="solar:chat-square-check-linear"></iconify-icon>에이전트 검토 의견</h2>
+  <div class="draft-body">{{ doc.ai_review | md_view }}</div>
+  <p class="notice">검토 결과의 수치와 근거는 아래 원문 및 연결 기준과 함께 확인하세요.</p>
+</div></section>
+{% endif %}
+{# 문서 종류와 무관하게 분석·검토 요약을 원문보다 먼저 보여준다. #}
 <div class="document-columns{{ ' stacked' if doc.doc_type in ('regulation', 'ocr') else ' source-expanded' }}">
   <section id="documentSource" class="document-source" aria-label="검토할 문서">
     {% include "_document_source.html" %}
@@ -200,13 +207,6 @@
 {% if doc.doc_type in ("regulation", "ocr") %}
   {# 문서 분석은 문서 보기 위(맨 앞)에 그린다 #}
 {% else %}
-  {% if doc.ai_review %}
-  <div class="card reveal"><div class="card-in">
-    <h2><iconify-icon icon="solar:chat-square-check-linear"></iconify-icon>에이전트 검토 의견</h2>
-    <div class="draft-body">{{ doc.ai_review | md_view }}</div>
-    <p class="notice">검토 결과의 수치와 근거는 원문 및 연결 기준과 함께 확인하세요.</p>
-  </div></div>
-  {% endif %}
   {# 계획서 초안은 개별 문서 화면이 아니라 에이전트 대화에서 쓴다(사용자 지시 2026-09-27) — 이 화면은 검토(원문·본문·의견·판정)만 #}
   {# 참고자료에는 결재를 요구하지 않는다. 채용·입학 서류의 기존 판정 흐름만 유지. #}
   {% if doc.status == "reviewed" and doc.doc_type in ('recruit', 'admission') %}

@@ -61,7 +61,8 @@ def test_steps_chain_and_number_rule():
     assert "[근거: 양식의 작성방법 상자]" in s3["human"] and "SWOT 를 쓴다" in s3["human"]   # 답이 입력에서 풀린다
     assert tc.missing_numbers(s3) == set()                       # '5쪽' 은 입력의 작성방법에 있다
     view = tc.to_pair(s3, program, 562)["meta"]["view"]
-    assert view["question"].startswith("「1.1. 교육여건 분석」") and view["reasoning"].startswith("[1단계") and view["answer"].startswith("이 절이 다룰 항목")
+    assert program in view['question'] and 'Ⅰ. 사업추진 목표 → 1. 대학의 여건 → 1.1. 교육여건 분석' in view['question']
+    assert view["reasoning"].startswith("[1단계") and view["answer"].startswith("이 절이 다룰 항목")
     s4 = tc.step4(program, overview, roots, node)
     assert "- 표: 구분 | 동향 | 출처" in s4["gpt"] and "- 도식: 여건 분석" in s4["gpt"]
     sp = tc.step_part(program, overview, roots, roots[0], ["Ⅰ. 사업추진 목표(15)"])
@@ -72,7 +73,38 @@ def test_steps_chain_and_number_rule():
     assert msgs[0]["role"] == "user" and msgs[-1]["role"] == "assistant"
     assert tc.to_alpaca(chain) is None
     alp = tc.to_alpaca(tc.to_pair(s3, program, 562))
-    assert alp["instruction"].startswith("「1.1. 교육여건 분석」 절에는") and "[근거: 이 절의 평가 착안점]" in alp["input"] and alp["output"] == s3["gpt"]
+    assert program in alp['instruction'] and '「1.1. 교육여건 분석」 절에는' in alp['instruction']
+    assert "[근거: 이 절의 평가 착안점]" in alp["input"] and alp["output"] == s3["gpt"]
+    for turn in chain['conversations'][::2]:
+        assert program in turn['value'].rpartition('[질문]')[-1]
     # 사실 수치가 입력에 없으면 폐기
     bad = dict(s3, gpt=s3["gpt"] + "\n예산 1,250백만원, 참여자 27명, 위원 9명")
     assert tc.missing_numbers(bad) == {"1250", "27", "9"} and tc.to_pair(bad, program, 562) is None
+
+
+def test_question_context_uses_explicit_metadata_without_mutating_source():
+    rec = {'human': '[근거] 예시\n[질문] 수치는 얼마야?', 'gpt': '[답] 확인 필요',
+           'step': 3, 'node': '성과', 'program_year': '3차년도',
+           'document_title': '합성 실적보고서', 'node_path': ['운영 실적', '취업 성과']}
+    scoped = tc.contextual_human(rec, '합성 사업')
+    assert '사업: 합성 사업' in scoped and '연차: 3차년도' in scoped
+    assert '문서: 합성 실적보고서' in scoped and '운영 실적 → 취업 성과' in scoped
+    assert rec['human'].endswith('[질문] 수치는 얼마야?')
+    no_year = dict(rec)
+    del no_year['program_year']
+    assert '연차:' not in tc.contextual_human(no_year, '합성 사업')
+
+
+def test_repeated_headings_keep_distinct_paths_and_ambiguous_skeleton_is_held():
+    sections = [rp.FormSection(index=1, heading='1. 운영', level=1),
+                rp.FormSection(index=2, heading='1.1. 목표', level=2, instructions='1) 목표를 제시한다'),
+                rp.FormSection(index=3, heading='1. 운영', level=1),
+                rp.FormSection(index=4, heading='1.1. 목표', level=2, instructions='1) 실적을 제시한다')]
+    plan = [{'heading':'1.1. 목표', 'parts':[('text','(1) 첫 목표\n(2) 두번째 목표')]},
+            {'heading':'1.1. 목표', 'parts':[('text','(1) 다른 목표\n(2) 다른 결과')]}]
+    roots = tc.build_tree(sections, ['Ⅰ. 계획', 'Ⅱ. 실적'], plan)
+    nodes = [root.children[0].children[0] for root in roots]
+    questions = [tc.contextual_human(tc.step3('합성 사업','개요',roots,n,['목표 항목']), '합성 사업') for n in nodes]
+    assert '범위: Ⅰ. 계획 → 1. 운영 → 1.1. 목표' in questions[0]
+    assert '범위: Ⅱ. 실적 → 1. 운영 → 1.1. 목표' in questions[1]
+    assert all(tc.step4('합성 사업','개요',roots,n) is None for n in nodes)

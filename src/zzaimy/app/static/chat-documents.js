@@ -4,6 +4,19 @@
  let sid=workspace.dataset.session;
  const main=workspace.parentElement;
  let linked=null, panel=null;
+ workspace.addEventListener('click',event=>{
+   const anchor=event.target.closest('a[data-document-link]');
+   if(!anchor||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+   const url=new URL(anchor.href);
+   if(url.protocol!=='https:'||url.username||url.password||url.port)return;
+   const isDoc=url.hostname==='docs.google.com';
+   if(!isDoc&&url.hostname!=='drive.google.com')return;
+   const match=url.pathname.match(isDoc? /^\/document\/d\/([A-Za-z0-9_-]+)(?:\/|$)/ : /^\/file\/d\/([A-Za-z0-9_-]+)(?:\/|$)/);
+   if(!match)return;
+   event.preventDefault();
+   showViewer({title:anchor.textContent+' 미리보기',url:url.href,
+     embed_url:url.origin+(isDoc?'/document/d/':'/file/d/')+match[1]+'/preview',is_doc:false});
+ });
  function jumpToSection(section){
    if(!section.heading_id||!linked)return;
    show();visibility(true);

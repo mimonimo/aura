@@ -14,7 +14,10 @@ def test_developer_sidebar_replaces_workspace_menu(tmp_path, url, active):
     assert f'aria-current="page">{active}</a>' in sidebar
     assert 'id="chatSessionList"' not in sidebar
     assert '업무 화면으로' in sidebar
-    assert '문답 데이터·검수' in sidebar
+    assert '데이터·학습' in sidebar
+    assert '문답 데이터·검수' not in sidebar
+    assert 'href="/dev/train?tab=models"' not in sidebar
+    assert 'href="/dev/train?tab=exports"' not in sidebar
 
 
 def test_staff_workspace_keeps_normal_navigation(tmp_path):

@@ -97,8 +97,11 @@ def records_for(human: str, sources: Sources, program_id: str, turn: int = 0, kn
             continue
         m = _HEADER.match(line)
         if m:
-            started = True
             name = m.group(1)
+            if name in ('질문', '담당자 지시'):
+                started = False
+                continue
+            started = True
             prefer = next((g for keys, g in _GROUP_OF_HEADER if any(k in name for k in keys)), prefer)
             line = line[m.end():].strip()
             if not line:

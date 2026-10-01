@@ -38,6 +38,26 @@ def test_document_keeps_project_context_and_evidence_first(workspace):
     assert '문서 폴더 이름도 함께 변경됩니다' in page
 
 
+@pytest.mark.parametrize('kind', ['grant', 'recruit', 'admission', 'regulation', 'ocr'])
+def test_agent_summary_precedes_document_view(workspace, kind):
+    client, db = workspace
+    doc_id = db.add_document(filename='summary.txt', stored_path='absent', doc_type=kind)
+    db.update_document(doc_id, status='reviewed', ai_review='합성 요약: 목적과 확인 사항')
+    page = client.get(f'/doc/{doc_id}').text
+    assert page.count('합성 요약: 목적과 확인 사항') == 1
+    assert page.index('합성 요약: 목적과 확인 사항') < page.index('id="documentSource"')
+
+
+def test_summary_prompts_require_specific_grounded_information():
+    from zzaimy.app.pipeline import DocumentProcessor, _GRANT_PROMPT
+    for prompt in (_GRANT_PROMPT, DocumentProcessor._ANALYZE_PROMPT, DocumentProcessor._SUMMARY_PROMPT):
+        assert '계획 목표와 완료 실적을 구별' in prompt
+        assert '단위, 적용 연도/대상, 조건' in prompt
+        assert '제공 범위에서 확인되지 않음' in prompt
+        assert '제공되지 않은 페이지 번호나 출처를 만들지 않는다' in prompt
+        assert 'test evidence' in prompt.format(text='test evidence')
+
+
 def test_memo_preserves_saved_reviews_and_admission_decisions(workspace):
     client, db = workspace
     db.add_review(1, '기존 근거 메모 보존')
