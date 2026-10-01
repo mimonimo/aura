@@ -197,3 +197,12 @@ def test_file_name_outweighs_folder_for_program():
     res = {a.doc_id: a for a in programs.classify(docs, cards)}
     assert res[9].status == "review" and "혁신지원" in res[9].program_name
     assert res[10].status == "auto" and res[10].program == res[0].program
+
+
+def test_acronym_matches_only_on_latin_word_boundary():
+    from zzaimy.graph import programs
+
+    docs = [{"id": 1, "filename": "대구 TECH사업 안내.hwp", "path": "", "head": ""},
+            {"id": 2, "filename": "2024 Digitech Global Field Trip 결과보고서.pdf", "path": "", "head": ""}]
+    res = {a.doc_id: a for a in programs.classify(docs, programs.build_cards(docs))}
+    assert res[1].program and not res[2].program
