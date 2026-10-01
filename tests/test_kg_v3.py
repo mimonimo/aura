@@ -355,3 +355,26 @@ def test_align_instances_need_body_and_children_follow_parents():
     assert ("[인력양성] 우수사례 1", "[인력양성] 우수사례 1") not in titles
     assert ("1. 추진배경 및 개요", "1. 추진배경 및 개요") not in titles
     assert not any(y.title.startswith("9-1.") for _x, y, _w in pairs)
+
+
+def test_renumbered_case_matched_by_content():
+    from zzaimy.graph import sections
+
+    def doc(cases):
+        chunks, seq = [{"seq": 0, "kind": "heading", "content": "Ⅵ. 우수사례"}], 1
+        for label, body in cases:
+            chunks += [{"seq": seq, "kind": "heading", "content": label},
+                       {"seq": seq + 1, "kind": "heading", "content": "1. 추진배경 및 개요"},
+                       {"seq": seq + 2, "kind": "text", "content": body}]
+            seq += 3
+        return sections.build(chunks), {c["seq"]: c["content"] for c in chunks}
+    a, ta = doc([("[공유·협업] 우수사례 1", "가족회사 등급제 운영 유료 가족회사 확대 산업체 협력")])
+    b, tb = doc([("[공유·협업] 우수사례 1", "해외 박람회 벤치마킹 디지텍 협의회 일본 견학"),
+                 ("[공유·협업] 우수사례 2", "가족회사 등급제 운영 유료 가족회사 확대 산업체 협력")])
+    text = {id(x): " ".join(ta.get(q, "") for q in x.chunks) for x in a}
+    text.update({id(y): " ".join(tb.get(q, "") for q in y.chunks) for y in b})
+    pairs = sections.align_context(a, b, text_of=lambda s: text.get(id(s), ""))
+    case = [(x.title, y.title) for x, y, _w in pairs if "우수사례" in x.title]
+    assert case == [("[공유·협업] 우수사례 1", "[공유·협업] 우수사례 2")]
+    kids = [(x, y) for x, y, _w in pairs if x.title.startswith("1. 추진배경")]
+    assert len(kids) == 1 and {s.path: s for s in b}[kids[0][1].parent].title == "[공유·협업] 우수사례 2"
