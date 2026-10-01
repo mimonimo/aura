@@ -117,7 +117,8 @@ def _jac(a: set, b: set) -> float:
 
 
 def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_key: int = 4,
-                  accept: float = 0.25, margin: float = 0.08, generic_parent: float = 0.5) -> list[tuple[Section, Section, str]]:
+                  accept: float = 0.25, margin: float = 0.08, generic_parent: float = 0.5,
+                  generic_body: float = 0.15) -> list[tuple[Section, Section, str]]:
     """같은 제목의 절 짝을 맥락 점수로 고른다(2차 반복, 2026-10-01).
     점수 = 0.5 × 상위 절 제목 글자 겹침(가까운 조상일수록 무게) + 0.5 × 본문·하위 절 제목 낱말 겹침.
     1차(상위 절 제목이 정확히 같아야)는 계획서·보고서가 상위 제목을 조금씩 다르게 써서 맞는 짝을 놓쳤고(버린 후보의 15% 가 같은
@@ -146,14 +147,18 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
     ga, ia = index(a)
     gb, ib = index(b)
 
-    def score(x: Section, y: Section) -> float:
+    def score(x: Section, y: Section, generic: bool = False) -> float:
         ca, wa = ia[id(x)]
         cb, wb = ib[id(y)]
         weights = (0.6, 0.3, 0.1)
         anc = sum(w * _jac(p_, q_) for w, p_, q_ in zip(weights, ca, cb)) / (sum(weights[:min(len(ca), len(cb))]) or 1)
         if not ca and not cb:
             anc = 1.0                                         # 둘 다 최상위 절
-        return 0.5 * anc + 0.5 * _jac(wa, wb)
+        body = _jac(wa, wb)
+        if generic:
+            # 흔한 제목('1. 추진배경 및 개요')은 같은 상위 제목 아래 과제 사례마다 되풀이된다 — 무엇에 대한 절인지는 본문이 정한다(4차)
+            return 0.3 * anc + 0.7 * body if body >= generic_body else 0.0
+        return 0.5 * anc + 0.5 * body
 
     def anc_sim(x: Section, y: Section) -> float:
         ca, _ = ia[id(x)]
@@ -170,18 +175,24 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
             for y in ys:
                 if generic and anc_sim(x, y) < generic_parent:
                     continue
-                cands.append((score(x, y), x, y))
+                cands.append((score(x, y, generic), x, y, generic))
     cands.sort(key=lambda t: -t[0])
     pairs, used_a, used_b = [], set(), set()
-    for sc, x, y in cands:
-        if id(x) in used_a or id(y) in used_b or sc < accept:
+    for sc, x, y, generic in cands:
+        if sc < accept:
+            continue
+        if not generic:
+            # 흔하지 않은 제목이 한 문서에 두 번까지(요약 절과 상세 절) — 기준을 넘는 짝은 모두 잇는다(4차: 하나만 잇던 탓에 놓침)
+            pairs.append((x, y, f"제목 같음·맥락 점수 {sc:.2f}"))
+            continue
+        if id(x) in used_a or id(y) in used_b:
             continue
         # 같은 절이 걸린 다른 후보(아직 안 쓰인 것) 중 가장 높은 점수와 margin 이상 차이 나야 잇는다
-        rival = max((s2 for s2, x2, y2 in cands
+        rival = max((s2 for s2, x2, y2, _g in cands
                      if (x2 is x) != (y2 is y) and id(x2) not in used_a and id(y2) not in used_b), default=0.0)
         if sc - rival < margin:
             continue
         used_a.add(id(x))
         used_b.add(id(y))
-        pairs.append((x, y, f"제목 같음·맥락 점수 {sc:.2f}"))
+        pairs.append((x, y, f"흔한 제목·본문 맥락 점수 {sc:.2f}"))
     return pairs
