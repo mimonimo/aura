@@ -75,3 +75,19 @@ def test_align_uses_parent_titles_for_repeated_titles():
     assert ("2.1", "1.1") in pairs                       # 과제 나 아래 기대효과끼리
     assert ("1.1", "2.1") not in pairs and ("1.1", "1.1") not in pairs   # 다른 과제의 기대효과끼리는 잇지 않는다
     assert ("3", "3") in pairs and ("2", "1") in pairs   # 하나뿐인 제목은 번호가 달라도
+
+
+def test_align_context_prefers_similar_parent_and_body():
+    def S(path, title):
+        return sections.Section(path=path, title=title, level=path.count(".") + 1, seq=0,
+                                parent=path.rsplit(".", 1)[0] if "." in path else "")
+    plan = [S("1", "1. 가족회사 운영 및 활성화 계획"), S("1.1", "4. 기대효과 및 향후 과제"),
+            S("2", "2. 산학공동연구 기술개발 계획"), S("2.1", "4. 기대효과 및 향후 과제")]
+    report = [S("1", "1. 산학공동연구 기술개발 실적"), S("1.1", "4. 기대효과 및 향후 과제"),
+              S("2", "2. 가족회사 운영 및 활성화 실적"), S("2.1", "4. 기대효과 및 향후 과제")]
+    body = {("1.1", "p"): "가족회사 협약 기업 수 확대", ("2.1", "p"): "공동연구 과제 특허",
+            ("1.1", "r"): "공동연구 과제 특허 출원", ("2.1", "r"): "가족회사 협약 기업 확대"}
+    side = {id(x): "p" for x in plan} | {id(x): "r" for x in report}
+    pairs = {(x.path, y.path) for x, y, _ in sections.align_context(plan, report, lambda s: body.get((s.path, side[id(s)]), ""))}
+    assert ("1.1", "2.1") in pairs and ("2.1", "1.1") in pairs                # 상위 제목이 조금 달라도(계획/실적) 맥락으로
+    assert ("1.1", "1.1") not in pairs
