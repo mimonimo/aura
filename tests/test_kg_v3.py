@@ -451,3 +451,15 @@ def test_renamed_program_merges_with_document_evidence():
     assert not any("주관" in a for c in cards for a in c.acrs)
     res = {a.doc_id: a for a in programs.classify(docs, cards)}
     assert res[4].program == res[1].program == res[2].program
+
+
+def test_rename_needs_explicit_marker_in_file_name():
+    from zzaimy.graph import programs
+
+    docs = [{"id": 1, "filename": "2024년_대학_산학협력활동_실태조사_지침서.hwp",
+             "path": "링크/업무공유(LINC사업단)/2.사회맞춤형 산학협력선도전문대학(LINC+)육성사업 현황/3.3단계 산학연협력 선도전문대학 육성사업(LINC3.0)", "head": ""},
+            {"id": 2, "filename": "사회맞춤형 산학협력 선도전문대학(LINC+) 육성사업 실적보고서.hwp", "path": "", "head": ""},
+            {"id": 3, "filename": "3단계 산학연협력 선도전문대학 육성사업(LINC 3.0) 계획서.hwp", "path": "", "head": ""}]
+    cards = programs.build_cards(docs)
+    linc_plus = [c for c in cards if "LINC+" in c.acrs]
+    assert linc_plus and not any(a.replace(" ", "") == "LINC3.0" for a in linc_plus[0].acrs)
