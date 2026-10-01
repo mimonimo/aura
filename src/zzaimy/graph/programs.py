@@ -38,6 +38,7 @@ _LEAD_LABEL = re.compile(r"^\s*\([^)]{1,20}\)\s*")
 # 때를 가리키는 말 — 이것만 남는 이름(「1차년도(2025) 사업」)은 사업명이 아니다
 _TIME_WORDS = re.compile(r"[1-9]\s*차\s*년도|\(?\s*(?:19|20)\d{2}\s*(?:학년도|년도|년)?\s*~?\s*\)?|학년도|년도|\d+\s*개|\d+\s*단계")
 # 「대구 RISE사업」·「RISE 사업」 — 앞말 하나 + 영문 약칭 + 사업: 그 약칭의 사업이다
+_BARE_ACR = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9+]{2,10})\s?사업(?![가-힣])")
 _ACR_NAME = re.compile(r"^(?:[가-힣]{2,10}\s*)?([A-Z][A-Za-z0-9+.]{1,10})\s*사업$")
 
 
@@ -87,6 +88,7 @@ def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     pairs = [(t, m.group(2).strip()) for m in _PAIR.finditer(text or "")
              if (t := _norm_name(_trim_name(m.group(1).strip()))) and _name_ok(t) and re.match(r"[A-Za-z]", m.group(2).strip())]
     acrs = [f"{m.group(1)}{m.group(2)}" for m in _VERSIONED.finditer(text or "")]
+    acrs += _BARE_ACR.findall(text or "")                     # 「RISE사업(2025~)」 — 홀로 쓰인 약칭+사업
     for n in names:
         inner = _LATIN_ACR.findall(n)
         acrs += inner
@@ -131,6 +133,18 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             names[kn][long_] += 1
             acr_seen[ka][short] += 1
             union(kn, ka)
+    # 글자 자리만 바뀐 약칭(오타 「RSIE」)은 열 배 넘게 흔한 같은 글자의 약칭과 같은 사업으로 본다
+    acr_n = {k: sum(c.values()) for k, c in acr_seen.items()}
+    for k, n in acr_n.items():
+        a = k[2:]
+        if len(a) < 4:
+            continue
+        for k2, n2 in acr_n.items():
+            b = k2[2:]
+            if k2 != k and n2 >= 10 * n and len(b) == len(a) and sorted(a) == sorted(b) \
+                    and sum(x != y for x, y in zip(a, b)) == 2:
+                union(k2, k)
+                break
     groups: dict[str, ProgramCard] = {}
     for k in list(parent):
         root = find(k)
