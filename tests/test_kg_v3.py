@@ -134,3 +134,34 @@ def test_graph_retrieve_leading_acronym_and_sectionless_doc_fallback(tmp_path):
     tr = retrieve.retrieve(db, "AID 사업 평가에서 현장실습 지적 사항은?", chunk_text=chunk_text)
     assert tr.program == "program:aid"
     assert tr.hits and tr.hits[0].section == "doc:7:chunk:1" and tr.hits[0].path[-1] == "본문 2"
+
+
+def test_program_names_drop_org_labels_years_and_join_inner_acronyms():
+    from zzaimy.graph import programs
+
+    docs = [{"id": 1, "filename": "(영남이공대학교)3단계 산학연협력 선도전문대학 육성사업 계획서.hwp", "path": "링크/25.1차년도(2025) 사업 진행", "head": ""},
+            {"id": 2, "filename": "지역혁신중심 대학지원체계(RISE)사업 시행계획.hwp", "path": "", "head": ""},
+            {"id": 3, "filename": "대구 RISE사업 운영 지침.hwp", "path": "", "head": ""}]
+    cards = programs.build_cards(docs)
+    surfaces = {s for c in cards for s in c.surfaces()}
+    assert not any("영남이공대학교" == s or s == "2025" or "1차년도" in s for s in surfaces)
+    rise = [c for c in cards if "RISE" in {a.upper() for a in c.acrs}]
+    assert len(rise) == 1 and any("대구" in n for n in rise[0].names) and any("지역혁신중심" in n for n in rise[0].names)
+
+
+def test_inherit_by_folder_respects_program_year_span():
+    from zzaimy.graph import programs
+
+    docs, res = [], []
+    for i in range(12):
+        docs.append({"id": i, "filename": f"3차년도 실적 {i}.hwp", "path": f"링크/LINC3.0 모음/{2022 + i % 3}년"})
+        res.append(programs.Assignment(doc_id=i, program="program:linc30", program_name="LINC3.0", status="auto", year=2022 + i % 3))
+    for i in range(12, 16):
+        docs.append({"id": i, "filename": f"계획 {i}.hwp", "path": "링크/LINC+ 자료/2018년"})
+        res.append(programs.Assignment(doc_id=i, program="program:linc", program_name="LINC+", status="auto", year=2018))
+    docs += [{"id": 90, "filename": "증빙.pdf", "path": "링크/2차년도(2023)/정성"},
+             {"id": 91, "filename": "증빙.pdf", "path": "링크/옛 자료(2019)/정성"}]
+    res += [programs.Assignment(doc_id=90), programs.Assignment(doc_id=91)]
+    assert programs.inherit_by_folder(docs, res) >= 1
+    assert res[-2].program == "program:linc30" and res[-2].status == "folder"
+    assert res[-1].program in ("", "program:linc")          # 2019 는 LINC3.0 기간(2022~2024) 밖

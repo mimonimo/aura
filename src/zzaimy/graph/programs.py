@@ -31,6 +31,25 @@ def _trim_name(name: str) -> str:
             cut = i + 1
     out = " ".join(toks[cut:]).strip()
     return out if len(re.sub(r"\s", "", out)) >= 6 else ""
+# 약칭은 영문으로 시작한다 — 괄호 안 한글(기관명 「(영남이공대학교)」)·숫자(「(2025)」)는 약칭이 아니다
+_LATIN_ACR = re.compile(r"\(([A-Za-z][A-Za-z0-9+.]{1,12})\)")
+# 이름 맨 앞의 괄호 꼬리표 — 「(영남이공대학교)3단계 …」·「(내용추가) …」 — 이름의 일부가 아니다
+_LEAD_LABEL = re.compile(r"^\s*\([^)]{1,20}\)\s*")
+# 때를 가리키는 말 — 이것만 남는 이름(「1차년도(2025) 사업」)은 사업명이 아니다
+_TIME_WORDS = re.compile(r"[1-9]\s*차\s*년도|\(?\s*(?:19|20)\d{2}\s*(?:학년도|년도|년)?\s*~?\s*\)?|학년도|년도|\d+\s*개|\d+\s*단계")
+# 「대구 RISE사업」·「RISE 사업」 — 앞말 하나 + 영문 약칭 + 사업: 그 약칭의 사업이다
+_ACR_NAME = re.compile(r"^(?:[가-힣]{2,10}\s*)?([A-Z][A-Za-z0-9+.]{1,10})\s*사업$")
+
+
+def _name_ok(name: str) -> bool:
+    core = re.sub(r"[\s()·]", "", _TIME_WORDS.sub("", name)).replace("사업", "")
+    return len(re.findall(r"[가-힣A-Za-z]", core)) >= 4
+
+
+def _norm_name(name: str) -> str:
+    return _LEAD_LABEL.sub("", name or "").strip()
+
+
 _ROUND = re.compile(r"([1-9])\s*차\s*년도")
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*(?:년|학년도|\.)")
 _EVAL_RESULT = re.compile(r"평가\s*(?:결과|의견)|종합\s*의견")
@@ -62,12 +81,20 @@ class ProgramCard:
 
 def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     """(사업명들, 약칭들, (긴 이름, 약칭) 짝들)."""
-    names = [m.group(0) for m in _PROGRAM.finditer(text or "") if m.group(0) not in _GENERIC]
-    names += [t for t in (_trim_name(m.group(1)) for m in _SPACED.finditer(text or "")) if t and t not in _GENERIC]
-    pairs = [(t, m.group(2).strip()) for m in _PAIR.finditer(text or "") if (t := _trim_name(m.group(1).strip()))]
+    names = [_norm_name(m.group(0)) for m in _PROGRAM.finditer(text or "") if m.group(0) not in _GENERIC]
+    names += [_norm_name(t) for t in (_trim_name(m.group(1)) for m in _SPACED.finditer(text or "")) if t and t not in _GENERIC]
+    names = [n for n in names if n and n not in _GENERIC and _name_ok(n)]
+    pairs = [(t, m.group(2).strip()) for m in _PAIR.finditer(text or "")
+             if (t := _norm_name(_trim_name(m.group(1).strip()))) and _name_ok(t) and re.match(r"[A-Za-z]", m.group(2).strip())]
     acrs = [f"{m.group(1)}{m.group(2)}" for m in _VERSIONED.finditer(text or "")]
     for n in names:
-        acrs += acronyms(n)
+        inner = _LATIN_ACR.findall(n)
+        acrs += inner
+        pairs += [(n, a) for a in inner]                      # 「지역혁신중심 대학지원체계(RISE)사업」 — 이름 속 약칭과 같은 사업
+        m = _ACR_NAME.match(n)
+        if m:
+            acrs.append(m.group(1))
+            pairs.append((n, m.group(1)))                     # 「대구 RISE사업」 — 그 약칭의 사업
     return names, acrs, pairs
 
 
@@ -180,3 +207,57 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
             a.kind, a.kind_reason = guess_kind(d.get("filename") or "", head)
         out.append(a)
     return out
+
+
+_PATH_YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
+
+
+def inherit_by_folder(docs: list[dict], assigned: list[Assignment], min_n: int = 10, share: float = 0.7,
+                      min_year_docs: int = 3) -> int:
+    """사업명이 없는 폴더의 파일에 상위 폴더의 사업을 물려준다 — 「링크/2차년도(2023)/…」처럼 폴더가 사업을 말하지 않을 때.
+
+    가장 가까운 상위 폴더(확정 파일 min_n 건 이상)에서 한 사업이 share 이상이면 그 사업으로 두되 상태는 'folder'(검토 대상,
+    자동 확정 아님). 파일 경로에 연도가 있으면 그 연도를 다루는 사업만 후보로 센다 — 사업마다 확정 파일의 연도 범위로
+    운영 기간을 어림한다(LINC+ 2017~2021 폴더 아래의 2023 파일은 LINC+ 가 아니다). 물려준 건수를 돌려준다.
+    """
+    def ancestors(path: str) -> list[str]:
+        parts = [p for p in re.split(r"[\\/]", path or "") if p]
+        return ["/".join(parts[:i]) for i in range(len(parts), 0, -1)]
+
+    def year_of(d: dict) -> int | None:
+        ys = _PATH_YEAR.findall(f"{d.get('path') or ''}/{d.get('filename') or ''}")
+        return int(ys[-1]) if ys else None
+
+    under: dict[str, Counter] = defaultdict(Counter)
+    years: dict[str, Counter] = defaultdict(Counter)
+    names = {}
+    for d, a in zip(docs, assigned):
+        if a.program and a.status == "auto":
+            names[a.program] = a.program_name
+            for anc in ancestors(d.get("path") or ""):
+                under[anc][a.program] += 1
+            y = a.year or year_of(d)
+            if y:
+                years[a.program][y] += 1
+    span = {p: (min(ys), max(ys)) for p, c in years.items()
+            if (ys := [y for y, n in c.items() if n >= min_year_docs])}
+    n_inherited = 0
+    for d, a in zip(docs, assigned):
+        if a.program and a.status == "auto":
+            continue
+        y = year_of(d)
+        for anc in ancestors(d.get("path") or ""):
+            c = Counter({p: n for p, n in under.get(anc, {}).items()
+                         if y is None or p not in span or span[p][0] <= y <= span[p][1]})
+            total = sum(c.values())
+            if total < min_n:
+                continue
+            best, n = c.most_common(1)[0]
+            if n / total >= share and (not a.program or a.program == best):
+                a.program, a.program_name, a.status = best, names.get(best, best), "folder"
+                a.share = round(n / total, 2)
+                a.evidence = [f"상위 폴더 「{anc[-40:]}」 확정 {total}건 중 {n}건이 이 사업"
+                              + (f"(연도 {y} 를 다루는 사업만)" if y else "")]
+                n_inherited += 1
+            break
+    return n_inherited

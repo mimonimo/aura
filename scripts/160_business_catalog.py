@@ -43,28 +43,30 @@ def main() -> int:
         docs.append({"id": len(docs), "filename": f.name, "path": str(rel.parent), "head": "", "area": rel.parts[0]})
     cards = programs.build_cards(docs)
     res = programs.classify(docs, cards)
+    n_folder = programs.inherit_by_folder(docs, res)
     by = defaultdict(list)
     for d, a in zip(docs, res):
         by[a.program or "(없음)"].append((d, a))
     names = {c.node_id: c for c in cards}
     out = {"files": len(docs), "cards": len(cards), "programs": {}}
-    print(f"파일 {len(docs)}(이름·크기 중복 제외) · 사업 카드 {len(cards)}")
+    print(f"파일 {len(docs)}(이름·크기 중복 제외) · 사업 카드 {len(cards)} · 폴더 추론 {n_folder}")
     for pid, items in sorted(by.items(), key=lambda t: -len(t[1])):
         n = len(items)
         auto = sum(1 for _, a in items if a.status == "auto")
+        folder = sum(1 for _, a in items if a.status == "folder")
         c = names.get(pid)
-        row = {"name": c.name if c else "", "n": n, "auto": auto,
+        row = {"name": c.name if c else "", "n": n, "auto": auto, "folder": folder,
                "aliases": sorted(set(c.names) | set(c.acrs))[:8] if c else [],
                "areas": dict(Counter(d["area"] for d, _ in items).most_common()),
                "kind": dict(Counter(a.kind or "미정" for _, a in items).most_common(8)),
                "round": dict(sorted(Counter(a.round for _, a in items if a.round).items())),
                "year": dict(sorted(Counter(a.year for _, a in items if a.year).items())),
                "review_eg": [f"{d['path'][-60:]}/{d['filename'][:50]} — {'; '.join(a.evidence[:2])}"
-                             for d, a in items if a.status != "auto"][:4]}
+                             for d, a in items if a.status == "review"][:4]}
         out["programs"][pid] = row
         if n < args.min_files:
             continue
-        print(f"\n== {row['name'] or pid} — {n}건 · 자동 {auto}({auto / n:.0%}) · 영역 {row['areas']}")
+        print(f"\n== {row['name'] or pid} — {n}건 · 자동 {auto}({auto / n:.0%}) · 폴더 추론 {folder} · 영역 {row['areas']}")
         print("   다른 이름:", " · ".join(row["aliases"]))
         print("   갈래:", row["kind"], "| 연차:", row["round"], "| 연도:", row["year"])
         for e in row["review_eg"][:2]:
