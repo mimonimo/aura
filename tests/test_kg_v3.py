@@ -165,3 +165,13 @@ def test_inherit_by_folder_respects_program_year_span():
     assert programs.inherit_by_folder(docs, res) >= 1
     assert res[-2].program == "program:linc30" and res[-2].status == "folder"
     assert res[-1].program in ("", "program:linc")          # 2019 는 LINC3.0 기간(2022~2024) 밖
+
+
+def test_transposed_acronym_typo_joins_frequent_spelling():
+    from zzaimy.graph import programs
+
+    docs = [{"id": i, "filename": f"대구 RISE사업 자료 {i}.hwp", "path": "", "head": ""} for i in range(12)]
+    docs.append({"id": 99, "filename": "2025년 RSIE사업 수정계획서.hwp", "path": "", "head": ""})
+    cards = programs.build_cards(docs)
+    rise = [c for c in cards if "RISE" in {a.upper() for a in c.acrs}]
+    assert len(rise) == 1 and "RSIE" in {a.upper() for a in rise[0].acrs}
