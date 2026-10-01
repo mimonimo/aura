@@ -42,6 +42,12 @@ _BARE_ACR = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9+]{2,10})\s?사업(?![가-
 _ACR_NAME = re.compile(r"^(?:[가-힣]{2,10}\s*)?([A-Z][A-Za-z0-9+.]{1,10})\s*사업$")
 
 
+def _is_acr(a: str) -> bool:
+    """약칭다운가 — 영문으로 시작, 소문자 풀이(AI+Digital) 아님, 판 표기(ver.4·v2.0) 아님."""
+    a = (a or "").strip()
+    return bool(re.match(r"[A-Za-z]", a)) and not re.search(r"[a-z]{3}", a) and not re.match(r"(?i)^v(?:er)?[\s._]*\d", a)
+
+
 def _name_ok(name: str) -> bool:
     core = re.sub(r"[\s()·]", "", _TIME_WORDS.sub("", name)).replace("사업", "")
     return len(re.findall(r"[가-힣A-Za-z]", core)) >= 4
@@ -91,11 +97,11 @@ def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     names = [_norm_name(part) for n in names for part in re.split(r"\s+[·,/]\s+", n) if part.endswith("사업")]
     names = [n for n in names if n and n not in _GENERIC and _name_ok(n)]
     pairs = [(t, m.group(2).strip()) for m in _PAIR.finditer(text or "")
-             if (t := _norm_name(_trim_name(m.group(1).strip()))) and _name_ok(t) and re.match(r"[A-Za-z]", m.group(2).strip())]
+             if (t := _norm_name(_trim_name(m.group(1).strip()))) and _name_ok(t) and _is_acr(m.group(2))]
     acrs = [f"{m.group(1)}{m.group(2)}" for m in _VERSIONED.finditer(text or "")]
     acrs += _BARE_ACR.findall(text or "")                     # 「RISE사업(2025~)」 — 홀로 쓰인 약칭+사업
     for n in names:
-        inner = [a for a in _LATIN_ACR.findall(n) if not re.search(r"[a-z]{3}", a)]   # 「(AI+Digital)」은 풀이지 약칭이 아니다
+        inner = [a for a in _LATIN_ACR.findall(n) if _is_acr(a)]          # 「(AI+Digital)」은 풀이, 「(ver.4)」는 판 표기
         acrs += inner
         pairs += [(n, a) for a in inner]                      # 「지역혁신중심 대학지원체계(RISE)사업」 — 이름 속 약칭과 같은 사업
         m = _ACR_NAME.match(n)
