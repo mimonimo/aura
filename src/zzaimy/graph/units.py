@@ -35,16 +35,36 @@ class Unit:
         return f"unit:{program_id.split(':', 1)[1]}:{h}"
 
 
-def build(docs: list[tuple[int, list[Section]]], min_docs: int = 2) -> list[Unit]:
-    """docs = [(문서 id, 절 목록)] — 한 사업의 문서들. 둘 이상의 문서에 나오는 절 제목마다 단위 하나."""
+# 파일 이름의 일 단위 코드(단위과제 2-3) — 앞머리 순번(「01-2_」)은 뗀 뒤에 본다(scripts/161 과 같은 규칙)
+_UNIT_CODE = re.compile(r"(?<![\d.\-])\[?(\d{1,2}-\d{1,2})\]?(?![\d.\-])")
+
+
+def doc_code(filename: str) -> str:
+    stem = re.sub(r"^[\d\s_.\-]+(?=[^\d\s_.\-])", "", re.sub(r"\.[A-Za-z0-9]+$", "", filename or ""))
+    m = _UNIT_CODE.search(stem)
+    return m.group(1).lstrip("0") if m else ""
+
+
+def build(docs: list[tuple[int, list[Section]]], min_docs: int = 2, codes: dict[int, str] | None = None) -> list[Unit]:
+    """docs = [(문서 id, 절 목록)] — 한 사업의 문서들. 둘 이상의 문서에 나오는 절 제목마다 단위 하나.
+
+    codes = {문서 id: 일 단위 코드} — 문서가 단위과제 하나씩을 다루면(RISE 과제계획서 1-1·2-3 …) 서식 제목(「과제 배경 및 목표」)이
+    모든 과제 문서에 되풀이된다. 그때는 코드가 단위다: 「2-3」 단위 아래로 그 코드 문서들의 같은 제목을 묶는다(코드 없는 문서는 그대로)."""
+    codes = codes or {}
     groups: dict[str, Unit] = {}
     titles: dict[str, Counter] = defaultdict(Counter)
     for did, secs in docs:
         per_doc = Counter(title_key(s.title) for s in secs)
+        code = codes.get(did, "")
+        if code:
+            u = groups.setdefault(f"#{code}", Unit(key=f"#{code}", label=""))
+            u.docs.add(did)
+            titles[f"#{code}"][f"단위과제 {code}"] += 1
         for s in secs:
             k = title_key(s.title)
             if len(k) < MIN_KEY or per_doc[k] >= 3 or _INSTANCE.search(s.title):
                 continue
+            k = f"#{code}/{k}" if code else k
             u = groups.setdefault(k, Unit(key=k, label=""))
             u.members.append((did, s.path))
             u.docs.add(did)

@@ -13,7 +13,8 @@ from dataclasses import dataclass, field
 
 from zzaimy.app.chunk_path import level_of
 
-_NUM = re.compile(r"^\s*([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|\d+(?:[.-]\d+)*|[가-하]|\(\d+\)|\d+\))[.．)]?\s*")
+# 절 번호 — 가나다 번호는 그 글자 뒤에 점·괄호가 있을 때만(「[가-하]」 범위에 점 없이 두면 「영남이공대학교」의 「영」까지 떼였다)
+_NUM = re.compile(r"^\s*(?:(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|VI{0,3}|IX|X)(?=[.．])|\d+(?:[.-]\d+)*|\(\d+\)|\d+\))[.．)]?|[가나다라마바사아자차카타파하][.．)])\s*")
 
 
 @dataclass

@@ -189,10 +189,26 @@ def main() -> int:
         if a.program and d.get("sections"):
             per_prog[a.program].append((d["id"], d["sections"]))
     for prog, items in per_prog.items():
-        for u in units.build(items):
-            unode = u.node_id(prog)
+        codes = {did: c for did, _s in items if (c := units.doc_code(docs_by_id[did]["filename"]))}
+        # 코드마다 문서 둘 이상(연차·판본)이고 그런 코드가 셋 이상일 때만 코드를 단위로 쓴다 — 과제마다 문서를 내는 사업(RISE)의 꼴.
+        # 우연히 번호가 붙은 파일 몇 개로 다른 사업의 단위를 쪼개지 않는다
+        cnt = Counter(codes.values())
+        kept_codes = {c for c, n in cnt.items() if n >= 2}
+        codes = {d: c for d, c in codes.items() if c in kept_codes} if len(kept_codes) >= 3 else {}
+        built = units.build(items, codes=codes)
+        unode_of = {u.key: u.node_id(prog) for u in built}
+        for u in built:
+            unode = unode_of[u.key]
             nodes.append((unode, "unit", u.label, {"key": u.key, "n_docs": len(u.docs), "n_sections": len(u.members)}, None))
-            edges.append((prog, unode, "contains", "식별자 일치", [f"문서 {len(u.docs)}건에 같은 제목의 절 「{u.label[:60]}」"]))
+            parent_key = u.key.split("/", 1)[0] if "/" in u.key else ""
+            if parent_key and parent_key in unode_of:
+                edges.append((unode_of[parent_key], unode, "contains", "식별자 일치", [f"단위과제 {parent_key[1:]} 문서들의 같은 절 「{u.label[:60]}」"]))
+            else:
+                edges.append((prog, unode, "contains", "식별자 일치", [f"문서 {len(u.docs)}건에 같은 제목의 절 「{u.label[:60]}」"]
+                              if not u.key.startswith("#") else [f"파일 이름의 단위과제 코드 {u.key[1:]} — 문서 {len(u.docs)}건"]))
+            if u.key.startswith("#") and "/" not in u.key:
+                for did in u.docs:
+                    edges.append((f"doc:{did}", unode, "instance_of", "식별자 일치", [f"파일 이름에 단위과제 코드 {u.key[1:]}"]))
             for did, path in u.members:
                 edges.append((f"doc:{did}:sec:{path}", unode, "instance_of", "식별자 일치", [f"절 제목이 단위 「{u.label[:60]}」와 같음"]))
 
