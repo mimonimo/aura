@@ -41,6 +41,8 @@ _OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|(?:I{
 _HYPHEN = re.compile(r"^\s*(\d{1,2}(?:-\d{1,2})+)[.．)]?\s")
 _SENTENCE_END = re.compile(r"(?:다|함|음|임|됨|요)\s*[.。]?\s*$")
 TEXT_HEADING_MAX = 60
+# 사설 영역 글자 — 원문자(①②)를 기호 글꼴로 그린 한글 문서에서 제목 앞에 붙는다(「\U000f02b1 [1-1 과제] 추진 실적」)
+_PUA = re.compile(r"[\ue000-\uf8ff\U000f0000-\U0010ffff]")
 # 번호를 새로 여는 첫 번호
 _FIRST = re.compile(r"^\s*(?:Ⅰ\s*[.．]?|1[.．)]|1-1[.．)]?|가[.．)]|\(1\))\s")
 
@@ -59,9 +61,9 @@ def heading_text(c: dict) -> str | None:
     """조각이 제목 노릇을 하면 제목 글을 돌려준다. 처리기가 제목으로 표시한 조각 말고도 우리 공문서에 흔한 두 꼴을 제목으로 본다:
     한두 칸짜리 띠 표(「Ⅰ | 사업비전 및 목표」 — 장 제목을 표로 그린다), 개요 번호로 시작하는 짧은 한 줄 본문(「1. 추진의 필요성…」)."""
     kind = c.get("kind")
-    content = str(c.get("content") or "")
+    content = _PUA.sub("", str(c.get("content") or ""))
     if kind == "heading":
-        return " ".join(content.split())[:200]
+        return " ".join(content.split())[:200] or None
     if kind == "text":
         line = " ".join(content.split())
         if "\n" in content.strip() or not (2 <= len(line) <= TEXT_HEADING_MAX):

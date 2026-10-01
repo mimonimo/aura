@@ -40,7 +40,8 @@ PROMPT = ("다음은 같은 사업·같은 연차의 사업계획서 절과 사�
 def _text(db, doc_id: int, sec: dict, by_path: dict) -> tuple[str, str]:
     seqs = set(sec["props"].get("chunks") or [])
     body = "\n".join(str(c["content"])[:400] for c in db.list_doc_chunks(doc_id) if c["seq"] in seqs)[:1200]
-    parent = by_path.get(sec["id"].rsplit(".", 1)[0]) if "." in sec["id"].split(":sec:")[1] else None
+    tail = sec["id"].split(":sec:")[1] if ":sec:" in sec["id"] else ""
+    parent = by_path.get(sec["id"].rsplit(".", 1)[0]) if "." in tail else None
     return body or "(본문 없음 — 하위 절만)", (parent or {}).get("label", "-")
 
 
@@ -59,8 +60,12 @@ def main() -> int:
     llm_connections.configure(ROOT / "data" / "platform" / "llm_connections.json")
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     secs = {n["id"]: n for n in kg_store.nodes(db, "section")}
-    kept = [(e["src"], e["dst"]) for e in kg_store.edges(db, "plans_reports") if ":sec:" in e["src"]]
-    basis_of = {(e["src"], e["dst"]): e["basis"] for e in kg_store.edges(db, "plans_reports") if ":sec:" in e["src"]}
+    # 계획서 문서 전체 ↔ 보고서 절(과제 코드로 이은 RISE 꼴)도 판정한다 — 문서 노드는 절처럼 다룬다(본문 = 문서 앞 조각들)
+    for n in kg_store.nodes(db, "doc"):
+        secs[n["id"]] = {**n, "props": {**n["props"], "chunks": list(range(0, 12))}}
+    kept = [(e["src"], e["dst"]) for e in kg_store.edges(db, "plans_reports") if ":sec:" in e["dst"]]
+    basis_of = {(e["src"], e["dst"]): e["basis"] + ("·문서" if ":sec:" not in e["src"] else "")
+                for e in kg_store.edges(db, "plans_reports") if ":sec:" in e["dst"]}
     kept_set = set(kept)
     docs = {n["doc_id"]: n for n in kg_store.nodes(db, "doc")}
     dropped = []
