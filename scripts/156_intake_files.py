@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import multiprocessing as mp
 import os
 import sys
@@ -59,6 +60,7 @@ def main() -> int:
     ap.add_argument("--owner", default="zzaimy")
     ap.add_argument("--timeout", type=int, default=40, help="문서 한 건의 제한 시간(분)")
     ap.add_argument("--jobs", type=int, default=2)
+    ap.add_argument("--origin-base", default="", help="이 폴더 아래 상대 경로를 원본 보관소 경로로 장부(data/platform/origins.jsonl)에 적는다")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
 
@@ -90,6 +92,16 @@ def main() -> int:
             f = todo.pop(0)
             doc_id = db.add_document(filename=f.name, stored_path=str(f), doc_type=args.doc_type, sector=args.sector,
                                      project_id=project_id, owner=args.owner)
+            if args.origin_base:
+                try:
+                    rel = str(f.resolve().relative_to(Path(args.origin_base).resolve()))
+                except ValueError:
+                    rel = ""
+                if rel:
+                    led = ROOT / "data" / "platform" / "origins.jsonl"
+                    with led.open("a", encoding="utf-8") as fh:
+                        fh.write(json.dumps({"doc_id": doc_id, "origin": rel, "at": time.strftime("%Y-%m-%d %H:%M")},
+                                            ensure_ascii=False) + "\n")
             stored = storage.adopt_original(db, doc_id, f)
             child = mp.Process(target=_run_one, args=(doc_id, str(stored)))
             child.start()
