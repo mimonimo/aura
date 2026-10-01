@@ -174,6 +174,7 @@ def main() -> int:
     def text_full(s) -> str:
         """절 본문 전체(본문으로 잇기용, 4000자까지)."""
         return " ".join(content.get((sec_doc.get(id(s)), q), "") for q in s.chunks)[:4000]
+    code_sections: dict[str, list] = defaultdict(list)       # 과제 코드 → 그 코드를 단 보고서 절
     # 같은 사업·연차의 계획 ↔ 실적, 평가 → 대상
     for ynode, ids in by_year.items():
         plans = [i for i in ids if assigns[i].kind == "plan"]
@@ -193,6 +194,19 @@ def main() -> int:
                                                          skip_b_paths=linked_b, skip_b=NEXT_YEAR):
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "유사도",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
+        # 과제 코드로 잇기 — 과제마다 계획서를 내고 연차보고서는 「[2-3 과제] 추진 실적」처럼 과제 코드를 단 절로 쓰는 사업(RISE).
+        # 계획서 파일 이름의 코드와 보고서 절 제목의 코드가 같으면 계획서(문서) ↔ 그 보고서 절
+        for p in plans:
+            code = units.doc_code(docs_by_id[p]["filename"])
+            if not code:
+                continue
+            rx = re.compile(rf"(?<![\d.\-]){re.escape(code)}(?![\d.\-])")
+            for r in reports:
+                for s in docs_by_id[r]["sections"]:
+                    if rx.search(s.title) and len(s.title) <= 60:
+                        edges.append((f"doc:{p}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
+                                      [f"과제 코드 {code}: 계획서 파일 이름 ↔ 보고서 절 「{s.title[:50]}」"]))
+                        code_sections[code].append((r, s.path, s.title))
         for e in evals:
             for t in plans + reports:
                 edges.append((f"doc:{e}", f"doc:{t}", "evaluates", "분류", [f"같은 사업·연차({ynode})의 평가 결과"]))
@@ -237,6 +251,8 @@ def main() -> int:
             if u.key.startswith("#") and "/" not in u.key:
                 for did in u.docs:
                     edges.append((f"doc:{did}", unode, "instance_of", "식별자 일치", [f"파일 이름에 단위과제 코드 {u.key[1:]}"]))
+                for r, path, title in code_sections.get(u.key[1:], []):
+                    edges.append((f"doc:{r}:sec:{path}", unode, "instance_of", "식별자 일치", [f"보고서 절 「{title[:50]}」에 과제 코드 {u.key[1:]}"]))
             for did, path in u.members:
                 edges.append((f"doc:{did}:sec:{path}", unode, "instance_of", "식별자 일치", [f"절 제목이 단위 「{u.label[:60]}」와 같음"]))
 
