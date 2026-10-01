@@ -387,3 +387,12 @@ def test_body_phrase_alone_is_not_a_program():
             {"id": 2, "filename": "대구 RISE사업 운영 지침.hwp", "path": "", "head": ""}]
     names = {c.name for c in programs.build_cards(docs)}
     assert not any("각종" in n for n in names) and any("RISE" in n for n in names)
+
+
+def test_short_name_merges_into_single_long_name():
+    from zzaimy.graph import programs
+
+    docs = [{"id": 1, "filename": "2025 혁신지원사업 자율성과지표.hwp", "path": "", "head": ""},
+            {"id": 2, "filename": "2023년 전문대학 혁신지원사업 최종사업계획서.hwp", "path": "", "head": ""}]
+    cards = programs.build_cards(docs)
+    assert len([c for c in cards if any("혁신지원" in n for n in c.names)]) == 1
