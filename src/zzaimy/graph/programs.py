@@ -57,8 +57,11 @@ _EVAL_RESULT = re.compile(r"평가\s*(?:결과|의견)|종합\s*의견")
 HEAD_CHARS = 4000
 
 
+_FLAT = r"[\s._\-]+"          # 대조할 때 지우는 띄어쓰기·점·밑줄·붙임표 — 파일 이름은 띄어쓰기 대신 밑줄을 쓴다
+
+
 def _acr(s: str) -> str:
-    return re.sub(r"[\s.]", "", s or "").upper()
+    return re.sub(_FLAT, "", s or "").upper()
 
 
 @dataclass
@@ -77,7 +80,7 @@ class ProgramCard:
         return "program:" + (re.sub(r"[^0-9a-z가-힣]+", "", a.lower()) or self.key)
 
     def surfaces(self) -> set[str]:
-        return {re.sub(r"[\s.]+", "", n) for n in self.names} | {_acr(a) for a in self.acrs}
+        return {re.sub(_FLAT, "", n) for n in self.names} | {_acr(a) for a in self.acrs}
 
 
 def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
@@ -183,8 +186,8 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
     for d in docs:
         title = clean_title(d.get("filename") or "")
         head = (d.get("head") or "")[:HEAD_CHARS]
-        flat_title = re.sub(r"[\s.]+", "", f"{title} {d.get('path') or ''}").upper()       # 약칭은 점 없이 대조(LINC3.0 = LINC30)
-        flat_head = re.sub(r"[\s.]+", "", head).upper()
+        flat_title = re.sub(_FLAT, "", f"{title} {d.get('path') or ''}").upper()       # 약칭은 점·밑줄 없이 대조(LINC_3.0 = LINC30)
+        flat_head = re.sub(_FLAT, "", head).upper()
         scores: Counter = Counter()
         why: dict[str, list[str]] = defaultdict(list)
         # 긴 표기부터 대조하고 대조된 자리는 가린다 — 짧은 이름('전문대학 지원사업')이 긴 이름('AID 전환 중점 전문대학 지원사업')
