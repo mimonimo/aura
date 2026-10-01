@@ -58,3 +58,20 @@ def test_longer_program_name_masks_nested_shorter_one():
     got = {a.doc_id: a for a in programs.classify(docs, cards)}
     assert got[1].share == 1.0 and got[1].status == "auto"                    # 짧은 이름이 몫을 나눠 갖지 않는다
     assert got[2].program != got[1].program
+
+
+def test_align_uses_parent_titles_for_repeated_titles():
+    def secs(spec):
+        out = []
+        for path, title in spec:
+            parent = path.rsplit(".", 1)[0] if "." in path else ""
+            out.append(sections.Section(path=path, title=title, level=path.count(".") + 1, seq=0, parent=parent))
+        return out
+    plan = secs([("1", "1. 과제 가 운영"), ("1.1", "4. 기대효과 및 향후 과제"), ("2", "2. 과제 나 운영"), ("2.1", "4. 기대효과 및 향후 과제"),
+                 ("3", "3. 예산 운영의 적절성")])
+    report = secs([("1", "1. 과제 나 운영"), ("1.1", "4. 기대효과 및 향후 과제"), ("2", "2. 과제 다 운영"), ("2.1", "4. 기대효과 및 향후 과제"),
+                   ("3", "9. 예산 운영의 적절성")])
+    pairs = {(x.path, y.path) for x, y, _ in sections.align(plan, report)}
+    assert ("2.1", "1.1") in pairs                       # 과제 나 아래 기대효과끼리
+    assert ("1.1", "2.1") not in pairs and ("1.1", "1.1") not in pairs   # 다른 과제의 기대효과끼리는 잇지 않는다
+    assert ("3", "3") in pairs and ("2", "1") in pairs   # 하나뿐인 제목은 번호가 달라도

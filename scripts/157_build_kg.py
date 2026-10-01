@@ -109,12 +109,9 @@ def main() -> int:
         for p in plans:
             for r in reports:
                 edges.append((f"doc:{p}", f"doc:{r}", "plans_reports", "식별자 일치", [f"같은 사업·연차({ynode})의 계획서와 실적보고서"]))
-                pk = {sections.title_key(s.title): s for s in docs_by_id[p]["sections"] if len(sections.title_key(s.title)) >= 4}
-                for s in docs_by_id[r]["sections"]:
-                    ps = pk.get(sections.title_key(s.title))
-                    if ps:
-                        edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
-                                      [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」"]))
+                for ps, s, why in sections.align(docs_by_id[p]["sections"], docs_by_id[r]["sections"]):
+                    edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
+                                  [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
         for e in evals:
             for t in plans + reports:
                 edges.append((f"doc:{e}", f"doc:{t}", "evaluates", "분류", [f"같은 사업·연차({ynode})의 평가 결과"]))
@@ -128,12 +125,9 @@ def main() -> int:
         for (k1, y1), (k2, y2) in zip(ys, ys[1:]):
             for p1 in (i for i in by_year[y1] if assigns[i].kind == "plan"):
                 for p2 in (i for i in by_year[y2] if assigns[i].kind == "plan"):
-                    nxt = {sections.title_key(s.title): s for s in docs_by_id[p2]["sections"] if len(sections.title_key(s.title)) >= 4}
-                    for s in docs_by_id[p1]["sections"]:
-                        t = nxt.get(sections.title_key(s.title))
-                        if t:
-                            edges.append((f"doc:{p1}:sec:{s.path}", f"doc:{p2}:sec:{t.path}", "continues", "식별자 일치",
-                                          [f"{y1} 「{s.title[:50]}」", f"{y2} 「{t.title[:50]}」"]))
+                    for s, t, why in sections.align(docs_by_id[p1]["sections"], docs_by_id[p2]["sections"]):
+                        edges.append((f"doc:{p1}:sec:{s.path}", f"doc:{p2}:sec:{t.path}", "continues", "식별자 일치",
+                                      [f"{y1} 「{s.title[:50]}」", f"{y2} 「{t.title[:50]}」", why]))
 
     print("== 그래프")
     print("  노드", dict(Counter(n[1] for n in nodes)))
