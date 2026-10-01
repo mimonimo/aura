@@ -36,7 +36,7 @@ def title_key(title: str) -> str:
 _BULLET = re.compile(r"^\s*[□■❐❏❑❒○◦●◎❍❂◉◈▶▷►▸▹➢➤➔→◆◇♦•·∙※☞✓✔▪▫★☆\-–]")
 # 개요 번호: Ⅰ. / 1. / 1.1. / 15-2. / 가. / (1) / 1)
 # 가. 나. 다. 는 그 글자들만(「가-하」 범위는 「등)」 같은 낱말까지 잡는다), 숫자는 0 으로 시작하지 않는다(「01.」은 표 속 코드)
-_OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|[1-9]\d?(?:[.\-][1-9]\d?){0,3}[.．)]|[가나다라마바사아자차카타파하][.．)]|\([1-9]\d?\))\s*(?=[가-힣A-Za-z「『\[(])")
+_OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|(?:I{1,3}|IV|VI{0,3}|IX|X)[.．]|[1-9]\d?(?:[.\-][1-9]\d?){0,3}[.．)]|[가나다라마바사아자차카타파하][.．)]|\([1-9]\d?\))\s*(?=[가-힣A-Za-z「『\[(])")
 _HYPHEN = re.compile(r"^\s*(\d{1,2}(?:-\d{1,2})+)[.．)]?\s")
 _SENTENCE_END = re.compile(r"(?:다|함|음|임|됨|요)\s*[.。]?\s*$")
 TEXT_HEADING_MAX = 60
@@ -76,6 +76,10 @@ def heading_text(c: dict) -> str | None:
         cells = [str(x[-1]).strip() for x in t.get("cells") or [] if str(x[-1]).strip()]
         if t.get("n_rows", 9) > 2 or not (1 <= len(cells) <= 3):
             return None
+        # 띠의 첫 칸이 그대로 장 제목이면(「Ⅴ. 지속가능성」 옆 칸은 장식 문구) 그 칸만
+        first = " ".join(cells[0].split())
+        if len(first) <= TEXT_HEADING_MAX and re.match(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|I{1,3}|IV|VI{0,3}|IX|X)\s*[.．]\s*[가-힣]", first):
+            return first
         text = " ".join(" ".join(cells).split())
         if len(text) > TEXT_HEADING_MAX or "![" in text:
             return None

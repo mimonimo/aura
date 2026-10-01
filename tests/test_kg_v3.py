@@ -319,3 +319,13 @@ def test_wrapped_pdf_header_within_1024_bytes_is_pdf(tmp_path):
     g = tmp_path / "가짜.pdf"
     g.write_bytes(b"\x00" * 2000)
     assert _format_mismatch(g)
+
+
+def test_banner_with_ascii_roman_or_decorated_second_cell():
+    import json as _json
+    from zzaimy.graph import sections
+
+    b3 = _json.dumps({"n_rows": 2, "n_cols": 3, "cells": [[0, 0, 2, 1, 0, "III. 기업가치 창출"], [1, 2, 1, 1, 0, "Y-verse Platform 3.0"]]})
+    b5 = _json.dumps({"n_rows": 2, "n_cols": 3, "cells": [[0, 0, 2, 1, 0, "Ⅴ. 지속가능성"], [0, 1, 1, 2, 0, "미래가치 1등 직업교육대학 " * 6]]})
+    assert sections.heading_text({"kind": "table", "content": b3}).startswith("III. 기업가치 창출")
+    assert sections.heading_text({"kind": "table", "content": b5}) == "Ⅴ. 지속가능성"
