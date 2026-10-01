@@ -49,3 +49,12 @@ def test_edges_need_basis_and_evidence(tmp_path):
             kg_store.put_edge(conn, "program:x", "doc:1", "contains", "느낌", ["근거"])
         kg_store.put_edge(conn, "program:x", "doc:1", "contains", "분류", ["제목에 사업명"])
     assert kg_store.edges(db)[0]["evidence"] == ["제목에 사업명"]
+
+
+def test_longer_program_name_masks_nested_shorter_one():
+    docs = [{"id": 1, "filename": "AID 전환 중점 전문대학 지원사업 계획서.hwp", "head": "AID 전환 중점 전문대학 지원사업 계획"},
+            {"id": 2, "filename": "전문대학 지원사업 안내.hwp", "head": "전문대학 지원사업 안내"}]
+    cards = programs.build_cards(docs)
+    got = {a.doc_id: a for a in programs.classify(docs, cards)}
+    assert got[1].share == 1.0 and got[1].status == "auto"                    # 짧은 이름이 몫을 나눠 갖지 않는다
+    assert got[2].program != got[1].program

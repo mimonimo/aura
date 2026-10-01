@@ -145,18 +145,20 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
         flat_head = re.sub(r"[\s.]+", "", head).upper()
         scores: Counter = Counter()
         why: dict[str, list[str]] = defaultdict(list)
-        for c in cards:
-            for s in c.surfaces():
-                su = s.upper()
-                if len(su) < 3:
-                    continue
-                if su in flat_title:
-                    scores[c.node_id] += 3
-                    why[c.node_id].append(f"제목·경로에 「{s}」")
-                n = flat_head.count(su)
-                if n:
-                    scores[c.node_id] += min(n, 5)
-                    why[c.node_id].append(f"앞머리에 「{s}」 {n}회")
+        # 긴 표기부터 대조하고 대조된 자리는 가린다 — 짧은 이름('전문대학 지원사업')이 긴 이름('AID 전환 중점 전문대학 지원사업')
+        # 안에서 또 세지면 모든 언급이 두 사업으로 갈린다(실측 2026-10-01: 1등 몫 0.3 대)
+        pool = sorted(((su, c) for c in cards for su in {x.upper() for x in c.surfaces()} if len(su) >= 3),
+                      key=lambda t: -len(t[0]))
+        for su, c in pool:
+            if su in flat_title:
+                scores[c.node_id] += 3
+                why[c.node_id].append(f"제목·경로에 「{su}」")
+                flat_title = flat_title.replace(su, "\0" * len(su))
+            n = flat_head.count(su)
+            if n:
+                scores[c.node_id] += min(n, 5)
+                why[c.node_id].append(f"앞머리에 「{su}」 {n}회")
+                flat_head = flat_head.replace(su, "\0" * len(su))
         a = Assignment(doc_id=int(d["id"]))
         if scores:
             best, top = scores.most_common(1)[0]
