@@ -33,7 +33,7 @@ def title_key(title: str) -> str:
 
 
 # 글머리표로 시작하는 줄은 제목이 아니라 본문 항목이다(「□ 사업목표」·「❐ …」·「○ …」)
-_BULLET = re.compile(r"^\s*[□■❐❏○◦●◎▶▷►◆◇•·∙※\-–]")
+_BULLET = re.compile(r"^\s*[□■❐❏❑❒○◦●◎❍❂◉◈▶▷►▸▹➢➤➔→◆◇♦•·∙※☞✓✔▪▫★☆\-–]")
 # 개요 번호: Ⅰ. / 1. / 1.1. / 15-2. / 가. / (1) / 1)
 _OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|\d{1,2}(?:[.\-]\d{1,2}){0,3}[.．)]|[가-하][.．)]|\(\d{1,2}\))\s*(?=[가-힣A-Za-z「『\[(])")
 _HYPHEN = re.compile(r"^\s*(\d{1,2}(?:-\d{1,2})+)[.．)]?\s")
@@ -83,13 +83,45 @@ def heading_text(c: dict) -> str | None:
     return None
 
 
+TOC_RUN = 5
+
+
+def _ordered(chunks: list[dict]) -> list[dict]:
+    """쪽 번호가 있으면 (쪽, seq) 순 — 한글 변환에서 장 간지 제목이 문서 맨 앞 seq 로 나오는 일이 있다(실측 2026-10-01: #584 의 Ⅰ~Ⅵ 가
+    seq 2~7 인데 쪽은 14·67·101 …). 쪽 번호가 없는 조각이 섞이면 seq 순."""
+    if chunks and all(c.get("page_no") for c in chunks):
+        return sorted(chunks, key=lambda c: (int(c["page_no"]), c["seq"]))
+    return sorted(chunks, key=lambda c: c["seq"])
+
+
+def _toc_seqs(ordered: list[dict]) -> set[int]:
+    """목차로 보이는 조각 — 제목 꼴 조각(처리기 표시든 개요 번호 줄이든)이 본문 없이 TOC_RUN 개 이상 잇달아 나오면 목차다.
+    목차 줄을 제목으로 세우면 목차 마지막 장(「Ⅵ. 컨설팅 반영 사항」) 아래로 본문 절이 전부 들어간다. 목차에는 처리기가 제목으로
+    표시한 줄과 그냥 본문 줄이 섞여 있다(실측 #584)."""
+    out: set[int] = set()
+    run: list[int] = []
+    page = None
+    for c in ordered + [{"seq": -1, "kind": "text", "content": "본문"}]:
+        promoted = heading_text(c) is not None
+        if promoted and (page is None or c.get("page_no") == page):   # 쪽이 바뀌면 끊는다 — 목차 다음 쪽의 첫 본문 제목들은 목차가 아니다
+            run.append(int(c["seq"]))
+            page = c.get("page_no")
+            continue
+        if len(run) >= TOC_RUN:
+            out.update(run)
+        run, page = ([int(c["seq"])], c.get("page_no")) if promoted else ([], None)
+    return out
+
+
 def build(chunks: list[dict]) -> list[Section]:
-    """chunks = doc_chunks(seq 순). 제목 조각이 없으면 빈 목록."""
+    """chunks = doc_chunks. 제목 조각이 없으면 빈 목록."""
     sections: list[Section] = []
     stack: list[Section] = []
-    counters: dict[tuple[str, int], int] = {}
-    for c in sorted(chunks, key=lambda c: c["seq"]):
-        title = heading_text(c)
+    counters: dict[str, int] = {}
+    ordered = _ordered(chunks)
+    toc = _toc_seqs(ordered)
+    for c in ordered:
+        title = heading_text(c) if int(c["seq"]) not in toc else None
         lvl = _level(title) if title else None
         if title and lvl is not None:
             if lvl == 0:                               # 번호 없는 제목 — 지금 절 아래 잎(맨 위로 올리지 않는다)
@@ -97,8 +129,8 @@ def build(chunks: list[dict]) -> list[Section]:
             while stack and stack[-1].level >= lvl:
                 stack.pop()
             parent = stack[-1].path if stack else ""
-            n = counters.get((parent, lvl), 0) + 1
-            counters[(parent, lvl)] = n
+            n = counters.get(parent, 0) + 1                # 형제 순번은 부모마다 하나 — 깊이로 나누면 「1.」과 「Ⅰ.」이 같은 id 를 가진다
+            counters[parent] = n
             sec = Section(path=f"{parent}.{n}" if parent else str(n), title=title, level=lvl, seq=int(c["seq"]), parent=parent)
             sections.append(sec)
             stack.append(sec)
