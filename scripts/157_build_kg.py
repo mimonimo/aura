@@ -49,6 +49,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--docs", required=True, help="문서 id 목록(예: 557-585,601)")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--full", action="store_true", help="그래프 전체를 지우고 이 문서들로 다시 짓는다(사업·연차·단위 노드까지)")
     ap.add_argument("--generic-parent", type=float, default=0.5, help="흔한 반복 제목의 바로 위 절 제목 겹침 하한(0 이면 끔)")
     args = ap.parse_args()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
@@ -235,8 +236,14 @@ def main() -> int:
         return 0
     kg_store.ensure(db)
     with db._conn() as conn:
+        if args.full:
+            # 전체 다시 짓기 — 문서 노드에 붙은 연차·사업 관계와 사업·연차·단위 노드는 clear_doc 이 지우지 않아 옛 빌드의 것(옛 연차 노드
+            # y2025, 옛 사업 id)이 쌓였다(2026-10-02 실측). 그래프 전체를 지우고 쓴다
+            conn.execute("DELETE FROM kg_edges")
+            conn.execute("DELETE FROM kg_nodes")
         for d in docs:
             kg_store.clear_doc(conn, f"doc:{d['id']}")
+            conn.execute("DELETE FROM kg_edges WHERE src = ? OR dst = ?", (f"doc:{d['id']}", f"doc:{d['id']}"))
         for n in nodes:
             kg_store.put_node(conn, *n)
         for e in edges:

@@ -490,7 +490,9 @@ def align_content(a: list[Section], b: list[Section], text_of, skip_b_paths: set
         x = a_by_id[k]
         rivals = [s_ for s_, k2 in scored[1:] if not (a_by_id[k2].path.startswith(x.path + ".") or x.path.startswith(a_by_id[k2].path + "."))]
         second = rivals[0] if rivals else 0.0
-        if top >= min_sim and top - second >= margin:
+        # 1등이 2등의 두 배 이상일 때만(판정 보정 2026-10-02: 틀린 짝은 2등과 점수 차가 작았다 — 차이 0.05 기준 정밀도 약 67%,
+        # 두 배 기준 약 90% 어림)
+        if top >= min_sim and top >= 2 * second and top - second >= margin:
             # 가장 깊은(구체적인) 같은 갈래 절로 내린다 — 점수가 1등과 거의 같으면
             deeper = [a_by_id[k2] for s_, k2 in scored if s_ >= top - 0.02 and a_by_id[k2].path.startswith(x.path + ".")]
             if deeper:
