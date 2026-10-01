@@ -413,3 +413,24 @@ def test_units_group_recurring_titles_across_documents():
     assert "가족회사 운영 및 활성화 실적의 적정성" in got and got["가족회사 운영 및 활성화 실적의 적정성"].docs == {1, 2}
     assert "기업가치 창출" in got
     assert not any("추진배경" in k or "우수사례" in k or "다른 장" in k for k in got)
+
+
+def test_title_key_keeps_first_syllable_and_code_units():
+    from zzaimy.graph import sections, units
+
+    assert sections.title_key("영남이공대학교") == "영남이공대학교"
+    assert sections.title_key("가. 사업 개요") == "사업개요"
+    assert sections.title_key("III. 기업가치 창출") == "기업가치창출"
+    assert units.doc_code("02-4_RISE_2차년도_과제계획서_2-3_영남이공대학교.hwp") == "2-3"
+    assert units.doc_code("RISE_단위과제(1-1) 과제계획서(주관).hwpx") == "1-1"
+
+    def doc(items):
+        chunks = []
+        for i, t in enumerate(items):
+            chunks += [{"seq": 2 * i, "kind": "heading", "content": t}, {"seq": 2 * i + 1, "kind": "text", "content": "본문이다."}]
+        return sections.build(chunks)
+    items = [(1, doc(["1. 과제 배경 및 목표"])), (2, doc(["1. 과제 배경 및 목표"])), (3, doc(["1. 과제 배경 및 목표"]))]
+    got = {u.key: u for u in units.build(items, codes={1: "2-3", 2: "2-3", 3: "1-1"})}
+    assert "#2-3" in got and got["#2-3"].docs == {1, 2}
+    assert any(k.startswith("#2-3/") for k in got) and not any(k.startswith("#1-1/") for k in got)
+    assert "과제배경및목표" not in got
