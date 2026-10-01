@@ -10,8 +10,8 @@
 # 사용 (맥에서):
 #   bash scripts/116_ship_and_serve.sh rerank zzaimy-rerank-v2            # 토르에 이미 있는 학습본
 #   bash scripts/116_ship_and_serve.sh embed  zzaimy-embed-v3
-#   bash scripts/116_ship_and_serve.sh rerank zzaimy-rerank-v2 --from dgx-01@211.170.162.110:~/models
-#   bash scripts/116_ship_and_serve.sh writer zzaimy-writer-v1 --from dgx-01@211.170.162.110:~/models   # 토르 02·03 둘 다
+#   bash scripts/116_ship_and_serve.sh rerank zzaimy-rerank-v2 --from aura@211.170.162.110:~/zzaimy/models
+#   bash scripts/116_ship_and_serve.sh writer zzaimy-writer-v1 --from aura@211.170.162.110:~/zzaimy/models   # 토르 02·03 둘 다
 set -euo pipefail
 VM=aura@192.168.16.226
 THOR=thor-03@211.170.162.121

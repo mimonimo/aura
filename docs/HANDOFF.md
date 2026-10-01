@@ -38,7 +38,7 @@ ID566~576 교내 규정 11건 및 파생 검색 자료/파일 대장은 제외. 
 [Windows PC · 한글]  ──브라우저──▶  [운영 서버 VM · CPU]  ──API──▶  [토르 02 · Writer 27B NVFP4 :8001]   대화·초안 (answer)
   실사용·한글 편집                웹·검색·OCR·문서관리      ──API──▶  [토르 03 · Writer 27B NVFP4 :8001]   반입 검토·이미지 판독·질의 확장 (review·vision)
                                                           ──API──▶  [토르 03 · 임베딩 :8016 · 리랭커 :8015]  검색 모델 서비스(학습본)
-                                                                    [DGX .110]  학습 전용 — SSH dgx-01@211.170.162.110 -p 8022
+                                                                    [DGX .110]  학습·실문서 보관 — SSH aura@211.170.162.110 -p 8022
 ```
 
 ### 역할 분담
@@ -81,7 +81,8 @@ cuBLAS 오류로 죽으므로 root로 `sync; sysctl vm.drop_caches=3`을 한 뒤
 
 ### DGX
 
-`ssh -p 8022 dgx-01@211.170.162.110`으로 접속한다(맥 키 등록, 9월 22일 확인, sudo는 비밀번호 필요).
+`ssh -p 8022 aura@211.170.162.110`으로 접속한다(2026-10-01 이전: 우리 작업 전용 aura 계정 — sudo·docker 그룹, 맥 키 등록. dgx-01 은
+여러 사람이 함께 쓰는 계정이라 우리 것(`~/zzaimy-capstone`·`~/zzaimy`)을 aura 로 옮겼다. 실문서 원본은 `~/data/`(사업별 폴더, rclone).
 호스트 이름 spark-b30a, GB10, aarch64, 통합 메모리 121GB, Ubuntu 24.04, 디스크 3.0TB 여유, docker 29와
 python 3.12가 있다. 같은 장비에 Ollama가 상주하며 27b, 35b, 120b 모델로 메모리 93GB를 잡고
 있으므로 학습 전에는 그 모델들을 내려야 한다(`keep_alive` 0 또는 서비스 중지, sudo). 사용 금지인
@@ -95,7 +96,7 @@ bf16 LoRA 가 기본이고 `scripts/83 --4bit` 는 휠이 생기면 쓴다. 베�
 rsync). 학습 전에는 Ollama 모델을 내린다: `curl -s localhost:11434/api/generate -d '{"model":"qwen3.8:27b","keep_alive":0}'`
 (35b·120b 도 같이) — 내리면 CUDA 가용 91GB. 장비 검증은 `env PYTHONPATH=src .venv-train/bin/python scripts/83_sft_writer_qlora.py
 --base ~/zzaimy/models/Qwen3.8-27B --smoke`(합성 4쌍 2스텝, 9월 22일 통과: 최고 메모리 52.7GB, 모델은 전부 GPU 에
-올린다 — device_map auto 는 층을 meta 로 내려 역전파가 실패했다). 도커는 dgx-01 계정이 docker 그룹이 아니라 못 쓴다(sudo).
+올린다 — device_map auto 는 층을 meta 로 내려 역전파가 실패했다). 도커는 aura 계정이 docker 그룹이라 쓸 수 있다.
 
 ### 토르 03의 상시 서비스
 
@@ -207,7 +208,7 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
    `env PYTHONPATH=src .venv-train/bin/python scripts/83_sft_writer_qlora.py --base ~/zzaimy/models/Qwen3.8-27B --data data/training/real_sft.jsonl --seq-len 16384 --out ~/zzaimy/train/writer-v1`
    (실문서 쌍은 입력이 최대 1만9천 자라 기본 4096 은 잘린다).
    검색 모델(Embed·Rerank)은 토르 03 의 `104`·`108` 로 다시 학습한다.
-6. 이관: 병합 → NVFP4 양자화 → `scripts/116_ship_and_serve.sh writer <이름> --from dgx-01@211.170.162.110:~/zzaimy/train` 로 두 토르에.
+6. 이관: 병합 → NVFP4 양자화 → `scripts/116_ship_and_serve.sh writer <이름> --from aura@211.170.162.110:~/zzaimy/train` 로 두 토르에.
    채택은 같은 입력의 대결(검토·판독·초안 검증 결과)로만, 결과는 ADR 로.
 
 ## 4. 무엇이 남았나 (진행/예정)
