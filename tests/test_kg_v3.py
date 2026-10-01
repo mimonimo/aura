@@ -223,3 +223,24 @@ def test_role_conn_env_override_only_for_that_process(tmp_path, monkeypatch):
     assert lc.role_conn("review")["base_url"] == "http://a/v1"
     monkeypatch.setenv("ZZAIMY_ROLE_CONN", "review=없음")
     assert lc.role_conn("review")["base_url"] == "http://b/v1"
+
+
+def test_sections_promote_banner_tables_and_outline_lines():
+    import json as _json
+    from zzaimy.graph import sections
+
+    banner = _json.dumps({"n_rows": 2, "n_cols": 2, "cells": [[0, 0, 2, 1, 0, "Ⅰ"], [0, 1, 1, 1, 0, "사업비전 및 목표"], [1, 1, 1, 1, 0, ""]]})
+    chunks = [{"seq": 0, "kind": "heading", "content": "영남이공대학교"},
+              {"seq": 1, "kind": "table", "content": banner},
+              {"seq": 2, "kind": "text", "content": "1. 추진의 필요성 및 정책목표와의 연계성"},
+              {"seq": 3, "kind": "heading", "content": "□ 사업목표"},
+              {"seq": 4, "kind": "text", "content": "지역 산업 수요에 맞춘 인력을 기른다."},
+              {"seq": 5, "kind": "text", "content": "1. 2017년 6월 사업단을 설치하였다."},
+              {"seq": 6, "kind": "heading", "content": "15-2. 가족회사 운영 및 활성화"}]
+    tree = sections.build(chunks)
+    titles = {s.title: s for s in tree}
+    assert titles["Ⅰ. 사업비전 및 목표"].level == 1
+    assert titles["1. 추진의 필요성 및 정책목표와의 연계성"].parent == titles["Ⅰ. 사업비전 및 목표"].path
+    assert "□ 사업목표" not in titles and 3 in titles["1. 추진의 필요성 및 정책목표와의 연계성"].chunks
+    assert "1. 2017년 6월 사업단을 설치하였다." not in titles
+    assert titles["15-2. 가족회사 운영 및 활성화"].level == 3
