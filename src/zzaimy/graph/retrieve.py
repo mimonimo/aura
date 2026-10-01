@@ -1,7 +1,7 @@
 """그래프를 쓰는 근거 찾기 — 에이전트 리즈닝 루프의 앞 세 단계(ADR-0047 6항, ADR-0048).
 
 1단계 질문 파악: 질문에서 사업(사업 카드의 이름·약칭), 연차(N차년도·연도), 문서 갈래(계획·실적·평가)를 찾는다.
-2단계 그래프 탐색: 그 사업 → 연차 → 문서 → 절로 후보를 좁힌다(못 찾은 조건은 넓게 둔다).
+2단계 그래프 탐색: 그 사업 → 연차 → 문서 → 절로 후보를 좁힌다. 명시한 조건에 맞는 문서가 없으면 근거 없음으로 반환한다.
 3단계 근거 선택: 후보 절을 질문과의 낱말 겹침(제목 무게 2, 본문 1)으로 매겨 상위 k 를 사업→연차→문서→절 경로와 함께 낸다.
 각 단계의 판단을 기록으로 돌려준다 — 리즈닝 학습 데이터의 꼴과 같다(질문 → 단계 판단 → 고른 근거).
 """
@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from zzaimy.graph import kg_store
 
-_ROUND = re.compile(r"([1-9])\s*차\s*년도")
+_ROUND = re.compile(r"(?<!\d)([1-9]\d*)\s*차\s*년도")
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*(?:년|학년도)?")
 _KIND_WORDS = {"plan": r"계획서|사업계획|계획(?!\s*대비)", "report": r"실적|결과\s*보고|성과\s*보고", "evaluation": r"평가\s*(?:결과|의견)|종합\s*의견|지적"}
 _STOP = {"무엇", "어떻게", "있어", "있나", "알려", "줘", "대한", "관련", "사업", "내용", "해당", "그리고", "에서", "으로"}
@@ -73,9 +73,10 @@ def retrieve(db, question: str, k: int = 5, chunk_text=None) -> Trace:
     m = _ROUND.search(question or "")
     tr.round = int(m.group(1)) if m else None
     y = _YEAR.search(question or "")
-    tr.year = int(y.group(1)) if y and not m else None
+    tr.year = int(y.group(1)) if y else None
     tr.kinds = [kd for kd, pat in _KIND_WORDS.items() if re.search(pat, question or "")]
-    tr.steps.append(f"연차 = {tr.round and f'{tr.round}차년도' or tr.year or '미지정'} · 문서 갈래 = {tr.kinds or '미지정'}")
+    scope = " · ".join(str(v) for v in (tr.year, f"{tr.round}차년도" if tr.round else None) if v)
+    tr.steps.append(f"연차 = {scope or '미지정'} · 문서 갈래 = {tr.kinds or '미지정'}")
 
     nodes = {n["id"]: n for n in kg_store.nodes(db)}
     edges = kg_store.edges(db, "contains")
@@ -86,17 +87,22 @@ def retrieve(db, question: str, k: int = 5, chunk_text=None) -> Trace:
         [c for p in progs for c in children.get(p["id"], []) if c.startswith("year:")]
     narrowed = years
     if tr.round:
-        narrowed = [y_ for y_ in years if y_.endswith(f":r{tr.round}")]
-    elif tr.year:
-        narrowed = [y_ for y_ in years if y_.endswith(f":y{tr.year}") or (nodes.get(y_, {}).get("props", {}).get("year") == tr.year)]
+        narrowed = [y_ for y_ in narrowed if y_.endswith(f":r{tr.round}")
+                    or nodes.get(y_, {}).get("props", {}).get("round") == tr.round]
+    if tr.year:
+        narrowed = [y_ for y_ in narrowed if y_.endswith(f":y{tr.year}") or (nodes.get(y_, {}).get("props", {}).get("year") == tr.year)]
     if (tr.round or tr.year) and not narrowed:
-        tr.steps.append("그 연차의 문서가 그래프에 없음 — 모든 연차에서 찾는다(답할 때 연차가 다름을 밝힌다)")
-    years = narrowed or years
+        tr.steps.append("[2단계: 그래프 탐색] 요청한 연차의 문서가 없음 — 대상 연차 확인 또는 추가 자료 필요")
+        return tr
+    years = narrowed
     docs = [d for y_ in years for d in children.get(y_, []) if d.startswith("doc:")]
-    if tr.program:
+    if tr.program and tr.round is None and tr.year is None:
         docs += [d for d in children.get(tr.program, []) if d.startswith("doc:")]
     if tr.kinds:
-        docs = [d for d in docs if nodes.get(d, {}).get("props", {}).get("kind") in tr.kinds] or docs
+        docs = [d for d in docs if nodes.get(d, {}).get("props", {}).get("kind") in tr.kinds]
+        if not docs:
+            tr.steps.append("[2단계: 그래프 탐색] 요청한 문서 갈래의 근거가 없음 — 문서 갈래 확인 또는 추가 자료 필요")
+            return tr
     tr.steps.append(f"[2단계: 그래프 탐색] 연차 {len(years)}개 → 문서 {len(docs)}개: "
                     + ", ".join(nodes[d]["label"][:30] for d in docs[:4]) + (" …" if len(docs) > 4 else ""))
     year_of = {d: y_ for y_ in years for d in children.get(y_, [])}
