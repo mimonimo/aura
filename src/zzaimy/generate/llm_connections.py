@@ -203,6 +203,12 @@ def role_conn(role: str) -> dict | None:
     """
     data = _load()
     cid, model = _role_entry(data, role)
+    # 일괄 작업(반입 배치 등)만 다른 서버로 돌릴 때 — 화면의 용도 지정은 그대로 두고 그 프로세스에서만 바꾼다.
+    # ZZAIMY_ROLE_CONN="review=<연결 id>,vision=<연결 id>"
+    for pair in (os.environ.get("ZZAIMY_ROLE_CONN") or "").split(","):
+        r, _, c = pair.partition("=")
+        if r.strip() == role and c.strip() and get(c.strip()):
+            cid = c.strip()
     conn = get(cid) if cid else None
     if conn is None:
         conn = get(data["active"]) if data["active"] else None

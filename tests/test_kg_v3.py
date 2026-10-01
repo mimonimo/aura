@@ -206,3 +206,20 @@ def test_acronym_matches_only_on_latin_word_boundary():
             {"id": 2, "filename": "2024 Digitech Global Field Trip 결과보고서.pdf", "path": "", "head": ""}]
     res = {a.doc_id: a for a in programs.classify(docs, programs.build_cards(docs))}
     assert res[1].program and not res[2].program
+
+
+def test_role_conn_env_override_only_for_that_process(tmp_path, monkeypatch):
+    import json as _json
+    from zzaimy.generate import llm_connections as lc
+
+    cfg = tmp_path / "c.json"
+    cfg.write_text(_json.dumps({"connections": [
+        {"id": "a1", "name": "A", "kind": "vllm", "base_url": "http://a/v1", "model": "", "api_key": ""},
+        {"id": "b2", "name": "B", "kind": "vllm", "base_url": "http://b/v1", "model": "", "api_key": ""}],
+        "active": "a1", "roles": {"review": {"id": "b2", "model": "w"}}}), encoding="utf-8")
+    lc.configure(cfg)
+    assert lc.role_conn("review")["base_url"] == "http://b/v1"
+    monkeypatch.setenv("ZZAIMY_ROLE_CONN", "review=a1")
+    assert lc.role_conn("review")["base_url"] == "http://a/v1"
+    monkeypatch.setenv("ZZAIMY_ROLE_CONN", "review=없음")
+    assert lc.role_conn("review")["base_url"] == "http://b/v1"
