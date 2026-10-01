@@ -12,6 +12,7 @@ HWPX는 ZIP 안의 `Contents/section*.xml`(OWPML)이다. 표는 `hp:tbl` → `hp
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import time
 import zipfile
@@ -171,6 +172,72 @@ def _heading_styles(zf: zipfile.ZipFile, names: list[str]) -> set[str]:
     return ids
 
 
+# 번호로 시작하는 제목 꼴 — Ⅰ. / 1. / 1.1. / 가. / (1) / 1) (chunk_path·section_context 와 같은 갈래). □·○ 같은 개조식 부호는 본문 항목이다
+_NUMBERED_HEAD = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]|\d+(?:\.\d+)*[.．]?(?=\s)|[가-하][.．]|\(\d+\)|\d+\))\s*\S")
+HEADING_MAX_CHARS = 60
+_DATE_LIKE = re.compile(r"^\s*(?:19|20)\d{2}\s*[.．]\s*\d{0,2}\s*[.．]?\s*(?:\d{1,2}\s*[.．]?)?\s*$")   # 표지 날짜 '2026. 2.'
+_TRAILING_PAGE = re.compile(r"^(.*?\S)\s*\d{1,4}\s*$")
+
+
+def demote_toc_lines(entries: list) -> int:
+    """목차 쪽의 줄 — 끝에 쪽 번호가 붙은 제목인데 번호를 뗀 글이 뒤에서 제목으로 다시 나오면 목차 줄이다(본문 제목과 두 번 잡혔다,
+    실측 2026-10-01 LINC3.0 3차년도 계획서). 고친 개수를 돌려준다."""
+    heads = [(i, e.text) for i, e in enumerate(entries) if e.kind == "heading"]
+    later: dict[str, int] = {}
+    for i, t in heads:
+        later[" ".join(t.split())] = i                                  # 같은 글의 마지막 위치
+    n = 0
+    for i, t in heads:
+        m = _TRAILING_PAGE.match(t)
+        if not m:
+            continue
+        base = " ".join(m.group(1).split())
+        if later.get(base, -1) > i:
+            entries[i] = dataclasses.replace(entries[i], kind="text")
+            n += 1
+    return n
+
+
+def _char_shapes(zf: zipfile.ZipFile, names: list[str]) -> tuple[dict[str, tuple[int, bool]], set[str], int]:
+    """글자 모양(id → (크기, 굵게)), 개요 문단 모양 id, 바탕글 글자 크기."""
+    header = next((n for n in names if n.endswith("Contents/header.xml")), None)
+    if not header:
+        return {}, set(), 1000
+    try:
+        root = _fromstring(zf.read(header))
+    except ET.ParseError:
+        return {}, set(), 1000
+    chars: dict[str, tuple[int, bool]] = {}
+    outline: set[str] = set()
+    body_cp = "0"
+    for el in root.iter():
+        name = _local(el.tag)
+        if name == "charPr" and el.get("id") is not None:
+            bold = any(_local(c.tag) == "bold" for c in el)
+            try:
+                chars[str(el.get("id"))] = (int(el.get("height") or 1000), bold)
+            except ValueError:
+                chars[str(el.get("id"))] = (1000, bold)
+        elif name == "paraPr" and el.get("id") is not None:
+            if any(_local(c.tag) == "heading" and (c.get("type") or "").upper() == "OUTLINE" for c in el):
+                outline.add(str(el.get("id")))
+        elif name == "style" and str(el.get("id")) == "0":
+            body_cp = str(el.get("charPrIDRef") or "0")
+    return chars, outline, chars.get(body_cp, (1000, False))[0]
+
+
+def is_heading(text: str, char: tuple[int, bool] | None, outline: bool, body_height: int) -> bool:
+    """문단이 절 제목인가 — 개요 문단이거나, 짧고 번호로 시작하며 본문보다 크거나 굵은 글자(2026-10-01, ADR-0048).
+    실물 서식은 개요 스타일을 거의 쓰지 않고 번호를 글자로 쳐서 제목을 만든다(557 서식: 스타일로 찾은 제목 4개)."""
+    if outline:
+        return True
+    t = (text or "").strip()
+    if not t or len(t) > HEADING_MAX_CHARS or not _NUMBERED_HEAD.match(t) or _DATE_LIKE.match(t):
+        return False
+    height, bold = char or (body_height, False)
+    return bold or height >= body_height + 100
+
+
 class HwpxParser:
     name = "hwpx"
 
@@ -192,6 +259,7 @@ class HwpxParser:
             )
             bin_map = _binary_map(zf, names)
             heading_ids = _heading_styles(zf, names)
+            char_shapes, outline_ids, body_height = _char_shapes(zf, names)
             extracted: dict[str, Path] = {}
 
             def image_for(el: ET.Element, page_no: int) -> None:
@@ -224,16 +292,18 @@ class HwpxParser:
                 root = _fromstring(raw)
                 page_lines: list[str] = []
                 for para in (ch for ch in root if _local(ch.tag) == "p"):
-                    kind = (
-                        "heading" if str(para.get("styleIDRef")) in heading_ids else "text"
-                    )
+                    styled = str(para.get("styleIDRef")) in heading_ids
+                    outline_para = str(para.get("paraPrIDRef")) in outline_ids
+                    first_cp = next((str(r.get("charPrIDRef")) for r in para if _local(r.tag) == "run"
+                                     and any(_local(o.tag) == "t" and "".join(o.itertext()).strip() for o in r)), None)
                     buf: list[str] = []
 
                     def flush() -> None:
                         text = " ".join("".join(buf).split())
                         buf.clear()
                         if text:
-                            entries.append(ParsedEntry(page_no=sec_idx, kind=kind, text=text))
+                            head = styled or is_heading(text, char_shapes.get(first_cp or ""), outline_para, body_height)
+                            entries.append(ParsedEntry(page_no=sec_idx, kind="heading" if head else "text", text=text))
                             page_lines.append(text)
 
                     for run in (ch for ch in para if _local(ch.tag) == "run"):
@@ -268,6 +338,9 @@ class HwpxParser:
                                         ))
                     flush()
                 pages.append(ParsedPage(page_no=sec_idx, text="\n\n".join(page_lines)))
+        toc = demote_toc_lines(entries)
+        if toc:
+            warnings.append(f"목차 줄 {toc}개는 제목에서 뺐다")
         return ParseResult(
             parser=self.name, elapsed_s=time.perf_counter() - t0, pages=pages,
             tables=tables, images=images, entries=entries, warnings=warnings,
