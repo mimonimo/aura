@@ -32,6 +32,13 @@ _VISION_FAIL_LIMIT = 2   # 이만큼 연속 실패하면 그 실행에서 비전
 # 스캔 문서를 쪽째 비전으로 읽는 한도. 디지털 PDF 는 비전으로 가지 않으므로(_pdf_to_images)
 # 이 한도는 스캔본에만 걸린다. 실측(2026-09-20 DGX qwen3.6:35b): 병합 표가 있는 쪽 17.6초.
 VISION_MAX_PAGES = int(os.environ.get("ZZAIMY_VISION_MAX_PAGES", "30"))
+
+
+def _spread_pages(n_pages: int, k: int) -> list[int]:
+    """쪽 번호 표본 — 첫 쪽부터 끝까지 고루 k 개(쪽이 k 이하이면 전부)."""
+    if n_pages <= k:
+        return list(range(n_pages))
+    return sorted({round(i * (n_pages - 1) / (k - 1)) for i in range(k)})
 # 실행 범위 차단기. 문서마다 처리기를 새로 만들어도 유지돼야 하므로 모듈에 둔다.
 _vision_state = {"fails": 0, "off": False, "off_at": 0.0}
 VISION_OFF_S = int(os.environ.get("ZZAIMY_VISION_OFF_S", "300"))   # 연속 실패로 끈 판독을 다시 시도하기까지
@@ -418,7 +425,8 @@ class DocumentProcessor:
             pages = len(pdf)
             if pages < min_pages:
                 return None
-            sample = "".join((pdf[i].get_textpage().get_text_range() or "") for i in range(min(3, pages)))
+            # 앞 몇 쪽은 표지·동의서라 글자가 거의 없다 — 문서 전체에 고루 뽑아 본다(실측 2026-10-01: 344쪽 계획서가 스캔본으로 가 5쪽만 들어옴)
+            sample = "".join((pdf[i].get_textpage().get_text_range() or "") for i in _spread_pages(pages, 6))
             if len(sample.strip()) < 120:          # 글자층이 없으면(스캔) 다른 경로로 보낸다
                 return None
             out: list[str] = []
@@ -1242,19 +1250,20 @@ class DocumentProcessor:
             return None
 
     @staticmethod
-    def _pdf_has_text_layer(file_path: Path, sample_pages: int = 3) -> bool:
-        """디지털 PDF 판별 — 앞쪽 페이지에 텍스트 레이어가 충분하면 참."""
+    def _pdf_has_text_layer(file_path: Path, sample_pages: int = 6) -> bool:
+        """디지털 PDF 판별 — 문서 전체에 고루 뽑은 쪽에 텍스트 레이어가 충분하면 참(앞쪽 표지만 보면 디지털 계획서가 스캔본으로 간다)."""
         try:
             import pypdfium2 as pdfium
 
             doc = pdfium.PdfDocument(str(file_path))
             try:
-                n = min(len(doc), sample_pages)
+                idx = _spread_pages(len(doc), sample_pages)
+                n = len(idx)
                 if n == 0:
                     return False
                 chars = 0
                 sample = []
-                for i in range(n):
+                for i in idx:
                     tp = doc[i].get_textpage()
                     got = tp.get_text_bounded() or ""
                     chars += len(got)
