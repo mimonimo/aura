@@ -308,3 +308,14 @@ def test_sections_from_pdf_page_text_lines():
     assert titles["1-1. 사업 목표 및 추진체계"].parent == titles["1. 사업 추진체계"].path
     assert 3 in titles["1-1. 사업 목표 및 추진체계"].chunks
     assert not any("······" in t for t in titles)
+
+
+def test_wrapped_pdf_header_within_1024_bytes_is_pdf(tmp_path):
+    from zzaimy.app.pipeline import _format_mismatch
+
+    f = tmp_path / "공문.pdf"
+    f.write_bytes(b"Handysoft Approval Document File" + b"\x00" * 397 + b"%PDF-1.6\n%%EOF\n")
+    assert _format_mismatch(f) is None
+    g = tmp_path / "가짜.pdf"
+    g.write_bytes(b"\x00" * 2000)
+    assert _format_mismatch(g)
