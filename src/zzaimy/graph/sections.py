@@ -117,7 +117,7 @@ def _jac(a: set, b: set) -> float:
 
 
 def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_key: int = 4,
-                  accept: float = 0.25, margin: float = 0.08) -> list[tuple[Section, Section, str]]:
+                  accept: float = 0.25, margin: float = 0.08, generic_parent: float = 0.5) -> list[tuple[Section, Section, str]]:
     """같은 제목의 절 짝을 맥락 점수로 고른다(2차 반복, 2026-10-01).
     점수 = 0.5 × 상위 절 제목 글자 겹침(가까운 조상일수록 무게) + 0.5 × 본문·하위 절 제목 낱말 겹침.
     1차(상위 절 제목이 정확히 같아야)는 계획서·보고서가 상위 제목을 조금씩 다르게 써서 맞는 짝을 놓쳤고(버린 후보의 15% 가 같은
@@ -155,10 +155,21 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
             anc = 1.0                                         # 둘 다 최상위 절
         return 0.5 * anc + 0.5 * _jac(wa, wb)
 
+    def anc_sim(x: Section, y: Section) -> float:
+        ca, _ = ia[id(x)]
+        cb, _ = ib[id(y)]
+        return _jac(ca[0], cb[0]) if ca and cb else (1.0 if not ca and not cb else 0.0)
+
     cands = []
     for k, xs in ga.items():
+        ys = gb.get(k, [])
+        # 문서 안에서 3번 이상 되풀이되는 흔한 제목('1. 추진배경 및 개요')은 바로 위 절 제목이 충분히 같아야 한다(3차 반복:
+        # 상위 과제 이름이 '성과'만 겹쳐도 이어지던 오류)
+        generic = len(xs) >= 3 or len(ys) >= 3
         for x in xs:
-            for y in gb.get(k, []):
+            for y in ys:
+                if generic and anc_sim(x, y) < generic_parent:
+                    continue
                 cands.append((score(x, y), x, y))
     cands.sort(key=lambda t: -t[0])
     pairs, used_a, used_b = [], set(), set()
