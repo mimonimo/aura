@@ -116,6 +116,14 @@ def _jac(a: set, b: set) -> float:
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
+def _wjac(a: set, b: set, idf: dict) -> float:
+    """낱말 희소성 가중 겹침 — 어디에나 나오는 낱말(LINC·산학협력·운영)은 가볍게(5차 반복)."""
+    if not a or not b:
+        return 0.0
+    w = lambda xs: sum(idf.get(x, 1.0) for x in xs)
+    return w(a & b) / (w(a | b) or 1.0)
+
+
 def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_key: int = 4,
                   accept: float = 0.25, margin: float = 0.08, generic_parent: float = 0.5,
                   generic_body: float = 0.15) -> list[tuple[Section, Section, str]]:
@@ -146,6 +154,15 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         return groups, info
     ga, ia = index(a)
     gb, ib = index(b)
+    # 두 문서의 절 본문을 문서 모음으로 보고 낱말 희소성(idf)을 잰다
+    import math
+    bags = [w for _c, w in ia.values()] + [w for _c, w in ib.values()]
+    df: dict[str, int] = {}
+    for bag in bags:
+        for wd in bag:
+            df[wd] = df.get(wd, 0) + 1
+    n_bags = max(len(bags), 1)
+    idf = {wd: math.log((n_bags + 1) / (c + 0.5)) for wd, c in df.items()}
 
     def score(x: Section, y: Section, generic: bool = False) -> float:
         ca, wa = ia[id(x)]
@@ -154,7 +171,9 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         anc = sum(w * _jac(p_, q_) for w, p_, q_ in zip(weights, ca, cb)) / (sum(weights[:min(len(ca), len(cb))]) or 1)
         if not ca and not cb:
             anc = 1.0                                         # 둘 다 최상위 절
-        body = _jac(wa, wb)
+        if not wa and not wb:
+            return 0.0                                        # 본문도 하위 절도 없는 머리글(표지 줄 등)끼리는 잇지 않는다(5차)
+        body = _wjac(wa, wb, idf)
         if generic:
             # 흔한 제목('1. 추진배경 및 개요')은 같은 상위 제목 아래 과제 사례마다 되풀이된다 — 무엇에 대한 절인지는 본문이 정한다(4차)
             return 0.3 * anc + 0.7 * body if body >= generic_body else 0.0
