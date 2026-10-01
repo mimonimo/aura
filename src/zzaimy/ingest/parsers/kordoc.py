@@ -158,11 +158,20 @@ class KordocParser:
         t0 = time.perf_counter()
         proc = subprocess.run([str(exe), str(path), "--format", "json", "--image-refs", "-o", str(out)],
                               capture_output=True, text=True, timeout=self.timeout_s, env=_env())
+        no_images = False
         if proc.returncode != 0 or not out.exists():
-            raise RuntimeError(f"kordoc 실패({proc.returncode}): {(proc.stderr or proc.stdout)[-300:]}")
+            # 그림이 아주 많이 박힌 큰 한글 파일은 구조는 읽고 그림 내보내기에서 실패한다(실측 2026-10-01: LINC3.0 사업계획서
+            # 108MB — '[1/1] OK' 뒤 '문서 처리 중 오류', --no-images 는 3초에 성공). 구조가 더 중요하니 그림 없이 한 번 더 읽는다
+            first = (proc.stderr or proc.stdout)[-200:]
+            out.unlink(missing_ok=True)
+            proc = subprocess.run([str(exe), str(path), "--format", "json", "--no-images", "-o", str(out)],
+                                  capture_output=True, text=True, timeout=self.timeout_s, env=_env())
+            if proc.returncode != 0 or not out.exists():
+                raise RuntimeError(f"kordoc 실패({proc.returncode}): {first} / 그림 없이도: {(proc.stderr or proc.stdout)[-200:]}")
+            no_images = True
         data = json.loads(out.read_text(encoding="utf-8"))
         if not data.get("success", True):
             raise RuntimeError(f"kordoc 결과 실패: {str(data.get('error') or '')[:200]}")
         result = from_json(data, image_dir=work / "images")
-        result.warnings.insert(0, f"kordoc {version()} · {time.perf_counter() - t0:.1f}s")
+        result.warnings.insert(0, f"kordoc {version()} · {time.perf_counter() - t0:.1f}s" + (" · 그림 없이(그림 내보내기 실패)" if no_images else ""))
         return result
