@@ -25,7 +25,8 @@ from zzaimy.app.db import Database  # noqa: E402
 from zzaimy.graph import kg_store, sections  # noqa: E402
 
 PROMPT = ("다음은 같은 사업·같은 연차의 사업계획서 절과 사업실적보고서 절이다. 두 절이 같은 과제·평가 항목에 대한 계획과 그 실적인가?\n"
-          "제목이 같아도 다른 과제 아래의 절이면 아니다. JSON 한 줄로만 답한다: {{\"same\": true 또는 false, \"why\": \"한 문장\"}}\n\n"
+          "제목이 같아도 다른 과제 아래의 절이면 아니다. 절 번호(20-2, 25-2 등)는 문서마다 원래 다르므로 번호로 판단하지 말고 내용과 상위 과제로 판단한다.\n"
+          "JSON 한 줄로만 답한다: {{\"same\": true 또는 false, \"why\": \"한 문장\"}}\n\n"
           "[계획서 절] 「{pt}」 (상위: {pp})\n{pb}\n\n[실적보고서 절] 「{rt}」 (상위: {rp})\n{rb}")
 
 
@@ -40,6 +41,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--all-kept", action="store_true", help="이은 쌍은 표본 대신 전부 판정")
+    ap.add_argument("--out", default="kg_judge.json")
     args = ap.parse_args()
     from zzaimy.generate import llm_connections
     from zzaimy.generate.client import VllmClient
@@ -71,7 +74,7 @@ def main() -> int:
     client = VllmClient(role="review")
     out = {}
     for name, pool in (("kept", kept), ("dropped", dropped)):
-        sample = rnd.sample(pool, min(args.n, len(pool)))
+        sample = list(pool) if (name == "kept" and args.all_kept) else rnd.sample(pool, min(args.n, len(pool)))
         yes = 0
         rows = []
         for a, b in sample:
@@ -93,7 +96,7 @@ def main() -> int:
         print(f"{name}: 후보 {len(pool)} · 표본 {len(sample)} · 같다 {yes} ({out[name]['rate']:.0%})", flush=True)
         for r in rows[:6]:
             print(f"   {'O' if r['same'] else 'X'} 「{r['plan'][:28]}」↔「{r['report'][:28]}」 {r['why'][:70]}", flush=True)
-    dest = ROOT / "data" / "eval" / "kg_judge.json"
+    dest = ROOT / "data" / "eval" / args.out
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     print("기록:", dest)
