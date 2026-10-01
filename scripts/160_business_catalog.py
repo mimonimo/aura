@@ -22,6 +22,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from zzaimy.graph import programs  # noqa: E402
 
 EXT = {"hwp", "hwpx", "pdf", "docx", "doc", "xlsx", "xls", "pptx"}
+DOC = {"hwp", "hwpx", "pdf", "docx", "doc"}
+CORE = ("basic_plan", "announcement", "plan", "report", "evaluation", "criteria", "guideline")
 
 
 def main() -> int:
@@ -63,6 +65,16 @@ def main() -> int:
                "year": dict(sorted(Counter(a.year for _, a in items if a.year).items())),
                "review_eg": [f"{d['path'][-60:]}/{d['filename'][:50]} — {'; '.join(a.evidence[:2])}"
                              for d, a in items if a.status == "review"][:4]}
+        # 사업의 뼈대 문서 — 기본계획·공고·계획서·실적보고서·평가·지침(문서 형식만), 연차·연도별
+        core = defaultdict(list)
+        grid = defaultdict(Counter)
+        for d, a in items:
+            if a.kind in CORE and Path(d["filename"]).suffix.lower().lstrip(".") in DOC:
+                when = f"{a.round}차년도" if a.round else (str(a.year) if a.year else (programs._PATH_YEAR.findall(d["path"]) or ["?"])[-1])
+                core[a.kind].append(f"{when} · {d['path'][-50:]}/{d['filename'][:60]}")
+                grid[a.kind][when] += 1
+        row["core"] = {k: sorted(v) for k, v in core.items()}
+        row["grid"] = {k: dict(sorted(v.items())) for k, v in grid.items()}
         out["programs"][pid] = row
         if n < args.min_files:
             continue
