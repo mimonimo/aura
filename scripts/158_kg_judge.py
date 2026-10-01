@@ -70,6 +70,17 @@ def main() -> int:
             for rid in rk.get(k, []):
                 if (s["id"], rid) not in kept_set:
                     dropped.append((s["id"], rid))
+    # 문서 → 사업(사업별로 따로 잰다 — 한 사업에 맞춘 개선을 막는다, CLAUDE.md 절대 규칙 12)
+    prog_of_node: dict[str, str] = {}
+    for e in kg_store.edges(db, "contains"):
+        if e["src"].startswith("program:"):
+            prog_of_node[e["dst"]] = e["src"]
+    for e in kg_store.edges(db, "contains"):
+        if e["src"].startswith("year:") and e["src"] in prog_of_node:
+            prog_of_node[e["dst"]] = prog_of_node[e["src"]]
+
+    def prog_of(sec_id: str) -> str:
+        return prog_of_node.get(sec_id.split(":sec:")[0], "(미분류)")
     rnd = random.Random(args.seed)
     client = VllmClient(role="review")
     out = {}
@@ -91,9 +102,18 @@ def main() -> int:
                 v = {}
             same = bool(v.get("same"))
             yes += same
-            rows.append({"plan": secs[a]["label"], "report": secs[b]["label"], "same": same, "why": str(v.get("why", ""))[:120]})
+            rows.append({"plan": secs[a]["label"], "report": secs[b]["label"], "same": same, "why": str(v.get("why", ""))[:120],
+                         "program": prog_of(a), "plan_id": a, "report_id": b})
         out[name] = {"pool": len(pool), "n": len(sample), "same": yes, "rate": round(yes / max(len(sample), 1), 2), "rows": rows}
         print(f"{name}: 후보 {len(pool)} · 표본 {len(sample)} · 같다 {yes} ({out[name]['rate']:.0%})", flush=True)
+        by_prog: dict[str, list[int]] = {}
+        for r in rows:
+            by_prog.setdefault(r["program"], [0, 0])
+            by_prog[r["program"]][0] += 1
+            by_prog[r["program"]][1] += r["same"]
+        out[name]["by_program"] = {k: {"n": n, "same": y, "rate": round(y / n, 2)} for k, (n, y) in by_prog.items()}
+        for k, (n, y) in sorted(by_prog.items()):
+            print(f"   {k}: {y}/{n} ({y / max(n, 1):.0%})", flush=True)
         for r in rows[:6]:
             print(f"   {'O' if r['same'] else 'X'} 「{r['plan'][:28]}」↔「{r['report'][:28]}」 {r['why'][:70]}", flush=True)
     dest = ROOT / "data" / "eval" / args.out
