@@ -183,10 +183,32 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             card.names.update(names[k])
         else:
             card.acrs.update(acr_seen[k])
-    for card in groups.values():
+    # 줄여 부른 이름(「혁신지원사업」)이 다른 카드 하나의 긴 이름(「전문대학 혁신지원사업」) 끝과 같으면 같은 사업이다.
+    # 긴 이름을 가진 카드가 둘 이상이면(어느 사업인지 모름) 합치지 않는다
+    # 앞에 붙은 말이 한 낱말뿐일 때만(「전문대학」+혁신지원사업). 「AID 전환 중점」+전문대학 지원사업처럼 고유한 말이 여럿 붙으면
+    # 짧은 쪽은 범주 이름이지 그 사업이 아니다
+    flat = lambda n: re.sub(r"[\s()·]", "", n)
+
+    def extends(long_: str, short_: str) -> bool:
+        lf, sf = flat(long_), flat(short_)
+        if lf == sf or not lf.endswith(sf):
+            return False
+        return len(long_[: len(long_) - len(short_)].split()) <= 1 if long_.endswith(short_) else len(lf) - len(sf) <= 4
+    cards = list(groups.values())
+    merged: set[int] = set()
+    for short in cards:
+        if not short.names or short.acrs:
+            continue
+        hosts = [c for c in cards if c is not short and id(c) not in merged
+                 and all(any(extends(ln, sn) for ln in c.names) for sn in short.names)]
+        if len(hosts) == 1:
+            hosts[0].names.update(short.names)
+            merged.add(id(short))
+    cards = [c for c in cards if id(c) not in merged]
+    for card in cards:
         if card.names:
             card.key = program_key(card.names.most_common(1)[0][0])
-    return list(groups.values())
+    return cards
 
 
 @dataclass
