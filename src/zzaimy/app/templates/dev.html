@@ -102,6 +102,14 @@
     <a href="/dev/db" class="btn-ghost" style="padding:3px 9px; font-size:11.5px;">데이터 열람</a>
   </div>
 
+  {# 시스템 구성 — 어디에 무엇이 있고 무엇이 어디로 흐르는가(ADR-0047). 그림 원본은 static/topology.svg, HANDOFF 도 같은 파일 #}
+  <figure style="margin:16px 0 4px;">
+    <a href="/static/topology.svg" target="_blank" rel="noopener" title="새 창에서 크게 보기">
+      <img src="/static/topology.svg" alt="시스템 구성: 교직원 PC → 운영 VM(플랫폼·문서함·RAG 색인·온톨로지·학습 데이터셋) ↔ 토르 02·03(실시간 모델), DGX(원본 문서·처리·일괄 작업·SFT 학습)"
+           style="display:block; width:100%; height:auto; border:1px solid var(--line); border-radius:12px; background:#fff;"></a>
+    <figcaption class="muted" style="font-size:12px; margin-top:6px;">시스템 구성 — 원본·처리·학습은 DGX, 서비스 데이터는 운영 VM, 실시간 모델은 토르</figcaption>
+  </figure>
+
   {# 구축 현황(기능 상태표)과 진행 현황(dev-now.md 서술)은 원천이 달라 탭으로 나란히 둔다 #}
   <div class="tabbar" style="max-width:360px; margin:18px 0 14px;">
     <button type="button" class="on" data-tab="paneBuild">구축 현황</button>

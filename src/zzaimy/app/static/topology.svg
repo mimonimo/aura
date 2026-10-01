@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 560" width="980" height="560" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">ZZAIMY 시스템 구성</title>
+  <desc id="d">사용자는 운영 VM 의 플랫폼을 쓰고, VM 은 토르 02·03 의 모델을 부른다. 원본 문서와 무거운 처리·학습은 DGX 에서 하고 처리본은 VM 으로, 승인된 학습 데이터셋은 DGX 로, 학습본은 토르로 간다.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6b80"/>
+    </marker>
+    <style>
+      .box { fill:#ffffff; stroke:#c9d3df; stroke-width:1.2; }
+      .host { fill:#f6f8fb; stroke:#9fb0c5; stroke-width:1.4; }
+      .dgx { fill:#f4f7f2; stroke:#a7b99a; stroke-width:1.4; }
+      .ext { fill:#fbfaf6; stroke:#cfc6ad; stroke-width:1.2; stroke-dasharray:5 4; }
+      .h { font-size:15px; font-weight:700; fill:#1f2a37; }
+      .s { font-size:11.5px; fill:#5b6b80; }
+      .b { font-size:13px; font-weight:600; fill:#1f2a37; }
+      .t { font-size:11.5px; fill:#3b4757; }
+      .e { font-size:11px; fill:#4a5a6e; }
+      .ln { stroke:#5b6b80; stroke-width:1.4; fill:none; marker-end:url(#a); }
+      .ln2 { stroke:#5b6b80; stroke-width:1.4; fill:none; marker-end:url(#a); marker-start:url(#a); }
+    </style>
+  </defs>
+
+  <!-- 사용자 -->
+  <rect class="ext" x="20" y="40" width="190" height="78" rx="10"/>
+  <text class="h" x="36" y="68">교직원 PC</text>
+  <text class="s" x="36" y="88">브라우저 · 한글 프로그램</text>
+  <text class="s" x="36" y="104">ync.ac.kr 구글 계정</text>
+
+  <!-- 구글 -->
+  <rect class="ext" x="20" y="190" width="190" height="78" rx="10"/>
+  <text class="h" x="36" y="218">구글 드라이브·독스</text>
+  <text class="s" x="36" y="238">작업본(협업) · 완성본</text>
+  <text class="s" x="36" y="254">사용자별 학교 계정</text>
+
+  <!-- 원천 122 -->
+  <rect class="ext" x="20" y="420" width="190" height="78" rx="10"/>
+  <text class="h" x="36" y="448">원천 PC (.122)</text>
+  <text class="s" x="36" y="468">교내 실문서 약 1.5TB</text>
+  <text class="s" x="36" y="484">사업별 폴더</text>
+
+  <!-- 운영 VM -->
+  <rect class="host" x="270" y="20" width="390" height="330" rx="14"/>
+  <text class="h" x="290" y="48">운영 VM · 192.168.16.226</text>
+  <text class="s" x="290" y="66">CPU 8 · 메모리 31GB · 디스크 491GB · PostgreSQL</text>
+  <rect class="box" x="288" y="80" width="354" height="54" rx="8"/>
+  <text class="b" x="302" y="102">플랫폼 · 에이전트 리즈닝 루프</text>
+  <text class="t" x="302" y="122">질문 파악 → 그래프 탐색 → 근거 검색 → 컨텍스트 → 생성 → 대조</text>
+  <rect class="box" x="288" y="144" width="172" height="62" rx="8"/>
+  <text class="b" x="302" y="166">문서함</text>
+  <text class="t" x="302" y="184">문서 정보 · 작업 원본</text>
+  <text class="t" x="302" y="199">열람 캐시</text>
+  <rect class="box" x="470" y="144" width="172" height="62" rx="8"/>
+  <text class="b" x="484" y="166">RAG 색인</text>
+  <text class="t" x="484" y="184">처리본 조각 · 임베딩</text>
+  <text class="t" x="484" y="199">계열별 · 열람 등급</text>
+  <rect class="box" x="288" y="216" width="172" height="62" rx="8"/>
+  <text class="b" x="302" y="238">온톨로지·지식그래프</text>
+  <text class="t" x="302" y="256">사업→연차→문서→절</text>
+  <text class="t" x="302" y="271">→지표·예산·조직·규정</text>
+  <rect class="box" x="470" y="216" width="172" height="62" rx="8"/>
+  <text class="b" x="484" y="238">학습 데이터셋</text>
+  <text class="t" x="484" y="256">리즈닝 기록 후보·검수</text>
+  <text class="t" x="484" y="271">승인본(반출 관문)</text>
+  <text class="s" x="290" y="300">사실·수치는 그래프와 색인에서 인출(규칙 1·8)</text>
+  <text class="s" x="290" y="318">모델에는 지식을 넣지 않는다 — 리즈닝만 학습</text>
+
+  <!-- 토르 -->
+  <rect class="host" x="740" y="20" width="220" height="104" rx="14"/>
+  <text class="h" x="758" y="48">토르 02 · .120</text>
+  <text class="t" x="758" y="70">Writer 27B (NVFP4)</text>
+  <text class="t" x="758" y="88">대화 · 초안 — 실시간</text>
+  <text class="s" x="758" y="108">학습본으로 교체</text>
+  <rect class="host" x="740" y="146" width="220" height="122" rx="14"/>
+  <text class="h" x="758" y="174">토르 03 · .121</text>
+  <text class="t" x="758" y="196">Writer 27B 검토 · 판독</text>
+  <text class="t" x="758" y="214">임베딩 Embed v2</text>
+  <text class="t" x="758" y="232">리랭커 Rerank v1</text>
+  <text class="s" x="758" y="252">실시간 서비스 전용</text>
+
+  <!-- DGX -->
+  <rect class="dgx" x="270" y="390" width="690" height="150" rx="14"/>
+  <text class="h" x="290" y="418">DGX · 211.170.162.110 (aura)</text>
+  <text class="s" x="290" y="436">GB10 GPU · 통합 메모리 121GB · 디스크 3.7TB</text>
+  <rect class="box" x="288" y="450" width="150" height="72" rx="8"/>
+  <text class="b" x="302" y="472">원본 문서</text>
+  <text class="t" x="302" y="490">~/data 약 1.5TB</text>
+  <text class="t" x="302" y="506">보관 · 다시 처리</text>
+  <rect class="box" x="450" y="450" width="160" height="72" rx="8"/>
+  <text class="b" x="464" y="472">처리</text>
+  <text class="t" x="464" y="490">글·구조 추출 · OCR</text>
+  <text class="t" x="464" y="506">처리본 생성</text>
+  <rect class="box" x="622" y="450" width="160" height="72" rx="8"/>
+  <text class="b" x="636" y="472">일괄 모델 작업</text>
+  <text class="t" x="636" y="490">그래프 추출 · 임베딩</text>
+  <text class="t" x="636" y="506">27B 가중치 사본</text>
+  <rect class="box" x="794" y="450" width="150" height="72" rx="8"/>
+  <text class="b" x="808" y="472">SFT 학습</text>
+  <text class="t" x="808" y="490">리즈닝 기록으로</text>
+  <text class="t" x="808" y="506">bf16 → NVFP4</text>
+
+  <!-- 연결 -->
+  <path class="ln2" d="M210 79 L270 79"/>
+  <text class="e" x="214" y="72">브라우저</text>
+  <path class="ln2" d="M210 229 L270 229"/>
+  <text class="e" x="214" y="222">작업본</text>
+  <path class="ln" d="M210 459 L270 459"/>
+  <text class="e" x="214" y="452">rclone</text>
+  <path class="ln2" d="M660 72 L740 72"/>
+  <text class="e" x="668" y="64">모델 호출</text>
+  <path class="ln2" d="M660 205 L740 205"/>
+  <text class="e" x="668" y="197">도구·검색</text>
+  <path class="ln" d="M420 390 L420 352"/>
+  <text class="e" x="426" y="374">처리본 반입</text>
+  <path class="ln" d="M520 352 L520 390"/>
+  <text class="e" x="526" y="374">승인 데이터셋</text>
+  <path class="ln" d="M330 390 L330 352"/>
+  <text class="e" x="276" y="384">열람 시 원본</text>
+  <path class="ln" d="M870 390 L870 270"/>
+  <text class="e" x="876" y="330">학습본 이관</text>
+  <text class="s" x="290" y="552">VM↔DGX 실측 약 10.7MB/s · 응답 8ms (2026-10-01)</text>
+</svg>
