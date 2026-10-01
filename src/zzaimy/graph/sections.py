@@ -20,7 +20,7 @@ _NUM = re.compile(r"^\s*([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|\d+(?:[.-]\d+)*|[가-
 class Section:
     path: str                     # 깊이별 순번 경로 '2.1.3'
     title: str
-    level: int
+    level: float                  # 번호 꼴 깊이(번호 없는 묶음 머리는 반 단계)
     seq: int                      # 제목 조각의 seq
     chunks: list[int] = field(default_factory=list)   # 매달린 조각 seq
     parent: str = ""
@@ -35,10 +35,13 @@ def title_key(title: str) -> str:
 # 글머리표로 시작하는 줄은 제목이 아니라 본문 항목이다(「□ 사업목표」·「❐ …」·「○ …」)
 _BULLET = re.compile(r"^\s*[□■❐❏❑❒○◦●◎❍❂◉◈▶▷►▸▹➢➤➔→◆◇♦•·∙※☞✓✔▪▫★☆\-–]")
 # 개요 번호: Ⅰ. / 1. / 1.1. / 15-2. / 가. / (1) / 1)
-_OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|\d{1,2}(?:[.\-]\d{1,2}){0,3}[.．)]|[가-하][.．)]|\(\d{1,2}\))\s*(?=[가-힣A-Za-z「『\[(])")
+# 가. 나. 다. 는 그 글자들만(「가-하」 범위는 「등)」 같은 낱말까지 잡는다), 숫자는 0 으로 시작하지 않는다(「01.」은 표 속 코드)
+_OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|[1-9]\d?(?:[.\-][1-9]\d?){0,3}[.．)]|[가나다라마바사아자차카타파하][.．)]|\([1-9]\d?\))\s*(?=[가-힣A-Za-z「『\[(])")
 _HYPHEN = re.compile(r"^\s*(\d{1,2}(?:-\d{1,2})+)[.．)]?\s")
 _SENTENCE_END = re.compile(r"(?:다|함|음|임|됨|요)\s*[.。]?\s*$")
 TEXT_HEADING_MAX = 60
+# 번호를 새로 여는 첫 번호
+_FIRST = re.compile(r"^\s*(?:Ⅰ\s*[.．]?|1[.．)]|1-1[.．)]?|가[.．)]|\(1\))\s")
 
 
 def _level(title: str) -> int | None:
@@ -78,12 +81,65 @@ def heading_text(c: dict) -> str | None:
             return None
         if re.fullmatch(r"[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|\d{1,2}", cells[0]) and len(cells) >= 2:
             return f"{cells[0]}. {' '.join(cells[1:])}"
+        # 이름 칸 표(「우수사례명 | 산학연협력 체제 강화를 위한 …」·「과제명 | …」) — 값이 그 부분의 제목이다
+        if len(cells) == 2 and re.fullmatch(r"[가-힣 ]{1,10}명", cells[0]) and 4 <= len(cells[1]) <= TEXT_HEADING_MAX:
+            return re.sub(r"^[○◦∘·\-\s]+", "", cells[1])
+        # 꺾쇠 띠(「[비전 및 산학연협력 체제] 우수사례 2」)
+        if re.match(r"^\s*[\[【][^\]】]{2,30}[\]】]", text):
+            return text
         if _OUTLINE.match(text) and not _SENTENCE_END.search(text):
             return text
     return None
 
 
 TOC_RUN = 5
+
+
+PAGE_TEXT_MIN = 200
+
+
+def _line_heading(line: str) -> str | None:
+    line = " ".join(line.split())
+    if not (2 <= len(line) <= TEXT_HEADING_MAX) or _BULLET.match(line):
+        return None
+    if _OUTLINE.match(line) and not _SENTENCE_END.search(line) and not re.search(r"\d\s*$", line[-3:] if len(line) > 40 else ""):
+        return line
+    return None
+
+
+def _running_heads(ordered: list[dict]) -> set[str]:
+    """쪽마다 위에 되풀이되는 머리 줄(「Ⅱ. 사업 추진내용」) — 쪽 글 조각 셋 이상의 앞 세 줄에 나오면 머리 줄이다."""
+    seen: dict[str, int] = {}
+    for c in ordered:
+        content = str(c.get("content") or "")
+        if c.get("kind") != "text" or len(content) < PAGE_TEXT_MIN or "\n" not in content:
+            continue
+        firsts = [" ".join(x.split()) for x in content.splitlines() if x.strip()][:3]
+        for f in set(firsts):
+            seen[f] = seen.get(f, 0) + 1
+    return {k for k, n in seen.items() if n >= 3}
+
+
+def _inner_headings(c: dict, running: set[str]) -> list[str]:
+    """여러 줄 쪽 글 조각(PDF 글자층) 안의 제목 줄들 — 처리기가 쪽째로 넣은 조각에서 절을 찾는다."""
+    content = str(c.get("content") or "")
+    if c.get("kind") != "text" or len(content) < PAGE_TEXT_MIN or "\n" not in content:
+        return []
+    out, lines = [], 0
+    for raw in content.splitlines():
+        line = " ".join(raw.split())
+        if not line or line in running or re.fullmatch(r"[\d\s\-–]+", line):
+            continue
+        lines += 1
+        if re.search(r"[·.…]{4,}\s*\d+\s*$", line):          # 점선 뒤 쪽 번호 — 목차 줄
+            out.append("\0toc")
+            continue
+        h = _line_heading(line)
+        if h:
+            out.append(h)
+    if out and (out.count("\0toc") >= 3 or (len(out) >= TOC_RUN and len(out) >= 0.6 * lines)):
+        return []                                             # 목차 쪽
+    return [h for h in out if h != "\0toc"]
 
 
 def _ordered(chunks: list[dict]) -> list[dict]:
@@ -120,21 +176,39 @@ def build(chunks: list[dict]) -> list[Section]:
     counters: dict[str, int] = {}
     ordered = _ordered(chunks)
     toc = _toc_seqs(ordered)
+    running = _running_heads(ordered)
+    # 사건 목록: (조각, 제목, 깊이) — 쪽 글 조각은 안의 제목 줄마다 사건 하나, 조각은 그 사건들의 절에 함께 매단다
+    events: list[tuple[dict, str | None, int | None]] = []
     for c in ordered:
+        inner = _inner_headings(c, running)
+        if inner:
+            events.append((c, None, None))                 # 조각 앞부분은 지금 절의 본문
+            events += [(c, t, _level(t)) for t in inner]
+            continue
         title = heading_text(c) if int(c["seq"]) not in toc else None
-        lvl = _level(title) if title else None
+        events.append((c, title, _level(title) if title else None))
+    heads = [(t, lv) for _c, t, lv in events]
+    for i, (c, title, lvl) in enumerate(events):
         if title and lvl is not None:
-            if lvl == 0:                               # 번호 없는 제목 — 지금 절 아래 잎(맨 위로 올리지 않는다)
-                lvl = min((stack[-1].level + 1) if stack else 1, 7)
+            if lvl == 0:
+                # 번호 없는 제목: 바로 다음 제목이 번호를 새로 여는 「1.」·「가.」·「Ⅰ.」이면 그 목록을 묶는 머리(사례 제목 → 1. 추진배경 …),
+                # 아니면 지금 절 아래 잎(표지 줄·「□」 꼴 소제목이 맨 위로 올라가 뒤 절을 다 품지 않게)
+                nxt = next(((t, lv) for t, lv in heads[i + 1:] if t and lv is not None), (None, None))
+                if nxt[0] and nxt[1] and _FIRST.match(nxt[0]):
+                    lvl = max(nxt[1] - 0.5, 0.5)              # 그 목록 바로 위 — 앞의 장(Ⅵ.) 아래에 들어가고 앞 사례와는 형제
+                else:
+                    lvl = min((stack[-1].level + 1) if stack else 1, 7)
             while stack and stack[-1].level >= lvl:
                 stack.pop()
             parent = stack[-1].path if stack else ""
             n = counters.get(parent, 0) + 1                # 형제 순번은 부모마다 하나 — 깊이로 나누면 「1.」과 「Ⅰ.」이 같은 id 를 가진다
             counters[parent] = n
             sec = Section(path=f"{parent}.{n}" if parent else str(n), title=title, level=lvl, seq=int(c["seq"]), parent=parent)
+            if c.get("kind") == "text" and len(str(c.get("content") or "")) >= PAGE_TEXT_MIN:
+                sec.chunks.append(int(c["seq"]))          # 쪽 글 조각 안에서 시작한 절은 그 조각을 본문으로 가진다
             sections.append(sec)
             stack.append(sec)
-        elif stack:
+        elif stack and (not stack[-1].chunks or stack[-1].chunks[-1] != int(c["seq"])):
             stack[-1].chunks.append(int(c["seq"]))
     return sections
 

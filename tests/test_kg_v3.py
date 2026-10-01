@@ -274,3 +274,37 @@ def test_section_ids_unique_and_round_bullets_are_body():
     ids = [s.path for s in tree]
     assert len(ids) == len(set(ids))
     assert not any(s.title.startswith("❍") for s in tree)
+
+
+def test_unnumbered_title_heads_a_restarted_list():
+    from zzaimy.graph import sections
+
+    chunks = [{"seq": 0, "kind": "heading", "content": "Ⅵ. 우수사례"}]
+    for k, case in enumerate(("하이드로젤 공동연구", "로봇 현장실습")):
+        base = 10 * (k + 1)
+        chunks += [{"seq": base, "kind": "heading", "content": case},
+                   {"seq": base + 1, "kind": "heading", "content": "1. 추진배경 및 개요"},
+                   {"seq": base + 2, "kind": "text", "content": "배경 설명 문단이다."},
+                   {"seq": base + 3, "kind": "heading", "content": "2. 추진과정"},
+                   {"seq": base + 4, "kind": "text", "content": "과정 설명 문단이다."}]
+    tree = sections.build(chunks)
+    by = {s.path: s for s in tree}
+    firsts = [s for s in tree if s.title == "1. 추진배경 및 개요"]
+    assert {by[s.parent].title for s in firsts} == {"하이드로젤 공동연구", "로봇 현장실습"}
+
+
+def test_sections_from_pdf_page_text_lines():
+    from zzaimy.graph import sections
+
+    head = "Ⅱ. 사업 추진내용\n 17\n"
+    pages = [
+        {"seq": 1, "kind": "text", "page_no": 2, "content": "목 차\n1. 사업 추진체계 ······ 17\n2. 교육과정 ······ 20\n3. 성과관리 ······ 30\n" + "x" * 200},
+        {"seq": 2, "kind": "text", "page_no": 17, "content": head + "1. 사업 추진체계\n1-1. 사업 목표 및 추진체계\n정부는 AI 전환을 핵심 동력으로 설정하고 있음. " + "가" * 200},
+        {"seq": 3, "kind": "text", "page_no": 18, "content": head + "본문이 이어진다. " + "나" * 200},
+        {"seq": 4, "kind": "text", "page_no": 19, "content": head + "2. 교육과정\n교육과정을 운영함. " + "다" * 200}]
+    tree = sections.build(pages)
+    titles = {s.title: s for s in tree}
+    assert "Ⅱ. 사업 추진내용" not in titles and "1. 사업 추진체계" in titles and "2. 교육과정" in titles
+    assert titles["1-1. 사업 목표 및 추진체계"].parent == titles["1. 사업 추진체계"].path
+    assert 3 in titles["1-1. 사업 목표 및 추진체계"].chunks
+    assert not any("······" in t for t in titles)
