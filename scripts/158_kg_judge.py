@@ -42,6 +42,7 @@ def main() -> int:
     ap.add_argument("--n", type=int, default=20)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--all-kept", action="store_true", help="이은 쌍은 표본 대신 전부 판정")
+    ap.add_argument("--sample-kept", type=int, default=0, help="이은 쌍을 사업마다 이만큼 표본(사업 여럿을 고르게 잴 때)")
     ap.add_argument("--out", default="kg_judge.json")
     args = ap.parse_args()
     from zzaimy.generate import llm_connections
@@ -85,7 +86,15 @@ def main() -> int:
     client = VllmClient(role="review")
     out = {}
     for name, pool in (("kept", kept), ("dropped", dropped)):
-        sample = list(pool) if (name == "kept" and args.all_kept) else rnd.sample(pool, min(args.n, len(pool)))
+        if name == "kept" and args.sample_kept:
+            groups: dict[str, list] = {}
+            for pr in pool:
+                groups.setdefault(prog_of(pr[0]), []).append(pr)
+            sample = [x for g in groups.values() for x in rnd.sample(g, min(args.sample_kept, len(g)))]
+        elif name == "kept" and args.all_kept:
+            sample = list(pool)
+        else:
+            sample = rnd.sample(pool, min(args.n, len(pool)))
         yes = 0
         rows = []
         for a, b in sample:
