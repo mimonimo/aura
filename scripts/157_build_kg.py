@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from zzaimy.app.db import Database  # noqa: E402
-from zzaimy.graph import kg_store, programs, sections  # noqa: E402
+from zzaimy.graph import kg_store, programs, sections, units  # noqa: E402
 
 KIND_LABEL = {"plan": "계획서", "report": "실적보고서", "evaluation": "평가 결과", "form": "양식", "criteria": "평가 기준",
               "announcement": "공고", "basic_plan": "기본계획", "guideline": "지침·매뉴얼", "regulation": "규정"}
@@ -154,6 +154,20 @@ def main() -> int:
                     for s, t, why in sections.align_context(docs_by_id[p1]["sections"], docs_by_id[p2]["sections"], text_of, generic_parent=args.generic_parent):
                         edges.append((f"doc:{p1}:sec:{s.path}", f"doc:{p2}:sec:{t.path}", "continues", "식별자 일치",
                                       [f"{y1} 「{s.title[:50]}」", f"{y2} 「{t.title[:50]}」", why]))
+
+    # 사업별 일의 단위 — 둘 이상의 문서에 같은 제목으로 나오는 절(평가지표 항목·장·과제)을 단위 노드로
+    per_prog: dict[str, list] = defaultdict(list)
+    for d in docs:
+        a = assigns[d["id"]]
+        if a.program and d.get("sections"):
+            per_prog[a.program].append((d["id"], d["sections"]))
+    for prog, items in per_prog.items():
+        for u in units.build(items):
+            unode = u.node_id(prog)
+            nodes.append((unode, "unit", u.label, {"key": u.key, "n_docs": len(u.docs), "n_sections": len(u.members)}, None))
+            edges.append((prog, unode, "contains", "식별자 일치", [f"문서 {len(u.docs)}건에 같은 제목의 절 「{u.label[:60]}」"]))
+            for did, path in u.members:
+                edges.append((f"doc:{did}:sec:{path}", unode, "instance_of", "식별자 일치", [f"절 제목이 단위 「{u.label[:60]}」와 같음"]))
 
     print("== 그래프")
     print("  노드", dict(Counter(n[1] for n in nodes)))

@@ -396,3 +396,20 @@ def test_short_name_merges_into_single_long_name():
             {"id": 2, "filename": "2023년 전문대학 혁신지원사업 최종사업계획서.hwp", "path": "", "head": ""}]
     cards = programs.build_cards(docs)
     assert len([c for c in cards if any("혁신지원" in n for n in c.names)]) == 1
+
+
+def test_units_group_recurring_titles_across_documents():
+    from zzaimy.graph import sections, units
+
+    def doc(items):
+        chunks = []
+        for i, t in enumerate(items):
+            chunks += [{"seq": 2 * i, "kind": "heading", "content": t}, {"seq": 2 * i + 1, "kind": "text", "content": "본문 문단이다."}]
+        return sections.build(chunks)
+    d1 = doc(["Ⅲ. 기업가치 창출", "15-2. 가족회사 운영 및 활성화 실적의 적정성", "1. 추진배경 및 개요", "1. 추진배경 및 개요", "1. 추진배경 및 개요"])
+    d2 = doc(["Ⅲ. 기업가치 창출", "18-2. 가족회사 운영 및 활성화 실적의 적정성", "[인력양성] 우수사례 1"])
+    d3 = doc(["Ⅰ. 다른 장 제목만 있는 문서"])
+    got = {u.label: u for u in units.build([(1, d1), (2, d2), (3, d3)])}
+    assert "가족회사 운영 및 활성화 실적의 적정성" in got and got["가족회사 운영 및 활성화 실적의 적정성"].docs == {1, 2}
+    assert "기업가치 창출" in got
+    assert not any("추진배경" in k or "우수사례" in k or "다른 장" in k for k in got)
