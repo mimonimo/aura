@@ -35,7 +35,6 @@ _ROUND = re.compile(r"([1-9])\s*차\s*년도")
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*(?:년|학년도|\.)")
 _EVAL_RESULT = re.compile(r"평가\s*(?:결과|의견)|종합\s*의견")
 HEAD_CHARS = 4000
-AUTO_MIN = 0.6          # 1등 점수 몫이 이보다 낮으면 검토 대기
 
 
 def _acr(s: str) -> str:
@@ -165,7 +164,9 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
             card = next(c for c in cards if c.node_id == best)
             a.program, a.program_name = best, card.name
             a.share = round(top / sum(scores.values()), 2)
-            a.status = "auto" if a.share >= AUTO_MIN and top >= 3 else "review"
+            second = scores.most_common(2)[1][1] if len(scores) > 1 else 0
+            # 다른 사업을 함께 언급하는 문서가 많다(LINC3.0 보고서의 RISE·혁신지원 언급) — 몫보다 2등과의 차이로 판정한다
+            a.status = "auto" if top >= 3 and top >= 2 * second else "review"
             a.evidence = why[best][:4]
         else:
             a.evidence = ["사업명 언급을 찾지 못함"]
