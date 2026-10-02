@@ -71,8 +71,10 @@ def main() -> int:
     ap.add_argument("--out", default=str(Path.home() / "parsed"))
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--ext", default=",".join(sorted(TEXT_EXT)), help="처리할 형식(쉼표) — 엑셀은 docling 이 있어야 한다")
     ap.add_argument("--slow", type=int, default=600, help="이보다 오래 걸린 문서는 로그에 남긴다(초)")
     args = ap.parse_args()
+    exts = {e.strip() for e in args.ext.split(",") if e.strip()}
     skip = set(Path(args.skip).read_text(encoding="utf-8").splitlines()) if args.skip and Path(args.skip).is_file() else set()
     done = set()
     for f in Path(args.out).glob("parsed-*.jsonl"):
@@ -87,7 +89,7 @@ def main() -> int:
             it = json.loads(line)
         except ValueError:
             continue
-        if it.get("ext") not in TEXT_EXT or it.get("dup_of") or it["rel"] in skip or it["rel"] in done:
+        if it.get("ext") not in exts or it.get("dup_of") or it["rel"] in skip or it["rel"] in done:
             continue
         if int(it.get("size") or 0) > MAX_BYTES or Path(it["rel"]).name.startswith("~$"):
             continue
