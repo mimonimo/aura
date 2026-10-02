@@ -188,7 +188,7 @@ def search(db, question: str, k: int = 6, user: str | None = None) -> dict:
     return {"steps": steps, "hits": hits}
 
 
-def build_increment(db, batch: int = 64, limit: int = 20000) -> dict:
+def build_increment(db, batch: int = 128, limit: int = 20000) -> dict:
     """색인에 없는 사업 문서 조각만 임베딩해 덧붙인다(지워진 조각은 뺀다). 글 = 문서 이름 + 본문 1200자(규정 계열과 같은 길이)."""
     import fcntl
 
@@ -243,7 +243,8 @@ def _build_increment(db, batch: int, limit: int) -> dict:
     removed = (len(ids) - int(keep_mask.sum())) if keep_mask is not None else 0
     if added or removed:
         tmp = INDEX.with_name(f".{INDEX.stem}.{os.getpid()}.tmp.npz")
-        np.savez_compressed(tmp, ids=out_ids, vectors=out_vecs if out_vecs is not None else np.zeros((0, 1)))
+        # 압축하지 않는다 — 벡터는 거의 줄지 않고, 수 GB 를 회차마다 압축하는 게 색인 속도를 깎았다(10/2 실측 초당 20여 조각)
+        np.savez(tmp, ids=out_ids, vectors=out_vecs if out_vecs is not None else np.zeros((0, 1)))
         try:
             _read(tmp)                                     # 다시 읽어 검사한 뒤에만 바꾼다
         except Exception:

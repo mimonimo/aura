@@ -194,7 +194,7 @@ def index_catchup(db, budget_s: int = 50 * 60) -> int:
     while time.time() - t0 < budget_s:
         t1 = time.time()
         try:
-            got = grant_search.build_increment(db, limit=5000)
+            got = grant_search.build_increment(db, limit=30000)
         except Exception as e:
             print("사업 문서 색인 갱신 실패:", type(e).__name__, str(e)[:120], flush=True)
             return 1
