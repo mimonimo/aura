@@ -33,8 +33,9 @@ def align_dgx_projects(db) -> dict:
     「단계 산학연협력 …」 4,755건). 동기화마다 맞추고, 문서가 다 빠진 「(DGX 보관)」 프로젝트는 지운다(문서는 그대로)."""
     ensure(db)
     with db._conn() as conn:
+        # 경로로 잇는다 — 장부의 문서 번호 연결은 잠금 시간 초과로 미뤄질 수 있다(168). dgx://<rel> 의 rel 이 장부 열쇠
         rows = conn.execute(
-            "SELECT d.id, d.project_id, a.program_name FROM documents d JOIN archive_files a ON a.doc_id = d.id"
+            "SELECT d.id, d.project_id, a.program_name FROM documents d JOIN archive_files a ON a.rel = SUBSTR(d.stored_path, 7)"
             " WHERE d.stored_path LIKE 'dgx://%' AND a.removed_at = ''").fetchall()
         projs = conn.execute("SELECT id, name FROM projects WHERE sector = 'grant'").fetchall()
     by_name = {str(r[1]): int(r[0]) for r in projs}
