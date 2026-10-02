@@ -1125,7 +1125,7 @@ class DocumentProcessor:
             from zzaimy.app import paths as _paths
 
             out_dir = _paths.lines_dir(Path(db.path).parent)
-            out_dir.mkdir(exist_ok=True)
+            out_dir.mkdir(parents=True, exist_ok=True)
             (out_dir / f"{doc_id}.json").write_text(json.dumps({
                 "page_sizes": {
                     str(k): list(v) for k, v in parsed.ocr_page_sizes.items()
@@ -1165,7 +1165,7 @@ class DocumentProcessor:
             from zzaimy.app import paths as _paths
 
             out_dir = _paths.lines_dir(Path(db.path).parent)
-            out_dir.mkdir(exist_ok=True)
+            out_dir.mkdir(parents=True, exist_ok=True)
             payload = {
                 "page_sizes": {
                     str(k): list(v) for k, v in parsed.ocr_page_sizes.items()
