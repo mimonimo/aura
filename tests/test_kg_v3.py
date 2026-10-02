@@ -537,3 +537,10 @@ def test_fill_period_from_folders_and_program_span():
     assert asg[2].program == "" and asg[2].status == "review"   # 사업 기간 밖 연도는 확정하지 않는다
     assert asg[3].year is None                                  # 기간 표기는 연도가 아니다
     assert asg[4].year is None and stats["out_of_period"] == 1
+
+
+def test_norm_name_strips_time_tags_but_keeps_stage_numbers():
+    from zzaimy.graph.programs import _norm_name
+    assert _norm_name("2026학년도 AID 전환 중점 전문대학 지원사업") == "AID 전환 중점 전문대학 지원사업"
+    assert _norm_name("190401(혁신지원사업") == "혁신지원사업"
+    assert _norm_name("3단계 산학연협력 선도전문대학 육성사업") == "3단계 산학연협력 선도전문대학 육성사업"
