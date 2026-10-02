@@ -6,6 +6,12 @@
   <script src="/static/document-workspace.js" defer></script>
 {% endblock %}
 {% block content %}
+{% if dgx_origin %}
+<div class="card"><div class="card-in" style="font-size:12.5px;">
+  <strong>DGX 원본 보관소 문서</strong> — 원본 파일은 DGX 에 있고 여기에는 뽑은 글·조각만 있습니다(검토 의견 없이 가벼운 처리). 원본 경로: <span class="muted" style="word-break:break-all;">{{ dgx_origin }}</span>
+  · <a href="/archive?q={{ dgx_origin.split('/')[-1] | urlencode }}">원본 보관소에서 보기</a>
+</div></div>
+{% endif %}
 {% macro program_meta(show_action=true) %}
   {# 사업 정보 — 따로 칸을 두지 않고 문서 이름 아래 한 줄로. 본문에서 확인된 값만 #}
   {% set shown = [] %}
