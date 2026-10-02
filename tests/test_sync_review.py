@@ -35,7 +35,6 @@ def sync_job(tmp_path, monkeypatch):
     return job, db, data, lock
 
 
-@pytest.mark.xfail(strict=True, reason="C-181: 170 부모와 164 자식이 같은 후속 잠금을 획득")
 def test_post_child_can_acquire_its_lock(sync_job, monkeypatch):
     job, db, data, lock = sync_job
 
@@ -49,7 +48,6 @@ def test_post_child_can_acquire_its_lock(sync_job, monkeypatch):
     assert job.post_if_changed(db) == 0
 
 
-@pytest.mark.xfail(strict=True, reason="C-181: 색인 실패 후 dirty 재등록 누락")
 def test_index_failure_remains_retryable(sync_job, monkeypatch):
     job, db, data, lock = sync_job
 
@@ -76,7 +74,6 @@ def test_pending_index_remains_retryable(sync_job, monkeypatch):
     assert len(calls) == 2
 
 
-@pytest.mark.xfail(strict=True, reason="C-181: 후속 그래프 명령 실패 후 dirty 재등록 누락")
 def test_graph_failure_remains_retryable(sync_job, monkeypatch):
     job, db, data, lock = sync_job
     monkeypatch.setattr(job.subprocess, "call", lambda *args, **kwargs: 1)
@@ -85,7 +82,6 @@ def test_graph_failure_remains_retryable(sync_job, monkeypatch):
     assert (data / ".kg-dirty").exists()
 
 
-@pytest.mark.xfail(strict=True, reason="C-181: dry에서도 후속 갱신 호출")
 def test_dry_does_not_run_post_processing(sync_job, monkeypatch):
     job, db, data, lock = sync_job
     monkeypatch.setattr(job.sys, "argv", ["170_vm_sync.py", "--dry"])
@@ -117,7 +113,6 @@ def test_sync_attaches_newly_ingested_document(tmp_path):
     assert archive.find(db)[0]["doc_id"] == 42
 
 
-@pytest.mark.xfail(strict=True, reason="C-181: 원본 목록 화면에 개인 첨부 가시성 필터 없음")
 def test_private_upload_path_is_not_visible_to_other_user(tmp_path):
     from fastapi.testclient import TestClient
     from tests.test_accounts import _app, _login

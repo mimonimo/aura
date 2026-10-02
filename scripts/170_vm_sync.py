@@ -180,6 +180,7 @@ def post_if_changed(db) -> int:
             (Path(db.path).parent / ".kg-dirty").touch()
     except Exception as e:
         print("사업 문서 색인 갱신 실패:", type(e).__name__, str(e)[:120], flush=True)
+        (Path(db.path).parent / ".kg-dirty").touch()     # 임베딩 서비스가 돌아오면 다음 회차에 다시
     if {k: v for k, v in old.items() if k != "at"} == mark:
         return 0
     # 그래프 전체 재구축은 15분에 한 번까지 — 1분마다 다시 지으면 쉬지 않고 돈다. 그 사이 바뀐 것은 다음 회차에 모아서
@@ -188,9 +189,15 @@ def post_if_changed(db) -> int:
         return 0
     mark["at"] = time.time()
     print(f"문서함 바뀜 {old} → {mark} — 그래프·양식 다시 짓기", flush=True)
+    # 164 가 같은 후속 잠금을 스스로 잡는다(기다리며) — 넘기기 전에 놓아야 부모·자식이 서로 막지 않는다
+    fcntl.flock(lockf, fcntl.LOCK_UN)
+    lockf.close()
     rc = subprocess.call([sys.executable, str(ROOT / "scripts" / "164_sync_apply.py"), "--post-only"], cwd=ROOT)
     if rc == 0:
         mpath.write_text(json.dumps(mark), encoding="utf-8")
+    else:
+        print(f"그래프·양식 다시 짓기 실패(종료 코드 {rc}) — 다음 회차에 다시", flush=True)
+        (Path(db.path).parent / ".kg-dirty").touch()
     return rc
 
 
@@ -307,7 +314,9 @@ def main() -> int:
     if not args.dry:
         push_uploads(db, origins, cards)
         import_parsed()
-    if args.dry or not (new or updates):
+    if args.dry:
+        return 0                                          # 훑어보기만 — 장부·그래프·색인을 쓰지 않는다
+    if not (new or updates):
         return post_if_changed(db)
     by_prog = defaultdict(list)
     for c in new:
