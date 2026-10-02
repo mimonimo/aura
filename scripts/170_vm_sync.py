@@ -279,6 +279,10 @@ def main() -> int:
                 note = (d.get("parse_note") or "")
                 if "원본 없음" not in note:
                     db.update_document(did, parse_note=(note + f" · 원본 없음(DGX 에서 {stamp} 사라짐: {rel})").strip(" ·"))
+    if not args.dry:
+        got = archive.align_dgx_projects(db)              # 분류가 고쳐지면 문서함 프로젝트도 따라간다
+        if got["moved"] or got["removed_projects"]:
+            print(f"DGX 보관 문서 프로젝트 맞춤: 옮김 {got['moved']} · 빈 프로젝트 지움 {got['removed_projects']}", flush=True)
     print(f"원본 {len(files)} · 중복 제외 {len(docs)} · 사업 카드 {len(cards)} · 목록 {time.time() - t0:.0f}초 — "
           f"새로 {len(diff['added'])} · 바뀜 {len(diff['changed'])} · 옮김 {len(diff['moved'])} · 없어짐 {len(diff['removed'])} · "
           f"분류 바뀜 {diff['reclassified']}", flush=True)

@@ -40,7 +40,7 @@ def main() -> int:
     projects: dict[str, int] = {}
 
     def project_for(name: str) -> int:
-        label = f"{(name or '사업 미분류')[:40]} (DGX 보관)"
+        label = archive.dgx_project_label(name)
         if label not in projects:
             proj = next((p for p in db.list_projects("grant") if p["name"] == label), None)
             projects[label] = int(proj["id"]) if proj else db.create_project("grant", label, owner="zzdev")
@@ -101,8 +101,12 @@ def main() -> int:
             did = old[0]                                   # 같은 원본의 새 판 — 같은 문서 번호로 갱신
             n_upd += 1
         else:
+            # 사업 분류는 원본 장부의 현재 값(검토 판정 반영) — 기록의 값은 DGX 목록을 만들 때의 옛 분류일 수 있다
+            with db._conn() as conn:
+                row = conn.execute("SELECT program_name FROM archive_files WHERE rel = ?", (rel,)).fetchone()
+            prog = row[0] if row is not None else rec.get("program_name")
             did = db.add_document(filename=rec.get("filename") or Path(rel).name, stored_path=f"dgx://{rel}", doc_type="grant",
-                                  sector="grant", project_id=project_for(rec.get("program_name") or ""), owner="zzdev")
+                                  sector="grant", project_id=project_for(prog or ""), owner="zzdev")
             n_ok += 1
         db.replace_doc_chunks(did, [c for c in rec["chunks"] if c.get("content") is not None])
         db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=note)
