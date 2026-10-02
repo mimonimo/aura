@@ -138,4 +138,5 @@ def test_bundle_key_by_year_round_or_unknown():
     from zzaimy.app import archive as ar
     assert ar.bundle_key("program:rise", "2025", "1") == ("program:rise|2025", "2025년 {name} (1차년도)")
     assert ar.bundle_key("program:rise", None, "3") == ("program:rise|r3", "{name} 3차년도")
-    assert ar.bundle_key("", None, None) == ("none|?", "{name} (연도 미상)")
+    assert ar.bundle_key("", "2023", None) == ("none|?", "{name}")                    # 사업 모르면 연도로 나누지 않음
+    assert ar.bundle_key("program:x", None, None) == ("program:x|?", "{name} (연도 미상)")

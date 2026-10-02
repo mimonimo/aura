@@ -24,7 +24,9 @@ UNCLASSIFIED = "none"            # 사업 분류가 없는 원본의 보관 묶�
 def bundle_key(program: str, year=None, round_=None) -> tuple[str, str]:
     """(묶음 열쇠, 이름 틀) — 사업 × 수행 연도(없으면 연차). 둘 다 모르면 「연도 미상」으로 두고 추정해 확정하지 않는다(C-192).
     연도·연차 근거는 원본 장부(경로·파일 이름 규칙)라 표지의 수행 연도와 다를 수 있다 — 그래프(157)의 연차 학습과 대조 검수 대상."""
-    prog = program or UNCLASSIFIED
+    if not program:                       # 사업을 모르면 연도로 나누지 않는다 — 「사업 미분류」 하나
+        return f"{UNCLASSIFIED}|?", "{name}"
+    prog = program
     y, r = str(year or "").strip(), str(round_ or "").strip()
     if y and r:
         return f"{prog}|{y}", f"{y}년 {{name}} ({r}차년도)"
