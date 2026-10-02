@@ -105,3 +105,13 @@ def test_dgx_projects_follow_ledger_classification(tmp_path):
     assert db.get_project(db.get_document(did)["project_id"])["name"] == "3단계 산학연협력 선도전문대학 육성사업 (DGX 보관)"
     assert db.get_project(old) is None and db.get_document(kept)["project_id"] == mine
     assert ar.align_dgx_projects(db) == {"moved": 0, "removed_projects": 0}
+
+
+def test_dgx_projects_follow_ledger_even_without_doc_link(tmp_path):
+    from zzaimy.app import archive as ar
+    db = Database(tmp_path / "t.db")
+    old = db.create_project("grant", ar.dgx_project_label("옛 이름"), owner="zzdev")
+    did = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant", project_id=old)
+    ar.load(db, [dict(rel="p/a.hwp", size=1, mtime=1, program_name="새 이름")], {})   # 문서 번호 연결 없음
+    assert ar.align_dgx_projects(db)["moved"] == 1
+    assert db.get_project(db.get_document(did)["project_id"])["name"] == ar.dgx_project_label("새 이름")
