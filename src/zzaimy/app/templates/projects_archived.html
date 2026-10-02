@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}보관된 사업{% endblock %}
+{% block pagetitle %}보관된 사업{% endblock %}
+{% block content %}
+{# 과거 사업 묶음(동기화가 문서를 보고 사업별로 묶은 것)과 담당자가 보관한 프로젝트. 불러오면 사이드바 프로젝트로. 화면 꾸밈은 아스트라 담당(K-20261003-01) #}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:archive-linear"></iconify-icon>보관된 사업 {{ projects | length }}개</h2>
+  <p class="muted" style="margin:0 0 10px; font-size:12.5px;">불러오면 내 프로젝트 목록에 뜬다 · 과거 사업 자료는 보관 상태로도 검색·그래프에서 쓰인다</p>
+  <table class="table" style="font-size:13px; width:100%;">
+    <tr><th>사업</th><th>사업단</th><th style="text-align:right;">문서</th><th></th></tr>
+    {% for p in projects %}
+    <tr>
+      <td><a href="/project/{{ p.id }}">{{ p.name }}</a></td>
+      <td class="muted">{{ p.units | join(" · ") }}</td>
+      <td style="text-align:right; font-variant-numeric:tabular-nums;">{{ "{:,}".format(p.n_docs) }}</td>
+      <td style="text-align:right;"><form method="post" action="/project/{{ p.id }}/unarchive" style="margin:0;">
+        <button type="submit" class="btn-ghost" style="padding:3px 10px; font-size:12px;">불러오기</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+</div></div>
+{% endblock %}

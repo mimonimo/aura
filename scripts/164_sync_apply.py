@@ -55,7 +55,9 @@ def main() -> int:
         if not files:
             continue
         print(f"== {job['project']} — {len(files)}건", flush=True)
-        sh([PY, "scripts/156_intake_files.py", "--project", job["project"], "--sector", "grant", "--owner", "zzdev",
+        # 과거 사업 묶음은 보관 상태로, 사업 id 로 찾는다(같은 사업이 이름만 달리 갈라지지 않게)
+        sh([PY, "scripts/156_intake_files.py", "--project", job["project"], "--program", job["program"], "--archived",
+            "--sector", "grant", "--owner", "zzdev",
             "--origin-base", job["inbox"], "--jobs", "3", "--timeout", "30", "--apply", *files])
     sys.path.insert(0, str(ROOT / "src"))
     import fcntl

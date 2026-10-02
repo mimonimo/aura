@@ -3,7 +3,7 @@
 무엇을 내는가
   원본 보관소(DGX): 원본 수, 중복 제외, 분류 상태(규칙·에이전트 판정·미확정), 문서함 연결 수, 최상위 폴더별
   문서함: 전체, DGX 보관(가벼운 처리)·원본 반입·업로드, 처리 상태, 판독 경로(글자층·MinerU·비전), 잘림·일부·OCR 미검사 표시
-  사업별: DGX 보관 프로젝트 상위
+  사업별: 문서함에 들어온 원본의 사업 분류(원본 장부) 상위
   색인: 사업 문서 색인의 들어간 조각·남은 조각
   그래프: 노드 갈래별 수(사업·연차·문서·절·단위·성과지표)
   동기화: 주기마다 마지막 실행 시각과 결과(scripts/170 이 data/platform/sync_status.json 에 적는다)
@@ -84,8 +84,8 @@ def snapshot(db, force: bool = False) -> dict:
             "본문 잘림": _one(conn, "SELECT COUNT(*) FROM documents WHERE parse_note LIKE '%본문 잘림%'"),
             "원본 없음": _one(conn, "SELECT COUNT(*) FROM documents WHERE parse_note LIKE '%원본 없음%'"),
         }
-        progs = _rows(conn, "SELECT p.name, COUNT(d.id) FROM projects p JOIN documents d ON d.project_id = p.id"
-                            " WHERE p.name LIKE ? GROUP BY p.name ORDER BY 2 DESC", (f"%{archive.DGX_PROJECT_SUFFIX}",))
+        progs = _rows(conn, "SELECT program_name, COUNT(*) FROM archive_files WHERE removed_at = '' AND doc_id IS NOT NULL"
+                            " GROUP BY program_name ORDER BY 2 DESC")
         chunks_live = _one(conn, "SELECT COUNT(*) FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
                                  " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN ('text', 'table', 'image_text')")
         kg = _rows(conn, "SELECT type, COUNT(*) FROM kg_nodes GROUP BY type ORDER BY 2 DESC")
@@ -99,7 +99,7 @@ def snapshot(db, force: bool = False) -> dict:
                   "status": [{"label": s or "(없음)", "n": n} for s, n in d_status],
                   "paths": [{"label": k, "n": v} for k, v in notes.items()],
                   "flags": [{"label": k, "n": v} for k, v in flags.items()]},
-        "programs": [{"label": name[: -len(archive.DGX_PROJECT_SUFFIX)], "n": n} for name, n in progs[:12]],
+        "programs": [{"label": name or "사업 미분류", "n": n} for name, n in progs[:12]],
         "index": {"chunks": idx["chunks"], "pending": max(0, chunks_live - idx["chunks"]), "live": chunks_live, "updated": idx["updated"]},
         "graph": [{"label": t, "n": n} for t, n in kg],
         "sync": _sync_state(db.path),

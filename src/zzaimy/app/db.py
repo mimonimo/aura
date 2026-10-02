@@ -236,6 +236,9 @@ class Database:
         "ALTER TABLE doc_assets ADD COLUMN bbox TEXT",
         "ALTER TABLE documents ADD COLUMN suggested_criteria TEXT",
         "ALTER TABLE documents ADD COLUMN identity TEXT",
+        # 보관(과거 사업 묶음 — 사이드바·목록에서 빠지고, 보관된 사업 목록에서 불러온다)과 묶음의 사업(분류 id)
+        "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE projects ADD COLUMN program TEXT NOT NULL DEFAULT ''",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -651,15 +654,33 @@ class Database:
             return [dict(r) for r in reversed(rows)]
 
     def create_project(
-        self, sector: str, name: str, due_date: str = "", owner: str = "zzaimy"
+        self, sector: str, name: str, due_date: str = "", owner: str = "zzaimy",
+        archived: bool = False, program: str = "",
     ) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO projects (sector, name, created_at, due_date, owner)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (sector, name[:80], _now(), due_date[:10], owner),
+                "INSERT INTO projects (sector, name, created_at, due_date, owner, archived, program)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (sector, name[:80], _now(), due_date[:10], owner, 1 if archived else 0, program),
             )
             return int(cur.lastrowid or 0)
+
+    def set_project_archived(self, project_id: int, archived: bool) -> None:
+        """보관(사이드바·목록에서 뺌) / 불러오기(다시 띄움). 문서·대화·메모는 그대로."""
+        with self._conn() as conn:
+            conn.execute("UPDATE projects SET archived = ? WHERE id = ?", (1 if archived else 0, project_id))
+
+    def list_archived_projects(self, owner: str | None = None) -> list[dict]:
+        """보관된 사업 묶음 — 불러오기 화면용(문서 수 포함, 사업 이름순)."""
+        sql = ("SELECT p.*, (SELECT COUNT(*) FROM documents d WHERE d.project_id = p.id) AS n_docs"
+               " FROM projects p WHERE p.archived = 1")
+        params: list = []
+        if owner:
+            sql += " AND p.owner = ?"
+            params.append(owner)
+        sql += " ORDER BY p.name"
+        with self._conn() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     def record_content_hash(self, doc_id: int, sha256: str) -> None:
         with self._conn() as conn:
@@ -796,7 +817,7 @@ class Database:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT p.*, (SELECT COUNT(*) FROM documents d WHERE d.project_id = p.id)"
-                " AS n_docs FROM projects p WHERE p.sector = ? ORDER BY p.id DESC",
+                " AS n_docs FROM projects p WHERE p.sector = ? AND p.archived = 0 ORDER BY p.id DESC",
                 (sector,),
             ).fetchall()
             return [dict(r) for r in rows]
@@ -930,11 +951,11 @@ class Database:
         """사이드바용 — 섹터 구분 없이 전체 프로젝트 (문서 수 포함)."""
         sql = (
             "SELECT p.*, (SELECT COUNT(*) FROM documents d WHERE d.project_id = p.id)"
-            " AS n_docs FROM projects p"
+            " AS n_docs FROM projects p WHERE p.archived = 0"
         )
         params: list = []
         if owner:
-            sql += " WHERE p.owner = ?"
+            sql += " AND p.owner = ?"
             params.append(owner)
         sql += " ORDER BY p.id DESC LIMIT 20"
         with self._conn() as conn:

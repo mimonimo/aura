@@ -5668,6 +5668,47 @@ def create_app(
             }),
         )
 
+    @app.get("/projects/archived", response_class=HTMLResponse)
+    def projects_archived(request: Request):
+        """보관된 사업 — 과거 사업 묶음과 담당자가 보관한 프로젝트. 사업단은 원본 폴더(최상위) 기준 문서가 많은 순."""
+        user = getattr(request.state, "user", None)
+        projs = [p for p in db.list_archived_projects() if p.get("owner") in ("zzdev", user)]
+        units: dict[int, list[str]] = {}
+        try:
+            with db._conn() as conn:
+                for pid, area, _n in conn.execute(
+                        "SELECT d.project_id, a.area, COUNT(*) FROM documents d JOIN archive_files a ON a.rel = SUBSTR(d.stored_path, 7)"
+                        " WHERE d.stored_path LIKE 'dgx://%' AND d.project_id IS NOT NULL AND a.area <> ''"
+                        " GROUP BY d.project_id, a.area ORDER BY 3 DESC").fetchall():
+                    units.setdefault(int(pid), []).append(str(area))
+        except Exception:
+            pass
+        for p in projs:
+            p["units"] = units.get(int(p["id"]), [])[:3]
+        projs.sort(key=lambda p: -int(p.get("n_docs") or 0))
+        return templates.TemplateResponse(request, "projects_archived.html", ctx(request, {"projects": projs}))
+
+    @app.post("/project/{project_id}/unarchive")
+    def project_unarchive(request: Request, project_id: int):
+        """불러오기 — 보관을 풀고, 과거 사업 묶음이면 불러온 담당자의 프로젝트로 가져온다."""
+        proj = db.get_project(project_id)
+        if proj is None:
+            raise HTTPException(404)
+        user = getattr(request.state, "user", None)
+        db.set_project_archived(project_id, False)
+        if user and proj.get("owner") == "zzdev" and user != "zzdev":
+            with db._conn() as conn:
+                conn.execute("UPDATE projects SET owner = ? WHERE id = ?", (user, project_id))
+        return RedirectResponse(f"/project/{project_id}", status_code=303)
+
+    @app.post("/project/{project_id}/archive")
+    def project_archive(project_id: int):
+        """보관 — 사이드바·목록에서 빼고 「보관된 사업」으로. 문서·대화·메모는 그대로."""
+        if db.get_project(project_id) is None:
+            raise HTTPException(404)
+        db.set_project_archived(project_id, True)
+        return RedirectResponse("/projects/archived", status_code=303)
+
     @app.post("/project/{project_id}/meta")
     def project_meta(
         project_id: int, instructions: str = Form(""), memo: str = Form("")

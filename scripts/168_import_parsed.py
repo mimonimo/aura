@@ -2,7 +2,7 @@
 """DGX 에서 가볍게 처리한 문서(scripts/167 의 JSONL, 표준 입력)를 VM 문서함에 'DGX 보관 문서'로 들인다.
 
 원본 파일은 옮기지 않는다 — stored_path 는 dgx://<원본 경로>. 글·조각·분류를 문서함에 넣어 RAG 색인·그래프·사업 분류가 쓴다.
-사업마다 프로젝트(「사업명 (DGX 보관)」)로 묶고, 원본 목록 장부(archive_files)와 원본 경로 장부(origins.jsonl)에 문서 번호를 잇는다.
+사업마다 보관 묶음(보관 프로젝트, 사업 id 로 찾음)에 넣고, 원본 목록 장부(archive_files)와 원본 경로 장부(origins.jsonl)에 문서 번호를 잇는다.
 이미 들인 원본(같은 rel)은 건너뛴다.
 
 사용(운영 PC): ssh dgx 'cat ~/parsed/parsed-*.jsonl' | ssh vm 'cd ~/zzaimy-capstone && … 168_import_parsed.py'
@@ -55,14 +55,8 @@ def main() -> int:
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_dgx_path ON documents (stored_path) WHERE stored_path LIKE 'dgx://%'")
         except Exception as e:
             print("DGX 경로 고유 색인을 만들지 못함(중복 남음):", type(e).__name__, flush=True)
-    projects: dict[str, int] = {}
+    projects: dict[str, int] = {}                     # 사업 id → 보관 묶음 번호
 
-    def project_for(name: str) -> int:
-        label = archive.dgx_project_label(name)
-        if label not in projects:
-            proj = next((p for p in db.list_projects("grant") if p["name"] == label), None)
-            projects[label] = int(proj["id"]) if proj else db.create_project("grant", label, owner="zzdev")
-        return projects[label]
     n_ok = n_upd = n_skip = n_fail = n_link_later = n_stale = 0
     led = led_path.open("a", encoding="utf-8")
     # 파일마다 읽은 자리를 기억한다(DGX 결과 파일은 덧붙기만 한다) — 5분 주기가 매번 처음부터 읽지 않게
@@ -112,7 +106,7 @@ def main() -> int:
         # 원본 장부의 현재 판과 같은 기록만 적용 — 여러 결과 파일에 옛 판이 뒤늦게 읽혀도 되돌리지 않는다(C-186).
         # 장부가 아직 새 판을 모르면(목록 갱신 전) 여기서는 건너뛰고, 바뀐 원본은 170 의 원본 장부 대조(changed)가 다시 처리한다
         with db._conn() as conn:
-            row = conn.execute("SELECT program_name, size, mtime FROM archive_files WHERE rel = ?", (rel,)).fetchone()
+            row = conn.execute("SELECT program_name, size, mtime, program FROM archive_files WHERE rel = ?", (rel,)).fetchone()
         if row is not None and row[1] is not None and f"{int(row[1] or 0)}:{int(float(row[2] or 0))}" != ver:
             n_stale += 1
             continue
@@ -128,9 +122,11 @@ def main() -> int:
             n_upd += 1
         else:
             # 사업 분류는 원본 장부의 현재 값(검토 판정 반영) — 기록의 값은 DGX 목록을 만들 때의 옛 분류일 수 있다
-            prog = row[0] if row is not None else rec.get("program_name")
+            prog_name = row[0] if row is not None else rec.get("program_name")
+            prog_id = row[3] if row is not None and len(row) > 3 else rec.get("program")
             did = db.add_document(filename=rec.get("filename") or Path(rel).name, stored_path=f"dgx://{rel}", doc_type="grant",
-                                  sector="grant", project_id=project_for(prog or ""), owner="zzdev")
+                                  sector="grant", project_id=archive.program_project(db, prog_id or "", prog_name or "", projects),
+                                  owner="zzdev")
             by_path[rel] = did
             n_ok += 1
         db.replace_doc_chunks(did, [c for c in rec["chunks"] if c.get("content") is not None])

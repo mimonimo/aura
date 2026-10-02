@@ -22,7 +22,7 @@ def search(db, owner: str, q: str = "", offset: int = 0) -> dict:
                               JOIN chat_sessions c ON c.id=m.session_id
                               WHERE c.project_id=p.id AND c.owner=p.owner), p.created_at)) AS last_activity
                 FROM projects p
-                WHERE p.owner=? AND (p.name LIKE ? ESCAPE '\\' OR p.sector=?)
+                WHERE p.owner=? AND p.archived = 0 AND (p.name LIKE ? ESCAPE '\\' OR p.sector=?)
                 ORDER BY last_activity DESC, p.id DESC LIMIT 31 OFFSET ?""",
             (owner, pattern, sector, offset),
         ).fetchall()
