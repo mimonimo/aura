@@ -201,7 +201,15 @@
     </div>
   {% endfor %}
   {% if waiting %}
-  <div class="turn assistant"><div class="msg assistant chat-waiting" role="status">근거를 확인하고 답변을 작성하고 있습니다.</div></div>
+  <div class="turn assistant chat-progress" id="chatProgress">
+    <div class="chat-progress-head">
+      <span class="chat-progress-dot" aria-hidden="true"></span>
+      <span data-progress-label role="status">요청 처리 중</span>
+      <span data-progress-time></span>
+      <button type="button" data-progress-toggle aria-expanded="false" aria-controls="chatProgressSteps">작업 내역</button>
+    </div>
+    <ol id="chatProgressSteps" hidden></ol>
+  </div>
   {% endif %}
 </div>
 
