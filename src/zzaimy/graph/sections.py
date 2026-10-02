@@ -149,7 +149,12 @@ def _inner_headings(c: dict, running: set[str]) -> list[str]:
             out.append(h)
     if out and (out.count("\0toc") >= 3 or (len(out) >= TOC_RUN and len(out) >= 0.6 * lines)):
         return []                                             # 목차 쪽
-    return [h for h in out if h != "\0toc"]
+    out = [h for h in out if h != "\0toc"]
+    # 한 쪽 안에서 같은 꼴 번호가 1 로 두 번 이상 다시 시작하면(1·2·3, 1·2·3) 도식·목록 조각이다 — 그 쪽의 번호 줄은 제목이 아니다
+    firsts = sum(1 for h in out if re.match(r"^\s*1[.．)]\s", h))
+    if firsts >= 2:
+        return []
+    return out
 
 
 def _ordered(chunks: list[dict]) -> list[dict]:

@@ -475,3 +475,12 @@ def test_aspect_match_links_report_aspect_to_plan_chapter():
     assert sections.aspect_match(tree, "과제2-1 예산 집행 실적")[0].title == "Ⅴ. 예산 운용"
     assert sections.aspect_match(tree, "[과제2-1] 성과지표 달성 실적")[0].title == "Ⅳ. 성과지표 관리 계획"
     assert sections.aspect_match(tree, "[과제 2-1] 우수사례")[0] is None
+
+
+def test_restarted_numbering_in_page_text_is_not_headings():
+    from zzaimy.graph import sections
+
+    page = {"seq": 1, "kind": "text", "page_no": 5, "content": "Ⅱ. 인력양성\n1. 산학연계 직업기초교육 프로\n2. 산업체가 요구하는 문제해결\n"
+            "3. 산학협력을 통해 지속적\n1. 산학협업 혁신적 교육\n2. 혁신적 교육방법 협업\n" + "본문 " * 80}
+    tree = sections.build([page])
+    assert not any(s.title.startswith("1. 산학") for s in tree)
