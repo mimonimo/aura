@@ -160,9 +160,13 @@ def build_increment(db, batch: int = 64, limit: int = 20000) -> dict:
     import numpy as np
     ids, vecs = _load()
     have = set(int(i) for i in ids) if ids is not None else set()
-    chunks = corpus(db)
-    live = {c["id"] for c in chunks}
-    new = [c for c in chunks if c["id"] not in have][:limit]
+    # 번호만 먼저 — 본문은 새로 넣을 조각만 읽는다(조각 50만 개를 매번 통째로 읽지 않게)
+    with db._conn() as conn:
+        live = {int(r[0]) for r in conn.execute(
+            "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
+            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
+    todo = sorted(live - have)
+    new = _fetch(db, todo[:limit])
     keep_mask = np.array([int(i) in live for i in ids]) if ids is not None and len(ids) else None
     out_ids = ids[keep_mask] if keep_mask is not None else np.zeros((0,), dtype=np.int64)
     out_vecs = vecs[keep_mask] if keep_mask is not None else None
@@ -181,4 +185,19 @@ def build_increment(db, batch: int = 64, limit: int = 20000) -> dict:
         tmp.replace(INDEX)
         (INDEX.with_suffix(".json")).write_text(json.dumps({"n_chunks": int(len(out_ids)), "added": added, "removed": removed},
                                                            ensure_ascii=False), encoding="utf-8")
-    return {"added": added, "removed": removed, "total": int(len(out_ids)), "pending": max(0, len([c for c in chunks if c["id"] not in have]) - limit)}
+    return {"added": added, "removed": removed, "total": int(len(out_ids)), "pending": max(0, len(todo) - limit)}
+
+
+def _fetch(db, chunk_ids: list[int]) -> list[dict]:
+    """조각 번호 → 색인용 글(문서 이름 포함)."""
+    out = []
+    with db._conn() as conn:
+        for i in range(0, len(chunk_ids), 500):
+            part = chunk_ids[i:i + 500]
+            rows = conn.execute(
+                "SELECT c.id, c.kind, c.content, d.filename FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
+                f" WHERE c.id IN ({','.join('?' * len(part))})", part).fetchall()
+            for r in rows:
+                out.append({"id": int(r[0]), "filename": r[3], "content": _text({"kind": r[1], "content": r[2]})})
+    out.sort(key=lambda c: c["id"])
+    return out
