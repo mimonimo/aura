@@ -515,7 +515,8 @@ class DocumentProcessor:
         except MineruNotInstalled:
             log.warning("MinerU 미설치 — OCR 폴백 생략")
         except Exception as e:
-            log.warning("MinerU OCR 실패(%s) — 기본 파싱 결과로 진행", type(e).__name__)
+            log.warning("MinerU OCR 실패(%s: %s) — 기본 파싱 결과로 진행", type(e).__name__,
+                        str(e).replace("\n", " ")[-300:])   # 원인을 알 수 있게 끝부분(경로·본문은 담기지 않는 실행 오류)
         return None
 
     _VLM_PROMPT = (
