@@ -134,6 +134,8 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
         t0 = time.time()
         rec = {k: it.get(k) for k in ("rel", "program", "program_name", "status", "kind", "year", "round", "size", "mtime")}
         rec.update({"version": version(it), "quality": QUALITY})
+        if it.get("force"):
+            rec["force"] = True
         _wait_for_memory(n)
         signal.alarm(max(1, int(timeout_s)))
         try:
@@ -179,6 +181,7 @@ def main() -> int:
     ap.add_argument("--ext", default=",".join(sorted(TEXT_EXT)), help="처리할 형식(쉼표) — 엑셀은 docling 이 있어야 한다")
     ap.add_argument("--exclude", default="", help="경로가 이 정규식에 맞으면 뺀다 — 예: 지출·증빙 계열(절대 규칙 11 범위 밖)을 OCR 하지 않게")
     ap.add_argument("--only", default="", help="이 목록(한 줄에 원본 경로 하나)에 있는 원본만 — 스캔 PDF 핵심 문서처럼 범위를 좁혀 다시 돌릴 때")
+    ap.add_argument("--force", action="store_true", help="이미 처리한 원본도 다시(읽기 도구가 나아졌을 때 — 예: kordoc 설치 뒤 한글). 168 이 같은 판이어도 같은 문서 번호로 갱신")
     ap.add_argument("--retry-failed", action="store_true", help="이전에 실패한 원본도 다시(판독 도구를 새로 깐 뒤). 성공하면 같은 rel 의 새 줄이 덧붙고 168 이 그것을 들인다")
     ap.add_argument("--doc-timeout", type=int, default=900, help="문서 한 건 제한 시간(초) — 넘으면 failed(시간 초과)로 적고 다음 문서로")
     args = ap.parse_args()
@@ -194,7 +197,7 @@ def main() -> int:
             except ValueError:
                 continue
             # 같은 경로라도 판(크기·수정 시각)이 다르면 다시 처리한다 — 열쇠는 경로+판
-            if rec.get("rel") and (rec.get("ok") or not args.retry_failed):
+            if rec.get("rel") and not args.force and (rec.get("ok") or not args.retry_failed):
                 done.add((rec["rel"], rec.get("version") or version(rec)))
     only = set(Path(args.only).read_text(encoding="utf-8").splitlines()) if args.only else None
     import re as _re
@@ -223,6 +226,9 @@ def main() -> int:
     Path(args.out).mkdir(parents=True, exist_ok=True)
     shards = [items[i:: args.workers] for i in range(args.workers)]
     before = _counts(Path(args.out))
+    if args.force:
+        for it in items:
+            it["force"] = True
     procs = [(i, s, mp.Process(target=worker, args=(i, s, args.root, args.out, args.doc_timeout))) for i, s in enumerate(shards) if s]
     for _i, _s, p in procs:
         p.start()

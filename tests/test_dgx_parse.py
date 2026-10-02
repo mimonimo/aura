@@ -176,3 +176,14 @@ def test_waits_while_memory_is_low(monkeypatch):
     monkeypatch.setattr(job.time, "sleep", sleep)
     job._wait_for_memory(0)
     assert slept == [15, 15]
+
+
+def test_forced_reparse_updates_same_document_even_with_same_version(tmp_path, monkeypatch):
+    db = _import(tmp_path, monkeypatch, [_rec()], "parsed-0.jsonl")
+    did = next(d["id"] for d in db.list_documents() if d["stored_path"] == "dgx://p/a.hwp")
+    same = _rec(chunks=[{"seq": 0, "kind": "text", "content": "kordoc 으로 다시"}])
+    db = _import(tmp_path, monkeypatch, [same], "parsed-1.jsonl")
+    assert [c["content"] for c in db.list_doc_chunks(did)] == ["첫 판"]                 # 표시 없으면 건너뜀
+    db = _import(tmp_path, monkeypatch, [{**same, "force": True}], "parsed-2.jsonl")
+    assert [c["content"] for c in db.list_doc_chunks(did)] == ["kordoc 으로 다시"]
+    assert [d["id"] for d in db.list_documents() if d["stored_path"] == "dgx://p/a.hwp"] == [did]
