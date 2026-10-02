@@ -5976,6 +5976,8 @@ def create_app(
                 "box_pages": _box_page_list(doc_id),
                 "scan_asset": scan_asset,
                 "original_kind": original_kind,
+                # DGX 원본 보관소 문서(가벼운 처리) — 원본은 DGX 에 있고 글·조각만 여기에(ADR-0047)
+                "dgx_origin": (doc.get("stored_path") or "")[6:] if (doc.get("stored_path") or "").startswith("dgx://") else "",
                 "suggested_criteria": suggested,
                 "referencing": referencing,
                 "identity": db.get_doc_identity(doc_id),
