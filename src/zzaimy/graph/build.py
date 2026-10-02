@@ -80,6 +80,7 @@ def _doc_node(d: dict, kind: str, chunk_counts: dict[int, int]) -> dict:
 
 def build_graph(
     db, include_similarity: bool = True, dept: str | None = None, embed_fn=None,
+    scope: dict | None = None,
 ) -> dict:
     """DB의 관계를 노드·간선 목록으로 만든다. 반환 형식은 /graph.json 계약.
 
@@ -89,6 +90,10 @@ def build_graph(
     None 이면 검색 스택의 임베딩(embed_search.embed_texts)을 쓰고, 모델이 없으면 생략.
     """
     docs = db.list_documents()
+    if scope is not None:
+        from zzaimy.app.access_policy import visible
+
+        docs = [d for d in docs if visible(d, **scope)]
     docs = [d for d in docs if d.get("doc_type") != "ocr"]  # OCR 작업물은 제외
     if dept:
         docs = [d for d in docs if (d.get("dept") or "공통") in (dept, "공통")]
@@ -128,6 +133,9 @@ def build_graph(
 
     # 프로젝트 노드 + 소속·적용 간선
     projects = db.list_all_projects()
+    if scope is not None and scope.get("role") != "dev":
+        projects = [p for p in projects if p.get("owner") == scope.get("user")]
+    project_ids = {p["id"] for p in projects}
     linked: set[tuple[int, int]] = set()          # (프로젝트, 문서) 명시 연결 — 추정 연관에서 제외
     for p in projects:
         nodes.append({
@@ -146,7 +154,7 @@ def build_graph(
 
     # 접수 문서 → 기준 근거 간선 (지정 + 자동 제안)
     for d in intake:
-        if d.get("project_id"):
+        if d.get("project_id") in project_ids:
             add_edge(f"d{d['id']}", f"p{d['project_id']}", "belongs")
             linked.add((int(d["project_id"]), d["id"]))
         if d.get("related_criteria_id") in doc_ids:
@@ -188,7 +196,7 @@ def _add_relation_layer(db, nodes: list[dict], docs: list[dict], doc_ids: set[in
             corpus_profile, document_role, hub_cutoff,
         )
 
-        prof = corpus_profile(db)
+        prof = corpus_profile(db, docs=docs)
     except Exception as e:
         log.warning("사업 정체 계층 생략 (%s: %s)", type(e).__name__, e)
         return None
@@ -285,7 +293,8 @@ def _add_relation_layer(db, nodes: list[dict], docs: list[dict], doc_ids: set[in
 
 def _add_citation_edges(db, criteria: list[dict], add_edge) -> None:
     """기준 문서 조각 본문에 다른 기준의 제목이 등장하면 참조 간선을 잇는다."""
-    chunks = db.list_regulation_chunks()
+    allowed = {d["id"] for d in criteria}
+    chunks = [c for c in db.list_regulation_chunks() if c["doc_id"] in allowed]
     if not chunks:
         return
     # 문서별 대표 제목: 조각의 reg_title (없으면 건너뜀)
@@ -328,9 +337,9 @@ def _add_similarity_edges(db, criteria: list[dict], add_edge) -> None:
             return
         data = np.load(INDEX_PATH)
         ids, vectors = data["ids"], data["vectors"]
-        chunk_doc = {
-            c["id"]: c["doc_id"] for c in db.list_regulation_chunks()
-        }
+        allowed = {d["id"] for d in criteria}
+        chunk_doc = {c["id"]: c["doc_id"] for c in db.list_regulation_chunks()
+                     if c["doc_id"] in allowed}
         by_doc: dict[int, list] = {}
         for i, cid in enumerate(ids):
             did = chunk_doc.get(int(cid))
