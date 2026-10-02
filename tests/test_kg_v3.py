@@ -518,3 +518,22 @@ def test_stage_number_kept_in_program_name():
 
     names = programs._mentions("(영남이공대학교)3단계 산학연협력 선도전문대학 육성사업 계획서")[0]
     assert any(n.startswith("3단계") for n in names)
+
+
+def test_fill_period_from_folders_and_program_span():
+    from zzaimy.graph import programs as P
+
+    class A:
+        def __init__(self, program, year=None, round_=None):
+            self.program, self.program_name, self.status = program, program, "auto"
+            self.year, self.round, self.evidence = year, round_, []
+
+    docs = [{"path": "링크/LINC3.0/2차년도(2023)/정산"}, {"path": "링크/LINC3.0/3차년도"}, {"path": "링크/LINC+/2014"},
+            {"path": "링크/LINC3.0/2022~2027 공통"}, {"path": "산단/기타"}]
+    asg = [A("program:linc30"), A("program:linc30"), A("program:lincp"), A("program:linc30"), A("program:x")]
+    stats = P.fill_period(docs, asg, {"program:linc30": (2022, 2027), "program:lincp": (2017, 2021)})
+    assert (asg[0].year, asg[0].round) == (2023, 2)            # 폴더의 연차·연도
+    assert (asg[1].year, asg[1].round) == (2024, 3)            # 연차 → 연도 환산
+    assert asg[2].program == "" and asg[2].status == "review"   # 사업 기간 밖 연도는 확정하지 않는다
+    assert asg[3].year is None                                  # 기간 표기는 연도가 아니다
+    assert asg[4].year is None and stats["out_of_period"] == 1
