@@ -2065,7 +2065,7 @@ def create_app(
         )
 
     @app.get("/graph/evidence")
-    def graph_evidence(kind: str = "", s: str = "", t: str = "", term: str = ""):
+    def graph_evidence(request: Request, kind: str = "", s: str = "", t: str = "", term: str = ""):
         """두 문서를 이은 근거 문장 — 미리보기 앞부분이 아니라 본문 전체에서 찾는다.
 
         s 는 출처 문서 노드(dN), t 는 상대 노드, term 은 화면이 이미 아는 표현이다.
@@ -2074,6 +2074,12 @@ def create_app(
         if not s.startswith("d") or not s[1:].isdigit():
             return {"ok": False, "term": "", "quotes": [], "n": 0, "error": "출처 문서가 아닙니다"}
         src_id = int(s[1:])
+        for node in (s, t):
+            if node.startswith("d") and node[1:].isdigit():
+                doc = db.get_document(int(node[1:]))
+                if not doc or not _visible(doc, dept=getattr(request.state, "dept", "") or None,
+                                           user=request.state.user, role=request.state.role):
+                    raise HTTPException(404, "문서를 찾을 수 없습니다")
         reg_rows = db.list_regulation_chunks()
 
         needle = (term or "").strip()
@@ -5129,10 +5135,12 @@ def create_app(
         )
 
     @app.get("/graph.json")
-    def graph_json(dept: str = ""):
+    def graph_json(request: Request, dept: str = ""):
         from zzaimy.graph.build import build_graph
 
-        return JSONResponse(build_graph(db, dept=dept or None))
+        scope = {"dept": getattr(request.state, "dept", "") or None,
+                 "user": request.state.user, "role": request.state.role}
+        return JSONResponse(build_graph(db, dept=dept or None, scope=scope))
 
     # 이전 주소의 북마크만 새 구독 연결 화면으로 안내한다.
     @app.get("/dev/egress", response_class=HTMLResponse)

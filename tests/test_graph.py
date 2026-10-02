@@ -171,6 +171,6 @@ def test_same_title_documents_do_not_cite_each_other(tmp_path):
         db.add_regulation_chunks(d, name, [RegulationChunk(heading="1", content="가구원 정보제공 동의 절차 안내 본문입니다. 자세한 절차는 아래와 같습니다.")])
     other = db.add_document(filename="학자금 지원 규정", stored_path="", doc_type="regulation")
     db.add_regulation_chunks(other, "학자금 지원 규정", [RegulationChunk(heading="1", content="가구원 정보제공 동의 절차 를 따른다.")])
-    _add_citation_edges(db, [], lambda s, t, k, **kw: edges.append((s, t)))
+    _add_citation_edges(db, db.list_documents("regulation"), lambda s, t, k, **kw: edges.append((s, t)))
     assert all(not (s.startswith("d") and t.startswith("d") and s != f"d{other}") for s, t in edges)
     assert (f"d{other}", "d1") in edges

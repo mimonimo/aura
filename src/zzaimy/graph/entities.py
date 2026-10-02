@@ -609,7 +609,7 @@ def _doc_text(db, d: dict) -> str:
     return d.get("masked_text") or ""
 
 
-def corpus_profile(db) -> dict:
+def corpus_profile(db, docs: list[dict] | None = None) -> dict:
     """코퍼스 전체의 개체·정체 프로필 — 그래프와 적재가 함께 쓴다.
 
     반환: {
@@ -620,7 +620,8 @@ def corpus_profile(db) -> dict:
       "titles":    {doc_id: 정리된 제목},
     }
     """
-    docs = [d for d in db.list_documents() if d.get("doc_type") != "ocr"]
+    docs = [d for d in (db.list_documents() if docs is None else docs)
+            if d.get("doc_type") != "ocr"]
     titles = {d["id"]: d.get("filename") or "" for d in docs}
     texts = {d["id"]: _doc_text(db, d) for d in docs}
     # 본문은 공백을 지운 형태로 한 번만 만들어 사업 검증·정체 판정에 함께 쓴다
