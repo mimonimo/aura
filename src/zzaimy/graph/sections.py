@@ -506,8 +506,13 @@ def align_content(a: list[Section], b: list[Section], text_of, skip_b_paths: set
             deeper = [a_by_id[k2] for s_, k2 in scored if s_ >= top - 0.02 and a_by_id[k2].path.startswith(x.path + ".")]
             if deeper:
                 x = max(deeper, key=lambda z: z.path.count("."))
-            pairs.append((x, y, f"본문 낱말 겹침 {top:.2f}(2등 {second:.2f})"))
-    return pairs
+            pairs.append((x, y, f"본문 낱말 겹침 {top:.2f}(2등 {second:.2f})", top))
+    # 계획서 한 절이 보고서 여러 절에 걸리면(사업 개요·예산 중복 방지 같은 총론 절) 가장 잘 맞는 하나만
+    best: dict[int, tuple] = {}
+    for x, y, why, sc in pairs:
+        if id(x) not in best or sc > best[id(x)][3]:
+            best[id(x)] = (x, y, why, sc)
+    return [(x, y, why) for x, y, why, _sc in best.values()]
 
 
 def best_section(tree: list[Section], text_of, query: str, min_sim: float = 0.08) -> tuple[Section | None, float]:
@@ -532,3 +537,23 @@ def best_section(tree: list[Section], text_of, query: str, min_sim: float = 0.08
     # 점수가 거의 같으면 더 깊은(구체적인) 절
     best = max((t for t in scored if t[0] >= top - 0.01), key=lambda t: t[1])
     return best[2], best[0]
+
+
+
+_ASPECT_STOP = {"실적", "계획", "과제", "추진실적", "현황", "결과", "내용", "관리", "운영", "달성", "자체평가", "분석", "대표"}
+
+
+def aspect_match(tree: list[Section], report_title: str) -> tuple[Section | None, str]:
+    """과제 코드로 좁힌 계획서 안에서 보고서 절 제목의 핵심 낱말(예산·성과지표·추진 …)을 제목에 가진 절 — 가장 얕은 것.
+    「과제2-1 예산 집행 실적」 → 「Ⅴ. 예산 운용」. 핵심 낱말이 겹치는 절이 없으면 (None, '')."""
+    def words(t: str) -> set[str]:
+        t = re.sub(r"\[[^\]]*\]|과제\s*\d+-\d+|\d+-\d+", " ", t or "")
+        return {w for w in re.findall(r"[가-힣A-Za-z]{2,}", t) if w not in _ASPECT_STOP}
+    want = words(report_title)
+    if not want:
+        return None, ""
+    hits = [(len(want & words(x.title)), -x.path.count("."), x) for x in tree if want & words(x.title)]
+    if not hits:
+        return None, ""
+    n, _d, x = max(hits, key=lambda t: (t[0], t[1]))
+    return x, f"제목 핵심 낱말 {sorted(want & words(x.title))}"

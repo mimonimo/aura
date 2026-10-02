@@ -218,10 +218,13 @@ def main() -> int:
                 for s in rsecs:
                     if rx.search(s.title) and len(s.title) <= 60:
                         code_sections[code].append((r, s.path, s.title))
-                        # 보고서의 과제 절(추진 실적·성과지표·예산)은 과제 전체를 다룬다 — 짝은 그 과제의 계획서 문서 전체다.
-                        # (계획서 안 대응 절 고르기는 「기대효과」 같은 요약 장으로 쏠려 판정 58% — all6)
-                        edges.append((f"doc:{p}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
-                                      [f"과제 코드 {code}: {main_head} 「{fname[:40]}」 ↔ 보고서 절 「{s.title[:50]}」"]))
+                        # 과제 코드로 계획서를 좁힌 뒤, 보고서 절 제목의 핵심 낱말(예산·성과지표·추진)을 가진 계획서 절과만 잇는다
+                        # (「예산 집행 실적」 ↔ 「예산 운용」). 맞는 측면 절이 없으면(우수사례) 단위과제 노드로만 묶는다 —
+                        # 계획서 전체 ↔ 보고서 한 측면은 '같은 것의 계획과 실적'이 아니다(판정 all7: 23%)
+                        ps, why = sections.aspect_match(docs_by_id[p]["sections"], s.title)
+                        if ps is not None:
+                            edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
+                                          [f"과제 코드 {code}: 「{fname[:40]}」 ↔ 보고서 절 「{s.title[:50]}」", why]))
         for e in evals:
             for t in plans + reports:
                 edges.append((f"doc:{e}", f"doc:{t}", "evaluates", "분류", [f"같은 사업·연차({ynode})의 평가 결과"]))
