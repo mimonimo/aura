@@ -45,6 +45,7 @@ def _ids(spec: str) -> list[int]:
 NEXT_YEAR = re.compile(r"차년도\s*(?:사업\s*)?계획|향후\s*(?:추진\s*)?계획|다음\s*연도")
 
 
+ASPECT_BODY_MIN = 0.15          # 판정 all10 보정: 성과지표 0.02~0.04·예산 0.09~0.15(모두 다름), 추진 실적 0.15~0.24(대부분 같음)
 _HEAD_NOUN = re.compile(r"과제계획서|사업계획서|수행계획서|실적보고서|연차보고서|계획서|보고서")
 
 
@@ -284,8 +285,17 @@ def main() -> int:
                         # (「예산 집행 실적」 ↔ 「예산 운용」). 맞는 측면 절이 없으면(우수사례) 단위과제 노드로만 묶는다 —
                         # 계획서 전체 ↔ 보고서 한 측면은 '같은 것의 계획과 실적'이 아니다(판정 all7: 23%)
                         desc = [y for y in rsecs if y.path == s.path or y.path.startswith(s.path + ".")]
-                        ps, why = sections.aspect_match(docs_by_id[p]["sections"], s.title, text_full,
-                                                        " ".join(text_full(y) for y in desc)[:6000])
+                        rtext = " ".join(text_full(y) for y in desc)[:6000]
+                        ps, why = sections.aspect_match(docs_by_id[p]["sections"], s.title, text_full, rtext)
+                        if ps is not None:
+                            # 측면 낱말이 같아도 본문이 겹치지 않으면(계획서 「성과지표 관리 계획」= CQI 관리 체계, 보고서 = 지표 수치) 같은 것의
+                            # 계획과 실적이 아니다 — 그런 짝은 다음 층(성과지표 노드의 목표값↔달성값)에서 잇는다(판정 all10)
+                            pdesc = [y for y in docs_by_id[p]["sections"] if y.path == ps.path or y.path.startswith(ps.path + ".")]
+                            body = sections._jac(sections._words(" ".join(text_full(y) for y in pdesc)[:6000]), sections._words(rtext))
+                            if body < ASPECT_BODY_MIN:
+                                ps = None
+                            else:
+                                why = f"{why}, 본문 겹침 {body:.2f}"
                         if ps is not None:
                             edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
                                           [f"과제 코드 {code}: 「{fname[:40]}」 ↔ 보고서 절 「{s.title[:50]}」", why]))
