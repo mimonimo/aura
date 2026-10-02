@@ -66,7 +66,7 @@ UPKEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_up")
 UPRSH = f"ssh -i {UPKEY} -p 8022 -o BatchMode=yes"
 
 
-def push_uploads(db, origins: dict[str, int]) -> None:
+def push_uploads(db, origins: dict[str, int], cards=None) -> None:
     """플랫폼(문서함·에이전트 채팅)에 올라온 원본을 DGX ~/zzaimy_uploads 로 올리고 원본 목록 장부에 「플랫폼 업로드」로 넣는다 —
     들어온 길이 달라도 원본은 한 보관소·한 장부에(사용자 2026-10-02: "제각각이면 안되거든"). DGX 쪽 키는 그 폴더 쓰기 전용."""
     docs_root = ROOT / "data" / "platform" / "documents"
@@ -104,8 +104,23 @@ def push_uploads(db, origins: dict[str, int]) -> None:
         print("업로드 원본 DGX 올리기 실패:", r.stderr.decode("utf-8", "replace")[-200:], flush=True)
         return
     stamp = time.strftime("%Y-%m-%d %H:%M")
-    rows_ar = [{"rel": archive.UPLOAD_PREFIX + t[2], "size": t[3].stat().st_size, "mtime": int(t[3].stat().st_mtime),
-                "ext": t[3].suffix.lower().lstrip("."), "area": "플랫폼 업로드", "kind": t[4]} for t in todo]
+    # 반입 원본과 같은 분류 — 같은 사업 카드·같은 분류기에 파일 이름·접수 폴더 이름·문서 앞머리(조각)를 넣는다
+    cls = {}
+    if cards:
+        pdocs = []
+        for t in todo:
+            head = "\n".join(str(c["content"]) for c in db.list_doc_chunks(t[0])[:30])
+            pdocs.append({"id": t[0], "filename": t[1], "path": str(Path(t[2]).parent), "head": head})
+        cls = {a.doc_id: a for a in programs.classify(pdocs, cards)}
+    rows_ar = []
+    for t in todo:
+        a = cls.get(t[0])
+        r = {"rel": archive.UPLOAD_PREFIX + t[2], "size": t[3].stat().st_size, "mtime": int(t[3].stat().st_mtime),
+             "ext": t[3].suffix.lower().lstrip("."), "area": "플랫폼 업로드", "kind": t[4]}
+        if a is not None:
+            r.update({"program": a.program, "program_name": a.program_name, "status": a.status, "kind": a.kind or t[4],
+                      "year": a.year, "round": a.round})
+        rows_ar.append(r)
     archive.load(db, rows_ar, {archive.UPLOAD_PREFIX + t[2]: t[0] for t in todo})
     with pushed_path.open("a", encoding="utf-8") as fh:
         for t in todo:
@@ -215,7 +230,7 @@ def main() -> int:
     new = new[: args.max]
     print(f"뼈대 {len(chosen)} · 새로 {len(new)}(최대 {args.max})", flush=True)
     if not args.dry:
-        push_uploads(db, origins)
+        push_uploads(db, origins, cards)
     if args.dry or not (new or updates):
         return post_if_changed(db)
     by_prog = defaultdict(list)
