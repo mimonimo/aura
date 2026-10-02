@@ -26,11 +26,14 @@ def ensure(db) -> None:
         for q in _SCHEMA:
             conn.execute(q)
     # 없어진 원본 표시(동기화) — 지우지 않고 표시만 해서 이어진 문서함 문서의 출처가 남는다
-    try:
-        with db._conn() as conn:
-            conn.execute("ALTER TABLE archive_files ADD COLUMN removed_at TEXT NOT NULL DEFAULT ''")
-    except Exception:
-        pass
+    for q in ("ALTER TABLE archive_files ADD COLUMN IF NOT EXISTS removed_at TEXT NOT NULL DEFAULT ''",   # PostgreSQL
+              "ALTER TABLE archive_files ADD COLUMN removed_at TEXT NOT NULL DEFAULT ''"):                 # SQLite
+        try:
+            with db._conn() as conn:
+                conn.execute(q)
+            break
+        except Exception:
+            continue
 
 
 _CLASS = ("program", "program_name", "status", "kind", "year", "round", "dup_of", "ext", "area")
