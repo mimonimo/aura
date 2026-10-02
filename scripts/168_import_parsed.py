@@ -27,12 +27,15 @@ def main() -> int:
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     archive.ensure(db)
     led_path = ROOT / "data" / "platform" / "origins.jsonl"
-    have = set()
+    # 원본 경로 → (문서 번호, 판). 판(크기:수정 시각)이 다른 새 기록이 오면 같은 문서 번호로 갱신한다(C-183).
+    # 판을 적지 않은 옛 장부 줄은 판을 모르므로 건너뛴다 — 바뀐 원본은 170 의 원본 장부 대조(changed)가 따로 다시 처리한다
+    have: dict[str, tuple[int, str]] = {}
     if led_path.is_file():
         for line in led_path.read_text(encoding="utf-8").splitlines():
             try:
-                have.add(json.loads(line)["origin"])
-            except (ValueError, KeyError):
+                o = json.loads(line)
+                have[o["origin"]] = (int(o["doc_id"]), o.get("version") or "")
+            except (ValueError, KeyError, TypeError):
                 continue
     projects: dict[str, int] = {}
 
@@ -42,7 +45,7 @@ def main() -> int:
             proj = next((p for p in db.list_projects("grant") if p["name"] == label), None)
             projects[label] = int(proj["id"]) if proj else db.create_project("grant", label, owner="zzdev")
         return projects[label]
-    n_ok = n_skip = n_fail = 0
+    n_ok = n_upd = n_skip = n_fail = 0
     led = led_path.open("a", encoding="utf-8")
     # 파일마다 읽은 자리를 기억한다(DGX 결과 파일은 덧붙기만 한다) — 5분 주기가 매번 처음부터 읽지 않게
     off_path = ROOT / "data" / "inbox" / "parsed" / ".offsets.json"
@@ -70,29 +73,44 @@ def main() -> int:
         except ValueError:
             continue
         rel = rec.get("rel")
-        if not rel or rel in have:
+        if not rel:
+            continue
+        ver = rec.get("version") or f"{int(rec.get('size') or 0)}:{int(float(rec.get('mtime') or 0))}"
+        old = have.get(rel)
+        if old and (not old[1] or old[1] == ver):
             n_skip += 1
             continue
-        if not rec.get("ok") or not rec.get("chunks"):
+        state = rec.get("state") or ("parsed" if rec.get("ok") else "failed")
+        if state not in ("parsed", "partial") or not rec.get("chunks"):
             n_fail += 1
             continue
-        did = db.add_document(filename=rec.get("filename") or Path(rel).name, stored_path=f"dgx://{rel}", doc_type="grant",
-                              sector="grant", project_id=project_for(rec.get("program_name") or ""), owner="zzdev")
+        # 처리 상태를 문서 기록에 남긴다 — 가벼운 처리 완료 ≠ OCR 품질 통과 ≠ 학습 승인(C-183)
+        note = (rec.get("parse_note") or "") + " · DGX 보관(가벼운 처리: 검토 의견 없음, OCR 품질 미검사)"
+        if state == "partial":
+            note += " · 일부만 읽음"
+        if rec.get("truncated"):
+            note += f" · 본문 잘림(원래 {int(rec.get('text_len') or 0):,}자, 조각은 전부)"
+        if old:
+            did = old[0]                                   # 같은 원본의 새 판 — 같은 문서 번호로 갱신
+            n_upd += 1
+        else:
+            did = db.add_document(filename=rec.get("filename") or Path(rel).name, stored_path=f"dgx://{rel}", doc_type="grant",
+                                  sector="grant", project_id=project_for(rec.get("program_name") or ""), owner="zzdev")
+            n_ok += 1
         db.replace_doc_chunks(did, [c for c in rec["chunks"] if c.get("content") is not None])
-        db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=(rec.get("parse_note") or "") +
-                           " · DGX 보관(가벼운 처리: 검토 의견 없음)")
+        db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=note)
         if rec.get("doc_kind"):
             db.set_document_kind(did, rec["doc_kind"])
-        led.write(json.dumps({"doc_id": did, "origin": rel, "at": time.strftime("%Y-%m-%d %H:%M"), "via": "dgx-parse"}, ensure_ascii=False) + "\n")
+        led.write(json.dumps({"doc_id": did, "origin": rel, "version": ver, "state": state, "at": time.strftime("%Y-%m-%d %H:%M"),
+                              "via": "dgx-parse"}, ensure_ascii=False) + "\n")
         with db._conn() as conn:
             conn.execute("UPDATE archive_files SET doc_id = ?, analysis = ? WHERE rel = ?", (did, "가벼운 처리", rel))
-        have.add(rel)
-        n_ok += 1
+        have[rel] = (did, ver)
     led.close()
     if len(sys.argv) > 1:
         off_path.parent.mkdir(parents=True, exist_ok=True)
         off_path.write_text(json.dumps(offsets), encoding="utf-8")
-    print(f"들임 {n_ok} · 이미 있음 {n_skip} · 처리 실패·빈 문서 {n_fail}")
+    print(f"들임 {n_ok} · 새 판 갱신 {n_upd} · 이미 있음 {n_skip} · 처리 실패·빈 문서 {n_fail}")
     return 0
 
 
