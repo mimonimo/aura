@@ -45,6 +45,14 @@ def _ids(spec: str) -> list[int]:
 NEXT_YEAR = re.compile(r"차년도\s*(?:사업\s*)?계획|향후\s*(?:추진\s*)?계획|다음\s*연도")
 
 
+_HEAD_NOUN = re.compile(r"과제계획서|사업계획서|수행계획서|실적보고서|연차보고서|계획서|보고서")
+
+
+def _head_noun(filename: str) -> str:
+    found = _HEAD_NOUN.findall(filename or "")
+    return found[-1] if found else ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--docs", required=True, help="문서 id 목록(예: 557-585,601)")
@@ -196,11 +204,13 @@ def main() -> int:
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
         # 과제 코드로 잇기 — 과제마다 계획서를 내고 연차보고서는 「[2-3 과제] 추진 실적」처럼 과제 코드를 단 절로 쓰는 사업(RISE).
         # 계획서 파일 이름의 코드와 보고서 절 제목의 코드가 같으면 계획서(문서) ↔ 그 보고서 절
+        # 코드 붙은 계획서 중 가장 흔한 머리 낱말(과제계획서)의 문서만 그 과제의 계획서다 — 「[2-3] 환경개선공사 사업계획서」 같은 관련 계획은 아니다
+        heads = Counter(_head_noun(docs_by_id[p]["filename"]) for p in plans if units.doc_code(docs_by_id[p]["filename"]))
+        main_head = heads.most_common(1)[0][0] if heads else ""
         for p in plans:
             fname = docs_by_id[p]["filename"]
             code = units.doc_code(fname)
-            # 코드가 여럿인 문서(「[1-1,3-3] 환경개선공사 사업계획서」)는 그 과제의 계획서가 아니라 관련 시설 계획이다
-            if not code or len(units._UNIT_CODE.findall(fname)) > 1:
+            if not code or len(units._UNIT_CODE.findall(fname)) > 1 or _head_noun(fname) != main_head:
                 continue
             rx = re.compile(rf"(?<![\d.\-]){re.escape(code)}(?![\d.\-])")
             for r in reports:
@@ -208,17 +218,10 @@ def main() -> int:
                 for s in rsecs:
                     if rx.search(s.title) and len(s.title) <= 60:
                         code_sections[code].append((r, s.path, s.title))
-                        # 과제 코드로 계획서를 좁히고, 그 안에서 보고서 절(+하위 절) 본문과 가장 맞는 절로 잇는다
-                        desc = [y for y in rsecs if y.path == s.path or y.path.startswith(s.path + ".")]
-                        query = s.title + " " + " ".join(text_full(y) for y in desc)[:6000]
-                        ps, sim = sections.best_section(docs_by_id[p]["sections"], text_full, query)
-                        if ps is not None:
-                            edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
-                                          [f"과제 코드 {code}: 계획서 파일 이름 ↔ 보고서 절 「{s.title[:50]}」",
-                                           f"계획서 안 대응 절 「{ps.title[:50]}」(본문 겹침 {sim:.2f})"]))
-                        else:
-                            edges.append((f"doc:{p}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
-                                          [f"과제 코드 {code}: 계획서 파일 이름 ↔ 보고서 절 「{s.title[:50]}」"]))
+                        # 보고서의 과제 절(추진 실적·성과지표·예산)은 과제 전체를 다룬다 — 짝은 그 과제의 계획서 문서 전체다.
+                        # (계획서 안 대응 절 고르기는 「기대효과」 같은 요약 장으로 쏠려 판정 58% — all6)
+                        edges.append((f"doc:{p}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
+                                      [f"과제 코드 {code}: {main_head} 「{fname[:40]}」 ↔ 보고서 절 「{s.title[:50]}」"]))
         for e in evals:
             for t in plans + reports:
                 edges.append((f"doc:{e}", f"doc:{t}", "evaluates", "분류", [f"같은 사업·연차({ynode})의 평가 결과"]))

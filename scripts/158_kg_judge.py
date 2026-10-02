@@ -38,6 +38,16 @@ PROMPT = ("다음은 같은 사업·같은 연차의 사업계획서 절과 사�
 
 
 def _text(db, doc_id: int, sec: dict, by_path: dict) -> tuple[str, str]:
+    if ":sec:" not in sec["id"]:
+        # 문서 전체(과제 코드로 이은 계획서) — 표지가 아니라 목차(장·절 제목)와 각 장 첫 문단으로 보여 준다
+        heads = sorted((s for k, s in by_path.items() if k.startswith(sec["id"] + ":sec:") and k.split(":sec:")[1].count(".") <= 1),
+                       key=lambda s: [int(x) if x.isdigit() else 0 for x in s["id"].split(":sec:")[1].split(".")])
+        chunks = {c["seq"]: str(c["content"]) for c in db.list_doc_chunks(doc_id)}
+        parts = []
+        for h in heads[:14]:
+            first = next((chunks.get(q, "") for q in (h["props"].get("chunks") or []) if chunks.get(q)), "")
+            parts.append(f"- {h['label'][:50]}: {first[:120]}")
+        return ("[문서 목차와 장 첫 문단]\n" + "\n".join(parts))[:1600], "문서 전체"
     seqs = set(sec["props"].get("chunks") or [])
     body = "\n".join(str(c["content"])[:400] for c in db.list_doc_chunks(doc_id) if c["seq"] in seqs)[:1200]
     tail = sec["id"].split(":sec:")[1] if ":sec:" in sec["id"] else ""
