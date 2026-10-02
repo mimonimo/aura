@@ -45,6 +45,16 @@ def main() -> int:
                 have[o["origin"]] = (int(o["doc_id"]), o.get("version") or "")
             except (ValueError, KeyError, TypeError):
                 continue
+    # DB 가 기준 — 장부 줄이 없더라도(문서를 만든 뒤 장부를 쓰기 전에 멈춘 경우) 같은 경로의 문서가 있으면 그 번호를 다시 쓴다(C-186)
+    by_path: dict[str, int] = {}
+    with db._conn() as conn:
+        for sp, did0 in conn.execute("SELECT stored_path, id FROM documents WHERE stored_path LIKE 'dgx://%' ORDER BY id DESC").fetchall():
+            by_path[str(sp)[len("dgx://"):]] = int(did0)
+        # 경로마다 문서 하나 — DB 가 막는다(동시 들이기 사고 2026-10-02). 중복이 남아 있으면 만들지 못하고 알린다
+        try:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_dgx_path ON documents (stored_path) WHERE stored_path LIKE 'dgx://%'")
+        except Exception as e:
+            print("DGX 경로 고유 색인을 만들지 못함(중복 남음):", type(e).__name__, flush=True)
     projects: dict[str, int] = {}
 
     def project_for(name: str) -> int:
@@ -53,7 +63,7 @@ def main() -> int:
             proj = next((p for p in db.list_projects("grant") if p["name"] == label), None)
             projects[label] = int(proj["id"]) if proj else db.create_project("grant", label, owner="zzdev")
         return projects[label]
-    n_ok = n_upd = n_skip = n_fail = n_link_later = 0
+    n_ok = n_upd = n_skip = n_fail = n_link_later = n_stale = 0
     led = led_path.open("a", encoding="utf-8")
     # 파일마다 읽은 자리를 기억한다(DGX 결과 파일은 덧붙기만 한다) — 5분 주기가 매번 처음부터 읽지 않게
     off_path = ROOT / "data" / "inbox" / "parsed" / ".offsets.json"
@@ -99,22 +109,29 @@ def main() -> int:
         if state not in ("parsed", "partial") or not rec.get("chunks"):
             n_fail += 1
             continue
+        # 원본 장부의 현재 판과 같은 기록만 적용 — 여러 결과 파일에 옛 판이 뒤늦게 읽혀도 되돌리지 않는다(C-186).
+        # 장부가 아직 새 판을 모르면(목록 갱신 전) 여기서는 건너뛰고, 바뀐 원본은 170 의 원본 장부 대조(changed)가 다시 처리한다
+        with db._conn() as conn:
+            row = conn.execute("SELECT program_name, size, mtime FROM archive_files WHERE rel = ?", (rel,)).fetchone()
+        if row is not None and row[1] is not None and f"{int(row[1] or 0)}:{int(float(row[2] or 0))}" != ver:
+            n_stale += 1
+            continue
         # 처리 상태를 문서 기록에 남긴다 — 가벼운 처리 완료 ≠ OCR 품질 통과 ≠ 학습 승인(C-183)
         note = (rec.get("parse_note") or "") + " · DGX 보관(가벼운 처리: 검토 의견 없음, OCR 품질 미검사)"
         if state == "partial":
             note += " · 일부만 읽음"
         if rec.get("truncated"):
             note += f" · 본문 잘림(원래 {int(rec.get('text_len') or 0):,}자, 조각은 전부)"
-        if old:
-            did = old[0]                                   # 같은 원본의 새 판 — 같은 문서 번호로 갱신
+        existing = old[0] if old else by_path.get(rel)
+        if existing:
+            did = existing                                 # 같은 원본 — 같은 문서 번호로 갱신(새 판, 또는 지난 회차가 중간에 멈춘 것)
             n_upd += 1
         else:
             # 사업 분류는 원본 장부의 현재 값(검토 판정 반영) — 기록의 값은 DGX 목록을 만들 때의 옛 분류일 수 있다
-            with db._conn() as conn:
-                row = conn.execute("SELECT program_name FROM archive_files WHERE rel = ?", (rel,)).fetchone()
             prog = row[0] if row is not None else rec.get("program_name")
             did = db.add_document(filename=rec.get("filename") or Path(rel).name, stored_path=f"dgx://{rel}", doc_type="grant",
                                   sector="grant", project_id=project_for(prog or ""), owner="zzdev")
+            by_path[rel] = did
             n_ok += 1
         db.replace_doc_chunks(did, [c for c in rec["chunks"] if c.get("content") is not None])
         db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=note)
@@ -135,6 +152,7 @@ def main() -> int:
     led.close()
     save_offsets()
     print(f"들임 {n_ok} · 새 판 갱신 {n_upd} · 이미 있음 {n_skip} · 처리 실패·빈 문서 {n_fail}"
+          + (f" · 장부 판과 다름(건너뜀) {n_stale}" if n_stale else "")
           + (f" · 원본 장부 연결 미룸 {n_link_later}" if n_link_later else ""))
     return 0
 
