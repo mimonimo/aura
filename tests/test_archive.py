@@ -95,7 +95,7 @@ def test_archived_program_projects_group_past_documents_and_keep_user_projects(t
     from zzaimy.app import archive as ar
     db = Database(tmp_path / "t.db")
     mine = db.create_project("grant", "2026 ○○ 지원사업", owner="kim")                 # 담당자 프로젝트
-    old_auto = db.create_project("grant", "단계 산학연 (DGX 보관)", owner="zzdev", archived=True)
+    old_auto = db.create_project("grant", "단계 산학연 (DGX 보관)", owner="zzdev", archived=True, archive_source="dgx")
     a = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant", project_id=old_auto)
     b = db.add_document("b.hwp", "dgx://p/b.hwp", doc_type="grant", project_id=mine)     # 담당자가 붙인 과거 문서
     c = db.add_document("c.hwp", "dgx://p/c.hwp", doc_type="grant")                      # 묶음 없음

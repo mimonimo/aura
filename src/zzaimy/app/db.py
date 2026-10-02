@@ -239,6 +239,7 @@ class Database:
         # 보관(과거 사업 묶음 — 사이드바·목록에서 빠지고, 보관된 사업 목록에서 불러온다)과 묶음의 사업(분류 id)
         "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN program TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE projects ADD COLUMN archive_source TEXT NOT NULL DEFAULT ''",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -655,13 +656,13 @@ class Database:
 
     def create_project(
         self, sector: str, name: str, due_date: str = "", owner: str = "zzaimy",
-        archived: bool = False, program: str = "",
+        archived: bool = False, program: str = "", archive_source: str = "",
     ) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO projects (sector, name, created_at, due_date, owner, archived, program)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (sector, name[:80], _now(), due_date[:10], owner, 1 if archived else 0, program),
+                "INSERT INTO projects (sector, name, created_at, due_date, owner, archived, program, archive_source)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (sector, name[:80], _now(), due_date[:10], owner, 1 if archived else 0, program, archive_source),
             )
             return int(cur.lastrowid or 0)
 
