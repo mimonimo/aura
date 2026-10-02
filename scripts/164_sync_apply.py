@@ -26,9 +26,31 @@ def sh(args: list[str]) -> int:
 
 def main() -> int:
     man = ROOT / "data" / "inbox" / "core" / "sync_manifest.json"
-    jobs = json.loads(man.read_text(encoding="utf-8")) if man.is_file() else []
+    post_only = "--post-only" in sys.argv
+    jobs = [] if post_only else (json.loads(man.read_text(encoding="utf-8")) if man.is_file() else [])
     env_conn = os.environ.get("ZZAIMY_ROLE_CONN", "")
+    sys.path.insert(0, str(ROOT / "src"))
     for job in jobs:
+        # 바뀐 원본 — 같은 문서 번호로 다시 처리. 문서함에 원본이 있으면 새 원본으로 바꾸고, DGX 보관 문서(dgx://)는 가볍게 처리
+        for u in job.get("updates", []):
+            src = ROOT / job["inbox"] / u["rel"]
+            if not src.is_file():
+                continue
+            from zzaimy.app.db import Database as _DB
+            from zzaimy.app.pipeline import DocumentProcessor
+            _db = _DB(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
+            d = _db.get_document(int(u["doc_id"])) or {}
+            stored = d.get("stored_path") or ""
+            if stored.startswith("dgx://"):
+                os.environ["ZZAIMY_LIGHT_PROCESS"] = "1"
+                DocumentProcessor().process(_db, int(u["doc_id"]), src)
+                _db.update_document(int(u["doc_id"]), stored_path=stored)
+                os.environ.pop("ZZAIMY_LIGHT_PROCESS", None)
+            elif stored:
+                import shutil
+                shutil.copyfile(src, stored)
+                DocumentProcessor().process(_db, int(u["doc_id"]), Path(stored))
+            print(f"다시 처리 #{u['doc_id']} {u['rel'][-50:]}", flush=True)
         files = [f"{job['inbox']}/{r}" for r in job["files"] if (ROOT / job["inbox"] / r).is_file()]
         if not files:
             continue
@@ -47,7 +69,8 @@ def main() -> int:
         data, rep = md_docx.convert(f.read_text(encoding="utf-8"))
         f.with_suffix(".docx").write_bytes(data)
         print(f"양식 {f.name}: 절 {rep['headings']} · 표 {rep['tables']}", flush=True)
-    man.rename(man.with_suffix(".done.json"))
+    if man.is_file() and not post_only:
+        man.rename(man.with_suffix(".done.json"))
     print("SYNC_DONE", env_conn and "(분석 서버 지정)", flush=True)
     return 0
 
