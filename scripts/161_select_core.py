@@ -48,7 +48,7 @@ _HEAD = re.compile(r"(수정\s*)?(과제계획서|사업계획서|수행계획�
 _BUSINESS_HEAD = re.compile(r"과제계획서|사업\s*계획서|사업\s*수행\s*계획서|실적\s*보고서|연차\s*보고서|성과\s*보고서|기본\s*계획|"
                             r"시행\s*계획|자체\s*평가|선정\s*평가|종합\s*의견|평가\s*결과")
 # 문서의 일부만 떼어 낸 파일(표지·앞 두 장·예산 부분·발췌·간지) — 뼈대는 전체 문서여야 한다
-_FRAGMENT = re.compile(r"표지|앞\s*\S{0,2}\s*장|부분(?:$|[_)\s])|발췌|간지|목차만")
+_FRAGMENT = re.compile(r"표지|앞\s*\S{0,2}\s*장|부분(?:$|[_)\s])|발췌|간지|목차만|[가-힣]+만\s*정리|만\s*정리")
 _BLANK_FORM = re.compile(r"양식|서식\s*\d|샘플|신청서|작성\s*요령")
 
 
@@ -60,6 +60,13 @@ def is_core(d: dict, kind: str, surfaces: set[str]) -> bool:
         return False
     if _BLANK_FORM.search(name) and not re.search(r"과제계획서|사업\s*계획서", name):
         return False                                      # 「[서식6] 2차년도 과제계획서_2-3」은 채운 계획서다
+    # 이름 맨 끝의 문서 머리 낱말이 사업 단위여야 한다 — 「자체평가워크샵 행사계획서」는 앞의 '자체평가'가 아니라 끝의 '행사계획서'가 머리
+    heads = list(re.finditer(r"[가-힣]*(?:계획서|보고서|계획|결과|의견서?)", name))
+    if heads:
+        last = heads[-1]
+        tail = name[max(0, last.start() - 4): last.end()]          # 바로 앞 몇 글자까지(「자체평가 결과」의 평가)
+        if not _BUSINESS_HEAD.search(tail):
+            return False
     return bool(_BUSINESS_HEAD.search(name))
 
 
