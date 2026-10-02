@@ -225,6 +225,11 @@ def main() -> int:
     cards = programs.build_cards(docs)
     res = {a.doc_id: a for a in programs.classify(docs, cards)}
     programs.inherit_by_folder(docs, [res[d["id"]] for d in docs])
+    # 규칙이 확정하지 못한 파일은 폴더 검토 장부(에이전트·사람 판정)로 — 그래프(157)와 같은 장부
+    reviews = programs.load_reviews(ROOT / "data" / "platform" / "class_review.jsonl")
+    n_rev = programs.apply_reviews(docs, [res[d["id"]] for d in docs], reviews, cards)
+    if n_rev:
+        print(f"폴더 검토 판정 반영 {n_rev}건(장부 {len(reviews)}줄)", flush=True)
     by_rel = {d["rel"]: res[d["id"]] for d in docs}
     rows = []
     for f in files:

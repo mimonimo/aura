@@ -390,3 +390,61 @@ def inherit_by_folder(docs: list[dict], assigned: list[Assignment], min_n: int =
                 n_inherited += 1
             break
     return n_inherited
+
+
+def load_reviews(path) -> list[dict]:
+    """에이전트·사람 검토 장부(class_review.jsonl) — 폴더 단위 판정. 확신도 낮음은 쓰지 않는다."""
+    import json as _json
+    from pathlib import Path as _P
+    out = []
+    p = _P(path)
+    if not p.is_file():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines():
+        try:
+            r = _json.loads(line)
+        except ValueError:
+            continue
+        if r.get("folder") and r.get("label") and r.get("confidence") in ("high", "medium"):
+            out.append(r)
+    return out
+
+
+def apply_reviews(docs: list[dict], assigned: list[Assignment], reviews: list[dict], cards: list[ProgramCard]) -> int:
+    """규칙 분류가 확정하지 못한 파일(검토 대기·폴더 추론·사업 없음)에 폴더 검토 판정을 쓴다 — 가장 긴 폴더가 이긴다.
+
+    판정이 사업 이름이면 그 카드(없으면 새 카드), 「사업 아님」이면 사업 없음(기관 업무), 「새 사업: X」면 X 카드를 만든다.
+    규칙이 확정(auto)한 파일은 건드리지 않는다. 상태는 'agent'(에이전트 검토)·근거는 판정 이유. 바꾼 수를 돌려준다."""
+    if not reviews:
+        return 0
+    by_folder = sorted(reviews, key=lambda r: -len(r["folder"]))
+
+    def card_named(name: str) -> ProgramCard:
+        key = program_key(name)
+        for c in cards:
+            if c.name == name or c.key == key or name in c.names:
+                return c
+        c = ProgramCard(key=key or name)
+        c.names[name] += 1
+        cards.append(c)
+        return c
+    n = 0
+    for d, a in zip(docs, assigned):
+        if a.status == "auto":
+            continue
+        rel_dir = (d.get("path") or "").strip("/")
+        hit = next((r for r in by_folder if rel_dir == r["folder"] or rel_dir.startswith(r["folder"] + "/")), None)
+        if hit is None:
+            continue
+        label = hit["label"].strip()
+        if label == "사업 아님":
+            a.program, a.program_name = "", ""
+            a.status = "agent"
+            a.evidence = [f"검토({hit.get('reviewer', '에이전트')}): 사업 아님 — {hit.get('reason', '')[:80]}"]
+        else:
+            name = label.split(":", 1)[1].strip() if label.startswith("새 사업") else label
+            c = card_named(name)
+            a.program, a.program_name, a.status = c.node_id, c.name, "agent"
+            a.evidence = [f"검토({hit.get('reviewer', '에이전트')}): {hit.get('reason', '')[:80]}"]
+        n += 1
+    return n

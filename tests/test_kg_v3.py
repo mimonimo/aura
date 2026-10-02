@@ -492,3 +492,22 @@ def test_leading_time_and_ordinal_tags_dropped_from_program_names():
     names = [programs._mentions(t)[0] for t in ("8월 RISE사업 실적", "3(경대) RISE사업 협약", "25재정지원사업 정산")]
     flat = [n for ns in names for n in ns]
     assert not any(n.startswith(("8월", "3(", "25")) for n in flat)
+
+
+def test_apply_reviews_only_touches_unconfirmed_files():
+    from zzaimy.graph import programs
+
+    docs = [{"id": 1, "filename": "LINC3.0 계획서.hwp", "path": "링크/LINC3.0", "head": ""},
+            {"id": 2, "filename": "붙임1.hwp", "path": "산단/이전자료/회계/서식", "head": ""},
+            {"id": 3, "filename": "붙임2.hwp", "path": "앵커/02_2차년도/03_프로그램", "head": ""}]
+    cards = programs.build_cards(docs)
+    res = programs.classify(docs, cards)
+    reviews = [{"folder": "산단/이전자료/회계", "label": "사업 아님", "confidence": "high", "reason": "회계 서식"},
+               {"folder": "앵커/02_2차년도", "label": "새 사업: 지역성장 인재양성체계", "confidence": "medium", "reason": "앵커"},
+               {"folder": "링크", "label": "사업 아님", "confidence": "high", "reason": "틀린 판정"}]
+    n = programs.apply_reviews(docs, res, reviews, cards)
+    by = {a.doc_id: a for a in res}
+    assert by[1].status == "auto" and by[1].program            # 규칙이 확정한 것은 그대로
+    assert by[2].status == "agent" and by[2].program == ""
+    assert by[3].status == "agent" and "지역성장" in by[3].program_name
+    assert n == 2
