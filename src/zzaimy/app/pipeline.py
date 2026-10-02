@@ -387,10 +387,24 @@ class DocumentProcessor:
                 self._last_pages = fallback[2]
                 self._last_parse_note = f"글자층 직독 (구조 추출 실패, 쪽수 {fallback[1]})"
                 return fallback[0]
-        # 이미지·오피스 문서(및 MinerU 실패 PDF)는 docling이 처리
+        # 스캔 PDF 는 docling 으로 넘기지 않는다 — docling 기본 OCR 은 한국어를 거의 못 읽는다(171 실측 2026-10-02:
+        # 사업 24건 어절 F1 docling 0.33 · MinerU 0.69 · Writer 비전 0.83). 깨진 글이 「글이 충분하다」로 통과하던 경로를 막고
+        # MinerU OCR 로 다시 읽은 뒤, 그래도 없으면 실패로 남긴다(조용히 잡음을 넣지 않게).
+        if suffix == ".pdf":
+            ocr_text = self._parse_mineru(file_path, method="ocr")
+            if ocr_text and ocr_text.strip():
+                return ocr_text
+            raise RuntimeError("문서 판독 실패 (스캔 PDF — MinerU 판독 없음)")
+
+        # 이미지·오피스 문서는 docling이 처리(오피스는 파일 구조를 읽는다 — OCR 아님)
         from zzaimy.ingest.parsers.docling import DoclingParser
 
         is_image = suffix in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
+        if is_image and not _vision_available():
+            # 판독 모델이 없으면 docling(한국어 OCR 약함) 대신 MinerU OCR → tesseract 순
+            ocr_text = self._parse_mineru(file_path, method="ocr")
+            if ocr_text and ocr_text.strip():
+                return ocr_text
         if is_image and _vision_available():
             # 사진·게시물은 갈래와 무관하게 판독 모델이 먼저 읽는다. 문자 인식(MinerU·tesseract)은 홍보물 글자를
             # 깨뜨린다(실측 2026-09-23: '위크숍 맞출혐'). 판독이 비면 아래 경로로 물러난다.
