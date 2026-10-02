@@ -260,11 +260,20 @@ def main() -> int:
         # 코드 붙은 계획서 중 가장 흔한 머리 낱말(과제계획서)의 문서만 그 과제의 계획서다 — 「[2-3] 환경개선공사 사업계획서」 같은 관련 계획은 아니다
         heads = Counter(_head_noun(docs_by_id[p]["filename"]) for p in plans if units.doc_code(docs_by_id[p]["filename"]))
         main_head = heads.most_common(1)[0][0] if heads else ""
+        # 과제 코드마다 계획서 하나 — 한글 원본 먼저, 그다음 최신(판본이 둘이면 같은 보고서 절이 두 번 이어지고 판정도 갈린다)
+        by_code: dict[str, int] = {}
         for p in plans:
             fname = docs_by_id[p]["filename"]
             code = units.doc_code(fname)
             if not code or len(units._UNIT_CODE.findall(fname)) > 1 or _head_noun(fname) != main_head:
                 continue
+            cur = by_code.get(code)
+            rank = (not fname.lower().endswith(".pdf"), p)
+            if cur is None or rank > (not docs_by_id[cur]["filename"].lower().endswith(".pdf"), cur):
+                by_code[code] = p
+        for p in sorted(set(by_code.values())):
+            fname = docs_by_id[p]["filename"]
+            code = units.doc_code(fname)
             rx = re.compile(rf"(?<![\d.\-]){re.escape(code)}(?![\d.\-])")
             for r in reports:
                 rsecs = docs_by_id[r]["sections"]
@@ -274,7 +283,9 @@ def main() -> int:
                         # 과제 코드로 계획서를 좁힌 뒤, 보고서 절 제목의 핵심 낱말(예산·성과지표·추진)을 가진 계획서 절과만 잇는다
                         # (「예산 집행 실적」 ↔ 「예산 운용」). 맞는 측면 절이 없으면(우수사례) 단위과제 노드로만 묶는다 —
                         # 계획서 전체 ↔ 보고서 한 측면은 '같은 것의 계획과 실적'이 아니다(판정 all7: 23%)
-                        ps, why = sections.aspect_match(docs_by_id[p]["sections"], s.title)
+                        desc = [y for y in rsecs if y.path == s.path or y.path.startswith(s.path + ".")]
+                        ps, why = sections.aspect_match(docs_by_id[p]["sections"], s.title, text_full,
+                                                        " ".join(text_full(y) for y in desc)[:6000])
                         if ps is not None:
                             edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
                                           [f"과제 코드 {code}: 「{fname[:40]}」 ↔ 보고서 절 「{s.title[:50]}」", why]))
