@@ -75,3 +75,22 @@ RISE(2025)와 「지역성장 인재양성체계(앵커)」(2026)는 이름이 �
 근거(renamed_evidence)로 남긴다. 괄호 속 한글 약칭(「(앵커)」)은 다른 제목에서도 「앵커사업」처럼 사업 이름으로 쓰일 때만 약칭으로 받는다.
 외부 검색으로 확인한 사실은 VM `data/platform/kg_external.json` 장부에 출처와 함께 적고 사업 노드(props.external)에 붙인다 — 사업 동일성·관계
 판단이 필요할 때 Claude 가 외부 검색으로 확인한다(사용자 2026-10-02).
+
+## 사업 체계(2026-10-02, 외부 검색으로 확인)
+
+사용자가 준 정리(①기본 지원 ②앵커 체계 안 ③별도 공모형)를 항목마다 외부 검색으로 확인하고, 확인된 것만 VM `data/platform/kg_external.json`
+(categories·programs·facts, 항목마다 출처·확인일)에 적었다. 157 이 이 장부로 분류 노드(program_group)·편입(integrated_into)·앞뒤 단계
+(succeeded_by) 관계를 만들고, 문서가 아직 없는 사업도 체계의 노드로 둔다(이름·약칭으로 나중 문서를 분류).
+
+| 분류 | 사업 | 앵커 편입 | 영남이공대 | 출처 |
+|---|---|---|---|---|
+| 일반재정지원 | 전문대학 혁신지원사업(3주기 2025~2027) | — | | [KDI](https://epts.kdi.re.kr/archive/frwdHist/view2?EPIC_NUM=264600) |
+| RISE·앵커 | LINC 3.0(2022~2027) | 2025 | 대경권 | [한국대학신문](https://news.unn.net/news/articleView.html?idxno=542832) |
+| RISE·앵커 | HiVE·LiFE·지방 전문대학 활성화 | 2025 | | 같은 기사 |
+| RISE·앵커 | COSS | 2026(지원 미종료) | 2024 데이터보안·활용융합 연합체 참여(강원대 주관) | [한국대학신문](https://news.unn.net/news/articleView.html?idxno=592736), [교수신문](http://www.kyosu.net/news/articleView.html?idxno=119977) |
+| RISE·앵커 | 신산업분야 특화 선도전문대학 | 2026(지원 미종료) | 문서함 「RISE 통합 사업 중 지원 미종료 사업」 | [한국대학신문](https://news.unn.net/news/articleView.html?idxno=592736) |
+| RISE·앵커 | 조기취업형 계약학과 | 2026(2026.2 종료) | | 같은 기사 |
+| 특수목적 | AID 전환 중점 전문대학(2026.5~2028.2) | — | 2026 대구·경북권 단독형 | [뉴스핌](https://www.newspim.com/news/view/20260508001034) |
+| (종료) | LINC+(2단계, 2017~2021) → LINC 3.0 의 앞 단계 | — | | [한국대학신문](https://news.unn.net/news/articleView.html?idxno=527423) |
+
+RISE 는 2026-04-02 앵커로 이름이 바뀌었다(위 절). 편입은 연도가 중요하다 — LINC 3.0 문서(2022~2024)는 편입 전 문서다.
