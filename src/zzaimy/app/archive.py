@@ -21,16 +21,29 @@ UPLOAD_PREFIX = "_플랫폼업로드/"
 FIELDS = ("rel", "size", "mtime", "ext", "area", "program", "program_name", "status", "kind", "year", "round", "dup_of")
 
 
+_ensured: set[str] = set()
+
+
 def ensure(db) -> None:
+    if db.path in _ensured:                  # 프로세스마다 한 번 — 칸 추가(ALTER)는 표 배타 잠금이라 자주 보내면 교착이 난다
+        return
     with db._conn() as conn:
         for q in _SCHEMA:
             conn.execute(q)
+        try:
+            cols = {str(r[0]) for r in conn.execute("SELECT removed_at FROM archive_files LIMIT 0").description or []}
+        except Exception:
+            cols = set()
+    if cols:
+        _ensured.add(db.path)
+        return
     # 없어진 원본 표시(동기화) — 지우지 않고 표시만 해서 이어진 문서함 문서의 출처가 남는다
     for q in ("ALTER TABLE archive_files ADD COLUMN IF NOT EXISTS removed_at TEXT NOT NULL DEFAULT ''",   # PostgreSQL
               "ALTER TABLE archive_files ADD COLUMN removed_at TEXT NOT NULL DEFAULT ''"):                 # SQLite
         try:
             with db._conn() as conn:
                 conn.execute(q)
+            _ensured.add(db.path)
             break
         except Exception:
             continue

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from zzaimy.app.db import Database  # noqa: E402
-from zzaimy.graph import kg_store, programs, sections, units  # noqa: E402
+from zzaimy.graph import indicators, kg_store, programs, sections, units  # noqa: E402
 
 KIND_LABEL = {"plan": "계획서", "report": "실적보고서", "evaluation": "평가 결과", "form": "양식", "criteria": "평가 기준",
               "announcement": "공고", "basic_plan": "기본계획", "guideline": "지침·매뉴얼", "regulation": "규정"}
@@ -354,6 +354,49 @@ def main() -> int:
                     edges.append((f"doc:{r}:sec:{path}", unode, "instance_of", "식별자 일치", [f"보고서 절 「{title[:50]}」에 과제 코드 {u.key[1:]}"]))
             for did, path in u.members:
                 edges.append((f"doc:{did}:sec:{path}", unode, "instance_of", "식별자 일치", [f"절 제목이 단위 「{u.label[:60]}」와 같음"]))
+
+    # 성과지표 — 표에서 지표 이름과 기준·목표·실적·달성률을 그대로 꺼내 사업마다 지표 노드로 묶는다(수치는 인출만, 절대 규칙 1·12).
+    # 「N차년도」 칸은 그 문서의 연차·연도로 절대 연도를 푼다(문서 연차를 모르면 상대 시점 그대로)
+    import hashlib
+    ind_obs: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    ind_names: dict[tuple[str, str], Counter] = defaultdict(Counter)
+    for d in docs:
+        a = assigns[d["id"]]
+        if not a.program:
+            continue
+        seen = set()
+        for seq, o in indicators.from_chunks(chunk_map.get(d["id"], [])):
+            key = indicators.name_key(o.indicator)
+            if len(key) < 2:
+                continue
+            year = None
+            if o.period.endswith("차") and a.round and a.year:
+                year = int(a.year) + int(o.period[:-1]) - int(a.round)
+            elif o.period.isdigit():
+                year = int(o.period)
+            sig = (key, o.measure, o.period, o.value)
+            if sig in seen:
+                continue
+            seen.add(sig)
+            ind_names[(a.program, key)][o.indicator] += 1
+            ind_obs[(a.program, key)].append({"doc_id": d["id"], "kind": a.kind, "doc_year": a.year, "doc_round": a.round, "seq": seq,
+                                              "measure": o.measure, "period": o.period, "year": year, "value": o.value,
+                                              "text": o.value_text, "unit": o.unit, "column": o.column[:40], "tag": o.tag, "group": o.group[:30]})
+    n_ind = 0
+    for (prog, key), obs in ind_obs.items():
+        docs_of = sorted({x["doc_id"] for x in obs})
+        label = ind_names[(prog, key)].most_common(1)[0][0]
+        inode = f"ind:{prog.split(':', 1)[1]}:{hashlib.sha1(key.encode()).hexdigest()[:10]}"
+        units_seen = Counter(x["unit"] for x in obs if x["unit"])
+        tags = Counter(x["tag"] for x in obs if x["tag"])
+        nodes.append((inode, "indicator", label, {"key": key, "unit": units_seen.most_common(1)[0][0] if units_seen else "",
+                                                  "tags": [t for t, _ in tags.most_common(3)], "n_docs": len(docs_of), "obs": obs[:400]}, None))
+        edges.append((prog, inode, "has_indicator", "추출", [f"문서 {len(docs_of)}건의 성과지표 표에 「{label[:50]}」"]))
+        for did in docs_of:
+            ex = next(x for x in obs if x["doc_id"] == did)
+            edges.append((f"doc:{did}", inode, "measures", "추출", [f"표 조각 {ex['seq']}: {ex['column']} = {ex['text']}"]))
+        n_ind += 1
+    print(f"== 성과지표 {n_ind}개(관측값 {sum(len(v) for v in ind_obs.values())})")
 
     print("== 그래프")
     print("  노드", dict(Counter(n[1] for n in nodes)))

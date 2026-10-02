@@ -15,7 +15,31 @@ from zzaimy.graph import kg_store
 router = APIRouter()
 
 ROWS = [("plan", "계획서"), ("report", "실적보고서"), ("evaluation", "평가 결과")]
-KIND_KO = {"contains": "포함", "plans_reports": "계획↔실적", "continues": "연차 이어짐", "evaluates": "평가"}
+KIND_KO = {"contains": "포함", "plans_reports": "계획↔실적", "continues": "연차 이어짐", "evaluates": "평가",
+           "has_indicator": "성과지표", "measures": "지표 값"}
+MEASURE_KO = {"baseline": "기준", "target": "목표", "actual": "실적", "rate": "달성률", "": "값"}
+
+
+def indicator_table(inds: list[dict], vis_docs: set | None, limit: int = 40, max_cols: int = 8) -> dict:
+    """사업의 성과지표 × 연도 표 — 칸마다 문서 표에서 꺼낸 값 그대로(갈래별, 서로 다른 값은 모두). 계산한 수치는 넣지 않는다."""
+    rows, years = [], set()
+    for n in inds:
+        obs = [o for o in (n.get("props") or {}).get("obs", []) if vis_docs is None or o.get("doc_id") in vis_docs]
+        if not obs:
+            continue
+        cells: dict[str, dict[str, dict[str, list]]] = defaultdict(lambda: defaultdict(dict))
+        for o in obs:
+            col = str(o["year"]) if o.get("year") else (o.get("period") or "기준" if o.get("measure") == "baseline" else (o.get("period") or "시점 미상"))
+            years.add(col)
+            cells[col][MEASURE_KO.get(o.get("measure") or "", "값")].setdefault(o.get("text") or "", []).append(o.get("doc_id"))
+        rows.append({"id": n["id"], "label": n["label"], "unit": (n.get("props") or {}).get("unit", ""),
+                     "tags": (n.get("props") or {}).get("tags", []), "n_docs": len({o.get("doc_id") for o in obs}), "cells": cells})
+    rows.sort(key=lambda r: -r["n_docs"])
+    rows = rows[:limit]
+    used = {c for r in rows for c in r["cells"]}
+    cols = sorted((c for c in used if c.isdigit()), key=int)[-max_cols:]
+    rest = sorted(c for c in used if not c.isdigit())
+    return {"rows": rows, "cols": [c for c in rest if c == "기준"] + cols + [c for c in rest if c != "기준"][:3], "total": len(inds)}
 
 
 def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
@@ -39,6 +63,9 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
                 if parent not in allowed:
                     allowed.add(parent)
                     pending.append(parent)
+        # 성과지표 노드는 그 값을 낸 문서 중 하나라도 볼 수 있을 때만(값도 볼 수 있는 문서 것만 — indicator_table)
+        allowed.update(k for k, n in nodes.items() if n["type"] == "indicator"
+                       and any(o.get("doc_id") in allowed_docs for o in (n.get("props") or {}).get("obs", [])))
         if scope.get("role") == "dev":
             allowed.update(k for k, n in nodes.items() if n["type"] in {"program", "year", "group"})
         nodes = {k: n for k, n in nodes.items() if k in allowed}
@@ -116,7 +143,9 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
         elif e["kind"] == "succeeded_by" and e["src"] == prog["id"]:
             taxonomy["succ"].append({"name": nodes.get(e["dst"], {}).get("label", e["dst"]), "id": e["dst"]})
     ledger = (prog.get("props") or {}).get("ledger") or {}
-    return {"programs": progs, "program": prog, "taxonomy": taxonomy, "ledger": ledger, "cols": cols, "loose": loose, "rows": ROWS,
+    vis_docs = None if scope is None or scope.get("role") == "dev" else allowed_docs
+    indicators = indicator_table([nodes[e["dst"]] for e in out_of[prog["id"]] if e["kind"] == "has_indicator" and e["dst"] in nodes], vis_docs)
+    return {"indicators": indicators, "programs": progs, "program": prog, "taxonomy": taxonomy, "ledger": ledger, "cols": cols, "loose": loose, "rows": ROWS,
             "plans_reports": dict(plans_reports), "continues": continues, "evaluates": evaluates,
             "counts": sorted(((KIND_KO.get(k[0], k[0]), k[1], v) for k, v in counts.items()), key=lambda t: -t[2]),
             "n_sections": sum(1 for n in nodes.values() if n["type"] == "section" and doc_of(n["id"]) in prog_docs)}
