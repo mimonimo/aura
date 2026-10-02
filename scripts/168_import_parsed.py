@@ -45,11 +45,18 @@ def main() -> int:
             proj = next((p for p in db.list_projects("grant") if p["name"] == label), None)
             projects[label] = int(proj["id"]) if proj else db.create_project("grant", label, owner="zzdev")
         return projects[label]
-    n_ok = n_upd = n_skip = n_fail = 0
+    n_ok = n_upd = n_skip = n_fail = n_link_later = 0
     led = led_path.open("a", encoding="utf-8")
     # 파일마다 읽은 자리를 기억한다(DGX 결과 파일은 덧붙기만 한다) — 5분 주기가 매번 처음부터 읽지 않게
     off_path = ROOT / "data" / "inbox" / "parsed" / ".offsets.json"
     offsets = json.loads(off_path.read_text(encoding="utf-8")) if off_path.is_file() else {}
+
+    def save_offsets():
+        if len(sys.argv) > 1:
+            if not led.closed:
+                led.flush()                                # 장부가 먼저 — 읽은 자리만 앞서 저장되면 들인 기록을 잃는다
+            off_path.parent.mkdir(parents=True, exist_ok=True)
+            off_path.write_text(json.dumps(offsets), encoding="utf-8")
 
     def lines():
         if len(sys.argv) <= 1:
@@ -103,14 +110,20 @@ def main() -> int:
             db.set_document_kind(did, rec["doc_kind"])
         led.write(json.dumps({"doc_id": did, "origin": rel, "version": ver, "state": state, "at": time.strftime("%Y-%m-%d %H:%M"),
                               "via": "dgx-parse"}, ensure_ascii=False) + "\n")
-        with db._conn() as conn:
-            conn.execute("UPDATE archive_files SET doc_id = ?, analysis = ? WHERE rel = ?", (did, "가벼운 처리", rel))
+        try:
+            with db._conn() as conn:
+                conn.execute("UPDATE archive_files SET doc_id = ?, analysis = ? WHERE rel = ?", (did, "가벼운 처리", rel))
+        except Exception as e:  # 원본 장부를 동기화(170)가 크게 고치는 중이면 잠금 시간 초과 — 연결은 다음 동기화가 원본 경로 장부로 맞춘다
+            n_link_later += 1
+            if n_link_later == 1:
+                print("원본 장부 연결은 다음 동기화로 미룸:", type(e).__name__, flush=True)
+        if (n_ok + n_upd) % 200 == 0:
+            save_offsets()                                 # 중간에 멈춰도 읽은 자리부터 이어서
         have[rel] = (did, ver)
     led.close()
-    if len(sys.argv) > 1:
-        off_path.parent.mkdir(parents=True, exist_ok=True)
-        off_path.write_text(json.dumps(offsets), encoding="utf-8")
-    print(f"들임 {n_ok} · 새 판 갱신 {n_upd} · 이미 있음 {n_skip} · 처리 실패·빈 문서 {n_fail}")
+    save_offsets()
+    print(f"들임 {n_ok} · 새 판 갱신 {n_upd} · 이미 있음 {n_skip} · 처리 실패·빈 문서 {n_fail}"
+          + (f" · 원본 장부 연결 미룸 {n_link_later}" if n_link_later else ""))
     return 0
 
 
