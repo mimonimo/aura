@@ -130,3 +130,49 @@ def test_rerun_after_crash_reuses_document(tmp_path, monkeypatch):
     did = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant")   # 문서는 만들었고 장부 줄은 못 쓴 채 멈춤
     db = _import(tmp_path, monkeypatch, [_rec()], "parsed-0.jsonl")
     assert [d["id"] for d in db.list_documents() if d["stored_path"] == "dgx://p/a.hwp"] == [did]
+
+
+def test_mineru_runs_at_most_slots_at_once(tmp_path, monkeypatch):
+    import threading
+    import time as _t
+
+    job = _load("167_dgx_parse.py")
+    monkeypatch.setattr(job, "MINERU_SLOTS", 2)
+    from zzaimy.ingest.parsers import mineru as m
+
+    live, peak = [0], [0]
+    lock = threading.Lock()
+
+    def fake(self, *a, **kw):
+        with lock:
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+        _t.sleep(0.2)
+        with lock:
+            live[0] -= 1
+        return "ok"
+
+    monkeypatch.setattr(m.MineruParser, "parse", fake)
+    job._limit_mineru()
+    ts = [threading.Thread(target=lambda: m.MineruParser().parse(None)) for _ in range(5)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    assert peak[0] == 2
+
+
+def test_waits_while_memory_is_low(monkeypatch):
+    job = _load("167_dgx_parse.py")
+    free = [5.0]
+    monkeypatch.setattr(job, "_mem_available_gb", lambda: free[0])
+    slept = []
+
+    def sleep(s):
+        slept.append(s)
+        if len(slept) == 2:
+            free[0] = 100.0                          # 두 번 기다린 뒤 여유가 생김
+
+    monkeypatch.setattr(job.time, "sleep", sleep)
+    job._wait_for_memory(0)
+    assert slept == [15, 15]

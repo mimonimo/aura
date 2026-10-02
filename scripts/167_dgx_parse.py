@@ -47,6 +47,56 @@ def version(it: dict) -> str:
     return f"{int(it.get('size') or 0)}:{int(float(it.get('mtime') or 0))}"
 
 
+MINERU_SLOTS = int(os.environ.get("ZZAIMY_MINERU_SLOTS", "2"))
+MIN_FREE_GB = float(os.environ.get("ZZAIMY_MIN_FREE_GB", "24"))
+
+
+def _mem_available_gb() -> float:
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 1024 / 1024
+    except OSError:
+        pass
+    return 1e9
+
+
+def _wait_for_memory(n: int) -> None:
+    """공용 장비(DGX, 통합 메모리) — 가용 메모리가 하한 밑이면 여유가 생길 때까지 기다린다.
+    2026-10-02 실측: 작업자 14개가 MinerU 서버를 하나씩 띄워 121GB 를 다 쓰고 SSH 가 멎었다."""
+    waited = 0
+    while _mem_available_gb() < MIN_FREE_GB:
+        if waited % 300 == 0:
+            print(f"[w{n}] 가용 메모리 {_mem_available_gb():.0f}GB < {MIN_FREE_GB:.0f}GB — 기다림", flush=True)
+        time.sleep(15)
+        waited += 15
+
+
+def _limit_mineru() -> None:
+    """MinerU(판독 모델을 프로세스마다 GPU 에 올린다)는 작업자 수와 상관없이 MINERU_SLOTS 개만 동시에."""
+    import fcntl
+    from zzaimy.ingest.parsers import mineru as _m
+
+    orig = _m.MineruParser.parse
+
+    def parse(self, *a, **kw):
+        while True:
+            for i in range(MINERU_SLOTS):
+                fh = open(f"/tmp/zz_mineru_slot{i}.lock", "w")
+                try:
+                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    fh.close()
+                    continue
+                try:
+                    return orig(self, *a, **kw)
+                finally:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+                    fh.close()
+            time.sleep(2)
+    _m.MineruParser.parse = parse
+
+
 def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: int) -> None:
     """문서마다 제한 시간(timeout_s, SIGALRM) — 넘으면 그 문서는 failed(시간 초과)로 적고 다음으로.
     파이썬으로 돌아오지 않는 네이티브 코드 안에서 멈추면 알람이 늦게 걸린다 — 그때는 작업자 종료 코드와
@@ -61,6 +111,7 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
     from zzaimy.app.pipeline import DocumentProcessor
 
     db = Database(work / "tmp.db")
+    _limit_mineru()
     proc = DocumentProcessor()
     out = (Path(out_dir) / f"parsed-{n}.jsonl").open("a", encoding="utf-8")
     signal.signal(signal.SIGALRM, _alarm)
@@ -69,6 +120,7 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
         t0 = time.time()
         rec = {k: it.get(k) for k in ("rel", "program", "program_name", "status", "kind", "year", "round", "size", "mtime")}
         rec.update({"version": version(it), "quality": QUALITY})
+        _wait_for_memory(n)
         signal.alarm(max(1, int(timeout_s)))
         try:
             did = db.add_document(filename=src.name, stored_path=str(src), doc_type="grant", sector="grant")
