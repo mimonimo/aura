@@ -63,10 +63,14 @@ def sync(db, rows: list[dict], origins: dict[str, int] | None = None) -> dict:
     gone_sig: dict[tuple, list] = {}
     for k in gone:
         gone_sig.setdefault(sig(k, cur[k]["size"], cur[k]["mtime"]), []).append(k)
+    added_sig: dict[tuple, list] = {}
+    for k in added:
+        added_sig.setdefault(sig(k, inc[k].get("size"), inc[k].get("mtime")), []).append(k)
     moved = []
     for k in list(added):
-        cands = gone_sig.get(sig(k, inc[k].get("size"), inc[k].get("mtime")), [])
-        if len(cands) == 1 and k not in cur:
+        key = sig(k, inc[k].get("size"), inc[k].get("mtime"))
+        cands = gone_sig.get(key, [])
+        if len(cands) == 1 and len(added_sig[key]) == 1 and k not in cur:
             old = cands.pop()
             moved.append((old, k, cur[old]["doc_id"]))
             added.remove(k)
@@ -95,7 +99,12 @@ def sync(db, rows: list[dict], origins: dict[str, int] | None = None) -> dict:
                          (*vals(r), origins.get(k) or (cur.get(k) or {}).get("doc_id"), now))
         for k in gone:
             conn.execute("UPDATE archive_files SET removed_at = ? WHERE rel = ?", (now, k))
-    return {"at": now, "added": added, "changed": [(k, cur[k]["doc_id"]) for k in changed], "moved": moved,
+        # 목록 등록 뒤 반입이 끝나도 파일의 크기·시각은 변하지 않는다.
+        # 원본 경로 장부의 명시적 연결을 반영하되 누락된 연결은 지우지 않는다.
+        for k, doc_id in origins.items():
+            if k in inc and doc_id is not None:
+                conn.execute("UPDATE archive_files SET doc_id = ? WHERE rel = ?", (doc_id, k))
+    return {"at": now, "added": added, "changed": [(k, origins.get(k) or cur[k]["doc_id"]) for k in changed], "moved": moved,
             "removed": [(k, cur[k]["doc_id"]) for k in gone], "reclassified": len(reclass)}
 
 
