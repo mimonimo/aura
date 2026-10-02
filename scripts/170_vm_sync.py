@@ -156,11 +156,25 @@ def import_parsed() -> None:
     out = subprocess.run([sys.executable, str(ROOT / "scripts" / "168_import_parsed.py"), *files], cwd=ROOT, capture_output=True)
     last = (out.stdout.decode("utf-8", "replace").strip().splitlines() or ["출력 없음"])[-1]
     print("DGX 처리 결과:", last, flush=True)
+    mark("parsed", last)
     if out.returncode != 0:
         print(out.stderr.decode("utf-8", "replace")[-400:], flush=True)
     m = re.match(r"들임 (\d+) · 새 판 갱신 (\d+)", last) or re.match(r"들임 (\d+)()", last)
     if m and (int(m.group(1)) or int(m.group(2) or 0)):
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
+
+
+def mark(kind: str, summary: str) -> None:
+    """주기마다 마지막 실행 시각·결과 한 줄 — 개발 현황의 반입 현황 카드가 읽는다(app/intake_status)."""
+    path = ROOT / "data" / "platform" / "sync_status.json"
+    try:
+        cur = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except ValueError:
+        cur = {}
+    cur[kind] = {"at": time.strftime("%Y-%m-%d %H:%M"), "summary": summary[:200]}
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cur, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
 
 
 class _IndexBusy(Exception):
@@ -187,6 +201,7 @@ def index_catchup(db, budget_s: int = 50 * 60) -> int:
         if got["added"] or got["removed"]:
             print(f"사업 문서 색인: 더함 {got['added']} · 뺌 {got['removed']} · 전체 {got['total']} · 남음 {got['pending']}"
                   f" · {time.time() - t1:.0f}초", flush=True)
+        mark("index", f"전체 {got['total']} · 남음 {got['pending']}")
         if not got["pending"]:
             break
     return 0
@@ -206,7 +221,7 @@ def post_if_changed(db) -> int:
     with db._conn() as conn:
         n, hi = conn.execute("SELECT COUNT(*), MAX(id) FROM documents WHERE status = 'reviewed'").fetchone()
         nc = conn.execute("SELECT COUNT(*) FROM doc_chunks").fetchone()[0]
-    mark = {"docs": int(n or 0), "max_id": int(hi or 0), "chunks": int(nc or 0)}
+    now = {"docs": int(n or 0), "max_id": int(hi or 0), "chunks": int(nc or 0)}
     mpath = ROOT / "data" / "platform" / "kg_marker.json"
     old = json.loads(mpath.read_text(encoding="utf-8")) if mpath.is_file() else {}
     # 사업 문서 색인은 매번(새 조각만) — 색인 전용 주기(--index)가 돌고 있으면 그쪽에 맡긴다(npz 를 둘이 동시에 쓰지 않게)
@@ -228,20 +243,21 @@ def post_if_changed(db) -> int:
     except Exception as e:
         print("사업 문서 색인 갱신 실패:", type(e).__name__, str(e)[:120], flush=True)
         (Path(db.path).parent / ".kg-dirty").touch()     # 임베딩 서비스가 돌아오면 다음 회차에 다시
-    if {k: v for k, v in old.items() if k != "at"} == mark:
+    if {k: v for k, v in old.items() if k != "at"} == now:
         return 0
     # 그래프 전체 재구축은 15분에 한 번까지 — 1분마다 다시 지으면 쉬지 않고 돈다. 그 사이 바뀐 것은 다음 회차에 모아서
     if time.time() - float(old.get("at", 0)) < 15 * 60:
         (Path(db.path).parent / ".kg-dirty").touch()
         return 0
-    mark["at"] = time.time()
-    print(f"문서함 바뀜 {old} → {mark} — 그래프·양식 다시 짓기", flush=True)
+    now["at"] = time.time()
+    print(f"문서함 바뀜 {old} → {now} — 그래프·양식 다시 짓기", flush=True)
     # 164 가 같은 후속 잠금을 스스로 잡는다(기다리며) — 넘기기 전에 놓아야 부모·자식이 서로 막지 않는다
     fcntl.flock(lockf, fcntl.LOCK_UN)
     lockf.close()
     rc = subprocess.call([sys.executable, str(ROOT / "scripts" / "164_sync_apply.py"), "--post-only"], cwd=ROOT)
     if rc == 0:
-        mpath.write_text(json.dumps(mark), encoding="utf-8")
+        mpath.write_text(json.dumps(now), encoding="utf-8")
+        mark("graph", f"문서 {now['docs']} · 조각 {now['chunks']}")
     else:
         print(f"그래프·양식 다시 짓기 실패(종료 코드 {rc}) — 다음 회차에 다시", flush=True)
         (Path(db.path).parent / ".kg-dirty").touch()
@@ -336,6 +352,8 @@ def main() -> int:
     print(f"원본 {len(files)} · 중복 제외 {len(docs)} · 사업 카드 {len(cards)} · 목록 {time.time() - t0:.0f}초 — "
           f"새로 {len(diff['added'])} · 바뀜 {len(diff['changed'])} · 옮김 {len(diff['moved'])} · 없어짐 {len(diff['removed'])} · "
           f"분류 바뀜 {diff['reclassified']}", flush=True)
+    if not args.dry:
+        mark("full", f"원본 {len(files)} · 새로 {len(diff['added'])} · 바뀜 {len(diff['changed'])} · 옮김 {len(diff['moved'])} · 없어짐 {len(diff['removed'])}")
     # 뼈대 고르기 — 161 과 같은 규칙(사업마다 갈래·연차·줄기별 최신판)
     sel = _sel()
     per_prog = defaultdict(list)

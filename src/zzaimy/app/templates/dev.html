@@ -111,9 +111,10 @@
   </figure>
 
   {# 구축 현황(기능 상태표)과 진행 현황(dev-now.md 서술)은 원천이 달라 탭으로 나란히 둔다 #}
-  <div class="tabbar" style="max-width:360px; margin:18px 0 14px;">
+  <div class="tabbar" style="max-width:520px; margin:18px 0 14px;">
     <button type="button" class="on" data-tab="paneBuild">구축 현황</button>
     <button type="button" data-tab="paneNow">진행 현황</button>
+    <button type="button" data-tab="paneIntake">반입 현황</button>
   </div>
   <div id="paneBuild" class="tab-pane on">
     <p class="muted" style="font-size:12px; margin:0 0 10px;">{{ progress.updated }} 기준 · 완료 {{ progress.features | selectattr("status", "equalto", "done") | list | length }}
@@ -162,6 +163,49 @@
   <div>{{ dev_now | md_view }}</div>
   {% if dev_now_more %}
   <p style="margin:10px 0 0;"><a href="/dev/history#recent" class="btn-ghost">이전 작업 기록</a></p>
+  {% endif %}
+  </div>
+  {# 반입 현황 — 원천 app/intake_status.snapshot(DB·장부·색인 파일, 60초 재사용). 같은 값은 /dev/api/intake(JSON). 화면 꾸밈은 아스트라 담당 #}
+  <div id="paneIntake" class="tab-pane">
+  {% if intake %}
+    <p class="muted" style="font-size:12px; margin:0 0 10px;">{{ intake.at }} 기준 · <a href="/dev/api/intake">JSON</a> · <a href="/archive">원본 보관소</a></p>
+    <h4 class="extract-h" style="margin-top:0;">원본 보관소(DGX)</h4>
+    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px;">
+      <span class="pill">원본 {{ "{:,}".format(intake.archive.total) }}</span>
+      <span class="pill">중복 제외 {{ "{:,}".format(intake.archive.unique) }}</span>
+      <span class="pill">문서함 연결 {{ "{:,}".format(intake.archive.linked) }}</span>
+      {% for x in intake.archive.status %}<span class="pill">분류 {{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
+    </div>
+    <h4 class="extract-h">문서함</h4>
+    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px;">
+      <span class="pill">전체 {{ "{:,}".format(intake.store.total) }}</span>
+      <span class="pill">DGX 보관(가벼운 처리) {{ "{:,}".format(intake.store.dgx) }}</span>
+      <span class="pill">원본 반입·업로드 {{ "{:,}".format(intake.store.full) }}</span>
+      {% for x in intake.store.status %}<span class="pill">{{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
+    </div>
+    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px; margin-top:6px;">
+      {% for x in intake.store.paths %}<span class="pill">{{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
+      {% for x in intake.store.flags %}<span class="pill">{{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
+    </div>
+    <h4 class="extract-h">사업별(DGX 보관 문서)</h4>
+    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px;">
+      {% for x in intake.programs %}<span class="pill">{{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
+    </div>
+    <h4 class="extract-h">색인·그래프</h4>
+    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px;">
+      <span class="pill">사업 문서 색인 {{ "{:,}".format(intake.index.chunks) }} / {{ "{:,}".format(intake.index.live) }}</span>
+      <span class="pill">남은 조각 {{ "{:,}".format(intake.index.pending) }}</span>
+      {% for x in intake.graph %}<span class="pill">그래프 {{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
+    </div>
+    <h4 class="extract-h">동기화</h4>
+    <table class="table" style="font-size:12.5px;">
+      {% for k, label in [("full", "원본 목록(10분)"), ("parsed", "DGX 처리 결과 들이기(5분)"), ("index", "사업 문서 색인(2분)"), ("graph", "그래프·양식 다시 짓기")] %}
+      <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ (intake.sync.get(k) or {}).get("at", "기록 없음") }}</td>
+        <td>{{ (intake.sync.get(k) or {}).get("summary", "") }}</td></tr>
+      {% endfor %}
+    </table>
+  {% else %}
+    <p class="muted">반입 현황을 읽지 못했습니다.</p>
   {% endif %}
   </div>
 </div></div>
