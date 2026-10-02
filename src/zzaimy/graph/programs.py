@@ -393,6 +393,70 @@ def inherit_by_folder(docs: list[dict], assigned: list[Assignment], min_n: int =
     return n_inherited
 
 
+_SEG_YEAR = re.compile(r"(?<![\d~])((?:19|20)\d{2})\s*(?:년|학년도|\))|\((?:19|20)\d{2}\)|^((?:19|20)\d{2})$")
+_PERIOD = re.compile(r"((?:19|20)\d{2})\s*(?:\.\d{1,2})?\s*~\s*((?:19|20)\d{2})?")
+
+
+def program_periods(cards: list, ledger: dict) -> dict[str, tuple[int, int | None]]:
+    """외부 확인 장부(kg_external.json, 출처 있는 항목)의 사업 기간 → {사업 id: (시작 연도, 끝 연도|None)}. 카드와는 이름·약칭으로 잇는다."""
+    flat = lambda t: re.sub(r"[\s.()·\-_]+", "", t or "").upper()
+    out: dict[str, tuple[int, int | None]] = {}
+    for e in ledger.get("programs", []):
+        m = _PERIOD.search(str(e.get("period") or ""))
+        if not m or not e.get("sources"):
+            continue
+        want = {flat(t) for t in e.get("terms", [])}
+        for c in cards:
+            if want & {flat(x) for x in c.surfaces()}:
+                out[c.node_id] = (int(m.group(1)), int(m.group(2)) if m.group(2) else None)
+    return out
+
+
+def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, int | None]]) -> dict[str, int]:
+    """연차·연도를 폴더 경로로 채우고 사업 기간으로 서로 환산한다. 기간 밖 연도면 그 사업으로 확정하지 않는다(검토).
+
+    - 연차: 파일 이름에 없으면 가장 깊은 폴더의 「N차년도」
+    - 연도: 파일 이름에 없으면 가장 깊은 폴더의 「2023년」「(2023)」「2023학년도」 또는 「2023」 폴더 — 「2022~2027」 같은 기간은 연도가 아니다
+    - 사업 시작 연도를 알면 연차 ↔ 연도 환산(연차 N = 시작 + N - 1)
+    - 연도가 사업 기간 밖이면 사업을 비우고 status 'review'(근거 남김) — 「2014년 LINC+」처럼 앞 단계 사업 자료가 섞이지 않게
+    파일 이름의 연도는 작성일일 수 있고 폴더의 연도가 수행 연도 묶음인 경우가 많다 — 그래서 폴더 근거를 먼저 본다."""
+    stats = {"round_from_path": 0, "year_from_path": 0, "converted": 0, "out_of_period": 0}
+    for d, a in zip(docs, assigned):
+        if not a.program:
+            continue
+        segs = [x for x in re.split(r"[\\/]", d.get("path") or "") if x]
+        if a.round is None:
+            for seg in reversed(segs):
+                m = _ROUND.search(seg)
+                if m:
+                    a.round = int(m.group(1))
+                    stats["round_from_path"] += 1
+                    break
+        if a.year is None:
+            for seg in reversed(segs):
+                m = _SEG_YEAR.search(seg.strip())
+                if m:
+                    a.year = int(re.search(r"\d{4}", m.group(0)).group(0))
+                    stats["year_from_path"] += 1
+                    break
+        span = periods.get(a.program)
+        if not span:
+            continue
+        start, end = span
+        if a.year is None and a.round:
+            a.year = start + a.round - 1
+            stats["converted"] += 1
+        elif a.year and a.round is None and start <= a.year <= (end or 9999):
+            a.round = a.year - start + 1
+            stats["converted"] += 1
+        if a.year and not (start <= a.year <= (end or 9999)):
+            a.evidence = list(a.evidence) + [f"연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 확정하지 않음"]
+            a.program, a.program_name, a.status = "", "", "review"
+            a.year = a.round = None
+            stats["out_of_period"] += 1
+    return stats
+
+
 def load_reviews(path) -> list[dict]:
     """에이전트·사람 검토 장부(class_review.jsonl) — 폴더 단위 판정. 확신도 낮음은 쓰지 않는다."""
     import json as _json
