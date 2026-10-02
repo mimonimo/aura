@@ -58,6 +58,9 @@ def main() -> int:
         sh([PY, "scripts/156_intake_files.py", "--project", job["project"], "--sector", "grant", "--owner", "zzdev",
             "--origin-base", job["inbox"], "--jobs", "3", "--timeout", "30", "--apply", *files])
     sys.path.insert(0, str(ROOT / "src"))
+    import fcntl
+    _post = open("/tmp/zz_post.lock", "w")
+    fcntl.flock(_post, fcntl.LOCK_EX)                     # 1분 주기 후속 처리와 겹치지 않게(기다렸다가)
     from zzaimy.app.db import Database
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     with db._conn() as c:

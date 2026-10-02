@@ -6,6 +6,7 @@
 이미 들인 원본(같은 rel)은 건너뛴다.
 
 사용(운영 PC): ssh dgx 'cat ~/parsed/parsed-*.jsonl' | ssh vm 'cd ~/zzaimy-capstone && … 168_import_parsed.py'
+      (VM): … 168_import_parsed.py data/inbox/parsed/parsed-*.jsonl     # 170 이 읽기 전용 키로 받아 둔 것
 """
 from __future__ import annotations
 
@@ -43,7 +44,9 @@ def main() -> int:
         return projects[label]
     n_ok = n_skip = n_fail = 0
     led = led_path.open("a", encoding="utf-8")
-    for line in sys.stdin:
+    import itertools
+    srcs = [open(f, encoding="utf-8") for f in sys.argv[1:]] if len(sys.argv) > 1 else [sys.stdin]
+    for line in itertools.chain.from_iterable(srcs):
         try:
             rec = json.loads(line)
         except ValueError:

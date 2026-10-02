@@ -128,8 +128,36 @@ def push_uploads(db, origins: dict[str, int], cards=None) -> None:
     print(f"플랫폼 업로드 원본 {len(todo)}건 → DGX ~/zzaimy_uploads·원본 장부", flush=True)
 
 
+PKEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_parsed")
+
+
+def import_parsed() -> None:
+    """DGX 가 가볍게 처리한 원본(167 → ~/parsed, 읽기 전용 키)을 받아 'DGX 보관 문서'로 들인다(168, 이미 들인 원본은 건너뜀)."""
+    dest = ROOT / "data" / "inbox" / "parsed"
+    dest.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} -p 8022 -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--exclude=*",
+                        "aura@211.170.162.110:./", str(dest) + "/"], capture_output=True)
+    if r.returncode != 0:
+        print("DGX 처리 결과 받기 실패:", r.stderr.decode("utf-8", "replace")[-160:], flush=True)
+        return
+    files = sorted(str(f) for f in dest.glob("parsed-*.jsonl"))
+    if not files:
+        return
+    out = subprocess.run([sys.executable, str(ROOT / "scripts" / "168_import_parsed.py"), *files], cwd=ROOT, capture_output=True)
+    print("DGX 처리 결과:", (out.stdout.decode("utf-8", "replace").strip().splitlines() or ["출력 없음"])[-1], flush=True)
+
+
 def post_if_changed(db) -> int:
-    """문서함이 바뀌었으면(어느 길로 들어왔든 — DGX 동기화·문서함 업로드·채팅 첨부) 그래프·양식을 다시 짓는다."""
+    """문서함이 바뀌었으면(어느 길로 들어왔든 — DGX 동기화·문서함 업로드·채팅 첨부) 그래프·양식·색인을 다시 짓는다.
+
+    후속 잠금(/tmp/zz_post.lock)은 반입 잠금과 따로다 — 몇 시간 걸리는 반입 중에도 1분 주기가 그래프·색인을 따라 맞춘다."""
+    import fcntl
+    lockf = open("/tmp/zz_post.lock", "w")
+    try:
+        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        (Path(db.path).parent / ".kg-dirty").touch()     # 다른 후속 처리가 돌고 있다 — 다음 회차에
+        return 0
     with db._conn() as conn:
         n, hi = conn.execute("SELECT COUNT(*), MAX(id) FROM documents WHERE status = 'reviewed'").fetchone()
         nc = conn.execute("SELECT COUNT(*) FROM doc_chunks").fetchone()[0]
@@ -257,6 +285,7 @@ def main() -> int:
     print(f"뼈대 {len(chosen)} · 새로 {len(new)}(최대 {args.max})", flush=True)
     if not args.dry:
         push_uploads(db, origins, cards)
+        import_parsed()
     if args.dry or not (new or updates):
         return post_if_changed(db)
     by_prog = defaultdict(list)
