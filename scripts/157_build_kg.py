@@ -132,7 +132,11 @@ def main() -> int:
             else:
                 c.names[t] = max(c.names[t], 1)
         ledger_cards[e["terms"][0]] = (c, e)
-    assigns = {a.doc_id: a for a in programs.classify(docs, cards)}
+    _res = programs.classify(docs, cards)
+    # 원본 경로가 있는 문서는 폴더 검토 장부(에이전트·사람 판정)도 본다 — 원본 장부(170)와 같은 판정
+    _rv_docs = [{**d, "path": str(Path(d["origin"]).parent) if d.get("origin") else d.get("path", "")} for d in docs]
+    programs.apply_reviews(_rv_docs, _res, programs.load_reviews(ROOT / "data" / "platform" / "class_review.jsonl"), cards)
+    assigns = {a.doc_id: a for a in _res}
     used = {a.program for a in assigns.values() if a.program} | {c.node_id for c, _e in ledger_cards.values()}
     cards = [c for c in cards if c.node_id in used]
 
