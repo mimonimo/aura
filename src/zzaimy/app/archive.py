@@ -30,8 +30,12 @@ def program_project(db, program: str, name: str, cache: dict | None = None) -> i
     if cache is not None and key in cache:
         return cache[key]
     with db._conn() as conn:
-        row = conn.execute("SELECT id FROM projects WHERE program = ? ORDER BY id LIMIT 1", (key,)).fetchone()
-    pid = int(row[0]) if row else db.create_project("grant", name or "사업 미분류", owner="zzdev", archived=True, program=key)
+        row = conn.execute(
+            "SELECT id FROM projects WHERE program = ? AND archived = 1"
+            " AND owner = 'zzdev' AND archive_source = 'dgx' ORDER BY id LIMIT 1", (key,)
+        ).fetchone()
+    pid = int(row[0]) if row else db.create_project(
+        "grant", name or "사업 미분류", owner="zzdev", archived=True, program=key, archive_source="dgx")
     if cache is not None:
         cache[key] = pid
     return pid
@@ -40,7 +44,7 @@ def program_project(db, program: str, name: str, cache: dict | None = None) -> i
 def align_archived_projects(db) -> dict:
     """반입·DGX 보관 문서를 원본 장부의 현재 사업 분류대로 사업별 보관 묶음에 넣는다(동기화마다).
 
-    옮기는 문서는 프로젝트가 없거나 보관된 자동 묶음(owner zzdev, archived)에 있는 것만 — 담당자 프로젝트와
+    옮기는 문서는 프로젝트가 없거나 출처가 확인된 보관 자동 묶음(archive_source=dgx)에 있는 것만 — 담당자 프로젝트와
     불러온(보관 해제한) 묶음의 문서는 건드리지 않는다. 문서가 다 빠진 자동 묶음은 메모·기준·대화가 없을 때만 지운다."""
     ensure(db)
     with db._conn() as conn:
@@ -53,7 +57,8 @@ def align_archived_projects(db) -> dict:
             " JOIN archive_files a ON a.doc_id = d.id"
             " WHERE d.stored_path NOT LIKE 'dgx://%' AND a.removed_at = ''").fetchall()
         auto = {int(r[0]): str(r[1] or "") for r in conn.execute(
-            "SELECT id, program FROM projects WHERE archived = 1 AND owner = 'zzdev'").fetchall()}
+            "SELECT id, program FROM projects WHERE archived = 1 AND owner = 'zzdev'"
+            " AND archive_source = 'dgx'").fetchall()}
     cache: dict = {}
     moves: dict[int, list[int]] = {}
     for did, pid, prog, pname in rows:
@@ -70,6 +75,7 @@ def align_archived_projects(db) -> dict:
                 conn.execute(f"UPDATE documents SET project_id = ? WHERE id IN ({','.join('?' * len(part))})", (pid, *part))
         empty = [int(r[0]) for r in conn.execute(
             "SELECT p.id FROM projects p WHERE p.archived = 1 AND p.owner = 'zzdev'"
+            " AND p.archive_source = 'dgx'"
             " AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.project_id = p.id)"
             " AND NOT EXISTS (SELECT 1 FROM project_notes n WHERE n.project_id = p.id)"
             " AND NOT EXISTS (SELECT 1 FROM project_criteria k WHERE k.project_id = p.id)"
