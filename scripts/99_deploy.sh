@@ -41,11 +41,12 @@ ssh -o BatchMode=yes "$HOST" "cd ~/zzaimy-capstone && \
 if [ "${1:-}" = "--restart" ]; then
   ssh -o BatchMode=yes "$HOST" '
     systemctl --user restart zzaimy.service
-    for i in 1 2 3 4 5 6 7 8; do
+    # 시작이 길어질 때가 있다(문서 2만여 건·색인 적재, 10/3 실측 24초 넘음) — 60초까지 기다린다
+    for i in $(seq 1 20); do
       code=$(curl -sk -o /dev/null -w "%{http_code}" https://localhost/login)
       [ "$code" = 200 ] && break
       sleep 3
     done
-    echo "로그인 페이지: $code"
+    echo "로그인 페이지: $code (약 $((i * 3))초)"
     [ "$code" = 200 ]'
 fi
