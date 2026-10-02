@@ -162,6 +162,18 @@ class AgentResponder:
                 blocks.append(
                     "[교내 규정 — 관련 조항을 근거로 인용하라]\n"
                     + "\n\n".join(_cite(h) for h in hits))
+            # 사업 문서 계열(국고 계획서·실적보고서·평가 …) — 규정과 따로 찾고 따로 건넨다(절대 규칙 6, ADR-0049).
+            # 그래프로 사업·연차를 먼저 좁힌 뒤 그 문서들에서 찾는다. 문서함·업로드·DGX 원본 어디서 들어왔든 같은 색인
+            grant_hits = []
+            try:
+                from zzaimy.app import grant_search
+                g = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"))
+                grant_hits = g["hits"]
+                if grant_hits:
+                    blocks.append("[사업 문서 — 계획서·실적보고서 등. 사업·연차·문서 이름을 밝히고, 수치는 이 글에 있는 것만 쓴다]\n"
+                                  + "\n\n".join(f"〈{' > '.join(h['path'])}〉\n{h['content']}" for h in grant_hits))
+            except Exception:
+                grant_hits = []
             if not blocks:
                 # 기준 미달이라 근거가 하나도 남지 않은 경우. 있는 척하지 않는다.
                 blocks.append(NO_EVIDENCE_NOTE)
@@ -183,6 +195,10 @@ class AgentResponder:
             }
 
         self.last_sources = [_mk(h, "교내 규정", True) for h in (hits or [])[:4]]
+        for h in (locals().get("grant_hits") or [])[:4]:
+            self.last_sources.append({"title": h.get("filename") or "사업 문서", "heading": " > ".join(h.get("path", [])[:2]),
+                                      "snippet": (h.get("content") or "")[:160], "doc_id": h.get("doc_id"),
+                                      "origin": "사업 문서", "weak": False})
         if on_progress:
             on_progress(f"답변에 사용할 근거 {len(hits or [])}개 구성"
                         if hits else "관련 근거 없음 · 확인 가능한 범위로 답변 준비")
