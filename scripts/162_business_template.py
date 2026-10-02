@@ -41,6 +41,18 @@ def label_ok(label: str) -> bool:
     return 2 <= len(t) <= LABEL_MAX and not _SENTENCE.search(t) and not re.fullmatch(r"[\d\s.~\-]+", t)
 
 
+_CONTENT_MARK = re.compile(r"[☒☐□■▪◦○●◆▶※]")
+
+
+def head_label(text: str) -> str:
+    """머리 칸 글 — 머리 이름만. 원문 머리 행에 내용이 섞여 있으면(「추진배경 / ☒ 지역 특화형 …」) 「/」 앞 이름만, 이름이 없으면 비운다."""
+    t = " ".join(str(text).split())
+    if _CONTENT_MARK.search(t) or len(t) > 20:
+        head = re.split(r"\s*/\s*|\s*[☒☐□■▪◦○●◆▶※]", t)[0].strip()
+        return head if 1 <= len(head) <= 20 else ""
+    return t
+
+
 def table_skeleton(content: str) -> str | None:
     """표 조각(JSON) → 머리 행만 남긴 HTML 표(병합 칸 그대로) + 빈 입력 행. 값은 비운다(양식이지 답이 아니다)."""
     import json as _json
@@ -58,7 +70,9 @@ def table_skeleton(content: str) -> str | None:
     heads = [c for c in cells if int(c[0]) < depth]
     if len(heads) == 1 and int(heads[0][3]) >= n_cols:
         return None                                     # 한 칸이 모든 열을 덮는 띠(표지·제목 상자)
-    texts = [" ".join(str(c[5]).split())[:30] for c in heads]
+    texts = [head_label(c[5]) for c in heads]
+    if len({t for t in texts if t}) < 2:
+        return None                                     # 머리 이름이 하나뿐(「LINC 3.0」 꼬리표)인 장식 표
     if not any(texts) or sum(bool(re.fullmatch(r"[\d,.%\s\-]+", x)) for x in texts if x) > len(texts) / 2:
         return None                                     # 머리가 비었거나 숫자뿐이면(값 행) 양식 표가 아니다
     rows = []
@@ -67,7 +81,7 @@ def table_skeleton(content: str) -> str | None:
         for c in sorted((c for c in heads if int(c[0]) == r), key=lambda c: int(c[1])):
             rs = min(int(c[2]), depth - r)
             attrs = (f' rowspan="{rs}"' if rs > 1 else "") + (f' colspan="{int(c[3])}"' if int(c[3]) > 1 else "")
-            tds.append(f"<th{attrs}>{' '.join(str(c[5]).split())[:30]}</th>")
+            tds.append(f"<th{attrs}>{head_label(c[5])}</th>")
         rows.append("<tr>" + "".join(tds) + "</tr>")
     for _ in range(BODY_ROWS):
         rows.append("<tr>" + "<td></td>" * n_cols + "</tr>")
@@ -130,21 +144,36 @@ def main() -> int:
             # 뼈대 = 단위 절을 가장 많이 가진 문서(같으면 최근) — 원문 목차 그대로의 계층을 쓴다
             def n_units(d):
                 return sum(1 for x in order[d] if unit_of.get(x, "").startswith(f"unit:{pkey}:"))
-            skel = max(docs, key=lambda d: (n_units(d), int(nodes[d].get("doc_id") or 0)))
+            # 구조가 살아 있는 한글 원본을 PDF 보다 먼저(PDF 글자층의 쪽 글에는 도식 글자 줄이 섞인다)
+            def is_pdf(d):
+                return nodes[d]["label"].lower().endswith(".pdf")
+            top_n = max(n_units(d) for d in docs)
+            ranked = sorted(docs, key=lambda d: (not is_pdf(d) and n_units(d) >= 0.5 * top_n, n_units(d), int(nodes[d].get("doc_id") or 0)),
+                            reverse=True)
+
+            def keep_for(skel_doc):
+                kept: set[str] = set()
+                for x in order[skel_doc]:
+                    uid = unit_of.get(x, "")
+                    if not uid.startswith(f"unit:{pkey}:") or not label_ok(nodes[uid]["label"]):
+                        continue
+                    chain = [x] + [a for a in ancestor_ids(x)]
+                    if any(_FRONT.search(nodes[c]["label"]) for c in chain):
+                        continue
+                    top = chain[-1]
+                    if not re.match(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|VI{0,3}|IX|X)[.．]|\d{1,2}[.．)])", nodes[top]["label"]):
+                        continue
+                    kept.update(chain)
+                return kept
+            # 앞 후보에서 남는 절이 모자라면(목차가 깨진 판) 다음 후보로
+            skel, keep = ranked[0], set()
+            for cand in ranked[:6]:
+                k = keep_for(cand)
+                if len(k) >= max(3, len(keep)) and (len(k) >= 10 or not keep):
+                    skel, keep = cand, k
+                    if len(k) >= 10:
+                        break
             ids = order[skel]
-            keep: set[str] = set()
-            for x in ids:
-                uid = unit_of.get(x, "")
-                if not uid.startswith(f"unit:{pkey}:") or not label_ok(nodes[uid]["label"]):
-                    continue
-                chain = [x] + [a for a in ancestor_ids(x)]
-                if any(_FRONT.search(nodes[c]["label"]) for c in chain):
-                    continue
-                top = chain[-1]
-                # 로마 숫자·아라비아 숫자 장 아래만 — 표지·별첨 묶음, 맨 위 가나다 항목(서약서의 「나. … 사무」)은 양식 절이 아니다
-                if not re.match(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|VI{0,3}|IX|X)[.．]|\d{1,2}[.．)])", nodes[top]["label"]):
-                    continue
-                keep.update(chain)
             if len(keep) < 3:
                 continue
             lines = [f"# {prog['label']} {kind_ko} 공통 양식", "",
