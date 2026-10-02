@@ -177,6 +177,7 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--ext", default=",".join(sorted(TEXT_EXT)), help="처리할 형식(쉼표) — 엑셀은 docling 이 있어야 한다")
+    ap.add_argument("--only", default="", help="이 목록(한 줄에 원본 경로 하나)에 있는 원본만 — 스캔 PDF 핵심 문서처럼 범위를 좁혀 다시 돌릴 때")
     ap.add_argument("--retry-failed", action="store_true", help="이전에 실패한 원본도 다시(판독 도구를 새로 깐 뒤). 성공하면 같은 rel 의 새 줄이 덧붙고 168 이 그것을 들인다")
     ap.add_argument("--doc-timeout", type=int, default=900, help="문서 한 건 제한 시간(초) — 넘으면 failed(시간 초과)로 적고 다음 문서로")
     args = ap.parse_args()
@@ -194,11 +195,14 @@ def main() -> int:
             # 같은 경로라도 판(크기·수정 시각)이 다르면 다시 처리한다 — 열쇠는 경로+판
             if rec.get("rel") and (rec.get("ok") or not args.retry_failed):
                 done.add((rec["rel"], rec.get("version") or version(rec)))
+    only = set(Path(args.only).read_text(encoding="utf-8").splitlines()) if args.only else None
     items = []
     for line in Path(args.inventory).read_text(encoding="utf-8").splitlines():
         try:
             it = json.loads(line)
         except ValueError:
+            continue
+        if only is not None and it.get("rel") not in only:
             continue
         if it.get("ext") not in exts or it.get("dup_of") or it["rel"] in skip or (it["rel"], version(it)) in done:
             continue
