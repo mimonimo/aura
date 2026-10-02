@@ -100,8 +100,38 @@ def main() -> int:
                     c.acrs[t] += 0
                     c.acrs[t] = max(c.acrs[t], 1)
                 c.renamed = list(c.renamed) + [f"외부 확인: {f.get('fact', '')[:80]}"]
+    # 외부 확인 장부의 사업 체계(programs) — 문서에 아직 없는 사업도 체계의 노드로 두고, 그 이름·약칭으로 문서를 분류할 수 있게 카드를 만든다
+    ledger = json.loads(ext_path.read_text(encoding="utf-8")) if ext_path.is_file() else {}
+    flat = lambda t: re.sub(r"[\s.]+", "", t).upper()
+
+    def card_for(terms: list[str]):
+        want = {flat(t) for t in terms}
+        for c in cards:
+            if want & {x.upper() for x in c.surfaces()}:
+                return c
+        # 「지방 전문대학 활성화」 = 문서 카드의 「지방 전문대학 활성화 사업」 — 사업명 꼬리(사업)를 뗀 앞부분이 같으면
+        for c in cards:
+            for sfc in (x.upper() for x in c.surfaces()):
+                core = re.sub(r"(지원)?사업$", "", sfc)
+                if len(core) >= 6 and core in want:
+                    return c
+        return None
+    ledger_cards: dict[str, object] = {}
+    for e in ledger.get("programs", []):
+        if not e.get("sources"):
+            continue                                  # 출처 없는 항목은 쓰지 않는다
+        c = card_for(e["terms"])
+        if c is None:
+            c = programs.ProgramCard(key=programs.program_key(e["terms"][-1]) or flat(e["terms"][0]).lower())
+            cards.append(c)
+        for t in e["terms"]:
+            if re.match(r"[A-Za-z]", t):
+                c.acrs[t] = max(c.acrs[t], 1)
+            else:
+                c.names[t] = max(c.names[t], 1)
+        ledger_cards[e["terms"][0]] = (c, e)
     assigns = {a.doc_id: a for a in programs.classify(docs, cards)}
-    used = {a.program for a in assigns.values() if a.program}
+    used = {a.program for a in assigns.values() if a.program} | {c.node_id for c, _e in ledger_cards.values()}
     cards = [c for c in cards if c.node_id in used]
 
     print("== 사업 카드")
@@ -147,6 +177,29 @@ def main() -> int:
         if facts:
             props["external"] = facts
         nodes.append((c.node_id, "program", c.name, props, None))
+    # 사업 체계 — 분류(일반재정지원·앵커·특수목적) → 사업, 사업 → 앵커 편입(연도), 앞 단계 → 다음 단계
+    cats = ledger.get("categories", {})
+    for key, (c, e) in ledger_cards.items():
+        info = {k: e[k] for k in ("period", "status", "yncu", "since", "note") if e.get(k)}
+        if info:
+            for n_ in nodes:
+                if n_[0] == c.node_id:
+                    n_[3]["ledger"] = info | {"sources": e["sources"]}
+        cat = e.get("category")
+        if cat:
+            gid = f"group:{cat}"
+            if not any(n_[0] == gid for n_ in nodes):
+                nodes.append((gid, "program_group", cats.get(cat, {}).get("label", cat), {"sources": cats.get(cat, {}).get("sources", [])}, None))
+            edges.append((gid, c.node_id, "contains", "분류", [f"외부 확인: {cats.get(cat, {}).get('label', cat)}"] + e["sources"][:2]))
+        if e.get("integrated_into"):
+            parent = card_for([e["integrated_into"]])
+            if parent is not None and parent is not c:
+                edges.append((c.node_id, parent.node_id, "integrated_into", "분류",
+                              [f"{e.get('since', '')}년부터 편입" + (f" — {e['status']}" if e.get("status") else "")] + e["sources"][:2]))
+        for pred in e.get("predecessor", []):
+            pc = card_for([pred])
+            if pc is not None and pc is not c:
+                edges.append((pc.node_id, c.node_id, "succeeded_by", "분류", [f"앞 단계 사업 → 다음 단계({e.get('period', '')})"] + e["sources"][:2]))
     for d in docs:
         a = assigns[d["id"]]
         dnode = f"doc:{d['id']}"
