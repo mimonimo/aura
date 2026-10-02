@@ -40,6 +40,8 @@ _BULLET = re.compile(r"^\s*[□■❐❏❑❒○◦●◎❍❂◉◈▶▷►�
 _OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|(?:I{1,3}|IV|VI{0,3}|IX|X)[.．]|[1-9]\d?(?:[.\-][1-9]\d?){0,3}[.．)]|[가나다라마바사아자차카타파하][.．)]|\([1-9]\d?\))\s*(?=[가-힣A-Za-z「『\[(])")
 _HYPHEN = re.compile(r"^\s*(\d{1,2}(?:-\d{1,2})+)[.．)]?\s")
 _SENTENCE_END = re.compile(r"(?:다|함|음|임|됨|요)\s*[.。]?\s*$")
+# 도식 속 글자가 줄바꿈에서 잘린 꼴(「대학 특화분야 브랜드화를」) — 조사·접속어로 끝나는 줄은 제목이 아니다(처리기 표시 제목은 그대로)
+_CUT_END = re.compile(r"(?:[을를의와과및에한고며]|및|위한|통한|/|,|·)\s*$")
 TEXT_HEADING_MAX = 60
 # 사설 영역 글자 — 원문자(①②)를 기호 글꼴로 그린 한글 문서에서 제목 앞에 붙는다(「\U000f02b1 [1-1 과제] 추진 실적」)
 _PUA = re.compile(r"[\ue000-\uf8ff\U000f0000-\U0010ffff]")
@@ -68,7 +70,7 @@ def heading_text(c: dict) -> str | None:
         line = " ".join(content.split())
         if "\n" in content.strip() or not (2 <= len(line) <= TEXT_HEADING_MAX):
             return None
-        if _OUTLINE.match(line) and not _SENTENCE_END.search(line) and not _BULLET.match(line):
+        if _OUTLINE.match(line) and not _SENTENCE_END.search(line) and not _BULLET.match(line) and not _CUT_END.search(line):
             return line
         return None
     if kind == "table":
@@ -109,7 +111,8 @@ def _line_heading(line: str) -> str | None:
     line = " ".join(line.split())
     if not (2 <= len(line) <= TEXT_HEADING_MAX) or _BULLET.match(line):
         return None
-    if _OUTLINE.match(line) and not _SENTENCE_END.search(line) and not re.search(r"\d\s*$", line[-3:] if len(line) > 40 else ""):
+    if _OUTLINE.match(line) and not _SENTENCE_END.search(line) and not _CUT_END.search(line) \
+            and not re.search(r"\d\s*$", line[-3:] if len(line) > 40 else ""):
         return line
     return None
 
