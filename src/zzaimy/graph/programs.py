@@ -422,8 +422,12 @@ def apply_reviews(docs: list[dict], assigned: list[Assignment], reviews: list[di
 
     def card_named(name: str) -> ProgramCard:
         key = program_key(name)
+        loose = lambda t: re.sub(r"[\s().·\-_0-9]", "", t or "").upper()
         for c in cards:
             if c.name == name or c.key == key or name in c.names:
+                return c
+        for c in cards:                                   # 표기만 조금 다른 같은 이름(띄어쓰기·괄호·단계 숫자)
+            if any(loose(n) == loose(name) for n in list(c.names) + [c.name]):
                 return c
         c = ProgramCard(key=key or name)
         c.names[name] += 1
