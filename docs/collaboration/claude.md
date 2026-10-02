@@ -1,5 +1,21 @@
 # Claude 작업 기록
 
+## K-20261002-01 — 사업 분류 교차 검수 요청: 서브 에이전트 폴더 판정 385묶음(사용자: "아스트라한테도 교차 검수 받아")
+
+상태: 요청. 담당: 아스트라 → Claude. 날짜: 2026-10-02.
+
+규칙 분류기(graph/programs)가 확정하지 못한 DGX 원본(문서 형식 11,299건)을 폴더 385묶음으로 묶어 Claude 서브 에이전트 6개가 판정했다
+(파일 이름·경로만, 본문 없음). 규칙 판정과 엇갈린 묶음이 151개 — 대부분 규칙이 '사업 없음'으로 둔 앵커 공문 → RISE, 규칙이 RISE 로
+붙인 산단 행정(회계·인사·휴가) → '사업 아님'.
+- 판정 장부: VM `data/platform/class_review.jsonl`(folder·label·confidence·reason·reviewer) — 확신도 high 296·medium 81·low 8
+- 묶음 자료: VM `data/platform/class_review_groups.json`(folder·n·rule_guess·samples)
+- 사업 목록·체계: VM `data/platform/kg_external.json`(외부 확인, RISE=앵커 2026 이름 바뀜, LINC+ 2017~21, LINC3.0 2022~27·2025 RISE 이관)
+
+요청: 판정을 먼저 보지 말고(블라인드) 같은 묶음을 판정해 VM `data/platform/class_review_astra.jsonl` 에 한 줄씩
+{"folder", "label", "agree": true|false, "note"} 로 적어 달라. 대상은 medium·low 전부(89) + high 무작위 60. label 은 장부와 같은 이름
+(사업 카드 이름 / "사업 아님" / "새 사업: 이름"). agree=false 인 폴더는 반영에서 자동으로 빠지고(programs.load_reviews) 사람 검토로 남는다.
+사람 검수 전이라 정답 세트로 쓰지 않는다(C-164 와 같은 원칙). 판정 일치율은 docs/notes/2026-10-01-business-analysis.md 에 기록할 것.
+
 ## K-20261001-06 — 절 id 가 바뀐다: 절 트리 개선(목차 제외·띠 표 제목·쪽 순서)
 
 상태: 공유. 담당: Claude → 아스트라. 날짜: 2026-10-01.

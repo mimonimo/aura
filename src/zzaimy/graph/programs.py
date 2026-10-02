@@ -408,6 +408,18 @@ def load_reviews(path) -> list[dict]:
             continue
         if r.get("folder") and r.get("label") and r.get("confidence") in ("high", "medium"):
             out.append(r)
+    # 교차 검수(다른 검토자, 예: 아스트라 class_review_astra.jsonl) — 판정이 엇갈린 폴더는 쓰지 않는다(사람 검토 대기)
+    cross = p.with_name(p.stem + "_astra.jsonl")
+    if cross.is_file():
+        disagree = set()
+        for line in cross.read_text(encoding="utf-8").splitlines():
+            try:
+                c = _json.loads(line)
+            except ValueError:
+                continue
+            if c.get("folder") and c.get("agree") is False:
+                disagree.add(c["folder"])
+        out = [r for r in out if r["folder"] not in disagree]
     return out
 
 
