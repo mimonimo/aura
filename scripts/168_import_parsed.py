@@ -44,9 +44,27 @@ def main() -> int:
         return projects[label]
     n_ok = n_skip = n_fail = 0
     led = led_path.open("a", encoding="utf-8")
-    import itertools
-    srcs = [open(f, encoding="utf-8") for f in sys.argv[1:]] if len(sys.argv) > 1 else [sys.stdin]
-    for line in itertools.chain.from_iterable(srcs):
+    # 파일마다 읽은 자리를 기억한다(DGX 결과 파일은 덧붙기만 한다) — 5분 주기가 매번 처음부터 읽지 않게
+    off_path = ROOT / "data" / "inbox" / "parsed" / ".offsets.json"
+    offsets = json.loads(off_path.read_text(encoding="utf-8")) if off_path.is_file() else {}
+
+    def lines():
+        if len(sys.argv) <= 1:
+            yield from sys.stdin
+            return
+        for f in sys.argv[1:]:
+            with open(f, "rb") as fh:
+                pos = int(offsets.get(f, 0))
+                if pos > Path(f).stat().st_size:      # 파일이 새로 시작됐다
+                    pos = 0
+                fh.seek(pos)
+                for raw in fh:
+                    if not raw.endswith(b"\n"):       # 아직 쓰는 중인 마지막 줄 — 다음 회차에
+                        break
+                    pos += len(raw)
+                    yield raw.decode("utf-8", "replace")
+                    offsets[f] = pos
+    for line in lines():
         try:
             rec = json.loads(line)
         except ValueError:
@@ -62,13 +80,18 @@ def main() -> int:
                               sector="grant", project_id=project_for(rec.get("program_name") or ""), owner="zzdev")
         db.replace_doc_chunks(did, [c for c in rec["chunks"] if c.get("content") is not None])
         db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=(rec.get("parse_note") or "") +
-                           " · DGX 보관(가벼운 처리: 검토 의견 없음)", kind=rec.get("doc_kind") or rec.get("kind") or None)
+                           " · DGX 보관(가벼운 처리: 검토 의견 없음)")
+        if rec.get("doc_kind"):
+            db.set_document_kind(did, rec["doc_kind"])
         led.write(json.dumps({"doc_id": did, "origin": rel, "at": time.strftime("%Y-%m-%d %H:%M"), "via": "dgx-parse"}, ensure_ascii=False) + "\n")
         with db._conn() as conn:
             conn.execute("UPDATE archive_files SET doc_id = ?, analysis = ? WHERE rel = ?", (did, "가벼운 처리", rel))
         have.add(rel)
         n_ok += 1
     led.close()
+    if len(sys.argv) > 1:
+        off_path.parent.mkdir(parents=True, exist_ok=True)
+        off_path.write_text(json.dumps(offsets), encoding="utf-8")
     print(f"들임 {n_ok} · 이미 있음 {n_skip} · 처리 실패·빈 문서 {n_fail}")
     return 0
 

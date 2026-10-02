@@ -144,7 +144,13 @@ def import_parsed() -> None:
     if not files:
         return
     out = subprocess.run([sys.executable, str(ROOT / "scripts" / "168_import_parsed.py"), *files], cwd=ROOT, capture_output=True)
-    print("DGX 처리 결과:", (out.stdout.decode("utf-8", "replace").strip().splitlines() or ["출력 없음"])[-1], flush=True)
+    last = (out.stdout.decode("utf-8", "replace").strip().splitlines() or ["출력 없음"])[-1]
+    print("DGX 처리 결과:", last, flush=True)
+    if out.returncode != 0:
+        print(out.stderr.decode("utf-8", "replace")[-400:], flush=True)
+    m = re.match(r"들임 (\d+)", last)
+    if m and int(m.group(1)):
+        (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
 
 
 def post_if_changed(db) -> int:
@@ -193,10 +199,14 @@ def main() -> int:
     ap.add_argument("--max", type=int, default=200)
     ap.add_argument("--min-files", type=int, default=10)
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--parsed", action="store_true", help="DGX 가벼운 처리 결과만 받아 들인다(5분 주기, 긴 반입과 따로)")
     ap.add_argument("--quick", action="store_true", help="DGX 훑기 없이 업로드 원본 올리기·그래프·색인만(문서함이 바뀌었을 때 1분 주기)")
     args = ap.parse_args()
     t0 = time.time()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
+    if args.parsed:
+        import_parsed()
+        return 0
     if args.quick:
         dirty = Path(db.path).parent / ".kg-dirty"
         if not dirty.exists():
