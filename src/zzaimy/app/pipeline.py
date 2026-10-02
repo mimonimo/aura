@@ -2615,6 +2615,12 @@ class DocumentProcessor:
                 ai_review=ai_review,
                 parse_note=self._last_parse_note or None,
             )
+            # 문서함이 바뀌었다는 표시 — 1분 주기 작업(scripts/zz_quick.sh → 170 --quick)이 보고 원본 보관(DGX)·그래프·검색 색인을
+            # 곧바로 맞춘다. 들어온 길(반입·문서함 업로드·채팅 첨부)과 상관없이 같은 흐름(사용자 2026-10-02 "제각각이면 안 된다")
+            try:
+                (Path(db.path).parent / ".kg-dirty").touch()
+            except Exception:
+                pass
         except Exception as e:  # 실패도 기록이 남아야 화면에서 보인다
             log.exception("doc %d 처리 실패", doc_id)
             db.update_document(doc_id, status="failed", error=f"{type(e).__name__}: {e}")

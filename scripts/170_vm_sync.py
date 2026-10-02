@@ -150,9 +150,26 @@ def main() -> int:
     ap.add_argument("--max", type=int, default=200)
     ap.add_argument("--min-files", type=int, default=10)
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--quick", action="store_true", help="DGX 훑기 없이 업로드 원본 올리기·그래프·색인만(문서함이 바뀌었을 때 1분 주기)")
     args = ap.parse_args()
     t0 = time.time()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
+    if args.quick:
+        dirty = Path(db.path).parent / ".kg-dirty"
+        if not dirty.exists():
+            return 0
+        dirty.unlink()
+        origins = {}
+        led = ROOT / "data" / "platform" / "origins.jsonl"
+        if led.is_file():
+            for line in led.read_text(encoding="utf-8").splitlines():
+                try:
+                    o = json.loads(line)
+                    origins[o["origin"]] = int(o["doc_id"])
+                except (ValueError, KeyError):
+                    continue
+        push_uploads(db, origins, None)
+        return post_if_changed(db)
     files = listing()
     first: dict = {}
     for i, f in enumerate(files):
