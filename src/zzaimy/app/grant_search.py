@@ -57,15 +57,34 @@ def corpus(db, doc_ids: set[int] | None = None, user: str | None = None) -> list
     return out
 
 
+PREV = INDEX.with_suffix(".prev.npz")
+
+
+def _read(path: Path):
+    import numpy as np
+    with np.load(path) as z:
+        ids, vecs = z["ids"], z["vectors"]
+    if vecs.ndim != 2 or len(ids) != len(vecs):
+        raise ValueError(f"색인 모양이 맞지 않음: ids {len(ids)} · vectors {vecs.shape}")
+    return ids, vecs
+
+
 def _load():
+    """색인 읽기 — 깨졌으면 직전 정상본(.prev), 그것도 없으면 (None, None)(검색은 어휘 단독으로 계속)."""
     if not INDEX.exists():
         return None, None
     mt = INDEX.stat().st_mtime
     with _lock:
         if _cache["mtime"] != mt:
-            import numpy as np
-            z = np.load(INDEX)
-            _cache.update(mtime=mt, ids=z["ids"], vecs=z["vectors"])
+            try:
+                ids, vecs = _read(INDEX)
+            except Exception as e:
+                log.warning("사업 문서 색인 읽기 실패(%s) — 직전 정상본으로", type(e).__name__)
+                try:
+                    ids, vecs = _read(PREV)
+                except Exception:
+                    return None, None
+            _cache.update(mtime=mt, ids=ids, vecs=vecs)
         return _cache["ids"], _cache["vecs"]
 
 
@@ -171,7 +190,29 @@ def search(db, question: str, k: int = 6, user: str | None = None) -> dict:
 
 def build_increment(db, batch: int = 64, limit: int = 20000) -> dict:
     """색인에 없는 사업 문서 조각만 임베딩해 덧붙인다(지워진 조각은 뺀다). 글 = 문서 이름 + 본문 1200자(규정 계열과 같은 길이)."""
+    import fcntl
+
     import numpy as np
+    INDEX.parent.mkdir(parents=True, exist_ok=True)
+    # 색인 쓰기는 한 번에 하나 — 부르는 길(1분 주기·색인 주기)과 상관없이 색인 파일 옆 잠금으로(2026-10-02: 두 쓰기가 섞여 2GB 색인이 깨졌다)
+    lockf = open(INDEX.with_suffix(".lock"), "a")
+    try:
+        fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lockf.close()
+        return {"added": 0, "removed": 0, "total": 0, "pending": 0, "busy": True}
+    try:
+        return _build_increment(db, batch, limit)
+    finally:
+        fcntl.flock(lockf, fcntl.LOCK_UN)
+        lockf.close()
+
+
+def _build_increment(db, batch: int, limit: int) -> dict:
+    import os
+
+    import numpy as np
+    _cache["mtime"] = None                                 # 디스크의 현재 판으로 시작
     ids, vecs = _load()
     have = set(int(i) for i in ids) if ids is not None else set()
     # 번호만 먼저 — 본문은 새로 넣을 조각만 읽는다(조각 50만 개를 매번 통째로 읽지 않게)
@@ -201,9 +242,19 @@ def build_increment(db, batch: int = 64, limit: int = 20000) -> dict:
         added += len(keep)
     removed = (len(ids) - int(keep_mask.sum())) if keep_mask is not None else 0
     if added or removed:
-        INDEX.parent.mkdir(parents=True, exist_ok=True)
-        tmp = INDEX.with_suffix(".tmp.npz")
+        tmp = INDEX.with_name(f".{INDEX.stem}.{os.getpid()}.tmp.npz")
         np.savez_compressed(tmp, ids=out_ids, vectors=out_vecs if out_vecs is not None else np.zeros((0, 1)))
+        try:
+            _read(tmp)                                     # 다시 읽어 검사한 뒤에만 바꾼다
+        except Exception:
+            tmp.unlink(missing_ok=True)
+            raise
+        if INDEX.exists():
+            try:
+                _read(INDEX)
+                INDEX.replace(PREV)                        # 직전 정상본을 남긴다
+            except Exception:
+                pass                                       # 깨진 것은 정상본으로 남기지 않는다
         tmp.replace(INDEX)
         (INDEX.with_suffix(".json")).write_text(json.dumps({"n_chunks": int(len(out_ids)), "added": added, "removed": removed},
                                                            ensure_ascii=False), encoding="utf-8")
