@@ -96,7 +96,7 @@ def main() -> int:
             continue
         ver = rec.get("version") or f"{int(rec.get('size') or 0)}:{int(float(rec.get('mtime') or 0))}"
         old = have.get(rel)
-        if old and (not old[1] or old[1] == ver):
+        if old and (not old[1] or old[1] == ver) and not rec.get("force"):
             n_skip += 1
             continue
         state = rec.get("state") or ("parsed" if rec.get("ok") else "failed")
