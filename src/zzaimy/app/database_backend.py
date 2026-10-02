@@ -166,7 +166,15 @@ def lock_session(conn, session_id):
 
 
 def install_functions(conn):
-    """Small explicit SQL compatibility functions, scoped to runtime schema."""
+    """Small explicit SQL compatibility functions, scoped to runtime schema.
+
+    이미 있으면 다시 만들지 않는다 — 연결마다 CREATE OR REPLACE 를 보내면 동시에 연결한 프로세스끼리
+    「tuple concurrently updated」로 실패한다(2026-10-03 운영 실측: 동기화 회차가 연결 단계에서 떨어짐)."""
+    have = {r[0] for r in conn.raw.execute(
+        "SELECT proname FROM pg_proc WHERE pronamespace = current_schema()::regnamespace"
+        " AND proname IN ('instr', 'json_extract')").fetchall()}
+    if {"instr", "json_extract"} <= have:
+        return
     conn.raw.execute("""CREATE OR REPLACE FUNCTION instr(text, text) RETURNS integer
         LANGUAGE sql IMMUTABLE STRICT AS 'SELECT strpos($1, $2)'""")
     conn.raw.execute("""CREATE OR REPLACE FUNCTION json_extract(text, text) RETURNS text

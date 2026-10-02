@@ -402,7 +402,7 @@ def main() -> int:
     print("  노드", dict(Counter(n[1] for n in nodes)))
     print("  관계", dict(Counter((e[2], e[3]) for e in edges)))
     review = [d["id"] for d in docs if assigns[d["id"]].status != "auto"]
-    print("  검토 대기 문서", review or "없음")
+    print("  검토 대기 문서", f"{len(review)}건 (앞 20: {review[:20]})" if review else "없음")
     if not args.apply:
         print("미리 보기입니다 — --apply 로 쓴다")
         return 0
