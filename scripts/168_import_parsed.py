@@ -24,6 +24,14 @@ from zzaimy.app.db import Database  # noqa: E402
 
 
 def main() -> int:
+    import fcntl
+    # 두 번 동시에 돌면 같은 원본을 두 번 들인다 — 직접 실행해도 한 번에 하나만
+    _lock = open("/tmp/zz_parsed_import168.lock", "w")
+    try:
+        fcntl.flock(_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("들임 0 · 새 판 갱신 0 · 이미 있음 0 · 처리 실패·빈 문서 0 · 다른 들이기가 도는 중")
+        return 0
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     archive.ensure(db)
     led_path = ROOT / "data" / "platform" / "origins.jsonl"

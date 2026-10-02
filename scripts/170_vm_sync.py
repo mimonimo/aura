@@ -132,7 +132,17 @@ PKEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_parsed")
 
 
 def import_parsed() -> None:
-    """DGX 가 가볍게 처리한 원본(167 → ~/parsed, 읽기 전용 키)을 받아 'DGX 보관 문서'로 들인다(168, 이미 들인 원본은 건너뜀)."""
+    """DGX 가 가볍게 처리한 원본(167 → ~/parsed, 읽기 전용 키)을 받아 'DGX 보관 문서'로 들인다(168, 이미 들인 원본은 건너뜀).
+
+    5분 주기(--parsed)와 10분 주기 전체 동기화가 둘 다 부른다 — 들이기 전용 잠금으로 한 번에 하나만(2026-10-02 실측:
+    둘이 같은 결과 파일을 동시에 읽어 같은 원본을 두 번 들였다, 3,507건)."""
+    import fcntl
+    lock = open("/tmp/zz_parsed_import.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("DGX 처리 결과 들이기: 다른 회차가 들이는 중 — 건너뜀", flush=True)
+        return
     dest = ROOT / "data" / "inbox" / "parsed"
     dest.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} -p 8022 -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--exclude=*",
