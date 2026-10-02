@@ -484,3 +484,11 @@ def test_restarted_numbering_in_page_text_is_not_headings():
             "3. 산학협력을 통해 지속적\n1. 산학협업 혁신적 교육\n2. 혁신적 교육방법 협업\n" + "본문 " * 80}
     tree = sections.build([page])
     assert not any(s.title.startswith("1. 산학") for s in tree)
+
+
+def test_leading_time_and_ordinal_tags_dropped_from_program_names():
+    from zzaimy.graph import programs
+
+    names = [programs._mentions(t)[0] for t in ("8월 RISE사업 실적", "3(경대) RISE사업 협약", "25재정지원사업 정산")]
+    flat = [n for ns in names for n in ns]
+    assert not any(n.startswith(("8월", "3(", "25")) for n in flat)

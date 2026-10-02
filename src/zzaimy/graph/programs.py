@@ -60,7 +60,10 @@ def _name_ok(name: str) -> bool:
 
 
 def _norm_name(name: str) -> str:
-    return _LEAD_LABEL.sub("", name or "").strip()
+    n = _LEAD_LABEL.sub("", name or "").strip()
+    # 앞에 붙은 때·순번 꼬리표 — 「8월 RISE사업」·「3(경대) RISE사업」·「25재정지원사업」의 8월·3(경대)·25
+    n = re.sub(r"^(?:\d{1,2}\s*월|\d{1,2}\s*\([^)]{1,10}\)|\d{1,4})\s*(?=[가-힣A-Za-z])", "", n).strip()
+    return n
 
 
 _ROUND = re.compile(r"([1-9])\s*차\s*년도")
