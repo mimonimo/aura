@@ -269,6 +269,7 @@ def main() -> int:
     ap.add_argument("--max", type=int, default=200)
     ap.add_argument("--min-files", type=int, default=10)
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--ledger-only", action="store_true", help="목록·분류·연도 보정·원본 장부·보관 묶음 맞춤까지만(반입 없음) — 분류 규칙을 고친 뒤 바로 반영할 때")
     ap.add_argument("--index", action="store_true", help="사업 문서 색인만 밀린 만큼 따라잡는다(자기 잠금, 그래프 재구축과 따로)")
     ap.add_argument("--parsed", action="store_true", help="DGX 가벼운 처리 결과만 받아 들인다(5분 주기, 긴 반입과 따로)")
     ap.add_argument("--quick", action="store_true", help="DGX 훑기 없이 업로드 원본 올리기·그래프·색인만(문서함이 바뀌었을 때 1분 주기)")
@@ -359,6 +360,8 @@ def main() -> int:
           f"분류 바뀜 {diff['reclassified']}", flush=True)
     if not args.dry:
         mark("full", f"원본 {len(files)} · 새로 {len(diff['added'])} · 바뀜 {len(diff['changed'])} · 옮김 {len(diff['moved'])} · 없어짐 {len(diff['removed'])}")
+    if args.ledger_only:
+        return 0
     # 뼈대 고르기 — 161 과 같은 규칙(사업마다 갈래·연차·줄기별 최신판)
     sel = _sel()
     per_prog = defaultdict(list)
