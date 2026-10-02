@@ -17,6 +17,7 @@ _SCHEMA = (
     " doc_id INTEGER, analysis TEXT NOT NULL DEFAULT '', seen_at TEXT NOT NULL DEFAULT '')",
     "CREATE INDEX IF NOT EXISTS archive_files_program ON archive_files (program)",
 )
+UPLOAD_PREFIX = "_플랫폼업로드/"
 FIELDS = ("rel", "size", "mtime", "ext", "area", "program", "program_name", "status", "kind", "year", "round", "dup_of")
 
 
@@ -24,6 +25,75 @@ def ensure(db) -> None:
     with db._conn() as conn:
         for q in _SCHEMA:
             conn.execute(q)
+    # 없어진 원본 표시(동기화) — 지우지 않고 표시만 해서 이어진 문서함 문서의 출처가 남는다
+    try:
+        with db._conn() as conn:
+            conn.execute("ALTER TABLE archive_files ADD COLUMN removed_at TEXT NOT NULL DEFAULT ''")
+    except Exception:
+        pass
+
+
+_CLASS = ("program", "program_name", "status", "kind", "year", "round", "dup_of", "ext", "area")
+
+
+def sync(db, rows: list[dict], origins: dict[str, int] | None = None) -> dict:
+    """DGX 의 지금 목록과 장부를 견줘 차이만 반영한다(억지로 덮어쓰지 않는다 — 사용자 2026-10-02 "동기화가 되게끔").
+
+    새 파일 → 넣음, 크기·수정 시각이 바뀐 파일 → 갱신(이어진 문서는 다시 처리 대상), 이름·크기·시각이 같은데 경로만 다른 파일 →
+    옮김(문서 번호 유지), 목록에서 사라진 파일 → removed_at 표시(문서는 지우지 않음), 다시 나타난 파일 → 표시 해제.
+    분류만 바뀐 행도 고쳐 쓴다. 돌려주는 것: 각 갈래의 목록."""
+    ensure(db)
+    origins = origins or {}
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with db._conn() as conn:
+        cur = {r[0]: {"size": r[1], "mtime": r[2], "doc_id": r[3], "removed_at": r[4] or "",
+                      **dict(zip(_CLASS, r[5:]))}
+               for r in conn.execute("SELECT rel, size, mtime, doc_id, removed_at, " + ", ".join(_CLASS) + " FROM archive_files").fetchall()}
+    inc = {r["rel"]: r for r in rows}
+    # 플랫폼 업로드 원본(UPLOAD_PREFIX)은 DGX 목록이 아니라 VM 이 넣는다 — DGX 목록에 없다고 없어짐으로 보지 않는다
+    present = {k for k, v in cur.items() if not v["removed_at"] and not k.startswith(UPLOAD_PREFIX)}
+    added = [k for k in inc if k not in cur or cur[k]["removed_at"]]
+    gone = [k for k in present if k not in inc]
+    # 옮김 — 사라진 것과 새로 생긴 것의 (이름, 크기, 시각)이 하나씩 맞으면 같은 파일
+    def sig(rel, size, mtime):
+        return (rel.rsplit("/", 1)[-1], int(size or 0), int(mtime or 0))
+    gone_sig: dict[tuple, list] = {}
+    for k in gone:
+        gone_sig.setdefault(sig(k, cur[k]["size"], cur[k]["mtime"]), []).append(k)
+    moved = []
+    for k in list(added):
+        cands = gone_sig.get(sig(k, inc[k].get("size"), inc[k].get("mtime")), [])
+        if len(cands) == 1 and k not in cur:
+            old = cands.pop()
+            moved.append((old, k, cur[old]["doc_id"]))
+            added.remove(k)
+            gone.remove(old)
+    changed = [k for k in inc if k in cur and not cur[k]["removed_at"]
+               and (int(cur[k]["size"] or 0) != int(inc[k].get("size") or 0) or int(cur[k]["mtime"] or 0) != int(inc[k].get("mtime") or 0))]
+    reclass = [k for k in inc if k in cur and k not in changed and not cur[k]["removed_at"]
+               and any((cur[k].get(f) or "") != (inc[k].get(f) or "") for f in _CLASS)]
+
+    def vals(r):
+        out = [r.get(k) if r.get(k) is not None else ("" if k not in ("size", "mtime", "year", "round") else None) for k in FIELDS]
+        out[1], out[2] = int(r.get("size") or 0), int(r.get("mtime") or 0)
+        return out
+    with db._conn() as conn:
+        for old, new, _d in moved:
+            conn.execute("UPDATE archive_files SET rel = ?, seen_at = ? WHERE rel = ?", (new, now, old))
+        for k in [m[1] for m in moved] + changed + reclass:
+            r = inc[k]
+            conn.execute("UPDATE archive_files SET size=?, mtime=?, ext=?, area=?, program=?, program_name=?, status=?, kind=?, year=?,"
+                         " round=?, dup_of=?, removed_at='', seen_at=? WHERE rel=?", (*vals(r)[1:], now, k))
+        for k in added:
+            r = inc[k]
+            conn.execute("DELETE FROM archive_files WHERE rel = ?", (k,))
+            conn.execute("INSERT INTO archive_files (rel, size, mtime, ext, area, program, program_name, status, kind, year, round, dup_of,"
+                         " doc_id, seen_at, removed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')",
+                         (*vals(r), origins.get(k) or (cur.get(k) or {}).get("doc_id"), now))
+        for k in gone:
+            conn.execute("UPDATE archive_files SET removed_at = ? WHERE rel = ?", (now, k))
+    return {"at": now, "added": added, "changed": [(k, cur[k]["doc_id"]) for k in changed], "moved": moved,
+            "removed": [(k, cur[k]["doc_id"]) for k in gone], "reclassified": len(reclass)}
 
 
 def load(db, rows: list[dict], origins: dict[str, int] | None = None) -> dict:
@@ -56,7 +126,7 @@ def summary(db) -> list[dict]:
     with db._conn() as conn:
         rows = conn.execute(
             "SELECT program, program_name, kind, COUNT(*), SUM(CASE WHEN doc_id IS NOT NULL THEN 1 ELSE 0 END), SUM(size)"
-            " FROM archive_files GROUP BY program, program_name, kind ORDER BY COUNT(*) DESC").fetchall()
+            " FROM archive_files WHERE removed_at = '' GROUP BY program, program_name, kind ORDER BY COUNT(*) DESC").fetchall()
     return [{"program": r[0], "program_name": r[1], "kind": r[2], "files": int(r[3]), "in_store": int(r[4] or 0),
              "bytes": int(r[5] or 0)} for r in rows]
 
@@ -64,7 +134,7 @@ def summary(db) -> list[dict]:
 def find(db, program: str = "", kind: str = "", text: str = "", limit: int = 50) -> list[dict]:
     """원본 찾기 — 사업·갈래·경로 글로."""
     ensure(db)
-    q = "SELECT rel, size, ext, program_name, kind, year, round, doc_id FROM archive_files WHERE 1=1"
+    q = "SELECT rel, size, ext, program_name, kind, year, round, doc_id FROM archive_files WHERE removed_at = ''"
     args: list = []
     if program:
         q += " AND program = ?"

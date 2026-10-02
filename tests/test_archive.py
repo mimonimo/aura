@@ -30,3 +30,23 @@ def test_archive_page_renders(tmp_path):
     r = c.get("/archive?program=program:rise")
     assert r.status_code == 200 and "앵커/1차년도/계획서.hwp" in r.text and "RISE사업" in r.text
     assert "/archive" in c.get("/criteria").text
+
+
+def test_archive_sync_add_change_move_remove(tmp_path):
+    db = Database(tmp_path / "t.db")
+    base = {"ext": "hwp", "area": "링크", "program": "program:linc30", "program_name": "LINC3.0", "status": "auto", "kind": "plan"}
+    a = {"rel": "링크/a/계획서.hwp", "size": 10, "mtime": 1, **base}
+    b = {"rel": "링크/a/보고서.hwp", "size": 20, "mtime": 1, **base}
+    c = {"rel": "링크/a/평가.hwp", "size": 30, "mtime": 1, **base}
+    archive.sync(db, [a, b, c], origins={a["rel"]: 577})
+    moved_a = {**a, "rel": "링크/옮김/계획서.hwp"}                 # 옮김(이름·크기·시각 같음)
+    b2 = {**b, "size": 21, "mtime": 2}                           # 바뀜
+    d = {"rel": "링크/a/새.hwp", "size": 5, "mtime": 3, **base}    # 새로
+    got = archive.sync(db, [moved_a, b2, d])                       # c 는 없어짐
+    assert got["moved"] == [(a["rel"], moved_a["rel"], 577)]
+    assert got["changed"] == [(b["rel"], None)] and got["added"] == [d["rel"]] and got["removed"] == [(c["rel"], None)]
+    rels = {r["rel"] for r in archive.find(db, limit=10)}
+    assert rels == {moved_a["rel"], b["rel"], d["rel"]}
+    assert archive.find(db, text="옮김")[0]["doc_id"] == 577
+    again = archive.sync(db, [moved_a, b2, d])                     # 바뀐 것 없음
+    assert not (again["added"] or again["changed"] or again["moved"] or again["removed"])
