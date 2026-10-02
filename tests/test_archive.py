@@ -99,12 +99,13 @@ def test_archived_program_projects_group_past_documents_and_keep_user_projects(t
     a = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant", project_id=old_auto)
     b = db.add_document("b.hwp", "dgx://p/b.hwp", doc_type="grant", project_id=mine)     # 담당자가 붙인 과거 문서
     c = db.add_document("c.hwp", "dgx://p/c.hwp", doc_type="grant")                      # 묶음 없음
-    ar.load(db, [dict(rel=f"p/{x}.hwp", size=1, mtime=1, program="program:linc30", program_name="3단계 산학연협력 선도전문대학 육성사업")
-                 for x in "abc"], {})
+    ar.load(db, [dict(rel=f"p/{x}.hwp", size=1, mtime=1, program="program:linc30", program_name="3단계 산학연협력 선도전문대학 육성사업",
+                      year="2023", round="2") for x in "abc"], {})
     got = ar.align_archived_projects(db)
     assert got == {"moved": 2, "removed_projects": 1}
     pa = db.get_project(db.get_document(a)["project_id"])
-    assert pa["name"] == "3단계 산학연협력 선도전문대학 육성사업" and pa["archived"] == 1 and pa["program"] == "program:linc30"
+    assert pa["name"] == "2023년 3단계 산학연협력 선도전문대학 육성사업 (2차년도)" and pa["archived"] == 1
+    assert pa["program"] == "program:linc30|2023"
     assert db.get_document(c)["project_id"] == pa["id"] and db.get_document(b)["project_id"] == mine
     assert db.get_project(old_auto) is None
     assert [p["id"] for p in db.list_all_projects()] == [mine]                            # 사이드바에는 담당자 것만
@@ -130,3 +131,11 @@ def test_archive_and_unarchive_routes(tmp_path):
     assert got["archived"] == 0 and got["owner"] == "zzaimy"
     assert client.post(f"/project/{past}/archive", follow_redirects=False).status_code == 303
     assert db.get_project(past)["archived"] == 1
+
+
+
+def test_bundle_key_by_year_round_or_unknown():
+    from zzaimy.app import archive as ar
+    assert ar.bundle_key("program:rise", "2025", "1") == ("program:rise|2025", "2025년 {name} (1차년도)")
+    assert ar.bundle_key("program:rise", None, "3") == ("program:rise|r3", "{name} 3차년도")
+    assert ar.bundle_key("", None, None) == ("none|?", "{name} (연도 미상)")

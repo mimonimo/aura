@@ -106,7 +106,7 @@ def main() -> int:
         # 원본 장부의 현재 판과 같은 기록만 적용 — 여러 결과 파일에 옛 판이 뒤늦게 읽혀도 되돌리지 않는다(C-186).
         # 장부가 아직 새 판을 모르면(목록 갱신 전) 여기서는 건너뛰고, 바뀐 원본은 170 의 원본 장부 대조(changed)가 다시 처리한다
         with db._conn() as conn:
-            row = conn.execute("SELECT program_name, size, mtime, program FROM archive_files WHERE rel = ?", (rel,)).fetchone()
+            row = conn.execute("SELECT program_name, size, mtime, program, year, round FROM archive_files WHERE rel = ?", (rel,)).fetchone()
         if row is not None and row[1] is not None and f"{int(row[1] or 0)}:{int(float(row[2] or 0))}" != ver:
             n_stale += 1
             continue
@@ -125,7 +125,9 @@ def main() -> int:
             prog_name = row[0] if row is not None else rec.get("program_name")
             prog_id = row[3] if row is not None and len(row) > 3 else rec.get("program")
             did = db.add_document(filename=rec.get("filename") or Path(rel).name, stored_path=f"dgx://{rel}", doc_type="grant",
-                                  sector="grant", project_id=archive.program_project(db, prog_id or "", prog_name or "", projects),
+                                  sector="grant", project_id=archive.program_project(
+                                      db, prog_id or "", prog_name or "", projects,
+                                      row[4] if row is not None else rec.get("year"), row[5] if row is not None else rec.get("round")),
                                   owner="zzdev")
             by_path[rel] = did
             n_ok += 1
