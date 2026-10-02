@@ -123,11 +123,21 @@ rsync). 학습 전에는 Ollama 모델을 내린다: `curl -s localhost:11434/ap
 원본 보관소와 VM 갱신(2026-10-02): 원본은 DGX `~/data`(rclone 으로 계속 들어온다, 10/2 기준 125,012건·789GB). VM 이 읽기 전용으로만
 본다 — DGX aura 의 `authorized_keys` 에 VM 전용 키(`vm-dgx-readonly`, VM `~/.ssh/id_ed25519_dgx_ro`)를
 `command="/usr/bin/rrsync -ro /home/aura/data",restrict` 로 등록(명령 실행·쓰기 거절 확인). 되돌리기는 그 줄 삭제.
-VM cron(aura, 6시간마다 17분) `scripts/zz_sync.sh` → `scripts/170_vm_sync.py`: rsync 목록 → 원본 목록 장부(`archive_files`, 화면 `/archive`,
-문서함 맨 위 바로가기) → 사업 분류·뼈대 고르기(161 규칙) → 새 뼈대만 받아 `164`(사업별 반입, 분석은 토르 02 로 `ZZAIMY_ROLE_CONN`,
-그래프 `157 --full`, 사업별 공통 양식 `162` + docx). 기록 `/tmp/zz_sync.log`, 겹침 방지 `flock /tmp/zz_sync.lock`.
-원본 전체의 가벼운 처리(글·조각, 검토 의견 없음)는 DGX `.venv-parse`(파싱 전용 가상환경)에서 `scripts/167` → VM `scripts/168`('DGX 보관 문서',
-stored_path `dgx://`). 사업 체계(일반재정지원·앵커·특수목적, 앵커 편입 연도)는 외부 검색으로 확인한 장부 VM `data/platform/kg_external.json`
+VM cron(aura) 네 주기, 모두 `scripts/170_vm_sync.py`, 기록 `/tmp/zz_sync.log`, 주기별 마지막 실행은 `data/platform/sync_status.json`
+(개발 현황 「반입 현황」 탭·`/dev/api/intake`):
+- 10분 `zz_sync.sh`(flock /tmp/zz_sync.lock): rsync 목록 → 원본 목록 장부(`archive_files`, 차이만: 새로·바뀜·옮김·없어짐, 화면 `/archive`)
+  → 사업 분류(규칙 + 폴더 검토 장부 `class_review.jsonl`) → 문서함 DGX 보관 프로젝트를 장부 분류에 맞춤 → 새 뼈대만 받아 `164`
+  (사업별 반입, 분석은 토르 02 `ZZAIMY_ROLE_CONN`) → 그래프 `157 --full`·사업별 공통 양식 `162` + docx.
+- 5분 `zz_parsed.sh`(170 --parsed): DGX `~/parsed` 결과를 읽기 전용 키로 받아 `168` 로 들인다. 들이기 전용 잠금(/tmp/zz_parsed_import*.lock),
+  경로마다 문서 하나(DB 부분 고유 색인 `ux_documents_dgx_path`), 원본 장부의 현재 판과 같은 기록만 적용.
+- 2분 `zz_index.sh`(170 --index): 사업 문서 색인(`knowledge/index/grant_embeddings.npz`, ADR-0049)만 따라잡기 — 그래프 재구축과 따로.
+  토르 임베딩, 묶음 제한 90초·실패 시 반으로 나눠 다시. 실측 초당 20~26조각.
+- 1분 `zz_quick.sh`(170 --quick, `.kg-dirty` 있을 때): 업로드 원본 DGX 올리기 → 그래프·양식(15분에 한 번까지, /tmp/zz_post.lock).
+원본 전체의 가벼운 처리(글·조각, 검토 의견 없음)는 DGX `.venv-parse`(파싱 전용 가상환경: torch 2.13+cu130 고정, mineru 3.4.5, docling 2.126.0)에서
+`scripts/167` → VM `scripts/168`('DGX 보관 문서', stored_path `dgx://`). 167 은 MinerU 동시 실행 상한(`ZZAIMY_MINERU_SLOTS`, 기본 2)과
+가용 메모리 하한(`ZZAIMY_MIN_FREE_GB`, 기본 24)을 지킨다 — DGX 는 공용 장비(Ollama 상주 약 67GB)라 작업자마다 MinerU 가 뜨면 121GB 를
+다 써 SSH 가 멎는다(2026-10-02 실측). 스캔 PDF 판독은 MinerU(docling 은 스캔 경로에서 뺌, `docs/ocr-duel.md` 2026-10-02 대결).
+사업 체계(일반재정지원·앵커·특수목적, 앵커 편입 연도)는 외부 검색으로 확인한 장부 VM `data/platform/kg_external.json`
 (출처 필수)로 그래프에 들어간다. 사업별 공통 양식은 드라이브 「ZZAIMY/사업별 공통 양식」(security02@ync.ac.kr, `scripts/169`).
 
 ### 토르 03의 상시 서비스
