@@ -3238,7 +3238,24 @@ def create_app(
             "n_papers": len(_dev_papers()),
             "n_adr": len(_dev_doc_list("decisions")),
             "n_notes": len(_dev_doc_list("notes")),
+            "intake": _intake_snapshot(),
         }))
+
+    def _intake_snapshot() -> dict | None:
+        try:
+            from zzaimy.app import intake_status
+            return intake_status.snapshot(db)
+        except Exception:
+            logging.getLogger("zzaimy.app.web").exception("반입 현황 조회 실패")
+            return None
+
+    @app.get("/dev/api/intake")
+    def dev_api_intake():
+        """반입 현황(JSON) — 개발 현황 「반입 현황」 탭과 같은 원천(app/intake_status)."""
+        data = _intake_snapshot()
+        if data is None:
+            raise HTTPException(500, "반입 현황을 읽지 못했습니다")
+        return data
 
     @app.get("/dev/quality", response_class=HTMLResponse)
     def dev_quality(request: Request):
