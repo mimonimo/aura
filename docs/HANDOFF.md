@@ -133,7 +133,7 @@ VM cron(aura) 네 주기, 모두 `scripts/170_vm_sync.py`, 기록 `/tmp/zz_sync.
 - 2분 `zz_index.sh`(170 --index): 사업 문서 색인(`knowledge/index/grant_embeddings.npz`, ADR-0049)만 따라잡기 — 그래프 재구축과 따로.
   토르 임베딩, 묶음 제한 90초·실패 시 반으로 나눠 다시. 실측 초당 20~26조각.
 - 1분 `zz_quick.sh`(170 --quick, `.kg-dirty` 있을 때): 업로드 원본 DGX 올리기 → 그래프·양식(15분에 한 번까지, /tmp/zz_post.lock).
-원본 전체의 가벼운 처리(글·조각, 검토 의견 없음)는 DGX `.venv-parse`(파싱 전용 가상환경: torch 2.13+cu130 고정, mineru 3.4.5, docling 2.126.0)에서
+원본 전체의 가벼운 처리(글·조각, 검토 의견 없음)는 DGX `.venv-parse`(파싱 전용 가상환경: torch 2.13+cu130 고정, mineru 3.4.5, docling 2.126.0 — docling 은 오피스 구조 읽기만)에서
 `scripts/167` → VM `scripts/168`('DGX 보관 문서', stored_path `dgx://`). 167 은 MinerU 동시 실행 상한(`ZZAIMY_MINERU_SLOTS`, 기본 2)과
 가용 메모리 하한(`ZZAIMY_MIN_FREE_GB`, 기본 24)을 지킨다 — DGX 는 공용 장비(Ollama 상주 약 67GB)라 작업자마다 MinerU 가 뜨면 121GB 를
 다 써 SSH 가 멎는다(2026-10-02 실측). 스캔 PDF 판독은 MinerU(docling 은 스캔 경로에서 뺌, `docs/ocr-duel.md` 2026-10-02 대결).
@@ -179,7 +179,7 @@ ESXi VM `aura@192.168.16.226`이다. 웹, 검색, OCR, 문서 관리를 맡고 G
 `systemctl --user status zzaimy.service`로 보고 자동 시작과 linger가 설정돼 있다. 로그는 `~/app.log`.
 
 환경은 `~/zzaimy-capstone/.env.local`에 있다. 스택은 python 3.12 가상환경(`.venv`)에 검색(KURE, bge,
-kiwi), OCR(MinerU, docling, tesseract), 산출물(python-hwpx, docx, pdf)이며 전부 오프라인 캐시로 돈다
+kiwi), 판독(MinerU·tesseract — docling 은 오피스 구조 읽기만, ADR-0050), 산출물(python-hwpx, docx, pdf)이며 전부 오프라인 캐시로 돈다
 (`HF_HUB_OFFLINE=1`). torch는 2.4.1로 고정한다. 최신 2.14는 torchvision의 nms 오류로 탈락했다.
 
 패키지 추가는 오프라인 절차다. 운영 서버는 pip 네트워크가 없으므로 맥에서 `.venv/bin/pip wheel
