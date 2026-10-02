@@ -19,3 +19,19 @@ def test_grant_search_lexical_with_access_filter(tmp_path, monkeypatch):
     docs = {h["doc_id"] for h in got["hits"]}
     assert a in docs and b not in docs and r not in docs          # 열람 범위·계열 분리
     assert any("근거 선택" in s for s in got["steps"])
+
+
+def test_corrupt_index_falls_back_to_previous_and_writes_are_verified(tmp_path, monkeypatch):
+    import numpy as np
+    from zzaimy.app import grant_search as gs
+    idx = tmp_path / "grant_embeddings.npz"
+    monkeypatch.setattr(gs, "INDEX", idx)
+    monkeypatch.setattr(gs, "PREV", idx.with_suffix(".prev.npz"))
+    gs._cache.update(mtime=None, ids=None, vecs=None)
+    np.savez_compressed(gs.PREV, ids=np.array([1, 2]), vectors=np.ones((2, 3), dtype=np.float32))
+    idx.write_bytes(b"PK\x03\x04 broken")                  # 깨진 색인
+    ids, vecs = gs._load()
+    assert list(ids) == [1, 2] and vecs.shape == (2, 3)
+    gs.PREV.unlink()
+    gs._cache.update(mtime=None, ids=None, vecs=None)
+    assert gs._load() == (None, None)                       # 정상본도 없으면 어휘 단독
