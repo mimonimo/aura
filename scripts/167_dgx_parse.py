@@ -72,6 +72,20 @@ def _wait_for_memory(n: int) -> None:
         waited += 15
 
 
+def _lock_dir() -> Path:
+    """잠금 파일 자리 — 공용 장비(DGX)의 /tmp 는 다른 사용자도 쓴다. 본인만 쓰는 디렉터리(700)에 둔다."""
+    d = Path(os.environ.get("ZZAIMY_LOCK_DIR") or Path.home() / ".cache" / "zzaimy-locks")
+    d.mkdir(parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
+    return d
+
+
+def _open_lock(path: Path):
+    """링크를 따라가지 않고, 내용을 지우지 않고 연다(O_NOFOLLOW, 잘라 내기 없음)."""
+    fd = os.open(str(path), os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    return os.fdopen(fd, "r+")
+
+
 def _limit_mineru() -> None:
     """MinerU(판독 모델을 프로세스마다 GPU 에 올린다)는 작업자 수와 상관없이 MINERU_SLOTS 개만 동시에."""
     import fcntl
@@ -82,7 +96,7 @@ def _limit_mineru() -> None:
     def parse(self, *a, **kw):
         while True:
             for i in range(MINERU_SLOTS):
-                fh = open(f"/tmp/zz_mineru_slot{i}.lock", "w")
+                fh = _open_lock(_lock_dir() / f"mineru_slot{i}.lock")
                 try:
                     fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except OSError:
