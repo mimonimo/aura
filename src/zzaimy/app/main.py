@@ -5617,7 +5617,7 @@ def create_app(
         return RedirectResponse("/settings", status_code=303)
 
     @app.get("/project/{project_id}", response_class=HTMLResponse)
-    def project_page(request: Request, project_id: int):
+    def project_page(request: Request, project_id: int, refq: str = ""):
         proj = db.get_project(project_id)
         if proj is None:
             raise HTTPException(404)
@@ -5665,8 +5665,42 @@ def create_app(
                 "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
                 "project_chats": db.list_project_chat_sessions(project_id),
                 "project_notes": db.list_project_notes(project_id),
+                **_project_ref_ctx(request, proj, refq),
             }),
         )
+
+    def _ref_scope(request: Request) -> dict:
+        return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
+
+    def _project_ref_ctx(request: Request, proj: dict, refq: str) -> dict:
+        """지침·기준 탭의 관련 보관 사업 — 연결된 것과 후보(검색어 또는 이름 겹침). 열람 범위의 문서만 센다(C-192)."""
+        from zzaimy.app import project_refs
+        try:
+            scope = _ref_scope(request)
+            return {"project_refs": project_refs.list_refs(db, int(proj["id"]), scope),
+                    "ref_candidates": [] if proj.get("archived") else project_refs.candidates(db, proj, refq, scope),
+                    "refq": refq}
+        except Exception:
+            logging.getLogger("zzaimy.app.web").exception("관련 보관 사업 조회 실패")
+            return {"project_refs": [], "ref_candidates": [], "refq": refq}
+
+    @app.post("/project/{project_id}/refs")
+    def project_ref_link(request: Request, project_id: int, ref_project_id: int = Form(...), reason: str = Form("")):
+        """관련 보관 사업 연결 — 참조 관계만 둔다(보관 해제·소유권 변경·문서 이동 없음)."""
+        from zzaimy.app import project_refs
+        proj, ref = db.get_project(project_id), db.get_project(ref_project_id)
+        if proj is None or ref is None or not ref.get("archived") or ref_project_id == project_id:
+            raise HTTPException(404)
+        project_refs.link(db, project_id, ref_project_id, reason, getattr(request.state, "user", "") or "")
+        return RedirectResponse(f"/project/{project_id}#paneRefs", status_code=303)
+
+    @app.post("/project/{project_id}/refs/{ref_project_id}/delete")
+    def project_ref_unlink(project_id: int, ref_project_id: int):
+        from zzaimy.app import project_refs
+        if db.get_project(project_id) is None:
+            raise HTTPException(404)
+        project_refs.unlink(db, project_id, ref_project_id)
+        return RedirectResponse(f"/project/{project_id}#paneRefs", status_code=303)
 
     @app.get("/projects/archived", response_class=HTMLResponse)
     def projects_archived(request: Request):

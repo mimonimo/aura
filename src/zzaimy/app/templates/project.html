@@ -170,6 +170,34 @@
     </div>
     <p class="project-context-help">새 문서는 대화·문서 탭의 문서 추가에서 등록할 수 있습니다. 연결을 해제해도 원본은 삭제되지 않습니다.</p>
     </section>
+    {# 관련 보관 사업(C-192) — 과거 사업 묶음을 근거 자료로 참조. 보관 해제·소유권 변경 없음. 화면 꾸밈은 아스트라 담당 #}
+    <section id="paneRefs" class="project-context-section" aria-labelledby="projectRefsHeading">
+    <div class="project-context-intro"><h2 id="projectRefsHeading">관련 보관 사업 <span class="pill">{{ project_refs|length }}</span></h2><p>과거 사업 자료를 근거로 참조합니다. 보관 상태와 원본 소속은 그대로입니다.</p></div>
+    {% for r in project_refs %}
+    <article class="project-criterion-item">
+      <iconify-icon icon="solar:archive-linear" style="color:var(--navy); flex:none;"></iconify-icon>
+      <div class="project-criterion-title"><a href="/project/{{ r.ref_project_id }}">{{ r.name }}</a><span>문서 {{ r.n_docs or 0 }}{% if r.reason %} · {{ r.reason }}{% endif %}</span></div>
+      <form action="/project/{{ project.id }}/refs/{{ r.ref_project_id }}/delete" method="post"><button type="submit" class="secondary">연결 해제</button></form>
+    </article>
+    {% endfor %}
+    {% if not project.archived %}
+    <form method="get" action="/project/{{ project.id }}#paneRefs" style="display:flex; gap:8px; margin:12px 0 8px;">
+      <input type="search" name="refq" value="{{ refq }}" placeholder="보관 사업 이름으로 찾기" style="flex:1; padding:7px 10px; border:1px solid var(--line); border-radius:8px;">
+      <button type="submit" class="secondary">찾기</button>
+    </form>
+    {% for c in ref_candidates %}
+    <article class="project-criterion-item">
+      <iconify-icon icon="solar:folder-2-linear" style="color:var(--muted); flex:none;"></iconify-icon>
+      <div class="project-criterion-title"><a href="/project/{{ c.id }}">{{ c.name }}</a><span>문서 {{ c.n_docs }} · {{ c.why }}</span></div>
+      <form action="/project/{{ project.id }}/refs" method="post">
+        <input type="hidden" name="ref_project_id" value="{{ c.id }}"><input type="hidden" name="reason" value="{{ c.why }}">
+        <button type="submit" class="secondary">참조로 연결</button></form>
+    </article>
+    {% else %}
+    <p class="muted" style="font-size:12.5px;">{% if refq %}「{{ refq }}」에 맞는 보관 사업이 없습니다.{% else %}이름이 겹치는 보관 사업이 없습니다 — 이름으로 찾아 보세요.{% endif %}</p>
+    {% endfor %}
+    {% endif %}
+    </section>
     </div>
 
   </div>
