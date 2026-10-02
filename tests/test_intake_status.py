@@ -7,8 +7,7 @@ from zzaimy.app.db import Database
 
 def test_snapshot_counts_archive_store_and_sync(tmp_path):
     db = Database(tmp_path / "t.db")
-    pid = db.create_project("grant", archive.dgx_project_label("RISE사업"), owner="zzdev")
-    a = db.add_document("a.pdf", "dgx://p/a.pdf", doc_type="grant", project_id=pid)
+    a = db.add_document("a.pdf", "dgx://p/a.pdf", doc_type="grant")
     db.update_document(a, status="reviewed", parse_note="글자층 직독 (쪽수 3) · DGX 보관(가벼운 처리: 검토 의견 없음, OCR 품질 미검사)")
     b = db.add_document("b.hwp", "/local/b.hwp", doc_type="grant")
     archive.load(db, [dict(rel="p/a.pdf", size=1, mtime=1, area="링크", program_name="RISE사업", status="auto"),

@@ -91,27 +91,42 @@ def test_archive_changed_file_uses_late_origin_link(tmp_path):
     assert archive.find(db)[0]["doc_id"] == 42
 
 
-def test_dgx_projects_follow_ledger_classification(tmp_path):
+def test_archived_program_projects_group_past_documents_and_keep_user_projects(tmp_path):
     from zzaimy.app import archive as ar
     db = Database(tmp_path / "t.db")
-    old = db.create_project("grant", ar.dgx_project_label("단계 산학연협력 선도전문대학 육성사업"), owner="zzdev")
-    mine = db.create_project("grant", "담당자 프로젝트", owner="kim")
-    did = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant", project_id=old)
-    kept = db.add_document("b.hwp", "/local/b.hwp", doc_type="grant", project_id=mine)
-    ar.load(db, [dict(rel="p/a.hwp", size=1, mtime=1, program="program:linc3", program_name="3단계 산학연협력 선도전문대학 육성사업")],
-            {"p/a.hwp": did})
-    got = ar.align_dgx_projects(db)
-    assert got == {"moved": 1, "removed_projects": 1}
-    assert db.get_project(db.get_document(did)["project_id"])["name"] == "3단계 산학연협력 선도전문대학 육성사업 (DGX 보관)"
-    assert db.get_project(old) is None and db.get_document(kept)["project_id"] == mine
-    assert ar.align_dgx_projects(db) == {"moved": 0, "removed_projects": 0}
+    mine = db.create_project("grant", "2026 ○○ 지원사업", owner="kim")                 # 담당자 프로젝트
+    old_auto = db.create_project("grant", "단계 산학연 (DGX 보관)", owner="zzdev", archived=True)
+    a = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant", project_id=old_auto)
+    b = db.add_document("b.hwp", "dgx://p/b.hwp", doc_type="grant", project_id=mine)     # 담당자가 붙인 과거 문서
+    c = db.add_document("c.hwp", "dgx://p/c.hwp", doc_type="grant")                      # 묶음 없음
+    ar.load(db, [dict(rel=f"p/{x}.hwp", size=1, mtime=1, program="program:linc30", program_name="3단계 산학연협력 선도전문대학 육성사업")
+                 for x in "abc"], {})
+    got = ar.align_archived_projects(db)
+    assert got == {"moved": 2, "removed_projects": 1}
+    pa = db.get_project(db.get_document(a)["project_id"])
+    assert pa["name"] == "3단계 산학연협력 선도전문대학 육성사업" and pa["archived"] == 1 and pa["program"] == "program:linc30"
+    assert db.get_document(c)["project_id"] == pa["id"] and db.get_document(b)["project_id"] == mine
+    assert db.get_project(old_auto) is None
+    assert [p["id"] for p in db.list_all_projects()] == [mine]                            # 사이드바에는 담당자 것만
+    assert [p["id"] for p in db.list_archived_projects()] == [pa["id"]]
+    db.set_project_archived(pa["id"], False)                                             # 불러오기
+    assert pa["id"] in [p["id"] for p in db.list_all_projects()]
+    assert ar.align_archived_projects(db) == {"moved": 0, "removed_projects": 0}
 
 
-def test_dgx_projects_follow_ledger_even_without_doc_link(tmp_path):
-    from zzaimy.app import archive as ar
-    db = Database(tmp_path / "t.db")
-    old = db.create_project("grant", ar.dgx_project_label("옛 이름"), owner="zzdev")
-    did = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant", project_id=old)
-    ar.load(db, [dict(rel="p/a.hwp", size=1, mtime=1, program_name="새 이름")], {})   # 문서 번호 연결 없음
-    assert ar.align_dgx_projects(db)["moved"] == 1
-    assert db.get_project(db.get_document(did)["project_id"])["name"] == ar.dgx_project_label("새 이름")
+def test_archive_and_unarchive_routes(tmp_path):
+    from fastapi.testclient import TestClient
+    from tests.test_accounts import _app, _login
+
+    app = _app(tmp_path)
+    db = app.state.db
+    past = db.create_project("grant", "RISE사업", owner="zzdev", archived=True, program="program:rise")
+    client = TestClient(app)
+    assert _login(client, "zzaimy", "boot-pass-1")
+    page = client.get("/projects/archived")
+    assert page.status_code == 200 and "RISE사업" in page.text
+    assert client.post(f"/project/{past}/unarchive", follow_redirects=False).status_code == 303
+    got = db.get_project(past)
+    assert got["archived"] == 0 and got["owner"] == "zzaimy"
+    assert client.post(f"/project/{past}/archive", follow_redirects=False).status_code == 303
+    assert db.get_project(past)["archived"] == 1

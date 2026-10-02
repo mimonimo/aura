@@ -18,44 +18,62 @@ _SCHEMA = (
     "CREATE INDEX IF NOT EXISTS archive_files_program ON archive_files (program)",
 )
 UPLOAD_PREFIX = "_플랫폼업로드/"
-DGX_PROJECT_SUFFIX = " (DGX 보관)"
+UNCLASSIFIED = "none"            # 사업 분류가 없는 원본의 보관 묶음 열쇠(담당자 프로젝트의 program '' 과 겹치지 않게)
 
 
-def dgx_project_label(program_name: str | None) -> str:
-    """DGX 보관 문서를 묶는 문서함 프로젝트 이름 — 원본 장부의 사업 분류를 따른다."""
-    return f"{(program_name or '사업 미분류')[:40]}{DGX_PROJECT_SUFFIX}"
+def program_project(db, program: str, name: str, cache: dict | None = None) -> int:
+    """과거 사업 묶음(보관 프로젝트) — 사업 분류 id 로 찾고, 없으면 보관 상태로 만든다.
+
+    프로젝트는 담당자가 지금 하는 사업의 작업 공간이다(사용자 2026-10-03). 동기화가 문서를 보고 묶는 과거 사업은
+    보관 상태로 두고, 담당자가 필요할 때 「보관된 사업」에서 불러온다. 이름이 아니라 사업 id 로 찾아 같은 사업이 갈라지지 않게 한다."""
+    key = program or UNCLASSIFIED
+    if cache is not None and key in cache:
+        return cache[key]
+    with db._conn() as conn:
+        row = conn.execute("SELECT id FROM projects WHERE program = ? ORDER BY id LIMIT 1", (key,)).fetchone()
+    pid = int(row[0]) if row else db.create_project("grant", name or "사업 미분류", owner="zzdev", archived=True, program=key)
+    if cache is not None:
+        cache[key] = pid
+    return pid
 
 
-def align_dgx_projects(db) -> dict:
-    """DGX 보관 문서(dgx://)의 문서함 프로젝트를 원본 장부의 현재 사업 분류에 맞춘다.
+def align_archived_projects(db) -> dict:
+    """반입·DGX 보관 문서를 원본 장부의 현재 사업 분류대로 사업별 보관 묶음에 넣는다(동기화마다).
 
-    반입할 때의 분류로 한 번 묶고 끝나면, 분류 규칙·검토 판정이 고쳐져도 문서함은 옛 이름에 남는다(2026-10-02 실측:
-    「단계 산학연협력 …」 4,755건). 동기화마다 맞추고, 문서가 다 빠진 「(DGX 보관)」 프로젝트는 지운다(문서는 그대로)."""
+    옮기는 문서는 프로젝트가 없거나 보관된 자동 묶음(owner zzdev, archived)에 있는 것만 — 담당자 프로젝트와
+    불러온(보관 해제한) 묶음의 문서는 건드리지 않는다. 문서가 다 빠진 자동 묶음은 메모·기준·대화가 없을 때만 지운다."""
     ensure(db)
     with db._conn() as conn:
-        # 경로로 잇는다 — 장부의 문서 번호 연결은 잠금 시간 초과로 미뤄질 수 있다(168). dgx://<rel> 의 rel 이 장부 열쇠
         rows = conn.execute(
-            "SELECT d.id, d.project_id, a.program_name FROM documents d JOIN archive_files a ON a.rel = SUBSTR(d.stored_path, 7)"
+            "SELECT d.id, d.project_id, a.program, a.program_name FROM documents d"
+            " JOIN archive_files a ON a.rel = SUBSTR(d.stored_path, 7)"
             " WHERE d.stored_path LIKE 'dgx://%' AND a.removed_at = ''").fetchall()
-        projs = conn.execute("SELECT id, name FROM projects WHERE sector = 'grant'").fetchall()
-    by_name = {str(r[1]): int(r[0]) for r in projs}
-    name_of = {int(r[0]): str(r[1]) for r in projs}
+        rows += conn.execute(
+            "SELECT d.id, d.project_id, a.program, a.program_name FROM documents d"
+            " JOIN archive_files a ON a.doc_id = d.id"
+            " WHERE d.stored_path NOT LIKE 'dgx://%' AND a.removed_at = ''").fetchall()
+        auto = {int(r[0]): str(r[1] or "") for r in conn.execute(
+            "SELECT id, program FROM projects WHERE archived = 1 AND owner = 'zzdev'").fetchall()}
+    cache: dict = {}
     moves: dict[int, list[int]] = {}
-    for did, pid, prog in rows:
-        want = dgx_project_label(prog)
-        if name_of.get(int(pid or 0)) == want:
-            continue
-        if want not in by_name:
-            by_name[want] = db.create_project("grant", want, owner="zzdev")
-        moves.setdefault(by_name[want], []).append(int(did))
+    for did, pid, prog, pname in rows:
+        pid = int(pid) if pid is not None else None
+        if pid is not None and pid not in auto:
+            continue                                   # 담당자·불러온 프로젝트의 문서
+        want = program_project(db, prog or "", pname or "", cache)
+        if pid != want:
+            moves.setdefault(want, []).append(int(did))
     with db._conn() as conn:
         for pid, ids in moves.items():
             for i in range(0, len(ids), 500):
                 part = ids[i:i + 500]
                 conn.execute(f"UPDATE documents SET project_id = ? WHERE id IN ({','.join('?' * len(part))})", (pid, *part))
         empty = [int(r[0]) for r in conn.execute(
-            "SELECT p.id FROM projects p WHERE p.name LIKE ? AND p.owner = 'zzdev'"
-            " AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.project_id = p.id)", (f"%{DGX_PROJECT_SUFFIX}",)).fetchall()]
+            "SELECT p.id FROM projects p WHERE p.archived = 1 AND p.owner = 'zzdev'"
+            " AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.project_id = p.id)"
+            " AND NOT EXISTS (SELECT 1 FROM project_notes n WHERE n.project_id = p.id)"
+            " AND NOT EXISTS (SELECT 1 FROM project_criteria k WHERE k.project_id = p.id)"
+            " AND NOT EXISTS (SELECT 1 FROM chat_sessions c WHERE c.project_id = p.id)").fetchall()]
     for pid in empty:
         db.delete_project(pid)
     return {"moved": sum(len(v) for v in moves.values()), "removed_projects": len(empty)}

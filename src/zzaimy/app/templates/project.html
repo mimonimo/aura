@@ -283,6 +283,15 @@
           <button type="submit">저장</button>
         </div>
       </form>
+      {% if project.archived %}
+      <form action="/project/{{ project.id }}/unarchive" method="post" style="margin-top:14px;">
+        <button type="submit" class="secondary">불러오기 — 내 프로젝트 목록에 띄우기</button>
+      </form>
+      {% else %}
+      <form action="/project/{{ project.id }}/archive" method="post" style="margin-top:14px;">
+        <button type="submit" class="secondary">보관 — 목록에서 빼고 「보관된 사업」으로</button>
+      </form>
+      {% endif %}
       <form action="/projects/{{ project.id }}/delete" method="post" style="margin-top:14px;"
             onsubmit="return confirm('프로젝트를 삭제할까요? 소속 문서는 남고 연결만 해제됩니다.');">
         <button type="submit" class="secondary"

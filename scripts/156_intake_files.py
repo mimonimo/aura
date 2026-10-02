@@ -60,6 +60,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("files", nargs="+")
     ap.add_argument("--project", required=True, help="묶을 프로젝트 이름(없으면 만든다)")
+    ap.add_argument("--program", default="", help="과거 사업 묶음의 사업 분류 id — 주면 이름이 아니라 이 id 로 묶음을 찾는다")
+    ap.add_argument("--archived", action="store_true", help="묶음을 보관 상태로(사이드바에 띄우지 않음, 「보관된 사업」에서 불러온다)")
     ap.add_argument("--sector", default="grant")
     ap.add_argument("--doc-type", default="grant")
     ap.add_argument("--owner", default="zzaimy")
@@ -87,8 +89,13 @@ def main() -> int:
     if not args.apply:
         print("미리 보기입니다 — --apply 로 실행")
         return 0
-    proj = next((p for p in db.list_projects(args.sector) if p["name"] == args.project), None) if hasattr(db, "list_projects") else None
-    project_id = int(proj["id"]) if proj else db.create_project(args.sector, args.project, owner=args.owner)
+    if args.program:
+        from zzaimy.app import archive as _archive
+        project_id = _archive.program_project(db, args.program, args.project)
+    else:
+        proj = next((p for p in db.list_projects(args.sector) if p["name"] == args.project), None)
+        project_id = int(proj["id"]) if proj else db.create_project(args.sector, args.project, owner=args.owner,
+                                                                    archived=args.archived)
     print(f"프로젝트 #{project_id} 「{args.project}」")
     todo = [f for f, dup in plan if dup is None]
     running, ok, fail, t0 = [], 0, 0, time.time()
