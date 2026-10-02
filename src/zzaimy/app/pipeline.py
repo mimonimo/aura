@@ -90,6 +90,8 @@ def _vision_model_name() -> str:
 
 def _vision_available() -> bool:
     """비전 모델이 따로 지정돼 있는가. 없으면 이미지 판독을 아예 건너뛴다."""
+    if os.environ.get("ZZAIMY_NO_VISION"):        # 대량 가벼운 처리(DGX 원본 보관소) — 토르 비전 서버를 부르지 않는다
+        return False
     if _vision_off():
         return False
     try:
@@ -2598,7 +2600,12 @@ class DocumentProcessor:
             review_input += _guidance_block(db, project)
             # 검토 의견(LLM) 생성만 개별 처리 — 생성 서버 미연결이어도 파싱·마스킹·
             # 색인·분류는 이미 끝났으므로 문서를 '실패'로 버리지 않고 부분 성공으로 저장.
-            ai_review = self._review_with_retry(doc_id, review_input, doc_type)
+            # 가벼운 처리(ZZAIMY_LIGHT_PROCESS=1) — DGX 원본 보관소 전체를 파싱·조각까지만(검토 의견 LLM 은 건너뜀). 5만 건에 문서마다
+            # 27B 를 부르면 몇 주가 걸린다. 검토 의견은 문서함에서 필요할 때 다시 만든다(사용자 2026-10-02: 원본 전체의 분석 자료를 VM 에)
+            if os.environ.get("ZZAIMY_LIGHT_PROCESS"):
+                ai_review = ""
+            else:
+                ai_review = self._review_with_retry(doc_id, review_input, doc_type)
 
             db.update_document(
                 doc_id,
