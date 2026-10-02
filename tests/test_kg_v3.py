@@ -463,3 +463,15 @@ def test_rename_needs_explicit_marker_in_file_name():
     cards = programs.build_cards(docs)
     linc_plus = [c for c in cards if "LINC+" in c.acrs]
     assert linc_plus and not any(a.replace(" ", "") == "LINC3.0" for a in linc_plus[0].acrs)
+
+
+def test_aspect_match_links_report_aspect_to_plan_chapter():
+    from zzaimy.graph import sections
+
+    chunks = []
+    for i, t in enumerate(["Ⅰ. 과제 배경 및 목표", "Ⅲ. 세부과제 추진 내용", "Ⅳ. 성과지표 관리 계획", "Ⅴ. 예산 운용"]):
+        chunks += [{"seq": 2 * i, "kind": "heading", "content": t}, {"seq": 2 * i + 1, "kind": "text", "content": "본문이다."}]
+    tree = sections.build(chunks)
+    assert sections.aspect_match(tree, "과제2-1 예산 집행 실적")[0].title == "Ⅴ. 예산 운용"
+    assert sections.aspect_match(tree, "[과제2-1] 성과지표 달성 실적")[0].title == "Ⅳ. 성과지표 관리 계획"
+    assert sections.aspect_match(tree, "[과제 2-1] 우수사례")[0] is None
