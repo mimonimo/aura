@@ -470,7 +470,11 @@ def align_content(a: list[Section], b: list[Section], text_of, skip_b_paths: set
             cur = by_b.get(cur.parent)
         return False
     fa, fb = full(a), full(b)
-    wa = {id(x): _words(t) for x in a if len(t := fa[id(x)]) >= min_chars}
+    # 문서 전체를 품는 큰 절(요약표·표지 묶음·장 하나에 다 든 꼴)은 낱말이 많아 늘 이긴다 — 하위 절까지 합친 본문이 문서 전체의
+    # 30% 를 넘는 절은 후보에서 뺀다(LINC+ 판정: 「【…사업수행계획서】」 요약 절 ↔ 「Ⅱ. 추진경과」)
+    total_a = sum(len(text_of(x) or "") for x in a) or 1
+    own_full = {id(x): sum(len(text_of(y) or "") for y in a if y.path == x.path or y.path.startswith(x.path + ".")) for x in a}
+    wa = {id(x): _words(t) for x in a if len(t := fa[id(x)]) >= min_chars and own_full[id(x)] <= 0.3 * total_a}
     leaf_b = [y for y in b if y.path not in skip_b_paths and not under_skip(y)
               and len(text_of(y) or "") >= min_chars and not any(z.parent == y.path for z in b)]
     wb = {id(y): _words(text_of(y) or "") for y in leaf_b}
