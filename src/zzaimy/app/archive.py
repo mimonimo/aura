@@ -21,12 +21,27 @@ UPLOAD_PREFIX = "_플랫폼업로드/"
 UNCLASSIFIED = "none"            # 사업 분류가 없는 원본의 보관 묶음 열쇠(담당자 프로젝트의 program '' 과 겹치지 않게)
 
 
-def program_project(db, program: str, name: str, cache: dict | None = None) -> int:
-    """과거 사업 묶음(보관 프로젝트) — 사업 분류 id 로 찾고, 없으면 보관 상태로 만든다.
+def bundle_key(program: str, year=None, round_=None) -> tuple[str, str]:
+    """(묶음 열쇠, 이름 틀) — 사업 × 수행 연도(없으면 연차). 둘 다 모르면 「연도 미상」으로 두고 추정해 확정하지 않는다(C-192).
+    연도·연차 근거는 원본 장부(경로·파일 이름 규칙)라 표지의 수행 연도와 다를 수 있다 — 그래프(157)의 연차 학습과 대조 검수 대상."""
+    prog = program or UNCLASSIFIED
+    y, r = str(year or "").strip(), str(round_ or "").strip()
+    if y and r:
+        return f"{prog}|{y}", f"{y}년 {{name}} ({r}차년도)"
+    if y:
+        return f"{prog}|{y}", f"{y}년 {{name}}"
+    if r:
+        return f"{prog}|r{r}", f"{{name}} {r}차년도"
+    return f"{prog}|?", "{name} (연도 미상)"
 
-    프로젝트는 담당자가 지금 하는 사업의 작업 공간이다(사용자 2026-10-03). 동기화가 문서를 보고 묶는 과거 사업은
-    보관 상태로 두고, 담당자가 필요할 때 「보관된 사업」에서 불러온다. 이름이 아니라 사업 id 로 찾아 같은 사업이 갈라지지 않게 한다."""
-    key = program or UNCLASSIFIED
+
+def program_project(db, program: str, name: str, cache: dict | None = None, year=None, round_=None) -> int:
+    """과거 사업 묶음(보관 프로젝트) — 사업 × 연도 열쇠로 찾고, 없으면 보관 상태로 만든다.
+
+    프로젝트는 담당자가 지금 하는 사업(예: 「2026년 ○○ 지원사업」)의 작업 공간이다(사용자 2026-10-03). 동기화가 문서를 보고 묶는
+    과거 사업은 연도별 보관 묶음으로 두고, 담당자가 「보관된 사업」에서 불러오거나 지침·기준 탭에서 참조한다.
+    이름이 아니라 사업 id·연도로 찾아 같은 사업이 갈라지지 않게 한다."""
+    key, title = bundle_key(program, year, round_)
     if cache is not None and key in cache:
         return cache[key]
     with db._conn() as conn:
@@ -35,25 +50,25 @@ def program_project(db, program: str, name: str, cache: dict | None = None) -> i
             " AND owner = 'zzdev' AND archive_source = 'dgx' ORDER BY id LIMIT 1", (key,)
         ).fetchone()
     pid = int(row[0]) if row else db.create_project(
-        "grant", name or "사업 미분류", owner="zzdev", archived=True, program=key, archive_source="dgx")
+        "grant", title.format(name=name or "사업 미분류"), owner="zzdev", archived=True, program=key, archive_source="dgx")
     if cache is not None:
         cache[key] = pid
     return pid
 
 
 def align_archived_projects(db) -> dict:
-    """반입·DGX 보관 문서를 원본 장부의 현재 사업 분류대로 사업별 보관 묶음에 넣는다(동기화마다).
+    """반입·DGX 보관 문서를 원본 장부의 현재 사업 분류·연도대로 연도별 보관 묶음에 넣는다(동기화마다).
 
     옮기는 문서는 프로젝트가 없거나 출처가 확인된 보관 자동 묶음(archive_source=dgx)에 있는 것만 — 담당자 프로젝트와
     불러온(보관 해제한) 묶음의 문서는 건드리지 않는다. 문서가 다 빠진 자동 묶음은 메모·기준·대화가 없을 때만 지운다."""
     ensure(db)
     with db._conn() as conn:
         rows = conn.execute(
-            "SELECT d.id, d.project_id, a.program, a.program_name FROM documents d"
+            "SELECT d.id, d.project_id, a.program, a.program_name, a.year, a.round FROM documents d"
             " JOIN archive_files a ON a.rel = SUBSTR(d.stored_path, 7)"
             " WHERE d.stored_path LIKE 'dgx://%' AND a.removed_at = ''").fetchall()
         rows += conn.execute(
-            "SELECT d.id, d.project_id, a.program, a.program_name FROM documents d"
+            "SELECT d.id, d.project_id, a.program, a.program_name, a.year, a.round FROM documents d"
             " JOIN archive_files a ON a.doc_id = d.id"
             " WHERE d.stored_path NOT LIKE 'dgx://%' AND a.removed_at = ''").fetchall()
         auto = {int(r[0]): str(r[1] or "") for r in conn.execute(
@@ -61,11 +76,11 @@ def align_archived_projects(db) -> dict:
             " AND archive_source = 'dgx'").fetchall()}
     cache: dict = {}
     moves: dict[int, list[int]] = {}
-    for did, pid, prog, pname in rows:
+    for did, pid, prog, pname, year, rnd in rows:
         pid = int(pid) if pid is not None else None
         if pid is not None and pid not in auto:
             continue                                   # 담당자·불러온 프로젝트의 문서
-        want = program_project(db, prog or "", pname or "", cache)
+        want = program_project(db, prog or "", pname or "", cache, year, rnd)
         if pid != want:
             moves.setdefault(want, []).append(int(did))
     with db._conn() as conn:

@@ -90,8 +90,7 @@ def main() -> int:
         print("미리 보기입니다 — --apply 로 실행")
         return 0
     if args.program:
-        from zzaimy.app import archive as _archive
-        project_id = _archive.program_project(db, args.program, args.project)
+        project_id = None      # 과거 사업 자료 — 연도별 보관 묶음은 같은 동기화의 맞춤 단계(archive.align_archived_projects)가 장부 연도로 정한다
     else:
         proj = next((p for p in db.list_projects(args.sector) if p["name"] == args.project), None)
         project_id = int(proj["id"]) if proj else db.create_project(args.sector, args.project, owner=args.owner,
