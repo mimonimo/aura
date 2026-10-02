@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}DGX 원본 보관소{% endblock %}
+{% block pagetitle %}DGX 원본 보관소{% endblock %}
+{% block content %}
+<style>
+  .ar-grid { width:100%; border-collapse:collapse; font-size:13px; }
+  .ar-grid th, .ar-grid td { padding:7px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  .ar-grid th { font-size:12px; color:var(--muted); font-weight:600; }
+  .ar-grid td.num { text-align:right; white-space:nowrap; }
+  .ar-kinds { color:var(--muted); font-size:12px; }
+  .ar-form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0 0 10px; }
+  .ar-form input, .ar-form select { padding:6px 8px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+</style>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:server-square-linear"></iconify-icon>원본 {{ "{:,}".format(total) }}건 · {{ gb }}GB</h2>
+  <p class="muted" style="margin:0; font-size:12.5px;">원본은 DGX 에 두고 목록·분류만 여기서 본다. 문서함에 들인 것 {{ "{:,}".format(in_store) }}건 — 그 문서는 문서 화면으로 이어진다.</p>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>사업별</h2>
+  <div class="table-scroll"><table class="ar-grid">
+    <tr><th>사업</th><th>갈래</th><th class="num">원본</th><th class="num">문서함</th><th></th></tr>
+    {% for p in programs %}
+    <tr><td>{% if p.program %}<a href="/graph/program?id={{ p.program }}">{{ p.name }}</a>{% else %}{{ p.name }}{% endif %}</td>
+      <td class="ar-kinds">{% for k, n in p.kinds %}{{ k }} {{ n }}{{ ' · ' if not loop.last }}{% endfor %}</td>
+      <td class="num">{{ "{:,}".format(p.files) }}</td><td class="num">{{ "{:,}".format(p.in_store) }}</td>
+      <td><a href="/archive?program={{ p.program }}">원본 보기</a></td></tr>
+    {% endfor %}
+  </table></div>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:magnifer-linear"></iconify-icon>원본 찾기</h2>
+  <form class="ar-form" method="get" action="/archive">
+    <select name="program"><option value="">모든 사업</option>
+      {% for p in programs %}<option value="{{ p.program }}" {{ 'selected' if p.program == program }}>{{ p.name }}</option>{% endfor %}</select>
+    <select name="kind"><option value="">모든 갈래</option>
+      {% for k, label in kind_ko.items() if k %}<option value="{{ k }}" {{ 'selected' if k == kind }}>{{ label }}</option>{% endfor %}</select>
+    <input name="q" value="{{ q }}" placeholder="경로·파일 이름">
+    <button class="btn">찾기</button>
+  </form>
+  {% if found %}
+  <div class="table-scroll"><table class="ar-grid">
+    <tr><th>원본 경로</th><th>사업</th><th>갈래</th><th>연차</th><th class="num">크기</th><th></th></tr>
+    {% for f in found %}
+    <tr><td style="word-break:break-all;">{{ f.rel }}</td><td>{{ f.program_name or '' }}</td><td>{{ f.kind_label }}</td>
+      <td>{{ (f.round ~ '차년도') if f.round else (f.year or '') }}</td><td class="num">{{ "{:,.1f}".format((f.size or 0) / 1e6) }}MB</td>
+      <td>{% if f.doc_id %}<a href="/doc/{{ f.doc_id }}">문서함</a>{% endif %}</td></tr>
+    {% endfor %}
+  </table></div>
+  {% elif program or kind or q %}<p class="muted" style="margin:0;">찾은 원본이 없습니다.</p>{% endif %}
+</div></div>
+{% endblock %}
