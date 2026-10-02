@@ -69,13 +69,27 @@ def _load():
         return _cache["ids"], _cache["vecs"]
 
 
-def _encode(texts: list[str]):
+def _encode(texts: list[str], timeout: float | None = None):
     """토르의 임베딩 서비스(Embed v2, 규정 계열·질의와 같은 모델). 없으면 예외 — 부르는 쪽이 어휘 단독으로 간다."""
     from zzaimy.app.embed_search import remote_vectors
-    v = remote_vectors(texts)
+    v = remote_vectors(texts, timeout=timeout)
     if v is None:
         raise RuntimeError("임베딩 서비스 없음")
     return v
+
+
+BATCH_TIMEOUT = 90.0   # 묶음 색인 — 토르가 검토·판독으로 바쁘면 64조각에 8초(질의 기본)를 넘긴다(2026-10-02 실측)
+
+
+def _encode_batch(texts: list[str]):
+    """묶음 임베딩 — 실패하면 반으로 나눠 다시. 한 조각만 남아도 실패하면 그 자리는 None(색인에서 빼고 다음 회차에 다시)."""
+    try:
+        return list(_encode(texts, timeout=BATCH_TIMEOUT))
+    except RuntimeError:
+        if len(texts) == 1:
+            return [None]
+        mid = len(texts) // 2
+        return _encode_batch(texts[:mid]) + _encode_batch(texts[mid:])
 
 
 def dense_ids(question: str, allowed: set[int], top_k: int = TOP_K) -> list[int]:
@@ -171,12 +185,20 @@ def build_increment(db, batch: int = 64, limit: int = 20000) -> dict:
     out_ids = ids[keep_mask] if keep_mask is not None else np.zeros((0,), dtype=np.int64)
     out_vecs = vecs[keep_mask] if keep_mask is not None else None
     added = 0
+    failed = 0
     for i in range(0, len(new), batch):
         part = new[i:i + batch]
-        v = np.asarray(_encode([f"{c['filename']}\n{c['content'][:1200]}" for c in part]), dtype=np.float32)
-        out_ids = np.concatenate([out_ids, np.array([c["id"] for c in part], dtype=np.int64)])
+        got = _encode_batch([f"{c['filename']}\n{c['content'][:1200]}" for c in part])
+        keep = [(c, v) for c, v in zip(part, got) if v is not None]
+        failed += len(part) - len(keep)
+        if not keep:
+            if failed >= batch * 3:
+                raise RuntimeError("임베딩 서비스 없음")   # 서비스가 아예 안 되면 이번 회차는 여기까지
+            continue
+        v = np.asarray([x for _c, x in keep], dtype=np.float32)
+        out_ids = np.concatenate([out_ids, np.array([c["id"] for c, _x in keep], dtype=np.int64)])
         out_vecs = v if out_vecs is None else np.vstack([out_vecs, v])
-        added += len(part)
+        added += len(keep)
     removed = (len(ids) - int(keep_mask.sum())) if keep_mask is not None else 0
     if added or removed:
         INDEX.parent.mkdir(parents=True, exist_ok=True)
