@@ -148,8 +148,8 @@ def import_parsed() -> None:
     print("DGX 처리 결과:", last, flush=True)
     if out.returncode != 0:
         print(out.stderr.decode("utf-8", "replace")[-400:], flush=True)
-    m = re.match(r"들임 (\d+)", last)
-    if m and int(m.group(1)):
+    m = re.match(r"들임 (\d+) · 새 판 갱신 (\d+)", last) or re.match(r"들임 (\d+)()", last)
+    if m and (int(m.group(1)) or int(m.group(2) or 0)):
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
 
 
