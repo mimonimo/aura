@@ -135,7 +135,7 @@ def main() -> int:
     ap.add_argument("--docs", type=int, default=24)
     ap.add_argument("--pages", type=int, default=3)
     ap.add_argument("--seed", type=int, default=171)
-    ap.add_argument("--engines", default="mineru,docling")
+    ap.add_argument("--engines", default="mineru", help="mineru·vision(·docling 은 비교용, ADR-0050 으로 판독에서 뺌)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     root = Path(args.root).expanduser()

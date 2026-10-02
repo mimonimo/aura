@@ -177,7 +177,7 @@ for 섹션 in 목차:
   임베딩·리랭커 서비스(:8016·:8015). 초기 검증(DGX Spark, ADR-0004)은 지금 쓰지 않는다. ADR-0023
 - 학습: LLaMA-Factory + sentence-transformers, `.venv-train` 분리 (ADR-0001). 현황: DGX 전용,
   검색 모델은 토르 03 GPU 로 학습했다(2에폭 20분)
-- 파싱: `.venv`: MinerU(+ docling·tesseract 폴백), 글자층 직독, Writer 이미지 판독 (ADR-0007·0016)
+- 파싱: `.venv`: 글자층 직독, MinerU(스캔 PDF 구조·OCR), Writer 이미지 판독, tesseract(사진 마지막 폴백), 한글은 kordoc, 오피스 구조는 docling (ADR-0007·0016·0033·0050)
 - 배치 병렬: 문서 단위 분할. 현황: 반입은 두 건씩(파싱은 VM CPU, 검토는 토르 03)
 
 ## 9. 에이전트 계층과 검수 대시보드 — 상태: 제안 (ADR-0002)

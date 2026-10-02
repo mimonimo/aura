@@ -396,42 +396,37 @@ class DocumentProcessor:
                 return ocr_text
             raise RuntimeError("문서 판독 실패 (스캔 PDF — MinerU 판독 없음)")
 
-        # 이미지·오피스 문서는 docling이 처리(오피스는 파일 구조를 읽는다 — OCR 아님)
-        from zzaimy.ingest.parsers.docling import DoclingParser
-
         is_image = suffix in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp")
-        if is_image and not _vision_available():
-            # 판독 모델이 없으면 docling(한국어 OCR 약함) 대신 MinerU OCR → tesseract 순
+        if is_image:
+            # 사진·스크린샷: 판독 모델 → MinerU OCR → tesseract. docling 은 판독에 쓰지 않는다(ADR-0050).
+            if _vision_available():
+                # 사진·게시물은 갈래와 무관하게 판독 모델이 먼저 읽는다. 문자 인식(MinerU·tesseract)은 홍보물 글자를
+                # 깨뜨린다(실측 2026-09-23: '위크숍 맞출혐'). 판독이 비면 아래 문자 인식으로 물러난다.
+                area = self._crop_document_region(file_path)
+                md = self._vlm_transcribe(area or file_path)
+                if md:
+                    self._ocr_used = True
+                    self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
+                    self._last_md = [(1, md)]
+                    return self._md_to_text(md)
             ocr_text = self._parse_mineru(file_path, method="ocr")
             if ocr_text and ocr_text.strip():
                 return ocr_text
-        if is_image and _vision_available():
-            # 사진·게시물은 갈래와 무관하게 판독 모델이 먼저 읽는다. 문자 인식(MinerU·tesseract)은 홍보물 글자를
-            # 깨뜨린다(실측 2026-09-23: '위크숍 맞출혐'). 판독이 비면 아래 경로로 물러난다.
-            area = self._crop_document_region(file_path)
-            md = self._vlm_transcribe(area or file_path)
-            if md:
-                self._ocr_used = True
-                self._last_parse_note = f"AI 비전 판독 ({_vision_model_name()})"
-                self._last_md = [(1, md)]
-                return self._md_to_text(md)
+            text = self._ocr_whole_image(file_path)
+            if text:
+                return text
+            raise RuntimeError("문서 판독 실패 (사진 — 판독 결과 없음)")
+
+        # 오피스 문서(docx·xlsx·pptx 등)는 docling 으로 파일 구조를 읽는다 — OCR 이 아니다.
+        # kordoc(한글·오피스 자체 파서) 대조 뒤 다시 정한다(ADR-0050).
+        from zzaimy.ingest.parsers.docling import DoclingParser
+
         try:
             parsed = DoclingParser().parse(file_path)
         except Exception as e:
-            # 이미지 한 장은 docling 레이아웃 모델이 없어도(오프라인 VM 실측: HF 캐시 없음)
-            # tesseract(CPU)로 글자를 읽어 처리한다 — 사진·스크린샷 접수가 실패로 끝나지 않게
-            if is_image:
-                text = self._ocr_whole_image(file_path)
-                if text:
-                    return text
             raise RuntimeError(f"문서 판독 실패 ({type(e).__name__})") from e
         self._last_result = parsed
         text = self._result_to_text(parsed)
-        if is_image and len(text.strip()) < 20:
-            # docling이 그림에서 글자를 못 읽은 경우(레이아웃만 있고 OCR 없음)도 같은 폴백
-            ocr = self._ocr_whole_image(file_path)
-            if ocr:
-                return ocr
 
         # 스캔 문서 감지 — 페이지당 텍스트가 빈약하면 MinerU OCR로 재파싱한다.
         # MinerU(오픈소스, PaddleOCR 계열)는 표를 구조로, 그림을 파일로 뽑아준다
