@@ -116,6 +116,16 @@ rsync). 학습 전에는 Ollama 모델을 내린다: `curl -s localhost:11434/ap
 --base ~/zzaimy/models/Qwen3.8-27B --smoke`(합성 4쌍 2스텝, 9월 22일 통과: 최고 메모리 52.7GB, 모델은 전부 GPU 에
 올린다 — device_map auto 는 층을 meta 로 내려 역전파가 실패했다). 도커는 aura 계정이 docker 그룹이라 쓸 수 있다.
 
+원본 보관소와 VM 갱신(2026-10-02): 원본은 DGX `~/data`(rclone 으로 계속 들어온다, 10/2 기준 125,012건·789GB). VM 이 읽기 전용으로만
+본다 — DGX aura 의 `authorized_keys` 에 VM 전용 키(`vm-dgx-readonly`, VM `~/.ssh/id_ed25519_dgx_ro`)를
+`command="/usr/bin/rrsync -ro /home/aura/data",restrict` 로 등록(명령 실행·쓰기 거절 확인). 되돌리기는 그 줄 삭제.
+VM cron(aura, 6시간마다 17분) `scripts/zz_sync.sh` → `scripts/170_vm_sync.py`: rsync 목록 → 원본 목록 장부(`archive_files`, 화면 `/archive`,
+문서함 맨 위 바로가기) → 사업 분류·뼈대 고르기(161 규칙) → 새 뼈대만 받아 `164`(사업별 반입, 분석은 토르 02 로 `ZZAIMY_ROLE_CONN`,
+그래프 `157 --full`, 사업별 공통 양식 `162` + docx). 기록 `/tmp/zz_sync.log`, 겹침 방지 `flock /tmp/zz_sync.lock`.
+원본 전체의 가벼운 처리(글·조각, 검토 의견 없음)는 DGX `.venv-parse`(파싱 전용 가상환경)에서 `scripts/167` → VM `scripts/168`('DGX 보관 문서',
+stored_path `dgx://`). 사업 체계(일반재정지원·앵커·특수목적, 앵커 편입 연도)는 외부 검색으로 확인한 장부 VM `data/platform/kg_external.json`
+(출처 필수)로 그래프에 들어간다. 사업별 공통 양식은 드라이브 「ZZAIMY/사업별 공통 양식」(security02@ync.ac.kr, `scripts/169`).
+
 ### 토르 03의 상시 서비스
 
 9월 20일에 올렸고 `--restart unless-stopped`와 도커 부팅 시작이 걸려 있다.
