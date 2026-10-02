@@ -47,7 +47,9 @@ def test_answer_displays_only_sources_sent_to_model(monkeypatch):
     monkeypatch.setattr(client, "VllmClient", lambda **kwargs: fake)
     monkeypatch.setattr(responder, "rank_criteria_chunks", lambda *args: chunks)
     agent = responder.AgentResponder()
-    agent.answer(db, "참여 목표는?", criteria_ids=[1, 2])
+    progress = []
+    agent.answer(db, "참여 목표는?", criteria_ids=[1, 2], on_progress=progress.append)
+    assert progress == ["관련 근거 검색 중", "답변에 사용할 근거 1개 구성", "답변 작성 중"]
     assert [h["doc_id"] for h in agent.last_sources] == [2]
     assert "참여 목표 120명" in calls[0]["messages"][-1]["content"]
     assert "제외할 근거" not in calls[0]["messages"][-1]["content"]

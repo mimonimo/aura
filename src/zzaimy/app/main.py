@@ -372,6 +372,14 @@ def create_app(
     chat_history.topics = chat_topics
     install_chat_history(app, chat_history)
     _chat_running: set[int] = set()
+    _chat_progress: dict[int, dict] = {}
+
+    def _chat_step(session_id: int, label: str):
+        progress = _chat_progress.get(session_id)
+        if progress is not None:
+            steps = progress["steps"]
+            if not steps or steps[-1] != label:
+                progress["steps"] = (steps + [label])[-12:]
     # 화면에서 고른 모델 서버 주소·모델을 프로세스 전체에 적용 (설정 > 환경변수)
     from zzaimy.generate import model_config as _mc
 
@@ -719,7 +727,8 @@ def create_app(
     def chat_status(request: Request, session_id: int):
         _owned_chat(request, session_id)
         messages = db.list_chats(session_id)
-        return {"waiting": session_id in _chat_running or (bool(messages) and messages[-1]["role"] == "user")}
+        return {"waiting": session_id in _chat_running or (bool(messages) and messages[-1]["role"] == "user"),
+                "progress": _chat_progress.get(session_id)}
 
     # 세션별 최근 검색 근거(연관 자료) — 채팅 사이드바에 노출한다.
     _chat_sources: dict[int, list] = {}
@@ -730,6 +739,7 @@ def create_app(
     ) -> None:
         # 모델 지식 모드(2026-09-29): 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 머리에 붙인다
         if web == "model":
+            _chat_step(session_id, "모델 지식으로 답변 작성 중")
             from zzaimy.app import web_search
 
             try:
@@ -740,6 +750,7 @@ def create_app(
             return
         # 외부 검색 모드(2026-09-29): 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
         if web:
+            _chat_step(session_id, "웹 검색과 답변 작성 중")
             from zzaimy.app import web_search
 
             try:
@@ -754,6 +765,7 @@ def create_app(
         # 전송 직후 화면을 돌려주기 위해 무거운 단계(첨부 파싱·LLM)는 백그라운드에서
         attachment_text = None
         if stored is not None:
+            _chat_step(session_id, "첨부 문서 읽는 중")
             try:
                 attachment_text = processor.extract_text(stored)
             except Exception as e:
@@ -764,6 +776,7 @@ def create_app(
         r = responder or _default_responder()
         # 프로젝트에 묶인 세션이면 지침·메모를 맥락으로, 연결 기준을 기본 근거로 쓴다
         session = db.get_chat_session(session_id)
+        _chat_step(session_id, "대화·프로젝트 맥락 확인 중")
         project = None
         if session and session.get("project_id"):
             project = db.get_project(int(session["project_id"]))
@@ -782,6 +795,7 @@ def create_app(
         try:
             from zzaimy.app import chat_documents
 
+            _chat_step(session_id, "연결 문서 확인 중")
             doc_material = chat_documents.material(db, session_id, owner)
         except HTTPException:
             doc_material = ""                      # 이 계정의 대화가 아니면 연결을 쓰지 않는다
@@ -845,6 +859,7 @@ def create_app(
                 _chat_sources[session_id] = []
                 return
         if doc_material:
+            _chat_step(session_id, "연결 문서 작업 중")
             _edit_linked_doc(session_id, q, owner, data_dir, scope, scope_msg)
             return
         try:
@@ -854,6 +869,9 @@ def create_app(
                       session_id=session_id, project=project)
             if "scope" in _insp.signature(r.answer).parameters:
                 kw["scope"] = scope
+            if "on_progress" in _insp.signature(r.answer).parameters:
+                kw["on_progress"] = lambda label: _chat_step(session_id, label)
+            _chat_step(session_id, "답변 준비 중")
             answer = r.answer(db, q, **kw)
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
@@ -1514,8 +1532,12 @@ def create_app(
             _answer_task_impl(session_id, q, stored, criteria, web)
         finally:
             _chat_running.discard(session_id)
+            _chat_progress.pop(session_id, None)
 
     def _schedule_answer(background, session_id, q, stored, criteria, web=""):
+        import time
+
+        _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"]}
         _chat_running.add(session_id)
         background.add_task(_answer_task, session_id, q, stored, criteria, web)
 

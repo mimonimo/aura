@@ -136,3 +136,10 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 .msg .chat-output-link{display:inline-flex;align-items:center;padding:0 5px;border-radius:4px;background:#edf2fa;color:#254b85;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;vertical-align:baseline}
 .msg .chat-output-link:hover{background:#dfe9f8}
 .msg .chat-output-link:focus-visible{outline:2px solid #254b85;outline-offset:2px}
+.chat-progress { color: var(--muted); font-size: 13px; padding: 10px 0; }
+.chat-progress-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chat-progress-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--navy); flex: none; }
+.chat-progress [data-progress-time] { font-size: 12px; color: var(--faint); }
+.chat-progress [data-progress-toggle] { padding: 3px 7px; min-height: 0; border: 0; background: transparent; box-shadow: none; color: var(--navy); font: inherit; font-size: 12px; }
+.chat-progress ol { margin: 10px 0 0 17px; padding: 8px 16px 8px 25px; border-left: 2px solid var(--line); line-height: 1.9; overflow-wrap: anywhere; }
+.chat-progress li:last-child { color: var(--navy); }

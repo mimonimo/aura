@@ -155,6 +155,7 @@ class AgentResponder:
         session_id: int | None = None,
         project: dict | None = None,
         scope: dict | None = None,
+        on_progress=None,
     ) -> str:
         from zzaimy.generate.client import VllmClient
         from zzaimy.app.regulations import find_relevant
@@ -163,6 +164,8 @@ class AgentResponder:
         scope = scope or {}
 
         self.last_sources = []
+        if on_progress:
+            on_progress("관련 근거 검색 중")
         corpus_hits: list = []
         if criteria_ids:
             # 담당자가 기준을 직접 고른 경우 — 그 기준의 조각들만 사용(범위 고정). 예전에는 문서 순서대로 앞 6000자를 잘라
@@ -209,6 +212,9 @@ class AgentResponder:
             [_mk(h, "국고 공고", False) for h in corpus_hits[:5]]
             + [_mk(h, "교내 규정", True) for h in (hits or [])[:4]]
         )[:8]
+        if on_progress:
+            on_progress(f"답변에 사용할 근거 {len(hits or []) + len(corpus_hits)}개 구성"
+                        if hits or corpus_hits else "관련 근거 없음 · 확인 가능한 범위로 답변 준비")
         history = db.list_chats(session_id, limit=6) if session_id else []
         system = compose_system(db.all_settings())
         if project:
@@ -232,6 +238,8 @@ class AgentResponder:
         messages.append({"role": "user", "content": user_content})
 
         client = VllmClient(role="answer")
+        if on_progress:
+            on_progress("답변 작성 중")
         resp = client.client.chat.completions.create(
             model=client.model,
             messages=messages,

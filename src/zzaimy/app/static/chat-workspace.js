@@ -42,6 +42,31 @@
   function notify(text) { hint.textContent = text; hint.hidden = false; }
   function bottom() { scroller.scrollTop = scroller.scrollHeight; latest.hidden = true; }
   function nearBottom() { return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100; }
+  function showProgress(progress) {
+    const panel = document.getElementById('chatProgress');
+    if (!panel || !progress || !Array.isArray(progress.steps) || !progress.steps.length) return;
+    const steps = progress.steps.filter(step => typeof step === 'string');
+    if (!steps.length) return;
+    panel.querySelector('[data-progress-label]').textContent = steps[steps.length - 1];
+    if (Number.isFinite(progress.started_at)) {
+      panel.querySelector('[data-progress-time]').textContent = Math.max(0, Math.floor(Date.now() / 1000 - progress.started_at)) + '초';
+    }
+    const list = panel.querySelector('ol');
+    list.replaceChildren(...steps.map(text => {
+      const item = document.createElement('li');
+      item.textContent = text;
+      return item;
+    }));
+    status.textContent = steps[steps.length - 1];
+  }
+  scroller.addEventListener('click', event => {
+    const button = event.target.closest('[data-progress-toggle]');
+    if (!button) return;
+    const list = document.getElementById('chatProgressSteps');
+    list.hidden = !list.hidden;
+    button.setAttribute('aria-expanded', String(!list.hidden));
+    button.textContent = list.hidden ? '작업 내역' : '접기';
+  });
   function installPage(html, url, forceScroll = false) {
     const parsed = new DOMParser().parseFromString(html, 'text/html');
     const next = parsed.getElementById('chatWorkspace');
@@ -78,7 +103,7 @@
     } catch (_) {}
     if (shouldScroll) bottom();
     else { scroller.scrollTop = position; latest.hidden = false; }
-    status.textContent = waiting ? '답변 생성 중' : '';
+    status.textContent = waiting ? '요청 처리 중' : '';
     paint();
     clearTimeout(timer);
     if (waiting) timer = setTimeout(poll, 2000);
@@ -98,7 +123,8 @@
         installPage(await page.text(), page.url);
         return;
       }
-      status.textContent = '답변 작성 중입니다.';
+      status.textContent = '요청 처리 중입니다.';
+      showProgress(state.progress);
     } catch (_) {
       status.textContent = '연결을 다시 확인하고 있습니다. 작성 중인 내용은 유지됩니다.';
     }
