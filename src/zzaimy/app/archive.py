@@ -77,6 +77,8 @@ def align_archived_projects(db) -> dict:
     for pid in empty:
         db.delete_project(pid)
     return {"moved": sum(len(v) for v in moves.values()), "removed_projects": len(empty)}
+
+
 FIELDS = ("rel", "size", "mtime", "ext", "area", "program", "program_name", "status", "kind", "year", "round", "dup_of")
 
 
@@ -86,6 +88,15 @@ _ensured: set[str] = set()
 def ensure(db) -> None:
     if db.path in _ensured:                  # 프로세스마다 한 번 — 칸 추가(ALTER)는 표 배타 잠금이라 자주 보내면 교착이 난다
         return
+    # 표·칸이 이미 있으면 아무것도 보내지 않는다 — PostgreSQL 은 CREATE … IF NOT EXISTS 도 표 잠금부터 잡아,
+    # 동기화가 장부를 크게 고치는 동안 시간 초과로 떨어진다(2026-10-03 실측)
+    try:
+        with db._conn() as conn:
+            conn.execute("SELECT removed_at FROM archive_files LIMIT 0")
+        _ensured.add(db.path)
+        return
+    except Exception:
+        pass
     with db._conn() as conn:
         for q in _SCHEMA:
             conn.execute(q)
