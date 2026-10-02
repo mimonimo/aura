@@ -1,5 +1,6 @@
 from zzaimy.app.responder import NO_EVIDENCE_NOTE, pack_criteria_context
 from types import SimpleNamespace
+import pytest
 
 
 def test_oversized_source_does_not_hide_following_evidence():
@@ -53,3 +54,36 @@ def test_answer_displays_only_sources_sent_to_model(monkeypatch):
     assert [h["doc_id"] for h in agent.last_sources] == [2]
     assert "참여 목표 120명" in calls[0]["messages"][-1]["content"]
     assert "제외할 근거" not in calls[0]["messages"][-1]["content"]
+
+
+@pytest.mark.parametrize("found,weak", [(False, False), (True, False), (True, True)])
+def test_registered_search_keeps_sources_and_missing_evidence_notice(monkeypatch, found, weak):
+    from zzaimy.app import paths, regulations, responder
+    from zzaimy.generate import client
+
+    def retired(*args, **kwargs):
+        pytest.fail("폐기 코퍼스를 조회하면 안 됩니다")
+
+    monkeypatch.setattr(paths, "corpus_db_existing", retired)
+    hits = [{"doc_id": 42, "reg_title": "등록 문서", "content": "참여 목표 120명",
+             "weak_evidence": weak}] if found else []
+    received = []
+
+    def search(db, query, **scope):
+        assert scope["user"] == "staff" and scope["dept"] == "학생처"
+        return hits
+
+    def create(**kwargs):
+        received.append(kwargs["messages"][-1]["content"])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="검사 답변"))])
+
+    monkeypatch.setattr(regulations, "find_relevant", search)
+    fake = SimpleNamespace(model="fake", client=SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    monkeypatch.setattr(client, "VllmClient", lambda **kwargs: fake)
+    agent = responder.AgentResponder()
+    assert agent.answer(SimpleNamespace(all_settings=lambda: {}), "참여 목표는?",
+                        scope={"user": "staff", "dept": "학생처"}) == "검사 답변"
+    assert [s["doc_id"] for s in agent.last_sources] == ([42] if found else [])
+    assert (responder.NO_EVIDENCE_NOTE in received[0]) == (not found)
+    assert (responder.WEAK_EVIDENCE_NOTE in received[0]) == weak

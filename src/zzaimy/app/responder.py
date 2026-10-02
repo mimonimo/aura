@@ -30,7 +30,7 @@ _SYSTEM = """당신은 영남이공대학교 행정 담당자(교직원)를 돕�
 # 유사도·재랭킹 하한을 도입하면서 "근거 없음"이 정상 결과가 됐다 — 그때 관련 없는
 # 조각을 끌어다 붙이면 담당자가 근거 없는 답을 근거 있는 답으로 오인한다.
 NO_EVIDENCE_NOTE = (
-    "[참고 자료 없음 — 등록된 기준 문서와 국고 공고에서 이 질문과 관련 있는 근거를"
+    "[참고 자료 없음 — 등록된 문서에서 이 질문과 관련 있는 근거를"
     " 찾지 못했습니다. 답변은 반드시 \"관련 근거를 찾지 못했습니다.\"라는 사실을"
     " 먼저 밝히고 시작하며, 규정 내용을 지어내지 않습니다. 일반적인 업무 절차를"
     " 안내할 때는 그것이 등록된 근거가 아니라는 점을 분명히 밝힙니다.]"
@@ -126,26 +126,6 @@ def compose_system(profile: dict) -> str:
 
 
 class AgentResponder:
-    def _corpus_hits(self, query: str, top_k: int = 5) -> list:
-        """국고 공고 코퍼스(corpus_pilot.db) 하이브리드 검색 — 없으면 빈 리스트.
-
-        채팅 근거를 교내 규정에만 한정하지 않고, 국고사업 공고·요건까지 함께
-        찾도록 교차한다(코퍼스가 없으면 조용히 건너뛴다)."""
-        try:
-            from pathlib import Path
-
-            from zzaimy.app.corpus_search import corpus_hybrid_search
-
-            from zzaimy.app import paths as _paths
-
-            p = _paths.corpus_db_existing(Path(db.path).parent)
-            if not p.exists():
-                return []
-            cdb = Database(str(p))
-            return corpus_hybrid_search(cdb, query, top_k=top_k) or []
-        except Exception:
-            return []
-
     def answer(
         self,
         db: Database,
@@ -166,7 +146,6 @@ class AgentResponder:
         self.last_sources = []
         if on_progress:
             on_progress("관련 근거 검색 중")
-        corpus_hits: list = []
         if criteria_ids:
             # 담당자가 기준을 직접 고른 경우 — 그 기준의 조각들만 사용(범위 고정). 예전에는 문서 순서대로 앞 6000자를 잘라
             # 넣어 기준 문서가 여럿이면 첫 문서(기본계획 48조각)만 들어가고 공고의 신청 기한은 빠졌다(실측 2026-09-24, 대화 19).
@@ -175,15 +154,10 @@ class AgentResponder:
             ordered = rank_criteria_chunks(db, question, chunks, criteria_ids)
             context, hits = pack_criteria_context(ordered)
         else:
-            # 교내 규정(platform) + 국고 공고 코퍼스(corpus_pilot) 교차 검색
+            # 현재 등록 문서만 검색한다. 폐기한 공개 코퍼스는 조회하지 않는다.
             hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"),
                                  user=scope.get("user"), levels=scope.get("levels"))
-            corpus_hits = self._corpus_hits(attachment_text or question, top_k=5)
             blocks = []
-            if corpus_hits:
-                blocks.append(
-                    "[국고 공고·사업 문서 — 최신 요건·배점의 근거로 인용하라]\n"
-                    + "\n\n".join(_cite(h) for h in corpus_hits))
             if hits:
                 blocks.append(
                     "[교내 규정 — 관련 조항을 근거로 인용하라]\n"
@@ -191,12 +165,12 @@ class AgentResponder:
             if not blocks:
                 # 기준 미달이라 근거가 하나도 남지 않은 경우. 있는 척하지 않는다.
                 blocks.append(NO_EVIDENCE_NOTE)
-            elif all(h.get("weak_evidence") for h in (corpus_hits or []) + (hits or [])):
+            elif all(h.get("weak_evidence") for h in hits):
                 # 하한을 넘지 못해 1위만 남긴 경우 — 약하다는 사실을 함께 알린다
                 blocks.append(WEAK_EVIDENCE_NOTE)
             context = "\n\n".join(blocks)
 
-        # 근거(연관 자료) — 국고 공고 우선, 그다음 교내 규정. LLM 성공/실패와 무관하게 저장.
+        # 실제 검색된 등록 문서의 근거. LLM 성공/실패와 무관하게 저장.
         def _mk(h: dict, origin: str, linkable: bool) -> dict:
             return {
                 "title": h.get("reg_title") or "문서",
@@ -208,13 +182,10 @@ class AgentResponder:
                 "weak": bool(h.get("weak_evidence")),
             }
 
-        self.last_sources = (
-            [_mk(h, "국고 공고", False) for h in corpus_hits[:5]]
-            + [_mk(h, "교내 규정", True) for h in (hits or [])[:4]]
-        )[:8]
+        self.last_sources = [_mk(h, "교내 규정", True) for h in (hits or [])[:4]]
         if on_progress:
-            on_progress(f"답변에 사용할 근거 {len(hits or []) + len(corpus_hits)}개 구성"
-                        if hits or corpus_hits else "관련 근거 없음 · 확인 가능한 범위로 답변 준비")
+            on_progress(f"답변에 사용할 근거 {len(hits or [])}개 구성"
+                        if hits else "관련 근거 없음 · 확인 가능한 범위로 답변 준비")
         history = db.list_chats(session_id, limit=6) if session_id else []
         system = compose_system(db.all_settings())
         if project:
