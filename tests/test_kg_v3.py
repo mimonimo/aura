@@ -511,3 +511,10 @@ def test_apply_reviews_only_touches_unconfirmed_files():
     assert by[2].status == "agent" and by[2].program == ""
     assert by[3].status == "agent" and "지역성장" in by[3].program_name
     assert n == 2
+
+
+def test_stage_number_kept_in_program_name():
+    from zzaimy.graph import programs
+
+    names = programs._mentions("(영남이공대학교)3단계 산학연협력 선도전문대학 육성사업 계획서")[0]
+    assert any(n.startswith("3단계") for n in names)
