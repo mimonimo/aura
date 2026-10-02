@@ -14,6 +14,7 @@
 6. `docs/document-work-flow.md` — 문서 세트 → 프로젝트 → 독스 작성·합본의 체계(문서 작업을 손대기 전에)
 
 Codex·Claude 공동 작업이면 `docs/collaboration/README.md`와 `codex.md`·`claude.md`를 먼저 본다.
+공동 작업 기준과 사용자 판단 대기 항목은 `docs/collaboration/README.md`에 따라 관리한다.
 설계 문서(`docs/architecture.md` 등)와 `research/`는 근거 참조용이며 현황은 위 문서가 우선한다.
 
 ## 상황 (2026-10-01 문서 점검)
