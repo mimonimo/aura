@@ -89,3 +89,19 @@ def test_archive_changed_file_uses_late_origin_link(tmp_path):
     got = archive.sync(db, [changed], {row["rel"]: 42})
     assert got["changed"] == [(row["rel"], 42)]
     assert archive.find(db)[0]["doc_id"] == 42
+
+
+def test_dgx_projects_follow_ledger_classification(tmp_path):
+    from zzaimy.app import archive as ar
+    db = Database(tmp_path / "t.db")
+    old = db.create_project("grant", ar.dgx_project_label("단계 산학연협력 선도전문대학 육성사업"), owner="zzdev")
+    mine = db.create_project("grant", "담당자 프로젝트", owner="kim")
+    did = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant", project_id=old)
+    kept = db.add_document("b.hwp", "/local/b.hwp", doc_type="grant", project_id=mine)
+    ar.load(db, [dict(rel="p/a.hwp", size=1, mtime=1, program="program:linc3", program_name="3단계 산학연협력 선도전문대학 육성사업")],
+            {"p/a.hwp": did})
+    got = ar.align_dgx_projects(db)
+    assert got == {"moved": 1, "removed_projects": 1}
+    assert db.get_project(db.get_document(did)["project_id"])["name"] == "3단계 산학연협력 선도전문대학 육성사업 (DGX 보관)"
+    assert db.get_project(old) is None and db.get_document(kept)["project_id"] == mine
+    assert ar.align_dgx_projects(db) == {"moved": 0, "removed_projects": 0}

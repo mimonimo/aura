@@ -18,6 +18,46 @@ _SCHEMA = (
     "CREATE INDEX IF NOT EXISTS archive_files_program ON archive_files (program)",
 )
 UPLOAD_PREFIX = "_플랫폼업로드/"
+DGX_PROJECT_SUFFIX = " (DGX 보관)"
+
+
+def dgx_project_label(program_name: str | None) -> str:
+    """DGX 보관 문서를 묶는 문서함 프로젝트 이름 — 원본 장부의 사업 분류를 따른다."""
+    return f"{(program_name or '사업 미분류')[:40]}{DGX_PROJECT_SUFFIX}"
+
+
+def align_dgx_projects(db) -> dict:
+    """DGX 보관 문서(dgx://)의 문서함 프로젝트를 원본 장부의 현재 사업 분류에 맞춘다.
+
+    반입할 때의 분류로 한 번 묶고 끝나면, 분류 규칙·검토 판정이 고쳐져도 문서함은 옛 이름에 남는다(2026-10-02 실측:
+    「단계 산학연협력 …」 4,755건). 동기화마다 맞추고, 문서가 다 빠진 「(DGX 보관)」 프로젝트는 지운다(문서는 그대로)."""
+    ensure(db)
+    with db._conn() as conn:
+        rows = conn.execute(
+            "SELECT d.id, d.project_id, a.program_name FROM documents d JOIN archive_files a ON a.doc_id = d.id"
+            " WHERE d.stored_path LIKE 'dgx://%' AND a.removed_at = ''").fetchall()
+        projs = conn.execute("SELECT id, name FROM projects WHERE sector = 'grant'").fetchall()
+    by_name = {str(r[1]): int(r[0]) for r in projs}
+    name_of = {int(r[0]): str(r[1]) for r in projs}
+    moves: dict[int, list[int]] = {}
+    for did, pid, prog in rows:
+        want = dgx_project_label(prog)
+        if name_of.get(int(pid or 0)) == want:
+            continue
+        if want not in by_name:
+            by_name[want] = db.create_project("grant", want, owner="zzdev")
+        moves.setdefault(by_name[want], []).append(int(did))
+    with db._conn() as conn:
+        for pid, ids in moves.items():
+            for i in range(0, len(ids), 500):
+                part = ids[i:i + 500]
+                conn.execute(f"UPDATE documents SET project_id = ? WHERE id IN ({','.join('?' * len(part))})", (pid, *part))
+        empty = [int(r[0]) for r in conn.execute(
+            "SELECT p.id FROM projects p WHERE p.name LIKE ? AND p.owner = 'zzdev'"
+            " AND NOT EXISTS (SELECT 1 FROM documents d WHERE d.project_id = p.id)", (f"%{DGX_PROJECT_SUFFIX}",)).fetchall()]
+    for pid in empty:
+        db.delete_project(pid)
+    return {"moved": sum(len(v) for v in moves.values()), "removed_projects": len(empty)}
 FIELDS = ("rel", "size", "mtime", "ext", "area", "program", "program_name", "status", "kind", "year", "round", "dup_of")
 
 
