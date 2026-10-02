@@ -197,16 +197,28 @@ def main() -> int:
         # 과제 코드로 잇기 — 과제마다 계획서를 내고 연차보고서는 「[2-3 과제] 추진 실적」처럼 과제 코드를 단 절로 쓰는 사업(RISE).
         # 계획서 파일 이름의 코드와 보고서 절 제목의 코드가 같으면 계획서(문서) ↔ 그 보고서 절
         for p in plans:
-            code = units.doc_code(docs_by_id[p]["filename"])
-            if not code:
+            fname = docs_by_id[p]["filename"]
+            code = units.doc_code(fname)
+            # 코드가 여럿인 문서(「[1-1,3-3] 환경개선공사 사업계획서」)는 그 과제의 계획서가 아니라 관련 시설 계획이다
+            if not code or len(units._UNIT_CODE.findall(fname)) > 1:
                 continue
             rx = re.compile(rf"(?<![\d.\-]){re.escape(code)}(?![\d.\-])")
             for r in reports:
-                for s in docs_by_id[r]["sections"]:
+                rsecs = docs_by_id[r]["sections"]
+                for s in rsecs:
                     if rx.search(s.title) and len(s.title) <= 60:
-                        edges.append((f"doc:{p}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
-                                      [f"과제 코드 {code}: 계획서 파일 이름 ↔ 보고서 절 「{s.title[:50]}」"]))
                         code_sections[code].append((r, s.path, s.title))
+                        # 과제 코드로 계획서를 좁히고, 그 안에서 보고서 절(+하위 절) 본문과 가장 맞는 절로 잇는다
+                        desc = [y for y in rsecs if y.path == s.path or y.path.startswith(s.path + ".")]
+                        query = s.title + " " + " ".join(text_full(y) for y in desc)[:6000]
+                        ps, sim = sections.best_section(docs_by_id[p]["sections"], text_full, query)
+                        if ps is not None:
+                            edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
+                                          [f"과제 코드 {code}: 계획서 파일 이름 ↔ 보고서 절 「{s.title[:50]}」",
+                                           f"계획서 안 대응 절 「{ps.title[:50]}」(본문 겹침 {sim:.2f})"]))
+                        else:
+                            edges.append((f"doc:{p}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
+                                          [f"과제 코드 {code}: 계획서 파일 이름 ↔ 보고서 절 「{s.title[:50]}」"]))
         for e in evals:
             for t in plans + reports:
                 edges.append((f"doc:{e}", f"doc:{t}", "evaluates", "분류", [f"같은 사업·연차({ynode})의 평가 결과"]))
@@ -251,7 +263,7 @@ def main() -> int:
             if u.key.startswith("#") and "/" not in u.key:
                 for did in u.docs:
                     edges.append((f"doc:{did}", unode, "instance_of", "식별자 일치", [f"파일 이름에 단위과제 코드 {u.key[1:]}"]))
-                for r, path, title in code_sections.get(u.key[1:], []):
+                for r, path, title in sorted(set(code_sections.get(u.key[1:], []))):
                     edges.append((f"doc:{r}:sec:{path}", unode, "instance_of", "식별자 일치", [f"보고서 절 「{title[:50]}」에 과제 코드 {u.key[1:]}"]))
             for did, path in u.members:
                 edges.append((f"doc:{did}:sec:{path}", unode, "instance_of", "식별자 일치", [f"절 제목이 단위 「{u.label[:60]}」와 같음"]))

@@ -1,5 +1,28 @@
 # Codex 작업 기록
 
+## C-175 — 사업별 실문서 검색 평가 후보 (진행)
+
+담당: scripts/build_graph_retrieval_probes.py, tests/test_graph_probe_builder.py.
+운영 DB는 repeatable-read/read-only로 조회하고 새 data/eval/graph-probes 하위에만 후보 저장.
+사업별 균등 순회·문서당 한 표본, reviewed 문서의 실제 절과 근거 조각을 사용한다.
+사업·연차(없으면 미확인)·문서·절을 질문에 넣고 원문 해시와 그래프 스냅샷 해시를 기록한다.
+제목 기반 self-retrieval 후보이며 독립 gold/SFT가 아니다. 답변·승인은 비워 두고 학습 불가 명시.
+기존 데이터/프로젝트 수정·게시·학습 없음. Claude의 157·sections 미커밋 변경은 보존한다.
+
+실행 결과: 자동 분류상 9개 사업 30건 생성. AID 5, LINC+ 5, LINC3.0 5, RISE 4,
+혁신지원 4, 사회맞춤형인력양성 2, 지방전문대학활성화 2, 부트캠프 2, 외부용역 1.
+사업 분류는 자동 그래프 기준이며 공식 분류·정답 검수 완료를 뜻하지 않는다.
+첫 묶음은 평가 직전 스냅샷 불일치를 감지해 점수 계산을 중단했다. 기존 파일 보존.
+재생성한 고정 스냅샷 묶음(VM):
+data/eval/graph-probes/20261001T162449Z-6af87069/
+  candidates.jsonl · graph_snapshot.json · summary.json
+스냅샷: 46a6414b98aee12f7505ddfc14dc7bea8a6539bbdebf631809dc643c74f1d453.
+원문·후보는 VM 내부에만 저장했으며 Git에는 도구/검사/집계 기록만 반영한다.
+재측정 명령은 SSH 접속 실패로 미실행. 재확인: VM SSH timeout, DGX Network is unreachable.
+VPN/학교망 경로 확인이 필요하며 서버 장애로 단정하지 않는다. 서비스·전송 프로세스에는 손대지 않았다.
+로컬 관련 검사 33개, compileall·diff --check 통과. C-174 전체 1,022개 통과와 구분.
+Claude 요청: 연결 복구 후 이 고정 묶음으로 평가하고, 독립 질문·정답 검수를 별도 수행.
+
 ## C-174 — 실제 문서 작성 경로의 컨텍스트 상한 검사 (진행)
 
 Codex 담당: app/gdocs_agent.py의 _fit_context 및 호출부의 재료 공백 정규화만,

@@ -501,3 +501,27 @@ def align_content(a: list[Section], b: list[Section], text_of, skip_b_paths: set
                 x = max(deeper, key=lambda z: z.path.count("."))
             pairs.append((x, y, f"본문 낱말 겹침 {top:.2f}(2등 {second:.2f})"))
     return pairs
+
+
+def best_section(tree: list[Section], text_of, query: str, min_sim: float = 0.08) -> tuple[Section | None, float]:
+    """한 문서 안에서 query 글과 가장 잘 맞는 절(자기+하위 절 본문, 희소 낱말 가중) — 과제 코드로 문서를 좁힌 뒤 그 안의 대응 절을 고를 때
+    (보고서 「과제2-1 예산 집행 실적」 → 계획서 「Ⅴ. 예산 운용」). 맞는 절이 없으면 (None, 0)."""
+    import math
+    full = {}
+    for x in tree:
+        desc = [y for y in tree if y.path == x.path or y.path.startswith(x.path + ".")]
+        full[id(x)] = _words(" ".join(text_of(y) or "" for y in desc)[:6000] + " " + x.title)
+    q = _words(query)
+    bags = list(full.values()) + [q]
+    df: dict[str, int] = {}
+    for bag in bags:
+        for wd in bag:
+            df[wd] = df.get(wd, 0) + 1
+    idf = {wd: math.log((len(bags) + 1) / (c + 0.5)) for wd, c in df.items()}
+    scored = sorted(((_wjac(full[id(x)], q, idf), x.path.count("."), x) for x in tree), key=lambda t: (-t[0], -t[1]))
+    if not scored or scored[0][0] < min_sim:
+        return None, 0.0
+    top = scored[0][0]
+    # 점수가 거의 같으면 더 깊은(구체적인) 절
+    best = max((t for t in scored if t[0] >= top - 0.01), key=lambda t: t[1])
+    return best[2], best[0]
