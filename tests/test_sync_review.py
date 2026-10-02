@@ -99,7 +99,6 @@ def test_dry_does_not_run_post_processing(sync_job, monkeypatch):
     assert calls == []
 
 
-@pytest.mark.xfail(strict=True, reason="C-181: 여러 새 경로가 같은 서명일 때 첫 경로에 문서 ID 임의 연결")
 def test_ambiguous_move_does_not_assign_document_to_first_candidate(tmp_path):
     db = Database(tmp_path / "test.db")
     original = dict(rel="old/report.pdf", size=10, mtime=1)
@@ -110,7 +109,6 @@ def test_ambiguous_move_does_not_assign_document_to_first_candidate(tmp_path):
     assert all(r["doc_id"] is None for r in archive.find(db))
 
 
-@pytest.mark.xfail(strict=True, reason="C-181: 목록 불변 상태에서 나중에 생성된 문서 ID 장부 연결 누락")
 def test_sync_attaches_newly_ingested_document(tmp_path):
     db = Database(tmp_path / "test.db")
     rows = [dict(rel="program/report.pdf", size=10, mtime=1)]

@@ -50,3 +50,42 @@ def test_archive_sync_add_change_move_remove(tmp_path):
     assert archive.find(db, text="옮김")[0]["doc_id"] == 577
     again = archive.sync(db, [moved_a, b2, d])                     # 바뀐 것 없음
     assert not (again["added"] or again["changed"] or again["moved"] or again["removed"])
+
+
+def test_archive_move_with_multiple_old_candidates_stays_unlinked(tmp_path):
+    db = Database(tmp_path / "t.db")
+    a = dict(rel="a/report.pdf", size=10, mtime=1)
+    b = {**a, "rel": "b/report.pdf"}
+    archive.sync(db, [a, b], {a["rel"]: 10, b["rel"]: 20})
+    c = {**a, "rel": "c/report.pdf"}
+    got = archive.sync(db, [c])
+    assert got["moved"] == []
+    assert archive.find(db)[0]["doc_id"] is None
+
+
+def test_archive_origin_link_is_idempotent_and_not_cleared(tmp_path):
+    db = Database(tmp_path / "t.db")
+    row = dict(rel="a/report.pdf", size=10, mtime=1)
+    archive.sync(db, [row])
+    for _ in range(2):
+        got = archive.sync(db, [row], {row["rel"]: 42})
+        assert not (got["added"] or got["changed"] or got["moved"])
+        assert archive.find(db)[0]["doc_id"] == 42
+    archive.sync(db, [row])
+    assert archive.find(db)[0]["doc_id"] == 42
+    archive.sync(db, [])
+    archive.sync(db, [], {row["rel"]: 99})
+    with db._conn() as conn:
+        assert conn.execute("SELECT doc_id FROM archive_files").fetchone()[0] == 42
+    archive.sync(db, [row])
+    assert archive.find(db)[0]["doc_id"] == 42
+
+
+def test_archive_changed_file_uses_late_origin_link(tmp_path):
+    db = Database(tmp_path / "t.db")
+    row = dict(rel="a/report.pdf", size=10, mtime=1)
+    archive.sync(db, [row])
+    changed = {**row, "size": 20, "mtime": 2}
+    got = archive.sync(db, [changed], {row["rel"]: 42})
+    assert got["changed"] == [(row["rel"], 42)]
+    assert archive.find(db)[0]["doc_id"] == 42
