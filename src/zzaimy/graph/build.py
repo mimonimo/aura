@@ -86,6 +86,7 @@ def build_graph(
 
     dept를 주면 그 부서 + 공통 문서만 그린다 — 부서별 지식 그래프
     (사용자 요구: 부서별로 나눠야 빠르고 정확).
+    웹 조회는 scope(dept/user/role)를 전달해 생성 전에 접근 범위를 제한한다.
     embed_fn(텍스트 목록 → 벡터)이 있으면 프로젝트↔문서 추정 연관을 잇는다;
     None 이면 검색 스택의 임베딩(embed_search.embed_texts)을 쓰고, 모델이 없으면 생략.
     """
