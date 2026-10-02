@@ -7,7 +7,7 @@
 운영 PC(두 서버에 SSH 가 되는 곳)에서 돈다 — DGX 에서 VM 으로 직접 가는 길이 없어 파일은 이 PC 를 거쳐 흘려 보낸다(디스크에 남기지 않음).
 
   python3 scripts/163_sync_core.py                 # 무엇이 새로 들어올지만
-  python3 scripts/163_sync_core.py --apply         # 반입 + 그래프(157 --full) + 양식(162)
+  python3 scripts/163_sync_core.py --apply         # 옮기고 VM 에서 반입 + 그래프(157 --full) + 양식(162) — 164 가 떨어져 돈다
   python3 scripts/163_sync_core.py --apply --max 200   # 한 번에 최대 200건
 """
 from __future__ import annotations
@@ -68,7 +68,8 @@ def main() -> int:
         if not args.apply:
             print("미리 보기입니다 — --apply 로 실행")
         return 0
-    # 3) 사업마다: DGX → (이 PC 를 흘러) → VM 받은 편지함, 156 반입(원본 경로 장부)
+    # 3) 사업마다: DGX → (이 PC 를 흘러) → VM 받은 편지함. 반입·그래프·양식은 VM 에서 떨어져 돈다(164) — 몇 시간 걸린다
+    manifest = []
     for pid, items in by_prog.items():
         key = pid.split(":", 1)[1]
         inbox = f"data/inbox/core/{key}"
@@ -79,19 +80,13 @@ def main() -> int:
         tar.stdin.close()
         put.wait()
         tar.wait()
-        files = " ".join(shlex.quote(f"{inbox}/{i['rel']}") for i in items)
-        project = f"{items[0]['name'][:40]}"
-        cmd = ("cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && "
-               "ZZAIMY_ROLE_CONN=\"review=92a94f3f,vision=92a94f3f\" PYTHONPATH=src .venv/bin/python scripts/156_intake_files.py "
-               f"--project {shlex.quote(project)} --sector grant --owner zzdev --origin-base {inbox} --jobs 3 --timeout 30 --apply {files}")
-        out = run(VM + [cmd], check=False)
-        print(f"  반입 {project[:30]}: " + (out.strip().splitlines()[-1] if out.strip() else "출력 없음"))
-    # 4) 그래프 전체 다시 짓기 + 사업별 양식
-    ids = run(VM + ["cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && PYTHONPATH=src .venv/bin/python -c "
-                    "\"import os; from pathlib import Path; from zzaimy.app.db import Database; db=Database(Path(os.environ['ZZAIMY_PLATFORM_SQLITE_PATH']));"
-                    "c=db._conn().__enter__(); r=c.execute('select min(id), max(id) from documents where id >= 557').fetchone(); print(f'{r[0]}-{r[1]}')\""]).strip()
-    print("그래프:", run(VM + [f"cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && PYTHONPATH=src .venv/bin/python scripts/157_build_kg.py --docs {ids} --apply --full | tail -1"]).strip())
-    print("양식:", run(VM + ["cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && PYTHONPATH=src .venv/bin/python scripts/162_business_template.py | tail -3"]).strip())
+        manifest.append({"program": pid, "project": items[0]["name"][:40], "inbox": inbox, "files": [i["rel"] for i in items]})
+        print(f"  옮김 {items[0]['name'][:30]}: {len(items)}건", flush=True)
+    run(VM + ["cat > ~/zzaimy-capstone/data/inbox/core/sync_manifest.json"], inp=json.dumps(manifest, ensure_ascii=False).encode("utf-8"))
+    run(VM + ["cd ~/zzaimy-capstone && set -a && . ./.env.local && set +a && "
+              "ZZAIMY_ROLE_CONN=\"review=92a94f3f,vision=92a94f3f\" setsid nohup env PYTHONPATH=src .venv/bin/python scripts/164_sync_apply.py "
+              "> /tmp/sync_apply.log 2>&1 < /dev/null & disown; echo started"])
+    print("VM 에서 반입·그래프·양식 진행 중 — 기록 /tmp/sync_apply.log (끝나면 SYNC_DONE)")
     return 0
 
 
