@@ -43,7 +43,7 @@ _FLOOR_SAMPLE_PAIRS = 20000
 # (scripts/103 으로 올린다). 조각 벡터는 배치로 미리 만들지만 질의 벡터는 검색마다 새로 만들고,
 # 그 계산이 VM CPU 에서 돌고 있었다. 같은 모델·같은 풀링(CLS+정규화)이라 공간이 같다
 # (실측 2026-09-20: 같은 글의 VM CPU 벡터와 코사인 1.0). 실패하면 VM 모델로 물러난다.
-def remote_vectors(texts: list[str]):
+def remote_vectors(texts: list[str], timeout: float | None = None):
     url = os.environ.get("ZZAIMY_EMBED_URL", "").strip()
     if not url or not texts:
         return None
@@ -54,7 +54,7 @@ def remote_vectors(texts: list[str]):
     req = urllib.request.Request(url, data=json.dumps({"texts": list(texts)}).encode("utf-8"),
                                  headers={"Content-Type": "application/json"})
     try:
-        timeout = float(os.environ.get("ZZAIMY_EMBED_TIMEOUT", "8"))
+        timeout = timeout or float(os.environ.get("ZZAIMY_EMBED_TIMEOUT", "8"))   # 질의 기본 8초, 묶음 색인은 부르는 쪽이 길게
         with urllib.request.urlopen(req, timeout=timeout) as r:
             got = json.loads(r.read().decode("utf-8"))
         import numpy as np
