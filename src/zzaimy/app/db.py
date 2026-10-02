@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -242,8 +243,17 @@ class Database:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(_SCHEMA)
+            have: set[tuple[str, str]] = set()
+            if getattr(conn, 'dialect', '') == 'postgres':
+                # 이미 있는 칸은 ALTER 를 아예 보내지 않는다 — IF NOT EXISTS 라도 표에 배타 잠금을 잡아,
+                # 여러 작업자가 동시에 연결하면 교착이 난다(운영 실측 2026-10-02: 반입 작업자 × DGX 결과 들이기)
+                have = {(str(r[0]), str(r[1])) for r in conn.execute(
+                    "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()").fetchall()}
             for stmt in self._MIGRATIONS:
                 if getattr(conn, 'dialect', '') == 'postgres':
+                    m = re.match(r"ALTER TABLE (\w+) ADD COLUMN (\w+)", stmt)
+                    if m and (m.group(1), m.group(2)) in have:
+                        continue
                     conn.execute(stmt.replace('ADD COLUMN ', 'ADD COLUMN IF NOT EXISTS '))
                     continue
                 try:

@@ -72,6 +72,7 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--ext", default=",".join(sorted(TEXT_EXT)), help="처리할 형식(쉼표) — 엑셀은 docling 이 있어야 한다")
+    ap.add_argument("--retry-failed", action="store_true", help="이전에 실패한 원본도 다시(판독 도구를 새로 깐 뒤). 성공하면 같은 rel 의 새 줄이 덧붙고 168 이 그것을 들인다")
     ap.add_argument("--slow", type=int, default=600, help="이보다 오래 걸린 문서는 로그에 남긴다(초)")
     args = ap.parse_args()
     exts = {e.strip() for e in args.ext.split(",") if e.strip()}
@@ -80,9 +81,11 @@ def main() -> int:
     for f in Path(args.out).glob("parsed-*.jsonl"):
         for line in f.read_text(encoding="utf-8").splitlines():
             try:
-                done.add(json.loads(line)["rel"])
-            except (ValueError, KeyError):
+                rec = json.loads(line)
+            except ValueError:
                 continue
+            if rec.get("rel") and (rec.get("ok") or not args.retry_failed):
+                done.add(rec["rel"])
     items = []
     for line in Path(args.inventory).read_text(encoding="utf-8").splitlines():
         try:

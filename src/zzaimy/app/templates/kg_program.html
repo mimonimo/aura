@@ -58,6 +58,23 @@
   {% if loose %}<p class="muted" style="font-size:12.5px;">연차를 알 수 없는 문서: {% for d in loose %}<a href="/doc/{{ d.doc_id }}">{{ d.label }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
 </div></div>
 
+{% if indicators and indicators.rows %}
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>성과지표</h2>
+  <p class="muted" style="margin:0 0 8px; font-size:12.5px;">계획서·보고서 표에서 꺼낸 값 그대로 · 지표 {{ indicators.rows | length }}{% if indicators.total > indicators.rows | length %}/{{ indicators.total }}{% endif %}개(문서 많은 순) · N차년도는 문서 연차로 연도 환산</p>
+  <div class="table-scroll">
+  <table class="kg-grid">
+    <tr><th>지표</th>{% for c in indicators.cols %}<th>{{ c }}</th>{% endfor %}</tr>
+    {% for r in indicators.rows %}
+    <tr><td class="rowh">{{ r.label }}{% if r.unit %} <small>({{ r.unit }})</small>{% endif %}{% if r.tags %} <small class="muted">{{ r.tags | join(' · ') }}</small>{% endif %}<br><small class="muted">문서 {{ r.n_docs }}건</small></td>
+      {% for c in indicators.cols %}<td>{% for m, vals in (r.cells.get(c) or {}).items() %}<div><small class="muted">{{ m }}</small> {% for v, ds in vals.items() %}<a href="/doc/{{ ds[0] }}" title="문서 {{ ds | unique | join(', ') }}">{{ v }}</a>{{ ' / ' if not loop.last }}{% endfor %}</div>{% endfor %}</td>{% endfor %}
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+</div></div>
+{% endif %}
+
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:transfer-horizontal-linear"></iconify-icon>계획 ↔ 실적 대응</h2>
   <p class="muted" style="margin:0 0 8px; font-size:12.5px;">같은 연차의 계획서 절과 실적보고서 절 — 제목이 같고 상위 절·본문 맥락이 비슷한 짝만(기준: 식별자 일치)</p>
