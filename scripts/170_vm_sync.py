@@ -153,6 +153,35 @@ def import_parsed() -> None:
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
 
 
+class _IndexBusy(Exception):
+    pass
+
+
+def index_catchup(db, budget_s: int = 50 * 60) -> int:
+    """사업 문서 색인을 밀린 만큼 따라잡는다(--index, 자기 잠금). 그래프 재구축이 몇십 분 걸려도 색인은 따로 는다."""
+    import fcntl
+    from zzaimy.app import grant_search
+    lock = open("/tmp/zz_index.lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return 0
+    t0 = time.time()
+    while time.time() - t0 < budget_s:
+        t1 = time.time()
+        try:
+            got = grant_search.build_increment(db, limit=5000)
+        except Exception as e:
+            print("사업 문서 색인 갱신 실패:", type(e).__name__, str(e)[:120], flush=True)
+            return 1
+        if got["added"] or got["removed"]:
+            print(f"사업 문서 색인: 더함 {got['added']} · 뺌 {got['removed']} · 전체 {got['total']} · 남음 {got['pending']}"
+                  f" · {time.time() - t1:.0f}초", flush=True)
+        if not got["pending"]:
+            break
+    return 0
+
+
 def post_if_changed(db) -> int:
     """문서함이 바뀌었으면(어느 길로 들어왔든 — DGX 동기화·문서함 업로드·채팅 첨부) 그래프·양식·색인을 다시 짓는다.
 
@@ -170,14 +199,22 @@ def post_if_changed(db) -> int:
     mark = {"docs": int(n or 0), "max_id": int(hi or 0), "chunks": int(nc or 0)}
     mpath = ROOT / "data" / "platform" / "kg_marker.json"
     old = json.loads(mpath.read_text(encoding="utf-8")) if mpath.is_file() else {}
-    # 사업 문서 색인은 매번(새 조각만, 가볍다)
+    # 사업 문서 색인은 매번(새 조각만) — 색인 전용 주기(--index)가 돌고 있으면 그쪽에 맡긴다(npz 를 둘이 동시에 쓰지 않게)
     try:
         from zzaimy.app import grant_search
+        idx_lock = open("/tmp/zz_index.lock", "w")
+        try:
+            fcntl.flock(idx_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise _IndexBusy()
         got = grant_search.build_increment(db)
+        fcntl.flock(idx_lock, fcntl.LOCK_UN)
         if got["added"] or got["removed"] or got["pending"]:
             print(f"사업 문서 색인: 더함 {got['added']} · 뺌 {got['removed']} · 전체 {got['total']} · 남음 {got['pending']}", flush=True)
         if got["pending"]:
             (Path(db.path).parent / ".kg-dirty").touch()
+    except _IndexBusy:
+        pass
     except Exception as e:
         print("사업 문서 색인 갱신 실패:", type(e).__name__, str(e)[:120], flush=True)
         (Path(db.path).parent / ".kg-dirty").touch()     # 임베딩 서비스가 돌아오면 다음 회차에 다시
@@ -206,6 +243,7 @@ def main() -> int:
     ap.add_argument("--max", type=int, default=200)
     ap.add_argument("--min-files", type=int, default=10)
     ap.add_argument("--dry", action="store_true")
+    ap.add_argument("--index", action="store_true", help="사업 문서 색인만 밀린 만큼 따라잡는다(자기 잠금, 그래프 재구축과 따로)")
     ap.add_argument("--parsed", action="store_true", help="DGX 가벼운 처리 결과만 받아 들인다(5분 주기, 긴 반입과 따로)")
     ap.add_argument("--quick", action="store_true", help="DGX 훑기 없이 업로드 원본 올리기·그래프·색인만(문서함이 바뀌었을 때 1분 주기)")
     args = ap.parse_args()
@@ -214,6 +252,8 @@ def main() -> int:
     if args.parsed:
         import_parsed()
         return 0
+    if args.index:
+        return index_catchup(db)
     if args.quick:
         dirty = Path(db.path).parent / ".kg-dirty"
         if not dirty.exists():
