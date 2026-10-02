@@ -85,7 +85,8 @@ def main() -> int:
         # 문서함 프로젝트(담당자가 정한 소속)는 폴더 경로처럼 강한 근거다
         origin = origins.get(did, "")
         path = str(Path(origin).parent) if origin else (proj or {}).get("name", "")
-        docs.append({"id": did, "filename": d["filename"], "head": head, "path": path, "origin": origin})
+        docs.append({"id": did, "filename": d["filename"], "head": head, "path": path, "origin": origin,
+                     "light": str(d.get("stored_path") or "").startswith("dgx://")})
     cards = programs.build_cards(docs)
     # 외부 확인 장부의 「이름 바뀜」 사실(출처 있는 것만)은 사업 카드의 다른 이름으로 — 문서만으로 약칭이 서지 않을 때(VM 뼈대 문서에 「앵커사업」 꼴이 없음)
     ext_path = ROOT / "data" / "platform" / "kg_external.json"
@@ -239,8 +240,10 @@ def main() -> int:
     code_sections: dict[str, list] = defaultdict(list)       # 과제 코드 → 그 코드를 단 보고서 절
     # 같은 사업·연차의 계획 ↔ 실적, 평가 → 대상
     for ynode, ids in by_year.items():
-        plans = [i for i in ids if assigns[i].kind == "plan"]
-        reports = [i for i in ids if assigns[i].kind == "report"]
+        # 계획↔실적 짝짓기는 뼈대 문서·플랫폼 업로드 사이에서만 — DGX 가볍게 처리한 문서(dgx://)는 문서·절·단위 노드로만 들어간다
+        # (같은 연차 계획서×보고서를 모두 견주면 원본 수만 건에서 곱으로 늘어난다)
+        plans = [i for i in ids if assigns[i].kind == "plan" and not docs_by_id[i].get("light")]
+        reports = [i for i in ids if assigns[i].kind == "report" and not docs_by_id[i].get("light")]
         evals = [i for i in ids if assigns[i].kind == "evaluation"]
         for p in plans:
             for r in reports:
@@ -310,8 +313,8 @@ def main() -> int:
     for prog, ys in prog_years.items():
         ys.sort()
         for (k1, y1), (k2, y2) in zip(ys, ys[1:]):
-            for p1 in (i for i in by_year[y1] if assigns[i].kind == "plan"):
-                for p2 in (i for i in by_year[y2] if assigns[i].kind == "plan"):
+            for p1 in (i for i in by_year[y1] if assigns[i].kind == "plan" and not docs_by_id[i].get("light")):
+                for p2 in (i for i in by_year[y2] if assigns[i].kind == "plan" and not docs_by_id[i].get("light")):
                     for s, t, why in sections.align_context(docs_by_id[p1]["sections"], docs_by_id[p2]["sections"], text_of, generic_parent=args.generic_parent):
                         edges.append((f"doc:{p1}:sec:{s.path}", f"doc:{p2}:sec:{t.path}", "continues", "식별자 일치",
                                       [f"{y1} 「{s.title[:50]}」", f"{y2} 「{t.title[:50]}」", why]))
