@@ -164,19 +164,25 @@ def post_if_changed(db) -> int:
     mark = {"docs": int(n or 0), "max_id": int(hi or 0), "chunks": int(nc or 0)}
     mpath = ROOT / "data" / "platform" / "kg_marker.json"
     old = json.loads(mpath.read_text(encoding="utf-8")) if mpath.is_file() else {}
-    if old == mark:
-        return 0
-    print(f"문서함 바뀜 {old} → {mark} — 그래프·양식 다시 짓기", flush=True)
-    rc = subprocess.call([sys.executable, str(ROOT / "scripts" / "164_sync_apply.py"), "--post-only"], cwd=ROOT)
-    # 사업 문서 계열 검색 색인 — 새 조각만 임베딩해 덧붙인다(ADR-0049). 한 번에 2만 조각, 남은 것은 다음 회차
+    # 사업 문서 색인은 매번(새 조각만, 가볍다)
     try:
         from zzaimy.app import grant_search
         got = grant_search.build_increment(db)
-        print(f"사업 문서 색인: 더함 {got['added']} · 뺌 {got['removed']} · 전체 {got['total']} · 남음 {got['pending']}", flush=True)
+        if got["added"] or got["removed"] or got["pending"]:
+            print(f"사업 문서 색인: 더함 {got['added']} · 뺌 {got['removed']} · 전체 {got['total']} · 남음 {got['pending']}", flush=True)
         if got["pending"]:
-            (Path(db.path).parent / ".kg-dirty").touch()     # 남은 조각은 1분 뒤 다시
+            (Path(db.path).parent / ".kg-dirty").touch()
     except Exception as e:
         print("사업 문서 색인 갱신 실패:", type(e).__name__, str(e)[:120], flush=True)
+    if {k: v for k, v in old.items() if k != "at"} == mark:
+        return 0
+    # 그래프 전체 재구축은 15분에 한 번까지 — 1분마다 다시 지으면 쉬지 않고 돈다. 그 사이 바뀐 것은 다음 회차에 모아서
+    if time.time() - float(old.get("at", 0)) < 15 * 60:
+        (Path(db.path).parent / ".kg-dirty").touch()
+        return 0
+    mark["at"] = time.time()
+    print(f"문서함 바뀜 {old} → {mark} — 그래프·양식 다시 짓기", flush=True)
+    rc = subprocess.call([sys.executable, str(ROOT / "scripts" / "164_sync_apply.py"), "--post-only"], cwd=ROOT)
     if rc == 0:
         mpath.write_text(json.dumps(mark), encoding="utf-8")
     return rc
