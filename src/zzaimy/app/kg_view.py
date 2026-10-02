@@ -79,7 +79,21 @@ def program_view(db, program_id: str | None) -> dict:
     for e in edges:
         if doc_of(e["src"]) in prog_docs:
             counts[(e["kind"], e["basis"])] += 1
-    return {"programs": progs, "program": prog, "cols": cols, "loose": loose, "rows": ROWS,
+    # 사업 체계(외부 확인 장부에서 지은 관계) — 분류, 앵커 편입, 앞뒤 단계
+    taxonomy = {"groups": [], "integrated": [], "pred": [], "succ": []}
+    for e in edges:
+        if e["kind"] == "contains" and e["src"].startswith("group:") and e["dst"] == prog["id"]:
+            taxonomy["groups"].append(nodes.get(e["src"], {}).get("label", e["src"]))
+        elif e["kind"] == "integrated_into" and e["src"] == prog["id"]:
+            taxonomy["integrated"].append({"to": nodes.get(e["dst"], {}).get("label", e["dst"]), "id": e["dst"], "why": e["evidence"][0] if e["evidence"] else ""})
+        elif e["kind"] == "integrated_into" and e["dst"] == prog["id"]:
+            taxonomy.setdefault("members", []).append({"name": nodes.get(e["src"], {}).get("label", e["src"]), "id": e["src"], "why": e["evidence"][0] if e["evidence"] else ""})
+        elif e["kind"] == "succeeded_by" and e["dst"] == prog["id"]:
+            taxonomy["pred"].append({"name": nodes.get(e["src"], {}).get("label", e["src"]), "id": e["src"]})
+        elif e["kind"] == "succeeded_by" and e["src"] == prog["id"]:
+            taxonomy["succ"].append({"name": nodes.get(e["dst"], {}).get("label", e["dst"]), "id": e["dst"]})
+    ledger = (prog.get("props") or {}).get("ledger") or {}
+    return {"programs": progs, "program": prog, "taxonomy": taxonomy, "ledger": ledger, "cols": cols, "loose": loose, "rows": ROWS,
             "plans_reports": dict(plans_reports), "continues": continues, "evaluates": evaluates,
             "counts": sorted(((KIND_KO.get(k[0], k[0]), k[1], v) for k, v in counts.items()), key=lambda t: -t[2]),
             "n_sections": sum(1 for n in nodes.values() if n["type"] == "section" and doc_of(n["id"]) in prog_docs)}
