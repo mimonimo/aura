@@ -548,7 +548,7 @@ def best_section(tree: list[Section], text_of, query: str, min_sim: float = 0.08
 _ASPECT_STOP = {"실적", "계획", "과제", "추진실적", "현황", "결과", "내용", "관리", "운영", "달성", "자체평가", "분석", "대표"}
 
 
-def aspect_match(tree: list[Section], report_title: str) -> tuple[Section | None, str]:
+def aspect_match(tree: list[Section], report_title: str, text_of=None, report_text: str = "") -> tuple[Section | None, str]:
     """과제 코드로 좁힌 계획서 안에서 보고서 절 제목의 핵심 낱말(예산·성과지표·추진 …)을 제목에 가진 절 — 가장 얕은 것.
     「과제2-1 예산 집행 실적」 → 「Ⅴ. 예산 운용」. 핵심 낱말이 겹치는 절이 없으면 (None, '')."""
     def words(t: str) -> set[str]:
@@ -560,5 +560,17 @@ def aspect_match(tree: list[Section], report_title: str) -> tuple[Section | None
     hits = [(len(want & words(x.title)), -x.path.count("."), x) for x in tree if want & words(x.title)]
     if not hits:
         return None, ""
-    n, _d, x = max(hits, key=lambda t: (t[0], t[1]))
+    best_n = max(h[0] for h in hits)
+    top = [h for h in hits if h[0] == best_n]
+    if len(top) > 1 and text_of is not None and report_text:
+        # 같은 낱말(「추진」)을 가진 장이 여럿이면 본문이 보고서 절과 더 겹치는 장(「세부과제 추진 내용」 > 「비전 및 추진 전략」)
+        q = _words(report_text)
+
+        def body(x: Section) -> float:
+            desc = [y for y in tree if y.path == x.path or y.path.startswith(x.path + ".")]
+            return _jac(_words(" ".join(text_of(y) or "" for y in desc)[:6000]), q)
+        top.sort(key=lambda h: (-body(h[2]), -h[1]))
+    else:
+        top.sort(key=lambda h: -h[1])
+    x = top[0][2]
     return x, f"제목 핵심 낱말 {sorted(want & words(x.title))}"
