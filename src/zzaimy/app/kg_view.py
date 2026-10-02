@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from zzaimy.graph import kg_store
@@ -18,12 +18,36 @@ ROWS = [("plan", "계획서"), ("report", "실적보고서"), ("evaluation", "�
 KIND_KO = {"contains": "포함", "plans_reports": "계획↔실적", "continues": "연차 이어짐", "evaluates": "평가"}
 
 
-def program_view(db, program_id: str | None) -> dict:
+def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
     kg_store.ensure(db)
-    progs = kg_store.nodes(db, "program")
+    nodes = {n["id"]: n for n in kg_store.nodes(db)}
+    edges = kg_store.edges(db)
+    if scope is not None:
+        from zzaimy.app.access_policy import visible
+
+        allowed_docs = {d["id"] for d in db.list_documents() if visible(d, **scope)}
+        allowed = {key for key, node in nodes.items() if node.get("doc_id") in allowed_docs}
+        # Keep only the classification ancestors of visible documents, never hidden siblings.
+        parents = defaultdict(list)
+        for edge in edges:
+            parent = nodes.get(edge["src"], {})
+            if edge["kind"] == "contains" and parent.get("type") in {"program", "year", "group"}:
+                parents[edge["dst"]].append(edge["src"])
+        pending = list(allowed)
+        while pending:
+            for parent in parents[pending.pop()]:
+                if parent not in allowed:
+                    allowed.add(parent)
+                    pending.append(parent)
+        if scope.get("role") == "dev":
+            allowed.update(k for k, n in nodes.items() if n["type"] in {"program", "year", "group"})
+        nodes = {k: n for k, n in nodes.items() if k in allowed}
+    edges = [e for e in edges if e["src"] in nodes and e["dst"] in nodes]
+    progs = [n for n in nodes.values() if n["type"] == "program"]
+    if program_id and not any(p["id"] == program_id for p in progs):
+        raise HTTPException(404, "사업을 찾을 수 없습니다")
     if not progs:
         return {"programs": [], "program": None}
-    edges = kg_store.edges(db)
     n_docs: dict[str, int] = defaultdict(int)
     for e in edges:
         if e["kind"] == "contains" and e["basis"] == "분류" and e["dst"].startswith("doc:"):
@@ -33,7 +57,6 @@ def program_view(db, program_id: str | None) -> dict:
         if e["kind"] == "contains" and e["src"].startswith("program:") and e["dst"].startswith("year:"):
             n_docs[e["src"]] += n_docs.get(e["dst"], 0)
     prog = next((p for p in progs if p["id"] == program_id), None) or max(progs, key=lambda p: n_docs.get(p["id"], 0))
-    nodes = {n["id"]: n for n in kg_store.nodes(db)}
     out_of = defaultdict(list)
     for e in edges:
         out_of[e["src"]].append(e)
@@ -102,5 +125,7 @@ def program_view(db, program_id: str | None) -> dict:
 @router.get("/graph/program", response_class=HTMLResponse)
 def graph_program(request: Request, id: str = ""):
     st = request.app.state
-    data = program_view(st.db, id or None)
+    scope = {"dept": getattr(request.state, "dept", "") or None,
+             "user": request.state.user, "role": request.state.role}
+    data = program_view(st.db, id or None, scope=scope)
     return st.templates.TemplateResponse(request, "kg_program.html", st.page_ctx(request, data))
