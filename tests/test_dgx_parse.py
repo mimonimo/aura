@@ -112,3 +112,21 @@ def test_import_skips_failed_and_empty_states(tmp_path, monkeypatch):
     db = _import(tmp_path, monkeypatch, [_rec(rel="p/x.pdf", ok=False, state="failed", chunks=[]),
                                          _rec(rel="p/y.pdf", state="empty", chunks=[])], "parsed-0.jsonl")
     assert not [d for d in db.list_documents() if str(d["stored_path"]).startswith("dgx://")]
+
+
+def test_old_version_read_later_does_not_revert(tmp_path, monkeypatch):
+    from zzaimy.app import archive
+    db = Database(tmp_path / "t.db")
+    archive.load(db, [dict(rel="p/a.hwp", size=20, mtime=1)], {})      # 장부의 현재 판 = 20:1
+    new = _rec(size=20, chunks=[{"seq": 0, "kind": "text", "content": "새 판"}])
+    old = _rec(size=10, chunks=[{"seq": 0, "kind": "text", "content": "옛 판"}])
+    db = _import(tmp_path, monkeypatch, [new, old], "parsed-0.jsonl")    # 새 판이 먼저, 옛 판이 뒤에 읽힘
+    did = next(d["id"] for d in db.list_documents() if d["stored_path"] == "dgx://p/a.hwp")
+    assert [c["content"] for c in db.list_doc_chunks(did)] == ["새 판"]
+
+
+def test_rerun_after_crash_reuses_document(tmp_path, monkeypatch):
+    db = Database(tmp_path / "t.db")
+    did = db.add_document("a.hwp", "dgx://p/a.hwp", doc_type="grant")   # 문서는 만들었고 장부 줄은 못 쓴 채 멈춤
+    db = _import(tmp_path, monkeypatch, [_rec()], "parsed-0.jsonl")
+    assert [d["id"] for d in db.list_documents() if d["stored_path"] == "dgx://p/a.hwp"] == [did]
