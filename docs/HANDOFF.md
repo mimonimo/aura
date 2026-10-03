@@ -157,6 +157,14 @@ VM cron(aura) 네 주기, 모두 `scripts/170_vm_sync.py`, 기록 `/tmp/zz_sync.
 `scripts/167` → VM `scripts/168`('DGX 보관 문서', stored_path `dgx://`). 167 은 MinerU 동시 실행 상한(`ZZAIMY_MINERU_SLOTS`, 기본 2)과
 가용 메모리 하한(`ZZAIMY_MIN_FREE_GB`, 기본 24)을 지킨다 — DGX 는 공용 장비(Ollama 상주 약 67GB)라 작업자마다 MinerU 가 뜨면 121GB 를
 다 써 SSH 가 멎는다(2026-10-02 실측). 스캔 PDF 판독은 MinerU(docling 은 스캔 경로에서 뺌, `docs/ocr-duel.md` 2026-10-02 대결).
+과거 사업 묶음과 프로젝트(2026-10-03~04): 동기화가 문서를 보고 묶는 과거 사업은 「보관」 프로젝트(projects.archived=1,
+archive_source='dgx', program=「사업 id|연도」)로 사업 × 수행 연도마다 하나 — 사이드바·라이브러리·프로젝트 검색에 안 뜨고 「보관된 사업」
+(/projects/archived, JSON /api/projects/browse)에서 찾아 불러온다. 「사업 아님」 판정은 「기관 일반 업무」, 모르는 것은 「사업 미분류 (검토 대기)」.
+담당자 프로젝트에는 사업단(projects.unit, 선택지는 원본 최상위 폴더)이 있고, 만들 때 이름이 겹치는 보관 사업이 참조(project_refs)로 붙으며
+프로젝트 대화의 사업 문서 검색은 참조 묶음 문서부터 본다. 연도 근거: 파일 이름 → 가장 깊은 폴더 → 본문 첫머리 800자, 외부 확인 장부의
+사업 기간으로 연차↔연도 환산·기간 밖이면 기간이 맞는 앞뒤 단계 사업으로(programs.fill_period·ledger_link). 분류 규칙을 고친 뒤 바로 반영은
+`170 --ledger-only`. 그래프 전체 재구축은 약 22분(묶어 읽기·쓰기), 끝날 때마다 data/platform/doc_program_changes.jsonl(배정 변경)·
+program_core_docs.json(사업 × 연도 확정 핵심 문서)을 낸다.
 사업 체계(일반재정지원·앵커·특수목적, 앵커 편입 연도)는 외부 검색으로 확인한 장부 VM `data/platform/kg_external.json`
 (출처 필수)로 그래프에 들어간다. 사업별 공통 양식은 드라이브 「ZZAIMY/사업별 공통 양식」(security02@ync.ac.kr, `scripts/169`).
 
