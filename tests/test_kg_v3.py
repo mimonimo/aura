@@ -624,3 +624,25 @@ def test_norm_name_strips_attachment_and_two_digit_year_tags():
     assert _norm_name("붙임3 LINC+사업") == "LINC+사업"
     assert _norm_name("14년도 LINC 육성사업") == "LINC 육성사업"
     assert _norm_name("3단계 산학연협력 선도전문대학 육성사업").startswith("3단계")
+
+
+def test_export_assignments_logs_changes_and_core_docs(tmp_path, monkeypatch):
+    import importlib.util
+    import json as _json
+    from pathlib import Path as _P
+    from zzaimy.graph.programs import Assignment
+    spec = importlib.util.spec_from_file_location("kg157", _P(__file__).resolve().parents[1] / "scripts" / "157_build_kg.py")
+    job = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(job)
+    monkeypatch.setattr(job, "ROOT", tmp_path)
+    (tmp_path / "data" / "platform").mkdir(parents=True)
+    docs = [{"id": 1, "filename": "계획서.hwp", "sections": [1, 2]}, {"id": 2, "filename": "보고서.hwp", "sections": []}]
+    a1 = Assignment(doc_id=1, program="program:x", program_name="X사업", year=2023, round=2, kind="plan", status="auto")
+    a2 = Assignment(doc_id=2, program="program:x", program_name="X사업", year=2023, round=2, kind="report", status="review")
+    job._export_assignments(docs, {1: a1, 2: a2})
+    core = _json.loads((tmp_path / "data/platform/program_core_docs.json").read_text())
+    assert [d["doc_id"] for d in core["programs"][0]["docs"]] == [1]          # 검토 대기(review)는 확정 문서가 아니다
+    a1.year = 2024
+    job._export_assignments(docs, {1: a1, 2: a2})
+    ch = [_json.loads(x) for x in (tmp_path / "data/platform/doc_program_changes.jsonl").read_text().splitlines()]
+    assert len(ch) == 1 and ch[0]["doc_id"] == 1 and ch[0]["before"][1] == 2023 and ch[0]["after"][1] == 2024

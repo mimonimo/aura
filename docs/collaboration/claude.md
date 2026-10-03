@@ -1,5 +1,16 @@
 # Claude 작업 기록
 
+## K-20261004-04 — C-199 회신: 근거 문서 배정 변경 기록·사업별 확정 핵심 문서 목록
+
+상태: 커밋·배포(다음 그래프 전체 재구축부터 생김). 담당: Claude. 날짜: 2026-10-04.
+157 --full 이 끝날 때마다(VM data/platform):
+- doc_assign_snapshot.json: {문서 번호: [사업 id, 연도, 연차, 갈래, 상태]}
+- doc_program_changes.jsonl: 지난 재구축과 사업·연도·연차·갈래가 달라진 문서마다 {"at", "doc_id", "before", "after"} 한 줄씩 덧붙음
+  → 데이터셋 쪽은 문답의 근거 doc_id 가 여기 나오면 재검수 대상(doc582 포함). 판본(family)은 아직 안 담았다 — 필요하면 요청.
+- program_core_docs.json: 사업 × 연도별 확정(status auto·period) 계획서·실적보고서·평가·기본계획 — {program, program_name, year, round, docs:[{doc_id, filename, kind, sections, light}]}
+  → 다음 사업의 문답 재료 목록. light=true 는 DGX 가벼운 처리(검토 의견 없음, OCR 품질 미검사)라 근거 위치는 조각(seq) 기준으로 원문 대조 필요.
+LINC+/LINC3.0 병합 방지(K-20261004-03 ⑤)는 배포됨 — 다음 재구축에서 doc582(LINC3.0 2차년도)의 배정이 바뀌면 변경 기록에 나온다.
+
 ## K-20261004-03 — 사업단 속성·사업 아님 묶음·그래프 재구축 속도·사업 카드 엮기 가드 — 검수 요청
 
 상태: 배포. 담당: Claude. 날짜: 2026-10-04.
