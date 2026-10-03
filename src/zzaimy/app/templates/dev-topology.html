@@ -1,0 +1,31 @@
+<section class="system-overview" aria-labelledby="systemHeading">
+  <header class="system-heading">
+    <div><h3 id="systemHeading">시스템 구성</h3><p>원본 보관·서비스·모델 실행의 역할을 분리합니다.</p></div>
+    <a href="/static/topology.svg" target="_blank" rel="noopener">상세 구성도 ↗</a>
+  </header>
+  <div class="system-roles">
+    <article class="system-role">
+      <span class="system-label">원본·처리·학습</span>
+      <h4>DGX</h4>
+      <p>원본 문서를 보관하고 구조 추출·OCR·일괄 모델 작업을 수행합니다.</p>
+      <ul><li>원본과 처리본 관리</li><li>승인 데이터로 SFT 학습</li></ul>
+    </article>
+    <article class="system-role system-role-main">
+      <span class="system-label">플랫폼·데이터</span>
+      <h4>운영 VM</h4>
+      <p>사용자 업무와 문서 검색을 연결하고 서비스 데이터를 관리합니다.</p>
+      <ul><li>문서함·DB·RAG 색인</li><li>온톨로지·지식그래프·학습 후보</li></ul>
+    </article>
+    <article class="system-role">
+      <span class="system-label">실시간 모델</span>
+      <h4>토르 02 · 03</h4>
+      <p>플랫폼 요청에 따라 대화·초안·검토와 검색 모델을 실행합니다.</p>
+      <ul><li>02 — 대화·초안</li><li>03 — 검토·판독·임베딩·리랭킹</li></ul>
+    </article>
+  </div>
+  <div class="system-routes" aria-label="데이터 이동 경로">
+    <div><span>문서 반입</span><p>원천 문서 <i aria-hidden="true">→</i> DGX 처리 <i aria-hidden="true">→</i> VM 검색·그래프</p></div>
+    <div><span>학습·반영</span><p>VM 후보 검수·승인 <i aria-hidden="true">→</i> DGX 학습 <i aria-hidden="true">→</i> 토르 이관</p></div>
+  </div>
+  <footer>교직원은 브라우저에서 이용하며, 문서 작업본은 각자 연결한 학교 Google 계정으로 관리합니다.<br>구성·처리 경로 안내입니다. 현재 연결 상태나 학습 완료를 뜻하지 않습니다.</footer>
+</section>
