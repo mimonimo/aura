@@ -617,3 +617,10 @@ def test_head_only_fragment_with_one_strong_acronym_joins_that_program():
     cards = P.build_cards(docs)
     frag = [c for c in cards if any("귀하께서" in n for n in c.names)]
     assert len(frag) == 1 and "LINC+" in {a.upper() for a in frag[0].acrs}    # 조각은 LINC+ 카드에 들어갔다
+
+
+def test_norm_name_strips_attachment_and_two_digit_year_tags():
+    from zzaimy.graph.programs import _norm_name
+    assert _norm_name("붙임3 LINC+사업") == "LINC+사업"
+    assert _norm_name("14년도 LINC 육성사업") == "LINC 육성사업"
+    assert _norm_name("3단계 산학연협력 선도전문대학 육성사업").startswith("3단계")

@@ -63,7 +63,9 @@ def _norm_name(name: str) -> str:
     n = _LEAD_LABEL.sub("", name or "").strip()
     # 앞에 붙은 때·순번 꼬리표 — 「8월 RISE사업」·「3(경대) RISE사업」·「25재정지원사업」의 8월·3(경대)·25
     # 숫자 뒤가 「단계·차·주기·기」면 이름의 일부다(「3단계 산학연협력 …」의 3) — 떼지 않는다
-    n = re.sub(r"^(?:(?:19|20)\d{2}\s*(?:학년도|년도|년)|\d{1,2}\s*월|\d{1,2}\s*\([^)]{1,10}\)|\d{1,4}(?!\s*(?:단계|차|주기|기|학년도|년도|년)))\s*(?=[가-힣A-Za-z])", "", n).strip()
+    n = re.sub(r"^(?:(?:19|20)?\d{2}\s*(?:학년도|년도|년)|\d{1,2}\s*월|\d{1,2}\s*\([^)]{1,10}\)|\d{1,4}(?!\s*(?:단계|차|주기|기|학년도|년도|년)))\s*(?=[가-힣A-Za-z])", "", n).strip()
+    # 번호·붙임 꼬리표 — 「51) 사회맞춤형LINC 육성사업」「2) LINC+ 사업」「붙임3 LINC+사업」
+    n = re.sub(r"^(?:\d{1,3}\)|붙임\s*\d*[.)]?)\s*(?=[가-힣A-Za-z])", "", n).strip()
     # 날짜 꼬리표 — 「190401(혁신지원사업」「20240315_RISE사업」의 날짜와 뒤의 괄호·밑줄
     n = re.sub(r"^\d{6,8}\s*[(_\-\s]\s*(?=[가-힣A-Za-z])", "", n).strip()
     # 닫히지 않은 여는 괄호 — 「보도자료(COSS 혁신융합대학사업」은 파일 이름의 앞부분이 붙은 것. 괄호 뒤가 사업명이다
@@ -265,9 +267,10 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
     titled_roots = {find(k) for k in titled if k in parent}
     strong_root = {a: find(a) for a in strong if a in parent}
     for root in list(groups):
-        if root in titled_roots:
-            continue
         card = groups[root]
+        # 파일 이름 출신이라도 언급이 드문(3번 이하) 조각(「김태열 교수님 LINC 사업」)은 같은 규칙으로 접는다
+        if root in titled_roots and sum(card.names.values()) + sum(card.acrs.values()) > 3:
+            continue
         flat_su = [re.sub(_FLAT, "", x).upper() for x in card.surfaces()]
         found = {a for a in strong_root
                  if any(re.search(r"(?<![A-Z0-9])" + re.escape(a[2:]) + r"(?![A-Z0-9.])", f) for f in flat_su)}
