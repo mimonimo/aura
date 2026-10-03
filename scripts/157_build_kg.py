@@ -443,7 +443,48 @@ def main() -> int:
         kg_store.put_nodes(conn, nodes)
         kg_store.put_edges(conn, edges)
     print(f"썼다 — 노드 {len(nodes)} · 관계 {len(edges)}")
+    if args.full:
+        _export_assignments(docs, assigns)
     return 0
+
+
+def _export_assignments(docs: list[dict], assigns: dict) -> None:
+    """문서별 배정(사업·연도·연차·갈래) 스냅숏과 지난번 대비 변경 기록, 사업 × 연도별 확정 핵심 문서 목록을 내보낸다.
+
+    학습 문답(데이터셋)은 근거 문서의 사업·연차가 바뀌면 다시 검수해야 한다(아스트라 C-199) — 변경은
+    data/platform/doc_program_changes.jsonl 에 덧붙고, 문답 재료가 될 확정 문서는 program_core_docs.json 으로 나간다."""
+    import time as _t
+    plat = ROOT / "data" / "platform"
+    snap_path = plat / "doc_assign_snapshot.json"
+    old = json.loads(snap_path.read_text(encoding="utf-8")) if snap_path.is_file() else {}
+    now = {str(d["id"]): [a.program or "", a.year, a.round, a.kind or "", a.status]
+           for d in docs if (a := assigns.get(d["id"]))}
+    stamp = _t.strftime("%Y-%m-%d %H:%M")
+    changed = 0
+    if old:
+        with (plat / "doc_program_changes.jsonl").open("a", encoding="utf-8") as fh:
+            for did, cur in now.items():
+                prev = old.get(did)
+                if prev and prev[:4] != cur[:4]:
+                    fh.write(json.dumps({"at": stamp, "doc_id": int(did), "before": prev, "after": cur}, ensure_ascii=False) + "\n")
+                    changed += 1
+    tmp = snap_path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(now, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(snap_path)
+    core: dict = {}
+    by_id = {d["id"]: d for d in docs}
+    for did, a in assigns.items():
+        if not a.program or a.status not in ("auto", "period") or a.kind not in ("plan", "report", "evaluation", "basic_plan"):
+            continue
+        d = by_id.get(did) or {}
+        key = f"{a.program}|{a.year or ''}"
+        ent = core.setdefault(key, {"program": a.program, "program_name": a.program_name, "year": a.year, "round": a.round, "docs": []})
+        ent["docs"].append({"doc_id": did, "filename": d.get("filename"), "kind": a.kind,
+                            "sections": len(d.get("sections") or []), "light": bool(d.get("light"))})
+    out = sorted(core.values(), key=lambda e: (e["program_name"] or "", e["year"] or 0))
+    (plat / "program_core_docs.json").write_text(json.dumps({"at": stamp, "programs": out}, ensure_ascii=False, indent=1),
+                                                  encoding="utf-8")
+    print(f"배정 스냅숏 {len(now)}건 · 지난번과 달라진 문서 {changed}건 · 확정 핵심 문서 묶음 {len(out)}개", flush=True)
 
 
 if __name__ == "__main__":
