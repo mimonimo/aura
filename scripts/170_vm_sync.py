@@ -320,7 +320,11 @@ def main() -> int:
         print(f"폴더 검토 판정 반영 {n_rev}건(장부 {len(reviews)}줄)", flush=True)
     # 연차·연도: 폴더 경로로 채우고, 외부 확인 장부의 사업 기간으로 환산, 기간 밖이면 확정하지 않음(보관 묶음이 사업 × 연도라서)
     ext = ROOT / "data" / "platform" / "kg_external.json"
-    # 문서함에 본문이 있는 원본은 본문 첫머리의 「N차년도」「2023학년도」도 연차·연도 근거로(파일 이름·경로에 없을 때만, 적힌 표기만)
+    ledger = json.loads(ext.read_text(encoding="utf-8")) if ext.is_file() else {}
+    link = programs.ledger_link(cards, ledger)
+    names = {c.node_id: c.name for c in cards}
+    st = programs.fill_period(docs, [res[d["id"]] for d in docs], link["periods"], link["spans"], link["aliases"], names)
+    # 파일 이름·폴더로도 연차·연도를 못 정한 원본은 문서함 본문 첫머리의 표기(「N차년도」「2023학년도」)로 — 적힌 표기만, 그 뒤 환산·기간 검사를 다시
     origin_doc = {}
     led0 = ROOT / "data" / "platform" / "origins.jsonl"
     if led0.is_file():
@@ -352,10 +356,13 @@ def main() -> int:
                 n_head += 1
     if n_head:
         print(f"본문 첫머리로 연차·연도 {n_head}건", flush=True)
-    ledger = json.loads(ext.read_text(encoding="utf-8")) if ext.is_file() else {}
-    link = programs.ledger_link(cards, ledger)
-    st = programs.fill_period(docs, [res[d["id"]] for d in docs], link["periods"], link["spans"], link["aliases"],
-                              {c.node_id: c.name for c in cards})
+    if n_head:
+        # 본문 첫머리는 연혁(「2014년 LINC 선정」)도 담는다 — 그 연도가 사업 기간 밖이면 사업은 두고 연도만 버린다(경로보다 약한 근거)
+        for a in need.values():
+            span = link["periods"].get(a.program)
+            if span and a.year and not (span[0] <= a.year <= (span[1] or 9999)):
+                a.year = a.round = None
+        programs.fill_period(docs, [res[d["id"]] for d in docs], link["periods"], link["spans"], link["aliases"], names)
     print(f"연차·연도 보정 {st}(사업 기간 {len(link['periods'])}개 · 같은 사업 합침 {link['aliases']})", flush=True)
     by_rel = {d["rel"]: res[d["id"]] for d in docs}
     rows = []
