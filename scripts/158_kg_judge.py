@@ -106,6 +106,25 @@ def main() -> int:
 
     def prog_of(sec_id: str) -> str:
         return prog_of_node.get(sec_id.split(":sec:")[0], "(미분류)")
+    # 사업 이름 머리글(「대구광역시 지역혁신중심 대학지원체계(RISE)」)끼리의 쌍은 놓친 짝 후보에서 뺀다 — 본문이 없어 판정이
+    # 제목만 보고 '같다'를 주어 재현율 어림을 부풀렸다(all12). 157 의 is_program_heading 과 같은 규칙
+    surf = {}
+    for n in kg_store.nodes(db, "program"):
+        pr = n.get("props") or {}
+        surf[n["id"]] = sorted({re.sub(r"[\s.()·\-_]+", "", x).upper() for x in [n.get("label") or ""] + list(pr.get("names") or [])
+                                + list(pr.get("acronyms") or []) if len(x) >= 3}, key=len, reverse=True)
+
+    def heading(title: str, prog: str) -> bool:
+        t = re.sub(r"[\s.()·\-_「」\[\]]+", "", title or "").upper()
+        hit = False
+        for su in surf.get(prog, []):
+            if su and su in t:
+                t = t.replace(su, "")
+                hit = True
+        return hit and len(re.sub(r"[^가-힣A-Z0-9]", "", t)) <= 6
+    before = len(dropped)
+    dropped = [(a, b) for a, b in dropped if not heading((secs.get(a) or {}).get("label") or "", prog_of(a))]
+    print(f"놓친 짝 후보: 사업 이름 머리글 쌍 {before - len(dropped)}개 뺌", flush=True)
     rnd = random.Random(args.seed)
     client = VllmClient(role="review")
     out = {}
