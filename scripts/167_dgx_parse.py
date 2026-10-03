@@ -48,6 +48,18 @@ def version(it: dict) -> str:
 
 
 MINERU_SLOTS = int(os.environ.get("ZZAIMY_MINERU_SLOTS", "2"))
+MAX_RSS_GB = float(os.environ.get("ZZAIMY_WORKER_MAX_RSS_GB", "4"))
+RECYCLE = 3                      # 작업자가 메모리 상한을 넘겨 스스로 끝냄 — main 이 그 자리부터 새 작업자로 잇는다
+
+
+def _rss_gb() -> float:
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) / 1024 / 1024
+    except OSError:
+        pass
+    return 0.0
 MIN_FREE_GB = float(os.environ.get("ZZAIMY_MIN_FREE_GB", "24"))
 
 
@@ -111,7 +123,7 @@ def _limit_mineru() -> None:
     _m.MineruParser.parse = parse
 
 
-def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: int) -> None:
+def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: int, start: int = 0) -> None:
     """문서마다 제한 시간(timeout_s, SIGALRM) — 넘으면 그 문서는 failed(시간 초과)로 적고 다음으로.
     파이썬으로 돌아오지 않는 네이티브 코드 안에서 멈추면 알람이 늦게 걸린다 — 그때는 작업자 종료 코드와
     미처리 건수로 드러난다(main 이 집계)."""
@@ -129,7 +141,9 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
     proc = DocumentProcessor()
     out = (Path(out_dir) / f"parsed-{n}.jsonl").open("a", encoding="utf-8")
     signal.signal(signal.SIGALRM, _alarm)
-    for it in items:
+    progress = work / "progress"
+    for idx in range(start, len(items)):
+        it = items[idx]
         src = Path(data_root) / it["rel"]
         t0 = time.time()
         rec = {k: it.get(k) for k in ("rel", "program", "program_name", "status", "kind", "year", "round", "size", "mtime")}
@@ -167,6 +181,11 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
         rec["sec"] = round(time.time() - t0, 1)
         out.write(json.dumps(rec, ensure_ascii=False) + "\n")
         out.flush()
+        progress.write_text(str(idx + 1))
+        # 판독 도구가 메모리를 쌓는다(10/3 실측: 21시간 뒤 작업자 6개가 25GB, 가용 메모리 하한에 스스로 걸려 멈춤) — 상한을 넘으면 끝내고 새로 뜬다
+        if idx + 1 < len(items) and _rss_gb() > MAX_RSS_GB:
+            out.close()
+            sys.exit(RECYCLE)
     out.close()
 
 
@@ -229,14 +248,33 @@ def main() -> int:
     if args.force:
         for it in items:
             it["force"] = True
-    procs = [(i, s, mp.Process(target=worker, args=(i, s, args.root, args.out, args.doc_timeout))) for i, s in enumerate(shards) if s]
-    for _i, _s, p in procs:
+    def spawn(i: int, start: int):
+        p = mp.Process(target=worker, args=(i, shards[i], args.root, args.out, args.doc_timeout, start))
         p.start()
-    for _i, _s, p in procs:
-        p.join()
+        return p
+
+    running = {i: spawn(i, 0) for i, sh in enumerate(shards) if sh}
+    bad: list[tuple[int, int | None]] = []
+    recycled = 0
+    while running:
+        time.sleep(2)
+        for i, p in list(running.items()):
+            if p.is_alive():
+                continue
+            p.join()
+            if p.exitcode == RECYCLE:                         # 메모리 상한 — 진행 위치부터 새 작업자
+                prog = Path(args.out) / f"w{i}" / "progress"
+                nxt = int(prog.read_text()) if prog.is_file() else 0
+                running[i] = spawn(i, nxt)
+                recycled += 1
+                continue
+            del running[i]
+            if p.exitcode != 0:
+                bad.append((i, p.exitcode))
+    if recycled:
+        print(f"메모리 상한({MAX_RSS_GB:g}GB)으로 작업자 새로 띄움 {recycled}회", flush=True)
     # 거짓 완료 막기(C-183) — 작업자 종료 코드와 이번 회차에 실제로 적힌 기록을 맞춰 본다
     after = _counts(Path(args.out))
-    bad = [(i, p.exitcode) for i, _s, p in procs if p.exitcode != 0]
     wrote = {k: after.get(k, 0) - before.get(k, 0) for k in set(after) | set(before)}
     n_written = sum(wrote.values())
     missing = len(items) - n_written

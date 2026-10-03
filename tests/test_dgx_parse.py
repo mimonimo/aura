@@ -36,6 +36,9 @@ class _DeadWorker:
     def join(self):
         pass
 
+    def is_alive(self):
+        return False
+
 
 def test_parse_reports_incomplete_when_worker_dies(tmp_path, monkeypatch, capsys):
     job = _load("167_dgx_parse.py")
@@ -187,3 +190,33 @@ def test_forced_reparse_updates_same_document_even_with_same_version(tmp_path, m
     db = _import(tmp_path, monkeypatch, [{**same, "force": True}], "parsed-2.jsonl")
     assert [c["content"] for c in db.list_doc_chunks(did)] == ["kordoc 으로 다시"]
     assert [d["id"] for d in db.list_documents() if d["stored_path"] == "dgx://p/a.hwp"] == [did]
+
+
+
+def test_worker_over_memory_limit_is_respawned_from_progress(tmp_path, monkeypatch, capsys):
+    job = _load("167_dgx_parse.py")
+    monkeypatch.setattr(job.time, "sleep", lambda s: None)
+    out = tmp_path / "out"
+    starts = []
+
+    class _Recycling(_DeadWorker):
+        def __init__(self, target=None, args=()):
+            super().__init__()
+            self.args = args
+
+        def start(self):
+            n, items, _root, out_dir, _t, start = self.args
+            starts.append(start)
+            work = Path(out_dir) / f"w{n}"
+            work.mkdir(parents=True, exist_ok=True)
+            with (Path(out_dir) / f"parsed-{n}.jsonl").open("a", encoding="utf-8") as fh:
+                it = items[start]
+                fh.write(json.dumps({"rel": it["rel"], "ok": True, "state": "parsed", "size": it["size"], "mtime": 1}) + "\n")
+            (work / "progress").write_text(str(start + 1))
+            self.exitcode = job.RECYCLE if start + 1 < len(items) else 0   # 한 건마다 메모리 상한에 걸린 셈
+
+    monkeypatch.setattr(job.mp, "Process", _Recycling)
+    monkeypatch.setattr(sys, "argv", ["167", "--inventory", str(_inventory(tmp_path, 3)), "--out", str(out), "--workers", "1"])
+    assert job.main() == 0
+    assert starts == [0, 1, 2]
+    assert "PARSE_DONE" in capsys.readouterr().out
