@@ -646,3 +646,16 @@ def test_export_assignments_logs_changes_and_core_docs(tmp_path, monkeypatch):
     job._export_assignments(docs, {1: a1, 2: a2})
     ch = [_json.loads(x) for x in (tmp_path / "data/platform/doc_program_changes.jsonl").read_text().splitlines()]
     assert len(ch) == 1 and ch[0]["doc_id"] == 1 and ch[0]["before"][1] == 2023 and ch[0]["after"][1] == 2024
+
+
+def test_fill_period_aligns_round_to_year_when_they_disagree():
+    from zzaimy.graph import programs as P
+
+    class A:
+        def __init__(self, year, round_):
+            self.program, self.program_name, self.status = "program:p", "P", "auto"
+            self.year, self.round, self.evidence = year, round_, []
+
+    a = A(2021, 6)
+    st = P.fill_period([{"path": ""}], [a], {"program:p": (2017, 2022)})
+    assert (a.year, a.round) == (2021, 5) and st["round_fixed"] == 1

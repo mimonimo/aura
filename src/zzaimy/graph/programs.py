@@ -567,7 +567,11 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
         if a.year is None and a.round:
             a.year = start + a.round - 1
             stats["converted"] += 1
-        elif a.year and a.round is None and start <= a.year <= (end or 9999):
+        elif a.year and start <= a.year <= (end or 9999) and a.round != a.year - start + 1:
+            # 연차가 없거나 연도와 엇갈리면 연도로 맞춘다 — 「N차년도」는 준비년도를 0차로 세는 등 셈이 제각각이고
+            # 연도가 더 믿을 만하다(「LINC+ 6차년도 (2021)」「LINC3.0 6차년도 (2022)」 같은 엇갈린 연차 노드)
+            if a.round is not None:
+                stats["round_fixed"] = stats.get("round_fixed", 0) + 1
             a.round = a.year - start + 1
             stats["converted"] += 1
         if a.year and not (start <= a.year <= (end or 9999)):
