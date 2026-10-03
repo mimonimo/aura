@@ -123,6 +123,7 @@ def test_archive_and_unarchive_routes(tmp_path):
     app = _app(tmp_path)
     db = app.state.db
     past = db.create_project("grant", "RISE사업", owner="zzdev", archived=True, program="program:rise")
+    db.add_document("r.hwp", "dgx://r/r.hwp", doc_type="grant", project_id=past)          # 볼 수 있는 문서가 있어야 목록에 뜬다
     client = TestClient(app)
     assert _login(client, "zzaimy", "boot-pass-1")
     page = client.get("/projects/archived")

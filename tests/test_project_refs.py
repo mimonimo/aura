@@ -76,3 +76,27 @@ def test_new_project_gets_related_archived_refs(tmp_path):
     refs = project_refs.list_refs(db, pid)
     assert [x["ref_project_id"] for x in refs] == [past] and "자동" in refs[0]["reason"]
     assert db.get_project(past)["archived"] == 1 and db.get_project(past)["owner"] == "zzdev"
+
+
+def test_browse_filters_by_permission_status_year(tmp_path):
+    db, mine, past, other = _setup(tmp_path)
+    secret = db.create_project("grant", "2024년 비공개 사업", owner="zzdev", archived=True, program="program:s|2024")
+    hid = db.add_document("s.hwp", "dgx://s/s.hwp", doc_type="grant", project_id=secret)
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET access_level = 'owner', owner = 'lee' WHERE id = ?", (hid,))
+    with db._conn() as conn:
+        conn.execute("UPDATE projects SET program = ? WHERE id = ?", ("program:aid|2025", past))
+    kim = {"dept": None, "user": "kim", "role": "staff"}
+    got = project_refs.browse(db, kim, status="archived", for_project=mine)
+    names = {it["name"]: it for it in got["items"]}
+    assert "2024년 비공개 사업" not in names                                   # 볼 수 있는 문서가 없으면 보이지 않는다
+    assert names["2025년 AID 전환 중점 전문대학 지원사업"]["n_docs"] == 3       # 문서 수는 열람 범위만
+    assert names["2025년 AID 전환 중점 전문대학 지원사업"]["year"] == "2025" and names["2025년 AID 전환 중점 전문대학 지원사업"]["why"]
+    assert got["items"][0]["id"] == past                                      # 관련 이유(이름 겹침) 있는 것이 먼저
+    assert [it["id"] for it in project_refs.browse(db, kim, status="archived", year="2025")["items"]] == [past]
+    act = project_refs.browse(db, kim, status="active")
+    assert [it["id"] for it in act["items"]] == [mine]                         # 진행 중은 본인 것만
+    assert project_refs.browse(db, {"dept": None, "user": "lee", "role": "staff"}, status="active")["items"] == []
+    project_refs.link(db, mine, past)
+    assert next(it for it in project_refs.browse(db, kim, for_project=mine)["items"] if it["id"] == past)["linked"] is True
+    assert db.get_project(past)["archived"] == 1
