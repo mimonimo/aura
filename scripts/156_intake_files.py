@@ -96,6 +96,20 @@ def main() -> int:
         project_id = int(proj["id"]) if proj else db.create_project(args.sector, args.project, owner=args.owner,
                                                                     archived=args.archived)
     print(f"프로젝트 #{project_id} 「{args.project}」")
+    # 내용이 같은 문서가 이미 있어 건너뛰는 원본도 그 문서 번호로 원본 경로 장부에 적는다 — 안 적으면 동기화(170)가
+    # 회차마다 같은 원본을 「새 파일」로 다시 골라 그래프를 헛되이 다시 짓는다(2026-10-04 실측: 같은 2건이 회차마다)
+    if args.origin_base:
+        led = ROOT / "data" / "platform" / "origins.jsonl"
+        with led.open("a", encoding="utf-8") as fh:
+            for f, dup in plan:
+                if dup is None:
+                    continue
+                try:
+                    rel = str(f.resolve().relative_to(Path(args.origin_base).resolve()))
+                except ValueError:
+                    continue
+                fh.write(json.dumps({"doc_id": dup, "origin": rel, "at": time.strftime("%Y-%m-%d %H:%M"), "via": "same-content"},
+                                    ensure_ascii=False) + "\n")
     todo = [f for f, dup in plan if dup is None]
     running, ok, fail, t0 = [], 0, 0, time.time()
     while todo or running:
