@@ -114,3 +114,82 @@ def unlink(db, project_id: int, ref_project_id: int) -> None:
     ensure(db)
     with db._conn() as conn:
         conn.execute("DELETE FROM project_refs WHERE project_id = ? AND ref_project_id = ?", (project_id, ref_project_id))
+
+
+def _year_of(program_key: str) -> str:
+    """보관 묶음 열쇠(「program:x|2023」「…|r2」「…|?」「…|*」)의 수행 연도 표시."""
+    tail = (program_key or "").rsplit("|", 1)[-1] if "|" in (program_key or "") else ""
+    if tail.isdigit():
+        return tail
+    if tail.startswith("r") and tail[1:].isdigit():
+        return f"{tail[1:]}차년도"
+    return ""
+
+
+def _units(db, project_ids: list[int]) -> dict[int, list[str]]:
+    """묶음마다 사업단(원본 최상위 폴더) — 문서가 많은 순."""
+    if not project_ids:
+        return {}
+    marks = ",".join("?" * len(project_ids))
+    out: dict[int, list[str]] = {}
+    try:
+        with db._conn() as conn:
+            for pid, area, _n in conn.execute(
+                    "SELECT d.project_id, a.area, COUNT(*) FROM documents d JOIN archive_files a ON a.rel = SUBSTR(d.stored_path, 7)"
+                    f" WHERE d.stored_path LIKE 'dgx://%' AND d.project_id IN ({marks}) AND a.area <> ''"
+                    " GROUP BY d.project_id, a.area ORDER BY 3 DESC", project_ids).fetchall():
+                out.setdefault(int(pid), []).append(str(area))
+    except Exception:
+        pass
+    return out
+
+
+def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: str = "", unit: str = "",
+           for_project: int | None = None, limit: int = 200) -> dict:
+    """통합 프로젝트 찾기(C-195) — 진행 중(본인 것)·보관(문서 열람 권한 기준)을 사업명·수행 연도·사업단·상태로.
+
+    돌려주는 것 {"items": [{id, name, status, year, program, units, n_docs, why, linked}], "units": [...], "years": [...]}.
+    - status: archived · active · all. 진행 중은 보는 사람의 것만, 보관은 볼 수 있는 문서가 하나라도 있는 묶음만(문서 수도 그 범위)
+    - for_project 를 주면 그 프로젝트와의 관련 이유(이름 겹침)와 이미 참조됐는지(linked)를 함께 — 연결은 POST /project/{id}/refs
+    검색·열람·참조는 보관 해제나 소유권 이전이 아니다."""
+    user = (scope or {}).get("user")
+    dev = (scope or {}).get("role") == "dev"
+    with db._conn() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT id, name, owner, archived, program FROM projects ORDER BY id").fetchall()]
+    keep = []
+    for r in rows:
+        st = "archived" if r["archived"] else "active"
+        if status in ("archived", "active") and st != status:
+            continue
+        if st == "active" and not dev and r["owner"] != user:
+            continue
+        if q.strip() and q.strip().replace(" ", "") not in (r["name"] or "").replace(" ", ""):
+            continue
+        r["status"], r["year"] = st, _year_of(r["program"])
+        keep.append(r)
+    counts = _visible_counts(db, [r["id"] for r in keep], scope)
+    units = _units(db, [r["id"] for r in keep])
+    linked: set[int] = set()
+    mine: set[str] = set()
+    if for_project:
+        linked = {x["ref_project_id"] for x in list_refs(db, int(for_project))}
+        proj = next((r for r in rows if r["id"] == int(for_project)), None)
+        mine = _grams((proj or {}).get("name") or "")
+    items = []
+    for r in keep:
+        n = counts.get(r["id"], 0)
+        if r["status"] == "archived" and not n:
+            continue                                   # 볼 수 있는 문서가 없는 보관 묶음은 이름도 보이지 않는다
+        if year and r["year"] != year:
+            continue
+        us = units.get(r["id"], [])[:3]
+        if unit and unit not in us:
+            continue
+        common = sorted(mine & _grams(r["name"] or "")) if mine else []
+        items.append({"id": r["id"], "name": r["name"], "status": r["status"], "year": r["year"], "program": r["program"],
+                      "units": us, "n_docs": n, "why": ("이름 겹침: " + "·".join(common[:6])) if common else "",
+                      "linked": r["id"] in linked, "score": len(common) / max(len(mine), 1) if mine else 0.0})
+    items.sort(key=lambda x: (-x["score"], -x["n_docs"], x["name"]))
+    return {"items": items[:limit], "total": len(items),
+            "units": sorted({u for it in items for u in it["units"]}),
+            "years": sorted({it["year"] for it in items if it["year"]}, reverse=True)}

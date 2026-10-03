@@ -5722,24 +5722,27 @@ def create_app(
         return RedirectResponse(f"/project/{project_id}#paneRefs", status_code=303)
 
     @app.get("/projects/archived", response_class=HTMLResponse)
-    def projects_archived(request: Request):
-        """보관된 사업 — 과거 사업 묶음과 담당자가 보관한 프로젝트. 사업단은 원본 폴더(최상위) 기준 문서가 많은 순."""
-        user = getattr(request.state, "user", None)
-        projs = [p for p in db.list_archived_projects() if p.get("owner") in ("zzdev", user)]
-        units: dict[int, list[str]] = {}
-        try:
-            with db._conn() as conn:
-                for pid, area, _n in conn.execute(
-                        "SELECT d.project_id, a.area, COUNT(*) FROM documents d JOIN archive_files a ON a.rel = SUBSTR(d.stored_path, 7)"
-                        " WHERE d.stored_path LIKE 'dgx://%' AND d.project_id IS NOT NULL AND a.area <> ''"
-                        " GROUP BY d.project_id, a.area ORDER BY 3 DESC").fetchall():
-                    units.setdefault(int(pid), []).append(str(area))
-        except Exception:
-            pass
-        for p in projs:
-            p["units"] = units.get(int(p["id"]), [])[:3]
-        projs.sort(key=lambda p: -int(p.get("n_docs") or 0))
-        return templates.TemplateResponse(request, "projects_archived.html", ctx(request, {"projects": projs}))
+    def projects_archived(request: Request, q: str = "", status: str = "archived", year: str = "", unit: str = "",
+                          for_project: int | None = None):
+        """보관된 사업(통합 프로젝트 찾기, C-195) — 권한 범위의 진행 중·보관 묶음을 사업명·수행 연도·사업단으로. 화면은 아스트라 담당."""
+        from zzaimy.app import project_refs
+        data = project_refs.browse(db, _ref_scope(request), q, status if status in ("archived", "active", "all") else "archived",
+                                   year, unit, for_project)
+        return templates.TemplateResponse(request, "projects_archived.html", ctx(request, {
+            "projects": data["items"], "total": data["total"], "units": data["units"], "years": data["years"],
+            "q": q, "status": status, "year": year, "unit": unit, "for_project": for_project}))
+
+    @app.get("/api/projects/browse")
+    def projects_browse(request: Request, q: str = "", status: str = "archived", year: str = "", unit: str = "",
+                        for_project: int | None = None):
+        """통합 프로젝트 찾기 JSON(C-195 데이터 계약) — project_refs.browse 참조. 연결은 POST /project/{id}/refs."""
+        from zzaimy.app import project_refs
+        if for_project is not None:
+            fp = db.get_project(for_project)
+            if fp is None or (fp.get("owner") != request.state.user and request.state.role != "dev"):
+                raise HTTPException(404)
+        return project_refs.browse(db, _ref_scope(request), q, status if status in ("archived", "active", "all") else "archived",
+                                   year, unit, for_project)
 
     @app.post("/project/{project_id}/unarchive")
     def project_unarchive(request: Request, project_id: int):

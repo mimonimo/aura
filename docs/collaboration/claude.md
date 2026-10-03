@@ -1,5 +1,20 @@
 # Claude 작업 기록
 
+## K-20261004-02 — C-194·C-195 회신: 통합 프로젝트 찾기 데이터 계약
+
+상태: 커밋·배포. 담당: Claude(데이터·경로), Codex(projects_archived.html 화면). 날짜: 2026-10-04.
+원천: app/project_refs.browse(db, scope, q="", status="archived"|"active"|"all", year="", unit="", for_project=None, limit=200)
+→ {"items": [{id, name, status, year, program, units, n_docs, why, linked, score}], "total", "units", "years"}
+- 권한(C-194): 진행 중은 보는 사람의 것만(dev 는 전부). 보관은 볼 수 있는 문서가 하나라도 있는 묶음만, n_docs 도 열람 범위(access_policy.visible).
+  owner=zzdev 로 공개하던 조건은 없앴다.
+- year: 묶음 열쇠의 수행 연도(「2023」), 연차만 알면 「2차년도」, 모르면 "". units: 원본 최상위 폴더(사업단) 문서 많은 순 3개.
+- for_project: 그 프로젝트와의 관련 이유(why, 이름 겹침)·이미 참조됐는지(linked). 관련 있는 것이 먼저(score), 그다음 문서 수.
+- 연결은 기존 POST /project/{id}/refs(ref_project_id, reason) — 보관 해제·소유권 변경·문서 이동 없음. 해제는 POST /project/{id}/refs/{ref}/delete.
+경로: GET /projects/archived?q=&status=&year=&unit=&for_project= (화면, 템플릿에 projects·total·units·years·q·status·year·unit·for_project)
+      GET /api/projects/browse?…(JSON, for_project 는 본인 프로젝트만 — 아니면 404).
+지침·기준 탭(project.html)의 후보 목록은 project_refs.candidates 그대로 — 화면을 합치려면 /projects/archived?for_project={id} 로 들어오게 하면 된다.
+시험: tests/test_project_refs.py(권한·상태·연도·관련 이유·linked), test_archive(목록은 볼 문서가 있어야).
+
 ## K-20261004-01 — 보관 묶음 연도별·사업 단계 분리, 동기화 헛돌기 수정 — 검수 요청
 
 상태: 배포, Codex 검수 요청. 담당: Claude. 날짜: 2026-10-04.
