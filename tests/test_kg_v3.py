@@ -544,3 +544,25 @@ def test_norm_name_strips_time_tags_but_keeps_stage_numbers():
     assert _norm_name("2026학년도 AID 전환 중점 전문대학 지원사업") == "AID 전환 중점 전문대학 지원사업"
     assert _norm_name("190401(혁신지원사업") == "혁신지원사업"
     assert _norm_name("3단계 산학연협력 선도전문대학 육성사업") == "3단계 산학연협력 선도전문대학 육성사업"
+
+
+def test_out_of_period_document_moves_to_matching_stage_program():
+    from zzaimy.graph import programs as P
+
+    class A:
+        def __init__(self, program, year=None):
+            self.program, self.program_name, self.status = program, "LINC+", "auto"
+            self.year, self.round, self.evidence = year, None, []
+
+    ledger = {"programs": [
+        {"terms": ["LINC+", "사회맞춤형 산학협력 선도전문대학 육성사업"], "period": "2017~2021", "sources": ["s"]},
+        {"terms": ["산학협력 선도전문대학 육성사업"], "acronyms": ["LINC"], "period": "2012~2016", "sources": ["s"]}]}
+    spans = P.ledger_spans(ledger)
+    docs = [{"path": "링크/4_산학협력선도전문대학(LINC)육성사업/2014", "filename": "결과보고.pdf"},
+            {"path": "링크/LINC+/2019", "filename": "a.hwp"}, {"path": "링크/기타/2015", "filename": "b.hwp"}]
+    asg = [A("program:lincp"), A("program:lincp"), A("program:lincp")]
+    st = P.fill_period(docs, asg, {"program:lincp": (2017, 2021)}, spans)
+    assert asg[0].program == spans[1]["id"] and asg[0].status == "period" and asg[0].round == 3
+    assert asg[1].program == "program:lincp" and asg[1].year == 2019
+    assert asg[2].program == "" and asg[2].status == "review"      # 기간 맞는 사업 이름이 경로에 없으면 보류
+    assert st["moved_to_period_program"] == 1 and st["out_of_period"] == 1
