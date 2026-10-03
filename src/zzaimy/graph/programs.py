@@ -450,7 +450,16 @@ def ledger_link(cards: list, ledger: dict) -> dict:
         match = terms + [t for t in e.get("acronyms", []) if t]
         spans.append({"id": sid, "name": e.get("name") or terms[-1], "start": start, "end": end,
                       "terms": sorted({re.sub(r"[\s.·\-_]+", "", t).upper() for t in match}, key=len, reverse=True)})
-    return {"periods": periods, "spans": spans, "aliases": aliases}
+    owner_of = {}
+    matched = set()
+    for i, (_e, _s, _t, terms) in enumerate(entries):
+        owners = sorted(by_entry.get(i, []), key=lambda t: -t[1])
+        if owners:
+            owner_of[terms[0]] = owners[0][0]
+        want = {flat(t) for t in terms}
+        if any(want & {flat(x) for x in c.surfaces()} for c in cards):
+            matched.add(terms[0])
+    return {"periods": periods, "spans": spans, "aliases": aliases, "owner_of": owner_of, "matched": matched}
 
 
 def program_periods(cards: list, ledger: dict) -> dict[str, tuple[int, int | None]]:
