@@ -1,22 +1,66 @@
 {% extends "base.html" %}
-{% block title %}보관된 사업{% endblock %}
-{% block pagetitle %}보관된 사업{% endblock %}
+{% block title %}프로젝트 검색{% endblock %}
+{% block pagetitle %}프로젝트 검색{% endblock %}
+{% block head %}
+<style>
+  .project-browser { max-width:1120px; margin:0 auto; }
+  .project-browser h2 { margin:0; font-size:18px; }
+  .project-browser .browser-intro { margin:8px 0 20px; font-size:13px; color:var(--muted); }
+  .project-browser .browser-filters { display:grid; grid-template-columns:minmax(160px,1fr) repeat(3,minmax(100px,150px)) auto; gap:10px; align-items:end; }
+  .project-browser label { display:block; margin-bottom:6px; font-size:12px; color:var(--muted); }
+  .project-browser input,.project-browser select { width:100%; height:36px; min-height:36px; padding:6px 10px; margin:0; font-size:13px; border-radius:8px; }
+  .project-browser .browser-action { display:inline-flex; align-items:center; justify-content:center; height:34px; min-height:34px; padding:0 12px; font-size:12px; font-weight:600; line-height:1; white-space:nowrap; border-radius:8px; text-decoration:none; box-shadow:none; background:white; color:var(--navy); border:1px solid var(--line); }
+  .project-browser .browser-action.primary { background:var(--navy); border-color:var(--navy); color:white; }
+  .project-browser .browser-action:hover { filter:brightness(.96); }
+  .project-browser .browser-action:focus-visible { outline:2px solid var(--navy); outline-offset:3px; }
+  .project-browser .browser-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:20px 0 8px; color:var(--muted); font-size:12px; }
+  .project-browser .browser-list { border-top:1px solid var(--line); }
+  .project-browser .browser-item { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:20px; padding:18px 0; border-bottom:1px solid var(--line); }
+  .project-browser .browser-name { margin:0 0 7px; font-size:14px; line-height:1.6; overflow-wrap:anywhere; }
+  .project-browser .browser-facts { display:flex; flex-wrap:wrap; gap:6px 14px; color:var(--muted); font-size:12px; line-height:1.6; }
+  .project-browser .browser-state { color:var(--navy); font-weight:600; }
+  .project-browser .browser-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+  .project-browser form { margin:0; }
+  .project-browser .browser-why { margin:8px 0 0; font-size:12px; color:var(--muted); }
+  .project-browser .browser-linked { color:var(--green); font-size:12px; padding:0 8px; }
+  .project-browser .browser-context { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:12px 14px; background:var(--panel); border-radius:8px; margin-bottom:18px; font-size:13px; }
+  .project-browser .browser-empty { padding:44px 12px; text-align:center; color:var(--muted); font-size:13px; }
+  .project-browser .browser-footnote { margin:16px 0 0; font-size:12px; color:var(--muted); line-height:1.6; }
+  @media(max-width:850px) { .project-browser .browser-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } .project-browser .browser-query { grid-column:1 / -1; } }
+  @media(max-width:550px) { .project-browser .browser-item { grid-template-columns:1fr; gap:12px; } .project-browser .browser-context { align-items:flex-start; flex-direction:column; } }
+</style>
+{% endblock %}
 {% block content %}
-{# 과거 사업 묶음(동기화가 문서를 보고 사업별로 묶은 것)과 담당자가 보관한 프로젝트. 불러오면 사이드바 프로젝트로. 화면 꾸밈은 아스트라 담당(K-20261003-01) #}
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:archive-linear"></iconify-icon>보관된 사업 {{ projects | length }}개</h2>
-  <p class="muted" style="margin:0 0 10px; font-size:12.5px;">불러오면 내 프로젝트 목록에 뜬다 · 과거 사업 자료는 보관 상태로도 검색·그래프에서 쓰인다</p>
-  <table class="table" style="font-size:13px; width:100%;">
-    <tr><th>사업</th><th>사업단</th><th style="text-align:right;">문서</th><th></th></tr>
+<section class="project-browser card" aria-labelledby="browserHeading"><div class="card-in">
+  <h2 id="browserHeading">프로젝트 검색</h2>
+  <p class="browser-intro">진행 중인 업무와 보관된 사업 자료</p>
+  {% if for_project %}
+  <div class="browser-context"><span>현재 프로젝트에 연결할 과거 사업을 선택하세요.</span><a class="browser-action" href="/project/{{ for_project }}#paneRefs">지침·기준으로 돌아가기</a></div>
+  {% endif %}
+  <form class="browser-filters" method="get" action="/projects/archived" role="search">
+    {% if for_project %}<input type="hidden" name="for_project" value="{{ for_project }}">{% endif %}
+    <div class="browser-query"><label for="browserQuery">사업명</label><input id="browserQuery" name="q" type="search" maxlength="200" value="{{ q }}" placeholder="사업 이름으로 검색"></div>
+    <div><label for="browserStatus">상태</label><select id="browserStatus" name="status">{% for value,label in [('archived','보관된 사업'),('active','진행 중'),('all','전체')] %}<option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div><label for="browserYear">수행 연도·연차</label><select id="browserYear" name="year"><option value="">전체 연도</option>{% for y in years %}<option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></div>
+    <div><label for="browserUnit">사업단</label><select id="browserUnit" name="unit"><option value="">전체 사업단</option>{% for u in units %}<option value="{{ u }}" {% if unit == u %}selected{% endif %}>{{ u }}</option>{% endfor %}</select></div>
+    <button type="submit" class="browser-action primary">검색</button>
+  </form>
+  <div class="browser-meta"><span role="status">검색 결과 {{ total }}개{% if total > projects|length %} · {{ projects|length }}개 표시{% endif %}</span><a class="browser-action" href="/projects/archived{% if for_project %}?for_project={{ for_project }}{% endif %}">필터 초기화</a></div>
+  <div class="browser-list" role="list">
     {% for p in projects %}
-    <tr>
-      <td><a href="/project/{{ p.id }}">{{ p.name }}</a></td>
-      <td class="muted">{{ p.units | join(" · ") }}</td>
-      <td style="text-align:right; font-variant-numeric:tabular-nums;">{{ "{:,}".format(p.n_docs) }}</td>
-      <td style="text-align:right;"><form method="post" action="/project/{{ p.id }}/unarchive" style="margin:0;">
-        <button type="submit" class="btn-ghost" style="padding:3px 10px; font-size:12px;">불러오기</button></form></td>
-    </tr>
+    <article class="browser-item" role="listitem">
+      <div><h3 class="browser-name">{{ p.name }}</h3><div class="browser-facts"><span class="browser-state">{{ '보관' if p.status == 'archived' else '진행 중' }}</span><span>{{ p.year or '연도 미상' }}</span><span>{{ p.units | join(' · ') or '사업단 미분류' }}</span><span>열람 가능 문서 {{ '{:,}'.format(p.n_docs) }}건</span></div>
+      {% if for_project and p.why %}<p class="browser-why">참고: {{ p.why }} · 내용 확인 필요</p>{% endif %}</div>
+      <div class="browser-actions"><a class="browser-action" href="/project/{{ p.id }}" aria-label="{{ p.name }} 자료 보기">자료 보기</a>
+      {% if for_project and p.status == 'archived' %}
+        {% if p.linked %}<span class="browser-linked">연결됨</span>{% else %}
+        <form method="post" action="/project/{{ for_project }}/refs"><input type="hidden" name="ref_project_id" value="{{ p.id }}"><input type="hidden" name="reason" value="{{ p.why or '담당자 선택' }}"><button type="submit" class="browser-action primary" aria-label="{{ p.name }} 참조 연결">참조 연결</button></form>
+        {% endif %}
+      {% endif %}</div>
+    </article>
+    {% else %}<div class="browser-empty">조건에 맞는 프로젝트가 없습니다. 검색어나 필터를 변경해 보세요.</div>
     {% endfor %}
-  </table>
-</div></div>
+  </div>
+  <p class="browser-footnote">검색·열람·참조 연결은 보관 상태와 원본 소속을 바꾸지 않습니다.</p>
+</div></section>
 {% endblock %}

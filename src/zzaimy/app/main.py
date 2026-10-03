@@ -5721,6 +5721,11 @@ def create_app(
         proj, ref = db.get_project(project_id), db.get_project(ref_project_id)
         if proj is None or ref is None or not ref.get("archived") or ref_project_id == project_id:
             raise HTTPException(404)
+        scope = _ref_scope(request)
+        if proj.get("archived") or (proj.get("owner") != scope["user"] and scope["role"] != "dev"):
+            raise HTTPException(404)
+        if not project_refs._visible_counts(db, [ref_project_id], scope).get(ref_project_id):
+            raise HTTPException(404)
         project_refs.link(db, project_id, ref_project_id, reason, getattr(request.state, "user", "") or "")
         return RedirectResponse(f"/project/{project_id}#paneRefs", status_code=303)
 
@@ -5737,6 +5742,11 @@ def create_app(
                           for_project: int | None = None):
         """보관된 사업(통합 프로젝트 찾기, C-195) — 권한 범위의 진행 중·보관 묶음을 사업명·수행 연도·사업단으로. 화면은 아스트라 담당."""
         from zzaimy.app import project_refs
+        if for_project is not None:
+            fp = db.get_project(for_project)
+            if fp is None or fp.get("archived") or (fp.get("owner") != request.state.user and request.state.role != "dev"):
+                raise HTTPException(404)
+        status = status if status in ("archived", "active", "all") else "archived"
         data = project_refs.browse(db, _ref_scope(request), q, status if status in ("archived", "active", "all") else "archived",
                                    year, unit, for_project)
         return templates.TemplateResponse(request, "projects_archived.html", ctx(request, {

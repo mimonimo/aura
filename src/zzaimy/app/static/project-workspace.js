@@ -29,6 +29,16 @@
     });
   });
   try { activate(sessionStorage.getItem(key) || 'projectConversations'); } catch (_) {}
+  function revealLinkedSection() {
+    const section = document.getElementById((location.hash || '').slice(1));
+    const panel = section?.closest('.project-panel');
+    if (panel && root.contains(panel)) {
+      activate(panel.id);
+      section.scrollIntoView({block:'nearest'});
+    }
+  }
+  window.addEventListener('hashchange', revealLinkedSection);
+  revealLinkedSection();
   // 탭을 옮겨도 작성 중인 지침과 질문은 DOM에 그대로 남긴다.
   const fields = [...root.querySelectorAll('textarea, input[name=question]:not([type=hidden]), input[type=file]')];
   const initial = new Map(fields.map(field => [field, field.value]));
