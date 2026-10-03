@@ -592,3 +592,28 @@ def test_ledger_link_picks_owner_entry_and_merges_aliases():
     assert ids["사회맞춤형 산학협력 선도전문대학 육성사업"] == "program:linc"           # 장부 id 가 카드 id 와 같다
     assert ids["LINC 1단계"].startswith("program:") and ids["LINC 1단계"] != "program:linc"
     assert got["aliases"] == {"program:혁신지원": "program:전문대학혁신지원"}
+
+
+def test_build_cards_does_not_merge_distinct_strong_acronyms_via_head_pairs():
+    from zzaimy.graph import programs as P
+    docs = []
+    for i in range(6):
+        docs.append({"id": i, "filename": f"LINC+ 사업 {i}차 계획서.hwp", "path": "", "head": ""})
+        docs.append({"id": 100 + i, "filename": f"LINC3.0 사업 {i}차 보고서.hwp", "path": "",
+                     "head": "3단계 산학연협력 선도전문대학 육성사업(LINC3.0) … 앞 단계 사회맞춤형 산학협력 선도전문대학(LINC+) 육성사업"})
+    cards = P.build_cards(docs)
+    owners = {}
+    for c in cards:
+        for su in c.surfaces():
+            owners.setdefault(su.upper(), c.node_id)
+    assert owners.get("LINC+") and owners.get("LINC30") and owners["LINC+"] != owners["LINC30"]
+
+
+def test_head_only_fragment_with_one_strong_acronym_joins_that_program():
+    from zzaimy.graph import programs as P
+    docs = [{"id": i, "filename": f"LINC+ 사업 {i}차 계획서.hwp", "path": "", "head": ""} for i in range(6)]
+    docs += [{"id": 100 + i, "filename": f"만족도 조사 {i}.hwp", "path": "",
+              "head": "귀하께서 참여한 사회맞춤형 LINC+사업 에 대한 만족도"} for i in range(4)]
+    cards = P.build_cards(docs)
+    frag = [c for c in cards if any("귀하께서" in n for n in c.names)]
+    assert len(frag) == 1 and "LINC+" in {a.upper() for a in frag[0].acrs}    # 조각은 LINC+ 카드에 들어갔다
