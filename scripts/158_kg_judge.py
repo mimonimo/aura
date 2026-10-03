@@ -143,23 +143,33 @@ def main() -> int:
         for a, b in sample:
             pa, pb = _text(db, secs[a]["doc_id"], secs[a], secs), _text(db, secs[b]["doc_id"], secs[b], secs)
             msg = (PROMPT_V1 if args.prompt == "v1" else PROMPT).format(pt=secs[a]["label"], pp=pa[1], pb=pa[0], rt=secs[b]["label"], rp=pb[1], rb=pb[0])
-            resp = client.client.chat.completions.create(
-                model=client.model, messages=[{"role": "user", "content": msg}], temperature=0, max_tokens=400,
-                extra_body={"chat_template_kwargs": {"enable_thinking": False}})
-            raw = re.sub(r"<think>.*?</think>", "", resp.choices[0].message.content or "", flags=re.S)
-            m = re.search(r"\{.*\}", raw, re.S)
-            try:
-                v = json.loads(m.group(0)) if m else {}
-            except json.JSONDecodeError:
-                v = {}
-            same = bool(v.get("same"))
-            yes += same
+            v = {}
+            for max_tok in (400, 900):                       # 판정이 없으면(잘림·형식 깨짐) 한도를 늘려 한 번 더
+                resp = client.client.chat.completions.create(
+                    model=client.model, messages=[{"role": "user", "content": msg}], temperature=0, max_tokens=max_tok,
+                    extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+                raw = re.sub(r"<think>.*?</think>", "", resp.choices[0].message.content or "", flags=re.S)
+                m = re.search(r"\{.*\}", raw, re.S)
+                try:
+                    v = json.loads(m.group(0)) if m else {}
+                except json.JSONDecodeError:
+                    v = {}
+                if isinstance(v.get("same"), bool):
+                    break
+            # 판정 실패는 「다르다」로 세지 않는다 — 정확도에서 빼고 따로 센다(all12c: 이유가 빈 판정이 X 로 섞였다)
+            same = v.get("same") if isinstance(v.get("same"), bool) else None
+            yes += bool(same)
             rows.append({"plan": secs[a]["label"], "report": secs[b]["label"], "same": same, "why": str(v.get("why", ""))[:120],
                          "program": prog_of(a), "plan_id": a, "report_id": b, "basis": basis_of.get((a, b), "")})
-        out[name] = {"pool": len(pool), "n": len(sample), "same": yes, "rate": round(yes / max(len(sample), 1), 2), "rows": rows}
-        print(f"{name}: 후보 {len(pool)} · 표본 {len(sample)} · 같다 {yes} ({out[name]['rate']:.0%})", flush=True)
+        failed = sum(1 for r in rows if r["same"] is None)
+        judged = len(rows) - failed
+        out[name] = {"pool": len(pool), "n": len(sample), "same": yes, "failed": failed,
+                     "rate": round(yes / max(judged, 1), 2), "rows": rows}
+        print(f"{name}: 후보 {len(pool)} · 표본 {len(sample)} · 판정 실패 {failed} · 같다 {yes}/{judged} ({out[name]['rate']:.0%})", flush=True)
         by_prog: dict[str, list[int]] = {}
         for r in rows:
+            if r["same"] is None:
+                continue
             key = r["program"] + (f" [{r['basis']}]" if r.get("basis") else "")
             by_prog.setdefault(key, [0, 0])
             by_prog[key][0] += 1
