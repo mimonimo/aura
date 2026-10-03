@@ -46,6 +46,41 @@ def put_edge(conn, src: str, dst: str, kind: str, basis: str, evidence: list[str
         (src, dst, kind, basis, json.dumps([str(e)[:240] for e in evidence[:5]], ensure_ascii=False), float(weight)))
 
 
+def put_nodes(conn, nodes: list[tuple]) -> None:
+    """put_node 를 묶어서(executemany) — 노드 수십만 개를 한 줄씩 보내면 DB 왕복이 재구축 시간을 먹는다."""
+    now = datetime.now().isoformat(timespec="seconds")
+    rows = []
+    for n in nodes:
+        node_id, type_, label = n[0], n[1], n[2]
+        props = n[3] if len(n) > 3 else None
+        doc_id = n[4] if len(n) > 4 else None
+        rows.append((node_id, type_, label[:300], json.dumps(props or {}, ensure_ascii=False), doc_id, now))
+    for i in range(0, len(rows), 2000):
+        conn.executemany(
+            "INSERT INTO kg_nodes (id, type, label, props, doc_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(id) DO UPDATE SET type = excluded.type, label = excluded.label, props = excluded.props,"
+            " doc_id = excluded.doc_id, updated_at = excluded.updated_at", rows[i:i + 2000])
+
+
+def put_edges(conn, edges: list[tuple]) -> None:
+    """put_edge 를 묶어서 — 기준·근거 검사는 그대로(근거 없는 관계·모르는 기준은 거절)."""
+    rows = []
+    for e in edges:
+        src, dst, kind, basis = e[0], e[1], e[2], e[3]
+        evidence = e[4] if len(e) > 4 else None
+        weight = e[5] if len(e) > 5 else 1.0
+        if basis not in BASES:
+            raise ValueError(f"관계 기준은 {BASES} 중 하나: {basis}")
+        if not evidence:
+            raise ValueError(f"근거 없는 관계는 만들지 않는다: {src} -{kind}-> {dst}")
+        rows.append((src, dst, kind, basis, json.dumps([str(x)[:240] for x in evidence[:5]], ensure_ascii=False), float(weight)))
+    for i in range(0, len(rows), 2000):
+        conn.executemany(
+            "INSERT INTO kg_edges (src, dst, kind, basis, evidence, weight) VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(src, dst, kind) DO UPDATE SET basis = excluded.basis, evidence = excluded.evidence, weight = excluded.weight",
+            rows[i:i + 2000])
+
+
 def clear_doc(conn, doc_node: str) -> None:
     """한 문서의 절 노드와 그 관계를 지운다(다시 만들 때)."""
     like = doc_node + ":%"

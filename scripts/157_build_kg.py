@@ -74,14 +74,27 @@ def main() -> int:
             except (ValueError, KeyError):
                 continue
     docs, chunk_map = [], {}
-    for did in _ids(args.docs):
-        d = db.get_document(did)
+    # 문서·프로젝트·조각을 묶어서 읽는다 — 문서마다 세 번씩 DB 를 오가면 3만 건에 10만 번(10/4 실측: 재구축이 몇 시간)
+    want_ids = list(_ids(args.docs))
+    doc_rows: dict[int, dict] = {}
+    with db._conn() as conn:
+        for i in range(0, len(want_ids), 1000):
+            part = want_ids[i:i + 1000]
+            for r in conn.execute(f"SELECT id, filename, stored_path, project_id FROM documents WHERE id IN ({','.join('?' * len(part))})",
+                                  part).fetchall():
+                doc_rows[int(r[0])] = {"filename": r[1], "stored_path": r[2], "project_id": r[3]}
+            for r in conn.execute(f"SELECT * FROM doc_chunks WHERE doc_id IN ({','.join('?' * len(part))}) ORDER BY doc_id, seq",
+                                  part).fetchall():
+                r = dict(r)
+                chunk_map.setdefault(int(r["doc_id"]), []).append(r)
+        proj_names = {int(r[0]): r[1] for r in conn.execute("SELECT id, name FROM projects").fetchall()}
+    for did in want_ids:
+        d = doc_rows.get(did)
         if not d:
             continue
-        chunks = db.list_doc_chunks(did)
-        chunk_map[did] = chunks
+        chunks = chunk_map.setdefault(did, [])
         head = "\n".join(str(c["content"]) for c in chunks[:30])
-        proj = db.get_project(int(d["project_id"])) if d.get("project_id") else None
+        proj = {"name": proj_names.get(int(d["project_id"]), "")} if d.get("project_id") else None
         # 문서함 프로젝트(담당자가 정한 소속)는 폴더 경로처럼 강한 근거다
         origin = origins.get(did, "")
         path = str(Path(origin).parent) if origin else (proj or {}).get("name", "")
@@ -423,13 +436,12 @@ def main() -> int:
             # y2025, 옛 사업 id)이 쌓였다(2026-10-02 실측). 그래프 전체를 지우고 쓴다
             conn.execute("DELETE FROM kg_edges")
             conn.execute("DELETE FROM kg_nodes")
-        for d in docs:
-            kg_store.clear_doc(conn, f"doc:{d['id']}")
-            conn.execute("DELETE FROM kg_edges WHERE src = ? OR dst = ?", (f"doc:{d['id']}", f"doc:{d['id']}"))
-        for n in nodes:
-            kg_store.put_node(conn, *n)
-        for e in edges:
-            kg_store.put_edge(conn, *e)
+        if not args.full:                     # 전체 다시 짓기는 위에서 다 지웠다 — 문서마다 LIKE 로 또 훑지 않는다
+            for d in docs:
+                kg_store.clear_doc(conn, f"doc:{d['id']}")
+                conn.execute("DELETE FROM kg_edges WHERE src = ? OR dst = ?", (f"doc:{d['id']}", f"doc:{d['id']}"))
+        kg_store.put_nodes(conn, nodes)
+        kg_store.put_edges(conn, edges)
     print(f"썼다 — 노드 {len(nodes)} · 관계 {len(edges)}")
     return 0
 
