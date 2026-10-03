@@ -279,6 +279,16 @@ def main() -> int:
                 t = t.replace(su, "")
                 hit = True
         return hit and len(re.sub(r"[^가-힣A-Z0-9]", "", t)) <= 6
+    # 서로 다른 사업 셋 이상의 문서에 같은 절 제목으로 나오는 제목(학교 이름 머리글·「추진 성과」 같은 상투 제목)은 제목만으로 잇지 않는다 —
+    # 제목이 같아도 한쪽은 목차, 다른 쪽은 실적 총괄표였다(판정 2026-10-04: RISE 「영남이공대학교」↔「영남이공대학교」 6쌍). 본문으로는 잇는다
+    title_progs: dict[str, set] = defaultdict(set)
+    for d in docs:
+        pg = assigns[d["id"]].program
+        if pg:
+            for sec in d.get("sections") or []:
+                title_progs[sections.title_key(sec.title)].add(pg)
+    boiler = {k for k, ps in title_progs.items() if len(ps) >= 3}
+    print(f"== 상투 절 제목(사업 셋 이상) {len(boiler)}개 — 제목 짝에서 뺀다", flush=True)
     code_sections: dict[str, list] = defaultdict(list)       # 과제 코드 → 그 코드를 단 보고서 절
     # 같은 사업·연차의 계획 ↔ 실적, 평가 → 대상
     for ynode, ids in by_year.items():
@@ -296,6 +306,8 @@ def main() -> int:
                                                          skip_b=NEXT_YEAR):
                     if is_program_heading(ps.title, prog):
                         continue                          # 사업 이름 머리글 — 짝이 아니다(본문 잇기로도 넘기지 않는다)
+                    if sections.title_key(ps.title) in boiler:
+                        continue                          # 상투 제목 — 제목으로는 잇지 않는다(아래 본문 잇기에는 남는다)
                     linked_b.add(s.path)
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
