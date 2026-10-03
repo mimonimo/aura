@@ -133,7 +133,7 @@ def dense_ids(question: str, allowed: set[int], top_k: int = TOP_K) -> list[int]
     return out
 
 
-def search(db, question: str, k: int = 6, user: str | None = None) -> dict:
+def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: set[int] | None = None) -> dict:
     """질문 → {steps, hits:[{chunk_id, doc_id, content, path, score}]}. steps 는 리즈닝 단계 기록(graph/retrieve 와 같은 말)."""
     from zzaimy.app.embed_search import rrf_merge
     from zzaimy.app.regulations import _lexical_ids, extract_nouns
@@ -165,6 +165,11 @@ def search(db, question: str, k: int = 6, user: str | None = None) -> dict:
                 path_of.setdefault(h.doc_id, h.path[:3])
     except Exception as e:
         log.warning("그래프 좁히기 실패: %s", e)
+    if prefer_docs:
+        # 프로젝트가 참조로 붙인 과거 사업 묶음의 문서부터(그래프로 좁힌 범위와 겹치면 그 겹침, 아니면 묶음 전체)
+        narrowed = (prefer_docs & scope_docs) if scope_docs else set()
+        scope_docs = narrowed or set(prefer_docs)
+        steps.append(f"[참조 보관 사업] 프로젝트가 참조한 과거 사업 문서 {len(scope_docs)}건에서 먼저 찾는다")
     chunks = corpus(db, scope_docs, user)
     if not chunks and scope_docs is not None:
         steps.append("그 사업의 문서 조각이 없어 사업 문서 전체에서 찾는다")
