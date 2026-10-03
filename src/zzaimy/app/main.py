@@ -1606,7 +1606,9 @@ def create_app(
         if made_project is not None:
             made = _intake_bundle(request, background, made_project, files)
             past = _link_past_materials(made_project)
+            refs = _link_past_projects(request, made_project)
             lines = [f"[첨부#{d}] {storage.title_of((db.get_document(d) or {}).get('filename') or '')}" for d in [*made["criteria"], *made["intake"]]]
+            lines += [f"[참조 보관 사업] {r['name']} (문서 {r['n_docs']}건)" for r in refs]
             db.add_chat(session_id, "user", "\n".join(lines) + "\n" + q)
             note = (f"프로젝트 「{made_project['name']}」 을 만들었습니다 — 기준 문서 {len(made['criteria'])}건, 접수 문서 {len(made['intake'])}건. "
                     f"추출이 끝나면 아래 선택지로 양식 작성을 시작하거나 그림 쪽 판독을 요청할 수 있습니다.")
@@ -2291,6 +2293,7 @@ def create_app(
             sector, name.strip(), due_date=due_date.strip(),
             owner=getattr(request.state, "user", "zzaimy"),
         )
+        _link_past_projects(request, db.get_project(pid) or {"id": pid, "name": name.strip()})
         return RedirectResponse(f"/project/{pid}", status_code=303)
 
     _CRITERIA_KINDS = {"announcement", "guideline", "criteria", "regulation", "basic_plan"}
@@ -2361,6 +2364,21 @@ def create_app(
             db.add_project_criteria(int(project["id"]), [d["id"] for d in picked])
         return picked
 
+    def _link_past_projects(request: Request, project: dict, limit: int = 3, min_score: float = 0.4) -> list[dict]:
+        """새 프로젝트에 이름이 많이 겹치는 과거 사업 보관 묶음을 참조로 붙인다(C-192 흐름: 담당자가 만들면 관련 과거 사업이 붙는다).
+        참조는 보관 해제·소유권 변경·문서 이동이 아니다. 지침·기준 탭에서 풀 수 있다. 열람 범위의 문서가 있는 묶음만."""
+        from zzaimy.app import project_refs
+        try:
+            scope = _ref_scope(request)
+            got = [c for c in project_refs.candidates(db, project, "", scope, limit=limit * 3) if c["score"] >= min_score][:limit]
+            for c in got:
+                project_refs.link(db, int(project["id"]), int(c["id"]), f"새 프로젝트 이름과 겹침(자동) · {c['why']}",
+                                  getattr(request.state, "user", "") or "")
+            return got
+        except Exception:
+            logging.getLogger("zzaimy.app.web").exception("관련 보관 사업 자동 참조 실패")
+            return []
+
     def _title_from_bundle(files) -> str:
         """묶음에서 프로젝트 이름 — 공고·기본계획 파일 이름에서 붙임 번호·서류 낱말을 뗀 것, 없으면 첫 파일 제목."""
         from zzaimy.app.doc_family import _ATTACH, _EXT, _KIND_WORDS
@@ -2387,6 +2405,7 @@ def create_app(
         pid = db.create_project(sector, title, due_date=due_date.strip(), owner=getattr(request.state, "user", "zzaimy"))
         project = db.get_project(pid) or {"id": pid, "sector": sector, "name": title}
         made = _intake_bundle(request, background, project, files)
+        _link_past_projects(request, project)
         return RedirectResponse(f"/project/{pid}?bundle={len(made['criteria'])}+{len(made['intake'])}", status_code=303)
 
     @app.post("/project/{project_id}/bundle")

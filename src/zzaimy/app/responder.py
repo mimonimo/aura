@@ -167,7 +167,16 @@ class AgentResponder:
             grant_hits = []
             try:
                 from zzaimy.app import grant_search
-                g = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"))
+                prefer = None
+                if project and project.get("id"):
+                    # 프로젝트에 참조로 붙은 과거 사업 보관 묶음의 문서를 먼저 본다(C-192 흐름) — 없거나 맞는 조각이 없으면 평소대로
+                    from zzaimy.app import project_refs
+                    ref_ids = [r["ref_project_id"] for r in project_refs.list_refs(db, int(project["id"]))]
+                    if ref_ids:
+                        with db._conn() as conn:
+                            prefer = {int(r[0]) for r in conn.execute(
+                                f"SELECT id FROM documents WHERE project_id IN ({','.join('?' * len(ref_ids))})", ref_ids).fetchall()}
+                g = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=prefer)
                 grant_hits = g["hits"]
                 if grant_hits:
                     blocks.append("[사업 문서 — 계획서·실적보고서 등. 사업·연차·문서 이름을 밝히고, 수치는 이 글에 있는 것만 쓴다]\n"

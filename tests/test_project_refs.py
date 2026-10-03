@@ -57,3 +57,22 @@ def test_project_page_shows_refs_and_link_route(tmp_path):
                        follow_redirects=False).status_code == 303
     assert db.get_project(past)["archived"] == 1
     assert client.post(f"/project/{mine}/refs", data={"ref_project_id": mine}, follow_redirects=False).status_code == 404
+
+
+def test_new_project_gets_related_archived_refs(tmp_path):
+    from fastapi.testclient import TestClient
+    from tests.test_accounts import _app, _login
+
+    app = _app(tmp_path)
+    db = app.state.db
+    past = db.create_project("grant", "2025년 AID 전환 중점 전문대학 지원사업", owner="zzdev", archived=True, program="program:aid|2025")
+    other = db.create_project("grant", "2023년 RISE사업", owner="zzdev", archived=True, program="program:rise|2023")
+    db.add_document("p.hwp", "dgx://p/p.hwp", doc_type="grant", project_id=past)
+    db.add_document("r.hwp", "dgx://r/r.hwp", doc_type="grant", project_id=other)
+    client = TestClient(app)
+    assert _login(client, "zzaimy", "boot-pass-1")
+    r = client.post("/projects", data={"sector": "grant", "name": "2026학년도 AID 전환 중점 전문대학 지원사업"}, follow_redirects=False)
+    pid = int(r.headers["location"].rsplit("/", 1)[-1])
+    refs = project_refs.list_refs(db, pid)
+    assert [x["ref_project_id"] for x in refs] == [past] and "자동" in refs[0]["reason"]
+    assert db.get_project(past)["archived"] == 1 and db.get_project(past)["owner"] == "zzdev"

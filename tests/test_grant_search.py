@@ -35,3 +35,18 @@ def test_corrupt_index_falls_back_to_previous_and_writes_are_verified(tmp_path, 
     gs.PREV.unlink()
     gs._cache.update(mtime=None, ids=None, vecs=None)
     assert gs._load() == (None, None)                       # 정상본도 없으면 어휘 단독
+
+
+def test_search_prefers_project_reference_documents(tmp_path, monkeypatch):
+    from zzaimy.app import grant_search as gs
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    a = db.add_document("a.hwp", "dgx://a.hwp", doc_type="grant")
+    b = db.add_document("b.hwp", "dgx://b.hwp", doc_type="grant")
+    for d, text in ((a, "취업률 목표 70% 달성 계획"), (b, "취업률 목표 80% 달성 실적")):
+        db.replace_doc_chunks(d, [{"seq": 0, "kind": "text", "content": text}])
+        db.update_document(d, status="reviewed")
+    monkeypatch.setattr(gs, "dense_ids", lambda q, allowed, top_k=60: [])
+    got = gs.search(db, "취업률 목표", k=5, prefer_docs={b})
+    assert [h["doc_id"] for h in got["hits"]] == [b]
+    assert any("참조 보관 사업" in s for s in got["steps"])
