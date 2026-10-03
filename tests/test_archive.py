@@ -91,8 +91,9 @@ def test_archive_changed_file_uses_late_origin_link(tmp_path):
     assert archive.find(db)[0]["doc_id"] == 42
 
 
-def test_archived_program_projects_group_past_documents_and_keep_user_projects(tmp_path):
+def test_archived_program_projects_group_past_documents_and_keep_user_projects(tmp_path, monkeypatch):
     from zzaimy.app import archive as ar
+    monkeypatch.setattr(ar, "SPLIT_MIN", 1)                                              # 연도 묶음을 보려고 작은 사업도 나눈다
     db = Database(tmp_path / "t.db")
     mine = db.create_project("grant", "2026 ○○ 지원사업", owner="kim")                 # 담당자 프로젝트
     old_auto = db.create_project("grant", "단계 산학연 (DGX 보관)", owner="zzdev", archived=True, archive_source="dgx")
@@ -140,3 +141,15 @@ def test_bundle_key_by_year_round_or_unknown():
     assert ar.bundle_key("program:rise", None, "3") == ("program:rise|r3", "{name} 3차년도")
     assert ar.bundle_key("", "2023", None) == ("none|?", "{name}")                    # 사업 모르면 연도로 나누지 않음
     assert ar.bundle_key("program:x", None, None) == ("program:x|?", "{name} (연도 미상)")
+
+
+def test_small_program_is_not_split_by_year(tmp_path):
+    from zzaimy.app import archive as ar
+    db = Database(tmp_path / "t.db")
+    for i, y in enumerate(("2020", "2021", "2022")):
+        db.add_document(f"{i}.hwp", f"dgx://s/{i}.hwp", doc_type="grant")
+    ar.load(db, [dict(rel=f"s/{i}.hwp", size=1, mtime=1, program="program:small", program_name="작은 사업", year=y)
+                 for i, y in enumerate(("2020", "2021", "2022"))], {})
+    ar.align_archived_projects(db)
+    names = [p["name"] for p in db.list_archived_projects()]
+    assert names == ["작은 사업"]

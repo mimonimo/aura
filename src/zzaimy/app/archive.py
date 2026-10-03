@@ -21,6 +21,9 @@ UPLOAD_PREFIX = "_플랫폼업로드/"
 UNCLASSIFIED = "none"            # 사업 분류가 없는 원본의 보관 묶음 열쇠(담당자 프로젝트의 program '' 과 겹치지 않게)
 
 
+SPLIT_MIN = 10                    # 사업 전체 문서가 이보다 적으면 연도로 나누지 않는다(1~3건짜리 묶음이 쌓이지 않게)
+
+
 def bundle_key(program: str, year=None, round_=None) -> tuple[str, str]:
     """(묶음 열쇠, 이름 틀) — 사업 × 수행 연도(없으면 연차). 둘 다 모르면 「연도 미상」으로 두고 추정해 확정하지 않는다(C-192).
     연도·연차 근거는 원본 장부(경로·파일 이름 규칙)라 표지의 수행 연도와 다를 수 있다 — 그래프(157)의 연차 학습과 대조 검수 대상."""
@@ -37,13 +40,16 @@ def bundle_key(program: str, year=None, round_=None) -> tuple[str, str]:
     return f"{prog}|?", "{name} (연도 미상)"
 
 
-def program_project(db, program: str, name: str, cache: dict | None = None, year=None, round_=None) -> int:
+def program_project(db, program: str, name: str, cache: dict | None = None, year=None, round_=None,
+                    whole: bool = False) -> int:
     """과거 사업 묶음(보관 프로젝트) — 사업 × 연도 열쇠로 찾고, 없으면 보관 상태로 만든다.
 
     프로젝트는 담당자가 지금 하는 사업(예: 「2026년 ○○ 지원사업」)의 작업 공간이다(사용자 2026-10-03). 동기화가 문서를 보고 묶는
     과거 사업은 연도별 보관 묶음으로 두고, 담당자가 「보관된 사업」에서 불러오거나 지침·기준 탭에서 참조한다.
     이름이 아니라 사업 id·연도로 찾아 같은 사업이 갈라지지 않게 한다."""
     key, title = bundle_key(program, year, round_)
+    if whole and program:                 # 문서가 적은 사업 — 연도로 나누지 않은 사업 묶음 하나
+        key, title = f"{program}|*", "{name}"
     if cache is not None and key in cache:
         return cache[key]
     with db._conn() as conn:
@@ -78,11 +84,16 @@ def align_archived_projects(db) -> dict:
             " AND archive_source = 'dgx'").fetchall()}
     cache: dict = {}
     moves: dict[int, list[int]] = {}
+    per_prog: dict[str, int] = {}
+    for _did, _pid, prog, *_rest in rows:
+        per_prog[prog or ""] = per_prog.get(prog or "", 0) + 1
     for did, pid, prog, pname, year, rnd in rows:
         pid = int(pid) if pid is not None else None
         if pid is not None and pid not in auto:
             continue                                   # 담당자·불러온 프로젝트의 문서
-        want = program_project(db, prog or "", pname or "", cache, year, rnd)
+        small = per_prog.get(prog or "", 0) < SPLIT_MIN
+        want = program_project(db, prog or "", pname or "", cache, None if small else year, None if small else rnd,
+                               whole=small)
         if pid != want:
             moves.setdefault(want, []).append(int(did))
     with db._conn() as conn:
