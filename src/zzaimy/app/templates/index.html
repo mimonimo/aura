@@ -91,6 +91,9 @@
           <span class="muted">프로젝트 이름</span>
           <input type="text" name="name" required placeholder="{{ project_hints.get(active_tab, '') }}">
         </div>
+        {% if business_units %}
+        <label class="form-row"><span class="muted">사업단 (선택)</span><select name="unit"><option value="">선택 안 함</option>{% for u in business_units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select></label>
+        {% endif %}
         <div class="form-row">
           <span class="muted">마감일 (선택)</span>
           <input type="date" name="due_date"

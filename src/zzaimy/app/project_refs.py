@@ -82,6 +82,13 @@ def candidates(db, project: dict, q: str = "", scope: dict | None = None, limit:
             score = len(common) / max(len(mine), 1)
             why = "이름 겹침: " + "·".join(sorted(common)[:6])
         picked.append({**r, "score": score, "why": why})
+    unit = (project.get("unit") or "").strip()
+    if unit and picked:                                # 담당자가 고른 사업단의 과거 묶음을 조금 앞으로(같은 조직의 자료)
+        us = _units(db, [r["id"] for r in picked])
+        for r in picked:
+            if unit in us.get(r["id"], [])[:3]:
+                r["score"] += 0.2
+                r["why"] += f" · 같은 사업단({unit})"
     picked.sort(key=lambda r: -r["score"])
     picked = picked[: limit * 3]
     counts = _visible_counts(db, [r["id"] for r in picked], scope)
@@ -155,7 +162,7 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
     user = (scope or {}).get("user")
     dev = (scope or {}).get("role") == "dev"
     with db._conn() as conn:
-        rows = [dict(r) for r in conn.execute("SELECT id, name, owner, archived, program FROM projects ORDER BY id").fetchall()]
+        rows = [dict(r) for r in conn.execute("SELECT id, name, owner, archived, program, unit FROM projects ORDER BY id").fetchall()]
     keep = []
     for r in rows:
         st = "archived" if r["archived"] else "active"
@@ -182,7 +189,7 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
             continue                                   # 볼 수 있는 문서가 없는 보관 묶음은 이름도 보이지 않는다
         if year and r["year"] != year:
             continue
-        us = units.get(r["id"], [])[:3]
+        us = units.get(r["id"], [])[:3] if r["status"] == "archived" else ([r["unit"]] if r.get("unit") else [])
         if unit and unit not in us:
             continue
         common = sorted(mine & _grams(r["name"] or "")) if mine else []

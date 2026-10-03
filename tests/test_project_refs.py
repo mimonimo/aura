@@ -100,3 +100,25 @@ def test_browse_filters_by_permission_status_year(tmp_path):
     project_refs.link(db, mine, past)
     assert next(it for it in project_refs.browse(db, kim, for_project=mine)["items"] if it["id"] == past)["linked"] is True
     assert db.get_project(past)["archived"] == 1
+
+
+def test_project_unit_from_archive_areas_and_create_form(tmp_path):
+    from fastapi.testclient import TestClient
+    from tests.test_accounts import _app, _login
+    from zzaimy.app import archive
+
+    app = _app(tmp_path)
+    db = app.state.db
+    archive.load(db, [dict(rel="링크/a.hwp", size=1, mtime=1, area="링크"), dict(rel="링크/b.hwp", size=1, mtime=1, area="링크"),
+                      dict(rel="앵커/c.hwp", size=1, mtime=1, area="앵커")], {})
+    assert archive.business_units(db) == ["링크", "앵커"]
+    client = TestClient(app)
+    assert _login(client, "zzaimy", "boot-pass-1")
+    assert "사업단" in client.get("/?type=grant").text
+    r = client.post("/projects", data={"sector": "grant", "name": "2026 신규 사업", "unit": "앵커"}, follow_redirects=False)
+    pid = int(r.headers["location"].rsplit("/", 1)[-1])
+    assert db.get_project(pid)["unit"] == "앵커"
+    r = client.post("/projects", data={"sector": "grant", "name": "다른 사업", "unit": "없는 사업단"}, follow_redirects=False)
+    assert db.get_project(int(r.headers["location"].rsplit("/", 1)[-1]))["unit"] == ""     # 목록 밖 값은 받지 않는다
+    got = project_refs.browse(db, {"dept": None, "user": "zzaimy", "role": "staff"}, status="active", unit="앵커")
+    assert [it["id"] for it in got["items"]] == [pid]

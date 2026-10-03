@@ -181,10 +181,7 @@
     </article>
     {% endfor %}
     {% if not project.archived %}
-    <form method="get" action="/project/{{ project.id }}#paneRefs" style="display:flex; gap:8px; margin:12px 0 8px;">
-      <input type="search" name="refq" value="{{ refq }}" placeholder="보관 사업 이름으로 찾기" style="flex:1; padding:7px 10px; border:1px solid var(--line); border-radius:8px;">
-      <button type="submit" class="secondary">찾기</button>
-    </form>
+    <a class="btn secondary" href="/projects/archived?for_project={{ project.id }}">프로젝트 검색·참조 연결</a>
     {% for c in ref_candidates %}
     <article class="project-criterion-item">
       <iconify-icon icon="solar:folder-2-linear" style="color:var(--muted); flex:none;"></iconify-icon>
@@ -306,6 +303,9 @@
                  style="border:1.5px solid var(--line); border-radius:12px; padding:10px 14px;
                         font-family:inherit; font-size:14px; background:var(--panel);">
         </div>
+        {% if business_units and not project.archived %}
+        <label class="form-row"><span class="muted">사업단</span><select name="unit"><option value="">선택 안 함</option>{% for u in business_units %}<option value="{{ u }}" {{ 'selected' if project.unit == u else '' }}>{{ u }}</option>{% endfor %}</select></label>
+        {% endif %}
         <div style="display:flex; justify-content:flex-end; gap:10px;">
           <button type="button" data-modal-close class="secondary">닫기</button>
           <button type="submit">저장</button>

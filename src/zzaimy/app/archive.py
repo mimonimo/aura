@@ -113,6 +113,20 @@ def align_archived_projects(db) -> dict:
     return {"moved": sum(len(v) for v in moves.values()), "removed_projects": len(empty)}
 
 
+def business_units(db) -> list[str]:
+    """사업단 목록 — 원본 보관소 최상위 폴더(링크·앵커·산단 …)를 원본 수가 많은 순으로. 플랫폼 업로드 자리는 뺀다.
+    코드에 사업단 이름을 두지 않는다 — 원본 폴더가 늘면 같이 는다."""
+    try:
+        ensure(db)
+        with db._conn() as conn:
+            rows = conn.execute("SELECT area, COUNT(*) FROM archive_files WHERE removed_at = '' AND area <> ''"
+                                " GROUP BY area ORDER BY 2 DESC").fetchall()
+    except Exception:
+        return []
+    up = UPLOAD_PREFIX.rstrip("/")
+    return [str(r[0]) for r in rows if str(r[0]) not in (up, "플랫폼 업로드")]
+
+
 FIELDS = ("rel", "size", "mtime", "ext", "area", "program", "program_name", "status", "kind", "year", "round", "dup_of")
 
 
