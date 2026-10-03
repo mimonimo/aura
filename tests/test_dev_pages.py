@@ -27,6 +27,32 @@ def test_paper_nav_renders_labels_not_dicts(client):
     assert "export.hwpx" in r.text                      # 논문 자료는 내보내기 제공
 
 
+def test_settings_reuses_connection_probe(client, monkeypatch):
+    from zzaimy.app import main
+    from zzaimy.generate import llm_connections as lc, model_config
+    conn = lc.add('probe-test', 'vllm', 'http://127.0.0.1:1/v1', 'test', '')
+    calls = []
+    def live(cid):
+        calls.append(cid)
+        return {'ok': False, 'models': [], 'error': '연결되지 않음'}
+    monkeypatch.setattr(main, '_live_models_cached', live)
+    monkeypatch.setattr(model_config, 'current', lambda: {'configured': True, 'connection_id': conn['id'],
+        'base_url': conn['base_url'], 'model': 'test', 'external': False})
+    def duplicate_probe(*args, **kwargs):
+        raise AssertionError('default connection must reuse existing probe')
+    monkeypatch.setattr(model_config, 'probe', duplicate_probe)
+    response = client.get('/dev/train?tab=settings')
+    assert response.status_code == 200
+    assert calls.count(conn['id']) == 1
+
+
+def test_overview_uses_responsive_roles(client):
+    response = client.get('/dev')
+    assert 'system-roles' in response.text
+    assert '상세 구성도' in response.text
+    assert '<img src="/static/topology.svg"' not in response.text
+
+
 def test_design_doc_has_no_export_buttons(client):
     r = client.get("/dev/doc/quality-system.md")
     assert r.status_code == 200

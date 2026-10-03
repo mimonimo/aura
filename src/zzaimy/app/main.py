@@ -4562,6 +4562,13 @@ def create_app(
         from zzaimy.dataset import ls_admin
         from zzaimy.generate import llm_connections, model_config
 
+        # Independent connection probes run together, and each connection is read once.
+        from concurrent.futures import ThreadPoolExecutor
+        public_connections = llm_connections.list_public()
+        with ThreadPoolExecutor(max_workers=4) as probes:
+            live_results = list(probes.map(_live_models_cached, [c['id'] for c in public_connections]))
+        live_by_id = dict(zip([c['id'] for c in public_connections], live_results))
+
         ls = _ls_status() if tab in {"models", "settings"} else {"ok": False}
         tools = [
             {**t, "url": db.get_setting(t["setting"], ""),
@@ -4578,7 +4585,7 @@ def create_app(
         datasets = db.list_datasets(limit=10)
         llamaboard_url = db.get_setting("llamaboard_url", "")
         llm = model_config.current()
-        llm_probe = model_config.probe() if llm["configured"] and tab != "exports" else {"ok": False, "models": [], "error": "미확인"}
+        llm_probe = (live_by_id.get(llm.get("connection_id")) or model_config.probe()) if llm["configured"] else {"ok": False, "models": [], "error": "미확인"}
         llm_url = llm["base_url"] if llm["configured"] else ""
         try:
             ev = _retrieval_eval_state().get("result") or {}
@@ -4615,8 +4622,8 @@ def create_app(
             "llm_url": llm_url,
             "llm": llm, "llm_probe": llm_probe,
             "connections": [dict(c, usage=model_config.usage_today(c["id"]),
-                                 live=_live_models_cached(c["id"]))
-                            for c in llm_connections.list_public()] if tab == "settings" else [],
+                                 live=live_by_id[c["id"]])
+                            for c in public_connections],
             "llm_kinds": llm_connections.KINDS,
             "usage_all": model_config.usage_today(),
             "datasets": datasets,
@@ -4624,7 +4631,7 @@ def create_app(
             "llm_roles": llm_connections.roles_public(),
             "role_labels": llm_connections.ROLES,
             "search_serving": search_serving.status() if tab == "settings" else [],
-            "serving_plan": serving_plan.status(_live_models_cached) if tab == "settings" else [],
+            "serving_plan": serving_plan.status(lambda cid: live_by_id.get(cid) or _live_models_cached(cid)),
             "train_host": serving_plan.training_box(),
         }))
 
