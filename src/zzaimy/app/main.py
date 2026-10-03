@@ -602,8 +602,19 @@ def create_app(
                 "stats": stats, "active_flt": flt, "recent_activity": recent,
                 "page": page, "per": PER, "total_docs": total_docs,
                 "has_next": (page + 1) * PER < total_docs,
+                "business_units": _business_units(),
             }),
         )
+
+    _units_cache: dict = {"at": 0.0, "v": []}
+
+    def _business_units() -> list[str]:
+        """프로젝트 만들기의 사업단 선택지 — 원본 보관소 최상위 폴더(10분 재사용)."""
+        import time as _t
+        if _t.time() - _units_cache["at"] > 600:
+            from zzaimy.app import archive as _archive
+            _units_cache.update(at=_t.time(), v=_archive.business_units(db))
+        return _units_cache["v"]
 
     def _criteria_docs() -> list[dict]:
         counts = db.regulation_chunk_counts()
@@ -2283,7 +2294,7 @@ def create_app(
     @app.post("/projects")
     def create_project(
         request: Request,
-        sector: str = Form(...), name: str = Form(...), due_date: str = Form(""),
+        sector: str = Form(...), name: str = Form(...), due_date: str = Form(""), unit: str = Form(""),
     ):
         if sector not in INBOX_TYPES:
             raise HTTPException(400, f"알 수 없는 업무 영역입니다: {sector}")
@@ -2291,7 +2302,7 @@ def create_app(
             raise HTTPException(400, "프로젝트 이름을 입력하세요")
         pid = db.create_project(
             sector, name.strip(), due_date=due_date.strip(),
-            owner=getattr(request.state, "user", "zzaimy"),
+            owner=getattr(request.state, "user", "zzaimy"), unit=unit.strip() if unit.strip() in _business_units() else "",
         )
         _link_past_projects(request, db.get_project(pid) or {"id": pid, "name": name.strip()})
         return RedirectResponse(f"/project/{pid}", status_code=303)
@@ -5698,7 +5709,7 @@ def create_app(
             scope = _ref_scope(request)
             return {"project_refs": project_refs.list_refs(db, int(proj["id"]), scope),
                     "ref_candidates": [] if proj.get("archived") else project_refs.candidates(db, proj, refq, scope),
-                    "refq": refq}
+                    "refq": refq, "business_units": _business_units()}
         except Exception:
             logging.getLogger("zzaimy.app.web").exception("관련 보관 사업 조회 실패")
             return {"project_refs": [], "ref_candidates": [], "refq": refq}
@@ -5798,7 +5809,7 @@ def create_app(
 
     @app.post("/projects/{project_id}/rename")
     def rename_project(
-        project_id: int, name: str = Form(...), due_date: str | None = Form(None)
+        project_id: int, name: str = Form(...), due_date: str | None = Form(None), unit: str | None = Form(None)
     ):
         proj = db.get_project(project_id)
         if proj is None:
@@ -5808,6 +5819,8 @@ def create_app(
         db.rename_project(project_id, name.strip())
         if due_date is not None:
             db.update_project_meta(project_id, due_date=due_date.strip())
+        if unit is not None:
+            db.set_project_unit(project_id, unit.strip() if unit.strip() in _business_units() else "")
         return RedirectResponse(f"/project/{project_id}", status_code=303)
 
     @app.post("/projects/{project_id}/delete")

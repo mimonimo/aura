@@ -240,6 +240,8 @@ class Database:
         "ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE projects ADD COLUMN program TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE projects ADD COLUMN archive_source TEXT NOT NULL DEFAULT ''",
+        # 사업단 — 담당자가 프로젝트를 만들 때 고른다(링크·앵커·산단 …, 원본 최상위 폴더와 같은 이름)
+        "ALTER TABLE projects ADD COLUMN unit TEXT NOT NULL DEFAULT ''",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -656,13 +658,13 @@ class Database:
 
     def create_project(
         self, sector: str, name: str, due_date: str = "", owner: str = "zzaimy",
-        archived: bool = False, program: str = "", archive_source: str = "",
+        archived: bool = False, program: str = "", archive_source: str = "", unit: str = "",
     ) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO projects (sector, name, created_at, due_date, owner, archived, program, archive_source)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (sector, name[:80], _now(), due_date[:10], owner, 1 if archived else 0, program, archive_source),
+                "INSERT INTO projects (sector, name, created_at, due_date, owner, archived, program, archive_source, unit)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (sector, name[:80], _now(), due_date[:10], owner, 1 if archived else 0, program, archive_source, unit[:40]),
             )
             return int(cur.lastrowid or 0)
 
@@ -1042,6 +1044,10 @@ class Database:
                 (project_id,),
             ).fetchall()
             return [r["criteria_doc_id"] for r in rows]
+
+    def set_project_unit(self, project_id: int, unit: str) -> None:
+        with self._conn() as conn:
+            conn.execute("UPDATE projects SET unit = ? WHERE id = ?", (unit[:40], project_id))
 
     def rename_project(self, project_id: int, name: str) -> bool:
         with self._conn() as conn:
