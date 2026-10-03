@@ -106,11 +106,17 @@ def main() -> int:
     ledger = json.loads(ext_path.read_text(encoding="utf-8")) if ext_path.is_file() else {}
     flat = lambda t: re.sub(r"[\s.]+", "", t).upper()
 
+    # 장부 항목 ↔ 카드는 주인 판정(가장 긴 표기)으로 — 앞 단계 이름이 섞인 카드(LINC+ 카드의 「산학협력 선도전문대학」)에
+    # 앞 단계 항목(LINC 1단계)이 붙지 않게. 겹치기만 하고 주인이 아니면 새 카드(170 과 같은 규칙, programs.ledger_link)
+    pre_link = programs.ledger_link(cards, ledger)
+
     def card_for(terms: list[str]):
         want = {flat(t) for t in terms}
-        for c in cards:
-            if want & {x.upper() for x in c.surfaces()}:
-                return c
+        owner = pre_link["owner_of"].get(terms[0])
+        if owner:
+            return next((c for c in cards if c.node_id == owner), None)
+        if terms[0] in pre_link["matched"]:
+            return None
         # 「지방 전문대학 활성화」 = 문서 카드의 「지방 전문대학 활성화 사업」 — 사업명 꼬리(사업)를 뗀 앞부분이 같으면
         for c in cards:
             for sfc in (x.upper() for x in c.surfaces()):
@@ -136,6 +142,10 @@ def main() -> int:
     # 원본 경로가 있는 문서는 폴더 검토 장부(에이전트·사람 판정)도 본다 — 원본 장부(170)와 같은 판정
     _rv_docs = [{**d, "path": str(Path(d["origin"]).parent) if d.get("origin") else d.get("path", "")} for d in docs]
     programs.apply_reviews(_rv_docs, _res, programs.load_reviews(ROOT / "data" / "platform" / "class_review.jsonl"), cards)
+    # 연차·연도 보정, 기간 밖이면 앞뒤 단계 사업으로, 장부가 같다고 한 카드는 합침 — 원본 장부(170)와 같은 규칙
+    link = programs.ledger_link(cards, ledger)
+    _st = programs.fill_period(_rv_docs, _res, link["periods"], link["spans"], link["aliases"], {c.node_id: c.name for c in cards})
+    print(f"== 연차·연도 보정 {_st}")
     assigns = {a.doc_id: a for a in _res}
     used = {a.program for a in assigns.values() if a.program} | {c.node_id for c, _e in ledger_cards.values()}
     cards = [c for c in cards if c.node_id in used]
