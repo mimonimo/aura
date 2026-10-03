@@ -399,37 +399,60 @@ _SEG_YEAR = re.compile(r"(?<![\d~])((?:19|20)\d{2})\s*(?:년|학년도|\))|\((?:
 _PERIOD = re.compile(r"((?:19|20)\d{2})\s*(?:\.\d{1,2})?\s*~\s*((?:19|20)\d{2})?")
 
 
-def program_periods(cards: list, ledger: dict) -> dict[str, tuple[int, int | None]]:
-    """외부 확인 장부(kg_external.json, 출처 있는 항목)의 사업 기간 → {사업 id: (시작 연도, 끝 연도|None)}. 카드와는 이름·약칭으로 잇는다."""
+def ledger_link(cards: list, ledger: dict) -> dict:
+    """외부 확인 장부(출처 있고 기간이 있는 사업)와 문서 카드를 잇는다.
+
+    돌려주는 것: {"periods": {카드 id: (시작, 끝)}, "spans": [{id, name, start, end, terms}], "aliases": {카드 id: 대표 카드 id}}
+    - 카드 하나에 장부 항목이 여럿 이어지면(문서 카드가 앞뒤 단계 이름을 함께 들고 있을 때 — LINC+ 카드의 「산학협력 선도전문대학」)
+      가장 긴 표기가 맞은 항목을 그 카드의 사업(주인)으로 보고 그 기간만 카드에 쓴다
+    - 주인으로 이어진 장부 항목은 카드 id 를 그대로 쓴다(같은 사업이 장부 id·카드 id 로 갈리지 않게). 이어진 카드가 없는 항목
+      (앞 단계 LINC 1단계처럼 문서 카드가 따로 없는 사업)은 장부 이름의 program_key
+    - 장부 항목 하나가 여러 카드의 주인이면 같은 사업이다 — 가장 긴 표기가 맞은 카드로 합친다(「혁신지원사업」 = 「전문대학 혁신지원사업」)
+    acronyms 는 문서 대조에만 쓰고 카드 대조에는 쓰지 않는다."""
     flat = lambda t: re.sub(r"[\s.()·\-_]+", "", t or "").upper()
-    out: dict[str, tuple[int, int | None]] = {}
-    for e in ledger.get("programs", []):
-        m = _PERIOD.search(str(e.get("period") or ""))
-        if not m or not e.get("sources"):
-            continue
-        want = {flat(t) for t in e.get("terms", [])}
-        for c in cards:
-            if want & {flat(x) for x in c.surfaces()}:
-                out[c.node_id] = (int(m.group(1)), int(m.group(2)) if m.group(2) else None)
-    return out
-
-
-def ledger_spans(ledger: dict) -> list[dict]:
-    """외부 확인 장부의 사업마다 {id, name, start, end, terms(대조용 납작 표기)} — 기간이 있고 출처가 있는 것만.
-    id 는 장부 이름(마지막 표기)의 program_key — 문서 카드가 없는 앞뒤 단계 사업(예: LINC 1단계)도 보관 묶음을 가진다."""
-    flat = lambda t: re.sub(r"[\s.·\-_]+", "", t or "").upper()
-    out = []
+    entries = []
     for e in ledger.get("programs", []):
         m = _PERIOD.search(str(e.get("period") or ""))
         terms = [t for t in e.get("terms", []) if t]
-        if not m or not e.get("sources") or not terms:
-            continue
-        # acronyms 는 문서 대조에만 쓴다 — 카드 대조(157)에 넣으면 같은 약칭을 들고 있는 다른 단계 카드에 붙는다(LINC ↔ LINC+)
+        if m and e.get("sources") and terms:
+            entries.append((e, int(m.group(1)), int(m.group(2)) if m.group(2) else None, terms))
+    # 카드마다 맞은 항목과 가장 긴 맞은 표기 길이
+    owner: dict[str, tuple[int, int]] = {}                 # 카드 id → (항목 번호, 맞은 길이)
+    for i, (_e, _s, _t, terms) in enumerate(entries):
+        want = {flat(t) for t in terms}
+        for c in cards:
+            hit = want & {flat(x) for x in c.surfaces()}
+            if hit:
+                ln = max(len(h) for h in hit)
+                if c.node_id not in owner or ln > owner[c.node_id][1]:
+                    owner[c.node_id] = (i, ln)
+    by_entry: dict[int, list[tuple[str, int]]] = defaultdict(list)
+    for cid, (i, ln) in owner.items():
+        by_entry[i].append((cid, ln))
+    periods: dict[str, tuple[int, int | None]] = {}
+    aliases: dict[str, str] = {}
+    spans = []
+    for i, (e, start, end, terms) in enumerate(entries):
+        owners = sorted(by_entry.get(i, []), key=lambda t: -t[1])
+        sid = owners[0][0] if owners else "program:" + program_key(terms[-1])
+        for cid, _ln in owners:
+            periods[cid] = (start, end)
+            if cid != sid:
+                aliases[cid] = sid
         match = terms + [t for t in e.get("acronyms", []) if t]
-        out.append({"id": "program:" + program_key(terms[-1]), "name": e.get("name") or terms[-1],
-                    "start": int(m.group(1)), "end": int(m.group(2)) if m.group(2) else None,
-                    "terms": sorted({flat(t) for t in match}, key=len, reverse=True)})
-    return out
+        spans.append({"id": sid, "name": e.get("name") or terms[-1], "start": start, "end": end,
+                      "terms": sorted({re.sub(r"[\s.·\-_]+", "", t).upper() for t in match}, key=len, reverse=True)})
+    return {"periods": periods, "spans": spans, "aliases": aliases}
+
+
+def program_periods(cards: list, ledger: dict) -> dict[str, tuple[int, int | None]]:
+    """카드 id → 사업 기간(주인 항목 기준). ledger_link 참조."""
+    return ledger_link(cards, ledger)["periods"]
+
+
+def ledger_spans(ledger: dict, cards: list | None = None) -> list[dict]:
+    """장부 사업마다 {id, name, start, end, terms} — 카드가 있으면 주인 카드 id 를 쓴다. ledger_link 참조."""
+    return ledger_link(cards or [], ledger)["spans"]
 
 
 def _span_match(text: str, year: int, spans: list[dict]) -> dict | None:
@@ -447,7 +470,8 @@ def _span_match(text: str, year: int, spans: list[dict]) -> dict | None:
 
 
 def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, int | None]],
-                spans: list[dict] | None = None) -> dict[str, int]:
+                spans: list[dict] | None = None, aliases: dict[str, str] | None = None,
+                card_names: dict[str, str] | None = None) -> dict[str, int]:
     """연차·연도를 폴더 경로로 채우고 사업 기간으로 서로 환산한다. 기간 밖 연도면 그 사업으로 확정하지 않는다(검토).
 
     - 연차: 파일 이름에 없으면 가장 깊은 폴더의 「N차년도」
@@ -455,10 +479,16 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
     - 사업 시작 연도를 알면 연차 ↔ 연도 환산(연차 N = 시작 + N - 1)
     - 연도가 사업 기간 밖이면 사업을 비우고 status 'review'(근거 남김) — 「2014년 LINC+」처럼 앞 단계 사업 자료가 섞이지 않게
     파일 이름의 연도는 작성일일 수 있고 폴더의 연도가 수행 연도 묶음인 경우가 많다 — 그래서 폴더 근거를 먼저 본다."""
-    stats = {"round_from_path": 0, "year_from_path": 0, "converted": 0, "out_of_period": 0}
+    stats = {"round_from_path": 0, "year_from_path": 0, "converted": 0, "out_of_period": 0, "merged_alias": 0}
+    names = {sp["id"]: sp["name"] for sp in (spans or [])}
     for d, a in zip(docs, assigned):
         if not a.program:
             continue
+        if aliases and a.program in aliases:              # 장부가 같은 사업이라고 한 카드 — 대표 카드로
+            a.evidence = list(a.evidence) + [f"외부 확인 장부: 「{a.program_name}」 = 대표 사업 {aliases[a.program]}"]
+            a.program = aliases[a.program]
+            a.program_name = (card_names or {}).get(a.program) or names.get(a.program) or a.program_name
+            stats["merged_alias"] += 1
         segs = [x for x in re.split(r"[\\/]", d.get("path") or "") if x]
         if a.round is None:
             for seg in reversed(segs):
@@ -490,7 +520,7 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
             if other:                                     # 기간이 맞고 이름·약칭이 경로에 있는 앞뒤 단계 사업
                 a.evidence = list(a.evidence) + [f"연도 {a.year} 가 「{a.program_name}」 기간({start}~{end or ''}) 밖 — "
                                                  f"기간({other['start']}~{other['end'] or ''})과 이름이 맞는 「{other['name']}」로"]
-                a.program, a.program_name, a.status = other["id"], other["name"], "period"
+                a.program, a.program_name, a.status = other["id"], (card_names or {}).get(other["id"]) or other["name"], "period"
                 a.round = a.year - other["start"] + 1
                 stats["moved_to_period_program"] = stats.get("moved_to_period_program", 0) + 1
                 continue
