@@ -414,7 +414,40 @@ def program_periods(cards: list, ledger: dict) -> dict[str, tuple[int, int | Non
     return out
 
 
-def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, int | None]]) -> dict[str, int]:
+def ledger_spans(ledger: dict) -> list[dict]:
+    """외부 확인 장부의 사업마다 {id, name, start, end, terms(대조용 납작 표기)} — 기간이 있고 출처가 있는 것만.
+    id 는 장부 이름(마지막 표기)의 program_key — 문서 카드가 없는 앞뒤 단계 사업(예: LINC 1단계)도 보관 묶음을 가진다."""
+    flat = lambda t: re.sub(r"[\s.·\-_]+", "", t or "").upper()
+    out = []
+    for e in ledger.get("programs", []):
+        m = _PERIOD.search(str(e.get("period") or ""))
+        terms = [t for t in e.get("terms", []) if t]
+        if not m or not e.get("sources") or not terms:
+            continue
+        # acronyms 는 문서 대조에만 쓴다 — 카드 대조(157)에 넣으면 같은 약칭을 들고 있는 다른 단계 카드에 붙는다(LINC ↔ LINC+)
+        match = terms + [t for t in e.get("acronyms", []) if t]
+        out.append({"id": "program:" + program_key(terms[-1]), "name": e.get("name") or terms[-1],
+                    "start": int(m.group(1)), "end": int(m.group(2)) if m.group(2) else None,
+                    "terms": sorted({flat(t) for t in match}, key=len, reverse=True)})
+    return out
+
+
+def _span_match(text: str, year: int, spans: list[dict]) -> dict | None:
+    """연도를 기간에 품고 이름·약칭이 글에 있는 사업 — 가장 긴 표기가 맞은 것. 영문 약칭은 낱말 경계에서만."""
+    best, best_len = None, 0
+    for sp in spans:
+        if not (sp["start"] <= year <= (sp["end"] or 9999)):
+            continue
+        for t in sp["terms"]:
+            rx = (r"(?<![A-Z])" if t[:1].isascii() and t[:1].isalpha() else "") + re.escape(t) + \
+                 (r"(?![A-Z+])" if t[-1:].isascii() and t[-1:].isalpha() else "")
+            if len(t) > best_len and re.search(rx, text):
+                best, best_len = sp, len(t)
+    return best
+
+
+def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, int | None]],
+                spans: list[dict] | None = None) -> dict[str, int]:
     """연차·연도를 폴더 경로로 채우고 사업 기간으로 서로 환산한다. 기간 밖 연도면 그 사업으로 확정하지 않는다(검토).
 
     - 연차: 파일 이름에 없으면 가장 깊은 폴더의 「N차년도」
@@ -452,6 +485,15 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
             a.round = a.year - start + 1
             stats["converted"] += 1
         if a.year and not (start <= a.year <= (end or 9999)):
+            text = re.sub(r"[\s.·\-_]+", "", f"{d.get('path') or ''}/{d.get('filename') or ''}").upper()
+            other = _span_match(text, a.year, [sp for sp in (spans or []) if sp["id"] != a.program])
+            if other:                                     # 기간이 맞고 이름·약칭이 경로에 있는 앞뒤 단계 사업
+                a.evidence = list(a.evidence) + [f"연도 {a.year} 가 「{a.program_name}」 기간({start}~{end or ''}) 밖 — "
+                                                 f"기간({other['start']}~{other['end'] or ''})과 이름이 맞는 「{other['name']}」로"]
+                a.program, a.program_name, a.status = other["id"], other["name"], "period"
+                a.round = a.year - other["start"] + 1
+                stats["moved_to_period_program"] = stats.get("moved_to_period_program", 0) + 1
+                continue
             a.evidence = list(a.evidence) + [f"연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 확정하지 않음"]
             a.program, a.program_name, a.status = "", "", "review"
             a.year = a.round = None
