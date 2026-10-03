@@ -264,6 +264,21 @@ def main() -> int:
     def text_full(s) -> str:
         """절 본문 전체(본문으로 잇기용, 4000자까지)."""
         return " ".join(content.get((sec_doc.get(id(s)), q), "") for q in s.chunks)[:4000]
+    card_surf = {c.node_id: sorted({re.sub(r"[\s.()·\-_]+", "", x).upper() for x in c.surfaces() if len(x) >= 3}, key=len, reverse=True)
+                 for c in cards}
+
+    def is_program_heading(title: str, prog: str) -> bool:
+        """절 제목이 사업 이름 머리글인가 — 사업 이름·약칭을 지우고 남는 글자가 6자 이하(「대구광역시 지역혁신중심 대학지원체계(RISE)」).
+        이런 절은 과제가 아니라 문서 표지·머리글이라 제목이 같아도 계획↔실적 짝이 아니다(판정 2026-10-04: RISE 제목 짝 2/8)."""
+        t = re.sub(r"[\s.()·\-_「」\[\]]+", "", title or "").upper()
+        if not t:
+            return False
+        hit = False
+        for su in card_surf.get(prog, []):
+            if su and su in t:
+                t = t.replace(su, "")
+                hit = True
+        return hit and len(re.sub(r"[^가-힣A-Z0-9]", "", t)) <= 6
     code_sections: dict[str, list] = defaultdict(list)       # 과제 코드 → 그 코드를 단 보고서 절
     # 같은 사업·연차의 계획 ↔ 실적, 평가 → 대상
     for ynode, ids in by_year.items():
@@ -276,8 +291,11 @@ def main() -> int:
             for r in reports:
                 edges.append((f"doc:{p}", f"doc:{r}", "plans_reports", "식별자 일치", [f"같은 사업·연차({ynode})의 계획서와 실적보고서"]))
                 linked_b = set()
+                prog = assigns[p].program
                 for ps, s, why in sections.align_context(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_of, generic_parent=args.generic_parent,
                                                          skip_b=NEXT_YEAR):
+                    if is_program_heading(ps.title, prog):
+                        continue                          # 사업 이름 머리글 — 짝이 아니다(본문 잇기로도 넘기지 않는다)
                     linked_b.add(s.path)
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
