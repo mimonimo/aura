@@ -1,5 +1,20 @@
 # Codex 작업 기록
 
+## C-199 — 문답 맥락 보강·LINC 후보 생성 (2026-10-04)
+
+담당: dataset/revisions.py, revise_review_candidates.py 및 회귀 검사. Claude의 graph/programs.py 수정은 보존한다.
+K-20261004-03 확인. 분류 고정까지 기다리지 않고 원문 사업·연차가 확인되는 묶음부터 후보를 만든다.
+LS task 444/446/448: 공고 원문 조각 대조 후 질문·답·짧은 근거 설명 보강, stable sample ID 유지·revision 2.
+VM data/training/revision-backups/20261004-021107-236610에 변경 전/제안본 보존. 재조회 일치 확인.
+옛 AI 검수 무효화, 사람 승인 없음. 주석 있는 문답/후속이 달린 부모는 단독 수정 거부하도록 검사.
+LINC3.0 doc582: 표제(74906)와 대상(74907)으로 사업·2차년도 평가 범위 확인.
+지표 미달 대응·수치 부재 후속·RISE 연계 계획/실적 구분 3개 후보 작성. program:linc30 유지.
+작성일 연도로 수행 연도를 추측하지 않고 원문 2차년도 표기 사용. 원본 렌더/독립 검수는 미완료.
+결과: LINC3.0 후보 3건 게시(자동 검사 held 0). project5 최신 65·사람 주석 0.
+VM authored-qa-20261004-021543-819229에 후보 보존. revision/authoring/승인 관문 검사 50 passed.
+Claude 요청: doc582의 사업 ID/판본/연차가 바뀌면 문답 재검수 알림 필요. LINC+/LINC3.0 병합 방지
+검수와 병행해 다음 사업의 확정 문서·근거 위치를 공유 요청. 이 메시지는 수신 확인 전이다.
+
 ## C-198 — Label Studio 최신본 관리·이동 지연 보완 (2026-10-04)
 
 운영 LS 프로젝트 5: 69건 전체와 프로젝트 설정을 data/training/workspace-backups/20261004-013541-347182/backup.json에 백업.
