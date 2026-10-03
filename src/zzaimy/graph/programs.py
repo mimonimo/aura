@@ -419,8 +419,8 @@ def ledger_link(cards: list, ledger: dict) -> dict:
     for e in ledger.get("programs", []):
         m = _PERIOD.search(str(e.get("period") or ""))
         terms = [t for t in e.get("terms", []) if t]
-        if m and e.get("sources") and terms:
-            entries.append((e, int(m.group(1)), int(m.group(2)) if m.group(2) else None, terms))
+        if e.get("sources") and terms:               # 기간이 없어도 같은 사업 합치기에는 쓴다(기간·환산은 기간이 있을 때만)
+            entries.append((e, int(m.group(1)) if m else None, (int(m.group(2)) if m.group(2) else None) if m else None, terms))
     # 카드마다 맞은 항목과 가장 긴 맞은 표기 길이
     owner: dict[str, tuple[int, int]] = {}                 # 카드 id → (항목 번호, 맞은 길이)
     for i, (_e, _s, _t, terms) in enumerate(entries):
@@ -441,9 +441,12 @@ def ledger_link(cards: list, ledger: dict) -> dict:
         owners = sorted(by_entry.get(i, []), key=lambda t: -t[1])
         sid = owners[0][0] if owners else "program:" + program_key(terms[-1])
         for cid, _ln in owners:
-            periods[cid] = (start, end)
+            if start is not None:
+                periods[cid] = (start, end)
             if cid != sid:
                 aliases[cid] = sid
+        if start is None:
+            continue
         match = terms + [t for t in e.get("acronyms", []) if t]
         spans.append({"id": sid, "name": e.get("name") or terms[-1], "start": start, "end": end,
                       "terms": sorted({re.sub(r"[\s.·\-_]+", "", t).upper() for t in match}, key=len, reverse=True)})
