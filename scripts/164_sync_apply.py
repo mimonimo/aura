@@ -30,6 +30,21 @@ def main() -> int:
     jobs = [] if post_only else (json.loads(man.read_text(encoding="utf-8")) if man.is_file() else [])
     env_conn = os.environ.get("ZZAIMY_ROLE_CONN", "")
     sys.path.insert(0, str(ROOT / "src"))
+    def _intake_lines() -> int:
+        """156 이 원본 경로 장부에 적은 줄 수(via 없음) — DGX 처리분 들이기(168, via dgx-parse)와 섞이지 않게 센다."""
+        led = ROOT / "data" / "platform" / "origins.jsonl"
+        if not led.is_file():
+            return 0
+        n = 0
+        for line in led.read_text(encoding="utf-8").splitlines():
+            try:
+                if "via" not in json.loads(line):
+                    n += 1
+            except ValueError:
+                continue
+        return n
+
+    before = _intake_lines() if jobs else 0
     for job in jobs:
         # 바뀐 원본 — 같은 문서 번호로 다시 처리. 문서함에 원본이 있으면 새 원본으로 바꾸고, DGX 보관 문서(dgx://)는 가볍게 처리
         for u in job.get("updates", []):
@@ -60,6 +75,15 @@ def main() -> int:
             "--sector", "grant", "--owner", "zzdev",
             "--origin-base", job["inbox"], "--jobs", "3", "--timeout", "30", "--apply", *files])
     sys.path.insert(0, str(ROOT / "src"))
+    # 이번 회차에 실제로 들어오거나 다시 처리한 문서가 없으면 그래프·양식을 다시 짓지 않는다(같은 결과를 회차마다 다시 짓던 것)
+    if not post_only and jobs:
+        n_upd = sum(len(j.get("updates", [])) for j in jobs)
+        if _intake_lines() <= before and not n_upd:
+            print("새로 들어온·다시 처리한 문서 없음 — 그래프·양식 다시 짓기 건너뜀", flush=True)
+            if man.is_file():
+                man.rename(man.with_suffix(".done.json"))
+            print("SYNC_DONE", flush=True)
+            return 0
     import fcntl
     _post = open("/tmp/zz_post.lock", "w")
     fcntl.flock(_post, fcntl.LOCK_EX)                     # 1분 주기 후속 처리와 겹치지 않게(기다렸다가)
