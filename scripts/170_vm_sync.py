@@ -164,6 +164,10 @@ def import_parsed() -> None:
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
 
 
+# 본문 첫머리의 수행 연도 — 「2023학년도」「2023년도」「2023년」만. 「2023.10.12」「2023년 10월」 같은 작성일은 아니다
+_HEAD_YEAR = re.compile(r"(?<![\d.])((?:19|20)\d{2})\s*(?:학년도|년도|년)(?!\s*\d{1,2}\s*월)")
+
+
 def mark(kind: str, summary: str) -> None:
     """주기마다 마지막 실행 시각·결과 한 줄 — 개발 현황의 반입 현황 카드가 읽는다(app/intake_status)."""
     path = ROOT / "data" / "platform" / "sync_status.json"
@@ -316,6 +320,38 @@ def main() -> int:
         print(f"폴더 검토 판정 반영 {n_rev}건(장부 {len(reviews)}줄)", flush=True)
     # 연차·연도: 폴더 경로로 채우고, 외부 확인 장부의 사업 기간으로 환산, 기간 밖이면 확정하지 않음(보관 묶음이 사업 × 연도라서)
     ext = ROOT / "data" / "platform" / "kg_external.json"
+    # 문서함에 본문이 있는 원본은 본문 첫머리의 「N차년도」「2023학년도」도 연차·연도 근거로(파일 이름·경로에 없을 때만, 적힌 표기만)
+    origin_doc = {}
+    led0 = ROOT / "data" / "platform" / "origins.jsonl"
+    if led0.is_file():
+        for line in led0.read_text(encoding="utf-8").splitlines():
+            try:
+                o = json.loads(line)
+                origin_doc[o["origin"]] = int(o["doc_id"])
+            except (ValueError, KeyError, TypeError):
+                continue
+    need = {origin_doc[d["rel"]]: res[d["id"]] for d in docs
+            if d["rel"] in origin_doc and res[d["id"]].program and not res[d["id"]].year and not res[d["id"]].round}
+    n_head = 0
+    ids = list(need)
+    for i in range(0, len(ids), 500):
+        part = ids[i:i + 500]
+        with db._conn() as conn:
+            heads = conn.execute(f"SELECT id, SUBSTR(masked_text, 1, 800) FROM documents WHERE id IN ({','.join('?' * len(part))})",
+                                 part).fetchall()
+        for did, head in heads:
+            a = need[int(did)]
+            m = programs._ROUND.search(head or "")
+            y = _HEAD_YEAR.search(head or "")
+            if m:
+                a.round = int(m.group(1))
+            if y:
+                a.year = int(y.group(1))
+            if m or y:
+                a.evidence = list(a.evidence) + ["본문 첫머리의 연차·연도 표기"]
+                n_head += 1
+    if n_head:
+        print(f"본문 첫머리로 연차·연도 {n_head}건", flush=True)
     ledger = json.loads(ext.read_text(encoding="utf-8")) if ext.is_file() else {}
     link = programs.ledger_link(cards, ledger)
     st = programs.fill_period(docs, [res[d["id"]] for d in docs], link["periods"], link["spans"], link["aliases"],
