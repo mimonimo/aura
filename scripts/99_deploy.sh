@@ -41,8 +41,8 @@ ssh -o BatchMode=yes "$HOST" "cd ~/zzaimy-capstone && \
 if [ "${1:-}" = "--restart" ]; then
   ssh -o BatchMode=yes "$HOST" '
     systemctl --user restart zzaimy.service
-    # 시작이 길어질 때가 있다(문서 2만여 건·색인 적재, 10/3 실측 24초 넘음) — 60초까지 기다린다
-    for i in $(seq 1 20); do
+    # 시작이 길어질 때가 있다 — 배포 직후 첫 컴파일이 반입·그래프 재구축과 겹치면 90초 넘음(10/4 실측). 평소 8초. 120초까지 기다린다
+    for i in $(seq 1 40); do
       code=$(curl -sk -o /dev/null -w "%{http_code}" https://localhost/login)
       [ "$code" = 200 ] && break
       sleep 3
