@@ -289,13 +289,37 @@ def main() -> int:
                 title_progs[sections.title_key(sec.title)].add(pg)
     boiler = {k for k, ps in title_progs.items() if len(ps) >= 3}
     print(f"== 상투 절 제목(사업 셋 이상) {len(boiler)}개 — 제목 짝에서 뺀다", flush=True)
+    # 다른 대학의 자료(협의회 공유본·공개용 사업계획서 「경복대학교 4차년도 사업수행계획서_공개용」 등)는 우리 학교의 계획↔실적 짝에서 뺀다
+    # (판정 2026-10-04: 가톨릭상지대학교 계획서 ↔ 우리 실적보고서). 우리 학교는 기관 정보의 대학명(문서에서 인출) — 이름을 코드에 두지 않는다
+    from zzaimy.app import institution as _inst
+    own = (_inst.facts(db).get("대학명") or "").strip()
+    own_stem = re.sub(r"(대학교|대학)$", "", own)
+    uni = re.compile(r"([가-힣]{2,12}대학교)")
+
+    def other_org(d: dict) -> str:
+        if not own_stem:
+            return ""
+        for text in (d.get("filename") or "", (d.get("head") or "")[:200]):
+            # 「전문대학교 연합」「각 대학교」처럼 학교 이름이 아닌 일반 표현은 뺀다
+            names = {n for n in uni.findall(text) if own_stem not in n
+                     and not re.fullmatch(r"(?:전문|각|타|해당|우리|소속|참여|협약|연합|지역|국내|대상)?대학교", n)}
+            if own_stem in text:
+                return ""
+            if names:
+                return sorted(names)[0]
+        return ""
+    other_of = {d["id"]: o for d in docs if (o := other_org(d))}
+    print(f"== 타 기관 자료 {len(other_of)}건(우리 학교 「{own}」 아님) — 계획↔실적 짝에서 뺀다", flush=True)
+    for n in nodes:                                       # 문서 노드에 표시 — 그래프·화면에서 우리 자료와 구분
+        if n[1] == "doc" and len(n) > 4 and n[4] in other_of:
+            n[3]["other_org"] = other_of[n[4]]
     code_sections: dict[str, list] = defaultdict(list)       # 과제 코드 → 그 코드를 단 보고서 절
     # 같은 사업·연차의 계획 ↔ 실적, 평가 → 대상
     for ynode, ids in by_year.items():
         # 계획↔실적 짝짓기는 뼈대 문서·플랫폼 업로드 사이에서만 — DGX 가볍게 처리한 문서(dgx://)는 문서·절·단위 노드로만 들어간다
         # (같은 연차 계획서×보고서를 모두 견주면 원본 수만 건에서 곱으로 늘어난다)
-        plans = [i for i in ids if assigns[i].kind == "plan" and not docs_by_id[i].get("light")]
-        reports = [i for i in ids if assigns[i].kind == "report" and not docs_by_id[i].get("light")]
+        plans = [i for i in ids if assigns[i].kind == "plan" and not docs_by_id[i].get("light") and i not in other_of]
+        reports = [i for i in ids if assigns[i].kind == "report" and not docs_by_id[i].get("light") and i not in other_of]
         evals = [i for i in ids if assigns[i].kind == "evaluation"]
         for p in plans:
             for r in reports:
