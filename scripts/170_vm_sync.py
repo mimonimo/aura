@@ -317,9 +317,10 @@ def main() -> int:
     # 연차·연도: 폴더 경로로 채우고, 외부 확인 장부의 사업 기간으로 환산, 기간 밖이면 확정하지 않음(보관 묶음이 사업 × 연도라서)
     ext = ROOT / "data" / "platform" / "kg_external.json"
     ledger = json.loads(ext.read_text(encoding="utf-8")) if ext.is_file() else {}
-    periods = programs.program_periods(cards, ledger)
-    st = programs.fill_period(docs, [res[d["id"]] for d in docs], periods, programs.ledger_spans(ledger))
-    print(f"연차·연도 보정 {st}(사업 기간 {len(periods)}개)", flush=True)
+    link = programs.ledger_link(cards, ledger)
+    st = programs.fill_period(docs, [res[d["id"]] for d in docs], link["periods"], link["spans"], link["aliases"],
+                              {c.node_id: c.name for c in cards})
+    print(f"연차·연도 보정 {st}(사업 기간 {len(link['periods'])}개 · 같은 사업 합침 {link['aliases']})", flush=True)
     by_rel = {d["rel"]: res[d["id"]] for d in docs}
     rows = []
     for f in files:

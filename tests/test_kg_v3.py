@@ -566,3 +566,29 @@ def test_out_of_period_document_moves_to_matching_stage_program():
     assert asg[1].program == "program:lincp" and asg[1].year == 2019
     assert asg[2].program == "" and asg[2].status == "review"      # 기간 맞는 사업 이름이 경로에 없으면 보류
     assert st["moved_to_period_program"] == 1 and st["out_of_period"] == 1
+
+
+def test_ledger_link_picks_owner_entry_and_merges_aliases():
+    from zzaimy.graph import programs as P
+
+    class C:
+        def __init__(self, node_id, name, surfaces):
+            self.node_id, self.name, self._s = node_id, name, surfaces
+
+        def surfaces(self):
+            return set(self._s)
+
+    cards = [C("program:linc", "사회맞춤형 산학협력선도전문대학(LINC+)육성사업",
+               ["LINC+", "사회맞춤형산학협력선도전문대학육성사업", "산학협력선도전문대학육성사업"]),   # 앞 단계 이름이 섞인 카드
+             C("program:혁신지원", "혁신지원사업", ["혁신지원사업"]),
+             C("program:전문대학혁신지원", "전문대학 혁신지원사업", ["전문대학혁신지원사업"])]
+    ledger = {"programs": [
+        {"terms": ["LINC+", "사회맞춤형 산학협력 선도전문대학 육성사업"], "period": "2017~2021", "sources": ["s"]},
+        {"terms": ["산학협력 선도전문대학 육성사업"], "acronyms": ["LINC"], "name": "LINC 1단계", "period": "2012~2016", "sources": ["s"]},
+        {"terms": ["전문대학 혁신지원사업", "혁신지원사업"], "period": "2025~2027", "sources": ["s"]}]}
+    got = P.ledger_link(cards, ledger)
+    assert got["periods"]["program:linc"] == (2017, 2021)                      # 주인 항목(가장 긴 표기)만
+    ids = {sp["name"]: sp["id"] for sp in got["spans"]}
+    assert ids["사회맞춤형 산학협력 선도전문대학 육성사업"] == "program:linc"           # 장부 id 가 카드 id 와 같다
+    assert ids["LINC 1단계"].startswith("program:") and ids["LINC 1단계"] != "program:linc"
+    assert got["aliases"] == {"program:혁신지원": "program:전문대학혁신지원"}
