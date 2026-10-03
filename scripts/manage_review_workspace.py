@@ -19,7 +19,7 @@ payload=json.load(sys.stdin)
 ns={};exec(payload['planner'],ns)
 db=Database(Path.cwd()/'data/platform/platform.db')
 c=LabelStudioClient(db.get_setting('labelstudio_url'),db.get_setting('labelstudio_token'))
-project=c.status('ZZAIMY 근거 기반 문답 검수')
+project=c.status('ZZAIMY 근거 기반 문답 검수',timeout=20)
 pid=project.get('project_id')
 if not pid: raise RuntimeError('review_project_missing')
 tasks=[];page=1
