@@ -140,7 +140,8 @@ def test_bundle_key_by_year_round_or_unknown():
     from zzaimy.app import archive as ar
     assert ar.bundle_key("program:rise", "2025", "1") == ("program:rise|2025", "2025년 {name} (1차년도)")
     assert ar.bundle_key("program:rise", None, "3") == ("program:rise|r3", "{name} 3차년도")
-    assert ar.bundle_key("", "2023", None) == ("none|?", "{name}")                    # 사업 모르면 연도로 나누지 않음
+    assert ar.bundle_key("", "2023", None) == ("none|?", "사업 미분류 (검토 대기)")       # 사업 모르면 연도로 나누지 않음
+    assert ar.bundle_key(ar.NONPROGRAM, "2023", None) == ("nonprogram|*", "기관 일반 업무 (사업 아님)")
     assert ar.bundle_key("program:x", None, None) == ("program:x|?", "{name} (연도 미상)")
 
 
@@ -154,3 +155,15 @@ def test_small_program_is_not_split_by_year(tmp_path):
     ar.align_archived_projects(db)
     names = [p["name"] for p in db.list_archived_projects()]
     assert names == ["작은 사업"]
+
+
+
+def test_agent_judged_non_program_goes_to_institution_bundle(tmp_path):
+    from zzaimy.app import archive as ar
+    db = Database(tmp_path / "t.db")
+    a = db.add_document("a.hwp", "dgx://s/a.hwp", doc_type="grant")
+    b = db.add_document("b.hwp", "dgx://s/b.hwp", doc_type="grant")
+    ar.load(db, [dict(rel="s/a.hwp", size=1, mtime=1, status="agent"), dict(rel="s/b.hwp", size=1, mtime=1, status="review")], {})
+    ar.align_archived_projects(db)
+    pa, pb = (db.get_project(db.get_document(x)["project_id"]) for x in (a, b))
+    assert pa["name"] == "기관 일반 업무 (사업 아님)" and pb["name"] == "사업 미분류 (검토 대기)"
