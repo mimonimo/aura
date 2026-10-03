@@ -142,10 +142,26 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             x = parent[x]
         return x
 
-    def union(a: str, b: str) -> None:
+    # 파일 이름에 자주(5번 이상) 나오는 영문 약칭은 사업의 정체다 — 서로 다른 정체를 이미 가진 두 묶음은
+    # 「다른 이름」 짝만으로 엮지 않는다. 본문 앞머리의 앞 단계 언급(LINC3.0 문서 속 「…대학(LINC+) 육성사업」)이
+    # 두 사업을 한 카드로 만들던 것(2026-10-04 실측: 그래프에 LINC+ 카드가 없고 LINC3.0 이 2018~2021 연차를 가짐)
+    fn_acr: Counter = Counter()
+    for d in docs:
+        _n, _a, _p = _mentions(clean_title(d.get("filename") or ""))
+        fn_acr.update({"a:" + _acr(a) for a in _a})
+    strong = {k for k, n in fn_acr.items() if n >= 5}
+    ident: dict[str, set] = {}
+
+    def union(a: str, b: str, force: bool = False) -> None:
         ra, rb = find(a), find(b)
-        if ra != rb:
-            parent[rb] = ra
+        if ra == rb:
+            return
+        ia = ident.get(ra, {ra} & strong)
+        ib = ident.get(rb, {rb} & strong)
+        if not force and ia and ib and ia.isdisjoint(ib):
+            return                                     # 서로 다른 정체 — 엮지 않는다
+        parent[rb] = ra
+        ident[ra] = ia | ib
 
     names: dict[str, Counter] = defaultdict(Counter)
     acr_seen: dict[str, Counter] = defaultdict(Counter)
@@ -192,7 +208,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             b = k2[2:]
             if k2 != k and n2 >= 10 * n and len(b) == len(a) and sorted(a) == sorted(b) \
                     and sum(x != y for x, y in zip(a, b)) == 2:
-                union(k2, k)
+                union(k2, k, force=True)
                 break
     # 괄호 속 한글 약칭은 다른 제목에서도 「약칭+사업」으로 쓰일 때만 약칭이다(「앵커사업」) — 「(주관)」·「(안)」은 그렇게 안 쓰인다
     joined = "\n".join(title_texts)
@@ -223,7 +239,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
         if len(roots) >= 2:
             ks = sorted(roots)
             for k in ks[1:]:
-                union(ks[0], k)
+                union(ks[0], k, force=True)        # 「現·재구조화·명칭 변경」이 적힌 이름 바뀜 — 정체가 달라도 같은 사업
             renamed_ev[find(ks[0])].append(tp.split("\n")[0][:120])
     # 본문 앞머리 구절 하나가 사업이 되지 않게(「대상으로 사업」·「각종 결재 시 … 해당사업」): 파일 이름·경로에 나오거나
     # 문서 세 건 이상의 앞머리에 나온 표기가 하나라도 있는 묶음만 사업 카드로 둔다
@@ -243,6 +259,26 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             card.names.update(names[k])
         else:
             card.acrs.update(acr_seen[k])
+    # 본문 앞머리에만 나온 이름(파일 이름·경로에는 없음)이 정체가 확실한 약칭을 꼭 하나 품으면 그 사업의 다른 표기다 —
+    # 「귀하께서 참여한 사회맞춤형 LINC+사업」「매 분기마다 … LINC+ 사업」 같은 문장 조각이 따로 사업 카드가 되어
+    # 긴 이름부터 대조하는 분류에서 문서를 가져가던 것(2026-10-04). 약칭이 둘 이상이면(「혁신지원사업 및 LINC+」) 두지 않는다
+    titled_roots = {find(k) for k in titled if k in parent}
+    strong_root = {a: find(a) for a in strong if a in parent}
+    for root in list(groups):
+        if root in titled_roots:
+            continue
+        card = groups[root]
+        flat_su = [re.sub(_FLAT, "", x).upper() for x in card.surfaces()]
+        found = {a for a in strong_root
+                 if any(re.search(r"(?<![A-Z0-9])" + re.escape(a[2:]) + r"(?![A-Z0-9.])", f) for f in flat_su)}
+        if len(found) != 1:
+            continue
+        host = strong_root[next(iter(found))]
+        if host == root or host not in groups or host not in titled_roots:
+            continue
+        groups[host].names.update(card.names)
+        groups[host].acrs.update(card.acrs)
+        del groups[root]
     # 줄여 부른 이름(「혁신지원사업」)이 다른 카드 하나의 긴 이름(「전문대학 혁신지원사업」) 끝과 같으면 같은 사업이다.
     # 긴 이름을 가진 카드가 둘 이상이면(어느 사업인지 모름) 합치지 않는다
     # 앞에 붙은 말이 한 낱말뿐일 때만(「전문대학」+혁신지원사업). 「AID 전환 중점」+전문대학 지원사업처럼 고유한 말이 여럿 붙으면
