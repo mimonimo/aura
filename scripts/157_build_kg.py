@@ -157,6 +157,7 @@ def main() -> int:
     programs.apply_reviews(_rv_docs, _res, programs.load_reviews(ROOT / "data" / "platform" / "class_review.jsonl"), cards)
     # 연차·연도 보정, 기간 밖이면 앞뒤 단계 사업으로, 장부가 같다고 한 카드는 합침 — 원본 장부(170)와 같은 규칙
     link = programs.ledger_link(cards, ledger)
+    programs.apply_display(cards, link)
     _st = programs.fill_period(_rv_docs, _res, link["periods"], link["spans"], link["aliases"], {c.node_id: c.name for c in cards})
     print(f"== 연차·연도 보정 {_st}")
     assigns = {a.doc_id: a for a in _res}

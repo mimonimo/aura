@@ -666,3 +666,18 @@ def test_titles_ending_in_yo_nouns_are_headings_not_sentences():
     assert sections._line_heading("Ⅰ. 사업 개요") == "Ⅰ. 사업 개요"
     assert sections._line_heading("1. 추진 필요") == "1. 추진 필요"
     assert sections._line_heading("1. 자료를 제출해요") is None
+
+
+def test_ledger_name_becomes_display_name_and_lead_bullets_drop():
+    """장부의 정식 이름이 표시 이름 — 문서에 많이 나온 「앵커」가 사업 이름이 되지 않게. 목록 글머리 「· 」는 이름이 아니다."""
+    c = programs.ProgramCard(key="rise")
+    c.names.update({"앵커": 3, "지역혁신중심 대학지원체계": 1})
+    c.acrs.update({"RISE": 9})
+    ledger = {"programs": [{"name": "지역성장 인재양성체계(앵커, 구 RISE)", "terms": ["RISE", "앵커"], "sources": ["s"]}]}
+    link = programs.ledger_link([c], ledger)
+    assert programs.apply_display([c], link) == 1
+    assert c.name == "지역성장 인재양성체계(앵커, 구 RISE)"
+    d = programs.ProgramCard(key="x")
+    d.names.update({"· 전문대학혁신지원사업": 2})
+    assert d.name == "전문대학혁신지원사업"
+    assert programs._norm_name("· 전문대학혁신지원사업") == "전문대학혁신지원사업"
