@@ -208,6 +208,20 @@ def index_catchup(db, budget_s: int = 50 * 60) -> int:
         mark("index", f"전체 {got['total']} · 남음 {got['pending']}")
         if not got["pending"]:
             break
+    # 어휘 색인(grant_lex) — 같은 주기에서 남은 시간만큼 명사를 채운다(검색은 95% 넘게 차면 색인 경로로)
+    from zzaimy.app import grant_lex
+    while time.time() - t0 < budget_s:
+        try:
+            lx = grant_lex.sync(db, limit=20000)
+        except Exception as e:
+            print("어휘 색인 갱신 실패:", type(e).__name__, str(e)[:120], flush=True)
+            return 1
+        have, want = grant_lex.coverage(db)
+        if lx["added"] or lx["removed"]:
+            print(f"어휘 색인: 더함 {lx['added']} · 뺌 {lx['removed']} · {have}/{want}", flush=True)
+        mark("lexical", f"{have}/{want}")
+        if not lx["pending"]:
+            break
     return 0
 
 

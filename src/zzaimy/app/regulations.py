@@ -723,7 +723,7 @@ def sparse_search(
     for chunk in chunks:
         matched = query & nouns[chunk["id"]]
         if len(matched) >= min_overlap:
-            rare_hits = sum(1 for t in matched if df[t] <= rare_cut)
+            rare_hits = sum(1 for t in matched if df.get(t, 0) <= rare_cut)
             score = sum(min(len(t), 4) * idf[t] for t in matched)
             scored.append((rare_hits, score, chunk))
     scored.sort(key=lambda x: (-x[0], -x[1]))
@@ -769,13 +769,23 @@ def _lexical_ids(query: frozenset[str], chunks: list[dict], min_overlap: int) ->
     점수 = 겹친 명사의 길이 합 × IDF (긴·드문 명사가 더 정보량이 크다). 조각 명사는
     프로세스 내 캐시로 재계산을 피한다.
     """
-    import math
-
     nouns = {c["id"]: chunk_nouns(c) for c in chunks}
-    # 희소성 가중치 — 어디에나 나오는 명사(기준·처리 등)는 정보량이 낮다
     n = max(len(chunks), 1)
     df = {t: sum(1 for c in chunks if t in nouns[c["id"]]) for t in query}
-    idf = {t: math.log(1 + n / (1 + df[t])) for t in query}
+    return lexical_score(query, nouns, df, n, min_overlap)
+
+
+def lexical_score(query: frozenset[str], nouns: dict[int, frozenset[str]], df: dict[str, int], n: int,
+                  min_overlap: int) -> list[int]:
+    """점수 본체 — 조각별 명사 집합(nouns)과 전체 조각 수(n)·명사별 등장 조각 수(df)로 순위를 낸다.
+
+    _lexical_ids 는 조각을 받아 nouns·df 를 직접 세고, 사업 문서 색인(grant_lex)은 DB 색인으로 센 df 와
+    후보 조각만 넘긴다 — 같은 규칙(IDF·희귀 명사·초점어)으로 점수가 나온다."""
+    import math
+
+    n = max(n, 1)
+    # 희소성 가중치 — 어디에나 나오는 명사(기준·처리 등)는 정보량이 낮다
+    idf = {t: math.log(1 + n / (1 + df.get(t, 0))) for t in query}
 
     # 희귀 명사(전체 조각의 10% 이하에서만 등장)가 질의의 실질 주제다 —
     # "휴학"이 "기준·처리" 같은 범용 명사에 밀리지 않게 1순위 정렬키로 쓴다
@@ -791,21 +801,21 @@ def _lexical_ids(query: frozenset[str], chunks: list[dict], min_overlap: int) ->
     focus: set[str] = set()
     if require_rare and len(query) > FOCUS_TERMS and n >= FOCUS_MIN_CHUNKS:
         focus = set(sorted(query, key=lambda t: (-idf[t], -len(t)))[:FOCUS_TERMS])
-        if all(df[t] == 0 for t in focus):
+        if all(df.get(t, 0) == 0 for t in focus):
             return []            # 질의의 핵심어가 저장소에 아예 없다 = 근거 없음
-        focus = {t for t in focus if df[t] > 0}
+        focus = {t for t in focus if df.get(t, 0) > 0}
     scored: list[tuple[int, float, int, int]] = []
-    for chunk in chunks:
-        matched = query & nouns[chunk["id"]]
+    for cid, cn in nouns.items():
+        matched = query & cn
         if len(matched) < min_overlap:
             continue
-        rare_hits = sum(1 for t in matched if df[t] <= rare_cut)
+        rare_hits = sum(1 for t in matched if df.get(t, 0) <= rare_cut)
         if require_rare and rare_hits == 0:
             continue
         if focus and not (matched & focus):
             continue
         score = sum(min(len(t), 4) * idf[t] for t in matched)
-        scored.append((rare_hits, score, len(matched), chunk["id"]))
+        scored.append((rare_hits, score, len(matched), cid))
     scored.sort(key=lambda x: (-x[0], -x[1], -x[2]))
     return [cid for _, _, _, cid in scored]
 
