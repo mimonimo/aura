@@ -90,6 +90,8 @@ def prepare_tasks(rows, manifest, resolve_source, *, author, privacy_check=None,
     validate_manifest(manifest)
     if not _text(author):
         raise ValueError('author_required')
+    from zzaimy.dataset.privacy import protect_candidate
+    protect_sources = manifest.get('protect_sources') is True
     if privacy_check is None:
         from zzaimy.dataset.privacy import protect_candidate
         privacy_check = lambda value: protect_candidate(value) == value
@@ -112,6 +114,10 @@ def prepare_tasks(rows, manifest, resolve_source, *, author, privacy_check=None,
                     or not _text(source.get('location'))):
                 raise ValueError('source_missing_or_empty')
             cache[key] = dict(source)
+            if protect_sources:
+                cache[key]['raw_sha256'] = hashlib.sha256(source['text'].encode()).hexdigest()
+                cache[key]['text'] = protect_candidate(source['text'])
+                cache[key]['location'] = protect_candidate(source['location'])
         return cache[key]
     for row in rows:
         if row.get('program_id', program_id) != program_id:
@@ -141,6 +147,9 @@ def prepare_tasks(rows, manifest, resolve_source, *, author, privacy_check=None,
                     ai_review_summary='AI 검수 미진행 · 사람 승인과 별도')
         data['_record'] = dict(deepcopy(row), program_id=program_id, history=chain,
                                source_texts=evidence, author=author, reviewed=False)
+        if protect_sources:
+            data['_record']['source_protection'] = 'training-copy-v1'
+            data['_record']['raw_source_sha256'] = [source_for(*ref)['raw_sha256'] for ref in row['refs']]
         found = question_issues(row['question'], program, parent=bool(row.get('parent')),
                                 aliases=manifest.get('program_aliases', []))
         if not privacy_check(data):

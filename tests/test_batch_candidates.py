@@ -1,5 +1,5 @@
 import pytest
-from zzaimy.dataset.batch_candidates import windows, select_documents, job_key, convert_response
+from zzaimy.dataset.batch_candidates import windows, select_documents, job_key, convert_response, generate_checked
 
 
 def test_windows_preserve_chunks_and_skip_oversize():
@@ -50,3 +50,54 @@ def test_independent_questions_are_not_a_conversation():
 def test_unconfirmed_scope_rejected():
     with pytest.raises(ValueError, match='program_scope_unconfirmed'):
         convert_response({'scope_confirmed':False}, {}, [], 'abc')
+
+
+def test_two_linked_turns_are_valid_but_one_is_not():
+    value = response(0)
+    value['candidates'] = value['candidates'][:2]
+    assert len(convert_response(value, {'doc_id':2}, [{'id':1}], 'abc')) == 2
+    value['candidates'] = value['candidates'][:1]
+    with pytest.raises(ValueError, match='invalid_candidate_count'):
+        convert_response(value, {'doc_id':2}, [{'id':1}], 'abc')
+
+
+def test_correction_uses_feedback_and_rechecks():
+    feedbacks = []
+    def generate(feedback):
+        feedbacks.append(feedback)
+        return '{"scope_confirmed":true}'
+    def check(parsed):
+        return {'preflight': {'held': int(len(feedbacks) == 1), 'issues': {'x':['unsupported_number']}},
+                'number_details': {'x':['2028']}}
+    result = generate_checked(generate, check)
+    assert result['status'] == 'candidate'
+    assert feedbacks[1]['number_details'] == {'x':['2028']}
+    assert len(result['attempts']) == 2
+
+
+def test_failed_correction_stays_held_and_is_bounded():
+    result = generate_checked(lambda feedback:'{}', lambda parsed: {'preflight':{'held':1,'issues':{'x':['privacy_requires_revision']}}})
+    assert result['status'] == 'held'
+    assert len(result['attempts']) == 2
+
+
+def test_scope_rejection_is_not_retried_or_forced():
+    result = generate_checked(lambda feedback:'{"scope_confirmed":false}', lambda parsed: pytest.fail('no check'))
+    assert result['hold_reason'] == 'program_scope_unconfirmed'
+    assert len(result['attempts']) == 1
+
+
+def test_changed_source_stops_without_retry():
+    def check(parsed):
+        raise ValueError('source_missing_or_empty')
+    result = generate_checked(lambda feedback:'{}', check)
+    assert result['hold_reason'] == 'source_changed'
+    assert len(result['attempts']) == 1
+
+
+def test_malformed_json_can_be_corrected():
+    values = iter(['not json', '{}'])
+    result = generate_checked(lambda feedback:next(values),
+                              lambda parsed:{'preflight':{'held':0,'issues':{}}})
+    assert result['status'] == 'candidate'
+    assert result['attempts'][0]['feedback'] == {'format_error':'invalid_response'}

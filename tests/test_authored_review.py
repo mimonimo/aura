@@ -28,6 +28,22 @@ def test_accept_preserves_input_and_has_evidence():
     assert t == before
 
 
+def test_protected_source_roundtrip_and_raw_change_detection():
+    from zzaimy.dataset.authoring import prepare_tasks
+    raw = '교육과정을 개선합니다. 연락처: 010-1234-5678'
+    rows = [dict(id='one', kind='요약', question='예시 사업의 교육과정 목적은?',
+                 answer='교육과정을 개선합니다.', rationale='원문 요약', path=['교육과정'], refs=[[1,2]])]
+    manifest = dict(program_id='example', program='예시 사업', document_ids=[1], protect_sources=True)
+    tasks, report = prepare_tasks(rows, manifest, lambda *a:{'text':raw,'location':'원문'}, author='test')
+    assert report['held'] == 0
+    assert '010-1234-5678' not in json.dumps(tasks, ensure_ascii=False)
+    tasks[0]['annotations'] = task()['annotations']
+    assert convert_tasks(tasks, lambda *a:raw)[1]['approved'] == 1
+    # Even a change hidden by the same mask invalidates the reviewed source.
+    changed = raw.replace('5678', '9999')
+    assert convert_tasks(tasks, lambda *a:changed)[1]['issues'] == {'source_changed_or_missing':1}
+
+
 @pytest.mark.parametrize('mutation,code', [
     (lambda t:t.update(annotations=[]), 'review_missing_or_ambiguous'),
     (lambda t:t['annotations'][0].update(was_cancelled=True), 'review_missing_or_ambiguous'),
