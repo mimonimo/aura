@@ -118,6 +118,7 @@ class ProgramCard:
     renamed: list[str] = field(default_factory=list)      # 이름이 바뀐 같은 사업이라는 문서 근거(제목)
     display: str = ""                                      # 외부 확인 장부의 정식 이름(있으면 표시 이름으로)
     not_program: bool = False                              # 외부 확인으로 사업이 아님(조사·평가 등) — 그래프 사업 노드를 만들지 않는다
+    fixed_id: str = ""                                     # 정리 전 id 를 고정(보관 묶음·배정 기록이 사업 id 를 쓴다)
 
     @property
     def name(self) -> str:
@@ -128,6 +129,8 @@ class ProgramCard:
 
     @property
     def node_id(self) -> str:
+        if self.fixed_id:
+            return self.fixed_id
         a = self.acrs.most_common(1)[0][0] if self.acrs else ""
         return "program:" + (re.sub(r"[^0-9a-z가-힣]+", "", a.lower()) or self.key)
 
@@ -333,7 +336,45 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
     for card in cards:
         if card.names:
             card.key = program_key(card.names.most_common(1)[0][0])
+    clean_cards(cards)
     return cards
+
+
+def clean_cards(cards: list[ProgramCard]) -> dict:
+    """카드에 섞인 남의 이름 정리(10/5 실측: LINC+ 카드 약칭에 RISE·앵커·COSS·SCK·「대학」「사업」, LINC3.0 카드에 「혁신지원」「계열」 —
+    혁신지원사업 문서가 LINC3.0 으로, 질문 「전문대학 혁신지원사업 …」이 LINC3.0 으로 갔다). 일반 규칙 셋:
+    1) 한글 「약칭」은 그 카드 이름에 「○○사업」으로도 쓰일 때만 남긴다(「대구 앵커사업」의 앵커) — 「(계열)」「(신규)」「(혁신지원)」은 버린다
+    2) 같은 영문 약칭이 여러 카드에 있으면 가장 많이 쓰인 카드만 갖는다
+    3) 다른 카드가 가진 약칭이 낱말로 든 이름은 그 카드에서 뺀다(「1차년도 RISE사업」이 LINC+ 카드에)
+    카드 id 는 정리 전 값으로 고정한다."""
+    for c in cards:
+        c.fixed_id = c.fixed_id or c.node_id
+    stats = {"kor_acr": 0, "shared_acr": 0, "foreign_name": 0}
+    for c in cards:
+        flat_names = [re.sub(_FLAT, "", n) for n in c.names]
+        for a in [a for a in c.acrs if not re.match(r"[A-Za-z]", a)]:
+            if not any(re.search(re.escape(re.sub(_FLAT, "", a)) + r"(?:지원)?사업", n) for n in flat_names):
+                del c.acrs[a]
+                stats["kor_acr"] += 1
+    owner: dict[str, tuple[int, ProgramCard]] = {}
+    for c in cards:
+        for a, n in c.acrs.items():
+            k = _acr(a)
+            if k not in owner or n > owner[k][0]:
+                owner[k] = (n, c)
+    for c in cards:
+        for a in list(c.acrs):
+            if owner[_acr(a)][1] is not c:
+                del c.acrs[a]
+                stats["shared_acr"] += 1
+    own = {k: oc for k, (_n, oc) in owner.items() if len(k) >= 3}
+    for c in cards:
+        for nm in list(c.names):
+            words = {_acr(w) for w in re.findall(r"[A-Za-z][A-Za-z0-9+.]{2,}", nm)}
+            if any(w in own and own[w] is not c for w in words) and not any(own.get(w) is c for w in words):
+                del c.names[nm]
+                stats["foreign_name"] += 1
+    return stats
 
 
 @dataclass

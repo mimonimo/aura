@@ -744,3 +744,17 @@ def test_related_programs_need_enough_co_mentioning_docs():
     A += [programs.Assignment(doc_id=200, program="program:a", mentions={"program:c": "제목에 「C」"})]
     rel = programs.related_programs(A)
     assert [(r["src"], r["dst"], r["n"]) for r in rel] == [("program:a", "program:b", 6)]
+
+
+def test_clean_cards_removes_foreign_and_korean_acronyms_keeps_id():
+    rise = programs.ProgramCard(key="rise")
+    rise.acrs.update({"RISE": 40})
+    rise.names.update({"대구 RISE사업": 5})
+    plus = programs.ProgramCard(key="linc")
+    plus.acrs.update({"LINC+": 30, "RISE": 2, "대학": 3})
+    plus.names.update({"사회맞춤형 산학협력 선도전문대학 육성사업": 9, "1차년도 RISE사업": 1, "2단계 LINC+ 사업": 2})
+    before = plus.node_id
+    st = programs.clean_cards([rise, plus])
+    assert "RISE" not in plus.acrs and "대학" not in plus.acrs and "RISE" in rise.acrs
+    assert "1차년도 RISE사업" not in plus.names and "2단계 LINC+ 사업" in plus.names
+    assert plus.node_id == before and st["shared_acr"] == 1 and st["kor_acr"] == 1
