@@ -35,15 +35,26 @@ def placeholders(statement: str) -> str:
                    for i, part in enumerate(parts))
 
 
+def _positions(keys) -> dict:
+    pos: dict = {}
+    for i, k in enumerate(keys):
+        pos.setdefault(k, i)                               # 같은 이름이 둘이면 앞의 것(list.index 와 같게)
+    return pos
+
+
 class Row:
-    def __init__(self, keys, values):
+    __slots__ = ("_keys", "_pos", "_values")
+
+    def __init__(self, keys, values, pos=None):
         self._keys, self._values = keys, values
+        self._pos = pos if pos is not None else _positions(keys)
 
     def keys(self):
         return self._keys
 
     def __getitem__(self, key):
-        return self._values[self._keys.index(key)] if isinstance(key, str) else self._values[key]
+        # 열 이름 → 자리는 커서마다 한 번 만든 사전으로(list.index 로 찾으면 큰 조회에서 수백만 번 훑었다, 10/5 실측 8.5M 호출)
+        return self._values[self._pos[key]] if isinstance(key, str) else self._values[key]
 
     def __iter__(self):
         return iter(self._values)
@@ -54,7 +65,8 @@ class Row:
 
 def _row_factory(cursor):
     keys = [c.name for c in cursor.description] if cursor.description else []
-    return lambda values: Row(keys, values)
+    pos = _positions(keys)
+    return lambda values: Row(keys, values, pos)
 
 
 class Cursor:

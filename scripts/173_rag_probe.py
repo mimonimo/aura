@@ -34,6 +34,14 @@ _WORD = re.compile(r"[가-힣A-Za-z0-9]{2,}")
 _OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|\d{1,2}(?:[.\-]\d{1,2})*[.．)]|[가-하][.．)]|[(（]\d{1,2}[)）])\s*")
 
 
+_SENT = re.compile(r"(?:다|함|음|임|됨|니다)\s*[.。]?\s*$|[:：,，]\s*$|^(?:위|아래|상기)\s|끝\.?$|\d\s*$")
+
+
+def _HEADING_OK(t: str) -> bool:
+    """시험 질문이 될 만한 절 제목 — 문장·조각(「위 관련 근거에 의거, 2」「구입 필요성 :」)이 아닌 4~30자 명사구."""
+    return 4 <= len(t) <= 30 and not _SENT.search(t) and len(re.findall(r"[가-힣A-Za-z]", t)) >= 3
+
+
 def probes(db, n: int, seed: int) -> list[dict]:
     nodes = {x["id"]: x for x in kg_store.nodes(db, "program")}
     nodes.update({x["id"]: x for x in kg_store.nodes(db, "year")})
@@ -68,7 +76,7 @@ def probes(db, n: int, seed: int) -> list[dict]:
         for sec in secs:
             title = _OUTLINE.sub("", (sec["label"] or "").strip())[:40]
             body = "\n".join(by_seq.get(q, "") for q in (json.loads(sec["props"] or "{}").get("chunks") or []))
-            if len(title) >= 4 and len(body) >= 300:
+            if len(title) >= 4 and len(body) >= 300 and _HEADING_OK(title):
                 cands.append((title, body))
         if not cands:
             continue
@@ -119,7 +127,9 @@ def main() -> int:
             try:
                 ans = AgentResponder().answer(db, p["q"], scope={"user": None})
                 ctx = " ".join(h["content"] for h in g["hits"])
-                nums = [x for x in _NUM.findall(ans) if x not in ctx and x.replace(",", "") not in ctx.replace(",", "")]
+                qn = set(_NUM.findall(p["q"]))           # 질문에 있던 숫자(연도 등)는 근거 밖이 아니다
+                nums = [x for x in _NUM.findall(ans) if x not in qn and x not in ctx
+                        and x.replace(",", "") not in ctx.replace(",", "")]
                 gw, aw = set(_WORD.findall(p["gold"])), set(_WORD.findall(ans))
                 row.update({"answer": ans[:1500], "answer_sec": round(time.time() - t1, 1), "unsupported_numbers": nums[:10],
                             "gold_overlap": round(len(gw & aw) / max(len(aw), 1), 3), "answer_error": ""})

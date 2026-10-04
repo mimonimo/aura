@@ -149,3 +149,83 @@ def retrieve(db, question: str, k: int = 5, chunk_text=None) -> Trace:
     tr.steps.append(f"[3단계: 근거 선택] 절 {len(hits)}개 중 상위 {len(tr.hits)}: "
                     + "; ".join(f"「{h.title[:30]}」({h.score})" for h in tr.hits[:3]))
     return tr
+
+
+_PROG_CACHE: dict = {"at": 0.0, "rows": None}
+
+
+def _programs(db) -> list[dict]:
+    """사업 노드(백여 개) — 5분 캐시. 질의마다 그래프 전체를 읽지 않는다."""
+    import json
+    import time
+    if _PROG_CACHE["rows"] is None or time.time() - _PROG_CACHE["at"] > 300:
+        with db._conn() as conn:
+            rows = conn.execute("SELECT id, label, props FROM kg_nodes WHERE type = 'program'").fetchall()
+        _PROG_CACHE.update(at=time.time(), rows=[{"id": r[0], "label": r[1], "props": json.loads(r[2] or "{}")} for r in rows])
+    return _PROG_CACHE["rows"]
+
+
+@dataclass
+class Scope:
+    program: str = ""
+    program_label: str = ""
+    round: int | None = None
+    year: int | None = None
+    kinds: list[str] = field(default_factory=list)
+    docs: set[int] | None = None                   # 사업·연차·갈래로 좁힌 문서 번호(사업을 못 찾으면 None)
+    program_docs: set[int] | None = None           # 사업 전체 문서(좁힌 범위가 비거나 맞는 조각이 없을 때 물러날 곳)
+    path_of: dict[int, list[str]] = field(default_factory=dict)
+    steps: list[str] = field(default_factory=list)
+
+
+def scope(db, question: str) -> Scope:
+    """retrieve 의 1·2단계만 — 사업·연차·문서 갈래로 문서 범위를 SQL 몇 번으로 정한다(검색 질의마다 쓰는 가벼운 길, 10/5:
+    그래프 전체를 읽던 retrieve 가 질의 하나에 19초)."""
+    import json
+    sc = Scope()
+    q_flat = re.sub(r"[\s.]+", "", question or "").upper()
+    best = (0, None)
+    for p in _programs(db):
+        hit = max((len(s) for s in _surfaces(p["props"]) if len(s) >= 3 and s in q_flat), default=0)
+        if hit > best[0]:
+            best = (hit, p)
+    m = _ROUND.search(question or "")
+    sc.round = int(m.group(1)) if m else None
+    y = _YEAR.search(question or "")
+    sc.year = int(y.group(1)) if y else None
+    sc.kinds = [kd for kd, pat in _KIND_WORDS.items() if re.search(pat, question or "")]
+    if not best[1]:
+        sc.steps.append("[1단계: 질문 파악] 사업 이름을 찾지 못함 — 모든 사업에서 찾는다")
+        return sc
+    sc.program, sc.program_label = best[1]["id"], best[1]["label"]
+    sc.steps.append(f"[1단계: 질문 파악] 사업 = {sc.program_label}({sc.program})")
+    when = " · ".join(str(v) for v in (sc.year, f"{sc.round}차년도" if sc.round else None) if v)
+    sc.steps.append(f"연차 = {when or '미지정'} · 문서 갈래 = {sc.kinds or '미지정'}")
+    with db._conn() as conn:
+        years = {r[0]: (r[1], json.loads(r[2] or "{}")) for r in conn.execute(
+            "SELECT n.id, n.label, n.props FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst"
+            " WHERE e.kind = 'contains' AND e.src = ? AND e.dst LIKE 'year:%'", (sc.program,)).fetchall()}
+        srcs = [sc.program, *years]
+        rows = conn.execute(
+            "SELECT e.src, n.doc_id, n.label, n.props FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst WHERE e.kind = 'contains'"
+            f" AND e.src IN ({','.join('?' * len(srcs))}) AND e.dst LIKE 'doc:%' AND n.doc_id IS NOT NULL", srcs).fetchall()
+    sc.program_docs = set()
+    picked = set()
+    for src, did, label, props in rows:
+        did = int(did)
+        sc.program_docs.add(did)
+        ylabel, yprops = years.get(src, ("", {}))
+        sc.path_of.setdefault(did, [x for x in (sc.program_label, ylabel) if x])
+        if sc.round and not (src.endswith(f":r{sc.round}") or yprops.get("round") == sc.round):
+            continue
+        if sc.year and not (src.endswith(f":y{sc.year}") or yprops.get("year") == sc.year):
+            continue
+        if (sc.round or sc.year) and src == sc.program:
+            continue                              # 연차를 모르는 문서는 연차를 물은 질문의 범위가 아니다
+        if sc.kinds and json.loads(props or "{}").get("kind") not in sc.kinds:
+            continue
+        picked.add(did)
+    sc.docs = picked or sc.program_docs
+    sc.steps.append(f"[2단계: 그래프 탐색] 사업 문서 {len(sc.program_docs)}건 → 연차·갈래로 {len(picked)}건"
+                    + ("" if picked else " (맞는 문서가 없어 사업 전체)"))
+    return sc

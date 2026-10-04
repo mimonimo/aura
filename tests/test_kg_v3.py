@@ -710,3 +710,28 @@ def test_folder_review_does_not_override_program_named_in_title():
     reviews = [{"folder": "LINC+", "label": "LINC+", "reviewer": "t", "reason": "LINC+ 폴더"}]
     assert programs.apply_reviews(docs, [a], reviews, [c1]) == 0
     assert a.program == c1.node_id
+
+
+def test_graph_scope_narrows_by_program_round_kind_with_sql(tmp_path):
+    """검색용 가벼운 범위(scope) — retrieve 와 같은 1·2단계 판단을 그래프 전체를 읽지 않고."""
+    from zzaimy.app.db import Database
+    from zzaimy.graph import retrieve
+
+    retrieve._PROG_CACHE.update(at=0.0, rows=None)
+    db = Database(tmp_path / "t.db")
+    kg_store.ensure(db)
+    with db._conn() as c:
+        kg_store.put_node(c, "program:linc30", "program", "3단계 산학연협력 선도전문대학 육성사업",
+                          {"names": ["3단계 산학연협력 선도전문대학 육성사업"], "acronyms": ["LINC3.0"]})
+        for r in (1, 3):
+            kg_store.put_node(c, f"year:linc30:r{r}", "year", f"LINC {r}차년도", {"round": r})
+            kg_store.put_edge(c, "program:linc30", f"year:linc30:r{r}", "contains", "분류", ["분류"])
+            for kind, did in (("plan", r * 10), ("report", r * 10 + 1)):
+                kg_store.put_node(c, f"doc:{did}", "doc", f"{r}차년도 {kind}", {"kind": kind}, did)
+                kg_store.put_edge(c, f"year:linc30:r{r}", f"doc:{did}", "contains", "분류", ["분류"])
+    sc = retrieve.scope(db, "LINC3.0 3차년도 실적보고서에서 가족회사 운영 실적은?")
+    assert sc.program == "program:linc30" and sc.docs == {31} and sc.program_docs == {10, 11, 30, 31}
+    assert sc.path_of[31] == ["3단계 산학연협력 선도전문대학 육성사업", "LINC 3차년도"]
+    none = retrieve.scope(db, "LINC3.0 9차년도 계획서")
+    assert none.docs == none.program_docs                    # 맞는 연차가 없으면 사업 전체로
+    assert retrieve.scope(db, "가족회사 운영 실적은?").docs is None
