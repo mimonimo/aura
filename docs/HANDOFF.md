@@ -184,7 +184,11 @@ VM cron(aura) 네 주기, 모두 `scripts/170_vm_sync.py`, 기록 `/tmp/zz_sync.
 - 5분 `zz_parsed.sh`(170 --parsed): DGX `~/parsed` 결과를 읽기 전용 키로 받아 `168` 로 들인다. 들이기 전용 잠금(/tmp/zz_parsed_import*.lock),
   경로마다 문서 하나(DB 부분 고유 색인 `ux_documents_dgx_path`), 원본 장부의 현재 판과 같은 기록만 적용.
 - 2분 `zz_index.sh`(170 --index): 사업 문서 색인(`knowledge/index/grant_embeddings.npz`, ADR-0049)만 따라잡기 — 그래프 재구축과 따로.
-  토르 임베딩, 묶음 제한 90초·실패 시 반으로 나눠 다시. 실측 초당 20~26조각.
+  토르 임베딩, 묶음 제한 90초·실패 시 반으로 나눠 다시. 실측 초당 20~26조각. 같은 주기에서 어휘 색인(`grant_lex`, 조각별 Kiwi 명사 +
+  PostgreSQL GIN)도 채운다 — 사업 문서 검색은 이 색인이 95% 넘게 차면 후보 조각만 읽는다(`grant_search`·`grant_lex`, 10/5).
+- 크론 넷은 `scripts/zz_run.sh` 로 돈다: 메모리 상한(sync·quick 24G, index 16G, parsed 12G)과 강제 종료 우선순위(웹·DB 보다 먼저).
+  10/4 밤 색인 갱신·그래프 작업이 겹쳐 VM 이 메모리 부족으로 멈췄다(그 뒤 VM 64GB). 무거운 일회성 작업도 이 실행기로, 한 번에 하나.
+  운영 보조 스크립트는 `~/ops`(/tmp 는 재부팅 때 비워진다).
 - 1분 `zz_quick.sh`(170 --quick, `.kg-dirty` 있을 때): 업로드 원본 DGX 올리기 → 그래프·양식(15분에 한 번까지, /tmp/zz_post.lock).
 원본 전체의 가벼운 처리(글·조각, 검토 의견 없음)는 DGX `.venv-parse`(파싱 전용 가상환경: torch 2.13+cu130 고정, mineru 3.4.5, docling 2.126.0 — docling 은 오피스 구조 읽기만)에서
 `scripts/167` → VM `scripts/168`('DGX 보관 문서', stored_path `dgx://`). 167 은 MinerU 동시 실행 상한(`ZZAIMY_MINERU_SLOTS`, 기본 2)과
@@ -199,7 +203,11 @@ archive_source='dgx', program=「사업 id|연도」)로 사업 × 수행 연도
 `170 --ledger-only`. 그래프 전체 재구축은 약 22분(묶어 읽기·쓰기), 끝날 때마다 data/platform/doc_program_changes.jsonl(배정 변경)·
 program_core_docs.json(사업 × 연도 확정 핵심 문서)을 낸다.
 사업 체계(일반재정지원·앵커·특수목적, 앵커 편입 연도)는 외부 검색으로 확인한 장부 VM `data/platform/kg_external.json`
-(출처 필수)로 그래프에 들어간다. 사업별 공통 양식은 드라이브 「ZZAIMY/사업별 공통 양식」(security02@ync.ac.kr, `scripts/169`).
+(출처 필수)로 그래프에 들어간다 — 사업 정식 이름(name, 그래프 표시 이름)·기간·전신(predecessor)·편입(integrated_into)·분류
+(일반재정지원·RISE·앵커·특수목적·타부처·「사업 아님」). 공통 양식은 문서 갈래별(`scripts/172`: 연차 사업계획서·연차 실적보고서·
+프로그램 운영계획서·프로그램 결과보고서 — 사업 셋 이상에 공통인 절·표)이 드라이브 「ZZAIMY/공통 양식」(`169 --common`),
+사업별(`162`)은 그 아래 「사업별(참고)」. 사업마다 들어갈 항목은 에이전트가 채팅 지시 때 그래프의 사업 단위 절로 채운다.
+점검 도구: 그래프 판정 `158`, 온톨로지 규칙 점검 `174`(읽기만), 사업 문서 RAG 실측 `173`(그래프에서 뽑은 질문으로 검색·27B 답변).
 
 ### 토르 03의 상시 서비스
 
