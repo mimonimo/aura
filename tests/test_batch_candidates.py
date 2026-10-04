@@ -20,13 +20,16 @@ def test_source_version_changes_job_key():
 
 def response(parent=None):
     item = {'question':'q','answer':'a','rationale':'r','path':['topic'],'kind':'qa','chunk_ids':[1]}
-    return {'scope_confirmed':True,'candidates':[item, {**item,'parent_index':parent}]}
+    return {'scope_confirmed':True,'candidates':[item, {**item,'parent_index':parent}, {**item,'parent_index':1}]}
 
 
 def test_actual_parent_id_is_preserved():
     rows = convert_response(response(0), {'doc_id':2}, [{'id':1}], 'abc')
     assert rows[1]['parent'] == rows[0]['id']
     assert rows[1]['refs'] == [[2,1]]
+    assert rows[2]['parent'] == rows[1]['id']
+    assert {r['conversation_id'] for r in rows} == {'dialogue-abc'}
+    assert {r['split_group'] for r in rows} == {'document:2'}
 
 
 def test_outside_reference_rejected():
@@ -35,8 +38,13 @@ def test_outside_reference_rejected():
 
 
 def test_future_parent_rejected():
-    with pytest.raises(ValueError, match='invalid_parent_index'):
+    with pytest.raises(ValueError, match='disconnected_conversation'):
         convert_response(response(1), {'doc_id':2}, [{'id':1}], 'abc')
+
+
+def test_independent_questions_are_not_a_conversation():
+    with pytest.raises(ValueError, match='disconnected_conversation'):
+        convert_response(response(), {'doc_id':2}, [{'id':1}], 'abc')
 
 
 def test_unconfirmed_scope_rejected():
