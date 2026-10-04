@@ -140,6 +140,7 @@ def main() -> int:
         for x in secs:
             unit_of[x] = uid
     progs = [p for p in nodes.values() if p["type"] == "program" and (not args.program or p["id"] == args.program)]
+    written: set[str] = set()
     for prog in progs:
         pkey = prog["id"].split(":", 1)[1]
         for kind, kind_ko in KIND_KO.items():
@@ -261,7 +262,14 @@ def main() -> int:
             safe = re.sub(r"[^0-9A-Za-z가-힣]+", "_", pkey).strip("_") or "program"
             dest = out_dir / f"{safe}_{kind}.md"
             dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            written.add(dest.name)
             print(f"{prog['label'][:30]} {kind_ko}: 절 {n_sec} (뼈대 #{nodes[skel].get('doc_id')}) → {dest}")
+    if not args.program:
+        # 이번에 만들지 않은 옛 사업별 양식은 지운다 — 사업 id 가 바뀌면(카드 정리·이름 규칙) 옛 이름 양식이 남아 드라이브까지 올라갔다
+        for f in [*out_dir.glob("*_plan.*"), *out_dir.glob("*_report.*")]:
+            if f.suffix in (".md", ".docx") and f.with_suffix(".md").name not in written:
+                f.unlink(missing_ok=True)
+                print(f"옛 양식 지움: {f.name}")
     return 0
 
 

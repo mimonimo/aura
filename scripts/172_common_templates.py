@@ -215,30 +215,217 @@ def render(items: list[dict], kind_ko: str, nodes: dict, db, max_depth: int = 4)
     return "\n".join(lines) + "\n", n_sec, n_tab
 
 
+# ── 사업 공통 구조(27B 묶기 + 코드 검증) ─────────────────────────────────────────────
+# 제목이 똑같은 절만 공통으로 세면 사업마다 다른 말(「추진 배경」「사업 필요성」)을 놓쳐 양식이 비었다(10/5: 연차 계획서 절 0).
+# 사업별 뼈대를 모델에 보여 뜻이 같은 절을 묶게 하고, 모델이 댄 출처(사업 번호·그 사업의 제목 그대로)를 코드가 뼈대와 대조해
+# 사업 셋 이상이 확인된 절만 남긴다. 모델은 구조만 다룬다 — 수치·내용을 만들지 않는다(절대 규칙 1·10).
+CONSENSUS_PROMPT = """아래는 여러 정부 재정지원사업에서 실제로 쓴 {kind_ko}의 목차(사업별)이다.
+사업이 달라도 같은 내용을 다루는 절(예: 「추진 배경」·「사업 필요성」·「추진 목적」)을 하나로 묶어, 어느 사업에든 쓸 수 있는
+{kind_ko} 공통 목차를 만들어라.
+
+규칙:
+- 서로 다른 사업 셋 이상에 뜻이 같은 절이 있을 때만 공통 절로 넣는다
+- 공통 절 제목은 특정 사업·학과·반·기관 이름 없이 일반 명칭으로(예: 「사업 개요」, 「추진 체계」, 「성과지표 및 목표」)
+- level 1 은 장, level 2 는 그 장 안의 절. 순서는 여러 사업 목차에서 흔한 순서를 따른다
+- sources 에는 그 절에 해당하는 각 사업의 번호(p)와 그 사업 목차의 제목을 글자 그대로(t) 적는다
+- 내용·수치는 쓰지 않는다
+
+출력은 JSON 하나만:
+{{"sections": [{{"title": "...", "level": 1, "sources": [{{"p": 1, "t": "..."}}]}}]}}
+
+{skeletons}"""
+
+
+def md_skeleton(text: str, max_items: int = 70) -> list[dict]:
+    """사업별 양식 md(162) → [{level, title, table}] — 「##」 장, 「###」 절, 바로 아래 첫 표."""
+    out: list[dict] = []
+    for line in text.splitlines():
+        m = re.match(r"^(#{2,3})\s+(.*)$", line)
+        if m:
+            title = clean_title(m.group(2))
+            if title and not title.startswith("(항목") and len(out) < max_items:
+                out.append({"level": len(m.group(1)) - 1, "title": title, "table": None})
+            continue
+        if line.startswith("<table") and out and out[-1]["table"] is None:
+            out[-1]["table"] = line.strip()
+    return out
+
+
+def _norm(t: str) -> str:
+    return title_key(clean_title(t or ""))
+
+
+def consensus(skeletons: list[tuple[str, list[dict]]], kind_ko: str, ask, min_programs: int = 3) -> list[dict]:
+    """skeletons: [(사업 이름, 뼈대)], ask(prompt) → 모델 응답 글. 검증을 통과한 공통 절 [{title, level, programs, table}]."""
+    blocks = []
+    for i, (name, sk) in enumerate(skeletons, 1):
+        lines = [("  " if it["level"] == 2 else "") + it["title"] for it in sk]
+        blocks.append(f"[사업 {i}]\n" + "\n".join(lines))
+    raw = ask(CONSENSUS_PROMPT.format(kind_ko=kind_ko, skeletons="\n\n".join(blocks)))
+    raw = re.sub(r"<think>.*?</think>", "", raw or "", flags=re.S)
+    m = re.search(r"\{.*\}", raw, re.S)
+    try:
+        got = json.loads(m.group(0)) if m else {}
+    except json.JSONDecodeError:
+        got = {}
+    keys = [{_norm(it["title"]): it for it in sk} for _n, sk in skeletons]
+    out = []
+    for sec in got.get("sections") or []:
+        title = clean_title(str(sec.get("title") or ""))
+        if not title or not label_ok(title) or _ORG.search(title):
+            continue
+        ok: dict[int, dict] = {}
+        for src in sec.get("sources") or []:
+            try:
+                p = int(src.get("p")) - 1
+            except (TypeError, ValueError):
+                continue
+            if 0 <= p < len(keys):
+                hit = keys[p].get(_norm(str(src.get("t") or "")))
+                if hit and p not in ok:
+                    ok[p] = hit                              # 모델이 댄 제목이 그 사업 뼈대에 실제로 있다
+        if len(ok) < min_programs:
+            continue
+        table = next((h["table"] for h in ok.values() if h.get("table")), None)
+        out.append({"title": title, "level": 2 if int(sec.get("level") or 1) >= 2 else 1, "programs": len(ok),
+                    "from": [skeletons[p][0] for p in sorted(ok)], "table": table})
+    return out
+
+
+def render_consensus(items: list[dict], kind_ko: str, n_programs: int) -> tuple[str, int, int]:
+    lines = [f"# {kind_ko} 공통 양식", "",
+             f"> 작성 안내: 사업 {n_programs}곳의 지난 {kind_ko} 목차에서 셋 이상이 함께 쓰는 절을 묶었다. 사업마다 더 들어가야 할 항목은 "
+             f"에이전트에게 「○○사업 ○차년도 {kind_ko} 초안」처럼 지시하면 그 사업의 지난 문서 구조로 채운다.", ""]
+    n_sec = n_tab = 0
+    i1 = i2 = 0
+    for it in items:
+        if it["level"] == 1:
+            i1, i2 = i1 + 1, 0
+            mark = MARKS[0](i1 - 1)
+            lines.append(f"## {mark} {it['title']}")
+        else:
+            i2 += 1
+            mark = MARKS[1](i2 - 1)
+            lines.append(f"### {mark} {it['title']}")
+        lines += ["", f"> 작성 안내: 사업 {it['programs']}곳에 있는 절 — 예: {', '.join(it['from'][:4])}", ""]
+        n_sec += 1
+        if it.get("table"):
+            lines += [it["table"], ""]
+            n_tab += 1
+    return "\n".join(lines) + "\n", n_sec, n_tab
+
+
+def _ask_model():
+    from zzaimy.generate.client import VllmClient
+    client = VllmClient(role="review")
+
+    def ask(prompt: str) -> str:
+        resp = client.client.chat.completions.create(
+            model=client.model, messages=[{"role": "user", "content": prompt}], temperature=0, max_tokens=6000,
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}})
+        return resp.choices[0].message.content or ""
+    return ask
+
+
+def program_doc_skeletons(db, kind: str, title_rx, per_program: int = 2, limit: int = 24) -> list[tuple[str, list[dict]]]:
+    """프로그램 단위 서류(운영계획·결과보고) 뼈대 — 사업마다 절이 많은 순으로 per_program 건, 절 3~25개, 표 머리 포함."""
+    nodes = {n["id"]: n for n in kg_store.nodes(db, "doc")}
+    progs = {n["id"]: n["label"] for n in kg_store.nodes(db, "program")}
+    prog_of: dict[str, str] = {}
+    with db._conn() as conn:
+        rows = conn.execute("SELECT src, dst FROM kg_edges WHERE kind = 'contains' AND (src LIKE 'program:%' OR src LIKE 'year:%')"
+                            " AND dst NOT LIKE '%:sec:%'").fetchall()
+    year_prog = {r[1]: r[0] for r in rows if r[0].startswith("program:") and r[1].startswith("year:")}
+    for src, dst in rows:
+        if dst.startswith("doc:"):
+            p = src if src in progs else year_prog.get(src)
+            if p:
+                prog_of[dst] = p
+    by_prog: dict[str, list[tuple[int, str, list]]] = defaultdict(list)
+    for did, n in nodes.items():
+        if did not in prog_of or n["props"].get("kind") != kind or n["props"].get("other_org") or not title_rx.search(n["label"] or ""):
+            continue
+        with db._conn() as conn:
+            secs = conn.execute("SELECT id, label, props FROM kg_nodes WHERE type = 'section' AND doc_id = ?", (n["doc_id"],)).fetchall()
+        if 3 <= len(secs) <= 25:
+            by_prog[prog_of[did]].append((len(secs), did, secs))
+    out = []
+    for pid, lst in sorted(by_prog.items(), key=lambda kv: -len(kv[1])):
+        for _n, did, secs in sorted(lst, key=lambda t: -t[0])[:per_program]:
+            secs = sorted(secs, key=lambda r: int(json.loads(r[2] or "{}").get("seq") or 0))
+            sk = []
+            for sid, label, props in secs:
+                depth = sid.split(":sec:")[1].count(".")
+                title = clean_title(label)
+                if depth > 1 or not title or not label_ok(title):
+                    continue
+                table = None
+                seqs = [int(q) for q in (json.loads(props or "{}").get("chunks") or [])][:20]
+                if seqs:
+                    with db._conn() as conn:
+                        t = conn.execute(f"SELECT content FROM doc_chunks WHERE doc_id = ? AND kind = 'table' AND seq IN ({','.join('?' * len(seqs))})"
+                                         " ORDER BY seq LIMIT 1", (nodes[did]["doc_id"], *seqs)).fetchone()
+                    table = table_skeleton(str(t[0])) if t else None
+                sk.append({"level": depth + 1, "title": title, "table": table})
+            if len(sk) >= 3:
+                out.append((progs.get(pid, pid), sk))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--min-programs", type=int, default=3, help="서로 다른 사업 몇 곳 이상의 문서에 나와야 공통 절인가")
-    ap.add_argument("--min-docs", type=int, default=5)
-    ap.add_argument("--min-share", type=float, default=0.08, help="그 갈래 문서 가운데 이 비율 이상에 나와야 공통 절")
+    ap.add_argument("--min-programs", type=int, default=3, help="서로 다른 사업 몇 곳 이상에 있어야 공통 절인가")
+    ap.add_argument("--templates", default=str(ROOT / "data" / "generated" / "templates"), help="사업별 양식(162) 폴더")
     ap.add_argument("--out", default=str(ROOT / "data" / "generated" / "templates" / "common"))
     args = ap.parse_args()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
-    nodes = {n["id"]: n for n in kg_store.nodes(db)}
-    contains = kg_store.edges(db, "contains")
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    ask = _ask_model()
     report = {}
-    for name, kind, kind_ko, spec in GENRES:
-        share = args.min_share if spec.get("one_per_program") else max(args.min_share, 0.15)
-        items = build(nodes, contains, kind, args.min_programs, 3, spec=spec, min_share=share)
-        md, n_sec, n_tab = render(items, kind_ko, nodes, db)
+    jobs = []
+    for kind, kind_ko, name in (("plan", "연차 사업계획서", "annual_plan"), ("report", "연차 실적보고서", "annual_report")):
+        sks = []
+        for f in sorted(Path(args.templates).glob(f"*_{kind}.md")):
+            text = f.read_text(encoding="utf-8")
+            label = re.sub(r"^#\s*|\s*(계획서|실적보고서)\s*공통 양식\s*$", "", text.splitlines()[0]) if text else f.stem
+            sk = md_skeleton(text)
+            if len(sk) >= 8:
+                sks.append((label, sk))
+        jobs.append((name, kind_ko, sorted(sks, key=lambda t: -len(t[1]))[:20]))
+    for kind, kind_ko, name, rx in (("plan", "프로그램 운영계획서", "program_plan", _PROG_PLAN),
+                                    ("report", "프로그램 결과보고서", "program_report", _PROG_REPORT)):
+        jobs.append((name, kind_ko, program_doc_skeletons(db, kind, rx)))
+    import hashlib
+    seen_path = out_dir / ".inputs.json"
+    try:
+        seen = json.loads(seen_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        seen = {}
+    for name, kind_ko, sks in jobs:
+        digest = hashlib.sha256(json.dumps(sks, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        if seen.get(name) == digest and (out_dir / f"{name}.md").is_file():
+            print(f"{kind_ko}: 뼈대가 지난번과 같아 건너뜀", flush=True)   # 그래프를 다시 지을 때마다 모델을 부르지 않는다
+            continue
+        seen[name] = digest
+        items = consensus(sks, kind_ko, ask, args.min_programs) if len(sks) >= args.min_programs else []
+        md, n_sec, n_tab = render_consensus(items, kind_ko, len(sks))
         (out_dir / f"{name}.md").write_text(md, encoding="utf-8")
-        report[name] = {"title": kind_ko, "sections": n_sec, "tables": n_tab, "candidates": len(items)}
-        print(f"{kind_ko}: 절 {n_sec} · 표 {n_tab} → {out_dir / (name + '.md')}")
-    for old in ("plan", "report"):                       # 첫 판 이름(갈래만으로 나눈 것)은 지운다
+        report[name] = {"title": kind_ko, "sections": n_sec, "tables": n_tab, "programs": len(sks)}
+        print(f"{kind_ko}: 뼈대 {len(sks)}개 → 공통 절 {n_sec} · 표 {n_tab}", flush=True)
+    for old in ("plan", "report"):
         for ext in (".md", ".docx"):
             (out_dir / f"{old}{ext}").unlink(missing_ok=True)
-    (out_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    if report:
+        old = {}
+        try:
+            old = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        (out_dir / "report.json").write_text(json.dumps(old | report, ensure_ascii=False, indent=1), encoding="utf-8")
+    seen_path.write_text(json.dumps(seen), encoding="utf-8")
     return 0
 
 
