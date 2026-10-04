@@ -50,3 +50,40 @@ def test_search_prefers_project_reference_documents(tmp_path, monkeypatch):
     got = gs.search(db, "취업률 목표", k=5, prefer_docs={b})
     assert [h["doc_id"] for h in got["hits"]] == [b]
     assert any("참조 보관 사업" in s for s in got["steps"])
+
+
+def test_increment_removes_and_adds_in_one_array_and_checks_without_reloading(tmp_path, monkeypatch):
+    """10/4 VM OOM — 색인 갱신이 5GB 사본을 여러 벌 만들던 것을 한 배열로. 결과는 같아야 한다."""
+    import numpy as np
+    from zzaimy.app import grant_search as gs
+    idx = tmp_path / "grant_embeddings.npz"
+    monkeypatch.setattr(gs, "INDEX", idx)
+    monkeypatch.setattr(gs, "PREV", idx.with_suffix(".prev.npz"))
+    gs._cache.update(mtime=None, ids=None, vecs=None)
+    db = Database(tmp_path / "t.db")
+    did = db.add_document("계획서.hwp", "x", doc_type="grant", sector="grant")
+    db.update_document(did, status="reviewed")
+    db.replace_doc_chunks(did, [{"kind": "text", "content": f"조각 {i}"} for i in range(3)])
+    cids = sorted(c["id"] for c in db.list_doc_chunks(did))
+    gone = max(cids) + 100                                  # 색인에만 있고 문서함에서는 지워진 조각
+    np.savez(idx, ids=np.array([cids[0], gone], dtype=np.int64),
+             vectors=np.array([[1, 1], [9, 9]], dtype=np.float32))
+    monkeypatch.setattr(gs, "_encode_batch", lambda texts: [[float(len(t)), 0.0] for t in texts])
+    got = gs.build_increment(db, batch=1)
+    assert (got["added"], got["removed"], got["total"]) == (2, 1, 3)
+    ids, vecs = gs._read(idx)
+    assert sorted(ids) == cids and vecs.shape == (3, 2)
+    assert list(vecs[list(ids).index(cids[0])]) == [1.0, 1.0]    # 남긴 조각의 벡터는 그대로
+    assert gs._check(idx) == 3
+
+
+def test_check_rejects_truncated_vectors(tmp_path):
+    import numpy as np
+    from zzaimy.app import grant_search as gs
+    p = tmp_path / "x.npz"
+    np.savez(p, ids=np.arange(4, dtype=np.int64), vectors=np.ones((3, 2), dtype=np.float32))
+    try:
+        gs._check(p)
+        raise AssertionError("모양이 다른데 통과")
+    except ValueError:
+        pass

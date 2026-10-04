@@ -69,6 +69,29 @@ def _read(path: Path):
     return ids, vecs
 
 
+def _check(path: Path) -> int:
+    """색인 파일 검사(벡터 본체는 읽지 않는다) — 번호 배열과 벡터 머리의 모양, 벡터 본체 길이가 맞는지. 조각 수를 돌려준다.
+
+    10/4 VM 메모리 부족(OOM 세 번·멈춤 한 번)의 한 원인: 5.4GB 색인을 쓰고 나서 검사하느라 통째로 두 번 더 읽었다."""
+    import zipfile
+
+    import numpy as np
+    with zipfile.ZipFile(path) as zf:
+        with zf.open("ids.npy") as f:
+            ids = np.lib.format.read_array(f)
+        info = zf.getinfo("vectors.npy")
+        with zf.open(info) as f:
+            version = np.lib.format.read_magic(f)
+            reader = np.lib.format.read_array_header_1_0 if version == (1, 0) else np.lib.format.read_array_header_2_0
+            shape, _fortran, dtype = reader(f)
+            head = f.tell()
+    if len(shape) != 2 or shape[0] != len(ids):
+        raise ValueError(f"색인 모양이 맞지 않음: ids {len(ids)} · vectors {shape}")
+    if info.file_size - head < shape[0] * shape[1] * np.dtype(dtype).itemsize:
+        raise ValueError("색인 벡터 본체가 잘렸음")
+    return int(len(ids))
+
+
 def _load():
     """색인 읽기 — 깨졌으면 직전 정상본(.prev), 그것도 없으면 (None, None)(검색은 어휘 단독으로 계속)."""
     if not INDEX.exists():
@@ -228,8 +251,10 @@ def _build_increment(db, batch: int, limit: int) -> dict:
     todo = sorted(live - have)
     new = _fetch(db, todo[:limit])
     keep_mask = np.array([int(i) in live for i in ids]) if ids is not None and len(ids) else None
-    out_ids = ids[keep_mask] if keep_mask is not None else np.zeros((0,), dtype=np.int64)
-    out_vecs = vecs[keep_mask] if keep_mask is not None else None
+    if keep_mask is not None and keep_mask.all():
+        keep_mask = None                                   # 빠진 조각이 없으면 걸러 낸 사본을 만들지 않는다
+    new_ids: list[np.ndarray] = []
+    new_vecs: list[np.ndarray] = []
     added = 0
     failed = 0
     for i in range(0, len(new), batch):
@@ -241,23 +266,44 @@ def _build_increment(db, batch: int, limit: int) -> dict:
             if failed >= batch * 3:
                 raise RuntimeError("임베딩 서비스 없음")   # 서비스가 아예 안 되면 이번 회차는 여기까지
             continue
-        v = np.asarray([x for _c, x in keep], dtype=np.float32)
-        out_ids = np.concatenate([out_ids, np.array([c["id"] for c, _x in keep], dtype=np.int64)])
-        out_vecs = v if out_vecs is None else np.vstack([out_vecs, v])
+        new_vecs.append(np.asarray([x for _c, x in keep], dtype=np.float32))
+        new_ids.append(np.array([c["id"] for c, _x in keep], dtype=np.int64))
         added += len(keep)
-    removed = (len(ids) - int(keep_mask.sum())) if keep_mask is not None else 0
+    # 남길 것과 새것을 한 번에 한 배열로 — 묶음마다 vstack 하면 색인 크기(5GB)만 한 사본이 묶음 수만큼 생겼다 지워진다
+    n_keep = int(keep_mask.sum()) if keep_mask is not None else (len(ids) if ids is not None else 0)
+    dim = (vecs.shape[1] if vecs is not None and vecs.ndim == 2 and len(vecs) else
+           (new_vecs[0].shape[1] if new_vecs else 0))
+    out_ids = np.concatenate([(ids[keep_mask] if keep_mask is not None else ids) if ids is not None
+                              else np.zeros((0,), dtype=np.int64), *new_ids]) if (added or n_keep) else np.zeros((0,), dtype=np.int64)
+    out_vecs = None
+    if dim and (added or (keep_mask is not None and n_keep != len(ids))):
+        out_vecs = np.empty((n_keep + added, dim), dtype=np.float32)
+        if n_keep:
+            if keep_mask is not None:
+                np.compress(keep_mask, vecs, axis=0, out=out_vecs[:n_keep])
+            else:
+                out_vecs[:n_keep] = vecs
+        pos = n_keep
+        for v in new_vecs:
+            out_vecs[pos:pos + len(v)] = v
+            pos += len(v)
+        new_vecs.clear()
+    removed = (len(ids) - n_keep) if ids is not None else 0
     if added or removed:
         tmp = INDEX.with_name(f".{INDEX.stem}.{os.getpid()}.tmp.npz")
         # 압축하지 않는다 — 벡터는 거의 줄지 않고, 수 GB 를 회차마다 압축하는 게 색인 속도를 깎았다(10/2 실측 초당 20여 조각)
         np.savez(tmp, ids=out_ids, vectors=out_vecs if out_vecs is not None else np.zeros((0, 1)))
+        out_vecs = None
+        ids = vecs = None
+        _cache.update(mtime=None, ids=None, vecs=None)
         try:
-            _read(tmp)                                     # 다시 읽어 검사한 뒤에만 바꾼다
+            _check(tmp)                                    # 검사한 뒤에만 바꾼다(본체를 다시 읽지 않고)
         except Exception:
             tmp.unlink(missing_ok=True)
             raise
         if INDEX.exists():
             try:
-                _read(INDEX)
+                _check(INDEX)
                 INDEX.replace(PREV)                        # 직전 정상본을 남긴다
             except Exception:
                 pass                                       # 깨진 것은 정상본으로 남기지 않는다
