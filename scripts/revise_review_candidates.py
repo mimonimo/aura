@@ -30,13 +30,16 @@ def resolve(did,cid):
  ch=next((x for x in db.list_doc_chunks(did) if x['id']==cid),None)
  if not ch:return None
  return json.loads(ch['content']).get('text',ch['content']) if ch['kind']=='table' else ch['content']
+revised=ns['revise_batch'](tasks,p['proposals'],resolve)
 changes=[]
-for sid,proposal in p['proposals'].items():
+for sid,d in revised.items():
  t=by_id[sid]
- if all(t['data'].get(k)==v for k,v in proposal.items()):continue
- d=ns['revise_task'](t,proposal,tasks,resolve)
+ if all(t['data'].get(k)==d[k] for k in ('question','answer','rationale','history')) and t['data']['_record'].get('history',[])==d['_record']['history']:continue
  if protect_candidate(d)!=d:raise ValueError('privacy_hold')
- if not verify_numbers(d['answer'],d['_record']['source_texts']).ok:raise ValueError('number_hold')
+ sources=list(d['_record']['source_texts']);parent=d['_record'].get('parent')
+ while parent:
+  previous=revised[parent];sources.extend(previous['_record']['source_texts']);parent=previous['_record'].get('parent')
+ if not verify_numbers(d['answer'],sources).ok:raise ValueError('number_hold')
  changes.append((t,d))
 report={'revisions':len(changes),'applied':False}
 if p['apply'] and changes:
@@ -47,6 +50,7 @@ if p['apply'] and changes:
  for t,d in changes:
   current=c._req('GET',f"/api/tasks/{t['id']}")
   if current['data']!=t['data'] or current.get('annotations'):raise ValueError('concurrent_change')
+ for t,d in changes:
   c._req('PATCH',f"/api/tasks/{t['id']}",json={'data':d})
   if c._req('GET',f"/api/tasks/{t['id']}")['data']!=d:raise ValueError('readback_mismatch')
  report.update(applied=True,backup=str(out))

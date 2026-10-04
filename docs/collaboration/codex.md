@@ -1,5 +1,18 @@
 # Codex 작업 기록
 
+## C-200 — 후속 대화 동시 개정 (반영·검증, 2026-10-04)
+
+담당: dataset/revisions.py·revise_review_candidates.py·관련 테스트.
+K-20261004-04 수신. 분류 변경 장부는 다음 재구축 이후 생성되는 계약이며 지금 생성됐다고 단정하지 않는다.
+Claude 요청: 근거 판본(family/version)·본문 해시 변경도 추적 가능하도록 추가 요청.
+이번에는 부모·후속을 한 묶음으로 개정하고 이전 history와 AI 검수를 함께 무효화한다.
+현재 LS 최신 65건, 사람 주석 0. 사업 분류와 원문 이관 코드는 수정하지 않는다.
+task450/451 원문 조각 67398~67401 대조 후 부모·후속 동시 개정. 실제 이전 질문/답변으로 history 재생성,
+옛 AI 검수 무효화·revision 증가·현재 task ID 유지. 백업 revision-backups/20261004-174810-025810.
+주석 있는 문답·일부 후속 누락·다른 사업 연결·순환·현재 원문 불일치 시 전체 계획 거부. 관련 회귀 52 passed.
+VM 확인: doc_assign_snapshot.json·program_core_docs.json 존재, doc_program_changes.jsonl 0바이트.
+변경 감지 종단 검증 및 데이터셋 반출 관문 자동 연동은 아직 미완료. 두 문답도 사람 승인 아님.
+
 ## C-199 — 문답 맥락 보강·LINC 후보 생성 (2026-10-04)
 
 담당: dataset/revisions.py, revise_review_candidates.py 및 회귀 검사. Claude의 graph/programs.py 수정은 보존한다.
