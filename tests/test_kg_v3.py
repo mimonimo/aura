@@ -758,3 +758,10 @@ def test_clean_cards_removes_foreign_and_korean_acronyms_keeps_id():
     assert "RISE" not in plus.acrs and "대학" not in plus.acrs and "RISE" in rise.acrs
     assert "1차년도 RISE사업" not in plus.names and "2단계 LINC+ 사업" in plus.names
     assert plus.node_id == before and st["shared_acr"] == 1 and st["kor_acr"] == 1
+
+
+def test_ministry_prefix_and_vague_names():
+    assert programs._norm_name("교육부 초광역 성장엔진 인재육성 사업") == "초광역 성장엔진 인재육성 사업"
+    assert programs._norm_name("구분 대경권 사업") == "대경권 사업"
+    assert programs.vague_name("대학재정지원사업") and programs.vague_name("지자체 연계 사업")
+    assert not programs.vague_name("HiVE사업") and not programs.vague_name("대경권 사업")

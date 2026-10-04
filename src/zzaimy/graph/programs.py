@@ -63,8 +63,20 @@ def _name_ok(name: str) -> bool:
 _LEAD_PUNCT = re.compile(r"^[\s·ㆍ•∙\-–—*,.:;○●□■▶▷※]+")
 
 
+# 사업 이름 앞의 부처·표 머리말 — 「교육부 초광역 성장엔진 인재육성 사업」「구분 대경권 사업」의 교육부·구분은 이름이 아니다
+_LEAD_ORG = re.compile(r"^(?:(?:교육부|고용노동부|산업통상자원부|과학기술정보통신부|행정안전부|중소벤처기업부|보건복지부|문화체육관광부|"
+                       r"국토교통부|농림축산식품부|여성가족부|해양수산부|환경부|교육과학기술부|구분|항목|사업명|과제명|사업구분|분야)\s+)+")
+# 고유한 낱말 없이 일반어만으로 된 이름(「재정지원 사업」「지자체 연계 사업」) — 사업 하나를 가리키지 않는다
+_GENERIC_WORDS = re.compile(r"사업단?|지원|육성|운영|활성화|재정|국고|정부|교육부|지자체|연계|대학|전문대학|기본|일반|공통|기타|및|등|의|"
+                            r"[0-9]+|[()·\s\-+.,]")
+
+
+def vague_name(name: str) -> bool:
+    return len(_GENERIC_WORDS.sub("", name or "")) < 2
+
+
 def _norm_name(name: str) -> str:
-    n = _LEAD_PUNCT.sub("", _LEAD_LABEL.sub("", name or "")).strip()
+    n = _LEAD_ORG.sub("", _LEAD_PUNCT.sub("", _LEAD_LABEL.sub("", name or "")).strip()).strip()
     # 앞에 붙은 때·순번 꼬리표 — 「8월 RISE사업」·「3(경대) RISE사업」·「25재정지원사업」의 8월·3(경대)·25
     # 숫자 뒤가 「단계·차·주기·기」면 이름의 일부다(「3단계 산학연협력 …」의 3) — 떼지 않는다
     n = re.sub(r"^(?:(?:19|20)?\d{2}\s*(?:학년도|년도|년)|\d{1,2}\s*월|\d{1,2}\s*\([^)]{1,10}\)|\d{1,4}(?!\s*(?:단계|차|주기|기|학년도|년도|년)))\s*(?=[가-힣A-Za-z])", "", n).strip()
@@ -337,7 +349,8 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
         if card.names:
             card.key = program_key(card.names.most_common(1)[0][0])
     clean_cards(cards)
-    return cards
+    # 막연한 이름만 가진 카드(약칭도 없음)는 사업으로 세우지 않는다 — 그 문서는 검토 대기로 가서 실제 사업을 판정받는다
+    return [c for c in cards if c.acrs or not c.names or not all(vague_name(n) for n in c.names)]
 
 
 def clean_cards(cards: list[ProgramCard]) -> dict:
