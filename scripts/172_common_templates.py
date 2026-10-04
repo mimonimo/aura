@@ -37,7 +37,14 @@ _bt = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_bt)
 label_ok, table_skeleton, _FRONT = _bt.label_ok, _bt.table_skeleton, _bt._FRONT
 
-KINDS = {"plan": "사업계획서", "report": "실적보고서"}
+# 문서 갈래 × 크기 — 연차 사업계획서(수십 쪽)와 행사·프로그램 운영계획서(몇 쪽)는 짜임이 다르다(10/5 첫 판: 「행사 일정」이 계획서 첫 장으로)
+GENRES = [("annual_plan", "plan", "연차 사업계획서", lambda n: n >= 30),
+          ("annual_report", "report", "연차 실적보고서", lambda n: n >= 30),
+          ("program_plan", "plan", "프로그램 운영계획서", lambda n: 3 <= n <= 20),
+          ("program_report", "report", "프로그램 결과보고서", lambda n: 3 <= n <= 20)]
+# 양식의 절이 아닌 것 — 목차·표지·붙임 표시·회사 이름
+_SKIP_TITLE = re.compile(r"^(?:목\s*차|차\s*례|contents|표\s*지|붙\s*임|별\s*첨|참\s*고|첨\s*부)", re.I)
+_ORG = re.compile(r"㈜|\(주\)|주식회사")
 _NUM = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|(?:I{1,3}|IV|VI{0,3}|IX|X)[.．]|\d{1,2}(?:[.\-]\d{1,2})*[.．)]?|"
                   r"[가나다라마바사아자차카타파하][.．)]|[(（]\d{1,2}[)）]|\d{1,2}\))\s*")
 # 연차·연도 꼬리표 — 「추진 실적(1차년도)」의 (1차년도), 「2024년 성과」의 2024년
@@ -54,8 +61,10 @@ def clean_title(label: str) -> str:
     return re.sub(r"\s+", " ", t)
 
 
-def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_docs: int) -> list[dict]:
-    """갈래 하나의 공통 절 목록 — [{key, title, parent, pos, programs, docs, secs}] (부모가 앞에 오는 순서)."""
+def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_docs: int,
+          size_ok=lambda n: True, min_share: float = 0.0) -> list[dict]:
+    """갈래 하나의 공통 절 목록 — [{key, title, parent, pos, programs, docs, secs}] (부모가 앞에 오는 순서).
+    size_ok: 문서의 절 수로 고르는 크기 조건, min_share: 그 갈래 문서 가운데 이 비율 이상에 나와야 공통 절."""
     prog_of: dict[str, str] = {}
     for e in contains:
         if e["src"].startswith("program:"):
@@ -68,17 +77,20 @@ def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_d
         if n["type"] == "section":
             by_doc[nid.split(":sec:")[0]].append(nid)
     occ: dict[str, list[dict]] = defaultdict(list)       # 대조 키 → 나온 곳들
+    n_docs = 0
     for d, ids in by_doc.items():
         dn = nodes.get(d)
-        if not dn or dn["props"].get("kind") != kind or dn["props"].get("other_org") or d not in prog_of:
+        if not dn or dn["props"].get("kind") != kind or dn["props"].get("other_org") or d not in prog_of or not size_ok(len(ids)):
             continue
+        n_docs += 1
         ids.sort(key=lambda i: int(nodes[i]["props"].get("seq") or 0))
         seen: set[str] = set()
         for k, sid in enumerate(ids):
             lab = nodes[sid]["label"]
             title = clean_title(lab)
             key = title_key(title)
-            if not key or key in seen or not label_ok(title) or _FRONT.search(title) or len(key) < 2:
+            if not key or key in seen or not label_ok(title) or _FRONT.search(title) or len(key) < 2 \
+                    or _SKIP_TITLE.search(title) or _ORG.search(title):
                 continue
             seen.add(key)
             path = sid.split(":sec:")[1]
@@ -90,8 +102,9 @@ def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_d
                     anc.append(title_key(clean_title(nodes[cur]["label"])))
             occ[key].append({"doc": d, "prog": prog_of[d], "sec": sid, "title": title, "depth": path.count("."),
                              "pos": k / max(len(ids) - 1, 1), "anc": anc})
+    need_docs = max(min_docs, int(min_share * n_docs + 0.999))
     common = {k: v for k, v in occ.items()
-              if len({o["prog"] for o in v}) >= min_programs and len({o["doc"] for o in v}) >= min_docs}
+              if len({o["prog"] for o in v}) >= min_programs and len({o["doc"] for o in v}) >= need_docs}
     out = []
     for k, v in common.items():
         parents = Counter(next((a for a in o["anc"] if a in common and a != k), "") for o in v)
@@ -153,7 +166,10 @@ def render(items: list[dict], kind_ko: str, nodes: dict, db, max_depth: int = 4)
         if not votes:
             return None
         best = max(votes, key=lambda t: (len(progs[t]), votes[t]))
-        return best if len(progs[best]) >= 2 else None
+        # 머리 꼴이 같은 문서가 셋 이상, 사업 둘 이상 — 한 사람·한 반의 값이 머리 행처럼 잡힌 표(이름·학과)를 양식에 넣지 않는다
+        sec_prog = x.get("prog_of", {})
+        n_prog = len({sec_prog.get(s_) for s_ in x["secs"] if s_.split(":sec:")[0] in progs[best]})
+        return best if len(progs[best]) >= 3 and n_prog >= 2 else None
 
     def walk(parent: str, depth: int):
         nonlocal n_sec, n_tab
@@ -178,6 +194,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--min-programs", type=int, default=3, help="서로 다른 사업 몇 곳 이상의 문서에 나와야 공통 절인가")
     ap.add_argument("--min-docs", type=int, default=5)
+    ap.add_argument("--min-share", type=float, default=0.08, help="그 갈래 문서 가운데 이 비율 이상에 나와야 공통 절")
     ap.add_argument("--out", default=str(ROOT / "data" / "generated" / "templates" / "common"))
     args = ap.parse_args()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
@@ -186,12 +203,15 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     report = {}
-    for kind, kind_ko in KINDS.items():
-        items = build(nodes, contains, kind, args.min_programs, args.min_docs)
+    for name, kind, kind_ko, size_ok in GENRES:
+        items = build(nodes, contains, kind, args.min_programs, args.min_docs, size_ok, args.min_share)
         md, n_sec, n_tab = render(items, kind_ko, nodes, db)
-        (out_dir / f"{kind}.md").write_text(md, encoding="utf-8")
-        report[kind] = {"sections": n_sec, "tables": n_tab, "candidates": len(items)}
-        print(f"{kind_ko}: 절 {n_sec} · 표 {n_tab} → {out_dir / (kind + '.md')}")
+        (out_dir / f"{name}.md").write_text(md, encoding="utf-8")
+        report[name] = {"title": kind_ko, "sections": n_sec, "tables": n_tab, "candidates": len(items)}
+        print(f"{kind_ko}: 절 {n_sec} · 표 {n_tab} → {out_dir / (name + '.md')}")
+    for old in ("plan", "report"):                       # 첫 판 이름(갈래만으로 나눈 것)은 지운다
+        for ext in (".md", ".docx"):
+            (out_dir / f"{old}{ext}").unlink(missing_ok=True)
     (out_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
     return 0
 
