@@ -186,7 +186,10 @@ def scope(db, question: str) -> Scope:
     q_flat = re.sub(r"[\s.]+", "", question or "").upper()
     best = (0, None)
     for p in _programs(db):
-        hit = max((len(s) for s in _surfaces(p["props"]) if len(s) >= 3 and s in q_flat), default=0)
+        # 문서에서 모은 이름·약칭에 더해 화면에 보이는 정식 이름(장부 name)과 괄호를 뗀 꼴도 — 사용자는 보이는 이름으로 묻는다
+        label = re.sub(r"[\s.]+", "", p["label"] or "").upper()
+        surf = _surfaces(p["props"]) | {label, re.sub(r"\([^)]*\)", "", label)}
+        hit = max((len(s) for s in surf if len(s) >= 3 and s in q_flat), default=0)
         if hit > best[0]:
             best = (hit, p)
     m = _ROUND.search(question or "")
