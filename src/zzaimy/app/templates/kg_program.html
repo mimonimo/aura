@@ -28,13 +28,14 @@
   </div>
   <p class="muted" style="margin:0; font-size:12.5px;">다른 이름: {{ (program.props.names + program.props.acronyms) | unique | join(' · ') }} · 절 {{ n_sections }}개
     · 관계 {% for k, b, v in counts %}{{ k }}({{ b }}) {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</p>
-  {% if taxonomy and (taxonomy.groups or taxonomy.integrated or taxonomy.pred or taxonomy.succ or taxonomy.members) %}
+  {% if taxonomy and (taxonomy.groups or taxonomy.integrated or taxonomy.pred or taxonomy.succ or taxonomy.members or taxonomy.related) %}
   <p style="margin:6px 0 0; font-size:12.5px;">
     {% if taxonomy.groups %}분류: {{ taxonomy.groups | join(', ') }}{% endif %}
     {% for t in taxonomy.integrated %} · <a href="/graph/program?id={{ t.id }}">{{ t.to }}</a>에 편입({{ t.why }}){% endfor %}
     {% for t in taxonomy.pred %} · 앞 단계 <a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% endfor %}
     {% for t in taxonomy.succ %} · 다음 단계 <a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% endfor %}
     {% if taxonomy.members %} · 편입된 사업: {% for t in taxonomy.members %}<a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>({{ t.why }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}
+    {% if taxonomy.related %} · 연관 사업(문서 근거): {% for t in taxonomy.related %}<a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% if t.out %}({{ t.why }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
   </p>
   {% endif %}
   {% if ledger %}

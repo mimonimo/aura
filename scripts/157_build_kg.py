@@ -237,6 +237,14 @@ def main() -> int:
             pc = card_for([pred])
             if pc is not None and pc is not c:
                 edges.append((pc.node_id, c.node_id, "succeeded_by", "분류", [f"앞 단계 사업 → 다음 단계({e.get('period', '')})"] + e["sources"][:2]))
+    # 연관 사업 — 문서가 두 사업을 함께 다룬 근거로(장부의 편입·전신과 별개, 기준 「식별자 일치」·근거는 문서 이름)
+    fname = {d["id"]: d["filename"] for d in docs}
+    known = {c.node_id for c in cards if not c.not_program}
+    for r in programs.related_programs(_res):
+        if r["src"] in known and r["dst"] in known:
+            edges.append((r["src"], r["dst"], "related", "식별자 일치",
+                          [f"이 사업 문서 {r['n']}건({r['share'] * 100:.0f}%)이 함께 다룸"]
+                          + [f"#{i} {fname.get(i, '')[:50]}" for i in r["docs"][:3]], min(1.0, r["share"] * 5)))
     for d in docs:
         a = assigns[d["id"]]
         dnode = f"doc:{d['id']}"
