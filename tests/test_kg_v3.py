@@ -681,3 +681,16 @@ def test_ledger_name_becomes_display_name_and_lead_bullets_drop():
     d.names.update({"· 전문대학혁신지원사업": 2})
     assert d.name == "전문대학혁신지원사업"
     assert programs._norm_name("· 전문대학혁신지원사업") == "전문대학혁신지원사업"
+
+
+def test_ledger_not_program_moves_docs_to_institution_work():
+    """출처와 함께 「사업 아님」으로 적힌 항목(만족도 조사 등)의 문서는 사업 없음 — 카드는 남아 다른 사업으로 새지 않는다."""
+    c = programs.ProgramCard(key="ncsi")
+    c.names.update({"학생만족도(NCSI)사업": 3})
+    c.acrs.update({"NCSI": 3})
+    ledger = {"programs": [{"name": "국가고객만족도(NCSI)", "terms": ["NCSI"], "category": "사업 아님", "sources": ["s"]}]}
+    link = programs.ledger_link([c], ledger)
+    a = programs.Assignment(doc_id=1, program=c.node_id, program_name=c.name, status="auto")
+    assert programs.apply_not_programs([a], [c], ledger, link) == 1
+    assert a.program == "" and a.status == "agent" and c.not_program
+    assert "사업 아님" in a.evidence[0]

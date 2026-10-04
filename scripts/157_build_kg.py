@@ -158,6 +158,9 @@ def main() -> int:
     # 연차·연도 보정, 기간 밖이면 앞뒤 단계 사업으로, 장부가 같다고 한 카드는 합침 — 원본 장부(170)와 같은 규칙
     link = programs.ledger_link(cards, ledger)
     programs.apply_display(cards, link)
+    _np = programs.apply_not_programs(_res, cards, ledger, link)
+    if _np:
+        print(f"== 외부 확인 「사업 아님」 {_np}건 — 기관 일반 업무로", flush=True)
     _st = programs.fill_period(_rv_docs, _res, link["periods"], link["spans"], link["aliases"], {c.node_id: c.name for c in cards})
     print(f"== 연차·연도 보정 {_st}")
     assigns = {a.doc_id: a for a in _res}
@@ -199,6 +202,8 @@ def main() -> int:
     if ext_path.is_file():
         ext = json.loads(ext_path.read_text(encoding="utf-8")).get("facts", [])
     for c in cards:
+        if c.not_program:
+            continue                                  # 외부 확인으로 사업이 아닌 것(조사·평가)은 사업 노드를 두지 않는다
         props = {"names": sorted(c.names), "acronyms": sorted(c.acrs)}
         if c.renamed:
             props["renamed_evidence"] = c.renamed
@@ -216,6 +221,8 @@ def main() -> int:
                 if n_[0] == c.node_id:
                     n_[3]["ledger"] = info | {"sources": e["sources"]}
         cat = e.get("category")
+        if c.not_program or cat == "사업 아님":
+            continue
         if cat:
             gid = f"group:{cat}"
             if not any(n_[0] == gid for n_ in nodes):

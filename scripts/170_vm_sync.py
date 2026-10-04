@@ -323,6 +323,9 @@ def main() -> int:
     ledger = json.loads(ext.read_text(encoding="utf-8")) if ext.is_file() else {}
     link = programs.ledger_link(cards, ledger)
     programs.apply_display(cards, link)
+    n_np = programs.apply_not_programs([res[d["id"]] for d in docs], cards, ledger, link)
+    if n_np:
+        print(f"외부 확인 「사업 아님」 {n_np}건 — 기관 일반 업무로", flush=True)
     names = {c.node_id: c.name for c in cards}
     st = programs.fill_period(docs, [res[d["id"]] for d in docs], link["periods"], link["spans"], link["aliases"], names)
     # 파일 이름·폴더로도 연차·연도를 못 정한 원본은 문서함 본문 첫머리의 표기(「N차년도」「2023학년도」)로 — 적힌 표기만, 그 뒤 환산·기간 검사를 다시
