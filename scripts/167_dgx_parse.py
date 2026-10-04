@@ -42,6 +42,13 @@ def _alarm(_sig, _frm):
     raise DocTimeout()
 
 
+def jsonl_lines(path) -> "list[str]":
+    """JSONL 줄 — 「\\n」으로만 나눈다. str.splitlines 는 본문 속 폼피드(\\x0c, PDF 글에 흔하다)·\\u2028 에서도 잘라
+    기록을 깨뜨렸다(10/5 실측: parsed-0 7,019건 중 51건이 안 보여 같은 원본을 매번 다시 처리, 집계는 「기록 0」)."""
+    with open(path, encoding="utf-8", newline="") as fh:
+        return [ln.rstrip("\r\n") for ln in fh]
+
+
 def version(it: dict) -> str:
     """원본 판 — 크기·수정 시각. 같은 경로라도 판이 다르면 다시 처리한다."""
     return f"{int(it.get('size') or 0)}:{int(float(it.get('mtime') or 0))}"
@@ -213,6 +220,7 @@ def main() -> int:
     ap.add_argument("--only", default="", help="이 목록(한 줄에 원본 경로 하나)에 있는 원본만 — 스캔 PDF 핵심 문서처럼 범위를 좁혀 다시 돌릴 때")
     ap.add_argument("--force", action="store_true", help="이미 처리한 원본도 다시(읽기 도구가 나아졌을 때 — 예: kordoc 설치 뒤 한글). 168 이 같은 판이어도 같은 문서 번호로 갱신")
     ap.add_argument("--retry-failed", action="store_true", help="이전에 실패한 원본도 다시(판독 도구를 새로 깐 뒤). 성공하면 같은 rel 의 새 줄이 덧붙고 168 이 그것을 들인다")
+    ap.add_argument("--dry-run", action="store_true", help="대상만 세어 보이고 끝낸다(처리하지 않음)")
     ap.add_argument("--doc-timeout", type=int, default=900, help="문서 한 건 제한 시간(초) — 넘으면 failed(시간 초과)로 적고 다음 문서로")
     args = ap.parse_args()
     if args.workers < 1:
@@ -221,7 +229,7 @@ def main() -> int:
     skip = set(Path(args.skip).read_text(encoding="utf-8").splitlines()) if args.skip and Path(args.skip).is_file() else set()
     done = set()
     for f in Path(args.out).glob("parsed-*.jsonl"):
-        for line in f.read_text(encoding="utf-8").splitlines():
+        for line in jsonl_lines(f):
             try:
                 rec = json.loads(line)
             except ValueError:
@@ -233,7 +241,7 @@ def main() -> int:
     import re as _re
     exclude = _re.compile(args.exclude) if args.exclude else None
     items = []
-    for line in Path(args.inventory).read_text(encoding="utf-8").splitlines():
+    for line in jsonl_lines(args.inventory):
         try:
             it = json.loads(line)
         except ValueError:
@@ -253,6 +261,10 @@ def main() -> int:
     if args.limit:
         items = items[: args.limit]
     print(f"대상 {len(items)}건(이미 처리 {len(done)}, 문서함에 있음 {len(skip)}) · 작업자 {args.workers}", flush=True)
+    if args.dry_run:
+        for it in items[:20]:
+            print("  ", version(it), it["rel"], flush=True)
+        return 0
     Path(args.out).mkdir(parents=True, exist_ok=True)
     shards = [items[i:: args.workers] for i in range(args.workers)]
     before = _counts(Path(args.out))
@@ -302,7 +314,7 @@ def _counts(out_dir: Path) -> dict[str, int]:
     """결과 파일의 상태별 줄 수(이번 회차 전후를 견줘 실제로 처리된 수를 센다)."""
     c: dict[str, int] = {}
     for f in out_dir.glob("parsed-*.jsonl"):
-        for line in f.read_text(encoding="utf-8").splitlines():
+        for line in jsonl_lines(f):
             try:
                 r = json.loads(line)
             except ValueError:

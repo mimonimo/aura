@@ -694,3 +694,19 @@ def test_ledger_not_program_moves_docs_to_institution_work():
     assert programs.apply_not_programs([a], [c], ledger, link) == 1
     assert a.program == "" and a.status == "agent" and c.not_program
     assert "사업 아님" in a.evidence[0]
+
+
+def test_implausible_years_are_not_document_years():
+    assert programs.plausible_year(2024) and not programs.plausible_year(1983) and not programs.plausible_year(2099)
+    assert programs._first_year("중소기업 공정개선 지원사업", "1983년 설립 … 2024년 공고") == 2024
+
+
+def test_folder_review_does_not_override_program_named_in_title():
+    c1 = programs.ProgramCard(key="a")
+    c1.names.update({"신산업분야 특화 선도전문대학 지원사업": 2})
+    a = programs.Assignment(doc_id=1, program=c1.node_id, program_name=c1.name, status="review",
+                            evidence=["제목에 「신산업분야특화선도전문대학지원사업」"])
+    docs = [{"id": 1, "path": "LINC+/계획서"}]
+    reviews = [{"folder": "LINC+", "label": "LINC+", "reviewer": "t", "reason": "LINC+ 폴더"}]
+    assert programs.apply_reviews(docs, [a], reviews, [c1]) == 0
+    assert a.program == c1.node_id
