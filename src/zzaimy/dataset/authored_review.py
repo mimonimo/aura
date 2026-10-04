@@ -137,11 +137,18 @@ def convert_tasks(tasks, resolve_source):
         if not refs or len(refs) != len(texts):
             raise ValueError('invalid_sources')
         turn = len(turns)
-        for ref, text in zip(refs, texts):
+        for index, (ref, text) in enumerate(zip(refs, texts)):
             if (not isinstance(ref, list) or len(ref) != 2 or any(type(v) is not int or v <= 0 for v in ref)
                     or not isinstance(text, str) or not text.strip()):
                 raise ValueError('invalid_sources')
-            if resolve_source(*ref) != text:
+            current = resolve_source(*ref)
+            if record.get('source_protection') == 'training-copy-v1':
+                digests = record.get('raw_source_sha256', [])
+                if (not isinstance(current, str) or len(digests) != len(refs)
+                        or hashlib.sha256(current.encode()).hexdigest() != digests[index]):
+                    raise ValueError('source_changed_or_missing')
+                current = protect_candidate(current)
+            if current != text:
                 raise ValueError('source_changed_or_missing')
             evidence.append(dict(program_id=program_id, doc_id=ref[0], chunk_id=ref[1], text=text, turn=turn))
         answer = corrected or record['answer']

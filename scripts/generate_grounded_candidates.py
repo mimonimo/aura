@@ -12,8 +12,10 @@ import sys
 import time
 
 sys.path.insert(0, str(Path.cwd() / 'src'))
-from zzaimy.dataset.batch_candidates import SYSTEM, windows, select_documents, job_key, convert_response
+from zzaimy.dataset.batch_candidates import SYSTEM, windows, select_documents, job_key, convert_response, generate_checked
 from zzaimy.dataset.authoring import prepare_tasks
+from zzaimy.dataset.privacy import protect_candidate
+from zzaimy.verify.numbers import verify_numbers
 
 
 def main():
@@ -53,6 +55,9 @@ def main():
             if not doc:
                 continue
             chunks = db.list_doc_chunks(did)
+            # Protect only the training copy before the model sees it. Originals remain unchanged.
+            original_chunks = chunks
+            chunks = protect_candidate(chunks)
             context = {'program_id': program['program'], 'program': program['program_name'],
                        'doc_id': did, 'filename': doc['filename'], 'light': bool(entry.get('light'))}
             header_chunks = []
@@ -82,36 +87,45 @@ def main():
                 result = {'job': key, 'context': context, 'model': model, 'status': 'error',
                           'source_window': window, 'source_header': header, 'approved': False}
                 try:
-                    response = client.chat.completions.create(model=model, temperature=0.2, max_tokens=4500,
-                        messages=[{'role':'system','content':SYSTEM}, {'role':'user','content':json.dumps(
-                            {'context':context,'header':header,'chunks':window}, ensure_ascii=False)}],
-                        extra_body={'chat_template_kwargs': {'enable_thinking': False}})
-                    choice = response.choices[0]
-                    if choice.finish_reason == 'length':
-                        raise ValueError('truncated_output')
-                    content = choice.message.content or ''
-                    if content.strip().startswith('```'):
-                        content = content.strip().split('\n',1)[1].rsplit('```',1)[0]
-                    result['raw_response'] = content
-                    parsed = json.loads(content)
-                    if parsed.get('scope_confirmed') is False:
-                        result.update(status='held', hold_reason='program_scope_unconfirmed')
-                        raise ValueError('program_scope_unconfirmed')
-                    rows = convert_response(parsed, context, window, key)
-                    current = {c['id']: c['text'] for w in windows(db.list_doc_chunks(did)) for c in w}
-                    def resolve(docid, cid):
-                        # Re-read current sources: reprocessing during generation must invalidate the window.
-                        original = next((c['text'] for c in window if c['id']==cid), None)
-                        if current.get(cid) != original:
-                            return None
-                        return {'text':original,'location':f"{doc['filename']} · 조각 {cid}"}
-                    manifest = {'program_id':context['program_id'], 'program':context['program'], 'document_ids':[did]}
-                    tasks, report = prepare_tasks(rows, manifest, resolve, author=f'local-model:{model}')
-                    result.update(rows=rows, manifest=manifest, tasks=tasks, preflight=report,
-                                  status='held' if report['held'] else 'candidate')
-                    counts['generated_candidates'] += len(rows)
-                    counts['generated_conversations'] += 1
-                    counts['held_candidates'] += report['held']
+                    messages = [{'role':'system','content':SYSTEM}, {'role':'user','content':json.dumps(
+                        {'context':context,'header':header,'chunks':window}, ensure_ascii=False)}]
+                    def generate(feedback):
+                        if feedback:
+                            messages.append({'role':'user','content': '검사 오류를 수정한 전체 대화 JSON을 다시 작성하세요. '
+                                '근거를 지어내거나 기준을 낮추지 마세요. 불가능하면 scope_confirmed=false. '
+                                + json.dumps(feedback, ensure_ascii=False)})
+                        response = client.chat.completions.create(model=model, temperature=0.2, max_tokens=4500,
+                            messages=messages, extra_body={'chat_template_kwargs': {'enable_thinking': False}})
+                        choice = response.choices[0]
+                        if choice.finish_reason == 'length':
+                            raise ValueError('truncated_output')
+                        content = choice.message.content or ''
+                        messages.append({'role':'assistant','content':content})
+                        return content
+                    def check(parsed):
+                        rows = convert_response(parsed, context, window, key)
+                        fresh = db.list_doc_chunks(did)
+                        # Compare raw snapshots too: masking must not hide a changed original.
+                        if fresh != original_chunks:
+                            raise ValueError('source_missing_or_empty')
+                        current = {c['id']: c['text'] for w in windows(protect_candidate(fresh)) for c in w}
+                        raw_sources = {c['id']: c['text'] for w in windows(fresh) for c in w}
+                        def resolve(docid, cid):
+                            return {'text':raw_sources.get(cid), 'location':f"{doc['filename']} · 조각 {cid}"}
+                        manifest = {'program_id':context['program_id'], 'program':context['program'],
+                                    'document_ids':[did], 'protect_sources':True}
+                        tasks, report = prepare_tasks(rows, manifest, resolve, author=f'local-model:{model}')
+                        evidence, details = [], {}
+                        for row in rows:
+                            evidence.extend(current[cid] for _, cid in row['refs'])
+                            audit = verify_numbers(row['answer'], evidence)
+                            if not audit.ok:
+                                details[row['id']] = audit.violations
+                        return dict(rows=rows, manifest=manifest, tasks=tasks, preflight=report, number_details=details)
+                    result.update(generate_checked(generate, check))
+                    counts['generated_candidates'] += len(result.get('rows', []))
+                    counts['generated_conversations'] += bool(result.get('rows'))
+                    counts['held_candidates'] += result.get('preflight', {}).get('held', 0)
                 except Exception as exc:
                     # Exception class only: model/HTTP exception details may contain sensitive inputs.
                     result['error_type'] = type(exc).__name__
