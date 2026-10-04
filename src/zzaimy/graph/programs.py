@@ -100,6 +100,7 @@ class ProgramCard:
     acrs: Counter = field(default_factory=Counter)
     renamed: list[str] = field(default_factory=list)      # 이름이 바뀐 같은 사업이라는 문서 근거(제목)
     display: str = ""                                      # 외부 확인 장부의 정식 이름(있으면 표시 이름으로)
+    not_program: bool = False                              # 외부 확인으로 사업이 아님(조사·평가 등) — 그래프 사업 노드를 만들지 않는다
 
     @property
     def name(self) -> str:
@@ -508,6 +509,28 @@ def ledger_link(cards: list, ledger: dict) -> dict:
             matched.add(terms[0])
     display = {owner_of[terms[0]]: e["name"] for e, _s, _t, terms in entries if e.get("name") and terms[0] in owner_of}
     return {"periods": periods, "spans": spans, "aliases": aliases, "owner_of": owner_of, "matched": matched, "display": display}
+
+
+def apply_not_programs(assigned: list, cards: list, ledger: dict, link: dict) -> int:
+    """장부가 출처와 함께 「사업 아님」(category)으로 적은 항목 — 그 카드에 배정된 문서를 사업 없음(기관 업무, 검토 판정과 같은
+    'agent' 상태)으로 돌린다. 카드는 남겨 두어 그 이름의 문서가 다른 사업으로 잘못 가지 않게 한다. 바꾼 문서 수를 돌려준다."""
+    why: dict[str, str] = {}
+    for e in ledger.get("programs", []):
+        terms = [t for t in e.get("terms", []) if t]
+        if e.get("category") == "사업 아님" and e.get("sources") and terms:
+            cid = link.get("owner_of", {}).get(terms[0])
+            if cid:
+                why[cid] = (e.get("name") or terms[0]) + (f" — {e['note'][:60]}" if e.get("note") else "")
+    for c in cards:
+        if c.node_id in why:
+            c.not_program = True
+    n = 0
+    for a in assigned:
+        if a.program in why:
+            a.evidence = [f"외부 확인: 사업 아님 — {why[a.program]}"]
+            a.program, a.program_name, a.status = "", "", "agent"
+            n += 1
+    return n
 
 
 def apply_display(cards: list, link: dict) -> int:
