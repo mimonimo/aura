@@ -134,7 +134,10 @@ def _encode_batch(texts: list[str]):
         return _encode_batch(texts[:mid]) + _encode_batch(texts[mid:])
 
 
-def dense_ids(question: str, allowed: set[int], top_k: int = TOP_K) -> list[int]:
+def dense_ids(question: str, allowed: set[int] | None, top_k: int = TOP_K, scope_docs: set[int] | None = None,
+              user: str | None = None, db=None, pool: int = 3000) -> list[int]:
+    """임베딩 순위. allowed 를 주면 그 조각만(옛 경로). 아니면 유사도 상위 pool 개를 뽑고 범위·열람 권한은 SQL 로 거른다 —
+    범위가 좁으면(사업 하나) 그 범위의 조각 번호만 놓고 유사도를 잰다."""
     ids, vecs = _load()
     if ids is None or not len(ids):
         return []
@@ -144,16 +147,98 @@ def dense_ids(question: str, allowed: set[int], top_k: int = TOP_K) -> list[int]
         log.warning("사업 문서 임베딩 질의 실패: %s", e)
         return []
     import numpy as np
-    sims = vecs @ np.asarray(qv)
-    order = np.argsort(-sims)
-    out = []
-    for i in order:
-        cid = int(ids[i])
-        if cid in allowed:
-            out.append(cid)
-            if len(out) >= top_k:
-                break
+    q = np.asarray(qv, dtype=np.float32)
+    if allowed is not None:
+        sims = vecs @ q
+        out = []
+        for i in np.argsort(-sims):
+            cid = int(ids[i])
+            if cid in allowed:
+                out.append(cid)
+                if len(out) >= top_k:
+                    break
+        return out
+    if scope_docs is not None:
+        in_scope = scoped_chunk_ids(db, scope_docs, user)
+        if not in_scope:
+            return []
+        pos = _positions(ids)
+        idx = np.array([pos[c] for c in in_scope if c in pos], dtype=np.int64)
+        if not len(idx):
+            return []
+        sims = vecs[idx] @ q
+        order = idx[np.argsort(-sims)[:top_k]]
+        return [int(ids[i]) for i in order]
+    sims = vecs @ q
+    top = np.argpartition(-sims, min(pool, len(sims) - 1))[:pool]
+    top = top[np.argsort(-sims[top])]
+    cand = [int(ids[i]) for i in top]
+    ok = permitted(db, cand, user)
+    return [c for c in cand if c in ok][:top_k]
+
+
+def _positions(ids) -> dict[int, int]:
+    """조각 번호 → 색인 행 — 색인 판(mtime)마다 한 번 만든다."""
+    with _lock:
+        if _cache.get("pos_mtime") != _cache.get("mtime") or _cache.get("pos") is None:
+            _cache["pos"] = {int(c): i for i, c in enumerate(ids)}
+            _cache["pos_mtime"] = _cache.get("mtime")
+        return _cache["pos"]
+
+
+def _access(user: str | None) -> tuple[str, list]:
+    if user is None:
+        return "", []
+    return " AND (COALESCE(d.access_level, 'public') = 'public' OR COALESCE(d.owner, '') = ?)", [user]
+
+
+def scoped_chunk_ids(db, scope_docs: set[int], user: str | None) -> list[int]:
+    acc, args = _access(user)
+    ids = sorted(scope_docs)
+    out: list[int] = []
+    with db._conn() as conn:
+        for i in range(0, len(ids), 5000):
+            part = ids[i:i + 5000]
+            out += [int(r[0]) for r in conn.execute(
+                "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant' AND d.status = 'reviewed'"
+                f" AND c.kind IN (?, ?, ?) AND c.doc_id IN ({','.join('?' * len(part))})" + acc,
+                (*TEXT_KINDS, *part, *args)).fetchall()]
     return out
+
+
+def permitted(db, chunk_ids: list[int], user: str | None) -> set[int]:
+    if not chunk_ids:
+        return set()
+    acc, args = _access(user)
+    with db._conn() as conn:
+        return {int(r[0]) for r in conn.execute(
+            "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant' AND d.status = 'reviewed'"
+            f" AND c.kind IN (?, ?, ?) AND c.id IN ({','.join('?' * len(chunk_ids))})" + acc,
+            (*TEXT_KINDS, *chunk_ids, *args)).fetchall()}
+
+
+def chunks_by_ids(db, chunk_ids: list[int]) -> list[dict]:
+    """최종 후보 조각만 본문까지 읽는다."""
+    if not chunk_ids:
+        return []
+    with db._conn() as conn:
+        rows = conn.execute(
+            "SELECT c.id, c.doc_id, c.kind, c.content, d.filename FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
+            f" WHERE c.id IN ({','.join('?' * len(chunk_ids))})", list(chunk_ids)).fetchall()
+    return [{"id": int(r[0]), "doc_id": int(r[1]), "kind": r[2], "content": _text({"kind": r[2], "content": r[3]}),
+             "filename": r[4]} for r in rows]
+
+
+def docs_under(db, program: str) -> set[int]:
+    """그래프에서 사업 노드 아래(연차 경유) 문서 번호 — 관계 전체를 읽지 않고 SQL 로."""
+    with db._conn() as conn:
+        years = [r[0] for r in conn.execute("SELECT dst FROM kg_edges WHERE kind = 'contains' AND src = ? AND dst LIKE 'year:%'",
+                                            (program,)).fetchall()]
+        srcs = [program, *years]
+        rows = conn.execute(
+            "SELECT n.doc_id FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst WHERE e.kind = 'contains'"
+            f" AND e.src IN ({','.join('?' * len(srcs))}) AND e.dst LIKE 'doc:%' AND n.doc_id IS NOT NULL", srcs).fetchall()
+    return {int(r[0]) for r in rows}
 
 
 def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: set[int] | None = None) -> dict:
@@ -170,20 +255,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         tr = gr.retrieve(db, question, k=200)
         steps += tr.steps[:2]
         if tr.program:
-            nodes = {n["id"]: n for n in kg_store.nodes(db, "doc")}
-            under: set[str] = set()
-            frontier = [tr.program]
-            contains = kg_store.edges(db, "contains")
-            kids: dict[str, list[str]] = {}
-            for e in contains:
-                kids.setdefault(e["src"], []).append(e["dst"])
-            while frontier:
-                x = frontier.pop()
-                for y in kids.get(x, []):
-                    if y.startswith(("year:", "doc:")) and ":sec:" not in y and y not in under:
-                        under.add(y)
-                        frontier.append(y)
-            scope_docs = {int(nodes[d]["doc_id"]) for d in under if d in nodes and nodes[d].get("doc_id")}
+            scope_docs = docs_under(db, tr.program)
             for h in tr.hits:
                 path_of.setdefault(h.doc_id, h.path[:3])
     except Exception as e:
@@ -193,16 +265,32 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         narrowed = (prefer_docs & scope_docs) if scope_docs else set()
         scope_docs = narrowed or set(prefer_docs)
         steps.append(f"[참조 보관 사업] 프로젝트가 참조한 과거 사업 문서 {len(scope_docs)}건에서 먼저 찾는다")
-    chunks = corpus(db, scope_docs, user)
-    if not chunks and scope_docs is not None:
-        steps.append("그 사업의 문서 조각이 없어 사업 문서 전체에서 찾는다")
-        chunks = corpus(db, None, user)
-    allowed = {c["id"] for c in chunks}
+    from zzaimy.app import grant_lex
     query = extract_nouns(question)
-    lex = _lexical_ids(query, chunks, 1) if query else []
-    den = dense_ids(question, allowed)
-    merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
-    by_id = {c["id"]: c for c in chunks}
+    have, want = grant_lex.coverage(db)
+    if want and have >= 0.95 * want:
+        # 색인 경로 — 후보 조각만 읽는다(범위·열람 권한은 SQL 에서)
+        lex = grant_lex.rank(db, query, scope_docs, user) if query else []
+        den = dense_ids(question, None, scope_docs=scope_docs, user=user, db=db)
+        if not lex and not den and scope_docs is not None:
+            steps.append("그 사업의 문서 조각에서 맞는 것이 없어 사업 문서 전체에서 찾는다")
+            lex = grant_lex.rank(db, query, None, user) if query else []
+            den = dense_ids(question, None, scope_docs=None, user=user, db=db)
+        merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
+        by_id = {c["id"]: c for c in chunks_by_ids(db, merged[: k * 3])}
+        pool = f"색인 {have}개"
+    else:
+        # 색인이 덜 찼으면 옛 방식(조각 전체) — 색인 동기화가 따라잡는 동안만
+        chunks = corpus(db, scope_docs, user)
+        if not chunks and scope_docs is not None:
+            steps.append("그 사업의 문서 조각이 없어 사업 문서 전체에서 찾는다")
+            chunks = corpus(db, None, user)
+        allowed = {c["id"] for c in chunks}
+        lex = _lexical_ids(query, chunks, 1) if query else []
+        den = dense_ids(question, allowed)
+        merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
+        by_id = {c["id"]: c for c in chunks}
+        pool = f"{len(chunks)}개"
     hits = []
     for cid in merged[: k * 3]:
         c = by_id.get(cid)
@@ -212,7 +300,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
                      "path": path_of.get(c["doc_id"], []) + [c["filename"]]})
         if len(hits) >= k:
             break
-    steps.append(f"[3단계: 근거 선택] 사업 문서 조각 {len(chunks)}개 중 어휘 {len(lex)}·임베딩 {len(den)} 순위를 섞어 {len(hits)}개")
+    steps.append(f"[3단계: 근거 선택] 사업 문서 조각 {pool} 중 어휘 {len(lex)}·임베딩 {len(den)} 순위를 섞어 {len(hits)}개")
     return {"steps": steps, "hits": hits}
 
 

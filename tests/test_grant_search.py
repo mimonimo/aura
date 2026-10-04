@@ -87,3 +87,30 @@ def test_check_rejects_truncated_vectors(tmp_path):
         raise AssertionError("모양이 다른데 통과")
     except ValueError:
         pass
+
+
+def test_index_path_matches_access_and_scope(tmp_path, monkeypatch):
+    """어휘 색인(grant_lex)을 채운 뒤에는 조각 전체를 읽지 않고 색인으로 — 열람 범위·사업 범위는 그대로 지킨다."""
+    from zzaimy.app import grant_lex
+    monkeypatch.setattr(grant_search, "INDEX", tmp_path / "none.npz")
+    db = Database(tmp_path / "t.db")
+    a = db.add_document("LINC3.0 실적보고서.hwp", "x", doc_type="grant", sector="grant")
+    b = db.add_document("비공개 계획서.hwp", "x", doc_type="grant", sector="grant")
+    c = db.add_document("RISE 계획서.hwp", "x", doc_type="grant", sector="grant")
+    for did in (a, b, c):
+        db.update_document(did, status="reviewed")
+    db.replace_doc_chunks(a, [{"kind": "text", "content": "가족회사 운영 실적과 산학협력 기술지도 성과를 정리하였다."}])
+    db.replace_doc_chunks(b, [{"kind": "text", "content": "가족회사 운영 계획 비공개 문서이다."}])
+    db.replace_doc_chunks(c, [{"kind": "text", "content": "가족회사 협의회 운영 계획이다."}])
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET access_level='owner', owner='other' WHERE id=?", (b,))
+    got = grant_lex.sync(db)
+    assert got["added"] == 3 and grant_lex.coverage(db) == (3, 3)
+    hits = grant_search.search(db, "가족회사 운영 실적은?", k=5, user="zzaimy")
+    docs = {h["doc_id"] for h in hits["hits"]}
+    assert a in docs and b not in docs
+    assert any("색인" in s for s in hits["steps"])
+    assert set(grant_lex.rank(db, frozenset({"가족회사", "운영"}), {c}, "zzaimy")) <= {
+        x["id"] for x in db.list_doc_chunks(c)}
+    db.replace_doc_chunks(c, [])                            # 지워진 조각은 색인에서도
+    assert grant_lex.sync(db)["removed"] == 1
