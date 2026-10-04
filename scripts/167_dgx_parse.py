@@ -131,6 +131,11 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
     os.environ.setdefault("ZZAIMY_NO_VISION", "1")
     work = Path(out_dir) / f"w{n}"
     work.mkdir(parents=True, exist_ok=True)
+    # tmp.db 는 한 문서를 읽는 동안만 쓰는 임시 자리다. 지난 실행 기록이 남아 있으면 강제 재처리(--force) 때 같은 파일이
+    # 자기 옛 기록과 「같은 내용의 문서가 이미 있습니다」로 걸린다(10/4 실측: kordoc 재처리 762건이 이렇게 빠짐).
+    # 중복 판정은 운영 쪽(168·문서함)이 한다 — 여기서는 매번 비우고, 문서마다 읽은 뒤 지운다.
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        (work / f"tmp.db{suffix}").unlink(missing_ok=True)
     os.environ["ZZAIMY_PLATFORM_SQLITE_PATH"] = str(work / "tmp.db")
     os.environ.pop("ZZAIMY_DATABASE_URL", None)
     from zzaimy.app.db import Database
@@ -152,6 +157,7 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
             rec["force"] = True
         _wait_for_memory(n)
         signal.alarm(max(1, int(timeout_s)))
+        did = None
         try:
             did = db.add_document(filename=src.name, stored_path=str(src), doc_type="grant", sector="grant")
             proc.process(db, did, src)
@@ -178,6 +184,11 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
         except Exception as e:  # 한 문서 실패가 작업자를 멈추지 않게
             signal.alarm(0)
             rec.update({"ok": False, "state": "failed", "error": f"{type(e).__name__}: {e}"[:300], "chunks": []})
+        if did is not None:
+            try:
+                db.delete_document(did)
+            except Exception:
+                pass
         rec["sec"] = round(time.time() - t0, 1)
         out.write(json.dumps(rec, ensure_ascii=False) + "\n")
         out.flush()
