@@ -181,7 +181,9 @@ class AgentResponder:
                 if grant_hits:
                     blocks.append("[사업 문서 — 계획서·실적보고서 등. 사업·연차·문서 이름을 밝히고, 수치는 이 글에 있는 것만 쓴다]\n"
                                   + "\n\n".join(f"〈{' > '.join(h['path'])}〉\n{h['content']}" for h in grant_hits))
-            except Exception:
+            except Exception as e:                       # 검색이 깨져도 답은 하되, 조용히 「근거 없음」으로 숨지 않게 남긴다
+                import logging
+                logging.getLogger(__name__).warning("사업 문서 검색 실패: %s: %s", type(e).__name__, str(e)[:200])
                 grant_hits = []
             if not blocks:
                 # 기준 미달이라 근거가 하나도 남지 않은 경우. 있는 척하지 않는다.
