@@ -137,6 +137,16 @@ def main() -> int:
                 if len(core) >= 6 and core in want:
                     return c
         return None
+    def card_by_surface(term: str):
+        """관계(편입·앞 단계)의 대상 — 그 표기를 이름·약칭으로 직접 가진 카드(가장 많이 쓴 곳). 주인 판정(card_for)은 카드 하나에
+        장부 항목 하나라, 더 긴 이름이 붙은 카드(RISE 카드에 「초광역 …사업」)는 「RISE」 항목의 주인을 잃어 편입 관계가 0개였다(10/5)."""
+        want = flat(term)
+        best, best_n = None, 0
+        for c in cards:
+            n = max([v for k, v in c.acrs.items() if flat(k) == want] + [v for k, v in c.names.items() if flat(k) == want] + [0])
+            if n > best_n:
+                best, best_n = c, n
+        return best or card_for([term])
     ledger_cards: dict[str, object] = {}
     for e in ledger.get("programs", []):
         if not e.get("sources"):
@@ -229,12 +239,12 @@ def main() -> int:
                 nodes.append((gid, "program_group", cats.get(cat, {}).get("label", cat), {"sources": cats.get(cat, {}).get("sources", [])}, None))
             edges.append((gid, c.node_id, "contains", "분류", [f"외부 확인: {cats.get(cat, {}).get('label', cat)}"] + e["sources"][:2]))
         if e.get("integrated_into"):
-            parent = card_for([e["integrated_into"]])
+            parent = card_by_surface(e["integrated_into"])
             if parent is not None and parent is not c:
                 edges.append((c.node_id, parent.node_id, "integrated_into", "분류",
                               [f"{e.get('since', '')}년부터 편입" + (f" — {e['status']}" if e.get("status") else "")] + e["sources"][:2]))
         for pred in e.get("predecessor", []):
-            pc = card_for([pred])
+            pc = card_by_surface(pred)
             if pc is not None and pc is not c:
                 edges.append((pc.node_id, c.node_id, "succeeded_by", "분류", [f"앞 단계 사업 → 다음 단계({e.get('period', '')})"] + e["sources"][:2]))
     # 연관 사업 — 문서가 두 사업을 함께 다룬 근거로(장부의 편입·전신과 별개, 기준 「식별자 일치」·근거는 문서 이름)
