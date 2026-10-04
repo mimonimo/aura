@@ -4,7 +4,8 @@
 같은 이름의 옛 판이 있으면 휴지통으로 보내고 새로 올린다(개선은 쓰는 문서까지). 제목이 바뀌어 이번 판에 없는
 「… 공통 양식」 문서도 휴지통으로 보낸다 — 폴더에 옛 이름 판이 남지 않게. 계정은 플랫폼에 연결된 학교 구글 계정.
 
-사용(VM): env PYTHONPATH=src .venv/bin/python scripts/169_upload_templates.py --email security02@ync.ac.kr
+사용(VM): env PYTHONPATH=src .venv/bin/python scripts/169_upload_templates.py --email security02@ync.ac.kr [--common]
+  --common: 문서 갈래별 공통 양식(172, 사업 공통) → 「ZZAIMY/공통 양식」. 없으면 사업별 양식(162) → 「ZZAIMY/공통 양식/사업별(참고)」
 """
 from __future__ import annotations
 
@@ -41,9 +42,13 @@ def _list_folder(email: str, folder: str, http) -> list[dict]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--email", required=True)
-    ap.add_argument("--dir", default=str(ROOT / "data" / "generated" / "templates"))
-    ap.add_argument("--folder", default="ZZAIMY/사업별 공통 양식")
+    ap.add_argument("--common", action="store_true", help="문서 갈래별 공통 양식(172)")
+    ap.add_argument("--dir", default="")
+    ap.add_argument("--folder", default="")
     args = ap.parse_args()
+    tpl = ROOT / "data" / "generated" / "templates"
+    args.dir = args.dir or str(tpl / "common" if args.common else tpl)
+    args.folder = args.folder or ("ZZAIMY/공통 양식" if args.common else "ZZAIMY/공통 양식/사업별(참고)")
     http = gdrive._http()
     folder = gdrive_files.ensure_folder(args.email, args.folder.split("/"), http=http)
     current: set[str] = set()
