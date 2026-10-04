@@ -61,8 +61,26 @@ def sync(db, limit: int = 20000) -> dict:
     return {"added": added, "removed": removed, "pending": max(0, len(todo) - limit)}
 
 
+_CACHE: dict = {}
+TTL = 600
+
+
+def _cached(key, fn):
+    import time
+    got = _CACHE.get(key)
+    if got and time.time() - got[0] < TTL:
+        return got[1]
+    val = fn()
+    _CACHE[key] = (time.time(), val)
+    return val
+
+
 def coverage(db) -> tuple[int, int]:
-    """(색인된 조각 수, 색인 대상 조각 수) — 색인이 덜 찼으면 검색이 옛 방식으로 물러난다."""
+    """(색인된 조각 수, 색인 대상 조각 수) — 색인이 덜 찼으면 검색이 옛 방식으로 물러난다. 10분 캐시(질의마다 133만 줄을 세지 않게)."""
+    return _cached(("coverage", str(getattr(db, "path", ""))), lambda: _coverage(db))
+
+
+def _coverage(db) -> tuple[int, int]:
     with db._conn() as conn:
         if "grant_lex" not in table_names(conn):
             return 0, 1
@@ -95,21 +113,24 @@ def rank(db, query: frozenset[str], scope_docs: set[int] | None = None, user: st
         scope_args = ids
     with db._conn() as conn:
         if _pg(conn):
-            n = conn.execute("SELECT COUNT(*) FROM grant_lex").fetchone()[0]
-            df = {t: int(conn.execute("SELECT COUNT(*) FROM grant_lex WHERE tsv @@ to_tsquery('simple', ?)", (t,)).fetchone()[0])
-                  for t in terms}
-            # 흔한 명사(사업·운영 …)는 후보를 넓히기만 한다 — 드문 명사 순으로 앞의 것들로 후보를 뽑는다
-            # 조각의 20% 넘게 나오는 명사는 후보를 뽑는 데 쓰지 않는다(수십만 줄을 순위 매기게 된다) — 점수에는 쓴다
-            rare = [t for t in sorted(terms, key=lambda t: df[t]) if df[t] and df[t] <= 0.2 * max(n, 1)]
-            pick = rare[:8] or sorted((t for t in terms if df[t]), key=lambda t: df[t])[:2]
+            key = str(getattr(db, "path", ""))
+            n = _cached(("n", key), lambda: int(conn.execute("SELECT COUNT(*) FROM grant_lex").fetchone()[0]))
+            df = {t: _cached(("df", key, t), lambda t=t: int(conn.execute(
+                "SELECT COUNT(*) FROM grant_lex WHERE tsv @@ to_tsquery('simple', ?)", (t,)).fetchone()[0])) for t in terms}
+            # 후보는 드문 명사부터, 그 명사들이 든 조각 합이 5만을 넘지 않을 만큼만(흔한 명사로 수십만 줄을 읽지 않게) — 점수는 전체 명사로
+            pick, total = [], 0
+            for t in sorted((t for t in terms if df[t]), key=lambda t: df[t]):
+                if pick and total + df[t] > 50000:
+                    break
+                pick.append(t)
+                total += df[t]
             if not pick:
                 return []
             tsq = " | ".join(pick)
             rows = conn.execute(
                 "SELECT g.chunk_id, g.nouns FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
-                " WHERE g.tsv @@ to_tsquery('simple', ?)" + scope_sql + acc
-                + " ORDER BY ts_rank(g.tsv, to_tsquery('simple', ?)) DESC LIMIT ?",
-                (tsq, *scope_args, *acc_args, tsq, limit)).fetchall()
+                " WHERE g.tsv @@ to_tsquery('simple', ?)" + scope_sql + acc + " LIMIT ?",
+                (tsq, *scope_args, *acc_args, max(limit, 20000))).fetchall()
         else:                                             # 시험용 SQLite — 색인 없이 훑는다(작은 DB)
             all_rows = conn.execute("SELECT g.chunk_id, g.nouns FROM grant_lex g JOIN documents d ON d.id = g.doc_id"
                                     " WHERE 1=1" + scope_sql + acc, (*scope_args, *acc_args)).fetchall()

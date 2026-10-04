@@ -250,14 +250,12 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
 
     steps: list[str] = []
     scope_docs: set[int] | None = None
+    program_docs: set[int] | None = None
     path_of: dict[int, list[str]] = {}
     try:
-        tr = gr.retrieve(db, question, k=200)
-        steps += tr.steps[:2]
-        if tr.program:
-            scope_docs = docs_under(db, tr.program)
-            for h in tr.hits:
-                path_of.setdefault(h.doc_id, h.path[:3])
+        sc = gr.scope(db, question)
+        steps += sc.steps
+        scope_docs, program_docs, path_of = sc.docs, sc.program_docs, sc.path_of
     except Exception as e:
         log.warning("그래프 좁히기 실패: %s", e)
     if prefer_docs:
@@ -272,6 +270,10 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         # 색인 경로 — 후보 조각만 읽는다(범위·열람 권한은 SQL 에서)
         lex = grant_lex.rank(db, query, scope_docs, user) if query else []
         den = dense_ids(question, None, scope_docs=scope_docs, user=user, db=db)
+        if not lex and not den and program_docs and scope_docs is not None and scope_docs != program_docs:
+            steps.append("좁힌 문서에서 맞는 조각이 없어 그 사업 문서 전체에서 찾는다")
+            lex = grant_lex.rank(db, query, program_docs, user) if query else []
+            den = dense_ids(question, None, scope_docs=program_docs, user=user, db=db)
         if not lex and not den and scope_docs is not None:
             steps.append("그 사업의 문서 조각에서 맞는 것이 없어 사업 문서 전체에서 찾는다")
             lex = grant_lex.rank(db, query, None, user) if query else []
