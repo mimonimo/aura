@@ -86,3 +86,18 @@ def test_consensus_keeps_only_sections_verified_in_three_skeletons():
     assert [g["title"] for g in got] == ["사업 개요"] and got[0]["programs"] == 3
     md, n_sec, _ = m.render_consensus(got, "연차 사업계획서", 4)
     assert "## Ⅰ. 사업 개요" in md and n_sec == 1
+
+
+def test_table_skeleton_blanks_key_value_cells_and_drops_chapter_banner():
+    import importlib.util as u
+    import json as _json
+    spec = u.spec_from_file_location("bt162", ROOT / "scripts" / "162_business_template.py")
+    bt = u.module_from_spec(spec)
+    spec.loader.exec_module(bt)
+    kv = {"n_rows": 3, "n_cols": 6, "cells": [[0, 0, 1, 1, 1, "프로그램명"], [0, 1, 1, 5, 1, "임플란트 전문 치위생프로그램"],
+                                              [1, 0, 1, 1, 1, "기간"], [1, 1, 1, 5, 1, "2023.3~"], [2, 0, 1, 1, 0, "a"]]}
+    out = bt.table_skeleton(_json.dumps(kv, ensure_ascii=False))
+    assert "프로그램명" in out and "임플란트" not in out and "2023" not in out
+    banner = {"n_rows": 3, "n_cols": 4, "cells": [[0, 0, 1, 1, 1, "CHAPTER"], [0, 1, 1, 1, 1, "x"], [1, 0, 1, 1, 1, "Ⅲ"],
+                                                  [1, 1, 1, 1, 1, "성과관리"], [2, 0, 1, 1, 0, "y"]]}
+    assert bt.table_skeleton(_json.dumps(banner, ensure_ascii=False)) is None

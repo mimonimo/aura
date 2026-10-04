@@ -76,6 +76,8 @@ def table_skeleton(content: str) -> str | None:
     if n_cols <= 2 and n_rows <= 3 and texts and re.fullmatch(
             r"\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|VI{0,3}|IX|X)|별지\s*\d*|붙임\s*\d*|\d{1,2})\s*[.．]?\s*", texts[0] or ""):
         return None
+    if any(re.search(r"(?i)\b(?:chapter|part)\b", t or "") for t in texts):
+        return None                                     # 「CHAPTER | Ⅲ 성과관리」 장 표지 띠
     if len({t for t in texts if t}) < 2:
         return None                                     # 머리 이름이 하나뿐(「LINC 3.0」 꼬리표)인 장식 표
     if not any(texts) or sum(bool(re.fullmatch(r"[\d,.%\s\-]+", x)) for x in texts if x) > len(texts) / 2:
@@ -86,7 +88,10 @@ def table_skeleton(content: str) -> str | None:
         for c in sorted((c for c in heads if int(c[0]) == r), key=lambda c: int(c[1])):
             rs = min(int(c[2]), depth - r)
             attrs = (f' rowspan="{rs}"' if rs > 1 else "") + (f' colspan="{int(c[3])}"' if int(c[3]) > 1 else "")
-            tds.append(f"<th{attrs}>{head_label(c[5])}</th>")
+            # 「항목명 | 값」 서식 행 — 첫 칸이 아니면서 여러 열(3열 이상)에 걸친 칸은 값이다(「프로그램명 | 임플란트 전문 …」). 비워 둔다
+            label = "" if int(c[1]) > 0 and int(c[3]) >= 3 and len([x for x in heads if int(x[0]) == r]) == 2 \
+                else head_label(c[5])
+            tds.append(f"<th{attrs}>{label}</th>")
         rows.append("<tr>" + "".join(tds) + "</tr>")
     for _ in range(BODY_ROWS):
         rows.append("<tr>" + "<td></td>" * n_cols + "</tr>")
