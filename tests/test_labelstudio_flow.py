@@ -158,11 +158,11 @@ def test_status_is_cached_between_page_loads(client, monkeypatch):
     _configure(client)
     calls = _fake_requests(monkeypatch, {"/api/projects": (200, PROJECT_LIST)})
     client.get("/dev/data")
-    # 기존 검수와 근거 기반 문답은 각각 한 번 조회하고 이후에는 캐시한다.
-    assert len(calls) == 2
+    # 기본 화면은 현재 문답만 조회한다. 숨겨진 이전 검수는 요청하지 않는다.
+    assert len(calls) == 1
     client.get("/dev/data")
     client.get("/dev/train")
-    assert len(calls) == 2
+    assert len(calls) == 1
 
 
 # ---- 되받기는 그대로, 수동 라우트는 사라졌다 ----

@@ -55,9 +55,16 @@ def main():
             chunks = db.list_doc_chunks(did)
             context = {'program_id': program['program'], 'program': program['program_name'],
                        'doc_id': did, 'filename': doc['filename'], 'light': bool(entry.get('light'))}
-            header = '\n'.join(c['text'] for w in windows(chunks[:5]) for c in w)[:3000]
+            header_chunks = []
+            for w in windows(chunks[:5]):
+                for c in w:
+                    if sum(len(x['text']) for x in header_chunks) + len(c['text']) <= 3000:
+                        header_chunks.append(c)
+            header = '\n'.join(c['text'] for c in header_chunks)
             document_attempts = 0
             for window in windows(chunks):
+                # Title/year chunks stay citable in later turns; header is not an uncited fact source.
+                window = list({c['id']: c for c in [*header_chunks, *window]}.values())
                 key = job_key({**context, 'header': header}, window)
                 target = args.output / (key + '.json')
                 if target.exists():
@@ -86,10 +93,14 @@ def main():
                     if content.strip().startswith('```'):
                         content = content.strip().split('\n',1)[1].rsplit('```',1)[0]
                     result['raw_response'] = content
-                    rows = convert_response(json.loads(content), context, window, key)
+                    parsed = json.loads(content)
+                    if parsed.get('scope_confirmed') is False:
+                        result.update(status='held', hold_reason='program_scope_unconfirmed')
+                        raise ValueError('program_scope_unconfirmed')
+                    rows = convert_response(parsed, context, window, key)
+                    current = {c['id']: c['text'] for w in windows(db.list_doc_chunks(did)) for c in w}
                     def resolve(docid, cid):
                         # Re-read current sources: reprocessing during generation must invalidate the window.
-                        current = {c['id']: c['text'] for w in windows(db.list_doc_chunks(docid)) for c in w}
                         original = next((c['text'] for c in window if c['id']==cid), None)
                         if current.get(cid) != original:
                             return None
@@ -99,6 +110,7 @@ def main():
                     result.update(rows=rows, manifest=manifest, tasks=tasks, preflight=report,
                                   status='held' if report['held'] else 'candidate')
                     counts['generated_candidates'] += len(rows)
+                    counts['generated_conversations'] += 1
                     counts['held_candidates'] += report['held']
                 except Exception as exc:
                     # Exception class only: model/HTTP exception details may contain sensitive inputs.
