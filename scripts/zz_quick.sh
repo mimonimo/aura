@@ -4,4 +4,4 @@
 cd ~/zzaimy-capstone || exit 1
 [ -f data/platform/.kg-dirty ] || exit 0
 set -a; . ./.env.local; set +a
-exec flock -n /tmp/zz_quick.lock env PYTHONPATH=src .venv/bin/python scripts/170_vm_sync.py --quick >> /tmp/zz_sync.log 2>&1
+exec flock -n /tmp/zz_quick.lock scripts/zz_run.sh 24G env PYTHONPATH=src .venv/bin/python scripts/170_vm_sync.py --quick >> /tmp/zz_sync.log 2>&1
