@@ -321,7 +321,7 @@ def _ask_model():
     client = VllmClient(role="review")
 
     def ask(prompt: str) -> str:
-        resp = client.client.chat.completions.create(
+        resp = client.client.with_options(timeout=600).chat.completions.create(
             model=client.model, messages=[{"role": "user", "content": prompt}], temperature=0, max_tokens=6000,
             extra_body={"chat_template_kwargs": {"enable_thinking": False}})
         return resp.choices[0].message.content or ""
@@ -410,8 +410,12 @@ def main() -> int:
         if seen.get(name) == digest and (out_dir / f"{name}.md").is_file():
             print(f"{kind_ko}: 뼈대가 지난번과 같아 건너뜀", flush=True)   # 그래프를 다시 지을 때마다 모델을 부르지 않는다
             continue
+        try:
+            items = consensus(sks, kind_ko, ask, args.min_programs) if len(sks) >= args.min_programs else []
+        except Exception as e:                          # 모델이 안 되면 그 갈래는 옛 양식을 그대로 둔다
+            print(f"{kind_ko}: 모델 묶기 실패({type(e).__name__}) — 옛 양식 유지", flush=True)
+            continue
         seen[name] = digest
-        items = consensus(sks, kind_ko, ask, args.min_programs) if len(sks) >= args.min_programs else []
         md, n_sec, n_tab = render_consensus(items, kind_ko, len(sks))
         (out_dir / f"{name}.md").write_text(md, encoding="utf-8")
         report[name] = {"title": kind_ko, "sections": n_sec, "tables": n_tab, "programs": len(sks)}
