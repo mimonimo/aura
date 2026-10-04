@@ -59,8 +59,12 @@ def _name_ok(name: str) -> bool:
     return len(re.findall(r"[가-힣A-Za-z]", core)) >= 4
 
 
+# 이름 앞 글머리표·가운뎃점 — 「· 전문대학혁신지원사업」은 목록 줄의 글머리가 붙은 것
+_LEAD_PUNCT = re.compile(r"^[\s·ㆍ•∙\-–—*,.:;○●□■▶▷※]+")
+
+
 def _norm_name(name: str) -> str:
-    n = _LEAD_LABEL.sub("", name or "").strip()
+    n = _LEAD_PUNCT.sub("", _LEAD_LABEL.sub("", name or "")).strip()
     # 앞에 붙은 때·순번 꼬리표 — 「8월 RISE사업」·「3(경대) RISE사업」·「25재정지원사업」의 8월·3(경대)·25
     # 숫자 뒤가 「단계·차·주기·기」면 이름의 일부다(「3단계 산학연협력 …」의 3) — 떼지 않는다
     n = re.sub(r"^(?:(?:19|20)?\d{2}\s*(?:학년도|년도|년)|\d{1,2}\s*월|\d{1,2}\s*\([^)]{1,10}\)|\d{1,4}(?!\s*(?:단계|차|주기|기|학년도|년도|년)))\s*(?=[가-힣A-Za-z])", "", n).strip()
@@ -95,10 +99,14 @@ class ProgramCard:
     names: Counter = field(default_factory=Counter)
     acrs: Counter = field(default_factory=Counter)
     renamed: list[str] = field(default_factory=list)      # 이름이 바뀐 같은 사업이라는 문서 근거(제목)
+    display: str = ""                                      # 외부 확인 장부의 정식 이름(있으면 표시 이름으로)
 
     @property
     def name(self) -> str:
-        return self.names.most_common(1)[0][0] if self.names else (self.acrs.most_common(1)[0][0] if self.acrs else self.key)
+        if self.display:
+            return self.display
+        raw = self.names.most_common(1)[0][0] if self.names else (self.acrs.most_common(1)[0][0] if self.acrs else self.key)
+        return _LEAD_PUNCT.sub("", raw) or raw
 
     @property
     def node_id(self) -> str:
@@ -498,7 +506,20 @@ def ledger_link(cards: list, ledger: dict) -> dict:
         want = {flat(t) for t in terms}
         if any(want & {flat(x) for x in c.surfaces()} for c in cards):
             matched.add(terms[0])
-    return {"periods": periods, "spans": spans, "aliases": aliases, "owner_of": owner_of, "matched": matched}
+    display = {owner_of[terms[0]]: e["name"] for e, _s, _t, terms in entries if e.get("name") and terms[0] in owner_of}
+    return {"periods": periods, "spans": spans, "aliases": aliases, "owner_of": owner_of, "matched": matched, "display": display}
+
+
+def apply_display(cards: list, link: dict) -> int:
+    """장부에 정식 이름(name)이 있는 사업은 그 이름을 카드 표시 이름으로 — 문서에 가장 많이 나온 이름(「앵커」·「RISE사업」)이
+    사업 이름이 되지 않게. 그래프(157)·원본 장부(170)가 같은 규칙을 쓴다."""
+    n = 0
+    for c in cards:
+        nm = (link.get("display") or {}).get(c.node_id)
+        if nm:
+            c.display = nm
+            n += 1
+    return n
 
 
 def program_periods(cards: list, ledger: dict) -> dict[str, tuple[int, int | None]]:
