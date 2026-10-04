@@ -37,11 +37,18 @@ _bt = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_bt)
 label_ok, table_skeleton, _FRONT = _bt.label_ok, _bt.table_skeleton, _bt._FRONT
 
-# 문서 갈래 × 크기 — 연차 사업계획서(수십 쪽)와 행사·프로그램 운영계획서(몇 쪽)는 짜임이 다르다(10/5 첫 판: 「행사 일정」이 계획서 첫 장으로)
-GENRES = [("annual_plan", "plan", "연차 사업계획서", lambda n: n >= 30),
-          ("annual_report", "report", "연차 실적보고서", lambda n: n >= 30),
-          ("program_plan", "plan", "프로그램 운영계획서", lambda n: 3 <= n <= 20),
-          ("program_report", "report", "프로그램 결과보고서", lambda n: 3 <= n <= 20)]
+# 문서 갈래 — 연차 사업계획서·실적보고서는 사업마다 대표 뼈대 하나씩(문서가 많은 사업으로 쏠리지 않게), 프로그램 단위 서류는
+# 파일 제목으로 고르고 사업마다 상한. 10/5 첫 판들: 절 수로만 가르면 기자재 구입 서식·표지 띠가 「공통」을 차지했다
+_ANNUAL = re.compile(r"사업\s*계획서|실적\s*보고서|성과\s*보고서|결과\s*보고서|자체\s*평가|수행\s*계획서")
+_PROG_PLAN = re.compile(r"운영\s*계획|실시\s*계획|추진\s*계획|개최\s*계획|시행\s*계획")
+_PROG_REPORT = re.compile(r"결과\s*보고|운영\s*결과|실시\s*결과|개최\s*결과")
+GENRES = [
+    ("annual_plan", "plan", "연차 사업계획서", {"title": _ANNUAL, "min_sec": 30, "one_per_program": True}),
+    ("annual_report", "report", "연차 실적보고서", {"title": _ANNUAL, "min_sec": 30, "one_per_program": True}),
+    ("program_plan", "plan", "프로그램 운영계획서", {"title": _PROG_PLAN, "min_sec": 3, "max_sec": 25, "cap": 30}),
+    ("program_report", "report", "프로그램 결과보고서", {"title": _PROG_REPORT, "min_sec": 3, "max_sec": 25, "cap": 30}),
+]
+_ORG_ONLY = re.compile(r"^[가-힣]{2,12}(?:대학교|대학|재단|공사|센터)$")
 # 양식의 절이 아닌 것 — 목차·표지·붙임 표시·회사 이름
 _SKIP_TITLE = re.compile(r"^(?:목\s*차|차\s*례|contents|표\s*지|붙\s*임|별\s*첨|참\s*고|첨\s*부)", re.I)
 _ORG = re.compile(r"㈜|\(주\)|주식회사")
@@ -62,7 +69,7 @@ def clean_title(label: str) -> str:
 
 
 def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_docs: int,
-          size_ok=lambda n: True, min_share: float = 0.0) -> list[dict]:
+          size_ok=lambda n: True, min_share: float = 0.0, spec: dict | None = None) -> list[dict]:
     """갈래 하나의 공통 절 목록 — [{key, title, parent, pos, programs, docs, secs}] (부모가 앞에 오는 순서).
     size_ok: 문서의 절 수로 고르는 크기 조건, min_share: 그 갈래 문서 가운데 이 비율 이상에 나와야 공통 절."""
     prog_of: dict[str, str] = {}
@@ -78,9 +85,25 @@ def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_d
             by_doc[nid.split(":sec:")[0]].append(nid)
     occ: dict[str, list[dict]] = defaultdict(list)       # 대조 키 → 나온 곳들
     n_docs = 0
+    spec = spec or {}
+    # 대상 문서 고르기 — 갈래·크기·제목, 사업마다 대표 하나(one_per_program) 또는 상한(cap)
+    cand: dict[str, list[tuple[int, str]]] = defaultdict(list)
     for d, ids in by_doc.items():
         dn = nodes.get(d)
         if not dn or dn["props"].get("kind") != kind or dn["props"].get("other_org") or d not in prog_of or not size_ok(len(ids)):
+            continue
+        if len(ids) < spec.get("min_sec", 0) or len(ids) > spec.get("max_sec", 10 ** 6):
+            continue
+        if spec.get("title") is not None and not spec["title"].search(dn["label"] or ""):
+            continue
+        cand[prog_of[d]].append((len(ids), d))
+    chosen: set[str] = set()
+    for pid, lst in cand.items():
+        lst.sort(key=lambda t: (not (nodes[t[1]]["label"] or "").lower().endswith(".pdf"), t[0]), reverse=True)
+        take = lst[:1] if spec.get("one_per_program") else lst[: spec.get("cap", len(lst))]
+        chosen.update(d for _n, d in take)
+    for d, ids in by_doc.items():
+        if d not in chosen:
             continue
         n_docs += 1
         ids.sort(key=lambda i: int(nodes[i]["props"].get("seq") or 0))
@@ -90,7 +113,7 @@ def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_d
             title = clean_title(lab)
             key = title_key(title)
             if not key or key in seen or not label_ok(title) or _FRONT.search(title) or len(key) < 2 \
-                    or _SKIP_TITLE.search(title) or _ORG.search(title):
+                    or _SKIP_TITLE.search(title) or _ORG.search(title) or _ORG_ONLY.match(title.replace(" ", "")):
                 continue
             seen.add(key)
             path = sid.split(":sec:")[1]
@@ -102,6 +125,8 @@ def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_d
                     anc.append(title_key(clean_title(nodes[cur]["label"])))
             occ[key].append({"doc": d, "prog": prog_of[d], "sec": sid, "title": title, "depth": path.count("."),
                              "pos": k / max(len(ids) - 1, 1), "anc": anc})
+    if spec.get("one_per_program"):                     # 사업마다 하나 — 사업 셋 이상이고 뼈대가 있는 사업의 30% 이상
+        min_share = max(min_share, 0.3)
     need_docs = max(min_docs, int(min_share * n_docs + 0.999))
     common = {k: v for k, v in occ.items()
               if len({o["prog"] for o in v}) >= min_programs and len({o["doc"] for o in v}) >= need_docs}
@@ -203,8 +228,9 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     report = {}
-    for name, kind, kind_ko, size_ok in GENRES:
-        items = build(nodes, contains, kind, args.min_programs, args.min_docs, size_ok, args.min_share)
+    for name, kind, kind_ko, spec in GENRES:
+        share = args.min_share if spec.get("one_per_program") else max(args.min_share, 0.15)
+        items = build(nodes, contains, kind, args.min_programs, 3, spec=spec, min_share=share)
         md, n_sec, n_tab = render(items, kind_ko, nodes, db)
         (out_dir / f"{name}.md").write_text(md, encoding="utf-8")
         report[name] = {"title": kind_ko, "sections": n_sec, "tables": n_tab, "candidates": len(items)}
