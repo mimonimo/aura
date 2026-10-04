@@ -2,7 +2,7 @@
 """170(VM 동기화)이 받은 편지함에 받아 둔 새 뼈대 문서를 반입하고 그래프·양식을 다시 짓는다.
 
 작업 목록: data/inbox/core/sync_manifest.json = [{program, project, inbox, files: [상대 경로]}]
-순서: 사업마다 156 반입(원본 경로 장부·내용 해시로 중복 건너뜀, 분석은 ZZAIMY_ROLE_CONN 로 놀고 있는 토르) → 157 --full → 162 → docx.
+순서: 사업마다 156 반입(원본 경로 장부·내용 해시로 중복 건너뜀, 분석은 ZZAIMY_ROLE_CONN 로 놀고 있는 토르) → 157 --full → 162(사업별)·172(갈래별 공통) → docx.
 진행 기록: /tmp/sync_apply.log (끝나면 SYNC_DONE)
 
 사용(VM): scripts/170 이 부른다. 그래프·양식만 다시: PYTHONPATH=src .venv/bin/python scripts/164_sync_apply.py --post-only
@@ -93,8 +93,10 @@ def main() -> int:
         lo, hi = c.execute("select min(id), max(id) from documents where id >= 557").fetchone()
     sh([PY, "scripts/157_build_kg.py", "--docs", f"{lo}-{hi}", "--apply", "--full"])
     sh([PY, "scripts/162_business_template.py"])
+    sh([PY, "scripts/172_common_templates.py"])          # 문서 갈래별 공통 양식(사업 공통) — 드라이브 「ZZAIMY/공통 양식」
     from zzaimy.ingest import md_docx
-    for f in sorted((ROOT / "data" / "generated" / "templates").glob("*.md")):
+    tpl = ROOT / "data" / "generated" / "templates"
+    for f in sorted([*tpl.glob("*.md"), *(tpl / "common").glob("*.md")]):
         data, rep = md_docx.convert(f.read_text(encoding="utf-8"))
         f.with_suffix(".docx").write_bytes(data)
         print(f"양식 {f.name}: 절 {rep['headings']} · 표 {rep['tables']}", flush=True)

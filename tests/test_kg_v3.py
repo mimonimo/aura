@@ -659,3 +659,10 @@ def test_fill_period_aligns_round_to_year_when_they_disagree():
     a = A(2021, 6)
     st = P.fill_period([{"path": ""}], [a], {"program:p": (2017, 2022)})
     assert (a.year, a.round) == (2021, 5) and st["round_fixed"] == 1
+
+
+def test_titles_ending_in_yo_nouns_are_headings_not_sentences():
+    """「개요·필요·주요」로 끝나는 제목이 문장(…해요)으로 잘못 걸려 「Ⅰ. 사업 개요」 장이 통째로 빠지던 일."""
+    assert sections._line_heading("Ⅰ. 사업 개요") == "Ⅰ. 사업 개요"
+    assert sections._line_heading("1. 추진 필요") == "1. 추진 필요"
+    assert sections._line_heading("1. 자료를 제출해요") is None
