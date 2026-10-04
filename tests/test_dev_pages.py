@@ -53,6 +53,28 @@ def test_overview_uses_responsive_roles(client):
     assert '<img src="/static/topology.svg"' not in response.text
 
 
+@pytest.mark.parametrize('path', ['/dev/train', '/dev/train?tab=data', '/dev/data'])
+def test_training_navigation_does_not_scan_hidden_legacy_documents(client, monkeypatch, path):
+    from zzaimy.dataset import build
+    def forbidden(*args, **kwargs):
+        raise AssertionError('hidden legacy data must not scan all documents')
+    monkeypatch.setattr(build, 'rag_status', forbidden)
+    monkeypatch.setattr(build, 'preview_sources', forbidden)
+    response = client.get(path)
+    assert response.status_code == 200
+    assert '문답 검수' in response.text
+
+
+def test_training_legacy_keeps_requested_previews(client, monkeypatch):
+    from zzaimy.dataset import build
+    calls = []
+    monkeypatch.setattr(build, 'rag_status', lambda db: calls.append('rag') or [])
+    monkeypatch.setattr(build, 'preview_sources', lambda db: calls.append('source') or [])
+    response = client.get('/dev/train?view=legacy')
+    assert response.status_code == 200
+    assert sorted(calls) == ['rag', 'source']
+
+
 def test_design_doc_has_no_export_buttons(client):
     r = client.get("/dev/doc/quality-system.md")
     assert r.status_code == 200

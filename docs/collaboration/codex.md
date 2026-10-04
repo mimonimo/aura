@@ -1,5 +1,15 @@
 # Codex 작업 기록
 
+## C-203 — 데이터·학습 기본 화면 전체 문서 순회 제거 (진행, 2026-10-04)
+
+사용자 운영 페이지 이동 불가 보고. VM SSH banner timeout으로 운영 상태 미확인.
+코드 확인: _dev_data_view에서 숨겨진 legacy 화면용 preview_sources·rag_status를 항상 실행.
+rag_status는 list_documents 후 문서별 list_doc_chunks, preview_sources는 실제 변환기 순회다.
+담당 main.py 해당 뷰·dev 페이지 회귀 검사. 기본 화면에서는 이 계산을 생략한다.
+기존 모델 probe 병렬화는 settings 경로여서 이 병목을 해결하지 못했다. 운영 원인 확정·배포와 구분한다.
+수정·회귀 32 passed. 기본 /dev/train·tab=data·/dev/data 경유에서 전체 순회 함수 호출 금지 검증.
+legacy 명시 요청은 기존 동작 보존. legacy 자체 전체 순회 개선은 남음. 운영 배포/브라우저 실측 미실시.
+
 ## C-202 — 원문 기반 배치 생성기 (구현·실행 검증 중, 2026-10-04)
 
 수작업 표본 추가에서 사업별 문서 순회 생성으로 전환. 담당 batch_candidates.py,
