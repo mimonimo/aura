@@ -28,7 +28,7 @@ from zzaimy.graph.sections import title_key as sections_title_key  # noqa: E402
 
 KIND_KO = {"plan": "계획서", "report": "실적보고서"}
 # 양식의 절 제목은 짧은 명사구만 — 동의서·서약 문장(「본인은 …」·「과제의 선정에 관한 사무: …」)이 개요 번호를 달고 절로 잡힌 것은 뺀다
-_SENTENCE = re.compile(r"(?:다|함|음|임|됨|요|니다)\s*[.。]?\s*$|^본인|동의|서약|개인\s*정보|[:：]")
+_SENTENCE = re.compile(r"(?:다|함|음|임|됨|[세에어아해]요|니다)\s*[.。]?\s*$|^본인|동의|서약|개인\s*정보|[:：]")
 LABEL_MAX = 40
 BODY_ROWS = 2
 
