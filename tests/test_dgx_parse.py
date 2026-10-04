@@ -220,3 +220,35 @@ def test_worker_over_memory_limit_is_respawned_from_progress(tmp_path, monkeypat
     assert job.main() == 0
     assert starts == [0, 1, 2]
     assert "PARSE_DONE" in capsys.readouterr().out
+
+
+def test_forced_reparse_is_not_blocked_by_its_own_earlier_scratch_record(tmp_path, monkeypatch):
+    """작업자 임시 DB 에 지난 실행 기록이 남으면 같은 파일이 자기와 「같은 내용」으로 걸린다(10/4 kordoc 재처리 762건)."""
+    import hashlib
+
+    from zzaimy.app import pipeline
+
+    job = _load("167_dgx_parse.py")
+    monkeypatch.setattr(job, "_limit_mineru", lambda: None)
+    monkeypatch.setattr(job, "_wait_for_memory", lambda n: None)
+    root = tmp_path / "root"
+    (root / "p").mkdir(parents=True)
+    (root / "p" / "a.hwp").write_bytes(b"same bytes")
+
+    class _Proc:
+        def process(self, db, did, path):
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            db.record_content_hash(did, digest)
+            if db.find_same_content(digest, exclude_id=did):
+                db.update_document(did, status="failed", error="같은 내용의 문서가 이미 있습니다")
+                return
+            db.update_document(did, status="reviewed", masked_text="본문")
+            db.replace_doc_chunks(did, [{"seq": 0, "kind": "text", "content": "본문"}])
+
+    monkeypatch.setattr(pipeline, "DocumentProcessor", _Proc)
+    out = tmp_path / "out"
+    item = {"rel": "p/a.hwp", "ext": "hwp", "size": 10, "mtime": 1, "force": True}
+    for _ in range(2):
+        job.worker(0, [item], str(root), str(out), 60)
+    recs = [json.loads(l) for l in (out / "parsed-0.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["state"] for r in recs] == ["parsed", "parsed"]
