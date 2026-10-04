@@ -142,6 +142,11 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
             taxonomy["pred"].append({"name": nodes.get(e["src"], {}).get("label", e["src"]), "id": e["src"]})
         elif e["kind"] == "succeeded_by" and e["src"] == prog["id"]:
             taxonomy["succ"].append({"name": nodes.get(e["dst"], {}).get("label", e["dst"]), "id": e["dst"]})
+        elif e["kind"] == "related" and prog["id"] in (e["src"], e["dst"]):
+            other = e["dst"] if e["src"] == prog["id"] else e["src"]
+            taxonomy.setdefault("related", []).append({"name": nodes.get(other, {}).get("label", other), "id": other,
+                                                       "why": e["evidence"][0] if e["evidence"] else "",
+                                                       "out": e["src"] == prog["id"]})
     ledger = (prog.get("props") or {}).get("ledger") or {}
     vis_docs = None if scope is None or scope.get("role") == "dev" else allowed_docs
     indicators = indicator_table([nodes[e["dst"]] for e in out_of[prog["id"]] if e["kind"] == "has_indicator" and e["dst"] in nodes], vis_docs)

@@ -735,3 +735,12 @@ def test_graph_scope_narrows_by_program_round_kind_with_sql(tmp_path):
     none = retrieve.scope(db, "LINC3.0 9차년도 계획서")
     assert none.docs == none.program_docs                    # 맞는 연차가 없으면 사업 전체로
     assert retrieve.scope(db, "가족회사 운영 실적은?").docs is None
+
+
+def test_related_programs_need_enough_co_mentioning_docs():
+    """연관 사업은 문서 근거로 — 제목·앞머리에서 함께 다룬 문서가 다섯 건 이상·2% 이상일 때만."""
+    A = [programs.Assignment(doc_id=i, program="program:a", mentions={"program:b": "앞머리에 「B」 1회"}) for i in range(6)]
+    A += [programs.Assignment(doc_id=100 + i, program="program:b") for i in range(3)]
+    A += [programs.Assignment(doc_id=200, program="program:a", mentions={"program:c": "제목에 「C」"})]
+    rel = programs.related_programs(A)
+    assert [(r["src"], r["dst"], r["n"]) for r in rel] == [("program:a", "program:b", 6)]

@@ -348,6 +348,7 @@ class Assignment:
     share: float = 0.0
     status: str = "review"           # auto | review
     evidence: list[str] = field(default_factory=list)
+    mentions: dict = field(default_factory=dict)       # 문서가 언급한 다른 사업 카드 → 근거(연관 사업 관계용)
 
 
 def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
@@ -396,6 +397,9 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
             floor = 2 if any(w.startswith("경로") for w in why[best]) else 3
             a.status = "auto" if top >= floor and top >= 2 * second else "review"
             a.evidence = why[best][:4]
+            # 제목·앞머리에서 함께 언급한 다른 사업(경로만으로 걸린 것은 폴더가 섞인 탓일 수 있어 뺀다)
+            a.mentions = {cid: ws[0] for cid, ws in why.items() if cid != best
+                          and any(w.startswith(("제목에", "앞머리에")) for w in ws)}
         else:
             a.evidence = ["사업명 언급을 찾지 못함"]
         m = _ROUND.search(title) or _ROUND.search(head[:600])
@@ -547,6 +551,26 @@ def apply_not_programs(assigned: list, cards: list, ledger: dict, link: dict) ->
             a.program, a.program_name, a.status = "", "", "agent"
             n += 1
     return n
+
+
+def related_programs(assigned: list, min_docs: int = 5, min_share: float = 0.02) -> list[dict]:
+    """문서 근거로 잇는 연관 사업 — 사업 A 에 배정된 문서가 제목·앞머리에서 사업 B 를 함께 다루면 한 건.
+    min_docs 건 이상이고 A 문서의 min_share 이상일 때만 관계로(한두 문서의 우연한 언급은 연관이 아니다, 절대 규칙 12).
+    돌려주는 것: [{src, dst, n, share, docs:[문서 번호 …]}]"""
+    per_prog = Counter(a.program for a in assigned if a.program)
+    pair_docs: dict[tuple[str, str], list[int]] = defaultdict(list)
+    for a in assigned:
+        if not a.program:
+            continue
+        for other in a.mentions:
+            if other != a.program:
+                pair_docs[(a.program, other)].append(a.doc_id)
+    out = []
+    for (src, dst), ds in pair_docs.items():
+        share = len(ds) / max(per_prog[src], 1)
+        if len(ds) >= min_docs and share >= min_share and dst in per_prog:
+            out.append({"src": src, "dst": dst, "n": len(ds), "share": round(share, 3), "docs": ds[:5]})
+    return sorted(out, key=lambda r: -r["n"])
 
 
 def apply_display(cards: list, link: dict) -> int:
