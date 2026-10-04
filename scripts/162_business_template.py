@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from zzaimy.app.db import Database  # noqa: E402
 from zzaimy.graph import kg_store  # noqa: E402
+from zzaimy.graph.sections import title_key as sections_title_key  # noqa: E402
 
 KIND_KO = {"plan": "계획서", "report": "실적보고서"}
 # 양식의 절 제목은 짧은 명사구만 — 동의서·서약 문장(「본인은 …」·「과제의 선정에 관한 사무: …」)이 개요 번호를 달고 절로 잡힌 것은 뺀다
@@ -71,6 +72,10 @@ def table_skeleton(content: str) -> str | None:
     if len(heads) == 1 and int(heads[0][3]) >= n_cols:
         return None                                     # 한 칸이 모든 열을 덮는 띠(표지·제목 상자)
     texts = [head_label(c[5]) for c in heads]
+    # 장 제목 띠(「Ⅲ | 산업체 참여 실적 및 계획」「별지 | …」) — 다음 장의 표지라 양식 표가 아니다
+    if n_cols <= 2 and n_rows <= 3 and texts and re.fullmatch(
+            r"\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|VI{0,3}|IX|X)|별지\s*\d*|붙임\s*\d*|\d{1,2})\s*[.．]?\s*", texts[0] or ""):
+        return None
     if len({t for t in texts if t}) < 2:
         return None                                     # 머리 이름이 하나뿐(「LINC 3.0」 꼬리표)인 장식 표
     if not any(texts) or sum(bool(re.fullmatch(r"[\d,.%\s\-]+", x)) for x in texts if x) > len(texts) / 2:
@@ -138,7 +143,9 @@ def main() -> int:
     for prog in progs:
         pkey = prog["id"].split(":", 1)[1]
         for kind, kind_ko in KIND_KO.items():
-            docs = [d for d, ids in order.items() if prog_of.get(d) == prog["id"] and nodes[d]["props"].get("kind") == kind]
+            # 다른 대학 자료(협의회 공유본 등, 157 의 other_org)는 우리 학교 양식의 뼈대가 되지 않는다
+            docs = [d for d, ids in order.items() if prog_of.get(d) == prog["id"] and nodes[d]["props"].get("kind") == kind
+                    and not nodes[d]["props"].get("other_org")]
             if not docs:
                 continue
             # 뼈대 = 단위 절을 가장 많이 가진 문서(같으면 최근) — 원문 목차 그대로의 계층을 쓴다
@@ -148,7 +155,8 @@ def main() -> int:
             def is_pdf(d):
                 return nodes[d]["label"].lower().endswith(".pdf")
             top_n = max(n_units(d) for d in docs)
-            ranked = sorted(docs, key=lambda d: (not is_pdf(d) and n_units(d) >= 0.5 * top_n, n_units(d), int(nodes[d].get("doc_id") or 0)),
+            # 한글 원본을 더 강하게 먼저 — PDF 글자층은 표가 조각으로 안 나와 양식에 표가 빠진다(10/4: LINC+ 보고서 양식 표 0)
+            ranked = sorted(docs, key=lambda d: (not is_pdf(d) and n_units(d) >= 0.3 * top_n, n_units(d), int(nodes[d].get("doc_id") or 0)),
                             reverse=True)
 
             def keep_for(skel_doc):
@@ -167,7 +175,9 @@ def main() -> int:
                 return kept
             # 앞 후보에서 남는 절이 모자라면(목차가 깨진 판) 다음 후보로
             skel, keep = ranked[0], set()
-            for cand in ranked[:6]:
+            # 한글 원본 후보를 12개까지 먼저, 맞는 것이 없을 때만 PDF(표가 조각으로 남는 원본이 양식에 낫다)
+            cands = [d for d in ranked if not is_pdf(d)][:12] + [d for d in ranked if is_pdf(d)][:4]
+            for cand in cands:
                 k = keep_for(cand)
                 if len(k) >= max(3, len(keep)) and (len(k) >= 10 or not keep):
                     skel, keep = cand, k
@@ -180,17 +190,53 @@ def main() -> int:
                      f"지난 {kind_ko}들에 되풀이되는 절(지식 그래프의 단위)을 「{nodes[skel]['label'][:50]}」의 목차 순서로 놓았다. "
                      "내용은 비워 두었다 — 각 절의 안내는 그 절이 나온 연차다.", ""]
             base = min(nodes[x]["id"].split(":sec:")[1].count(".") for x in keep)
+            # 사례 반복 접기 — 같은 부모 아래 형제가 셋 이상이고 하위 절 제목 구성이 서로 비슷하면(협약반마다 같은 프로그램 목록)
+            # 하나만 「(항목 이름)」 자리로 남기고 실제 이름은 작성 안내의 예시로. 공통 양식에 특정 반·학과 이름을 박지 않는다
+            def sid(x):
+                return x.split(":sec:")[1]
+            kids: dict[str, list[str]] = defaultdict(list)       # 뼈대 문서의 전체 절로(양식에 남지 않는 형제도 비교에 쓴다)
+            for x in ids:
+                if "." in sid(x):
+                    kids[x.rsplit(".", 1)[0]].append(x)
+            def child_titles(x):
+                return {sections_title_key(nodes[c]["label"]) for c in kids.get(x, [])}
+            collapse_rep: dict[str, list[str]] = {}       # 대표 절 → 예시 이름들
+            skip: set[str] = set()
+            for par, ch in kids.items():
+                with_kids = [c for c in ch if kids.get(c)]
+                if len(with_kids) < 3:
+                    continue
+                rep = with_kids[0]
+                rt = child_titles(rep)
+                sims = [c for c in with_kids[1:] if rt and len(rt & child_titles(c)) / max(len(rt | child_titles(c)), 1) >= 0.5]
+                if len(sims) >= 2:
+                    group = [rep] + sims
+                    shown = next((c for c in group if c in keep), None)   # 양식에 남는 첫 형제를 대표로
+                    if shown is None:
+                        continue
+                    collapse_rep[shown] = [nodes[c]["label"] for c in group]
+                    for c in group:
+                        if c != shown:
+                            skip.update(y for y in ids if y == c or y.startswith(c + "."))
             n_sec = 0
             last_title = ""
             for x in ids:
-                if x not in keep:
+                if x not in keep or x in skip:
                     continue
                 if nodes[x]["label"] == last_title:
                     continue                              # 같은 제목이 잇달아 나오면(목차·간지 되풀이) 한 번만
                 last_title = nodes[x]["label"]
                 depth = x.split(":sec:")[1].count(".") - base
                 title = re.sub(r"\s+", " ", nodes[x]["label"]).strip()[:LABEL_MAX + 20]
+                # 연차 표기는 떼고(「사업 예산집행(1차년도)」 → 「사업 예산집행」) 사례 대표는 자리 표시로
+                title = re.sub(r"\s*[(（]\s*(?:\d{1,2}\s*차\s*년도|(?:19|20)\d{2}(?:\s*학?년도?)?)\s*[)）]", "", title).strip()
+                if x in collapse_rep:
+                    num = re.match(r"^\s*([(（]?[0-9A-Za-z가-하ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]{1,3}[.)）]|\d{1,2}[.)])\s*", title)
+                    title = (num.group(0) if num else "") + "(항목 이름)"
                 lines += [f"{'#' * min(2 + depth, 6)} {title}", ""]
+                if x in collapse_rep:
+                    ex = ", ".join(re.sub(r"^\s*\S{1,4}[.)）]\s*", "", t)[:30] for t in collapse_rep[x][:5])
+                    lines += [f"> 작성 안내: 같은 짜임으로 항목마다 되풀이한다 — 지난 문서의 예: {ex}", ""]
                 n_sec += 1
                 uid = unit_of.get(x, "")
                 if uid.startswith(f"unit:{pkey}:"):
@@ -212,7 +258,7 @@ def main() -> int:
                         if tb:
                             lines += [tb, ""]
                             break
-            safe = re.sub(r"[^0-9A-Za-z가-힣]+", "_", pkey)
+            safe = re.sub(r"[^0-9A-Za-z가-힣]+", "_", pkey).strip("_") or "program"
             dest = out_dir / f"{safe}_{kind}.md"
             dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
             print(f"{prog['label'][:30]} {kind_ko}: 절 {n_sec} (뼈대 #{nodes[skel].get('doc_id')}) → {dest}")
