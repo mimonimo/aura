@@ -37,7 +37,8 @@ _PERIOD = re.compile(r"((?:19|20)\d{2})\s*[~∼\-]\s*((?:19|20)\d{2})?")
 
 
 def vague(label: str) -> bool:
-    return len(_GENERIC.sub("", label or "")) < 2
+    from zzaimy.graph.programs import vague_name
+    return vague_name(label)
 
 
 def main() -> int:
