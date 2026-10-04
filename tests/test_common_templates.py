@@ -56,3 +56,15 @@ def test_render_renumbers_without_program_names():
     md, n_sec, _ = m.render(items, "사업계획서", {}, db=None)
     assert "## Ⅰ. 사업 개요" in md and "### 1. 추진 배경" in md and "## Ⅱ. 추진 실적" in md
     assert n_sec == 3
+
+
+def test_size_and_share_split_annual_from_program_docs_and_skip_toc():
+    m = _load()
+    big = [(str(i), f"Ⅰ. 절{i}") for i in range(1, 32)] + [("40", "Ⅱ. 목 차")]
+    small = [("1", "1. 행사 일정"), ("2", "2. 소요예산"), ("3", "3. 기대효과")]
+    progs = {p: [big, small] for p in ("a", "b", "c")}
+    nodes, contains = _graph(progs)
+    annual = {x["key"] for x in m.build(nodes, contains, "plan", 3, 1, lambda n: n >= 30, 0.5)}
+    program = {x["key"] for x in m.build(nodes, contains, "plan", 3, 1, lambda n: 3 <= n <= 20, 0.5)}
+    assert "행사일정" in program and "행사일정" not in annual
+    assert "절1" in annual and "목차" not in annual
