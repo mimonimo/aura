@@ -97,7 +97,8 @@ def build(nodes: dict, contains: list[dict], kind: str, min_programs: int, min_d
         parents = Counter(next((a for a in o["anc"] if a in common and a != k), "") for o in v)
         out.append({"key": k, "title": Counter(o["title"] for o in v).most_common(1)[0][0],
                     "parent": parents.most_common(1)[0][0], "pos": statistics.median(o["pos"] for o in v),
-                    "programs": len({o["prog"] for o in v}), "docs": len({o["doc"] for o in v}), "secs": [o["sec"] for o in v]})
+                    "programs": len({o["prog"] for o in v}), "docs": len({o["doc"] for o in v}), "secs": [o["sec"] for o in v],
+                    "prog_of": {o["sec"]: o["prog"] for o in v}})
     by_key = {x["key"]: x for x in out}
     # 부모 고리 끊기(서로를 부모로 삼는 두 절) — 더 앞에 놓이는 쪽을 위로
     for x in out:
@@ -120,21 +121,31 @@ def render(items: list[dict], kind_ko: str, nodes: dict, db, max_depth: int = 4)
     lines = [f"# {kind_ko} 공통 양식", "",
              f"> 작성 안내: 여러 사업의 지난 {kind_ko}에 공통으로 나오는 절과 표를 모았다. 사업마다 더 들어가야 할 항목은 "
              "에이전트에게 「○○사업 ○차년도 " + kind_ko + " 초안」처럼 지시하면 그 사업의 지난 문서 구조로 채운다.", ""]
-    chunk_cache: dict[int, dict] = {}
     n_sec = n_tab = 0
 
-    def table_for(x) -> str | None:
+    def table_for(x, max_secs: int = 40) -> str | None:
+        """그 절 첫 표의 머리 — 사업마다 고르게 최대 max_secs 절만 본다(문서마다 조각 전체를 읽으면 수십 분, 10/5 실측)."""
         votes: Counter = Counter()
         progs: dict[str, set] = defaultdict(set)
+        by_prog: dict[str, list[str]] = defaultdict(list)
         for sid in x["secs"]:
+            by_prog[x.get("prog_of", {}).get(sid, "")].append(sid)
+        picked: list[str] = []
+        while len(picked) < max_secs and any(by_prog.values()):
+            for k in list(by_prog):
+                if by_prog[k]:
+                    picked.append(by_prog[k].pop(0))
+        for sid in picked[:max_secs]:
             did = int(nodes[sid.split(":sec:")[0]].get("doc_id") or 0)
-            if not did:
+            seqs = [int(q) for q in (nodes[sid]["props"].get("chunks") or [])][:30]
+            if not did or not seqs:
                 continue
-            chunks = chunk_cache.setdefault(did, {c["seq"]: c for c in db.list_doc_chunks(did)})
-            for q in nodes[sid]["props"].get("chunks") or []:
-                c = chunks.get(q)
-                if c and c.get("kind") == "table":
-                    tb = table_skeleton(str(c["content"]))
+            with db._conn() as conn:
+                rows = conn.execute(f"SELECT seq, kind, content FROM doc_chunks WHERE doc_id = ? AND seq IN ({','.join('?' * len(seqs))})"
+                                    " ORDER BY seq", (did, *seqs)).fetchall()
+            for r in rows:
+                if r[1] == "table":
+                    tb = table_skeleton(str(r[2]))
                     if tb:
                         votes[tb] += 1
                         progs[tb].add(sid.split(":sec:")[0])
