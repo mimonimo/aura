@@ -4877,6 +4877,10 @@ def create_app(
         from zzaimy.dataset.build import preview_sources, rag_status
         from zzaimy.export.bundle import preview_bundle
 
+        show_legacy = (request.query_params.get('view') == 'legacy'
+                       or bool(request.query_params.get('ls_pushed'))
+                       or bool(request.query_params.get('ls_pulled')))
+
         try:
             export_preview = preview_bundle(db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR"))
         except Exception:
@@ -4903,13 +4907,13 @@ def create_app(
             "export_preview": export_preview,
             "tensorboard_url": db.get_setting("tensorboard_url", ""),
             "grounded_ls": _grounded_ls_status(),
-            "rag_rows": rag_status(db),
-            "source_preview": preview_sources(db),
+            "rag_rows": rag_status(db) if show_legacy else [],
+            "source_preview": preview_sources(db) if show_legacy else [],
             "datasets": datasets,
             "ds_page": ds_page, "ds_total": ds_total, "ds_per": DS_PER,
             "ds_has_next": (ds_page + 1) * DS_PER < ds_total,
             "err": err, "ok": ok,
-            "ls": _ls_status(),
+            "ls": _ls_status() if show_legacy else {"ok": False},
             "labelstudio_url": db.get_setting("labelstudio_url"),
             "llamaboard_url": db.get_setting("llamaboard_url"),
         }))
