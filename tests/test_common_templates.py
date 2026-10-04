@@ -68,3 +68,21 @@ def test_size_and_share_split_annual_from_program_docs_and_skip_toc():
     program = {x["key"] for x in m.build(nodes, contains, "plan", 3, 1, lambda n: 3 <= n <= 20, 0.5)}
     assert "행사일정" in program and "행사일정" not in annual
     assert "절1" in annual and "목차" not in annual
+
+
+def test_consensus_keeps_only_sections_verified_in_three_skeletons():
+    """모델이 묶은 공통 절은 출처(사업 번호·그 사업의 제목 그대로)를 뼈대와 대조해 셋 이상일 때만 남긴다."""
+    import json as _json
+    m = _load()
+    sks = [("A", [{"level": 1, "title": "추진 배경", "table": None}, {"level": 1, "title": "예산", "table": "<table>t</table>"}]),
+           ("B", [{"level": 1, "title": "사업 필요성", "table": None}, {"level": 1, "title": "소요 예산", "table": None}]),
+           ("C", [{"level": 1, "title": "추진 목적", "table": None}]),
+           ("D", [{"level": 1, "title": "예산 계획", "table": None}])]
+    reply = {"sections": [
+        {"title": "사업 개요", "level": 1, "sources": [{"p": 1, "t": "추진 배경"}, {"p": 2, "t": "사업 필요성"}, {"p": 3, "t": "추진 목적"}]},
+        {"title": "예산 계획", "level": 1, "sources": [{"p": 1, "t": "예산"}, {"p": 2, "t": "소요 예산"}, {"p": 3, "t": "없는 제목"}]},
+    ]}
+    got = m.consensus(sks, "연차 사업계획서", lambda prompt: _json.dumps(reply, ensure_ascii=False))
+    assert [g["title"] for g in got] == ["사업 개요"] and got[0]["programs"] == 3
+    md, n_sec, _ = m.render_consensus(got, "연차 사업계획서", 4)
+    assert "## Ⅰ. 사업 개요" in md and n_sec == 1
