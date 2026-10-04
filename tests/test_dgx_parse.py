@@ -252,3 +252,12 @@ def test_forced_reparse_is_not_blocked_by_its_own_earlier_scratch_record(tmp_pat
         job.worker(0, [item], str(root), str(out), 60)
     recs = [json.loads(l) for l in (out / "parsed-0.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [r["state"] for r in recs] == ["parsed", "parsed"]
+
+
+def test_jsonl_lines_keep_records_with_form_feed_in_text(tmp_path):
+    """본문에 폼피드가 든 기록이 splitlines 로 깨져 「이미 처리」에서 빠지던 일(10/5)."""
+    job = _load("167_dgx_parse.py")
+    p = tmp_path / "parsed-0.jsonl"
+    recs = [{"rel": "a.pdf", "ok": True, "masked_text": "쪽1\x0c쪽2 끝"}, {"rel": "b.pdf", "ok": True}]
+    p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
+    assert [json.loads(x)["rel"] for x in job.jsonl_lines(p)] == ["a.pdf", "b.pdf"]

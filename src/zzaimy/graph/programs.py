@@ -82,6 +82,23 @@ def _norm_name(name: str) -> str:
 
 _ROUND = re.compile(r"([1-9])\s*차\s*년도")
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*(?:년|학년도|\.)")
+
+
+def plausible_year(y) -> bool:
+    """사업 문서가 다룰 수 있는 연도인가 — 본문의 「1983년 설립」 같은 연혁 숫자를 문서 연도로 쓰지 않는다(실측 10/5: 2024년 공고가 1983)."""
+    import datetime
+    try:
+        return 2000 <= int(y) <= datetime.date.today().year + 2
+    except (TypeError, ValueError):
+        return False
+
+
+def _first_year(*texts: str) -> int | None:
+    for t in texts:
+        for m in _YEAR.finditer(t or ""):
+            if plausible_year(m.group(1)):
+                return int(m.group(1))
+    return None
 _EVAL_RESULT = re.compile(r"평가\s*(?:결과|의견)|종합\s*의견")
 HEAD_CHARS = 4000
 
@@ -383,8 +400,7 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
             a.evidence = ["사업명 언급을 찾지 못함"]
         m = _ROUND.search(title) or _ROUND.search(head[:600])
         a.round = int(m.group(1)) if m else None
-        y = _YEAR.search(title) or _YEAR.search(head[:600])
-        a.year = int(y.group(1)) if y else None
+        a.year = _first_year(title, head[:600])
         if _EVAL_RESULT.search(title):                          # 평가 '기준'이 아니라 평가 '결과·의견'
             a.kind, a.kind_reason = "evaluation", "제목에 평가 결과·종합의견"
         else:
@@ -410,7 +426,7 @@ def inherit_by_folder(docs: list[dict], assigned: list[Assignment], min_n: int =
         return ["/".join(parts[:i]) for i in range(len(parts), 0, -1)]
 
     def year_of(d: dict) -> int | None:
-        ys = _PATH_YEAR.findall(f"{d.get('path') or ''}/{d.get('filename') or ''}")
+        ys = [y for y in _PATH_YEAR.findall(f"{d.get('path') or ''}/{d.get('filename') or ''}") if plausible_year(y)]
         return int(ys[-1]) if ys else None
 
     under: dict[str, Counter] = defaultdict(Counter)
@@ -600,7 +616,7 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
         if a.year is None:
             for seg in reversed(segs):
                 m = _SEG_YEAR.search(seg.strip())
-                if m:
+                if m and plausible_year(re.search(r"\d{4}", m.group(0)).group(0)):
                     a.year = int(re.search(r"\d{4}", m.group(0)).group(0))
                     stats["year_from_path"] += 1
                     break
@@ -696,6 +712,13 @@ def apply_reviews(docs: list[dict], assigned: list[Assignment], reviews: list[di
         if hit is None:
             continue
         label = hit["label"].strip()
+        # 파일 제 이름에 사업이 적힌 문서는 폴더 판정이 다른 사업으로 덮지 않는다 — 폴더에는 다른 사업 문서가 섞인다
+        # (실측 10/5: LINC+ 폴더의 「신산업분야 특화 선도전문대학 지원사업 사업계획서 작성 서식」이 LINC+ 로)
+        if a.program and any(e.startswith("제목에") for e in a.evidence):
+            target = "" if label == "사업 아님" else (label.split(":", 1)[1].strip() if label.startswith("새 사업") else label)
+            if not target or program_key(target) != program_key(a.program_name) and target not in (
+                    next((c for c in cards if c.node_id == a.program), ProgramCard(key="")).names):
+                continue
         if label == "사업 아님":
             a.program, a.program_name = "", ""
             a.status = "agent"
