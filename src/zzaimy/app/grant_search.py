@@ -302,8 +302,9 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     from zzaimy.app import grant_lex
     query = extract_nouns(question)
     have, want = grant_lex.coverage(db)
-    if want and have >= 0.95 * want:
-        # 색인 경로 — 후보 조각만 읽는다(범위·열람 권한은 SQL 에서)
+    if want and have >= 0.5 * want:
+        # 색인 경로 — 후보 조각만 읽는다(범위·열람 권한은 SQL 에서). 색인에 아직 없는 새 조각은 임베딩 축이 찾는다 —
+        # 95% 아래로 옛 경로(조각 전체 읽기)로 물러나면 새 문서가 들어오는 동안 검색이 수십 초로 느려졌다(10/5 94.4%)
         lex = grant_lex.rank(db, query, scope_docs, user) if query else []
         den = dense_ids(question, None, scope_docs=scope_docs, user=user, db=db)
         if not lex and not den and program_docs and scope_docs is not None and scope_docs != program_docs:
