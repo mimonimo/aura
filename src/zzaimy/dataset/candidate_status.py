@@ -2,11 +2,17 @@
 from collections import Counter, defaultdict
 import hashlib
 import json
+from .candidate_review import review_matches
 
 
-def summarize(results):
+def summarize(results, reviews=()):
     latest, historical = {}, 0
+    by_job = defaultdict(list)
+    for review in reviews:
+        by_job[review.get('job')].append(review)
     for result in results:
+        matching = [r for r in by_job.get(result.get('job'), []) if review_matches(result, r)]
+        review = max(matching, key=lambda r: r.get('reviewed_at', ''), default={})
         context = result['context']
         source = json.dumps([context['program_id'], context['doc_id'], result['source_window']],
                             sort_keys=True, ensure_ascii=False)
@@ -18,12 +24,16 @@ def summarize(results):
             latest[key] = {k:result[k] for k in ('context', 'status', 'completed_at',
                            'semantic_review', 'hold_reason', 'error_type', 'preflight') if k in result}
             latest[key]['turn_count'] = len(result.get('rows', []))
+            latest[key]['agent_decision'] = review.get('decision')
     totals, reasons = Counter(), Counter()
     programs = defaultdict(Counter)
     last_completed = 0
     for result in latest.values():
         state = result['status']
-        if state not in {'candidate', 'held', 'error'}:
+        decision = result.get('agent_decision')
+        if state == 'candidate' and decision in {'rework_required', 'source_check_required'}:
+            state = decision
+        if state not in {'candidate', 'held', 'error', 'rework_required', 'source_check_required'}:
             state = 'unknown'
         turns = result['turn_count']
         for counts in (totals, programs[result['context']['program_id']]):
