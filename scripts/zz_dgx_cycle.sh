@@ -18,4 +18,4 @@ else
     rm -f "$tmp"; echo "원본 목록 갱신 실패 — 지난 목록으로" >> "$log"
 fi
 .venv-parse/bin/python scripts/167_dgx_parse.py --inventory ~/archive_inventory.jsonl --skip ~/ingested.txt --out ~/parsed \
-    --workers 4 --exclude '지출|증빙|스캔|영수|정산|집행' --doc-timeout 900 2>&1 | grep -E "^대상|PARSE_|상한" >> "$log"
+    --workers 4 --exclude '지출|증빙|스캔|영수|정산|집행' --doc-timeout 900 2>&1 | grep --line-buffered -E "^대상|PARSE_|상한" >> "$log"
