@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-TEXT_EXT = {"hwp", "hwpx", "pdf", "docx", "xlsx"}
+TEXT_EXT = {"hwp", "hwpx", "pdf", "docx", "xlsx", "pptx", "xls", "doc", "ppt"}   # 옛 오피스는 처리기가 LibreOffice 로 바꿔 읽는다
 MAX_BYTES = 300 * 1024 * 1024
 MAX_TEXT = 2_000_000       # 본문 상한(글자) — 넘으면 잘린 것을 기록에 남긴다(조각은 따로 전부 낸다)
 # 처리 상태 — 가벼운 처리 완료는 OCR 품질 통과·학습 승인이 아니다(C-183). 후속 단계는 이 값으로 가른다
