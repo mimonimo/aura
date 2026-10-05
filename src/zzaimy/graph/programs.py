@@ -553,10 +553,12 @@ def ledger_link(cards: list, ledger: dict) -> dict:
             entries.append((e, int(m.group(1)) if m else None, (int(m.group(2)) if m.group(2) else None) if m else None, terms))
     # 카드마다 맞은 항목과 가장 긴 맞은 표기 길이
     owner: dict[str, tuple[int, int]] = {}                 # 카드 id → (항목 번호, 맞은 길이)
+    # 끝의 「사업」「지원사업」은 떼고도 견준다 — 장부 「대학일자리플러스센터」 = 카드 「대학일자리플러스센터 사업」(10/5: 같은 사업이 두 카드로)
+    core = lambda t: (lambda f: re.sub(r"(?:지원)?사업$", "", f) if len(re.sub(r"(?:지원)?사업$", "", f)) >= 4 else f)(flat(t))
     for i, (_e, _s, _t, terms) in enumerate(entries):
-        want = {flat(t) for t in terms}
+        want = {flat(t) for t in terms} | {core(t) for t in terms}
         for c in cards:
-            hit = want & {flat(x) for x in c.surfaces()}
+            hit = want & ({flat(x) for x in c.surfaces()} | {core(x) for x in c.surfaces()})
             if hit:
                 ln = max(len(h) for h in hit)
                 if c.node_id not in owner or ln > owner[c.node_id][1]:
@@ -586,8 +588,8 @@ def ledger_link(cards: list, ledger: dict) -> dict:
         owners = sorted(by_entry.get(i, []), key=lambda t: -t[1])
         if owners:
             owner_of[terms[0]] = owners[0][0]
-        want = {flat(t) for t in terms}
-        if any(want & {flat(x) for x in c.surfaces()} for c in cards):
+        want = {flat(t) for t in terms} | {core(t) for t in terms}
+        if any(want & ({flat(x) for x in c.surfaces()} | {core(x) for x in c.surfaces()}) for c in cards):
             matched.add(terms[0])
     # 정식 이름은 그 항목의 대표 카드(주인 가운데 가장 긴 표기)에 — 같은 사업으로 합쳐지는 다른 카드가 이름을 가져가지 않게
     display = {}
