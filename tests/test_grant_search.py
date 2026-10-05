@@ -145,3 +145,23 @@ def test_expand_many_matches_single_expand(tmp_path):
     c = {"doc_id": d, "seq": first["seq"], "content": "2. 추진 일정"}
     grant_search.expand_many(db, [c])
     assert c["content"] == one
+
+
+def test_section_hits_use_graph_section_titles_in_scope(tmp_path):
+    from zzaimy.graph import kg_store
+    db = Database(tmp_path / "t.db")
+    kg_store.ensure(db)
+    ds = []
+    for name in ("a.hwp", "b.hwp", "c.hwp"):
+        d = db.add_document(name, "x", doc_type="grant", sector="grant")
+        db.replace_doc_chunks(d, [{"kind": "text", "content": "표지"}, {"kind": "text", "content": "1. 행사 개요"},
+                                  {"kind": "text", "content": "일시 장소"}])
+        ds.append(d)
+    with db._conn() as c:
+        for d in ds:
+            kg_store.put_node(c, f"doc:{d}:sec:1", "section", "1. 행사 개요", {"chunks": [1, 2]}, d)
+            kg_store.put_node(c, f"doc:{d}:sec:2", "section", "2. 행사 개요에 따른 세부 추진 계획과 예산 집행 방안", {"chunks": [2]}, d)
+    got = grant_search.section_hits(db, "LINC 2023 실적보고서의 「행사 개요」 내용", {ds[0], ds[1]})
+    ids = {x["id"]: x for d in ds for x in db.list_doc_chunks(d)}
+    assert {ids[i]["doc_id"] for i in got} == {ds[0], ds[1]} and all(ids[i]["seq"] == 1 for i in got)
+    assert grant_search.section_hits(db, "행사 개요", {ds[0]}) == []

@@ -69,8 +69,12 @@ def probes(db, n: int, seed: int) -> list[dict]:
             continue
         did = int(d["doc_id"])
         with db._conn() as conn:
-            secs = [dict(r) for r in conn.execute("SELECT label, props FROM kg_nodes WHERE type = 'section' AND doc_id = ?",
+            secs = [dict(r) for r in conn.execute("SELECT id, label, props FROM kg_nodes WHERE type = 'section' AND doc_id = ?",
                                                   (did,)).fetchall()]
+            # 여러 문서에 되풀이되는 단위 절(instance_of)만 — 판독 잡음·서식 조각(「( ) : …」「사 업 자 등 록 증」)은 질문이 아니다
+            units = {r[0] for r in conn.execute("SELECT src FROM kg_edges WHERE kind = 'instance_of' AND src LIKE ?",
+                                                (f"doc:{did}:sec:%",)).fetchall()}
+        secs = [x for x in secs if x["id"] in units]
         by_seq = {c["seq"]: str(c.get("content") or "") for c in db.list_doc_chunks(did) if c.get("kind") == "text"}
         cands = []
         for sec in secs:
