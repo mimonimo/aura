@@ -37,3 +37,25 @@ def test_mismatched_extension_is_read_as_real_format(tmp_path, monkeypatch):
     monkeypatch.setattr(proc, "_parse_inner", fake_inner)
     assert proc._parse_as(x, ".pdf", "XLSX 형식이 아닙니다") == "본문"
     assert seen == ["보고서.pdf"] and "실제 PDF" in proc._last_parse_note
+
+
+def test_sniff_text_empty_hwp3_and_hwpml(tmp_path):
+    t = tmp_path / "법률.hwp"
+    t.write_text("공공기록물 관리에 관한 법률 시행규칙", encoding="utf-8")
+    assert pipeline.sniff_suffix(t) == ".txt"
+    e = tmp_path / "빈.pdf"
+    e.write_bytes(b"")
+    assert pipeline.sniff_suffix(e) == ".empty"
+    h3 = tmp_path / "옛.hwp"
+    h3.write_bytes(b"HWP Document File V3.00 \x1a\x01\x02")
+    assert pipeline.sniff_suffix(h3) == ".hwp3"
+    ml = tmp_path / "계획.hwp"
+    ml.write_text('<?xml version="1.0" encoding="UTF-8"?><HWPML><BODY><SECTION><P><TEXT><CHAR>주별 수업</CHAR></TEXT></P>'
+                  '<P><TEXT><CHAR>계획서</CHAR></TEXT></P></SECTION></BODY></HWPML>', encoding="utf-8")
+    assert pipeline.sniff_suffix(ml) == ".hml"
+    assert pipeline.hwpml_text(ml) == "주별 수업\n계획서"
+    proc = pipeline.DocumentProcessor()
+    assert proc._parse_as(ml, ".hml", "HWP 형식이 아닙니다") == "주별 수업\n계획서"
+    import pytest
+    with pytest.raises(RuntimeError, match="빈 파일"):
+        proc._parse_as(e, ".empty", "PDF 형식이 아닙니다")
