@@ -284,8 +284,24 @@ def _format_mismatch(file_path: Path) -> str | None:
 
 
 _OLE = b"\xd0\xcf\x11\xe0"
-READABLE = {".pdf", ".hwp", ".hwpx", ".docx", ".xlsx", ".pptx"}
-LEGACY = {".xls": ".xlsx", ".doc": ".docx", ".ppt": ".pptx"}
+READABLE = {".pdf", ".hwp", ".hwpx", ".docx", ".xlsx", ".pptx", ".txt"}
+LEGACY = {".xls": ".xlsx", ".doc": ".docx", ".ppt": ".pptx", ".hwp3": ".docx"}     # LibreOffice 로 새 형식으로(HWP 3.0 은 Hwp97 필터)
+# 읽지 않는 것 — 이유만 밝힌다(암호 문서는 풀지 않는다: 성적표 등 개인정보)
+UNREADABLE = {".encrypted": "암호가 걸린 문서", ".empty": "빈 파일"}
+
+
+def hwpml_text(path: Path) -> str:
+    """한컴 XML 문서(HWPML, 확장자 .hwp 로 저장된 것)의 본문 — 문단(P)마다 글자(CHAR)를 잇는다."""
+    import xml.etree.ElementTree as ET
+    paras = []
+    for _ev, el in ET.iterparse(str(path), events=("end",)):
+        tag = el.tag.rsplit("}", 1)[-1]
+        if tag == "P":
+            t = "".join(x.text or "" for x in el.iter() if x.tag.rsplit("}", 1)[-1] == "CHAR").strip()
+            if t:
+                paras.append(t)
+            el.clear()
+    return "\n".join(paras)
 
 
 def sniff_suffix(file_path: Path) -> str | None:
@@ -296,8 +312,15 @@ def sniff_suffix(file_path: Path) -> str | None:
             head = fh.read(2048)
     except OSError:
         return None
+    if not head.strip(b"\x00 \r\n\t"):
+        return ".empty"
     if b"%PDF-" in head[:1024]:
         return ".pdf"
+    if head.startswith(b"HWP Document File"):
+        return ".hwp3"                                   # 한글 3.0(옛 이진 형식)
+    body = head.lstrip(b"\xef\xbb\xbf \r\n\t")
+    if body.startswith(b"<?xml") and b"<HWPML" in head:
+        return ".hml"
     if head.startswith(b"PK"):
         import zipfile
         try:
@@ -319,6 +342,8 @@ def sniff_suffix(file_path: Path) -> str | None:
                 streams = {"/".join(e) for e in ole.listdir()}
         except Exception:
             return None
+        if streams & {"EncryptionInfo", "EncryptedPackage"}:
+            return ".encrypted"
         if "FileHeader" in streams:
             return ".hwp"
         if streams & {"Workbook", "Book"}:
@@ -327,6 +352,13 @@ def sniff_suffix(file_path: Path) -> str | None:
             return ".doc"
         if "PowerPoint Document" in streams:
             return ".ppt"
+        return None
+    if b"\x00" not in head and not body.lower().startswith((b"<!doctype", b"<html", b"<?xml")):
+        try:
+            head.decode("utf-8")
+            return ".txt"                                # 글 파일에 한글·오피스 확장자를 붙인 것
+        except UnicodeDecodeError:
+            pass
     return None
 
 
@@ -362,9 +394,17 @@ class DocumentProcessor:
         LibreOffice 로 새 형식으로 바꿔 읽는다(없으면 실제 형식을 밝혀 실패)."""
         import shutil
         import tempfile
+        if real in UNREADABLE:
+            raise RuntimeError(f"{why} — {UNREADABLE[real]}")
+        if real == ".hml":
+            text = hwpml_text(file_path)
+            if not text.strip():
+                raise RuntimeError(f"{why} — 한컴 XML(HWPML)이지만 본문 없음")
+            self._last_parse_note = f"확장자 {file_path.suffix} 이지만 실제 한컴 XML(HWPML) — 본문 글자를 직접 읽음"
+            return text
         tmp = Path(tempfile.mkdtemp(prefix="zz-sniff-"))
         try:
-            target = tmp / (file_path.stem[:80] + real)
+            target = tmp / (file_path.stem[:80] + (".hwp" if real == ".hwp3" else real))
             try:
                 target.symlink_to(file_path.resolve())
             except OSError:
@@ -378,6 +418,8 @@ class DocumentProcessor:
                 subprocess.run([exe, "--headless", "--convert-to", LEGACY[real].lstrip("."), "--outdir", str(tmp), str(target)],
                                capture_output=True, timeout=180)
                 conv = target.with_suffix(LEGACY[real])
+                if real == ".hwp3" and not conv.is_file():
+                    raise RuntimeError(f"{why} — 실제 형식 한글 3.0, LibreOffice 변환 실패")
                 if not conv.is_file():
                     raise RuntimeError(f"{why} — 실제 형식 {real.lstrip('.').upper()}, 새 형식 변환 실패")
                 target = conv
