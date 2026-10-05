@@ -250,6 +250,31 @@ EXPAND_BELOW = 400
 EXPAND_TO = 1200
 
 
+def expand_many(db, chunks: list[dict]) -> None:
+    """짧은 조각들의 뒤 조각을 한 번에 가져와 content 를 늘린다(제자리)."""
+    short = [c for c in chunks if len(c.get("content") or "") < EXPAND_BELOW and c.get("seq") is not None]
+    if not short:
+        return
+    # 조각마다 바로 뒤 6개까지만(큰 문서의 조각 전체를 읽지 않게)
+    cond = " OR ".join("(doc_id = ? AND seq > ? AND seq <= ?)" for _ in short)
+    args = [x for c in short for x in (c["doc_id"], c["seq"], c["seq"] + 6)]
+    with db._conn() as conn:
+        rows = conn.execute(f"SELECT doc_id, seq, kind, content FROM doc_chunks WHERE ({cond}) AND kind IN (?, ?, ?)"
+                            " ORDER BY doc_id, seq", (*args, *TEXT_KINDS)).fetchall()
+    by_doc: dict[int, list[tuple[int, str]]] = {}
+    for r in rows:
+        by_doc.setdefault(int(r[0]), []).append((int(r[1]), _text({"kind": r[2], "content": r[3]})))
+    for c in short:
+        text = c.get("content") or ""
+        for seq, t in by_doc.get(c["doc_id"], []):
+            if seq <= c["seq"]:
+                continue
+            if len(text) >= EXPAND_TO:
+                break
+            text += "\n" + t
+        c["content"] = text[:EXPAND_TO]
+
+
 def expand(db, hit: dict) -> str:
     """걸린 조각이 짧으면(절 제목·한 줄) 같은 문서의 뒤 조각을 이어 본문까지 — 제목만 건네면 답이 「내용을 확인하기 어렵다」로
     끝났다(10/5 RAG 실측 답변 10개 중 다수). 이웃 조각 확장."""
@@ -333,9 +358,10 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         pool = f"{len(chunks)}개"
     hits = []
     cands = [by_id[c] for c in merged[: k * 6] if c in by_id]
-    for c in cands:
-        c["content"] = expand(db, c)
-    if os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1" and len(cands) > 1:
+    rerank_on = os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1" and len(cands) > 1
+    # 이웃 확장은 한 번의 쿼리로 — 재순위를 쓰면 후보 전체, 아니면 위쪽만(후보마다 따로 물으면 질의당 수 초, 10/5 실측 5.7초)
+    expand_many(db, cands if rerank_on else cands[: k * 2])
+    if rerank_on:
         # 재순위(Rerank v1, 토르) — 문서 이름을 제목으로 붙여 묻는다. 켜기는 173 대결 수치로(규칙: 채택은 대결 수치로)
         from zzaimy.app.rerank import rerank_chunks
         for c in cands:
