@@ -43,6 +43,24 @@ def _ids(spec: str) -> list[int]:
 
 # 실적보고서 안의 다음 연차 계획 부분(「차년도 사업계획」·「향후 추진 계획」) — 같은 연차 계획서와 짝짓지 않는다
 NEXT_YEAR = re.compile(r"차년도\s*(?:사업\s*)?계획|향후\s*(?:추진\s*)?계획|다음\s*연도")
+# 절 첫머리가 밝힌 연차 — 「4차년도」, 사업 기간 「(’23.3.1~’24.2.29)」의 시작 연도
+_ROUND_IN = re.compile(r"(?<!\d)([1-9])\s*차\s*년도")
+_PERIOD_IN = re.compile(r"[‘'’]\s*(\d{2})\s*\.\s*\d{1,2}(?:\s*\.\s*\d{1,2})?\s*[~∼\-]")
+
+
+def stated_years(text: str) -> tuple[set, set]:
+    t = (text or "")[:500]
+    return {int(x) for x in _ROUND_IN.findall(t)}, {int(x) for x in _PERIOD_IN.findall(t)}
+
+
+def year_conflict(a: str, b: str) -> bool:
+    """두 절이 밝힌 연차가 서로 다르면 같은 것의 계획과 실적이 아니다 — 같은 제목 「4. 사업 예산집행 계획」이 계획서는 4차년도,
+    보고서는 3차년도를 다루던 짝(판정 big_c8: 남긴 짝 오류 11건 중 다수). 한쪽이라도 밝히지 않으면 판단하지 않는다."""
+    ra, pa = stated_years(a)
+    rb, pb = stated_years(b)
+    if ra and rb and not (ra & rb):
+        return True
+    return bool(pa and pb and not (pa & pb))
 
 
 ASPECT_BODY_MIN = 0.15          # 판정 all10 보정: 성과지표 0.02~0.04·예산 0.09~0.15(모두 다름), 추진 실적 0.15~0.24(대부분 같음)
@@ -370,12 +388,17 @@ def main() -> int:
                         continue                          # 사업 이름 머리글 — 짝이 아니다(본문 잇기로도 넘기지 않는다)
                     if sections.title_key(ps.title) in boiler:
                         continue                          # 상투 제목 — 제목으로는 잇지 않는다(아래 본문 잇기에는 남는다)
+                    if year_conflict(f"{ps.title} {text_full(ps)}", f"{s.title} {text_full(s)}"):
+                        linked_b.add(s.path)              # 연차가 다른 같은 제목 — 잇지 않고, 본문 잇기에도 넘기지 않는다
+                        continue
                     linked_b.add(s.path)
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "식별자 일치",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
                 # 제목 짝이 없는 보고서 절은 본문으로(목차 틀이 다른 계획서·보고서)
                 for ps, s, why in sections.align_content(docs_by_id[p]["sections"], docs_by_id[r]["sections"], text_full,
                                                          skip_b_paths=linked_b, skip_b=NEXT_YEAR):
+                    if year_conflict(f"{ps.title} {text_full(ps)}", f"{s.title} {text_full(s)}"):
+                        continue
                     edges.append((f"doc:{p}:sec:{ps.path}", f"doc:{r}:sec:{s.path}", "plans_reports", "유사도",
                                   [f"계획 「{ps.title[:60]}」", f"실적 「{s.title[:60]}」", why]))
         # 과제 코드로 잇기 — 과제마다 계획서를 내고 연차보고서는 「[2-3 과제] 추진 실적」처럼 과제 코드를 단 절로 쓰는 사업(RISE).
