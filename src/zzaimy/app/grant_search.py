@@ -280,6 +280,27 @@ EXPAND_BELOW = 400
 EXPAND_TO = 1200
 
 
+def quality_filter(chunks: list[dict]) -> list[dict]:
+    """근거가 될 수 없는 조각(목차·쪽 번호·정형 문구·같은 본문 중복)을 뺀다 — 규정 검색과 같은 품질 판정(SEARCH 강도).
+    이웃 확장 뒤에 판정한다(제목 조각은 본문이 붙어 살아남고, 목차는 확장해도 목차). 다 빠지면 그대로 둔다.
+    10/5 RAG 실측: 절 이름이 그대로 든 목차 줄이 걸려 답이 「제목만 있고 본문이 없다」로 끝났다."""
+    from zzaimy.app.chunk_quality import Strictness, assess
+    seen: set[str] = set()
+    out = []
+    for c in chunks:
+        body = re.sub(r"\s+", " ", c.get("content") or "").strip()
+        if not body or body in seen:
+            continue
+        seen.add(body)
+        try:
+            ok = assess(c.get("content") or "").keep(Strictness.SEARCH)
+        except Exception:
+            ok = True
+        if ok:
+            out.append(c)
+    return out or chunks
+
+
 def expand_many(db, chunks: list[dict]) -> None:
     """짧은 조각들의 뒤 조각을 한 번에 가져와 content 를 늘린다(제자리)."""
     short = [c for c in chunks if len(c.get("content") or "") < EXPAND_BELOW and c.get("seq") is not None]
@@ -396,6 +417,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     rerank_on = os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1" and len(cands) > 1
     # 이웃 확장은 한 번의 쿼리로 — 재순위를 쓰면 후보 전체, 아니면 위쪽만(후보마다 따로 물으면 질의당 수 초, 10/5 실측 5.7초)
     expand_many(db, cands if rerank_on else cands[: k * 2])
+    cands = quality_filter(cands)
     if rerank_on:
         # 재순위(Rerank v1, 토르) — 문서 이름을 제목으로 붙여 묻는다. 켜기는 173 대결 수치로(규칙: 채택은 대결 수치로)
         from zzaimy.app.rerank import rerank_chunks
