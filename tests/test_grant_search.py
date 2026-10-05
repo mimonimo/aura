@@ -133,3 +133,15 @@ def test_quoted_phrase_first_and_per_doc_cap():
     got = grant_search.rerank_hits("LINC+ 계획서의 「사회맞춤형 기자재 및 장비 구축 계획」 내용", cs)
     assert got[0]["id"] == 4 and [c["id"] for c in got[1:]] == [1, 2, 3]
     assert grant_search.rerank_hits("질문", cs) == cs
+
+
+def test_expand_many_matches_single_expand(tmp_path):
+    db = Database(tmp_path / "t.db")
+    d = db.add_document("계획서.hwp", "x", doc_type="grant", sector="grant")
+    db.replace_doc_chunks(d, [{"kind": "text", "content": "2. 추진 일정"}, {"kind": "text", "content": "3월 공고"},
+                              {"kind": "text", "content": "5월 협약"}])
+    first = min(db.list_doc_chunks(d), key=lambda c: c["seq"])
+    one = grant_search.expand(db, {"doc_id": d, "seq": first["seq"], "content": "2. 추진 일정"})
+    c = {"doc_id": d, "seq": first["seq"], "content": "2. 추진 일정"}
+    grant_search.expand_many(db, [c])
+    assert c["content"] == one
