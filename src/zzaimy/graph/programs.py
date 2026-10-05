@@ -589,7 +589,12 @@ def ledger_link(cards: list, ledger: dict) -> dict:
         want = {flat(t) for t in terms}
         if any(want & {flat(x) for x in c.surfaces()} for c in cards):
             matched.add(terms[0])
-    display = {owner_of[terms[0]]: e["name"] for e, _s, _t, terms in entries if e.get("name") and terms[0] in owner_of}
+    # 정식 이름은 그 항목의 대표 카드(주인 가운데 가장 긴 표기)에 — 같은 사업으로 합쳐지는 다른 카드가 이름을 가져가지 않게
+    display = {}
+    for i, (e, _s, _t, terms) in enumerate(entries):
+        owners = sorted(by_entry.get(i, []), key=lambda t: -t[1])
+        if e.get("name") and owners:
+            display[owners[0][0]] = e["name"]
     return {"periods": periods, "spans": spans, "aliases": aliases, "owner_of": owner_of, "matched": matched, "display": display}
 
 
@@ -633,6 +638,22 @@ def related_programs(assigned: list, min_docs: int = 5, min_share: float = 0.02)
         if len(ds) >= min_docs and share >= min_share and dst in per_prog:
             out.append({"src": src, "dst": dst, "n": len(ds), "share": round(share, 3), "docs": ds[:5]})
     return sorted(out, key=lambda r: -r["n"])
+
+
+def merge_aliases(cards: list, link: dict) -> list:
+    """장부가 같은 사업이라고 한 카드(aliases: 카드 → 대표 카드)를 대표 카드 하나로 실제로 합친다 — 이름·약칭을 더하고 남는 카드는
+    뺀다. 문서만 옮기고 카드를 남겨 두면 같은 정식 이름의 빈 카드가 생겨 질문이 그리로 갔다(10/5: 대학일자리센터 둘)."""
+    al = link.get("aliases") or {}
+    by_id = {c.node_id: c for c in cards}
+    for cid, rep in al.items():
+        src, dst = by_id.get(cid), by_id.get(rep)
+        if src is None or dst is None or src is dst:
+            continue
+        dst.names.update(src.names)
+        for a, n in src.acrs.items():
+            dst.acrs[a] = max(dst.acrs[a], n)
+        dst.renamed = list(dst.renamed) + [r for r in src.renamed if r not in dst.renamed]
+    return [c for c in cards if c.node_id not in al or by_id.get(al[c.node_id]) is None]
 
 
 def apply_display(cards: list, link: dict) -> int:
