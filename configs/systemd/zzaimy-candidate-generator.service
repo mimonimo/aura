@@ -1,0 +1,21 @@
+[Unit]
+Description=ZZAIMY source-grounded training candidate generation
+StartLimitIntervalSec=3600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/zzaimy-capstone
+Environment=PYTHONUNBUFFERED=1
+ExecStart=%h/zzaimy-capstone/.venv/bin/python scripts/generate_grounded_candidates.py --apply --continuous --max-jobs 200 --windows-per-document 1 --defer-semantic-review
+Restart=on-failure
+RestartSec=60
+MemoryMax=2G
+MemorySwapMax=0
+CPUQuota=100%
+Nice=10
+OOMScoreAdjust=800
+UMask=0077
+
+[Install]
+WantedBy=default.target
