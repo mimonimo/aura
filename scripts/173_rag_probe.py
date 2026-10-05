@@ -30,6 +30,13 @@ from zzaimy.graph import kg_store  # noqa: E402
 
 KIND_KO = {"plan": "계획서", "report": "실적보고서"}
 _NUM = re.compile(r"(?<![\d.])\d{2,}(?:[,.]\d+)*")
+_DATE = re.compile(r"((?:19|20)\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})")
+
+
+def _date(g) -> tuple[int, int, int]:
+    return int(g[0]), int(g[1]), int(g[2])
+
+
 _WORD = re.compile(r"[가-힣A-Za-z0-9]{2,}")
 _OUTLINE = re.compile(r"^\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]?|\d{1,2}(?:[.\-]\d{1,2})*[.．)]|[가-하][.．)]|[(（]\d{1,2}[)）])\s*")
 
@@ -144,8 +151,10 @@ def main() -> int:
                 ctx = getattr(ar, "last_context", "") or " ".join(h["content"] for h in g["hits"])
                 qn = set(_NUM.findall(p["q"]))           # 질문에 있던 숫자(연도 등)는 근거 밖이 아니다
                 ctx_digits = re.sub(r"\D", "", ctx)                 # 「2022.4.1」 = 「2022. 4. 1.」 — 숫자만 남겨 대조
+                ctx_dates = {_date(m) for m in _DATE.findall(ctx)}  # 날짜는 연·월·일 숫자로(「2023.12.01」 = 「2023. 12. 1.」)
                 nums = [x for x in _NUM.findall(ans) if x not in qn and x not in ctx
-                        and re.sub(r"\D", "", x) not in ctx_digits]
+                        and re.sub(r"\D", "", x) not in ctx_digits
+                        and not (_DATE.fullmatch(x) and _date(_DATE.fullmatch(x).groups()) in ctx_dates)]
                 gw, aw = set(_WORD.findall(p["gold"])), set(_WORD.findall(ans))
                 row.update({"answer": ans[:1500], "answer_sec": round(time.time() - t1, 1), "unsupported_numbers": nums[:10],
                             "gold_overlap": round(len(gw & aw) / max(len(aw), 1), 3), "answer_error": ""})
