@@ -812,3 +812,13 @@ def test_merge_aliases_leaves_one_card_with_official_name():
     programs.apply_display(cards, link)
     assert len(cards) == 1 and cards[0].name == "대학일자리플러스센터 사업"
     assert {"대학일자리센터사업", "대학일자리플러스센터"} <= set(cards[0].names)
+
+
+def test_ledger_link_matches_names_with_trailing_saup():
+    a = programs.ProgramCard(key="a")
+    a.names.update({"대학일자리센터사업": 5})
+    b = programs.ProgramCard(key="b")
+    b.names.update({"대학일자리플러스센터 사업": 2})
+    ledger = {"programs": [{"name": "대학일자리플러스센터 사업", "terms": ["대학일자리센터", "대학일자리플러스센터"], "sources": ["s"]}]}
+    link = programs.ledger_link([a, b], ledger)
+    assert link["aliases"] and len(programs.merge_aliases([a, b], link)) == 1
