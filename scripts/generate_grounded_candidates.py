@@ -12,7 +12,7 @@ import sys
 import time
 
 sys.path.insert(0, str(Path.cwd() / 'src'))
-from zzaimy.dataset.batch_candidates import SYSTEM, windows, select_documents, job_key, convert_response, generate_checked
+from zzaimy.dataset.batch_candidates import SYSTEM, REVIEW_SYSTEM, semantic_result, windows, select_documents, job_key, convert_response, generate_checked
 from zzaimy.dataset.authoring import prepare_tasks
 from zzaimy.dataset.privacy import protect_candidate
 from zzaimy.verify.numbers import verify_numbers
@@ -95,7 +95,8 @@ def main():
                                 '근거를 지어내거나 기준을 낮추지 마세요. 불가능하면 scope_confirmed=false. '
                                 + json.dumps(feedback, ensure_ascii=False)})
                         response = client.chat.completions.create(model=model, temperature=0.2, max_tokens=4500,
-                            messages=messages, extra_body={'chat_template_kwargs': {'enable_thinking': False}})
+                            messages=messages, response_format={'type':'json_object'},
+                            extra_body={'chat_template_kwargs': {'enable_thinking': False}})
                         choice = response.choices[0]
                         if choice.finish_reason == 'length':
                             raise ValueError('truncated_output')
@@ -123,12 +124,28 @@ def main():
                                 details[row['id']] = audit.violations
                         return dict(rows=rows, manifest=manifest, tasks=tasks, preflight=report, number_details=details)
                     result.update(generate_checked(generate, check))
+                    if result['status'] == 'candidate':
+                        review = client.chat.completions.create(model=model, temperature=0, max_tokens=1800,
+                            response_format={'type':'json_object'},
+                            messages=[{'role':'system','content':REVIEW_SYSTEM},
+                                      {'role':'user','content':json.dumps({'context':context,
+                                        'chunks':window,'dialogue':result['rows']}, ensure_ascii=False)}],
+                            extra_body={'chat_template_kwargs': {'enable_thinking': False}})
+                        if review.choices[0].finish_reason == 'length':
+                            raise ValueError('truncated_semantic_review')
+                        result['semantic_response'] = review.choices[0].message.content or ''
+                        result['semantic_review'] = semantic_result(result['semantic_response'])
+                        if not result['semantic_review']['passed']:
+                            result.update(status='held', hold_reason='semantic_review_failed')
                     counts['generated_candidates'] += len(result.get('rows', []))
                     counts['generated_conversations'] += bool(result.get('rows'))
-                    counts['held_candidates'] += result.get('preflight', {}).get('held', 0)
+                    counts['held_candidates'] += (len(result.get('rows', []))
+                        if result.get('hold_reason') == 'semantic_review_failed'
+                        else result.get('preflight', {}).get('held', 0))
                 except Exception as exc:
                     # Exception class only: model/HTTP exception details may contain sensitive inputs.
                     result['error_type'] = type(exc).__name__
+                    result['status'] = 'error'
                 counts[result['status']+'_windows'] += 1
                 result['completed_at'] = time.time()
                 if target.exists():
