@@ -554,7 +554,8 @@ def ledger_link(cards: list, ledger: dict) -> dict:
     # 카드마다 맞은 항목과 가장 긴 맞은 표기 길이
     owner: dict[str, tuple[int, int]] = {}                 # 카드 id → (항목 번호, 맞은 길이)
     # 끝의 「사업」「지원사업」은 떼고도 견준다 — 장부 「대학일자리플러스센터」 = 카드 「대학일자리플러스센터 사업」(10/5: 같은 사업이 두 카드로)
-    core = lambda t: (lambda f: re.sub(r"(?:지원)?사업$", "", f) if len(re.sub(r"(?:지원)?사업$", "", f)) >= 4 else f)(flat(t))
+    # 「지원사업」의 지원은 이름의 일부일 수 있다(혁신지원사업) — 끝의 「사업」만 뗀다
+    core = lambda t: (lambda f: f[:-2] if f.endswith("사업") and len(f) >= 6 else f)(flat(t))
     for i, (_e, _s, _t, terms) in enumerate(entries):
         want = {flat(t) for t in terms} | {core(t) for t in terms}
         for c in cards:
@@ -563,14 +564,25 @@ def ledger_link(cards: list, ledger: dict) -> dict:
                 ln = max(len(h) for h in hit)
                 if c.node_id not in owner or ln > owner[c.node_id][1]:
                     owner[c.node_id] = (i, ln)
+    # 대표 카드 순서 — 표기 그대로 맞은 카드, 긴 표기, 문서에서 많이 쓰인 카드 순(합칠 때 문서 많은 원래 카드의 id 를 지킨다.
+    # 10/5: 「…사업」을 떼고 맞은 작은 카드가 대표가 되어 혁신지원사업 문서 32건의 사업 id 가 바뀌었다)
+    size = {c.node_id: sum(getattr(c, "names", {}).values()) + sum(getattr(c, "acrs", {}).values()) for c in cards}
+    exact = {}
+    for i, (_e, _s, _t, terms) in enumerate(entries):
+        want = {flat(t) for t in terms}
+        for c in cards:
+            if want & {flat(x) for x in c.surfaces()}:
+                exact[(i, c.node_id)] = True
     by_entry: dict[int, list[tuple[str, int]]] = defaultdict(list)
     for cid, (i, ln) in owner.items():
         by_entry[i].append((cid, ln))
+    for i in by_entry:
+        by_entry[i].sort(key=lambda t: (not exact.get((i, t[0])), -t[1], -size.get(t[0], 0)))
     periods: dict[str, tuple[int, int | None]] = {}
     aliases: dict[str, str] = {}
     spans = []
     for i, (e, start, end, terms) in enumerate(entries):
-        owners = sorted(by_entry.get(i, []), key=lambda t: -t[1])
+        owners = by_entry.get(i, [])
         sid = owners[0][0] if owners else "program:" + program_key(terms[-1])
         for cid, _ln in owners:
             if start is not None:
@@ -585,7 +597,7 @@ def ledger_link(cards: list, ledger: dict) -> dict:
     owner_of = {}
     matched = set()
     for i, (_e, _s, _t, terms) in enumerate(entries):
-        owners = sorted(by_entry.get(i, []), key=lambda t: -t[1])
+        owners = by_entry.get(i, [])
         if owners:
             owner_of[terms[0]] = owners[0][0]
         want = {flat(t) for t in terms} | {core(t) for t in terms}
@@ -594,7 +606,7 @@ def ledger_link(cards: list, ledger: dict) -> dict:
     # 정식 이름은 그 항목의 대표 카드(주인 가운데 가장 긴 표기)에 — 같은 사업으로 합쳐지는 다른 카드가 이름을 가져가지 않게
     display = {}
     for i, (e, _s, _t, terms) in enumerate(entries):
-        owners = sorted(by_entry.get(i, []), key=lambda t: -t[1])
+        owners = by_entry.get(i, [])
         if e.get("name") and owners:
             display[owners[0][0]] = e["name"]
     return {"periods": periods, "spans": spans, "aliases": aliases, "owner_of": owner_of, "matched": matched, "display": display}

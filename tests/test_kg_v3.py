@@ -822,3 +822,14 @@ def test_ledger_link_matches_names_with_trailing_saup():
     ledger = {"programs": [{"name": "대학일자리플러스센터 사업", "terms": ["대학일자리센터", "대학일자리플러스센터"], "sources": ["s"]}]}
     link = programs.ledger_link([a, b], ledger)
     assert link["aliases"] and len(programs.merge_aliases([a, b], link)) == 1
+
+
+def test_ledger_alias_keeps_exact_bigger_card_as_representative():
+    big = programs.ProgramCard(key="전문대학혁신지원")
+    big.names.update({"전문대학 혁신지원사업": 40, "혁신지원사업": 10})
+    small = programs.ProgramCard(key="전문대학혁신")
+    small.names.update({"전문대학혁신사업": 2})
+    ledger = {"programs": [{"name": "전문대학 혁신지원사업", "terms": ["전문대학 혁신지원사업", "혁신지원사업"], "sources": ["s"]}]}
+    link = programs.ledger_link([big, small], ledger)
+    assert small.node_id not in link["aliases"]                     # 「혁신지원」을 떼어 「전문대학혁신」과 맞추지 않는다
+    assert link["owner_of"]["전문대학 혁신지원사업"] == big.node_id
