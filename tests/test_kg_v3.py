@@ -779,3 +779,12 @@ def test_scope_prefers_official_label_over_tied_surface(tmp_path):
         kg_store.put_node(c, "program:b", "program", "산학협력 선도전문대학(LINC) 육성사업",
                           {"names": ["산학협력 선도전문대학 육성사업"], "acronyms": []})
     assert retrieve.scope(db, "산학협력 선도전문대학(LINC) 육성사업 2014년 계획서").program == "program:b"
+
+
+def test_clean_cards_gives_acronym_to_card_whose_identity_it_is():
+    rise = programs.ProgramCard(key="rise")
+    rise.acrs.update({"RISE": 3})
+    big = programs.ProgramCard(key="linc")
+    big.acrs.update({"LINC": 50, "RISE": 20})
+    programs.clean_cards([rise, big])
+    assert "RISE" in rise.acrs and "RISE" not in big.acrs
