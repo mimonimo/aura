@@ -282,3 +282,18 @@ def test_rels_mode_reimports_missed_records_ignoring_offsets(tmp_path, monkeypat
     paths = {d["stored_path"] for d in Database(tmp_path / "t.db").list_documents()}
     assert paths == {"dgx://p/빠진 \"문서\".pdf"}
     assert json.loads(off.read_text(encoding="utf-8")) == {str(f): f.stat().st_size}
+
+
+def test_environment_failures_are_retried_automatically(tmp_path, monkeypatch, capsys):
+    job = _load("167_dgx_parse.py")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "parsed-0.jsonl").write_text(
+        json.dumps({"rel": "p/0.hwp", "ok": False, "state": "failed", "size": 10, "mtime": 1, "version": "10:1",
+                    "error": "RuntimeError: 문서 판독 실패 (ModuleNotFoundError)"}, ensure_ascii=False) + "\n"
+        + json.dumps({"rel": "p/1.hwp", "ok": False, "state": "failed", "size": 11, "mtime": 1, "version": "11:1",
+                      "error": "RuntimeError: HWP 형식이 아닙니다"}, ensure_ascii=False) + "\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["167", "--inventory", str(_inventory(tmp_path, 2)), "--out", str(out), "--workers", "1", "--dry-run"])
+    assert job.main() == 0
+    got = capsys.readouterr().out
+    assert "대상 1건" in got and "p/0.hwp" in got and "p/1.hwp" not in got

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import multiprocessing as mp
 import os
 import signal
@@ -40,6 +41,9 @@ class DocTimeout(Exception):
 
 def _alarm(_sig, _frm):
     raise DocTimeout()
+
+
+_ENV_ERR = re.compile(r"ModuleNotFoundError|LocalEntryNotFoundError|ImportError")
 
 
 def jsonl_lines(path) -> "list[str]":
@@ -235,7 +239,10 @@ def main() -> int:
             except ValueError:
                 continue
             # 같은 경로라도 판(크기·수정 시각)이 다르면 다시 처리한다 — 열쇠는 경로+판
-            if rec.get("rel") and not args.force and (rec.get("ok") or not args.retry_failed):
+            # 처리 환경 오류(모듈·판독 모델 파일 없음)는 문서 탓이 아니다 — 끝난 것으로 치지 않아 주기 처리가 저절로 다시 시도한다
+            # (10/6: 환경이 깨져 있던 날의 실패 652건이 재처리 목록에서 빠져 남아 있었다)
+            env_err = not rec.get("ok") and _ENV_ERR.search(str(rec.get("error") or ""))
+            if rec.get("rel") and not args.force and (rec.get("ok") or not args.retry_failed) and not env_err:
                 done.add((rec["rel"], rec.get("version") or version(rec)))
     only = set(Path(args.only).read_text(encoding="utf-8").splitlines()) if args.only else None
     import re as _re
