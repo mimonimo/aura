@@ -138,15 +138,14 @@ def main() -> int:
                     return c
         return None
     def card_by_surface(term: str):
-        """관계(편입·앞 단계)의 대상 — 그 표기를 이름·약칭으로 직접 가진 카드(가장 많이 쓴 곳). 주인 판정(card_for)은 카드 하나에
-        장부 항목 하나라, 더 긴 이름이 붙은 카드(RISE 카드에 「초광역 …사업」)는 「RISE」 항목의 주인을 잃어 편입 관계가 0개였다(10/5)."""
-        want = flat(term)
-        best, best_n = None, 0
-        for c in cards:
-            n = max([v for k, v in c.acrs.items() if flat(k) == want] + [v for k, v in c.names.items() if flat(k) == want] + [0])
-            if n > best_n:
-                best, best_n = c, n
-        return best or card_for([term])
+        """관계(편입·앞 단계)의 대상 — 그 표기가 든 장부 항목의 표기들로 만들 수 있는 카드 id(program:rise·program:sck …)를
+        가진 카드. 쓴 횟수로 고르면 여러 사업 이름을 흡수한 큰 카드(LINC+)가 「RISE」「특성화 전문대학 육성사업」의 주인이 됐다(10/5)."""
+        entry = next((e for e in ledger.get("programs", []) if term in (e.get("terms") or [])), None)
+        terms = (entry or {}).get("terms") or [term]
+        ids = {"program:" + re.sub(r"[^0-9a-z가-힣]+", "", t.lower()) for t in terms}
+        ids |= {"program:" + k for t in terms if (k := programs.program_key(t))}
+        hit = next((c for c in cards if c.node_id in ids), None)
+        return hit or card_for(terms)
     ledger_cards: dict[str, object] = {}
     for e in ledger.get("programs", []):
         if not e.get("sources"):

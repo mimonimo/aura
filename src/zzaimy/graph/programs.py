@@ -370,14 +370,20 @@ def clean_cards(cards: list[ProgramCard]) -> dict:
                 del c.acrs[a]
                 stats["kor_acr"] += 1
     owner: dict[str, tuple[int, ProgramCard]] = {}
+    # 약칭이 어떤 카드의 정체(id)와 같으면 쓴 횟수와 상관없이 그 카드 것 — 여러 사업 이름을 흡수한 큰 카드(LINC+)가
+    # 「RISE」「SCK」를 더 많이 써서 주인이 되던 일(10/5: HiVE·LiFE 의 RISE 편입이 LINC+ 로 잡혔다)
+    by_id = {c.fixed_id: c for c in cards}
     for c in cards:
         for a, n in c.acrs.items():
             k = _acr(a)
-            if k not in owner or n > owner[k][0]:
+            ident = by_id.get("program:" + re.sub(r"[^0-9a-z가-힣]+", "", a.lower()))
+            if ident is not None:
+                owner[k] = (10 ** 9, ident)
+            elif k not in owner or n > owner[k][0]:
                 owner[k] = (n, c)
     for c in cards:
         for a in list(c.acrs):
-            if owner[_acr(a)][1] is not c:
+            if owner.get(_acr(a), (0, c))[1] is not c:
                 del c.acrs[a]
                 stats["shared_acr"] += 1
     own = {k: oc for k, (_n, oc) in owner.items() if len(k) >= 3}
