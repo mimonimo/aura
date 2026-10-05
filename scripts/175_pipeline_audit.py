@@ -78,7 +78,9 @@ def find_reimport(db, missing: dict[str, str]) -> list[str]:
                 except ValueError:
                     continue
                 rel = r.get("rel")
-                if rel in missing and r.get("chunks") and (r.get("version") or "") == missing[rel]:
+                # 판이 비어 있는 옛 기록은 크기·수정 시각으로(168 과 같은 계산) — 빈 판끼리 견주어 다시 들임에서 빠지던 것
+                ver = r.get("version") or f"{int(r.get('size') or 0)}:{int(float(r.get('mtime') or 0))}"
+                if rel in missing and r.get("chunks") and r.get("state") in (None, "parsed", "partial") and ver == missing[rel]:
                     hit.add(rel)
     return sorted(hit)
 
