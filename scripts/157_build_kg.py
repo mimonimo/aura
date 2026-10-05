@@ -307,14 +307,26 @@ def main() -> int:
         return hit and len(re.sub(r"[^가-힣A-Z0-9]", "", t)) <= 6
     # 서로 다른 사업 셋 이상의 문서에 같은 절 제목으로 나오는 제목(학교 이름 머리글·「추진 성과」 같은 상투 제목)은 제목만으로 잇지 않는다 —
     # 제목이 같아도 한쪽은 목차, 다른 쪽은 실적 총괄표였다(판정 2026-10-04: RISE 「영남이공대학교」↔「영남이공대학교」 6쌍). 본문으로는 잇는다
+    # 사업은 계열(앞 단계 → 다음 단계, 장부의 succeeded_by)로 묶어 센다 — LINC 1단계·LINC+·LINC3.0 이 함께 쓰는 「인력양성」
+    # 「기업연계 기반 공유·협업 활동」은 계열 고유의 절이지 상투 제목이 아니다(판정 c7 dropped: 같은 짝 3/10). 편입은 계열이 아니다
+    fam: dict[str, str] = {}
+
+    def family(x: str) -> str:
+        while fam.setdefault(x, x) != x:
+            fam[x] = fam[fam[x]]
+            x = fam[x]
+        return x
+    for e in edges:
+        if e[2] == "succeeded_by":
+            fam[family(e[0])] = family(e[1])
     title_progs: dict[str, set] = defaultdict(set)
     for d in docs:
         pg = assigns[d["id"]].program
         if pg:
             for sec in d.get("sections") or []:
-                title_progs[sections.title_key(sec.title)].add(pg)
+                title_progs[sections.title_key(sec.title)].add(family(pg))
     boiler = {k for k, ps in title_progs.items() if len(ps) >= 3}
-    print(f"== 상투 절 제목(사업 셋 이상) {len(boiler)}개 — 제목 짝에서 뺀다", flush=True)
+    print(f"== 상투 절 제목(사업 계열 셋 이상) {len(boiler)}개 — 제목 짝에서 뺀다", flush=True)
     # 다른 대학의 자료(협의회 공유본·공개용 사업계획서 「경복대학교 4차년도 사업수행계획서_공개용」 등)는 우리 학교의 계획↔실적 짝에서 뺀다
     # (판정 2026-10-04: 가톨릭상지대학교 계획서 ↔ 우리 실적보고서). 우리 학교는 기관 정보의 대학명(문서에서 인출) — 이름을 코드에 두지 않는다
     from zzaimy.app import institution as _inst
