@@ -184,14 +184,16 @@ def scope(db, question: str) -> Scope:
     import json
     sc = Scope()
     q_flat = re.sub(r"[\s.]+", "", question or "").upper()
-    best = (0, None)
+    best = ((0, 0), None)
     for p in _programs(db):
-        # 문서에서 모은 이름·약칭에 더해 화면에 보이는 정식 이름(장부 name)과 괄호를 뗀 꼴도 — 사용자는 보이는 이름으로 묻는다
+        # 화면에 보이는 정식 이름(장부 name)이 질문에 들어 있으면 그것이 먼저 — 다른 카드에 섞인 같은 길이 이름과 비기면
+        # 먼저 나온 카드가 이겨 「산학협력 선도전문대학(LINC) 육성사업」이 LINC+ 로 갔다(10/5 RAG 실측). 그다음 문서에서 모은 이름·약칭
         label = re.sub(r"[\s.]+", "", p["label"] or "").upper()
-        surf = _surfaces(p["props"]) | {label, re.sub(r"\([^)]*\)", "", label)}
-        hit = max((len(s) for s in surf if len(s) >= 3 and s in q_flat), default=0)
-        if hit > best[0]:
-            best = (hit, p)
+        lab_hit = max((len(s) for s in (label, re.sub(r"\([^)]*\)", "", label)) if len(s) >= 4 and s in q_flat), default=0)
+        hit = max((len(s) for s in _surfaces(p["props"]) if len(s) >= 3 and s in q_flat), default=0)
+        key = (lab_hit, hit)
+        if key > best[0]:
+            best = (key, p)
     m = _ROUND.search(question or "")
     sc.round = int(m.group(1)) if m else None
     y = _YEAR.search(question or "")
