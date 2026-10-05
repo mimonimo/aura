@@ -185,10 +185,15 @@ class AgentResponder:
                 import logging
                 logging.getLogger(__name__).warning("사업 문서 검색 실패: %s: %s", type(e).__name__, str(e)[:200])
                 grant_hits = []
+            if grant_hits and hits and all(h.get("weak_evidence") for h in hits) and blocks and blocks[0].startswith("[교내 규정"):
+                # 사업 문서 근거가 있는데 규정 근거는 하한을 못 넘은 것뿐이면 규정 묶음은 빼고 사업 문서만 — 관계없는 규정
+                # (「2026학년도 AID 기본계획」)이 LINC+ 2017년 질문의 답에 끼어들던 일(10/5 RAG 실측)
+                blocks = blocks[1:]
+                hits = []
             if not blocks:
                 # 기준 미달이라 근거가 하나도 남지 않은 경우. 있는 척하지 않는다.
                 blocks.append(NO_EVIDENCE_NOTE)
-            elif all(h.get("weak_evidence") for h in hits):
+            elif hits and all(h.get("weak_evidence") for h in hits):
                 # 하한을 넘지 못해 1위만 남긴 경우 — 약하다는 사실을 함께 알린다
                 blocks.append(WEAK_EVIDENCE_NOTE)
             context = "\n\n".join(blocks)

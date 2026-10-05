@@ -87,3 +87,26 @@ def test_registered_search_keeps_sources_and_missing_evidence_notice(monkeypatch
     assert [s["doc_id"] for s in agent.last_sources] == ([42] if found else [])
     assert (responder.NO_EVIDENCE_NOTE in received[0]) == (not found)
     assert (responder.WEAK_EVIDENCE_NOTE in received[0]) == weak
+
+
+@pytest.mark.parametrize("weak", [True, False])
+def test_weak_regulations_dropped_when_grant_documents_answer(monkeypatch, weak):
+    """사업 문서 근거가 있으면 하한을 못 넘은 규정 근거는 빼고, 「근거가 약하다」 안내도 붙이지 않는다(10/5 RAG 실측)."""
+    from zzaimy.app import grant_search, regulations, responder
+    from zzaimy.generate import client
+
+    reg = [{"doc_id": 7, "reg_title": "AID 기본계획", "content": "2026학년도 AID 계획", "weak_evidence": weak}]
+    monkeypatch.setattr(regulations, "find_relevant", lambda db, q, **scope: reg)
+    monkeypatch.setattr(grant_search, "search", lambda *a, **k: {"hits": [
+        {"doc_id": 9, "content": "2017년 연수 개요 본문", "filename": "계획서.hwp", "path": ["LINC+", "계획서.hwp"]}]})
+    received = []
+
+    def create(**kwargs):
+        received.append(kwargs["messages"][-1]["content"])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="답"))])
+    fake = SimpleNamespace(model="fake", client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+    monkeypatch.setattr(client, "VllmClient", lambda **kwargs: fake)
+    responder.AgentResponder().answer(SimpleNamespace(all_settings=lambda: {}), "LINC+ 2017 연수 개요?", scope={"user": "s"})
+    assert "2017년 연수 개요 본문" in received[0]
+    assert ("AID 계획" in received[0]) == (not weak)
+    assert responder.WEAK_EVIDENCE_NOTE not in received[0]
