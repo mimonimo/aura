@@ -287,10 +287,30 @@ def consensus(skeletons: list[tuple[str, list[dict]]], kind_ko: str, ask, min_pr
                     ok[p] = hit                              # 모델이 댄 제목이 그 사업 뼈대에 실제로 있다
         if len(ok) < min_programs:
             continue
-        table = next((h["table"] for h in ok.values() if h.get("table")), None)
+        table = shared_table([h.get("table") for h in ok.values()])
         out.append({"title": title, "level": 2 if int(sec.get("level") or 1) >= 2 else 1, "programs": len(ok),
                     "from": [skeletons[p][0] for p in sorted(ok)], "table": table})
     return out
+
+
+_DATED = re.compile(r"[‘'’]\s*\d{2}|\d\s*차\s*년도|(?:19|20)\d{2}")
+
+
+def _heads(table: str) -> set[str]:
+    return {re.sub(r"\s+", "", h) for h in re.findall(r"<th[^>]*>(.*?)</th>", table or "") if h.strip()}
+
+
+def shared_table(tables: list[str | None], min_programs: int = 2, sim: float = 0.6) -> str | None:
+    """공통 양식의 표 — 머리 칸 구성이 비슷한(겹침 sim 이상) 표를 사업 min_programs 곳 이상이 쓸 때만, 그중 가장 흔한 꼴.
+    특정 연도·차년도가 박힌 머리(「1차년도(‘22.3∼‘23.2)」)는 한 사업의 표라 넣지 않는다(10/5: LINC3.0 지표 표가 공통 양식에)."""
+    cands = [t for t in tables if t and not any(_DATED.search(h) for h in _heads(t))]
+    best, best_n = None, 0
+    for t in cands:
+        ht = _heads(t)
+        n = sum(1 for u in cands if ht and len(ht & _heads(u)) / max(len(ht | _heads(u)), 1) >= sim)
+        if n > best_n:
+            best, best_n = t, n
+    return best if best_n >= min_programs else None
 
 
 def render_consensus(items: list[dict], kind_ko: str, n_programs: int) -> tuple[str, int, int]:
@@ -400,37 +420,35 @@ def main() -> int:
                                     ("report", "프로그램 결과보고서", "program_report", _PROG_REPORT)):
         jobs.append((name, kind_ko, program_doc_skeletons(db, kind, rx)))
     import hashlib
-    seen_path = out_dir / ".inputs.json"
+    cache_path = out_dir / ".replies.json"
     try:
-        seen = json.loads(seen_path.read_text(encoding="utf-8"))
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        seen = {}
+        cache = {}
     for name, kind_ko, sks in jobs:
+        # 모델 응답은 입력(뼈대)별로 저장 — 입력이 같으면 모델을 부르지 않고, 검증·표 고르기·쓰기는 매번 다시(규칙을 고치면 바로 반영)
         digest = hashlib.sha256(json.dumps(sks, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-        if seen.get(name) == digest and (out_dir / f"{name}.md").is_file():
-            print(f"{kind_ko}: 뼈대가 지난번과 같아 건너뜀", flush=True)   # 그래프를 다시 지을 때마다 모델을 부르지 않는다
-            continue
+
+        def cached_ask(prompt: str, _d=digest) -> str:
+            if _d not in cache:
+                cache[_d] = ask(prompt)
+            return cache[_d]
         try:
-            items = consensus(sks, kind_ko, ask, args.min_programs) if len(sks) >= args.min_programs else []
+            items = consensus(sks, kind_ko, cached_ask, args.min_programs) if len(sks) >= args.min_programs else []
         except Exception as e:                          # 모델이 안 되면 그 갈래는 옛 양식을 그대로 둔다
             print(f"{kind_ko}: 모델 묶기 실패({type(e).__name__}) — 옛 양식 유지", flush=True)
             continue
-        seen[name] = digest
         md, n_sec, n_tab = render_consensus(items, kind_ko, len(sks))
         (out_dir / f"{name}.md").write_text(md, encoding="utf-8")
         report[name] = {"title": kind_ko, "sections": n_sec, "tables": n_tab, "programs": len(sks)}
         print(f"{kind_ko}: 뼈대 {len(sks)}개 → 공통 절 {n_sec} · 표 {n_tab}", flush=True)
+    live = {hashlib.sha256(json.dumps(sks, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest() for _n, _k, sks in jobs}
+    cache_path.write_text(json.dumps({k: v for k, v in cache.items() if k in live}, ensure_ascii=False), encoding="utf-8")
     for old in ("plan", "report"):
         for ext in (".md", ".docx"):
             (out_dir / f"{old}{ext}").unlink(missing_ok=True)
-    if report:
-        old = {}
-        try:
-            old = json.loads((out_dir / "report.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            pass
-        (out_dir / "report.json").write_text(json.dumps(old | report, ensure_ascii=False, indent=1), encoding="utf-8")
-    seen_path.write_text(json.dumps(seen), encoding="utf-8")
+    (out_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+    (out_dir / ".inputs.json").unlink(missing_ok=True)
     return 0
 
 
