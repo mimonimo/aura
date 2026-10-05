@@ -26,6 +26,7 @@ from zzaimy.app import paths as _paths
 META_PATH = _paths.index_meta()
 
 TABS: list[tuple[str, str]] = [
+    ("archive", "반입 원본"),
     ("docs", "문서"),
     ("regulation", "규정"),
     ("chat", "채팅 기록"),
@@ -151,13 +152,30 @@ def type_counts(db) -> list[dict]:
     return [{"doc_type": r[0] or "", "n": int(r[1])} for r in rows]
 
 
+def archive_tab(db, q: str = '', page: int = 0) -> dict:
+    from zzaimy.app.archive import ensure
+    ensure(db)
+    page = max(0, page)
+    where = "removed_at = ''"
+    args = []
+    if q.strip():
+        where += ' AND (rel LIKE ? OR program_name LIKE ?)'
+        args = [f'%{q.strip()}%'] * 2
+    with db._conn() as conn:
+        total = conn.execute(f'SELECT COUNT(*) FROM archive_files WHERE {where}', args).fetchone()[0]
+        rows = conn.execute(
+            f'SELECT rel, ext, program_name, doc_id, dup_of, seen_at FROM archive_files WHERE {where}'
+            ' ORDER BY rel LIMIT ? OFFSET ?', [*args, 50, page * 50]).fetchall()
+    keys = ('rel', 'ext', 'program_name', 'doc_id', 'dup_of', 'seen_at')
+    return {'rows': [dict(zip(keys, r)) for r in rows], 'total': total,
+            'page': page, 'has_next': (page + 1) * 50 < total}
+
+
 def list_docs(db, q: str = "", doc_type: str = "", limit: int = LIST_LIMIT) -> list[dict]:
     """문서 목록 — 접수번호·파일명·유형·상태·조각 수(추출 조각·검색 단위)."""
     sql = (
         "SELECT d.id, d.receipt_no, d.filename, d.doc_type, d.status, d.decision,"
-        " d.sector, d.dept, d.owner, d.created_at, d.project_id,"
-        " (SELECT COUNT(*) FROM doc_chunks c WHERE c.doc_id = d.id) AS n_chunks,"
-        " (SELECT COUNT(*) FROM regulation_chunks r WHERE r.doc_id = d.id) AS n_units"
+        " d.sector, d.dept, d.owner, d.created_at, d.project_id"
         " FROM documents d"
     )
     cond: list[str] = []
@@ -174,6 +192,16 @@ def list_docs(db, q: str = "", doc_type: str = "", limit: int = LIST_LIMIT) -> l
     params.append(int(limit))
     with db._conn() as conn:  # noqa: SLF001 — 본문 컬럼 없이 가볍게 읽는다
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        if rows:
+            ids = [r['id'] for r in rows]
+            placeholders = ','.join('?' for _ in ids)
+            # Bound counts to this page and scan each chunk table once, not once per document.
+            for table, field in (('doc_chunks', 'n_chunks'), ('regulation_chunks', 'n_units')):
+                counts = dict(conn.execute(
+                    f'SELECT doc_id, COUNT(*) FROM {table} WHERE doc_id IN ({placeholders}) GROUP BY doc_id',
+                    ids).fetchall())
+                for row in rows:
+                    row[field] = counts.get(row['id'], 0)
     for r in rows:
         r["name"] = shorten(r["filename"], NAME_CHARS)
     return rows

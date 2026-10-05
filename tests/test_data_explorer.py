@@ -83,6 +83,29 @@ def test_list_docs_shortens_long_names_but_keeps_full(db):
     assert len(d["name"]) <= dx.NAME_CHARS and d["name"].endswith("…")
 
 
+def test_list_docs_counts_only_selected_page_and_empty_results(db):
+    ids = _seed(db)
+    rows = dx.list_docs(db, limit=1)
+    assert len(rows) == 1 and rows[0]['id'] == ids['intake']
+    assert rows[0]['n_chunks'] == 3 and rows[0]['n_units'] == 0
+    assert dx.list_docs(db, q='no-matching-document') == []
+    assert dx.list_docs(db, limit=0) == []
+
+
+def test_archive_tab_shows_unlinked_files_and_filters(db):
+    from zzaimy.app.archive import ensure
+    ensure(db)
+    with db._conn() as conn:
+        conn.execute("INSERT INTO archive_files(rel, program_name, ext) VALUES (?, ?, ?)",
+                     ('사업/사진.jpg', '시험사업', 'jpg'))
+    view = dx.archive_tab(db, q='시험사업')
+    assert view['total'] == 1
+    assert view['rows'][0]['doc_id'] is None
+    assert view['rows'][0]['rel'] == '사업/사진.jpg'
+    assert dx.archive_tab(db, q='없는사업')['total'] == 0
+    assert dx.archive_tab(db, page=1)['rows'] == []
+
+
 def test_doc_overview_reports_masking_by_type_and_count_only(db):
     ids = _seed(db)
     doc = db.get_document(ids["intake"])
