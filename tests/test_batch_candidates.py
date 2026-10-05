@@ -7,6 +7,14 @@ def test_windows_preserve_chunks_and_skip_oversize():
     assert list(windows(chunks, 5)) == [[{'id':1,'text':'abc'}],[{'id':2,'text':'def'}]]
 
 
+def test_table_plain_text_does_not_crash_document_iteration():
+    chunks = [{'id':1,'kind':'table','content':'2026년 성과 | 목표 12건'},
+              {'id':2,'kind':'table','content':'{"text":"결과 13건"}'},
+              {'id':3,'kind':'table','content':'{"text":null}'}]
+    assert list(windows(chunks)) == [[{'id':1,'text':'2026년 성과 | 목표 12건'},
+                                     {'id':2,'text':'결과 13건'}]]
+
+
 def test_program_round_robin_and_conflicting_assignments():
     def doc(i): return {'doc_id':i,'kind':'plan'}
     catalog = {'programs':[{'program':'a','docs':[doc(1),doc(2),doc(9)]},
