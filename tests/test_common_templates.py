@@ -101,3 +101,13 @@ def test_table_skeleton_blanks_key_value_cells_and_drops_chapter_banner():
     banner = {"n_rows": 3, "n_cols": 4, "cells": [[0, 0, 1, 1, 1, "CHAPTER"], [0, 1, 1, 1, 1, "x"], [1, 0, 1, 1, 1, "Ⅲ"],
                                                   [1, 1, 1, 1, 1, "성과관리"], [2, 0, 1, 1, 0, "y"]]}
     assert bt.table_skeleton(_json.dumps(banner, ensure_ascii=False)) is None
+
+
+def test_shared_table_needs_two_programs_and_no_dated_heads():
+    m = _load()
+    a = "<table><tr><th>구분</th><th>산출기초</th><th>금액(원)</th></tr></table>"
+    b = "<table><tr><th>구분</th><th>산출 기초</th><th>금액(원)</th></tr></table>"
+    dated = "<table><tr><th>지표</th><th>1차년도 (‘22.3∼‘23.2)</th><th>목표값</th></tr></table>"
+    assert m.shared_table([a, b, None]) == a
+    assert m.shared_table([a, None]) is None
+    assert m.shared_table([dated, dated]) is None
