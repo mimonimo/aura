@@ -26,10 +26,20 @@ def main():
     ap.add_argument('--max-jobs', type=int, default=20)
     ap.add_argument('--windows-per-document', type=int, default=3)
     ap.add_argument('--delay', type=float, default=2)
+    ap.add_argument('--continuous', action='store_true', help='repeat batches until no new source windows remain')
+    ap.add_argument('--defer-semantic-review', action='store_true', help='save preflight candidates for a separate semantic review pass')
     ap.add_argument('--output', type=Path, default=Path('data/training/generated-candidates'))
     args = ap.parse_args()
     if args.per_program < 0 or args.max_jobs < 1 or args.windows_per_document < 1 or args.delay < 0:
         ap.error('positive limits required')
+    while True:
+        attempted = run_batch(args)
+        if not args.continuous or not attempted:
+            return
+        time.sleep(10)
+
+
+def run_batch(args):
     from zzaimy.app.db import Database
     db = Database(Path('data/platform/platform.db'))
     catalog = json.loads(Path('data/platform/program_core_docs.json').read_text())
@@ -79,7 +89,7 @@ def main():
                         continue
                 if attempted >= args.max_jobs:
                     print(json.dumps(dict(counts)), flush=True)
-                    return
+                    return attempted
                 if document_attempts >= args.windows_per_document:
                     break
                 attempted += 1
@@ -124,7 +134,9 @@ def main():
                                 details[row['id']] = audit.violations
                         return dict(rows=rows, manifest=manifest, tasks=tasks, preflight=report, number_details=details)
                     result.update(generate_checked(generate, check))
-                    if result['status'] == 'candidate':
+                    if result['status'] == 'candidate' and args.defer_semantic_review:
+                        result['semantic_review'] = {'status':'pending', 'human_approved':False}
+                    if result['status'] == 'candidate' and not args.defer_semantic_review:
                         review = client.chat.completions.create(model=model, temperature=0, max_tokens=1800,
                             response_format={'type':'json_object'},
                             messages=[{'role':'system','content':REVIEW_SYSTEM},
@@ -157,6 +169,7 @@ def main():
                 print(json.dumps({'doc_id':did,'status':result['status'],'counts':dict(counts)}), flush=True)
                 time.sleep(args.delay)
         print(json.dumps(dict(counts)), flush=True)
+        return attempted
 
 
 if __name__ == '__main__':
