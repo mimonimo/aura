@@ -5,6 +5,12 @@
 
 문서 점검: 2026-10-01. 날짜별 운영 확인과 로컬 구현 상태를 구분한다.
 
+2026-10-06 후보 게시(C-216): `scripts/sync_generated_candidates.py`는 최신 원문 창의 자동 검사 통과 후보를
+기존 Label Studio 검수 프로젝트에 추가한다. 원문 해시·개인정보·수치를 재확인하고 sample_id 중복은 건너뛴다.
+기존 태스크·주석은 덮어쓰지 않는다. 현재 원문과 다르면 게시 보류, 수정본의 기존 검수 무효화는 별도 작업이다.
+`zzaimy-candidate-publish.timer`는 2분 간격으로 최대100대화를 게시하며 학습 승인은 하지 않는다.
+실제 설치·가동 여부는 협업 기록 C-216과 서비스 상태를 확인한다.
+
 2026-10-05 직접 검수(C-213): `scripts/review_candidate.py`로 원문 대조 판정을
 `data/training/candidate-reviews/`에 원본 후보 해시와 함께 보존한다. 생성본은 수정하지 않는다.
 `candidate_status.py`는 일치하는 최신 판정의 재작성·출처 확인 보류를 candidate 집계에서 분리한다.
