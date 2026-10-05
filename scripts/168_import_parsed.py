@@ -59,6 +59,7 @@ def main() -> int:
 
     n_ok = n_upd = n_skip = n_fail = n_link_later = n_stale = 0
     led = led_path.open("a", encoding="utf-8")
+    fails = (ROOT / "data" / "platform" / "parse_failures.jsonl").open("a", encoding="utf-8")
     # 파일마다 읽은 자리를 기억한다(DGX 결과 파일은 덧붙기만 한다) — 5분 주기가 매번 처음부터 읽지 않게
     off_path = ROOT / "data" / "inbox" / "parsed" / ".offsets.json"
     offsets = json.loads(off_path.read_text(encoding="utf-8")) if off_path.is_file() else {}
@@ -102,6 +103,9 @@ def main() -> int:
         state = rec.get("state") or ("parsed" if rec.get("ok") else "failed")
         if state not in ("parsed", "partial") or not rec.get("chunks"):
             n_fail += 1
+            # 실패도 남긴다 — 연동 점검(175)이 「결과 없음(놓침)」과 「실패(사유 있음)」를 가른다
+            fails.write(json.dumps({"rel": rel, "version": ver, "state": state, "error": str(rec.get("error") or "")[:200],
+                                    "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
             continue
         # 원본 장부의 현재 판과 같은 기록만 적용 — 여러 결과 파일에 옛 판이 뒤늦게 읽혀도 되돌리지 않는다(C-186).
         # 장부가 아직 새 판을 모르면(목록 갱신 전) 여기서는 건너뛰고, 바뀐 원본은 170 의 원본 장부 대조(changed)가 다시 처리한다
