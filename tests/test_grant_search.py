@@ -165,3 +165,11 @@ def test_section_hits_use_graph_section_titles_in_scope(tmp_path):
     ids = {x["id"]: x for d in ds for x in db.list_doc_chunks(d)}
     assert {ids[i]["doc_id"] for i in got} == {ds[0], ds[1]} and all(ids[i]["seq"] == 1 for i in got)
     assert grant_search.section_hits(db, "행사 개요", {ds[0]}) == []
+
+
+def test_quality_filter_drops_toc_and_duplicates():
+    toc = {"id": 1, "doc_id": 1, "content": "목 차\n1. 사업 개요 ··········· 3\n2. 추진 체계 ··········· 5\n3. 캡스톤디자인 개요 ········ 7\n4. 예산 ·········· 9"}
+    body = {"id": 2, "doc_id": 2, "content": "3. 캡스톤디자인 개요\n산업체 수요를 반영한 과제를 학생 팀이 한 학기 동안 수행하고 결과물을 전시회에서 발표한다. 참여 학과는 10개이며 지도교수와 산업체 멘토가 함께 지도한다."}
+    dup = {"id": 3, "doc_id": 3, "content": body["content"]}
+    got = grant_search.quality_filter([toc, body, dup])
+    assert [c["id"] for c in got] == [2]

@@ -39,7 +39,8 @@ _SENT = re.compile(r"(?:다|함|음|임|됨|니다)\s*[.。]?\s*$|[:：,，]\s*$
 
 def _HEADING_OK(t: str) -> bool:
     """시험 질문이 될 만한 절 제목 — 문장·조각(「위 관련 근거에 의거, 2」「구입 필요성 :」)이 아닌 4~30자 명사구."""
-    return 4 <= len(t) <= 30 and not _SENT.search(t) and len(re.findall(r"[가-힣A-Za-z]", t)) >= 3
+    return (4 <= len(t) <= 30 and not _SENT.search(t) and len(re.findall(r"[가-힣A-Za-z]", t)) >= 3
+            and not re.fullmatch(r"[가-힣]{2,12}(?:대학교|대학|재단|센터)", re.sub(r"\s+", "", t)))   # 기관 이름뿐인 머리글
 
 
 def probes(db, n: int, seed: int) -> list[dict]:
