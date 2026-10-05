@@ -101,3 +101,17 @@ def test_malformed_json_can_be_corrected():
                               lambda parsed:{'preflight':{'held':0,'issues':{}}})
     assert result['status'] == 'candidate'
     assert result['attempts'][0]['feedback'] == {'format_error':'invalid_response'}
+
+
+def test_semantic_gate_requires_all_checks_and_no_concerns():
+    import json
+    from zzaimy.dataset.batch_candidates import semantic_result, REVIEW_CHECKS
+    value = {'checks':dict.fromkeys(REVIEW_CHECKS, True),'issues':[]}
+    assert semantic_result(json.dumps(value))['passed']
+    assert not semantic_result(json.dumps(value))['human_approved']
+    value['checks']['source_readable'] = False
+    assert not semantic_result(json.dumps(value))['passed']
+    value['checks']['source_readable'] = 'true'
+    with pytest.raises(ValueError): semantic_result(json.dumps(value))
+    value['checks'] = {}
+    with pytest.raises(ValueError): semantic_result(json.dumps(value))
