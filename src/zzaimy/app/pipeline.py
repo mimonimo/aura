@@ -426,7 +426,8 @@ class DocumentProcessor:
             if target.suffix not in READABLE:
                 raise RuntimeError(f"{why} — 실제 형식 {real.lstrip('.').upper()}")
             text = self._parse_inner(target)
-            note = f"확장자 {file_path.suffix} 이지만 실제 {real.lstrip('.').upper()} — 실제 형식으로 읽음"
+            note = (f"옛 {real.lstrip('.').upper()} 형식 — LibreOffice 로 새 형식으로 바꿔 읽음" if real == file_path.suffix.lower()
+                    else f"확장자 {file_path.suffix} 이지만 실제 {real.lstrip('.').upper()} — 실제 형식으로 읽음")
             self._last_parse_note = (note + (" · " + self._last_parse_note if self._last_parse_note else ""))
             return text
         finally:
@@ -450,6 +451,9 @@ class DocumentProcessor:
                 return self._parse_as(file_path, real, bad)
             raise RuntimeError(bad)
         suffix = file_path.suffix.lower()
+        if suffix in LEGACY and suffix != ".hwp3":
+            # 옛 오피스(xls·doc·ppt) — LibreOffice 로 새 형식으로 바꿔 읽는다(docling 은 옛 형식을 못 읽는다)
+            return self._parse_as(file_path, suffix, f"옛 {suffix.lstrip('.').upper()} 형식")
         if suffix in (".txt", ".md"):
             return file_path.read_text(encoding="utf-8", errors="replace")
         if suffix == ".hwp":
