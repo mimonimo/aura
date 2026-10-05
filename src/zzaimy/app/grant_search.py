@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import logging
 import threading
@@ -331,14 +332,24 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         by_id = {c["id"]: c for c in chunks}
         pool = f"{len(chunks)}개"
     hits = []
-    order = rerank_hits(question, [by_id[c] for c in merged[: k * 6] if c in by_id])
+    cands = [by_id[c] for c in merged[: k * 6] if c in by_id]
+    for c in cands:
+        c["content"] = expand(db, c)
+    if os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1" and len(cands) > 1:
+        # 재순위(Rerank v1, 토르) — 문서 이름을 제목으로 붙여 묻는다. 켜기는 173 대결 수치로(규칙: 채택은 대결 수치로)
+        from zzaimy.app.rerank import rerank_chunks
+        for c in cands:
+            c.setdefault("reg_title", c.get("filename") or "")
+        cands = rerank_chunks(question, cands)
+        steps.append("[재순위] 후보 조각을 재순위 모델로 다시 정렬")
+    order = rerank_hits(question, cands)
     per_doc: dict[int, int] = {}
     for c in order:
         cid = c["id"]
         if per_doc.get(c["doc_id"], 0) >= PER_DOC:
             continue                                     # 한 문서가 상위를 다 차지하지 않게(10/5 실측: 상위 5개 중 3개가 한 문서)
         per_doc[c["doc_id"]] = per_doc.get(c["doc_id"], 0) + 1
-        hits.append({"chunk_id": cid, "doc_id": c["doc_id"], "content": expand(db, c)[:EXPAND_TO], "filename": c["filename"],
+        hits.append({"chunk_id": cid, "doc_id": c["doc_id"], "content": c["content"][:EXPAND_TO], "filename": c["filename"],
                      "path": path_of.get(c["doc_id"], []) + [c["filename"]]})
         if len(hits) >= k:
             break
