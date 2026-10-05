@@ -2,6 +2,11 @@
 
 ## 반입 문서 배치 생성
 
+연속 생성은 `--apply --continuous --max-jobs 200 --windows-per-document 1 --defer-semantic-review`로 실행한다.
+사업별 신규 문서를 먼저 순회하고 다음 회차에서 남은 창을 처리한다. 처리한 창은 상태와 관계없이
+건너뛰므로 보류본 때문에 신규 생성이 막히지 않는다. 새 창이 없으면 정상 종료한다.
+의미 검사는 `pending`으로 남겨 후속 검수에서 처리하며, 자동 승인·SFT 실행은 하지 않는다.
+
 고정 건수 목표를 두지 않고 적격 사업 문서를 순회해 맥락과 근거가 있는 후보를 누적한다.
 `scripts/generate_grounded_candidates.py`는 `program_core_docs.json`을 바탕으로 사업별로
 교대 처리하며 같은 문서가 서로 다른 사업에 배정되면 제외한다. `--apply` 전에는 계획만 출력한다.
