@@ -283,6 +283,53 @@ def _format_mismatch(file_path: Path) -> str | None:
     return f"{kind} 형식이 아닙니다 ({size:,}바이트)"
 
 
+_OLE = b"\xd0\xcf\x11\xe0"
+READABLE = {".pdf", ".hwp", ".hwpx", ".docx", ".xlsx", ".pptx"}
+LEGACY = {".xls": ".xlsx", ".doc": ".docx", ".ppt": ".pptx"}
+
+
+def sniff_suffix(file_path: Path) -> str | None:
+    """파일 머리로 실제 형식(확장자)을 판별한다 — 모르면 None. 확장자와 내용이 다른 원본(10/5: XLSX 70·HWP 23·PDF 3건이
+    「형식이 아닙니다」로 빠졌다)을 실제 형식으로 읽기 위해."""
+    try:
+        with file_path.open("rb") as fh:
+            head = fh.read(2048)
+    except OSError:
+        return None
+    if b"%PDF-" in head[:1024]:
+        return ".pdf"
+    if head.startswith(b"PK"):
+        import zipfile
+        try:
+            with zipfile.ZipFile(file_path) as zf:
+                names = zf.namelist()
+                mime = zf.read("mimetype").decode("ascii", "ignore") if "mimetype" in names else ""
+        except (zipfile.BadZipFile, OSError, KeyError):
+            return None
+        if "hwp" in mime or any(n.startswith("Contents/") for n in names):
+            return ".hwpx"
+        for prefix, ext in (("word/", ".docx"), ("xl/", ".xlsx"), ("ppt/", ".pptx")):
+            if any(n.startswith(prefix) for n in names):
+                return ext
+        return None
+    if head.startswith(_OLE):
+        try:
+            import olefile
+            with olefile.OleFileIO(str(file_path)) as ole:
+                streams = {"/".join(e) for e in ole.listdir()}
+        except Exception:
+            return None
+        if "FileHeader" in streams:
+            return ".hwp"
+        if streams & {"Workbook", "Book"}:
+            return ".xls"
+        if "WordDocument" in streams:
+            return ".doc"
+        if "PowerPoint Document" in streams:
+            return ".ppt"
+    return None
+
+
 class DocumentProcessor:
     """실제 처리기. 테스트에서는 FakeProcessor로 대체된다."""
 
@@ -310,6 +357,39 @@ class DocumentProcessor:
             text = text[: self.MAX_TEXT_CHARS]
         return text
 
+    def _parse_as(self, file_path: Path, real: str, why: str) -> str:
+        """확장자와 내용이 다른 원본을 실제 형식으로 — 임시 폴더에 맞는 확장자로 이어 두고 읽는다. 옛 오피스 형식(xls·doc·ppt)은
+        LibreOffice 로 새 형식으로 바꿔 읽는다(없으면 실제 형식을 밝혀 실패)."""
+        import shutil
+        import tempfile
+        tmp = Path(tempfile.mkdtemp(prefix="zz-sniff-"))
+        try:
+            target = tmp / (file_path.stem[:80] + real)
+            try:
+                target.symlink_to(file_path.resolve())
+            except OSError:
+                shutil.copyfile(file_path, target)
+            if real in LEGACY:
+                import subprocess
+                from zzaimy.app.office_pdf import soffice
+                exe = soffice()
+                if not exe:
+                    raise RuntimeError(f"{why} — 실제 형식은 옛 {real.lstrip('.').upper()}(LibreOffice 없어 못 읽음)")
+                subprocess.run([exe, "--headless", "--convert-to", LEGACY[real].lstrip("."), "--outdir", str(tmp), str(target)],
+                               capture_output=True, timeout=180)
+                conv = target.with_suffix(LEGACY[real])
+                if not conv.is_file():
+                    raise RuntimeError(f"{why} — 실제 형식 {real.lstrip('.').upper()}, 새 형식 변환 실패")
+                target = conv
+            if target.suffix not in READABLE:
+                raise RuntimeError(f"{why} — 실제 형식 {real.lstrip('.').upper()}")
+            text = self._parse_inner(target)
+            note = f"확장자 {file_path.suffix} 이지만 실제 {real.lstrip('.').upper()} — 실제 형식으로 읽음"
+            self._last_parse_note = (note + (" · " + self._last_parse_note if self._last_parse_note else ""))
+            return text
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def _parse_inner(self, file_path: Path) -> str:
         # 파싱 부산물(그림·표 구조·파싱 방식 메모)은 호출 사이에 남지 않게 초기화한다
         self._last_images = []
@@ -323,6 +403,9 @@ class DocumentProcessor:
         self._ocr_used = False  # 이번 파싱에서 실제 OCR이 돌았는가 — 교정 게이트
         bad = _format_mismatch(file_path)
         if bad:
+            real = sniff_suffix(file_path)
+            if real and real != file_path.suffix.lower():
+                return self._parse_as(file_path, real, bad)
             raise RuntimeError(bad)
         suffix = file_path.suffix.lower()
         if suffix in (".txt", ".md"):
