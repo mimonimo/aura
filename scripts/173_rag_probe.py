@@ -125,8 +125,9 @@ def main() -> int:
             from zzaimy.app.responder import AgentResponder
             t1 = time.time()
             try:
-                ans = AgentResponder().answer(db, p["q"], scope={"user": None})
-                ctx = " ".join(h["content"] for h in g["hits"])
+                ar = AgentResponder()
+                ans = ar.answer(db, p["q"], scope={"user": None})
+                ctx = getattr(ar, "last_context", "") or " ".join(h["content"] for h in g["hits"])
                 qn = set(_NUM.findall(p["q"]))           # 질문에 있던 숫자(연도 등)는 근거 밖이 아니다
                 nums = [x for x in _NUM.findall(ans) if x not in qn and x not in ctx
                         and x.replace(",", "") not in ctx.replace(",", "")]

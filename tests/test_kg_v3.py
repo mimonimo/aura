@@ -765,3 +765,17 @@ def test_ministry_prefix_and_vague_names():
     assert programs._norm_name("구분 대경권 사업") == "대경권 사업"
     assert programs.vague_name("대학재정지원사업") and programs.vague_name("지자체 연계 사업")
     assert not programs.vague_name("HiVE사업") and not programs.vague_name("대경권 사업")
+
+
+def test_scope_prefers_official_label_over_tied_surface(tmp_path):
+    from zzaimy.app.db import Database
+    from zzaimy.graph import retrieve
+    retrieve._PROG_CACHE.update(at=0.0, rows=None)
+    db = Database(tmp_path / "t.db")
+    kg_store.ensure(db)
+    with db._conn() as c:
+        kg_store.put_node(c, "program:a", "program", "사회맞춤형 산학협력 선도전문대학(LINC+) 육성사업",
+                          {"names": ["산학협력 선도전문대학(LINC) 육성사업"], "acronyms": ["LINC+"]})
+        kg_store.put_node(c, "program:b", "program", "산학협력 선도전문대학(LINC) 육성사업",
+                          {"names": ["산학협력 선도전문대학 육성사업"], "acronyms": []})
+    assert retrieve.scope(db, "산학협력 선도전문대학(LINC) 육성사업 2014년 계획서").program == "program:b"

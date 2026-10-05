@@ -234,6 +234,7 @@ class AgentResponder:
         if context:
             user_content += f"\n\n{context}"
         messages.append({"role": "user", "content": user_content})
+        self.last_context = user_content                    # 모델에 실제로 건넨 글(실측이 답의 수치를 이것과 대조한다)
 
         client = VllmClient(role="answer")
         if on_progress:

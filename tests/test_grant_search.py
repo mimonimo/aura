@@ -114,3 +114,14 @@ def test_index_path_matches_access_and_scope(tmp_path, monkeypatch):
         x["id"] for x in db.list_doc_chunks(c)}
     db.replace_doc_chunks(c, [])                            # 지워진 조각은 색인에서도
     assert grant_lex.sync(db)["removed"] == 1
+
+
+def test_short_hit_expands_with_following_chunks(tmp_path):
+    """제목만 걸린 짧은 조각은 같은 문서의 뒤 조각을 이어 본문까지 건넨다."""
+    db = Database(tmp_path / "t.db")
+    d = db.add_document("계획서.hwp", "x", doc_type="grant", sector="grant")
+    db.replace_doc_chunks(d, [{"kind": "text", "content": "2. 추진 일정"}, {"kind": "text", "content": "3월 공고, 4월 선정"},
+                              {"kind": "text", "content": "5월 협약"}])
+    first = min(db.list_doc_chunks(d), key=lambda c: c["seq"])
+    out = grant_search.expand(db, {"doc_id": d, "seq": first["seq"], "content": "2. 추진 일정"})
+    assert out.startswith("2. 추진 일정") and "4월 선정" in out and "5월 협약" in out

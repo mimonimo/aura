@@ -223,10 +223,30 @@ def chunks_by_ids(db, chunk_ids: list[int]) -> list[dict]:
         return []
     with db._conn() as conn:
         rows = conn.execute(
-            "SELECT c.id, c.doc_id, c.kind, c.content, d.filename FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
+            "SELECT c.id, c.doc_id, c.kind, c.content, d.filename, c.seq FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
             f" WHERE c.id IN ({','.join('?' * len(chunk_ids))})", list(chunk_ids)).fetchall()
     return [{"id": int(r[0]), "doc_id": int(r[1]), "kind": r[2], "content": _text({"kind": r[2], "content": r[3]}),
-             "filename": r[4]} for r in rows]
+             "filename": r[4], "seq": int(r[5])} for r in rows]
+
+
+EXPAND_BELOW = 400
+EXPAND_TO = 1200
+
+
+def expand(db, hit: dict) -> str:
+    """걸린 조각이 짧으면(절 제목·한 줄) 같은 문서의 뒤 조각을 이어 본문까지 — 제목만 건네면 답이 「내용을 확인하기 어렵다」로
+    끝났다(10/5 RAG 실측 답변 10개 중 다수). 이웃 조각 확장."""
+    text = hit.get("content") or ""
+    if len(text) >= EXPAND_BELOW or hit.get("seq") is None:
+        return text
+    with db._conn() as conn:
+        rows = conn.execute("SELECT kind, content FROM doc_chunks WHERE doc_id = ? AND seq > ? AND kind IN (?, ?, ?) ORDER BY seq LIMIT 6",
+                            (hit["doc_id"], hit["seq"], *TEXT_KINDS)).fetchall()
+    for r in rows:
+        if len(text) >= EXPAND_TO:
+            break
+        text += "\n" + _text({"kind": r[0], "content": r[1]})
+    return text[:EXPAND_TO]
 
 
 def docs_under(db, program: str) -> set[int]:
@@ -298,7 +318,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         c = by_id.get(cid)
         if not c:
             continue
-        hits.append({"chunk_id": cid, "doc_id": c["doc_id"], "content": c["content"][:1200], "filename": c["filename"],
+        hits.append({"chunk_id": cid, "doc_id": c["doc_id"], "content": expand(db, c)[:EXPAND_TO], "filename": c["filename"],
                      "path": path_of.get(c["doc_id"], []) + [c["filename"]]})
         if len(hits) >= k:
             break
