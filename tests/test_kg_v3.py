@@ -788,3 +788,13 @@ def test_clean_cards_gives_acronym_to_card_whose_identity_it_is():
     big.acrs.update({"LINC": 50, "RISE": 20})
     programs.clean_cards([rise, big])
     assert "RISE" in rise.acrs and "RISE" not in big.acrs
+
+
+def test_school_prefix_and_this_year_are_not_program_names():
+    assert programs._norm_name("영남이공대학교 신산업분야 특화 선도전문대학 지원사업") == "신산업분야 특화 선도전문대학 지원사업"
+    assert programs.vague_name("당해 연도 사업")
+
+
+def test_school_prefix_rule_keeps_program_words():
+    assert programs._norm_name("전문대학 혁신지원사업") == "전문대학 혁신지원사업"
+    assert programs._norm_name("선도대학 육성사업") == "선도대학 육성사업"
