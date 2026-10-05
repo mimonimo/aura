@@ -125,3 +125,11 @@ def test_short_hit_expands_with_following_chunks(tmp_path):
     first = min(db.list_doc_chunks(d), key=lambda c: c["seq"])
     out = grant_search.expand(db, {"doc_id": d, "seq": first["seq"], "content": "2. 추진 일정"})
     assert out.startswith("2. 추진 일정") and "4월 선정" in out and "5월 협약" in out
+
+
+def test_quoted_phrase_first_and_per_doc_cap():
+    cs = [{"id": 1, "doc_id": 9, "content": "예산 총괄"}, {"id": 2, "doc_id": 9, "content": "다른 내용"},
+          {"id": 3, "doc_id": 9, "content": "또 다른"}, {"id": 4, "doc_id": 8, "content": "사회맞춤형 기자재 및 장비 구축 계획 표"}]
+    got = grant_search.rerank_hits("LINC+ 계획서의 「사회맞춤형 기자재 및 장비 구축 계획」 내용", cs)
+    assert got[0]["id"] == 4 and [c["id"] for c in got[1:]] == [1, 2, 3]
+    assert grant_search.rerank_hits("질문", cs) == cs

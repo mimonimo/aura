@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 import threading
 from pathlib import Path
@@ -229,6 +230,21 @@ def chunks_by_ids(db, chunk_ids: list[int]) -> list[dict]:
              "filename": r[4], "seq": int(r[5])} for r in rows]
 
 
+PER_DOC = 2
+_QUOTED = re.compile(r"[「『\"“]([^」』\"”]{2,60})[」』\"”]")
+
+
+def rerank_hits(question: str, chunks: list[dict]) -> list[dict]:
+    """질문에 묶어 적은 문구(「절 이름」·"…")가 있으면 그 문구가 든 조각을 앞으로 — 순서는 그 안에서 그대로(안정 정렬)."""
+    phrases = [re.sub(r"\s+", "", m) for m in _QUOTED.findall(question or "")]
+    if not phrases:
+        return chunks
+    def has(c):
+        t = re.sub(r"\s+", "", c.get("content") or "")
+        return any(p and p in t for p in phrases)
+    return sorted(chunks, key=lambda c: not has(c))
+
+
 EXPAND_BELOW = 400
 EXPAND_TO = 1200
 
@@ -299,7 +315,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
             lex = grant_lex.rank(db, query, None, user) if query else []
             den = dense_ids(question, None, scope_docs=None, user=user, db=db)
         merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
-        by_id = {c["id"]: c for c in chunks_by_ids(db, merged[: k * 3])}
+        by_id = {c["id"]: c for c in chunks_by_ids(db, merged[: k * 6])}
         pool = f"색인 {have}개"
     else:
         # 색인이 덜 찼으면 옛 방식(조각 전체) — 색인 동기화가 따라잡는 동안만
@@ -314,10 +330,13 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         by_id = {c["id"]: c for c in chunks}
         pool = f"{len(chunks)}개"
     hits = []
-    for cid in merged[: k * 3]:
-        c = by_id.get(cid)
-        if not c:
-            continue
+    order = rerank_hits(question, [by_id[c] for c in merged[: k * 6] if c in by_id])
+    per_doc: dict[int, int] = {}
+    for c in order:
+        cid = c["id"]
+        if per_doc.get(c["doc_id"], 0) >= PER_DOC:
+            continue                                     # 한 문서가 상위를 다 차지하지 않게(10/5 실측: 상위 5개 중 3개가 한 문서)
+        per_doc[c["doc_id"]] = per_doc.get(c["doc_id"], 0) + 1
         hits.append({"chunk_id": cid, "doc_id": c["doc_id"], "content": expand(db, c)[:EXPAND_TO], "filename": c["filename"],
                      "path": path_of.get(c["doc_id"], []) + [c["filename"]]})
         if len(hits) >= k:

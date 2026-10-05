@@ -83,7 +83,7 @@ def probes(db, n: int, seed: int) -> list[dict]:
         title, body = rng.choice(cands)
         year = d["props"].get("year")
         q = f"{nodes[pid]['label']} {str(year) + '년 ' if year else ''}{KIND_KO[d['props']['kind']]}의 「{title}」 내용을 알려줘"
-        out.append({"q": q, "doc_id": did, "program": pid, "gold": body[:3000],
+        out.append({"q": q, "doc_id": did, "program": pid, "gold": body[:3000], "title": title, "year": year,
                     "prog_docs": None})
         per_prog[pid] = per_prog.get(pid, 0) + 1
     # 같은 사업의 문서 번호(prog@k 판정)
@@ -94,6 +94,15 @@ def probes(db, n: int, seed: int) -> list[dict]:
             under.setdefault(p, set()).add(int(d["doc_id"]))
     for p in out:
         p["prog_docs"] = under.get(p["program"], set())
+        # 쌍둥이 — 같은 사업·같은 해 문서 가운데 같은 제목의 절을 가진 문서(협약반마다 똑같은 절이 있는 계획서 등)
+        same_year = {int(d["doc_id"]) for d in docs.values() if d.get("doc_id") and int(d["doc_id"]) in p["prog_docs"]
+                     and d["props"].get("year") == p["year"]}
+        key = re.sub(r"[^0-9A-Za-z가-힣]", "", p["title"])
+        with db._conn() as conn:
+            rows = conn.execute("SELECT DISTINCT doc_id, label FROM kg_nodes WHERE type = 'section' AND label LIKE ?",
+                                (f"%{p['title'][:20]}%",)).fetchall()
+        p["twins"] = {int(r[0]) for r in rows if r[0] is not None and int(r[0]) in same_year
+                      and re.sub(r"[^0-9A-Za-z가-힣]", "", _OUTLINE.sub("", r[1] or "")) == key} | {p["doc_id"]}
     return out
 
 
@@ -119,7 +128,7 @@ def main() -> int:
         dt = time.time() - t0
         hit_docs = [h["doc_id"] for h in g["hits"]]
         row = {"q": p["q"], "doc_id": p["doc_id"], "program": p["program"], "hits": hit_docs, "sec": round(dt, 2),
-               "doc_hit": p["doc_id"] in hit_docs, "prog_hit": any(h in p["prog_docs"] for h in hit_docs),
+               "doc_hit": p["doc_id"] in hit_docs, "twin_hit": bool(p["twins"] & set(hit_docs)), "n_twins": len(p["twins"]), "prog_hit": any(h in p["prog_docs"] for h in hit_docs),
                "steps": g.get("steps", [])[:4], "error": err}
         if i < args.answer:
             from zzaimy.app.responder import AgentResponder
@@ -137,12 +146,13 @@ def main() -> int:
             except Exception as e:
                 row.update({"answer": "", "answer_error": f"{type(e).__name__}: {e}"[:200]})
         rows.append(row)
-        print(f"[{i + 1}/{len(items)}] doc {'O' if row['doc_hit'] else 'X'} prog {'O' if row['prog_hit'] else 'X'} "
+        print(f"[{i + 1}/{len(items)}] doc {'O' if row['doc_hit'] else 'X'} twin {'O' if row['twin_hit'] else 'X'} prog {'O' if row['prog_hit'] else 'X'} "
               f"{row['sec']}s {p['q'][:60]}", flush=True)
     n = len(rows) or 1
     ans_rows = [r for r in rows if "answer" in r]
     summary = {"n": len(rows), "k": args.k,
                "doc_at_k": round(sum(r["doc_hit"] for r in rows) / n, 3),
+               "twin_at_k": round(sum(r["twin_hit"] for r in rows) / n, 3),
                "prog_at_k": round(sum(r["prog_hit"] for r in rows) / n, 3),
                "search_errors": sum(bool(r["error"]) for r in rows),
                "empty_hits": sum(not r["hits"] for r in rows),
