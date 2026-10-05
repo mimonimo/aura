@@ -7,6 +7,10 @@
 --defer-semantic-review로 의미 검사 분리(상태 pending), 구조/수치/개인정보·실제 부모 연결 검사는 유지.
 VM 사용자 서비스에 단일 작업 등록 예정: MemoryMax 2G·swap금지·오류 재시작. 기존 반입/웹 서비스는 재시작하지 않음.
 코드 커밋·푸시 후 VM fast-forward만, 미커밋 운영 수정이 있으면 배포하지 않음. Claude 작업 파일 보존.
+f77fc9cc 정본 푸시 후 99_deploy.sh(재시작 없음)로 VM 적용. 서비스 14:42 KST 등록·enabled/active,
+MainPID519275·MemoryMax2147483648·MemorySwapMax0·Restart on-failure 확인. 기존 서비스 파일 없음 확인 후 설치.
+단일 순차 요청, 의미 검사 pending. 새 창 없으면 정상 종료, 장애는 60초 후 재시작(1시간5회한도).
+Claude responder.py 진행 수정은 스테이징/배포에 포함하지 않았다. 생성 프로세스 중복 없음 확인.
 
 ## C-209 — 배치 완료 대조·의미 검사 추가 (진행, 2026-10-05)
 
