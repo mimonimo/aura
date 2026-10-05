@@ -5,6 +5,13 @@
 
 문서 점검: 2026-10-01. 날짜별 운영 확인과 로컬 구현 상태를 구분한다.
 
+2026-10-05 연속 생성(C-210): f77fc9cc까지 정본 푸시·VM 반영, 웹 재시작 없음.
+사용자 서비스 zzaimy-candidate-generator.service 등록·enabled/active 확인. MemoryMax 2G, swap 금지,
+CPU 1코어 한도·낮은 우선순위, 오류 재시작 60초(1시간 5회 한도). 200창 회차를 반복하며 새 창이 없으면 종료.
+의미 검사는 pending으로 별도 보존하고 원문·수치·맥락·개인정보 관문은 유지. LS 게시/학습 승인은 하지 않는다.
+상태: systemctl --user status zzaimy-candidate-generator.service, 로그: journalctl --user -u zzaimy-candidate-generator.service.
+중지: systemctl --user stop zzaimy-candidate-generator.service. 다시 start하면 저장한 창을 건너뛰어 재개한다.
+
 2026-10-05 반복 검증(C-209): v5 20창 완료, 11대화·28턴 생성, 자동 검사 통과 9대화·23턴.
 표본에서 OCR 불명 문구와 범위 밖 정산자료 발견. 별도 모델 의미 검사 및 JSON 응답 제한을 추가한
 v6 20창 검증 시작. 같은 모델의 의미 검사는 doc591 오류를 놓쳤으므로 독립 검수/승인으로 간주하지 않는다.
