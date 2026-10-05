@@ -5,4 +5,6 @@ set -a; . ./.env.local; set +a
 # 문서 변환 도구가 실행마다 남기는 빈 기록 파일(/tmp/mat-debug-*.log) 정리
 find /tmp -maxdepth 1 -name "mat-debug-*.log" -user "$(id -un)" -empty -mmin +60 -delete 2>/dev/null
 export ZZAIMY_ROLE_CONN="review=92a94f3f,vision=92a94f3f"
-exec flock -n /tmp/zz_sync.lock scripts/zz_run.sh 24G env PYTHONPATH=src .venv/bin/python scripts/170_vm_sync.py --max "${1:-200}" >> /tmp/zz_sync.log 2>&1
+flock -n /tmp/zz_sync.lock scripts/zz_run.sh 24G env PYTHONPATH=src .venv/bin/python scripts/170_vm_sync.py --max "${1:-200}" >> /tmp/zz_sync.log 2>&1
+# 연동 점검(175) — 원본 → 문서함 → 색인 → 그래프의 빈틈을 주기마다 센다(가벼움, 읽기만)
+scripts/zz_run.sh 4G env PYTHONPATH=src .venv/bin/python scripts/175_pipeline_audit.py >> /tmp/zz_sync.log 2>&1

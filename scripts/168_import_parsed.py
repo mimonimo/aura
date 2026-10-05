@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 import sys
 import time
@@ -65,15 +66,30 @@ def main() -> int:
     offsets = json.loads(off_path.read_text(encoding="utf-8")) if off_path.is_file() else {}
 
     def save_offsets():
-        if len(sys.argv) > 1:
+        if len(sys.argv) > 1 and only is None:
             if not led.closed:
                 led.flush()                                # 장부가 먼저 — 읽은 자리만 앞서 저장되면 들인 기록을 잃는다
             off_path.parent.mkdir(parents=True, exist_ok=True)
             off_path.write_text(json.dumps(offsets), encoding="utf-8")
 
+    # --rels <목록.json>: 그 원본들만 결과 파일 처음부터 다시 훑어 들인다(읽은 자리 무시·저장 안 함) — DGX 에 정상 기록이 있는데 문서함에
+    # 없는 원본(연동 점검 175 --find-reimport)을 메운다. 10/6: 1,133건이 그랬다
+    only: set[str] | None = None
+    if len(sys.argv) > 2 and sys.argv[1] == "--rels":
+        only = set(json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")))
+        del sys.argv[1:3]
+
     def lines():
         if len(sys.argv) <= 1:
             yield from sys.stdin
+            return
+        if only is not None:
+            for f in sys.argv[1:]:
+                with open(f, encoding="utf-8", newline="") as fh:
+                    for raw in fh:
+                        m = re.search(r'"rel": "((?:[^"\\]|\\.)*)"', raw[:2000])
+                        if m and json.loads(f'"{m.group(1)}"') in only:
+                            yield raw
             return
         for f in sys.argv[1:]:
             with open(f, "rb") as fh:

@@ -261,3 +261,24 @@ def test_jsonl_lines_keep_records_with_form_feed_in_text(tmp_path):
     recs = [{"rel": "a.pdf", "ok": True, "masked_text": "쪽1\x0c쪽2 끝"}, {"rel": "b.pdf", "ok": True}]
     p.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs), encoding="utf-8")
     assert [json.loads(x)["rel"] for x in job.jsonl_lines(p)] == ["a.pdf", "b.pdf"]
+
+
+def test_rels_mode_reimports_missed_records_ignoring_offsets(tmp_path, monkeypatch):
+    """읽은 자리를 지나쳤지만 문서함에 없는 원본을 --rels 로 다시 들인다(10/6: 1,133건). 다른 원본은 건드리지 않고 읽은 자리도 그대로."""
+    job = _load("168_import_parsed.py")
+    monkeypatch.setattr(job, "ROOT", tmp_path)
+    (tmp_path / "data" / "platform").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("ZZAIMY_PLATFORM_SQLITE_PATH", str(tmp_path / "t.db"))
+    f = tmp_path / "parsed-0.jsonl"
+    f.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in
+                         [_rec(rel="p/빠진 \"문서\".pdf", filename="b.pdf"), _rec(rel="p/c.hwp", filename="c.hwp")]), encoding="utf-8")
+    off = tmp_path / "data" / "inbox" / "parsed" / ".offsets.json"
+    off.parent.mkdir(parents=True, exist_ok=True)
+    off.write_text(json.dumps({str(f): f.stat().st_size}), encoding="utf-8")      # 이미 다 읽었다고 적힌 자리
+    want = tmp_path / "rels.json"
+    want.write_text(json.dumps(["p/빠진 \"문서\".pdf"], ensure_ascii=False), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["168", "--rels", str(want), str(f)])
+    assert job.main() == 0
+    paths = {d["stored_path"] for d in Database(tmp_path / "t.db").list_documents()}
+    assert paths == {"dgx://p/빠진 \"문서\".pdf"}
+    assert json.loads(off.read_text(encoding="utf-8")) == {str(f): f.stat().st_size}

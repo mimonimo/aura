@@ -65,6 +65,24 @@ def backfill_failures() -> int:
     return n
 
 
+def find_reimport(db, missing: dict[str, str]) -> list[str]:
+    """결과 없는 대상 가운데 VM 의 DGX 결과 사본에 같은 판 정상 기록이 있는 원본 — 168 --rels 로 다시 들일 목록."""
+    hit: set[str] = set()
+    for f in sorted((ROOT / "data" / "inbox" / "parsed").glob("parsed-*.jsonl")):
+        with open(f, encoding="utf-8", newline="") as fh:
+            for line in fh:
+                if '"ok": true' not in line[:4000] and '"ok": true' not in line:
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                rel = r.get("rel")
+                if rel in missing and r.get("chunks") and (r.get("version") or "") == missing[rel]:
+                    hit.add(rel)
+    return sorted(hit)
+
+
 def _jsonl_rels(path: Path, key: str) -> dict[str, dict]:
     out: dict[str, dict] = {}
     if path.is_file():
@@ -91,6 +109,7 @@ def reason(err: str) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill-failures", action="store_true")
+    ap.add_argument("--find-reimport", action="store_true", help="결과 없는 대상 중 DGX 정상 기록이 있는 것을 data/platform/reimport_rels.json 으로")
     args = ap.parse_args()
     if args.backfill_failures:
         print(f"지난 실패 {backfill_failures()}건을 실패 장부에 채움", flush=True)
@@ -99,14 +118,15 @@ def main() -> int:
     origins = _jsonl_rels(PLAT / "origins.jsonl", "origin")
     fails = _jsonl_rels(PLAT / "parse_failures.jsonl", "rel")
     with db._conn() as conn:
-        rows = conn.execute("SELECT rel, ext, dup_of, doc_id, seen_at, COALESCE(removed_at, '') FROM archive_files").fetchall()
+        rows = conn.execute("SELECT rel, ext, dup_of, doc_id, seen_at, COALESCE(removed_at, ''), size, mtime FROM archive_files").fetchall()
     total = len(rows)
     target = done = failed = waiting = 0
     missed: Counter = Counter()
     missed_dirs: Counter = Counter()
     fail_why: Counter = Counter()
     examples: list[str] = []
-    for rel, ext, dup, doc_id, seen_at, removed in rows:
+    no_result: dict[str, str] = {}
+    for rel, ext, dup, doc_id, seen_at, removed, size, mtime in rows:
         e = (ext or "").lower().lstrip(".")
         if removed or e not in DOC_EXT or dup or OUT_OF_SCOPE.search(rel or ""):
             continue
@@ -114,6 +134,7 @@ def main() -> int:
         if doc_id or rel in origins:
             done += 1
             continue
+        no_result[rel] = f"{int(size or 0)}:{int(float(mtime or 0))}"
         if rel in fails:
             failed += 1
             fail_why[reason(fails[rel].get("error", ""))] += 1
@@ -154,7 +175,13 @@ def main() -> int:
         alerts.append(f"어휘 색인 덜 참 {n_lex:,}/{n_chunks:,}")
     if n_docs and n_graph < 0.95 * n_docs:
         alerts.append(f"그래프에 없는 사업 문서 {n_docs - n_graph:,}건")
-    out = {"at": now.strftime("%Y-%m-%d %H:%M"), "archive_files": total, "targets": target, "in_docbox": done, "failed": failed,
+    reimport = []
+    if args.find_reimport:
+        reimport = find_reimport(db, {r: v for r, v in no_result.items() if r not in fails})
+        (PLAT / "reimport_rels.json").write_text(json.dumps(reimport, ensure_ascii=False), encoding="utf-8")
+        if reimport:
+            alerts.append(f"DGX 에서 정상 처리됐는데 문서함에 없는 원본 {len(reimport)}건 — 다시 들임 목록(reimport_rels.json)")
+    out = {"at": now.strftime("%Y-%m-%d %H:%M"), "reimport": len(reimport), "archive_files": total, "targets": target, "in_docbox": done, "failed": failed,
            "waiting": waiting, "missed": sum(missed.values()), "missed_by_ext": dict(missed), "missed_by_dir": dict(missed_dirs.most_common(15)),
            "missed_examples": examples, "failed_by_reason": dict(fail_why), "stuck_docs": stuck, "grant_chunks": n_chunks,
            "embedding_index": n_emb, "lexical_index": n_lex, "grant_docs": n_docs, "graph_doc_nodes": n_graph, "alerts": alerts}
