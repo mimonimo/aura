@@ -1,0 +1,13 @@
+[Unit]
+Description=Sync protected training candidates to Label Studio
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/zzaimy-capstone
+ExecStart=%h/zzaimy-capstone/.venv/bin/python scripts/sync_generated_candidates.py --apply --max-conversations 100
+MemoryMax=1G
+MemorySwapMax=0
+CPUQuota=50%
+Nice=10
+UMask=0077
+TimeoutStartSec=600
