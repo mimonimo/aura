@@ -73,7 +73,17 @@ def windows(chunks, budget=9000):
     for chunk in chunks:
         text = chunk['content']
         if chunk.get('kind') == 'table':
-            text = json.loads(text).get('text', '')
+            try:
+                table = json.loads(text)
+            except (ValueError, TypeError):
+                # Some parsers store already-rendered table text, not JSON.
+                table = None
+            if isinstance(table, dict):
+                text = table.get('text', '')
+            elif table is not None:
+                continue
+        if not isinstance(text, str):
+            continue
         if not text.strip() or len(text) > budget:
             continue
         if group and size + len(text) > budget:
