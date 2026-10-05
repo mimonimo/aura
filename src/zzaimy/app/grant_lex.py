@@ -38,14 +38,20 @@ def sync(db, limit: int = 20000) -> dict:
     from zzaimy.app.grant_search import _text
     from zzaimy.app.regulations import extract_nouns
     ensure(db)
+    # 번호만 가져와 차집합으로 — 133만 줄에 NOT IN·LEFT JOIN 을 걸면 쿼리 제한 시간에 걸렸다(10/5 「statement timeout」)
     with db._conn() as conn:
-        removed = conn.execute(
-            "DELETE FROM grant_lex WHERE chunk_id NOT IN (SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
-            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?))", TEXT_KINDS).rowcount or 0
-        todo = [int(r[0]) for r in conn.execute(
-            "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id LEFT JOIN grant_lex g ON g.chunk_id = c.id"
-            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?) AND g.chunk_id IS NULL"
-            " ORDER BY c.id", TEXT_KINDS).fetchall()]
+        live = {int(r[0]) for r in conn.execute(
+            "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
+            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
+        have = {int(r[0]) for r in conn.execute("SELECT chunk_id FROM grant_lex").fetchall()}
+    gone = sorted(have - live)
+    removed = 0
+    for i in range(0, len(gone), 1000):
+        part = gone[i:i + 1000]
+        with db._conn() as conn:
+            conn.execute(f"DELETE FROM grant_lex WHERE chunk_id IN ({','.join('?' * len(part))})", part)
+        removed += len(part)
+    todo = sorted(live - have)
     added = 0
     for i in range(0, min(len(todo), limit), 500):
         part = todo[i:i + 500]
