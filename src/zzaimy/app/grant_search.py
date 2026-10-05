@@ -235,6 +235,36 @@ PER_DOC = 2
 _QUOTED = re.compile(r"[「『\"“]([^」』\"”]{2,60})[」』\"”]")
 
 
+def section_hits(db, question: str, scope_docs: set[int] | None, limit: int = 12) -> list[int]:
+    """질문에 묶어 적은 절 이름(「행사 개요」)과 제목이 같은 절의 첫 조각 — 범위(사업·연차·갈래) 안 문서에서 그래프 절 노드로.
+    어휘·임베딩 후보 30개에 같은 제목 절이 하나도 못 들던 것(10/5: 같은 해 19개 문서에 있는 「행사 개요」를 놓침)."""
+    phrases = [re.sub(r"\s+", "", m) for m in _QUOTED.findall(question or "")]
+    if not phrases or not scope_docs or len(phrases[0]) < 2:
+        return []
+    ids = sorted(scope_docs)[:5000]
+    with db._conn() as conn:
+        rows = conn.execute(
+            "SELECT doc_id, label, props FROM kg_nodes WHERE type = 'section'"
+            f" AND doc_id IN ({','.join('?' * len(ids))}) AND REPLACE(label, ' ', '') LIKE ? LIMIT 200",
+            (*ids, f"%{phrases[0]}%")).fetchall()
+        picked: list[tuple[int, int]] = []
+        for did, label, props in rows:
+            core = re.sub(r"^[\s\dⅠ-Ⅹ.()가-하\-]{0,6}", "", re.sub(r"\s+", "", label or ""))
+            if core != phrases[0] and len(core) > len(phrases[0]) + 6:
+                continue                                    # 제목이 그 이름이거나 번호만 붙은 것만(긴 제목 속 일부는 아니다)
+            seqs = (json.loads(props or "{}").get("chunks") or [])[:1]
+            if seqs:
+                picked.append((int(did), int(seqs[0])))
+            if len(picked) >= limit:
+                break
+        out: list[int] = []
+        for did, seq in picked:
+            r = conn.execute("SELECT id FROM doc_chunks WHERE doc_id = ? AND seq = ?", (did, seq)).fetchone()
+            if r:
+                out.append(int(r[0]))
+    return out
+
+
 def rerank_hits(question: str, chunks: list[dict]) -> list[dict]:
     """질문에 묶어 적은 문구(「절 이름」·"…")가 있으면 그 문구가 든 조각을 앞으로 — 순서는 그 안에서 그대로(안정 정렬)."""
     phrases = [re.sub(r"\s+", "", m) for m in _QUOTED.findall(question or "")]
@@ -342,6 +372,11 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
             lex = grant_lex.rank(db, query, None, user) if query else []
             den = dense_ids(question, None, scope_docs=None, user=user, db=db)
         merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
+        sec = section_hits(db, question, scope_docs)
+        if sec:
+            # 그래프 축 — 질문에 묶어 적은 절 이름이 있으면 범위 안 문서에서 그 제목의 절(그래프 절 노드)을 바로 후보 앞에
+            steps.append(f"[그래프 절] 「{_QUOTED.findall(question)[0][:30]}」 제목의 절 조각 {len(sec)}개를 먼저")
+            merged = sec + [c for c in merged if c not in set(sec)]
         by_id = {c["id"]: c for c in chunks_by_ids(db, merged[: k * 6])}
         pool = f"색인 {have}개"
     else:
