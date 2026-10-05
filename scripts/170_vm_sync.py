@@ -336,6 +336,7 @@ def main() -> int:
     ext = ROOT / "data" / "platform" / "kg_external.json"
     ledger = json.loads(ext.read_text(encoding="utf-8")) if ext.is_file() else {}
     link = programs.ledger_link(cards, ledger)
+    cards = programs.merge_aliases(cards, link)
     programs.apply_display(cards, link)
     n_np = programs.apply_not_programs([res[d["id"]] for d in docs], cards, ledger, link)
     if n_np:

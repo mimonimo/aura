@@ -798,3 +798,17 @@ def test_school_prefix_and_this_year_are_not_program_names():
 def test_school_prefix_rule_keeps_program_words():
     assert programs._norm_name("전문대학 혁신지원사업") == "전문대학 혁신지원사업"
     assert programs._norm_name("선도대학 육성사업") == "선도대학 육성사업"
+
+
+def test_merge_aliases_leaves_one_card_with_official_name():
+    a = programs.ProgramCard(key="a")
+    a.names.update({"대학일자리센터사업": 5})
+    b = programs.ProgramCard(key="b")
+    b.names.update({"대학일자리플러스센터": 2})
+    ledger = {"programs": [{"name": "대학일자리플러스센터 사업", "terms": ["대학일자리센터", "대학일자리센터사업", "대학일자리플러스센터"],
+                            "sources": ["s"]}]}
+    link = programs.ledger_link([a, b], ledger)
+    cards = programs.merge_aliases([a, b], link)
+    programs.apply_display(cards, link)
+    assert len(cards) == 1 and cards[0].name == "대학일자리플러스센터 사업"
+    assert {"대학일자리센터사업", "대학일자리플러스센터"} <= set(cards[0].names)

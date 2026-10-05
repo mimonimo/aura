@@ -142,8 +142,9 @@ def main() -> int:
                 ans = ar.answer(db, p["q"], scope={"user": None})
                 ctx = getattr(ar, "last_context", "") or " ".join(h["content"] for h in g["hits"])
                 qn = set(_NUM.findall(p["q"]))           # 질문에 있던 숫자(연도 등)는 근거 밖이 아니다
+                ctx_digits = re.sub(r"\D", "", ctx)                 # 「2022.4.1」 = 「2022. 4. 1.」 — 숫자만 남겨 대조
                 nums = [x for x in _NUM.findall(ans) if x not in qn and x not in ctx
-                        and x.replace(",", "") not in ctx.replace(",", "")]
+                        and re.sub(r"\D", "", x) not in ctx_digits]
                 gw, aw = set(_WORD.findall(p["gold"])), set(_WORD.findall(ans))
                 row.update({"answer": ans[:1500], "answer_sec": round(time.time() - t1, 1), "unsupported_numbers": nums[:10],
                             "gold_overlap": round(len(gw & aw) / max(len(aw), 1), 3), "answer_error": ""})
