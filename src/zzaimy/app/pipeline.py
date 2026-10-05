@@ -415,8 +415,14 @@ class DocumentProcessor:
                 exe = soffice()
                 if not exe:
                     raise RuntimeError(f"{why} — 실제 형식은 옛 {real.lstrip('.').upper()}(LibreOffice 없어 못 읽음)")
-                subprocess.run([exe, "--headless", "--convert-to", LEGACY[real].lstrip("."), "--outdir", str(tmp), str(target)],
-                               capture_output=True, timeout=180)
+                # 사용자 프로필은 임시 폴더로 — 작업자 여럿이 같은 프로필로 동시에 띄우면 잠금에 걸려 변환이 실패한다(office_pdf 와 같게)
+                env = {"HOME": str(tmp), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "ko_KR.UTF-8"}
+                try:
+                    subprocess.run([exe, "--headless", "--norestore", f"-env:UserInstallation=file://{tmp}/profile",
+                                    "--convert-to", LEGACY[real].lstrip("."), "--outdir", str(tmp), str(target)],
+                                   capture_output=True, timeout=180, env=env)
+                except subprocess.TimeoutExpired:
+                    pass
                 conv = target.with_suffix(LEGACY[real])
                 if real == ".hwp3" and not conv.is_file():
                     raise RuntimeError(f"{why} — 실제 형식 한글 3.0, LibreOffice 변환 실패")
