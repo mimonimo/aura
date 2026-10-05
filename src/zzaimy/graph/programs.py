@@ -70,6 +70,8 @@ _LEAD_ORG = re.compile(r"^(?:(?:교육부|고용노동부|산업통상자원부|
 # 고유한 낱말 없이 일반어만으로 된 이름(「재정지원 사업」「지자체 연계 사업」) — 사업 하나를 가리키지 않는다
 _GENERIC_WORDS = re.compile(r"사업단?|지원|육성|운영|활성화|재정|국고|정부|교육부|지자체|연계|대학|전문대학|기본|일반|공통|기타|및|등|의|"
                             r"당해|연도|년도|해당|금년|올해|본|각종|관련|"
+                            r"보조금|복지|창업|환경개선|동아리|외부|용역|자료개발|활동|프로그램|교육|"
+                            r"대구광역시|대구시|대구|경상북도|경북|지역|"
                             r"[0-9]+|[()·\s\-+.,]")
 
 
@@ -352,7 +354,8 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             card.key = program_key(card.names.most_common(1)[0][0])
     clean_cards(cards)
     # 막연한 이름만 가진 카드(약칭도 없음)는 사업으로 세우지 않는다 — 그 문서는 검토 대기로 가서 실제 사업을 판정받는다
-    return [c for c in cards if c.acrs or not c.names or not all(vague_name(n) for n in c.names)]
+    # 막연한 이름만 가진 카드(약칭도 없음)·이름도 약칭도 남지 않은 카드는 사업으로 세우지 않는다 — 문서는 검토 대기로
+    return [c for c in cards if (c.acrs or c.names) and (c.acrs or not all(vague_name(n) for n in c.names))]
 
 
 def clean_cards(cards: list[ProgramCard]) -> dict:
@@ -388,6 +391,10 @@ def clean_cards(cards: list[ProgramCard]) -> dict:
             if owner.get(_acr(a), (0, c))[1] is not c:
                 del c.acrs[a]
                 stats["shared_acr"] += 1
+    # 판 표기(VER2.0·v2)는 약칭이 아니다 — 문서 이름 꼬리의 판 번호가 사업 카드로 서던 것(10/5 「VER2.0」)
+    for c in cards:
+        for a in [a for a in c.acrs if re.match(r"(?i)^v(?:er)?[\s._]*\d", a)]:
+            del c.acrs[a]
     own = {k: oc for k, (_n, oc) in owner.items() if len(k) >= 3}
     for c in cards:
         for nm in list(c.names):

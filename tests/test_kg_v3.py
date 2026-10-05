@@ -833,3 +833,25 @@ def test_ledger_alias_keeps_exact_bigger_card_as_representative():
     link = programs.ledger_link([big, small], ledger)
     assert small.node_id not in link["aliases"]                     # 「혁신지원」을 떼어 「전문대학혁신」과 맞추지 않는다
     assert link["owner_of"]["전문대학 혁신지원사업"] == big.node_id
+
+
+def test_more_generic_names_and_version_tags():
+    for n in ("국고보조금 사업", "창업지원사업", "외부 용역사업", "대구시 재정지원사업", "동아리지원사업", "교육환경개선사업"):
+        assert programs.vague_name(n), n
+    for n in ("대구시 창업보육센터 지원사업", "AI바우처 지원사업", "대학생 튜터링 사업", "파란사다리 사업"):
+        assert not programs.vague_name(n), n
+    c = programs.ProgramCard(key="ver")
+    c.acrs.update({"VER2.0": 2})
+    assert programs.clean_cards([c]) is not None and "VER2.0" not in c.acrs
+
+
+def test_year_conflict_between_plan_and_report_sections():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("kg157", Path(__file__).resolve().parents[1] / "scripts" / "157_build_kg.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    assert m.year_conflict("4. 사업 예산집행 계획 4차년도", "4. 사업 예산집행 계획 3차년도 집행")
+    assert m.year_conflict("적정성 (’23.3.1~’24.2.29)", "적정성 (’24.3.1~’25.2.28)")
+    assert not m.year_conflict("인력양성 계획", "인력양성 실적 3차년도")
+    assert not m.year_conflict("3차년도 계획", "3차년도 실적")
