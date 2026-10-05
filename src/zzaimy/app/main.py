@@ -2828,7 +2828,7 @@ def create_app(
     @app.get("/dev/db", response_class=HTMLResponse)
     def dev_db(
         request: Request, tab: str = "", q: str = "", type: str = "",
-        doc: int | None = None, table: str = "",
+        doc: int | None = None, table: str = "", page: int = 0,
     ):
         """데이터 열람 — 문서 중심 탐색기. 탭: 문서·규정·국고 코퍼스·채팅 기록.
 
@@ -2840,8 +2840,10 @@ def create_app(
         from zzaimy.app import data_explorer as dx
 
         tab = dx.normalize_tab(tab, table)
-        index = dx.embedding_index()
-        if tab == "docs":
+        index = dx.embedding_index() if tab != "archive" else {}
+        if tab == "archive":
+            view = dx.archive_tab(db, q=q, page=page)
+        elif tab == "docs":
             def _graph() -> dict | None:
                 from zzaimy.graph.build import build_graph
 

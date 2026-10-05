@@ -180,7 +180,18 @@ table.dx-list tr.on td { background:#edf3fc; }
 </div>
 
 {# ---------------- 문서 ---------------- #}
-{% if tab == 'docs' %}
+{% if tab == 'archive' %}
+<section class="card"><div class="card-in">
+<h2>DGX 반입 원본</h2>
+<p class="muted">원본 목록 {{ view.total }}개 · 문서함 연결은 검색·학습 준비 완료를 뜻하지 않습니다.</p>
+<form method="get"><input type="hidden" name="tab" value="archive"><input name="q" value="{{ q }}" placeholder="사업명 또는 파일 경로"><button type="submit">검색</button></form>
+<div style="overflow-x:auto"><table><thead><tr><th>원본 경로</th><th>사업</th><th>연결 상태</th><th>목록 확인</th></tr></thead><tbody>
+{% for row in view.rows %}<tr><td style="overflow-wrap:anywhere">{{ row.rel }}</td><td>{{ row.program_name or '미분류' }}</td><td>{% if row.doc_id %}<a href="/dev/db?tab=docs&amp;doc={{ row.doc_id }}">문서함 보기</a>{% elif row.dup_of %}중복 후보{% else %}문서함 미연결{% endif %}</td><td>{{ row.seen_at }}</td></tr>
+{% else %}<tr><td colspan="4">검색 결과가 없습니다.</td></tr>{% endfor %}
+</tbody></table></div>
+<p>{% if view.page > 0 %}<a class="btn-ghost" href="/dev/db?tab=archive&amp;q={{ q|urlencode }}&amp;page={{ view.page - 1 }}">이전</a>{% endif %} {{ view.page + 1 }} 페이지 {% if view.has_next %}<a class="btn-ghost" href="/dev/db?tab=archive&amp;q={{ q|urlencode }}&amp;page={{ view.page + 1 }}">다음</a>{% endif %}</p>
+</div></section>
+{% elif tab == 'docs' %}
 <div class="dx-grid">
   <div class="card dx-card"><div class="card-in">
     <form method="get" action="/dev/db" class="dx-search">
