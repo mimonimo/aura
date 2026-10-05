@@ -43,7 +43,7 @@ def _alarm(_sig, _frm):
     raise DocTimeout()
 
 
-_ENV_ERR = re.compile(r"ModuleNotFoundError|LocalEntryNotFoundError|ImportError")
+_ENV_ERR = re.compile(r"ModuleNotFoundError|LocalEntryNotFoundError|ImportError|새 형식 변환 실패")   # 변환 실패는 동시 실행 잠금 탓이었다(10/6)
 
 
 def jsonl_lines(path) -> "list[str]":
