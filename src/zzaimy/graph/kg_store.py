@@ -22,10 +22,29 @@ _SCHEMA = (
 )
 
 
+_READY: set[str] = set()
+
+
 def ensure(db) -> None:
+    """표·색인이 없을 때만 만든다(프로세스마다 한 번 확인).
+
+    예전에는 화면 요청마다 CREATE … IF NOT EXISTS 를 보냈다. 그래프 갱신(157)이 표를 쓰는 동안 이 DDL 이 잠금을 기다리다
+    시간 초과로 화면이 500 이 났다(2026-10-06 「온톨로지 인터널 에러」). 이미 있으면 DDL 을 아예 보내지 않는다."""
+    key = str(getattr(db, "path", id(db)))
+    if key in _READY:
+        return
     with db._conn() as conn:
-        for stmt in _SCHEMA:
-            conn.execute(stmt)
+        have = set()
+        try:      # PostgreSQL — 카탈로그만 읽는다(잠금 없음)
+            for name in ("kg_nodes", "kg_edges", "kg_edges_dst"):
+                if conn.execute("SELECT to_regclass(?)", (name,)).fetchone()[0]:
+                    have.add(name)
+        except Exception:
+            have = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE name IN ('kg_nodes', 'kg_edges', 'kg_edges_dst')")}
+        if not {"kg_nodes", "kg_edges", "kg_edges_dst"} <= have:
+            for stmt in _SCHEMA:
+                conn.execute(stmt)
+    _READY.add(key)
 
 
 def put_node(conn, node_id: str, type_: str, label: str, props: dict | None = None, doc_id: int | None = None) -> None:
