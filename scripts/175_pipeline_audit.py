@@ -193,7 +193,11 @@ def main() -> int:
         n_chunks = conn.execute("SELECT COUNT(*) FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant'"
                                 " AND d.status = 'reviewed' AND c.kind IN ('text', 'table', 'image_text')").fetchone()[0]
         n_lex = conn.execute("SELECT COUNT(*) FROM grant_lex").fetchone()[0] if _has(conn, "grant_lex") else 0
-        n_docs = conn.execute("SELECT COUNT(*) FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'").fetchone()[0]
+        # 범위 밖 갈래(지출·계약 증빙, 규칙 11)는 일부러 그래프·검색에서 뺀다 — 「그래프에 없음」으로 세지 않는다
+        from zzaimy.app.doc_routing import excluded_kinds
+        ex = excluded_kinds()
+        ex_sql = f" AND COALESCE(kind, '') NOT IN ({','.join('?' * len(ex))})" if ex else ""
+        n_docs = conn.execute("SELECT COUNT(*) FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'" + ex_sql, ex).fetchone()[0]
         n_graph = conn.execute("SELECT COUNT(*) FROM kg_nodes WHERE type = 'doc'").fetchone()[0] if _has(conn, "kg_nodes") else 0
     emb = {}
     try:
