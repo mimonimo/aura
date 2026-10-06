@@ -26,8 +26,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from zzaimy.app.db import Database  # noqa: E402
 from zzaimy.graph import indicators, kg_store, programs, sections, units  # noqa: E402
 
-KIND_LABEL = {"plan": "계획서", "report": "실적보고서", "evaluation": "평가 결과", "form": "양식", "criteria": "평가 기준",
-              "announcement": "공고", "basic_plan": "기본계획", "guideline": "지침·매뉴얼", "regulation": "규정"}
+# 갈래 이름은 반입 분류기(doc_routing.KINDS)를 따르고, 사업 문서에서 쓰는 말만 덮어쓴다 — 따로 두면 빠진 갈래가 영어로 남는다
+from zzaimy.app.doc_routing import KINDS as _KINDS  # noqa: E402
+
+KIND_LABEL = {**_KINDS, "report": "실적보고서", "evaluation": "평가 결과", "criteria": "평가 기준"}
 
 
 def _ids(spec: str) -> list[int]:

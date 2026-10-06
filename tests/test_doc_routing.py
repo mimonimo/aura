@@ -166,3 +166,17 @@ def test_kind_rules_cover_posters_spaced_headers_and_subtitled_reports():
     assert guess_kind("문경에서 달리고,놀고,자자!RUN·MUSIC·CAMP·ECO", "다이나믹 리버런 참가시 우선 자리 배정 신청하기 *선착순 접수")[0] == "notice"
     assert guess_kind("Island, Connecting the Ocean and the Future", "섬, 바다와 미래를 잇다 2026 여수세계섬박람회")[0] == "notice"
 
+
+
+def test_general_document_kinds_from_title_words():
+    """서류 종류에 붙는 일반 낱말 — 증빙·교육과정·회의·홍보·도면·개인 제출물(2026-10-06 갈래 미정 표본)."""
+    from zzaimy.app.doc_routing import guess_kind
+
+    cases = {
+        "제작견적서-OO애드컴.pdf": "evidence", "통장사본 _ 홍길동.pdf": "evidence", "OO협회 사업자사본.pdf": "evidence",
+        "광고 위탁 계약서.pdf": "evidence", "2014학년도 OO과 교과과정 편성 및 분석표.hwp": "curriculum",
+        "운영위원회 회의록.hwp": "minutes", "OO과 리플렛.pdf": "promo", "1층 평면도.pdf": "drawing",
+        "현장실습수기 홍길동.hwp": "personal", "사업자등록증.pdf": "certificate", "2024 사업계획서.hwp": "plan",
+    }
+    for name, kind in cases.items():
+        assert guess_kind(name, "")[0] == kind, name

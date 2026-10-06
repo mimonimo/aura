@@ -47,6 +47,14 @@ PER_GROUP = 12          # 관계 종류·방향·상대 종류마다 한 번에 
 _cache: dict = {}
 
 
+def _kind_ko() -> dict:
+    from zzaimy.app.doc_routing import KINDS
+    return {**KINDS, "report": "실적보고서", "evaluation": "평가 결과", "criteria": "평가 기준"}
+
+
+_KIND_KO = _kind_ko()      # 그래프를 다시 짓기 전 옛 노드에 남은 영어 갈래 이름(notice·table…)도 우리말로
+
+
 def _scope(request: Request) -> dict:
     return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
 
@@ -218,7 +226,9 @@ def schema(db) -> dict:
     with db._conn() as conn:
         sub: dict[str, int] = defaultdict(int)
         for r in conn.execute("SELECT props FROM kg_nodes WHERE type = 'doc'"):
-            sub[_props(r[0]).get("kind_label") or "갈래 미정"] += 1
+            p = _props(r[0])
+            lab = p.get("kind_label") or ""
+            sub[_KIND_KO.get(lab, lab) or "갈래 미정"] += 1
         attrs: dict[str, dict[str, int]] = {}
         for t in types:
             seen: dict[str, int] = defaultdict(int)
