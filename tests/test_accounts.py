@@ -62,9 +62,15 @@ def test_self_password_change_requires_current_password(tmp_path):
 def test_profile_menu_changes_only_own_account(tmp_path):
     c = TestClient(_app(tmp_path))
     _login(c, "zzaimy", "boot-pass-1")
-    page = c.get("/").text
+    assert 'href="/settings"' in c.get("/").text and "내 설정" in c.get("/").text   # 계정 메뉴는 「내 설정」 하나(2026-10-06)
+    page = c.get("/settings").text
     assert "비밀번호 변경" in page and 'name="target"' not in page   # 다른 계정 선택 라디오 없음
     assert 'action="/account/password"' in page
+    # 프로필은 계정마다 따로 저장된다
+    c.post("/settings", data={"name": "김담당", "call_me": "", "instructions": "근거 조항을 적는다"})
+    d = TestClient(c.app)
+    _login(d, "zzdev", "devpass")
+    assert "김담당" not in d.get("/settings").text and "김담당" in c.get("/settings").text
     assert c.post("/dev/account", data={"target": "zzdev", "new_pw": "x"}).status_code == 404
 
 
