@@ -12,6 +12,16 @@ Claude 요청: 공개 여부는 DB의 public 기본값이나 파일명만으로 
 규정·지침3개와 중장기 보고서 본문 추출 확인, VISION2030은 텍스트 부족으로 OCR 대기.
 옛 생성 서비스/게시 타이머 disabled·inactive, 웹 active. 원본 반입 서비스는 변경하지 않음.
 새 후보는 자동 승인·학습하지 않는다. 검색계획은 실제 도구 실행 기록이라고 표시하지 않는다.
+52f816d4 배포. 사용자 지정4본문 추출 완료(규정01 657345자, 규정02 293759자,
+지침387345자, 연구보고서281351자), VISION2030 OCR 대기. 내부 문서 전문 신규 복사는
+자동 승인에서 거절됨. 우회하지 않고 기존 archive_files의 사업-문서유형 메타데이터만
+일반화한 서로 다른 구조12개 사용. 원문·수치·기관 내부 내용은 해당 학습 입력에 없음.
+VM zzaimy-track-policy / zzaimy-track-program transient service 실행 확인.
+기존 LS5 1329태스크·LS2 28태스크 전체 설정/주석 백업 해시 확인 후 삭제.
+data/training/retired/20261006T023754Z 에 옛 후보1011창과 legacy 산출물·LS 백업 보관(복구 가능).
+새 LS6 규정·발전계획 / LS7 사업 구조·검색 활용 생성. 현재 candidate 게시, 자동승인 없음.
+Claude 요청: /dev/train 현황은 기존 LS PROJECT5가 아니라 tracks/labelstudio-status.json의 두 묶음으로
+연동 필요. main.py 동시 작업 중이므로 Codex는 그 파일 수정하지 않음.
 
 ## C-218 — DGX 보관소 화면·원본 열람 (2026-10-06)
 
