@@ -37,7 +37,7 @@ def _vec(v: np.ndarray) -> str:
 
 def load(db, ids: np.ndarray, vecs: np.ndarray, batch: int = 2000) -> int:
     with db._conn() as conn:
-        conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        # 확장은 관리자가 켠다(sudo -u postgres psql -c "CREATE EXTENSION vector") — 앱 계정은 만들 권한이 없다
         conn.execute(f"CREATE TABLE IF NOT EXISTS grant_vec (chunk_id BIGINT PRIMARY KEY, doc_id BIGINT, emb halfvec({vecs.shape[1]}))")
         have = {int(r[0]) for r in conn.execute("SELECT chunk_id FROM grant_vec")}
     todo = [i for i, c in enumerate(ids.tolist()) if int(c) not in have]
@@ -47,20 +47,22 @@ def load(db, ids: np.ndarray, vecs: np.ndarray, batch: int = 2000) -> int:
         for r in conn.execute("SELECT id, doc_id FROM doc_chunks"):
             doc_of[int(r[0])] = int(r[1])
     t0 = time.time()
+    batch = 50000                      # COPY 한 번에 5만 줄 — 줄마다 INSERT 하면 129만 줄에 몇 시간
     for k in range(0, len(todo), batch):
         part = todo[k:k + batch]
-        rows = [(int(ids[i]), doc_of.get(int(ids[i])), _vec(vecs[i])) for i in part]
         with db._conn() as conn:
-            conn.executemany("INSERT INTO grant_vec (chunk_id, doc_id, emb) VALUES (?, ?, ?::halfvec) ON CONFLICT DO NOTHING", rows)
-        if (k // batch) % 50 == 0:
-            done = k + len(part)
-            print(f"  {done:,}/{len(todo):,} ({time.time() - t0:.0f}초)", flush=True)
+            conn.raw.execute("SET statement_timeout = 0")
+            with conn.raw.cursor().copy("COPY grant_vec (chunk_id, doc_id, emb) FROM STDIN") as cp:
+                for i in part:
+                    cp.write_row((int(ids[i]), doc_of.get(int(ids[i])), _vec(vecs[i])))
+        print(f"  {k + len(part):,}/{len(todo):,} ({time.time() - t0:.0f}초)", flush=True)
     return len(todo)
 
 
 def index(db) -> float:
     t0 = time.time()
     with db._conn() as conn:
+        conn.raw.execute("SET statement_timeout = 0")          # 색인 만들기는 기본 60초 상한을 넘는다
         conn.execute("SET maintenance_work_mem = '8GB'")
         conn.execute("SET max_parallel_maintenance_workers = 4")
         conn.execute("CREATE INDEX IF NOT EXISTS grant_vec_hnsw ON grant_vec USING hnsw (emb halfvec_ip_ops) WITH (m = 16, ef_construction = 64)")
@@ -78,10 +80,16 @@ def duel(db, ids: np.ndarray, vecs: np.ndarray, n: int, seed: int, ef: int) -> d
     qs = rng.choice(len(ids), size=n, replace=False)
     pos_doc: dict[int, int] = {}
     with db._conn() as conn:
+        conn.raw.execute("SET statement_timeout = 0")
         for r in conn.execute("SELECT chunk_id, doc_id FROM grant_vec"):
             pos_doc[int(r[0])] = int(r[1]) if r[1] is not None else -1
         size = conn.execute("SELECT pg_size_pretty(pg_total_relation_size('grant_vec'))").fetchone()[0]
     res = {"exact_ms": [], "hnsw_ms": [], "r10": [], "r50": [], "scope_exact_ms": [], "scope_hnsw_ms": [], "scope_r10": []}
+    hc_ctx = db._conn()
+    hc = hc_ctx.__enter__()                       # 잰 시간에 접속 비용이 섞이지 않게 질의 연결 하나를 계속 쓴다
+    hc.raw.execute("SET statement_timeout = 0")
+    hc.execute(f"SET hnsw.ef_search = {ef}")
+    hc.execute("SET hnsw.iterative_scan = relaxed_order")
     for qi in qs.tolist():
         q = vecs[qi].astype(np.float32)
         me = int(ids[qi])
@@ -92,10 +100,8 @@ def duel(db, ids: np.ndarray, vecs: np.ndarray, n: int, seed: int, ef: int) -> d
         exact = [int(ids[i]) for i in top if int(ids[i]) != me][:50]
         res["exact_ms"].append((time.time() - t) * 1000)
         t = time.time()
-        with db._conn() as conn:
-            conn.execute(f"SET hnsw.ef_search = {ef}")
-            got = [int(r[0]) for r in conn.execute(
-                "SELECT chunk_id FROM grant_vec ORDER BY emb <#> ?::halfvec LIMIT 51", (_vec(q),))]
+        got = [int(r[0]) for r in hc.execute(
+            "SELECT chunk_id FROM grant_vec ORDER BY emb <#> ?::halfvec LIMIT 51", (_vec(q),))]
         got = [c for c in got if c != me][:50]
         res["hnsw_ms"].append((time.time() - t) * 1000)
         res["r10"].append(len(set(got[:10]) & set(exact[:10])) / 10)
@@ -117,15 +123,13 @@ def duel(db, ids: np.ndarray, vecs: np.ndarray, n: int, seed: int, ef: int) -> d
             ex2 = [int(ids[i]) for i in idx[np.argsort(-s2)[:11]] if int(ids[i]) != me][:10]
             res["scope_exact_ms"].append((time.time() - t) * 1000)
             t = time.time()
-            with db._conn() as conn:
-                conn.execute(f"SET hnsw.ef_search = {ef}")
-                conn.execute("SET hnsw.iterative_scan = relaxed_order")
-                ph = ",".join("?" * len(docs))
-                g2 = [int(r[0]) for r in conn.execute(
-                    f"SELECT chunk_id FROM grant_vec WHERE doc_id IN ({ph}) ORDER BY emb <#> ?::halfvec LIMIT 11", (*docs, _vec(q)))]
+            ph = ",".join("?" * len(docs))
+            g2 = [int(r[0]) for r in hc.execute(
+                f"SELECT chunk_id FROM grant_vec WHERE doc_id IN ({ph}) ORDER BY emb <#> ?::halfvec LIMIT 11", (*docs, _vec(q)))]
             g2 = [c for c in g2 if c != me][:10]
             res["scope_hnsw_ms"].append((time.time() - t) * 1000)
             res["scope_r10"].append(len(set(g2) & set(ex2)) / max(len(ex2), 1))
+    hc_ctx.__exit__(None, None, None)
     summ = {"n": n, "ef_search": ef, "table_size": size, "array_bytes": int(vecs.nbytes),
             "recall@10": round(statistics.mean(res["r10"]), 3), "recall@50": round(statistics.mean(res["r50"]), 3),
             "exact_ms_p50": round(_pct(res["exact_ms"], .5)), "exact_ms_p95": round(_pct(res["exact_ms"], .95)),
