@@ -14,7 +14,8 @@ import json
 from pathlib import Path
 
 DEFAULT = {
-    "dept_of_area": {"링크": "LINC사업단", "앵커": "앵커사업단", "산단": "산학협력단"},
+    # LINC·앵커 사업단은 산학협력단 소속이라 한 공간으로 묶는다
+    "dept_of_area": {"링크": "산학협력단", "앵커": "산학협력단", "산단": "산학협력단"},
     "spaces": [
         {"id": "student", "label": "학생 — 학사 규정", "roles": ["student"],
          "regulation": {"audience": "student"}, "grant": False},
@@ -23,7 +24,7 @@ DEFAULT = {
     ],
     # 부서가 정해진 교직원은 공간을 따로 적지 않아도 dept:<부서> 공간을 받는다 — 그 부서 사업 문서 + 공통·그 부서 규정
     "dept_default": {"regulation": {}, "grant": True},
-    # 계정별 추가 권한 — {"계정": ["dept:LINC사업단", …]}. 그 공간의 사업 문서 부서가 검색 범위에 더해진다
+    # 계정별 추가 권한 — {"계정": ["dept:산학협력단", …]}. 그 공간의 사업 문서 부서가 검색 범위에 더해진다
     "grants": {},
 }
 
