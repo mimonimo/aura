@@ -27,7 +27,7 @@ KIND_KO = {
     "integrated_into": ("편입됨", "편입받음"), "succeeded_by": ("후속 사업", "전신 사업"),
 }
 SEARCH_TYPES = ("program_group", "program", "year", "unit", "indicator", "doc")
-PER_GROUP = 30          # 관계 종류·방향마다 한 번에 보내는 이웃 수
+PER_GROUP = 12          # 관계 종류·방향·상대 종류마다 한 번에 보내는 이웃 수 — 많으면 한 화면에서 읽히지 않는다(10/6 크롬 확인)
 _cache: dict = {}
 
 
