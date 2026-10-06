@@ -214,7 +214,8 @@ def schema(db) -> dict:
             " JOIN kg_nodes a ON a.id = e.src JOIN kg_nodes b ON b.id = e.dst GROUP BY a.type, b.type, e.kind, e.basis")]
     for r in rels:
         r["label"] = KIND_KO.get(r["kind"], (r["kind"],))[0]
-        # 문서의 하위 종류(갈래)와 종류별 속성 — 실제 노드에서 센다(속성은 종류마다 앞 300개를 본다)
+    # 문서의 하위 종류(갈래)와 종류별 속성 — 실제 노드에서 센다(속성은 종류마다 앞 300개를 본다)
+    with db._conn() as conn:
         sub: dict[str, int] = defaultdict(int)
         for r in conn.execute("SELECT props FROM kg_nodes WHERE type = 'doc'"):
             sub[_props(r[0]).get("kind_label") or "갈래 미정"] += 1
