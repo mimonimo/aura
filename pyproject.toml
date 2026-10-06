@@ -19,7 +19,6 @@ dependencies = [
 postgres = ["psycopg[binary]>=3.2,<4"]
 # 파서 bake-off (TASK-04) — 무겁다. Spark에서만 설치해도 된다
 parsers = [
-    "docling>=2.0",
     "mineru[core]>=2.0",
     "python-hwpx==6.3.0",
     "pyhwp>=0.1b15",   # .hwp(HWP 5.0 바이너리) 텍스트 추출 (ADR-0014 읽기 경로)
@@ -37,6 +36,8 @@ app = [
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
     "openai>=1.40",
+    "rdflib>=7.1,<8",   # 온톨로지 OWL·RDF 내보내기(ADR-0056)
+    "pyshacl>=0.30",    # SHACL 검사
 ]
 dev = [
     "pytest>=8.0",

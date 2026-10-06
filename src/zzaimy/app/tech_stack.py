@@ -33,6 +33,8 @@ STACK: list[tuple] = [
     ("온톨로지", "외부 확인 장부(kg_external.json)", "사업 체계·이름 변경·편입·주관 부처·전담기관 — 항목마다 출처 URL", None, "", "우리 데이터", "운영 VM data/platform",
      "ADR-0055"),
     ("온톨로지", "온톨로지 점검(174)", "규칙 위반·고립 노드·근거 없는 관계 점검", None, "", "우리 코드", "scripts/174_ontology_audit.py", ""),
+    ("온톨로지", "rdflib", "온톨로지 설계도(OWL)·인스턴스(RDF) 내보내기 — Protégé·WebVOWL 로 열린다", "rdflib", "", "", "운영 VM", "ADR-0056"),
+    ("온톨로지", "pySHACL", "표준 검사 규칙(SHACL, graph/shapes.ttl)으로 그래프 검사", "pyshacl", "", "", "운영 VM", "ADR-0056"),
     # ── 판독(문서 읽기)
     ("판독", "kordoc", "한글(hwp/hwpx)·docx·xlsx 구조 읽기 1순위", None, "4.15.7", "MIT", "DGX", "ADR-0033·0051"),
     ("판독", "MinerU", "스캔 PDF OCR(표·레이아웃)", None, "3.4.5", "MinerU Open Source License", "DGX", "ADR-0007"),

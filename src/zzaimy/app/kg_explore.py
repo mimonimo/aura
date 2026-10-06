@@ -249,7 +249,42 @@ def schema(db) -> dict:
 
 @router.get("/graph/explore/schema")
 def explore_schema(request: Request):
-    return JSONResponse(schema(request.app.state.db))
+    out = dict(schema(request.app.state.db))
+    rep = _ontology_dir(request) / "shacl_report.json"
+    try:
+        out["shacl"] = json.loads(rep.read_text(encoding="utf-8"))          # 표준 검사 결과(scripts/177)
+    except (OSError, ValueError):
+        out["shacl"] = None
+    return JSONResponse(out)
+
+
+def _ontology_dir(request: Request):
+    """scripts/177 이 쓰는 곳 — 플랫폼 DB 파일 옆 ontology/ (운영 PostgreSQL 이어도 경로 값은 data/platform/platform.db)."""
+    from pathlib import Path
+    return Path(getattr(request.app.state.db, "path", "data/platform/platform.db")).parent / "ontology"
+
+
+@router.get("/graph/explore/ontology.ttl")
+def ontology_ttl(request: Request):
+    """온톨로지 설계도(OWL, Turtle) — 내보낸 파일이 있으면 그것, 없으면 지금 그래프에서 만든다. Protégé·WebVOWL 로 연다."""
+    from fastapi.responses import Response
+    f = _ontology_dir(request) / "ontology.ttl"
+    if f.is_file():
+        body = f.read_text(encoding="utf-8")
+    else:
+        from zzaimy.graph import ontology_rdf
+        body = ontology_rdf.schema_graph(schema(request.app.state.db), _KIND_KO).serialize(format="turtle")
+    return Response(body, media_type="text/turtle; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=zzaimy-ontology.ttl"})
+
+
+@router.get("/graph/explore/shapes.ttl")
+def shapes_ttl(request: Request):
+    """검사 규칙(SHACL, Turtle)."""
+    from fastapi.responses import Response
+    from zzaimy.graph import ontology_rdf
+    return Response(ontology_rdf.SHAPES.read_text(encoding="utf-8"), media_type="text/turtle; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=zzaimy-shapes.ttl"})
 
 
 @router.get("/graph/explore", response_class=HTMLResponse)
