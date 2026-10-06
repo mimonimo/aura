@@ -2135,6 +2135,14 @@ def create_app(
             "text": "\n\n".join(parts),
         }
 
+    def _doc_access_sql(request: Request) -> tuple[str, list]:
+        """문서 목록 SQL 의 열람 조건(access_policy.visible 과 같은 규칙, 학생 제외 — 학생은 이 화면들에 못 온다). 관리자는 조건 없음."""
+        if request.state.role == "dev":
+            return "", []
+        return (" AND (COALESCE(d.access_level, 'public') = 'public'"
+                " OR (d.access_level = 'dept' AND (COALESCE(d.dept, '공통') = '공통' OR COALESCE(d.dept, '공통') = ?))"
+                " OR COALESCE(d.owner, '') = ?)", [getattr(request.state, "dept", "") or "", request.state.user or ""])
+
     @app.get("/search", response_class=HTMLResponse)
     def search_all(request: Request, q: str = ""):
         """한 곳에서 찾기 — 문서·대화·근거 조각. 상단 검색창이 여기로 온다.
@@ -2147,21 +2155,35 @@ def create_app(
         docs, chats, chunks, docs_more = [], [], [], False
         if term:
             owner = getattr(request.state, "user", "zzaimy")
-            found = db.list_documents(q=term)
+            # 열람 권한은 SQL 에서(문서함과 같은 규칙) — 예전에는 거르지 않아 남의 담당자 한정 문서 이름·본문이 보였다(2026-10-06)
+            acc, acc_args = _doc_access_sql(request)
+            with db._conn() as conn:
+                found = [dict(r) for r in conn.execute(
+                    "SELECT d.id, d.filename, d.doc_type, d.status, d.created_at, d.receipt_no, d.project_id, d.kind FROM documents d"
+                    f" WHERE d.filename LIKE ?{acc} ORDER BY d.id DESC LIMIT 11", [f"%{term}%", *acc_args]).fetchall()]
             seen = {d["id"] for d in found}
-            with db._conn() as conn:      # 이름뿐 아니라 본문에서도 찾는다
-                for r in conn.execute(
-                    "SELECT * FROM documents WHERE instr(lower(COALESCE(masked_text,'')), lower(?)) > 0"
-                    " ORDER BY id DESC LIMIT 20", (term,)):
-                    if r["id"] not in seen:
-                        found.append(dict(r))
-                        seen.add(r["id"])
+            for d in found:
+                d["snippet"] = ""
+            # 본문은 사업 문서 어휘 색인(grant_lex)으로 — 본문 846MB 를 처음부터 훑지 않는다. 권한은 색인 조회에서 거른다
+            if len(found) < 11:
+                try:
+                    from zzaimy.app import grant_lex, grant_search
+                    from zzaimy.app.regulations import extract_nouns
+
+                    user = None if request.state.role == "dev" else (request.state.user or "")
+                    ids = grant_lex.rank(db, extract_nouns(term), None, user, limit=60)
+                    for h in grant_search.chunks_by_ids(db, ids[:60]):
+                        if h["doc_id"] in seen or len(found) >= 11:
+                            continue
+                        body = h["content"] or ""
+                        i = body.lower().find(term.lower())
+                        found.append({"id": h["doc_id"], "filename": h["filename"], "doc_type": "grant", "status": "reviewed",
+                                      "snippet": " ".join((body[max(0, i - 40):i + 80] if i >= 0 else body[:120]).split())})
+                        seen.add(h["doc_id"])
+                except Exception:
+                    pass
             docs_more = len(found) > 10
-            for d in found[:10]:
-                body = (d.get("masked_text") or "")
-                i = body.lower().find(term.lower())
-                docs.append(dict(d, snippet=(" ".join(body[max(0, i - 40):i + 80].split())
-                                             if i >= 0 else "")))
+            docs = found[:10]
             rows = chat_history.sessions(owner, term, False, 0, 10,
                                          chat_topics.match_clause(term), 'all')
             names = chat_topics.topics([r["id"] for r in rows])
@@ -2180,7 +2202,8 @@ def create_app(
             try:
                 from zzaimy.app.regulations import sparse_search
 
-                for h in sparse_search(db, term, top_k=8):
+                sc = {} if request.state.role == "dev" else {"dept": getattr(request.state, "dept", "") or "공통", "user": request.state.user or ""}
+                for h in sparse_search(db, term, top_k=8, **sc):
                     body = h.get("content") or ""
                     i = body.lower().find(term.lower())
                     chunks.append({
@@ -2190,6 +2213,12 @@ def create_app(
                     })
             except Exception:
                 chunks = []
+            # 규정 문서는 본문 대신 규정 조각 검색(권한 범위 안)에서 찾은 문서로 채운다
+            for h in chunks:
+                if h["doc_id"] is not None and h["doc_id"] not in seen and len(docs) < 10:
+                    docs.append({"id": h["doc_id"], "filename": h["reg_title"], "doc_type": "regulation", "status": "reviewed",
+                                 "snippet": h["snippet"][:120]})
+                    seen.add(h["doc_id"])
         return templates.TemplateResponse(request, "search.html", ctx(request, {
             "q": term, "docs": docs, "docs_more": docs_more, "chats": chats, "chunks": chunks,
         }))
@@ -2216,12 +2245,8 @@ def create_app(
         except ValueError:
             ipage = 0
         per = 100
-        cond, args = ["d.doc_type <> 'regulation'"], []
-        if request.state.role != "dev":
-            cond.append("(COALESCE(d.access_level, 'public') = 'public'"
-                        " OR (d.access_level = 'dept' AND (COALESCE(d.dept, '공통') = '공통' OR COALESCE(d.dept, '공통') = ?))"
-                        " OR COALESCE(d.owner, '') = ?)")
-            args += [getattr(request.state, "dept", "") or "", request.state.user or ""]
+        acc, acc_args = _doc_access_sql(request)
+        cond, args = ["d.doc_type <> 'regulation'" + acc], list(acc_args)
         if iq:
             cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?)")
             args += [f"%{iq}%", f"%{iq}%"]
