@@ -34,6 +34,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from zzaimy.app.db import Database  # noqa: E402
 
 DOC_EXT = {"hwp", "hwpx", "pdf", "docx", "xlsx", "pptx", "xls", "doc", "ppt"}
+IMG_EXT = {"jpg", "jpeg", "png", "bmp", "gif", "tif", "tiff", "heic", "webp"}
+ARC_EXT = {"zip", "7z", "rar", "egg", "alz"}
 OUT_OF_SCOPE = re.compile(r"지출|증빙|스캔|영수|정산|집행")      # 절대 규칙 11 — DGX 주기 처리(zz_dgx_cycle.sh)와 같은 기준
 LAG_H = 6
 PLAT = ROOT / "data" / "platform"
@@ -128,10 +130,29 @@ def main() -> int:
     fail_why: Counter = Counter()
     examples: list[str] = []
     no_result: dict[str, str] = {}
+    comp: Counter = Counter()
+    missed_rows: list[dict] = []
+    failed_rows: list[dict] = []
     for rel, ext, dup, doc_id, seen_at, removed, size, mtime in rows:
         e = (ext or "").lower().lstrip(".")
-        if removed or e not in DOC_EXT or dup or OUT_OF_SCOPE.search(rel or ""):
+        if removed:
             continue
+        if e in IMG_EXT:
+            comp["사진·그림"] += 1
+            continue
+        if e in ARC_EXT:
+            comp["압축 파일"] += 1
+            continue
+        if e not in DOC_EXT:
+            comp["기타 비문서(회계 서식·동영상 등)"] += 1
+            continue
+        if dup:
+            comp["같은 파일 중복"] += 1
+            continue
+        if OUT_OF_SCOPE.search(rel or ""):
+            comp["범위 밖(지출·증빙·정산 등)"] += 1
+            continue
+        comp["처리 대상 문서"] += 1
         target += 1
         if doc_id or rel in origins:
             done += 1
@@ -139,7 +160,9 @@ def main() -> int:
         no_result[rel] = f"{int(size or 0)}:{int(float(mtime or 0))}"
         if rel in fails:
             failed += 1
-            fail_why[reason(fails[rel].get("error", ""))] += 1
+            why = reason(fails[rel].get("error", ""))
+            fail_why[why] += 1
+            failed_rows.append({"rel": rel, "reason": why, "error": fails[rel].get("error", "")[:160]})
             continue
         try:
             age = now - datetime.fromisoformat(str(seen_at)[:19].replace(" ", "T"))
@@ -150,6 +173,7 @@ def main() -> int:
             continue
         missed[e] += 1
         missed_dirs["/".join(rel.split("/")[:2])] += 1
+        missed_rows.append({"rel": rel, "ext": e, "seen_at": str(seen_at)[:16]})
         if len(examples) < 10:
             examples.append(rel)
     with db._conn() as conn:
@@ -185,7 +209,11 @@ def main() -> int:
         (PLAT / "reimport_rels.json").write_text(json.dumps(reimport, ensure_ascii=False), encoding="utf-8")
         if reimport:
             alerts.append(f"DGX 에서 정상 처리됐는데 문서함에 없는 원본 {len(reimport)}건 — 다시 들임 목록(reimport_rels.json)")
-    out = {"at": now.strftime("%Y-%m-%d %H:%M"), "reimport": len(reimport), "archive_files": total, "targets": target, "in_docbox": done, "failed": failed,
+    for name, rows_ in (("pipeline_missed.jsonl", missed_rows), ("pipeline_failed.jsonl", failed_rows)):
+        tmpf = PLAT / f".{name}.tmp"
+        tmpf.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows_), encoding="utf-8")
+        tmpf.replace(PLAT / name)                         # 화면의 목록 내려받기(/dev/intake)가 읽는다
+    out = {"at": now.strftime("%Y-%m-%d %H:%M"), "reimport": len(reimport), "composition": dict(comp), "archive_files": total, "targets": target, "in_docbox": done, "failed": failed,
            "waiting": waiting, "missed": sum(missed.values()), "missed_by_ext": dict(missed), "missed_by_dir": dict(missed_dirs.most_common(15)),
            "missed_examples": examples, "failed_by_reason": dict(fail_why), "stuck_docs": stuck, "grant_chunks": n_chunks,
            "embedding_index": n_emb, "lexical_index": n_lex, "grant_docs": n_docs, "graph_doc_nodes": n_graph, "alerts": alerts}
