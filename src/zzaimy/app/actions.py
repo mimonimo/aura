@@ -60,7 +60,7 @@ REGISTRY: tuple[Action, ...] = (
     Action("criteria.list", "기준 문서 목록", "/criteria", "get", (),
            ("기준", "규정", "지침", "학칙")),
     Action("docs.list", "접수 문서함", "/", "get", (), ("문서함", "접수", "목록")),
-    Action("graph.open", "지식 그래프", "/graph", "get", (),
+    Action("graph.open", "지식 그래프", "/graph/explore", "get", (),
            ("그래프", "연관", "관계")),
 
     # ---- 모델과 연결 ----

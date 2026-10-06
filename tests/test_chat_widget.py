@@ -171,58 +171,6 @@ def test_keeps_answer_when_model_answers_first_try(monkeypatch):
     assert len(fake.chat.completions.calls) == 1             # 쓸데없이 다시 부르지 않는다
 
 
-# ---- 지식 그래프 근거 문장 (본문 전체에서 찾는다) ----
-
-def test_graph_evidence_quotes_from_full_text(tmp_path):
-    from zzaimy.app.db import Database
-
-    c = _client(tmp_path)
-    db = Database(tmp_path / "t.db")
-    c.post("/upload", files={"file": ("인용문서.pdf", b"%PDF fake", "application/pdf")})
-    c.post("/upload", files={"file": ("피인용문서.pdf", b"%PDF fake", "application/pdf")})
-
-    class _C:
-        def __init__(self, heading, content):
-            self.heading, self.content = heading, content
-
-    # 근거 표현은 앞부분이 아니라 한참 뒤에 둔다 — 미리보기 구간 밖에서도 찾아야 한다
-    filler = "앞부분 문장입니다. " * 300
-    db.add_regulation_chunks(1, "인용 규정", [
-        _C("제1조", filler),
-        _C("제9조", "이 절차는 영남이공대학교 학칙 제19조에 따른다."),
-    ])
-    db.add_regulation_chunks(2, "영남이공대학교 학칙", [_C("제19조", "휴학에 관한 조문입니다.")])
-
-    r = c.get("/graph/evidence", params={"kind": "cites", "s": "d1", "t": "d2"})
-    assert r.status_code == 200
-    body = r.json()
-    assert body["ok"] is True
-    assert body["term"] == "영남이공대학교 학칙"
-    assert body["quotes"] and "제19조에 따른다" in body["quotes"][0]["text"]
-    assert body["quotes"][0]["heading"] == "제9조"
-
-
-def test_graph_evidence_reports_when_term_absent(tmp_path):
-    from zzaimy.app.db import Database
-
-    c = _client(tmp_path)
-    db = Database(tmp_path / "t.db")
-    c.post("/upload", files={"file": ("문서.pdf", b"%PDF fake", "application/pdf")})
-
-    class _C:
-        def __init__(self, heading, content):
-            self.heading, self.content = heading, content
-
-    db.add_regulation_chunks(1, "어떤 규정", [_C("제1조", "관련 없는 본문입니다.")])
-    body = c.get("/graph/evidence", params={"s": "d1", "term": "없는 이름"}).json()
-    assert body["ok"] is False and body["n"] == 0    # 없으면 없다고 말한다
-
-
-def test_graph_evidence_rejects_non_document_source(tmp_path):
-    body = _client(tmp_path).get("/graph/evidence", params={"s": "e42", "term": "가"}).json()
-    assert body["ok"] is False
-
-
 # ---- 외부 참조 — 토큰화 후 외부 처리, 답은 교내 모델이 만든다 ----
 
 def test_chat_no_longer_offers_legacy_external_api(tmp_path):

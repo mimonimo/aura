@@ -2111,61 +2111,6 @@ def create_app(
             status_code=303,
         )
 
-    @app.get("/graph/evidence")
-    def graph_evidence(request: Request, kind: str = "", s: str = "", t: str = "", term: str = ""):
-        """두 문서를 이은 근거 문장 — 미리보기 앞부분이 아니라 본문 전체에서 찾는다.
-
-        s 는 출처 문서 노드(dN), t 는 상대 노드, term 은 화면이 이미 아는 표현이다.
-        term 이 없고 인용 관계이면 상대 문서의 규정 제목을 근거 표현으로 삼는다.
-        """
-        if not s.startswith("d") or not s[1:].isdigit():
-            return {"ok": False, "term": "", "quotes": [], "n": 0, "error": "출처 문서가 아닙니다"}
-        src_id = int(s[1:])
-        for node in (s, t):
-            if node.startswith("d") and node[1:].isdigit():
-                doc = db.get_document(int(node[1:]))
-                if not doc or not _visible(doc, dept=getattr(request.state, "dept", "") or None,
-                                           user=request.state.user, role=request.state.role):
-                    raise HTTPException(404, "문서를 찾을 수 없습니다")
-        reg_rows = db.list_regulation_chunks()
-
-        needle = (term or "").strip()
-        if not needle and kind == "cites" and t.startswith("d") and t[1:].isdigit():
-            dst_id = int(t[1:])
-            for c in reg_rows:
-                if c["doc_id"] == dst_id and (c.get("reg_title") or "").strip():
-                    needle = c["reg_title"].strip()
-                    break
-        if not needle:
-            return {"ok": False, "term": "", "quotes": [], "n": 0,
-                    "error": "근거로 삼을 표현을 찾지 못했습니다"}
-
-        blocks: list[tuple[str, str]] = [
-            ((c.get("heading") or "").strip(), c.get("content") or "")
-            for c in reg_rows if c["doc_id"] == src_id
-        ]
-        if not blocks:
-            blocks = [((c.get("kind") or "").strip(), c.get("content") or "")
-                      for c in db.list_doc_chunks(src_id)]
-
-        quotes: list[dict] = []
-        hits = 0
-        for heading, body in blocks:
-            start = body.find(needle)
-            while start >= 0:
-                hits += 1
-                if len(quotes) < 3:
-                    left = max(0, start - 90)
-                    right = min(len(body), start + len(needle) + 150)
-                    quotes.append({
-                        "heading": heading,
-                        "text": ("…" if left else "") + body[left:right].strip()
-                                + ("…" if right < len(body) else ""),
-                    })
-                start = body.find(needle, start + len(needle))
-        return {"ok": bool(hits), "term": needle, "quotes": quotes, "n": hits,
-                "error": "" if hits else "본문에서 이 표현을 찾지 못했습니다"}
-
     @app.get("/chat/peek/{doc_id}")
     def chat_doc_peek(doc_id: int):
         """문서를 화면 안에서 바로 훑어본다 — 다른 페이지로 옮겨가지 않게 한다."""
@@ -3580,14 +3525,6 @@ def create_app(
 
     _CORPUS_DB = _paths.corpus_db_existing(Path(db_path).parent)
 
-    @app.get("/dev/corpus", response_class=HTMLResponse)
-    def dev_corpus(request: Request, q: str = ""):
-        """국고 코퍼스는 데이터 열람(/dev/db)의 탭으로 합쳤다 — 예전 주소는 그리로 보낸다."""
-        from urllib.parse import urlencode
-
-        params = {"tab": "corpus", **({"q": q.strip()} if q.strip() else {})}
-        return RedirectResponse("/dev/db?" + urlencode(params), status_code=301)
-
     @app.get("/dev/pii", response_class=HTMLResponse)
     def dev_pii(request: Request, q: str = "", entity: str = "", page: int = 1, source: str = "platform"):
         """개인정보 마스킹 감사 — 기록·자가 점검·잔여 검사 (절대 규칙 3).
@@ -3786,11 +3723,6 @@ def create_app(
         accounts[uid]["updated_at"] = _now_iso()
         _save_accounts()
         return RedirectResponse("/dev/pii?ok=계정 범위를 저장했습니다", status_code=303)
-
-    @app.get("/dev/accounts")
-    def dev_accounts_moved():
-        # 예전 주소 — 도구 계정·연결은 모델 학습 화면으로 합쳤다
-        return RedirectResponse("/dev/train", status_code=301)
 
 
     # ---- 한글 실시간 편집 에이전트 — 서버 채널 (tools/hwp-agent/protocol.md) ----
@@ -5337,27 +5269,6 @@ def create_app(
         ):
             raise HTTPException(404, "열려 있는 신고가 아닙니다")
         return RedirectResponse("/dev", status_code=303)
-
-    # ---- 지식 그래프 1단계 — 구조 그래프 (ADR-0009) ----
-
-    @app.get("/graph", response_class=HTMLResponse)
-    def graph_page(request: Request, focus: str = ""):
-        return templates.TemplateResponse(
-            request, "graph.html", ctx(request, {"focus": focus})
-        )
-
-    @app.get("/graph.json")
-    def graph_json(request: Request, dept: str = ""):
-        from zzaimy.graph.build import build_graph
-
-        scope = {"dept": getattr(request.state, "dept", "") or None,
-                 "user": request.state.user, "role": request.state.role}
-        return JSONResponse(build_graph(db, dept=dept or None, scope=scope))
-
-    # 이전 주소의 북마크만 새 구독 연결 화면으로 안내한다.
-    @app.get("/dev/egress", response_class=HTMLResponse)
-    def dev_egress(request: Request):
-        return RedirectResponse("/dev/pii?view=external", status_code=303)
 
     _WEEKLY_PROMPT = """너는 대학 캡스톤 프로젝트(행정문서 AI 플랫폼)의 주간 업무 보고를 쓴다. 독자는 지도교수이고
 개발자가 아니다. 아래 원자료를 바탕으로 쓰되 원자료를 옮겨 적지 말고, 무엇을 했고 무엇이 되었는지만 짧게 쓴다.

@@ -1,4 +1,4 @@
-"""Graph endpoints must enforce the same document visibility as /doc/{id}."""
+"""문서 그래프(build_graph)는 /doc/{id} 와 같은 열람 규칙으로 문서를 거른다. 화면은 /graph/explore(test_kg_explore)."""
 import pytest
 from fastapi.testclient import TestClient
 
@@ -31,34 +31,29 @@ def setup(tmp_path, monkeypatch):
     return client, db, ids
 
 
+STAFF = {"dept": None, "user": "zzaimy", "role": "staff"}
+
+
+def _graph(db, dept="", scope=STAFF):
+    return build.build_graph(db, dept=dept or None, scope=scope)
+
+
 def test_staff_keeps_public_and_own_documents_but_cannot_expand_scope(setup):
     client, db, ids = setup
-    for query in ("", "?dept=학생처"):
-        result = client.get("/graph.json" + query)
-        assert result.status_code == 200
-        graph = result.json()
+    for query in ("", "학생처"):
+        graph = _graph(db, query)
         shown = {n["doc_id"] for n in graph["nodes"] if n["doc_id"] is not None}
         assert ids["private"] not in shown and ids["department"] not in shown
         if not query:
             assert shown == {ids["public"], ids["mine"]}
         node_ids = {n["id"] for n in graph["nodes"]}
         assert all(e["s"] in node_ids and e["t"] in node_ids for e in graph["edges"])
-    for name in ("public", "mine", "private", "department"):
-        result = client.get("/graph/evidence", params={"s": f"d{ids[name]}", "term": "AUDIT"})
-        assert result.status_code == (200 if name in ("public", "mine") else 404)
-        if result.status_code == 200:
-            assert result.json()["quotes"]
-    assert client.get("/graph/evidence", params={"s": f"d{ids['public']}",
-                      "t": f"d{ids['private']}", "kind": "cites"}).status_code == 404
 
 
-def test_admin_keeps_full_graph_and_evidence_access(setup):
+def test_admin_keeps_full_graph(setup):
     client, db, ids = setup
-    client.auth = ("zzdev", "devpass")
-    shown = {n["doc_id"] for n in client.get("/graph.json").json()["nodes"]}
+    shown = {n["doc_id"] for n in _graph(db, scope={"dept": None, "user": "zzdev", "role": "dev"})["nodes"]}
     assert set(ids.values()) <= shown
-    assert client.get("/graph/evidence", params={"s": f"d{ids['private']}",
-                      "term": "AUDIT"}).json()["quotes"]
 
 
 def test_hidden_documents_never_enter_entity_analysis(setup, monkeypatch):
@@ -71,7 +66,7 @@ def test_hidden_documents_never_enter_entity_analysis(setup, monkeypatch):
         return original(db, docs=docs)
 
     monkeypatch.setattr(entities, "corpus_profile", profile)
-    assert client.get("/graph.json").status_code == 200
+    _graph(db)
     assert set(seen) == {ids["public"], ids["mine"]}
 
 
@@ -83,7 +78,7 @@ def test_private_project_and_its_edges_are_hidden(setup):
     db.set_project_criteria(other, [ids["public"]])
     with db._conn() as conn:
         conn.execute("UPDATE documents SET project_id=?,doc_type='auto' WHERE id=?", (other, ids["mine"]))
-    graph = client.get("/graph.json").json()
+    graph = _graph(db)
     node_ids = {n["id"] for n in graph["nodes"]}
     assert f"p{mine}" in node_ids and f"p{other}" not in node_ids
     assert all(e["s"] in node_ids and e["t"] in node_ids for e in graph["edges"])

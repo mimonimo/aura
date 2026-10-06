@@ -128,10 +128,8 @@ def test_dev_dashboard_labels(client):
     assert "측정 기록·모델 카드" not in d
     hpage = client.get("/dev/history").text
     assert "전체 변경 목록" in hpage and "/dev/docs#weekly" in hpage     # 주간 보고서는 논문 자료 칸으로
-    r2 = client.get("/dev/egress")
+    r2 = client.get("/dev/pii?view=external")
     assert r2.status_code == 200 and "외부 참조 AI · 구독 연결 확인" in r2.text
-    r3 = client.get("/dev/corpus")
-    assert r3.status_code == 200
     assert '>문서 추출</h2>' not in r.text
     assert '>문서 가져오기</h2>' not in r.text
     assert 'href="/dev/egress"' not in r.text

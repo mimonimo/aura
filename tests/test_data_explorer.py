@@ -225,7 +225,7 @@ def test_related_for_doc_groups_neighbors_by_edge_kind():
     }
     assert by_kind["relates"][0]["href"] == "/project/3" and by_kind["relates"][0]["kind_label"] == "프로젝트"
     assert by_kind["relates"][0]["note"] == "0.62"                 # 가중 간선만 값을 보인다
-    assert by_kind["mentions"][0]["href"] == "/graph?focus=e4" and by_kind["mentions"][0]["kind_label"] == "기관"
+    assert by_kind["mentions"][0]["href"].startswith("/graph/explore?q=") and by_kind["mentions"][0]["kind_label"] == "기관"
     suggested = dx.related_for_doc(
         {"nodes": graph["nodes"], "edges": [{"s": "d1", "t": "d2", "kind": "refers", "w": 0.7}]}, 1)
     assert suggested["groups"][0]["nodes"][0]["note"] == "자동 제안"
@@ -282,7 +282,7 @@ def test_dev_db_renders_tabs_and_document_detail(client):
     assert detail.status_code == 200
     assert "합성 마스킹 본문" not in detail.text            # 본문 전문은 조각으로만, 원문 덤프 없음
     assert "추출·검색 자료" in detail.text and "연관 (지식 그래프)" in detail.text
-    assert 'href="/graph?focus=d1"' in detail.text and 'href="/doc/1"' in detail.text
+    assert 'href="/graph/explore?id=doc:1"' in detail.text and 'href="/doc/1"' in detail.text
     assert client.get("/dev/db?tab=docs&doc=999").status_code == 200   # 없는 문서 → 목록만
 
 
@@ -297,11 +297,7 @@ def test_dev_db_other_tabs_and_legacy_urls(client):
 
 
 def test_dev_corpus_redirects_into_data_explorer(client):
-    r = client.get("/dev/corpus", follow_redirects=False)
-    assert r.status_code == 301 and r.headers["location"] == "/dev/db?tab=corpus"
-    r = client.get("/dev/corpus?q=장학금", follow_redirects=False)
-    assert r.status_code == 301 and r.headers["location"] == "/dev/db?tab=corpus&q=%EC%9E%A5%ED%95%99%EA%B8%88"
-    assert client.get("/dev/corpus").status_code == 200           # 따라가면 열람 화면
+    assert client.get("/dev/corpus", follow_redirects=False).status_code == 404   # 옛 주소 안내는 없앴다
 
 
 def test_short_content_also_has_full_reader(client, tmp_path):

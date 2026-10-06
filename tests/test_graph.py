@@ -77,24 +77,6 @@ def test_empty_db_yields_empty_graph(db):
     assert g["nodes"] == [] and g["edges"] == []
 
 
-def test_graph_json_route(tmp_path):
-    from fastapi.testclient import TestClient
-
-    # 경로 무관 임포트 — 'pytest'로 직접 돌려도(루트가 sys.path에 없어도) 동작
-    from test_app import FakeDrafter, FakeProcessor
-    from zzaimy.app.main import create_app
-
-    app = create_app(
-        db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
-        processor=FakeProcessor(), drafter=FakeDrafter(),
-    )
-    client = TestClient(app)
-    r = client.get("/graph.json")
-    assert r.status_code == 200
-    body = r.json()
-    assert "nodes" in body and "edges" in body
-
-
 def _fake_embed(texts):
     """결정론 가짜 임베딩 — 장학·학자금 주제면 [1,0], 아니면 [0,1] (학습 모델 자리)."""
     import numpy as np

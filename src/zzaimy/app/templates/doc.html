@@ -121,8 +121,10 @@
         <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}</a>
       {% endfor %}
       <span class="muted">접수번호 {{ doc.receipt_no or '미지정' }} · 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
-      <a class="pill" href="/graph?focus=d{{ doc.id }}" style="text-decoration:none;" title="이 문서의 연결을 그래프에서 봅니다">
+      {% if doc.doc_type == 'grant' %}
+      <a class="pill" href="/graph/explore?id=doc:{{ doc.id }}" style="text-decoration:none;" title="이 문서의 연결을 그래프에서 봅니다">
         <iconify-icon icon="solar:graph-new-linear" style="font-size:12px;"></iconify-icon>그래프</a>
+      {% endif %}
       <button type="button" class="btn-ghost" data-modal-open="#documentManageModal" style="margin-left:auto;">관리</button>
     </div>
     {% if request.query_params.get('err') in ('receipt', 'receipt_dup') %}
