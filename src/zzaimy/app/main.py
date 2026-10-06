@@ -2208,10 +2208,33 @@ def create_app(
             # 같은 제목의 판본이 여럿이면 몇 판째인지·어느 공고에 딸렸는지 보여 준다
             d["family_count"] = families.get(d.get("family") or "", 1)
             d["head_title"] = names.get(d.get("related_criteria_id") or -1, "")
-        # 접수·첨부 문서(문서 검토 대상)도 같은 문서함에서 본다(사용자 지시 2026-09-27) — 프로젝트·갈래·번호·상태
-        intake = [d for d in db.list_documents() if d.get("doc_type") != "regulation"]
+        # 접수·첨부 문서(문서 검토 대상)도 같은 문서함에서 본다(사용자 지시 2026-09-27) — 프로젝트·갈래·번호·상태.
+        # 4만 건을 한 번에 그리면 화면이 30초 넘게 멈춘다(10/6 크롬 확인) — 필요한 열만, 열람 권한은 SQL 에서, 100건씩 쪽으로
+        iq = (request.query_params.get("iq") or "").strip()
+        try:
+            ipage = max(0, int(request.query_params.get("ipage") or 0))
+        except ValueError:
+            ipage = 0
+        per = 100
+        cond, args = ["d.doc_type <> 'regulation'"], []
+        if request.state.role != "dev":
+            cond.append("(COALESCE(d.access_level, 'public') = 'public'"
+                        " OR (d.access_level = 'dept' AND (COALESCE(d.dept, '공통') = '공통' OR COALESCE(d.dept, '공통') = ?))"
+                        " OR COALESCE(d.owner, '') = ?)")
+            args += [getattr(request.state, "dept", "") or "", request.state.user or ""]
+        if iq:
+            cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?)")
+            args += [f"%{iq}%", f"%{iq}%"]
+        where = " WHERE " + " AND ".join(cond)
         with db._conn() as conn:
-            dc = {r[0]: r[1] for r in conn.execute("SELECT doc_id, COUNT(*) FROM doc_chunks GROUP BY doc_id").fetchall()}
+            intake_total = int(conn.execute(f"SELECT COUNT(*) FROM documents d{where}", args).fetchone()[0])
+            intake = [dict(r) for r in conn.execute(
+                "SELECT d.id, d.receipt_no, d.filename, d.kind, d.project_id, p.name AS project_name, d.doc_type, d.status,"
+                f" d.created_at FROM documents d LEFT JOIN projects p ON p.id = d.project_id{where}"
+                " ORDER BY d.id DESC LIMIT ? OFFSET ?", [*args, per, ipage * per]).fetchall()]
+            ids = [d["id"] for d in intake]
+            dc = {r[0]: r[1] for r in conn.execute(
+                f"SELECT doc_id, COUNT(*) FROM doc_chunks WHERE doc_id IN ({','.join('?' * len(ids))}) GROUP BY doc_id", ids).fetchall()} if ids else {}
         for d in intake:
             d["n_chunks"] = dc.get(d["id"], 0)
             d["kind_label"] = KINDS.get(d.get("kind") or "", "")
@@ -2221,6 +2244,7 @@ def create_app(
         inst_set = {k: bool((db.get_setting(f"institution:{k}", "") or "").strip()) for k in institution.KEYS}
         return templates.TemplateResponse(
             request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS, "intake": intake,
+                                                     "intake_total": intake_total, "iq": iq, "ipage": ipage, "iper": per,
                                                      "institution": inst, "institution_set": inst_set})
         )
 
