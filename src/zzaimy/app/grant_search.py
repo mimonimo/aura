@@ -137,6 +137,36 @@ def _encode_batch(texts: list[str]):
         return _encode_batch(texts[:mid]) + _encode_batch(texts[mid:])
 
 
+PG_EF_SEARCH = 300          # 대결(178, 2026-10-06): ef 300 에서 recall@10 0.915·@50 0.963, 질의 15ms
+
+
+def _dense_pg(db, qv, top_k: int, scope_docs: set[int] | None, user: str | None, depts: list[str] | None) -> list[int] | None:
+    """pgvector(표 grant_vec, halfvec + HNSW) 로 조밀 순위 — 권한·부서·범위를 같은 SQL 에서 거른다. 못 쓰면 None(배열 방식으로)."""
+    if scope_docs is not None and not scope_docs:
+        return []
+    acc, args = _access(user, depts)
+    vec = "[" + ",".join(f"{float(x):.5f}" for x in qv) + "]"
+    scope_sql = ""
+    if scope_docs is not None:
+        ids = sorted(scope_docs)
+        scope_sql = f" AND g.doc_id IN ({','.join('?' * len(ids))})"
+        args = [*args, *ids]
+    try:
+        with db._conn() as conn:
+            if getattr(conn, "dialect", "") != "postgres":
+                return None
+            conn.execute(f"SET hnsw.ef_search = {PG_EF_SEARCH}")
+            conn.execute("SET hnsw.iterative_scan = relaxed_order")      # 거르는 조건이 있어도 k 개를 채운다
+            rows = conn.execute(
+                "SELECT g.chunk_id FROM grant_vec g JOIN documents d ON d.id = g.doc_id"
+                f" WHERE d.doc_type = 'grant' AND d.status = 'reviewed'{acc}{scope_sql}"
+                " ORDER BY g.emb <#> ?::halfvec LIMIT ?", [*args, vec, int(top_k)]).fetchall()
+        return [int(r[0]) for r in rows]
+    except Exception as e:                                              # 표·확장이 없거나 연결 문제 — 배열 방식으로
+        log.warning("pgvector 조밀 검색 실패(%s) — 배열 방식으로", type(e).__name__)
+        return None
+
+
 def dense_ids(question: str, allowed: set[int] | None, top_k: int = TOP_K, scope_docs: set[int] | None = None,
               user: str | None = None, db=None, pool: int = 3000, depts: list[str] | None = None) -> list[int]:
     """임베딩 순위. allowed 를 주면 그 조각만(옛 경로). 아니면 유사도 상위 pool 개를 뽑고 범위·열람 권한은 SQL 로 거른다 —
@@ -149,6 +179,10 @@ def dense_ids(question: str, allowed: set[int] | None, top_k: int = TOP_K, scope
     except Exception as e:  # 임베딩 서비스가 없으면 어휘 단독
         log.warning("사업 문서 임베딩 질의 실패: %s", e)
         return []
+    if allowed is None and db is not None and os.environ.get("ZZAIMY_DENSE_BACKEND", "numpy") == "pgvector":
+        got = _dense_pg(db, qv, top_k, scope_docs, user, depts)
+        if got is not None:
+            return got
     import numpy as np
     q = np.asarray(qv, dtype=np.float32)
     if allowed is not None:
