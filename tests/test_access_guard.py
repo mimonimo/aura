@@ -29,13 +29,15 @@ def test_search_scope_and_allowed_docs(tmp_path):
     from zzaimy.app.db import Database
 
     assert ag.search_scope("학생처", "staff", "kim") == {"user": "kim", "dept": "학생처"}
-    assert ag.search_scope("", "student") == {"dept": "공통", "levels": ("public",)}
+    assert ag.search_scope("", "student") == {"levels": ("student",), "role": "student"}     # 학생 공개 학사 규정만(ADR-0052)
     assert ag.search_scope("학생처", "dev") == {} and ag.search_scope(None, "staff") == {"user": "", "dept": "공통"}
     db = Database(tmp_path / "t.db")
     a = db.add_document("공통규정.txt", "x", doc_type="regulation")
     b = db.add_document("산단서류.txt", "y", doc_type="auto", dept="산학협력단")     # 부서 제한 접수 문서
     assert ag.allowed_doc_ids(db, [a, b], "학생처", "staff") == [a]
     assert ag.allowed_doc_ids(db, [a, b], "산학협력단", "staff") == [a, b]
+    assert ag.allowed_doc_ids(db, [a, b], "", "student") == []          # 학생 공개 지정 전에는 규정도 안 된다(ADR-0052)
+    db.set_document_audience(a, "student")
     assert ag.allowed_doc_ids(db, [a, b], "", "student") == [a]
     assert ag.allowed_doc_ids(db, [a, b], None, "dev") == [a, b]
 
@@ -100,11 +102,16 @@ def test_intake_assigns_department_and_level_and_chunks_inherit(tmp_path):
     assert ids(dept="학생처", user="kim") == {pub, mine}                                # 부서 담당자: 공개 + 부서, 남의 한정 자료 제외
     assert ids(dept="학생처", user="lee") == {pub, mine, secret}                        # 올린 사람은 한정 자료도
     assert ids(dept="입학처", user="park") == {pub, other}
-    assert ids(dept="공통", levels=("public",)) == {pub}                                # 학생
+    assert ids(dept="공통", levels=("public",)) == {pub}                                # 공개 등급만
+    assert ids(levels=("student",)) == set()                                           # 학생: 학생 공개로 지정한 규정이 아직 없다(ADR-0052)
     assert ids(user="kim") == {pub, mine, other}                                        # 부서 없는 담당자: 등급 규칙만
     docs = {d: db.get_document(d) for d in (pub, mine, secret, other)}
     assert visible(docs[secret], dept="학생처", user="lee", role="staff") and not visible(docs[secret], dept="학생처", user="kim", role="staff")
-    assert not visible(docs[mine], dept="공통", user="", role="student") and visible(docs[pub], dept="공통", user="", role="student")
+    assert not visible(docs[mine], dept="공통", user="", role="student")
+    assert not visible(docs[pub], dept="공통", user="", role="student")                # 공개 등급이어도 학생 공개 지정 전에는 안 보인다
+    if docs[pub].get("doc_type") == "regulation":
+        db.set_document_audience(pub, "student")
+        assert visible(db.get_document(pub), dept="공통", user="", role="student") and ids(levels=("student",)) == {pub}
     db.set_document_scope(other, dept="공통", access_level="public")
     assert ids(dept="공통", levels=("public",)) == {pub, other}                          # 부서·등급을 바꾸면 조각도 따라간다
 
