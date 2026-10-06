@@ -1,5 +1,15 @@
 # Codex 작업 기록
 
+## C-221 — 채팅 작업 상태 표시 (진행, 2026-10-06)
+
+Codex 담당 chat-workspace.css/js의 진행 패널만. 회전 링·간결한 타임라인·경과 시간 배지,
+모션 감소 설정 및 키보드 포커스 반영. 실제 서버 단계만 표시하고 가짜 완료율/완료 체크는 넣지 않음.
+Claude 수정 중인 chat_workspace.html/main.py 및 스테이징된 삭제 파일은 수정·커밋하지 않는다.
+OCR·생성 프로세스 중단/웹 재시작 없음.
+JS 문법 검사와 test_chat_progress 2건 통과. Chrome 좁은 폭 독립 패널 렌더 확인(운영 로그인 대화 검증은 별도).
+OCR 1차는 판독 뒤 PosixPath JSON 저장에서 실패: default=str 보완 후 v2 서비스 재시작.
+VM 생성 zzaimy-tracks-v2 active 확인. UI 정적 파일 배포는 재시작 없이 수행.
+
 ## C-220 — 지정 발전계획 OCR (진행, 2026-10-06)
 
 사용자 지정5문서는 공개자료이며 OCR 직접 수행 허용. HWP는 직접 추출 우선, 글자층 없는 부분만 OCR.
