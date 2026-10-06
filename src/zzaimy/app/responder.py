@@ -224,7 +224,10 @@ class AgentResponder:
             on_progress(f"답변에 사용할 근거 {len(hits or [])}개 구성"
                         if hits else "관련 근거 없음 · 확인 가능한 범위로 답변 준비")
         history = db.list_chats(session_id, limit=6) if session_id else []
-        system = compose_system(db.all_settings())
+        prof = db.profile_for(scope.get("user")) if hasattr(db, "profile_for") else db.all_settings()
+        if scope.get("dept"):
+            prof = dict(prof, dept=scope["dept"])           # 부서는 계정에 정해진 값(RAG 공간과 같은 것)
+        system = compose_system(prof)
         if project:
             lines = [f"이 대화는 프로젝트 「{project['name']}」 업무 맥락입니다."]
             if (project.get("instructions") or "").strip():

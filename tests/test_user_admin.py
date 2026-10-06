@@ -46,7 +46,7 @@ def test_dev_creates_user_and_new_user_can_log_in(tmp_path, monkeypatch):
     assert _login(c2, "kim_ops", "init-pass-1")
     status = c2.get("/account/google").json()
     assert status["bound"] == "kim@ync.ac.kr" and status["bound_ok"] and status["via"] == "본인"
-    assert "내 구글 계정" in c2.get("/settings").text
+    assert "구글 계정" in c2.get("/settings").text and 'id="myGoogle"' in c2.get("/settings").text
 
 
 def test_user_save_rejects_bad_input_and_self_lockout(tmp_path, monkeypatch):

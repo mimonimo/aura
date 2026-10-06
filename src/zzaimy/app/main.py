@@ -530,8 +530,8 @@ def create_app(
             "failed_docs": failed,
             "alert_count": len(actionable) + len(failed),
             "side_projects": db.list_all_projects(owner=owner),
-            "profile_name": db.get_setting("name"),
-            "profile_dept": db.get_setting("dept"),
+            "profile_name": db.profile_for(getattr(request.state, "user", None)).get("name", ""),
+            "profile_dept": (accounts.get(getattr(request.state, "user", "") or "", {}) or {}).get("dept", ""),
             **extra,
         }
 
@@ -5226,26 +5226,31 @@ def create_app(
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request, ok: str = "", err: str = ""):
+        """내 설정 — 프로필·응답 지침·비밀번호·구글 계정을 한 화면에서(2026-10-06, 계정 메뉴의 두 항목을 합침)."""
+        uid = getattr(request.state, "user", "") or ""
+        acct = accounts.get(uid, {}) if password is not None else {}
         return templates.TemplateResponse(
             request, "settings.html",
-            ctx(request, {"s": db.all_settings(), "active_tab": "all",
-                          "departments": db.department_counts(),
+            ctx(request, {"s": db.profile_for(uid or None), "active_tab": "all", "uid": uid,
+                          "acct_dept": acct.get("dept", ""), "acct_role": acct.get("role", request.state.role),
+                          "has_password": password is not None,
                           "google": _user_admin_status(request), "ok": ok, "err": err}),
         )
 
     @app.post("/settings")
     def settings_save(
+        request: Request,
         name: str = Form(""),
         call_me: str = Form(""),
-        dept: str = Form(""),
         instructions: str = Form(""),
     ):
-        for key, val in (
-            ("name", name), ("call_me", call_me),
-            ("dept", dept), ("instructions", instructions),
-        ):
-            db.set_setting(key, val.strip()[:4000])
-        return RedirectResponse("/settings", status_code=303)
+        uid = getattr(request.state, "user", "") or ""
+        if uid:
+            db.set_profile(uid, name=name, call_me=call_me, instructions=instructions)
+        else:                                               # 인증 없는 로컬 모드 — 예전처럼 하나만
+            for key, val in (("name", name), ("call_me", call_me), ("instructions", instructions)):
+                db.set_setting(key, val.strip()[:4000])
+        return RedirectResponse("/settings?ok=" + _q("저장했습니다"), status_code=303)
 
     @app.get("/project/{project_id}", response_class=HTMLResponse)
     def project_page(request: Request, project_id: int, refq: str = ""):

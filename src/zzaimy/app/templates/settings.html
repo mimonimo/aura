@@ -1,85 +1,127 @@
 {% extends "base.html" %}
-{% block title %}설정 — YNC 행정 에이전트{% endblock %}
-{% block pagetitle %}설정{% endblock %}
+{% block title %}내 설정 — YNC 행정 에이전트{% endblock %}
+{% block pagetitle %}내 설정{% endblock %}
 {% block head %}
 <style>
-.profile-settings { max-width:880px; margin:0 auto; }
-.profile-settings .card-in { padding:28px; }
-.profile-fields { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
-.profile-field { display:flex; flex-direction:column; gap:8px; min-width:0; }
-.profile-field input { width:100%; min-width:0; }
-.profile-settings .settings-section { margin-top:28px; padding-top:24px; border-top:1px solid var(--line); }
-.profile-settings textarea { width:100%; min-height:140px; }
-.profile-settings .settings-actions { display:flex; justify-content:flex-end; margin-top:24px; }
-@media(max-width:600px) { .profile-fields { grid-template-columns:1fr; gap:18px; } .profile-settings .card-in { padding:20px; } }
+.my-settings { max-width:860px; margin:0 auto; }
+.my-settings .ms-head { display:flex; align-items:center; gap:14px; margin:4px 0 18px; }
+.my-settings .ms-avatar { width:48px; height:48px; border-radius:50%; background:#E8EFFC; color:var(--navy);
+  display:flex; align-items:center; justify-content:center; font-size:24px; flex:none; }
+.my-settings .ms-name { font-size:18px; font-weight:700; color:var(--ink); }
+.my-settings .ms-sub { font-size:12.5px; color:var(--muted); margin-top:2px; }
+.my-settings .ms-nav { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 16px; position:sticky; top:0; z-index:2;
+  background:var(--bg); padding:6px 0; }
+.my-settings .ms-nav a { padding:6px 12px; border-radius:20px; background:#EEF1F5; color:var(--muted); font-size:12.5px;
+  font-weight:600; text-decoration:none; }
+.my-settings .ms-nav a:hover { background:#E3ECFB; color:var(--navy); }
+.my-settings .card { margin-bottom:16px; scroll-margin-top:60px; }
+.my-settings .card-in { padding:24px 26px; }
+.my-settings h2 { margin:0 0 4px; }
+.my-settings .ms-desc { margin:0 0 16px; color:var(--muted); font-size:12.5px; }
+.ms-fields { display:grid; grid-template-columns:1fr 1fr; gap:16px 20px; }
+.ms-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.ms-field label { font-size:12.5px; color:var(--muted); }
+.ms-field input, .my-settings textarea { width:100%; min-width:0; border:1.5px solid var(--line); border-radius:12px;
+  padding:9px 14px; font-family:inherit; font-size:14px; box-sizing:border-box; }
+.ms-field .ms-ro { padding:9px 14px; border-radius:12px; background:var(--panel); font-size:14px; color:var(--ink); }
+.my-settings textarea { min-height:140px; }
+.ms-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+@media(max-width:640px) { .ms-fields { grid-template-columns:1fr; } .my-settings .card-in { padding:18px; } }
 </style>
 {% endblock %}
 {% block content %}
+<div class="my-settings">
 {% if err %}<p class="notice" role="alert"><iconify-icon icon="solar:danger-circle-linear"></iconify-icon><span>{{ err }}</span></p>{% endif %}
 {% if ok %}<p class="notice" role="status"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>{% endif %}
 
-<div class="card reveal profile-settings">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:user-id-linear"></iconify-icon>담당자 프로필</h2>
-    <form action="/settings" method="post" data-protect-changes>
-      <div class="profile-fields">
-        <div class="profile-field">
-        <label class="muted" for="s-name">성명</label>
-        <input id="s-name" type="text" name="name" value="{{ s.get('name', '') }}"
-               placeholder="예: 홍길동"
-               style="border:1.5px solid var(--line); border-radius:12px; padding:9px 14px; font-family:inherit; font-size:14px;">
-        </div>
-        {% if s.get('call_me') %}
-        <div class="profile-field">
-        <label class="muted" for="s-call">호칭 <span>(선택)</span></label>
-        <input id="s-call" type="text" name="call_me" value="{{ s.get('call_me', '') }}"
-               placeholder="예: 선생님, 담당자님"
-               style="border:1.5px solid var(--line); border-radius:12px; padding:9px 14px; font-family:inherit; font-size:14px;">
-        </div>
-        {% else %}<input type="hidden" name="call_me" value="">{% endif %}
-        <div class="profile-field">
-        <label class="muted" for="s-dept">소속 부서</label>
-        <span>
-          <input id="s-dept" type="text" name="dept" value="{{ s.get('dept', '') }}"
-                 list="deptList" placeholder="예: 산학협력단" style="width:100%;
-                 border:1.5px solid var(--line); border-radius:12px; padding:9px 14px; font-family:inherit; font-size:14px;">
-          <datalist id="deptList">
-            {% for d in departments %}<option value="{{ d.dept }}">{{ d.dept }} · 문서 {{ d.n_docs }}건</option>{% endfor %}
-          </datalist>
-          {% if departments %}
-          <span class="muted" style="font-size:11.5px; display:block; margin-top:5px;">
-            검색 범위: 소속 부서 및 공통 규정</span>
-          {% endif %}
-        </span>
-        </div>
-      </div>
-
-      <section class="settings-section" aria-labelledby="instructions-label">
-      <h2 id="instructions-label"><iconify-icon icon="solar:notes-linear"></iconify-icon>응답 지침</h2>
-      <p class="muted" style="margin:0 0 12px;">채팅·문서 검토에 적용</p>
-      <textarea name="instructions" aria-labelledby="instructions-label"
-                placeholder="예: 반려 사유에는 근거가 되는 규정 조항을 함께 적는다.">{{ s.get('instructions', '') }}</textarea>
-      </section>
-      <div class="settings-actions"><button type="submit">변경사항 저장</button></div>
-    </form>
+<div class="ms-head">
+  <span class="ms-avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
+  <div>
+    <div class="ms-name">{{ s.get('name') or uid or "담당자" }}</div>
+    <div class="ms-sub">{{ uid }}{% if uid %} · {% endif %}{{ "개발자" if acct_role == "dev" else ("학생" if acct_role == "student" else "담당자") }}{% if acct_dept %} · {{ acct_dept }}{% endif %}</div>
   </div>
 </div>
+
+<nav class="ms-nav" aria-label="설정 항목">
+  <a href="#profile">프로필</a>
+  <a href="#instructions">응답 지침</a>
+  {% if has_password and uid %}<a href="#password">비밀번호</a>{% endif %}
+  {% if google %}<a href="#myGoogle">구글 계정</a>{% endif %}
+</nav>
+
+<form action="/settings" method="post" data-protect-changes>
+<section class="card reveal" id="profile"><div class="card-in">
+  <h2><iconify-icon icon="solar:user-id-linear"></iconify-icon>프로필</h2>
+  <p class="ms-desc">에이전트가 부르는 이름과 호칭 — 이 계정에만 적용됩니다.</p>
+  <div class="ms-fields">
+    <div class="ms-field">
+      <label for="s-name">성명</label>
+      <input id="s-name" type="text" name="name" value="{{ s.get('name', '') }}" placeholder="예: 홍길동" autocomplete="name">
+    </div>
+    <div class="ms-field">
+      <label for="s-call">호칭 (선택)</label>
+      <input id="s-call" type="text" name="call_me" value="{{ s.get('call_me', '') }}" placeholder="예: 선생님, 담당자님">
+    </div>
+    <div class="ms-field">
+      <label>소속 부서</label>
+      <div class="ms-ro">{{ acct_dept or "부서 미지정(교직원 전체 자료)" }}</div>
+      <span class="muted" style="font-size:11.5px;">검색 범위(RAG 공간)를 정하므로 관리자가 계정 관리에서 바꿉니다.</span>
+    </div>
+    <div class="ms-field">
+      <label>계정</label>
+      <div class="ms-ro">{{ uid or "로컬 모드" }}</div>
+    </div>
+  </div>
+</div></section>
+
+<section class="card reveal" id="instructions"><div class="card-in">
+  <h2><iconify-icon icon="solar:notes-linear"></iconify-icon>응답 지침</h2>
+  <p class="ms-desc">채팅·문서 검토 답변에 늘 적용할 요청 — 이 계정에만 적용됩니다.</p>
+  <textarea name="instructions" aria-label="응답 지침"
+            placeholder="예: 반려 사유에는 근거가 되는 규정 조항을 함께 적는다.">{{ s.get('instructions', '') }}</textarea>
+  <div class="ms-actions"><button type="submit">프로필·지침 저장</button></div>
+</div></section>
+</form>
+
+{% if has_password and uid %}
+<section class="card reveal" id="password"><div class="card-in">
+  <h2><iconify-icon icon="solar:lock-password-linear"></iconify-icon>비밀번호</h2>
+  <p class="ms-desc">본인 계정 비밀번호만 바꿉니다. 8자 이상.</p>
+  <form action="/account/password" method="post">
+    <input type="hidden" name="back" value="/settings#password">
+    <div class="ms-fields">
+      <div class="ms-field" style="grid-column:1 / -1; max-width:420px;">
+        <label for="pw-cur">현재 비밀번호</label>
+        <input id="pw-cur" type="password" name="current_pw" required autocomplete="current-password">
+      </div>
+      <div class="ms-field">
+        <label for="pw-new">새 비밀번호</label>
+        <input id="pw-new" type="password" name="new_pw" required minlength="8" autocomplete="new-password">
+      </div>
+      <div class="ms-field">
+        <label for="pw-ok">새 비밀번호 확인</label>
+        <input id="pw-ok" type="password" name="confirm" required minlength="8" autocomplete="new-password">
+      </div>
+    </div>
+    <div class="ms-actions"><button type="submit">비밀번호 변경</button></div>
+  </form>
+</div></section>
+{% endif %}
 
 {% if google %}
-<div class="card reveal profile-settings" id="myGoogle" style="margin-top:16px;">
-  <div class="card-in">
-    <h2><iconify-icon icon="solar:link-circle-linear"></iconify-icon>내 구글 계정</h2>
-    {% if google.bound and google.bound_ok %}
-    <p style="margin:0 0 6px;">{{ google.bound }}</p>
-    <p class="muted" style="margin:0 0 14px;">작성하는 문서는 이 계정의 드라이브에 만들어집니다.</p>
-    <form action="/account/google/disconnect" method="post" onsubmit="return confirm('구글 계정 연결을 해제할까요? 이미 만든 문서는 드라이브에 그대로 남습니다.')">
-      <button type="submit" class="secondary">연결 해제</button>
-    </form>
-    {% else %}
-    <p class="muted" style="margin:0 0 14px;">{% if google.bound %}{{ google.bound }} 연결이 끊겼습니다. 다시 연결해 주세요.{% elif google.effective %}연결 전 — 지금은 부서 공용 계정({{ google.effective }})으로 문서가 만들어집니다.{% else %}연결 전 — 문서를 만들려면 학교 계정을 연결하세요.{% endif %}{% if google.domain %} {{ google.domain }} 계정만 연결할 수 있습니다.{% endif %}</p>
-    {% if google.app_ready %}<a class="btn" href="/account/google/connect">구글 계정 연결</a>{% else %}<p class="muted">관리자가 구글 앱을 등록한 뒤 연결할 수 있습니다.</p>{% endif %}
-    {% endif %}
-  </div>
-</div>
+<section class="card reveal" id="myGoogle"><div class="card-in">
+  <h2><iconify-icon icon="solar:link-circle-linear"></iconify-icon>구글 계정</h2>
+  {% if google.bound and google.bound_ok %}
+  <p style="margin:0 0 6px;">{{ google.bound }}</p>
+  <p class="ms-desc">작성하는 문서는 이 계정의 드라이브에 만들어집니다.</p>
+  <form action="/account/google/disconnect" method="post" onsubmit="return confirm('구글 계정 연결을 해제할까요? 이미 만든 문서는 드라이브에 그대로 남습니다.')">
+    <button type="submit" class="secondary">연결 해제</button>
+  </form>
+  {% else %}
+  <p class="ms-desc">{% if google.bound %}{{ google.bound }} 연결이 끊겼습니다. 다시 연결해 주세요.{% elif google.effective %}연결 전 — 지금은 부서 공용 계정({{ google.effective }})으로 문서가 만들어집니다.{% else %}연결 전 — 문서를 만들려면 학교 계정을 연결하세요.{% endif %}{% if google.domain %} {{ google.domain }} 계정만 연결할 수 있습니다.{% endif %}</p>
+  {% if google.app_ready %}<a class="btn" href="/account/google/connect">구글 계정 연결</a>{% else %}<p class="muted">관리자가 구글 앱을 등록한 뒤 연결할 수 있습니다.</p>{% endif %}
+  {% endif %}
+</div></section>
 {% endif %}
+</div>
 {% endblock %}

@@ -586,12 +586,7 @@ document.addEventListener('submit', function(event) {
           </div>
         </div>
         <div class="pop-div"></div>
-        <a class="pop-item" href="/settings"><iconify-icon icon="solar:user-id-linear"></iconify-icon><span>프로필·에이전트 지침 설정</span></a>
-        {% if request.state.role %}
-        <button type="button" class="pop-item" data-modal-open="#pwModal"
-                style="width:100%; background:none; border:0; cursor:pointer; font:inherit; text-align:left;">
-          <iconify-icon icon="solar:lock-password-linear"></iconify-icon><span>비밀번호 변경</span></button>
-        {% endif %}
+        <a class="pop-item" href="/settings"><iconify-icon icon="solar:settings-linear"></iconify-icon><span>내 설정</span></a>
         <div class="pop-div"></div>
         <form action="/logout" method="post" style="margin:0;">
           <button type="submit" class="pop-item" style="width:100%; background:none; border:0;
@@ -771,26 +766,6 @@ document.addEventListener('submit', function(event) {
   });
 </script>
 {% if request.state.role %}
-<div class="modal-back" id="pwModal">
-  <div class="card"><div class="card-in">
-    <h2><iconify-icon icon="solar:lock-password-linear"></iconify-icon>비밀번호 변경
-      <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">{{ request.state.user }}</span></h2>
-    {# 본인 계정만 바꾼다 — 다른 계정은 개발자의 계정·연결 관리에서 #}
-    <form action="/account/password" method="post">
-      <input type="hidden" name="back" value="{{ request.url.path }}">
-      <label class="muted" style="font-size:12.5px;">현재 비밀번호</label>
-      <input type="password" name="current_pw" required autocomplete="current-password" style="margin:6px 0 12px;">
-      <label class="muted" style="font-size:12.5px;">새 비밀번호 (8자 이상)</label>
-      <input type="password" name="new_pw" required minlength="8" autocomplete="new-password" style="margin:6px 0 12px;">
-      <label class="muted" style="font-size:12.5px;">새 비밀번호 확인</label>
-      <input type="password" name="confirm" required minlength="8" autocomplete="new-password" style="margin:6px 0 16px;">
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
-        <button type="button" class="secondary" data-modal-close>취소</button>
-        <button type="submit">변경</button>
-      </div>
-    </form>
-  </div></div>
-</div>
 {% endif %}
 
 {# 떠 있는 에이전트 — 모든 화면에서 묻고, 글을 고른 뒤 오른쪽 단추로도 묻는다 #}

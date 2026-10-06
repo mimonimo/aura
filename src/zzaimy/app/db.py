@@ -774,6 +774,24 @@ class Database:
         with self._conn() as conn:
             return {r[0]: r[1] for r in conn.execute("SELECT kind, COUNT(*) FROM files GROUP BY kind").fetchall()}
 
+    PROFILE_KEYS = ("name", "call_me", "instructions")
+
+    def profile_for(self, user: str | None) -> dict:
+        """계정별 프로필(이름·호칭·응답 지침) — 설정 user:<계정>:<키>. 없으면 예전의 플랫폼 하나짜리 값.
+        예전에는 플랫폼 전체에 하나만 있어 한 사람이 바꾸면 모든 계정의 이름·응답 지침이 바뀌었다(2026-10-06)."""
+        out = {k: self.get_setting(k, "") or "" for k in self.PROFILE_KEYS}
+        if user:
+            for k in self.PROFILE_KEYS:
+                v = self.get_setting(f"user:{user}:{k}", None)
+                if v is not None:
+                    out[k] = v
+        return out
+
+    def set_profile(self, user: str, **fields: str) -> None:
+        for k, v in fields.items():
+            if k in self.PROFILE_KEYS:
+                self.set_setting(f"user:{user}:{k}", (v or "").strip()[:4000])
+
     def set_receipt_no(self, doc_id: int, receipt_no: str) -> None:
         """접수번호를 바꾼다(사용자 지시 2026-09-27: 번호는 변경 가능해야). 다른 문서가 쓰는 번호면 ValueError."""
         with self._conn() as conn:
