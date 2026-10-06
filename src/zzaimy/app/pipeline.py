@@ -552,14 +552,34 @@ class DocumentProcessor:
                 return text
             raise RuntimeError("문서 판독 실패 (사진 — 판독 결과 없음)")
 
-        # 오피스 문서(docx·xlsx·pptx 등)는 docling 으로 파일 구조를 읽는다 — OCR 이 아니다.
-        # kordoc(한글·오피스 자체 파서) 대조 뒤 다시 정한다(ADR-0050).
-        from zzaimy.ingest.parsers.docling import DoclingParser
+        # 오피스 문서는 파일 구조를 읽는다 — OCR 이 아니다(ADR-0051, 대결 scripts/176). docx·xlsx 는 kordoc 먼저, 실패하면
+        # python-docx·openpyxl. pptx 는 python-pptx. docling 은 어느 형식에서도 1등이 아니라 쓰지 않는다(엑셀 표 개수 맞음 42~56%).
+        from zzaimy.ingest.parsers import office as _office
 
-        try:
-            parsed = DoclingParser().parse(file_path)
-        except Exception as e:
-            raise RuntimeError(f"문서 판독 실패 ({type(e).__name__})") from e
+        parsed = None
+        tried = []
+        if suffix in (".docx", ".xlsx"):
+            try:
+                from zzaimy.ingest.parsers import kordoc as _kordoc
+
+                if _kordoc.available():
+                    import tempfile
+
+                    with tempfile.TemporaryDirectory(prefix="zz-kordoc-") as tmp:
+                        got = _kordoc.KordocParser().parse(file_path, work_dir=Path(tmp))
+                    if got.entries or any(p.text.strip() for p in got.pages) or got.tables:
+                        parsed = got
+                        self._last_parse_note = f"오피스 구조 읽기(kordoc {_kordoc.version()})"
+            except Exception as e:
+                tried.append(f"kordoc {type(e).__name__}")
+        if parsed is None and suffix in _office.PARSERS:
+            try:
+                parsed = _office.PARSERS[suffix](file_path)
+                self._last_parse_note = f"오피스 구조 읽기({parsed.parser})"
+            except Exception as e:
+                tried.append(f"{suffix.lstrip('.')} {type(e).__name__}")
+        if parsed is None:
+            raise RuntimeError("문서 판독 실패 (" + (", ".join(tried) or f"지원하지 않는 형식 {suffix}") + ")")
         self._last_result = parsed
         text = self._result_to_text(parsed)
 
