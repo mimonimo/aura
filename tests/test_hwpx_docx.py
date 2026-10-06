@@ -3,6 +3,8 @@
 import io
 import zipfile
 
+import pytest
+
 from docx import Document
 from docx.oxml.ns import qn
 
@@ -52,6 +54,53 @@ def _hwpx(tmp_path):
         zf.writestr("Contents/header.xml", HEADER)
         zf.writestr("Contents/section0.xml", SECTION)
     return p
+
+
+@pytest.mark.parametrize("colspan", [1, 2])
+@pytest.mark.parametrize("missing_side", ["left", "right"])
+def test_vertical_merge_borders_continue_without_internal_horizontal_lines(tmp_path, colspan, missing_side):
+    """세로·가로 동시 병합도 원본 외곽선/바탕을 보존하고 중간 가로선을 만들지 않는다."""
+    header = HEADER.replace(
+        f'<hh:{missing_side}Border type="SOLID" width="0.12 mm"/>',
+        f'<hh:{missing_side}Border type="NONE" width="0.12 mm"/>',
+    )
+
+    def cell(row, col, rows=1, cols=1, text="일반"):
+        return (f'<hp:tc borderFillIDRef="3"><hp:subList><hp:p paraPrIDRef="0">'
+                f'<hp:run charPrIDRef="0"><hp:t>{text}</hp:t></hp:run></hp:p></hp:subList>'
+                f'<hp:cellAddr rowAddr="{row}" colAddr="{col}"/>'
+                f'<hp:cellSpan rowSpan="{rows}" colSpan="{cols}"/>'
+                f'<hp:cellSz width="{10000 * cols}" height="{1000 * rows}"/></hp:tc>')
+
+    rows = ''.join('<hp:tr>' + (cell(0, 0, 3, colspan, "병합") if row == 0 else '')
+                   + cell(row, colspan) + '</hp:tr>' for row in range(3))
+    # 마지막 비병합 행으로 열 경계를 명시해야 공통 그리드가 병합 폭을 한 열로 축약하지 않는다.
+    rows += '<hp:tr>' + ''.join(cell(3, col) for col in range(colspan + 1)) + '</hp:tr>'
+    section = ('<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section" '
+               'xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph">'
+               '<hp:p paraPrIDRef="0"><hp:run charPrIDRef="0">'
+               f'<hp:tbl rowCnt="4" colCnt="{colspan + 1}" borderFillIDRef="2">'
+               f'<hp:sz width="{10000 * (colspan + 1)}"/>{rows}</hp:tbl></hp:run></hp:p></hs:sec>')
+    source = tmp_path / "merge.hwpx"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("Contents/header.xml", header)
+        archive.writestr("Contents/section0.xml", section)
+    data, _ = hwpx_docx.convert(source)
+    table = Document(io.BytesIO(data)).tables[0]
+    for row, tr in enumerate(table._tbl.tr_lst[:3]):
+        tc = tr.tc_lst[0]  # table.cell()로 읽으면 continuation이 아닌 시작 셀이 나온다.
+        assert tc.grid_span == colspan
+        vm = tc.tcPr.find(qn("w:vMerge"))
+        assert vm is not None
+        assert vm.get(qn("w:val"), "continue") == ("restart" if row == 0 else "continue")
+        borders = tc.tcPr.find(qn("w:tcBorders"))
+        assert borders is not None
+        for side in ("left", "right"):
+            assert borders.find(qn(f"w:{side}")).get(qn("w:val")) == ("nil" if side == missing_side else "single")
+        assert borders.find(qn("w:top")).get(qn("w:val")) == ("single" if row == 0 else "nil")
+        assert borders.find(qn("w:bottom")).get(qn("w:val")) == ("single" if row == 2 else "nil")
+        assert tc.tcPr.find(qn("w:shd")).get(qn("w:fill")) == "D6D6D6"
+    assert table.cell(0, 0).text == "병합"
 
 
 def test_convert_keeps_styles_tables_and_page(tmp_path):
