@@ -88,17 +88,11 @@ def scope_note(question: str, dept: str | None, role: str, depts: list[str]) -> 
     return None
 
 
-def search_scope(dept: str | None, role: str, user: str | None = None) -> dict:
-    """검색에 넘길 범위 — 학생은 공통의 공개 자료만, 담당자·부서장은 자기 부서 + 공통(등급 규칙 적용),
-    관리자는 전체. 부서가 없는 담당자도 등급 규칙(담당자 한정은 본인만)은 받는다."""
-    if role == "student":
-        # 학생용 말뭉치(학생 공개 학사 규정)만 — 사업 문서·그래프·프로젝트·외부 검색은 쓰지 않는다(ADR-0052)
-        return {"levels": ("student",), "role": "student"}
-    if role == "dev":
-        return {}
-    # 부서 미지정은 전체 접근 권한이 아니다. 공개/공통 범위로 좁힌다.
-    scope: dict = {"user": user or "", "dept": dept or "공통"}
-    return scope
+def search_scope(dept: str | None, role: str, user: str | None = None, data_dir=None) -> dict:
+    """검색에 넘길 범위 — RAG 공간(app/rag_spaces, ADR-0053)에서 만든다. 학생은 학생 공개 학사 규정만(ADR-0052),
+    부서가 있는 교직원은 그 부서 사업 문서 + 공통·그 부서 규정, 부서 없는 교직원은 사업 문서 전부, 관리자는 전체."""
+    from zzaimy.app import rag_spaces
+    return rag_spaces.search_scope(role, dept, user, data_dir)
 
 
 def allowed_doc_ids(db, doc_ids: list[int], dept: str | None, role: str, user: str | None = None) -> list[int]:

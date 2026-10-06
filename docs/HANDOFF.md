@@ -331,6 +331,7 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 - 외부 AI 참조 관리(민감정보 제거·자동 분류·감사 기록·승인 큐·/dev/egress) — 이그레스 게이트웨이, ADR-0008.
   외부 전송은 ZZAIMY_EXTERNAL_ENABLED + 외부 기관 서버 연결(개발 키) + 아웃바운드 개방 전까지 비활성
   (판정·기록은 동작, 허용·승인 건은 전송 대기로 보관).
+- RAG 공간(ADR-0052·0053): 학생=학생 공개 규정만, 부서 교직원=그 부서·공통 사업 문서, 부서 없는 교직원=전부. 계정별 추가 권한·폴더→부서 짝은 `/dev/rag`(설정 `data/platform/rag_spaces.json`, 저장마다 백업). 반입 연동 점검은 `/dev/intake`.
 - 발표 자료: `docs/paper/제안-발표.html`(웹 슬라이드), `docs/paper/제안발표-내용.md`(텍스트).
 
 ## 3-1. 교내 실물 문서가 오면 (학습까지의 절차)

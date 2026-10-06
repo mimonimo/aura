@@ -849,7 +849,7 @@ def create_app(
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
-        scope = ag.search_scope(dept, role, owner)
+        scope = ag.search_scope(dept, role, owner, Path(db_path).parent)
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
         if _looks_like_reading(q):
             target = _project_doc_named(project, session_id, q)
@@ -3319,6 +3319,69 @@ def create_app(
             raise HTTPException(500, "반입 현황을 읽지 못했습니다")
         return data
 
+    # RAG 공간 관리(ADR-0053) — 공간별 자료 수·쓰는 계정, 계정별 추가 권한, 폴더→부서 짝, 학생 공개 규정. 개발자만(/dev 미들웨어)
+    _STUDENT_HINT = re.compile(r"학칙|학사|수업|성적|휴학|복학|장학|졸업|학생|교육과정|학점|수강|등록금|학위|전과|편입")
+
+    @app.get("/dev/rag", response_class=HTMLResponse)
+    def dev_rag(request: Request):
+        from zzaimy.app import rag_spaces
+        data_dir = Path(db_path).parent
+        cfg = rag_spaces.config(data_dir)
+        regs = [d for d in db.list_documents("regulation") if d.get("status") == "reviewed"]
+        accts = [{"id": u, "role": a.get("role", "staff"), "dept": a.get("dept", ""),
+                  "space": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir)["label"],
+                  "grants": cfg.get("grants", {}).get(u, [])} for u, a in accounts.items()]
+        dept_spaces = sorted({f"dept:{v}" for v in cfg["dept_of_area"].values()} | {f"dept:{a['dept']}" for a in accts if a["dept"]})
+        return templates.TemplateResponse(request, "dev_rag.html", ctx(request, {
+            "spaces": rag_spaces.stats(db, data_dir, accounts), "cfg": cfg, "accts": accts, "dept_spaces": dept_spaces,
+            "student_regs": [d for d in regs if d.get("audience") == "student"],
+            "student_hints": [d for d in regs if d.get("audience") != "student" and _STUDENT_HINT.search(d.get("filename") or "")],
+            "n_regs": len(regs)}))
+
+    @app.post("/dev/rag/area")
+    def dev_rag_area(mapping: str = Form("")):
+        """원본 최상위 폴더 → 부서 짝 — 한 줄에 「폴더=부서」."""
+        from zzaimy.app import rag_spaces
+        data_dir = Path(db_path).parent
+        pairs = {}
+        for line in mapping.splitlines():
+            if "=" in line:
+                k, v = (x.strip() for x in line.split("=", 1))
+                if k and v:
+                    pairs[k] = v
+        if not pairs:
+            return RedirectResponse("/dev/rag?err=짝이 비었습니다", status_code=303)
+        cfg = dict(rag_spaces.config(data_dir))
+        cfg["dept_of_area"] = pairs
+        rag_spaces.save_config(cfg, data_dir)
+        return RedirectResponse("/dev/rag?ok=폴더·부서 짝을 저장했습니다 — 기존 문서에는 「부서 다시 붙이기」로", status_code=303)
+
+    @app.post("/dev/rag/grant")
+    def dev_rag_grant(user: str = Form(...), spaces: list[str] = Form([])):
+        """계정별 추가 권한 — 그 계정의 검색 범위에 고른 부서 공간의 사업 문서를 더한다(학생 계정에는 주지 않는다)."""
+        from zzaimy.app import rag_spaces
+        data_dir = Path(db_path).parent
+        if user not in accounts:
+            raise HTTPException(404)
+        if accounts[user].get("role") == "student" and spaces:
+            return RedirectResponse("/dev/rag?err=학생 계정에는 추가 권한을 줄 수 없습니다", status_code=303)
+        cfg = dict(rag_spaces.config(data_dir))
+        grants = dict(cfg.get("grants", {}))
+        clean = sorted({x for x in spaces if x.startswith("dept:")})
+        if clean:
+            grants[user] = clean
+        else:
+            grants.pop(user, None)
+        cfg["grants"] = grants
+        rag_spaces.save_config(cfg, data_dir)
+        return RedirectResponse(f"/dev/rag?ok={user} 의 추가 권한을 저장했습니다", status_code=303)
+
+    @app.post("/dev/rag/backfill")
+    def dev_rag_backfill():
+        from zzaimy.app import rag_spaces
+        got = rag_spaces.backfill_depts(db, Path(db_path).parent)
+        return RedirectResponse("/dev/rag?ok=부서를 다시 붙였습니다 — " + ", ".join(f"{k} {v:,}" for k, v in got.items()), status_code=303)
+
     # 반입 연동 관리 — 원본 → 문서함 → 색인 → 그래프의 빈틈(scripts/175)과 조치(맞추기·다시 점검). 개발자만(/dev 미들웨어)
     _INTAKE_JOBS = {"reconcile": ("zz_reconcile.sh", Path("/tmp/intake_reconcile.log")),
                     "audit": ("175_pipeline_audit.py", Path("/tmp/intake_audit.log"))}
@@ -4072,7 +4135,7 @@ def create_app(
             r_ = responder or _default_responder()
             kw = dict(attachment_text=material, criteria_ids=ag.allowed_doc_ids(db, [], dept, role, owner))
             if "scope" in _insp.signature(r_.answer).parameters:
-                kw["scope"] = ag.search_scope(dept, role, owner)
+                kw["scope"] = ag.search_scope(dept, role, owner, Path(db_path).parent)
             answer = r_.answer(db, q, **kw)
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error

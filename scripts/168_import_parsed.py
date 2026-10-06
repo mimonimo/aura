@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from zzaimy.app import archive  # noqa: E402
+from zzaimy.app import archive, rag_spaces  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 
 
@@ -144,8 +144,10 @@ def main() -> int:
             # 사업 분류는 원본 장부의 현재 값(검토 판정 반영) — 기록의 값은 DGX 목록을 만들 때의 옛 분류일 수 있다
             prog_name = row[0] if row is not None else rec.get("program_name")
             prog_id = row[3] if row is not None and len(row) > 3 else rec.get("program")
+            # 부서는 원본 최상위 폴더로(RAG 공간의 범위, ADR-0053), 열람은 교직원 전체(공개 등급 — 학생은 역할로 막힌다)
             did = db.add_document(filename=rec.get("filename") or Path(rel).name, stored_path=f"dgx://{rel}", doc_type="grant",
-                                  sector="grant", project_id=archive.program_project(
+                                  sector="grant", dept=rag_spaces.dept_of_rel(rel, ROOT / "data" / "platform"), access_level="public",
+                                  project_id=archive.program_project(
                                       db, prog_id or "", prog_name or "", projects,
                                       row[4] if row is not None else rec.get("year"), row[5] if row is not None else rec.get("round")),
                                   owner="zzdev")

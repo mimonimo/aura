@@ -40,12 +40,13 @@ def _text(c: dict) -> str:
     return str(c.get("content") or "")
 
 
-def corpus(db, doc_ids: set[int] | None = None, user: str | None = None) -> list[dict]:
-    """사업 문서 조각 — 글이 있는 조각만, 열람 가능한 문서만."""
+def corpus(db, doc_ids: set[int] | None = None, user: str | None = None, depts: list[str] | None = None) -> list[dict]:
+    """사업 문서 조각 — 글이 있는 조각만, 열람 가능한 문서만(+ RAG 공간의 부서)."""
+    dsql, dargs = _access(None, depts)
     q = ("SELECT c.id, c.doc_id, c.seq, c.kind, c.content, d.filename, d.owner, d.access_level FROM doc_chunks c"
-         " JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)")
+         " JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)" + dsql)
     with db._conn() as conn:
-        rows = conn.execute(q, TEXT_KINDS).fetchall()
+        rows = conn.execute(q, (*TEXT_KINDS, *dargs)).fetchall()
     out = []
     for r in rows:
         did = int(r[1])
@@ -137,7 +138,7 @@ def _encode_batch(texts: list[str]):
 
 
 def dense_ids(question: str, allowed: set[int] | None, top_k: int = TOP_K, scope_docs: set[int] | None = None,
-              user: str | None = None, db=None, pool: int = 3000) -> list[int]:
+              user: str | None = None, db=None, pool: int = 3000, depts: list[str] | None = None) -> list[int]:
     """임베딩 순위. allowed 를 주면 그 조각만(옛 경로). 아니면 유사도 상위 pool 개를 뽑고 범위·열람 권한은 SQL 로 거른다 —
     범위가 좁으면(사업 하나) 그 범위의 조각 번호만 놓고 유사도를 잰다."""
     ids, vecs = _load()
@@ -161,7 +162,7 @@ def dense_ids(question: str, allowed: set[int] | None, top_k: int = TOP_K, scope
                     break
         return out
     if scope_docs is not None:
-        in_scope = scoped_chunk_ids(db, scope_docs, user)
+        in_scope = scoped_chunk_ids(db, scope_docs, user, depts)
         if not in_scope:
             return []
         pos = _positions(ids)
@@ -175,7 +176,7 @@ def dense_ids(question: str, allowed: set[int] | None, top_k: int = TOP_K, scope
     top = np.argpartition(-sims, min(pool, len(sims) - 1))[:pool]
     top = top[np.argsort(-sims[top])]
     cand = [int(ids[i]) for i in top]
-    ok = permitted(db, cand, user)
+    ok = permitted(db, cand, user, depts)
     return [c for c in cand if c in ok][:top_k]
 
 
@@ -188,14 +189,22 @@ def _positions(ids) -> dict[int, int]:
         return _cache["pos"]
 
 
-def _access(user: str | None) -> tuple[str, list]:
-    if user is None:
-        return "", []
-    return " AND (COALESCE(d.access_level, 'public') = 'public' OR COALESCE(d.owner, '') = ?)", [user]
+def _access(user: str | None, depts: list[str] | None = None) -> tuple[str, list]:
+    """열람 권한(+ RAG 공간의 부서, ADR-0053) 조건. depts 가 None 이면 부서로 자르지 않는다."""
+    sql, args = "", []
+    if user is not None:
+        sql += " AND (COALESCE(d.access_level, 'public') = 'public' OR COALESCE(d.owner, '') = ?)"
+        args.append(user)
+    if depts is not None:
+        if not depts:
+            return " AND 1 = 0", []
+        sql += f" AND COALESCE(d.dept, '공통') IN ({','.join('?' * len(depts))})"
+        args += list(depts)
+    return sql, args
 
 
-def scoped_chunk_ids(db, scope_docs: set[int], user: str | None) -> list[int]:
-    acc, args = _access(user)
+def scoped_chunk_ids(db, scope_docs: set[int], user: str | None, depts: list[str] | None = None) -> list[int]:
+    acc, args = _access(user, depts)
     ids = sorted(scope_docs)
     out: list[int] = []
     with db._conn() as conn:
@@ -208,10 +217,10 @@ def scoped_chunk_ids(db, scope_docs: set[int], user: str | None) -> list[int]:
     return out
 
 
-def permitted(db, chunk_ids: list[int], user: str | None) -> set[int]:
+def permitted(db, chunk_ids: list[int], user: str | None, depts: list[str] | None = None) -> set[int]:
     if not chunk_ids:
         return set()
-    acc, args = _access(user)
+    acc, args = _access(user, depts)
     with db._conn() as conn:
         return {int(r[0]) for r in conn.execute(
             "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant' AND d.status = 'reviewed'"
@@ -354,7 +363,8 @@ def docs_under(db, program: str) -> set[int]:
     return {int(r[0]) for r in rows}
 
 
-def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: set[int] | None = None) -> dict:
+def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: set[int] | None = None,
+           depts: list[str] | None = None) -> dict:
     """질문 → {steps, hits:[{chunk_id, doc_id, content, path, score}]}. steps 는 리즈닝 단계 기록(graph/retrieve 와 같은 말)."""
     from zzaimy.app.embed_search import rrf_merge
     from zzaimy.app.regulations import _lexical_ids, extract_nouns
@@ -382,16 +392,16 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     if want and have >= 0.5 * want:
         # 색인 경로 — 후보 조각만 읽는다(범위·열람 권한은 SQL 에서). 색인에 아직 없는 새 조각은 임베딩 축이 찾는다 —
         # 95% 아래로 옛 경로(조각 전체 읽기)로 물러나면 새 문서가 들어오는 동안 검색이 수십 초로 느려졌다(10/5 94.4%)
-        lex = grant_lex.rank(db, query, scope_docs, user) if query else []
-        den = dense_ids(question, None, scope_docs=scope_docs, user=user, db=db)
+        lex = grant_lex.rank(db, query, scope_docs, user, depts=depts) if query else []
+        den = dense_ids(question, None, scope_docs=scope_docs, user=user, db=db, depts=depts)
         if not lex and not den and program_docs and scope_docs is not None and scope_docs != program_docs:
             steps.append("좁힌 문서에서 맞는 조각이 없어 그 사업 문서 전체에서 찾는다")
-            lex = grant_lex.rank(db, query, program_docs, user) if query else []
-            den = dense_ids(question, None, scope_docs=program_docs, user=user, db=db)
+            lex = grant_lex.rank(db, query, program_docs, user, depts=depts) if query else []
+            den = dense_ids(question, None, scope_docs=program_docs, user=user, db=db, depts=depts)
         if not lex and not den and scope_docs is not None:
             steps.append("그 사업의 문서 조각에서 맞는 것이 없어 사업 문서 전체에서 찾는다")
-            lex = grant_lex.rank(db, query, None, user) if query else []
-            den = dense_ids(question, None, scope_docs=None, user=user, db=db)
+            lex = grant_lex.rank(db, query, None, user, depts=depts) if query else []
+            den = dense_ids(question, None, scope_docs=None, user=user, db=db, depts=depts)
         merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
         sec = section_hits(db, question, scope_docs)
         if sec:
@@ -402,10 +412,10 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         pool = f"색인 {have}개"
     else:
         # 색인이 덜 찼으면 옛 방식(조각 전체) — 색인 동기화가 따라잡는 동안만
-        chunks = corpus(db, scope_docs, user)
+        chunks = corpus(db, scope_docs, user, depts)
         if not chunks and scope_docs is not None:
             steps.append("그 사업의 문서 조각이 없어 사업 문서 전체에서 찾는다")
-            chunks = corpus(db, None, user)
+            chunks = corpus(db, None, user, depts)
         allowed = {c["id"] for c in chunks}
         lex = _lexical_ids(query, chunks, 1) if query else []
         den = dense_ids(question, allowed)

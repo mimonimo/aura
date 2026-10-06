@@ -175,7 +175,7 @@
   </style>
   {% if intake %}
     {% set pl = intake.pipeline %}
-    <p class="muted" style="font-size:12px; margin:0 0 8px;">{{ intake.at }} 기준 · <a href="/dev/intake">반입 연동 관리</a> · <a href="/archive">원본 보관소</a> · <a href="/dev/api/intake">JSON</a></p>
+    <p class="muted" style="font-size:12px; margin:0 0 8px;">{{ intake.at }} 기준 · <a href="/dev/intake">반입 연동 관리</a> · <a href="/dev/rag">RAG 공간</a> · <a href="/archive">원본 보관소</a> · <a href="/dev/api/intake">JSON</a></p>
     {% if pl %}
     <div class="ik2-sum">
       <span>원본 <b>{{ "{:,}".format(pl.archive_files) }}</b></span><span>→</span>

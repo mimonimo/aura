@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}RAG 공간{% endblock %}
+{% block pagetitle %}RAG 공간{% endblock %}
+{% block content %}
+<style>
+.rg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start;}
+.rg-table{width:100%;border-collapse:collapse;font-size:13px;}
+.rg-table td,.rg-table th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
+.rg-table td.n,.rg-table th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.rg-wrap{overflow-wrap:anywhere;font-size:12.5px;}
+.rg-checks{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12.5px;}
+textarea.rg-map{width:100%;min-height:110px;font:13px/1.5 ui-monospace,monospace;}
+</style>
+
+{% set q = request.query_params %}
+{% if q.get('ok') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
+{% if q.get('err') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
+
+<section class="card"><div class="card-in">
+  <h2><iconify-icon icon="solar:database-linear"></iconify-icon>공간 목록</h2>
+  <table class="rg-table">
+    <tr><th>공간</th><th>사업 문서 범위</th><th class="n">사업 문서</th><th class="n">규정 문서</th><th class="n">규정 조각</th><th>쓰는 계정</th></tr>
+    {% for s in spaces %}
+    <tr><td><b>{{ s.id }}</b><br><span class="muted" style="font-size:12px;">{{ s.label }}</span></td>
+      <td class="rg-wrap">{% if not s.grant %}쓰지 않음{% elif s.grant_depts is none %}전부{% else %}{{ s.grant_depts|join(", ") }}{% endif %}</td>
+      <td class="n">{{ "{:,}".format(s.grant_docs) }}</td><td class="n">{{ "{:,}".format(s.reg_docs) }}</td>
+      <td class="n">{{ "{:,}".format(s.reg_chunks) }}</td>
+      <td class="rg-wrap">{{ s.users|join(", ") if s.users else "—" }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">공간은 같은 색인 위의 검색 범위입니다. 계정의 역할·부서로 정해지고, 부서가 있는 교직원은 그 부서 공간을 받습니다. 관리자(dev)는 전부.</p>
+</div></section>
+
+<div class="rg-grid">
+<section class="card"><div class="card-in">
+  <h2>계정별 추가 권한</h2>
+  <table class="rg-table">
+    <tr><th>계정</th><th>기본 공간</th><th>더 볼 부서 공간</th></tr>
+    {% for a in accts %}
+    <tr><td>{{ a.id }}<br><span class="muted" style="font-size:12px;">{{ a.role }}{{ " · " ~ a.dept if a.dept }}</span></td>
+      <td class="rg-wrap">{{ a.space }}</td>
+      <td>{% if a.role == "student" %}<span class="muted">학생은 학사 규정만</span>
+        {% elif a.role == "dev" %}<span class="muted">전부</span>
+        {% else %}
+        <form method="post" action="/dev/rag/grant">
+          <input type="hidden" name="user" value="{{ a.id }}">
+          <div class="rg-checks">
+          {% for sp in dept_spaces %}
+            <label><input type="checkbox" name="spaces" value="{{ sp }}" {{ 'checked' if sp in a.grants }}> {{ sp[5:] }}</label>
+          {% endfor %}
+          </div>
+          <button class="btn" style="margin-top:6px;">저장</button>
+        </form>
+        {% endif %}</td></tr>
+    {% else %}<tr><td colspan="3" class="muted">계정 없음</td></tr>{% endfor %}
+  </table>
+</div></section>
+
+<section class="card"><div class="card-in">
+  <h2>원본 폴더 → 부서</h2>
+  <form method="post" action="/dev/rag/area">
+    <textarea class="rg-map" name="mapping">{% for k, v in cfg.dept_of_area.items() %}{{ k }}={{ v }}
+{% endfor %}</textarea>
+    <p class="muted" style="font-size:12px;margin:6px 0;">한 줄에 「원본 최상위 폴더=부서」. 짝이 없는 폴더의 문서는 「공통」(모든 교직원 공간에 들어감). 새 반입 문서는 저장 즉시 이 짝을 따릅니다.</p>
+    <button class="btn">저장</button>
+  </form>
+  <form method="post" action="/dev/rag/backfill" style="margin-top:10px;">
+    <button class="btn primary">기존 문서에 부서 다시 붙이기</button>
+  </form>
+  <p class="muted" style="font-size:12px;margin:6px 0 0;">설정은 rag_spaces.json 한 파일이며, 고칠 때마다 이전 판을 남깁니다.</p>
+</div></section>
+</div>
+
+<section class="card"><div class="card-in">
+  <h2>학생 공개 규정 {{ student_regs|length }}건 <span class="muted" style="font-size:12px;font-weight:400;margin-left:8px;">검토 끝난 규정 {{ n_regs }}건 중</span></h2>
+  <table class="rg-table">
+    {% for d in student_regs %}<tr><td class="rg-wrap"><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td></tr>
+    {% else %}<tr><td class="muted">아직 없음 — 규정 문서 화면의 「학생 공개하기」로 지정합니다.</td></tr>{% endfor %}
+  </table>
+  {% if student_hints %}
+  <h3 style="font-size:14px;margin:14px 0 6px;">학생 관련으로 보이는 규정(미지정) {{ student_hints|length }}건</h3>
+  <table class="rg-table">
+    {% for d in student_hints %}<tr><td class="rg-wrap"><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td></tr>{% endfor %}
+  </table>
+  {% endif %}
+</div></section>
+{% endblock %}
