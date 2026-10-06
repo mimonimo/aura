@@ -72,6 +72,11 @@ def main():
                 result["status"] = "candidate"
             except Exception as exc:
                 result.update(status="held", error_type=type(exc).__name__)
+                if isinstance(exc, ValueError):
+                    allowed = {"truncated_output","missing_context","insufficient_dialogue","missing_turn_field",
+                               "evidence_not_in_source","missing_search_plan","business_facts_not_training_evidence",
+                               "business_numbers_in_training","privacy_check_required"}
+                    result["hold_reason"] = str(exc) if str(exc) in allowed else "invalid_json"
             result["created_at"] = time.time()
             temporary = dest.with_suffix(".tmp")
             temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2))

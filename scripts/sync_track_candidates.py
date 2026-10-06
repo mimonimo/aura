@@ -1,5 +1,6 @@
 """두 묶음의 새 후보만 Label Studio에 게시. 승인·구버전 자동 복원 없음."""
 import json
+import fcntl
 import sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
@@ -51,4 +52,9 @@ def main():
     print(json.dumps(result))
 
 
-if __name__=="__main__":main()
+if __name__=="__main__":
+    root=Path("data/training/tracks")
+    root.mkdir(parents=True,exist_ok=True)
+    with (root/"labelstudio.lock").open("a") as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        main()
