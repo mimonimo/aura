@@ -36,5 +36,6 @@ def test_schema_and_shacl_find_violations(tmp_path):
     assert msgs.get("연차가 사업 하나에 속하지 않는다(없거나 둘 이상)") == 2         # 두 사업에 속한 연차 + 떠돌이 연차
     assert msgs.get("연차의 연도가 범위 밖이거나 여럿이다") == 1
     assert msgs.get("장부 관계에 출처 URL 이 없다") == 1
-    assert "근거 없는 관계" not in msgs and "문서가 어떤 사업·연차에도 속하지 않는다" not in msgs
+    assert "근거 없는 관계" not in msgs and "문서가 어떤 사업·연차에도 속하지 않는다(미분류)" not in msgs
+    assert rep["n_warnings"] == 0 and rep["n_violations"] == 4
     assert {r["shape"] for r in rep["rules"]} >= {"ProgramShape", "YearShape", "StatementShape"}
