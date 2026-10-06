@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import urlencode
+from urllib.parse import quote as _q, urlencode
 import logging
 import re
 import time
@@ -2551,12 +2551,30 @@ def create_app(
         email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
         if not email or not gdrive_files.has_file_scope(email):
             return RedirectResponse(f"/doc/{doc_id}?view=local", status_code=303)
+        if not _visible(doc, **_doc_scope(request)):
+            raise HTTPException(404)
         project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
+        temp = None
         try:
             folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
-            made = gdrive_files.google_copy(db, doc, email, folder)
+            src = doc
+            if not (db.get_setting(f"doc_google:{doc_id}", "") or ""):          # 이미 만든 열람본이면 원본을 받을 필요가 없다
+                path, is_temp = _original_file(doc)
+                temp = path if is_temp else None
+                ext = Path(doc["filename"] or "").suffix.lower()
+                if is_temp and ext:                                            # 변환기는 확장자로 형식을 고른다
+                    named = path.with_suffix(ext)
+                    path.replace(named)
+                    path = temp = named
+                src = dict(doc, stored_path=str(path))
+            made = gdrive_files.google_copy(db, src, email, folder)
+        except (FileNotFoundError, RuntimeError, ValueError) as e:
+            return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(f"구글 열람본을 만들지 못했습니다 — {e}"), status_code=303)
         except Exception as e:
             return RedirectResponse(f"/doc/{doc_id}?view=local&err={type(e).__name__}", status_code=303)
+        finally:
+            if temp is not None:
+                Path(temp).unlink(missing_ok=True)
         return RedirectResponse(made["url"], status_code=303)
 
     @app.get("/login", response_class=HTMLResponse)
@@ -5758,17 +5776,42 @@ def create_app(
             }),
         )
 
+    def _original_file(doc: dict) -> tuple[Path, bool]:
+        """문서의 원본 파일 — (경로, 임시 파일인가). 플랫폼에 있으면 그것, DGX 원본(dgx://)이면 읽기 전용 연결로 한 개만 받아 온다.
+        DGX 문서는 원본이 VM 에 없어 「원본 열기」가 404, 「구글에서 열기」가 같은 화면으로 돌아왔다(2026-10-06)."""
+        sp = str(doc.get("stored_path") or "")
+        if sp and not sp.startswith("dgx://") and Path(sp).exists():
+            return Path(sp), False
+        if sp.startswith("dgx://"):
+            from zzaimy.app import archive, archive_original
+
+            archive.ensure(db)
+            with db._conn() as conn:
+                row = conn.execute("SELECT rel, size, mtime FROM archive_files WHERE rel = ? AND removed_at = ''",
+                                   (sp[len("dgx://"):],)).fetchone()
+            if row:
+                return archive_original.fetch(dict(zip(("rel", "size", "mtime"), row))), True
+        raise FileNotFoundError("원본 파일을 찾을 수 없습니다")
+
+    def _doc_scope(request: Request) -> dict:
+        return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
+
     @app.get("/doc/{doc_id}/original")
-    def doc_original(doc_id: int):
+    def doc_original(request: Request, doc_id: int):
         from fastapi.responses import FileResponse
+        from starlette.background import BackgroundTask
 
         doc = db.get_document(doc_id)
-        if doc is None or not Path(doc["stored_path"]).exists():
+        if doc is None or not _visible(doc, **_doc_scope(request)):        # 예전에는 권한 확인 없이 내려주었다
             raise HTTPException(404)
-        return FileResponse(
-            doc["stored_path"], filename=doc["filename"],
-            content_disposition_type="inline",
-        )
+        try:
+            path, temp = _original_file(doc)
+        except (FileNotFoundError, ValueError) as e:
+            return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(f"원본을 열 수 없습니다 — {e}"), status_code=303)
+        except RuntimeError as e:                                          # DGX 연결 문제·동시 요청
+            return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(str(e)), status_code=303)
+        return FileResponse(path, filename=doc["filename"], content_disposition_type="inline",
+                            background=BackgroundTask(path.unlink, missing_ok=True) if temp else None)
 
     @app.get("/doc/{doc_id}/page/{page_no}.png")
     def doc_page_image(doc_id: int, page_no: int):
