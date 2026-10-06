@@ -919,6 +919,20 @@ class Converter:
                         self._fill_para_into(first_p, p_el, cell, last_in_cell=len(paras) == 1)
                     else:
                         self.paragraph(p_el, cell, heading_ok=False, last_in_cell=i == len(paras) - 1)
+        # 원본이 명시적으로 금지한 경우만 행/표 분할을 막는다. 큰 표를 일괄 묶지 않는다.
+        # repeatHeader만으로는 제목 셀 범위를 알 수 없으므로 첫 행 반복을 추측하지 않는다.
+        page_break = tbl.get("pageBreak", "").upper()
+        if page_break in {"NONE", "CELL"}:
+            from docx.oxml import OxmlElement
+            from docx.table import _Cell
+
+            for rr, row in enumerate(table.rows):
+                row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
+                if page_break == "NONE":
+                    for tc in row._tr.tc_lst:
+                        paras = _Cell(tc, table).paragraphs
+                        for i, paragraph in enumerate(paras):
+                            paragraph.paragraph_format.keep_with_next = rr < n_rows - 1 or i < len(paras) - 1
         # 병합에 덮이지 않은 빈 칸도 테두리를 준다
         for rr in range(n_rows):
             for cc in range(n_cols):

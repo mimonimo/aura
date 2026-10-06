@@ -3,10 +3,43 @@
 import base64
 import io
 
+import pytest
+
 from docx import Document
 from docx.oxml.ns import qn
 
 from zzaimy.ingest import hwp5_docx
+
+
+def test_table_translation_keeps_explicit_pagination_without_guessing_header_cells():
+    from xml.etree import ElementTree as ET
+
+    for source, target in (("none", "NONE"), ("by_cell", "CELL"), ("split", "TABLE"), ("unknown", None)):
+        original = ET.fromstring(f'<TableControl><TableBody rows="1" cols="1" split-page="{source}" repeat-header="1"/></TableControl>')
+        translated = hwp5_docx._translate_table(original)
+        assert translated.get("pageBreak") == target
+        assert translated.get("repeatHeader") == "1"
+    missing = hwp5_docx._translate_table(ET.fromstring('<TableControl><TableBody rows="1" cols="1"/></TableControl>'))
+    assert missing.get("pageBreak") is None
+    assert missing.get("repeatHeader") is None
+
+
+@pytest.mark.parametrize("fillflags", ["00000001", "00000000"])
+def test_explicit_black_cell_background_preserves_white_heading(tmp_path, fillflags):
+    xml = XML.replace('background-color="#d6d6d6"', 'background-color="#000000"')
+    xml = xml.replace('<BorderFill fillflags="00000001">', f'<BorderFill fillflags="{fillflags}">')
+    xml = xml.replace('text-color="#2525f5"', 'text-color="#ffffff"')
+    source = tmp_path / "black-heading.xml"
+    source.write_text(xml, encoding="utf-8")
+    data, _ = hwp5_docx.convert_xml(source)
+    cell = Document(io.BytesIO(data)).tables[0].cell(0, 0)
+    assert cell.text == "제목 칸"
+    assert str(cell.paragraphs[0].runs[0].font.color.rgb) == "FFFFFF"
+    shading = cell._tc.tcPr.find(qn("w:shd"))
+    if fillflags == "00000001":
+        assert shading is not None and shading.get(qn("w:fill")) == "000000"
+    else:
+        assert shading is None  # 채우기 없는 원본의 기본 검정 값으로 배경을 만들지 않는다.
 
 def _png() -> str:
     from PIL import Image
