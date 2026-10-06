@@ -3288,6 +3288,7 @@ def create_app(
             "n_adr": len(_dev_doc_list("decisions")),
             "n_notes": len(_dev_doc_list("notes")),
             "intake": _intake_snapshot(),
+            "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
         }))
 
     def _intake_snapshot() -> dict | None:
