@@ -333,6 +333,7 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
   (판정·기록은 동작, 허용·승인 건은 전송 대기로 보관).
 - RAG 공간(ADR-0052·0053): 학생=학생 공개 규정만, 부서 교직원=그 부서·공통 사업 문서, 부서 없는 교직원=전부. 계정별 추가 권한·폴더→부서 짝은 `/dev/rag`(설정 `data/platform/rag_spaces.json`, 저장마다 백업). 반입 연동 점검은 `/dev/intake`.
 - 핵심 기술 표: 작업 현황(/dev) 「핵심 기술」 탭 — RAG·지식그래프·온톨로지·판독 부품의 판·라이선스·쓰는 곳(원천 `app/tech_stack.py`, 부품을 바꾸면 같이 고친다).
+- 온톨로지 표준(ADR-0056): OWL 설계도·SHACL 검사 — `scripts/177_ontology_export.py`(결과 data/platform/ontology/), 화면 /graph/explore 온톨로지 보기에 검사 결과·내려받기.
 - 온톨로지 보강(ADR-0055): 기관 노드(주관 부처·전담기관, 장부 출처), 서류 갈래 6종 추가. 증빙·회계 서류 2,335건의 검색 제외는 사용자 판단 대기.
 - 그래프 탐색 `/graph/explore`(ADR-0054): 지식그래프는 노드를 펼쳐 보고 온톨로지는 구조도로 본다. Cytoscape.js(MIT) 동봉, 열람 권한 거름.
 - 발표 자료: `docs/paper/제안-발표.html`(웹 슬라이드), `docs/paper/제안발표-내용.md`(텍스트).
