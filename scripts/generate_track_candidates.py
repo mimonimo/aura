@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--max-jobs", type=int, default=10)
     parser.add_argument("--windows-per-source", type=int, default=2)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--retry-held", action="store_true")
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text())
     if manifest["track"] not in TRACKS or args.max_jobs < 1 or args.windows_per_source < 1:
@@ -46,7 +47,8 @@ def main():
             job = key([manifest["track"], provenance, SYSTEM, INSTRUCTIONS[manifest["track"]]])
             dest = out / (job + ".json")
             if dest.exists():
-                continue
+                if not args.retry_held or json.loads(dest.read_text()).get("status") != "held":
+                    continue
             if source_jobs >= args.windows_per_source:
                 break
             if jobs >= args.max_jobs:
@@ -65,6 +67,8 @@ def main():
                     messages=[{"role":"system", "content":SYSTEM + INSTRUCTIONS[manifest["track"]]},
                               {"role":"user", "content":window}])
                 choice = response.choices[0]
+                result["finish_reason"] = choice.finish_reason
+                result["draft_response"] = protect_candidate(choice.message.content or "")
                 if choice.finish_reason == "length":
                     raise ValueError("truncated_output")
                 parsed = json.loads(choice.message.content)
@@ -80,6 +84,8 @@ def main():
             result["created_at"] = time.time()
             temporary = dest.with_suffix(".tmp")
             temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2))
+            if dest.exists():
+                dest.rename(dest.with_suffix(f".{time.time_ns()}.backup"))
             temporary.replace(dest)
             print(json.dumps({"track":manifest["track"],"job":job,"status":result["status"]}),flush=True)
 
