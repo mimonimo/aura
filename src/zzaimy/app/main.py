@@ -554,7 +554,7 @@ def create_app(
         all_docs = [
             d for d in db.list_documents(
                 doc_type, q=q, project_id=project,
-                owner=getattr(request.state, "user", "zzaimy"),
+                owner=getattr(request.state, "user", "zzaimy"), light=True,
             )
             if _visible(d, dept=getattr(request.state, "dept", "") or None,
                         user=getattr(request.state, "user", "zzaimy"),
