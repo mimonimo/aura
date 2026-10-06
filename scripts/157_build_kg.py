@@ -267,6 +267,16 @@ def main() -> int:
             pc = card_by_surface(pred)
             if pc is not None and pc is not c:
                 edges.append((pc.node_id, c.node_id, "succeeded_by", "분류", [f"앞 단계 사업 → 다음 단계({e.get('period', '')})"] + e["sources"][:2]))
+        # 주관 부처·전담기관 — 외부 확인 장부의 값(출처 필수, 확인 못 한 칸은 비워 둔다). 기관이 같으면 같은 노드
+        for field, kind, role in (("ministry", "supervised_by", "주관"), ("agency", "managed_by", "전담")):
+            name = (e.get(field) or "").strip()
+            if not name or not e.get("org_sources"):
+                continue
+            oid = "org:" + re.sub(r"\s+", "", name)
+            if not any(n_[0] == oid for n_ in nodes):
+                nodes.append((oid, "org", name, {}, None))
+            edges.append((c.node_id, oid, kind, "분류",
+                          [f"{role} 기관 {name} — 외부 확인({e.get('org_checked', '')}, 근거 {e.get('org_confidence', '')})"] + e["org_sources"][:2]))
     # 연관 사업 — 문서가 두 사업을 함께 다룬 근거로(장부의 편입·전신과 별개, 기준 「식별자 일치」·근거는 문서 이름)
     fname = {d["id"]: d["filename"] for d in docs}
     known = {c.node_id for c in cards if not c.not_program}
