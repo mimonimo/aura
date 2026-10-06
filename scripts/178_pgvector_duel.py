@@ -84,6 +84,11 @@ def duel(db, ids: np.ndarray, vecs: np.ndarray, n: int, seed: int, ef: int) -> d
         for r in conn.execute("SELECT chunk_id, doc_id FROM grant_vec"):
             pos_doc[int(r[0])] = int(r[1]) if r[1] is not None else -1
         size = conn.execute("SELECT pg_size_pretty(pg_total_relation_size('grant_vec'))").fetchone()[0]
+    # 같은 벡터 집합끼리 견준다 — 대결 도중에도 주기 작업이 배열 파일에 새 벡터를 더하므로, 정확 계산도 표에 있는 것만(2026-10-06:
+    # 이걸 안 해서 ef 를 올릴수록 recall 이 떨어져 보였다)
+    keep = np.fromiter((int(c) in pos_doc for c in ids.tolist()), dtype=bool, count=len(ids))
+    ids, vecs = ids[keep], vecs[keep]
+    qs = rng.choice(len(ids), size=n, replace=False)          # 표본은 거른 뒤에 뽑는다
     res = {"exact_ms": [], "hnsw_ms": [], "r10": [], "r50": [], "scope_exact_ms": [], "scope_hnsw_ms": [], "scope_r10": []}
     hc_ctx = db._conn()
     hc = hc_ctx.__enter__()                       # 잰 시간에 접속 비용이 섞이지 않게 질의 연결 하나를 계속 쓴다
