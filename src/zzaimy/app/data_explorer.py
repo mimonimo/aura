@@ -438,9 +438,43 @@ def related_for_doc(graph: dict | None, doc_id: int) -> dict:
             "n": sum(len(g["nodes"]) for g in out)}
 
 
+def related_from_kg(db, doc_id: int, scope: dict) -> dict:
+    """문서 노드(doc:N)의 이웃 — 지식 그래프(kg_nodes·kg_edges)에서 바로 읽는다(kg_explore.neighbors, 노드 하나라 1초 안).
+
+    옛 방식(build_graph)은 요청마다 문서 전체(4만 건)로 그래프를 새로 만들어 이 화면을 몇 분씩 멈췄다(2026-10-06 크롬 확인)."""
+    from fastapi import HTTPException
+
+    from zzaimy.app import kg_explore
+
+    try:
+        d = kg_explore.neighbors(db, f"doc:{doc_id}", scope, per_group=20)
+    except HTTPException:
+        return {"available": True, "in_graph": False, "groups": [], "n": 0}
+    nodes = {n["id"]: n for n in d["nodes"]}
+    out = []
+    for g in d["groups"]:
+        items = []
+        for e in d["edges"]:
+            other = e["dst"] if e["src"] == f"doc:{doc_id}" else e["src"]
+            n = nodes.get(other)
+            if e["kind"] != g["kind"] or n is None or n["type"] != g["type"] \
+                    or (g["dir"] == "out") != (e["src"] == f"doc:{doc_id}"):
+                continue
+            href = f"/doc/{n['doc_id']}" if n["type"] == "doc" and n.get("doc_id") is not None \
+                else "/graph/explore?id=" + n["id"]
+            items.append({"id": n["id"], "label": n["label"], "node_kind": n["type"], "kind_label": n["type_ko"],
+                          "doc_type": "", "w": float(e.get("weight") or 1), "note": e.get("basis") or "",
+                          "why": "", "evidence": e.get("evidence") or [], "href": href})
+        if items:
+            out.append({"kind": g["key"], "label": g["label"] + (f" (전체 {g['total']:,})" if g["total"] > len(items) else ""),
+                        "nodes": items})
+    return {"available": True, "in_graph": True, "groups": out, "n": sum(len(g["nodes"]) for g in out)}
+
+
 def docs_tab(
     db, q: str = "", doc_type: str = "", doc_id: int | None = None,
     graph_fn: Callable[[], dict | None] | None = None,
+    related_fn: Callable[[int], dict] | None = None,
     index: dict | None = None,
     file_exists: Callable[[str], bool] | None = None,
 ) -> dict:
@@ -459,7 +493,7 @@ def docs_tab(
         view["selected"] = {
             "overview": doc_overview(db, doc, file_exists),
             "chunks": doc_chunks_view(db, int(doc["id"]), ids),
-            "related": related_for_doc(graph_fn() if graph_fn else None, int(doc["id"])),
+            "related": related_fn(int(doc["id"])) if related_fn else related_for_doc(graph_fn() if graph_fn else None, int(doc["id"])),
         }
     return view
 
