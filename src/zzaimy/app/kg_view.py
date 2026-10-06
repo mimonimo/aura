@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
@@ -42,34 +43,107 @@ def indicator_table(inds: list[dict], vis_docs: set | None, limit: int = 40, max
     return {"rows": rows, "cols": [c for c in rest if c == "기준"] + cols + [c for c in rest if c != "기준"][:3], "total": len(inds)}
 
 
+def _rows(conn, sql: str, args=()) -> list[dict]:
+    return [dict(r) for r in conn.execute(sql, args).fetchall()]
+
+
+def _node(r: dict) -> dict:
+    return {**r, "props": json.loads(r["props"] or "{}") if isinstance(r.get("props"), str) else (r.get("props") or {})}
+
+
+def _edge(r: dict) -> dict:
+    return {**r, "evidence": json.loads(r["evidence"] or "[]") if isinstance(r.get("evidence"), str) else (r.get("evidence") or [])}
+
+
+def _in(ids: list, size: int = 5000):
+    for i in range(0, len(ids), size):
+        part = ids[i:i + size]
+        yield part, ",".join("?" * len(part))
+
+
+def _subgraph(db, program_id: str | None, scope: dict | None) -> tuple[dict, list, dict | None]:
+    """고른 사업 하나를 그리는 데 필요한 노드·관계만 읽는다.
+
+    예전에는 요청마다 그래프 전체(노드 42만·관계 59만)와 문서 전체(본문 열 포함)를 읽어 이 화면이 26초 걸렸다(2026-10-06 크롬 확인).
+    사업·연차 뼈대(분류 관계)는 전부, 문서·지표·대응 관계는 고른 사업 것만 읽고, 절 수·관계 수는 SQL 로 센다."""
+    from zzaimy.app.access_policy import visible
+
+    with db._conn() as conn:
+        base = {r["id"]: _node(r) for r in _rows(conn, "SELECT * FROM kg_nodes WHERE type IN ('program', 'program_group', 'year')")}
+        struct = [_edge(r) for r in _rows(conn, "SELECT * FROM kg_edges WHERE (kind = 'contains' AND (src LIKE 'program:%' OR src LIKE 'year:%'"
+                                                 " OR src LIKE 'group:%')) OR kind IN ('integrated_into', 'succeeded_by', 'related')")]
+        dev = scope is None or scope.get("role") == "dev"
+        if dev:
+            allowed_docs = None
+        else:
+            allowed_docs = {int(r["id"]) for r in _rows(conn, "SELECT id, access_level, dept, owner, doc_type, audience FROM documents")
+                            if visible(r, **scope)}
+
+        def doc_ok(node_id: str) -> bool:
+            if not node_id.startswith("doc:"):
+                return True
+            tail = node_id.split(":")[1]
+            return allowed_docs is None or (tail.isdigit() and int(tail) in allowed_docs)
+        # 볼 수 있는 문서를 담은 사업·연차만(숨은 문서의 분류 노드는 드러내지 않는다). 관리자는 전부
+        parents = defaultdict(list)
+        for e in struct:
+            if e["kind"] == "contains" and base.get(e["src"], {}).get("type") in {"program", "year"}:
+                parents[e["dst"]].append(e["src"])
+        if dev:
+            keep = set(base)
+        else:
+            keep, pending = set(), [e["dst"] for e in struct if e["kind"] == "contains" and e["dst"].startswith("doc:") and doc_ok(e["dst"])]
+            while pending:
+                for par in parents[pending.pop()]:
+                    if par not in keep:
+                        keep.add(par)
+                        pending.append(par)
+            keep |= {k for k, n in base.items() if n["type"] == "program_group"}
+        nodes = {k: n for k, n in base.items() if k in keep}
+        # 고를 사업 — 지정이 없으면 볼 수 있는 문서가 가장 많은 사업(사업 바로 아래 + 연차 아래)
+        n_docs: dict[str, int] = defaultdict(int)
+        year_of = {e["dst"]: e["src"] for e in struct if e["kind"] == "contains" and e["src"].startswith("program:") and e["dst"].startswith("year:")}
+        for e in struct:
+            if e["kind"] == "contains" and e["basis"] == "분류" and e["dst"].startswith("doc:") and doc_ok(e["dst"]):
+                n_docs[year_of.get(e["src"], e["src"])] += 1
+        progs = [k for k, n in nodes.items() if n["type"] == "program"]
+        pid = program_id if program_id in progs else (max(progs, key=lambda k: n_docs.get(k, 0)) if progs and not program_id else None)
+        if pid is None:
+            return nodes, [], None
+        years = [e["dst"] for e in struct if e["src"] == pid and e["dst"].startswith("year:")]
+        doc_ids = sorted({e["dst"] for e in struct if e["kind"] == "contains" and e["src"] in {pid, *years}
+                          and e["dst"].startswith("doc:") and doc_ok(e["dst"])})
+        for part, ph in _in(doc_ids):
+            nodes.update({r["id"]: _node(r) for r in _rows(conn, f"SELECT * FROM kg_nodes WHERE id IN ({ph})", part)})
+        nums = [int(d.split(":")[1]) for d in doc_ids]
+        # 성과지표 — 값을 낸 문서 중 하나라도 볼 수 있을 때만
+        ind = [_edge(r) for r in _rows(conn, "SELECT * FROM kg_edges WHERE src = ? AND kind = 'has_indicator'", (pid,))]
+        for part, ph in _in([e["dst"] for e in ind]):
+            for r in _rows(conn, f"SELECT * FROM kg_nodes WHERE id IN ({ph})", part):
+                n = _node(r)
+                if dev or any(o.get("doc_id") in allowed_docs for o in n["props"].get("obs", [])):
+                    nodes[n["id"]] = n
+        # 계획↔실적·연차 이어짐·평가 — 고른 사업 문서(또는 그 절)에서 나가는 것만, 양 끝을 볼 수 있을 때
+        pairs, n_sections, counts = [], 0, defaultdict(int)
+        for part, ph in _in(nums):
+            pairs += [_edge(r) for r in _rows(conn, "SELECT e.* FROM kg_edges e JOIN kg_nodes n ON n.id = e.src"
+                                                   f" WHERE n.doc_id IN ({ph}) AND e.kind IN ('plans_reports', 'continues', 'evaluates')", part)]
+            n_sections += int(conn.execute(f"SELECT COUNT(*) FROM kg_nodes WHERE type = 'section' AND doc_id IN ({ph})", part).fetchone()[0])
+            for r in conn.execute("SELECT e.kind, e.basis, COUNT(*) FROM kg_edges e JOIN kg_nodes n ON n.id = e.src"
+                                  f" WHERE n.doc_id IN ({ph}) GROUP BY e.kind, e.basis", part).fetchall():
+                counts[(r[0], r[1])] += int(r[2])
+        pairs = [e for e in pairs if doc_ok(e["dst"].split(":sec:")[0])]
+        ends = sorted({x for e in pairs for x in (e["src"], e["dst"])} - set(nodes))
+        for part, ph in _in(ends):
+            nodes.update({r["id"]: _node(r) for r in _rows(conn, f"SELECT * FROM kg_nodes WHERE id IN ({ph})", part)})
+    edges = [e for e in struct + ind + pairs if e["src"] in nodes and e["dst"] in nodes]
+    return nodes, edges, {"counts": counts, "n_sections": n_sections, "allowed_docs": allowed_docs}
+
+
 def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
     kg_store.ensure(db)
-    nodes = {n["id"]: n for n in kg_store.nodes(db)}
-    edges = kg_store.edges(db)
-    if scope is not None:
-        from zzaimy.app.access_policy import visible
-
-        allowed_docs = {d["id"] for d in db.list_documents() if visible(d, **scope)}
-        allowed = {key for key, node in nodes.items() if node.get("doc_id") in allowed_docs}
-        # Keep only the classification ancestors of visible documents, never hidden siblings.
-        parents = defaultdict(list)
-        for edge in edges:
-            parent = nodes.get(edge["src"], {})
-            if edge["kind"] == "contains" and parent.get("type") in {"program", "year", "group"}:
-                parents[edge["dst"]].append(edge["src"])
-        pending = list(allowed)
-        while pending:
-            for parent in parents[pending.pop()]:
-                if parent not in allowed:
-                    allowed.add(parent)
-                    pending.append(parent)
-        # 성과지표 노드는 그 값을 낸 문서 중 하나라도 볼 수 있을 때만(값도 볼 수 있는 문서 것만 — indicator_table)
-        allowed.update(k for k, n in nodes.items() if n["type"] == "indicator"
-                       and any(o.get("doc_id") in allowed_docs for o in (n.get("props") or {}).get("obs", [])))
-        if scope.get("role") == "dev":
-            allowed.update(k for k, n in nodes.items() if n["type"] in {"program", "year", "group"})
-        nodes = {k: n for k, n in nodes.items() if k in allowed}
-    edges = [e for e in edges if e["src"] in nodes and e["dst"] in nodes]
+    nodes, edges, sql = _subgraph(db, program_id, scope)
+    allowed_docs = (sql or {}).get("allowed_docs")
     progs = [n for n in nodes.values() if n["type"] == "program"]
     if program_id and not any(p["id"] == program_id for p in progs):
         raise HTTPException(404, "사업을 찾을 수 없습니다")
@@ -125,10 +199,7 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
             continues.append(pair(e))
         elif e["kind"] == "evaluates":
             evaluates.append(pair(e))
-    counts = defaultdict(int)
-    for e in edges:
-        if doc_of(e["src"]) in prog_docs:
-            counts[(e["kind"], e["basis"])] += 1
+    counts = (sql or {}).get("counts") or defaultdict(int)
     # 사업 체계(외부 확인 장부에서 지은 관계) — 분류, 앵커 편입, 앞뒤 단계
     taxonomy = {"groups": [], "integrated": [], "pred": [], "succ": []}
     for e in edges:
@@ -153,7 +224,7 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
     return {"indicators": indicators, "programs": progs, "program": prog, "taxonomy": taxonomy, "ledger": ledger, "cols": cols, "loose": loose, "rows": ROWS,
             "plans_reports": dict(plans_reports), "continues": continues, "evaluates": evaluates,
             "counts": sorted(((KIND_KO.get(k[0], k[0]), k[1], v) for k, v in counts.items()), key=lambda t: -t[2]),
-            "n_sections": sum(1 for n in nodes.values() if n["type"] == "section" and doc_of(n["id"]) in prog_docs)}
+            "n_sections": (sql or {}).get("n_sections", 0)}
 
 
 @router.get("/graph/program", response_class=HTMLResponse)
