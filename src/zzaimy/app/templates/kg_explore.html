@@ -104,11 +104,11 @@
   "use strict";
   if (window.cytoscapeFcose) cytoscape.use(window.cytoscapeFcose);
   var TYPE_KO = {{ type_ko|tojson }};
-  var COLOR = { program_group: "#6B3FA0", program: "#B4531F", year: "#C08A2E", doc: "#497BFB",
+  var COLOR = { program_group: "#6B3FA0", program: "#B4531F", org: "#4A5568", year: "#C08A2E", doc: "#497BFB",
                 section: "#8DA4C8", unit: "#0EA5A0", indicator: "#1E6B4F" };
   var EDGE_COLOR = { contains: "#B8C4D6", instance_of: "#0EA5A0", continues: "#C08A2E", plans_reports: "#497BFB",
                      evaluates: "#7C5CBF", has_indicator: "#1E6B4F", measures: "#5E8C6A", related: "#B4531F",
-                     integrated_into: "#C0392B", succeeded_by: "#6B3FA0" };
+                     integrated_into: "#C0392B", succeeded_by: "#6B3FA0", supervised_by: "#4A5568", managed_by: "#718096" };
   var INFO_KO = { kind_label: "갈래", year: "연도", round: "차년도", n_docs: "문서", unit: "단위", level: "수준",
                   status: "상태", period: "기간", ministry: "부처", agency: "전담기관" };
   var root = document.getElementById("gx");
@@ -143,7 +143,7 @@
 
   function clip(s, n) { s = String(s || "").replace(/_+/g, " "); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
-  function sizeOf(t) { return { program_group: 46, program: 40, year: 30, doc: 20, unit: 22, indicator: 20, section: 13 }[t] || 18; }
+  function sizeOf(t) { return { program_group: 46, program: 40, org: 34, year: 30, doc: 20, unit: 22, indicator: 20, section: 13 }[t] || 18; }
 
   function legend() {
     var box = document.getElementById("gxLegend");

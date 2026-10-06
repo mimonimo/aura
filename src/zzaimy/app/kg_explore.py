@@ -17,7 +17,7 @@ from zzaimy.graph import kg_store
 
 router = APIRouter()
 
-TYPE_KO = {"program_group": "사업 묶음", "program": "사업", "year": "연차", "doc": "문서", "section": "절",
+TYPE_KO = {"program_group": "사업 묶음", "program": "사업", "org": "기관", "year": "연차", "doc": "문서", "section": "절",
            "unit": "단위과제", "indicator": "성과지표"}
 # 관계 이름은 나가는 쪽(out)·들어오는 쪽(in)에서 읽는 말이 다르다
 KIND_KO = {
@@ -26,11 +26,13 @@ KIND_KO = {
     "evaluates": ("평가함", "평가받음"), "has_indicator": ("성과지표", "이 지표를 둔 사업"),
     "measures": ("지표 값", "값을 낸 문서"), "related": ("연관 사업", "연관 사업"),
     "integrated_into": ("편입됨", "편입받음"), "succeeded_by": ("후속 사업", "전신 사업"),
+    "supervised_by": ("주관 부처", "주관하는 사업"), "managed_by": ("전담기관", "관리하는 사업"),
 }
-SEARCH_TYPES = ("program_group", "program", "year", "unit", "indicator", "doc")
+SEARCH_TYPES = ("program_group", "program", "org", "year", "unit", "indicator", "doc")
 # 온톨로지 보기의 종류 설명 — 무엇을 나타내고 어디서 오는가(scripts/157)
 TYPE_DEF = {
     "program_group": "사업 체계의 큰 갈래(일반재정지원·RISE/앵커·특수목적·타 부처). 외부 확인 장부(kg_external.json)에서 온다",
+    "org": "사업을 주관하는 부처·지자체와 관리하는 전담기관. 외부 확인 장부의 값과 출처에서 온다",
     "program": "재정지원 사업 하나. 장부의 정식 이름·약칭·기간·출처와 문서 분류에서 모은 별칭을 가진다",
     "year": "사업의 연차(N차년도·연도). 문서 제목·본문의 연차 표기와 장부 기간으로 정한다",
     "doc": "문서함의 사업 문서 한 건. 갈래(계획서·실적보고서·평가 결과 등)와 연도·연차를 속성으로 가진다",
