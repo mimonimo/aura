@@ -73,3 +73,14 @@ def test_explore_routes(tmp_path):
     assert c.get("/graph/explore/neighbors", params={"id": "nope"}).status_code == 404
     assert c.get("/graph/explore/schema").json()["types"]
     assert c.get("/static/cytoscape-fcose.js").status_code == 200
+
+
+def test_ontology_downloads(tmp_path):
+    app = create_app(db_path=tmp_path / "test.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter())
+    c = TestClient(app)
+    kg_explore._cache.clear()
+    _graph(app.state.db)
+    owl = c.get("/graph/explore/ontology.ttl")
+    assert owl.status_code == 200 and "owl:Ontology" in owl.text and "z:Program" in owl.text
+    assert "sh:NodeShape" in c.get("/graph/explore/shapes.ttl").text
+    assert c.get("/graph/explore/schema").json()["shacl"] is None          # 아직 검사 전

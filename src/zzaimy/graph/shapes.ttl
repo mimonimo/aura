@@ -1,0 +1,57 @@
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix z:    <https://aura.ync.ac.kr/ontology/zzaimy#> .
+
+# ZZAIMY 지식 그래프 검사 규칙(SHACL) — scripts/177 이 내보낸 인스턴스를 pySHACL 로 검사한다(ADR-0056).
+# 규칙은 온톨로지 설계(ADR-0048·0055)와 절대 규칙 12(관계는 근거가 있을 때만)를 옮긴 것이다.
+
+z:ProgramShape a sh:NodeShape ;
+  sh:targetClass z:Program ;
+  rdfs:comment "사업은 이름이 있고, 주관 부처·전담기관은 기관이다" ;
+  sh:property [ sh:path rdfs:label ; sh:minCount 1 ; sh:message "사업 이름이 없다" ] ;
+  sh:property [ sh:path z:supervisedBy ; sh:class z:Org ; sh:message "주관 부처가 기관 노드가 아니다" ] ;
+  sh:property [ sh:path z:managedBy ; sh:class z:Org ; sh:message "전담기관이 기관 노드가 아니다" ] .
+
+z:YearShape a sh:NodeShape ;
+  sh:targetClass z:Year ;
+  rdfs:comment "연차는 사업 하나에만 속하고, 연도는 1990~2035" ;
+  sh:property [
+    sh:path [ sh:inversePath z:contains ] ;
+    sh:qualifiedValueShape [ sh:class z:Program ] ;
+    sh:qualifiedMinCount 1 ; sh:qualifiedMaxCount 1 ;
+    sh:message "연차가 사업 하나에 속하지 않는다(없거나 둘 이상)" ] ;
+  sh:property [ sh:path z:year ; sh:datatype xsd:integer ; sh:minInclusive 1990 ; sh:maxInclusive 2035 ; sh:maxCount 1 ;
+                sh:message "연차의 연도가 범위 밖이거나 여럿이다" ] ;
+  sh:property [ sh:path z:round ; sh:datatype xsd:integer ; sh:minInclusive 1 ; sh:maxInclusive 12 ; sh:maxCount 1 ;
+                sh:message "차년도가 범위 밖이거나 여럿이다" ] .
+
+z:DocShape a sh:NodeShape ;
+  sh:targetClass z:Doc ;
+  rdfs:comment "문서는 연도 하나(1990~2035), 갈래 하나까지, 그리고 사업·연차 어딘가에 속한다" ;
+  sh:property [ sh:path z:year ; sh:datatype xsd:integer ; sh:minInclusive 1990 ; sh:maxInclusive 2035 ; sh:maxCount 1 ;
+                sh:message "문서 연도가 범위 밖이거나 여럿이다" ] ;
+  sh:property [ sh:path z:kind ; sh:maxCount 1 ; sh:message "문서 갈래가 여럿이다" ] ;
+  sh:property [ sh:path [ sh:inversePath z:contains ] ; sh:minCount 1 ; sh:message "문서가 어떤 사업·연차에도 속하지 않는다" ] .
+
+z:OrgShape a sh:NodeShape ;
+  sh:targetClass z:Org ;
+  rdfs:comment "기관은 이름이 있고, 적어도 한 사업이 주관 부처나 전담기관으로 가리킨다" ;
+  sh:property [ sh:path rdfs:label ; sh:minCount 1 ; sh:message "기관 이름이 없다" ] ;
+  sh:property [ sh:path [ sh:alternativePath ( [ sh:inversePath z:supervisedBy ] [ sh:inversePath z:managedBy ] ) ] ;
+                sh:minCount 1 ; sh:message "어느 사업과도 이어지지 않은 기관" ] .
+
+z:StatementShape a sh:NodeShape ;
+  sh:targetClass z:Statement ;
+  rdfs:comment "모든 관계는 출발·도착이 하나씩, 정해진 기준 하나, 근거 하나 이상(절대 규칙 12)" ;
+  sh:property [ sh:path z:source ; sh:minCount 1 ; sh:maxCount 1 ; sh:message "관계 출발이 하나가 아니다" ] ;
+  sh:property [ sh:path z:target ; sh:minCount 1 ; sh:maxCount 1 ; sh:message "관계 도착이 하나가 아니다" ] ;
+  sh:property [ sh:path z:basis ; sh:minCount 1 ; sh:maxCount 1 ; sh:in ( "구조" "분류" "식별자 일치" "추출" "유사도" ) ;
+                sh:message "관계 기준이 정해진 다섯 가지가 아니다" ] ;
+  sh:property [ sh:path z:evidence ; sh:minCount 1 ; sh:datatype xsd:string ; sh:minLength 1 ; sh:message "근거 없는 관계" ] .
+
+z:LedgerStatementShape a sh:NodeShape ;
+  sh:targetClass z:LedgerStatement ;
+  rdfs:comment "외부 확인 장부에서 온 관계(편입·후속·주관·전담)는 출처 URL 을 근거에 둔다" ;
+  sh:property [ sh:path z:evidence ; sh:qualifiedValueShape [ sh:pattern "^https?://" ] ; sh:qualifiedMinCount 1 ;
+                sh:message "장부 관계에 출처 URL 이 없다" ] .

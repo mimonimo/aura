@@ -341,7 +341,21 @@
       document.getElementById("gxPType").hidden = true;
       document.getElementById("gxPTitle").textContent = "온톨로지 구조";
       document.getElementById("gxPMeta").textContent = "노드 종류 " + d.types.length + "개 · 관계 종류 " + d.rels.length + "개(기준별)";
-      document.getElementById("gxPActs").innerHTML = "";
+      var acts = document.getElementById("gxPActs"); acts.innerHTML = "";
+      [["/graph/explore/ontology.ttl", "설계도(OWL) 내려받기"], ["/graph/explore/shapes.ttl", "검사 규칙(SHACL)"]].forEach(function (x) {
+        var a = el("a", "pill", x[1]); a.href = x[0]; acts.appendChild(a);
+      });
+      // 표준 검사(SHACL, scripts/177) 결과 — 규칙별 위반 수
+      var sh = d.shacl, box = el("div", "gx-ev");
+      if (!sh) box.appendChild(el("div", null, "표준 검사(SHACL) 결과가 아직 없습니다 — 그래프를 다시 지을 때 함께 돈다(scripts/177)."));
+      else {
+        box.appendChild(el("div", null, "표준 검사(SHACL) " + sh.at + " · 세 쌍 " + Number(sh.triples).toLocaleString() + " · 규칙 " + sh.rules.length + "개 · "
+          + (sh.conforms ? "위반 없음" : "위반 " + Number(sh.n_violations).toLocaleString() + "건")));
+        sh.violations.slice(0, 8).forEach(function (v) {
+          box.appendChild(el("q", null, v.message + " — " + v.n.toLocaleString() + "건 (예: " + v.examples.slice(0, 2).join(", ") + ")"));
+        });
+      }
+      body.appendChild(box);
       var rels = d.rels.slice().sort(function (a, b) { return b.n - a.n; });
       rels.forEach(function (r) {
         var row = el("div", "gx-row");
