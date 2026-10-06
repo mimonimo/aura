@@ -86,8 +86,8 @@
     });
   });
 </script>
-<p><a href="{{ '/project/' ~ doc.project_id if doc.project_id else ('/criteria' if doc.doc_type == 'regulation' else ('/ocr' if doc.doc_type == 'ocr' else '/')) }}" class="btn-ghost">
-  ← {{ "프로젝트로 돌아가기" if doc.project_id else ("기준 문서로" if doc.doc_type == "regulation" else ("문서 추출로" if doc.doc_type == "ocr" else "문서 검토함으로")) }}</a></p>
+<p><a href="{{ '/project/' ~ doc.project_id if doc.project_id else ('/criteria' if doc.doc_type == 'regulation' else '/?type=all') }}" class="btn-ghost">
+  ← {{ "프로젝트로 돌아가기" if doc.project_id else ("기준 문서로" if doc.doc_type == "regulation" else "라이브러리로") }}</a></p>
 
 <div class="card reveal">
   <div class="card-in">

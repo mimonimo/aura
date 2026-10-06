@@ -68,14 +68,12 @@
 </style>
 {% endblock %}
 {% block content %}
-<div class="card reveal"><div class="card-in" style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-  <div><strong>DGX 원본 보관소</strong> <span class="muted" style="font-size:12.5px;">— 사업별 원본 목록·분류, 문서함에 들인 것과 이어짐</span></div>
-  <a class="btn" href="/archive">원본 보관소</a>
-</div></div>
+<header class="space-intro"><h1>라이브러리</h1></header>
+{% include "_library_tabs.html" %}
 
 <div class="criteria-hero">
   <h1>규정 · 지침 · 매뉴얼 · 공고문</h1>
-  <p class="muted">공고·기준으로 분류된 문서만 표시합니다. <a class="btn-ghost" href="/inbox?type=all">전체 등록 문서 관리 ↗</a></p>
+  <p class="muted">공고·기준으로 분류된 문서만 표시합니다. 모든 문서는 「프로젝트·문서」 탭에서 봅니다.</p>
   <div class="hero-row">
     <div class="searchbox">
       <iconify-icon icon="solar:magnifer-linear" style="font-size:18px;"></iconify-icon>
@@ -127,44 +125,6 @@
   <p class="pop-empty" id="noResult" style="display:none;">검색 결과가 없습니다</p>
   {% else %}
   <p class="muted">등록된 기준 문서가 없습니다.</p>
-  {% endif %}
-</div></div>
-
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수·첨부 문서
-    <span class="muted" style="font-weight:500;">{{ "{:,}".format(intake_total) }}건 · 프로젝트 접수와 대화 첨부로 들어온 검토 대상</span></h2>
-  <form method="get" action="/criteria" style="display:flex; gap:8px; margin:0 0 12px;">
-    <input type="search" name="iq" value="{{ iq }}" placeholder="문서명·접수번호" aria-label="접수 문서 찾기" style="flex:1; max-width:360px;">
-    <button class="btn">찾기</button>{% if iq %}<a class="btn-ghost" href="/criteria">전체</a>{% endif %}
-  </form>
-  {% if intake %}
-  <div class="table-scroll"><table id="intakeTable">
-    <tr><th>접수번호</th><th>문서명</th><th>프로젝트</th><th>유형</th><th>상태</th><th>검색 자료</th><th>등록 시각</th></tr>
-    {% for d in intake %}
-    <tr>
-      <td class="muted" style="white-space:nowrap;">{{ d.receipt_no or "—" }}</td>
-      <td><a href="/doc/{{ d.id }}" title="{{ d.filename }}">{{ doc_name(d) }}</a>
-        {% if d.kind_label %}<span class="muted" style="display:block; font-size:11.5px; margin-top:2px;">{{ d.kind_label }}</span>{% endif %}</td>
-      <td>{% if d.project_id %}<a href="/project/{{ d.project_id }}">{{ d.project_name or ("프로젝트 " ~ d.project_id) }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-      <td><span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span></td>
-      <td><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
-      <td>{{ d.n_chunks }}</td>
-      <td class="muted">{{ d.created_at[:16].replace("T", " ") }}</td>
-    </tr>
-    {% endfor %}
-  </table></div>
-  {% set last = ((intake_total - 1) // iper) if intake_total else 0 %}
-  {% if last > 0 %}
-  <div style="display:flex; gap:8px; align-items:center; justify-content:center; margin-top:12px; font-size:13px;">
-    {% if ipage > 0 %}<a class="btn-ghost" href="/criteria?iq={{ iq|urlencode }}&ipage={{ ipage - 1 }}">이전</a>{% endif %}
-    <span class="muted">{{ ipage + 1 }} / {{ last + 1 }}쪽</span>
-    {% if ipage < last %}<a class="btn-ghost" href="/criteria?iq={{ iq|urlencode }}&ipage={{ ipage + 1 }}">다음</a>{% endif %}
-  </div>
-  {% endif %}
-  {% elif iq %}
-  <p class="muted">「{{ iq }}」에 맞는 접수 문서가 없습니다.</p>
-  {% else %}
-  <p class="muted">접수된 문서가 없습니다. 프로젝트 화면이나 새 채팅에 문서를 올리면 여기에 보입니다.</p>
   {% endif %}
 </div></div>
 

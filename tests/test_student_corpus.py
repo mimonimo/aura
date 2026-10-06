@@ -73,7 +73,7 @@ def test_student_routes_are_allowlisted(tmp_path):
     assert s.get(f"/doc/{hak}").status_code == 200                                  # 학생 공개 학사 규정
     for path in (f"/doc/{staff_reg}", f"/doc/{grant}", f"/doc/{grant}/original"):
         assert s.get(path).status_code in (403, 404), path
-    for path in ("/archive", "/graph/explore", "/projects/archived", "/criteria", "/connections", "/dev", "/dev/intake", "/settings",
+    for path in ("/archive", "/graph/explore", "/projects/archived", "/criteria", "/dev", "/dev/intake", "/settings",
                  "/?type=all", "/api/projects/browse"):
         assert s.get(path, follow_redirects=False).status_code in (303, 403), path
     assert s.post(f"/doc/{hak}/audience", data={"audience": "staff"}).status_code == 403

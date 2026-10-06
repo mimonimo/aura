@@ -6,13 +6,12 @@ def test_home_and_spaces_keep_work_tools(tmp_path, monkeypatch):
     home = client.get('/', follow_redirects=False)
     assert home.status_code == 303 and home.headers['location'] == '/chat'
     assert 'chatWorkspace' in client.get('/').text
-    for route in ('/inbox', '/connections', '/criteria', '/ocr', '/dev'):
+    for route in ('/inbox', '/criteria', '/dev'):
         page = client.get(route)
         assert page.status_code == 200
         assert '/static/platform-spaces.css' in page.text
-    connections = client.get('/connections').text
-    assert '미지원' not in connections                      # 구글 드라이브·독스는 이제 연결 가능(ADR-0028·0029)
-    assert 'href="/dev/nas"' in connections and 'href="/gdocs/work"' in connections
+    # 자료 연결·문서 추출 화면은 라이브러리로 합치며 없앴다(2026-10-06)
+    assert client.get('/connections').status_code == 404 and client.get('/ocr').status_code == 404
     assert '일반휴학 처리 기준' not in client.get('/chat').text
 
 
@@ -100,12 +99,11 @@ def test_sidebar_has_one_entry_per_resource_function(tmp_path, monkeypatch):
     sidebar = page.split('id="workspaceSidebar"', 1)[1].split('</aside>', 1)[0]
     assert sidebar.count('data-chat-history') == 1
     assert 'href="/criteria"' not in sidebar
-    assert 'href="/criteria"' not in page  # 자료 관리는 자료 연결에서 담당
+    assert 'href="/criteria"' in page and 'href="/archive"' in page   # 라이브러리 탭(기준 문서·원본 보관소)
     assert 'work-nav' not in sidebar
     assert '>처리 현황</div>' not in page
     assert '>접수 문서' not in page
     assert 'name="sector"' in page
-    assert 'href="/criteria"' in client.get('/connections').text
     assert client.get('/criteria').status_code == 200
 
 
@@ -119,8 +117,5 @@ def test_project_library_keeps_creation_and_document_search(tmp_path, monkeypatc
     assert '문서 검색 결과' not in library
     search = client.get('/?type=all&q=없는문서')
     assert search.status_code == 200 and '문서 검색 결과' in search.text
-    connections = client.get('/connections').text.split('<div class="connection-grid">', 1)[1]
-    assert 'href="/?type=all"' not in connections
-    for route in ('/criteria', '/ocr', '/dev/nas'):
-        assert f'href="{route}"' in connections
-    assert 'data-page-back href="/connections"' in client.get('/criteria').text
+    assert 'href="/criteria"' in library and 'href="/archive"' in library
+    assert 'data-page-back href="/chat"' in client.get('/criteria').text

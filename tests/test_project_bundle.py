@@ -468,7 +468,7 @@ def test_context_options_take_precedence_and_clear_on_next_question(tmp_path, mo
 
 
 def test_document_store_page_lists_intake_documents_and_basic_plan_kind(tmp_path):
-    """문서함(/criteria)에는 기준 문서와 함께 접수·첨부 문서도 보인다. '기본계획'은 기준 갈래다."""
+    """접수·첨부 문서는 라이브러리 목록에 갈래와 함께 보인다(문서함의 같은 목록은 2026-10-06 라이브러리로 합침). '기본계획'은 기준 갈래다."""
     from zzaimy.app.doc_routing import guess_kind
 
     assert guess_kind("2026학년도 AID 전환 중점 전문대학 지원사업 기본계획.pdf", "")[0] == "basic_plan"
@@ -478,8 +478,9 @@ def test_document_store_page_lists_intake_documents_and_basic_plan_kind(tmp_path
     pid = db.create_project("grant", "AID", owner="zzaimy")
     d = db.add_document(filename="사업계획서 합본.pdf", stored_path=str(tmp_path / "h.pdf"), doc_type="grant", project_id=pid)
     db.update_document(d, status="reviewed"); db.set_document_kind(d, "plan")
-    page = c.get("/criteria").text
-    assert "접수·첨부 문서" in page and "사업계획서 합본" in page and f'href="/doc/{d}"' in page and "AID" in page
+    page = c.get("/?type=all").text
+    assert "사업계획서 합본" in page and f'href="/doc/{d}"' in page and "AID" in page and "계획서" in page
+    assert "접수·첨부 문서" not in c.get("/criteria").text
 
 
 def test_finishing_command_asks_before_removing_boxes(tmp_path, monkeypatch):

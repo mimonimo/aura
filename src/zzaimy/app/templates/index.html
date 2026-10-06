@@ -21,6 +21,7 @@
   <h1>라이브러리</h1>
 </section>
 {% endif %}
+{% include "_library_tabs.html" %}
 {% if active_tab != "all" and active_tab in sector_meta %}
 <div style="display:flex; align-items:center; gap:14px; padding:2px 2px 16px;
             border-bottom:1px solid var(--line); margin-bottom:20px;">
@@ -37,7 +38,7 @@
 </div>
 {% endif %}
 
-<nav class="space-links" aria-label="프로젝트 업무 분류">
+<nav class="space-links" aria-label="프로젝트 업무 분류" style="font-size:13px;">
   <a href="/?type=all" {% if active_tab == 'all' %}aria-current="page"{% endif %}>최근 프로젝트</a>
   {% for key, meta in sector_meta.items() %}<a href="/?type={{ key }}" {% if active_tab == key %}aria-current="page"{% endif %}>{{ meta[1] }}</a>{% endfor %}
 </nav>
@@ -115,11 +116,11 @@
     </div>
   </div>
 </div>
-{% set base_qs = "type=" ~ active_tab ~ "&group=" ~ document_group ~ (("&project=" ~ active_project) if active_project else "") ~ (("&q=" ~ (q | urlencode)) if q else "") %}
+{% set base_qs = "type=" ~ active_tab ~ "&group=" ~ document_group ~ (("&project=" ~ active_project) if active_project else "") ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ kind) if kind else "") %}
 <div class="card reveal">
   <div class="card-in">
     {% set flt_labels = {"processing": "처리 중", "reviewed": "검토 완료", "pending": "판정 대기"} %}
-    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{{ '문서 검색 결과' if q else '등록 문서' }} {{ total_docs }}건
+    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{{ '문서 검색 결과' if q else '등록 문서' }} {{ "{:,}".format(total_docs) }}건
       {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
       {% if q %}<span class="muted" style="margin-left:auto; font-size:12.5px; font-weight:500;">검색 {{ total_docs }}건</span>{% endif %}</h2>
     <form action="/" method="get" class="intake-toolbar" role="search" aria-label="현재 업무 문서 검색">
@@ -131,9 +132,13 @@
       </select>
       {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
       {% if active_flt %}<input type="hidden" name="flt" value="{{ active_flt }}">{% endif %}
-      <input type="search" name="q" value="{{ q }}" placeholder="등록 문서명 검색" aria-label="문서명 검색">
+      <select name="kind" aria-label="서류 갈래">
+        <option value="">모든 갈래</option>
+        {% for k, label, n in kind_counts %}<option value="{{ k or '_none' }}" {% if kind == (k or '_none') %}selected{% endif %}>{{ label }} {{ "{:,}".format(n) }}</option>{% endfor %}
+      </select>
+      <input type="search" name="q" value="{{ q }}" placeholder="문서명·접수번호 검색" aria-label="문서명·접수번호 검색">
       <button type="submit" class="secondary">검색</button>
-      {% if q or active_flt %}<a class="btn-ghost" href="/?type={{ active_tab }}{% if active_project %}&amp;project={{ active_project }}{% endif %}">필터 해제</a>{% endif %}
+      {% if q or active_flt or kind %}<a class="btn-ghost" href="/?type={{ active_tab }}{% if active_project %}&amp;project={{ active_project }}{% endif %}">필터 해제</a>{% endif %}
     </form>
     <p class="muted">플랫폼에 등록된 문서입니다. Google Drive 작업 파일은 대화의 문서함에서 확인하세요.</p>
     {% if documents %}
@@ -144,6 +149,7 @@
         <tr>
           <td class="muted">{{ d.receipt_no or d.id }}</td>
           <td><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
+            {% if d.kind_label %}<span class="muted" style="font-size:11.5px; margin-left:6px;">{{ d.kind_label }}</span>{% endif %}
             {% if d.project_name %}<span class="pill" style="margin-left:6px;">
               <iconify-icon icon="solar:folder-2-linear" style="font-size:12px;"></iconify-icon>{{ d.project_name }}</span>{% endif %}</td>
           <td><span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span></td>

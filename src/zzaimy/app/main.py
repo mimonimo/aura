@@ -551,48 +551,56 @@ def create_app(
         if request.url.path == "/" and not any((type, q, project, flt, page)):
             return RedirectResponse("/chat", status_code=303)
         doc_type = type if type in INBOX_TYPES else None
-        all_docs = [
-            d for d in db.list_documents(
-                doc_type, q=q, project_id=project,
-                owner=getattr(request.state, "user", "zzaimy"), light=True,
-            )
-            if _visible(d, dept=getattr(request.state, "dept", "") or None,
-                        user=getattr(request.state, "user", "zzaimy"),
-                        role=getattr(request.state, "role", "staff"))
-        ]
+        # 문서 목록은 SQL 에서 거르고 쪽으로 자른다(열람 권한 포함) — 예전에는 4만 건을 모두 읽어 파이썬으로 걸렀다.
+        # 문서함(/criteria)에 같던 접수·첨부 목록은 여기 하나로 합쳤다(2026-10-06 「라이브러리 하나로」)
+        kind = (request.query_params.get("kind") or "").strip()
+        acc, acc_args = _doc_access_sql(request)
+        cond, args = ["1 = 1" + acc], list(acc_args)
+        if doc_type:
+            cond.append("d.doc_type = ?")
+            args.append(doc_type)
         group = group if group in ("all", "reference", "criteria", "extract") else "all"
         if group == "criteria":
-            all_docs = [d for d in all_docs if d["doc_type"] == "regulation"]
+            cond.append("d.doc_type = 'regulation'")
         elif group == "extract":
-            all_docs = [d for d in all_docs if d["doc_type"] == "ocr"]
+            cond.append("d.doc_type = 'ocr'")
         elif group == "reference":
-            all_docs = [d for d in all_docs if d["doc_type"] not in ("regulation", "ocr")]
-        stats = {
-            "total": len(all_docs),
-            "processing": sum(1 for d in all_docs if d["status"] in ("received", "processing")),
-            "reviewed": sum(1 for d in all_docs if d["status"] == "reviewed"),
-            "pending": sum(
-                1 for d in all_docs
-                if d["status"] == "reviewed" and d["decision"] == "pending"
-            ),
-        }
-        docs = all_docs
-        if flt == "processing":
-            docs = [d for d in all_docs if d["status"] in ("received", "processing")]
-        elif flt == "reviewed":
-            docs = [d for d in all_docs if d["status"] == "reviewed"]
-        elif flt == "pending":
-            docs = [
-                d for d in all_docs
-                if d["status"] == "reviewed" and d["decision"] == "pending"
-            ]
-        else:
-            flt = None
-        # 페이징 — 표시 목록만 자른다(위 통계는 전체 기준 유지). "최근 N건"이 아니라 이어보기.
-        PER = 30
-        page = max(page, 0)
-        total_docs = len(docs)
-        docs = docs[page * PER:(page + 1) * PER]
+            cond.append("d.doc_type NOT IN ('regulation', 'ocr')")
+        if q:
+            cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?)")
+            args += [f"%{q}%", f"%{q}%"]
+        if project:
+            cond.append("d.project_id = ?")
+            args.append(project)
+        if kind == "_none":
+            cond.append("COALESCE(d.kind, '') = ''")
+        elif kind:
+            cond.append("d.kind = ?")
+            args.append(kind)
+        where = " WHERE " + " AND ".join(cond)
+        with db._conn() as conn:
+            r = conn.execute(
+                "SELECT COUNT(*), SUM(CASE WHEN d.status IN ('received', 'processing') THEN 1 ELSE 0 END),"
+                " SUM(CASE WHEN d.status = 'reviewed' THEN 1 ELSE 0 END),"
+                " SUM(CASE WHEN d.status = 'reviewed' AND d.decision = 'pending' THEN 1 ELSE 0 END)"
+                f" FROM documents d{where}", args).fetchone()
+            stats = {"total": int(r[0] or 0), "processing": int(r[1] or 0), "reviewed": int(r[2] or 0), "pending": int(r[3] or 0)}
+            fcond = {"processing": " AND d.status IN ('received', 'processing')", "reviewed": " AND d.status = 'reviewed'",
+                     "pending": " AND d.status = 'reviewed' AND d.decision = 'pending'"}
+            flt = flt if flt in fcond else None
+            fwhere = where + (fcond[flt] if flt else "")
+            total_docs = stats[flt] if flt else stats["total"]
+            PER = 50
+            page = max(page, 0)
+            docs = [dict(x) for x in conn.execute(
+                "SELECT d.id, d.receipt_no, d.filename, d.kind, d.doc_type, d.status, d.decision, d.created_at, d.project_id,"
+                f" p.name AS project_name FROM documents d LEFT JOIN projects p ON p.id = d.project_id{fwhere}"
+                " ORDER BY d.id DESC LIMIT ? OFFSET ?", [*args, PER, page * PER]).fetchall()]
+            kinds = [(x[0] or "", int(x[1])) for x in conn.execute(
+                f"SELECT d.kind, COUNT(*) FROM documents d{where} GROUP BY d.kind ORDER BY 2 DESC", args).fetchall()]
+        from zzaimy.app.doc_routing import KINDS as _KINDS_LIB
+        for d in docs:
+            d["kind_label"] = _KINDS_LIB.get(d.get("kind") or "", "")
         projects = db.list_projects(doc_type) if doc_type else []
         recent = db.recent_activity() if doc_type is None else []
         # 섹터 화면에서는 그 섹터의 기준 문서(공고 등)를 접수 대상 선택지로 제공
@@ -611,6 +619,7 @@ def create_app(
                 "projects": projects, "active_project": project,
                 "stats": stats, "active_flt": flt, "recent_activity": recent,
                 "page": page, "per": PER, "total_docs": total_docs,
+                "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "갈래 미정") if k else "갈래 미정", n) for k, n in kinds],
                 "has_next": (page + 1) * PER < total_docs,
                 "business_units": _business_units(),
             }),
@@ -635,9 +644,6 @@ def create_app(
             if d["status"] == "reviewed" and (not student or _visible(d, dept=None, user=None, role="student"))
         ]
 
-    @app.get("/connections", response_class=HTMLResponse)
-    def connections_page(request: Request):
-        return templates.TemplateResponse(request, "connections.html", ctx(request, {}))
 
     def _owned_chat(request, session_id):
         session = db.get_chat_session(session_id)
@@ -2237,39 +2243,12 @@ def create_app(
             # 같은 제목의 판본이 여럿이면 몇 판째인지·어느 공고에 딸렸는지 보여 준다
             d["family_count"] = families.get(d.get("family") or "", 1)
             d["head_title"] = names.get(d.get("related_criteria_id") or -1, "")
-        # 접수·첨부 문서(문서 검토 대상)도 같은 문서함에서 본다(사용자 지시 2026-09-27) — 프로젝트·갈래·번호·상태.
-        # 4만 건을 한 번에 그리면 화면이 30초 넘게 멈춘다(10/6 크롬 확인) — 필요한 열만, 열람 권한은 SQL 에서, 100건씩 쪽으로
-        iq = (request.query_params.get("iq") or "").strip()
-        try:
-            ipage = max(0, int(request.query_params.get("ipage") or 0))
-        except ValueError:
-            ipage = 0
-        per = 100
-        acc, acc_args = _doc_access_sql(request)
-        cond, args = ["d.doc_type <> 'regulation'" + acc], list(acc_args)
-        if iq:
-            cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?)")
-            args += [f"%{iq}%", f"%{iq}%"]
-        where = " WHERE " + " AND ".join(cond)
-        with db._conn() as conn:
-            intake_total = int(conn.execute(f"SELECT COUNT(*) FROM documents d{where}", args).fetchone()[0])
-            intake = [dict(r) for r in conn.execute(
-                "SELECT d.id, d.receipt_no, d.filename, d.kind, d.project_id, p.name AS project_name, d.doc_type, d.status,"
-                f" d.created_at FROM documents d LEFT JOIN projects p ON p.id = d.project_id{where}"
-                " ORDER BY d.id DESC LIMIT ? OFFSET ?", [*args, per, ipage * per]).fetchall()]
-            ids = [d["id"] for d in intake]
-            dc = {r[0]: r[1] for r in conn.execute(
-                f"SELECT doc_id, COUNT(*) FROM doc_chunks WHERE doc_id IN ({','.join('?' * len(ids))}) GROUP BY doc_id", ids).fetchall()} if ids else {}
-        for d in intake:
-            d["n_chunks"] = dc.get(d["id"], 0)
-            d["kind_label"] = KINDS.get(d.get("kind") or "", "")
         from zzaimy.app import institution
 
         inst = institution.facts(db)
         inst_set = {k: bool((db.get_setting(f"institution:{k}", "") or "").strip()) for k in institution.KEYS}
         return templates.TemplateResponse(
-            request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS, "intake": intake,
-                                                     "intake_total": intake_total, "iq": iq, "ipage": ipage, "iper": per,
+            request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS,
                                                      "institution": inst, "institution_set": inst_set})
         )
 
@@ -2604,35 +2583,6 @@ def create_app(
         resp = RedirectResponse("/login" if password is not None else "/", status_code=303)
         resp.delete_cookie("zz_session")
         return resp
-
-    @app.get("/ocr", response_class=HTMLResponse)
-    def ocr_page(request: Request, err: str | None = None):
-        docs = db.list_documents("ocr")
-        return templates.TemplateResponse(
-            request, "ocr.html",
-            ctx(request, {"documents": docs, "active_tab": "all", "err_ext": err}),
-        )
-
-    @app.post("/ocr/upload")
-    def ocr_upload(
-        background: BackgroundTasks,
-        file: list[UploadFile] = File(...),
-    ):
-        for f in file:
-            suffix = Path(f.filename or "이름없음").suffix.lower()
-            if suffix not in ALLOWED_EXTENSIONS:
-                return RedirectResponse(f"/ocr?err={suffix or 'none'}", status_code=303)
-        for f in file:
-            name = f.filename or "이름없음"
-            stored = inbox_dir / f"{uuid.uuid4().hex}{Path(name).suffix.lower()}"
-            with stored.open("wb") as out:
-                shutil.copyfileobj(f.file, out)
-            doc_id = db.add_document(
-                filename=name, stored_path=str(stored), doc_type="ocr"
-            )
-            stored = storage.adopt_original(db, doc_id, stored)
-            background.add_task(processor.process, db, doc_id, stored)
-        return RedirectResponse("/ocr", status_code=303)
 
     # --- 개발 현황 (개발자 뷰 — 플랫폼 기능이 아니라 캡스톤 개발 과정용) ---
 
@@ -6281,7 +6231,7 @@ figure img{{width:100%;display:block}}
             raise HTTPException(404)
         db.delete_document(doc_id)
         storage.remove_intake_dir(db, doc)          # 원본·추출 그림이 든 문서 폴더째 지운다
-        dest = "/criteria" if doc["doc_type"] == "regulation" else ("/ocr" if doc["doc_type"] == "ocr" else "/inbox")
+        dest = "/criteria" if doc["doc_type"] == "regulation" else "/?type=all"
         return RedirectResponse(dest, status_code=303)
 
     _RECEIPT_RE = re.compile(r"^\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}$")

@@ -657,21 +657,6 @@ def test_criteria_upload_links_to_project(client):
     assert db.get_project_criteria_ids(1) == []
 
 
-def test_ocr_tool_page_and_upload(client):
-    assert "문서 추출" in client.get("/ocr").text
-    r = client.post("/ocr/upload",
-                    files=[("file", ("스캔.pdf", b"%PDF", "application/pdf"))],
-                    follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/ocr"
-    assert "스캔.pdf" in client.get("/ocr").text
-    # 추출 전용 문서는 접수 표·판정 대기에 섞이지 않는다 (최근 활동에는 보임)
-    home = client.get("/").text
-    _, sep, rest = home.partition("<th>접수번호</th>")
-    table = rest.split("</table>", 1)[0] if sep else ""  # 접수 문서가 없으면 표도 없다
-    assert "스캔.pdf" not in table
-    assert client.app.state.db.pending_documents() == []
-
-
 def test_table_chunk_renders_as_html_table(client):
     import json
 
@@ -718,12 +703,8 @@ def test_structured_chunks_preserve_table_structure():
     assert data["n_rows"] == 1 and data["cells"][0][5] == "구분"
 
 
-def test_original_file_served_and_bad_ext_redirect(client, tmp_path):
-    r = client.post("/ocr/upload",
-                    files=[("file", ("사진.heic", b"x", "image/heic"))],
-                    follow_redirects=False)
-    assert r.status_code == 303 and "err=.heic" in r.headers["location"]
-    assert "지원하지 않는 파일 형식" in client.get("/ocr?err=.heic").text
+def test_original_file_served(client, tmp_path):
+    # 문서 추출 화면(/ocr)은 라이브러리 업로드와 겹쳐 없앴다(2026-10-06) — 원본 내려받기만 본다
     body = "%PDF-원본".encode()
     client.post("/upload", data={"doc_type": "auto"},
                 files={"file": ("원본.pdf", body, "application/pdf")})
@@ -788,7 +769,9 @@ def test_ocr_analyze_flow(tmp_path):
         processor=FakeAnalyzer(), drafter=FakeDrafter(),
     )
     c = TestClient(app)
-    c.post("/ocr/upload", files=[("file", ("공문.pdf", b"%PDF", "application/pdf"))])
+    src = tmp_path / "공문.pdf"
+    src.write_bytes(b"%PDF")
+    app.state.db.add_document("공문.pdf", str(src), doc_type="ocr")       # 추출 문서(예전 /ocr 업로드와 같은 갈래)
     r = c.post("/doc/1/analyze", follow_redirects=False)
     assert r.status_code == 303
     page = c.get("/doc/1").text
