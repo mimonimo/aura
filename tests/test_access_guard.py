@@ -28,9 +28,15 @@ def test_scope_note_by_role_and_department():
 def test_search_scope_and_allowed_docs(tmp_path):
     from zzaimy.app.db import Database
 
-    assert ag.search_scope("학생처", "staff", "kim") == {"user": "kim", "dept": "학생처"}
-    assert ag.search_scope("", "student") == {"levels": ("student",), "role": "student"}     # 학생 공개 학사 규정만(ADR-0052)
-    assert ag.search_scope("학생처", "dev") == {} and ag.search_scope(None, "staff") == {"user": "", "dept": "공통"}
+    # RAG 공간(ADR-0053)에서 만든 범위 — 규정은 열람 등급 규칙, 사업 문서는 공간의 부서
+    kim = ag.search_scope("학생처", "staff", "kim")
+    assert (kim["user"], kim["dept"], kim["space"], kim["grant_depts"]) == ("kim", "학생처", "dept:학생처", ["학생처", "공통"])
+    stu = ag.search_scope("", "student")
+    assert stu["levels"] == ("student",) and stu["grant"] is False and stu["space"] == "student"     # ADR-0052
+    dev = ag.search_scope("학생처", "dev")
+    assert dev["space"] == "dev" and dev["grant_depts"] is None and "levels" not in dev and "dept" not in dev
+    nod = ag.search_scope(None, "staff")
+    assert (nod["user"], nod["dept"], nod["space"], nod["grant_depts"]) == ("", "공통", "staff", None)
     db = Database(tmp_path / "t.db")
     a = db.add_document("공통규정.txt", "x", doc_type="regulation")
     b = db.add_document("산단서류.txt", "y", doc_type="auto", dept="산학협력단")     # 부서 제한 접수 문서

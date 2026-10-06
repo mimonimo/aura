@@ -96,20 +96,19 @@ def _coverage(db) -> tuple[int, int]:
     return int(have or 0), int(want or 0)
 
 
-def _access_sql(user: str | None) -> tuple[str, list]:
-    if user is None:
-        return "", []
-    return " AND (COALESCE(d.access_level, 'public') = 'public' OR COALESCE(d.owner, '') = ?)", [user]
+def _access_sql(user: str | None, depts: list[str] | None = None) -> tuple[str, list]:
+    from zzaimy.app.grant_search import _access
+    return _access(user, depts)
 
 
 def rank(db, query: frozenset[str], scope_docs: set[int] | None = None, user: str | None = None,
-         min_overlap: int = 1, limit: int = CANDIDATE_LIMIT) -> list[int]:
+         min_overlap: int = 1, limit: int = CANDIDATE_LIMIT, depts: list[str] | None = None) -> list[int]:
     """질의 명사 → 조각 id 순위(규정 검색과 같은 점수 규칙). 범위(scope_docs)·열람 권한은 후보를 뽑을 때 SQL 로 자른다."""
     from zzaimy.app.regulations import lexical_score
     terms = sorted(t for t in query if _TERM.match(t))
     if not terms:
         return []
-    acc, acc_args = _access_sql(user)
+    acc, acc_args = _access_sql(user, depts)
     scope_sql, scope_args = "", []
     if scope_docs is not None:
         if not scope_docs:

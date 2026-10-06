@@ -166,8 +166,8 @@ class AgentResponder:
             # 그래프로 사업·연차를 먼저 좁힌 뒤 그 문서들에서 찾는다. 문서함·업로드·DGX 원본 어디서 들어왔든 같은 색인
             grant_hits = []
             try:
-                if scope.get("role") == "student":
-                    raise LookupError("학생은 사업 문서를 검색하지 않는다(ADR-0052)")
+                if scope.get("role") == "student" or scope.get("grant") is False:
+                    raise LookupError("이 RAG 공간은 사업 문서를 쓰지 않는다(ADR-0052·0053)")
                 from zzaimy.app import grant_search
                 prefer = None
                 if project and project.get("id"):
@@ -178,7 +178,8 @@ class AgentResponder:
                         with db._conn() as conn:
                             prefer = {int(r[0]) for r in conn.execute(
                                 f"SELECT id FROM documents WHERE project_id IN ({','.join('?' * len(ref_ids))})", ref_ids).fetchall()}
-                g = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=prefer)
+                g = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=prefer,
+                                        depts=scope.get("grant_depts"))
                 grant_hits = g["hits"]
                 if grant_hits:
                     blocks.append("[사업 문서 — 계획서·실적보고서 등. 사업·연차·문서 이름을 밝히고, 수치는 이 글에 있는 것만 쓴다]\n"
