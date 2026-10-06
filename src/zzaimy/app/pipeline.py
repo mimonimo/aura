@@ -586,7 +586,8 @@ class DocumentProcessor:
         # 스캔 문서 감지 — 페이지당 텍스트가 빈약하면 MinerU OCR로 재파싱한다.
         # MinerU(오픈소스, PaddleOCR 계열)는 표를 구조로, 그림을 파일로 뽑아준다
         n_pages = max(len(parsed.pages), 1)
-        if len(text.strip()) < max(400, 60 * n_pages) and not os.environ.get(
+        # 엑셀은 스캔본일 수 없고 원래 짧을 수 있다 — 글이 빈약해도 OCR 로 다시 읽지 않는다(10/6: 작은 시트가 MinerU 로 가던 것)
+        if suffix != ".xlsx" and len(text.strip()) < max(400, 60 * n_pages) and not os.environ.get(
             "ZZAIMY_NO_OCR_FALLBACK"
         ):
             ocr_text = self._parse_mineru(file_path)
