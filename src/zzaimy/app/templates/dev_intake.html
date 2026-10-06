@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}반입 연동{% endblock %}
+{% block pagetitle %}반입 연동{% endblock %}
+{% block content %}
+<style>
+.ik-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;align-items:start;}
+.ik-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:10px 0 6px;}
+.ik-bar span{display:block;height:100%;}
+.ik-ok{background:#2f8f5b}.ik-fail{background:#c9822b}.ik-wait{background:#7a8fb3}.ik-miss{background:#c0392b}
+.ik-legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted);}
+.ik-legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px;}
+.ik-table{width:100%;border-collapse:collapse;font-size:13px;}
+.ik-table td,.ik-table th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
+.ik-table td.n,.ik-table th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.ik-rel{overflow-wrap:anywhere;font-size:12.5px;}
+.ik-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.ik-alert{padding:8px 12px;border-left:3px solid #c0392b;background:rgba(192,57,43,.06);margin:6px 0;font-size:13px;}
+</style>
+
+{% set q = request.query_params %}
+{% if q.get('ok') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
+{% if q.get('err') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
+
+<section class="card"><div class="card-in">
+  <h2><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>연동 점검
+    <span class="ik-actions" style="margin-left:auto;">
+      <form method="post" action="/dev/intake/audit">
+        <button class="btn" {{ 'disabled' if running.audit }}>{{ '점검 중…' if running.audit else '다시 점검' }}</button></form>
+      <form method="post" action="/dev/intake/reconcile">
+        <button class="btn primary" {{ 'disabled' if running.reconcile }}>{{ '맞추는 중…' if running.reconcile else '지금 맞추기' }}</button></form>
+    </span>
+  </h2>
+  {% if not p %}
+  <p class="muted">점검 결과 없음 — 「다시 점검」으로 만든다(scripts/175, 10분 동기화마다 자동).</p>
+  {% else %}
+  <p class="muted" style="font-size:12px;margin:0;">{{ p.at }} 기준 · 원본 {{ "{:,}".format(p.archive_files) }}건 · 맞추기는 매일 04:30 자동</p>
+  {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
+  {% endif %}
+</div></section>
+
+{% if p %}
+<div class="ik-grid">
+<section class="card"><div class="card-in">
+  <h2>처리 대상 문서 {{ "{:,}".format(p.targets) }}건</h2>
+  <div class="ik-bar">
+    <span class="ik-ok" style="width:{{ p.pct.in_docbox }}%"></span><span class="ik-fail" style="width:{{ p.pct.failed }}%"></span>
+    <span class="ik-wait" style="width:{{ p.pct.waiting }}%"></span><span class="ik-miss" style="width:{{ p.pct.missed }}%"></span>
+  </div>
+  <div class="ik-legend">
+    <span><i class="ik-ok"></i>문서함 {{ "{:,}".format(p.in_docbox) }} ({{ p.pct.in_docbox }}%)</span>
+    <span><i class="ik-fail"></i>실패 {{ "{:,}".format(p.failed) }} ({{ p.pct.failed }}%)</span>
+    <span><i class="ik-wait"></i>대기 {{ "{:,}".format(p.waiting) }}</span>
+    <span><i class="ik-miss"></i>놓침 {{ "{:,}".format(p.missed) }} ({{ p.pct.missed }}%)</span>
+  </div>
+  <p class="muted" style="font-size:12px;margin:10px 0 0;">대기: 들어오거나 바뀐 지 6시간 안 · 놓침: 6시간 넘게 결과 없음</p>
+</div></section>
+
+<section class="card"><div class="card-in">
+  <h2>원본 구성</h2>
+  <table class="ik-table">
+    {% for k, v in (p.composition or {}).items()|sort(attribute=1, reverse=True) %}
+    <tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">문서함·색인·그래프에는 처리 대상 문서만 · 범위 밖은 절대 규칙 11</p>
+</div></section>
+
+<section class="card"><div class="card-in">
+  <h2>문서함 이후</h2>
+  <table class="ik-table">
+    <tr><td>사업 문서</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
+    <tr><td>그래프 문서 노드</td><td class="n">{{ "{:,}".format(p.graph_doc_nodes) }}</td></tr>
+    <tr><td>조각</td><td class="n">{{ "{:,}".format(p.grant_chunks) }}</td></tr>
+    <tr><td>임베딩 색인</td><td class="n">{{ "{:,}".format(p.embedding_index) }}</td></tr>
+    <tr><td>어휘 색인</td><td class="n">{{ "{:,}".format(p.lexical_index) }}</td></tr>
+    <tr><td>처리 멈춤(1시간 넘게 처리 중)</td><td class="n">{{ "{:,}".format(p.stuck_docs) }}</td></tr>
+  </table>
+</div></section>
+</div>
+
+<div class="ik-grid">
+<section class="card"><div class="card-in">
+  <h2>놓친 원본 {{ "{:,}".format(p.missed) }}건 <a class="pill" style="margin-left:auto;" href="/dev/intake/missed.csv">목록 내려받기</a></h2>
+  <table class="ik-table">
+    <tr><th>형식</th><th class="n">건수</th></tr>
+    {% for k, v in (p.missed_by_ext or {}).items()|sort(attribute=1, reverse=True) %}<tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
+  </table>
+  <table class="ik-table" style="margin-top:12px;">
+    <tr><th>폴더</th><th class="n">건수</th></tr>
+    {% for k, v in (p.missed_by_dir or {}).items() %}<tr><td class="ik-rel">{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
+  </table>
+</div></section>
+
+<section class="card"><div class="card-in">
+  <h2>실패 {{ "{:,}".format(p.failed) }}건 <a class="pill" style="margin-left:auto;" href="/dev/intake/failed.csv">목록 내려받기</a></h2>
+  <table class="ik-table">
+    <tr><th>사유</th><th class="n">건수</th></tr>
+    {% for k, v in (p.failed_by_reason or {}).items()|sort(attribute=1, reverse=True) %}<tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
+  </table>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">판독 환경 오류·변환 실패는 DGX 주기 처리(30분)가 다시 시도 · 암호 문서는 풀지 않음</p>
+</div></section>
+</div>
+
+<section class="card"><div class="card-in">
+  <h2>놓친 원본 예시</h2>
+  <table class="ik-table">
+    <tr><th>원본 경로</th><th>형식</th><th>들어온·바뀐 때</th></tr>
+    {% for r in missed %}<tr><td class="ik-rel">{{ r.rel }}</td><td>{{ r.ext }}</td><td style="white-space:nowrap;">{{ r.seen_at }}</td></tr>
+    {% else %}<tr><td colspan="3" class="muted">없음</td></tr>{% endfor %}
+  </table>
+</div></section>
+
+<section class="card"><div class="card-in">
+  <h2>주기 작업</h2>
+  <table class="ik-table">
+    {% for k, label in [("full", "원본 동기화(10분)"), ("parsed", "DGX 결과 들이기(5분)"), ("index", "색인(2분)"), ("lexical", "어휘 색인"), ("graph", "그래프"), ("audit", "연동 점검")] %}
+    <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ (p.sync.get(k) or {}).get("at", "기록 없음") }}</td>
+      <td>{{ (p.sync.get(k) or {}).get("summary", "") }}</td></tr>
+    {% endfor %}
+  </table>
+</div></section>
+{% endif %}
+{% endblock %}

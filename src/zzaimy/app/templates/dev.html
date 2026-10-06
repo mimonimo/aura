@@ -162,41 +162,84 @@
   </div>
   {# 반입 현황 — 원천 app/intake_status.snapshot(DB·장부·색인 파일, 60초 재사용). 같은 값은 /dev/api/intake(JSON). 화면 꾸밈은 아스트라 담당 #}
   <div id="paneIntake" class="tab-pane">
+  <style>
+  .ik2-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px 20px;align-items:start;margin-top:12px;}
+  .ik2-t{width:100%;border-collapse:collapse;font-size:13px;}
+  .ik2-t td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top;}
+  .ik2-t td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .ik2-t tr.sub td:first-child{padding-left:18px;color:var(--muted);}
+  .ik2-h{font-size:13px;font-weight:700;margin:0 0 6px;}
+  .ik2-sum{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;font-size:14px;}
+  .ik2-sum b{font-size:18px;font-variant-numeric:tabular-nums;}
+  .ik2-warn{padding:6px 10px;border-left:3px solid #c0392b;background:rgba(192,57,43,.06);margin:8px 0 0;font-size:12.5px;}
+  </style>
   {% if intake %}
-    <p class="muted" style="font-size:12px; margin:0 0 10px;">{{ intake.at }} 기준 · <a href="/dev/api/intake">JSON</a> · <a href="/archive">원본 보관소</a></p>
-    <h4 class="extract-h" style="margin-top:0;">원본 보관소(DGX)</h4>
-    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px;">
-      <span class="pill">원본 {{ "{:,}".format(intake.archive.total) }}</span>
-      <span class="pill">중복 제외 {{ "{:,}".format(intake.archive.unique) }}</span>
-      <span class="pill">문서함 연결 {{ "{:,}".format(intake.archive.linked) }}</span>
-      {% for x in intake.archive.status %}<span class="pill">분류 {{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
+    {% set pl = intake.pipeline %}
+    <p class="muted" style="font-size:12px; margin:0 0 8px;">{{ intake.at }} 기준 · <a href="/dev/intake">반입 연동 관리</a> · <a href="/archive">원본 보관소</a> · <a href="/dev/api/intake">JSON</a></p>
+    {% if pl %}
+    <div class="ik2-sum">
+      <span>원본 <b>{{ "{:,}".format(pl.archive_files) }}</b></span><span>→</span>
+      <span>처리 대상 문서 <b>{{ "{:,}".format(pl.targets) }}</b></span><span>→</span>
+      <span>문서함 <b>{{ "{:,}".format(pl.in_docbox) }}</b> ({{ pl.pct.in_docbox }}%)</span>
+      <span class="muted" style="font-size:12.5px;">실패 {{ "{:,}".format(pl.failed) }} · 놓침 {{ "{:,}".format(pl.missed) }} · 대기 {{ "{:,}".format(pl.waiting) }}</span>
     </div>
-    <h4 class="extract-h">문서함</h4>
-    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px;">
-      <span class="pill">전체 {{ "{:,}".format(intake.store.total) }}</span>
-      <span class="pill">DGX 보관(가벼운 처리) {{ "{:,}".format(intake.store.dgx) }}</span>
-      <span class="pill">원본 반입·업로드 {{ "{:,}".format(intake.store.full) }}</span>
-      {% for x in intake.store.status %}<span class="pill">{{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
+    {% for a in pl.alerts %}<div class="ik2-warn">{{ a }} — <a href="/dev/intake">관리</a></div>{% endfor %}
+    {% endif %}
+    <div class="ik2-grid">
+      <div>
+        <p class="ik2-h">원본 보관소(DGX)</p>
+        <table class="ik2-t">
+          <tr><td>원본 파일</td><td class="n">{{ "{:,}".format(intake.archive.total) }}</td></tr>
+          <tr><td>중복 제외</td><td class="n">{{ "{:,}".format(intake.archive.unique) }}</td></tr>
+          <tr><td>문서함에 연결</td><td class="n">{{ "{:,}".format(intake.archive.linked) }}</td></tr>
+          {% if pl and pl.composition %}{% for k, v in pl.composition.items()|sort(attribute=1, reverse=True) %}
+          <tr class="sub"><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}{% endif %}
+        </table>
+        <p class="ik2-h" style="margin-top:12px;">사업 분류(중복 제외 원본)</p>
+        <table class="ik2-t">
+          {% for x in intake.archive.status %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
+        </table>
+      </div>
+      <div>
+        <p class="ik2-h">문서함</p>
+        <table class="ik2-t">
+          <tr><td>전체</td><td class="n">{{ "{:,}".format(intake.store.total) }}</td></tr>
+          <tr class="sub"><td>DGX 보관(가벼운 처리)</td><td class="n">{{ "{:,}".format(intake.store.dgx) }}</td></tr>
+          <tr class="sub"><td>원본 반입·업로드</td><td class="n">{{ "{:,}".format(intake.store.full) }}</td></tr>
+          {% for x in intake.store.status %}<tr class="sub"><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
+        </table>
+        <p class="ik2-h" style="margin-top:12px;">읽은 방법</p>
+        <table class="ik2-t">
+          {% for x in intake.store.paths %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
+          {% for x in intake.store.flags if x.n %}<tr class="sub"><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
+        </table>
+      </div>
+      <div>
+        <p class="ik2-h">사업별 문서(문서함 연결 원본)</p>
+        <table class="ik2-t">
+          {% for x in intake.programs %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
+        </table>
+      </div>
+      <div>
+        <p class="ik2-h">색인</p>
+        <table class="ik2-t">
+          <tr><td>사업 문서 조각</td><td class="n">{{ "{:,}".format(intake.index.live) }}</td></tr>
+          <tr class="sub"><td>임베딩 색인</td><td class="n">{{ "{:,}".format(intake.index.chunks) }}</td></tr>
+          <tr class="sub"><td>색인 대기</td><td class="n">{{ "{:,}".format(intake.index.pending) }}</td></tr>
+          {% if pl %}<tr class="sub"><td>어휘 색인</td><td class="n">{{ "{:,}".format(pl.lexical_index) }}</td></tr>{% endif %}
+        </table>
+        <p class="ik2-h" style="margin-top:12px;">지식 그래프</p>
+        <table class="ik2-t">
+          {% for x in intake.graph %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
+        </table>
+      </div>
     </div>
-    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px; margin-top:6px;">
-      {% for x in intake.store.paths %}<span class="pill">{{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
-      {% for x in intake.store.flags %}<span class="pill">{{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
-    </div>
-    <h4 class="extract-h">사업별(DGX 보관 문서)</h4>
-    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px;">
-      {% for x in intake.programs %}<span class="pill">{{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
-    </div>
-    <h4 class="extract-h">색인·그래프</h4>
-    <div style="display:flex; gap:6px 8px; flex-wrap:wrap; font-size:12.5px;">
-      <span class="pill">사업 문서 색인 {{ "{:,}".format(intake.index.chunks) }} / {{ "{:,}".format(intake.index.live) }}</span>
-      <span class="pill">남은 조각 {{ "{:,}".format(intake.index.pending) }}</span>
-      {% for x in intake.graph %}<span class="pill">그래프 {{ x.label }} {{ "{:,}".format(x.n) }}</span>{% endfor %}
-    </div>
-    <h4 class="extract-h">동기화</h4>
-    <table class="table" style="font-size:12.5px;">
-      {% for k, label in [("full", "원본 목록(10분)"), ("parsed", "DGX 처리 결과 들이기(5분)"), ("index", "사업 문서 색인(2분)"), ("graph", "그래프·양식 다시 짓기")] %}
-      <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ (intake.sync.get(k) or {}).get("at", "기록 없음") }}</td>
-        <td>{{ (intake.sync.get(k) or {}).get("summary", "") }}</td></tr>
+    <p class="ik2-h" style="margin-top:16px;">주기 작업</p>
+    <table class="ik2-t">
+      {% for k, label in [("full", "원본 목록(10분)"), ("parsed", "DGX 결과 들이기(5분)"), ("index", "임베딩 색인(2분)"), ("lexical", "어휘 색인(2분)"), ("graph", "그래프·양식 다시 짓기"), ("audit", "연동 점검(10분)")] %}
+      {% set v = intake.sync.get(k) or {} %}
+      <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ v.get("ago") or v.get("at", "기록 없음") }}</td>
+        <td>{{ v.get("summary", "") }}</td></tr>
       {% endfor %}
     </table>
   {% else %}

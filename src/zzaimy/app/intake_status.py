@@ -21,6 +21,13 @@ _cache: dict = {"at": 0.0, "data": None}
 _lock = threading.Lock()
 TTL_S = 60
 
+# 화면에 내부 코드 대신 쓰는 말
+ARCHIVE_STATUS = {"auto": "규칙으로 확정", "agent": "에이전트 검토 판정", "period": "사업 기간으로 보정", "review": "검토 대기",
+                  "folder": "폴더로 추론", "": "분류 없음"}
+DOC_STATUS = {"reviewed": "처리 완료", "failed": "실패", "received": "접수 대기", "processing": "처리 중"}
+GRAPH_TYPE = {"section": "절", "doc": "문서", "unit": "단위 과제·반복 절", "indicator": "성과지표", "year": "연차", "program": "사업",
+              "program_group": "사업 분류"}
+
 NOTE_KINDS = (("글자층 직독", "글자층 직독"), ("MinerU", "MinerU 구조·OCR"), ("AI 비전 판독", "Writer 비전 판독"),
               ("한글", "한글 변환"))
 
@@ -57,6 +64,27 @@ def _sync_state(db_path: str) -> dict:
         return {}
 
 
+def _merge_programs(progs, prog_label: dict) -> list[dict]:
+    merged: dict[str, int] = {}
+    for pid, name, n in progs:
+        label = prog_label.get(pid) or (name if pid else "") or "사업 미분류"
+        merged[label] = merged.get(label, 0) + int(n or 0)
+    return [{"label": k, "n": v} for k, v in sorted(merged.items(), key=lambda kv: -kv[1])]
+
+
+def _with_age(sync: dict) -> dict:
+    """마지막 실행 시각에 「12분 전」을 붙인다."""
+    from datetime import datetime
+    now = datetime.now()
+    for v in sync.values():
+        try:
+            mins = int((now - datetime.strptime(v.get("at", ""), "%Y-%m-%d %H:%M")).total_seconds() // 60)
+            v["ago"] = f"{mins}분 전" if mins < 120 else f"{mins // 60}시간 전"
+        except (ValueError, TypeError, AttributeError):
+            pass
+    return sync
+
+
 def snapshot(db, force: bool = False) -> dict:
     with _lock:
         if not force and _cache["data"] is not None and time.time() - _cache["at"] < TTL_S:
@@ -84,8 +112,13 @@ def snapshot(db, force: bool = False) -> dict:
             "본문 잘림": _one(conn, "SELECT COUNT(*) FROM documents WHERE parse_note LIKE '%본문 잘림%'"),
             "원본 없음": _one(conn, "SELECT COUNT(*) FROM documents WHERE parse_note LIKE '%원본 없음%'"),
         }
-        progs = _rows(conn, "SELECT program_name, COUNT(*) FROM archive_files WHERE removed_at = '' AND doc_id IS NOT NULL"
-                            " GROUP BY program_name ORDER BY 2 DESC")
+        progs = _rows(conn, "SELECT program, MAX(program_name), COUNT(*) FROM archive_files WHERE removed_at = '' AND doc_id IS NOT NULL"
+                            " GROUP BY program ORDER BY 3 DESC")
+        # 사업은 id 로 합쳐 그래프의 정식 이름으로(원본 장부의 옛 이름 「LINC3」「3단계 …」가 따로 보이던 것)
+        try:
+            prog_label = {r[0]: r[1] for r in conn.execute("SELECT id, label FROM kg_nodes WHERE type = 'program'").fetchall()}
+        except Exception:
+            prog_label = {}
         chunks_live = _one(conn, "SELECT COUNT(*) FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
                                  " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN ('text', 'table', 'image_text')")
         kg = _rows(conn, "SELECT type, COUNT(*) FROM kg_nodes GROUP BY type ORDER BY 2 DESC")
@@ -93,17 +126,47 @@ def snapshot(db, force: bool = False) -> dict:
     data = {
         "at": time.strftime("%Y-%m-%d %H:%M"),
         "archive": {"total": a_total, "unique": a_unique, "linked": a_linked, "removed": a_removed,
-                    "status": [{"label": s or "(없음)", "n": n} for s, n in a_status],
+                    "status": [{"label": ARCHIVE_STATUS.get(s or "", s), "n": n} for s, n in a_status],
                     "areas": [{"label": a or "(없음)", "n": n, "linked": int(k or 0)} for a, n, k in a_area]},
         "store": {"total": d_total, "dgx": d_dgx, "full": d_total - d_dgx,
-                  "status": [{"label": s or "(없음)", "n": n} for s, n in d_status],
+                  "status": [{"label": DOC_STATUS.get(s or "", s or "(없음)"), "n": n} for s, n in d_status],
                   "paths": [{"label": k, "n": v} for k, v in notes.items()],
                   "flags": [{"label": k, "n": v} for k, v in flags.items()]},
-        "programs": [{"label": name or "사업 미분류", "n": n} for name, n in progs[:12]],
+        "programs": _merge_programs(progs, prog_label)[:15],
         "index": {"chunks": idx["chunks"], "pending": max(0, chunks_live - idx["chunks"]), "live": chunks_live, "updated": idx["updated"]},
-        "graph": [{"label": t, "n": n} for t, n in kg],
-        "sync": _sync_state(db.path),
+        "graph": [{"label": GRAPH_TYPE.get(t, t), "n": n} for t, n in kg],
+        "sync": _with_age(_sync_state(db.path)),
+        "pipeline": pipeline(str(db.path)),
     }
     with _lock:
         _cache.update(at=time.time(), data=data)
     return data
+
+
+def pipeline(db_path: str) -> dict | None:
+    """반입 연동 점검(scripts/175) 결과 — 원본 구성·처리 대상 상태·놓침·실패·색인·그래프·경고. 없으면 None."""
+    p = Path(db_path).parent / "pipeline_audit.json"
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    t = max(int(data.get("targets") or 0), 1)
+    data["pct"] = {k: round(100 * int(data.get(k) or 0) / t, 1) for k in ("in_docbox", "failed", "waiting", "missed")}
+    data["sync"] = _sync_state(db_path)
+    return data
+
+
+def listing(db_path: str, name: str) -> list[dict]:
+    """놓친 원본(missed)·실패 원본(failed) 전체 목록 — 175 가 쓴 줄 파일."""
+    p = Path(db_path).parent / f"pipeline_{name}.jsonl"
+    out = []
+    try:
+        with open(p, encoding="utf-8", newline="") as fh:
+            for line in fh:
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return out
