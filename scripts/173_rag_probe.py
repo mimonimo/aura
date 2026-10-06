@@ -120,15 +120,28 @@ def probes(db, n: int, seed: int) -> list[dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=40)
+    ap.add_argument("--n", type=int, default=80)
     ap.add_argument("--k", type=int, default=5)
     ap.add_argument("--answer", type=int, default=0, help="앞에서 몇 개를 27B 답변까지")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
+    ap.add_argument("--set", default=str(ROOT / "data/eval/rag_probe_set.json"),
+                    help="고정 질문 집합 — 있으면 그대로 쓴다(측정끼리 같은 시험지). 질문을 그래프에서 매번 새로 뽑으면 그래프를 다시 지을 때마다"
+                         " 시험지가 바뀌어 c9·c10 이 겹치는 질문 2/40 이었다(2026-10-06)")
+    ap.add_argument("--new-set", action="store_true", help="질문 집합을 새로 뽑아 --set 에 쓴다")
     args = ap.parse_args()
     from zzaimy.app import grant_search
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
-    items = probes(db, args.n, args.seed)
+    set_path = Path(args.set)
+    if set_path.is_file() and not args.new_set:
+        items = [dict(x, twins=set(x["twins"]), prog_docs=set(x["prog_docs"])) for x in json.loads(set_path.read_text(encoding="utf-8"))["items"]]
+    else:
+        items = probes(db, args.n, args.seed)
+        set_path.parent.mkdir(parents=True, exist_ok=True)
+        set_path.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "seed": args.seed,
+                                        "items": [dict(x, twins=sorted(x["twins"]), prog_docs=sorted(x["prog_docs"])) for x in items]},
+                                       ensure_ascii=False), encoding="utf-8")
+    print(f"질문 집합 {set_path.name} · {len(items)}문", flush=True)
     rows = []
     for i, p in enumerate(items):
         t0 = time.time()
