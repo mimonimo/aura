@@ -16,6 +16,9 @@
 .intake-recent { max-height:230px; overflow-y:auto; }
 .intake-table th { white-space:nowrap; }
 .intake-table td:nth-child(2) { min-width:160px; overflow-wrap:anywhere; }
+/* 접수번호·배지·시각은 한 줄로 — 좁은 칸에서 「검토\n완료」처럼 꺾였다(2026-10-06) */
+.intake-table td:nth-child(1), .intake-table td:nth-child(n+3) { white-space:nowrap; }
+.intake-table .pill { white-space:nowrap; }
 @media(max-width:700px) {
   .work-areas { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .work-area { padding:14px; }

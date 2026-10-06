@@ -313,7 +313,8 @@ class Database:
             prefix = f"{year}-{code}-"
             row = conn.execute(
                 "SELECT receipt_no FROM documents WHERE receipt_no LIKE ?"
-                " ORDER BY receipt_no DESC LIMIT 1",
+                # 글자 순서로 고르면 '…-9999' 가 '…-10000' 보다 커서 1만 번째부터 모두 10000 이 됐다(2026-10-06) — 길이 먼저
+                " ORDER BY LENGTH(receipt_no) DESC, receipt_no DESC LIMIT 1",
                 (prefix + "%",),
             ).fetchone()
             try:
