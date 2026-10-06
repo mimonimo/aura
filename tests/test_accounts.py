@@ -84,8 +84,7 @@ def test_tool_accounts_live_on_train_page(tmp_path):
     assert "toolModal-labelstudio" in page and "로그인 아이디" in page and "비밀번호 변경" in page
     assert "플랫폼 계정" not in page and "계정 추가" not in page   # 시스템 계정 관리는 여기 없다
     assert d.post("/dev/accounts/add", data={"uid": "x1", "new_pw": "abcdefgh", "confirm": "abcdefgh"}).status_code == 404
-    r = d.get("/dev/accounts", follow_redirects=False)      # 예전 주소는 모델 학습으로
-    assert r.status_code == 301 and r.headers["location"] == "/dev/train"
+    assert d.get("/dev/accounts", follow_redirects=False).status_code == 404   # 옛 주소 안내는 없앴다
 
 
 def test_ls_password_reset_lives_on_train_page(client, monkeypatch):

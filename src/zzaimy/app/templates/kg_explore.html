@@ -55,7 +55,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="gx" id="gx" data-focus="{{ focus }}">
+<div class="gx" id="gx" data-focus="{{ focus }}" data-q="{{ q }}">
   <aside class="gx-rail">
     <div class="gx-find"><input type="search" id="gxQ" placeholder="사업·문서·단위과제·지표 검색" aria-label="그래프 검색" autocomplete="off"></div>
     <div class="gx-list" id="gxList">
@@ -173,7 +173,7 @@
   function expand(id, more) {
     var url = "/graph/explore/neighbors?id=" + encodeURIComponent(id) + (more ? "&more=" + encodeURIComponent(more) : "");
     return fetch(url, { credentials: "same-origin" }).then(function (r) {
-      if (!r.ok) throw new Error(r.status === 404 ? "볼 수 없는 노드입니다" : "불러오지 못했습니다");
+      if (!r.ok) throw new Error(r.status === 404 ? "그래프에 없거나 볼 수 없는 노드입니다 — 그래프에는 사업 문서만 들어갑니다" : "불러오지 못했습니다");
       return r.json();
     }).then(function (d) {
       var fresh = cy.nodes().length === 0;
@@ -364,6 +364,7 @@
   legend();
   var focus = root.dataset.focus;
   if (focus) expand(focus);
+  if (root.dataset.q) { var qi = document.getElementById("gxQ"); qi.value = root.dataset.q; qi.dispatchEvent(new Event("input")); }
 })();
 </script>
 {% endblock %}

@@ -375,7 +375,8 @@ def node_href(node: dict) -> str:
         return f"/doc/{node['doc_id']}"
     if nid.startswith("p"):
         return f"/project/{nid[1:]}"
-    return f"/graph?focus={nid}"
+    from urllib.parse import quote
+    return "/graph/explore?q=" + quote(str(node.get("label") or ""))
 
 
 def node_kind_label(node: dict) -> str:

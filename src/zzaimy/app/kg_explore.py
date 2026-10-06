@@ -199,10 +199,10 @@ def explore_schema(request: Request):
 
 
 @router.get("/graph/explore", response_class=HTMLResponse)
-def explore_page(request: Request, id: str = ""):
+def explore_page(request: Request, id: str = "", q: str = ""):
     st = request.app.state
     return st.templates.TemplateResponse(request, "kg_explore.html", st.page_ctx(request, {
-        "focus": id, "programs": programs(st.db), "type_ko": TYPE_KO}))
+        "focus": id, "q": q, "programs": programs(st.db), "type_ko": TYPE_KO}))
 
 
 @router.get("/graph/explore/neighbors")
