@@ -140,17 +140,21 @@ def _encode_batch(texts: list[str]):
 PG_EF_SEARCH = 300          # 대결(178, 2026-10-06): ef 300 에서 recall@10 0.915·@50 0.963, 질의 15ms
 
 
-def _dense_pg(db, qv, top_k: int, scope_docs: set[int] | None, user: str | None, depts: list[str] | None) -> list[int] | None:
-    """pgvector(표 grant_vec, halfvec + HNSW) 로 조밀 순위 — 권한·부서·범위를 같은 SQL 에서 거른다. 못 쓰면 None(배열 방식으로)."""
-    if scope_docs is not None and not scope_docs:
+def _dense_pg(db, qv, top_k: int, scope_docs: set[int] | None, user: str | None, depts: list[str] | None,
+              allowed: set[int] | None = None) -> list[int] | None:
+    """pgvector(표 grant_vec, halfvec + HNSW) 로 조밀 순위 — 권한·부서·범위를 같은 SQL 에서 거른다. 못 쓰면 None(배열 방식으로).
+    범위(문서)·허용 조각 목록은 배열 하나로 넘긴다(= ANY(?)) — 사업 하나가 문서 1만 건을 넘어 인자 수 한도에 걸리지 않게."""
+    if (scope_docs is not None and not scope_docs) or (allowed is not None and not allowed):
         return []
     acc, args = _access(user, depts)
     vec = "[" + ",".join(f"{float(x):.5f}" for x in qv) + "]"
     scope_sql = ""
     if scope_docs is not None:
-        ids = sorted(scope_docs)
-        scope_sql = f" AND g.doc_id IN ({','.join('?' * len(ids))})"
-        args = [*args, *ids]
+        scope_sql += " AND g.doc_id = ANY(?)"
+        args = [*args, sorted(int(x) for x in scope_docs)]
+    if allowed is not None:
+        scope_sql += " AND g.chunk_id = ANY(?)"
+        args = [*args, sorted(int(x) for x in allowed)]
     try:
         with db._conn() as conn:
             if getattr(conn, "dialect", "") != "postgres":
@@ -171,18 +175,19 @@ def dense_ids(question: str, allowed: set[int] | None, top_k: int = TOP_K, scope
               user: str | None = None, db=None, pool: int = 3000, depts: list[str] | None = None) -> list[int]:
     """임베딩 순위. allowed 를 주면 그 조각만(옛 경로). 아니면 유사도 상위 pool 개를 뽑고 범위·열람 권한은 SQL 로 거른다 —
     범위가 좁으면(사업 하나) 그 범위의 조각 번호만 놓고 유사도를 잰다."""
-    ids, vecs = _load()
-    if ids is None or not len(ids):
-        return []
     try:
         qv = _encode([question])[0]
     except Exception as e:  # 임베딩 서비스가 없으면 어휘 단독
         log.warning("사업 문서 임베딩 질의 실패: %s", e)
         return []
-    if allowed is None and db is not None and os.environ.get("ZZAIMY_DENSE_BACKEND", "numpy") == "pgvector":
-        got = _dense_pg(db, qv, top_k, scope_docs, user, depts)
+    # 기본은 pgvector(ADR-0057) — 배열 파일(5GB 넘음)을 앱 메모리에 올리지 않는다. 표가 없으면(개발 환경·SQLite) 배열로
+    if db is not None and os.environ.get("ZZAIMY_DENSE_BACKEND", "pgvector") == "pgvector":
+        got = _dense_pg(db, qv, top_k, scope_docs, user, depts, allowed=allowed)
         if got is not None:
             return got
+    ids, vecs = _load()
+    if ids is None or not len(ids):
+        return []
     import numpy as np
     q = np.asarray(qv, dtype=np.float32)
     if allowed is not None:
@@ -224,8 +229,14 @@ def _positions(ids) -> dict[int, int]:
 
 
 def _access(user: str | None, depts: list[str] | None = None) -> tuple[str, list]:
-    """열람 권한(+ RAG 공간의 부서, ADR-0053) 조건. depts 가 None 이면 부서로 자르지 않는다."""
+    """열람 권한(+ RAG 공간의 부서, ADR-0053) 조건. depts 가 None 이면 부서로 자르지 않는다.
+    범위 밖 갈래(지출·계약 증빙, 절대 규칙 11 — doc_routing.excluded_kinds)는 여기서 늘 뺀다(어휘·의미·범위 검색이 모두 이 조건을 쓴다)."""
+    from zzaimy.app.doc_routing import excluded_kinds
     sql, args = "", []
+    ex = excluded_kinds()
+    if ex:
+        sql += f" AND COALESCE(d.kind, '') NOT IN ({','.join('?' * len(ex))})"
+        args += list(ex)
     if user is not None:
         sql += " AND (COALESCE(d.access_level, 'public') = 'public' OR COALESCE(d.owner, '') = ?)"
         args.append(user)
@@ -504,10 +515,44 @@ def build_increment(db, batch: int = 128, limit: int = 20000) -> dict:
         lockf.close()
 
 
+def _build_increment_pg(db, batch: int, limit: int) -> dict:
+    """pgvector 표(grant_vec)만 보고 색인을 따라잡는다(ADR-0057) — 표에 없는 살아 있는 조각을 임베딩해 넣고, 사라진 조각은 뺀다.
+    배열 파일(npz)은 쓰지 않는다. 화면·점검이 읽는 메타(grant_embeddings.json)는 그대로 적는다."""
+    with db._conn() as conn:
+        live = {int(r[0]) for r in conn.execute(
+            "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
+            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
+        have = {int(r[0]) for r in conn.execute("SELECT chunk_id FROM grant_vec").fetchall()}
+    todo = sorted(live - have)
+    gone = sorted(have - live)
+    removed = pg_drop(db, gone)
+    added = failed = 0
+    new = _fetch(db, todo[:limit])
+    for i in range(0, len(new), batch):
+        part = new[i:i + batch]
+        got = _encode_batch([f"{c['filename']}\n{c['content'][:1200]}" for c in part])
+        keep = [(c, v) for c, v in zip(part, got) if v is not None]
+        failed += len(part) - len(keep)
+        if not keep:
+            if failed >= batch * 3:
+                raise RuntimeError("임베딩 서비스 없음")
+            continue
+        added += pg_put(db, [(c["id"], c["doc_id"], x) for c, x in keep])
+    total = len(have) - removed + added
+    INDEX.parent.mkdir(parents=True, exist_ok=True)
+    INDEX.with_suffix(".json").write_text(json.dumps({"n_chunks": total, "added": added, "removed": removed, "backend": "pgvector"},
+                                                     ensure_ascii=False), encoding="utf-8")
+    return {"added": added, "removed": removed, "total": total, "pending": max(0, len(todo) - limit)}
+
+
 def _build_increment(db, batch: int, limit: int) -> dict:
     import os
 
     import numpy as np
+    with db._conn() as conn:
+        pg = _pg_ready(conn)
+    if pg and os.environ.get("ZZAIMY_DENSE_BACKEND", "pgvector") == "pgvector":
+        return _build_increment_pg(db, batch, limit)
     _cache["mtime"] = None                                 # 디스크의 현재 판으로 시작
     ids, vecs = _load()
     have = set(int(i) for i in ids) if ids is not None else set()
@@ -536,6 +581,7 @@ def _build_increment(db, batch: int, limit: int) -> dict:
             continue
         new_vecs.append(np.asarray([x for _c, x in keep], dtype=np.float32))
         new_ids.append(np.array([c["id"] for c, _x in keep], dtype=np.int64))
+        pg_put(db, [(c["id"], c["doc_id"], x) for c, x in keep])          # pgvector 표에도 바로(ADR-0057)
         added += len(keep)
     # 남길 것과 새것을 한 번에 한 배열로 — 묶음마다 vstack 하면 색인 크기(5GB)만 한 사본이 묶음 수만큼 생겼다 지워진다
     n_keep = int(keep_mask.sum()) if keep_mask is not None else (len(ids) if ids is not None else 0)
@@ -557,6 +603,8 @@ def _build_increment(db, batch: int, limit: int) -> dict:
             pos += len(v)
         new_vecs.clear()
     removed = (len(ids) - n_keep) if ids is not None else 0
+    if removed and keep_mask is not None:
+        pg_drop(db, [int(i) for i in ids[~keep_mask]])                 # 지워진 조각은 pgvector 표에서도
     if added or removed:
         tmp = INDEX.with_name(f".{INDEX.stem}.{os.getpid()}.tmp.npz")
         # 압축하지 않는다 — 벡터는 거의 줄지 않고, 수 GB 를 회차마다 압축하는 게 색인 속도를 깎았다(10/2 실측 초당 20여 조각)
@@ -581,6 +629,46 @@ def _build_increment(db, batch: int, limit: int) -> dict:
     return {"added": added, "removed": removed, "total": int(len(out_ids)), "pending": max(0, len(todo) - limit)}
 
 
+def _pg_ready(conn) -> bool:
+    if getattr(conn, "dialect", "") != "postgres":
+        return False
+    return bool(conn.execute("SELECT to_regclass('grant_vec')").fetchone()[0])
+
+
+def pg_put(db, rows: list[tuple]) -> int:
+    """(조각 번호, 문서 번호, 벡터) 들을 pgvector 표(grant_vec)에 넣는다 — 이미 있으면 바꾼다. 표가 없으면 아무것도 하지 않는다."""
+    if not rows:
+        return 0
+    try:
+        with db._conn() as conn:
+            if not _pg_ready(conn):
+                return 0
+            conn.raw.execute("SET statement_timeout = 0")
+            vals = [(int(c), int(d) if d is not None else None, "[" + ",".join(f"{float(x):.5f}" for x in v) + "]") for c, d, v in rows]
+            conn.executemany("INSERT INTO grant_vec (chunk_id, doc_id, emb) VALUES (?, ?, ?::halfvec)"
+                             " ON CONFLICT (chunk_id) DO UPDATE SET doc_id = excluded.doc_id, emb = excluded.emb", vals)
+        return len(rows)
+    except Exception as e:
+        log.warning("pgvector 표 넣기 실패(%s) — 다음 맞추기(178 --load)에서 채운다", type(e).__name__)
+        return 0
+
+
+def pg_drop(db, chunk_ids: list[int]) -> int:
+    if not chunk_ids:
+        return 0
+    try:
+        with db._conn() as conn:
+            if not _pg_ready(conn):
+                return 0
+            for i in range(0, len(chunk_ids), 5000):
+                part = chunk_ids[i:i + 5000]
+                conn.execute(f"DELETE FROM grant_vec WHERE chunk_id IN ({','.join('?' * len(part))})", part)
+        return len(chunk_ids)
+    except Exception as e:
+        log.warning("pgvector 표 지우기 실패(%s)", type(e).__name__)
+        return 0
+
+
 def _fetch(db, chunk_ids: list[int]) -> list[dict]:
     """조각 번호 → 색인용 글(문서 이름 포함)."""
     out = []
@@ -588,9 +676,9 @@ def _fetch(db, chunk_ids: list[int]) -> list[dict]:
         for i in range(0, len(chunk_ids), 500):
             part = chunk_ids[i:i + 500]
             rows = conn.execute(
-                "SELECT c.id, c.kind, c.content, d.filename FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
+                "SELECT c.id, c.kind, c.content, d.filename, c.doc_id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
                 f" WHERE c.id IN ({','.join('?' * len(part))})", part).fetchall()
             for r in rows:
-                out.append({"id": int(r[0]), "filename": r[3], "content": _text({"kind": r[1], "content": r[2]})})
+                out.append({"id": int(r[0]), "filename": r[3], "content": _text({"kind": r[1], "content": r[2]}), "doc_id": int(r[4])})
     out.sort(key=lambda c: c["id"])
     return out

@@ -8,6 +8,7 @@
 
 단계:
   --load    grant_embeddings.npz → 표 grant_vec(chunk_id, doc_id, emb halfvec) (있으면 빠진 것만)
+            ※ 2026-10-06 채택(ADR-0057) 뒤 배열 파일은 지웠다 — 이 스크립트는 대결 기록용으로 남긴다(다시 재려면 배열을 새로 만들어야 한다)
   --index   HNSW 색인(halfvec_ip_ops) 만들기
   --duel    대결 → data/eval/pgvector_duel.json, 한 줄 요약 PGVECTOR_DUEL
 실행: env PYTHONPATH=src .venv/bin/python scripts/178_pgvector_duel.py --load --index --duel

@@ -44,9 +44,9 @@ def test_dept_of_rel(tmp_path):
 
 def test_access_filter_by_dept():
     sql, args = grant_search._access("u", ["LINC사업단", "공통"])
-    assert "COALESCE(d.dept, '공통') IN (?,?)" in sql and args == ["u", "LINC사업단", "공통"]
+    assert "COALESCE(d.dept, '공통') IN (?,?)" in sql and args[-3:] == ["u", "LINC사업단", "공통"]
     assert grant_search._access(None, [])[0] == " AND 1 = 0"
-    assert grant_search._access(None, None) == ("", [])
+    assert "d.dept" not in grant_search._access(None, None)[0]          # 부서로 자르지 않음(범위 밖 갈래 조건만)
 
 
 def test_backfill_depts(tmp_path):

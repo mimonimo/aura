@@ -132,6 +132,14 @@ KINDS = {
     "evidence": "증빙·회계 서류", "curriculum": "교육과정·교과", "minutes": "회의 자료", "promo": "홍보물",
     "drawing": "도면", "personal": "개인 제출물",
 }
+# 검색·그래프에서 빼는 갈래 — 지출·계약 증빙은 절대 규칙 11 의 범위 밖 계열(폴더 이름 필터를 빠져나온 것, 2026-10-06 2,335건).
+# 문서함(라이브러리)에는 남는다. 되돌리려면 ZZAIMY_EXCLUDE_KINDS= (빈 값).
+def excluded_kinds() -> tuple[str, ...]:
+    import os
+    raw = os.environ.get("ZZAIMY_EXCLUDE_KINDS", "evidence")
+    return tuple(k.strip() for k in raw.split(",") if k.strip())
+
+
 # 제목·본문의 낱말 단서 — 특정 문서가 아니라 서류 종류에 붙는 일반 낱말이다(하드코딩 금지 규칙과 충돌하지 않는다)
 _KIND_CUES = {
     "regulation": r"학칙|규정|규칙|세칙|규약|내규|정관|조례|회칙|헌장",
