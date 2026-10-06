@@ -44,7 +44,8 @@ def visible(doc: dict, *, dept: str | None, user: str | None, role: str) -> bool
     level = doc.get("access_level") or "public"
     d = doc.get("dept") or DEFAULT_DEPT
     if role == "student":
-        return level == "public" and d == DEFAULT_DEPT
+        # 학생은 학생 공개로 지정된 규정만(학사 규정 RAG, ADR-0052) — 교직원 자료는 공개 등급이어도 보이지 않는다
+        return level == "public" and doc.get("doc_type") == "regulation" and (doc.get("audience") or "staff") == "student"
     if level == "public":
         return True
     if level == "dept":
