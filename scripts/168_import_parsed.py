@@ -57,6 +57,9 @@ def main() -> int:
         except Exception as e:
             print("DGX 경로 고유 색인을 만들지 못함(중복 남음):", type(e).__name__, flush=True)
     projects: dict[str, int] = {}                     # 사업 id → 보관 묶음 번호
+    with db._conn() as conn:
+        stalled = {int(r[0]) for r in conn.execute(
+            "SELECT id FROM documents WHERE status IN ('received', 'processing') AND stored_path LIKE 'dgx://%'").fetchall()}
 
     n_ok = n_upd = n_skip = n_fail = n_link_later = n_stale = 0
     led = led_path.open("a", encoding="utf-8")
@@ -113,7 +116,9 @@ def main() -> int:
             continue
         ver = rec.get("version") or f"{int(rec.get('size') or 0)}:{int(float(rec.get('mtime') or 0))}"
         old = have.get(rel)
-        if old and (not old[1] or old[1] == ver) and not rec.get("force"):
+        # 장부엔 있어도 문서가 아직 「받음·처리 중」이면 다시 쓴다 — 문서만 만들고 본문을 쓰다 멈춘 회차(10/2 NUL 사고)의 문서가
+        # 같은 판이라 계속 건너뛰어져 받음으로 남아 있었다(2026-10-06, 5건)
+        if old and (not old[1] or old[1] == ver) and not rec.get("force") and old[0] not in stalled:
             n_skip += 1
             continue
         state = rec.get("state") or ("parsed" if rec.get("ok") else "failed")
