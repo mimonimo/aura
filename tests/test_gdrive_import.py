@@ -59,3 +59,18 @@ def test_bound_users_lists_personal_connections_only(tmp_path):
     db.set_setting("google_account:kim", "kim@ync.ac.kr")
     db.set_setting("google_account_dept:산학협력단", "shared@ync.ac.kr")
     assert gdrive_import.bound_users(db) == [("kim", "kim@ync.ac.kr")]
+
+
+def test_same_google_account_imports_once(tmp_path, monkeypatch):
+    db = Database(tmp_path / "t.db")
+    db.set_setting("google_account:zzdev", "s@ync.ac.kr")
+    db.set_setting("google_account:kim", "s@ync.ac.kr")
+    monkeypatch.setattr(gdrive_files, "ensure_folder", lambda email, parts, http=None, root="root": "F1")
+    monkeypatch.setattr(gdrive_files, "_headers", lambda email, http: {})
+    monkeypatch.setattr(gdrive_files, "has_file_scope", lambda email: True)
+    monkeypatch.setattr("zzaimy.app.storage.adopt_original", lambda db, did, p: p)
+    http = FakeHttp([{"id": "a", "name": "계획서.pdf", "mimeType": "application/pdf", "modifiedTime": "t1", "size": "10"}])
+    monkeypatch.setattr("zzaimy.ingest.gdrive._http", lambda: http)
+    out = gdrive_import.run_all(db, FakeProcessor(), tmp_path / "inbox", rank=lambda u: 1 if u == "zzdev" else 0)
+    assert out == {"kim": 1}                                     # 담당자 계정이 주인, 한 번만
+    assert gdrive_import.run_all(db, FakeProcessor(), tmp_path / "inbox") == {"kim": 0}

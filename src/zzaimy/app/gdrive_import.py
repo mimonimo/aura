@@ -2,7 +2,8 @@
 
 드라이브 전체가 아니라 이 폴더 하나만 본다(개인 파일이 섞이지 않게, 2026-10-06 사용자 결정). 새 파일·바뀐 파일만 가져오고,
 라이브러리 업로드와 같은 처리(판독·분류)를 거쳐 그 사람의 문서로 들어간다. 구글 문서·시트·슬라이드는 docx·xlsx·pptx 로 내보내 가져온다.
-가져온 기록은 설정 gimport:<계정>:<파일 id> = 수정 시각|문서 번호, 상태는 gimport_status:<계정>.
+가져온 기록은 구글 메일 기준 — 설정 gimport:<메일>:<파일 id> = 수정 시각|문서 번호(여러 계정이 같은 구글 계정에 이어져도 한 번만 들인다).
+상태는 gimport_status:<계정>.
 """
 from __future__ import annotations
 
@@ -92,7 +93,7 @@ def run_for_user(db, processor, inbox_dir: Path, user: str, email: str, dept: st
     for f in _list(email, folder_id, http):
         if f["mimeType"] == gdrive.FOLDER:
             continue
-        key = f"gimport:{user}:{f['id']}"
+        key = f"gimport:{email}:{f['id']}"
         seen = (db.get_setting(key, "") or "").split("|", 1)[0]
         if seen and seen == f.get("modifiedTime"):
             skipped += 1
@@ -132,13 +133,18 @@ def run_for_user(db, processor, inbox_dir: Path, user: str, email: str, dept: st
     return {"imported": imported, "skipped": skipped, "errors": errors, "folder_id": folder_id}
 
 
-def run_all(db, processor, inbox_dir: Path, dept_of=None) -> dict:
+def run_all(db, processor, inbox_dir: Path, dept_of=None, rank=None) -> dict:
+    """연결된 구글 계정마다 한 번 — 같은 메일에 여러 계정이 이어져 있으면 rank(계정) 가 작은 계정이 문서 주인(담당자 먼저)."""
     from zzaimy.ingest import gdrive_files
     if not _lock.acquire(blocking=False):
         return {"busy": True}
     try:
         out = {}
+        by_email: dict[str, list[str]] = {}
         for user, email in bound_users(db):
+            by_email.setdefault(email, []).append(user)
+        for email, users in by_email.items():
+            user = sorted(users, key=lambda u: (rank(u) if rank else 0, u))[0]
             if not gdrive_files.has_file_scope(email):
                 continue
             try:
@@ -157,7 +163,7 @@ def run_all(db, processor, inbox_dir: Path, dept_of=None) -> dict:
 _started = False
 
 
-def ensure_scheduler(db, processor, inbox_dir: Path, dept_of=None) -> None:
+def ensure_scheduler(db, processor, inbox_dir: Path, dept_of=None, rank=None) -> None:
     """앱이 뜰 때 한 번 — 구글 앱이 등록돼 있을 때만 10분마다 돈다."""
     global _started
     from zzaimy.ingest import gdrive
@@ -169,7 +175,7 @@ def ensure_scheduler(db, processor, inbox_dir: Path, dept_of=None) -> None:
         time.sleep(60)
         while True:
             try:
-                run_all(db, processor, inbox_dir, dept_of)
+                run_all(db, processor, inbox_dir, dept_of, rank)
             except Exception as e:
                 log.warning("드라이브 가져오기 주기 실패: %s", e)
             time.sleep(INTERVAL)
