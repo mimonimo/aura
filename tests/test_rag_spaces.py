@@ -38,7 +38,7 @@ def test_save_config_keeps_backup(tmp_path):
 
 
 def test_dept_of_rel(tmp_path):
-    assert rag_spaces.dept_of_rel("링크/2024/계획.hwp", tmp_path) == "LINC사업단"
+    assert rag_spaces.dept_of_rel("링크/2024/계획.hwp", tmp_path) == "산학협력단"
     assert rag_spaces.dept_of_rel("기타/a.pdf", tmp_path) == "공통"
 
 
@@ -54,9 +54,9 @@ def test_backfill_depts(tmp_path):
     a = db.add_document("a.hwp", "dgx://링크/2024/a.hwp", doc_type="grant", dept="공통", access_level="dept")
     b = db.add_document("b.hwp", "dgx://기타/b.hwp", doc_type="grant", dept="공통")
     got = rag_spaces.backfill_depts(db, tmp_path)
-    assert got["LINC사업단"] == 1
+    assert got["산학협력단"] == 1
     da, dbb = db.get_document(a), db.get_document(b)
-    assert da["dept"] == "LINC사업단" and da["access_level"] == "public"
+    assert da["dept"] == "산학협력단" and da["access_level"] == "public"
     assert dbb["dept"] == "공통"
 
 
@@ -72,13 +72,13 @@ def test_rag_page_and_edits(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/rag")
     assert r.status_code == 200
-    for text in ("공간 목록", "student", "staff", "dept:LINC사업단", "원본 폴더 → 부서", "학생 공개 규정"):
+    for text in ("공간 목록", "student", "staff", "dept:산학협력단", "원본 폴더 → 부서", "학생 공개 규정"):
         assert text in r.text, text
     r = c.post("/dev/rag/grant", data={"user": "zzaimy", "spaces": ["dept:앵커사업단", "bad"]}, follow_redirects=False)
     assert r.status_code == 303
     assert json.loads((tmp_path / "rag_spaces.json").read_text(encoding="utf-8"))["grants"] == {"zzaimy": ["dept:앵커사업단"]}
     assert c.post("/dev/rag/grant", data={"user": "ghost"}, follow_redirects=False).status_code == 404
-    c.post("/dev/rag/area", data={"mapping": "링크=LINC사업단\n새폴더 = 새부서\n잘못된줄"}, follow_redirects=False)
-    assert rag_spaces.config(tmp_path)["dept_of_area"] == {"링크": "LINC사업단", "새폴더": "새부서"}
+    c.post("/dev/rag/area", data={"mapping": "링크=산학협력단\n새폴더 = 새부서\n잘못된줄"}, follow_redirects=False)
+    assert rag_spaces.config(tmp_path)["dept_of_area"] == {"링크": "산학협력단", "새폴더": "새부서"}
     assert "dept:새부서" in c.get("/dev/rag").text
     assert c.post("/dev/rag/backfill", follow_redirects=False).status_code == 303
