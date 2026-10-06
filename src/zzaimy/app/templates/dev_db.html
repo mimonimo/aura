@@ -332,7 +332,7 @@ table.dx-list tr.on td { background:#edf3fc; }
         {% if r.available and r.in_graph %}<span class="muted">이어진 노드 {{ r.n }}</span>{% endif %}
         <a class="h-link" href="/graph/explore?id=doc:{{ o.id }}"><iconify-icon icon="solar:structure-linear"></iconify-icon>그래프에서 보기</a></h3>
       {% if not r.available %}<p class="dx-empty" style="padding:12px 0;">그래프 미생성</p>
-      {% elif not r.in_graph %}<p class="dx-empty" style="padding:12px 0;">그래프 제외 유형 (문서 추출 작업물)</p>
+      {% elif not r.in_graph %}<p class="dx-empty" style="padding:12px 0;">그래프에 없는 문서 (그래프에는 사업 문서만 들어갑니다)</p>
       {% elif not r.groups %}<p class="dx-empty" style="padding:12px 0;">이어진 문서·개체 없음</p>
       {% else %}
         {% for g in r.groups %}

@@ -2818,16 +2818,10 @@ def create_app(
         if tab == "archive":
             view = dx.archive_tab(db, q=q, page=page)
         elif tab == "docs":
-            def _graph() -> dict | None:
-                from zzaimy.graph.build import build_graph
-
-                try:
-                    return build_graph(db)
-                except Exception:   # 그래프는 부가 정보 — 실패해도 열람은 된다
-                    return None
-
-            view = dx.docs_tab(db, q=q, doc_type=type, doc_id=doc,
-                               graph_fn=_graph, index=index)
+            scope = {"dept": getattr(request.state, "dept", "") or None,
+                     "user": request.state.user, "role": request.state.role}
+            view = dx.docs_tab(db, q=q, doc_type=type, doc_id=doc, index=index,
+                               related_fn=lambda did: dx.related_from_kg(db, did, scope))
         elif tab == "regulation":
             def _search(text: str) -> list[dict]:
                 from zzaimy.app.regulations import find_relevant
