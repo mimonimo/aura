@@ -449,6 +449,39 @@ def create_app(
         except Exception:
             pass
 
+    def _requeue_stalled_docs(min_age_min: int = 10) -> list[int]:
+        """등록만 되고 처리가 끊긴 문서(받음·처리 중으로 멈춤)를 다시 처리한다 — 플랫폼에 파일이 있는 것만.
+
+        재시작하면 처리 작업(BackgroundTasks)이 사라져 문서가 「받음」으로 남았다(2026-10-06 확인, 10/2~3 반입 3건).
+        DGX 원본(dgx://)은 결과 들이기(168)가 맡으므로 여기서 다루지 않는다."""
+        import threading
+        from datetime import datetime as _dt, timedelta as _td
+        cut = (_dt.now() - _td(minutes=min_age_min)).isoformat(timespec="seconds")
+        with db._conn() as conn:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT id, stored_path FROM documents WHERE status IN ('received', 'processing') AND created_at < ?"
+                " AND stored_path NOT LIKE 'dgx://%' ORDER BY id", (cut,)).fetchall()]
+        todo = [(int(r["id"]), Path(r["stored_path"])) for r in rows if r["stored_path"] and Path(r["stored_path"]).is_file()]
+
+        def run():
+            for did, path in todo:
+                try:
+                    processor.process(db, did, path)
+                except Exception as e:
+                    logging.getLogger(__name__).warning("멈춘 문서 다시 처리 실패 doc=%s: %s", did, e)
+        if todo:
+            threading.Thread(target=run, name="requeue-stalled", daemon=True).start()
+        return [d for d, _p in todo]
+
+    @app.on_event("startup")
+    def _recover_stalled_docs() -> None:
+        try:
+            _requeue_stalled_docs()
+        except Exception:
+            pass
+
+    app.state.requeue_stalled_docs = _requeue_stalled_docs
+
     @app.on_event("startup")
     def _warm_models() -> None:
         """임베딩·리랭커를 백그라운드로 예열 — 첫 질문의 수 초 지연 제거."""
