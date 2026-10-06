@@ -24,7 +24,7 @@ ROUTES = [
     "/", "/criteria", "/chat", "/graph/explore", "/graph/program", "/settings",
     "/dev", "/dev/db", "/dev/db?table=documents", "/dev/db?table=regulation_chunks&q=휴학",
     "/dev/data", "/dev/train", "/dev/rag", "/dev/intake",
-    "/dev/hwp", "/dev/pii", "/dev/quality", "/dev/docs", "/dev/history", "/dev/nas",
+    "/dev/pii", "/dev/quality", "/dev/docs", "/dev/history", "/dev/nas",
     "/dev/doc/quality-system.md", "/dev/doc/HANDOFF.md",
     "/dev/paper/논문-원재료.md", "/dev/weekly.md",
 ]

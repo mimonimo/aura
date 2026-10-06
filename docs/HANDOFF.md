@@ -370,7 +370,7 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 | 이그레스 에이전트 연동 | 예정 | 채팅·초안에서 관문 경유 외부 참조. 허브 개발 키 등록 뒤 |
 | 이그레스 실전송 개방 | 통신 개방됨(9/17) | 서버존 나가는 웹은 Imperva WAF 에서 허용 완료. 남은 것: 허브 개발 키를 LLM 연결에 등록(화면 수정 창) + 외부 참조용 지정 + ZZAIMY_EXTERNAL_ENABLED |
 | 외부 자료 수집(학습용) | 예정 | 대상 사이트 지정. **기준 문서와 분리**(학습에만) |
-| 한글 실시간 편집 에이전트 | **완료(2026-09-08 실장비 검증)** | 앱 다운로드(/dev/hwp)→연결→서버 지시→화면 반영 왕복 확인(한컴 automation 12.0). 남은 것: 대화창 자연어 변환(LLM 연결 후) |
+| 한글 실시간 편집 에이전트 | 폐기(ADR-0034) — 2026-10-06 코드 제거 | Windows COM 에이전트·/dev/hwp·/hwp/* 경로·tools/hwp-agent 삭제. 한글 산출은 서버 hwpx 생성·서식 보존 채우기(ADR-0035) |
 | OCR 도전자 대결(PaddleOCR-VL) | 유보 | GPU 필요 (CPU에선 1쪽 60분+ 불가 확인) |
 | 문서함 전체 재반입(9/20~21) | **완료(9/21 17:05)** | 문서 194건(규정 8 · 교내 113 · 국고 공개 68 · 외부 5) · 기준 조각 4,254개 · 개체 38. 이름은 반입 단계에서 본문 제목으로(`scripts/125` 가 실제 경로로 자가 점검). 남은 실패 1건(내려받기가 막힌 .pdf). 스모크 PASS(PII 자가 점검 19/19 · 잔여 0) · 반입 점검 정상률 80.4% · 서빙 점검 통과. **측정(env 포함, 질의 1,026·표본 300)**: 어휘 R@1 0.430 · 임베딩 0.691 · 하이브리드 0.671 · 운영(리랭커) **0.763** (R@10 0.927, 같은 표본 하이브리드 0.680, 서빙 장비 응답 300·폴백 0). 앞선 세 측정(0.55)은 env 없이 띄워 CPU 베이스로 떨어진 값이라 무효(K-48). 9/20 대비: 운영 0.773→0.763(코퍼스·질의 세트가 바뀜, 재결선 안 된 행 267) |
 | 구글 독스 문서 작업 (9/22, ADR-0029) | **실사용 확인(9/23)** | `/gdocs/work?doc=<주소>` — iframe 편집기 + 에이전트(문서 본문을 첨부처럼 읽어 답하고, 담당자가 고른 절 아래에 넣기·글 바꾸기). 쓰기는 개인정보 검사 뒤 보내고 `gdocs_audit.jsonl` 에 기록. 허용 범위에 documents 가 더해져 기존 허용 계정은 다시 허용. 화면 다듬기는 아스트라 C-63 |
@@ -387,7 +387,7 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
 | LLM 연결 관리 (9/17) | 완료 | `generate/llm_connections.py` + `data/platform/llm_connections.json`(0600). 종류는 교내 GPU 서버·외부 기관 GPU 서버(OpenAI 호환 규격)뿐, 상용 API 없음. 문서 작업 기본은 교내 바로·외부 기관은 ack 후(`activate`), 외부 AI 참조는 외부 기관 연결만(`set_external`, `egress._send_external`). 화면 `/dev/train` LLM 연결 카드, 라우트 `/dev/llm/*`. 호출 공통: 요청 시간 제한(`ZZAIMY_LLM_TIMEOUT`, 기본 180s)·429/5xx 백오프 재시도(`ZZAIMY_LLM_RETRIES`, 기본 3)·응답 usage 를 날짜·연결·모델별로 `data/platform/llm_usage.json` 에 누적(카드에 오늘 요청·토큰)·오류는 사람 말(키 거부/모델 없음/한도/일시 불가). ADR-0017 |
 | 모델 서버·모델 선택 (9/16) | 완료 | `src/zzaimy/generate/model_config.py`: 설정(`llm_base_url`·`llm_model`) > 환경변수 > 기본값, `probe()` 가 `/v1/models` 목록. `VllmClient` 가 이를 따름(모델 미선택이면 서버 첫 모델). 화면은 `/dev/train` 모델 서버 카드, 저장은 `POST /dev/train/model`, 기동 시 `create_app` 에서 적용 |
 | 데이터 열람 탐색기 (9/15) | 완료 | `/dev/db` 탭(문서·규정·국고 코퍼스·채팅 기록). 문서 상세 = 개요·마스킹 기록(유형·건수)·추출 조각·검색 단위(임베딩 유무, `chunk_embeddings.meta.json`+npz)·그래프 연관(`build_graph`). 모음 함수는 `src/zzaimy/app/data_explorer.py`. `/dev/corpus` 는 `/dev/db?tab=corpus` 로 301 |
-| 한글 에이전트 설치파일 배포 (9/15) | 완료 | Windows 에서 빌드 키트로 만든 setup.exe 를 /dev/hwp 에서 올림(MZ 서명·크기 검사, sha256·버전 메타 `data/dist/zzaimy-agent-setup.json`), 담당자 내려받기는 `/hwp/setup.exe`(로그인 필요) |
+| 한글 에이전트 설치파일 배포 (9/15) | 폐기(ADR-0034) — 2026-10-06 코드 제거 | setup.exe 올리기·내려받기(/hwp/setup.exe) 삭제 |
 | 개발 현황 허브화 (9/15) | 완료 | /dev 는 개요·구축 현황(기능 상태에서 파생한 영역별 완료 비율)·진행 현황·모델 트랙 + 바로가기 카드만. 상세는 /dev/quality(검색 품질·백로그), /dev/docs(논문·ADR·기술 검토·측정 기록), /dev/history(작업 기록 전체·변경 이력·주간 보고서). 진행 현황은 최신 날짜 작업만. 학습 도구 계정·연결(LS 아이디·비밀번호 재설정, GPU 도구 주소)은 /dev/train 도구 카드 설정 창 |
 | 검색 품질 카드(기계 산출물) | 완료 | `data/platform/eval/retrieval-latest.json`만 렌더, 없으면 '아직 측정 없음'. `/dev/eval/run`은 질의 세트 없으면 409 |
 | 개발자 영역 전수 감사 반영 | 완료 | 감사 40여 건 반영 + 9/15 중복 통합(규모 타일 공용, 근거 없는 % 제거, 변경 이력 통합 — `docs/notes/uiux-audit.md` 기록) + 한국어 표현 전수 손질(`docs/notes/ui-glossary.md`, 외부 참조 관문→외부 AI 참조 관리). 남은 것: B15, E6 |

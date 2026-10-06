@@ -76,7 +76,6 @@ src/zzaimy/
   graph/      지식 그래프
 scripts/      번호가 순서 — 서빙(126)·학습본 이관(116)·측정(53·105·106)·반입(115)·점검(110·125)·배포(99)
 configs/      학습 설정(configs/training) · 서빙 실측 기록(configs/serving.yaml)
-tools/        과거 도구 코드(COM 에이전트·installer 폐기, ADR-0034)
 docs/         설계·측정·결정(decisions/)·논문(paper/)·주간 보고(weekly/)·모델 카드(model-cards/)
 data/         산출물·문서 (저장소에 넣지 않음)
 ```

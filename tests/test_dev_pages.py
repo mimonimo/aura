@@ -102,15 +102,6 @@ def test_db_browser_shortens_long_names_and_keeps_full_title(client):
     assert r2.status_code == 200 and "추출·검색 자료" in r2.text
 
 
-def test_hwp_console_hides_internal_op(client):
-    r = client.get("/dev/hwp")
-    assert '플랫폼 연동 미완료' in r.text and '에이전트 앱 받기' not in r.text
-    r = client.get("/dev/hwp?legacy=1")
-    assert r.status_code == 200
-    assert '<option value="open_bytes">' not in r.text
-    assert '<option value="find">' in r.text
-
-
 def test_dev_dashboard_labels(client):
     r = client.get("/dev")
     assert r.status_code == 200
