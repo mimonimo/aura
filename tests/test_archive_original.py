@@ -67,6 +67,27 @@ def test_private_document_and_unlinked_denied(setup, monkeypatch):
     assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 403
 
 
+def test_staff_can_open_only_visible_linked_document(setup, monkeypatch, tmp_path):
+    app, client = setup
+    assert _login(client, "zzaimy", "boot-pass-1")
+    db = app.state.db
+    doc_id = db.add_document("계획서.pdf", "dgx://사업/계획서.pdf", doc_type="grant",
+                             owner="someone-else", access_level="owner")
+    with db._conn() as conn:
+        conn.execute("UPDATE archive_files SET doc_id = ? WHERE rel = '사업/계획서.pdf'", (doc_id,))
+    file = tmp_path / "authorized-file"
+    file.write_bytes(b"test")
+    monkeypatch.setattr(archive_original, "fetch", lambda row: file)
+    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 403
+    assert file.exists()
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET access_level = 'public' WHERE id = ?", (doc_id,))
+    page = client.get("/archive?q=계획서").text
+    assert "50.0%" in page
+    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 200
+    assert not file.exists()
+
+
 @pytest.mark.parametrize("rel,size", [("../escape", 1), ("/etc/passwd", 1), ("a\\b", 1), ("a", 100_000_001)])
 def test_fetch_rejects_path_and_size(rel, size):
     with pytest.raises(ValueError):
