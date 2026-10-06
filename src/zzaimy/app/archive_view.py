@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse
+from starlette.background import BackgroundTask
 
 from zzaimy.app import archive
 
@@ -69,5 +70,47 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
     found = [f for f in found if not (f.get("doc_id") and int(f["doc_id"]) in hidden)]
     for f in found:
         f["kind_label"] = KIND_KO.get(f.get("kind") or "", f.get("kind") or "")
+        f["can_open"] = (bool(f.get("doc_id")) or scope["role"] == "dev") and not f["rel"].startswith(archive.UPLOAD_PREFIX)
     data.update({"found": found, "program": program, "kind": kind, "q": q, "kind_ko": KIND_KO})
     return st.templates.TemplateResponse(request, "archive.html", st.page_ctx(request, data))
+
+
+@router.get("/archive/original")
+def archive_original(request: Request, rel: str):
+    from pathlib import PurePosixPath
+    from zzaimy.app import archive_original as original
+    from zzaimy.app.access_policy import visible
+
+    db = request.app.state.db
+    archive.ensure(db)
+    with db._conn() as conn:
+        row = conn.execute(
+            "SELECT rel, size, mtime, doc_id FROM archive_files WHERE rel = ? AND removed_at = ''",
+            (rel,),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404, "원본 목록에서 파일을 찾을 수 없습니다.")
+    record = dict(zip(("rel", "size", "mtime", "doc_id"), row))
+    scope = {"dept": getattr(request.state, "dept", "") or None,
+             "user": request.state.user, "role": request.state.role}
+    if record["doc_id"]:
+        doc = db.get_document(int(record["doc_id"]))
+        if not doc or not visible(doc, **scope):
+            raise HTTPException(403, "이 문서를 열람할 권한이 없습니다.")
+    elif scope["role"] != "dev":
+        raise HTTPException(403, "미연결 원본의 열람 권한은 개발자 확인이 필요합니다.")
+    try:
+        file = original.fetch(record)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    filename = PurePosixPath(rel).name
+    inline_types = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif"}
+    mime = inline_types.get(PurePosixPath(rel).suffix.lower())
+    return FileResponse(file, filename=filename, media_type=mime or "application/octet-stream",
+                        content_disposition_type="inline" if mime else "attachment",
+                        headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff",
+                                 "Content-Security-Policy": "sandbox"},
+                        background=BackgroundTask(file.unlink, missing_ok=True))
