@@ -6295,7 +6295,8 @@ figure img{{width:100%;display:block}}
 
     # 구글 드라이브 자동 가져오기(「ZZAIMY 가져오기」 폴더, 10분마다) — 구글 앱이 등록된 운영에서만 돈다
     if password is not None:
-        _gimport.ensure_scheduler(db, processor, inbox_dir, dept_of=lambda u: (accounts.get(u, {}) or {}).get("dept", ""))
+        _gimport.ensure_scheduler(db, processor, inbox_dir, dept_of=lambda u: (accounts.get(u, {}) or {}).get("dept", ""),
+                                  rank=lambda u: {"staff": 0, "head": 0, "dev": 1}.get((accounts.get(u, {}) or {}).get("role", ""), 2))
     app.state.page_ctx = ctx
     return app
 
