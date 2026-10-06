@@ -48,7 +48,7 @@ def main() -> None:
     rep = ontology_rdf.validate(inst, schema)
     rep.update({"at": datetime.now().strftime("%Y-%m-%d %H:%M"), "seconds": round(time.time() - t1), "triples": len(inst)})
     (out / "shacl_report.json").write_text(json.dumps(rep, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"ONTO_SHACL conforms={rep['conforms']} violations={rep['n_violations']} rules={len(rep['rules'])} "
+    print(f"ONTO_SHACL conforms={rep['conforms']} violations={rep['n_violations']} warnings={rep['n_warnings']} rules={len(rep['rules'])} "
           + " | ".join(f"{v['message']} {v['n']}" for v in rep["violations"][:6]))
 
 

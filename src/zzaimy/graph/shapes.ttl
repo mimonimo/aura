@@ -32,7 +32,9 @@ z:DocShape a sh:NodeShape ;
   sh:property [ sh:path z:year ; sh:datatype xsd:integer ; sh:minInclusive 1990 ; sh:maxInclusive 2035 ; sh:maxCount 1 ;
                 sh:message "문서 연도가 범위 밖이거나 여럿이다" ] ;
   sh:property [ sh:path z:kind ; sh:maxCount 1 ; sh:message "문서 갈래가 여럿이다" ] ;
-  sh:property [ sh:path [ sh:inversePath z:contains ] ; sh:minCount 1 ; sh:message "문서가 어떤 사업·연차에도 속하지 않는다" ] .
+  # 사업에 아직 배정 못 한 문서 — 잘못된 데이터가 아니라 분류가 남은 것이라 경고로 센다
+  sh:property [ sh:path [ sh:inversePath z:contains ] ; sh:minCount 1 ; sh:severity sh:Warning ;
+                sh:message "문서가 어떤 사업·연차에도 속하지 않는다(미분류)" ] .
 
 z:OrgShape a sh:NodeShape ;
   sh:targetClass z:Org ;

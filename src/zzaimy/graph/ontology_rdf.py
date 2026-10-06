@@ -161,12 +161,16 @@ def validate(data_graph, schema=None) -> dict:
         msg = str(report.value(res, SH.resultMessage) or "")
         focus = str(report.value(res, SH.focusNode) or "")
         shape = str(report.value(res, SH.sourceShape) or "")
-        row = by.setdefault(msg, {"message": msg, "n": 0, "examples": [], "shape": shape})
+        sev = "경고" if report.value(res, SH.resultSeverity) == SH.Warning else "위반"
+        row = by.setdefault(msg, {"message": msg, "n": 0, "examples": [], "shape": shape, "severity": sev})
         row["n"] += 1
         if len(row["examples"]) < 5:
             row["examples"].append(focus.replace(BASE + "n/", "").replace(BASE, ""))
     rules = []
     for s in shapes.subjects(RDF.type, SH.NodeShape):
         rules.append({"shape": str(s).replace(BASE, ""), "comment": str(shapes.value(s, RDFS.comment) or "")})
-    return {"conforms": bool(conforms), "violations": sorted(by.values(), key=lambda r: -r["n"]), "n_violations": sum(r["n"] for r in by.values()),
+    rows = sorted(by.values(), key=lambda r: (r["severity"] != "위반", -r["n"]))
+    return {"conforms": bool(conforms), "violations": rows,
+            "n_violations": sum(r["n"] for r in rows if r["severity"] == "위반"),
+            "n_warnings": sum(r["n"] for r in rows if r["severity"] == "경고"),
             "rules": sorted(rules, key=lambda r: r["shape"])}

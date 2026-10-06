@@ -350,9 +350,10 @@
       if (!sh) box.appendChild(el("div", null, "표준 검사(SHACL) 결과가 아직 없습니다 — 그래프를 다시 지을 때 함께 돈다(scripts/177)."));
       else {
         box.appendChild(el("div", null, "표준 검사(SHACL) " + sh.at + " · 세 쌍 " + Number(sh.triples).toLocaleString() + " · 규칙 " + sh.rules.length + "개 · "
-          + (sh.conforms ? "위반 없음" : "위반 " + Number(sh.n_violations).toLocaleString() + "건")));
+          + (sh.n_violations ? "위반 " + Number(sh.n_violations).toLocaleString() + "건" : "위반 없음")
+          + (sh.n_warnings ? " · 경고 " + Number(sh.n_warnings).toLocaleString() + "건" : "")));
         sh.violations.slice(0, 8).forEach(function (v) {
-          box.appendChild(el("q", null, v.message + " — " + v.n.toLocaleString() + "건 (예: " + v.examples.slice(0, 2).join(", ") + ")"));
+          box.appendChild(el("q", null, "[" + (v.severity || "위반") + "] " + v.message + " — " + v.n.toLocaleString() + "건 (예: " + v.examples.slice(0, 2).join(", ") + ")"));
         });
       }
       body.appendChild(box);
