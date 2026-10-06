@@ -256,6 +256,24 @@ def _set_tcpr(tcPr, el) -> None:
     tcPr.append(el)
 
 
+def _set_vertical_merge_borders(table, row: int, end_row: int, col: int, bf: BorderFill | None) -> None:
+    """세로 병합의 실제 XML 셀마다 외곽선을 둔다. table.cell은 시작 셀만 반환한다."""
+    from docx.table import _Cell
+
+    for rr in range(row, end_row + 1):
+        grid_col = 0
+        for tc in table.rows[rr]._tr.tc_lst:
+            if grid_col == col:
+                sides = dict(bf.sides) if bf else {}
+                if rr != row:
+                    sides["top"] = ("NONE", 0)
+                if rr != end_row:
+                    sides["bottom"] = ("NONE", 0)
+                _set_cell_borders(_Cell(tc, table), BorderFill(sides=sides, fill=bf.fill if bf else ""))
+                break
+            grid_col += tc.grid_span
+
+
 def _set_cell_borders(cell, bf: BorderFill | None) -> None:
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
@@ -885,7 +903,10 @@ class Converter:
                 for cc in range(col, end_c + 1):
                     covered.add((rr, cc))
             bf = self.st.borders.get(str(tc.get("borderFillIDRef"))) or default_bf
-            _set_cell_borders(cell, bf)
+            if end_r > row:
+                _set_vertical_merge_borders(table, row, end_r, col, bf)
+            else:
+                _set_cell_borders(cell, bf)
             _set_cell_margins(cell, _cell_margins_hu(tc))
             sub = _child(tc, "subList")
             _set_cell_valign(cell, (sub.get("vertAlign") if sub is not None else "TOP") or "TOP")
