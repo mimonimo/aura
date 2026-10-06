@@ -179,7 +179,9 @@ def main() -> int:
         alerts.append(f"그래프에 없는 사업 문서 {n_docs - n_graph:,}건")
     reimport = []
     if args.find_reimport:
-        reimport = find_reimport(db, {r: v for r, v in no_result.items() if r not in fails})
+        # 실패 장부에 있어도 같은 판의 정상 기록이 있으면 다시 들인다 — 환경 오류로 한 번 실패한 뒤 성공한 원본이 반입 중단(NUL 문자)으로
+        # 못 들어오고 실패 기록만 남았던 688건(10/6)
+        reimport = find_reimport(db, no_result)
         (PLAT / "reimport_rels.json").write_text(json.dumps(reimport, ensure_ascii=False), encoding="utf-8")
         if reimport:
             alerts.append(f"DGX 에서 정상 처리됐는데 문서함에 없는 원본 {len(reimport)}건 — 다시 들임 목록(reimport_rels.json)")
