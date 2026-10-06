@@ -67,7 +67,7 @@ def _sync_state(db_path: str) -> dict:
 def _merge_programs(progs, prog_label: dict) -> list[dict]:
     merged: dict[str, int] = {}
     for pid, name, n in progs:
-        label = prog_label.get(pid) or (name if pid else "") or "사업 미분류"
+        label = prog_label.get(pid) or name or "사업 미분류"
         merged[label] = merged.get(label, 0) + int(n or 0)
     return [{"label": k, "n": v} for k, v in sorted(merged.items(), key=lambda kv: -kv[1])]
 
