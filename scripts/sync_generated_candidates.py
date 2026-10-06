@@ -17,6 +17,8 @@ from zzaimy.dataset.ls_client import LabelStudioClient
 
 
 def main():
+    if Path("data/training/active-tracks.json").exists():
+        raise RuntimeError("옛 CoT 게시 경로는 보관 처리되었습니다.")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--max-conversations', type=int, default=100)

@@ -19,6 +19,8 @@ from zzaimy.verify.numbers import verify_numbers
 
 
 def main():
+    if Path("data/training/active-tracks.json").exists():
+        raise RuntimeError("옛 실문서 문답 생성은 종료되었습니다. generate_track_candidates.py를 사용하세요.")
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--apply', action='store_true')
     ap.add_argument('--retry', action='store_true')
