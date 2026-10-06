@@ -1,5 +1,13 @@
 # Codex 작업 기록
 
+## C-217 — 데이터·학습 상단 설명 (2026-10-06)
+
+사용자 요청: 문답 필드 뜻과 실제 SFT 입력/출력 구성을 페이지 상단에 표시.
+담당 dev_data.html·안내 partial·페이지 테스트. 현재 rationale 미포함 상태를 명시,
+향후 계획을 구현 완료처럼 표시하지 않음. 학습 변환 보강은 별도 후속 작업.
+안내 partial 추가, /dev/train·tab=data·/dev/data에서 검수 카드보다 먼저 표시.
+문답 필드와 관리용 필드, 실제 입력/목표 답변을 구분. 화면 회귀 검사 32개 통과.
+
 ## C-216 — 생성 후보 Label Studio 자동 게시 (진행, 2026-10-06)
 
 Codex 담당 candidate_publish 모듈·sync 스크립트·systemd timer·검사. 프로젝트5만 대상,

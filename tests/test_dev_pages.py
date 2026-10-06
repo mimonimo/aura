@@ -63,6 +63,12 @@ def test_training_navigation_does_not_scan_hidden_legacy_documents(client, monke
     response = client.get(path)
     assert response.status_code == 200
     assert '문답 검수' in response.text
+    assert response.text.index('id="training-guide"') < response.text.index('>문답 검수')
+    assert '실제 SFT 학습에 들어가는 내용' in response.text
+    assert '후속 문답에는 이전 질문·답변도 대화 순서대로 포함' in response.text
+    assert '근거 설명(rationale)은 현재 학습 출력에 포함되지 않습니다' in response.text
+    for field in ('program', 'history', 'question', 'answer', 'evidence', 'source', 'kind'):
+        assert field in response.text
 
 
 def test_training_legacy_keeps_requested_previews(client, monkeypatch):

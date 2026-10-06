@@ -40,6 +40,8 @@
 </div></div>
 {% endif %}
 
+{% include "_training_guide.html" %}
+
 <section class="card"><div class="card-in"><h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>문답 검수
 <a class="h-link" href="/dev/train?tab=data&amp;view={{ 'main' if request.query_params.get('view') == 'legacy' else 'legacy' }}">{{ '검수로 돌아가기' if request.query_params.get('view') == 'legacy' else '이전 기록·이력' }}</a></h2>
 {% if grounded_ls.ok and grounded_ls.project_id %}<div class="review-summary"><span>전체 기록 <strong>{{ grounded_ls.total }}</strong> <small>이전 버전 포함</small></span><span>사람 검수 주석 <strong>{{ grounded_ls.done }}</strong></span></div>
