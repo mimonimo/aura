@@ -93,6 +93,11 @@ def _allowed(db, nodes: dict[str, dict], scope: dict) -> set[str]:
     return {k for k, docs in need.items() if not docs or docs & vis}
 
 
+def _group_label(rel: str, typ: str) -> str:
+    """「포함 · 연차」처럼 관계와 상대 종류 — 관계 이름이 이미 종류를 말하면(성과지표·연관 사업) 덧붙이지 않는다."""
+    return rel if typ in rel else f"{rel} · {typ}"
+
+
 def neighbors(db, node_id: str, scope: dict, per_group: int = PER_GROUP, offset: dict | None = None) -> dict:
     kg_store.ensure(db)
     with db._conn() as conn:
@@ -110,11 +115,14 @@ def neighbors(db, node_id: str, scope: dict, per_group: int = PER_GROUP, offset:
         other = r["dst"] if out else r["src"]
         if other not in ok or other == node_id:
             continue
-        groups[(r["kind"], "out" if out else "in")].append((r, others[other]))
+        groups[(r["kind"], "out" if out else "in", others[other]["type"])].append((r, others[other]))
     res_nodes, res_edges, res_groups = {}, [], []
-    for (kind, d), items in sorted(groups.items(), key=lambda kv: (list(KIND_KO).index(kv[0][0]) if kv[0][0] in KIND_KO else 99, kv[0][1])):
+    rank = {t: i for i, t in enumerate(TYPE_KO)}
+    for (kind, d, typ), items in sorted(groups.items(), key=lambda kv: (list(KIND_KO).index(kv[0][0]) if kv[0][0] in KIND_KO else 99,
+                                                                        kv[0][1], rank.get(kv[0][2], 99))):
         items.sort(key=lambda t: (-float(t[0]["weight"] or 0), t[1]["label"]))
-        start = int((offset or {}).get(f"{kind}:{d}", 0))
+        key = f"{kind}:{d}:{typ}"
+        start = int((offset or {}).get(key, 0))
         page = items[start:start + per_group]
         for r, n in page:
             res_nodes[n["id"]] = _summary(n)
@@ -122,7 +130,8 @@ def neighbors(db, node_id: str, scope: dict, per_group: int = PER_GROUP, offset:
                               "evidence": _props(r["evidence"]) if isinstance(r["evidence"], str) else r["evidence"],
                               "weight": r["weight"]})
         names = KIND_KO.get(kind, (kind, kind))
-        res_groups.append({"key": f"{kind}:{d}", "kind": kind, "dir": d, "label": names[0] if d == "out" else names[1],
+        res_groups.append({"key": key, "kind": kind, "dir": d, "type": typ,
+                           "label": _group_label(names[0] if d == "out" else names[1], TYPE_KO.get(typ, typ)),
                            "total": len(items), "shown": start + len(page)})
     return {"center": _summary(center), "nodes": list(res_nodes.values()), "edges": res_edges, "groups": res_groups}
 
@@ -157,6 +166,9 @@ def programs(db) -> list[dict]:
         n_docs: dict[str, int] = defaultdict(int)
         for r in conn.execute("SELECT src, COUNT(*) FROM kg_edges WHERE kind = 'contains' AND dst LIKE 'doc:%' GROUP BY src"):
             n_docs[year_of.get(r[0], r[0])] += int(r[1])
+        # 사업 묶음은 묶인 사업들의 문서 수
+        for r in conn.execute("SELECT src, dst FROM kg_edges WHERE kind = 'contains' AND src LIKE 'group:%' AND dst LIKE 'program:%'"):
+            n_docs[r[0]] += n_docs.get(r[1], 0)
     out = sorted(({"id": p["id"], "type": p["type"], "type_ko": TYPE_KO.get(p["type"], p["type"]), "label": p["label"],
                    "n_docs": n_docs.get(p["id"], 0)} for p in progs), key=lambda p: (p["type"] != "program_group", -p["n_docs"]))
     _cache["programs"] = (time.time(), out)

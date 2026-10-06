@@ -239,7 +239,7 @@
         if (r.kind !== g.kind) return;
         var other = g.dir === "out" ? (r.src === id ? r.dst : null) : (r.dst === id ? r.src : null);
         if (!other) return;
-        var on = cy.getElementById(other); if (on.empty()) return;
+        var on = cy.getElementById(other); if (on.empty() || on.data("type") !== g.type) return;
         var row = el("button", "gx-row"); row.type = "button";
         var dot = el("i"); dot.style.background = on.data("color"); row.appendChild(dot);
         row.appendChild(el("span", null, String(on.data("label")).replace(/_+/g, " ")));

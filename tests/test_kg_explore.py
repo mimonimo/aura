@@ -33,7 +33,7 @@ def test_neighbors_filters_hidden_docs_and_pages(tmp_path):
     d = kg_explore.neighbors(db, "year:P:r1", staff)
     ids = {n["id"] for n in d["nodes"]}
     assert f"doc:{pub}" in ids and f"doc:{sec}" not in ids and "program:P" in ids
-    assert {g["key"]: g["total"] for g in d["groups"]}["contains:out"] == 1
+    assert {g["key"]: g["total"] for g in d["groups"]}["contains:out:doc"] == 1
     assert kg_explore.neighbors(db, "year:P:r1", {"role": "dev"})["groups"][-1]["total"] >= 1
     # 볼 수 없는 문서 노드는 중심으로도 열리지 않는다
     try:
@@ -69,7 +69,7 @@ def test_explore_routes(tmp_path):
     r = c.get("/graph/explore")
     assert r.status_code == 200 and "cytoscape.min.js" in r.text and "가 사업" in r.text
     assert c.get("/graph/explore/neighbors", params={"id": "program:P"}).json()["center"]["label"] == "가 사업"
-    assert c.get("/graph/explore/neighbors", params={"id": "program:P", "more": "contains:out@0"}).status_code == 200
+    assert c.get("/graph/explore/neighbors", params={"id": "program:P", "more": "contains:out:year@0"}).status_code == 200
     assert c.get("/graph/explore/neighbors", params={"id": "nope"}).status_code == 404
     assert c.get("/graph/explore/schema").json()["types"]
     assert c.get("/static/cytoscape-fcose.js").status_code == 200
