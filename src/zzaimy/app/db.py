@@ -508,9 +508,15 @@ class Database:
         q: str | None = None,
         project_id: int | None = None,
         owner: str | None = None,
+        light: bool = False,
     ) -> list[dict]:
+        # light: 목록용 — 본문(masked_text, 운영 846MB)·초안 열을 뺀다. 4만 건 목록이 이것 때문에 수 초씩 걸렸다(2026-10-06)
+        cols = ("d.*" if not light else
+                "d.id, d.filename, d.stored_path, d.status, d.series, d.error, d.created_at, d.doc_type, d.owner, d.coverage,"
+                " d.decision, d.content_sha256, d.sector, d.dept, d.access_level, d.family, d.version_of, d.kind,"
+                " d.related_criteria_id, d.receipt_no, d.project_id, d.parse_note, d.identity, d.audience")
         sql = (
-            "SELECT d.*, p.name AS project_name FROM documents d"
+            f"SELECT {cols}, p.name AS project_name FROM documents d"
             " LEFT JOIN projects p ON p.id = d.project_id"
         )
         cond: list[str] = []
