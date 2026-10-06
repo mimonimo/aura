@@ -110,6 +110,7 @@
     <button type="button" class="on" data-tab="paneBuild">구축 현황</button>
     <button type="button" data-tab="paneNow">진행 현황</button>
     <button type="button" data-tab="paneIntake">반입 현황</button>
+    <button type="button" data-tab="paneTech">핵심 기술</button>
   </div>
   <div id="paneBuild" class="tab-pane on">
     <p class="muted" style="font-size:12px; margin:0 0 10px;">{{ progress.updated }} 기준 · 완료 {{ progress.features | selectattr("status", "equalto", "done") | list | length }}
@@ -159,6 +160,28 @@
   {% if dev_now_more %}
   <p style="margin:10px 0 0;"><a href="/dev/history#recent" class="btn-ghost">이전 작업 기록</a></p>
   {% endif %}
+  </div>
+  {# 핵심 기술 — 원천 app/tech_stack.py. 파이썬 패키지 판·라이선스는 이 서버 설치본에서, PostgreSQL 판은 DB 에서 읽는다 #}
+  <div id="paneTech" class="tab-pane">
+  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">오픈소스 부품 {{ tech.n_open }}개 · 우리 코드·데이터 {{ tech.n_ours }}개 ·
+    판은 이 서버 설치본·DB 에서 읽고, 다른 장비 부품과 화면 동봉 JS 는 {{ tech.checked }} 확인값</p>
+  {% for area, rows in tech.areas.items() %}
+  <h3 style="font-size:14px; margin:14px 0 6px;">{{ area }}</h3>
+  <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:12.5px;">
+    <tr style="text-align:left; color:var(--muted);"><th style="padding:5px 8px;">이름</th><th style="padding:5px 8px;">하는 일</th>
+      <th style="padding:5px 8px; white-space:nowrap;">판</th><th style="padding:5px 8px;">라이선스</th><th style="padding:5px 8px;">어디서</th><th style="padding:5px 8px;">근거</th></tr>
+    {% for r in rows %}
+    <tr style="border-top:1px solid var(--line); vertical-align:top;">
+      <td style="padding:6px 8px; font-weight:600;">{{ r.name }}</td>
+      <td style="padding:6px 8px;">{{ r.role }}</td>
+      <td style="padding:6px 8px; white-space:nowrap; font-variant-numeric:tabular-nums;" title="{{ r.source }}">{{ r.version or "—" }}</td>
+      <td style="padding:6px 8px;">{% if r.ours %}<span class="pill">{{ r.license }}</span>{% else %}{{ r.license or "—" }}{% endif %}</td>
+      <td style="padding:6px 8px;" class="muted">{{ r.where }}</td>
+      <td style="padding:6px 8px;" class="muted">{{ r.ref }}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% endfor %}
   </div>
   {# 반입 현황 — 원천 app/intake_status.snapshot(DB·장부·색인 파일, 60초 재사용). 같은 값은 /dev/api/intake(JSON). 화면 꾸밈은 아스트라 담당 #}
   <div id="paneIntake" class="tab-pane">
