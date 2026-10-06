@@ -27,16 +27,30 @@ def main():
     for track in TRACKS:
         pid=client.ensure_project(TITLES[track],label_config=CONFIG,
               description="연결 대화 단위 검수 후보. 자동 생성은 학습 승인이나 도구 실행 검증을 뜻하지 않습니다.")
-        existing=set();page=1
+        existing=set();task_by_sample={};page=1
         while True:
             response=client._req("GET",f"/api/tasks?project={pid}&page_size=100&page={page}")
             tasks=response.get("tasks",response.get("results",[])) if isinstance(response,dict) else response
             existing.update(t.get("data",{}).get("sample_id") for t in tasks)
+            task_by_sample.update({t.get("data",{}).get("sample_id"):t for t in tasks})
             if len(tasks)<100:break
             page+=1
         pending=[]
         for path in sorted((Path("data/training/tracks")/track/"candidates").glob("*.json")):
             value=json.loads(path.read_text())
+            review_path=path.parent.parent/"reviews"/path.name
+            if review_path.exists():
+                from zzaimy.dataset.tracks import key
+                review=json.loads(review_path.read_text())
+                if review.get("candidate_sha256")==key(value.get("candidate")) and review.get("decision")=="rewrite":
+                    task=task_by_sample.get(value["job"])
+                    if task:
+                        data=dict(task["data"])
+                        data["state"]="재작성 필요 · "+review["reason"]
+                        data["_review"]=review
+                        if data!=task["data"]:
+                            client._req("PATCH",f"/api/tasks/{task['id']}",json={"data":data})
+                    continue
             if value.get("status")!="candidate" or value["job"] in existing:continue
             candidate=value["candidate"]
             if candidate["track"]!=track or candidate.get("approved") is not False:raise ValueError("invalid_track")
