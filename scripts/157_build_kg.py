@@ -94,14 +94,19 @@ def main() -> int:
             except (ValueError, KeyError):
                 continue
     docs, chunk_map = [], {}
+    from zzaimy.app.doc_routing import excluded_kinds
+    EXCLUDED, dropped = set(excluded_kinds()), []
     # 문서·프로젝트·조각을 묶어서 읽는다 — 문서마다 세 번씩 DB 를 오가면 3만 건에 10만 번(10/4 실측: 재구축이 몇 시간)
     want_ids = list(_ids(args.docs))
     doc_rows: dict[int, dict] = {}
     with db._conn() as conn:
         for i in range(0, len(want_ids), 1000):
             part = want_ids[i:i + 1000]
-            for r in conn.execute(f"SELECT id, filename, stored_path, project_id FROM documents WHERE id IN ({','.join('?' * len(part))})",
+            for r in conn.execute(f"SELECT id, filename, stored_path, project_id, kind FROM documents WHERE id IN ({','.join('?' * len(part))})",
                                   part).fetchall():
+                if (r[4] or "") in EXCLUDED:                 # 범위 밖 갈래(지출·계약 증빙, 규칙 11) — 그래프에 넣지 않는다
+                    dropped.append(int(r[0]))
+                    continue
                 doc_rows[int(r[0])] = {"filename": r[1], "stored_path": r[2], "project_id": r[3]}
             for r in conn.execute(f"SELECT * FROM doc_chunks WHERE doc_id IN ({','.join('?' * len(part))}) ORDER BY doc_id, seq",
                                   part).fetchall():
@@ -567,9 +572,12 @@ def main() -> int:
             for d in docs:
                 kg_store.clear_doc(conn, f"doc:{d['id']}")
                 conn.execute("DELETE FROM kg_edges WHERE src = ? OR dst = ?", (f"doc:{d['id']}", f"doc:{d['id']}"))
+            for did in dropped:                     # 범위 밖으로 바뀐 문서의 옛 노드도 지운다
+                kg_store.clear_doc(conn, f"doc:{did}")
+                conn.execute("DELETE FROM kg_edges WHERE src = ? OR dst = ?", (f"doc:{did}", f"doc:{did}"))
         kg_store.put_nodes(conn, nodes)
         kg_store.put_edges(conn, edges)
-    print(f"썼다 — 노드 {len(nodes)} · 관계 {len(edges)}")
+    print(f"썼다 — 노드 {len(nodes)} · 관계 {len(edges)}" + (f" · 범위 밖 갈래로 뺀 문서 {len(dropped)}" if dropped else ""))
     if args.full:
         _export_assignments(docs, assigns)
     return 0

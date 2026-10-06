@@ -173,3 +173,13 @@ def test_quality_filter_drops_toc_and_duplicates():
     dup = {"id": 3, "doc_id": 3, "content": body["content"]}
     got = grant_search.quality_filter([toc, body, dup])
     assert [c["id"] for c in got] == [2]
+
+
+def test_access_excludes_out_of_scope_kinds(monkeypatch):
+    """지출·계약 증빙(절대 규칙 11)은 검색 조건에서 늘 빠진다 — 끄려면 ZZAIMY_EXCLUDE_KINDS 를 비운다."""
+    from zzaimy.app import grant_search
+    sql, args = grant_search._access("u")
+    assert "COALESCE(d.kind, '') NOT IN (?)" in sql and args[0] == "evidence"
+    monkeypatch.setenv("ZZAIMY_EXCLUDE_KINDS", "")
+    sql, args = grant_search._access("u")
+    assert "d.kind" not in sql
