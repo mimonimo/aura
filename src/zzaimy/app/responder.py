@@ -166,6 +166,8 @@ class AgentResponder:
             # 그래프로 사업·연차를 먼저 좁힌 뒤 그 문서들에서 찾는다. 문서함·업로드·DGX 원본 어디서 들어왔든 같은 색인
             grant_hits = []
             try:
+                if scope.get("role") == "student":
+                    raise LookupError("학생은 사업 문서를 검색하지 않는다(ADR-0052)")
                 from zzaimy.app import grant_search
                 prefer = None
                 if project and project.get("id"):
@@ -181,6 +183,8 @@ class AgentResponder:
                 if grant_hits:
                     blocks.append("[사업 문서 — 계획서·실적보고서 등. 사업·연차·문서 이름을 밝히고, 수치는 이 글에 있는 것만 쓴다]\n"
                                   + "\n\n".join(f"〈{' > '.join(h['path'])}〉\n{h['content']}" for h in grant_hits))
+            except LookupError:
+                grant_hits = []
             except Exception as e:                       # 검색이 깨져도 답은 하되, 조용히 「근거 없음」으로 숨지 않게 남긴다
                 import logging
                 logging.getLogger(__name__).warning("사업 문서 검색 실패: %s: %s", type(e).__name__, str(e)[:200])

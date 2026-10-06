@@ -248,6 +248,8 @@ class Database:
         "ALTER TABLE projects ADD COLUMN archive_source TEXT NOT NULL DEFAULT ''",
         # 사업단 — 담당자가 프로젝트를 만들 때 고른다(링크·앵커·산단 …, 원본 최상위 폴더와 같은 이름)
         "ALTER TABLE projects ADD COLUMN unit TEXT NOT NULL DEFAULT ''",
+        # 공개 대상 — staff(교직원·교수, 기본) · student(학생에게도 공개하는 학사 규정). 학생 검색은 student 규정만(ADR-0052)
+        "ALTER TABLE documents ADD COLUMN audience TEXT NOT NULL DEFAULT 'staff'",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -773,6 +775,14 @@ class Database:
                 raise ValueError(f"접수번호 {receipt_no} 는 문서 {row[0]} 이 쓰고 있습니다")
             conn.execute("UPDATE documents SET receipt_no = ? WHERE id = ?", (receipt_no, doc_id))
 
+    def set_document_audience(self, doc_id: int, audience: str) -> None:
+        """공개 대상 — staff(교직원·교수) 또는 student(학생에게도 공개하는 학사 규정, 규정 문서만)."""
+        if audience not in ("staff", "student"):
+            raise ValueError(f"공개 대상은 staff·student 중 하나: {audience}")
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET audience = ? WHERE id = ? AND (? = 'staff' OR doc_type = 'regulation')",
+                         (audience, doc_id, audience))
+
     def set_document_kind(self, doc_id: int, kind: str | None) -> None:
         """서류 갈래(공고·양식·계획서 …)를 적는다 — 반입 때 스스로 정하거나 담당자가 고칠 때."""
         with self._conn() as conn:
@@ -1236,7 +1246,11 @@ class Database:
         if dept:
             cond.append("dept IN (?, '공통')")
             params.append(dept)
-        if levels:
+        if levels and "student" in levels:
+            # 학생용 말뭉치 — 학생 공개로 지정된 규정 문서의 공개 조각만(교직원 자료는 후보에도 들지 않는다, ADR-0052)
+            cond.append("access_level = 'public' AND doc_id IN (SELECT id FROM documents WHERE audience = 'student'"
+                        " AND doc_type = 'regulation')")
+        elif levels:
             cond.append("access_level IN (%s)" % ",".join("?" for _ in levels))
             params.extend(levels)
         elif dept or user:

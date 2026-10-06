@@ -284,7 +284,13 @@ def create_app(
             return user
         return None
 
-    _DOC_PATH = re.compile(r"^/doc/(\d+)(?:/|$)")
+    _DOC_PATH = re.compile(r"^/(?:doc|chat/peek)/(\d+)(?:/|$)")
+    # 학생 허용 경로 — 대화(보내기·읽기·다시·지우기)와 문서 읽기(학생 공개 규정만, 열람 판정은 _DOC_PATH 가 한다)
+    _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view|original|page/\d+\.png))?$|logout$)")
+    _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|logout)$")
+
+    def _student_allowed(method: str, path: str) -> bool:
+        return bool((_STUDENT_POST if method == "POST" else _STUDENT_GET).match(path))
     from zzaimy.app.access_policy import visible as _visible
 
     if password is not None:
@@ -317,6 +323,9 @@ def create_app(
             # 구글 허용 콜백은 로그인한 누구나 — 사용자마다 자기 학교 계정을 잇는다(user_admin, 콘솔에 등록된 주소 그대로)
             if request.url.path.startswith("/dev") and request.state.role != "dev" and request.url.path != "/dev/gdrive/callback":
                 raise HTTPException(403, "개발자 계정 전용입니다")
+            # 학생은 허용한 경로만 — 대화와 학생 공개 규정 읽기(ADR-0052). 허용 목록이라 앞으로 생기는 화면도 저절로 막힌다
+            if request.state.role == "student" and not _student_allowed(request.method, request.url.path):
+                raise HTTPException(403, "학생 계정에서는 쓸 수 없는 화면입니다")
             # 열람 등급은 검색만이 아니라 문서 경로 전부(화면·원본·쪽 그림·복원·내보내기·삭제)에 강제한다(브리프 절대 규칙 4).
             # 라우트마다 검사를 넣지 않고 여기서 한 번에 — 앞으로 생기는 /doc/{id}/… 경로도 저절로 막힌다.
             m = _DOC_PATH.match(request.url.path)
@@ -538,6 +547,8 @@ def create_app(
         page: int = 0,
         group: str = "all",
     ):
+        if getattr(request.state, "role", "") == "student":
+            return RedirectResponse("/chat", status_code=303)        # 학생 첫 화면은 대화(ADR-0052)
         if request.url.path == "/" and not any((type, q, project, flt, page)):
             return RedirectResponse("/chat", status_code=303)
         doc_type = type if type in INBOX_TYPES else None
@@ -616,12 +627,13 @@ def create_app(
             _units_cache.update(at=_t.time(), v=_archive.business_units(db))
         return _units_cache["v"]
 
-    def _criteria_docs() -> list[dict]:
+    def _criteria_docs(request: Request | None = None) -> list[dict]:
         counts = db.regulation_chunk_counts()
+        student = request is not None and getattr(request.state, "role", "") == "student"
         return [
             d | {"n_chunks": counts.get(d["id"], 0)}
             for d in db.list_documents("regulation")
-            if d["status"] == "reviewed"
+            if d["status"] == "reviewed" and (not student or _visible(d, dept=None, user=None, role="student"))
         ]
 
     @app.get("/connections", response_class=HTMLResponse)
@@ -653,7 +665,7 @@ def create_app(
             request,
             "chat_workspace.html",
             ctx(request, {
-                "messages": [], "criteria_docs": _criteria_docs(),
+                "messages": [], "criteria_docs": _criteria_docs(request),
                 "waiting": False, "session_id": None, "sources": [],
                 "recommended_criteria": db.get_project_criteria_ids(project) if project else [],
                 "chat_session": None, "chat_project": chat_project, "chat_topic": "",
@@ -705,7 +717,7 @@ def create_app(
             request,
             "chat_workspace.html",
             ctx(request, {
-                "messages": messages, "criteria_docs": _criteria_docs(),
+                "messages": messages, "criteria_docs": _criteria_docs(request),
                 "waiting": waiting, "session_id": session_id,
                 "suggestions": [] if waiting else _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
                 "sources": _chat_sources.get(session_id) or chat_topics.latest(session_id),
@@ -750,6 +762,11 @@ def create_app(
         session_id: int, q: str, stored: Path | None, criteria: list[int],
         web: str = "",
     ) -> None:
+        # 학생 계정은 학생용 학사 규정 RAG 만 — 외부 검색·모델 지식·프로젝트·연결 문서를 쓰지 않는다(ADR-0052)
+        _sess0 = db.get_chat_session(session_id) or {}
+        is_student = password is not None and accounts.get(_sess0.get("owner") or "", {}).get("role") == "student"
+        if is_student:
+            web = ""
         # 모델 지식 모드(2026-09-29): 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 머리에 붙인다
         if web == "model":
             _chat_step(session_id, "모델 지식으로 답변 작성 중")
@@ -791,7 +808,7 @@ def create_app(
         session = db.get_chat_session(session_id)
         _chat_step(session_id, "대화·프로젝트 맥락 확인 중")
         project = None
-        if session and session.get("project_id"):
+        if session and session.get("project_id") and not is_student:
             project = db.get_project(int(session["project_id"]))
             if project and not criteria:
                 criteria = db.get_project_criteria_ids(project["id"])
@@ -809,7 +826,7 @@ def create_app(
             from zzaimy.app import chat_documents
 
             _chat_step(session_id, "연결 문서 확인 중")
-            doc_material = chat_documents.material(db, session_id, owner)
+            doc_material = "" if is_student else chat_documents.material(db, session_id, owner)
         except HTTPException:
             doc_material = ""                      # 이 계정의 대화가 아니면 연결을 쓰지 않는다
         except Exception as e:
@@ -2026,6 +2043,19 @@ def create_app(
                               access_level=access_level if access_level in LEVELS else None)
         dest = back if back.startswith("/") and not back.startswith("//") else f"/doc/{doc_id}"
         return RedirectResponse(dest, status_code=303)
+
+    @app.post("/doc/{doc_id}/audience")
+    def doc_set_audience(request: Request, doc_id: int, audience: str = Form("staff")):
+        """규정 문서의 학생 공개 켜기·끄기(ADR-0052) — 관리자, 또는 그 문서를 올린 사람만. 규정이 아니면 학생 공개가 되지 않는다."""
+        doc = db.get_document(doc_id)
+        if doc is None:
+            raise HTTPException(404)
+        if getattr(request.state, "role", "") != "dev" and doc.get("owner") != getattr(request.state, "user", ""):
+            raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+        if audience not in ("staff", "student") or (audience == "student" and doc.get("doc_type") != "regulation"):
+            raise HTTPException(400, "학생 공개는 규정 문서만 할 수 있습니다")
+        db.set_document_audience(doc_id, audience)
+        return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
     @app.post("/doc/{doc_id}/route")
     def doc_route(doc_id: int):

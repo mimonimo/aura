@@ -102,6 +102,14 @@
       <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
       {% if doc.doc_type in ("regulation", "ocr") %}
         <span class="pill reviewed" {% if doc.parse_note %}title="{{ doc.parse_note }}"{% endif %}>{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
+        {% if doc.doc_type == "regulation" and request.state.role != 'student' %}
+        {# 학생 공개 — 학생 계정의 대화는 학생 공개로 지정한 학사 규정만 근거로 쓴다(ADR-0052) #}
+        <form method="post" action="/doc/{{ doc.id }}/audience" style="display:inline; margin:0;">
+          <input type="hidden" name="audience" value="{{ 'staff' if doc.audience == 'student' else 'student' }}">
+          <button type="submit" class="pill" title="학생 계정의 대화가 이 규정을 근거로 쓸 수 있게 합니다(학사 규정만)">
+            {{ '학생 공개 중 · 끄기' if doc.audience == 'student' else '학생 공개하기' }}</button>
+        </form>
+        {% endif %}
       {% else %}
         <span class="pill {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
         {% if doc.doc_type in ('recruit', 'admission') %}<span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>{% endif %}
