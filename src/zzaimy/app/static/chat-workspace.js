@@ -52,9 +52,10 @@
       panel.querySelector('[data-progress-time]').textContent = Math.max(0, Math.floor(Date.now() / 1000 - progress.started_at)) + '초';
     }
     const list = panel.querySelector('ol');
-    list.replaceChildren(...steps.map(text => {
+    list.replaceChildren(...steps.map((text, index) => {
       const item = document.createElement('li');
       item.textContent = text;
+      if (index === steps.length - 1) item.setAttribute('aria-current', 'step');
       return item;
     }));
     status.textContent = steps[steps.length - 1];

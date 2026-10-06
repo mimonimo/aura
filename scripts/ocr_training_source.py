@@ -28,7 +28,7 @@ def main():
     result=MineruParser(method="ocr",timeout_s=1800).parse(args.pdf,args.out/"mineru")
     report={"source_sha256":hashlib.sha256(args.pdf.read_bytes()).hexdigest(),
             "quality":"pending_visual_review","result":dataclasses.asdict(result)}
-    (args.out/"result.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
+    (args.out/"result.json").write_text(json.dumps(report,ensure_ascii=False,indent=2,default=str))
     import pypdfium2 as pdfium
     pdf=pdfium.PdfDocument(str(args.pdf))
     for i in range(len(pdf)):

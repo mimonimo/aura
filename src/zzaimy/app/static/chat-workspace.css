@@ -136,10 +136,21 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 .msg .chat-output-link{display:inline-flex;align-items:center;padding:0 5px;border-radius:4px;background:#edf2fa;color:#254b85;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap;vertical-align:baseline}
 .msg .chat-output-link:hover{background:#dfe9f8}
 .msg .chat-output-link:focus-visible{outline:2px solid #254b85;outline-offset:2px}
-.chat-progress { color: var(--muted); font-size: 13px; padding: 10px 0; }
-.chat-progress-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.chat-progress-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--navy); flex: none; }
-.chat-progress [data-progress-time] { font-size: 12px; color: var(--faint); }
-.chat-progress [data-progress-toggle] { padding: 3px 7px; min-height: 0; border: 0; background: transparent; box-shadow: none; color: var(--navy); font: inherit; font-size: 12px; }
-.chat-progress ol { margin: 10px 0 0 17px; padding: 8px 16px 8px 25px; border-left: 2px solid var(--line); line-height: 1.9; overflow-wrap: anywhere; }
-.chat-progress li:last-child { color: var(--navy); }
+.chat-progress { color: var(--muted); font-size: 13px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface, #fff); max-width: 540px; box-sizing: border-box; }
+.chat-progress-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+#chatScroll .chat-progress { width: 100%; max-width: 540px; min-width: 0; align-self: flex-start; }
+.chat-progress-dot { width: 16px; height: 16px; box-sizing: border-box; border: 2px solid #dce5f2; border-top-color: var(--navy); border-right-color: var(--navy); border-radius: 50%; flex: none; animation: chat-progress-spin .9s linear infinite; }
+.chat-progress [data-progress-label] { color: var(--navy); font-weight: 600; overflow-wrap: anywhere; min-width: 0; }
+.chat-progress [data-progress-time] { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; background: #f2f5f9; border-radius: 6px; padding: 2px 6px; }
+.chat-progress [data-progress-time]:empty { display: none; }
+.chat-progress [data-progress-toggle] { margin-left: auto; padding: 5px 8px; min-height: 28px; border: 0; border-radius: 7px; background: transparent; box-shadow: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.chat-progress [data-progress-toggle]:hover { background: #f2f5f9; color: var(--navy); }
+.chat-progress [data-progress-toggle]:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+.chat-progress ol { list-style: none; margin: 12px 0 0 7px; padding: 0 0 0 20px; border-left: 1px solid var(--line); line-height: 1.6; overflow-wrap: anywhere; }
+.chat-progress ol[hidden] { display: none; }
+.chat-progress li { position: relative; padding: 5px 0; }
+.chat-progress li::before { content: ''; position: absolute; left: -24px; top: 12px; width: 7px; height: 7px; border-radius: 50%; background: #c7d2e2; box-shadow: 0 0 0 3px var(--surface, #fff); }
+.chat-progress li:last-child { color: var(--navy); font-weight: 600; }
+.chat-progress li:last-child::before { background: var(--navy); box-shadow: 0 0 0 3px #e8eef8; }
+@keyframes chat-progress-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .chat-progress-dot { animation: none; } }
