@@ -59,7 +59,7 @@
   <aside class="gx-rail">
     <div class="gx-find"><input type="search" id="gxQ" placeholder="사업·문서·단위과제·지표 검색" aria-label="그래프 검색" autocomplete="off"></div>
     <div class="gx-list" id="gxList">
-      <div class="gx-cap">사업</div>
+      <div class="gx-cap">사업 묶음·사업</div>
       {% for p in programs %}
       <button type="button" class="gx-row" data-id="{{ p.id }}"><i data-type="{{ p.type }}"></i><span title="{{ p.label }}">{{ p.label }}</span><small>{{ "{:,}".format(p.n_docs) }}</small></button>
       {% else %}<p class="gx-note" style="padding:10px;">그래프가 아직 없습니다.</p>{% endfor %}
@@ -81,7 +81,7 @@
     </div>
     <div class="gx-legend" id="gxLegend"></div>
     <div id="gxCy" aria-label="그래프"></div>
-    <p class="gx-blank" id="gxBlank">왼쪽에서 사업을 고르거나 검색하세요. 노드를 두 번 누르면 이웃을 펼칩니다.</p>
+    <p class="gx-blank" id="gxBlank">목록에서 사업을 고르거나 검색하세요. 노드를 두 번 누르면 이웃을 펼칩니다.</p>
   </section>
 
   <aside class="gx-panel">
@@ -122,8 +122,11 @@
     wheelSensitivity: 0.25, minZoom: 0.08, maxZoom: 3,
     style: [
       { selector: "node", style: { "background-color": "data(color)", label: "data(short)", "font-size": 10, color: "#33405A",
-        "text-valign": "bottom", "text-margin-y": 4, "text-wrap": "wrap", "text-max-width": 120, width: "data(size)", height: "data(size)",
+        "text-valign": "bottom", "text-margin-y": 4, "text-wrap": "wrap", "text-max-width": 120, "min-zoomed-font-size": 7,
+        "text-background-color": "#FAFBFC", "text-background-opacity": 0.85, "text-background-padding": 1, width: "data(size)", height: "data(size)",
         "border-width": 1.5, "border-color": "#fff" } },
+      { selector: "node[type = 'doc'], node[type = 'section'], node[type = 'unit'], node[type = 'indicator']", style: { label: "" } },
+      { selector: "node.lbl, node:selected, node.loaded", style: { label: "data(short)", "z-index": 10 } },
       { selector: "node.loaded", style: { "border-color": "#1B2436", "border-width": 2.5 } },
       { selector: "node:selected", style: { "border-color": "#F2A63B", "border-width": 4 } },
       { selector: "edge", style: { width: "data(width)", "line-color": "data(color)", "target-arrow-color": "data(color)",
@@ -162,10 +165,11 @@
              width: e.kind === "contains" ? 1 : 2, guess: e.basis === "유사도" ? 1 : 0, raw: e } });
   }
 
-  function relayout(fitAll) {
+  function relayout(fresh) {
+    // 처음 펼칠 때는 무작위에서 시작해야 고르게 퍼진다. 더 펼칠 때는 지금 자리를 살려 움직임을 줄인다. 늘 화면에 맞춘다
     var opts = cy.nodes().length > 1 && window.cytoscapeFcose
-      ? { name: "fcose", quality: "default", randomize: false, animate: true, animationDuration: 450, nodeRepulsion: 9000,
-          idealEdgeLength: 90, nodeSeparation: 90, fit: !!fitAll, padding: 40 }
+      ? { name: "fcose", quality: "proof", randomize: !!fresh, animate: !fresh, animationDuration: 450, nodeRepulsion: 12000,
+          idealEdgeLength: 110, nodeSeparation: 110, fit: true, padding: 40 }
       : { name: "grid", fit: true, padding: 40 };
     cy.layout(opts).run();
   }
@@ -323,8 +327,9 @@
   cy.on("mouseover", "node", function (ev) {
     var nb = ev.target.closedNeighborhood();
     cy.elements().not(nb).addClass("faded");
+    ev.target.addClass("lbl");
   });
-  cy.on("mouseout", "node", function () { cy.elements().removeClass("faded"); });
+  cy.on("mouseout", "node", function () { cy.elements().removeClass("faded"); cy.nodes().removeClass("lbl"); });
 
   document.querySelectorAll("#gxMode button").forEach(function (b) { b.addEventListener("click", function () { setMode(b.dataset.mode); }); });
   document.getElementById("gxLayout").addEventListener("click", function () { relayout(true); });
