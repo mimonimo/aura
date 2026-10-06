@@ -195,6 +195,12 @@ def _now() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+
+
+def _no_nul(v):
+    """PostgreSQL 글자 칸은 NUL(0x00)을 받지 않는다 — 판독 결과에 섞인 NUL 하나가 반입 전체를 멈추게 했다(10/6: 문서함 누락 1,133건의 원인)."""
+    return v.replace("\x00", "") if isinstance(v, str) else v
+
 class Database:
     # 스키마 추가분 — 기존 DB에 없으면 붙인다 (개발 단계 간이 마이그레이션)
     _MIGRATIONS = [
@@ -334,7 +340,7 @@ class Database:
         sets = ", ".join(f"{k} = ?" for k in fields)
         with self._conn() as conn:
             conn.execute(
-                f"UPDATE documents SET {sets} WHERE id = ?", (*fields.values(), doc_id)
+                f"UPDATE documents SET {sets} WHERE id = ?", (*(_no_nul(v) for v in fields.values()), doc_id)
             )
 
     def rename_from_text(self, doc_id: int, text: str = "", overwrite: bool = False,
@@ -835,7 +841,7 @@ class Database:
             seq = int(row[0]) + 1
             conn.executemany(
                 "INSERT INTO doc_chunks (doc_id, seq, kind, page_no, content, bbox) VALUES (?, ?, ?, ?, ?, ?)",
-                [(doc_id, seq + i, c.get("kind", "text"), c.get("page_no"), c["content"], c.get("bbox") or "vision")
+                [(doc_id, seq + i, c.get("kind", "text"), c.get("page_no"), _no_nul(c["content"]), c.get("bbox") or "vision")
                  for i, c in enumerate(chunks)])
         return len(chunks)
 
@@ -855,7 +861,7 @@ class Database:
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 [
                     (doc_id, i, c.get("kind", "text"), c.get("page_no"),
-                     c["content"], c.get("bbox"))
+                     _no_nul(c["content"]), c.get("bbox"))
                     for i, c in enumerate(chunks)
                 ],
             )

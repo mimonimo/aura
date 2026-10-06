@@ -297,3 +297,11 @@ def test_environment_failures_are_retried_automatically(tmp_path, monkeypatch, c
     assert job.main() == 0
     got = capsys.readouterr().out
     assert "대상 1건" in got and "p/0.hwp" in got and "p/1.hwp" not in got
+
+
+def test_nul_bytes_are_stripped_and_one_bad_record_does_not_stop_import(tmp_path, monkeypatch):
+    db = _import(tmp_path, monkeypatch, [_rec(rel="p/nul.pdf", chunks=[{"seq": 0, "kind": "text", "content": "앞\x00뒤"}]),
+                                         _rec(rel="p/next.hwp")], "parsed-0.jsonl")
+    docs = {d["stored_path"]: d for d in db.list_documents()}
+    assert {"dgx://p/nul.pdf", "dgx://p/next.hwp"} <= set(docs)
+    assert [c["content"] for c in db.list_doc_chunks(docs["dgx://p/nul.pdf"]["id"])] == ["앞뒤"]

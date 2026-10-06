@@ -151,8 +151,16 @@ def main() -> int:
                                   owner="zzdev")
             by_path[rel] = did
             n_ok += 1
-        db.replace_doc_chunks(did, [c for c in rec["chunks"] if c.get("content") is not None])
-        db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=note)
+        try:
+            db.replace_doc_chunks(did, [c for c in rec["chunks"] if c.get("content") is not None])
+            db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=note)
+        except Exception as e:
+            # 한 문서의 오류로 들이기 전체가 멈추지 않게 — 그 문서만 실패 장부에 남기고 다음으로(멈추면 같은 자리에서 매번 다시 멈춰
+            # 그 결과 파일의 뒤 문서들이 들어오지 못했다, 10/6)
+            n_fail += 1
+            fails.write(json.dumps({"rel": rel, "version": ver, "state": "import_error", "error": f"{type(e).__name__}: {e}"[:200],
+                                    "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
+            continue
         if rec.get("doc_kind"):
             db.set_document_kind(did, rec["doc_kind"])
         led.write(json.dumps({"doc_id": did, "origin": rel, "version": ver, "state": state, "at": time.strftime("%Y-%m-%d %H:%M"),
