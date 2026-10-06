@@ -50,7 +50,7 @@
     <tbody>{% for f in found %}<tr>
       <td><span class="ar-file">{{ f.rel.split('/')[-1] }}</span><span class="ar-path">{{ f.rel }}</span></td>
       <td>{{ f.program_name or '사업 미분류' }}<span class="ar-path">{{ f.kind_label }}</span></td>
-      <td>{{ (f.round ~ '차년도') if f.round else (f.year or '미확인') }}</td><td class="num">{{ "{:,.1f}".format((f.size or 0)/1e6) }} MB</td>
+      <td>{{ (f.round ~ '차년도') if f.round else (f.year or '미확인') }}</td><td class="num">{% if (f.size or 0) < 1000000 %}{{ "{:,.1f}".format((f.size or 0)/1000) }} KB{% else %}{{ "{:,.1f}".format(f.size/1e6) }} MB{% endif %}</td>
       <td><div class="ar-actions">{% if f.can_open %}<a class="btn" href="/archive/original?rel={{ f.rel|urlencode }}" target="_blank" rel="noopener">원본 열기 ↗</a>{% endif %}{% if f.doc_id %}<a class="btn" href="/doc/{{ f.doc_id }}">문서 보기</a>{% endif %}</div><span class="ar-path">{{ '문서함 연결됨' if f.doc_id else '문서함 미연결' }}{% if not f.can_open %} · 원본 열람은 개발자 확인 필요{% endif %}</span></td>
     </tr>{% endfor %}</tbody>
   </table></div>
