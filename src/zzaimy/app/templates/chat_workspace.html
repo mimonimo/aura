@@ -254,12 +254,6 @@
     </div>
 
     <div class="aside-sec">
-      <h3>대상 문서</h3>
-      <div id="asideBound" class="aside-empty">확인 중…</div>
-      {# 한글 COM 에이전트의 대상 문서 고르기는 뺐다(ADR-0034) — 문서 작업은 독스 작업본으로 #}
-    </div>
-
-    <div class="aside-sec">
       <h3>외부 참조</h3>
       <label class="aside-item" style="cursor:pointer;">
         <input type="checkbox" id="extBtn" style="flex:none;">
@@ -714,25 +708,6 @@
     setAside(closed);
     if (closed && searchEl) setTimeout(function () { searchEl.focus(); }, 180);
   });
-
-  /* ---- 대상 문서 표시 ---- */
-  fetch("/hwp/docs", { cache: "no-store" }).then(function (r) { return r.json(); })
-    .then(function (d) {
-      var el = document.getElementById("asideBound");
-      if (!el) return;
-      if (d.bound && d.bound.name) {
-        el.className = "aside-item"; el.textContent = "";
-        var ic = document.createElement("iconify-icon");
-        ic.setAttribute("icon", "solar:document-text-linear");
-        var nm = document.createElement("span"); nm.className = "nm";
-        nm.textContent = d.bound.name;
-        el.appendChild(ic); el.appendChild(nm);
-      } else if (d.connected) {
-        el.textContent = "지정된 문서가 없습니다.";
-      } else {
-        el.textContent = "한글 에이전트가 연결되지 않았습니다.";
-      }
-    }).catch(function () { document.getElementById('asideBound').textContent = '연결 상태를 확인하지 못했습니다.'; });
 })();
 </script>
 {% endblock %}
