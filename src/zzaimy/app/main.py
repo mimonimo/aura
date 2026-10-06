@@ -432,6 +432,8 @@ def create_app(
     # 사업 중심 그래프(온톨로지 v3, ADR-0048) — kg_nodes·kg_edges 를 사업 하나 기준으로 펼친다
     from zzaimy.app.kg_view import router as kg_view_router
     app.include_router(kg_view_router)
+    from zzaimy.app.kg_explore import router as kg_explore_router   # 지식 그래프 탐색(Cytoscape.js) — 노드 하나씩 펼침
+    app.include_router(kg_explore_router)
     from zzaimy.app.archive_view import router as archive_view_router   # DGX 원본 보관소(원본 목록 장부)
     app.include_router(archive_view_router)
 

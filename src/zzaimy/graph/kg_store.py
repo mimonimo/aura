@@ -17,6 +17,8 @@ _SCHEMA = (
     " props TEXT NOT NULL DEFAULT '{}', doc_id INTEGER, updated_at TEXT)",
     "CREATE TABLE IF NOT EXISTS kg_edges (src TEXT NOT NULL, dst TEXT NOT NULL, kind TEXT NOT NULL, basis TEXT NOT NULL,"
     " evidence TEXT NOT NULL DEFAULT '[]', weight REAL NOT NULL DEFAULT 1.0, PRIMARY KEY (src, dst, kind))",
+    # 들어오는 관계 조회(탐색 화면·연차→사업) — 기본 키는 src 쪽만 빠르다
+    "CREATE INDEX IF NOT EXISTS kg_edges_dst ON kg_edges (dst)",
 )
 
 
