@@ -38,6 +38,7 @@ IMG_EXT = {"jpg", "jpeg", "png", "bmp", "gif", "tif", "tiff", "heic", "webp"}
 ARC_EXT = {"zip", "7z", "rar", "egg", "alz"}
 OUT_OF_SCOPE = re.compile(r"지출|증빙|스캔|영수|정산|집행")      # 절대 규칙 11 — DGX 주기 처리(zz_dgx_cycle.sh)와 같은 기준
 LAG_H = 6
+MAX_PARSE_BYTES = 300 * 1024 * 1024        # scripts/167 MAX_BYTES 와 같다
 PLAT = ROOT / "data" / "platform"
 
 
@@ -124,6 +125,13 @@ def main() -> int:
     with db._conn() as conn:
         rows = conn.execute("SELECT rel, ext, dup_of, doc_id, seen_at, COALESCE(removed_at, ''), size, mtime FROM archive_files").fetchall()
     total = len(rows)
+    # 같은 파일(이름·크기) 묶음 — DGX(165)와 VM(170)이 중복 묶음의 대표를 서로 다르게 골라, 처리된 쪽이 VM 에선 「중복」,
+    # 처리 안 된 쪽이 「대상」이 되어 놓침으로 잡혔다(2026-10-06, 155건 중 100건). 묶음 중 하나라도 들어왔으면 처리된 것으로 본다
+    covered_groups = set()
+    for rel, ext, dup, doc_id, seen_at, removed, size, mtime in rows:
+        if not removed and (doc_id or rel in origins):
+            covered_groups.add(((rel or "").rsplit("/", 1)[-1], int(size or 0)))
+    too_big = 0
     target = done = failed = waiting = 0
     missed: Counter = Counter()
     missed_dirs: Counter = Counter()
@@ -154,8 +162,11 @@ def main() -> int:
             continue
         comp["처리 대상 문서"] += 1
         target += 1
-        if doc_id or rel in origins:
+        if doc_id or rel in origins or ((rel or "").rsplit("/", 1)[-1], int(size or 0)) in covered_groups:
             done += 1
+            continue
+        if int(size or 0) > MAX_PARSE_BYTES:          # DGX 처리기(167)가 정책상 건너뛰는 크기 — 놓침이 아니다
+            too_big += 1
             continue
         no_result[rel] = f"{int(size or 0)}:{int(float(mtime or 0))}"
         if rel in fails:
@@ -214,7 +225,7 @@ def main() -> int:
         tmpf.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows_), encoding="utf-8")
         tmpf.replace(PLAT / name)                         # 화면의 목록 내려받기(/dev/intake)가 읽는다
     out = {"at": now.strftime("%Y-%m-%d %H:%M"), "reimport": len(reimport), "composition": dict(comp), "archive_files": total, "targets": target, "in_docbox": done, "failed": failed,
-           "waiting": waiting, "missed": sum(missed.values()), "missed_by_ext": dict(missed), "missed_by_dir": dict(missed_dirs.most_common(15)),
+           "waiting": waiting, "too_big": too_big, "missed": sum(missed.values()), "missed_by_ext": dict(missed), "missed_by_dir": dict(missed_dirs.most_common(15)),
            "missed_examples": examples, "failed_by_reason": dict(fail_why), "stuck_docs": stuck, "grant_chunks": n_chunks,
            "embedding_index": n_emb, "lexical_index": n_lex, "grant_docs": n_docs, "graph_doc_nodes": n_graph, "alerts": alerts}
     (PLAT / "pipeline_audit.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
