@@ -397,6 +397,7 @@ def create_app(
     _lc.configure(Path(db_path).parent / "llm_connections.json")
     # NAS 수집 — 원천(계정 포함)·반입 상태 파일, 자동 반입은 켜진 원천이 있을 때만 시작
     from zzaimy.ingest import nas_sync as _nas
+    from zzaimy.app import gdrive_import as _gimport
 
     _nas.configure(Path(db_path).parent / "nas_sources.json", Path(db_path).parent / "nas_state.json")
     _nas.ensure_scheduler(db, processor, inbox_dir)
@@ -5234,8 +5235,24 @@ def create_app(
             ctx(request, {"s": db.profile_for(uid or None), "active_tab": "all", "uid": uid,
                           "acct_dept": acct.get("dept", ""), "acct_role": acct.get("role", request.state.role),
                           "has_password": password is not None,
-                          "google": _user_admin_status(request), "ok": ok, "err": err}),
+                          "google": _user_admin_status(request), "ok": ok, "err": err,
+                          "gimport": _gimport.status(db, uid) if uid else {}, "gimport_folder": _gimport.FOLDER_NAME}),
         )
+
+    @app.post("/account/google/import")
+    def account_google_import(request: Request):
+        """지금 가져오기 — 내 드라이브 「ZZAIMY 가져오기」 폴더의 새·바뀐 파일을 라이브러리로."""
+        from zzaimy.ingest import gdrive_files
+        uid = getattr(request.state, "user", "") or ""
+        email = (db.get_setting(f"google_account:{uid}", "") or "").strip() if uid else ""
+        if not email or not gdrive_files.has_file_scope(email):
+            return RedirectResponse("/settings?err=" + _q("구글 계정을 먼저 연결해 주세요") + "#myGoogle", status_code=303)
+        try:
+            got = _gimport.run_for_user(db, processor, inbox_dir, uid, email, dept=(accounts.get(uid, {}) or {}).get("dept", ""))
+        except Exception as e:
+            return RedirectResponse("/settings?err=" + _q(f"가져오지 못했습니다 — {e}") + "#myGoogle", status_code=303)
+        msg = f"새로 가져온 문서 {len(got['imported'])}건" + (f" · 건너뜀 {len(got['errors'])}건" if got["errors"] else "")
+        return RedirectResponse("/settings?ok=" + _q(msg) + "#myGoogle", status_code=303)
 
     @app.post("/settings")
     def settings_save(
@@ -6276,6 +6293,9 @@ figure img{{width:100%;display:block}}
         db.add_review(doc_id, opinion.strip())
         return RedirectResponse(f"/doc/{doc_id}", status_code=303)
 
+    # 구글 드라이브 자동 가져오기(「ZZAIMY 가져오기」 폴더, 10분마다) — 구글 앱이 등록된 운영에서만 돈다
+    if password is not None:
+        _gimport.ensure_scheduler(db, processor, inbox_dir, dept_of=lambda u: (accounts.get(u, {}) or {}).get("dept", ""))
     app.state.page_ctx = ctx
     return app
 
