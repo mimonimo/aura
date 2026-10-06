@@ -300,7 +300,9 @@ kiwi), 판독(MinerU·tesseract — docling 은 오피스 구조 읽기만, ADR-
 
 1. 맥에서 고친다 → 테스트 → `git commit` → `git push origin main`
 2. `bash scripts/99_deploy.sh --restart` — VM 이 origin 에서 받아 그 커밋으로 맞추고 재시작한다.
-   맥에 미커밋 변경이 있거나 푸시하지 않았으면 배포가 멈춘다. VM 에서 직접 고친 것이 있어도 멈춘다.
+   로컬 미커밋 변경은 경고하고 배포에서 제외한다. 미푸시 커밋은 배포하지 않는다.
+   VM의 미커밋 변경·다른 브랜치·분기된 이력·더 최신 커밋이 있으면 중단한다.
+   같은 계보에서 fast-forward만 허용하며 강제 브랜치 교체는 하지 않는다.
 3. `data/`·`.env.local` 은 깃에 없다 — VM 것이 그대로 남는다.
 
 주의: 실행 중인 스크립트를 `scp` 로 덮어쓰지 않는다(bash 가 바뀐 파일을 이어 읽어 사고가 났다, 9/20).
@@ -332,6 +334,7 @@ models·runs). 경로는 `src/zzaimy/app/paths.py` 한 곳(`ZZAIMY_DATA_DIR`·`Z
   외부 전송은 ZZAIMY_EXTERNAL_ENABLED + 외부 기관 서버 연결(개발 키) + 아웃바운드 개방 전까지 비활성
   (판정·기록은 동작, 허용·승인 건은 전송 대기로 보관).
 - RAG 공간(ADR-0052·0053): 학생=학생 공개 규정만, 부서 교직원=그 부서·공통 사업 문서, 부서 없는 교직원=전부. 계정별 추가 권한·폴더→부서 짝은 `/dev/rag`(설정 `data/platform/rag_spaces.json`, 저장마다 백업). 반입 연동 점검은 `/dev/intake`.
+- 화면 구조(10/6): 문서는 라이브러리 한 곳(탭: 프로젝트·문서 `/?type=all` · 기준 문서 `/criteria` · 원본 보관소 `/archive`), 자료 연결·문서 추출 화면 없음, 계정 메뉴 「내 설정」(`/settings`, 프로필·지침 계정별).
 - 핵심 기술 표: 작업 현황(/dev) 「핵심 기술」 탭 — RAG·지식그래프·온톨로지·판독 부품의 판·라이선스·쓰는 곳(원천 `app/tech_stack.py`, 부품을 바꾸면 같이 고친다).
 - 온톨로지 표준(ADR-0056): OWL 설계도·SHACL 검사 — `scripts/177_ontology_export.py`(결과 data/platform/ontology/), 화면 /graph/explore 온톨로지 보기에 검사 결과·내려받기.
 - 온톨로지 보강(ADR-0055): 기관 노드(주관 부처·전담기관, 장부 출처), 서류 갈래 6종 추가. 증빙·회계 서류 2,335건의 검색 제외는 사용자 판단 대기.
