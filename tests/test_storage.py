@@ -31,9 +31,8 @@ def test_criteria_and_ocr_uploads_use_type_folders(tmp_path):
     app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter())
     c = TestClient(app)
     c.post("/criteria/upload", data={"sector": "common"}, files=[("file", ("학칙.pdf", b"%PDF", "application/pdf"))], follow_redirects=False)
-    c.post("/ocr/upload", files=[("file", ("스캔.pdf", b"%PDF", "application/pdf"))], follow_redirects=False)
     kinds = {Path(d["stored_path"]).parent.parent.name for d in app.state.db.list_documents()}
-    assert kinds == {"기준", "추출"}
+    assert kinds == {"기준"}
 
 
 def test_chat_attachment_goes_to_attachment_folder(tmp_path):

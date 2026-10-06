@@ -4,7 +4,7 @@
 {% block head %}<link rel="stylesheet" href="/static/gdocs-work.css"><script src="/static/gdocs-work.js" defer></script><script src="/static/drive-browser.js" defer></script>{% endblock %}
 {% block content %}
 <div class="gd-work">
-<header class="gd-intro"><div><h1>연결된 Drive</h1><p>연결 계정의 폴더와 파일을 확인하세요. 에이전트와의 작업은 프로젝트 대화에서 이어집니다.</p></div><a class="gd-action-link" href="{% if request.state.role == 'dev' %}/dev/nas#googleConnection{% else %}/connections{% endif %}">연결 관리</a></header>
+<header class="gd-intro"><div><h1>연결된 Drive</h1><p>연결 계정의 폴더와 파일을 확인하세요. 에이전트와의 작업은 프로젝트 대화에서 이어집니다.</p></div><a class="gd-action-link" href="{% if request.state.role == 'dev' %}/dev/nas#googleConnection{% else %}/settings#myGoogle{% endif %}">연결 관리</a></header>
 {% if err %}<p class="notice error" role="alert">{{ err }}</p>{% endif %}{% if ok %}<p class="notice" role="status">{{ ok }}</p>{% endif %}
 {% if not accounts %}
 <section class="gd-empty"><h2>Google 계정을 연결하세요</h2><p>문서를 열고 검토하려면 계정 연결이 필요합니다.</p>{% if request.state.role == 'dev' %}<a class="btn" href="/dev/nas#googleConnection">계정 연결 설정</a>{% else %}<p>관리자에게 계정 연결을 요청하세요.</p>{% endif %}</section>

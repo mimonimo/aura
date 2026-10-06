@@ -156,7 +156,7 @@
     {% endif %}
   </div>
   <div class="chat-head-actions">
-    <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen" title="문서 열기" aria-label="문서 열기" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/connections' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
+    <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen" title="문서 열기" aria-label="문서 열기" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/settings#myGoogle' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
   </div>
 </header>
 <div class="drop-veil" id="dropVeil" hidden>파일을 놓으면 첨부됩니다</div>
