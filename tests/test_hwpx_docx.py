@@ -142,6 +142,24 @@ def test_encrypted_section_raises(tmp_path):
         hwpx_docx.convert(p)
 
 
+@pytest.mark.parametrize("policy", ["NONE", "CELL", "TABLE", ""])
+def test_only_explicit_table_pagination_restrictions_are_preserved(tmp_path, policy):
+    section = SECTION.replace('<hp:tbl rowCnt="2"', f'<hp:tbl pageBreak="{policy}" repeatHeader="1" rowCnt="2"')
+    source = tmp_path / "pagination.hwpx"
+    with zipfile.ZipFile(source, "w") as archive:
+        archive.writestr("Contents/header.xml", HEADER)
+        archive.writestr("Contents/section0.xml", section)
+    data, _ = hwpx_docx.convert(source)
+    table = Document(io.BytesIO(data)).tables[0]
+    for row in table.rows:
+        cant_split = row._tr.find('./' + qn('w:trPr') + '/' + qn('w:cantSplit'))
+        assert (cant_split is not None) == (policy in {"NONE", "CELL"})
+        # 반복 제목 셀 정보 없이 첫 행을 제목 행으로 추측하지 않는다.
+        assert row._tr.find('./' + qn('w:trPr') + '/' + qn('w:tblHeader')) is None
+    assert table.cell(0, 0).paragraphs[0].paragraph_format.keep_with_next == (True if policy == "NONE" else None)
+    assert table.cell(1, 1).paragraphs[-1].paragraph_format.keep_with_next == (False if policy == "NONE" else None)
+
+
 def test_column_grid_merges_rows_with_different_boundaries():
     """행마다 열 경계가 다른 배치용 표(작성서식 4×13): 공통 그리드로 옮겨도 각 셀의 x 범위가 보존된다."""
     from xml.etree import ElementTree as ET

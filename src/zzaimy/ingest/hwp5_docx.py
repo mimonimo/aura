@@ -143,7 +143,7 @@ def _load_styles(docinfo: ET.Element) -> tuple[Styles, dict[str, bytes]]:
         fp = bf_el.find("FillColorPattern")
         if fp is not None and (bf_el.get("fillflags") or "00000000") != "00000000":
             face = (fp.get("background-color") or "").lstrip("#")
-            if re.fullmatch(r"[0-9A-Fa-f]{6}", face) and face.upper() not in ("FFFFFF", "000000"):
+            if re.fullmatch(r"[0-9A-Fa-f]{6}", face) and face.upper() != "FFFFFF":
                 bf.fill = face.upper()
         st.borders[str(i)] = bf
     for i, s_el in enumerate(docinfo.iter("Style")):
@@ -293,6 +293,12 @@ def _translate_table(tc_el: ET.Element) -> ET.Element:
     tbl = ET.Element("tbl", {"rowCnt": (body.get("rows") if body is not None else "0") or "0",
                              "colCnt": (body.get("cols") if body is not None else "0") or "0",
                              "borderFillIDRef": (body.get("borderfill-id") if body is not None else "") or ""})
+    if body is not None:
+        split = {"none": "NONE", "by_cell": "CELL", "split": "TABLE"}.get(body.get("split-page"))
+        if split:
+            tbl.set("pageBreak", split)
+        if body.get("repeat-header") is not None:
+            tbl.set("repeatHeader", body.get("repeat-header"))
     ET.SubElement(tbl, "sz", {"width": tc_el.get("width") or "0", "height": tc_el.get("height") or "0"})
     ET.SubElement(tbl, "pos", {"treatAsChar": "1" if tc_el.get("inline") == "1" else "0"})
     for row in (body.findall("TableRow") if body is not None else []):
