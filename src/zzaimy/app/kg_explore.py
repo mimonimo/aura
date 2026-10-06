@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections import defaultdict
 
@@ -27,6 +28,21 @@ KIND_KO = {
     "integrated_into": ("편입됨", "편입받음"), "succeeded_by": ("후속 사업", "전신 사업"),
 }
 SEARCH_TYPES = ("program_group", "program", "year", "unit", "indicator", "doc")
+# 온톨로지 보기의 종류 설명 — 무엇을 나타내고 어디서 오는가(scripts/157)
+TYPE_DEF = {
+    "program_group": "사업 체계의 큰 갈래(일반재정지원·RISE/앵커·특수목적·타 부처). 외부 확인 장부(kg_external.json)에서 온다",
+    "program": "재정지원 사업 하나. 장부의 정식 이름·약칭·기간·출처와 문서 분류에서 모은 별칭을 가진다",
+    "year": "사업의 연차(N차년도·연도). 문서 제목·본문의 연차 표기와 장부 기간으로 정한다",
+    "doc": "문서함의 사업 문서 한 건. 갈래(계획서·실적보고서·평가 결과 등)와 연도·연차를 속성으로 가진다",
+    "section": "문서의 절(목차 항목). 본문 조각과 이어져 검색 근거가 된다",
+    "unit": "여러 문서에 같은 이름으로 나오는 단위과제·프로그램(식별자 일치로 묶음)",
+    "indicator": "성과지표. 문서 표에서 기준·목표·실적·달성률 값을 그대로 꺼내 문서·연도별로 둔다",
+}
+# 노드 속성 이름 — 화면에 보일 말
+PROP_KO = {"names": "이름들", "acronyms": "약칭", "ledger": "장부(기간·출처)", "round": "차년도", "year": "연도", "kind": "갈래",
+           "kind_label": "갈래 이름", "share": "분류 확신도", "status": "검토 상태", "evidence": "분류 근거", "level": "목차 수준",
+           "seq": "순서", "chunks": "본문 조각", "key": "식별 키", "n_docs": "문서 수", "n_sections": "절 수", "unit": "단위",
+           "tags": "꼬리표", "obs": "관측 값(문서·연도별)", "sources": "출처", "display": "표시 이름"}
 PER_GROUP = 12          # 관계 종류·방향·상대 종류마다 한 번에 보내는 이웃 수 — 많으면 한 화면에서 읽히지 않는다(10/6 크롬 확인)
 _cache: dict = {}
 
@@ -73,7 +89,17 @@ def _summary(n: dict) -> dict:
         led = p.get("ledger") or {}
         keep.update({k: led[k] for k in ("period", "ministry", "agency") if led.get(k)})
     return {"id": n["id"], "type": n["type"], "type_ko": TYPE_KO.get(n["type"], n["type"]), "label": n["label"],
-            "doc_id": n.get("doc_id"), "info": keep}
+            "short": _short(n), "doc_id": n.get("doc_id"), "info": keep}
+
+
+def _short(n: dict) -> str:
+    """그림에 쓸 짧은 이름 — 연차는 「N차년도 (YYYY)」, 문서는 확장자 뺀 이름. 긴 사업 이름을 연차마다 되풀이하지 않는다."""
+    p, label = n["props"], str(n["label"] or "")
+    if n["type"] == "year" and p.get("round"):
+        return f"{p['round']}차년도" + (f" ({p['year']})" if p.get("year") else "")
+    if n["type"] in ("doc", "section"):
+        return re.sub(r"\.(hwpx?|pdf|docx?|xlsx?|pptx?|txt)$", "", label.replace("_", " "), flags=re.I)
+    return label
 
 
 def _load_nodes(db, ids: list[str]) -> dict[str, dict]:
@@ -188,7 +214,22 @@ def schema(db) -> dict:
             " JOIN kg_nodes a ON a.id = e.src JOIN kg_nodes b ON b.id = e.dst GROUP BY a.type, b.type, e.kind, e.basis")]
     for r in rels:
         r["label"] = KIND_KO.get(r["kind"], (r["kind"],))[0]
-    out = {"types": [{"type": t, "type_ko": TYPE_KO.get(t, t), "n": n} for t, n in types.items()], "rels": rels}
+        # 문서의 하위 종류(갈래)와 종류별 속성 — 실제 노드에서 센다(속성은 종류마다 앞 300개를 본다)
+        sub: dict[str, int] = defaultdict(int)
+        for r in conn.execute("SELECT props FROM kg_nodes WHERE type = 'doc'"):
+            sub[_props(r[0]).get("kind_label") or "갈래 미정"] += 1
+        attrs: dict[str, dict[str, int]] = {}
+        for t in types:
+            seen: dict[str, int] = defaultdict(int)
+            rows = conn.execute("SELECT props FROM kg_nodes WHERE type = ? LIMIT 300", (t,)).fetchall()
+            for r in rows:
+                for k, v in _props(r[0]).items():
+                    if v not in (None, "", [], {}):
+                        seen[k] += 1
+            attrs[t] = {PROP_KO.get(k, k): round(100 * v / max(len(rows), 1)) for k, v in sorted(seen.items(), key=lambda kv: -kv[1])}
+    out = {"types": [{"type": t, "type_ko": TYPE_KO.get(t, t), "n": n, "def": TYPE_DEF.get(t, ""), "attrs": attrs.get(t, {})}
+                     for t, n in types.items()],
+           "rels": rels, "doc_kinds": sorted(({"label": k, "n": v} for k, v in sub.items()), key=lambda x: -x["n"])}
     _cache["schema"] = (time.time(), out)
     return out
 

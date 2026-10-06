@@ -127,6 +127,8 @@
         "border-width": 1.5, "border-color": "#fff" } },
       { selector: "node[type = 'doc'], node[type = 'section'], node[type = 'unit'], node[type = 'indicator']", style: { label: "" } },
       { selector: "node.lbl, node:selected, node.loaded", style: { label: "data(short)", "z-index": 10 } },
+      { selector: "node[type = 'bundle']", style: { shape: "round-rectangle", label: "data(short)", "font-weight": 600, "border-width": 2,
+        "border-color": "data(color)", "background-opacity": 0.25, "text-valign": "center", "text-margin-y": 0, width: "label", height: 26, padding: 8 } },
       { selector: "node.loaded", style: { "border-color": "#1B2436", "border-width": 2.5 } },
       { selector: "node:selected", style: { "border-color": "#F2A63B", "border-width": 4 } },
       { selector: "edge", style: { width: "data(width)", "line-color": "data(color)", "target-arrow-color": "data(color)",
@@ -155,7 +157,7 @@
 
   function addNode(n) {
     if (cy.getElementById(n.id).nonempty()) return;
-    cy.add({ group: "nodes", data: { id: n.id, label: n.label, short: clip(n.label, 26), type: n.type,
+    cy.add({ group: "nodes", data: { id: n.id, label: n.label, short: clip(n.short || n.label, 26), type: n.type,
              color: COLOR[n.type] || "#8892A6", size: sizeOf(n.type), raw: n } });
   }
   function addEdge(e) {
@@ -174,6 +176,24 @@
     cy.layout(opts).run();
   }
 
+  // 큰 묶음(문서·절·단위과제·성과지표가 BUNDLE_MIN 개 넘는 관계)은 그림에 하나의 묶음 노드로 접는다 — 한 화면에 수십 개가 흩어지면 읽히지 않는다
+  var BUNDLE_MIN = 6, BUNDLE_TYPES = { doc: 1, section: 1, unit: 1, indicator: 1 };
+  function memberKey(id, e, byId) {
+    var out = e.src === id, other = out ? e.dst : e.src;
+    var n = byId[other];
+    return n ? e.kind + ":" + (out ? "out" : "in") + ":" + n.type : null;
+  }
+  function placeNear(nid, pos) {
+    cy.getElementById(nid).position({ x: pos.x + (Math.random() - .5) * 160, y: pos.y + (Math.random() - .5) * 160 });
+  }
+  function revealMember(id, m) {
+    // 묶음에서 하나를 꺼내 그림에 올린다(중심과 잇는다)
+    var c = cy.getElementById(id);
+    if (cy.getElementById(m.node.id).empty()) { addNode(m.node); placeNear(m.node.id, c.position()); }
+    addEdge(m.edge);
+    return cy.getElementById(m.node.id);
+  }
+
   function expand(id, more) {
     var url = "/graph/explore/neighbors?id=" + encodeURIComponent(id) + (more ? "&more=" + encodeURIComponent(more) : "");
     return fetch(url, { credentials: "same-origin" }).then(function (r) {
@@ -182,20 +202,34 @@
     }).then(function (d) {
       var fresh = cy.nodes().length === 0;
       addNode(d.center);
-      var c = cy.getElementById(d.center.id);
-      var pos = c.position();
-      d.nodes.forEach(function (n) {
-        if (cy.getElementById(n.id).empty()) {
-          addNode(n);
-          cy.getElementById(n.id).position({ x: pos.x + (Math.random() - .5) * 160, y: pos.y + (Math.random() - .5) * 160 });
+      var c = cy.getElementById(d.center.id), pos = c.position();
+      var byId = {}; d.nodes.forEach(function (n) { byId[n.id] = n; });
+      var st = lastData[id] || (lastData[id] = { groups: [], members: {} });
+      d.groups.forEach(function (g) {
+        var o = st.groups.filter(function (x) { return x.key === g.key; })[0];
+        if (o) { o.shown = Math.max(o.shown, g.shown); } else { st.groups.push(g); }
+      });
+      d.edges.forEach(function (e) {
+        var k = memberKey(id, e, byId); if (!k) return;
+        var other = e.src === id ? e.dst : e.src;
+        var list = st.members[k] || (st.members[k] = []);
+        if (!list.some(function (m) { return m.node.id === other; })) list.push({ node: byId[other], edge: e });
+      });
+      st.groups.forEach(function (g) {
+        var list = st.members[g.key] || [];
+        var bundle = BUNDLE_TYPES[g.type] && g.total > BUNDLE_MIN;
+        if (!bundle) { list.forEach(function (m) { revealMember(id, m); }); return; }
+        var bid = "B|" + id + "|" + g.key;
+        if (cy.getElementById(bid).empty()) {
+          cy.add({ group: "nodes", data: { id: bid, type: "bundle", label: g.label, short: g.label + " " + g.total.toLocaleString(),
+                   color: COLOR[g.type] || "#8892A6", size: Math.min(58, 24 + 6 * Math.log10(g.total + 1)),
+                   raw: { bundle: true, of: id, key: g.key } } });
+          placeNear(bid, pos);
+          cy.add({ group: "edges", data: { id: bid + "|e", source: g.dir === "out" ? id : bid, target: g.dir === "out" ? bid : id,
+                   kind: g.kind, color: EDGE_COLOR[g.kind] || "#B8C4D6", width: 2.5, guess: 0, raw: { kind: g.kind, bundle: true } } });
         }
       });
-      d.edges.forEach(addEdge);
       c.addClass("loaded");
-      if (!lastData[id]) lastData[id] = d;
-      else {           // 「더 보기」로 받은 쪽은 묶음 표시 수만 갱신
-        d.groups.forEach(function (g) { lastData[id].groups.forEach(function (o) { if (o.key === g.key && g.shown > o.shown) o.shown = g.shown; }); });
-      }
       loaded[id] = 1;
       blank.hidden = true;
       relayout(fresh);
@@ -236,25 +270,31 @@
     d.groups.forEach(function (g) {
       var box = el("div", "gx-grp"), h = el("h4");
       var bar = el("i"); bar.style.cssText = "width:14px;border-top:2px solid " + (EDGE_COLOR[g.kind] || "#B8C4D6");
-      h.appendChild(bar); h.appendChild(el("b", null, g.label)); h.appendChild(el("span", null, g.shown + " / " + g.total));
+      h.appendChild(bar); h.appendChild(el("b", null, g.label)); h.appendChild(el("span", null, g.shown + " / " + g.total.toLocaleString()));
       box.appendChild(h);
-      cy.edges().forEach(function (e) {
-        var r = e.data("raw");
-        if (r.kind !== g.kind) return;
-        var other = g.dir === "out" ? (r.src === id ? r.dst : null) : (r.dst === id ? r.src : null);
-        if (!other) return;
-        var on = cy.getElementById(other); if (on.empty() || on.data("type") !== g.type) return;
+      (d.members[g.key] || []).forEach(function (m) {
         var row = el("button", "gx-row"); row.type = "button";
-        var dot = el("i"); dot.style.background = on.data("color"); row.appendChild(dot);
-        row.appendChild(el("span", null, String(on.data("label")).replace(/_+/g, " ")));
-        row.title = (r.basis || "") + (r.evidence && r.evidence.length ? " — " + r.evidence[0] : "");
-        row.addEventListener("click", function () { cy.$(":selected").unselect(); e.select(); showEdge(e); cy.animate({ center: { eles: on }, duration: 250 }); });
+        var dot = el("i"); dot.style.background = COLOR[m.node.type] || "#8892A6"; row.appendChild(dot);
+        row.appendChild(el("span", null, m.node.short || String(m.node.label).replace(/_+/g, " ")));
+        row.title = (m.edge.basis || "") + (m.edge.evidence && m.edge.evidence.length ? " — " + m.edge.evidence[0] : "");
+        row.addEventListener("click", function () {
+          var on = revealMember(id, m);
+          if (on.data("added") !== 1) { on.data("added", 1); relayout(false); }
+          var e = cy.getElementById(m.edge.src + "|" + m.edge.kind + "|" + m.edge.dst);
+          cy.$(":selected").unselect(); on.select(); if (e.nonempty()) showEdge(e);
+          cy.animate({ center: { eles: on }, duration: 250 });
+        });
         box.appendChild(row);
       });
+      if (BUNDLE_TYPES[g.type] && g.total > BUNDLE_MIN && (d.members[g.key] || []).length) {
+        var all = el("button", "gx-more", "그림에 펼치기 (" + d.members[g.key].length + "개)"); all.type = "button";
+        all.addEventListener("click", function () { d.members[g.key].forEach(function (m) { revealMember(id, m); }); relayout(false); });
+        box.appendChild(all);
+      }
       if (g.shown < g.total) {
-        var m = el("button", "gx-more", "더 보기 (" + (g.total - g.shown) + "개 남음)"); m.type = "button";
-        m.addEventListener("click", function () { expand(id, g.key + "@" + g.shown); });
-        box.appendChild(m);
+        var m2 = el("button", "gx-more", "더 받기 (" + (g.total - g.shown).toLocaleString() + "개 남음)"); m2.type = "button";
+        m2.addEventListener("click", function () { expand(id, g.key + "@" + g.shown); });
+        box.appendChild(m2);
       }
       body.appendChild(box);
     });
@@ -279,6 +319,14 @@
       d.types.forEach(function (t) {
         cy.add({ group: "nodes", data: { id: "T:" + t.type, label: t.type_ko, short: t.type_ko + "\n" + t.n.toLocaleString(),
                  color: COLOR[t.type] || "#8892A6", size: Math.max(26, Math.min(70, 10 * Math.log10(t.n + 1) + 16)), raw: t } });
+      });
+      // 문서의 하위 종류(갈래) — 실제 문서 수
+      (d.doc_kinds || []).forEach(function (k) {
+        var kid = "K:" + k.label;
+        cy.add({ group: "nodes", data: { id: kid, label: k.label, short: k.label + "\n" + k.n.toLocaleString(), color: "#9DB6F5",
+                 size: Math.max(18, Math.min(44, 8 * Math.log10(k.n + 1) + 10)), raw: { sub: true, label: k.label, n: k.n } } });
+        cy.add({ group: "edges", data: { id: "S:" + kid, source: kid, target: "T:doc", kind: "subclass", color: "#C9D3E3", width: 1.2,
+                 guess: 1, label: "하위 종류", raw: { kind: "subclass" } } });
       });
       d.rels.forEach(function (r) {
         var id = "R:" + r.src + "|" + r.kind + "|" + r.basis + "|" + r.dst;
@@ -308,6 +356,40 @@
       .then(function (d) { schemaData = d; go(d); }).catch(function () { panelNote("온톨로지를 불러오지 못했습니다."); });
   }
 
+  // 온톨로지 종류 하나 — 정의, 속성(채워진 비율), 나가는·들어오는 관계(기준·건수)
+  function showClass(t) {
+    var body = document.getElementById("gxPBody"); body.innerHTML = "";
+    var pt = document.getElementById("gxPType"); pt.hidden = false;
+    if (t.sub) {
+      pt.textContent = "문서 하위 종류";
+      document.getElementById("gxPTitle").textContent = t.label;
+      document.getElementById("gxPMeta").textContent = "문서 " + t.n.toLocaleString() + "건 · 문서 노드의 갈래 속성으로 나눈다";
+      return;
+    }
+    pt.textContent = "노드 종류";
+    document.getElementById("gxPTitle").textContent = t.type_ko;
+    document.getElementById("gxPMeta").textContent = "노드 " + t.n.toLocaleString() + "개 · " + t.type;
+    if (t.def) body.appendChild(el("p", "gx-ev", t.def));
+    var a = el("div", "gx-grp"); a.appendChild(el("h4", null, "속성 (앞 300개 중 채워진 비율)"));
+    Object.keys(t.attrs || {}).forEach(function (k) {
+      var row = el("div", "gx-row"); row.appendChild(el("span", null, k)); row.appendChild(el("small", null, t.attrs[k] + "%")); a.appendChild(row);
+    });
+    body.appendChild(a);
+    [["out", "나가는 관계"], ["in", "들어오는 관계"]].forEach(function (dir) {
+      var box = el("div", "gx-grp"); box.appendChild(el("h4", null, dir[1]));
+      schemaData.rels.filter(function (r) { return dir[0] === "out" ? r.src === t.type : r.dst === t.type; })
+        .sort(function (x, y) { return y.n - x.n; }).forEach(function (r) {
+          var row = el("div", "gx-row");
+          var dot = el("i"); dot.style.background = EDGE_COLOR[r.kind] || "#B8C4D6"; row.appendChild(dot);
+          var other = dir[0] === "out" ? r.dst : r.src;
+          row.appendChild(el("span", null, r.label + " → " + (TYPE_KO[other] || other) + " (" + r.basis + ")"));
+          row.appendChild(el("small", null, r.n.toLocaleString()));
+          box.appendChild(row);
+        });
+      body.appendChild(box);
+    });
+  }
+
   var kgSnapshot = null;
   function setMode(m) {
     if (m === mode) return;
@@ -321,8 +403,15 @@
     mode = m;
   }
 
-  cy.on("tap", "node", function (ev) { if (mode === "kg") showNode(ev.target); else panelNote((ev.target.data("label") || "") + " — 노드 " + (ev.target.data("raw").n || 0).toLocaleString() + "개"); });
-  cy.on("dbltap", "node", function (ev) { if (mode === "kg" && !loaded[ev.target.id()]) expand(ev.target.id()); });
+  cy.on("tap", "node[type = 'bundle']", function (ev) {
+    if (mode !== "kg") return;
+    var r = ev.target.data("raw"), owner = cy.getElementById(r.of);
+    showNode(owner);
+    var hs = document.querySelectorAll("#gxPBody .gx-grp");
+    lastData[r.of].groups.forEach(function (g, i) { if (g.key === r.key && hs[i]) { hs[i].scrollIntoView({ block: "start" }); hs[i].style.background = "#F7FAFF"; } });
+  });
+  cy.on("tap", "node[type != 'bundle']", function (ev) { if (mode === "kg") showNode(ev.target); else showClass(ev.target.data("raw")); });
+  cy.on("dbltap", "node[type != 'bundle']", function (ev) { if (mode === "kg" && !loaded[ev.target.id()]) expand(ev.target.id()); });
   cy.on("tap", "edge", function (ev) { if (mode === "kg") showEdge(ev.target); });
   cy.on("mouseover", "node", function (ev) {
     var nb = ev.target.closedNeighborhood();
