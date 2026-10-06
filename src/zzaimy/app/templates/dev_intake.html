@@ -50,6 +50,7 @@
     <span><i class="ik-ok"></i>문서함 {{ "{:,}".format(p.in_docbox) }} ({{ p.pct.in_docbox }}%)</span>
     <span><i class="ik-fail"></i>실패 {{ "{:,}".format(p.failed) }} ({{ p.pct.failed }}%)</span>
     <span><i class="ik-wait"></i>대기 {{ "{:,}".format(p.waiting) }}</span>
+    {% if p.too_big %}<span title="DGX 처리기가 300MB 넘는 파일은 건너뜁니다">크기 초과(처리 제외) {{ "{:,}".format(p.too_big) }}</span>{% endif %}
     <span><i class="ik-miss"></i>놓침 {{ "{:,}".format(p.missed) }} ({{ p.pct.missed }}%)</span>
   </div>
   <p class="muted" style="font-size:12px;margin:10px 0 0;">대기: 들어오거나 바뀐 지 6시간 안 · 놓침: 6시간 넘게 결과 없음</p>
