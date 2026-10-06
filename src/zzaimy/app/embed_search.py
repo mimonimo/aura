@@ -64,7 +64,9 @@ def remote_vectors(texts: list[str], timeout: float | None = None):
             return vec
         log.warning("임베딩 서비스 응답 형식이 맞지 않음 — VM 모델로 물러남")
     except (urllib.error.URLError, OSError, ValueError, TypeError) as e:
-        log.warning("임베딩 서비스 실패(%s) — VM 모델로 물러남", type(e).__name__)
+        import time as _t
+        # 시각과 묶음 크기를 함께 — 토르 03 이 27B 판정·답변으로 바쁠 때 끊기는지 순환 시간대와 맞춰 보려고(2026-10-06)
+        log.warning("%s 임베딩 서비스 실패(%s, %d개) — VM 모델로 물러남", _t.strftime("%m-%d %H:%M:%S"), type(e).__name__, len(texts))
     return None
 
 
