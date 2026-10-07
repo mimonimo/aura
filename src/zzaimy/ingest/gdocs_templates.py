@@ -348,7 +348,7 @@ class _Builder:
     def _end(self) -> int:
         r = self.g._read(self.email, self.doc, self.http)
         self.g._raise(r)
-        body = r.json()["body"]["content"]
+        body = self.g.body_content(r.json())
         return int(body[-1]["endIndex"]) - 1
 
     def para(self, text: str, style: str = "NORMAL_TEXT", guide: bool = False, center: bool = False) -> None:
@@ -385,7 +385,7 @@ class _Builder:
         self.g._batch(self.email, self.doc, [{"insertTable": {"location": {"index": self.cur}, "rows": n_rows, "columns": n_cols}}], self.http)
         r = self.g._read(self.email, self.doc, self.http)
         self.g._raise(r)
-        body = r.json()["body"]["content"]
+        body = self.g.body_content(r.json())
         el = next(e for e in body if e.get("table") and int(e["startIndex"]) >= self.cur - 1)
         ts = int(el["startIndex"])
         fills = []
@@ -413,7 +413,7 @@ class _Builder:
         self.g._batch(self.email, self.doc, style, self.http)
         # 글자 꼴 — 표 전체 10pt, 머리(행 또는 항목 열) 굵게
         r = self.g._read(self.email, self.doc, self.http)
-        body = r.json()["body"]["content"]
+        body = self.g.body_content(r.json())
         el = next(e for e in body if e.get("table") and int(e["startIndex"]) == ts)
         ts_end = int(el["endIndex"])
         fx = [{"updateTextStyle": {"range": {"startIndex": ts + 1, "endIndex": ts_end - 1}, "textStyle": {"fontSize": {"magnitude": 10, "unit": "PT"}},
