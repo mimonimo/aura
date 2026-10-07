@@ -108,7 +108,8 @@ def _jsonl_rels(path: Path, key: str) -> dict[str, dict]:
 def reason(err: str) -> str:
     e = err or ""
     for k, label in (("암호", "암호 문서"), ("빈 파일", "빈 파일"), ("형식이 아닙니다", "형식 불일치"), ("시간 초과", "시간 초과"),
-                     ("같은 내용", "같은 내용 중복"), ("스캔 PDF", "스캔 판독 없음"), ("ModuleNotFound", "판독 환경 오류")):
+                     ("같은 내용", "같은 내용 중복"), ("스캔 PDF", "스캔 판독 없음"), ("ModuleNotFound", "판독 환경 오류"),
+                     ("글이 없는", "글 없는 문서")):
         if k in e:
             return label
     return "기타 판독 실패"
