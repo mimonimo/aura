@@ -14,9 +14,11 @@ DGX 실문서 서식 23개(LINC 3.0·LINC+·LINC·혁신지원·특성화·앵�
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 PAGE_W, PAGE_H, MARGIN = 595.28, 841.89, 56.7          # A4, 20mm
+HEAD_ABOVE = {"HEADING_1": 24, "HEADING_2": 16, "HEADING_3": 12}
 CONTENT_W = PAGE_W - 2 * MARGIN
 GUIDE_COLOR = {"red": 0.42, "green": 0.45, "blue": 0.50}
 HEAD_BG = {"red": 0.91, "green": 0.93, "blue": 0.96}
@@ -102,6 +104,7 @@ PLAN = {
         G("분기(Q1~Q4) 또는 월로 적는다. 넓은 간트표 대신 이 표로 쓴다."),
         T(["세부 내용", "추진 시기", "산출물"], 4, [3, 1.2, 1.6]),
         H(3, "라. 기대 효과"),
+        G("이 과제가 끝났을 때 달라지는 것을 정성·정량으로 적는다. 정량 효과는 Ⅳ장 성과지표 목표값과 맞춘다."),
         P(),
         H(2, "2. 과제 간·타 사업 연계 계획"),
         G("같은 대학의 다른 재정지원사업과 겹치는 프로그램은 역할을 나누고 중복 투자를 막는 방법을 적는다."),
@@ -138,6 +141,7 @@ PLAN = {
            ["실험실습 장비 구입비", "", "", ""], ["기업 지원·협력 활동비", "", "", ""], ["그 밖의 사업 운영 경비", "", "", ""], ["합계", "", "", ""]],
           [1.6, 2.8, 1, 0.7]),
         H(2, "5. 집행 관리 및 중복 투자 방지"),
+        G("예산 집행 절차·점검 주기·담당 조직과, 다른 재정지원사업·교비와 같은 항목에 이중으로 쓰지 않도록 가르는 기준을 적는다."),
         P(),
 
         H(1, "붙임. 증빙 자료 목록"),
@@ -171,8 +175,10 @@ REPORT = {
         H(3, "가. 추진 실적"),
         T(["세부 프로그램", "운영 기간", "참여 규모", "주요 실적"], 4, [1.6, 1.2, 1, 2.4]),
         H(3, "나. 성과와 계획 대비 달성"),
+        G("계획서의 같은 과제 목표와 나란히 놓고 무엇을 얼마나 이뤘는지 적는다. 계획 값·실적 값은 두 문서의 값을 그대로 옮긴다."),
         P(),
         H(3, "다. 미흡 사항과 개선 방안"),
+        G("계획보다 못 미친 점과 그 원인, 다음 연차에 바꿀 것을 적는다. 원인이 문서에 없으면 「확인 필요」라고 적는다."),
         P(),
         H(3, "라. 지자체·기관 연계 실적"),
         G("지자체·기업·타 대학과 함께 한 일을 적는다. 없으면 이 항목을 지운다."),
@@ -199,10 +205,12 @@ REPORT = {
         H(2, "3. 비목별 집행 현황"),
         T(["비목", "예산(원)", "집행액(원)", "집행률(%)", "주요 집행 내역"], 6, [1.6, 1, 1, 0.8, 2]),
         H(2, "4. 집행 관리의 적절성"),
+        G("집행 점검 결과·지적 사항과 조치, 다른 사업과의 중복 집행이 없었음을 확인한 방법을 적는다. 수치는 집행 문서 값을 그대로 옮긴다."),
         P(),
 
         H(1, "Ⅴ. 사업 관리·운영"),
         H(2, "1. 사업단 조직·운영 실적"),
+        G("사업단 조직 변동, 위원회·협의체 개최 실적(회수·안건)을 적는다. 개최 횟수는 회의록 수 그대로."),
         P(),
         H(2, "2. 성과관리·환류 실적"),
         T(["평가·점검 결과", "개선 조치", "반영 시기"], 3, [2.2, 2.6, 1]),
@@ -221,12 +229,16 @@ REPORT = {
         G("우수사례마다 이 묶음을 복사한다. 표·그림·그래프는 넣어도 되지만 글상자는 쓰지 않는다."),
         T(["사례명", "관련 과제", "기간", "참여 규모", "핵심 성과"], 1, [1.6, 1.2, 1, 0.9, 1.8]),
         H(2, "1. 추진 배경 및 개요"),
+        G("왜 시작했는지, 누가 어떤 규모로 참여했는지 두세 문장으로 적는다."),
         P(),
         H(2, "2. 추진 과정"),
+        G("준비 → 운영 → 마무리 순으로 시기와 함께 적는다."),
         P(),
         H(2, "3. 추진 성과"),
+        G("정량 성과는 증빙 문서 값 그대로, 정성 성과는 참여자 변화·후속 연계로 적는다."),
         P(),
         H(2, "4. 기대 효과 및 향후 과제"),
+        G("다른 과제·학과로 넓힐 방법과 남은 과제를 적는다."),
         P(),
     ],
 }
@@ -256,6 +268,7 @@ PROGRAM_PLAN = {
         G("산출 근거는 「단가 × 수량」 꼴. " + BUDGET_RULE),
         T(["비목", "산출 근거", "금액(원)", "비고"], 5, [1.4, 2.8, 1, 0.8]),
         H(1, "7. 기대 효과 및 성과 활용"),
+        G("프로그램이 끝난 뒤 결과를 어디에(교육과정·후속 프로그램·성과지표) 쓰는지 적는다."),
         P(),
         H(1, "8. 붙임"),
         G("자문 계획서·협약서·참여 명단 등 붙일 서류 이름만 적는다."),
@@ -300,10 +313,16 @@ SPECS = {s["id"]: s for s in (PLAN, REPORT, PROGRAM_PLAN, PROGRAM_REPORT)}
 
 
 def check_spec(spec: dict) -> list[str]:
-    """독스 규칙 점검 — 표는 8열 이하·열 너비 수가 맞고, 제목 단계가 건너뛰지 않는다."""
+    """독스 규칙 점검 — 표는 8열 이하·열 너비 수가 맞고·머리말 낱말이 꺾이지 않게 들어가며,
+    제목 단계가 건너뛰지 않고, 맨 아래 절마다 작성 지침이나 표가 있다."""
     errs, last = [], 0
-    for b in spec["blocks"]:
+    blocks = spec["blocks"]
+    for i, b in enumerate(blocks):
         if "h" in b:
+            nxt = next((j for j in range(i + 1, len(blocks)) if "h" in blocks[j]), len(blocks))
+            leaf = nxt == len(blocks) or blocks[nxt]["h"] <= b["h"]
+            if leaf and not any("guide" in x or "table" in x for x in blocks[i + 1:nxt]):
+                errs.append(f"작성 지침·표가 없는 절: {b['text']}")
             if b["h"] > last + 1:
                 errs.append(f"제목 단계 건너뜀: {b['text']}")
             last = b["h"]
@@ -314,6 +333,8 @@ def check_spec(spec: dict) -> list[str]:
                 errs.append(f"표가 8열을 넘음: {t['columns']}")
             if len(t["widths"]) != n or any(len(r) != n for r in t["rows"]):
                 errs.append(f"표 모양이 맞지 않음: {t['columns']}")
+            elif t["columns"] != ["항목", "내용"] and sum(_min_width(h) for h in t["columns"]) > CONTENT_W:
+                errs.append(f"머리말이 쪽 폭에 다 들지 않음: {t['columns']}")
     return errs
 
 
@@ -335,6 +356,41 @@ def outline_text(spec: dict) -> str:
 
 def _u16(s: str) -> int:
     return len(s.encode("utf-16-le")) // 2
+
+
+def _text_pt(text: str, size: float = 10.0) -> float:
+    """글자 폭 어림 — 한글·전각은 글자 크기, 그 밖은 절반 남짓."""
+    return sum(size if ord(c) > 0x2E7F else size * 0.55 for c in text)
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in re.split(r"\s+|(?=\()", text) if w]       # 빈칸과 여는 괄호 앞에서만 꺾인다
+
+
+def _min_width(head: str) -> float:
+    """머리말의 가장 긴 낱말이 한 줄에 드는 칸 폭 — 칸 안쪽 여백·굵은 글씨 여유 14pt 포함."""
+    return max([_text_pt(w) for w in _words(head)] + [0.0]) + 14.0
+
+
+def fit_widths(heads: list[str], weights: list[float], kv: bool = False, total: float = CONTENT_W) -> list[float]:
+    """칸 폭(pt). 칸마다 머리말의 가장 긴 낱말(빈칸·여는 괄호에서만 꺾임)이 한 줄에 들도록 최소 폭을 먼저 주고,
+    남는 폭을 비율(weights)대로 나눈다. 항목형(kv)은 항목 칸이 가장 긴 항목 낱말을 담되 전체의 35%를 넘지 않는다."""
+    if kv:
+        key = min(max([_min_width(h) for h in heads] + [0.0]), total * 0.35)
+        key = max(key, total * weights[0] / sum(weights))
+        return [round(key, 1), round(total - key, 1)]
+    need = [_min_width(h) for h in heads]
+    if sum(need) >= total:                                       # 칸이 너무 많으면 최소 폭 비율로 줄인다
+        return [round(total * x / sum(need), 1) for x in need]
+    fixed: set[int] = set()
+    while True:                                                  # 최소에 못 미치는 칸은 최소로 묶고 나머지를 다시 나눈다
+        rest = total - sum(need[i] for i in fixed)
+        free = sum(weights[i] for i in range(len(heads)) if i not in fixed)
+        w = [need[i] if i in fixed else rest * weights[i] / free for i in range(len(heads))]
+        short = {i for i in range(len(heads)) if i not in fixed and w[i] < need[i]}
+        if not short:
+            return [round(x, 1) for x in w]
+        fixed |= short
 
 
 class _Builder:
@@ -363,6 +419,9 @@ class _Builder:
         if style == "NORMAL_TEXT":
             ps.update({"lineSpacing": 140, "spaceBelow": {"magnitude": 4, "unit": "PT"}})
             fields += ["lineSpacing", "spaceBelow"]
+        elif style.startswith("HEADING_"):                      # 표 바로 뒤에서도 띄우고, 쪽 맨 아래에 제목만 남지 않게
+            ps.update({"spaceAbove": {"magnitude": HEAD_ABOVE.get(style, 12), "unit": "PT"}, "keepWithNext": True})
+            fields += ["spaceAbove", "keepWithNext"]
         self.styles.append({"updateParagraphStyle": {"range": {"startIndex": s, "endIndex": e}, "paragraphStyle": ps,
                                                      "fields": ",".join(fields)}})
         if guide and text:
@@ -397,12 +456,11 @@ class _Builder:
         reqs = [{"insertText": {"location": {"index": i}, "text": t}} for i, t, _r, _c in sorted(fills, reverse=True)]
         if reqs:
             self.g._batch(self.email, self.doc, reqs, self.http)
-        total = sum(widths)
         style: list[dict] = []
-        for ci, w in enumerate(widths):
+        for ci, w in enumerate(fit_widths([r[0] for r in rows] if kv else columns, widths, kv=kv)):
             style.append({"updateTableColumnProperties": {
                 "tableStartLocation": {"index": ts}, "columnIndices": [ci],
-                "tableColumnProperties": {"widthType": "FIXED_WIDTH", "width": {"magnitude": round(CONTENT_W * w / total, 1), "unit": "PT"}},
+                "tableColumnProperties": {"widthType": "FIXED_WIDTH", "width": {"magnitude": w, "unit": "PT"}},
                 "fields": "widthType,width"}})
         head = {"tableRange": {"tableCellLocation": {"tableStartLocation": {"index": ts}, "rowIndex": 0, "columnIndex": 0},
                                "rowSpan": (n_rows if kv else 1), "columnSpan": (1 if kv else n_cols)},
