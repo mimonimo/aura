@@ -101,11 +101,33 @@ def parse_pptx(path: Path) -> ParseResult:
                         entries.append(_entry(i, "table", ref=len(tables)))
                         tables.append(t)
                         texts.append("\n".join(" | ".join(x for x in r if x) for r in rows))
-        walk(slide.shapes)
-        if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
-            texts.append(slide.notes_slide.notes_text_frame.text.strip())       # 발표자 메모
+        try:
+            walk(slide.shapes)
+        except Exception:
+            # python-pptx 가 모르는 요소(호환 묶음 mc:AlternateContent 등)를 도형으로 바꾸다 실패하면 문서 전체가 실패했다
+            # (2026-10-06 실패 13건 'has_ph_elm'). 그 슬라이드는 XML 의 글자(a:t)를 문단 단위로 직접 모은다
+            texts.extend(_xml_paragraphs(slide._element))
+            entries.extend(_entry(i, "text", t) for t in texts if t)
+        try:
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame.text.strip():
+                texts.append(slide.notes_slide.notes_text_frame.text.strip())       # 발표자 메모
+        except Exception:
+            pass
         pages.append(ParsedPage(page_no=i, text="\n".join(texts)))
     return ParseResult(parser="python-pptx", elapsed_s=time.time() - t0, pages=pages, tables=tables, entries=entries)
+
+
+_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+
+
+def _xml_paragraphs(elm) -> list[str]:
+    """슬라이드 XML 에서 문단(a:p)마다 글자(a:t)를 이어 붙인다 — 도형 해석이 안 될 때의 물러날 곳."""
+    out = []
+    for p in elm.iter(_A + "p"):
+        t = "".join(x.text or "" for x in p.iter(_A + "t")).strip()
+        if t:
+            out.append(t)
+    return out
 
 
 PARSERS = {".docx": parse_docx, ".xlsx": parse_xlsx, ".pptx": parse_pptx}
