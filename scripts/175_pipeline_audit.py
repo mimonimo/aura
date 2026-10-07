@@ -55,14 +55,17 @@ def backfill_failures() -> int:
                 rel = r.get("rel")
                 if not rel:
                     continue
-                ok = bool(r.get("ok")) and r.get("state") in (None, "parsed", "partial")
+                ok = bool(r.get("ok")) and r.get("state") in (None, "parsed", "partial") and bool(r.get("chunks"))
+                if r.get("ok") and not r.get("chunks"):
+                    r = dict(r, state="empty", error=r.get("error") or "글이 없는 문서(조각 0)")   # 옛 형식 기록엔 state 가 없다
                 cur = last.get(rel)
                 if cur is None or not cur["ok"]:
                     last[rel] = {"ok": ok, "error": str(r.get("error") or "")[:200], "state": r.get("state") or ("parsed" if ok else "failed")}
     n = 0
+    seen = set(_jsonl_rels(PLAT / "parse_failures.jsonl", "rel"))     # 이미 적힌 것은 다시 적지 않는다(여러 번 돌려도)
     with (PLAT / "parse_failures.jsonl").open("a", encoding="utf-8") as out:
         for rel, r in last.items():
-            if not r["ok"]:
+            if not r["ok"] and rel not in seen:
                 out.write(json.dumps({"rel": rel, "state": r["state"], "error": r["error"], "at": "backfill"}, ensure_ascii=False) + "\n")
                 n += 1
     return n
