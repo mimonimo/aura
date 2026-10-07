@@ -45,3 +45,25 @@ def test_pptx_text_and_table(tmp_path):
     prs.save(p)
     r = office.parse_pptx(p)
     assert "성과 확산" in r.pages[0].text and len(r.tables) == 1
+
+
+def test_pptx_slide_with_unknown_element_falls_back_to_xml_text(tmp_path, monkeypatch):
+    """도형 해석이 실패한 슬라이드도 글자는 건진다(python-pptx 의 'has_ph_elm' 오류, 2026-10-06 13건)."""
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    from zzaimy.ingest.parsers import office
+    prs = Presentation()
+    s = prs.slides.add_slide(prs.slide_layouts[5])
+    s.shapes.title.text = "사업 성과 요약"
+    tb = s.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(1))
+    tb.text_frame.text = "취업률 82%"
+    path = tmp_path / "a.pptx"
+    prs.save(path)
+
+    import pptx.shapes.shapetree as st
+    def boom(*a, **k):
+        raise AttributeError("'lxml.etree._Element' object has no attribute 'has_ph_elm'")
+    monkeypatch.setattr(st, "SlideShapeFactory", boom)
+    r = office.parse_pptx(path)
+    assert "사업 성과 요약" in r.pages[0].text and "취업률 82%" in r.pages[0].text
