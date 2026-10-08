@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 
 PAGE_W, PAGE_H, MARGIN = 595.28, 841.89, 56.7          # A4, 20mm
+KV_KEY_MAX = 0.30                                        # 항목형 표의 항목 칸 상한(쪽 폭 비율)
 HEAD_ABOVE = {"HEADING_1": 24, "HEADING_2": 16, "HEADING_3": 12}
 CONTENT_W = PAGE_W - 2 * MARGIN
 GUIDE_COLOR = {"red": 0.42, "green": 0.45, "blue": 0.50}
@@ -63,7 +64,7 @@ PLAN = {
     "blocks": [
         H(1, "사업 개요"),
         G("한 쪽 이내. 공고·기본계획의 사업명·기간·지원 규모와 우리 대학 계획의 핵심만 적는다. " + NUM_RULE),
-        KV(["사업명", "사업 기간", "총 사업비(국비·지방비·대응자금)", "주관·참여 기관", "사업단장(책임자)", "사업 목표(한 줄)",
+        KV(["사업명", "사업 기간", "총 사업비 (국비·지방비·대응자금)", "주관·참여 기관", "사업단장(책임자)", "사업 목표(한 줄)",
             "추진 과제(수)", "대표 성과지표"]),
 
         H(1, "Ⅰ. 사업 추진 목표"),
@@ -335,6 +336,8 @@ def check_spec(spec: dict) -> list[str]:
                 errs.append(f"표 모양이 맞지 않음: {t['columns']}")
             elif t["columns"] != ["항목", "내용"] and sum(_min_width(h) for h in t["columns"]) > CONTENT_W:
                 errs.append(f"머리말이 쪽 폭에 다 들지 않음: {t['columns']}")
+            elif t["columns"] == ["항목", "내용"]:
+                errs += [f"항목 이름의 낱말이 칸보다 김(빈칸으로 끊을 것): {r[0]}" for r in t["rows"] if _min_width(r[0]) > KV_KEY_MAX * CONTENT_W]
     return errs
 
 
@@ -359,12 +362,12 @@ def _u16(s: str) -> int:
 
 
 def _text_pt(text: str, size: float = 10.0) -> float:
-    """글자 폭 어림 — 한글·전각은 글자 크기, 그 밖은 절반 남짓."""
-    return sum(size if ord(c) > 0x2E7F else size * 0.55 for c in text)
+    """글자 폭 어림 — 한글·전각·가운뎃점은 글자 크기, 그 밖은 절반 남짓."""
+    return sum(size if ord(c) > 0x2E7F or c == "·" else size * 0.55 for c in text)
 
 
 def _words(text: str) -> list[str]:
-    return [w for w in re.split(r"\s+|(?=\()", text) if w]       # 빈칸과 여는 괄호 앞에서만 꺾인다
+    return text.split()                                          # 독스는 한글을 빈칸에서만 꺾는다(실측 2026-10-08)
 
 
 def _min_width(head: str) -> float:
@@ -374,9 +377,9 @@ def _min_width(head: str) -> float:
 
 def fit_widths(heads: list[str], weights: list[float], kv: bool = False, total: float = CONTENT_W) -> list[float]:
     """칸 폭(pt). 칸마다 머리말의 가장 긴 낱말(빈칸·여는 괄호에서만 꺾임)이 한 줄에 들도록 최소 폭을 먼저 주고,
-    남는 폭을 비율(weights)대로 나눈다. 항목형(kv)은 항목 칸이 가장 긴 항목 낱말을 담되 전체의 35%를 넘지 않는다."""
+    남는 폭을 비율(weights)대로 나눈다. 항목형(kv)은 항목 칸이 가장 긴 항목 낱말을 담되 KV_KEY_MAX 를 넘지 않는다."""
     if kv:
-        key = min(max([_min_width(h) for h in heads] + [0.0]), total * 0.35)
+        key = min(max([_min_width(h) for h in heads] + [0.0]), total * KV_KEY_MAX)
         key = max(key, total * weights[0] / sum(weights))
         return [round(key, 1), round(total - key, 1)]
     need = [_min_width(h) for h in heads]
