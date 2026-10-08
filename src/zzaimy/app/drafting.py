@@ -256,7 +256,11 @@ class Materials:
                 continue                                  # 목차·그림 표시뿐인 조각, 앞 절에 이미 준 조각은 빼다(실측: 같은 그림 조각이 모든 절 1순위)
             if cid is not None:
                 self._lib_seen.add(cid)
-            out.append({"title": " > ".join(h.get("path") or [])[:80], "how": h.get("how") or "문서함 검색", "text": (h.get("content") or "")[:700]})
+            path = [str(x) for x in (h.get("path") or [])]
+            title = re.sub(r"\.(hwpx?|pdf|docx?|xlsx?|pptx?)$", "", path[-1] if path else "문서", flags=re.I)
+            where = " > ".join(path[:-1])[-60:]
+            out.append({"title": title[:80], "how": (h.get("how") or "문서함 검색") + (f" · {where}" if where else ""),
+                        "text": (h.get("content") or "")[:700]})
             if len(out) >= k + (2 if _REPORT_NAME.search((self.project or {}).get("name", "")) else 0):
                 break
         return out
@@ -289,7 +293,8 @@ def render_materials(m: dict, institution: dict | None = None) -> str:
     past = m.get("past") or []
     if past:
         blocks = [f"《{p['title']}》 ({p['how']})\n{p['text']}" for p in past]
-        lines.append("[문서함의 지난 사업 자료 — 이 절과 관련된 부분]\n" + "\n\n".join(blocks))
+        lines.append("[문서함의 지난 사업 자료 — 이 절과 관련된 부분. 출처를 달 때는 《 》 안의 문서 제목만 쓴다 — 재료에 없는 문서 이름을 지어내지 않는다]\n"
+                     + "\n\n".join(blocks))
     if institution:
         known = [f"{k}: {v}" for k, v in institution.items() if v]
         if known:
