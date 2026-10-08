@@ -458,3 +458,16 @@ def test_no_hanging_registry_without_auto_tab(tmp_path):
     out = tmp_path / "out.hwpx"
     rep = hwpx_fill.fill(_hwpx(tmp_path), [{"heading": "1.1. 대학의 여건 분석", "items": [("text", "□ 서른 자를 넘기는 긴 부호 문단이지만 자동 탭 설정이 없는 서식이다 그러니 그대로")]}], out)
     assert rep["checks"] == [] and "<hp:tab" not in zipfile.ZipFile(out).read("Contents/section0.xml").decode()
+
+
+def test_map_cells_by_span_when_docs_grid_is_finer():
+    """독스가 병합 칸을 잘게 나눠 격자가 서식과 어긋나도, 작업본 칸 가운데가 든 서식 칸으로 대응한다(리허설: 11열 서식·21열 독스)."""
+    C = hwpx_fill._Cell
+    def cell(col, width, text=""):
+        return C(tc=(0, 0), inner=(0, 0), col=col, text=text, nested=False, p_open="", char_ref="0", width=width)
+    form = hwpx_fill._FormTable(para=(0, 0), rows=[[cell(0, 300, "사업유형"), cell(1, 700, "단독형 / 연합형")],
+                                                   [cell(0, 300, "사업목표"), cell(1, 700)]], col_cnt=2)
+    rows = [["사업유형", "", "단독형", ""], ["사업목표", "", "AI 인재 양성", "지역 연계"]]
+    pairs = hwpx_fill._map_cells(form, rows, widths=[3, 2, 3, 2])
+    got = {(fc.col, fc.text): t for fc, t in pairs}
+    assert got[(1, "단독형 / 연합형")] == "단독형" and got[(1, "")] == "AI 인재 양성 지역 연계"

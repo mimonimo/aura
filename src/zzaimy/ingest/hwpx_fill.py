@@ -25,6 +25,7 @@ kordoc(roundtrip/patcher·source-map·zip-patch·table-insert)에서 흡수한 �
 
 from __future__ import annotations
 
+import difflib
 import re
 import zipfile
 from collections import Counter
@@ -690,21 +691,27 @@ def _map_cells(form: _FormTable, rows: list[list[str]], widths: list[float] | No
         grid = _grid_starts(form)                                    # colAddr → 표 왼쪽부터의 x(비율). 위 행의 rowSpan 에 가려 짧은 행도 맞는다
         if not grid:
             return None
+        total_f = float(max(sum(c.width for c in r) for r in form.rows)) or 1.0
         pairs: list[tuple[_Cell, str]] = []
         for drow, frow in zip(rows, form.rows):
-            used: set[int] = set()
+            got: dict[int, list[str]] = {}
             xd = 0.0
             for ci, dc in enumerate(drow):
+                w = float(widths[ci])
                 if str(dc).strip():
-                    pos = xd / total_d
-                    cands = [(abs(grid.get(fc.col, (9.0, 0.0))[0] - pos), i, fc) for i, fc in enumerate(frow)]
-                    diff, best, fc = min(cands, key=lambda c_: c_[0])
-                    if diff <= max(0.3 * grid.get(fc.col, (0.0, 0.05))[1], 0.01) and best not in used:
-                        used.add(best)
-                        pairs.append((fc, str(dc)))
-                    else:
-                        return None                                  # 자리가 안 맞는 값 칸이 있다 — 대응 불가
-                xd += float(widths[ci])
+                    # 작업본 칸의 가운데가 들어가는 서식 칸 — 독스가 병합 칸을 잘게 나눠 격자가 서식과 어긋나도 맞는다
+                    # (리허설 2026-10-08: 서식 11열·독스 21열 요약서 표가 시작 위치 비교로 대응 실패 → 새 표로 덧붙음)
+                    mid = (xd + w / 2) / total_d
+                    hit = next((i for i, fc in enumerate(frow)
+                                if fc.col in grid and grid[fc.col][0] - 0.005 <= mid < grid[fc.col][0] + fc.width / total_f + 0.005), None)
+                    if hit is None:
+                        pos = xd / total_d
+                        diff, hit = min((abs(grid.get(fc.col, (9.0, 0.0))[0] - pos), i) for i, fc in enumerate(frow))
+                        if diff > max(0.3 * grid.get(frow[hit].col, (0.0, 0.05))[1], 0.01):
+                            return None                              # 자리가 안 맞는 값 칸이 있다 — 대응 불가
+                    got.setdefault(hit, []).append(str(dc).strip())
+                xd += w
+            pairs += [(frow[i], " ".join(v)) for i, v in sorted(got.items())]
         return pairs
     pairs = []
     for drow, frow in zip(rows, form.rows):
@@ -1115,6 +1122,12 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                         continue
                     first_same = bool(t.rows and rows) and [_norm(c.text) for c in t.rows[0] if _norm(c.text)] == [_norm(c) for c in rows[0] if _norm(c)]
                     score = len(dcells & t.cells) / len(dcells) + (1.0 if first_same else 0.0) + (0.1 if t.para[0] >= cursor else 0.0)
+                    if len(t.rows) == len(rows) and [len(r) for r in t.rows] == [len(r) for r in rows]:
+                        # 모양(행·칸 수)이 같은 표는 글 유사도도 본다 — 서식 상자(1×1) 안 글을 고쳐 쓰면 칸 글자가 하나도 안 겹친다
+                        # (리허설 2026-10-08: 「□ (세부)과제명: 0000」 상자를 채운 것이 새 표로 덧붙음)
+                        ft = "".join(_norm(c.text) for r in t.rows for c in r)[:1500]
+                        dt = "".join(_norm(c) for r in rows for c in r)[:1500]
+                        score += difflib.SequenceMatcher(None, ft, dt, autojunk=False).ratio() if ft and dt else 0.0
                     if score > best:
                         best, cand = score, t
                 pairs = _map_cells(cand, rows, widths_here) if cand is not None and best >= 0.4 else None

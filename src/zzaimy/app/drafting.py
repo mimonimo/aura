@@ -76,7 +76,7 @@ def has_words(text: str) -> bool:
 
 def target_sections(info: dict, command: str, filled_ok: bool = False, skip: set[str] | None = None) -> list[dict]:
     """지시가 가리키는 절들 — 번호를 말했으면 그 절, '다음 절'이면 첫 빈 절, '전체'면 빈 절 전부(한 번에 MAX 개).
-    skip 은 이 대화에서 모델이 쓰지 않고 넘긴 절 제목 — 「다음 절」이 같은 절에서 맴돌지 않게(번호로 짚으면 다시 쓴다)."""
+    skip 은 이 대화에서 이미 다룬 절 제목 — 「다음 절」이 같은 절에서 맴돌지 않게(번호로 짚으면 다시 쓴다)."""
     secs = [s for s in info.get("sections", []) if s.get("index", 0) > 0]
     c = command or ""
     nums = [m.group(1).rstrip(".") for m in _SECTION_NO.finditer(c)]
