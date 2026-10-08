@@ -1038,3 +1038,14 @@ def test_guide_anchor_puts_text_after_guide_before_first_table():
     info = {"sections": [{"index": 1, "heading": "1. 현황", "start": 1}, {"index": 2, "heading": "2. 다음", "start": 95}], "end": 100}
     assert gdocs._guide_anchor(body, info, info["sections"][0]) == 59
     assert gdocs._guide_anchor(body, info, info["sections"][1]) is None
+
+
+def test_plan_splits_insert_that_carries_table_cells():
+    """본문 넣기에 표 칸이 실려 오면 insert 와 fill 로 나눈다 — 칸이 조용히 버려지지 않게."""
+    from zzaimy.app import gdocs_agent
+
+    fake = _FakePlanner(json.dumps({"reply": "썼습니다.", "ops": [
+        {"op": "insert", "section": 4, "old": "", "text": "본문", "table": 2, "cells": [{"row": 1, "col": 1, "text": "강점"}]}]}, ensure_ascii=False))
+    info = {"title": "t", "sections": [{"index": 4, "level": 2, "heading": "1. 현황", "chars": 0}], "text": "1. 현황"}
+    p = gdocs_agent.plan(fake, "절을 써 줘", info)
+    assert [(o["op"], o.get("table")) for o in p["ops"]] == [("insert", 0), ("fill", 2)]

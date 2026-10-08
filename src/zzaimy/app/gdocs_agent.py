@@ -189,7 +189,16 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
         except json.JSONDecodeError:
             if attempt == 1:
                 raise
-    ops = [o for o in data.get("ops", []) if o.get("op") in ("insert", "replace", "style", "bold", "table", "fill", "figure", "rename", "move")
+    raw_ops = []
+    for o in data.get("ops", []):
+        # 본문 넣기에 표 칸을 함께 실은 계획(실측 2026-10-08: insert 에 table=2·cells — 칸이 버려지고 답은 「채웠다」)은 둘로 나눈다
+        if (o.get("op") == "insert" and int(o.get("table") or 0) > 0
+                and isinstance(o.get("cells"), list) and any(isinstance(c, dict) for c in o["cells"])):
+            raw_ops.append({**o, "table": 0, "cells": []})
+            raw_ops.append({"op": "fill", "section": o.get("section"), "old": "", "text": "", "table": o["table"], "cells": o["cells"]})
+        else:
+            raw_ops.append(o)
+    ops = [o for o in raw_ops if o.get("op") in ("insert", "replace", "style", "bold", "table", "fill", "figure", "rename", "move")
            and ((o.get("text") or "").strip() or o.get("op") == "bold"
                 or (o.get("op") == "fill" and isinstance(o.get("cells"), list) and any(isinstance(c, dict) for c in o["cells"])))]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
