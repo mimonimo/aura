@@ -40,6 +40,7 @@ _TAG = re.compile(r"<[^>]+>")
 _SEC_RE = re.compile(r"Contents/section(\d+)\.xml$")
 _LINESEG = re.compile(r"<(\w+:)?linesegarray\b[^>]*?(?:/>|>.*?</\1linesegarray>)", re.S)
 _NUM_ID = re.compile(r"\bid(?:Ref)?=\"(\d{1,10})\"")
+_FORM_HEAD = re.compile(r"\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*\.|\d+(?:\.\d+)*\.?\s+\S|【)")    # 서식의 다음 절 제목(번호·【】)
 _BOX_RE = re.compile(r"【\s*(작성방법|증빙자료|작성\s*가이드|작성\s*요령)\s*】")
 _DOTTED = re.compile(r"^\s*\d+(\.\d+)+\.?\s")
 _NONWORD = re.compile(r"[^\w]+")
@@ -1021,6 +1022,10 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
 
     # 2) 절마다 작업본 내용을 서식과 견줘 넣는다 — 커서는 서식 안 위치, 이미 있는 것은 지나가고 새것은 커서에 쌓는다
     for s, cursor, body, items in located:
+        # 이 절의 끝 — 같은 구역(섹션 XML)에서 다음 절이 시작하는 자리. 모양으로 짝지을 서식 표는 이 앞에서만 찾는다
+        nxt_head = next((a_ for (a_, b_), t_ in zip(s.paras, s.texts)
+                         if a_ >= cursor and "<hp:tbl" not in s.xml[a_:b_] and _FORM_HEAD.match(t_ or "")), len(s.xml))
+        sec_end = min([at_ for s_, at_, _b, _i in located if s_ is s and at_ > cursor] + [nxt_head])
         slot = _slot_style(s, cursor)
         pending: list[str] = []
         put_any = False
@@ -1130,6 +1135,14 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                         score += difflib.SequenceMatcher(None, ft, dt, autojunk=False).ratio() if ft and dt else 0.0
                     if score > best:
                         best, cand = score, t
+                if cand is None or best < 0.4:
+                    # 글을 크게 고쳐 써 칸 글자도 글 유사도도 낮은 서식 표(상자 안 뼈대를 지우고 다시 쓴 1×1 상자 등) — 이 절 안, 커서 뒤에
+                    # 모양(행·칸 수)이 같은 첫 서식 표면 그 표로 본다(리허설 7: 대표과제 상자가 새 표로 덧붙음, 유사도 0.16)
+                    shape = [len(r) for r in rows]
+                    same = [t for t in s.tables if not t.consumed and cursor <= t.para[0] < sec_end
+                            and not _BOX_RE.search(s.xml[t.para[0]:t.para[1]]) and [len(r) for r in t.rows] == shape]
+                    if same:
+                        cand, best = same[0], 0.4
                 pairs = _map_cells(cand, rows, widths_here) if cand is not None and best >= 0.4 else None
                 grown_xml = grow_table(s.xml, cand, rows) if pairs is None and cand is not None and best >= 0.4 else None
                 if grown_xml:

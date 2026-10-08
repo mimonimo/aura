@@ -471,3 +471,12 @@ def test_map_cells_by_span_when_docs_grid_is_finer():
     pairs = hwpx_fill._map_cells(form, rows, widths=[3, 2, 3, 2])
     got = {(fc.col, fc.text): t for fc, t in pairs}
     assert got[(1, "단독형 / 연합형")] == "단독형" and got[(1, "")] == "AI 인재 양성 지역 연계"
+
+
+def test_rewritten_form_table_matches_by_shape_within_its_section(tmp_path):
+    """글을 크게 고쳐 써 칸 글자가 하나도 안 겹쳐도, 이 절 안의 같은 모양 서식 표면 그 표에 채운다 — 다음 절의 표와는 엮지 않는다."""
+    src = _hwpx(tmp_path)
+    rep = hwpx_fill.fill(src, [{"heading": "1.2 특성화 방향", "items": [("table", [["전혀 다른 머리", "완전히 새 값"]])]}], tmp_path / "a.hwpx")
+    assert rep["tables_updated"] == 1 and rep["tables"] == 0
+    rep2 = hwpx_fill.fill(src, [{"heading": "1.1. 대학의 여건 분석", "items": [("table", [["가나다", "라마바"]])]}], tmp_path / "b.hwpx")
+    assert rep2["tables"] == 1 and rep2["tables_updated"] == 0              # 1.2 절의 서식 표는 1.1 절 것이 아니다
