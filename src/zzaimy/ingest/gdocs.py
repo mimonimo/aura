@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -228,9 +229,17 @@ def recent_writes(data_dir: Path, limit: int = 20) -> list[dict]:
     return rows[-limit:][::-1]
 
 
+RETRY_WAITS = (5, 15, 30, 60)                     # 쓰기 한도(분당 60회)에 걸리면 기다렸다 다시 — 양식 만들기처럼 쓰기가 몰릴 때
+
+
 def _batch(email: str, doc: str, requests: list[dict], http) -> dict:
-    r = http.post(f"{DOCS_API}/{doc_id(doc)}:batchUpdate", headers=_headers(email, http),
-                  json={"requests": requests})
+    for wait in (*RETRY_WAITS, None):
+        r = http.post(f"{DOCS_API}/{doc_id(doc)}:batchUpdate", headers=_headers(email, http),
+                      json={"requests": requests})
+        if getattr(r, "status_code", 200) not in (429, 503) or wait is None:
+            break
+        log.info("구글 독스 쓰기 한도 — %s초 뒤 다시", wait)
+        time.sleep(wait)
     _raise(r)
     return r.json()
 

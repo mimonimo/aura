@@ -988,3 +988,18 @@ def test_migrate_fills_form_table_cells_in_place(monkeypatch, tmp_path):
     monkeypatch.setattr(gdocs, "_batch", lambda email, doc, reqs, http: batches.append(reqs) or {})
     res = gdocs.migrate_bodies("a@b", "src", "dst", user="u", data_dir=tmp_path, http=object())
     assert res[0]["tables"] == 1 and batches == [[{"insertText": {"location": {"index": 28}, "text": "80%"}}]]
+
+
+def test_batch_waits_and_retries_on_quota(monkeypatch):
+    from types import SimpleNamespace
+    from zzaimy.ingest import gdocs
+    calls = []
+
+    class Http:
+        def post(self, url, headers=None, json=None):
+            calls.append(1)
+            code = 429 if len(calls) < 3 else 200
+            return SimpleNamespace(status_code=code, text="quota", json=lambda: {"replies": []})
+    monkeypatch.setattr(gdocs, "_headers", lambda email, http: {})
+    monkeypatch.setattr(gdocs.time, "sleep", lambda s: None)
+    assert gdocs._batch("a@b", "D", [{}], Http()) == {"replies": []} and len(calls) == 3
