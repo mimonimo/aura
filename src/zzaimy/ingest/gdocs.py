@@ -143,6 +143,17 @@ def _table_text(tbl: dict) -> str:
     return "\n".join(r for r in rows if r.strip(" |"))
 
 
+def _table_counts(tbl: dict) -> tuple[int, int]:
+    """표의 (칸 수, 빈 칸 수) — 글(_table_text)은 빈 행을 빼므로 칸 수는 표 구조에서 센다(머리행만 있는 빈 양식 표가 다 쓴 표로 보이던 것)."""
+    cells = empty = 0
+    for row in tbl.get("tableRows", []):
+        for cell in row.get("tableCells", []):
+            cells += 1
+            if not "".join(_para_text(e["paragraph"]) for e in cell.get("content", []) if "paragraph" in e).strip():
+                empty += 1
+    return cells, empty
+
+
 def outline(document: dict) -> dict:
     """documents.get 결과 → {title, end, sections:[{index, level, heading, start, end, chars}], text}.
 
@@ -152,6 +163,7 @@ def outline(document: dict) -> dict:
     """
     body = body_content(document)
     items: list[tuple[int, int, str, str, bool]] = []       # (start, end, style, text, is_table)
+    tcounts: dict[int, tuple[int, int]] = {}                 # 표 시작 → (칸 수, 빈 칸 수)
     for el in body:
         if "paragraph" in el:
             p = el["paragraph"]
@@ -159,6 +171,7 @@ def outline(document: dict) -> dict:
                           p.get("paragraphStyle", {}).get("namedStyleType", "NORMAL_TEXT"), _para_text(p), False))
         elif "table" in el:
             items.append((int(el.get("startIndex", 0)), int(el.get("endIndex", 0)), "TABLE", _table_text(el["table"]), True))
+            tcounts[int(el.get("startIndex", 0))] = _table_counts(el["table"])
     doc_end = int(body[-1].get("endIndex", 1)) if body else 1
     styled = any(HEADING_LEVELS.get(st) is not None and t.strip() for _s, _e, st, t, tb in items if not tb)
     sections: list[dict] = []
@@ -191,9 +204,9 @@ def outline(document: dict) -> dict:
                 cur["body_chars"] += len(text.strip())                          # 본문 글자 — 양식의 작성방법 상자는 본문이 아니다
                 if is_table:
                     # 양식 표의 빈 칸 비율 — 머리 칸만 있고 값 칸이 빈 표는 '아직 안 쓴 절'의 표시(2026-09-29: 표 채우기)
-                    cells = [c for row in text.split("\n") for c in row.split(" | ")]
-                    cur["tbl_cells"] = cur.get("tbl_cells", 0) + len(cells)
-                    cur["tbl_empty"] = cur.get("tbl_empty", 0) + sum(1 for c in cells if not c.strip())
+                    n_cells, n_empty = tcounts.get(start, (0, 0))
+                    cur["tbl_cells"] = cur.get("tbl_cells", 0) + n_cells
+                    cur["tbl_empty"] = cur.get("tbl_empty", 0) + n_empty
                 else:
                     cur["para_chars"] = cur.get("para_chars", 0) + len(text.strip())
     sections.append(cur)

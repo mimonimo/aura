@@ -1150,3 +1150,42 @@ def test_multiline_replace_falls_back_to_line_by_line(monkeypatch, tmp_path):
     ops = [{"op": "replace", "old": "□ (세부)과제명: 0000\n-", "text": "□ (세부)과제명: AI 교육 혁신\n- 배경"}]
     lines = gdocs_agent.apply(ops, "a@b", "D", user="u", data_dir=tmp_path)
     assert calls == ["□ (세부)과제명: 0000\n-", "□ (세부)과제명: 0000"] and "1곳" in lines[0]
+
+
+def test_empty_form_table_rows_count_as_unfilled():
+    """머리행만 채운 양식 표(값 행은 빈칸) — 칸 수는 표 구조에서 세어 「안 쓴 절」로 본다(글에서는 빈 행이 빠져 다 쓴 표로 보이던 것)."""
+    from zzaimy.app import drafting
+
+    def cell(t):
+        return {"content": [{"paragraph": {"elements": [{"textRun": {"content": t + "\n"}}]}}]}
+    tbl = {"startIndex": 60, "endIndex": 120, "table": {"tableRows": [
+        {"tableCells": [cell("계획"), cell("과제"), cell("내용")]}] + [{"tableCells": [cell(""), cell(""), cell("")]} for _ in range(3)]}}
+    content = [_para(1, "Ⅰ. 배경\n", "HEADING_1"), _para(20, "2. 발전계획과의 연계\n", "HEADING_2"),
+               _para(40, gdocs.GUIDE_PREFIX + "원문 그대로.\n"), tbl, _para(120, "\n")]
+    sec = next(s for s in gdocs.outline({"body": {"content": content}})["sections"] if s["heading"].startswith("2."))
+    assert sec["tbl_cells"] == 12 and sec["tbl_empty"] == 9 and drafting.is_unfilled(sec)
+
+
+def test_generic_draft_title_gets_project_name(docs_env, tmp_path, monkeypatch):
+    """「사업계획서 초안 작성해 줘」 처럼 일반 낱말뿐인 제목은 프로젝트 이름을 앞에 — 어느 사업 문서인지 드라이브에서 알 수 있게."""
+    from zzaimy.app.main import create_app as _create
+    from zzaimy.ingest import gdocs_templates
+
+    t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
+    t["staff@example.ac.kr"]["scopes"] = gdrive.SCOPES
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    calls, folders = [], {}
+    monkeypatch.setattr(gdrive, "_http", lambda: _drive_files_transport(calls, folders))
+    monkeypatch.setattr(gdocs_templates, "render", lambda email, doc, spec, http=None: None)
+    fake = _FakePlanner(json.dumps({"reply": "썼습니다.", "ops": []}, ensure_ascii=False))
+    from zzaimy.generate import client as _gc
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                  processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    pid = app.state.db.create_project("grant", "지역혁신 2027", owner="zzaimy")
+    r = client.post("/chat/send", data={"question": "사업계획서 초안 작성해 줘", "project_id": str(pid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "「지역혁신 2027 사업계획서」" in page
+    sid = int(r.headers["location"].rstrip("/").split("/")[-1])
+    assert json.loads(app.state.db.get_setting(f"chat_google_doc:{sid}"))["template"] == "plan"
