@@ -1113,3 +1113,24 @@ def test_measure_only_lines_are_not_sections_and_skipped_sections_are_passed():
     assert not drafting.writable(secs[0])
     assert [s["index"] for s in drafting.target_sections(info, "다음 절 작성해 줘")] == [2]
     assert [s["index"] for s in drafting.target_sections(info, "다음 절 작성해 줘", skip={"1. 대학의 여건"})] == [3]
+
+
+def test_trash_older_sends_only_previous_versions_of_same_form(monkeypatch):
+    """새 완성본을 올리기 전에 같은 서식의 옛 완성본만 휴지통으로 — 다른 서식·작업본은 둔다."""
+    from types import SimpleNamespace
+    from zzaimy.ingest import gdrive_files
+
+    trashed = []
+
+    class Http:
+        def get(self, url, headers=None, params=None):
+            files = [{"id": "a", "name": "작성서식 완성본 2026-10-07.hwpx"}, {"id": "b", "name": "작성서식 작업본 2026-10-07"},
+                     {"id": "c", "name": "다른서식 완성본 2026-10-07.hwpx"}]
+            return SimpleNamespace(status_code=200, json=lambda: {"files": files})
+
+        def patch(self, url, headers=None, params=None, json=None):
+            trashed.append(url.rsplit("/", 1)[-1])
+            return SimpleNamespace(status_code=200)
+    monkeypatch.setattr(gdrive_files, "_headers", lambda email, http: {})
+    assert gdrive_files.trash_older("a@b", "F", "작성서식 완성본 ", ".hwpx", http=Http()) == ["작성서식 완성본 2026-10-07.hwpx"]
+    assert trashed == ["a"]
