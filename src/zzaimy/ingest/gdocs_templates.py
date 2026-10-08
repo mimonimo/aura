@@ -420,22 +420,49 @@ SOURCES = {
 }
 
 
+# 실문서 분량 — 같은 종류 절의 글자 수 중앙값(표 포함, 사업마다 최대 30절씩 고르게). 2026-10-09 측정(VM data/eval/section_lengths.json,
+# 계획서 5,732·보고서 2,273건의 절 노드와 조각). 절 → 측정한 절 종류.
+_LEN = {"plan": {"추진 배경·필요성": 1806, "중장기 발전계획 연계": 1534, "여건·현황 분석": 2319, "비전·목표": 1489, "추진 전략": 1604,
+                 "추진 체계·조직": 2037, "세부 추진 내용": 1397, "추진 일정": 1636, "성과지표": 2465, "성과관리·환류": 1891,
+                 "확산·지속가능성": 1981, "예산·재정": 1810},
+        "report": {"비전·목표": 916, "세부 추진 내용": 2000, "실적·성과": 2261, "성과지표": 2220, "성과관리·환류": 1452,
+                   "확산·지속가능성": 1430, "예산·재정": 1616, "추진 체계·조직": 1981, "미흡·개선": 1431, "기대 효과": 883}}
+LENGTH_OF = {
+    "plan": {"1. 추진 배경 및 필요성": "추진 배경·필요성", "2. 대학 중장기 발전계획과의 연계": "중장기 발전계획 연계",
+             "3. 대학 여건 및 현황 분석": "여건·현황 분석", "5. 비전·목표·인재상": "비전·목표", "6. 추진 전략 및 과제 체계": "추진 전략",
+             "1. 사업단 조직": "추진 체계·조직", "나. 세부 추진 내용": "세부 추진 내용", "라. 추진 일정": "추진 일정",
+             "2. 성과지표 총괄표": "성과지표", "1. 성과관리 체계": "성과관리·환류", "6. 성과 확산 및 지속가능성": "확산·지속가능성",
+             "1. 재정투자 방향": "예산·재정"},
+    "report": {"1. 비전·목표와 추진 개요": "비전·목표", "가. 추진 실적": "실적·성과", "나. 성과와 계획 대비 달성": "실적·성과",
+               "1. 성과지표 실적 총괄": "성과지표", "다. 미흡 사항과 개선 방안": "미흡·개선", "2. 성과관리·환류 실적": "성과관리·환류",
+               "1. 연차별 집행 현황": "예산·재정", "1. 사업단 조직·운영 실적": "추진 체계·조직"},
+}
+
+
+def _length_note(sid: str, heading: str) -> str:
+    kind = LENGTH_OF.get(sid, {}).get(heading)
+    n = _LEN.get(sid, {}).get(kind or "")
+    return f"분량 — 실문서 같은 절 중앙값 약 {round(n, -2):,}자(표 포함)" if n else ""
+
+
 def _with_sources(spec: dict) -> dict:
     """SOURCES 의 근거 위치를 그 절 바로 뒤 지침 끝에 붙인다(지침이 없으면 지침을 하나 만든다)."""
     src = SOURCES.get(spec["id"], {})
     out, pending = [], None
     for b in spec["blocks"]:
         if pending is not None and "guide" in b:
-            b = {"guide": b["guide"].rstrip(". ") + ". 근거 — " + pending + "."}
+            b = {"guide": b["guide"].rstrip(". ") + ". " + pending + "."}
             pending = None
         elif pending is not None:                       # 지침 없이 표·문단·다음 절이 바로 오면 그 앞에 근거 지침을 둔다
-            out.append({"guide": "근거 — " + pending + "."})
+            out.append({"guide": pending + "."})
             pending = None
         out.append(b)
-        if "h" in b and b["text"] in src:
-            pending = src[b["text"]]
+        if "h" in b:
+            parts = [x for x in (("근거 — " + src[b["text"]]) if b["text"] in src else "", _length_note(spec["id"], b["text"])) if x]
+            if parts:
+                pending = ". ".join(parts)
     if pending is not None:
-        out.append({"guide": "근거 — " + pending + "."})
+        out.append({"guide": pending + "."})
     return {**spec, "blocks": out}
 
 
