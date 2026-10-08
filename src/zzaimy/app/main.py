@@ -1447,8 +1447,10 @@ def create_app(
                             miss = (" · 빠진 것: " + ", ".join(sc["missing"][:8])) if sc["missing"] else ""
                             parts_.append(f"완성본 대비 핵심 사실 반영 {sc['covered']}/{sc['total']} ({int(sc['ratio'] * 100)}%){miss}")
                     all_ops += o_
-                    if not o_ and not confirm:
-                        skip_.add(sec["heading"])                       # 쓰지 않고 넘긴 절 — 다음 「다음 절」은 그 뒤부터
+                    if not confirm:
+                        # 이 대화에서 다룬 절 — 쓴 것이 있든(근거 없는 칸은 비워 둠) 없든 「다음 절」은 그 뒤부터(리허설: 요약서 표를 두 번 채움).
+                        # 절 번호로 짚으면 다시 쓴다
+                        skip_.add(sec["heading"])
                         db.set_setting(f"chat_skip_sections:{session_id}", _aj.dumps(sorted(skip_), ensure_ascii=False))
                     info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
                 db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
