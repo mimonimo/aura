@@ -63,3 +63,10 @@ def test_sources_are_attached_to_their_sections():
     j = next(k for k, b in enumerate(blocks) if b.get("text") == "1. 추진 배경 및 필요성")
     assert "근거 — 공고·기본계획" in blocks[j + 1]["guide"]
     assert not any(w in gt.outline_text(gt.PLAN) for w in ("LINC", "RISE", "영남이공", "AID"))
+
+
+def test_length_notes_come_from_measured_medians():
+    """분량 지침은 실측 중앙값(백 단위 반올림)에서 — 측정이 없는 절에는 붙이지 않는다."""
+    assert gt._length_note("plan", "1. 추진 배경 및 필요성") == "분량 — 실문서 같은 절 중앙값 약 1,800자(표 포함)"
+    assert gt._length_note("plan", "사업 요약") == ""
+    assert all(k in gt._LEN[sid] for sid in gt.LENGTH_OF for k in gt.LENGTH_OF[sid].values())
