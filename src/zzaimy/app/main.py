@@ -1375,7 +1375,11 @@ def create_app(
                 from zzaimy.ingest import gdocs as _gd
 
                 info = _gd.get(link["account"], link["doc"])
-                targets = drafting.target_sections(info, q)
+                try:
+                    skip_ = set(_aj.loads(db.get_setting(f"chat_skip_sections:{session_id}", "") or "[]"))
+                except ValueError:
+                    skip_ = set()
+                targets = drafting.target_sections(info, q, skip=skip_)
                 if not targets:
                     text = "쓸 절을 찾지 못했습니다. 절 번호(예: 1.1)를 말해 주거나, 빈 절이 없으면 어느 절을 다시 쓸지 골라 주세요."
                     _set_options(session_id, [{"kind": "pick", "text": f"「{s_['heading'][:24]}」 다시 쓰기", "question": f"{section_context.split_number(s_['heading'])[0]} 절을 다시 써 줘"}
@@ -1443,6 +1447,9 @@ def create_app(
                             miss = (" · 빠진 것: " + ", ".join(sc["missing"][:8])) if sc["missing"] else ""
                             parts_.append(f"완성본 대비 핵심 사실 반영 {sc['covered']}/{sc['total']} ({int(sc['ratio'] * 100)}%){miss}")
                     all_ops += o_
+                    if not o_ and not confirm:
+                        skip_.add(sec["heading"])                       # 쓰지 않고 넘긴 절 — 다음 「다음 절」은 그 뒤부터
+                        db.set_setting(f"chat_skip_sections:{session_id}", _aj.dumps(sorted(skip_), ensure_ascii=False))
                     info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
                 db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
                 pend = _asks.pending(db, session_id)
@@ -1451,7 +1458,7 @@ def create_app(
                                   + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다.")
                 text = "\n\n".join(parts_)
                 _ops = all_ops
-                left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x)]
+                left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x) and x.get("heading") not in skip_]
                 opts = []
                 if pend:
                     opts.append(_asks.form_option(pend))
