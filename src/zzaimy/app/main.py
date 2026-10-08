@@ -1093,7 +1093,7 @@ def create_app(
 
         돌려주는 것은 (만들었는가, 못 만들었을 때 담당자에게 보일 안내). 허용 계정이 없으면 안내 없이 일반 답변으로 간다.
         """
-        from zzaimy.ingest import gdrive, gdrive_files
+        from zzaimy.ingest import gdocs_templates, gdrive, gdrive_files
 
         if not gdrive.list_accounts():
             return False, ""
@@ -1106,7 +1106,17 @@ def create_app(
             return False, f"{e} 그 뒤 다시 요청하면 문서를 만들어 바로 씁니다."
         except Exception as e:
             return False, f"문서를 만들지 못했습니다({type(e).__name__}). 원천 관리에서 구글 연결 상태를 확인해 주세요."
-        db.add_chat(session_id, "assistant", f"드라이브에 문서 「{title}」 을 만들어 이 대화에 연결했습니다. {made['url']}")
+        note = ""
+        spec = gdocs_templates.pick(q)
+        if spec:                                              # 서류 갈래에 맞는 공통 양식(절·작성 지침·표)을 깔고 그 위에 쓴다
+            _chat_step(session_id, "공통 양식 까는 중")
+            try:
+                gdocs_templates.render(made["account"], made["doc"], spec)
+                note = f" 「{spec['title'].replace('(구글 독스)', '').strip()}」 을 깔아 두었습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."
+            except Exception as e:
+                logging.getLogger("zzaimy.app.gdocs").warning("공통 양식 깔기 실패 (대화 %s): %s", session_id, type(e).__name__)
+                note = " 공통 양식은 깔지 못해 빈 문서로 시작합니다."
+        db.add_chat(session_id, "assistant", f"드라이브에 문서 「{title}」 을 만들어 이 대화에 연결했습니다.{note} {made['url']}")
         return True, ""
 
     _sparse_cache: dict[tuple, list[int]] = {}
