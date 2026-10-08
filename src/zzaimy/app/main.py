@@ -457,6 +457,12 @@ def create_app(
         import threading
         from datetime import datetime as _dt, timedelta as _td
         cut = (_dt.now() - _td(minutes=min_age_min)).isoformat(timespec="seconds")
+        try:
+            from zzaimy.app.pipeline import REVIEW_PENDING
+            with db._conn() as conn:                    # 재시작으로 끊긴 미룬 검토 — 「쓰는 중」으로 남지 않게 비운다(문서 화면에서 다시 만든다)
+                conn.execute("UPDATE documents SET ai_review = '' WHERE ai_review = ?", (REVIEW_PENDING,))
+        except Exception:
+            pass
         with db._conn() as conn:
             rows = [dict(r) for r in conn.execute(
                 "SELECT id, stored_path FROM documents WHERE status IN ('received', 'processing') AND created_at < ?"
@@ -2083,13 +2089,18 @@ def create_app(
             said.append(f"서류를 「{doc_routing.KINDS.get(r['kind'], r['kind'])}」로 보았습니다 ({r['why_kind']})")
         return " / ".join(said)
 
-    def _process_then_identify(db_, doc_id: int, stored, user_chose_type: bool = True) -> None:
+    def _process_then_identify(db_, doc_id: int, stored, user_chose_type: bool = True, defer_review: bool = False) -> None:
         """접수 처리에 이어 문서의 정체까지 한 번에 읽는다.
 
         반입 시점에 끝나야 담당자가 문서마다 버튼을 누르지 않는다. 모델이 없거나
         실패하면 조용히 넘어간다 — 접수 자체가 막히면 안 되기 때문이다.
         """
-        processor.process(db_, doc_id, stored)
+        import inspect as _ins
+
+        if defer_review and "defer_review" in _ins.signature(processor.process).parameters:
+            processor.process(db_, doc_id, stored, defer_review=True)
+        else:
+            processor.process(db_, doc_id, stored)
         try:
             _identify_document(db_, doc_id)
         except Exception:
@@ -2497,7 +2508,7 @@ def create_app(
 
         workers = max(1, int(os.environ.get("ZZAIMY_BUNDLE_WORKERS", "1") or 1))
         with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as ex:
-            for fut in [ex.submit(_process_then_identify, db, did, path, True) for did, path in jobs]:
+            for fut in [ex.submit(_process_then_identify, db, did, path, True, True) for did, path in jobs]:
                 try:
                     fut.result()
                 except Exception:

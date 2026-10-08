@@ -89,6 +89,8 @@ def _vision_model_name() -> str:
         return "비전 모델"
 
 
+REVIEW_PENDING = "검토 의견을 쓰는 중입니다. 문서는 이미 검색·작성에 쓸 수 있습니다."
+_REVIEW_QUEUE = __import__("concurrent.futures").futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="review-later")
 _MINERU_SLOT = threading.BoundedSemaphore(int(os.environ.get("ZZAIMY_MINERU_SLOTS", "1") or 1))
 
 
@@ -2417,7 +2419,9 @@ class DocumentProcessor:
         masked, _ = self._mask_document(RawDocument(doc_id="chat", text=raw))
         return masked.text
 
-    def process(self, db: Database, doc_id: int, file_path: Path) -> None:
+    def process(self, db: Database, doc_id: int, file_path: Path, defer_review: bool = False) -> None:
+        """defer_review — 검토 의견(27B, 문서당 ~3분)은 뒤로 미루고 문서는 먼저 쓸 수 있게 한다(묶음 접수: 자료를 올리고 바로 작성).
+        미룬 검토는 한 줄 대기열(_REVIEW_QUEUE)이 한 건씩 이어 쓴다 — 젯슨 27B 는 동시 요청에도 처리량이 안 는다(2026-10-09 실측)."""
         self.configure_privacy(db)
         # 같은 파일이 두 번 올라오면(이름만 다른 채) 하나만 들인다 — 같은 조각이 둘이면
         # 검색이 같은 근거를 두 번 올리고 그래프가 쌍둥이를 잇는다.
@@ -2775,6 +2779,16 @@ class DocumentProcessor:
             # 27B 를 부르면 몇 주가 걸린다. 검토 의견은 문서함에서 필요할 때 다시 만든다(사용자 2026-10-02: 원본 전체의 분석 자료를 VM 에)
             if os.environ.get("ZZAIMY_LIGHT_PROCESS"):
                 ai_review = ""
+            elif defer_review:
+                ai_review = REVIEW_PENDING
+
+                def _later(db_=db, did=doc_id, inp=review_input, dt=doc_type):
+                    try:
+                        db_.update_document(did, ai_review=self._review_with_retry(did, inp, dt))
+                    except Exception:
+                        log.exception("미룬 검토 의견 실패 doc=%s", did)
+                        db_.update_document(did, ai_review="")
+                _REVIEW_QUEUE.submit(_later)
             else:
                 ai_review = self._review_with_retry(doc_id, review_input, doc_type)
 
