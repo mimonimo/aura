@@ -1311,3 +1311,10 @@ def test_report_project_also_fetches_matching_plan(monkeypatch, tmp_path):
     got = m.library_hits({"heading": "가. 추진 실적"}, "실적")
     assert any("계획서" in q and "실적보고서" not in q for q in qs)
     assert got[0]["how"] == "문서함 검색(같은 연차 계획서)"
+
+
+def test_ask_hints_hide_internal_cell_numbers():
+    from zzaimy.app.gdocs_agent import _plain
+
+    assert _plain("가. 과제 개요 표의 r0 c1 칸에 입력할 과제 명칭") == "가. 과제 개요 입력할 과제 명칭"
+    assert "r3" not in _plain("핵심 성과지표 기준값(r3, c2)")
