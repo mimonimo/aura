@@ -662,8 +662,17 @@ def create_app(
                 "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "갈래 미정") if k else "갈래 미정", n) for k, n in kinds],
                 "has_next": (page + 1) * PER < total_docs,
                 "business_units": _business_units(),
+                "common_templates": _common_templates(),
             }),
         )
+
+    def _common_templates() -> list[dict]:
+        """구글 독스 공통 양식 4종(scripts/180 이 만든 것) — 라이브러리 바로가기. 이름에서 「 공통 양식(구글 독스)」는 뗀다."""
+        try:
+            pub = _aj.loads((Path(__file__).resolve().parents[3] / "data/generated/templates/gdocs/published.json").read_text(encoding="utf-8"))
+            return [{"name": re.sub(r"\s*공통 양식\(구글 독스\)$", "", x["title"]), "url": x["url"]} for x in pub if x.get("url")]
+        except Exception:
+            return []
 
     _units_cache: dict = {"at": 0.0, "v": []}
 
