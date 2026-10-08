@@ -1071,3 +1071,21 @@ def test_drafting_in_project_with_form_asks_form_or_common(docs_env, tmp_path, m
     page = client.get(r.headers["location"]).text
     assert "작성 서식이 있습니다" in page and "작성서식" in page and "참여 동의서" not in page
     assert db.get_setting(f"chat_google_doc:{int(r.headers['location'].rstrip('/').split('/')[-1])}", "") in ("", None)   # 아직 문서를 만들지 않았다
+
+
+def test_common_template_sections_are_writable_and_guides_are_not_body():
+    """독스 공통 양식(Ⅰ. → 1. → 가.): 회색 작성 지침만 있는 끝 절은 「안 쓴 절」이고 쓸 수 있다 — 「다음 절」이 첫 끝 절을 고른다."""
+    from zzaimy.app import drafting
+
+    content = [_para(1, "Ⅰ. 추진 배경 및 목표\n", "HEADING_1"),
+               _para(30, "1. 추진 배경 및 필요성\n", "HEADING_2"),
+               _para(60, gdocs.GUIDE_PREFIX + "공고의 사업 목적을 이어서 쓴다.\n"),
+               _para(100, "2. 중장기 발전계획과의 연계\n", "HEADING_2"),
+               _para(130, gdocs.GUIDE_PREFIX + "발전계획 문구는 원문 그대로.\n"),
+               _para(170, "본문이 이미 있다.\n")]
+    info = gdocs.outline({"body": {"content": content}})
+    secs = {s["heading"]: s for s in info["sections"]}
+    first, second, chapter = secs["1. 추진 배경 및 필요성"], secs["2. 중장기 발전계획과의 연계"], secs["Ⅰ. 추진 배경 및 목표"]
+    assert first["body_chars"] == 0 and drafting.is_unfilled(first) and drafting.writable(first)
+    assert not drafting.is_unfilled(second) and not drafting.writable(chapter)
+    assert [s["heading"] for s in drafting.target_sections(info, "다음 절 작성해 줘")] == ["1. 추진 배경 및 필요성"]
