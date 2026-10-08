@@ -23,6 +23,7 @@ _ALL = re.compile(r"전체|모든\s*절|전부|처음부터\s*끝까지|다\s*�
 _DRAFT = re.compile(r"작성|채워|채우|써\s*줘|써줘|쓰자|초안|넣어\s*줘|보강|다시\s*써")
 _PLACEHOLDER = re.compile(r"[○◯]{2,}|OOO|000|\(\s*\)|_{3,}")
 MAX_SECTIONS_PER_TURN = 4
+_SUMMARY = re.compile(r"요약")
 # 문서 전체 초안 요청(「사업계획서 초안 작성해 줘」) — 절을 말하지 않아도 빈 절부터 몇 개씩 쓴다(리허설 2026-10-08: 일반 편집으로 가서 한 글자도 안 씀)
 _DOC_DRAFT = re.compile(r"(?:계획서|보고서|신청서|제안서|문서|서식|양식).{0,12}(?:초안|작성|써)")
 DOC_DRAFT_FIRST = 2
@@ -88,6 +89,8 @@ def target_sections(info: dict, command: str, filled_ok: bool = False, skip: set
                 out.append(hit)
         return out[:MAX_SECTIONS_PER_TURN]
     empties = [s for s in secs if writable(s) and (filled_ok or family_unfilled(info, s)) and s.get("heading") not in (skip or set())]
+    # 요약 절은 본문을 다 쓴 뒤에 옮겨 쓴다 — 빈 절 차례의 맨 뒤로(리허설: 첫 차례에 요약을 골라 모델이 비워 둔 채 한 번을 썼다)
+    empties = [s for s in empties if not _SUMMARY.search(s.get("heading") or "")] + [s for s in empties if _SUMMARY.search(s.get("heading") or "")]
     if _ALL.search(c):
         return empties[:MAX_SECTIONS_PER_TURN]
     if _DOC_DRAFT.search(c) and not _NEXT.search(c):
