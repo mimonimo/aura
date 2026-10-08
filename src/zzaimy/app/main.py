@@ -2487,15 +2487,15 @@ def create_app(
                 jobs.append((doc_id, stored))
                 made["intake"].append(doc_id)
         if jobs:
-            # 묶음 안 문서는 동시에 몇 건씩 — 문서마다 그림 판독·27B 검토·제목 판독이 이어져 한 건씩이면 5건에 16~17분(리허설 2026-10-08).
-            # 서빙(vLLM)은 동시 요청을 묶어 처리한다. 동시 수는 ZZAIMY_BUNDLE_WORKERS(기본 3)
+            # 묶음 문서 처리 — 동시 수는 ZZAIMY_BUNDLE_WORKERS(기본 1). 실측(2026-10-09, AID 5건): 한 건씩 977초, 3건씩은 더 느렸다 —
+            # 시간 대부분이 토르 27B 생성(문서당 ~3분)인데 젯슨은 동시 요청에도 전체 생성 속도가 거의 안 늘고, MinerU(VM CPU)는 서로 다툰다
             background.add_task(_process_bundle, jobs)
         return made
 
     def _process_bundle(jobs: list[tuple[int, Path]]) -> None:
         from concurrent.futures import ThreadPoolExecutor
 
-        workers = max(1, int(os.environ.get("ZZAIMY_BUNDLE_WORKERS", "3") or 3))
+        workers = max(1, int(os.environ.get("ZZAIMY_BUNDLE_WORKERS", "1") or 1))
         with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as ex:
             for fut in [ex.submit(_process_then_identify, db, did, path, True) for did, path in jobs]:
                 try:
