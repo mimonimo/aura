@@ -1824,7 +1824,7 @@ def create_app(
                                       project_id=(proj_ or {}).get("id"), owner=owner_, dept=a_dept, access_level=a_level)
             db.add_file("attachment", str(stored), name=attachment.filename, session_id=session_id, doc_id=att_doc,
                         size=stored.stat().st_size)
-            background.add_task(processor.process, db, att_doc, stored)
+            background.add_task(_process_attachment, att_doc, stored)
             markers.append(f"[첨부#{att_doc}] {attachment.filename}")
         if markers:
             shown = "\n".join(markers) + "\n" + q
@@ -1834,6 +1834,14 @@ def create_app(
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
         _schedule_answer(background, session_id, q, stored, criteria, (web or "").strip().lower()[:8])   # "1"=웹 검색, "model"=모델 지식
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
+
+    def _process_attachment(doc_id: int, stored: Path) -> None:
+        """대화 첨부 — 판독·색인까지만 기다리고 검토 의견(27B ~3분)은 뒤로 미룬다. 답변은 판독이 끝나는 대로 이어서 시작된다."""
+        import inspect as _ins
+        if "defer_review" in _ins.signature(processor.process).parameters:
+            processor.process(db, doc_id, stored, defer_review=True)
+        else:
+            processor.process(db, doc_id, stored)
 
     def _strip_attach_prefix(text: str) -> str:
         """저장된 사용자 메시지에서 첨부 표시줄을 떼고 질문만 남긴다."""
