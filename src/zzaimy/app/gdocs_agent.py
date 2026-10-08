@@ -45,7 +45,7 @@ PLAN_SCHEMA = {
             "description": "자료·문서·기관 정보 어디에도 없어 비워 둔 값 — 담당자에게 물을 것(무엇이든: 사업단명·책임자·예산·일정·수치). 없으면 빈 배열",
             "items": {"type": "object",
                       "properties": {"name": {"type": "string", "description": "값 이름(짧게, 예: 사업단명, 총괄책임자 성명, 1차년도 예산)"},
-                                     "hint": {"type": "string", "description": "어디에 쓰이는 값인지 한 구절"}},
+                                     "hint": {"type": "string", "description": "어디에 쓰이는 값인지 한 구절 — 칸 번호(r·c) 대신 절·표·항목 이름으로"}},
                       "required": ["name", "hint"]},
         },
     },
@@ -202,13 +202,21 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
            and ((o.get("text") or "").strip() or o.get("op") == "bold"
                 or (o.get("op") == "fill" and isinstance(o.get("cells"), list) and any(isinstance(c, dict) for c in o["cells"])))]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
-    asks = [{"name": str(a.get("name") or "").strip()[:40], "hint": str(a.get("hint") or "").strip()[:80]}
+    asks = [{"name": _plain(str(a.get("name") or ""))[:40], "hint": _plain(str(a.get("hint") or ""))[:80]}
             for a in (data.get("asks") or []) if isinstance(a, dict) and str(a.get("name") or "").strip()][:6]
     return {"reply": (data.get("reply") or "").strip(), "ops": ops, "asks": asks}
 
 
 _RENAME_CUE = re.compile(r"(?:이름|제목|파일명|문서명).{0,12}(?:바꿔|바꾸|변경|수정|고쳐|해\s*줘|으로|로)|(?:으로|로)\s*(?:이름|제목).{0,6}(?:바꿔|바꾸|변경|지어|해)|이름\s*지어|제목\s*지어")
 _MOVE_CUE = re.compile(r"(?:폴더|프로젝트).{0,12}(?:옮겨|옮기|이동|넣어|넣어\s*줘|으로|로)|(?:으로|로)\s*(?:옮겨|옮기|이동)")
+
+
+_CELL_REF = re.compile(r"\s*표\s*\d*\s*의?\s*r\d+\s*,?\s*c\d+\s*칸?(?:에|의)?\s*|\s*\(?\s*r\d+\s*,?\s*c\d+\s*\)?\s*칸?(?:에|의)?\s*")
+
+
+def _plain(text: str) -> str:
+    """담당자에게 보일 말 — 모델이 붙인 내부 칸 번호(「표의 r0 c1 칸에」)를 뗀다(리허설: 입력 요청 안내에 그대로 보임)."""
+    return re.sub(r"\s{2,}", " ", _CELL_REF.sub(" ", text)).strip(" ,·")
 
 
 def _asked_for(op: str, command: str) -> bool:
