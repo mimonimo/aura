@@ -1318,3 +1318,15 @@ def test_ask_hints_hide_internal_cell_numbers():
 
     assert _plain("가. 과제 개요 표의 r0 c1 칸에 입력할 과제 명칭") == "가. 과제 개요 입력할 과제 명칭"
     assert "r3" not in _plain("핵심 성과지표 기준값(r3, c2)")
+
+
+def test_doc_level_guides_reach_section_materials():
+    """문서 앞머리의 작성 지침(개조식 규칙)이 절 재료에 들어간다."""
+    from zzaimy.app import drafting
+
+    content = [_para(1, "사업계획서\n", "TITLE"), _para(20, gdocs.GUIDE_PREFIX + "본문은 개조식으로 쓴다(□ → ○ → -).\n"),
+               _para(70, "Ⅰ. 배경\n", "HEADING_1"), _para(80, "1. 추진 배경\n", "HEADING_2")]
+    info = gdocs.outline({"body": {"content": content}})
+    rules = drafting.doc_guides(info)
+    assert "개조식" in rules
+    assert "[문서 전체 작성 규칙" in drafting.render_materials({"doc_rules": rules, "instructions": "x"})
