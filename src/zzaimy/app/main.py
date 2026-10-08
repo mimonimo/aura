@@ -2099,9 +2099,8 @@ def create_app(
 
         if defer_review and "defer_review" in _ins.signature(processor.process).parameters:
             processor.process(db_, doc_id, stored, defer_review=True)
-            # 판독·색인까지 끝났으니 문서는 이미 쓸 수 있다 — 뒤 단계(정체 읽기 27B ~100초·분류·열람 PDF)는 한 줄 대기열로
-            # (실측 2026-10-09: 묶음 5건 864초 중 정체 읽기가 문서마다 ~100초)
-            _TAIL_QUEUE.submit(_after_process, db_, doc_id, user_chose_type)
+            # 판독·색인까지 끝났으니 문서는 이미 쓸 수 있다 — 뒤 단계(정체 읽기 27B ~100초·분류·열람 PDF)는 묶음 판독이 다 끝난 뒤
+            # 한 줄 대기열로(_process_bundle). 판독과 겹치면 PDF 라이브러리(pdfium)를 두 스레드가 함께 써 프로세스가 죽었다(2026-10-09 실측)
             return
         processor.process(db_, doc_id, stored)
         _after_process(db_, doc_id, user_chose_type)
@@ -2523,6 +2522,8 @@ def create_app(
                     fut.result()
                 except Exception:
                     logging.getLogger(__name__).exception("묶음 문서 처리 실패")
+        for did, _path in jobs:                          # 판독이 다 끝난 뒤에 뒤 단계 — 판독과 겹치지 않게
+            _TAIL_QUEUE.submit(_after_process, db, did, True)
 
     def _link_past_materials(project: dict) -> list[dict]:
         """같은 사업의 지난 자료(다른 연도의 공고·기본계획·지침) 를 프로젝트 기준으로 잇는다 — 이름 낱말(연도·번호 제외) 7할 이상 겹치는
