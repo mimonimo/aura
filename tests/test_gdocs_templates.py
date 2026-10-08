@@ -70,3 +70,13 @@ def test_length_notes_come_from_measured_medians():
     assert gt._length_note("plan", "1. 추진 배경 및 필요성") == "분량 — 실문서 같은 절 중앙값 약 1,800자(표 포함)"
     assert gt._length_note("plan", "사업 요약") == ""
     assert all(k in gt._LEN[sid] for sid in gt.LENGTH_OF for k in gt.LENGTH_OF[sid].values())
+
+
+def test_program_templates_have_measured_common_parts():
+    """단위 프로그램 문서 1,151건(24개 사업)에서 여러 사업이 두는 요소 — 모집·선발, 협력 기관, 평가 방법, 참여 현황, 운영 사진."""
+    plan = [b["text"] for b in gt.PROGRAM_PLAN["blocks"] if "h" in b]
+    report = [b["text"] for b in gt.PROGRAM_REPORT["blocks"] if "h" in b]
+    for h in ("3. 참여 대상 및 모집·선발", "5. 운영 체계 및 협력 기관", "6. 성과 목표 및 평가 방법", "7. 안전·개인정보 관리"):
+        assert h in plan, h
+    for h in ("3. 참여 현황", "5. 협력 기관 참여 실적", "8. 운영 사진"):
+        assert h in report, h
