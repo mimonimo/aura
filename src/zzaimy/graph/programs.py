@@ -768,16 +768,6 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                 stats["round_fixed"] = stats.get("round_fixed", 0) + 1
             a.round = a.year - start + 1
             stats["converted"] += 1
-        if a.year and not (start <= a.year <= (end or 9999)) and getattr(a, "year_src", "") == "head":
-            # 본문 앞머리에서 우연히 잡힌 연도(협약 기업 설립 연도, 첫해 보고서의 직전 연도 실적 등)는 수행 연도가 아니다 —
-            # 사업은 두고 연도만 버린다(K-20261004-03 의 규칙. 10/9 실측: LINC3.0·LINC+ 폴더 문서 885건이 이 때문에 미분류)
-            a.evidence = list(a.evidence) + [f"본문 연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 연도만 버림"]
-            a.year = None
-            a.round = None if a.round and not (1 <= a.round <= ((end or start + 11) - start + 1)) else a.round
-            if a.round:
-                a.year = start + a.round - 1
-            stats["head_year_dropped"] = stats.get("head_year_dropped", 0) + 1
-            continue
         if a.year and not (start <= a.year <= (end or 9999)):
             text = re.sub(r"[\s.·\-_]+", "", f"{d.get('path') or ''}/{d.get('filename') or ''}").upper()
             other = _span_match(text, a.year, [sp for sp in (spans or []) if sp["id"] != a.program])
@@ -787,6 +777,18 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                 a.program, a.program_name, a.status = other["id"], (card_names or {}).get(other["id"]) or other["name"], "period"
                 a.round = a.year - other["start"] + 1
                 stats["moved_to_period_program"] = stats.get("moved_to_period_program", 0) + 1
+                continue
+            if getattr(a, "year_src", "") == "head":
+                # 앞뒤 단계 사업도 맞지 않고 연도가 본문 앞머리에서 우연히 잡힌 것(협약 기업 설립 연도, 첫해 보고서의 직전 연도 실적)이면
+                # 수행 연도가 아니다 — 사업은 두고 연도만 버린다(K-20261004-03. 10/9: LINC3.0·LINC+ 폴더 문서 885건이 미분류로 남던 것).
+                # 앞뒤 단계로 옮기는 위 규칙이 먼저다 — 그 순서를 바꿨다가 「링크/RISE사업」 문서가 LINC 로 남은 회귀(10/9, 쓰기 전에 멈춤)
+                a.evidence = list(a.evidence) + [f"본문 연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 연도만 버림"]
+                a.year = None
+                if a.round and 1 <= a.round <= ((end or start + 11) - start + 1):
+                    a.year = start + a.round - 1
+                else:
+                    a.round = None
+                stats["head_year_dropped"] = stats.get("head_year_dropped", 0) + 1
                 continue
             a.evidence = list(a.evidence) + [f"연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 확정하지 않음"]
             a.program, a.program_name, a.status = "", "", "review"
