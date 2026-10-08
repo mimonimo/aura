@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -86,6 +87,9 @@ def _vision_model_name() -> str:
         return getattr(c, "vision_model", "") or c.model
     except Exception:
         return "비전 모델"
+
+
+_MINERU_SLOT = threading.BoundedSemaphore(int(os.environ.get("ZZAIMY_MINERU_SLOTS", "1") or 1))
 
 
 def _vision_available() -> bool:
@@ -635,7 +639,8 @@ class DocumentProcessor:
         from zzaimy.ingest.parsers.mineru import MineruNotInstalled, MineruParser
 
         try:
-            with tempfile.TemporaryDirectory(prefix="zz-mineru-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="zz-mineru-") as tmp, _MINERU_SLOT:
+                # MinerU 는 VM CPU 를 다 쓴다 — 묶음 접수를 동시에 돌려도 이것만은 한 번에 하나(동시 3건이면 서로 다퉈 16분 → 42분, 2026-10-09 실측)
                 parsed = MineruParser(method=method).parse(file_path, work_dir=Path(tmp))
                 self._last_result = parsed
                 if method == "ocr":
