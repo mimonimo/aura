@@ -1136,6 +1136,8 @@ def create_app(
         if not gdrive.list_accounts():
             return False, ""
         title = _draft_title(q.removeprefix(_COMMON_PREFIX))
+        if project and all(t in _GENERIC_WORDS or len(t) < 2 for t in re.split(r"\s+", title.strip()) if t):
+            title = f"{project.get('name', '').strip()} {title}".strip()[:60]   # 「사업계획서」 만으로는 어느 사업 것인지 모른다
         try:
             acct_ = accounts.get(owner, {}) if password is not None else {}
             made = gdrive_files.auto_document(db, session_id, owner, title, project_name=(project or {}).get("name"),
@@ -1150,6 +1152,8 @@ def create_app(
             _chat_step(session_id, "공통 양식 까는 중")
             try:
                 gdocs_templates.render(made["account"], made["doc"], spec)
+                # 공통 양식으로 만든 문서 — 한글 원본 서식이 없으니 내보내기는 Word 로(남의 서식에 붓지 않게, 리허설 2026-10-08)
+                db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": made["doc"], "account": made["account"], "template": spec["id"]}))
                 note = f" 「{spec['title'].replace('(구글 독스)', '').strip()}」 을 깔아 두었습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."
             except Exception as e:
                 logging.getLogger("zzaimy.app.gdocs").warning("공통 양식 깔기 실패 (대화 %s): %s", session_id, type(e).__name__)
@@ -1483,6 +1487,31 @@ def create_app(
                 from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf, hwpx_fill as _hf
 
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+                if link.get("template"):
+                    # 공통 양식으로 쓴 문서는 한글 원본 서식이 없다 — Word(docx)로 내보내 같은 '작성' 폴더에 둔다(옛 판은 휴지통)
+                    try:
+                        info_ = _gd.get(link["account"], link["doc"])
+                        from zzaimy.ingest import gdrive as _gdr
+                        http_ = _gdr._http()
+                        r_ = http_.get(f"{_gdr.API}/files/{_gd.doc_id(link['doc'])}/export", headers=_gf._headers(link["account"], http_),
+                                       params={"mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"})
+                        if r_.status_code != 200:
+                            raise RuntimeError(f"내보내기 {r_.status_code}")
+                        title_ = info_["title"]
+                        name_ = f"{title_} 완성본 {_date.today().isoformat()}.docx"
+                        acct_ = accounts.get(owner, {}) if password is not None else {}
+                        folder_ = _gf.project_folder_for(db, link["account"], proj_, acct_.get("dept") or None, sub="작성")
+                        _gf.trash_older(link["account"], folder_, f"{title_} 완성본 ", ".docx")
+                        up_ = _gf.upload_file(link["account"], r_.content, name_,
+                                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document", folder_, reuse=False)
+                        db.add_file("google", up_["url"], name=name_, session_id=session_id)
+                        text = (f"이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다. Word 파일 「{name_}」 로 내보냈습니다 — 한글에서 열어 hwpx 로 저장할 수 있습니다. "
+                                f"{up_['url']}\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」 으로 다시 쓰면 서식 그대로 채웁니다.")
+                    except Exception as e:
+                        logging.getLogger("zzaimy.app.gdocs").exception("공통 양식 문서 내보내기 실패 (대화 %s)", session_id)
+                        text = f"Word 로 내보내지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
+                    db.add_chat(session_id, "assistant", _scrub_internal(text))
+                    return
                 src = _working_copy_source(session_id, session_, q, "한글 완성본을 만들")
                 if not src:
                     return
@@ -2429,6 +2458,7 @@ def create_app(
 
         owner = getattr(request.state, "user", "zzaimy")
         made = {"criteria": [], "intake": [], "skipped": []}
+        jobs: list[tuple[int, Path]] = []
         for f in files:
             name = f.filename or "이름없음"
             suffix = Path(name).suffix.lower()
@@ -2444,7 +2474,7 @@ def create_app(
                                          sector=project["sector"], project_id=int(project["id"]), owner=owner)
                 stored = storage.adopt_original(db, doc_id, stored)
                 db.add_project_criteria(int(project["id"]), [doc_id])
-                background.add_task(_process_then_identify, db, doc_id, stored, True)
+                jobs.append((doc_id, stored))
                 made["criteria"].append(doc_id)
             else:
                 d_dept, d_level = classify(project["sector"], owner=owner, uploader_dept=getattr(request.state, "dept", ""),
@@ -2452,9 +2482,24 @@ def create_app(
                 doc_id = db.add_document(filename=name, stored_path=str(stored), doc_type=project["sector"],
                                          project_id=int(project["id"]), owner=owner, dept=d_dept, access_level=d_level)
                 stored = storage.adopt_original(db, doc_id, stored)
-                background.add_task(_process_then_identify, db, doc_id, stored, True)
+                jobs.append((doc_id, stored))
                 made["intake"].append(doc_id)
+        if jobs:
+            # 묶음 안 문서는 동시에 몇 건씩 — 문서마다 그림 판독·27B 검토·제목 판독이 이어져 한 건씩이면 5건에 16~17분(리허설 2026-10-08).
+            # 서빙(vLLM)은 동시 요청을 묶어 처리한다. 동시 수는 ZZAIMY_BUNDLE_WORKERS(기본 3)
+            background.add_task(_process_bundle, jobs)
         return made
+
+    def _process_bundle(jobs: list[tuple[int, Path]]) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        workers = max(1, int(os.environ.get("ZZAIMY_BUNDLE_WORKERS", "3") or 3))
+        with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as ex:
+            for fut in [ex.submit(_process_then_identify, db, did, path, True) for did, path in jobs]:
+                try:
+                    fut.result()
+                except Exception:
+                    logging.getLogger(__name__).exception("묶음 문서 처리 실패")
 
     def _link_past_materials(project: dict) -> list[dict]:
         """같은 사업의 지난 자료(다른 연도의 공고·기본계획·지침) 를 프로젝트 기준으로 잇는다 — 이름 낱말(연도·번호 제외) 7할 이상 겹치는
