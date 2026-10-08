@@ -1225,3 +1225,12 @@ def test_bundle_intake_defers_review(tmp_path, monkeypatch):
     pipeline._REVIEW_QUEUE.submit(lambda: None).result(timeout=30)          # 대기열이 앞 일을 끝낼 때까지
     assert seen["first"] == ("reviewed", pipeline.REVIEW_PENDING)
     assert db.get_document(did)["ai_review"] == "검토 끝"
+
+
+def test_summary_section_is_written_last():
+    """「사업 요약」 같은 요약 절은 본문 절을 다 쓴 뒤 — 다음 절 차례의 맨 뒤."""
+    from zzaimy.app import drafting
+
+    secs = [{"index": 1, "level": 2, "heading": "사업 요약", "leaf": True, "body_chars": 0},
+            {"index": 2, "level": 2, "heading": "1. 추진 배경", "leaf": True, "body_chars": 0}]
+    assert [s["index"] for s in drafting.target_sections({"sections": secs}, "다음 절 작성해 줘")] == [2]
