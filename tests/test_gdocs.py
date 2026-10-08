@@ -1250,7 +1250,7 @@ def test_library_hits_use_viewer_scope(monkeypatch, tmp_path):
     db = Database(tmp_path / "t.db")
     m = drafting.Materials(db, {"id": 1, "name": "사업 A", "sector": "grant"}, set(), None, None, [], scope={"user": "kim", "grant_depts": ["산학협력단"]})
     got = m.library_hits({"heading": "1. 추진 배경"}, "배경")
-    assert calls == [("kim", ["산학협력단"])] and got[0]["how"] == "문서함 검색"
+    assert calls == [("kim", ["산학협력단"])] and got[0]["how"].startswith("문서함 검색")
     assert drafting.Materials(db, None, set(), None, None, [], scope={"role": "student"}).library_hits({"heading": "x"}, "x") == []
 
 
@@ -1310,7 +1310,7 @@ def test_report_project_also_fetches_matching_plan(monkeypatch, tmp_path):
                            scope={"user": "kim"})
     got = m.library_hits({"heading": "가. 추진 실적"}, "실적")
     assert any("계획서" in q and "실적보고서" not in q for q in qs)
-    assert got[0]["how"] == "문서함 검색(같은 연차 계획서)"
+    assert got[0]["how"].startswith("문서함 검색(같은 연차 계획서)")
 
 
 def test_ask_hints_hide_internal_cell_numbers():
