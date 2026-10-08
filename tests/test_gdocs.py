@@ -1201,3 +1201,27 @@ def test_replace_does_not_touch_section_headings(tmp_path, monkeypatch):
     lines = gdocs_agent.apply([{"op": "replace", "old": "사업 개요", "text": "본 사업은 …"}], "a@b", "D", user="u",
                               data_dir=tmp_path, headings={"사업개요"})
     assert calls == [] and "절 제목" in lines[0]
+
+
+def test_bundle_intake_defers_review(tmp_path, monkeypatch):
+    """묶음 접수는 검토 의견을 뒤로 미룬다 — 문서는 먼저 쓸 수 있고(status reviewed), 검토 의견은 대기열이 이어 쓴다."""
+    import time as _t
+    monkeypatch.delenv("ZZAIMY_LIGHT_PROCESS", raising=False)
+    from zzaimy.app import pipeline
+
+    seen = {}
+
+    class P(pipeline.DocumentProcessor):
+        def _review_with_retry(self, doc_id, text, doc_type, tries=3):
+            _t.sleep(0.2)
+            return "검토 끝"
+    db = __import__("zzaimy.app.db", fromlist=["Database"]).Database(tmp_path / "t.db")
+    f = tmp_path / "a.txt"
+    f.write_text("2026 사업 공고\n지원 대상은 전문대학이다. 사업 기간은 2년이다." * 20, encoding="utf-8")
+    did = db.add_document(filename="a.txt", stored_path=str(f), doc_type="grant")
+    P().process(db, did, f, defer_review=True)
+    d = db.get_document(did)
+    seen["first"] = (d["status"], d["ai_review"])
+    pipeline._REVIEW_QUEUE.submit(lambda: None).result(timeout=30)          # 대기열이 앞 일을 끝낼 때까지
+    assert seen["first"] == ("reviewed", pipeline.REVIEW_PENDING)
+    assert db.get_document(did)["ai_review"] == "검토 끝"
