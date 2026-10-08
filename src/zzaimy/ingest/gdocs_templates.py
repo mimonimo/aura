@@ -17,6 +17,8 @@ import json
 import re
 from pathlib import Path
 
+from zzaimy.ingest.gdocs import GUIDE_PREFIX
+
 PAGE_W, PAGE_H, MARGIN = 595.28, 841.89, 56.7          # A4, 20mm
 KV_KEY_MAX = 0.30                                        # 항목형 표의 항목 칸 상한(쪽 폭 비율)
 HEAD_ABOVE = {"HEADING_1": 24, "HEADING_2": 16, "HEADING_3": 12}
@@ -520,12 +522,12 @@ def render(email: str, doc: str, spec: dict, http=None) -> None:
     for line in spec.get("cover", []):
         b.para(line, "SUBTITLE", center=True)
     if spec.get("intro"):
-        b.para("작성 지침 — " + spec["intro"], guide=True)
+        b.para(GUIDE_PREFIX + spec["intro"], guide=True)
     for blk in spec["blocks"]:
         if "h" in blk:
             b.para(blk["text"], f"HEADING_{blk['h']}")
         elif "guide" in blk:
-            b.para("작성 지침 — " + blk["guide"], guide=True)
+            b.para(GUIDE_PREFIX + blk["guide"], guide=True)
         elif "p" in blk:
             b.para(blk["p"])
         elif "table" in blk:

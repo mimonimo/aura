@@ -252,6 +252,34 @@ def _body_style(start: int, end: int) -> dict:
                                      "fields": "namedStyleType,lineSpacing,spaceAbove,spaceBelow"}}
 
 
+GUIDE_PREFIX = "작성 지침 — "                       # 독스 공통 양식(gdocs_templates)의 회색 지침 문단 머리
+
+
+def _guide_anchor(body: list[dict], info: dict, sec: dict) -> int | None:
+    """공통 양식 절이면 새 글이 들어갈 자리 — 지침 문단 뒤, 그 뒤 첫 표 앞(앞서 넣은 글 뒤에 이어지게).
+    돌려주는 것은 그 자리 앞 문단의 줄바꿈 인덱스. 지침 문단이 없으면 None(기존대로 절 끝)."""
+    secs = sorted(info["sections"], key=lambda x: x.get("start", 0))
+    i = next((k for k, x in enumerate(secs) if x["index"] == sec["index"]), None)
+    if i is None:
+        return None
+    lo, hi = int(sec["start"]), int(secs[i + 1]["start"]) if i + 1 < len(secs) else int(info["end"])
+    seen_guide, last_para_end = False, None
+    for el in body:
+        st = int(el.get("startIndex", 0))
+        if st < lo or st >= hi:
+            continue
+        if "table" in el:
+            if seen_guide:
+                break
+            continue
+        if "paragraph" in el:
+            if _para_text(el["paragraph"]).startswith(GUIDE_PREFIX):
+                seen_guide = True
+            if seen_guide:
+                last_para_end = int(el["endIndex"])
+    return (last_para_end - 1) if seen_guide and last_para_end else None
+
+
 def insert_into_section(email: str, doc: str, section_index: int, text: str, *, user: str,
                         data_dir: Path, scrub=None, http=None) -> dict:
     """절(제목 아래) 끝에 글을 넣는다. 글은 scrub(개인정보 검사기)을 거친다. 감사 기록을 남긴다."""
@@ -266,7 +294,21 @@ def insert_into_section(email: str, doc: str, section_index: int, text: str, *, 
     sec = secs.get(int(section_index))
     if sec is None:
         raise ValueError("절을 다시 골라 주세요 — 문서 구조가 바뀌었습니다")
-    if int(sec.get("table_end") or 0) > int(sec["end"]) - 1:
+    try:
+        r = _read(email, doc, http)
+        _raise(r)
+        anchor = _guide_anchor(body_content(r.json()), info, sec)
+    except Exception:
+        anchor = None                                   # 본문을 다시 못 읽으면 기존대로 절 끝에
+    if anchor is not None:
+        # 공통 양식 절 — 지침 아래·표 앞에 새 문단. 지침의 회색 기울임 글꼴을 물려받지 않게 글자 모양도 되돌린다
+        at = anchor
+        payload = "\n" + text
+        reqs = [{"insertText": {"location": {"index": at}, "text": payload}},
+                _body_style(at + 1, at + len(payload)),
+                {"updateTextStyle": {"range": {"startIndex": at + 1, "endIndex": at + len(payload)}, "textStyle": {},
+                                     "fields": "italic,fontSize,foregroundColor"}}]
+    elif int(sec.get("table_end") or 0) > int(sec["end"]) - 1:
         # 절이 표(작성방법 상자)로 끝난다 — 표 바로 뒤(다음 문단 앞)에 새 문단으로 넣고, 그 문단의 모양은 본문으로 되돌린다
         # (표 뒤 문단이 다음 절 제목이면 넣은 글이 제목 모양을 물려받는다)
         at = min(int(sec["table_end"]), int(info["end"]) - 1)
