@@ -871,3 +871,14 @@ def test_fill_period_drops_only_body_year_out_of_period():
     assert asg[0].program == "program:linc30" and asg[0].year is None and "연도만 버림" in asg[0].evidence[-1]
     assert asg[1].program == "" and asg[1].status == "review"
     assert st["head_year_dropped"] == 1 and st["out_of_period"] == 1
+
+
+def test_head_year_still_moves_to_matching_phase_program_first():
+    """본문 연도가 기간 밖이어도 기간·이름이 맞는 앞뒤 단계 사업이 있으면 그리로 옮긴다(연도만 버리기보다 먼저) — 「링크/RISE사업」 회귀."""
+    from zzaimy.graph import programs as P
+
+    x = P.Assignment(doc_id=1, program="program:linc", program_name="LINC", year=2025, status="auto")
+    x.year_src = "head"
+    spans = [{"id": "program:rise", "name": "RISE", "start": 2025, "end": None, "terms": ["RISE"]}]
+    P.fill_period([{"path": "링크/RISE사업(2025~)/1차년도", "filename": "과제계획서.hwp"}], [x], {"program:linc": (2012, 2016)}, spans)
+    assert x.program == "program:rise" and x.year == 2025
