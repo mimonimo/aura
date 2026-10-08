@@ -51,9 +51,10 @@ def family_unfilled(info: dict, section: dict) -> bool:
 
 
 def writable(section: dict) -> bool:
-    """쓸 수 있는 절 — 번호가 두 마디 이상(1.1, 2.1.1)인 본문 절. 장 제목(1., Ⅰ.)이나 앞머리는 아니다."""
+    """쓸 수 있는 절 — 번호가 두 마디 이상(1.1, 2.1.1)인 본문 절, 또는 제목 2단계 이하의 끝 절(소제목이 없는 절 — 「Ⅰ. → 1. → 가.」
+    체계의 독스 공통 양식처럼 번호가 한 마디인 양식). 장 제목(1., Ⅰ.)이나 앞머리는 아니다."""
     num, _ = section_context.split_number(section.get("heading") or "")
-    return "." in num
+    return "." in num or (bool(section.get("leaf")) and int(section.get("level") or 0) >= 2)
 
 
 def target_sections(info: dict, command: str, filled_ok: bool = False) -> list[dict]:

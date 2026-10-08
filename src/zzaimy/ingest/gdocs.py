@@ -186,7 +186,8 @@ def outline(document: dict) -> dict:
         cur["chars"] += len(text.strip())
         if text.strip():
             cur["text"] = (cur["text"] + "\n" + text.rstrip("\n")).strip()      # 절의 글(표는 칸을 ' | ' 로) — 목차의 같은 제목과 헷갈리지 않게 구조에서 자른다
-            if not (is_table and "작성방법" in text):
+            if not (is_table and "작성방법" in text) and not (not is_table and text.strip().startswith(GUIDE_PREFIX.strip())):
+                # 공통 양식의 회색 작성 지침 문단도 작성방법이다(본문 아님) — 세면 모든 절이 '이미 쓴 절'로 보인다(2026-10-08)
                 cur["body_chars"] += len(text.strip())                          # 본문 글자 — 양식의 작성방법 상자는 본문이 아니다
                 if is_table:
                     # 양식 표의 빈 칸 비율 — 머리 칸만 있고 값 칸이 빈 표는 '아직 안 쓴 절'의 표시(2026-09-29: 표 채우기)
@@ -196,6 +197,9 @@ def outline(document: dict) -> dict:
                 else:
                     cur["para_chars"] = cur.get("para_chars", 0) + len(text.strip())
     sections.append(cur)
+    for i, sec_ in enumerate(sections):                 # 끝 절 — 바로 다음 절이 같은 급이거나 위 급(소제목이 없다)
+        nxt = sections[i + 1] if i + 1 < len(sections) else None
+        sec_["leaf"] = nxt is None or int(nxt.get("level") or 0) <= int(sec_.get("level") or 0)
     anchors = {int(el.get("startIndex", 0)): el.get("paragraph", {}).get("paragraphStyle", {}).get("headingId") for el in body}
     tab_id = next((tab.get("tabProperties", {}).get("tabId") for tab in document.get("tabs", []) or []
                    if tab.get("documentTab", {}).get("body", {}).get("content") is body), None)
