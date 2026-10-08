@@ -24,6 +24,7 @@ _DRAFT = re.compile(r"작성|채워|채우|써\s*줘|써줘|쓰자|초안|넣어
 _PLACEHOLDER = re.compile(r"[○◯]{2,}|OOO|000|\(\s*\)|_{3,}")
 MAX_SECTIONS_PER_TURN = 4
 _SUMMARY = re.compile(r"요약")
+_REPORT_NAME = re.compile(r"(?:실적|결과|성과)\s*보고서?")
 _TOC = re.compile(r"\s*(?:목\s*차|차\s*례|CONTENTS)\b", re.I)
 # 문서 전체 초안 요청(「사업계획서 초안 작성해 줘」) — 절을 말하지 않아도 빈 절부터 몇 개씩 쓴다(리허설 2026-10-08: 일반 편집으로 가서 한 글자도 안 씀)
 _DOC_DRAFT = re.compile(r"(?:계획서|보고서|신청서|제안서|문서|서식|양식).{0,12}(?:초안|작성|써)")
@@ -234,9 +235,15 @@ class Materials:
             return []
         try:
             from zzaimy.app import grant_search
-            q = f"{(self.project or {}).get('name', '')} {section.get('heading', '')} {query}"[:400]
+            pname = (self.project or {}).get("name", "")
+            q = f"{pname} {section.get('heading', '')} {query}"[:400]
             own = {int(d["id"]) for d in self.past_docs()}
-            hits = grant_search.search(self.db, q, k=k + 2, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]
+            hits = [dict(h, how="문서함 검색") for h in grant_search.search(self.db, q, k=k + 2, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]]
+            if _REPORT_NAME.search(pname):
+                # 실적·결과보고서는 같은 사업·연차 계획서와 견주어 쓴다 — 계획서도 따로 찾아 앞에 둔다(시험: 「계획 대비 실적」 절이 0자)
+                q2 = f"{_REPORT_NAME.sub('계획서', pname)} {section.get('heading', '')} {query}"[:400]
+                plan_hits = grant_search.search(self.db, q2, k=3, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]
+                hits = [dict(h, how="문서함 검색(같은 연차 계획서)") for h in plan_hits[:2]] + hits
         except Exception:
             return []
         out = []
@@ -249,8 +256,8 @@ class Materials:
                 continue                                  # 목차·그림 표시뿐인 조각, 앞 절에 이미 준 조각은 빼다(실측: 같은 그림 조각이 모든 절 1순위)
             if cid is not None:
                 self._lib_seen.add(cid)
-            out.append({"title": " > ".join(h.get("path") or [])[:80], "how": "문서함 검색", "text": (h.get("content") or "")[:700]})
-            if len(out) >= k:
+            out.append({"title": " > ".join(h.get("path") or [])[:80], "how": h.get("how") or "문서함 검색", "text": (h.get("content") or "")[:700]})
+            if len(out) >= k + (2 if _REPORT_NAME.search((self.project or {}).get("name", "")) else 0):
                 break
         return out
 
