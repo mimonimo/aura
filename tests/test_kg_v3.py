@@ -855,3 +855,19 @@ def test_year_conflict_between_plan_and_report_sections():
     assert m.year_conflict("적정성 (’23.3.1~’24.2.29)", "적정성 (’24.3.1~’25.2.28)")
     assert not m.year_conflict("인력양성 계획", "인력양성 실적 3차년도")
     assert not m.year_conflict("3차년도 계획", "3차년도 실적")
+
+
+def test_fill_period_drops_only_body_year_out_of_period():
+    """본문 앞머리 연도(기업 설립 연도·직전 연도 실적)가 기간 밖이면 사업은 두고 연도만 버린다 — 제목 연도는 지금처럼 확정하지 않음."""
+    from zzaimy.graph import programs as P
+
+    def a(year, src):
+        x = P.Assignment(doc_id=1, program="program:linc30", program_name="LINC3.0", year=year, status="auto")
+        x.year_src = src
+        return x
+    docs = [{"path": "링크/업무공유/LINC3.0/협약업체자료"}, {"path": "링크/업무공유/LINC3.0/참고"}]
+    asg = [a(2003, "head"), a(2014, "title")]
+    st = P.fill_period(docs, asg, {"program:linc30": (2022, 2027)})
+    assert asg[0].program == "program:linc30" and asg[0].year is None and "연도만 버림" in asg[0].evidence[-1]
+    assert asg[1].program == "" and asg[1].status == "review"
+    assert st["head_year_dropped"] == 1 and st["out_of_period"] == 1
