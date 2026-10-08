@@ -383,6 +383,13 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
 
     절 작성이면(focus) 재료와 함께 부르고, 실행 기록(재료·지시·모델의 초안·참고 정답)을 남긴다 — Writer 학습 데이터 공방의 재료."""
     info = info or gdocs.get(link["account"], link["doc"], http)
+    if focus is None and "[이 절에 이미 있는 양식 표" not in materials:
+        try:                                            # 절을 지목하지 않은 명령에도 양식 표 격자를 준다(번호 짐작 방지)
+            grids = gdocs.doc_table_grids(link["account"], link["doc"], http=http, info=info)
+            if grids:
+                materials = (materials + "\n\n" if materials else "") + gdocs.render_table_grids(grids, max_rows=12)
+        except Exception:
+            pass                                        # 격자를 못 읽어도 편집은 계속
     p = plan(client, command, info, evidence, materials=materials, focus=focus)
     # 모델이 물어야 한다고 한 값 — 호출부가 입력 양식 선택지로 띄운다(chat_asks 에 쌓아 둠, 답이 오면 지운다)
     if p.get("asks"):
