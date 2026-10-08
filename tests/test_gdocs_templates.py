@@ -16,8 +16,12 @@ def test_specs_follow_docs_rules():
 
 def test_plan_has_common_backbone_and_rules():
     heads = [b["text"] for b in gt.PLAN["blocks"] if "h" in b]
-    for part in ("Ⅰ. 사업 추진 목표", "Ⅱ. 사업 추진 체계", "Ⅲ. 사업 추진 계획", "Ⅳ. 성과관리 계획", "Ⅴ. 재정투자 계획"):
+    for part in ("Ⅰ. 사업 추진 배경 및 목표", "Ⅱ. 사업 추진 체계", "Ⅲ. 사업 추진 계획", "Ⅳ. 성과관리 계획", "Ⅴ. 재정투자 계획"):
         assert part in heads
+    # 실문서 절 집계(계획서 5,732건)에서 여러 사업이 두는 요소 — 빠지면 공통 양식이 얇아진다
+    for part in ("사업 요약", "1. 추진 배경 및 필요성", "2. 대학 중장기 발전계획과의 연계", "2. 위원회·협의체 운영", "6. 운영 규정 및 제도화",
+                 "3. 대응자금 확보 계획", "3. 자율성과지표 설정 근거", "5. 자체평가·환류 계획", "7. 이전 평가·컨설팅 결과 반영"):
+        assert part in heads, part
     text = gt.outline_text(gt.PLAN)
     assert "계산하지 말고" in text and "그대로 옮기고" in text           # 절대 규칙 1·5 를 지침에
 
