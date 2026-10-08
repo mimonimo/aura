@@ -1400,7 +1400,7 @@ def create_app(
                     return
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [])
+                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope)
                 inst = _asks.facts(db, session_)
                 parts_: list[str] = []
                 all_ops: list[dict] = []
@@ -1649,7 +1649,7 @@ def create_app(
                         review_focus = cands[0]
                         proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                         sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-                        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [])
+                        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope)
                         mm = mats.for_section(info, review_focus, q, storage.title_of)
                         review_mat = drafting.render_materials(mm, _asks.facts(db, session_))
                         hits = mm["criteria"] or hits
