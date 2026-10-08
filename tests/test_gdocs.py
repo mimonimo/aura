@@ -1351,3 +1351,12 @@ def test_one_project_entry_with_optional_files(docs_env, tmp_path):
     assert r.status_code == 303 and r.headers["location"].startswith("/project/")
     assert app.state.db.get_project(int(r.headers["location"].rsplit("/", 1)[1]))["name"] == "지역혁신 2027"
     assert c.post("/projects/bundle", data={"sector": "grant"}, follow_redirects=False).status_code == 400
+
+
+def test_single_level_template_sections_are_writable():
+    """단위 프로그램 양식처럼 절이 제목 1단계뿐이어도 끝 절이면 쓸 절 — 소제목을 거느린 장 제목은 아니다."""
+    from zzaimy.app import drafting
+
+    assert drafting.writable({"heading": "2. 추진 배경 및 필요성", "level": 1, "leaf": True})
+    assert not drafting.writable({"heading": "Ⅰ. 사업 추진 배경 및 목표", "level": 1, "leaf": False})
+    assert not drafting.writable({"heading": "사업계획서", "level": 0, "leaf": True})
