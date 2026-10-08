@@ -227,6 +227,23 @@ def view_url(file_id: str, mime: str) -> str:
     return VIEW_URL.get(mime, "https://drive.google.com/file/d/{id}/view").format(id=file_id)
 
 
+def trash_older(email: str, folder_id: str, prefix: str, suffix: str = "", keep: str = "", http=None) -> list[str]:
+    """폴더에서 이름이 prefix 로 시작하고 suffix 로 끝나는 옛 판을 휴지통으로(되돌릴 수 있음) — 새 판을 올리기 전에.
+    keep 은 남길 이름. 돌려주는 것은 보낸 파일 이름들. 이 앱이 만든 파일이라야 지워진다(drive.file 범위)."""
+    http = http or gdrive._http()
+    h = _headers(email, http)
+    q = f"'{folder_id}' in parents and trashed = false and name contains '{prefix.replace(chr(39), '')[:60]}'"
+    r = http.get(f"{gdrive.API}/files", headers=h, params={"q": q, "fields": "files(id,name)", "pageSize": 100,
+                                                          "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"})
+    out = []
+    for f in (r.json().get("files") or []) if r.status_code == 200 else []:
+        if f["name"].startswith(prefix) and f["name"].endswith(suffix) and f["name"] != keep:
+            t = http.patch(f"{gdrive.API}/files/{f['id']}", headers=h, params={"supportsAllDrives": "true"}, json={"trashed": True})
+            if t.status_code == 200:
+                out.append(f["name"])
+    return out
+
+
 def find_in_folder(email: str, name: str, folder_id: str, http=None) -> dict | None:
     """폴더 안에서 같은 이름의(휴지통 아닌) 파일 하나 — 열람본을 두 번 올리지 않기 위해."""
     http = http or gdrive._http()

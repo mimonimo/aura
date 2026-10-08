@@ -1503,6 +1503,10 @@ def create_app(
                                            doc_id=int(src["id"]), session_id=session_id)
                     acct_ = accounts.get(owner, {}) if password is not None else {}
                     folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
+                    try:                                        # 같은 서식의 옛 완성본은 휴지통으로 — 드라이브에 판이 쌓이지 않게(되돌릴 수 있음)
+                        _gf.trash_older(email, folder, f"{title} 완성본 ", ".hwpx")
+                    except Exception:
+                        logging.getLogger("zzaimy.app.gdocs").warning("옛 완성본 정리 실패 (대화 %s)", session_id)
                     up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
                     db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
                     text = (f"「{name}」 을 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
