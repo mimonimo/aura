@@ -918,6 +918,19 @@ def create_app(
                     db.add_chat(session_id, "assistant", why)
                     _chat_sources[session_id] = []
                     return
+        if not doc_material and _looks_like_drafting(q) and not _COMMON_ASKED.search(q):
+            # 프로젝트에 사업의 작성 서식이 있으면 공통 양식보다 그 서식이 먼저다 — 짐작하지 않고 고르게 한다
+            forms = _project_forms(project, session_id, q)
+            if forms:
+                names = "\n".join(f"- {storage.title_of(d.get('filename') or '')}" for d in forms)
+                db.add_chat(session_id, "assistant", "이 프로젝트에 작성 서식이 있습니다. 어느 것으로 쓸까요?\n" + names
+                            + "\n서식으로 쓰면 서식의 표·항목을 그대로 두고 채웁니다. 공통 양식은 여러 사업의 공통 뼈대로 새 문서를 만듭니다.")
+                opts = [{"kind": "pick", "text": f"「{storage.title_of(d.get('filename') or '')[:28]}」 으로 작성",
+                         "question": f"{storage.title_of(d.get('filename') or '')}으로 작업하자. {q}"} for d in forms[:3]]
+                opts.append({"kind": "pick", "text": "공통 양식으로 새 문서", "question": f"{_COMMON_PREFIX}{q}"})
+                _set_options(session_id, opts)
+                _chat_sources[session_id] = []
+                return
         if not doc_material and _looks_like_drafting(q):
             # 문서가 없는데 초안을 써 달라면 드라이브에 프로젝트 폴더·문서를 만들어 잇는다(주소 붙여넣기 없이)
             made, why = _auto_link_document(session_id, q, owner, project)
@@ -992,6 +1005,31 @@ def create_app(
     def _looks_like_working_on(q: str) -> bool:
         """있는 문서를 가지고 일하자는 말인가 — 서류 이름과 함께 작업·작성·수정·편집·열기 같은 낱말이 있을 때."""
         return bool(_WORK_WORDS.search(q or ""))
+
+    _COMMON_ASKED = re.compile(r"공통\s*양식")
+    _COMMON_PREFIX = "공통 양식으로 새 문서를 만들어 줘. "
+    _FORM_TITLE = re.compile(r"서식|양식")
+
+    def _project_forms(project: dict | None, session_id: int, q: str) -> list[dict]:
+        """프로젝트·대화 첨부 가운데 요청한 서류 갈래의 작성 서식 — 제목에 서식·양식이 있고, 요청 갈래(gdocs_templates.PICK)의 낱말도 맞는 것.
+        서류 갈래를 모르는 요청이면 제목에 서식·양식만 있으면 된다. 일반 낱말 규칙(사업 이름 규칙 없음)."""
+        from zzaimy.ingest import gdocs_templates
+
+        if not project:
+            return []
+        spec = gdocs_templates.pick(q)
+        pats = dict(gdocs_templates.PICK).get(spec["id"], ()) if spec else ()
+        cands = [db.get_document(i) for i in db.get_project_criteria_ids(int(project["id"]))]
+        cands += db.list_documents(project["sector"], project_id=int(project["id"]))
+        out, seen = [], set()
+        for d in cands:
+            if not d or d["id"] in seen:
+                continue
+            seen.add(d["id"])
+            title = storage.title_of(d.get("filename") or "")
+            if _FORM_TITLE.search(title) and all(re.search(p_, title) for p_ in pats[-1:]):
+                out.append(d)
+        return out
 
     def _project_doc_named(project: dict | None, session_id: int, q: str) -> dict | None:
         """질문이 지목한 프로젝트 문서 — 제목 낱말(2자 이상)의 6할 이상이 질문에 있으면 그 문서. 가장 많이 겹치는 것."""
@@ -1097,7 +1135,7 @@ def create_app(
 
         if not gdrive.list_accounts():
             return False, ""
-        title = _draft_title(q)
+        title = _draft_title(q.removeprefix(_COMMON_PREFIX))
         try:
             acct_ = accounts.get(owner, {}) if password is not None else {}
             made = gdrive_files.auto_document(db, session_id, owner, title, project_name=(project or {}).get("name"),

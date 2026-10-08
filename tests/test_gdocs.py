@@ -1049,3 +1049,25 @@ def test_plan_splits_insert_that_carries_table_cells():
     info = {"title": "t", "sections": [{"index": 4, "level": 2, "heading": "1. 현황", "chars": 0}], "text": "1. 현황"}
     p = gdocs_agent.plan(fake, "절을 써 줘", info)
     assert [(o["op"], o.get("table")) for o in p["ops"]] == [("insert", 0), ("fill", 2)]
+
+
+def test_drafting_in_project_with_form_asks_form_or_common(docs_env, tmp_path, monkeypatch):
+    """프로젝트에 사업의 작성 서식이 있으면 바로 공통 양식을 깔지 않고 고르게 한다 — 서식 우선, 짐작 금지."""
+    from zzaimy.app.main import create_app as _create
+
+    t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
+    t["staff@example.ac.kr"]["scopes"] = gdrive.SCOPES
+    (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
+    calls, folders = [], {}
+    monkeypatch.setattr(gdrive, "_http", lambda: _drive_files_transport(calls, folders))
+    app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                  processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    db = app.state.db
+    pid = db.create_project("grant", "지역혁신 2027", owner="zzaimy")
+    db.add_document("2027 지역혁신 사업계획서 작성서식.hwpx", str(tmp_path / "a.hwpx"), doc_type="grant", project_id=pid)
+    db.add_document("참여 동의서 양식.hwp", str(tmp_path / "b.hwp"), doc_type="grant", project_id=pid)     # 다른 갈래 서식은 후보가 아니다
+    r = client.post("/chat/send", data={"question": "올해 계획서 초안 작성해 줘", "project_id": str(pid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "작성 서식이 있습니다" in page and "작성서식" in page and "참여 동의서" not in page
+    assert db.get_setting(f"chat_google_doc:{int(r.headers['location'].rstrip('/').split('/')[-1])}", "") in ("", None)   # 아직 문서를 만들지 않았다
