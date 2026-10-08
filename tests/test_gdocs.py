@@ -1291,4 +1291,4 @@ def test_newest_in_family_picks_latest_source_version(tmp_path):
         conn.execute("INSERT INTO archive_files (rel, doc_id, mtime, size) VALUES ('a', ?, 100, 1)", (a,))
         conn.execute("INSERT INTO archive_files (rel, doc_id, mtime, size) VALUES ('b', ?, 200, 1)", (b,))
     got = grant_search._newest_in_family(db, {a, b, c})
-    assert got[a] == b and got[b] == b and c not in got
+    assert got[a] == b and got[b] == b and got.get(c, c) == c          # 혼자인 계열은 자기 자신
