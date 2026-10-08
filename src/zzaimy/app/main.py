@@ -1507,13 +1507,19 @@ def create_app(
                             raise RuntimeError(f"내보내기 {r_.status_code}")
                         title_ = info_["title"]
                         name_ = f"{title_} 완성본 {_date.today().isoformat()}.docx"
+                        from zzaimy.ingest import gdocs_templates as _gt
+                        try:
+                            data_, n_guides = _gt.strip_guides_docx(r_.content)       # 제출본엔 회색 작성 지침이 없어야 한다(작업본엔 남김)
+                        except Exception:
+                            data_, n_guides = r_.content, 0
                         acct_ = accounts.get(owner, {}) if password is not None else {}
                         folder_ = _gf.project_folder_for(db, link["account"], proj_, acct_.get("dept") or None, sub="작성")
                         _gf.trash_older(link["account"], folder_, f"{title_} 완성본 ", ".docx")
-                        up_ = _gf.upload_file(link["account"], r_.content, name_,
+                        up_ = _gf.upload_file(link["account"], data_, name_,
                                               "application/vnd.openxmlformats-officedocument.wordprocessingml.document", folder_, reuse=False)
                         db.add_file("google", up_["url"], name=name_, session_id=session_id)
-                        text = (f"이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다. Word 파일 「{name_}」 로 내보냈습니다 — 한글에서 열어 hwpx 로 저장할 수 있습니다. "
+                        text = (f"이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다. Word 파일 「{name_}」 로 내보냈습니다"
+                                f"{f'(회색 작성 지침 {n_guides}곳은 뺐고, 작업본에는 남아 있습니다)' if n_guides else ''} — 한글에서 열어 hwpx 로 저장할 수 있습니다. "
                                 f"{up_['url']}\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」 으로 다시 쓰면 서식 그대로 채웁니다.")
                     except Exception as e:
                         logging.getLogger("zzaimy.app.gdocs").exception("공통 양식 문서 내보내기 실패 (대화 %s)", session_id)
