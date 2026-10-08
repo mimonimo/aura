@@ -1097,6 +1097,19 @@ def test_whole_document_draft_request_goes_to_section_agent():
 
     assert drafting.looks_like_section_draft("사업계획서 초안 작성해 줘")
     assert not drafting.looks_like_section_draft("사업계획서 제출 기한이 언제야?")
-    secs = [{"index": i, "level": 2, "heading": f"{i}. 절", "leaf": True, "body_chars": 0} for i in range(1, 6)]
+    secs = [{"index": i, "level": 2, "heading": f"{i}. 추진 내용", "leaf": True, "body_chars": 0} for i in range(1, 6)]
     got = drafting.target_sections({"sections": secs}, "사업계획서 초안 작성해 줘")
     assert [s["index"] for s in got] == [1, 2]
+
+
+def test_measure_only_lines_are_not_sections_and_skipped_sections_are_passed():
+    """「2cm」 같은 치수 줄은 쓸 절이 아니고, 모델이 넘긴 절은 「다음 절」에서 건너뛴다(같은 절에서 맴돌지 않게)."""
+    from zzaimy.app import drafting
+
+    secs = [{"index": 1, "level": 2, "heading": "2cm", "leaf": True, "body_chars": 0},
+            {"index": 2, "level": 2, "heading": "1. 대학의 여건", "leaf": True, "body_chars": 0},
+            {"index": 3, "level": 2, "heading": "2. 추진 목표", "leaf": True, "body_chars": 0}]
+    info = {"sections": secs}
+    assert not drafting.writable(secs[0])
+    assert [s["index"] for s in drafting.target_sections(info, "다음 절 작성해 줘")] == [2]
+    assert [s["index"] for s in drafting.target_sections(info, "다음 절 작성해 줘", skip={"1. 대학의 여건"})] == [3]

@@ -62,12 +62,21 @@ def family_unfilled(info: dict, section: dict) -> bool:
 def writable(section: dict) -> bool:
     """쓸 수 있는 절 — 번호가 두 마디 이상(1.1, 2.1.1)인 본문 절, 또는 제목 2단계 이하의 끝 절(소제목이 없는 절 — 「Ⅰ. → 1. → 가.」
     체계의 독스 공통 양식처럼 번호가 한 마디인 양식). 장 제목(1., Ⅰ.)이나 앞머리는 아니다."""
-    num, _ = section_context.split_number(section.get("heading") or "")
+    num, rest = section_context.split_number(section.get("heading") or "")
+    if not has_words(rest):
+        return False                                    # 「2cm」 같은 치수·기호만 있는 줄은 절이 아니다(리허설 2026-10-08: 변환본 여백 표기가 첫 빈 절로 뽑혀 맴돎)
     return "." in num or (bool(section.get("leaf")) and int(section.get("level") or 0) >= 2)
 
 
-def target_sections(info: dict, command: str, filled_ok: bool = False) -> list[dict]:
-    """지시가 가리키는 절들 — 번호를 말했으면 그 절, '다음 절'이면 첫 빈 절, '전체'면 빈 절 전부(한 번에 MAX 개)."""
+def has_words(text: str) -> bool:
+    """뜻 있는 낱말이 있는가 — 한글 두 자 이상 또는 단위가 아닌 영문 세 자 이상."""
+    t = re.sub(r"\d+(?:\.\d+)?\s*(?:cm|mm|pt|px|%|㎝|㎜)", " ", text or "", flags=re.I)
+    return len(re.findall(r"[가-힣]", t)) >= 2 or bool(re.search(r"[A-Za-z]{3,}", t))
+
+
+def target_sections(info: dict, command: str, filled_ok: bool = False, skip: set[str] | None = None) -> list[dict]:
+    """지시가 가리키는 절들 — 번호를 말했으면 그 절, '다음 절'이면 첫 빈 절, '전체'면 빈 절 전부(한 번에 MAX 개).
+    skip 은 이 대화에서 모델이 쓰지 않고 넘긴 절 제목 — 「다음 절」이 같은 절에서 맴돌지 않게(번호로 짚으면 다시 쓴다)."""
     secs = [s for s in info.get("sections", []) if s.get("index", 0) > 0]
     c = command or ""
     nums = [m.group(1).rstrip(".") for m in _SECTION_NO.finditer(c)]
@@ -78,7 +87,7 @@ def target_sections(info: dict, command: str, filled_ok: bool = False) -> list[d
             if hit is not None and hit not in out:
                 out.append(hit)
         return out[:MAX_SECTIONS_PER_TURN]
-    empties = [s for s in secs if writable(s) and (filled_ok or family_unfilled(info, s))]
+    empties = [s for s in secs if writable(s) and (filled_ok or family_unfilled(info, s)) and s.get("heading") not in (skip or set())]
     if _ALL.search(c):
         return empties[:MAX_SECTIONS_PER_TURN]
     if _DOC_DRAFT.search(c) and not _NEXT.search(c):
