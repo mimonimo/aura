@@ -84,13 +84,15 @@
                 style="width:32px; height:32px; font-size:15px;">
           <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
       </div>
-      <form action="/projects" method="post">
+      <form action="/projects/bundle" method="post" enctype="multipart/form-data">
         {% if active_tab == 'all' %}
-        <label class="form-row">업무 분류<select name="sector" required>{% for key, meta in sector_meta.items() %}<option value="{{ key }}">{{ meta[1] }}</option>{% endfor %}</select></label>
+        <label class="form-row">업무 분류<select name="sector" required>{% for key, meta in sector_meta.items() %}<option value="{{ key }}"{% if key == 'grant' %} selected{% endif %}>{{ meta[1] }}</option>{% endfor %}</select></label>
         {% else %}<input type="hidden" name="sector" value="{{ active_tab }}">{% endif %}
+        <div class="form-row"><span class="muted">자료 (선택) — 공고·기본계획·작성 서식·지난 계획서를 고르면 그 묶음으로 만든다</span>
+          <input type="file" name="file" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
         <div class="form-row">
-          <span class="muted">프로젝트 이름</span>
-          <input type="text" name="name" required placeholder="{{ project_hints.get(active_tab, '') }}">
+          <span class="muted">프로젝트 이름 (자료를 골랐으면 비워도 됨 — 공고·기본계획 이름에서 뽑음)</span>
+          <input type="text" name="name" placeholder="{{ project_hints.get(active_tab, '') or '예: 2026학년도 AID 전환 중점 전문대학 지원사업' }}">
         </div>
         {% if business_units %}
         <label class="form-row"><span class="muted">사업단 (선택)</span><select name="unit"><option value="">선택 안 함</option>{% for u in business_units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select></label>
@@ -105,13 +107,6 @@
           <button type="button" data-modal-close class="secondary">닫기</button>
           <button type="submit">만들기</button>
         </div>
-      </form>
-      <form action="/projects/bundle" method="post" enctype="multipart/form-data" class="bundle-form" style="margin-top:14px;">
-        {% if active_tab == 'all' %}<input type="hidden" name="sector" value="grant">{% else %}<input type="hidden" name="sector" value="{{ active_tab }}">{% endif %}
-        <div class="form-row"><span class="muted">문서 묶음으로 프로젝트 만들기</span>
-          <input type="file" name="file" multiple required accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
-        <div class="form-row"><span class="muted">프로젝트 이름 (비우면 공고·기본계획 이름에서 뽑음)</span><input type="text" name="name" placeholder="예: 2026학년도 AID 전환 중점 전문대학 지원사업"></div>
-        <button type="submit" class="secondary">묶음으로 만들기</button>
       </form>
     </div>
   </div>

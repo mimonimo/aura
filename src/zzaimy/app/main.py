@@ -2601,15 +2601,21 @@ def create_app(
 
     @app.post("/projects/bundle")
     def create_project_bundle(request: Request, background: BackgroundTasks, sector: str = Form("grant"),
-                              name: str = Form(""), due_date: str = Form(""), file: list[UploadFile] = File([])):
-        """문서 묶음(공고·기본계획·양식·계획서 …)으로 프로젝트를 만든다 — 이름은 비우면 묶음에서 뽑는다."""
+                              name: str = Form(""), due_date: str = Form(""), unit: str = Form(""),
+                              file: list[UploadFile] = File([])):
+        """프로젝트 만들기 한 곳 — 자료(공고·기본계획·양식·계획서 …)를 고르면 그 묶음으로 만들고(이름은 비우면 묶음에서 뽑는다),
+        고르지 않으면 이름만으로 만든다(화면의 「만들기」·「묶음으로 만들기」 두 버튼을 하나로, 2026-10-09)."""
         if sector not in INBOX_TYPES:
             raise HTTPException(400, f"알 수 없는 업무 영역입니다: {sector}")
         files = [f for f in file if f and f.filename]
-        if not files:
-            raise HTTPException(400, "파일을 하나 이상 골라 주세요")
+        if not files and not name.strip():
+            raise HTTPException(400, "프로젝트 이름을 적거나 자료를 하나 이상 골라 주세요")
         title = name.strip() or _title_from_bundle(files)
-        pid = db.create_project(sector, title, due_date=due_date.strip(), owner=getattr(request.state, "user", "zzaimy"))
+        pid = db.create_project(sector, title, due_date=due_date.strip(), owner=getattr(request.state, "user", "zzaimy"),
+                                unit=unit.strip() if unit.strip() in _business_units() else "")
+        if not files:
+            _link_past_projects(request, db.get_project(pid) or {"id": pid, "name": title})
+            return RedirectResponse(f"/project/{pid}", status_code=303)
         project = db.get_project(pid) or {"id": pid, "sector": sector, "name": title}
         made = _intake_bundle(request, background, project, files)
         _link_past_projects(request, project)
