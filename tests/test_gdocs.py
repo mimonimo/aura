@@ -1245,10 +1245,22 @@ def test_library_hits_use_viewer_scope(monkeypatch, tmp_path):
 
     def fake(db, q, k=6, user=None, prefer_docs=None, depts=None):
         calls.append((user, depts))
-        return {"hits": [{"doc_id": 9, "content": "지난 연차 추진 배경 본문", "path": ["LINC", "2023", "계획서"]}]}
+        return {"hits": [{"doc_id": 9, "chunk_id": 1, "content": "□ 추진 배경 ○ 지난 연차에는 지역 기업 수요 조사 결과를 반영해 교육과정을 개편하고 현장실습을 늘렸다. ○ 이번 연차에는 그 성과를 학과 전체로 넓히고, 협약기업과 공동 운영하는 프로그램을 두 배로 늘려 지역 취업으로 잇는다.", "path": ["LINC", "2023", "계획서"]}]}
     monkeypatch.setattr(grant_search, "search", fake)
     db = Database(tmp_path / "t.db")
     m = drafting.Materials(db, {"id": 1, "name": "사업 A", "sector": "grant"}, set(), None, None, [], scope={"user": "kim", "grant_depts": ["산학협력단"]})
     got = m.library_hits({"heading": "1. 추진 배경"}, "배경")
     assert calls == [("kim", ["산학협력단"])] and got[0]["how"] == "문서함 검색"
     assert drafting.Materials(db, None, set(), None, None, [], scope={"role": "student"}).library_hits({"heading": "x"}, "x") == []
+
+
+def test_useful_chunk_drops_toc_and_image_only():
+    from zzaimy.app.drafting import useful_chunk
+
+    assert not useful_chunk("목 차 Ⅰ. 사업추진 목표 1. 대학의 여건 1.1. 교육여건 분석 1.2. 특성화 방향")
+    assert not useful_chunk("![image](image_001.jpg) 2-2-1 산학협력 선도모델 창출 ![image](image_002.jpg)")
+    assert not useful_chunk("1.외부환경 분석   2.내부역량 분석   3.의견수렴 분석   4.SWOT 분석   5.전략방향 도출")
+    assert useful_chunk("□ 배경 및 목적 ○ 지역은 신산업 다섯 분야를 지목해 인재 양성과 기업 지원을 강화하고 있으며 대학은 이에 맞춰 교육과정을 개편한다. "
+                        "○ 참여 학과는 현장실습과 캡스톤 디자인을 늘리고, 지역 기업과 공동 과제를 운영해 졸업생의 지역 취업을 높인다.")
+    assert useful_chunk("1.외부환경 분석   2.내부역량 분석   3.의견수렴 분석   4.SWOT 분석   5.전략방향 도출   "
+                        + "앞머리 목차 뒤에 본문이 길게 이어지면 그 본문은 재료로 쓴다 " * 8)

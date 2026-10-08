@@ -24,6 +24,7 @@ _DRAFT = re.compile(r"작성|채워|채우|써\s*줘|써줘|쓰자|초안|넣어
 _PLACEHOLDER = re.compile(r"[○◯]{2,}|OOO|000|\(\s*\)|_{3,}")
 MAX_SECTIONS_PER_TURN = 4
 _SUMMARY = re.compile(r"요약")
+_TOC = re.compile(r"\s*(?:목\s*차|차\s*례|CONTENTS)\b", re.I)
 # 문서 전체 초안 요청(「사업계획서 초안 작성해 줘」) — 절을 말하지 않아도 빈 절부터 몇 개씩 쓴다(리허설 2026-10-08: 일반 편집으로 가서 한 글자도 안 씀)
 _DOC_DRAFT = re.compile(r"(?:계획서|보고서|신청서|제안서|문서|서식|양식).{0,12}(?:초안|작성|써)")
 DOC_DRAFT_FIRST = 2
@@ -134,6 +135,18 @@ def instruction_keywords(instructions: str, limit: int = 12) -> list[str]:
     return out
 
 
+def useful_chunk(text: str) -> bool:
+    """재료로 쓸 만한 조각인가 — 목차(「목차」로 시작하거나 짧은 번호 항목만 늘어선 것)·그림 표시뿐인 조각이 아니다."""
+    if _TOC.match(text or ""):
+        return False
+    body = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text or "")              # 그림 표시(![image](…))는 글이 아니다
+    if len(re.sub(r"\s+", "", body)) < 80:
+        return False
+    head = re.sub(r"\s+", " ", body).strip()[:300]                     # 검색 조각은 앞뒤로 늘어나 있다 — 앞머리로 목차형인지 본다
+    items = re.findall(r"(?:^|\s)[IVⅠ-Ⅹ]*\d{0,2}\.\s*[가-힣A-Za-z][^.]{1,14}?(?=\s\S*\d{1,2}\.|\s[IVⅠ-Ⅹ]|$)", head)
+    return not (len(items) >= 4 and sum(len(x) for x in items) > 0.5 * len(head))
+
+
 class Materials:
     """프로젝트 하나의 재료 창고 — 지난 자료의 절 정렬은 문서마다 한 번만 계산해 둔다."""
 
@@ -147,6 +160,7 @@ class Materials:
         self.extract_nouns = extract_nouns
         self.criteria_chunks = criteria_chunks or []
         self._plans: dict[int, list[dict]] = {}
+        self._lib_seen: set = set()
         self._chunks: dict[int, list[dict]] = {}
 
     def past_docs(self) -> list[dict]:
@@ -229,6 +243,12 @@ class Materials:
         for h in hits:
             if int(h["doc_id"]) in own or int(h["doc_id"]) in self.form_source_ids:
                 continue
+            text = h.get("content") or ""
+            cid = h.get("chunk_id")
+            if not useful_chunk(text) or (cid is not None and cid in self._lib_seen):
+                continue                                  # 목차·그림 표시뿐인 조각, 앞 절에 이미 준 조각은 빼다(실측: 같은 그림 조각이 모든 절 1순위)
+            if cid is not None:
+                self._lib_seen.add(cid)
             out.append({"title": " > ".join(h.get("path") or [])[:80], "how": "문서함 검색", "text": (h.get("content") or "")[:700]})
             if len(out) >= k:
                 break
