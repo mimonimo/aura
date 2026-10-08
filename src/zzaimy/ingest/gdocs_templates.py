@@ -491,7 +491,7 @@ class _Builder:
 
 def build(email: str, spec: dict, folder_id: str | None = None, http=None, replace: bool = True) -> dict:
     """사양 → 구글 독스. 같은 폴더에 같은 이름의 문서가 있으면(replace) 휴지통으로 보내고 새로 만든다. {id, url, title}."""
-    from zzaimy.ingest import gdocs, gdrive, gdrive_files
+    from zzaimy.ingest import gdrive, gdrive_files
     errs = check_spec(spec)
     if errs:
         raise ValueError("; ".join(errs))
@@ -503,6 +503,14 @@ def build(email: str, spec: dict, folder_id: str | None = None, http=None, repla
             http.patch(f"{gdrive.API}/files/{old['id']}", headers=gdrive_files._headers(email, http),
                        params={"supportsAllDrives": "true"}, json={"trashed": True})
     doc = gdrive_files.create_document(email, title, folder_id, http=http)
+    render(email, doc, spec, http)
+    return {"id": doc, "url": f"https://docs.google.com/document/d/{doc}/edit", "title": title}
+
+
+def render(email: str, doc: str, spec: dict, http=None) -> None:
+    """사양을 이미 있는 (빈) 독스 문서 끝에 깐다 — 쪽 모양·표지 줄·절·지침·표. 초안 대화가 만든 문서에도 쓴다."""
+    from zzaimy.ingest import gdocs, gdrive
+    http = http or gdrive._http()
     gdocs._batch(email, doc, [{"updateDocumentStyle": {"documentStyle": {
         "pageSize": {"width": {"magnitude": PAGE_W, "unit": "PT"}, "height": {"magnitude": PAGE_H, "unit": "PT"}},
         "marginTop": {"magnitude": MARGIN, "unit": "PT"}, "marginBottom": {"magnitude": MARGIN, "unit": "PT"},
@@ -524,7 +532,24 @@ def build(email: str, spec: dict, folder_id: str | None = None, http=None, repla
             t = blk["table"]
             b.table(t["columns"], t["rows"], t["widths"])
     b.flush()
-    return {"id": doc, "url": f"https://docs.google.com/document/d/{doc}/edit", "title": title}
+
+
+# 지시문 → 양식. 앞에서부터 처음 맞는 것(모든 패턴이 맞아야). 단위 프로그램을 사업 문서보다 먼저 본다.
+PICK = [
+    ("program_report", (r"프로그램|특강|캠프|행사|교육과정|워크숍", r"결과\s*보고|운영\s*결과|결과서")),
+    ("program_plan", (r"프로그램|특강|캠프|행사|워크숍", r"실시\s*계획|운영\s*계획|계획서|계획안")),
+    ("report", (r"실적\s*보고|성과\s*보고|연차\s*보고|결과\s*보고서|자체\s*평가\s*보고",)),
+    ("plan", (r"사업\s*계획|수정\s*계획서|사업\s*신청서|계획서",)),
+]
+
+
+def pick(text: str) -> dict | None:
+    """초안 지시문이 어느 공통 양식에 해당하는가 — 서류 갈래 낱말로만(사업 이름 규칙 없음). 없으면 None."""
+    t = text or ""
+    for sid, pats in PICK:
+        if all(re.search(p, t) for p in pats):
+            return SPECS[sid]
+    return None
 
 
 def export_specs(out_dir: Path) -> list[Path]:

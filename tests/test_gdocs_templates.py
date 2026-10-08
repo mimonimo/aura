@@ -41,3 +41,11 @@ def test_fit_widths_keeps_header_words_on_one_line():
 def test_check_spec_catches_section_without_guide():
     assert gt.check_spec({"blocks": [gt.H(1, "가"), gt.P()]}) == ["작성 지침·표가 없는 절: 가"]
     assert gt.check_spec({"blocks": [gt.H(1, "가"), gt.G("지침"), gt.P()]}) == []
+
+
+def test_pick_matches_document_kind_words_only():
+    assert gt.pick("2027년 RISE 사업계획서 초안을 써 줘")["id"] == "plan"
+    assert gt.pick("3차년도 실적보고서 초안 작성해 줘")["id"] == "report"
+    assert gt.pick("AI 특강 프로그램 실시계획서 만들어 줘")["id"] == "program_plan"
+    assert gt.pick("취업 캠프 결과보고서 초안")["id"] == "program_report"
+    assert gt.pick("공문 초안 써 줘") is None                       # 공통 양식이 없는 갈래는 빈 문서로
