@@ -1292,3 +1292,22 @@ def test_newest_in_family_picks_latest_source_version(tmp_path):
         conn.execute("INSERT INTO archive_files (rel, doc_id, mtime, size) VALUES ('b', ?, 200, 1)", (b,))
     got = grant_search._newest_in_family(db, {a, b, c})
     assert got[a] == b and got[b] == b and got.get(c, c) == c          # 혼자인 계열은 자기 자신
+
+
+def test_report_project_also_fetches_matching_plan(monkeypatch, tmp_path):
+    """실적보고서 프로젝트면 같은 사업·연차 계획서도 따로 찾아 재료 앞에 둔다(계획 대비 실적을 쓰려면)."""
+    from zzaimy.app import drafting, grant_search
+    from zzaimy.app.db import Database
+
+    qs = []
+    body = "□ 추진 내용 ○ 지역 기업과 공동 교육과정을 운영하고 현장실습을 늘려 졸업생의 지역 취업을 높이는 데 집중했다. ○ 참여 학과를 넓혔다."
+
+    def fake(db, q, k=6, user=None, prefer_docs=None, depts=None):
+        qs.append(q)
+        return {"hits": [{"doc_id": len(qs), "chunk_id": len(qs), "content": body + str(len(qs)), "path": ["사업", "2024", "x"]}]}
+    monkeypatch.setattr(grant_search, "search", fake)
+    m = drafting.Materials(Database(tmp_path / "t.db"), {"id": -1, "name": "사업 A 2024년 실적보고서", "sector": "grant"}, set(), None, None, [],
+                           scope={"user": "kim"})
+    got = m.library_hits({"heading": "가. 추진 실적"}, "실적")
+    assert any("계획서" in q and "실적보고서" not in q for q in qs)
+    assert got[0]["how"] == "문서함 검색(같은 연차 계획서)"
