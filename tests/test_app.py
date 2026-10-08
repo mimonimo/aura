@@ -194,8 +194,8 @@ def test_sector_tab_filters_documents(client):
     assert "공고문.pdf" in all_page and "이력서.pdf" in all_page
     recruit_page = client.get("/inbox?type=recruit&q=pdf").text
     table = recruit_page.split('<table class="intake-table">', 1)[-1].split("</table>", 1)[0]
-    assert '<td><a href="/doc/2">이력서.pdf' in table
-    assert '<td><a href="/doc/1">공고문.pdf' not in table
+    assert '<td class="doc-cell"><a href="/doc/2">이력서.pdf' in table
+    assert '<a href="/doc/1">공고문.pdf' not in table
 
 
 def test_password_protection_requires_auth(tmp_path):

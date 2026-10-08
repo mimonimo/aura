@@ -1552,7 +1552,7 @@ def create_app(
                             f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {up['url']}")
                     if rep["folded"]:
                         text += f"\n서식에 없는 소제목 {len(rep['folded'])}개는 바로 앞 절의 본문으로 이어 넣었습니다(" + ", ".join(h[:16] for h in rep["folded"][:5]) + ("…" if len(rep["folded"]) > 5 else "") + ")."
-                    real_skipped = [h for h in rep["skipped"] if re.search(r"[가-힣A-Za-z]", h)]   # '2cm' 같은 변환 찌꺼기 제목은 알릴 것이 아니다
+                    real_skipped = [h for h in rep["skipped"] if drafting.has_words(h)]   # '2cm' 같은 변환 찌꺼기 제목은 알릴 것이 아니다(쓸 절 판정과 같은 기준)
                     if real_skipped:
                         text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in real_skipped)
                     if rep["duplicates"]:
