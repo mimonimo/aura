@@ -481,9 +481,12 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         cands = rerank_chunks(question, cands)
         steps.append("[재순위] 후보 조각을 재순위 모델로 다시 정렬")
     order = rerank_hits(question, cands)
+    newest = _newest_in_family(db, {c["doc_id"] for c in order})
     per_doc: dict[int, int] = {}
     for c in order:
         cid = c["id"]
+        if newest.get(c["doc_id"], c["doc_id"]) != c["doc_id"]:
+            continue                                     # 같은 문서의 옛 판 — 후보에 든 최종본(원본 수정 시각이 가장 늦은 판)을 쓴다(c12: 놓친 7문항이 모두 다른 판)
         if per_doc.get(c["doc_id"], 0) >= PER_DOC:
             continue                                     # 한 문서가 상위를 다 차지하지 않게(10/5 실측: 상위 5개 중 3개가 한 문서)
         per_doc[c["doc_id"]] = per_doc.get(c["doc_id"], 0) + 1
@@ -493,6 +496,29 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
             break
     steps.append(f"[3단계: 근거 선택] 사업 문서 조각 {pool} 중 어휘 {len(lex)}·임베딩 {len(den)} 순위를 섞어 {len(hits)}개")
     return {"steps": steps, "hits": hits}
+
+
+def _newest_in_family(db, doc_ids: set[int]) -> dict[int, int]:
+    """후보 문서 → 후보 안 같은 계열(family) 가운데 최종본(원본 수정 시각이 가장 늦은 판, 같으면 번호가 큰 것). 계열이 없거나 혼자면 자기."""
+    if len(doc_ids) < 2:
+        return {}
+    try:
+        with db._conn() as conn:
+            ph = ",".join("?" * len(doc_ids))
+            rows = conn.execute(f"SELECT d.id, d.family, COALESCE(MAX(a.mtime), 0) FROM documents d LEFT JOIN archive_files a ON a.doc_id = d.id"
+                                f" WHERE d.id IN ({ph}) GROUP BY d.id, d.family", list(doc_ids)).fetchall()
+    except Exception:
+        return {}
+    best: dict[str, tuple[float, int]] = {}
+    fam_of: dict[int, str] = {}
+    for did, fam, mt in rows:
+        if not fam:
+            continue
+        fam_of[int(did)] = fam
+        key = (float(mt or 0), int(did))
+        if fam not in best or key > best[fam]:
+            best[fam] = key
+    return {did: best[f][1] for did, f in fam_of.items()}
 
 
 def build_increment(db, batch: int = 128, limit: int = 20000) -> dict:
