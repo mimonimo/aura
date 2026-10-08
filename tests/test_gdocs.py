@@ -1189,3 +1189,15 @@ def test_generic_draft_title_gets_project_name(docs_env, tmp_path, monkeypatch):
     assert "「지역혁신 2027 사업계획서」" in page
     sid = int(r.headers["location"].rstrip("/").split("/")[-1])
     assert json.loads(app.state.db.get_setting(f"chat_google_doc:{sid}"))["template"] == "plan"
+
+
+def test_replace_does_not_touch_section_headings(tmp_path, monkeypatch):
+    """절 제목 글을 문장으로 바꾸는 replace 는 막는다 — 절 구조가 깨진다(제목을 바꾸라는 지시일 때만 허용)."""
+    from zzaimy.app import gdocs_agent
+    from zzaimy.ingest import gdocs as _g
+
+    calls = []
+    monkeypatch.setattr(_g, "replace_text", lambda *a, **k: calls.append(a[2]) or {"count": 1})
+    lines = gdocs_agent.apply([{"op": "replace", "old": "사업 개요", "text": "본 사업은 …"}], "a@b", "D", user="u",
+                              data_dir=tmp_path, headings={"사업개요"})
+    assert calls == [] and "절 제목" in lines[0]

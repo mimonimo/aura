@@ -1137,7 +1137,9 @@ def create_app(
             return False, ""
         title = _draft_title(q.removeprefix(_COMMON_PREFIX))
         if project and all(t in _GENERIC_WORDS or len(t) < 2 for t in re.split(r"\s+", title.strip()) if t):
-            title = f"{project.get('name', '').strip()} {title}".strip()[:60]   # 「사업계획서」 만으로는 어느 사업 것인지 모른다
+            pname = project.get("name", "").strip()
+            # 「사업계획서」 만으로는 어느 사업 것인지 모른다 — 프로젝트 이름에 이미 그 낱말이 있으면 이름만(「… 사업계획서 사업계획서」 방지)
+            title = (pname if title.replace(" ", "") in pname.replace(" ", "") else f"{pname} {title}").strip()[:60] or title
         try:
             acct_ = accounts.get(owner, {}) if password is not None else {}
             made = gdrive_files.auto_document(db, session_id, owner, title, project_name=(project or {}).get("name"),
