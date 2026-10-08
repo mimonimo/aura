@@ -148,10 +148,11 @@
         {% for d in documents %}
         <tr>
           <td class="muted">{{ d.receipt_no or d.id }}</td>
-          <td><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
-            {% if d.kind_label %}<span class="muted" style="font-size:11.5px; margin-left:6px;">{{ d.kind_label }}</span>{% endif %}
-            {% if d.project_name %}<span class="pill" style="margin-left:6px;">
-              <iconify-icon icon="solar:folder-2-linear" style="font-size:12px;"></iconify-icon>{{ d.project_name }}</span>{% endif %}</td>
+          <td class="doc-cell"><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
+            {% if d.kind_label or d.project_name %}<div class="doc-meta">
+              {% if d.kind_label %}<span class="muted">{{ d.kind_label }}</span>{% endif %}
+              {% if d.project_name %}<span class="pill"><iconify-icon icon="solar:folder-2-linear" style="font-size:12px;"></iconify-icon>{{ d.project_name }}</span>{% endif %}
+            </div>{% endif %}</td>
           <td><span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span></td>
           <td><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span></td>
           <td>{% if d.doc_type in ('regulation', 'ocr') %}<span class="muted">해당 없음</span>{% else %}<span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}</td>
