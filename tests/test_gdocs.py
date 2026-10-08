@@ -1134,3 +1134,19 @@ def test_trash_older_sends_only_previous_versions_of_same_form(monkeypatch):
     monkeypatch.setattr(gdrive_files, "_headers", lambda email, http: {})
     assert gdrive_files.trash_older("a@b", "F", "작성서식 완성본 ", ".hwpx", http=Http()) == ["작성서식 완성본 2026-10-07.hwpx"]
     assert trashed == ["a"]
+
+
+def test_multiline_replace_falls_back_to_line_by_line(monkeypatch, tmp_path):
+    """여러 줄을 한 번에 바꾸려다 0곳이면 줄마다 — 짧고 흔한 줄(「-」)은 건드리지 않는다."""
+    from zzaimy.app import gdocs_agent
+    from zzaimy.ingest import gdocs as _g
+
+    calls = []
+
+    def fake_replace(account, doc, old, new, **kw):
+        calls.append(old)
+        return {"count": 0 if "\n" in old else 1}
+    monkeypatch.setattr(_g, "replace_text", fake_replace)
+    ops = [{"op": "replace", "old": "□ (세부)과제명: 0000\n-", "text": "□ (세부)과제명: AI 교육 혁신\n- 배경"}]
+    lines = gdocs_agent.apply(ops, "a@b", "D", user="u", data_dir=tmp_path)
+    assert calls == ["□ (세부)과제명: 0000\n-", "□ (세부)과제명: 0000"] and "1곳" in lines[0]

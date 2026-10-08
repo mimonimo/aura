@@ -30,7 +30,7 @@ PLAN_SCHEMA = {
                 "properties": {
                     "op": {"type": "string", "enum": ["insert", "replace", "style", "bold", "table", "fill", "figure", "rename", "move"]},
                     "section": {"type": "integer", "description": "insert·style·table·fill·figure 일 때 대상 절 번호"},
-                    "old": {"type": "string", "description": "replace 일 때 문서에 있는 그대로의 글, bold 일 때 굵게 할 글귀"},
+                    "old": {"type": "string", "description": "replace 일 때 문서에 있는 그대로의 글(한 문단·한 칸 안의 글만 — 여러 줄은 줄마다 replace 를 따로), bold 일 때 굵게 할 글귀"},
                     "text": {"type": "string", "description": "insert·replace 의 글. style 이면 TITLE|HEADING_1|HEADING_2|HEADING_3|NORMAL_TEXT. table 이면 행을 줄바꿈, 칸을 ' | ' 로 나눈 글. rename 이면 새 문서 이름. move 이면 옮길 프로젝트 이름. fill 이면 빈 글. figure 이면 도식 JSON"},
                     "table": {"type": "integer", "description": "fill 일 때 절 안의 표 번호([이 절에 이미 있는 양식 표] 의 '표 n'), 그 밖에는 0"},
                     "cells": {"type": "array", "description": "fill 일 때 넣을 칸들(row·col 은 0부터, 빈 칸 _ 자리). 그 밖에는 빈 배열",
@@ -54,7 +54,7 @@ PLAN_SCHEMA = {
 
 _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. 담당자가 구글 독스 문서를 열어 두고 채팅으로 지시한다.
 지시를 읽고 문서를 어떻게 고칠지 편집 계획을 JSON 으로 낸다. 규칙:
-- 지시가 문서를 고치라는 것이면 ops 에 넣기(insert: 해당 절의 끝에 새 문단)나 바꾸기(replace: old 를 text 로, old 는 문서에 있는 글 그대로)를 담는다.
+- 지시가 문서를 고치라는 것이면 ops 에 넣기(insert: 해당 절의 끝에 새 문단)나 바꾸기(replace: old 를 text 로, old 는 문서에 있는 글 그대로 — 한 줄(한 문단) 안의 글만, 여러 줄이면 줄마다 따로)를 담는다.
 - 서식 지시는 style(절 제목의 단계: TITLE·HEADING_1·HEADING_2·HEADING_3·NORMAL_TEXT), bold(old 에 적은 글귀를 굵게), table(section 절 끝에 표 —
   text 는 행마다 줄바꿈, 칸은 ' | ' 로) 로 낸다.
 - 절에 이미 있는 양식 표(성과지표 총괄표·예산표·현황표·추진체계표 등, [이 절에 이미 있는 양식 표] 에 격자가 있다)는 새 표를 만들지 말고
@@ -313,6 +313,17 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                     continue
                 r = gdocs.replace_text(account, doc, o["old"], o["text"], user=user, data_dir=data_dir,
                                        scrub=scrub, http=http)
+                if not r["count"] and "\n" in o["old"].strip():
+                    # 독스의 찾아 바꾸기는 문단 하나 안에서만 찾는다(리허설 2026-10-08: 서식 상자의 여러 줄을 한 번에 → 0곳).
+                    # 줄 수가 같으면 줄마다 바꾼다 — 낱말이 있고 6자 이상인 줄만(「-」 같은 흔한 줄이 문서 전체에서 바뀌지 않게)
+                    olds = [x.strip() for x in o["old"].strip().split("\n")]
+                    news = [x.strip() for x in str(o.get("text") or "").strip().split("\n")]
+                    n = 0
+                    if len(olds) == len(news):
+                        for a, b in zip(olds, news):
+                            if a != b and len(a) >= 6 and re.search(r"[가-힣A-Za-z]", a):
+                                n += gdocs.replace_text(account, doc, a, b, user=user, data_dir=data_dir, scrub=scrub, http=http)["count"]
+                    r = {"count": n}
                 lines.append(f"「{o['old'][:30]}」 → 「{o['text'][:30]}」 {r['count']}곳")
             elif o["op"] == "style":
                 r = gdocs.set_section_style(account, doc, int(o["section"]), o["text"], user=user, data_dir=data_dir, http=http)
