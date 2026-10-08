@@ -437,6 +437,11 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
                             "references": references or [], "score": score})
     if not p["ops"]:
         return p["reply"] or "문서를 고칠 내용은 없습니다.", []
+    unsupported = number_check(p["ops"], [materials, info.get("text") or "", command]
+                               + [str(c.get("content") or "") for c in (evidence or [])])
+    if unsupported:
+        # 절대 규칙 1 — 생성된 수치는 인출된 근거에 있어야 한다. 넣기는 하되(70% 초안) 담당자가 바로 확인하게 짚는다
+        p["reply"] = (p["reply"] + "\n근거에서 찾지 못한 수치(확인 필요): " + ", ".join(unsupported[:8])).strip()
     if confirm:
         db.set_setting(f"chat_google_doc_pending:{session_id}", json.dumps(p["ops"], ensure_ascii=False))
         return (p["reply"] + "\n\n확인 후 적용이 켜져 있어 아직 문서에 쓰지 않았습니다. 아래 계획을 확인하고 적용을 누르세요.\n"
@@ -451,6 +456,21 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http, headings=heads,
                   doc_text=info["text"] if not pre else "", figure_folder=figure_folder)
     return (p["reply"] + "\n\n적용됨:\n" + "\n".join(f"- {ln}" for ln in pre + lines)), p["ops"]
+
+
+def number_check(ops: list[dict], evidence_texts: list[str]) -> list[str]:
+    """편집 계획이 넣는 글·칸의 수치 가운데 근거(재료·기준 조각·현재 문서·지시)에 없는 것 — 결정론(verify.numbers)."""
+    from zzaimy.verify.numbers import verify_numbers
+
+    draft = "\n".join(str(o.get("text") or "") for o in ops if o.get("op") in ("insert", "replace", "table"))
+    draft += "\n" + "\n".join(str(c.get("text") or "") for o in ops if o.get("op") == "fill"
+                              for c in (o.get("cells") or []) if isinstance(c, dict))
+    if not draft.strip():
+        return []
+    from zzaimy.verify.numbers import _context_of
+
+    audit = verify_numbers(draft, [t for t in evidence_texts if t])
+    return [_context_of(draft, v, radius=10) for v in audit.violations]       # 「…에서 45.7%로 높…」 꼴로 짧게
 
 
 def apply_pending(db, session_id: int, owner: str, link: dict, *, data_dir: Path, scrub=None, http=None) -> list[str]:
