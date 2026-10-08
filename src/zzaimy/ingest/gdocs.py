@@ -482,6 +482,24 @@ def table_grids(email: str, doc: str, section_index: int, http=None, info: dict 
     return out
 
 
+def doc_table_grids(email: str, doc: str, http=None, info: dict | None = None) -> list[dict]:
+    """문서 전체의 양식 표 격자를 한 번 읽어서 — table_grids 와 같은 꼴에 section_index(그 표가 속한 절 번호)를 더한다.
+    절을 지목하지 않은 편집 명령(「표를 채워 줘」)에도 모델이 fill 의 절·표·칸 번호를 짐작하지 않게(실측 2026-10-08: 격자 없이 1부터 세어 8칸 빗나감)."""
+    http = http or _http()
+    info = info or get(email, doc, http)
+    r = _read(email, doc, http)
+    _raise(r)
+    body = body_content(r.json())
+    out = []
+    for sec in info.get("sections") or []:
+        for t in _section_tables(body, info, sec["index"]):
+            rows = [[" ".join(_para_text(e["paragraph"]).strip() for e in c.get("content", []) if "paragraph" in e).strip()
+                     for c in row.get("tableCells", [])] for row in t["el"]["table"].get("tableRows", [])]
+            out.append({"n": t["n"], "rows": rows, "covered": set(_covered_cells(t["el"]["table"]).keys()),
+                        "section": sec["heading"], "section_index": sec["index"]})
+    return out
+
+
 def render_table_grids(grids: list[dict], max_rows: int = 40) -> str:
     """표 격자를 모델이 읽을 글로 — 보이는 칸만 [c열] 번호와 함께, 빈 칸은 '_'. 병합에 덮인 칸은 적지 않는다(넣어도 안 보인다)."""
     if not grids:
@@ -491,7 +509,8 @@ def render_table_grids(grids: list[dict], max_rows: int = 40) -> str:
         rows = g["rows"]
         covered = g.get("covered") or set()
         n_cols = max((len(r) for r in rows), default=0)
-        lines.append(f"표 {g['n']} ({len(rows)}행×{n_cols}열)")
+        where = f" — 절 {g['section_index']}「{g['section'][:30]}」(fill 의 section={g['section_index']}, table={g['n']})" if "section_index" in g else ""
+        lines.append(f"표 {g['n']} ({len(rows)}행×{n_cols}열){where}")
         for ri, row in enumerate(rows[:max_rows]):
             cells = [f"[c{ci}] " + (c[:24] if c else "_") for ci, c in enumerate(row) if (ri, ci) not in covered]
             lines.append(f"  r{ri}: " + " | ".join(cells))

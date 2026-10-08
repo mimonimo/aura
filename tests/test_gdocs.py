@@ -1007,3 +1007,21 @@ def test_batch_waits_and_retries_on_quota(monkeypatch):
     monkeypatch.setattr(gdocs, "_headers", lambda email, http: {})
     monkeypatch.setattr(gdocs.time, "sleep", lambda s: None)
     assert gdocs._batch("a@b", "D", [{}], Http()) == {"replies": []} and len(calls) == 3
+
+
+def test_doc_table_grids_label_tables_with_their_section(monkeypatch):
+    """절을 지목하지 않은 명령에도 표마다 절 번호·표 번호·칸 번호를 보여 준다(모델이 fill 번호를 짐작하지 않게)."""
+    from types import SimpleNamespace
+    from zzaimy.ingest import gdocs
+
+    def cell(t):
+        return {"content": [{"paragraph": {"elements": [{"textRun": {"content": t + "\n"}}]}}]}
+    tbl = {"startIndex": 20, "table": {"tableRows": [{"tableCells": [cell("사업명"), cell("")]},
+                                                     {"tableCells": [cell("사업 기간"), cell("")]}]}}
+    info = {"sections": [{"index": 1, "heading": "가", "start": 1}, {"index": 2, "heading": "사업 개요", "start": 10}], "end": 99, "text": ""}
+    monkeypatch.setattr(gdocs, "_read", lambda e, d, h: SimpleNamespace(status_code=200, json=lambda: {}))
+    monkeypatch.setattr(gdocs, "body_content", lambda doc: [tbl])
+    grids = gdocs.doc_table_grids("a@b", "D", http=object(), info=info)
+    assert [(g["section_index"], g["n"]) for g in grids] == [(2, 1)]
+    text = gdocs.render_table_grids(grids)
+    assert "fill 의 section=2, table=1" in text and "r1: [c0] 사업 기간 | [c1] _" in text
