@@ -292,7 +292,7 @@ def split_pipe_tables(ops: list[dict]) -> list[dict]:
 
 
 def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None,
-          doc_text: str = "", figure_folder: str | None = None) -> list[str]:
+          doc_text: str = "", figure_folder: str | None = None, headings: set[str] | None = None) -> list[str]:
     """계획을 문서에 적용하고 한 줄씩 결과를 돌려준다. 한 항목이 실패해도 나머지는 계속한다.
     figure_folder 는 도식 그림(PNG)을 올릴 드라이브 폴더(프로젝트 그림 폴더)."""
     lines: list[str] = []
@@ -310,6 +310,10 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
             elif o["op"] == "replace":
                 if not (o.get("old") or "").strip():
                     lines.append("바꿀 글이 비어 있어 건너뜀")
+                    continue
+                if headings and _norm(o["old"]) in headings:
+                    # 절 제목 글을 본문 문장으로 바꾸면 절 구조가 깨진다(리허설 2026-10-08: 「사업 개요」 제목이 문장으로) — 제목 바꾸기는 지시가 있을 때만
+                    lines.append(f"「{o['old'][:30]}」 은 절 제목이라 바꾸지 않음")
                     continue
                 r = gdocs.replace_text(account, doc, o["old"], o["text"], user=user, data_dir=data_dir,
                                        scrub=scrub, http=http)
@@ -443,7 +447,8 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
             pre = list(before_apply() or [])            # 계획이 나온 뒤에만 비운다 — 모델이 실패하면 문서는 그대로
         except Exception as e:
             pre = [f"비우기 실패({type(e).__name__}) — 덧붙입니다"]
-    lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http,
+    heads = None if re.search(r"제목", command or "") else {_norm(x["heading"]) for x in info.get("sections", []) if x.get("heading")}
+    lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http, headings=heads,
                   doc_text=info["text"] if not pre else "", figure_folder=figure_folder)
     return (p["reply"] + "\n\n적용됨:\n" + "\n".join(f"- {ln}" for ln in pre + lines)), p["ops"]
 
