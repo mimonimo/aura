@@ -23,12 +23,21 @@ _ALL = re.compile(r"전체|모든\s*절|전부|처음부터\s*끝까지|다\s*�
 _DRAFT = re.compile(r"작성|채워|채우|써\s*줘|써줘|쓰자|초안|넣어\s*줘|보강|다시\s*써")
 _PLACEHOLDER = re.compile(r"[○◯]{2,}|OOO|000|\(\s*\)|_{3,}")
 MAX_SECTIONS_PER_TURN = 4
+# 문서 전체 초안 요청(「사업계획서 초안 작성해 줘」) — 절을 말하지 않아도 빈 절부터 몇 개씩 쓴다(리허설 2026-10-08: 일반 편집으로 가서 한 글자도 안 씀)
+_DOC_DRAFT = re.compile(r"(?:계획서|보고서|신청서|제안서|문서|서식|양식).{0,12}(?:초안|작성|써)")
+DOC_DRAFT_FIRST = 2
 
 
 def looks_like_section_draft(command: str) -> bool:
     """절을 쓰라는 지시인가 — 절 번호·'다음 절'·'전체' 중 하나와 쓰기 동사가 함께 있다."""
     c = command or ""
-    return bool(_DRAFT.search(c) and (_SECTION_NO.search(c) or _NEXT.search(c) or _ALL.search(c)))
+    return bool(_DRAFT.search(c) and (_SECTION_NO.search(c) or _NEXT.search(c) or _ALL.search(c) or _DOC_DRAFT.search(c)))
+
+
+def doc_draft_only(command: str) -> bool:
+    """절을 짚지 않은 문서 전체 초안 요청인가(절 번호·다음 절·전체 없이 「○○계획서 초안 써 줘」)."""
+    c = command or ""
+    return bool(_DOC_DRAFT.search(c) and not (_SECTION_NO.search(c) or _NEXT.search(c) or _ALL.search(c)))
 
 
 def is_unfilled(section: dict) -> bool:
@@ -72,6 +81,8 @@ def target_sections(info: dict, command: str, filled_ok: bool = False) -> list[d
     empties = [s for s in secs if writable(s) and (filled_ok or family_unfilled(info, s))]
     if _ALL.search(c):
         return empties[:MAX_SECTIONS_PER_TURN]
+    if _DOC_DRAFT.search(c) and not _NEXT.search(c):
+        return empties[:DOC_DRAFT_FIRST]
     if _NEXT.search(c) or _DRAFT.search(c):
         return empties[:1]
     return []

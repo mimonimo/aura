@@ -1089,3 +1089,14 @@ def test_common_template_sections_are_writable_and_guides_are_not_body():
     assert first["body_chars"] == 0 and drafting.is_unfilled(first) and drafting.writable(first)
     assert not drafting.is_unfilled(second) and not drafting.writable(chapter)
     assert [s["heading"] for s in drafting.target_sections(info, "다음 절 작성해 줘")] == ["1. 추진 배경 및 필요성"]
+
+
+def test_whole_document_draft_request_goes_to_section_agent():
+    """「사업계획서 초안 작성해 줘」 — 절을 말하지 않아도 절 작성 에이전트가 빈 절 앞쪽부터 쓴다."""
+    from zzaimy.app import drafting
+
+    assert drafting.looks_like_section_draft("사업계획서 초안 작성해 줘")
+    assert not drafting.looks_like_section_draft("사업계획서 제출 기한이 언제야?")
+    secs = [{"index": i, "level": 2, "heading": f"{i}. 절", "leaf": True, "body_chars": 0} for i in range(1, 6)]
+    got = drafting.target_sections({"sections": secs}, "사업계획서 초안 작성해 줘")
+    assert [s["index"] for s in got] == [1, 2]

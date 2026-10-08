@@ -1361,7 +1361,14 @@ def create_app(
                 _set_options(session_id, opts)
                 db.add_chat(session_id, "assistant", _scrub_internal(text))
                 return
-            if drafting.looks_like_section_draft(q):
+            def _has_writable() -> bool:
+                from zzaimy.ingest import gdocs as _gd0
+                try:
+                    return any(drafting.writable(x) for x in _gd0.get(link["account"], link["doc"])["sections"])
+                except Exception:
+                    return False
+            # 문서 전체 초안 요청인데 쓸 절 구조가 없는 문서(빈 새 문서)면 일반 편집 — 모델이 절부터 짜서 쓴다
+            if drafting.looks_like_section_draft(q) and (not drafting.doc_draft_only(q) or _has_writable()):
                 # 절 작성 에이전트(사용자 지시 2026-09-27): 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
                 # 절마다 재료(작성방법·평가지표·지난 자료의 같은 절·기관 정보)를 모아 27B 가 쓰고 넣는다. 한 번에 몇 절씩, 이어서는 선택지로.
                 from zzaimy.app.regulations import extract_nouns
