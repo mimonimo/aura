@@ -39,3 +39,25 @@ def test_schema_and_shacl_find_violations(tmp_path):
     assert "근거 없는 관계" not in msgs and "문서가 어떤 사업·연차에도 속하지 않는다(미분류)" not in msgs
     assert rep["n_warnings"] == 0 and rep["n_violations"] == 4
     assert {r["shape"] for r in rep["rules"]} >= {"ProgramShape", "YearShape", "StatementShape"}
+
+
+def test_institutional_docs_are_not_unassigned_warnings(tmp_path):
+    """사업 없이 검토가 「사업 아님」(status agent)으로 정한 문서는 기관 업무 문서 — 미분류 경고는 정말 모르는 문서만."""
+    db = Database(tmp_path / "t.db")
+    kg_store.ensure(db)
+    a = db.add_document("업무분장표.hwp", "x", doc_type="grant")
+    b = db.add_document("무엇인지 모름.hwp", "y", doc_type="grant")
+    p_ = db.add_document("에이전트가 사업을 정한 계획서.hwp", "z", doc_type="grant")
+    with db._conn() as c:
+        kg_store.put_nodes(c, [(f"doc:{a}", "doc", "업무분장표.hwp", {"kind": "table", "status": "agent"}, a),
+                               (f"doc:{b}", "doc", "무엇인지 모름.hwp", {"kind": "table", "status": "review"}, b),
+                               ("program:P", "program", "가 사업"), (f"doc:{p_}", "doc", "계획서.hwp", {"kind": "plan", "status": "agent"}, p_)])
+        kg_store.put_edges(c, [("program:P", f"doc:{p_}", "contains", "분류", ["검토 에이전트"])])
+    kinds = kg_explore._KIND_KO
+    schema = ontology_rdf.schema_graph(kg_explore.schema(db), kinds)
+    assert "z:InstitutionalDoc" in schema.serialize(format="turtle")
+    inst = ontology_rdf.instance_graph(db, kinds)
+    rep = ontology_rdf.validate(inst, schema)
+    assert rep["n_warnings"] == 1 and rep["n_violations"] == 0
+    inst_ttl = inst.serialize(format="turtle")
+    assert inst_ttl.count("z:InstitutionalDoc") == 1                     # 사업에 이어진 에이전트 문서는 기관 업무 문서가 아니다

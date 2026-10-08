@@ -56,6 +56,9 @@ def schema_graph(schema: dict, kinds: dict[str, str]):
         g.add((c, RDF.type, OWL.Class))
         g.add((c, RDFS.subClassOf, Z.Doc))
         g.add((c, RDFS.label, Literal(label, lang="ko")))
+    g.add((Z.InstitutionalDoc, RDF.type, OWL.Class))
+    g.add((Z.InstitutionalDoc, RDFS.subClassOf, Z.Doc))
+    g.add((Z.InstitutionalDoc, RDFS.label, Literal("기관 업무 문서(사업 아님 — 검토가 정함)", lang="ko")))
     for c in ("Statement", "LedgerStatement"):
         g.add((Z[c], RDF.type, OWL.Class))
     g.add((Z.LedgerStatement, RDFS.subClassOf, Z.Statement))
@@ -110,6 +113,8 @@ def instance_graph(db, kinds: dict[str, str]):
     g = Graph()
     g.bind("z", Z)
     keep: set[str] = set()
+    agent_docs: set[str] = set()                         # 검토 에이전트가 정한 문서 — 사업에 이어지지 않았으면 「사업 아님」
+    contained: set[str] = set()
     ph = ",".join("?" * len(EXPORT_TYPES))
     with db._conn() as conn:
         for r in conn.execute(f"SELECT id, type, label, props FROM kg_nodes WHERE type IN ({ph})", EXPORT_TYPES):
@@ -120,6 +125,8 @@ def instance_graph(db, kinds: dict[str, str]):
             g.add((s, RDFS.label, Literal(label)))
             if typ == "doc" and props.get("kind") in kinds:
                 g.add((s, RDF.type, Z["Doc_" + props["kind"]]))
+            if typ == "doc" and props.get("status") == "agent":
+                agent_docs.add(nid)
             for key, pname in (("year", "year"), ("round", "round")):
                 v = props.get(key)
                 if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
@@ -135,6 +142,8 @@ def instance_graph(db, kinds: dict[str, str]):
                 continue
             a, b = node_iri(Z, src), node_iri(Z, dst)
             g.add((a, Z[PROP[kind]], b))
+            if kind == "contains":
+                contained.add(dst)
             st = Z["s/" + str(n)]
             n += 1
             g.add((st, RDF.type, Z.LedgerStatement if kind in LEDGER_KINDS else Z.Statement))
@@ -145,6 +154,8 @@ def instance_graph(db, kinds: dict[str, str]):
             for e in (json.loads(ev or "[]") if isinstance(ev, str) else (ev or [])):
                 if str(e).strip():
                     g.add((st, Z.evidence, Literal(str(e))))
+    for nid in agent_docs - contained:
+        g.add((node_iri(Z, nid), RDF.type, Z.InstitutionalDoc))   # 검토가 「사업 아님」으로 정한 기관 일반 업무 문서 — 미분류가 아니다
     return g
 
 
