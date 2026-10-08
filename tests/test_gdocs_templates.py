@@ -53,3 +53,13 @@ def test_pick_matches_document_kind_words_only():
     assert gt.pick("AI 특강 프로그램 실시계획서 만들어 줘")["id"] == "program_plan"
     assert gt.pick("취업 캠프 결과보고서 초안")["id"] == "program_report"
     assert gt.pick("공문 초안 써 줘") is None                       # 공통 양식이 없는 갈래는 빈 문서로
+
+
+def test_sources_are_attached_to_their_sections():
+    """절마다 근거 위치가 지침 끝에 붙고(지침 없는 절은 표 앞에 근거 지침), 사업 이름은 넣지 않는다."""
+    blocks = gt.PLAN["blocks"]
+    i = next(k for k, b in enumerate(blocks) if b.get("text") == "가. 과제 개요")
+    assert "근거 — 평가편람" in blocks[i + 1].get("guide", "") and "table" in blocks[i + 2]
+    j = next(k for k, b in enumerate(blocks) if b.get("text") == "1. 추진 배경 및 필요성")
+    assert "근거 — 공고·기본계획" in blocks[j + 1]["guide"]
+    assert not any(w in gt.outline_text(gt.PLAN) for w in ("LINC", "RISE", "영남이공", "AID"))
