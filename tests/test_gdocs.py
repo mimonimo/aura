@@ -1274,3 +1274,21 @@ def test_number_check_flags_numbers_missing_from_evidence():
            {"op": "fill", "cells": [{"row": 1, "col": 1, "text": "120명"}]}]
     got = gdocs_agent.number_check(ops, ["목표 취업률 1차년 31.7%", "사업비 60,000,000원"])
     assert len(got) == 2 and any("45.7" in g for g in got) and any("120" in g for g in got)   # 31.7·6천만(=60,000,000)은 근거에 있다
+
+
+def test_newest_in_family_picks_latest_source_version(tmp_path):
+    """같은 계열의 판이 후보에 여럿이면 원본 수정 시각이 가장 늦은 판 — 계열이 없는 문서는 그대로."""
+    from zzaimy.app import grant_search
+    from zzaimy.app.db import Database
+
+    db = Database(tmp_path / "t.db")
+    a = db.add_document(filename="계획서_v1.hwp", stored_path="x1", doc_type="grant")
+    b = db.add_document(filename="계획서_최종.hwp", stored_path="x2", doc_type="grant")
+    c = db.add_document(filename="다른 문서.hwp", stored_path="x3", doc_type="grant")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET family = 'f1' WHERE id IN (?, ?)", (a, b))
+        conn.execute("CREATE TABLE IF NOT EXISTS archive_files (rel TEXT, doc_id INTEGER, mtime REAL, size INTEGER)")   # 운영의 원본 장부(필요한 칸만)
+        conn.execute("INSERT INTO archive_files (rel, doc_id, mtime, size) VALUES ('a', ?, 100, 1)", (a,))
+        conn.execute("INSERT INTO archive_files (rel, doc_id, mtime, size) VALUES ('b', ?, 200, 1)", (b,))
+    got = grant_search._newest_in_family(db, {a, b, c})
+    assert got[a] == b and got[b] == b and c not in got
