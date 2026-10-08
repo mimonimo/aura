@@ -450,6 +450,9 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     if unsupported:
         # 절대 규칙 1 — 생성된 수치는 인출된 근거에 있어야 한다. 넣기는 하되(70% 초안) 담당자가 바로 확인하게 짚는다
         p["reply"] = (p["reply"] + "\n근거에서 찾지 못한 수치(확인 필요): " + ", ".join(unsupported[:8])).strip()
+    stray = source_check(p["ops"], [materials, command] + [str(c.get("reg_title") or "") + " " + str(c.get("content") or "") for c in (evidence or [])])
+    if stray:
+        p["reply"] = (p["reply"] + "\n재료에 없는 출처(확인 필요): " + ", ".join(stray[:6])).strip()
     if confirm:
         db.set_setting(f"chat_google_doc_pending:{session_id}", json.dumps(p["ops"], ensure_ascii=False))
         return (p["reply"] + "\n\n확인 후 적용이 켜져 있어 아직 문서에 쓰지 않았습니다. 아래 계획을 확인하고 적용을 누르세요.\n"
@@ -479,6 +482,23 @@ def number_check(ops: list[dict], evidence_texts: list[str]) -> list[str]:
 
     audit = verify_numbers(draft, [t for t in evidence_texts if t])
     return [_context_of(draft, v, radius=10) for v in audit.violations]       # 「…에서 45.7%로 높…」 꼴로 짧게
+
+
+_CITE = re.compile(r"[(（]\s*(?:출처|근거)\s*[:：]\s*([^)）\n]{2,80})[)）]")
+
+
+def source_check(ops: list[dict], evidence_texts: list[str]) -> list[str]:
+    """넣는 글의 「(출처: …)」 가 재료(문서 제목·본문)에 없는 이름이면 돌려준다 — 모델이 그럴듯한 문서 이름을 지어내던 것(시험 2026-10-09).
+    출처 이름의 앞 열두 글자(띄어쓰기 무시)가 재료 어디에도 없으면 지어낸 것으로 본다."""
+    draft = "\n".join(str(o.get("text") or "") for o in ops if o.get("op") in ("insert", "replace", "table"))
+    hay = re.sub(r"\s+", "", "\n".join(t for t in evidence_texts if t))
+    out = []
+    for m in _CITE.finditer(draft):
+        for name in re.split(r"[,;·/]|\s및\s", m.group(1)):
+            key = re.sub(r"\s+", "", name)[:12]
+            if len(key) >= 4 and not re.fullmatch(r"[\d.,\-~쪽p]+", key) and key not in hay and name.strip() not in out:
+                out.append(name.strip())
+    return out
 
 
 def apply_pending(db, session_id: int, owner: str, link: dict, *, data_dir: Path, scrub=None, http=None) -> list[str]:

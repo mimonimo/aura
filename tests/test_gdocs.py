@@ -1330,3 +1330,11 @@ def test_doc_level_guides_reach_section_materials():
     rules = drafting.doc_guides(info)
     assert "개조식" in rules
     assert "[문서 전체 작성 규칙" in drafting.render_materials({"doc_rules": rules, "instructions": "x"})
+
+
+def test_source_check_flags_invented_document_names():
+    from zzaimy.app import gdocs_agent
+
+    ops = [{"op": "insert", "text": "지역 신산업을 키운다(출처: 대구광역시 신산업 육성 계획). 성과지표를 정했다(출처: 성과지표 기준값 설정 근거 자료, 3쪽)."}]
+    got = gdocs_agent.source_check(ops, ["《2025년 성과지표 기준값 설정 근거 자료》 (문서함 검색)\n본문"])
+    assert got == ["대구광역시 신산업 육성 계획"]
