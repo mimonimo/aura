@@ -137,7 +137,9 @@ def instruction_keywords(instructions: str, limit: int = 12) -> list[str]:
 class Materials:
     """프로젝트 하나의 재료 창고 — 지난 자료의 절 정렬은 문서마다 한 번만 계산해 둔다."""
 
-    def __init__(self, db, project: dict | None, form_source_ids: set[int], find_relevant, extract_nouns, criteria_chunks: list[dict] | None):
+    def __init__(self, db, project: dict | None, form_source_ids: set[int], find_relevant, extract_nouns, criteria_chunks: list[dict] | None,
+                 scope: dict | None = None):
+        self.scope = scope                     # 문서함 사업 문서 검색(RAG)의 열람 범위 — 없으면 문서함 검색을 하지 않는다
         self.db = db
         self.project = project
         self.form_source_ids = set(form_source_ids)
@@ -207,7 +209,30 @@ class Materials:
                 how = "낱말 겹침"
             if text.strip():
                 past.append({"title": title, "how": how, "text": text})
+        past += self.library_hits(section, query)
         return {"instructions": instructions, "criteria": criteria, "past": past}
+
+    def library_hits(self, section: dict, query: str, k: int = 3) -> list[dict]:
+        """문서함 전체의 사업 문서(같은 사업의 지난 계획서·실적보고서 …)에서 이 절에 맞는 조각 — 그래프로 사업·연차를 좁히는 사업 문서 RAG.
+        프로젝트에 올린 문서만 보던 것을 넓힌다(리허설 2026-10-09: 지난 자료가 개설과목 엑셀 하나뿐). 열람 범위(scope)를 따른다."""
+        sc = self.scope
+        if not sc or sc.get("role") == "student" or sc.get("grant") is False:
+            return []
+        try:
+            from zzaimy.app import grant_search
+            q = f"{(self.project or {}).get('name', '')} {section.get('heading', '')} {query}"[:400]
+            own = {int(d["id"]) for d in self.past_docs()}
+            hits = grant_search.search(self.db, q, k=k + 2, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]
+        except Exception:
+            return []
+        out = []
+        for h in hits:
+            if int(h["doc_id"]) in own or int(h["doc_id"]) in self.form_source_ids:
+                continue
+            out.append({"title": " > ".join(h.get("path") or [])[:80], "how": "문서함 검색", "text": (h.get("content") or "")[:700]})
+            if len(out) >= k:
+                break
+        return out
 
 
 def render_materials(m: dict, institution: dict | None = None) -> str:
