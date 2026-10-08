@@ -116,6 +116,10 @@
     </div>
   </div>
 </div>
+{% if common_templates %}
+<p class="lib-templates"><span class="muted">공통 양식(구글 독스)</span>
+  {% for t in common_templates %}<a class="pill" href="{{ t.url }}" target="_blank" rel="noopener">{{ t.name }}</a>{% endfor %}</p>
+{% endif %}
 {% set base_qs = "type=" ~ active_tab ~ "&group=" ~ document_group ~ (("&project=" ~ active_project) if active_project else "") ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ kind) if kind else "") %}
 <div class="card reveal">
   <div class="card-in">

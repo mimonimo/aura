@@ -30,3 +30,7 @@
   .project-head > div:last-child { flex-wrap:wrap; }
   .project-chat-row > form:last-child { flex-basis:100% !important; }
 }
+
+/* 라이브러리 위 공통 양식 바로가기 한 줄 */
+.lib-templates { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0 0 12px; font-size:12.5px; }
+.lib-templates a.pill { text-decoration:none; }
