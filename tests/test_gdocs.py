@@ -1338,3 +1338,16 @@ def test_source_check_flags_invented_document_names():
     ops = [{"op": "insert", "text": "지역 신산업을 키운다(출처: 대구광역시 신산업 육성 계획). 성과지표를 정했다(출처: 성과지표 기준값 설정 근거 자료, 3쪽)."}]
     got = gdocs_agent.source_check(ops, ["《2025년 성과지표 기준값 설정 근거 자료》 (문서함 검색)\n본문"])
     assert got == ["대구광역시 신산업 육성 계획"]
+
+
+def test_one_project_entry_with_optional_files(docs_env, tmp_path):
+    """프로젝트 만들기 한 곳 — 자료 없이 이름만이면 그냥 만들고, 이름도 자료도 없으면 400."""
+    from zzaimy.app.main import create_app as _create
+
+    app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
+                  processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
+    c = TestClient(app)
+    r = c.post("/projects/bundle", data={"sector": "grant", "name": "지역혁신 2027"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/project/")
+    assert app.state.db.get_project(int(r.headers["location"].rsplit("/", 1)[1]))["name"] == "지역혁신 2027"
+    assert c.post("/projects/bundle", data={"sector": "grant"}, follow_redirects=False).status_code == 400
