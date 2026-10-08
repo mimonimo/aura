@@ -607,7 +607,7 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         existing = " ".join(_para_text(e["paragraph"]) for e in content).strip()
         end = int(content[-1]["endIndex"]) - 1 if existing else start        # 마지막 줄바꿈은 칸의 것 — 지우지 않는다
         if not text and not existing:
-            skipped += 1                                      # 빈 칸을 비우라는 것 — 할 일이 없다
+            continue                                          # 빈 칸을 비우라는 것(근거 없는 값은 비워 둠) — 할 일이 없고 잘못도 아니다
             continue
         edits.append((start, end, text))                     # text 가 비면 칸을 비운다(모델이 잘못 든 값을 지울 때)
         # 원점 칸이 덮은 칸에 남은(보이지 않는) 글은 지운다 — 예전 채우기가 덮인 칸에 넣은 값이 완성본으로 새지 않게
