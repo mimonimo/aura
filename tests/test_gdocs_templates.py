@@ -80,3 +80,17 @@ def test_program_templates_have_measured_common_parts():
         assert h in plan, h
     for h in ("3. 참여 현황", "5. 협력 기관 참여 실적", "8. 운영 사진"):
         assert h in report, h
+
+
+def test_strip_guides_docx_removes_only_guide_paragraphs():
+    import io
+    from docx import Document
+
+    d = Document()
+    d.add_paragraph("1. 추진 배경")
+    d.add_paragraph(gt.GUIDE_PREFIX + "공고의 목적을 쓴다.")
+    d.add_paragraph("본문이다.")
+    buf = io.BytesIO()
+    d.save(buf)
+    out, n = gt.strip_guides_docx(buf.getvalue())
+    assert n == 1 and [p.text for p in Document(io.BytesIO(out)).paragraphs] == ["1. 추진 배경", "본문이다."]

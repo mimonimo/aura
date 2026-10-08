@@ -751,6 +751,24 @@ def pick(text: str) -> dict | None:
     return None
 
 
+def strip_guides_docx(data: bytes) -> tuple[bytes, int]:
+    """내보낸 Word(docx)에서 회색 작성 지침 문단(「작성 지침 — 」으로 시작)을 뺀다 — 작업본(독스)의 지침은 그대로 둔다.
+    돌려주는 것은 (새 docx, 뺀 문단 수)."""
+    import io
+
+    from docx import Document
+
+    doc = Document(io.BytesIO(data))
+    n = 0
+    for para in list(doc.paragraphs):
+        if para.text.strip().startswith(GUIDE_PREFIX.strip()):
+            para._element.getparent().remove(para._element)
+            n += 1
+    out = io.BytesIO()
+    doc.save(out)
+    return out.getvalue(), n
+
+
 def export_specs(out_dir: Path) -> list[Path]:
     """사양을 JSON·글로 내보낸다 — 27B 프롬프트·검토용."""
     out_dir.mkdir(parents=True, exist_ok=True)
