@@ -231,6 +231,11 @@ def schema(db) -> dict:
             p = _props(r[0])
             lab = p.get("kind_label") or ""
             sub[_KIND_KO.get(lab, lab) or "갈래 미정"] += 1
+        # 기관 업무 문서 — 검토가 「사업 아님」으로 정해 사업·연차에 이어지지 않은 문서(OWL 의 z:InstitutionalDoc, ADR-0056 보강)
+        inst = conn.execute("SELECT COUNT(*) FROM kg_nodes n WHERE n.type = 'doc' AND n.props LIKE '%\"status\": \"agent\"%'"
+                            " AND NOT EXISTS (SELECT 1 FROM kg_edges e WHERE e.dst = n.id AND e.kind = 'contains')").fetchone()[0]
+        if inst:
+            sub["기관 업무 문서(사업 아님)"] = int(inst)
         attrs: dict[str, dict[str, int]] = {}
         for t in types:
             seen: dict[str, int] = defaultdict(int)
