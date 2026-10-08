@@ -1264,3 +1264,13 @@ def test_useful_chunk_drops_toc_and_image_only():
                         "○ 참여 학과는 현장실습과 캡스톤 디자인을 늘리고, 지역 기업과 공동 과제를 운영해 졸업생의 지역 취업을 높인다.")
     assert useful_chunk("1.외부환경 분석   2.내부역량 분석   3.의견수렴 분석   4.SWOT 분석   5.전략방향 도출   "
                         + "앞머리 목차 뒤에 본문이 길게 이어지면 그 본문은 재료로 쓴다 " * 8)
+
+
+def test_number_check_flags_numbers_missing_from_evidence():
+    """넣는 글의 수치가 근거에 없으면 짚는다(절대 규칙 1) — 근거에 있는 값·표기 바뀐 값은 통과."""
+    from zzaimy.app import gdocs_agent
+
+    ops = [{"op": "insert", "text": "취업률은 31.7%에서 45.7%로 높인다. 예산은 6천만 원이다."},
+           {"op": "fill", "cells": [{"row": 1, "col": 1, "text": "120명"}]}]
+    got = gdocs_agent.number_check(ops, ["목표 취업률 1차년 31.7%", "사업비 60,000,000원"])
+    assert len(got) == 2 and any("45.7" in g for g in got) and any("120" in g for g in got)   # 31.7·6천만(=60,000,000)은 근거에 있다
