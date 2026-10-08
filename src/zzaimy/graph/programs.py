@@ -418,6 +418,7 @@ class Assignment:
     status: str = "review"           # auto | review
     evidence: list[str] = field(default_factory=list)
     mentions: dict = field(default_factory=dict)       # 문서가 언급한 다른 사업 카드 → 근거(연관 사업 관계용)
+    year_src: str = ""               # title | head(본문 앞머리) | path — 기간 밖 판정에서 본문 연도는 약한 근거
 
 
 def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
@@ -473,7 +474,11 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
             a.evidence = ["사업명 언급을 찾지 못함"]
         m = _ROUND.search(title) or _ROUND.search(head[:600])
         a.round = int(m.group(1)) if m else None
-        a.year = _first_year(title, head[:600])
+        a.year = _first_year(title)
+        a.year_src = "title" if a.year else ""
+        if a.year is None:
+            a.year = _first_year(head[:600])
+            a.year_src = "head" if a.year else ""
         if _EVAL_RESULT.search(title):                          # 평가 '기준'이 아니라 평가 '결과·의견'
             a.kind, a.kind_reason = "evaluation", "제목에 평가 결과·종합의견"
         else:
@@ -746,6 +751,7 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                 m = _SEG_YEAR.search(seg.strip())
                 if m and plausible_year(re.search(r"\d{4}", m.group(0)).group(0)):
                     a.year = int(re.search(r"\d{4}", m.group(0)).group(0))
+                    a.year_src = "path"
                     stats["year_from_path"] += 1
                     break
         span = periods.get(a.program)
@@ -762,6 +768,16 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                 stats["round_fixed"] = stats.get("round_fixed", 0) + 1
             a.round = a.year - start + 1
             stats["converted"] += 1
+        if a.year and not (start <= a.year <= (end or 9999)) and getattr(a, "year_src", "") == "head":
+            # 본문 앞머리에서 우연히 잡힌 연도(협약 기업 설립 연도, 첫해 보고서의 직전 연도 실적 등)는 수행 연도가 아니다 —
+            # 사업은 두고 연도만 버린다(K-20261004-03 의 규칙. 10/9 실측: LINC3.0·LINC+ 폴더 문서 885건이 이 때문에 미분류)
+            a.evidence = list(a.evidence) + [f"본문 연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 연도만 버림"]
+            a.year = None
+            a.round = None if a.round and not (1 <= a.round <= ((end or start + 11) - start + 1)) else a.round
+            if a.round:
+                a.year = start + a.round - 1
+            stats["head_year_dropped"] = stats.get("head_year_dropped", 0) + 1
+            continue
         if a.year and not (start <= a.year <= (end or 9999)):
             text = re.sub(r"[\s.·\-_]+", "", f"{d.get('path') or ''}/{d.get('filename') or ''}").upper()
             other = _span_match(text, a.year, [sp for sp in (spans or []) if sp["id"] != a.program])
