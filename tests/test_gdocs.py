@@ -1025,3 +1025,16 @@ def test_doc_table_grids_label_tables_with_their_section(monkeypatch):
     assert [(g["section_index"], g["n"]) for g in grids] == [(2, 1)]
     text = gdocs.render_table_grids(grids)
     assert "fill 의 section=2, table=1" in text and "r1: [c0] 사업 기간 | [c1] _" in text
+
+
+def test_guide_anchor_puts_text_after_guide_before_first_table():
+    """공통 양식 절: 새 글은 지침(과 앞서 넣은 글) 뒤·첫 표 앞에. 지침이 없는 절은 None(기존대로 절 끝)."""
+    from zzaimy.ingest import gdocs
+
+    def para(st, en, t):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"elements": [{"textRun": {"content": t + "\n"}}]}}
+    body = [para(1, 10, "1. 현황"), para(10, 40, gdocs.GUIDE_PREFIX + "지표로 적는다"), para(40, 60, "앞서 넣은 글"),
+            {"startIndex": 60, "endIndex": 90, "table": {}}, para(90, 95, ""), para(95, 100, "2. 다음")]
+    info = {"sections": [{"index": 1, "heading": "1. 현황", "start": 1}, {"index": 2, "heading": "2. 다음", "start": 95}], "end": 100}
+    assert gdocs._guide_anchor(body, info, info["sections"][0]) == 59
+    assert gdocs._guide_anchor(body, info, info["sections"][1]) is None
