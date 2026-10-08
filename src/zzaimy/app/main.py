@@ -2099,8 +2099,15 @@ def create_app(
 
         if defer_review and "defer_review" in _ins.signature(processor.process).parameters:
             processor.process(db_, doc_id, stored, defer_review=True)
-        else:
-            processor.process(db_, doc_id, stored)
+            # 판독·색인까지 끝났으니 문서는 이미 쓸 수 있다 — 뒤 단계(정체 읽기 27B ~100초·분류·열람 PDF)는 한 줄 대기열로
+            # (실측 2026-10-09: 묶음 5건 864초 중 정체 읽기가 문서마다 ~100초)
+            _TAIL_QUEUE.submit(_after_process, db_, doc_id, user_chose_type)
+            return
+        processor.process(db_, doc_id, stored)
+        _after_process(db_, doc_id, user_chose_type)
+
+    def _after_process(db_, doc_id: int, user_chose_type: bool = True) -> None:
+        """판독 뒤 단계 — 정체 읽기 → 자동 분류 → 열람 PDF → 맥락 분석. 하나가 실패해도 다음은 한다."""
         try:
             _identify_document(db_, doc_id)
         except Exception:
@@ -2502,6 +2509,9 @@ def create_app(
             # 시간 대부분이 토르 27B 생성(문서당 ~3분)인데 젯슨은 동시 요청에도 전체 생성 속도가 거의 안 늘고, MinerU(VM CPU)는 서로 다툰다
             background.add_task(_process_bundle, jobs)
         return made
+
+    from concurrent.futures import ThreadPoolExecutor as _TPE
+    _TAIL_QUEUE = _TPE(max_workers=1, thread_name_prefix="intake-tail")
 
     def _process_bundle(jobs: list[tuple[int, Path]]) -> None:
         from concurrent.futures import ThreadPoolExecutor
