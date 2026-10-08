@@ -225,7 +225,7 @@ class Materials:
             if text.strip():
                 past.append({"title": title, "how": how, "text": text})
         past += self.library_hits(section, query)
-        return {"instructions": instructions, "criteria": criteria, "past": past}
+        return {"instructions": instructions, "criteria": criteria, "past": past, "doc_rules": doc_guides(info)}
 
     def library_hits(self, section: dict, query: str, k: int = 3) -> list[dict]:
         """문서함 전체의 사업 문서(같은 사업의 지난 계획서·실적보고서 …)에서 이 절에 맞는 조각 — 그래프로 사업·연차를 좁히는 사업 문서 RAG.
@@ -262,8 +262,24 @@ class Materials:
         return out
 
 
+def doc_guides(info: dict) -> str:
+    """문서 전체 지침 — 첫 절 앞(앞머리·표지)의 작성 지침 문단(공통 양식의 「작성 지침 — …」: 개조식 기호·문체·지침 지우기).
+    절 재료에는 그 절의 지침만 들어가 문서 전체 규칙(개조식)이 빠지던 것(실데이터 시험: 초안이 서술형 문단)."""
+    from zzaimy.ingest.gdocs import GUIDE_PREFIX
+
+    head = next((s for s in info.get("sections", []) if s.get("level", 9) >= 1), None)
+    lines = []
+    for s in info.get("sections", []):
+        if s is head:
+            break
+        lines += [ln.strip() for ln in (s.get("text") or "").split("\n") if ln.strip().startswith(GUIDE_PREFIX.strip())]
+    return "\n".join(lines)[:800]
+
+
 def render_materials(m: dict, institution: dict | None = None) -> str:
     lines: list[str] = []
+    if m.get("doc_rules"):
+        lines.append("[문서 전체 작성 규칙 — 모든 절에 적용(문체·기호)]\n" + m["doc_rules"])
     if m.get("instructions"):
         lines.append("[이 절의 양식 안내·작성방법]\n" + m["instructions"][:2500])
     crit = m.get("criteria") or []
