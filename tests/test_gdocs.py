@@ -1300,7 +1300,7 @@ def test_report_project_also_fetches_matching_plan(monkeypatch, tmp_path):
     from zzaimy.app.db import Database
 
     qs = []
-    body = "□ 추진 내용 ○ 지역 기업과 공동 교육과정을 운영하고 현장실습을 늘려 졸업생의 지역 취업을 높이는 데 집중했다. ○ 참여 학과를 넓혔다."
+    body = "□ 추진 내용 ○ 지역 기업과 공동 교육과정을 운영하고 현장실습을 늘려 졸업생의 지역 취업을 높이는 데 집중했다. ○ 참여 학과를 넓히고 협약기업과 공동 운영하는 프로그램을 늘렸다. " * 2
 
     def fake(db, q, k=6, user=None, prefer_docs=None, depts=None):
         qs.append(q)
