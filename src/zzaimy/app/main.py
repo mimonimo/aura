@@ -1417,6 +1417,7 @@ def create_app(
                 mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope)
                 inst = _asks.facts(db, session_)
                 parts_: list[str] = []
+                pend_before = {a["name"] for a in _asks.pending(db, session_id)}   # 이번 차례 전에 이미 모은 빈 값 — 답마다 되풀이하지 않게
                 all_ops: list[dict] = []
                 redo = bool(re.search(r"다시\s*(?:써|쓰|작성)|새로\s*(?:써|쓰|작성)|바꿔\s*(?:써|쓰)", q))
                 for sec in targets:
@@ -1488,9 +1489,13 @@ def create_app(
                     info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
                 db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
                 pend = _asks.pending(db, session_id)
-                if pend:
-                    parts_.append("자료에서 찾지 못해 비워 둔 값이 있습니다 — " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in pend[:6])
-                                  + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다.")
+                new_ = [a for a in pend if a["name"] not in pend_before]
+                if new_:
+                    older = len(pend) - len(new_)
+                    parts_.append("이번 절에서 자료에 없어 비워 둔 값 — " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in new_[:6])
+                                  + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다." + (f" (앞 절에서 모은 빈 값 {older}개도 「필요한 값 입력」에 있습니다)" if older else ""))
+                elif pend:
+                    parts_.append(f"아직 비어 있는 값 {len(pend)}개는 「필요한 값 입력」에서 채울 수 있습니다.")
                 text = "\n\n".join(parts_)
                 _ops = all_ops
                 left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x) and x.get("heading") not in skip_]
