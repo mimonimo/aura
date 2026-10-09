@@ -702,10 +702,54 @@ def fit_widths(heads: list[str], weights: list[float], kv: bool = False, total: 
         fixed |= short
 
 
+# ── 모양(갈래마다 다른 주조색 — 다섯 양식이 한눈에 갈리게) ─────────────────────────────
+ACCENT = {"plan": (0.11, 0.24, 0.43), "report": (0.0, 0.40, 0.44), "program_plan": (0.15, 0.43, 0.25),
+          "program_report": (0.70, 0.35, 0.08), "minutes": (0.27, 0.31, 0.37)}
+COVER_PAGE = {"plan", "report"}                          # 표지를 한 쪽으로 두는 갈래(회의록·단위 프로그램은 첫 쪽 머리에 제목 상자)
+FONT = "Noto Sans KR"
+LINE = {"red": 0.70, "green": 0.73, "blue": 0.77}       # 표 선
+LABEL_BG = {"red": 0.95, "green": 0.96, "blue": 0.97}   # 미리 적힌 행 이름 칸
+WHITE = {"red": 1.0, "green": 1.0, "blue": 1.0}
+_UNIT = re.compile(r"\s*\(단위:\s*([^)]+)\)")
+# 칸 정렬 — 금액은 오른쪽, 짧은 값(번호·구분·인원·시기·여부·지표 값)은 가운데, 나머지 글은 왼쪽
+_RIGHT = re.compile(r"금액|예산|집행액|변경 전|변경 후|증감")
+_CENTER = re.compile(r"연번|번호|^구분|여부|인원|횟수|응답 수|만족도|주기|시기|기간|기한|일자|일정|담당$|성명|직위|차시|^대상$|의결 결과|표결|"
+                     r"대비|률|비율|기준값|목표값|실적값|차년도|형태|규모|실적\(건·명\)|제정|운영 방식|인력$|증빙$")
+
+
+def rgb(c: tuple) -> dict:
+    return {"red": c[0], "green": c[1], "blue": c[2]}
+
+
+def tint(c: tuple, k: float = 0.10) -> dict:
+    return {"red": 1 - (1 - c[0]) * k, "green": 1 - (1 - c[1]) * k, "blue": 1 - (1 - c[2]) * k}
+
+
+def unit_of(columns: list[str]) -> tuple[list[str], str]:
+    """머리말의 「(단위: 백만원)」을 떼어 표 위 오른쪽 캡션으로 — 실제 서식처럼. (머리말, 캡션)."""
+    unit = ""
+    out = []
+    for h in columns:
+        m = _UNIT.search(h)
+        if m and not unit:
+            unit = f"(단위: {m.group(1).strip()})"
+        out.append(_UNIT.sub("", h).strip())
+    return out, unit
+
+
+def col_align(head: str, money: bool) -> str:
+    """칸 정렬 — START·CENTER·END. 금액 표(단위가 원)의 연차·합계 칸은 금액이라 오른쪽."""
+    if _RIGHT.search(head) or (money and re.fullmatch(r"\d차년도|합계|국비|지방비|대응자금", head)):
+        return "END"
+    if _CENTER.search(head):
+        return "CENTER"
+    return "START"
+
+
 class _Builder:
-    def __init__(self, email: str, doc: str, http):
+    def __init__(self, email: str, doc: str, http, accent: tuple = ACCENT["plan"]):
         from zzaimy.ingest import gdocs
-        self.g, self.email, self.doc, self.http = gdocs, email, doc, http
+        self.g, self.email, self.doc, self.http, self.accent = gdocs, email, doc, http, accent
         self.inserts: list[dict] = []
         self.styles: list[dict] = []
         self.cur = self._end()
@@ -716,29 +760,64 @@ class _Builder:
         body = self.g.body_content(r.json())
         return int(body[-1]["endIndex"]) - 1
 
-    def para(self, text: str, style: str = "NORMAL_TEXT", guide: bool = False, center: bool = False) -> None:
+    def _text(self, s: int, e: int, size: float | None = None, bold: bool | None = None, color: dict | None = None) -> None:
+        ts, f = {}, []
+        if size:
+            ts["fontSize"] = {"magnitude": size, "unit": "PT"}
+            f.append("fontSize")
+        if bold is not None:
+            ts["bold"] = bold
+            f.append("bold")
+        if color:
+            ts["foregroundColor"] = {"color": {"rgbColor": color}}
+            f.append("foregroundColor")
+        if f and e > s:
+            self.styles.append({"updateTextStyle": {"range": {"startIndex": s, "endIndex": e}, "textStyle": ts, "fields": ",".join(f)}})
+
+    def para(self, text: str, style: str = "NORMAL_TEXT", guide: bool = False, center: bool = False, align: str = "",
+             size: float | None = None, bold: bool | None = None, color: dict | None = None, above: float | None = None,
+             below: float | None = None, box: str = "") -> None:
         s = self.cur
         self.inserts.append({"insertText": {"location": {"index": s}, "text": text + "\n"}})
         e = s + _u16(text) + 1
-        ps = {"namedStyleType": style}
-        fields = ["namedStyleType"]
-        if center:
-            ps["alignment"] = "CENTER"
-            fields.append("alignment")
+        mark = len(self.styles)                                # 글자 꼴은 문단 꼴 뒤에 — 문단 꼴(namedStyleType)이 앞선 글자 꼴을 지운다
+        ps: dict = {"namedStyleType": style}
+        if center or align:
+            ps["alignment"] = "CENTER" if center else align
+        pt = lambda v: {"magnitude": v, "unit": "PT"}
+        border = lambda w, pad: {"color": {"color": {"rgbColor": rgb(self.accent)}}, "width": pt(w), "padding": pt(pad), "dashStyle": "SOLID"}
         if style == "NORMAL_TEXT":
-            ps.update({"lineSpacing": 140, "spaceBelow": {"magnitude": 4, "unit": "PT"}})
-            fields += ["lineSpacing", "spaceBelow"]
-        elif style.startswith("HEADING_"):                      # 표 바로 뒤에서도 띄우고, 쪽 맨 아래에 제목만 남지 않게
-            ps.update({"spaceAbove": {"magnitude": HEAD_ABOVE.get(style, 12), "unit": "PT"}, "keepWithNext": True})
-            fields += ["spaceAbove", "keepWithNext"]
-        self.styles.append({"updateParagraphStyle": {"range": {"startIndex": s, "endIndex": e}, "paragraphStyle": ps,
-                                                     "fields": ",".join(fields)}})
-        if guide and text:
-            self.styles.append({"updateTextStyle": {"range": {"startIndex": s, "endIndex": e - 1},
-                                                    "textStyle": {"italic": True, "fontSize": {"magnitude": 9.5, "unit": "PT"},
-                                                                  "foregroundColor": {"color": {"rgbColor": GUIDE_COLOR}}},
-                                                    "fields": "italic,fontSize,foregroundColor"}})
+            ps.update({"lineSpacing": 150, "spaceBelow": pt(4)})
+        if style == "HEADING_1":                               # 큰 장 — 주조색 글자와 아래 굵은 선
+            ps.update({"spaceAbove": pt(26), "spaceBelow": pt(10), "keepWithNext": True, "borderBottom": border(1.5, 4)})
+            self._text(s, e - 1, 15, True, rgb(self.accent))
+        elif style == "HEADING_2":
+            ps.update({"spaceAbove": pt(16), "spaceBelow": pt(6), "keepWithNext": True})
+            self._text(s, e - 1, 12.5, True, rgb(self.accent))
+        elif style == "HEADING_3":
+            ps.update({"spaceAbove": pt(12), "spaceBelow": pt(4), "keepWithNext": True})
+            self._text(s, e - 1, 11, True, {"red": 0.18, "green": 0.2, "blue": 0.23})
+        if guide and text:                                     # 작성 지침 — 옅은 상자·왼쪽 띠(기울임 없음: 한글 기울임은 억지로 비틀어 읽기 어렵다)
+            ps.update({"shading": {"backgroundColor": {"color": {"rgbColor": tint(self.accent, 0.06)}}},
+                       "borderLeft": border(3, 8), "indentStart": pt(4), "lineSpacing": 135, "spaceAbove": pt(2), "spaceBelow": pt(8)})
+            self._text(s, e - 1, 8.5, False, GUIDE_COLOR)
+            if text.startswith(GUIDE_PREFIX):
+                self._text(s, s + _u16(GUIDE_PREFIX), None, True, rgb(self.accent))
+        if box == "title":                                     # 표지 제목 상자 — 위 굵은 선, 아래 가는 선
+            ps.update({"borderTop": border(2.5, 12), "borderBottom": border(0.75, 12)})
+        if above is not None:
+            ps["spaceAbove"] = pt(above)
+        if below is not None:
+            ps["spaceBelow"] = pt(below)
+        if not guide and (size or bold is not None or color):
+            self._text(s, e - 1, size, bold, color)
+        self.styles.insert(mark, {"updateParagraphStyle": {"range": {"startIndex": s, "endIndex": e}, "paragraphStyle": ps,
+                                                           "fields": ",".join(ps)}})
         self.cur = e
+
+    def page_break(self) -> None:
+        self.inserts.append({"insertPageBreak": {"location": {"index": self.cur}}})
+        self.cur += 2                                          # 쪽 나눔 글자 + 새 문단
 
     def flush(self) -> None:
         if self.inserts or self.styles:
@@ -746,9 +825,13 @@ class _Builder:
         self.inserts, self.styles = [], []
 
     def table(self, columns: list[str], rows: list[list[str]], widths: list[float]) -> None:
-        self.flush()
         kv = columns == ["항목", "내용"]
-        grid = rows if kv else [columns] + rows
+        heads, unit = unit_of(columns) if not kv else (columns, "")
+        money = "원" in unit or any("(원)" in h for h in heads)
+        if unit:                                               # 표 위 오른쪽 단위 — 실제 서식처럼
+            self.para(unit, align="END", size=8.5, color=GUIDE_COLOR, above=4, below=2)
+        self.flush()
+        grid = rows if kv else [heads] + rows
         n_rows, n_cols = len(grid), len(columns)
         self.g._batch(self.email, self.doc, [{"insertTable": {"location": {"index": self.cur}, "rows": n_rows, "columns": n_cols}}], self.http)
         r = self.g._read(self.email, self.doc, self.http)
@@ -765,32 +848,62 @@ class _Builder:
         reqs = [{"insertText": {"location": {"index": i}, "text": t}} for i, t, _r, _c in sorted(fills, reverse=True)]
         if reqs:
             self.g._batch(self.email, self.doc, reqs, self.http)
+        pt = lambda v: {"magnitude": v, "unit": "PT"}
+        line = {"color": {"color": {"rgbColor": LINE}}, "width": pt(0.5), "dashStyle": "SOLID"}
+        loc = lambda r0, c0, rs, cs: {"tableCellLocation": {"tableStartLocation": {"index": ts}, "rowIndex": r0, "columnIndex": c0},
+                                      "rowSpan": rs, "columnSpan": cs}
+        cell_style = lambda rng, st, f: {"updateTableCellStyle": {"tableRange": rng, "tableCellStyle": st, "fields": f}}
         style: list[dict] = []
-        for ci, w in enumerate(fit_widths([r[0] for r in rows] if kv else columns, widths, kv=kv)):
+        for ci, w in enumerate(fit_widths([r[0] for r in rows] if kv else heads, widths, kv=kv)):
             style.append({"updateTableColumnProperties": {
                 "tableStartLocation": {"index": ts}, "columnIndices": [ci],
-                "tableColumnProperties": {"widthType": "FIXED_WIDTH", "width": {"magnitude": w, "unit": "PT"}},
-                "fields": "widthType,width"}})
-        head = {"tableRange": {"tableCellLocation": {"tableStartLocation": {"index": ts}, "rowIndex": 0, "columnIndex": 0},
-                               "rowSpan": (n_rows if kv else 1), "columnSpan": (1 if kv else n_cols)},
-                "tableCellStyle": {"backgroundColor": {"color": {"rgbColor": HEAD_BG}}}, "fields": "backgroundColor"}
-        style.append({"updateTableCellStyle": head})
-        if not kv:
+                "tableColumnProperties": {"widthType": "FIXED_WIDTH", "width": pt(w)}, "fields": "widthType,width"}})
+        # 모든 칸 — 가는 회색 선, 안쪽 여백, 세로 가운데
+        style.append(cell_style(loc(0, 0, n_rows, n_cols),
+                                {"borderTop": line, "borderBottom": line, "borderLeft": line, "borderRight": line,
+                                 "paddingTop": pt(4), "paddingBottom": pt(4), "paddingLeft": pt(5), "paddingRight": pt(5),
+                                 "contentAlignment": "MIDDLE"},
+                                "borderTop,borderBottom,borderLeft,borderRight,paddingTop,paddingBottom,paddingLeft,paddingRight,contentAlignment"))
+        labelled = not kv and any(r and r[0] for r in rows)          # 행 이름이 미리 적힌 표(국비·강점·작성 …)
+        if kv:
+            style.append(cell_style(loc(0, 0, n_rows, 1), {"backgroundColor": {"color": {"rgbColor": tint(self.accent, 0.12)}}}, "backgroundColor"))
+        else:
+            style.append(cell_style(loc(0, 0, 1, n_cols), {"backgroundColor": {"color": {"rgbColor": rgb(self.accent)}}}, "backgroundColor"))
             style.append({"pinTableHeaderRows": {"tableStartLocation": {"index": ts}, "pinnedHeaderRowsCount": 1}})
+            if labelled and n_rows > 1:
+                style.append(cell_style(loc(1, 0, n_rows - 1, 1), {"backgroundColor": {"color": {"rgbColor": LABEL_BG}}}, "backgroundColor"))
+        total_rows = [ri for ri, row in enumerate(grid) if ri > (-1 if kv else 0) and row and row[0].replace(" ", "") in ("합계", "계", "총계")]
+        for ri in total_rows:
+            style.append(cell_style(loc(ri, 0, 1, n_cols), {"backgroundColor": {"color": {"rgbColor": tint(self.accent, 0.14)}}}, "backgroundColor"))
+        data0 = 0 if kv else 1
+        if n_rows > data0:                                     # 빈 행도 채울 칸으로 보이게 — 최소 높이
+            style.append({"updateTableRowStyle": {"tableStartLocation": {"index": ts}, "rowIndices": list(range(data0, n_rows)),
+                                                  "tableRowStyle": {"minRowHeight": pt(20)}, "fields": "minRowHeight"}})
         self.g._batch(self.email, self.doc, style, self.http)
-        # 글자 꼴 — 표 전체 10pt, 머리(행 또는 항목 열) 굵게
+        # 글자·문단 — 표 전체 9.5pt, 머리행은 흰 굵은 글자 가운데, 행 이름·항목 칸은 굵게 가운데, 칸마다 정렬
         r = self.g._read(self.email, self.doc, self.http)
         body = self.g.body_content(r.json())
         el = next(e for e in body if e.get("table") and int(e["startIndex"]) == ts)
         ts_end = int(el["endIndex"])
-        fx = [{"updateTextStyle": {"range": {"startIndex": ts + 1, "endIndex": ts_end - 1}, "textStyle": {"fontSize": {"magnitude": 10, "unit": "PT"}},
-                                   "fields": "fontSize"}}]
+        fx = [{"updateTextStyle": {"range": {"startIndex": ts + 1, "endIndex": ts_end - 1},
+                                   "textStyle": {"fontSize": pt(9.5)}, "fields": "fontSize"}}]
+        aligns = ["CENTER", "START"] if kv else [col_align(h, money) for h in heads]
         for ri, row in enumerate(el["table"]["tableRows"]):
             for ci, cell in enumerate(row["tableCells"]):
-                if (kv and ci == 0) or (not kv and ri == 0):
-                    a, b = int(cell["content"][0]["startIndex"]), int(cell["content"][-1]["endIndex"]) - 1
-                    if b > a:
-                        fx.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": b}, "textStyle": {"bold": True}, "fields": "bold"}})
+                a, b = int(cell["content"][0]["startIndex"]), int(cell["content"][-1]["endIndex"])
+                head_cell = (not kv and ri == 0)
+                label_cell = (kv and ci == 0) or (labelled and ci == 0 and ri > 0) or ri in total_rows
+                al = "CENTER" if head_cell or (label_cell and ci == 0) else aligns[ci]
+                fx.append({"updateParagraphStyle": {"range": {"startIndex": a, "endIndex": b},
+                                                    "paragraphStyle": {"alignment": al, "lineSpacing": 120,
+                                                                       "spaceAbove": pt(0), "spaceBelow": pt(0)},
+                                                    "fields": "alignment,lineSpacing,spaceAbove,spaceBelow"}})
+                if b - 1 > a and (head_cell or label_cell):
+                    st = {"bold": True}
+                    if head_cell:
+                        st["foregroundColor"] = {"color": {"rgbColor": WHITE}}
+                    fx.append({"updateTextStyle": {"range": {"startIndex": a, "endIndex": b - 1}, "textStyle": st,
+                                                   "fields": ",".join(["bold"] + (["foregroundColor"] if head_cell else []))}})
         self.g._batch(self.email, self.doc, fx, self.http)
         self.cur = self._end()
 
@@ -813,20 +926,44 @@ def build(email: str, spec: dict, folder_id: str | None = None, http=None, repla
     return {"id": doc, "url": f"https://docs.google.com/document/d/{doc}/edit", "title": title}
 
 
-def render(email: str, doc: str, spec: dict, http=None) -> None:
-    """사양을 이미 있는 (빈) 독스 문서 끝에 깐다 — 쪽 모양·표지 줄·절·지침·표. 초안 대화가 만든 문서에도 쓴다."""
+def render(email: str, doc: str, spec: dict, http=None, titled: bool = False) -> None:
+    """사양을 이미 있는 (빈) 독스 문서 끝에 깐다 — 쪽 모양·표지·절·지침·표. 초안 대화가 만든 문서에도 쓴다.
+
+    문서를 만들 때 들어간 제목 줄(TITLE)은 걷고 표지 상자로 바꾼다. titled — 그 제목이 실제 문서 이름(「○○사업 사업계획서」)이면 표지 제목으로
+    쓰고, 아니면(양식 원본) 사양의 표지 첫 줄(「「○○○○ 사업」 사업계획서」)을 쓴다. 계획서·보고서는 표지를 한 쪽으로, 나머지는 첫 쪽 머리에."""
     from zzaimy.ingest import gdocs, gdrive
     http = http or gdrive._http()
+    accent = ACCENT.get(spec["id"], ACCENT["plan"])
     gdocs._batch(email, doc, [{"updateDocumentStyle": {"documentStyle": {
         "pageSize": {"width": {"magnitude": PAGE_W, "unit": "PT"}, "height": {"magnitude": PAGE_H, "unit": "PT"}},
         "marginTop": {"magnitude": MARGIN, "unit": "PT"}, "marginBottom": {"magnitude": MARGIN, "unit": "PT"},
         "marginLeft": {"magnitude": MARGIN, "unit": "PT"}, "marginRight": {"magnitude": MARGIN, "unit": "PT"}},
         "fields": "pageSize,marginTop,marginBottom,marginLeft,marginRight"}}], http)
-    b = _Builder(email, doc, http)
-    for line in spec.get("cover", []):
-        b.para(line, "SUBTITLE", center=True)
+    title_text = ""
+    r = gdocs._read(email, doc, http)
+    gdocs._raise(r)
+    for el in gdocs.body_content(r.json()):
+        p = el.get("paragraph")
+        if p and p.get("paragraphStyle", {}).get("namedStyleType") == "TITLE":
+            title_text = "".join(x.get("textRun", {}).get("content", "") for x in p.get("elements", [])).strip()
+            gdocs._batch(email, doc, [{"deleteContentRange": {"range": {"startIndex": int(el["startIndex"]),
+                                                                          "endIndex": int(el["endIndex"])}}}], http)
+            break
+    cover = list(spec.get("cover", []))
+    head = (title_text if titled and title_text else (cover[0] if cover else title_text)).strip()
+    label = re.sub(r"\s*공통 양식.*$", "", spec["title"]).strip()
+    full = spec["id"] in COVER_PAGE
+    b = _Builder(email, doc, http, accent)
+    dark = {"red": 0.13, "green": 0.15, "blue": 0.18}
+    b.para(label, center=True, size=11, bold=True, color=rgb(accent), above=150 if full else 0, below=8)
+    b.para(head, center=True, size=22 if full else 17, bold=True, color=dark, box="title", above=0, below=6)
+    for i, line in enumerate(cover[1:]):
+        b.para(line, center=True, size=12 if full else 10.5, color=GUIDE_COLOR, above=(220 if full else 4) if i == 0 else 2, below=2)
     if spec.get("intro"):
+        b.para("", above=10 if full else 4, below=0)
         b.para(GUIDE_PREFIX + spec["intro"], guide=True)
+    if full:
+        b.page_break()
     for blk in spec["blocks"]:
         if "h" in blk:
             b.para(blk["text"], f"HEADING_{blk['h']}")
@@ -838,6 +975,10 @@ def render(email: str, doc: str, spec: dict, http=None) -> None:
             t = blk["table"]
             b.table(t["columns"], t["rows"], t["widths"])
     b.flush()
+    end = b._end()                                             # 글꼴 — 문서 전체 한 벌(독스 기본 Arial 의 한글 대체 글꼴이 들쭉날쭉)
+    gdocs._batch(email, doc, [{"updateTextStyle": {"range": {"startIndex": 1, "endIndex": end},
+                                                   "textStyle": {"weightedFontFamily": {"fontFamily": FONT}},
+                                                   "fields": "weightedFontFamily"}}], http)
 
 
 # 지시문 → 양식. 앞에서부터 처음 맞는 것(모든 패턴이 맞아야). 단위 프로그램을 사업 문서보다 먼저 본다.
