@@ -1294,6 +1294,26 @@ def test_newest_in_family_picks_latest_source_version(tmp_path):
     assert got[a] == b and got[b] == b and got.get(c, c) == c          # 혼자인 계열은 자기 자신
 
 
+def test_newest_in_family_groups_revision_dated_regulations(tmp_path):
+    """「이름 · 개정일」 판들은 계열 열쇠가 달라도 한 규정 — 개정일이 늦은 판이 남고, 다른 규정·날짜 없는 문서는 그대로."""
+    from zzaimy.app import grant_search
+    from zzaimy.app.db import Database
+    from zzaimy.app.doc_family import family_key
+
+    db = Database(tmp_path / "t.db")
+    names = ["영남이공대학교 학칙 · 2014년 2월 03일", "영남이공대학교 학칙 · 2026년 02월 27일",
+             "영남이공대학교 학칙 · 2016년 12월 16일", "학적변동자 처리에 관한 내규 · 2012년 2월 23일", "회의록(20240315).hwp"]
+    ids = [db.add_document(filename=n, stored_path=f"x{i}", doc_type="grant") for i, n in enumerate(names)]
+    with db._conn() as conn:
+        for i, n in zip(ids, names):
+            conn.execute("UPDATE documents SET family = ? WHERE id = ?", (family_key(n), i))
+        conn.execute("CREATE TABLE IF NOT EXISTS archive_files (rel TEXT, doc_id INTEGER, mtime REAL, size INTEGER)")
+        conn.execute("INSERT INTO archive_files (rel, doc_id, mtime, size) VALUES ('a', ?, 999, 1)", (ids[0],))   # 늦게 복사된 옛 판
+    got = grant_search._newest_in_family(db, set(ids))
+    assert got[ids[0]] == ids[1] and got[ids[2]] == ids[1] and got[ids[1]] == ids[1]
+    assert got.get(ids[3], ids[3]) == ids[3] and got.get(ids[4], ids[4]) == ids[4]
+
+
 def test_report_project_also_fetches_matching_plan(monkeypatch, tmp_path):
     """실적보고서 프로젝트면 같은 사업·연차 계획서도 따로 찾아 재료 앞에 둔다(계획 대비 실적을 쓰려면)."""
     from zzaimy.app import drafting, grant_search
