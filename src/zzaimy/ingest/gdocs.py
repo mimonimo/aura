@@ -266,11 +266,12 @@ def _body_style(start: int, end: int, template: bool = False) -> dict:
     """넣은 글의 문단 모양을 본문으로 — 변환본의 표 사이 얇은 문단(고정 1pt)이나 제목 모양을 물려받아 글이 겹치던 문제(실측 2026-09-29, 1.2 절).
 
     template — 공통 양식의 지침 상자 바로 뒤에 넣는 글. 지침 문단의 옅은 바탕·왼쪽 띠·들여쓰기를 물려받아 본문이 지침 상자 안처럼 보이던 것을
-    걷는다(마스크에 넣고 값을 비우면 기본값으로 돌아간다). 줄 간격은 공통 양식 본문(150)에 맞춘다."""
+    걷는다(마스크에 넣고 값을 비우면 기본값으로 돌아간다). 줄 간격은 개조식 한 줄 문단이 성기지 않게 140·문단 뒤 2pt."""
     fields = "namedStyleType,lineSpacing,spaceAbove,spaceBelow" + (",shading,borderLeft,indentStart" if template else "")
     return {"updateParagraphStyle": {"range": {"startIndex": start, "endIndex": end},
-                                     "paragraphStyle": {"namedStyleType": "NORMAL_TEXT", "lineSpacing": 150 if template else 115,
-                                                        "spaceAbove": {"magnitude": 0, "unit": "PT"}, "spaceBelow": {"magnitude": 4, "unit": "PT"}},
+                                     "paragraphStyle": {"namedStyleType": "NORMAL_TEXT", "lineSpacing": 140 if template else 115,
+                                                        "spaceAbove": {"magnitude": 0, "unit": "PT"},
+                                                        "spaceBelow": {"magnitude": 2 if template else 4, "unit": "PT"}},
                                      "fields": fields}}
 
 
