@@ -926,11 +926,12 @@ def build(email: str, spec: dict, folder_id: str | None = None, http=None, repla
     return {"id": doc, "url": f"https://docs.google.com/document/d/{doc}/edit", "title": title}
 
 
-def render(email: str, doc: str, spec: dict, http=None, titled: bool = False) -> None:
+def render(email: str, doc: str, spec: dict, http=None, titled: bool = False, fill: dict | None = None) -> None:
     """사양을 이미 있는 (빈) 독스 문서 끝에 깐다 — 쪽 모양·표지·절·지침·표. 초안 대화가 만든 문서에도 쓴다.
 
     문서를 만들 때 들어간 제목 줄(TITLE)은 걷고 표지 상자로 바꾼다. titled — 그 제목이 실제 문서 이름(「○○사업 사업계획서」)이면 표지 제목으로
-    쓰고, 아니면(양식 원본) 사양의 표지 첫 줄(「「○○○○ 사업」 사업계획서」)을 쓴다. 계획서·보고서는 표지를 한 쪽으로, 나머지는 첫 쪽 머리에."""
+    쓰고, 아니면(양식 원본) 사양의 표지 첫 줄(「「○○○○ 사업」 사업계획서」)을 쓴다. 계획서·보고서는 표지를 한 쪽으로, 나머지는 첫 쪽 머리에.
+    fill — 표지 자리 표시를 아는 값으로({"○○대학교": 대학명, "20○○. ○.": "2026. 10."})."""
     from zzaimy.ingest import gdocs, gdrive
     http = http or gdrive._http()
     accent = ACCENT.get(spec["id"], ACCENT["plan"])
@@ -950,6 +951,9 @@ def render(email: str, doc: str, spec: dict, http=None, titled: bool = False) ->
                                                                           "endIndex": int(el["endIndex"])}}}], http)
             break
     cover = list(spec.get("cover", []))
+    for k, v in (fill or {}).items():                         # 표지 자리 채우기(대학명·연월) — 아는 값만, 모르면 ○○ 그대로
+        if v:
+            cover = [c.replace(k, v) for c in cover]
     head = (title_text if titled and title_text else (cover[0] if cover else title_text)).strip()
     label = re.sub(r"\s*공통 양식.*$", "", spec["title"]).strip()
     full = spec["id"] in COVER_PAGE
