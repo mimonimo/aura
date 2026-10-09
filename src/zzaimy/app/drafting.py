@@ -230,7 +230,8 @@ class Materials:
             if text.strip():
                 past.append({"title": title, "how": how, "text": text})
         past += self.library_hits(section, query)
-        return {"instructions": instructions, "criteria": criteria, "past": past, "doc_rules": doc_guides(info)}
+        return {"instructions": instructions, "criteria": criteria, "past": past, "doc_rules": doc_guides(info),
+                "placeholder": placeholder_parent(info, section)}
 
     def library_hits(self, section: dict, query: str, k: int = 3) -> list[dict]:
         """문서함 전체의 사업 문서(같은 사업의 지난 계획서·실적보고서 …)에서 이 절에 맞는 조각 — 그래프로 사업·연차를 좁히는 사업 문서 RAG.
@@ -297,8 +298,29 @@ def doc_guides(info: dict) -> str:
     return "\n".join(lines)[:800]
 
 
+def placeholder_parent(info: dict, section: dict) -> str:
+    """이 절이 딸린 상위 제목 가운데 자리 표시(○○)가 남은 것(「1. (추진 과제 1) ○○○○」) — 없으면 빈 문자열.
+    절 작성 에이전트는 지금 쓰는 절만 보아 위 제목의 자리 표시를 그대로 두었다(10/9 시험) — 재료에 짚어 준다."""
+    secs = sorted(info.get("sections", []), key=lambda s: s.get("start", 0))
+    lvl = int(section.get("level") or 9)
+    last: dict[int, dict] = {}                                 # 단계마다 지금 열려 있는 제목
+    for s in secs:
+        if int(s.get("start", 0)) >= int(section.get("start", 0)):
+            break
+        sl = int(s.get("level") or 9)
+        last = {k: v for k, v in last.items() if k < sl}
+        last[sl] = s
+    for sl in sorted((k for k in last if k < lvl), reverse=True):    # 가까운 위 제목부터
+        if "○○" in (last[sl].get("heading") or ""):
+            return last[sl]["heading"]
+    return ""
+
+
 def render_materials(m: dict, institution: dict | None = None) -> str:
     lines: list[str] = []
+    if m.get("placeholder"):
+        lines.append(f"[채울 자리 표시 제목] 「{m['placeholder']}」 — 이 절을 쓰면서 그 제목도 replace(old=제목 전체, text=같은 번호·괄호 + "
+                     "재료에 있는 실제 과제·안건 이름)로 채운다. 재료에서 이름을 알 수 없으면 그대로 둔다.")
     if m.get("doc_rules"):
         lines.append("[문서 전체 작성 규칙 — 모든 절에 적용(문체·기호)]\n" + m["doc_rules"])
     if m.get("instructions"):
