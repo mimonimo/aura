@@ -1504,8 +1504,8 @@ def create_app(
                 from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf, hwpx_fill as _hf
 
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
-                if link.get("template"):
-                    # 공통 양식으로 쓴 문서는 한글 원본 서식이 없다 — Word(docx)로 내보내 같은 '작성' 폴더에 둔다(옛 판은 휴지통)
+                def _word_export(reason: str) -> str:
+                    """작업본을 Word(docx)로 같은 '작성' 폴더에 — 회색 작성 지침은 빼고(작업본엔 남김), 같은 이름의 옛 판은 휴지통."""
                     try:
                         info_ = _gd.get(link["account"], link["doc"])
                         from zzaimy.ingest import gdrive as _gdr
@@ -1527,12 +1527,18 @@ def create_app(
                         up_ = _gf.upload_file(link["account"], data_, name_,
                                               "application/vnd.openxmlformats-officedocument.wordprocessingml.document", folder_, reuse=False)
                         db.add_file("google", up_["url"], name=name_, session_id=session_id)
-                        text = (f"이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다. Word 파일 「{name_}」 로 내보냈습니다"
+                        return (f"{reason} Word 파일 「{name_}」 로 내보냈습니다"
                                 f"{f'(회색 작성 지침 {n_guides}곳은 뺐고, 작업본에는 남아 있습니다)' if n_guides else ''} — 한글에서 열어 hwpx 로 저장할 수 있습니다. "
-                                f"{up_['url']}\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」 으로 다시 쓰면 서식 그대로 채웁니다.")
+                                f"{up_['url']}")
                     except Exception as e:
-                        logging.getLogger("zzaimy.app.gdocs").exception("공통 양식 문서 내보내기 실패 (대화 %s)", session_id)
-                        text = f"Word 로 내보내지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
+                        logging.getLogger("zzaimy.app.gdocs").exception("Word 내보내기 실패 (대화 %s)", session_id)
+                        return f"Word 로 내보내지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
+
+                if link.get("template"):
+                    # 공통 양식으로 쓴 문서는 한글 원본 서식이 없다 — Word(docx)로 내보낸다
+                    text = _word_export("이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다.")
+                    if not text.startswith("Word 로 내보내지 못했"):
+                        text += "\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」 으로 다시 쓰면 서식 그대로 채웁니다."
                     db.add_chat(session_id, "assistant", _scrub_internal(text))
                     return
                 src = _working_copy_source(session_id, session_, q, "한글 완성본을 만들")
@@ -1540,8 +1546,10 @@ def create_app(
                     return
                 src_path = Path(src.get("stored_path") or "")
                 if src_path.suffix.lower() != ".hwpx" or not src_path.exists():
-                    text = (f"원본 서식 「{storage.title_of(src.get('filename') or '')}」 이 hwpx 가 아니라(또는 파일이 없어) 서식 보존 채우기를 할 수 없습니다. "
-                            "한글에서 'hwpx 로 저장'한 서식을 문서함에 반입한 뒤 다시 요청해 주세요.")
+                    # 옛 한글(hwp) 서식은 서식 보존 채우기를 못 한다 — 그 자리에서 Word 로 내보내고, hwpx 로 다시 올리는 길을 알린다
+                    text = _word_export(f"원본 서식 「{storage.title_of(src.get('filename') or '')}」 이 hwpx 가 아니라(또는 파일이 없어) "
+                                        "서식 보존 채우기를 할 수 없어,")
+                    text += ("\n서식 그대로의 한글 완성본이 필요하면 한글에서 그 서식을 'hwpx 로 저장'해 프로젝트에 올린 뒤 다시 「한글 파일로 내보내 줘」 라고 해 주세요.")
                     db.add_chat(session_id, "assistant", _scrub_internal(text))
                     return
                 email = link["account"]
