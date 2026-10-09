@@ -1,9 +1,9 @@
-"""구글 독스 공통 양식 4종 사양 — 독스 규칙(표 8열 이하·모양 일치·제목 단계)과 지침·실문서 값 없음."""
+"""구글 독스 공통 양식 5종 사양 — 독스 규칙(표 8열 이하·모양 일치·제목 단계)과 지침·실문서 값 없음."""
 from zzaimy.ingest import gdocs_templates as gt
 
 
 def test_specs_follow_docs_rules():
-    assert set(gt.SPECS) == {"plan", "report", "program_plan", "program_report"}
+    assert set(gt.SPECS) == {"plan", "report", "program_plan", "program_report", "minutes"}
     for sid, spec in gt.SPECS.items():
         assert gt.check_spec(spec) == [], sid
         heads = [b["text"] for b in spec["blocks"] if "h" in b]
@@ -113,3 +113,12 @@ def test_examples_attach_to_real_sections_and_match_table_shape():
                 i = next(i for i, b in enumerate(blocks) if b.get("text") == head and "h" in b)
                 table = next(b["table"] for b in blocks[i + 1:] if "table" in b)
                 assert len(ex[len("표 한 줄 — "):].split(" | ")) == len(table["columns"]), (sid, head, table["columns"])
+
+
+def test_minutes_template_picks_and_keeps_budget_rule():
+    """회의록 — 「회의록」 요청이면 이 양식, 예산 변경 표는 금액을 계산하지 않는 규칙을 단다(절대 규칙 5)."""
+    assert gt.pick("운영위원회 제3차 회의록 초안 써 줘")["id"] == "minutes"
+    assert gt.pick("특강 결과보고서")["id"] == "program_report"
+    blocks = gt.MINUTES["blocks"]
+    i = next(i for i, b in enumerate(blocks) if b.get("text") == "4. 예산 변경 내역(해당 시)")
+    assert "계산하지 말고" in blocks[i + 1]["guide"]
