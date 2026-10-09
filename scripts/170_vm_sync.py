@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import importlib.util
 import json
 import os
@@ -401,6 +402,16 @@ def main() -> int:
             except (ValueError, KeyError):
                 continue
     diff = {"added": [], "changed": [], "moved": [], "removed": [], "reclassified": 0}
+    if args.dry:
+        # 미리 보기 — 분류 규칙을 고쳤을 때 원본 장부의 사업이 어떻게 바뀌는지(쓰지 않는다)
+        archive.ensure(db)
+        with db._conn() as conn:
+            cur = dict(conn.execute("SELECT rel, program FROM archive_files WHERE removed_at = ''").fetchall())
+        moves = Counter((cur.get(r["rel"]) or "", r.get("program") or "") for r in rows if r["rel"] in cur)
+        moves = {k: n for k, n in moves.items() if k[0] != k[1]}
+        print(f"미리 보기: 사업이 바뀔 원본 {sum(moves.values())}건", flush=True)
+        for (a, b), n in sorted(moves.items(), key=lambda t: -t[1])[:20]:
+            print(f"  {n:6}  {a or '(없음)'} → {b or '(없음)'}", flush=True)
     if not args.dry:
         diff = archive.sync(db, rows, origins)
         stamp = time.strftime("%Y-%m-%d %H:%M")

@@ -556,7 +556,9 @@ def ledger_link(cards: list, ledger: dict) -> dict:
       (앞 단계 LINC 1단계처럼 문서 카드가 따로 없는 사업)은 장부 이름의 program_key
     - 장부 항목 하나가 여러 카드의 주인이면 같은 사업이다 — 가장 긴 표기가 맞은 카드로 합친다(「혁신지원사업」 = 「전문대학 혁신지원사업」)
     acronyms 는 문서 대조에만 쓰고 카드 대조에는 쓰지 않는다."""
-    flat = lambda t: re.sub(r"[\s.()·\-_]+", "", t or "").upper()
+    # 판 번호의 「.0」은 떼고 견준다 — 파일 이름은 「LINC3_성과달성계획」, 장부는 「LINC 3.0」(10/9: 같은 사업이 LINC3 카드로 갈려
+    # 원본 7,672건이 그래프에 없는 사업 열쇠로 보관됐다). 「3.0」 과 「30」 은 다르므로 점을 지우기 전에 뗀다.
+    flat = lambda t: re.sub(r"[\s.()·\-_]+", "", re.sub(r"(\d)\.0(?!\d)", r"\1", t or "")).upper()
     entries = []
     for e in ledger.get("programs", []):
         m = _PERIOD.search(str(e.get("period") or ""))
