@@ -230,14 +230,18 @@ class Materials:
                 how = "낱말 겹침"
             if text.strip():
                 past.append({"title": title, "how": how, "text": text})
-        past += self.library_hits(section, query)
+        rules = doc_guides(info)
+        from zzaimy.ingest.gdocs_templates import EVENT_RECORD_RULE
+        if EVENT_RECORD_RULE[:20] not in rules:
+            past += self.library_hits(section, query)
+        # 한 번의 회의·운영 기록이면 문서함 검색 재료를 주지 않는다 — 다른 회의·회차의 값이 새 기록에 옮겨졌다(프로젝트 문서·규정만)
         gap_hint = ""
         try:                                                    # 지난 작성에서 이 절이 비었던 까닭(fill_gaps) — 재료 맨 앞에
             from zzaimy.app import fill_gaps
             gap_hint = fill_gaps.context_hint(Path(str(getattr(self.db, "path", "") or ".")).parent, section.get("heading", ""))
         except Exception:
             gap_hint = ""
-        return {"instructions": instructions, "criteria": criteria, "past": past, "doc_rules": doc_guides(info),
+        return {"instructions": instructions, "criteria": criteria, "past": past, "doc_rules": rules,
                 "placeholder": placeholder_parent(info, section), "gap_hint": gap_hint}
 
     def library_hits(self, section: dict, query: str, k: int = 3) -> list[dict]:
