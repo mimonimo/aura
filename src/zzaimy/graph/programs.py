@@ -792,6 +792,16 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                     a.round = None
                 stats["head_year_dropped"] = stats.get("head_year_dropped", 0) + 1
                 continue
+            own = next((sp for sp in (spans or []) if sp["id"] == a.program), None)
+            fname = re.sub(r"[\s.·\-_]+", "", d.get("filename") or "").upper()
+            if own and start - 2 <= a.year <= (end or 9999) + 1 and any(t and t in fname for t in own["terms"]):
+                # 파일 이름이 이 사업을 직접 부르고 연도는 기간 바로 앞뒤 — 「(신)2021학년도 교육과정표(LINC3.0)」처럼 신청 때 낸
+                # 직전 학년도 기준 자료나 종료 이듬해 정리 자료다. 사업은 두고 연도만 버린다(10/9: LINC3.0 교육과정표 수십 건이 검토 대기).
+                # 기간에서 더 먼 연도(「2014년 LINC+」)는 앞 단계 자료일 수 있어 아래처럼 확정하지 않는다
+                a.evidence = list(a.evidence) + [f"파일 이름이 이 사업을 부르고 연도 {a.year} 는 기간({start}~{end or ''}) 바로 앞뒤 — 연도만 버림"]
+                a.year = a.round = None
+                stats["named_near_year_dropped"] = stats.get("named_near_year_dropped", 0) + 1
+                continue
             a.evidence = list(a.evidence) + [f"연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 확정하지 않음"]
             a.program, a.program_name, a.status = "", "", "review"
             a.year = a.round = None
