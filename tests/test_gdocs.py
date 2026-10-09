@@ -1477,3 +1477,13 @@ def test_report_section_looks_up_plan_counterpart_section(monkeypatch, tmp_path)
     plan_qs = [q for q in qs if "계획서" in q and "실적보고서" not in q]
     assert plan_qs[:2] == ["사업 A 2024년 계획서 「추진과제」", "사업 A 2024년 계획서 「차년도 사업계획」"]   # 걸린 후보에서 멈춘다
     assert len(plan_qs) == 2 and got[0]["how"].startswith("문서함 검색(같은 연차 계획서)")
+
+
+def test_placeholder_heading_can_be_filled_but_real_headings_stay():
+    """자리 표시 제목은 같은 번호로 채울 수 있고, 다른 제목·번호를 바꾸는 것·여러 줄·자리 표시 없는 제목은 막는다."""
+    from zzaimy.app.gdocs_agent import placeholder_heading_fill as f
+    assert f("1. (추진 과제 1) ○○○○", "1. (추진 과제 1) 산학연 친화형 교육환경 구축")
+    assert not f("1. (추진 과제 1) ○○○○", "2. (추진 과제 2) 다른 과제")              # 번호를 바꾸지 않는다
+    assert not f("1. (추진 과제 1) ○○○○", "1. (추진 과제 1) ○○○○")
+    assert not f("1. (추진 과제 1) ○○○○", "1. (추진 과제 1) 과제\n본문 문장")
+    assert not f("1. 추진 배경 및 필요성", "1. 추진 배경 및 필요성 — 지역 수요가 늘었다")    # 자리 표시가 없는 제목
