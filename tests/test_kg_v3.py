@@ -669,6 +669,31 @@ def test_export_assignments_logs_changes_and_core_docs(tmp_path, monkeypatch):
     assert len(ch) == 1 and ch[0]["doc_id"] == 1 and ch[0]["before"][1] == 2023 and ch[0]["after"][1] == 2024
 
 
+def test_named_file_keeps_program_when_year_is_just_outside_period():
+    """파일 이름이 사업을 부르고 연도가 기간 바로 앞(신청 때 낸 직전 학년도 자료)이면 사업은 두고 연도만 버린다 — 먼 연도는 그대로 보류."""
+    from zzaimy.graph import programs as P
+
+    class A:
+        def __init__(self, year):
+            self.program, self.program_name, self.status = "program:linc30", "LINC 3.0", "auto"
+            self.year, self.round, self.evidence = year, None, []
+
+    ledger = {"programs": [{"terms": ["LINC 3.0", "LINC3.0"], "period": "2022~2027", "sources": ["s"]}]}
+    spans = P.ledger_spans(ledger)
+    sid = spans[0]["id"]
+    docs = [{"path": "링크/교육과정", "filename": "5.(신)2021학년도 교육과정표(LINC3.0).hwp"},
+            {"path": "링크/교육과정", "filename": "2018학년도 교육과정표(LINC3.0).hwp"},
+            {"path": "링크/교육과정", "filename": "2021학년도 교육과정표.hwp"}]
+    asg = [A(2021), A(2018), A(2021)]
+    for a in asg:
+        a.program = sid
+    st = P.fill_period(docs, asg, {sid: (2022, 2027)}, spans)
+    assert asg[0].program == sid and asg[0].year is None and asg[0].status == "auto"
+    assert asg[1].program == "" and asg[1].status == "review"          # 기간에서 먼 연도
+    assert asg[2].program == "" and asg[2].status == "review"          # 파일 이름이 사업을 부르지 않음
+    assert st["named_near_year_dropped"] == 1 and st["out_of_period"] == 2
+
+
 def test_fill_period_aligns_round_to_year_when_they_disagree():
     from zzaimy.graph import programs as P
 
