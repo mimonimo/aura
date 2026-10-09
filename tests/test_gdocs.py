@@ -1560,3 +1560,16 @@ def test_needed_sources_collects_evidence_of_empty_sections():
     got = drafting.needed_sources(info)
     assert "회의 소집 공문" in got and "참석자 서명부" in got and "회의 자료(안건지)" in got
     assert len(got) == len(set(got))
+
+
+def test_replacing_guide_text_becomes_insert():
+    """작성 지침 문단을 바꾸려는 replace 는 그 절 넣기로 — 지침이 사라지고 본문이 지침 상자 모양이 되지 않게."""
+    from zzaimy.app.gdocs_agent import _guide_replace_to_insert
+    g = gdocs.GUIDE_PREFIX
+    info = {"text": f"2. 추진 배경 및 필요성\n{g}학생·기업·지역의 수요와 이전 운영 결과를 근거로 적는다.\n"}
+    ops = [{"op": "replace", "old": f"{g}학생·기업·지역의 수요와 이전 운영 결과", "text": "□ 지역 산업 변화 ○ 수요 증가"},
+           {"op": "replace", "old": "학생·기업·지역의 수요", "text": "□ 다른 글"},
+           {"op": "replace", "old": "본문의 옛 문장", "text": "새 문장"}]
+    got = _guide_replace_to_insert(ops, info, {"index": 2})
+    assert [o["op"] for o in got] == ["insert", "insert", "replace"] and got[0]["section"] == 2
+    assert _guide_replace_to_insert(ops[:1], info, None) == []                     # 넣을 절을 모르면 버린다
