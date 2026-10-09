@@ -94,3 +94,22 @@ def test_strip_guides_docx_removes_only_guide_paragraphs():
     d.save(buf)
     out, n = gt.strip_guides_docx(buf.getvalue())
     assert n == 1 and [p.text for p in Document(io.BytesIO(out)).paragraphs] == ["1. 추진 배경", "본문이다."]
+
+
+def test_examples_attach_to_real_sections_and_match_table_shape():
+    """예시는 실제 절에 붙고, 「표 한 줄」 예시는 그 절 첫 표의 열 수와 같다(모양을 보이려는 예시가 모양부터 틀리면 안 된다).
+    값은 ○○ 로 비운다 — 실제 수치·사업 이름을 넣지 않는다(절대 규칙 1·10)."""
+    import re
+    from zzaimy.ingest import gdocs_templates as gt
+
+    for sid, exs in gt.EXAMPLES.items():
+        blocks = gt.SPECS[sid]["blocks"]
+        heads = [b["text"] for b in blocks if "h" in b]
+        for head, ex in exs.items():
+            assert head in heads, (sid, head)
+            assert gt.EXAMPLE_PREFIX + ex in " ".join(b.get("guide", "") for b in blocks), (sid, head)
+            assert not re.search(r"\d{3,}", ex), (sid, head)                 # 세 자리 이상 숫자(금액·인원)는 넣지 않는다
+            if ex.startswith("표 한 줄 — "):
+                i = next(i for i, b in enumerate(blocks) if b.get("text") == head and "h" in b)
+                table = next(b["table"] for b in blocks[i + 1:] if "table" in b)
+                assert len(ex[len("표 한 줄 — "):].split(" | ")) == len(table["columns"]), (sid, head, table["columns"])
