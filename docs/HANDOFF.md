@@ -152,6 +152,8 @@ ID566~576 교내 규정 11건 및 파생 검색 자료/파일 대장은 제외. 
 
 LLM 연결은 화면(개발자 > 연결)에서 등록한 값이 우선이며 `data/platform/llm_connections.json`에
 저장된다. 지금 연결은 토르 02의 Writer(answer, 기본 연결)와 토르 03의 Writer(review, vision) 둘뿐이다.
+역할에 정한 서버가 연결을 받지 않으면(컨테이너 정지·점검) 같은 모델을 내어 주는 다른 교내 연결로 넘긴다
+(`llm_connections._failover`, 15초 기억, 외부 연결로는 넘기지 않음, 끄기 `ZZAIMY_LLM_FAILOVER=0`). 화면의 연결 표시에 「넘김」이 붙는다.
 스크립트에서 연결을 쓰려면 `llm_connections.configure(...)`를 부른다. 공개 수집 문서만 외부 상용
 모델로 읽는 용도(`vision_public`)가 따로 있고 키는 화면에서 넣는다. 지정하지 않으면 판독 모델을
 쓴다(ADR-0024).
