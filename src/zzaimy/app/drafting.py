@@ -246,9 +246,21 @@ class Materials:
             hits = [dict(h, how="문서함 검색") for h in grant_search.search(self.db, q, k=k + 2, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]]
             if _REPORT_NAME.search(pname):
                 # 실적·결과보고서는 같은 사업·연차 계획서와 견주어 쓴다 — 계획서도 따로 찾아 앞에 둔다(시험: 「계획 대비 실적」 절이 0자)
-                q2 = f"{_REPORT_NAME.sub('계획서', pname)} {section.get('heading', '')} {query}"[:400]
-                plan_hits = grant_search.search(self.db, q2, k=3, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]
-                hits = [dict(h, how="문서함 검색(같은 연차 계획서)") for h in plan_hits[:2]] + hits
+                from zzaimy.ingest.gdocs_templates import plan_counterpart
+                plan_name = _REPORT_NAME.sub("계획서", pname)
+                # 계획서의 짝 절(「추진과제」「성과지표」「사업비」)을 「」로 묶어 그래프 절로 바로 찾는다 — 보고서 절 제목으로는 계획서에서 못 찾는다.
+                # 후보를 앞에서부터, 그래프 절이 걸린 첫 이름을 쓴다. 보고서 절 제목은 넣지 않는다(갈래가 보고서로도 넓어진다)
+                cps = plan_counterpart(section.get("heading", ""))
+                plan_hits, cp = [], ""
+                for cand in cps:
+                    res = grant_search.search(self.db, f"{plan_name} 「{cand}」"[:400], k=4, user=sc.get("user"), depts=sc.get("grant_depts"))
+                    if any(st.startswith("[그래프 절]") for st in res.get("steps", [])):
+                        plan_hits, cp = res["hits"], cand
+                        break
+                if not plan_hits:
+                    q2 = f"{plan_name} {section.get('heading', '')} {query}"[:400]
+                    plan_hits = grant_search.search(self.db, q2, k=3, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]
+                hits = [dict(h, how="문서함 검색(같은 연차 계획서)") for h in plan_hits[:3 if cp else 2]] + hits
         except Exception:
             return []
         out = []

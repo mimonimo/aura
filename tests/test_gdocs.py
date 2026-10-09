@@ -1456,3 +1456,24 @@ def test_bullet_layout_indents_by_marker():
     assert len(bolds) == 1                                                  # □ 줄만 굵게
     assert reqs[-1]["updateTextStyle"]["textStyle"]["weightedFontFamily"]["fontFamily"] == "Noto Sans KR"
     assert gdocs.bullet_layout("기호 없는 글", 1) == []
+
+
+def test_report_section_looks_up_plan_counterpart_section(monkeypatch, tmp_path):
+    """보고서 절은 계획서의 짝 절 이름을 「」로 묶어 찾고, 그래프 절이 걸린 첫 후보를 쓴다(보고서 절 제목으로는 계획서에서 못 찾았다)."""
+    from zzaimy.app import drafting, grant_search
+    from zzaimy.app.db import Database
+
+    qs = []
+    body = "□ 추진 과제 ○ 기업 맞춤 교육과정 운영과 현장실습 확대, 협약기업과 공동 운영하는 프로그램을 늘려 지역 취업을 높인다. " * 2
+
+    def fake(db, q, k=6, user=None, prefer_docs=None, depts=None):
+        qs.append(q)
+        hit = "「차년도 사업계획」" in q
+        return {"steps": ["[그래프 절] 걸림"] if hit else [], "hits": [{"doc_id": len(qs), "chunk_id": len(qs), "content": body + str(len(qs)), "path": ["x"]}]}
+    monkeypatch.setattr(grant_search, "search", fake)
+    m = drafting.Materials(Database(tmp_path / "t.db"), {"id": -1, "name": "사업 A 2024년 실적보고서", "sector": "grant"}, set(), None, None, [],
+                           scope={"user": "kim"})
+    got = m.library_hits({"heading": "2. 연차 계획 대비 추진 실적"}, "실적")
+    plan_qs = [q for q in qs if "계획서" in q and "실적보고서" not in q]
+    assert plan_qs[:2] == ["사업 A 2024년 계획서 「추진과제」", "사업 A 2024년 계획서 「차년도 사업계획」"]   # 걸린 후보에서 멈춘다
+    assert len(plan_qs) == 2 and got[0]["how"].startswith("문서함 검색(같은 연차 계획서)")
