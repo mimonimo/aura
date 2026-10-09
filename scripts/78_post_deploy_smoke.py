@@ -95,10 +95,12 @@ def main() -> int:
         if not st.get("ok"):
             fails.append(f"PII 자가 점검 {st.get('passed')}/{st.get('total')} {st.get('error', '')}"[:120])
         sc = pii_audit.run_scan(db, limit=500)     # 최근 마스킹 대상 500건 — 전체 검사는 /dev/pii(4만여 건에 한 시간 넘게)
-        print(f"  잔여 스캔: 검사 {sc.get('scanned')} · 잔여 {sc.get('hits')}건 · 제외 {sc.get('excluded_docs')}건"
+        print(f"  잔여 스캔: 검사 {sc.get('scanned')} · 개인정보 표기 {sc.get('hits')}건 · 제외 {sc.get('excluded_docs')}건 · "
+              f"내부 마스킹 {'켜짐' if sc.get('policy_enabled') else '꺼짐(ADR-0044 기본)'} · 가렸어야 할 잔여 {sc.get('enforced_hits')}건"
               f"{' — ' + sc['error'] if sc.get('error') else ''}")
-        if sc.get("hits") or sc.get("error"):
-            fails.append(f"PII 잔여 {sc.get('hits')}건 {sc.get('error', '')}"[:120])
+        # 실패는 정책이 켠 항목의 잔여만 — 정책이 꺼져 있으면 본문의 개인정보는 정책대로 남은 것(9/29 사용자 변경)
+        if sc.get("enforced_hits") or sc.get("error"):
+            fails.append(f"PII 잔여 {sc.get('enforced_hits')}건 {sc.get('error') or ''}"[:120])
     except Exception as e:  # noqa: BLE001
         print(f"  PII 점검 실행 실패: {type(e).__name__}: {e}")
         fails.append(f"PII 점검 실행 실패 {type(e).__name__}")

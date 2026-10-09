@@ -462,6 +462,14 @@ def run_scan(db: Database, limit: int | None = None) -> dict:
         "elapsed_ms": int((time.perf_counter() - t0) * 1000),
         "partial": limit is not None,
     }
+    # 내부 마스킹 정책(ADR-0044, 기본 꺼짐) — 꺼져 있으면 본문의 개인정보는 정책대로 남은 것이다. 정책이 켜진 항목의 잔여만 「가렸어야 할 잔여」
+    try:
+        from zzaimy.app import privacy_policy
+        pol = privacy_policy.load(db)
+    except Exception:
+        pol = {"enabled": False, "entities": []}
+    result["policy_enabled"] = bool(pol.get("enabled"))
+    result["enforced_hits"] = sum(n for e, n in by_type.items() if e in set(pol.get("entities") or [])) if pol.get("enabled") else 0
     if limit is None:
         # 표본 검사(limit)는 저장하지 않는다 — /dev/pii 가 보여 주는 전체 검사 결과를 일부만 본 수치로 덮으면 안 된다
         _save(db, SCAN_KEY, result)
