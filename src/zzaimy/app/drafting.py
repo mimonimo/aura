@@ -309,6 +309,29 @@ def doc_guides(info: dict) -> str:
     return "\n".join(lines)[:800]
 
 
+def is_event_record(info: dict) -> bool:
+    """한 번의 회의·운영을 적는 기록 문서(공통 양식 회의록·결과보고서)인가 — 문서 규칙의 EVENT_RECORD_RULE 로 안다."""
+    from zzaimy.ingest.gdocs_templates import EVENT_RECORD_RULE
+    return EVENT_RECORD_RULE[:20] in doc_guides(info)
+
+
+def needed_sources(info: dict) -> list[str]:
+    """아직 빈 절들의 작성 지침 「근거 — …」를 모아 자료 이름 목록으로(중복 없이, 나온 순서대로)."""
+    from zzaimy.app.fill_gaps import _SRC
+    out: list[str] = []
+    for s in sorted(info.get("sections", []), key=lambda x: x.get("start", 0)):
+        if not (writable(s) and is_unfilled(s)):
+            continue
+        for m in _SRC.finditer(s.get("text") or ""):
+            for piece in re.split(r"[,，、]\s*", m.group(1)):
+                # 「회의 소집 공문·참석자 서명부」는 둘, 「위원회 규정의 구성·정족수」는 한 자료의 부분들 — 「의 」가 있으면 나누지 않는다
+                for item in ([piece] if "의 " in piece else piece.split("·")):
+                    item = item.strip(" .")
+                    if len(item) >= 2 and item not in out:
+                        out.append(item)
+    return out
+
+
 def placeholder_parent(info: dict, section: dict) -> str:
     """이 절이 딸린 상위 제목 가운데 자리 표시(○○)가 남은 것(「1. (추진 과제 1) ○○○○」) — 없으면 빈 문자열.
     절 작성 에이전트는 지금 쓰는 절만 보아 위 제목의 자리 표시를 그대로 두었다(10/9 시험) — 재료에 짚어 준다."""

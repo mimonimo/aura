@@ -1415,6 +1415,15 @@ def create_app(
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
                 mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope)
+                if drafting.is_event_record(info) and not mats.past_docs() and not sources:
+                    # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌려 「자료 필요」만 되풀이하던 것(10/10 시험).
+                    # 필요한 자료를 한 번에 알리고 모델은 부르지 않는다
+                    need = drafting.needed_sources(info)
+                    text = ("이 문서는 한 번의 회의·운영을 적는 기록이라 이번 자료가 있어야 씁니다 — 문서함의 다른 회의·회차 값은 옮기지 않습니다.\n"
+                            "필요한 자료: " + (", ".join(need[:10]) if need else "회의·운영 기록") +
+                            "\n프로젝트에 올리거나 대화에 붙인 뒤 다시 「초안 써 줘」라고 하면 절마다 채웁니다.")
+                    db.add_chat(session_id, "assistant", _scrub_internal(text))
+                    return
                 inst = _asks.facts(db, session_)
                 parts_: list[str] = []
                 pend_before = {a["name"] for a in _asks.pending(db, session_id)}   # 이번 차례 전에 이미 모은 빈 값 — 답마다 되풀이하지 않게
