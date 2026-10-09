@@ -64,6 +64,8 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
   각 항목 줄 아래에 내용을 넣은 글 전체를 그 칸의 text 로 낸다 — 항목을 상자 밖 새 문단으로 옮기지 않는다.
 - 기관명·총장·담당자·연락처 같은 기입란은 담당자의 말·프로젝트 정보·근거에 있는 값만 넣는다. 모르는 값은 지어내지 말고
   원본의 ○○○·빈칸을 그대로 두고 reply 에 무엇이 비었는지 적는다.
+- 공통 양식의 자리 표시 제목(「1. (추진 과제 1) ○○○○」「1. (안건 1) ○○○○」)이 있는 묶음을 쓸 때는 그 제목도
+  replace(old=제목 전체, text=같은 번호·괄호 + 재료에 있는 실제 과제·안건 이름)로 채운다. 자리 표시가 없는 절 제목은 바꾸지 않는다.
 - 문서 이름(제목)을 바꾸라는 지시는 rename(text 에 새 이름, 예: 사업명·연도·서류 종류)으로 낸다.
 - 문서를 어느 프로젝트(폴더)로 옮기라는 지시는 move(text 에 프로젝트 이름)로 낸다.
 - 지시가 질문이나 검토 요청이면 ops 는 비우고 reply 에 실제 답을 쓴다. 'ops를 비웠습니다' 같은 내부 처리 설명으로 답을 대신하지 않는다.
@@ -215,6 +217,15 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     return {"reply": (data.get("reply") or "").strip(), "ops": ops, "asks": asks}
 
 
+def placeholder_heading_fill(old: str, new: str) -> bool:
+    """자리 표시(○○) 제목을 실제 이름으로 채우는 바꾸기인가 — 번호·괄호 앞머리는 그대로, 한 줄·60자 이하, 자리 표시가 줄어야 한다."""
+    old, new = (old or "").strip(), (new or "").strip()
+    if "○○" not in old or not new or "\n" in new or len(new) > 60:
+        return False
+    head = old.split("○")[0].strip()
+    return bool(head) and new.startswith(head) and new.count("○") < old.count("○") and len(new) > len(head) + 1
+
+
 _RENAME_CUE = re.compile(r"(?:이름|제목|파일명|문서명).{0,12}(?:바꿔|바꾸|변경|수정|고쳐|해\s*줘|으로|로)|(?:으로|로)\s*(?:이름|제목).{0,6}(?:바꿔|바꾸|변경|지어|해)|이름\s*지어|제목\s*지어")
 _MOVE_CUE = re.compile(r"(?:폴더|프로젝트).{0,12}(?:옮겨|옮기|이동|넣어|넣어\s*줘|으로|로)|(?:으로|로)\s*(?:옮겨|옮기|이동)")
 
@@ -328,8 +339,9 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                 if not (o.get("old") or "").strip():
                     lines.append("바꿀 글이 비어 있어 건너뜀")
                     continue
-                if headings and _norm(o["old"]) in headings:
-                    # 절 제목 글을 본문 문장으로 바꾸면 절 구조가 깨진다(리허설 2026-10-08: 「사업 개요」 제목이 문장으로) — 제목 바꾸기는 지시가 있을 때만
+                if headings and _norm(o["old"]) in headings and not placeholder_heading_fill(o["old"], o.get("text") or ""):
+                    # 절 제목 글을 본문 문장으로 바꾸면 절 구조가 깨진다(리허설 2026-10-08: 「사업 개요」 제목이 문장으로) — 제목 바꾸기는 지시가 있을 때만.
+                    # 공통 양식의 자리 표시 제목(「1. (추진 과제 1) ○○○○」)을 같은 번호로 채우는 것만 예외
                     lines.append(f"「{o['old'][:30]}」 은 절 제목이라 바꾸지 않음")
                     continue
                 r = gdocs.replace_text(account, doc, o["old"], o["text"], user=user, data_dir=data_dir,
