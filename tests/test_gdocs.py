@@ -1524,3 +1524,25 @@ def test_fill_placeholder_heading_asks_name_and_keeps_number(monkeypatch, tmp_pa
     calls.clear()
     assert gdocs_agent.fill_placeholder_heading(client("모름"), info, info["sections"][1], [], "", {"account": "a", "doc": "d"},
                                                 user="u", data_dir=tmp_path) == [] and calls == []
+
+
+def test_event_record_docs_skip_library_materials(monkeypatch, tmp_path):
+    """회의록·결과보고서(한 번의 기록)는 문서함 검색 재료를 주지 않는다 — 다른 회의 값이 옮겨지지 않게. 계획서는 그대로 준다."""
+    from zzaimy.app import drafting
+    from zzaimy.app.db import Database
+    from zzaimy.ingest import gdocs_templates as gt
+
+    assert gt.EVENT_RECORD_RULE in gt.MINUTES["intro"] and gt.EVENT_RECORD_RULE in gt.PROGRAM_REPORT["intro"]
+    assert gt.EVENT_RECORD_RULE not in gt.PLAN["intro"]
+    called = []
+    monkeypatch.setattr(drafting.Materials, "library_hits", lambda self, sec, q, k=3: called.append(sec["heading"]) or [])
+    m = drafting.Materials(Database(tmp_path / "t.db"), {"id": -1, "name": "위원회 회의록", "sector": "grant"}, set(), None, None, [],
+                           scope={"user": "kim"})
+    sec = {"index": 1, "level": 1, "start": 50, "end": 60, "heading": "1. 회의 개요", "text": "1. 회의 개요"}
+    for intro, expect in ((gt.MINUTES["intro"], []), (gt.PLAN["intro"], ["1. 회의 개요"])):
+        called.clear()
+        info = {"sections": [sec], "text": "", "end": 100,
+                "lead": gdocs.GUIDE_PREFIX + intro}
+        monkeypatch.setattr(drafting, "doc_guides", lambda info_, intro=intro: gdocs.GUIDE_PREFIX + intro)
+        m.for_section(info, sec, "다음 절", lambda x: x)
+        assert called == expect
