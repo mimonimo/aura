@@ -494,8 +494,56 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
                      "path": path_of.get(c["doc_id"], []) + [c["filename"]]})
         if len(hits) >= k:
             break
+    moved = _promote_revisions(db, hits, user, depts)
+    if moved:
+        steps.append(f"[최신 개정판] 옛 개정판에서 고른 조각 {moved}개를 같은 글이 있는 최신 개정판 조각으로")
     steps.append(f"[3단계: 근거 선택] 사업 문서 조각 {pool} 중 어휘 {len(lex)}·임베딩 {len(den)} 순위를 섞어 {len(hits)}개")
     return {"steps": steps, "hits": hits}
+
+
+def _promote_revisions(db, hits: list[dict], user: str | None, depts: list[str] | None) -> int:
+    """「이름 · 개정일」 옛 판에서 고른 조각을, 더 늦은 개정판에 글이 똑같은 조각이 있으면 그 조각으로 바꾼다(제자리, 바꾼 수).
+
+    같은 조항이 판마다 그대로면 순위는 거의 같아 어느 판이 걸릴지 운이었다(휴학 기간 질문에 2025 판, 2026 판도 같은 글).
+    글이 바뀐 조항은 옛 판 그대로 둔다 — 바뀐 글을 옛 조각 자리에 끼우지 않는다. 열람 권한은 permitted 로 다시 본다.
+    """
+    moved = 0
+    seen = {h["chunk_id"] for h in hits}
+    for h in list(hits):
+        m = _REV_DATE.search(h.get("filename") or "")
+        rev = _revision(h.get("filename") or "")
+        if not m or not rev:
+            continue
+        try:
+            with db._conn() as conn:
+                orig = conn.execute("SELECT content, kind FROM doc_chunks WHERE id = ?", (h["chunk_id"],)).fetchone()
+                docs = conn.execute("SELECT id, filename FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'"
+                                    " AND filename LIKE ? AND id <> ?",
+                                    (h["filename"][: m.start()].rstrip() + "%", h["doc_id"])).fetchall()
+                newer = sorted(((r2[1], int(r[0]), r[1]) for r in docs if (r2 := _revision(r[1] or "")) and r2[0] == rev[0]
+                                and r2[1] > rev[1]), reverse=True)
+                found = None
+                for _, did, name in newer:
+                    row = conn.execute("SELECT id, seq FROM doc_chunks WHERE doc_id = ? AND content = ? LIMIT 1",
+                                       (did, orig[0])).fetchone() if orig else None
+                    if row and permitted(db, [int(row[0])], user, depts):
+                        found = (int(row[0]), int(row[1]), did, name)
+                        break
+        except Exception as e:
+            log.warning("최신 개정판 찾기 실패: %s", e)
+            continue
+        if not found:
+            continue
+        cid, seq, did, name = found
+        if cid in seen:
+            hits.remove(h)
+            continue
+        seen.add(cid)
+        content = expand(db, {"content": _text({"kind": orig[1], "content": orig[0]}), "doc_id": did, "seq": seq})
+        path = list(h.get("path") or [])[:-1] + [name]
+        h.update({"chunk_id": cid, "doc_id": did, "filename": name, "content": content[:EXPAND_TO], "path": path})
+        moved += 1
+    return moved
 
 
 # 화면 이름 「규정 이름 · 2014년 2월 03일」 의 날짜는 통과·제정·개정일(doc_title.display_name) — 같은 규정의 판이다

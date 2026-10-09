@@ -1314,6 +1314,29 @@ def test_newest_in_family_groups_revision_dated_regulations(tmp_path):
     assert got.get(ids[3], ids[3]) == ids[3] and got.get(ids[4], ids[4]) == ids[4]
 
 
+def test_promote_revisions_swaps_to_newest_identical_article(tmp_path):
+    """옛 개정판에서 고른 조각은 글이 같은 최신 판 조각으로, 글이 바뀐 조항은 그대로 둔다."""
+    from zzaimy.app import grant_search
+    from zzaimy.app.db import Database
+
+    db = Database(tmp_path / "t.db")
+    old = db.add_document(filename="학칙 · 2014년 2월 03일", stored_path="a", doc_type="grant")
+    new = db.add_document(filename="학칙 · 2026년 02월 27일", stored_path="b", doc_type="grant")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET status = 'reviewed', access_level = 'public'")
+        for did, seq, text in ((old, 1, "③ 휴학기간은 1회에 1년을 넘지 못한다."), (old, 2, "제20조(제적) 옛 글"),
+                               (new, 5, "③ 휴학기간은 1회에 1년을 넘지 못한다."), (new, 6, "제20조(제적) 바뀐 글")):
+            conn.execute("INSERT INTO doc_chunks (doc_id, seq, kind, content) VALUES (?, ?, 'text', ?)", (did, seq, text))
+        ids = {r[1]: int(r[0]) for r in conn.execute("SELECT id, content FROM doc_chunks WHERE doc_id = ?", (old,)).fetchall()}
+    hits = [{"chunk_id": ids[t], "doc_id": old, "filename": "학칙 · 2014년 2월 03일", "content": "x", "path": ["학칙 · 2014년 2월 03일"]}
+            for t in ("③ 휴학기간은 1회에 1년을 넘지 못한다.", "제20조(제적) 옛 글")]
+    moved = grant_search._promote_revisions(db, hits, None, None)
+    assert moved == 1
+    assert hits[0]["doc_id"] == new and hits[0]["path"] == ["학칙 · 2026년 02월 27일"]
+    assert hits[0]["content"].startswith("③ 휴학기간은")
+    assert hits[1]["doc_id"] == old and hits[1]["chunk_id"] == ids["제20조(제적) 옛 글"]   # 바뀐 조항은 옛 판 그대로
+
+
 def test_report_project_also_fetches_matching_plan(monkeypatch, tmp_path):
     """실적보고서 프로젝트면 같은 사업·연차 계획서도 따로 찾아 재료 앞에 둔다(계획 대비 실적을 쓰려면)."""
     from zzaimy.app import drafting, grant_search

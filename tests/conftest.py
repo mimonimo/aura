@@ -10,4 +10,5 @@ import pytest
 @pytest.fixture(autouse=True)
 def _isolate_google(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("ZZAIMY_DATA_DIR", str(tmp_path_factory.mktemp("zzaimy-data")))   # 토큰 저장소가 비어 허용 계정 0
+    monkeypatch.setenv("ZZAIMY_LLM_FAILOVER", "0")      # 연결 넘김은 서버에 포트를 두드린다 — 그 테스트만 켠다
     yield

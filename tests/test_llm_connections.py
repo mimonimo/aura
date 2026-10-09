@@ -42,3 +42,28 @@ def test_update_keeps_fields_that_were_not_given(tmp_path):
     assert got["name"] == "토르 03 · Writer" and got["vision_model"] == "zzaimy-writer" and got["model"] == "zzaimy-writer"
     lc.update(c["id"], vision_model="clear")
     assert lc.get(c["id"])["vision_model"] == ""
+
+
+def test_role_fails_over_to_internal_server_with_same_model(tmp_path, monkeypatch):
+    """역할의 서버가 연결을 받지 않으면 같은 모델을 내어 주는 다른 교내 서버로 — 외부·다른 모델로는 넘기지 않는다."""
+    from zzaimy.generate import llm_connections as lc
+
+    monkeypatch.setenv("ZZAIMY_LLM_FAILOVER", "1")
+    lc.configure(tmp_path / "c.json")
+    t2 = lc.add("토르 02", "vllm", "http://t2:8001/v1", "", "")
+    other = lc.add("다른 모델", "vllm", "http://o:8001/v1", "", "")
+    t3 = lc.add("토르 03", "vllm", "http://t3:8001/v1", "", "")
+    lc.add("클로드", "anthropic", "https://api.anthropic.com/v1/", "zzaimy-writer", "sk-test")
+    lc.set_role("answer", t2["id"], "zzaimy-writer")
+    up = {"http://t2:8001/v1": True, "http://o:8001/v1": True, "http://t3:8001/v1": True}
+    served = {"http://o:8001/v1": ("gemma",), "http://t3:8001/v1": ("zzaimy-writer",)}
+    monkeypatch.setattr(lc, "_alive", lambda c, timeout=1.0: up.get(c["base_url"], True))
+    monkeypatch.setattr(lc, "probe", lambda c, timeout=3.0: {"ok": True, "models": list(served.get(c["base_url"], ()))})
+    lc._models_cache.clear()
+    assert lc.role_conn("answer")["name"] == "토르 02"                  # 살아 있으면 그대로
+    up["http://t2:8001/v1"] = False
+    got = lc.role_conn("answer")
+    assert got["name"] == "토르 03" and got["model"] == "zzaimy-writer" and got["failover_from"] == "토르 02"
+    up["http://t3:8001/v1"] = False
+    assert lc.role_conn("answer")["name"] == "토르 02"                  # 넘길 곳이 없으면 원래 연결(오류는 거기서 난다)
+    assert t3["id"] and other["id"]
