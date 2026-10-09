@@ -490,7 +490,41 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     heads = None if re.search(r"제목", command or "") else {_norm(x["heading"]) for x in info.get("sections", []) if x.get("heading")}
     lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http, headings=heads,
                   doc_text=info["text"] if not pre else "", figure_folder=figure_folder)
+    if focus is not None:
+        lines += fill_placeholder_heading(client, info, focus, p["ops"], materials, link, user=owner, data_dir=data_dir, http=http)
     return (p["reply"] + "\n\n적용됨:\n" + "\n".join(f"- {ln}" for ln in pre + lines)), p["ops"]
+
+
+def fill_placeholder_heading(client, info: dict, focus: dict, ops: list[dict], materials: str, link: dict, *,
+                             user: str, data_dir: Path, http=None) -> list[str]:
+    """쓴 절의 위 제목에 자리 표시(「1. (추진 과제 1) ○○○○」)가 남았으면 이름만 따로 묻는다 — 절을 쓰는 큰 요청 안에서는
+    모델이 위 제목을 챙기지 못했다(10/9 시험 2회). 한 줄짜리 좁은 물음으로, 같은 번호 앞머리를 지키는 답만 쓴다."""
+    from zzaimy.app import drafting
+
+    ph = drafting.placeholder_parent(info, focus)
+    if not ph:
+        return []
+    written = "\n".join(str(o.get("text") or "") for o in ops)[:2500]
+    prompt = (f"공통 양식 문서의 제목 「{ph}」 에서 ○○○○ 자리에 들어갈 이름을 정한다. 아래 [방금 쓴 글]과 [재료]에 나온 실제 과제·안건 이름만 쓴다.\n"
+              "이름만 한 줄(30자 이내)로 답한다. 재료에서 알 수 없으면 「모름」이라고만 답한다.\n\n"
+              f"[방금 쓴 글]\n{written}\n\n[재료]\n{(materials or '')[:3500]}")
+    try:
+        resp = client.client.chat.completions.create(model=client.model, messages=[{"role": "user", "content": prompt}],
+                                                     temperature=0.0, max_tokens=60, extra_body=getattr(client, "_extra", None) or {})
+        name = (resp.choices[0].message.content or "").strip().splitlines()[0].strip(" 「」\"'.")
+    except Exception:
+        return []
+    if not name or "모름" in name or len(name) > 30:
+        return []
+    head = ph.split("○")[0].strip()
+    new = f"{head} {name}"
+    if not placeholder_heading_fill(ph, new):
+        return []
+    try:
+        r = gdocs.replace_text(link["account"], link["doc"], ph, new, user=user, data_dir=data_dir, http=http)
+    except Exception:
+        return []
+    return [f"자리 표시 제목 「{ph}」 → 「{new}」"] if r.get("count") else []
 
 
 def _replace_in_cell(old: str, new: str, account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None) -> int:

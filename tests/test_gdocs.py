@@ -1487,3 +1487,40 @@ def test_placeholder_heading_can_be_filled_but_real_headings_stay():
     assert not f("1. (추진 과제 1) ○○○○", "1. (추진 과제 1) ○○○○")
     assert not f("1. (추진 과제 1) ○○○○", "1. (추진 과제 1) 과제\n본문 문장")
     assert not f("1. 추진 배경 및 필요성", "1. 추진 배경 및 필요성 — 지역 수요가 늘었다")    # 자리 표시가 없는 제목
+
+
+def test_placeholder_parent_heading_is_flagged_in_materials():
+    """쓰는 절의 위 제목에 자리 표시가 있으면 재료에 짚는다 — 다른 묶음(다음 과제)의 절에는 짚지 않는다."""
+    from zzaimy.app import drafting
+    info = {"sections": [{"index": 1, "level": 1, "start": 1, "heading": "Ⅱ. 추진 과제별 실적"},
+                         {"index": 2, "level": 2, "start": 10, "heading": "1. (추진 과제 1) ○○○○"},
+                         {"index": 3, "level": 3, "start": 20, "heading": "가. 추진 실적"},
+                         {"index": 4, "level": 2, "start": 30, "heading": "2. 교육과정 운영 실적"},
+                         {"index": 5, "level": 3, "start": 40, "heading": "가. 운영 현황"}]}
+    assert drafting.placeholder_parent(info, info["sections"][2]) == "1. (추진 과제 1) ○○○○"
+    assert drafting.placeholder_parent(info, info["sections"][4]) == ""
+    assert "채울 자리 표시 제목" in drafting.render_materials({"placeholder": "1. (추진 과제 1) ○○○○"})
+
+
+def test_fill_placeholder_heading_asks_name_and_keeps_number(monkeypatch, tmp_path):
+    """위 제목의 자리 표시는 좁은 물음으로 이름만 받아 같은 번호로 채운다. 「모름」이면 그대로."""
+    from types import SimpleNamespace
+
+    from zzaimy.app import gdocs_agent
+
+    info = {"sections": [{"index": 1, "level": 2, "start": 10, "heading": "1. (추진 과제 1) ○○○○"},
+                         {"index": 2, "level": 3, "start": 20, "heading": "가. 추진 실적"}]}
+    calls = []
+    monkeypatch.setattr(gdocs, "replace_text", lambda acc, doc, old, new, **kw: calls.append((old, new)) or {"count": 1})
+
+    def client(answer):
+        msg = SimpleNamespace(content=answer)
+        create = lambda **kw: SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+        return SimpleNamespace(model="m", client=SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create))))
+
+    out = gdocs_agent.fill_placeholder_heading(client("산학연 친화형 교육환경 구축"), info, info["sections"][1], [{"op": "insert", "text": "글"}],
+                                               "재료", {"account": "a", "doc": "d"}, user="u", data_dir=tmp_path)
+    assert calls == [("1. (추진 과제 1) ○○○○", "1. (추진 과제 1) 산학연 친화형 교육환경 구축")] and out
+    calls.clear()
+    assert gdocs_agent.fill_placeholder_heading(client("모름"), info, info["sections"][1], [], "", {"account": "a", "doc": "d"},
+                                                user="u", data_dir=tmp_path) == [] and calls == []
