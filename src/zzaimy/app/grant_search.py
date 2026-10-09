@@ -494,56 +494,85 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
                      "path": path_of.get(c["doc_id"], []) + [c["filename"]]})
         if len(hits) >= k:
             break
-    moved = _promote_revisions(db, hits, user, depts)
-    if moved:
-        steps.append(f"[최신 개정판] 옛 개정판에서 고른 조각 {moved}개를 같은 글이 있는 최신 개정판 조각으로")
+    moved = _promote_revisions(db, hits, user, depts, question)
+    if any(moved.values()):
+        steps.append(f"[최신 개정판] 옛 개정판 조각 — 같은 글 {moved['same']}개·고쳐진 조항 {moved['revised']}개를 최신 판 조각으로,"
+                     f" 최신 판에 없는 글 {moved['stale']}개는 옛 판 표시")
     steps.append(f"[3단계: 근거 선택] 사업 문서 조각 {pool} 중 어휘 {len(lex)}·임베딩 {len(den)} 순위를 섞어 {len(hits)}개")
     return {"steps": steps, "hits": hits}
 
 
-def _promote_revisions(db, hits: list[dict], user: str | None, depts: list[str] | None) -> int:
-    """「이름 · 개정일」 옛 판에서 고른 조각을, 더 늦은 개정판에 글이 똑같은 조각이 있으면 그 조각으로 바꾼다(제자리, 바꾼 수).
+REVISED_MIN = 0.6     # 최신 판 조각과 이만큼 겹치면 같은 조항이 고쳐진 것으로 본다(SequenceMatcher 비율)
 
-    같은 조항이 판마다 그대로면 순위는 거의 같아 어느 판이 걸릴지 운이었다(휴학 기간 질문에 2025 판, 2026 판도 같은 글).
-    글이 바뀐 조항은 옛 판 그대로 둔다 — 바뀐 글을 옛 조각 자리에 끼우지 않는다. 열람 권한은 permitted 로 다시 본다.
+
+def _promote_revisions(db, hits: list[dict], user: str | None, depts: list[str] | None, question: str = "") -> dict:
+    """「이름 · 개정일」 옛 판에서 고른 조각을 최신 개정판 기준으로 바꾼다(제자리). 돌려주는 것: {same, revised, stale} 수.
+
+    - 최신 판에 글이 똑같은 조각이 있으면 그 조각으로(같은 조항이 판마다 그대로면 어느 판이 걸릴지 운이었다 — 휴학 기간 질문에 2025 판).
+    - 똑같지 않아도 많이 겹치는 조각(REVISED_MIN 이상)이 있으면 고쳐진 조항 — 최신 글로(10/9: 「복학하지 않으면」 답이 2012~2019 판의
+      「수업일수 1/4」을 인용했는데 2025·2026 판은 「총장이 따로 정하는 기간」).
+    - 최신 판에 비슷한 글도 없으면 옛 판 그대로 두되 옛 판이라고 적는다(삭제된 조항일 수 있다).
+    질문에 그 판의 연도가 있으면(「2014년 학칙에서」) 옛 판을 묻는 것이라 건드리지 않는다. 열람 권한은 permitted 로 다시 본다.
     """
-    moved = 0
+    import difflib
+
+    out = {"same": 0, "revised": 0, "stale": 0}
     seen = {h["chunk_id"] for h in hits}
     for h in list(hits):
         m = _REV_DATE.search(h.get("filename") or "")
         rev = _revision(h.get("filename") or "")
-        if not m or not rev:
+        if not m or not rev or rev[1][:4] in (question or ""):
             continue
+        found, kind, newest_name = None, "", ""
         try:
             with db._conn() as conn:
                 orig = conn.execute("SELECT content, kind FROM doc_chunks WHERE id = ?", (h["chunk_id"],)).fetchone()
+                if not orig:
+                    continue
                 docs = conn.execute("SELECT id, filename FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'"
                                     " AND filename LIKE ? AND id <> ?",
                                     (h["filename"][: m.start()].rstrip() + "%", h["doc_id"])).fetchall()
                 newer = sorted(((r2[1], int(r[0]), r[1]) for r in docs if (r2 := _revision(r[1] or "")) and r2[0] == rev[0]
                                 and r2[1] > rev[1]), reverse=True)
-                found = None
                 for _, did, name in newer:
-                    row = conn.execute("SELECT id, seq FROM doc_chunks WHERE doc_id = ? AND content = ? LIMIT 1",
-                                       (did, orig[0])).fetchone() if orig else None
-                    if row and permitted(db, [int(row[0])], user, depts):
-                        found = (int(row[0]), int(row[1]), did, name)
-                        break
+                    rows = conn.execute("SELECT id, seq, kind, content FROM doc_chunks WHERE doc_id = ? AND kind IN (?, ?, ?)",
+                                        (did, *TEXT_KINDS)).fetchall()
+                    if not rows or not permitted(db, [int(rows[0][0])], user, depts):
+                        continue                                  # 볼 수 없는 판은 건너뛰고 그다음 판
+                    newest_name = name
+                    exact = next((r for r in rows if r[3] == orig[0]), None)
+                    if exact:
+                        found, kind = (int(exact[0]), int(exact[1]), did, name, exact[2], exact[3]), "same"
+                    else:
+                        best, score = None, 0.0
+                        for r in rows:
+                            sm = difflib.SequenceMatcher(None, orig[0], r[3] or "", autojunk=False)
+                            if sm.real_quick_ratio() < REVISED_MIN or sm.quick_ratio() < REVISED_MIN:
+                                continue
+                            sc = sm.ratio()
+                            if sc > score:
+                                best, score = r, sc
+                        if best is not None and score >= REVISED_MIN:
+                            found, kind = (int(best[0]), int(best[1]), did, name, best[2], best[3]), "revised"
+                    break                                         # 볼 수 있는 가장 늦은 판 하나만 본다
         except Exception as e:
             log.warning("최신 개정판 찾기 실패: %s", e)
             continue
         if not found:
+            if newest_name:
+                h["content"] = f"[옛 개정판 — 최신 「{newest_name}」에는 같은 글이 없음] " + (h.get("content") or "")
+                out["stale"] += 1
             continue
-        cid, seq, did, name = found
+        cid, seq, did, name, k2, text = found
         if cid in seen:
             hits.remove(h)
             continue
         seen.add(cid)
-        content = expand(db, {"content": _text({"kind": orig[1], "content": orig[0]}), "doc_id": did, "seq": seq})
+        content = expand(db, {"content": _text({"kind": k2, "content": text}), "doc_id": did, "seq": seq})
         path = list(h.get("path") or [])[:-1] + [name]
         h.update({"chunk_id": cid, "doc_id": did, "filename": name, "content": content[:EXPAND_TO], "path": path})
-        moved += 1
-    return moved
+        out[kind] += 1
+    return out
 
 
 # 화면 이름 「규정 이름 · 2014년 2월 03일」 의 날짜는 통과·제정·개정일(doc_title.display_name) — 같은 규정의 판이다
