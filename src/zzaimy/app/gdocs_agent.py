@@ -467,6 +467,15 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
                             "command": command, "materials": materials, "reply": p["reply"],
                             "draft": [{"op": o.get("op"), "text": o.get("text"), **({"table": o.get("table"), "cells": o.get("cells")} if o.get("op") == "fill" else {})} for o in p["ops"]],
                             "references": references or [], "score": score})
+    if focus is not None:
+        # 못 채운 까닭 — 원인 갈래로 남기고(fill_gaps.jsonl) 담당자에게 무엇이 있으면 이어 쓰는지 한 줄로
+        from zzaimy.app import fill_gaps
+        gap = fill_gaps.analyze(focus.get("heading", ""), p["ops"], materials, p.get("reply", ""), p.get("asks"))
+        if gap:
+            fill_gaps.record(data_dir, dict(gap, session=session_id, doc=gdocs.doc_id(link["doc"])))
+            msg = fill_gaps.user_message(gap)
+            if msg and gap["reason"] != "partial":                   # 덜 찬 값은 asks 선택지가 따로 안내한다
+                p["reply"] = (p.get("reply", "") + "\n" + msg).strip()
     if not p["ops"]:
         return p["reply"] or "문서를 고칠 내용은 없습니다.", []
     unsupported = number_check(p["ops"], [materials, info.get("text") or "", command]
