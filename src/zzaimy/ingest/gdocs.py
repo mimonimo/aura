@@ -199,7 +199,8 @@ def outline(document: dict) -> dict:
         cur["chars"] += len(text.strip())
         if text.strip():
             cur["text"] = (cur["text"] + "\n" + text.rstrip("\n")).strip()      # 절의 글(표는 칸을 ' | ' 로) — 목차의 같은 제목과 헷갈리지 않게 구조에서 자른다
-            if not (is_table and "작성방법" in text) and not (not is_table and text.strip().startswith(GUIDE_PREFIX.strip())):
+            if not (is_table and "작성방법" in text) and not (not is_table and (text.strip().startswith(GUIDE_PREFIX.strip())
+                                                                                 or UNIT_CAPTION.match(text.strip()))):
                 # 공통 양식의 회색 작성 지침 문단도 작성방법이다(본문 아님) — 세면 모든 절이 '이미 쓴 절'로 보인다(2026-10-08)
                 cur["body_chars"] += len(text.strip())                          # 본문 글자 — 양식의 작성방법 상자는 본문이 아니다
                 if is_table:
@@ -270,6 +271,7 @@ def _body_style(start: int, end: int) -> dict:
 
 
 GUIDE_PREFIX = "작성 지침 — "                       # 독스 공통 양식(gdocs_templates)의 회색 지침 문단 머리
+UNIT_CAPTION = re.compile(r"^\(단위\s*:[^)]*\)$")         # 공통 양식 표 위 오른쪽 「(단위: 백만원)」 — 표에 딸린 말, 본문 아님
 
 
 def _guide_anchor(body: list[dict], info: dict, sec: dict) -> int | None:
@@ -292,8 +294,8 @@ def _guide_anchor(body: list[dict], info: dict, sec: dict) -> int | None:
         if "paragraph" in el:
             if _para_text(el["paragraph"]).startswith(GUIDE_PREFIX):
                 seen_guide = True
-            if seen_guide:
-                last_para_end = int(el["endIndex"])
+            if seen_guide and not UNIT_CAPTION.match(_para_text(el["paragraph"]).strip()):
+                last_para_end = int(el["endIndex"])         # 단위 캡션은 표에 붙어 있어야 한다 — 그 앞에 넣는다
     return (last_para_end - 1) if seen_guide and last_para_end else None
 
 

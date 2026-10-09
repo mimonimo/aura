@@ -298,7 +298,7 @@ def test_drafting_request_without_document_creates_one_and_writes(docs_env, tmp_
     monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
     from zzaimy.ingest import gdocs_templates
     rendered = []
-    monkeypatch.setattr(gdocs_templates, "render", lambda email, doc, spec, http=None: rendered.append((doc, spec["id"])))
+    monkeypatch.setattr(gdocs_templates, "render", lambda email, doc, spec, http=None, titled=False: rendered.append((doc, spec["id"])))
     app = _create(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
                   processor=FakeProcessor(), drafter=FakeDrafter(), responder=FakeResponder())
     client = TestClient(app)
@@ -1176,7 +1176,7 @@ def test_generic_draft_title_gets_project_name(docs_env, tmp_path, monkeypatch):
     (tmp_path / "gdrive_tokens.json").write_text(json.dumps(t))
     calls, folders = [], {}
     monkeypatch.setattr(gdrive, "_http", lambda: _drive_files_transport(calls, folders))
-    monkeypatch.setattr(gdocs_templates, "render", lambda email, doc, spec, http=None: None)
+    monkeypatch.setattr(gdocs_templates, "render", lambda email, doc, spec, http=None, titled=False: None)
     fake = _FakePlanner(json.dumps({"reply": "썼습니다.", "ops": []}, ensure_ascii=False))
     from zzaimy.generate import client as _gc
     monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)

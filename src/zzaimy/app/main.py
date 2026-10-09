@@ -1168,7 +1168,7 @@ def create_app(
         if spec:                                              # 서류 갈래에 맞는 공통 양식(절·작성 지침·표)을 깔고 그 위에 쓴다
             _chat_step(session_id, "공통 양식 까는 중")
             try:
-                gdocs_templates.render(made["account"], made["doc"], spec)
+                gdocs_templates.render(made["account"], made["doc"], spec, titled=True)
                 # 공통 양식으로 만든 문서 — 한글 원본 서식이 없으니 내보내기는 Word 로(남의 서식에 붓지 않게, 리허설 2026-10-08)
                 db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": made["doc"], "account": made["account"], "template": spec["id"]}))
                 note = f" 「{spec['title'].replace('(구글 독스)', '').strip()}」 을 깔아 두었습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."

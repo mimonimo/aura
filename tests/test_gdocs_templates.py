@@ -122,3 +122,27 @@ def test_minutes_template_picks_and_keeps_budget_rule():
     blocks = gt.MINUTES["blocks"]
     i = next(i for i, b in enumerate(blocks) if b.get("text") == "4. 예산 변경 내역(해당 시)")
     assert "계산하지 말고" in blocks[i + 1]["guide"]
+
+
+def test_unit_moves_to_caption_and_columns_align_like_forms():
+    """머리말의 단위는 표 위 오른쪽 캡션으로, 금액 칸은 오른쪽·짧은 값 칸은 가운데·글 칸은 왼쪽."""
+    heads, unit = gt.unit_of(["구분(단위: 백만원)", "1차년도", "합계"])
+    assert heads == ["구분", "1차년도", "합계"] and unit == "(단위: 백만원)"
+    assert gt.col_align("1차년도", money=True) == "END" and gt.col_align("1차년도", money=False) == "CENTER"
+    assert gt.col_align("금액(원)", False) == "END" and gt.col_align("연번", False) == "CENTER"
+    assert gt.col_align("주요 내용", False) == "START" and gt.col_align("달성 여부", False) == "CENTER"
+    assert set(gt.ACCENT) == set(gt.SPECS)                       # 갈래마다 주조색
+
+
+def test_unit_caption_is_not_body_and_stays_above_table():
+    """단위 캡션은 본문 글자로 세지 않고(빈 절이 '쓴 절'로 보이지 않게), 새 글은 캡션 앞에 들어간다(캡션은 표에 붙어 있게)."""
+    from zzaimy.ingest import gdocs
+
+    def para(s, text):
+        return {"startIndex": s, "endIndex": s + len(text) + 1, "paragraph": {"elements": [{"textRun": {"content": text + "\n"}}]}}
+    g = para(10, gdocs.GUIDE_PREFIX + "금액은 계산하지 않는다")
+    cap = para(g["endIndex"], "(단위: 백만원)")
+    tbl = {"startIndex": cap["endIndex"], "endIndex": cap["endIndex"] + 30, "table": {}}
+    info = {"sections": [{"index": 1, "start": 0}], "end": 100}
+    assert gdocs._guide_anchor([g, cap, tbl], info, {"index": 1, "start": 0}) == g["endIndex"] - 1
+    assert gdocs.UNIT_CAPTION.match("(단위: 천원)") and not gdocs.UNIT_CAPTION.match("(단위: 천원) 국비 포함")
