@@ -24,6 +24,7 @@ _DRAFT = re.compile(r"작성|채워|채우|써\s*줘|써줘|쓰자|초안|넣어
 _PLACEHOLDER = re.compile(r"[○◯]{2,}|OOO|000|\(\s*\)|_{3,}")
 MAX_SECTIONS_PER_TURN = 4
 _SUMMARY = re.compile(r"요약")
+_QUOTED_HEAD = re.compile(r"「([^」]{2,80})」\s*절")
 _REPORT_NAME = re.compile(r"(?:실적|결과|성과)\s*보고서?")
 _TOC = re.compile(r"\s*(?:목\s*차|차\s*례|CONTENTS)\b", re.I)
 # 문서 전체 초안 요청(「사업계획서 초안 작성해 줘」) — 절을 말하지 않아도 빈 절부터 몇 개씩 쓴다(리허설 2026-10-08: 일반 편집으로 가서 한 글자도 안 씀)
@@ -34,7 +35,8 @@ DOC_DRAFT_FIRST = 2
 def looks_like_section_draft(command: str) -> bool:
     """절을 쓰라는 지시인가 — 절 번호·'다음 절'·'전체' 중 하나와 쓰기 동사가 함께 있다."""
     c = command or ""
-    return bool(_DRAFT.search(c) and (_SECTION_NO.search(c) or _NEXT.search(c) or _ALL.search(c) or _DOC_DRAFT.search(c)))
+    return bool(_DRAFT.search(c) and (_SECTION_NO.search(c) or _NEXT.search(c) or _ALL.search(c) or _DOC_DRAFT.search(c)
+                                      or _QUOTED_HEAD.search(c)))
 
 
 def doc_draft_only(command: str) -> bool:
@@ -82,6 +84,9 @@ def target_sections(info: dict, command: str, filled_ok: bool = False, skip: set
     skip 은 이 대화에서 이미 다룬 절 제목 — 「다음 절」이 같은 절에서 맴돌지 않게(번호로 짚으면 다시 쓴다)."""
     secs = [s for s in info.get("sections", []) if s.get("index", 0) > 0]
     c = command or ""
+    named = [s for q_ in _QUOTED_HEAD.findall(c) for s in secs if (s.get("heading") or "").strip() == q_.strip()]
+    if named:                                            # 「절 제목」 절로 짚었으면 그 절(번호가 한 마디인 공통 양식 — 「3.」 만으로는 못 짚는다)
+        return named[:MAX_SECTIONS_PER_TURN]
     nums = [m.group(1).rstrip(".") for m in _SECTION_NO.finditer(c)]
     if nums:
         out = []
