@@ -1546,3 +1546,17 @@ def test_event_record_docs_skip_library_materials(monkeypatch, tmp_path):
         monkeypatch.setattr(drafting, "doc_guides", lambda info_, intro=intro: gdocs.GUIDE_PREFIX + intro)
         m.for_section(info, sec, "다음 절", lambda x: x)
         assert called == expect
+
+
+def test_needed_sources_collects_evidence_of_empty_sections():
+    """빈 절들의 「근거 — …」를 자료 이름 목록으로 — 회의록 자료 없이 절마다 모델을 돌리지 않고 한 번에 알리려고."""
+    from zzaimy.app import drafting
+    g = gdocs.GUIDE_PREFIX
+    info = {"sections": [
+        {"index": 1, "level": 1, "start": 10, "heading": "1. 회의 개요", "chars": 0, "body_chars": 0, "leaf": True,
+         "text": f"1. 회의 개요\n{g}값을 옮긴다. 근거 — 회의 소집 공문·참석자 서명부, 위원회 규정의 구성·정족수."},
+        {"index": 2, "level": 1, "start": 20, "heading": "2. 상정 안건", "chars": 0, "body_chars": 0, "leaf": True,
+         "text": f"2. 상정 안건\n{g}순서대로. 근거 — 회의 자료(안건지)."}]}
+    got = drafting.needed_sources(info)
+    assert "회의 소집 공문" in got and "참석자 서명부" in got and "회의 자료(안건지)" in got
+    assert len(got) == len(set(got))
