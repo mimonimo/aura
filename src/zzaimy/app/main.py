@@ -1434,6 +1434,13 @@ def create_app(
                         sec = dict(sec, text=drafting.family_text(info, sec))     # 소제목 뼈대가 있으면 같이 보인다 — 어디에 넣을지는 모델이 정한다
                     m = mats.for_section(info, sec, q, storage.title_of)
                     cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 {'새로 ' if redo else ''}작성해 줘. 담당자 지시: {q}"
+                    if redo:
+                        try:
+                            rv = _aj.loads(db.get_setting(f"chat_last_review:{session_id}", "") or "{}")
+                        except ValueError:
+                            rv = {}
+                        if rv.get("heading") == sec["heading"] and rv.get("text"):
+                            cmd += "\n반영할 검토 의견(보완할 점을 고쳐 쓴다 — 자료에 없는 값은 여전히 비우고 묻는다):\n" + rv["text"][:2000]
                     refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
                     # 절에 양식 표가 있으면 격자를 재료에 붙인다 — 모델이 fill 로 칸을 채운다(2026-09-29, 실측: 표 채움 0건이던 문제)
                     materials_ = drafting.render_materials(m, inst)
@@ -1689,6 +1696,12 @@ def create_app(
                     text += "\n\n재료가 될 그림 쪽이 아직 판독되지 않았습니다. 아래에서 고르면 바로 진행합니다."
                     _set_options(session_id, [{"kind": "read", "text": sg["text"][:40], "question": sg["question"]} for sg in reads[:2]]
                                  + [{"kind": "skip", "text": "판독 없이 지금 있는 내용으로", "question": q}])
+            if review_focus is not None and not _ops:
+                # 절 검토 뒤 — 의견을 기억해 두고 「반영해 다시 쓰기」로 잇는다(리허설 9: 검토 뒤 선택지가 비어 흐름이 끊김)
+                db.set_setting(f"chat_last_review:{session_id}", _aj.dumps({"heading": review_focus["heading"], "text": text[:2500]}, ensure_ascii=False))
+                _set_options(session_id, [{"kind": "redo", "text": "검토 의견 반영해 다시 쓰기",
+                                           "question": f"「{review_focus['heading']}」 절을 방금 검토 의견을 반영해 다시 써 줘"},
+                                          {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
             if _ops:
                 _set_options(session_id, [{"kind": "continue", "text": "이어서 다음 절 채우기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"},
                                           {"kind": "review", "text": "방금 쓴 내용 검토", "question": "방금 쓴 절을 공고·평가지표 기준으로 검토해 줘"},

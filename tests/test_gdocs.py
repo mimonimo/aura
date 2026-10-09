@@ -1376,3 +1376,16 @@ def test_replace_falls_back_to_box_cell(monkeypatch, tmp_path):
                               "a@b", "D", user="u", data_dir=tmp_path)
     assert filled == [(4, 1, [{"row": 0, "col": 0, "text": "□ (세부)과제명: AI 교육 혁신\n1. 추진배경\n- 현황 분석"}])]
     assert "1곳" in lines[0]
+
+
+def test_quoted_heading_targets_that_section_for_redo():
+    """「절 제목」 절로 짚으면 그 절 — 번호가 한 마디인 공통 양식에서도 「검토 의견 반영해 다시 쓰기」가 맞는 절로 간다."""
+    from zzaimy.app import drafting
+    from zzaimy.app.gdocs_agent import _plain
+
+    secs = [{"index": 1, "level": 2, "heading": "1. 추진 배경", "leaf": True, "body_chars": 0},
+            {"index": 2, "level": 2, "heading": "3. 대학 여건 및 현황 분석", "leaf": True, "body_chars": 500, "para_chars": 500}]
+    q = "「3. 대학 여건 및 현황 분석」 절을 방금 검토 의견을 반영해 다시 써 줘"
+    assert drafting.looks_like_section_draft(q)
+    assert [s["index"] for s in drafting.target_sections({"sections": secs}, q)] == [2]
+    assert "r1" not in _plain("표 1의 r1~r3 행 [c0] 열에 들어갈 발전계획 전략")
