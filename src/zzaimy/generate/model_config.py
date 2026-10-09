@@ -34,7 +34,7 @@ def current(role: str = "") -> dict:
             "vision_model": conn.get("vision_model", ""),
             "api_key": llm_connections.resolve_key(conn) or "dummy",
             "configured": True,
-            "source": "연결: " + conn["name"],
+            "source": "연결: " + conn["name"] + (f" ({conn['failover_from']} 응답 없음 — 넘김)" if conn.get("failover_from") else ""),
             "kind": conn["kind"], "external": bool(conn.get("external")),
             "connection_id": conn["id"],
         }

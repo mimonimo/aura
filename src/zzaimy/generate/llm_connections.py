@@ -212,8 +212,72 @@ def role_conn(role: str) -> dict | None:
     conn = get(cid) if cid else None
     if conn is None:
         conn = get(data["active"]) if data["active"] else None
+        return _failover(data, conn, "") if conn else conn
+    conn = dict(conn, model=model) if model else conn
+    return _failover(data, conn, model)
+
+
+# 장애 넘김 — 역할에 정한 서버가 연결을 받지 않으면(점검·재기동·컨테이너 정지) 같은 모델을 내어 주는 다른 교내 서버로.
+# 10/9 실측: 토르 02 컨테이너가 멈추자 대화·답변이 모두 실패했는데 토르 03 은 같은 Writer 를 내어 주고 있었다.
+# 외부 연결로는 넘기지 않는다(절대 규칙 3). 확인 결과는 잠시 기억해 요청마다 묻지 않는다. 끄기: ZZAIMY_LLM_FAILOVER=0
+_ALIVE_TTL = 15.0
+_alive_cache: dict[str, tuple[float, bool]] = {}
+_models_cache: dict[str, tuple[float, tuple]] = {}
+
+
+def _alive(conn: dict, timeout: float = 1.0) -> bool:
+    """포트가 연결을 받는가 — 멈춘 서버는 바로 거부하므로 짧게 본다."""
+    import socket
+    import time
+    from urllib.parse import urlsplit
+
+    url = conn.get("base_url", "")
+    hit = _alive_cache.get(url)
+    if hit and time.time() - hit[0] < _ALIVE_TTL:
+        return hit[1]
+    u = urlsplit(url)
+    ok = False
+    if u.hostname:
+        try:
+            with socket.create_connection((u.hostname, u.port or (443 if u.scheme == "https" else 80)), timeout=timeout):
+                ok = True
+        except OSError:
+            ok = False
+    _alive_cache[url] = (time.time(), ok)
+    return ok
+
+
+def _serves(conn: dict, model: str) -> bool:
+    """그 모델을 지금 내어 주는가(모델을 모르면 살아 있기만 하면)."""
+    import time
+
+    if not _alive(conn):
+        return False
+    if not model:
+        return True
+    url = conn.get("base_url", "")
+    hit = _models_cache.get(url)
+    if not hit or time.time() - hit[0] >= _ALIVE_TTL * 4:
+        r = probe(conn, timeout=3.0)
+        hit = (time.time(), tuple(r.get("models") or ()))
+        _models_cache[url] = hit
+    return model in hit[1]
+
+
+def _failover(data: dict, conn: dict, model: str) -> dict:
+    if os.environ.get("ZZAIMY_LLM_FAILOVER", "1") != "1" or conn.get("external") or KINDS.get(conn.get("kind", ""), {}).get("external"):
         return conn
-    return dict(conn, model=model) if model else conn
+    if _alive(conn):
+        return conn
+    want = model or conn.get("model", "")
+    for other in data["connections"]:
+        if other.get("id") == conn.get("id") or other.get("external") or KINDS.get(other.get("kind", ""), {}).get("external", True):
+            continue
+        if _serves(other, want):
+            import logging
+            logging.getLogger(__name__).warning("연결 넘김: %s 응답 없음 → %s", conn.get("name"), other.get("name"))
+            return dict(other, model=want or other.get("model", ""), failover_from=conn.get("name", ""))
+    return conn
 
 
 def roles_public() -> list[dict]:
