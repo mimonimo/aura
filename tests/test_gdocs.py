@@ -1360,3 +1360,19 @@ def test_single_level_template_sections_are_writable():
     assert drafting.writable({"heading": "2. 추진 배경 및 필요성", "level": 1, "leaf": True})
     assert not drafting.writable({"heading": "Ⅰ. 사업 추진 배경 및 목표", "level": 1, "leaf": False})
     assert not drafting.writable({"heading": "사업계획서", "level": 0, "leaf": True})
+
+
+def test_replace_falls_back_to_box_cell(monkeypatch, tmp_path):
+    """찾아 바꾸기가 0곳이고 바꿀 글이 서식 상자(표 칸) 안에 띄어쓰기만 다르게 있으면 그 칸을 고쳐 채운다 — 줄바꿈은 살린다."""
+    from zzaimy.app import gdocs_agent
+    from zzaimy.ingest import gdocs as _g
+
+    filled = []
+    monkeypatch.setattr(_g, "replace_text", lambda *a, **k: {"count": 0})
+    monkeypatch.setattr(_g, "doc_table_grids", lambda account, doc, http=None, info=None, sep=" ": [
+        {"n": 1, "section_index": 4, "covered": set(), "rows": [["□ (세부)과제명: 0000\n1. 추진배경\n- 현황 분석"]]}])
+    monkeypatch.setattr(_g, "fill_table", lambda account, doc, sec, n, cells, **k: filled.append((sec, n, cells)) or {})
+    lines = gdocs_agent.apply([{"op": "replace", "old": "□ (세부)과제명:  0000", "text": "□ (세부)과제명: AI 교육 혁신"}],
+                              "a@b", "D", user="u", data_dir=tmp_path)
+    assert filled == [(4, 1, [{"row": 0, "col": 0, "text": "□ (세부)과제명: AI 교육 혁신\n1. 추진배경\n- 현황 분석"}])]
+    assert "1곳" in lines[0]
