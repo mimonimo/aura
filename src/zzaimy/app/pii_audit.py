@@ -397,8 +397,9 @@ def _indexed_texts(db: Database, doc: dict) -> Iterator[tuple[str, str]]:
             yield "regulation_chunks", r[0]
 
 
-def run_scan(db: Database) -> dict:
-    """마스킹 대상 문서의 저장 본문에 탐지 정규식을 독립 실행해 잔여를 센다."""
+def run_scan(db: Database, limit: int | None = None) -> dict:
+    """마스킹 대상 문서의 저장 본문에 탐지 정규식을 독립 실행해 잔여를 센다.
+    limit 을 주면 최근 문서(번호 큰 것)부터 마스킹 대상 그만큼만 — 배포 점검용(전체는 4만여 건에 한 시간 넘게 걸린다, 2026-10-09)."""
     t0 = time.perf_counter()
     try:
         detectors = _load_detectors()
@@ -419,6 +420,8 @@ def run_scan(db: Database) -> dict:
         if not is_masking_subject(doc.get("doc_type"), doc.get("owner")):
             excluded += 1
             continue
+        if limit is not None and scanned["docs"] >= limit:
+            break
         scanned["docs"] += 1
         doc_hits: dict[str, int] = {}
         where: list[str] = []
