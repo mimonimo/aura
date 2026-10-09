@@ -460,8 +460,11 @@ def run_scan(db: Database, limit: int | None = None) -> dict:
         "docs": docs_out,
         "excluded_docs": excluded,   # 정책상 마스킹하지 않는 기준 문서 — 검사 제외
         "elapsed_ms": int((time.perf_counter() - t0) * 1000),
+        "partial": limit is not None,
     }
-    _save(db, SCAN_KEY, result)
+    if limit is None:
+        # 표본 검사(limit)는 저장하지 않는다 — /dev/pii 가 보여 주는 전체 검사 결과를 일부만 본 수치로 덮으면 안 된다
+        _save(db, SCAN_KEY, result)
     return result
 
 
