@@ -94,7 +94,7 @@ def main() -> int:
               f"{' — ' + st['error'] if st.get('error') else ''} ({st.get('elapsed_ms')}ms)")
         if not st.get("ok"):
             fails.append(f"PII 자가 점검 {st.get('passed')}/{st.get('total')} {st.get('error', '')}"[:120])
-        sc = pii_audit.run_scan(db)
+        sc = pii_audit.run_scan(db, limit=500)     # 최근 마스킹 대상 500건 — 전체 검사는 /dev/pii(4만여 건에 한 시간 넘게)
         print(f"  잔여 스캔: 검사 {sc.get('scanned')} · 잔여 {sc.get('hits')}건 · 제외 {sc.get('excluded_docs')}건"
               f"{' — ' + sc['error'] if sc.get('error') else ''}")
         if sc.get("hits") or sc.get("error"):
