@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from zzaimy.app import section_context
 
@@ -230,8 +231,14 @@ class Materials:
             if text.strip():
                 past.append({"title": title, "how": how, "text": text})
         past += self.library_hits(section, query)
+        gap_hint = ""
+        try:                                                    # 지난 작성에서 이 절이 비었던 까닭(fill_gaps) — 재료 맨 앞에
+            from zzaimy.app import fill_gaps
+            gap_hint = fill_gaps.context_hint(Path(str(getattr(self.db, "path", "") or ".")).parent, section.get("heading", ""))
+        except Exception:
+            gap_hint = ""
         return {"instructions": instructions, "criteria": criteria, "past": past, "doc_rules": doc_guides(info),
-                "placeholder": placeholder_parent(info, section)}
+                "placeholder": placeholder_parent(info, section), "gap_hint": gap_hint}
 
     def library_hits(self, section: dict, query: str, k: int = 3) -> list[dict]:
         """문서함 전체의 사업 문서(같은 사업의 지난 계획서·실적보고서 …)에서 이 절에 맞는 조각 — 그래프로 사업·연차를 좁히는 사업 문서 RAG.
@@ -318,6 +325,8 @@ def placeholder_parent(info: dict, section: dict) -> str:
 
 def render_materials(m: dict, institution: dict | None = None) -> str:
     lines: list[str] = []
+    if m.get("gap_hint"):
+        lines.append("[지난 작성에서 이 절이 빈 까닭]\n" + m["gap_hint"])
     if m.get("placeholder"):
         lines.append(f"[채울 자리 표시 제목] 「{m['placeholder']}」 — 이 절을 쓰면서 그 제목도 replace(old=제목 전체, text=같은 번호·괄호 + "
                      "재료에 있는 실제 과제·안건 이름)로 채운다. 재료에서 이름을 알 수 없으면 그대로 둔다.")
