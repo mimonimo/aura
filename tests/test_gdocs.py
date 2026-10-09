@@ -1441,3 +1441,18 @@ def test_quoted_heading_targets_that_section_for_redo():
     assert drafting.looks_like_section_draft(q)
     assert [s["index"] for s in drafting.target_sections({"sections": secs}, q)] == [2]
     assert "r1" not in _plain("표 1의 r1~r3 행 [c0] 열에 들어갈 발전계획 전략")
+
+
+def test_bullet_layout_indents_by_marker():
+    """넣은 개조식 글 — □ 는 들여쓰지 않고 굵게, ○ 한 단계, - 두 단계. 기호 없는 줄은 그대로. 인덱스는 줄마다 이어진다."""
+    from zzaimy.ingest import gdocs
+    text = "□ 정책 환경\n○ 지역 수요 증가\n- 세부 설명\n일반 문장"
+    reqs = gdocs.bullet_layout(text, 10, font="Noto Sans KR")
+    paras = [r["updateParagraphStyle"] for r in reqs if "updateParagraphStyle" in r]
+    assert [p["paragraphStyle"]["indentStart"]["magnitude"] for p in paras] == [13, 23, 31]
+    assert paras[0]["range"] == {"startIndex": 10, "endIndex": 10 + len("□ 정책 환경") + 1}
+    assert paras[1]["range"]["startIndex"] == paras[0]["range"]["endIndex"]
+    bolds = [r for r in reqs if "updateTextStyle" in r and r["updateTextStyle"]["fields"] == "bold"]
+    assert len(bolds) == 1                                                  # □ 줄만 굵게
+    assert reqs[-1]["updateTextStyle"]["textStyle"]["weightedFontFamily"]["fontFamily"] == "Noto Sans KR"
+    assert gdocs.bullet_layout("기호 없는 글", 1) == []

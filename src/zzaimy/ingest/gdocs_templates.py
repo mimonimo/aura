@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 
 from zzaimy.ingest.gdocs import GUIDE_PREFIX
+from zzaimy.ingest.gdocs import TEMPLATE_FONT as FONT
 
 PAGE_W, PAGE_H, MARGIN = 595.28, 841.89, 56.7          # A4, 20mm
 KV_KEY_MAX = 0.30                                        # 항목형 표의 항목 칸 상한(쪽 폭 비율)
@@ -706,7 +707,6 @@ def fit_widths(heads: list[str], weights: list[float], kv: bool = False, total: 
 ACCENT = {"plan": (0.11, 0.24, 0.43), "report": (0.0, 0.40, 0.44), "program_plan": (0.15, 0.43, 0.25),
           "program_report": (0.70, 0.35, 0.08), "minutes": (0.27, 0.31, 0.37)}
 COVER_PAGE = {"plan", "report"}                          # 표지를 한 쪽으로 두는 갈래(회의록·단위 프로그램은 첫 쪽 머리에 제목 상자)
-FONT = "Noto Sans KR"
 LINE = {"red": 0.70, "green": 0.73, "blue": 0.77}       # 표 선
 LABEL_BG = {"red": 0.95, "green": 0.96, "blue": 0.97}   # 미리 적힌 행 이름 칸
 WHITE = {"red": 1.0, "green": 1.0, "blue": 1.0}
@@ -804,7 +804,7 @@ class _Builder:
             if text.startswith(GUIDE_PREFIX):
                 self._text(s, s + _u16(GUIDE_PREFIX), None, True, rgb(self.accent))
         if box == "title":                                     # 표지 제목 상자 — 위 굵은 선, 아래 가는 선
-            ps.update({"borderTop": border(2.5, 12), "borderBottom": border(0.75, 12)})
+            ps.update({"borderTop": border(2.5, 12), "borderBottom": border(0.75, 12), "lineSpacing": 125})
         if above is not None:
             ps["spaceAbove"] = pt(above)
         if below is not None:
