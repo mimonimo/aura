@@ -146,3 +146,26 @@ def test_unit_caption_is_not_body_and_stays_above_table():
     info = {"sections": [{"index": 1, "start": 0}], "end": 100}
     assert gdocs._guide_anchor([g, cap, tbl], info, {"index": 1, "start": 0}) == g["endIndex"] - 1
     assert gdocs.UNIT_CAPTION.match("(단위: 천원)") and not gdocs.UNIT_CAPTION.match("(단위: 천원) 국비 포함")
+
+
+def test_slim_docx_drops_embedded_fonts_and_uses_word_font():
+    """독스가 심은 글꼴 파일을 빼고(첨부가 6MB 던 것) 글꼴 이름을 Word 기본 한글 글꼴로 — 글·모양은 그대로."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", '<Types><Override PartName="/word/fonts/NotoSansKR-regular.ttf" ContentType="x"/>'
+                                          '<Override PartName="/word/document.xml" ContentType="y"/></Types>')
+        z.writestr("word/fonts/NotoSansKR-regular.ttf", b"\0" * 5000)
+        z.writestr("word/_rels/fontTable.xml.rels", '<Relationships><Relationship Id="rId1" Type="t" Target="fonts/NotoSansKR-regular.ttf"/></Relationships>')
+        z.writestr("word/fontTable.xml", '<w:fonts><w:font w:name="Noto Sans KR"><w:embedRegular r:id="rId1"/></w:font></w:fonts>')
+        z.writestr("word/settings.xml", '<w:settings><w:embedTrueTypeFonts w:val="1"/></w:settings>')
+        z.writestr("word/document.xml", '<w:document><w:r><w:rPr><w:rFonts w:ascii="Noto Sans KR" w:eastAsia="Noto Sans KR"/></w:rPr>'
+                                        '<w:t>추진 배경</w:t></w:r></w:document>')
+    out = zipfile.ZipFile(io.BytesIO(gt.slim_docx(buf.getvalue())))
+    names = out.namelist()
+    assert not any(n.startswith("word/fonts/") for n in names)
+    doc = out.read("word/document.xml").decode()
+    assert "추진 배경" in doc and "Noto Sans KR" not in doc and '"맑은 고딕"' in doc
+    assert "embed" not in out.read("word/fontTable.xml").decode() and "embedTrueTypeFonts" not in out.read("word/settings.xml").decode()
+    assert "fonts/" not in out.read("[Content_Types].xml").decode() and "fonts/" not in out.read("word/_rels/fontTable.xml.rels").decode()
