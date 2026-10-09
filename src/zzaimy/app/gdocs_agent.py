@@ -212,9 +212,30 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
            and ((o.get("text") or "").strip() or o.get("op") == "bold"
                 or (o.get("op") == "fill" and isinstance(o.get("cells"), list) and any(isinstance(c, dict) for c in o["cells"])))]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
+    ops = _guide_replace_to_insert(ops, info, focus)
     asks = [{"name": _plain(str(a.get("name") or ""))[:40], "hint": _plain(str(a.get("hint") or ""))[:80]}
             for a in (data.get("asks") or []) if isinstance(a, dict) and str(a.get("name") or "").strip()][:6]
     return {"reply": (data.get("reply") or "").strip(), "ops": ops, "asks": asks}
+
+
+def _guide_replace_to_insert(ops: list[dict], info: dict, focus: dict | None) -> list[dict]:
+    """작성 지침 문단(「작성 지침 — …」)을 바꾸려는 replace 는 그 절에 넣기로 — 모델이 지침 글을 본문으로 덮어 지침이 사라지고 본문이
+    지침 상자 모양이 되던 것(10/10 시험, 실시계획서 「추진 배경」). 넣을 절을 모르면 버린다. 새 글 앞에 옛 지침 글이 붙어 오면 뗀다."""
+    gp = gdocs.GUIDE_PREFIX.strip()
+    guides = [ln.strip() for ln in (info.get("text") or "").split("\n") if ln.strip().startswith(gp)]
+    out = []
+    for o in ops:
+        old = (o.get("old") or "").strip()
+        if o.get("op") == "replace" and old and (old.startswith(gp) or any(old in g for g in guides)):
+            sec = o.get("section") or (focus or {}).get("index")
+            text = (o.get("text") or "").strip()
+            if text.startswith(old):
+                text = text[len(old):].strip()
+            if not sec or not text:
+                continue
+            o = {**o, "op": "insert", "old": "", "section": sec, "text": text}
+        out.append(o)
+    return out
 
 
 def placeholder_heading_fill(old: str, new: str) -> bool:
