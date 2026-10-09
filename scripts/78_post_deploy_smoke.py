@@ -5,7 +5,7 @@
 바뀌지 않는다(PII 자가 점검·잔여 스캔 결과만 settings 에 저장).
 
   1) 모든 /dev·주요 화면 GET → 200 이 아니면 FAIL (템플릿 오류·경로 깨짐 즉시 발견)
-  2) 규정 검색 실측 — 대표 질의 6개: 빈 조각·중복 조각이 상위에 오르면 FAIL, 지연 시간 기록
+  2) 문서 검색 실측(사업 문서 RAG) — 대표 질의 6개: 결과가 없거나 빈 조각·중복 조각이 상위에 오르면 FAIL, 지연 시간 기록
   3) PII 마스커 자가 점검(알려진 정답) + 색인된 본문 잔여 스캔
   4) Label Studio whoami(토큰 설정 시)
 
@@ -63,13 +63,17 @@ def main() -> int:
         if not ok:
             fails.append(f"GET {r} -> {code}")
 
-    # 2) 검색
-    print("== 2) 규정 검색 실측 ==")
-    from zzaimy.app.regulations import find_relevant
-    find_relevant(db, "예열", top_k=1)
+    # 2) 검색 — 대화가 실제로 쓰는 사업 문서 검색(그래프로 사업·연차를 좁힌 RAG, ADR-0049). 규정류도 DGX 반입 뒤 이 색인에 있다
+    #    (규정 전용 색인 regulation_chunks 는 프로젝트 기준 문서 몇 건뿐 — 옛 점검은 거기서 찾아 늘 0건이었다, 2026-10-09)
+    print("== 2) 문서 검색 실측(사업 문서 RAG) ==")
+    from zzaimy.app import grant_search
     for q in QUERIES:
         t = time.time()
-        hits = find_relevant(db, q, top_k=3)
+        try:
+            hits = grant_search.search(db, q, k=3, user="zzdev")["hits"]
+        except Exception as e:
+            hits = []
+            print(f"  BAD {q} — 검색 실패 {type(e).__name__}: {e}")
         dt = time.time() - t
         bodies = [re.sub(r"\s+", " ", h["content"]).strip() for h in hits]
         dup = len(bodies) - len(set(bodies))
@@ -77,7 +81,7 @@ def main() -> int:
         flag = "OK " if (hits and not dup and not short) else "BAD"
         print(f"  {flag} {q} — {len(hits)}건 dup={dup} short={short} {dt:.1f}s")
         for h in hits:
-            print(f"      [{h['reg_title'][:18]}] {(h.get('heading') or '')[:20]} | {len(h['content'])}자")
+            print(f"      [{(h.get('path') or [''])[-1][:30]}] {len(h['content'])}자")
         if flag == "BAD":
             fails.append(f"검색 '{q}': hits={len(hits)} dup={dup} short={short}")
 
