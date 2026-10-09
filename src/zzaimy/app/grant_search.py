@@ -498,27 +498,51 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     return {"steps": steps, "hits": hits}
 
 
+# 화면 이름 「규정 이름 · 2014년 2월 03일」 의 날짜는 통과·제정·개정일(doc_title.display_name) — 같은 규정의 판이다
+_REV_DATE = re.compile(r"\s·\s*((?:19|20)\d{2})\s*[년.\-/]\s*(\d{1,2})\s*[월.\-/]\s*(\d{1,2})\s*일?\.?\s*$")
+
+
+def _revision(filename: str) -> tuple[str, str] | None:
+    """「이름 · 개정일」 → (이름 열쇠, 'YYYYMMDD'). 그 꼴이 아니면 None."""
+    from zzaimy.app.doc_family import family_key
+    m = _REV_DATE.search(filename or "")
+    if not m:
+        return None
+    base = family_key(filename[: m.start()])
+    return (base, f"{m.group(1)}{int(m.group(2)):02d}{int(m.group(3)):02d}") if base else None
+
+
 def _newest_in_family(db, doc_ids: set[int]) -> dict[int, int]:
-    """후보 문서 → 후보 안 같은 계열(family) 가운데 최종본(원본 수정 시각이 가장 늦은 판, 같으면 번호가 큰 것). 계열이 없거나 혼자면 자기."""
+    """후보 문서 → 후보 안 같은 계열(family) 가운데 최종본(원본 수정 시각이 가장 늦은 판, 같으면 번호가 큰 것). 계열이 없거나 혼자면 자기.
+
+    「이름 · 개정일」 로 이름 붙은 규정은 개정일만 다른 판이 계열 열쇠가 달라 서로 못 찾았다(학칙 2012~2026 판이 함께 올라옴) —
+    날짜를 뗀 이름으로 묶고 개정일이 늦은 판을 고른다. 저장된 family 는 그대로 둔다(반입 중복 판정이 개정판을 막지 않게).
+    """
     if len(doc_ids) < 2:
         return {}
     try:
         with db._conn() as conn:
             ph = ",".join("?" * len(doc_ids))
-            rows = conn.execute(f"SELECT d.id, d.family, COALESCE(MAX(a.mtime), 0) FROM documents d LEFT JOIN archive_files a ON a.doc_id = d.id"
-                                f" WHERE d.id IN ({ph}) GROUP BY d.id, d.family", list(doc_ids)).fetchall()
+            rows = conn.execute(f"SELECT d.id, d.family, COALESCE(MAX(a.mtime), 0), d.filename FROM documents d"
+                                f" LEFT JOIN archive_files a ON a.doc_id = d.id"
+                                f" WHERE d.id IN ({ph}) GROUP BY d.id, d.family, d.filename", list(doc_ids)).fetchall()
     except Exception:
         return {}
-    best: dict[str, tuple[float, int]] = {}
+    best: dict[str, tuple[str, float, int]] = {}
     fam_of: dict[int, str] = {}
-    for did, fam, mt in rows:
-        if not fam:
+    for did, fam, mt, name in rows:
+        rev = _revision(name or "")
+        if rev:
+            fam, date = "rev:" + rev[0], rev[1]
+        elif fam:
+            date = ""
+        else:
             continue
         fam_of[int(did)] = fam
-        key = (float(mt or 0), int(did))
+        key = (date, float(mt or 0), int(did))
         if fam not in best or key > best[fam]:
             best[fam] = key
-    return {did: best[f][1] for did, f in fam_of.items()}
+    return {did: best[f][2] for did, f in fam_of.items()}
 
 
 def build_increment(db, batch: int = 128, limit: int = 20000) -> dict:
