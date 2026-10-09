@@ -1015,7 +1015,41 @@ def strip_guides_docx(data: bytes) -> tuple[bytes, int]:
             n += 1
     out = io.BytesIO()
     doc.save(out)
-    return out.getvalue(), n
+    return slim_docx(out.getvalue()), n
+
+
+WORD_FONT = "맑은 고딕"                                    # Word 로 낼 때의 글꼴 — 윈도 Word 기본 한글 글꼴
+
+
+def slim_docx(data: bytes, font_from: str = FONT, font_to: str = WORD_FONT) -> bytes:
+    """구글 독스가 Word 에 심는 글꼴 파일(Noto Sans KR 두 벌, 6MB)을 빼고 글꼴 이름을 Word 기본 한글 글꼴로 바꾼다 —
+    13쪽 문서가 6MB 라 첨부·제출이 무겁던 것(10/9). 글꼴만 바꾸고 글·표·모양은 그대로."""
+    import io
+    import zipfile
+
+    src = zipfile.ZipFile(io.BytesIO(data))
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+        for item in src.infolist():
+            name = item.filename
+            if name.startswith("word/fonts/"):
+                continue
+            body = src.read(name)
+            if name.endswith(".xml") or name.endswith(".rels"):
+                t = body.decode("utf-8")
+                if name == "word/_rels/fontTable.xml.rels":
+                    t = re.sub(r"<Relationship [^>]*fonts/[^>]*/>", "", t)
+                if name == "word/fontTable.xml":
+                    t = re.sub(r"<w:embed(?:Regular|Bold|Italic|BoldItalic)\b[^>]*/>", "", t)
+                if name == "word/settings.xml":
+                    t = re.sub(r"<w:embedTrueTypeFonts\b[^>]*/>|<w:saveSubsetFonts\b[^>]*/>", "", t)
+                if name == "[Content_Types].xml":
+                    t = re.sub(r'<Override PartName="/word/fonts/[^"]*"[^>]*/>', "", t)
+                if font_from and name.startswith("word/"):
+                    t = t.replace(f'"{font_from}"', f'"{font_to}"')
+                body = t.encode("utf-8")
+            z.writestr(item, body)
+    return out.getvalue()
 
 
 def export_specs(out_dir: Path) -> list[Path]:
