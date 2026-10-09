@@ -541,7 +541,7 @@ def table_grids(email: str, doc: str, section_index: int, http=None, info: dict 
     return out
 
 
-def doc_table_grids(email: str, doc: str, http=None, info: dict | None = None) -> list[dict]:
+def doc_table_grids(email: str, doc: str, http=None, info: dict | None = None, sep: str = " ") -> list[dict]:
     """문서 전체의 양식 표 격자를 한 번 읽어서 — table_grids 와 같은 꼴에 section_index(그 표가 속한 절 번호)를 더한다.
     절을 지목하지 않은 편집 명령(「표를 채워 줘」)에도 모델이 fill 의 절·표·칸 번호를 짐작하지 않게(실측 2026-10-08: 격자 없이 1부터 세어 8칸 빗나감)."""
     http = http or _http()
@@ -552,7 +552,7 @@ def doc_table_grids(email: str, doc: str, http=None, info: dict | None = None) -
     out = []
     for sec in info.get("sections") or []:
         for t in _section_tables(body, info, sec["index"]):
-            rows = [[" ".join(_para_text(e["paragraph"]).strip() for e in c.get("content", []) if "paragraph" in e).strip()
+            rows = [[sep.join(_para_text(e["paragraph"]).strip() for e in c.get("content", []) if "paragraph" in e).strip()
                      for c in row.get("tableCells", [])] for row in t["el"]["table"].get("tableRows", [])]
             out.append({"n": t["n"], "rows": rows, "covered": set(_covered_cells(t["el"]["table"]).keys()),
                         "section": sec["heading"], "section_index": sec["index"]})

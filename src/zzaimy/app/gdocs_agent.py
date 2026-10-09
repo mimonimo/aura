@@ -342,6 +342,9 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                             if a != b and len(a) >= 6 and re.search(r"[가-힣A-Za-z]", a):
                                 n += gdocs.replace_text(account, doc, a, b, user=user, data_dir=data_dir, scrub=scrub, http=http)["count"]
                     r = {"count": n}
+                if not r["count"]:
+                    r = {"count": _replace_in_cell(o["old"], str(o.get("text") or ""), account, doc, user=user, data_dir=data_dir,
+                                                   scrub=scrub, http=http)}
                 lines.append(f"「{o['old'][:30]}」 → 「{o['text'][:30]}」 {r['count']}곳")
             elif o["op"] == "style":
                 r = gdocs.set_section_style(account, doc, int(o["section"]), o["text"], user=user, data_dir=data_dir, http=http)
@@ -473,6 +476,28 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http, headings=heads,
                   doc_text=info["text"] if not pre else "", figure_folder=figure_folder)
     return (p["reply"] + "\n\n적용됨:\n" + "\n".join(f"- {ln}" for ln in pre + lines)), p["ops"]
+
+
+def _replace_in_cell(old: str, new: str, account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None) -> int:
+    """찾아 바꾸기가 0곳일 때 — 바꿀 글이 어느 표 칸(서식 상자) 안에 띄어쓰기만 다른 채로 있으면 그 칸 글을 고쳐 칸째 채운다.
+    독스의 찾아 바꾸기는 칸 속 여러 줄을 한 번에 못 찾는다(리허설 8: 「□ (세부)과제명: 0000 / 1. 추진배경 …」 상자가 그대로 남음). 한 칸만 고친다."""
+    chars = [c for c in (old or "") if not c.isspace()]
+    if len(chars) < 6:
+        return 0
+    rx = re.compile(r"\s*".join(re.escape(c) for c in chars))
+    try:
+        for g in gdocs.doc_table_grids(account, doc, http=http, sep="\n"):        # 칸 안 줄바꿈을 살려 읽는다(상자 모양 유지)
+            for ri, row in enumerate(g["rows"]):
+                for ci, cell in enumerate(row):
+                    if (ri, ci) in (g.get("covered") or set()) or not rx.search(cell or ""):
+                        continue
+                    text = rx.sub(lambda _m: new, cell, count=1)
+                    gdocs.fill_table(account, doc, int(g["section_index"]), int(g["n"]), [{"row": ri, "col": ci, "text": text}],
+                                     user=user, data_dir=data_dir, scrub=scrub, http=http)
+                    return 1
+    except Exception:
+        return 0
+    return 0
 
 
 def number_check(ops: list[dict], evidence_texts: list[str]) -> list[str]:
