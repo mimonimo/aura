@@ -262,15 +262,52 @@ def _batch(email: str, doc: str, requests: list[dict], http) -> dict:
     return r.json()
 
 
-def _body_style(start: int, end: int) -> dict:
-    """넣은 글의 문단 모양을 본문으로 — 변환본의 표 사이 얇은 문단(고정 1pt)이나 제목 모양을 물려받아 글이 겹치던 문제(실측 2026-09-29, 1.2 절)."""
+def _body_style(start: int, end: int, template: bool = False) -> dict:
+    """넣은 글의 문단 모양을 본문으로 — 변환본의 표 사이 얇은 문단(고정 1pt)이나 제목 모양을 물려받아 글이 겹치던 문제(실측 2026-09-29, 1.2 절).
+
+    template — 공통 양식의 지침 상자 바로 뒤에 넣는 글. 지침 문단의 옅은 바탕·왼쪽 띠·들여쓰기를 물려받아 본문이 지침 상자 안처럼 보이던 것을
+    걷는다(마스크에 넣고 값을 비우면 기본값으로 돌아간다). 줄 간격은 공통 양식 본문(150)에 맞춘다."""
+    fields = "namedStyleType,lineSpacing,spaceAbove,spaceBelow" + (",shading,borderLeft,indentStart" if template else "")
     return {"updateParagraphStyle": {"range": {"startIndex": start, "endIndex": end},
-                                     "paragraphStyle": {"namedStyleType": "NORMAL_TEXT", "lineSpacing": 115,
+                                     "paragraphStyle": {"namedStyleType": "NORMAL_TEXT", "lineSpacing": 150 if template else 115,
                                                         "spaceAbove": {"magnitude": 0, "unit": "PT"}, "spaceBelow": {"magnitude": 4, "unit": "PT"}},
-                                     "fields": "namedStyleType,lineSpacing,spaceAbove,spaceBelow"}}
+                                     "fields": fields}}
+
+
+# 개조식 단계별 들여쓰기(pt) — (첫 줄, 둘째 줄부터). 줄 머리 기호로 단계를 읽는다. 둘째 줄은 기호 뒤 글자에 맞춰 내어 쓴다.
+BULLET_INDENT = [(re.compile(r"^[□■]"), (0, 13), True, 8),
+                 (re.compile(r"^[○◦●①-⑳]|^\d{1,2}\)"), (10, 23), False, 2),
+                 (re.compile(r"^[-·∙]\s"), (22, 31), False, 0),
+                 (re.compile(r"^※"), (22, 35), False, 0)]
+
+
+def bullet_layout(text: str, start: int, font: str = "") -> list[dict]:
+    """넣은 개조식 글의 줄마다 단계별 들여쓰기·내어쓰기(□ 굵게, ○ 한 단계, -·※ 두 단계) — 기호가 모두 왼쪽 끝에 붙어
+    실제 서식처럼 보이지 않던 것(10/9 절 작성 시험). 기호 없는 줄은 건드리지 않는다. font 를 주면 글꼴도 맞춘다(공통 양식 본문)."""
+    pt = lambda v: {"magnitude": v, "unit": "PT"}
+    reqs, pos = [], start
+    for line in text.split("\n"):
+        n = len(line.encode("utf-16-le")) // 2
+        body = line.strip()
+        for pat, (first, rest), bold, above in BULLET_INDENT:
+            if body and pat.search(body):
+                reqs.append({"updateParagraphStyle": {"range": {"startIndex": pos, "endIndex": pos + n + 1},
+                                                      "paragraphStyle": {"indentFirstLine": pt(first), "indentStart": pt(rest),
+                                                                         "spaceAbove": pt(above)},
+                                                      "fields": "indentFirstLine,indentStart,spaceAbove"}})
+                if bold and n:
+                    reqs.append({"updateTextStyle": {"range": {"startIndex": pos, "endIndex": pos + n},
+                                                     "textStyle": {"bold": True}, "fields": "bold"}})
+                break
+        pos += n + 1
+    if font and pos - 1 > start:
+        reqs.append({"updateTextStyle": {"range": {"startIndex": start, "endIndex": pos - 1},
+                                         "textStyle": {"weightedFontFamily": {"fontFamily": font}}, "fields": "weightedFontFamily"}})
+    return reqs
 
 
 GUIDE_PREFIX = "작성 지침 — "                       # 독스 공통 양식(gdocs_templates)의 회색 지침 문단 머리
+TEMPLATE_FONT = "Noto Sans KR"                    # 공통 양식 글꼴(gdocs_templates.FONT 와 같게)
 UNIT_CAPTION = re.compile(r"^\(단위\s*:[^)]*\)$")         # 공통 양식 표 위 오른쪽 「(단위: 백만원)」 — 표에 딸린 말, 본문 아님
 
 
@@ -324,22 +361,23 @@ def insert_into_section(email: str, doc: str, section_index: int, text: str, *, 
         at = anchor
         payload = "\n" + text
         reqs = [{"insertText": {"location": {"index": at}, "text": payload}},
-                _body_style(at + 1, at + len(payload)),
+                _body_style(at + 1, at + len(payload), template=True),
                 {"updateTextStyle": {"range": {"startIndex": at + 1, "endIndex": at + len(payload)}, "textStyle": {},
-                                     "fields": "italic,fontSize,foregroundColor"}}]
+                                     "fields": "italic,bold,fontSize,foregroundColor"}}]
+        reqs += bullet_layout(text, at + 1, font=TEMPLATE_FONT)
     elif int(sec.get("table_end") or 0) > int(sec["end"]) - 1:
         # 절이 표(작성방법 상자)로 끝난다 — 표 바로 뒤(다음 문단 앞)에 새 문단으로 넣고, 그 문단의 모양은 본문으로 되돌린다
         # (표 뒤 문단이 다음 절 제목이면 넣은 글이 제목 모양을 물려받는다)
         at = min(int(sec["table_end"]), int(info["end"]) - 1)
         payload = text + "\n"
         reqs = [{"insertText": {"location": {"index": at}, "text": payload}},
-                _body_style(at, at + len(payload))]
+                _body_style(at, at + len(payload))] + bullet_layout(text, at)
     else:
         # 절의 마지막 문단 끝(줄바꿈 앞)에 새 문단으로 넣는다. 문서 끝이면 끝 인덱스 - 1.
         at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
         payload = "\n" + text
         reqs = [{"insertText": {"location": {"index": at}, "text": payload}},
-                _body_style(at + 1, at + len(payload))]
+                _body_style(at + 1, at + len(payload))] + bullet_layout(text, at + 1)
     res = _batch(email, doc, reqs, http)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "insert", "section": sec["heading"],
                       "chars": len(text)})
