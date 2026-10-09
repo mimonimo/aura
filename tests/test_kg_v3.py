@@ -594,6 +594,27 @@ def test_ledger_link_picks_owner_entry_and_merges_aliases():
     assert got["aliases"] == {"program:혁신지원": "program:전문대학혁신지원"}
 
 
+def test_ledger_link_treats_point_zero_version_as_same_name():
+    """파일 이름의 「LINC3」 카드와 장부의 「LINC 3.0」 은 같은 사업 — 「.0」 만 뗀다(「3.0」 과 「30」 은 다르다)."""
+    from zzaimy.graph import programs as P
+
+    class C:
+        def __init__(self, node_id, name, surfaces):
+            self.node_id, self.name, self._s = node_id, name, surfaces
+
+        def surfaces(self):
+            return set(self._s)
+
+    cards = [C("program:linc30", "3단계 산학연협력 선도전문대학 육성사업", ["3단계산학연협력선도전문대학육성사업", "LINC3.0"]),
+             C("program:linc3", "LINC3", ["LINC3"]),
+             C("program:x30", "X30", ["X30"])]
+    ledger = {"programs": [{"terms": ["LINC 3.0", "3단계 산학연협력 선도전문대학 육성사업"], "period": "2022~2027", "sources": ["s"]},
+                           {"terms": ["X 3.0"], "period": "2020~2021", "sources": ["s"]}]}
+    got = P.ledger_link(cards, ledger)
+    assert got["aliases"] == {"program:linc3": "program:linc30"}
+    assert got["periods"]["program:linc3"] == (2022, 2027) and "program:x30" not in got["periods"]
+
+
 def test_build_cards_does_not_merge_distinct_strong_acronyms_via_head_pairs():
     from zzaimy.graph import programs as P
     docs = []
