@@ -169,3 +169,17 @@ def test_slim_docx_drops_embedded_fonts_and_uses_word_font():
     assert "추진 배경" in doc and "Noto Sans KR" not in doc and '"맑은 고딕"' in doc
     assert "embed" not in out.read("word/fontTable.xml").decode() and "embedTrueTypeFonts" not in out.read("word/settings.xml").decode()
     assert "fonts/" not in out.read("[Content_Types].xml").decode() and "fonts/" not in out.read("word/_rels/fontTable.xml.rels").decode()
+
+
+def test_table_only_marks_overview_tables_and_minutes_records():
+    """항목 표만 있는 개요 절과 회의록의 기록 표 절만 「표만 채운다」 — 계획서 분석 절은 표가 있어도 글을 쓴다."""
+    def marked(spec):
+        out = []
+        for i, b in enumerate(spec["blocks"]):
+            if "guide" in b and gt.TABLE_ONLY in b["guide"]:
+                out.append(next(x["text"] for x in reversed(spec["blocks"][:i]) if "h" in x))
+        return out
+    assert "가. 과제 개요" in marked(gt.PLAN) and "3. 대학 여건 및 현황 분석" not in marked(gt.PLAN)
+    assert "실적 요약" in marked(gt.REPORT) and "가. 추진 실적" not in marked(gt.REPORT)
+    assert "1. 프로그램 개요" in marked(gt.PROGRAM_PLAN) and "4. 세부 운영 내용" not in marked(gt.PROGRAM_PLAN)
+    assert "2. 상정 안건" in marked(gt.MINUTES) and "나. 논의 내용" not in marked(gt.MINUTES)

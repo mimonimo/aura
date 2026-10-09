@@ -213,6 +213,9 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
                 or (o.get("op") == "fill" and isinstance(o.get("cells"), list) and any(isinstance(c, dict) for c in o["cells"])))]
     ops = [o for o in ops if o["op"] not in ("rename", "move") or _asked_for(o["op"], command)]
     ops = _guide_replace_to_insert(ops, info, focus)
+    from zzaimy.ingest.gdocs_templates import TABLE_ONLY
+    if focus is not None and TABLE_ONLY[:12] in (focus.get("text") or ""):
+        ops = [o for o in ops if o.get("op") != "insert"]          # 표만 채우는 절 — 본문 문단은 넣지 않는다(양식 규칙)
     asks = [{"name": _plain(str(a.get("name") or ""))[:40], "hint": _plain(str(a.get("hint") or ""))[:80]}
             for a in (data.get("asks") or []) if isinstance(a, dict) and str(a.get("name") or "").strip()][:6]
     return {"reply": (data.get("reply") or "").strip(), "ops": ops, "asks": asks}

@@ -324,8 +324,9 @@ def needed_sources(info: dict) -> list[str]:
             continue
         for m in _SRC.finditer(s.get("text") or ""):
             for piece in re.split(r"[,，、]\s*", m.group(1)):
-                # 「회의 소집 공문·참석자 서명부」는 둘, 「위원회 규정의 구성·정족수」는 한 자료의 부분들 — 「의 」가 있으면 나누지 않는다
-                for item in ([piece] if "의 " in piece else piece.split("·")):
+                # 「회의 소집 공문·참석자 서명부」는 둘, 「위원회 규정의 구성·정족수」는 한 자료의 부분들 — 나눈 조각이 모두 네 글자 이상일 때만 나눈다
+                parts = piece.split("·")
+                for item in (parts if all(len(x.replace(" ", "")) >= 4 for x in parts) else [piece]):
                     item = item.strip(" .")
                     if len(item) >= 2 and item not in out:
                         out.append(item)

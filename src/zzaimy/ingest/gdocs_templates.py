@@ -635,11 +635,34 @@ def _with_sources(spec: dict) -> dict:
     return {**spec, "blocks": out}
 
 
+# 표만 있고 본문 자리(P)가 없는 맨 아래 절 — 표만 채운다. 개요 항목 표 위에 모델이 지침을 되풀이한 문단을 덧붙이던 것(10/10 시험)
+TABLE_ONLY = "이 절은 표만 채운다(본문 문단을 따로 넣지 않는다)."
+
+
+def _mark_table_only(spec: dict) -> dict:
+    blocks = [dict(b) for b in spec["blocks"]]
+    heads = [i for i, b in enumerate(blocks) if "h" in b]
+    for n, i in enumerate(heads):
+        nxt = heads[n + 1] if n + 1 < len(heads) else len(blocks)
+        leaf = nxt == len(blocks) or blocks[nxt]["h"] <= blocks[i]["h"]
+        body = blocks[i + 1:nxt]
+        tables = [b["table"] for b in body if "table" in b]
+        kv_only = bool(tables) and all(t["columns"] == ["항목", "내용"] for t in tables)
+        # 항목 표만 있는 절(개요·요약)은 어느 양식이든, 회의록은 본문 자리 없는 절 모두(기록 표). 계획서·보고서의 분석 절은 표가 있어도
+        # 실문서가 글 2천여 자를 둔다 — 표만으로 막지 않는다
+        if leaf and tables and not any("p" in b for b in body) and (kv_only or spec["id"] == "minutes"):
+            g = next((k for k in range(i + 1, nxt) if "guide" in blocks[k]), None)
+            if g is not None:
+                blocks[g] = {"guide": blocks[g]["guide"].rstrip() + " " + TABLE_ONLY}
+    return {**spec, "blocks": blocks}
+
+
 PLAN, REPORT = _with_sources(PLAN), _with_sources(REPORT)
 PROGRAM_PLAN, PROGRAM_REPORT = _with_sources(PROGRAM_PLAN), _with_sources(PROGRAM_REPORT)
 MINUTES = _with_sources(MINUTES)
 
 
+PLAN, REPORT, PROGRAM_PLAN, PROGRAM_REPORT, MINUTES = (_mark_table_only(x) for x in (PLAN, REPORT, PROGRAM_PLAN, PROGRAM_REPORT, MINUTES))
 SPECS = {s["id"]: s for s in (PLAN, REPORT, PROGRAM_PLAN, PROGRAM_REPORT, MINUTES)}
 
 
