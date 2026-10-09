@@ -975,6 +975,23 @@ def render(email: str, doc: str, spec: dict, http=None, titled: bool = False) ->
             t = blk["table"]
             b.table(t["columns"], t["rows"], t["widths"])
     b.flush()
+    try:                                                       # 바닥글 — 쪽마다 문서 이름(실제 서식처럼). 실패해도 본문은 그대로
+        res = gdocs._batch(email, doc, [{"createFooter": {"type": "DEFAULT"}}], http)
+        fid = res["replies"][0]["createFooter"]["footerId"]
+        foot = head if titled and head else label
+        gdocs._batch(email, doc, [
+            {"insertText": {"location": {"segmentId": fid, "index": 0}, "text": foot}},
+            {"updateParagraphStyle": {"range": {"segmentId": fid, "startIndex": 0, "endIndex": _u16(foot) + 1},
+                                      "paragraphStyle": {"alignment": "END", "borderTop": {
+                                          "color": {"color": {"rgbColor": tint(accent, 0.5)}}, "width": {"magnitude": 0.5, "unit": "PT"},
+                                          "padding": {"magnitude": 4, "unit": "PT"}, "dashStyle": "SOLID"}},
+                                      "fields": "alignment,borderTop"}},
+            {"updateTextStyle": {"range": {"segmentId": fid, "startIndex": 0, "endIndex": _u16(foot)},
+                                 "textStyle": {"fontSize": {"magnitude": 8, "unit": "PT"}, "foregroundColor": {"color": {"rgbColor": GUIDE_COLOR}},
+                                               "weightedFontFamily": {"fontFamily": FONT}},
+                                 "fields": "fontSize,foregroundColor,weightedFontFamily"}}], http)
+    except Exception:
+        pass
     end = b._end()                                             # 글꼴 — 문서 전체 한 벌(독스 기본 Arial 의 한글 대체 글꼴이 들쭉날쭉)
     gdocs._batch(email, doc, [{"updateTextStyle": {"range": {"startIndex": 1, "endIndex": end},
                                                    "textStyle": {"weightedFontFamily": {"fontFamily": FONT}},
