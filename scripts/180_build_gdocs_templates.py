@@ -35,7 +35,18 @@ def main() -> int:
         out.append(got)
         print(f"{spec['title']} → {got['url']}", flush=True)
     print("폴더: https://drive.google.com/drive/folders/" + folder)
-    (ROOT / "data/generated/templates/gdocs/published.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
+    # 바로가기 목록은 폴더에 지금 있는 양식 전체로 — --only 로 하나만 다시 만들면 목록이 그 하나로 줄던 것(10/10)
+    made = {g["title"]: g for g in out}
+    pub = []
+    for spec in gt.SPECS.values():
+        g = made.get(spec["title"])
+        if g is None:
+            f = gdrive_files.find_in_folder(args.email, spec["title"], folder)
+            g = {"id": f["id"], "url": f"https://docs.google.com/document/d/{f['id']}/edit", "title": spec["title"]} if f else None
+        if g:
+            pub.append(g)
+    (ROOT / "data/generated/templates/gdocs/published.json").write_text(json.dumps(pub, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"바로가기 {len(pub)}종")
     return 0
 
 
