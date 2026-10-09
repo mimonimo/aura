@@ -1315,7 +1315,7 @@ def test_newest_in_family_groups_revision_dated_regulations(tmp_path):
 
 
 def test_promote_revisions_swaps_to_newest_identical_article(tmp_path):
-    """옛 개정판에서 고른 조각은 글이 같은 최신 판 조각으로, 글이 바뀐 조항은 그대로 둔다."""
+    """옛 개정판에서 고른 조각은 최신 판 조각으로 — 같은 글이든 고쳐진 조항이든. 그 판의 연도를 물으면 그대로."""
     from zzaimy.app import grant_search
     from zzaimy.app.db import Database
 
@@ -1330,11 +1330,20 @@ def test_promote_revisions_swaps_to_newest_identical_article(tmp_path):
         ids = {r[1]: int(r[0]) for r in conn.execute("SELECT id, content FROM doc_chunks WHERE doc_id = ?", (old,)).fetchall()}
     hits = [{"chunk_id": ids[t], "doc_id": old, "filename": "학칙 · 2014년 2월 03일", "content": "x", "path": ["학칙 · 2014년 2월 03일"]}
             for t in ("③ 휴학기간은 1회에 1년을 넘지 못한다.", "제20조(제적) 옛 글")]
-    moved = grant_search._promote_revisions(db, hits, None, None)
-    assert moved == 1
+    moved = grant_search._promote_revisions(db, hits, None, None, "휴학은 얼마나?")
+    assert moved == {"same": 1, "revised": 1, "stale": 0}
     assert hits[0]["doc_id"] == new and hits[0]["path"] == ["학칙 · 2026년 02월 27일"]
     assert hits[0]["content"].startswith("③ 휴학기간은")
-    assert hits[1]["doc_id"] == old and hits[1]["chunk_id"] == ids["제20조(제적) 옛 글"]   # 바뀐 조항은 옛 판 그대로
+    assert hits[1]["doc_id"] == new and hits[1]["content"].startswith("제20조(제적) 바뀐 글")   # 고쳐진 조항은 최신 글로
+    old_hits = [{"chunk_id": ids["제20조(제적) 옛 글"], "doc_id": old, "filename": "학칙 · 2014년 2월 03일", "content": "x", "path": []}]
+    assert grant_search._promote_revisions(db, old_hits, None, None, "2014년 학칙의 제적") == {"same": 0, "revised": 0, "stale": 0}
+    assert old_hits[0]["doc_id"] == old                                   # 옛 판을 물으면 그대로
+    with db._conn() as conn:
+        conn.execute("INSERT INTO doc_chunks (doc_id, seq, kind, content) VALUES (?, 9, 'text', '부칙 경과조치는 따로 정한다')", (old,))
+        gone = int(conn.execute("SELECT id FROM doc_chunks WHERE doc_id = ? AND seq = 9", (old,)).fetchone()[0])
+    stale = [{"chunk_id": gone, "doc_id": old, "filename": "학칙 · 2014년 2월 03일", "content": "부칙 경과조치는 따로 정한다", "path": []}]
+    assert grant_search._promote_revisions(db, stale, None, None, "경과조치")["stale"] == 1
+    assert stale[0]["doc_id"] == old and stale[0]["content"].startswith("[옛 개정판")   # 최신 판에 없는 글은 옛 판이라고 적는다
 
 
 def test_report_project_also_fetches_matching_plan(monkeypatch, tmp_path):
