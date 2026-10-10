@@ -276,3 +276,35 @@ def test_answer_links_the_documents_it_cites():
     # 태그 속성 안의 글자는 건드리지 않는다
     safe = linkify('<a title="영남이공대학교 산학협력단 운영 규정">x</a>', sources)
     assert safe.count("<a ") == 1
+
+
+def test_web_answer_inline_markers_render_as_source_links(tmp_path, monkeypatch):
+    client = candidate_client(tmp_path, monkeypatch)
+    db = client.app.state.db
+    session = db.create_chat_session('웹 검색 대화')
+    db.add_chat(session, 'user', '질문', mode='web')
+    db.add_chat(session, 'assistant',
+                '답은 이렇다[1][2]. 없는 번호[3].\n\n출처(외부 검색 · duckduckgo):\n'
+                '[1] 첫 자료 — https://example.com/a\n[2] 둘째 자료 — https://example.org/b')
+    page = client.get(f'/chat/{session}').text
+    answer = page.split('class="msg assistant">', 1)[1].split('</div>', 1)[0]
+    assert answer.count('class="cite-ref"') == 2
+    assert 'href="https://example.com/a" target="_blank" rel="noopener noreferrer" title="출처 1 · 첫 자료"' in answer
+    assert '없는 번호[3]' in answer
+
+
+def test_document_panel_keeps_header_layout_when_open():
+    """문서 패널을 열어도 대화 머리글 여백·정렬이 바뀌지 않고, 여닫기는 폭 전환으로 한다."""
+    from pathlib import Path
+    static = Path(main.__file__).parent / 'static'
+    docs_css = (static / 'chat-documents.css').read_text()
+    spaces_css = (static / 'platform-spaces.css').read_text()
+    for css in (docs_css, spaces_css):
+        for rule in css.replace('}', '}\n').splitlines():
+            if '.chat-doc-open' in rule and ('chat-workspace-head' in rule or 'chat-head-actions' in rule):
+                raise AssertionError(rule)
+            if '.chat-doc-open' in rule and '#chatWorkspace{' in rule.replace(' ', '') and 'padding' in rule:
+                raise AssertionError(rule)
+    assert 'transition:flex-basis' in docs_css
+    js = (static / 'chat-documents.js').read_text()
+    assert "chat-doc-closing" in js
