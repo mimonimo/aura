@@ -1,21 +1,6 @@
 <section class="card" id="training-guide" aria-labelledby="training-guide-title"><div class="card-in">
-  <h2 id="training-guide-title">학습 데이터 읽는 법</h2>
-  <p>Label Studio에서 아래 두 프로젝트를 확인하세요. 한 항목은 질문 하나가 아니라 앞뒤가 연결된 대화입니다.</p>
-  <div style="overflow-x:auto"><table aria-label="학습 데이터 두 묶음">
-    <thead><tr><th scope="col">프로젝트</th><th scope="col">목적과 확인할 점</th></tr></thead>
-    <tbody>
-      <tr><th scope="row">ZZAIMY 규정·발전계획 CoT</th><td>지정한 규정집·지침집·중장기 발전계획을 근거로 답하는 묶음입니다. 조항의 조건·예외와 표의 목표·실적을 정확히 구분했는지 봅니다.</td></tr>
-      <tr><th scope="row">ZZAIMY 사업 구조·검색 활용 CoT</th><td>사업·연도·문서 유형을 구분하고 RAG·지식그래프에서 필요한 자료를 고르는 방법입니다. 사업 혼동·권한 밖 조회·근거 없는 확정을 확인합니다. 개별 사업의 실적·예산을 암기하는 묶음이 아닙니다.</td></tr>
-    </tbody>
-  </table></div>
-  <h3>한 항목을 읽는 순서</h3>
-  <ol>
-    <li>출처·맥락에서 대상 문서와 검수 범위를 확인합니다. 일부 발췌 검수를 전체 문서 검수로 해석하지 않습니다.</li>
-    <li>첫 질문과 근거 설명·답변을 읽고 원문과 대조합니다.</li>
-    <li>후속 질문의 “그럼”, “그 기준”이 앞 답변과 이어지는지 봅니다. 물어보기만 한 사업명·연도는 확인 완료가 아닙니다.</li>
-    <li>검수 상태에서 후보·재작성 여부를 확인합니다. 생성·게시와 학습 승인은 다릅니다.</li>
-  </ol>
-  <p>대화 화면의 <code>user</code>는 맥락·근거·질문, <code>assistant</code>는 모델이 배울 답변 후보입니다. 두 번째 질문부터는 앞선 질문과 답변을 함께 읽습니다. 아래 필드명은 원본 후보의 항목이며 화면에서는 대화 안에 합쳐 표시될 수 있습니다.</p>
+  <h2 id="training-guide-title">학습 문답은 어떻게 구성되나요?</h2>
+  <p>사업 문서의 근거와 이전 대화를 함께 읽고 답하도록 만든 학습 예시입니다. Label Studio에서 아래 항목을 확인할 수 있습니다.</p>
   <div style="overflow-x:auto">
     <table aria-label="학습 문답 항목 안내">
       <thead><tr><th scope="col">항목</th><th scope="col">의미</th></tr></thead>
@@ -25,18 +10,14 @@
         <tr><th scope="row">질문 <small class="muted">question</small></th><td>사용자가 묻는 말입니다.</td></tr>
         <tr><th scope="row">정답 후보 <small class="muted">answer</small></th><td>모델이 배울 답변 후보입니다. 생성됐다는 이유만으로 정답이나 학습 적격으로 확정되지 않습니다.</td></tr>
         <tr><th scope="row">근거 설명 <small class="muted">rationale</small></th><td>왜 이렇게 답했는지 원문에 근거해 설명하는 짧은 판단 요약입니다.</td></tr>
-        <tr><th scope="row">검색 계획 <small class="muted">search_plan</small></th><td>찾을 문서·관계·조건과 자료 부족 시 대응입니다. 실제 검색 결과나 검색 성공 기록이 아닙니다.</td></tr>
         <tr><th scope="row">원문 · 출처 위치 <small class="muted">evidence · source</small></th><td>답변의 근거가 되는 문서 내용과 해당 문서·조각 위치입니다.</td></tr>
         <tr><th scope="row">유형 <small class="muted">kind</small></th><td>수치 확인·조건 비교 등 질문의 종류입니다.</td></tr>
       </tbody>
     </table>
   </div>
   <h3>실제 SFT 학습에 들어가는 내용</h3>
-  <p><strong>입력:</strong> 업무 맥락 + 원문 근거 + 현재 질문입니다. 규정 묶음은 발췌를 사용하고, 사업 검색 묶음은 구조·검색 맥락을 사용합니다. 후속 문답에는 이전 질문·답변도 대화 순서대로 포함합니다.</p>
+  <p><strong>입력:</strong> 사업명 + 문서 목차 + 원문 근거 + 현재 질문. 후속 문답에는 이전 질문·답변도 대화 순서대로 포함합니다.</p>
   <p><strong>목표 답변:</strong> 검수된 답변 또는 수정 답변입니다. 문답 식별번호, 관리 상태, 원문 추적 기록은 관리용이며 학습 문장에 넣지 않습니다.</p>
-  <p><strong>현재 두 묶음의 후보 형식:</strong> 짧은 근거 설명·답변을 함께 messages에 넣고, 사업 검색 묶음은 검색 계획도 포함합니다. 근거 설명은 판단 요약이지 내부 사고 기록이 아닙니다. 후보 준비와 최종 학습 파일 반출·SFT 실행은 별개입니다.</p>
-  <h3>상태와 건수 해석</h3>
-  <p><strong>후보:</strong> 내용 검토가 필요한 문답. <strong>보류:</strong> 근거 누락·생성 실패 등으로 게시하지 않은 자료. <strong>재작성 필요:</strong> 검수에서 문제가 확인된 판. <strong>학습 승인:</strong> 별도 품질·개인정보·평가셋 분리 검사를 통과한 상태입니다.</p>
-  <p>질문과 답변이 세 번 이어지면 <strong>1개 대화·3개 문답</strong>입니다. 수정 전후 판을 새 대화로 중복 집계하지 않습니다. 실제 검색 실행 미검증은 <code>execution_trace=false</code>, 학습 미승인은 <code>approved=false</code>로 표시합니다. 자동 검사 통과나 CoT라는 이름만으로 내용 검수·학습 완료를 뜻하지 않습니다.</p>
+  <p><strong>현재 구현:</strong> 이전 대화는 SFT 변환에 포함됩니다. 별도 필드인 근거 설명(rationale)은 현재 학습 출력에 포함되지 않습니다. 검수된 근거 설명과 최종 답변을 함께 학습하도록 보강할 예정입니다.</p>
   <p class="muted">관리_상태·관리_사유는 검수 진행 상황, sample_id·관리_버전은 식별·수정 이력, preflight는 자동 검사 결과, _record는 원문 추적 기록입니다. 자동 검사 통과와 내용 검수 완료는 구분합니다.</p>
 </div></section>
