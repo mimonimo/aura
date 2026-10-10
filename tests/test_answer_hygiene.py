@@ -35,3 +35,11 @@ def test_md_view_numbered_line_after_bullets_starts_new_block(tmp_path):
     md_view = _app(tmp_path).state.templates.env.filters["md_view"]
     html = str(md_view("1.  배경\n    *   가\n2.  목표\n    *   나"))
     assert "가 2." not in html and "목표</p>" in html
+
+
+def test_md_view_deep_headings_rules_and_italics(tmp_path):
+    from tests.test_accounts import _app
+    md_view = _app(tmp_path).state.templates.env.filters["md_view"]
+    html = str(md_view("#### Ⅰ. 개요\n---\n- *AI물류:* 로봇 제어\n- 2 * 3 = 6"))
+    assert "####" not in html and "<h5" in html and "<hr" in html
+    assert "<i>AI물류:</i>" in html and "2 * 3" in html                       # 띄어 쓴 곱셈 별표는 그대로
