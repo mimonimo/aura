@@ -1,0 +1,31 @@
+{# 원본 찾기 결과 — 화면 전체에도, 조건을 바꿀 때 결과 칸만 다시 그릴 때(partial=1)에도 쓴다 #}
+{% if active %}
+<div class="ar-resbar">
+  <p class="ar-count" role="status">{% if hits %}<strong>{{ "{:,}".format(hits) }}</strong>개 중 {{ "{:,}".format(first) }}–{{ "{:,}".format(last) }}{% else %}<strong>0</strong>개{% endif %}</p>
+  {% if chips %}<ul class="ar-chips" aria-label="걸린 조건">{% for c in chips %}<li><a class="ar-chip" href="{{ c.url }}" data-clear="{{ c.key }}" aria-label="{{ c.label }} 조건 지우기">{{ c.label }}<span aria-hidden="true">×</span></a></li>{% endfor %}
+    {% if chips|length > 1 %}<li><a class="ar-chip-all" href="/archive#archive-search" data-clear="all">모두 지우기</a></li>{% endif %}</ul>{% endif %}
+</div>
+{% if found %}
+<ul class="ar-list" aria-label="원본 검색 결과">{% for f in found %}
+  <li class="ar-row">
+    <span class="ar-ext" data-ext="{{ f.ext_label }}">{{ f.ext_label|upper or '파일' }}</span>
+    <div class="ar-main">
+      <span class="ar-name" title="{{ f.name }}">{{ f.name }}</span>
+      {% if f.short_path %}<details class="ar-where"><summary title="{{ f.rel }}">{{ f.short_path }}</summary><code>{{ f.rel }}</code></details>{% endif %}
+      <span class="ar-tags"><span class="ar-tag">{{ f.program_label }}</span>{% if f.kind_label %}<span class="ar-tag">{{ f.kind_label }}</span>{% endif %}{% if f.round %}<span class="ar-tag">{{ f.round }}차년도</span>{% endif %}{% if f.year %}<span class="ar-tag">{{ f.year }}년</span>{% endif %}<span class="ar-tag {{ 'linked' if f.doc_id else 'unlinked' }}">{{ '문서함 연결됨' if f.doc_id else '문서함 미연결' }}</span></span>
+    </div>
+    <span class="ar-size">{{ f.size_label }}</span>
+    <div class="ar-btns" role="group" aria-label="{{ f.name }} 열람">
+      {% if f.can_open %}<a class="btn" href="/archive/original?rel={{ f.rel|urlencode }}" target="_blank" rel="noopener">열기</a>{% else %}<span class="ar-locked" title="미연결 원본의 열람은 개발자 확인이 필요합니다">열람 권한 필요</span>{% endif %}
+      {% if f.doc_id %}<a class="btn secondary" href="/doc/{{ f.doc_id }}">문서 보기</a>{% endif %}
+      <button class="btn secondary" type="button" data-copy="{{ f.rel }}" hidden>경로 복사</button>
+    </div>
+  </li>{% endfor %}
+</ul>
+{% if pages > 1 %}<nav class="ar-pager" aria-label="검색 결과 쪽">
+  {% if prev_url %}<a class="btn secondary" href="{{ prev_url }}" rel="prev">이전</a>{% else %}<span class="btn secondary off" aria-disabled="true">이전</span>{% endif %}
+  <span>{{ page }} / {{ pages }}쪽</span>
+  {% if next_url %}<a class="btn secondary" href="{{ next_url }}" rel="next">다음 {{ page_size }}개</a>{% else %}<span class="btn secondary off" aria-disabled="true">다음</span>{% endif %}
+</nav>{% endif %}
+{% else %}<p class="ar-empty">조건에 맞는 파일이 없습니다. 조건을 하나씩 지우거나 파일명 일부로 다시 찾아 보세요.</p>{% endif %}
+{% else %}<p class="ar-empty">파일 이름을 입력하거나 사업·문서 유형을 고르면 바로 찾습니다.</p>{% endif %}
