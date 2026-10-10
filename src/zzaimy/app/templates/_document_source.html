@@ -12,7 +12,12 @@
 <div class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 보기
     {% if doc.status == 'reviewed' and doc.doc_type not in ('regulation', 'ocr') %}
+    {# 나란히 보기는 원본 미리보기와 검토를 견줄 때만 쓸모가 있다 — 미리보기가 없으면 추출된 글을 넓게 두고 전환을 감춘다 #}
+    {% if has_pdf %}
     <button type="button" id="documentWidthToggle" class="btn-ghost" aria-pressed="true" aria-controls="documentSource documentWork" hidden>나란히 보기</button>
+    {% else %}
+    <span class="doc-layout-note muted" id="documentWidthNote">원본 미리보기가 없어 넓게 표시합니다</span>
+    {% endif %}
     {% endif %}
     <span class="menu-wrap" style="margin-left:auto;">
       <button type="button" id="expBtn" class="btn-ghost" aria-expanded="false" aria-controls="expMenu">내보내기</button>

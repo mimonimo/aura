@@ -29,10 +29,10 @@ def test_document_keeps_project_context_and_evidence_first(workspace):
     assert '>담당자 판정' not in page
     assert '/doc/1/decision' not in page
     assert 'id="reviewMemo"' not in page
-    assert 'id="documentWidthToggle"' in page
-    assert 'aria-controls="documentSource documentWork"' in page
+    # 텍스트 문서는 원본 미리보기가 없다 — 나란히 보기 대신 넓게 보이고 까닭을 한 줄로
+    assert 'id="documentWidthToggle"' not in page
     assert 'class="document-columns source-expanded"' in page
-    assert 'hidden>나란히 보기</button>' in page
+    assert '원본 미리보기가 없어 넓게 표시합니다' in page
     assert 'data-modal-open="#documentManageModal"' in page
     assert page.index('id="receiptEditModal"') < page.index('id="receiptNumber"')
     assert '문서 폴더 이름도 함께 변경됩니다' in page
@@ -133,3 +133,16 @@ def test_draft_generation_exposes_status_poll_without_inline_reload(workspace):
     assert 'id="documentUpdate"' in page
     assert 'action="/doc/1/draft"' not in page
     assert '/static/document-workspace.js' in page
+
+
+def test_side_by_side_toggle_only_with_original_preview(workspace, tmp_path):
+    client, db = workspace
+    pdf = tmp_path / '원본.pdf'
+    pdf.write_bytes(b'%PDF-1.4 synthetic')
+    doc_id = db.add_document(filename='원본.pdf', stored_path=str(pdf), doc_type='grant')
+    db.update_document(doc_id, status='reviewed')
+    page = client.get(f'/doc/{doc_id}').text
+    assert 'id="documentWidthToggle"' in page
+    assert 'aria-controls="documentSource documentWork"' in page
+    assert 'hidden>나란히 보기</button>' in page
+    assert '원본 미리보기가 없어' not in page

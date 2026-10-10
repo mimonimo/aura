@@ -16,7 +16,8 @@ def test_project_context_and_unified_intake(client):
     assert '한글 문서 연결' not in page
     assert 'id="hwpTargetModal"' not in page
     assert '기준 문서 2건, 접수 문서 3건' in page
-    assert '연결된 기준 문서' in page
+    assert 'id="projectCriteriaHeading">규정·지침' in page
+    assert 'data-doc-group="attached"' in page and 'data-doc-group="reference"' in page and 'data-doc-group="rules"' in page
     assert 'class="project-overview-grid"' in page
     assert 'id="projectTabDocs"' not in page
     assert page.count('name="question"') >= 1

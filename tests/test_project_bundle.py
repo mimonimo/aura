@@ -91,8 +91,10 @@ def test_chat_documents_api_lists_attachments_criteria_and_intake(tmp_path):
     data = c.get(f"/api/chat/{sid}/documents").json()
     assert data["project"] == "2026학년도 AID 전환 중점 전문대학 지원사업"
     groups = {(d["group"], d["name"]) for d in data["documents"]}
-    assert ("첨부", "메모") in groups and ("기준", "2026학년도 AID 전환 중점 전문대학 지원사업 기본계획") in groups
-    assert any(g == "접수" for g, _ in groups)
+    assert ("사용자 첨부 문서", "메모") in groups
+    assert ("규정·지침", "2026학년도 AID 전환 중점 전문대학 지원사업 기본계획") in groups
+    assert ("사용자 첨부 문서", "[붙임2] 사업계획서 양식") in groups          # 프로젝트에 올린 양식도 사용자 첨부
+    assert [g["key"] for g in data["groups"]] == ["attached", "reference", "rules"]
     assert all(d["url"].endswith("/view") for d in data["documents"])
     assert c.get("/api/chat/9999/documents").status_code == 404
 
