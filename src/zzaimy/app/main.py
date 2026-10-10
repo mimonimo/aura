@@ -1823,7 +1823,9 @@ def create_app(
         project_id: int | None = Form(None),
         web: str = Form(""),
     ):
-        q = question.strip()
+        from zzaimy.app.responder import normalize_input
+
+        q = normalize_input(question).strip()          # 전각 영문·숫자(ＡＩＤ)·「。、」 — 검색어가 맞지 않던 것(10/10 대화 23)
         if form_fields.get("values"):
             from zzaimy.app import asks as _asks
 
@@ -2927,6 +2929,7 @@ def create_app(
 
         # 목록 줄 — 「- 」「* 」「• 」(모델이 「* 」로 쓰면 별표가 그대로 보였다, 10/10). 「**굵게**」로 시작하는 줄은 목록이 아니다
         _item = _mre.compile(r"^\s*(?:[-•]|\*(?!\*))\s+")
+        _num = _mre.compile(r"^\s*(?:\d{1,2}|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)[.)]\s+")
 
         out: list[str] = []
         lines = text.splitlines()
@@ -2984,6 +2987,7 @@ def create_app(
                     while (
                         i < len(lines) and lines[i].strip()
                         and not _item.match(lines[i])
+                        and not _num.match(lines[i])          # 「2.  사업 목표」는 새 번호 항목 — 앞 항목 끝에 붙던 것(10/10 대화 23)
                         and not lines[i].startswith(("#", "|"))
                     ):
                         body.append(lines[i].strip())

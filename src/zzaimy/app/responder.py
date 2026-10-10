@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import os
+import re
+
 from zzaimy.app.db import Database
 from zzaimy.app.regulations import compose_review_context
 
@@ -47,6 +50,42 @@ WEAK_EVIDENCE_NOTE = (
     " 답변 첫머리에 관련 근거가 충분하지 않다는 점을 밝히고, 참고 수준으로만"
     " 인용하며 단정적인 판단을 내리지 않습니다.]"
 )
+
+
+_FULLWIDTH = {c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}
+_FULLWIDTH.update({0x3000: 0x20})
+
+
+def normalize_input(text: str) -> str:
+    """입력 정리 — 전각 영문·숫자·기호(ＡＩＤ, ＩＣＴ)를 반각으로, 「。」「、」를 마침표·쉼표로. 한글은 그대로.
+    일부 입력기가 전각으로 보내면 검색 낱말(AID)이 문서와 맞지 않는다."""
+    t = (text or "").translate(_FULLWIDTH)
+    return t.replace("。", ". ").replace("、", ", ").replace("  ", " ")
+
+
+_HAN = re.compile(r"[\u4e00-\u9fff]{2,}")
+
+
+def fix_foreign_han(answer: str, given: str, client) -> str:
+    """답에 섞인 중국어 낱말(「인재缺口」)을 한국어로 — 건넨 글(질문·근거)에 없는 한자 줄만 골라 그 줄만 다시 쓰게 한다."""
+    lines = answer.splitlines()
+    bad = [i for i, ln in enumerate(lines) if any(w not in given for w in _HAN.findall(ln))][:12]
+    if not bad:
+        return answer
+    try:
+        numbered = "\n".join(f"{k}|{lines[i]}" for k, i in enumerate(bad))
+        resp = client.client.chat.completions.create(
+            model=client.model, temperature=0.0, max_tokens=900, extra_body=getattr(client, "_extra", {}),
+            messages=[{"role": "user", "content": (
+                "아래 줄들에 섞인 중국어 낱말을 뜻이 같은 한국어로 바꾸세요. 다른 글자·기호·서식은 그대로 두고, "
+                "「번호|줄」 꼴 그대로 줄마다 하나씩만 돌려주세요.\n\n" + numbered)}])
+        for row in (resp.choices[0].message.content or "").splitlines():
+            k, _, body = row.partition("|")
+            if k.strip().isdigit() and int(k) < len(bad) and body.strip():
+                lines[bad[int(k)]] = body
+    except Exception:
+        return answer
+    return "\n".join(lines)
 
 
 def rank_criteria_chunks(db, question: str, chunks: list[dict], criteria_ids: list[int], top_k: int = 12) -> list[dict]:
@@ -174,7 +213,13 @@ class AgentResponder:
                     raise LookupError("이 RAG 공간은 사업 문서를 쓰지 않는다(ADR-0052·0053)")
                 from zzaimy.app import grant_search
                 prefer = None
+                own: set[int] = set()
                 if project and project.get("id"):
+                    # 이 프로젝트에 올린 문서(공고·기본계획·작성 서식 등)가 먼저다 — 참조 보관 사업만 앞세우고 제 문서는
+                    # 일반 검색에 맡겨, 「공고문으로 개요·목차를 잡아 줘」에 다른 사업 계획서가 근거로 서던 일(10/10 대화 23)
+                    with db._conn() as conn:
+                        own = {int(r[0]) for r in conn.execute(
+                            "SELECT id FROM documents WHERE project_id = ?", (int(project["id"]),)).fetchall()}
                     # 프로젝트에 참조로 붙은 과거 사업 보관 묶음의 문서를 먼저 본다(C-192 흐름) — 없거나 맞는 조각이 없으면 평소대로
                     from zzaimy.app import project_refs
                     ref_ids = [r["ref_project_id"] for r in project_refs.list_refs(db, int(project["id"]))]
@@ -185,6 +230,12 @@ class AgentResponder:
                 g = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=prefer,
                                         depts=scope.get("grant_depts"))
                 grant_hits = g["hits"]
+                if own:
+                    mine = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=own,
+                                               depts=scope.get("grant_depts"))["hits"]
+                    mine = [h for h in mine if h.get("doc_id") in own]
+                    seen = {h.get("chunk_id") for h in mine}
+                    grant_hits = mine + [h for h in grant_hits if h.get("chunk_id") not in seen][: max(2, 7 - len(mine))]
                 if grant_hits:
                     blocks.append("[사업 문서 — 계획서·실적보고서 등. 사업·연차·문서 이름을 밝히고, 수치는 이 글에 있는 것만 쓴다]\n"
                                   + "\n\n".join(f"〈{' > '.join(h['path'])}〉\n{h['content']}" for h in grant_hits))
@@ -256,11 +307,25 @@ class AgentResponder:
         client = VllmClient(role="answer")
         if on_progress:
             on_progress("답변 작성 중")
+        # 목차·개요처럼 긴 답이 1,024 토큰에서 끊겼다(10/10 대화 23 — 「Ⅳ.」 제목에서 멈춤). 상한을 넉넉히, 그래도 끊기면 한 번 잇는다
+        limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
         resp = client.client.chat.completions.create(
             model=client.model,
             messages=messages,
             temperature=0.2,
-            max_tokens=1024,
+            max_tokens=limit,
             extra_body=getattr(client, "_extra", {}),
         )
-        return (resp.choices[0].message.content or "").strip()
+        text = resp.choices[0].message.content or ""
+        if getattr(resp.choices[0], "finish_reason", "") == "length" and text:
+            if on_progress:
+                on_progress("답변 이어 쓰는 중")
+            try:
+                more = client.client.chat.completions.create(
+                    model=client.model, temperature=0.2, max_tokens=limit, extra_body=getattr(client, "_extra", {}),
+                    messages=messages + [{"role": "assistant", "content": text},
+                                         {"role": "user", "content": "끊긴 곳 바로 뒤부터 이어서 끝까지 쓰세요. 앞 내용은 되풀이하지 마세요."}])
+                text = text.rstrip() + "\n" + (more.choices[0].message.content or "").lstrip()
+            except Exception:
+                pass
+        return fix_foreign_han(text.strip(), user_content, client)
