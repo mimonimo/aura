@@ -1328,3 +1328,13 @@ def test_llm_diagnose_honors_proxy_env(monkeypatch):
     srv.close()
     monkeypatch.setenv("NO_PROXY", "open.example")
     assert lc.diagnose("https://open.example/v1", timeout=1.0)["stage"] == "dns"
+
+
+def test_md_view_star_lists_become_list_items(client):
+    """「* 」로 쓴 목록은 목록으로(별표가 보이지 않게), 「**굵게**」로 시작하는 줄은 목록이 아니다."""
+    md = client.app.state.templates.env.filters["md_view"] if hasattr(client.app.state, "templates") else None
+    if md is None:
+        import pytest
+        pytest.skip("템플릿 필터에 닿을 수 없음")
+    out = str(md("**요약:**\n* **사업명:** 부트캠프\n* 접수 기한: 7월\n  - 세부\n• 가운데점 항목"))
+    assert out.count("<li") == 4 and "* " not in out and "<b>요약:</b>" in out

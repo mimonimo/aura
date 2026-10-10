@@ -2886,6 +2886,9 @@ document.getElementById('st').textContent=t+'초';setTimeout(tick,2000)}}).catch
             s2 = _mre.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(_esc(t)))
             return s2.replace("&lt;br&gt;", "<br>").replace("&lt;br/&gt;", "<br>").replace("&lt;br /&gt;", "<br>")
 
+        # 목록 줄 — 「- 」「* 」「• 」(모델이 「* 」로 쓰면 별표가 그대로 보였다, 10/10). 「**굵게**」로 시작하는 줄은 목록이 아니다
+        _item = _mre.compile(r"^\s*(?:[-•]|\*(?!\*))\s+")
+
         out: list[str] = []
         lines = text.splitlines()
         i = 0
@@ -2931,17 +2934,17 @@ document.getElementById('st').textContent=t+'초';setTimeout(tick,2000)}}).catch
                 out.append(
                     f'<h5 style="margin:12px 0 4px; font-size:13.5px;">'
                     f"{rich(ln[4:])}</h5>")
-            elif ln.lstrip().startswith("- "):
+            elif _item.match(ln):
                 items = []
-                while i < len(lines) and lines[i].lstrip().startswith("- "):
+                while i < len(lines) and _item.match(lines[i]):
                     cur_ln = lines[i]
                     depth = (len(cur_ln) - len(cur_ln.lstrip())) // 2
-                    body = [cur_ln.lstrip()[2:]]
+                    body = [_item.sub("", cur_ln, count=1)]
                     i += 1
                     # 들여쓴 이어짐 줄은 같은 항목에 붙인다
                     while (
                         i < len(lines) and lines[i].strip()
-                        and not lines[i].lstrip().startswith("- ")
+                        and not _item.match(lines[i])
                         and not lines[i].startswith(("#", "|"))
                     ):
                         body.append(lines[i].strip())
