@@ -20,7 +20,8 @@
 .intake-table td:nth-child(1), .intake-table td:nth-child(n+3) { white-space:nowrap; }
 .intake-table .pill { white-space:nowrap; }
 /* 문서 이름 아래 한 줄 — 갈래·사업. 이름이 길어 줄이 바뀌어도 겹치지 않게 늘 다음 줄에 띄운다 */
-.intake-table .doc-cell a { line-height:1.5; }
+.intake-table .doc-cell a { line-height:1.5; text-decoration:none; color:var(--navy, #1f3a5f); font-weight:600; }
+.intake-table .doc-cell a:hover { text-decoration:underline; }   /* 목록 전체가 밑줄이라 무거워 보였다(10/10 화면 확인) — 올렸을 때만 */
 .intake-table .doc-meta { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin-top:4px; font-size:11.5px; line-height:1.4; }
 .intake-table .doc-meta .pill { display:inline-flex; align-items:center; gap:4px; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
 @media(max-width:700px) {
