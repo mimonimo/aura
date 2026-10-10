@@ -199,8 +199,7 @@ body .chat-doc-open #chatWorkspace:has(.chat-empty-state) #chatScroll { flex:1; 
 body .chat-doc-open #chatWorkspace:has(.chat-empty-state) .chat-empty-state { margin:auto; }
 body .chat-doc-open #chatWorkspace:has(.chat-empty-state) .chat-empty-state h2 { font-size:clamp(21px,2vw,28px); line-height:1.45; margin-bottom:10px; }
 body .chat-doc-open #chatWorkspace:has(.chat-empty-state) #chatForm { margin:0 auto; flex-shrink:0; }
-body .chat-doc-open #chatWorkspace { padding:16px 20px 12px; }
-body .chat-doc-open .chat-workspace-head { align-items:center; }
+/* 문서 패널을 열어도 머리글 여백·정렬은 닫힌 때와 같다(여닫을 때 제목이 튀지 않게). */
 body .chat-doc-editor header { padding:10px 14px; min-height:52px; box-sizing:border-box; }
 body .chat-doc-editor header strong { font-size:13px; line-height:1.5; }
 body .chat-doc-editor header.doc-header-refined { display:block; padding:10px 12px 8px; background:#fff; position:relative; z-index:2; }
