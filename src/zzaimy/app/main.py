@@ -286,7 +286,7 @@ def create_app(
 
     _DOC_PATH = re.compile(r"^/(?:doc|chat/peek)/(\d+)(?:/|$)")
     # 학생 허용 경로 — 대화(보내기·읽기·다시·지우기)와 문서 읽기(학생 공개 규정만, 열람 판정은 _DOC_PATH 가 한다)
-    _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view|original|page/\d+\.png))?$|logout$)")
+    _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view(?:/status)?|original(?:/status|/download)?|page/\d+\.png))?$|logout$)")
     _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|logout)$")
 
     def _student_allowed(method: str, path: str) -> bool:
@@ -2756,24 +2756,44 @@ def create_app(
         raw = db.get_setting(f"chat_google_doc:{session_id}", "") or "{}"
         return {"ok": True, "linked": _aj.loads(raw)}
 
-    _VIEW_JOBS: dict[int, dict] = {}                       # 문서 → 구글 열람본 만들기 상태(running·done·error)
+    from zzaimy.app import original_preview as _op
 
-    def _make_google_view(doc: dict, email: str, folder: str) -> dict:
+    _VIEW_JOBS = _op.Jobs()                                # 문서 → 구글 열람본 만들기(뒤 작업)
+    _PREVIEW_JOBS = _op.Jobs()                             # 문서 → 원본 열기 미리보기(PDF 변환·DGX 원본 받기)
+
+    def _wait_page(request: Request, doc: dict, jobs, *, title: str, note: str, steps, open_url: str,
+                   status_url: str, download_url: str = ""):
+        """기다림 화면 — 구글 열람본과 원본 미리보기가 같이 쓴다. 상태 주소를 물어 단계·지난 시간·실패 사유를 그린다."""
+        st = jobs.status(int(doc["id"]))
+        return templates.TemplateResponse(request, "_wait.html", {
+            "title": title, "filename": doc.get("filename") or "문서", "note": note,
+            "steps": steps, "step": st["step"] or steps[0][0], "elapsed": st["elapsed"],
+            "error": st["msg"] if st["state"] == "error" else "",
+            "status_url": status_url, "retry_url": open_url, "back_url": f"/doc/{doc['id']}",
+            "download_url": download_url,
+        })
+
+    def _original_named(doc: dict) -> tuple[Path, bool]:
+        """_original_file 과 같되, 받아 온 임시 파일에는 원래 확장자를 붙인다 — 변환기는 확장자로 형식을 고른다."""
+        path, is_temp = _original_file(doc)
+        ext = Path(doc.get("filename") or "").suffix.lower() or Path(str(doc.get("stored_path") or "")).suffix.lower()
+        if is_temp and ext and path.suffix.lower() != ext:
+            named = path.with_suffix(ext)
+            path.replace(named)
+            path = named
+        return path, is_temp
+
+    def _make_google_view(doc: dict, email: str, folder: str, progress=None) -> dict:
         from zzaimy.ingest import gdrive_files
 
         temp = None
         try:
             src = doc
             if not (db.get_setting(f"doc_google:{doc['id']}", "") or ""):      # 이미 만든 열람본이면 원본을 받을 필요가 없다
-                path, is_temp = _original_file(doc)
+                path, is_temp = _original_named(doc)
                 temp = path if is_temp else None
-                ext = Path(doc["filename"] or "").suffix.lower()
-                if is_temp and ext:                                            # 변환기는 확장자로 형식을 고른다
-                    named = path.with_suffix(ext)
-                    path.replace(named)
-                    path = temp = named
                 src = dict(doc, stored_path=str(path))
-            return gdrive_files.google_copy(db, src, email, folder)
+            return gdrive_files.google_copy(db, src, email, folder, progress=progress)
         finally:
             if temp is not None:
                 Path(temp).unlink(missing_ok=True)
@@ -2783,9 +2803,7 @@ def create_app(
         """문서를 구글에서 연다 — 엑셀·PPT·워드는 시트·슬라이드·독스, 한글은 복원 docx→독스, PDF·그림은 드라이브 미리보기.
         열람본이 있으면 바로 넘기고, 없으면 뒤에서 만들며 기다림 화면을 준다 — 큰 한글 파일은 원본 받기·변환·올리기에 몇 분이 걸려
         한 요청 안에서 만들면 브라우저가 끝없이 도는 것처럼 보였다(10/10). 허용 계정이 없으면 플랫폼 문서 화면으로."""
-        import html as _html
         import json as _vj
-        import threading as _vt
 
         from zzaimy.ingest import gdrive_files
 
@@ -2807,40 +2825,30 @@ def create_app(
                     return RedirectResponse(url, status_code=303)
             except ValueError:
                 pass
-        job = _VIEW_JOBS.get(doc_id)
-        if not job or job.get("state") == "error":
-            project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
-            job = _VIEW_JOBS[doc_id] = {"state": "running", "url": "", "msg": ""}
+        project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
 
-            def work():
-                try:
-                    folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
-                    made = _make_google_view(doc, email, folder)
-                    job.update(state="done", url=made["url"])
-                except (FileNotFoundError, RuntimeError, ValueError) as e:
-                    job.update(state="error", msg=f"구글 열람본을 만들지 못했습니다 — {e}")
-                except Exception as e:
-                    job.update(state="error", msg=f"구글 열람본을 만들지 못했습니다({type(e).__name__})")
-            _vt.Thread(target=work, daemon=True).start()
-        name = _html.escape(doc.get("filename") or "문서")
-        return HTMLResponse(f"""<!doctype html><meta charset="utf-8"><title>구글 열람본 만드는 중</title>
-<body style="font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:90vh;color:#263850">
-<div style="max-width:520px;text-align:center"><p style="font-size:17px;font-weight:600">구글에서 열 준비를 하고 있습니다</p>
-<p style="color:#65758A;font-size:14px;line-height:1.7">「{name}」<br>원본을 받아 구글 문서로 바꾸는 중입니다. 큰 한글 파일은 몇 분 걸릴 수 있습니다.</p>
-<p id="st" style="color:#65758A;font-size:13px">0초</p><p id="err" style="color:#b42318;font-size:14px"></p>
-<p><a href="/doc/{doc_id}" style="color:#1f3a5f">문서 보기로 돌아가기</a></p></div>
-<script>var t=0;function tick(){{t+=2;fetch('/doc/{doc_id}/view/status').then(r=>r.json()).then(j=>{{
-if(j.state==='done'&&j.url){{location.replace(j.url);return}}
-if(j.state==='error'){{document.getElementById('err').textContent=j.msg;document.getElementById('st').textContent='';return}}
-document.getElementById('st').textContent=t+'초';setTimeout(tick,2000)}}).catch(()=>setTimeout(tick,4000))}}setTimeout(tick,2000)</script>""")
+        def work(set_step):
+            set_step("fetch")
+            folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
+            return _make_google_view(doc, email, folder, progress=set_step)["url"]
+
+        def fail(e: Exception) -> str:
+            if isinstance(e, (FileNotFoundError, RuntimeError, ValueError)):
+                return f"구글 열람본을 만들지 못했습니다 — {e}"
+            return f"구글 열람본을 만들지 못했습니다({type(e).__name__})"
+
+        _VIEW_JOBS.start(doc_id, work, _op.STEPS_GOOGLE, fail)
+        return _wait_page(request, doc, _VIEW_JOBS, title="구글에서 열 준비를 하고 있습니다",
+                          note="원본을 받아 구글 문서로 바꾸는 중입니다. 큰 한글 파일은 몇 분 걸릴 수 있습니다. 이 창을 닫아도 작업은 계속됩니다.",
+                          steps=_op.STEPS_GOOGLE, open_url=f"/doc/{doc_id}/view",
+                          status_url=f"/doc/{doc_id}/view/status")
 
     @app.get("/doc/{doc_id}/view/status")
     def doc_view_status(request: Request, doc_id: int):
         doc = db.get_document(doc_id)
         if doc is None or not _visible(doc, **_doc_scope(request)):
             raise HTTPException(404)
-        job = _VIEW_JOBS.get(doc_id) or {"state": "none"}
-        return {"state": job.get("state"), "url": job.get("url", ""), "msg": job.get("msg", "")}
+        return _VIEW_JOBS.status(doc_id)
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request, err: int = 0):
@@ -6036,41 +6044,170 @@ document.getElementById('st').textContent=t+'초';setTimeout(tick,2000)}}).catch
             }),
         )
 
+    def _archive_row(doc: dict) -> dict | None:
+        """DGX 원본(dgx://) 문서의 보관소 대장 줄 — rel·size·mtime. 없으면 None."""
+        sp = str(doc.get("stored_path") or "")
+        if not sp.startswith("dgx://"):
+            return None
+        from zzaimy.app import archive
+
+        archive.ensure(db)
+        with db._conn() as conn:
+            row = conn.execute("SELECT rel, size, mtime FROM archive_files WHERE rel = ? AND removed_at = ''",
+                               (sp[len("dgx://"):],)).fetchone()
+        return dict(zip(("rel", "size", "mtime"), row)) if row else None
+
     def _original_file(doc: dict) -> tuple[Path, bool]:
         """문서의 원본 파일 — (경로, 임시 파일인가). 플랫폼에 있으면 그것, DGX 원본(dgx://)이면 읽기 전용 연결로 한 개만 받아 온다.
         DGX 문서는 원본이 VM 에 없어 「원본 열기」가 404, 「구글에서 열기」가 같은 화면으로 돌아왔다(2026-10-06)."""
         sp = str(doc.get("stored_path") or "")
         if sp and not sp.startswith("dgx://") and Path(sp).exists():
             return Path(sp), False
-        if sp.startswith("dgx://"):
-            from zzaimy.app import archive, archive_original
+        row = _archive_row(doc)
+        if row:
+            from zzaimy.app import archive_original
 
-            archive.ensure(db)
-            with db._conn() as conn:
-                row = conn.execute("SELECT rel, size, mtime FROM archive_files WHERE rel = ? AND removed_at = ''",
-                                   (sp[len("dgx://"):],)).fetchone()
-            if row:
-                return archive_original.fetch(dict(zip(("rel", "size", "mtime"), row))), True
+            return archive_original.fetch(row), True
         raise FileNotFoundError("원본 파일을 찾을 수 없습니다")
 
     def _doc_scope(request: Request) -> dict:
         return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
 
+    def _preview_target(doc: dict) -> tuple[Path | None, str]:
+        """원본 열기에서 보여 줄 파일이 놓일 자리 — (경로, 종류). 플랫폼 사무 문서는 문서 폴더의 열람 PDF(반입 때 만드는 것과 같은 파일),
+        DGX 원본은 캐시(사무 문서는 PDF, PDF·그림은 받아 온 원본 사본). 보여 줄 수 없는 형식이면 (None, 'download')."""
+        from zzaimy.app import office_pdf
+
+        name = doc.get("filename") or str(doc.get("stored_path") or "")
+        kind = _op.kind_of(name)
+        sp = str(doc.get("stored_path") or "")
+        if kind == "download":
+            return None, kind
+        if not sp.startswith("dgx://"):
+            if kind == "office" and Path(sp).exists():
+                return office_pdf.view_path(doc), kind
+            return (Path(sp) if Path(sp).exists() else None), kind
+        row = _archive_row(doc)
+        if row is None:
+            return None, kind
+        ext = ".pdf" if kind == "office" else Path(name).suffix.lower()
+        version = f"{row['rel']}|{row['size']}|{row['mtime']}"
+        return _op.cache_path(Path(db_path).parent, int(doc["id"]), version, ext), kind
+
+    def _serve_preview(doc: dict, path: Path, kind: str):
+        from fastapi.responses import FileResponse
+
+        name = doc.get("filename") or path.name
+        if kind == "office":                                   # 변환본은 「원래 이름.pdf」로 보인다
+            return FileResponse(path, media_type="application/pdf", filename=Path(name).stem + ".pdf",
+                                content_disposition_type="inline")
+        return FileResponse(path, media_type=_op.media_type(name), filename=name, content_disposition_type="inline")
+
+    def _build_preview(doc: dict, target: Path, kind: str, set_step) -> None:
+        """뒤 작업 — 원본 받기(DGX면) → 변환(사무 문서면) → 미리보기 자리에 둔다."""
+        import shutil as _sh
+
+        from zzaimy.app import office_pdf
+
+        if kind == "office" and not office_pdf.soffice():          # 변환기가 없으면 원본을 받거나 바꾸기 전에 바로 알린다
+            raise _op.ConvertFailed()
+        set_step("fetch")
+        sp = str(doc.get("stored_path") or "")
+        if kind == "office" and not sp.startswith("dgx://"):
+            if office_pdf.render(db, doc, progress=set_step) is None:
+                raise _op.ConvertFailed()
+            return
+        path, is_temp = _original_named(doc)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if kind == "office":
+                part = target.with_name(target.name + ".part")
+                if office_pdf.convert_file(path, part, progress=set_step) is None:
+                    raise _op.ConvertFailed()
+                part.replace(target)
+            else:
+                set_step("render")
+                part = target.with_name(target.name + ".part")
+                if is_temp:
+                    _sh.move(str(path), str(part))
+                else:
+                    _sh.copyfile(path, part)
+                part.replace(target)
+            _op.prune(target.parent, keep=target)
+        finally:
+            if is_temp:
+                Path(path).unlink(missing_ok=True)
+
     @app.get("/doc/{doc_id}/original")
     def doc_original(request: Request, doc_id: int):
+        """원본 열기 — 브라우저에서 바로 본다. PDF·그림·글은 원본 그대로, 한글·워드·엑셀·PPT 는 열람 PDF 로 바꿔서.
+        변환·DGX 원본 받기는 뒤에서 하고 기다림 화면을 준다(큰 한글 파일은 몇 분). 만든 것은 남겨 두 번째부터 바로 열린다.
+        보여 줄 수 없는 형식은 내려받기로 넘긴다. 파일은 통째로 메모리에 올리지 않고 흘려 보낸다(FileResponse)."""
+        doc = db.get_document(doc_id)
+        if doc is None or not _visible(doc, **_doc_scope(request)):        # 예전에는 권한 확인 없이 내려주었다
+            raise HTTPException(404)
+        try:
+            target, kind = _preview_target(doc)
+        except Exception:
+            target, kind = None, "download"
+        if target is not None and target.is_file() and target.stat().st_size > 0:
+            return _serve_preview(doc, target, kind)
+        if target is None:
+            return RedirectResponse(f"/doc/{doc_id}/original/download", status_code=303)
+        from zzaimy.app import office_pdf
+
+        def fail(e: Exception) -> str:
+            if isinstance(e, _op.ConvertFailed):
+                if not office_pdf.soffice():
+                    return "이 서버에 문서 변환기(LibreOffice)가 없어 미리보기를 만들 수 없습니다. 원본을 내려받아 열어 주세요."
+                return "미리보기 PDF 를 만들지 못했습니다. 원본을 내려받아 열어 주세요."
+            if isinstance(e, (FileNotFoundError, RuntimeError, ValueError)):
+                return f"원본을 열 수 없습니다 — {e}"
+            return f"미리보기를 만들지 못했습니다({type(e).__name__})"
+
+        def work(set_step):
+            _build_preview(doc, target, kind, set_step)
+            return f"/doc/{doc_id}/original"                   # 다 만들면 같은 주소가 이제 미리보기를 바로 준다
+
+        steps = _op.STEPS_PREVIEW if kind == "office" else _op.STEPS_FETCH
+        _PREVIEW_JOBS.start(doc_id, work, steps, fail)
+        note = ("원본을 PDF 로 바꿔 브라우저에서 볼 수 있게 만드는 중입니다. 큰 한글 파일은 몇 분 걸릴 수 있으며, 한 번 만들면 다음부터는 바로 열립니다."
+                if kind == "office" else "원본 보관 서버에서 파일을 받아 오는 중입니다. 한 번 받으면 다음부터는 바로 열립니다.")
+        return _wait_page(request, doc, _PREVIEW_JOBS, title="원본 미리보기를 준비하고 있습니다", note=note,
+                          steps=steps, open_url=f"/doc/{doc_id}/original",
+                          status_url=f"/doc/{doc_id}/original/status", download_url=f"/doc/{doc_id}/original/download")
+
+    @app.get("/doc/{doc_id}/original/status")
+    def doc_original_status(request: Request, doc_id: int):
+        doc = db.get_document(doc_id)
+        if doc is None or not _visible(doc, **_doc_scope(request)):
+            raise HTTPException(404)
+        return _PREVIEW_JOBS.status(doc_id)
+
+    @app.get("/doc/{doc_id}/original/download")
+    def doc_original_download(request: Request, doc_id: int):
+        """원본 파일 그대로 내려받기. DGX 원본은 미리보기 때 받아 둔 사본이 있으면 그것을, 없으면 받아서 보낸 뒤 지운다."""
         from fastapi.responses import FileResponse
         from starlette.background import BackgroundTask
 
         doc = db.get_document(doc_id)
-        if doc is None or not _visible(doc, **_doc_scope(request)):        # 예전에는 권한 확인 없이 내려주었다
+        if doc is None or not _visible(doc, **_doc_scope(request)):
             raise HTTPException(404)
+        name = doc.get("filename") or "원본"
+        try:
+            cached, kind = _preview_target(doc)
+        except Exception:
+            cached, kind = None, "download"
+        if (str(doc.get("stored_path") or "").startswith("dgx://") and kind == "inline"
+                and cached is not None and cached.is_file()):
+            return FileResponse(cached, filename=name, content_disposition_type="attachment")
         try:
             path, temp = _original_file(doc)
         except (FileNotFoundError, ValueError) as e:
             return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(f"원본을 열 수 없습니다 — {e}"), status_code=303)
         except RuntimeError as e:                                          # DGX 연결 문제·동시 요청
             return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(str(e)), status_code=303)
-        return FileResponse(path, filename=doc["filename"], content_disposition_type="inline",
+        return FileResponse(path, filename=name, content_disposition_type="attachment",
                             background=BackgroundTask(path.unlink, missing_ok=True) if temp else None)
 
     @app.get("/doc/{doc_id}/page/{page_no}.png")
