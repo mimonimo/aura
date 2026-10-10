@@ -166,3 +166,4 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 #chatScroll .chat-progress { max-width:1040px; width:100%; margin-left:auto; margin-right:auto; align-self:stretch; }
 #chatScroll .chat-progress .chat-progress-head { max-width:560px; }
 body #chatForm { max-width:1040px; }
+.msg hr { border:none; border-top:1px solid #E3E8EF; margin:14px 0; }

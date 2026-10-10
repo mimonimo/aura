@@ -2971,7 +2971,7 @@ def create_app(
                     out.append("".join(t))
                 continue
             if _mre.match(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", ln):
-                out.append('<hr style="border:none; border-top:1px solid #E3E8EF; margin:14px 0;">')
+                out.append("<hr>")
                 i += 1
                 continue
             m_h = _mre.match(r"^(#{4,6})\s+(.*)$", ln)
