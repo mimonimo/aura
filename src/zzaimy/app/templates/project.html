@@ -27,8 +27,8 @@
   <div style="min-width:0;">
     <h1 class="project-name">{{ project.name }}</h1>
     <div style="font-size:12.5px; color:var(--muted); margin-top:2px;">
-      {{ sector_labels.get(project.sector, project.sector) }} 업무 · 문서 {{ documents|length }}건 ·
-      연결 기준 {{ linked_criteria|length }}건
+      {{ sector_labels.get(project.sector, project.sector) }} 업무 · 첨부 {{ doc_groups.attached|length }}건 ·
+      참고 {{ doc_groups.reference|length }}건 · 규정·지침 {{ doc_groups.rules|length }}건
       {% if project.due_date %} · <b style="color:#C05621;">마감 {{ project.due_date }}</b>{% endif %}
       · 만든 날 {{ project.created_at[:10] }}</div>
   </div>
@@ -48,7 +48,7 @@
 
 <div class="project-tabs" role="tablist" aria-label="프로젝트 작업">
   <button type="button" role="tab" id="projectTabChat" data-project-tab="projectConversations" aria-controls="projectConversations" aria-selected="true">대화·문서</button>
-  <button type="button" role="tab" id="projectTabContext" data-project-tab="projectContext" aria-controls="projectContext" aria-selected="false" tabindex="-1">지침·기준 <span>{{ linked_criteria|length }}</span></button>
+  <button type="button" role="tab" id="projectTabContext" data-project-tab="projectContext" aria-controls="projectContext" aria-selected="false" tabindex="-1">지침·기준 <span>{{ doc_groups.rules|length }}</span></button>
 </div>
 <form id="intakeForm" action="/project/{{ project.id }}/bundle" method="post" enctype="multipart/form-data" hidden>
   <input type="file" name="file" id="intakeFile" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
@@ -67,27 +67,32 @@
 <div class="project-overview-grid">
 <section id="projectDocuments" aria-label="프로젝트 문서">
 
+{# 문서는 대화 문서함과 같은 세 갈래(project_documents): 사용자 첨부 · 참고 · 규정·지침 #}
 <div class="card">
   <div class="card-in">
-    <div class="project-doc-head"><h2><iconify-icon icon="solar:documents-linear"></iconify-icon>접수 문서</h2>
+    <div class="project-doc-head"><h2><iconify-icon icon="solar:documents-linear"></iconify-icon>프로젝트 문서</h2>
       <button type="button" onclick="document.getElementById('intakeFile').click()"><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 추가</button>
     </div>
-    <p class="project-intake-help">파일을 한 개 또는 여러 개 선택할 수 있습니다. 기준으로 분류된 문서는 ‘지침·기준’에서 확인하세요.</p>
-    {% if documents %}
-    <div class="project-document-list">
-        {% for d in documents %}
+    <p class="project-intake-help">파일을 한 개 또는 여러 개 선택할 수 있습니다. 공고·지침으로 분류된 문서는 규정·지침에 놓입니다.</p>
+    {% for key, label in [('attached', '사용자 첨부 문서'), ('reference', '참고 문서'), ('rules', '규정·지침')] %}
+    {% set items = doc_groups[key] %}
+    <section class="project-doc-group" data-doc-group="{{ key }}" aria-label="{{ label }}">
+      <h3>{{ label }} <span class="project-doc-count">{{ items|length }}</span></h3>
+      {% if items %}
+      <div class="project-document-list">
+        {% for d in items %}
         <article class="project-document-item">
           <a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
-          <span class="muted">{{ d.receipt_no or d.id }} · {{ d.created_at[:16].replace("T", " ") }}</span>
-          <div><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span> <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span> <a class="project-action-link" href="/doc/{{ d.id }}/view" target="_blank" rel="noopener" aria-label="문서 보기 (새 창)"><iconify-icon icon="solar:eye-linear" aria-hidden="true"></iconify-icon>문서 보기 <span aria-hidden="true">↗</span></a></div>
+          <span class="muted">{{ d.via }} · {{ d.receipt_no or d.id }} · {{ d.created_at[:16].replace("T", " ") }}</span>
+          <div><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span>{% if key == 'attached' %} <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %} <a class="project-action-link" href="/doc/{{ d.id }}/view" target="_blank" rel="noopener" aria-label="문서 보기 (새 창)"><iconify-icon icon="solar:eye-linear" aria-hidden="true"></iconify-icon>문서 보기 <span aria-hidden="true">↗</span></a></div>
         </article>
         {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if not documents %}
-    <p class="muted" style="margin-top:4px;">아직 접수된 문서가 없습니다.</p>
-    {% endif %}
+      </div>
+      {% else %}
+      <p class="project-doc-empty">{{ {'attached': '아직 올리거나 첨부한 문서가 없습니다.', 'reference': '대화에서 에이전트가 근거로 불러온 문서가 여기에 쌓입니다.', 'rules': '연결된 공고·지침이 없습니다. 지침·기준 탭에서 연결합니다.'}[key] }}</p>
+      {% endif %}
+    </section>
+    {% endfor %}
   </div>
 </div>
 </section>
@@ -139,19 +144,20 @@
     </section>
 
     <section id="paneCriteria" class="project-context-section" aria-labelledby="projectCriteriaHeading">
-    <div class="project-context-intro"><h2 id="projectCriteriaHeading">연결된 기준 문서 <span class="pill">{{ linked_criteria|length }}</span></h2><p>검토와 작성의 근거가 되는 공고·평가 기준·규정입니다. 작업 지침과 달리 문서의 내용을 근거로 사용합니다.</p></div>
-    {% set linked_docs = sector_criteria | selectattr("id", "in", linked_criteria) | list %}
-    {% if linked_docs %}
+    <div class="project-context-intro"><h2 id="projectCriteriaHeading">규정·지침 <span class="pill">{{ doc_groups.rules|length }}</span></h2><p>검토와 작성의 근거가 되는 공고·평가 기준·규정입니다. 작업 지침과 달리 문서의 내용을 근거로 사용합니다.</p></div>
+    {% if doc_groups.rules %}
     <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:14px;">
-      {% for c in linked_docs %}
+      {% for c in doc_groups.rules %}
       <article class="project-criterion-item">
         <iconify-icon icon="solar:document-text-linear" style="color:var(--navy); flex:none;"></iconify-icon>
-        <div class="project-criterion-title"><a href="/doc/{{ c.id }}">{{ doc_name(c) }}</a><span>{{ c.kind_label }}{% if c.receipt_no %} · {{ c.receipt_no }}{% endif %}</span></div>
+        <div class="project-criterion-title"><a href="/doc/{{ c.id }}">{{ doc_name(c) }}</a><span>{{ kind_labels.get(c.kind or '', '미분류') }} · {{ c.via }}{% if c.receipt_no %} · {{ c.receipt_no }}{% endif %}{% if c.status != 'reviewed' %} · {{ status_labels.get(c.status, c.status) }}{% endif %}</span></div>
         <a class="project-criterion-open project-action-link" href="/doc/{{ c.id }}"><iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>문서 열기</a>
+        {% if c.id in linked_criteria %}
         <form action="/project/{{ project.id }}/criteria/unlink" method="post" onsubmit="return confirm('이 기준 문서의 연결을 해제할까요? 원본 문서는 유지됩니다.');">
           <input type="hidden" name="criteria_doc_id" value="{{ c.id }}">
           <button type="submit" class="secondary">연결 해제</button>
         </form>
+        {% endif %}
       </article>
       {% endfor %}
     </div>
@@ -239,6 +245,9 @@
           </label>
           {% endfor %}
         </div>
+        {# 선택지에 없는 연결(아직 처리 중이거나 다른 업무 영역의 기준)은 저장해도 풀리지 않게 그대로 보낸다 #}
+        {% set picker_ids = sector_criteria | map(attribute="id") | list %}
+        {% for cid in linked_criteria if cid not in picker_ids %}<input type="hidden" name="criteria" value="{{ cid }}">{% endfor %}
         <p id="criteriaEmpty" class="criteria-picker-help" hidden>조건에 맞는 문서가 없습니다. 검색어나 분류를 바꿔 주세요.</p>
         <div class="criteria-picker-footer">
           <span class="muted" id="linkedCount" aria-live="polite">{{ linked_criteria|length }}개 선택</span>

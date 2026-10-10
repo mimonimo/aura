@@ -957,7 +957,14 @@ def create_app(
                 return
         if doc_material:
             _chat_step(session_id, "연결 문서 작업 중")
-            _edit_linked_doc(session_id, q, owner, data_dir, scope, scope_msg)
+            try:
+                _edit_linked_doc(session_id, q, owner, data_dir, scope, scope_msg)
+            finally:
+                # 편집·절 작성의 근거(기준 조각·프로젝트 문서·문서함 검색)도 답변처럼 남긴다 — 문서함의 「참고 문서」에 선다
+                try:
+                    chat_topics.record(session_id, _chat_sources.get(session_id) or [])
+                except Exception:
+                    pass
             return
         try:
             import inspect as _insp
@@ -1414,7 +1421,8 @@ def create_app(
                     return
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope)
+                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope,
+                                          sink=_chat_sources.setdefault(session_id, []))
                 if drafting.is_event_record(info) and not mats.past_docs() and not sources:
                     # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌려 「자료 필요」만 되풀이하던 것(10/10 시험).
                     # 필요한 자료를 한 번에 알리고 모델은 부르지 않는다
@@ -2672,41 +2680,44 @@ def create_app(
         made = _intake_bundle(request, background, project, files)
         return RedirectResponse(f"/project/{project_id}?bundle={len(made['criteria'])}+{len(made['intake'])}", status_code=303)
 
+    def _viewer(request: Request) -> dict:
+        return {"dept": getattr(request.state, "dept", None), "user": getattr(request.state, "user", "zzaimy"),
+                "role": getattr(request.state, "role", "")}
+
+    def _doc_groups(request: Request, project: dict | None, session_id: int | None = None) -> dict[str, list[dict]]:
+        """프로젝트·대화 문서의 세 갈래(사용자 첨부 / 참고 / 규정·지침) — 대화 문서함·프로젝트 화면·지침·기준 탭이 같이 쓴다."""
+        from zzaimy.app import project_documents
+
+        return project_documents.collect(db, project, session_id, **_viewer(request))
+
     @app.get("/api/chat/{session_id}/documents")
     def chat_project_documents(request: Request, session_id: int):
-        """대화 문서함의 플랫폼 문서 목록 — 이 대화의 첨부, 프로젝트의 접수·기준 문서. 각각 /doc/{id}/view 로 연다."""
-        from zzaimy.app.access_policy import visible
+        """대화 문서함의 플랫폼 문서 — 세 갈래(project_documents). 프로젝트 대화면 프로젝트 화면과 같은 목록이다.
+        답이 끝날 때마다 화면이 다시 부르므로 에이전트가 불러온 문서도 참고 문서에 바로 선다."""
+        from zzaimy.app import project_documents
         from zzaimy.app.doc_routing import KINDS
 
         session_ = db.get_chat_session(session_id)
         owner = getattr(request.state, "user", "zzaimy")
         if session_ is None or session_.get("owner") not in (None, owner):
             raise HTTPException(404)
-        dept, role_ = getattr(request.state, "dept", None), getattr(request.state, "role", "")
-        attached = {f["doc_id"] for f in db.list_files(kind="attachment", session_id=session_id) if f.get("doc_id")}
         pid = int(session_["project_id"]) if session_.get("project_id") else None
         project = db.get_project(pid) if pid else None
-        rows: list[dict] = []
-        seen: set[int] = set()
+        groups = _doc_groups(request, project, session_id)
 
-        def _add(d: dict | None, group: str) -> None:
-            if not d or d["id"] in seen or not visible(d, dept=dept, user=owner, role=role_):
-                return
-            seen.add(d["id"])
+        def _row(d: dict) -> dict:
             raw = db.get_setting(f"doc_google:{d['id']}", "") or ""
-            rows.append({"id": d["id"], "name": storage.title_of(d.get("filename") or ""), "group": group,
-                         "kind": KINDS.get(d.get("kind") or "", ""), "status": STATUS_LABELS.get(d.get("status"), d.get("status")),
-                         "url": f"/doc/{d['id']}/view", "page": f"/doc/{d['id']}",
-                         "google": (_aj.loads(raw).get("url") if raw else None)})
+            return {"id": d["id"], "name": storage.title_of(d.get("filename") or ""), "group": d["group_label"],
+                    "group_key": d["group"], "via": d["via"],
+                    "original_format": Path(d.get("filename") or "").suffix.lstrip(".").lower(),
+                    "kind": KINDS.get(d.get("kind") or "", ""), "status": STATUS_LABELS.get(d.get("status"), d.get("status")),
+                    "url": f"/doc/{d['id']}/view", "page": f"/doc/{d['id']}",
+                    "google": (_aj.loads(raw).get("url") if raw else None)}
 
-        for did in sorted(attached):
-            _add(db.get_document(did), "첨부")
-        if project:
-            for did in db.get_project_criteria_ids(pid):
-                _add(db.get_document(did), "기준")
-            for d in db.list_documents(project["sector"], project_id=pid):
-                _add(d, "접수")
-        return {"project": (project or {}).get("name"), "project_id": pid, "documents": rows}
+        rows = {key: [_row(d) for d in groups[key]] for key, _ in project_documents.GROUPS}
+        return {"project": (project or {}).get("name"), "project_id": pid,
+                "groups": [{"key": key, "label": label, "documents": rows[key]} for key, label in project_documents.GROUPS],
+                "documents": [r for key, _ in project_documents.GROUPS for r in rows[key]]}
 
     @app.get("/api/doc/{doc_id}/google")
     def doc_google(request: Request, doc_id: int):
@@ -5563,13 +5574,9 @@ document.getElementById('st').textContent=t+'초';setTimeout(tick,2000)}}).catch
         if proj is None:
             raise HTTPException(404)
         proj_sector = proj["sector"]
-        docs = [
-            d for d in db.list_documents(
-                proj_sector, project_id=project_id,
-                owner=getattr(request.state, "user", "zzaimy"),
-            )
-            if d["doc_type"] != "regulation"
-        ]
+        # 문서 목록은 대화 문서함과 같은 세 갈래(project_documents) — 화면마다 따로 모으던 것을 하나로
+        doc_groups = _doc_groups(request, proj)
+        docs = doc_groups["attached"]
         linked = set(db.get_project_criteria_ids(project_id))
         sector_criteria = [
             d for d in db.list_documents("regulation")
@@ -5600,7 +5607,7 @@ document.getElementById('st').textContent=t+'초';setTimeout(tick,2000)}}).catch
             request,
             "project.html",
             ctx(request, {
-                "project": proj, "documents": docs, "active_tab": proj["sector"],
+                "project": proj, "documents": docs, "doc_groups": doc_groups, "active_tab": proj["sector"],
                 "suggestions": _project_suggestions(proj),
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "criteria_kinds": criteria_kinds, "kind_labels": KINDS,

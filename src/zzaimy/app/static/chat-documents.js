@@ -312,6 +312,11 @@
    });
    const current=list.querySelector('[aria-current="true"]');if(current)list.prepend(current);
  }
+ // 문서함 — 작업 문서(이 대화와 함께 편집하는 Google Docs) 아래에 프로젝트 화면과 같은 세 갈래:
+ // 사용자 첨부 문서 · 참고 문서(에이전트가 불러온 문서 포함) · 규정·지침. 답이 끝날 때마다 목록을 다시 읽는다.
+ const DOC_GROUPS=[['attached','사용자 첨부 문서','프로젝트에 올리거나 대화에 첨부한 문서'],['reference','참고 문서','문서함에서 불러온 문서 · 에이전트가 근거로 쓴 문서'],['rules','규정·지침','프로젝트에 연결된 공고·지침·기준']];
+ const DOC_EMPTY={attached:'아직 올리거나 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'연결된 공고·지침이 없습니다.'};
+ let refreshLibrary=null;
  async function showFiles(){
    clearPanel();showEmpty();setRatio(70,false);
    panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서함';
@@ -319,19 +324,55 @@
    panel.querySelector('header').insertBefore(refresh,panel.querySelector('[data-close]'));
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
    const status=document.createElement('p');status.setAttribute('role','status');status.textContent='파일을 불러오는 중…';body.append(status);
+   const countHeading=(heading,label,count)=>{heading.textContent=label+' ';const badge=document.createElement('span');badge.className='chat-file-count';badge.textContent=count;heading.append(badge);};
    const workHeading=document.createElement('h3');workHeading.textContent='작업 문서';
    const workDocs=document.createElement('div');workDocs.className='chat-file-list chat-work-files';
    const workNote=document.createElement('p');workNote.className='chat-file-section-note';workNote.textContent='채팅과 함께 편집하는 문서';
-   const docsHeading=document.createElement('h3');docsHeading.textContent='참고·첨부 문서';
-   const docs=document.createElement('div');docs.className='chat-file-list';
-   const referenceNote=document.createElement('p');referenceNote.className='chat-file-section-note';referenceNote.textContent='기준·접수 문서와 Drive 참고 파일';
+   body.append(workHeading,workNote,workDocs);
+   const groups={};
+   for(const [key,label,note] of DOC_GROUPS){
+     const heading=document.createElement('h3');heading.textContent=label;
+     const help=document.createElement('p');help.className='chat-file-section-note';help.textContent=note;
+     const list=document.createElement('div');list.className='chat-file-list';list.dataset.docGroup=key;
+     groups[key]={heading,list,label};body.append(heading,help,list);
+   }
    const imagesHeading=document.createElement('h3');imagesHeading.textContent='콘텐츠';
    const images=document.createElement('div');images.className='chat-image-grid';
-   body.append(workHeading,workNote,workDocs,docsHeading,referenceNote,docs,imagesHeading,images);
+   body.append(imagesHeading,images);
    const imageFile=name=>/\.(png|jpe?g|gif|webp|bmp)$/i.test(name);
+   function finishGroups(){
+     for(const [key] of DOC_GROUPS){const g=groups[key];
+       g.list.querySelectorAll('.chat-file-empty').forEach(x=>x.remove());
+       const n=g.list.querySelectorAll('.chat-doc-file').length;countHeading(g.heading,g.label,n);
+       if(!n){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=DOC_EMPTY[key];g.list.append(empty);}}
+     imagesHeading.textContent='콘텐츠 '+images.children.length;
+     imagesHeading.hidden=images.hidden=!images.children.length;
+   }
+   // 플랫폼 문서 — 세 갈래. 클릭하면 구글 열람본(없으면 만들어서)으로 연다. 그림 문서도 제 갈래에 둔다.
+   async function loadPlatform(){
+     if(!sid)return;
+     const mine=await api('/api/chat/'+sid+'/documents');if(panel!==current)return;
+     for(const [key] of DOC_GROUPS)groups[key].list.querySelectorAll('[data-platform-doc]').forEach(x=>x.remove());
+     const byGroup=mine.groups?Object.fromEntries(mine.groups.map(g=>[g.key,g.documents])):{attached:mine.documents||[]};
+     for(const [key] of DOC_GROUPS)for(const d of byGroup[key]||[]){
+       const a=document.createElement('button');a.type='button';a.className='chat-doc-file';a.dataset.platformDoc=d.id;
+       const detail=[d.via,d.kind,d.status].filter(Boolean).join(' · ');a.title=detail;
+       const isImage=imageFile(d.name),imageUrl='/doc/'+encodeURIComponent(d.id)+'/original';
+       fileCard(a,d.name,detail,isImage?imageUrl:null,d.original_format);
+       if((d.via||'').startsWith('에이전트'))a.classList.add('chat-file-agent');
+       // Drive 참고 파일보다 플랫폼 문서를 앞에 둔다
+       groups[key].list.insertBefore(a,groups[key].list.querySelector('[data-drive-ref]'));
+       a.onclick=async()=>{a.disabled=true;status.textContent='구글 열람본을 여는 중…';
+         if(isImage){a.disabled=false;status.textContent='';previewImage(d.name,imageUrl,a);return;}
+         try{const g=await api('/api/doc/'+d.id+'/google');if(panel!==current)return;const preview='https://drive.google.com/file/d/'+encodeURIComponent(g.id)+'/preview';showViewer({title:d.name,embed_url:preview,url:preview,original_format:d.original_format,page:d.page,doc_id:d.id,is_doc:g.mime==='application/vnd.google-apps.document'});}
+         catch(error){status.textContent=error.message;a.disabled=false;}};
+     }
+     finishGroups();
+   }
+   refreshLibrary=async()=>{if(panel!==current||!panel.isConnected)return;try{await loadPlatform();}catch(_){}};
    // Start independent requests together; a slow Drive request must not add
    // another full round trip before requesting the platform documents.
-   const mineRequest=sid?api('/api/chat/'+sid+'/documents').catch(error=>({documents:[],error:error.message})):Promise.resolve({documents:[]});
+   const platformRequest=loadPlatform().then(()=>null,error=>error);
    try{
      const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
      status.textContent='';
@@ -343,7 +384,8 @@
        fileCard(button,file.name,isImage?'이미지 · Google Drive':editable?(active?'현재 작업 중 · Google Docs':'Google Docs · 작업 문서'):'Google Drive · 참고 파일',null,editable?'Google Docs':null);
        if(active){button.classList.add('chat-file-current');button.setAttribute('aria-current','true');}
        button.dataset.driveDoc=file.id;
-       (isImage?images:editable?workDocs:docs).append(button);
+       if(!isImage&&!editable)button.dataset.driveRef='';
+       (isImage?images:editable?workDocs:groups.reference.list).append(button);
        button.onclick=async()=>{
          if(file.mime_type!=='application/vnd.google-apps.document'){
            const path=file.mime_type==='application/vnd.google-apps.folder'?'drive/folders/'+file.id:'file/d/'+file.id+'/view';
@@ -358,31 +400,15 @@
          }catch(error){status.textContent=error.message;button.disabled=false;}
        };
      }
-     // 플랫폼 문서 — 이 대화의 첨부, 프로젝트의 기준·접수 문서. 클릭하면 구글 열람본(없으면 만들어서)으로 연다.
-     if(sid){try{const mine=await mineRequest;if(panel!==current)return;
-       if(mine.error)throw new Error(mine.error);
-       if(mine.documents.length){status.textContent='';
-         for(const d of mine.documents){const a=document.createElement('button');a.type='button';a.className='chat-doc-file';a.title=(d.kind||'')+(d.status?' · '+d.status:'');
-           const isImage=imageFile(d.name),imageUrl='/doc/'+encodeURIComponent(d.id)+'/original';
-           fileCard(a,d.name,[d.group,d.kind,d.status,'읽기 전용'].filter(Boolean).join(' · '),isImage?imageUrl:null,d.original_format);(isImage?images:docs).append(a);
-           a.onclick=async()=>{a.disabled=true;status.textContent='구글 열람본을 여는 중…';
-             if(isImage){a.disabled=false;status.textContent='';previewImage(d.name,imageUrl,a);return;}
-             try{const g=await api('/api/doc/'+d.id+'/google');if(panel!==current)return;const preview='https://drive.google.com/file/d/'+encodeURIComponent(g.id)+'/preview';showViewer({title:d.name,embed_url:preview,url:preview,original_format:d.original_format,page:d.page,doc_id:d.id,is_doc:g.mime==='application/vnd.google-apps.document'});}
-             catch(error){status.textContent=error.message;a.disabled=false;}};}}
-     }catch(error){status.textContent='프로젝트 문서를 불러오지 못했습니다. 문서함을 다시 열어 주세요.';}}
+     const platformError=await platformRequest;if(panel!==current)return;
+     if(platformError)status.textContent='프로젝트 문서를 불러오지 못했습니다. 새로고침을 눌러 주세요.';
      if(data.error)status.textContent='Drive 목록: '+data.error;
-     else if(workDocs.children.length||docs.children.length||images.children.length)status.textContent='';
-     const countHeading=(heading,label,count)=>{heading.textContent=label+' ';const badge=document.createElement('span');badge.className='chat-file-count';badge.textContent=count;heading.append(badge);};
+     finishGroups();
      countHeading(workHeading,'작업 문서',workDocs.children.length);
-     countHeading(docsHeading,'참고·첨부 문서',docs.children.length);
      if(!workDocs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=data.error?'작업 문서 목록을 불러오지 못했습니다.':'아직 작업 문서가 없습니다.';workDocs.append(empty);}
-     if(!docs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent='표시할 참고·첨부 문서가 없습니다.';docs.append(empty);}
-     imagesHeading.textContent='콘텐츠 '+images.children.length;
-     imagesHeading.hidden=images.hidden=!images.children.length;
      const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='다른 폴더에서 가져오기';connectButton.onclick=connect;workDocs.after(connectButton);
      connectButton.classList.add('chat-file-import');
      workNote.hidden=!workDocs.querySelector('.chat-doc-file');
-     referenceNote.hidden=!docs.querySelector('.chat-doc-file');
      markCurrentFile();
    }catch(error){status.textContent=error.message;const retry=document.createElement('button');retry.textContent='다시 시도';retry.onclick=showFiles;body.append(retry);}
  }
@@ -408,9 +434,11 @@
    }).catch(error=>{if(session===sid)loadError=error.message;}):Promise.resolve();
    initialized.then(()=>{if(session===sid&&sid&&!linked)watch=setTimeout(checkCreatedDocument,6000);});
  }
- workspace.addEventListener('chat-session-updated',()=>{
+ workspace.addEventListener('chat-session-updated',event=>{
    const next=workspace.dataset.session;
-   if(next===sid)return; // 같은 대화의 답변 갱신은 iframe·분할 비율을 그대로 둔다.
+   // 같은 대화의 답변 갱신은 iframe·분할 비율을 그대로 둔다. 문서함이 열려 있으면 목록만 다시 읽는다
+   // (새 첨부, 에이전트가 근거로 불러온 문서가 제 갈래에 바로 선다).
+   if(next===sid){if(!event.detail?.waiting&&panel?.classList.contains('chat-file-library'))refreshLibrary?.();return;}
    sid=next;linked=null;loadError='';
    visibility(false);clearPanel();
    ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||50;
