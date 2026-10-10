@@ -115,6 +115,31 @@ def _first_year(*texts: str) -> int | None:
             if plausible_year(m.group(1)):
                 return int(m.group(1))
     return None
+
+
+# 본문의 연도 표기 — 「2023학년도」「2024년도」「2025년」(뒤에 「N월」이 오는 날짜는 뺀다)
+_BODY_YEAR = re.compile(r"(?<![\d.])((?:19|20)\d{2})\s*(?:학년도|년도|년)(?!\s*\d{1,2}\s*월)")
+# 연혁 표기 — 기관·기업의 설립 연도는 사업 수행 연도가 아니다(「1968년 개교」「2010년 3월 설립」「연혁: 2005년 …」)
+_HISTORY_AFTER = re.compile(r"^[^.\n|]{0,14}?(?:설립|개교|창립|개원|개관|창업|연혁|이래)")
+_HISTORY_BEFORE = re.compile(r"(?:연혁|설립|개교|창립|개원|창업)\s*[:：]?\s*$")
+
+
+def body_year(text: str, pattern: re.Pattern | None = None) -> int | None:
+    """본문(첫머리)에서 사업 수행 연도로 쓸 만한 첫 연도 — 경로·파일 이름 연도보다 약한 근거라 걸러서 쓴다.
+
+    - 있을 법한 범위(plausible_year, 2000년 이후)만 — 「1968년」 같은 연혁 숫자는 수행 연도가 아니다
+    - 설립·개교·창립·개원·연혁 같은 연혁 표기에 붙은 연도는 건너뛴다
+    특정 기관·사업 이름이 아니라 표기 꼴로만 판단한다."""
+    t = text or ""
+    for m in (pattern or _BODY_YEAR).finditer(t):
+        if not plausible_year(m.group(1)):
+            continue
+        if _HISTORY_AFTER.search(t[m.end():m.end() + 24]) or _HISTORY_BEFORE.search(t[max(0, m.start() - 12):m.start()]):
+            continue
+        return int(m.group(1))
+    return None
+
+
 _EVAL_RESULT = re.compile(r"평가\s*(?:결과|의견)|종합\s*의견")
 HEAD_CHARS = 4000
 
@@ -477,7 +502,7 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
         a.year = _first_year(title)
         a.year_src = "title" if a.year else ""
         if a.year is None:
-            a.year = _first_year(head[:600])
+            a.year = body_year(head[:600], _YEAR)
             a.year_src = "head" if a.year else ""
         if _EVAL_RESULT.search(title):                          # 평가 '기준'이 아니라 평가 '결과·의견'
             a.kind, a.kind_reason = "evaluation", "제목에 평가 결과·종합의견"
@@ -748,7 +773,8 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                     a.round = int(m.group(1))
                     stats["round_from_path"] += 1
                     break
-        if a.year is None:
+        if a.year is None or getattr(a, "year_src", "") == "head":
+            # 본문 첫머리 연도는 약한 근거 — 폴더에 연도가 있으면 폴더가 이긴다(파일 이름 연도는 그대로 둔다)
             for seg in reversed(segs):
                 m = _SEG_YEAR.search(seg.strip())
                 if m and plausible_year(re.search(r"\d{4}", m.group(0)).group(0)):
