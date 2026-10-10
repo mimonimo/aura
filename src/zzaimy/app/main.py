@@ -170,6 +170,15 @@ def _tidy_weekly_md(body: str) -> str:
     return "\n".join(out).strip()
 
 
+def _asset_version() -> str:
+    """정적 파일 판 — 정적 폴더에서 가장 최근에 바뀐 파일 시각(배포마다 달라짐)."""
+    try:
+        d = Path(__file__).parent / "static"
+        return str(int(max(p.stat().st_mtime for p in d.rglob("*") if p.is_file())))
+    except Exception:
+        return "0"
+
+
 def create_app(
     db_path: Path,
     inbox_dir: Path,
@@ -528,6 +537,8 @@ def create_app(
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.state.templates = templates
     templates.env.globals["status_labels"] = STATUS_LABELS
+    # 정적 파일 판 — 배포(재시작)마다 바뀌어 브라우저가 옛 CSS·JS 를 붙들지 않는다(10/10 각주·보관된 사업 버튼이 옛 모양으로 보임)
+    templates.env.globals["asset_v"] = _asset_version()
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
     templates.env.globals["decision_labels"] = DECISION_LABELS
     templates.env.globals["sector_labels"] = SECTOR_LABELS

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}연결된 Drive{% endblock %}
 {% block pagetitle %}연결된 Drive{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/gdocs-work.css"><script src="/static/gdocs-work.js" defer></script><script src="/static/drive-browser.js" defer></script>{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/gdocs-work.css?v={{ asset_v }}"><script src="/static/gdocs-work.js?v={{ asset_v }}" defer></script><script src="/static/drive-browser.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 <div class="gd-work">
 <header class="gd-intro"><div><h1>연결된 Drive</h1><p>연결 계정의 폴더와 파일을 확인하세요. 에이전트와의 작업은 프로젝트 대화에서 이어집니다.</p></div><a class="gd-action-link" href="{% if request.state.role == 'dev' %}/dev/nas#googleConnection{% else %}/settings#myGoogle{% endif %}">연결 관리</a></header>

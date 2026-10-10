@@ -2,8 +2,8 @@
 {% block title %}에이전트 채팅 — YNC 행정 에이전트{% endblock %}
 {% block pagetitle %}에이전트 채팅{% endblock %}
 {% block head %}
-  <link rel="stylesheet" href="/static/chat-documents.css">
-  <script src="/static/chat-documents.js" defer></script>
+  <link rel="stylesheet" href="/static/chat-documents.css?v={{ asset_v }}">
+  <script src="/static/chat-documents.js?v={{ asset_v }}" defer></script>
   <style>
     main { display: flex; flex-direction: row; height: calc(100vh - 63px);
            overflow: hidden; max-width: none; width: 100%; margin: 0; padding: 0; }
@@ -139,8 +139,8 @@
                     box-shadow: -14px 0 40px rgba(27,59,117,.14); }
     }
   </style>
-  <link rel="stylesheet" href="/static/chat-workspace.css">
-  <script src="/static/chat-workspace.js" defer></script>
+  <link rel="stylesheet" href="/static/chat-workspace.css?v={{ asset_v }}">
+  <script src="/static/chat-workspace.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 {% block content %}
 

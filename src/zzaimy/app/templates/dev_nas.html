@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}문서 가져오기{% endblock %}
 {% block pagetitle %}문서 가져오기{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/gdocs-work.css"><script src="/static/gdocs-work.js" defer></script>{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/gdocs-work.css?v={{ asset_v }}"><script src="/static/gdocs-work.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 <style>
   .nas-form { display:flex; flex-direction:column; gap:14px; }

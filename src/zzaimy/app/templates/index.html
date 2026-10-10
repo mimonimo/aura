@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block pagetitle %}{{ doc_type_labels.get(active_tab, "라이브러리") if active_tab != "all" else "라이브러리" }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}">{% endblock %}
 {% block content %}
 
 {% set sector_meta = {
