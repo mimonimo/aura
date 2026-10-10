@@ -355,9 +355,18 @@ def create_app(
             {"detail": exc.detail}, status_code=exc.status_code,
             headers=getattr(exc, "headers", None),
         )
+    class _FreshStatic(StaticFiles):
+        """정적 파일은 매번 바뀌었는지 묻게(no-cache — 안 바뀌었으면 304 로 가볍다). 배포 뒤 브라우저가 옛 CSS 를 그대로 써
+        새 화면이 깨져 보였다(10/10 프로젝트 검색 화면 확인)."""
+
+        def file_response(self, *args, **kwargs):
+            resp = super().file_response(*args, **kwargs)
+            resp.headers["Cache-Control"] = "no-cache"
+            return resp
+
     app.mount(
         "/static",
-        StaticFiles(directory=str(Path(__file__).parent / "static")),
+        _FreshStatic(directory=str(Path(__file__).parent / "static")),
         name="static",
     )
     db = Database(db_path)

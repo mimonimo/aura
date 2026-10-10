@@ -1338,3 +1338,9 @@ def test_md_view_star_lists_become_list_items(client):
         pytest.skip("템플릿 필터에 닿을 수 없음")
     out = str(md("**요약:**\n* **사업명:** 부트캠프\n* 접수 기한: 7월\n  - 세부\n• 가운데점 항목"))
     assert out.count("<li") == 4 and "* " not in out and "<b>요약:</b>" in out
+
+
+def test_static_files_are_revalidated(client):
+    """배포 뒤 옛 CSS 가 남지 않게 정적 파일은 no-cache(바뀌지 않았으면 304)."""
+    r = client.get("/static/chat-workspace.css")
+    assert r.status_code == 200 and r.headers.get("cache-control") == "no-cache"
