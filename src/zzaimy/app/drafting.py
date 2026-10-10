@@ -163,8 +163,10 @@ class Materials:
     """프로젝트 하나의 재료 창고 — 지난 자료의 절 정렬은 문서마다 한 번만 계산해 둔다."""
 
     def __init__(self, db, project: dict | None, form_source_ids: set[int], find_relevant, extract_nouns, criteria_chunks: list[dict] | None,
-                 scope: dict | None = None):
+                 scope: dict | None = None, sink: list | None = None):
         self.scope = scope                     # 문서함 사업 문서 검색(RAG)의 열람 범위 — 없으면 문서함 검색을 하지 않는다
+        # 문서함 검색으로 재료에 넣은 문서를 알릴 곳(대화의 근거 목록) — 문서함 패널의 「참고 문서」에 「에이전트가 불러옴」으로 선다
+        self.sink = sink
         self.db = db
         self.project = project
         self.form_source_ids = set(form_source_ids)
@@ -301,6 +303,9 @@ class Materials:
             where = " > ".join(path[:-1])[-60:]
             out.append({"title": title[:80], "how": (h.get("how") or "문서함 검색") + (f" · {where}" if where else ""),
                         "text": (h.get("content") or "")[:700]})
+            if self.sink is not None and h.get("doc_id") is not None and all(x.get("doc_id") != h["doc_id"] for x in self.sink):
+                self.sink.append({"title": title[:80], "heading": where, "snippet": text[:160], "doc_id": h.get("doc_id"),
+                                  "origin": "문서함 검색", "weak": False})
             if len(out) >= k + (2 if _REPORT_NAME.search((self.project or {}).get("name", "")) else 0):
                 break
         return out

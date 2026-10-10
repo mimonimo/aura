@@ -126,3 +126,9 @@
 #linkModal .criteria-kind-label { background:#eef2f6; color:#526174; border-radius:6px; padding:2px 7px; white-space:nowrap; }
 #linkModal .criteria-picker-item[hidden] { display:none; }
 #linkModal .criteria-picker-item > .pill { white-space:nowrap; }
+/* 프로젝트 문서 세 갈래 — 사용자 첨부 · 참고 · 규정·지침(대화 문서함과 같은 묶음) */
+#projectWorkspace .project-doc-group { margin-top:18px; }
+#projectWorkspace .project-doc-group h3 { display:flex; align-items:center; gap:6px; margin:0; font-size:13px; }
+#projectWorkspace .project-doc-count { font-size:11.5px; font-weight:600; color:var(--muted); background:var(--soft, #F1F4F9); border-radius:999px; padding:1px 8px; }
+#projectWorkspace .project-doc-group .project-document-list { margin-top:10px; }
+#projectWorkspace .project-doc-empty { margin:8px 0 0; font-size:12.5px; color:var(--muted); line-height:1.6; }
