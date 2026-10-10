@@ -1668,6 +1668,9 @@ def create_app(
                     work_folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
                     copy = _gf.copy_document(email, made["id"], work_title, work_folder)
                     moved = _gd.migrate_bodies(email, link["doc"], copy["id"], user=owner, data_dir=data_dir, scrub=_scrub_internal)
+                    from zzaimy.app.gdocs_agent import quality_pass
+
+                    checked = quality_pass(email, copy["id"])            # 옮긴 뒤 표 폭·반복 줄 관문
                     try:
                         _gf.rename_document(email, link["doc"], f"{_gd.get(email, link['doc'])['title']} (이전)")
                     except Exception:
@@ -1680,6 +1683,8 @@ def create_app(
                     skipped = [r for r in moved if r["done"] != "ok"]
                     if skipped:
                         text += "\n옮기지 못한 절: " + ", ".join(r["heading"][:24] for r in skipped)
+                    if checked:
+                        text += "\n" + "\n".join(checked)
                     _set_options(session_id, [{"kind": "review", "text": "옮긴 내용 검토", "question": "옮긴 절들이 빠짐없이 들어갔는지 검토해 줘"},
                                               {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
                 except Exception as e:
