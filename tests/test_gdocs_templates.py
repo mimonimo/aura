@@ -183,3 +183,10 @@ def test_table_only_marks_overview_tables_and_minutes_records():
     assert "실적 요약" in marked(gt.REPORT) and "가. 추진 실적" not in marked(gt.REPORT)
     assert "1. 프로그램 개요" in marked(gt.PROGRAM_PLAN) and "4. 세부 운영 내용" not in marked(gt.PROGRAM_PLAN)
     assert "2. 상정 안건" in marked(gt.MINUTES) and "나. 논의 내용" not in marked(gt.MINUTES)
+
+
+def test_toc_lists_chapters_and_sections_only():
+    toc = gt.toc_lines(gt.PLAN)
+    assert toc[0] == (1, "사업 개요") and (1, "Ⅰ. 사업 추진 배경 및 목표") in toc and (2, "1. 추진 배경 및 필요성") in toc
+    assert all(level <= 2 for level, _ in toc) and (3, "가. 과제 개요") not in toc
+    assert "plan" in gt.COVER_PAGE and "minutes" not in gt.COVER_PAGE          # 목차는 표지 한 쪽을 두는 갈래만
