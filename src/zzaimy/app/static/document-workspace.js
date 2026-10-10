@@ -3,7 +3,11 @@
   if (!root) return;
   const widthToggle = document.getElementById('documentWidthToggle');
   const columns = root.querySelector('.document-columns');
-  if (widthToggle && columns) {
+  // 옆 칸(판정·작성 항목)이 비어 있으면 나란히 둘 것이 없다 — 전환을 감추고 넓게 둔다(빈 반쪽만 생기던 문제)
+  const work = document.getElementById('documentWork');
+  const workEmpty = !work || ![...work.children].some(el => el.offsetParent !== null || el.getClientRects().length);
+  if (columns && workEmpty) columns.classList.add('source-expanded');
+  if (widthToggle && columns && !workEmpty) {
     widthToggle.hidden = false;
     widthToggle.addEventListener('click', () => {
       // Change layout only: keep the PDF frame, current page and unsaved review intact.

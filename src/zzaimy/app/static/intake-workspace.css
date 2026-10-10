@@ -33,5 +33,6 @@
 }
 
 /* 라이브러리 위 공통 양식 바로가기 한 줄 */
-.lib-templates { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0 0 12px; font-size:12.5px; }
+.lib-templates { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin:0 0 16px; padding:12px 20px; border:1px solid var(--line, #e5e7eb); border-radius:16px; background:var(--card, #fff); font-size:12.5px; }
+.lib-templates > .muted { margin-right:6px; font-weight:600; }
 .lib-templates a.pill { text-decoration:none; }
