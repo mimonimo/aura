@@ -154,6 +154,11 @@ def useful_chunk(text: str) -> bool:
     return not (len(items) >= 4 and sum(len(x) for x in items) > 0.5 * len(head))
 
 
+_UNIT_CUES = [(r"인원|참여|참가|모집|수료|이수", re.compile(r"\d+\s*명")),
+              (r"금액|예산|집행|사업비|비용", re.compile(r"\d[\d,]*\s*(?:원|천원|백만원)")),
+              (r"일자|일시|기간|일정", re.compile(r"(?:19|20)\d{2}\s*[.년]\s*\d{1,2}"))]
+
+
 class Materials:
     """프로젝트 하나의 재료 창고 — 지난 자료의 절 정렬은 문서마다 한 번만 계산해 둔다."""
 
@@ -194,6 +199,9 @@ class Materials:
         nouns = self.extract_nouns(query)
         if not nouns:
             return []
+        # 단위 가산 — 표 머리말의 「인원」「금액」「일자」는 원문에서 「101명」「3,000천원」「2024. 10. 29.」 같은 숫자+단위로만 나온다
+        # (10/10 시험: 참여 현황 표가 비었는데 원문에 대학별 인원·총 101명이 있었다)
+        units = [rx for key, rx in _UNIT_CUES if re.search(key, query)]
         scored = []
         for ch in attach_paths(self._chunks_of(int(doc["id"]))):
             text = ch.get("content") or ""
@@ -204,6 +212,7 @@ class Materials:
                 except Exception:
                     pass
             hit = len(nouns & self.extract_nouns(text[:1500]))
+            hit += sum(1 for rx in units if rx.search(text[:1500]))
             if hit:
                 where = ch.get("path_text") or ""
                 scored.append((hit, (f"[{where}] " if where else "") + text))      # 어느 절의 글인지 모델이 알게(제목 계층)
@@ -220,19 +229,21 @@ class Materials:
         except Exception:
             criteria = []
         past: list[dict] = []
+        rules = doc_guides(info)
+        from zzaimy.ingest.gdocs_templates import EVENT_RECORD_RULE
+        event = EVENT_RECORD_RULE[:20] in rules
         for d in self.past_docs():
             title = title_of(d.get("filename") or "")
             text = self.aligned(d, info, section, budget)
             how = "같은 절"
             if not text:
-                hits = self.keyword_hits(d, query)
+                # 한 번의 기록 문서는 프로젝트 자료가 곧 근거다 — 조각을 더 넓게(문서함 검색 재료는 주지 않으므로)
+                hits = self.keyword_hits(d, query, limit=6 if event else 3)
                 text = "\n---\n".join(hits)
                 how = "낱말 겹침"
             if text.strip():
                 past.append({"title": title, "how": how, "text": text})
-        rules = doc_guides(info)
-        from zzaimy.ingest.gdocs_templates import EVENT_RECORD_RULE
-        if EVENT_RECORD_RULE[:20] not in rules:
+        if not event:
             past += self.library_hits(section, query)
         # 한 번의 회의·운영 기록이면 문서함 검색 재료를 주지 않는다 — 다른 회의·회차의 값이 새 기록에 옮겨졌다(프로젝트 문서·규정만)
         gap_hint = ""
