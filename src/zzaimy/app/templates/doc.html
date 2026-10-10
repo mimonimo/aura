@@ -120,8 +120,10 @@
     </div>
     {# 할 일 — 한 줄에 한 번씩(2026-10-06 정리: 원본 열기가 제목·여기·문서 보기 세 곳에 있었다) #}
     <div class="doc-actions" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
-      <a class="btn secondary" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener" title="원본 파일 — {{ doc.filename }}">
-        <iconify-icon icon="solar:file-download-linear"></iconify-icon>원본 열기</a>
+      <a class="btn secondary" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener" title="브라우저에서 원본 보기 — 한글·워드·엑셀·PPT 는 PDF 로 바꿔 보여 줍니다">
+        <iconify-icon icon="solar:document-text-linear"></iconify-icon>원본 열기</a>
+      <a class="btn-ghost" href="/doc/{{ doc.id }}/original/download" title="원본 파일 그대로 — {{ doc.filename }}">
+        <iconify-icon icon="solar:file-download-linear"></iconify-icon>내려받기</a>
       <a class="btn secondary" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener" title="엑셀·PPT·워드는 시트·슬라이드·독스로, 한글은 복원 문서로, PDF·그림은 드라이브 미리보기로 엽니다">
         <iconify-icon icon="solar:square-top-up-linear"></iconify-icon>구글에서 열기</a>
       {% if doc.doc_type == 'grant' %}

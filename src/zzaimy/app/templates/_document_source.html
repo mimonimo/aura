@@ -17,7 +17,7 @@
     <span class="menu-wrap" style="margin-left:auto;">
       <button type="button" id="expBtn" class="btn-ghost" aria-expanded="false" aria-controls="expMenu">내보내기</button>
       <div id="expMenu" class="menu-list" hidden>
-        <a href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener">원본 파일</a>
+        <a href="/doc/{{ doc.id }}/original/download">원본 파일</a>
         {% if doc.status == 'reviewed' %}
         {% if restored_pdf %}<a href="/doc/{{ doc.id }}/export.pdf">추출 문서 <span class="ext">.pdf</span></a>{% endif %}
         <a href="/doc/{{ doc.id }}/export.docx">추출 문서 <span class="ext">.docx</span></a>

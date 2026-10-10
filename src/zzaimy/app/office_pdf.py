@@ -58,7 +58,8 @@ def docx_for(src: Path) -> tuple[bytes, str] | None:
         except Exception:
             from zzaimy.ingest import hwp_html
 
-            return hwp_html.convert(src), ".html"
+            data, _ = hwp_html.convert(src)             # (html 바이트, 통계) — 예전에는 튜플째 돌려 쓰기에서 깨졌다
+            return data, ".html"
     return None
 
 
@@ -84,16 +85,14 @@ def to_pdf(src: Path, out_dir: Path, timeout: int = SOFFICE_TIMEOUT) -> Path | N
         shutil.rmtree(profile, ignore_errors=True)
 
 
-def render(db, doc: dict, force: bool = False) -> Path | None:
-    """문서의 열람 PDF — 있으면 그것, 없으면 지금 만든다. 만들면 files 장부(kind=view)에 적는다."""
-    src = Path(doc.get("stored_path") or "")
-    if not src.exists() or not is_office(src):
-        return None
-    target = view_path(doc)
-    if target.exists() and not force:
-        return target
+def convert_file(src: Path, target: Path, progress=None) -> Path | None:
+    """원본 파일 하나를 열람 PDF(target)로 그린다. 한글은 docx 를 거친다. progress(step) 는 'convert'(한글 → docx)·
+    'render'(LibreOffice 로 PDF) 순으로 불린다 — 기다림 화면의 단계 표시용. 못 만들면 None."""
+    src = Path(src)
     work = Path(tempfile.mkdtemp(prefix="zz-view-"))
     try:
+        if progress:
+            progress("convert")
         conv = docx_for(src)
         if conv is not None:
             data, ext = conv
@@ -102,15 +101,31 @@ def render(db, doc: dict, force: bool = False) -> Path | None:
         else:
             stage = work / src.name
             shutil.copyfile(src, stage)
+        if progress:
+            progress("render")
         pdf = to_pdf(stage, work)
         if pdf is None:
             return None
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(pdf), str(target))
-        try:
-            db.add_file("view", str(target), name=VIEW_NAME, doc_id=int(doc["id"]), size=target.stat().st_size)
-        except Exception:
-            pass
         return target
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def render(db, doc: dict, force: bool = False, progress=None) -> Path | None:
+    """문서의 열람 PDF — 있으면 그것, 없으면 지금 만든다. 만들면 files 장부(kind=view)에 적는다."""
+    src = Path(doc.get("stored_path") or "")
+    if not src.exists() or not is_office(src):
+        return None
+    target = view_path(doc)
+    if target.exists() and target.stat().st_size > 0 and not force:
+        return target
+    out = convert_file(src, target, progress=progress)
+    if out is None:
+        return None
+    try:
+        db.add_file("view", str(target), name=VIEW_NAME, doc_id=int(doc["id"]), size=target.stat().st_size)
+    except Exception:
+        pass
+    return target
