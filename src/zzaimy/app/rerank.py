@@ -109,7 +109,8 @@ def _remote_scores_once(url: str, query: str, texts: list[str]) -> list[float] |
     import urllib.error
     import urllib.request
 
-    body = json.dumps({"query": query, "texts": texts,
+    from zzaimy.app.embed_search import transport_mask      # 교내망 보안 장비가 긴 숫자열 요청을 끊는다 — embed_search 참고
+    body = json.dumps({"query": transport_mask(query), "texts": [transport_mask(t) for t in texts],
                        "max_length": _remote_conf()[0]}).encode("utf-8")
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
     try:
