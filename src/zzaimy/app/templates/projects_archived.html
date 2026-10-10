@@ -1,66 +1,156 @@
 {% extends "base.html" %}
 {% block title %}프로젝트 검색{% endblock %}
 {% block pagetitle %}프로젝트 검색{% endblock %}
-{% block head %}
-<style>
-  .project-browser { max-width:1120px; margin:0 auto; }
-  .project-browser h2 { margin:0; font-size:18px; }
-  .project-browser .browser-intro { margin:8px 0 20px; font-size:13px; color:var(--muted); }
-  .project-browser .browser-filters { display:grid; grid-template-columns:minmax(160px,1fr) repeat(3,minmax(100px,150px)) auto; gap:10px; align-items:end; }
-  .project-browser label { display:block; margin-bottom:6px; font-size:12px; color:var(--muted); }
-  .project-browser input,.project-browser select { width:100%; height:36px; min-height:36px; padding:6px 10px; margin:0; font-size:13px; border-radius:8px; }
-  .project-browser .browser-action { display:inline-flex; align-items:center; justify-content:center; height:34px; min-height:34px; padding:0 12px; font-size:12px; font-weight:600; line-height:1; white-space:nowrap; border-radius:8px; text-decoration:none; box-shadow:none; background:white; color:var(--navy); border:1px solid var(--line); }
-  .project-browser .browser-action.primary { background:var(--navy); border-color:var(--navy); color:white; }
-  .project-browser .browser-action:hover { filter:brightness(.96); }
-  .project-browser .browser-action:focus-visible { outline:2px solid var(--navy); outline-offset:3px; }
-  .project-browser .browser-meta { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:20px 0 8px; color:var(--muted); font-size:12px; }
-  .project-browser .browser-list { border-top:1px solid var(--line); }
-  .project-browser .browser-item { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:20px; padding:18px 0; border-bottom:1px solid var(--line); }
-  .project-browser .browser-name { margin:0 0 7px; font-size:14px; line-height:1.6; overflow-wrap:anywhere; }
-  .project-browser .browser-facts { display:flex; flex-wrap:wrap; gap:6px 14px; color:var(--muted); font-size:12px; line-height:1.6; }
-  .project-browser .browser-state { color:var(--navy); font-weight:600; }
-  .project-browser .browser-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
-  .project-browser form { margin:0; }
-  .project-browser .browser-why { margin:8px 0 0; font-size:12px; color:var(--muted); }
-  .project-browser .browser-linked { color:var(--green); font-size:12px; padding:0 8px; }
-  .project-browser .browser-context { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:12px 14px; background:var(--panel); border-radius:8px; margin-bottom:18px; font-size:13px; }
-  .project-browser .browser-empty { padding:44px 12px; text-align:center; color:var(--muted); font-size:13px; }
-  .project-browser .browser-footnote { margin:16px 0 0; font-size:12px; color:var(--muted); line-height:1.6; }
-  @media(max-width:850px) { .project-browser .browser-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } .project-browser .browser-query { grid-column:1 / -1; } }
-  @media(max-width:550px) { .project-browser .browser-item { grid-template-columns:1fr; gap:12px; } .project-browser .browser-context { align-items:flex-start; flex-direction:column; } }
-</style>
-{% endblock %}
+{% set base_params = {'q': q, 'status': status, 'year': year, 'unit': unit, 'sort': sort, 'for_project': for_project or ''} %}
+{% macro without(key) -%}
+/projects/archived{% set ns = namespace(parts=[]) %}{% for k, v in base_params.items() if k != key and v and not (k == 'status' and v == 'archived') and not (k == 'sort' and v == ('relevance' if for_project else 'year')) %}{% set ns.parts = ns.parts + [k ~ '=' ~ (v|string|urlencode)] %}{% endfor %}{% if ns.parts %}?{{ ns.parts|join('&') }}{% endif %}
+{%- endmacro %}
 {% block content %}
 <section class="project-browser card" aria-labelledby="browserHeading"><div class="card-in">
-  <h2 id="browserHeading">프로젝트 검색</h2>
-  <p class="browser-intro">진행 중인 업무와 보관된 사업 자료</p>
+  <div class="browser-head">
+    <div><h2 id="browserHeading">프로젝트 검색</h2>
+    <p class="browser-intro">진행 중인 업무와 보관된 사업 자료</p></div>
+  </div>
   {% if for_project %}
   <div class="browser-context"><span>현재 프로젝트에 연결할 과거 사업을 선택하세요.</span><a class="browser-action" href="/project/{{ for_project }}#paneRefs">지침·기준으로 돌아가기</a></div>
   {% endif %}
-  <form class="browser-filters" method="get" action="/projects/archived" role="search">
+  <form id="browserForm" class="browser-filters" method="get" action="/projects/archived" role="search">
     {% if for_project %}<input type="hidden" name="for_project" value="{{ for_project }}">{% endif %}
-    <div class="browser-query"><label for="browserQuery">사업명</label><input id="browserQuery" name="q" type="search" maxlength="200" value="{{ q }}" placeholder="사업 이름으로 검색"></div>
-    <div><label for="browserStatus">상태</label><select id="browserStatus" name="status">{% for value,label in [('archived','보관된 사업'),('active','진행 중'),('all','전체')] %}<option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-    <div><label for="browserYear">수행 연도·연차</label><select id="browserYear" name="year"><option value="">전체 연도</option>{% for y in years %}<option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></div>
-    <div><label for="browserUnit">사업단</label><select id="browserUnit" name="unit"><option value="">전체 사업단</option>{% for u in units %}<option value="{{ u }}" {% if unit == u %}selected{% endif %}>{{ u }}</option>{% endfor %}</select></div>
-    <button type="submit" class="browser-action primary">검색</button>
+    <div class="browser-query"><label for="browserQuery">사업명</label>
+      <div class="browser-query-box"><iconify-icon icon="solar:magnifer-linear" aria-hidden="true"></iconify-icon>
+      <input id="browserQuery" name="q" type="search" maxlength="200" value="{{ q }}" placeholder="사업 이름 낱말로 검색" autocomplete="off"></div></div>
+    <fieldset class="browser-status"><legend>상태</legend>
+      <div class="browser-seg" id="browserStatus">{% for value,label in [('archived','보관된 사업'),('active','진행 중'),('all','전체')] %}
+        <label><input type="radio" name="status" value="{{ value }}" {% if status == value %}checked{% endif %}><span>{{ label }}</span></label>{% endfor %}</div>
+    </fieldset>
+    <div><label for="browserYear">수행 연도</label><select id="browserYear" name="year" data-facet="year">
+      <option value="">전체 연도</option>
+      {% if years %}<optgroup label="수행 연도">{% for y in years %}<option value="{{ y }}" {% if year == y %}selected{% endif %}>{{ y }}년</option>{% endfor %}</optgroup>{% endif %}
+      {% if rounds or has_unknown %}<optgroup label="연도 미상">{% for r in rounds %}<option value="{{ r }}" {% if year == r %}selected{% endif %}>{{ r[1:] }}차년도 (연도 미상)</option>{% endfor %}
+        {% if has_unknown %}<option value="none" {% if year == 'none' %}selected{% endif %}>연도·연차 미상</option>{% endif %}</optgroup>{% endif %}
+      {% if year and year not in years and year not in rounds and year != 'none' %}<option value="{{ year }}" selected>{{ year_label }}</option>{% endif %}
+    </select></div>
+    <div><label for="browserUnit">사업단</label><select id="browserUnit" name="unit" data-facet="unit"><option value="">전체 사업단</option>{% for u in units %}<option value="{{ u }}" {% if unit == u %}selected{% endif %}>{{ u }}</option>{% endfor %}
+      {% if unit and unit not in units %}<option value="{{ unit }}" selected>{{ unit }}</option>{% endif %}</select></div>
+    <button type="submit" class="browser-action primary browser-submit">검색</button>
   </form>
-  <div class="browser-meta"><span role="status">검색 결과 {{ total }}개{% if total > projects|length %} · {{ projects|length }}개 표시{% endif %}</span><a class="browser-action" href="/projects/archived{% if for_project %}?for_project={{ for_project }}{% endif %}">필터 초기화</a></div>
+
+  <div id="browserLive" aria-live="polite">
+  {% set chips = [] %}
+  {% if q %}{% set _ = chips.append(('q', '사업명', q)) %}{% endif %}
+  {% if status != 'archived' %}{% set _ = chips.append(('status', '상태', '진행 중' if status == 'active' else '전체')) %}{% endif %}
+  {% if year %}{% set _ = chips.append(('year', '연도', (year ~ '년') if year|length == 4 and year.isdigit() else year_label)) %}{% endif %}
+  {% if unit %}{% set _ = chips.append(('unit', '사업단', unit)) %}{% endif %}
+  {% if chips %}
+  <div class="browser-chips" aria-label="적용된 조건">
+    {% for key, label, value in chips %}
+    <a class="browser-chip" href="{{ without(key) }}" data-clear="{{ key }}" aria-label="{{ label }} 조건 {{ value }} 지우기"><span class="browser-chip-key">{{ label }}</span>{{ value }}<iconify-icon icon="solar:close-circle-linear" aria-hidden="true"></iconify-icon></a>
+    {% endfor %}
+    <a class="browser-chip-reset" href="/projects/archived{% if for_project %}?for_project={{ for_project }}{% endif %}" data-clear="all">조건 모두 지우기</a>
+  </div>
+  {% endif %}
+
+  <div class="browser-meta">
+    <p class="browser-summary" role="status">{% if total %}사업 <strong>{{ groups|length }}</strong>개 · 연도별 묶음 <strong>{{ total }}</strong>개 · 열람 가능 문서 <strong>{{ '{:,}'.format(n_docs_total) }}</strong>건{% if total > projects|length %} ({{ projects|length }}개 표시){% endif %}{% else %}검색 결과 0개{% endif %}</p>
+    <div class="browser-sort"><label for="browserSort">정렬</label>
+      <select id="browserSort" name="sort" form="browserForm">{% for value, label in sorts.items() if value != 'relevance' or for_project %}<option value="{{ value }}" {% if sort == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+  </div>
+
   <div class="browser-list" role="list">
-    {% for p in projects %}
-    <article class="browser-item" role="listitem">
-      <div><h3 class="browser-name">{{ p.name }}</h3><div class="browser-facts"><span class="browser-state">{{ '보관' if p.status == 'archived' else '진행 중' }}</span><span>{{ p.year or '연도 미상' }}</span><span>{{ p.units | join(' · ') or '사업단 미분류' }}</span><span>열람 가능 문서 {{ '{:,}'.format(p.n_docs) }}건</span></div>
-      {% if for_project and p.why %}<p class="browser-why">참고: {{ p.why }} · 내용 확인 필요</p>{% endif %}</div>
-      <div class="browser-actions"><a class="browser-action" href="/project/{{ p.id }}" aria-label="{{ p.name }} 자료 보기">자료 보기</a>
-      {% if for_project and p.status == 'archived' %}
-        {% if p.linked %}<span class="browser-linked">연결됨</span>{% else %}
-        <form method="post" action="/project/{{ for_project }}/refs"><input type="hidden" name="ref_project_id" value="{{ p.id }}"><input type="hidden" name="reason" value="{{ p.why or '담당자 선택' }}"><button type="submit" class="browser-action primary" aria-label="{{ p.name }} 참조 연결">참조 연결</button></form>
-        {% endif %}
-      {% endif %}</div>
+    {% for g in groups %}
+    <article class="browser-group" role="listitem">
+      <header class="browser-group-head">
+        <h3 class="browser-name">{{ g.name }}</h3>
+        <div class="browser-facts">
+          <span class="browser-state{{ ' active' if g.status != 'archived' else '' }}">{{ '보관' if g.status == 'archived' else '진행 중' }}</span>
+          {% if g.span %}<span>{{ g.span }}</span>{% endif %}
+          <span>{{ g.units | join(' · ') or '사업단 미분류' }}</span>
+          <span>문서 {{ '{:,}'.format(g.n_docs) }}건{% if g.rows|length > 1 %} · 묶음 {{ g.rows|length }}개{% endif %}</span>
+        </div>
+      </header>
+      <ul class="browser-rows">
+        {% for p in g.rows %}
+        <li class="browser-row">
+          <div class="browser-row-main">
+            <span class="browser-when">{{ p.when }}{% if p.year_derived %}<span class="browser-note" title="같은 사업 묶음의 연도·연차로 환산">환산</span>{% endif %}</span>
+            {% if p.group_name != g.name %}<span class="browser-row-name" title="{{ p.name }}">{{ p.name }}</span>{% endif %}
+            <span class="browser-row-docs">문서 {{ '{:,}'.format(p.n_docs) }}건</span>
+            {% if for_project and p.why %}<span class="browser-why">참고: {{ p.why }} · 내용 확인 필요</span>{% endif %}
+          </div>
+          <div class="browser-actions"><a class="browser-action" href="/project/{{ p.id }}" aria-label="{{ p.name }} 자료 보기">자료 보기</a>
+          {% if for_project and p.status == 'archived' %}
+            {% if p.linked %}<span class="browser-linked">연결됨</span>{% else %}
+            <form method="post" action="/project/{{ for_project }}/refs"><input type="hidden" name="ref_project_id" value="{{ p.id }}"><input type="hidden" name="reason" value="{{ p.why or '담당자 선택' }}"><button type="submit" class="browser-action primary" aria-label="{{ p.name }} 참조 연결">참조 연결</button></form>
+            {% endif %}
+          {% endif %}</div>
+        </li>
+        {% endfor %}
+      </ul>
     </article>
     {% else %}<div class="browser-empty">조건에 맞는 프로젝트가 없습니다. 검색어나 필터를 변경해 보세요.</div>
     {% endfor %}
   </div>
+  </div>
   <p class="browser-footnote">검색·열람·참조 연결은 보관 상태와 원본 소속을 바꾸지 않습니다.</p>
 </div></section>
+<script>
+(function () {
+  var form = document.getElementById('browserForm');
+  if (!form || !window.fetch || !window.DOMParser) return;
+  form.classList.add('is-live');
+  var live = document.getElementById('browserLive');
+  var timer = null, seq = 0;
+  function url() {
+    var p = new URLSearchParams(new FormData(form));
+    var sort = document.getElementById('browserSort');
+    if (sort && sort.value) p.set('sort', sort.value);
+    Array.from(p.keys()).forEach(function (k) { if (!p.get(k) || (k === 'status' && p.get(k) === 'archived')) p.delete(k); });
+    var s = p.toString();
+    return form.action + (s ? '?' + s : '');
+  }
+  function swapFacet(doc, id) {
+    var mine = document.getElementById(id), theirs = doc.getElementById(id);
+    if (mine && theirs) { mine.innerHTML = theirs.innerHTML; mine.value = theirs.value; }
+  }
+  function update() {
+    var target = url(), n = ++seq;
+    live.setAttribute('aria-busy', 'true');
+    fetch(target, {headers: {'Accept': 'text/html'}, credentials: 'same-origin'}).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.text();
+    }).then(function (html) {
+      if (n !== seq) return;
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var next = doc.getElementById('browserLive');
+      if (!next) { window.location.href = target; return; }
+      live.innerHTML = next.innerHTML;
+      swapFacet(doc, 'browserYear');
+      swapFacet(doc, 'browserUnit');
+      history.replaceState(null, '', target);
+    }).catch(function () { window.location.href = target; }).finally(function () {
+      if (n === seq) live.removeAttribute('aria-busy');
+    });
+  }
+  form.addEventListener('submit', function (e) { e.preventDefault(); clearTimeout(timer); update(); });
+  form.addEventListener('change', function (e) { if (e.target.name !== 'q') { clearTimeout(timer); update(); } });
+  document.addEventListener('change', function (e) { if (e.target && e.target.id === 'browserSort') update(); });
+  var query = document.getElementById('browserQuery');
+  var last = query.value;
+  query.addEventListener('input', function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () { if (query.value.trim() !== last.trim()) { last = query.value; update(); } }, 350);
+  });
+  live.addEventListener('click', function (e) {
+    var a = e.target.closest ? e.target.closest('[data-clear]') : null;
+    if (!a) return;
+    e.preventDefault();
+    var key = a.getAttribute('data-clear');
+    if (key === 'q' || key === 'all') { query.value = ''; last = ''; }
+    if (key === 'status' || key === 'all') { var d = form.querySelector('input[name=status][value=archived]'); if (d) d.checked = true; }
+    if (key === 'year' || key === 'all') form.elements.year.value = '';
+    if (key === 'unit' || key === 'all') form.elements.unit.value = '';
+    update();
+  });
+})();
+</script>
 {% endblock %}

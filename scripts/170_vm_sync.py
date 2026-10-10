@@ -170,7 +170,6 @@ def import_parsed() -> None:
 
 
 # 본문 첫머리의 수행 연도 — 「2023학년도」「2023년도」「2023년」만. 「2023.10.12」「2023년 10월」 같은 작성일은 아니다
-_HEAD_YEAR = re.compile(r"(?<![\d.])((?:19|20)\d{2})\s*(?:학년도|년도|년)(?!\s*\d{1,2}\s*월)")
 
 
 def mark(kind: str, summary: str) -> None:
@@ -370,11 +369,11 @@ def main() -> int:
         for did, head in heads:
             a = need[int(did)]
             m = programs._ROUND.search(head or "")
-            y = _HEAD_YEAR.search(head or "")
+            y = programs.body_year(head or "")        # 연혁(「1968년 개교」)·2000년 앞 연도는 거른다
             if m:
                 a.round = int(m.group(1))
             if y:
-                a.year = int(y.group(1))
+                a.year, a.year_src = y, "head"
             if m or y:
                 a.evidence = list(a.evidence) + ["본문 첫머리의 연차·연도 표기"]
                 n_head += 1
@@ -416,6 +415,13 @@ def main() -> int:
         print(f"미리 보기: 사업이 바뀔 원본 {sum(moves.values())}건", flush=True)
         for (a, b), n in sorted(moves.items(), key=lambda t: -t[1])[:20]:
             print(f"  {n:6}  {a or '(없음)'} → {b or '(없음)'}", flush=True)
+        with db._conn() as conn:
+            when = {r[0]: (r[1], r[2]) for r in conn.execute("SELECT rel, year, round FROM archive_files WHERE removed_at = ''").fetchall()}
+        ymoves = Counter((when[r["rel"]], (r.get("year"), r.get("round"))) for r in rows if r["rel"] in when)
+        ymoves = {k: n for k, n in ymoves.items() if k[0] != k[1]}
+        print(f"미리 보기: 연도·연차가 바뀔 원본 {sum(ymoves.values())}건", flush=True)
+        for ((y0, r0), (y1, r1)), n in sorted(ymoves.items(), key=lambda t: -t[1])[:20]:
+            print(f"  {n:6}  {y0 or '-'}년·{r0 or '-'}차 → {y1 or '-'}년·{r1 or '-'}차", flush=True)
     if not args.dry:
         diff = archive.sync(db, rows, origins)
         stamp = time.strftime("%Y-%m-%d %H:%M")
