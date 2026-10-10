@@ -123,3 +123,7 @@
   .extract-nav { max-height:180px; border-right:0; border-bottom:1px solid var(--line); padding:0 0 8px; }
   .docsearch { flex-basis:100%; }
 }
+
+/* 원본 미리보기가 없는 문서 — 나란히 보기 대신 한 줄 안내, 추출된 글은 전체 폭 */
+.doc-layout-note { font-size:12px; font-weight:400; letter-spacing:0; }
+@media (max-width:1200px) { .doc-layout-note { display:none; } }
