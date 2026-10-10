@@ -154,3 +154,10 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 .chat-progress li:last-child::before { background: var(--navy); box-shadow: 0 0 0 3px #e8eef8; }
 @keyframes chat-progress-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .chat-progress-dot { animation: none; } }
+/* 대화 칸 넓이·좌우 배치(10/10) — 넓은 화면에서 질문·답이 가운데 860px 기둥에 몰리고, 진행 카드는 공통 규칙(margin auto)에 밀려 가운데 떴다.
+   대화 칸을 넓히고 답(진행 카드 포함)은 칸 왼쪽, 질문은 칸 오른쪽에. 머리줄·입력창도 같은 넓이 */
+#chatScroll > * { max-width:1040px; }
+#chatScroll .msg.user { max-width:min(720px, 85%); }
+#chatScroll .chat-progress { max-width:1040px; width:100%; margin-left:auto; margin-right:auto; align-self:stretch; }
+#chatScroll .chat-progress .chat-progress-head { max-width:560px; }
+body #chatForm { max-width:1040px; }
