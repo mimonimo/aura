@@ -367,14 +367,19 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
     return src.read_bytes(), name, mime, target
 
 
-def google_copy(db, doc: dict, email: str, folder_id: str | None, http=None, refresh: bool = False) -> dict:
+def google_copy(db, doc: dict, email: str, folder_id: str | None, http=None, refresh: bool = False, progress=None) -> dict:
     """문서의 구글 열람본을 만들거나(없으면) 돌려준다. settings doc_google:<id> 에 기록, 장부에도 남긴다.
-    refresh 면 지금 변환기로 다시 만들어 새로 올린다(변환기가 좋아진 뒤 작업본을 새로 뜰 때, 2026-09-28)."""
+    refresh 면 지금 변환기로 다시 만들어 새로 올린다(변환기가 좋아진 뒤 작업본을 새로 뜰 때, 2026-09-28).
+    progress(step) 는 'convert'·'upload' 순으로 불린다(기다림 화면의 단계 표시)."""
     key = f"doc_google:{doc['id']}"
     raw = db.get_setting(key, "") or ""
     if raw and not refresh:
         return json.loads(raw)
+    if progress:
+        progress("convert")
     data, name, mime, target = bytes_for_view(db, doc)
+    if progress:
+        progress("upload")
     made = upload_file(email, data, name, mime, folder_id, convert_to=target, http=http, reuse=not refresh)
     made["account"] = email
     db.set_setting(key, json.dumps(made, ensure_ascii=False))

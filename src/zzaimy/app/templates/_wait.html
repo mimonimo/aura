@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} — YNC 행정 에이전트</title>
+<link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+  integrity="sha384-GIdEBaqGN9mNkDkMkzMHW8EKUqtpPIe/sLj1X7DIrnc9uPtLROJgmuDlh+3rBw0j" crossorigin="anonymous">
+<style>
+  {# 기다림 화면 — 새 탭에서 열리므로 사이드바 없이 플랫폼 색·글꼴만 쓴다(base.html·login.html 과 같은 값) #}
+  :root { --navy: #1B3B75; --blue: #497BFB; --ink: #1F2937; --muted: #64748B; --faint: #94A3B8;
+          --bg: #F1F5F9; --panel: #F8FAFC; --line: #E2E8F0; --green: #15803D; --red: #B3312F; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-size: 15px; min-height: 100vh;
+         font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif;
+         word-break: keep-all; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+  .wait-card { background: #fff; border: 1px solid var(--line); border-radius: 18px; width: 480px; max-width: 100%;
+               padding: 30px 30px 24px; box-shadow: 0 16px 48px rgba(27,59,117,.08); }
+  .wait-brand { height: 28px; width: auto; display: block; margin-bottom: 22px; }
+  h1 { font-size: 18px; margin: 0 0 6px; letter-spacing: -.01em; }
+  .wait-file { color: var(--muted); font-size: 13.5px; margin: 0 0 4px; word-break: break-all; }
+  .wait-note { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0 0 20px; }
+  ol.wait-steps { list-style: none; margin: 0 0 18px; padding: 0; border-top: 1px solid var(--line); }
+  .wait-steps li { display: flex; align-items: center; gap: 12px; padding: 11px 2px;
+                   border-bottom: 1px solid var(--line); font-size: 14px; color: var(--faint); }
+  .wait-steps .mark { width: 22px; height: 22px; border-radius: 50%; flex: none; border: 2px solid var(--line);
+                      display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+  .wait-steps li.done { color: var(--ink); }
+  .wait-steps li.done .mark { background: var(--green); border-color: var(--green); color: #fff; }
+  .wait-steps li.active { color: var(--ink); font-weight: 600; }
+  .wait-steps li.active .mark { border-color: var(--blue); border-top-color: transparent; animation: spin 1s linear infinite; }
+  .wait-steps li.failed { color: var(--red); font-weight: 600; }
+  .wait-steps li.failed .mark { background: var(--red); border-color: var(--red); color: #fff; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .wait-steps li.active .mark { animation: none; border-top-color: var(--blue); } }
+  .wait-time { font-size: 13px; color: var(--muted); margin: 0 0 16px; font-variant-numeric: tabular-nums; }
+  .wait-error { background: #FBEDEC; color: var(--red); border-radius: 10px; padding: 12px 14px;
+                font-size: 13.5px; line-height: 1.6; margin: 0 0 16px; }
+  .wait-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; border-radius: 10px; padding: 9px 16px; font-size: 14px;
+         font-weight: 600; font-family: inherit; text-decoration: none; cursor: pointer; border: 1px solid var(--line);
+         background: #fff; color: var(--ink); }
+  .btn:hover { background: var(--panel); }
+  .btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .btn.primary:hover { background: #374151; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="wait-card" id="waitCard" data-status="{{ status_url }}" data-retry="{{ retry_url }}">
+  <img class="wait-brand" src="/static/ync-logo.png" alt="영남이공대학교">
+  <h1>{{ title }}</h1>
+  <p class="wait-file">{{ filename }}</p>
+  <p class="wait-note">{{ note }}</p>
+  <ol class="wait-steps" id="waitSteps">
+    {% set keys = steps | map('first') | list %}
+    {% set at = keys.index(step) if step in keys else 0 %}
+    {% for key, label in steps %}
+    {% set state = 'done' if loop.index0 < at else (('failed' if error else 'active') if loop.index0 == at else '') %}
+    <li data-step="{{ key }}" class="{{ state }}"><span class="mark" aria-hidden="true">{{ '✓' if state == 'done' else ('!' if state == 'failed' else '') }}</span><span>{{ label }}</span></li>
+    {% endfor %}
+  </ol>
+  <p class="wait-time" id="waitTime">{% if not error %}{{ elapsed }}초 지났습니다{% endif %}</p>
+  <p class="wait-error" id="waitError" role="alert" {% if not error %}hidden{% endif %}>{{ error }}</p>
+  <div class="wait-actions">
+    <a class="btn primary" id="waitRetry" href="{{ retry_url }}" {% if not error %}hidden{% endif %}>다시 시도</a>
+    {% if download_url %}<a class="btn" href="{{ download_url }}">원본 내려받기</a>{% endif %}
+    <a class="btn" href="{{ back_url }}">문서 보기로 돌아가기</a>
+  </div>
+</main>
+<script>
+(function () {
+  var card = document.getElementById('waitCard');
+  var statusUrl = card.dataset.status, retryUrl = card.dataset.retry;
+  var items = Array.prototype.slice.call(document.querySelectorAll('#waitSteps li'));
+  var timeEl = document.getElementById('waitTime'), errEl = document.getElementById('waitError');
+  var retryEl = document.getElementById('waitRetry');
+  var elapsed = {{ elapsed|int }}, base = Date.now(), stopped = {{ 'true' if error else 'false' }}, lost = 0;
+
+  function paint(step, failed) {
+    var at = items.findIndex(function (li) { return li.dataset.step === step; });
+    items.forEach(function (li, i) {
+      li.className = i < at ? 'done' : i === at ? (failed ? 'failed' : 'active') : '';
+      li.querySelector('.mark').textContent = i < at ? '✓' : (i === at && failed ? '!' : '');
+    });
+  }
+  function clock() {
+    if (stopped) return;
+    var s = elapsed + Math.floor((Date.now() - base) / 1000);
+    timeEl.textContent = (s >= 60 ? Math.floor(s / 60) + '분 ' + (s % 60) + '초' : s + '초') + ' 지났습니다';
+  }
+  function poll() {
+    if (stopped) return;
+    fetch(statusUrl, { cache: 'no-store', credentials: 'same-origin' }).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.json();
+    }).then(function (j) {
+      if (typeof j.elapsed === 'number') { elapsed = j.elapsed; base = Date.now(); }
+      if (j.state === 'done' && j.url) {
+        items.forEach(function (li) { li.className = 'done'; li.querySelector('.mark').textContent = '✓'; });
+        stopped = true; location.replace(j.url); return;
+      }
+      if (j.state === 'error') {
+        paint(j.step, true); stopped = true;
+        timeEl.textContent = '';
+        errEl.textContent = j.msg || '만들지 못했습니다.'; errEl.hidden = false; retryEl.hidden = false;
+        return;
+      }
+      if (j.state === 'none') {                       // 서버가 다시 시작돼 작업이 사라졌다 — 한 번 다시 띄운다
+        if (++lost > 1) { location.replace(retryUrl); return; }
+      } else { paint(j.step, false); }
+      setTimeout(poll, 2000);
+    }).catch(function () { setTimeout(poll, 4000); });
+  }
+  if (!stopped) { paint({{ step|tojson }}, false); setInterval(clock, 1000); setTimeout(poll, 1500); }
+  else { paint({{ step|tojson }}, true); timeEl.textContent = ''; }
+})();
+</script>
+</body>
+</html>
