@@ -216,6 +216,23 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
         rows = [dict(r) for r in conn.execute("SELECT id, name, owner, archived, program, unit FROM projects ORDER BY id").fetchall()]
     starts = _round_starts([r for r in rows if r["archived"]])
     words = [w for w in (q or "").split() if w]
+    # 사업의 다른 이름·약칭(그래프 사업 노드의 표시 이름·약칭)도 찾는다 — 「LINC」로 찾으면 묶음 이름이 「3단계 산학연협력 …」인
+    # LINC 3.0 이 빠졌다(10/10 화면 확인)
+    aliases: dict[str, str] = {}
+    if words:
+        try:
+            import json as _json
+            progs = sorted({r.get("program") for r in rows if r.get("program")})
+            if progs:
+                with db._conn() as conn:
+                    for pid, label, props in conn.execute(
+                            f"SELECT id, label, props FROM kg_nodes WHERE id IN ({','.join('?' * len(progs))})", progs).fetchall():
+                        p_ = _json.loads(props or "{}")
+                        acr = p_.get("acronyms") or p_.get("acrs") or []
+                        acr = list(acr.keys()) if isinstance(acr, dict) else list(acr)
+                        aliases[pid] = " ".join([label or ""] + [str(a) for a in acr][:20])
+        except Exception:
+            aliases = {}
     keep = []
     for r in rows:
         st = "archived" if r["archived"] else "active"
@@ -223,8 +240,8 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
             continue
         if st == "active" and not dev and r["owner"] != user:
             continue
-        flat = (r["name"] or "").replace(" ", "").lower()
-        if words and not all(w.lower() in flat for w in words):     # 낱말마다 들어 있으면(순서·띄어쓰기 무관)
+        flat = ((r["name"] or "") + " " + aliases.get(r.get("program") or "", "")).replace(" ", "").lower()
+        if words and not all(w.lower().replace(" ", "") in flat for w in words):     # 낱말마다 들어 있으면(순서·띄어쓰기 무관)
             continue
         y, rnd = _when(r["program"])
         if st == "active" and not y:
