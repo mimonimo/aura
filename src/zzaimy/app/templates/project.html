@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }} — 프로젝트{% endblock %}
 {% block pagetitle %}{{ sector_labels.get(project.sector, project.sector) }} · 프로젝트{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css"><link rel="stylesheet" href="/static/project-workspace.css"><script src="/static/project-workspace.js" defer></script>{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}"><link rel="stylesheet" href="/static/project-workspace.css?v={{ asset_v }}"><script src="/static/project-workspace.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 {% set flow_hints = {
   "grant": "검토 후 문서 화면에서 공고 항목에 맞춘 계획서 초안을 작성합니다.",

@@ -422,11 +422,11 @@
   }
   @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 </style>
-<link rel="stylesheet" href="/static/workspace-shell.css">
-<script src="/static/chat-history.js" defer></script>
-<link rel="stylesheet" href="/static/project-search.css">
-<script src="/static/project-search.js" defer></script>
-<script src="/static/workspace-navigation.js" defer></script>
+<link rel="stylesheet" href="/static/workspace-shell.css?v={{ asset_v }}">
+<script src="/static/chat-history.js?v={{ asset_v }}" defer></script>
+<link rel="stylesheet" href="/static/project-search.css?v={{ asset_v }}">
+<script src="/static/project-search.js?v={{ asset_v }}" defer></script>
+<script src="/static/workspace-navigation.js?v={{ asset_v }}" defer></script>
 <script>try { document.documentElement.classList.toggle('sidebar-collapsed', localStorage.getItem('workspaceSidebarCollapsed') === '1'); } catch (_) {}</script>
 <script>
 // 공용 PC에서 계정이 바뀌면 이전 계정의 대화 포인터·임시 초안을 넘기지 않는다.
@@ -443,7 +443,7 @@ document.addEventListener('submit', function(event) {
 });
 </script>
 {% block head %}{% endblock %}
-<link rel="stylesheet" href="/static/platform-spaces.css">
+<link rel="stylesheet" href="/static/platform-spaces.css?v={{ asset_v }}">
 </head>
 <body class="{{ 'developer-space' if request.url.path.startswith('/dev') else '' }}">
 <a class="skip-content" href="#workspaceContent">본문으로 이동</a>

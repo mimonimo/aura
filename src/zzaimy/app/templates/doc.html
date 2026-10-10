@@ -2,8 +2,8 @@
 {% block title %}{{ doc_name(doc) }} — 검토{% endblock %}
 {% block pagetitle %}{{ "기준 문서" if doc.doc_type == "regulation" else "문서 검토" }}{% endblock %}
 {% block head %}
-  <link rel="stylesheet" href="/static/document-workspace.css">
-  <script src="/static/document-workspace.js" defer></script>
+  <link rel="stylesheet" href="/static/document-workspace.css?v={{ asset_v }}">
+  <script src="/static/document-workspace.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 {% block content %}
 {% if dgx_origin %}
