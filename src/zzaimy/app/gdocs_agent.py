@@ -412,7 +412,27 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                 lines.append(f"「{r['section']}」 표 {r['table']} 의 칸 {r['cells']}개 채움" + (f"·{r['cleared']}개 비움" if r.get("cleared") else "") + (f"(건너뜀 {r['skipped']})" if r["skipped"] else ""))
         except Exception as e:      # 계정·문서 상태 문제 — 무엇이 안 됐는지 채팅에 남긴다
             lines.append(f"적용 실패({type(e).__name__}): {str(e)[:80]}")
+    if ops:
+        lines += quality_pass(account, doc, http=http)
     return lines
+
+
+def quality_pass(account: str, doc: str, http=None) -> list[str]:
+    """쓴 뒤 품질 관문 — 본문 폭을 넘친 표·잇달아 되풀이된 줄을 재고 고친다(doc_quality). 고친 것만 한 줄로 알린다."""
+    from zzaimy.ingest import doc_quality
+
+    try:
+        r = doc_quality.check_and_fix(account, doc, apply=True, http=http)
+    except Exception as e:                       # 점검이 안 돼도 쓴 결과는 그대로 — 기록만 남긴다
+        import logging
+        logging.getLogger(__name__).warning("품질 점검 실패: %s: %s", type(e).__name__, str(e)[:160])
+        return []
+    out = []
+    if r["wide"]:
+        out.append(f"품질 점검: 본문 폭을 넘친 표 {r['wide']}개를 폭에 맞춤")
+    if r["repeats"]:
+        out.append("품질 점검: 되풀이된 줄 정리 — " + ", ".join(f"「{t}」 {n}번" for t, n in r["repeats"][:3]))
+    return out
 
 
 def _apply_figure(o: dict, account: str, doc: str, *, user: str, data_dir: Path, http=None, folder: str | None) -> str:

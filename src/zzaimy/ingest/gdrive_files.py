@@ -12,9 +12,12 @@ from __future__ import annotations
 import httpx
 
 import json
+import logging
 from datetime import datetime
 
 from zzaimy.ingest import gdocs, gdrive
+
+log = logging.getLogger(__name__)
 
 FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 ROOT_FOLDER = "ZZAIMY"
@@ -369,6 +372,40 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
     return src.read_bytes(), name, mime, target
 
 
+def docx_page_layout(data: bytes) -> dict | None:
+    """docx 첫 구역의 쪽 크기·여백(pt) — 우리 변환기가 한글 서식에서 옮긴 값."""
+    import io
+
+    try:
+        from docx import Document
+
+        sec = Document(io.BytesIO(data)).sections[0]
+        pt = lambda e: round(int(e) / 12700, 2)  # noqa: E731
+        return {"width": pt(sec.page_width), "height": pt(sec.page_height), "left": pt(sec.left_margin),
+                "right": pt(sec.right_margin), "top": pt(sec.top_margin), "bottom": pt(sec.bottom_margin)}
+    except Exception:
+        return None
+
+
+def keep_page_layout(email: str, doc_id: str, data: bytes, http=None) -> bool:
+    """독스로 가져오면 docx 여백이 기본값(72pt)으로 바뀐다 — 한글 서식 여백(약 20mm) 기준으로 맞춘 표가 전부 오른쪽 여백 밖으로
+    넘쳤다(10/11 AID 작업본 표 87/113개). 가져온 뒤 원래 쪽 크기·여백을 다시 쓴다."""
+    lay = docx_page_layout(data)
+    if not lay or not lay["width"]:
+        return False
+    p = lambda v: {"magnitude": v, "unit": "PT"}  # noqa: E731
+    try:
+        gdocs._batch(email, doc_id, [{"updateDocumentStyle": {"documentStyle": {
+            "pageSize": {"width": p(lay["width"]), "height": p(lay["height"])},
+            "marginLeft": p(lay["left"]), "marginRight": p(lay["right"]),
+            "marginTop": p(lay["top"]), "marginBottom": p(lay["bottom"])},
+            "fields": "pageSize,marginLeft,marginRight,marginTop,marginBottom"}}], http or gdocs._http())
+        return True
+    except Exception:
+        log.warning("독스 쪽 여백 맞추기 실패: %s", doc_id)
+        return False
+
+
 def google_copy(db, doc: dict, email: str, folder_id: str | None, http=None, refresh: bool = False, progress=None) -> dict:
     """문서의 구글 열람본을 만들거나(없으면) 돌려준다. settings doc_google:<id> 에 기록, 장부에도 남긴다.
     refresh 면 지금 변환기로 다시 만들어 새로 올린다(변환기가 좋아진 뒤 작업본을 새로 뜰 때, 2026-09-28).
@@ -384,6 +421,8 @@ def google_copy(db, doc: dict, email: str, folder_id: str | None, http=None, ref
         progress("upload")
     made = upload_file(email, data, name, mime, folder_id, convert_to=target, http=http, reuse=not refresh)
     made["account"] = email
+    if name.lower().endswith(".docx") and made.get("mime") == "application/vnd.google-apps.document":
+        keep_page_layout(email, made["id"], data, http=http)
     db.set_setting(key, json.dumps(made, ensure_ascii=False))
     db.add_file("google", made["url"], name=name, doc_id=int(doc["id"]), size=len(data))
     return made
