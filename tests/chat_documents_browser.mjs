@@ -60,11 +60,11 @@ try {
  assert.equal(await evaluate(`document.querySelectorAll('iframe').length`),1);
  assert.equal(await evaluate(`document.querySelector('.doc-title-row strong').textContent`),'자동 생성');
  await evaluate(`const previousFetch=window.fetch;window.fetch=async(url,options)=>url.endsWith('/documents')?{ok:true,redirected:false,json:async()=>({project:'시험',documents:[{id:9,name:'이미지.png',group:'첨부',status:'완료'}]})}:previousFetch(url,options);document.querySelector('[data-list]').click();`);await new Promise(r=>setTimeout(r,400));
- assert.equal(await evaluate(`document.querySelectorAll('.chat-image-grid button').length`),1);
- await evaluate(`document.querySelector('.chat-image-grid button').click()`);
+ assert.equal(await evaluate(`document.querySelectorAll('[data-doc-group=attached] [data-platform-doc]').length`),1);
+ await evaluate(`document.querySelector('[data-doc-group=attached] [data-platform-doc]').click()`);
  assert.equal(await evaluate(`document.querySelector('.chat-image-preview').open`),true);
  await evaluate(`document.querySelector('.chat-image-preview').close()`);await new Promise(r=>setTimeout(r,150));
- assert.equal(await evaluate(`document.activeElement===document.querySelector('.chat-image-grid button')`),true);
+ assert.equal(await evaluate(`document.activeElement===document.querySelector('[data-doc-group=attached] [data-platform-doc]')`),true);
  await evaluate(`const pickerFetch=window.fetch;window.fetch=async(url,options)=>url.endsWith('/accounts')?{ok:true,json:async()=>({accounts:[{email:'test@example.test',docs_ok:true}]})}:url.includes('/browse?')?{ok:true,json:async()=>({files:url.includes('folder=root')?[{id:'folderA',name:'사업 자료',mimeType:'application/vnd.google-apps.folder'}]:[{id:'docB',name:'선택 문서',mimeType:'application/vnd.google-apps.document'}],next:''})}:pickerFetch(url,options);Array.from(document.querySelectorAll('.chat-doc-files>button')).find(b=>b.textContent==='다른 폴더에서 가져오기').click();`);
  await new Promise(r=>setTimeout(r,200));
  assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-dialog input[name=doc][type=hidden]').length`),1);

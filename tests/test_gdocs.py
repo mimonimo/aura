@@ -1601,3 +1601,20 @@ def test_value_only_fill_of_total_row_adds_no_rows():
     first = ["구분", "", "", "", "합계"]
     cells = [{"row": r, "col": 0, "text": n} for r, n in ((1, "A반"), (2, "B반"), (3, "C반"))] + [{"row": 4, "col": 2, "text": "101"}]
     assert gdocs.rows_to_add(cells, first) == (0, 0)
+
+
+
+def test_library_hits_report_pulled_documents_to_sink(monkeypatch, tmp_path):
+    """절 재료로 문서함에서 불러온 문서는 대화의 근거 목록(sink)에 한 번씩 남는다 — 문서함 패널의 참고 문서가 된다."""
+    from zzaimy.app import drafting, grant_search
+    from zzaimy.app.db import Database
+
+    body = "□ 추진 배경 ○ 지난 연차에는 지역 기업 수요 조사 결과를 반영해 교육과정을 개편하고 현장실습을 늘렸다. ○ 이번 연차에는 그 성과를 학과 전체로 넓히고, 협약기업과 공동 운영하는 프로그램을 두 배로 늘려 지역 취업으로 잇는다."
+    monkeypatch.setattr(grant_search, "search", lambda db, q, k=6, user=None, prefer_docs=None, depts=None: {
+        "hits": [{"doc_id": 9, "chunk_id": 1, "content": body, "path": ["LINC", "2023", "계획서"]},
+                 {"doc_id": 9, "chunk_id": 2, "content": body + " 두 번째 조각", "path": ["LINC", "2023", "계획서"]}]})
+    sink: list[dict] = []
+    m = drafting.Materials(Database(tmp_path / "t.db"), {"id": 1, "name": "사업 A", "sector": "grant"}, set(), None, None, [],
+                           scope={"user": "kim"}, sink=sink)
+    m.library_hits({"heading": "1. 추진 배경"}, "배경")
+    assert [(s["doc_id"], s["origin"], s["weak"]) for s in sink] == [(9, "문서함 검색", False)]
