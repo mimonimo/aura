@@ -316,6 +316,8 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
     src = Path(doc["stored_path"])
     ext = src.suffix.lower()
     name = (doc.get("filename") or src.name)
+    if ext and not name.lower().endswith(ext):            # 표시 이름(본문 제목)에는 확장자가 없다 — 아래 name[:-len(ext)] 가 제목 끝을 자르던 것
+        name = name + ext
     if ext == ".hwpx":
         try:
             from zzaimy.ingest import hwpx_docx
