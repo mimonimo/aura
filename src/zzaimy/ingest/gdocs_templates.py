@@ -1207,7 +1207,7 @@ def render(email: str, doc: str, spec: dict, http=None, titled: bool = False, fi
             for level, text in toc:
                 b.para(text, size=10 if level == 1 else 9, bold=(level == 1) or None,
                        color=dark if level == 1 else None, above=1 if level == 1 else 0, below=0,
-                       indent=0 if level == 1 else 16, spacing=100)
+                       indent=0 if level == 1 else 16, spacing=92)
             b.page_break()
     for blk in spec["blocks"]:
         if "h" in blk:
