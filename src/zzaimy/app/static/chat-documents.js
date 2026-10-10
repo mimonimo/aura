@@ -44,7 +44,7 @@
  new MutationObserver(()=>{clearTimeout(locationRefresh);locationRefresh=setTimeout(addLocationButtons,100);}).observe(workspace,{childList:true,subtree:true});
  let fitObserver=null;
  let cancelFormatTransition=null;
- function clearPanel(){cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
+ function clearPanel(){finishClose();cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
  function switchFormatting(event){
    cancelFormatTransition?.();
    const control=event.target, frame=panel.querySelector('iframe'), viewport=frame.parentElement;
@@ -111,14 +111,30 @@
    event.preventDefault();setRatio(event.key==='Enter'?50:event.key==='Home'?0:event.key==='End'?100:ratio+(event.key==='ArrowLeft'?-2:2));
  });
  new ResizeObserver(()=>{if(main.classList.contains('chat-doc-open'))setRatio(ratio,false);}).observe(main);
+ // 여닫기는 CSS 의 대화 칸 폭 전환으로 부드럽게 — 닫을 때는 전환이 끝난 뒤에 패널을 숨긴다.
+ let closing=0;
+ function motionMs(){
+   const d=getComputedStyle(workspace).transitionDuration.split(',').map(v=>parseFloat(v)*(v.trim().endsWith('ms')?1:1000)||0);
+   return Math.max(0,...d);
+ }
+ function finishClose(){
+   if(!closing)return;
+   clearTimeout(closing);closing=0;
+   main.classList.remove('chat-doc-open','chat-doc-closing');
+   if(panel)panel.hidden=true;
+ }
  function reveal(){
-   // 목표 폭으로 바로 표시한다. 채팅을 전체 폭으로 되돌리는 중간 프레임은 없다.
+   if(closing){clearTimeout(closing);closing=0;}
+   main.classList.remove('chat-doc-closing');
    setRatio(ratio,false);
    panel.hidden=false;main.classList.add('chat-doc-open');
  }
  function conceal(){
-   if(!panel||panel.hidden)return;
-   panel.hidden=true;main.classList.remove('chat-doc-open');
+   if(!panel||panel.hidden||closing)return;
+   const ms=motionMs();
+   main.classList.add('chat-doc-closing');
+   closing=setTimeout(finishClose,ms+40);
+   if(!ms)finishClose();
  }
  function visibility(visible){
    if(!panel)return;
@@ -419,7 +435,7 @@
  initializeSession();
  window.addEventListener('pagehide',()=>clearTimeout(watch));
  opener.onclick=()=>{
-   if(panel&&!panel.hidden)visibility(false);
+   if(panel&&!panel.hidden&&!closing)visibility(false);
    else if(panel?.classList.contains('chat-file-library'))visibility(true);
    else showFiles();
  };
