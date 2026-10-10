@@ -1203,11 +1203,11 @@ def render(email: str, doc: str, spec: dict, http=None, titled: bool = False, fi
         b.page_break()
         toc = toc_lines(spec)
         if toc:                                                # 목차 쪽 — 실제 계획서처럼. 제목 스타일이 아닌 문단이라 절 구조로 읽히지 않는다
-            b.para("목  차", center=True, size=16, bold=True, color=rgb(accent), above=24, below=18)
+            b.para("목  차", center=True, size=16, bold=True, color=rgb(accent), above=12, below=12)
             for level, text in toc:
-                b.para(text, size=11 if level == 1 else 10, bold=(level == 1) or None,
-                       color=dark if level == 1 else None, above=8 if level == 1 else 0, below=1,
-                       indent=0 if level == 1 else 16, spacing=115)
+                b.para(text, size=10.5 if level == 1 else 9.5, bold=(level == 1) or None,
+                       color=dark if level == 1 else None, above=6 if level == 1 else 0, below=0,
+                       indent=0 if level == 1 else 16, spacing=100)
             b.page_break()
     for blk in spec["blocks"]:
         if "h" in blk:
