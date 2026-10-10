@@ -222,12 +222,12 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
     if words:
         try:
             import json as _json
-            progs = sorted({r.get("program") for r in rows if r.get("program")})
+            progs = sorted({(r.get("program") or "").split("|", 1)[0] for r in rows if r.get("program")})
             if progs:
                 with db._conn() as conn:
                     for pid, label, props in conn.execute(
                             f"SELECT id, label, props FROM kg_nodes WHERE id IN ({','.join('?' * len(progs))})", progs).fetchall():
-                        p_ = _json.loads(props or "{}")
+                        p_ = props if isinstance(props, dict) else _json.loads(props or "{}")
                         acr = p_.get("acronyms") or p_.get("acrs") or []
                         acr = list(acr.keys()) if isinstance(acr, dict) else list(acr)
                         aliases[pid] = " ".join([label or ""] + [str(a) for a in acr][:20])
@@ -240,7 +240,7 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
             continue
         if st == "active" and not dev and r["owner"] != user:
             continue
-        flat = ((r["name"] or "") + " " + aliases.get(r.get("program") or "", "")).replace(" ", "").lower()
+        flat = ((r["name"] or "") + " " + aliases.get((r.get("program") or "").split("|", 1)[0], "")).replace(" ", "").lower()
         if words and not all(w.lower().replace(" ", "") in flat for w in words):     # 낱말마다 들어 있으면(순서·띄어쓰기 무관)
             continue
         y, rnd = _when(r["program"])
