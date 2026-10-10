@@ -2925,6 +2925,8 @@ def create_app(
         def rich(t: str) -> str:
             # 이스케이프한 뒤 굵게(**)와 줄바꿈(<br>)만 되살린다 — 생성 문서의 다른 태그는 글자 그대로
             s2 = _mre.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(_esc(t)))
+            # 기울임 「*AI물류:*」 — 별표가 그대로 보였다(10/10 대화 23). 곱셈·각주 별표(「* 표시」)는 양끝이 붙은 것만
+            s2 = _mre.sub(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])", r"<i>\1</i>", s2)
             return s2.replace("&lt;br&gt;", "<br>").replace("&lt;br/&gt;", "<br>").replace("&lt;br /&gt;", "<br>")
 
         # 목록 줄 — 「- 」「* 」「• 」(모델이 「* 」로 쓰면 별표가 그대로 보였다, 10/10). 「**굵게**」로 시작하는 줄은 목록이 아니다
@@ -2967,6 +2969,15 @@ def create_app(
                             f"<td>{rich(c)}</td>" for c in row_cells) + "</tr>")
                     t.append("</table></div>")
                     out.append("".join(t))
+                continue
+            if _mre.match(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$", ln):
+                out.append('<hr style="border:none; border-top:1px solid #E3E8EF; margin:14px 0;">')
+                i += 1
+                continue
+            m_h = _mre.match(r"^(#{4,6})\s+(.*)$", ln)
+            if m_h:                                         # 「#### Ⅰ.」 — 4단계 이하 제목이 글자 그대로 보였다
+                out.append(f'<h5 style="margin:14px 0 6px; font-size:14px;">{rich(m_h.group(2))}</h5>')
+                i += 1
                 continue
             if ln.startswith("# "):
                 out.append(f'<h3 style="margin:18px 0 8px;">{rich(ln[2:])}</h3>')
