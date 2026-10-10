@@ -27,3 +27,10 @@ def test_record_message_and_hint(tmp_path):
     assert "[지난 작성에서 이 절이 빈 까닭]" in drafting.render_materials({"gap_hint": hint})
     s = fill_gaps.summary(tmp_path)
     assert s[0]["heading"] == "가. 제안 이유" and s[0]["needs_user_document"] == 2
+
+
+def test_transport_mask_hides_long_number_runs_only():
+    from zzaimy.app.embed_search import transport_mask
+    assert transport_mask("카드번호 4009 0403 9142 1004 사용") == "카드번호 ○○○ 사용"
+    assert transport_mask("주민 900101-1234567") == "주민 ○○○"
+    assert transport_mask("2024학년도 101명 2025. 10. 29. 1,234,000원") == "2024학년도 101명 2025. 10. 29. 1,234,000원"

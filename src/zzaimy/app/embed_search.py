@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -43,6 +44,16 @@ _FLOOR_SAMPLE_PAIRS = 20000
 # (scripts/103 으로 올린다). 조각 벡터는 배치로 미리 만들지만 질의 벡터는 검색마다 새로 만들고,
 # 그 계산이 VM CPU 에서 돌고 있었다. 같은 모델·같은 풀링(CLS+정규화)이라 공간이 같다
 # (실측 2026-09-20: 같은 글의 VM CPU 벡터와 코사인 1.0). 실패하면 VM 모델로 물러난다.
+# 교내망 보안 장비가 카드·계좌·주민번호 같은 긴 숫자열이 든 평문 HTTP 요청을 끊는다 — VM→토르 임베딩·재순위 요청이
+# 「ConnectionResetError」로 떨어져 법인카드 대장 같은 조각 15개가 2분마다 다시 실패했다(10/10 확인: 가린 뒤 모두 200).
+# 보내기 전에 9자리 이상 숫자열(붙임표·빈칸 포함)을 가린다. 뜻은 그대로라 벡터 품질에는 영향이 거의 없고, 식별 번호가 망에 평문으로 다니지 않는다
+_LONG_NUM = re.compile(r"(?<!\d)\d[\d\- ]{7,}\d(?!\d)")
+
+
+def transport_mask(text: str) -> str:
+    return _LONG_NUM.sub(lambda m: "○○○" if sum(ch.isdigit() for ch in m.group(0)) >= 9 else m.group(0), text or "")
+
+
 def remote_vectors(texts: list[str], timeout: float | None = None):
     url = os.environ.get("ZZAIMY_EMBED_URL", "").strip()
     if not url or not texts:
@@ -51,7 +62,7 @@ def remote_vectors(texts: list[str], timeout: float | None = None):
     import urllib.error
     import urllib.request
 
-    req = urllib.request.Request(url, data=json.dumps({"texts": list(texts)}).encode("utf-8"),
+    req = urllib.request.Request(url, data=json.dumps({"texts": [transport_mask(t) for t in texts]}).encode("utf-8"),
                                  headers={"Content-Type": "application/json"})
     try:
         timeout = timeout or float(os.environ.get("ZZAIMY_EMBED_TIMEOUT", "8"))   # 질의 기본 8초, 묶음 색인은 부르는 쪽이 길게
