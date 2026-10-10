@@ -469,8 +469,8 @@ document.addEventListener('submit', function(event) {
     {% endif %}
   </nav>
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}
-  <div class="side-label" style="display:flex; align-items:center;">프로젝트
-    <a href="/projects/archived" class="muted" style="margin-left:auto; font-size:11.5px; font-weight:500;">보관된 사업</a></div>
+  <div class="side-label side-label-row">프로젝트
+    <a href="/projects/archived" class="side-label-action{{ ' active' if request.url.path == '/projects/archived' else '' }}"><iconify-icon icon="solar:archive-linear" aria-hidden="true"></iconify-icon>보관된 사업</a></div>
   {% if side_projects %}
   <nav class="side-nav" style="max-height:180px; overflow-y:auto;">
     {% for pj in side_projects %}

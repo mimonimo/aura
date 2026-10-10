@@ -5665,23 +5665,30 @@ def create_app(
 
     @app.get("/projects/archived", response_class=HTMLResponse)
     def projects_archived(request: Request, q: str = "", status: str = "archived", year: str = "", unit: str = "",
-                          for_project: int | None = None):
-        """보관된 사업(통합 프로젝트 찾기, C-195) — 권한 범위의 진행 중·보관 묶음을 사업명·수행 연도·사업단으로. 화면은 아스트라 담당."""
+                          for_project: int | None = None, sort: str = ""):
+        """보관된 사업(통합 프로젝트 찾기, C-195) — 권한 범위의 진행 중·보관 묶음을 사업명·수행 연도·사업단으로. 화면은 아스트라 담당.
+        결과는 같은 사업의 연도별 묶음을 한 카드로 모아 보인다(project_refs.group_items)."""
         from zzaimy.app import project_refs
         if for_project is not None:
             fp = db.get_project(for_project)
             if fp is None or fp.get("archived") or (fp.get("owner") != request.state.user and request.state.role != "dev"):
                 raise HTTPException(404)
         status = status if status in ("archived", "active", "all") else "archived"
-        data = project_refs.browse(db, _ref_scope(request), q, status if status in ("archived", "active", "all") else "archived",
-                                   year, unit, for_project)
+        q = (q or "").strip()[:200]
+        data = project_refs.browse(db, _ref_scope(request), q, status, year, unit, for_project, sort=sort)
+        y, r, none = project_refs.year_option(year)
+        year = "none" if none else (f"r{r}" if r is not None else y)
+        year_label = "연도 미상" if none else (f"{r}차년도 (연도 미상)" if r is not None else y)
+        groups = project_refs.group_items(data["items"])
         return templates.TemplateResponse(request, "projects_archived.html", ctx(request, {
-            "projects": data["items"], "total": data["total"], "units": data["units"], "years": data["years"],
+            "projects": data["items"], "groups": groups, "total": data["total"], "units": data["units"], "years": data["years"],
+            "rounds": data["rounds"], "has_unknown": data["has_unknown"], "sorts": project_refs.SORTS, "sort": data["sort"],
+            "n_docs_total": sum(it["n_docs"] for it in data["items"]), "year_label": year_label,
             "q": q, "status": status, "year": year, "unit": unit, "for_project": for_project}))
 
     @app.get("/api/projects/browse")
     def projects_browse(request: Request, q: str = "", status: str = "archived", year: str = "", unit: str = "",
-                        for_project: int | None = None):
+                        for_project: int | None = None, sort: str = ""):
         """통합 프로젝트 찾기 JSON(C-195 데이터 계약) — project_refs.browse 참조. 연결은 POST /project/{id}/refs."""
         from zzaimy.app import project_refs
         if for_project is not None:
@@ -5689,7 +5696,7 @@ def create_app(
             if fp is None or (fp.get("owner") != request.state.user and request.state.role != "dev"):
                 raise HTTPException(404)
         return project_refs.browse(db, _ref_scope(request), q, status if status in ("archived", "active", "all") else "archived",
-                                   year, unit, for_project)
+                                   year, unit, for_project, sort=sort)
 
     @app.post("/project/{project_id}/unarchive")
     def project_unarchive(request: Request, project_id: int):

@@ -123,14 +123,24 @@ def unlink(db, project_id: int, ref_project_id: int) -> None:
         conn.execute("DELETE FROM project_refs WHERE project_id = ? AND ref_project_id = ?", (project_id, ref_project_id))
 
 
-def _year_of(program_key: str) -> str:
-    """보관 묶음 열쇠(「program:x|2023」「…|r2」「…|?」「…|*」)의 수행 연도 표시."""
+def _plausible(y) -> bool:
+    from zzaimy.graph.programs import plausible_year
+    return plausible_year(y)
+
+
+def _when(program_key: str) -> tuple[str, int | None]:
+    """보관 묶음 열쇠(「program:x|2023」「…|r2」「…|?」「…|*」)의 (수행 연도, 연차). 있을 법하지 않은 연도(「|1968」)는 미상."""
     tail = (program_key or "").rsplit("|", 1)[-1] if "|" in (program_key or "") else ""
     if tail.isdigit():
-        return tail
+        return (tail if _plausible(tail) else ""), None
     if tail.startswith("r") and tail[1:].isdigit():
-        return f"{tail[1:]}차년도"
-    return ""
+        return "", int(tail[1:])
+    return "", None
+
+
+def _year_of(program_key: str) -> str:
+    """수행 연도만(연차는 _when) — 연도 필터에 연차가 섞이지 않게."""
+    return _when(program_key)[0]
 
 
 def _units(db, project_ids: list[int]) -> dict[int, list[str]]:
@@ -151,18 +161,61 @@ def _units(db, project_ids: list[int]) -> dict[int, list[str]]:
     return out
 
 
+SORTS = {"relevance": "관련도순", "year": "최근 연도순", "docs": "문서 많은 순", "name": "이름순"}
+_NAME_WHEN = re.compile(r"^((?:19|20)\d{2})년\s+(.+?)\s+\((\d{1,2})차년도\)$")
+_NAME_TRIM = (re.compile(r"^(?:19|20)\d{2}\s*(?:학년도|년도|년)?\s+"), re.compile(r"\s*\((?:\d{1,2}차년도|연도 미상)\)$"),
+              re.compile(r"\s+\d{1,2}차년도$"))
+
+
+def _group_name(name: str) -> str:
+    """묶음 이름에서 연도·연차 꾸밈(archive.bundle_key 의 이름 틀)을 걷어낸 사업 이름."""
+    n = name or ""
+    for rx in _NAME_TRIM:
+        n = rx.sub("", n)
+    return n.strip() or (name or "")
+
+
+def _round_starts(rows: list[dict]) -> dict[str, int]:
+    """사업마다 시작 연도 — 같은 사업의 묶음 이름(「2024년 ○○ (2차년도)」)이 연도·연차를 함께 말하고 서로 맞을 때만.
+    엇갈리면(준비년도를 0차로 세는 등) 환산하지 않는다."""
+    seen: dict[str, set[int]] = {}
+    for r in rows:
+        m = _NAME_WHEN.match((r.get("name") or "").strip())
+        base = (r.get("program") or "").rsplit("|", 1)[0]
+        if m and base and _plausible(m.group(1)):
+            seen.setdefault(base, set()).add(int(m.group(1)) - int(m.group(3)) + 1)
+    return {k: next(iter(v)) for k, v in seen.items() if len(v) == 1}
+
+
+def year_option(value: str) -> tuple[str, int | None, bool]:
+    """필터 값 해석 — 「2024」 연도, 「r2」(옛 표기 「2차년도」) 연차, 「none」 연도 미상."""
+    v = (value or "").strip()
+    if v == "none":
+        return "", None, True
+    m = re.fullmatch(r"r(\d{1,2})|(\d{1,2})\s*차년도", v)
+    if m:
+        return "", int(m.group(1) or m.group(2)), False
+    return (v if re.fullmatch(r"\d{4}", v) else ""), None, False
+
+
 def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: str = "", unit: str = "",
-           for_project: int | None = None, limit: int = 200) -> dict:
+           for_project: int | None = None, limit: int = 200, sort: str = "") -> dict:
     """통합 프로젝트 찾기(C-195) — 진행 중(본인 것)·보관(문서 열람 권한 기준)을 사업명·수행 연도·사업단·상태로.
 
-    돌려주는 것 {"items": [{id, name, status, year, program, units, n_docs, why, linked}], "units": [...], "years": [...]}.
+    돌려주는 것 {"items": [{id, name, status, year, round, when, group, group_name, program, units, n_docs, why, linked}],
+    "units": [...], "years": [연도만, 최근 순], "rounds": [연도를 모르는 연차], "has_unknown": bool, "total", "sort"}.
     - status: archived · active · all. 진행 중은 보는 사람의 것만, 보관은 볼 수 있는 문서가 하나라도 있는 묶음만(문서 수도 그 범위)
+    - year: 「2024」(연도) · 「r2」(연도를 모르는 2차년도) · 「none」(연도 미상). 연차만 아는 묶음은 같은 사업의 다른 묶음이
+      연도·연차를 함께 말해 시작 연도가 하나로 정해질 때만 연도로 환산한다
+    - 연도·사업단 목록은 그 필터를 걸기 전 범위에서 뽑는다(하나를 고르면 나머지 선택지가 사라지지 않게)
     - for_project 를 주면 그 프로젝트와의 관련 이유(이름 겹침)와 이미 참조됐는지(linked)를 함께 — 연결은 POST /project/{id}/refs
     검색·열람·참조는 보관 해제나 소유권 이전이 아니다."""
     user = (scope or {}).get("user")
     dev = (scope or {}).get("role") == "dev"
     with db._conn() as conn:
         rows = [dict(r) for r in conn.execute("SELECT id, name, owner, archived, program, unit FROM projects ORDER BY id").fetchall()]
+    starts = _round_starts([r for r in rows if r["archived"]])
+    words = [w for w in (q or "").split() if w]
     keep = []
     for r in rows:
         st = "archived" if r["archived"] else "active"
@@ -170,9 +223,18 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
             continue
         if st == "active" and not dev and r["owner"] != user:
             continue
-        if q.strip() and q.strip().replace(" ", "") not in (r["name"] or "").replace(" ", ""):
+        flat = (r["name"] or "").replace(" ", "").lower()
+        if words and not all(w.lower() in flat for w in words):     # 낱말마다 들어 있으면(순서·띄어쓰기 무관)
             continue
-        r["status"], r["year"] = st, _year_of(r["program"])
+        y, rnd = _when(r["program"])
+        if st == "active" and not y:
+            from zzaimy.graph.programs import _first_year
+            y = str(_first_year(r["name"] or "") or "")
+        base = (r["program"] or "").rsplit("|", 1)[0]
+        derived = False
+        if not y and rnd and base in starts:
+            y, derived = str(starts[base] + rnd - 1), True
+        r.update(status=st, year=y, round=rnd, derived=derived)
         keep.append(r)
     counts = _visible_counts(db, [r["id"] for r in keep], scope)
     units = _units(db, [r["id"] for r in keep])
@@ -182,21 +244,64 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
         linked = {x["ref_project_id"] for x in list_refs(db, int(for_project))}
         proj = next((r for r in rows if r["id"] == int(for_project)), None)
         mine = _grams((proj or {}).get("name") or "")
-    items = []
+    want_y, want_r, want_none = year_option(year)
+    pool = []
     for r in keep:
         n = counts.get(r["id"], 0)
         if r["status"] == "archived" and not n:
             continue                                   # 볼 수 있는 문서가 없는 보관 묶음은 이름도 보이지 않는다
-        if year and r["year"] != year:
-            continue
         us = units.get(r["id"], [])[:3] if r["status"] == "archived" else ([r["unit"]] if r.get("unit") else [])
-        if unit and unit not in us:
-            continue
         common = sorted(mine & _grams(r["name"] or "")) if mine else []
-        items.append({"id": r["id"], "name": r["name"], "status": r["status"], "year": r["year"], "program": r["program"],
-                      "units": us, "n_docs": n, "why": ("이름 겹침: " + "·".join(common[:6])) if common else "",
-                      "linked": r["id"] in linked, "score": len(common) / max(len(mine), 1) if mine else 0.0})
-    items.sort(key=lambda x: (-x["score"], -x["n_docs"], x["name"]))
-    return {"items": items[:limit], "total": len(items),
-            "units": sorted({u for it in items for u in it["units"]}),
-            "years": sorted({it["year"] for it in items if it["year"]}, reverse=True)}
+        when = (f"{r['year']}" + (f" · {r['round']}차년도" if r["round"] else "")) if r["year"] else \
+            (f"{r['round']}차년도 (연도 미상)" if r["round"] else "연도 미상")
+        base = (r["program"] or "").rsplit("|", 1)[0]
+        pool.append({"id": r["id"], "name": r["name"], "status": r["status"], "year": r["year"], "round": r["round"],
+                     "year_derived": r["derived"], "when": when, "program": r["program"],
+                     "group": base if base and r["status"] == "archived" else f"project:{r['id']}",
+                     "group_name": _group_name(r["name"] or "") if r["status"] == "archived" else (r["name"] or ""),
+                     "units": us, "n_docs": n, "why": ("이름 겹침: " + "·".join(common[:6])) if common else "",
+                     "linked": r["id"] in linked, "score": len(common) / max(len(mine), 1) if mine else 0.0})
+
+    def year_ok(it):
+        if want_none:
+            return not it["year"] and not it["round"]
+        if want_r is not None:
+            return not it["year"] and it["round"] == want_r
+        return not want_y or it["year"] == want_y
+
+    by_year = [it for it in pool if year_ok(it)]
+    by_unit = [it for it in pool if not unit or unit in it["units"]]
+    items = [it for it in by_year if not unit or unit in it["units"]]
+    sort = sort if sort in SORTS else ("relevance" if for_project else "year")
+    if sort == "relevance":
+        items.sort(key=lambda x: (-x["score"], -x["n_docs"], x["name"]))
+    elif sort == "docs":
+        items.sort(key=lambda x: (-x["n_docs"], x["name"]))
+    elif sort == "name":
+        items.sort(key=lambda x: (x["group_name"], -int(x["year"] or 0), x["name"]))
+    else:
+        items.sort(key=lambda x: (-int(x["year"] or 0), -(x["round"] or 0), -x["n_docs"], x["name"]))
+    return {"items": items[:limit], "total": len(items), "sort": sort,
+            "units": sorted({u for it in by_year for u in it["units"]}),
+            "years": sorted({it["year"] for it in by_unit if it["year"]}, reverse=True),
+            "rounds": [f"r{n}" for n in sorted({it["round"] for it in by_unit if not it["year"] and it["round"]})],
+            "has_unknown": any(not it["year"] and not it["round"] for it in by_unit)}
+
+
+def group_items(items: list[dict]) -> list[dict]:
+    """화면 묶음 — 같은 사업의 연도별 묶음을 한 카드로(나온 순서 유지). 카드마다 문서 합계·연도 범위."""
+    groups: dict[str, dict] = {}
+    for it in items:
+        g = groups.setdefault(it["group"], {"key": it["group"], "name": it["group_name"], "rows": [], "n_docs": 0,
+                                             "status": it["status"], "units": []})
+        g["rows"].append(it)
+        g["n_docs"] += it["n_docs"]
+        for u in it["units"]:
+            if u not in g["units"]:
+                g["units"].append(u)
+    out = list(groups.values())
+    for g in out:
+        ys = sorted(int(r["year"]) for r in g["rows"] if r["year"])
+        g["span"] = (f"{ys[0]}~{ys[-1]}" if ys[0] != ys[-1] else str(ys[0])) if ys else ""
+        g["units"] = g["units"][:3]
+    return out
