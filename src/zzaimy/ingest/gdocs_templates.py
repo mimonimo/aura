@@ -997,7 +997,7 @@ class _Builder:
 
     def para(self, text: str, style: str = "NORMAL_TEXT", guide: bool = False, center: bool = False, align: str = "",
              size: float | None = None, bold: bool | None = None, color: dict | None = None, above: float | None = None,
-             below: float | None = None, box: str = "", indent: float | None = None) -> None:
+             below: float | None = None, box: str = "", indent: float | None = None, spacing: int | None = None) -> None:
         s = self.cur
         self.inserts.append({"insertText": {"location": {"index": s}, "text": text + "\n"}})
         e = s + _u16(text) + 1
@@ -1026,6 +1026,8 @@ class _Builder:
                 self._text(s, s + _u16(GUIDE_PREFIX), None, True, rgb(self.accent))
         if box == "title":                                     # 표지 제목 상자 — 위 굵은 선, 아래 가는 선
             ps.update({"borderTop": border(2.5, 12), "borderBottom": border(0.75, 12), "lineSpacing": 125})
+        if spacing is not None:
+            ps["lineSpacing"] = spacing
         if indent is not None:
             ps["indentStart"] = pt(indent)
             ps["indentFirstLine"] = pt(indent)
@@ -1204,8 +1206,8 @@ def render(email: str, doc: str, spec: dict, http=None, titled: bool = False, fi
             b.para("목  차", center=True, size=16, bold=True, color=rgb(accent), above=24, below=18)
             for level, text in toc:
                 b.para(text, size=11 if level == 1 else 10, bold=(level == 1) or None,
-                       color=dark if level == 1 else None, above=10 if level == 1 else 2, below=2,
-                       indent=0 if level == 1 else 16)
+                       color=dark if level == 1 else None, above=8 if level == 1 else 0, below=1,
+                       indent=0 if level == 1 else 16, spacing=115)
             b.page_break()
     for blk in spec["blocks"]:
         if "h" in blk:
