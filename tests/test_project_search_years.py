@@ -134,3 +134,18 @@ def test_archived_page_filters_chips_and_groups(tmp_path):
     assert '<option value="docs" selected>' in page.text
     assert "관련도순" not in page.text                                           # 참조 연결 화면에서만
     assert 'class="side-label-action active"' in page.text                       # 사이드바 「보관된 사업」 버튼
+
+
+def test_file_name_year_survives_title_cleanup_and_beats_folder():
+    assert P.file_year("2019년도 영남이공대학교 실적보고서_한국연구재단.hwp") == 2019
+    assert P.file_year("7.2018 특성화사업 환경개선공사 사업계획서.hwp") == 2018     # 번호 뒤 맨 연도
+    assert P.file_year("2021(첨부2)대구시사업계획서.pdf") == 2021
+    assert P.file_year("2.1차년도 LINC3.0 사업실적보고서.hwp") is None              # 연차는 연도가 아니다
+    assert P.file_year("20260219-AID선정평가.hwpx") is None                        # 날짜 묶음은 연도로 보지 않는다
+    card = P.ProgramCard(key="x")
+    card.names["가나다 사업"] = 3
+    docs = [{"id": 1, "filename": "2019 가나다 사업 기자재 구입계획서.hwp", "path": "가나다 사업/2021년", "head": ""}]
+    got = P.classify(docs, [card])
+    assert got[0].year == 2019 and got[0].year_src == "title"
+    P.fill_period(docs, got, {})
+    assert got[0].year == 2019                                                     # 폴더 2021 이 덮지 않는다

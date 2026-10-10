@@ -464,7 +464,7 @@ document.addEventListener('submit', function(event) {
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
     {% if request.state.role != 'student' %}
     <button type="button" class="side-search" data-project-search><iconify-icon icon="solar:magnifer-linear"></iconify-icon>프로젝트 검색</button>
-    <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox', '/criteria') or request.url.path.startswith(('/project/', '/archive')) else '' }}">
+    <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox', '/criteria') or request.url.path.startswith('/archive') else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
     {% endif %}
   </nav>
