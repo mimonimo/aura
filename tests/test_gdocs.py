@@ -1582,3 +1582,22 @@ def test_total_written_on_other_row_moves_to_template_total_row():
     assert {"row": 4, "col": 2, "text": "101"} in got and not any(c["row"] == 1 for c in got)
     assert {"row": 2, "col": 0, "text": "영남이공대"} in got
     assert gdocs.redirect_total_row(cells, ["구분", "", ""]) == cells          # 합계 행이 없는 표는 그대로
+
+
+def test_rows_to_add_before_total_row_when_more_rows_filled():
+    first = ["구분", "", "", "", "합계"]                    # 머리행 + 빈 행 3 + 합계
+    cells = [{"row": r, "col": 0, "text": n} for r, n in ((1, "가대"), (2, "나대"), (3, "다대"), (4, "라대"), (5, "마대"))]
+    cells += [{"row": 6, "col": 0, "text": "합계"}, {"row": 6, "col": 2, "text": "101"}]
+    assert gdocs.rows_to_add(cells, first) == (2, 3)          # 3번 행 아래에 2행 — 합계 행은 그대로 맨 아래
+    assert gdocs.rows_to_add(cells[:3], first) == (0, 0)      # 자리가 남으면 늘리지 않는다
+    assert gdocs.rows_to_add([{"row": 4, "col": 0, "text": "x"}], ["머리", "", "", ""]) == (1, 3)   # 합계 없는 표는 끝에
+
+
+def test_rows_to_add_ignores_stray_row_numbers():
+    assert gdocs.rows_to_add([{"row": 9, "col": 0, "text": "x"}], ["머리", "", ""]) == (0, 0)
+
+
+def test_value_only_fill_of_total_row_adds_no_rows():
+    first = ["구분", "", "", "", "합계"]
+    cells = [{"row": r, "col": 0, "text": n} for r, n in ((1, "A반"), (2, "B반"), (3, "C반"))] + [{"row": 4, "col": 2, "text": "101"}]
+    assert gdocs.rows_to_add(cells, first) == (0, 0)

@@ -630,6 +630,33 @@ def _first_cell_text(row: dict) -> str:
     return "".join(_para_text(e["paragraph"]) for e in tcs[0].get("content", []) if "paragraph" in e).strip()
 
 
+def rows_to_add(cells: list[dict], first_col: list[str]) -> tuple[int, int]:
+    """채울 행이 양식의 빈 행보다 많으면 (늘릴 행 수, 그 아래에 늘릴 행 번호). 합계 행이 있으면 그 위까지가 자리,
+    모델이 자기 합계 행을 따로 쓰면 그것은 양식의 합계 행으로 가므로 세지 않는다."""
+    def rc(c):
+        try:
+            return int(c.get("row")), int(c.get("col"))
+        except (TypeError, ValueError):
+            return None, None
+    total_rows_model = {r for c in cells for r, col in [rc(c)] if col == 0 and r is not None
+                        and str(c.get("text") or "").replace(" ", "") in _TOTAL}
+    # 새 행이 필요한 것은 자기 행 이름(첫 칸)을 함께 쓴 행만 — 이름 없이 값만 쓴 행은 이미 있는 행(합계 행 등)을 채우는 것
+    # (10/10 시험: 합계 행의 이름은 두고 값 101 만 쓴 것을 넘침으로 보고 행을 늘려 합계가 빈 행에 갔다)
+    wanted = sorted({r for c in cells for r, col in [rc(c)] if r is not None and r >= 1 and col == 0 and r not in total_rows_model
+                     and str(c.get("text") or "").strip()})
+    if not wanted:
+        return 0, 0
+    totals = [i for i, x in enumerate(first_col) if x.replace(" ", "") in _TOTAL]
+    limit = totals[-1] if totals else len(first_col)         # 이 번호부터는 자리가 없다(합계 행이거나 표 밖)
+    over = [r for r in wanted if r >= limit]
+    extra = 0
+    for i, r in enumerate(over):                            # 데이터 행에 바로 이어지는 넘침만 — 엉뚱한 번호(9행)는 건너뛰기로 둔다
+        if r != limit + i:
+            break
+        extra += 1
+    return (extra, limit - 1) if extra else (0, 0)
+
+
 def redirect_total_row(cells: list[dict], first_col: list[str]) -> list[dict]:
     """양식에 「합계」 행이 이미 있는데 다른 행 첫 칸에 「합계」를 써 넣으면 그 행의 값을 양식의 합계 행으로 옮긴다
     (10/10 시험: 참여 현황 첫 행에 「합계 | 101」, 양식의 합계 행은 빈 채). 합계 행이 없거나 그 행이면 그대로."""
@@ -671,6 +698,19 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
     if t is None:
         raise ValueError(f"절에 표 {table_n} 이 없습니다(표 {len(tables)}개)")
     rows = t["el"]["table"].get("tableRows", [])
+    extra, at = rows_to_add(cells, [_first_cell_text(r) for r in rows])
+    if extra:
+        # 양식의 빈 행보다 많이 채우면 행을 늘린다 — 합계 행 위(없으면 끝)에. 실제 서식처럼 행 수는 내용에 맞춘다
+        # (10/10 시험: 참여 대학 5곳인데 빈 행 3개 — 넷째가 합계 행을 덮고 다섯째·합계는 건너뜀)
+        ts = int(t["el"]["startIndex"])
+        _batch(email, doc, [{"insertTableRow": {"tableCellLocation": {"tableStartLocation": {"index": ts}, "rowIndex": at, "columnIndex": 0},
+                                                "insertBelow": True}} for _ in range(extra)], http)
+        r = _read(email, doc, http)
+        _raise(r)
+        body = body_content(r.json())
+        tables = _section_tables(body, get(email, doc, http), section_index)
+        t = next((x for x in tables if x["n"] == int(table_n)), t)
+        rows = t["el"]["table"].get("tableRows", [])
     covered = _covered_cells(t["el"]["table"])
     cells = redirect_total_row(cells, [_first_cell_text(r) for r in rows])
     edits: list[tuple[int, int, str]] = []          # (start, end(지울 끝, 없으면 start), 글)
