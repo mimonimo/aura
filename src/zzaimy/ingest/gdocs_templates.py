@@ -60,6 +60,23 @@ def T(columns: list[str], rows: list[list[str]] | int = 3, widths: list[float] |
     return {"table": {"columns": columns, "rows": rows, "widths": widths or [1] * len(columns)}}
 
 
+def TG(head: list[list[str]], rows: list[list[str]] | int, widths: list[float], merges=(), gantt: bool = False) -> dict:
+    """머리행이 여러 줄이고 칸을 합치는 목록 표 — 「목표값」 아래 연차, 「구분」 세로 병합 같은 실제 서식. merges 는 격자(머리행 포함) 좌표
+    (행, 열, 행 수, 열 수). 덮이는 칸은 빈 글자로 둔다."""
+    n = len(widths)
+    if isinstance(rows, int):
+        rows = [[""] * n for _ in range(rows)]
+    leaf = [next((head[r][c] for r in range(len(head) - 1, -1, -1) if head[r][c]), "") for c in range(n)]
+    return {"table": {"columns": leaf, "head": head, "rows": rows, "widths": widths, "merges": list(merges), "gantt": gantt}}
+
+
+def FORM(rows: list[list[str]], widths: list[float], labels: list[tuple[int, int]], merges=(), tall: dict | None = None) -> dict:
+    """서식 격자 — 라벨 칸과 값 칸이 한 줄에 엇갈려 놓인 표(사업 개요·과제 개요·지표 정의서). labels 는 라벨 칸 좌표.
+    tall — 글이 길게 들어갈 행의 최소 높이(pt) {행: 높이}(SWOT·목표·주요 내용 — 한 줄 높이면 빈 칸처럼 보였다)."""
+    return {"table": {"columns": list(rows[0]), "form": True, "rows": rows,
+                      "widths": widths, "labels": list(labels), "merges": list(merges), "tall": dict(tall or {})}}
+
+
 def KV(items: list[str], key_w: float = 1, val_w: float = 3) -> dict:
     """항목·내용 2열 표(머리행 없이 항목 열이 머리 구실)."""
     return {"table": {"columns": ["항목", "내용"], "rows": [[k, ""] for k in items], "widths": [key_w, val_w]}}
@@ -74,8 +91,18 @@ PLAN = {
     "blocks": [
         H(1, "사업 개요"),
         G("공고·기본계획의 사업명·기간·지원 규모와 우리 대학 계획의 핵심만 적는다. " + NUM_RULE),
-        KV(["사업명", "사업 기간", "총 사업비 (국비·지방비·대응자금)", "주관·참여 기관", "사업단장(책임자)", "사업 목표(한 줄)",
-            "추진 과제(수)", "대표 성과지표"]),
+        FORM([["사업명", "", "", ""],
+              ["사업 기간", "", "총 사업비 (백만원)", ""],
+              ["재원 구성 (백만원)", "국비", "지방비", "대응자금"],
+              ["", "", "", ""],
+              ["주관 기관", "", "참여 기관", ""],
+              ["사업단장 (책임자)", "", "주관 부서", ""],
+              ["사업 목표", "", "", ""],
+              ["추진 과제", "", "", ""],
+              ["대표 성과지표", "", "", ""]],
+             [1.15, 2.1, 1.15, 2.1],
+             labels=[(0, 0), (1, 0), (1, 2), (2, 0), (2, 1), (2, 2), (2, 3), (4, 0), (4, 2), (5, 0), (5, 2), (6, 0), (7, 0), (8, 0)],
+             merges=[(0, 1, 1, 3), (2, 0, 2, 1), (6, 1, 1, 3), (7, 1, 1, 3), (8, 1, 1, 3)], tall={6: 36, 7: 36}),
         H(2, "사업 요약"),
         G("1쪽 이내. 추진 배경 → 비전·목표 → 핵심 과제 → 대표 성과 순으로 각 두세 줄. 본문을 다 쓴 뒤 본문에서 옮겨 쓴다(새 내용을 넣지 않는다)."),
         P(),
@@ -89,17 +116,31 @@ PLAN = {
         T(["중장기 발전계획 전략·과제", "이 사업의 추진 과제", "연계 내용"], 3, [2, 1.6, 2.4]),
         H(2, "3. 대학 여건 및 현황 분석"),
         G("우리 대학·지역·산업의 현황을 최근 3년 지표로 보이고 강점·약점·기회·위협을 정리한다. " + NUM_RULE),
-        T(["구분", "지표", "최근 3년 값", "출처"], 4, [1, 2, 2, 1.2]),
-        T(["구분", "내용", "사업에 주는 시사점"], [["강점", "", ""], ["약점", "", ""], ["기회", "", ""], ["위협", "", ""]], [0.8, 2.6, 2]),
+        TG([["구분", "지표 (단위)", "최근 3년 값", "", "", "출처"],
+            ["", "", "20○○", "20○○", "20○○", ""]],
+           [["교육", "", "", "", "", ""], ["", "", "", "", "", ""], ["취업·창업", "", "", "", "", ""], ["지역·산업", "", "", "", "", ""]],
+           [0.9, 2.1, 0.75, 0.75, 0.75, 1.2],
+           merges=[(0, 0, 2, 1), (0, 1, 2, 1), (0, 2, 1, 3), (0, 5, 2, 1), (2, 0, 2, 1)]),
+        FORM([["강점 (S)", "", "약점 (W)", ""],
+              ["기회 (O)", "", "위협 (T)", ""],
+              ["사업 시사점", "", "", ""]],
+             [0.8, 2.4, 0.8, 2.4], labels=[(0, 0), (0, 2), (1, 0), (1, 2), (2, 0)], merges=[(2, 1, 1, 3)],
+             tall={0: 70, 1: 70, 2: 40}),
         H(2, "4. 지역·산업 수요 분석"),
         G("지자체의 지역혁신 시행계획·지역 산업 동향·기업 수요조사에서 이 사업이 답할 수요를 뽑는다. 수요마다 어느 과제에 반영했는지 잇는다."),
         T(["수요 출처", "주요 내용", "사업 반영(추진 과제)"], 3, [1.4, 3, 1.6]),
         H(2, "5. 비전·목표·인재상"),
         G("발전계획의 비전과 이 사업의 목표를 잇는다. 목표는 측정할 수 있게(성과지표와 연결) 쓴다."),
-        KV(["비전", "사업 목표", "인재상", "핵심 가치"]),
+        FORM([["비전", "", "", ""],
+              ["사업 목표", "", "", ""],
+              ["인재상", "", "핵심 가치", ""]],
+             [1, 2.25, 1, 2.25], labels=[(0, 0), (1, 0), (2, 0), (2, 2)], merges=[(0, 1, 1, 3), (1, 1, 1, 3)],
+             tall={0: 30, 1: 40, 2: 40}),
         H(2, "6. 추진 전략 및 과제 체계"),
         G("전략 → 추진 과제 → 세부 프로그램 → 연관 성과지표가 한 줄로 이어지게 쓴다. 과제 이름은 Ⅲ장·Ⅴ장 표와 같게 맞춘다."),
-        T(["추진 전략", "추진 과제", "세부 프로그램", "연관 성과지표"], 4, [1.2, 1.4, 2, 1.4]),
+        TG([["추진 전략", "추진 과제", "세부 프로그램", "연관 성과지표"]],
+           [["전략 1", "", "", ""], ["", "", "", ""], ["전략 2", "", "", ""], ["", "", "", ""]],
+           [1.1, 1.5, 2, 1.4], merges=[(1, 0, 2, 1), (3, 0, 2, 1)]),
         H(2, "7. 이전 평가·컨설팅 결과 반영"),
         G("지난 연차 평가·컨설팅의 지적·권고를 빠짐없이 옮기고 이번 계획의 어느 절에 어떻게 반영했는지 적는다. 신규 사업이면 이 절을 지운다."),
         T(["지적·권고 사항", "반영 내용", "반영 절"], 3, [2.2, 2.6, 1]),
@@ -129,7 +170,14 @@ PLAN = {
           "해당 영역이 과제에 이미 들어 있거나 사업에 없으면 지운다."),
         H(2, "1. (추진 과제 1) ○○○○"),
         H(3, "가. 과제 개요"),
-        KV(["과제명", "목적·필요성", "주요 내용", "대상·규모", "추진 기간", "담당 조직", "예산(1차년도)", "연관 성과지표"]),
+        FORM([["과제명", "", "", ""],
+              ["목적·필요성", "", "", ""],
+              ["주요 내용", "", "", ""],
+              ["대상·규모", "", "추진 기간", ""],
+              ["담당 조직", "", "예산 (1차년도, 백만원)", ""],
+              ["연관 성과지표", "", "", ""]],
+             [1.1, 2.15, 1.25, 2], labels=[(0, 0), (1, 0), (2, 0), (3, 0), (3, 2), (4, 0), (4, 2), (5, 0)],
+             merges=[(0, 1, 1, 3), (1, 1, 1, 3), (2, 1, 1, 3), (5, 1, 1, 3)], tall={1: 40, 2: 56}),
         H(3, "나. 세부 추진 내용"),
         G("프로그램별로 무엇을, 누구와, 어떻게 하는지 적는다. 이전 연차 실적이 있으면 무엇을 바꾸는지 함께 적는다. " + SRC_PREV + "."),
         P(),
@@ -137,8 +185,10 @@ PLAN = {
         G("연차마다 주요 내용과 목표를 한 칸에 짧게. 4년을 넘으면 표를 둘로 나눈다."),
         T(["구분", *YEARS4], [["주요 내용", "", "", "", ""], ["목표(지표·값)", "", "", "", ""]], [1.2, 1, 1, 1, 1]),
         H(3, "라. 추진 일정"),
-        G("이번 연차를 분기(Q1~Q4) 또는 월로 적는다. 넓은 간트표 대신 이 표로 쓴다."),
-        T(["세부 내용", "추진 시기", "산출물"], 4, [3, 1.2, 1.6]),
+        G("이번 연차의 세부 내용마다 추진하는 달 칸에 ■ 를 적는다. 산출물은 그 일이 끝나면 남는 문서·결과물."),
+        TG([["세부 추진 내용", "추진 일정 (월)"] + [""] * 11 + ["산출물"],
+            [""] + [str(m) for m in range(1, 13)] + [""]],
+           4, [3.4] + [0.62] * 12 + [1.6], merges=[(0, 0, 2, 1), (0, 1, 1, 12), (0, 13, 2, 1)], gantt=True),
         H(3, "마. 기대 효과"),
         G("이 과제가 끝났을 때 달라지는 것을 정성·정량으로 적는다. 정량 효과는 Ⅳ장 성과지표 목표값과 맞춘다."),
         P(),
@@ -164,13 +214,28 @@ PLAN = {
         P(),
         H(2, "2. 성과지표 총괄표"),
         G("구분 칸에 「핵심」(공고가 정한 공통 지표)·「자율」(대학이 정한 지표)을 적는다. 기준값·목표값은 공고·협약 문서나 이전 계획서의 값을 그대로 옮긴다. " + NUM_RULE),
-        T(["구분", "지표명(단위)", "기준값", *YEARS4, "측정 방법·증빙"], 5, [0.8, 1.8, 0.8, 0.7, 0.7, 0.7, 0.7, 1.4]),
+        TG([["구분", "지표명 (단위)", "기준값", "목표값", "", "", "", "측정 방법·증빙"],
+            ["", "", "", *YEARS4, ""]],
+           [["핵심", "", "", "", "", "", "", ""], ["", "", "", "", "", "", "", ""], ["", "", "", "", "", "", "", ""],
+            ["자율", "", "", "", "", "", "", ""], ["", "", "", "", "", "", "", ""]],
+           [0.7, 1.9, 0.8, 0.7, 0.7, 0.7, 0.7, 1.3],
+           merges=[(0, 0, 2, 1), (0, 1, 2, 1), (0, 2, 2, 1), (0, 3, 1, 4), (0, 7, 2, 1), (2, 0, 3, 1), (5, 0, 2, 1)]),
         H(2, "3. 자율성과지표 설정 근거"),
         G("자율 지표를 왜 골랐는지, 사업 목표·과제와 어떻게 이어지는지 적는다."),
         T(["자율 지표", "설정 이유", "연관 목표·과제"], 3, [1.6, 2.8, 1.6]),
         H(2, "4. 성과지표 정의서"),
         G("자율 지표마다 이 표를 하나씩 둔다(지표 수만큼 복사)."),
-        KV(["지표명", "정의", "산출식", "기준값 근거", "목표 설정 근거", "측정 시기", "증빙 자료"]),
+        FORM([["지표명", "", "", ""],
+              ["지표 구분", "", "단위", ""],
+              ["정의", "", "", ""],
+              ["산출식", "", "", ""],
+              ["기준값", "", "최종 목표값", ""],
+              ["기준값 근거", "", "", ""],
+              ["목표 설정 근거", "", "", ""],
+              ["측정 시기", "", "증빙 자료", ""]],
+             [1.15, 2.1, 1.15, 2.1],
+             labels=[(0, 0), (1, 0), (1, 2), (2, 0), (3, 0), (4, 0), (4, 2), (5, 0), (6, 0), (7, 0), (7, 2)],
+             merges=[(0, 1, 1, 3), (2, 1, 1, 3), (3, 1, 1, 3), (5, 1, 1, 3), (6, 1, 1, 3)], tall={2: 36, 5: 32, 6: 32}),
         H(2, "5. 자체평가·환류 계획"),
         G("누가 언제 무엇을 평가하고, 결과를 다음 연차 계획·예산에 어떻게 돌려 넣는지 적는다."),
         T(["평가 시기", "평가 주체", "평가 대상·방법", "환류 방법"], 3, [1, 1.3, 2, 2]),
@@ -184,8 +249,9 @@ PLAN = {
         P(),
         H(2, "2. 연차별 총 사업비"),
         G(BUDGET_RULE + ". 4년을 넘는 사업은 이 표를 두 개로 나눈다(열을 늘리지 않는다)."),
-        T(["구분(단위: 백만원)", *YEARS4, "합계"], [["국비", "", "", "", "", ""], ["지방비", "", "", "", "", ""],
-                                              ["대응자금", "", "", "", "", ""], ["합계", "", "", "", "", ""]], [1.6, 1, 1, 1, 1, 1]),
+        T(["구분(단위: 백만원)", *YEARS4, "합계", "비율(%)"], [["국비", "", "", "", "", "", ""], ["지방비", "", "", "", "", "", ""],
+                                                         ["대응자금", "", "", "", "", "", ""], ["합계", "", "", "", "", "", ""]],
+          [1.3, 0.9, 0.9, 0.9, 0.9, 1, 0.8]),
         H(2, "3. 대응자금 확보 계획"),
         G("지방비·산업체·교비 대응자금의 확보 방법과 시기, 근거 문서(협약서·확약서·예산서)를 적는다. 대응자금이 없는 사업은 지운다. " + BUDGET_RULE),
         T(["재원", "확보 방법", "확보 시기", "근거 문서"], 3, [1, 2.4, 1, 1.6]),
@@ -194,10 +260,12 @@ PLAN = {
         T(["추진 과제(단위: 백만원)", *YEARS4, "합계", "비율(%)"], 4, [1.8, 0.8, 0.8, 0.8, 0.8, 0.9, 0.8]),
         H(2, "5. 비목별 편성(1차년도)"),
         G("비목 이름은 해당 사업의 예산 편성·집행 기준을 따른다. 산출 근거는 「단가 × 수량」 꼴로 적는다. " + BUDGET_RULE),
-        T(["비목", "세부 산출 근거", "금액(원)", "비율(%)"],
-          [["인건비", "", "", ""], ["교육·연구 프로그램 개발·운영비", "", "", ""], ["교육·연구 환경 개선비", "", "", ""],
-           ["실험실습 장비 구입비", "", "", ""], ["기업 지원·협력 활동비", "", "", ""], ["그 밖의 사업 운영 경비", "", "", ""], ["합계", "", "", ""]],
-          [1.6, 2.8, 1, 0.7]),
+        TG([["비목(단위: 천원)", "세부 항목", "산출 근거 (단가 × 수량)", "금액", "비율(%)"]],
+           [["인건비", "", "", "", ""], ["", "", "", "", ""],
+            ["교육·연구 프로그램 개발·운영비", "", "", "", ""], ["", "", "", "", ""],
+            ["교육·연구 환경 개선비", "", "", "", ""], ["실험실습 장비 구입비", "", "", "", ""],
+            ["기업 지원·협력 활동비", "", "", "", ""], ["그 밖의 사업 운영 경비", "", "", "", ""], ["합계", "", "", "", ""]],
+           [1.5, 1.3, 2.2, 0.9, 0.7], merges=[(1, 0, 2, 1), (3, 0, 2, 1), (9, 0, 1, 3)]),
         H(2, "6. 집행 관리 및 중복 투자 방지"),
         G("예산 집행 절차·점검 주기·담당 조직과, 다른 재정지원사업·교비와 같은 항목에 이중으로 쓰지 않도록 가르는 기준을 적는다."),
         P(),
@@ -205,6 +273,7 @@ PLAN = {
         H(1, "붙임. 증빙 자료 목록"),
         G("공고에서 요구한 필수·보관 증빙을 빠짐없이 적는다."),
         T(["연번", "증빙 자료명", "관련 항목", "비고"], 4, [0.5, 2.6, 1.6, 1]),
+        {"sign": ["위와 같이 「○○○○ 사업」 사업계획서를 제출합니다.", "20○○. ○. ○.", "○○대학교 총장  ○ ○ ○  (직인)"]},
     ],
 }
 
@@ -528,7 +597,7 @@ EXAMPLES = {
         "나. 세부 추진 내용": "□ ○○ 협약 교육 운영 ○ (대상) ○○계열 ○학년 ○○명 ○ (내용) 협약기업과 교과목 ○개 공동 개발·운영 "
                           "- 기업 현장 전문가 수업 참여 ○○시간 ○ (바뀌는 점) 지난 연차 만족도 조사의 「실습 비중 부족」 의견을 반영해 실습 시수 확대 "
                           "※ 운영 규모는 예산 문서 값과 맞춤",
-        "라. 추진 일정": "표 한 줄 — 협약기업 수요조사·교과목 설계 | 1분기 | 수요조사 결과서·교과목 개요서",
+        "라. 추진 일정": "한 줄 — 세부 추진 내용 칸에 「협약기업 수요조사·교과목 설계」, 3월·4월 칸에 ■, 산출물 칸에 「수요조사 결과서」",
         "마. 기대 효과": "○ (정성) 기업 요구를 반영한 교육과정 정착 ○ (정량) 협약 교육 이수자 취업 ○○명(성과지표 「○○」 목표값과 같게)",
         "2. 성과지표 총괄표": "표 한 줄 — 자율 | 협약 교육 이수자 취업자 수(명) | ○○ | ○○ | ○○ | ○○ | ○○ | 취업 확인서·고용보험 가입 이력",
         "4. 성과지표 정의서": "정의 — 해당 연도 협약 교육 이수자 가운데 협약기업에 취업한 사람 수. 산출식 — 협약기업 취업자 수(명). "
@@ -647,7 +716,7 @@ def _mark_table_only(spec: dict) -> dict:
         leaf = nxt == len(blocks) or blocks[nxt]["h"] <= blocks[i]["h"]
         body = blocks[i + 1:nxt]
         tables = [b["table"] for b in body if "table" in b]
-        kv_only = bool(tables) and all(t["columns"] == ["항목", "내용"] for t in tables)
+        kv_only = bool(tables) and all(t.get("form") or t["columns"] == ["항목", "내용"] for t in tables)
         # 항목 표만 있는 절(개요·요약)은 어느 양식이든, 회의록은 본문 자리 없는 절 모두(기록 표). 계획서·보고서의 분석 절은 표가 있어도
         # 실문서가 글 2천여 자를 둔다 — 표만으로 막지 않는다
         if leaf and tables and not any("p" in b for b in body) and (kv_only or spec["id"] == "minutes"):
@@ -682,14 +751,20 @@ def check_spec(spec: dict) -> list[str]:
             last = b["h"]
         if "table" in b:
             t = b["table"]
-            n = len(t["columns"])
-            if n > 8:
-                errs.append(f"표가 8열을 넘음: {t['columns']}")
-            if len(t["widths"]) != n or any(len(r) != n for r in t["rows"]):
+            n = len(t["widths"])
+            if n > (15 if t.get("gantt") else 8):
+                errs.append(f"표가 열 상한을 넘음: {t['columns']}")
+            if any(len(r) != n for r in (t.get("head") or []) + t["rows"]) or (not t.get("form") and len(t["columns"]) != n):
                 errs.append(f"표 모양이 맞지 않음: {t['columns']}")
-            elif t["columns"] != ["항목", "내용"] and sum(_min_width(h) for h in t["columns"]) > CONTENT_W:
+                continue
+            for (r0, c0, rs, cs) in t.get("merges") or []:
+                g_rows = len(t.get("head") or ([] if t.get("form") or t["columns"] == ["항목", "내용"] else [1])) + len(t["rows"])
+                if r0 + rs > g_rows or c0 + cs > n:
+                    errs.append(f"병합이 표 밖으로 나감: {t['columns']} {(r0, c0, rs, cs)}")
+            g = table_grid(t)
+            if g["kind"] == "grid" and not t.get("gantt") and sum(_min_width(h) for h in g["width_heads"]) > CONTENT_W:
                 errs.append(f"머리말이 쪽 폭에 다 들지 않음: {t['columns']}")
-            elif t["columns"] == ["항목", "내용"]:
+            elif g["kind"] == "kv":
                 errs += [f"항목 이름의 낱말이 칸보다 김(빈칸으로 끊을 것): {r[0]}" for r in t["rows"] if _min_width(r[0]) > KV_KEY_MAX * CONTENT_W]
     return errs
 
@@ -792,6 +867,46 @@ def col_align(head: str, money: bool) -> str:
     return "START"
 
 
+def _leaf_heads(head: list[list[str]], merges=()) -> list[str]:
+    """열마다 가장 아래 머리말(가로로 여러 열을 덮는 위 머리말은 빼고) — 칸 폭·정렬의 기준."""
+    wide = {(r, c) for (r, c, _rs, cs) in merges if cs > 1}
+    out = []
+    for c in range(len(head[0])):
+        out.append(next((head[r][c] for r in range(len(head) - 1, -1, -1) if head[r][c] and (r, c) not in wide), ""))
+    return out
+
+
+def table_grid(t: dict) -> dict:
+    """표 사양 → 그릴 격자와 칸 역할. kind: kv(항목|내용)·form(라벨·값이 엇갈린 서식 격자)·grid(머리행이 있는 목록 표)."""
+    rows = [list(r) for r in t["rows"]]
+    merges = [tuple(m) for m in t.get("merges") or []]
+    if t.get("form"):
+        labels = [tuple(x) for x in t.get("labels") or []]
+        n = len(t["widths"])
+        width_heads = [max((rows[r][c] for (r, c) in labels if c == col), key=len, default="") for col in range(n)]
+        return {"kind": "form", "grid": rows, "n_head": 0, "labels": labels, "totals": [], "unit": "", "merges": merges,
+                "aligns": ["START"] * n, "width_heads": width_heads}
+    if t["columns"] == ["항목", "내용"] and not t.get("head"):
+        return {"kind": "kv", "grid": rows, "n_head": 0, "labels": [(r, 0) for r in range(len(rows))], "totals": [], "unit": "",
+                "merges": merges, "aligns": ["CENTER", "START"], "width_heads": [r[0] for r in rows]}
+    head = [list(h) for h in (t.get("head") or [t["columns"]])]
+    unit = ""
+    for h in head:
+        stripped, u = unit_of(h)
+        unit = unit or u
+        h[:] = stripped
+    leaf = _leaf_heads(head, merges)
+    money = "원" in unit or any("(원)" in x for x in leaf)
+    aligns = ["CENTER" if t.get("gantt") and re.fullmatch(r"\d{1,2}", x) else col_align(x, money) for x in leaf]
+    n_head = len(head)
+    grid = head + rows
+    labelled = any(r and r[0] for r in rows)
+    labels = [(n_head + i, 0) for i in range(len(rows))] if labelled else []
+    totals = [n_head + i for i, r in enumerate(rows) if r and r[0].replace(" ", "") in ("합계", "계", "총계")]
+    return {"kind": "grid", "grid": grid, "n_head": n_head, "labels": labels, "totals": totals, "unit": unit, "merges": merges,
+            "aligns": aligns, "width_heads": leaf}
+
+
 class _Builder:
     def __init__(self, email: str, doc: str, http, accent: tuple = ACCENT["plan"]):
         from zzaimy.ingest import gdocs
@@ -870,15 +985,15 @@ class _Builder:
             self.g._batch(self.email, self.doc, self.inserts + self.styles, self.http)
         self.inserts, self.styles = [], []
 
-    def table(self, columns: list[str], rows: list[list[str]], widths: list[float]) -> None:
-        kv = columns == ["항목", "내용"]
-        heads, unit = unit_of(columns) if not kv else (columns, "")
-        money = "원" in unit or any("(원)" in h for h in heads)
-        if unit:                                               # 표 위 오른쪽 단위 — 실제 서식처럼
-            self.para(unit, align="END", size=8.5, color=GUIDE_COLOR, above=4, below=2)
+    def table(self, t: dict) -> None:
+        """표 하나 — 세 갈래. 목록 표(머리행 1~2줄, 병합), 항목 표(항목|내용), 서식 표(form — 라벨 칸·값 칸이 엇갈린 격자).
+        병합 칸(merges: 격자 좌표 (행, 열, 행 수, 열 수))은 실제 서식의 2단 머리행·구분 칸 세로 병합·합계 행에 쓴다."""
+        g = table_grid(t)
+        kind, grid, n_head, merges = g["kind"], g["grid"], g["n_head"], g["merges"]
+        n_rows, n_cols = len(grid), len(t["widths"])
+        if g["unit"]:                                          # 표 위 오른쪽 단위 — 실제 서식처럼
+            self.para(g["unit"], align="END", size=8.5, color=GUIDE_COLOR, above=4, below=2)
         self.flush()
-        grid = rows if kv else [heads] + rows
-        n_rows, n_cols = len(grid), len(columns)
         self.g._batch(self.email, self.doc, [{"insertTable": {"location": {"index": self.cur}, "rows": n_rows, "columns": n_cols}}], self.http)
         r = self.g._read(self.email, self.doc, self.http)
         self.g._raise(r)
@@ -890,8 +1005,8 @@ class _Builder:
             for ci, cell in enumerate(row["tableCells"]):
                 txt = grid[ri][ci] if ci < len(grid[ri]) else ""
                 if txt:
-                    fills.append((int(cell["content"][0]["startIndex"]), txt, ri, ci))
-        reqs = [{"insertText": {"location": {"index": i}, "text": t}} for i, t, _r, _c in sorted(fills, reverse=True)]
+                    fills.append((int(cell["content"][0]["startIndex"]), txt))
+        reqs = [{"insertText": {"location": {"index": i}, "text": x}} for i, x in sorted(fills, reverse=True)]
         if reqs:
             self.g._batch(self.email, self.doc, reqs, self.http)
         pt = lambda v: {"magnitude": v, "unit": "PT"}
@@ -899,47 +1014,49 @@ class _Builder:
         loc = lambda r0, c0, rs, cs: {"tableCellLocation": {"tableStartLocation": {"index": ts}, "rowIndex": r0, "columnIndex": c0},
                                       "rowSpan": rs, "columnSpan": cs}
         cell_style = lambda rng, st, f: {"updateTableCellStyle": {"tableRange": rng, "tableCellStyle": st, "fields": f}}
+        bg = lambda c: {"backgroundColor": {"color": {"rgbColor": c}}}
         style: list[dict] = []
-        for ci, w in enumerate(fit_widths([r[0] for r in rows] if kv else heads, widths, kv=kv)):
+        for ci, w in enumerate(fit_widths(g["width_heads"], t["widths"], kv=(kind == "kv"))):
             style.append({"updateTableColumnProperties": {
                 "tableStartLocation": {"index": ts}, "columnIndices": [ci],
                 "tableColumnProperties": {"widthType": "FIXED_WIDTH", "width": pt(w)}, "fields": "widthType,width"}})
-        # 모든 칸 — 가는 회색 선, 안쪽 여백, 세로 가운데
-        style.append(cell_style(loc(0, 0, n_rows, n_cols),
+        style.append(cell_style(loc(0, 0, n_rows, n_cols),          # 모든 칸 — 가는 회색 선, 안쪽 여백, 세로 가운데
                                 {"borderTop": line, "borderBottom": line, "borderLeft": line, "borderRight": line,
                                  "paddingTop": pt(4), "paddingBottom": pt(4), "paddingLeft": pt(5), "paddingRight": pt(5),
                                  "contentAlignment": "MIDDLE"},
                                 "borderTop,borderBottom,borderLeft,borderRight,paddingTop,paddingBottom,paddingLeft,paddingRight,contentAlignment"))
-        labelled = not kv and any(r and r[0] for r in rows)          # 행 이름이 미리 적힌 표(국비·강점·작성 …)
-        if kv:
-            style.append(cell_style(loc(0, 0, n_rows, 1), {"backgroundColor": {"color": {"rgbColor": tint(self.accent, 0.12)}}}, "backgroundColor"))
-        else:
-            style.append(cell_style(loc(0, 0, 1, n_cols), {"backgroundColor": {"color": {"rgbColor": rgb(self.accent)}}}, "backgroundColor"))
-            style.append({"pinTableHeaderRows": {"tableStartLocation": {"index": ts}, "pinnedHeaderRowsCount": 1}})
-            if labelled and n_rows > 1:
-                style.append(cell_style(loc(1, 0, n_rows - 1, 1), {"backgroundColor": {"color": {"rgbColor": LABEL_BG}}}, "backgroundColor"))
-        total_rows = [ri for ri, row in enumerate(grid) if ri > (-1 if kv else 0) and row and row[0].replace(" ", "") in ("합계", "계", "총계")]
-        for ri in total_rows:
-            style.append(cell_style(loc(ri, 0, 1, n_cols), {"backgroundColor": {"color": {"rgbColor": tint(self.accent, 0.14)}}}, "backgroundColor"))
-        data0 = 0 if kv else 1
-        if n_rows > data0:                                     # 빈 행도 채울 칸으로 보이게 — 최소 높이
-            style.append({"updateTableRowStyle": {"tableStartLocation": {"index": ts}, "rowIndices": list(range(data0, n_rows)),
+        if n_head:
+            style.append(cell_style(loc(0, 0, n_head, n_cols), bg(rgb(self.accent)), "backgroundColor"))
+            style.append({"pinTableHeaderRows": {"tableStartLocation": {"index": ts}, "pinnedHeaderRowsCount": n_head}})
+        for (ri, ci) in g["labels"]:
+            style.append(cell_style(loc(ri, ci, 1, 1), bg(tint(self.accent, 0.12) if kind != "grid" else LABEL_BG), "backgroundColor"))
+        for ri in g["totals"]:
+            style.append(cell_style(loc(ri, 0, 1, n_cols), bg(tint(self.accent, 0.14)), "backgroundColor"))
+        if n_rows > n_head:                                    # 빈 행도 채울 칸으로 보이게 — 최소 높이
+            style.append({"updateTableRowStyle": {"tableStartLocation": {"index": ts}, "rowIndices": list(range(n_head, n_rows)),
                                                   "tableRowStyle": {"minRowHeight": pt(20)}, "fields": "minRowHeight"}})
+        for ri, h in (t.get("tall") or {}).items():
+            style.append({"updateTableRowStyle": {"tableStartLocation": {"index": ts}, "rowIndices": [int(ri)],
+                                                  "tableRowStyle": {"minRowHeight": pt(h)}, "fields": "minRowHeight"}})
+        for (r0, c0, rs, cs) in merges:
+            style.append({"mergeTableCells": {"tableRange": loc(r0, c0, rs, cs)}})
         self.g._batch(self.email, self.doc, style, self.http)
-        # 글자·문단 — 표 전체 9.5pt, 머리행은 흰 굵은 글자 가운데, 행 이름·항목 칸은 굵게 가운데, 칸마다 정렬
+        # 글자·문단 — 표 9.5pt, 머리 칸은 흰 굵은 글자 가운데, 라벨·합계 칸은 굵게 가운데, 값 칸은 열마다 정렬
         r = self.g._read(self.email, self.doc, self.http)
         body = self.g.body_content(r.json())
         el = next(e for e in body if e.get("table") and int(e["startIndex"]) == ts)
         ts_end = int(el["endIndex"])
         fx = [{"updateTextStyle": {"range": {"startIndex": ts + 1, "endIndex": ts_end - 1},
                                    "textStyle": {"fontSize": pt(9.5)}, "fields": "fontSize"}}]
-        aligns = ["CENTER", "START"] if kv else [col_align(h, money) for h in heads]
+        labels = set(g["labels"])
         for ri, row in enumerate(el["table"]["tableRows"]):
             for ci, cell in enumerate(row["tableCells"]):
+                if not cell.get("content"):
+                    continue
                 a, b = int(cell["content"][0]["startIndex"]), int(cell["content"][-1]["endIndex"])
-                head_cell = (not kv and ri == 0)
-                label_cell = (kv and ci == 0) or (labelled and ci == 0 and ri > 0) or ri in total_rows
-                al = "CENTER" if head_cell or (label_cell and ci == 0) else aligns[ci]
+                head_cell = ri < n_head
+                label_cell = (ri, ci) in labels or ri in g["totals"]
+                al = "CENTER" if head_cell or label_cell else g["aligns"][ci]
                 fx.append({"updateParagraphStyle": {"range": {"startIndex": a, "endIndex": b},
                                                     "paragraphStyle": {"alignment": al, "lineSpacing": 120,
                                                                        "spaceAbove": pt(0), "spaceBelow": pt(0)},
@@ -1022,8 +1139,13 @@ def render(email: str, doc: str, spec: dict, http=None, titled: bool = False, fi
         elif "p" in blk:
             b.para(blk["p"])
         elif "table" in blk:
-            t = blk["table"]
-            b.table(t["columns"], t["rows"], t["widths"])
+            b.table(blk["table"])
+        elif "sign" in blk:                                    # 제출 문구 — 가운데 문구·날짜, 오른쪽 기관장(직인)
+            lines = blk["sign"]
+            for i, line in enumerate(lines):
+                last = i == len(lines) - 1
+                b.para(line, align="END" if last else "CENTER", size=12.5 if last else 11, bold=last or None,
+                       above=36 if i == 0 else (18 if last else 10), below=4)
     b.flush()
     try:                                                       # 바닥글 — 쪽마다 문서 이름(실제 서식처럼). 실패해도 본문은 그대로
         res = gdocs._batch(email, doc, [{"createFooter": {"type": "DEFAULT"}}], http)

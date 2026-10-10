@@ -309,7 +309,8 @@ def bullet_layout(text: str, start: int, font: str = "") -> list[dict]:
 
 GUIDE_PREFIX = "작성 지침 — "                       # 독스 공통 양식(gdocs_templates)의 회색 지침 문단 머리
 TEMPLATE_FONT = "Noto Sans KR"                    # 공통 양식 글꼴(gdocs_templates.FONT 와 같게)
-UNIT_CAPTION = re.compile(r"^\(단위\s*:[^)]*\)$")         # 공통 양식 표 위 오른쪽 「(단위: 백만원)」 — 표에 딸린 말, 본문 아님
+UNIT_CAPTION = re.compile(r"^\(단위\s*:[^)]*\)$|^위와 같이 .*제출합니다\.?$|^20○○\. ○\. ○\.$|.*○ ○ ○\s*\(직인\)$")
+# 공통 양식의 표 위 단위 캡션(「(단위: 백만원)」)과 끝의 제출 문구 자리(날짜·직인 자리 표시) — 양식 글이지 본문이 아니다
 
 
 def _guide_anchor(body: list[dict], info: dict, sec: dict) -> int | None:
