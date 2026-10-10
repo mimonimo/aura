@@ -88,10 +88,14 @@ def push_uploads(db, origins: dict[str, int], cards=None) -> None:
         if did in from_dgx or did in pushed or not sp or sp.startswith("dgx://"):
             continue
         f = Path(sp)
+        if not f.is_absolute():
+            # 문서함은 저장 위치를 저장소 기준 상대 경로로 둔다 — 절대 경로(docs_root)와 견주면 늘 어긋나 업로드 원본이 하나도
+            # DGX 로 가지 않았다(10/10 확인: 10/2 뒤 0건, 프로젝트 만들기로 올린 문서도). 저장소 기준으로 푼다
+            f = ROOT / f
         if not f.is_file():
             continue
         try:
-            rel = str(f.relative_to(docs_root))
+            rel = str(f.resolve().relative_to(docs_root.resolve()))
         except ValueError:
             continue
         todo.append((did, name, rel, f, kind or ""))
