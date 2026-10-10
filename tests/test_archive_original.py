@@ -24,7 +24,7 @@ def test_archive_layout_and_zero_denominator(setup):
     assert "문서함 연결률" in page and "0.0%" in page
     assert "OCR·분석 완료율" in page
     assert page.index('id="archive-search"') < page.index("사업별 보관 현황")
-    assert "원본 열기" in page and "계획서.pdf" in page
+    assert ">열기</a>" in page and "계획서.pdf" in page and "원본 파일을 엽니다" in page
     with app.state.db._conn() as conn:
         conn.execute("DELETE FROM archive_files")
     assert client.get("/archive").status_code == 200
