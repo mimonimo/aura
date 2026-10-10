@@ -67,6 +67,53 @@ def web_links(html: str) -> str:
                   replace, html)
 
 
+_WEB_SOURCE = re.compile(
+    r'<p class="web-citation"><span>\[(\d+)\]</span> <a href="([^"]+)" target="_blank" '
+    r'rel="noopener noreferrer" title="[^"]*">(.*?)</a></p>')
+_MARKER = re.compile(r"\[(\d{1,3})\]")
+
+
+def inline_web_refs(html: str) -> str:
+    """본문의 [n] 표시를 같은 답의 출처 n 과 같은 곳으로 가는 링크로 바꾼다.
+
+    출처 목록은 web_links 가 이미 검사·이스케이프해 둔 줄에서만 읽는다 — 목록에 없는 번호는 글자 그대로 둔다.
+    링크·코드 안과 출처 목록 줄 자체는 건드리지 않는다.
+    """
+    refs = {m[1]: (m[2], m[3]) for m in _WEB_SOURCE.finditer(html)}
+    if not refs:
+        return html
+
+    def replace(match):
+        ref = refs.get(str(int(match[1])))
+        if not ref:
+            return match[0]
+        href, title = ref                      # 둘 다 이미 이스케이프된 값
+        n = int(match[1])
+        return (f'<a class="cite-ref" href="{href}" target="_blank" rel="noopener noreferrer" '
+                f'title="출처 {n} · {title}"><span class="cite-bracket">[</span>{n}'
+                f'<span class="cite-bracket">]</span></a>')
+
+    parts = _TAG.split(html)
+    blocked: list[str] = []
+    for i, part in enumerate(parts):
+        if part.startswith('<'):
+            if part.startswith('<p class="web-citation"'):
+                blocked.append('p')
+                continue
+            tag = re.match(r'<(/?)(a|pre|code|script|style|p)\b', part, re.I)
+            if not tag:
+                continue
+            name = tag[2].lower()
+            if tag[1]:
+                if blocked and blocked[-1] == name:
+                    blocked.pop()
+            elif name != 'p':
+                blocked.append(name)
+        elif not blocked:
+            parts[i] = _MARKER.sub(replace, part)
+    return ''.join(parts)
+
+
 def _targets(sources: list[dict]) -> list[tuple[str, str]]:
     """(문서 이름, 링크) — 긴 이름부터. 짧거나 중복된 이름은 링크하지 않는다."""
     seen: dict[str, str] = {}
@@ -82,7 +129,7 @@ def _targets(sources: list[dict]) -> list[tuple[str, str]]:
 
 def linkify(html: str, sources: list[dict]) -> str:
     """이미 렌더된 HTML 의 글자 부분에서만 문서 이름을 링크로 바꾼다."""
-    html = document_links(web_links(html))
+    html = inline_web_refs(document_links(web_links(html)))
     targets = _targets(sources)
     if not targets:
         return html

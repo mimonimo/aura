@@ -1,4 +1,4 @@
-.chat-doc-editor{display:flex;flex-direction:column;min-width:0;flex:0 0 var(--document-width,60%);border-right:1px solid var(--line);background:#f6f7f9;height:100%}.chat-doc-editor header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px;background:white;border-bottom:1px solid var(--line)}.chat-doc-editor strong{flex:1;min-width:120px;font-size:14px;overflow-wrap:anywhere}.chat-doc-editor header button,.chat-doc-editor header a{font-size:12px}.chat-doc-editor iframe{flex:1;min-height:0;width:100%;border:0}.chat-doc-editor label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}.chat-doc-editor input[type=range]{width:90px}.chat-doc-open #chatWorkspace{padding:16px;flex:1;min-width:300px}.chat-doc-open .chat-workspace-head{flex-wrap:wrap;gap:10px}.chat-doc-open .chat-head-actions{flex-wrap:wrap}.chat-doc-open .chat-dock-footer{flex-wrap:wrap}.chat-doc-open .msg{max-width:100%}.chat-doc-open #chatAside:not(.closed){position:fixed;right:0;top:64px;bottom:0;z-index:45;max-width:90vw}
+.chat-doc-editor{display:flex;flex-direction:column;min-width:0;flex:0 0 var(--document-width,60%);border-right:1px solid var(--line);background:#f6f7f9;height:100%}.chat-doc-editor header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px;background:white;border-bottom:1px solid var(--line)}.chat-doc-editor strong{flex:1;min-width:120px;font-size:14px;overflow-wrap:anywhere}.chat-doc-editor header button,.chat-doc-editor header a{font-size:12px}.chat-doc-editor iframe{flex:1;min-height:0;width:100%;border:0}.chat-doc-editor label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}.chat-doc-editor input[type=range]{width:90px}.chat-doc-open #chatWorkspace{flex:1;min-width:300px}.chat-doc-open .chat-dock-footer{flex-wrap:wrap}.chat-doc-open .msg{max-width:100%}.chat-doc-open #chatAside:not(.closed){position:fixed;right:0;top:64px;bottom:0;z-index:45;max-width:90vw}
 .chat-doc-editor[hidden]{display:none!important}
 .chat-doc-viewport{position:relative;flex:1;min-height:0;overflow:hidden;background:#f6f7f9}
 .chat-doc-files{padding:16px;overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:10px;font-size:13px}
@@ -20,8 +20,16 @@
 }
 .chat-doc-dialog{width:min(540px,calc(100vw - 28px));box-sizing:border-box;max-height:85dvh;overflow:auto;border:1px solid var(--line);border-radius:16px;padding:24px;color:var(--ink)}.chat-doc-dialog::backdrop{background:#15243c66}.chat-doc-dialog h2{margin:0 0 20px;font-size:20px}.chat-doc-dialog form{display:grid;gap:16px}.chat-doc-dialog label{display:grid;gap:8px;font-size:13px}.chat-doc-dialog :is(input,select,textarea){width:100%;box-sizing:border-box;min-width:0;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit}.chat-doc-dialog select{padding-right:32px}.chat-doc-dialog textarea{min-height:160px;resize:vertical;max-height:35dvh}.chat-doc-dialog footer{display:flex;gap:10px;justify-content:flex-end}.chat-doc-dialog [role=status]{font-size:13px;color:var(--muted);line-height:1.7}.chat-doc-dialog [hidden]{display:none!important}.chat-doc-dialog [data-confirmation]{padding:12px;border:1px solid var(--line);border-radius:8px}.chat-doc-note{padding:10px 14px;font-size:12px;background:#fff;line-height:1.6}
 @media(max-width:950px){main.chat-doc-open{flex-direction:column;overflow-y:auto;height:auto;min-height:calc(100dvh - 64px)}.chat-doc-editor{flex:none;height:55dvh;min-height:360px;border-right:0;border-bottom:1px solid var(--line)}.chat-doc-open #chatWorkspace{flex:none;min-width:0;height:75dvh;min-height:500px}.chat-doc-editor label{display:none}}
-/* 패널 전환/드래그 때 본문이 좌우로 쓸리지 않도록 폭은 즉시 적용한다. */
-main>#chatWorkspace,main>.chat-doc-editor{transition:none}
+/* 패널 여닫기 — 대화 칸 폭만 부드럽게 줄이고 늘린다. 문서 칸은 목표 폭 그대로 오른쪽에 있어
+   대화 칸이 줄어드는 만큼 밀려 들어온다(밖으로 넘친 부분은 main 이 가린다). 드래그 중에는 즉시 적용. */
+main>.chat-doc-editor{transition:none}
+@media(min-width:951px){
+ main:has(>#chatWorkspace){overflow:hidden}
+ main>#chatWorkspace{flex:0 0 100%;width:100%;min-width:0;box-sizing:border-box;transition:flex-basis .26s var(--ease,ease),width .26s var(--ease,ease)}
+ main.chat-doc-open.chat-doc-closing>#chatWorkspace{flex-basis:100%;width:100%}
+ main.chat-doc-resizing>#chatWorkspace{transition:none}
+}
+@media(prefers-reduced-motion:reduce){main>#chatWorkspace{transition:none!important}}
 
 /* 문서함 목록의 플랫폼 문서 구역 */
 .chat-doc-group{margin:10px 0 4px;font-size:12px;color:var(--faint)}
