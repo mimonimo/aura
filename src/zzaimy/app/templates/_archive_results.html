@@ -17,7 +17,7 @@
     <span class="ar-size">{{ f.size_label }}</span>
     <div class="ar-btns" role="group" aria-label="{{ f.name }} 열람">
       {% if f.can_open %}<a class="btn" href="/archive/original?rel={{ f.rel|urlencode }}" target="_blank" rel="noopener">열기</a>{% else %}<span class="ar-locked" title="미연결 원본의 열람은 개발자 확인이 필요합니다">열람 권한 필요</span>{% endif %}
-      {% if f.doc_id %}<a class="btn secondary" href="/doc/{{ f.doc_id }}">문서 보기</a>{% endif %}
+      {% if f.doc_id %}<a class="btn secondary" href="/doc/{{ f.doc_id }}">문서 보기</a>{% else %}<span class="ar-slot" aria-hidden="true"></span>{% endif %}
       <button class="btn secondary" type="button" data-copy="{{ f.rel }}" hidden>경로 복사</button>
     </div>
   </li>{% endfor %}
