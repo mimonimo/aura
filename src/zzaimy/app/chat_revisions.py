@@ -118,6 +118,9 @@ def install_routes(app, db, store, schedule_answer, is_running, inbox, allowed_e
             stored = inbox / f'chat_{uuid.uuid4().hex}{suffix}'
             with stored.open('wb') as output:
                 shutil.copyfileobj(attachment.file, output)
+        from zzaimy.app.responder import normalize_input
+
+        question = normalize_input(question).strip()      # 전각 입력 정리 — 새 질문과 같은 규칙
         try:
             question, stored, criteria = store.edit(
                 session_id, message_id, request.state.user, question, expected_content,
