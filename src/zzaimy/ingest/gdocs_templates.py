@@ -594,6 +594,22 @@ SOURCES = {
         "1. 연차별 집행 현황": "예산 집행 내역·정산 자료",
         "2. 교육과정 운영 실적": "학사 운영 기록·이수 현황",
         "5. 제도 개선·규정 정비 실적": "규정 개정 공포·회의록",
+        "1. 비전·목표와 추진 개요": "이번 연차 계획서의 비전·목표·추진 전략, 지난 연차 실적보고서의 같은 절",
+        "나. 성과와 계획 대비 달성": "이번 연차 계획서의 과제 목표·성과지표, 단위 프로그램 결과보고서의 실적",
+        "다. 미흡 사항과 개선 방안": "자체평가 보고서·운영위원회 회의록, 단위 프로그램 결과보고서의 개선 사항(CQI)",
+        "라. 지자체·기관 연계 실적": "지자체 협약서·연계 사업 결과보고서·공문",
+        "3. 산학협력·협약기업 연계 실적": "협약서, 현장실습·공동연구·기술지도 실적 대장",
+        "4. 학생 지원·취창업 실적": "취업 통계(공시 기준일), 학생 지원 프로그램 결과보고서",
+        "2. 자체평가": "자체평가 보고서·자체평가위원회 회의록",
+        "3. 미달 지표의 원인과 대책": "성과지표 실적 자료, 자체평가 보고서, 운영위원회 회의록",
+        "2. 추진 과제별 집행 현황": "과제별 예산·집행 내역(정산 자료)",
+        "3. 비목별 집행 현황": "비목별 집행 내역·정산 자료, 예산 편성·집행 지침",
+        "4. 집행 관리의 적절성": "집행 점검·정산 결과와 지적 사항 조치 공문",
+        "1. 사업단 조직·운영 실적": "사업단 조직표·직제 규정, 위원회 회의록",
+        "2. 성과관리·환류 실적": "자체평가 보고서·성과관리 회의록, 차년도 계획서의 반영 내용",
+        "3. 구성원·이해관계자 의견 수렴": "만족도 설문 결과, 간담회 회의록",
+        "Ⅵ. 환경 변화 대응 및 평가·컨설팅 결과 반영": "지난 연차 평가 결과 통보·컨설팅 보고서의 지적 사항, 조치 공문",
+        "Ⅶ. 차년도 추진 계획 및 지속가능성": "차년도 계획서, 이번 연차의 미흡 사항(이 보고서 Ⅱ장)",
     },
     "program_plan": {
         "1. 프로그램 개요": "사업단 연차 계획서의 해당 과제·예산 과목",
@@ -979,7 +995,7 @@ class _Builder:
 
     def para(self, text: str, style: str = "NORMAL_TEXT", guide: bool = False, center: bool = False, align: str = "",
              size: float | None = None, bold: bool | None = None, color: dict | None = None, above: float | None = None,
-             below: float | None = None, box: str = "") -> None:
+             below: float | None = None, box: str = "", indent: float | None = None) -> None:
         s = self.cur
         self.inserts.append({"insertText": {"location": {"index": s}, "text": text + "\n"}})
         e = s + _u16(text) + 1
@@ -1008,6 +1024,9 @@ class _Builder:
                 self._text(s, s + _u16(GUIDE_PREFIX), None, True, rgb(self.accent))
         if box == "title":                                     # 표지 제목 상자 — 위 굵은 선, 아래 가는 선
             ps.update({"borderTop": border(2.5, 12), "borderBottom": border(0.75, 12), "lineSpacing": 125})
+        if indent is not None:
+            ps["indentStart"] = pt(indent)
+            ps["indentFirstLine"] = pt(indent)
         if above is not None:
             ps["spaceAbove"] = pt(above)
         if below is not None:
@@ -1131,6 +1150,11 @@ def build(email: str, spec: dict, folder_id: str | None = None, http=None, repla
     return {"id": doc, "url": f"https://docs.google.com/document/d/{doc}/edit", "title": title}
 
 
+def toc_lines(spec: dict) -> list[tuple[int, str]]:
+    """목차 줄 — 장(HEADING_1)과 절(HEADING_2). 자리 표시 묶음(「1. (추진 과제 1) ○○○○」)도 그대로 둔다(복사해 쓰는 단위)."""
+    return [(b["h"], b["text"]) for b in spec["blocks"] if "h" in b and b["h"] <= 2]
+
+
 def render(email: str, doc: str, spec: dict, http=None, titled: bool = False, fill: dict | None = None) -> None:
     """사양을 이미 있는 (빈) 독스 문서 끝에 깐다 — 쪽 모양·표지·절·지침·표. 초안 대화가 만든 문서에도 쓴다.
 
@@ -1173,6 +1197,14 @@ def render(email: str, doc: str, spec: dict, http=None, titled: bool = False, fi
         b.para(GUIDE_PREFIX + spec["intro"], guide=True)
     if full:
         b.page_break()
+        toc = toc_lines(spec)
+        if toc:                                                # 목차 쪽 — 실제 계획서처럼. 제목 스타일이 아닌 문단이라 절 구조로 읽히지 않는다
+            b.para("목  차", center=True, size=16, bold=True, color=rgb(accent), above=24, below=18)
+            for level, text in toc:
+                b.para(text, size=11 if level == 1 else 10, bold=(level == 1) or None,
+                       color=dark if level == 1 else None, above=10 if level == 1 else 2, below=2,
+                       indent=0 if level == 1 else 16)
+            b.page_break()
     for blk in spec["blocks"]:
         if "h" in blk:
             b.para(blk["text"], f"HEADING_{blk['h']}")
