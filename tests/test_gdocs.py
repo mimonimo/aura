@@ -1573,3 +1573,12 @@ def test_replacing_guide_text_becomes_insert():
     got = _guide_replace_to_insert(ops, info, {"index": 2})
     assert [o["op"] for o in got] == ["insert", "insert", "replace"] and got[0]["section"] == 2
     assert _guide_replace_to_insert(ops[:1], info, None) == []                     # 넣을 절을 모르면 버린다
+
+
+def test_total_written_on_other_row_moves_to_template_total_row():
+    first = ["구분", "", "", "", "합계"]
+    cells = [{"row": 1, "col": 0, "text": "합계"}, {"row": 1, "col": 2, "text": "101"}, {"row": 2, "col": 0, "text": "영남이공대"}]
+    got = gdocs.redirect_total_row(cells, first)
+    assert {"row": 4, "col": 2, "text": "101"} in got and not any(c["row"] == 1 for c in got)
+    assert {"row": 2, "col": 0, "text": "영남이공대"} in got
+    assert gdocs.redirect_total_row(cells, ["구분", "", ""]) == cells          # 합계 행이 없는 표는 그대로

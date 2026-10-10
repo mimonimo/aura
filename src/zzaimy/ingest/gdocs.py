@@ -620,6 +620,43 @@ def render_table_grids(grids: list[dict], max_rows: int = 40) -> str:
     return "\n".join(lines)
 
 
+_TOTAL = ("합계", "계", "총계")
+
+
+def _first_cell_text(row: dict) -> str:
+    tcs = row.get("tableCells") or []
+    if not tcs:
+        return ""
+    return "".join(_para_text(e["paragraph"]) for e in tcs[0].get("content", []) if "paragraph" in e).strip()
+
+
+def redirect_total_row(cells: list[dict], first_col: list[str]) -> list[dict]:
+    """양식에 「합계」 행이 이미 있는데 다른 행 첫 칸에 「합계」를 써 넣으면 그 행의 값을 양식의 합계 행으로 옮긴다
+    (10/10 시험: 참여 현황 첫 행에 「합계 | 101」, 양식의 합계 행은 빈 채). 합계 행이 없거나 그 행이면 그대로."""
+    totals = [i for i, t in enumerate(first_col) if t.replace(" ", "") in _TOTAL]
+    if not totals:
+        return cells
+
+    def rc(c):
+        try:
+            return int(c.get("row")), int(c.get("col"))
+        except (TypeError, ValueError):
+            return None, None
+    move = {r for c in cells for r, col in [rc(c)] if col == 0 and r is not None and r not in totals
+            and str(c.get("text") or "").replace(" ", "") in _TOTAL}
+    if not move:
+        return cells
+    out = []
+    for c in cells:
+        r, col = rc(c)
+        if r in move:
+            if col == 0:
+                continue                                # 합계 이름은 양식에 이미 있다
+            c = dict(c, row=totals[-1])
+        out.append(c)
+    return out
+
+
 def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: list[dict], *, user: str, data_dir: Path,
                scrub=None, http=None) -> dict:
     """절의 n 번째 양식 표의 칸에 값을 넣는다(cells = [{row, col, text}], 0부터). 칸에 글이 있으면 바꾼다.
@@ -635,6 +672,7 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         raise ValueError(f"절에 표 {table_n} 이 없습니다(표 {len(tables)}개)")
     rows = t["el"]["table"].get("tableRows", [])
     covered = _covered_cells(t["el"]["table"])
+    cells = redirect_total_row(cells, [_first_cell_text(r) for r in rows])
     edits: list[tuple[int, int, str]] = []          # (start, end(지울 끝, 없으면 start), 글)
     skipped = 0
     seen: set[tuple[int, int]] = set()
