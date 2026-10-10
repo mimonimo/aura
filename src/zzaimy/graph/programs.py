@@ -117,6 +117,20 @@ def _first_year(*texts: str) -> int | None:
     return None
 
 
+# 파일 이름 맨 앞의 맨 연도 — 「2019 기자재 구입계획서」「7.2018 특성화사업 …」「2021(첨부2)…」(clean_title 이 앞머리 연도를 지운다)
+_LEAD_YEAR = re.compile(r"^(?:\d{1,2}[.\s_\-]+)?((?:19|20)\d{2})(?=[\s_\-.(\[]|$)")
+
+
+def file_year(filename: str) -> int | None:
+    """파일 이름이 밝힌 연도 — 「2019년도 …」처럼 표기가 붙은 것, 없으면 맨 앞의 맨 연도. 제목 정리 전 원래 이름으로 본다."""
+    stem = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", re.split(r"[\\/]", filename or "")[-1])
+    y = _first_year(stem)
+    if y:
+        return y
+    m = _LEAD_YEAR.search(stem.strip())
+    return int(m.group(1)) if m and plausible_year(m.group(1)) else None
+
+
 # 본문의 연도 표기 — 「2023학년도」「2024년도」「2025년」(뒤에 「N월」이 오는 날짜는 뺀다)
 _BODY_YEAR = re.compile(r"(?<![\d.])((?:19|20)\d{2})\s*(?:학년도|년도|년)(?!\s*\d{1,2}\s*월)")
 # 연혁 표기 — 기관·기업의 설립 연도는 사업 수행 연도가 아니다(「1968년 개교」「2010년 3월 설립」「연혁: 2005년 …」)
@@ -499,7 +513,7 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
             a.evidence = ["사업명 언급을 찾지 못함"]
         m = _ROUND.search(title) or _ROUND.search(head[:600])
         a.round = int(m.group(1)) if m else None
-        a.year = _first_year(title)
+        a.year = _first_year(title) or file_year(d.get("filename") or "")
         a.year_src = "title" if a.year else ""
         if a.year is None:
             a.year = body_year(head[:600], _YEAR)
