@@ -937,6 +937,10 @@ def col_align(head: str, money: bool) -> str:
     return "START"
 
 
+def _para_plain(p: dict) -> str:
+    return "".join(x.get("textRun", {}).get("content", "") for x in p.get("elements", []))
+
+
 def _leaf_heads(head: list[list[str]], merges=()) -> list[str]:
     """열마다 가장 아래 머리말(가로로 여러 열을 덮는 위 머리말은 빼고) — 칸 폭·정렬의 기준."""
     wide = {(r, c) for (r, c, _rs, cs) in merges if cs > 1}
@@ -1030,7 +1034,8 @@ class _Builder:
             self._text(s, e - 1, 11, True, {"red": 0.18, "green": 0.2, "blue": 0.23})
         if guide and text:                                     # 작성 지침 — 옅은 상자·왼쪽 띠(기울임 없음: 한글 기울임은 억지로 비틀어 읽기 어렵다)
             ps.update({"shading": {"backgroundColor": {"color": {"rgbColor": tint(self.accent, 0.06)}}},
-                       "borderLeft": border(3, 8), "indentStart": pt(4), "lineSpacing": 135, "spaceAbove": pt(2), "spaceBelow": pt(8)})
+                       "borderLeft": border(3, 8), "indentStart": pt(4), "indentFirstLine": pt(4), "lineSpacing": 135,
+                       "spaceAbove": pt(2), "spaceBelow": pt(6), "keepWithNext": True})   # 지침은 뒤따르는 본문·표와 같은 쪽에
             self._text(s, e - 1, 8.5, False, GUIDE_COLOR)
             if text.startswith(GUIDE_PREFIX):
                 self._text(s, s + _u16(GUIDE_PREFIX), None, True, rgb(self.accent))
@@ -1075,6 +1080,18 @@ class _Builder:
         body = self.g.body_content(r.json())
         el = next(e for e in body if e.get("table") and int(e["startIndex"]) >= self.cur - 1)
         ts = int(el["startIndex"])
+        # 독스가 표 앞에 만드는 빈 문단 — 지침 상자와 표 사이에 한 줄 틈이 생기고, 제목·지침만 쪽 끝에 남았다(독스 화면 확인 10/10).
+        # 아주 낮게 하고 다음(표)과 같은 쪽에 두게 한다
+        prev = next((e for e in body if "paragraph" in e and int(e.get("endIndex", 0)) == ts), None)
+        if prev is not None and not _para_plain(prev["paragraph"]).strip():
+            a, b_ = int(prev["startIndex"]), int(prev["endIndex"])
+            self.g._batch(self.email, self.doc, [
+                {"updateParagraphStyle": {"range": {"startIndex": a, "endIndex": b_},
+                                          "paragraphStyle": {"spaceAbove": {"magnitude": 0, "unit": "PT"}, "spaceBelow": {"magnitude": 0, "unit": "PT"},
+                                                             "lineSpacing": 100, "keepWithNext": True},
+                                          "fields": "spaceAbove,spaceBelow,lineSpacing,keepWithNext"}},
+                {"updateTextStyle": {"range": {"startIndex": a, "endIndex": b_}, "textStyle": {"fontSize": {"magnitude": 1, "unit": "PT"}},
+                                     "fields": "fontSize"}}], self.http)
         fills = []
         for ri, row in enumerate(el["table"]["tableRows"]):
             for ci, cell in enumerate(row["tableCells"]):
