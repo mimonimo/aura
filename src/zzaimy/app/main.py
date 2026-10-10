@@ -2756,10 +2756,37 @@ def create_app(
         raw = db.get_setting(f"chat_google_doc:{session_id}", "") or "{}"
         return {"ok": True, "linked": _aj.loads(raw)}
 
+    _VIEW_JOBS: dict[int, dict] = {}                       # 문서 → 구글 열람본 만들기 상태(running·done·error)
+
+    def _make_google_view(doc: dict, email: str, folder: str) -> dict:
+        from zzaimy.ingest import gdrive_files
+
+        temp = None
+        try:
+            src = doc
+            if not (db.get_setting(f"doc_google:{doc['id']}", "") or ""):      # 이미 만든 열람본이면 원본을 받을 필요가 없다
+                path, is_temp = _original_file(doc)
+                temp = path if is_temp else None
+                ext = Path(doc["filename"] or "").suffix.lower()
+                if is_temp and ext:                                            # 변환기는 확장자로 형식을 고른다
+                    named = path.with_suffix(ext)
+                    path.replace(named)
+                    path = temp = named
+                src = dict(doc, stored_path=str(path))
+            return gdrive_files.google_copy(db, src, email, folder)
+        finally:
+            if temp is not None:
+                Path(temp).unlink(missing_ok=True)
+
     @app.get("/doc/{doc_id}/view")
     def doc_view(request: Request, doc_id: int):
         """문서를 구글에서 연다 — 엑셀·PPT·워드는 시트·슬라이드·독스, 한글은 복원 docx→독스, PDF·그림은 드라이브 미리보기.
-        열람본이 없으면 지금 만든다. 허용 계정이 없으면 플랫폼 문서 화면으로."""
+        열람본이 있으면 바로 넘기고, 없으면 뒤에서 만들며 기다림 화면을 준다 — 큰 한글 파일은 원본 받기·변환·올리기에 몇 분이 걸려
+        한 요청 안에서 만들면 브라우저가 끝없이 도는 것처럼 보였다(10/10). 허용 계정이 없으면 플랫폼 문서 화면으로."""
+        import html as _html
+        import json as _vj
+        import threading as _vt
+
         from zzaimy.ingest import gdrive_files
 
         doc = db.get_document(doc_id)
@@ -2772,29 +2799,48 @@ def create_app(
             return RedirectResponse(f"/doc/{doc_id}?view=local", status_code=303)
         if not _visible(doc, **_doc_scope(request)):
             raise HTTPException(404)
-        project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
-        temp = None
-        try:
-            folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
-            src = doc
-            if not (db.get_setting(f"doc_google:{doc_id}", "") or ""):          # 이미 만든 열람본이면 원본을 받을 필요가 없다
-                path, is_temp = _original_file(doc)
-                temp = path if is_temp else None
-                ext = Path(doc["filename"] or "").suffix.lower()
-                if is_temp and ext:                                            # 변환기는 확장자로 형식을 고른다
-                    named = path.with_suffix(ext)
-                    path.replace(named)
-                    path = temp = named
-                src = dict(doc, stored_path=str(path))
-            made = gdrive_files.google_copy(db, src, email, folder)
-        except (FileNotFoundError, RuntimeError, ValueError) as e:
-            return RedirectResponse(f"/doc/{doc_id}?msg=" + _q(f"구글 열람본을 만들지 못했습니다 — {e}"), status_code=303)
-        except Exception as e:
-            return RedirectResponse(f"/doc/{doc_id}?view=local&err={type(e).__name__}", status_code=303)
-        finally:
-            if temp is not None:
-                Path(temp).unlink(missing_ok=True)
-        return RedirectResponse(made["url"], status_code=303)
+        saved = db.get_setting(f"doc_google:{doc_id}", "") or ""
+        if saved:
+            try:
+                url = _vj.loads(saved).get("url")
+                if url:
+                    return RedirectResponse(url, status_code=303)
+            except ValueError:
+                pass
+        job = _VIEW_JOBS.get(doc_id)
+        if not job or job.get("state") == "error":
+            project = db.get_project(int(doc["project_id"])) if doc.get("project_id") else None
+            job = _VIEW_JOBS[doc_id] = {"state": "running", "url": "", "msg": ""}
+
+            def work():
+                try:
+                    folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
+                    made = _make_google_view(doc, email, folder)
+                    job.update(state="done", url=made["url"])
+                except (FileNotFoundError, RuntimeError, ValueError) as e:
+                    job.update(state="error", msg=f"구글 열람본을 만들지 못했습니다 — {e}")
+                except Exception as e:
+                    job.update(state="error", msg=f"구글 열람본을 만들지 못했습니다({type(e).__name__})")
+            _vt.Thread(target=work, daemon=True).start()
+        name = _html.escape(doc.get("filename") or "문서")
+        return HTMLResponse(f"""<!doctype html><meta charset="utf-8"><title>구글 열람본 만드는 중</title>
+<body style="font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;height:90vh;color:#263850">
+<div style="max-width:520px;text-align:center"><p style="font-size:17px;font-weight:600">구글에서 열 준비를 하고 있습니다</p>
+<p style="color:#65758A;font-size:14px;line-height:1.7">「{name}」<br>원본을 받아 구글 문서로 바꾸는 중입니다. 큰 한글 파일은 몇 분 걸릴 수 있습니다.</p>
+<p id="st" style="color:#65758A;font-size:13px">0초</p><p id="err" style="color:#b42318;font-size:14px"></p>
+<p><a href="/doc/{doc_id}" style="color:#1f3a5f">문서 보기로 돌아가기</a></p></div>
+<script>var t=0;function tick(){{t+=2;fetch('/doc/{doc_id}/view/status').then(r=>r.json()).then(j=>{{
+if(j.state==='done'&&j.url){{location.replace(j.url);return}}
+if(j.state==='error'){{document.getElementById('err').textContent=j.msg;document.getElementById('st').textContent='';return}}
+document.getElementById('st').textContent=t+'초';setTimeout(tick,2000)}}).catch(()=>setTimeout(tick,4000))}}setTimeout(tick,2000)</script>""")
+
+    @app.get("/doc/{doc_id}/view/status")
+    def doc_view_status(request: Request, doc_id: int):
+        doc = db.get_document(doc_id)
+        if doc is None or not _visible(doc, **_doc_scope(request)):
+            raise HTTPException(404)
+        job = _VIEW_JOBS.get(doc_id) or {"state": "none"}
+        return {"state": job.get("state"), "url": job.get("url", ""), "msg": job.get("msg", "")}
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request, err: int = 0):
