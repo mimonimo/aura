@@ -605,7 +605,9 @@ def render_table_grids(grids: list[dict], max_rows: int = 40) -> str:
     """표 격자를 모델이 읽을 글로 — 보이는 칸만 [c열] 번호와 함께, 빈 칸은 '_'. 병합에 덮인 칸은 적지 않는다(넣어도 안 보인다)."""
     if not grids:
         return ""
-    lines = ["[이 절에 이미 있는 양식 표 — 새 표를 만들지 말고 fill 로 빈 칸(_)에 값을 넣는다. row 는 r번호, col 은 칸 앞의 [c번호]만 쓴다]"]
+    lines = ["[이 절에 이미 있는 양식 표 — 새 표를 만들지 말고 fill 로 빈 칸(_)에 값을 넣는다. row 는 r번호, col 은 칸 앞의 [c번호]만 쓴다. "
+             "빈 행이 모자라면 자료의 항목을 줄이지 말고 다음 r번호로 이어 쓴다(행 이름 칸을 함께 — 합계 행 위에 행이 늘어난다). "
+             "합계 행은 이름 칸은 두고 값 칸만 채운다]"]
     for g in grids:
         rows = g["rows"]
         covered = g.get("covered") or set()
