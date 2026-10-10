@@ -185,6 +185,7 @@ class AgentResponder:
 
         # 범위(부서·역할)는 검색 단계에서 자른다 — 범위 밖 조각은 모델에게 건네지지 않는다(절대 규칙 4)
         scope = scope or {}
+        question = normalize_input(question)
 
         self.last_sources = []
         if on_progress:
