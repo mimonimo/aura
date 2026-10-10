@@ -36,6 +36,11 @@ def bundle_key(program: str, year=None, round_=None) -> tuple[str, str]:
         return f"{UNCLASSIFIED}|?", "사업 미분류 (검토 대기)"
     prog = program
     y, r = str(year or "").strip(), str(round_ or "").strip()
+    from zzaimy.graph.programs import plausible_year
+    if y and not plausible_year(y):       # 「1968년」 같은 연혁 숫자가 장부에 남아 있어도 묶음 연도·이름으로 쓰지 않는다
+        y = ""
+    if r and not (r.isdigit() and 1 <= int(r) <= 20):
+        r = ""
     if y and r:
         return f"{prog}|{y}", f"{y}년 {{name}} ({r}차년도)"
     if y:
