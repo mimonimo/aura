@@ -103,6 +103,17 @@ def test_browse_sort_and_grouping(tmp_path):
     assert project_refs.browse(db, None, q="사업 가")["total"] == 2              # 낱말마다(순서 무관)
 
 
+def test_browse_matches_program_alias(tmp_path):
+    db = Database(tmp_path / "t.db")
+    made = _bundles(db)
+    from zzaimy.graph import kg_store
+    kg_store.ensure(db)
+    with db._conn() as conn:
+        kg_store.put_node(conn, "program:a", "program", "가 사업(GA 3.0)", {"acronyms": ["GAX"]})
+    assert {it["id"] for it in project_refs.browse(db, None, q="GA3.0")["items"]} == {made["program:a|r3"], made["program:a|2024"]}
+    assert project_refs.browse(db, None, q="gax")["total"] == 2               # 약칭도
+
+
 def test_archived_page_filters_chips_and_groups(tmp_path):
     app = _app(tmp_path)
     db = app.state.db
