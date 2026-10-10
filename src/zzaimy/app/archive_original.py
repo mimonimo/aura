@@ -9,6 +9,11 @@ from pathlib import Path, PurePosixPath
 from threading import BoundedSemaphore
 
 MAX_BYTES = 100_000_000
+
+
+def transfer_timeout(size: int) -> int:
+    """받기 제한 시간 — 45초 고정이면 VPN 너머 수십 MB 원본(큰 한글 파일)이 중간에 끊겼다. 1 MB 마다 3초를 더한다."""
+    return 45 + 3 * (max(int(size), 0) // 1_000_000)
 _slots = BoundedSemaphore(2)
 
 
@@ -36,7 +41,7 @@ def fetch(row: dict) -> Path:
                 ["rsync", "-e", rsh, "-t", "--no-links", "--max-size=100000000",
                  "--from0", "--files-from=-", "--", "aura@211.170.162.110:./", directory + "/"],
                 input=rel.encode("utf-8") + b"\0", stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, timeout=45, check=True,
+                stderr=subprocess.PIPE, timeout=transfer_timeout(size), check=True,
             )
             downloaded = Path(directory) / rel
             if (not downloaded.is_file() or downloaded.is_symlink()
