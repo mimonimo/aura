@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
-# 파서(TASK-04) — 무겁다. 파싱을 돌리는 장비에만 설치해도 된다
+# 파서 — 무겁다. 파싱을 돌리는 장비에만 설치해도 된다
 parsers = [
     "mineru[core]>=2.0",
     "python-hwpx==6.3.0",
@@ -38,6 +38,9 @@ app = [
     "openai>=1.40",
     "rdflib>=7.1,<8",   # 온톨로지 OWL·RDF 내보내기(ADR-0056)
     "pyshacl>=0.30",    # SHACL 검사
+    "kiwipiepy>=0.20",  # 어휘 색인 형태소 분석
+    "openpyxl>=3.1",    # 엑셀 추출
+    "python-pptx>=1.0", # 파워포인트 추출
 ]
 dev = [
     "pytest>=8.0",

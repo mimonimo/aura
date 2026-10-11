@@ -101,7 +101,7 @@ Python 3.12가 필요하다. 저장소 루트에서 실행한다.
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/pip install -e ".[app,postgres,dev]" kiwipiepy openpyxl python-pptx
+.venv/bin/pip install -e ".[app,postgres,dev]"
 cp .env.example .env.local
 set -a; . ./.env.local; set +a; .venv/bin/python -m zzaimy.app.main
 ```
