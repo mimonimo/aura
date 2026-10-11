@@ -5,6 +5,10 @@
 - 후보: 질의 명사 가운데 하나라도 든 조각(열람 권한·사업 범위는 SQL 에서)
 - df: 명사마다 그 명사가 든 조각 수(색인으로 센다), n: 색인된 조각 수
 색인 갱신은 임베딩 색인과 같은 주기(170 --index)에서 sync() 로 — 새 조각은 더하고 지워진 조각은 뺀다.
+
+낱말은 lex_terms 하나로 뽑는다(색인과 질의 모두). Kiwi 가 띄어 쓴 꼴로 내는 복합 명사(「부트 캠프」)는 붙여 쓰고,
+영문 약칭(RISE·AID·LINC)은 명사 태그가 아니어도 넣고, 전각 글자(ＡＩＤ)는 반각으로, 영문은 소문자로 맞춘다.
+예전 규칙으로 뽑은 줄(v < LEX_VERSION)은 sync() 가 남는 몫만큼 다시 뽑는다.
 """
 from __future__ import annotations
 
@@ -15,17 +19,43 @@ from zzaimy.app.database_backend import table_names
 TEXT_KINDS = ("text", "table", "image_text")
 _TERM = re.compile(r"^[0-9A-Za-z가-힣]+$")
 CANDIDATE_LIMIT = 4000
+LEX_VERSION = 2
+
+
+def lex_terms(text: str) -> frozenset[str]:
+    """색인·질의 공용 낱말 — 명사(띄어 쓴 복합 명사는 붙여)와 두 글자 이상 영문 낱말, 소문자. 한 낱말 질의도 그대로 찾힌다."""
+    from zzaimy.app.regulations import _get_kiwi, extract_nouns
+    from zzaimy.app.responder import normalize_input
+
+    t = normalize_input(text or "")[:4000]
+    try:
+        toks = [(x.form, x.tag) for x in _get_kiwi().tokenize(t)]
+        raw = {f for f, tag in toks if tag.startswith("NN") or tag == "SL"}
+    except Exception:
+        raw = set(extract_nouns(t))
+    out = {re.sub(r"\s+", "", f).lower() for f in raw}
+    return frozenset(w for w in out if len(w) >= 2 and _TERM.match(w))
 
 
 def _pg(conn) -> bool:
     return getattr(conn, "dialect", "") == "postgres"
 
 
+def _has_version(conn) -> bool:
+    if _pg(conn):
+        return bool(conn.execute("SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema()"
+                                 " AND table_name = 'grant_lex' AND column_name = 'v'").fetchone())
+    return any(r[1] == "v" for r in conn.execute("PRAGMA table_info(grant_lex)").fetchall())
+
+
 def ensure(db) -> None:
     with db._conn() as conn:
         if "grant_lex" in table_names(conn):
+            if not _has_version(conn):          # 낱말 규칙 판 — 옛 줄은 1, 다시 뽑으면 LEX_VERSION
+                conn.execute("ALTER TABLE grant_lex ADD COLUMN v INTEGER NOT NULL DEFAULT 1")
             return
-        conn.execute("CREATE TABLE IF NOT EXISTS grant_lex (chunk_id INTEGER PRIMARY KEY, doc_id INTEGER NOT NULL, nouns TEXT NOT NULL)")
+        conn.execute("CREATE TABLE IF NOT EXISTS grant_lex (chunk_id INTEGER PRIMARY KEY, doc_id INTEGER NOT NULL,"
+                     f" nouns TEXT NOT NULL, v INTEGER NOT NULL DEFAULT {LEX_VERSION})")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_grant_lex_doc ON grant_lex (doc_id)")
         if _pg(conn):
             conn.execute("ALTER TABLE grant_lex ADD COLUMN IF NOT EXISTS tsv tsvector "
@@ -36,7 +66,6 @@ def ensure(db) -> None:
 def sync(db, limit: int = 20000) -> dict:
     """색인되지 않은 사업 문서 조각의 명사를 넣고, 문서함에서 사라진 조각은 뺀다. {added, removed, pending}."""
     from zzaimy.app.grant_search import _text
-    from zzaimy.app.regulations import extract_nouns
     ensure(db)
     # 번호만 가져와 차집합으로 — 133만 줄에 NOT IN·LEFT JOIN 을 걸면 쿼리 제한 시간(statement timeout)에 걸린다
     with db._conn() as conn:
@@ -60,11 +89,28 @@ def sync(db, limit: int = 20000) -> dict:
                                 part).fetchall()
             vals = []
             for r in rows:
-                nouns = extract_nouns(_text({"kind": r[2], "content": r[3]}))
-                vals.append((int(r[0]), int(r[1]), " ".join(sorted(t for t in nouns if _TERM.match(t)))))
-            conn.executemany("INSERT INTO grant_lex (chunk_id, doc_id, nouns) VALUES (?, ?, ?) ON CONFLICT (chunk_id) DO NOTHING", vals)
+                vals.append((int(r[0]), int(r[1]), " ".join(sorted(lex_terms(_text({"kind": r[2], "content": r[3]})))), LEX_VERSION))
+            conn.executemany("INSERT INTO grant_lex (chunk_id, doc_id, nouns, v) VALUES (?, ?, ?, ?) ON CONFLICT (chunk_id) DO NOTHING", vals)
         added += len(vals)
-    return {"added": added, "removed": removed, "pending": max(0, len(todo) - limit)}
+    # 옛 규칙으로 뽑은 줄은 남는 몫만큼 다시 뽑는다 — 한 번에 다 하지 않고 주기마다 이어 간다
+    budget = max(0, limit - added)
+    with db._conn() as conn:
+        stale = [int(r[0]) for r in conn.execute("SELECT chunk_id FROM grant_lex WHERE v < ? ORDER BY chunk_id LIMIT ?",
+                                                 (LEX_VERSION, budget)).fetchall()] if budget else []
+        left = int(conn.execute("SELECT COUNT(*) FROM grant_lex WHERE v < ?", (LEX_VERSION,)).fetchone()[0])
+    refreshed = 0
+    for i in range(0, len(stale), 500):
+        part = stale[i:i + 500]
+        with db._conn() as conn:
+            rows = conn.execute(f"SELECT id, kind, content FROM doc_chunks WHERE id IN ({','.join('?' * len(part))})",
+                                part).fetchall()
+            conn.executemany("UPDATE grant_lex SET nouns = ?, v = ? WHERE chunk_id = ?",
+                             [(" ".join(sorted(lex_terms(_text({"kind": r[1], "content": r[2]})))), LEX_VERSION, int(r[0]))
+                              for r in rows])
+        refreshed += len(part)
+    _CACHE.clear()
+    return {"added": added, "removed": removed, "pending": max(0, len(todo) - limit),
+            "refreshed": refreshed, "stale": max(0, left - refreshed)}
 
 
 _CACHE: dict = {}
@@ -105,7 +151,8 @@ def rank(db, query: frozenset[str], scope_docs: set[int] | None = None, user: st
          min_overlap: int = 1, limit: int = CANDIDATE_LIMIT, depts: list[str] | None = None) -> list[int]:
     """질의 명사 → 조각 id 순위(규정 검색과 같은 점수 규칙). 범위(scope_docs)·열람 권한은 후보를 뽑을 때 SQL 로 자른다."""
     from zzaimy.app.regulations import lexical_score
-    terms = sorted(t for t in query if _TERM.match(t))
+    # 질의는 lex_terms 로 뽑아 넘기는 것이 맞다. extract_nouns 결과가 와도 같은 꼴(붙여 쓰기·소문자)로 맞춘다
+    terms = sorted({w for w in (re.sub(r"\s+", "", t).lower() for t in query) if _TERM.match(w)})
     if not terms:
         return []
     acc, acc_args = _access_sql(user, depts)

@@ -3106,7 +3106,7 @@ def create_app(
                 ids = []
                 if space.get("grant"):
                     user = None if request.state.role == "dev" else (request.state.user or "")
-                    ids = grant_lex.rank(db, extract_nouns(term), None, user, limit=60, depts=space.get("grant_depts"))
+                    ids = grant_lex.rank(db, grant_lex.lex_terms(term), None, user, limit=60, depts=space.get("grant_depts"))
                 body_hits = grant_search.chunks_by_ids(db, ids[:60])
                 order = {cid: i for i, cid in enumerate(ids)}
                 body_hits.sort(key=lambda h: order.get(h["id"], 1 << 30))

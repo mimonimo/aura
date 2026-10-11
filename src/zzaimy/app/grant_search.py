@@ -433,19 +433,20 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         steps.append(f"[참조 보관 사업] 프로젝트가 참조한 과거 사업 문서 {len(scope_docs)}건에서 먼저 찾는다")
     from zzaimy.app import grant_lex
     query = extract_nouns(question)
+    lq = grant_lex.lex_terms(question)          # 색인과 같은 규칙(영문 약칭·붙여 쓴 복합 명사)
     have, want = grant_lex.coverage(db)
     if want and have >= 0.5 * want:
         # 색인 경로 — 후보 조각만 읽는다(범위·열람 권한은 SQL 에서). 색인에 아직 없는 새 조각은 임베딩 축이 찾는다.
         # 기준을 높게 잡으면 새 문서가 들어오는 동안 옛 경로(조각 전체 읽기)로 물러나 검색이 수십 초로 느려진다
-        lex = grant_lex.rank(db, query, scope_docs, user, depts=depts) if query else []
+        lex = grant_lex.rank(db, lq, scope_docs, user, depts=depts) if lq else []
         den = dense_ids(question, None, scope_docs=scope_docs, user=user, db=db, depts=depts)
         if not lex and not den and program_docs and scope_docs is not None and scope_docs != program_docs:
             steps.append("좁힌 문서에서 맞는 조각이 없어 그 사업 문서 전체에서 찾는다")
-            lex = grant_lex.rank(db, query, program_docs, user, depts=depts) if query else []
+            lex = grant_lex.rank(db, lq, program_docs, user, depts=depts) if lq else []
             den = dense_ids(question, None, scope_docs=program_docs, user=user, db=db, depts=depts)
         if not lex and not den and scope_docs is not None:
             steps.append("그 사업의 문서 조각에서 맞는 것이 없어 사업 문서 전체에서 찾는다")
-            lex = grant_lex.rank(db, query, None, user, depts=depts) if query else []
+            lex = grant_lex.rank(db, lq, None, user, depts=depts) if lq else []
             den = dense_ids(question, None, scope_docs=None, user=user, db=db, depts=depts)
         merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
         sec = section_hits(db, question, scope_docs)
