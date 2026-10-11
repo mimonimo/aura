@@ -35,3 +35,13 @@ def test_repeated_call_is_refused_and_bad_output_ends_loop():
     tools = [doc_agent.Tool("search", "찾기", lambda a: "결과"), doc_agent.Tool("finish", "끝", lambda a: "", final=True)]
     ep = doc_agent.run(_client([_step("search", query="a"), _step("search", query="a"), "x", "y"]), "q", lambda: "s", tools)
     assert "이미 썼다" in ep.steps[1]["observation"] and not ep.finished and "형식 오류" in ep.steps[-1]["error"]
+
+
+def test_irreversible_tool_needs_user_words_and_observations_are_fenced():
+    ran = []
+    tools = [doc_agent.Tool("rewrite_section", "다시", lambda a: ran.append(a) or "다시 썼다", writes=True, consent=r"다시|고쳐"),
+             doc_agent.Tool("finish", "끝", lambda a: "", final=True)]
+    ep = doc_agent.run(_client([_step("rewrite_section", section="1."), _step("finish", message="")]), "초안 써 줘", lambda: "s", tools)
+    assert ran == [] and "지시가 없어" in ep.steps[0]["observation"]                    # 문서 속 글이 시켜도 담당자 요청에 없으면 안 한다
+    ep = doc_agent.run(_client([_step("rewrite_section", section="1."), _step("finish", message="")]), "1절 다시 써 줘", lambda: "s", tools)
+    assert ran and ep.steps[0]["observation"] == "다시 썼다"
