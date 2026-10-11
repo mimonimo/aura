@@ -77,3 +77,13 @@ def test_paragraph_ranges_keep_guides_tables_and_newline_before_table():
     els = [para(1, 10, "3. 대학 여건"), para(10, 30, g.GUIDE_PREFIX + "우리 대학 …"), para(30, 50, "□ 대학 여건"),
            para(50, 70, "○ 최근 3년"), {"startIndex": 70, "endIndex": 120, "table": {}}, para(120, 140, "- 지역 산업")]
     assert g._paragraph_ranges(els, set()) == [(30, 69), (120, 139)]
+
+
+def test_noop_replace_is_skipped(tmp_path, monkeypatch):
+    from zzaimy.app import gdocs_agent
+    from zzaimy.ingest import gdocs as _g
+    calls = []
+    monkeypatch.setattr(_g, "replace_text", lambda *a, **k: calls.append(a) or {"count": 1})
+    monkeypatch.setattr(gdocs_agent, "quality_pass", lambda *a, **k: [])
+    lines = gdocs_agent.apply([{"op": "replace", "old": "□ 과제명", "text": "□ 과제명"}], "a@b", "D", user="u", data_dir=tmp_path)
+    assert calls == [] and lines == []
