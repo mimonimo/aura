@@ -106,3 +106,8 @@ def test_form_choice_model_pick_and_fallback():
     d = form_choice.decide(fake('{"choice": "form:999"}'), "사업계획서 써 줘", cands)            # 후보 밖 → 규칙
     assert d["choice"] == "common:plan" and d["by"] == "rule"
     assert form_choice.decide(None, "위 목차대로 써 줘", cands)["choice"] == "outline"
+
+
+def test_strip_emoji_keeps_admin_symbols():
+    from zzaimy.app.responder import strip_emoji
+    assert strip_emoji("💡 팁: □ 항목 ○ 세부 ※ 참고 → 다음 ✅").strip() == "팁: □ 항목 ○ 세부 ※ 참고 → 다음"
