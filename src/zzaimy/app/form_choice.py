@@ -52,8 +52,7 @@ def candidates(db, project: dict | None, history: list[dict], request: str) -> l
             if _FORM_TITLE.search(title) or d.get("kind") == "form":
                 out.append({"id": f"form:{d['id']}", "kind": "form", "label": title[:60], "doc": d,
                             "note": "프로젝트에 올린 작성 서식(한글·워드 원본) — 서식의 표·항목 그대로 채운다"})
-    prev = next((m["content"] for m in reversed(history or []) if m.get("role") == "assistant"), "")
-    spec = gdocs_templates.outline_spec(gdocs_templates.SPECS["plan"], prev) if prev else None
+    spec = latest_outline(history)
     if spec:
         n_ch = sum(1 for b in spec["blocks"] if b.get("h") == 1)
         n_sec = sum(1 for b in spec["blocks"] if b.get("h") == 2)
@@ -64,6 +63,18 @@ def candidates(db, project: dict | None, history: list[dict], request: str) -> l
         out.append({"id": f"common:{sid}", "kind": "common", "label": sp["title"].replace("(구글 독스)", "").strip(), "spec": sp,
                     "note": "여러 사업 문서의 공통 뼈대"})
     return out
+
+
+def latest_outline(history: list[dict], look_back: int = 8) -> dict | None:
+    """최근 에이전트 답 가운데 목차로 읽히는 가장 가까운 것의 사양 — 목차를 잡은 뒤 다른 말이 오가도 찾는다(10/11 바로 앞 답만 봐서 놓침)."""
+    from zzaimy.ingest import gdocs_templates
+
+    answers = [m["content"] for m in (history or []) if m.get("role") == "assistant"][-look_back:]
+    for text in reversed(answers):
+        spec = gdocs_templates.outline_spec(gdocs_templates.SPECS["plan"], text or "")
+        if spec:
+            return spec
+    return None
 
 
 def rule_choice(cands: list[dict], request: str) -> str:
