@@ -864,6 +864,29 @@ def _is_instruction_box(tbl: dict) -> bool:
     return "작성방법" in _table_text(tbl)
 
 
+def _paragraph_ranges(els: list[dict], keep: set[str]) -> list[tuple[int, int]]:
+    """작성방법 상자가 없는 절(공통 양식: 회색 지침 문단·서식 표)의 본문 문단 범위 — 제목·지침 문단·소제목·표는 남긴다.
+    통째로 지우면 서식 표·지침까지 지워지거나, 표 바로 앞 줄바꿈을 지우려다 독스가 거부한다(10/11 「비우기 실패」).
+    표 바로 앞 문단은 글만 지우고 줄바꿈은 둔다. 서식 표의 값은 다시 쓰기의 채우기가 덮어쓴다."""
+    out: list[tuple[int, int]] = []
+    for i, el in enumerate(els[1:], start=1):
+        if "paragraph" not in el:
+            continue
+        text = _para_text(el["paragraph"]).strip()
+        if not text or text in keep or text.startswith(GUIDE_PREFIX.strip()) or UNIT_CAPTION.match(text):
+            continue
+        st, en = int(el.get("startIndex", 0)), int(el.get("endIndex", 0))
+        nxt = els[i + 1] if i + 1 < len(els) else None
+        if nxt is None or "table" in nxt:
+            en -= 1                                       # 절 끝·표 앞의 줄바꿈은 남긴다
+        if en - st >= 1:
+            if out and out[-1][1] == st:
+                out[-1] = (out[-1][0], en)                # 잇단 문단은 한 범위로
+            else:
+                out.append((st, en))
+    return out
+
+
 def clear_section_body(email: str, doc: str, section_index: int, *, user: str, data_dir: Path, http=None,
                        end_index: int | None = None, keep_headings: set[str] | None = None) -> dict:
     """절의 본문을 지운다 — 제목·작성방법 상자(【작성방법】이 든 표)·소제목 문단(keep_headings)은 남기고, 상자 뒤(상자가 없으면
@@ -884,8 +907,16 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
     if not els:
         return {"ok": True, "chars": 0}
     box = next((el for el in els[1:] if "table" in el and _is_instruction_box(el["table"])), None)
-    cursor = int(box["endIndex"]) if box is not None else int(els[0].get("endIndex", 0))
     keep = {h.strip() for h in (keep_headings or set())}
+    if box is None:
+        ranges = _paragraph_ranges(els, keep)
+        if not ranges:
+            return {"ok": True, "chars": 0}
+        _batch(email, doc, [{"deleteContentRange": {"range": {"startIndex": a, "endIndex": b}}} for a, b in sorted(ranges, reverse=True)], http)
+        n = sum(b - a for a, b in ranges)
+        _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "clear", "section": sec["heading"], "chars": n})
+        return {"ok": True, "chars": n}
+    cursor = int(box["endIndex"])
     ranges: list[tuple[int, int]] = []
     for el in els:
         st, en = int(el.get("startIndex", 0)), int(el.get("endIndex", 0))

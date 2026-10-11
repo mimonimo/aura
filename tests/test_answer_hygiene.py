@@ -61,3 +61,19 @@ def test_other_institution_material_is_marked(tmp_path):
     assert m._other_institution("경복대학교 5차년도 사업수행계획서") is True
     assert m._other_institution("영남이공대학교 2-3 과제계획서") is False
     assert m._other_institution("참여대학교 현황") is False
+
+
+def test_plain_reply_cell_coordinates_and_op_names():
+    from zzaimy.app.gdocs_agent import plain_reply
+    out = plain_reply("insert로 추가했습니다. **표 채움(Fill)**: 연도 칸(r1의 c2~c4), 표 1 r4")
+    assert "insert" not in out and "Fill" not in out and "2행 3~5열" in out and "표 1 5행" in out
+
+
+def test_paragraph_ranges_keep_guides_tables_and_newline_before_table():
+    from zzaimy.ingest import gdocs as g
+
+    def para(s, e, t):
+        return {"startIndex": s, "endIndex": e, "paragraph": {"elements": [{"textRun": {"content": t + "\n"}}]}}
+    els = [para(1, 10, "3. 대학 여건"), para(10, 30, g.GUIDE_PREFIX + "우리 대학 …"), para(30, 50, "□ 대학 여건"),
+           para(50, 70, "○ 최근 3년"), {"startIndex": 70, "endIndex": 120, "table": {}}, para(120, 140, "- 지역 산업")]
+    assert g._paragraph_ranges(els, set()) == [(30, 69), (120, 139)]
