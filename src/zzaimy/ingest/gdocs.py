@@ -222,6 +222,15 @@ def outline(document: dict) -> dict:
     doc_end = int(body[-1].get("endIndex", 1)) if body else 1
     styled = any(HEADING_LEVELS.get(st) is not None and t.strip() for _s, _e, st, t, tb in items if not tb)
     toc = _toc_entries(items, styled)
+    breaks = {int(el.get("startIndex", 0)) for el in body if "paragraph" in el
+              and any("pageBreak" in x for x in el["paragraph"].get("elements", []))}
+
+    def close(sec_: dict) -> dict:
+        # 절 끝이 쪽 나눔 뒤 표들(다음 장의 목차·장 표지)뿐이면 넣을 자리는 쪽 나눔 앞이다 — 대표과제 글이 다음 장 표지 아래에 붙었다(10/11)
+        pre = sec_.pop("_pre_break", None)
+        if pre is not None:
+            sec_["end"], sec_["table_end"] = pre
+        return sec_
     sections: list[dict] = []
     cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0, "table_end": 0, "text": "", "body_chars": 0}
     for start, end, style, text, is_table in items:
@@ -234,10 +243,14 @@ def outline(document: dict) -> dict:
                 lvl = max(lvl, 2)                     # 스타일 제목 아래 급으로
         if lvl is not None and text.strip() and not is_table:
             if cur["chars"] or cur["index"] > 0:        # 글 없는 앞머리는 절로 세지 않는다
-                sections.append(cur)
+                sections.append(close(cur))
             cur = {"index": len(sections) + 1, "level": lvl, "heading": text.strip()[:80],
                    "start": start, "end": end, "chars": 0, "table_end": 0, "text": text.strip(), "body_chars": 0}
             continue
+        if not is_table and start in breaks and "_pre_break" not in cur and cur["index"] > 0:
+            cur["_pre_break"] = (cur["end"], cur["table_end"])
+        elif not is_table and text.strip() and "_pre_break" in cur:
+            cur.pop("_pre_break")                      # 쪽 나눔 뒤에도 본문 글이 이어지면 절은 거기까지다
         if is_table:
             cur["table_end"] = end                     # 절이 표(작성방법 상자)로 끝나면 글은 그 표 뒤에 들어가야 한다
         else:
@@ -258,7 +271,7 @@ def outline(document: dict) -> dict:
                     cur["tbl_empty"] = cur.get("tbl_empty", 0) + n_empty
                 else:
                     cur["para_chars"] = cur.get("para_chars", 0) + len(text.strip())
-    sections.append(cur)
+    sections.append(close(cur))
     for i, sec_ in enumerate(sections):                 # 끝 절 — 바로 다음 절이 같은 급이거나 위 급(소제목이 없다)
         nxt = sections[i + 1] if i + 1 < len(sections) else None
         sec_["leaf"] = nxt is None or int(nxt.get("level") or 0) <= int(sec_.get("level") or 0)
