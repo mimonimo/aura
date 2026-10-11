@@ -391,9 +391,9 @@
    const current=list.querySelector('[aria-current="true"]');if(current)list.prepend(current);
  }
  // 문서함 — 작업 문서(이 대화와 함께 편집하는 Google Docs) 아래에 프로젝트 화면과 같은 세 갈래:
- // 사용자 첨부 문서 · 참고 문서(에이전트가 불러온 문서 포함) · 규정·지침. 답이 끝날 때마다 목록을 다시 읽는다.
+ // 첨부 문서 · 참고 문서(에이전트가 불러온 문서 포함) · 기준 문서. 답이 끝날 때마다 목록을 다시 읽는다.
  // 설명·빈 상태 문구는 프로젝트 대화인지에 따라 고른다(프로젝트 없는 대화에 '프로젝트에 올린'을 말하지 않게)
- const DOC_GROUPS=[['attached','사용자 첨부 문서'],['reference','참고 문서'],['rules','규정·지침']];
+ const DOC_GROUPS=[['attached','첨부 문서'],['reference','참고 문서'],['rules','기준 문서']];
  const DOC_NOTES={project:{attached:'프로젝트에 올리거나 대화에 첨부한 문서',reference:'라이브러리에서 불러온 문서 · 에이전트가 근거로 쓴 문서',rules:'프로젝트에 연결된 공고·지침·기준'},
    chat:{attached:'이 대화에 첨부한 문서',reference:'라이브러리에서 불러온 문서 · 에이전트가 근거로 쓴 문서',rules:'이 대화에 첨부한 공고·지침·기준'}};
  const DOC_EMPTY={project:{attached:'아직 올리거나 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'연결된 공고·지침이 없습니다.'},
