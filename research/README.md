@@ -1,8 +1,8 @@
-# research/ — Phase 0 리서치 (참고 자료)
+# 착수 단계 기술 조사
 
 2026-08-15에 원안 브리프를 기준으로 조사한 기술 스택 검토다. 후보 비교와
-탈락 이유가 남아 있어 설계 근거로 참조하되, **현재 구성은 이 폴더가 아니라
-`PROJECT_BRIEF.md`(v3)·`docs/architecture.md`·`docs/decisions/`가 정본**이다.
+탈락 이유가 남아 있어 설계 근거로 참조한다. 현재 구성의 기준은 [프로젝트 브리프](../PROJECT_BRIEF.md),
+[시스템 설계](../docs/architecture.md), [결정 기록](../docs/decisions/README.md)이다.
 이 폴더의 문서는 조사 시점 기록이므로 고쳐 쓰지 않는다.
 
 조사 결과와 실제 채택이 다른 곳:
