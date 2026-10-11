@@ -165,7 +165,7 @@ def test_agent_loop_requests_fit_the_context():
     ep = doc_agent.run(fake, "요청", lambda: big_state, tools)
     req = fake.sent[0]
     assert ep.finished and llm_budget.estimate_messages(req["messages"]) + req["max_tokens"] <= 4000
-    assert "[담당자 요청]\n요청" in req["messages"][-1]["content"]
+    assert req["messages"][1]["content"] == "[담당자 요청]\n요청"
 
 
 def test_final_tool_failure_returns_observation_and_lets_model_retry():
@@ -316,3 +316,76 @@ def test_question_with_unreachable_model_takes_only_the_answer_branch(tmp_path, 
     # 같은 상황에서 고치라는 요청은 편집 갈래로 간다(관문이 질문만 막는지)
     r = client.post("/chat/send", data={"question": "2절 표를 고쳐 줘", "session_id": str(sid)}, follow_redirects=False)
     assert "문서는 바꾸지 않았습니다" in client.get(r.headers["location"]).text
+
+
+# ---------------------------------------------------------------- 걸음 기록: 이미 한 걸음을 보고 다음으로 넘어가는지
+
+
+class _HistoryAware:
+    """기록에 앞 걸음이 보여야만 다음 걸음으로 넘어가는 가짜 — 못 보면 같은 걸음을 되풀이한다(되풀이 사고의 꼴)."""
+
+    def __init__(self, plan, max_len=16384, follow_log=True):
+        self.plan, self.model, self._extra, self.sent = plan, "m", {}, []
+        outer = self
+
+        class _C:
+            def create(self, **kw):
+                outer.sent.append(kw)
+                last = kw["messages"][-1]["content"]
+                log = last.split("[지금까지 한 걸음", 1)[1].split("[담당자 요청]", 1)[0] if "[지금까지 한 걸음" in last else ""
+                done = sum(1 for i, (a, _args) in enumerate(outer.plan) if f"{i + 1}. {a} " in log) if follow_log else 0
+                a, args = outer.plan[min(done, len(outer.plan) - 1)]
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=_step(a, **args)))])
+        data = [SimpleNamespace(id="m", max_model_len=max_len)]
+        self.client = SimpleNamespace(models=SimpleNamespace(list=lambda: SimpleNamespace(data=data)),
+                                      chat=SimpleNamespace(completions=_C()))
+
+
+def _write_tools(obs_lines=200):
+    written = []
+    tools = [doc_agent.Tool("search", "찾기", lambda a: f"《발전계획》 {a['query']} 근거\n" + "자료 줄\n" * obs_lines, gathers=True),
+             doc_agent.Tool("write_section", "쓰기", lambda a: written.append(a["section"]) or "썼다", writes=True),
+             doc_agent.Tool("finish", "끝", lambda a: a.get("message", ""), final=True)]
+    return tools, written
+
+
+def test_run_completes_when_the_model_only_moves_on_after_seeing_its_log():
+    plan = [("search", {"source": "library", "query": "중장기 발전계획"}),
+            ("search", {"source": "library", "query": "인재 양성 전략"}),
+            ("write_section", {"section": "2. 연계"}),
+            ("finish", {"message": "썼습니다"})]
+    tools, written = _write_tools()
+    fake = _HistoryAware(plan, max_len=6000)
+    big_state = "절 목록:\n" + "  1. 어느 절 — 쓸 수 있음\n" * 300 + "최근 대화:\n" + "  [user] 앞 대화\n" * 300
+    ep = doc_agent.run(fake, "2절을 발전계획 근거로 쓰자", lambda: big_state, tools)
+    assert ep.finished and written == ["2. 연계"] and ep.final_message == "썼습니다"
+    for req in fake.sent:                                               # 기록을 실어도 한도 안
+        assert llm_budget.estimate_messages(req["messages"]) + req["max_tokens"] <= 6000
+
+
+def test_repeating_model_stops_after_three_refusals_with_what_was_found():
+    tools, written = _write_tools(obs_lines=3)
+    fake = _HistoryAware([("search", {"source": "library", "query": "인재 양성 전략"})], follow_log=False)
+    ep = doc_agent.run(fake, "2절 쓰자", lambda: "s", tools)
+    assert ep.stop == "repeat" and len(ep.steps) == 4 and not ep.may_fall_back and written == []
+    assert "그때 결과" in ep.steps[1]["observation"] and "인재 양성 전략 근거" in ep.steps[1]["observation"]
+    assert "다음은 이 가운데 하나만" in ep.steps[2]["observation"] and "write_section" in ep.steps[2]["observation"]
+    msg = doc_agent.failure_message(ep)
+    assert "되풀이" in msg and "「인재 양성 전략」" in msg and "문서는 바꾸지 않았습니다" in msg
+    assert fake.sent[-1]["temperature"] > fake.sent[0]["temperature"]   # 거절 뒤엔 조금 넓게
+
+
+def test_trimming_keeps_last_steps_and_the_log():
+    plan = [("search", {"source": "library", "query": f"검색 {i}"}) for i in range(6)] + [("finish", {"message": "끝"})]
+    tools, _ = _write_tools(obs_lines=400)
+    fake = _HistoryAware(plan, max_len=5000)
+    ep = doc_agent.run(fake, "요청", lambda: "상태", tools)
+    assert ep.finished
+    last = fake.sent[-1]["messages"]
+    assert llm_budget.estimate_messages(last) + fake.sent[-1]["max_tokens"] <= 5000
+    for i in range(6):
+        assert f"{i + 1}. search " in last[-1]["content"]                # 기록에는 모든 걸음
+    text = "\n".join(m["content"] for m in last[:-1])
+    for i in (3, 4, 5):
+        assert f"검색 {i} 근거" in text                                   # 최근 세 걸음의 결과는 남는다
+    assert "검색 0 근거" not in text                                      # 오래된 결과는 줄었다

@@ -126,6 +126,7 @@ OUTPUT = Cut(output=True)
 
 def _shorten(block: str, over_chars: int, marker: str) -> str:
     keep = max(0, len(block) - over_chars - len(marker))
+    keep = max(keep, block.rfind("\n", 0, 200))             # 머리 몇 줄(출처·제목)은 남긴다 — 무엇이었는지는 알 수 있게
     cut = block.rfind("\n", 0, keep + 1)                    # 숫자·조건·표 칸을 줄 가운데서 자르지 않는다
     head = block[:cut].rstrip() if cut > 0 else block[:keep]
     return (head + marker) if head else marker.strip()
