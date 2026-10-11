@@ -64,14 +64,21 @@ def canonical_values(text: str) -> set[str]:
             gap = cleaned[matches[j - 1].end():nm.start()]
             n_unit = nm.group(2)
             n_rank = _UNIT_VALUE.get(n_unit or "", 0)
+            n_num = Decimal(nm.group(1).replace(",", ""))
             if (
                 gap.strip() == "" and n_unit
                 and 0 < n_rank < last_unit_rank
             ):
-                value += Decimal(nm.group(1).replace(",", "")) * n_rank
-                out.add(_fmt(Decimal(nm.group(1).replace(",", ""))))
+                value += n_num * n_rank
+                out.add(_fmt(n_num))
                 last_unit_rank = n_rank
                 j += 1
+            elif gap.strip() == "" and not n_unit and n_num == n_num.to_integral_value() and 0 < n_num < last_unit_rank:
+                # 단위 뒤의 맨숫자 — 「1만 1799명」 = 11,799, 「3억 2500만」의 끝자리처럼 남은 자리(10/11 같은 수를 근거 없음으로 띄움)
+                value += n_num
+                out.add(_fmt(n_num))
+                j += 1
+                break
             else:
                 break
         if unit:
