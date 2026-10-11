@@ -1231,10 +1231,10 @@ def render(email: str, doc: str, spec: dict, http=None, titled: bool = False, fi
         toc = toc_lines(spec)
         if toc:                                                # 목차 쪽 — 실제 계획서처럼. 제목 스타일이 아닌 문단이라 절 구조로 읽히지 않는다
             b.para("목  차", center=True, size=15, bold=True, color=rgb(accent), above=0, below=6)
-            for level, text in toc:
-                b.para(text, size=10 if level == 1 else 9, bold=(level == 1) or None,
-                       color=dark if level == 1 else None, above=1 if level == 1 else 0, below=0,
-                       indent=0 if level == 1 else 16, spacing=92)
+            for i, (level, text) in enumerate(toc):              # 장은 굵게·위 간격, 절은 한 단 들여쓰기 — 단계가 한눈에 보이게
+                b.para(text, size=10.5 if level == 1 else 9.5, bold=(level == 1) or None,
+                       color=rgb(accent) if level == 1 else None, above=(8 if i else 2) if level == 1 else 0, below=1,
+                       indent=0 if level == 1 else 18, spacing=100)
             b.page_break()
     for blk in spec["blocks"]:
         if "h" in blk:

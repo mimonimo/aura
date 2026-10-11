@@ -114,7 +114,9 @@ _NUMBERED = re.compile(r"^\s*(?:(?P<roman>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)\s*[
 
 def _numbered_level(text: str) -> int | None:
     t = text.strip()
-    if not t or len(t) > 70 or re.search(r"[.다요음임함]\s*$", t) and not t.endswith("】"):
+    # 문장 끝(~다·~요·~음)은 제목이 아니다 — 단 「개요·수요·필요·주요」처럼 「요」로 끝나는 명사 제목은 흔하다(「Ⅰ. 사업 개요」가 빠졌다)
+    if not t or len(t) > 70 or (re.search(r"[.다요음임함]\s*$", t) and not t.endswith("】")
+                                and not re.search(r"(개요|수요|필요|주요|중요|소요|요약)\s*$", t)):
         return None
     m = _NUMBERED.match(t)
     if not m:
@@ -175,6 +177,24 @@ def _toc_entries(items: list[tuple], styled: bool) -> set[int]:
         if any(HEADING_LEVELS.get(st2) is not None for _j, st2 in after) or (nxt is not None and nxt in numbered):
             out.add(int(items[i][0]))
     return out
+
+
+def toc_paragraphs(document: dict) -> list[dict]:
+    """목차 줄 — [{start, end, level, text, indent}] (outline 이 절로 세지 않는 번호 줄). 품질 관문이 단계별 들여쓰기를 맞출 때 쓴다."""
+    body = body_content(document)
+    items, indents = [], {}
+    for el in body:
+        if "paragraph" in el:
+            p = el["paragraph"]
+            st = int(el.get("startIndex", 0))
+            items.append((st, int(el.get("endIndex", 0)), p.get("paragraphStyle", {}).get("namedStyleType", "NORMAL_TEXT"), _para_text(p), False))
+            indents[st] = float(((p.get("paragraphStyle", {}).get("indentStart") or {}).get("magnitude")) or 0)
+        elif "table" in el:
+            items.append((int(el.get("startIndex", 0)), int(el.get("endIndex", 0)), "TABLE", "", True))
+    styled = any(HEADING_LEVELS.get(st) is not None and t.strip() for _s, _e, st, t, tb in items if not tb)
+    toc = _toc_entries(items, styled)
+    return [{"start": s_, "end": e_, "level": _numbered_level(t) or 1, "text": t.strip(), "indent": indents.get(s_, 0.0)}
+            for s_, e_, _st, t, tb in items if s_ in toc]
 
 
 def outline(document: dict) -> dict:
