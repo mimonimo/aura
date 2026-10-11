@@ -67,6 +67,8 @@ def test_year_value_cells_reject_prose():
     assert g.too_wordy_for_value("2025년 기준 1,390억 원을 미래모빌리티 융합산업 육성에 투입")
     assert not g.too_wordy_for_value("67.3%") and not g.too_wordy_for_value("1,390억 원(2025년)")
     assert g.too_wordy_for_value("미래모빌리티·로봇 산업 중심 구조 개편 추진") and not g.too_wordy_for_value("(확인 필요)")
+    assert g.too_wordy_for_value("2022년 지역 인력 수요 증가세 지속")
+    assert g.column_year(rows, 2, 2) == "" and g.other_year("81.9% (2023)", "2022") and not g.other_year("81.9%", "2022")
 
 
 def test_same_table_in_section_detects_form_swot(tmp_path):
