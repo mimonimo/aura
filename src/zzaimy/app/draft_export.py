@@ -175,6 +175,13 @@ def build_draft_hwpx(
         return None
 
 
+def _esc(text: str) -> str:
+    """reportlab Paragraph 는 글을 마크업으로 읽는다 — &·<·> 를 그대로 두면 문단이 깨지거나 예외가 난다."""
+    from xml.sax.saxutils import escape
+
+    return escape(str(text or ""))
+
+
 def build_draft_pdf(
     title: str, draft: str, images: list[str] | None = None
 ) -> bytes | None:
@@ -203,18 +210,19 @@ def build_draft_pdf(
         st_head = ParagraphStyle("h", fontName=font, fontSize=13, leading=18,
                                  spaceBefore=12, spaceAfter=4)
         st_body = ParagraphStyle("b", fontName=font, fontSize=10.5, leading=16)
+        st_list = ParagraphStyle("l", parent=st_body, leftIndent=18)
 
         buf = io.BytesIO()
         pdf = SimpleDocTemplate(buf, pagesize=A4, title=title,
                                 topMargin=52, bottomMargin=48)
-        story = [Paragraph(title, st_title), Spacer(1, 14)]
+        story = [Paragraph(_esc(title), st_title), Spacer(1, 14)]
         for sec in parse_draft(draft):
             if sec["title"]:
-                story.append(Paragraph(sec["title"], st_head))
+                story.append(Paragraph(_esc(sec["title"]), st_head))
             for b in sec["blocks"]:
                 if b["kind"] == "table":
                     rows = [
-                        [Paragraph(c, st_body) for c in r] for r in b["rows"]
+                        [Paragraph(_esc(c), st_body) for c in r] for r in b["rows"]
                     ]
                     t = Table(rows, hAlign="LEFT")
                     t.setStyle(TableStyle([
@@ -224,9 +232,14 @@ def build_draft_pdf(
                         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
                     ]))
                     story += [Spacer(1, 4), t, Spacer(1, 8)]
+                elif b["kind"] == "list":
+                    for level, text in b["items"]:
+                        story.append(Paragraph(_esc(text) if level == 0 else f"· {_esc(text)}",
+                                               st_list if level else st_body))
+                    story.append(Spacer(1, 6))
                 else:
                     story.append(Paragraph(
-                        b["text"].replace("\n", "<br/>"), st_body))
+                        _esc(b["text"]).replace("\n", "<br/>"), st_body))
                     story.append(Spacer(1, 6))
         if images:
             from reportlab.platypus import Image as RLImage

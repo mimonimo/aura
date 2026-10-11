@@ -130,3 +130,19 @@ def test_numbered_items_with_sub_bullets_become_separate_list_paragraphs():
     texts = [p.text for p in doc.paragraphs]
     assert "2. 문서 반입 및 검색 구축" in texts and "· 문서 194건 재반입" in texts
     assert all("\n" not in t for t in texts if t.startswith(("1.", "2.", "3.")))
+
+
+LIST_DRAFT = """## 추진 내용
+1. 교육과정 개편 & 운영
+- 산업체 <협력> 과목 신설
+- 현장실습 확대
+2. 성과 관리"""
+
+
+def test_draft_pdf_with_list_items_and_markup_chars():
+    """목록 블록·&·< 가 있는 초안도 PDF 가 만들어진다(예전에는 목록에서 예외가 나 None 이었다)."""
+    from zzaimy.app.draft_export import build_draft_pdf, parse_draft
+
+    assert any(b["kind"] == "list" for s in parse_draft(LIST_DRAFT) for b in s["blocks"])
+    pdf = build_draft_pdf("시험 <초안> & 계획", LIST_DRAFT)
+    assert pdf is not None and pdf.startswith(b"%PDF")
