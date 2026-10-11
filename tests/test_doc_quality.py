@@ -53,3 +53,16 @@ def test_toc_lines_get_indent_by_level():
     assert a["toc"] == 3 and {t["start"]: t["want"] for t in a["toc_uneven"]} == {10: 0.0, 30: 16.0, 60: 32.0}
     reqs = [r["updateParagraphStyle"] for r in Q.fix_requests(_doc(body)) if "updateParagraphStyle" in r]
     assert [r["paragraphStyle"]["indentStart"]["magnitude"] for r in reqs] == [0.0, 16.0, 32.0]
+
+
+def test_year_value_cells_reject_prose():
+    from zzaimy.ingest import gdocs as g
+
+    def cell(t):
+        return {"content": [{"paragraph": {"elements": [{"textRun": {"content": t + "\n"}}]}}]}
+    rows = [{"tableCells": [cell("구분"), cell("지표"), cell("최근 3년 값"), cell("출처")]},
+            {"tableCells": [cell(""), cell(""), cell("20○○"), cell("")]},
+            {"tableCells": [cell("교육"), cell("취업률"), cell(""), cell("")]}]
+    assert g.value_column(rows, 2, 2) and not g.value_column(rows, 2, 3)
+    assert g.too_wordy_for_value("2025년 기준 1,390억 원을 미래모빌리티 융합산업 육성에 투입")
+    assert not g.too_wordy_for_value("67.3%") and not g.too_wordy_for_value("1,390억 원(2025년)")
