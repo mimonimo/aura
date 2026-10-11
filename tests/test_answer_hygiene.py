@@ -87,3 +87,22 @@ def test_noop_replace_is_skipped(tmp_path, monkeypatch):
     monkeypatch.setattr(gdocs_agent, "quality_pass", lambda *a, **k: [])
     lines = gdocs_agent.apply([{"op": "replace", "old": "□ 과제명", "text": "□ 과제명"}], "a@b", "D", user="u", data_dir=tmp_path)
     assert calls == [] and lines == []
+
+
+def test_form_choice_model_pick_and_fallback():
+    from types import SimpleNamespace
+    from zzaimy.app import form_choice
+
+    cands = [{"id": "outline", "kind": "outline", "label": "대화에서 정한 목차", "note": ""},
+             {"id": "common:plan", "kind": "common", "label": "사업계획서 공통 양식", "note": ""}]
+
+    def fake(reply):
+        class C:
+            def create(self, **kw):
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=reply))])
+        return SimpleNamespace(model="m", client=SimpleNamespace(chat=SimpleNamespace(completions=C())))
+    d = form_choice.decide(fake('{"choice": "outline", "why": "담당자가 목차를 정했다"}'), "위 목차대로 써 줘", cands)
+    assert d["choice"] == "outline" and d["by"] == "model"
+    d = form_choice.decide(fake('{"choice": "form:999"}'), "사업계획서 써 줘", cands)            # 후보 밖 → 규칙
+    assert d["choice"] == "common:plan" and d["by"] == "rule"
+    assert form_choice.decide(None, "위 목차대로 써 줘", cands)["choice"] == "outline"

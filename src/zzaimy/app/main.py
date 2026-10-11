@@ -954,18 +954,45 @@ def create_app(
                     _chat_sources[session_id] = []
                     return
         if not doc_material and _looks_like_drafting(q) and not _COMMON_ASKED.search(q):
-            # 프로젝트에 사업의 작성 서식이 있으면 공통 양식보다 그 서식이 먼저다 — 짐작하지 않고 고르게 한다
-            forms = _project_forms(project, session_id, q)
-            if forms:
-                names = "\n".join(f"- {storage.title_of(d.get('filename') or '')}" for d in forms)
-                db.add_chat(session_id, "assistant", "이 프로젝트에 작성 서식이 있습니다. 어느 것으로 쓸까요?\n" + names
-                            + "\n서식으로 쓰면 서식의 표·항목을 그대로 두고 채웁니다. 공통 양식은 여러 사업의 공통 뼈대로 새 문서를 만듭니다.")
-                opts = [{"kind": "pick", "text": f"「{storage.title_of(d.get('filename') or '')[:28]}」 으로 작성",
-                         "question": f"{storage.title_of(d.get('filename') or '')}으로 작업하자. {q}"} for d in forms[:3]]
-                opts.append({"kind": "pick", "text": "공통 양식으로 새 문서", "question": f"{_COMMON_PREFIX}{q}"})
-                _set_options(session_id, opts)
-                _chat_sources[session_id] = []
-                return
+            # 양식은 27B 가 고른다(2026-10-11) — 코드는 후보(프로젝트 작성 서식·대화에서 정한 목차·공통 양식)만 모으고, 고른 것으로
+            # 바로 작업한다. 다른 후보는 「바꾸기」 선택지로. 고른 기록은 학습 재료(form_choice_episodes.jsonl)
+            from zzaimy.app import form_choice
+
+            _chat_step(session_id, "양식 고르는 중")
+            cands = form_choice.candidates(db, project, db.list_chats(session_id), q)
+            try:
+                from zzaimy.generate.client import VllmClient
+                fc_client = VllmClient(role="answer")
+            except Exception:
+                fc_client = None
+            dec = form_choice.decide(fc_client, q, cands)
+            chosen = next(c for c in cands if c["id"] == dec["choice"])
+            form_choice.record(data_dir, {"session": session_id, "request": q[:1500], "candidates": [
+                {"id": c["id"], "label": c["label"], "note": c["note"]} for c in cands], **dec})
+            if chosen["kind"] == "form":
+                made, why = _link_existing_document(session_id, chosen["doc"], owner, project)
+                if made:
+                    doc_material = "existing"
+                elif why:
+                    db.add_chat(session_id, "assistant", why)
+                    _chat_sources[session_id] = []
+                    return
+            else:
+                made, why = _auto_link_document(session_id, q, owner, project, spec_override=chosen["spec"])
+                if made:
+                    doc_material = "new"
+                elif why:
+                    db.add_chat(session_id, "assistant", why)
+                    _chat_sources[session_id] = []
+                    return
+            if made:
+                why_txt = f" — {dec['why']}" if dec.get("why") else ""
+                others = [c["label"] for c in cands if c["id"] != dec["choice"] and c["kind"] != "common"][:2]
+                hint = (" 다른 양식으로 하려면 " + ", ".join(f"「{o}」" for o in others) + " 또는 「공통 양식으로 새 문서」라고 말해 주세요."
+                        if others else " 다른 양식으로 하려면 「공통 양식으로 새 문서」 또는 서식 이름을 말해 주세요.")
+                db.add_chat(session_id, "assistant", f"양식: 「{chosen['label']}」{why_txt}.{hint}")
+                db.set_setting(f"chat_form_choice:{session_id}", _aj.dumps({"choice": dec["choice"], "alts": [
+                    c["id"] for c in cands if c["id"] != dec["choice"]][:4]}))
         if not doc_material and _looks_like_drafting(q):
             # 문서가 없는데 초안을 써 달라면 드라이브에 프로젝트 폴더·문서를 만들어 잇는다(주소 붙여넣기 없이)
             made, why = _auto_link_document(session_id, q, owner, project)
@@ -1177,7 +1204,8 @@ def create_app(
         db.add_chat(session_id, "assistant", f"「{title}」 의 복제본 「{work_title}」 을 만들어 이 대화에 연결했습니다. 원본 서식은 그대로 두고 이 복제본을 고칩니다. {copy['url']}")
         return True, ""
 
-    def _auto_link_document(session_id: int, q: str, owner: str, project: dict | None) -> tuple[bool, str]:
+    def _auto_link_document(session_id: int, q: str, owner: str, project: dict | None,
+                            spec_override: dict | None = None) -> tuple[bool, str]:
         """대화에 문서가 없을 때 드라이브 폴더(ZZAIMY/<연도>/<프로젝트|대화>)와 문서를 만들어 잇는다.
 
         돌려주는 것은 (만들었는가, 못 만들었을 때 담당자에게 보일 안내). 허용 계정이 없으면 안내 없이 일반 답변으로 간다.
@@ -1200,8 +1228,8 @@ def create_app(
         except Exception as e:
             return False, f"문서를 만들지 못했습니다({type(e).__name__}). 원천 관리에서 구글 연결 상태를 확인해 주세요."
         note = ""
-        spec = gdocs_templates.pick(q)
-        if _OUTLINE_POINTER.search(q or ""):
+        spec = spec_override or gdocs_templates.pick(q)
+        if spec_override is None and _OUTLINE_POINTER.search(q or ""):
             # 「위 목차대로 써 줘」 — 앞 답에서 정한 목차로 뼈대를 만든다(공통 양식은 같은 이름 절의 지침·표만 빌린다)
             prev = next((m["content"] for m in reversed(db.list_chats(session_id)) if m["role"] == "assistant"), "")
             from_outline = gdocs_templates.outline_spec(spec or gdocs_templates.SPECS["plan"], prev)
