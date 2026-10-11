@@ -184,6 +184,60 @@ class Materials:
         return [d for d in docs if d.get("status") == "reviewed" and int(d["id"]) not in self.form_source_ids
                 and d.get("kind") != "form"]
 
+    # ---- 도구 — Writer 가 정한 검색어로 찾는다(context_plan). 열람 범위(scope)는 그대로 ----
+    def _hit(self, h: dict, note: str = "") -> dict:
+        path = [str(x) for x in (h.get("path") or [])]
+        title = h.get("filename") or (path[-1] if path else "") or h.get("reg_title") or "문서"
+        title = re.sub(r"\.(hwpx?|pdf|docx?|xlsx?|pptx?)$", "", str(title), flags=re.I)
+        return {"title": title[:80], "doc_id": h.get("doc_id"), "chunk_id": h.get("chunk_id") or h.get("id"),
+                "text": str(h.get("content") or ""), "note": note}
+
+    def _sink(self, hits: list[dict], origin: str) -> None:
+        if self.sink is None:
+            return
+        for h in hits:
+            if h.get("doc_id") is not None and all(x.get("doc_id") != h["doc_id"] for x in self.sink):
+                self.sink.append({"title": h["title"], "heading": "", "snippet": h["text"][:160], "doc_id": h["doc_id"],
+                                  "origin": origin, "weak": False})
+
+    def search_project(self, query: str, k: int = 4) -> list[dict]:
+        sc = self.scope or {}
+        ids = {int(d["id"]) for d in self.past_docs()}
+        if not ids or sc.get("role") == "student":
+            return []
+        from zzaimy.app import grant_search
+        hits = [h for h in grant_search.search(self.db, query, k=k + 3, user=sc.get("user"), prefer_docs=ids,
+                                                 depts=sc.get("grant_depts"))["hits"] if int(h.get("doc_id") or 0) in ids]
+        out = [self._hit(h) for h in hits if useful_chunk(h.get("content") or "")][:k]
+        self._sink(out, "프로젝트 문서")
+        return out
+
+    def search_criteria(self, query: str, k: int = 3) -> list[dict]:
+        if not self.criteria_chunks:
+            return []
+        from zzaimy.app.responder import rank_criteria_chunks
+        ids = sorted({int(c.get("doc_id")) for c in self.criteria_chunks if c.get("doc_id") is not None})
+        return [self._hit(c) for c in rank_criteria_chunks(self.db, query, self.criteria_chunks, ids, top_k=k)][:k]
+
+    def search_library(self, query: str, k: int = 4) -> list[dict]:
+        sc = self.scope
+        if not sc or sc.get("role") == "student" or sc.get("grant") is False:
+            return []
+        from zzaimy.app import grant_search
+        own = {int(d["id"]) for d in self.past_docs()} | set(self.form_source_ids)
+        out = []
+        for h in grant_search.search(self.db, query, k=k + 4, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]:
+            if int(h.get("doc_id") or 0) in own or not useful_chunk(h.get("content") or ""):
+                continue
+            hit = self._hit(h)
+            if self._other_institution(f"{hit['title']} {hit['text'][:300]}"):
+                hit["note"] = "다른 기관 자료: 짜임새만 참고, 수치·기관명 옮기지 않기"
+            out.append(hit)
+            if len(out) >= k:
+                break
+        self._sink(out, "문서함 검색")
+        return out
+
     def number_evidence(self) -> list[dict]:
         """수치 대조용 근거 — 프로젝트 원본 문서의 조각 전체(재료로 건넨 발췌만 보면 원문에 있는 수치도 「근거 없음」으로 가려진다, 10/11).
         모델에게 건네지 않는다(수치 대조기만 쓴다). 대조에는 글자만 쓰므로 조각 글만 돌려준다."""
@@ -416,6 +470,8 @@ def render_materials(m: dict, institution: dict | None = None) -> str:
     if m.get("intent"):
         lines.append("[담당자가 대화에서 밝힌 방향 — 사업 전략·참여 주체·강조점. 이 방향에 맞춰 쓰되, 수치·사실은 아래 근거 자료에 있는 것만 쓴다]\n"
                      + m["intent"])
+    if m.get("gathered"):
+        lines.append(m["gathered"])
     if m.get("gap_hint"):
         lines.append("[지난 작성에서 이 절이 빈 까닭]\n" + m["gap_hint"])
     if m.get("placeholder"):

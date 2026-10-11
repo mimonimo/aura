@@ -1549,6 +1549,20 @@ def create_app(
                     refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
                     # 절에 양식 표가 있으면 격자를 재료에 붙인다 — 모델이 fill 로 칸을 채운다(2026-09-29, 실측: 표 채움 0건이던 문제)
                     m["intent"] = drafting.conversation_intent(db.list_chats(session_id))
+                    # 찾을 것을 Writer 가 정한다(컨텍스트 구성 리즈닝, 10/11) — 코드는 그 계획대로 검색만 한다
+                    from zzaimy.app import context_plan
+
+                    _chat_step(session_id, f"「{sec['heading'][:24]}」 필요한 자료 찾는 중")
+                    cp_ = context_plan.plan(client, doc_title=info.get("title", ""), heading=sec["heading"], guide=sec.get("text") or "",
+                                            intent=m["intent"], project_docs=context_plan._doc_list(mats.past_docs(), storage.title_of),
+                                            criteria_docs=context_plan._doc_list([db.get_document(i) for i in (crit_ids or [])], storage.title_of))
+                    found_ = context_plan.execute(cp_, search_project=mats.search_project, search_criteria=mats.search_criteria,
+                                                  search_library=mats.search_library)
+                    m["gathered"] = context_plan.render(cp_, found_)
+                    context_plan.record(data_dir, {"session": session_id, "doc": link["doc"], "section": sec["heading"], "request": q[:800],
+                                                   "plan": cp_, "found": [{**{k_: v_ for k_, v_ in n_.items() if k_ != "hits"},
+                                                                           "hits": [{"title": h_["title"], "doc_id": h_.get("doc_id"), "chunk_id": h_.get("chunk_id")}
+                                                                                    for h_ in n_["hits"]]} for n_ in found_]})
                     materials_ = drafting.render_materials(m, inst)
                     try:
                         grids_ = _gd.table_grids(link["account"], link["doc"], sec["index"], info=info)
