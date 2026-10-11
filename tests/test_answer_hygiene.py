@@ -111,3 +111,11 @@ def test_form_choice_model_pick_and_fallback():
 def test_strip_emoji_keeps_admin_symbols():
     from zzaimy.app.responder import strip_emoji
     assert strip_emoji("💡 팁: □ 항목 ○ 세부 ※ 참고 → 다음 ✅").strip() == "팁: □ 항목 ○ 세부 ※ 참고 → 다음"
+
+
+def test_latest_outline_looks_back_past_other_answers():
+    from zzaimy.app.form_choice import latest_outline
+    outline = "#### Ⅰ. 대학의 역량\n1. 교육 현황\n2. 실습 여건\n#### Ⅱ. 추진내용\n1. 추진체계\n2. 교육과정\n"
+    hist = [{"role": "assistant", "content": outline}, {"role": "user", "content": "좋아"},
+            {"role": "assistant", "content": "[1. 추진 배경]\n716자 추가"}]
+    assert latest_outline(hist) is not None and latest_outline(hist[2:]) is None

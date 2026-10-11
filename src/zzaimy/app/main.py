@@ -1232,8 +1232,9 @@ def create_app(
         spec = spec_override or gdocs_templates.pick(q)
         if spec_override is None and _OUTLINE_POINTER.search(q or ""):
             # 「위 목차대로 써 줘」 — 앞 답에서 정한 목차로 뼈대를 만든다(공통 양식은 같은 이름 절의 지침·표만 빌린다)
-            prev = next((m["content"] for m in reversed(db.list_chats(session_id)) if m["role"] == "assistant"), "")
-            from_outline = gdocs_templates.outline_spec(spec or gdocs_templates.SPECS["plan"], prev)
+            from zzaimy.app.form_choice import latest_outline
+
+            from_outline = latest_outline(db.list_chats(session_id))
             if from_outline:
                 spec = from_outline
         if spec:                                              # 서류 갈래에 맞는 공통 양식(절·작성 지침·표)을 깔고 그 위에 쓴다
