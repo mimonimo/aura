@@ -20,7 +20,9 @@ def test_remember_routes_institution_keys_and_project_facts(tmp_path):
     from zzaimy.app.db import Database
     db = Database(tmp_path / "t.db")
     sess = {"id": 3, "project_id": 9}
-    asks.remember(db, sess, {"사업단명": "AI-X 사업단", "총장": "홍길동"})
+    assert asks.remember(db, sess, {"총장": "임꺽정"}) == ["총장"]              # 관리자가 아니면 기관 설정은 그대로
+    assert db.get_setting("institution:총장", "") == ""
+    asks.remember(db, sess, {"사업단명": "AI-X 사업단", "총장": "홍길동"}, global_ok=True)
     f = asks.facts(db, sess)
     assert f["사업단명"] == "AI-X 사업단" and f["총장"] == "홍길동"
     assert json.loads(db.get_setting("project_facts:9", ""))["사업단명"] == "AI-X 사업단"

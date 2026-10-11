@@ -207,7 +207,7 @@ def create_app(
         secret_path.chmod(0o600)
 
     # 계정 저장소 — data/platform/accounts.json (0600).
-    # 부트스트랩: zzaimy(담당자)=기존 비밀번호, zzdev(개발자)=초기 devpass.
+    # 첫 기동이면 zzaimy(담당자)=기동 비밀번호, zzdev(개발자)=ZZAIMY_DEV_PASSWORD 또는 무작위 비밀번호로 만든다.
     # 개발자 전용 화면(/dev)은 dev 역할만 접근한다.
     import json as _aj
 
@@ -260,13 +260,22 @@ def create_app(
         try:
             accounts = _aj.loads(accounts_path.read_text())
         except (OSError, ValueError):
-            # 부트스트랩: zzaimy(담당자)=기동 비밀번호, zzdev(개발자)=초기 devpass.
-            # 첫 로그인 후 변경한다.
-            accounts = {
-                "zzaimy": _new_account("zzaimy", password, "staff", "담당자"),
-                "zzdev": _new_account("zzdev", "devpass", "dev", "개발자"),
-            }
+            # 첫 기동 — 개발자 비밀번호는 운영자가 정한 값(ZZAIMY_DEV_PASSWORD)이거나, 없으면 무작위로 만들어 0600 파일에만 둔다.
+            # 무작위 비밀번호로 만든 계정은 로그인 뒤 비밀번호를 바꿀 때까지 설정 화면으로만 간다. 있는 계정 파일은 건드리지 않는다
+            dev_pw = os.environ.get("ZZAIMY_DEV_PASSWORD", "")
+            generated = not dev_pw
+            if generated:
+                dev_pw = secrets.token_urlsafe(12)
+            dev_acct = _new_account("zzdev", dev_pw, "dev", "개발자")
+            if generated:
+                dev_acct["must_change"] = True
+            accounts = {"zzaimy": _new_account("zzaimy", password, "staff", "담당자"), "zzdev": dev_acct}
             _save_accounts()
+            if generated:
+                pw_file = accounts_path.parent / "initial_dev_password.txt"
+                pw_file.write_text(dev_pw + "\n")
+                pw_file.chmod(0o600)
+                logging.getLogger("zzaimy.app.auth").warning("개발자 계정(zzdev)의 첫 비밀번호를 %s 에 두었습니다 — 로그인 뒤 바꿔 주세요", pw_file)
 
 
     def _make_session(user: str, days: int = 7) -> str:
@@ -324,6 +333,9 @@ def create_app(
             request.state.role = accounts.get(user, {}).get("role", "staff")
             request.state.dept = accounts.get(user, {}).get("dept", "")     # 검색·대화 범위(부서). 비면 전체
             request.state.user = user
+            # 무작위 첫 비밀번호 계정은 바꾸기 전까지 설정 화면(비밀번호 바꾸기)과 로그아웃만
+            if accounts.get(user, {}).get("must_change") and request.url.path not in ("/settings", "/account/password", "/logout"):
+                raise HTTPException(401, detail="password-change-required")
             # 구글 허용 콜백은 로그인한 누구나 — 사용자마다 자기 학교 계정을 잇는다(user_admin, 콘솔에 등록된 주소 그대로)
             if request.url.path.startswith("/dev") and request.state.role != "dev" and request.url.path != "/dev/gdrive/callback":
                 raise HTTPException(403, "개발자 계정 전용입니다")
@@ -358,6 +370,8 @@ def create_app(
         # 세션 없는 브라우저 접근은 로그인 페이지로 보낸다
         if exc.status_code == 401 and exc.detail == "login-required":
             return RedirectResponse("/login", status_code=_status.HTTP_303_SEE_OTHER)
+        if exc.status_code == 401 and exc.detail == "password-change-required":
+            return RedirectResponse("/settings?err=첫 비밀번호를 바꿔 주세요", status_code=_status.HTTP_303_SEE_OTHER)
         return JSONResponse(
             {"detail": exc.detail}, status_code=exc.status_code,
             headers=getattr(exc, "headers", None),
@@ -962,7 +976,7 @@ def create_app(
             from zzaimy.app import form_choice
 
             _chat_step(session_id, "양식 고르는 중")
-            cands = form_choice.candidates(db, project, db.list_chats(session_id), q)
+            cands = _form_candidates(session_id, project, q)
             try:
                 from zzaimy.generate.client import VllmClient
                 fc_client = VllmClient(role="answer")
@@ -1127,7 +1141,56 @@ def create_app(
             if d:
                 cands.append(d)
         seen: set[int] = set()
-        return [d for d in cands if not (d["id"] in seen or seen.add(d["id"]))]
+        # 대화 주인의 열람 범위 밖 문서는 제목조차 모델·담당자에게 보이지 않는다(문서 화면·검색과 같은 규칙)
+        return [d for d in cands if not (d["id"] in seen or seen.add(d["id"])) and _viewer_sees(session_id, d)]
+
+    def _form_candidates(session_id: int, project: dict | None, q: str) -> list[dict]:
+        """양식 후보(form_choice) 가운데 대화 주인이 볼 수 있는 것만 — 프로젝트 작성 서식도 열람 범위를 따른다."""
+        from zzaimy.app import form_choice
+
+        return [c for c in form_choice.candidates(db, project, db.list_chats(session_id), q)
+                if c.get("kind") != "form" or _viewer_sees(session_id, c.get("doc") or {})]
+
+    def _session_viewer(session_id: int) -> tuple[str, str, str | None]:
+        """대화 주인의 (계정, 역할, 부서) — _answer_task_impl 과 같은 규칙(인증 없이 띄운 앱은 관리자)."""
+        owner = (db.get_chat_session(session_id) or {}).get("owner") or ""
+        acct = accounts.get(owner, {}) if password is not None else {}
+        return owner, acct.get("role", "dev" if password is None else "staff"), acct.get("dept") or None
+
+    def _viewer_sees(session_id: int, doc: dict) -> bool:
+        from zzaimy.app.access_policy import visible
+
+        owner, role, dept = _session_viewer(session_id)
+        return visible(doc, dept=dept, user=owner, role=role)
+
+    def _mentions_document(request: str, title: str, min_len: int = 4) -> bool:
+        """담당자 요청 글이 이 문서를 스스로 짚었는가 — 공백·문장부호를 뺀 두 글이 min_len 자 이상 이어진 공통 부분을 갖고,
+        그 부분이 흔한 갈래 낱말·숫자만으로 이뤄지지 않았을 때. 모델이 문서·검색 결과 속 글에 끌려 다른 문서로 옮겨 가지 않게 한다."""
+        def norm(t: str) -> str:
+            return re.sub(r"[\s\-_()\[\]{}.,:;·+/「」『』\"'<>]+", "", t or "").lower()
+        a, b = norm(request), norm(title)
+        if len(a) < min_len or len(b) < min_len:
+            return False
+        generic = sorted(_GENERIC_WORDS, key=len, reverse=True)
+
+        def specific(sub: str) -> bool:
+            rest = re.sub(r"\d+", "", sub)
+            for w in generic:
+                rest = rest.replace(w, "")
+            return len(rest) >= 2
+        # 가장 긴 공통 부분 문자열(동적 계획법) — 길이 min_len 이상인 공통 부분 가운데 하나라도 구체적이면 짚은 것
+        prev = [0] * (len(b) + 1)
+        for i in range(1, len(a) + 1):
+            cur = [0] * (len(b) + 1)
+            for j in range(1, len(b) + 1):
+                if a[i - 1] == b[j - 1]:
+                    cur[j] = prev[j - 1] + 1
+                    if cur[j] >= min_len and specific(a[i - cur[j]:i]):
+                        return True
+            prev = cur
+        return False
+
+    app.state.mentions_document = _mentions_document
 
     def _project_doc_named(project: dict | None, session_id: int, q: str) -> dict | None:
         """질문이 지목한 프로젝트 문서 — 제목 낱말(2자 이상)의 6할 이상이 질문에 있으면 그 문서. 가장 많이 겹치는 것."""
@@ -1376,6 +1439,7 @@ def create_app(
         if proj:
             doc_ids += [d["id"] for d in db.list_documents(proj["sector"], project_id=pid) if d.get("status") == "reviewed"]
         doc_ids += [int(f["doc_id"]) for f in db.list_files(kind="attachment", session_id=session_id) if f.get("doc_id")]
+        doc_ids = [d for d in dict.fromkeys(doc_ids) if _viewer_sees(session_id, db.get_document(d) or {})]   # 열람 범위 안만
         # 명령이 문서를 지목하면("합본의 내용으로") 그 문서만. 아니면 지금 고치는 작업본의 원본 서식은 뺀다(작성방법 상자가 근거로 잡힌다)
         named = _project_doc_named(proj, session_id, q)
         if named is not None and named["id"] in doc_ids:
@@ -1506,7 +1570,7 @@ def create_app(
                         for x in secs[:70]]
                 lines.append(f"연결된 문서: 있음({len(secs)}절)\n" + "\n".join(rows))
             else:
-                cands = form_choice.candidates(db, project, db.list_chats(session_id), q)
+                cands = _form_candidates(session_id, project, q)
                 lines.append("연결된 문서: 없음. 만들 때 고를 양식 후보:\n" + form_choice.render_candidates(cands))
             pend = _asks.pending(db, session_id)
             if pend:
@@ -1595,6 +1659,9 @@ def create_app(
             doc, why = pick_document(str(a.get("document") or ""))
             if doc is None:
                 return why
+            if not _mentions_document(q, storage.title_of(doc.get("filename") or "")):
+                # 담당자가 이 문서를 짚지 않았다 — 문서·검색 결과 속 글이 시킨 것일 수 있어 하지 않고 묻는다
+                return ("담당자 요청 글이 이 문서를 짚지 않아 작업본을 열 수 없다 — ask_user 로 어느 문서로 할지 묻거나 다른 걸음을 고른다.")
             made, why = _link_existing_document(session_id, doc, owner, project)
             if made:
                 return last_reply() or "작업본을 만들어 연결했다."
@@ -1604,26 +1671,31 @@ def create_app(
             doc, why = pick_document(str(a.get("document") or ""))
             if doc is None:
                 return why
+            if not _mentions_document(q, storage.title_of(doc.get("filename") or "")):
+                # 담당자가 이 문서를 짚지 않았다 — 문서·검색 결과 속 글이 시킨 것일 수 있어 하지 않고 묻는다
+                return ("담당자 요청 글이 이 문서를 짚지 않아 판독할 수 없다 — ask_user 로 어느 문서로 할지 묻거나 다른 걸음을 고른다.")
             text = _read_named_document(session_id, doc)
             db.add_chat(session_id, "assistant", text)
             return text
 
         def t_remember(a: dict) -> str:
             vals = a.get("values") if isinstance(a.get("values"), dict) else {}
+            asked = {x["name"] for x in _asks.pending(db, session_id)}
             said = re.sub(r"\s+", "", q)
-            # 담당자 글에 그대로 있는 값만 받는다 — 모델이 값을 지어 넣지 않게(수치는 근거에서만)
-            given = {str(k).strip()[:60]: str(v).strip()[:200] for k, v in vals.items()
-                     if str(k).strip() and str(v).strip() and re.sub(r"\s+", "", str(v)) in said}
-            dropped = [str(k) for k in vals if str(k).strip()[:60] not in given]
+            # 물었던 값만, 담당자 글에 두 글자 이상 그대로 이어진 값만 받는다 — 모델이 값을 지어 넣거나 다른 이름으로 쓰지 않게
+            given = {str(k).strip(): str(v).strip()[:200] for k, v in vals.items()
+                     if str(k).strip() in asked and len(re.sub(r"\s+", "", str(v))) >= 2 and re.sub(r"\s+", "", str(v)) in said}
+            dropped = [str(k) for k in vals if str(k).strip() not in given]
             if not given:
-                return "받은 값이 없다 — 값은 담당자 요청 글에 있는 그대로만 기억한다." + (f" (요청에 없는 값: {', '.join(dropped[:6])})" if dropped else "")
+                return ("받은 값이 없다 — 물었던 값(상태의 받지 못한 값)만, 담당자 요청 글에 있는 그대로 기억한다."
+                        + (f" (받지 않은 것: {', '.join(dropped[:6])})" if dropped else ""))
             text = _remember_given(session_id, given)
-            return text + (f"\n요청 글에 없어 기억하지 않은 값: {', '.join(dropped[:6])}" if dropped else "")
+            return text + (f"\n받지 않은 값(묻지 않은 이름이거나 요청 글에 없음): {', '.join(dropped[:6])}" if dropped else "")
 
         def t_create(a: dict) -> str:
             if link().get("doc"):
                 return "이미 연결된 문서가 있다."
-            cands = form_choice.candidates(db, project, db.list_chats(session_id), q)
+            cands = _form_candidates(session_id, project, q)
             chosen = next((c for c in cands if c["id"] == str(a.get("form") or "")), None)
             if chosen is None:
                 return "form 은 상태의 양식 후보 id 가운데 하나여야 한다."
@@ -1716,10 +1788,13 @@ def create_app(
 
         session_ = db.get_chat_session(session_id) or {}
         pend = _asks.pending(db, session_id)
-        _asks.remember(db, session_, given)
+        # 기관 설정(대학명·총장 …)은 모든 사용자에게 쓰이는 값이라 관리자가 알려 줄 때만 바꾼다
+        local_only = _asks.remember(db, session_, given, global_ok=_session_viewer(session_id)[1] == "dev")
         left_asks = [a for a in pend if a["name"] not in given]
         _asks.set_pending(db, session_id, left_asks)
         text = "기억했습니다 — " + ", ".join(f"{k}: {v}" for k, v in given.items()) + ". 이후 작성하는 절과 기입란에 넣습니다."
+        if local_only:
+            text += (f"\n{', '.join(local_only)} 은(는) 이 프로젝트(대화)의 값으로만 기억했습니다 — 기관 정보 설정은 관리자만 바꿉니다.")
         opts = []
         if left_asks:
             text += "\n아직 못 받은 값: " + ", ".join(a["name"] for a in left_asks)
@@ -4466,6 +4541,7 @@ def create_app(
             return RedirectResponse(
                 f"{dest}{sep}err=새 비밀번호 확인이 일치하지 않습니다", status_code=303)
         _set_pw(accounts[uid], new_pw)
+        accounts[uid].pop("must_change", None)
         _save_accounts()
         return RedirectResponse(f"{dest}{sep}ok=비밀번호를 변경했습니다", status_code=303)
 

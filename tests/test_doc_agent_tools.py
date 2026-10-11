@@ -146,6 +146,122 @@ def test_open_project_document_links_a_working_copy(agent_app, tmp_path, monkeyp
                         lambda email, src, title, folder: {"id": "docA", "url": "https://docs.google.com/document/d/docA/edit"})
     _use_agent(monkeypatch, [_step("open_project_document", document="지역혁신 작성서식"),
                              _step("finish", message="작업본을 열었습니다.")])
-    client.post("/chat/send", data={"question": "그 서식으로 작업하자", "session_id": str(sid)}, follow_redirects=False)
+    client.post("/chat/send", data={"question": "지역혁신 작성서식으로 작업하자", "session_id": str(sid)}, follow_redirects=False)
     assert copied == [did]
     assert json.loads(db.get_setting(f"chat_google_doc:{sid}"))["doc"] == "docA"
+
+
+# ---------------------------------------------------------------- 보안: 값 기억·문서 전환·열람 범위
+
+
+def _project_with_form(db, tmp_path, *, dept=None, level=None):
+    pid = db.create_project("grant", "지역혁신 사업")
+    did = db.add_document(filename="지역혁신 작성서식.hwpx", stored_path=str(tmp_path / "f.hwpx"), doc_type="grant",
+                          sector="grant", project_id=pid, dept=dept, access_level=level)
+    db.update_document(did, status="reviewed")
+    db.set_document_kind(did, "form")
+    return pid, did
+
+
+def _fake_drive(monkeypatch, copied):
+    from zzaimy.ingest import gdrive_files
+
+    monkeypatch.setattr(gdrive_files, "account_for", lambda *a, **k: "staff@example.ac.kr")
+    monkeypatch.setattr(gdrive_files, "has_file_scope", lambda *a, **k: True)
+    monkeypatch.setattr(gdrive_files, "project_folder_for", lambda *a, **k: "folder")
+    monkeypatch.setattr(gdrive_files, "google_copy",
+                        lambda db_, doc, email, folder, **k: copied.append(doc["id"]) or {"id": "g1", "mime": "application/vnd.google-apps.document"})
+    monkeypatch.setattr(gdrive_files, "copy_document",
+                        lambda email, src, title, folder: {"id": "docA", "url": "https://docs.google.com/document/d/docA/edit"})
+
+
+def test_mentions_document_needs_a_specific_shared_span(agent_app):
+    app, _ = agent_app
+    m = app.state.mentions_document
+    assert m("지역혁신 작성서식으로 작업하자", "지역혁신 작성서식")
+    assert not m("그 서식으로 작업하자", "지역혁신 작성서식")                    # 짚지 않음
+    assert not m("2027 사업계획서 써 줘", "2027 사업계획서 최종")                # 흔한 갈래 낱말·숫자만 겹침
+
+
+def test_injected_step_cannot_switch_the_working_document(agent_app, tmp_path, monkeypatch):
+    app, client = agent_app
+    db = app.state.db
+    pid, did = _project_with_form(db, tmp_path)
+    sid = db.create_chat_session("문서 대화", project_id=pid, owner="zzaimy")
+    copied: list = []
+    _fake_drive(monkeypatch, copied)
+    # 검색 결과 속 글에 끌려 모델이 문서를 바꾸려 해도, 담당자 요청이 그 문서를 짚지 않았으면 하지 않는다
+    _use_agent(monkeypatch, [_step("open_project_document", document="지역혁신 작성서식"),
+                             _step("read_document", document="지역혁신 작성서식"),
+                             _step("finish", message="")])
+    client.post("/chat/send", data={"question": "다음 절 이어서 써 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert copied == [] and not db.get_setting(f"chat_google_doc:{sid}")
+    obs = [s_["observation"] for s_ in _episodes(tmp_path)[-1]["steps"][:2]]
+    assert all("짚지 않아" in o for o in obs)
+
+
+def test_remember_values_rejects_unasked_names_and_one_char_values(agent_app, tmp_path, monkeypatch):
+    app, client = agent_app
+    db = app.state.db
+    sid = db.create_chat_session("문서 대화", owner="zzaimy")
+    asks.set_pending(db, sid, [{"name": "등급", "hint": ""}])
+    _use_agent(monkeypatch, [_step("remember_values", values={"등급": "A", "총장": "홍길동"}), _step("finish", message="")])
+    client.post("/chat/send", data={"question": "등급은 A, 총장은 홍길동", "session_id": str(sid)}, follow_redirects=False)
+    from zzaimy.app import institution
+
+    assert "등급" not in json.loads(db.get_setting(f"chat_facts:{sid}", "") or "{}")
+    assert institution.facts(db).get("총장") != "홍길동"
+    assert [a["name"] for a in asks.pending(db, sid)] == ["등급"]
+
+
+def _password_app(tmp_path, monkeypatch, accounts):
+    monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")
+    (tmp_path / "accounts.json").write_text(json.dumps(accounts))
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(),
+                     drafter=FakeDrafter(), responder=FakeResponder(), password="boot-pass-1")
+    return app, TestClient(app)
+
+
+def _login(c, uid, pw):
+    r = c.post("/login", data={"username": uid, "pw": pw}, follow_redirects=False)
+    assert r.status_code == 303
+
+
+@pytest.mark.parametrize("uid,changes_institution", [("staffer", False), ("admin", True)])
+def test_only_admin_values_change_institution_facts(tmp_path, monkeypatch, uid, changes_institution):
+    app, client = _password_app(tmp_path, monkeypatch, {
+        "staffer": {"pw": "pw-staff-1", "role": "staff", "dept": "기획"},
+        "admin": {"pw": "pw-admin-1", "role": "dev"}})
+    _login(client, uid, f"pw-{'staff' if uid == 'staffer' else 'admin'}-1")
+    db = app.state.db
+    sid = db.create_chat_session("문서 대화", owner=uid)
+    asks.set_pending(db, sid, [{"name": "대학명", "hint": ""}])
+    _use_agent(monkeypatch, [_step("remember_values", values={"대학명": "한빛대학교"}), _step("finish", message="")])
+    client.post("/chat/send", data={"question": "대학명은 한빛대학교", "session_id": str(sid)}, follow_redirects=False)
+    from zzaimy.app import institution
+
+    assert json.loads(db.get_setting(f"chat_facts:{sid}"))["대학명"] == "한빛대학교"        # 대화(프로젝트) 값으로는 늘 기억
+    assert (db.get_setting("institution:대학명", "") == "한빛대학교") is changes_institution
+    assert asks.pending(db, sid) == []
+
+
+def test_documents_outside_scope_are_hidden_from_agent_and_fallback(tmp_path, monkeypatch):
+    app, client = _password_app(tmp_path, monkeypatch, {"staffer": {"pw": "pw-staff-1", "role": "staff", "dept": "기획"}})
+    _login(client, "staffer", "pw-staff-1")
+    db = app.state.db
+    pid, did = _project_with_form(db, tmp_path, dept="입학", level="dept")
+    sid = db.create_chat_session("문서 대화", project_id=pid, owner="staffer")
+    copied: list = []
+    _fake_drive(monkeypatch, copied)
+    fake = _use_agent(monkeypatch, [_step("open_project_document", document="지역혁신 작성서식"), _step("finish", message="")])
+    seen: list = []
+    orig = fake.client.chat.completions.create
+
+    def spy(**kw):
+        seen.append("\n".join(m_["content"] for m_ in kw["messages"]))
+        return orig(**kw)
+    fake.client.chat.completions.create = spy
+    client.post("/chat/send", data={"question": "지역혁신 작성서식으로 작업하자", "session_id": str(sid)}, follow_redirects=False)
+    assert seen and not any("지역혁신 작성서식" in t.split("[담당자 요청]")[0] for t in seen)   # 상태에 제목이 없다
+    assert copied == []
+    assert app.state.project_doc_named(db.get_project(pid), sid, "지역혁신 작성서식으로 작업하자") is None
