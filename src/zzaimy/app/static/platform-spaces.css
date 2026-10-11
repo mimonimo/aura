@@ -51,7 +51,8 @@ html:not(.sidebar-collapsed) .sidebar, body.nav-open .sidebar { transition-delay
 .session-rename { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .session-rename input { width:100%; border:1px solid #bbc6d3; border-radius:8px; padding:10px; font:inherit; font-size:14px; }
 .session-rename [role=status] { flex-basis:100%; margin:0; }
-.session-manager { width:min(720px,calc(100vw - 24px)); }
+.session-manager { width:min(720px,calc(100vw - 24px)); margin:10dvh auto auto; }   /* 위쪽 고정 — 결과 수가 바뀌어도 창 머리가 움직이지 않는다 */
+.session-manager .session-results { min-height:min(320px,40dvh); }
 .session-manager > header { margin-bottom:24px; }
 .session-manager > header h2 { font-size:20px; line-height:1.4; }
 .session-manager :is(button,input,select,a):focus-visible { outline:2px solid #607c9e; outline-offset:-2px; box-shadow:none; }

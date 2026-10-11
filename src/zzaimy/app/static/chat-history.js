@@ -99,7 +99,7 @@
     async function load(append=false) {
       const current = ++token;
       controller?.abort(); controller = new AbortController();
-      if (!append) { offset = 0; results.replaceChildren(); }
+      if (!append) offset = 0;      // 지난 결과는 새 결과가 올 때까지 둔다 — 창 높이가 출렁이지 않게
       more.disabled = true; status.textContent = '불러오는 중…';
       const archived = form.querySelector('select').value === '1';
       try {
@@ -107,6 +107,7 @@
         const response = await fetch('/api/chat/sessions?' + query, {cache:'no-store', signal:controller.signal});
         if (!response.ok || response.redirected) throw new Error(response.status === 404 ? '대화 기록을 불러올 수 없습니다. 왼쪽 최근 기록에서 대화를 열어 주세요.' : '기록을 불러오지 못했습니다. 검색을 눌러 다시 시도하세요.');
         const data = await response.json(); if (current !== token) return;
+        if (!append) results.replaceChildren();
         for (const session of data.sessions) {
           const row = document.createElement('article'); row.className = 'session-row';
           const link = document.createElement('a'); link.href = '/chat/' + session.id; link.textContent = session.title || '이름 없는 대화'; link.title = link.textContent;
@@ -182,6 +183,15 @@
     }
     form.onsubmit = event => {event.preventDefault(); load();};
     form.querySelectorAll('select').forEach(select => { select.onchange = () => load(); });
+    // 입력이 바뀌면 잠깐 뒤 다시 찾고, 지우면(Esc 첫 번째 포함) 바로 최근 목록으로 — 지난 결과가 남지 않게
+    let typing;
+    const field = form.querySelector('input');
+    field.addEventListener('input', event => {
+      clearTimeout(typing);
+      if (!field.value.trim()) { load(); return; }
+      if (!event.isComposing) typing = setTimeout(() => load(), 250);
+    });
+    field.addEventListener('compositionend', () => { clearTimeout(typing); typing = setTimeout(() => load(), 250); });
     if (opener.dataset.chatHistoryQ) form.querySelector('input').value = opener.dataset.chatHistoryQ;   // 프로젝트 화면에서 열면 그 프로젝트 이름으로 미리 좁힌다
     more.onclick = () => load(true); load();
   });

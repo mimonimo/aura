@@ -41,10 +41,10 @@
   <p class="sr-what">제목이나 본문에 검색어가 있는 등록 문서. 같은 문서의 판본은 한 줄로 묶었습니다.</p>
   {% for d in docs %}
   <div class="sr-row"><div class="sr-main">
-    <a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
+    <a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
     <span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span>
     {% if d.n_versions > 1 %}<span class="pill">판본 {{ d.n_versions }}개</span>{% endif %}
-    <div class="sr-sub">{{ d.receipt_no or "" }}{% if d.receipt_no and d.snippet %} · {% endif %}{{ d.snippet or "" }}</div>
+    <div class="sr-sub">{{ receipt_label(d.receipt_no) }}{% if d.receipt_no and d.snippet %} · {% endif %}{{ d.snippet or "" }}</div>
   </div></div>
   {% else %}
   <p class="sr-empty">맞는 문서가 없습니다.</p>
@@ -57,7 +57,7 @@
   <p class="sr-what">볼 수 있는 문서의 본문에서 검색어가 나온 대목. 누르면 문서의 그 자리로 갑니다.</p>
   {% for h in chunks %}
   <div class="sr-row"><div class="sr-main">
-    <a href="/doc/{{ h.doc_id }}#q={{ q|urlencode }}">{{ doc_name({"filename": h.title}) }}{% if h.heading %} · {{ h.heading }}{% endif %}</a>
+    <a href="/doc/{{ h.doc_id }}#q={{ q|urlencode }}">{{ doc_title({"filename": h.title}) }}{% if h.heading %} · {{ h.heading }}{% endif %}</a>
     <div class="sr-sub">{{ h.snippet }}</div>
   </div></div>
   {% else %}

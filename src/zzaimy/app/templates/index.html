@@ -158,8 +158,8 @@
         <tr><th>접수번호</th><th>문서 제목</th>{% if active_tab == 'all' %}<th>업무</th>{% endif %}<th>등록일</th></tr>
         {% for d in documents %}
         <tr>
-          <td class="muted">{{ d.receipt_no or d.id }}</td>
-          <td class="doc-cell"><a href="/doc/{{ d.id }}">{{ doc_name(d) }}</a>
+          <td class="muted">{{ receipt_label(d.receipt_no) or d.id }}</td>
+          <td class="doc-cell"><a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
             <div class="doc-meta">
               <span class="muted">{{ d.kind_label or "분류 전" }}</span>
               {% if d.status in run_labels %}<span class="pill {{ 'failed' if d.status == 'failed' else 'processing' }}">{{ run_labels[d.status] }}</span>{% endif %}
@@ -171,7 +171,7 @@
               <summary>판본 {{ d.n_versions }}개</summary>
               <ul>
                 {% for v in d.versions %}
-                <li><a href="/doc/{{ v.id }}">{{ doc_name(v) }}</a><span class="muted">{{ v.receipt_no or v.id }} · {{ (v.created_at or '')[:10] }}</span>{% if v.project_name %}<span class="muted">{{ v.project_name }}</span>{% endif %}</li>
+                <li><a href="/doc/{{ v.id }}">{{ doc_title(v) }}</a><span class="muted">{{ receipt_label(v.receipt_no) or v.id }} · {{ (v.created_at or '')[:10] }}</span>{% if v.project_name %}<span class="muted">{{ v.project_name }}</span>{% endif %}</li>
                 {% endfor %}
                 {% if d.n_versions - 1 > d.versions|length %}<li class="muted">그 밖의 판본 {{ d.n_versions - 1 - d.versions|length }}개 — 제목으로 찾으면 모두 보입니다.</li>{% endif %}
               </ul>

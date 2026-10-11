@@ -27,6 +27,20 @@ def display_title(title: str | None, project_name: str | None = None) -> str:
     return text or "대화"
 
 
+def query_forms(query: str) -> list[str]:
+    """대화 검색어의 표기 변형 — 반각으로 정리한 말과 그 전각 표기(대·소문자). 저장된 제목·글이 전각(ＡＩＤ)이어도
+    반각(AID)으로 찾고, 그 반대도 된다. 대화 검색 창과 머리말 검색이 이 하나로 맞춘다(SQL 의 lower 는 전각을 접지 않는다)."""
+    from zzaimy.app.responder import normalize_input
+
+    half = " ".join(normalize_input(query or "").split())
+    if not half:
+        return []
+    def wide(t: str) -> str:
+        return "".join(chr(ord(c) + 0xFEE0) if 0x21 <= ord(c) <= 0x7E else ("\u3000" if c == " " else c) for c in t)
+    forms = [half] + [wide(t) for t in (half, half.upper(), half.lower())]
+    return list(dict.fromkeys(f for f in forms if f))
+
+
 class ChatHistory:
     def __init__(self, path):
         self.path = path
@@ -48,14 +62,21 @@ class ChatHistory:
         주제 조건도 같은 질의 안에서 걸러야 정렬·페이지 나눔이 한 결과집합에 적용된다.
         첫 페이지에서만 합치면 다음 페이지에서 빠진다.
         """
-        topic_sql, topic_args = ('', [])
-        if query and topic_match:
-            topic_sql, topic_args = f' OR ({topic_match[0]})', list(topic_match[1])
-        if query and scope == 'all':
+        forms = query_forms(query)
+        match_sql, match_args = '', []
+        for f in forms:
+            match_sql += " OR instr(lower(s.title), lower(?))>0 OR instr(lower(COALESCE(p.name,'')), lower(?))>0"
+            match_args += [f, f]
+        if forms and topic_match:
+            match_sql += f' OR ({topic_match[0]})'
+            match_args += list(topic_match[1])
+        if forms and scope == 'all':
             # 대화 내용까지 — 주고받은 글에서 찾는다(맥락 검색)
-            topic_sql += (" OR EXISTS (SELECT 1 FROM chat_messages m2 WHERE m2.session_id = s.id"
-                          " AND instr(lower(m2.content), lower(?)) > 0)")
-            topic_args.append(query)
+            for f in forms:
+                match_sql += (" OR EXISTS (SELECT 1 FROM chat_messages m2 WHERE m2.session_id = s.id"
+                              " AND instr(lower(m2.content), lower(?)) > 0)")
+                match_args.append(f)
+        where_q = f" AND (0=1{match_sql})" if forms else ""
         with closing(self.connect()) as conn:
             rows = conn.execute(f'''
                 SELECT s.*, p.name AS project_name,
@@ -63,11 +84,9 @@ class ChatHistory:
                 FROM chat_sessions s
                 LEFT JOIN projects p ON p.id=s.project_id
                 LEFT JOIN chat_session_preferences pref ON pref.session_id=s.id
-                WHERE s.owner=? AND COALESCE(pref.archived,0)=?
-                    AND (?='' OR instr(lower(s.title), lower(?))>0
-                         OR instr(lower(COALESCE(p.name,'')), lower(?))>0{topic_sql})
+                WHERE s.owner=? AND COALESCE(pref.archived,0)=?{where_q}
                 ORDER BY last_message DESC, s.id DESC LIMIT ? OFFSET ?
-            ''', (owner, int(archived), query, query, query, *topic_args, limit, offset)).fetchall()
+            ''', (owner, int(archived), *match_args, limit, offset)).fetchall()
         return [dict(row) | {'title': display_title(row['title'])} for row in rows]
 
     def change(self, owner, session_id, title=None, archived=None):

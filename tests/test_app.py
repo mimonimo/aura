@@ -194,7 +194,7 @@ def test_sector_tab_filters_documents(client):
     assert "공고문.pdf" in all_page and "이력서.pdf" in all_page
     recruit_page = client.get("/inbox?type=recruit&q=pdf").text
     table = recruit_page.split('<table class="intake-table">', 1)[-1].split("</table>", 1)[0]
-    assert '<td class="doc-cell"><a href="/doc/2">이력서.pdf' in table
+    assert '<td class="doc-cell"><a href="/doc/2">이력서</a>' in table
     assert '<a href="/doc/1">공고문.pdf' not in table
 
 
@@ -401,7 +401,7 @@ def test_project_create_and_filter(client):
     assert "2026 상반기 계약직" in page           # 프로젝트 캡슐 표시
     filtered = client.get("/?type=recruit&project=1").text
     # 표(문서 목록) 기준 확인 — 사이드바 등에는 B가 보일 수 있다
-    assert ">지원서A.pdf</a>" in filtered
+    assert ">지원서A</a>" in filtered
     assert ">지원서B.pdf</a>" not in filtered
 
 
@@ -424,7 +424,7 @@ def test_project_rename_and_delete(client):
     assert r.status_code == 303
     page = client.get("/inbox?type=recruit&q=pdf").text
     assert "2026 하반기 조교" not in page
-    assert ">지원서.pdf</a>" in page
+    assert ">지원서</a>" in page
 
 
 def test_project_rename_unknown_returns_404(client):
@@ -589,7 +589,7 @@ def test_tiles_filter_document_list(client):
                 files={"file": ("대기문서.pdf", b"%PDF", "application/pdf")})  # 판정 대기
     page = client.get("/inbox?type=recruit&flt=pending").text
     table = page.split('<table class="intake-table">', 1)[-1].split("</table>", 1)[0]
-    assert "대기문서.pdf" in table and "완료문서.pdf" not in table
+    assert "대기문서" in table and "완료문서" not in table
     assert "담당자 확인 전" in page  # 걸린 필터가 표시된다
 
 
