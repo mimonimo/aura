@@ -160,16 +160,22 @@ def build_graph(
             linked.add((int(d["project_id"]), d["id"]))
         if d.get("related_criteria_id") in doc_ids:
             add_edge(f"d{d['id']}", f"d{d['related_criteria_id']}", "refers")
+        # 자동 추천 기준은 같은 프로젝트·같은 사업 근거가 있을 때만 잇는다 — 본문이 비슷하다는 것(검색 유사도)만으로
+        # 다른 사업의 기준을 잇지 않는다(regulations.criteria_link_evidence, 문서 화면과 같은 규칙).
         raw = d.get("suggested_criteria")
         if raw:
             try:
-                for it in json.loads(raw):
-                    cid = it.get("id") if isinstance(it, dict) else None
-                    if cid in doc_ids:
-                        add_edge(f"d{d['id']}", f"d{cid}", "refers", 0.7,
-                                 why="검색이 이 기준 문서를 근거 후보로 제안했습니다.")
-            except (ValueError, AttributeError):
-                pass
+                items = [it for it in json.loads(raw)
+                         if isinstance(it, dict) and it.get("id") in doc_ids]
+            except (ValueError, TypeError):
+                items = []
+            if items:
+                from zzaimy.app.regulations import evidenced_suggestions
+
+                for it in evidenced_suggestions(db, d, items):
+                    add_edge(f"d{d['id']}", f"d{it['id']}", "refers", 0.7,
+                             why=f"검색이 이 기준 문서를 근거 후보로 제안했고, {it['why']} 문서입니다.",
+                             evidence=[it["why"]])
 
     _add_citation_edges(db, criteria, add_edge)
     if include_similarity:

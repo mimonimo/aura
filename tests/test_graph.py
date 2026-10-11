@@ -156,3 +156,34 @@ def test_same_title_documents_do_not_cite_each_other(tmp_path):
     _add_citation_edges(db, db.list_documents("regulation"), lambda s, t, k, **kw: edges.append((s, t)))
     assert all(not (s.startswith("d") and t.startswith("d") and s != f"d{other}") for s, t in edges)
     assert (f"d{other}", "d1") in edges
+
+
+def test_suggested_criteria_edge_needs_project_or_program_evidence(db):
+    """자동 추천 기준은 같은 프로젝트·같은 사업 근거가 있을 때만 refers 간선 — 유사도만으로 다른 사업을 잇지 않는다."""
+    import json
+
+    same = db.add_document("가상 사업 운영 지침.pdf", "/x/s", doc_type="regulation")
+    other = db.add_document("다른 사업 기본계획.pdf", "/x/o", doc_type="regulation")
+    intake = db.add_document("가상 사업 신청서.pdf", "/x/i", doc_type="grant")
+    db.set_doc_identity(intake, {"program": "가상 바다 정화 지원 사업"})
+    db.set_doc_identity(same, {"program": "가상 바다정화 지원사업 (2027)"})
+    db.set_doc_identity(other, {"program": "다른 산간 교통 개선 사업"})
+    db.update_document(intake, suggested_criteria=json.dumps(
+        [{"id": other, "title": "다른"}, {"id": same, "title": "같은"}], ensure_ascii=False))
+
+    g = build_graph(db, include_similarity=False)
+    refers = {(e["s"], e["t"]): e for e in g["edges"] if e["kind"] == "refers"}
+    assert (f"d{intake}", f"d{other}") not in refers                 # 다른 사업 — 유사도만으로는 잇지 않는다
+    edge = refers[(f"d{intake}", f"d{same}")]
+    assert edge["w"] == 0.7 and "같은 사업" in edge["why"]
+
+    # 같은 프로젝트 근거 — 사업 이름이 달라도 프로젝트가 그 기준을 쓰면 잇는다
+    pid = db.create_project("grant", "가상 묶음")
+    db.set_project_criteria(pid, [other])
+    member = db.add_document("가상 묶음 계획서.pdf", "/x/m", doc_type="grant", project_id=pid)
+    db.set_doc_identity(member, {"program": "가상 바다 정화 지원 사업"})
+    db.update_document(member, suggested_criteria=json.dumps([{"id": other, "title": "다른"}]))
+    g = build_graph(db, include_similarity=False)
+    refers = {(e["s"], e["t"]): e for e in g["edges"] if e["kind"] == "refers"}
+    assert "같은 프로젝트" in refers[(f"d{member}", f"d{other}")]["why"]
+    assert (f"d{intake}", f"d{other}") not in refers
