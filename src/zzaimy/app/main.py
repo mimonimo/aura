@@ -1435,7 +1435,9 @@ def create_app(
 
                 info = _gd.get(link["account"], link["doc"])
                 try:
-                    skip_ = set(_aj.loads(db.get_setting(f"chat_skip_sections:{session_id}", "") or "[]"))
+                    # 이미 다룬 절은 연결 문서마다 — 대화 단위로 두니 문서를 새로 만든 뒤에도 옛 문서에서 다룬 「1. 추진 배경」을 건너뛰었다(10/11)
+                    raw_skip = _aj.loads(db.get_setting(f"chat_skip_sections:{session_id}", "") or "[]")
+                    skip_ = set(raw_skip.get("heads", [])) if isinstance(raw_skip, dict) and raw_skip.get("doc") == link["doc"] else set()
                 except ValueError:
                     skip_ = set()
                 targets = drafting.target_sections(info, q, skip=skip_)
@@ -1530,7 +1532,7 @@ def create_app(
                         # 이 대화에서 다룬 절 — 쓴 것이 있든(근거 없는 칸은 비워 둠) 없든 「다음 절」은 그 뒤부터(리허설: 요약서 표를 두 번 채움).
                         # 절 번호로 짚으면 다시 쓴다
                         skip_.add(sec["heading"])
-                        db.set_setting(f"chat_skip_sections:{session_id}", _aj.dumps(sorted(skip_), ensure_ascii=False))
+                        db.set_setting(f"chat_skip_sections:{session_id}", _aj.dumps({"doc": link["doc"], "heads": sorted(skip_)}, ensure_ascii=False))
                     info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
                 db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
                 pend = _asks.pending(db, session_id)
