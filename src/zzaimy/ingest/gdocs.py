@@ -1116,6 +1116,7 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
     dst_norm = _norm_heading(info.get("text") or "")
     dst_cells = {_norm_heading(c) for ln in (info.get("text") or "").split("\n") if " | " in ln for c in ln.split(" | ") if c.strip()}
     plans: dict[int, dict] = {}                                        # 대상 절 index → {sec, items, heads}
+    plan_lines: dict[int, set[str]] = {}                               # 대상 절 index → 그 절에 이미 있는 줄(정규화)
     for b in bodies:
         if only_headings is not None and b["heading"] not in only_headings:
             continue
@@ -1142,9 +1143,16 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
         # 새 작업본(서식 변환본)에 이미 있는 글·표는 옮기지 않는다 — 옛 작업본도 서식 변환본이라 서식 자체의 표·문단이 들어 있다
         # (실측 2026-09-29: 재생성 뒤 표 29개 이동, 대부분 서식 표). 문단은 글로, 표는 칸 글자 집합으로 견준다
         kept: list[tuple[str, object]] = []
+        # 짧은 줄(8자 이하)은 문서 전체와 견주면 흔한 말이 걸리므로 같은 절의 줄과 통째로 견준다 — 예전엔 아예 견주지 않아
+        # 「◦ 달성 계획 및 전략」이 작업본을 새로 뜰 때마다 8줄씩 늘었다(10/11: 24 → 32 → 40번)
+        sec_lines = plan_lines.setdefault(int(sec["index"]), {
+            _norm_heading(_para_text(el["paragraph"])) for el in dst_body
+            if "paragraph" in el and int(sec["start"]) <= int(el.get("startIndex", 0)) < int(sec["end"])})
         for kind, payload in items:
             if kind == "text":
-                keep = [ln for ln in str(payload).split("\n") if ln.strip() and not (len(_norm_heading(ln)) > 8 and _norm_heading(ln) in dst_norm)]
+                keep = [ln for ln in str(payload).split("\n") if ln.strip()
+                        and not (len(_norm_heading(ln)) > 8 and _norm_heading(ln) in dst_norm)
+                        and not (len(_norm_heading(ln)) <= 8 and _norm_heading(ln) in sec_lines)]
                 if keep:
                     text = "\n".join(keep)
                     kept.append(("text", scrub(text) if scrub else text))
