@@ -31,6 +31,8 @@ _LEAD = [
     re.compile(r"^\s*\d{1,2}\.\s*(?=\d{1,2}\s*차\s*(?:년도|연도))"),
     # '[4-4]', '(3)', '1-30)', '【2】' — 괄호로 닫힌 번호
     re.compile(r"^\s*[\[(【]?\s*\d{1,3}(?:\s*[-–.]\s*\d{1,3})*\s*[\])】]\s*"),
+    # '3.2020 가나사업 …', '11.2025년 …' — 목록 번호 바로 뒤의 연도
+    re.compile(r"^\s*\d{1,2}\.\s*(?=(?:19|20)\d{2}(?!\d))"),
     # '3.4.2.', '1.', '12.5.' — 개요 번호(성분마다 1~2자리라 '2025.10.08' 같은 날짜는 아니다)
     re.compile(r"^\s*\d{1,2}(?:\.\d{1,2})*\.(?!\d)\s*"),
     # '241106_', '20240315-' — 앞에 붙은 날짜 부호(6·8자리). 네 자리(연도)는 아니다
@@ -152,7 +154,8 @@ def drop_person(stem: str, text: str | None = None, whole_ok: bool = False) -> s
         # 이름 하나만 남은 것('전단지')은 번호가 붙어 있던 파일 이름('[4-4]유○○')일 때만 사람 이름으로 본다
         if m and (m.start() > 0 or whole_ok) \
                 and _looks_like_name(m.group(2), bool(m.group(1) or m.group(3)) or _after_unit(s[: m.start()], m)
-                                     or (m.start() == 0 and whole_ok), text):
+                                     or (m.start() == 0 and whole_ok)
+                                     or (m.start() > 0 and complete_title(s[: m.start()].strip())), text):
             s = s[: m.start()]
             continue
         # '60안○○', '[4-4]유○○' 처럼 번호에 바로 붙은 이름만 남은 이름 — 학번·순번 + 이름
@@ -372,12 +375,13 @@ def _header_words() -> frozenset:
     """표 머리 칸 낱말 — 개인정보 탐지기의 서식 낱말(pii._FORM_WORDS)에 분류 머리 몇 개를 더한 일반 어휘."""
     from zzaimy.ingest.pii import _FORM_WORDS
 
-    return frozenset(_FORM_WORDS) | {"항목", "분류", "영역", "지표", "구분", "사업명", "과제명", "문서명", "제목", "건명"}
+    return frozenset(_FORM_WORDS) | {"항목", "분류", "영역", "지표", "구분", "사업명", "과제명", "문서명", "건명"}
 
 
 def strip_header(ln: str) -> str:
     """'구분 전문대 첨단산업 … 사업계획서' 처럼 표 머리 칸 낱말이 줄 앞에 붙은 것을 뗀다(뒤에 이름이 남을 때만)."""
-    ln = re.sub(r"^제\s*목\s*[:：]?\s+", "", ln)                   # '제 목 …' — 공문의 제목 칸 이름
+    # '제 목 …'(칸 이름처럼 띄어 쓴 것)·'제목: …' 만 공문의 제목 칸 이름이다 — '제목 없는 …' 은 이름의 낱말
+    ln = re.sub(r"^(?:제\s목\s+|제\s?목\s*[:：]\s*)(?=\S)", "", ln)
     toks = ln.split(None, 1)
     if len(toks) == 2 and re.sub(r"[:：|]$", "", toks[0]) in _header_words() and _meaningful(toks[1]):
         return toks[1].lstrip(":：| ")
@@ -399,7 +403,7 @@ _PRIVATE = re.compile(r"[\uE000-\uF8FF\U000F0000-\U0010FFFF]")       # 한글 �
 _QUOTE = re.compile(r"[「」『』｢｣《》〈〉]")
 # 공고·고시 번호 머리 — '교육부 공고 제2026–126호 …'(붙임표는 '-'·'–' 모두)
 _DOC_NUMBER_HEAD = re.compile(r"^[가-힣\s]*(?:공고|고시|공지|훈령)\s*(?:제\s*)?\d{2,4}\s*[-–—]\s*\d+\s*호\s*")
-_COVER_LABEL = re.compile(r"^[가-힣\s]{0,12}표\s*지\s+")             # '사업계획서 표지 …'
+_COVER_LABEL = re.compile(r"^[가-힣]{1,12}\s+표\s?지\s+")     # '표지' 가 한 낱말일 때만('발표지원 …' 은 아니다)             # '사업계획서 표지 …'
 
 
 def polish_title(t: str) -> str:
@@ -409,7 +413,8 @@ def polish_title(t: str) -> str:
     if m and _meaningful(s[m.end():]):
         s = s[m.end():]
     m = _COVER_LABEL.match(s)
-    if m and _meaningful(s[m.end():]):
+    # '사업계획서 표지 …' — 앞 낱말이 서류 이름일 때만 표지 표시다('붙임 표지 디자인 …' 은 아니다)
+    if m and _meaningful(s[m.end():]) and complete_title(s[: m.end()].split()[0]):
         s = s[m.end():]
     s = _QUOTE.sub(" ", s)
     s = re.sub(r"\s+([)\]])", r"\1", re.sub(r"([(\[])\s+", r"\1", s))

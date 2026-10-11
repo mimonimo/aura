@@ -560,3 +560,59 @@ def test_join_that_repeats_a_year_or_phrase_is_rejected():
 def test_number_plus_lone_name_is_a_person_even_without_body():
     assert clean_filename("60윤하늘.pdf") == "" and clean_filename("[4-4]한바다.pdf") == ""
     assert choose_name("60윤하늘.pdf", "", META)["name"] == "증빙·회계 서류 · 가나사업 2026"
+
+
+# ── 세 번째 미리보기: 앞 떼기가 낱말 안을 자르지 않는다, 목록 번호 + 연도, 서류 낱말 뒤의 이름 ───────────
+REAL_WORD_TITLES = [
+    "제안요청서", "제출서류 목록", "제목 없는 회의 자료", "제도 개선 계획", "붙박이장 구매 계획", "별도 지원 계획", "별표 운영 기준",
+    "첨단분야 혁신융합대학 기본계획", "첨부파일 목록", "서식관리 지침", "양식장 관리 계획", "발표지원 사업 안내", "표지 디자인 공모 안내",
+]
+
+
+@pytest.mark.parametrize("title", REAL_WORD_TITLES)
+def test_prefix_strips_never_cut_inside_a_word(title):
+    """앞 표시 떼기는 구분자·낱말 경계에서만 끝난다 — 남은 이름은 원래 이름의 낱말 경계에서 시작해야 한다."""
+    from zzaimy.app.doc_naming import polish_title, strip_header
+
+    for raw in (title, f"붙임 {title}", f"[붙임1] {title}", f"별첨 {title}"):
+        for got in (clean_filename(raw + ".hwp"), polish_title(raw), strip_header(raw)):
+            assert got.endswith(title) or got == raw, (raw, got)
+            assert title.startswith(got.split()[0]) or got.split()[0] in raw.split(), (raw, got)
+
+
+def test_title_label_is_stripped_only_as_a_label():
+    from zzaimy.app.doc_naming import strip_header
+
+    assert strip_header("제 목 2018학년도 가나 특강 신청 안내") == "2018학년도 가나 특강 신청 안내"
+    assert strip_header("제목: 가나 특강 신청 안내") == "가나 특강 신청 안내"
+    assert strip_header("제목없음 처리 지침") == "제목없음 처리 지침"
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("3.2020_가나스페이스 구축·운영사업_최종보고서.hwp", "2020 가나스페이스 구축·운영사업 최종보고서"),
+    ("2.2018 가나프로젝트 경진대회 계획.hwp", "2018 가나프로젝트 경진대회 계획"),
+    ("11.2025년 9월 가나 회의록.hwp", "2025년 9월 가나 회의록"),
+])
+def test_list_number_before_a_year_is_removed(raw, want):
+    assert clean_filename(raw) == want
+
+
+def test_year_like_numbers_that_are_not_list_numbers_stay():
+    assert clean_filename("2025.10.08 회의록.hwp") == "2025.10.08 회의록"
+    assert clean_filename("1.1 가나사업 개요.hwp") == "1.1 가나사업 개요"
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("※ 가나디자인 산업체 인사 명단_김하준.hwpx", "가나디자인 산업체 인사 명단"),
+    ("가나사업 참여 학생 현황 박서윤.xlsx", "가나사업 참여 학생 현황"),
+])
+def test_person_name_after_a_document_word_is_removed(raw, want):
+    assert clean_filename(raw) == want
+
+
+@pytest.mark.parametrize("raw", [
+    "가나사업 운영 현황 한국어.xlsx",        # 이름에 드문 끝 글자
+    "가나사업 신청서 장학금.hwp",
+])
+def test_words_after_a_document_word_that_are_not_names_stay(raw):
+    assert clean_filename(raw) == raw.rsplit(".", 1)[0]
