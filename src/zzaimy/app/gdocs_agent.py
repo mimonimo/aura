@@ -17,6 +17,7 @@ import os
 import re
 from pathlib import Path
 
+from zzaimy.app import korean_text as _ko
 from zzaimy.ingest import gdocs
 
 PLAN_SCHEMA = {
@@ -172,7 +173,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
         from zzaimy.app import drafting
 
         visible_text = drafting.section_text(info, focus)[:max_text] or info["text"][:max_text]
-        focus_note = f" (대상 절 「{focus.get('heading', '')}」 의 현재 글만)"
+        focus_note = f" (대상 절 {_ko.quote(focus.get('heading', ''), '의')} 현재 글만)"
     else:
         visible_text = info["text"][:max_text]
         if len(info["text"]) > max_text:
@@ -220,7 +221,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     from zzaimy.ingest.gdocs_templates import TABLE_ONLY
     if focus is not None and TABLE_ONLY[:12] in (focus.get("text") or ""):
         ops = [o for o in ops if o.get("op") != "insert"]          # 표만 채우는 절 — 본문 문단은 넣지 않는다(양식 규칙)
-    asks = [{"name": _plain(str(a.get("name") or ""))[:40], "hint": _plain(str(a.get("hint") or ""))[:80]}
+    asks = [{"name": _plain(str(a.get("name") or ""))[:40], "hint": _ko.clip(_plain(str(a.get("hint") or "")), 120)}
             for a in (data.get("asks") or []) if isinstance(a, dict) and str(a.get("name") or "").strip()][:6]
     return {"reply": (data.get("reply") or "").strip(), "ops": ops, "asks": asks}
 
@@ -372,7 +373,7 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                 if headings and _norm(o["old"]) in headings and not placeholder_heading_fill(o["old"], o.get("text") or ""):
                     # 절 제목 글을 본문 문장으로 바꾸면 절 구조가 깨지므로 제목 바꾸기는 지시가 있을 때만 한다.
                     # 공통 양식의 자리 표시 제목(「1. (추진 과제 1) ○○○○」)을 같은 번호로 채우는 것만 예외
-                    lines.append(f"「{o['old'][:30]}」 은 절 제목이라 바꾸지 않음")
+                    lines.append(f"{_ko.quote(o['old'][:30], '은')} 절 제목이라 바꾸지 않음")
                     continue
                 r = gdocs.replace_text(account, doc, o["old"], o["text"], user=user, data_dir=data_dir,
                                        scrub=scrub, http=http)
@@ -398,7 +399,7 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                 r = gdocs.emphasize(account, doc, o.get("old") or o.get("text") or "", user=user, data_dir=data_dir, http=http)
                 lines.append(f"「{(o.get('old') or o.get('text') or '')[:30]}」 굵게 {r['count']}곳")
             elif o["op"] == "move":
-                lines.append(f"프로젝트 「{o['text'][:40]}」 로 옮기기 요청")      # 실제 이동은 호출부(프로젝트 조회 필요)
+                lines.append(f"프로젝트 {_ko.quote(o['text'][:40], '로')} 옮기기 요청")      # 실제 이동은 호출부(프로젝트 조회 필요)
             elif o["op"] == "rename":
                 from zzaimy.ingest.gdrive_files import rename_document
 
@@ -467,11 +468,11 @@ def quality_pass(account: str, doc: str, http=None) -> list[str]:
         return []
     out = []
     if r["wide"]:
-        out.append(f"품질 점검: 본문 폭을 넘친 표 {r['wide']}개를 폭에 맞춤")
+        out.append(f"본문 폭을 넘친 표 {r['wide']}개를 폭에 맞췄습니다.")
     if r.get("toc_fixed"):
-        out.append(f"품질 점검: 목차 {r['toc_fixed']}줄 단계별 들여쓰기 맞춤")
+        out.append("목차 들여쓰기를 정리했습니다.")
     if r["repeats"]:
-        out.append("품질 점검: 되풀이된 줄 정리 — " + ", ".join(f"「{t}」 {n}번" for t, n in r["repeats"][:3]))
+        out.append("되풀이된 줄을 정리했습니다(" + ", ".join(f"「{t}」 {n}번" for t, n in r["repeats"][:3]) + ").")
     return out
 
 

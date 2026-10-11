@@ -82,4 +82,4 @@ def form_option(facts: dict) -> dict:
     template = ", ".join(f"{k}은 {{{k}}}" if k in ("총장", "대학명") else f"{k}는 {{{k}}}" for k in missing)
     return {"kind": "form", "text": "기관 정보 입력", "fields": fields, "template": template,
             "question": ", ".join(f"{k}은 ○○○" if k in ("총장", "대학명") else f"{k}는 (값)" for k in missing),
-            "submit": "기억하기"}
+            "submit": "저장"}

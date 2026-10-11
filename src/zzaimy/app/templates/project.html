@@ -103,7 +103,7 @@
     {% if project_chats %}
     <div class="project-conversations">
       {% for cs in project_chats %}
-      <a class="project-conversation" href="/chat/{{ cs.id }}" title="{{ cs.title }}"><iconify-icon icon="solar:chat-line-linear"></iconify-icon><span>{{ cs.title }}</span><iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>
+      {% set cs_title = cs.title | chat_title(project.name) %}<a class="project-conversation" href="/chat/{{ cs.id }}" title="{{ cs_title }}"><iconify-icon icon="solar:chat-line-linear"></iconify-icon><span>{{ cs_title }}</span><iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>
       {% endfor %}
     </div>
     {% else %}<p class="project-empty">대화가 없습니다.</p>{% endif %}

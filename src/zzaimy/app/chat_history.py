@@ -1,9 +1,30 @@
 """계정별 통합 채팅 기록. 보관은 가역적인 목록 상태이며 대화를 삭제하지 않는다."""
 from contextlib import closing
+import re
 import sqlite3
 from .database_backend import connect, table_names, lock_session
 
 from fastapi import Form, HTTPException, Request
+
+
+_PROJECT_PREFIX = re.compile(r"^\[([^\]\n]{1,60})\]\s*")
+
+
+def display_title(title: str | None, project_name: str | None = None) -> str:
+    """화면에 보일 대화 제목 — 전각 영문·숫자(ＡＩＤ)를 반각으로, 공백을 한 칸으로.
+
+    프로젝트 안에서 보이는 목록이면(project_name) 제목 앞의 「[프로젝트 이름…] 」 접두어를 뗀다. 접두어는
+    새 대화를 만들 때 프로젝트 이름 앞부분을 잘라 붙인 것이라, 프로젝트 이름이 그 글자로 시작할 때만 뗀다."""
+    from zzaimy.app.responder import normalize_input
+
+    text = " ".join(normalize_input(title or "").split())
+    if project_name:
+        m = _PROJECT_PREFIX.match(text)
+        name = " ".join(normalize_input(project_name).split())
+        head = m.group(1).strip().rstrip("…") if m else ""
+        if m and head and name.startswith(head) and text[m.end():].strip():
+            text = text[m.end():].strip()
+    return text or "대화"
 
 
 class ChatHistory:
@@ -47,14 +68,14 @@ class ChatHistory:
                          OR instr(lower(COALESCE(p.name,'')), lower(?))>0{topic_sql})
                 ORDER BY last_message DESC, s.id DESC LIMIT ? OFFSET ?
             ''', (owner, int(archived), query, query, query, *topic_args, limit, offset)).fetchall()
-        return [dict(row) for row in rows]
+        return [dict(row) | {'title': display_title(row['title'])} for row in rows]
 
     def change(self, owner, session_id, title=None, archived=None):
         with closing(self.connect()) as conn, conn:
             if not conn.execute('SELECT 1 FROM chat_sessions WHERE id=? AND owner=?', (session_id, owner)).fetchone():
                 raise HTTPException(404, '대화를 찾을 수 없습니다.')
             if title is not None:
-                title = title.strip()
+                title = display_title(title) if (title or '').strip() else ''
                 if not title or len(title)>80:
                     raise HTTPException(400, '대화 이름을 1~80자로 입력하세요.')
                 conn.execute('UPDATE chat_sessions SET title=? WHERE id=?', (title, session_id))

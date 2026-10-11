@@ -97,7 +97,7 @@ def form_option(asks: list[dict]) -> dict:
     fields = [{"name": a["name"], "label": a["name"], "placeholder": a.get("hint") or "", "required": False} for a in asks[:6]]
     return {"kind": "form", "text": "필요한 값 입력", "fields": fields,
             "template": "; ".join(f"{a['name']}: {{{a['name']}}}" for a in asks[:6]),
-            "question": "; ".join(f"{a['name']}: (값)" for a in asks[:6]), "submit": "기억하기"}
+            "question": "; ".join(f"{a['name']}: (값)" for a in asks[:6]), "submit": "저장"}
 
 
 def compose(template: str, values: dict) -> str:

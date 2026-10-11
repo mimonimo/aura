@@ -1,4 +1,5 @@
 """문서 묶음 접수 — 공고·기본계획·지침은 프로젝트 기준 문서로, 계획서·양식은 접수 문서로, 이름은 묶음에서 뽑는다."""
+import re
 
 from fastapi.testclient import TestClient
 
@@ -257,7 +258,7 @@ def test_project_evidence_uses_intake_documents(tmp_path, monkeypatch):
     last = db.list_chats(sid)[-1]
     assert last["role"] == "assistant", last
     assert "300자 추가" in last["content"], last["content"]
-    assert "다음 절 이어 쓰기" in c.get(r.headers["location"]).text          # 남은 빈 절(1.2)이 있어 이어가기 선택지
+    assert "다음 절 쓰기 · 「" in c.get(r.headers["location"]).text          # 남은 빈 절(1.2)이 있어 이어가기 선택지
 
 
 def test_text_layer_cleans_bad_glyphs():
@@ -351,7 +352,7 @@ def test_new_chat_with_a_document_set_creates_project_and_links_past_materials(t
     assert len(db.list_documents("grant", project_id=pid)) == 1  # 양식
     msgs = db.list_chats(sid)
     assert msgs[0]["content"].count("[첨부#") == 3 and msgs[0]["content"].endswith("이 사업 계획서 작성을 준비하자")
-    assert "프로젝트 「2026학년도 AID 전환 중점 전문대학 지원사업」 을 만들었습니다" in msgs[1]["content"]
+    assert "프로젝트 「2026학년도 AID 전환 중점 전문대학 지원사업」을 만들었습니다" in msgs[1]["content"]
     assert "지난 자료 「2025학년도 AID 전환 중점 전문대학 지원사업 공고문」" in msgs[1]["content"]
     page = c.get(f"/chat/{sid}").text
     assert page.count('class="chat-attach"') == 3
@@ -461,7 +462,9 @@ def test_context_options_take_precedence_and_clear_on_next_question(tmp_path, mo
     r = c.post("/chat/send", data={"question": "사업계획서 작성서식으로 작업하자", "project_id": str(pid)}, follow_redirects=False)
     sid = int(r.headers["location"].rsplit("/", 1)[-1])
     page = c.get(r.headers["location"]).text
-    assert "아래에서 골라 주세요" in page and page.count("으로 작업</button>") == 2       # 후보 둘이 선택지로
+    # 후보 둘이 선택지로 — 조사는 받침대로(2025 → 로, 2026 → 으로)
+    assert "아래에서 골라 주세요" in page and len(re.findall(r"」(?:으로|로) 작업</button>", page)) == 2
+    assert "2025」로 작업</button>" in page and "2026」으로 작업</button>" in page
     data = c.get(f"/chat/{sid}/messages").json()
     assert [o["kind"] for o in data["suggestions"]] == ["pick", "pick"]
     c.post("/chat/send", data={"question": "다른 질문", "session_id": str(sid)}, follow_redirects=False)

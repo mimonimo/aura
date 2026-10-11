@@ -36,6 +36,8 @@ from fastapi.templating import Jinja2Templates
 from zzaimy.app import search_serving, serving_plan
 from zzaimy.app import paths as _paths
 from zzaimy.app import storage
+from zzaimy.app import korean_text as _ko
+from zzaimy.app.chat_history import display_title as _chat_title
 from zzaimy.app.db import Database
 
 ALLOWED_EXTENSIONS = {
@@ -987,7 +989,7 @@ def create_app(
             if picked is not None and rivals:
                 names = "\n".join(f"- {storage.title_of(d.get('filename') or '')}" for d in [picked, *rivals][:6])
                 db.add_chat(session_id, "assistant", f"어느 문서로 작업할지 분명하지 않습니다. 아래에서 골라 주세요.\n{names}")
-                _set_options(session_id, [{"kind": "pick", "text": f"「{storage.title_of(d.get('filename') or '')[:28]}」 으로 작업",
+                _set_options(session_id, [{"kind": "pick", "text": f"{_ko.quote(_ko.clip(storage.title_of(d.get('filename') or ''), 28), '으로')} 작업",
                                            "question": f"{storage.title_of(d.get('filename') or '')}으로 작업하자"} for d in [picked, *rivals][:4]])
                 _chat_sources[session_id] = []
                 return
@@ -1301,9 +1303,9 @@ def create_app(
             folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
             made = gdrive_files.google_copy(db, doc, email, folder)
         except Exception as e:
-            return False, f"「{title}」 을 독스로 바꾸지 못했습니다({type(e).__name__})."
+            return False, f"{_ko.quote(title, '을')} 독스로 바꾸지 못했습니다({type(e).__name__})."
         if made.get("mime") != "application/vnd.google-apps.document":
-            return False, f"「{title}」 은 독스 문서가 아니라(시트·슬라이드·PDF) 에이전트가 편집할 수 없습니다. 열람은 문서함에서 됩니다."
+            return False, f"{_ko.quote(title, '은')} 독스 문서가 아니라(시트·슬라이드·PDF) 에이전트가 편집할 수 없습니다. 열람은 문서함에서 됩니다."
         # 원본 서식(변환본)은 그대로 두고 복제본을 만들어 그 복제본에서 작업한다 — 프로젝트 폴더의 '작성' 아래
         from datetime import date as _date
 
@@ -1312,10 +1314,10 @@ def create_app(
             work_folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="작성")
             copy = gdrive_files.copy_document(email, made["id"], work_title, work_folder)
         except Exception as e:
-            return False, f"「{title}」 의 작업본을 만들지 못했습니다({type(e).__name__})."
+            return False, f"{_ko.quote(title, '의')} 작업본을 만들지 못했습니다({type(e).__name__})."
         db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": copy["id"], "account": email}))
         db.add_file("google", copy["url"], name=work_title, session_id=session_id, doc_id=int(doc["id"]))
-        db.add_chat(session_id, "assistant", f"「{title}」 의 복제본 「{work_title}」 을 만들어 이 대화에 연결했습니다. 원본 서식은 그대로 두고 이 복제본을 고칩니다. {copy['url']}")
+        db.add_chat(session_id, "assistant", f"{_ko.quote(title, '의')} 복제본 {_ko.quote(work_title, '을')} 만들어 이 대화에 연결했습니다. 원본 서식은 그대로 두고 이 복제본을 고칩니다. {copy['url']}")
         return True, ""
 
     def _auto_link_document(session_id: int, q: str, owner: str, project: dict | None,
@@ -1372,11 +1374,11 @@ def create_app(
                     n_sec = sum(1 for b_ in spec["blocks"] if b_.get("h") == 2)
                     note = f" 대화에서 정한 목차(장 {n_ch}개·절 {n_sec}개)로 뼈대를 깔았습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."
                 else:
-                    note = f" 「{spec['title'].replace('(구글 독스)', '').strip()}」 을 깔아 두었습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."
+                    note = f" {_ko.quote(spec['title'].replace('(구글 독스)', '').strip(), '을')} 적용했습니다. 회색 작성 지침은 다 쓴 뒤 지웁니다."
             except Exception as e:
                 logging.getLogger("zzaimy.app.gdocs").warning("공통 양식 깔기 실패 (대화 %s): %s", session_id, type(e).__name__)
                 note = " 공통 양식은 깔지 못해 빈 문서로 시작합니다."
-        db.add_chat(session_id, "assistant", f"드라이브에 문서 「{title}」 을 만들어 이 대화에 연결했습니다.{note} {made['url']}")
+        db.add_chat(session_id, "assistant", f"드라이브에 문서 {_ko.quote(title, '을')} 만들어 이 대화에 연결했습니다.{note} {made['url']}")
         return True, ""
 
     _sparse_cache: dict[tuple, list[int]] = {}
@@ -1438,13 +1440,13 @@ def create_app(
         for d in docs:
             title = storage.title_of(d.get("filename") or "")
             if d.get("kind") == "form" and d.get("status") == "reviewed":
-                out.append({"kind": "draft", "doc_id": d["id"], "text": f"「{title}」 으로 작성을 시작할까요? 원본 서식은 두고 복제본에서 씁니다.",
+                out.append({"kind": "draft", "doc_id": d["id"], "text": f"{_ko.quote(title, '으로')} 작성을 시작할까요? 원본 서식은 두고 복제본에서 씁니다.",
                             "question": f"{title}으로 작업하자"})
         for d in docs:
             title = storage.title_of(d.get("filename") or "")
             pages = [p for p in _sparse_pages_of(d) if p not in set(db.vision_pages(int(d["id"])))]
             if pages:
-                out.append({"kind": "read", "doc_id": d["id"], "text": f"「{title}」 의 {len(pages)}쪽은 그림이라 글이 없습니다. 판독해 둘까요? (쪽 {', '.join(map(str, pages[:8]))}{' …' if len(pages) > 8 else ''})",
+                out.append({"kind": "read", "doc_id": d["id"], "text": f"{_ko.quote(title, '의')} {len(pages)}쪽은 그림이라 글이 없습니다. 판독해 둘까요? (쪽 {', '.join(map(str, pages[:8]))}{' …' if len(pages) > 8 else ''})",
                             "question": f"{title} 그림 쪽 판독해 줘"})
         return out[:6]
 
@@ -1465,7 +1467,7 @@ def create_app(
             return f"「{title}」 판독에 실패했습니다({type(e).__name__})."
         if not res.get("read"):
             return f"「{title}」 에 판독할 그림 쪽이 없거나 판독 모델이 꺼져 있습니다. {res.get('reason') or ''}".strip()
-        return f"「{title}」 의 그림 쪽 {res['read']}쪽(쪽 {', '.join(map(str, res['pages']))})을 판독해 조각 {res.get('chunks', 0)}개를 더했습니다. 이제 그 내용으로 작성을 요청할 수 있습니다."
+        return f"{_ko.quote(title, '의')} 그림 쪽 {res['read']}쪽(쪽 {', '.join(map(str, res['pages']))})을 판독해 조각 {res.get('chunks', 0)}개를 더했습니다. 이제 그 내용으로 작성을 요청할 수 있습니다."
 
     def _project_evidence(session_id: int, q: str, limit: int = 6) -> list[dict]:
         """대화가 속한 프로젝트의 접수 문서·첨부에서 명령과 낱말이 겹치는 조각 — 명사 겹침으로 고른다(어휘 검색과 같은 키).
@@ -1529,7 +1531,7 @@ def create_app(
             if len(forms) == 1:
                 src = forms[0]
             elif len(forms) > 1:
-                _set_options(session_id, [{"kind": "pick", "text": f"「{storage.title_of(d_.get('filename') or '')[:24]}」 으로", "question": f"{storage.title_of(d_.get('filename') or '')} 으로 {q}"} for d_ in forms[:4]])
+                _set_options(session_id, [{"kind": "pick", "text": f"{_ko.quote(_ko.clip(storage.title_of(d_.get('filename') or ''), 24), '으로')} 작성", "question": f"{_ko.quote(storage.title_of(d_.get('filename') or ''), '으로')} {q}"} for d_ in forms[:4]])
                 db.add_chat(session_id, "assistant", f"어느 양식으로 {purpose}지 골라 주세요.")
                 return None
             named = _project_doc_named(proj_, session_id, q)
@@ -1795,7 +1797,7 @@ def create_app(
             return text[:600]
 
         def t_ask(a: dict) -> str:
-            items = [{"name": str(x.get("name"))[:60], "hint": str(x.get("why") or x.get("hint") or "")[:120]}
+            items = [{"name": str(x.get("name"))[:60], "hint": _ko.clip(str(x.get("why") or x.get("hint") or ""), 120)}
                      for x in (a.get("items") or []) if isinstance(x, dict) and x.get("name")]
             if not items:
                 return "items 가 비었다."
@@ -1879,10 +1881,9 @@ def create_app(
             text += "\n아직 못 받은 값: " + ", ".join(a["name"] for a in left_asks)
             opts.append(_asks.form_option(left_asks))
         last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
-        num = section_context.split_number(last)[0] if last else ""
-        if num:
-            opts.append({"kind": "redo", "text": f"{num} 절에 반영해 다시 쓰기", "question": f"{num} 절을 알려 준 값을 반영해 다시 써 줘"})
-        opts.append({"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
+        if last:
+            opts.append({"kind": "redo", "text": f"{_ko.quote(_ko.clip(last, 18))} 다시 쓰기", "question": f"「{last}」 절을 알려 준 값을 반영해 다시 써 줘"})
+        opts.append({"kind": "continue", "text": "다음 절 쓰기", "question": "다음 절을 작성 방법에 맞춰 작성해 줘"})
         _set_options(session_id, opts)
         text = _scrub_internal(text)
         db.add_chat(session_id, "assistant", text)
@@ -2028,10 +2029,10 @@ def create_app(
             opts.append(_asks.form_option(pend))
         # 단추만 보고 무엇을 어느 절에 하는지 알 수 있게 절 이름을 단추에 넣는다
         last_h = targets[-1]["heading"]
-        short_h = last_h if len(last_h) <= 18 else last_h[:17] + "…"
+        short_h = _ko.clip(last_h, 18)
         if left:
-            opts.append({"kind": "continue", "text": f"다음 절 이어 쓰기 · 「{left[0]['heading'][:18]}」 (남은 {len(left)}절)",
-                         "question": f"「{left[0]['heading']}」 절을 작성방법에 맞춰 작성해 줘"})
+            opts.append({"kind": "continue", "text": f"다음 절 쓰기 · {_ko.quote(_ko.clip(left[0]['heading'], 18))} ({len(left)}개 남음)",
+                         "question": f"「{left[0]['heading']}」 절을 작성 방법에 맞춰 작성해 줘"})
         opts += [{"kind": "review", "text": f"「{short_h}」 검토", "question": f"「{last_h}」 절을 평가지표·공고 기준으로 검토해 줘"},
                  {"kind": "redo", "text": f"「{short_h}」 다시 쓰기", "question": f"「{last_h}」 절을 더 구체적인 수치와 근거로 다시 써 줘"}]
         _set_options(session_id, opts)
@@ -2079,7 +2080,7 @@ def create_app(
                 up_ = _gf.upload_file(link["account"], data_, name_,
                                       "application/vnd.openxmlformats-officedocument.wordprocessingml.document", folder_, reuse=False)
                 db.add_file("google", up_["url"], name=name_, session_id=session_id)
-                return (f"{reason} Word 파일 「{name_}」 로 내보냈습니다"
+                return (f"{reason} Word 파일 {_ko.quote(name_, '로')} 내보냈습니다"
                         f"{f'(회색 작성 지침 {n_guides}곳은 뺐고, 작업본에는 남아 있습니다)' if n_guides else ''} — 한글에서 열어 hwpx 로 저장할 수 있습니다. "
                         f"{up_['url']}")
             except Exception as e:
@@ -2090,7 +2091,7 @@ def create_app(
             # 공통 양식으로 쓴 문서는 한글 원본 서식이 없다 — Word(docx)로 내보낸다
             text = _word_export("이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다.")
             if not text.startswith("Word 로 내보내지 못했"):
-                text += "\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」 으로 다시 쓰면 서식 그대로 채웁니다."
+                text += "\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」으로 다시 쓰면 서식 그대로 채웁니다."
             db.add_chat(session_id, "assistant", _scrub_internal(text))
             return
         src = _working_copy_source(session_id, session_, request, "한글 완성본을 만들")
@@ -2099,7 +2100,7 @@ def create_app(
         src_path = Path(src.get("stored_path") or "")
         if src_path.suffix.lower() != ".hwpx" or not src_path.exists():
             # 옛 한글(hwp) 서식은 서식 보존 채우기를 못 한다 — 그 자리에서 Word 로 내보내고, hwpx 로 다시 올리는 길을 알린다
-            text = _word_export(f"원본 서식 「{storage.title_of(src.get('filename') or '')}」 이 hwpx 가 아니라(또는 파일이 없어) "
+            text = _word_export(f"원본 서식 {_ko.quote(storage.title_of(src.get('filename') or ''), '이')} hwpx 가 아니라(또는 파일이 없어) "
                                 "서식 보존 채우기를 할 수 없어,")
             text += ("\n서식 그대로의 한글 완성본이 필요하면 한글에서 그 서식을 'hwpx 로 저장'해 프로젝트에 올린 뒤 다시 「한글 파일로 내보내 줘」 라고 해 주세요.")
             db.add_chat(session_id, "assistant", _scrub_internal(text))
@@ -2123,7 +2124,7 @@ def create_app(
                 logging.getLogger("zzaimy.app.gdocs").warning("옛 완성본 정리 실패 (대화 %s)", session_id)
             up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
             db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
-            text = (f"「{name}」 을 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
+            text = (f"{_ko.quote(name, '을')} 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
                     f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {up['url']}")
             if rep["folded"]:
                 text += f"\n서식에 없는 소제목 {len(rep['folded'])}개는 바로 앞 절의 본문으로 이어 넣었습니다(" + ", ".join(h[:16] for h in rep["folded"][:5]) + ("…" if len(rep["folded"]) > 5 else "") + ")."
@@ -2140,7 +2141,7 @@ def create_app(
             else:
                 text += "\n안내 상자(【작성방법】)는 그대로 두었습니다. 제출본이면 '안내 상자 없이 한글로 내보내 줘'."
             _set_options(session_id, [{"kind": "review", "text": "작업본 전체 검토", "question": "문서 전체를 공고·평가지표 기준으로 검토해 줘"},
-                                      {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
+                                      {"kind": "continue", "text": "다음 절 쓰기", "question": "다음 절을 작성 방법에 맞춰 작성해 줘"}])
         except Exception as e:
             logging.getLogger("zzaimy.app.gdocs").exception("한글 완성본 만들기 실패 (대화 %s)", session_id)
             text = f"한글 완성본을 만들지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
@@ -2181,7 +2182,7 @@ def create_app(
             db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": copy["id"], "account": email}))
             db.add_file("google", copy["url"], name=work_title, session_id=session_id, doc_id=int(src["id"]))
             ok = [r for r in moved if r["done"] == "ok"]
-            text = (f"「{work_title}」 을 새로 만들어 이 대화에 연결했습니다(원본 서식을 지금 변환기로 다시 변환). "
+            text = (f"{_ko.quote(work_title, '을')} 새로 만들어 이 대화에 연결했습니다(원본 서식을 지금 변환기로 다시 변환). "
                     f"옮긴 절 {len(ok)}개 · 글 {sum(r['chars'] for r in ok):,}자 · 표 {sum(r['tables'] for r in ok)}개. 이전 작업본은 이름 뒤에 '(이전)'을 붙여 두었습니다. {copy['url']}")
             skipped = [r for r in moved if r["done"] != "ok"]
             if skipped:
@@ -2189,7 +2190,7 @@ def create_app(
             if checked:
                 text += "\n" + "\n".join(checked)
             _set_options(session_id, [{"kind": "review", "text": "옮긴 내용 검토", "question": "옮긴 절들이 빠짐없이 들어갔는지 검토해 줘"},
-                                      {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
+                                      {"kind": "continue", "text": "다음 절 쓰기", "question": "다음 절을 작성 방법에 맞춰 작성해 줘"}])
         except Exception as e:
             logging.getLogger("zzaimy.app.gdocs").exception("작업본 새로 만들기 실패 (대화 %s)", session_id)
             text = f"작업본을 새로 만들지 못했습니다({type(e).__name__}). 이전 작업본은 그대로 연결돼 있습니다."
@@ -2294,13 +2295,13 @@ def create_app(
         if review_focus is not None and (not _ops or read_only):
             # 절 검토 뒤 — 의견을 기억해 두고 「반영해 다시 쓰기」로 잇는다(검토 뒤 선택지가 비면 흐름이 끊긴다)
             db.set_setting(f"chat_last_review:{session_id}", _aj.dumps({"heading": review_focus["heading"], "text": text[:2500]}, ensure_ascii=False))
-            _set_options(session_id, [{"kind": "redo", "text": "검토 의견 반영해 다시 쓰기",
+            _set_options(session_id, [{"kind": "redo", "text": f"{_ko.quote(_ko.clip(review_focus['heading'], 18))} 검토 의견 반영해 다시 쓰기",
                                        "question": f"「{review_focus['heading']}」 절을 방금 검토 의견을 반영해 다시 써 줘"},
-                                      {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
+                                      {"kind": "continue", "text": "다음 절 쓰기", "question": "다음 절을 작성 방법에 맞춰 작성해 줘"}])
         if _ops and not read_only:
-            _set_options(session_id, [{"kind": "continue", "text": "이어서 다음 절 채우기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"},
+            _set_options(session_id, [{"kind": "continue", "text": "다음 절 쓰기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"},
                                       {"kind": "review", "text": "방금 쓴 내용 검토", "question": "방금 쓴 절을 공고·평가지표 기준으로 검토해 줘"},
-                                      {"kind": "redo", "text": "다시 써 줘", "question": "방금 넣은 내용을 더 구체적인 수치와 근거로 다시 써 줘"}])
+                                      {"kind": "redo", "text": "방금 쓴 내용 다시 쓰기", "question": "방금 넣은 내용을 더 구체적인 수치와 근거로 다시 써 줘"}])
         new_name = next((o.get("text") for o in _ops if o.get("op") == "rename" and (o.get("text") or "").strip()), "")
         if new_name and not confirm:
             try:
@@ -2311,7 +2312,7 @@ def create_app(
         if move_to and not confirm:
             proj = _project_by_name(owner, move_to)
             if proj is None:
-                text += f"\n- 프로젝트 「{move_to}」 를 찾지 못해 옮기지 않았습니다"
+                text += f"\n- 프로젝트 {_ko.quote(move_to, '를')} 찾지 못해 옮기지 않았습니다"
             else:
                 try:
                     from zzaimy.ingest import gdrive_files
@@ -2371,7 +2372,7 @@ def create_app(
                 targets = drafting.target_sections(info, q, skip=skip_)
                 if not targets:
                     text = "쓸 절을 찾지 못했습니다. 절 번호(예: 1.1)를 말해 주거나, 빈 절이 없으면 어느 절을 다시 쓸지 골라 주세요."
-                    _set_options(session_id, [{"kind": "pick", "text": f"「{s_['heading'][:24]}」 다시 쓰기", "question": f"{section_context.split_number(s_['heading'])[0]} 절을 다시 써 줘"}
+                    _set_options(session_id, [{"kind": "pick", "text": f"{_ko.quote(_ko.clip(s_['heading'], 24))} 다시 쓰기", "question": f"「{s_['heading']}」 절을 다시 써 줘"}
                                               for s_ in [x for x in info["sections"] if drafting.writable(x)][:3]])
                     db.add_chat(session_id, "assistant", _scrub_internal(text))
                     return
@@ -2498,10 +2499,10 @@ def create_app(
             lines = [f"[첨부#{d}] {storage.title_of((db.get_document(d) or {}).get('filename') or '')}" for d in [*made["criteria"], *made["intake"]]]
             lines += [f"[참조 보관 사업] {r['name']} (문서 {r['n_docs']}건)" for r in refs]
             db.add_chat(session_id, "user", "\n".join(lines) + "\n" + q)
-            note = (f"프로젝트 「{made_project['name']}」 을 만들었습니다 — 기준 문서 {len(made['criteria'])}건, 접수 문서 {len(made['intake'])}건. "
+            note = (f"프로젝트 {_ko.quote(made_project['name'], '을')} 만들었습니다 — 기준 문서 {len(made['criteria'])}건, 접수 문서 {len(made['intake'])}건. "
                     f"추출이 끝나면 아래 선택지로 양식 작성을 시작하거나 그림 쪽 판독을 요청할 수 있습니다.")
             if past:
-                note += " 지난 자료 " + ", ".join(f"「{storage.title_of(d.get('filename') or '')}」" for d in past[:4]) + " 을 기준으로 이었습니다."
+                note += " 지난 자료 " + ", ".join(_ko.quote(storage.title_of(d.get('filename') or '')) for d in past[:4]) + _ko.josa(storage.title_of(past[:4][-1].get('filename') or ''), '을') + " 기준으로 이었습니다."
             db.add_chat(session_id, "assistant", note)
             _set_options(session_id, [{"kind": "ask", "text": "공고 요건 확인", "question": f"{made_project['name']}의 신청 자격·지원 규모·기한을 공고 기준으로 알려 줘"},
                                       {"kind": "draft", "text": "양식으로 작성 시작", "question": "양식으로 작업하자"},
@@ -2768,7 +2769,7 @@ def create_app(
                 return {"ok": False, "error": "앞선 답변을 기다리는 중입니다", "session_id": session_id}
         else:
             session_id = db.create_chat_session(
-                title=q[:60], project_id=page_project, owner=getattr(request.state, "user", "zzaimy")
+                title=_chat_title(q)[:60], project_id=page_project, owner=getattr(request.state, "user", "zzaimy")
             )
         db.add_chat(session_id, "user", asked)
         found = _page_actions(page, q)
@@ -3392,7 +3393,7 @@ def create_app(
             return {"id": d["id"], "name": storage.title_of(d.get("filename") or ""), "group": d["group_label"],
                     "group_key": d["group"], "via": d["via"],
                     "original_format": storage.original_ext(d).lstrip("."),
-                    "kind": KINDS.get(d.get("kind") or "", ""), "status": STATUS_LABELS.get(d.get("status"), d.get("status")),
+                    "kind": KINDS.get(d.get("kind") or "", ""), "status": STATUS_LABELS.get(d.get("status"), d.get("status")), "state": d.get("status"),
                     "url": f"/doc/{d['id']}/view", "page": f"/doc/{d['id']}",
                     "google": (_aj.loads(raw).get("url") if raw else None)}
 
@@ -3713,6 +3714,8 @@ def create_app(
         return head + Markup("<br>") + escape(rest) if rest else head
 
     templates.env.filters["attach_view"] = _attach_view
+    templates.env.filters["particles"] = _ko.attach_particles      # 「제목」 을 → 「제목」을 — 옛 답변도 화면에서 바로잡는다
+    templates.env.filters["chat_title"] = _chat_title              # 대화 제목 — 전각→반각, 프로젝트 안에서는 접두어 생략
 
     def _eval_md(name: str) -> str:
         """기계가 쓴 사본(data/platform/eval/) 먼저, 없으면 저장소 사본(docs/)."""
