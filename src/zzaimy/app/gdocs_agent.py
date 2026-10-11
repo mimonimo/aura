@@ -430,6 +430,8 @@ def quality_pass(account: str, doc: str, http=None) -> list[str]:
     out = []
     if r["wide"]:
         out.append(f"품질 점검: 본문 폭을 넘친 표 {r['wide']}개를 폭에 맞춤")
+    if r.get("toc_fixed"):
+        out.append(f"품질 점검: 목차 {r['toc_fixed']}줄 단계별 들여쓰기 맞춤")
     if r["repeats"]:
         out.append("품질 점검: 되풀이된 줄 정리 — " + ", ".join(f"「{t}」 {n}번" for t, n in r["repeats"][:3]))
     return out

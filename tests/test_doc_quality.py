@@ -39,3 +39,17 @@ def test_fix_keeps_ratio_fits_width_and_shifts_after_cuts():
 def test_two_repeats_are_kept():
     a = Q.audit(_doc([_p(1, 5, "◦ 계획"), _p(5, 9, "◦ 계획"), _p(9, 13, "다")]))
     assert a["repeats"] == []                                                            # 두 번은 서식에도 흔하다
+
+
+def test_toc_lines_get_indent_by_level():
+    def para(s, text, style="NORMAL_TEXT", indent=0):
+        ps = {"namedStyleType": style}
+        if indent:
+            ps["indentStart"] = {"magnitude": indent, "unit": "PT"}
+        return {"startIndex": s, "endIndex": s + len(text) + 1, "paragraph": {"paragraphStyle": ps, "elements": [{"textRun": {"content": text + "\n"}}]}}
+    body = [para(1, "목 차"), para(10, "Ⅰ. 사업 개요", indent=10), para(30, "1. 추진 배경 및 필요성"), para(60, "1.1. 정책 동향", indent=16),
+            para(90, "Ⅰ. 사업 개요", "HEADING_1"), para(110, "1. 추진 배경 및 필요성", "HEADING_2"), para(140, "1.1. 정책 동향", "HEADING_3")]
+    a = Q.audit(_doc(body))
+    assert a["toc"] == 3 and {t["start"]: t["want"] for t in a["toc_uneven"]} == {10: 0.0, 30: 16.0, 60: 32.0}
+    reqs = [r["updateParagraphStyle"] for r in Q.fix_requests(_doc(body)) if "updateParagraphStyle" in r]
+    assert [r["paragraphStyle"]["indentStart"]["magnitude"] for r in reqs] == [0.0, 16.0, 32.0]

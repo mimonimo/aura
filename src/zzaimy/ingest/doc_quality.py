@@ -8,6 +8,7 @@ from __future__ import annotations
 
 MIN_COL_PT = 14.0          # 이보다 좁히면 글자가 한 자씩 세로로 쌓인다
 REPEAT_RUN = 3             # 같은 문단이 이만큼 잇달면 중복으로 본다
+TOC_INDENT = 16.0          # 목차 단계마다 들여쓰기(Ⅰ 0 · 1. 16 · 1.1 32pt)
 
 
 def _doc_tab(document: dict) -> tuple[dict, str | None]:
@@ -54,7 +55,13 @@ def audit(document: dict) -> dict:
         if len(run) >= REPEAT_RUN:
             repeats.append({"text": run[0][0], "count": len(run), "ranges": [(s, e) for _t, s, e in run[1:]]})
         run = [(txt, el["startIndex"], el["endIndex"])] if txt else []
-    return {"width": round(width, 1), "tables": n, "wide": wide, "repeats": repeats}
+    from zzaimy.ingest import gdocs
+
+    toc = gdocs.toc_paragraphs(document)
+    levels = sorted({t["level"] for t in toc})
+    base = levels[0] if levels else 1
+    uneven = [dict(t, want=(t["level"] - base) * TOC_INDENT) for t in toc if abs(t["indent"] - (t["level"] - base) * TOC_INDENT) > 0.5]
+    return {"width": round(width, 1), "tables": n, "wide": wide, "repeats": repeats, "toc": len(toc), "toc_uneven": uneven}
 
 
 def fix_requests(document: dict) -> list[dict]:
@@ -71,6 +78,14 @@ def fix_requests(document: dict) -> list[dict]:
         if tab:
             rng["tabId"] = tab
         reqs.append({"deleteContentRange": {"range": rng}})
+    for t in found["toc_uneven"]:                         # 목차 단계별 들여쓰기 — 지우기 뒤 위치로 당긴다
+        shift = sum(e - s for s, e in cuts if e <= t["start"])
+        rng = {"startIndex": t["start"] - shift, "endIndex": t["end"] - shift}
+        if tab:
+            rng["tabId"] = tab
+        reqs.append({"updateParagraphStyle": {"range": rng, "paragraphStyle": {
+            "indentStart": {"magnitude": t["want"], "unit": "PT"}, "indentFirstLine": {"magnitude": t["want"], "unit": "PT"}},
+            "fields": "indentStart,indentFirstLine"}})
     for t in found["wide"]:
         shift = sum(e - s for s, e in cuts if e <= t["start"])
         scale = width / t["total"]
@@ -100,4 +115,5 @@ def check_and_fix(email: str, doc: str, *, apply: bool = False, http=None) -> di
     for i in range(0, len(reqs), 400):                    # 큰 문서는 나눠 보낸다(요청 한도)
         gdocs._batch(email, gdocs.doc_id(doc), reqs[i:i + 400], http)
     return {"width": found["width"], "tables": found["tables"], "wide": len(found["wide"]),
-            "repeats": [(x["text"][:30], x["count"]) for x in found["repeats"]], "requests": len(reqs)}
+            "repeats": [(x["text"][:30], x["count"]) for x in found["repeats"]], "toc": found["toc"],
+            "toc_fixed": len(found["toc_uneven"]) if apply else 0, "requests": len(reqs)}
