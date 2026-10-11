@@ -1677,3 +1677,16 @@ def test_chapter_divider_title_is_not_table_of_contents():
                                  para(120, "Ⅰ. 사업추진 목표"), para(140, "1. 대학의 여건 분석"), para(160, "본문.")]}}
     starts = [s["start"] for s in gdocs.outline(doc)["sections"]]
     assert 40 in starts                                                         # 장 표지가 절 경계로 남는다
+
+
+def test_section_end_stops_before_page_break_followed_by_tables_only():
+    """절 뒤 쪽 나눔 다음이 표(다음 장 목차·장 표지)뿐이면 넣을 자리는 쪽 나눔 앞(10/11 글이 장 표지 아래로)."""
+    def para(st, text, brk=False):
+        els = [{"textRun": {"content": text + "\n"}}] if not brk else [{"pageBreak": {}}, {"textRun": {"content": "\n"}}]
+        return {"startIndex": st, "endIndex": st + (len(text) + 1 if not brk else 2), "paragraph": {"paragraphStyle": {"namedStyleType": "NORMAL_TEXT"}, "elements": els}}
+    cell = {"content": [{"paragraph": {"elements": [{"textRun": {"content": "Ⅰ. 사업추진 목표\n"}}]}}]}
+    doc = {"body": {"content": [para(1, "【대표과제 추진계획】"), para(20, "상자 아래 글."), para(40, "", brk=True),
+                                 {"startIndex": 42, "endIndex": 80, "table": {"tableRows": [{"tableCells": [cell]}]}},
+                                 para(80, "1. 대학의 여건 분석"), para(100, "본문.")]}}
+    sec = next(s for s in gdocs.outline(doc)["sections"] if s["heading"].startswith("【대표과제"))
+    assert sec["end"] == 20 + len("상자 아래 글.") + 1 and sec["table_end"] == 0
