@@ -1033,6 +1033,7 @@ def create_app(
 
     _TITLE_CUT = re.compile(r"\s*(?:의\s*)?(?:초안|작성|써\s*줘|써줘|만들어|정리해|보고서로|문서로)")
 
+    _OUTLINE_POINTER = re.compile(r"(?:위|앞|이|그|방금|정한|잡은|만든)\s*(?:의\s*)?(?:목차|구성|개요|틀)|목차\s*(?:대로|에\s*따라|에\s*맞춰|를\s*바탕)")
     _POINTER_WORDS = {"위", "이", "그", "저", "아래", "앞", "앞의", "위의", "방금", "지금", "이번", "해당", "말한", "정리한", "잡은", "만든"}
     _POINTER_TAIL = re.compile(r"(대로|따라|따라서|맞춰|맞춰서|맞게|바탕으로|기준으로)$")
 
@@ -1198,6 +1199,12 @@ def create_app(
             return False, f"문서를 만들지 못했습니다({type(e).__name__}). 원천 관리에서 구글 연결 상태를 확인해 주세요."
         note = ""
         spec = gdocs_templates.pick(q)
+        if _OUTLINE_POINTER.search(q or ""):
+            # 「위 목차대로 써 줘」 — 앞 답에서 정한 목차로 뼈대를 만든다(공통 양식은 같은 이름 절의 지침·표만 빌린다)
+            prev = next((m["content"] for m in reversed(db.list_chats(session_id)) if m["role"] == "assistant"), "")
+            from_outline = gdocs_templates.outline_spec(spec or gdocs_templates.SPECS["plan"], prev)
+            if from_outline:
+                spec = from_outline
         if spec:                                              # 서류 갈래에 맞는 공통 양식(절·작성 지침·표)을 깔고 그 위에 쓴다
             _chat_step(session_id, "공통 양식 까는 중")
             try:
@@ -1209,7 +1216,12 @@ def create_app(
                                        fill={"○○대학교": _uni, "20○○. ○.": f"{_now_dt.now():%Y}. {_now_dt.now().month}."})
                 # 공통 양식으로 만든 문서 — 한글 원본 서식이 없으니 내보내기는 Word 로(남의 서식에 붓지 않게, 리허설 2026-10-08)
                 db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": made["doc"], "account": made["account"], "template": spec["id"]}))
-                note = f" 「{spec['title'].replace('(구글 독스)', '').strip()}」 을 깔아 두었습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."
+                if spec.get("intro", "").startswith("대화에서 정한 목차"):
+                    n_ch = sum(1 for b_ in spec["blocks"] if b_.get("h") == 1)
+                    n_sec = sum(1 for b_ in spec["blocks"] if b_.get("h") == 2)
+                    note = f" 대화에서 정한 목차(장 {n_ch}개·절 {n_sec}개)로 뼈대를 깔았습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."
+                else:
+                    note = f" 「{spec['title'].replace('(구글 독스)', '').strip()}」 을 깔아 두었습니다 — 회색 작성 지침은 다 쓴 뒤 지웁니다."
             except Exception as e:
                 logging.getLogger("zzaimy.app.gdocs").warning("공통 양식 깔기 실패 (대화 %s): %s", session_id, type(e).__name__)
                 note = " 공통 양식은 깔지 못해 빈 문서로 시작합니다."

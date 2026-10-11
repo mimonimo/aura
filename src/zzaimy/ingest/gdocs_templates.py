@@ -1285,6 +1285,69 @@ PICK = [
 ]
 
 
+_ROMAN_HEAD = re.compile(r"^(?:#{1,6}\s*)?(?:\*\*)?\s*([ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+\s*[.．]\s*[^*\n]{2,60}?)\s*(?:\*\*)?\s*$")
+_NUM_HEAD = re.compile(r"^(?:#{1,6}\s*)?(?:\*\*)?\s*(\d{1,2}\s*[.．]\s*[^*\n]{2,60}?)\s*(?:\*\*)?\s*$")
+_BULLET = re.compile(r"^\s*(?:[-*•·]|\d+\))\s+(.+)$")
+
+
+def _key(t: str) -> str:
+    return re.sub(r"[\s\d.．ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ()·,]", "", t or "")
+
+
+def outline_spec(base: dict, outline: str) -> dict | None:
+    """대화에서 정한 목차(앞 답의 「Ⅰ. …」 장, 「1. …」 절, 그 아래 목록)로 문서 사양을 만든다 — 「위 목차대로 써 줘」가
+    공통 양식(장 5·절 63)으로 깔리던 것(10/11). 장 2개·절 4개가 안 되면 None(목차가 아니다).
+    공통 양식에 같은 이름의 절이 있으면 그 절의 작성 지침·서식 표를 가져오고, 없으면 목록을 「다룰 내용」 지침으로."""
+    chapters: list[dict] = []
+    for raw in (outline or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = _ROMAN_HEAD.match(line)
+        if m and not raw.startswith((" ", "\t")):
+            chapters.append({"text": re.sub(r"\s+", " ", m.group(1)).strip(), "secs": []})
+            continue
+        m = _NUM_HEAD.match(line)
+        if m and chapters and not raw.startswith((" ", "\t")) and not _BULLET.match(line):
+            chapters[-1]["secs"].append({"text": re.sub(r"\s+", " ", m.group(1)).strip(), "items": []})
+            continue
+        b = _BULLET.match(raw)
+        if b and chapters and chapters[-1]["secs"]:
+            item = re.sub(r"\*\*", "", b.group(1)).strip()
+            if item:
+                chapters[-1]["secs"][-1]["items"].append(item[:80])
+    if len(chapters) < 2 or sum(len(c["secs"]) for c in chapters) < 4:
+        return None
+    # 공통 양식의 절 블록(제목 → 다음 제목 전까지)을 이름으로 찾아 둔다
+    base_secs: dict[str, list[dict]] = {}
+    cur = None
+    for blk in base.get("blocks", []):
+        if "h" in blk:
+            cur = _key(blk["text"])
+            base_secs[cur] = []
+        elif cur is not None:
+            base_secs[cur].append(blk)
+    blocks: list[dict] = []
+    for ch in chapters:
+        blocks.append(H(1, ch["text"]))
+        for sec in ch["secs"]:
+            blocks.append(H(2, sec["text"]))
+            same = base_secs.get(_key(sec["text"]))
+            if same:
+                blocks += same
+                if sec["items"]:
+                    blocks.insert(len(blocks) - len(same) + 1 if same and "guide" in same[0] else len(blocks) - len(same),
+                                  G("대화에서 정한 다룰 내용: " + "; ".join(sec["items"][:8])))
+            else:
+                if sec["items"]:
+                    blocks.append(G("대화에서 정한 다룰 내용: " + "; ".join(sec["items"][:8]) + ". " + NUM_RULE))
+                else:
+                    blocks.append(G(NUM_RULE))
+                blocks.append(P())
+    return dict(base, blocks=blocks,
+                intro="대화에서 정한 목차로 만든 문서다. " + STYLE_RULE + " 회색 「작성 지침」은 다 쓴 뒤 지운다.")
+
+
 def pick(text: str) -> dict | None:
     """초안 지시문이 어느 공통 양식에 해당하는가 — 서류 갈래 낱말로만(사업 이름 규칙 없음). 없으면 None."""
     t = text or ""

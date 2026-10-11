@@ -138,3 +138,46 @@ def verify_numbers(draft: str, evidence_texts: list[str]) -> NumberAudit:
     return NumberAudit(
         ok=not violations, violations=sorted(violations), contexts=contexts
     )
+
+
+_YEAR_LIKE = re.compile(r"^(?:19|20)\d{2}$")
+
+
+def mask_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[str]]:
+    """근거에 없는 수치를 「○○」로 가린다(단위는 남긴다: 300명 → ○○명) — 절대 규칙 1(수치는 인출만).
+    연도(2026)·목록 번호·10 이하의 구조 숫자(「2개년」「3대 전략」, % 가 붙으면 수치)는 그대로. 돌려주는 것은 (새 글, 가린 원래 수치)."""
+    allowed_surface: set[str] = set()
+    allowed_canonical: set[str] = set()
+    for ev in evidence_texts:
+        allowed_surface |= extract_numbers(ev)
+        allowed_canonical |= canonical_values(ev)
+    out, masked, last = [], [], 0
+    src = text or ""
+    for m in _NUM_UNIT.finditer(src):
+        surface = m.group(1).replace(",", "")
+        unit = m.group(2)
+        line_start = src.rfind("\n", 0, m.start()) + 1
+        after = src[m.end():m.end() + 2]
+        if src[line_start:m.start()].strip() == "" and re.match(r"[.)]\s", after):
+            continue                                          # 목록 번호 「1. 」「2) 」
+        if _YEAR_LIKE.match(surface):
+            continue
+        before, after1 = src[max(0, m.start() - 1):m.start()], src[m.end(1):m.end(1) + 2]
+        if (before in ("-", "/", ":", "~", ".") and m.start() >= 2 and src[m.start() - 2].isdigit()) or re.match(r"[-/:]\d", after1) \
+                or re.match(r"\.\d", after1):
+            continue                                          # 전화번호·날짜·코드(010-1234-5678, 2026.4.3, 3/4)는 수치가 아니다
+        tail = src[m.end():m.end() + 1]
+        try:
+            small = Decimal(surface) <= 10 and not unit and tail != "%"
+        except Exception:
+            small = False
+        if small:
+            continue
+        value = _fmt(Decimal(surface) * _UNIT_VALUE.get(unit or "", 1))
+        if surface in allowed_surface or value in allowed_canonical or surface in allowed_canonical:
+            continue
+        out.append(src[last:m.start(1)] + "○○")
+        last = m.end(1)
+        masked.append(m.group(0).strip())
+    out.append(src[last:])
+    return "".join(out), masked

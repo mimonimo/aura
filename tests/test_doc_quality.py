@@ -100,3 +100,16 @@ def test_record_fills_round_trip(tmp_path):
     g.record_fills(tmp_path, "DOC1", "3. 대학 여건", 1, [(3, 2)])
     data = json.loads((tmp_path / "gdocs_fills.json").read_text())
     assert sorted(map(tuple, next(iter(data.values())))) == [(2, 2), (2, 3), (3, 2)]
+
+
+def test_outline_spec_from_conversation_toc():
+    from zzaimy.ingest import gdocs_templates as T
+    ol = ("#### Ⅰ. 사업 개요 및 추진 배경\n\n1. 사업 목적 및 비전\n    *   지역 AI-X 선도 인재 양성\n2. 추진 배경 및 필요성\n    *   인력 부족\n\n"
+          "#### Ⅱ. 대학 역량 및 추진 체계\n\n1. 대학 기본 교육 현황\n2. 사업 추진 체계\n    *   추진 조직도\n")
+    sp = T.outline_spec(T.SPECS["plan"], ol)
+    heads = [(b["h"], b["text"]) for b in sp["blocks"] if "h" in b]
+    assert heads == [(1, "Ⅰ. 사업 개요 및 추진 배경"), (2, "1. 사업 목적 및 비전"), (2, "2. 추진 배경 및 필요성"),
+                     (1, "Ⅱ. 대학 역량 및 추진 체계"), (2, "1. 대학 기본 교육 현황"), (2, "2. 사업 추진 체계")]
+    guides = [b["guide"] for b in sp["blocks"] if "guide" in b]
+    assert any("지역 AI-X 선도 인재 양성" in g for g in guides) and sp["intro"].startswith("대화에서 정한 목차")
+    assert T.outline_spec(T.SPECS["plan"], "그냥 답변입니다.\n1. 하나\n2. 둘") is None
