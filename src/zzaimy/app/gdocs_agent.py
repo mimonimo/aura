@@ -417,6 +417,24 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
     return lines
 
 
+_JARGON = [                                           # 프롬프트 안의 이름이 답에 새던 것(10/11 「asks에 기재」「[근거 조각]」)
+    (re.compile(r"\basks\s*(?:에|로|에\s*기재|에\s*등록)"), "확인 요청에"),
+    (re.compile(r"\basks\b"), "확인 요청"),
+    (re.compile(r"\[?근거\s*조각\]?"), "근거 자료"),
+    (re.compile(r"\[지난\s*사업\s*자료\]"), "지난 사업 자료"),
+    (re.compile(r"\[([^\]\n]{2,20})\](?=와|과|에|의|를|을|는|은|에서|\s)"), r"\1"),
+    (re.compile(r"JSON\s*(?:형식의\s*)?편집\s*계획"), "편집 계획"),
+    (re.compile(r"\bops\b"), "편집"),
+]
+
+
+def plain_reply(text: str) -> str:
+    """모델 답의 내부 말(프롬프트의 묶음 이름·필드 이름)을 사용자 말로."""
+    for rx, rep in _JARGON:
+        text = rx.sub(rep, text)
+    return text
+
+
 def quality_pass(account: str, doc: str, http=None) -> list[str]:
     """쓴 뒤 품질 관문 — 본문 폭을 넘친 표·잇달아 되풀이된 줄을 재고 고친다(doc_quality). 고친 것만 한 줄로 알린다."""
     from zzaimy.ingest import doc_quality
@@ -493,6 +511,7 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         except Exception:
             pass                                        # 격자를 못 읽어도 편집은 계속
     p = plan(client, command, info, evidence, materials=materials, focus=focus)
+    p["reply"] = plain_reply(p.get("reply") or "")
     # 모델이 물어야 한다고 한 값 — 호출부가 입력 양식 선택지로 띄운다(chat_asks 에 쌓아 둠, 답이 오면 지운다)
     if p.get("asks"):
         try:

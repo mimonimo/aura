@@ -257,6 +257,20 @@ class Materials:
         return {"instructions": instructions, "criteria": criteria, "past": past, "doc_rules": rules,
                 "placeholder": placeholder_parent(info, section), "gap_hint": gap_hint}
 
+    def _other_institution(self, text: str) -> bool:
+        """글에 우리 대학이 아닌 대학 이름이 나오는가 — 기관 정보의 대학명과 견준다(모르면 판단하지 않는다)."""
+        from zzaimy.app import institution
+
+        if not hasattr(self, "_ours"):
+            try:
+                self._ours = (institution.facts(self.db).get("대학명") or "").replace(" ", "")
+            except Exception:
+                self._ours = ""
+        if not self._ours:
+            return False
+        names = {m.replace(" ", "") for m in institution._UNI.findall(text or "") if m not in institution._GENERIC}
+        return any(n and n != self._ours and n not in self._ours and self._ours not in n for n in names)
+
     def library_hits(self, section: dict, query: str, k: int = 3) -> list[dict]:
         """문서함 전체의 사업 문서(같은 사업의 지난 계획서·실적보고서 …)에서 이 절에 맞는 조각 — 그래프로 사업·연차를 좁히는 사업 문서 RAG.
         프로젝트에 올린 문서만 보던 것을 넓힌다(리허설 2026-10-09: 지난 자료가 개설과목 엑셀 하나뿐). 열람 범위(scope)를 따른다."""
@@ -301,8 +315,11 @@ class Materials:
             path = [str(x) for x in (h.get("path") or [])]
             title = re.sub(r"\.(hwpx?|pdf|docx?|xlsx?|pptx?)$", "", path[-1] if path else "문서", flags=re.I)
             where = " > ".join(path[:-1])[-60:]
-            out.append({"title": title[:80], "how": (h.get("how") or "문서함 검색") + (f" · {where}" if where else ""),
-                        "text": (h.get("content") or "")[:700]})
+            how = (h.get("how") or "문서함 검색") + (f" · {where}" if where else "")
+            if self._other_institution(f"{title} {where} {text[:300]}"):
+                # 다른 대학의 계획서 — 짜임새만 참고(10/11 「경복대학교 사업수행계획서」가 우리 계획서 재료로 들어감)
+                how += " · 다른 기관 자료: 구성·표 짜임새만 참고하고 수치·기관명·사업명은 옮기지 않는다"
+            out.append({"title": title[:80], "how": how, "text": (h.get("content") or "")[:700]})
             if self.sink is not None and h.get("doc_id") is not None and all(x.get("doc_id") != h["doc_id"] for x in self.sink):
                 self.sink.append({"title": title[:80], "heading": where, "snippet": text[:160], "doc_id": h.get("doc_id"),
                                   "origin": "문서함 검색", "weak": False})

@@ -43,3 +43,21 @@ def test_md_view_deep_headings_rules_and_italics(tmp_path):
     html = str(md_view("#### Ⅰ. 개요\n---\n- *AI물류:* 로봇 제어\n- 2 * 3 = 6"))
     assert "####" not in html and "<h5" in html and "<hr" in html
     assert "<i>AI물류:</i>" in html and "2 * 3" in html                       # 띄어 쓴 곱셈 별표는 그대로
+
+
+def test_plain_reply_hides_prompt_names():
+    from zzaimy.app.gdocs_agent import plain_reply
+    out = plain_reply("제공된 [지난 사업 자료]와 [근거 조각]에 없어 asks에 기재했습니다. JSON 편집 계획을 제시")
+    assert "asks" not in out and "[근거" not in out and "JSON" not in out and "근거 자료" in out
+
+
+def test_other_institution_material_is_marked(tmp_path):
+    from zzaimy.app import drafting
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    db.set_setting("institution:대학명", "영남이공대학교")
+    m = drafting.Materials.__new__(drafting.Materials)
+    m.db = db
+    assert m._other_institution("경복대학교 5차년도 사업수행계획서") is True
+    assert m._other_institution("영남이공대학교 2-3 과제계획서") is False
+    assert m._other_institution("참여대학교 현황") is False
