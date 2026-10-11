@@ -493,7 +493,7 @@ def test_shape_gate_keeps_noun_phrase_titles(line):
 
 
 @pytest.mark.parametrize("raw, body, want, source", [
-    ("공문.pdf", "문서번호 기획조정 2026-0001 기안 팀장 처장\n", "증빙·회계 서류 · 가나사업 2026", "meta"),   # 파일 이름 빈약 → 대체 이름
+    ("공문.pdf", "문서번호 기획조정 2026-0001 기안 팀장 처장\n", "증빙·회계 서류 · 가나사업 2026 · 공문", "meta"),   # 빈약 → 대체 이름 + 짧은 이름
     ("4.통장사본.pdf", "가나대학교산학협력단(홍길동)님\n", "통장사본", "file"),                         # '통장사본' 은 서류 이름
     ("여권사본.pdf", "생년월일/Date of birth 주민등록번호/Personal No\n", "여권사본", "file"),
     ("[별지 4의3] 가나수익명세서.hwp", "의3서식]\n", "가나수익명세서", "file"),
@@ -616,3 +616,32 @@ def test_person_name_after_a_document_word_is_removed(raw, want):
 ])
 def test_words_after_a_document_word_that_are_not_names_stay(raw):
     assert clean_filename(raw) == raw.rsplit(".", 1)[0]
+
+
+
+# ── 다섯 번째: 대체 이름에 짧은 단위 이름 남기기, 메일 머리 줄, 끝의 밑줄 식별자 ─────────────────────
+@pytest.mark.parametrize("raw, want", [
+    ("09.라마.hwp", "증빙·회계 서류 · 가나사업 2026 · 라마"),
+    ("가나.hwp", "증빙·회계 서류 · 가나사업 2026"),                   # 대체 이름에 이미 든 말은 되풀이하지 않는다
+    ("3다라.pdf", "증빙·회계 서류 · 가나사업 2026 · 다라"),
+    ("스캔.pdf", "증빙·회계 서류 · 가나사업 2026"),          # 뜻 없는 짧은 이름은 붙이지 않는다
+    ("12.pdf", "증빙·회계 서류 · 가나사업 2026"),
+])
+def test_meta_fallback_keeps_a_short_unit_name(raw, want):
+    assert choose_name(raw, "", META)["name"] == want
+
+
+def test_mail_header_label_runs_are_rejected():
+    from zzaimy.app.doc_naming import shape_problem
+
+    assert shape_problem("제목보낸사람√받는사람참조√보낸시간√읽은시간 재학생 가나 안내") == "메일 머리"
+    assert shape_problem("보낸사람 받는사람 가나 안내문") == "메일 머리"
+    assert shape_problem("가나 참조 자료 목록") is None                     # 머리 칸 이름 하나는 낱말일 수 있다
+
+
+def test_trailing_snake_case_code_is_removed_from_body_titles():
+    from zzaimy.app.doc_naming import polish_title
+
+    assert polish_title("가나학과 수업계획서 lt_pdoc_2022_2") == "가나학과 수업계획서"
+    assert polish_title("가나 ABC_3.0 운영계획") == "가나 ABC_3.0 운영계획"          # 끝이 아니면 그대로
+    assert polish_title("가나 사업 RISE 계획서") == "가나 사업 RISE 계획서"

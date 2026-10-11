@@ -301,6 +301,8 @@ def title_problem(line: str, text: str = "") -> str | None:
 _HONORIFIC = re.compile(r"님(?=[\s)\]]|$)|귀하|귀중")
 _APPROVAL_WORDS = re.compile(r"문서\s*번호|(?:기안|결재|전결|협조|수신|발신)(?:\s|$).*(?:팀장|처장|과장|총장|실장|국장|부장|원장)")
 _FIELD_LABELS = ("생년월일", "주민등록번호", "성명", "연락처", "휴대전화", "주소", "학번", "여권번호", "이메일", "전화번호")
+# 메일·메신저 머리 칸 이름 — 둘 이상 이어지면 머리 칸 줄이다
+_MAIL_LABELS = ("보낸사람", "받는사람", "참조", "보낸시간", "읽은시간", "받은시간", "발신자", "수신자", "숨은참조", "제목")
 _OPEN, _CLOSE = "([「『｢［", ")]」』｣］"
 
 
@@ -316,6 +318,8 @@ def shape_problem(t: str) -> str | None:
     if sum(lab in s.replace(" ", "") for lab in _FIELD_LABELS) >= 2 or re.search(r"[가-힣]{2,}\s*/\s*[A-Za-z가-힣]{2,}.*/", s) \
             or re.search(r"[가-힣]{2,}\s*/\s*[A-Za-z]{2,}", s):
         return "항목 이름 나열"
+    if s.count("√") or sum(lab in s.replace(" ", "") for lab in _MAIL_LABELS) >= 2:
+        return "메일 머리"
     if any(s.count(o) != s.count(c) for o, c in zip(_OPEN, _CLOSE)) or re.search(r"[\[［(]\s*[\]］)]", s):
         return "괄호 조각"
     if re.match(r"[“”\"‘]|'(?!\d)", s):
@@ -417,6 +421,10 @@ def polish_title(t: str) -> str:
     if m and _meaningful(s[m.end():]) and complete_title(s[: m.end()].split()[0]):
         s = s[m.end():]
     s = _QUOTE.sub(" ", s)
+    # 끝에 붙은 밑줄 식별자('lt_pdoc_2022_2') — 시스템이 붙인 부호이지 이름이 아니다
+    m = re.search(r"\s+[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\s*$", s)
+    if m and _meaningful(s[: m.start()]):
+        s = s[: m.start()]
     s = re.sub(r"\s+([)\]])", r"\1", re.sub(r"([(\[])\s+", r"\1", s))
     s = re.sub(r"\s{2,}", " ", s).strip(" ·-_,.")
     for _ in range(3):
@@ -564,6 +572,11 @@ def body_beats_file(title: str, fname: str, programs=()) -> bool:
     return len(hit) * 2 >= len(content)
 
 
+# 뜻이 없는 짧은 파일 이름 — 대체 이름 끝에 붙이지 않는다
+_GENERIC_SHORT = frozenset({"문서", "자료", "파일", "스캔", "사본", "첨부", "새 문서", "새문서", "제목", "무제", "기타", "복사본", "이미지",
+                            "사진", "그림", "출력", "인쇄", "다운로드", "제목 없음"})
+
+
 def meta_name(meta: dict | None) -> str:
     """「<서류 갈래> · <사업> <연도>」 — 이미 있는 정보(갈래·사업 분류·연도)로만 만든다."""
     meta = meta or {}
@@ -603,6 +616,10 @@ def choose_name(original: str, text: str = "", meta: dict | None = None,
         return {"name": fname, "title": None, "date": None, "source": "file"}
     alt = meta_name(meta)
     if alt:
+        # 짧은 파일 이름('호텔'·'화공'·'3전기')은 학과·부서 같은 단위다 — 뜻이 있으면 끝에 붙여 남긴다
+        unit = re.sub(r"^[\d\s.\-_]+", "", fname).strip()
+        if len(re.findall(r"[가-힣]", unit)) >= 2 and unit not in _GENERIC_SHORT and unit not in alt:
+            alt = f"{alt} · {unit}"
         return {"name": alt, "title": None, "date": None, "source": "meta"}
     return {"name": fname, "title": None, "date": None, "source": "file"}
 
