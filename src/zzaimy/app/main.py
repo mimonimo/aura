@@ -925,6 +925,10 @@ def create_app(
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
         scope = ag.search_scope(dept, role, owner, Path(db_path).parent)
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
+        # 문서 작업 에이전트(10/11) — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
+        if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
+            if _run_doc_agent(session_id, q, owner, project, scope, scope_msg, data_dir, attachment_text, criteria, r):
+                return
         if _looks_like_reading(q):
             target = _project_doc_named(project, session_id, q)
             if target is not None:
@@ -1414,6 +1418,203 @@ def create_app(
             db.add_chat(session_id, "assistant", f"이 작업본의 원본 서식(문서함 문서)을 찾지 못해 {purpose} 수 없습니다. 문서함에서 '이 문서로 작업'을 다시 골라 주세요.")
         return src
 
+    _agent_notes: dict[int, str] = {}                      # 에이전트가 찾은 근거 — 절 쓰기 재료에 덧붙인다(대화별, 쓰기 동안만)
+
+    def _run_doc_agent(session_id: int, q: str, owner: str, project: dict | None, scope: dict, scope_msg: str, data_dir: Path,
+                       attachment_text: str | None, criteria: list[int] | None, r) -> bool:
+        """Writer 가 도구를 골라 요청을 처리한다(app/doc_agent). 처리했으면 True — 모델이 못 돌았고 아무것도 남기지 않았으면 False(기존 경로)."""
+        import inspect as _insp
+
+        from zzaimy.app import asks as _asks
+        from zzaimy.app import chat_documents, doc_agent, drafting, form_choice, section_context
+        from zzaimy.app.regulations import extract_nouns, find_relevant
+        from zzaimy.generate.client import VllmClient
+        from zzaimy.ingest import gdocs as _gd
+
+        try:
+            client = VllmClient(role="answer")
+        except Exception:
+            return False
+        before = len(db.list_chats(session_id))
+        session_ = db.get_chat_session(session_id) or {}
+        crit_ids = db.get_project_criteria_ids(int(project["id"])) if project else []
+        mats_box: dict = {}
+
+        def link() -> dict:
+            return chat_documents.binding(db, session_id, owner) or {}
+
+        def mats():
+            if "m" not in mats_box:
+                sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
+                mats_box["m"] = drafting.Materials(db, project, sources, find_relevant, extract_nouns,
+                                                   db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope,
+                                                   sink=_chat_sources.setdefault(session_id, []))
+            return mats_box["m"]
+
+        def sections() -> list[dict]:
+            lk = link()
+            if not lk.get("doc"):
+                return []
+            try:
+                return _gd.get(lk["account"], lk["doc"])["sections"]
+            except Exception:
+                return []
+
+        def find_section(name: str) -> dict | None:
+            name = (name or "").strip().strip("「」")
+            secs = [x for x in sections() if x.get("index", 0) > 0]
+            num = section_context.split_number(name)[0]
+            for pred in (lambda x: x["heading"].strip() == name,
+                         lambda x: bool(num) and section_context.split_number(x["heading"])[0] == num and name in x["heading"],
+                         lambda x: bool(num) and section_context.split_number(x["heading"])[0] == num,
+                         lambda x: name and name in x["heading"]):
+                hit = next((x for x in secs if pred(x)), None)
+                if hit:
+                    return hit
+            return None
+
+        def state() -> str:
+            lines = [f"프로젝트: {project['name'] if project else '(없음 — 일반 대화)'}"]
+            if project:
+                docs = mats().past_docs()
+                lines.append("프로젝트 문서: " + (", ".join(f"「{storage.title_of(d.get('filename') or '')[:40]}」" for d in docs[:10]) or "(없음)"))
+            if attachment_text:
+                lines.append(f"이번 메시지 첨부: 있음({len(attachment_text)}자)")
+            lk = link()
+            if lk.get("doc"):
+                secs = [x for x in sections() if x.get("index", 0) > 0]
+                rows = [f"  {x['heading'][:50]} — {'쓸 수 있음' if drafting.writable(x) else '장 제목'}"
+                        f"{', 비어 있음' if drafting.writable(x) and drafting.is_unfilled(x) else (', 작성됨' if drafting.writable(x) else '')}"
+                        for x in secs[:70]]
+                lines.append(f"연결된 문서: 있음({len(secs)}절)\n" + "\n".join(rows))
+            else:
+                cands = form_choice.candidates(db, project, db.list_chats(session_id), q)
+                lines.append("연결된 문서: 없음. 만들 때 고를 양식 후보:\n" + form_choice.render_candidates(cands))
+            pend = _asks.pending(db, session_id)
+            if pend:
+                lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(a["name"] for a in pend[:10]))
+            hist = [m_ for m_ in db.list_chats(session_id)[-8:-1]]
+            if hist:
+                lines.append("최근 대화:\n" + "\n".join(f"  [{m_['role']}] {(m_['content'] or '')[:300]}" for m_ in hist))
+            return "\n".join(lines)
+
+        notes: list[str] = []                                   # 에이전트가 찾은 근거 — 절 쓰기 재료로 넘긴다
+
+        def t_search(a: dict) -> str:
+            src, query = str(a.get("source") or "library"), str(a.get("query") or "").strip()
+            if not query:
+                return "query 가 비었다."
+            if src == "rules":
+                hits = [{"title": h.get("reg_title") or "규정", "text": h.get("content") or ""} for h in find_relevant(db, query, top_k=4, **scope)]
+            else:
+                fn = {"project": mats().search_project, "criteria": mats().search_criteria, "library": mats().search_library}.get(src)
+                if fn is None:
+                    return "source 는 project·criteria·library·rules 가운데 하나."
+                hits = fn(query)
+            if not hits:
+                return f"「{query}」({src}) — 찾지 못함"
+            body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])
+            notes.append(f"◇ {a.get('for') or query} — 검색 「{query}」({src})\n{body}")
+            return body
+
+        def t_read(a: dict) -> str:
+            sec = find_section(str(a.get("section") or ""))
+            return (sec.get("text") or "(빈 절)")[:1500] if sec else "그런 절이 없다 — 상태의 절 목록에서 고른다."
+
+        def last_reply() -> str:
+            ms = db.list_chats(session_id)
+            return (ms[-1]["content"] if ms and ms[-1]["role"] == "assistant" else "")[:1500]
+
+        def via_doc(cmd: str) -> str:
+            if not link().get("doc"):
+                return "연결된 문서가 없다 — create_document 로 먼저 만든다."
+            if notes:
+                _agent_notes[session_id] = "[에이전트가 찾은 근거 — 출처는 《 》 안의 문서 제목만]\n" + "\n".join(notes[-8:])
+            try:
+                _edit_linked_doc(session_id, cmd, owner, data_dir, scope, scope_msg)
+            finally:
+                _agent_notes.pop(session_id, None)
+            return last_reply() or "(결과 없음)"
+
+        def t_write(a: dict, redo: bool = False) -> str:
+            sec = find_section(str(a.get("section") or ""))
+            if sec is None:
+                return "그런 절이 없다 — 상태의 절 목록에서 고른다."
+            memo = str(a.get("notes") or a.get("reason") or "").strip()
+            verb = "다시 써 줘" if redo else "작성방법에 맞춰 작성해 줘"
+            return via_doc(f"「{sec['heading']}」 절을 {verb}. 담당자 요청: {q}" + (f"\n에이전트 메모: {memo}" if memo else ""))
+
+        def t_create(a: dict) -> str:
+            if link().get("doc"):
+                return "이미 연결된 문서가 있다."
+            cands = form_choice.candidates(db, project, db.list_chats(session_id), q)
+            chosen = next((c for c in cands if c["id"] == str(a.get("form") or "")), None)
+            if chosen is None:
+                return "form 은 상태의 양식 후보 id 가운데 하나여야 한다."
+            form_choice.record(data_dir, {"session": session_id, "request": q[:1500], "by": "agent", "choice": chosen["id"],
+                                          "title": str(a.get("title") or ""), "why": str(a.get("why") or ""),
+                                          "candidates": [{"id": c["id"], "label": c["label"]} for c in cands]})
+            if chosen["kind"] == "form":
+                made, why = _link_existing_document(session_id, chosen["doc"], owner, project)
+            else:
+                made, why = _auto_link_document(session_id, q, owner, project, spec_override=chosen["spec"], title_override=str(a.get("title") or ""))
+            return f"「{chosen['label']}」 양식으로 문서를 만들어 연결했다." if made else f"만들지 못함: {why or '구글 연결 확인 필요'}"
+
+        def t_answer(a: dict) -> str:
+            kw = dict(attachment_text=attachment_text, criteria_ids=criteria, session_id=session_id, project=project)
+            if "scope" in _insp.signature(r.answer).parameters:
+                kw["scope"] = scope
+            text = r.answer(db, str(a.get("question") or q), **kw)
+            src = getattr(r, "last_sources", None)
+            if src is not None:
+                _chat_sources.setdefault(session_id, []).extend(src)
+            db.add_chat(session_id, "assistant", _scrub_internal((scope_msg + "\n\n" if scope_msg else "") + text))
+            return text[:600]
+
+        def t_ask(a: dict) -> str:
+            items = [{"name": str(x.get("name"))[:60], "hint": str(x.get("why") or x.get("hint") or "")[:120]}
+                     for x in (a.get("items") or []) if isinstance(x, dict) and x.get("name")]
+            if not items:
+                return "items 가 비었다."
+            pend = _asks.pending(db, session_id)
+            have = {x["name"] for x in pend}
+            _asks.set_pending(db, session_id, pend + [x for x in items if x["name"] not in have])
+            _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id))])
+            msg = str(a.get("message") or "자료에서 찾지 못한 값이 있어 여쭙니다 — 아래 「필요한 값 입력」에 적어 주세요.")
+            db.add_chat(session_id, "assistant", _scrub_internal(msg + "\n" + ", ".join(x["name"] for x in items)))
+            return "물었다."
+
+        def t_finish(a: dict) -> str:
+            msg = str(a.get("message") or "").strip()
+            if msg:
+                db.add_chat(session_id, "assistant", _scrub_internal(msg))
+            return msg
+
+        tools = [
+            doc_agent.Tool("search", "근거 찾기. args {source: project|library|criteria|rules, query: 검색어(명사 2~6낱말), for: 무엇을 위해}", t_search),
+            doc_agent.Tool("read_section", "연결 문서의 절 글 읽기. args {section: 절 제목 또는 번호}", t_read),
+            doc_agent.Tool("create_document", "연결 문서가 없을 때 양식을 골라 새 문서. args {form: 양식 후보 id, title: 문서 제목(사업 이름+서류 갈래), why}",
+                           t_create, writes=True),
+            doc_agent.Tool("write_section", "절 하나를 근거로 작성. args {section: 절 제목, notes: 이 절에 꼭 넣을 것·찾은 근거 요약}",
+                           t_write, writes=True),
+            doc_agent.Tool("rewrite_section", "이미 쓴 절을 비우고 다시 작성. args {section, reason: 무엇을 고칠지}",
+                           lambda a: t_write(a, redo=True), writes=True),
+            doc_agent.Tool("review_section", "쓴 절을 공고·평가지표 기준으로 검토. args {section}",
+                           lambda a: via_doc(f"「{(find_section(str(a.get('section') or '')) or {}).get('heading', a.get('section'))}」 절을 평가지표·공고 기준으로 검토해 줘")),
+            doc_agent.Tool("edit_document", "절 단위가 아닌 문서 고치기(표 정리·문구 바꾸기·제목 변경 등). args {instruction: 구체적 지시}",
+                           lambda a: via_doc(str(a.get("instruction") or q)), writes=True),
+            doc_agent.Tool("export_hwp", "작업본을 한글(제출) 파일로 내보내기. args {}", lambda a: via_doc("한글 파일로 내보내 줘"), final=True),
+            doc_agent.Tool("new_work_copy", "작업본을 지금 변환기로 새로 만들기. args {}", lambda a: via_doc("작업본 새로 만들어 줘"), final=True),
+            doc_agent.Tool("answer_question", "문서를 고치지 않고 질문에 답하기(규정·사업 자료 근거). args {question}", t_answer, final=True),
+            doc_agent.Tool("ask_user", "자료로 찾을 수 없어 담당자만 아는 값 묻기. args {items: [{name, why}], message}", t_ask, final=True),
+            doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message}", t_finish, final=True),
+        ]
+        ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label))
+        doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "steps": ep.steps})
+        if len(db.list_chats(session_id)) > before:
+            return True                                          # 무엇이든 남겼다(쓰기 결과·답·물음)
+        return False
+
     def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
         """연결된 구글 독스에 대한 명령 — 근거 조각을 붙여 편집 계획을 받고 적용한 결과를 채팅에 남긴다."""
         from zzaimy.app import access_guard as ag
@@ -1558,7 +1759,7 @@ def create_app(
                                             criteria_docs=context_plan._doc_list([db.get_document(i) for i in (crit_ids or [])], storage.title_of))
                     found_ = context_plan.execute(cp_, search_project=mats.search_project, search_criteria=mats.search_criteria,
                                                   search_library=mats.search_library)
-                    m["gathered"] = context_plan.render(cp_, found_)
+                    m["gathered"] = context_plan.render(cp_, found_) + ("\n\n" + _agent_notes[session_id] if _agent_notes.get(session_id) else "")
                     context_plan.record(data_dir, {"session": session_id, "doc": link["doc"], "section": sec["heading"], "request": q[:800],
                                                    "plan": cp_, "found": [{**{k_: v_ for k_, v_ in n_.items() if k_ != "hits"},
                                                                            "hits": [{"title": h_["title"], "doc_id": h_.get("doc_id"), "chunk_id": h_.get("chunk_id")}
