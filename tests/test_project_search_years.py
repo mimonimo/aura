@@ -82,7 +82,8 @@ def test_browse_years_are_years_only_and_rounds_separate(tmp_path):
     assert by[made["program:c|1968"]]["year"] == "" and by[made["program:c|1968"]]["when"] == "연도 미상"
     assert [it["id"] for it in project_refs.browse(db, None, year="r2")["items"]] == [made["program:b|r2"]]
     assert [it["id"] for it in project_refs.browse(db, None, year="2차년도")["items"]] == [made["program:b|r2"]]
-    assert {it["id"] for it in project_refs.browse(db, None, year="none")["items"]} == {made["program:c|1968"], made["program:d|?"]}
+    # 「연도 미상」 하나에 연차만 아는 묶음도 든다(연도 목록에 연차 선택지를 섞지 않는다)
+    assert {it["id"] for it in project_refs.browse(db, None, year="none")["items"]} == {made["program:b|r2"], made["program:c|1968"], made["program:d|?"]}
     narrowed = project_refs.browse(db, None, year="2024")
     assert [it["id"] for it in narrowed["items"]] == [made["program:a|2024"]]
     assert narrowed["years"] == ["2025", "2024"]                                # 연도를 골라도 다른 연도 선택지는 남는다
@@ -123,12 +124,13 @@ def test_archived_page_filters_chips_and_groups(tmp_path):
     assert page.status_code == 200
     html = page.text
     assert '<optgroup label="수행 연도">' in html and '<option value="2024"' in html
-    assert '<option value="r2"' in html and "2차년도 (연도 미상)" in html
+    assert '<option value="r2"' not in html and '<option value="none"' in html and "연도·연차 미상" not in html
+    assert "2차년도 (연도 미상)" in html                                          # 묶음 줄에는 연차를 그대로
     assert '<option value="1968"' not in html and "1968년 다 사업" in html    # 이름은 다음 동기화의 맞춤에서 바뀐다
     assert 'class="browser-group"' in html and "가 사업" in html and "연도별 묶음 <strong>5</strong>개" in html
     assert 'id="browserSort"' in html and "browser-chip" not in html.split('id="browserLive"')[1].split("browser-meta")[0]
     page = client.get("/projects/archived?year=r2&q=나&sort=docs")
-    assert 'data-clear="year"' in page.text and "2차년도 (연도 미상)" in page.text and 'data-clear="q"' in page.text
+    assert 'data-clear="year"' in page.text and "2차년도" in page.text and 'data-clear="q"' in page.text
     assert 'href="/projects/archived?q=%EB%82%98&amp;sort=docs"' in page.text   # 연도 칩을 지우는 링크(스크립트 없이도)
     assert '<option value="docs" selected>' in page.text
     assert "관련도순" not in page.text                                           # 참조 연결 화면에서만

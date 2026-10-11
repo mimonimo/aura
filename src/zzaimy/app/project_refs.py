@@ -198,6 +198,37 @@ def year_option(value: str) -> tuple[str, int | None, bool]:
     return (v if re.fullmatch(r"\d{4}", v) else ""), None, False
 
 
+_PERIOD = re.compile(r"((?:19|20)\d{2})\s*(?:\.\d{1,2})?\s*~\s*((?:19|20)\d{2})?")
+
+
+def _ledger_periods(db, program_ids: list[str]) -> dict[str, tuple[int, int | None]]:
+    """사업 노드(그래프)의 외부 확인 기간 「2025~2027」 — 없거나 그래프가 없으면 빈 사전."""
+    if not program_ids:
+        return {}
+    import json as _json
+    out: dict[str, tuple[int, int | None]] = {}
+    try:
+        with db._conn() as conn:
+            for pid, props in conn.execute(f"SELECT id, props FROM kg_nodes WHERE id IN ({','.join('?' * len(program_ids))})",
+                                           program_ids).fetchall():
+                p_ = props if isinstance(props, dict) else _json.loads(props or "{}")
+                m = _PERIOD.search(str((p_.get("ledger") or {}).get("period") or ""))
+                if m:
+                    out[pid] = (int(m.group(1)), int(m.group(2)) if m.group(2) else None)
+    except Exception:
+        return {}
+    return out
+
+
+def ongoing(period: tuple[int, int | None] | None, years: set[int], this_year: int) -> bool:
+    """사업이 올해 진행 중인가 — 외부 확인 기간이 있으면 그것이 올해를 품는가, 없으면 묶음 연도 가운데 올해 이후가 있는가.
+    보관 묶음(지난 문서 모음)이라도 사업 자체가 진행 중이면 「지난 사업」이 아니다."""
+    if period:
+        start, end = period
+        return start <= this_year <= (end or 9999)
+    return bool(years) and max(years) >= this_year
+
+
 def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: str = "", unit: str = "",
            for_project: int | None = None, limit: int = 200, sort: str = "") -> dict:
     """통합 프로젝트 찾기 — 진행 중(본인 것)·보관(문서 열람 권한 기준)을 사업명·수행 연도·사업단·상태로.
@@ -215,6 +246,19 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
     with db._conn() as conn:
         rows = [dict(r) for r in conn.execute("SELECT id, name, owner, archived, program, unit FROM projects ORDER BY id").fetchall()]
     starts = _round_starts([r for r in rows if r["archived"]])
+    import datetime
+    this_year = datetime.date.today().year
+    # 사업마다 묶음 연도(필터 전 전체)와 외부 확인 기간 — 진행 중 사업 판정용
+    prog_years: dict[str, set[int]] = {}
+    for r in rows:
+        if r["archived"] and r.get("program"):
+            y_, rnd_ = _when(r["program"])
+            b_ = r["program"].rsplit("|", 1)[0]
+            if not y_ and rnd_ and b_ in starts:
+                y_ = str(starts[b_] + rnd_ - 1)
+            if y_:
+                prog_years.setdefault(b_, set()).add(int(y_))
+    periods = _ledger_periods(db, sorted({(r.get("program") or "").rsplit("|", 1)[0] for r in rows if r["archived"] and r.get("program")}))
     words = [w for w in (q or "").split() if w]
     # 사업의 다른 이름·약칭(그래프 사업 노드의 표시 이름·약칭)도 찾는다 — 묶음 이름에 약칭이 없는 사업도
     # 약칭으로 찾을 수 있게
@@ -271,17 +315,21 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
         common = sorted(mine & _grams(r["name"] or "")) if mine else []
         when = (f"{r['year']}" + (f" · {r['round']}차년도" if r["round"] else "")) if r["year"] else \
             (f"{r['round']}차년도 (연도 미상)" if r["round"] else "연도 미상")
+        future = bool(r["year"]) and int(r["year"]) > this_year         # 올해 뒤 연도 — 그 해 계획 자료다
+        if future:
+            when += " · 계획 연도"
         base = (r["program"] or "").rsplit("|", 1)[0]
         pool.append({"id": r["id"], "name": r["name"], "status": r["status"], "year": r["year"], "round": r["round"],
-                     "year_derived": r["derived"], "when": when, "program": r["program"],
+                     "year_derived": r["derived"], "when": when, "future": future, "program": r["program"],
+                     "ongoing": r["status"] == "archived" and ongoing(periods.get(base), prog_years.get(base, set()), this_year),
                      "group": base if base and r["status"] == "archived" else f"project:{r['id']}",
                      "group_name": _group_name(r["name"] or "") if r["status"] == "archived" else (r["name"] or ""),
                      "units": us, "n_docs": n, "why": ("이름 겹침: " + "·".join(common[:6])) if common else "",
                      "linked": r["id"] in linked, "score": len(common) / max(len(mine), 1) if mine else 0.0})
 
     def year_ok(it):
-        if want_none:
-            return not it["year"] and not it["round"]
+        if want_none:                                  # 「연도 미상」 하나 — 연차만 아는 묶음도 연도는 모른다
+            return not it["year"]
         if want_r is not None:
             return not it["year"] and it["round"] == want_r
         return not want_y or it["year"] == want_y
@@ -302,17 +350,34 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
             "units": sorted({u for it in by_year for u in it["units"]}),
             "years": sorted({it["year"] for it in by_unit if it["year"]}, reverse=True),
             "rounds": [f"r{n}" for n in sorted({it["round"] for it in by_unit if not it["year"] and it["round"]})],
-            "has_unknown": any(not it["year"] and not it["round"] for it in by_unit)}
+            "has_unknown": any(not it["year"] for it in by_unit)}
 
 
 def group_items(items: list[dict]) -> list[dict]:
-    """화면 묶음 — 같은 사업의 연도별 묶음을 한 카드로(나온 순서 유지). 카드마다 문서 합계·연도 범위."""
+    """화면 묶음 — 같은 사업의 연도별 묶음을 한 카드로(나온 순서 유지). 카드마다 문서 합계·연도 범위.
+    보관 묶음의 사업 이름은 공용 규칙(program_names.display_name·group_names)으로 보이고 묶는다 — 사업 id 가 달라도
+    띄어쓰기·괄호·때 꼬리표만 다른 이름이면 한 카드다. 진행 중 프로젝트는 각자 한 카드."""
+    from zzaimy.app.program_names import display_name, group_names
+
+    totals: dict[str, int] = {}
+    for it in items:
+        if it["status"] == "archived":
+            n = display_name(it["group_name"]) or it["group_name"]
+            totals[n] = totals.get(n, 0) + it["n_docs"]
+    rep_of = group_names(totals)
     groups: dict[str, dict] = {}
     for it in items:
-        g = groups.setdefault(it["group"], {"key": it["group"], "name": it["group_name"], "rows": [], "n_docs": 0,
-                                             "status": it["status"], "units": []})
+        if it["status"] == "archived":
+            shown = display_name(it["group_name"]) or it["group_name"]
+            name = rep_of.get(shown) or shown
+            key = "name:" + name
+        else:
+            name, key = it["group_name"], it["group"]
+        g = groups.setdefault(key, {"key": it["group"], "name": name, "rows": [], "n_docs": 0,
+                                    "status": it["status"], "units": [], "ongoing": False})
         g["rows"].append(it)
         g["n_docs"] += it["n_docs"]
+        g["ongoing"] = g["ongoing"] or bool(it.get("ongoing"))
         for u in it["units"]:
             if u not in g["units"]:
                 g["units"].append(u)
