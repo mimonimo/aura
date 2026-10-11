@@ -49,6 +49,51 @@ _PUA = re.compile(r"[\ue000-\uf8ff\U000f0000-\U0010ffff]")
 _FIRST = re.compile(r"^\s*(?:Ⅰ\s*[.．]?|1[.．)]|1-1[.．)]?|가[.．)]|\(1\))\s")
 
 
+# 서식 자리표시 — 양식의 빈칸 표기(「0000년」「ㅇㅇㅇ대학교」「○○과」「OO 사업」「△△」). 채우기 전 양식의 머리는 절이 아니다
+_PLACEHOLDER = re.compile(r"(?<!\d)0{2,4}(?=\s*(?:년|학년도|월|일|원|명|건|개|\.|$))|0000|[ㅇ○◯〇]{2,}|(?<![A-Za-z])O{2,}(?![a-z])|"
+                          r"[△□◇]{2,}|(?<![A-Za-z])[Xx]{2,}(?![a-z])|[＊*]{2,}")
+
+
+def placeholder_title(title: str) -> bool:
+    """양식의 빈칸 자리표시가 든 제목인가 — 특정 양식이 아니라 빈칸 표기 꼴로만 본다."""
+    return bool(_PLACEHOLDER.search(title or ""))
+
+
+_ROMAN_I_RUN = re.compile(r"^(\s*)(Ⅰ{2,3})(?=\s*[.．]?)")
+_ROMAN_DUP = re.compile(r"^(\s*)([ⅡⅢⅣⅤⅥⅦⅧⅨⅩ])\2+")
+
+
+def clean_heading(title: str, running: set[str] | frozenset = frozenset()) -> str:
+    """제목 다듬기 — 로마 숫자 글리프가 겹친 꼴(「ⅠⅠ.」= Ⅱ, 「ⅡⅡ.」= Ⅱ), 쪽 머리말(쪽마다 되풀이되는 줄)이 앞뒤에 붙은 꼴을 고친다."""
+    t = " ".join((title or "").split())
+    t = _ROMAN_I_RUN.sub(lambda m: m.group(1) + {2: "Ⅱ", 3: "Ⅲ"}[len(m.group(2))], t)
+    t = _ROMAN_DUP.sub(lambda m: m.group(1) + m.group(2), t)
+    flat = t.replace(" ", "")
+    for head in sorted(running, key=len, reverse=True):
+        h = head.replace(" ", "")
+        # 장 제목 줄(「Ⅱ. 사업 추진내용」)도 쪽마다 되풀이되지만 그것은 제목이다 — 번호 없는 머리말만 뗀다.
+        # 띄어 쓴 낱말(「세부 사업 추진내용」의 「사업 추진내용」)은 제목의 일부일 수 있어 붙어 있을 때만 뗀다
+        if len(h) < 6 or h == flat or _NUM.match(head):
+            continue
+        if flat.endswith(h) and len(flat) - len(h) >= 2:
+            cut, n = len(t), 0
+            while n < len(h):                           # 띄어쓰기를 무시하고 뒤에서 머리말 글자 수만큼 자른다
+                cut -= 1
+                if t[cut] != " ":
+                    n += 1
+            if cut > 0 and t[cut - 1] != " ":
+                return t[:cut].strip()
+        if flat.startswith(h) and len(flat) - len(h) >= 2 and not _NUM.match(t):
+            cut, n = 0, 0
+            while n < len(h):
+                if t[cut] != " ":
+                    n += 1
+                cut += 1
+            if cut < len(t) and t[cut] != " ":
+                return t[cut:].strip()
+    return t
+
+
 def _level(title: str) -> int | None:
     """제목 깊이. 글머리표 줄은 None(제목 아님), 번호 없는 제목은 0(지금 깊이 아래 잎)."""
     if _BULLET.match(title):
@@ -145,8 +190,8 @@ def _inner_headings(c: dict, running: set[str]) -> list[str]:
             out.append("\0toc")
             continue
         h = _line_heading(line)
-        if h:
-            out.append(h)
+        if h and not placeholder_title(h):
+            out.append(clean_heading(h, running))
     if out and (out.count("\0toc") >= 3 or (len(out) >= TOC_RUN and len(out) >= 0.6 * lines)):
         return []                                             # 목차 쪽
     out = [h for h in out if h != "\0toc"]
@@ -201,6 +246,10 @@ def build(chunks: list[dict]) -> list[Section]:
             events += [(c, t, _level(t)) for t in inner]
             continue
         title = heading_text(c) if int(c["seq"]) not in toc else None
+        if title and placeholder_title(title):
+            title = None                                    # 양식의 빈칸 머리(「0000년 …」「ㅇㅇㅇ대학교」)는 본문으로
+        if title:
+            title = clean_heading(title, running)
         events.append((c, title, _level(title) if title else None))
     heads = [(t, lv) for _c, t, lv in events]
     for i, (c, title, lvl) in enumerate(events):

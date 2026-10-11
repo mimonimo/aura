@@ -56,7 +56,65 @@ _RENAMED = re.compile(r"現\s*[가-힣A-Za-z]|\(\s*현\s+[가-힣A-Za-z]|재구�
 
 def _name_ok(name: str) -> bool:
     core = re.sub(r"[\s()·]", "", _TIME_WORDS.sub("", name)).replace("사업", "")
-    return len(re.findall(r"[가-힣A-Za-z]", core)) >= 4
+    return len(re.findall(r"[가-힣A-Za-z]", core)) >= 4 and not fragment_name(name)
+
+
+# ── 문장 조각 거르기 ────────────────────────────────────────────────────────
+# 사업 이름은 명사구다. 본문 문장에서 「…사업」 앞까지를 잘라 온 조각(「아울러 2017년부터 …사업」「따라서 LINC+사업」)은
+# 이름이 아니다 — 특정 사업이 아니라 문장의 꼴(길이·문장 부호·접속 부사·토씨·어미)로 가른다.
+NAME_MAX = 40                       # 띄어쓰기를 뺀 글자 수 — 이보다 긴 「이름」은 문장이다
+NAME_MAX_WORDS = 8
+# 문장을 여는 접속 부사·지시어 — 이름의 첫 낱말이 될 수 없다
+_OPENERS = re.compile(r"^(?:아울러|따라서|또한|또|그리고|그러나|하지만|그러므로|그래서|특히|이에|즉|한편|나아가|더불어|더욱이|다만|단|"
+                      r"이를|이와|이러한|이같은|이번|금번|상기|위|본|각|동|해당|기존의?|향후|앞으로|현재|최근)$")
+# 낱말 끝의 토씨·어미 — 이름 가운데 낱말이 이렇게 끝나면 문장이 이어지는 중이다(「2017년부터」「추진하여」「대학에서」)
+_INNER_END = re.compile(r"(?:부터|까지|에서|에게|으로|로서|로써|하여|하고|하며|되어|되며|해서|하는|되는|하던|되던|했던|됐던|"
+                        r"위해|통해|위한|통한|대한|관한|따른|않은|있는|없는|이며|이고|였던|었던|으며|면서|지만|는데|"
+                        r"[가-힣]{2,}(?:는|를|은))$")
+# 문장 부호 — 쉼표·마침표(판 번호 「3.0」은 빼고)·물음표·따옴표·쌍점
+_SENT_PUNCT = re.compile(r"[,;:!?。“”\"'‘’…]|\.(?!\d)|(?<!\d)\.")
+
+
+def fragment_name(name: str) -> bool:
+    """사업 이름이 아니라 문장 조각인가 — 길이(띄어쓰기 뺀 NAME_MAX 자·낱말 NAME_MAX_WORDS 개 초과), 문장 부호,
+    첫 낱말이 접속 부사·지시어, 마지막이 아닌 낱말이 토씨·어미로 끝남. 처음 보는 사업 이름에도 같은 판정이 나도록 꼴만 본다."""
+    s = " ".join((name or "").split())
+    if not s:
+        return True
+    if len(s.replace(" ", "")) > NAME_MAX or len(s.split(" ")) > NAME_MAX_WORDS:
+        return True
+    if _SENT_PUNCT.search(s):
+        return True
+    toks = s.split(" ")
+    if len(toks) > 1 and _OPENERS.match(toks[0]):
+        return True
+    return any(_INNER_END.search(re.sub(r"[()]+$", "", t)) for t in toks[:-1])
+
+
+# 이름 앞이 잘린 꼴 — 글 속 「\n」 표기의 n 이 붙은 것(「n의과대학 …」), 앞 낱말이 줄바꿈에 잘려 한 글자만 남은 것(「연 공동기술개발 …」)
+_LEAD_CUT = re.compile(r"^(?:[a-z](?=[가-힣])|[가-힣]\s+(?=[가-힣A-Za-z]{2}))")
+
+
+def clean_label(name: str) -> str:
+    """보일 사업 이름의 앞 잘림을 다듬는다 — 글 속 줄바꿈 표기의 영문자, 한 글자만 남은 앞 낱말. 이미 지은 그래프 이름에도 쓴다."""
+    s = " ".join((name or "").replace("\\n", " ").replace("\\t", " ").split())
+    out = _LEAD_CUT.sub("", s).strip()
+    return out if len(out.replace(" ", "")) >= 4 else s
+
+
+def alias_list(names, acronyms=(), limit: int = 8) -> tuple[list[str], int]:
+    """화면에 보일 다른 이름 — 문장 조각을 거르고, 띄어쓰기만 다른 것은 하나로, 약칭 먼저·짧은 이름 순으로 limit 개.
+    돌려주는 것: (보일 이름들, 더 있는 수)."""
+    seen, out = set(), []
+    pool = [a for a in acronyms or [] if a] + sorted((n for n in names or [] if n), key=lambda n: len(n))
+    for n in pool:
+        n = clean_label(n)
+        k = re.sub(r"[\s.·ㆍ\-_]+", "", n).upper()
+        if not k or k in seen or fragment_name(n):
+            continue
+        seen.add(k)
+        out.append(n)
+    return out[:limit], max(len(out) - limit, 0)
 
 
 # 이름 앞 글머리표·가운뎃점 — 「· 전문대학혁신지원사업」은 목록 줄의 글머리가 붙은 것
@@ -93,7 +151,7 @@ def _norm_name(name: str) -> str:
         tail = n[n.rfind("(") + 1:].strip()
         if len(tail) >= 4:
             n = tail
-    return n
+    return clean_label(n)
 
 
 _ROUND = re.compile(r"([1-9])\s*차\s*년도")
@@ -182,6 +240,7 @@ class ProgramCard:
 
 def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     """(사업명들, 약칭들, (긴 이름, 약칭) 짝들)."""
+    text = (text or "").replace("\\n", "\n").replace("\\t", " ")      # 글 속 「\\n」 표기는 줄바꿈 — 이름에 n 이 붙지 않게
     names = [_norm_name(m.group(0)) for m in _PROGRAM.finditer(text or "") if m.group(0) not in _GENERIC]
     names += [_norm_name(t) for t in (_trim_name(m.group(1)) for m in _SPACED.finditer(text or "")) if t and t not in _GENERIC]
     # 띄어 쓴 가운뎃점·쉼표·빗금은 사업 둘을 늘어놓은 것이다(「…(COSS)사업 · …(HiVE)사업」) — 한 이름으로 묶지 않는다
@@ -789,6 +848,7 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
         start, end = span
         if a.year is None and a.round:
             a.year = start + a.round - 1
+            a.evidence = list(a.evidence) + [f"{a.round}차년도 · 사업 시작 {start}년 → {a.year}년"]
             stats["converted"] += 1
         elif a.year and start <= a.year <= (end or 9999) and a.round != a.year - start + 1:
             # 연차가 없거나 연도와 엇갈리면 연도로 맞춘다 — 「N차년도」는 준비년도를 0차로 세는 등 셈이 제각각이고
@@ -796,6 +856,7 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
             if a.round is not None:
                 stats["round_fixed"] = stats.get("round_fixed", 0) + 1
             a.round = a.year - start + 1
+            a.evidence = list(a.evidence) + [f"{a.year}년 · 사업 시작 {start}년 → {a.round}차년도"]
             stats["converted"] += 1
         if a.year and not (start <= a.year <= (end or 9999)):
             text = re.sub(r"[\s.·\-_]+", "", f"{d.get('path') or ''}/{d.get('filename') or ''}").upper()

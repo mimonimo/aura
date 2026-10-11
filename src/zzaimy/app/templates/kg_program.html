@@ -22,12 +22,14 @@
 <div class="card"><div class="card-in"><p class="muted" style="margin:0;">아직 그래프가 없습니다. 문서를 반입하고 그래프를 만들면 사업별로 보입니다.</p></div></div>
 {% else %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:structure-linear"></iconify-icon>{{ program.label }}</h2>
+  <h2><iconify-icon icon="solar:structure-linear"></iconify-icon>{{ program_label }}</h2>
+  <details class="kg-more"><summary>다른 사업 고르기 · {{ chips | length }}개</summary>
   <div class="kg-chips">
-    {% for p in programs %}<a class="pill" href="/graph/program?id={{ p.id }}" style="{{ 'font-weight:700;' if p.id == program.id }}">{{ p.label }}</a>{% endfor %}
-  </div>
-  <p class="muted" style="margin:0; font-size:12.5px;">다른 이름: {{ (program.props.names + program.props.acronyms) | unique | join(' · ') }} · 절 {{ n_sections }}개
-    · 관계 {% for k, b, v in counts %}{{ k }}({{ b }}) {{ v }}{{ ' · ' if not loop.last }}{% endfor %}</p>
+    {% for p in chips %}<a class="pill" href="/graph/program?id={{ p.id | urlencode }}" title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건" style="{{ 'font-weight:700;' if program.id in p.ids }}">{{ p.label }} <small class="muted">{{ '{:,}'.format(p.n_docs) }}</small></a>{% endfor %}
+  </div></details>
+  <p class="muted" style="margin:0; font-size:12.5px;">문서 {{ '{:,}'.format(n_docs) }}건(볼 수 있는 등록 문서){% if aliases %} · 다른 이름: {{ aliases | join(' · ') }}{% if more_aliases %} 외 {{ more_aliases }}개{% endif %}{% endif %}</p>
+  {% if request.state.role == 'dev' %}<p class="muted" style="margin:2px 0 0; font-size:12px;">절 {{ '{:,}'.format(n_sections) }}개
+    · 관계 {% for k, b, v in counts %}{{ k }}({{ b }}) {{ '{:,}'.format(v) }}{{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
   {% if taxonomy and (taxonomy.groups or taxonomy.integrated or taxonomy.pred or taxonomy.succ or taxonomy.members or taxonomy.related) %}
   <p style="margin:6px 0 0; font-size:12.5px;">
     {% if taxonomy.groups %}분류: {{ taxonomy.groups | join(', ') }}{% endif %}
@@ -43,20 +45,36 @@
   {% endif %}
 </div></div>
 
+{% if year_view %}
+<div class="card reveal" id="year"><div class="card-in">
+  <h2><iconify-icon icon="solar:calendar-linear"></iconify-icon>{{ year_view.label }} 문서 {{ '{:,}'.format(year_view.total) }}건</h2>
+  <p style="margin:0 0 8px; font-size:12.5px;"><a href="/graph/program?id={{ program.id | urlencode }}">연차별 표로 돌아가기</a></p>
+  <div class="table-scroll"><table class="kg-pairs">
+    <tr><th>문서 종류</th><th>문서</th><th>분류 근거</th></tr>
+    {% for d in year_view.docs %}<tr><td class="why">{{ d.kind_ko }}</td><td><a href="/doc/{{ d.doc_id }}">{{ d.label }}</a></td><td class="why">{{ d.why[0] if d.why else '' }}</td></tr>{% endfor %}
+  </table></div>
+  {% if year_view.pages > 1 %}<p style="font-size:12.5px; margin:8px 0 0;">
+    {% if year_view.page > 1 %}<a href="/graph/program?id={{ program.id | urlencode }}&year={{ year_view.id | urlencode }}&page={{ year_view.page - 1 }}#year">이전</a> · {% endif %}
+    {{ year_view.page }} / {{ year_view.pages }}쪽
+    {% if year_view.page < year_view.pages %} · <a href="/graph/program?id={{ program.id | urlencode }}&year={{ year_view.id | urlencode }}&page={{ year_view.page + 1 }}#year">다음</a>{% endif %}</p>{% endif %}
+</div></div>
+{% else %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:calendar-linear"></iconify-icon>연차별 문서</h2>
+  <p class="muted" style="margin:0 0 8px; font-size:12.5px;">칸마다 앞 {{ cell_max }}건 · 나머지는 연차 이름을 눌러 봅니다</p>
   <div class="table-scroll">
   <table class="kg-grid">
-    <tr><th></th>{% for c in cols %}<th>{{ c.year.label.split(' ')[-2:] | join(' ') }}</th>{% endfor %}</tr>
+    <tr><th></th>{% for c in cols %}<th><a href="/graph/program?id={{ program.id | urlencode }}&year={{ c.year.id | urlencode }}#year">{{ c.label }}</a> <small class="muted">{{ '{:,}'.format(c.n) }}건</small></th>{% endfor %}</tr>
     {% for key, label in rows + [("other", "기타")] %}
     <tr><td class="rowh">{{ label }}</td>
       {% for c in cols %}<td>{% for d in c.cells[key] %}<a class="kg-doc" href="/doc/{{ d.doc_id }}">{{ d.label }}
-        <small>{{ d.props.kind_label or '' }} · {{ d.why[0] if d.why else '' }}</small></a>{% endfor %}</td>{% endfor %}
+        <small>{{ d.why[0] if d.why else '' }}</small></a>{% endfor %}
+        {% if c.more[key] %}<a class="muted" style="font-size:12px;" href="/graph/program?id={{ program.id | urlencode }}&year={{ c.year.id | urlencode }}#year">{{ '{:,}'.format(c.more[key]) }}건 더 보기</a>{% endif %}</td>{% endfor %}
     </tr>
     {% endfor %}
   </table>
   </div>
-  {% if loose %}<p class="muted" style="font-size:12.5px;">연차를 알 수 없는 문서: {% for d in loose %}<a href="/doc/{{ d.doc_id }}">{{ d.label }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
+  {% if loose %}<p class="muted" style="font-size:12.5px;">연차를 알 수 없는 문서: {% for d in loose %}<a href="/doc/{{ d.doc_id }}">{{ d.label }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if more_loose %} 외 {{ '{:,}'.format(more_loose) }}건{% endif %}</p>{% endif %}
 </div></div>
 
 {% if indicators and indicators.rows %}
@@ -78,9 +96,9 @@
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:transfer-horizontal-linear"></iconify-icon>계획 ↔ 실적 대응</h2>
-  <p class="muted" style="margin:0 0 8px; font-size:12.5px;">같은 연차의 계획서 절과 실적보고서 절 — 제목이 같고 상위 절·본문 맥락이 비슷한 짝만(기준: 식별자 일치)</p>
+  <p class="muted" style="margin:0 0 8px; font-size:12.5px;">같은 연차의 계획서 절과 실적보고서 절 · 제목이 같고 상위 절·본문 맥락이 비슷한 짝</p>
   {% for year, pairs in plans_reports.items() %}
-  <details class="kg-more" {{ 'open' if loop.first }}><summary>{{ year }} · {{ pairs | length }}쌍</summary>
+  <details class="kg-more" {{ 'open' if loop.first }}><summary>{{ year }} · {{ '{:,}'.format(plans_reports_total[year]) }}쌍{% if plans_reports_total[year] > pairs | length %} (앞 {{ pairs | length }}쌍 표시){% endif %}</summary>
     <div class="table-scroll"><table class="kg-pairs">
       <tr><th>계획서 절</th><th></th><th>실적보고서 절</th><th>근거</th></tr>
       {% for p in pairs %}<tr><td><a href="/doc/{{ p.a_doc }}">{{ p.a }}</a></td><td class="kg-arrow">↔</td>
@@ -92,7 +110,7 @@
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:double-alt-arrow-right-linear"></iconify-icon>연차 사이 같은 절 · 평가</h2>
-  <details class="kg-more"><summary>다음 연차 계획서로 이어지는 절 {{ continues | length }}쌍</summary>
+  <details class="kg-more"><summary>다음 연차 계획서로 이어지는 절 {{ '{:,}'.format(continues_total) }}쌍{% if continues_total > continues | length %} (앞 {{ continues | length }}쌍 표시){% endif %}</summary>
     <div class="table-scroll"><table class="kg-pairs">
       <tr><th>앞 연차</th><th></th><th>다음 연차</th><th>근거</th></tr>
       {% for p in continues %}<tr><td><a href="/doc/{{ p.a_doc }}">{{ p.a }}</a></td><td class="kg-arrow">→</td>
@@ -101,5 +119,6 @@
   </details>
   {% if evaluates %}<p style="font-size:12.5px; margin:8px 0 0;">평가 결과 → {% for p in evaluates %}<a href="/doc/{{ p.b_doc }}">{{ p.b }}</a>{{ ', ' if not loop.last }}{% endfor %}</p>{% endif %}
 </div></div>
+{% endif %}
 {% endif %}
 {% endblock %}

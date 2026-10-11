@@ -61,16 +61,20 @@ def _scope(request: Request) -> dict:
     return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
 
 
-def _visible_docs(db, doc_ids: set[int], scope: dict) -> set[int]:
-    """그 중 이 사용자가 볼 수 있는 문서 id."""
-    if not doc_ids or scope.get("role") == "dev":
-        return set(doc_ids)
+def _visible_docs(db, doc_ids: set[int], scope: dict | None) -> set[int]:
+    """그 중 문서함에 지금 있고(지운 문서의 그래프 노드는 빼고) 이 사용자가 볼 수 있는 문서 id. scope 가 없거나 개발자면 있는 것 전부."""
+    if not doc_ids:
+        return set()
     from zzaimy.app.access_policy import visible
 
+    every = scope is None or scope.get("role") == "dev"
     ids, out = sorted(doc_ids), set()
     with db._conn() as conn:
         for i in range(0, len(ids), 1000):
             part = ids[i:i + 1000]
+            if every:
+                out |= {int(r[0]) for r in conn.execute(f"SELECT id FROM documents WHERE id IN ({','.join('?' * len(part))})", part)}
+                continue
             rows = conn.execute(f"SELECT * FROM documents WHERE id IN ({','.join('?' * len(part))})", part).fetchall()
             out |= {int(dict(r)["id"]) for r in rows if visible(dict(r), **scope)}
     return out
@@ -92,21 +96,60 @@ def _node_docs(n: dict) -> set[int]:
     return set()
 
 
+# 분류 상태(graph.programs.Assignment.status) — 화면에는 우리말로
+STATUS_KO = {"auto": "자동 분류", "review": "검토 필요", "folder": "폴더로 분류", "period": "사업 기간으로 분류",
+             "agent": "에이전트 검토"}
+
+
+def when_text(year, rnd) -> str:
+    """연차 표시 하나 — 「3차년도 (2025)」「2025년」「2차년도」, 둘 다 없으면 「연차 미상」."""
+    if rnd and year:
+        return f"{rnd}차년도 ({year})"
+    if rnd:
+        return f"{rnd}차년도"
+    return f"{year}년" if year else "연차 미상"
+
+
+def label_of(n: dict) -> str:
+    """보일 이름 — 사업은 공용 이름 규칙(program_names.display_name)과 앞 잘림 다듬기, 묶음은 「(묶음)」을 붙여 같은 이름의
+    사업과 가른다. 절은 겹친 로마 숫자·붙은 머리말을 고치고, 성과지표는 끝 각주 번호를 뗀다."""
+    from zzaimy.app.program_names import display_name
+    from zzaimy.graph.indicators import strip_footnote
+    from zzaimy.graph.programs import clean_label
+    from zzaimy.graph.sections import clean_heading
+
+    label, typ = str(n.get("label") or ""), n.get("type")
+    if typ in ("program", "program_group"):
+        name = display_name(clean_label(label)) or label
+        return f"{name} (묶음)" if typ == "program_group" else name
+    if typ == "section":
+        return clean_heading(label)
+    if typ == "indicator":
+        return strip_footnote(label)
+    return label
+
+
 def _summary(n: dict) -> dict:
     p = n["props"]
-    keep = {k: p[k] for k in ("kind_label", "year", "round", "n_docs", "unit", "level", "status") if p.get(k) not in (None, "", [])}
+    keep = {k: p[k] for k in ("kind_label", "n_docs", "unit", "level") if p.get(k) not in (None, "", [])}
+    if keep.get("kind_label"):
+        keep["kind_label"] = _KIND_KO.get(keep["kind_label"], keep["kind_label"])
+    if n["type"] in ("doc", "year") and (p.get("year") or p.get("round")):
+        keep = {"when": when_text(p.get("year"), p.get("round")), **keep}
+    if p.get("status"):
+        keep["status"] = STATUS_KO.get(p["status"], "기타")
     if n["type"] == "program":
         led = p.get("ledger") or {}
         keep.update({k: led[k] for k in ("period", "ministry", "agency") if led.get(k)})
-    return {"id": n["id"], "type": n["type"], "type_ko": TYPE_KO.get(n["type"], n["type"]), "label": n["label"],
+    return {"id": n["id"], "type": n["type"], "type_ko": TYPE_KO.get(n["type"], n["type"]), "label": label_of(n),
             "short": _short(n), "doc_id": n.get("doc_id"), "info": keep}
 
 
 def _short(n: dict) -> str:
     """그림에 쓸 짧은 이름 — 연차는 「N차년도 (YYYY)」, 문서는 확장자 뺀 이름. 긴 사업 이름을 연차마다 되풀이하지 않는다."""
-    p, label = n["props"], str(n["label"] or "")
+    p, label = n["props"], label_of(n)
     if n["type"] == "year" and p.get("round"):
-        return f"{p['round']}차년도" + (f" ({p['year']})" if p.get("year") else "")
+        return when_text(p.get("year"), p.get("round"))
     if n["type"] in ("doc", "section"):
         return re.sub(r"\.(hwpx?|pdf|docx?|xlsx?|pptx?|txt)$", "", label.replace("_", " "), flags=re.I)
     return label
@@ -145,6 +188,9 @@ def neighbors(db, node_id: str, scope: dict, per_group: int = PER_GROUP, offset:
         raise HTTPException(404, "노드를 찾을 수 없습니다")
     others = _load_nodes(db, sorted({r["dst"] if r["src"] == node_id else r["src"] for r in rows}))
     ok = _allowed(db, others, scope)
+    from zzaimy.graph.sections import placeholder_title
+    # 양식 빈칸 자리표시 절(「0000년 …」「ㅇㅇㅇ대학교」) — 그래프를 다시 짓기 전 노드도 보이지 않게(157 은 이제 만들지 않는다)
+    ok = {k for k in ok if not (others[k]["type"] == "section" and placeholder_title(others[k]["label"]))}
     groups: dict[tuple, list] = defaultdict(list)
     for r in rows:
         out = r["src"] == node_id
@@ -189,26 +235,67 @@ def search(db, q: str, scope: dict, limit: int = 40) -> list[dict]:
     return [_summary(n) for n in hits[:limit]]
 
 
-def programs(db) -> list[dict]:
-    """사업 목록과 문서 수(사업 바로 아래 + 연차 아래) — 5분 캐시."""
-    hit = _cache.get("programs")
+def _scope_key(scope: dict | None) -> tuple:
+    if scope is None or scope.get("role") == "dev":
+        return ("all",)
+    return (scope.get("role"), scope.get("user"), scope.get("dept"))
+
+
+def program_doc_sets(db, scope: dict | None = None) -> dict[str, set[int]]:
+    """사업·사업 묶음마다 문서 집합 — 그래프 화면의 「문서 n건」은 모두 이것을 센다.
+
+    정의: 그래프가 그 사업(바로 아래 + 연차 아래, 묶음은 묶인 사업들의 합집합)으로 분류한 문서 가운데 문서함에 지금 있고
+    보는 사람이 열람할 수 있는 등록 문서. 원본 파일 수·조각 수가 아니다. 보는 사람 범위마다 5분 캐시."""
+    key = ("docsets", str(getattr(db, "path", id(db)))) + _scope_key(scope)
+    hit = _cache.get(key)
     if hit and time.time() - hit[0] < 300:
         return hit[1]
     kg_store.ensure(db)
     with db._conn() as conn:
-        progs = [dict(r) for r in conn.execute("SELECT id, type, label FROM kg_nodes WHERE type IN ('program', 'program_group')")]
         year_of = {r[0]: r[1] for r in conn.execute(
             "SELECT dst, src FROM kg_edges WHERE kind = 'contains' AND src LIKE 'program:%' AND dst LIKE 'year:%'")}
-        n_docs: dict[str, int] = defaultdict(int)
-        for r in conn.execute("SELECT src, COUNT(*) FROM kg_edges WHERE kind = 'contains' AND dst LIKE 'doc:%' GROUP BY src"):
-            n_docs[year_of.get(r[0], r[0])] += int(r[1])
-        # 사업 묶음은 묶인 사업들의 문서 수
-        for r in conn.execute("SELECT src, dst FROM kg_edges WHERE kind = 'contains' AND src LIKE 'group:%' AND dst LIKE 'program:%'"):
-            n_docs[r[0]] += n_docs.get(r[1], 0)
-    out = sorted(({"id": p["id"], "type": p["type"], "type_ko": TYPE_KO.get(p["type"], p["type"]), "label": p["label"],
-                   "n_docs": n_docs.get(p["id"], 0)} for p in progs), key=lambda p: (p["type"] != "program_group", -p["n_docs"]))
-    _cache["programs"] = (time.time(), out)
+        raw: dict[str, set[int]] = defaultdict(set)
+        for src, dst in conn.execute("SELECT src, dst FROM kg_edges WHERE kind = 'contains' AND dst LIKE 'doc:%'"
+                                     " AND (src LIKE 'program:%' OR src LIKE 'year:%')"):
+            tail = str(dst).split(":")[1]
+            if tail.isdigit():
+                raw[year_of.get(src, src)].add(int(tail))
+        members = [(r[0], r[1]) for r in conn.execute(
+            "SELECT src, dst FROM kg_edges WHERE kind = 'contains' AND src LIKE 'group:%' AND dst LIKE 'program:%'")]
+    vis = _visible_docs(db, set().union(*raw.values()) if raw else set(), scope)
+    out = {k: v & vis for k, v in raw.items() if k.startswith("program:")}
+    for g, p in members:
+        out.setdefault(g, set()).update(out.get(p, set()))
+    _cache[key] = (time.time(), out)
     return out
+
+
+def programs(db, scope: dict | None = None) -> list[dict]:
+    """왼쪽 사업 목록 — 보일 이름은 label_of, 같은 사업으로 묶이는 이름(program_names.group_names)은 한 줄로(문서가 가장 많은
+    노드를 열고 수는 합집합), 문서 0건은 뺀다. 수는 program_doc_sets 의 정의."""
+    from zzaimy.app.program_names import group_key, group_names
+
+    kg_store.ensure(db)
+    sets = program_doc_sets(db, scope)
+    with db._conn() as conn:
+        progs = [dict(r) for r in conn.execute("SELECT id, type, label FROM kg_nodes WHERE type IN ('program', 'program_group')")]
+    rows = [{"id": p["id"], "type": p["type"], "label": label_of(p), "docs": sets.get(p["id"], set())}
+            for p in progs if sets.get(p["id"])]
+    plain = [r for r in rows if r["type"] == "program"]
+    rep = group_names({r["label"]: len(r["docs"]) for r in plain})
+    merged: dict[str, dict] = {}
+    for r in sorted(plain, key=lambda r: -len(r["docs"])):
+        # 사업 이름 꼴이면 group_names 의 대표 이름, 아니면(「…체계(앵커)」처럼 「사업」 낱말이 없는 이름) 같은 열쇠끼리만
+        k = ("name:" + rep[r["label"]]) if rep.get(r["label"]) else ("key:" + (group_key(r["label"]) or r["label"]))
+        if k in merged:
+            merged[k]["docs"] = merged[k]["docs"] | r["docs"]
+            merged[k]["ids"].append(r["id"])
+        else:
+            merged[k] = {**r, "label": rep.get(r["label"]) or r["label"], "ids": [r["id"]]}
+    out = [{"id": r["id"], "type": r["type"], "type_ko": TYPE_KO.get(r["type"], r["type"]), "label": r["label"],
+            "n_docs": len(r["docs"]), "ids": r.get("ids", [r["id"]])}
+           for r in [x for x in rows if x["type"] == "program_group"] + list(merged.values())]
+    return sorted(out, key=lambda p: (p["type"] != "program_group", -p["n_docs"]))
 
 
 def schema(db) -> dict:
@@ -296,7 +383,7 @@ def shapes_ttl(request: Request):
 def explore_page(request: Request, id: str = "", q: str = ""):
     st = request.app.state
     return st.templates.TemplateResponse(request, "kg_explore.html", st.page_ctx(request, {
-        "focus": id, "q": q, "programs": programs(st.db), "type_ko": TYPE_KO}))
+        "focus": id, "q": q, "programs": programs(st.db, _scope(request)), "type_ko": TYPE_KO}))
 
 
 @router.get("/graph/explore/neighbors")

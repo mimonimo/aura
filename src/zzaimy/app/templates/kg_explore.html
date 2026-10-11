@@ -59,9 +59,9 @@
   <aside class="gx-rail">
     <div class="gx-find"><input type="search" id="gxQ" placeholder="사업·문서·단위과제·지표 검색" aria-label="그래프 검색" autocomplete="off"></div>
     <div class="gx-list" id="gxList">
-      <div class="gx-cap">사업 묶음·사업</div>
+      <div class="gx-cap" title="볼 수 있는 등록 문서 수">사업 묶음·사업 · 문서 수</div>
       {% for p in programs %}
-      <button type="button" class="gx-row" data-id="{{ p.id }}"><i data-type="{{ p.type }}"></i><span title="{{ p.label }}">{{ p.label }}</span><small>{{ "{:,}".format(p.n_docs) }}</small></button>
+      <button type="button" class="gx-row" data-id="{{ p.id }}"><i data-type="{{ p.type }}"></i><span title="{{ p.label }}">{{ p.label }}</span><small title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건">{{ "{:,}".format(p.n_docs) }}</small></button>
       {% else %}<p class="gx-note" style="padding:10px;">그래프가 아직 없습니다.</p>{% endfor %}
     </div>
   </aside>
@@ -109,8 +109,8 @@
   var EDGE_COLOR = { contains: "#B8C4D6", instance_of: "#0EA5A0", continues: "#C08A2E", plans_reports: "#497BFB",
                      evaluates: "#7C5CBF", has_indicator: "#1E6B4F", measures: "#5E8C6A", related: "#B4531F",
                      integrated_into: "#C0392B", succeeded_by: "#6B3FA0", supervised_by: "#4A5568", managed_by: "#718096" };
-  var INFO_KO = { kind_label: "갈래", year: "연도", round: "차년도", n_docs: "문서", unit: "단위", level: "수준",
-                  status: "상태", period: "기간", ministry: "부처", agency: "전담기관" };
+  var INFO_KO = { when: "연차", kind_label: "문서 종류", year: "연도", round: "차년도", n_docs: "문서", unit: "단위", level: "수준",
+                  status: "분류", period: "기간", ministry: "부처", agency: "전담기관" };
   var root = document.getElementById("gx");
   var blank = document.getElementById("gxBlank");
   var mode = "kg", loaded = {}, lastData = {}, schemaData = null;

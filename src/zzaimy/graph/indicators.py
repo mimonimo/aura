@@ -94,11 +94,26 @@ def period_of(label: str) -> str:
     return ""
 
 
+# 이름 끝의 각주 표시 — 「양성인원 5)」「이수자 6)」「취업률¹⁾」「만족도 주3)」. 여는 괄호 없이 닫는 괄호만 있는 번호는 각주다
+_FOOTNOTE = re.compile(r"\s*(?:주\s*)?(?:\d{1,2}|[¹²³⁴⁵⁶⁷⁸⁹⁰]{1,2})\s*[)）]$|\s*[¹²³⁴⁵⁶⁷⁸⁹⁰]{1,2}$")
+
+
+def strip_footnote(s: str) -> str:
+    """이름 끝 각주 번호를 뗀다. 「(5)」처럼 짝이 맞는 괄호 속 번호는 이름의 일부일 수 있어 둔다."""
+    m = _FOOTNOTE.search(s or "")
+    if not m:
+        return s
+    head = s[:m.start()]
+    if head.count("(") + head.count("（") > head.count(")") + head.count("）"):
+        return s                                           # 「이수율(1)」처럼 여는 괄호가 앞에 있으면 짝이다
+    return head.strip() or s
+
+
 def clean_name(s: str) -> str:
     s = _flat(s)
     s = _BULLET.sub("", s)
     s = re.sub(r"\s*\*+$|\s*\(\s*\*+\s*\)$", "", s)
-    return s.strip()
+    return strip_footnote(s.strip()).strip()
 
 
 def split_tag(s: str) -> tuple[str, str]:

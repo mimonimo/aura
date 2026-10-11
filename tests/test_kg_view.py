@@ -88,7 +88,7 @@ def test_program_page_shows_years_docs_and_pairs(tmp_path):
     assert _login(c, "zzaimy", "boot-pass-1")
     page = c.get("/graph/program").text
     assert "3단계 산학연협력 선도전문대학 육성사업" in page and "1차년도 수정사업계획서.hwp" in page and "1차년도 사업실적보고서.hwp" in page
-    assert "5-2. 산학연연계 교육방법 모형" in page and "맥락 점수 0.61" in page and "LINC3.0" in page
+    assert "5-2. 산학연연계 교육방법 모형" in page and "일치 정도 높음" in page and "맥락 점수" not in page and "LINC3.0" in page
 
 
 def test_program_page_without_graph(tmp_path):

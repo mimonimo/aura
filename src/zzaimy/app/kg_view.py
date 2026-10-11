@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from zzaimy.app.kg_explore import label_of, when_text
 from zzaimy.graph import kg_store
+from zzaimy.graph.programs import alias_list
 
 router = APIRouter()
 
@@ -21,20 +24,53 @@ KIND_KO = {"contains": "포함", "plans_reports": "계획↔실적", "continues"
 MEASURE_KO = {"baseline": "기준", "target": "목표", "actual": "실적", "rate": "달성률", "": "값"}
 
 
+CELL_MAX = 6            # 연차 × 갈래 칸마다 처음 보이는 문서 수 — 나머지는 그 연차 화면(쪽 나눔)에서
+YEAR_PAGE = 60          # 연차 화면 한 쪽의 문서 수
+PAIRS_MAX = 40          # 연차마다 처음 보이는 계획↔실적 짝 수
+CONTINUES_MAX = 60
+LOOSE_MAX = 30
+
+
+def match_degree(why: str) -> str:
+    """관계 근거의 내부 점수(「맥락 점수 0.61」「본문 겹침 0.42」)를 「일치 정도 높음·보통·낮음」으로. 점수가 없으면 그대로."""
+    m = re.search(r"(?:점수|겹침)\s*([01](?:\.\d+)?)", why or "")
+    if not m:
+        return why or ""
+    v = float(m.group(1))
+    degree = "높음" if v >= 0.6 else ("보통" if v >= 0.35 else "낮음")
+    head = re.sub(r"[·\s]*(?:맥락\s*)?(?:점수|본문\s*겹침|겹침)\s*[01](?:\.\d+)?", "", why).strip(" ·")
+    return (head + " · " if head else "") + f"일치 정도 {degree}"
+
+
 def indicator_table(inds: list[dict], vis_docs: set | None, limit: int = 40, max_cols: int = 8) -> dict:
-    """사업의 성과지표 × 연도 표 — 칸마다 문서 표에서 꺼낸 값 그대로(갈래별, 서로 다른 값은 모두). 계산한 수치는 넣지 않는다."""
+    """사업의 성과지표 × 연도 표 — 칸마다 문서 표에서 꺼낸 값 그대로(갈래별, 서로 다른 값은 모두). 계산한 수치는 넣지 않는다.
+    이름이 끝 각주 번호만 다른 지표(「양성인원」「양성인원 5)」)는 한 줄로 — 그래프를 다시 짓기 전 노드에도 맞게 여기서 합친다."""
+    from zzaimy.graph.indicators import name_key, strip_footnote
+
     rows, years = [], set()
+    by_key: dict[str, dict] = {}
     for n in inds:
         obs = [o for o in (n.get("props") or {}).get("obs", []) if vis_docs is None or o.get("doc_id") in vis_docs]
         if not obs:
             continue
-        cells: dict[str, dict[str, dict[str, list]]] = defaultdict(lambda: defaultdict(dict))
+        label = strip_footnote(n["label"])
+        key = name_key(label) or n["id"]
+        row = by_key.get(key)
+        if row is None:
+            row = by_key[key] = {"id": n["id"], "label": label, "unit": (n.get("props") or {}).get("unit", ""),
+                                 "tags": list((n.get("props") or {}).get("tags", [])), "docs": set(),
+                                 "cells": defaultdict(lambda: defaultdict(dict))}
+            rows.append(row)
+        cells = row["cells"]
         for o in obs:
             col = str(o["year"]) if o.get("year") else (o.get("period") or "기준" if o.get("measure") == "baseline" else (o.get("period") or "시점 미상"))
             years.add(col)
             cells[col][MEASURE_KO.get(o.get("measure") or "", "값")].setdefault(o.get("text") or "", []).append(o.get("doc_id"))
-        rows.append({"id": n["id"], "label": n["label"], "unit": (n.get("props") or {}).get("unit", ""),
-                     "tags": (n.get("props") or {}).get("tags", []), "n_docs": len({o.get("doc_id") for o in obs}), "cells": cells})
+            row["docs"].add(o.get("doc_id"))
+        row["unit"] = row["unit"] or (n.get("props") or {}).get("unit", "")
+        row["tags"] = row["tags"] + [t for t in (n.get("props") or {}).get("tags", []) if t not in row["tags"]]
+    for row in rows:
+        row["n_docs"] = len(row.pop("docs"))
     rows.sort(key=lambda r: -r["n_docs"])
     rows = rows[:limit]
     used = {c for r in rows for c in r["cells"]}
@@ -166,7 +202,7 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
         k = y["id"].rsplit(":", 1)[1]
         return (0 if k.startswith("r") else 1, int(k[1:]) if k[1:].isdigit() else 0)
     years.sort(key=year_key)
-    loose = [nodes[e["dst"]] for e in out_of[prog["id"]] if e["kind"] == "contains" and e["dst"].startswith("doc:")]
+    loose_all = [nodes[e["dst"]] for e in out_of[prog["id"]] if e["kind"] == "contains" and e["dst"].startswith("doc:")]
     cols = []
     doc_year: dict[str, str] = {}
     for y in years:
@@ -175,61 +211,115 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
             doc_year[d["id"]] = y["label"]
         cells = {k: [d for d in docs if d["props"].get("kind") == k] for k, _ in ROWS}
         cells["other"] = [d for d in docs if d["props"].get("kind") not in dict(ROWS)]
-        cols.append({"year": y, "cells": cells})
-    prog_docs = set(doc_year) | {d["id"] for d in loose}
+        # 칸마다 앞 CELL_MAX 건만 그린다 — 연차 하나에 문서가 수천 건이면 화면이 멈춘다. 나머지는 그 연차 화면에서 쪽으로 넘긴다
+        more = {k: max(len(v) - CELL_MAX, 0) for k, v in cells.items()}
+        cols.append({"year": y, "label": _when(y), "n": len(docs), "more": more,
+                     "cells": {k: v[:CELL_MAX] for k, v in cells.items()}, "all": docs})
+    prog_docs = set(doc_year) | {d["id"] for d in loose_all}
 
     def doc_of(node_id: str) -> str:
         return node_id.split(":sec:")[0]
 
     def pair(e: dict) -> dict:
         a, b = nodes.get(e["src"], {}), nodes.get(e["dst"], {})
-        return {"src": e["src"], "dst": e["dst"], "a": a.get("label", e["src"]), "b": b.get("label", e["dst"]),
+        return {"src": e["src"], "dst": e["dst"], "a": _sec_label(a, e["src"]), "b": _sec_label(b, e["dst"]),
                 "a_doc": doc_of(e["src"]).split(":")[1], "b_doc": doc_of(e["dst"]).split(":")[1],
-                "basis": e["basis"], "why": e["evidence"][-1] if e["evidence"] else ""}
+                "basis": e["basis"], "why": match_degree(e["evidence"][-1] if e["evidence"] else "")}
     plans_reports = defaultdict(list)
     continues = []
     evaluates = []
+    seen_pairs: set[tuple] = set()
     for e in edges:
-        if doc_of(e["src"]) not in prog_docs:
+        if doc_of(e["src"]) not in prog_docs or e["kind"] not in ("plans_reports", "continues", "evaluates"):
             continue
+        p_ = pair(e)
+        sig = (e["kind"], p_["a_doc"], p_["a"], p_["b_doc"], p_["b"])
+        if sig in seen_pairs:
+            continue                                   # 같은 절 짝이 근거만 달리 여러 번 — 한 줄로
+        seen_pairs.add(sig)
         if e["kind"] == "plans_reports" and ":sec:" in e["src"]:
-            plans_reports[doc_year.get(doc_of(e["src"]), "연차 미상")].append(pair(e))
+            plans_reports[doc_year.get(doc_of(e["src"]), "연차 미상")].append(p_)
         elif e["kind"] == "continues":
-            continues.append(pair(e))
+            continues.append(p_)
         elif e["kind"] == "evaluates":
-            evaluates.append(pair(e))
+            evaluates.append(p_)
     counts = (sql or {}).get("counts") or defaultdict(int)
     # 사업 체계(외부 확인 장부에서 지은 관계) — 분류, 앵커 편입, 앞뒤 단계
     taxonomy = {"groups": [], "integrated": [], "pred": [], "succ": []}
+    name = lambda nid: label_of(nodes[nid]) if nid in nodes else nid
     for e in edges:
         if e["kind"] == "contains" and e["src"].startswith("group:") and e["dst"] == prog["id"]:
-            taxonomy["groups"].append(nodes.get(e["src"], {}).get("label", e["src"]))
+            taxonomy["groups"].append(name(e["src"]))
         elif e["kind"] == "integrated_into" and e["src"] == prog["id"]:
-            taxonomy["integrated"].append({"to": nodes.get(e["dst"], {}).get("label", e["dst"]), "id": e["dst"], "why": e["evidence"][0] if e["evidence"] else ""})
+            taxonomy["integrated"].append({"to": name(e["dst"]), "id": e["dst"], "why": e["evidence"][0] if e["evidence"] else ""})
         elif e["kind"] == "integrated_into" and e["dst"] == prog["id"]:
-            taxonomy.setdefault("members", []).append({"name": nodes.get(e["src"], {}).get("label", e["src"]), "id": e["src"], "why": e["evidence"][0] if e["evidence"] else ""})
+            taxonomy.setdefault("members", []).append({"name": name(e["src"]), "id": e["src"], "why": e["evidence"][0] if e["evidence"] else ""})
         elif e["kind"] == "succeeded_by" and e["dst"] == prog["id"]:
-            taxonomy["pred"].append({"name": nodes.get(e["src"], {}).get("label", e["src"]), "id": e["src"]})
+            taxonomy["pred"].append({"name": name(e["src"]), "id": e["src"]})
         elif e["kind"] == "succeeded_by" and e["src"] == prog["id"]:
-            taxonomy["succ"].append({"name": nodes.get(e["dst"], {}).get("label", e["dst"]), "id": e["dst"]})
+            taxonomy["succ"].append({"name": name(e["dst"]), "id": e["dst"]})
         elif e["kind"] == "related" and prog["id"] in (e["src"], e["dst"]):
             other = e["dst"] if e["src"] == prog["id"] else e["src"]
-            taxonomy.setdefault("related", []).append({"name": nodes.get(other, {}).get("label", other), "id": other,
+            taxonomy.setdefault("related", []).append({"name": name(other), "id": other,
                                                        "why": e["evidence"][0] if e["evidence"] else "",
                                                        "out": e["src"] == prog["id"]})
     ledger = (prog.get("props") or {}).get("ledger") or {}
     vis_docs = None if scope is None or scope.get("role") == "dev" else allowed_docs
     indicators = indicator_table([nodes[e["dst"]] for e in out_of[prog["id"]] if e["kind"] == "has_indicator" and e["dst"] in nodes], vis_docs)
-    return {"indicators": indicators, "programs": progs, "program": prog, "taxonomy": taxonomy, "ledger": ledger, "cols": cols, "loose": loose, "rows": ROWS,
-            "plans_reports": dict(plans_reports), "continues": continues, "evaluates": evaluates,
+    aliases, more_aliases = alias_list((prog.get("props") or {}).get("names") or [], (prog.get("props") or {}).get("acronyms") or [])
+    shown = label_of(prog)
+    aliases = [a for a in aliases if a.replace(" ", "") != shown.replace(" ", "")]
+    # 위 칩 — 그래프 탐색 왼쪽 목록과 같은 이름·같은 수(kg_explore.programs). 볼 수 있는 사업만
+    from zzaimy.app.kg_explore import program_doc_sets, programs as program_list
+    visible_ids = {p["id"] for p in progs}
+    chips = [p for p in program_list(db, scope) if p["type"] == "program" and set(p["ids"]) & visible_ids]
+    n_prog_docs = len(program_doc_sets(db, scope).get(prog["id"], set()))
+    return {"indicators": indicators, "programs": progs, "chips": chips, "cell_max": CELL_MAX, "program": prog, "program_label": shown,
+            "n_docs": n_prog_docs, "aliases": aliases, "more_aliases": more_aliases,
+            "taxonomy": taxonomy, "ledger": ledger, "cols": cols, "rows": ROWS,
+            "loose": loose_all[:LOOSE_MAX], "more_loose": max(len(loose_all) - LOOSE_MAX, 0),
+            "plans_reports": {y: v[:PAIRS_MAX] for y, v in plans_reports.items()},
+            "plans_reports_total": {y: len(v) for y, v in plans_reports.items()},
+            "continues": continues[:CONTINUES_MAX], "continues_total": len(continues), "evaluates": evaluates,
             "counts": sorted(((KIND_KO.get(k[0], k[0]), k[1], v) for k, v in counts.items()), key=lambda t: -t[2]),
             "n_sections": (sql or {}).get("n_sections", 0)}
 
 
+def _when(y: dict) -> str:
+    p = y.get("props") or {}
+    if p.get("round") or p.get("year"):
+        return when_text(p.get("year"), p.get("round"))
+    return " ".join(str(y.get("label") or "").split(" ")[-2:])
+
+
+def _sec_label(n: dict, fallback: str) -> str:
+    return label_of(n) if n else fallback
+
+
+def year_page(data: dict, year_id: str, page: int = 1) -> dict:
+    """연차 하나의 문서 전부를 쪽으로 — 사업 화면 칸에는 앞 몇 건만 그리므로 나머지는 여기서 본다."""
+    col = next((c for c in data.get("cols") or [] if c["year"]["id"] == year_id), None)
+    if col is None:
+        raise HTTPException(404, "연차를 찾을 수 없습니다")
+    kinds = dict(ROWS) | {"other": "기타"}
+    order = {k: i for i, k in enumerate(kinds)}
+    docs = sorted(col["all"], key=lambda d: (order.get(d["props"].get("kind") if d["props"].get("kind") in kinds else "other", 9),
+                                             str(d.get("label") or "")))
+    pages = max((len(docs) + YEAR_PAGE - 1) // YEAR_PAGE, 1)
+    page = min(max(page, 1), pages)
+    part = docs[(page - 1) * YEAR_PAGE: page * YEAR_PAGE]
+    for d in part:
+        k = d["props"].get("kind")
+        d["kind_ko"] = kinds.get(k if k in kinds else "other")
+    return {"label": col["label"], "id": year_id, "docs": part, "page": page, "pages": pages, "total": len(docs)}
+
+
 @router.get("/graph/program", response_class=HTMLResponse)
-def graph_program(request: Request, id: str = ""):
+def graph_program(request: Request, id: str = "", year: str = "", page: int = 1):
     st = request.app.state
     scope = {"dept": getattr(request.state, "dept", "") or None,
              "user": request.state.user, "role": request.state.role}
     data = program_view(st.db, id or None, scope=scope)
+    if year and data.get("program"):
+        data["year_view"] = year_page(data, year, page)
     return st.templates.TemplateResponse(request, "kg_program.html", st.page_ctx(request, data))
