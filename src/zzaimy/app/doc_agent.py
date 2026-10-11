@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-MAX_STEPS = 10
+MAX_STEPS = 14                     # 찾기에 걸음이 많이 든다(10/12 시험: 10걸음에 두 절 쓰고 셋째 절 찾다 멈춤)
 MAX_WRITES = 4
 OBS_CHARS = 1800
 

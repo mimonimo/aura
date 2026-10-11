@@ -257,7 +257,7 @@ def test_project_evidence_uses_intake_documents(tmp_path, monkeypatch):
     last = db.list_chats(sid)[-1]
     assert last["role"] == "assistant", last
     assert "300자 추가" in last["content"], last["content"]
-    assert "이어서 다음 절 작성" in c.get(r.headers["location"]).text          # 남은 빈 절(1.2)이 있어 이어가기 선택지
+    assert "다음 절 이어 쓰기" in c.get(r.headers["location"]).text          # 남은 빈 절(1.2)이 있어 이어가기 선택지
 
 
 def test_text_layer_cleans_bad_glyphs():

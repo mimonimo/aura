@@ -1613,6 +1613,15 @@ def create_app(
         ]
         ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label))
         doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "steps": ep.steps})
+        if not ep.finished and ep.writes:
+            # 걸음 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
+            done = [str(s_.get("args", {}).get("section") or "") for s_ in ep.steps
+                    if s_.get("action") in ("write_section", "rewrite_section") and not str(s_.get("observation", "")).startswith(("그런 절", "담당자 요청에", "이번 요청의"))]
+            left = [x for x in sections() if drafting.writable(x) and drafting.is_unfilled(x)]
+            msg = "이번 요청에서 " + (", ".join(f"「{d}」" for d in done if d) or f"{ep.writes}개 절") + " 을 썼습니다."
+            if left:
+                msg += f" 남은 빈 절은 {len(left)}개이고, 다음은 「{left[0]['heading']}」입니다 — 「계속 써 줘」라고 하면 이어 씁니다."
+            db.add_chat(session_id, "assistant", _scrub_internal(msg))
         if len(db.list_chats(session_id)) > before:
             return True                                          # 무엇이든 남겼다(쓰기 결과·답·물음)
         return False
@@ -1821,10 +1830,14 @@ def create_app(
                 opts = []
                 if pend:
                     opts.append(_asks.form_option(pend))
+                # 단추만 보고 무엇을 어느 절에 하는지 알 수 있게 — 절 이름을 단추에 넣는다(10/11 「다시 써 줘」가 무엇을 다시 쓰는지 몰랐다)
+                last_h = targets[-1]["heading"]
+                short_h = last_h if len(last_h) <= 18 else last_h[:17] + "…"
                 if left:
-                    opts.append({"kind": "continue", "text": f"이어서 다음 절 작성 (남은 절 {len(left)}개)", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
-                opts += [{"kind": "review", "text": "방금 쓴 절 검토", "question": "방금 쓴 절을 평가지표·공고 기준으로 검토해 줘"},
-                         {"kind": "redo", "text": "다시 써 줘", "question": f"{section_context.split_number(targets[-1]['heading'])[0]} 절을 더 구체적인 수치와 근거로 다시 써 줘"}]
+                    opts.append({"kind": "continue", "text": f"다음 절 이어 쓰기 · 「{left[0]['heading'][:18]}」 (남은 {len(left)}절)",
+                                 "question": f"「{left[0]['heading']}」 절을 작성방법에 맞춰 작성해 줘"})
+                opts += [{"kind": "review", "text": f"「{short_h}」 검토", "question": f"「{last_h}」 절을 평가지표·공고 기준으로 검토해 줘"},
+                         {"kind": "redo", "text": f"「{short_h}」 다시 쓰기", "question": f"「{last_h}」 절을 더 구체적인 수치와 근거로 다시 써 줘"}]
                 _set_options(session_id, opts)
                 text = _scrub_internal(text)
                 if scope_msg:
