@@ -73,7 +73,7 @@ _TAIL = [
     # '(01.27)', '(3.30.)' — 괄호 속 월.일
     re.compile(r"\s*\(\s*\d{1,2}\.\d{1,2}\.?\s*\)\s*$"),
     # '계획서170922' — 이름에 붙은 YYMMDD(월 01~12, 일 01~31)
-    re.compile(r"(?<=[가-힣A-Za-z)])\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\s*$"),
+    re.compile(r"(?<=[가-힣A-Za-z)])\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])(?:\s+\d{1,4})?\s*$"),   # 뒤에 남은 짧은 번호까지
     # '_직인X', ' 직인없음', '(직인 미포함)' — 발송·날인 상태
     re.compile(r"[\s_\-]*[(\[]?\s*" + _SEAL + r"\s*[)\]]?\s*$"),
     # '발송0808', '_최종본03300921' — 상태 낱말에 붙은 날짜
@@ -125,6 +125,16 @@ def _looks_like_name(tok: str, strong: bool, text: str | None) -> bool:
     return len(body) >= 200 and tok not in body
 
 
+@lru_cache(maxsize=1)
+def _titles() -> str:
+    """직위 낱말 — 개인정보 탐지기의 직위 목록(pii._TITLES)에 사업단 직책 몇 개를 더한 것."""
+    from zzaimy.ingest.pii import _TITLES
+
+    words = sorted({t.replace(" ", "") for t in _TITLES} | {"단장", "사업단장", "부단장", "위원장", "위원", "교수님", "선생님"},
+                   key=len, reverse=True)
+    return "|".join(map(re.escape, words))
+
+
 _UNIT_END = re.compile(r"(?:학과|계열|전공|과|팀|부|처|실|센터|사업단|대학교|대학)$")
 
 
@@ -139,6 +149,16 @@ def drop_person(stem: str, text: str | None = None, whole_ok: bool = False) -> s
     s = stem
     for _ in range(3):
         before = s
+        # 이름과 직위가 함께 든 괄호('(남○○ 단장)', '(교수 김○○)')는 자리와 상관없이 사람 표시다(직위는 탐지기 목록·직책 꼴)
+        m = re.search(r"\s*[(\[]\s*(?:(" + _titles() + r")\s+)?([가-힣]{2,4})(?:\s*(" + _titles() + r"))?\s*[)\]]", s)
+        if m and (m.group(1) or m.group(3)) and _looks_like_name(m.group(2), True, text):
+            s = re.sub(r"\s{2,}", " ", (s[: m.start()] + " " + s[m.end():])).strip()
+            continue
+        # 닫는 괄호 바로 뒤 끝에 붙은 세 글자 이름('…(주관) 김○○')
+        m = re.search(r"(?<=[)\]])\s*([가-힣]{3})\s*$", s)
+        if m and _looks_like_name(m.group(1), True, text):
+            s = s[: m.start()]
+            continue
         # '(김○○교수)', '(이○○ 수정)', '(홍○○)' — 끝의 괄호에 세 글자 이름만 있는 자리는 그 자체가 구조 증거다
         m = re.search(r"\s*[(\[]\s*([가-힣]{2,4})\s*(" + _ROLE + r"|" + _EDIT + r")?\s*[)\]]\s*$", s)
         if m and _looks_like_name(m.group(1), bool(m.group(2)) or len(m.group(1)) == 3, text):
@@ -465,7 +485,7 @@ def body_title(text: str) -> tuple[str | None, str | None]:
             for nxt in lines[i + 1: i + 3]:
                 if _CELL.search(nxt) or title_problem(nxt, text) or not _title_like(nxt) or re.search(r"[:：]", nxt):
                     break
-                # 괄호로 감싼 줄은 부제다(같은 제목의 문서를 가르는 말 — db._unique_name 이 쓴다).
+                # 괄호로 감싼 줄은 부제다(제목의 뒷줄이 아니다).
                 # 판독 결과는 제목을 두 번 적기도 한다 — 같은 제목으로 시작하는 줄은 뒷줄이 아니다
                 if re.match(r"^\s*[(（\[]", nxt) or _squash(nxt).startswith(_squash(ln)):
                     break
@@ -586,7 +606,7 @@ def meta_name(meta: dict | None) -> str:
     if not kind and not prog:
         return ""
     tail = " ".join(x for x in (prog, year) if x)
-    return " · ".join(x for x in (kind or "문서", tail) if x)
+    return " · ".join(x for x in (kind, tail) if x)          # 갈래를 모르면 '문서 ·' 같은 빈말을 붙이지 않는다
 
 
 def choose_name(original: str, text: str = "", meta: dict | None = None,

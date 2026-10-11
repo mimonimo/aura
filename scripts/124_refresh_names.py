@@ -9,8 +9,8 @@
 미리보기는 여기서 멈추고 통계·층별 표본·전체 대응표(TSV)를 남긴다. --apply 는 백업을 남긴 뒤 같은 판단으로 적용한다.
 
 지키는 것: 접수번호·원본 파일·저장 경로는 건드리지 않는다. 담당자가 직접 붙인 이름(identity.name_source = user)은 건너뛴다.
-본문은 묶음으로 나눠 읽는다(문서 수만 건의 본문을 한 번에 올리지 않는다). 미리보기의 이름에는 같은 이름 구분 말
-(' · 부제' / ' · 접수번호')이 아직 붙지 않는다 — 적용 때 db._unique_name 이 붙인다.
+본문은 묶음으로 나눠 읽는다(문서 수만 건의 본문을 한 번에 올리지 않는다). 화면 이름은 고유하지 않아도 된다 —
+같은 제목은 문서함이 판본으로 묶고 접수번호를 따로 보인다(옛 규칙이 붙인 ' · 구분 말'·' · 접수번호' 는 다시 매기면 빠진다).
 
 사용 (VM, 저장소 위치에서 .env.local 을 읽은 셸 — set -a; . ./.env.local; set +a):
   scripts/zz_run.sh 12G env PYTHONPATH=src .venv/bin/python scripts/124_refresh_names.py --seed 7        # 미리보기 + 대응표
@@ -159,7 +159,7 @@ def main() -> int:
     print("출처(전체): " + ", ".join(f"{k} {v}" for k, v in src_all.most_common()))
     print("출처(바뀐 것): " + ", ".join(f"{k} {v}" for k, v in src_changed.most_common()))
     left = Counter(p["new"] for p in plans)
-    print(f"이름이 겹치는 문서(적용 때 구분 말이 붙음) {sum(v for v in left.values() if v > 1)}건 / {sum(1 for v in left.values() if v > 1)}개 이름")
+    print(f"같은 이름을 쓰는 문서(문서함에서 판본으로 묶임) {sum(v for v in left.values() if v > 1)}건 / {sum(1 for v in left.values() if v > 1)}개 이름")
 
     # 출처별 층화 표본
     rng = random.Random(args.seed)

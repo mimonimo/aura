@@ -186,8 +186,8 @@ def test_title_comes_from_the_document_not_the_filename(tmp_path):
         assert doc["filename"].startswith(display_name(doc))
 
 
-def test_same_title_documents_get_distinguishable_names(tmp_path):
-    """제목이 같은 문서가 여럿 들어오면 본문에서 구분되는 말을 붙인다."""
+def test_same_title_documents_keep_the_same_clean_name(tmp_path):
+    """제목이 같은 문서가 여럿 들어와도 화면 이름에 구분 말을 붙이지 않는다 — 문서함이 판본으로 묶고 접수번호를 따로 보인다."""
     from zzaimy.app.db import Database
 
     db = Database(tmp_path / "t.db")
@@ -201,9 +201,7 @@ def test_same_title_documents_get_distinguishable_names(tmp_path):
                                  doc_type="auto")
         db.rename_from_text(doc_id, body)
         names.append((db.get_document(doc_id) or {})["filename"])
-    assert names[0] != names[1]                       # 서로 구분된다
-    assert all(n.startswith("2022학년도 입학자 연계교육과정 편성표") for n in names)
-    assert "스마트융합기계계열" in names[1] and "|" not in names[1]   # 표 구분자 없이 값만
+    assert names == ["2022학년도 입학자 연계교육과정 편성표"] * 2
 
 
 def test_table_rows_do_not_become_titles():
@@ -283,8 +281,8 @@ def test_meaningless_url_filename_uses_model_title(tmp_path):
     assert db.get_document(doc_id)["filename"] == "2026년 대학생 학자금대출 부담경감 지원 신청 안내"
 
 
-def test_same_title_documents_are_told_apart_by_subtitle(tmp_path):
-    """제목이 같은 매뉴얼 둘 — 제목 다음 줄(부제)이 가른다. 접수번호는 마지막 수단이다."""
+def test_subtitle_line_is_not_glued_to_the_title(tmp_path):
+    """제목 다음 줄의 괄호 부제는 제목의 뒷줄이 아니다. 제목 줄 안의 괄호는 제목이다."""
     from zzaimy.app.db import Database
 
     db = Database(tmp_path / "t.db")
@@ -297,7 +295,7 @@ def test_same_title_documents_are_told_apart_by_subtitle(tmp_path):
         db.rename_from_text(doc_id, body)
         names.append(db.get_document(doc_id)["filename"])
     assert names[0] == "가구원 정보제공 동의 절차"
-    assert names[1] == "가구원 정보제공 동의 절차 · 웰로'Wello' 앱 사용 매뉴얼"
+    assert names[1] == "가구원 정보제공 동의 절차"
     # 괄호가 제목 줄 안에 있어도, 다음 줄이 부서명이어도 같은 결과다
     body = "가구원 정보제공 동의 절차 ( 홈페이지 , 모바일앱 )\n한국장학재단 국가장학실 소득심사기준팀"
     doc_id = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="", doc_type="regulation")
@@ -368,7 +366,7 @@ def test_ministry_letterhead_is_not_a_title():
         == "2026년 2학기 중소기업 취업연계 장학금 (희망사다리 1유형)"
 
 
-def test_field_value_line_can_still_tell_same_titles_apart(tmp_path):
+def test_field_value_line_is_not_added_to_the_name(tmp_path):
     from zzaimy.app.db import Database
 
     db = Database(tmp_path / "t.db")
@@ -377,7 +375,7 @@ def test_field_value_line_can_still_tell_same_titles_apart(tmp_path):
         d = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="", doc_type="regulation")
         db.rename_from_text(d, f"사업자등록증\n( {sub} )\n등록번호 : 000-00-00000")
         names.append(db.get_document(d)["filename"])
-    assert names == ["사업자등록증", "사업자등록증 · 법인사업자:지점"]
+    assert names == ["사업자등록증", "사업자등록증"]
 
 
 def test_markdown_from_vision_output_is_not_part_of_names(tmp_path):
@@ -394,7 +392,7 @@ def test_markdown_from_vision_output_is_not_part_of_names(tmp_path):
         d = db.add_document(filename="www.ync.ac.kr_qcode_Qm9hcmQsNTE5MzgsWQ.pdf", stored_path="", doc_type="regulation")
         db.rename_from_text(d, f"## 가구원 정보 제공 동의 절차\n**가구원 정보 제공 동의 절차** **{sub}**\n한국장학재단 국가장학실")
         names.append(db.get_document(d)["filename"])
-    assert names == ["가구원 정보 제공 동의 절차", "가구원 정보 제공 동의 절차 · 웰로 'Wello' 앱 사용 매뉴얼"]
+    assert names == ["가구원 정보 제공 동의 절차"] * 2
 
 
 def test_three_letter_form_name_in_table_cell():

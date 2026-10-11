@@ -30,6 +30,8 @@ _VERSION_TAIL = re.compile(
 def version_key(filename: str) -> str:
     """판본 묶음 열쇠 — 확장자와 판 꼬리를 뗀 뒤 family_key 로 정규화. 다 떼어 비면 원래 이름의 열쇠."""
     base = _EXT.sub("", (filename or "").strip())
+    # 이름 뒤의 「 · …」(옛 이름 규칙이 붙인 구분 말·접수번호, 규정의 기준 날짜)는 판을 가르는 꼬리다
+    base = base.split(" · ", 1)[0].strip() or base
     prev = None
     s = base
     while prev != s:

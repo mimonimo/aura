@@ -398,8 +398,8 @@ class Database:
         for k in ("title", "date"):
             if got.get(k):
                 ident[k] = got[k]
-        if not name.startswith("제목 없음 · "):
-            name = self._unique_name(name, doc_id, body)
+        # 화면 이름은 고유할 필요가 없다 — 같은 제목의 문서는 문서함이 판본으로 묶고 접수번호를 따로 보인다.
+        # 고유해야 하는 곳(문서 폴더 '<접수번호> <제목>')은 접수번호로 가른다
         with self._conn() as conn:
             conn.execute("UPDATE documents SET identity = ?, filename = ? WHERE id = ?",
                          (json.dumps(ident, ensure_ascii=False), name, doc_id))
@@ -434,98 +434,6 @@ class Database:
             if clean_filename(theirs) != mine:
                 return True
         return False
-
-    def _unique_name(self, name: str, doc_id: int, text: str) -> str:
-        """같은 제목의 문서가 이미 있으면 구분되는 말을 덧붙인다.
-
-        학과별 편성표처럼 제목이 같은 문서가 여럿 들어온다. 본문에서 그다음으로 구분이 되는 줄
-        (학과·과정·대상 같은 것)을 찾아 붙이고, 그래도 겹치면 접수번호를 붙인다.
-        """
-        with self._conn() as conn:
-            taken = {r[0] for r in conn.execute(
-                "SELECT filename FROM documents WHERE filename LIKE ? AND id <> ?",
-                (f"{name}%", doc_id))}
-        if name not in taken:
-            return name
-        # 제목 바로 다음 줄이 부제다 — '( 홈페이지 , 모바일앱 )' 과 '( 웰로 앱 사용 매뉴얼 )' 처럼
-        # 같은 제목의 문서를 가르는 말은 대개 거기 있다.
-        import re as _re
-
-        from zzaimy.app.doc_title import _ORG_ONLY, _plain, _title_like
-
-        def _clean(sub: str) -> str:
-            sub = _re.sub(r"\s*[,，]\s*", ", ", _plain(sub).strip(" ()（）[]【】:：-·"))
-            return _re.sub(r"\s{2,}", " ", sub).strip()
-
-        def _squash(t: str) -> str:
-            return _re.sub(r"[\s()（）*'\"·]", "", t)
-
-        def _noise(sub: str) -> bool:
-            """작성 안내·연락처·번호 붙은 절 제목·기호로 시작하는 줄·빈칸 자리 표시('OO대학교')·항목 머리('지원대상 :')는
-            문서를 가르는 말이 아니다."""
-            from zzaimy.app.doc_naming import title_problem
-
-            return bool(title_problem(sub) or _re.match(r"^\s*(?:[^\w(\[]|\d+(?:[-.]\d+)*[.)]?\s)", sub)
-                        or _re.search(r"[OＯ○◯]{2}", sub) or _re.search(r"[:：]\s*$", sub))
-
-        def _usable(sub: str) -> bool:
-            # 띄어쓰기만 다른 같은 제목('가구원 정보 제공 동의 절차')은 구분이 아니다
-            if not (2 <= len(sub) <= 60) or "|" in sub or _squash(sub) in _squash(name) or _squash(name.split(" · ")[0]) in _squash(sub):
-                return False
-            if _ORG_ONLY.match(sub.replace(" ", "")) or _re.search(r"(팀|실|과|부|처|국|원)$", sub):
-                return False                      # 부서·기관 줄은 문서를 가르는 말이 아니다
-            if _noise(sub):
-                return False
-            return _title_like(_re.sub(r"[:：]", " ", sub))   # '법인사업자:지점' 같은 항목:값도 구분이 된다
-
-        lines = [_plain(ln) for ln in text.splitlines() if _plain(ln)]
-        base_raw = name.split(" · ")[0]
-        base = _re.sub(r"[\s()（）]", "", base_raw)
-        # 제목이 나오는 모든 줄을 본다 — 판독 결과는 제목을 두 번 적기도 한다('## 제목' 뒤에 '**제목** (부제)').
-        # 줄마다 제목 뒤에 남은 말('(웰로 앱 사용 매뉴얼)')이 먼저, 그다음이 그 다음 줄이다.
-        cands: list[str] = []
-        for i, ln in enumerate(lines[:12]):
-            flat = _re.sub(r"[\s()（）]", "", ln)
-            if not base or base not in flat:
-                continue
-            # 제목 줄에 남은 말 — 띄어쓰기가 달라도 뒤에 붙은 괄호 부제('(웰로 앱 사용 매뉴얼)')를 잡는다
-            m = _re.search(r"[(（]([^()（）]{2,60})[)）]\s*\**\s*$", ln)
-            rest = _clean(m.group(1)) if m else (_clean(ln.replace(base_raw, "", 1)) if base_raw in ln else "")
-            if rest:
-                cands.append(rest)
-            if i + 1 < len(lines):
-                cands.append(_clean(lines[i + 1]))
-        for sub in cands:
-            if _usable(sub):
-                merged = f"{name} · {sub}"
-                if merged not in taken:
-                    return merged
-        for line in (ln.strip() for ln in text.splitlines()):
-            if not (4 <= len(line) <= 40) or line in name:
-                continue
-            if any(k in line for k in ("학과", "계열", "전공", "과정", "대상", "유형", "차수")):
-                # 표에서 온 줄이면 이름 칸이 아니라 값 칸을 쓴다('학과(계열) | 건축학과' → '건축학과')
-                cells = [c.strip() for c in line.split("|") if c.strip()]
-                if len(cells) < 2:
-                    # 표 칸이 아니면 '학과(계열) 건축과'·'대상: 재학생' 처럼 그 낱말이 줄 머리(항목 이름)일 때만 값을 쓴다 —
-                    # 본문 문장 속의 '교육과정'·'유형' 은 값이 아니다
-                    m = _re.match(r"^\s*(?:학과|계열|전공|과정|대상|유형|차수)(?:\s*\([가-힣]{1,4}\))?\s*[:：]?\s+([^,，]+)$", line)
-                    if not m:
-                        continue
-                    cells = [m.group(1).strip()]
-                qualifier = cells[-1]
-                # 값은 짧은 이름이다('건축학과') — 본문 문장·항목 머리·작성 안내는 구분 말이 아니다
-                if (len(qualifier) < 2 or len(qualifier) > 24 or qualifier in name or _noise(qualifier)
-                        or _re.match(r"(?:및|등|또는|그리고)\s", qualifier)):
-                    continue
-                merged = f"{name} · {qualifier}"
-                if merged not in taken:
-                    return merged
-                break
-        with self._conn() as conn:
-            row = conn.execute("SELECT receipt_no FROM documents WHERE id = ?", (doc_id,)).fetchone()
-        receipt = (row[0] if row else "") or str(doc_id)
-        return f"{name} · {receipt}"
 
     def get_document(self, doc_id: int) -> dict | None:
         with self._conn() as conn:

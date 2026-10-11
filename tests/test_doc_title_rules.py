@@ -113,8 +113,11 @@ def test_person_name_with_a_role_marker_is_dropped_without_body(raw, want):
 
 def test_bare_person_name_needs_body_evidence():
     raw = "RISE_단위과제(1-2) 과제계획서(주관)_정민우_ver.1.hwp"
-    # 본문이 없으면 맨 이름은 떼지 않는다(증거 부족)
-    assert clean_filename(raw) == "RISE 단위과제(1-2) 과제계획서(주관) 정민우"
+    # 닫는 괄호 바로 뒤 끝의 세 글자 이름은 본문 없이도 자리가 증거다
+    assert clean_filename(raw) == "RISE 단위과제(1-2) 과제계획서(주관)"
+    # 자리 증거가 없으면(보통 낱말 뒤 맨 이름) 본문 증거가 있어야 뗀다
+    assert clean_filename("가나 운영 방안 정민우.hwp") == "가나 운영 방안 정민우"
+    assert clean_filename("가나 운영 방안 정민우.hwp", BODY) == "가나 운영 방안"
     # 본문에 그 낱말이 없으면 사람 이름으로 보고 뗀다
     assert clean_filename(raw, BODY) == "RISE 단위과제(1-2) 과제계획서(주관)"
     assert clean_filename("60윤하늘.pdf", BODY) == ""
@@ -329,34 +332,21 @@ def test_kind_word_overlap_alone_does_not_replace_a_good_filename():
     assert got["name"] == "가나대학교 혁신기획서"
 
 
-def test_same_name_suffix_skips_guide_lines_and_sentences(tmp_path):
-    """같은 이름의 문서를 가르는 말은 부제·항목 값이어야 한다 — 작성 안내·본문 문장·자리 표시는 쓰지 않고 접수번호로 간다."""
+def test_same_title_gets_no_suffix_and_groups_as_versions(tmp_path):
+    """같은 이름의 문서에 본문 줄·접수번호를 덧붙이지 않는다 — 문서함 판본 묶음(library.version_key)이 같은 열쇠로 묶는다."""
     from zzaimy.app.db import Database
+    from zzaimy.app.library import version_key
 
     db = Database(tmp_path / "t.db")
     names = []
-    for extra in ("* 적요에는 본문의 작성요령에 제시된 유형을 기재", "전공 불일치 문제 등 현장 수요 변화에 비해 혁신 속도는 미흡",
-                  "OO대학교 OO학과 (인문계열)"):
+    for extra in ("* 적요에는 작성요령에 제시된 유형을 기재", "학과(계열) 스마트기계계열", "실험실습에 필요한 재료비"):
         d = db.add_document(filename="가나사업 신청서 양식.hwp", stored_path="", doc_type="grant")
         db.rename_from_text(d, f"가나사업 신청서 양식\n{extra}\n" + BODY)
         names.append(db.get_document(d)["filename"])
-    assert names[0] == "가나사업 신청서 양식"
-    for n in names[1:]:
-        assert re.fullmatch(r"가나사업 신청서 양식 · \d{4}-국고-\d{4}", n), n
-    # 부제·항목 줄('학과(계열) 기계계열')은 여전히 쓴다
-    d = db.add_document(filename="가나사업 신청서 양식.hwp", stored_path="", doc_type="grant")
-    db.rename_from_text(d, "가나사업 신청서 양식\n학과(계열) 스마트기계계열\n" + BODY)
-    assert db.get_document(d)["filename"] == "가나사업 신청서 양식 · 학과(계열) 스마트기계계열"
-
-
-# ── 운영 미리보기에서 드러난 회귀: 본문 제목이 구별 정보를 잃으면 안 된다 ─────────────────────────
-def test_body_title_must_keep_region_and_kind_word():
-    # 지역이 빠지고 갈래가 바뀐(기본계획 → 계획서) 본문 제목은 쓰지 않는다
-    got = choose_name("11. 충북 지역혁신 대학지원체계(ABC) 기본계획.pdf", "가나 지역혁신 대학지원체계(ABC)\n계획서\n" + BODY)
-    assert got["name"] == "충북 지역혁신 대학지원체계(ABC) 기본계획" and got["source"] == "file"
-    # 처음 보는 꼴 — 지역의 정식 이름이 본문에 있으면 지역을 지킨 것이다
-    got = choose_name("2. 전남 가나사업 기본계획.pdf", "전라남도 가나사업 추진 기본계획\n" + BODY)
-    assert got["source"] == "body"
+    assert names == ["가나사업 신청서 양식"] * 3
+    # 옛 규칙이 붙인 구분 말·접수번호가 남은 이름도 같은 판본으로 묶인다
+    assert version_key("가나사업 신청서 양식 · 2026-국고-0012") == version_key("가나사업 신청서 양식") \
+        == version_key("가나사업 신청서 양식 · 권역 (예 : 다라권)")
 
 
 def test_body_title_must_keep_year_round_acronym_program_and_org():
@@ -382,10 +372,10 @@ def test_same_body_title_with_different_filenames_falls_back_to_filenames(tmp_pa
     db.rename_from_text(b, body)
     assert db.get_document(a)["filename"] == "1차 사회맞춤형 가나사업 육성 사업계획서"
     assert db.get_document(b)["filename"] == "가나사업 사업계획서 (을)"      # 겹치는 대신 제 파일 이름
-    # 같은 파일 이름(사본)끼리는 겹침이 아니다 — 구분 말이 붙는다
+    # 같은 파일 이름(사본)끼리는 겹침이 아니다 — 같은 이름을 그대로 쓰고 판본으로 묶인다
     c = db.add_document(filename="가나사업 사업계획서 (갑).hwp", stored_path="", doc_type="grant")
     db.rename_from_text(c, body)
-    assert db.get_document(c)["filename"].startswith("1차 사회맞춤형 가나사업 육성 사업계획서 · ")
+    assert db.get_document(c)["filename"] == "1차 사회맞춤형 가나사업 육성 사업계획서"
 
 
 def test_slogan_and_decorated_cover_lines_are_rejected():
@@ -645,3 +635,33 @@ def test_trailing_snake_case_code_is_removed_from_body_titles():
     assert polish_title("가나학과 수업계획서 lt_pdoc_2022_2") == "가나학과 수업계획서"
     assert polish_title("가나 ABC_3.0 운영계획") == "가나 ABC_3.0 운영계획"          # 끝이 아니면 그대로
     assert polish_title("가나 사업 RISE 계획서") == "가나 사업 RISE 계획서"
+
+
+
+# ── 여섯 번째: 괄호 속 이름+직위, 닫는 괄호 뒤 이름, 붙은 날짜 뒤 번호, 갈래 모를 때 대체 이름 ────────────
+@pytest.mark.parametrize("raw, want", [
+    ("가나 단위과제(2-3) 과제계획서(주관)_김하준.hwp", "가나 단위과제(2-3) 과제계획서(주관)"),
+    ("2022 가나평가 발표 템플릿(남하늘 단장) 2022.pptx", "2022 가나평가 발표 템플릿 2022"),
+    ("가나 성과 보고(교수 박서진).hwp", "가나 성과 보고"),
+    ("가나 템플릿231204 222.pptx", "가나 템플릿"),
+])
+def test_names_with_titles_and_glued_dates(raw, want):
+    assert clean_filename(raw) == want
+
+
+@pytest.mark.parametrize("raw", [
+    "가나 협약서(대표).hwp",             # 직위만 있고 이름이 없다
+    "가나 위원회(위원장 회의).hwp",       # 직위 + 보통 낱말
+    "과제계획서(주관).hwp",
+    "교육과정(주간) 운영.hwp",           # 닫는 괄호 뒤가 끝이 아니다
+    "가나 템플릿 2022.pptx",             # 연도 하나는 정보다
+])
+def test_parentheses_without_a_person_stay(raw):
+    assert clean_filename(raw) == raw.rsplit(".", 1)[0]
+
+
+def test_meta_name_without_a_kind_has_no_placeholder_word():
+    from zzaimy.app.doc_naming import meta_name
+
+    assert meta_name({"program": "가나사업", "year": "2025"}) == "가나사업 2025"
+    assert meta_name({"kind_label": "결과보고서", "program": "가나사업", "year": "2025"}) == "결과보고서 · 가나사업 2025"
