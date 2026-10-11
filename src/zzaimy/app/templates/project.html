@@ -120,16 +120,16 @@
 </div>
 <div class="card project-chat-card">
   <div class="card-in">
-    <div class="project-history-heading"><h3>작업 문서 <span class="project-doc-count">{{ work_docs|length }}</span></h3></div>
-    {% if work_docs %}
-    <div class="project-conversations">
+    <div class="project-history-heading"><h3>작업 문서 <span class="project-doc-count" id="workDocCount">{{ work_docs|length }}</span></h3></div>
+    {# 처음엔 서버 기록으로 그리고, 구글 문서가 연결된 대화마다 문서 패널과 같은 목록(드라이브 폴더)을 불러와 바꾼다 #}
+    <div class="project-conversations" id="workDocs" data-sessions="{{ work_sessions|join(',') }}">
       {% for w in work_docs %}
       <div class="project-conversation"><iconify-icon icon="solar:document-add-linear"></iconify-icon>
         <span><a href="/chat/{{ w.chat_id }}" title="대화의 문서 패널에서 고칩니다">{{ w.name }}</a></span>
         <a class="project-action-link" href="{{ w.url }}" target="_blank" rel="noopener" aria-label="{{ w.name }} 구글 문서 (새 창)">구글 문서 <span aria-hidden="true">↗</span></a></div>
       {% endfor %}
     </div>
-    {% else %}<p class="project-empty">대화에서 만든 구글 문서가 여기에 모입니다.</p>{% endif %}
+    <p class="project-empty" id="workDocsStatus" role="status" {% if work_docs or work_sessions %}hidden{% endif %}>대화에서 만든 구글 문서가 여기에 모입니다.</p>
   </div>
 </div>
 
@@ -363,6 +363,46 @@
       if (st) { st.hidden = false; st.textContent = intakeFile.files.length + "개 파일을 등록하는 중입니다…"; }
       box.hidden = true;
       document.getElementById("intakeForm").requestSubmit();
+    });
+  }
+
+  // 작업 문서 — 대화마다 문서 패널과 같은 목록(/api/chat-documents/{대화}/files)을 불러온다. 실패하면 서버 기록을 그대로 둔다
+  var work = document.getElementById("workDocs");
+  var sessions = work && work.dataset.sessions ? work.dataset.sessions.split(",").filter(Boolean) : [];
+  if (sessions.length) {
+    var st = document.getElementById("workDocsStatus");
+    st.hidden = false; st.textContent = "작업 문서를 불러오는 중…";
+    Promise.all(sessions.map(function (sid) {
+      return fetch("/api/chat-documents/" + sid + "/files", {cache: "no-store"})
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) { return {sid: sid, files: d && d.files ? d.files : null}; })
+        .catch(function () { return {sid: sid, files: null}; });
+    })).then(function (results) {
+      var rows = [], seen = {}, failed = false;
+      results.forEach(function (res) {
+        if (!res.files) { failed = true; return; }
+        res.files.forEach(function (f) {
+          if (seen[f.id] || f.mime_type === "application/vnd.google-apps.folder") return;
+          seen[f.id] = true; rows.push({sid: res.sid, f: f});
+        });
+      });
+      if (failed && !rows.length) { st.textContent = "작업 문서 목록을 불러오지 못했습니다. 대화의 문서 패널에서 확인해 주세요."; return; }
+      if (!failed) work.replaceChildren();
+      rows.forEach(function (row) {
+        var doc = row.f.mime_type === "application/vnd.google-apps.document";
+        var url = doc ? "https://docs.google.com/document/d/" + row.f.id + "/edit" : "https://drive.google.com/file/d/" + row.f.id + "/view";
+        if (failed && work.querySelector('a[href="' + url + '"]')) return;
+        var line = document.createElement("div"); line.className = "project-conversation";
+        var name = document.createElement("span"); var a = document.createElement("a");
+        a.href = "/chat/" + row.sid; a.title = "대화의 문서 패널에서 고칩니다"; a.textContent = row.f.name || "문서"; name.appendChild(a);
+        var open = document.createElement("a"); open.className = "project-action-link"; open.href = url; open.target = "_blank"; open.rel = "noopener";
+        open.setAttribute("aria-label", (row.f.name || "문서") + " " + (doc ? "구글 문서" : "구글 드라이브") + " (새 창)");
+        open.textContent = (doc ? "구글 문서" : "구글 드라이브") + " ↗";
+        line.append(name, open); work.appendChild(line);
+      });
+      var n = work.children.length;
+      document.getElementById("workDocCount").textContent = n;
+      st.hidden = n > 0; st.textContent = "대화에서 만든 구글 문서가 여기에 모입니다.";
     });
   }
 

@@ -298,3 +298,19 @@ def test_archived_candidates_compare_words_not_jamo_and_skip_self(client):
     assert all(not any("\u1100" <= ch <= "\u11ff" for ch in w) for w in whys)   # 자모 조각이 까닭에 나오지 않는다
     cand = project_refs.candidates(db, db.get_project(pid), names=["가상 해양드론 실증 사업 공고"])
     assert [c["id"] for c in cand] == [past]
+
+
+def test_project_refs_use_attachment_titles_and_work_docs_include_linked_doc(client):
+    db = client.app.state.db
+    pid = db.create_project("grant", "가상 분야")
+    db.add_document("2031년 가상 분야 해양 드론 실증 사업계획서 제출 안내.pdf", "/tmp/n.pdf", doc_type="grant", project_id=pid)
+    notice = db.add_document("가상부 공고 제2031-7호.pdf", "/tmp/k.pdf", doc_type="regulation", project_id=pid)
+    db.update_document(notice, status="reviewed")
+    past = db.create_project("grant", "해양 드론 실증 사업", archived=True)
+    db.add_document("옛 보고서.pdf", "/tmp/o.pdf", doc_type="grant", project_id=past)
+    sid = db.create_chat_session("초안", project_id=pid)
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "AbC_123-x", "account": "a@ync.ac.kr"}))
+    page = client.get(f"/project/{pid}").text
+    assert f'href="/project/{past}"' in page                          # 첨부 문서 제목으로 지난 사업을 찾는다
+    assert "https://docs.google.com/document/d/AbC_123-x/edit" in page # 양식으로 만든(파일 기록 없는) 작업 문서
+    assert f'data-sessions="{sid}"' in page                            # 화면이 문서 패널과 같은 목록을 불러온다

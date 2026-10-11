@@ -6522,6 +6522,7 @@ def create_app(
         # 작업 문서 — 이 프로젝트 대화들이 만든 구글 문서(작업본). 고치는 곳은 그 대화의 문서 패널이다
         project_chats = db.list_project_chat_sessions(project_id)
         work_docs: list[dict] = []
+        work_sessions: list[int] = []                 # 구글 문서가 연결된 대화 — 화면이 문서 패널과 같은 목록(드라이브 폴더)을 불러온다
         seen_urls: set[str] = set()
         for cs in project_chats:
             for f in db.list_files(kind="google", session_id=int(cs["id"]), limit=20):
@@ -6530,6 +6531,15 @@ def create_app(
                     seen_urls.add(url)
                     work_docs.append({"name": f.get("name") or "작업 문서", "url": url, "chat_id": cs["id"],
                                       "chat_title": cs.get("title") or "", "created_at": f.get("created_at") or ""})
+            # 양식으로 만든 문서는 파일 기록 없이 대화 연결(chat_google_doc)만 있다 — 연결된 문서도 넣는다
+            link = _aj.loads(db.get_setting(f"chat_google_doc:{cs['id']}", "") or "{}")
+            if re.fullmatch(r"[A-Za-z0-9_-]+", str(link.get("doc") or "")):
+                work_sessions.append(int(cs["id"]))
+                url = f"https://docs.google.com/document/d/{link['doc']}/edit"
+                if not any(link["doc"] in u for u in seen_urls):
+                    seen_urls.add(url)
+                    work_docs.append({"name": f"{cs.get('title') or '대화'}의 작업 문서", "url": url, "chat_id": cs["id"],
+                                      "chat_title": cs.get("title") or "", "created_at": cs.get("created_at") or ""})
         work_docs.sort(key=lambda w: w["created_at"], reverse=True)
         return templates.TemplateResponse(
             request,
@@ -6540,7 +6550,7 @@ def create_app(
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
                 "project_chats": project_chats,
-                "work_docs": work_docs,
+                "work_docs": work_docs, "work_sessions": work_sessions,
                 "project_notes": db.list_project_notes(project_id),
                 **_project_ref_ctx(request, proj, refq, _ref_names(doc_groups)),
             }),
@@ -6550,15 +6560,16 @@ def create_app(
         return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
 
     def _ref_names(doc_groups: dict) -> list[str]:
-        """보관 사업 후보를 찾을 이름 — 프로젝트 기준 문서의 제목과, 프로젝트 문서에서 읽은 사업명(정체)."""
+        """보관 사업 후보를 찾을 이름 — 프로젝트 기준 문서·첨부 문서의 제목과, 그 문서들에서 읽은 사업명(정체)."""
         names: list[str] = []
-        for d in doc_groups.get("rules", []):
-            names.append(storage.title_of(d.get("filename") or ""))
-        for d in doc_groups.get("rules", []) + doc_groups.get("attached", []):
+        docs_ = doc_groups.get("rules", []) + doc_groups.get("attached", [])
+        for d in docs_:                                   # 문서에서 읽은 사업명이 가장 곧은 단서 — 먼저
             program = (db.get_doc_identity(int(d["id"])) or {}).get("program") or ""
             if program.strip():
                 names.append(program)
-        return list(dict.fromkeys(n for n in names if n.strip()))[:20]
+        for d in docs_:                                   # 기준·첨부 문서 제목(「… 부트캠프 사업계획서 제출 안내」)
+            names.append(storage.title_of(d.get("filename") or ""))
+        return list(dict.fromkeys(n for n in names if n.strip()))[:40]
 
     def _project_ref_ctx(request: Request, proj: dict, refq: str, names: list[str] | None = None) -> dict:
         """지침·기준 탭의 관련 보관 사업 — 연결된 것과 후보(검색어, 또는 이름·기준 제목·사업명 겹침). 열람 범위의 문서만 센다."""
