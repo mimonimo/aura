@@ -168,7 +168,7 @@ class Materials:
     """프로젝트 하나의 재료 창고 — 지난 자료의 절 정렬은 문서마다 한 번만 계산해 둔다."""
 
     def __init__(self, db, project: dict | None, form_source_ids: set[int], find_relevant, extract_nouns, criteria_chunks: list[dict] | None,
-                 scope: dict | None = None, sink: list | None = None, visible=None):
+                 scope: dict | None = None, sink: list | None = None, visible=None, criteria_ids=None):
         self.visible = visible                 # 문서마다 열람 범위 판정(대화 주인 기준) — 범위 밖 프로젝트 문서는 재료로 쓰지 않는다
         self.scope = scope                     # 문서함 사업 문서 검색(RAG)의 열람 범위 — 없으면 문서함 검색을 하지 않는다
         # 문서함 검색으로 재료에 넣은 문서를 알릴 곳(대화의 근거 목록) — 문서함 패널의 「참고 문서」에 「에이전트가 불러옴」으로 선다
@@ -179,6 +179,9 @@ class Materials:
         self.find_relevant = find_relevant
         self.extract_nouns = extract_nouns
         self.criteria_chunks = criteria_chunks or []
+        # 기준 문서(공고·지침) id — 규정 색인(regulation_chunks)에 없는 기준 문서는 사업 문서 색인(doc_chunks)에서 찾는다
+        self.criteria_ids = {int(x) for x in (criteria_ids or [])} | {
+            int(c["doc_id"]) for c in self.criteria_chunks if c.get("doc_id") is not None}
         self._plans: dict[int, list[dict]] = {}
         self._lib_seen: set = set()
         self._chunks: dict[int, list[dict]] = {}
@@ -220,11 +223,48 @@ class Materials:
         return out
 
     def search_criteria(self, query: str, k: int = 3) -> list[dict]:
-        if not self.criteria_chunks:
+        """기준 문서에서 찾기 — 기준 문서가 어느 색인에 있든(규정 색인 조각, 사업 문서 색인 조각) 그 문서 id 안에서만."""
+        out: list[dict] = []
+        if self.criteria_chunks:
+            from zzaimy.app.responder import rank_criteria_chunks
+            ids = sorted({int(c.get("doc_id")) for c in self.criteria_chunks if c.get("doc_id") is not None})
+            out = [self._hit(c) for c in rank_criteria_chunks(self.db, query, self.criteria_chunks, ids, top_k=k)][:k]
+        in_reg = {int(c["doc_id"]) for c in self.criteria_chunks if c.get("doc_id") is not None}
+        rest = {d for d in self.criteria_ids - in_reg if self._may_see(d)}
+        if rest and len(out) < k:
+            out += self._search_docs(query, rest, k - len(out))
+        return out
+
+    def _may_see(self, doc_id: int) -> bool:
+        if self.visible is None:
+            return True
+        doc = self.db.get_document(doc_id)
+        return bool(doc) and bool(self.visible(doc))
+
+    def _search_docs(self, query: str, ids: set[int], k: int) -> list[dict]:
+        """사업 문서 색인에서 정한 문서들만 — 하이브리드 검색(열람 범위 그대로) 뒤, 없으면 그 문서 조각의 낱말 겹침으로."""
+        sc = self.scope or {}
+        if sc.get("role") == "student":
             return []
-        from zzaimy.app.responder import rank_criteria_chunks
-        ids = sorted({int(c.get("doc_id")) for c in self.criteria_chunks if c.get("doc_id") is not None})
-        return [self._hit(c) for c in rank_criteria_chunks(self.db, query, self.criteria_chunks, ids, top_k=k)][:k]
+        hits: list[dict] = []
+        try:
+            from zzaimy.app import grant_search
+            hits = [h for h in grant_search.search(self.db, query, k=k + 10, user=sc.get("user"), prefer_docs=ids,
+                                                     depts=sc.get("grant_depts"))["hits"] if int(h.get("doc_id") or 0) in ids]
+        except Exception:
+            hits = []
+        if not hits:
+            words = {w for w in (self.extract_nouns(query) or ()) if len(w) >= 2}
+            scored = []
+            for d in sorted(ids):
+                fname = (self.db.get_document(d) or {}).get("filename") or ""
+                for c in self._chunks_of(d):
+                    text = str(c.get("content") or "")
+                    n = sum(1 for w in words if w in text)
+                    if n:
+                        scored.append((-n, d, {**c, "doc_id": d, "chunk_id": c.get("id"), "filename": fname}))
+            hits = [c for _n, _d, c in sorted(scored, key=lambda x: (x[0], x[1]))]
+        return [self._hit(h) for h in hits if useful_chunk(h.get("content") or "")][:k]
 
     def search_library(self, query: str, k: int = 4) -> list[dict]:
         sc = self.scope

@@ -66,7 +66,12 @@ class Tool:
 
 
 class Retry(Exception):
-    """도구가 일을 하지 않고 모델에게 다른 걸음을 청한다 — 최종 도구라도 요청을 끝내지 않는다."""
+    """도구가 일을 하지 않고 모델에게 다른 걸음을 청한다 — 최종 도구라도 요청을 끝내지 않는다.
+    note 는 코드가 쓴 안내, data 는 함께 보일 자료(문서에서 온 글 — 울타리 안에 들어간다)."""
+
+    def __init__(self, note: str, data: str = ""):
+        super().__init__(note)
+        self.data = data
 
 
 SEARCH_FIRST = ("이번 요청에서 아직 search 로 근거를 찾지 않았다. 앞 대화에서 본 사실은 근거가 아니다 — 먼저 search 로 찾은 뒤 답한다. "
@@ -196,6 +201,8 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     turns: list[tuple[str, str]] = []                  # 지난 걸음 (고른 JSON, 결과 글)
     log: list[str] = []                                # 지금까지 한 걸음 — 한 줄씩
     first_obs: dict[str, tuple[int, str]] = {}         # 실제로 돈 걸음의 결과(같은 걸음을 거절할 때 다시 보여 준다)
+    rejected: dict[str, tuple[int, str, str]] = {}     # 거절·실패한 걸음 (몇째, 안내, 자료) — 같은 인자로 다시 오면 되풀이로 센다
+    fail_count: dict[str, int] = {}
     searched = nudged = False
     repeats = 0                                        # 잇달아 거절한 같은 걸음 수
     for _i in range(max_steps):
@@ -246,12 +253,18 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         key = name + json.dumps(args, ensure_ascii=False, sort_keys=True)
         done = False                                                   # 최종 도구가 실제로 일을 마쳤는가
         data, note = "", ""                                            # data: 도구·문서에서 온 글(울타리 안), note: 코드가 쓴 안내
-        duplicate = key in first_obs and not tool.final
+        duplicate = (key in first_obs and not tool.final) or key in rejected
         if duplicate:
             repeats += 1
-            at, before = first_obs[key]
-            data = before[:700]
-            note = f"같은 도구를 같은 인자로 이미 썼다({at}번째 걸음). 그때 결과를 위 자료로 다시 보인다 — 이것으로 다음 걸음을 고른다."
+            if key in rejected:
+                at, why_, before = rejected[key]
+                data = before[:700]
+                note = (f"같은 도구를 같은 인자로 이미 썼고 받아들여지지 않았다({at}번째 걸음): {why_}\n"
+                        "같은 인자로는 결과가 같다 — 인자를 바꾸거나(위 자료를 보고) 다른 걸음을 고른다.")
+            else:
+                at, before = first_obs[key]
+                data = before[:700]
+                note = f"같은 도구를 같은 인자로 이미 썼다({at}번째 걸음). 그때 결과를 위 자료로 다시 보인다 — 이것으로 다음 걸음을 고른다."
             if repeats >= 2:
                 others = [t.name for t in tools if t.name != name]
                 note += ("\n같은 걸음을 잇달아 되풀이했다. 다음은 이 가운데 하나만: 찾은 근거로 쓰기·답하기("
@@ -262,6 +275,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         elif tool.consent and not consented(tool.consent, request or ""):
             note = (f"담당자 요청에 이 작업({name}) 지시가 없어 하지 않았다 — 되돌리기 어려운 작업은 담당자가 직접 말할 때만 한다. "
                    "필요하면 finish 로 제안만 한다.")
+            rejected[key] = (len(log) + 1, note, "")
         elif tool.writes and ep.writes >= max_writes:
             note = f"이번 요청의 쓰기 한도({max_writes})에 닿았다 — finish 로 지금까지 한 일과 다음 할 일을 알린다."
         else:
@@ -275,8 +289,9 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                     ep.writes += 1
                 if tool.gathers:
                     searched = True
-            except Retry as e:                                         # 코드가 쓴 안내
-                note = str(e)
+            except Retry as e:                                         # 코드가 쓴 안내(+ 함께 보일 자료)
+                note, data = str(e), str(getattr(e, "data", "") or "")
+                rejected[key] = (len(log) + 1, note, data)
             except Exception as e:
                 from zzaimy.generate.client import describe_llm_error
 
@@ -285,6 +300,9 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 ep.failures.append({"action": name, "args": args, "error": why})
                 again = sum(1 for f_ in ep.failures if f_["action"] == name)
                 data = str(e)[:200]
+                fail_count[key] = fail_count.get(key, 0) + 1
+                if fail_count[key] >= 2:                               # 일시 오류일 수 있어 같은 인자로 한 번은 다시 해 볼 수 있다
+                    rejected[key] = (len(log) + 1, f"도구 실패({type(e).__name__}) 두 번", data)
                 note = (f"도구 실패({type(e).__name__}) — 오류 글은 위 자료. 이 걸음으로는 아무것도 바꾸지 않았다. "
                        + ("인자를 바꿔 다시 하거나 다른 걸음을 고른다." if again < 2
                           else "같은 도구가 두 번 실패했다 — 다른 걸음을 고르거나 finish 로 무엇이 안 됐는지 담당자에게 알린다."))

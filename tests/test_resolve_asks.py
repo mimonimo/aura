@@ -165,3 +165,90 @@ def test_unasked_names_are_rejected(tmp_path, monkeypatch):
     why = asks.resolve_from_evidence(db, db.get_chat_session(sid), "총장", "재학생", "모집 공고", [NOTICE],
                                      allowed_docs={PROJECT_DOC})
     assert "물어 둔 값이 아니다" in why and asks.suggestions(db, db.get_chat_session(sid)) == {}
+
+
+# ---------------------------------------------------------------- 운영 사례의 꼴: 기준 문서(사업 문서 색인)·바꿔 쓴 값·같은 거절의 되풀이
+
+
+class _ReadsCandidates:
+    """앞 결과에 「후보: …」가 보이면 그 가운데 날짜가 든 것을 그대로 다시 내는 가짜 — 못 보면 바꿔 쓴 값을 되풀이한다."""
+
+    def __init__(self, title):
+        self.model, self._extra = "fake", {}
+        paraphrase = "본 신청 접수기간 : '25. 7. 28.(월) ~ 8. 6.(수), 15:00:00 까지"
+
+        class _C:
+            def create(self, **kw):
+                said = "\n".join(m["content"] for m in kw["messages"] if m["role"] == "user")
+                cands = [ln.split("후보:", 1)[1].strip() for ln in said.splitlines() if ln.startswith("후보:")]
+                pick = next((c for c in cands if "7.28" in c), None)
+                if "자료 제안으로 남겼다" in said:
+                    content = _step("finish", message="찾은 값을 제안으로 남겼습니다")
+                elif "1. search " not in said:
+                    content = _step("search", source="criteria", query="본신청 접수 기간")
+                elif pick:
+                    content = _step("resolve_from_evidence", name="본신청 마감일", value=pick, source_title=title)
+                else:
+                    content = _step("resolve_from_evidence", name="본신청 마감일", value=paraphrase, source_title=title)
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+        self.client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+
+
+def test_replay_criteria_notice_in_grant_index_resolves_with_a_suggested_span(tmp_path, monkeypatch):
+    from zzaimy.generate import client as _gc
+
+    monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(),
+                     drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    db = app.state.db
+    pid = db.create_project("grant", "부트캠프 2025")
+    did = db.add_document("부트캠프 모집 공고.pdf", str(tmp_path / "n.pdf"), sector="grant")
+    db.replace_doc_chunks(did, [{"kind": "text", "content": (
+        "2. 신청 일정 및 방법\n본신청 접수 7.28.~8.6. 15:00 까지 온라인으로 접수한다. 신청 자격은 재학생이며 "
+        "학과장 추천서를 함께 낸다. 서류 심사 뒤 면접을 거쳐 최종 선발한다.")}])
+    db.set_project_criteria(pid, [did])                                  # 기준 문서 — 규정 색인에는 없고 사업 문서 색인에만 있다
+    sid = db.create_chat_session("공고", owner="zzaimy", project_id=pid)
+    asks.set_pending(db, sid, [{"name": "본신청 마감일", "hint": ""}])
+    fake = _ReadsCandidates("부트캠프 모집 공고")
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    r = client.post("/chat/send", data={"question": "필요한 값 중에 공고나 첨부 문서에서 찾을 수 있는 건 찾아서 채워 줘. 문서 본문은 고치지 말고.",
+                                        "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    ep = [json.loads(x) for x in (tmp_path / "doc_agent_episodes.jsonl").read_text(encoding="utf-8").splitlines()][-1]
+    acts = [s.get("action") for s in ep["steps"]]
+    assert ep["finished"] and len(acts) <= 6, acts                       # 걸음 한도 안에서 끝난다
+    search = next(s for s in ep["steps"] if s.get("action") == "search")
+    assert "7.28.~8.6." in search["observation"]                         # 기준 문서를 사업 문서 색인에서 찾았다
+    tries = [s for s in ep["steps"] if s.get("action") == "resolve_from_evidence"]
+    assert "그대로 없다" in tries[0]["observation"] and "후보: 7.28.~8.6. 15:00" in tries[0]["observation"]
+    assert tries[-1]["args"]["value"] == "7.28.~8.6. 15:00" and tries[-1]["observation"].startswith("자료 제안으로 남겼다")
+    sug = asks.suggestions(db, db.get_chat_session(sid))["본신청 마감일"]
+    assert sug["value"] == "7.28.~8.6. 15:00" and sug["doc_id"] == did
+    assert "자료에서 찾음: 《" in page
+
+
+def test_same_rejected_call_counts_as_a_repeat_and_stops_after_three():
+    from zzaimy.app import doc_agent
+
+    def reject(a):
+        raise doc_agent.Retry("그 값이 결과 글에 그대로 없다", data="후보: 7.28.")
+    tools = [doc_agent.Tool("resolve_from_evidence", "값", reject), doc_agent.Tool("finish", "끝", lambda a: "", final=True)]
+    same = _step("resolve_from_evidence", name="마감", value="바꿔 쓴 값", source_title="공고")
+
+    class _Same:
+        model, _extra = "m", {}
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **kw: SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=same))]))))
+    ep = doc_agent.run(_Same(), "값 채워 줘", lambda: "s", tools)
+    assert ep.stop == "repeat" and len(ep.steps) == 4                    # 첫 거절 + 되풀이 세 번
+    assert "받아들여지지 않았다" in ep.steps[1]["observation"] and "그대로 없다" in ep.steps[1]["observation"]
+    assert "후보: 7.28." in ep.steps[1]["observation"]
+
+
+def test_criteria_search_without_criteria_docs_is_empty():
+    from zzaimy.app import drafting as _d
+
+    m = _d.Materials(SimpleNamespace(get_document=lambda i: None, list_doc_chunks=lambda i: []), None, set(),
+                     None, lambda q: set(), [], criteria_ids=[])
+    assert m.search_criteria("본신청") == []

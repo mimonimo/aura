@@ -139,6 +139,34 @@ def resolve_from_evidence(db, session_: dict | None, name: str, value: str, sour
     return ""
 
 
+_DATEISH = re.compile(r"(?:'?\d{2,4}\s*[.년/-]\s*)?\d{1,2}\s*[.월/-]\s*\d{1,2}\s*\.?(?:일)?(?:\s*\([^)]{1,3}\))?"
+                      r"(?:\s*[~∼-]\s*(?:\d{1,2}\s*[.월/-]\s*)?\d{1,2}\s*\.?(?:일)?(?:\s*\([^)]{1,3}\))?)?"
+                      r"(?:\s*,?\s*\d{1,2}:\d{2}(?::\d{2})?)?"
+                      r"|\d[\d,.]*\s*(?:억|만|천)?\s*(?:원|명|개|건|%|시간|일|개월|년)")
+
+
+def candidate_spans(name: str, hits: list[dict], source_title: str, limit: int = 4) -> list[str]:
+    """값이 결과 글에 그대로 없을 때 고쳐 낼 후보 — 그 출처 결과 글에서 그대로 떼어 낸 조각만(바꿔 쓰지 않는다).
+    물은 이름의 낱말(두 글자 앞머리 포함)이 든 줄과, 날짜·기간·수량 꼴 글을 고른다. 모델은 이 가운데 하나를 그대로 다시 낸다."""
+    title = _squash(source_title).strip("《》「」")
+    texts = [str(h.get("text") or "") for h in hits if _squash(h.get("title")).strip("《》「」") == title]
+    keys = {w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", name or "")}
+    keys |= {w[:2] for w in keys if len(w) > 2}
+    out: list[str] = []
+    for text in texts:
+        for line in re.split(r"[\n。]|(?<=[.)])\s{2,}", text):
+            line = line.strip()
+            if not line or not any(k in line for k in keys):
+                continue
+            out += [m.group(0).strip() for m in _DATEISH.finditer(line)]
+            out.append(line[:80])
+    seen: list[str] = []
+    for c in out:
+        if len(_squash(c)) >= 2 and c not in seen:
+            seen.append(c)
+    return seen[:limit]
+
+
 def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
     """선택지 규격 kind=form — 화면은 fields 를 입력 칸으로 그리고, 채운 값을 '이름: 값; …' 문장으로 보낸다.
     자료에서 찾은 확인 전 값(suggested)은 칸에 미리 채우고 출처를 알린다 — 담당자가 고치거나 그대로 「확인」."""

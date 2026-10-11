@@ -1597,7 +1597,7 @@ def create_app(
             if "m" not in mats_box:
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
                 mats_box["m"] = drafting.Materials(db, project, sources, find_relevant, extract_nouns,
-                                                   db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope,
+                                                   db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope, criteria_ids=crit_ids,
                                                    sink=_chat_sources.setdefault(session_id, []))
             return mats_box["m"]
 
@@ -1678,6 +1678,9 @@ def create_app(
                     return "source 는 project·criteria·library·rules 가운데 하나."
                 hits = fn(query)
             if not hits:
+                if src == "criteria":
+                    return (f"「{query}」(criteria) — 찾지 못함. 이 프로젝트의 기준 문서에서 맞는 글이 없다"
+                            + ("" if crit_ids else "(이어진 기준 문서가 없다)") + " — 공고·지침이 프로젝트 문서로 올라와 있으면 source=project 로 찾는다.")
                 return f"「{query}」({src}) — 찾지 못함"
             body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])
             hint = doc_agent.match_hint(query, [h["text"][:500] for h in hits[:4]], extract_nouns)
@@ -1698,7 +1701,10 @@ def create_app(
             allowed = {int(d["id"]) for d in mats().past_docs()} | {int(x) for x in crit_ids}
             why = _asks.resolve_from_evidence(db, sess_, name, value, title, seen_hits, allowed_docs=allowed, run=run_id)
             if why:
-                raise doc_agent.Retry(why)
+                cands = _asks.candidate_spans(name, seen_hits, title) if "그대로 없다" in why else []
+                if cands:
+                    why += " 아래 자료는 그 출처 결과 글에서 그대로 뗀 후보다 — 맞는 것을 글자 그대로 value 로 다시 낸다."
+                raise doc_agent.Retry(why, data="\n".join(f"후보: {c}" for c in cands))
             # 확인 전 제안 — 「필요한 값 입력」 칸에 미리 채워 담당자가 「확인」 하거나 고친다. 그 전에는 담당자 값이 아니다
             _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), _asks.suggestions(db, sess_))])
             db.add_chat(session_id, "assistant", _scrub_internal(
@@ -1879,7 +1885,7 @@ def create_app(
             doc_agent.Tool("remember_values", "담당자가 이번 요청에서 알려 준 값(받지 못한 값 등)을 기억해 이후 절·기입란에 쓰기. "
                            "args {values: {이름: 담당자가 적은 값 그대로}}", t_remember),
             doc_agent.Tool("resolve_from_evidence", "받지 못한 값을 이번 search 결과에서 찾았을 때 출처와 함께 기억하기(값은 결과 글에 적힌 그대로). "
-                           "args {name: 받지 못한 값 이름, value: 결과 글 그대로, source_title: 결과의 《제목》}", t_resolve),
+                           "args {name: 받지 못한 값 이름, value: 결과 글에 적힌 그대로 복사(띄어쓰기·기호까지, 바꿔 쓰지 않는다), source_title: 결과의 《제목》}", t_resolve),
             doc_agent.Tool("rewrite_section", "이미 쓴 절을 비우고 다시 작성(담당자가 다시 쓰라고 했을 때만). args {section, reason: 무엇을 고칠지}",
                            lambda a: t_write(a, redo=True), writes=True, consent=_REWRITE_CONSENT),
             doc_agent.Tool("review_section", "쓴 절을 공고·평가지표 기준으로 검토(문서는 고치지 않음). args {section}", t_review),
@@ -1972,7 +1978,7 @@ def create_app(
             skip_ = set()
         proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
         sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope,
+        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope, criteria_ids=crit_ids,
                                   sink=_chat_sources.setdefault(session_id, []))
         if drafting.is_event_record(info) and not mats.past_docs() and not sources:
             # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌리면 「자료 필요」만 되풀이한다.
@@ -2332,7 +2338,7 @@ def create_app(
                 review_focus = next((x for x in info["sections"] if x["heading"] == review_focus["heading"]), review_focus)
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope)
+                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope, criteria_ids=crit_ids)
                 mm = mats.for_section(info, review_focus, request, storage.title_of)
                 review_mat = drafting.render_materials(mm, _asks.facts(db, session_))
                 hits = mm["criteria"] or hits
