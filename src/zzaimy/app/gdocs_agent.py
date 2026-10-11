@@ -511,7 +511,7 @@ def describe(ops: list[dict], info: dict) -> str:
 def run(db, session_id: int, owner: str, command: str, link: dict, *, client, data_dir: Path, scrub=None,
         evidence: list[dict] | None = None, confirm: bool = False, http=None, materials: str = "",
         focus: dict | None = None, info: dict | None = None, references: list[dict] | None = None,
-        before_apply=None, figure_folder: str | None = None) -> tuple[str, list[dict]]:
+        before_apply=None, figure_folder: str | None = None, number_evidence: list[dict] | None = None) -> tuple[str, list[dict]]:
     """명령 하나를 처리해 (채팅에 남길 글, 적용/보류한 ops) 를 돌려준다.
 
     절 작성이면(focus) 재료와 함께 부르고, 실행 기록(재료·지시·모델의 초안·참고 정답)을 남긴다 — Writer 학습 데이터 공방의 재료."""
@@ -565,7 +565,7 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
     if focus is not None and (focus.get("text") or "").strip():
         # 지금 쓰는 절의 현재 글은 근거가 아니다 — 앞서 잘못 넣은 수치가 문서에 있으면 그것이 근거가 되어 다시 통과했다(10/11)
         doc_text = doc_text.replace(focus["text"].strip(), "")
-    ev_texts = [materials, doc_text, command] + [str(c.get("content") or "") for c in (evidence or [])]
+    ev_texts = [materials, doc_text, command] + [str(c.get("content") or "") for c in (evidence or []) + (number_evidence or [])]
     masked = mask_ops_numbers(p["ops"], ev_texts)
     if masked:
         # 절대 규칙 1 — 수치는 인출만. 근거에 없는 수치는 문서에 넣기 전에 「○○」로 가리고 확인할 값으로 알린다
