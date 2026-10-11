@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}개인정보 처리·반출 점검{% endblock %}
-{% block pagetitle %}개인정보 처리·반출 점검{% endblock %}
+{% block title %}{{ dev_page_name('/dev/pii') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/pii') }}{% endblock %}
 {% block head %}
 <style>
 .privacy-page{max-width:1200px;margin:0 auto;min-width:0}
@@ -59,9 +59,9 @@
       <span class="pill {{ 'reviewed' if selftest.ok else 'failed' }}">자가 점검 {{ selftest.passed }}/{{ selftest.total }} · {{ (selftest.at or '')[:16] | replace('T', ' ') }}</span>
     {% else %}<span class="pill processing">자가 점검 미실행</span>{% endif %}
     {% if scan0 and not scan0.error %}
-      <span class="pill {{ 'reviewed' if scan0.hits == 0 else 'processing' }}">최근 정규식 탐지 {{ scan0.hits }}건 · {{ (scan0.at or '')[:16] | replace('T', ' ') }}</span>
+      <span class="pill {{ 'reviewed' if scan0.hits == 0 else 'processing' }}">최근 정규식 탐지 {{ scan0.hits | num }}건 · {{ scan0.at | kst }}</span>
     {% else %}<span class="pill processing">잔여 검사 미실행</span>{% endif %}
-    {% if sources %}<span class="pill type">기록 있는 문서 {{ sources[0].stats.docs }} / 대상 {{ sources[0].subject_docs }}</span>{% endif %}
+    {% if sources %}<span class="pill type" title="{{ metric_tip('pii_recorded') }}">마스킹 기록 있는 문서 {{ sources[0].recorded_subjects | num }} / 마스킹 대상 문서 {{ sources[0].subject_docs | num }}</span>{% endif %}
   </div>{% endif %}
 </div></div>
 {% endif %}
@@ -98,7 +98,7 @@
   })();
   </script>
   <noscript>설정 변경에는 JavaScript가 필요합니다. 현재 저장된 설정은 유지됩니다.</noscript>
-  <p class="privacy-help">마지막 변경: {{ internal_policy.updated_at or '기본값 · 내부 마스킹 꺼짐' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</p>
+  <p class="privacy-help">마지막 변경: {{ (internal_policy.updated_at | kst) or '기본값 · 내부 마스킹 꺼짐' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</p>
   <div class="privacy-policy-note">
   <p class="privacy-help">내부 마스킹 설정으로 학습 반출 검수를 끌 수 없습니다. 자동 탐지는 자유 문장 속 성명·주소 등을 놓칠 수 있어 사람 검수를 대신하지 않습니다.</p>
   <p class="privacy-help">문서 접근 권한은 별도로 유지합니다. 마스킹을 꺼도 다른 부서의 문서 권한이 열리지 않습니다.</p>
@@ -179,8 +179,8 @@
   </div>
   {% else %}
   <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">
-    <span>마지막 자가 점검: {{ (selftest.at or '')[:16] | replace('T', ' ') }}
-      · 통과 {{ selftest.passed }}/{{ selftest.total }} · {{ selftest.elapsed_ms }}ms</span>
+    <span>마지막 자가 점검: {{ selftest.at | kst }}
+      · 통과 {{ selftest.passed }}/{{ selftest.total }} · {{ selftest.elapsed_ms | duration }}</span>
     {% if selftest.ok %}<span class="pill reviewed">정상</span>
     {% else %}<span class="pill failed">실패 있음</span>{% endif %}
   </div>
@@ -221,7 +221,7 @@
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:magnifer-zoom-in-linear"></iconify-icon>저장 본문 잔여 검사
-    <form method="post" action="/dev/pii/scan" style="margin-left:auto;">
+    <form method="post" action="/dev/pii/scan" style="margin-left:auto;" data-confirm="저장 본문 잔여 검사를 실행할까요? 등록 문서 본문과 조각 전부를 훑어 오래 걸릴 수 있습니다. 본문은 바꾸지 않습니다.">
       <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>잔여 검사 실행</button>
     </form></h2>
   <p class="muted" style="margin:0 0 12px; font-size:12.5px; line-height:1.6;">
@@ -238,14 +238,14 @@
       <span style="margin-left:6px;">{{ scan.error }}</span></div>
     {% else %}
     <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px;">
-      <span>마지막 검사: {{ (scan.at or '')[:16] | replace('T', ' ') }}
-        · 문서 {{ scan.scanned.get('docs', 0) }} · 본문 {{ scan.scanned.get('masked_text', 0) }}
-        · 조각 {{ scan.scanned.get('doc_chunks', 0) + scan.scanned.get('regulation_chunks', 0) }}
+      <span>마지막 검사: {{ scan.at | kst }}
+        · 문서 {{ scan.scanned.get('docs', 0) | num }} · 본문 {{ scan.scanned.get('masked_text', 0) | num }}
+        · {{ metric_label("pii_scan_chunks", scan.at | kst) }} {{ (scan.scanned.get('doc_chunks', 0) + scan.scanned.get('regulation_chunks', 0)) | num }}
         · {{ '{:,}'.format(scan.scanned.get('chars', 0)) }}자
         · 검사 제외(기준 문서, 원문 유지) {{ scan.excluded_docs }}
-        · {{ scan.elapsed_ms }}ms</span>
+        · {{ scan.elapsed_ms | duration }}</span>
       {% if scan.hits == 0 %}<span class="pill reviewed">정규식 탐지 0건</span>
-      {% else %}<span class="pill processing">확인할 탐지 {{ scan.hits }}건</span>{% endif %}
+      {% else %}<span class="pill processing">확인할 탐지 {{ scan.hits | num }}건</span>{% endif %}
     </div>
     {% if scan.hits %}
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">
@@ -296,21 +296,21 @@
   <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>마스킹 기록 — {{ src.name }}</h2>
   <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:12px;">
     <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
-      <div class="muted" style="font-size:12px;">마스킹 대상 문서</div>
-      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.subject_docs }}</div>
+      <div class="muted" style="font-size:12px;">{{ metric_label("pii_subjects") }}</div>
+      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.subject_docs | num }}</div>
     </div></div>
     <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
-      <div class="muted" style="font-size:12px;">기록 있는 문서</div>
-      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.stats.docs }}</div>
+      <div class="muted" style="font-size:12px;">{{ metric_label("pii_recorded") }}</div>
+      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.recorded_subjects | num }}</div>
     </div></div>
     <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
       <div class="muted" style="font-size:12px;">가린 항목 수</div>
-      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.stats.total }}</div>
+      <div style="font-size:22px; font-weight:800; color:var(--navy);">{{ src.stats.total | num }}</div>
     </div></div>
     <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
       <div class="muted" style="font-size:12px;">마지막 기록</div>
       <div style="font-size:14px; font-weight:700; color:var(--navy); margin-top:6px;">
-        {{ ((src.stats.last_at or '')[:16] | replace('T', ' ')) or '없음' }}</div>
+        {{ (src.stats.last_at | kst) or '없음' }}</div>
     </div></div>
   </div>
   {% if src.stats.by_type %}
@@ -322,7 +322,8 @@
   {% endif %}
   {% if src.unrecorded %}
   <p class="muted" style="margin:0 0 10px; font-size:12px; line-height:1.6;">
-    처리는 끝났는데 기록이 없는 문서 {{ src.unrecorded }}건 — 기록 기능 도입 전에 처리된 문서입니다.
+    {{ metric_label("pii_unrecorded", "", "처리는 끝났는데 기록이 없는 문서 " ~ (src.unrecorded | num) ~ "건") }} — 기록 기능 도입 전에 처리된 문서입니다.
+    {% if src.not_reviewed %}나머지 {{ src.not_reviewed | num }}건은 아직 처리 완료가 아닌 문서(처리 중·실패)입니다.{% endif %}
     당시 마스킹 여부는 여기서 확인되지 않습니다(미확인). 재처리하면 기록이 생깁니다.</p>
   {% endif %}
   {% if src.unknown_types %}
@@ -334,7 +335,7 @@
   <p class="privacy-help">검색 결과 {{ src.filtered_total }}건 · 한 페이지 10건</p>
   {% for d in src.docs %}<article class="privacy-record">
   <h3>{% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>{% else %}{{ doc_name(d) }}{% endif %}</h3>
-  <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ d.recorded_at or '기록 없음' }}</p>
+  <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ (d.recorded_at | kst) or '기록 없음' }}</p>
   <div style="display:flex;gap:6px;flex-wrap:wrap">{% for key,n in d.by_type.items() %}<span class="pill type">{{ entity_labels.get(key,key) }} {{ n }}</span>{% else %}<span class="pill">{{ '0건' if d.recorded else '기록 없음' }}</span>{% endfor %}</div>
   {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}">가린 문맥 표본 보기</a>{% endif %}
   </article>{% endfor %}

@@ -46,16 +46,6 @@ def _rows(conn, sql: str, args=()) -> list[tuple]:
         return []
 
 
-def _index_state(db_path: str) -> dict:
-    from zzaimy.app import grant_search
-    meta = grant_search.INDEX.with_suffix(".json")
-    try:
-        got = json.loads(meta.read_text(encoding="utf-8"))
-        return {"chunks": int(got.get("n_chunks") or 0), "updated": time.strftime("%m-%d %H:%M", time.localtime(meta.stat().st_mtime))}
-    except (OSError, ValueError):
-        return {"chunks": 0, "updated": ""}
-
-
 def _sync_state(db_path: str) -> dict:
     p = Path(db_path).parent / "sync_status.json"
     try:
@@ -94,16 +84,13 @@ def snapshot(db, force: bool = False) -> dict:
         archive.ensure(db)
     except Exception:
         pass
+    from zzaimy.app import metrics
+    m = metrics.live(db, force=force)          # 원본·문서·조각·색인 수는 지표 모듈 하나에서 — 다른 화면과 같은 정의
+    mv = m["values"]
     with db._conn() as conn:
-        a_total = _one(conn, "SELECT COUNT(*) FROM archive_files WHERE removed_at = ''")
-        a_unique = _one(conn, "SELECT COUNT(*) FROM archive_files WHERE removed_at = '' AND dup_of = ''")
-        a_linked = _one(conn, "SELECT COUNT(*) FROM archive_files WHERE removed_at = '' AND doc_id IS NOT NULL")
-        a_removed = _one(conn, "SELECT COUNT(*) FROM archive_files WHERE removed_at <> ''")
         a_status = _rows(conn, "SELECT status, COUNT(*) FROM archive_files WHERE removed_at = '' AND dup_of = '' GROUP BY status ORDER BY 2 DESC")
         a_area = _rows(conn, "SELECT area, COUNT(*), SUM(CASE WHEN doc_id IS NOT NULL THEN 1 ELSE 0 END) FROM archive_files"
                              " WHERE removed_at = '' GROUP BY area ORDER BY 2 DESC")
-        d_total = _one(conn, "SELECT COUNT(*) FROM documents")
-        d_dgx = _one(conn, "SELECT COUNT(*) FROM documents WHERE stored_path LIKE 'dgx://%'")
         d_status = _rows(conn, "SELECT status, COUNT(*) FROM documents GROUP BY status ORDER BY 2 DESC")
         notes = {label: _one(conn, "SELECT COUNT(*) FROM documents WHERE parse_note LIKE ?", (f"%{key}%",)) for key, label in NOTE_KINDS}
         flags = {
@@ -119,22 +106,22 @@ def snapshot(db, force: bool = False) -> dict:
             prog_label = {r[0]: r[1] for r in conn.execute("SELECT id, label FROM kg_nodes WHERE type = 'program'").fetchall()}
         except Exception:
             prog_label = {}
-        chunks_live = _one(conn, "SELECT COUNT(*) FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
-                                 " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN ('text', 'table', 'image_text')")
         kg = _rows(conn, "SELECT type, COUNT(*) FROM kg_nodes GROUP BY type ORDER BY 2 DESC")
-    idx = _index_state(db.path)
+    idx_updated = (m["as_of"].get("embedding_index") or "")[5:]
     data = {
         "at": time.strftime("%Y-%m-%d %H:%M"),
-        "archive": {"total": a_total, "unique": a_unique, "linked": a_linked, "removed": a_removed,
+        "archive": {"total": mv["archive_files"], "unique": mv["archive_unique"], "linked": mv["archive_linked"],
+                    "removed": mv["archive_removed"],
                     "status": [{"label": ARCHIVE_STATUS.get(s or "", s), "n": n} for s, n in a_status],
                     "areas": [{"label": a or "(없음)", "n": n, "linked": int(k or 0)} for a, n, k in a_area]},
-        "store": {"total": d_total, "dgx": d_dgx, "full": d_total - d_dgx,
+        "store": {"total": mv["documents"], "dgx": mv["documents_light"], "full": mv["documents_full"],
                   "status": [{"label": DOC_STATUS.get(s or "", s or "(없음)"), "n": n} for s, n in d_status],
                   "paths": [{"label": k, "n": v} for k, v in notes.items()],
                   "flags": [{"label": k, "n": v} for k, v in flags.items()]},
         "programs": _merge_programs(progs, prog_label)[:15],
-        "index": {"chunks": idx["chunks"], "pending": max(0, chunks_live - idx["chunks"]), "live": chunks_live, "updated": idx["updated"]},
+        "index": {"chunks": mv["embedding_index"], "pending": mv["embedding_pending"], "live": mv["grant_chunks"], "updated": idx_updated},
         "graph": [{"label": GRAPH_TYPE.get(t, t), "n": n} for t, n in kg],
+        "graph_total": {"nodes": mv["graph_nodes"], "edges": mv["graph_edges"]},
         "sync": _with_age(_sync_state(db.path)),
         "pipeline": pipeline(str(db.path)),
     }

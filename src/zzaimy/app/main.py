@@ -63,13 +63,7 @@ INBOX_TYPES = {
 }
 DOC_TYPE_LABELS = {**INBOX_TYPES, "regulation": "기준 문서", "ocr": "문서 추출"}
 
-SECTOR_LABELS = {
-    "common": "공통",
-    "grant": "국고사업",
-    "recruit": "채용",
-    "admission": "입학",
-    "auto": "일반 행정",
-}
+from zzaimy.app.work_areas import SECTOR_LABELS  # noqa: E402  업무 목록 — 폴더 연결 설정(nas_sync)과 같은 표
 
 # 추출 품질 신고 유형 — 신고 화면(doc.html)과 백로그(dev.html)가 같은 이름을 쓴다
 QUALITY_KIND_LABELS = {
@@ -562,6 +556,11 @@ def create_app(
     from zzaimy.app.doc_title import display_name as _doc_name
     templates.env.globals["doc_name"] = _doc_name
     templates.env.globals["quality_kind_labels"] = QUALITY_KIND_LABELS
+    # 지표 이름·정의(metric_label·metric_tip)와 개발 화면 이름표(dev_page_name) — 화면마다 같은 이름을 쓰게
+    from zzaimy.app import dev_nav as _dev_nav
+    from zzaimy.app import metrics as _metrics
+    _metrics.install(templates.env)
+    _dev_nav.install(templates.env)
 
     import re as _re
 
@@ -3762,34 +3761,39 @@ def create_app(
                 out.append({"label": lbl, "n": n})
             return out
 
-        n_docs = one("SELECT COUNT(*) FROM documents")
-        n_reviewed = one("SELECT COUNT(*) FROM documents WHERE status='reviewed'")
+        from zzaimy.app import metrics as _m
+        mv = _m.live(db)["values"]          # 같은 이름의 수는 지표 모듈 하나에서(/dev·/dev/intake·/dev/pii 와 같은 정의)
+        n_docs = mv["documents"]
+        n_reviewed = mv["documents_reviewed"]
         from datetime import datetime, timedelta
         cutoff = (datetime.now().astimezone() - timedelta(days=7)).isoformat(timespec='seconds')
         n_recent = q('SELECT COUNT(*) FROM documents WHERE created_at >= ?', (cutoff,)).fetchone()[0]
         n_proj = one("SELECT COUNT(*) FROM projects")
         n_sess = one("SELECT COUNT(*) FROM chat_sessions")
         n_msg = one("SELECT COUNT(*) FROM chat_messages")
-        n_reg = one("SELECT COUNT(*) FROM regulation_chunks")
-        n_reg_docs = one("SELECT COUNT(DISTINCT doc_id) FROM regulation_chunks")
-        n_ent = one("SELECT COUNT(*) FROM entities")
+        n_reg = mv["regulation_chunks"]
+        n_reg_docs = mv["regulation_docs"]
+        n_ent = mv["entities"]
         n_ds = one("SELECT COUNT(*) FROM datasets")
-        n_pairs = one("SELECT COALESCE(SUM(n_pairs),0) FROM datasets")
+        n_pairs = mv["dataset_pairs"]
         n_qr_open = one("SELECT COUNT(*) FROM quality_reports WHERE status='open'")
         n_egr = one("SELECT COUNT(*) FROM egress_requests")
 
+        # 타일마다 지표 이름(metric) — 화면이 지표 모듈의 정의를 툴팁으로 붙인다
         tiles = [
-            {"icon": "solar:documents-linear", "label": "접수 문서",
+            {"icon": "solar:documents-linear", "label": "접수 문서", "metric": "documents",
              "value": n_docs, "sub": f"검토 완료 {n_reviewed} · 최근 7일 {n_recent}"},
             {"icon": "solar:folder-2-linear", "label": "프로젝트",
              "value": n_proj, "sub": "사업·공고 단위"},
             {"icon": "solar:chat-round-line-linear", "label": "대화",
              "value": n_sess, "sub": f"메시지 {n_msg}건"},
-            {"icon": "solar:book-2-linear", "label": "규정 문단",
+            {"icon": "solar:book-2-linear", "label": "규정 문단", "metric": "regulation_chunks",
              "value": n_reg, "sub": f"검색 근거 · 문서 {n_reg_docs}종"},
-            {"icon": "solar:structure-linear", "label": "개체(그래프)",
-             "value": n_ent, "sub": "사업·부서·연도 등"},
-            {"icon": "solar:database-linear", "label": "학습 데이터쌍",
+            {"icon": "solar:structure-linear", "label": "문서에서 뽑은 개체", "metric": "entities",
+             "value": n_ent, "sub": "사업·부서·연도 이름 · 지식그래프와 별개"},
+            {"icon": "solar:share-circle-linear", "label": "그래프 노드", "metric": "graph_nodes",
+             "value": mv["graph_nodes"], "sub": f"관계 {mv['graph_edges']:,} · 문서 노드 {mv['graph_doc_nodes']:,}"},
+            {"icon": "solar:database-linear", "label": "학습 데이터쌍", "metric": "dataset_pairs",
              "value": n_pairs, "sub": f"데이터셋 {n_ds}개"},
         ]
         groups = []
@@ -3912,6 +3916,8 @@ def create_app(
         for a in agg.values():
             a["pct"] = round(100 * a["done"] / a["total"]) if a["total"] else 0
         data["areas"] = [agg[k] for k in order]
+        # 기준일은 손으로 적은 updated 칸이 아니라 파일의 마지막 커밋일(없으면 수정 시각) — 고치고 날짜를 잊어도 낡지 않게
+        data["updated"] = _doc_last_changed("progress.json")
         return data
 
     def _dev_doc_list(sub: str) -> list[dict]:
@@ -4031,10 +4037,10 @@ def create_app(
         "paper/프로젝트-기획서.md": "제출용 기획서 — 목표·개발 내용·장비·일정·기대 효과",
         "paper/논문-원재료.md": "논문 본문의 재료 — 시스템 구성·방법·기여·한계·수치 총람",
         "paper/실험-로그.md": "실험 시계열 — 무엇을 어떻게 재서 어떤 판정을 했는지",
-        "paper/논문-양식-가이드.md": "작년 논문집 형식과 우리 목차 대응",
+        "paper/논문-양식-가이드.md": "논문집 형식과 목차 대응",
         "paper/중간-발표자료.md": "중간 발표 슬라이드 구성안",
-        "paper/제안발표-내용.md": "제안 발표(9/8) 슬라이드 원고",
-        "HANDOFF.md": "지금 어떤 구성으로 도는가 · 접속 · 남은 일 (이어받는 사람이 먼저 읽는 문서)",
+        "paper/제안발표-내용.md": "제안 발표 슬라이드 원고",
+        "HANDOFF.md": "인수인계 — 운영 구성·접속·남은 일",
         "dev-now.md": "지금 하는 일 · 다음 일 · 최근 작업 (진행 현황 탭의 원본)",
         "architecture.md": "아키텍처 설계 — 데이터 흐름·검색·검증기·현황 주석",
         "model-plan.md": "모델 4종 학습 계획 — 데이터·순서·게이트",
@@ -4316,7 +4322,7 @@ def create_app(
         cfg = dict(rag_spaces.config(data_dir))
         cfg["dept_of_area"] = pairs
         rag_spaces.save_config(cfg, data_dir)
-        return RedirectResponse("/dev/rag?ok=폴더·부서 짝을 저장했습니다 — 기존 문서에는 「부서 다시 붙이기」로", status_code=303)
+        return RedirectResponse("/dev/rag?ok=폴더·부서 짝을 저장했습니다 — 기존 문서에는 「이미 반입된 문서에도 적용」으로", status_code=303)
 
     @app.post("/dev/rag/grant")
     def dev_rag_grant(user: str = Form(...), spaces: list[str] = Form([])):
@@ -4342,7 +4348,7 @@ def create_app(
     def dev_rag_backfill():
         from zzaimy.app import rag_spaces
         got = rag_spaces.backfill_depts(db, Path(db_path).parent)
-        return RedirectResponse("/dev/rag?ok=부서를 다시 붙였습니다 — " + ", ".join(f"{k} {v:,}" for k, v in got.items()), status_code=303)
+        return RedirectResponse("/dev/rag?ok=이미 반입된 문서에 부서를 적용했습니다 — " + ", ".join(f"{k} {v:,}" for k, v in got.items()), status_code=303)
 
     # 반입 연동 관리 — 원본 → 문서함 → 색인 → 그래프의 빈틈(scripts/175)과 조치(맞추기·다시 점검). 개발자만(/dev 미들웨어)
     _INTAKE_JOBS = {"reconcile": ("zz_reconcile.sh", Path("/tmp/intake_reconcile.log")),
@@ -4360,9 +4366,10 @@ def create_app(
     @app.get("/dev/intake", response_class=HTMLResponse)
     def dev_intake(request: Request):
         from zzaimy.app import intake_status
+        from zzaimy.app import metrics
         data = intake_status.pipeline(db_path)
         return templates.TemplateResponse(request, "dev_intake.html", ctx(request, {
-            "p": data, "running": {k: _intake_job_running(k) for k in _INTAKE_JOBS},
+            "p": data, "live": metrics.live(db), "running": {k: _intake_job_running(k) for k in _INTAKE_JOBS},
             "missed": intake_status.listing(db_path, "missed")[:50], "failed": intake_status.listing(db_path, "failed")[:50]}))
 
     @app.get("/dev/intake/{name}.csv")
@@ -4404,6 +4411,8 @@ def create_app(
         """품질·성능 — 규정 검색 정확도(기계 산출물)와 추출 품질 백로그."""
         return templates.TemplateResponse(request, "dev_quality.html", ctx(request, {
             "retrieval_eval": _retrieval_eval_state(),
+            # 지금 색인을 만든 임베딩 — 측정 당시 임베딩과 다르면 화면이 「옛 측정」 경고를 띄운다
+            "index_model": __import__("zzaimy.app.embed_search", fromlist=["_index_model_name"])._index_model_name(),
             "reindex_running": _reindex_running(),
             "quality": db.quality_report_stats(),
             "quality_open": db.list_quality_reports(status="open", limit=10),
@@ -5169,9 +5178,13 @@ def create_app(
     ]
 
     @app.get("/dev/train", response_class=HTMLResponse)
-    def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "models", ds_page: int = 0):
-        if tab not in {"data", "models", "settings", "exports"}:
-            tab = "models"
+    def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "data", ds_page: int = 0):
+        # 화면은 둘 — 데이터·학습(data)과 도구·모델 연결(settings). 옛 tab 값(models·exports)이나 없는 값은
+        # 같은 화면을 다른 주소로 보이지 않게 data 로 보낸다(안내·쪽 번호는 그대로)
+        if tab not in {"data", "settings"}:
+            from urllib.parse import urlencode
+            keep = {k: v for k, v in (("err", err), ("ok", ok), ("ds_page", ds_page or "")) if v}
+            return RedirectResponse("/dev/train?" + urlencode({"tab": "data", **keep}), status_code=303)
         if tab != "settings":
             return _dev_data_view(request, err, ok, ds_page)
         # 연결마다 서버가 지금 내어 주는 모델 목록 — 저장된 값이 아니라 실시간(짧게 캐시)
@@ -5251,6 +5264,8 @@ def create_app(
             "search_serving": search_serving.status() if tab == "settings" else [],
             "serving_plan": serving_plan.status(lambda cid: live_by_id.get(cid) or _live_models_cached(cid)),
             "train_host": serving_plan.training_box(),
+            # 입력 예시는 계획서 모델에서(절대 규칙 9 — 계획 밖 모델 이름을 예로 들지 않는다)
+            "plan_writer": next((p["base"] for p in serving_plan.PLAN if p["key"] == "answer"), ""),
         }))
 
     @app.get("/dev/train/export.zip")
@@ -5272,7 +5287,7 @@ def create_app(
             include = {k for k, on in flags if on}
         if not include:
             return RedirectResponse(
-                "/dev/train?tab=exports&err=반출할 항목을 하나 이상 선택하세요", status_code=303
+                "/dev/train?tab=data&err=반출할 항목을 하나 이상 선택하세요", status_code=303
             )
         model_dir = os.environ.get("ZZAIMY_MODEL_DIR")
         data, _manifest = build_bundle(db, model_dir=model_dir, include=include)
@@ -5895,6 +5910,23 @@ def create_app(
     def _weekly_dir() -> Path:
         return storage.report_dir(Path(db_path).parent, "주간")
 
+    def _project_week(day: str):
+        """날짜가 사업 기간의 몇 주차인지 — (주차, 그 주 첫날, 끝날). 시작일은 실행 계획(capstone-plan.md)의 「가용 기간」에서
+        읽는다. 계획에 기간이 없거나 시작 전 날짜면 None."""
+        from datetime import date as _date
+        from datetime import timedelta as _td
+        try:
+            got = re.search(r"가용 기간[^\n]*?(\d{4})-(\d{2})-(\d{2})", _dev_read("capstone-plan.md"))
+            start = _date(int(got.group(1)), int(got.group(2)), int(got.group(3))) if got else None
+            d = _date.fromisoformat(day)
+        except (ValueError, TypeError, AttributeError):
+            return None
+        if start is None or d < start:
+            return None
+        n = (d - start).days // 7 + 1
+        first = start + _td(days=7 * (n - 1))
+        return n, first, first + _td(days=6)
+
     def _weekly_list() -> list[dict]:
         """지금까지의 주간 보고 — 생성본(data/platform/weekly)과 수기본(docs/weekly)을 한 목록으로, 최근 것부터."""
         out: list[dict] = []
@@ -5913,7 +5945,11 @@ def create_app(
                 except OSError:
                     first = ""
                 seen.add(f.stem)
-                out.append({"href": f"/dev/weekly/{f.stem}", "title": first or f"주간 보고 {title}",
+                wk = _project_week(m.group(0)) if m else None
+                # 표시 제목은 파일 날짜에서 같은 규칙으로 — 본문 첫 제목은 쓰는 사람마다 꼴이 달라 목록이 들쭉날쭉했다
+                shown = (f"{wk[0]}주차 주간 보고 ({wk[1]:%m-%d} ~ {wk[2]:%m-%d})" if wk
+                         else first or f"주간 보고 {title}")
+                out.append({"href": f"/dev/weekly/{f.stem}", "title": shown, "heading": first,
                             "num": "", "status": src, "date": m.group(0) if m else "",
                             "stem": f.stem, "kind": src})
         out.sort(key=lambda d: d["date"], reverse=True)

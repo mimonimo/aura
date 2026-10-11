@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}개발 현황{% endblock %}
-{% block pagetitle %}개발 현황{% endblock %}
+{% block title %}{{ dev_page_name('/dev') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev') }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/dev-topology.css?v={{ asset_v }}">{% endblock %}
 {% block content %}
 <style>
@@ -78,7 +78,7 @@
   <iconify-icon icon="solar:refresh-circle-linear" style="color:var(--amber); font-size:20px;"></iconify-icon>
   <span style="font-size:13px;">규정 문서가 바뀌어 검색 색인을 다시 만들어야 합니다.
     몇 분 걸리며, 끝나면 앱이 잠시 재시작됩니다.</span>
-  <form action="/dev/reindex" method="post" style="margin-left:auto;">
+  <form action="/dev/reindex" method="post" style="margin-left:auto;" data-confirm="규정 검색 색인을 다시 만들까요? 몇 분 걸리며, 끝나면 앱이 잠시 재시작되어 접속 중인 화면이 끊깁니다.">
     {% if reindex_running %}
     <span class="pill processing">재색인 진행 중 · 로그 /tmp/reindex.log</span>
     {% else %}
@@ -98,9 +98,9 @@
   <div style="display:flex; gap:6px 8px; flex-wrap:wrap; align-items:center; margin-top:12px; font-size:12.5px;">
     <span class="muted" style="font-weight:600;">현재 규모</span>
     {% for t in overview.tiles %}
-    <span class="pill" title="{{ t.sub }}" style="font-variant-numeric:tabular-nums;">{{ t.label }} {{ "{:,}".format(t.value) }}</span>
+    <span class="pill" title="{{ t.sub }}{% if t.metric %} — {{ metric_tip(t.metric) }}{% endif %}" style="font-variant-numeric:tabular-nums;">{{ t.label }} {{ "{:,}".format(t.value) }}</span>
     {% endfor %}
-    <a href="/dev/db" class="btn-ghost" style="padding:3px 9px; font-size:11.5px;">데이터 열람</a>
+    <a href="/dev/db" class="btn-ghost" style="padding:3px 9px; font-size:11.5px;">{{ dev_page_name('/dev/db') }}</a>
   </div>
 
   {% include "dev-topology.html" %}
@@ -113,7 +113,7 @@
     <button type="button" data-tab="paneTech">핵심 기술</button>
   </div>
   <div id="paneBuild" class="tab-pane on">
-    <p class="muted" style="font-size:12px; margin:0 0 10px;">{{ progress.updated }} 기준 · 완료 {{ progress.features | selectattr("status", "equalto", "done") | list | length }}
+    <p class="muted" style="font-size:12px; margin:0 0 10px;">{% if progress.updated %}{{ progress.updated }} 기준(기능 상태 파일의 마지막 변경일) · {% endif %}완료 {{ progress.features | selectattr("status", "equalto", "done") | list | length }}
       · 진행 {{ progress.features | selectattr("status", "equalto", "doing") | list | length }}
       · 대기 {{ progress.features | selectattr("status", "equalto", "wait") | list | length }}
       · 예정 {{ progress.features | selectattr("status", "equalto", "todo") | list | length }} · 막대는 기능 상태에서 계산한 완료 비율</p>
@@ -198,23 +198,23 @@
   </style>
   {% if intake %}
     {% set pl = intake.pipeline %}
-    <p class="muted" style="font-size:12px; margin:0 0 8px;">{{ intake.at }} 기준 · <a href="/dev/intake">반입 연동 관리</a> · <a href="/dev/rag">RAG 공간</a> · <a href="/archive">원본 보관소</a> · <a href="/dev/api/intake">JSON</a></p>
+    <p class="muted" style="font-size:12px; margin:0 0 8px;">{{ intake.at }} 기준{% if pl %} · 처리 대상 수치는 반입 연동 점검 {{ pl.at }} 기준{% endif %} · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다 · <a href="/dev/intake">반입 연동 관리</a> · <a href="/dev/rag">RAG 공간</a> · <a href="/archive">원본 보관소</a> · <a href="/dev/api/intake">JSON</a></p>
     {% if pl %}
     <div class="ik2-sum">
-      <span>원본 <b>{{ "{:,}".format(pl.archive_files) }}</b></span><span>→</span>
-      <span>처리 대상 문서 <b>{{ "{:,}".format(pl.targets) }}</b></span><span>→</span>
-      <span>문서함 <b>{{ "{:,}".format(pl.in_docbox) }}</b> ({{ pl.pct.in_docbox }}%)</span>
-      <span class="muted" style="font-size:12.5px;">실패 {{ "{:,}".format(pl.failed) }} · 놓침 {{ "{:,}".format(pl.missed) }} · 대기 {{ "{:,}".format(pl.waiting) }}</span>
+      <span>{{ metric_label("archive_files", intake.at, "원본 파일") }} <b>{{ "{:,}".format(intake.archive.total) }}</b></span><span>→</span>
+      <span>{{ metric_label("audit_targets", pl.at, "처리 대상 문서") }} <b>{{ "{:,}".format(pl.targets) }}</b></span><span>→</span>
+      <span>{{ metric_label("audit_in_library", pl.at, "그중 라이브러리 반영") }} <b>{{ "{:,}".format(pl.in_docbox) }}</b> ({{ pl.pct.in_docbox }}%)</span>
+      <span class="muted" style="font-size:12.5px;">{{ metric_label("audit_failed", pl.at, "실패") }} {{ "{:,}".format(pl.failed) }} · {{ metric_label("audit_missed", pl.at, "놓침") }} {{ "{:,}".format(pl.missed) }} · {{ metric_label("audit_waiting", pl.at, "대기") }} {{ "{:,}".format(pl.waiting) }}</span>
     </div>
     {% for a in pl.alerts %}<div class="ik2-warn">{{ a }} — <a href="/dev/intake">관리</a></div>{% endfor %}
     {% endif %}
     <div class="ik2-grid">
       <div>
-        <p class="ik2-h">원본 보관소(DGX)</p>
+        <p class="ik2-h">원본 보관소</p>
         <table class="ik2-t">
-          <tr><td>원본 파일</td><td class="n">{{ "{:,}".format(intake.archive.total) }}</td></tr>
-          <tr><td>중복 제외</td><td class="n">{{ "{:,}".format(intake.archive.unique) }}</td></tr>
-          <tr><td>문서함에 연결</td><td class="n">{{ "{:,}".format(intake.archive.linked) }}</td></tr>
+          <tr><td>{{ metric_label("archive_files", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.archive.total) }}</td></tr>
+          <tr><td>{{ metric_label("archive_unique", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.archive.unique) }}</td></tr>
+          <tr><td>{{ metric_label("archive_linked", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.archive.linked) }}</td></tr>
           {% if pl and pl.composition %}{% for k, v in pl.composition.items()|sort(attribute=1, reverse=True) %}
           <tr class="sub"><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}{% endif %}
         </table>
@@ -224,11 +224,11 @@
         </table>
       </div>
       <div>
-        <p class="ik2-h">문서함</p>
+        <p class="ik2-h">라이브러리(등록 문서)</p>
         <table class="ik2-t">
-          <tr><td>전체</td><td class="n">{{ "{:,}".format(intake.store.total) }}</td></tr>
-          <tr class="sub"><td>DGX 보관(가벼운 처리)</td><td class="n">{{ "{:,}".format(intake.store.dgx) }}</td></tr>
-          <tr class="sub"><td>원본 반입·업로드</td><td class="n">{{ "{:,}".format(intake.store.full) }}</td></tr>
+          <tr><td>{{ metric_label("documents", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.store.total) }}</td></tr>
+          <tr class="sub"><td>{{ metric_label("documents_light", intake.at, "DGX 보관(가벼운 처리)") }}</td><td class="n">{{ "{:,}".format(intake.store.dgx) }}</td></tr>
+          <tr class="sub"><td>{{ metric_label("documents_full", intake.at, "원본 반입·업로드") }}</td><td class="n">{{ "{:,}".format(intake.store.full) }}</td></tr>
           {% for x in intake.store.status %}<tr class="sub"><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
         </table>
         <p class="ik2-h" style="margin-top:12px;">읽은 방법</p>
@@ -238,7 +238,7 @@
         </table>
       </div>
       <div>
-        <p class="ik2-h">사업별 문서(문서함 연결 원본)</p>
+        <p class="ik2-h">사업별 원본 연결 수</p>
         <table class="ik2-t">
           {% for x in intake.programs %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
         </table>
@@ -246,14 +246,16 @@
       <div>
         <p class="ik2-h">색인</p>
         <table class="ik2-t">
-          <tr><td>사업 문서 조각</td><td class="n">{{ "{:,}".format(intake.index.live) }}</td></tr>
-          <tr class="sub"><td>임베딩 색인</td><td class="n">{{ "{:,}".format(intake.index.chunks) }}</td></tr>
-          <tr class="sub"><td>색인 대기</td><td class="n">{{ "{:,}".format(intake.index.pending) }}</td></tr>
-          {% if pl %}<tr class="sub"><td>어휘 색인</td><td class="n">{{ "{:,}".format(pl.lexical_index) }}</td></tr>{% endif %}
+          <tr><td>{{ metric_label("grant_chunks", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.index.live) }}</td></tr>
+          <tr class="sub"><td>{{ metric_label("embedding_index", intake.index.updated, "임베딩 색인") }}</td><td class="n">{{ "{:,}".format(intake.index.chunks) }}</td></tr>
+          <tr class="sub"><td>{{ metric_label("embedding_pending", intake.at, "색인 대기") }}</td><td class="n">{{ "{:,}".format(intake.index.pending) }}</td></tr>
+          {% if pl %}<tr class="sub"><td>{{ metric_label("audit_lexical_index", pl.at, "어휘 색인") }}</td><td class="n">{{ "{:,}".format(pl.lexical_index) }}</td></tr>{% endif %}
         </table>
         <p class="ik2-h" style="margin-top:12px;">지식 그래프</p>
         <table class="ik2-t">
-          {% for x in intake.graph %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
+          {% if intake.graph_total %}<tr><td>{{ metric_label("graph_nodes", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.graph_total.nodes) }}</td></tr>
+          <tr><td>{{ metric_label("graph_edges", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.graph_total.edges) }}</td></tr>{% endif %}
+          {% for x in intake.graph %}<tr class="sub"><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
         </table>
       </div>
     </div>

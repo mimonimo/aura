@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}품질·성능{% endblock %}
-{% block pagetitle %}품질·성능{% endblock %}
+{% block title %}{{ dev_page_name('/dev/quality') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/quality') }}{% endblock %}
 {% block content %}
 <style>
 .dev-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:16px;align-items:start;}
@@ -29,7 +29,7 @@
       {% if retrieval_eval.running %}
       <span class="pill processing">측정 중…</span>
       {% elif not retrieval_eval.query_set_missing %}
-      <form action="/dev/eval/run" method="post" style="margin:0;">
+      <form action="/dev/eval/run" method="post" style="margin:0;" data-confirm="규정 검색 품질을 다시 잴까요? 몇 분 걸리며, 끝나면 이 화면의 결과가 새 측정으로 바뀝니다.">
         <button type="submit" class="secondary"
                 style="padding:5px 12px; font-size:12px;">재측정</button>
       </form>
@@ -51,7 +51,7 @@
   {% if ev %}
   <p class="muted" style="font-size:12px; margin:0 0 8px;">마지막 측정
     {{ retrieval_eval.measured_at_display }} · 질의 {{ ev.n_queries }}건
-    · 조각 {{ ev.n_chunks }}개 · 측정 당시 임베딩 {{ ev.embedding_model or '미확인' }}
+    · {{ metric_label("eval_chunks", retrieval_eval.measured_at_display, "측정 당시 규정 조각") }} {{ ev.n_chunks }}개 · 측정 당시 임베딩 {{ ev.embedding_model or '미확인' }}
     {% if index_model is defined %} · 지금 색인 임베딩 {{ index_model or '미확인' }}{% endif %}</p>
   {% if index_model is defined and index_model and ev.embedding_model and ev.embedding_model != index_model %}
   <p style="font-size:12.5px; margin:0 0 10px; color:var(--red);">지금 운영 색인과 다른 구성으로 잰 옛 측정입니다. 재측정해야 현재 구성의 수치가 됩니다.</p>

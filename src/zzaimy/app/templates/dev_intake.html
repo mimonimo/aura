@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}반입 연동{% endblock %}
-{% block pagetitle %}반입 연동{% endblock %}
+{% block title %}{{ dev_page_name('/dev/intake') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/intake') }}{% endblock %}
 {% block content %}
 <style>
 .ik-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;align-items:start;}
@@ -24,16 +24,16 @@
 <section class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>연동 점검
     <span class="ik-actions" style="margin-left:auto;">
-      <form method="post" action="/dev/intake/audit">
+      <form method="post" action="/dev/intake/audit" data-confirm="연동 점검을 지금 돌릴까요? 원본 장부 전체를 읽어 몇 분 걸립니다. 점검 결과만 새로 쓰고 문서는 바꾸지 않습니다.">
         <button class="btn" {{ 'disabled' if running.audit }}>{{ '점검 중…' if running.audit else '다시 점검' }}</button></form>
-      <form method="post" action="/dev/intake/reconcile">
+      <form method="post" action="/dev/intake/reconcile" data-confirm="지금 맞출까요? DGX 에서 처리됐는데 라이브러리에 없는 원본을 찾아 다시 들입니다. 수십 분 걸릴 수 있고, 라이브러리에 문서가 추가됩니다.">
         <button class="btn primary" {{ 'disabled' if running.reconcile }}>{{ '맞추는 중…' if running.reconcile else '지금 맞추기' }}</button></form>
     </span>
   </h2>
   {% if not p %}
   <p class="muted">점검 결과 없음 · 「다시 점검」 또는 10분 동기화 때 자동 점검</p>
   {% else %}
-  <p class="muted" style="font-size:12px;margin:0;">{{ p.at }} 기준 · 원본 {{ "{:,}".format(p.archive_files) }}건 · 맞추기는 매일 04:30 자동</p>
+  <p class="muted" style="font-size:12px;margin:0;">점검 {{ p.at }} 기준 · {{ metric_label("archive_files", live.at) }} {{ "{:,}".format(live["values"].archive_files) }}건(지금) · 맞추기는 매일 04:30 자동 · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다</p>
   {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
   {% endif %}
 </div></section>
@@ -41,17 +41,17 @@
 {% if p %}
 <div class="ik-grid">
 <section class="card"><div class="card-in">
-  <h2>처리 대상 문서 {{ "{:,}".format(p.targets) }}건</h2>
+  <h2>{{ metric_label("audit_targets", p.at, "처리 대상 문서 " ~ "{:,}".format(p.targets) ~ "건") }}</h2>
   <div class="ik-bar">
     <span class="ik-ok" style="width:{{ p.pct.in_docbox }}%"></span><span class="ik-fail" style="width:{{ p.pct.failed }}%"></span>
     <span class="ik-wait" style="width:{{ p.pct.waiting }}%"></span><span class="ik-miss" style="width:{{ p.pct.missed }}%"></span>
   </div>
   <div class="ik-legend">
-    <span><i class="ik-ok"></i>문서함 {{ "{:,}".format(p.in_docbox) }} ({{ p.pct.in_docbox }}%)</span>
-    <span><i class="ik-fail"></i>실패 {{ "{:,}".format(p.failed) }} ({{ p.pct.failed }}%)</span>
-    <span><i class="ik-wait"></i>대기 {{ "{:,}".format(p.waiting) }}</span>
+    <span><i class="ik-ok"></i>{{ metric_label("audit_in_library", p.at, "라이브러리 반영 " ~ "{:,}".format(p.in_docbox)) }} ({{ p.pct.in_docbox }}%)</span>
+    <span><i class="ik-fail"></i>{{ metric_label("audit_failed", p.at, "실패 " ~ "{:,}".format(p.failed)) }} ({{ p.pct.failed }}%)</span>
+    <span><i class="ik-wait"></i>{{ metric_label("audit_waiting", p.at, "대기 " ~ "{:,}".format(p.waiting)) }}</span>
     {% if p.too_big %}<span title="DGX 처리기가 300MB 넘는 파일은 건너뜁니다">크기 초과(처리 제외) {{ "{:,}".format(p.too_big) }}</span>{% endif %}
-    <span><i class="ik-miss"></i>놓침 {{ "{:,}".format(p.missed) }} ({{ p.pct.missed }}%)</span>
+    <span><i class="ik-miss"></i>{{ metric_label("audit_missed", p.at, "놓침 " ~ "{:,}".format(p.missed)) }} ({{ p.pct.missed }}%)</span>
   </div>
   <p class="muted" style="font-size:12px;margin:10px 0 0;">대기: 들어오거나 바뀐 지 6시간 안 · 놓침: 6시간 넘게 결과 없음</p>
 </div></section>
@@ -63,17 +63,17 @@
     <tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>
     {% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">문서함·색인·그래프에는 처리 대상 문서만 반영 · 지출·증빙·정산 문서는 이번 범위에서 제외</p>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">라이브러리·색인·그래프에는 처리 대상 문서만 반영 · 지출·증빙·정산 문서는 이번 범위에서 제외</p>
 </div></section>
 
 <section class="card"><div class="card-in">
-  <h2>문서함 이후</h2>
+  <h2>라이브러리 이후</h2>
   <table class="ik-table">
-    <tr><td>사업 문서</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
-    <tr><td>그래프 문서 노드</td><td class="n">{{ "{:,}".format(p.graph_doc_nodes) }}</td></tr>
-    <tr><td>조각</td><td class="n">{{ "{:,}".format(p.grant_chunks) }}</td></tr>
-    <tr><td>임베딩 색인</td><td class="n">{{ "{:,}".format(p.embedding_index) }}</td></tr>
-    <tr><td>어휘 색인</td><td class="n">{{ "{:,}".format(p.lexical_index) }}</td></tr>
+    <tr><td>{{ metric_label("audit_graph_docs", p.at) }}</td><td class="n">{{ "{:,}".format(p.grant_docs) }}</td></tr>
+    <tr><td>{{ metric_label("audit_graph_doc_nodes", p.at) }}</td><td class="n">{{ "{:,}".format(p.graph_doc_nodes) }}</td></tr>
+    <tr><td>{{ metric_label("audit_grant_chunks", p.at) }}</td><td class="n">{{ "{:,}".format(p.grant_chunks) }}</td></tr>
+    <tr><td>{{ metric_label("audit_embedding_index", p.at) }}</td><td class="n">{{ "{:,}".format(p.embedding_index) }}</td></tr>
+    <tr><td>{{ metric_label("audit_lexical_index", p.at) }}</td><td class="n">{{ "{:,}".format(p.lexical_index) }}</td></tr>
     <tr><td>처리 멈춤(1시간 넘게 처리 중)</td><td class="n">{{ "{:,}".format(p.stuck_docs) }}</td></tr>
   </table>
 </div></section>

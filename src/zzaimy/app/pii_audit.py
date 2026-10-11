@@ -519,6 +519,7 @@ def source_view(db: Database, name: str, linkable: bool, *, q: str = "", entity:
             "recorded_at": (rec or {}).get("created_at"),
         })
     unrecorded = sum(1 for s in subjects if not s["recorded"] and s["status"] == "reviewed")
+    recorded_subjects = sum(1 for s in subjects if s["recorded"])
     filtered = sorted([s for s in subjects if (not q or q.casefold() in s["filename"].casefold())
                        and (not entity or entity in s["by_type"])],
                       key=lambda s: (s["recorded_at"] or "", s["doc_id"]), reverse=True)
@@ -530,6 +531,9 @@ def source_view(db: Database, name: str, linkable: bool, *, q: str = "", entity:
         "stats": stats,
         "subject_docs": len(subjects),
         "unrecorded": unrecorded,   # 처리는 끝났는데 기록이 없는 문서 — 기능 도입 전 처리분
+        # 대상 = 기록 있음 + 처리 완료·기록 없음 + 나머지(처리 중·실패 등 아직 처리 완료가 아닌 문서) — 화면에서 합이 맞게
+        "recorded_subjects": recorded_subjects,
+        "not_reviewed": len(subjects) - recorded_subjects - unrecorded,
         "docs": filtered[(page-1)*page_size:page*page_size],
         "docs_truncated": max(0, len(filtered) - page*page_size),
         "page": page, "pages": pages, "filtered_total": len(filtered),

@@ -25,7 +25,7 @@ def test_intake_page_shows_audit_and_lists(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/intake")
     assert r.status_code == 200
-    for text in ("처리 대상 문서 100건", "문서함 90", "놓친 원본 4건", "암호 문서", "링크/업무/a.pdf", "원본 처리 놓침 4건"):
+    for text in ("처리 대상 문서 100건", "라이브러리 반영 90", "놓친 원본 4건", "암호 문서", "링크/업무/a.pdf", "원본 처리 놓침 4건"):
         assert text in r.text, text
     csv = c.get("/dev/intake/missed.csv")
     assert csv.status_code == 200 and "링크/업무/a.pdf" in csv.text

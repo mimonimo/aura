@@ -131,7 +131,7 @@
 {% set base_qs = "type=" ~ active_tab ~ "&group=" ~ document_group ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
 <div class="card">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{{ '검색 결과' if q else '문서' }} {{ "{:,}".format(total_docs) }}건
+    <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{% if q %}검색 결과 {{ "{:,}".format(total_docs) }}건{% else %}{{ metric_label('documents_visible', '', '문서 ' ~ "{:,}".format(total_docs) ~ '건') }}{% endif %}
       {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
       {% if n_rows < total_docs %}<span class="muted" style="font-size:12.5px; font-weight:500;">같은 문서의 판본 {{ "{:,}".format(total_docs - n_rows) }}건은 최신본 아래에 묶음</span>{% endif %}</h2>
     <form action="/" method="get" class="intake-toolbar lib-filters" role="search" aria-label="등록 문서 찾기" data-autosubmit>

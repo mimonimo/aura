@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}RAG 공간{% endblock %}
-{% block pagetitle %}RAG 공간{% endblock %}
+{% block title %}{{ dev_page_name('/dev/rag') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/rag') }}{% endblock %}
 {% block content %}
 <style>
 .rg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start;}
@@ -19,7 +19,7 @@ textarea.rg-map{width:100%;min-height:110px;font:13px/1.5 ui-monospace,monospace
 <section class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:database-linear"></iconify-icon>공간 목록</h2>
   <table class="rg-table">
-    <tr><th>공간</th><th>사업 문서 범위</th><th class="n">사업 문서</th><th class="n">규정 문서</th><th class="n">규정 조각</th><th>쓰는 계정</th></tr>
+    <tr><th>공간</th><th>사업 문서 범위</th><th class="n">{{ metric_label("grant_reviewed", "", "처리 완료 사업 문서") }}</th><th class="n">{{ metric_label("regulation_docs", "", "규정 문서") }}</th><th class="n">{{ metric_label("regulation_chunks", "", "규정 조각") }}</th><th>쓰는 계정</th></tr>
     {% for s in spaces %}
     <tr><td><b>{{ s.id }}</b><br><span class="muted" style="font-size:12px;">{{ s.label }}</span></td>
       <td class="rg-wrap">{% if not s.grant %}쓰지 않음{% elif s.grant_depts is none %}전부{% else %}{{ s.grant_depts|join(", ") }}{% endif %}</td>
@@ -65,7 +65,7 @@ textarea.rg-map{width:100%;min-height:110px;font:13px/1.5 ui-monospace,monospace
     <p class="muted" style="font-size:12px;margin:6px 0;">한 줄에 「원본 최상위 폴더=부서」. 부서를 정하지 않은 폴더의 문서는 모든 교직원이 검색합니다. 저장한 뒤 새로 반입되는 문서부터 적용됩니다.</p>
     <button class="btn">폴더별 부서 저장</button>
   </form>
-  <form method="post" action="/dev/rag/backfill" style="margin-top:10px;">
+  <form method="post" action="/dev/rag/backfill" style="margin-top:10px;" data-confirm="저장된 폴더별 부서를 이미 반입된 사업 문서 전부에 다시 붙일까요? 문서의 부서가 바뀌어 계정마다 검색되는 범위가 달라집니다. 되돌리려면 짝을 고쳐 저장한 뒤 다시 적용해야 합니다.">
     <button class="btn primary">이미 반입된 문서에도 적용</button>
   </form>
   <p class="muted" style="font-size:12px;margin:6px 0 0;">저장할 때마다 이전 설정을 남깁니다.</p>
