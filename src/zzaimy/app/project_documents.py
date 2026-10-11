@@ -135,20 +135,60 @@ def projects_of(db, doc: dict) -> list[int]:
     return pids
 
 
-def link_criteria_kind(db, doc_id: int) -> list[int]:
+def link_criteria_kind(db, doc_id: int, only: set[int] | None = None) -> list[int]:
     """공고·지침·기준으로 분류된 문서를 그 문서가 속한 프로젝트의 근거 기준으로 잇는다 — 연결한 프로젝트 번호.
 
     갈래(kind)는 반입 뒤 분류(doc_routing)가 정한다. 어느 문서든 같은 규칙이고, 사업 이름은 보지 않는다.
-    이미 이어져 있으면 그대로 둔다. 연결을 풀면 첨부 문서로 돌아가고, 다시 분류될 때만 다시 잇는다."""
+    이미 이어져 있으면 그대로 둔다. 연결을 풀면 첨부 문서로 돌아가고, 다시 분류될 때만 다시 잇는다.
+    only 를 주면 그 프로젝트들만 잇는다(소급 연결이 열람 범위를 확인한 프로젝트만 고를 때)."""
     doc = db.get_document(int(doc_id))
     if not doc or (doc.get("kind") or "") not in CRITERIA_KINDS:
         return []
     done = []
     for pid in projects_of(db, doc):
+        if only is not None and pid not in only:
+            continue
         if int(doc_id) not in {int(x) for x in db.get_project_criteria_ids(pid)}:
             db.add_project_criteria(pid, [int(doc_id)])
             done.append(pid)
     return done
+
+
+def criteria_kind_backlog(db, accounts: dict | None = None,
+                          project_ids: set[int] | None = None) -> dict[str, list[dict]]:
+    """기존 프로젝트에서 아직 기준 문서로 잇지 않은 공고·지침·기준 갈래 문서 — 소급 연결 계획.
+
+    소속은 link_criteria_kind(projects_of)와 같다 — 프로젝트에 올린 문서, 그 프로젝트 대화에 첨부한 문서.
+    프로젝트 소유자가 열람할 수 없는 문서(access_policy.visible)는 잇지 않고 skipped 로 돌려준다.
+    accounts 는 계정 → {role, dept}; 없는 계정은 담당자(staff)·부서 없음으로 본다.
+    반환: {"link": [...], "skipped": [...]}, 항목은 project_id·doc_id·via."""
+    kinds = sorted(CRITERIA_KINDS)
+    marks = ",".join("?" * len(kinds))
+    with db._conn() as conn:
+        pairs = [(int(r[0]), int(r[1]), "프로젝트에 올림") for r in conn.execute(
+            f"SELECT project_id, id FROM documents WHERE project_id IS NOT NULL AND kind IN ({marks})", kinds)]
+        pairs += [(int(r[0]), int(r[1]), "대화 첨부") for r in conn.execute(
+            "SELECT s.project_id, f.doc_id FROM files f JOIN chat_sessions s ON s.id = f.session_id"
+            " JOIN documents d ON d.id = f.doc_id WHERE f.kind = 'attachment' AND s.project_id IS NOT NULL"
+            f" AND d.kind IN ({marks})", kinds)]
+    out: dict[str, list[dict]] = {"link": [], "skipped": []}
+    seen: set[tuple[int, int]] = set()
+    linked: dict[int, set[int]] = {}
+    for pid, did, via in sorted(pairs):
+        if (pid, did) in seen or (project_ids is not None and pid not in project_ids):
+            continue
+        seen.add((pid, did))
+        if pid not in linked:
+            linked[pid] = {int(x) for x in db.get_project_criteria_ids(pid)}
+        if did in linked[pid]:
+            continue
+        project, doc = db.get_project(pid), db.get_document(did)
+        if not project or not doc:
+            continue
+        acct = (accounts or {}).get(project.get("owner") or "", {})
+        ok = visible(doc, dept=acct.get("dept") or None, user=project.get("owner"), role=acct.get("role", "staff"))
+        out["link" if ok else "skipped"].append({"project_id": pid, "doc_id": did, "via": via})
+    return out
 
 
 def counts(groups: dict[str, list[dict]]) -> dict[str, int]:
