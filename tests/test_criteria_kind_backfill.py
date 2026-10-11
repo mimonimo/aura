@@ -17,7 +17,7 @@ def _setup(tmp_path):
     db = Database(tmp_path / "b.db")
     pid = db.create_project("grant", "가상 갯벌 복원 사업", owner="kim")
     other_pid = db.create_project("grant", "가상 다른 사업", owner="lee")
-    up = db.add_document("모집 공고.pdf", "/tmp/a.pdf", doc_type="grant", project_id=pid)
+    up = db.add_document("모집 공고.pdf", "/tmp/a.pdf", doc_type="grant", project_id=pid, owner="kim")   # 담당자가 직접 올림
     db.set_document_kind(up, "announcement")
     form = db.add_document("신청 양식.hwpx", "/tmp/b.hwpx", doc_type="grant", project_id=pid)
     db.set_document_kind(form, "form")
@@ -34,6 +34,10 @@ def _setup(tmp_path):
     db.set_document_kind(hidden, "basic_plan")
     db.add_file("attachment", "/tmp/e.pdf", name="부서 한정 계획.pdf", session_id=sid2, doc_id=hidden)
     loose = db.add_document("프로젝트 없는 공고.pdf", "/tmp/f.pdf", doc_type="grant")
+    # 원본 보관소 자동 묶음 — 반입 원본이 공고로 분류돼도 기준으로 잇지 않는다
+    bundle = db.create_project("grant", "가상 지난 사업 (연도 미상)", owner="kim", archived=True, archive_source="dgx")
+    moved = db.add_document("옮겨 온 공고.pdf", "dgx://사업/옮겨 온 공고.pdf", doc_type="grant", project_id=bundle, owner="kim")
+    db.set_document_kind(moved, "announcement")
     db.set_document_kind(loose, "announcement")
     return db, pid, other_pid, {"up": up, "form": form, "att": att, "done": done, "hidden": hidden, "loose": loose}
 

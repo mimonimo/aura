@@ -217,3 +217,26 @@ def test_irreversible_forms_carry_confirmation(client):
         assert "data-confirm=" in form, action
     js = (STATIC / "workspace-navigation.js").read_text(encoding="utf-8")
     assert "'confirm' in form.dataset" in js and "ownConfirm" in js
+
+
+def test_criteria_auto_link_skips_archive_bundles_and_foreign_documents(client):
+    from zzaimy.app import project_documents
+
+    db = client.app.state.db
+    bundle = db.create_project("grant", "가상 지난 사업 (연도 미상)", owner="zzdev", archived=True, archive_source="dgx")
+    plain_archived = db.create_project("grant", "담당자가 보관한 사업", archived=True)
+    user = db.create_project("grant", "담당자 진행 프로젝트", owner="kim")
+    in_bundle = db.add_document("옮겨 온 공고.pdf", "dgx://사업/옮겨 온 공고.pdf", doc_type="grant", project_id=bundle)
+    in_archived = db.add_document("보관된 공고.pdf", "/tmp/k.pdf", doc_type="grant", project_id=plain_archived)
+    mine = db.add_document("내가 올린 공고.pdf", "/tmp/m.pdf", doc_type="grant", project_id=user, owner="kim")
+    moved = db.add_document("보관소 원본 지침.pdf", "dgx://사업/지침.pdf", doc_type="grant", project_id=user, owner="kim")
+    foreign = db.add_document("다른 사람이 넣은 규정.pdf", "/tmp/f.pdf", doc_type="grant", project_id=user, owner="system")
+    for d in (in_bundle, in_archived, mine, moved, foreign):
+        db.set_document_kind(d, "announcement")
+    assert project_documents.link_criteria_kind(db, in_bundle) == []
+    assert project_documents.link_criteria_kind(db, in_archived) == []
+    assert project_documents.link_criteria_kind(db, moved) == []          # 원본 보관소에서 옮겨 온 문서
+    assert project_documents.link_criteria_kind(db, foreign) == []        # 담당자가 올리지 않은 문서
+    plan = project_documents.criteria_kind_backlog(db)
+    assert [(r["project_id"], r["doc_id"]) for r in plan["link"]] == [(user, mine)]
+    assert project_documents.link_criteria_kind(db, mine) == [user]

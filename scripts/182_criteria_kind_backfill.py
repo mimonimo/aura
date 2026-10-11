@@ -2,7 +2,9 @@
 
 새로 들어오는 문서는 반입 뒤 분류에서 바로 이어진다(project_documents.link_criteria_kind). 그 규칙이 생기기 전에
 프로젝트에 올렸거나 프로젝트 대화에 첨부한 문서는 첨부 문서로만 남아 있어, 같은 함수로 한 번 잇는다.
-프로젝트 소유자가 열람할 수 없는 문서는 잇지 않는다. 연결을 푼 기록은 남지 않으므로, 담당자가 일부러 푼 연결도
+대상은 담당자가 만든 진행 중 프로젝트(보관 상태도, 원본 보관소 자동 묶음 archive_source 도 아닌 것)에 담당자가 직접
+올렸거나 그 대화에 첨부한 문서뿐이다(project_documents.auto_criteria_project·auto_criteria_doc). 원본 보관소에서 옮겨 온
+문서(dgx://)는 잇지 않는다. 프로젝트 소유자가 열람할 수 없는 문서도 잇지 않는다. 연결을 푼 기록은 남지 않으므로, 담당자가 일부러 푼 연결도
 다시 이어질 수 있다 — 미리보기 목록을 보고 필요하면 --project 로 범위를 좁힌다.
 
 실행: env PYTHONPATH=src .venv/bin/python scripts/182_criteria_kind_backfill.py              # 미리보기

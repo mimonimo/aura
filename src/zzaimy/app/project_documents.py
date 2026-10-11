@@ -135,18 +135,54 @@ def projects_of(db, doc: dict) -> list[int]:
     return pids
 
 
+def auto_criteria_project(project: dict | None) -> bool:
+    """기준 자동 연결을 받는 프로젝트인가 — 담당자가 만든 진행 중 프로젝트만.
+
+    보관 묶음은 받지 않는다: 보관 상태(archived)이거나, 원본 보관소에서 자동으로 만든 묶음(archive_source 가 찬 것,
+    archive.py 의 DGX 사업별 묶음은 'dgx')이다. 그런 묶음은 수천 건의 반입 원본을 담아 「근거 기준」의 뜻이 없다."""
+    return bool(project) and not project.get("archived") and not (project.get("archive_source") or "").strip()
+
+
+def auto_criteria_doc(doc: dict, project: dict, via: str) -> bool:
+    """자동 연결할 문서인가 — 갈래 분류만으로는 정하지 않는다(분류 신뢰도 값이 없다). 둘째 단서로 출처를 본다.
+
+    담당자가 그 프로젝트에 직접 올렸거나(문서 주인 = 프로젝트 주인) 그 프로젝트 대화에 첨부한 문서만.
+    원본 보관소에서 옮겨 온 문서(dgx://)는 잇지 않는다."""
+    if str(doc.get("stored_path") or "").startswith("dgx://"):
+        return False
+    if via == "대화 첨부":
+        return True
+    return (doc.get("owner") or "") == (project.get("owner") or "")
+
+
+def memberships(db, doc: dict) -> list[tuple[int, str]]:
+    """(프로젝트 번호, 어떻게 들어왔나) — 「프로젝트에 올림」 또는 「대화 첨부」."""
+    out: list[tuple[int, str]] = []
+    if doc.get("project_id"):
+        out.append((int(doc["project_id"]), "프로젝트에 올림"))
+    for f in db.list_files(kind="attachment", doc_id=int(doc["id"])):
+        sess = db.get_chat_session(int(f["session_id"])) if f.get("session_id") else None
+        if sess and sess.get("project_id") and int(sess["project_id"]) not in {p for p, _ in out}:
+            out.append((int(sess["project_id"]), "대화 첨부"))
+    return out
+
+
 def link_criteria_kind(db, doc_id: int, only: set[int] | None = None) -> list[int]:
     """공고·지침·기준으로 분류된 문서를 그 문서가 속한 프로젝트의 근거 기준으로 잇는다 — 연결한 프로젝트 번호.
 
     갈래(kind)는 반입 뒤 분류(doc_routing)가 정한다. 어느 문서든 같은 규칙이고, 사업 이름은 보지 않는다.
     이미 이어져 있으면 그대로 둔다. 연결을 풀면 첨부 문서로 돌아가고, 다시 분류될 때만 다시 잇는다.
-    only 를 주면 그 프로젝트들만 잇는다(소급 연결이 열람 범위를 확인한 프로젝트만 고를 때)."""
+    only 를 주면 그 프로젝트들만 잇는다(소급 연결이 열람 범위를 확인한 프로젝트만 고를 때).
+    담당자가 만든 진행 중 프로젝트(auto_criteria_project)에, 담당자가 직접 올리거나 대화에 첨부한 문서(auto_criteria_doc)만 잇는다."""
     doc = db.get_document(int(doc_id))
     if not doc or (doc.get("kind") or "") not in CRITERIA_KINDS:
         return []
     done = []
-    for pid in projects_of(db, doc):
+    for pid, via in memberships(db, doc):
         if only is not None and pid not in only:
+            continue
+        project = db.get_project(pid)
+        if not auto_criteria_project(project) or not auto_criteria_doc(doc, project, via):
             continue
         if int(doc_id) not in {int(x) for x in db.get_project_criteria_ids(pid)}:
             db.add_project_criteria(pid, [int(doc_id)])
@@ -158,7 +194,8 @@ def criteria_kind_backlog(db, accounts: dict | None = None,
                           project_ids: set[int] | None = None) -> dict[str, list[dict]]:
     """기존 프로젝트에서 아직 기준 문서로 잇지 않은 공고·지침·기준 갈래 문서 — 소급 연결 계획.
 
-    소속은 link_criteria_kind(projects_of)와 같다 — 프로젝트에 올린 문서, 그 프로젝트 대화에 첨부한 문서.
+    대상은 link_criteria_kind 와 같다 — 담당자가 만든 진행 중 프로젝트에 담당자가 올렸거나 그 대화에 첨부한 문서
+    (보관 묶음·원본 보관소에서 옮겨 온 문서는 빠진다).
     프로젝트 소유자가 열람할 수 없는 문서(access_policy.visible)는 잇지 않고 skipped 로 돌려준다.
     accounts 는 계정 → {role, dept}; 없는 계정은 담당자(staff)·부서 없음으로 본다.
     반환: {"link": [...], "skipped": [...]}, 항목은 project_id·doc_id·via."""
@@ -166,10 +203,12 @@ def criteria_kind_backlog(db, accounts: dict | None = None,
     marks = ",".join("?" * len(kinds))
     with db._conn() as conn:
         pairs = [(int(r[0]), int(r[1]), "프로젝트에 올림") for r in conn.execute(
-            f"SELECT project_id, id FROM documents WHERE project_id IS NOT NULL AND kind IN ({marks})", kinds)]
+            "SELECT d.project_id, d.id FROM documents d JOIN projects p ON p.id = d.project_id"
+            f" WHERE p.archived = 0 AND COALESCE(p.archive_source, '') = '' AND d.kind IN ({marks})", kinds)]
         pairs += [(int(r[0]), int(r[1]), "대화 첨부") for r in conn.execute(
             "SELECT s.project_id, f.doc_id FROM files f JOIN chat_sessions s ON s.id = f.session_id"
-            " JOIN documents d ON d.id = f.doc_id WHERE f.kind = 'attachment' AND s.project_id IS NOT NULL"
+            " JOIN documents d ON d.id = f.doc_id JOIN projects p ON p.id = s.project_id"
+            " WHERE f.kind = 'attachment' AND p.archived = 0 AND COALESCE(p.archive_source, '') = ''"
             f" AND d.kind IN ({marks})", kinds)]
     out: dict[str, list[dict]] = {"link": [], "skipped": []}
     seen: set[tuple[int, int]] = set()
@@ -183,7 +222,7 @@ def criteria_kind_backlog(db, accounts: dict | None = None,
         if did in linked[pid]:
             continue
         project, doc = db.get_project(pid), db.get_document(did)
-        if not project or not doc:
+        if not project or not doc or not auto_criteria_project(project) or not auto_criteria_doc(doc, project, via):
             continue
         acct = (accounts or {}).get(project.get("owner") or "", {})
         ok = visible(doc, dept=acct.get("dept") or None, user=project.get("owner"), role=acct.get("role", "staff"))

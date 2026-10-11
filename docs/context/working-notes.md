@@ -46,6 +46,10 @@
 - 템플릿은 문자열 치환(sed)으로 고치지 않는다. 조용히 안 먹거나 과하게 지워진다. 고친 뒤 div 균형과 핵심 셀렉터를 확인한다.
 - `base.html` 의 `{% block head %}` 는 기본 `<style>` 뒤에 있어야 페이지 CSS 가 이긴다.
 - 화면 변경은 배포 전에 헤드리스 캡처로 직접 확인한다.
+- 공고·지침·기준 갈래 문서의 프로젝트 기준 자동 연결(`project_documents.link_criteria_kind`, 소급은 scripts/182)은
+  담당자가 만든 진행 중 프로젝트에만 한다. 보관 상태이거나 원본 보관소 자동 묶음(`projects.archive_source`, DGX 묶음은
+  'dgx')이면 잇지 않고, 문서도 담당자가 직접 올렸거나(문서 주인 = 프로젝트 주인) 그 대화에 첨부한 것만 — 분류 신뢰도
+  값이 없어 출처를 둘째 단서로 쓴다. 원본 보관소에서 옮겨 온 문서(dgx://)는 잇지 않는다.
 - 화면 인라인 스크립트는 즉시 실행 함수(`(function () { … })()`)나 모듈로 감싼다. 맨 바깥 `var status` 같은 선언은
   브라우저 전역(window.status)과 부딪혀 스크립트가 멈춘다. `tests/test_page_scripts.py` 가 전역 이름 충돌을 잡는다.
 - 확인창은 폼마다 `onsubmit="return confirm(…)"` 로 따로 두지 않고 위의 `data-confirm` 공용 규칙을 쓴다.
