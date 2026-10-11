@@ -1513,10 +1513,8 @@ def test_bullet_layout_official_item_hierarchy():
     assert sub == [0, 11, 22, 0]
 
 
-def test_outline_mistakes_body_items_for_headings_risk():
-    """위험 표시 — 절 아래 본문 항목(「가. 정책 환경」「1) …」)이 문장 끝(~함)이 없으면 outline 이 절 제목으로 읽는다.
-    본문을 공문서 항목으로 쓰면 절이 쪼개진다. outline 쪽에서 내어쓰기(indentStart > indentFirstLine) 문단을 본문으로 보게 고치면 통과한다."""
-    import pytest
+def test_outline_does_not_read_body_items_as_headings():
+    """절 아래 본문 항목(「가. 정책 환경」「1) …」)은 절이 아니다 — 내어쓰기 문단은 본문 항목, 「1)」은 제목 꼴이 아니다(10/11)."""
     from zzaimy.ingest import gdocs
 
     def para(start: int, text: str, style: str = "NORMAL_TEXT", hang: bool = False) -> dict:
@@ -1529,8 +1527,7 @@ def test_outline_mistakes_body_items_for_headings_risk():
                para(20, "1) 지역 인력 양성 요구", hang=True), para(40, "나. 대학 현황과 과제", hang=True),
                para(60, "2. 목표", "HEADING_2")]
     heads = [s["heading"] for s in gdocs.outline({"body": {"content": content}})["sections"]]
-    if heads != ["1. 추진 배경", "2. 목표"]:
-        pytest.xfail(f"outline 이 본문 항목을 절로 읽는다: {heads}")
+    assert heads == ["1. 추진 배경", "2. 목표"]
 
 
 def test_report_section_looks_up_plan_counterpart_section(monkeypatch, tmp_path):

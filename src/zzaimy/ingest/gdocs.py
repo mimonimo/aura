@@ -109,7 +109,8 @@ def body_content(document: dict) -> list[dict]:
 
 
 # 제목 스타일이 하나도 없는 문서(한글 양식 변환본)에서는 번호 붙은 짧은 문단을 절 제목으로 본다 — Ⅰ. / 1. / 1.1. / 【…】 / 가.
-_NUMBERED = re.compile(r"^\s*(?:(?P<roman>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)\s*[.．]|(?P<num>\d+(?:\.\d+)*)[.．]?|(?P<box>【[^】]{1,40}】)|(?P<ga>[가-힣])[.．])\s*(?P<rest>\S.*)?$")
+# 「1) …」「(1) …」은 본문 항목(공문서 항목 구분)이지 절 제목이 아니다 — 숫자 뒤 마침표나 빈칸만 제목 꼴로(10/11)
+_NUMBERED = re.compile(r"^\s*(?:(?P<roman>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)\s*[.．]|(?P<num>\d+(?:\.\d+)*)(?:[.．]|(?=\s))|(?P<box>【[^】]{1,40}】)|(?P<ga>[가-힣])[.．])\s*(?P<rest>\S.*)?$")
 
 
 def _numbered_level(text: str) -> int | None:
@@ -154,6 +155,19 @@ def _table_counts(tbl: dict) -> tuple[int, int]:
             if not "".join(_para_text(e["paragraph"]) for e in cell.get("content", []) if "paragraph" in e).strip():
                 empty += 1
     return cells, empty
+
+
+def _hanging_items(body: list[dict]) -> set[int]:
+    """내어쓰기 문단(둘째 줄이 첫 줄보다 들어간 것)의 시작 위치 — 본문 항목 줄이다(bullet_layout 이 항목마다 건다).
+    「가. 정책 환경」「1) …」 같은 본문 항목이 절 제목으로 잡혀 절이 쪼개지던 위험(10/11 문체 변경 검토)."""
+    out = set()
+    for el in body:
+        ps = (el.get("paragraph") or {}).get("paragraphStyle") or {}
+        a = float(((ps.get("indentStart") or {}).get("magnitude")) or 0)
+        b = float(((ps.get("indentFirstLine") or {}).get("magnitude")) or 0)
+        if "paragraph" in el and a > b + 0.5:
+            out.add(int(el.get("startIndex", 0)))
+    return out
 
 
 def _toc_entries(items: list[tuple], styled: bool) -> set[int]:
@@ -222,6 +236,7 @@ def outline(document: dict) -> dict:
     doc_end = int(body[-1].get("endIndex", 1)) if body else 1
     styled = any(HEADING_LEVELS.get(st) is not None and t.strip() for _s, _e, st, t, tb in items if not tb)
     toc = _toc_entries(items, styled)
+    hanging = _hanging_items(body)
     breaks = {int(el.get("startIndex", 0)) for el in body if "paragraph" in el
               and any("pageBreak" in x for x in el["paragraph"].get("elements", []))}
 
@@ -237,7 +252,7 @@ def outline(document: dict) -> dict:
         # 제목 스타일이 있어도 번호 문단(Ⅰ. / 1.1.)은 절이다 — 변환한 한글 문서는 개요 스타일이 몇 개뿐이고 절 제목이 굵은 보통
         # 문단이라(실측 2026-09-24 사업계획서: 스타일 제목 3개, 번호 절 수십 개) 스타일만 보면 절이 3개로 잡힌다
         lvl = None if is_table else HEADING_LEVELS.get(style)
-        if lvl is None and not is_table and start not in toc:
+        if lvl is None and not is_table and start not in toc and start not in hanging:
             lvl = _numbered_level(text)
             if lvl is not None and styled:
                 lvl = max(lvl, 2)                     # 스타일 제목 아래 급으로

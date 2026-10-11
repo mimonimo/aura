@@ -1,6 +1,6 @@
 """구글 독스 공통 양식 4종을 독스 API 로 직접 만든다(K-20261008-01, src/zzaimy/ingest/gdocs_templates.py).
 
-실행(VM): env PYTHONPATH=src .venv/bin/python scripts/180_build_gdocs_templates.py --email dev@example.ac.kr [--only plan]
+실행(VM): env PYTHONPATH=src .venv/bin/python scripts/180_build_gdocs_templates.py --email <허용된 학교 계정> [--only plan]
   폴더: 내 드라이브 ZZAIMY/공통 양식(구글 독스) — 같은 이름의 옛 문서는 휴지통으로.
   사양은 data/generated/templates/gdocs/{id}.json·.md 로도 남긴다(27B 프롬프트·검토용).
 """

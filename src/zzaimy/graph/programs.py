@@ -339,7 +339,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
     strong_root = {a: find(a) for a in strong if a in parent}
     for root in list(groups):
         card = groups[root]
-        # 파일 이름 출신이라도 언급이 드문(3번 이하) 조각(「홍길동 교수님 LINC 사업」)은 같은 규칙으로 접는다
+        # 파일 이름 출신이라도 언급이 드문(3번 이하) 조각(「○○○ 교수님 LINC 사업」 같은 개인 이름이 붙은 조각)은 같은 규칙으로 접는다
         if root in titled_roots and sum(card.names.values()) + sum(card.acrs.values()) > 3:
             continue
         flat_su = [re.sub(_FLAT, "", x).upper() for x in card.surfaces()]
