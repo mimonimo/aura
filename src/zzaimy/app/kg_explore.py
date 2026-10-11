@@ -281,6 +281,10 @@ def programs(db, scope: dict | None = None) -> list[dict]:
         progs = [dict(r) for r in conn.execute("SELECT id, type, label FROM kg_nodes WHERE type IN ('program', 'program_group')")]
     rows = [{"id": p["id"], "type": p["type"], "label": label_of(p), "docs": sets.get(p["id"], set())}
             for p in progs if sets.get(p["id"])]
+    # 「사업」 낱말은 있지만 고유한 말이 남지 않는 이름(「수익 비수익 사업」 — 절차·일반어뿐)은 사업 하나가 아니라 목록에서 뺀다.
+    # 「사업」 낱말이 없는 이름(「…센터」「…체계(앵커)」)은 이 판정의 대상이 아니라 둔다
+    from zzaimy.app.program_names import is_program_name
+    rows = [r for r in rows if r["type"] != "program" or "사업" not in r["label"] or is_program_name(r["label"])]
     plain = [r for r in rows if r["type"] == "program"]
     rep = group_names({r["label"]: len(r["docs"]) for r in plain})
     merged: dict[str, dict] = {}
@@ -347,7 +351,30 @@ def explore_schema(request: Request):
         out["shacl"] = json.loads(rep.read_text(encoding="utf-8"))          # 표준 검사 결과(scripts/177)
     except (OSError, ValueError):
         out["shacl"] = None
+    if out["shacl"]:
+        out["shacl"] = dict(out["shacl"], violations=example_labels(request.app.state.db, out["shacl"].get("violations") or [],
+                                                                    _scope(request)))
     return JSONResponse(out)
+
+
+def example_labels(db, violations: list[dict], scope: dict) -> list[dict]:
+    """검사 결과의 예시 노드(「doc%3A39223」처럼 주소 꼴로 적힌 id)를 보일 이름으로 — id 는 툴팁용으로만 둔다.
+    볼 수 없는 문서의 노드는 이름 대신 「볼 수 없는 문서」."""
+    from urllib.parse import unquote
+
+    ids = sorted({unquote(str(x)) for v in violations for x in (v.get("examples") or [])})
+    nodes = _load_nodes(db, ids) if ids else {}
+    ok = _allowed(db, nodes, scope) if nodes else set()
+    out = []
+    for v in violations:
+        ex = []
+        for x in v.get("examples") or []:
+            nid = unquote(str(x))
+            n = nodes.get(nid)
+            label = (label_of(n) if nid in ok else "볼 수 없는 문서") if n else "그래프에 없는 노드"
+            ex.append({"id": nid, "label": label})
+        out.append(dict(v, examples=ex))
+    return out
 
 
 def _ontology_dir(request: Request):

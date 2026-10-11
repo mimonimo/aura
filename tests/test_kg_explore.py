@@ -15,10 +15,10 @@ def _graph(db):
     pub = db.add_document("공개 계획서.hwp", "dgx://링크/a.hwp", doc_type="grant", access_level="public")
     sec = db.add_document("남의 비공개.hwp", "x/b.hwp", doc_type="grant", owner="other", access_level="owner")
     with db._conn() as conn:
-        kg_store.put_nodes(conn, [("program:P", "program", "가 사업"), ("year:P:r1", "year", "가 사업 1차년도", {"year": 2024}),
+        kg_store.put_nodes(conn, [("program:P", "program", "가람 사업"), ("year:P:r1", "year", "가람 사업 1차년도", {"year": 2024}),
                                   (f"doc:{pub}", "doc", "공개 계획서", {"kind_label": "계획서"}, pub),
                                   (f"doc:{sec}", "doc", "남의 비공개", {}, sec),
-                                  ("program:Q", "program", "나 사업")])
+                                  ("program:Q", "program", "나래 사업")])
         kg_store.put_edges(conn, [("program:P", "year:P:r1", "contains", "분류", ["연차"]),
                                   ("year:P:r1", f"doc:{pub}", "contains", "분류", ["경로"]),
                                   ("year:P:r1", f"doc:{sec}", "contains", "분류", ["경로"]),
@@ -67,8 +67,8 @@ def test_explore_routes(tmp_path):
     kg_explore._cache.clear()
     _graph(app.state.db)
     r = c.get("/graph/explore")
-    assert r.status_code == 200 and "cytoscape.min.js" in r.text and "가 사업" in r.text
-    assert c.get("/graph/explore/neighbors", params={"id": "program:P"}).json()["center"]["label"] == "가 사업"
+    assert r.status_code == 200 and "cytoscape.min.js" in r.text and "가람 사업" in r.text
+    assert c.get("/graph/explore/neighbors", params={"id": "program:P"}).json()["center"]["label"] == "가람 사업"
     assert c.get("/graph/explore/neighbors", params={"id": "program:P", "more": "contains:out:year@0"}).status_code == 200
     assert c.get("/graph/explore/neighbors", params={"id": "nope"}).status_code == 404
     assert c.get("/graph/explore/schema").json()["types"]

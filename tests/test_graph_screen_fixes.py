@@ -214,3 +214,58 @@ def test_archived_page_defaults_to_all_and_korean_states(tmp_path):
     html = c.get("/projects/archived").text
     assert 'value="all" checked' in html and "진행 중 사업" in html and ">보관<" not in html
     assert "여기서 연결해도 원래 자료는 바뀌지 않습니다." in html and "문서 보기" in html and "자료 보기" not in html
+    # 보관된 묶음 화면에는 입력줄이 없다 — 빈 대화 안내도 입력줄을 가리키지 않는다
+    page = c.get(f"/project/{pid}").text
+    assert "위 입력줄에서" not in page and "보관 해제 뒤 대화를 시작할 수 있습니다" in page
+
+
+# ── 별칭 붙이기: 같은 제목 맥락이나 되풀이된 짝만 ───────────────────────────
+def test_listed_programs_do_not_join_acronyms():
+    assert programs.lists_other_acronym("QRX 및 별빛 역량 강화 지원사업", "SBK")
+    assert not programs.lists_other_acronym("별빛 역량 강화 지원사업", "SBK")
+    assert not programs.lists_other_acronym("QRX 3.0 고도화 사업", "QRX3.0")          # 판 표기만 다르면 같은 약칭
+    _n, _a, pairs = programs._mentions("QRX 및 별빛 역량 강화 지원사업(SBK)")
+    assert not any(s == "SBK" and "QRX" in l for l, s in pairs)
+
+
+def test_head_only_pair_needs_title_context_or_two_documents():
+    one = [{"id": 1, "filename": "QRX 사업 결과보고서.hwp", "head": "참고: 바다 연안 탐사 지원사업(OCX) 소개"},
+           {"id": 2, "filename": "QRX 사업 계획서.hwp", "head": "QRX 사업 계획"}]
+    cards = programs.build_cards(one)
+    qrx = next(c for c in cards if "QRX" in {programs._acr(a) for a in c.acrs})
+    assert "OCX" not in {programs._acr(a) for a in qrx.acrs}
+    assert not any("연안" in n for n in qrx.names)
+    # 같은 짝을 문서 두 건이 쓰면 그 짝(이름 ↔ 약칭)은 잇는다 — 그래도 QRX 카드에는 붙지 않는다
+    two = one + [{"id": 3, "filename": "회의 자료.hwp", "head": "바다 연안 탐사 지원사업(OCX) 협의"},
+                 {"id": 4, "filename": "협약 자료.hwp", "head": "바다 연안 탐사 지원사업(OCX) 협약"}]
+    cards = programs.build_cards(two)
+    ocx = [c for c in cards if "OCX" in {programs._acr(a) for a in c.acrs}]
+    assert ocx and any("연안" in n for n in ocx[0].names) and "QRX" not in {programs._acr(a) for a in ocx[0].acrs}
+
+
+def test_alias_list_drops_other_programs_acronyms_and_tidies():
+    shown, _m = programs.alias_list(["QRX 사업", "OCX 사업", "별빛 ( SBK ) 사업"], ["QRX", "OCX"], foreign={"OCX"})
+    assert "OCX" not in shown and "OCX 사업" not in shown and "QRX" in shown
+    assert "별빛 (SBK) 사업" in shown and not any("( SBK )" in x for x in shown)   # 괄호 안 띄어쓰기 정리
+
+
+def test_procedure_only_program_hidden_and_shacl_examples_get_labels(tmp_path):
+    db = Database(tmp_path / "t.db")
+    ids, hidden = _graph(db)
+    with db._conn() as conn:
+        kg_store.put_nodes(conn, [("program:V", "program", "수행 정산 사업", {})])
+        kg_store.put_edges(conn, [("program:V", f"doc:{ids[3]}", "contains", "분류", ["제목"])])
+    kg_explore._cache.clear()
+    labels = {p["label"] for p in kg_explore.programs(db, {"role": "dev"})}
+    assert "수행 정산 사업" not in labels                                     # 절차 일반어뿐인 「사업」 이름
+    staff = {"role": "staff", "user": "me", "dept": None}
+    got = kg_explore.example_labels(db, [{"message": "m", "n": 2, "examples": [f"doc%3A{ids[0]}", f"doc%3A{hidden}"]}], staff)
+    ex = got[0]["examples"]
+    assert ex[0] == {"id": f"doc:{ids[0]}", "label": "공고"} and ex[1]["label"] == "볼 수 없는 문서"
+
+
+def test_ontology_tab_only_for_developers(tmp_path):
+    app = _app(tmp_path)
+    c = TestClient(app)
+    assert _login(c, "zzaimy", "boot-pass-1")
+    assert 'data-mode="onto"' not in c.get("/graph/explore").text

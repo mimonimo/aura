@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse
 
 from zzaimy.app.kg_explore import label_of, when_text
 from zzaimy.graph import kg_store
-from zzaimy.graph.programs import alias_list
+from zzaimy.graph.programs import _acr, alias_list
 
 router = APIRouter()
 
@@ -266,7 +266,12 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
     ledger = (prog.get("props") or {}).get("ledger") or {}
     vis_docs = None if scope is None or scope.get("role") == "dev" else allowed_docs
     indicators = indicator_table([nodes[e["dst"]] for e in out_of[prog["id"]] if e["kind"] == "has_indicator" and e["dst"] in nodes], vis_docs)
-    aliases, more_aliases = alias_list((prog.get("props") or {}).get("names") or [], (prog.get("props") or {}).get("acronyms") or [])
+    # 다른 사업 노드의 정체 약칭(노드 id 꼬리, 예 program:ace → ACE)이 든 별칭은 그 사업의 것 — 이 사업 별칭으로 보이지 않는다
+    own = {_acr(a) for a in (prog.get("props") or {}).get("acronyms") or []} | {_acr(prog["id"].split(":", 1)[1])}
+    foreign = {_acr(p["id"].split(":", 1)[1]) for p in progs if p["id"] != prog["id"]
+               and re.fullmatch(r"[0-9a-z+.]{2,12}", p["id"].split(":", 1)[1] or "") and re.search(r"[a-z]", p["id"].split(":", 1)[1])}
+    aliases, more_aliases = alias_list((prog.get("props") or {}).get("names") or [], (prog.get("props") or {}).get("acronyms") or [],
+                                       foreign=foreign - own)
     shown = label_of(prog)
     aliases = [a for a in aliases if a.replace(" ", "") != shown.replace(" ", "")]
     # 위 칩 — 그래프 탐색 왼쪽 목록과 같은 이름·같은 수(kg_explore.programs). 볼 수 있는 사업만

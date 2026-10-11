@@ -102,15 +102,20 @@ def clean_label(name: str) -> str:
     return out if len(out.replace(" ", "")) >= 4 else s
 
 
-def alias_list(names, acronyms=(), limit: int = 8) -> tuple[list[str], int]:
-    """화면에 보일 다른 이름 — 문장 조각을 거르고, 띄어쓰기만 다른 것은 하나로, 약칭 먼저·짧은 이름 순으로 limit 개.
+def alias_list(names, acronyms=(), limit: int = 8, foreign: set[str] | frozenset = frozenset()) -> tuple[list[str], int]:
+    """화면에 보일 다른 이름 — 문장 조각을 거르고, 보일 이름 규칙(program_names.display_name)으로 다듬어 띄어쓰기만 다른 것은
+    하나로, 약칭 먼저·짧은 이름 순으로 limit 개. foreign(다른 사업 노드의 정체 약칭, _acr 꼴)이 낱말로 든 이름은 남의 사업이라 뺀다.
     돌려주는 것: (보일 이름들, 더 있는 수)."""
+    from zzaimy.app.program_names import display_name
+
     seen, out = set(), []
     pool = [a for a in acronyms or [] if a] + sorted((n for n in names or [] if n), key=lambda n: len(n))
     for n in pool:
-        n = clean_label(n)
-        k = re.sub(r"[\s.·ㆍ\-_]+", "", n).upper()
+        n = display_name(clean_label(n)) or clean_label(n)
+        k = re.sub(r"[\s.·ㆍ\-_()]+", "", n).upper()
         if not k or k in seen or fragment_name(n):
+            continue
+        if foreign and any(_acr(t) in foreign for t in _ACR_TOKEN.findall(n) + ([n] if _is_acr(n) else [])):
             continue
         seen.add(k)
         out.append(n)
@@ -238,6 +243,20 @@ class ProgramCard:
         return {re.sub(_FLAT, "", n) for n in self.names} | {_acr(a) for a in self.acrs}
 
 
+_ACR_TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9+]{1,10}(?:\s?\d\.\d)?)(?![a-z])")
+
+
+def lists_other_acronym(long_: str, short: str) -> bool:
+    """긴 이름 안에 짝 약칭과 다른 영문 약칭이 또 있는가 — 「LINC+ 및 대학 자율역량 강화(ACE)」처럼 사업 둘을 늘어놓은 구절이면
+    그 구절을 근거로 두 약칭을 한 사업으로 잇지 않는다. 판 표기·앞부분만 다른 것(LINC ⊂ LINC3.0, AI ⊂ AID)은 같은 약칭으로 본다."""
+    me = _acr(short)
+    for t in _ACR_TOKEN.findall(long_ or ""):
+        o = _acr(t)
+        if o and o != me and not o.startswith(me) and not me.startswith(o):
+            return True
+    return False
+
+
 def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     """(사업명들, 약칭들, (긴 이름, 약칭) 짝들)."""
     text = (text or "").replace("\\n", "\n").replace("\\t", " ")      # 글 속 「\\n」 표기는 줄바꿈 — 이름에 n 이 붙지 않게
@@ -247,7 +266,8 @@ def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     names = [_norm_name(part) for n in names for part in re.split(r"\s+[·,/]\s+", n) if part.endswith("사업")]
     names = [n for n in names if n and n not in _GENERIC and _name_ok(n)]
     pairs = [(t, m.group(2).strip()) for m in _PAIR.finditer(text or "")
-             if (t := _norm_name(_trim_name(m.group(1).strip()))) and _name_ok(t) and _is_acr(m.group(2))]
+             if (t := _norm_name(_trim_name(m.group(1).strip()))) and _name_ok(t) and _is_acr(m.group(2))
+             and not lists_other_acronym(t, m.group(2))]
     acrs = [f"{m.group(1)}{m.group(2)}" for m in _VERSIONED.finditer(text or "")]
     acrs += _BARE_ACR.findall(text or "")                     # 「RISE사업(2025~)」 — 홀로 쓰인 약칭+사업
     for n in names:
@@ -256,11 +276,13 @@ def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
             pairs.append((n, "k:" + k))
         inner = [a for a in _LATIN_ACR.findall(n) if _is_acr(a)]          # 「(AI+Digital)」은 풀이, 「(ver.4)」는 판 표기
         acrs += inner
-        pairs += [(n, a) for a in inner]                      # 「지역혁신중심 대학지원체계(RISE)사업」 — 이름 속 약칭과 같은 사업
+        # 「지역혁신중심 대학지원체계(RISE)사업」 — 이름 속 약칭과 같은 사업. 이름에 다른 약칭이 또 있으면(사업을 늘어놓은 구절) 잇지 않는다
+        pairs += [(n, a) for a in inner if not lists_other_acronym(n, a)]
         m = _ACR_NAME.match(n)
         if m:
             acrs.append(m.group(1))
-            pairs.append((n, m.group(1)))                     # 「대구 RISE사업」 — 그 약칭의 사업
+            if not lists_other_acronym(n, m.group(1)):
+                pairs.append((n, m.group(1)))                 # 「대구 RISE사업」 — 그 약칭의 사업
     return names, acrs, pairs
 
 
@@ -301,6 +323,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
     kor_alias: dict[str, set] = defaultdict(set)  # 괄호 속 한글 약칭 → 그 약칭을 품은 긴 이름 키
     title_texts: list[str] = []
     head_docs: dict[str, set] = defaultdict(set)  # 앞머리에만 나온 키 → 문서들
+    head_pairs: dict[tuple[str, str], set] = defaultdict(set)   # 앞머리에서만 본 (이름 키, 약칭 키) → 문서들
     for d in docs:
         tp = f"{clean_title(d.get('filename') or '')}\n{d.get('path') or ''}"
         title_texts.append(tp)
@@ -322,6 +345,9 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             k = "a:" + _acr(a)
             find(k)
             acr_seen[k][a.strip()] += 1
+        title_pairs = {(l_, s_) for l_, s_ in tpairs}
+        doc_title_keys = {"n:" + program_key(n) for n in tn} | {"a:" + _acr(a) for a in ta} | \
+            {"n:" + program_key(l_) for l_, _s in tpairs} | {"a:" + _acr(s_) for _l, s_ in tpairs if not s_.startswith("k:")}
         for long_, short in pairs:                              # 문서가 알려 주는 다른 이름
             if short.startswith("k:"):
                 kor_alias[short[2:]].add("n:" + program_key(long_))
@@ -329,6 +355,15 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             kn, ka = "n:" + program_key(long_), "a:" + _acr(short)
             names[kn][long_] += 1
             acr_seen[ka][short] += 1
+            # 제목·경로에서 함께 쓰인 짝, 또는 짝의 한쪽이 그 문서 제목·경로에도 나오면 바로 잇는다. 본문 앞머리에서만 본 짝은
+            # 문서 두 건 이상이 같은 짝을 쓸 때만 —
+            # 앞머리 한 곳의 우연한 구절이 다른 사업 약칭을 이 사업 별칭으로 붙이지 않게
+            if (long_, short) in title_pairs or kn in doc_title_keys or ka in doc_title_keys:
+                union(kn, ka)
+            else:
+                head_pairs[(kn, ka)].add(d.get("id"))
+    for (kn, ka), ds in head_pairs.items():
+        if len(ds) >= 2:
             union(kn, ka)
     # 글자 자리만 바뀐 약칭(오타 「RSIE」)은 열 배 넘게 흔한 같은 글자의 약칭과 같은 사업으로 본다
     acr_n = {k: sum(c.values()) for k, c in acr_seen.items()}

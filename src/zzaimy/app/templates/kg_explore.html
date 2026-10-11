@@ -70,7 +70,7 @@
     <div class="gx-head">
       <div class="gx-seg" id="gxMode">
         <button type="button" class="on" data-mode="kg">지식그래프</button>
-        <button type="button" data-mode="onto">온톨로지</button>
+        {% if request.state.role == 'dev' %}<button type="button" data-mode="onto">온톨로지</button>{% endif %}
       </div>
       <span class="gx-tools">
         <button type="button" id="gxLayout">다시 배치</button>
@@ -342,18 +342,32 @@
       document.getElementById("gxPTitle").textContent = "온톨로지 구조";
       document.getElementById("gxPMeta").textContent = "노드 종류 " + d.types.length + "개 · 관계 종류 " + d.rels.length + "개(기준별)";
       var acts = document.getElementById("gxPActs"); acts.innerHTML = "";
-      [["/graph/explore/ontology.ttl", "설계도(OWL) 내려받기"], ["/graph/explore/shapes.ttl", "검사 규칙(SHACL)"]].forEach(function (x) {
-        var a = el("a", "pill", x[1]); a.href = x[0]; acts.appendChild(a);
+      [["/graph/explore/ontology.ttl", "설계도 내려받기", "OWL(Turtle) — Protégé·WebVOWL 로 연다"],
+       ["/graph/explore/shapes.ttl", "검사 규칙 내려받기", "SHACL(Turtle)"]].forEach(function (x) {
+        var a = el("a", "pill", x[1]); a.href = x[0]; a.title = x[2]; acts.appendChild(a);
       });
       // 표준 검사(SHACL, scripts/177) 결과 — 규칙별 위반 수
       var sh = d.shacl, box = el("div", "gx-ev");
-      if (!sh) box.appendChild(el("div", null, "표준 검사(SHACL) 결과가 아직 없습니다. 그래프를 다시 만들 때 함께 검사합니다."));
+      if (!sh) box.appendChild(el("div", null, "구조 검사 결과가 아직 없습니다. 그래프를 다시 만들 때 함께 검사합니다."));
       else {
-        box.appendChild(el("div", null, "표준 검사(SHACL) " + sh.at + " · 세 쌍 " + Number(sh.triples).toLocaleString() + " · 규칙 " + sh.rules.length + "개 · "
+        box.appendChild(el("div", null, "구조 검사 " + sh.at + " · 세 쌍 " + Number(sh.triples).toLocaleString() + " · 규칙 " + sh.rules.length + "개 · "
           + (sh.n_violations ? "위반 " + Number(sh.n_violations).toLocaleString() + "건" : "위반 없음")
           + (sh.n_warnings ? " · 경고 " + Number(sh.n_warnings).toLocaleString() + "건" : "")));
         sh.violations.slice(0, 8).forEach(function (v) {
-          box.appendChild(el("q", null, "[" + (v.severity || "위반") + "] " + v.message + " — " + v.n.toLocaleString() + "건 (예: " + v.examples.slice(0, 2).join(", ") + ")"));
+          // 예시는 노드 이름으로, 내부 id 는 툴팁에만
+          var q = el("q", null, "[" + (v.severity || "위반") + "] " + v.message + " — " + v.n.toLocaleString() + "건");
+          var ex = (v.examples || []).slice(0, 2);
+          if (ex.length) {
+            q.appendChild(document.createTextNode(" (예: "));
+            ex.forEach(function (x, i) {
+              var s = el("span", null, typeof x === "string" ? x : x.label);
+              if (typeof x !== "string") s.title = x.id;
+              q.appendChild(s);
+              if (i < ex.length - 1) q.appendChild(document.createTextNode(", "));
+            });
+            q.appendChild(document.createTextNode(")"));
+          }
+          box.appendChild(q);
         });
       }
       body.appendChild(box);
