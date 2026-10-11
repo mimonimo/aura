@@ -1,13 +1,5 @@
 # 애플리케이션
 
-행정문서 분석·검색·작성 플랫폼의 구현 코드.
-
-| 모듈 | 역할 |
-|---|---|
-| app | 화면·API·계정·문서 관리 |
-| ingest | 문서 추출·분류 |
-| index · retrieve | 검색 색인·근거 검색 |
-| graph | 사업·문서·절의 관계 |
-| generate · extract | 문서 생성·정보 추출 |
-| dataset | 학습 후보 생성·검수 |
-| verify · eval | 결과 검증·성능 평가 |
+플랫폼 구현 코드다. app 은 화면·API·계정·문서 작업 에이전트, ingest 는 문서 추출·분류, index·retrieve 는 색인과 근거 검색,
+graph 는 사업·문서·절의 관계, document_context 는 문서 안팎의 명시적 참조, generate·extract 는 생성과 정보 추출,
+verify·eval 은 검증과 평가, dataset 은 학습 후보 생성·검수, export 는 학습 산출물 반출 묶음을 맡는다.

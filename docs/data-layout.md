@@ -1,11 +1,13 @@
 # 데이터 배치 — 무엇이 어디에 있나
 
 운영 서버 `~/zzaimy-capstone/data/` 기준이다. 경로 규칙은 `src/zzaimy/app/paths.py` 하나에서 나오며, 근거는 ADR-0030·0031이다.
+문서·조각·개체·장부의 정본은 2026-09-29부터 PostgreSQL 운영 DB다(ADR-0037, 접속은 `ZZAIMY_DATABASE_URL`). 사업 문서 조각의
+조밀 검색 벡터도 같은 DB 의 pgvector 표에 있다(ADR-0057). 아래 `platform.db` 는 전환 전 SQLite 로, 보존만 한다.
 
 ```
 data/
   platform/
-    platform.db                      원본 DB — 문서·조각·개체·장부(files)·설정. 이것이 정본이다
+    platform.db                      전환 전 SQLite DB(보존). 지금 정본은 PostgreSQL
     accounts.json, llm_connections.json, nas_sources.json, gdrive_oauth.json, gdrive_tokens.json   설정(0600)
     access_audit.jsonl, gdocs_audit.jsonl, llm_usage.json                                        감사·사용 기록
     documents/                       1층 문서

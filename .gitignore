@@ -88,3 +88,6 @@ logs/
 Thumbs.db
 .vscode/
 .idea/
+
+# 에이전트 작업 트리(로컬 전용)
+.claude/worktrees/

@@ -18,7 +18,7 @@ DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 def row(f: Path) -> str:
     lines = f.read_text(encoding="utf-8").splitlines()
     title = next((ln[2:].strip() for ln in lines if ln.startswith("# ")), f.stem)
-    title = re.sub(r"^(ADR-)?\d{4}\.?\s*[·—-]?\s*", "", title)
+    title = re.sub(r"^(ADR-)?\d{4}\.?\s*[·—:-]?\s*", "", title)
     status = date = ""
     for ln in lines[:12]:
         t = ln.strip().lstrip("-> ").replace("**", "")
