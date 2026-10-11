@@ -25,7 +25,7 @@ def test_question_modes_survive_reload_and_regeneration(tmp_path, monkeypatch):
     monkeypatch.setattr(web_search, 'answer_from_model', model)
     monkeypatch.setattr(web_search, 'answer_with_web', web)
     client = candidate_client(tmp_path, monkeypatch)
-    for value, expected, label in [('', 'document', '문서 작업'), ('model', 'model', '기본 대화'), ('1', 'web', '기본 대화 · 웹 검색')]:
+    for value, expected, label in [('', 'document', '문서 작업'), ('model', 'model', '기본 대화'), ('1', 'web', '웹 검색')]:
         client.post('/chat/send', data={'question': '모드 질문', 'web': value})
         sid = {'document': 1, 'model': 2, 'web': 3}[expected]
         rows = client.app.state.db.list_chats(sid)
@@ -67,10 +67,9 @@ def test_edit_resend_preserves_original_history_and_project(tmp_path, monkeypatc
     assert first.status_code == 200
     assert 'data-edit-question="처음 질문"' in first.text
     assert '<a href="/project/1">합성 사업</a>' in first.text
-    assert '최근 요청 · 처음 질문' in first.text
+    assert '최근 요청' not in first.text            # 머리에는 프로젝트·대화 이름만(바로 아래 질문을 되풀이하지 않는다)
     second = client.post('/chat/send', data={'question': '수정한 질문', 'session_id': 1})
     assert second.status_code == 200
-    assert '최근 요청 · 수정한 질문' in second.text
     rows = client.app.state.db.list_chats(1)
     assert [row['content'] for row in rows if row['role'] == 'user'] == ['처음 질문', '수정한 질문']
     assert client.app.state.db.get_chat_session(1)['project_id'] == 1
@@ -92,7 +91,6 @@ def test_waiting_chat_allows_composing_next_question(tmp_path, monkeypatch):
     page = client.get(f'/chat/{session}').text
     assert 'data-waiting="true"' in page
     assert '<h1>합성 대화</h1>' in page
-    assert '최근 요청 · 대기 질문' in page
     input_tag = page.split('id="chatInput"', 1)[1].split('>', 1)[0]
     assert 'disabled' not in input_tag
     assert 'id="sendBtn" disabled' in page

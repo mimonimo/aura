@@ -38,12 +38,31 @@
      if(section.tab_id)url.searchParams.set('tab',section.tab_id);else url.searchParams.delete('tab');
      url.hash='heading='+section.heading_id;
    }
-   // 독스를 다시 그리는 동안(20~30초) 빈 칸만 보이므로 다 그릴 때까지 한 줄 안내를 띄운다
-   const viewport=frame.parentElement;let note=viewport.querySelector('.chat-doc-loading');
-   if(!note){note=document.createElement('div');note.className='chat-doc-loading';note.innerHTML='<span class="chat-doc-busy-dot" aria-hidden="true"></span><span></span>';viewport.append(note);}
-   note.querySelector('span:last-child').textContent=section?`「${section.heading}」 위치로 이동하는 중…`:'문서를 새로 불러오는 중…';
-   note.hidden=false;frame.addEventListener('load',()=>{note.hidden=true;},{once:true});
-   frame.src=url.href;
+   loadFrame(frame,url.href,section?`「${section.heading}」 위치로 이동하는 중…`:'문서를 새로 불러오는 중…');
+ }
+ // iframe 을 (다시) 불러오는 동안 덮개 안내를 띄우고, 그 iframe 의 load 가 올 때까지 둔다. 불러오기마다 번호를
+ // 매겨 앞선 불러오기의 load(취소된 이동·늦게 끝난 이동)가 새 안내를 지우지 않게 한다. 구글 편집기는 큰 문서에서
+ // 수십 초가 걸려 15초가 지나면 그 사실을 알린다. 덮개는 iframe 을 감싼 칸(fitEditor)에 둔다.
+ let loadSeq=0;
+ function loadFrame(frame,url,text){
+   const viewport=frame.parentElement;if(!viewport)return;
+   let note=[...viewport.children].find(el=>el.classList.contains('chat-doc-loading'));
+   if(!note){
+     note=document.createElement('div');note.className='chat-doc-loading';note.setAttribute('role','status');
+     const dot=document.createElement('span');dot.className='chat-doc-busy-dot';dot.setAttribute('aria-hidden','true');
+     note.append(dot,document.createElement('span'));viewport.append(note);
+   }
+   const seq=String(++loadSeq);frame.dataset.loadSeq=seq;
+   note.lastElementChild.textContent=text;note.hidden=false;viewport.setAttribute('aria-busy','true');
+   clearTimeout(note.slowTimer);
+   note.slowTimer=setTimeout(()=>{if(frame.dataset.loadSeq===seq&&!note.hidden)note.lastElementChild.textContent=text+' 구글 문서가 크면 1분 가까이 걸립니다.';},15000);
+   const done=()=>{
+     frame.removeEventListener('load',done);
+     if(frame.dataset.loadSeq!==seq)return;
+     clearTimeout(note.slowTimer);note.hidden=true;viewport.removeAttribute('aria-busy');
+   };
+   frame.addEventListener('load',done);
+   frame.src=url;
  }
  function isEditor(){return Boolean(panel&&panel.querySelector('[data-toolbar]')&&!panel.classList.contains('chat-doc-viewer'));}
  function jumpToSection(section){
@@ -73,21 +92,20 @@
  function clearPanel(){finishClose();cancelFormatTransition?.();fitObserver?.disconnect();fitObserver=null;panel?.remove();panel=null;}
  function switchFormatting(event){
    cancelFormatTransition?.();
-   const control=event.target, frame=panel.querySelector('iframe'), viewport=frame.parentElement;
+   const control=event.target, frame=panel.querySelector('iframe');
    const next=new URL(control.checked?(linked.embed_url_toolbar||linked.embed_url):linked.embed_url,location.href);
    // Preserve an explicit navigation anchor. Cross-origin editor scroll is not readable.
    const previous=new URL(frame.src);
    if(previous.hash)next.hash=previous.hash;
    if(previous.searchParams.get('tab'))next.searchParams.set('tab',previous.searchParams.get('tab'));
    if(frame.src===next.href)return;
-   const cover=document.createElement('div');cover.className='chat-doc-loading';cover.setAttribute('role','status');cover.textContent='편집 화면을 전환하고 있습니다…';
-   viewport.append(cover);viewport.setAttribute('aria-busy','true');control.disabled=true;
+   control.disabled=true;
    let timer;
-   const done=()=>{clearTimeout(timer);frame.removeEventListener('load',done);cover.remove();viewport.removeAttribute('aria-busy');control.disabled=false;cancelFormatTransition=null;};
+   const done=()=>{clearTimeout(timer);frame.removeEventListener('load',done);control.disabled=false;cancelFormatTransition=null;};
    cancelFormatTransition=done;
-   frame.addEventListener('load',done,{once:true});
-   timer=setTimeout(()=>{cover.textContent='불러오기가 지연되고 있습니다. 잠시 기다리거나 새 창에서 열어 주세요.';control.disabled=false;},15000);
-   frame.src=next.href;
+   frame.addEventListener('load',done);
+   timer=setTimeout(()=>{control.disabled=false;},15000);
+   loadFrame(frame,next.href,control.checked?'구글 서식 도구를 여는 중…':'편집 화면으로 돌아가는 중…');
  }
  function fitEditor(autoFit=true){
    const frame=panel.querySelector('iframe');if(!frame||frame.parentElement.classList.contains('chat-doc-viewport'))return;
@@ -169,19 +187,16 @@
    if(visible){
      const close=panel.querySelector('header [data-hide],header [data-close]');
      if(close){close.textContent='×';close.title='문서 패널 닫기';close.setAttribute('aria-label','문서 패널 닫기');close.classList.add('doc-icon-button');}
-     const back=panel.querySelector('header [data-list]');
-     if(back){back.textContent='← 문서함';back.title='문서함으로 돌아가기';back.setAttribute('aria-label',back.title);back.classList.remove('doc-icon-button');}
    }
    if(visible)reveal();else conceal();
    if(!visible)stopResize();
-   opener.setAttribute('aria-pressed',String(visible));
-   opener.title=visible?'문서 패널 접기':'문서 패널 열기';
-   opener.setAttribute('aria-label',opener.title);
+   opener.setAttribute('aria-expanded',String(visible));opener.hidden=visible;
+   opener.title='문서 패널 열기';opener.setAttribute('aria-label',opener.title);
    sessionStorage.setItem('chatDocHidden:'+sid,visible?'0':'1');
  }
  async function api(url,options={}){const response=await fetch(url,{cache:'no-store',...options});if(!response.ok||response.redirected){let message='요청을 처리하지 못했습니다.';try{const data=await response.json();if(typeof data.detail==='string')message=data.detail;}catch(_){}throw new Error(message);}return response.json();}
  function dialog(title){const d=document.createElement('dialog');d.className='chat-doc-dialog';d.setAttribute('aria-label',title);d.innerHTML='<h2></h2><form><div data-fields></div><p role="status"></p><footer><button type="button" class="secondary" data-cancel>취소</button><button type="submit" data-submit>연결</button></footer></form>';d.querySelector('h2').textContent=title;d.querySelector('[data-fields]').style.display='grid';d.querySelector('[data-fields]').style.gap='16px';d.querySelector('[data-cancel]').onclick=()=>d.close();d.addEventListener('close',()=>{d.remove();opener.focus();});document.body.append(d);d.showModal();return d;}
- async function connect(){const d=dialog('다른 폴더에서 문서 가져오기'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;submit.textContent='선택한 문서 가져오기';status.textContent='연결 계정 확인 중…';
+ async function connect(){const d=dialog('드라이브에서 문서 가져오기'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;submit.textContent='선택한 문서 가져오기';status.textContent='연결 계정 확인 중…';
  try{const data=await api('/api/chat-documents/accounts');if(!d.isConnected)return;
  fields.innerHTML='<label>Google 계정<select name="account" required></select></label><input type="hidden" name="doc"><div class="drive-picker-path"></div><div class="drive-picker-list"></div><p class="muted">Google Docs 문서를 선택하면 이 대화에서 작업할 수 있습니다. 다른 형식은 문서 추가를 이용해 주세요. 원본은 이동하거나 삭제하지 않습니다.</p>';
  data.accounts.filter(a=>a.docs_ok).forEach(a=>{const o=document.createElement('option');o.value=a.email;o.textContent=a.email;fields.querySelector('select').append(o);});
@@ -214,14 +229,14 @@
  if(!d.isConnected)return;submit.disabled=!linked.sections.length;f.dataset.ready='true';
  let confirmed=false;f.addEventListener('input',()=>{confirmed=false;fields.querySelector('[data-confirmation]').hidden=true;submit.textContent='내용 확인';});
  f.onsubmit=async e=>{e.preventDefault();if(!confirmed){confirmed=true;const p=fields.querySelector('[data-confirmation]');p.textContent='「'+f.elements.section.selectedOptions[0].textContent+'」 아래에 '+f.elements.text.value.length+'자를 삽입합니다.';p.hidden=false;submit.textContent='삽입 확정';return;}submit.disabled=true;status.textContent='삽입 중…';const body=new FormData(f);body.set('confirmed','true');try{await api('/api/chat-documents/'+sid+'/insert',{method:'POST',body});status.textContent='삽입했습니다. 문서에서 확인하세요.';submit.hidden=true;f.querySelector('[data-cancel]').textContent='닫기';f.querySelectorAll('input,select,textarea').forEach(el=>el.disabled=true);}catch(error){status.textContent=error.message;submit.disabled=false;confirmed=false;submit.textContent='내용 확인';}};}
- function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 서식 도구</label><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
- panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=switchFormatting;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
- panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;currentDoc=null;opener.title='문서 열기';opener.setAttribute('aria-label',opener.title);opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
+ function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 구글 서식 도구 보기</label><a target="_blank" rel="noopener">새 창에서 열기</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
+ panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').dataset.pendingSrc=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=switchFormatting;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
+ panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;currentDoc=null;opener.hidden=false;opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
  // 플랫폼 문서(첨부·접수·기준)의 구글 열람본을 같은 자리(iframe)에 연다 — 연결 문서와 달리 에이전트 편집 대상은 아니다
  function showViewer(v){
    clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor chat-doc-viewer';panel.setAttribute('aria-label','문서 열람');
-   panel.innerHTML='<header><button type="button" class="secondary" data-list>목록</button><strong></strong><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="문서 열람"></iframe>';
-   panel.querySelector('strong').textContent=v.title;panel.querySelector('iframe').src=v.embed_url;panel.querySelector('a[target]').href=v.url;
+   panel.innerHTML='<header><button type="button" class="secondary" data-list>목록</button><strong></strong><a target="_blank" rel="noopener">새 창에서 열기</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="문서 열람"></iframe>';
+   panel.querySelector('strong').textContent=v.title;panel.querySelector('a[target]').href=v.url;
    const state=document.createElement('span');state.className='chat-doc-state';
    state.textContent=[v.original_format?originalLabel(v.original_format):'문서',v.is_doc?'변환본 보기':'미리보기','읽기 전용'].join(' · ');
    panel.querySelector('header').after(state);
@@ -245,6 +260,7 @@
      };
      panel.querySelector('header').insertBefore(work,panel.querySelector('[data-hide]'));}
    main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(ratio,false);visibility(true);fitEditor(/document\//.test(v.embed_url));
+   loadFrame(panel.querySelector('iframe'),v.embed_url,'문서를 불러오는 중…');
    panel.querySelectorAll('header a,header button').forEach(el=>el.classList.add('chat-doc-mini'));
  }
  const createPanel=show;
@@ -254,7 +270,7 @@
    const titleRow=document.createElement('div');titleRow.className='doc-title-row';
    const tools=document.createElement('div');tools.className='doc-view-tools';tools.setAttribute('aria-label','문서 보기 설정');
    const back=header.querySelector('[data-list]'),title=header.querySelector('strong'),close=header.querySelector('[data-hide]');
-   back.textContent='‹';back.title='파일 목록으로';back.setAttribute('aria-label','파일 목록으로');back.classList.add('doc-icon-button');
+   back.textContent='← 문서 목록';back.title='문서 목록으로 돌아가기';back.setAttribute('aria-label',back.title);back.classList.remove('doc-icon-button');
    title.title=title.textContent;
    close.textContent='×';close.title='문서 패널 닫기';close.setAttribute('aria-label','문서 패널 닫기');close.classList.add('doc-icon-button');
    titleRow.append(back,title,close);
@@ -281,8 +297,8 @@
    tools.querySelector('[data-section-jump]')?.remove();
    const destinations=(linked.sections||[]).filter(s=>s.heading_id&&s.heading);
    if(!destinations.length)return;
-   const select=document.createElement('select');select.dataset.sectionJump='';select.setAttribute('aria-label','문서 제목 위치로 이동');
-   const prompt=document.createElement('option');prompt.value='';prompt.textContent='문서 위치 이동';select.append(prompt);
+   const select=document.createElement('select');select.dataset.sectionJump='';select.setAttribute('aria-label','목차에서 고른 제목 위치로 이동');
+   const prompt=document.createElement('option');prompt.value='';prompt.textContent='목차로 이동';select.append(prompt);
    destinations.forEach(s=>{const option=document.createElement('option');option.value=s.index;option.textContent=s.heading;select.append(option);});
    select.onchange=()=>{const section=destinations.find(s=>String(s.index)===select.value);if(section)jumpToSection(section);};
    tools.prepend(select);
@@ -294,12 +310,15 @@
    if(panel&&!isEditor())clearPanel();
    createPanel();
    fitEditor();
+   const frame=panel.querySelector('iframe');
+   if(frame?.dataset.pendingSrc){const first=frame.dataset.pendingSrc;delete frame.dataset.pendingSrc;loadFrame(frame,first,'문서를 불러오는 중…');}
    if(!panel.querySelector('[data-list]')){
      const back=document.createElement('button');back.type='button';back.className='secondary';back.dataset.list='';back.textContent='목록';back.onclick=showFiles;
      panel.querySelector('header').prepend(back);
    }
-   if(!panel.querySelector('[data-folder]')){
-     const folder=document.createElement('a');folder.dataset.folder='';folder.textContent='폴더 열기 ↗';
+   if(!panel.dataset.folderAsked){
+     panel.dataset.folderAsked='1';
+     const folder=document.createElement('a');folder.dataset.folder='';folder.textContent='드라이브 폴더 열기';
      folder.target='_blank';folder.rel='noopener';folder.hidden=true;
      panel.querySelector('header').insertBefore(folder,panel.querySelector('header a'));
      api('/api/chat-documents/'+sid+'/folder').then(data=>{
@@ -318,7 +337,7 @@
    visibility(true);
    paintBusy();
  };
- opener.setAttribute('aria-pressed','false');
+ opener.setAttribute('aria-expanded','false');
  let loadError='';
  function showEmpty(){
    if(!panel){
@@ -333,9 +352,9 @@
    }
    visibility(true);
  }
- function originalLabel(format){const ext=(format||'').replace(/^\./,'').toLowerCase();return ['hwp','hwpx'].includes(ext)?'한글 ('+ext.toUpperCase()+')':ext?ext.toUpperCase():'문서';}
+ function originalLabel(format){const ext=(format||'').replace(/^\./,'').toLowerCase();return ['hwp','hwpx'].includes(ext)?'한글 ('+ext.toUpperCase()+')':ext?ext.toUpperCase():'파일';}
  function fileCard(button,name,subtitle,imageUrl,originalFormat){
-   button.classList.add('chat-file-card');button.title=name;button.replaceChildren();
+   button.classList.add('chat-file-card');if(!button.title)button.title=name;button.replaceChildren();
    const visual=document.createElement('span');visual.className='chat-file-visual';
    const format=originalLabel(originalFormat||name.match(/\.([a-z0-9]+)$/i)?.[1]);visual.textContent=format.replace('한글 (','').replace(')','');
    if(originalFormat==='Google Docs'){
@@ -373,14 +392,19 @@
  }
  // 문서함 — 작업 문서(이 대화와 함께 편집하는 Google Docs) 아래에 프로젝트 화면과 같은 세 갈래:
  // 사용자 첨부 문서 · 참고 문서(에이전트가 불러온 문서 포함) · 규정·지침. 답이 끝날 때마다 목록을 다시 읽는다.
- const DOC_GROUPS=[['attached','사용자 첨부 문서','프로젝트에 올리거나 대화에 첨부한 문서'],['reference','참고 문서','문서함에서 불러온 문서 · 에이전트가 근거로 쓴 문서'],['rules','규정·지침','프로젝트에 연결된 공고·지침·기준']];
- const DOC_EMPTY={attached:'아직 올리거나 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'연결된 공고·지침이 없습니다.'};
+ // 설명·빈 상태 문구는 프로젝트 대화인지에 따라 고른다(프로젝트 없는 대화에 '프로젝트에 올린'을 말하지 않게)
+ const DOC_GROUPS=[['attached','사용자 첨부 문서'],['reference','참고 문서'],['rules','규정·지침']];
+ const DOC_NOTES={project:{attached:'프로젝트에 올리거나 대화에 첨부한 문서',reference:'라이브러리에서 불러온 문서 · 에이전트가 근거로 쓴 문서',rules:'프로젝트에 연결된 공고·지침·기준'},
+   chat:{attached:'이 대화에 첨부한 문서',reference:'라이브러리에서 불러온 문서 · 에이전트가 근거로 쓴 문서',rules:'이 대화에 첨부한 공고·지침·기준'}};
+ const DOC_EMPTY={project:{attached:'아직 올리거나 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'연결된 공고·지침이 없습니다.'},
+   chat:{attached:'아직 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'첨부한 공고·지침이 없습니다.'}};
+ const inProject=()=>Boolean(document.querySelector('#chatForm [name=project_id]'));
  let refreshLibrary=null;
  async function showFiles(){
    // 문서함도 편집기·열람과 같은 폭(끌어 둔 비율)으로 연다. 보기마다 폭을 바꾸면 대화 칸이 오가며
    // 입력창이 밀린다.
    clearPanel();showEmpty();
-   panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서함';
+   panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서 패널';
    const refresh=document.createElement('button');refresh.type='button';refresh.className='secondary doc-icon-button';refresh.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7"/></svg>';refresh.title='목록 새로고침';refresh.setAttribute('aria-label',refresh.title);refresh.onclick=showFiles;
    panel.querySelector('header').insertBefore(refresh,panel.querySelector('[data-close]'));
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
@@ -391,11 +415,12 @@
    const workNote=document.createElement('p');workNote.className='chat-file-section-note';workNote.textContent='채팅과 함께 편집하는 문서';
    body.append(workHeading,workNote,workDocs);
    const groups={};
-   for(const [key,label,note] of DOC_GROUPS){
+   let scope=inProject()?'project':'chat';
+   for(const [key,label] of DOC_GROUPS){
      const heading=document.createElement('h3');heading.textContent=label;
-     const help=document.createElement('p');help.className='chat-file-section-note';help.textContent=note;
+     const help=document.createElement('p');help.className='chat-file-section-note';help.textContent=DOC_NOTES[scope][key];
      const list=document.createElement('div');list.className='chat-file-list';list.dataset.docGroup=key;
-     groups[key]={heading,list,label};body.append(heading,help,list);
+     groups[key]={heading,list,label,help};body.append(heading,help,list);
    }
    const imagesHeading=document.createElement('h3');imagesHeading.textContent='콘텐츠';
    const images=document.createElement('div');images.className='chat-image-grid';
@@ -405,7 +430,8 @@
      for(const [key] of DOC_GROUPS){const g=groups[key];
        g.list.querySelectorAll('.chat-file-empty').forEach(x=>x.remove());
        const n=g.list.querySelectorAll('.chat-doc-file').length;countHeading(g.heading,g.label,n);
-       if(!n){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=DOC_EMPTY[key];g.list.append(empty);}}
+       g.help.textContent=DOC_NOTES[scope][key];
+       if(!n){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=DOC_EMPTY[scope][key];g.list.append(empty);}}
      imagesHeading.textContent='콘텐츠 '+images.children.length;
      imagesHeading.hidden=images.hidden=!images.children.length;
    }
@@ -413,11 +439,14 @@
    async function loadPlatform(){
      if(!sid)return;
      const mine=await api('/api/chat/'+sid+'/documents');if(panel!==current)return;
+     if('project_id' in mine)scope=mine.project_id?'project':'chat';
      for(const [key] of DOC_GROUPS)groups[key].list.querySelectorAll('[data-platform-doc]').forEach(x=>x.remove());
      const byGroup=mine.groups?Object.fromEntries(mine.groups.map(g=>[g.key,g.documents])):{attached:mine.documents||[]};
      for(const [key] of DOC_GROUPS)for(const d of byGroup[key]||[]){
        const a=document.createElement('button');a.type='button';a.className='chat-doc-file';a.dataset.platformDoc=d.id;
-       const detail=[d.via,d.kind,d.status].filter(Boolean).join(' · ');a.title=detail;
+       const via=(d.via||'').startsWith('에이전트')?'에이전트 참고':d.via;
+       const unfinished=d.state&&d.state!=='reviewed'?d.status:'';
+       const detail=[via,d.kind,unfinished].filter(Boolean).join(' · ');a.title=[d.name,d.via,d.kind,d.status].filter(Boolean).join(' · ');
        const isImage=imageFile('.'+(d.original_format||'')),imageUrl='/doc/'+encodeURIComponent(d.id)+'/original';
        fileCard(a,d.name,detail,isImage?imageUrl:null,d.original_format);
        if((d.via||'').startsWith('에이전트'))a.classList.add('chat-file-agent');
@@ -445,7 +474,7 @@
    try{
      const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
      status.textContent='';
-     if(data.folder_url){const folder=document.createElement('a');folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='폴더 열기 ↗';panel.querySelector('header').insertBefore(folder,panel.querySelector('[data-close]'));}
+     if(data.folder_url&&!panel.querySelector('header [data-folder]')){const folder=document.createElement('a');folder.dataset.folder='';folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='드라이브 폴더 열기';panel.querySelector('header').insertBefore(folder,panel.querySelector('[data-close]'));}
      for(const file of data.files){
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
        const isImage=file.mime_type.startsWith('image/')||imageFile(file.name);
@@ -474,7 +503,7 @@
      finishGroups();
      countHeading(workHeading,'작업 문서',workDocs.children.length);
      if(!workDocs.children.length){const empty=document.createElement('p');empty.className='chat-file-empty';empty.textContent=data.error?'작업 문서 목록을 불러오지 못했습니다.':'아직 작업 문서가 없습니다.';workDocs.append(empty);}
-     const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='다른 폴더에서 가져오기';connectButton.onclick=connect;workDocs.after(connectButton);
+     const connectButton=document.createElement('button');connectButton.type='button';connectButton.className='secondary';connectButton.textContent='드라이브에서 가져오기';connectButton.onclick=connect;workDocs.after(connectButton);
      connectButton.classList.add('chat-file-import');
      workNote.hidden=!workDocs.querySelector('.chat-doc-file');
      markCurrentFile();
@@ -560,8 +589,19 @@
      }
    }
    if(!isEditor()||panel.hidden)return;
-   const target=writtenSection();
-   if(target)jumpToSection(target);else navigateEditor(null);
+   offerJump(writtenSection());
+ }
+ // 답이 끝난 뒤 편집기 위 한 줄 — 쓴 절 이름과 「그 위치로 이동」. 구글 편집기는 고친 내용을 바로 받으므로
+ // 답마다 다시 불러오지 않고(20~40초 빈 화면), 누를 때만 그 위치로 다시 연다.
+ function offerJump(section){
+   panel?.querySelector('.chat-doc-done')?.remove();
+   if(!section||!isEditor())return;
+   const strip=document.createElement('div');strip.className='chat-doc-done';strip.setAttribute('role','status');
+   const text=document.createElement('span');text.textContent=`「${section.heading}」에 썼습니다. 편집기에 바로 반영됩니다.`;
+   const go=document.createElement('button');go.type='button';go.className='secondary';go.textContent='그 위치로 이동';
+   go.onclick=()=>{strip.remove();jumpToSection(section);};
+   const close=document.createElement('button');close.type='button';close.className='doc-icon-button';close.textContent='×';close.title='알림 닫기';close.setAttribute('aria-label','알림 닫기');close.onclick=()=>strip.remove();
+   strip.append(text,go,close);panel.querySelector('header').after(strip);
  }
  workspace.addEventListener('chat-session-updated',event=>{
    const next=workspace.dataset.session;
@@ -569,7 +609,7 @@
    // (새 첨부, 에이전트가 근거로 불러온 문서가 제 갈래에 바로 선다).
    if(next===sid){
      const waiting=Boolean(event.detail?.waiting), wasBusy=agentBusy;
-     agentBusy=waiting;if(waiting)busyLabel='';
+     agentBusy=waiting;if(waiting){busyLabel='';panel?.querySelector('.chat-doc-done')?.remove();}
      paintBusy();
      if(!waiting&&panel?.classList.contains('chat-file-library'))refreshLibrary?.();
      if(!waiting&&wasBusy)afterAnswer();
@@ -584,8 +624,8 @@
  initializeSession();
  window.addEventListener('pagehide',()=>clearTimeout(watch));
  opener.onclick=()=>{
-   if(panel&&!panel.hidden&&!closing)visibility(false);
-   else if(panel?.classList.contains('chat-file-library'))visibility(true);
+   if(panel&&!panel.hidden&&!closing)return;
+   if(panel)visibility(true);
    else showFiles();
  };
 })();

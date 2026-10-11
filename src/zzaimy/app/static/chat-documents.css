@@ -102,3 +102,8 @@ body .chat-location-button{display:block;margin-top:12px;max-width:100%;white-sp
 @media(prefers-reduced-motion:reduce){.chat-doc-busy-dot{animation:none}}
 .chat-doc-loading{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#2c4a73;font-size:13px;box-shadow:0 4px 14px rgba(15,30,60,.08);z-index:2}
 .chat-doc-loading[hidden]{display:none}
+/* 답이 끝난 뒤 편집기 위 한 줄(쓴 절 · 그 위치로 이동) — 진행 줄(.chat-doc-busy)과 같은 자리 */
+.chat-doc-done{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 14px;border-bottom:1px solid var(--line);background:#f3f8f3;color:#2d5233;font-size:12px;line-height:1.5;min-width:0}
+.chat-doc-done>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-doc-done>button{flex:none;font-size:12px;padding:4px 10px;min-height:28px}
+.chat-doc-done>.doc-icon-button{width:28px;padding:0;border:0;background:transparent;color:var(--muted);box-shadow:none}

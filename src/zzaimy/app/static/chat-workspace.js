@@ -40,8 +40,18 @@
     form.setAttribute('aria-busy', String(sending));
   }
   function notify(text) { hint.textContent = text; hint.hidden = false; }
-  function bottom() { scroller.scrollTop = scroller.scrollHeight; latest.hidden = true; }
-  function nearBottom() { return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100; }
+  // 대화 칸 고정(chat-scroll.js) — 보낸 뒤·답이 온 뒤 늦게 늘어나는 높이에도 최신 글에 남고, 사용자가 스크롤하면 놓는다
+  const pin = window.ChatScroll ? window.ChatScroll.createPin(scroller) : {
+    toBottom() { scroller.scrollTop = scroller.scrollHeight; }, toLatest() { scroller.scrollTop = scroller.scrollHeight; },
+    release() {}, active() { return false; }, nearBottom() { return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 100; },
+  };
+  if (window.ChatScroll) window.ChatScroll.releaseOnUserScroll(scroller, pin);
+  function bottom() { pin.toBottom(); latest.hidden = true; }
+  function nearBottom() { return pin.nearBottom(); }
+  function newestAnswer() {
+    const answers = scroller.querySelectorAll('.turn.assistant:not(.chat-progress)');
+    return answers[answers.length - 1] || null;
+  }
   function showProgress(progress) {
     const panel = document.getElementById('chatProgress');
     if (!panel || !progress || !Array.isArray(progress.steps) || !progress.steps.length) return;
@@ -78,7 +88,7 @@
     if (!next || !nextScroll || target.origin !== location.origin || !/^\/chat\/\d+$/.test(target.pathname)) {
       throw new Error('invalid chat response');
     }
-    const shouldScroll = forceScroll || nearBottom();
+    const shouldScroll = forceScroll || nearBottom() || pin.active();
     const position = scroller.scrollTop;
     scroller.innerHTML = nextScroll.innerHTML;
     const heading = next.querySelector('.chat-heading');
@@ -104,7 +114,9 @@
       sessionStorage.setItem('chatCriteria:' + next.dataset.session, JSON.stringify(criteria));
       sessionStorage.removeItem('chatCriteria:new');
     } catch (_) {}
-    if (shouldScroll) bottom();
+    // 보낸 직후는 맨 아래(진행 줄), 답이 막 온 때는 새 답으로 — 긴 답이면 답의 머리에 맞춘다
+    if (forceScroll || (shouldScroll && waiting)) bottom();
+    else if (shouldScroll) { pin.toLatest(newestAnswer()); latest.hidden = true; }
     else { scroller.scrollTop = position; latest.hidden = false; }
     status.textContent = waiting ? '요청 처리 중' : '';
     paint();
@@ -188,27 +200,8 @@
     form.requestSubmit();
   });
   input.addEventListener('input', () => { paint(); resize(); });
-  const toolsButton = document.getElementById('attachButton'), toolsMenu = document.getElementById('chatTools');
-  function placeTools() {
-    const rect = toolsButton.getBoundingClientRect();
-    toolsMenu.style.left = Math.max(12, Math.min(rect.left, innerWidth - 292)) + 'px';
-    toolsMenu.style.bottom = Math.max(12, innerHeight - rect.top + 10) + 'px';
-  }
-  toolsButton.addEventListener('click', () => { placeTools(); toolsMenu.togglePopover(); });
-  toolsMenu.addEventListener('toggle', event => {
-    toolsButton.setAttribute('aria-expanded', String(event.newState === 'open'));
-    if (event.newState === 'open') toolsMenu.querySelector('button').focus();
-  });
-  toolsMenu.addEventListener('keydown', event => {
-    if (event.key === 'Escape') toolsButton.focus();
-  });
-  toolsMenu.querySelectorAll('[data-chat-tool]').forEach(button => button.addEventListener('click', () => {
-    toolsMenu.hidePopover();
-    toolsButton.focus();
-    if (button.dataset.chatTool === 'file') file.click();
-    else if (button.dataset.chatTool === 'document') document.getElementById('chatDocumentOpen').click();
-  }));
-  window.addEventListener('resize', () => { if (toolsMenu.matches(':popover-open')) placeTools(); });
+  // 첨부 단추는 파일 고르기 하나만 — 답변 방식(웹 검색 포함)은 입력줄 오른쪽 고르기에서 정한다
+  document.getElementById('attachButton').addEventListener('click', () => file.click());
   function editQuestion(button) {
     if (waiting || sending) { notify('답변 작성이 끝난 뒤 수정해 주세요.'); return; }
     if (editor) { editor.querySelector('textarea').focus(); return; }
@@ -322,7 +315,6 @@
       if (!page.ok || page.redirected) throw new Error();
       installPage(await page.text(), page.url);
       const selected = scroller.querySelector('[data-message-id="' + messageId + '"]');
-      selected?.scrollIntoView({block:'nearest'});
       selected?.querySelector('[data-resend-question]')?.focus({preventScroll:true});
       notify('이 질문부터 다시 생성했습니다. 이전 답변과 이후 대화는 수정 이력에서 볼 수 있습니다.');
     } catch (error) {
@@ -351,5 +343,7 @@
     }
   });
   paint();
+  // 처음 연 화면도 최신 글에서 — 아이콘·단추가 늦게 그려져도 맨 위로 밀리지 않게
+  if (scroller.querySelector('.turn')) bottom();
   if (waiting) timer = setTimeout(poll, 2000);
 })();

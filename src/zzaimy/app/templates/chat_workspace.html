@@ -41,7 +41,6 @@
            max-width: 900px; width: 100%; margin: 0 auto; padding: 8px 10px; }
     .chat-dock.warn { border-color: var(--amber); }
     .dock-row { display: flex; align-items: flex-end; gap: 8px; }
-    .chat-tools [data-answer-mode].on { color: #2e75b6; font-weight: 600; }
     .dock-row textarea { flex: 1; border: 0; outline: none; resize: none;
                  font-size: 14.5px; line-height: 1.6; padding: 10px 8px; font-family: inherit;
                  background: transparent; min-width: 0; max-height: 190px; }
@@ -140,6 +139,7 @@
     }
   </style>
   <link rel="stylesheet" href="/static/chat-workspace.css?v={{ asset_v }}">
+  <script src="/static/chat-scroll.js?v={{ asset_v }}" defer></script>
   <script src="/static/chat-workspace.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 {% block content %}
@@ -151,12 +151,9 @@
     {% set conversation_title = chat_project.name if chat_project else (chat_session.title if chat_session else '근거를 찾고, 문서를 다듬으세요') %}
     <h1>{% if chat_project %}<a href="/project/{{ chat_project.id }}">{{ conversation_title }}</a>{% else %}{{ conversation_title }}{% endif %}</h1>
     {% if scope_label %}<p class="chat-scope">{{ scope_label }}</p>{% endif %}
-    {% if chat_topic and (chat_project or chat_topic != conversation_title) %}
-    <p class="chat-topic" title="{{ chat_topic }}">최근 요청 · {{ chat_topic | truncate(110, true) }}</p>
-    {% endif %}
   </div>
   <div class="chat-head-actions">
-    <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen" title="문서 열기" aria-label="문서 열기" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/settings#myGoogle' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
+    <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen" title="문서 패널 열기" aria-label="문서 패널 열기" aria-expanded="false" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/settings#myGoogle' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
   </div>
 </header>
 <div class="drop-veil" id="dropVeil" hidden>파일을 놓으면 첨부됩니다</div>
@@ -170,11 +167,11 @@
 
   {% for m in messages %}
     <div class="turn {{ m.role }}" data-message-id="{{ m.id }}">
-      <div class="chat-speaker">{{ '나' if m.role == 'user' else '짜이미' }}{% if m.role == 'user' and m.mode %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': '문서 작업', 'model': '기본 대화', 'web': '기본 대화 · 웹 검색'}.get(m.mode, '') }}</span>{% endif %}</div>
+      <div class="chat-speaker">{{ '나' if m.role == 'user' else '짜이미' }}{% if m.role == 'user' and m.mode %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': '문서 작업', 'model': '기본 대화', 'web': '웹 검색'}.get(m.mode, '') }}</span>{% endif %}</div>
       {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
-      {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | md_view | cite_links(sources) }}</div>
+      {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | particles | md_view | cite_links(sources) }}</div>
       {% else %}<div class="msg user">{{ m.content | attach_view }}</div>{% endif %}
       {% endif %}
       {% if m.role == "assistant" %}
@@ -195,7 +192,7 @@
       {% endif %}
   {% if loop.last and m.role == 'assistant' and suggestions and not waiting %}
   <div class="chat-suggestions" aria-label="다음 작업 제안">
-    {% for sg in suggestions %}{% if sg.kind == 'form' and sg.fields %}<form action="/chat/send" method="post" class="chat-suggestion chat-suggestion-form" data-template="{{ sg.template }}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><input type="hidden" name="template" value="{{ sg.template }}"><span class="chat-form-title">{{ sg.text }}</span>{% for f in sg.fields %}<label class="chat-form-field"><span>{{ f.label }}</span><input type="text" name="field_{{ f.name }}" data-field="{{ f.name }}" placeholder="{{ f.placeholder }}"{% if f.required %} required{% endif %}></label>{% endfor %}<button type="submit" class="secondary">{{ sg.submit or '보내기' }}</button></form>{% else %}<form action="/chat/send" method="post" class="chat-suggestion"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="secondary" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endif %}{% endfor %}
+    {% for sg in suggestions %}{% if sg.kind == 'form' and sg.fields %}<form action="/chat/send" method="post" class="chat-suggestion chat-suggestion-form" data-template="{{ sg.template }}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><input type="hidden" name="template" value="{{ sg.template }}"><span class="chat-form-title">{{ sg.text }}</span>{% for f in sg.fields %}<label class="chat-form-field"><span>{{ f.label }}</span><input type="text" name="field_{{ f.name }}" data-field="{{ f.name }}"{% if f.placeholder %} aria-describedby="hint-{{ loop.index }}-{{ session_id }}"{% endif %}{% if f.required %} required{% endif %}>{% if f.placeholder %}<small class="chat-form-hint" id="hint-{{ loop.index }}-{{ session_id }}">{{ f.placeholder }}</small>{% endif %}</label>{% endfor %}<button type="submit" class="secondary">{{ sg.submit or '저장' }}</button></form>{% else %}<form action="/chat/send" method="post" class="chat-suggestion"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="secondary" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endif %}{% endfor %}
   </div>
   {% endif %}
     </div>
@@ -222,23 +219,19 @@
   <div class="dock-row">
     <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
     <input type="hidden" name="web" id="webField" value="">
-    <button type="button" class="dock-btn" id="attachButton" title="도구 추가" aria-label="도구 추가" aria-expanded="false" aria-controls="chatTools"><iconify-icon icon="solar:add-linear"></iconify-icon></button>
-    <div id="chatTools" class="chat-tools" popover aria-label="채팅 도구">
-      <button type="button" data-chat-tool="file"><iconify-icon icon="solar:paperclip-linear"></iconify-icon>파일 또는 사진 추가</button>
-      <button type="button" id="webSearchToggle" aria-pressed="false"><iconify-icon icon="solar:global-linear"></iconify-icon>웹 검색</button>
-    </div>
-    <button type="button" id="webSearchChip" class="chat-web-chip" aria-label="웹 검색 끄기" hidden><iconify-icon icon="solar:global-linear"></iconify-icon><span>웹 검색</span><span aria-hidden="true">×</span></button>
+    <button type="button" class="dock-btn" id="attachButton" title="파일 또는 사진 첨부" aria-label="파일 또는 사진 첨부"><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
     <textarea name="question" id="chatInput" rows="1" placeholder="질문이나 수정할 내용을 입력하세요"
               aria-label="질문 또는 수정 요청" autofocus autocomplete="off"></textarea>
-    <select id="answerMode" class="chat-answer-mode" aria-label="답변 모드">
+    <select id="answerMode" class="chat-answer-mode" aria-label="답변 방식" title="답변 방식 — 문서 작업: 등록 문서를 근거로 답하고 작업 문서를 고칩니다 · 기본 대화: 문서 없이 모델이 답합니다 · 웹 검색: 질문만 밖으로 보내 웹에서 찾습니다">
       <option value="">문서 작업</option>
-          <option value="model">기본 대화</option>
+      <option value="model">기본 대화</option>
+      <option value="1">웹 검색</option>
     </select>
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
       <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
   </div>
   <div class="dock-hint" id="dockHint" hidden>보낼 내용을 입력하세요.</div>
-  <div class="chat-dock-footer"><span id="chatSendState" role="status" aria-live="polite">{{ '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' if waiting else '수치와 최종 판단은 근거 문서와 확인하세요.' }}</span></div>
+  <div class="chat-dock-footer"><span id="chatSendState" role="status" aria-live="polite">{{ '답변을 기다리는 동안 다음 질문을 작성할 수 있습니다.' if waiting else '수치와 최종 판단은 근거 문서에서 확인하세요.' }}</span></div>
 </form>
 <button type="button" id="chatLatest" class="secondary" hidden>새 답변 보기 ↓</button>
 </div>{# /chat-main #}
@@ -327,13 +320,11 @@
   </div>
 </aside>
 
-<button type="button" id="asideOpen" class="icon-btn aside-fab" title="작업 패널 열기" hidden>
-  <iconify-icon icon="solar:sidebar-minimalistic-linear"></iconify-icon></button>
 
 <script>
   // 페이지 진입 때는 항상 닫힘. 이전 화면의 패널 상태를 이어받지 않는다.
   (function () {
-    var a = document.getElementById("chatAside"), b = document.getElementById("asideOpen");
+    var a = document.getElementById("chatAside"), b = null;
     var open = false;
     if (a) { a.classList.add("no-anim"); if (!open) a.classList.add("closed"); }
     document.getElementById('chatPanelBackdrop').hidden = !open;
@@ -396,35 +387,16 @@
   var webNote = document.getElementById("webNote");
   var answerMode = document.getElementById("answerMode");
   var chatInputEl = document.getElementById("chatInput");
-  var MODE_LABEL = { "1": "외부 검색 모드", "model": "기본 대화 모드" };
+  // 답변 방식 셋(ADR-0038) — 문서 작업(""), 기본 대화("model"), 웹 검색("1"). 보내는 값은 web 칸 하나다.
   function setMode(mode) {
-    webField.value = mode || "";
-    document.querySelectorAll("[data-answer-mode]").forEach(function (b) {
-      var on = (b.getAttribute("data-answer-mode") === "web" && mode === "1") || (b.getAttribute("data-answer-mode") === "model" && mode === "model");
-      b.setAttribute("aria-pressed", on ? "true" : "false"); b.classList.toggle("on", on);
-    });
+    mode = mode === "1" || mode === "model" ? mode : "";
+    webField.value = mode;
     if (webBtn) webBtn.checked = mode === "1";
     if (webNote) webNote.hidden = mode !== "1";
-    if (answerMode) { answerMode.value = mode === '1' ? 'model' : mode || ""; answerMode.classList.toggle('on', answerMode.value === 'model'); }
-    var webToggle = document.getElementById('webSearchToggle'), webChip = document.getElementById('webSearchChip');
-    if(webToggle) webToggle.setAttribute('aria-pressed', String(mode === '1'));
-    if(webChip) webChip.hidden = mode !== '1';
+    if (answerMode) { answerMode.value = mode; answerMode.classList.toggle('on', mode !== ""); }
     if (chatInputEl) chatInputEl.placeholder = mode === "1" ? "웹에서 찾아볼 내용을 입력하세요" : mode === "model" ? "궁금한 내용을 입력하세요" : "질문이나 수정할 내용을 입력하세요";
   }
   if (answerMode) answerMode.addEventListener('change', function () { setMode(answerMode.value); });
-  document.getElementById('webSearchToggle').addEventListener('click', function () {
-    setMode(webField.value === '1' ? answerMode.value : '1');
-    document.getElementById('chatTools').hidePopover();
-    chatInputEl.focus();
-  });
-  document.getElementById('webSearchChip').addEventListener('click', function () { setMode(answerMode.value); chatInputEl.focus(); });
-  document.querySelectorAll("[data-answer-mode]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var want = b.getAttribute("data-answer-mode") === "web" ? "1" : "model";
-      setMode(webField.value === want ? "" : want);
-      var pop = document.getElementById("chatTools"); if (pop && pop.hidePopover) { try { pop.hidePopover(); } catch (e) {} }
-    });
-  });
   if (webBtn) webBtn.addEventListener("change", function () { setMode(webBtn.checked ? "1" : ""); });
 
   /* ---- 답변 복사·다시 시도 ---- */
@@ -675,7 +647,7 @@
   /* ---- 작업 패널 여닫기 ---- */
   var aside = document.getElementById("chatAside");
   var closeBtn = document.getElementById("asideClose");
-  var openBtn = document.getElementById("asideOpen");
+  var openBtn = null;
   var panelBtn = null;                 // 패널은 오른쪽 단추로만 연다
   function setAside(open) {
     if (!aside) return;

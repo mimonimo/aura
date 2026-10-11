@@ -53,12 +53,28 @@ try {
  assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-viewer'))`),false);
  assert.equal(await evaluate(`/null/.test(document.querySelector('.chat-doc-editor').textContent)`),false);
  assert.ok(await evaluate(`new URL(document.querySelector('.chat-doc-editor iframe').src).hash==='#heading=h.test'`));
- // 에이전트 작업 중에는 편집기 위에 현재 단계가 뜨고, 답이 오면 줄이 사라지며 쓴 절로 다시 연다
+ // 에이전트 작업 중에는 편집기 위에 현재 단계가 뜨고, 답이 오면 줄이 사라진다. 편집기는 다시 불러오지 않고
+ // (구글 편집기는 고친 내용을 바로 받는다) 쓴 절 알림의 「그 위치로 이동」을 누를 때만 그 자리로 연다
  await evaluate(`document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-session-updated',{detail:{session:'1',waiting:true}}));document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-progress',{detail:{label:'「1. 추진 배경」 필요한 자료 찾는 중'}}));`);
  assert.equal(await evaluate(`document.querySelector('.chat-doc-busy').textContent`),'「1. 추진 배경」 필요한 자료 찾는 중');
  await evaluate(`window.beforeAnswer=document.querySelector('.chat-doc-editor iframe').src;const t=document.createElement('div');t.className='turn assistant';t.innerHTML='<div class="msg assistant">[1. 추진 배경]<br>새로 쓴 내용</div>';document.getElementById('chatWorkspace').append(t);document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-session-updated',{detail:{session:'1',waiting:false}}));`);await new Promise(r=>setTimeout(r,200));
  assert.equal(await evaluate(`document.querySelector('.chat-doc-busy')`),null);
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-editor iframe').src===beforeAnswer`),true);
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-done span').textContent`),'「1. 추진 배경」에 썼습니다. 편집기에 바로 반영됩니다.');
+ // 위치 이동 — 누르는 즉시 덮개 안내가 뜨고, load 가 오면 걷힌다. 앞선 이동의 load 는 새 안내를 지우지 않는다
+ const jumpNote=await evaluate(`(()=>{document.querySelector('.chat-doc-done button.secondary').click();const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:Boolean(n&&!n.hidden),text:n?.textContent,busy:document.querySelector('.chat-doc-viewport').getAttribute('aria-busy')}})()`);
+ assert.deepEqual(jumpNote,{shown:true,text:'「1. 추진 배경」 위치로 이동하는 중…',busy:'true'});
+ assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-done'))`),false);
+ await new Promise(r=>setTimeout(r,300));
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
  assert.ok(await evaluate(`(()=>{const s=document.querySelector('.chat-doc-editor iframe').src;return s!==beforeAnswer&&new URL(s).hash==='#heading=h.test'})()`));
+ // 앞선 이동이 끝나기 전에 다시 옮기면 안내는 나중 것 — 앞 이동의 load 처리기는 나중 안내를 지우지 않고 빠진다
+ const twice=await evaluate(`(()=>{const sel=document.querySelector('[data-section-jump]');sel.value='1';sel.dispatchEvent(new Event('change'));const f=document.querySelector('.chat-doc-editor iframe');const first=f.dataset.loadSeq;sel.dispatchEvent(new Event('change'));const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {moved:f.dataset.loadSeq!==first,shown:!n.hidden}})()`);
+ assert.deepEqual(twice,{moved:true,shown:true});
+ await new Promise(r=>setTimeout(r,300));
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
+ // 다시 보내면(대기) 쓴 절 알림은 걷힌다
+ await evaluate(`document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-session-updated',{detail:{session:'1',waiting:false}}))`);
  await evaluate(`const d=document.querySelector('.chat-doc-divider');for(let i=0;i<14;i++)d.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));`);await new Promise(r=>setTimeout(r,400));
  const narrow=await evaluate(`(()=>{const f=document.querySelector('iframe');f.contentDocument.body.innerHTML='<input id="test" style="margin:20px">';const r=f.contentDocument.querySelector('input').getBoundingClientRect(),b=f.getBoundingClientRect(),s=new DOMMatrix(getComputedStyle(f).transform).a;return {scale:s,width:b.width,viewport:f.parentElement.clientWidth,x:b.left+(r.x+5)*s,y:b.top+(r.y+5)*s}})()`);
  assert.ok(narrow.scale<wide.scale);assert.ok(Math.abs(narrow.width-narrow.viewport)<2);
@@ -75,20 +91,22 @@ try {
  await evaluate(`document.querySelector('[data-list]').click()`);await new Promise(r=>setTimeout(r,150));assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);
  await new Promise(r=>setTimeout(r,400));
  assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),editorWidth);
- await evaluate(`document.getElementById('chatDocumentOpen').click()`);await new Promise(r=>setTimeout(r,400));assert.equal(await evaluate(`document.querySelector('.chat-doc-editor').hidden`),true);
+ assert.equal(await evaluate(`document.getElementById('chatDocumentOpen').hidden`),true);
+ await evaluate(`document.querySelector('.chat-doc-editor :is([data-hide],[data-close])').click()`);await new Promise(r=>setTimeout(r,400));assert.equal(await evaluate(`document.querySelector('.chat-doc-editor').hidden`),true);
+ assert.equal(await evaluate(`document.getElementById('chatDocumentOpen').hidden`),false);
  await evaluate(`document.querySelector('main').innerHTML='<section id="chatWorkspace" data-session="2"><button id="chatDocumentOpen">문서</button></section>';let reads=0;const originalFetch=window.fetch;window.fetch=async(url,options)=>url==='/api/chat-documents/2'?{ok:true,redirected:false,json:async()=>++reads===1?{connected:false}:{connected:true,title:'자동 생성',embed_url:'about:blank',sections:[]}}:originalFetch(url,options);const originalTimeout=window.setTimeout;window.setTimeout=(fn,delay,...args)=>{if(delay===6000){window.creationPoll=fn;return 999;}return originalTimeout(fn,delay,...args);};`);
  await evaluate(js);await evaluate(`document.getElementById('chatDocumentOpen').click()`);await new Promise(r=>setTimeout(r,150));
  assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);
  await evaluate(`window.creationPoll()`);await new Promise(r=>setTimeout(r,150));
  assert.equal(await evaluate(`document.querySelectorAll('iframe').length`),1);
  assert.equal(await evaluate(`document.querySelector('.doc-title-row strong').textContent`),'자동 생성');
- await evaluate(`const previousFetch=window.fetch;window.fetch=async(url,options)=>url.endsWith('/documents')?{ok:true,redirected:false,json:async()=>({project:'시험',documents:[{id:9,name:'이미지.png',group:'첨부',status:'완료'}]})}:previousFetch(url,options);document.querySelector('[data-list]').click();`);await new Promise(r=>setTimeout(r,400));
+ await evaluate(`const previousFetch=window.fetch;window.fetch=async(url,options)=>url.endsWith('/documents')?{ok:true,redirected:false,json:async()=>({project:'시험',documents:[{id:9,name:'이미지',original_format:'png',group:'첨부',status:'완료'}]})}:previousFetch(url,options);document.querySelector('[data-list]').click();`);await new Promise(r=>setTimeout(r,400));
  assert.equal(await evaluate(`document.querySelectorAll('[data-doc-group=attached] [data-platform-doc]').length`),1);
  await evaluate(`document.querySelector('[data-doc-group=attached] [data-platform-doc]').click()`);
  assert.equal(await evaluate(`document.querySelector('.chat-image-preview').open`),true);
  await evaluate(`document.querySelector('.chat-image-preview').close()`);await new Promise(r=>setTimeout(r,150));
  assert.equal(await evaluate(`document.activeElement===document.querySelector('[data-doc-group=attached] [data-platform-doc]')`),true);
- await evaluate(`const pickerFetch=window.fetch;window.fetch=async(url,options)=>url.endsWith('/accounts')?{ok:true,json:async()=>({accounts:[{email:'test@example.test',docs_ok:true}]})}:url.includes('/browse?')?{ok:true,json:async()=>({files:url.includes('folder=root')?[{id:'folderA',name:'사업 자료',mimeType:'application/vnd.google-apps.folder'}]:[{id:'docB',name:'선택 문서',mimeType:'application/vnd.google-apps.document'}],next:''})}:pickerFetch(url,options);Array.from(document.querySelectorAll('.chat-doc-files>button')).find(b=>b.textContent==='다른 폴더에서 가져오기').click();`);
+ await evaluate(`const pickerFetch=window.fetch;window.fetch=async(url,options)=>url.endsWith('/accounts')?{ok:true,json:async()=>({accounts:[{email:'test@example.test',docs_ok:true}]})}:url.includes('/browse?')?{ok:true,json:async()=>({files:url.includes('folder=root')?[{id:'folderA',name:'사업 자료',mimeType:'application/vnd.google-apps.folder'}]:[{id:'docB',name:'선택 문서',mimeType:'application/vnd.google-apps.document'}],next:''})}:pickerFetch(url,options);Array.from(document.querySelectorAll('.chat-doc-files>button')).find(b=>b.textContent==='드라이브에서 가져오기').click();`);
  await new Promise(r=>setTimeout(r,200));
  assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-dialog input[name=doc][type=hidden]').length`),1);
  await evaluate(`document.querySelector('.drive-picker-item').click()`);await new Promise(r=>setTimeout(r,150));
@@ -135,36 +153,37 @@ try {
  const productionCss=baseCss+(await readFile(root+'chat-documents.css','utf8'))+template.split('<style>')[1].split('</style>')[0]+dockCss+(await readFile(root+'platform-spaces.css','utf8'));
  await evaluate(`document.body.innerHTML='<form id="chatForm" class="chat-dock" style="width:780px;margin:60px auto"><div class="dock-row">'+${JSON.stringify(row)}+'</form>';document.head.querySelector('style').textContent=${JSON.stringify(productionCss)};`);
  await evaluate('var webBtn ='+modeScript);
- await evaluate(`document.getElementById('webSearchToggle').click()`);
- assert.equal(await evaluate(`answerMode.value`),'model');
- await evaluate(`answerMode.value='';answerMode.dispatchEvent(new Event('change'));`);
- assert.equal(await evaluate(`webField.value`),'');
- assert.equal(await evaluate(`document.getElementById('webSearchChip').hidden`),true);
- await evaluate(`document.getElementById('answerMode').value='model';document.getElementById('answerMode').dispatchEvent(new Event('change'));document.getElementById('webSearchToggle').click();`);
- assert.equal(await evaluate(`document.getElementById('webField').value`),'1');
- assert.equal(await evaluate(`document.getElementById('webSearchChip').hidden`),false);
- await evaluate(`document.getElementById('webSearchChip').click()`);
- assert.equal(await evaluate(`document.getElementById('webField').value`),'model');
- await evaluate(`document.getElementById('webSearchToggle').click();document.getElementById('chatForm').style.width='360px';`);
- await new Promise(r=>setTimeout(r,100));
- assert.ok(await evaluate(`document.getElementById('chatForm').scrollWidth<=document.getElementById('chatForm').clientWidth`));
- assert.ok(await evaluate(`document.getElementById('webSearchChip').getBoundingClientRect().height<40`));
+ for(const [value,web] of [['1','1'],['model','model'],['','']]) {
+  await evaluate(`answerMode.value=${JSON.stringify(value)};answerMode.dispatchEvent(new Event('change'));`);
+  assert.equal(await evaluate(`webField.value`),web);
+ }
+ assert.equal(await evaluate(`document.querySelectorAll('#answerMode option').length`),3);
+ assert.equal(await evaluate(`document.getElementById('webSearchToggle')`),null);
  for(const width of [280,360,520,780]) {
   for(const web of [false,true]) {
    await evaluate(`document.getElementById('chatForm').style.width='${width}px';setMode(${JSON.stringify(web?'1':'model')});`);
-   const layout=await evaluate(`(()=>{const r=id=>{const b=document.getElementById(id).getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom}};return {input:r('chatInput'),mode:r('answerMode'),send:r('sendBtn'),chip:r('webSearchChip'),overflow:chatForm.scrollWidth>chatForm.clientWidth}})()`);
+   const layout=await evaluate(`(()=>{const r=id=>{const b=document.getElementById(id).getBoundingClientRect();return {left:b.left,right:b.right,top:b.top,bottom:b.bottom}};return {input:r('chatInput'),mode:r('answerMode'),send:r('sendBtn'),overflow:chatForm.scrollWidth>chatForm.clientWidth}})()`);
    assert.equal(layout.overflow,false,JSON.stringify({width,web,layout}));
    assert.ok(layout.mode.right<=layout.send.left,JSON.stringify({width,web,layout}));
    assert.ok(Math.abs(layout.mode.top-layout.send.top)<2);
    if(width>520) {
     assert.ok(layout.input.right<=layout.mode.left);
-    if(web)assert.ok(layout.chip.right<=layout.input.left);
    } else {
     assert.ok(layout.input.bottom<=layout.mode.top);
-    if(web)assert.ok(layout.chip.right<=layout.mode.left);
    }
   }
  }
+ // 처음 여는 편집기도 iframe 이 load 될 때까지 「문서를 불러오는 중…」 덮개를 둔다(느린 응답을 1.5초 붙잡아 본다)
+ ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.method==='Fetch.requestPaused')setTimeout(()=>send('Fetch.continueRequest',{requestId:m.params.requestId}).catch(()=>{}),1500);});
+ await send('Fetch.enable',{patterns:[{urlPattern:'*slow-doc*'}]});
+ await evaluate(`document.body.innerHTML='<main style="display:flex;height:900px;width:1500px"><section id="chatWorkspace" data-session="5"><button id="chatDocumentOpen">문서</button></section></main>';window.fetch=async(url)=>({ok:true,redirected:false,json:async()=>url.endsWith('/folder')?{url:null}:{connected:true,doc:'slowDoc',title:'느린 문서',embed_url:location.origin+'/slow-doc',sections:[]}})`);
+ await evaluate(js);await new Promise(r=>setTimeout(r,150));
+ await evaluate(`const a=document.createElement('a');a.dataset.documentLink='true';a.href='https://docs.google.com/document/d/slowDoc/edit';a.textContent='[문서 1]';document.getElementById('chatWorkspace').append(a);a.click();`);
+ await new Promise(r=>setTimeout(r,700));
+ assert.deepEqual(await evaluate(`(()=>{const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:Boolean(n&&!n.hidden),text:n?.textContent}})()`),{shown:true,text:'문서를 불러오는 중…'});
+ await new Promise(r=>setTimeout(r,2000));
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
+ await send('Fetch.disable');
  if(process.env.UI_SCREENSHOT){const shot=await send('Page.captureScreenshot',{format:'png'});await writeFile(process.env.UI_SCREENSHOT,Buffer.from(shot.data,'base64'));}
- console.log(JSON.stringify({pass:true,wide,narrow,autoCreationFromList:true,imageModal:true,folderPicker:true,suggestionPreservesEditor:true,newSessionBinding:true,emptyLibrary:true,syntheticIframeOnly:true}));
+ console.log(JSON.stringify({pass:true,wide,narrow,autoCreationFromList:true,imageModal:true,folderPicker:true,suggestionPreservesEditor:true,newSessionBinding:true,emptyLibrary:true,keepEditorAfterAnswer:true,loadingCover:true,syntheticIframeOnly:true}));
 } finally {ws?.close();chrome.kill();}
