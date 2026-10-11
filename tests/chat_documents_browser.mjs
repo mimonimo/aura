@@ -25,13 +25,16 @@ try {
  assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);
  assert.equal(await evaluate(`document.querySelectorAll('iframe').length`),0);
  await new Promise(r=>setTimeout(r,400));
- assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'70%');
+ assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'50%');
  await evaluate(`document.querySelector('.chat-doc-file').click()`);await new Promise(r=>setTimeout(r,400));
  const wide=await evaluate(`(()=>{const f=document.querySelector('iframe');return {width:f.getBoundingClientRect().width,scale:new DOMMatrix(getComputedStyle(f).transform).a,viewport:f.parentElement.clientWidth}})()`);
  assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'50%');
  assert.ok(Math.abs(wide.width-wide.viewport)<2);assert.ok(wide.scale<1);
  await evaluate(`const section=document.querySelector('[data-section-jump]');section.value='1';section.dispatchEvent(new Event('change'));`);
  assert.ok(await evaluate(`document.querySelector('iframe').src.includes('heading=h.test')`));
+ // 독스 주소 꼴: 탭은 질의, 제목은 # — 매번 다른 zzjump 로 새로 불러온다(10/11)
+ const jumped=await evaluate(`(()=>{const u=new URL(document.querySelector('iframe').src);return {tab:u.searchParams.get('tab'),hash:u.hash,jump:u.searchParams.get('zzjump')}})()`);
+ assert.equal(jumped.tab,'t.test');assert.equal(jumped.hash,'#heading=h.test');assert.ok(jumped.jump);
  await evaluate(`const turn=document.createElement('div');turn.className='turn assistant';turn.innerHTML='<div class="msg assistant">1. 추진 배경 내용을 확인했습니다.</div>';document.getElementById('chatWorkspace').append(turn);`);await new Promise(r=>setTimeout(r,250));
  assert.equal(await evaluate(`document.querySelectorAll('[data-section-location]').length`),1);
  await evaluate(`const tb=document.querySelector('[data-toolbar]');tb.checked=true;tb.dispatchEvent(new Event('change'));`);await new Promise(r=>setTimeout(r,150));
@@ -39,6 +42,23 @@ try {
  assert.ok(formatted.scale<1&&formatted.scale<=wide.scale);assert.ok(Math.abs(formatted.width-formatted.viewport)<2);
  assert.equal(await evaluate(`document.querySelector('[data-fit]')`),null);
  await evaluate(`const tb2=document.querySelector('[data-toolbar]');tb2.checked=false;tb2.dispatchEvent(new Event('change'));`);await new Promise(r=>setTimeout(r,150));
+ // 답 속 [문서 n] 이 이 대화의 작업 문서면 미리보기 대신 편집기를 연다(10/11)
+ await evaluate(`const own=document.createElement('a');own.dataset.documentLink='true';own.href='https://docs.google.com/document/d/docA/edit';own.textContent='[문서 2]';document.getElementById('chatWorkspace').append(own);own.click();`);await new Promise(r=>setTimeout(r,150));
+ assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-viewer'))`),false);
+ assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-editor [data-toolbar]'))`),true);
+ // 열람 패널에서 「문서에서 보기」를 누르면 편집기로 바뀌고 머리줄에 null 이 붙지 않는다
+ await evaluate(`const other=document.createElement('a');other.dataset.documentLink='true';other.href='https://docs.google.com/document/d/test_other/edit';other.textContent='[문서 3]';document.getElementById('chatWorkspace').append(other);other.click();`);await new Promise(r=>setTimeout(r,150));
+ assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-viewer'))`),true);
+ await evaluate(`document.querySelector('[data-section-location]').click()`);await new Promise(r=>setTimeout(r,150));
+ assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-viewer'))`),false);
+ assert.equal(await evaluate(`/null/.test(document.querySelector('.chat-doc-editor').textContent)`),false);
+ assert.ok(await evaluate(`new URL(document.querySelector('.chat-doc-editor iframe').src).hash==='#heading=h.test'`));
+ // 에이전트 작업 중에는 편집기 위에 현재 단계가 뜨고, 답이 오면 줄이 사라지며 쓴 절로 다시 연다
+ await evaluate(`document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-session-updated',{detail:{session:'1',waiting:true}}));document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-progress',{detail:{label:'「1. 추진 배경」 필요한 자료 찾는 중'}}));`);
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-busy').textContent`),'「1. 추진 배경」 필요한 자료 찾는 중');
+ await evaluate(`window.beforeAnswer=document.querySelector('.chat-doc-editor iframe').src;const t=document.createElement('div');t.className='turn assistant';t.innerHTML='<div class="msg assistant">[1. 추진 배경]<br>새로 쓴 내용</div>';document.getElementById('chatWorkspace').append(t);document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-session-updated',{detail:{session:'1',waiting:false}}));`);await new Promise(r=>setTimeout(r,200));
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-busy')`),null);
+ assert.ok(await evaluate(`(()=>{const s=document.querySelector('.chat-doc-editor iframe').src;return s!==beforeAnswer&&new URL(s).hash==='#heading=h.test'})()`));
  await evaluate(`const d=document.querySelector('.chat-doc-divider');for(let i=0;i<14;i++)d.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));`);await new Promise(r=>setTimeout(r,400));
  const narrow=await evaluate(`(()=>{const f=document.querySelector('iframe');f.contentDocument.body.innerHTML='<input id="test" style="margin:20px">';const r=f.contentDocument.querySelector('input').getBoundingClientRect(),b=f.getBoundingClientRect(),s=new DOMMatrix(getComputedStyle(f).transform).a;return {scale:s,width:b.width,viewport:f.parentElement.clientWidth,x:b.left+(r.x+5)*s,y:b.top+(r.y+5)*s}})()`);
  assert.ok(narrow.scale<wide.scale);assert.ok(Math.abs(narrow.width-narrow.viewport)<2);
@@ -49,9 +69,12 @@ try {
  assert.equal(await evaluate(`document.querySelector('.doc-more').open`),false);
  await send('Input.dispatchMouseEvent',{type:'mousePressed',x:narrow.x,y:narrow.y,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:narrow.x,y:narrow.y,button:'left',clickCount:1});await send('Input.insertText',{text:'fit typing'});
  assert.equal(await evaluate(`document.querySelector('iframe').contentDocument.querySelector('input').value`),'fit typing');
+ // 편집기 → 문서함으로 가도 사용자가 끌어 둔 폭을 그대로 쓴다(보기마다 폭이 바뀌어 입력창이 밀리던 것, 10/11)
+ const editorWidth=await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`);
+ assert.notEqual(editorWidth,'50%');
  await evaluate(`document.querySelector('[data-list]').click()`);await new Promise(r=>setTimeout(r,150));assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);
  await new Promise(r=>setTimeout(r,400));
- assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'70%');
+ assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),editorWidth);
  await evaluate(`document.getElementById('chatDocumentOpen').click()`);await new Promise(r=>setTimeout(r,400));assert.equal(await evaluate(`document.querySelector('.chat-doc-editor').hidden`),true);
  await evaluate(`document.querySelector('main').innerHTML='<section id="chatWorkspace" data-session="2"><button id="chatDocumentOpen">문서</button></section>';let reads=0;const originalFetch=window.fetch;window.fetch=async(url,options)=>url==='/api/chat-documents/2'?{ok:true,redirected:false,json:async()=>++reads===1?{connected:false}:{connected:true,title:'자동 생성',embed_url:'about:blank',sections:[]}}:originalFetch(url,options);const originalTimeout=window.setTimeout;window.setTimeout=(fn,delay,...args)=>{if(delay===6000){window.creationPoll=fn;return 999;}return originalTimeout(fn,delay,...args);};`);
  await evaluate(js);await evaluate(`document.getElementById('chatDocumentOpen').click()`);await new Promise(r=>setTimeout(r,150));
@@ -93,11 +116,12 @@ try {
  assert.equal(await evaluate(`listCalls.includes('/api/chat-documents/10/files')&&listCalls.includes('/api/chat/10/documents')`),true);
  await evaluate('finishLookup()');await new Promise(r=>setTimeout(r,100));
  assert.equal(await evaluate(`document.querySelector('.chat-work-files button').dataset.driveDoc`),'current');
+ assert.equal(await evaluate(`Array.from(document.querySelectorAll('.chat-work-files [aria-current=true]')).map(b=>b.dataset.driveDoc).join()`),'current');
  await evaluate(`window.library=document.querySelector('.chat-file-library');window.requestCount=listCalls.length;document.getElementById('chatDocumentOpen').click();document.getElementById('chatDocumentOpen').click();`);
  assert.equal(await evaluate(`library===document.querySelector('.chat-file-library')&&!library.hidden&&listCalls.length===requestCount`),true);
  await evaluate(`window.fetch=async(url)=>({ok:true,json:async()=>url.endsWith('/files')?{files:[]}:url.endsWith('/documents')?{documents:[]}:{connected:false}});document.querySelector('.chat-file-library .doc-icon-button').click();`);
  await new Promise(r=>setTimeout(r,150));
- assert.equal(await evaluate(`document.querySelectorAll('.chat-file-count').length`),2);
+ assert.equal(await evaluate(`document.querySelectorAll('.chat-file-count').length`),4); // 작업 문서 + 세 갈래(첨부·참고·규정)
  assert.equal(await evaluate(`document.querySelector('.chat-file-library [role=status]').textContent`),'');
  assert.equal(await evaluate(`document.querySelector('.chat-file-library .doc-icon-button').getBoundingClientRect().width`),32);
  assert.equal(await evaluate(`getComputedStyle(document.querySelector('.chat-file-library .chat-doc-files')).flexGrow`),'1');

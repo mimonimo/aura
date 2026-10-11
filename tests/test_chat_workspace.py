@@ -308,3 +308,17 @@ def test_document_panel_keeps_header_layout_when_open():
     assert 'transition:flex-basis' in docs_css
     js = (static / 'chat-documents.js').read_text()
     assert "chat-doc-closing" in js
+
+
+def test_document_panel_follows_agent_progress_and_docs_url_form():
+    """편집기 위 작업 중 줄은 대화 쪽 진행 단계 사건을 받아 그리고, 위치 이동은 독스 주소 꼴
+    (탭=질의, 제목=#)로 새로 불러온다(10/11). 실제 동작은 tests/chat_documents_browser.mjs 가 본다."""
+    from pathlib import Path
+    static = Path(main.__file__).parent / 'static'
+    workspace_js = (static / 'chat-workspace.js').read_text()
+    docs_js = (static / 'chat-documents.js').read_text()
+    assert "new CustomEvent('chat-progress'" in workspace_js
+    assert "addEventListener('chat-progress'" in docs_js
+    assert "searchParams.set('tab'" in docs_js and "'heading='+section.heading_id" in docs_js
+    # 문서함·열람·편집기 폭은 하나의 비율로 — 보기마다 고정 비율로 바꾸지 않는다
+    assert 'setRatio(70' not in docs_js and 'setRatio(50' not in docs_js.replace('setRatio(50))', '')

@@ -4,7 +4,7 @@
  let sid=workspace.dataset.session;
  const main=workspace.parentElement;
  let linked=null, panel=null;
- workspace.addEventListener('click',event=>{
+ workspace.addEventListener('click',async event=>{
    const anchor=event.target.closest('a[data-document-link]');
    if(!anchor||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
    const url=new URL(anchor.href);
@@ -14,16 +14,37 @@
    const match=url.pathname.match(isDoc? /^\/document\/d\/([A-Za-z0-9_-]+)(?:\/|$)/ : /^\/file\/d\/([A-Za-z0-9_-]+)(?:\/|$)/);
    if(!match)return;
    event.preventDefault();
+   // 답 속 [문서 n] 이 이 대화의 작업 문서면 읽기 전용 미리보기가 아니라 편집기로 연다(10/11).
+   // 연결 정보가 아직 오는 중일 수 있어 기다린 뒤 판단한다.
+   const session=sid;
+   if(isDoc){await initialized.catch(()=>{});if(session!==sid)return;}
+   if(isDoc&&linked?.doc===match[1]){
+     const heading=new URLSearchParams(url.hash.slice(1)).get('heading');
+     const section=heading&&(linked.sections||[]).find(s=>s.heading_id===heading);
+     if(section)jumpToSection(section);else show();
+     return;
+   }
    showViewer({title:anchor.textContent+' 미리보기',url:url.href,
      embed_url:url.origin+(isDoc?'/document/d/':'/file/d/')+match[1]+'/preview',is_doc:false});
  });
+ // 편집기 iframe 을 다시 불러온다. 교차 출처 iframe 은 # 만 바꾸면 이동하지 않을 때가 있어(구글 쪽 주소가
+ // 이미 바뀌어 있으면 조각 이동으로 끝난다) 매번 다른 zzjump 값을 붙여 새로 연다. 독스 주소 꼴은
+ // …/edit?tab=<탭>#heading=<제목 id> — 탭은 질의, 제목은 # (10/11 이전엔 둘 다 # 에 넣어 무시됐다).
+ function navigateEditor(section){
+   const frame=panel?.querySelector('iframe');if(!frame||!linked)return;
+   const url=new URL(frame.src||linked.embed_url,location.href);
+   url.searchParams.set('zzjump',String(Date.now()));
+   if(section){
+     if(section.tab_id)url.searchParams.set('tab',section.tab_id);else url.searchParams.delete('tab');
+     url.hash='heading='+section.heading_id;
+   }
+   frame.src=url.href;
+ }
+ function isEditor(){return Boolean(panel&&panel.querySelector('[data-toolbar]')&&!panel.classList.contains('chat-doc-viewer'));}
  function jumpToSection(section){
-   if(!section.heading_id||!linked)return;
+   if(!section?.heading_id||!linked)return;
    show();visibility(true);
-   const frame=panel.querySelector('iframe');
-   const url=new URL(frame.src);
-   const hash=new URLSearchParams();if(section.tab_id)hash.set('tab',section.tab_id);
-   hash.set('heading',section.heading_id);url.hash=hash.toString();frame.src=url.href;
+   navigateEditor(section);
    const select=panel.querySelector('[data-section-jump]');if(select)select.value=String(section.index);
  }
  function addLocationButtons(){
@@ -50,7 +71,9 @@
    const control=event.target, frame=panel.querySelector('iframe'), viewport=frame.parentElement;
    const next=new URL(control.checked?(linked.embed_url_toolbar||linked.embed_url):linked.embed_url,location.href);
    // Preserve an explicit navigation anchor. Cross-origin editor scroll is not readable.
-   if(new URL(frame.src).hash)next.hash=new URL(frame.src).hash;
+   const previous=new URL(frame.src);
+   if(previous.hash)next.hash=previous.hash;
+   if(previous.searchParams.get('tab'))next.searchParams.set('tab',previous.searchParams.get('tab'));
    if(frame.src===next.href)return;
    const cover=document.createElement('div');cover.className='chat-doc-loading';cover.setAttribute('role','status');cover.textContent='편집 화면을 전환하고 있습니다…';
    viewport.append(cover);viewport.setAttribute('aria-busy','true');control.disabled=true;
@@ -188,7 +211,7 @@
  f.onsubmit=async e=>{e.preventDefault();if(!confirmed){confirmed=true;const p=fields.querySelector('[data-confirmation]');p.textContent='「'+f.elements.section.selectedOptions[0].textContent+'」 아래에 '+f.elements.text.value.length+'자를 삽입합니다.';p.hidden=false;submit.textContent='삽입 확정';return;}submit.disabled=true;status.textContent='삽입 중…';const body=new FormData(f);body.set('confirmed','true');try{await api('/api/chat-documents/'+sid+'/insert',{method:'POST',body});status.textContent='삽입했습니다. 문서에서 확인하세요.';submit.hidden=true;f.querySelector('[data-cancel]').textContent='닫기';f.querySelectorAll('input,select,textarea').forEach(el=>el.disabled=true);}catch(error){status.textContent=error.message;submit.disabled=false;confirmed=false;submit.textContent='내용 확인';}};}
  function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 서식 도구</label><a target="_blank" rel="noopener">새 창 ↗</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
  panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').src=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=switchFormatting;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
- panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;opener.title='문서 열기';opener.setAttribute('aria-label',opener.title);opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
+ panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;currentDoc=null;opener.title='문서 열기';opener.setAttribute('aria-label',opener.title);opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
  // 플랫폼 문서(첨부·접수·기준)의 구글 열람본을 같은 자리(iframe)에 연다 — 연결 문서와 달리 에이전트 편집 대상은 아니다
  function showViewer(v){
    clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor chat-doc-viewer';panel.setAttribute('aria-label','문서 열람');
@@ -209,14 +232,14 @@
          await api('/api/chat/'+session+'/work-on/'+v.doc_id,{method:'POST'});
          const d=await api('/api/chat-documents/'+session);
          if(session!==sid)return;
-         linked=d;ready=d;
+         linked=d;ready=d;currentDoc=d.connected?d.doc:null;
          // 요청 중 사용자가 다른 문서를 열거나 패널을 접었다면 그 선택을 유지한다.
          if(panel===current&&!panel.hidden){clearPanel();show();}
        }catch(e){work.textContent=e.message;}
        finally{work.disabled=false;if(work.isConnected&&ready)work.textContent='작업 문서 열기';}
      };
      panel.querySelector('header').insertBefore(work,panel.querySelector('[data-hide]'));}
-   main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(50,false);visibility(true);fitEditor(/document\//.test(v.embed_url));
+   main.append(panel);if(!divider.isConnected)main.append(divider);setRatio(ratio,false);visibility(true);fitEditor(/document\//.test(v.embed_url));
    panel.querySelectorAll('header a,header button').forEach(el=>el.classList.add('chat-doc-mini'));
  }
  const createPanel=show;
@@ -234,26 +257,36 @@
    const summary=document.createElement('summary');summary.textContent='•••';summary.title='문서 더보기';summary.setAttribute('aria-label','문서 더보기');
    const menu=document.createElement('div');menu.className='doc-more-actions';
    header.querySelectorAll('a').forEach(a=>menu.append(a));
-   const unlink=panel.querySelector('[data-unlink]');menu.append(unlink);
+   // 열람 패널 같은 다른 머리줄에서 불리면 없는 요소가 null 글자로 붙었다(10/11) — 있는 것만 옮긴다.
+   const unlink=panel.querySelector('[data-unlink]');if(unlink)menu.append(unlink);
    more.append(summary,menu);
    more.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();more.open=false;summary.focus();}});
    menu.addEventListener('click',e=>{if(e.target.closest('a,button'))more.open=false;});
-   tools.append(header.querySelector('.chat-doc-toolbar'),more);
-   const destinations=(linked.sections||[]).filter(s=>s.heading_id);
-   if(destinations.length){
-     const select=document.createElement('select');select.dataset.sectionJump='';select.setAttribute('aria-label','문서 제목 위치로 이동');
-     const prompt=document.createElement('option');prompt.value='';prompt.textContent='문서 위치 이동';select.append(prompt);
-     destinations.forEach(s=>{const option=document.createElement('option');option.value=s.index;option.textContent=s.heading;select.append(option);});
-     select.onchange=()=>{const section=destinations.find(s=>String(s.index)===select.value);if(section)jumpToSection(section);};
-     tools.prepend(select);
-   }
+   const formatting=header.querySelector('.chat-doc-toolbar');if(formatting)tools.append(formatting);
+   tools.append(more);
+   buildSectionJump(tools);
    addLocationButtons();
    header.append(titleRow,tools);
    panel.querySelector('.chat-doc-note')?.remove();
  }
+ // 문서 위치 이동 — 제목 id 가 있는 절만 고른다(id 가 없으면 이동할 곳이 없다). 답이 끝나 절이
+ // 바뀌면 다시 만든다.
+ function buildSectionJump(tools){
+   tools=tools||panel?.querySelector('.doc-view-tools');if(!tools||!linked)return;
+   tools.querySelector('[data-section-jump]')?.remove();
+   const destinations=(linked.sections||[]).filter(s=>s.heading_id&&s.heading);
+   if(!destinations.length)return;
+   const select=document.createElement('select');select.dataset.sectionJump='';select.setAttribute('aria-label','문서 제목 위치로 이동');
+   const prompt=document.createElement('option');prompt.value='';prompt.textContent='문서 위치 이동';select.append(prompt);
+   destinations.forEach(s=>{const option=document.createElement('option');option.value=s.index;option.textContent=s.heading;select.append(option);});
+   select.onchange=()=>{const section=destinations.find(s=>String(s.index)===select.value);if(section)jumpToSection(section);};
+   tools.prepend(select);
+ }
  document.addEventListener('pointerdown',e=>{const more=panel?.querySelector('.doc-more[open]');if(more&&!more.contains(e.target))more.open=false;});
  show=()=>{
-   if(panel&&!panel.querySelector('iframe'))clearPanel();
+   // 문서함(iframe 없음)·열람 패널(미리보기 iframe)은 편집기가 아니다 — 그대로 두면 미리보기 위에
+   // 편집기 머리줄이 덧붙고 위치 이동도 미리보기 iframe 을 건드렸다(10/11).
+   if(panel&&!isEditor())clearPanel();
    createPanel();
    fitEditor();
    if(!panel.querySelector('[data-list]')){
@@ -278,6 +311,7 @@
    arrangeHeader();
    panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};
    visibility(true);
+   paintBusy();
  };
  opener.setAttribute('aria-pressed','false');
  let loadError='';
@@ -318,10 +352,14 @@
    modal.addEventListener('click',e=>{if(e.target===modal)modal.close();});
    modal.addEventListener('close',()=>{modal.remove();if(trigger.isConnected)trigger.focus();});modal.showModal();
  }
+ // 「현재 작업 중」은 이 대화의 연결 정보(/api/chat-documents/{sid} 의 doc)와 같은 문서에만 붙인다.
+ // 같은 프로젝트 폴더에는 다른 대화의 작업본도 있다 — 화면에 남은 linked(옛 연결·다른 경로로 바뀐 값)로
+ // 판단하면 남의 문서가 표시됐다(10/11). 문서함을 열 때마다 연결 정보를 새로 읽는다.
+ let currentDoc=null;
  function markCurrentFile(){
    const list=panel?.querySelector('.chat-work-files');if(!list)return;
    list.querySelectorAll('[data-drive-doc]').forEach(button=>{
-     const active=button.dataset.driveDoc===linked?.doc;
+     const active=Boolean(currentDoc)&&button.dataset.driveDoc===currentDoc;
      button.classList.toggle('chat-file-current',active);
      if(active)button.setAttribute('aria-current','true');else button.removeAttribute('aria-current');
      button.querySelector('small').textContent=active?'현재 작업 중 · Google Docs':'Google Docs · 작업 문서';
@@ -334,7 +372,9 @@
  const DOC_EMPTY={attached:'아직 올리거나 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'연결된 공고·지침이 없습니다.'};
  let refreshLibrary=null;
  async function showFiles(){
-   clearPanel();showEmpty();setRatio(70,false);
+   // 문서함도 편집기·열람과 같은 폭(사용자가 끌어 둔 비율)으로 연다. 보기마다 70/50 으로 바꾸던 때는
+   // 대화 칸 폭이 오가며 입력창이 밀렸고, 70 이 메모리에 남아 편집기에 저장되기도 했다(10/11).
+   clearPanel();showEmpty();
    panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서함';
    const refresh=document.createElement('button');refresh.type='button';refresh.className='secondary doc-icon-button';refresh.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7"/></svg>';refresh.title='목록 새로고침';refresh.setAttribute('aria-label',refresh.title);refresh.onclick=showFiles;
    panel.querySelector('header').insertBefore(refresh,panel.querySelector('[data-close]'));
@@ -389,16 +429,23 @@
    // Start independent requests together; a slow Drive request must not add
    // another full round trip before requesting the platform documents.
    const platformRequest=loadPlatform().then(()=>null,error=>error);
+   const session=sid;
+   if(session)api('/api/chat-documents/'+session).then(fresh=>{
+     if(session!==sid)return;
+     currentDoc=fresh.connected?fresh.doc:null;
+     // 이미 연결을 알던 경우만 새 값으로 바꾼다 — 새로 생긴 작업본은 checkCreatedDocument 가 열어 준다
+     if(fresh.connected&&linked)linked=fresh;
+     markCurrentFile();
+   }).catch(()=>{});
    try{
      const data=sid?await api('/api/chat-documents/'+sid+'/files').catch(error=>({files:[],error:error.message})):{files:[]};if(panel!==current)return;
      status.textContent='';
      if(data.folder_url){const folder=document.createElement('a');folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='폴더 열기 ↗';panel.querySelector('header').insertBefore(folder,panel.querySelector('[data-close]'));}
-     for(const file of [...data.files].sort((a,b)=>Number(b.id===linked?.doc)-Number(a.id===linked?.doc))){
+     for(const file of data.files){
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
        const isImage=file.mime_type.startsWith('image/')||imageFile(file.name);
-       const editable=file.mime_type==='application/vnd.google-apps.document',active=editable&&linked?.doc===file.id;
-       fileCard(button,file.name,isImage?'이미지 · Google Drive':editable?(active?'현재 작업 중 · Google Docs':'Google Docs · 작업 문서'):'Google Drive · 참고 파일',null,editable?'Google Docs':null);
-       if(active){button.classList.add('chat-file-current');button.setAttribute('aria-current','true');}
+       const editable=file.mime_type==='application/vnd.google-apps.document';
+       fileCard(button,file.name,isImage?'이미지 · Google Drive':editable?'Google Docs · 작업 문서':'Google Drive · 참고 파일',null,editable?'Google Docs':null);
        button.dataset.driveDoc=file.id;
        if(!isImage&&!editable)button.dataset.driveRef='';
        (isImage?images:editable?workDocs:groups.reference.list).append(button);
@@ -408,11 +455,11 @@
            window.open('https://drive.google.com/'+path,'_blank','noopener');return;
          }
          // 이미 연결된 작업본은 다시 연결 요청을 보내지 않고 기존 정보로 연다.
-         if(linked?.doc===file.id&&linked?.account===data.account){clearPanel();setRatio(50,false);show();return;}
+         if(linked?.doc===file.id&&linked?.account===data.account){clearPanel();show();return;}
          button.disabled=true;status.textContent='문서를 여는 중…';
          try{const form=new FormData();form.set('session_id',sid);form.set('doc',file.id);form.set('account',data.account);
            await api('/api/chat-documents/connect',{method:'POST',body:form});const document=await api('/api/chat-documents/'+sid);
-           if(panel!==current)return;linked=document;clearPanel();setRatio(50);show();
+           if(panel!==current)return;linked=document;currentDoc=document.connected?document.doc:null;clearPanel();show();
          }catch(error){status.textContent=error.message;button.disabled=false;}
        };
      }
@@ -438,7 +485,7 @@
      const data=await api('/api/chat-documents/'+session);
      // 요청 중 사용자가 목록에서 다른 문서를 선택했다면 그 선택을 보존한다.
      if(session!==sid)return;
-     if(!linked&&data.connected){linked=data;setRatio(50);show();}
+     if(!linked&&data.connected){linked=data;currentDoc=data.doc;show();}
    }catch(_){}
    if(session===sid&&!linked&&workspace.isConnected)watch=setTimeout(checkCreatedDocument,6000);
  }
@@ -446,16 +493,85 @@
    const session=sid;
    clearTimeout(watch);
    initialized=session?api('/api/chat-documents/'+session).then(data=>{
-     if(session===sid&&data.connected){linked=data;markCurrentFile();}
+     if(session===sid){currentDoc=data.connected?data.doc:null;if(data.connected)linked=data;markCurrentFile();}
    }).catch(error=>{if(session===sid)loadError=error.message;}):Promise.resolve();
    initialized.then(()=>{if(session===sid&&sid&&!linked)watch=setTimeout(checkCreatedDocument,6000);});
+ }
+ // 에이전트 작업 중 표시 — 대화 쪽 진행 카드(chat-workspace.js 의 폴링)의 현재 단계를 편집기 위 한 줄로
+ // 비춘다. 단계 글은 'chat-progress' 사건으로, 대기 시작·끝은 'chat-session-updated' 의 waiting 으로 받는다(10/11).
+ let agentBusy=workspace.dataset.waiting==='true', busyLabel='';
+ function paintBusy(){
+   if(!isEditor())return;
+   let strip=panel.querySelector('.chat-doc-busy');
+   if(!agentBusy){strip?.remove();return;}
+   if(!strip){
+     strip=document.createElement('div');strip.className='chat-doc-busy';strip.setAttribute('role','status');strip.setAttribute('aria-live','polite');
+     const dot=document.createElement('span');dot.className='chat-doc-busy-dot';dot.setAttribute('aria-hidden','true');
+     strip.append(dot,document.createElement('span'));panel.querySelector('header').after(strip);
+   }
+   const label=busyLabel||document.querySelector('#chatProgress [data-progress-label]')?.textContent.trim()||'요청 처리 중';
+   strip.lastElementChild.textContent=label;
+ }
+ workspace.addEventListener('chat-progress',event=>{
+   const label=event.detail?.label;
+   if(typeof label!=='string'||!label.trim())return;
+   agentBusy=true;busyLabel=label.trim();paintBusy();
+ });
+ // 답이 막 끝난 대화에서 에이전트가 쓴 절 — 답 머리의 [제목] 표시를 먼저, 없으면 답에 나온 절 제목 중
+ // 가장 뒤에 나온 것(「문서에서 보기」 단추와 같은 기준). 사례별 규칙 없이 문서의 절 목록과만 맞춘다.
+ function writtenSection(){
+   const messages=workspace.querySelectorAll('.turn.assistant .msg.assistant');
+   const message=messages[messages.length-1];if(!message||!linked)return null;
+   const normalize=value=>String(value||'').replace(/\s+/g,' ').trim();
+   const sections=(linked.sections||[]).filter(s=>s.heading_id&&s.heading);
+   const text=message.innerText||message.textContent||'';
+   let found=null;
+   for(const mark of text.matchAll(/\[([^\[\]\n]{2,80})\]/g)){
+     const label=normalize(mark[1]);
+     const hit=sections.find(s=>{const heading=normalize(s.heading);return heading===label||(label.length>=6&&heading.startsWith(label));});
+     if(hit)found=hit;
+   }
+   if(found)return found;
+   const flat=normalize(text);let best=null,at=-1;
+   sections.filter(s=>normalize(s.heading).length>=6).forEach(s=>{const i=flat.lastIndexOf(normalize(s.heading));if(i>at){at=i;best=s;}});
+   return best;
+ }
+ // 답이 도착하면 연결 정보를 다시 읽고(절·연결 문서가 바뀌었을 수 있다) 편집기를 새로 불러온다.
+ // 쓴 절을 알면 그 자리로 옮긴다.
+ async function afterAnswer(){
+   const session=sid;
+   let fresh=null;
+   try{fresh=await api('/api/chat-documents/'+session);}catch(_){}
+   if(session!==sid)return;
+   if(fresh){
+     const before=linked?.doc;
+     currentDoc=fresh.connected?fresh.doc:null;
+     if(fresh.connected){
+       linked=fresh;
+       // 새로 생긴 작업본은 checkCreatedDocument 와 같이 바로 연다
+       if(!before){show();}
+       else if(before!==fresh.doc&&isEditor()){const open=!panel.hidden;clearPanel();show();if(!open)visibility(false);}
+       else buildSectionJump();
+     }
+   }
+   if(!isEditor()||panel.hidden)return;
+   const target=writtenSection();
+   if(target)jumpToSection(target);else navigateEditor(null);
  }
  workspace.addEventListener('chat-session-updated',event=>{
    const next=workspace.dataset.session;
    // 같은 대화의 답변 갱신은 iframe·분할 비율을 그대로 둔다. 문서함이 열려 있으면 목록만 다시 읽는다
    // (새 첨부, 에이전트가 근거로 불러온 문서가 제 갈래에 바로 선다).
-   if(next===sid){if(!event.detail?.waiting&&panel?.classList.contains('chat-file-library'))refreshLibrary?.();return;}
-   sid=next;linked=null;loadError='';
+   if(next===sid){
+     const waiting=Boolean(event.detail?.waiting), wasBusy=agentBusy;
+     agentBusy=waiting;if(waiting)busyLabel='';
+     paintBusy();
+     if(!waiting&&panel?.classList.contains('chat-file-library'))refreshLibrary?.();
+     if(!waiting&&wasBusy)afterAnswer();
+     return;
+   }
+   agentBusy=Boolean(event.detail?.waiting);busyLabel='';
+   sid=next;linked=null;currentDoc=null;loadError='';
    visibility(false);clearPanel();
    ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||50;
    initializeSession();
