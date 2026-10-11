@@ -64,7 +64,7 @@ def test_extract_view_drops_split_numbers_duplicate_headings_and_table_echo():
     assert html.count("전자우편 제출") == 1                         # 표를 평문과 표로 두 번 그리지 않는다
     assert "참여 인원" not in html                                   # 값 없는 번호 항목(다음이 제목)
     assert "제출할 서류는 다음과 같다:" in html                     # 번호 없는 안내 문장은 남는다
-    assert "표 내려받기(엑셀)" in html and "table-dl" in html
+    assert "표 내려받기(CSV)" in html and "table-dl" in html
 
 
 # ── 기준 문서 화면 ─────────────────────────────────────────────────────────
@@ -240,3 +240,25 @@ def test_criteria_auto_link_skips_archive_bundles_and_foreign_documents(client):
     plan = project_documents.criteria_kind_backlog(db)
     assert [(r["project_id"], r["doc_id"]) for r in plan["link"]] == [(user, mine)]
     assert project_documents.link_criteria_kind(db, mine) == [user]
+
+
+def test_split_numbering_lines_collapse_but_numbers_stay():
+    from zzaimy.app.render import table_html
+    from zzaimy.app.text_repair import collapse_split_numbering
+
+    box = "0 시범 신청 방법\n0\n시범 신청 방법\n가. 접수 기간"
+    assert collapse_split_numbering(box) == "0 시범 신청 방법\n가. 접수 기간"
+    assert collapse_split_numbering("3 운영 계획\n운영 계획\n- 세부") == "3 운영 계획\n- 세부"
+    assert collapse_split_numbering("Ⅱ 추진 체계\nⅡ\n추진 체계") == "Ⅱ 추진 체계"
+    keep = "1 첫째 항목\n2 둘째 항목\n○\n담당"                      # 겹치지 않으면 그대로(표의 ○ 표시 칸 포함)
+    assert collapse_split_numbering(keep) == keep
+    html = str(table_html(json.dumps({"n_rows": 1, "n_cols": 1, "cells": [[0, 0, 1, 1, False, box]]})))
+    assert html.count("시범 신청 방법") == 1
+
+
+def test_library_tab_names_come_from_one_place(client):
+    page = client.get("/criteria").text
+    assert page.count(">등록 문서</a>") == 2                         # 탭과 안내문이 같은 이름
+    templates = Path(__file__).resolve().parents[1] / "src" / "zzaimy" / "app" / "templates"
+    for f in templates.glob("*.html"):
+        assert "「프로젝트·문서」" not in f.read_text(encoding="utf-8"), f.name

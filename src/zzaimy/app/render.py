@@ -61,8 +61,10 @@ def table_html(content: str) -> Markup:
         return Markup('<pre class="doc-text">{}</pre>').format(content)
 
     rows: dict[int, list] = defaultdict(list)
+    from zzaimy.app.text_repair import collapse_split_numbering
+
     for r, c, rs, cs, hd, txt in cells:
-        rows[int(r)].append((int(c), int(rs), int(cs), bool(hd), str(txt)))
+        rows[int(r)].append((int(c), int(rs), int(cs), bool(hd), collapse_split_numbering(str(txt))))
 
     # 목차 표 감지 — 점선 리더(····)+쪽번호 셀이 많으면 표 대신 목차로 그린다
     all_texts = [str(t) for *_, t in cells if str(t).strip()]
@@ -395,13 +397,15 @@ def chunk_blocks(
                 block += Markup(
                     '<p class="table-dl" style="margin:-10px 0 14px; text-align:right;">'
                     '<a href="/doc/{}/table/{}.csv" class="muted"'
-                    ' style="font-size:11.5px;">표 내려받기(엑셀)</a></p>'
+                    ' style="font-size:11.5px;">표 내려받기(CSV)</a></p>'
                 ).format(doc_id, c["id"])
             blocks.append(block + Markup("</div>"))
         elif c["kind"] == "heading":
             blocks.append(Markup('<h4 class="extract-h"{}>{}</h4>').format(at, _rich(c["content"])))
         else:
-            blocks.append(Markup('<p class="extract-p"{}>{}</p>').format(at, _rich(c["content"])))
+            from zzaimy.app.text_repair import collapse_split_numbering
+
+            blocks.append(Markup('<p class="extract-p"{}>{}</p>').format(at, _rich(collapse_split_numbering(c["content"]))))
     return blocks
 
 

@@ -131,3 +131,6 @@
 .extract-table .table-dl { opacity:0; transition:opacity .15s; }
 .extract-table:hover .table-dl, .extract-table .table-dl:focus-within { opacity:1; }
 @media (hover:none) { .extract-table .table-dl { opacity:1; } }
+/* 창 닫기 아이콘은 공용 모양(base.html .modal-head [data-modal-close]) — 위 문서 화면 주 버튼 색(#23354D)을 물려받지 않게 */
+#documentWorkspace .modal-head [data-modal-close] { background:transparent; border:0; color:var(--muted); }
+#documentWorkspace .modal-head [data-modal-close]:hover { background:#EEF1F5; color:var(--ink); border:0; }

@@ -1,7 +1,7 @@
 {# 라이브러리 — 문서를 보는 곳은 여기 하나다. 등록 문서 / 기준 문서(규정·지침·공고) / 원본 보관소(학교 원본 파일) #}
 {% set lp = request.url.path %}
 <nav class="space-links library-tabs" aria-label="라이브러리" style="margin:0 0 18px;">
-  <a href="/?type=all" {% if lp in ('/', '/inbox') %}aria-current="page"{% endif %}>등록 문서</a>
-  <a href="/criteria" {% if lp == '/criteria' %}aria-current="page"{% endif %}>기준 문서</a>
-  <a href="/archive" {% if lp.startswith('/archive') %}aria-current="page"{% endif %}>원본 보관소</a>
+  <a href="/?type=all" {% if lp in ('/', '/inbox') %}aria-current="page"{% endif %}>{{ library_tabs.docs }}</a>
+  <a href="/criteria" {% if lp == '/criteria' %}aria-current="page"{% endif %}>{{ library_tabs.criteria }}</a>
+  <a href="/archive" {% if lp.startswith('/archive') %}aria-current="page"{% endif %}>{{ library_tabs.archive }}</a>
 </nav>

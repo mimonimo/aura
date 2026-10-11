@@ -557,6 +557,8 @@ def create_app(
     templates.env.globals["doc_name"] = _doc_name
     from zzaimy.app.doc_title import display_title as _doc_title, receipt_label as _receipt_label
     templates.env.globals["doc_title"] = _doc_title
+    # 라이브러리 탭 이름 — 탭(_library_tabs)과 안내문이 같은 이름을 쓴다
+    templates.env.globals["library_tabs"] = {"docs": "등록 문서", "criteria": "기준 문서", "archive": "원본 보관소"}
     templates.env.globals["receipt_label"] = _receipt_label
     templates.env.globals["quality_kind_labels"] = QUALITY_KIND_LABELS
     # 지표 이름·정의(metric_label·metric_tip)와 개발 화면 이름표(dev_page_name) — 화면마다 같은 이름을 쓰게

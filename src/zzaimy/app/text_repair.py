@@ -156,3 +156,33 @@ def repair_document(text: str) -> tuple[str, dict]:
         out_lines.append(fixed)
     stats["respaced"] = respaced
     return "\n".join(out_lines), stats
+
+
+# 번호·글머리와 제목이 겹쳐 들어온 줄 — 한글 상자 제목은 「번호+제목」 한 줄과 번호 칸·제목 칸이 따로 한 번 더 읽힌다
+# (「0 사업 가신청서 제출 방법 / 0 / 사업 가신청서 제출 방법」). 번호가 0부터 매겨진 문서도 있어 번호 자체는 지우지 않는다.
+_NUM_HEAD = re.compile(r"^\s*([0-9]{1,2}|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]{1,4}|[①-⑳○◯●◦□■◆◇▶])\s+(\S.*?)\s*$")
+
+
+def collapse_split_numbering(text: str) -> str:
+    """「번호 제목」 줄 뒤에 (번호만 있는 줄과) 같은 제목 줄이 바로 다시 오면 「번호 제목」 한 줄만 남긴다.
+
+    글자를 새로 만들지 않고 겹친 줄만 뺀다. 제목이 정확히 같을 때만 지우므로 다른 내용은 건드리지 않는다."""
+    if not text or "\n" not in text:
+        return text
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        m = _NUM_HEAD.match(lines[i])
+        if m:
+            mark, title = m.group(1), m.group(2).strip()
+            j = i + 1
+            if j < len(lines) and lines[j].strip() == mark:
+                j += 1
+            if j < len(lines) and lines[j].strip() == title:
+                out.append(lines[i])
+                i = j + 1
+                continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
