@@ -107,3 +107,5 @@ body .chat-location-button{display:block;margin-top:12px;max-width:100%;white-sp
 .chat-doc-done>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-doc-done>button{flex:none;font-size:12px;padding:4px 10px;min-height:28px}
 .chat-doc-done>.doc-icon-button{width:28px;padding:0;border:0;background:transparent;color:var(--muted);box-shadow:none}
+.chat-doc-loading{transition:opacity .3s ease;cursor:pointer}
+.chat-doc-loading.chat-doc-leaving{opacity:0;pointer-events:none}

@@ -40,28 +40,48 @@
    }
    loadFrame(frame,url.href,section?`「${section.heading}」 위치로 이동하는 중…`:'문서를 새로 불러오는 중…');
  }
- // iframe 을 (다시) 불러오는 동안 덮개 안내를 띄우고, 그 iframe 의 load 가 올 때까지 둔다. 불러오기마다 번호를
- // 매겨 앞선 불러오기의 load(취소된 이동·늦게 끝난 이동)가 새 안내를 지우지 않게 한다. 구글 편집기는 큰 문서에서
- // 수십 초가 걸려 15초가 지나면 그 사실을 알린다. 덮개는 iframe 을 감싼 칸(fitEditor)에 둔다.
+ // iframe 을 (다시) 불러오는 동안 안내를 띄운다. 구글 편집기는 교차 출처라 다 그렸는지 알 수 없고, 첫 load(약 3초) 뒤에도
+ // 편집기 스크립트가 글을 그리느라 10초 안팎 비어 있다. 그래서 첫 load 로 걷지 않고 다음 중 먼저 오는 때에 걷는다:
+ //   ① 두 번째 load(구글이 편집기 문서를 한 번 더 불러오는 경우) + 0.6초, ② 첫 load 로부터 10초,
+ //   ③ 시작으로부터 30초(어떤 경우에도 안내가 남아 있지 않게), ④ 담당자가 안내를 누를 때.
+ // 걷을 때는 흐리게 사라진다. 불러오기마다 번호를 매겨 앞선 불러오기의 load·타이머가 새 안내를 건드리지 않게 한다.
+ // 시간 값은 시험에서만 window.chatDocLoadTiming 으로 줄인다.
+ const LOAD_TIMING=Object.assign({settle:10000,cap:30000,slow:15000},window.chatDocLoadTiming||{});
  let loadSeq=0;
  function loadFrame(frame,url,text){
    const viewport=frame.parentElement;if(!viewport)return;
    let note=[...viewport.children].find(el=>el.classList.contains('chat-doc-loading'));
    if(!note){
      note=document.createElement('div');note.className='chat-doc-loading';note.setAttribute('role','status');
+     note.title='눌러서 안내 닫기';
      const dot=document.createElement('span');dot.className='chat-doc-busy-dot';dot.setAttribute('aria-hidden','true');
      note.append(dot,document.createElement('span'));viewport.append(note);
+     note.addEventListener('click',()=>note.finish?.());
    }
+   note.cleanup?.();
    const seq=String(++loadSeq);frame.dataset.loadSeq=seq;
-   note.lastElementChild.textContent=text;note.hidden=false;viewport.setAttribute('aria-busy','true');
-   clearTimeout(note.slowTimer);
-   note.slowTimer=setTimeout(()=>{if(frame.dataset.loadSeq===seq&&!note.hidden)note.lastElementChild.textContent=text+' 구글 문서가 크면 1분 가까이 걸립니다.';},15000);
-   const done=()=>{
-     frame.removeEventListener('load',done);
-     if(frame.dataset.loadSeq!==seq)return;
-     clearTimeout(note.slowTimer);note.hidden=true;viewport.removeAttribute('aria-busy');
+   note.lastElementChild.textContent=text;note.hidden=false;note.classList.remove('chat-doc-leaving');
+   viewport.setAttribute('aria-busy','true');
+   let loads=0;const timers=[];
+   const later=(fn,ms)=>timers.push(setTimeout(fn,ms));
+   const current=()=>frame.dataset.loadSeq===seq;
+   const cleanup=()=>{timers.forEach(clearTimeout);frame.removeEventListener('load',onLoad);if(note.cleanup===cleanup){note.cleanup=null;note.finish=null;}};
+   const finish=()=>{
+     cleanup();if(!current())return;
+     viewport.removeAttribute('aria-busy');note.classList.add('chat-doc-leaving');
+     setTimeout(()=>{if(current()&&note.classList.contains('chat-doc-leaving'))note.hidden=true;},300);
    };
-   frame.addEventListener('load',done);
+   function onLoad(){
+     if(!current()){cleanup();return;}
+     loads+=1;
+     if(loads>=2){later(finish,600);return;}
+     note.lastElementChild.textContent='편집기를 그리는 중…';
+     later(finish,LOAD_TIMING.settle);
+   }
+   note.cleanup=cleanup;note.finish=finish;
+   later(()=>{if(current()&&!note.hidden)note.lastElementChild.textContent=text+' 구글 문서가 크면 1분 가까이 걸립니다.';},LOAD_TIMING.slow);
+   later(finish,LOAD_TIMING.cap);
+   frame.addEventListener('load',onLoad);
    frame.src=url;
  }
  function isEditor(){return Boolean(panel&&panel.querySelector('[data-toolbar]')&&!panel.classList.contains('chat-doc-viewer'));}
@@ -476,6 +496,7 @@
      status.textContent='';
      if(data.folder_url&&!panel.querySelector('header [data-folder]')){const folder=document.createElement('a');folder.dataset.folder='';folder.href=data.folder_url;folder.target='_blank';folder.rel='noopener';folder.textContent='드라이브 폴더 열기';panel.querySelector('header').insertBefore(folder,panel.querySelector('[data-close]'));}
      for(const file of data.files){
+       if(file.mime_type==='application/vnd.google-apps.folder')continue;   // 폴더는 문서가 아니다(서버도 거른다)
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
        const isImage=file.mime_type.startsWith('image/')||imageFile(file.name);
        const editable=file.mime_type==='application/vnd.google-apps.document';

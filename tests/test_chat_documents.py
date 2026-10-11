@@ -89,11 +89,15 @@ def test_file_list_reads_parent_and_never_crosses_owner(client, monkeypatch):
     calls = []
     def children(self, folder):
         calls.append(folder)
-        return [{'id': 'docA', 'name': '시험 문서', 'mimeType': 'application/vnd.google-apps.document'}]
+        return [{'id': 'docA', 'name': '시험 문서', 'mimeType': 'application/vnd.google-apps.document'},
+                {'id': 'subFolder', 'name': '가상 하위 폴더', 'mimeType': 'application/vnd.google-apps.folder'},
+                {'id': 'pdfB', 'name': '가상 참고.pdf', 'mimeType': 'application/pdf'}]
     monkeypatch.setattr(gdrive.GDriveBackend, '_children', children)
     result = client.get(f'/api/chat-documents/{sid}/files')
     assert result.status_code == 200
     assert result.json()['files'][0]['name'] == '시험 문서'
+    # 하위 폴더는 문서가 아니라 목록·건수에서 빠진다
+    assert [f['id'] for f in result.json()['files']] == ['docA', 'pdfB']
     assert calls == ['folderA']
     client.app.state.owner = 'other'
     assert client.get(f'/api/chat-documents/{sid}/files').status_code == 404

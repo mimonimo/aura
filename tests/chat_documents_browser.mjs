@@ -65,13 +65,17 @@ try {
  const jumpNote=await evaluate(`(()=>{document.querySelector('.chat-doc-done button.secondary').click();const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:Boolean(n&&!n.hidden),text:n?.textContent,busy:document.querySelector('.chat-doc-viewport').getAttribute('aria-busy')}})()`);
  assert.deepEqual(jumpNote,{shown:true,text:'「1. 추진 배경」 위치로 이동하는 중…',busy:'true'});
  assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-done'))`),false);
- await new Promise(r=>setTimeout(r,300));
+ // 첫 load 로는 걷지 않는다(구글 편집기는 그 뒤에도 그리는 중) — 두 번째 load 가 오면 걷힌다
+ assert.deepEqual(await evaluate(`(()=>{const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:!n.hidden,text:n.textContent}})()`),{shown:true,text:'편집기를 그리는 중…'});
+ await evaluate(`document.querySelector('.chat-doc-editor iframe').dispatchEvent(new Event('load'))`);await new Promise(r=>setTimeout(r,1100));
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
  assert.ok(await evaluate(`(()=>{const s=document.querySelector('.chat-doc-editor iframe').src;return s!==beforeAnswer&&new URL(s).hash==='#heading=h.test'})()`));
  // 앞선 이동이 끝나기 전에 다시 옮기면 안내는 나중 것 — 앞 이동의 load 처리기는 나중 안내를 지우지 않고 빠진다
  const twice=await evaluate(`(()=>{const sel=document.querySelector('[data-section-jump]');sel.value='1';sel.dispatchEvent(new Event('change'));const f=document.querySelector('.chat-doc-editor iframe');const first=f.dataset.loadSeq;sel.dispatchEvent(new Event('change'));const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {moved:f.dataset.loadSeq!==first,shown:!n.hidden}})()`);
  assert.deepEqual(twice,{moved:true,shown:true});
- await new Promise(r=>setTimeout(r,300));
+ // 첫 load 로는 걷지 않는다(구글 편집기는 그 뒤에도 그리는 중) — 두 번째 load 가 오면 걷힌다
+ assert.deepEqual(await evaluate(`(()=>{const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:!n.hidden,text:n.textContent}})()`),{shown:true,text:'편집기를 그리는 중…'});
+ await evaluate(`document.querySelector('.chat-doc-editor iframe').dispatchEvent(new Event('load'))`);await new Promise(r=>setTimeout(r,1100));
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
  // 다시 보내면(대기) 쓴 절 알림은 걷힌다
  await evaluate(`document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-session-updated',{detail:{session:'1',waiting:false}}))`);
@@ -177,11 +181,15 @@ try {
  ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.method==='Fetch.requestPaused')setTimeout(()=>send('Fetch.continueRequest',{requestId:m.params.requestId}).catch(()=>{}),1500);});
  await send('Fetch.enable',{patterns:[{urlPattern:'*slow-doc*'}]});
  await evaluate(`document.body.innerHTML='<main style="display:flex;height:900px;width:1500px"><section id="chatWorkspace" data-session="5"><button id="chatDocumentOpen">문서</button></section></main>';window.fetch=async(url)=>({ok:true,redirected:false,json:async()=>url.endsWith('/folder')?{url:null}:{connected:true,doc:'slowDoc',title:'느린 문서',embed_url:location.origin+'/slow-doc',sections:[]}})`);
+ await evaluate(`window.chatDocLoadTiming={settle:99999,cap:3000,slow:99999}`);
  await evaluate(js);await new Promise(r=>setTimeout(r,150));
  await evaluate(`const a=document.createElement('a');a.dataset.documentLink='true';a.href='https://docs.google.com/document/d/slowDoc/edit';a.textContent='[문서 1]';document.getElementById('chatWorkspace').append(a);a.click();`);
  await new Promise(r=>setTimeout(r,700));
  assert.deepEqual(await evaluate(`(()=>{const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:Boolean(n&&!n.hidden),text:n?.textContent}})()`),{shown:true,text:'문서를 불러오는 중…'});
- await new Promise(r=>setTimeout(r,2000));
+ // 느린 응답이 끝나 첫 load 가 와도 안내는 남고(편집기를 그리는 중), 상한(시험에서는 3초)이 지나면 반드시 걷힌다
+ await new Promise(r=>setTimeout(r,1500));
+ assert.deepEqual(await evaluate(`(()=>{const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:!n.hidden,text:n.textContent}})()`),{shown:true,text:'편집기를 그리는 중…'});
+ await new Promise(r=>setTimeout(r,1300));
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
  await send('Fetch.disable');
  if(process.env.UI_SCREENSHOT){const shot=await send('Page.captureScreenshot',{format:'png'});await writeFile(process.env.UI_SCREENSHOT,Buffer.from(shot.data,'base64'));}

@@ -129,6 +129,9 @@ def document_folder(request: Request, sid: int):
     return {'url': f'https://drive.google.com/drive/folders/{parents[0]}'}
 
 
+FOLDER_MIME = 'application/vnd.google-apps.folder'
+
+
 @router.get('/api/chat-documents/{sid}/files')
 def document_files(request: Request, sid: int):
     db, owner = identity(request)
@@ -145,7 +148,8 @@ def document_files(request: Request, sid: int):
         raise HTTPException(400, '폴더의 파일 목록을 불러오지 못했습니다.') from exc
     return {'folder_url': folder, 'account': link['account'], 'files': [
         {'id': f['id'], 'name': f.get('name', '문서'), 'mime_type': f.get('mimeType', '')}
-        for f in files if re.fullmatch(r'[A-Za-z0-9_-]+', f.get('id', ''))]}
+        # 폴더(그림·첨부 같은 하위 폴더)는 문서가 아니다 — 문서 목록·건수에 넣지 않는다
+        for f in files if re.fullmatch(r'[A-Za-z0-9_-]+', f.get('id', '')) and f.get('mimeType') != FOLDER_MIME]}
 
 
 @router.post('/api/chat-documents/{sid}/insert')
