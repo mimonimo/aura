@@ -1968,7 +1968,7 @@ def create_app(
             if not ep.writes:
                 db.add_chat(session_id, "assistant", _scrub_internal(msg_))
         if not ep.finished and ep.writes:
-            # 걸음 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
+            # 단계 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
             done = [str(s_.get("args", {}).get("section") or "") for s_ in ep.steps
                     if s_.get("action") in ("write_section", "rewrite_section") and not str(s_.get("observation", "")).startswith(("그런 절", "담당자 요청에", "이번 요청의", "연결된 문서가 없다"))]
             left = [x for x in sections() if drafting.writable(x) and drafting.is_unfilled(x)]
@@ -1980,7 +1980,7 @@ def create_app(
             return True                                          # 무엇이든 남겼다(쓰기 결과·답·물음)
         if ep.may_fall_back:
             return False                                         # 모델에 닿지 못했거나 쓸 수 없는 답 — 대비 경로로
-        # 도구 실패·문맥 한도·걸음 한도 — 낱말 규칙 경로로 문서를 건드리지 않고, 무엇이 안 됐는지 담당자에게 알린다
+        # 도구 실패·문맥 한도·단계 한도 — 낱말 규칙 경로로 문서를 건드리지 않고, 무엇이 안 됐는지 담당자에게 알린다
         db.add_chat(session_id, "assistant", _scrub_internal(doc_agent.failure_message(ep)))
         return True
 

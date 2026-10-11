@@ -217,7 +217,7 @@ def test_replay_criteria_notice_in_grant_index_resolves_with_a_suggested_span(tm
     page = client.get(r.headers["location"]).text
     ep = [json.loads(x) for x in (tmp_path / "doc_agent_episodes.jsonl").read_text(encoding="utf-8").splitlines()][-1]
     acts = [s.get("action") for s in ep["steps"]]
-    assert ep["finished"] and len(acts) <= 6, acts                       # 걸음 한도 안에서 끝난다
+    assert ep["finished"] and len(acts) <= 6, acts                       # 단계 한도 안에서 끝난다
     search = next(s for s in ep["steps"] if s.get("action") == "search")
     assert "7.28.~8.6." in search["observation"]                         # 기준 문서를 사업 문서 색인에서 찾았다
     tries = [s for s in ep["steps"] if s.get("action") == "resolve_from_evidence"]
@@ -262,7 +262,7 @@ import re as _re  # noqa: E402
 
 class _FollowsState:
     """상태만 보고 움직이는 가짜 — 운영에서 본 꼴을 흉내 내 처음엔 결정 값을 찾으려 하고, 그 뒤엔 상태의 사실 값을 찾아
-    겹침 단서가 뜨면 결과 글의 후보로 남긴다. 다 남기면 마무리하지 않고 다른 검색을 이어 걸음 한도에 닿는다."""
+    겹침 단서가 뜨면 결과 글의 후보로 남긴다. 다 남기면 마무리하지 않고 다른 검색을 이어 단계 한도에 닿는다."""
 
     def __init__(self):
         self.model, self._extra, self.sent = "fake", {}, []
