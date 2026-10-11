@@ -336,35 +336,111 @@ def _body_style(start: int, end: int, template: bool = False) -> dict:
                                      "fields": fields}}
 
 
-# 개조식 단계별 들여쓰기(pt) — (첫 줄, 둘째 줄부터). 줄 머리 기호로 단계를 읽는다. 둘째 줄은 기호 뒤 글자에 맞춰 내어 쓴다.
-BULLET_INDENT = [(re.compile(r"^[□■]"), (0, 13), True, 8),
-                 (re.compile(r"^[○◦●①-⑳]|^\d{1,2}\)"), (10, 23), False, 2),
-                 (re.compile(r"^[-·∙]\s"), (22, 31), False, 0),
-                 (re.compile(r"^※"), (22, 35), False, 0)]
+# 본문 항목 단계 — 공문서 항목 구분 순서(행정업무의 운영 및 혁신에 관한 규정 시행규칙): 1. → 가. → 1) → 가) → (1) → (가) → ① → ㉮.
+# 줄 머리 기호로 단계를 읽는다. 「가.」와 「가)」의 가는 가나다 순서 글자만(「다.」로 끝난 문장 조각을 항목으로 읽지 않게).
+_GANADA = "가나다라마바사아자차카타파하"
+OFFICIAL_ITEMS = [re.compile(r"^\d{1,2}[.．](?!\d)\s*"),
+                  re.compile(rf"^[{_GANADA}][.．]\s*"),
+                  re.compile(r"^\d{1,2}\)\s*"),
+                  re.compile(rf"^[{_GANADA}]\)\s*"),
+                  re.compile(r"^[(（]\d{1,2}[)）]\s*"),
+                  re.compile(rf"^[(（][{_GANADA}][)）]\s*"),
+                  re.compile(r"^[①-⑳]\s*"),
+                  re.compile(r"^[㉮-㉻]\s*")]
+# 옛 개조식(□ 큰 항목 → ○ 세부 → - 설명) — 이미 쓴 초안이 남아 있다. 이 기호가 있는 글은 예전 단계로 읽는다(① 1) 은 ○ 단계).
+LEGACY_ITEMS = [re.compile(r"^[□■]\s*"),
+                re.compile(r"^(?:[○◦●①-⑳]|\d{1,2}\)|[가-하]\))\s*"),
+                re.compile(r"^[-·∙]\s+")]
+NOTE_ITEM = re.compile(r"^※\s*")
+# 옛 개조식 단계별 들여쓰기(pt) — (첫 줄, 둘째 줄부터, 굵게, 문단 위). 예전 초안의 모양을 그대로 둔다.
+LEGACY_INDENT = [(0, 13, True, 8), (10, 23, False, 2), (22, 31, False, 0)]
+LEGACY_NOTE = (22, 35)
+ITEM_STEP = 11.0                                   # 한 단계 들여쓰기 — 한글 한 자(2타) 폭(본문 11pt)
+ITEM_ABOVE = (6, 2)                                # 문단 위 간격 — 첫 단계 6pt, 둘째 단계 2pt, 그 아래 0
+
+
+def _marker_width(marker: str, em: float = 11.0) -> float:
+    """기호(뒤 빈칸 포함) 폭 어림(pt) — 한글·원문자 1자, 숫자 0.55자, 괄호·마침표 0.33자, 빈칸 0.27자. 내어쓰기 자리를 기호 뒤 글자에 맞춘다."""
+    w = 0.0
+    for ch in marker:
+        if ch.isspace():
+            w += 0.27
+        elif ch.isdigit():
+            w += 0.55
+        elif ch in ".．()（）":
+            w += 0.33
+        else:
+            w += 1.0
+    return round(w * em, 1)
+
+
+def _item_rank(body: str, legacy: bool) -> tuple[int, str] | None:
+    """줄 머리 기호의 (단계, 기호 글자) — 기호가 없으면 None."""
+    for rank, pat in enumerate(LEGACY_ITEMS if legacy else OFFICIAL_ITEMS):
+        m = pat.match(body)
+        if m:
+            return rank, m.group(0)
+    return None
 
 
 def bullet_layout(text: str, start: int, font: str = "") -> list[dict]:
-    """넣은 개조식 글의 줄마다 단계별 들여쓰기·내어쓰기(□ 굵게, ○ 한 단계, -·※ 두 단계) — 기호가 모두 왼쪽 끝에 붙어
-    실제 서식처럼 보이지 않던 것(10/9 절 작성 시험). 기호 없는 줄은 건드리지 않는다. font 를 주면 글꼴도 맞춘다(공통 양식 본문)."""
+    """넣은 본문 항목 글의 줄마다 단계별 들여쓰기·내어쓰기 — 기호가 모두 왼쪽 끝에 붙어 실제 서식처럼 보이지 않던 것(10/9 절 작성 시험).
+
+    공문서 항목 구분(1. 가. 1) 가) (1) (가) ① ㉮)은 한 단계마다 ITEM_STEP 만큼 들여 쓰고, 둘째 줄부터는 기호 뒤 글자에 맞춰 내어 쓴다
+    (indentFirstLine = 기호 자리, indentStart = 기호 뒤 글자 자리). 단계는 글에 나온 가장 높은 기호를 왼쪽 끝으로 잡는다 — 「1.」 절
+    아래 글은 가.부터, 「가.」 절 아래 글은 1)부터 쓰므로 그 첫 기호가 본문 왼쪽 끝이다. ※ 보충은 바로 앞 항목의 글자 자리에 붙인다.
+    - 줄도 앞 항목에 딸린 덧붙임으로 같은 자리에 둔다. □ ○ 가 든 옛 글은 예전 단계(□ 굵게, ○ 한 단계, -·※ 두 단계)로 둔다. 평문 관례의 줄 앞 빈칸(단계마다 두 칸)은 문단 들여쓰기와
+    겹치므로 지운다 — 지우기는 맨 끝에 뒤 줄부터 내므로 앞선 요청의 인덱스는 그대로다. 기호 없는 줄은 건드리지 않는다.
+    font 를 주면 글꼴도 맞춘다(공통 양식 본문)."""
     pt = lambda v: {"magnitude": v, "unit": "PT"}
-    reqs, pos = [], start
-    for line in text.split("\n"):
+    lines = text.split("\n")
+    legacy = any(LEGACY_ITEMS[0].match(ln.strip()) or re.match(r"^[○◦●]", ln.strip()) for ln in lines)
+    ranks = [_item_rank(ln.strip(), legacy) for ln in lines]
+    base = min((r[0] for r in ranks if r), default=0)
+    reqs, cuts, pos, last_text_at = [], [], start, None
+    for line, hit in zip(lines, ranks):
         n = len(line.encode("utf-16-le")) // 2
         body = line.strip()
-        for pat, (first, rest), bold, above in BULLET_INDENT:
-            if body and pat.search(body):
-                reqs.append({"updateParagraphStyle": {"range": {"startIndex": pos, "endIndex": pos + n + 1},
-                                                      "paragraphStyle": {"indentFirstLine": pt(first), "indentStart": pt(rest),
-                                                                         "spaceAbove": pt(above)},
-                                                      "fields": "indentFirstLine,indentStart,spaceAbove"}})
-                if bold and n:
-                    reqs.append({"updateTextStyle": {"range": {"startIndex": pos, "endIndex": pos + n},
-                                                     "textStyle": {"bold": True}, "fields": "bold"}})
-                break
+        lead = len(line) - len(line.lstrip())
+        bold = False
+        if not body:
+            hit = None
+            style = None
+        elif hit and legacy:
+            first, rest, bold, above = LEGACY_INDENT[hit[0]]
+            style = (first, rest, above)
+        elif hit:
+            first = (hit[0] - base) * ITEM_STEP
+            rest = round(first + _marker_width(hit[1]), 1)
+            depth = hit[0] - base
+            style = (first, rest, ITEM_ABOVE[depth] if depth < len(ITEM_ABOVE) else 0)
+            last_text_at = rest
+        elif NOTE_ITEM.match(body) and legacy:
+            style = (LEGACY_NOTE[0], LEGACY_NOTE[1], 0)
+        elif NOTE_ITEM.match(body) or LEGACY_ITEMS[2].match(body):
+            # ※ 보충·- 덧붙임 줄 — 바로 앞 항목의 글자 자리에서 시작(그 항목에 딸린 말)
+            first = last_text_at or 0
+            mark = (NOTE_ITEM.match(body) or LEGACY_ITEMS[2].match(body)).group(0)
+            style = (first, round(first + _marker_width(mark), 1), 0)
+        else:
+            style = None
+        if style:
+            first, rest, above = style
+            reqs.append({"updateParagraphStyle": {"range": {"startIndex": pos, "endIndex": pos + n + 1},
+                                                  "paragraphStyle": {"indentFirstLine": pt(first), "indentStart": pt(rest),
+                                                                     "spaceAbove": pt(above)},
+                                                  "fields": "indentFirstLine,indentStart,spaceAbove"}})
+            if bold and n:
+                reqs.append({"updateTextStyle": {"range": {"startIndex": pos, "endIndex": pos + n},
+                                                 "textStyle": {"bold": True}, "fields": "bold"}})
+            if lead:
+                cuts.append((pos, pos + len(line[:lead].encode("utf-16-le")) // 2))
         pos += n + 1
     if font and pos - 1 > start:
         reqs.append({"updateTextStyle": {"range": {"startIndex": start, "endIndex": pos - 1},
                                          "textStyle": {"weightedFontFamily": {"fontFamily": font}}, "fields": "weightedFontFamily"}})
+    for a, b in reversed(cuts):
+        reqs.append({"deleteContentRange": {"range": {"startIndex": a, "endIndex": b}}})
     return reqs
 
 

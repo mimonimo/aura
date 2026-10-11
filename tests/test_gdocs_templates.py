@@ -190,3 +190,25 @@ def test_toc_lists_chapters_and_sections_only():
     assert toc[0] == (1, "사업 개요") and (1, "Ⅰ. 사업 추진 배경 및 목표") in toc and (2, "1. 추진 배경 및 필요성") in toc
     assert all(level <= 2 for level, _ in toc) and (3, "가. 과제 개요") not in toc
     assert "plan" in gt.COVER_PAGE and "minutes" not in gt.COVER_PAGE          # 목차는 표지 한 쪽을 두는 갈래만
+
+
+def test_style_rule_uses_official_item_order():
+    """본문 항목 규칙은 공문서 항목 구분 순서 — 제목 번호 다음 단계부터, 문장 끝·※·사업 서식 우선은 그대로. 예시도 □ ○ 를 쓰지 않는다."""
+    import re
+    from zzaimy.app import gdocs_agent
+    from zzaimy.ingest import gdocs
+
+    assert gt.ITEM_ORDER in gt.STYLE_RULE and "「~함」「~임」 또는 「~한다」" in gt.STYLE_RULE and "※" in gt.STYLE_RULE
+    assert "사업 서식의 기호 체계가 따로 있으면 그것을 따른다" in gt.STYLE_RULE and "□" not in gt.STYLE_RULE
+    assert all(gt.STYLE_RULE in sp["intro"] for sp in gt.SPECS.values())
+    assert gt.ITEM_ORDER in gdocs_agent._PROMPT
+    for sid, exs in gt.EXAMPLES.items():
+        for head, ex in exs.items():
+            assert not re.match(r"[□○]", ex), (sid, head)
+            if re.match(r"가[.]", head):                     # 「가.」 제목 아래 본문은 1) 부터
+                assert not re.match(r"[가-하][.]", ex), (sid, head)
+    # 규칙의 예시가 그대로 독스 단계 들여쓰기로 읽힌다
+    ex = "가. 정책 환경\n1) ○○부 계획은 ○○를 제시함\n가) 지역 인력 양성 요구 확대"
+    firsts = [r["updateParagraphStyle"]["paragraphStyle"]["indentFirstLine"]["magnitude"]
+              for r in gdocs.bullet_layout(ex, 1) if "updateParagraphStyle" in r]
+    assert firsts == [0, 11, 22]
