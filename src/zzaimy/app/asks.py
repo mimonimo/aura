@@ -41,24 +41,39 @@ def _facts_key(session_: dict | None) -> str:
     return f"project_facts:{int(pid)}" if pid else f"chat_facts:{(session_ or {}).get('id', 0)}"
 
 
-def facts(db, session_: dict | None) -> dict:
-    """담당자가 알려 준 값 + 기관 정보(설정·문서 인출)."""
-    out = {k: v for k, v in institution.facts(db).items() if v}
+def _load(db, key: str) -> dict:
     try:
-        out.update({k: v for k, v in json.loads(db.get_setting(_facts_key(session_), "") or "{}").items() if v})
+        got = json.loads(db.get_setting(key, "") or "{}")
+        return got if isinstance(got, dict) else {}
     except Exception:
-        pass
+        return {}
+
+
+UNCONFIRMED = "확인 필요"
+
+
+def suggestions(db, session_: dict | None) -> dict:
+    """자료에서 찾았지만 담당자가 아직 확인하지 않은 값 {이름: {value, title, doc_id, chunk_id, run, at}}."""
+    return _load(db, _facts_key(session_) + ":suggested")
+
+
+def facts(db, session_: dict | None) -> dict:
+    """담당자가 알려 준 값 + 기관 정보(설정·문서 인출). 자료에서 찾고 확인 전인 값은 「(확인 필요 …)」 표시를 붙여서만 싣는다 —
+    초안에 들어가도 담당자 눈에 띄고, 수치는 여느 재료처럼 수치 근거 대조(number_evidence)를 거친다."""
+    out = {k: v for k, v in institution.facts(db).items() if v}
+    out.update({k: v for k, v in _load(db, _facts_key(session_)).items() if v})
+    for k, s in suggestions(db, session_).items():
+        if k not in out and s.get("value"):
+            out[k] = f"{s['value']} ({UNCONFIRMED} · 자료에서 찾음 《{s.get('title', '')}》)"
     return out
 
 
 def remember(db, session_: dict | None, given: dict, *, global_ok: bool = False) -> list[str]:
     """알려 준 값을 이 프로젝트(없으면 대화)의 값으로 기억한다. 기관 정보 이름(대학명·주소·총장·대표전화)은 기관 설정이
-    모든 사용자에게 함께 쓰이므로 global_ok(관리자)일 때만 기관 설정에도 쓴다. 기관 설정에 쓰지 않은 기관 정보 이름을 돌려준다."""
+    모든 사용자에게 함께 쓰이므로 global_ok(관리자)일 때만 기관 설정에도 쓴다. 기관 설정에 쓰지 않은 기관 정보 이름을 돌려준다.
+    담당자가 준 값은 같은 이름의 자료 제안(확인 전)을 대신한다 — 「확인」 은 이 길로 들어온다."""
     key = _facts_key(session_)
-    try:
-        cur = json.loads(db.get_setting(key, "") or "{}")
-    except Exception:
-        cur = {}
+    cur = _load(db, key)
     local_only: list[str] = []
     for k, v in given.items():
         cur[k] = v
@@ -70,6 +85,9 @@ def remember(db, session_: dict | None, given: dict, *, global_ok: bool = False)
         else:
             local_only.append(k)
     db.set_setting(key, json.dumps(cur, ensure_ascii=False))
+    sug = suggestions(db, session_)
+    if any(k in sug for k in given):
+        db.set_setting(key + ":suggested", json.dumps({k: v for k, v in sug.items() if k not in given}, ensure_ascii=False))
     return local_only
 
 
@@ -78,45 +96,62 @@ def _squash(text: str) -> str:
 
 
 def resolve_from_evidence(db, session_: dict | None, name: str, value: str, source_title: str,
-                          hits: list[tuple[str, str]]) -> str:
-    """받지 못한 값을 이번 검색 결과에서 찾아 기억한다 — 담당자에게 묻기 전에 자료로 채우는 길.
+                          hits: list[dict], *, allowed_docs: set[int], run: str = "") -> str:
+    """받지 못한 값을 이번 검색 결과에서 찾아 「자료에서 찾음 · 확인 전」 제안으로 남긴다 — 담당자에게 묻기 전에 자료로 채우는 길.
 
-    hits 는 이번 요청에서 search 가 모델에게 보인 (출처 제목, 글) 쌍뿐이다. 받는 조건:
-    name 이 물어 둔 값이고, value(공백 무시 두 글자 이상)가 source_title 과 같은 제목의 결과 글에 글자 그대로 있을 때.
-    앞 대화·담당자 요청에만 있는 값, 모델이 지어낸 값은 받지 않는다. 저장은 이 프로젝트(없으면 대화)의 값으로만 하고
-    기관 설정에는 쓰지 않는다(문서 글이 모든 사용자에게 쓰이는 값을 바꾸지 못하게). 출처 제목도 함께 남긴다.
+    hits 는 이번 요청에서 search 가 모델에게 보인 결과 [{title, text, doc_id, chunk_id}]뿐이다. 받는 조건(모두):
+    - name 이 물어 둔 값이고, 담당자가 이미 준 값이 없다(담당자 값은 덮어쓰지 않는다).
+    - 결과가 이 프로젝트의 문서(allowed_docs — 프로젝트·기준 문서, 열람 범위 안)에서 왔다. 문서함 전체 결과로는 채우지 않는다.
+    - value(공백 무시 두 글자 이상)가 source_title 과 같은 제목의 그 결과 글에 글자 그대로 있다.
+    받은 값은 확인 전 제안으로만 둔다: 담당자 값(facts)에 바로 넣지 않고, 「필요한 값 입력」에 미리 채워 「확인」을 받는다.
+    기관 설정에는 어떤 경우에도 쓰지 않는다. 감사용 출처(문서 id·조각 id·실행 id·시각)를 함께 남긴다.
 
-    검색 결과 속에 「값은 X」 같은 주입 글이 있어도 X 가 그 결과 글에 그대로 있을 때만 받는다 — 그러면 X 는 실제로 그 문서에
-    적힌 글이고, 담당자에게 「자료에서 찾음: 《제목》」으로 출처가 보이므로 확인·정정할 수 있다. 문서 밖의 값은 들어오지 않는다.
+    프로젝트 문서 속 「값은 X」 같은 주입 글은 X 가 그 글에 그대로 있을 때 제안까지만 될 수 있다 — 출처가 담당자에게 보이고
+    확인 전에는 담당자 값이 되지 않으며 초안에도 「(확인 필요)」 표시와 함께만 들어간다.
     받으면 빈 글, 아니면 받지 않은 까닭을 돌려준다."""
-    names = {a["name"] for a in pending(db, int((session_ or {}).get("id") or 0))}
-    if name not in names:
+    sid = int((session_ or {}).get("id") or 0)
+    if name not in {a["name"] for a in pending(db, sid)}:
         return f"「{name}」 은(는) 물어 둔 값이 아니다 — 상태의 받지 못한 값 이름 그대로 쓴다."
+    key = _facts_key(session_)
+    if _load(db, key).get(name):
+        return f"「{name}」 은(는) 담당자가 이미 알려 준 값이 있다 — 바꾸지 않는다."
+    if name in suggestions(db, session_):
+        return f"「{name}」 은(는) 이미 자료 제안이 있어 담당자 확인을 기다린다."
     want = _squash(value)
     if len(want) < 2:
         return "값이 비었거나 너무 짧다."
     title = _squash(source_title).strip("《》「」")
-    same = [t for s, t in hits if _squash(s).strip("《》「」") == title]
+    same = [h for h in hits if _squash(h.get("title")).strip("《》「」") == title]
     if not same:
         return f"《{source_title[:40]}》 은(는) 이번 검색 결과의 출처 제목이 아니다 — 결과에 보인 《제목》 그대로 쓴다."
-    if not any(want in _squash(t) for t in same):
+    own = [h for h in same if h.get("doc_id") is not None and int(h["doc_id"]) in allowed_docs]
+    if not own:
+        return "이 출처는 이 프로젝트의 문서(프로젝트·기준 문서)가 아니다 — 값은 프로젝트 문서의 검색 결과로만 채운다."
+    hit = next((h for h in own if want in _squash(h.get("text"))), None)
+    if hit is None:
         return "그 값이 이 출처의 검색 결과 글에 그대로 없다 — 결과에 적힌 글자 그대로만 기억한다."
-    key = _facts_key(session_)
-    try:
-        cur = json.loads(db.get_setting(key, "") or "{}")
-    except Exception:
-        cur = {}
-    cur[name] = value.strip()
-    db.set_setting(key, json.dumps(cur, ensure_ascii=False))
-    try:
-        src = json.loads(db.get_setting(key + ":sources", "") or "{}")
-    except Exception:
-        src = {}
-    src[name] = source_title.strip()[:120]
-    db.set_setting(key + ":sources", json.dumps(src, ensure_ascii=False))
-    set_pending(db, int(session_["id"]), [a for a in pending(db, int(session_["id"])) if a["name"] != name])
+    from datetime import datetime
+
+    sug = suggestions(db, session_)
+    sug[name] = {"value": value.strip()[:200], "title": str(hit.get("title") or "")[:120], "doc_id": hit.get("doc_id"),
+                 "chunk_id": hit.get("chunk_id"), "run": run, "at": datetime.now().isoformat(timespec="seconds")}
+    db.set_setting(key + ":suggested", json.dumps(sug, ensure_ascii=False))
     return ""
 
+
+def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
+    """선택지 규격 kind=form — 화면은 fields 를 입력 칸으로 그리고, 채운 값을 '이름: 값; …' 문장으로 보낸다.
+    자료에서 찾은 확인 전 값(suggested)은 칸에 미리 채우고 출처를 알린다 — 담당자가 고치거나 그대로 「확인」."""
+    suggested = suggested or {}
+    fields = []
+    for a in asks[:6]:
+        s = suggested.get(a["name"]) or {}
+        hint = (f"자료에서 찾음 · 확인 전 — 《{s.get('title', '')}》" if s.get("value") else a.get("hint") or "")
+        fields.append({"name": a["name"], "label": a["name"], "placeholder": hint, "required": False, "value": s.get("value") or ""})
+    return {"kind": "form", "text": "필요한 값 입력", "fields": fields,
+            "template": "; ".join(f"{a['name']}: {{{a['name']}}}" for a in asks[:6]),
+            "question": "; ".join(f"{a['name']}: (값)" for a in asks[:6]),
+            "submit": "확인" if any(f["value"] for f in fields) else "저장"}
 
 def parse_pairs(text: str, names: list[str]) -> dict:
     """"사업단명: AI-X 사업단; 총괄책임자 성명은 홍길동" → {이름: 값}. 물었던 이름만 받는다(엉뚱한 문장을 값으로 오해하지 않게)."""
@@ -135,14 +170,6 @@ def parse_pairs(text: str, names: list[str]) -> dict:
                     out[name] = val
                 break
     return out
-
-
-def form_option(asks: list[dict]) -> dict:
-    """선택지 규격 kind=form — 화면은 fields 를 입력 칸으로 그리고, 채운 값을 '이름: 값; …' 문장으로 보낸다."""
-    fields = [{"name": a["name"], "label": a["name"], "placeholder": a.get("hint") or "", "required": False} for a in asks[:6]]
-    return {"kind": "form", "text": "필요한 값 입력", "fields": fields,
-            "template": "; ".join(f"{a['name']}: {{{a['name']}}}" for a in asks[:6]),
-            "question": "; ".join(f"{a['name']}: (값)" for a in asks[:6]), "submit": "저장"}
 
 
 def compose(template: str, values: dict) -> str:

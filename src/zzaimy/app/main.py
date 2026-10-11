@@ -1653,7 +1653,9 @@ def create_app(
                 lines.append("연결된 문서: 없음. 만들 때 고를 양식 후보:\n" + form_choice.render_candidates(cands))
             pend = _asks.pending(db, session_id)
             if pend:
-                lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(a["name"] for a in pend[:10])
+                sug_ = _asks.suggestions(db, db.get_chat_session(session_id))
+                lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(a["name"] + (" (자료 제안 있음 · 담당자 확인 대기)" if a["name"] in sug_ else "")
+                                                                for a in pend[:10])
                              + " — 묻기 전에 search 로 문서에서 찾아보고, 결과에 그대로 있으면 resolve_from_evidence 로 출처와 함께 기억한다. "
                                "자료에 없을 때만 담당자에게 묻는다.")
             hist = [m_ for m_ in db.list_chats(session_id)[-8:-1]]
@@ -1682,21 +1684,26 @@ def create_app(
             notes.append(f"◇ {a.get('for') or query} — 검색 「{query}」({src})\n{body}")
             found.extend({"title": h.get("title") or "문서", "text": h.get("text") or "", "doc_id": h.get("doc_id"),
                           "note": h.get("note") or ""} for h in hits[:4])
-            seen_hits.extend((str(h.get("title") or "문서"), h["text"][:500]) for h in hits[:4])   # 모델에게 보인 글 그대로
+            if src in ("project", "criteria"):                  # 값 채우기 근거는 이 프로젝트 문서의 결과만 — 문서함 전체는 아니다
+                seen_hits.extend({"title": str(h.get("title") or "문서"), "text": h["text"][:500], "doc_id": h.get("doc_id"),
+                                  "chunk_id": h.get("chunk_id")} for h in hits[:4])   # 모델에게 보인 글 그대로
             return (hint + "\n" + body) if hint else body          # 관찰은 길이 상한에서 잘리므로 일치 단서를 앞에 둔다
 
-        seen_hits: list[tuple[str, str]] = []                  # 이번 요청의 search 가 보인 (출처 제목, 글) — 자료로 값 채우기의 근거
+        seen_hits: list[dict] = []                             # 이번 요청의 프로젝트·기준 문서 search 결과 — 자료로 값 채우기의 근거
+        run_id = f"{session_id}-{__import__('time').time_ns()}"                # 감사용 실행 id
 
         def t_resolve(a: dict) -> str:
             name, value, title = (str(a.get(k) or "").strip() for k in ("name", "value", "source_title"))
-            why = _asks.resolve_from_evidence(db, db.get_chat_session(session_id), name, value, title, seen_hits)
+            sess_ = db.get_chat_session(session_id)
+            allowed = {int(d["id"]) for d in mats().past_docs()} | {int(x) for x in crit_ids}
+            why = _asks.resolve_from_evidence(db, sess_, name, value, title, seen_hits, allowed_docs=allowed, run=run_id)
             if why:
                 raise doc_agent.Retry(why)
-            left = _asks.pending(db, session_id)
-            _set_options(session_id, [_asks.form_option(left)] if left else [])
+            # 확인 전 제안 — 「필요한 값 입력」 칸에 미리 채워 담당자가 「확인」 하거나 고친다. 그 전에는 담당자 값이 아니다
+            _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), _asks.suggestions(db, sess_))])
             db.add_chat(session_id, "assistant", _scrub_internal(
-                f"「{name}」 값을 자료에서 찾음: 《{title}》 — {value}" + (f"\n아직 못 받은 값: {', '.join(x['name'] for x in left)}" if left else "")))
-            return f"기억했다 — {name}: {value} (《{title}》)"
+                f"「{name}」 값을 자료에서 찾음: 《{title}》 — {value} (확인 전 — 「필요한 값 입력」에서 확인하거나 고쳐 주세요)"))
+            return f"자료 제안으로 남겼다(담당자 확인 전) — {name} (《{title}》)"
 
         def t_read(a: dict) -> str:
             sec = find_section(str(a.get("section") or ""))
@@ -1846,7 +1853,7 @@ def create_app(
             pend = _asks.pending(db, session_id)
             have = {x["name"] for x in pend}
             _asks.set_pending(db, session_id, pend + [x for x in items if x["name"] not in have])
-            _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id))])
+            _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), _asks.suggestions(db, db.get_chat_session(session_id)))])
             msg = str(a.get("message") or "자료에서 찾지 못한 값이 있어 여쭙니다 — 아래 「필요한 값 입력」에 적어 주세요.")
             db.add_chat(session_id, "assistant", _scrub_internal(msg + "\n" + ", ".join(x["name"] for x in items)))
             return "물었다."
@@ -1894,7 +1901,7 @@ def create_app(
             doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message}", t_finish, final=True),
         ]
         ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label))
-        doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "steps": ep.steps})
+        doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps})
         if not ep.finished and ep.writes:
             # 걸음 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
             done = [str(s_.get("args", {}).get("section") or "") for s_ in ep.steps
@@ -1930,7 +1937,7 @@ def create_app(
         opts = []
         if left_asks:
             text += "\n아직 못 받은 값: " + ", ".join(a["name"] for a in left_asks)
-            opts.append(_asks.form_option(left_asks))
+            opts.append(_asks.form_option(left_asks, _asks.suggestions(db, session_)))
         last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
         if last:
             opts.append({"kind": "redo", "text": f"{_ko.quote(_ko.clip(last, 18))} 다시 쓰기", "question": f"「{last}」 절을 알려 준 값을 반영해 다시 써 줘"})
@@ -2077,7 +2084,7 @@ def create_app(
         left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x) and x.get("heading") not in skip_]
         opts = []
         if pend:
-            opts.append(_asks.form_option(pend))
+            opts.append(_asks.form_option(pend, _asks.suggestions(db, db.get_chat_session(session_id))))
         # 단추만 보고 무엇을 어느 절에 하는지 알 수 있게 절 이름을 단추에 넣는다
         last_h = targets[-1]["heading"]
         short_h = _ko.clip(last_h, 18)
