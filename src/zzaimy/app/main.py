@@ -1063,7 +1063,8 @@ def create_app(
     # 조각마다 길이 상한·사이 공백 필수 — 공백이 선택이면 긴 입력에서 나누는 경우의 수가 폭주한다(ReDoS, 10/11 보안 검토)
     _LAST_SECTION_REF = re.compile(r"(?:방금|아까|직전에?|앞서|조금 ?전에?) ?(?:쓴|작성한|채운|고친)(?: \S{1,20}){0,4}? ?\S{0,20}?절|(?:이|그) ?절(?:을|를|도|만)? ")
     _OUTLINE_POINTER = re.compile(r"(?:위|앞|이|그|방금|정한|잡은|만든)\s*(?:의\s*)?(?:목차|구성|개요|틀)|목차\s*(?:대로|에\s*따라|에\s*맞춰|를\s*바탕)")
-    _POINTER_WORDS = {"위", "이", "그", "저", "아래", "앞", "앞의", "위의", "방금", "지금", "이번", "해당", "말한", "정리한", "잡은", "만든"}
+    _POINTER_WORDS = {"위", "이", "그", "저", "아래", "앞", "앞의", "위의", "방금", "지금", "이번", "해당", "말한", "정리한", "잡은", "만든",
+                      "좋아", "좋아요", "좋습니다", "그래", "네", "응", "예", "오케이", "그럼", "자", "이제"}     # 맞장구·이음말(「좋아. 사업계획서」)
     _POINTER_TAIL = re.compile(r"(대로|따라|따라서|맞춰|맞춰서|맞게|바탕으로|기준으로)$")
 
     def _draft_title(q: str) -> str:
@@ -1074,7 +1075,7 @@ def create_app(
         cand = re.sub(r"[\s,.:;·]+$", "", cand)
         cand = re.sub(r"(을|를|은|는|의|로|으로)$", "", cand).strip()
         # 앞 대화를 가리키는 말(「위 목차대로」「이 내용에 맞춰」「방금」)은 제목이 아니다 — 문서 제목이 「위 목차대로 사업계획서」가 됐다(10/11)
-        words = [w for w in cand.split() if w not in _POINTER_WORDS and not _POINTER_TAIL.search(w)]
+        words = [w for w in cand.split() if w.strip(".,!~?") not in _POINTER_WORDS and not _POINTER_TAIL.search(w.strip(".,!~?"))]
         cand = " ".join(words)
         return (cand or head or "새 문서")[:60]
 

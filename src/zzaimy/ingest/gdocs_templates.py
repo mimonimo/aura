@@ -1300,6 +1300,7 @@ def outline_spec(base: dict, outline: str) -> dict | None:
     공통 양식에 같은 이름의 절이 있으면 그 절의 작성 지침·서식 표를 가져오고, 없으면 목록을 「다룰 내용」 지침으로."""
     chapters: list[dict] = []
     for raw in (outline or "").splitlines():
+        raw = raw.replace("**", "").replace("__", "")      # 굵게 표시 — 「1. **대학 기본 교육 현황**」을 못 읽었다(10/11)
         line = raw.strip()
         if not line:
             continue

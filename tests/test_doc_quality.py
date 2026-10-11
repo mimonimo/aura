@@ -113,3 +113,5 @@ def test_outline_spec_from_conversation_toc():
     guides = [b["guide"] for b in sp["blocks"] if "guide" in b]
     assert any("지역 AI-X 선도 인재 양성" in g for g in guides) and sp["intro"].startswith("대화에서 정한 목차")
     assert T.outline_spec(T.SPECS["plan"], "그냥 답변입니다.\n1. 하나\n2. 둘") is None
+    bold = "#### **Ⅰ. 대학의 역량**\n1. **대학 기본 교육 현황**\n   - 학과 현황\n2. **실습 여건**\n#### **Ⅱ. 사업 추진내용**\n1. **추진체계**\n2. **교육과정**\n"
+    assert [b["text"] for b in T.outline_spec(T.SPECS["plan"], bold)["blocks"] if b.get("h") == 2][:2] == ["1. 대학 기본 교육 현황", "2. 실습 여건"]
