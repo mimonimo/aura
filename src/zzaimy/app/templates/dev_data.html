@@ -71,6 +71,9 @@
     <div class="table-scroll" style="margin:2px 0 14px;">
     <table class="src-table">
       <tr><th></th><th>원천 기록</th><th class="num">기록</th><th class="num">생성 가능</th><th class="num">수치 탈락</th><th class="num">내용 빈약</th><th></th></tr>
+      {% if source_state != 'ok' and not source_preview %}
+      <tr><td colspan="7" class="muted" role="status">{{ '원천 기록을 세는 중입니다 — 잠시 뒤 다시 열어 주세요.' if source_state == 'pending' else '원천 기록을 세지 못했습니다 — 잠시 뒤 다시 열어 주세요.' }}</td></tr>
+      {% endif %}
       {% for sp in source_preview %}
       <tr>
         <td><input type="checkbox" name="sources" value="{{ sp.key }}" aria-label="{{ sp.label }} 원천 선택" {% if sp.key != 'chat' %}checked{% endif %}></td>
@@ -172,7 +175,9 @@
 <div class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:layers-minimalistic-linear"></iconify-icon>문서별 상태
     <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">
-      변환 현황판 · 문서 {{ rag_rows|length }}건</span></h2>
+      변환 현황판 · 문서 {{ "{:,}".format(rag_rows|length) }}건{% if rag_rows|length > 200 %} · 최근 200건 표시{% endif %}</span></h2>
+  {% if rag_state == 'pending' %}<p class="muted" role="status" style="font-size:12px; margin:0 0 8px;">{{ '문서별 상태를 다시 세는 중입니다 — 아래는 지난 결과입니다.' if rag_rows else '문서별 상태를 세는 중입니다 — 문서가 많아 시간이 걸립니다. 잠시 뒤 다시 열어 주세요.' }}</p>
+  {% elif rag_state == 'error' %}<p class="muted" role="alert" style="font-size:12px; margin:0 0 8px;">문서별 상태를 세지 못했습니다 — 잠시 뒤 다시 열어 주세요.</p>{% endif %}
   <p class="muted" style="font-size:11.5px; margin:0 0 10px;">
     <b>색인</b> = 검색(RAG) 등재 여부 · <b>학습 재료</b> = 생성 가능한 유형이며 학습 채택 여부가 아닙니다. 교내 규정이 여기에 보여도 자동으로 SFT에 포함되지 않습니다.</p>
   {% if rag_rows %}
@@ -180,7 +185,7 @@
   <table style="font-size:12.5px;">
     <tr><th>#</th><th>문서</th><th>유형</th><th>상태</th><th>조각</th>
         <th>색인</th><th>학습 재료</th></tr>
-    {% for r in rag_rows %}
+    {% for r in (rag_rows | sort(attribute='id', reverse=True))[:200] %}
     <tr>
       <td>{{ r.id }}</td>
       <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;
@@ -199,7 +204,7 @@
     {% endfor %}
   </table>
   </div>
-  {% else %}
+  {% elif rag_state == 'ok' %}
   <p class="muted" style="margin:0;">등록된 문서가 없습니다.</p>
   {% endif %}
 </div></div>

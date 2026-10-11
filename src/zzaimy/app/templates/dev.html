@@ -268,7 +268,7 @@
       {% endfor %}
     </table>
   {% else %}
-    <p class="muted">반입 현황을 읽지 못했습니다.</p>
+    <p class="muted" role="status">{{ '반입 현황을 세는 중입니다 — 잠시 뒤 다시 열어 주세요.' if intake_state == 'pending' else '반입 현황을 읽지 못했습니다.' }}</p>
   {% endif %}
   </div>
 </div></div>

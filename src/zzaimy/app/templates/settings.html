@@ -38,7 +38,7 @@
   <span class="ms-avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
   <div>
     <div class="ms-name">{{ s.get('name') or uid or "담당자" }}</div>
-    <div class="ms-sub">{{ uid }}{% if uid %} · {% endif %}{{ "개발자" if acct_role == "dev" else ("학생" if acct_role == "student" else "담당자") }}{% if acct_dept %} · {{ acct_dept }}{% endif %}</div>
+    <div class="ms-sub">{{ uid }}{% if uid %} · {% endif %}{{ role_labels.get(acct_role, role_labels.staff) }}{% if acct_dept %} · {{ acct_dept }}{% endif %}</div>
   </div>
 </div>
 

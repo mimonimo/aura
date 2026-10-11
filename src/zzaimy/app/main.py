@@ -3907,7 +3907,7 @@ def create_app(
         from datetime import datetime, timedelta
         cutoff = (datetime.now().astimezone() - timedelta(days=7)).isoformat(timespec='seconds')
         n_recent = q('SELECT COUNT(*) FROM documents WHERE created_at >= ?', (cutoff,)).fetchone()[0]
-        n_proj = one("SELECT COUNT(*) FROM projects")
+        n_proj = mv["projects_active"]                     # 보관된 지난 사업 묶음은 따로 센다(같은 표, 다른 집합)
         n_sess = one("SELECT COUNT(*) FROM chat_sessions")
         n_msg = one("SELECT COUNT(*) FROM chat_messages")
         n_reg = mv["regulation_chunks"]
@@ -3922,8 +3922,8 @@ def create_app(
         tiles = [
             {"icon": "solar:documents-linear", "label": "접수 문서", "metric": "documents",
              "value": n_docs, "sub": f"검토 완료 {n_reviewed} · 최근 7일 {n_recent}"},
-            {"icon": "solar:folder-2-linear", "label": "프로젝트",
-             "value": n_proj, "sub": "사업·공고 단위"},
+            {"icon": "solar:folder-2-linear", "label": "프로젝트", "metric": "projects_active",
+             "value": n_proj, "sub": f"진행 중 · 지난 사업 묶음 {mv['projects_archived']:,}개는 별도"},
             {"icon": "solar:chat-round-line-linear", "label": "대화",
              "value": n_sess, "sub": f"메시지 {n_msg}건"},
             {"icon": "solar:book-2-linear", "label": "규정 문단", "metric": "regulation_chunks",
@@ -4406,7 +4406,7 @@ def create_app(
             "n_papers": len(_dev_papers()),
             "n_adr": len(_dev_doc_list("decisions")),
             "n_notes": len(_dev_doc_list("notes")),
-            "intake": _intake_snapshot(),
+            **dict(zip(("intake", "intake_state"), _dev_slow("intake", _intake_snapshot, ttl_s=60))),   # 무거운 집계 — 늦으면 「잠시 뒤 다시」
             "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
         }))
 
@@ -5644,6 +5644,34 @@ def create_app(
         params["tab"] = "data"
         return RedirectResponse("/dev/train?" + urlencode(params), status_code=303)
 
+    # 무거운 개발 화면 조회 — 웹 작업자를 몇 분씩 붙잡지 않게 뒤에서 돌리고, 정해진 시간 안에 끝나지 않으면
+    # 화면은 「계산 중 — 잠시 뒤 다시」를 보인다. 결과는 잠시 재사용하고, 낡으면 옛 값을 보이며 뒤에서 다시 센다.
+    import concurrent.futures as _slow_cf
+    _slow_pool = _slow_cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="dev-slow")
+    _slow_cache: dict = {}
+    _slow_lock = __import__("threading").Lock()
+
+    def _dev_slow(key: str, fn, *, wait_s: float = 4.0, ttl_s: float = 600.0):
+        """(값, 상태) — 상태는 "ok"·"pending"(아직 계산 중)·"error". 같은 조회는 동시에 한 번만 돈다."""
+        now = time.time()
+        with _slow_lock:
+            ent = _slow_cache.get(key) or {}
+            fut = ent.get("fut")
+            fresh = bool(ent.get("at")) and now - ent["at"] < ttl_s
+            if fut is None or (fut.done() and not fresh):
+                fut = _slow_pool.submit(fn)
+                ent = {"fut": fut, "at": now, "last": ent.get("last")}
+                _slow_cache[key] = ent
+        try:
+            val = fut.result(timeout=wait_s)
+        except _slow_cf.TimeoutError:
+            return ent.get("last"), "pending"
+        except Exception:
+            logging.getLogger("zzaimy.app.web").exception("개발 화면 조회 실패: %s", key)
+            return ent.get("last"), "error"
+        ent["last"] = val
+        return val, "ok"
+
     def _dev_data_view(request: Request, err: str = "", ok: str = "", ds_page: int = 0):
         from zzaimy.dataset.build import preview_sources, rag_status
         from zzaimy.export.bundle import preview_bundle
@@ -5672,14 +5700,20 @@ def create_app(
             review_report = _aj.loads(db.get_setting('grounded_review_report', '{}') or '{}')
         except ValueError:
             review_report = {}
+        # 문서별 상태(문서마다 조각을 센다)·원천 미리보기(변환기를 실제로 돌린다)는 문서 수만큼 무거워 뒤에서 센다
+        rag_rows, rag_state, source_preview, source_state = [], "ok", [], "ok"
+        if show_legacy:
+            rag_rows, rag_state = _dev_slow("rag_status", lambda: rag_status(db))
+            source_preview, source_state = _dev_slow("preview_sources", lambda: preview_sources(db))
         return templates.TemplateResponse(request, "dev_data.html", ctx(request, {
+            "rag_state": rag_state, "source_state": source_state,
             "grounded_review_report": review_report,
             "development_tab": "data",
             "export_preview": export_preview,
             "tensorboard_url": db.get_setting("tensorboard_url", ""),
             "grounded_ls": _grounded_ls_status(),
-            "rag_rows": rag_status(db) if show_legacy else [],
-            "source_preview": preview_sources(db) if show_legacy else [],
+            "rag_rows": rag_rows or [],
+            "source_preview": source_preview or [],
             "datasets": datasets,
             "ds_page": ds_page, "ds_total": ds_total, "ds_per": DS_PER,
             "ds_has_next": (ds_page + 1) * DS_PER < ds_total,

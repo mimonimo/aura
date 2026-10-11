@@ -64,6 +64,9 @@ _DEFS = [
     Metric("documents_reviewed", "처리 완료 문서 수", "등록 문서 가운데 처리(판독·조각·검토)가 끝난 것", "live"),
     Metric("documents_visible", "열람 가능 등록 문서", "지금 계정이 볼 수 있는 등록 문서 — 고른 업무·조건 적용", "view"),
     Metric("grant_reviewed", "처리 완료 사업 문서 수", "사업 문서(국고) 가운데 처리 완료된 것 — 검색 범위(RAG 공간)가 세는 집합", "live"),
+    # 프로젝트 — 진행 중 프로젝트와 보관된 지난 사업(사업·연도 묶음)은 같은 표에 있지만 다른 집합이다
+    Metric("projects_active", "프로젝트 수", "진행 중인 프로젝트(보관되지 않은 것) — 사이드바·업무 화면의 프로젝트", "live"),
+    Metric("projects_archived", "지난 사업 묶음 수", "보관된 지난 사업 — 원본 보관소에서 사업·연도별로 묶어 둔 것", "live"),
     # 조각·색인
     Metric("grant_chunks", "사업 문서 조각 수", "처리 완료 사업 문서의 본문·표·그림 글 조각 — 검색 색인에 들어갈 대상", "live"),
     Metric("embedding_index", "임베딩 색인 조각 수", "사업 문서 임베딩 색인에 들어간 조각 — 색인을 마지막으로 만든 때 기준", "index"),
@@ -153,6 +156,8 @@ def _count_live(db) -> dict[str, int]:
             "graph_edges": _one(conn, "SELECT COUNT(*) FROM kg_edges"),
             "graph_doc_nodes": _one(conn, "SELECT COUNT(*) FROM kg_nodes WHERE type = 'doc'"),
             "dataset_pairs": _one(conn, "SELECT COALESCE(SUM(n_pairs), 0) FROM datasets"),
+            "projects_active": _one(conn, "SELECT COUNT(*) FROM projects WHERE archived = 0"),
+            "projects_archived": _one(conn, "SELECT COUNT(*) FROM projects WHERE archived <> 0"),
         }
     v["documents_full"] = v["documents"] - v["documents_light"]
     return v

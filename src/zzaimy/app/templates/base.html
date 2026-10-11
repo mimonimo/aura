@@ -513,7 +513,7 @@ document.addEventListener('submit', function(event) {
     {% if request.state.role == 'dev' %}
     <a href="/dev" class="{{ 'active' if request.url.path.startswith('/dev') else '' }}"
        style="opacity:.7; font-size:12.5px;">
-      <iconify-icon icon="solar:code-square-linear"></iconify-icon>개발 현황 (개발자)</a>
+      <iconify-icon icon="solar:code-square-linear"></iconify-icon>{{ dev_page_name('/dev') }} ({{ role_labels.get('dev') }})</a>
     {% endif %}
     {% endif %}
     {% if llm_status is defined %}

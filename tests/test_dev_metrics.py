@@ -203,3 +203,49 @@ def test_user_status_names_fallback_account(monkeypatch, tmp_path):
     monkeypatch.setattr(user_admin.gdrive_files, "account_for", lambda db, uid, dept: "shared@ync.ac.kr")
     st = user_admin.user_status(db, "someone", None)
     assert st["bound"] == "" and st["effective"] == "shared@ync.ac.kr" and st["via"] == "공용 계정 사용"
+
+
+# ---- 무거운 개발 화면은 작업자를 붙잡지 않는다 ----
+
+def test_legacy_data_view_returns_pending_instead_of_blocking(client, monkeypatch):
+    import threading
+    import time as _time
+
+    from zzaimy.dataset import build
+    gate = threading.Event()
+
+    def slow_status(db):
+        gate.wait(30)
+        return [{"id": 1, "filename": "a.pdf", "doc_type": "grant", "status": "reviewed",
+                 "n_chunks": 3, "indexed": None, "has_review": False, "has_draft": False}]
+
+    monkeypatch.setattr(build, "rag_status", slow_status)
+    t0 = _time.time()
+    page = client.get("/dev/train?tab=data&view=legacy").text
+    assert _time.time() - t0 < 15
+    assert "문서별 상태를 세는 중입니다" in page and "등록된 문서가 없습니다" not in page
+    gate.set()
+    _time.sleep(0.3)
+    page = client.get("/dev/train?tab=data&view=legacy").text      # 끝난 결과는 재사용
+    assert "세는 중" not in page.split("변환 현황판", 1)[1][:600] and 'href="/doc/1"' in page
+
+
+def test_project_tile_counts_active_projects_only(client, tmp_path):
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "test.db")
+    with db._conn() as conn:
+        conn.execute("INSERT INTO projects (sector, name, created_at, archived) VALUES ('grant', '진행', '2031-01-01', 0)")
+        for i in range(3):
+            conn.execute("INSERT INTO projects (sector, name, created_at, archived) VALUES ('grant', ?, '2031-01-01', 1)",
+                         (f"묶음{i}",))
+    metrics._cache.update(at=0.0, path=None, data=None)
+    got = metrics.live(db, force=True)["values"]
+    assert got["projects_active"] == 1 and got["projects_archived"] == 3
+    page = client.get("/dev").text
+    assert "프로젝트 1" in page and "지난 사업 묶음 3개는 별도" in page
+
+
+def test_dev_role_label_comes_from_access_guard(client):
+    from zzaimy.app.access_guard import ROLES
+    page = client.get("/settings").text                 # 업무 화면 사이드바의 개발 현황 진입
+    assert f"개발 현황 ({ROLES['dev']})" in page and "(개발자)" not in page
