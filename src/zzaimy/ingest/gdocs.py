@@ -730,6 +730,28 @@ def redirect_total_row(cells: list[dict], first_col: list[str]) -> list[dict]:
     return out
 
 
+_VALUE_HEAD = re.compile(r"(?:19|20)(?:\d{2}|○○)|\d\s*차\s*(?:년도)?|[1-9]\s*년\s*차")
+
+
+def value_column(rows: list[dict], ri: int, ci: int) -> bool:
+    """그 칸의 열 머리(값을 넣는 행보다 위, 앞 두 행)가 연도·차수인가 — 해마다·차수마다 값을 적는 칸."""
+    heads = []
+    for r_ in rows[:min(ri, 2)]:
+        tcs = r_.get("tableCells", [])
+        if ci < len(tcs):
+            heads.append(" ".join(_para_text(e["paragraph"]) for e in tcs[ci].get("content", []) if "paragraph" in e))
+    return any(_VALUE_HEAD.search(h or "") for h in heads)
+
+
+def too_wordy_for_value(text: str) -> bool:
+    """값 칸에 넣기엔 서술문인가 — 24자를 넘고 숫자·단위가 글의 절반이 못 되면."""
+    t = re.sub(r"\s+", "", text or "")
+    if len(t) <= 24:
+        return False
+    numeric = len(re.findall(r"[\d.,%○()~\-·/]|명|건|개|원|억|만|천|점|회|시간|과목|곳", t))
+    return numeric < len(t) / 2
+
+
 def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: list[dict], *, user: str, data_dir: Path,
                scrub=None, http=None) -> dict:
     """절의 n 번째 양식 표의 칸에 값을 넣는다(cells = [{row, col, text}], 0부터). 칸에 글이 있으면 바꾼다.
@@ -785,6 +807,9 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         content = [e for e in tcs[ci].get("content", []) if "paragraph" in e]
         if not content:
             skipped += 1
+            continue
+        if text and value_column(rows, ri, ci) and too_wordy_for_value(text):
+            skipped += 1                                      # 연도·차수 값 칸에 서술문 — 「최근 3년 값」 칸에 「2025년 기준 1,390억 원 … 투입」(10/11)
             continue
         start = int(content[0]["startIndex"])
         existing = " ".join(_para_text(e["paragraph"]) for e in content).strip()
