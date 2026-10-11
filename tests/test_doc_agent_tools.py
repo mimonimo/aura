@@ -369,3 +369,55 @@ def test_answer_question_uses_the_evidence_the_agent_found(tmp_path, monkeypatch
     assert prompts and "본신청 접수 7.28.~8.6." in prompts[0] and "《부트캠프 공고》" in prompts[0]
     assert NO_EVIDENCE_NOTE.strip() not in prompts[0]                              # 「근거 없음」 길로 가지 않는다
     assert "본신청 마감은 8.6." in page and "부트캠프 공고" in page                     # 출처 목록에도 선다
+
+
+# ---------------------------------------------------------------- 보안: 직접 부르는 함수의 열람 범위·검토의 쓰기
+
+
+def test_agent_review_never_writes_to_the_document(agent_app, tmp_path, monkeypatch):
+    """검토는 동의 관문이 없는 도구라 편집 계획이 나와도 보류만 한다(담당자가 적용해야 쓴다)."""
+    app, client = agent_app
+    db, sid = _linked(app)
+    seen: list = []
+    monkeypatch.setattr(context_plan, "plan", lambda *a, **k: {"needs": []})
+    monkeypatch.setattr(gdocs_agent, "run", lambda db_, s_, o_, cmd, link, **kw: seen.append(kw.get("confirm")) or ("검토 의견", []))
+    _use_agent(monkeypatch, [_step("review_section", section="2. 추진 계획"), _step("finish", message="")])
+    client.post("/chat/send", data={"question": "추진 계획 봐 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert seen == [True]
+
+
+def test_scope_applies_to_criteria_working_copy_source_and_work_on_route(tmp_path, monkeypatch):
+    app, client = _password_app(tmp_path, monkeypatch, {"staffer": {"pw": "pw-staff-1", "role": "staff", "dept": "기획"}})
+    _login(client, "staffer", "pw-staff-1")
+    db = app.state.db
+    pid, form_id = _project_with_form(db, tmp_path, dept="입학", level="dept")
+    crit = db.add_document(filename="입학 공고.pdf", stored_path=str(tmp_path / "c.pdf"), doc_type="grant", dept="입학", access_level="dept")
+    open_crit = db.add_document(filename="공개 공고.pdf", stored_path=str(tmp_path / "o.pdf"), doc_type="grant", access_level="public")
+    db.set_project_criteria(pid, [crit, open_crit])
+    sid = db.create_chat_session("문서 대화", project_id=pid, owner="staffer")
+    assert app.state.scoped_criteria(sid) == [open_crit]                           # 범위 밖 기준 문서는 재료·근거에 들지 않는다
+    # 문서함의 「이 문서로 작업」 경로도 범위 밖 문서는 없는 것과 같다
+    copied: list = []
+    _fake_drive(monkeypatch, copied)
+    r = client.post(f"/api/chat/{sid}/work-on/{form_id}")
+    assert r.status_code == 404 and copied == []
+    # 한글 내보내기·새 작업본의 원본 서식도 범위 밖 양식은 고르지 않는다
+    db.add_file("google", "https://docs.google.com/document/d/docA/edit", name="작업본", session_id=sid, doc_id=form_id)
+    assert app.state.working_copy_source(sid, db.get_chat_session(sid), "내보내 줘", "한글 완성본을 만들") is None
+
+
+def test_must_change_account_cannot_use_chat_or_other_posts(tmp_path, monkeypatch):
+    monkeypatch.delenv("ZZAIMY_DEV_PASSWORD", raising=False)
+    create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
+    dev_pw = (tmp_path / "initial_dev_password.txt").read_text().strip()
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(),
+                     responder=FakeResponder(), password="boot-pass-1")
+    c = TestClient(app)
+    _login(c, "zzdev", dev_pw)
+    n = len(app.state.db.list_chat_sessions()) if hasattr(app.state.db, "list_chat_sessions") else None
+    r = c.post("/chat/send", data={"question": "안녕"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/settings")
+    if n is not None:
+        assert len(app.state.db.list_chat_sessions()) == n
+    r = c.post("/api/chat-documents/create", data={"title": "x"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/settings")

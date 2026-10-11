@@ -168,7 +168,8 @@ class Materials:
     """프로젝트 하나의 재료 창고 — 지난 자료의 절 정렬은 문서마다 한 번만 계산해 둔다."""
 
     def __init__(self, db, project: dict | None, form_source_ids: set[int], find_relevant, extract_nouns, criteria_chunks: list[dict] | None,
-                 scope: dict | None = None, sink: list | None = None):
+                 scope: dict | None = None, sink: list | None = None, visible=None):
+        self.visible = visible                 # 문서마다 열람 범위 판정(대화 주인 기준) — 범위 밖 프로젝트 문서는 재료로 쓰지 않는다
         self.scope = scope                     # 문서함 사업 문서 검색(RAG)의 열람 범위 — 없으면 문서함 검색을 하지 않는다
         # 문서함 검색으로 재료에 넣은 문서를 알릴 곳(대화의 근거 목록) — 문서함 패널의 「참고 문서」에 「에이전트가 불러옴」으로 선다
         self.sink = sink
@@ -187,6 +188,7 @@ class Materials:
             return []
         docs = self.db.list_documents(self.project["sector"], project_id=int(self.project["id"]))
         return [d for d in docs if d.get("status") == "reviewed" and int(d["id"]) not in self.form_source_ids
+                and (self.visible is None or self.visible(d))
                 and d.get("kind") != "form"]
 
     # ---- 도구 — Writer 가 정한 검색어로 찾는다(context_plan). 열람 범위(scope)는 그대로 ----

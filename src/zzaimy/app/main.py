@@ -1151,6 +1151,15 @@ def create_app(
         return [c for c in form_choice.candidates(db, project, db.list_chats(session_id), q)
                 if c.get("kind") != "form" or _viewer_sees(session_id, c.get("doc") or {})]
 
+    def _scoped_criteria(session_id: int) -> list[int]:
+        """대화가 속한 프로젝트의 기준 문서 가운데 대화 주인이 볼 수 있는 것."""
+        session_ = db.get_chat_session(session_id) or {}
+        if not session_.get("project_id"):
+            return []
+        return [i for i in db.get_project_criteria_ids(int(session_["project_id"])) if _viewer_sees(session_id, db.get_document(i) or {})]
+
+    app.state.scoped_criteria = _scoped_criteria
+
     def _session_viewer(session_id: int) -> tuple[str, str, str | None]:
         """대화 주인의 (계정, 역할, 부서) — _answer_task_impl 과 같은 규칙(인증 없이 띄운 앱은 관리자)."""
         owner = (db.get_chat_session(session_id) or {}).get("owner") or ""
@@ -1479,9 +1488,12 @@ def create_app(
         질문이 지목한 문서. 못 찾으면 안내를 남기고 None — 여럿이면 고르는 선택지를 낸다."""
         src_doc_id = next((int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")), None)
         src = db.get_document(src_doc_id) if src_doc_id else None
+        if src is not None and not _viewer_sees(session_id, src):
+            src = None                                      # 열람 범위 밖 원본 서식은 쓰지 않는다
         proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
         if not src and proj_:
-            forms = [d_ for d_ in db.list_documents(proj_["sector"], project_id=int(proj_["id"])) if d_.get("kind") == "form" and d_.get("status") == "reviewed"]
+            forms = [d_ for d_ in db.list_documents(proj_["sector"], project_id=int(proj_["id"]))
+                     if d_.get("kind") == "form" and d_.get("status") == "reviewed" and _viewer_sees(session_id, d_)]
             if len(forms) == 1:
                 src = forms[0]
             elif len(forms) > 1:
@@ -1494,6 +1506,8 @@ def create_app(
         if not src:
             db.add_chat(session_id, "assistant", f"이 작업본의 원본 서식(문서함 문서)을 찾지 못해 {purpose} 수 없습니다. 문서함에서 '이 문서로 작업'을 다시 골라 주세요.")
         return src
+
+    app.state.working_copy_source = _working_copy_source
 
     _EDIT_CONSENT = r"고쳐|수정|바꿔|정리|지워|삭제|맞춰|넣어|빼|추가|편집"   # 문서를 바꾸는 도구 — 담당자 요청 글에 이 뜻이 있을 때만
     _agent_notes: dict[int, str] = {}                      # 에이전트가 찾은 근거 — 절 쓰기 재료에 덧붙인다(대화별, 쓰기 동안만)
@@ -1514,7 +1528,7 @@ def create_app(
         except Exception:
             return False
         before = len(db.list_chats(session_id))
-        crit_ids = db.get_project_criteria_ids(int(project["id"])) if project else []
+        crit_ids = _scoped_criteria(session_id)
         mats_box: dict = {}
 
         def link() -> dict:
@@ -1524,7 +1538,7 @@ def create_app(
             if "m" not in mats_box:
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
                 mats_box["m"] = drafting.Materials(db, project, sources, find_relevant, extract_nouns,
-                                                   db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope,
+                                                   db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope,
                                                    sink=_chat_sources.setdefault(session_id, []))
             return mats_box["m"]
 
@@ -1656,7 +1670,8 @@ def create_app(
             if link().get("doc") and sec is None:
                 return "그런 절이 없다 — 상태의 절 목록에서 고른다."
             return run_doc(lambda: _run_doc_command(session_id, owner, data_dir, scope, scope_msg, client=client, review_focus=sec,
-                                                    command=f"「{sec['heading']}」 절을 평가지표·공고 기준으로 검토해 줘", request=q))
+                                                    command=f"「{sec['heading']}」 절을 평가지표·공고 기준으로 검토해 줘", request=q,
+                                                    read_only=True))
 
         def t_edit(a: dict) -> str:
             instruction = str(a.get("instruction") or "").strip() or q
@@ -1854,7 +1869,7 @@ def create_app(
 
         link = chat_documents.binding(db, session_id, owner)
         session_ = db.get_chat_session(session_id) or {}
-        crit_ids = db.get_project_criteria_ids(int(session_["project_id"])) if session_.get("project_id") else []
+        crit_ids = _scoped_criteria(session_id)
         confirm = (db.get_setting(f"chat_google_doc_confirm:{session_id}", "") or "") == "1"
         if info is None:
             info = _gd.get(link["account"], link["doc"])
@@ -1866,7 +1881,7 @@ def create_app(
             skip_ = set()
         proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
         sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope,
+        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope,
                                   sink=_chat_sources.setdefault(session_id, []))
         if drafting.is_event_record(info) and not mats.past_docs() and not sources:
             # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌리면 「자료 필요」만 되풀이한다.
@@ -2179,8 +2194,7 @@ def create_app(
         """연결 문서 명령의 근거 — 프로젝트 기준 문서(없으면 문서함) 조각과 프로젝트 접수 문서·첨부 조각. 대화의 근거 목록도 새로 둔다."""
         from zzaimy.app.regulations import find_relevant
 
-        session_ = db.get_chat_session(session_id) or {}
-        crit_ids = db.get_project_criteria_ids(int(session_["project_id"])) if session_.get("project_id") else []
+        crit_ids = _scoped_criteria(session_id)
         try:
             if crit_ids:
                 hits = find_relevant(db, command, top_k=5, chunks=db.chunks_for_docs(crit_ids), **scope)
@@ -2204,7 +2218,7 @@ def create_app(
 
     def _run_doc_command(session_id: int, owner: str, data_dir: Path, scope: dict, scope_msg: str, *, command: str, client,
                          review_focus: dict | None = None, request: str | None = None,
-                         evidence: tuple[list[dict], list[dict]] | None = None) -> None:
+                         evidence: tuple[list[dict], list[dict]] | None = None, read_only: bool = False) -> None:
         """연결 문서에 명령 하나를 편집 계획으로 적용한다(gdocs_agent). review_focus 가 있으면 그 절을 재료와 함께 검토한다.
         결과·다음 선택지를 대화에 남기고, 계획에 이름 바꾸기·프로젝트 옮기기가 있으면 대화에도 반영한다."""
         from zzaimy.app import asks as _asks
@@ -2215,8 +2229,9 @@ def create_app(
         request = request if request is not None else command
         link = chat_documents.binding(db, session_id, owner)
         session_ = db.get_chat_session(session_id) or {}
-        crit_ids = db.get_project_criteria_ids(int(session_["project_id"])) if session_.get("project_id") else []
-        confirm = (db.get_setting(f"chat_google_doc_confirm:{session_id}", "") or "") == "1"
+        crit_ids = _scoped_criteria(session_id)
+        # read_only(에이전트의 검토) — 편집 계획이 나와도 문서에 쓰지 않고 보류만 한다(담당자가 「적용」 해야 쓴다). 검토는 동의 관문이 없는 도구다
+        confirm = read_only or (db.get_setting(f"chat_google_doc_confirm:{session_id}", "") or "") == "1"
         hits, proj_hits = evidence if evidence is not None else _command_evidence(session_id, command, scope)
         review_mat = ""
         if review_focus is not None:
@@ -2226,7 +2241,7 @@ def create_app(
                 review_focus = next((x for x in info["sections"] if x["heading"] == review_focus["heading"]), review_focus)
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
                 sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope)
+                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], visible=lambda d_: _viewer_sees(session_id, d_), scope=scope)
                 mm = mats.for_section(info, review_focus, request, storage.title_of)
                 review_mat = drafting.render_materials(mm, _asks.facts(db, session_))
                 hits = mm["criteria"] or hits
@@ -2238,18 +2253,19 @@ def create_app(
         if not _ops and not proj_hits:
             session_ = db.get_chat_session(session_id) or {}
             proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
-            reads = [sg for sg in _project_suggestions(proj_) if sg["kind"] == "read"]
+            reads = [sg for sg in _project_suggestions(proj_) if sg["kind"] == "read"
+                     and _viewer_sees(session_id, db.get_document(int(sg["doc_id"])) or {})]
             if reads:
                 text += "\n\n재료가 될 그림 쪽이 아직 판독되지 않았습니다. 아래에서 고르면 바로 진행합니다."
                 _set_options(session_id, [{"kind": "read", "text": sg["text"][:40], "question": sg["question"]} for sg in reads[:2]]
                              + [{"kind": "skip", "text": "판독 없이 지금 있는 내용으로", "question": request}])
-        if review_focus is not None and not _ops:
+        if review_focus is not None and (not _ops or read_only):
             # 절 검토 뒤 — 의견을 기억해 두고 「반영해 다시 쓰기」로 잇는다(검토 뒤 선택지가 비면 흐름이 끊긴다)
             db.set_setting(f"chat_last_review:{session_id}", _aj.dumps({"heading": review_focus["heading"], "text": text[:2500]}, ensure_ascii=False))
             _set_options(session_id, [{"kind": "redo", "text": "검토 의견 반영해 다시 쓰기",
                                        "question": f"「{review_focus['heading']}」 절을 방금 검토 의견을 반영해 다시 써 줘"},
                                       {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
-        if _ops:
+        if _ops and not read_only:
             _set_options(session_id, [{"kind": "continue", "text": "이어서 다음 절 채우기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"},
                                       {"kind": "review", "text": "방금 쓴 내용 검토", "question": "방금 쓴 절을 공고·평가지표 기준으로 검토해 줘"},
                                       {"kind": "redo", "text": "다시 써 줘", "question": "방금 넣은 내용을 더 구체적인 수치와 근거로 다시 써 줘"}])
@@ -3363,8 +3379,8 @@ def create_app(
         if session_ is None or session_.get("owner") not in (None, owner):
             raise HTTPException(404)
         doc = db.get_document(doc_id)
-        if doc is None:
-            raise HTTPException(404)
+        if doc is None or not _viewer_sees(session_id, doc):
+            raise HTTPException(404)                        # 열람 범위 밖 문서는 없는 것과 같다(문서 화면과 같은 규칙)
         project = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
         made, why = _link_existing_document(session_id, doc, owner, project)
         if not made:
