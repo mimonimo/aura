@@ -54,10 +54,13 @@ ZZAIMY는 대학 행정 부서를 위한 문서 업무 플랫폼이다. 국고�
 
 | 모델 | 베이스 | 역할 | 상태 |
 |---|---|---|---|
-| ZZAIMY-Embed | KURE-v1 | 의미 검색 임베딩 | v2 운영 |
-| ZZAIMY-Rerank | bge-reranker-v2-m3 | 검색 후보 재정렬 | v1 운영 |
-| ZZAIMY-Writer | Qwen3.8-27B | 검토·초안 작성·그림 판독·에이전트 판단 | 베이스 운영, 학습 데이터 검수 중 |
-| ZZAIMY-Extract | Qwen3.8-27B | 실적 정보 구조화 추출(Writer와 같은 모델) | 예정 |
+| ZZAIMY-Embed | KURE-v1 | 의미 검색 | v2 운영 |
+| ZZAIMY-Rerank | bge-reranker-v2-m3 | 후보 재정렬 | v1 운영 |
+| ZZAIMY-Writer | Qwen3.8-27B | 검토·작성·판독 | 베이스 운영 |
+| ZZAIMY-Extract | Qwen3.8-27B | 실적 추출 | 예정 |
+
+Writer는 검토, 초안 작성, 그림 판독, 에이전트 판단을 모두 맡는다. 지금은 베이스 모델로 운영하며 도메인 학습용
+데이터를 검수하고 있다. Extract는 Writer와 같은 모델에 구조화 출력을 강제해 실적 정보를 뽑는다.
 
 베이스는 모두 Apache 2.0·MIT 라이선스의 오픈웨이트 모델이다. 사실과 수치는 검색으로 공급하고, 모델에는 맥락을 파악해 근거를
 골라 쓰는 능력만 학습시킨다. 새 모델은 결정 기록과 같은 입력의 비교 측정을 거쳐서만 들인다.
