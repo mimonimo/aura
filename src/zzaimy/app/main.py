@@ -978,7 +978,7 @@ def create_app(
                     _chat_sources[session_id] = []
                     return
             else:
-                made, why = _auto_link_document(session_id, q, owner, project, spec_override=chosen["spec"])
+                made, why = _auto_link_document(session_id, q, owner, project, spec_override=chosen["spec"], title_override=dec.get("title") or "")
                 if made:
                     doc_material = "new"
                 elif why:
@@ -1206,7 +1206,7 @@ def create_app(
         return True, ""
 
     def _auto_link_document(session_id: int, q: str, owner: str, project: dict | None,
-                            spec_override: dict | None = None) -> tuple[bool, str]:
+                            spec_override: dict | None = None, title_override: str = "") -> tuple[bool, str]:
         """대화에 문서가 없을 때 드라이브 폴더(ZZAIMY/<연도>/<프로젝트|대화>)와 문서를 만들어 잇는다.
 
         돌려주는 것은 (만들었는가, 못 만들었을 때 담당자에게 보일 안내). 허용 계정이 없으면 안내 없이 일반 답변으로 간다.
@@ -1215,7 +1215,9 @@ def create_app(
 
         if not gdrive.list_accounts():
             return False, ""
-        title = _draft_title(q.removeprefix(_COMMON_PREFIX))
+        # 제목은 양식을 고른 Writer 가 짓는다(10/11 「좋아. 사업계획서」「아까 사업계획서」 — 낱말 목록으로 막는 건 끝이 없다).
+        # 못 지었을 때만 요청 문장에서 추린다
+        title = title_override.strip() or _draft_title(q.removeprefix(_COMMON_PREFIX))
         kind_spec = spec_override or gdocs_templates.pick(q)
         if project and all(t in _GENERIC_WORDS or len(t) < 2 for t in re.split(r"\s+", title.strip()) if t):
             pname = project.get("name", "").strip()
@@ -1546,6 +1548,7 @@ def create_app(
                             cmd += "\n반영할 검토 의견(보완할 점을 고쳐 쓴다 — 자료에 없는 값은 여전히 비우고 묻는다):\n" + rv["text"][:2000]
                     refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
                     # 절에 양식 표가 있으면 격자를 재료에 붙인다 — 모델이 fill 로 칸을 채운다(2026-09-29, 실측: 표 채움 0건이던 문제)
+                    m["intent"] = drafting.conversation_intent(db.list_chats(session_id))
                     materials_ = drafting.render_materials(m, inst)
                     try:
                         grids_ = _gd.table_grids(link["account"], link["doc"], sec["index"], info=info)

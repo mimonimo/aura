@@ -31,7 +31,9 @@ PROMPT = """당신은 행정 문서 작성 에이전트다. 담당자의 요청�
 [후보]
 {candidates}
 
-JSON 하나만 답한다: {{"choice": "후보 id", "why": "고른 까닭 한 문장"}}"""
+문서 제목도 짓는다 — 공고·사업 이름과 서류 갈래가 드러나게(예: 「○○년 ○○사업 사업계획서」). 요청 문장의 말투·맞장구는 제목이 아니다.
+
+JSON 하나만 답한다: {{"choice": "후보 id", "title": "문서 제목", "why": "고른 까닭 한 문장"}}"""
 
 
 def candidates(db, project: dict | None, history: list[dict], request: str) -> list[dict]:
@@ -112,10 +114,11 @@ def decide(client, request: str, cands: list[dict]) -> dict:
             got = json.loads(m.group(0)) if m else {}
             choice = str(got.get("choice") or "").strip()
             if choice in ids:
-                return {"choice": choice, "why": str(got.get("why") or "")[:200], "by": "model", "rule": rule}
+                title = re.sub(r"\s+", " ", str(got.get("title") or "")).strip(" 「」『』\"'")[:60]
+                return {"choice": choice, "title": title, "why": str(got.get("why") or "")[:200], "by": "model", "rule": rule}
         except Exception:
             pass
-    return {"choice": rule, "why": "", "by": "rule", "rule": rule}
+    return {"choice": rule, "title": "", "why": "", "by": "rule", "rule": rule}
 
 
 def record(data_dir: Path, rec: dict) -> None:

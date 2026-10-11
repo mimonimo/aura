@@ -119,3 +119,12 @@ def test_latest_outline_looks_back_past_other_answers():
     hist = [{"role": "assistant", "content": outline}, {"role": "user", "content": "좋아"},
             {"role": "assistant", "content": "[1. 추진 배경]\n716자 추가"}]
     assert latest_outline(hist) is not None and latest_outline(hist[2:]) is None
+
+
+def test_conversation_intent_keeps_strategy_drops_commands():
+    from zzaimy.app.drafting import conversation_intent
+    hist = [{"role": "user", "content": "[첨부#1] 공고.hwp\n첨부한 부트캠프 공고 보고 목차 잡아줘. 쿠팡이랑 협력해서 AI물류 인재 키우는 방향이고 전기자동화과가 참여해."},
+            {"role": "assistant", "content": "목차입니다"}, {"role": "user", "content": "다음 절 써 줘"},
+            {"role": "user", "content": "좋아. 위 목차대로 초안 써 줘."}]
+    got = conversation_intent(hist)
+    assert "쿠팡" in got and "[첨부" not in got and "다음 절" not in got and "초안 써 줘" not in got

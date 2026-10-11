@@ -394,8 +394,28 @@ def placeholder_parent(info: dict, section: dict) -> str:
     return ""
 
 
+_COMMAND_ONLY = re.compile(r"^(?:다음|이어서|다시|방금|아까|이)\s.*(?:절|써|작성)|^.{0,25}(?:써\s*줘|작성해\s*줘|만들어\s*줘|해\s*줘)\.?$")
+
+
+def conversation_intent(history: list[dict], keep: int = 4, each: int = 500) -> str:
+    """담당자가 대화에서 밝힌 방향(전략·참여 주체·강조점) — 절 작성 모델은 대화 기록을 받지 않아 첫 요청의 「쿠팡 협력·참여 학과」가
+    절에 빠졌다(10/11). 짧은 명령·첨부 표시는 빼고 최근 몇 개만. 방향일 뿐 수치·사실의 근거가 아니다."""
+    out = []
+    for m_ in history or []:
+        if m_.get("role") != "user":
+            continue
+        text = "\n".join(ln for ln in (m_.get("content") or "").splitlines() if not ln.startswith("[첨부")).strip()
+        if len(text) < 20 or _COMMAND_ONLY.search(text):
+            continue
+        out.append(text[:each])
+    return "\n---\n".join(out[-keep:])
+
+
 def render_materials(m: dict, institution: dict | None = None) -> str:
     lines: list[str] = []
+    if m.get("intent"):
+        lines.append("[담당자가 대화에서 밝힌 방향 — 사업 전략·참여 주체·강조점. 이 방향에 맞춰 쓰되, 수치·사실은 아래 근거 자료에 있는 것만 쓴다]\n"
+                     + m["intent"])
     if m.get("gap_hint"):
         lines.append("[지난 작성에서 이 절이 빈 까닭]\n" + m["gap_hint"])
     if m.get("placeholder"):
