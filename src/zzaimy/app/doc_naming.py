@@ -27,6 +27,8 @@ _EXT = re.compile(r"(?:\.(?:hwpx?|pdf|docx?|xlsx?|pptx?|jpe?g|png|tiff?|bmp|webp
 # ── 1. 파일 이름의 앞 군더더기 ─────────────────────────────────────────────
 # 뒤에 제목이 이어질 때만 뗀다(떼고 나서 남는 것이 없으면 그대로 둔다).
 _LEAD = [
+    # '1.1차년도 …', '3. 2차년도 …' — 목록 번호 뒤에 'N차년도' 가 이어지는 것(개요 번호 '1.1' 이 아니다)
+    re.compile(r"^\s*\d{1,2}\.\s*(?=\d{1,2}\s*차\s*(?:년도|연도))"),
     # '[4-4]', '(3)', '1-30)', '【2】' — 괄호로 닫힌 번호
     re.compile(r"^\s*[\[(【]?\s*\d{1,3}(?:\s*[-–.]\s*\d{1,3})*\s*[\])】]\s*"),
     # '3.4.2.', '1.', '12.5.' — 개요 번호(성분마다 1~2자리라 '2025.10.08' 같은 날짜는 아니다)
@@ -50,6 +52,8 @@ _LEAD = [
 
 # ── 2. 파일 이름의 뒤 군더더기 ─────────────────────────────────────────────
 _YEARS = r"(?:19|20)\d{2}(?:\s*[-~–]\s*(?:19|20)?\d{2,4})?"
+# 행정 문서의 발송·날인 상태 — '직인X', '직인없음', '직인 미포함', '날인본', '발송본'(오타 '직임' 포함)
+_SEAL = r"(?:직[인임]\s*(?:X|x|×|없음|미포함|제외|생략|포함|본)?|날인\s*(?:본|없음|미포함)?|발송본?|송부본?)"
 _STATUS_ANY = r"(?:최종|최최종|수정|확정|완료|제출|검토|결재|초안|가안|원본|사본|복사본|OK|ok|Ok|final|Final|FINAL|fin)"
 _TAIL = [
     # '- 복사본', ' - 사본 (2)', '_copy'
@@ -62,7 +66,15 @@ _TAIL = [
     # 연도('_2025')나 연도 범위('_2025-2027')가 아닐 때만(연도는 이름의 정보다)
     re.compile(r"[\s_\-]+\(?(?!" + _YEARS + r"\)?\s*$)\d{4}(?:[.\-]?\d{2,6})*\)?\s*$"),
     re.compile(r"\((?!" + _YEARS + r"\))\d{4,8}\)\s*$"),
-    # '(최종)', '_최종', '_OK', '(이○○ 수정)', '(검토완료)', '_수정본', ' - 제출본'
+    # '(01.27)', '(3.30.)' — 괄호 속 월.일
+    re.compile(r"\s*\(\s*\d{1,2}\.\d{1,2}\.?\s*\)\s*$"),
+    # '계획서170922' — 이름에 붙은 YYMMDD(월 01~12, 일 01~31)
+    re.compile(r"(?<=[가-힣A-Za-z)])\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\s*$"),
+    # '_직인X', ' 직인없음', '(직인 미포함)' — 발송·날인 상태
+    re.compile(r"[\s_\-]*[(\[]?\s*" + _SEAL + r"\s*[)\]]?\s*$"),
+    # '발송0808', '_최종본03300921' — 상태 낱말에 붙은 날짜
+    re.compile(r"[\s_\-]*(?:발송|송부|접수|" + _STATUS_ANY + r")(?:본|용)?\s*\d{4,8}\s*$"),
+    # '(최종)', '_최종', '_OK', '(이○○ 수정)', '(검토완료)', '_수정본', ' - 제출본', '최종(직인미포함)'
     re.compile(r"\s*[(\[]\s*(?:[가-힣]{2,4}\s*)?" + _STATUS_ANY + r"(?:본|용|완료)?\s*[)\]]\s*$"),
     re.compile(r"[_\-]+\s*" + _STATUS_ANY + r"(?:본|용)?\s*$"),
     re.compile(r"\s+-\s*" + _STATUS_ANY + r"(?:본|용)?\s*$"),
@@ -236,6 +248,12 @@ def title_problem(line: str, text: str = "") -> str | None:
         return "목차·순서"
     if _ORG_ONLY.match(ln.replace(" ", "")):
         return "기관 이름뿐"
+    # 장식으로 시작하는 줄 — 낱자모('ㅣ')·붙임표·기호. 제목은 글자·숫자·여는 괄호·따옴표로 시작한다
+    if not re.match(r"[가-힣A-Za-z0-9(\[「『｢《〈'\"‘“]", ln):
+        return "장식 머리"
+    # 붙임표로 감싼 구절 '- 지역과 대학의 새로운 길 -' 은 표지의 구호다
+    if re.search(r"(?:^|\s)[-–—~]\s*[^-–—~\s][^-–—~]{2,}?\s[-–—~](?:\s|$)", ln):
+        return "구호"
     if re.fullmatch(r"[가-힣\s]{0,12}표\s*지", ln):
         return "표지 표시"
     flat0 = _squash(ln)
@@ -267,12 +285,28 @@ def complete_title(s: str) -> bool:
 _HEAD = 14
 
 
+@lru_cache(maxsize=1)
+def _header_words() -> frozenset:
+    """표 머리 칸 낱말 — 개인정보 탐지기의 서식 낱말(pii._FORM_WORDS)에 분류 머리 몇 개를 더한 일반 어휘."""
+    from zzaimy.ingest.pii import _FORM_WORDS
+
+    return frozenset(_FORM_WORDS) | {"항목", "분류", "영역", "지표", "구분", "사업명", "과제명", "문서명", "제목", "건명"}
+
+
+def strip_header(ln: str) -> str:
+    """'구분 전문대 첨단산업 … 사업계획서' 처럼 표 머리 칸 낱말이 줄 앞에 붙은 것을 뗀다(뒤에 이름이 남을 때만)."""
+    toks = ln.split(None, 1)
+    if len(toks) == 2 and re.sub(r"[:：|]$", "", toks[0]) in _header_words() and _meaningful(toks[1]):
+        return toks[1].lstrip(":：| ")
+    return ln
+
+
 def _candidate_lines(text: str) -> list[str]:
     lines = []
     for raw in (text or "").replace("\r", "\n").split("\n"):
         ln = _plain(raw)
         if ln:
-            lines.append(_unspace(ln))
+            lines.append(strip_header(_unspace(ln)))
         if len(lines) >= _HEAD:
             break
     return lines
@@ -361,26 +395,82 @@ def _squash(s: str) -> str:
     return re.sub(r"[^가-힣A-Za-z0-9]", "", s or "")
 
 
-def body_beats_file(title: str, fname: str) -> bool:
+# 광역 시·도 — 행정구역 이름(일반 지명 사전). 파일 이름의 지역을 본문 제목이 잃으면 다른 지역 문서와 같은 이름이 된다
+_REGIONS = (("서울", "서울특별시"), ("부산", "부산광역시"), ("대구", "대구광역시"), ("인천", "인천광역시"), ("광주", "광주광역시"),
+            ("대전", "대전광역시"), ("울산", "울산광역시"), ("세종", "세종특별자치시"), ("경기", "경기도"), ("강원", "강원특별자치도"),
+            ("충북", "충청북도"), ("충남", "충청남도"), ("전북", "전북특별자치도", "전라북도"), ("전남", "전라남도"),
+            ("경북", "경상북도"), ("경남", "경상남도"), ("제주", "제주특별자치도"))
+_ORG_WORD = re.compile(r"[가-힣]{2,}(?:대학교|대학|학교|재단|연구원|교육청|[시도군구]청)")
+_YEAR_RX = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)|'(\d{2})\s*(?:년|학년도)")
+_ROUND_RX = re.compile(r"(\d{1,2})\s*(차\s*(?:년도|연도)|차|단계|주기)")
+
+
+def _latin(s: str) -> set[str]:
+    norm = (s or "").replace("＋", "+")
+    return {t.upper().replace(".", "") for t in re.findall(r"[A-Za-z][A-Za-z0-9+.]*", norm) if len(t) >= 2}
+
+
+def _latin_flat(s: str) -> str:
+    return re.sub(r"[\s.]", "", (s or "").replace("＋", "+")).upper()
+
+
+def _years(s: str) -> set[str]:
+    return {a or "20" + b for a, b in _YEAR_RX.findall(s or "")}
+
+
+def _rounds(s: str) -> set[str]:
+    return {n + re.sub(r"\s|연도|년도", "", k) for n, k in _ROUND_RX.findall(s or "")}
+
+
+def lost_tokens(title: str, fname: str, programs=()) -> list[str]:
+    """본문 제목이 파일 이름에서 잃는 구별 정보 — 연도·차수, 지역, 기관, 라틴 약어(사업 이름), 사업 이름, 서류 갈래.
+
+    하나라도 잃으면 본문 제목은 파일 이름보다 덜 구별된다(같은 이름의 문서가 생기거나 갈래가 바뀐다)."""
+    from zzaimy.app.doc_routing import guess_kind
+
+    lost: list[str] = []
+    tq, fq = _squash(title), _squash(fname)
+    lost += [y for y in _years(fname) if y not in _years(title) and y not in tq]
+    lost += [r for r in _rounds(fname) if r not in _rounds(title)]
+    for names in _REGIONS:
+        if any(n in fq for n in names) and not any(n in tq for n in names):
+            lost.append(names[0])
+    lost += [w for w in _ORG_WORD.findall(fname) if w not in tq]
+    tl = _latin_flat(title)
+    lost += [t for t in _latin(fname) if t not in tl]
+    for p in programs or ():
+        pq = _squash(p)
+        if len(pq) >= 4 and pq in fq and pq not in tq:
+            lost.append(p)
+    fk, tk = guess_kind(fname, ""), guess_kind(title, "")
+    if fk[0] and fk[0] != tk[0]:
+        lost.append(f"갈래:{fk[0]}→{tk[0] or '없음'}")
+    return lost
+
+
+def body_beats_file(title: str, fname: str, programs=()) -> bool:
     """본문 제목을 파일 이름 대신 쓸지.
 
-    파일 이름이 빈약하면 쓴다. 파일 이름이 뜻을 가지면 본문 제목이 완결된 서류 이름(서류 갈래 낱말로 끝남)이고
+    파일 이름이 빈약하면 쓴다. 파일 이름이 뜻을 가지면 본문 제목이 완결된 서류 이름(서류 갈래 낱말로 끝남)이고,
+    파일 이름의 구별 정보(lost_tokens: 연도·차수·지역·기관·약어·사업 이름·서류 갈래)를 하나도 잃지 않고,
     파일 이름과 같은 문서임을 보일 때만 쓴다 — 세 글자 이상 낱말 하나를 함께 갖거나, 파일 이름 낱말의 삼분의 일 이상을 담을 때.
     본문 제목이 파일 이름의 일부만 잡은 것(제목 뒷줄만 잡힘)이면 더 온전한 파일 이름을 둔다.
     """
-    if poor_name(fname):
-        return True
-    if not complete_title(title):
+    if poor_name(fname) or not re.search(r"[가-힣]", fname):
+        return True                     # 한글이 없는 파일 이름('test.pdf', 'law03')은 사람이 붙인 이름이 아니다
+    if not complete_title(title) or lost_tokens(title, fname, programs):
         return False
     tq, fq = _squash(title), _squash(fname)
     if tq and tq in fq and len(tq) < len(fq):
         return False                                              # 파일 이름이 본문 제목을 다 담고 더 길다
-    fw = [w for w in _words(fname) if re.search(r"[가-힣]", w)]
-    if not fw:
-        return True                                               # 파일 이름에 한글 낱말이 없다('report_final')
-    hit = [w for w in fw if w in tq]
-    # 서류 갈래 낱말('확인서'·'계획서')만 겹치는 것은 같은 문서의 증거가 아니다 — 여러 서식이 묶인 파일의 첫 서식 이름일 수 있다
-    return any(len(w) >= 3 and not complete_title(w) for w in hit) or len(hit) * 3 >= len(fw)
+    # 내용 낱말 — 파일 이름의 한글 낱말 중 서류 갈래 낱말('확인서'·'계획서')과 지역 이름을 뺀 것. 본문 제목이 그 절반 이상을
+    # 담아야 같은 문서의 이름이다(갈래 낱말만 겹치면 여러 서식이 묶인 파일의 첫 서식 이름일 수 있고, 지역만 겹치면 표지 구호일 수 있다)
+    regions = {n for names in _REGIONS for n in names}
+    content = [w for w in _words(fname) if re.search(r"[가-힣]", w) and not complete_title(w) and w not in regions]
+    if not content:
+        return True
+    hit = [w for w in content if w in tq]
+    return len(hit) * 2 >= len(content)
 
 
 def meta_name(meta: dict | None) -> str:
@@ -396,15 +486,16 @@ def meta_name(meta: dict | None) -> str:
 
 
 def choose_name(original: str, text: str = "", meta: dict | None = None,
-                ask=None) -> dict:
+                ask=None, prefer_file: bool = False) -> dict:
     """문서 이름을 고른다 — {name, title, date, source}. source: body · model · file · meta.
 
     ask 를 주면, 본문 규칙이 제목을 못 찾았고 파일 이름도 빈약할 때 모델에게 본문의 제목 줄을 짚게 한다
     (doc_identity.find_title_by_model — 본문에 있는 줄만 받는다).
+    prefer_file: 본문 제목이 다른 문서의 이름과 겹칠 때(파일 이름은 서로 다른데) — 걷어 낸 파일 이름이 빈약하지 않으면 그것.
     """
     fname = clean_filename(original, text or None)
     title, date = body_title(text) if text else (None, None)
-    if title and body_beats_file(title, fname):
+    if title and not (prefer_file and not poor_name(fname)) and body_beats_file(title, fname, (meta or {}).get("programs") or ()):
         return {"name": title, "title": title, "date": date, "source": "body"}
     if not title and ask is not None and poor_name(fname) and text:
         from zzaimy.app.doc_identity import find_title_by_model
@@ -425,7 +516,7 @@ def naming_meta(db, doc: dict) -> dict:
     """대체 이름에 쓸 정보 — 서류 갈래(documents.kind), 원본 장부의 사업 이름·연도. 없으면 빈 값."""
     from zzaimy.app.doc_routing import KINDS
 
-    out = {"kind_label": KINDS.get(doc.get("kind") or "", "")}
+    out = {"kind_label": KINDS.get(doc.get("kind") or "", ""), "programs": program_names(db)}
     sp = str(doc.get("stored_path") or "")
     try:
         with db._conn() as conn:
@@ -443,3 +534,24 @@ def naming_meta(db, doc: dict) -> dict:
         y = str(row[1] or "")
         out["year"] = y if re.fullmatch(r"(?:19|20)\d{2}", y) else ""
     return out
+
+
+_PROGRAMS: dict[str, tuple[float, tuple[str, ...]]] = {}
+
+
+def program_names(db) -> tuple[str, ...]:
+    """원본 장부(archive_files)의 사업 이름 목록 — 10분 동안 기억한다. 장부가 없으면 빈 목록."""
+    import time
+
+    key = str(getattr(db, "path", ""))
+    hit = _PROGRAMS.get(key)
+    if hit and time.time() - hit[0] < 600:
+        return hit[1]
+    try:
+        with db._conn() as conn:
+            rows = conn.execute("SELECT DISTINCT program_name FROM archive_files").fetchall()
+        names = tuple(sorted({str(r[0]) for r in rows if r[0] and str(r[0]) not in ("사업 미분류", "미분류")}))
+    except Exception:
+        names = ()
+    _PROGRAMS[key] = (time.time(), names)
+    return names

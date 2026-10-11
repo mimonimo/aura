@@ -347,17 +347,17 @@ class Database:
             )
 
     def rename_from_text(self, doc_id: int, text: str = "", overwrite: bool = False,
-                         ask=None) -> str:
+                         ask=None, prefer_file: bool = False) -> str:
         """반입 단계에서 문서 이름을 본문의 제목으로 바꾼다 — 뒷단계는 그 이름으로 흐른다.
 
         파싱이 끝나 본문이 손에 들어온 시점에 부른다. 돌려주는 값은 바뀐 문서 이름이다.
         """
-        ident = self.fill_identity_from_text(doc_id, overwrite=overwrite, text=text, ask=ask)
+        ident = self.fill_identity_from_text(doc_id, overwrite=overwrite, text=text, ask=ask, prefer_file=prefer_file)
         doc = self.get_document(doc_id)
         return (doc or {}).get("filename", "") if ident else (doc or {}).get("filename", "")
 
     def fill_identity_from_text(self, doc_id: int, overwrite: bool = False,
-                                text: str = "", ask=None) -> dict:
+                                text: str = "", ask=None, prefer_file: bool = False) -> dict:
         """문서 본문과 올라온 파일 이름으로 문서 이름을 정한다(규칙은 app/doc_naming 한 곳).
 
         파일 이름은 'test.pdf'·'05_…_ver.1' 처럼 아무것이나 될 수 있고 같은 이름이 여럿 들어올 수도 있다.
@@ -380,16 +380,12 @@ class Database:
         sp = str(doc.get("stored_path") or "")
         original = (have.get("original_filename") or (sp[6:].rsplit("/", 1)[-1] if sp.startswith("dgx://") else "")
                     or doc.get("filename") or "").strip()
-        body = text or doc.get("masked_text") or ""
-        if not body:
-            # 본문을 조각으로만 둔 문서(규정 등록 등) — 앞 조각을 이어 첫머리로 쓴다
-            with self._conn() as conn:
-                rows = conn.execute("SELECT content FROM doc_chunks WHERE doc_id = ? ORDER BY seq LIMIT 20", (doc_id,)).fetchall()
-                if not rows:
-                    rows = conn.execute("SELECT content FROM regulation_chunks WHERE doc_id = ? ORDER BY id LIMIT 20",
-                                        (doc_id,)).fetchall()
-            body = "\n".join(str(r[0] or "") for r in rows)
-        got = choose_name(original, body, naming_meta(self, doc), ask=ask)
+        body = self.naming_text(doc_id, text or doc.get("masked_text") or "")
+        meta = naming_meta(self, doc)
+        got = choose_name(original, body, meta, ask=ask, prefer_file=prefer_file)
+        if got["source"] == "body" and self._body_name_collides(got["name"], original, doc_id):
+            # 본문 제목이 파일 이름이 다른 문서의 이름과 같다 — 서로 다른 문서가 한 이름으로 겹치지 않게 파일 이름으로
+            got = choose_name(original, body, meta, ask=ask, prefer_file=True)
         name = got["name"]
         if got["title"] and got["date"]:
             name = f"{got['title']} · {got['date']}"
@@ -410,6 +406,34 @@ class Database:
             # 인용에 쓰는 기준명도 같은 이름을 본다 — 이름이 바뀌었는데 인용만 옛 이름이면 안 된다
             conn.execute("UPDATE regulation_chunks SET reg_title = ? WHERE doc_id = ?", (name, doc_id))
         return ident
+
+    def naming_text(self, doc_id: int, text: str = "") -> str:
+        """이름을 정할 때 볼 본문 첫머리 — 본문이 없으면(규정 등록처럼 조각으로만 둔 문서) 앞 조각을 잇는다."""
+        if text:
+            return text
+        with self._conn() as conn:
+            rows = conn.execute("SELECT content FROM doc_chunks WHERE doc_id = ? ORDER BY seq LIMIT 20", (doc_id,)).fetchall()
+            if not rows:
+                rows = conn.execute("SELECT content FROM regulation_chunks WHERE doc_id = ? ORDER BY id LIMIT 20",
+                                    (doc_id,)).fetchall()
+        return "\n".join(str(r[0] or "") for r in rows)
+
+    def _body_name_collides(self, name: str, original: str, doc_id: int) -> bool:
+        """다른 문서가 이미 이 이름(또는 '이름 · 구분 말')을 쓰는데 그 문서의 걷어 낸 파일 이름은 우리와 다른지."""
+        from zzaimy.app.doc_naming import clean_filename
+
+        with self._conn() as conn:
+            rows = conn.execute("SELECT filename, identity FROM documents WHERE (filename = ? OR filename LIKE ?) AND id <> ?",
+                                (name, f"{name} · %", doc_id)).fetchall()
+        mine = clean_filename(original)
+        for fn, ident in rows:
+            try:
+                theirs = (json.loads(ident or "{}") or {}).get("original_filename") or fn
+            except ValueError:
+                theirs = fn
+            if clean_filename(theirs) != mine:
+                return True
+        return False
 
     def _unique_name(self, name: str, doc_id: int, text: str) -> str:
         """같은 제목의 문서가 이미 있으면 구분되는 말을 덧붙인다.

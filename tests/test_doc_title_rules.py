@@ -198,10 +198,14 @@ def test_complete_one_line_title_is_not_joined_with_the_next_line():
 
 # ── 고르는 순서: 본문 제목 → 걷어 낸 파일 이름 → 「갈래 · 사업 연도」 → 걷어 낸 파일 이름 ────────
 def test_body_title_beats_a_noisy_filename():
-    got = choose_name("05_가나대학교 1-2 과제계획서(주관).hwp",
+    got = choose_name("05_RISE 단위과제 과제계획서.hwp",
                       "2026년 RISE 단위과제(1-2)\n지역 정주형 인재 양성 과제계획서\n(주관기관)")
     assert got["source"] == "body"
     assert got["name"] == "2026년 RISE 단위과제(1-2) 지역 정주형 인재 양성 과제계획서"
+    # 본문 제목이 파일 이름의 기관 이름을 잃으면 파일 이름을 둔다
+    got = choose_name("05_가나대학교 1-2 과제계획서(주관).hwp",
+                      "2026년 RISE 단위과제(1-2)\n지역 정주형 인재 양성 과제계획서\n(주관기관)")
+    assert got == {"name": "가나대학교 1-2 과제계획서(주관)", "title": None, "date": None, "source": "file"}
 
 
 def test_partial_body_title_never_beats_a_fuller_filename():
@@ -343,3 +347,110 @@ def test_same_name_suffix_skips_guide_lines_and_sentences(tmp_path):
     d = db.add_document(filename="가나사업 신청서 양식.hwp", stored_path="", doc_type="grant")
     db.rename_from_text(d, "가나사업 신청서 양식\n학과(계열) 스마트기계계열\n" + BODY)
     assert db.get_document(d)["filename"] == "가나사업 신청서 양식 · 학과(계열) 스마트기계계열"
+
+
+# ── 운영 미리보기에서 드러난 회귀: 본문 제목이 구별 정보를 잃으면 안 된다 ─────────────────────────
+def test_body_title_must_keep_region_and_kind_word():
+    # 지역이 빠지고 갈래가 바뀐(기본계획 → 계획서) 본문 제목은 쓰지 않는다
+    got = choose_name("11. 충북 지역혁신 대학지원체계(ABC) 기본계획.pdf", "가나 지역혁신 대학지원체계(ABC)\n계획서\n" + BODY)
+    assert got["name"] == "충북 지역혁신 대학지원체계(ABC) 기본계획" and got["source"] == "file"
+    # 처음 보는 꼴 — 지역의 정식 이름이 본문에 있으면 지역을 지킨 것이다
+    got = choose_name("2. 전남 가나사업 기본계획.pdf", "전라남도 가나사업 추진 기본계획\n" + BODY)
+    assert got["source"] == "body"
+
+
+def test_body_title_must_keep_year_round_acronym_program_and_org():
+    from zzaimy.app.doc_naming import lost_tokens
+
+    assert "2017" in lost_tokens("1차 사회맞춤형 가나 육성사업 사업계획서", "2017년 사회맞춤형 가나사업 보조금사업계획서")
+    assert "XYZ" in lost_tokens("선정평가 항목 및 지표정의서", "XYZ선정평가 지표정의서 및 평가편람")
+    assert "3차" in lost_tokens("가나사업 수정사업계획서", "3차년도 가나사업 수정사업계획서")
+    assert "가나이공대학교" in lost_tokens("부트캠프 1차 연도 사업계획서", "부트캠프 사업계획서 가나이공대학교")
+    assert "다라마 지원사업" in lost_tokens("2026년 지원사업 계획서", "2026년 다라마 지원사업 계획서", programs=("다라마 지원사업",))
+    # 지키면 비어 있다 — 띄어쓰기·점이 다른 약어('ABC3.0'·'ABC 3.0')와 '2차' 차수는 같은 것으로 본다
+    assert lost_tokens("3단계 가나 육성사업(ABC 3.0) 2차년도 수정사업계획서", "2차년도 ABC3.0 수정사업계획서") == []
+
+
+def test_same_body_title_with_different_filenames_falls_back_to_filenames(tmp_path):
+    from zzaimy.app.db import Database
+
+    db = Database(tmp_path / "t.db")
+    body = "1차 사회맞춤형 가나사업 육성 사업계획서\n" + BODY
+    a = db.add_document(filename="가나사업 사업계획서 (갑).hwp", stored_path="", doc_type="grant")
+    b = db.add_document(filename="가나사업 사업계획서 (을).hwp", stored_path="", doc_type="grant")
+    db.rename_from_text(a, body)
+    db.rename_from_text(b, body)
+    assert db.get_document(a)["filename"] == "1차 사회맞춤형 가나사업 육성 사업계획서"
+    assert db.get_document(b)["filename"] == "가나사업 사업계획서 (을)"      # 겹치는 대신 제 파일 이름
+    # 같은 파일 이름(사본)끼리는 겹침이 아니다 — 구분 말이 붙는다
+    c = db.add_document(filename="가나사업 사업계획서 (갑).hwp", stored_path="", doc_type="grant")
+    db.rename_from_text(c, body)
+    assert db.get_document(c)["filename"].startswith("1차 사회맞춤형 가나사업 육성 사업계획서 · ")
+
+
+def test_slogan_and_decorated_cover_lines_are_rejected():
+    assert title_problem("ㅣ - 지역과 대학의 동반성장을 위한 새로운 길 - 가나시 -ABC 5개년") is not None
+    assert title_problem("- 함께 여는 내일 -") is not None
+    assert title_problem("· 가나사업 기본계획") is not None
+    # 그대로 두는 것 — 붙임표가 낀 보통 제목, 따옴표로 시작하는 제목
+    assert title_problem("2025-2027 가나사업 기본계획") is None
+    assert title_problem("'26년 2학기 가나 장학금 신청 매뉴얼") is None
+
+
+def test_table_header_word_at_line_start_is_dropped():
+    from zzaimy.app.doc_naming import strip_header
+
+    assert body_title("구분 전문대 첨단산업 인재양성 가나 1차 연도 사업계획서\n" + BODY)[0] \
+        == "전문대 첨단산업 인재양성 가나 1차 연도 사업계획서"
+    assert strip_header("항목: 가나사업 운영 계획") == "가나사업 운영 계획"
+    # 머리 낱말로 시작하지 않는 제목은 그대로, 머리 낱말 하나뿐인 줄도 그대로
+    assert strip_header("구분관리 운영 지침") == "구분관리 운영 지침"
+    assert strip_header("구분") == "구분"
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("2017년 가나사업 보조금사업계획서_170922_직인X.hwp", "2017년 가나사업 보조금사업계획서"),
+    ("2018년 가나사업 보조금사업계획서_180808_직인없음.hwp", "2018년 가나사업 보조금사업계획서"),
+    ("2018년 가나사업 보조금사업계획서_발송0808.hwp", "2018년 가나사업 보조금사업계획서"),
+    ("가나학과 중점형 사업수행계획서(다라대학교)_최종(직임미포함).hwp", "가나학과 중점형 사업수행계획서(다라대학교)"),
+    ("가나학과 중점형사업계획서_최종본03300921.hwp", "가나학과 중점형사업계획서"),
+    ("2026-1학기 개설과목 관리(01.27).xlsx", "2026-1학기 개설과목 관리"),
+    ("가나사업 계획서170922.hwp", "가나사업 계획서"),
+    # 처음 보는 꼴
+    ("가나사업 협약서_날인본.pdf", "가나사업 협약서"),
+    ("가나사업 공문_송부1015.hwp", "가나사업 공문"),
+])
+def test_dispatch_and_seal_status_tails_are_removed(raw, want):
+    assert clean_filename(raw) == want
+
+
+@pytest.mark.parametrize("raw", [
+    "가나사업 계획서201799.hwp",           # 날짜가 될 수 없는 여섯 자리(99일)가 붙은 것은 남는다
+    "직인 관리 규정.hwp",                   # 상태 낱말이 이름의 머리에 있으면 이름이다
+    "발송 업무 매뉴얼.hwp",
+])
+def test_status_like_words_inside_names_stay(raw):
+    assert clean_filename(raw) == raw.rsplit(".", 1)[0]
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("1.1차년도 ABC3.0 수정사업계획서.hwp", "1차년도 ABC3.0 수정사업계획서"),
+    ("3. 2차년도 가나사업 실적보고서.hwp", "2차년도 가나사업 실적보고서"),
+])
+def test_list_number_before_round_is_removed(raw, want):
+    assert clean_filename(raw) == want
+
+
+def test_list_number_alone_keeps_outline_meaning():
+    assert clean_filename("1.1 가나사업 개요.hwp") == "1.1 가나사업 개요"     # 차년도가 아니면 '1.1' 은 건드리지 않는다
+
+
+def test_cover_slogan_that_keeps_only_the_region_does_not_replace_the_filename():
+    got = choose_name("4. 인천 지역혁신 가나체계(ABC) 기본계획.pdf",
+                      "ㅣ - 지역과 대학의 새로운 길 -\n인천광역시 -ABC 5개년(2025~2029) 기본계획\n" + BODY)
+    assert got["name"] == "인천 지역혁신 가나체계(ABC) 기본계획"
+
+
+def test_numbered_stage_line_is_a_title():
+    assert body_title("3단계 가나 선도대학 육성사업(ABC 3.0) 2차년도 수정사업계획서\n" + BODY)[0] \
+        == "3단계 가나 선도대학 육성사업(ABC 3.0) 2차년도 수정사업계획서"
