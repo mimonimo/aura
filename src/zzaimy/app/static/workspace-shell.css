@@ -8,10 +8,10 @@
   body .topbar .popover { position:fixed; top:110px; right:16px; max-width:calc(100vw - 32px); }
 }
 main { min-width:0; }
-/* Overlay scroll stays inside the overlay; preserve the page's scrollbar space. */
+/* 겹친 창의 스크롤은 그 창 안에서만, 페이지 스크롤바 자리는 유지한다 */
 html { scrollbar-gutter:stable; }
-/* Only blocking modals lock the page. Menus, the assistant and work panel
-   are non-modal: their scroll containment must not disable the workspace. */
+/* 페이지를 잠그는 것은 막는 모달뿐이다. 메뉴·에이전트 패널·작업 패널은 모달이 아니므로
+   스크롤 가두기가 작업 화면을 막으면 안 된다 */
 html:has(dialog:modal, .modal-back.open:not([hidden])) { overflow:hidden; }
 body:has(dialog:modal, .modal-back.open:not([hidden])) #chatScroll { overflow-y:hidden; }
 body:has(dialog:modal, .modal-back.open:not([hidden])) .sidebar { overflow-y:hidden; }
@@ -46,7 +46,7 @@ body .ag-body, body .chat-aside { scrollbar-gutter:stable; }
 .session-manager button { padding:7px 11px; font-size:12px; }
 .session-manager [role=status] { font-size:12px; color:var(--muted); }
 :is(button,a,input,select,textarea):focus-visible { outline:2px solid #607C9E; outline-offset:3px; }
-/* Keep native select semantics, with space for the indicator and one focus edge. */
+/* 기본 select 동작은 그대로 두고 화살표 자리와 초점 테두리 하나만 맞춘다 */
 body select:not([multiple]):not([size]), body select[size="1"]:not([multiple]) {
   appearance:none;
   -webkit-appearance:none;
@@ -66,7 +66,7 @@ body select:focus-visible, body .modal-back select:focus-visible {
   outline-offset:-2px;
   box-shadow:none;
 }
-/* Settings editors are a bounded task, not a row of unrelated controls. */
+/* 설정 편집 단추는 한 묶음으로 모은다 */
 .llm-settings-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:16px; }
 .llm-settings-actions button { min-height:38px; box-sizing:border-box; padding:8px 12px; font-size:12px; }
 .llm-settings-actions form { display:flex; }

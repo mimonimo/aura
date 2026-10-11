@@ -1,7 +1,7 @@
 """기관 정보 — 대학명·주소 같은 값은 규정·문서함에서 인출하고, 총장 성명처럼 문서에 없는 값은 설정(institution:<이름>)으로 둔다.
 
-사용자 지시 2026-09-27: 우리 대학 사업이니 대학명·총장 이름이 들어가야 한다. 규정을 RAG 로 해서. 없는 값은 비워 두고 알린다.
-설정값이 있으면 그것이 우선(담당자가 바꿀 수 있어야 한다).
+교내 사업 문서에는 대학명·총장 이름이 들어가야 하므로 규정·문서에서 찾고, 없는 값은 비워 두고 알린다.
+설정값이 있으면 그것이 우선이다(담당자가 바꿀 수 있어야 한다).
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def parse_answer(text: str) -> dict:
 
 
 def ask_for_missing(facts: dict) -> str:
-    """비어 있는 값을 묻는 한 줄 — 에이전트가 모르는 값을 지어내지 않고 요청한다(사용자 지시 2026-09-28)."""
+    """비어 있는 값을 묻는 한 줄 — 에이전트가 모르는 값을 지어내지 않고 요청한다."""
     missing = [k for k in KEYS if not (facts.get(k) or "").strip()]
     if not missing:
         return ""
@@ -75,7 +75,7 @@ def ask_for_missing(facts: dict) -> str:
 
 def form_option(facts: dict) -> dict:
     """대화 선택지에 실어 보내는 입력 양식 — 화면은 fields 를 입력 칸으로 그리고, 채운 값을 template 에 넣은 문장을 질문으로 보낸다
-    (kind=form 규격, 2026-09-28: 버튼 대신 입력 칸). 양식을 못 그리는 화면은 question 을 버튼으로 쓴다."""
+    (kind=form 규격). 양식을 못 그리는 화면은 question 을 버튼으로 쓴다."""
     missing = [k for k in KEYS if not (facts.get(k) or "").strip()]
     hints = {"총장": "예: 홍길동", "대표전화": "예: 053-000-0000", "주소": "예: 대구광역시 남구 현충로 170", "대학명": "예: 영남이공대학교"}
     fields = [{"name": k, "label": k + (" 성명" if k == "총장" else ""), "placeholder": hints.get(k, ""), "required": False} for k in missing]

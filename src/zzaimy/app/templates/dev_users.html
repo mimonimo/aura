@@ -70,7 +70,7 @@
       <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted">본인 연결 필요</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
             data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}"
-            data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}">편집</button></td>
+            data-active="{{ '1' if u.active else '' }}" data-google="{{ u.bound if u.bound_ok else '' }}" aria-label="{{ u.user }} 사용자 편집">편집</button></td>
     </tr>
     {% endfor %}
   </table>
@@ -117,7 +117,7 @@
       <td>{{ d.account or '—' }}</td>
       <td>{% if d.root %}<a href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener">폴더 열기</a>{% else %}<span class="muted">개인 드라이브</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#deptEdit"
-            data-dept="{{ d.dept }}" data-account="{{ d.account }}" data-root="{{ d.root }}">편집</button></td>
+            data-dept="{{ d.dept }}" data-account="{{ d.account }}" data-root="{{ d.root }}" aria-label="{{ d.dept }} 부서 편집">편집</button></td>
     </tr>
     {% endfor %}
   </table>

@@ -11,8 +11,8 @@
   캐시       data/platform/cache/            재생성 가능(글자 좌표 lines·쪽 그림 pagecache·복원 PDF restored)
   원본 DB    data/platform/platform.db       설정·감사 파일(accounts·llm_connections·nas·gdrive·*_audit)도 platform/ 바로 아래
 
-왜 한 곳인가. 26개 파일이 제각기 "data/platform/…" 을 적고 있어 옮기거나 늘릴 때마다 전부 고쳐야 했다. 이제 뿌리 둘
-(ZZAIMY_DATA_DIR, ZZAIMY_TRAIN_DIR)만 바꾸면 전체가 따라온다. 색인 파일만은 옛 변수(ZZAIMY_EMBED_INDEX)도 받는다.
+왜 한 곳인가. 파일마다 "data/platform/…" 을 따로 적으면 옮기거나 늘릴 때 전부 고쳐야 한다. 여기서 정하면 뿌리 둘
+(ZZAIMY_DATA_DIR, ZZAIMY_TRAIN_DIR)만 바꿔도 전체가 따라온다. 색인 파일만은 옛 변수(ZZAIMY_EMBED_INDEX)도 받는다.
 """
 
 from __future__ import annotations

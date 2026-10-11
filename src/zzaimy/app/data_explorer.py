@@ -63,6 +63,7 @@ PREVIEW_CHARS = 90     # 목록 미리보기 길이 — 펼치면 전문
 HIT_PREVIEW_CHARS = 200
 NAME_CHARS = 60        # 목록의 파일명 표시 길이
 LIST_LIMIT = 500
+RECENT_LIMIT = 20      # 검색어가 없을 때 — 전체 목록은 문서함(라이브러리)이 맡는다
 
 
 # --- 공통 ---
@@ -202,9 +203,27 @@ def list_docs(db, q: str = "", doc_type: str = "", limit: int = LIST_LIMIT) -> l
                     ids).fetchall())
                 for row in rows:
                     row[field] = counts.get(row['id'], 0)
+            # 사업 문서(grant)는 regulation_chunks 가 아니라 추출 조각의 글(본문·표·그림 속 글자)을
+            # 그대로 사업 문서 색인(grant_search)에 쓴다 — 검토 끝난 문서만.
+            grant_ids = [r['id'] for r in rows if r.get('doc_type') == 'grant' and r.get('status') == 'reviewed']
+            grant_counts = _grant_index_counts(conn, grant_ids)
+            for row in rows:
+                row['n_grant'] = grant_counts.get(row['id'], 0) if row['id'] in grant_ids else None
     for r in rows:
         r["name"] = shorten(r["filename"], NAME_CHARS)
     return rows
+
+
+def _grant_index_counts(conn, doc_ids: list[int]) -> dict[int, int]:
+    """사업 문서 색인에 들어가는 조각 수(grant_search.TEXT_KINDS 와 같은 종류)."""
+    if not doc_ids:
+        return {}
+    from zzaimy.app.grant_search import TEXT_KINDS
+    marks = ','.join('?' for _ in doc_ids)
+    kinds = ','.join('?' for _ in TEXT_KINDS)
+    return dict(conn.execute(
+        f'SELECT doc_id, COUNT(*) FROM doc_chunks WHERE doc_id IN ({marks}) AND kind IN ({kinds}) GROUP BY doc_id',
+        [*doc_ids, *TEXT_KINDS]).fetchall())
 
 
 def mask_summary(db, doc: dict) -> dict:
@@ -286,7 +305,12 @@ def table_text(content: str) -> str | None:
         if text:
             rows.setdefault(int(cell[0]) if isinstance(cell[0], int) else 0, []).append(text)
     if not rows:
-        return None
+        if "n_rows" not in obj and "cells" not in obj:
+            return None
+        try:
+            return f"빈 표({int(obj.get('n_rows') or 0)}×{int(obj.get('n_cols') or 0)})"
+        except (TypeError, ValueError):
+            return "빈 표"
     return "\n".join(" | ".join(rows[r]) for r in sorted(rows))
 
 
@@ -345,9 +369,15 @@ def unit_rows(units: Iterable[dict], embedded_ids: frozenset[int] | None) -> lis
     return out
 
 
-def doc_chunks_view(db, doc_id: int, embedded_ids: frozenset[int] | None = None) -> dict:
-    """문서의 RAG 조각 — 추출 조각(종류별 건수)과 검색 단위(임베딩 건수)."""
-    extract = chunk_rows(db.list_doc_chunks(doc_id))
+def doc_chunks_view(db, doc_id: int, embedded_ids: frozenset[int] | None = None,
+                    doc: dict | None = None) -> dict:
+    """문서의 RAG 조각 — 추출 조각(종류별 건수)과 검색 단위(임베딩 건수).
+
+    사업 문서(grant)는 추출 조각의 글을 사업 문서 색인에 그대로 쓰므로 n_grant 로 따로 센다
+    (검토 끝난 문서만, 아니면 None).
+    """
+    raw = db.list_doc_chunks(doc_id)
+    extract = chunk_rows(raw)
     units = unit_rows(db.chunks_for_docs([doc_id]), embedded_ids)
     counts = Counter(r["kind"] for r in extract)
     kinds = [
@@ -361,7 +391,15 @@ def doc_chunks_view(db, doc_id: int, embedded_ids: frozenset[int] | None = None)
         "extract": extract, "units": units, "kinds": kinds,
         "n_extract": len(extract), "n_units": len(units), "n_embedded": n_embedded,
         "n_usable": sum(1 for u in units if u["usable"]),
+        "n_grant": _grant_count(raw, doc),
     }
+
+
+def _grant_count(chunks: list[dict], doc: dict | None) -> int | None:
+    if not doc or doc.get("doc_type") != "grant" or doc.get("status") != "reviewed":
+        return None
+    from zzaimy.app.grant_search import TEXT_KINDS
+    return sum(1 for c in chunks if (c.get("kind") or "text") in TEXT_KINDS)
 
 
 NODE_KIND_LABELS = {"criteria": "기준", "intake": "접수", "project": "프로젝트"}
@@ -441,7 +479,7 @@ def related_for_doc(graph: dict | None, doc_id: int) -> dict:
 def related_from_kg(db, doc_id: int, scope: dict) -> dict:
     """문서 노드(doc:N)의 이웃 — 지식 그래프(kg_nodes·kg_edges)에서 바로 읽는다(kg_explore.neighbors, 노드 하나라 1초 안).
 
-    옛 방식(build_graph)은 요청마다 문서 전체(4만 건)로 그래프를 새로 만들어 이 화면을 몇 분씩 멈췄다(2026-10-06 크롬 확인)."""
+    build_graph 로 요청마다 문서 전체 그래프를 새로 만들면 문서가 수만 건일 때 화면이 몇 분씩 멈춘다."""
     from fastapi import HTTPException
 
     from zzaimy.app import kg_explore
@@ -479,10 +517,14 @@ def docs_tab(
     file_exists: Callable[[str], bool] | None = None,
 ) -> dict:
     """문서 탭 — 목록(검색·유형 필터)과 선택 문서의 개요·조각·연관."""
+    searching = bool(q.strip() or doc_type)
+    limit = LIST_LIMIT if searching else RECENT_LIMIT
     view: dict = {
-        "docs": list_docs(db, q=q, doc_type=doc_type),
+        "docs": list_docs(db, q=q, doc_type=doc_type, limit=limit),
         "types": type_counts(db),
         "selected": None,
+        "limit": limit,
+        "searching": searching,
     }
     doc = db.get_document(doc_id) if doc_id else None
     if doc is None and doc_id is None and view["docs"]:
@@ -492,7 +534,7 @@ def docs_tab(
         ids = (index or {}).get("ids")
         view["selected"] = {
             "overview": doc_overview(db, doc, file_exists),
-            "chunks": doc_chunks_view(db, int(doc["id"]), ids),
+            "chunks": doc_chunks_view(db, int(doc["id"]), ids, doc),
             "related": related_fn(int(doc["id"])) if related_fn else related_for_doc(graph_fn() if graph_fn else None, int(doc["id"])),
         }
     return view

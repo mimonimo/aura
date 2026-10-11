@@ -3,7 +3,7 @@
 {% block pagetitle %}데이터 열람 (개발자){% endblock %}
 {% block head %}<script src="/static/data-explorer.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
-<p class="muted">운영 DB에 반입된 문서와 검색 자료를 확인하는 화면입니다. 교내 규정·사업 문서가 함께 표시되며, 이 목록은 SFT 학습 대상 목록이 아닙니다. 학습 후보와 검수 상태는 <a href="/dev/data">데이터 공방</a>에서 확인하세요.</p>
+<p class="muted">운영 DB의 반입 문서와 검색 자료(교내 규정·사업 문서). 학습 후보와 검수 상태는 <a href="/dev/data">데이터 공방</a>에서 본다.</p>
 
 <style>
 /* 데이터 열람 — 이 페이지 전용 스코프(.dx-*) */
@@ -117,7 +117,7 @@ details.dx-group > summary .muted{ font-weight:500; font-size:12px; }
 .dx-scroll, .dx-rows-wrap { overscroll-behavior:contain; scrollbar-gutter:stable; }
 table.dx-list td.name { white-space:normal; min-width:220px; }
 table.dx-list td.name a { display:block; overflow-wrap:anywhere; line-height:1.6; }
-/* Give each document its own full-width title; counts are secondary metadata. */
+/* 문서 제목은 한 줄 전체를 쓰고 건수는 보조 정보로 아래에 둔다 */
 table.dx-list, table.dx-list tbody { display:block; width:100%; }
 table.dx-list thead { display:none; }
 table.dx-list tr { display:flex; flex-wrap:wrap; gap:6px 12px; padding:14px; border-bottom:1px solid var(--line); }
@@ -171,7 +171,7 @@ table.dx-list tr.on td { background:#edf3fc; }
 </style>
 
 <p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
-  <span class="muted" style="font-size:12.5px;">읽기 전용 · 저장된 본문 및 검색 자료</span></p>
+  <span class="muted" style="font-size:12.5px;">읽기 전용 · 접수번호·제목으로 찾아 한 문서의 추출·조각·표를 자세히 본다</span></p>
 
 <div class="dx-tabs">
   {% for key, label in tabs %}
@@ -196,7 +196,7 @@ table.dx-list tr.on td { background:#edf3fc; }
   <div class="card dx-card"><div class="card-in">
     <form method="get" action="/dev/db" class="dx-search">
       <input type="hidden" name="tab" value="docs">
-      <input type="text" name="q" value="{{ q }}" placeholder="파일명 · 접수번호" aria-label="문서 검색">
+      <input type="text" name="q" value="{{ q }}" placeholder="접수번호 · 제목" aria-label="문서 검색">
       <select name="type" aria-label="문서 유형">
         <option value="">전체 유형</option>
         {% for t in view.types %}
@@ -207,7 +207,7 @@ table.dx-list tr.on td { background:#edf3fc; }
     </form>
     <div class="dx-scroll">
       <table class="dx-list">
-        <thead><tr><th>문서</th><th class="dx-num" title="추출 항목 · 검색 자료">자료</th></tr></thead>
+        <thead><tr><th>문서</th><th class="dx-num" title="추출 항목 · 검색 색인에 든 조각">자료</th></tr></thead>
         <tbody>
         {% set sel_id = view.selected_id or doc_id %}
         {% for d in view.docs %}
@@ -215,7 +215,7 @@ table.dx-list tr.on td { background:#edf3fc; }
         <tr class="pick {{ 'on' if d.id == sel_id else '' }}" data-href="{{ href }}">
           <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.filename }}</a>
             <div class="sub {{ d.status }}">{{ doc_type_labels.get(d.doc_type, d.doc_type) }} · <span class="dx-mono">{{ d.receipt_no or '—' }}</span> · {{ status_labels.get(d.status, d.status) }}</div></td>
-          <td class="dx-num dx-counts">추출 {{ d.n_chunks }} · 검색 자료 {{ d.n_units }}</td>
+          <td class="dx-num dx-counts">추출 {{ d.n_chunks }} · {% if d.n_grant is not none %}사업 색인 {{ d.n_grant }}{% else %}규정 색인 {{ d.n_units }}{% endif %}</td>
         </tr>
         {% else %}
         <tr><td colspan="2" class="dx-empty">문서 없음</td></tr>
@@ -223,7 +223,7 @@ table.dx-list tr.on td { background:#edf3fc; }
         </tbody>
       </table>
     </div>
-    <p class="muted dx-foot">{{ view.docs|length }}건</p>
+    <p class="muted dx-foot">{% if view.searching %}검색 결과 {{ view.docs|length }}건{% if view.docs|length >= view.limit %} · 앞 {{ view.limit }}건만 표시{% endif %}{% else %}최근 {{ view.docs|length }}건 · 접수번호·제목으로 검색{% endif %} · <a href="/?type=all">전체 목록은 라이브러리에서</a></p>
   </div></div>
 
   <div class="card dx-card dx-detail" id="dxDetail"><div class="card-in">
@@ -259,7 +259,7 @@ table.dx-list tr.on td { background:#edf3fc; }
         <div><span>근거 기준</span>{% if o.related_criteria %}<a href="/dev/db?tab=docs&doc={{ o.related_criteria.id }}" title="{{ o.related_criteria.filename }}">{{ o.related_criteria.name }}</a>{% elif o.related_criteria_id %}<span class="muted">문서 {{ o.related_criteria_id }} (삭제됨)</span>{% else %}—{% endif %}</div>
         <div class="wide"><span>마스킹 기록</span>
           {% if not o.mask.subject %}<span class="muted">대상 아님 — 기준 문서는 원문 유지 (ADR-0006)</span>
-          {% elif not o.mask.recorded %}<span class="muted">기록 없음 — 기능 도입 전 처리분</span>
+          {% elif not o.mask.recorded %}<span class="muted">기록 없음</span>
           {% elif not o.mask.rows %}<span class="dx-pills"><span class="pill reviewed dx-pill">가린 항목 0건</span>
             <span class="muted" style="font-size:12px;">{{ (o.mask.recorded_at or '')[:16] | replace('T', ' ') }}</span></span>
           {% else %}<span class="dx-pills">
@@ -284,8 +284,13 @@ table.dx-list tr.on td { background:#edf3fc; }
               <span class="pill {{ 'reviewed' if c.n_embedded == c.n_units else 'processing' }} dx-pill">의미 검색 색인 {{ c.n_embedded }}/{{ c.n_units }}</span>
             {% elif index.exists %}<span class="pill processing dx-pill">의미 검색 색인 자료별 미확인</span>
             {% else %}<span class="pill dx-pill">의미 검색 색인 없음</span>{% endif %}
+          {% elif c.n_grant is not none %}
+            <span class="pill type dx-pill">사업 문서 색인 {{ c.n_grant }}</span>
+            <span class="muted" style="font-size:12px;">추출 항목의 본문·표·그림 속 글자를 그대로 검색에 씀</span>
+          {% elif o.doc_type == 'grant' %}
+            <span class="muted">검토가 끝나면 사업 문서 색인에 들어감</span>
           {% else %}
-            <span class="muted">검색 자료 없음 — 기준 문서만 색인</span>
+            <span class="muted">검색 색인 없음</span>
           {% endif %}
         </div>
 

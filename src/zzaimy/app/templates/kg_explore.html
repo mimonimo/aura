@@ -347,7 +347,7 @@
       });
       // 표준 검사(SHACL, scripts/177) 결과 — 규칙별 위반 수
       var sh = d.shacl, box = el("div", "gx-ev");
-      if (!sh) box.appendChild(el("div", null, "표준 검사(SHACL) 결과가 아직 없습니다 — 그래프를 다시 지을 때 함께 돈다(scripts/177)."));
+      if (!sh) box.appendChild(el("div", null, "표준 검사(SHACL) 결과가 아직 없습니다. 그래프를 다시 만들 때 함께 검사합니다."));
       else {
         box.appendChild(el("div", null, "표준 검사(SHACL) " + sh.at + " · 세 쌍 " + Number(sh.triples).toLocaleString() + " · 규칙 " + sh.rules.length + "개 · "
           + (sh.n_violations ? "위반 " + Number(sh.n_violations).toLocaleString() + "건" : "위반 없음")

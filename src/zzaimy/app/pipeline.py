@@ -31,7 +31,7 @@ _WARP_MARGIN_MIN = 12       # 여백 최소 화소 — 작은 사진에서도 �
 
 _VISION_FAIL_LIMIT = 2   # 이만큼 연속 실패하면 그 실행에서 비전 판독을 접는다
 # 스캔 문서를 쪽째 비전으로 읽는 한도. 디지털 PDF 는 비전으로 가지 않으므로(_pdf_to_images)
-# 이 한도는 스캔본에만 걸린다. 실측(2026-09-20 DGX qwen3.6:35b): 병합 표가 있는 쪽 17.6초.
+# 이 한도는 스캔본에만 걸린다. 측정 결과 병합 표가 있는 쪽 하나에 17.6초가 걸렸다.
 VISION_MAX_PAGES = int(os.environ.get("ZZAIMY_VISION_MAX_PAGES", "30"))
 
 
@@ -46,8 +46,8 @@ VISION_OFF_S = int(os.environ.get("ZZAIMY_VISION_OFF_S", "300"))   # 연속 실�
 
 
 def _vision_off() -> bool:
-    """연속 실패로 꺼진 상태인가 — 일정 시간이 지나면 다시 켠다. 예전에는 프로세스가 살아 있는 동안 영영 꺼져 있어
-    잠깐의 장애 뒤에도 재시작 전까지 판독이 안 됐다(실측 2026-09-24: 요청 시 판독이 조용히 0쪽)."""
+    """연속 실패로 꺼진 상태인가 — 일정 시간이 지나면 다시 켠다. 프로세스가 살아 있는 동안 계속 꺼 두면
+    잠깐의 장애 뒤에도 재시작 전까지 판독이 조용히 멈춘다."""
     import time as _t
 
     if not _vision_state["off"]:
@@ -96,7 +96,7 @@ _MINERU_SLOT = threading.BoundedSemaphore(int(os.environ.get("ZZAIMY_MINERU_SLOT
 
 def _vision_available() -> bool:
     """비전 모델이 따로 지정돼 있는가. 없으면 이미지 판독을 아예 건너뛴다."""
-    if os.environ.get("ZZAIMY_NO_VISION"):        # 대량 가벼운 처리(DGX 원본 보관소) — 토르 비전 서버를 부르지 않는다
+    if os.environ.get("ZZAIMY_NO_VISION"):        # 대량 가벼운 처리 — 비전 서버를 부르지 않는다
         return False
     if _vision_off():
         return False
@@ -174,7 +174,7 @@ def pick_review_prompt(doc_type: str) -> str:
     return _GRANT_PROMPT
 
 
-# 문서 한 건의 조각 상한 — 400 은 73쪽 사업계획서(표 112개)를 Ⅴ장 중간에서 잘랐다(2026-09-29 실측, 문서 562).
+# 문서 한 건의 조각 상한 — 400 으로 두면 73쪽 사업계획서(표 112개)가 중간에서 잘린다.
 # 폭주 방지용 상한이지 분량 기준이 아니므로 넉넉히 둔다.
 MAX_CHUNKS = int(os.environ.get("ZZAIMY_MAX_CHUNKS", "2000"))
 
@@ -232,7 +232,7 @@ def _guidance_block(db: Database, project: dict | None) -> str:
 
 
 # 확장자가 말하는 형식과 실제 내용이 다른 파일 — 내려받기가 막혀 오류 쪽이 저장된 경우가 많다.
-# 실측 2026-09-21: '대입전형기본사항_2027.pdf' 166바이트가 '400 Bad Request' HTML 이었다.
+# 예: 166바이트짜리 .pdf 가 실제로는 '400 Bad Request' HTML 인 경우.
 _MAGIC = {".pdf": b"%PDF", ".hwpx": b"PK", ".docx": b"PK", ".xlsx": b"PK", ".pptx": b"PK",
           ".hwp": b"\xd0\xcf\x11\xe0", ".zip": b"PK"}
 
@@ -242,7 +242,7 @@ _PUA = re.compile(r"[\ue000-\uf8ff]")
 
 
 def _clean_glyphs(text: str) -> str:
-    """글자층 직독의 잔글자 — 글꼴이 공백을 U+FFFE 로 내는 PDF(실측 2026-09-24 사업계획서 합본), 기호 글꼴의 사설 영역 글리프
+    """글자층 직독의 잔글자 — 글꼴이 공백을 U+FFFE 로 내는 PDF, 기호 글꼴의 사설 영역 글리프
     (\uf09e·\uf0a7 같은 글머리표)를 공백·글머리표로 돌린다. 없으면 검색 낱말이 '사업추진\ufffe' 처럼 깨진다."""
     text = _BAD_GLYPHS.sub(" ", text)
     text = _PUA.sub("·", text)
@@ -279,7 +279,7 @@ def _format_mismatch(file_path: Path) -> str | None:
     if head.startswith(want):
         return None
     # 전자결재 포장(「Handysoft Approval Document File」 머리 뒤에 PDF) — PDF 머리가 앞 1024 바이트 안에 있으면 PDF 판독기가 그대로
-    # 읽는다(PDF 규격이 허용, pdfium 확인). 실측 2026-10-01: 대구RISE 자체평가 결과 공문(429 바이트 뒤 %PDF-1.6)
+    # 읽는다(PDF 규격이 허용, pdfium 확인).
     if want == b"%PDF" and b"%PDF-" in head:
         return None
     kind = file_path.suffix.lstrip(".").upper()
@@ -311,8 +311,8 @@ def hwpml_text(path: Path) -> str:
 
 
 def sniff_suffix(file_path: Path) -> str | None:
-    """파일 머리로 실제 형식(확장자)을 판별한다 — 모르면 None. 확장자와 내용이 다른 원본(10/5: XLSX 70·HWP 23·PDF 3건이
-    「형식이 아닙니다」로 빠졌다)을 실제 형식으로 읽기 위해."""
+    """파일 머리로 실제 형식(확장자)을 판별한다 — 모르면 None. 확장자와 내용이 다른 원본을
+    「형식이 아닙니다」로 버리지 않고 실제 형식으로 읽기 위해."""
     try:
         with file_path.open("rb") as fh:
             head = fh.read(2048)
@@ -382,7 +382,7 @@ class DocumentProcessor:
         self._last_image_text: dict[str, str] = {}  # 그림 파일명 → 그림 속 글자(OCR)
 
     # 파싱 결과 상한 — 인쇄용 PDF 등에서 파서가 비정상적으로 긴 텍스트를 뽑는
-    # 사례가 실측됨(26p 문서에서 950만 자). 상한 초과분은 잘라내고 경고를 남긴다.
+    # 경우가 있다(26쪽 문서에서 950만 자). 상한 초과분은 잘라내고 경고를 남긴다.
     MAX_TEXT_CHARS = 2_000_000
 
     def _parse(self, file_path: Path) -> str:
@@ -475,7 +475,7 @@ class DocumentProcessor:
         if suffix == ".pdf":
             # 쪽수가 많은 디지털 PDF 는 글자층을 그대로 읽는다.
             # 구조 추출(MinerU)은 이런 문서에서 제한 시간을 다 쓰고도 아무것도 내놓지 못하고
-            # (실측 2026-09-21: 140쪽 문서에서 240초 소진·결과 0자), 뒤따르는 경로도 쪽수만큼
+            # (140쪽 문서에서 240초를 쓰고 0자), 뒤따르는 경로도 쪽수만큼
             # 오래 걸려 반입이 멈춘다. 글자층 직독은 몇 초면 끝나고 원문 글자를 잃지 않는다.
             big = int(os.environ.get("ZZAIMY_BIG_PDF_PAGES", "60"))
             direct = self._read_text_layer(file_path, min_pages=big)
@@ -485,12 +485,11 @@ class DocumentProcessor:
                 self._last_parse_note = f"글자층 직독 (쪽수 {direct[1]})"
                 return direct[0]
 
-        # 글자층이 없거나 깨진 PDF(스캔본)는 비전 판독을 먼저 쓴다. 예전에는 구조 추출(MinerU)이
-        # 먼저 돌았고 그 OCR 결과가 200자만 넘으면 판독까지 오지 못했다 — 깨진 글자층 문서가
-        # 통째로 잡음으로 들어온 이유(실측 2026-09-21: 스캔 매뉴얼 2건).
+        # 글자층이 없거나 깨진 PDF(스캔본)는 비전 판독을 먼저 쓴다. 구조 추출(MinerU)을 먼저 돌리면
+        # 그 OCR 결과가 200자만 넘어도 판독까지 오지 못해 깨진 글자층 문서가 잡음째 들어온다.
         if suffix == ".pdf" and not self._pdf_has_text_layer(file_path) and not _vision_available():
-            # 스캔본인데 판독 모델이 없다 — 조용히 CPU OCR 로 떨어지면 아무도 모른다(2026-09-21 실측: 연결의
-            # 비전 모델 칸이 비어 판독이 꺼진 채 문서가 들어갔다). 처리 기록에 남겨 화면에서 보이게 한다.
+            # 스캔본인데 판독 모델이 없다 — 조용히 CPU OCR 로 떨어지면 알 수 없으므로
+            # 처리 기록에 남겨 화면에서 보이게 한다.
             self._note_no_vision()
         if suffix == ".pdf" and not self._pdf_has_text_layer(file_path) and _vision_available():
             pages = self._pdf_to_images(file_path, max_pages=VISION_MAX_PAGES)
@@ -507,7 +506,7 @@ class DocumentProcessor:
             # PDF 기본 파서는 MinerU — 표 구조·2단 레이아웃·읽기 순서 보존.
             # 디지털 PDF(텍스트 레이어 있음)는 MinerU 구조 위에 원본 레이어의
             # 글자를 좌표로 떠와 그대로 얹는다 — OCR 오인식 원천 차단,
-            # 원본 텍스트 무손실 (사용자 원칙: 굳이 품질을 낮추지 않는다)
+            # 원본 텍스트 무손실
             text = self._parse_mineru(file_path, method="auto")
             if text is not None and len(text.strip()) >= 200:
                 self._ocr_used = not self._pdf_has_text_layer(file_path)
@@ -520,7 +519,6 @@ class DocumentProcessor:
                         return overlaid
                 return text
             # 구조 추출이 빈손이면(제한 시간·오류) 글자층이라도 그대로 읽는다.
-            # 실측 2026-09-21: 36쪽 디지털 PDF 가 MinerU 제한 시간에 걸려 반입 실패로 끝났다.
             # 표 구조는 잃지만 원문 글자는 남는다 — 아무것도 없는 것보다 낫다.
             fallback = self._read_text_layer(file_path, min_pages=1)
             if fallback:
@@ -528,8 +526,8 @@ class DocumentProcessor:
                 self._last_pages = fallback[2]
                 self._last_parse_note = f"글자층 직독 (구조 추출 실패, 쪽수 {fallback[1]})"
                 return fallback[0]
-        # 스캔 PDF 는 docling 으로 넘기지 않는다 — docling 기본 OCR 은 한국어를 거의 못 읽는다(171 실측 2026-10-02:
-        # 사업 24건 어절 F1 docling 0.33 · MinerU 0.69 · Writer 비전 0.83). 깨진 글이 「글이 충분하다」로 통과하던 경로를 막고
+        # 스캔 PDF 는 docling 으로 넘기지 않는다 — docling 기본 OCR 은 한국어를 거의 못 읽는다(scripts/171 측정:
+        # 어절 F1 docling 0.33 · MinerU 0.69 · Writer 비전 0.83). 깨진 글이 「글이 충분하다」로 통과하지 않게
         # MinerU OCR 로 다시 읽은 뒤, 그래도 없으면 실패로 남긴다(조용히 잡음을 넣지 않게).
         if suffix == ".pdf":
             ocr_text = self._parse_mineru(file_path, method="ocr")
@@ -542,7 +540,7 @@ class DocumentProcessor:
             # 사진·스크린샷: 판독 모델 → MinerU OCR → tesseract. docling 은 판독에 쓰지 않는다(ADR-0050).
             if _vision_available():
                 # 사진·게시물은 갈래와 무관하게 판독 모델이 먼저 읽는다. 문자 인식(MinerU·tesseract)은 홍보물 글자를
-                # 깨뜨린다(실측 2026-09-23: '위크숍 맞출혐'). 판독이 비면 아래 문자 인식으로 물러난다.
+                # 깨뜨린다(예: '위크숍 맞출혐'). 판독이 비면 아래 문자 인식으로 물러난다.
                 area = self._crop_document_region(file_path)
                 md = self._vlm_transcribe(area or file_path)
                 if md:
@@ -592,7 +590,7 @@ class DocumentProcessor:
         # 스캔 문서 감지 — 페이지당 텍스트가 빈약하면 MinerU OCR로 재파싱한다.
         # MinerU(오픈소스, PaddleOCR 계열)는 표를 구조로, 그림을 파일로 뽑아준다
         n_pages = max(len(parsed.pages), 1)
-        # 엑셀은 스캔본일 수 없고 원래 짧을 수 있다 — 글이 빈약해도 OCR 로 다시 읽지 않는다(10/6: 작은 시트가 MinerU 로 가던 것)
+        # 엑셀은 스캔본일 수 없고 원래 짧을 수 있다 — 글이 빈약해도 OCR 로 다시 읽지 않는다
         if suffix != ".xlsx" and len(text.strip()) < max(400, 60 * n_pages) and not os.environ.get(
             "ZZAIMY_NO_OCR_FALLBACK"
         ):
@@ -606,7 +604,7 @@ class DocumentProcessor:
         """쪽수가 많은 디지털 PDF 의 글자층을 그대로 읽는다 — 조건에 안 맞으면 None.
 
         돌려주는 것은 (본문, 쪽수, [(쪽 번호, 그 쪽 글)]). 쪽별 글은 조각에 쪽 번호를 남기는 데 쓴다 —
-        없으면 250쪽 문서의 조각이 전부 쪽 번호 없이 들어가 원문 이동·인용이 막힌다(실측 2026-09-22: 10건).
+        없으면 250쪽 문서의 조각이 전부 쪽 번호 없이 들어가 원문 이동·인용이 막힌다.
         """
         try:
             import pypdfium2 as pdfium
@@ -615,7 +613,7 @@ class DocumentProcessor:
             pages = len(pdf)
             if pages < min_pages:
                 return None
-            # 앞 몇 쪽은 표지·동의서라 글자가 거의 없다 — 문서 전체에 고루 뽑아 본다(실측 2026-10-01: 344쪽 계획서가 스캔본으로 가 5쪽만 들어옴)
+            # 앞 몇 쪽은 표지·동의서라 글자가 거의 없다 — 문서 전체에 고루 뽑아 본다(앞쪽만 보면 긴 계획서를 스캔본으로 잘못 갈라 몇 쪽만 들어온다)
             sample = "".join((pdf[i].get_textpage().get_text_range() or "") for i in _spread_pages(pages, 6))
             if len(sample.strip()) < 120:          # 글자층이 없으면(스캔) 다른 경로로 보낸다
                 return None
@@ -642,7 +640,7 @@ class DocumentProcessor:
 
         try:
             with tempfile.TemporaryDirectory(prefix="zz-mineru-") as tmp, _MINERU_SLOT:
-                # MinerU 는 VM CPU 를 다 쓴다 — 묶음 접수를 동시에 돌려도 이것만은 한 번에 하나(동시 3건이면 서로 다퉈 16분 → 42분, 2026-10-09 실측)
+                # MinerU 는 VM CPU 를 다 쓴다 — 묶음 접수를 동시에 돌려도 이것만은 한 번에 하나(동시에 돌리면 서로 다퉈 전체가 더 느려진다)
                 parsed = MineruParser(method=method).parse(file_path, work_dir=Path(tmp))
                 self._last_result = parsed
                 if method == "ocr":
@@ -690,10 +688,10 @@ class DocumentProcessor:
         "- 네 설명·분석·요약·'분석 결과' 같은 제목을 덧붙이지 마라. 이미지에 있는 글만 옮긴다."
     )
     # 판독은 서빙 장비 몫이지만 문서 한 건이 반입을 세워서는 안 된다 — 이 시간을 넘기면
-    # 남은 쪽은 두고 '앞 N쪽만' 으로 기록한다(27B 는 빽빽한 쪽 하나에 2분 남짓, 2026-09-21 실측).
+    # 남은 쪽은 두고 '앞 N쪽만' 으로 기록한다(27B 는 빽빽한 쪽 하나에 2분 남짓).
     VISION_BUDGET_S = int(os.environ.get("ZZAIMY_VISION_BUDGET_S", "480"))
     # 호출 하나의 제한 시간. 대화용 기본값(ZZAIMY_LLM_TIMEOUT=180초)은 판독·검토처럼 긴 생성에 짧다 —
-    # bf16 27B 는 빽빽한 쪽 하나에 2분을 넘겨 시간 초과가 났고, 두 번 연속이면 판독이 꺼졌다(2026-09-21 실측, 문서 422).
+    # bf16 27B 는 빽빽한 쪽 하나에 2분을 넘겨 시간 초과가 났고, 두 번 연속이면 판독이 꺼진다.
     VISION_TIMEOUT_S = float(os.environ.get("ZZAIMY_VISION_TIMEOUT", "600"))
     REVIEW_TIMEOUT_S = float(os.environ.get("ZZAIMY_REVIEW_TIMEOUT", "600"))
 
@@ -804,8 +802,8 @@ class DocumentProcessor:
     def _md_to_text(md: str) -> str:
         """비전 판독 마크다운 → 본문 평문. 표는 셀 구조를 풀어 행마다 ' | ' 로, 제목은 '## ' 없이.
 
-        판독 결과를 그대로 본문으로 두면 <table>·<tr> 태그가 기준 조각과 검색에 들어간다(실측 2026-09-22:
-        비전으로 읽은 게시물 3건에서 태그 든 조각 34개, 표제가 '</tr>' 인 조각). 조각 변환기와 같은 파서를 쓴다.
+        판독 결과를 그대로 본문으로 두면 <table>·<tr> 태그가 기준 조각과 검색에 들어가고
+        표제가 '</tr>' 인 조각까지 생긴다. 조각 변환기와 같은 파서를 쓴다.
         """
         from zzaimy.app.render import table_text
 
@@ -884,7 +882,7 @@ class DocumentProcessor:
                         for ri, row in enumerate(rows)
                         for ci, val in enumerate(row)
                     ]
-                    # 칸마다 따로 가리면 옆 칸의 직위(총장·팀원)를 못 본다 — 결재선·명단 표의 성명이 남았다(잔여 스캔 21건, 2026-09-24)
+                    # 칸마다 따로 가리면 옆 칸의 직위(총장·팀원)를 못 본다 — 결재선·명단 표의 성명이 남는다
                     cells_json = mask_names_in_rows(cells_json) if mk("홍길동 010-0000-0000") != "홍길동 010-0000-0000" else cells_json
                     out.append({
                         "kind": "table", "page_no": page_no,
@@ -956,8 +954,8 @@ class DocumentProcessor:
     def _llm_correct_chunks(self, chunks: list[dict]) -> bool:
         """MinerU 조각의 OCR 오타를 LLM으로 교정한다 (마스킹 후 호출).
 
-        본문·제목뿐 아니라 표 셀 텍스트도 대상 — '주민등특번호' 같은 셀 오타가
-        교정 없이 남던 사고 대응. 실패·훼손 배치는 원문 유지(_correct_texts 가드).
+        본문·제목뿐 아니라 표 셀 텍스트도 대상 — '주민등특번호' 같은 셀 오타도
+        고친다. 실패·훼손 배치는 원문 유지(_correct_texts 가드).
         """
         import json as _j
 
@@ -1235,8 +1233,8 @@ class DocumentProcessor:
     def _vlm_figure(self, image_path: Path) -> str | None:
         """그림 한 장의 글자·한 줄 설명 — 비전 모델. 장식이거나 실패하면 None.
 
-        tesseract 는 도식 속 글자를 자주 부순다(실측 2026-09-20: '반도께터리', '대핵낌 분야').
-        비전 모델은 배치를 보고 읽으므로 훨씬 낫다. 수치는 그림에 보이는 것만 옮긴다(절대규칙 1).
+        tesseract 는 도식 속 글자를 자주 부순다(예: '반도께터리', '대핵낌 분야').
+        비전 모델은 배치를 보고 읽으므로 훨씬 낫다. 수치는 그림에 보이는 것만 옮긴다.
         """
         if _vision_state["off"] or not _vision_available():
             return None
@@ -1513,7 +1511,7 @@ class DocumentProcessor:
             return []
 
     def read_image_pages(self, db: Database, doc_id: int, pages: list[int] | None = None, max_pages: int = 12) -> dict:
-        """접수 문서의 그림 쪽을 비전 모델로 판독해 조각으로 덧붙인다 — 양식을 채울 재료가 그림 쪽에 있을 때(실측 2026-09-24 합본).
+        """접수 문서의 그림 쪽을 비전 모델로 판독해 조각으로 덧붙인다 — 양식을 채울 재료가 그림 쪽에 있을 때.
 
         글자층 직독 문서는 반입 때 판독을 거치지 않으므로 여기서 요청 시에만 읽는다. 마스킹 대상 문서면 가린다."""
         self.configure_privacy(db)
@@ -1581,8 +1579,7 @@ class DocumentProcessor:
                 if len(doc) == 0:
                     return []
                 # 쪽수가 많다고 판독을 건너뛰지 않는다 — 앞쪽부터 상한까지 읽는다.
-                # 예전에는 4쪽을 넘으면 빈 목록을 돌려줬고, 그 바람에 스캔본은 어느 경로로도
-                # 읽히지 않은 채 시간만 썼다(실측 2026-09-21: 53쪽 스캔 PDF 가 매번 제한 시간 초과).
+                # 건너뛰면 긴 스캔본은 어느 경로로도 읽히지 않은 채 제한 시간만 쓴다.
                 take = min(len(doc), max(1, max_pages))
                 out_dir = file_path.parent / f"{file_path.stem}_pages"
                 out_dir.mkdir(parents=True, exist_ok=True)
@@ -1828,8 +1825,8 @@ class DocumentProcessor:
 
     # ---- 표·그림 문맥 (캡션·그림 글자) --------------------------------------
 
-    # 문장으로 끝나는 줄(…이다. …한다. …함.)은 캡션이 아니라 본문이다 — 파서(MinerU)가 표 앞
-    # 문장을 table_caption 으로 넘긴 실측(2026-09-15 스캔 문제집). '표 N'·'그림 N'으로 시작하거나
+    # 문장으로 끝나는 줄(…이다. …한다. …함.)은 캡션이 아니라 본문이다 — 파서(MinerU)는 표 앞
+    # 문장을 table_caption 으로 넘기기도 한다. '표 N'·'그림 N'으로 시작하거나
     # 짧은 명사구·단위 줄만 캡션으로 받는다. 특정 문서 표현은 넣지 않는다.
     _SENTENCE_END_RE = re.compile(r"(?:다|요|함|음|됨|임|니다|습니다|였다|있다|없다)\s*[.。]?\s*$")
 
@@ -1863,7 +1860,7 @@ class DocumentProcessor:
             for c in t.cells
         ]
         if _masking_active(mk):
-            # 칸마다 가리면 옆 칸 문맥('과 장 | 김철수')을 못 본다 — 행 단위로 한 번 더
+            # 칸마다 가리면 옆 칸 문맥('과 장 | 홍길동')을 못 본다 — 행 단위로 한 번 더
             from zzaimy.ingest.pii import mask_names_in_rows
 
             cells = mask_names_in_rows(cells)
@@ -2001,8 +1998,8 @@ class DocumentProcessor:
         """읽기 순서 본문 — 문단·제목 사이 제자리에 표(캡션+행)와 그림(캡션+글자)을 둔다.
 
         구조 항목(entries)이 있으면 그 순서를 따르고, 없으면 페이지 본문 뒤에 그
-        페이지의 표를 붙인다. 표를 문서 끝에 몰아 붙이던 방식은 표가 앞 문단·캡션과
-        떨어져 규정 조각·검토 입력에서 문맥을 잃었다. 표 행은 ' | '로 잇는다.
+        페이지의 표를 붙인다. 표를 문서 끝에 몰아 붙이면 표가 앞 문단·캡션과
+        떨어져 규정 조각·검토 입력에서 문맥을 잃는다. 표 행은 ' | '로 잇는다.
         """
         from zzaimy.app.render import render_table_text
 
@@ -2377,8 +2374,8 @@ class DocumentProcessor:
         )
         return (resp.choices[0].message.content or "").strip()
 
-    # 검토 의견 생성 상한. 1,024 토큰이던 때 193건 중 84건이 문장 중간에서 끊겼다(2026-09-21 실측,
-    # 최대 1,661자). 검토 모델(4B)의 문맥이 8K 라 입력 6,000자 + 출력 2,048 토큰으로 맞춘다.
+    # 검토 의견 생성 상한. 측정 결과 1,024 토큰이면 193건 중 84건이 문장 중간에서 끊겼다.
+    # 검토 모델(4B)의 문맥이 8K 라 입력 6,000자 + 출력 2,048 토큰으로 맞춘다.
     REVIEW_INPUT_CHARS = 6000
     REVIEW_MAX_TOKENS = 2048
     REVIEW_CUT_NOTE = "(검토 의견이 길이 상한에서 끊겼습니다)"
@@ -2421,7 +2418,7 @@ class DocumentProcessor:
 
     def process(self, db: Database, doc_id: int, file_path: Path, defer_review: bool = False) -> None:
         """defer_review — 검토 의견(27B, 문서당 ~3분)은 뒤로 미루고 문서는 먼저 쓸 수 있게 한다(묶음 접수: 자료를 올리고 바로 작성).
-        미룬 검토는 한 줄 대기열(_REVIEW_QUEUE)이 한 건씩 이어 쓴다 — 젯슨 27B 는 동시 요청에도 처리량이 안 는다(2026-10-09 실측)."""
+        미룬 검토는 한 줄 대기열(_REVIEW_QUEUE)이 한 건씩 이어 쓴다 — 서빙 장비의 27B 는 동시 요청을 보내도 처리량이 늘지 않는다."""
         self.configure_privacy(db)
         # 같은 파일이 두 번 올라오면(이름만 다른 채) 하나만 들인다 — 같은 조각이 둘이면
         # 검색이 같은 근거를 두 번 올리고 그래프가 쌍둥이를 잇는다.
@@ -2528,8 +2525,7 @@ class DocumentProcessor:
                 if _fix.get("joined"):
                     self._last_parse_note += f" · 갈라진 낱말 {_fix['joined']}개 복원"
                 # 기준 문서는 가리지 않지만, 공개 코퍼스 반입분(owner=corpus)은 가려야 한다.
-                # 이 판정을 빼먹으면 전체 재처리가 적재 때 가린 연락처를 되살린다
-                # (2026-09-20 실측: 재처리 뒤 잔여 스캔 전화번호 37건).
+                # 이 판정을 빼먹으면 전체 재처리가 적재 때 가린 연락처를 되살린다.
                 from zzaimy.app.pii_audit import is_masking_subject
 
                 reg_mask = is_masking_subject("regulation", (doc or {}).get("owner"))
@@ -2641,7 +2637,7 @@ class DocumentProcessor:
                 if parsed_chunks is None and file_path.suffix.lower() in (
                     ".png", ".jpg", ".jpeg",
                 ):
-                    # 사진은 비전 모델(Qwen3.5) 판독이 우선 — 손글씨·도장 문구까지.
+                    # 사진은 비전 모델 판독이 우선 — 손글씨·도장 문구까지.
                     # 배경 속 문서(종이) 영역이 따로 있으면 자동으로 찾아 펴서 읽는다
                     doc_area = self._crop_document_region(file_path)
                     scan = self._enhance_scan(doc_area or file_path)
@@ -2775,8 +2771,8 @@ class DocumentProcessor:
             review_input += _guidance_block(db, project)
             # 검토 의견(LLM) 생성만 개별 처리 — 생성 서버 미연결이어도 파싱·마스킹·
             # 색인·분류는 이미 끝났으므로 문서를 '실패'로 버리지 않고 부분 성공으로 저장.
-            # 가벼운 처리(ZZAIMY_LIGHT_PROCESS=1) — DGX 원본 보관소 전체를 파싱·조각까지만(검토 의견 LLM 은 건너뜀). 5만 건에 문서마다
-            # 27B 를 부르면 몇 주가 걸린다. 검토 의견은 문서함에서 필요할 때 다시 만든다(사용자 2026-10-02: 원본 전체의 분석 자료를 VM 에)
+            # 가벼운 처리(ZZAIMY_LIGHT_PROCESS=1) — 원본 보관소 전체를 파싱·조각까지만 하고 검토 의견 LLM 은 건너뛴다.
+            # 수만 건에 문서마다 27B 를 부르면 몇 주가 걸리므로 검토 의견은 문서함에서 필요할 때 다시 만든다.
             if os.environ.get("ZZAIMY_LIGHT_PROCESS"):
                 ai_review = ""
             elif defer_review:
@@ -2800,8 +2796,8 @@ class DocumentProcessor:
                 ai_review=ai_review,
                 parse_note=self._last_parse_note or None,
             )
-            # 문서함이 바뀌었다는 표시 — 1분 주기 작업(scripts/zz_quick.sh → 170 --quick)이 보고 원본 보관(DGX)·그래프·검색 색인을
-            # 곧바로 맞춘다. 들어온 길(반입·문서함 업로드·채팅 첨부)과 상관없이 같은 흐름(사용자 2026-10-02 "제각각이면 안 된다")
+            # 문서함이 바뀌었다는 표시 — 1분 주기 작업(scripts/zz_quick.sh → 170 --quick)이 보고 원본 보관·그래프·검색 색인을
+            # 곧바로 맞춘다. 들어온 길(반입·문서함 업로드·채팅 첨부)과 상관없이 같은 흐름을 탄다.
             try:
                 (Path(db.path).parent / ".kg-dirty").touch()
             except Exception:

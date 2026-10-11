@@ -31,7 +31,7 @@
         pop.addEventListener('toggle', e => { if (e.newState === 'closed') {pop.remove(); menu.setAttribute('aria-expanded','false');} });
         pop.querySelector('[data-delete]').onclick = () => {
           pop.classList.add('confirming');
-          pop.innerHTML = '<p class="session-delete-title"></p><p>이 대화와 수정 이력을 삭제할까요? 복구할 수 없습니다. 프로젝트와 등록 문서, 첨부 원본 파일은 유지됩니다.</p><div><button type="button" class="secondary" data-cancel>취소</button><button type="button" data-confirm>삭제</button></div><p role="alert"></p>';
+          pop.innerHTML = '<p class="session-delete-title"></p><p>이 대화와 수정 이력을 삭제할까요? 복구할 수 없습니다. 프로젝트·등록 문서·첨부 원본 파일은 유지됩니다.</p><div><button type="button" class="secondary" data-cancel>취소</button><button type="button" data-confirm>삭제</button></div><p role="alert"></p>';
           pop.querySelector('.session-delete-title').textContent = link.title || link.textContent;
           position();
           pop.querySelector('[data-cancel]').onclick = () => {pop.hidePopover(); if(menu.isConnected) menu.focus();};
@@ -79,7 +79,7 @@
       try {
         const query = new URLSearchParams({q:form.querySelector('input').value, archived:String(archived), offset:String(offset), scope:(form.querySelector('[data-scope]')?.value || 'title')});
         const response = await fetch('/api/chat/sessions?' + query, {cache:'no-store', signal:controller.signal});
-        if (!response.ok || response.redirected) throw new Error(response.status === 404 ? '대화 기록 기능이 아직 서버에 반영되지 않았습니다. 왼쪽 최근 기록에서 대화를 열어 주세요.' : '기록을 불러오지 못했습니다. 검색을 눌러 다시 시도하세요.');
+        if (!response.ok || response.redirected) throw new Error(response.status === 404 ? '대화 기록을 불러올 수 없습니다. 왼쪽 최근 기록에서 대화를 열어 주세요.' : '기록을 불러오지 못했습니다. 검색을 눌러 다시 시도하세요.');
         const data = await response.json(); if (current !== token) return;
         for (const session of data.sessions) {
           const row = document.createElement('article'); row.className = 'session-row';
@@ -92,7 +92,7 @@
           remove.onclick = () => {
             if (row.querySelector('.session-delete')) return;
             const confirm = document.createElement('div'); confirm.className = 'session-rename session-delete';
-            const warning = document.createElement('p'); warning.textContent = '“' + (session.title || '이름 없는 대화') + '” 대화와 수정 이력을 삭제할까요? 복구할 수 없습니다. 프로젝트와 등록 문서는 유지됩니다. 첨부 원본 파일은 삭제되지 않습니다.';
+            const warning = document.createElement('p'); warning.textContent = '“' + (session.title || '이름 없는 대화') + '” 대화와 수정 이력을 삭제할까요? 복구할 수 없습니다. 프로젝트·등록 문서·첨부 원본 파일은 유지됩니다.';
             const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'secondary'; cancel.textContent = '취소';
             const accept = document.createElement('button'); accept.type = 'button'; accept.textContent = '대화 삭제';
             const error = document.createElement('p'); error.setAttribute('role','alert');

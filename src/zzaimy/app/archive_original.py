@@ -12,7 +12,7 @@ MAX_BYTES = 100_000_000
 
 
 def transfer_timeout(size: int) -> int:
-    """받기 제한 시간 — 45초 고정이면 VPN 너머 수십 MB 원본(큰 한글 파일)이 중간에 끊겼다. 1 MB 마다 3초를 더한다."""
+    """받기 제한 시간 — 수십 MB 원본은 VPN 너머로 45초 안에 다 받지 못하므로 1 MB 마다 3초를 더한다."""
     return 45 + 3 * (max(int(size), 0) // 1_000_000)
 _slots = BoundedSemaphore(2)
 

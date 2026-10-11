@@ -64,8 +64,7 @@ def _in(ids: list, size: int = 5000):
 def _subgraph(db, program_id: str | None, scope: dict | None) -> tuple[dict, list, dict | None]:
     """고른 사업 하나를 그리는 데 필요한 노드·관계만 읽는다.
 
-    예전에는 요청마다 그래프 전체(노드 42만·관계 59만)와 문서 전체(본문 열 포함)를 읽어 이 화면이 26초 걸렸다(2026-10-06 크롬 확인).
-    사업·연차 뼈대(분류 관계)는 전부, 문서·지표·대응 관계는 고른 사업 것만 읽고, 절 수·관계 수는 SQL 로 센다."""
+    그래프 전체(노드 수십만)와 문서 본문까지 읽으면 화면이 수십 초 걸린다. 그래서 사업·연차 뼈대(분류 관계)는 전부, 문서·지표·대응 관계는 고른 사업 것만 읽고, 절 수·관계 수는 SQL 로 센다."""
     from zzaimy.app.access_policy import visible
 
     with db._conn() as conn:

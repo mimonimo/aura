@@ -78,7 +78,7 @@ body .doc-view-tools .chat-doc-toolbar{white-space:nowrap;flex-shrink:0}
 body .doc-view-tools [data-section-jump]{flex:1;min-width:120px;max-width:100%;width:180px;border-radius:8px;font-size:12px;padding:7px 10px}
 body .chat-location-button{display:block;margin-top:12px;max-width:100%;white-space:normal;text-align:left;font-size:12px}
 .chat-doc-loading{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;padding:24px;background:#f6f7f9;color:#536477;font-size:13px;text-align:center}
-/* Library controls stay compact regardless of global button styles. */
+/* 문서함 머리줄 단추는 전역 버튼 스타일과 상관없이 작게 둔다 */
 .chat-file-library{background:#fff}
 .chat-file-library>header{padding:12px 16px;gap:8px;flex-wrap:nowrap;min-height:56px;box-sizing:border-box}
 .chat-file-library>header strong{min-width:0;font-size:14px}
@@ -94,7 +94,7 @@ body .chat-location-button{display:block;margin-top:12px;max-width:100%;white-sp
 .chat-file-import::before{content:'+';font-size:18px;font-weight:400;line-height:1}
 .chat-file-library .chat-file-import:hover{background:#e9f1fc;border-color:#aac0dd}
 .chat-file-library [hidden]{display:none!important}
-/* 에이전트 작업 중 한 줄 — 대화 쪽 진행 카드의 현재 단계를 편집기 머리줄 아래에 비춘다(10/11) */
+/* 에이전트 작업 중 한 줄 — 대화 쪽 진행 카드의 현재 단계를 편집기 머리줄 아래에 비춘다 */
 .chat-doc-busy{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);background:#f1f5fa;color:#2c4a73;font-size:12px;line-height:1.5;min-width:0}
 .chat-doc-busy>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-doc-busy-dot{flex:none;width:12px;height:12px;box-sizing:border-box;border:2px solid #dce5f2;border-top-color:var(--navy,#1f3b63);border-right-color:var(--navy,#1f3b63);border-radius:50%;animation:chat-doc-busy-spin .9s linear infinite}

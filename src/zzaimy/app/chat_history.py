@@ -24,8 +24,8 @@ class ChatHistory:
     def sessions(self, owner, query='', archived=False, offset=0, limit=30, topic_match=None, scope='title'):
         """계정의 대화 목록. topic_match 는 주제(근거 문서의 사업·규정 이름) 검색 조건을 함께 건다.
 
-        주제 조건도 같은 질의 안에서 걸러야 정렬·페이지 나눔이 한 결과집합에 적용된다
-        (예전에는 첫 페이지에서만 합쳐 다음 페이지에서 빠졌다 — Codex C-20260920-21).
+        주제 조건도 같은 질의 안에서 걸러야 정렬·페이지 나눔이 한 결과집합에 적용된다.
+        첫 페이지에서만 합치면 다음 페이지에서 빠진다.
         """
         topic_sql, topic_args = ('', [])
         if query and topic_match:

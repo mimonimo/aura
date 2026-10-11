@@ -88,10 +88,10 @@
         {% if active_tab == 'all' %}
         <label class="form-row">업무 분류<select name="sector" required>{% for key, meta in sector_meta.items() %}<option value="{{ key }}"{% if key == 'grant' %} selected{% endif %}>{{ meta[1] }}</option>{% endfor %}</select></label>
         {% else %}<input type="hidden" name="sector" value="{{ active_tab }}">{% endif %}
-        <div class="form-row"><span class="muted">자료 (선택) — 공고·기본계획·작성 서식·지난 계획서를 고르면 그 묶음으로 만든다</span>
+        <div class="form-row"><span class="muted">자료 (선택) · 공고·기본계획·작성 서식·지난 계획서</span>
           <input type="file" name="file" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
         <div class="form-row">
-          <span class="muted">프로젝트 이름 (자료를 골랐으면 비워도 됨 — 공고·기본계획 이름에서 뽑음)</span>
+          <span class="muted">프로젝트 이름 (자료를 고르면 비워도 됨)</span>
           <input type="text" name="name" placeholder="{{ project_hints.get(active_tab, '') or '예: 2026학년도 AID 전환 중점 전문대학 지원사업' }}">
         </div>
         {% if business_units %}

@@ -200,7 +200,7 @@
       <span class="hint nas-root-hint" data-fid="{{ fid }}"></span></label>
     <div class="row nas-gacct" data-fid="{{ fid }}">
       <label>허용한 구글 계정<select name="username" class="nas-gacct-sel">{% for a in gdrive.accounts %}<option value="{{ a.email }}" {{ 'selected' if s and s.username == a.email else '' }}>{{ a.email }}</option>{% endfor %}</select>
-        {% if not gdrive.accounts %}<span class="hint">아직 허용한 계정이 없습니다 — 아래 구글 드라이브 칸에서 계정 허용을 먼저 합니다</span>{% endif %}</label>
+        {% if not gdrive.accounts %}<span class="hint">연결된 계정이 없습니다. 위 Google 연결에서 계정을 먼저 연결하세요</span>{% endif %}</label>
     </div>
     <div class="row nas-cred" data-fid="{{ fid }}">
       <label>읽기 전용 계정<input type="text" name="username" value="{{ s.username if s else '' }}" autocomplete="off"></label>

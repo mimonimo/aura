@@ -1,6 +1,6 @@
 """조각 품질 판정 — 검색 단위가 될 자격을 일반 규칙으로 가린다.
 
-문제(실측 2026-09-19, corpus_pilot 1,846조각): 48.2%가 실질 글자수 40자 미만이고,
+배경(측정: corpus_pilot 1,846조각): 48.2%가 실질 글자수 40자 미만이고,
 그중 20자 미만 681건은 코퍼스 중심 벡터와의 코사인이 0.762로 긴 조각(0.679~0.70)보다
 높다. 중심에 가깝다는 것은 어떤 질의에도 딸려 온다는 뜻이고, 실제로 무작위 질의 800건
 상위10 노출 횟수가 평균 5.45회(200자 이상 4.26회, 20~30자 3.15회)로 가장 잦았다.
@@ -273,8 +273,8 @@ GARBLED_RATIO = 0.15
 def garbled_ratio(text: str) -> float:
     """다른 문자 체계로 깨진 비율 — 한자가 글자의 이만큼이면 우리 문서가 아니라 엉터리 글자층이다.
 
-    실측 2026-09-21: 스캔 매뉴얼 PDF 에 박힌 글자층이 'I0号是收百亡C' 같은 한자 잡음이었고,
-    그것을 믿고 읽어 본문이 통째로 쓰레기가 됐다. 국고·교내 문서에 한자는 거의 없다.
+    스캔 PDF 에 박힌 글자층이 'I0号是收百亡C' 같은 한자 잡음인 경우가 있어, 그대로 믿고 읽으면
+    본문 전체가 못 쓰게 된다. 국고·교내 문서에 한자는 거의 없다.
     """
     letters = _LETTER.findall(text or "")
     if len(letters) < 40:
@@ -293,8 +293,8 @@ def ocr_damage_signals(text: str) -> list[str]:
     if garbled_ratio(text) >= GARBLED_RATIO:
         out.append("다른 문자 체계로 깨짐")
     # 표 조각(JSON)은 칸의 글자만 본다. 표 칸에는 '계'·'예'·'○' 같은 한 글자 값이 원래 많아
-    # '글자 단위 분해'를 재면 멀쩡한 디지털 표가 손상으로 몰린다(실측 2026-09-20: 적재 점검
-    # 108건 중 87건이 이 오탐, .hwpx 원문 표 포함). 표에는 ①② 신호만 쓴다.
+    # '글자 단위 분해'를 재면 멀쩡한 디지털 표가 손상으로 몰린다(측정: 적재 점검 108건 중
+    # 87건이 이 오탐, .hwpx 원문 표 포함). 표에는 ①② 신호만 쓴다.
     cells = _table_cell_text(text)
     is_table = cells is not None
     if is_table:
@@ -309,8 +309,8 @@ def ocr_damage_signals(text: str) -> list[str]:
     if total_hangul >= 40 and long_hangul / total_hangul >= OCR_RUN_RATIO:
         out.append("띄어쓰기 소실")
     # 글자 단위 분해 — 한 글자 토큰이 '연달아' 이어지는 구간만 센다. 개조식 공문은 '및'·'등'·'각'
-    # 같은 한 글자 낱말이 흩어져 많아 단순 비율로는 멀쩡한 문서가 손상으로 몰렸다(실측
-    # 2026-09-20: 적재 점검 오탐 다수). 진짜 분해는 '첨 단 신 소 재'처럼 셋 이상 잇따른다.
+    # 같은 한 글자 낱말이 흩어져 많아 단순 비율로는 멀쩡한 문서가 손상으로 몰린다.
+    # 진짜 분해는 '첨 단 신 소 재'처럼 셋 이상 잇따른다.
     words = [w for w in normalize(text).split(" ") if w]
     hangul_tokens = [w for w in words if _HANGUL.fullmatch(w)]
     if len(hangul_tokens) >= OCR_SYLLABLE_MIN_TOKENS and not is_table:

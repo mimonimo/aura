@@ -79,7 +79,7 @@
 
   <!-- DGX -->
   <rect class="dgx" x="270" y="390" width="690" height="150" rx="14"/>
-  <text class="h" x="290" y="418">DGX · <DGX 주소> (aura)</text>
+  <text class="h" x="290" y="418">DGX · 원본 보관·학습</text>
   <text class="s" x="290" y="436">GB10 GPU · 통합 메모리 121GB · 디스크 3.7TB</text>
   <rect class="box" x="288" y="450" width="150" height="72" rx="8"/>
   <text class="b" x="302" y="472">원본 문서</text>
@@ -117,5 +117,5 @@
   <text class="e" x="276" y="384">열람 시 원본</text>
   <path class="ln" d="M870 390 L870 270"/>
   <text class="e" x="876" y="330">학습본 이관</text>
-  <text class="s" x="290" y="552">VM↔DGX 실측 약 10.7MB/s · 응답 8ms (2026-10-01)</text>
+  <text class="s" x="290" y="552">VM↔DGX 측정 약 10.7MB/s · 응답 8ms</text>
 </svg>

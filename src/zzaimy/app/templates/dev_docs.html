@@ -77,7 +77,7 @@
 <ul class="doc-list">
   {% for d in items %}
   <li><a class="doc-row" href="{{ d.href }}">
-    {# 순번 — ADR 은 제 번호, 나머지는 목록 안 차례(2026-09-22 사용자: "순번도 없고") #}
+    {# 순번 — ADR 은 제 번호, 나머지는 목록 안 차례 #}
     <span class="doc-num">{{ d.num if d.num else loop.index }}</span>
     <span class="doc-t">{{ d.title }}{% if d.desc %}<span class="doc-d">{{ d.desc }}</span>{% endif %}</span>
     {% if d.status or d.date %}

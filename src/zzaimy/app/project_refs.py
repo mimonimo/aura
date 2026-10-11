@@ -1,4 +1,4 @@
-"""관련 보관 사업 참조 — 담당자 프로젝트(지금 하는 사업)에 과거 사업 묶음(보관 프로젝트)을 근거 자료로 잇는다(C-192).
+"""관련 보관 사업 참조 — 담당자 프로젝트(지금 하는 사업)에 과거 사업 묶음(보관 프로젝트)을 근거 자료로 잇는다.
 
 참조는 보관 해제가 아니다. 묶음의 보관 상태·소유자·문서 소속을 바꾸지 않고 관계만 둔다(project_refs).
 같은 과거 묶음을 여러 프로젝트가 참조할 수 있다. 문서 수는 보는 사람이 열람할 수 있는 것만 센다(절대 규칙 4, access_policy.visible).
@@ -200,7 +200,7 @@ def year_option(value: str) -> tuple[str, int | None, bool]:
 
 def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: str = "", unit: str = "",
            for_project: int | None = None, limit: int = 200, sort: str = "") -> dict:
-    """통합 프로젝트 찾기(C-195) — 진행 중(본인 것)·보관(문서 열람 권한 기준)을 사업명·수행 연도·사업단·상태로.
+    """통합 프로젝트 찾기 — 진행 중(본인 것)·보관(문서 열람 권한 기준)을 사업명·수행 연도·사업단·상태로.
 
     돌려주는 것 {"items": [{id, name, status, year, round, when, group, group_name, program, units, n_docs, why, linked}],
     "units": [...], "years": [연도만, 최근 순], "rounds": [연도를 모르는 연차], "has_unknown": bool, "total", "sort"}.
@@ -216,8 +216,8 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
         rows = [dict(r) for r in conn.execute("SELECT id, name, owner, archived, program, unit FROM projects ORDER BY id").fetchall()]
     starts = _round_starts([r for r in rows if r["archived"]])
     words = [w for w in (q or "").split() if w]
-    # 사업의 다른 이름·약칭(그래프 사업 노드의 표시 이름·약칭)도 찾는다 — 「LINC」로 찾으면 묶음 이름이 「3단계 산학연협력 …」인
-    # LINC 3.0 이 빠졌다(10/10 화면 확인)
+    # 사업의 다른 이름·약칭(그래프 사업 노드의 표시 이름·약칭)도 찾는다 — 묶음 이름에 약칭이 없는 사업도
+    # 약칭으로 찾을 수 있게
     aliases: dict[str, str] = {}
     if words:
         try:

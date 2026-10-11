@@ -72,7 +72,7 @@ def test_rag_page_and_edits(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/rag")
     assert r.status_code == 200
-    for text in ("공간 목록", "student", "staff", "dept:산학협력단", "원본 폴더 → 부서", "학생 공개 규정"):
+    for text in ("공간 목록", "student", "staff", "dept:산학협력단", "원본 폴더별 담당 부서", "학생 공개 규정"):
         assert text in r.text, text
     r = c.post("/dev/rag/grant", data={"user": "zzaimy", "spaces": ["dept:앵커사업단", "bad"]}, follow_redirects=False)
     assert r.status_code == 303

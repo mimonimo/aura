@@ -31,7 +31,7 @@
     </span>
   </h2>
   {% if not p %}
-  <p class="muted">점검 결과 없음 — 「다시 점검」으로 만든다(scripts/175, 10분 동기화마다 자동).</p>
+  <p class="muted">점검 결과 없음 · 「다시 점검」 또는 10분 동기화 때 자동 점검</p>
   {% else %}
   <p class="muted" style="font-size:12px;margin:0;">{{ p.at }} 기준 · 원본 {{ "{:,}".format(p.archive_files) }}건 · 맞추기는 매일 04:30 자동</p>
   {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
@@ -63,7 +63,7 @@
     <tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>
     {% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">문서함·색인·그래프에는 처리 대상 문서만 · 범위 밖은 절대 규칙 11</p>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">문서함·색인·그래프에는 처리 대상 문서만 반영 · 지출·증빙·정산 문서는 이번 범위에서 제외</p>
 </div></section>
 
 <section class="card"><div class="card-in">
@@ -82,14 +82,18 @@
 <div class="ik-grid">
 <section class="card"><div class="card-in">
   <h2>놓친 원본 {{ "{:,}".format(p.missed) }}건 <a class="pill" style="margin-left:auto;" href="/dev/intake/missed.csv">목록 내려받기</a></h2>
+  {% if p.missed and p.missed_by_ext %}
   <table class="ik-table">
     <tr><th>형식</th><th class="n">건수</th></tr>
     {% for k, v in (p.missed_by_ext or {}).items()|sort(attribute=1, reverse=True) %}<tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
   </table>
+  {% endif %}
+  {% if p.missed and p.missed_by_dir %}
   <table class="ik-table" style="margin-top:12px;">
     <tr><th>폴더</th><th class="n">건수</th></tr>
     {% for k, v in (p.missed_by_dir or {}).items() %}<tr><td class="ik-rel">{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
   </table>
+  {% endif %}
 </div></section>
 
 <section class="card"><div class="card-in">

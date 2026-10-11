@@ -28,7 +28,7 @@ textarea.rg-map{width:100%;min-height:110px;font:13px/1.5 ui-monospace,monospace
       <td class="rg-wrap">{{ s.users|join(", ") if s.users else "—" }}</td></tr>
     {% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">공간은 같은 색인 위의 검색 범위입니다. 계정의 역할·부서로 정해지고, 부서가 있는 교직원은 그 부서 공간을 받습니다. 관리자(dev)는 전부.</p>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">공간은 계정마다 검색할 수 있는 문서 범위입니다. 색인은 하나이고, 계정의 역할·부서에 따라 볼 수 있는 범위만 달라집니다. 부서가 있는 교직원은 그 부서 공간, 관리자는 전부를 봅니다.</p>
 </div></section>
 
 <div class="rg-grid">
@@ -46,10 +46,10 @@ textarea.rg-map{width:100%;min-height:110px;font:13px/1.5 ui-monospace,monospace
           <input type="hidden" name="user" value="{{ a.id }}">
           <div class="rg-checks">
           {% for sp in dept_spaces %}
-            <label><input type="checkbox" name="spaces" value="{{ sp }}" {{ 'checked' if sp in a.grants }}> {{ sp[5:] }}</label>
+            <label><input type="checkbox" name="spaces" value="{{ sp }}" {{ 'checked' if sp in a.grants }}> {{ sp[5:] }} 문서도 검색</label>
           {% endfor %}
           </div>
-          <button class="btn" style="margin-top:6px;">저장</button>
+          <button class="btn" style="margin-top:6px;">추가 권한 저장</button>
         </form>
         {% endif %}</td></tr>
     {% else %}<tr><td colspan="3" class="muted">계정 없음</td></tr>{% endfor %}
@@ -57,17 +57,18 @@ textarea.rg-map{width:100%;min-height:110px;font:13px/1.5 ui-monospace,monospace
 </div></section>
 
 <section class="card"><div class="card-in">
-  <h2>원본 폴더 → 부서</h2>
+  <h2>원본 폴더별 담당 부서</h2>
+  <p class="muted" style="font-size:12.5px;margin:0 0 8px;">DGX 원본 폴더마다 담당 부서를 정해 두면, 그 폴더에서 들어온 문서는 그 부서 열람 범위로 색인됩니다.</p>
   <form method="post" action="/dev/rag/area">
     <textarea class="rg-map" name="mapping">{% for k, v in cfg.dept_of_area.items() %}{{ k }}={{ v }}
 {% endfor %}</textarea>
-    <p class="muted" style="font-size:12px;margin:6px 0;">한 줄에 「원본 최상위 폴더=부서」. 짝이 없는 폴더의 문서는 「공통」(모든 교직원 공간에 들어감). 새 반입 문서는 저장 즉시 이 짝을 따릅니다.</p>
-    <button class="btn">저장</button>
+    <p class="muted" style="font-size:12px;margin:6px 0;">한 줄에 「원본 최상위 폴더=부서」. 부서를 정하지 않은 폴더의 문서는 모든 교직원이 검색합니다. 저장한 뒤 새로 반입되는 문서부터 적용됩니다.</p>
+    <button class="btn">폴더별 부서 저장</button>
   </form>
   <form method="post" action="/dev/rag/backfill" style="margin-top:10px;">
-    <button class="btn primary">기존 문서에 부서 다시 붙이기</button>
+    <button class="btn primary">이미 반입된 문서에도 적용</button>
   </form>
-  <p class="muted" style="font-size:12px;margin:6px 0 0;">설정은 rag_spaces.json 한 파일이며, 고칠 때마다 이전 판을 남깁니다.</p>
+  <p class="muted" style="font-size:12px;margin:6px 0 0;">저장할 때마다 이전 설정을 남깁니다.</p>
 </div></section>
 </div>
 

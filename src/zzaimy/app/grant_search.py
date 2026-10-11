@@ -75,7 +75,7 @@ def _read(path: Path):
 def _check(path: Path) -> int:
     """색인 파일 검사(벡터 본체는 읽지 않는다) — 번호 배열과 벡터 머리의 모양, 벡터 본체 길이가 맞는지. 조각 수를 돌려준다.
 
-    10/4 VM 메모리 부족(OOM 세 번·멈춤 한 번)의 한 원인: 5.4GB 색인을 쓰고 나서 검사하느라 통째로 두 번 더 읽었다."""
+    수 GB 색인을 검사하려고 통째로 다시 읽으면 메모리가 모자라므로 머리와 길이만 본다."""
     import zipfile
 
     import numpy as np
@@ -123,7 +123,7 @@ def _encode(texts: list[str], timeout: float | None = None):
     return v
 
 
-BATCH_TIMEOUT = 90.0   # 묶음 색인 — 토르가 검토·판독으로 바쁘면 64조각에 8초(질의 기본)를 넘긴다(2026-10-02 실측)
+BATCH_TIMEOUT = 90.0   # 묶음 색인 — 토르가 검토·판독으로 바쁘면 64조각에 질의 기본값(8초)을 넘긴다
 
 
 def _encode_batch(texts: list[str]):
@@ -137,7 +137,7 @@ def _encode_batch(texts: list[str]):
         return _encode_batch(texts[:mid]) + _encode_batch(texts[mid:])
 
 
-PG_EF_SEARCH = 300          # 대결(178, 2026-10-06): ef 300 에서 recall@10 0.915·@50 0.963, 질의 15ms
+PG_EF_SEARCH = 300          # 측정(scripts/178): ef 300 에서 recall@10 0.915·@50 0.963, 질의 15ms
 
 
 def _dense_pg(db, qv, top_k: int, scope_docs: set[int] | None, user: str | None, depts: list[str] | None,
@@ -291,7 +291,7 @@ _QUOTED = re.compile(r"[「『\"“]([^」』\"”]{2,60})[」』\"”]")
 
 def section_hits(db, question: str, scope_docs: set[int] | None, limit: int = 12) -> list[int]:
     """질문에 묶어 적은 절 이름(「행사 개요」)과 제목이 같은 절의 첫 조각 — 범위(사업·연차·갈래) 안 문서에서 그래프 절 노드로.
-    어휘·임베딩 후보 30개에 같은 제목 절이 하나도 못 들던 것(10/5: 같은 해 19개 문서에 있는 「행사 개요」를 놓침)."""
+    어휘·임베딩 후보만으로는 같은 제목의 절이 상위에 들지 못하는 경우가 있어 그래프로 직접 찾는다."""
     phrases = [re.sub(r"\s+", "", m) for m in _QUOTED.findall(question or "")]
     if not phrases or not scope_docs or len(phrases[0]) < 2:
         return []
@@ -337,7 +337,7 @@ EXPAND_TO = 1200
 def quality_filter(chunks: list[dict]) -> list[dict]:
     """근거가 될 수 없는 조각(목차·쪽 번호·정형 문구·같은 본문 중복)을 뺀다 — 규정 검색과 같은 품질 판정(SEARCH 강도).
     이웃 확장 뒤에 판정한다(제목 조각은 본문이 붙어 살아남고, 목차는 확장해도 목차). 다 빠지면 그대로 둔다.
-    10/5 RAG 실측: 절 이름이 그대로 든 목차 줄이 걸려 답이 「제목만 있고 본문이 없다」로 끝났다."""
+    절 이름이 그대로 든 목차 줄이 걸리면 답에 본문 근거가 없어진다."""
     from zzaimy.app.chunk_quality import Strictness, assess
     seen: set[str] = set()
     out = []
@@ -381,8 +381,8 @@ def expand_many(db, chunks: list[dict]) -> None:
 
 
 def expand(db, hit: dict) -> str:
-    """걸린 조각이 짧으면(절 제목·한 줄) 같은 문서의 뒤 조각을 이어 본문까지 — 제목만 건네면 답이 「내용을 확인하기 어렵다」로
-    끝났다(10/5 RAG 실측 답변 10개 중 다수). 이웃 조각 확장."""
+    """걸린 조각이 짧으면(절 제목·한 줄) 같은 문서의 뒤 조각을 이어 본문까지 붙인다(이웃 조각 확장).
+    제목만 건네면 답이 「내용을 확인하기 어렵다」로 끝나기 쉽다."""
     text = hit.get("content") or ""
     if len(text) >= EXPAND_BELOW or hit.get("seq") is None:
         return text
@@ -435,8 +435,8 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     query = extract_nouns(question)
     have, want = grant_lex.coverage(db)
     if want and have >= 0.5 * want:
-        # 색인 경로 — 후보 조각만 읽는다(범위·열람 권한은 SQL 에서). 색인에 아직 없는 새 조각은 임베딩 축이 찾는다 —
-        # 95% 아래로 옛 경로(조각 전체 읽기)로 물러나면 새 문서가 들어오는 동안 검색이 수십 초로 느려졌다(10/5 94.4%)
+        # 색인 경로 — 후보 조각만 읽는다(범위·열람 권한은 SQL 에서). 색인에 아직 없는 새 조각은 임베딩 축이 찾는다.
+        # 기준을 높게 잡으면 새 문서가 들어오는 동안 옛 경로(조각 전체 읽기)로 물러나 검색이 수십 초로 느려진다
         lex = grant_lex.rank(db, query, scope_docs, user, depts=depts) if query else []
         den = dense_ids(question, None, scope_docs=scope_docs, user=user, db=db, depts=depts)
         if not lex and not den and program_docs and scope_docs is not None and scope_docs != program_docs:
@@ -470,11 +470,11 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     hits = []
     cands = [by_id[c] for c in merged[: k * 6] if c in by_id]
     rerank_on = os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1" and len(cands) > 1
-    # 이웃 확장은 한 번의 쿼리로 — 재순위를 쓰면 후보 전체, 아니면 위쪽만(후보마다 따로 물으면 질의당 수 초, 10/5 실측 5.7초)
+    # 이웃 확장은 한 번의 쿼리로 — 재순위를 쓰면 후보 전체, 아니면 위쪽만(후보마다 따로 물으면 질의당 수 초가 걸린다)
     expand_many(db, cands if rerank_on else cands[: k * 2])
     cands = quality_filter(cands)
     if rerank_on:
-        # 재순위(Rerank v1, 토르) — 문서 이름을 제목으로 붙여 묻는다. 켜기는 173 대결 수치로(규칙: 채택은 대결 수치로)
+        # 재순위(Rerank v1, 토르) — 문서 이름을 제목으로 붙여 묻는다. 켤지는 scripts/173 비교 수치로 정한다
         from zzaimy.app.rerank import rerank_chunks
         for c in cands:
             c.setdefault("reg_title", c.get("filename") or "")
@@ -486,9 +486,9 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     for c in order:
         cid = c["id"]
         if newest.get(c["doc_id"], c["doc_id"]) != c["doc_id"]:
-            continue                                     # 같은 문서의 옛 판 — 후보에 든 최종본(원본 수정 시각이 가장 늦은 판)을 쓴다(c12: 놓친 7문항이 모두 다른 판)
+            continue                                     # 같은 문서의 옛 판 — 후보에 든 최종본(원본 수정 시각이 가장 늦은 판)을 쓴다
         if per_doc.get(c["doc_id"], 0) >= PER_DOC:
-            continue                                     # 한 문서가 상위를 다 차지하지 않게(10/5 실측: 상위 5개 중 3개가 한 문서)
+            continue                                     # 한 문서가 상위를 다 차지하지 않게
         per_doc[c["doc_id"]] = per_doc.get(c["doc_id"], 0) + 1
         hits.append({"chunk_id": cid, "doc_id": c["doc_id"], "content": c["content"][:EXPAND_TO], "filename": c["filename"],
                      "path": path_of.get(c["doc_id"], []) + [c["filename"]]})
@@ -508,9 +508,9 @@ REVISED_MIN = 0.6     # 최신 판 조각과 이만큼 겹치면 같은 조항�
 def _promote_revisions(db, hits: list[dict], user: str | None, depts: list[str] | None, question: str = "") -> dict:
     """「이름 · 개정일」 옛 판에서 고른 조각을 최신 개정판 기준으로 바꾼다(제자리). 돌려주는 것: {same, revised, stale} 수.
 
-    - 최신 판에 글이 똑같은 조각이 있으면 그 조각으로(같은 조항이 판마다 그대로면 어느 판이 걸릴지 운이었다 — 휴학 기간 질문에 2025 판).
-    - 똑같지 않아도 많이 겹치는 조각(REVISED_MIN 이상)이 있으면 고쳐진 조항 — 최신 글로(10/9: 「복학하지 않으면」 답이 2012~2019 판의
-      「수업일수 1/4」을 인용했는데 2025·2026 판은 「총장이 따로 정하는 기간」).
+    - 최신 판에 글이 똑같은 조각이 있으면 그 조각으로(같은 조항이 판마다 그대로면 어느 판이 걸릴지 정해지지 않는다).
+    - 똑같지 않아도 많이 겹치는 조각(REVISED_MIN 이상)이 있으면 고쳐진 조항으로 보고 최신 글로 바꾼다
+      (옛 판의 폐지된 기준을 답에 인용하지 않게).
     - 최신 판에 비슷한 글도 없으면 옛 판 그대로 두되 옛 판이라고 적는다(삭제된 조항일 수 있다).
     질문에 그 판의 연도가 있으면(「2014년 학칙에서」) 옛 판을 묻는 것이라 건드리지 않는다. 열람 권한은 permitted 로 다시 본다.
     """
@@ -592,7 +592,7 @@ def _revision(filename: str) -> tuple[str, str] | None:
 def _newest_in_family(db, doc_ids: set[int]) -> dict[int, int]:
     """후보 문서 → 후보 안 같은 계열(family) 가운데 최종본(원본 수정 시각이 가장 늦은 판, 같으면 번호가 큰 것). 계열이 없거나 혼자면 자기.
 
-    「이름 · 개정일」 로 이름 붙은 규정은 개정일만 다른 판이 계열 열쇠가 달라 서로 못 찾았다(학칙 2012~2026 판이 함께 올라옴) —
+    「이름 · 개정일」 로 이름 붙은 규정은 개정일만 다른 판의 계열 열쇠가 달라 서로 묶이지 않으므로
     날짜를 뗀 이름으로 묶고 개정일이 늦은 판을 고른다. 저장된 family 는 그대로 둔다(반입 중복 판정이 개정판을 막지 않게).
     """
     if len(doc_ids) < 2:
@@ -628,7 +628,7 @@ def build_increment(db, batch: int = 128, limit: int = 20000) -> dict:
 
     import numpy as np
     INDEX.parent.mkdir(parents=True, exist_ok=True)
-    # 색인 쓰기는 한 번에 하나 — 부르는 길(1분 주기·색인 주기)과 상관없이 색인 파일 옆 잠금으로(2026-10-02: 두 쓰기가 섞여 2GB 색인이 깨졌다)
+    # 색인 쓰기는 한 번에 하나 — 부르는 길(1분 주기·색인 주기)과 상관없이 색인 파일 옆 잠금으로(두 쓰기가 섞이면 색인이 깨진다)
     lockf = open(INDEX.with_suffix(".lock"), "a")
     try:
         fcntl.flock(lockf, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -734,7 +734,7 @@ def _build_increment(db, batch: int, limit: int) -> dict:
         pg_drop(db, [int(i) for i in ids[~keep_mask]])                 # 지워진 조각은 pgvector 표에서도
     if added or removed:
         tmp = INDEX.with_name(f".{INDEX.stem}.{os.getpid()}.tmp.npz")
-        # 압축하지 않는다 — 벡터는 거의 줄지 않고, 수 GB 를 회차마다 압축하는 게 색인 속도를 깎았다(10/2 실측 초당 20여 조각)
+        # 압축하지 않는다 — 벡터는 거의 줄지 않고, 수 GB 를 회차마다 압축하면 색인 속도가 크게 떨어진다
         np.savez(tmp, ids=out_ids, vectors=out_vecs if out_vecs is not None else np.zeros((0, 1)))
         out_vecs = None
         ids = vecs = None

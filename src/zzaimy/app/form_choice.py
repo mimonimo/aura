@@ -1,12 +1,11 @@
-"""문서 양식 고르기 — 27B 가 요청·대화·프로젝트 자료를 보고 쓸 양식을 고른다(2026-10-11 사용자: "27b 학습하면 27b 가 문서 양식
-끌고 와서 작업해야").
+"""문서 양식 고르기 — 27B 가 요청·대화·프로젝트 자료를 보고 쓸 양식을 고른다.
 
 코드는 후보만 모으고(프로젝트의 작성 서식, 대화에서 정한 목차, 공통 양식 5종) 모델의 고름이 후보 안인지 확인한다. 모델이 못 고르면
 지금까지의 규칙(목차 지칭 → 목차, 서식 있으면 서식, 서류 갈래 낱말 → 공통 양식)으로 물러난다. 양식의 모양(표·지침·들여쓰기)은
 코드가 만든다 — 모델은 「무엇을 쓸지」만 고른다.
 
-고른 기록(form_choice_episodes.jsonl)은 학습 재료다 — 요청·후보·모델 고름·규칙 고름·담당자가 바꿨는지. 데이터셋 생성은 아스트라 몫이라
-여기서는 기록만 남긴다.
+고른 기록(form_choice_episodes.jsonl)은 학습 재료다 — 요청·후보·모델 고름·규칙 고름·담당자가 바꿨는지. 데이터셋은 학습 단계에서
+따로 만들고 여기서는 기록만 남긴다.
 """
 from __future__ import annotations
 
@@ -68,7 +67,7 @@ def candidates(db, project: dict | None, history: list[dict], request: str) -> l
 
 
 def latest_outline(history: list[dict], look_back: int = 8) -> dict | None:
-    """최근 에이전트 답 가운데 목차로 읽히는 가장 가까운 것의 사양 — 목차를 잡은 뒤 다른 말이 오가도 찾는다(10/11 바로 앞 답만 봐서 놓침)."""
+    """최근 에이전트 답 가운데 목차로 읽히는 가장 가까운 것의 사양 — 목차를 잡은 뒤 다른 말이 오가도 찾는다(바로 앞 답만 보면 놓친다)."""
     from zzaimy.ingest import gdocs_templates
 
     answers = [m["content"] for m in (history or []) if m.get("role") == "assistant"][-look_back:]

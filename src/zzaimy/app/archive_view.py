@@ -1,102 +1,59 @@
-"""DGX 원본 보관소 화면 — 원본 목록 장부(app/archive)를 사업 × 갈래로 보여 주고 원본을 찾는다. 문서함(/criteria)에서 들어온다."""
+"""원본 보관소 화면 — 원본 목록 장부(app/archive)를 사업 → 연도 → 문서 종류로 훑고, 조건을 겹쳐 원본을 찾는다.
+
+- 묶음 수는 SQL 한 번(GROUP BY 사업·종류·연도·연차·처리 상태)으로 세고, 고른 조건은 파이썬에서 겹쳐 단계마다 건수를 낸다
+- 목록은 같은 조건의 SQL 에 LIMIT/OFFSET 으로 한 쪽씩
+- 사업 이름은 화면에서만 정리·묶는다(app/program_names). 장부 값은 그대로 둔다
+- 문서 종류 이름은 라이브러리와 같은 목록(doc_routing.KINDS)
+- 처리 상태는 반입 연동 점검과 같은 기준(app/archive_state)
+- 보이는 경로·제목은 내부 마스킹 설정(ADR-0044)이 켜져 있으면 같은 마스킹기로 가린다. 열람 권한은 설정과 별개로 늘 건다
+"""
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
+from datetime import date
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from starlette.background import BackgroundTask
 
-from zzaimy.app import archive
+from zzaimy.app import archive, archive_state, program_names
 
 router = APIRouter()
 
-KIND_KO = {"plan": "계획서", "report": "실적보고서", "evaluation": "평가 결과", "basic_plan": "기본계획", "announcement": "공고",
-           "guideline": "지침·매뉴얼", "criteria": "평가 기준", "regulation": "규정", "form": "양식", "table": "표·현황",
-           "notice": "안내", "certificate": "증명서", "": "미정"}
+UNSORTED = "분류 전"
+NO_PROGRAM = "사업 미분류"
+NONE = "none"                   # 조건 값 — 사업 미분류 · 분류 전 · 연도 미상
 
 
-def _hidden_docs(db, scope: dict | None) -> set[int]:
-    """이 사용자가 열람할 수 없는 문서 번호 — 장부의 경로·이름·집계에서도 뺀다(절대 규칙 4, 문서함과 같은 visible 규칙)."""
-    if not scope or scope.get("role") == "dev":
-        return set()
-    from zzaimy.app.access_policy import visible
-    return {int(d["id"]) for d in db.list_documents() if not visible(d, **scope)}
+def kind_labels() -> dict[str, str]:
+    """문서 종류 이름 — 라이브러리와 같은 목록(doc_routing.KINDS) 하나만 쓴다."""
+    from zzaimy.app.doc_routing import KINDS
+    return dict(KINDS)
 
 
-def _hidden_rows(db, hidden: set[int]) -> list[dict]:
-    if not hidden:
-        return []
-    archive.ensure(db)
-    with db._conn() as conn:
-        rows = conn.execute("SELECT program, kind, size, doc_id FROM archive_files WHERE removed_at = '' AND doc_id IS NOT NULL").fetchall()
-    return [{"program": r[0], "kind": r[1], "size": int(r[2] or 0)} for r in rows if int(r[3]) in hidden]
+def kind_label(code: str, labels: dict[str, str] | None = None) -> str:
+    labels = kind_labels() if labels is None else labels
+    return labels.get(code or "", "") or (UNSORTED if not code else "기타")
 
 
-def overview(db, scope: dict | None = None, hidden: set[int] | None = None) -> dict:
-    rows = archive.summary(db)
-    for h in _hidden_rows(db, _hidden_docs(db, scope) if hidden is None else hidden):   # 볼 수 없는 문서는 집계에서도 뺀다
-        for r in rows:
-            if r["program"] == h["program"] and r["kind"] == h["kind"]:
-                r["files"] -= 1
-                r["in_store"] -= 1
-                r["bytes"] -= h["size"]
-                break
-    rows = [r for r in rows if r["files"] > 0]
-    progs: dict[str, dict] = {}
-    for r in rows:
-        p = progs.setdefault(r["program"] or "", {"program": r["program"], "name": r["program_name"] or "사업 미분류",
-                                                  "files": 0, "in_store": 0, "bytes": 0, "kinds": defaultdict(int)})
-        p["files"] += r["files"]
-        p["in_store"] += r["in_store"]
-        p["bytes"] += r["bytes"]
-        p["kinds"][KIND_KO.get(r["kind"], r["kind"])] += r["files"]
-    items = sorted(progs.values(), key=lambda p: -p["files"])
-    for p in items:
-        p["kinds"] = sorted(p["kinds"].items(), key=lambda t: -t[1])[:6]
-    total = sum(p["files"] for p in items)
-    return {"programs": items, "total": total, "in_store": sum(p["in_store"] for p in items),
-            "gb": round(sum(p["bytes"] for p in items) / 1e9, 1)}
+# 형식 — 확장자다운 값(영문·숫자 1~5자, 영문 하나 이상)만 선택지로. 「다운로드」나 「a/b」 같은 값은 확장자가 아니다
+_EXT_OK = re.compile(r"^(?=[a-z0-9]*[a-z])[a-z0-9]{1,5}$")
+# 확장자만으로는 무엇인지 모르는 형식의 우리말 설명 — 화면 표시용 일반 형식 이름(사례 규칙이 아니다)
+EXT_NOTE = {"ai": "일러스트", "psd": "포토샵", "dwg": "도면", "hwt": "한글 서식", "mp4": "동영상"}
 
 
-PAGE_SIZE = 50
-SORTS = {"name": ("경로·이름순", "rel"),
-         "size": ("큰 파일 먼저", "size DESC, rel"),
-         "year": ("최근 연도 먼저", "year IS NULL, year DESC, round IS NULL, round DESC, rel")}
-LINKED = {"yes": "문서함 연결됨", "no": "문서함 미연결"}
-FILTER_KEYS = ("q", "program", "kind", "year", "round", "ext", "linked")
+def ext_of(raw: str, rel: str = "") -> str:
+    e = (raw or "").lower().strip().lstrip(".")
+    if not e and "." in rel.rsplit("/", 1)[-1]:
+        e = rel.rsplit(".", 1)[-1].lower()
+    return e if _EXT_OK.match(e) else ""
 
 
-def _programs(db) -> dict[str, str]:
-    """사업 열쇠 → 이름(장부 전체). 사업 칸에 이름을 쳐도, 표의 링크처럼 열쇠를 넘겨도 찾게."""
-    archive.ensure(db)
-    with db._conn() as conn:
-        rows = conn.execute("SELECT program, MAX(program_name) FROM archive_files WHERE removed_at = '' GROUP BY program").fetchall()
-    return {str(r[0] or ""): (r[1] or "사업 미분류") for r in rows}
-
-
-def resolve_programs(value: str, names: dict[str, str]) -> list[str] | None:
-    """사업 칸의 값 → 사업 열쇠 목록. 열쇠·정확한 이름·이름 일부 순으로 맞춘다. 빈 값이면 None(거르지 않음)."""
-    value = (value or "").strip()
-    if not value:
-        return None
-    if value in names:
-        return [value]
-    exact = [k for k, n in names.items() if n == value]
-    if exact:
-        return exact
-    low = value.lower()
-    return sorted(k for k, n in names.items() if low in n.lower())
-
-
-def _ext(item: dict) -> str:
-    ext = (item.get("ext") or "").lower().lstrip(".")
-    if not ext:
-        name = item["rel"].rsplit("/", 1)[-1]
-        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-    return ext[:6]
+def ext_label(e: str) -> str:
+    return f"{e.upper()}({EXT_NOTE[e]})" if e in EXT_NOTE else e.upper()
 
 
 def _size(n) -> str:
@@ -109,77 +66,286 @@ def _size(n) -> str:
 
 
 def short_path(rel: str) -> str:
-    """저장 위치는 마지막 폴더 셋만 — 전체 경로는 툴팁·펼침으로."""
+    """저장 위치는 마지막 폴더 셋만 — 전체 경로는 펼침으로."""
     folders = rel.split("/")[:-1]
     return ("… / " if len(folders) > 3 else "") + " / ".join(folders[-3:])
 
 
-def _where(f: dict, codes: list[str] | None, hidden: set[int]) -> tuple[str, list]:
-    q, args = " WHERE removed_at = ''", []
-    if codes is not None:
-        q += (" AND program IN (" + ",".join("?" * len(codes)) + ")") if codes else " AND 1 = 0"
-        args += codes
-    for key in ("kind", "year", "round"):
-        if f[key]:
-            q += f" AND {key} = ?"
-            args.append(f[key])
+# ── 권한 ────────────────────────────────────────────────────────────────────
+def _hidden_docs(db, scope: dict | None) -> set[int]:
+    """이 사용자가 열람할 수 없는 문서 번호 — 장부의 경로·이름·집계에서도 뺀다(절대 규칙 4, 문서함과 같은 visible 규칙)."""
+    if not scope or scope.get("role") == "dev":
+        return set()
+    from zzaimy.app.access_policy import visible
+    return {int(d["id"]) for d in db.list_documents() if not visible(d, **scope)}
+
+
+# ── 마스킹(ADR-0044 내부 마스킹 설정) ─────────────────────────────────────────
+_MASKER = None
+
+
+def masker(db):
+    """내부 마스킹이 켜져 있으면 글을 가리는 함수, 꺼져 있으면 None. 설정 형식이 깨졌으면 가리는 쪽으로 둔다."""
+    from zzaimy.app import privacy_policy
+    try:
+        policy = privacy_policy.load(db)
+    except ValueError:
+        policy = {"enabled": True, "entities": list(privacy_policy.ENTITIES)}
+    if not policy["enabled"]:
+        return None
+    global _MASKER
+    from zzaimy.ingest.pii import PiiMasker, RawDocument
+    if _MASKER is None:
+        _MASKER = PiiMasker()
+    entities = policy["entities"]
+    return lambda text: _MASKER.mask(RawDocument(doc_id="archive", text=text or ""), entities=entities)[0].text if text else text
+
+
+# ── 사업 묶음 ────────────────────────────────────────────────────────────────
+_LEDGER: dict = {}
+
+
+def _ledger() -> dict:
+    if "v" not in _LEDGER:
+        _LEDGER["v"] = program_names.load_ledger()
+    return _LEDGER["v"]
+
+
+def program_groups(names: dict[str, tuple[str, int]]) -> dict[str, str]:
+    """사업 열쇠 → 보일 사업 이름("" 은 사업 미분류). names: 열쇠 → (장부 이름, 건수)."""
+    counts: dict[str, int] = defaultdict(int)
+    for _key, (name, n) in names.items():
+        counts[name or ""] += n
+    rep = program_names.group_names(counts, _ledger())
+    return {key: (rep.get(name or "", "") if key else "") for key, (name, _n) in names.items()}
+
+
+def _surfaces(db, keys: list[str]) -> dict[str, list[str]]:
+    """사업 열쇠 → 이름·약칭(그래프 사업 노드). 파일 이름에 사업이 나오는지 볼 때 쓴다. 그래프가 없으면 빈 것."""
+    if not keys:
+        return {}
+    import json
+    out: dict[str, list[str]] = {}
+    try:
+        with db._conn() as conn:
+            rows = conn.execute(f"SELECT id, label, props FROM kg_nodes WHERE id IN ({','.join('?' * len(keys))})", keys).fetchall()
+    except Exception:
+        return {}
+    for nid, label, props in rows:
+        p = props if isinstance(props, dict) else json.loads(props or "{}")
+        acr = p.get("acronyms") or []
+        acr = list(acr.keys()) if isinstance(acr, dict) else list(acr)
+        out[str(nid)] = [label or ""] + [str(x) for x in (p.get("names") or [])] + [str(x) for x in acr]
+    return out
+
+
+_FLAT = re.compile(r"[\s._\-·()]+")
+
+
+def named_in_file(filename: str, program_name: str, surfaces: list[str]) -> bool:
+    """파일 이름 자체가 그 사업을 부르는가 — 사업 이름(정리한 열쇠)이나 그래프의 이름·약칭이 들어 있으면 그렇다.
+    아니면 그 분류는 폴더 위치에서 온 것이다(scripts/165: 경로의 사업명, 상위 폴더 물려받기)."""
+    flat = _FLAT.sub("", filename or "").upper()
+    terms = [program_names.group_key(program_name)] + [_FLAT.sub("", s).upper() for s in surfaces]
+    return any(len(t) >= 3 and t in flat for t in terms if t)
+
+
+# ── 조건 ────────────────────────────────────────────────────────────────────
+PAGE_SIZE = 50
+SORTS = {"name": ("경로·이름순", "a.rel"),
+         "size": ("큰 파일 먼저", "a.size DESC, a.rel"),
+         "year": ("최근 연도 먼저", "a.year IS NULL, a.year DESC, a.round IS NULL, a.round DESC, a.rel")}
+FILTER_KEYS = ("q", "program", "year", "round", "kind", "ext", "state")
+
+
+def _int(v) -> int | str:
+    v = str(v or "").strip()
+    return int(v) if v.isdigit() and len(v) <= 4 else ""
+
+
+def parse_filters(q="", program="", year="", round="", kind="", ext="", state="", sort="", page="1") -> dict:
+    y = NONE if year == NONE else _int(year)
+    return {"q": (q or "").strip()[:200], "program": (program or "").strip()[:200], "year": y, "round": _int(round),
+            "kind": kind if kind == NONE or re.fullmatch(r"[a-z_]{1,24}", kind or "") else "",
+            "ext": ext_of(ext), "state": state if state in archive_state.STATES else "",
+            "sort": sort if sort in SORTS else "name", "page": max(1, _int(page) or 1)}
+
+
+def _base_where(f: dict, hidden: set[int]) -> tuple[str, list]:
+    """묶음 수에도 목록에도 거는 조건 — 검색어·형식·권한."""
+    q, args = " WHERE a.removed_at = ''", []
     if f["ext"]:
-        q += " AND LOWER(ext) IN (?, ?)"
-        args += [f["ext"], "." + f["ext"]]
-    if f["linked"] == "yes":
-        q += " AND doc_id IS NOT NULL"
-    elif f["linked"] == "no":
-        q += " AND doc_id IS NULL"
+        q += " AND LOWER(REPLACE(a.ext, '.', '')) = ?"
+        args.append(f["ext"])
     for term in f["q"].split()[:6]:          # 여러 낱말은 모두 들어간 파일만(순서 무관)
-        q += " AND LOWER(rel) LIKE ? ESCAPE '!'"
+        q += " AND LOWER(a.rel) LIKE ? ESCAPE '!'"
         args.append("%" + term.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%")
     if hidden:                               # 볼 수 없는 문서에 이어진 파일은 건수·목록 모두에서 뺀다(정수만 SQL 에 넣는다)
-        q += " AND (doc_id IS NULL OR doc_id NOT IN (" + ",".join(str(int(i)) for i in sorted(hidden)) + "))"
+        q += " AND (a.doc_id IS NULL OR a.doc_id NOT IN (" + ",".join(str(int(i)) for i in sorted(hidden)) + "))"
     return q, args
 
 
-def search(db, f: dict, hidden: set[int], role: str, names: dict[str, str] | None = None) -> dict:
-    """원본 찾기 — 조건에 맞는 전체 건수와 한 쪽(PAGE_SIZE개)."""
+def facet_rows(db, f: dict, hidden: set[int]) -> list[dict]:
+    """사업·이름·종류·연도·연차·처리 상태별 파일 수와 크기 — 한 번의 GROUP BY."""
     archive.ensure(db)
-    names = _programs(db) if names is None else names
-    where, args = _where(f, resolve_programs(f["program"], names), hidden)
+    where, args = _base_where(f, hidden)
+    st, st_args = archive_state.state_sql("a.")
+    sql = (f"SELECT a.program, a.program_name, a.kind, a.year, a.round, {st} AS st, a.status = 'folder', COUNT(*), SUM(a.size)"
+           f" FROM archive_files a{where} GROUP BY 1, 2, 3, 4, 5, 6, 7")
     with db._conn() as conn:
-        total = int(conn.execute("SELECT COUNT(*) FROM archive_files" + where, args).fetchone()[0])
-        pages = max(1, -(-total // PAGE_SIZE))
-        page = min(f["page"], pages)
-        rows = conn.execute("SELECT rel, size, ext, program, program_name, kind, year, round, doc_id FROM archive_files"
-                            + where + " ORDER BY " + SORTS[f["sort"]][1] + " LIMIT ? OFFSET ?",
-                            args + [PAGE_SIZE, (page - 1) * PAGE_SIZE]).fetchall()
-    keys = ("rel", "size", "ext", "program", "program_name", "kind", "year", "round", "doc_id")
-    found = []
+        rows = conn.execute(sql, st_args + args).fetchall()
+    keys = ("program", "program_name", "kind", "year", "round", "state", "folder", "n", "bytes")
+    return [dict(zip(keys, r)) for r in rows]
+
+
+def ext_options(db) -> list[dict]:
+    """형식 선택지 — 확장자다운 값만, 많은 순."""
+    archive.ensure(db)
+    with db._conn() as conn:
+        rows = conn.execute("SELECT LOWER(ext), COUNT(*) FROM archive_files WHERE removed_at = '' GROUP BY LOWER(ext)").fetchall()
+    tally: dict[str, int] = defaultdict(int)
+    for e, n in rows:
+        e = ext_of(str(e or ""))
+        if e:
+            tally[e] += int(n)
+    return [{"value": e, "label": ext_label(e), "n": n} for e, n in sorted(tally.items(), key=lambda t: -t[1])][:30]
+
+
+def _match(r: dict, f: dict, prog_of: dict[str, str], skip: str = "") -> bool:
+    if skip != "program" and f["program"]:
+        if (prog_of.get(r["program"] or "", "") or NONE) != f["program"]:
+            return False
+    if skip != "year":
+        if f["year"] == NONE and r["year"]:
+            return False
+        if f["year"] not in ("", NONE) and r["year"] != f["year"]:
+            return False
+    if skip != "year" and f["round"] and r["round"] != f["round"]:
+        return False
+    if skip != "kind" and f["kind"]:
+        if (r["kind"] or NONE) != f["kind"]:
+            return False
+    if skip != "state" and f["state"] and r["state"] != f["state"]:
+        return False
+    return True
+
+
+def browse(rows: list[dict], f: dict, prog_of: dict[str, str], labels: dict[str, str]) -> dict:
+    """단계마다 건수 — 사업(다른 조건 적용), 연도·연차(사업 등 적용), 문서 종류, 처리 상태. 고른 조건은 서로 겹친다."""
+    progs: dict[str, dict] = {}
+    years: dict[tuple, int] = defaultdict(int)
+    kinds: dict[str, int] = defaultdict(int)
+    states: dict[str, int] = defaultdict(int)
+    total = registered = folder = 0
+    size = 0
     for r in rows:
-        item = dict(zip(keys, r))
-        item.update(name=item["rel"].rsplit("/", 1)[-1], short_path=short_path(item["rel"]), ext_label=_ext(item),
-                    size_label=_size(item["size"]), kind_label=KIND_KO.get(item["kind"] or "", item["kind"] or ""),
-                    program_label=item["program_name"] or "사업 미분류",
-                    can_open=(bool(item["doc_id"]) or role == "dev") and not item["rel"].startswith(archive.UPLOAD_PREFIX))
-        found.append(item)
-    return {"found": found, "hits": total, "page": page, "pages": pages,
-            "first": (page - 1) * PAGE_SIZE + 1 if found else 0, "last": (page - 1) * PAGE_SIZE + len(found)}
+        if _match(r, f, prog_of, "program"):
+            name = prog_of.get(r["program"] or "", "") or NONE
+            p = progs.setdefault(name, {"value": name, "name": name if name != NONE else NO_PROGRAM, "n": 0, "registered": 0,
+                                        "kinds": defaultdict(int), "keys": set()})
+            p["n"] += r["n"]
+            p["registered"] += r["n"] if r["state"] == "registered" else 0
+            p["kinds"][r["kind"] or ""] += r["n"]
+            if r["program"]:
+                p["keys"].add(r["program"])
+        if _match(r, f, prog_of, "year"):
+            years[(r["year"] or None, r["round"] or None)] += r["n"]
+        if _match(r, f, prog_of, "kind"):
+            kinds[r["kind"] or ""] += r["n"]
+        if _match(r, f, prog_of, "state"):
+            states[r["state"]] += r["n"]
+        if _match(r, f, prog_of):
+            total += r["n"]
+            size += int(r["bytes"] or 0)
+            registered += r["n"] if r["state"] == "registered" else 0
+            folder += r["n"] if r["folder"] else 0
+    order = sorted((p for p in progs.values() if p["value"] != NONE), key=lambda p: -p["n"])
+    for p in order + [progs[NONE]] if NONE in progs else order:
+        named = sorted(((kind_label(k, labels), n) for k, n in p["kinds"].items() if k), key=lambda t: -t[1])
+        p["kinds"] = named[:3]
+        p["keys"] = sorted(p["keys"])
+    # 연도(연차) — 연도가 있으면 연도별(연차는 함께 적는다), 연도 없이 연차만 있으면 연차별, 둘 다 없으면 연도 미상
+    by_year: dict = defaultdict(lambda: {"n": 0, "rounds": set()})
+    for (y, rd), n in years.items():
+        key = ("y", y) if y else (("r", rd) if rd else ("u", 0))
+        by_year[key]["n"] += n
+        if y and rd:
+            by_year[key]["rounds"].add(rd)
+    year_items = []
+    for (kind, v), d in sorted(by_year.items(), key=lambda t: ({"y": 0, "r": 1, "u": 2}[t[0][0]], -(t[0][1] or 0))):
+        if kind == "y":
+            rounds = sorted(d["rounds"])
+            label = f"{v}년" + (f" · {'·'.join(map(str, rounds))}차년도" if rounds and len(rounds) <= 2 else "")
+            year_items.append({"label": label, "n": d["n"], "year": v, "round": "", "future": v > date.today().year})
+        elif kind == "r":
+            year_items.append({"label": f"{v}차년도(연도 미상)", "n": d["n"], "year": "", "round": v, "future": False})
+        else:
+            year_items.append({"label": "연도 미상", "n": d["n"], "year": NONE, "round": "", "future": False})
+    kind_items = sorted(({"value": k or NONE, "label": kind_label(k, labels), "n": n} for k, n in kinds.items()),
+                        key=lambda t: (t["value"] == NONE, -t["n"]))           # 분류된 종류 먼저, 분류 전은 끝
+    state_items = [{"value": k, "label": v, "n": states.get(k, 0)} for k, v in archive_state.STATES.items()]
+    return {"programs": order, "unclassified": progs.get(NONE), "years": year_items, "kinds": kind_items,
+            "states": state_items, "total": total, "registered": registered, "folder": folder, "gb": round(size / 1e9, 1)}
 
 
-def facets(db) -> dict:
-    """세부 조건의 선택지 — 연도·연차·형식(많은 순)."""
-    archive.ensure(db)
+def list_page(db, f: dict, hidden: set[int], keys: list[str] | None, total: int, role: str,
+              prog_of: dict[str, str], labels: dict[str, str], mask) -> dict:
+    """조건에 맞는 한 쪽(PAGE_SIZE개). keys 는 고른 사업 묶음의 장부 열쇠(None 이면 사업 조건 없음)."""
+    from zzaimy.app.storage import title_of
+
+    where, args = _base_where(f, hidden)
+    if keys is not None:
+        where += (" AND a.program IN (" + ",".join("?" * len(keys)) + ")") if keys else " AND 1 = 0"
+        args += keys
+    if f["year"] == NONE:
+        where += " AND a.year IS NULL"
+    elif f["year"]:
+        where += " AND a.year = ?"
+        args.append(f["year"])
+    if f["round"]:
+        where += " AND a.round = ?"
+        args.append(f["round"])
+    if f["kind"]:
+        where += " AND a.kind = ?"
+        args.append("" if f["kind"] == NONE else f["kind"])
+    st, st_args = archive_state.state_sql("a.")
+    if f["state"]:
+        where += f" AND {st} = ?"
+        args += st_args + [f["state"]]
+    pages = max(1, -(-total // PAGE_SIZE))
+    page = min(f["page"], pages)
     with db._conn() as conn:
-        rows = conn.execute("SELECT LOWER(ext), year, round, COUNT(*) FROM archive_files WHERE removed_at = ''"
-                            " GROUP BY LOWER(ext), year, round").fetchall()
-    exts: dict[str, int] = defaultdict(int)
-    years, rounds = set(), set()
-    for ext, year, round_, n in rows:
-        if ext:
-            exts[str(ext).lstrip(".")] += int(n)
-        if year:
-            years.add(int(year))
-        if round_:
-            rounds.add(int(round_))
-    return {"years": sorted(years, reverse=True), "rounds": sorted(rounds),
-            "exts": [e for e, _ in sorted(exts.items(), key=lambda t: -t[1])][:24]}
+        rows = conn.execute(
+            "SELECT a.rel, a.size, a.ext, a.program, a.program_name, a.kind, a.year, a.round, a.doc_id, a.status, a.dup_of,"
+            f" a.analysis, d.filename, {st} FROM archive_files a LEFT JOIN documents d ON d.id = a.doc_id"
+            + where + " ORDER BY " + SORTS[f["sort"]][1] + " LIMIT ? OFFSET ?",
+            st_args + args + [PAGE_SIZE, (page - 1) * PAGE_SIZE]).fetchall()
+    cols = ("rel", "size", "ext", "program", "program_name", "kind", "year", "round", "doc_id", "status", "dup_of", "analysis",
+            "doc_name", "state")
+    items = [dict(zip(cols, r)) for r in rows]
+    surf = _surfaces(db, sorted({it["program"] for it in items if it["program"]}))
+    for it in items:
+        name = it["rel"].rsplit("/", 1)[-1]
+        prog = prog_of.get(it["program"] or "", "")
+        e = ext_of(it["ext"] or "", it["rel"])
+        title = title_of(it["doc_name"] or name)
+        it.update(
+            title=mask(title) if mask else title,
+            path=mask(it["rel"]) if mask else it["rel"],
+            ext_label=e.upper() or "파일", ext=e, size_label=_size(it["size"]),
+            kind_label=kind_label(it["kind"] or "", labels),
+            program_label=prog or NO_PROGRAM,
+            # 분류가 폴더 위치에서 왔는가 — 상위 폴더 물려받기(status folder)이거나 파일 이름이 그 사업을 부르지 않을 때
+            by_folder=bool(prog) and (it["status"] == "folder" or not named_in_file(name, prog, surf.get(it["program"], []))),
+            state_label=archive_state.STATES.get(it["state"], "").split("(")[0],
+            why=(archive_state.exclusion_reason(it) if it["state"] == "excluded"
+                 else (it["analysis"] or "")[len(archive_state.FAILED_MARK) + 2:] if it["state"] == "failed" else ""),
+            # 사업 연도 — 파일 이름·경로에 그 연도가 없으면 연차를 사업 기간으로 환산한 값이다(scripts/165·170)
+            year_from_round=bool(it["year"] and it["round"] and str(it["year"]) not in it["rel"]),
+            can_open=(bool(it["doc_id"]) or role == "dev") and not it["rel"].startswith(archive.UPLOAD_PREFIX))
+        it["short_path"] = short_path(it["path"])
+    first = (page - 1) * PAGE_SIZE + 1 if items else 0
+    return {"found": items, "hits": total, "page": page, "pages": pages, "first": first, "last": first + len(items) - 1 if items else 0}
 
 
 def page_url(f: dict, **change) -> str:
@@ -187,56 +353,86 @@ def page_url(f: dict, **change) -> str:
     params = {k: f[k] for k in FILTER_KEYS}
     params.update(sort="" if f["sort"] == "name" else f["sort"], page=f["page"])
     params.update(change)
-    if params["page"] in (1, "1", ""):
+    if "page" not in change:
+        params["page"] = ""                  # 조건을 바꾸면 첫 쪽부터
+    if params["page"] in (1, "1"):
         params["page"] = ""
     params = {k: v for k, v in params.items() if v not in ("", None)}
-    return "/archive" + ("?" + urlencode(params) if params else "") + "#archive-search"
+    return "/archive" + ("?" + urlencode(params) if params else "") + "#archive-list"
 
 
-def chips(f: dict, names: dict[str, str]) -> list[dict]:
+def chips(f: dict, labels: dict[str, str], ext_labels: dict[str, str]) -> list[dict]:
     """걸린 조건 — 하나씩 지울 수 있게 그 조건만 뺀 주소를 붙인다."""
-    label = {"q": lambda v: f"‘{v}’", "program": lambda v: "사업 " + names.get(v, v), "kind": lambda v: KIND_KO.get(v, v),
-             "year": lambda v: f"{v}년", "round": lambda v: f"{v}차년도", "ext": lambda v: v.upper(),
-             "linked": lambda v: LINKED.get(v, v)}
-    return [{"key": k, "label": label[k](f[k]), "url": page_url(f, **{k: "", "page": 1})} for k in FILTER_KEYS if f[k]]
+    label = {"q": lambda v: f"‘{v}’", "program": lambda v: NO_PROGRAM if v == NONE else v,
+             "year": lambda v: "연도 미상" if v == NONE else f"{v}년", "round": lambda v: f"{v}차년도",
+             "kind": lambda v: UNSORTED if v == NONE else kind_label(v, labels), "ext": lambda v: ext_labels.get(v, v.upper()),
+             "state": lambda v: archive_state.STATES.get(v, v)}
+    return [{"key": k, "label": label[k](f[k]), "url": page_url(f, **{k: ""})} for k in FILTER_KEYS if f[k]]
 
 
-def _int(v: str) -> int | str:
-    v = (v or "").strip()
-    return int(v) if v.isdigit() and len(v) <= 4 else ""
+def resolve_program(value: str, prog_of: dict[str, str]) -> str:
+    """사업 조건 값 → 보일 사업 이름(묶음). 장부 열쇠(program:…)·원래 이름·정리한 이름·이름 일부(하나만 맞을 때) 순."""
+    if not value or value == NONE:
+        return value
+    if value == NO_PROGRAM:
+        return NONE
+    if value in prog_of:
+        return prog_of[value] or NONE
+    groups = {g for g in prog_of.values() if g}
+    if value in groups:
+        return value
+    disp = program_names.display_name(value)
+    if disp in groups:
+        return disp
+    low = value.lower()
+    part = sorted(g for g in groups if low in g.lower())
+    return part[0] if len(part) == 1 else value
 
 
 @router.get("/archive", response_class=HTMLResponse)
 def archive_page(request: Request, program: str = "", kind: str = "", q: str = "", year: str = "", round: str = "",
-                 ext: str = "", linked: str = "", sort: str = "name", page: str = "1", partial: str = ""):
+                 ext: str = "", state: str = "", sort: str = "name", page: str = "1", partial: str = ""):
     st = request.app.state
+    db = st.db
     scope = {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
-    hidden = _hidden_docs(st.db, scope)
-    f = {"q": q.strip()[:200], "program": program.strip()[:200], "kind": kind if kind in KIND_KO and kind else "",
-         "year": _int(year), "round": _int(round), "ext": "".join(c for c in ext.lower() if c.isalnum())[:10],
-         "linked": linked if linked in LINKED else "", "sort": sort if sort in SORTS else "name",
-         "page": max(1, _int(page) or 1)}
-    names = _programs(st.db)
-    active = any(f[k] for k in FILTER_KEYS)
-    data = {"f": f, "active": active, "chips": chips(f, names), "sorts": SORTS, "linked_ko": LINKED, "kind_ko": KIND_KO,
-            "found": [], "hits": 0, "page": 1, "pages": 1, "page_size": PAGE_SIZE, "prev_url": "", "next_url": ""}
-    if active:
-        data.update(search(st.db, f, hidden, scope["role"], names))
-        if data["page"] > 1:
-            data["prev_url"] = page_url(f, page=data["page"] - 1)
-        if data["page"] < data["pages"]:
-            data["next_url"] = page_url(f, page=data["page"] + 1)
-    if partial:                              # 조건을 바꿀 때마다 결과 칸만 다시 그린다(위쪽 집계는 건너뜀)
+    hidden = _hidden_docs(db, scope)
+    f = parse_filters(q, program, year, round, kind, ext, state, sort, page)
+    labels = kind_labels()
+    rows = facet_rows(db, f, hidden)
+    names: dict[str, tuple[str, int]] = {}
+    for r in rows:
+        name, n = names.get(r["program"] or "", ("", 0))
+        names[r["program"] or ""] = (max(name, r["program_name"] or ""), n + r["n"])
+    prog_of = program_groups(names)
+    f["program"] = resolve_program(f["program"], prog_of)
+    view = browse(rows, f, prog_of, labels)
+    keys = None
+    if f["program"]:
+        keys = sorted(k for k, g in prog_of.items() if (g or NONE) == f["program"])
+    exts = ext_options(db)
+    ext_names = {e["value"]: e["label"] for e in exts}
+    data = {"f": f, "view": view, "sorts": SORTS, "states": archive_state.STATES, "exts": exts, "page_size": PAGE_SIZE,
+            "chips": chips(f, labels, ext_names), "active": any(f[k] for k in FILTER_KEYS), "none": NONE,
+            "no_program": NO_PROGRAM, "this_year": date.today().year, "prev_url": "", "next_url": "",
+            "url": lambda **kw: page_url(f, **kw)}
+    data.update(list_page(db, f, hidden, keys, view["total"], scope["role"], prog_of, labels, masker(db)))
+    if data["page"] > 1:
+        data["prev_url"] = page_url(f, page=data["page"] - 1)
+    if data["page"] < data["pages"]:
+        data["next_url"] = page_url(f, page=data["page"] + 1)
+    if partial:                              # 조건을 바꿀 때마다 아래쪽(훑기·목록)만 다시 그린다
         return st.templates.TemplateResponse(request, "_archive_results.html", data)
-    data.update(overview(st.db, scope, hidden))
-    data.update(facets(st.db))
-    data["program_value"] = names.get(f["program"], f["program"]) if f["program"] else ""   # 열쇠로 와도 칸에는 사업 이름
+    overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else facet_rows(
+        db, parse_filters(), hidden), parse_filters(), prog_of, labels)
+    data["overall"] = overall
+    data["program_names"] = sorted({g for g in prog_of.values() if g})
     return st.templates.TemplateResponse(request, "archive.html", st.page_ctx(request, data))
 
 
 @router.get("/archive/original")
 def archive_original(request: Request, rel: str):
     from pathlib import PurePosixPath
+
     from zzaimy.app import archive_original as original
     from zzaimy.app.access_policy import visible
 
@@ -257,7 +453,7 @@ def archive_original(request: Request, rel: str):
         if not doc or not visible(doc, **scope):
             raise HTTPException(403, "이 문서를 열람할 권한이 없습니다.")
     elif scope["role"] != "dev":
-        raise HTTPException(403, "미연결 원본의 열람 권한은 개발자 확인이 필요합니다.")
+        raise HTTPException(403, "등록되지 않은 원본은 개발자 확인 뒤 열 수 있습니다.")
     try:
         file = original.fetch(record)
     except ValueError as exc:

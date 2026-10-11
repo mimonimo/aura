@@ -322,3 +322,25 @@ def test_table_chunk_preview_is_readable():
     assert table_text("그냥 글") is None
     row = chunk_rows([{"id": 1, "seq": 0, "kind": "table", "content": raw}])[0]
     assert row["preview"].startswith("구분 | 금액") and "n_rows" not in row["content"]
+
+
+def test_empty_table_preview_is_summary_not_json():
+    from zzaimy.app.data_explorer import table_text
+
+    assert table_text('{"n_rows": 1, "n_cols": 1, "cells": [[0, 0, 1, 1, 0, ""]]}') == "빈 표(1×1)"
+    assert table_text('{"other": 1}') is None
+
+
+def test_grant_docs_count_grant_index_chunks(db):
+    g = db.add_document("사업계획서.pdf", "/x/g.pdf", doc_type="grant")
+    db.update_document(g, status="reviewed")
+    db.replace_doc_chunks(g, [
+        {"kind": "text", "page_no": 1, "content": "사업 목표"},
+        {"kind": "table", "page_no": 1, "content": "| 항목 | 값 |"},
+        {"kind": "heading", "page_no": 1, "content": "1. 개요"},
+    ])
+    row = {d["id"]: d for d in dx.list_docs(db)}[g]
+    assert row["n_units"] == 0 and row["n_grant"] == 2
+    view = dx.doc_chunks_view(db, g, None, db.get_document(g))
+    assert view["n_grant"] == 2
+    assert dx.doc_chunks_view(db, g, None)["n_grant"] is None

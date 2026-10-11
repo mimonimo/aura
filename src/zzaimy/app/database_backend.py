@@ -53,7 +53,7 @@ class Row:
         return self._keys
 
     def __getitem__(self, key):
-        # 열 이름 → 자리는 커서마다 한 번 만든 사전으로(list.index 로 찾으면 큰 조회에서 수백만 번 훑었다, 10/5 실측 8.5M 호출)
+        # 열 이름 → 자리는 커서마다 한 번 만든 사전으로 찾는다(list.index 는 큰 조회에서 매 칸마다 목록을 훑는다)
         return self._values[self._pos[key]] if isinstance(key, str) else self._values[key]
 
     def __iter__(self):
@@ -181,7 +181,7 @@ def install_functions(conn):
     """Small explicit SQL compatibility functions, scoped to runtime schema.
 
     이미 있으면 다시 만들지 않는다 — 연결마다 CREATE OR REPLACE 를 보내면 동시에 연결한 프로세스끼리
-    「tuple concurrently updated」로 실패한다(2026-10-03 운영 실측: 동기화 회차가 연결 단계에서 떨어짐)."""
+    「tuple concurrently updated」로 실패한다."""
     have = {r[0] for r in conn.raw.execute(
         "SELECT proname FROM pg_proc WHERE pronamespace = current_schema()::regnamespace"
         " AND proname IN ('instr', 'json_extract')").fetchall()}

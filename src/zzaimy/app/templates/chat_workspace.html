@@ -265,7 +265,7 @@
         <input type="checkbox" id="webBtn" style="flex:none;">
         <span class="nm">외부 검색 모드 (웹)</span>
       </label>
-      <div class="aside-empty" id="webNote" hidden>문서 작업이 아닌 일반 질문을 웹 검색 결과로 답합니다. 질문 글만 밖으로 나가고 문서·첨부는 나가지 않습니다. 답은 교내 모델이 출처 번호와 함께 만듭니다.</div>
+      <div class="aside-empty" id="webNote" hidden>일반 질문을 웹 검색 결과로 답합니다. 질문만 밖으로 나가고 문서·첨부는 나가지 않습니다.</div>
     </div>
 
     <div class="aside-sec">
@@ -390,13 +390,13 @@
     });
   });
 
-  /* ---- 답변 모드: 기본(문서 작업) · 외부 검색(웹) · 27B 자체 답변 — + 메뉴에서 고르고 입력창 옆에 켜짐 표시 ---- */
+  /* ---- 답변 모드: 문서 작업(기본) · 웹 검색 · 기본 대화 ---- */
   var webBtn = document.getElementById("webBtn");
   var webField = document.getElementById("webField");
   var webNote = document.getElementById("webNote");
   var answerMode = document.getElementById("answerMode");
   var chatInputEl = document.getElementById("chatInput");
-  var MODE_LABEL = { "1": "외부 검색 모드", "model": "27B 자체 답변 모드" };
+  var MODE_LABEL = { "1": "외부 검색 모드", "model": "기본 대화 모드" };
   function setMode(mode) {
     webField.value = mode || "";
     document.querySelectorAll("[data-answer-mode]").forEach(function (b) {

@@ -1,7 +1,7 @@
 """사업 문서 어휘 색인 — 조각마다 Kiwi 명사를 미리 뽑아 DB 에 둔다(PostgreSQL 은 전문 검색 GIN 색인).
 
-검색 때 조각 133만 개를 본문째 읽어 명사를 다시 뽑던 방식(질의 한 번에 수십 초·웹 서버 메모리에 명사 캐시가 끝없이 쌓임,
-10/5 실측)을 대신한다. 점수 규칙은 규정 검색과 같다(regulations.lexical_score — IDF·희귀 명사·초점어).
+검색 때마다 조각 본문(133만 개)을 읽어 명사를 다시 뽑으면 질의 한 번에 수십 초가 걸리고 웹 서버 메모리에 명사 캐시가
+끝없이 쌓인다. 그래서 미리 뽑아 둔다. 점수 규칙은 규정 검색과 같다(regulations.lexical_score — IDF·희귀 명사·초점어).
 - 후보: 질의 명사 가운데 하나라도 든 조각(열람 권한·사업 범위는 SQL 에서)
 - df: 명사마다 그 명사가 든 조각 수(색인으로 센다), n: 색인된 조각 수
 색인 갱신은 임베딩 색인과 같은 주기(170 --index)에서 sync() 로 — 새 조각은 더하고 지워진 조각은 뺀다.
@@ -38,7 +38,7 @@ def sync(db, limit: int = 20000) -> dict:
     from zzaimy.app.grant_search import _text
     from zzaimy.app.regulations import extract_nouns
     ensure(db)
-    # 번호만 가져와 차집합으로 — 133만 줄에 NOT IN·LEFT JOIN 을 걸면 쿼리 제한 시간에 걸렸다(10/5 「statement timeout」)
+    # 번호만 가져와 차집합으로 — 133만 줄에 NOT IN·LEFT JOIN 을 걸면 쿼리 제한 시간(statement timeout)에 걸린다
     with db._conn() as conn:
         live = {int(r[0]) for r in conn.execute(
             "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"

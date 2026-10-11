@@ -1,8 +1,8 @@
 """플랫폼 저장 계층 — SQLite.
 
 문서 접수 이력, 처리 상태, 모델 검토 의견, 담당자 의견을 담는다.
-인풋 문서의 본문은 마스킹본만 저장한다. 기준(regulation) 문서는 판단 근거라
-개인 문서가 아니므로 원문 그대로 저장한다 (2026-09-02 결정).
+인풋 문서의 본문은 개인정보 처리 설정(ADR-0044)을 거친 것을 저장한다. 기준(regulation)
+문서는 판단 근거이고 개인 문서가 아니므로 원문 그대로 저장한다.
 """
 
 from __future__ import annotations
@@ -198,7 +198,7 @@ def _now() -> str:
 
 
 def _no_nul(v):
-    """PostgreSQL 글자 칸은 NUL(0x00)을 받지 않는다 — 판독 결과에 섞인 NUL 하나가 반입 전체를 멈추게 했다(10/6: 문서함 누락 1,133건의 원인)."""
+    """PostgreSQL 글자 칸은 NUL(0x00)을 받지 않는다 — 판독 결과에 섞인 NUL 하나로 반입 전체가 멈추지 않게 뗀다."""
     return v.replace("\x00", "") if isinstance(v, str) else v
 
 class Database:
@@ -260,7 +260,7 @@ class Database:
             have: set[tuple[str, str]] = set()
             if getattr(conn, 'dialect', '') == 'postgres':
                 # 이미 있는 칸은 ALTER 를 아예 보내지 않는다 — IF NOT EXISTS 라도 표에 배타 잠금을 잡아,
-                # 여러 작업자가 동시에 연결하면 교착이 난다(운영 실측 2026-10-02: 반입 작업자 × DGX 결과 들이기)
+                # 여러 작업자(반입 작업자·외부 결과 들이기 등)가 동시에 연결하면 교착이 난다
                 have = {(str(r[0]), str(r[1])) for r in conn.execute(
                     "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = current_schema()").fetchall()}
             for stmt in self._MIGRATIONS:
@@ -309,11 +309,11 @@ class Database:
             # 접수번호 = 연도-유형코드-일련번호(4자리). 일련번호는 그해·그 유형의 기존 최대값+1.
             if getattr(conn, 'dialect', '') == 'postgres':
                 conn.execute('SELECT pg_advisory_xact_lock(26092901)')
-            # (COUNT+1 방식은 문서를 지우면 번호가 겹쳤다 — 번호는 한 번 쓰면 다시 쓰지 않는다)
+            # COUNT+1 은 문서를 지우면 번호가 겹친다 — 번호는 한 번 쓰면 다시 쓰지 않는다
             prefix = f"{year}-{code}-"
             row = conn.execute(
                 "SELECT receipt_no FROM documents WHERE receipt_no LIKE ?"
-                # 글자 순서로 고르면 '…-9999' 가 '…-10000' 보다 커서 1만 번째부터 모두 10000 이 됐다(2026-10-06) — 길이 먼저
+                # 글자 순서만으로 고르면 '…-9999' 가 '…-10000' 보다 커서 1만 번째부터 번호가 겹친다 — 길이 먼저
                 " ORDER BY LENGTH(receipt_no) DESC, receipt_no DESC LIMIT 1",
                 (prefix + "%",),
             ).fetchone()
@@ -511,7 +511,7 @@ class Database:
         owner: str | None = None,
         light: bool = False,
     ) -> list[dict]:
-        # light: 목록용 — 본문(masked_text, 운영 846MB)·초안 열을 뺀다. 4만 건 목록이 이것 때문에 수 초씩 걸렸다(2026-10-06)
+        # light: 목록용 — 본문(masked_text)·초안 열을 뺀다. 수만 건 목록에서 본문까지 읽으면 수 초씩 걸린다
         cols = ("d.*" if not light else
                 "d.id, d.filename, d.stored_path, d.status, d.series, d.error, d.created_at, d.doc_type, d.owner, d.coverage,"
                 " d.decision, d.content_sha256, d.sector, d.dept, d.access_level, d.family, d.version_of, d.kind,"
@@ -777,8 +777,8 @@ class Database:
     PROFILE_KEYS = ("name", "call_me", "instructions")
 
     def profile_for(self, user: str | None) -> dict:
-        """계정별 프로필(이름·호칭·응답 지침) — 설정 user:<계정>:<키>. 없으면 예전의 플랫폼 하나짜리 값.
-        예전에는 플랫폼 전체에 하나만 있어 한 사람이 바꾸면 모든 계정의 이름·응답 지침이 바뀌었다(2026-10-06)."""
+        """계정별 프로필(이름·호칭·응답 지침) — 설정 user:<계정>:<키>. 없으면 플랫폼 공통 값.
+        계정마다 따로 두어야 한 사람이 바꾼 이름·응답 지침이 다른 계정에 번지지 않는다."""
         out = {k: self.get_setting(k, "") or "" for k in self.PROFILE_KEYS}
         if user:
             for k in self.PROFILE_KEYS:
@@ -793,7 +793,7 @@ class Database:
                 self.set_setting(f"user:{user}:{k}", (v or "").strip()[:4000])
 
     def set_receipt_no(self, doc_id: int, receipt_no: str) -> None:
-        """접수번호를 바꾼다(사용자 지시 2026-09-27: 번호는 변경 가능해야). 다른 문서가 쓰는 번호면 ValueError."""
+        """접수번호를 바꾼다. 다른 문서가 쓰는 번호면 ValueError."""
         with self._conn() as conn:
             row = conn.execute("SELECT id FROM documents WHERE receipt_no = ? AND id != ?", (receipt_no, doc_id)).fetchone()
             if row:
@@ -1258,7 +1258,7 @@ class Database:
     ) -> list[dict]:
         """규정 조각 후보. sector·dept가 주어지면 각 전용 + 공통만 남긴다.
 
-        부서별 RAG(사용자 요구): dept를 주면 그 부서 문서 + 공통 규정만 검색
+        부서별 RAG: dept를 주면 그 부서 문서 + 공통 규정만 검색
         후보가 된다 — 컨텍스트 예산 안에 관련 근거만 담고 타 부서를 배제.
         열람 등급(access_policy)은 dept·user·levels 가 하나라도 있을 때 건다 —
         public 은 누구나, dept 는 그 부서(와 공통), owner 는 올린 사람(user)만. levels 를 주면 그 등급만

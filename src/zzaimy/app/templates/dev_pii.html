@@ -139,9 +139,9 @@
   <h2>외부 연결 방식</h2>
   <div class="privacy-principles">
     <article><h3>웹 검색</h3><p>검색 제공자: {{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버'}.get(search_provider, search_provider) }}<br>채팅에서 웹 검색을 선택한 요청에 사용합니다. 검색 결과 답변과 외부 AI 로그인은 별도 기능입니다.</p></article>
-    <article><h3>구독 로그인·작업 세션</h3><p><span class="pill processing">세션 실행 연결 준비 중</span><br>Claude Code와 아스트라(Codex)의 구독 로그인을 사용합니다. API 키 호출로 대체하지 않습니다.</p></article>
+    <article><h3>구독 로그인·작업 세션</h3><p><span class="pill processing">세션 실행 연결 준비 중</span><br>Claude Code·Codex 구독 로그인을 사용합니다. API 키 호출로 대체하지 않습니다.</p></article>
   </div>
-  <p class="privacy-help">로컬 로그인은 인증 방식입니다. 로컬 인증으로 연결해도 입력 내용이 외부 AI 서비스로 전송되는지는 별도로 확인해야 합니다. 웹 검색 보호와 학습 데이터 개인정보 검수는 계속 유지합니다.</p>
+  <p class="privacy-help">로컬 로그인은 인증 방식일 뿐이며, 입력 내용이 외부 AI 서비스로 전송되는지는 따로 확인해야 합니다. 웹 검색 보호와 학습 데이터 개인정보 검수는 그대로 유지합니다.</p>
 </div></div>
 <div class="card"><div class="card-in">
   <h2>외부 참조 AI · 구독 연결 확인</h2>
@@ -163,7 +163,7 @@
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:test-tube-linear"></iconify-icon>마스커 자가 점검
     <form method="post" action="/dev/pii/selftest" style="margin-left:auto;">
-      <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>지금 실행</button>
+      <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>자가 점검 실행</button>
     </form></h2>
   <p class="muted" style="margin:0 0 12px; font-size:12.5px; line-height:1.6;">
     합성 표본(가공 번호·가짜 이름)으로 지원 유형이 가려지는지, 가리면 안 되는 것이 남는지 확인합니다. 실제 개인정보는 쓰지 않습니다.</p>
@@ -222,7 +222,7 @@
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:magnifer-zoom-in-linear"></iconify-icon>저장 본문 잔여 검사
     <form method="post" action="/dev/pii/scan" style="margin-left:auto;">
-      <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>지금 실행</button>
+      <button type="submit"><iconify-icon icon="solar:play-circle-linear"></iconify-icon>잔여 검사 실행</button>
     </form></h2>
   <p class="muted" style="margin:0 0 12px; font-size:12.5px; line-height:1.6;">
     저장 본문에 마스커와 같은 정규식을 독립 실행합니다. 라벨 없는 성명·주소는 못 잡습니다. 잡힌 값은 가려 보입니다.</p>

@@ -1,9 +1,9 @@
-"""대화에 연결된 구글 독스를 에이전트가 직접 고친다 — 명령 → 편집 계획(형식 강제) → 즉시 적용 → 채팅에 결과.
+"""대화에 연결된 구글 독스를 에이전트가 직접 고친다. 명령 → 편집 계획(형식 강제) → 즉시 적용 → 채팅에 결과.
 
-사용자가 원한 모습(2026-09-23): 왼쪽 구글 독스, 오른쪽 에이전트 채팅. 채팅으로 "추진 배경을 세 문장으로 보강해"라고
-하면 담당자가 답을 옮겨 넣는 것이 아니라 에이전트가 그 문서를 바로 고치고, 채팅에는 무엇을 고쳤는지가 남는다.
+화면은 왼쪽 구글 독스, 오른쪽 에이전트 채팅이다. 채팅으로 "추진 배경을 세 문장으로 보강해"라고 하면 담당자가 답을
+옮겨 넣는 대신 에이전트가 그 문서를 바로 고치고, 채팅에는 무엇을 고쳤는지가 남는다.
 
-어떻게. 27B 에게 문서의 절 구조와 본문, 관련 근거 조각, 명령을 주고 편집 계획을 JSON 스키마로 강제해 받는다
+27B 에게 문서의 절 구조와 본문, 관련 근거 조각, 명령을 주고 편집 계획을 JSON 스키마로 강제해 받는다
 (vLLM guided_json — 공고 스키마 추출과 같은 방식). 계획은 절에 넣기(insert)·글 바꾸기(replace)·아무것도 안 함이다.
 플랫폼이 계획을 독스 API 로 적용한다. 넣는 글은 개인정보 검사기를 거치고, 모든 쓰기는 gdocs_audit.jsonl 에 남는다.
 되돌리기는 구글 독스의 버전 기록으로 한다. "확인 후 적용" 을 켠 대화에서는 계획만 보여 주고 담당자가 적용을 누른다.
@@ -164,7 +164,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     """27B 에게 편집 계획을 받는다. client 는 VllmClient(.client 는 OpenAI 호환, .model, ._extra).
 
     materials 는 절 작성 재료(작성방법·평가지표·지난 자료·기관 정보, drafting.render_materials). focus 가 있으면 [문서 본문]에는
-    그 절의 글만 준다(긴 문서는 앞 12000자만 보여 대상 절이 빠지던 문제)."""
+    그 절의 글만 준다(긴 문서에서 대상 절이 앞 12000자 밖에 있어도 보이도록)."""
     ev = "\n".join(f"- ({c.get('reg_title') or c.get('doc_title') or ''}) {str(c.get('content') or '')[:400]}"
                    for c in (evidence or [])[:5]) or "(없음)"
     focus_note = ""
@@ -181,11 +181,10 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     prompt = _PROMPT.format(title=info["title"], outline=_outline_lines(info), text=visible_text, focus_note=focus_note,
                             materials=rendered_materials,
                             evidence=ev, command=command.strip())
-    # 절 하나를 통째로 쓰면 JSON 이 2048 토큰을 넘어 잘린다(실측 2026-09-27: 1.1 절 재작성이 'Unterminated string' 으로 실패).
-    # 절 작성(focus)은 넉넉히, 잘리면 한 번 더 짧게 쓰라고 청한다.
+    # 절 하나를 통째로 쓰면 JSON 이 2048 토큰을 넘어 잘린다. 절 작성(focus)은 넉넉히 주고, 잘리면 한 번 더 짧게 쓰라고 청한다.
     max_tokens = 8192 if focus is not None else 2048
-    # 서빙 모델의 문맥 한도(토르 vLLM 16,384) 안에 입력+출력이 들어가야 한다(실측 2026-09-28: 재료가 길어 400 오류).
-    # 한글은 대략 1.5자에 토큰 하나 — 입력을 먼저 재료·본문 순으로 줄이고, 그래도 넘치면 출력 예산을 낮춘다.
+    # 입력+출력이 서빙 모델의 문맥 한도(16,384) 안에 들어가야 한다. 넘으면 vLLM 이 400 으로 거절한다.
+    # 한글은 대략 1.5자에 토큰 하나로 어림한다.
     prompt, max_tokens = _fit_context(prompt, max_tokens, rendered_materials, visible_text)
     data = None
     for attempt in range(2):
@@ -206,7 +205,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
                 raise
     raw_ops = []
     for o in data.get("ops", []):
-        # 본문 넣기에 표 칸을 함께 실은 계획(실측 2026-10-08: insert 에 table=2·cells — 칸이 버려지고 답은 「채웠다」)은 둘로 나눈다
+        # insert 에 표 칸(table·cells)을 함께 실은 계획은 칸이 버려지므로 insert 와 fill 둘로 나눈다
         if (o.get("op") == "insert" and int(o.get("table") or 0) > 0
                 and isinstance(o.get("cells"), list) and any(isinstance(c, dict) for c in o["cells"])):
             raw_ops.append({**o, "table": 0, "cells": []})
@@ -227,8 +226,8 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
 
 
 def _guide_replace_to_insert(ops: list[dict], info: dict, focus: dict | None) -> list[dict]:
-    """작성 지침 문단(「작성 지침 — …」)을 바꾸려는 replace 는 그 절에 넣기로 — 모델이 지침 글을 본문으로 덮어 지침이 사라지고 본문이
-    지침 상자 모양이 되던 것(10/10 시험, 실시계획서 「추진 배경」). 넣을 절을 모르면 버린다. 새 글 앞에 옛 지침 글이 붙어 오면 뗀다."""
+    """작성 지침 문단(「작성 지침 — …」)을 바꾸려는 replace 는 그 절에 넣기로 바꾼다. 지침 글을 본문으로 덮으면 지침이 사라지고
+    본문이 지침 상자 모양이 된다. 넣을 절을 모르면 버린다. 새 글 앞에 옛 지침 글이 붙어 오면 뗀다."""
     gp = gdocs.GUIDE_PREFIX.strip()
     guides = [ln.strip() for ln in (info.get("text") or "").split("\n") if ln.strip().startswith(gp)]
     out = []
@@ -264,7 +263,7 @@ _CELL_REF = re.compile(r"\s*표\s*\d*\s*의?\s*r\d+\s*,?\s*c\d+\s*칸?(?:에|의
 
 
 def _plain(text: str) -> str:
-    """담당자에게 보일 말 — 모델이 붙인 내부 칸 번호(「표의 r0 c1 칸에」)를 뗀다(리허설: 입력 요청 안내에 그대로 보임)."""
+    """담당자에게 보일 말에서 모델이 붙인 내부 칸 번호(「표의 r0 c1 칸에」)를 뗀다."""
     return re.sub(r"\s{2,}", " ", _CELL_REF.sub(" ", text)).strip(" ,·")
 
 
@@ -282,8 +281,8 @@ def _norm(s: str) -> str:
 
 
 def _drop_existing(text: str, doc_text: str) -> str:
-    """넣을 글에서 문서에 이미 있는 줄·문장을 뺀다 — 모델이 절의 마지막 문장을 따라 적거나(실측 2026-09-23) 방금 넣은 S·W·O·T
-    문단을 한 덩어리로 다시 붙이는 버릇(실측 2026-09-25: 1.1 절에 515자 중복). 줄 단위 → 문장 단위 두 번 거른다."""
+    """넣을 글에서 문서에 이미 있는 줄·문장을 뺀다. 모델은 절의 마지막 문장을 따라 적거나 방금 넣은 문단을 다시 붙이곤 한다.
+    줄 단위 → 문장 단위 두 번 거른다."""
     have_lines = {ln.strip() for ln in (doc_text or "").splitlines() if ln.strip()}
     have_sents = {_norm(x) for x in _SENT.split(doc_text or "") if len(_norm(x)) >= 12}
     kept_lines = []
@@ -315,8 +314,8 @@ def _pipe_cells(line: str) -> list[str] | None:
 
 
 def split_pipe_tables(ops: list[dict]) -> list[dict]:
-    """insert 글 속의 ' | ' 표(칸 수가 같은 줄이 둘 이상 이어짐)를 table 동작으로 떼어 낸다 — 모델이 표를 글로 내면 독스에
-    '가 | 나' 글줄이 그대로 들어갔다(실측 2026-09-29). 앞뒤 글은 insert 로 남고 순서는 그대로(둘 다 절 끝에 붙는다)."""
+    """insert 글 속의 ' | ' 표(칸 수가 같은 줄이 둘 이상 이어짐)를 table 동작으로 떼어 낸다. 그대로 두면 독스에 '가 | 나'
+    글줄이 들어간다. 앞뒤 글은 insert 로 남고 순서는 그대로다(둘 다 절 끝에 붙는다)."""
     out: list[dict] = []
     for o in ops:
         if o.get("op") != "insert" or "|" not in (o.get("text") or ""):
@@ -355,7 +354,7 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
     lines: list[str] = []
     for o in split_pipe_tables(ops):
         if o.get("op") == "replace" and str(o.get("old") or "").strip() == str(o.get("text") or "").strip():
-            continue                                     # 같은 글을 같은 글로 — 할 일이 없다(「적용됨」에 헛편집이 찍히던 것, 10/11)
+            continue                                     # 같은 글을 같은 글로 바꾸는 헛편집은 건너뛴다
         if o["op"] == "insert" and doc_text:
             o = dict(o, text=_drop_existing(o["text"], doc_text))
             if not o["text"].strip():
@@ -371,14 +370,14 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                     lines.append("바꿀 글이 비어 있어 건너뜀")
                     continue
                 if headings and _norm(o["old"]) in headings and not placeholder_heading_fill(o["old"], o.get("text") or ""):
-                    # 절 제목 글을 본문 문장으로 바꾸면 절 구조가 깨진다(리허설 2026-10-08: 「사업 개요」 제목이 문장으로) — 제목 바꾸기는 지시가 있을 때만.
+                    # 절 제목 글을 본문 문장으로 바꾸면 절 구조가 깨지므로 제목 바꾸기는 지시가 있을 때만 한다.
                     # 공통 양식의 자리 표시 제목(「1. (추진 과제 1) ○○○○」)을 같은 번호로 채우는 것만 예외
                     lines.append(f"「{o['old'][:30]}」 은 절 제목이라 바꾸지 않음")
                     continue
                 r = gdocs.replace_text(account, doc, o["old"], o["text"], user=user, data_dir=data_dir,
                                        scrub=scrub, http=http)
                 if not r["count"] and "\n" in o["old"].strip():
-                    # 독스의 찾아 바꾸기는 문단 하나 안에서만 찾는다(리허설 2026-10-08: 서식 상자의 여러 줄을 한 번에 → 0곳).
+                    # 독스의 찾아 바꾸기는 문단 하나 안에서만 찾으므로 여러 줄 글은 0곳이 된다.
                     # 줄 수가 같으면 줄마다 바꾼다 — 낱말이 있고 6자 이상인 줄만(「-」 같은 흔한 줄이 문서 전체에서 바뀌지 않게)
                     olds = [x.strip() for x in o["old"].strip().split("\n")]
                     news = [x.strip() for x in str(o.get("text") or "").strip().split("\n")]
@@ -427,7 +426,7 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
     return lines
 
 
-_JARGON = [                                           # 프롬프트 안의 이름이 답에 새던 것(10/11 「asks에 기재」「[근거 조각]」)
+_JARGON = [                                           # 답에 새어 나온 프롬프트 안의 이름(「asks에 기재」「[근거 조각]」)
     (re.compile(r"\basks\s*(?:에|로|에\s*기재|에\s*등록)"), "확인 요청에"),
     (re.compile(r"\basks\b"), "확인 요청"),
     (re.compile(r"\[?근거\s*조각\]?"), "근거 자료"),
@@ -522,7 +521,7 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         before_apply=None, figure_folder: str | None = None, number_evidence: list[dict] | None = None) -> tuple[str, list[dict]]:
     """명령 하나를 처리해 (채팅에 남길 글, 적용/보류한 ops) 를 돌려준다.
 
-    절 작성이면(focus) 재료와 함께 부르고, 실행 기록(재료·지시·모델의 초안·참고 정답)을 남긴다 — Writer 학습 데이터 공방의 재료."""
+    절 작성이면(focus) 재료와 함께 부르고, 실행 기록(재료·지시·모델의 초안·참고 정답)을 Writer 학습 재료로 남긴다."""
     info = info or gdocs.get(link["account"], link["doc"], http)
     if focus is None and "[이 절에 이미 있는 양식 표" not in materials:
         try:                                            # 절을 지목하지 않은 명령에도 양식 표 격자를 준다(번호 짐작 방지)
@@ -571,13 +570,12 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         return p["reply"] or "문서를 고칠 내용은 없습니다.", []
     doc_text = info.get("text") or ""
     if focus is not None and (focus.get("text") or "").strip():
-        # 지금 쓰는 절의 현재 글은 근거가 아니다 — 앞서 잘못 넣은 수치가 문서에 있으면 그것이 근거가 되어 다시 통과했다(10/11)
+        # 지금 쓰는 절의 현재 글은 근거가 아니다. 앞서 잘못 넣은 수치가 근거로 잡혀 다시 통과하지 않게 뺀다
         doc_text = doc_text.replace(focus["text"].strip(), "")
     ev_texts = [materials, doc_text, command] + [str(c.get("content") or "") for c in (evidence or []) + (number_evidence or [])]
     masked = mask_ops_numbers(p["ops"], ev_texts)
     if masked:
-        # 절대 규칙 1 — 수치는 인출만. 근거에 없는 수치는 문서에 넣기 전에 「○○」로 가리고 확인할 값으로 알린다
-        # (10/11 AID 「MD 과정 이수자 300명」「취업 연계율 80%」가 경고만 붙은 채 들어갔다)
+        # 절대 규칙 1(수치는 인출만). 근거에 없는 수치는 경고만 붙이지 않고 문서에 넣기 전에 「○○」로 가린 뒤 확인할 값으로 알린다
         p["reply"] = (p["reply"] + "\n근거에 없는 수치는 ○○로 비워 두었습니다(확인 필요): " + ", ".join(masked[:8])).strip()
     stray = source_check(p["ops"], [materials, command] + [str(c.get("reg_title") or "") + " " + str(c.get("content") or "") for c in (evidence or [])])
     if stray:
@@ -602,8 +600,8 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
 
 def fill_placeholder_heading(client, info: dict, focus: dict, ops: list[dict], materials: str, link: dict, *,
                              user: str, data_dir: Path, http=None) -> list[str]:
-    """쓴 절의 위 제목에 자리 표시(「1. (추진 과제 1) ○○○○」)가 남았으면 이름만 따로 묻는다 — 절을 쓰는 큰 요청 안에서는
-    모델이 위 제목을 챙기지 못했다(10/9 시험 2회). 한 줄짜리 좁은 물음으로, 같은 번호 앞머리를 지키는 답만 쓴다."""
+    """쓴 절의 위 제목에 자리 표시(「1. (추진 과제 1) ○○○○」)가 남았으면 이름만 따로 묻는다. 절을 쓰는 큰 요청 안에서는
+    모델이 위 제목까지 챙기지 못한다. 한 줄짜리 좁은 물음으로, 같은 번호 앞머리를 지키는 답만 쓴다."""
     from zzaimy.app import drafting
 
     ph = drafting.placeholder_parent(info, focus)
@@ -634,7 +632,7 @@ def fill_placeholder_heading(client, info: dict, focus: dict, ops: list[dict], m
 
 def _replace_in_cell(old: str, new: str, account: str, doc: str, *, user: str, data_dir: Path, scrub=None, http=None) -> int:
     """찾아 바꾸기가 0곳일 때 — 바꿀 글이 어느 표 칸(서식 상자) 안에 띄어쓰기만 다른 채로 있으면 그 칸 글을 고쳐 칸째 채운다.
-    독스의 찾아 바꾸기는 칸 속 여러 줄을 한 번에 못 찾는다(리허설 8: 「□ (세부)과제명: 0000 / 1. 추진배경 …」 상자가 그대로 남음). 한 칸만 고친다."""
+    독스의 찾아 바꾸기는 칸 속 여러 줄(「□ (세부)과제명: 0000 / 1. 추진배경 …」 같은 상자)을 한 번에 못 찾는다. 한 칸만 고친다."""
     chars = [c for c in (old or "") if not c.isspace()]
     if len(chars) < 6:
         return 0
@@ -694,7 +692,7 @@ _CITE = re.compile(r"[(（]\s*(?:출처|근거)\s*[:：]\s*([^)）\n]{2,80})[)�
 
 
 def source_check(ops: list[dict], evidence_texts: list[str]) -> list[str]:
-    """넣는 글의 「(출처: …)」 가 재료(문서 제목·본문)에 없는 이름이면 돌려준다 — 모델이 그럴듯한 문서 이름을 지어내던 것(시험 2026-10-09).
+    """넣는 글의 「(출처: …)」 가 재료(문서 제목·본문)에 없는 이름이면 돌려준다. 모델이 그럴듯한 문서 이름을 지어내는 것을 잡는다.
     출처 이름의 앞 열두 글자(띄어쓰기 무시)가 재료 어디에도 없으면 지어낸 것으로 본다."""
     draft = "\n".join(str(o.get("text") or "") for o in ops if o.get("op") in ("insert", "replace", "table"))
     hay = re.sub(r"\s+", "", "\n".join(t for t in evidence_texts if t))

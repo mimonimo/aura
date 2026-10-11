@@ -37,11 +37,23 @@ class ConvertFailed(RuntimeError):
     """변환기가 PDF 를 내지 못했다(변환기 없음·변환 실패). 화면 문구는 호출부가 고른다."""
 
 
-def kind_of(name: str) -> str:
-    """'inline'(브라우저가 바로 연다) · 'office'(PDF 로 바꿔 보여 준다) · 'download'(내려받기만)."""
+def _ext(doc_or_name: str | dict) -> str:
+    """형식을 고를 확장자. 문서 기록(dict)이면 storage.original_ext — 표시 이름(본문 제목)만으로는 고르지 않는다."""
+    if isinstance(doc_or_name, dict):
+        from zzaimy.app import storage
+
+        return storage.original_ext(doc_or_name)
+    return Path(doc_or_name or "").suffix.lower()
+
+
+def kind_of(doc_or_name: str | dict) -> str:
+    """'inline'(브라우저가 바로 연다) · 'office'(PDF 로 바꿔 보여 준다) · 'download'(내려받기만).
+
+    문서는 기록째(dict) 넘긴다. 이름을 넘길 때는 storage.original_name(doc) 처럼 실제 확장자가 붙은 것이어야 한다 —
+    반입 뒤 filename 은 확장자 없는 본문 제목이라 그것만 넘기면 늘 'download' 가 된다."""
     from zzaimy.app import office_pdf
 
-    ext = Path(name or "").suffix.lower()
+    ext = _ext(doc_or_name)
     if ext in INLINE_TYPES:
         return "inline"
     if ext in office_pdf.OFFICE_EXTS:
@@ -49,8 +61,9 @@ def kind_of(name: str) -> str:
     return "download"
 
 
-def media_type(name: str) -> str:
-    return INLINE_TYPES.get(Path(name or "").suffix.lower(), "application/octet-stream")
+def media_type(doc_or_name: str | dict) -> str:
+    """미리보기 응답의 형식. kind_of 와 같이 문서 기록이나 실제 확장자가 붙은 이름을 받는다."""
+    return INLINE_TYPES.get(_ext(doc_or_name), "application/octet-stream")
 
 
 def cache_dir(base: Path) -> Path:

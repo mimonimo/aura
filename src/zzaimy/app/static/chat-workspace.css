@@ -101,7 +101,7 @@ main:has(#chatWorkspace) { flex:none; min-height:0; height:calc(100dvh - var(--w
 .chat-history-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media(max-width: 600px) { .chat-workspace-head { flex-wrap: wrap; } .chat-head-actions { margin-left: auto; } }
 
-/* Conversation canvas: compact header, centered conversation, optional right document. */
+/* 대화 화면 — 머리줄은 낮게, 대화는 가운데, 문서 칸은 필요할 때 오른쪽에 */
 body .chat-workspace-head { max-width:none; align-items:flex-start; }
 body .chat-head-actions { display:flex; align-items:center; gap:8px; margin-left:auto; }
 body .chat-workspace-head h1 { font-size:16px; line-height:1.5; }
@@ -159,15 +159,15 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 .chat-progress li:last-child::before { background: var(--navy); box-shadow: 0 0 0 3px #e8eef8; }
 @keyframes chat-progress-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .chat-progress-dot { animation: none; } }
-/* 대화 칸 넓이·좌우 배치(10/10) — 넓은 화면에서 질문·답이 가운데 860px 기둥에 몰리고, 진행 카드는 공통 규칙(margin auto)에 밀려 가운데 떴다.
-   대화 칸을 넓히고 답(진행 카드 포함)은 칸 왼쪽, 질문은 칸 오른쪽에. 머리줄·입력창도 같은 넓이 */
+/* 대화 칸 넓이·좌우 배치 — 넓은 화면에서 대화가 가운데 좁은 기둥에 몰리지 않게 칸을 넓힌다.
+   답(진행 카드 포함)은 칸 왼쪽, 질문은 칸 오른쪽에 두고 머리줄·입력창도 같은 넓이로 맞춘다 */
 #chatScroll > * { max-width:1040px; }
 #chatScroll .msg.user { max-width:min(720px, 85%); }
 #chatScroll .chat-progress { max-width:1040px; width:100%; margin-left:auto; margin-right:auto; align-self:stretch; }
 #chatScroll .chat-progress .chat-progress-head { max-width:560px; }
 body #chatForm { max-width:1040px; }
 .msg hr { border:none; border-top:1px solid #E3E8EF; margin:14px 0; }
-/* 필요한 값 입력 폼 — 제목 한 줄, 칸은 제목 위·입력 아래로 두 열, 보내기는 오른쪽 아래(10/11 칸이 한 줄에 몰려 잘리던 것) */
+/* 필요한 값 입력 폼 — 제목 한 줄, 칸은 제목 위·입력 아래로 두 열, 보내기는 오른쪽 아래. 칸이 한 줄에 몰려 잘리지 않게 한다 */
 #chatScroll .chat-suggestions .chat-suggestion-form { flex:1 1 100%; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px 14px; padding:14px 16px; border:1px solid #DCE3EC; border-radius:12px; background:#FAFBFD; }
 #chatScroll .chat-suggestion-form .chat-form-title { grid-column:1 / -1; font-size:13px; font-weight:700; color:#23354D; }
 #chatScroll .chat-suggestion-form .chat-form-field { display:flex; flex-direction:column; gap:5px; min-width:0; font-size:12.5px; color:#3B4A5E; }

@@ -67,7 +67,7 @@ _EMOJI = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U000
 
 
 def strip_emoji(text: str) -> str:
-    """답의 이모지를 뺀다 — 행정 문서·화면은 이모지를 쓰지 않는다(「💡 작성 팁」, 10/11). 기호(□○※·→)는 그대로."""
+    """답의 이모지를 뺀다 — 행정 문서·화면은 이모지를 쓰지 않는다. 기호(□○※·→)는 그대로."""
     return re.sub(r"[ \t]{2,}", " ", _EMOJI.sub("", text or ""))
 
 
@@ -101,7 +101,7 @@ def rank_criteria_chunks(db, question: str, chunks: list[dict], criteria_ids: li
     if not chunks:
         return []
     # 열린 검색과 달리 꼬리를 자르지 않는다 — 기준은 이미 담당자가 고른 범위라 순서만 필요하다(자르면 한 조각만 남아
-    # 지원 규모·기한이 빠졌다, 실측 2026-09-24 대화 20)
+    # 지원 규모·기한 같은 근거가 빠진다)
     try:
         from zzaimy.app.regulations import hybrid_candidates
         from zzaimy.app.rerank import rerank_scored
@@ -199,9 +199,9 @@ class AgentResponder:
         if on_progress:
             on_progress("관련 근거 검색 중")
         if criteria_ids:
-            # 담당자가 기준을 직접 고른 경우 — 그 기준의 조각들만 사용(범위 고정). 예전에는 문서 순서대로 앞 6000자를 잘라
-            # 넣어 기준 문서가 여럿이면 첫 문서(기본계획 48조각)만 들어가고 공고의 신청 기한은 빠졌다(실측 2026-09-24, 대화 19).
-            # 질문과의 관련도로 고르고, 기준 문서마다 적어도 한 조각은 들어가게 한다.
+            # 담당자가 기준을 직접 고른 경우 — 그 기준의 조각들만 사용(범위 고정). 문서 순서대로 앞부분만 자르면
+            # 기준 문서가 여럿일 때 첫 문서만 들어가고 나머지(공고의 신청 기한 등)가 빠진다.
+            # 그래서 질문과의 관련도로 고르고, 기준 문서마다 적어도 한 조각은 들어가게 한다.
             chunks = db.chunks_for_docs(criteria_ids)
             ordered = rank_criteria_chunks(db, question, chunks, criteria_ids)
             context, hits = pack_criteria_context(ordered)
@@ -224,12 +224,12 @@ class AgentResponder:
                 prefer = None
                 own: set[int] = set()
                 if project and project.get("id"):
-                    # 이 프로젝트에 올린 문서(공고·기본계획·작성 서식 등)가 먼저다 — 참조 보관 사업만 앞세우고 제 문서는
-                    # 일반 검색에 맡겨, 「공고문으로 개요·목차를 잡아 줘」에 다른 사업 계획서가 근거로 서던 일(10/10 대화 23)
+                    # 이 프로젝트에 올린 문서(공고·기본계획·작성 서식 등)가 먼저다 — 제 문서를 일반 검색에 맡기면
+                    # 「공고문으로 개요·목차를 잡아 줘」 같은 요청에 다른 사업 계획서가 근거로 앞선다
                     with db._conn() as conn:
                         own = {int(r[0]) for r in conn.execute(
                             "SELECT id FROM documents WHERE project_id = ?", (int(project["id"]),)).fetchall()}
-                    # 프로젝트에 참조로 붙은 과거 사업 보관 묶음의 문서를 먼저 본다(C-192 흐름) — 없거나 맞는 조각이 없으면 평소대로
+                    # 프로젝트에 참조로 붙은 과거 사업 보관 묶음의 문서를 먼저 본다 — 없거나 맞는 조각이 없으면 평소대로
                     from zzaimy.app import project_refs
                     ref_ids = [r["ref_project_id"] for r in project_refs.list_refs(db, int(project["id"]))]
                     if ref_ids:
@@ -255,8 +255,8 @@ class AgentResponder:
                 logging.getLogger(__name__).warning("사업 문서 검색 실패: %s: %s", type(e).__name__, str(e)[:200])
                 grant_hits = []
             if grant_hits and hits and all(h.get("weak_evidence") for h in hits) and blocks and blocks[0].startswith("[교내 규정"):
-                # 사업 문서 근거가 있는데 규정 근거는 하한을 못 넘은 것뿐이면 규정 묶음은 빼고 사업 문서만 — 관계없는 규정
-                # (「2026학년도 AID 기본계획」)이 LINC+ 2017년 질문의 답에 끼어들던 일(10/5 RAG 실측)
+                # 사업 문서 근거가 있는데 규정 근거는 하한을 못 넘은 것뿐이면 규정 묶음은 빼고 사업 문서만 — 관계없는 규정이
+                # 다른 사업·연도 질문의 답에 끼어들지 않게
                 blocks = blocks[1:]
                 hits = []
             if not blocks:
@@ -311,12 +311,12 @@ class AgentResponder:
         if context:
             user_content += f"\n\n{context}"
         messages.append({"role": "user", "content": user_content})
-        self.last_context = user_content                    # 모델에 실제로 건넨 글(실측이 답의 수치를 이것과 대조한다)
+        self.last_context = user_content                    # 모델에 실제로 건넨 글(측정 스크립트가 답의 수치를 이것과 대조한다)
 
         client = VllmClient(role="answer")
         if on_progress:
             on_progress("답변 작성 중")
-        # 목차·개요처럼 긴 답이 1,024 토큰에서 끊겼다(10/10 대화 23 — 「Ⅳ.」 제목에서 멈춤). 상한을 넉넉히, 그래도 끊기면 한 번 잇는다
+        # 목차·개요처럼 긴 답은 짧은 상한(1,024 토큰)에서 중간에 끊긴다. 상한을 넉넉히 두고, 그래도 끊기면 한 번 잇는다
         limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
         resp = client.client.chat.completions.create(
             model=client.model,

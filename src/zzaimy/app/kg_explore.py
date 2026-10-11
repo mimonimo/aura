@@ -45,7 +45,7 @@ PROP_KO = {"names": "이름들", "acronyms": "약칭", "ledger": "장부(기간�
            "kind_label": "갈래 이름", "share": "분류 확신도", "status": "검토 상태", "evidence": "분류 근거", "level": "목차 수준",
            "seq": "순서", "chunks": "본문 조각", "key": "식별 키", "n_docs": "문서 수", "n_sections": "절 수", "unit": "단위",
            "tags": "꼬리표", "obs": "관측 값(문서·연도별)", "sources": "출처", "display": "표시 이름"}
-PER_GROUP = 12          # 관계 종류·방향·상대 종류마다 한 번에 보내는 이웃 수 — 많으면 한 화면에서 읽히지 않는다(10/6 크롬 확인)
+PER_GROUP = 12          # 관계 종류·방향·상대 종류마다 한 번에 보내는 이웃 수 — 많으면 한 화면에서 읽히지 않는다
 _cache: dict = {}
 
 

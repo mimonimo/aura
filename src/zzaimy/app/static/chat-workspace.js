@@ -59,7 +59,7 @@
       return item;
     }));
     status.textContent = steps[steps.length - 1];
-    // 문서 패널(chat-documents.js)도 같은 단계를 편집기 위에 비춘다(10/11)
+    // 문서 패널(chat-documents.js)도 같은 진행 단계를 편집기 위에 표시한다
     root.dispatchEvent(new CustomEvent('chat-progress', {detail:{label:steps[steps.length - 1], steps}}));
   }
   scroller.addEventListener('click', event => {

@@ -41,8 +41,7 @@
   {% if retrieval_eval.running %}
   <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 중
     ({{ retrieval_eval.started_at_display }} 시작)
-    · 평가 실행 중. 완료되면 결과 확인 버튼이 표시됩니다.
-    — 끝나면 새로고침으로 반영됩니다.</p>
+    · 완료되면 결과 확인 링크가 나타납니다.</p>
   {% endif %}
   {% if retrieval_eval.last_error %}
   <p class="muted" style="font-size:12px; margin:0 0 10px; color:var(--red);">
@@ -50,9 +49,13 @@
   {% endif %}
   {% set ev = retrieval_eval.result %}
   {% if ev %}
-  <p class="muted" style="font-size:12px; margin:0 0 8px;">측정
+  <p class="muted" style="font-size:12px; margin:0 0 8px;">마지막 측정
     {{ retrieval_eval.measured_at_display }} · 질의 {{ ev.n_queries }}건
-    · 조각 {{ ev.n_chunks }}개 · 임베딩 {{ ev.embedding_model or '미확인' }}</p>
+    · 조각 {{ ev.n_chunks }}개 · 측정 당시 임베딩 {{ ev.embedding_model or '미확인' }}
+    {% if index_model is defined %} · 지금 색인 임베딩 {{ index_model or '미확인' }}{% endif %}</p>
+  {% if index_model is defined and index_model and ev.embedding_model and ev.embedding_model != index_model %}
+  <p style="font-size:12.5px; margin:0 0 10px; color:var(--red);">지금 운영 색인과 다른 구성으로 잰 옛 측정입니다. 재측정해야 현재 구성의 수치가 됩니다.</p>
+  {% endif %}
   <div class="quality-bars" aria-label="상위 5건 검색 적중률 비교">
     {% for r in ev.rows if r.recall_at_5 is not none %}
     <div><label for="recall-{{ loop.index }}"><span>{{ r.method }}{% if r.production %} · 운영{% endif %}</span><b>{{ "%.1f" | format(r.recall_at_5 * 100) }}%</b></label>

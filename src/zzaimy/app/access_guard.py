@@ -156,7 +156,7 @@ WRITING_ENTITIES = ["KR_RRN", "KR_BRN", "KR_BANK_ACCOUNT", "KR_PASSPORT"]
 
 def scrub_for_writing(text: str) -> str:
     """문서에 써 넣는 글의 가림 — 주민번호·계좌·사업자번호 같은 식별 번호만. 기관명·총장·담당자 이름과 업무 전화·전자우편은
-    신청서·공문에 적어야 하는 정보라 가리지 않는다(사용자 지시 2026-09-24). 모르는 값은 모델이 ○○○ 으로 남긴다."""
+    신청서·공문에 적어야 하는 정보라 가리지 않는다. 모르는 값은 모델이 ○○○ 으로 남긴다."""
     global _masker
     if not text:
         return text

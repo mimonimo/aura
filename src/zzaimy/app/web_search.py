@@ -1,8 +1,8 @@
-"""외부 검색 모드 — 문서 작업이 아닌 일반 질문(장비 사양 비교 같은 것)을 27B 가 웹 검색 결과로 답한다(사용자 지시 2026-09-29).
+"""외부 검색 모드 — 문서 작업이 아닌 일반 질문(장비 사양 비교 같은 것)을 27B 가 웹 검색 결과로 답한다(ADR-0038).
 
 원칙:
 - 담당자가 그 메시지에 '외부 검색' 을 켰을 때만 쓴다. 밖으로 나가는 것은 질문 글뿐이다 — 문서·첨부·교내 자료는 보내지 않는다.
-- 검색은 키 없는 DuckDuckGo HTML 결과를 쓰고, 상위 쪽 몇 개를 받아 글만 남긴다. 답은 교내 27B 가 그 자료만 근거로 만들고
+- 검색은 키가 있으면 구글 CSE·네이버 API, 없으면 DuckDuckGo HTML 결과를 쓰고, 상위 쪽 몇 개를 받아 글만 남긴다. 답은 교내 27B 가 그 자료만 근거로 만들고
   문장마다 [n] 출처 번호를 단다. 자료에 없는 것은 모른다고 한다(브리프 규칙 1: 수치는 인출, 생성하지 않는다).
 - 모델은 계획한 4종 그대로(Writer 27B). 외부 모델 참조(egress)와는 다른 길이다.
 """
@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 SEARCH_URL = "https://html.duckduckgo.com/html/"
 _UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ZZAIMY/1.0"}
-MAX_PAGE_BYTES = 2_000_000          # 쪽 본문 상한(아스트라 검토 C-130: 응답 크기 제한)
+MAX_PAGE_BYTES = 2_000_000          # 쪽 본문 크기 상한
 
 
 class Blocked(Exception):
@@ -23,7 +23,7 @@ class Blocked(Exception):
 
 
 def _safe_url(url: str) -> bool:
-    """공개 인터넷 주소만 — 사설망·루프백·링크로컬·메타데이터 주소는 막는다(SSRF, 아스트라 검토 C-130). 리다이렉트 목적지도 같은 검사."""
+    """공개 인터넷 주소만 — 사설망·루프백·링크로컬·메타데이터 주소는 막는다(SSRF 방지). 리다이렉트 목적지도 같은 검사."""
     import ipaddress
     import socket
 
@@ -241,7 +241,7 @@ _MODEL_PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 
 
 
 def answer_from_model(question: str, client=None, max_tokens: int = 1200) -> dict:
-    """검색 없이 27B 의 학습 지식만으로 답한다(사용자 제안 2026-09-29). 밖으로 나가는 것이 없다. 출처가 없으므로 화면이 그 사실을 붙인다."""
+    """검색 없이 27B 의 학습 지식만으로 답한다. 밖으로 나가는 것이 없다. 출처가 없으므로 화면이 그 사실을 붙인다."""
     if client is None:
         from zzaimy.generate.client import VllmClient
 

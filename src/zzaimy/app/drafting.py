@@ -1,6 +1,6 @@
 """양식 작업본의 절을 쓰는 에이전트의 재료 모으기 — 검토 → 문서함에서 지난 사업 자료 찾기 → 맥락 → 초안.
 
-사용자 지시 2026-09-27: 실전에는 합본(정답지)이 처음엔 없다. 에이전트는 공고·기본계획·평가편람·양식을 검토하고, 문서함을 뒤져
+실제 작성에는 합본(정답지)이 처음엔 없다. 에이전트는 공고·기본계획·평가편람·양식을 검토하고, 문서함을 뒤져
 지난 사업 자료를 찾아 맥락을 만들고, 양식의 작성방법에 맞춰 절마다 초안을 쓴다. 그 뒤 사람과 에이전트가 고도화한다.
 여기서는 27B 가 절 하나를 쓰는 데 필요한 재료를 고른다 — 글은 모델이 쓴다. 특정 문서에 맞춘 규칙은 없다.
 
@@ -28,7 +28,7 @@ _SUMMARY = re.compile(r"요약")
 _QUOTED_HEAD = re.compile(r"「([^」]{2,80})」\s*절")
 _REPORT_NAME = re.compile(r"(?:실적|결과|성과)\s*보고서?")
 _TOC = re.compile(r"\s*(?:목\s*차|차\s*례|CONTENTS)\b", re.I)
-# 문서 전체 초안 요청(「사업계획서 초안 작성해 줘」) — 절을 말하지 않아도 빈 절부터 몇 개씩 쓴다(리허설 2026-10-08: 일반 편집으로 가서 한 글자도 안 씀)
+# 문서 전체 초안 요청(「사업계획서 초안 작성해 줘」) — 절을 말하지 않아도 빈 절부터 몇 개씩 쓴다(일반 편집으로 넘기면 아무것도 쓰지 않는다)
 _DOC_DRAFT = re.compile(r"(?:계획서|보고서|신청서|제안서|문서|서식|양식).{0,12}(?:초안|작성|써)")
 DOC_DRAFT_FIRST = 2
 
@@ -48,18 +48,18 @@ def doc_draft_only(command: str) -> bool:
 
 def is_unfilled(section: dict) -> bool:
     """본문이 없는 절 — 작성방법 상자를 뺀 본문 글자(outline 의 body_chars)가 0. 옛 구조(body_chars 없음)면 '상자로 끝나거나 글이 없음'.
-    실측 2026-09-27: 모델이 절 끝에 SWOT 표를 넣자 '상자로 끝남'으로 보여 빈 절로 취급, 다시 쓰기가 비우지 않고 덧붙였다."""
+    옛 기준만 쓰면 모델이 절 끝에 표를 넣은 절도 '상자로 끝남'으로 보여 빈 절로 취급되고, 다시 쓰기가 비우지 않고 덧붙인다."""
     if "body_chars" in section:
         if int(section.get("body_chars") or 0) == 0:
             return True
-        # 글 문단은 없고 양식 표만 있는데 그 표의 칸이 절반 넘게 비었으면 아직 안 쓴 절이다(표 채우기, 2026-09-29) — 머리 칸만 있는 총괄표·예산표
+        # 글 문단은 없고 양식 표만 있는데 그 표의 칸이 절반 넘게 비었으면 아직 안 쓴 절이다 — 머리 칸만 있는 총괄표·예산표
         cells, empty = int(section.get("tbl_cells") or 0), int(section.get("tbl_empty") or 0)
         return int(section.get("para_chars") or 0) == 0 and cells > 0 and empty * 2 >= cells
     return int(section.get("table_end") or 0) > int(section.get("end") or 0) - 1 or int(section.get("chars") or 0) == 0
 
 
 def family_unfilled(info: dict, section: dict) -> bool:
-    """절과 그 소제목 절들에 모두 본문이 없는가 — 소제목 뼈대에 나눠 쓴 절(1.1)은 절 자체가 비어 보여도 쓴 절이다(실측 2026-09-28)."""
+    """절과 그 소제목 절들에 모두 본문이 없는가 — 소제목 뼈대에 나눠 쓴 절(1.1)은 절 자체가 비어 보여도 쓴 절이다."""
     if not is_unfilled(section):
         return False
     return all(is_unfilled(s) for s in subsections(info, section))
@@ -70,11 +70,11 @@ def writable(section: dict) -> bool:
     「1. → 2.」 한 단계뿐인 단위 프로그램 양식). 소제목을 거느린 장 제목(Ⅰ.)·문서 제목·앞머리는 아니다."""
     num, rest = section_context.split_number(section.get("heading") or "")
     if not has_words(rest):
-        return False                                    # 「2cm」 같은 치수·기호만 있는 줄은 절이 아니다(리허설 2026-10-08: 변환본 여백 표기가 첫 빈 절로 뽑혀 맴돎)
+        return False                                    # 「2cm」 같은 치수·기호만 있는 줄은 절이 아니다(변환본의 여백 표기가 빈 절로 뽑히지 않게)
     if "." in num or (bool(section.get("leaf")) and int(section.get("level") or 0) >= 1):
         return True
-    # 장 제목이라도 바로 아래에 제 서식 표·작성 지침이 있으면 채울 자리가 있는 절이다 — 「사업 개요」 표(사업명·기간·사업비)가
-    # 소제목(사업 요약)을 거느렸다는 까닭으로 아무도 안 채웠다(10/12)
+    # 장 제목이라도 바로 아래에 제 서식 표·작성 지침이 있으면 채울 자리가 있는 절이다 — 소제목을 거느린 장의
+    # 「사업 개요」 표(사업명·기간·사업비) 같은 칸이 아무도 채우지 않은 채 남지 않게
     from zzaimy.ingest.gdocs import GUIDE_PREFIX
     return int(section.get("tbl_cells") or 0) > 0 or GUIDE_PREFIX.strip() in (section.get("text") or "")
 
@@ -102,7 +102,7 @@ def target_sections(info: dict, command: str, filled_ok: bool = False, skip: set
                 out.append(hit)
         return out[:MAX_SECTIONS_PER_TURN]
     empties = [s for s in secs if writable(s) and (filled_ok or family_unfilled(info, s)) and s.get("heading") not in (skip or set())]
-    # 요약 절은 본문을 다 쓴 뒤에 옮겨 쓴다 — 빈 절 차례의 맨 뒤로(리허설: 첫 차례에 요약을 골라 모델이 비워 둔 채 한 번을 썼다)
+    # 요약 절은 본문을 다 쓴 뒤에 옮겨 쓴다 — 빈 절 차례의 맨 뒤로(먼저 고르면 옮길 본문이 없어 비게 된다)
     empties = [s for s in empties if not _SUMMARY.search(s.get("heading") or "")] + [s for s in empties if _SUMMARY.search(s.get("heading") or "")]
     if _ALL.search(c):
         return empties[:MAX_SECTIONS_PER_TURN]
@@ -115,7 +115,7 @@ def target_sections(info: dict, command: str, filled_ok: bool = False, skip: set
 
 def section_text(info: dict, section: dict) -> str:
     """그 절의 현재 글(작성방법 상자 포함). 독스 구조에서 자른 절 글(outline 의 text)이 있으면 그것 —
-    본문에서 제목 글자를 찾으면 앞쪽 목차의 같은 제목에 걸린다(실측 2026-09-27: 1.2 절의 작성방법이 모델에 안 갔다)."""
+    본문에서 제목 글자를 찾으면 앞쪽 목차의 같은 제목에 걸려 작성방법이 모델에 가지 않는다."""
     if (section.get("text") or "").strip():
         return section["text"].strip()
     text = info.get("text") or ""
@@ -244,7 +244,7 @@ class Materials:
         return out
 
     def number_evidence(self) -> list[dict]:
-        """수치 대조용 근거 — 프로젝트 원본 문서의 조각 전체(재료로 건넨 발췌만 보면 원문에 있는 수치도 「근거 없음」으로 가려진다, 10/11).
+        """수치 대조용 근거 — 프로젝트 원본 문서의 조각 전체(재료로 건넨 발췌만 보면 원문에 있는 수치도 「근거 없음」으로 가려진다).
         모델에게 건네지 않는다(수치 대조기만 쓴다). 대조에는 글자만 쓰므로 조각 글만 돌려준다."""
         if not hasattr(self, "_num_ev"):
             out: list[dict] = []
@@ -271,7 +271,6 @@ class Materials:
         if not nouns:
             return []
         # 단위 가산 — 표 머리말의 「인원」「금액」「일자」는 원문에서 「101명」「3,000천원」「2024. 10. 29.」 같은 숫자+단위로만 나온다
-        # (10/10 시험: 참여 현황 표가 비었는데 원문에 대학별 인원·총 101명이 있었다)
         units = [rx for key, rx in _UNIT_CUES if re.search(key, query)]
         scored = []
         for ch in attach_paths(self._chunks_of(int(doc["id"]))):
@@ -316,7 +315,7 @@ class Materials:
                 past.append({"title": title, "how": how, "text": text})
         if not event:
             past += self.library_hits(section, query)
-        # 한 번의 회의·운영 기록이면 문서함 검색 재료를 주지 않는다 — 다른 회의·회차의 값이 새 기록에 옮겨졌다(프로젝트 문서·규정만)
+        # 한 번의 회의·운영 기록이면 문서함 검색 재료를 주지 않는다 — 다른 회의·회차의 값이 새 기록에 옮겨지기 쉽다(프로젝트 문서·규정만)
         gap_hint = ""
         try:                                                    # 지난 작성에서 이 절이 비었던 까닭(fill_gaps) — 재료 맨 앞에
             from zzaimy.app import fill_gaps
@@ -342,7 +341,7 @@ class Materials:
 
     def library_hits(self, section: dict, query: str, k: int = 3) -> list[dict]:
         """문서함 전체의 사업 문서(같은 사업의 지난 계획서·실적보고서 …)에서 이 절에 맞는 조각 — 그래프로 사업·연차를 좁히는 사업 문서 RAG.
-        프로젝트에 올린 문서만 보던 것을 넓힌다(리허설 2026-10-09: 지난 자료가 개설과목 엑셀 하나뿐). 열람 범위(scope)를 따른다."""
+        프로젝트에 올린 문서만으로는 지난 자료가 모자랄 때가 많아 문서함 전체로 넓힌다. 열람 범위(scope)를 따른다."""
         sc = self.scope
         if not sc or sc.get("role") == "student" or sc.get("grant") is False:
             return []
@@ -353,7 +352,7 @@ class Materials:
             own = {int(d["id"]) for d in self.past_docs()}
             hits = [dict(h, how="문서함 검색") for h in grant_search.search(self.db, q, k=k + 2, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]]
             if _REPORT_NAME.search(pname):
-                # 실적·결과보고서는 같은 사업·연차 계획서와 견주어 쓴다 — 계획서도 따로 찾아 앞에 둔다(시험: 「계획 대비 실적」 절이 0자)
+                # 실적·결과보고서는 같은 사업·연차 계획서와 견주어 쓴다 — 계획서도 따로 찾아 앞에 둔다(없으면 「계획 대비 실적」 같은 절을 못 쓴다)
                 from zzaimy.ingest.gdocs_templates import plan_counterpart
                 plan_name = _REPORT_NAME.sub("계획서", pname)
                 # 계획서의 짝 절(「추진과제」「성과지표」「사업비」)을 「」로 묶어 그래프 절로 바로 찾는다 — 보고서 절 제목으로는 계획서에서 못 찾는다.
@@ -378,7 +377,7 @@ class Materials:
             text = h.get("content") or ""
             cid = h.get("chunk_id")
             if not useful_chunk(text) or (cid is not None and cid in self._lib_seen):
-                continue                                  # 목차·그림 표시뿐인 조각, 앞 절에 이미 준 조각은 빼다(실측: 같은 그림 조각이 모든 절 1순위)
+                continue                                  # 목차·그림 표시뿐인 조각, 앞 절에 이미 준 조각은 뺀다(같은 조각이 모든 절 1순위로 오르지 않게)
             if cid is not None:
                 self._lib_seen.add(cid)
             path = [str(x) for x in (h.get("path") or [])]
@@ -386,7 +385,7 @@ class Materials:
             where = " > ".join(path[:-1])[-60:]
             how = (h.get("how") or "문서함 검색") + (f" · {where}" if where else "")
             if self._other_institution(f"{title} {where} {text[:300]}"):
-                # 다른 대학의 계획서 — 짜임새만 참고(10/11 「경복대학교 사업수행계획서」가 우리 계획서 재료로 들어감)
+                # 다른 대학의 계획서 — 짜임새만 참고(수치·기관명이 우리 계획서로 옮겨지지 않게)
                 how += " · 다른 기관 자료: 구성·표 짜임새만 참고하고 수치·기관명·사업명은 옮기지 않는다"
             out.append({"title": title[:80], "how": how, "text": (h.get("content") or "")[:700]})
             if self.sink is not None and h.get("doc_id") is not None and all(x.get("doc_id") != h["doc_id"] for x in self.sink):
@@ -399,7 +398,7 @@ class Materials:
 
 def doc_guides(info: dict) -> str:
     """문서 전체 지침 — 첫 절 앞(앞머리·표지)의 작성 지침 문단(공통 양식의 「작성 지침 — …」: 개조식 기호·문체·지침 지우기).
-    절 재료에는 그 절의 지침만 들어가 문서 전체 규칙(개조식)이 빠지던 것(실데이터 시험: 초안이 서술형 문단)."""
+    절 재료에는 그 절의 지침만 들어가므로 문서 전체 규칙(개조식)을 따로 모아 붙인다(없으면 초안이 서술형 문단이 된다)."""
     from zzaimy.ingest.gdocs import GUIDE_PREFIX
 
     head = next((s for s in info.get("sections", []) if s.get("level", 9) >= 1), None)
@@ -437,7 +436,7 @@ def needed_sources(info: dict) -> list[str]:
 
 def placeholder_parent(info: dict, section: dict) -> str:
     """이 절이 딸린 상위 제목 가운데 자리 표시(○○)가 남은 것(「1. (추진 과제 1) ○○○○」) — 없으면 빈 문자열.
-    절 작성 에이전트는 지금 쓰는 절만 보아 위 제목의 자리 표시를 그대로 두었다(10/9 시험) — 재료에 짚어 준다."""
+    절 작성 에이전트는 지금 쓰는 절만 보아 위 제목의 자리 표시를 그대로 두기 쉬워 재료에 짚어 준다."""
     secs = sorted(info.get("sections", []), key=lambda s: s.get("start", 0))
     lvl = int(section.get("level") or 9)
     last: dict[int, dict] = {}                                 # 단계마다 지금 열려 있는 제목
@@ -457,8 +456,8 @@ _COMMAND_ONLY = re.compile(r"^(?:다음|이어서|다시|방금|아까|이)\s.*(
 
 
 def conversation_intent(history: list[dict], keep: int = 4, each: int = 500) -> str:
-    """담당자가 대화에서 밝힌 방향(전략·참여 주체·강조점) — 절 작성 모델은 대화 기록을 받지 않아 첫 요청의 「쿠팡 협력·참여 학과」가
-    절에 빠졌다(10/11). 짧은 명령·첨부 표시는 빼고 최근 몇 개만. 방향일 뿐 수치·사실의 근거가 아니다."""
+    """담당자가 대화에서 밝힌 방향(전략·참여 주체·강조점) — 절 작성 모델은 대화 기록을 받지 않아 첫 요청에서 밝힌 협력 기관·
+    참여 학과 같은 방향이 절에 빠지기 쉽다. 짧은 명령·첨부 표시는 빼고 최근 몇 개만. 방향일 뿐 수치·사실의 근거가 아니다."""
     out = []
     for m_ in history or []:
         if m_.get("role") != "user":

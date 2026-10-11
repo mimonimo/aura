@@ -9,4 +9,4 @@
 | chart.umd.min.js | Chart.js | — | MIT |
 | d3.v7.min.js | D3 | 7 | ISC |
 
-폐쇄망에서도 화면이 돌도록 CDN 대신 이 폴더에서 낸다.
+폐쇄망에서도 화면이 돌도록 CDN 대신 이 폴더에서 제공한다.

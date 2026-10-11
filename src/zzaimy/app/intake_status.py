@@ -114,7 +114,7 @@ def snapshot(db, force: bool = False) -> dict:
         }
         progs = _rows(conn, "SELECT program, MAX(program_name), COUNT(*) FROM archive_files WHERE removed_at = '' AND doc_id IS NOT NULL"
                             " GROUP BY program ORDER BY 3 DESC")
-        # 사업은 id 로 합쳐 그래프의 정식 이름으로(원본 장부의 옛 이름 「LINC3」「3단계 …」가 따로 보이던 것)
+        # 사업은 id 로 합쳐 그래프의 정식 이름으로(원본 장부의 옛 이름이 따로 보이지 않게)
         try:
             prog_label = {r[0]: r[1] for r in conn.execute("SELECT id, label FROM kg_nodes WHERE type = 'program'").fetchall()}
         except Exception:

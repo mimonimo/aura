@@ -3,14 +3,14 @@
   if (!root) return;
   const widthToggle = document.getElementById('documentWidthToggle');
   const columns = root.querySelector('.document-columns');
-  // 옆 칸(판정·작성 항목)이 비어 있으면 나란히 둘 것이 없다 — 전환을 감추고 넓게 둔다(빈 반쪽만 생기던 문제)
+  // 옆 칸(판정·작성 항목)이 비어 있으면 나란히 보기 전환을 감추고 원문을 넓게 둔다
   const work = document.getElementById('documentWork');
   const workEmpty = !work || ![...work.children].some(el => el.offsetParent !== null || el.getClientRects().length);
   if (columns && workEmpty) columns.classList.add('source-expanded');
   if (widthToggle && columns && !workEmpty) {
     widthToggle.hidden = false;
     widthToggle.addEventListener('click', () => {
-      // Change layout only: keep the PDF frame, current page and unsaved review intact.
+      // 배치만 바꾼다. PDF 프레임·현재 쪽·저장하지 않은 검토 의견은 그대로 둔다
       const wide = columns.classList.toggle('source-expanded');
       widthToggle.setAttribute('aria-pressed', String(wide));
       widthToggle.textContent = wide ? '나란히 보기' : '넓게 보기';

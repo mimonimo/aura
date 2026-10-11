@@ -1,6 +1,6 @@
 """사무 문서(한글·워드·엑셀·PPT)의 열람 PDF — 반입 때 한 번 만들어 문서 폴더에 두고 문서 화면 '원문' 탭에 띄운다.
 
-사용자 지시 2026-09-27: hwp·hwpx 처럼 브라우저가 못 여는 파일은 반입하면서 변환해 두고, 문서 보기 본문에 PDF 로 보이게.
+hwp·hwpx 처럼 브라우저가 열지 못하는 파일은 반입하면서 PDF 로 변환해 두고 문서 보기 본문에 띄운다.
 리눅스에는 hwp → PDF 직변환기가 없다(LibreOffice 에 hwp5 필터 없음). 한글은 우리 변환기로 docx(독스 편집용으로도 쓰는 것)를
 만들고 그 docx 를 LibreOffice 가 PDF 로 그린다. 워드·엑셀·PPT 는 LibreOffice 가 바로 그린다. 원본은 한 번만 읽는다.
 """
@@ -58,7 +58,7 @@ def docx_for(src: Path) -> tuple[bytes, str] | None:
         except Exception:
             from zzaimy.ingest import hwp_html
 
-            data, _ = hwp_html.convert(src)             # (html 바이트, 통계) — 예전에는 튜플째 돌려 쓰기에서 깨졌다
+            data, _ = hwp_html.convert(src)             # (html 바이트, 통계) 중 바이트만 쓴다
             return data, ".html"
     return None
 

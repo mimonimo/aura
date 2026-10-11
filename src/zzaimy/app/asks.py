@@ -1,9 +1,9 @@
-"""에이전트가 모르는 값을 담당자에게 묻고 답을 기억하는 일반 경로(사용자 지시 2026-09-28: 특정 값에 목매지 말고 필요한 것을 요구).
+"""에이전트가 모르는 값을 담당자에게 묻고 답을 기억하는 일반 경로 — 특정 값에 묶이지 않고 필요한 값을 그때그때 요청한다.
 
 - 27B 가 절을 쓰다가 자료 어디에도 없는 값(사업단명·책임자·예산·일정·수치 …)을 asks 로 내면 chat_asks:<대화> 에 쌓인다.
 - 답변 아래 선택지에 kind=form(입력 칸)으로 띄운다. 화면이 없어도 "이름: 값; 이름: 값" 문장으로 답할 수 있다.
 - 답은 project_facts:<프로젝트>(프로젝트가 없으면 chat_facts:<대화>)에 기억돼 이후 모든 작성 재료([담당자가 알려 준 값])에 들어간다.
-  기관 정보 이름(대학명·주소·총장·대표전화)은 기관 설정으로도 저장한다.
+  기관 정보 이름(대학명·주소·총장·대표전화)은 관리자가 알려 준 값만 기관 설정으로도 저장한다(모든 사용자에게 쓰이는 값).
 """
 
 from __future__ import annotations
@@ -51,19 +51,26 @@ def facts(db, session_: dict | None) -> dict:
     return out
 
 
-def remember(db, session_: dict | None, given: dict) -> None:
+def remember(db, session_: dict | None, given: dict, *, global_ok: bool = False) -> list[str]:
+    """알려 준 값을 이 프로젝트(없으면 대화)의 값으로 기억한다. 기관 정보 이름(대학명·주소·총장·대표전화)은 기관 설정이
+    모든 사용자에게 함께 쓰이므로 global_ok(관리자)일 때만 기관 설정에도 쓴다. 기관 설정에 쓰지 않은 기관 정보 이름을 돌려준다."""
     key = _facts_key(session_)
     try:
         cur = json.loads(db.get_setting(key, "") or "{}")
     except Exception:
         cur = {}
+    local_only: list[str] = []
     for k, v in given.items():
         cur[k] = v
-        if k in institution.KEYS:
-            institution.set_fact(db, k, v)
-        elif k.replace(" ", "") in ("총장성명", "총장이름"):
-            institution.set_fact(db, "총장", v)
+        inst_key = k if k in institution.KEYS else ("총장" if k.replace(" ", "") in ("총장성명", "총장이름") else "")
+        if not inst_key:
+            continue
+        if global_ok:
+            institution.set_fact(db, inst_key, v)
+        else:
+            local_only.append(k)
     db.set_setting(key, json.dumps(cur, ensure_ascii=False))
+    return local_only
 
 
 def parse_pairs(text: str, names: list[str]) -> dict:

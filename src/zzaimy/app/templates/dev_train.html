@@ -3,8 +3,7 @@
 {% block pagetitle %}{{ {'models':'학습·평가','settings':'도구·모델 연결','exports':'승인 산출물'}.get(development_tab,'데이터·모델 개발') }}{% endblock %}
 {% block content %}
 <style>
-  /* 도구 카드 3장 — 같은 구조(단계·이름·상태·역할·열기·설정), 같은 높이 */
-  /* 도구 카드 3장: 3열 → 좁으면 1열 (2+1 처럼 한 장만 남는 줄이 생기지 않는다) */
+  /* 도구 카드: 같은 구조·같은 높이. 3열 → 좁으면 1열(한 장만 남는 줄이 생기지 않게) */
   .tool-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-bottom:20px; }
   @media (max-width:760px) { .tool-grid { grid-template-columns:1fr; } }
   .tool-grid .card { margin:0; display:flex; }
@@ -263,8 +262,8 @@
     {% for c in connections %}
     <div class="srv-row">
       <span class="srv-name">{{ c.name }}</span>
-      {# 상태는 지금 물어본 결과로 적는다. 예전에 '연결 확인'을 눌렀는지와는 상관이 없다 —
-         실시간으로 모델 목록을 받아 왔는데 '확인 전'으로 찍히면 화면이 스스로 모순된다 #}
+      {# 상태는 지금 물어본 결과로 적는다. 마지막 '연결 확인' 기록을 쓰면 모델 목록은 받아 왔는데
+         '확인 전'으로 찍히는 모순이 생긴다 #}
       {% if c.live.ok %}<span class="pill reviewed">연결됨</span>
       {% else %}<span class="pill processing">응답 없음</span>{% endif %}
       {% if c.active %}<span class="pill use-tag">기본</span>{% endif %}
@@ -292,9 +291,10 @@
     <div class="use-list">
       {% for r in llm_roles %}
       {% set own = (connections | selectattr('id', 'equalto', r.id) | list | first) if r.id else none %}
-      {# 공개 자료 판독은 지정이 없으면 기본 연결이 아니라 '문서 이미지 판독' 모델을 쓴다 — 그대로 보인다 #}
+      {# 공개 자료 판독은 지정이 없으면 기본 연결이 아니라 '문서 이미지 판독' 모델을 쓴다.
+         공개 수집 문서는 운영 범위에서 빠져 이 단계는 지정이 없을 때 감춘다(값은 그대로 함께 저장) #}
       {% set srv = own or (none if r.role == 'vision_public' else act) %}
-      <div class="use-row" id="use-{{ r.role }}">
+      <div class="use-row" id="use-{{ r.role }}"{{ ' hidden' if r.role == 'vision_public' and not r.id }}>
         <input type="hidden" name="role" value="{{ r.role }}">
         <div class="use-name">{{ r.label }}</div>
         <div class="use-now">
@@ -368,7 +368,7 @@
   <div class="srv-head muted">계획 모델과 현재 서빙 연결</div>
   <p class="muted">서버 응답 여부를 표시합니다. 정상 연결은 SFT 완료나 품질 검증 완료를 뜻하지 않습니다.</p>
   <div class="plan-list">
-    {% for p in serving_plan %}
+    {% for p in serving_plan if not (p.key == 'vision_public' and not p.model) %}
     <div class="plan-row">
       <span class="plan-name">{{ p.name }}</span>
       <span class="muted plan-role">{{ p.role }}</span>
@@ -693,8 +693,8 @@ document.addEventListener("DOMContentLoaded", function () {
 {% if development_tab == 'exports' %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:export-linear"></iconify-icon>산출물 반출</h2>
-  <p class="muted">아래 학습 파일은 서버에 저장된 JSONL입니다. Label Studio의 프로젝트·태스크 목록과 다르며, 새 검수 결과가 자동 동기화되지는 않습니다.</p>
-  <p><a href="/dev/data">데이터 공방에서 검수 결과 되받기</a> 후 반출 목록을 확인하세요. 파일 존재만으로 학습 승인이나 개인정보 점검 완료를 보장하지 않습니다.</p>
+  <p class="muted">서버에 저장된 학습 JSONL 파일입니다. Label Studio 검수 결과는 자동으로 반영되지 않습니다.</p>
+  <p><a href="/dev/data">데이터 공방에서 검수 결과 되받기</a> 후 목록을 확인하세요. 파일이 있다고 학습 승인이나 개인정보 점검이 끝난 것은 아닙니다.</p>
   <form action="/dev/train/export.zip" method="get">
     <div style="display:flex; flex-direction:column; gap:8px; margin:0 0 14px;">
       {% for g in export_preview %}

@@ -78,8 +78,8 @@ def corpus_dense(query, top_k=20, min_sim=None):
     from zzaimy.app.embed_search import _index
     if not _index._load():
         return []
-    # 질의 벡터는 플랫폼 색인과 같은 경로로 — 서빙 장비 서비스가 먼저, 없으면 VM 모델, 둘 다 없으면 조밀 축 없이
-    # (실측 2026-09-22: 서비스만 쓰는 구성에서 VM 모델이 None 이라 코퍼스 탭 검색이 죽었다)
+    # 질의 벡터는 플랫폼 색인과 같은 경로로 만든다(서빙 장비 서비스 → VM 모델 → 조밀 축 없음).
+    # 서비스만 쓰는 구성에서는 VM 모델이 None 이므로 모델을 직접 부르면 안 된다.
     qvs = _index._encode([query])
     if qvs is None:
         return []

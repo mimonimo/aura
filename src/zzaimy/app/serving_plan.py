@@ -2,7 +2,7 @@
 
 왜 따로 두는가: 모델은 세 곳에 걸쳐 있다. 서빙 서비스(임베딩·리랭커), 생성 서버의 모델 목록
 (문서 작업·추출·이미지 판독), 그리고 장비에 놓인 가중치(학습본). 화면마다 다른 곳을 보면
-"27B 를 받아 놨는데 왜 안 쓰나" 같은 어긋남이 생긴다. 한 곳에서 모아 본다.
+가중치는 있는데 서빙하지 않는 식의 어긋남을 놓치기 쉬워 한 곳에서 모아 본다.
 
 계획(docs/model-plan.md): ①Embed KURE-v1 ②Rerank bge-reranker-v2-m3
 ③Writer Qwen3.8-27B ④Extract Writer 공용 27B. 학습은 DGX, 서빙은 토르가 맡는다.
@@ -78,7 +78,7 @@ def status(live_models=None) -> list[dict]:
             else:
                 row["detail"] = "지정된 서버가 없습니다"
         # 학습본은 이름에 판 번호가 붙는다(zzaimy-embed-v2, zzaimy-rerank-v1). 번호 없는 zzaimy-* 는
-        # 베이스에 붙인 서빙 이름이다 — 표가 그 사실을 말하지 않으면 학습본으로 오해한다(2026-09-21).
+        # 베이스에 붙인 서빙 이름이다. 표에 따로 밝히지 않으면 학습본으로 오해하기 쉽다.
         import re as _re
 
         got_model = row.get("model") or ""

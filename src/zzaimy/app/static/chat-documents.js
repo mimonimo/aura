@@ -14,7 +14,7 @@
    const match=url.pathname.match(isDoc? /^\/document\/d\/([A-Za-z0-9_-]+)(?:\/|$)/ : /^\/file\/d\/([A-Za-z0-9_-]+)(?:\/|$)/);
    if(!match)return;
    event.preventDefault();
-   // 답 속 [문서 n] 이 이 대화의 작업 문서면 읽기 전용 미리보기가 아니라 편집기로 연다(10/11).
+   // 답 속 [문서 n] 이 이 대화의 작업 문서면 읽기 전용 미리보기가 아니라 편집기로 연다.
    // 연결 정보가 아직 오는 중일 수 있어 기다린 뒤 판단한다.
    const session=sid;
    if(isDoc){await initialized.catch(()=>{});if(session!==sid)return;}
@@ -29,7 +29,7 @@
  });
  // 편집기 iframe 을 다시 불러온다. 교차 출처 iframe 은 # 만 바꾸면 이동하지 않을 때가 있어(구글 쪽 주소가
  // 이미 바뀌어 있으면 조각 이동으로 끝난다) 매번 다른 zzjump 값을 붙여 새로 연다. 독스 주소 꼴은
- // …/edit?tab=<탭>#heading=<제목 id> — 탭은 질의, 제목은 # (10/11 이전엔 둘 다 # 에 넣어 무시됐다).
+ // …/edit?tab=<탭>#heading=<제목 id> 이다. 탭은 질의에, 제목은 # 에 넣어야 독스가 알아듣는다.
  function navigateEditor(section){
    const frame=panel?.querySelector('iframe');if(!frame||!linked)return;
    const url=new URL(frame.src||linked.embed_url,location.href);
@@ -38,7 +38,7 @@
      if(section.tab_id)url.searchParams.set('tab',section.tab_id);else url.searchParams.delete('tab');
      url.hash='heading='+section.heading_id;
    }
-   // 독스를 다시 그리는 동안(20~30초) 빈 칸만 보여 「안 된다」고 느꼈다(10/11) — 다 그릴 때까지 한 줄 안내
+   // 독스를 다시 그리는 동안(20~30초) 빈 칸만 보이므로 다 그릴 때까지 한 줄 안내를 띄운다
    const viewport=frame.parentElement;let note=viewport.querySelector('.chat-doc-loading');
    if(!note){note=document.createElement('div');note.className='chat-doc-loading';note.innerHTML='<span class="chat-doc-busy-dot" aria-hidden="true"></span><span></span>';viewport.append(note);}
    note.querySelector('span:last-child').textContent=section?`「${section.heading}」 위치로 이동하는 중…`:'문서를 새로 불러오는 중…';
@@ -262,7 +262,7 @@
    const summary=document.createElement('summary');summary.textContent='•••';summary.title='문서 더보기';summary.setAttribute('aria-label','문서 더보기');
    const menu=document.createElement('div');menu.className='doc-more-actions';
    header.querySelectorAll('a').forEach(a=>menu.append(a));
-   // 열람 패널 같은 다른 머리줄에서 불리면 없는 요소가 null 글자로 붙었다(10/11) — 있는 것만 옮긴다.
+   // 열람 패널처럼 연결 해제 단추가 없는 머리줄도 있어 있는 것만 옮긴다.
    const unlink=panel.querySelector('[data-unlink]');if(unlink)menu.append(unlink);
    more.append(summary,menu);
    more.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();more.open=false;summary.focus();}});
@@ -289,8 +289,8 @@
  }
  document.addEventListener('pointerdown',e=>{const more=panel?.querySelector('.doc-more[open]');if(more&&!more.contains(e.target))more.open=false;});
  show=()=>{
-   // 문서함(iframe 없음)·열람 패널(미리보기 iframe)은 편집기가 아니다 — 그대로 두면 미리보기 위에
-   // 편집기 머리줄이 덧붙고 위치 이동도 미리보기 iframe 을 건드렸다(10/11).
+   // 문서함(iframe 없음)·열람 패널(미리보기 iframe)은 편집기가 아니므로 비우고 새로 만든다. 그대로 두면
+   // 미리보기 위에 편집기 머리줄이 덧붙고 위치 이동이 미리보기 iframe 을 건드린다.
    if(panel&&!isEditor())clearPanel();
    createPanel();
    fitEditor();
@@ -358,8 +358,8 @@
    modal.addEventListener('close',()=>{modal.remove();if(trigger.isConnected)trigger.focus();});modal.showModal();
  }
  // 「현재 작업 중」은 이 대화의 연결 정보(/api/chat-documents/{sid} 의 doc)와 같은 문서에만 붙인다.
- // 같은 프로젝트 폴더에는 다른 대화의 작업본도 있다 — 화면에 남은 linked(옛 연결·다른 경로로 바뀐 값)로
- // 판단하면 남의 문서가 표시됐다(10/11). 문서함을 열 때마다 연결 정보를 새로 읽는다.
+ // 같은 프로젝트 폴더에는 다른 대화의 작업본도 있어서, 화면에 남은 linked(옛 연결)로 판단하면 다른 대화의
+ // 문서가 표시될 수 있다. 그래서 문서함을 열 때마다 연결 정보를 새로 읽는다.
  let currentDoc=null;
  function markCurrentFile(){
    const list=panel?.querySelector('.chat-work-files');if(!list)return;
@@ -377,8 +377,8 @@
  const DOC_EMPTY={attached:'아직 올리거나 첨부한 문서가 없습니다.',reference:'에이전트가 근거로 불러온 문서가 여기에 쌓입니다.',rules:'연결된 공고·지침이 없습니다.'};
  let refreshLibrary=null;
  async function showFiles(){
-   // 문서함도 편집기·열람과 같은 폭(사용자가 끌어 둔 비율)으로 연다. 보기마다 70/50 으로 바꾸던 때는
-   // 대화 칸 폭이 오가며 입력창이 밀렸고, 70 이 메모리에 남아 편집기에 저장되기도 했다(10/11).
+   // 문서함도 편집기·열람과 같은 폭(끌어 둔 비율)으로 연다. 보기마다 폭을 바꾸면 대화 칸이 오가며
+   // 입력창이 밀린다.
    clearPanel();showEmpty();
    panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서함';
    const refresh=document.createElement('button');refresh.type='button';refresh.className='secondary doc-icon-button';refresh.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7"/></svg>';refresh.title='목록 새로고침';refresh.setAttribute('aria-label',refresh.title);refresh.onclick=showFiles;
@@ -503,7 +503,7 @@
    initialized.then(()=>{if(session===sid&&sid&&!linked)watch=setTimeout(checkCreatedDocument,6000);});
  }
  // 에이전트 작업 중 표시 — 대화 쪽 진행 카드(chat-workspace.js 의 폴링)의 현재 단계를 편집기 위 한 줄로
- // 비춘다. 단계 글은 'chat-progress' 사건으로, 대기 시작·끝은 'chat-session-updated' 의 waiting 으로 받는다(10/11).
+ // 비춘다. 단계 글은 'chat-progress' 사건으로, 대기 시작·끝은 'chat-session-updated' 의 waiting 으로 받는다.
  let agentBusy=workspace.dataset.waiting==='true', busyLabel='';
  function paintBusy(){
    if(!isEditor())return;

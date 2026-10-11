@@ -1,4 +1,4 @@
-"""Document notifications have independent, account-scoped acknowledgement."""
+"""문서 알림 — 확인 여부를 계정마다 따로 기록한다."""
 import hashlib
 import json
 import threading
