@@ -182,10 +182,12 @@ def spelling_variant(short: str, other_acronyms: Iterable[str]) -> str | None:
 
 
 def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = None,
-                aliases: dict[str, Iterable[str]] | None = None) -> dict[str, str]:
+                aliases: dict[str, Iterable[str]] | None = None, known: Iterable[str] = ()) -> dict[str, str]:
     """원래 이름 → 대표 보일 이름. 사업 이름이 아니면 ""(화면은 「사업 미분류」로 둔다).
 
     aliases: 원래 이름 → 그 사업의 다른 이름·약칭(그래프 사업 노드 등). 오타 판정(4)에만 쓴다.
+    known: 사업 노드·외부 확인 장부가 이미 사업으로 확인한 이름 — is_program_name 검사 없이 사업으로 둔다
+    (장부의 정식 이름은 「지역성장 인재양성체계(앵커)」처럼 「사업」 낱말이 없을 수 있다).
 
     다른 이름을 하나로 묶는 근거는 넷뿐이다. 근거가 없으면 따로 둔다.
     1. 같은 열쇠(group_key) — 띄어쓰기·괄호·앞 부처명·때 꼬리표만 다른 이름
@@ -202,12 +204,13 @@ def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = No
 
     if not isinstance(counts, dict):
         counts = {n: 1 for n in counts}
+    known_set = set(known)
     out: dict[str, str] = {}
     shown: dict[str, str] = {}
     by_key: dict[str, list[str]] = defaultdict(list)
     for raw in counts:
         disp = display_name(raw)
-        if not raw or not is_program_name(disp):
+        if not raw or (raw not in known_set and not is_program_name(disp)):
             out[raw] = ""
             continue
         shown[raw] = disp

@@ -46,7 +46,7 @@ def is_original(rel: str) -> bool:
     return not (rel or "").startswith(UPLOAD_PREFIX) and not any(p.endswith(BYPRODUCT_DIR_SUFFIXES) for p in parts)
 
 
-STATES = {"registered": "등록됨", "excluded": "처리 제외(범위 밖)", "failed": "실패", "waiting": "대기"}
+from zzaimy.app.vocab import ARCHIVE_STATE_LABELS as STATES  # noqa: E402  화면 용어는 한 곳(app/vocab)
 
 
 def state_sql(alias: str = "") -> tuple[str, list]:

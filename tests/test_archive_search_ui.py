@@ -252,3 +252,68 @@ def test_unclassified_row_has_no_project_link(client):
     row = table[table.rindex("<tr>", 0, table.index(">사업 미분류<")):]
     row = row[:row.index("</tr>")]
     assert "프로젝트 검색" not in row and "파일 보기" in row
+
+
+def _graph_program(db, key, label, acronyms=()):
+    import json
+    from zzaimy.graph import kg_store
+    kg_store.ensure(db)
+    with db._conn() as conn:
+        conn.execute("INSERT INTO kg_nodes (id, type, label, props) VALUES (?, 'program', ?, ?)",
+                     (key, label, json.dumps({"acronyms": list(acronyms)})))
+
+
+def test_renamed_program_keeps_its_files_and_every_way_of_filtering(client):
+    """장부·그래프가 사업 이름을 「…체계(옛 이름)」처럼 「사업」 낱말 없는 정식 이름으로 바꿔도 묶음이 사라지지 않는다."""
+    db = client.app.state.db
+    with db._conn() as conn:                                 # 동기화가 장부 이름을 그래프의 새 이름으로 바꾼 상태
+        conn.execute("UPDATE archive_files SET program_name = '별누리 인재양성체계(구 ZETA)' WHERE program = 'program:b'")
+    _graph_program(db, "program:b", "별누리 인재양성체계(구 ZETA)", ["ZETA"])
+    page = client.get("/archive").text
+    table = page[page.index('aria-label="사업별 원본 수"'):]
+    assert ">별누리 인재양성체계(구 ZETA)</a>" in table
+    for value in ("program:b", "별누리 인재양성체계(구 ZETA)", "별누리인재양성체계(구ZETA)", "ZETA", "별누리"):
+        assert _count(client.get(f"/archive?program={value}").text) == "61건 중 1–50", value
+    row_tag = client.get("/archive?program=ZETA").text
+    assert 'value="별누리 인재양성체계(구 ZETA)"' in row_tag                       # 칸에는 보일 이름, 주소는 열쇠
+    assert "program=program%3Ab" in page
+
+
+def test_every_program_keeps_its_count_after_name_normalisation(client):
+    """정리 전(장부 열쇠별 원본 수)과 정리 뒤(묶음별 원본 수)의 합이 같고, 그래프에 있는 사업은 미분류로 떨어지지 않는다."""
+    db = client.app.state.db
+    _graph_program(db, "program:a2", "해양미래부 은하수 개척 사업")
+    names = archive_view.program_index(db, set())
+    progs = archive_view.Programs(names, archive_view._surfaces(db, [k for k in names if k]),
+                                  archive_view._nodes(db, [k for k in names if k]))
+    view = archive_view.browse(archive_view.program_years(archive_view.facet_rows(db, archive_view.parse_filters(), set()), progs),
+                               archive_view.parse_filters(), progs, archive_view.kind_labels())
+    shown = {p["value"]: p["n"] for p in view["programs"]}
+    unclassified = (view["unclassified"] or {}).get("n", 0)
+    assert sum(shown.values()) + unclassified == sum(n for _name, n in names.values())
+    for key, (_name, n) in names.items():
+        if key and key in archive_view._nodes(db, [key]):
+            assert progs.of(key), key
+    for gid, n in shown.items():
+        assert n == sum(names[k][1] for k in progs.keys_of(gid))
+    dropped = [k for k in names if k and not progs.of(k)]
+    assert dropped == ["program:x"]                                                # 사업 아닌 이름(통합공고 사업)만
+
+
+def test_shared_vocabulary_and_format_groups(client):
+    from zzaimy.app import vocab
+    db = client.app.state.db
+    archive.load(db, [{"rel": "회계/서식/ACA0040.rdf", "size": 1, "mtime": 1, "ext": "rdf"},
+                      {"rel": "웹/style.css", "size": 1, "mtime": 1, "ext": "css"},
+                      {"rel": "설치/setup.exe", "size": 1, "mtime": 1, "ext": "exe"}])
+    page = client.get("/archive").text
+    fmt = page[page.index('name="ext"'):page.index("</select>", page.index('name="ext"'))]
+    for bad in ("RDF", "CSS", "EXE", "다운로드"):
+        assert bad not in fmt, bad
+    assert ">그 밖의 형식<" in fmt and ">HWP<" in fmt and "AI(일러스트)" in fmt
+    assert sorted(_titles(client.get("/archive?ext=other&q=.").text)) == sorted(
+        ["ACA0040.rdf", "공고 100%_안내.다운로드", "setup.exe", "style.css"])
+    assert vocab.ARCHIVE_STATE_LABELS["registered"] == vocab.STATUS_LABELS["reviewed"] == "등록 완료"
+    assert f"<dt>{vocab.STATUS_LABELS['reviewed']}</dt>" in page and "등록됨" not in page
+    from zzaimy.app import main
+    assert main.STATUS_LABELS is vocab.STATUS_LABELS

@@ -2,7 +2,7 @@
 <section class="card" id="archive-browse"><div class="card-in">
   <nav class="ar-crumb" aria-label="고른 분류">
     <a href="{{ url(program='', year='', round='', kind='') }}" data-set="program=&year=&round=&kind=">전체 사업</a>
-    {% if f.program %}<span aria-hidden="true">›</span><a href="{{ url(year='', round='', kind='') }}" data-set="year=&round=&kind=">{{ no_program if f.program == nokey else f.program }}</a>{% endif %}
+    {% if f.program %}<span aria-hidden="true">›</span><a href="{{ url(year='', round='', kind='') }}" data-set="year=&round=&kind=">{{ program_label }}</a>{% endif %}
     {% if f.year or f.round %}<span aria-hidden="true">›</span><a href="{{ url(kind='') }}" data-set="kind=">{{ '연도 미상' if f.year == nokey else (f.year ~ '년' if f.year else f.round ~ '차년도') }}</a>{% endif %}
     {% if f.kind %}<span aria-hidden="true">›</span><span>{{ (chips|selectattr('key', 'equalto', 'kind')|first).label }}</span>{% endif %}
   </nav>
@@ -10,11 +10,11 @@
   <h2 class="ar-h">사업</h2>
   {% set top = 12 %}
   <table class="ar-grid" aria-label="사업별 원본 수">
-    <thead><tr><th scope="col">사업</th><th scope="col" class="num">원본</th><th scope="col" class="num">등록됨</th><th scope="col"><span class="sr-only">보기</span></th></tr></thead>
+    <thead><tr><th scope="col">사업</th><th scope="col" class="num">원본</th><th scope="col" class="num">{{ states.registered }}</th><th scope="col"><span class="sr-only">보기</span></th></tr></thead>
     <tbody>
     {% macro prow(p) %}<tr>
       <td><a href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">{{ p.name }}</a>{% if p.kinds %}<span class="ar-sub">{% for k, n in p.kinds %}{{ k }} {{ "{:,}".format(n) }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
-      <td class="num" data-label="원본">{{ "{:,}".format(p.n) }}</td><td class="num" data-label="등록됨">{{ "{:,}".format(p.registered) }}</td>
+      <td class="num" data-label="원본">{{ "{:,}".format(p.n) }}</td><td class="num" data-label="{{ states.registered }}">{{ "{:,}".format(p.registered) }}</td>
       <td class="ar-acts-cell"><div class="ar-acts"><a class="btn secondary" href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">파일 보기</a>{% if p.value != nokey %}<a class="btn secondary" href="/projects/archived?{{ {'q': p.name, 'status': 'all'}|urlencode }}">프로젝트 검색</a>{% else %}<span class="ar-slot" aria-hidden="true"></span>{% endif %}</div></td>
     </tr>{% endmacro %}
     {% for p in view.programs[:top] %}{{ prow(p) }}{% endfor %}

@@ -47,12 +47,7 @@ ALLOWED_EXTENSIONS = {
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-STATUS_LABELS = {
-    "received": "처리 중",                  # 대기열에 든 것도 화면에는 처리 중 하나로(등록 완료 / 처리 중 / 실패)
-    "processing": "처리 중",
-    "reviewed": "등록 완료",
-    "failed": "실패",
-}
+from zzaimy.app.vocab import STATUS_LABELS  # noqa: E402,F401  화면 용어는 한 곳(app/vocab)
 
 # 문서함(검토 대상) 유형 — 기준 문서(regulation)는 별도 공간에서 다룬다
 INBOX_TYPES = {
