@@ -823,6 +823,10 @@ def value_column(rows: list[dict], ri: int, ci: int) -> bool:
 def too_wordy_for_value(text: str) -> bool:
     """값 칸에 넣기엔 서술문인가 — 24자를 넘고 숫자·단위가 글의 절반이 못 되면."""
     t = re.sub(r"\s+", "", text or "")
+    if re.fullmatch(r"[(（]?(?:확인필요|해당없음|없음|미정|추후확정|-|–|○+)[)）]?", t):
+        return False
+    if len(t) > 8 and not re.search(r"\d", t):
+        return True                                       # 숫자 하나 없는 글 — 「…구조 개편 추진」은 값이 아니다
     if len(t) <= 24:
         return False
     numeric = len(re.findall(r"[\d.,%○()~\-·/]|명|건|개|원|억|만|천|점|회|시간|과목|곳", t))
