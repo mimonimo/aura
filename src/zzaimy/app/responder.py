@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 
+from zzaimy.app import llm_budget
 from zzaimy.app.db import Database
 from zzaimy.app.regulations import compose_review_context
 
@@ -27,6 +28,8 @@ _SYSTEM = """당신은 영남이공대학교 행정 담당자(교직원)를 돕�
   규정 문서 가운데 개정일이 가장 늦은 것이 기준이고, 사업 보고서·계획서에 실린 조문이나
   [옛 개정판] 표시가 붙은 글은 그 당시 판입니다. 옛 글과 다르면 "예전 판에는 ~였으나 현행은 ~" 처럼
   차이를 한 줄로 밝힙니다. 질문이 특정 연도의 판을 물으면 그 판을 따릅니다.
+- 앞선 대화는 맥락일 뿐 근거가 아닙니다. 수치·날짜·기한·자격 같은 사실은 이번 메시지에 실린 근거 자료에 있는 것만
+  씁니다. 앞 대화에만 나오고 이번 근거에 없는 사실은 "이번에 찾은 자료에서는 확인되지 않았습니다"라고 밝힙니다.
 - 근거가 없는 내용은 추측하지 않습니다. 근거가 없으면 정중하게 그 사실을 알리고,
   어떤 규정·기준 문서를 등록하면 도움이 될지 한 문장으로 안내합니다.
 - 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다. 같은 문장을 반복하지 않습니다.
@@ -82,11 +85,11 @@ def fix_foreign_han(answer: str, given: str, client) -> str:
         return answer
     try:
         numbered = "\n".join(f"{k}|{lines[i]}" for k, i in enumerate(bad))
-        resp = client.client.chat.completions.create(
-            model=client.model, temperature=0.0, max_tokens=900, extra_body=getattr(client, "_extra", {}),
-            messages=[{"role": "user", "content": (
+        resp = llm_budget.create_fitted(
+            client, [{"role": "user", "content": (
                 "아래 줄들에 섞인 중국어 낱말을 뜻이 같은 한국어로 바꾸세요. 다른 글자·기호·서식은 그대로 두고, "
-                "「번호|줄」 꼴 그대로 줄마다 하나씩만 돌려주세요.\n\n" + numbered)}])
+                "「번호|줄」 꼴 그대로 줄마다 하나씩만 돌려주세요.\n\n" + numbered)}], 900, floor=900,
+            temperature=0.0, extra_body=getattr(client, "_extra", {}))
         for row in (resp.choices[0].message.content or "").splitlines():
             k, _, body = row.partition("|")
             if k.strip().isdigit() and int(k) < len(bad) and body.strip():
@@ -271,12 +274,16 @@ class AgentResponder:
             context = "\n\n".join(blocks)
 
         ev = [e for e in (evidence or []) if (e.get("text") or "").strip()][:8]
+        ev_block = ""
         if ev:
             ev_block = ("[이미 찾은 근거 — 먼저 이것으로 답하고 출처는 《 》 안의 문서 제목으로 밝힌다. 수치·날짜는 근거에 있는 것만 쓴다]\n"
                         + "\n\n".join(f"《{e.get('title') or '문서'}》{(' · ' + e['note']) if e.get('note') else ''}\n{str(e['text'])[:1200]}"
                                         for e in ev))
             # 검색만으로는 근거가 없다고 나왔어도 이미 찾은 근거가 있으면 「근거 없음」 안내를 붙이지 않는다
-            context = ev_block if context.strip() == NO_EVIDENCE_NOTE.strip() else ev_block + "\n\n" + context
+            if context.strip() == NO_EVIDENCE_NOTE.strip():
+                context = ""
+        search_ctx = context
+        context = "\n\n".join(x for x in (ev_block, search_ctx) if x)
         # 실제 검색된 등록 문서의 근거. LLM 성공/실패와 무관하게 저장.
         def _mk(h: dict, origin: str, linkable: bool) -> dict:
             return {
@@ -319,35 +326,42 @@ class AgentResponder:
         messages: list[dict] = [{"role": "system", "content": system}]
         for m in history:
             messages.append({"role": m["role"], "content": m["content"][:2000]})
-        user_content = question
-        if attachment_text:
-            user_content += f"\n\n[첨부 문서 본문 — 개인정보 마스킹됨]\n{attachment_text[:8000]}"
-        if context:
-            user_content += f"\n\n{context}"
+        if history:
+            messages.append({"role": "user", "content": "[앞선 대화는 여기까지 — 맥락일 뿐 근거가 아니다. 수치·날짜는 아래 근거 자료에서만]"})
+        att_block = f"\n\n[첨부 문서 본문 — 개인정보 마스킹됨]\n{attachment_text[:8000]}" if attachment_text else ""
+        user_content = question + att_block + (f"\n\n{context}" if context else "")
         messages.append({"role": "user", "content": user_content})
-        self.last_context = user_content                    # 모델에 실제로 건넨 글(측정 스크립트가 답의 수치를 이것과 대조한다)
 
         client = VllmClient(role="answer")
         if on_progress:
             on_progress("답변 작성 중")
         # 목차·개요처럼 긴 답은 짧은 상한(1,024 토큰)에서 중간에 끊긴다. 상한을 넉넉히 두고, 그래도 끊기면 한 번 잇는다
         limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
-        resp = client.client.chat.completions.create(
-            model=client.model,
-            messages=messages,
-            temperature=0.2,
-            max_tokens=limit,
-            extra_body=getattr(client, "_extra", {}),
-        )
+        # 문맥 한도 — 요청과 에이전트가 찾은 근거는 끝까지 남기고, 첨부·연결 문서 → 오래된 대화 → 출력 상한(바닥까지)
+        # → 검색 근거 → 에이전트 근거 차례로 줄인다(llm_budget). 다 줄여도 넘으면 보내지 않는다(ContextOverflow)
+        hist_cuts = [llm_budget.Cut(msg=i) for i in range(1, 1 + len(history))]
+        cuts = ([llm_budget.Cut(msg=-1, text=att_block)] if att_block else []) + hist_cuts + [llm_budget.OUTPUT]
+        cuts += [llm_budget.Cut(msg=-1, text=x) for x in (search_ctx, ev_block) if x]
+        sent: dict = {}
+        self.last_context = user_content                    # 줄이기 전 글 — 아래에서 실제로 보낸 글로 바뀐다
+
+        def _sent(msgs: list[dict]) -> None:
+            sent["messages"] = msgs
+            self.last_context = msgs[-1]["content"]         # 모델에 실제로 건넨 글(측정 스크립트가 답의 수치를 이것과 대조한다)
+
+        resp = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=_sent, temperature=0.2,
+                                        extra_body=getattr(client, "_extra", {}))
+        messages, user_content = sent["messages"], sent["messages"][-1]["content"]
         text = resp.choices[0].message.content or ""
         if getattr(resp.choices[0], "finish_reason", "") == "length" and text:
             if on_progress:
                 on_progress("답변 이어 쓰는 중")
             try:
-                more = client.client.chat.completions.create(
-                    model=client.model, temperature=0.2, max_tokens=limit, extra_body=getattr(client, "_extra", {}),
-                    messages=messages + [{"role": "assistant", "content": text},
-                                         {"role": "user", "content": "끊긴 곳 바로 뒤부터 이어서 끝까지 쓰세요. 앞 내용은 되풀이하지 마세요."}])
+                more_msgs = messages + [{"role": "assistant", "content": text},
+                                        {"role": "user", "content": "끊긴 곳 바로 뒤부터 이어서 끝까지 쓰세요. 앞 내용은 되풀이하지 마세요."}]
+                more = llm_budget.create_fitted(client, more_msgs, limit,
+                                                [llm_budget.Cut(msg=i) for i in range(1, len(messages) - 1)], floor=512,
+                                                temperature=0.2, extra_body=getattr(client, "_extra", {}))
                 text = text.rstrip() + "\n" + (more.choices[0].message.content or "").lstrip()
             except Exception:
                 pass

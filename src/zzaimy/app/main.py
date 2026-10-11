@@ -977,14 +977,16 @@ def create_app(
         if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
             if _run_doc_agent(session_id, q, owner, project, scope, scope_msg, data_dir, attachment_text, criteria, r):
                 return
-        # 아래 낱말 규칙 갈래(판독·문서 지목·초안·연결 문서 명령)는 모델이 돌지 못했을 때(_run_doc_agent 가 False)만 쓰는 대비 경로다
+        # 아래 낱말 규칙 갈래(판독·문서 지목·초안·연결 문서 명령)는 모델이 돌지 못했을 때(_run_doc_agent 가 False)만 쓰는 대비 경로다.
+        # 문서를 만들거나 고치는 갈래는 담당자 글에 그 뜻이 있을 때만 — 질문(「문서는 고치지 말고」)이면 답만 한다
+        doc_change = _wants_doc_change(session_id, q)
         if _looks_like_reading(q):
             target = _project_doc_named(project, session_id, q)
             if target is not None:
                 db.add_chat(session_id, "assistant", _read_named_document(session_id, target))
                 _chat_sources[session_id] = []
                 return
-        if not doc_material and _looks_like_working_on(q):
+        if doc_change and not doc_material and _looks_like_working_on(q):
             # "작성서식으로 작업하자" 처럼 프로젝트에 있는 문서(한글 양식 등)를 지목하면 그 문서를 독스로 바꿔 잇는다
             picked = _project_doc_named(project, session_id, q)
             rivals = getattr(_project_doc_named, "rivals", []) or []
@@ -1006,7 +1008,7 @@ def create_app(
                     db.add_chat(session_id, "assistant", why)
                     _chat_sources[session_id] = []
                     return
-        if not doc_material and _looks_like_drafting(q) and not _COMMON_ASKED.search(q):
+        if doc_change and not doc_material and _looks_like_drafting(q) and not _COMMON_ASKED.search(q):
             # 양식은 27B 가 고른다 — 코드는 후보(프로젝트 작성 서식·대화에서 정한 목차·공통 양식)만 모으고, 고른 것으로
             # 바로 작업한다. 다른 후보는 「바꾸기」 선택지로. 고른 기록은 학습 재료(form_choice_episodes.jsonl)
             from zzaimy.app import form_choice
@@ -1046,7 +1048,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", f"양식: 「{chosen['label']}」{why_txt}.{hint}")
                 db.set_setting(f"chat_form_choice:{session_id}", _aj.dumps({"choice": dec["choice"], "alts": [
                     c["id"] for c in cands if c["id"] != dec["choice"]][:4]}))
-        if not doc_material and _looks_like_drafting(q):
+        if doc_change and not doc_material and _looks_like_drafting(q):
             # 문서가 없는데 초안을 써 달라면 드라이브에 프로젝트 폴더·문서를 만들어 잇는다(주소 붙여넣기 없이)
             made, why = _auto_link_document(session_id, q, owner, project)
             if made:
@@ -1055,7 +1057,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", why)
                 _chat_sources[session_id] = []
                 return
-        if doc_material:
+        if doc_material and doc_change:
             _chat_step(session_id, "연결 문서 작업 중")
             try:
                 _edit_linked_doc(session_id, q, owner, data_dir, scope, scope_msg)
@@ -1546,6 +1548,25 @@ def create_app(
     app.state.working_copy_source = _working_copy_source
 
     _EDIT_CONSENT = r"고쳐|수정|바꿔|정리|지워|삭제|맞춰|넣어|빼|추가|편집"   # 문서를 바꾸는 도구 — 담당자 요청 글에 이 뜻이 있을 때만
+    _EXPORT_CONSENT = r"내보내|한글\s*파일|hwp|제출본|완성본"
+    _COPY_CONSENT = r"작업본"
+    _REWRITE_CONSENT = r"다시|새로|고쳐|수정|바꿔|보완|보강"
+
+    def _wants_doc_change(session_id: int, q: str) -> bool:
+        """대비 경로가 문서를 만들거나 고치는 갈래로 가도 되는가 — 에이전트 도구·편집 계획(이름 바꾸기·옮기기)의 동의 관문과 같은 패턴.
+        담당자가 그 뜻을 부정했으면(「문서는 고치지 말고」) 다른 낱말이 있어도 고치지 않는다. 아니면 질문으로 보고 답만 한다."""
+        from zzaimy.app import asks as _asks
+        from zzaimy.app import doc_agent, gdocs_agent
+
+        pats = (_EDIT_CONSENT, _REWRITE_CONSENT, _EXPORT_CONSENT, _COPY_CONSENT, _WORK_WORDS.pattern,
+                gdocs_agent._RENAME_CUE.pattern, gdocs_agent._MOVE_CUE.pattern)
+        if any(re.search(p_, q or "") and not doc_agent.consented(p_, q) for p_ in pats):
+            return False                                         # 고치지 말라는 말이 있다
+        if any(doc_agent.consented(p_, q) for p_ in pats):
+            return True
+        pend = _asks.pending(db, session_id)
+        return _looks_like_drafting(q) or bool(pend and _asks.parse_pairs(q, [a["name"] for a in pend]))
+
     _agent_notes: dict[int, str] = {}                      # 에이전트가 찾은 근거 — 절 쓰기 재료에 덧붙인다(대화별, 쓰기 동안만)
 
     def _run_doc_agent(session_id: int, q: str, owner: str, project: dict | None, scope: dict, scope_msg: str, data_dir: Path,
@@ -1633,7 +1654,7 @@ def create_app(
                 lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(a["name"] for a in pend[:10]))
             hist = [m_ for m_ in db.list_chats(session_id)[-8:-1]]
             if hist:
-                lines.append("최근 대화:\n" + "\n".join(f"  [{m_['role']}] {(m_['content'] or '')[:300]}" for m_ in hist))
+                lines.append("최근 대화(맥락일 뿐 근거가 아니다 — 여기의 사실을 쓰려면 search 로 다시 확인):\n" + "\n".join(f"  [{m_['role']}] {(m_['content'] or '')[:300]}" for m_ in hist))
             return "\n".join(lines)
 
         notes: list[str] = []                                   # 에이전트가 찾은 근거 — 절 쓰기 재료로 넘긴다
@@ -1653,10 +1674,11 @@ def create_app(
             if not hits:
                 return f"「{query}」({src}) — 찾지 못함"
             body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])
+            hint = doc_agent.match_hint(query, [h["text"][:500] for h in hits[:4]], extract_nouns)
             notes.append(f"◇ {a.get('for') or query} — 검색 「{query}」({src})\n{body}")
             found.extend({"title": h.get("title") or "문서", "text": h.get("text") or "", "doc_id": h.get("doc_id"),
                           "note": h.get("note") or ""} for h in hits[:4])
-            return body
+            return (hint + "\n" + body) if hint else body          # 관찰은 길이 상한에서 잘리므로 일치 단서를 앞에 둔다
 
         def t_read(a: dict) -> str:
             sec = find_section(str(a.get("section") or ""))
@@ -1818,7 +1840,8 @@ def create_app(
             return msg
 
         tools = [
-            doc_agent.Tool("search", "근거 찾기. args {source: project|library|criteria|rules, query: 검색어(명사 2~6낱말), for: 무엇을 위해}", t_search),
+            doc_agent.Tool("search", "근거 찾기. args {source: project|library|criteria|rules, query: 검색어(명사 2~6낱말), for: 무엇을 위해}", t_search,
+                           gathers=True),
             doc_agent.Tool("read_section", "연결 문서의 절 글 읽기. args {section: 절 제목 또는 번호}", t_read),
             doc_agent.Tool("create_document", "연결 문서가 없을 때 양식을 골라 새 문서. args {form: 양식 후보 id, title: 문서 제목(사업 이름+서류 갈래), why}",
                            t_create, writes=True),
@@ -1831,7 +1854,7 @@ def create_app(
             doc_agent.Tool("remember_values", "담당자가 이번 요청에서 알려 준 값(받지 못한 값 등)을 기억해 이후 절·기입란에 쓰기. "
                            "args {values: {이름: 담당자가 적은 값 그대로}}", t_remember),
             doc_agent.Tool("rewrite_section", "이미 쓴 절을 비우고 다시 작성(담당자가 다시 쓰라고 했을 때만). args {section, reason: 무엇을 고칠지}",
-                           lambda a: t_write(a, redo=True), writes=True, consent=r"다시|새로|고쳐|수정|바꿔|보완|보강"),
+                           lambda a: t_write(a, redo=True), writes=True, consent=_REWRITE_CONSENT),
             doc_agent.Tool("review_section", "쓴 절을 공고·평가지표 기준으로 검토(문서는 고치지 않음). args {section}", t_review),
             doc_agent.Tool("edit_document", "절 단위가 아닌 문서 고치기(표 정리·문구 바꾸기·제목 변경 등, 담당자가 고치라고 했을 때만). args {instruction: 구체적 지시}",
                            t_edit, writes=True, consent=_EDIT_CONSENT),
@@ -1840,16 +1863,18 @@ def create_app(
                            final=True, consent=_EDIT_CONSENT),
             doc_agent.Tool("export_hwp", "작업본을 한글(제출) 파일로 내보내기(담당자가 내보내라고 했을 때만). args {remove_boxes: 안내 상자를 뺀 제출본이면 true}",
                            lambda a: run_doc(lambda: _export_hwp(session_id, owner, data_dir, remove_boxes=a.get("remove_boxes") is True, request=q)),
-                           final=True, consent=r"내보내|한글\s*파일|hwp|제출본|완성본"),
+                           final=True, consent=_EXPORT_CONSENT),
             doc_agent.Tool("new_work_copy", "작업본을 지금 변환기로 새로 만들기(담당자가 말했을 때만). args {}",
                            lambda a: run_doc(lambda: _new_work_copy(session_id, owner, data_dir, request=q)),
-                           final=True, consent=r"작업본"),
-            doc_agent.Tool("answer_question", "문서를 고치지 않고 질문에 답하기(규정·사업 자료 근거). args {question}", t_answer, final=True),
+                           final=True, consent=_COPY_CONSENT),
+            doc_agent.Tool("answer_question", "문서를 고치지 않고 질문에 답하기(이번 요청에서 search 로 찾은 근거로). "
+                           "args {question, facts: 자료의 사실(수치·날짜·조건)을 묻는 질문이 아니면 false}", t_answer,
+                           final=True, needs_evidence=True),
             doc_agent.Tool("ask_user", "자료로 찾을 수 없어 담당자만 아는 값 묻기. args {items: [{name, why}], message}", t_ask, final=True),
             doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message}", t_finish, final=True),
         ]
         ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label))
-        doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "steps": ep.steps})
+        doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "steps": ep.steps})
         if not ep.finished and ep.writes:
             # 걸음 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
             done = [str(s_.get("args", {}).get("section") or "") for s_ in ep.steps
@@ -1861,7 +1886,11 @@ def create_app(
             db.add_chat(session_id, "assistant", _scrub_internal(msg))
         if len(db.list_chats(session_id)) > before:
             return True                                          # 무엇이든 남겼다(쓰기 결과·답·물음)
-        return False
+        if ep.may_fall_back:
+            return False                                         # 모델에 닿지 못했거나 쓸 수 없는 답 — 대비 경로로
+        # 도구 실패·문맥 한도·걸음 한도 — 낱말 규칙 경로로 문서를 건드리지 않고, 무엇이 안 됐는지 담당자에게 알린다
+        db.add_chat(session_id, "assistant", _scrub_internal(doc_agent.failure_message(ep)))
+        return True
 
     def _remember_given(session_id: int, given: dict) -> str:
         """담당자가 알려 준 값(물었던 값) — 기억해 두고(프로젝트 값·기관 정보) 남은 질문만 다시 띄운다. 지어내지 않고 물어서 받는 길.

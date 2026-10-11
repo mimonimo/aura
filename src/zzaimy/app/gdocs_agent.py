@@ -113,21 +113,33 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 """
 
 
-CONTEXT_TOKENS = int(os.environ.get("ZZAIMY_WRITER_CONTEXT", "16384"))
-_CHARS_PER_TOKEN = 1.5
+CONTEXT_TOKENS = int(os.environ.get("ZZAIMY_WRITER_CONTEXT", "16384"))   # 상한 — 실제 한도는 서버의 max_model_len 과 작은 쪽
 _MIN_OUTPUT = 3000
 
 
 def _est_tokens(text: str) -> int:
-    return int(len(text) / _CHARS_PER_TOKEN) + 64
+    """넉넉한 토큰 어림 — 답변·에이전트 경로와 같은 글자 갈래별 비율(llm_budget)."""
+    from zzaimy.app import llm_budget
+
+    return llm_budget.estimate_tokens(text) + 64
 
 
-def _fit_context(prompt: str, max_tokens: int, materials: str, text: str) -> tuple[str, int]:
+def _context_of(client) -> int | None:
+    """서빙 모델의 문맥 한도(llm_budget — /v1/models 의 max_model_len, 연결마다 한 번)."""
+    try:
+        from zzaimy.app import llm_budget
+
+        return llm_budget.context_len(client)
+    except Exception:
+        return None
+
+
+def _fit_context(prompt: str, max_tokens: int, materials: str, text: str, context: int | None = None) -> tuple[str, int]:
     """재료·본문을 완결된 줄 단위로 축약하고, 고정 지시가 넘치면 전송 전에 거절한다.
 
-    토큰 수는 문자 기반 추정이며 실제 토크나이저 계측을 대체하지 않는다.
+    토큰 수는 문자 기반 추정이며 실제 토크나이저 계측을 대체하지 않는다. context 는 서빙 모델의 문맥 한도(없으면 CONTEXT_TOKENS).
     """
-    limit = CONTEXT_TOKENS - 256
+    limit = min(CONTEXT_TOKENS, context or CONTEXT_TOKENS) - 256
     over = _est_tokens(prompt) + max_tokens - limit
     if over <= 0:
         return prompt, max_tokens
@@ -142,7 +154,7 @@ def _fit_context(prompt: str, max_tokens: int, materials: str, text: str) -> tup
                           (text, "\n[본문 일부만 제공됨: 전체 검토 완료로 보고하지 마세요.]\n")):
         if not block or prompt.count(block) != 1:
             continue
-        cut_chars = int(over * _CHARS_PER_TOKEN) + len(marker) + 200
+        cut_chars = int(over * len(block) / max(_est_tokens(block) - 64, 1)) + len(marker) + 200   # 이 조각의 글자/토큰 비율
         keep = max(0, len(block) - cut_chars)
         # 숫자·조건·표 셀을 문장 중간에서 자르지 않는다.
         boundary = block.rfind("\n", 0, keep + 1)
@@ -186,7 +198,7 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
     max_tokens = 8192 if focus is not None else 2048
     # 입력+출력이 서빙 모델의 문맥 한도(16,384) 안에 들어가야 한다. 넘으면 vLLM 이 400 으로 거절한다.
     # 한글은 대략 1.5자에 토큰 하나로 어림한다.
-    prompt, max_tokens = _fit_context(prompt, max_tokens, rendered_materials, visible_text)
+    prompt, max_tokens = _fit_context(prompt, max_tokens, rendered_materials, visible_text, _context_of(client))
     data = None
     for attempt in range(2):
         resp = client.client.chat.completions.create(
