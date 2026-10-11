@@ -123,7 +123,7 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | remove_guide_boxes | 안내 상자 지우기 — 처음엔 개수를 알리고, 담당자 확인 뒤에 지움 | `_remove_guide_boxes` |
 | remember_values | 담당자가 알려 준 값을 기억하고 받지 못한 값 목록을 줄이기 | `asks.remember` — 물었던 이름만, 요청 글에 두 글자 이상 그대로 있는 값만. 기관 설정(대학명·총장 등)은 관리자 값만 |
 | read_document | 프로젝트 문서의 그림 쪽 판독 | `_read_named_document` |
-| answer_question · ask_user · finish | 답하기, 자료에 없는 값 묻기, 마무리 알림 | |
+| answer_question · ask_user · finish | 답하기, 자료에 없는 값 묻기, 마무리 알림 | 답은 에이전트가 search 로 찾은 근거를 첫 근거로 받고(출처 목록에도 들어감) 평소 검색을 더한다 |
 
 되돌리기 어려운 도구(다시 쓰기·편집·안내 상자·내보내기·작업본)는 담당자 요청 글에 그 뜻이 있을 때만 돈다. 문서를 바꿔 잇거나
 판독하는 도구는 담당자 요청 글이 그 문서 제목과 흔한 갈래 낱말이 아닌 네 글자 이상을 함께 가질 때만 돈다(`_mentions_document`).

@@ -323,3 +323,49 @@ def test_guide_boxes_are_counted_first_and_removed_only_after_confirmation(agent
     _use_agent(monkeypatch, [_step("remove_guide_boxes")])
     client.post("/chat/send", data={"question": "안내 상자 삭제 확인, 지워 줘", "session_id": str(sid)}, follow_redirects=False)
     assert calls == [True, False]
+
+
+# ---------------------------------------------------------------- 질문 답 — 에이전트가 찾은 근거를 버리지 않는다
+
+
+def test_answer_question_uses_the_evidence_the_agent_found(tmp_path, monkeypatch):
+    from zzaimy.app.responder import NO_EVIDENCE_NOTE, AgentResponder
+    from zzaimy.generate import client as _gc
+
+    monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(),
+                     drafter=FakeDrafter(), responder=AgentResponder())
+    client = TestClient(app)
+    db = app.state.db
+    sid = db.create_chat_session("공고 질문", owner="zzaimy")
+    monkeypatch.setattr(drafting.Materials, "search_library", lambda self, query, k=4: [
+        {"title": "부트캠프 공고", "text": "본신청 접수 7.28.~8.6. 신청 자격: 재학생", "doc_id": None, "note": ""}])
+    steps = [_step("search", source="library", query="본신청 마감일"),
+             _step("answer_question", question="신청 자격과 본신청 마감일은?")]
+    prompts: list = []
+
+    class _Fake:
+        model, _extra = "fake", {}
+
+        def __init__(self):
+            outer = self
+
+            class _C:
+                def create(self, **kw):
+                    first = kw["messages"][0]["content"]
+                    if first.startswith("당신은 대학 행정 문서 작성 에이전트다"):
+                        content = steps.pop(0) if steps else _step("finish", message="")
+                    else:
+                        prompts.append(kw["messages"][-1]["content"])
+                        content = "본신청 마감은 8.6.입니다(《부트캠프 공고》)."
+                    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content), finish_reason="stop")])
+            outer.client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+
+    fake = _Fake()
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    r = client.post("/chat/send", data={"question": "신청 자격과 본신청 마감일만 공고 기준으로 알려 줘. 문서는 고치지 말고.",
+                                        "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert prompts and "본신청 접수 7.28.~8.6." in prompts[0] and "《부트캠프 공고》" in prompts[0]
+    assert NO_EVIDENCE_NOTE.strip() not in prompts[0]                              # 「근거 없음」 길로 가지 않는다
+    assert "본신청 마감은 8.6." in page and "부트캠프 공고" in page                     # 출처 목록에도 선다

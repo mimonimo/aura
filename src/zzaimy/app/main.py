@@ -1555,11 +1555,17 @@ def create_app(
             docs = _project_doc_candidates(project, session_id)
             if project or docs:
                 # 열거나 판독할 문서는 이 제목으로 짚는다(open_project_document·read_document). 양식은 작성 서식, 판독 대기는 그림 쪽이 남은 문서
+                # 찾을 곳도 함께 — 기준 문서는 search source=criteria, 프로젝트 접수 문서는 source=project 로 찾힌다
+                proj_ids = {int(d["id"]) for d in mats().past_docs()}
                 rows_ = []
                 for d in docs[:16]:
-                    tags = (["양식"] if d.get("kind") == "form" else []) + (["그림 쪽 판독 전"] if _unread_pages(d) else [])
-                    rows_.append(f"「{storage.title_of(d.get('filename') or '')[:50]}」" + (f"({', '.join(tags)})" if tags else ""))
-                lines.append("프로젝트 문서: " + (", ".join(rows_) or "(없음)"))
+                    where = ("criteria" if int(d["id"]) in crit_ids else "project" if int(d["id"]) in proj_ids
+                             else "양식" if d.get("kind") == "form" else "찾기 대상 아님")
+                    tags = [where] + (["그림 쪽 판독 전"] if _unread_pages(d) else [])
+                    rows_.append(f"「{storage.title_of(d.get('filename') or '')[:50]}」({', '.join(tags)})")
+                lines.append("프로젝트 문서(괄호 안은 search 의 source): " + (", ".join(rows_) or "(없음)"))
+                if project and not crit_ids:
+                    lines.append("이 프로젝트에 이어진 기준 문서가 없다 — 공고·지침도 프로젝트 문서에 있으면 source=project 로 찾는다.")
             if attachment_text:
                 lines.append(f"이번 메시지 첨부: 있음({len(attachment_text)}자)")
             lk = link()
@@ -1581,6 +1587,7 @@ def create_app(
             return "\n".join(lines)
 
         notes: list[str] = []                                   # 에이전트가 찾은 근거 — 절 쓰기 재료로 넘긴다
+        found: list[dict] = []                                  # 같은 근거를 조각으로 — 질문 답에 첫 근거로 넘긴다
 
         def t_search(a: dict) -> str:
             src, query = str(a.get("source") or "library"), str(a.get("query") or "").strip()
@@ -1597,6 +1604,8 @@ def create_app(
                 return f"「{query}」({src}) — 찾지 못함"
             body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])
             notes.append(f"◇ {a.get('for') or query} — 검색 「{query}」({src})\n{body}")
+            found.extend({"title": h.get("title") or "문서", "text": h.get("text") or "", "doc_id": h.get("doc_id"),
+                          "note": h.get("note") or ""} for h in hits[:4])
             return body
 
         def t_read(a: dict) -> str:
@@ -1726,8 +1735,11 @@ def create_app(
 
         def t_answer(a: dict) -> str:
             kw = dict(attachment_text=attachment_text, criteria_ids=criteria, session_id=session_id, project=project)
-            if "scope" in _insp.signature(r.answer).parameters:
+            params = _insp.signature(r.answer).parameters
+            if "scope" in params:
                 kw["scope"] = scope
+            if "evidence" in params and found:
+                kw["evidence"] = list({(e["title"], e["text"][:200]): e for e in found}.values())   # 찾은 근거를 버리지 않고 답의 근거로
             text = r.answer(db, str(a.get("question") or q), **kw)
             src = getattr(r, "last_sources", None)
             if src is not None:
@@ -3302,7 +3314,7 @@ def create_app(
             raw = db.get_setting(f"doc_google:{d['id']}", "") or ""
             return {"id": d["id"], "name": storage.title_of(d.get("filename") or ""), "group": d["group_label"],
                     "group_key": d["group"], "via": d["via"],
-                    "original_format": Path(d.get("filename") or "").suffix.lstrip(".").lower(),
+                    "original_format": storage.original_ext(d).lstrip("."),
                     "kind": KINDS.get(d.get("kind") or "", ""), "status": STATUS_LABELS.get(d.get("status"), d.get("status")),
                     "url": f"/doc/{d['id']}/view", "page": f"/doc/{d['id']}",
                     "google": (_aj.loads(raw).get("url") if raw else None)}
@@ -3380,9 +3392,9 @@ def create_app(
     def _original_named(doc: dict) -> tuple[Path, bool]:
         """_original_file 과 같되, 받아 온 임시 파일에는 원래 확장자를 붙인다 — 변환기는 확장자로 형식을 고른다."""
         path, is_temp = _original_file(doc)
-        ext = Path(doc.get("filename") or "").suffix.lower() or Path(str(doc.get("stored_path") or "")).suffix.lower()
+        ext = storage.original_ext(doc)                    # 실제 확장자 — 표시 이름(본문 제목)에서 고르지 않는다
         if is_temp and ext and path.suffix.lower() != ext:
-            named = path.with_suffix(ext)
+            named = path.with_name(path.name + ext)
             path.replace(named)
             path = named
         return path, is_temp
@@ -6455,7 +6467,7 @@ def create_app(
         doc = db.get_document(doc_id)
         if doc is None or not doc.get("draft"):
             raise HTTPException(404, "초안이 없습니다")
-        stem = Path(doc["filename"] or "draft").stem
+        stem = storage.title_of(doc["filename"] or "") or "draft"
         title = f"{stem} 계획서 초안"
         # 자료 문서의 추출 그림을 붙임으로 — 표·도표 근거를 파일에 동봉한다
         images = [
@@ -6652,6 +6664,7 @@ def create_app(
                 "box_pages": _box_page_list(doc_id),
                 "scan_asset": scan_asset,
                 "original_kind": original_kind,
+                "original_ext": storage.original_ext(doc),
                 # DGX 원본 보관소 문서(가벼운 처리) — 원본은 DGX 에 있고 글·조각만 여기에(ADR-0047)
                 "dgx_origin": (doc.get("stored_path") or "")[6:] if (doc.get("stored_path") or "").startswith("dgx://") else "",
                 "suggested_criteria": suggested,
@@ -6698,8 +6711,7 @@ def create_app(
         DGX 원본은 캐시(사무 문서는 PDF, PDF·그림은 받아 온 원본 사본). 보여 줄 수 없는 형식이면 (None, 'download')."""
         from zzaimy.app import office_pdf
 
-        name = doc.get("filename") or str(doc.get("stored_path") or "")
-        kind = _op.kind_of(name)
+        kind = _op.kind_of(doc)                                # 형식은 실제 파일에서(storage.original_ext) — 제목에는 확장자가 없다
         sp = str(doc.get("stored_path") or "")
         if kind == "download":
             return None, kind
@@ -6710,18 +6722,19 @@ def create_app(
         row = _archive_row(doc)
         if row is None:
             return None, kind
-        ext = ".pdf" if kind == "office" else Path(name).suffix.lower()
+        ext = ".pdf" if kind == "office" else storage.original_ext(doc)
         version = f"{row['rel']}|{row['size']}|{row['mtime']}"
         return _op.cache_path(Path(db_path).parent, int(doc["id"]), version, ext), kind
 
     def _serve_preview(doc: dict, path: Path, kind: str):
         from fastapi.responses import FileResponse
 
-        name = doc.get("filename") or path.name
+        name = storage.original_name(doc)
         if kind == "office":                                   # 변환본은 「원래 이름.pdf」로 보인다
-            return FileResponse(path, media_type="application/pdf", filename=Path(name).stem + ".pdf",
+            ext = storage.original_ext(doc)
+            return FileResponse(path, media_type="application/pdf", filename=(name[: -len(ext)] if ext else name) + ".pdf",
                                 content_disposition_type="inline")
-        return FileResponse(path, media_type=_op.media_type(name), filename=name, content_disposition_type="inline")
+        return FileResponse(path, media_type=_op.media_type(doc), filename=name, content_disposition_type="inline")
 
     def _build_preview(doc: dict, target: Path, kind: str, set_step) -> None:
         """뒤 작업 — 원본 받기(DGX면) → 변환(사무 문서면) → 미리보기 자리에 둔다."""
@@ -6813,7 +6826,7 @@ def create_app(
         doc = db.get_document(doc_id)
         if doc is None or not _visible(doc, **_doc_scope(request)):
             raise HTTPException(404)
-        name = doc.get("filename") or "원본"
+        name = storage.original_name(doc)                                 # 제목 + 실제 확장자
         try:
             cached, kind = _preview_target(doc)
         except Exception:
@@ -6983,7 +6996,7 @@ def create_app(
             for i, a in enumerate(assets, start=1):
                 p = Path(a["path"])
                 zf.write(p, f"p{a.get('page_no') or 0:03d}_{i:02d}{p.suffix}")
-        stem = Path(doc["filename"] or "document").stem
+        stem = storage.title_of(doc["filename"] or "") or "document"
         return Response(
             buf.getvalue(), media_type="application/zip",
             headers={"Content-Disposition":
@@ -7116,7 +7129,7 @@ figure img{{width:100%;display:block}}
             raise HTTPException(404)
         if dl:
             doc = db.get_document(doc_id) or {}
-            stem = Path(doc.get("filename", "문서")).stem
+            stem = storage.title_of(doc.get("filename") or "") or "문서"
             name = f"{stem}_그림{asset_id}{Path(asset['path']).suffix}"
             return FileResponse(asset["path"], filename=name)
         return FileResponse(asset["path"])
@@ -7206,7 +7219,7 @@ figure img{{width:100%;display:block}}
             )
         if payload is None:
             raise HTTPException(400, "이 문서 형식은 PDF 레이어를 만들 수 없습니다")
-        stem = Path(doc["filename"] or src.name).stem
+        stem = storage.title_of(doc["filename"] or "") or src.stem
         fname = quote(f"{stem}_OCR.pdf")
         _keep_generated(doc, payload, "OCR", "pdf")
         return Response(
@@ -7237,7 +7250,7 @@ figure img{{width:100%;display:block}}
             doc["filename"], chunks, asset_paths,
             extra_images=list(asset_paths.values()),
         )
-        fname = quote(f"{Path(doc['filename']).stem}_복원.docx")
+        fname = quote(f"{storage.title_of(doc['filename'] or '') or '문서'}_복원.docx")
         _keep_generated(doc, payload, "복원", "docx")
         return Response(
             payload,
@@ -7261,7 +7274,7 @@ figure img{{width:100%;display:block}}
         if not chunks:
             raise HTTPException(404, "추출 조각이 없습니다")
         md = export_markdown(doc["filename"], chunks)
-        fname = quote(f"{Path(doc['filename']).stem}_추출결과.md")
+        fname = quote(f"{storage.title_of(doc['filename'] or '') or '문서'}_추출결과.md")
         _keep_generated(doc, md, "추출결과", "md")
         return Response(
             md, media_type="text/markdown; charset=utf-8",

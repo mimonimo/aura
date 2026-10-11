@@ -187,7 +187,10 @@ class AgentResponder:
         project: dict | None = None,
         scope: dict | None = None,
         on_progress=None,
+        evidence: list[dict] | None = None,
     ) -> str:
+        """evidence: 부른 쪽(문서 작업 에이전트)이 이미 찾아 둔 근거 [{title, text, doc_id?, note?}]. 열람 범위 안에서 찾은 것이며,
+        답의 첫 근거로 건네고 출처 목록에도 넣는다. 수치는 이 근거와 아래 검색 근거에 있는 것만 쓴다."""
         from zzaimy.generate.client import VllmClient
         from zzaimy.app.regulations import find_relevant
 
@@ -267,6 +270,13 @@ class AgentResponder:
                 blocks.append(WEAK_EVIDENCE_NOTE)
             context = "\n\n".join(blocks)
 
+        ev = [e for e in (evidence or []) if (e.get("text") or "").strip()][:8]
+        if ev:
+            ev_block = ("[이미 찾은 근거 — 먼저 이것으로 답하고 출처는 《 》 안의 문서 제목으로 밝힌다. 수치·날짜는 근거에 있는 것만 쓴다]\n"
+                        + "\n\n".join(f"《{e.get('title') or '문서'}》{(' · ' + e['note']) if e.get('note') else ''}\n{str(e['text'])[:1200]}"
+                                        for e in ev))
+            # 검색만으로는 근거가 없다고 나왔어도 이미 찾은 근거가 있으면 「근거 없음」 안내를 붙이지 않는다
+            context = ev_block if context.strip() == NO_EVIDENCE_NOTE.strip() else ev_block + "\n\n" + context
         # 실제 검색된 등록 문서의 근거. LLM 성공/실패와 무관하게 저장.
         def _mk(h: dict, origin: str, linkable: bool) -> dict:
             return {
@@ -284,6 +294,10 @@ class AgentResponder:
             self.last_sources.append({"title": h.get("filename") or "사업 문서", "heading": " > ".join(h.get("path", [])[:2]),
                                       "snippet": (h.get("content") or "")[:160], "doc_id": h.get("doc_id"),
                                       "origin": "사업 문서", "weak": False})
+        for e in ev[:4]:
+            self.last_sources.insert(0, {"title": e.get("title") or "문서", "heading": e.get("note") or "",
+                                         "snippet": str(e.get("text") or "")[:160], "doc_id": e.get("doc_id"),
+                                         "origin": "에이전트가 찾음", "weak": False})
         if on_progress:
             on_progress(f"답변에 사용할 근거 {len(hits or [])}개 구성"
                         if hits else "관련 근거 없음 · 확인 가능한 범위로 답변 준비")
