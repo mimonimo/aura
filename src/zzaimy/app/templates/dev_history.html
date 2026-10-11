@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}변경 이력{% endblock %}
-{% block pagetitle %}변경 이력{% endblock %}
+{% block title %}{{ dev_page_name('/dev/history') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/history') }}{% endblock %}
 {% block content %}
 <style>
   .h-links { margin-left: auto; display: inline-flex; gap: 6px; flex-wrap: wrap; }
@@ -37,7 +37,9 @@
 
   /* 영역 집계·표식 — 커밋이 어디를 고쳤는지 */
   .cl-areas { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; font-size: 12px; color: var(--muted); }
-  .cl-areas span { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; font-variant-numeric: tabular-nums; }
+  .cl-areas span, .cl-areas button { border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; font-variant-numeric: tabular-nums; }
+  .cl-areas button { background: transparent; color: inherit; font: inherit; cursor: pointer; }
+  .cl-areas button[aria-pressed="true"] { border-color: var(--navy); color: var(--navy); font-weight: 600; }
   .cl-tag { display: inline-block; margin-left: 6px; font-size: 11px; color: var(--faint); border: 1px solid var(--line);
             border-radius: 999px; padding: 0 6px; vertical-align: 1px; white-space: nowrap; }
   .cl-time { color: var(--faint); font-variant-numeric: tabular-nums; margin-right: 6px; font-size: 12px; }
@@ -81,6 +83,8 @@
 <div class="card reveal" id="recent"><div class="card-in">
   <h2><iconify-icon icon="solar:notes-linear"></iconify-icon>작업 기록
     <span class="cnt" style="margin-left:auto;">{{ dev_now_days|length }}일</span></h2>
+  {# 손으로 적는 요약(dev-now.md 「최근 작업」)이라 커밋보다 늦을 수 있다 — 빠짐없는 목록은 아래 변경 이력 #}
+  <p class="muted" style="font-size:12px; margin:0 0 8px;">진행 현황 문서의 요약 · 마지막 {{ dev_now_days[0].day }}{% if history and history[0].day|length >= 10 and history[0].day[:10] > dev_now_days[0].day[:10] %} · 그 뒤 변경은 아래 변경 이력(커밋, 마지막 {{ history[0].day }})에 있습니다{% endif %}</p>
   <ol class="tl">
     {% for d in dev_now_days %}
     <li class="tl-day">
@@ -98,7 +102,7 @@
     <span class="h-links"><a href="/dev/docs#weekly" class="h-link"><iconify-icon icon="solar:calendar-linear"></iconify-icon>주간 보고서</a></span></h2>
   <div class="cl-areas">
     <span>{{ history_source }} · {{ history|length }}일 · {{ history_count }}건</span>
-    {% for a, n in history_areas %}<span>{{ a }} {{ n }}</span>{% endfor %}
+    {% for a, n in history_areas %}<button type="button" data-area="{{ a }}" aria-pressed="false" title="이 영역을 건드린 커밋만 보기">{{ a }} {{ n }}</button>{% endfor %}
   </div>
   <details class="cl" open>
     <summary>
@@ -116,4 +120,25 @@
     </div>
   </details>
 </div></div>
+<script>
+(function () {
+  // 영역 칩 — 누르면 그 영역을 건드린 커밋만 남긴다(다시 누르면 전체)
+  var chips = document.querySelectorAll('.cl-areas button[data-area]');
+  chips.forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var on = chip.getAttribute('aria-pressed') !== 'true';
+      chips.forEach(function (c) { c.setAttribute('aria-pressed', c === chip && on ? 'true' : 'false'); });
+      var area = on ? chip.dataset.area : '';
+      document.querySelectorAll('.cl-day').forEach(function (day) {
+        var shown = 0;
+        day.querySelectorAll('li').forEach(function (li) {
+          var hit = !area || Array.prototype.some.call(li.querySelectorAll('.cl-tag'), function (t) { return t.textContent === area; });
+          li.hidden = !hit; if (hit) shown++;
+        });
+        day.hidden = shown === 0;
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}

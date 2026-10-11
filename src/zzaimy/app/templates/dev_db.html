@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}데이터 열람{% endblock %}
-{% block pagetitle %}데이터 열람 (개발자){% endblock %}
+{% block title %}{{ dev_page_name('/dev/db') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/db') }}{% endblock %}
 {% block head %}<script src="/static/data-explorer.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
-<p class="muted">운영 DB의 반입 문서와 검색 자료(교내 규정·사업 문서). 학습 후보와 검수 상태는 <a href="/dev/data">데이터 공방</a>에서 본다.</p>
+<p class="muted">운영 DB의 반입 문서와 검색 자료(교내 규정·사업 문서). 학습 후보와 검수 상태는 <a href="/dev/train">{{ dev_page_name("/dev/train") }}</a>에서 본다.</p>
 
 <style>
 /* 데이터 열람 — 이 페이지 전용 스코프(.dx-*) */

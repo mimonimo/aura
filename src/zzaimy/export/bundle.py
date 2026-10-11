@@ -37,7 +37,7 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
 
     반환: [{"group","label","desc","files":[{"path","bytes"}]}...]
     """
-    from zzaimy.app.embed_search import INDEX_PATH, MODEL_NAME
+    from zzaimy.app.embed_search import INDEX_PATH, MODEL_NAME, _index_model_name
 
     tree: list[dict] = []
 
@@ -51,7 +51,8 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
         rag_files.append({"path": "rag/chunk_embeddings.npz",
                           "bytes": Path(INDEX_PATH).stat().st_size})
     tree.append({"group": "rag", "label": "RAG 인덱스",
-                 "desc": f"규정 조각 {len(chunks)}개 + 임베딩({MODEL_NAME})",
+                 # 임베딩 이름은 색인을 실제로 만든 모델(색인 메타) — 환경 기본값이 아니라 /dev/quality·/dev/db 와 같은 값
+                 "desc": f"규정 조각 {len(chunks):,}개 + 임베딩({_index_model_name() or MODEL_NAME})",
                  "files": rag_files})
 
     # 학습 데이터
@@ -78,7 +79,8 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
                                  "bytes": f.stat().st_size})
     tree.append({"group": "model", "label": "모델",
                  "desc": f"파일 {len(md_files)}개" if md_files
-                 else "아직 없음 (DGX 학습 후)",
+                 # 운영 학습본(모델 카드)은 서빙 장비에 있다 — 여기서는 이 서버의 반출 폴더만 본다
+                 else "이 서버에 반출할 모델 파일 없음 · 운영 학습본은 서빙 장비에 있음(모델 카드 참고)",
                  "files": md_files})
     return tree
 

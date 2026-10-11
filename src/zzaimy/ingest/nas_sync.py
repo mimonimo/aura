@@ -25,8 +25,9 @@ BACKENDS = {
     "smb": "SMB 공유 (NAS·Windows·Synology, 읽기 전용 계정)",
     "gdrive": "구글 드라이브 (읽기 전용, 허용한 구글 계정)",
 }
-TARGETS = {"regulation": "기준 문서", "ocr": "문서 추출"}
-SECTORS = {"common": "공통", "grant": "국고사업", "recruit": "채용", "admission": "입학"}
+TARGETS = {"regulation": "기준 문서(규정·지침·공고)로 등록", "ocr": "일반 문서로 등록(본문 읽기)"}
+# 업무 목록은 공용 표 하나에서 — 화면마다 업무가 빠지지 않게
+from zzaimy.app.work_areas import SECTOR_LABELS as SECTORS  # noqa: E402
 DEFAULT_EXTENSIONS = [".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".tif", ".tiff"]
 MAX_FILE_BYTES = 200 * 1024 * 1024
 

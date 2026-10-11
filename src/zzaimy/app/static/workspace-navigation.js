@@ -19,11 +19,15 @@
     // Back/forward restoration must not retain the prior navigation's save bypass.
     window.addEventListener('pageshow', () => { savingForm = null; });
   }
+  // 되돌리기 어려운 동작의 확인 — 삭제 경로(/delete)는 늘, 그 밖의 폼은 data-confirm 을 단 것만 묻는다.
+  // 자체 확인창을 쓰는 화면은 폼에 data-own-confirm 을 달아 두 번 묻지 않게 한다.
   document.addEventListener('submit', event => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement) || event.defaultPrevented || form.hasAttribute('onsubmit')) return;
+    if ('ownConfirm' in form.dataset) return;
     const action = new URL(form.action, location.href);
-    if (action.origin !== location.origin || !/\/delete\/?$/.test(action.pathname)) return;
+    if (action.origin !== location.origin) return;
+    if (!/\/delete\/?$/.test(action.pathname) && !('confirm' in form.dataset)) return;
     const message = form.dataset.confirm || (/\/notes\//.test(action.pathname)
       ? '이 메모를 삭제할까요? 삭제 후에는 복구할 수 없습니다.'
       : '이 항목을 삭제할까요?');

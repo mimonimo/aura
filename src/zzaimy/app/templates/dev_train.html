@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ {'models':'학습·평가','settings':'도구·모델 연결','exports':'승인 산출물'}.get(development_tab,'데이터·모델 개발') }}{% endblock %}
-{% block pagetitle %}{{ {'models':'학습·평가','settings':'도구·모델 연결','exports':'승인 산출물'}.get(development_tab,'데이터·모델 개발') }}{% endblock %}
+{% block title %}{{ dev_page_name('/dev/train?tab=settings') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/train?tab=settings') }}{% endblock %}
 {% block content %}
 <style>
   /* 도구 카드: 같은 구조·같은 높이. 3열 → 좁으면 1열(한 장만 남는 줄이 생기지 않게) */
@@ -54,28 +54,6 @@
 {% endif %}
 {% if ok %}
 <p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>{{ ok }}</span></p>
-{% endif %}
-{% if development_tab == 'models' %}
-<div class="tool-grid">
-  {% for t in tools if t.key != 'labelstudio' %}
-  <section class="card"><div class="card-in">
-    <div class="tool-step">{{ t.step }}</div>
-    <div class="tool-head"><b>{{ t.name }}</b><span class="pill">{{ '주소 설정됨' if t.url else '설정 필요' }}</span></div>
-    <p class="tool-role">{{ t.role }}</p>
-    <div class="tool-foot">
-      {% if t.url %}<a class="btn-ghost" href="{{ t.url }}" target="_blank" rel="noopener noreferrer">{{ '학습 도구 실행' if t.key == 'llamaboard' else '학습 그래프 확인' }}</a>
-      {% else %}<span class="muted">도구·모델 연결에서 주소를 등록하세요.</span>{% endif %}
-    </div>
-  </div></section>
-  {% endfor %}
-  <section class="card"><div class="card-in">
-    <div class="tool-step">평가</div>
-    <div class="tool-head"><b>품질·성능 측정</b></div>
-    <p class="tool-role">검색 평가 결과를 비교하고 다시 측정합니다.</p>
-    <div class="tool-foot"><a class="btn-ghost" href="/dev/quality">평가 결과·측정 열기</a></div>
-  </div></section>
-</div>
-<p class="muted">도구 열기는 학습 시작이 아닙니다. 승인 데이터와 평가셋 분리를 확인한 뒤 학습 도구에서 실행하세요.</p>
 {% endif %}
 
 {% if development_tab == 'settings' %}
@@ -424,11 +402,11 @@
         <button type="submit" form="llmUpdate-{{ c.id }}">저장</button>
         <form action="/dev/llm/{{ c.id }}/test" method="post" style="margin:0;"><button type="submit" class="secondary" data-busy="확인 중…"><iconify-icon icon="solar:refresh-linear"></iconify-icon>연결 확인</button></form>
         {% if c.active %}
-        <form action="/dev/llm/deactivate" method="post" style="margin:0;"><button type="submit" class="secondary">기본 서버 해제</button></form>
+        <form action="/dev/llm/deactivate" method="post" style="margin:0;" data-confirm="기본 서버 지정을 해제할까요? 해제하면 문서 작업은 서버 환경변수에 적힌 연결을 씁니다."><button type="submit" class="secondary">기본 서버 해제</button></form>
         {% elif c.external %}
         <button type="button" class="secondary" data-modal-open="#llmAct-{{ c.id }}">기본 서버로 지정</button>
         {% else %}
-        <form action="/dev/llm/{{ c.id }}/activate" method="post" style="margin:0;"><button type="submit" class="secondary">기본 서버로 지정</button></form>
+        <form action="/dev/llm/{{ c.id }}/activate" method="post" style="margin:0;" data-confirm="‘{{ c.name }}’을 기본 서버로 지정할까요? 단계별 설정이 없는 모든 사용자의 문서 작업이 이 서버로 갑니다."><button type="submit" class="secondary">기본 서버로 지정</button></form>
         {% endif %}
       </div>
     </div>
@@ -611,8 +589,8 @@ document.addEventListener("DOMContentLoaded", function () {
           <iconify-icon icon="solar:refresh-linear"></iconify-icon>모델 목록 받기</button>
         <span class="muted" id="llmAddNote" style="font-size:11.5px;"></span>
       </div>
-      <label class="muted" style="font-size:12px;">모델 (비우면 서버 첫 모델)<input type="text" name="model" id="llmAddModel" list="llmAddModelList" maxlength="120" placeholder="예: exaone-4.0-32b" style="margin-top:4px;"></label>
-      <label class="muted" style="font-size:12px;">비전 모델 (문서 이미지 판독, 선택)<input type="text" name="vision_model" id="llmAddVision" list="llmAddModelList" maxlength="120" placeholder="예: qwen2.5-vl-72b" style="margin-top:4px;"></label>
+      <label class="muted" style="font-size:12px;">모델 (비우면 서버 첫 모델)<input type="text" name="model" id="llmAddModel" list="llmAddModelList" maxlength="120" placeholder="{{ ('예: ' ~ plan_writer ~ ' (서버가 내어 주는 이름 그대로)') if plan_writer else '' }}" style="margin-top:4px;"></label>
+      <label class="muted" style="font-size:12px;">비전 모델 (문서 이미지 판독, 선택)<input type="text" name="vision_model" id="llmAddVision" list="llmAddModelList" maxlength="120" placeholder="{{ ('예: ' ~ plan_writer ~ ' (Writer 가 판독도 맡음)') if plan_writer else '' }}" style="margin-top:4px;"></label>
       <datalist id="llmAddModelList"></datalist>
       <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
         <button type="button" class="secondary" data-modal-close>닫기</button>
@@ -685,43 +663,6 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   })();
 </script>
-
-{% endif %}
-{% if development_tab == 'exports' %}
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:export-linear"></iconify-icon>산출물 반출</h2>
-  <p class="muted">서버에 저장된 학습 JSONL 파일입니다. Label Studio 검수 결과는 자동으로 반영되지 않습니다.</p>
-  <p><a href="/dev/data">데이터 공방에서 검수 결과 되받기</a> 후 목록을 확인하세요. 파일이 있다고 학습 승인이나 개인정보 점검이 끝난 것은 아닙니다.</p>
-  <form action="/dev/train/export.zip" method="get">
-    <div style="display:flex; flex-direction:column; gap:8px; margin:0 0 14px;">
-      {% for g in export_preview %}
-      {% set gb = g.files | sum(attribute='bytes') %}
-      <label style="display:flex; gap:10px; align-items:flex-start; padding:10px 13px;
-                    border:1px solid var(--line); border-radius:10px; cursor:pointer;">
-        {# hidden 0 + checkbox 1: 해제하면 0이 전송돼 실제로 빠진다 #}
-        <input type="hidden" name="{{ g.group }}" value="0">
-        <input type="checkbox" name="{{ g.group }}" value="1" {% if g.files %}checked{% else %}disabled{% endif %}
-               style="margin-top:3px;">
-        <span style="flex:1;">
-          <b style="font-size:13.5px;">{{ g.label }}</b>
-          <span class="muted" style="font-size:12px;"> · {{ g.desc }}</span>
-          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
-            {% for f in g.files %}
-            <a href="/dev/train/export/file?path={{ f.path | urlencode }}" class="file-chip" title="{{ f.path }}">
-              <iconify-icon icon="solar:download-linear"></iconify-icon>{{ f.path.rsplit('/', 1)[-1] }}
-              <span class="muted" style="font-size:11px;">{% if f.bytes >= 1048576 %}{{ (f.bytes/1048576)|round(1) }}MB{% else %}{{ (f.bytes/1024)|round(1) }}KB{% endif %}</span></a>
-            {% else %}<span class="muted" style="font-size:11.5px;">담을 파일 없음</span>{% endfor %}
-          </div>
-        </span>
-      </label>
-      {% else %}
-      <p class="muted" style="font-size:12.5px; margin:0;">반출 미리보기를 불러오지 못했습니다.</p>
-      {% endfor %}
-    </div>
-    <button type="submit" class="secondary">
-      <iconify-icon icon="solar:archive-down-minimlistic-linear"></iconify-icon>선택 항목 내려받기</button>
-  </form>
-</div></div>
 
 {% endif %}
 {% endblock %}

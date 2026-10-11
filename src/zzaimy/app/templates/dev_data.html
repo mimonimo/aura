@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}데이터·학습{% endblock %}
-{% block pagetitle %}데이터·학습{% endblock %}
+{% block title %}{{ dev_page_name('/dev/train') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/train') }}{% endblock %}
 {% block content %}
 
 <style>
@@ -66,7 +66,7 @@
   <h2>기록 기반 후보 생성 (보조 경로)</h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 12px; line-height:1.6;">
     아래 도구는 기존 검토·초안·대화 기록을 변환합니다. 문서 전체의 구조 문답을 자동 완성하는 기능은 아닙니다. 수치 검사 통과만으로 정답을 승인하지 않습니다.</p>
-  <form action="/dev/data/build-and-push" method="post" id="datasetBuildForm">
+  <form action="/dev/data/build-and-push" method="post" id="datasetBuildForm" data-confirm="예시를 새로 만들까요? 데이터 묶음이 하나 늘고, Label Studio 가 연결돼 있으면 검수 프로젝트에 바로 올라갑니다.">
     {# 소스별 숫자는 실제 변환기를 돌린 미리보기(저장 없음) — 무엇이 몇 건 만들어지고 왜 탈락하는지 #}
     <div class="table-scroll" style="margin:2px 0 14px;">
     <table class="src-table">

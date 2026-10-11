@@ -63,7 +63,8 @@ def user_status(db, uid: str, dept: str | None) -> dict:
     dept_acct = (db.get_setting(f"google_account_dept:{dept}", "") or "").strip() if dept else ""
     via = ""
     if effective:
-        via = "본인" if effective == bound else "부서 공용" if effective == dept_acct else ""
+        # 본인 연결도 부서 공용도 아니면 공용 계정 대신 쓰기(google_fallback_shared) — 표에서 본인 연결처럼 보이지 않게 이름을 붙인다
+        via = "본인" if effective == bound else "부서 공용" if effective == dept_acct else "공용 계정 사용"
     return {"user": uid, "bound": bound, "bound_ok": bool(bound) and bound in conn, "effective": effective, "via": via,
             "domain": gdrive.allowed_domain(), "app_ready": gdrive.configured()}
 
@@ -81,10 +82,13 @@ def overview(db, accounts: dict) -> dict:
     dept_rows = [{"dept": d, "account": (settings.get(f"google_account_dept:{d}") or "").strip(),
                   "root": (settings.get(f"google_root:{d}") or "").strip()} for d in depts]
     owners: dict[str, list[str]] = {}
+    sharers: dict[str, list[str]] = {}         # 본인 연결 없이 이 계정으로 문서를 쓰는 사용자(부서 공용·공용 계정)
     for u in users:
         if u["bound"]:
             owners.setdefault(u["bound"], []).append(u["user"])
-    emails = [{"email": e, "users": owners.get(e, []), "docs_ok": gdocs.has_docs_scope(e),
+        if u["effective"] and u["via"] != "본인":
+            sharers.setdefault(u["effective"], []).append(f'{u["user"]}({u["via"]})')
+    emails = [{"email": e, "users": owners.get(e, []), "shared": sharers.get(e, []), "docs_ok": gdocs.has_docs_scope(e),
                "granted_at": conn[e].get("granted_at", "")} for e in sorted(conn)]
     return {"users": users, "depts": dept_rows, "emails": emails, "domain": gdrive.allowed_domain(),
             "app": gdrive.public_status(), "roles": ASSIGNABLE_ROLES,

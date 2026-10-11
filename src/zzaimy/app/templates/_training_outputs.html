@@ -26,7 +26,7 @@
       <input type="hidden" name="{{ g.group }}" value="0">
       <div><div class="output-heading">
         {% if g.files %}<label class="output-selection"><input type="checkbox" name="{{ g.group }}" value="1" checked><b>{{ g.label }}</b></label><span class="output-count">파일 {{ g.files | length }}개</span>
-        {% else %}<b>{{ g.label }}</b><span class="output-empty">아직 없음</span>{% endif %}
+        {% else %}<b>{{ g.label }}</b><span class="output-empty">반출할 파일 없음</span>{% endif %}
         </div><p class="muted">{{ g.desc }}</p>
         {% if g.files %}<div class="training-files">{% for f in g.files %}<a href="/dev/train/export/file?path={{ f.path | urlencode }}" aria-label="{{ f.path.rsplit('/', 1)[-1] }} 다운로드"><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon><span>{{ f.path.rsplit('/', 1)[-1] }}</span></a>{% endfor %}</div>{% endif %}
       </div>

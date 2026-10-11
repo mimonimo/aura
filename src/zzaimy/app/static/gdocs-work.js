@@ -40,6 +40,7 @@
     draft.value = answer; draft.focus(); draft.scrollIntoView({block:'nearest'});
   });
   document.querySelectorAll('form[data-confirm]').forEach(form => {
+    form.dataset.ownConfirm = '';   // 이 화면의 확인창을 쓴다 — 공용 확인(workspace-navigation.js)은 건너뛴다
     let confirmed = false, pending = false;
     form.addEventListener('submit', async event => {
       if (confirmed) return;
