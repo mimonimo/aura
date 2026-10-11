@@ -1,6 +1,6 @@
 """원본 한글 서식(hwpx)에 내용을 채운다 — 서식 보존 채우기(ADR-0035).
 
-참조·협업은 구글독스 작업본에서 하고, 최종본은 원본 서식에 그 내용을 넣어 만든다(사용자 확정 2026-09-28). kordoc patch 는 블록 추가를
+참조·협업은 구글독스 작업본에서 하고, 최종본은 원본 서식에 그 내용을 넣어 만든다. kordoc patch 는 블록 추가를
 못 하므로(v1) 우리 hwpx 계층에서 직접: 절 제목 문단(또는 그 뒤의 【작성방법】 상자) 뒤에 문단·표를 끼워 넣는다.
 
 kordoc(roundtrip/patcher·source-map·zip-patch·table-insert)에서 흡수한 원리 — 흐름이 아니라 기술만:
@@ -10,7 +10,7 @@ kordoc(roundtrip/patcher·source-map·zip-patch·table-insert)에서 흡수한 �
 - 새 표의 id 는 문서 전체 숫자 id 최댓값 다음부터(충돌 없음). 표 테두리는 그 구역 본문 표가 가장 많이 쓰는 실선 borderFill 을 승계하고,
   표가 하나도 없는 서식이면 실선 borderFill 하나를 header 에 추가(itemCnt 갱신)한다.
 
-작업본은 서식의 변환본이라 서식 자체의 글·표도 들어 있다(첫 실측 2026-09-29: 그대로 넣으니 표 63→110 개로 겹침). 그래서 작업본 내용을
+작업본은 서식의 변환본이라 서식 자체의 글·표도 들어 있다(그대로 넣으면 표가 겹쳐 들어간다). 그래서 작업본 내용을
 서식과 견줘 넣는다 — 일반 규칙이지 특정 서식 규칙이 아니다:
 - 서식에 이미 있는 문단·표(글자 집합이 서식 표에 포함)는 다시 넣지 않고, 그 자리를 지나 뒤에 이어 쓴다(작업본 순서 유지).
 - 서식 표를 작업본에서 고쳐 썼으면(칸 값이 달라짐) 서식 표의 칸에 그 값을 써 넣는다 — 표 서식(병합·테두리·열 폭)은 그대로.
@@ -326,7 +326,7 @@ _ROLE_NUM = re.compile(r"^[\s\d,.\-+%()~/△▲▼±]*\d[\s\d,.\-+%()~/△▲▼
 
 def _role_styles(sections: list["_Section"], header_xml: str) -> dict[str, tuple[str, str, str]]:
     """서식 본문 표들의 역할별 최빈 모양 {head|label|body: (borderFillIDRef, paraPrIDRef, charPrIDRef)} — 새 표가 서식 표처럼
-    보이게(kordoc 표 서식 프로필의 원리를 역할 단위로: 표 통째 복제는 새 표와 앵커가 맞지 않는다, 2026-09-30 조사).
+    보이게(kordoc 표 서식 프로필의 원리를 역할 단위로: 표 통째 복제는 새 표와 앵커가 맞지 않는다).
     머리·라벨은 음영이 있을 때만 낸다(음영 없는 서식이면 지금처럼 한 모양)."""
     filled = _filled_border_ids(header_xml)
     count: dict[str, Counter] = {"head": Counter(), "label": Counter(), "body": Counter()}
@@ -388,7 +388,7 @@ def marker_of(text: str) -> str:
 
 class _ParaStyles:
     """서식 본문 문단(표·상자 밖 최상위)의 모양 — 부호별 최빈 (문단 모양, 글자 모양), 짧은 굵은 줄(소제목)과 긴 문장(본문)을 나눠 센다.
-    새 문단이 서식 작성자가 정한 위계를 따르게(kordoc 조사 5순위, 2026-09-30). 서식에서 뽑는 일반 규칙이다."""
+    새 문단이 서식 작성자가 정한 위계를 따르게 한다(kordoc 에서 가져온 원리). 서식에서 뽑는 일반 규칙이다."""
 
     SHORT = 30
 
@@ -684,7 +684,7 @@ def _grid_starts(form: _FormTable) -> dict[int, tuple[float, float]]:
 
 def _map_cells(form: _FormTable, rows: list[list[str]], widths: list[float] | None = None) -> list[tuple[_Cell, str]] | None:
     """작업본 표의 칸 → 서식 표의 칸. 행 수가 같아야 한다. 행마다 칸 수가 같으면 순서대로, 작업본 행이 격자 열 수와 같으면 colAddr 로,
-    작업본에 열 너비가 오면(독스는 병합 표를 잘게 나눈 격자로 낸다 — 실측 2026-09-29: 서식 6열이 독스 14열) x 위치로 맞춘다."""
+    작업본에 열 너비가 오면(독스는 병합 표를 잘게 나눈 격자로 낸다 — 서식 6열이 독스 14열이 되는 식) x 위치로 맞춘다."""
     if len(rows) != len(form.rows):
         return None
     if widths and all(len(r) == len(widths) for r in rows) and sum(widths) > 0 and all(c.width for r in form.rows for c in r):
@@ -701,7 +701,7 @@ def _map_cells(form: _FormTable, rows: list[list[str]], widths: list[float] | No
                 w = float(widths[ci])
                 if str(dc).strip():
                     # 작업본 칸의 가운데가 들어가는 서식 칸 — 독스가 병합 칸을 잘게 나눠 격자가 서식과 어긋나도 맞는다
-                    # (리허설 2026-10-08: 서식 11열·독스 21열 요약서 표가 시작 위치 비교로 대응 실패 → 새 표로 덧붙음)
+                    # (시작 위치만 견주면 서식 11열·독스 21열 같은 표가 대응에 실패해 새 표로 덧붙는다)
                     mid = (xd + w / 2) / total_d
                     hit = next((i for i, fc in enumerate(frow)
                                 if fc.col in grid and grid[fc.col][0] - 0.005 <= mid < grid[fc.col][0] + fc.width / total_f + 0.005), None)
@@ -1129,7 +1129,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                     score = len(dcells & t.cells) / len(dcells) + (1.0 if first_same else 0.0) + (0.1 if t.para[0] >= cursor else 0.0)
                     if len(t.rows) == len(rows) and [len(r) for r in t.rows] == [len(r) for r in rows]:
                         # 모양(행·칸 수)이 같은 표는 글 유사도도 본다 — 서식 상자(1×1) 안 글을 고쳐 쓰면 칸 글자가 하나도 안 겹친다
-                        # (리허설 2026-10-08: 「□ (세부)과제명: 0000」 상자를 채운 것이 새 표로 덧붙음)
+                        # (「□ (세부)과제명: 0000」 상자를 채운 것이 새 표로 덧붙지 않게)
                         ft = "".join(_norm(c.text) for r in t.rows for c in r)[:1500]
                         dt = "".join(_norm(c) for r in rows for c in r)[:1500]
                         score += difflib.SequenceMatcher(None, ft, dt, autojunk=False).ratio() if ft and dt else 0.0
@@ -1137,7 +1137,7 @@ def fill(src: Path | str, bodies: list[dict], out: Path | str, remove_boxes: boo
                         best, cand = score, t
                 if cand is None or best < 0.4:
                     # 글을 크게 고쳐 써 칸 글자도 글 유사도도 낮은 서식 표(상자 안 뼈대를 지우고 다시 쓴 1×1 상자 등) — 이 절 안, 커서 뒤에
-                    # 모양(행·칸 수)이 같은 첫 서식 표면 그 표로 본다(리허설 7: 대표과제 상자가 새 표로 덧붙음, 유사도 0.16)
+                    # 모양(행·칸 수)이 같은 첫 서식 표면 그 표로 본다(유사도가 0.2 아래로 떨어지는 상자도 새 표로 덧붙지 않게)
                     shape = [len(r) for r in rows]
                     same = [t for t in s.tables if not t.consumed and cursor <= t.para[0] < sec_end
                             and not _BOX_RE.search(s.xml[t.para[0]:t.para[1]]) and [len(r) for r in t.rows] == shape]

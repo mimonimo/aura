@@ -1,6 +1,6 @@
 """옛 한글(.hwp 5.0) → DOCX 충실 변환 — pyhwp 의 구조 XML(hwp5proc xml)을 읽어 hwpx 변환기와 같은 길로 옮긴다.
 
-pyhwp 의 HTML·ODT 출력은 표 열 폭이 줄고 글꼴·바탕이 화면용이라 독스에서 원본과 멀었다(실측 2026-09-24, 사업계획서 106쪽).
+pyhwp 의 HTML·ODT 출력은 표 열 폭이 줄고 글꼴·바탕이 화면용이라 독스에서 원본과 멀어진다.
 대신 pyhwp 가 풀어 주는 구조 XML(DocInfo 의 글자·문단·테두리 모양, BodyText 의 문단·표·셀·글상자·그림)을 hwpx 의 XML 모양
 (hp:p·run·t·tbl·tr·tc·pic·rect·secPr)으로 바꿔 `hwpx_docx.Converter` 에 넣는다. 변환기 하나로 두 형식의 품질을 같게 한다.
 
@@ -95,8 +95,8 @@ def _load_styles(docinfo: ET.Element) -> tuple[Styles, dict[str, bytes]]:
         cs.size_pt = _int(cs_el.get("basesize"), 1000) / 100.0
         cs.bold = cs_el.get("bold") == "1"
         cs.italic = cs_el.get("italic") == "1"
-        # pyhwp 는 이 파일의 글자 모양 대부분을 underline="line_through" underline-style="15"(정의 안 된 값)로 낸다 — 플래그 해석이
-        # 어긋난 것이라(실측 2026-09-24: 5,787개 런에 밑줄) 값과 모양이 둘 다 정상일 때만 밑줄로 본다
+        # pyhwp 는 글자 모양 대부분을 underline="line_through" underline-style="15"(정의 안 된 값)로 낸다 — 플래그 해석이
+        # 어긋난 것이라 그대로 따르면 거의 모든 글에 밑줄이 생긴다. 값과 모양이 둘 다 정상일 때만 밑줄로 본다
         u_kind = (cs_el.get("underline") or "none").lower()
         u_style = (cs_el.get("underline-style") or "solid").lower()
         cs.underline = u_kind in ("bottom", "top", "center") and u_style in ("solid", "dashed", "dotted", "dash_dot", "dash_dot_dot",
@@ -222,7 +222,7 @@ def _translate_paragraph(p_el: ET.Element) -> ET.Element:
                                                  "top": pd.get("top-offset") or "0", "bottom": pd.get("bottom-offset") or "0",
                                                  "header": pd.get("header-offset") or "0", "footer": pd.get("footer-offset") or "0",
                                                  "gutter": pd.get("bookbinding-offset") or "0"})
-                # 실물 구조: 머리말·꼬리말·쪽 번호 위치는 SectionDef 의 자식으로 이어져 있다(실측 2026-09-25)
+                # 실물 구조: 머리말·꼬리말·쪽 번호 위치는 SectionDef 의 자식으로 이어져 있다
                 for child in node:
                     if child.tag in _CONTROLS:
                         _translate_control(child, r)
@@ -261,7 +261,7 @@ def _translate_paragraph(p_el: ET.Element) -> ET.Element:
 
 def _inline(seg: ET.Element):
     """줄 안의 요소들 — 필드(FieldFormula·FieldClickHere·FieldHyperlink …) 안은 펴서 낸다. 표 계산식 칸의 값(=SUM 결과)은
-    FieldFormula 안의 Text 로 들어 있어, 필드를 건너뛰면 합계·소계 칸이 비었다(실측 2026-09-30 사업계획서: 필드 25개)."""
+    FieldFormula 안의 Text 로 들어 있어, 필드를 건너뛰면 합계·소계 칸이 빈다."""
     for node in seg:
         if node.tag.startswith("Field"):
             yield from _inline(node)
@@ -278,7 +278,7 @@ def _append_text(t: ET.Element, text: str) -> None:
 
 
 def _paras(el: ET.Element) -> list[ET.Element]:
-    """요소 바로 아래 문단 + 다단(ColumnSet) 아래 문단 — 셀·글상자·머리말도 다단일 수 있다(실측 2026-09-25: 셀 다단 안의 그림 누락)."""
+    """요소 바로 아래 문단 + 다단(ColumnSet) 아래 문단 — 셀·글상자·머리말도 다단일 수 있다(빼면 셀 다단 안의 그림이 빠진다)."""
     out: list[ET.Element] = []
     for ch in el:
         if ch.tag == "Paragraph":
@@ -369,7 +369,7 @@ def convert_xml(xml_path: Path, line_rule: str | None = None) -> tuple[bytes, di
     styles, blobs = _load_styles(docinfo)
     conv = Converter(styles, _BinStore(blobs), {k: k for k in blobs}, line_rule=line_rule)
     body = root.find("BodyText")
-    # 실물 구조(실측 2026-09-24): HwpDoc/BodyText/SectionDef/ColumnSet/Paragraph. 쪽 설정(PageDef)은 SectionDef 아래에 있다.
+    # 실물 구조: HwpDoc/BodyText/SectionDef/ColumnSet/Paragraph. 쪽 설정(PageDef)은 SectionDef 아래에 있다.
     sections = (body.findall("SectionDef") + body.findall("Section")) if body is not None else []
     for sec in sections:
         paras = sec.findall("Paragraph") + [p for cs in sec.findall("ColumnSet") for p in cs.findall("Paragraph")]

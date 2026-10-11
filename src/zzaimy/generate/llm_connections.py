@@ -1,6 +1,6 @@
 """LLM 연결 관리 — 교내 GPU 서버와 외부 GPU 서버(OpenAI 호환 규격 API)를 등록하고 용도를 정한다.
 
-- 상용 클라우드 API(OpenAI·Anthropic 등)는 쓰지 않는다. '외부'는 교내망 밖의 GPU 서버를 뜻한다.
+- 상용 클라우드 API 는 공개 자료 판독에만 쓴다(교내 문서는 보내지 않는다). '외부'는 교내망 밖의 서버를 뜻한다.
 - 저장: data/platform/llm_connections.json (0600). API 키는 이 파일에만 있고 화면에는 끝 4자리만 보인다.
 - 문서 작업(채팅·검토·초안·요약)의 기본 연결: 교내 서버는 바로, 외부 서버는 개인정보 검토 확인(ack) 후에 지정한다.
 - 외부 AI 참조(민감정보 제거 후 일반 지식 질의, ADR-0008)는 외부 서버 연결만 쓴다.
@@ -47,8 +47,8 @@ def configure(path: Path) -> None:
 def _default_path() -> Path:
     """앱이 `configure()` 를 부르지 않은 곳(스크립트·배치)에서도 같은 설정을 쓰게 한다.
 
-    예전에는 설정을 못 찾으면 연결이 통째로 비어, 스크립트에서 부른 모델 호출이 주소 없이
-    나가 연결 오류로 떨어졌다(실측 2026-09-21: 검토 채우기가 전부 실패).
+    설정을 못 찾으면 연결이 통째로 비어, 스크립트에서 부른 모델 호출이 주소 없이 나가
+    연결 오류로 떨어진다.
     """
     return Path(os.environ.get("ZZAIMY_DATA_DIR", "data/platform")) / "llm_connections.json"
 
@@ -58,7 +58,7 @@ _mtime: float | None = None
 
 def _load() -> dict:
     """설정을 읽는다. 파일이 바뀌었으면 다시 읽는다 — 화면에서 역할을 바꾸면 돌고 있던 반입·재처리
-    프로세스도 다음 호출부터 새 지정을 따라야 한다(2026-09-21 실측: 캐시 때문에 옛 서버로 계속 갔다)."""
+    프로세스도 다음 호출부터 새 지정을 따라야 한다(캐시만 믿으면 옛 서버로 계속 간다)."""
     global _cache, _path, _mtime
     if _path is None:
         _path = _default_path()
@@ -218,7 +218,7 @@ def role_conn(role: str) -> dict | None:
 
 
 # 장애 넘김 — 역할에 정한 서버가 연결을 받지 않으면(점검·재기동·컨테이너 정지) 같은 모델을 내어 주는 다른 교내 서버로.
-# 10/9 실측: 토르 02 컨테이너가 멈추자 대화·답변이 모두 실패했는데 토르 03 은 같은 Writer 를 내어 주고 있었다.
+# 서빙 장비 하나의 컨테이너가 멈춰도 다른 장비가 같은 Writer 를 내어 주고 있으면 대화·답변이 끊기지 않게 한다.
 # 외부 연결로는 넘기지 않는다(절대 규칙 3). 확인 결과는 잠시 기억해 요청마다 묻지 않는다. 끄기: ZZAIMY_LLM_FAILOVER=0
 _ALIVE_TTL = 15.0
 _alive_cache: dict[str, tuple[float, bool]] = {}
@@ -334,7 +334,7 @@ def update(cid: str, name: str = "", base_url: str = "", model: str | None = Non
            vision_model: str | None = None) -> dict:
     """주지 않은 값은 그대로 둔다. 키·모델·비전 모델은 'clear' 를 보내면 지운다.
 
-    실측 2026-09-21: 이름만 바꾸려고 부른 update 가 vision_model 을 빈 값으로 덮어써 판독이 꺼졌다
+    이름만 바꾸려는 호출이 vision_model 을 빈 값으로 덮어쓰면 판독이 꺼진다
     (has_vision False → 스캔 문서가 CPU OCR 로 떨어짐). 그래서 '안 줌'과 '비움'을 구분한다.
     """
     data = _load()
@@ -547,8 +547,8 @@ STATUS_LABELS = {"available": "사용 가능", "listed": "등록만 됨", "unava
 def refresh_models(conn: dict, timeout: float = 8.0) -> dict:
     """서버가 지금 내어 주는 모델 목록을 받아 온다(OpenAI 호환 /v1/models).
 
-    예전에는 허브 공개 카탈로그도 함께 읽었는데, 카탈로그에만 있고 서버가 내어 주지 않는
-    모델까지 목록에 올라와 고르면 실패했다. 참고 자료를 목록으로 쓰지 않는다(2026-09-20 정리).
+    허브 공개 카탈로그는 읽지 않는다 — 카탈로그에만 있고 서버가 내어 주지 않는 모델을 고르면
+    실패하기 때문이다.
     """
     net = diagnose(conn.get("base_url", ""), timeout)
     if net["stage"] != "ok":

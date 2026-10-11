@@ -180,8 +180,8 @@ _TRAILING_PAGE = re.compile(r"^(.*?\S)\s*\d{1,4}\s*$")
 
 
 def demote_toc_lines(entries: list) -> int:
-    """목차 쪽의 줄 — 끝에 쪽 번호가 붙은 제목인데 번호를 뗀 글이 뒤에서 제목으로 다시 나오면 목차 줄이다(본문 제목과 두 번 잡혔다,
-    실측 2026-10-01 LINC3.0 3차년도 계획서). 고친 개수를 돌려준다."""
+    """목차 쪽의 줄 — 끝에 쪽 번호가 붙은 제목인데 번호를 뗀 글이 뒤에서 제목으로 다시 나오면 목차 줄이다
+    (그대로 두면 본문 제목과 두 번 잡힌다). 고친 개수를 돌려준다."""
     heads = [(i, e.text) for i, e in enumerate(entries) if e.kind == "heading"]
     later: dict[str, int] = {}
     for i, t in heads:
@@ -227,8 +227,8 @@ def _char_shapes(zf: zipfile.ZipFile, names: list[str]) -> tuple[dict[str, tuple
 
 
 def is_heading(text: str, char: tuple[int, bool] | None, outline: bool, body_height: int) -> bool:
-    """문단이 절 제목인가 — 개요 문단이거나, 짧고 번호로 시작하며 본문보다 크거나 굵은 글자(2026-10-01, ADR-0048).
-    실물 서식은 개요 스타일을 거의 쓰지 않고 번호를 글자로 쳐서 제목을 만든다(557 서식: 스타일로 찾은 제목 4개)."""
+    """문단이 절 제목인가 — 개요 문단이거나, 짧고 번호로 시작하며 본문보다 크거나 굵은 글자(ADR-0048).
+    실물 서식은 개요 스타일을 거의 쓰지 않고 번호를 글자로 쳐서 제목을 만든다."""
     if outline:
         return True
     t = (text or "").strip()

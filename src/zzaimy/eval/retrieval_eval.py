@@ -41,7 +41,7 @@ from zzaimy.app import paths as _paths
 EVAL_DIR = _paths.eval_dir()
 BACKUP_DIR = Path("data/platform/backup")
 # 사람이 읽는 사본. 기본은 산출물 폴더에 둔다 — 평가는 임베딩·색인이 있는 운영 VM 에서 돌리는데
-# 저장소 파일(docs/)을 건드리면 그 체크아웃이 더러워져 배포가 멈춘다(실측 2026-09-20).
+# 저장소 파일(docs/)을 건드리면 그 체크아웃이 더러워져 배포가 멈춘다.
 # 저장소에 남길 판이면 --report 로 명시한다(맥에서 커밋할 때).
 MARKDOWN_PATH = EVAL_DIR / "retrieval-baseline-mini.md"
 REPO_MARKDOWN_PATH = Path("docs/retrieval-baseline-mini.md")
@@ -65,7 +65,7 @@ def dense_method_name(model: str = "") -> str:
     """조밀 축 행 이름 — 실제로 쓴 임베딩 모델 이름을 넣는다.
 
     화면 카드의 수치는 기계 산출물만 쓴다는 규칙과 같은 이유로, 모델 이름도 손으로 적지 않는다.
-    임베딩 학습본으로 갈아탄 뒤에도 'KURE' 라고 적혀 있으면 기록이 거짓이 된다(2026-09-20 실측).
+    임베딩 학습본으로 갈아탄 뒤에도 'KURE' 라고 적혀 있으면 기록이 거짓이 된다.
     """
     name = (model or "").rsplit("/", 1)[-1]
     return f"임베딩({name})" if name else METHOD_DENSE
@@ -459,9 +459,8 @@ def evaluate(
         sub_hyb: list[list[int]] = []
         sub_gold: list[set[int]] = []
         for j, k in enumerate(idx, start=1):
-            # 운영은 후보 20개를 리랭커에 넘긴다. 예전에는 R@10 절단 목록(10개)을 넘겨 리랭커가 고를 폭이
-            # 좁았고, 그래서 운영 구성 행이 하이브리드보다 낮게 나왔다(2026-09-21 실측: 0.550 vs 0.657,
-            # 같은 표본을 후보 20개로 돌리면 0.683 → 0.770). 측정은 운영을 그대로 재현해야 한다.
+            # 운영은 후보 20개를 리랭커에 넘긴다. R@10 절단 목록(10개)을 넘기면 리랭커가 고를 폭이 좁아
+            # 운영 구성 행이 하이브리드보다 낮게 나온다. 측정은 운영을 그대로 재현해야 한다.
             cand = cand_runs[k]
             rr_runs.append(list(retrievers.rerank(queries[k].text, cand))[:TOP_K])
             sub_hyb.append(hyb_runs[k])
@@ -764,8 +763,8 @@ def _print_summary(result: dict) -> None:
             print(f"- 리랭커: 서빙 장비 {os.environ['ZZAIMY_RERANK_URL']} · 응답 {st['remote_ok']}건 · CPU 폴백 {st['fallback']}건"
                   + (" — 폴백이 있으면 이 행은 GPU 리랭커만의 숫자가 아니다" if st["fallback"] else ""))
         else:
-            # 2026-09-21 실측: .env.local 없이 띄운 측정이 CPU 베이스 리랭커(앞쪽 후보만·제목 없이)로 떨어져
-            # 운영보다 0.1 낮은 값을 '운영 구성'으로 적었다. 어느 리랭커가 점수를 냈는지 항상 적는다.
+            # .env.local 없이 띄운 측정은 CPU 베이스 리랭커(앞쪽 후보만·제목 없이)로 떨어져 운영보다 낮은 값을
+            # '운영 구성'으로 적게 된다. 어느 리랭커가 점수를 냈는지 항상 적는다.
             print("- 리랭커: ZZAIMY_RERANK_URL 이 없어 VM CPU 의 베이스 리랭커로 쟀다 — 운영 구성이 아니다."
                   " 운영 값은 `set -a; . ./.env.local; set +a` 뒤에 다시 잰다")
     except Exception:

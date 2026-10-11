@@ -1,7 +1,7 @@
 """오피스 파일 직접 읽기 — python-docx·openpyxl·python-pptx 로 우리 ParseResult 를 낸다(ADR-0051).
 
-오피스 읽기 대결(scripts/176, 2026-10-06, 형식마다 실제 원본 24~25건): docling 은 어느 형식에서도 1등이 아니었다 —
-엑셀 표 개수 맞음 42~56%, 발표자료 표 68%. 순서: docx·xlsx 는 kordoc 먼저(이 모듈은 물러날 곳), pptx 는 이 모듈이 1순위.
+오피스 읽기 비교 측정(scripts/176, 형식마다 실제 원본 24~25건)에서 docling 은 어느 형식에서도 가장 낫지 않았다
+(엑셀 표 개수 맞음 42~56%, 발표자료 표 68%). 순서: docx·xlsx 는 kordoc 먼저(이 모듈은 물러날 곳), pptx 는 이 모듈이 1순위.
 """
 from __future__ import annotations
 
@@ -104,8 +104,8 @@ def parse_pptx(path: Path) -> ParseResult:
         try:
             walk(slide.shapes)
         except Exception:
-            # python-pptx 가 모르는 요소(호환 묶음 mc:AlternateContent 등)를 도형으로 바꾸다 실패하면 문서 전체가 실패했다
-            # (2026-10-06 실패 13건 'has_ph_elm'). 그 슬라이드는 XML 의 글자(a:t)를 문단 단위로 직접 모은다
+            # python-pptx 가 모르는 요소(호환 묶음 mc:AlternateContent 등)를 도형으로 바꾸다 실패하면('has_ph_elm')
+            # 문서 전체가 실패한다. 그 슬라이드는 XML 의 글자(a:t)를 문단 단위로 직접 모은다
             texts.extend(_xml_paragraphs(slide._element))
             entries.extend(_entry(i, "text", t) for t in texts if t)
         try:

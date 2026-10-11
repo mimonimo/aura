@@ -1,4 +1,4 @@
-"""HTML 표 → 셀 그리드 변환 (W1-W2 TASK-04).
+"""HTML 표 → 셀 그리드 변환.
 
 MinerU는 표를 HTML로 내보낸다. rowspan/colspan을 반영해 셀을 그리드
 좌표에 배치해야 표 구조 보존 여부를 Docling 결과와 같은 기준으로

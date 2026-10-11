@@ -1,4 +1,4 @@
-"""검증기 1종 — 수치 대조 (W1-W2 TASK-08, 브리프 5.3).
+"""수치 대조 검증기(브리프 5.3).
 
 생성 초안의 모든 수치는 인출된 근거에 존재해야 한다. 결정론적으로 판정하며
 LLM 판단을 쓰지 않는다. 이 모듈은 Writer 학습 데이터 정제기와 공유된다
@@ -74,7 +74,7 @@ def canonical_values(text: str) -> set[str]:
                 last_unit_rank = n_rank
                 j += 1
             elif gap.strip() == "" and not n_unit and n_num == n_num.to_integral_value() and 0 < n_num < last_unit_rank:
-                # 단위 뒤의 맨숫자 — 「1만 1799명」 = 11,799, 「3억 2500만」의 끝자리처럼 남은 자리(10/11 같은 수를 근거 없음으로 띄움)
+                # 단위 뒤의 맨숫자 — 「1만 1799명」 = 11,799, 「3억 2500만」의 끝자리처럼 남은 자리. 합산하지 않으면 같은 수를 근거 없음으로 띄운다
                 value += n_num
                 out.add(_fmt(n_num))
                 j += 1

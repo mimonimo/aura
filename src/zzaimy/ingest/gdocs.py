@@ -58,8 +58,8 @@ READ_RETRIES = (5, 15, 45)            # 문서 읽기 재시도 간격(초)
 
 
 def _read(email: str, doc: str, http):
-    """문서 읽기(documents.get) — 시간 초과·429·5xx 는 간격을 두고 다시 읽는다. 큰 문서(사업계획서 95쪽)는 한 번에 3분을 넘기기도
-    한다(실측 2026-09-30: 작업본 옮기기가 ReadTimeout 으로 끊겼다). 읽기라 다시 해도 안전하다 — 쓰기(batchUpdate)는 다시 하지 않는다."""
+    """문서 읽기(documents.get) — 시간 초과·429·5xx 는 간격을 두고 다시 읽는다. 큰 문서(95쪽 급)는 한 번에 3분을 넘기기도
+    한다. 읽기라 다시 해도 안전하다 — 쓰기(batchUpdate)는 다시 하지 않는다."""
     import time
 
     import httpx
@@ -97,7 +97,7 @@ def _para_text(p: dict) -> str:
 
 
 def body_content(document: dict) -> list[dict]:
-    """본문 요소 목록 — 탭이 있는 문서(가져온·변환한 문서는 다 그렇다, 실측 2026-09-24)는 body 가 비고 tabs[0] 에 있다."""
+    """본문 요소 목록 — 탭이 있는 문서(가져온·변환한 문서는 다 그렇다)는 body 가 비고 tabs[0] 에 있다."""
     body = document.get("body", {}).get("content", [])
     if body:
         return body
@@ -109,13 +109,13 @@ def body_content(document: dict) -> list[dict]:
 
 
 # 제목 스타일이 하나도 없는 문서(한글 양식 변환본)에서는 번호 붙은 짧은 문단을 절 제목으로 본다 — Ⅰ. / 1. / 1.1. / 【…】 / 가.
-# 「1) …」「(1) …」은 본문 항목(공문서 항목 구분)이지 절 제목이 아니다 — 숫자 뒤 마침표나 빈칸만 제목 꼴로(10/11)
+# 「1) …」「(1) …」은 본문 항목(공문서 항목 구분)이지 절 제목이 아니다 — 숫자 뒤 마침표나 빈칸만 제목 꼴로
 _NUMBERED = re.compile(r"^\s*(?:(?P<roman>[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)\s*[.．]|(?P<num>\d+(?:\.\d+)*)(?:[.．]|(?=\s))|(?P<box>【[^】]{1,40}】)|(?P<ga>[가-힣])[.．])\s*(?P<rest>\S.*)?$")
 
 
 def _numbered_level(text: str) -> int | None:
     t = text.strip()
-    # 문장 끝(~다·~요·~음)은 제목이 아니다 — 단 「개요·수요·필요·주요」처럼 「요」로 끝나는 명사 제목은 흔하다(「Ⅰ. 사업 개요」가 빠졌다)
+    # 문장 끝(~다·~요·~음)은 제목이 아니다 — 단 「개요·수요·필요·주요」처럼 「요」로 끝나는 명사 제목은 흔하다(「Ⅰ. 사업 개요」)
     if not t or len(t) > 70 or (re.search(r"[.다요음임함]\s*$", t) and not t.endswith("】")
                                 and not re.search(r"(개요|수요|필요|주요|중요|소요|요약)\s*$", t)):
         return None
@@ -147,7 +147,7 @@ def _table_text(tbl: dict) -> str:
 
 
 def _table_counts(tbl: dict) -> tuple[int, int]:
-    """표의 (칸 수, 빈 칸 수) — 글(_table_text)은 빈 행을 빼므로 칸 수는 표 구조에서 센다(머리행만 있는 빈 양식 표가 다 쓴 표로 보이던 것)."""
+    """표의 (칸 수, 빈 칸 수) — 글(_table_text)은 빈 행을 빼므로 칸 수는 표 구조에서 센다(머리행만 있는 빈 양식 표가 다 쓴 표로 보이지 않게)."""
     cells = empty = 0
     for row in tbl.get("tableRows", []):
         for cell in row.get("tableCells", []):
@@ -159,7 +159,7 @@ def _table_counts(tbl: dict) -> tuple[int, int]:
 
 def _hanging_items(body: list[dict]) -> set[int]:
     """내어쓰기 문단(둘째 줄이 첫 줄보다 들어간 것)의 시작 위치 — 본문 항목 줄이다(bullet_layout 이 항목마다 건다).
-    「가. 정책 환경」「1) …」 같은 본문 항목이 절 제목으로 잡혀 절이 쪼개지던 위험(10/11 문체 변경 검토)."""
+    「가. 정책 환경」「1) …」 같은 본문 항목이 절 제목으로 잡혀 절이 쪼개지지 않게 한다."""
     out = set()
     for el in body:
         ps = (el.get("paragraph") or {}).get("paragraphStyle") or {}
@@ -172,8 +172,8 @@ def _hanging_items(body: list[dict]) -> set[int]:
 
 def _toc_entries(items: list[tuple], styled: bool) -> set[int]:
     """목차 줄(번호 붙은 보통 문단)의 시작 위치 — 같은 글이 뒤에 다시 나오고, 앞이나 뒤 줄도 장·절 번호 줄(Ⅰ. / 1.)인 묶음 안의 줄.
-    목차를 절로 세면 절 쓰기가 목차 항목 아래에 들어갔다(10/11). 같은 글이 뒤에 나온다는 것만으로 보면 한글 서식의 장 표지
-    「Ⅰ. 사업추진 목표」까지 목차로 빠져 절 경계가 사라졌다(10/11 AID 대표과제 글이 장 표지 쪽에 붙음) — 그래서 묶음일 때만.
+    목차를 절로 세면 절 쓰기가 목차 항목 아래에 들어간다. 같은 글이 뒤에 나온다는 것만으로 보면 한글 서식의 장 표지
+    「Ⅰ. 사업추진 목표」까지 목차로 빠져 절 경계가 사라진다 — 그래서 묶음일 때만.
     □·가. 같은 본문 기호 줄은 묶음으로 치지 않는다."""
     def chapter_or_num(text: str) -> bool:
         m = _NUMBERED.match((text or "").strip())
@@ -241,7 +241,7 @@ def outline(document: dict) -> dict:
               and any("pageBreak" in x for x in el["paragraph"].get("elements", []))}
 
     def close(sec_: dict) -> dict:
-        # 절 끝이 쪽 나눔 뒤 표들(다음 장의 목차·장 표지)뿐이면 넣을 자리는 쪽 나눔 앞이다 — 대표과제 글이 다음 장 표지 아래에 붙었다(10/11)
+        # 절 끝이 쪽 나눔 뒤 표들(다음 장의 목차·장 표지)뿐이면 넣을 자리는 쪽 나눔 앞이다 — 그러지 않으면 글이 다음 장 표지 아래에 붙는다
         pre = sec_.pop("_pre_break", None)
         if pre is not None:
             sec_["end"], sec_["table_end"] = pre
@@ -250,7 +250,7 @@ def outline(document: dict) -> dict:
     cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0, "table_end": 0, "text": "", "body_chars": 0}
     for start, end, style, text, is_table in items:
         # 제목 스타일이 있어도 번호 문단(Ⅰ. / 1.1.)은 절이다 — 변환한 한글 문서는 개요 스타일이 몇 개뿐이고 절 제목이 굵은 보통
-        # 문단이라(실측 2026-09-24 사업계획서: 스타일 제목 3개, 번호 절 수십 개) 스타일만 보면 절이 3개로 잡힌다
+        # 문단이라(스타일 제목 몇 개, 번호 절 수십 개) 스타일만 보면 절이 몇 개로만 잡힌다
         lvl = None if is_table else HEADING_LEVELS.get(style)
         if lvl is None and not is_table and start not in toc and start not in hanging:
             lvl = _numbered_level(text)
@@ -277,10 +277,10 @@ def outline(document: dict) -> dict:
             cur["text"] = (cur["text"] + "\n" + text.rstrip("\n")).strip()      # 절의 글(표는 칸을 ' | ' 로) — 목차의 같은 제목과 헷갈리지 않게 구조에서 자른다
             if not (is_table and "작성방법" in text) and not (not is_table and (text.strip().startswith(GUIDE_PREFIX.strip())
                                                                                  or UNIT_CAPTION.match(text.strip()))):
-                # 공통 양식의 회색 작성 지침 문단도 작성방법이다(본문 아님) — 세면 모든 절이 '이미 쓴 절'로 보인다(2026-10-08)
+                # 공통 양식의 회색 작성 지침 문단도 작성방법이다(본문 아님) — 세면 모든 절이 '이미 쓴 절'로 보인다
                 cur["body_chars"] += len(text.strip())                          # 본문 글자 — 양식의 작성방법 상자는 본문이 아니다
                 if is_table:
-                    # 양식 표의 빈 칸 비율 — 머리 칸만 있고 값 칸이 빈 표는 '아직 안 쓴 절'의 표시(2026-09-29: 표 채우기)
+                    # 양식 표의 빈 칸 비율 — 머리 칸만 있고 값 칸이 빈 표는 '아직 안 쓴 절'의 표시(표 채우기)
                     n_cells, n_empty = tcounts.get(start, (0, 0))
                     cur["tbl_cells"] = cur.get("tbl_cells", 0) + n_cells
                     cur["tbl_empty"] = cur.get("tbl_empty", 0) + n_empty
@@ -339,10 +339,10 @@ def _batch(email: str, doc: str, requests: list[dict], http) -> dict:
 
 
 def _body_style(start: int, end: int, template: bool = False) -> dict:
-    """넣은 글의 문단 모양을 본문으로 — 변환본의 표 사이 얇은 문단(고정 1pt)이나 제목 모양을 물려받아 글이 겹치던 문제(실측 2026-09-29, 1.2 절).
+    """넣은 글의 문단 모양을 본문으로 — 변환본의 표 사이 얇은 문단(고정 1pt)이나 제목 모양을 물려받아 글이 겹치지 않게.
 
-    template — 공통 양식의 지침 상자 바로 뒤에 넣는 글. 지침 문단의 옅은 바탕·왼쪽 띠·들여쓰기를 물려받아 본문이 지침 상자 안처럼 보이던 것을
-    걷는다(마스크에 넣고 값을 비우면 기본값으로 돌아간다). 줄 간격은 개조식 한 줄 문단이 성기지 않게 140·문단 뒤 2pt."""
+    template — 공통 양식의 지침 상자 바로 뒤에 넣는 글. 지침 문단의 옅은 바탕·왼쪽 띠·들여쓰기를 물려받아 본문이 지침 상자 안처럼 보이지
+    않게 걷는다(마스크에 넣고 값을 비우면 기본값으로 돌아간다). 줄 간격은 개조식 한 줄 문단이 성기지 않게 140·문단 뒤 2pt."""
     fields = "namedStyleType,lineSpacing,spaceAbove,spaceBelow" + (",shading,borderLeft,indentStart" if template else "")
     return {"updateParagraphStyle": {"range": {"startIndex": start, "endIndex": end},
                                      "paragraphStyle": {"namedStyleType": "NORMAL_TEXT", "lineSpacing": 140 if template else 115,
@@ -399,7 +399,7 @@ def _item_rank(body: str, legacy: bool) -> tuple[int, str] | None:
 
 
 def bullet_layout(text: str, start: int, font: str = "") -> list[dict]:
-    """넣은 본문 항목 글의 줄마다 단계별 들여쓰기·내어쓰기 — 기호가 모두 왼쪽 끝에 붙어 실제 서식처럼 보이지 않던 것(10/9 절 작성 시험).
+    """넣은 본문 항목 글의 줄마다 단계별 들여쓰기·내어쓰기 — 기호가 모두 왼쪽 끝에 붙지 않고 실제 서식처럼 보이게.
 
     공문서 항목 구분(1. 가. 1) 가) (1) (가) ① ㉮)은 한 단계마다 ITEM_STEP 만큼 들여 쓰고, 둘째 줄부터는 기호 뒤 글자에 맞춰 내어 쓴다
     (indentFirstLine = 기호 자리, indentStart = 기호 뒤 글자 자리). 단계는 글에 나온 가장 높은 기호를 왼쪽 끝으로 잡는다 — 「1.」 절
@@ -711,7 +711,7 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
     _raise(r0)
     dup = same_table_in_section(body_content(r0.json()), info, int(section_index), rows)
     if dup:
-        # 서식에 이미 있는 표를 새로 또 넣지 않는다 — SWOT 표가 두 벌이 됐다(10/11). 값은 칸 채우기(fill)로 넣는다
+        # 서식에 이미 있는 표(SWOT 표 등)를 새로 또 넣지 않는다 — 값은 칸 채우기(fill)로 넣는다
         return {"ok": False, "duplicate": dup, "rows": len(rows), "cols": n_cols, "section": sec["heading"]}
     at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
     _batch(email, doc, [{"insertTable": {"location": {"index": at}, "rows": len(rows), "columns": n_cols}}], http)
@@ -732,7 +732,7 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
     reqs = [{"insertText": {"location": {"index": idx}, "text": text}} for idx, text in sorted(fills, reverse=True)]
     if reqs:
         _batch(email, doc, reqs, http)
-    # 표의 꼴 — 머리 행은 옅은 음영과 굵은 글자(완성본의 표처럼 보이게, 2026-09-29). 실패해도 표 자체는 들어갔으니 조용히 넘어간다
+    # 표의 꼴 — 머리 행은 옅은 음영과 굵은 글자(완성본의 표처럼 보이게). 실패해도 표 자체는 들어갔으니 조용히 넘어간다
     try:
         _style_table_header(email, doc, at, n_cols, http)
     except Exception:
@@ -782,7 +782,7 @@ def _section_tables(body: list[dict], info: dict, section_index: int) -> list[di
 
 
 def _covered_cells(tbl: dict) -> dict[tuple[int, int], tuple[int, int]]:
-    """병합에 덮인 칸 → 병합 원점 칸. 독스 API 는 덮인 칸도 tableCells 에 두므로(실측 2026-09-29: 총괄표 14열 중 절반이 덮인 칸)
+    """병합에 덮인 칸 → 병합 원점 칸. 독스 API 는 덮인 칸도 tableCells 에 두므로
     거기에 글을 넣으면 보이지 않는다. 원점 칸의 rowSpan·columnSpan 으로 덮인 좌표를 센다."""
     covered: dict[tuple[int, int], tuple[int, int]] = {}
     for ri, row in enumerate(tbl.get("tableRows", [])):
@@ -814,7 +814,7 @@ def table_grids(email: str, doc: str, section_index: int, http=None, info: dict 
 
 def doc_table_grids(email: str, doc: str, http=None, info: dict | None = None, sep: str = " ") -> list[dict]:
     """문서 전체의 양식 표 격자를 한 번 읽어서 — table_grids 와 같은 꼴에 section_index(그 표가 속한 절 번호)를 더한다.
-    절을 지목하지 않은 편집 명령(「표를 채워 줘」)에도 모델이 fill 의 절·표·칸 번호를 짐작하지 않게(실측 2026-10-08: 격자 없이 1부터 세어 8칸 빗나감)."""
+    절을 지목하지 않은 편집 명령(「표를 채워 줘」)에도 모델이 fill 의 절·표·칸 번호를 짐작하지 않게(격자 없이 세면 칸이 빗나간다)."""
     http = http or _http()
     info = info or get(email, doc, http)
     r = _read(email, doc, http)
@@ -872,7 +872,7 @@ def rows_to_add(cells: list[dict], first_col: list[str]) -> tuple[int, int]:
     total_rows_model = {r for c in cells for r, col in [rc(c)] if col == 0 and r is not None
                         and str(c.get("text") or "").replace(" ", "") in _TOTAL}
     # 새 행이 필요한 것은 자기 행 이름(첫 칸)을 함께 쓴 행만 — 이름 없이 값만 쓴 행은 이미 있는 행(합계 행 등)을 채우는 것
-    # (10/10 시험: 합계 행의 이름은 두고 값 101 만 쓴 것을 넘침으로 보고 행을 늘려 합계가 빈 행에 갔다)
+    # (그러지 않으면 합계 행의 값만 쓴 것을 넘침으로 보고 행을 늘려 합계가 빈 행에 간다)
     wanted = sorted({r for c in cells for r, col in [rc(c)] if r is not None and r >= 1 and col == 0 and r not in total_rows_model
                      and str(c.get("text") or "").strip()})
     if not wanted:
@@ -890,7 +890,7 @@ def rows_to_add(cells: list[dict], first_col: list[str]) -> tuple[int, int]:
 
 def redirect_total_row(cells: list[dict], first_col: list[str]) -> list[dict]:
     """양식에 「합계」 행이 이미 있는데 다른 행 첫 칸에 「합계」를 써 넣으면 그 행의 값을 양식의 합계 행으로 옮긴다
-    (10/10 시험: 참여 현황 첫 행에 「합계 | 101」, 양식의 합계 행은 빈 채). 합계 행이 없거나 그 행이면 그대로."""
+    (예: 첫 행에 「합계 | 101」을 쓰고 양식의 합계 행은 빈 채). 합계 행이 없거나 그 행이면 그대로."""
     totals = [i for i, t in enumerate(first_col) if t.replace(" ", "") in _TOTAL]
     if not totals:
         return cells
@@ -974,7 +974,7 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
     extra, at = rows_to_add(cells, [_first_cell_text(r) for r in rows])
     if extra:
         # 양식의 빈 행보다 많이 채우면 행을 늘린다 — 합계 행 위(없으면 끝)에. 실제 서식처럼 행 수는 내용에 맞춘다
-        # (10/10 시험: 참여 대학 5곳인데 빈 행 3개 — 넷째가 합계 행을 덮고 다섯째·합계는 건너뜀)
+        # (빈 행이 3개인데 5행을 채우면 넷째가 합계 행을 덮고 다섯째·합계는 건너뛰게 된다)
         ts = int(t["el"]["startIndex"])
         _batch(email, doc, [{"insertTableRow": {"tableCellLocation": {"tableStartLocation": {"index": ts}, "rowIndex": at, "columnIndex": 0},
                                                 "insertBelow": True}} for _ in range(extra)], http)
@@ -1015,7 +1015,7 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
             skipped += 1
             continue
         if text and value_column(rows, ri, ci) and (too_wordy_for_value(text) or other_year(text, column_year(rows, ri, ci))):
-            skipped += 1                                      # 연도·차수 값 칸에 서술문 — 「최근 3년 값」 칸에 「2025년 기준 1,390억 원 … 투입」(10/11)
+            skipped += 1                                      # 연도·차수 값 칸에 서술문 — 「최근 3년 값」 칸에 「2025년 기준 1,390억 원 … 투입」 같은 것
             continue
         start = int(content[0]["startIndex"])
         existing = " ".join(_para_text(e["paragraph"]) for e in content).strip()
@@ -1078,7 +1078,7 @@ def _is_instruction_box(tbl: dict) -> bool:
 
 def _paragraph_ranges(els: list[dict], keep: set[str]) -> list[tuple[int, int]]:
     """작성방법 상자가 없는 절(공통 양식: 회색 지침 문단·서식 표)의 본문 문단 범위 — 제목·지침 문단·소제목·표는 남긴다.
-    통째로 지우면 서식 표·지침까지 지워지거나, 표 바로 앞 줄바꿈을 지우려다 독스가 거부한다(10/11 「비우기 실패」).
+    통째로 지우면 서식 표·지침까지 지워지거나, 표 바로 앞 줄바꿈을 지우려다 독스가 거부한다.
     표 바로 앞 문단은 글만 지우고 줄바꿈은 둔다. 서식 표의 값은 다시 쓰기의 채우기가 덮어쓴다."""
     out: list[tuple[int, int]] = []
     for i, el in enumerate(els[1:], start=1):
@@ -1103,9 +1103,9 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
                        end_index: int | None = None, keep_headings: set[str] | None = None) -> dict:
     """절의 본문을 지운다 — 제목·작성방법 상자(【작성방법】이 든 표)·소제목 문단(keep_headings)은 남기고, 상자 뒤(상자가 없으면
     제목 뒤)의 문단·표를 지운다. end_index 를 주면 그 앞까지(소제목 절들까지 한 절로 볼 때). '다시 써 줘' 가 덧붙이지 않게.
-    독스는 표 바로 앞의 빈 문단을 지우지 못하므로 상자 앞은 건드리지 않는다(실측 2026-09-27 400)."""
+    독스는 표 바로 앞의 빈 문단을 지우지 못하므로(400 오류) 상자 앞은 건드리지 않는다."""
     http = http or _http()
-    try:                                                # 앞서 채운 서식 표 칸부터 비운다 — 본문만 비우니 옛 값이 표에 남았다(10/11)
+    try:                                                # 앞서 채운 서식 표 칸부터 비운다 — 본문만 비우면 옛 값이 표에 남는다
         clear_recorded_fills(email, doc, section_index, data_dir=data_dir, http=http)
     except (ValueError, RuntimeError, OSError):
         pass
@@ -1230,7 +1230,7 @@ def _doc_lists(document: dict) -> dict:
 
 def bullet_marker(paragraph: dict, lists: dict, counters: dict) -> str:
     """독스 글머리 목록 문단의 공문서 부호 — 글머리표는 단계별 □ ○ - ㆍ, 번호 목록은 1. 가. 1) 가.)(md_docx 와 같은 위계).
-    독스는 부호를 글이 아니라 목록 속성으로 가진다 — 그대로 읽으면 부호와 단계가 사라진 평문이 된다(kordoc 조사 2026-09-30)."""
+    독스는 부호를 글이 아니라 목록 속성으로 가진다 — 그대로 읽으면 부호와 단계가 사라진 평문이 된다."""
     from zzaimy.ingest.md_docx import BULLETS, _number
 
     b = paragraph.get("bullet")
@@ -1309,15 +1309,15 @@ def section_bodies(email: str, doc: str, http=None, images: bool = True) -> list
                     items.append(("table", rows))
         if buf:
             items.append(("text", "\n".join(buf)))
-        # 본문이 빈 절도 차례에 넣는다 — 서식 채우기(hwpx_fill)가 소제목에 나눠 쓴 절의 부모를 알 수 있게(2026-09-29: 1.1 이 빠지자
-        # 그 소제목들이 앞 절로 들어갔다). 옮기기(migrate_bodies)는 빈 절을 건너뛴다.
+        # 본문이 빈 절도 차례에 넣는다 — 서식 채우기(hwpx_fill)가 소제목에 나눠 쓴 절의 부모를 알 수 있게(빠지면 그 소제목들이
+        # 앞 절로 들어간다). 옮기기(migrate_bodies)는 빈 절을 건너뛴다.
         out.append({"heading": sec["heading"], "items": items})
     return out
 
 
 def _u16(text: str) -> int:
     """독스 위치는 UTF-16 단위로 센다 — 기호 글꼴의 확장 영역 문자(󰊱 등)는 2칸이다. 파이썬 len 으로 세면 그 개수만큼 다음 자리가
-    어긋나 다음 표가 앞 표의 칸 안으로 들어갔다(실측 2026-09-30: 2.1.1 설정 근거 표가 사라짐)."""
+    어긋나 다음 표가 앞 표의 칸 안으로 들어간다."""
     return len(text.encode("utf-16-le")) // 2
 
 
@@ -1382,7 +1382,7 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
 
     def parent_of(heading: str, dst_secs: list[dict]) -> dict | None:
         """새 작업본에 없는 소제목의 부모 — 옛 작업본 차례에서 바로 앞쪽으로 올라가며 새 작업본에 있는 첫 제목
-        (실측 2026-09-28: '직전에 옮긴 절'로 잡자 1.1 의 SWOT 소제목이 1.2 아래로 들어갔다)."""
+        ('직전에 옮긴 절'로 잡으면 소제목이 엉뚱한 다음 절 아래로 들어간다)."""
         try:
             i = src_order.index(heading)
         except ValueError:
@@ -1394,9 +1394,9 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
                 return hit
         return None
 
-    # 문서는 한 번만 읽는다 — 절마다(항목마다) 다시 읽으면 큰 작업본(95쪽)은 읽기 100번 가까이·30분이 넘었다(실측 2026-09-30).
+    # 문서는 한 번만 읽는다 — 절마다(항목마다) 다시 읽으면 큰 작업본(95쪽 급)은 읽기 100번 가까이·30분이 넘게 걸린다.
     # 절마다 넣을 것을 한 요청(batchUpdate)으로 만들고, 문서 뒤쪽 절부터 넣어 앞 절의 위치가 밀리지 않게 한다.
-    # 새 표의 칸 위치는 넣은 자리로 계산한다: 칸(r, c) = 자리 + 4 + r × (2 × 열 수 + 1) + 2 × c (독스 실측)
+    # 새 표의 칸 위치는 넣은 자리로 계산한다: 칸(r, c) = 자리 + 4 + r × (2 × 열 수 + 1) + 2 × c (독스에서 확인한 규칙)
     raw = _read(email, dst, http)
     _raise(raw)
     info = outline(raw.json())
@@ -1445,8 +1445,8 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
         if sec is None:
             sec = parent_of(b["heading"], info["sections"])
             if sec is not None:
-                # 소제목 글줄과 첫 본문을 한 번에 넣는다 — 따로 넣으면 소제목 줄이 새 절 경계가 돼 본문이 그 위에 들어간다(실측 2026-09-28)
-                # 본문이 그림뿐이라 옮길 항목이 없는 소제목도 제목 줄은 넣는다(실측 2026-09-30: '4) 위협(T)'·'1. 비전' 이 빠졌다)
+                # 소제목 글줄과 첫 본문을 한 번에 넣는다 — 따로 넣으면 소제목 줄이 새 절 경계가 돼 본문이 그 위에 들어간다
+                # 본문이 그림뿐이라 옮길 항목이 없는 소제목도 제목 줄은 넣는다(빠뜨리면 소제목이 사라진다)
                 if items and items[0][0] == "text":
                     items = [("text", b["heading"] + "\n" + str(items[0][1]))] + items[1:]
                 else:
@@ -1457,10 +1457,10 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
                 results.append({"heading": b["heading"], "done": "skip", "why": "새 작업본에 같은 절이 없음"})
             continue
         # 새 작업본(서식 변환본)에 이미 있는 글·표는 옮기지 않는다 — 옛 작업본도 서식 변환본이라 서식 자체의 표·문단이 들어 있다
-        # (실측 2026-09-29: 재생성 뒤 표 29개 이동, 대부분 서식 표). 문단은 글로, 표는 칸 글자 집합으로 견준다
+        # (그대로 옮기면 서식 표가 두 벌이 된다). 문단은 글로, 표는 칸 글자 집합으로 견준다
         kept: list[tuple[str, object]] = []
-        # 짧은 줄(8자 이하)은 문서 전체와 견주면 흔한 말이 걸리므로 같은 절의 줄과 통째로 견준다 — 예전엔 아예 견주지 않아
-        # 「◦ 달성 계획 및 전략」이 작업본을 새로 뜰 때마다 8줄씩 늘었다(10/11: 24 → 32 → 40번)
+        # 짧은 줄(8자 이하)은 문서 전체와 견주면 흔한 말이 걸리므로 같은 절의 줄과 통째로 견준다 — 견주지 않으면
+        # 짧은 소제목 줄이 작업본을 새로 뜰 때마다 쌓인다
         sec_lines = plan_lines.setdefault(int(sec["index"]), {
             _norm_heading(_para_text(el["paragraph"])) for el in dst_body
             if "paragraph" in el and int(sec["start"]) <= int(el.get("startIndex", 0)) < int(sec["end"])})
@@ -1483,7 +1483,7 @@ def migrate_bodies(email: str, src: str, dst: str, *, user: str, data_dir: Path,
                         kept.append(("fill", (form, rows)))
                     else:
                         kept.append(("table", rows))
-                    dst_cells |= cells                                 # 같은 표가 뒤에 또 나오면 건너뛴다(예전엔 절마다 다시 읽어 그랬다)
+                    dst_cells |= cells                                 # 같은 표가 뒤에 또 나오면 건너뛴다
         plan = plans.setdefault(int(sec["index"]), {"sec": sec, "items": [], "heads": []})
         plan["items"].extend(kept)
         plan["heads"].append((b["heading"], sum(len(str(x)) for k, x in kept if k == "text"),

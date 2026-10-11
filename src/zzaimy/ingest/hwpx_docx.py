@@ -1,7 +1,7 @@
 """HWPX(OWPML) → DOCX 충실 변환 — 구글 독스에서 여러 사람과 에이전트가 같이 작업하기 위한 열람·편집본.
 
-추출 조각으로 되살리던 이전 경로(render.build_docx)는 표 테두리·바탕색·정렬·글자 크기가 사라지고 중첩 표의 글이
-두 번 들어갔다(실측 2026-09-24, AID 사업계획서 작성서식). 여기서는 `Contents/header.xml` 의 글자 모양(charPr)·
+추출 조각으로 되살리는 경로(render.build_docx)는 표 테두리·바탕색·정렬·글자 크기가 사라지고 중첩 표의 글이
+두 번 들어간다. 여기서는 `Contents/header.xml` 의 글자 모양(charPr)·
 문단 모양(paraPr)·테두리/배경(borderFill)과 `Contents/section*.xml` 의 문단·표·글상자·그림을 그대로 옮긴다.
 
 옮기는 것: 쪽 크기·여백·가로세로, 문단 정렬·들여쓰기·쪽 나눔, 글자 크기·굵기·기울임·밑줄·색, 표(열 너비·행 높이·
@@ -33,11 +33,9 @@ TWIPS_PER_HWPUNIT = 1440 / HWPUNIT_PER_INCH          # 0.2
 
 
 # 구글 독스에 있는 한글 글꼴로 맞춘다 — 한글 문서의 글꼴 이름(맑은 고딕·휴먼명조·HY헤드라인M …)을 그대로 두면 독스가 Arial 로
-# 대신 그려 한글 모양이 달라진다(실측 2026-09-24). 고딕 계열은 Nanum Gothic, 명조·바탕 계열은 Nanum Myeongjo.
+# 대신 그려 한글 모양이 달라진다. 고딕 계열은 Nanum Gothic, 명조·바탕 계열은 Nanum Myeongjo.
 _SERIF_HINT = ("명조", "바탕", "신명조", "Batang", "Myeongjo", "Myungjo", "궁서", "Gungsuh")
-# 독스에 있는 한글 글꼴 두 계열. 고딕은 나눔바른고딕 — 148 왕복 실측(2026-09-28, 작성서식 원본 62쪽): 나눔고딕 67쪽·빈 쪽 7,
-# Noto Sans KR 70, Gothic A1 69, 나눔바른고딕 61쪽·빈 쪽 2(행 높이가 한글 조판에 가장 가깝다). 쪽 그림으로 겹침·잘림 없음 확인
-# 고딕은 Nanum Gothic(ADR-0045) — 독스 글꼴 목록에 'Nanum Barun Gothic' 이 없어 굴림으로 바뀌고 한글 굵게가 사라졌다(2026-09-30 실측)
+# 고딕은 Nanum Gothic(ADR-0045) — 독스 글꼴 목록에 'Nanum Barun Gothic' 이 없어 그 이름을 쓰면 굴림으로 바뀌고 한글 굵게가 사라진다
 FONT_MAP = {"고딕": "Nanum Gothic", "명조": "Nanum Myeongjo"}
 
 
@@ -70,7 +68,7 @@ def _first(el: ET.Element, name: str) -> ET.Element | None:
 
 def _child(el: ET.Element, name: str) -> ET.Element | None:
     """직접 자식만 — 셀(hp:tc)의 cellAddr·cellSpan·cellSz 는 subList(중첩 표 포함) 뒤에 오므로 iter() 로 찾으면
-    중첩 표의 셀 값을 집는다(실측 2026-09-24)."""
+    중첩 표의 셀 값을 집는다."""
     for ch in el:
         if _local(ch.tag) == name:
             return ch
@@ -89,7 +87,7 @@ class CharStyle:
     font: str = ""
     superscript: bool = False
     subscript: bool = False
-    width_pct: int = 100              # 장평(%) — 워드 w:w. LibreOffice 는 따르고 독스는 무시한다(실측 2026-09-29)
+    width_pct: int = 100              # 장평(%) — 워드 w:w. LibreOffice 는 따르고 독스는 무시한다
 
 
 @dataclass
@@ -311,7 +309,7 @@ def _set_cell_valign(cell, valign: str) -> None:
 
 def _cell_margins_hu(tc: ET.Element | None) -> dict[str, int]:
     """셀의 안쪽 여백(HWPUNIT) — hp:cellMargin 이 있으면 그 값, 없으면 한글 기본 1.41mm(141).
-    표마다 다르다(실측 2026-09-29 사업계획서 hwp: 위원회 표는 위·아래 0, 좌우 538) — 한 값으로 두면 행이 부푼다."""
+    표마다 다르다(위·아래 0, 좌우 538 인 표도 있다) — 한 값으로 두면 행이 부푼다."""
     m = _child(tc, "cellMargin") if tc is not None else None
     if m is None:
         return {"top": 141, "left": 141, "bottom": 141, "right": 141}
@@ -334,7 +332,7 @@ def _set_cell_margins(cell, hu: int | dict[str, int] = 141) -> None:
 
 
 # w:tblPr 자식의 규격(OOXML) 순서 — 순서가 틀리거나 같은 요소가 둘이면 구글 독스는 표 속성을 통째로 버려 표가 가늘게 찌그러진다
-# (실측 2026-09-25: tblLayout 둘 + tblBorders 가 뒤에 → 독스 199쪽, 표가 한 줄 폭). 리브레오피스는 눈감아 준다.
+# (tblLayout 이 둘이거나 tblBorders 가 뒤에 오면 표가 한 줄 폭으로 줄어든다). 리브레오피스는 눈감아 준다.
 _TBLPR_ORDER = ("tblStyle", "tblpPr", "tblOverlap", "bidiVisual", "tblStyleRowBandSize", "tblStyleColBandSize", "tblW", "jc",
                 "tblCellSpacing", "tblInd", "tblBorders", "shd", "tblLayout", "tblCellMar", "tblLook", "tblCaption", "tblDescription")
 
@@ -381,11 +379,11 @@ def _table_fixed_layout(table, col_twips: list[int]) -> None:
         gc.set(qn("w:w"), str(w))
 
 
-DOCS_LINE_EM = float(os.environ.get("ZZAIMY_DOCS_LINE_EM", "1.2"))   # 독스 글꼴의 자연 행 높이(em) 기본값 — 나눔바른고딕 본문 실측 1.2(2026-09-29)
-# 글꼴마다 다르다(독스 본문 문단 실측 2026-09-29, 10·11pt 배수 1.0·0.75 에서 같은 값): 나눔바른고딕 1.20, 나눔명조 1.625, 나눔고딕 1.625.
+DOCS_LINE_EM = float(os.environ.get("ZZAIMY_DOCS_LINE_EM", "1.2"))   # 독스 글꼴의 자연 행 높이(em) 기본값 — 나눔바른고딕 본문 측정값 1.2
+# 글꼴마다 다르다(독스 본문 문단 측정, 10·11pt 배수 1.0·0.75 에서 같은 값): 나눔바른고딕 1.20, 나눔명조 1.625, 나눔고딕 1.625.
 # Noto Sans KR·Gothic A1 은 표 실험(여백 포함)에서 나눔고딕과의 비율로 추정. 배수 = 한글 비율 ÷ 이 값이면 독스 줄 간격이 한글(글자 크기 × 비율)과 같다
 DOCS_LINE_EM_BY_FONT = {"Nanum Barun Gothic": 1.2, "Nanum Myeongjo": 1.625, "Nanum Gothic": 1.625, "Noto Sans KR": 1.79, "Gothic A1": 1.625}
-MAX_ROW_HU = 5 * HWPUNIT_PER_INCH     # 행 높이 상한 5인치 — 쪽 전체를 차지하는 배치용 표 행이 빈 쪽을 만든다(실측 2026-09-24)
+MAX_ROW_HU = 5 * HWPUNIT_PER_INCH     # 행 높이 상한 5인치 — 쪽 전체를 차지하는 배치용 표 행이 빈 쪽을 만든다
 
 
 def _row_height(row, hu: int) -> None:
@@ -404,12 +402,12 @@ class Converter:
         self.st = styles
         self.zf = zf
         self.bin_map = bin_map
-        # 줄 간격 규칙 — 렌더러마다 다르다(실측 2026-09-29, 표 행 간격 실험): 독스는 '최소·고정'을 글꼴 자연 행 높이(나눔바른고딕 1.3em)
+        # 줄 간격 규칙 — 렌더러마다 다르다(표 행 간격 측정): 독스는 '최소·고정'을 글꼴 자연 행 높이(나눔바른고딕 1.3em)
         # 아래로 못 내리지만 배수 1 미만은 그대로 따르므로 배수 = 비율/1.3 이 한글의 줄 간격(글자 크기 × 비율)을 재현한다("docs").
         # LibreOffice(PDF 열람)는 '고정'을 그대로 따른다("exact"). 기본은 ZZAIMY_LINE_RULE, 없으면 docs
         self.line_rule = (line_rule or os.environ.get("ZZAIMY_LINE_RULE", "docs")).lower()
-        # 장평 흉내(실험, 2026-09-29): 독스에는 글자 폭 조절이 없어 장평 95% 글을 크기 95% 로 주고 줄 간격 배수는 그만큼 올려 pitch 를 지킨다
-        # 장평 흉내(독스 전용, ADR-0046): 기본 켬 — 사업계획서 95→91쪽, 작성서식·평가편람 그대로(2026-09-30 실측). 끄려면 0
+        # 장평 흉내(독스 전용, ADR-0046): 독스에는 글자 폭 조절이 없어 장평 95% 글을 크기 95% 로 주고 줄 간격 배수는 그만큼 올려
+        # pitch 를 지킨다. 기본 켬(측정 결과 사업계획서 95→91쪽, 작성서식·평가편람 그대로). 끄려면 0
         self.width_emulate = self.line_rule == "docs" and os.environ.get("ZZAIMY_DOCS_WIDTH_EMULATE", "1") == "1"
         from docx import Document
 
@@ -437,7 +435,7 @@ class Converter:
                           "DISTRIBUTE_SPACE": WD_ALIGN_PARAGRAPH.DISTRIBUTE}.get(ps.align, WD_ALIGN_PARAGRAPH.JUSTIFY)
         pf = para.paragraph_format
         # 한글의 내어쓰기(intent<0)는 첫 줄이 왼쪽 여백에서 시작하고 둘째 줄부터 |intent| 만큼 들어간다 — 워드로는
-        # 왼쪽 여백을 |intent| 만큼 늘리고 첫 줄을 그만큼 되돌린다(그대로 옮기면 첫 줄이 칸 밖으로 나간다, 실측 2026-09-24 평가편람)
+        # 왼쪽 여백을 |intent| 만큼 늘리고 첫 줄을 그만큼 되돌린다(그대로 옮기면 첫 줄이 칸 밖으로 나간다)
         left, first = ps.left_hu, ps.indent_hu
         if first < 0:
             left, first = left + abs(first), -abs(first)
@@ -449,20 +447,20 @@ class Converter:
         pf.space_after = Emu(int(ps.after_hu * EMU_PER_HWPUNIT))
         if ps.line_pct:
             # 한글의 줄 간격 %는 글자 크기 기준이다(10pt·160% = 16pt). 워드의 배수는 글꼴 행 높이 기준이라 맑은 고딕에서 2할쯤
-            # 커져 쪽이 넘친다(실측: 표지 뒤 빈 쪽) — 글자 크기 × 비율을 고정 값으로 준다
+            # 커져 쪽이 넘친다(표지 뒤 빈 쪽) — 글자 크기 × 비율을 고정 값으로 준다
             from docx.enum.text import WD_LINE_SPACING
 
-            # 한글 양식은 여백용 빈 문단을 0.5pt 글자로 둔다(표지, 실측 2026-09-24) — 하한을 크게 두면 표지가 넘친다
+            # 한글 양식은 여백용 빈 문단을 0.5pt 글자로 둔다(표지) — 하한을 크게 두면 표지가 넘친다
             size_pt = self._para_font_pt(p_el)
             pct = max(0.8, min(ps.line_pct / 100.0, 3.0))
             if in_cell and last_in_cell and pct > 1.0:
-                # 한글의 셀 높이 = 글자 높이 합 + 셀의 맨 마지막 줄을 뺀 줄 간격 여분 + 안쪽 여백(실측 2026-09-29, 원본 셀 높이·LineSeg 로
+                # 한글의 셀 높이 = 글자 높이 합 + 셀의 맨 마지막 줄을 뺀 줄 간격 여분 + 안쪽 여백(원본 셀 높이·LineSeg 로
                 # 검산: 12pt·160% 한 줄 칸 = 1200HU, 10pt·130% 세 줄 칸 = 3883HU; 문단마다 빼는 모형은 400셀 중 3개만 맞고 셀 마지막 줄만
                 # 빼는 모형이 39개로 가장 맞음). 워드·독스는 모든 줄에 여분을 주므로 셀의 마지막 문단만 원본 줄 수(n)로 비율을
                 # 낮춘다: pct − (pct−1)/n. 줄 수는 한글이 저장한 줄 배치(linesegarray·LineSeg) 개수
                 n = _line_count(p_el)
                 pct = pct - (pct - 1.0) / max(n, 1)
-            # 줄 간격 규칙(148 왕복 검사 실측 2026-09-28, 작성서식 원본 62쪽): exact 는 LibreOffice 64·독스 77, auto 는 80·79,
+            # 줄 간격 규칙(scripts/148 왕복 검사, 작성서식 원본 62쪽): exact 는 LibreOffice 64·독스 77, auto 는 80·79,
             # atleast 는 66·67 — 두 렌더러가 같은 쪽수에 가장 가깝다. 독스는 '고정'을 나눔 글꼴 행 높이로 다시 계산해 늘리므로 '최소'가 맞다
             rule = self.line_rule
             if rule == "docs":
@@ -477,7 +475,7 @@ class Converter:
                 pf.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
                 pf.line_spacing = pct
             elif rule == "atleast" or any(_local(e.tag) == "pic" for e in p_el.iter()):
-                # 그림이 든 문단은 '고정'이면 그림이 한 줄 높이로 잘린다 — 한글은 글자처럼 취급한 그림 높이만큼 줄을 늘린다(실측 2026-09-30, 완성본 도식)
+                # 그림이 든 문단은 '고정'이면 그림이 한 줄 높이로 잘린다 — 한글은 글자처럼 취급한 그림 높이만큼 줄을 늘린다
                 pf.line_spacing_rule = WD_LINE_SPACING.AT_LEAST
                 pf.line_spacing = Pt(max(1.0, size_pt * pct))
             else:
@@ -593,17 +591,17 @@ class Converter:
                         self._apply_para_style(para, p_el, in_cell=container is not self.doc, last_in_cell=last_in_cell)
                     self._emit_text(para, obj, char_id)
                 elif n == "pic" and (_child(obj, "pos") is not None and (_child(obj, "pos").get("treatAsChar") or "0") == "1"):
-                    # 글자처럼 놓인 그림(표지의 로고 여러 개)은 같은 문단 안에 나란히 — 문단마다 따로 두면 쪽이 넘친다(실측 2026-09-24)
+                    # 글자처럼 놓인 그림(표지의 로고 여러 개)은 같은 문단 안에 나란히 — 문단마다 따로 두면 쪽이 넘친다
                     if para is None:
                         para = self._new_para(container, 0)
                         self._apply_para_style(para, p_el, in_cell=container is not self.doc, last_in_cell=last_in_cell)
                     self.picture(obj, container, para=para)
                 elif n == "line":
-                    continue                                   # 장식 선 — 내용이 아니다(간지 쪽의 선만 있는 문단이 내용으로 잡혀 빈 쪽을 만들었다)
+                    continue                                   # 장식 선 — 내용이 아니다(간지 쪽의 선만 있는 문단이 내용으로 잡히면 빈 쪽이 생긴다)
                 elif n in ("tbl", "pic"):
                     # 한글은 글자처럼 취급하지 않는 표의 앵커를 다음 문단 첫머리에 두는 일이 많다("(3) 제목" 문단 뒤 "(4) 제목" 문단의
                     # 첫 글자 앞에 (3)의 표) — 그러면 표가 그 문단 글보다 앞에 보인다. 글이 아직 없을 때 만난 개체는 글 앞에 그린다
-                    # (실측 2026-09-29: 사업계획서 hwp 의 (3)·(4) 제목이 붙어 나오고 표 둘이 그 아래 몰림)
+                    # (그러지 않으면 (3)·(4) 제목이 붙어 나오고 표 둘이 그 아래 몰린다)
                     (before if para is None or not _para_has_content(para) else pending).append((n, obj))
                 elif n in ("rect", "container", "ellipse", "polygon", "curve", "arc", "ole", "equation"):
                     has_text = any((t.text or "").strip() for t in obj.iter() if _local(t.tag) == "t")
@@ -633,8 +631,8 @@ class Converter:
             before = []
         pending = before + pending
         if (para is None or not _para_has_content(para)) and not pending:
-            # 빈 문단(공백만 있는 문단 포함) — 원본의 줄 간격을 지킨다. 그림만 든 문단은 빈 문단이 아니다(실측 2026-09-25: 표지·본문
-            # 그림이 '빈 문단 정리'에 지워져 그림 2장이 사라짐)
+            # 빈 문단(공백만 있는 문단 포함) — 원본의 줄 간격을 지킨다. 그림만 든 문단은 빈 문단이 아니다(빈 문단으로 보면
+            # '빈 문단 정리'에 그림이 지워진다)
             if para is None:
                 para = self._new_para(container, 0)
                 self._apply_para_style(para, p_el, in_cell=container is not self.doc, last_in_cell=last_in_cell)
@@ -675,8 +673,8 @@ class Converter:
     # -- 머리말·꼬리말·쪽 번호 ------------------------------------------------------------------------
     def _control(self, ctrl: ET.Element, para, page_nums: list, char_id: str | None) -> None:
         """hp:ctrl 의 자식 — 머리말/꼬리말은 바로, 쪽 번호 매기기는 문단 끝에(먼저 넣으면 뒤의 머리말·꼬리말 정의가 지운다),
-        쪽 번호 자동 번호는 그 자리에 PAGE 필드. 본문·셀·글상자 어느 문단에 있어도 같다(실측 2026-09-25: 작성서식의 쪽 번호가
-        표 셀 첫 문단에 있어 빠졌다)."""
+        쪽 번호 자동 번호는 그 자리에 PAGE 필드. 본문·셀·글상자 어느 문단에 있어도 같다(쪽 번호가 표 셀 첫 문단에 있는
+        서식도 있다)."""
         for c in ctrl:
             cn = _local(c.tag)
             if cn in ("header", "footer"):
@@ -700,7 +698,7 @@ class Converter:
     def header_footer(self, el: ET.Element, kind: str) -> None:
         """한글의 머리말/꼬리말(hp:header·hp:footer)을 워드 구역의 머리말/꼬리말로. 한글은 정의한 쪽부터 그 머리말이 적용되므로
         본문이 이미 들어간 구역에서 다시 정하면 그 자리에 '이어지는 구역'을 열어 새 머리말을 건다(쪽 흐름은 그대로).
-        실측 2026-09-25: 표지 로고 2장이 머리말에 있어 변환에서 빠졌고(회귀 검사 145 가 잡음), 나중 정의로 덮으면 표지 로고가 사라졌다."""
+        표지 로고가 머리말에 든 서식이 있어, 나중 정의로 덮으면 표지 로고가 사라진다(회귀 검사 scripts/145)."""
         from docx.enum.section import WD_SECTION
 
         apply = (el.get("applyPageType") or "BOTH").upper()
@@ -781,7 +779,7 @@ class Converter:
 
     def _fit_to_text_width(self, col_hu: list[int], container) -> list[int]:
         """본문에 놓이는 표가 본문 폭보다 넓으면 열 폭을 같은 비율로 줄인다 — 독스는 넓은 표를 가운데 맞춰 왼쪽이 쪽 밖으로 나가
-        글이 잘린다(실측 2026-09-28: 작성서식 작업본 8·12쪽의 작성방법 상자·요약서 표). 한글은 쪽 여백을 침범한 표를 그대로 둔다."""
+        글이 잘린다(작성방법 상자·요약서 표가 흔한 예). 한글은 쪽 여백을 침범한 표를 그대로 둔다."""
         if container is not self.doc:
             return col_hu
         usable = self._usable_width_hu()
@@ -795,7 +793,7 @@ class Converter:
 
     def _separate_from_previous_table(self, container) -> None:
         """표 바로 뒤에 표가 오면 사이에 아주 낮은 빈 문단을 둔다 — 워드·구글 독스는 붙어 있는 두 표를 한 표로 합쳐 버려
-        뒤 표의 글이 앞 표의 좁은 열에 끼어 한 글자씩 세로로 늘어졌다(실측 2026-09-25 사업계획서 독스 199쪽)."""
+        뒤 표의 글이 앞 표의 좁은 열에 끼어 한 글자씩 세로로 늘어진다."""
         from docx.enum.text import WD_LINE_SPACING
         from docx.shared import Pt
 
@@ -841,7 +839,7 @@ class Converter:
         n_rows = max([r + rs for r, _, rs, _, _ in cells_info] + [_hu(tbl.get("rowCnt"))])
         if n_rows < 1:
             return
-        # 한글 표는 행마다 열 경계가 달라도 된다(배치용 표, 실측 2026-09-24 작성서식의 4×13 표). 워드·독스는 한 그리드를 요구하므로
+        # 한글 표는 행마다 열 경계가 달라도 된다(배치용 표). 워드·독스는 한 그리드를 요구하므로
         # 모든 행의 셀 경계(x 좌표)를 모아 공통 그리드를 만들고 셀을 그 그리드 열에 얹는다. 폭 정보가 없으면 cellAddr 로 돌아간다.
         grid = _column_grid(rows, cells_info)
         if grid is not None:
@@ -978,7 +976,7 @@ class Converter:
         """글상자(hp:rect 등)의 글은 그 자리에 문단으로. 테두리가 있으면 한 칸 표로 감싼다."""
         draw = _child(el, "drawText")
         if draw is None:
-            # 묶음 도형(container)은 글이 안쪽 도형에 있다 — 자식 도형을 차례로(간지의 장 제목 상자, 실측 2026-09-24)
+            # 묶음 도형(container)은 글이 안쪽 도형에 있다 — 자식 도형을 차례로(간지의 장 제목 상자 등)
             handled = False
             for ch in el:
                 if _local(ch.tag) in ("rect", "container", "ellipse", "polygon", "curve", "arc"):
@@ -1006,7 +1004,7 @@ class Converter:
         self.stats["textboxes"] += 1
         if boxed:
             self._separate_from_previous_table(container)
-            # 글상자 너비를 표에 준다 — 너비 없는 한 칸 표는 독스가 가장 좁게 그려 쪽 높이의 가는 상자가 됐다(실측 2026-09-25 사업계획서)
+            # 글상자 너비를 표에 준다 — 너비 없는 한 칸 표는 독스가 가장 좁게 그려 쪽 높이의 가는 상자가 된다
             w_hu = 0
             for tag in ("curSz", "sz", "orgSz"):
                 sz = _child(el, tag)
@@ -1058,7 +1056,7 @@ class Converter:
         meta = metafile_kind(data)
         try:
             if meta:
-                _add_metafile(para, data, width, *meta)     # WMF·EMF(체크 표시 같은 작은 그림) — 독스는 그대로 받아 그린다(왕복 실측 2026-09-25)
+                _add_metafile(para, data, width, *meta)     # WMF·EMF(체크 표시 같은 작은 그림) — 독스는 그대로 받아 그린다
                 self.stats["metafiles"] = self.stats.get("metafiles", 0) + 1
             else:
                 para.add_run().add_picture(io.BytesIO(data), width=width)
@@ -1183,8 +1181,8 @@ IMAGE_BIG_BYTES = 400_000
 
 
 def normalize_image(data: bytes) -> bytes:
-    """워드·독스가 받는 그림으로 — BMP 등은 PNG 로, JFIF·Exif 머리가 아닌 JPEG(ICC 프로필 APP2 로 시작, 실측 2026-09-24 사업계획서
-    10장)는 다시 저장하고, 큰 그림은 긴 변 1600px·JPEG(투명하면 PNG)로 줄인다. python-docx 는 머리를 보고 형식을 알아낸다."""
+    """워드·독스가 받는 그림으로 — BMP 등은 PNG 로, JFIF·Exif 머리가 아닌 JPEG(ICC 프로필 APP2 로 시작하는 것)는
+    다시 저장하고, 큰 그림은 긴 변 1600px·JPEG(투명하면 PNG)로 줄인다. python-docx 는 머리를 보고 형식을 알아낸다."""
     head = data[:4]
     ok_head = head.startswith(b"\x89PNG") or head in (b"\xff\xd8\xff\xe0", b"\xff\xd8\xff\xe1")
     if ok_head and len(data) <= IMAGE_BIG_BYTES:

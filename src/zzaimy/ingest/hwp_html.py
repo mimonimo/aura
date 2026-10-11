@@ -1,7 +1,7 @@
 """옛 한글(.hwp 5.0) → 한 파일 HTML — 구글 드라이브가 독스로 바꾸는 입력.
 
 pyhwp 의 hwp5html 은 문단·표·글자 모양을 CSS 클래스(charshape-N·parashape-N·borderfill-N)로 내놓는다. ODT 변환은
-큰 실물 문서(30MB 사업계획서, 2026-09-24)에서 RelaxNG 검증·변환 모두 실패했고 HTML 은 됐다. 여기서는 그 HTML 을
+30MB 급 큰 문서에서 RelaxNG 검증·변환이 실패하므로 HTML 경로를 쓴다. 여기서는 그 HTML 을
 스타일 시트를 안에 넣고, 그림은 JPEG 로 줄여(긴 변 1400px) data URI 로 박은 한 파일로 만든다 — 원본 BMP 는 장당
 8MB 가 넘어 그대로는 올릴 수 없다. 머리말·꼬리말 영역은 뺀다(독스에서 편집 대상이 아니다).
 """
@@ -65,7 +65,7 @@ def convert(src: Path | str, timeout_s: int = 900) -> tuple[bytes, dict]:
         html = index.read_text(encoding="utf-8", errors="replace")
         css = (out / "styles.css").read_text(encoding="utf-8", errors="replace") if (out / "styles.css").exists() else ""
         stats = {"images": 0, "images_dropped": 0, "tables": html.count("<table")}
-        # pyhwp 는 취소선을 글자 모양마다 거의 다 켜서 낸다(실측 2026-09-24: 서식 442곳, 제목까지 줄이 그어짐) — 뺀다
+        # pyhwp 는 취소선을 거의 모든 글자 모양에 켜서 내므로(제목까지 줄이 그어진다) 뺀다
         css = re.sub(r"\s*text-decoration:\s*line-through;", "", css)
         # 화면용 꾸밈(회색 바탕·종이 테두리)은 독스에서 쪽 바탕이 회색으로 보인다 — 뺀다
         css = re.sub(r"body\s*\{[^}]*\}", "body { margin: 0; }", css, count=1)

@@ -1,7 +1,6 @@
-"""검색 스텁 (W1-W2 TASK-08) — 인터페이스만 진짜, 내용은 합성.
+"""검색 스텁. 인터페이스는 실제 검색기와 같고 내용은 합성이다.
 
-실제 하이브리드 검색(RRF+리랭킹)은 P3에서 이 인터페이스 뒤로 들어온다.
-반환 형태(근거 + 출처)는 실제와 동일하게 유지한다 — 출처 없는 근거는 없다.
+반환 형태(근거 + 출처)는 실제 검색기와 같게 유지한다. 출처 없는 근거는 없다.
 """
 
 from __future__ import annotations
@@ -40,5 +39,5 @@ class StubRetriever:
     ]
 
     def search(self, query: str, *, user_access_levels: set[str], top_k: int = 5) -> list[Evidence]:
-        # 열람 등급 인자는 지금부터 필수다 (절대 규칙 4) — 스텁에서도 시그니처로 강제
+        # 열람 등급 인자는 필수다(절대 규칙 4). 스텁에서도 시그니처로 강제한다
         return self._SYNTHETIC[:top_k]

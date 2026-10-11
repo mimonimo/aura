@@ -1,4 +1,4 @@
-"""MinerU 어댑터 (W1-W2 TASK-04).
+"""MinerU 어댑터.
 
 MinerU는 파이썬 API가 버전마다 바뀌어 CLI(`mineru -p .. -o .. -b pipeline`)를
 서브프로세스로 호출하고 산출물 `*_content_list.json`을 정규화한다.
@@ -151,11 +151,10 @@ class MineruParser:
         self.backend = backend
         self.lang = lang
         self.method = method
-        # 제한 시간. 예전 기본값은 30분이었는데, 한 문서가 그만큼 붙잡혀 있으면 여러 건을
-        # 넣는 반입이 멈춘다(실측 2026-09-21). 넘으면 호출부가 기본 파싱(원문 글자층)으로
-        # 물러나므로 글자를 잃지 않는다 — 잃는 것은 표·읽기 순서 같은 구조다.
+        # 제한 시간. 한 문서가 오래 붙잡혀 있으면 여러 건을 넣는 반입이 멈춘다. 넘으면 호출부가
+        # 기본 파싱(원문 글자층)으로 물러나므로 글자를 잃지 않는다 — 잃는 것은 표·읽기 순서 같은 구조다.
         # 기본 5분: 반입은 문서 한 건에 10분을 준다. 구조 추출이 그 10분을 다 쓰면 글자층으로
-        # 물러날 시간이 없어 문서가 실패로 끝난다(실측 2026-09-21: 기본계획 PDF 3건).
+        # 물러날 시간이 없어 문서가 실패로 끝난다.
         self.timeout_s = timeout_s if timeout_s is not None else int(
             os.environ.get("ZZAIMY_MINERU_TIMEOUT", "300"))
 
@@ -208,8 +207,8 @@ class MineruParser:
         max_page = 0
         # 첫 쪽 머리 영역 — MinerU 는 첫 쪽 맨 위의 문서 이름·시행일도 'header'로 분류해
         # 버린다. 2쪽부터의 머리말은 쪽마다 반복되는 장식이지만, 첫 쪽의 그 자리는 문서
-        # 이름이 놓이는 자리다(실측 2026-09-20 규정집: '… 사무분장 규정', '학과장회 통과일자 …'
-        # 가 통째로 빠짐). 첫 쪽 것만 위에서부터 본문 앞에 되살린다.
+        # 이름이 놓이는 자리다(규정집이면 규정 이름과 의결일이 통째로 빠진다). 첫 쪽 것만
+        # 위에서부터 본문 앞에 되살린다.
         first_headers = sorted(
             (e for e in raw_entries
              if e.get("type") == "header" and int(e.get("page_idx", 0)) == 0

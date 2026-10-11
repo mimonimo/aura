@@ -28,8 +28,8 @@ _READY: set[str] = set()
 def ensure(db) -> None:
     """표·색인이 없을 때만 만든다(프로세스마다 한 번 확인).
 
-    예전에는 화면 요청마다 CREATE … IF NOT EXISTS 를 보냈다. 그래프 갱신(157)이 표를 쓰는 동안 이 DDL 이 잠금을 기다리다
-    시간 초과로 화면이 500 이 났다(2026-10-06 「온톨로지 인터널 에러」). 이미 있으면 DDL 을 아예 보내지 않는다."""
+    그래프 갱신(157)이 표를 쓰는 동안 화면 요청이 CREATE … IF NOT EXISTS 를 보내면 잠금을 기다리다
+    시간 초과가 난다. 그래서 이미 있으면 DDL 을 아예 보내지 않는다."""
     key = str(getattr(db, "path", id(db)))
     if key in _READY:
         return

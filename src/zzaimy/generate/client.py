@@ -1,8 +1,8 @@
-"""vLLM 호출 계층 (W1-W2 TASK-08).
+"""vLLM 호출 계층.
 
 공고 스키마 추출(guided_json — vLLM 구조화 출력으로 형식 보장)과
 섹션 초안 생성. 수치는 근거에 있는 것만 쓰도록 프롬프트로 지시하되,
-**최종 보증은 프롬프트가 아니라 검증기가 한다** (브리프 5.3 — 구조 수준 강제).
+최종 보증은 프롬프트가 아니라 검증기가 한다(브리프 5.3 — 구조 수준 강제).
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ def _strip_fences(text: str) -> str:
 
 
 # 생각하는 모델 대비 — 답이 비어 오면 한도를 넓혀 한 번만 다시 받는다.
-# 바닥값은 실측 근거: qwen3.6:35b 는 같은 질문에 생각 1,250자를 먼저 내고 답을 낸다(2026-09-19 측정).
+# 바닥값은 측정 근거다: 생각하는 모델은 같은 질문에 생각 1,250자 안팎을 먼저 내고 답을 낸다.
 _THINKING_FLOOR = int(os.environ.get("ZZAIMY_LLM_THINKING_FLOOR", "1500"))
 _THINKING_CEILING = int(os.environ.get("ZZAIMY_LLM_THINKING_CEILING", "4096"))
 
@@ -98,8 +98,8 @@ def is_ollama(base_url: str) -> bool:
     """이 주소의 서버가 Ollama 인가 — /api/version 이 답하면 Ollama 다. 주소별로 한 번만 묻는다.
 
     왜: 생각 모드를 끄는 인자가 서버마다 다르다. vLLM 은 chat_template_kwargs.enable_thinking,
-    Ollama 는 reasoning_effort="none" 만 듣는다(2026-09-20 DGX 실측: vLLM 식 인자를 무시하고
-    300토큰을 생각에 다 써 본문이 비었고, reasoning_effort="none" 은 0.9초에 바로 답했다).
+    Ollama 는 reasoning_effort="none" 만 듣는다(vLLM 식 인자는 무시해 300토큰을 생각에 다 쓰고
+    본문이 비지만, reasoning_effort="none" 이면 1초 안에 바로 답한다).
     """
     root = (base_url or "").rstrip("/")
     root = root[:-3] if root.endswith("/v1") else root
@@ -229,7 +229,6 @@ class VllmClient:
         self.has_vision = bool(cfg.get("vision_model")) or self.kind == "anthropic"
         if not self.has_vision and self.kind == "vllm":
             # 비전 모델을 따로 지정하지 않아도, 기본 모델이 이미지를 읽을 수 있으면 쓴다
-            # (DGX qwen3.6:35b 는 vision 능력이 있는데 칸이 비어 스캔 판독이 꺼져 있었다)
             self.has_vision = model_can_see(str(getattr(self.client, "base_url", "") or ""), self.model)
         # vLLM 전용 요청 옵션(생각 모드 끄기)은 내부 서버에만 보낸다 — 외부 API 는 모르는 인자를 거부한다
         self._extra = {"chat_template_kwargs": {"enable_thinking": False}} if self.kind == "vllm" else {}

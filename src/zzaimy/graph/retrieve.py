@@ -179,15 +179,15 @@ class Scope:
 
 
 def scope(db, question: str) -> Scope:
-    """retrieve 의 1·2단계만 — 사업·연차·문서 갈래로 문서 범위를 SQL 몇 번으로 정한다(검색 질의마다 쓰는 가벼운 길, 10/5:
-    그래프 전체를 읽던 retrieve 가 질의 하나에 19초)."""
+    """retrieve 의 1·2단계만 — 사업·연차·문서 갈래로 문서 범위를 SQL 몇 번으로 정한다. 검색 질의마다 쓰는 가벼운 길이다
+    (그래프 전체를 읽는 retrieve 는 측정 결과 질의 하나에 19초가 걸렸다)."""
     import json
     sc = Scope()
     q_flat = re.sub(r"[\s.]+", "", question or "").upper()
     best = ((0, 0), None)
     for p in _programs(db):
-        # 화면에 보이는 정식 이름(장부 name)이 질문에 들어 있으면 그것이 먼저 — 다른 카드에 섞인 같은 길이 이름과 비기면
-        # 먼저 나온 카드가 이겨 「산학협력 선도전문대학(LINC) 육성사업」이 LINC+ 로 갔다(10/5 RAG 실측). 그다음 문서에서 모은 이름·약칭
+        # 화면에 보이는 정식 이름(장부 name)이 질문에 들어 있으면 그것이 먼저다. 다른 카드에 섞인 같은 길이 이름과 비기면
+        # 먼저 나온 카드가 이겨 비슷한 이름의 다른 사업으로 간다. 그다음 문서에서 모은 이름·약칭
         label = re.sub(r"[\s.]+", "", p["label"] or "").upper()
         lab_hit = max((len(s) for s in (label, re.sub(r"\([^)]*\)", "", label)) if len(s) >= 4 and s in q_flat), default=0)
         hit = max((len(s) for s in _surfaces(p["props"]) if len(s) >= 3 and s in q_flat), default=0)

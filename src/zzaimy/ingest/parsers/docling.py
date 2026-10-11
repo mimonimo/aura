@@ -1,4 +1,4 @@
-"""Docling 어댑터 (W1-W2 TASK-04).
+"""Docling 어댑터. 파서 비교 측정 스크립트에서만 쓰고 실제 처리 경로에서는 쓰지 않는다.
 
 docling 패키지는 parsers 추가 의존성(`pip install -e ".[parsers]"`)이며
 import를 parse() 안으로 미뤄 미설치 환경에서도 모듈 로드는 가능하게 한다.

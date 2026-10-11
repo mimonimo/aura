@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from zzaimy.app.chunk_path import level_of
 
-# 절 번호 — 가나다 번호는 그 글자 뒤에 점·괄호가 있을 때만(「[가-하]」 범위에 점 없이 두면 「영남이공대학교」의 「영」까지 떼였다)
+# 절 번호 — 가나다 번호는 그 글자 뒤에 점·괄호가 있을 때만(「[가-하]」 범위에 점 없이 두면 「영남이공대학교」의 「영」까지 떼인다)
 _NUM = re.compile(r"^\s*(?:(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+|(?:I{1,3}|IV|VI{0,3}|IX|X)(?=[.．])|\d+(?:[.-]\d+)*|\(\d+\)|\d+\))[.．)]?|[가나다라마바사아자차카타파하][.．)])\s*")
 
 
@@ -158,7 +158,7 @@ def _inner_headings(c: dict, running: set[str]) -> list[str]:
 
 
 def _ordered(chunks: list[dict]) -> list[dict]:
-    """쪽 번호가 있으면 (쪽, seq) 순 — 한글 변환에서 장 간지 제목이 문서 맨 앞 seq 로 나오는 일이 있다(실측 2026-10-01: #584 의 Ⅰ~Ⅵ 가
+    """쪽 번호가 있으면 (쪽, seq) 순 — 한글 변환에서 장 간지 제목이 문서 맨 앞 seq 로 나오는 일이 있다(Ⅰ~Ⅵ 가
     seq 2~7 인데 쪽은 14·67·101 …). 쪽 번호가 없는 조각이 섞이면 seq 순."""
     if chunks and all(c.get("page_no") for c in chunks):
         return sorted(chunks, key=lambda c: (int(c["page_no"]), c["seq"]))
@@ -168,7 +168,7 @@ def _ordered(chunks: list[dict]) -> list[dict]:
 def _toc_seqs(ordered: list[dict]) -> set[int]:
     """목차로 보이는 조각 — 제목 꼴 조각(처리기 표시든 개요 번호 줄이든)이 본문 없이 TOC_RUN 개 이상 잇달아 나오면 목차다.
     목차 줄을 제목으로 세우면 목차 마지막 장(「Ⅵ. 컨설팅 반영 사항」) 아래로 본문 절이 전부 들어간다. 목차에는 처리기가 제목으로
-    표시한 줄과 그냥 본문 줄이 섞여 있다(실측 #584)."""
+    표시한 줄과 그냥 본문 줄이 섞여 있다."""
     out: set[int] = set()
     run: list[int] = []
     page = None
@@ -230,8 +230,8 @@ def build(chunks: list[dict]) -> list[Section]:
 
 def align(a: list[Section], b: list[Section], min_key: int = 4) -> list[tuple[Section, Section, str]]:
     """두 문서의 같은 절 짝 — 제목이 같고, 제목이 문서 안에서 반복되면 상위 절 제목까지 같아야 한다(한 절은 짝 하나).
-    '4. 기대효과 및 향후 과제'처럼 과제마다 되풀이되는 제목이 서로 다른 과제끼리 이어지던 것(실측 2026-10-01: 계획↔실적 절 연결의
-    83% 가 모호)을 막는다. 돌려주는 것: (a 절, b 절, 근거 설명)."""
+    '4. 기대효과 및 향후 과제'처럼 과제마다 되풀이되는 제목이 서로 다른 과제끼리 이어지지 않게 한다.
+    돌려주는 것: (a 절, b 절, 근거 설명)."""
     def index(secs: list[Section]):
         by_path = {x.path: x for x in secs}
 
@@ -292,7 +292,7 @@ def _jac(a: set, b: set) -> float:
 
 
 def _wjac(a: set, b: set, idf: dict) -> float:
-    """낱말 희소성 가중 겹침 — 어디에나 나오는 낱말(LINC·산학협력·운영)은 가볍게(5차 반복)."""
+    """낱말 희소성 가중 겹침 — 어디에나 나오는 낱말(사업명·산학협력·운영)은 가볍게."""
     if not a or not b:
         return 0.0
     w = lambda xs: sum(idf.get(x, 1.0) for x in xs)
@@ -307,10 +307,10 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
                   accept: float = 0.25, margin: float = 0.08, generic_parent: float = 0.5,
                   generic_body: float = 0.15, skip_b: re.Pattern | None = None,
                   instance_min: float = 0.5) -> list[tuple[Section, Section, str]]:
-    """같은 제목의 절 짝을 맥락 점수로 고른다(2차 반복, 2026-10-01).
+    """같은 제목의 절 짝을 맥락 점수로 고른다.
     점수 = 0.5 × 상위 절 제목 글자 겹침(가까운 조상일수록 무게) + 0.5 × 본문·하위 절 제목 낱말 겹침.
-    1차(상위 절 제목이 정확히 같아야)는 계획서·보고서가 상위 제목을 조금씩 다르게 써서 맞는 짝을 놓쳤고(버린 후보의 15% 가 같은
-    과제), 제목이 하나뿐인 짝은 맥락을 안 봐 30% 가 틀렸다. 1등이 accept 를 넘고 2등과 margin 이상 차이 날 때만 잇는다."""
+    상위 절 제목이 정확히 같기를 요구하면 계획서·보고서가 상위 제목을 조금씩 다르게 써서 맞는 짝을 놓치고, 제목이 하나뿐인
+    짝도 맥락을 봐야 틀린 짝을 거른다. 1등이 accept 를 넘고 2등과 margin 이상 차이 날 때만 잇는다."""
     def index(secs: list[Section]):
         by_path = {x.path: x for x in secs}
         kids: dict[str, list[str]] = {}
@@ -344,7 +344,7 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
     by_a = {x.path: x for x in a}
     by_b = {x.path: x for x in b}
     if skip_b is not None:
-        # 실적보고서 끝의 「차년도 사업계획」 아래 절은 다음 연차 계획이다 — 같은 연차 계획서와 잇지 않는다(9차 반복 오류의 1/4)
+        # 실적보고서 끝의 「차년도 사업계획」 아래 절은 다음 연차 계획이다 — 같은 연차 계획서와 잇지 않는다
         def under_skip(y: Section) -> bool:
             cur = y
             while cur is not None:
@@ -371,12 +371,12 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         if not ca and not cb:
             anc = 1.0                                         # 둘 다 최상위 절
         if not wa and not wb:
-            return 0.0                                        # 본문도 하위 절도 없는 머리글(표지 줄 등)끼리는 잇지 않는다(5차)
+            return 0.0                                        # 본문도 하위 절도 없는 머리글(표지 줄 등)끼리는 잇지 않는다
         body = _wjac(wa, wb, idf)
         if id(x) in ia["own"] and id(y) in ib["own"]:
             body = _wjac(ia["own"][id(x)], ib["own"][id(y)], idf)
         if generic:
-            # 흔한 제목('1. 추진배경 및 개요')은 같은 상위 제목 아래 과제 사례마다 되풀이된다 — 무엇에 대한 절인지는 본문이 정한다(4차)
+            # 흔한 제목('1. 추진배경 및 개요')은 같은 상위 제목 아래 과제 사례마다 되풀이된다 — 무엇에 대한 절인지는 본문이 정한다
             return 0.3 * anc + 0.7 * body if body >= generic_body else 0.0
         return 0.5 * anc + 0.5 * body
 
@@ -385,8 +385,8 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         cb, _ = ib[id(y)]
         return _jac(ca[0], cb[0]) if ca and cb else (1.0 if not ca and not cb else 0.0)
 
-    # 번호 붙은 사례 — 이름표(「우수사례 1」)는 문서마다 번호가 바뀐다(계획서 사례 1 = 보고서 사례 2, 실측 0.91). 사례끼리 본문만 견줘
-    # 1:1 로 잇는다(같은 사례 0.73~0.96, 다른 사례 0.1~0.3 실측)
+    # 번호 붙은 사례 — 이름표(「우수사례 1」)는 문서마다 번호가 바뀐다(계획서 사례 1 = 보고서 사례 2). 사례끼리 본문만 견줘
+    # 1:1 로 잇는다(측정 결과 같은 사례 0.73~0.96, 다른 사례 0.1~0.3)
     inst_a = [x for x in a if _INSTANCE.search(x.title) and id(x) in ia["own"]]
     inst_b = [y for y in b if _INSTANCE.search(y.title) and id(y) in ib["own"]]
     inst_c = sorted(((_jac(ia["own"][id(x)], ib["own"][id(y)]), x, y) for x in inst_a for y in inst_b), key=lambda t: -t[0])
@@ -402,8 +402,8 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
     cands = []
     for k, xs in ga.items():
         ys = gb.get(k, [])
-        # 문서 안에서 3번 이상 되풀이되는 흔한 제목('1. 추진배경 및 개요')은 바로 위 절 제목이 충분히 같아야 한다(3차 반복:
-        # 상위 과제 이름이 '성과'만 겹쳐도 이어지던 오류)
+        # 문서 안에서 3번 이상 되풀이되는 흔한 제목('1. 추진배경 및 개요')은 바로 위 절 제목이 충분히 같아야 한다
+        # (상위 과제 이름이 '성과'만 겹쳐도 이어지지 않게)
         if any(_INSTANCE.search(z.title) for z in xs[:1] + ys[:1]):
             continue                                          # 번호 붙은 사례는 아래에서 본문으로 따로 맞춘다
         generic = len(xs) >= 3 or len(ys) >= 3
@@ -423,7 +423,7 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
         if sc < accept:
             continue
         if not generic:
-            # 흔하지 않은 제목이 한 문서에 두 번까지(요약 절과 상세 절) — 기준을 넘는 짝은 모두 잇는다(4차: 하나만 잇던 탓에 놓침)
+            # 흔하지 않은 제목이 한 문서에 두 번까지(요약 절과 상세 절) — 기준을 넘는 짝은 모두 잇는다(하나만 이으면 놓친다)
             pairs.append((x, y, f"제목 같음·맥락 점수 {sc:.2f}"))
             continue
         if id(x) in used_a or id(y) in used_b:
@@ -457,7 +457,7 @@ def align_context(a: list[Section], b: list[Section], text_of=lambda s: "", min_
 def align_content(a: list[Section], b: list[Section], text_of, skip_b_paths: set[str] = frozenset(),
                   min_sim: float = 0.2, margin: float = 0.05, min_chars: int = 200,
                   skip_b: re.Pattern | None = None) -> list[tuple[Section, Section, str]]:
-    """제목이 아니라 본문으로 잇기(근거 '유사도') — 계획서와 실적보고서의 목차 틀이 다른 사업(LINC+: 계획서는 평가 항목별, 대구시
+    """제목이 아니라 본문으로 잇기(근거 '유사도') — 계획서와 실적보고서의 목차 틀이 다른 사업(계획서는 평가 항목별,
     실적보고서는 프로그램별)에서 제목 짝이 하나도 없을 때. 보고서 절(본문 min_chars 이상)마다 계획서 절(자기+하위 절 본문)과
     희소 낱말 가중 겹침을 재서 1등이 min_sim 을 넘고 2등과 margin 이상 차이 나면 잇는다. 이미 제목으로 이어진 보고서 절은 건너뛴다."""
     import math
@@ -479,7 +479,7 @@ def align_content(a: list[Section], b: list[Section], text_of, skip_b_paths: set
         return False
     fa, fb = full(a), full(b)
     # 문서 전체를 품는 큰 절(요약표·표지 묶음·장 하나에 다 든 꼴)은 낱말이 많아 늘 이긴다 — 하위 절까지 합친 본문이 문서 전체의
-    # 30% 를 넘는 절은 후보에서 뺀다(LINC+ 판정: 「【…사업수행계획서】」 요약 절 ↔ 「Ⅱ. 추진경과」)
+    # 30% 를 넘는 절은 후보에서 뺀다(「【…사업수행계획서】」 요약 절이 「Ⅱ. 추진경과」와 이어지는 식의 오류)
     total_a = sum(len(text_of(x) or "") for x in a) or 1
     own_full = {id(x): sum(len(text_of(y) or "") for y in a if y.path == x.path or y.path.startswith(x.path + ".")) for x in a}
     wa = {id(x): _words(t) for x in a if len(t := fa[id(x)]) >= min_chars and own_full[id(x)] <= 0.3 * total_a}
@@ -504,8 +504,8 @@ def align_content(a: list[Section], b: list[Section], text_of, skip_b_paths: set
         x = a_by_id[k]
         rivals = [s_ for s_, k2 in scored[1:] if not (a_by_id[k2].path.startswith(x.path + ".") or x.path.startswith(a_by_id[k2].path + "."))]
         second = rivals[0] if rivals else 0.0
-        # 1등이 2등의 두 배 이상일 때만(판정 보정 2026-10-02: 틀린 짝은 2등과 점수 차가 작았다 — 차이 0.05 기준 정밀도 약 67%,
-        # 두 배 기준 약 90% 어림)
+        # 1등이 2등의 두 배 이상일 때만(측정 결과 틀린 짝은 2등과 점수 차가 작았다 — 차이 0.05 기준 정밀도 약 67%,
+        # 두 배 기준 약 90%)
         if top >= min_sim and top >= 2 * second and top - second >= margin:
             # 가장 깊은(구체적인) 같은 갈래 절로 내린다 — 점수가 1등과 거의 같으면
             deeper = [a_by_id[k2] for s_, k2 in scored if s_ >= top - 0.02 and a_by_id[k2].path.startswith(x.path + ".")]

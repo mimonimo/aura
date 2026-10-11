@@ -1,7 +1,7 @@
-"""드라이브에 폴더·문서를 만든다 — 에이전트가 자동으로 작업 문서를 준비하기 위해(ADR-0029 개정, 2026-09-23).
+"""드라이브에 폴더·문서를 만든다 — 문서 작업 에이전트가 작업 문서를 자동으로 준비한다(ADR-0029 개정).
 
-사용자 지적: 문서 주소를 손으로 붙여 넣게 하면 너무 불편하다. 새 채팅에서 초안을 요청하면 드라이브에 프로젝트 폴더와
-문서를 만들어 대화에 이어야 한다. 허용 범위에 drive.file 이 필요하다(이 앱이 만든 파일만 다룬다 — 사용자의 다른
+문서 주소를 손으로 붙여 넣지 않아도 되게, 새 채팅에서 초안을 요청하면 드라이브에 프로젝트 폴더와
+문서를 만들어 대화에 잇는다. 허용 범위에 drive.file 이 필요하다(이 앱이 만든 파일만 다룬다 — 사용자의 다른
 파일은 여전히 읽기 전용 범위로만 본다).
 
 폴더 규칙: ZZAIMY/<연도>/<프로젝트 이름>/ , 프로젝트가 없으면 ZZAIMY/<연도>/기타/ . 같은 이름 폴더가 있으면 다시 만들지 않는다.
@@ -113,7 +113,7 @@ def account_for(db, user: str | None, dept: str | None = None) -> str:
             email = (db.get_setting(key, "") or "").strip()
             if email in ok:
                 return email
-    # 문서 작성은 각자 연결한 학교 계정으로 한다(사용자 확정 2026-09-30) — 예전의 '허용 계정이 하나뿐이면 그것' 대체는 없앴다.
+    # 문서 작성은 각자 연결한 학교 계정으로 한다 — 허용 계정이 하나뿐이어도 그 계정으로 대신하지 않는다.
     # 설정값 google_fallback_shared=1 은 인증 없는 로컬 개발 모드용으로만 남긴다(화면에는 없다)
     if (db.get_setting("google_fallback_shared", "0") or "0") == "1":
         return next(iter(ok)) if len(ok) == 1 else ""
@@ -169,7 +169,7 @@ def auto_document(db, session_id: int, owner: str, title: str, project_name: str
 
 
 def copy_document(email: str, file_id: str, title: str, folder_id: str | None = None, http=None) -> dict:
-    """드라이브 파일 복제 — 원본 서식은 그대로 두고 작업은 복제본에서(사용자 지시 2026-09-24)."""
+    """드라이브 파일 복제 — 원본 서식은 그대로 두고 작업은 복제본에서 한다."""
     http = http or gdrive._http()
     body = {"name": (title or "").strip()[:120] or "작업본"}
     if folder_id:
@@ -264,12 +264,12 @@ def upload_file(email: str, data: bytes, name: str, source_mime: str, folder_id:
                 convert_to: str = "", http=None, reuse: bool = True) -> dict:
     """드라이브에 파일을 올린다. convert_to 가 있으면 구글 형식(독스·시트·슬라이드)으로 바꿔 올린다.
 
-    reuse 면 폴더에 같은 이름(변환 뒤 이름)의 파일이 있을 때 그것을 돌려주고 올리지 않는다 — 열람본이 겹겹이 쌓이던 일
-    (실측 2026-09-24: 같은 첨부가 폴더에 8벌)을 막는다."""
+    reuse 면 폴더에 같은 이름(변환 뒤 이름)의 파일이 있을 때 그것을 돌려주고 올리지 않는다 — 같은 첨부의 열람본이
+    폴더에 겹겹이 쌓이지 않게 한다."""
     if http is None:
         import httpx
 
-        http = httpx.Client(timeout=httpx.Timeout(600, connect=30))    # 큰 파일의 변환 업로드는 오래 걸린다(8MB HTML 실측)
+        http = httpx.Client(timeout=httpx.Timeout(600, connect=30))    # 큰 파일(8MB HTML 급)의 변환 업로드는 오래 걸린다
     if reuse and folder_id:
         shown = name
         if convert_to:                                   # 구글 형식으로 바꾸면 확장자가 떨어진 이름이 된다
@@ -319,7 +319,7 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
     src = Path(doc["stored_path"])
     ext = src.suffix.lower()
     name = (doc.get("filename") or src.name)
-    if ext and not name.lower().endswith(ext):            # 표시 이름(본문 제목)에는 확장자가 없다 — 아래 name[:-len(ext)] 가 제목 끝을 자르던 것
+    if ext and not name.lower().endswith(ext):            # 표시 이름(본문 제목)에는 확장자가 없다 — 붙여 두어야 아래 name[:-len(ext)] 가 제목 끝을 자르지 않는다
         name = name + ext
     if ext == ".hwpx":
         try:
@@ -346,7 +346,7 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
         except Exception:
             pass                                                   # pyhwp 없음·실패 — 아래 조각 복원으로
     if ext in (".md", ".markdown"):
-        # 마크다운은 공문서 모양 docx 로 바꿔 올린다 — 평문으로 올리면 '#'·'|'·'**' 가 글자로 남는다(md_docx, 2026-09-30)
+        # 마크다운은 공문서 모양 docx 로 바꿔 올린다 — 평문으로 올리면 '#'·'|'·'**' 가 글자로 남는다(md_docx)
         try:
             from zzaimy.ingest import md_docx
 
@@ -388,8 +388,8 @@ def docx_page_layout(data: bytes) -> dict | None:
 
 
 def keep_page_layout(email: str, doc_id: str, data: bytes, http=None) -> bool:
-    """독스로 가져오면 docx 여백이 기본값(72pt)으로 바뀐다 — 한글 서식 여백(약 20mm) 기준으로 맞춘 표가 전부 오른쪽 여백 밖으로
-    넘쳤다(10/11 AID 작업본 표 87/113개). 가져온 뒤 원래 쪽 크기·여백을 다시 쓴다."""
+    """독스로 가져오면 docx 여백이 기본값(72pt)으로 바뀐다 — 한글 서식 여백(약 20mm) 기준으로 맞춘 표가 오른쪽 여백 밖으로
+    넘친다. 가져온 뒤 원래 쪽 크기·여백을 다시 쓴다."""
     lay = docx_page_layout(data)
     if not lay or not lay["width"]:
         return False
@@ -408,7 +408,7 @@ def keep_page_layout(email: str, doc_id: str, data: bytes, http=None) -> bool:
 
 def google_copy(db, doc: dict, email: str, folder_id: str | None, http=None, refresh: bool = False, progress=None) -> dict:
     """문서의 구글 열람본을 만들거나(없으면) 돌려준다. settings doc_google:<id> 에 기록, 장부에도 남긴다.
-    refresh 면 지금 변환기로 다시 만들어 새로 올린다(변환기가 좋아진 뒤 작업본을 새로 뜰 때, 2026-09-28).
+    refresh 면 지금 변환기로 다시 만들어 새로 올린다(변환기가 좋아진 뒤 작업본을 새로 뜰 때).
     progress(step) 는 'convert'·'upload' 순으로 불린다(기다림 화면의 단계 표시)."""
     key = f"doc_google:{doc['id']}"
     raw = db.get_setting(key, "") or ""

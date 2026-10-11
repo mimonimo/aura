@@ -1,6 +1,6 @@
 """구글 드라이브 원천 — 읽기 전용으로 폴더의 문서를 가져와 공유 폴더(NAS)와 같은 반입 경로를 태운다.
 
-1단계(2026-09-22, ADR-0028): 드라이브에는 아무것도 쓰지 않는다. 목록·내려받기·내보내기(구글 독스 → docx,
+1단계(ADR-0028): 드라이브에는 아무것도 쓰지 않는다. 목록·내려받기·내보내기(구글 독스 → docx,
 시트 → xlsx, 프레젠테이션 → pdf)만 한다. 가져온 파일은 로컬 inbox 로 들어가 업로드와 같은 처리(마스킹 → 조각 → 색인)를 받는다.
 
 인증은 담당자가 자기 구글 계정으로 한 번 허용하는 OAuth 2.0 이다. 클라이언트 ID·비밀은 관리자가 화면에서 넣고
@@ -117,7 +117,7 @@ _DOMAIN_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a
 
 
 def allowed_domain() -> str:
-    """허용할 구글 계정 도메인 — 교내 워크스페이스 계정만 쓴다(사용자 확정 2026-09-30: ync.ac.kr 만).
+    """허용할 구글 계정 도메인 — 교내 워크스페이스 계정(ync.ac.kr)만 쓴다.
     화면(원천 관리 → Google 앱 설정)에서 저장한 값이 먼저, 없으면 ZZAIMY_GOOGLE_DOMAIN, 그것도 없으면 ync.ac.kr. 빈 값으로 저장하면 제한 없음."""
     c = client_config()
     if "domain" in c:
@@ -159,7 +159,7 @@ def auth_url(redirect_uri: str) -> str:
 def _http():
     import httpx
 
-    # 큰 독스(사업계획서 95쪽, 표 124개)는 documents.get 에 30초가 넘는다(실측 2026-09-24) — 읽기 제한을 넉넉히
+    # 큰 독스(95쪽·표 120여 개 급)는 documents.get 에 30초가 넘게 걸린다 — 읽기 제한을 넉넉히
     return httpx.Client(timeout=httpx.Timeout(180, connect=30))
 
 

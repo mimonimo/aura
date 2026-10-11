@@ -1,4 +1,4 @@
-"""사업 분류 — 사업 카드와 문서별 사업·연차·갈래(ADR-0048 0항, 사용자 2026-10-01 "각 사업별 분류도 잘 되어야 함").
+"""사업 분류 — 사업 카드와 문서별 사업·연차·갈래(ADR-0048 0항).
 
 사업 이름은 코드에 넣지 않는다. 문서 제목·표지·앞머리에서 사업명(…지원사업·…육성사업 등)과 괄호 약칭(…(LINC 3.0))을 뽑고,
 한 문서 안에서 '긴 이름(약칭)'·'약칭(긴 이름)'으로 함께 쓰인 표기를 같은 사업으로 묶는다(다른 이름은 문서가 알려 준다).
@@ -101,7 +101,7 @@ _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*(?:년|학년도|\.)")
 
 
 def plausible_year(y) -> bool:
-    """사업 문서가 다룰 수 있는 연도인가 — 본문의 「1983년 설립」 같은 연혁 숫자를 문서 연도로 쓰지 않는다(실측 10/5: 2024년 공고가 1983)."""
+    """사업 문서가 다룰 수 있는 연도인가 — 본문의 「1983년 설립」 같은 연혁 숫자를 문서 연도로 쓰지 않는다."""
     import datetime
     try:
         return 2000 <= int(y) <= datetime.date.today().year + 2
@@ -217,7 +217,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
 
     # 파일 이름에 자주(5번 이상) 나오는 영문 약칭은 사업의 정체다 — 서로 다른 정체를 이미 가진 두 묶음은
     # 「다른 이름」 짝만으로 엮지 않는다. 본문 앞머리의 앞 단계 언급(LINC3.0 문서 속 「…대학(LINC+) 육성사업」)이
-    # 두 사업을 한 카드로 만들던 것(2026-10-04 실측: 그래프에 LINC+ 카드가 없고 LINC3.0 이 2018~2021 연차를 가짐)
+    # 두 사업을 한 카드로 만들지 않게 한다
     fn_acr: Counter = Counter()
     for d in docs:
         _n, _a, _p = _mentions(clean_title(d.get("filename") or ""))
@@ -334,7 +334,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
             card.acrs.update(acr_seen[k])
     # 본문 앞머리에만 나온 이름(파일 이름·경로에는 없음)이 정체가 확실한 약칭을 꼭 하나 품으면 그 사업의 다른 표기다 —
     # 「귀하께서 참여한 사회맞춤형 LINC+사업」「매 분기마다 … LINC+ 사업」 같은 문장 조각이 따로 사업 카드가 되어
-    # 긴 이름부터 대조하는 분류에서 문서를 가져가던 것(2026-10-04). 약칭이 둘 이상이면(「혁신지원사업 및 LINC+」) 두지 않는다
+    # 긴 이름부터 대조하는 분류에서 문서를 가져가지 않게 한다. 약칭이 둘 이상이면(「혁신지원사업 및 LINC+」) 두지 않는다
     titled_roots = {find(k) for k in titled if k in parent}
     strong_root = {a: find(a) for a in strong if a in parent}
     for root in list(groups):
@@ -379,14 +379,13 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
         if card.names:
             card.key = program_key(card.names.most_common(1)[0][0])
     clean_cards(cards)
-    # 막연한 이름만 가진 카드(약칭도 없음)는 사업으로 세우지 않는다 — 그 문서는 검토 대기로 가서 실제 사업을 판정받는다
     # 막연한 이름만 가진 카드(약칭도 없음)·이름도 약칭도 남지 않은 카드는 사업으로 세우지 않는다 — 문서는 검토 대기로
     return [c for c in cards if (c.acrs or c.names) and (c.acrs or not all(vague_name(n) for n in c.names))]
 
 
 def clean_cards(cards: list[ProgramCard]) -> dict:
-    """카드에 섞인 남의 이름 정리(10/5 실측: LINC+ 카드 약칭에 RISE·앵커·COSS·SCK·「대학」「사업」, LINC3.0 카드에 「혁신지원」「계열」 —
-    혁신지원사업 문서가 LINC3.0 으로, 질문 「전문대학 혁신지원사업 …」이 LINC3.0 으로 갔다). 일반 규칙 셋:
+    """카드에 섞인 남의 이름 정리 — 한 카드의 약칭에 다른 사업 약칭·일반어(「대학」「사업」)가 섞이면 다른 사업의 문서와
+    질문이 그 카드로 간다. 일반 규칙 셋:
     1) 한글 「약칭」은 그 카드 이름에 「○○사업」으로도 쓰일 때만 남긴다(「대구 앵커사업」의 앵커) — 「(계열)」「(신규)」「(혁신지원)」은 버린다
     2) 같은 영문 약칭이 여러 카드에 있으면 가장 많이 쓰인 카드만 갖는다
     3) 다른 카드가 가진 약칭이 낱말로 든 이름은 그 카드에서 뺀다(「1차년도 RISE사업」이 LINC+ 카드에)
@@ -402,7 +401,7 @@ def clean_cards(cards: list[ProgramCard]) -> dict:
                 stats["kor_acr"] += 1
     owner: dict[str, tuple[int, ProgramCard]] = {}
     # 약칭이 어떤 카드의 정체(id)와 같으면 쓴 횟수와 상관없이 그 카드 것 — 여러 사업 이름을 흡수한 큰 카드(LINC+)가
-    # 「RISE」「SCK」를 더 많이 써서 주인이 되던 일(10/5: HiVE·LiFE 의 RISE 편입이 LINC+ 로 잡혔다)
+    # 남의 약칭을 더 많이 써서 주인이 되지 않게
     by_id = {c.fixed_id: c for c in cards}
     for c in cards:
         for a, n in c.acrs.items():
@@ -417,7 +416,7 @@ def clean_cards(cards: list[ProgramCard]) -> dict:
             if owner.get(_acr(a), (0, c))[1] is not c:
                 del c.acrs[a]
                 stats["shared_acr"] += 1
-    # 판 표기(VER2.0·v2)는 약칭이 아니다 — 문서 이름 꼬리의 판 번호가 사업 카드로 서던 것(10/5 「VER2.0」)
+    # 판 표기(VER2.0·v2)는 약칭이 아니다 — 문서 이름 꼬리의 판 번호가 사업 카드로 서지 않게
     for c in cards:
         for a in [a for a in c.acrs if re.match(r"(?i)^v(?:er)?[\s._]*\d", a)]:
             del c.acrs[a]
@@ -466,7 +465,7 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
         scores: Counter = Counter()
         why: dict[str, list[str]] = defaultdict(list)
         # 긴 표기부터 대조하고 대조된 자리는 가린다 — 짧은 이름('전문대학 지원사업')이 긴 이름('AID 전환 중점 전문대학 지원사업')
-        # 안에서 또 세지면 모든 언급이 두 사업으로 갈린다(실측 2026-10-01: 1등 몫 0.3 대)
+        # 안에서 또 세지면 모든 언급이 두 사업으로 갈린다
         for su, c, rx in pool:
             if rx.search(flat_title):
                 scores[c.node_id] += 3
@@ -582,8 +581,8 @@ def ledger_link(cards: list, ledger: dict) -> dict:
       (앞 단계 LINC 1단계처럼 문서 카드가 따로 없는 사업)은 장부 이름의 program_key
     - 장부 항목 하나가 여러 카드의 주인이면 같은 사업이다 — 가장 긴 표기가 맞은 카드로 합친다(「혁신지원사업」 = 「전문대학 혁신지원사업」)
     acronyms 는 문서 대조에만 쓰고 카드 대조에는 쓰지 않는다."""
-    # 판 번호의 「.0」은 떼고 견준다 — 파일 이름은 「LINC3_성과달성계획」, 장부는 「LINC 3.0」(10/9: 같은 사업이 LINC3 카드로 갈려
-    # 원본 7,672건이 그래프에 없는 사업 열쇠로 보관됐다). 「3.0」 과 「30」 은 다르므로 점을 지우기 전에 뗀다.
+    # 판 번호의 「.0」은 떼고 견준다 — 파일 이름은 「LINC3_성과달성계획」, 장부는 「LINC 3.0」처럼 쓰여 그대로 견주면
+    # 같은 사업이 두 카드로 갈린다. 「3.0」 과 「30」 은 다르므로 점을 지우기 전에 뗀다.
     flat = lambda t: re.sub(r"[\s.()·\-_]+", "", re.sub(r"(\d)\.0(?!\d)", r"\1", t or "")).upper()
     entries = []
     for e in ledger.get("programs", []):
@@ -593,7 +592,7 @@ def ledger_link(cards: list, ledger: dict) -> dict:
             entries.append((e, int(m.group(1)) if m else None, (int(m.group(2)) if m.group(2) else None) if m else None, terms))
     # 카드마다 맞은 항목과 가장 긴 맞은 표기 길이
     owner: dict[str, tuple[int, int]] = {}                 # 카드 id → (항목 번호, 맞은 길이)
-    # 끝의 「사업」「지원사업」은 떼고도 견준다 — 장부 「대학일자리플러스센터」 = 카드 「대학일자리플러스센터 사업」(10/5: 같은 사업이 두 카드로)
+    # 끝의 「사업」「지원사업」은 떼고도 견준다 — 장부 「대학일자리플러스센터」 = 카드 「대학일자리플러스센터 사업」
     # 「지원사업」의 지원은 이름의 일부일 수 있다(혁신지원사업) — 끝의 「사업」만 뗀다
     core = lambda t: (lambda f: f[:-2] if f.endswith("사업") and len(f) >= 6 else f)(flat(t))
     for i, (_e, _s, _t, terms) in enumerate(entries):
@@ -605,7 +604,7 @@ def ledger_link(cards: list, ledger: dict) -> dict:
                 if c.node_id not in owner or ln > owner[c.node_id][1]:
                     owner[c.node_id] = (i, ln)
     # 대표 카드 순서 — 표기 그대로 맞은 카드, 긴 표기, 문서에서 많이 쓰인 카드 순(합칠 때 문서 많은 원래 카드의 id 를 지킨다.
-    # 10/5: 「…사업」을 떼고 맞은 작은 카드가 대표가 되어 혁신지원사업 문서 32건의 사업 id 가 바뀌었다)
+    # 「…사업」을 떼고 맞은 작은 카드가 대표가 되면 기존 문서들의 사업 id 가 바뀐다)
     size = {c.node_id: sum(getattr(c, "names", {}).values()) + sum(getattr(c, "acrs", {}).values()) for c in cards}
     exact = {}
     for i, (_e, _s, _t, terms) in enumerate(entries):
@@ -696,7 +695,7 @@ def related_programs(assigned: list, min_docs: int = 5, min_share: float = 0.02)
 
 def merge_aliases(cards: list, link: dict) -> list:
     """장부가 같은 사업이라고 한 카드(aliases: 카드 → 대표 카드)를 대표 카드 하나로 실제로 합친다 — 이름·약칭을 더하고 남는 카드는
-    뺀다. 문서만 옮기고 카드를 남겨 두면 같은 정식 이름의 빈 카드가 생겨 질문이 그리로 갔다(10/5: 대학일자리센터 둘)."""
+    뺀다. 문서만 옮기고 카드를 남겨 두면 같은 정식 이름의 빈 카드가 생겨 질문이 그리로 간다."""
     al = link.get("aliases") or {}
     by_id = {c.node_id: c for c in cards}
     for cid, rep in al.items():
@@ -775,8 +774,8 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                     stats["round_from_path"] += 1
                     break
         if a.year is None:
-            # 본문 첫머리 연도(연혁 표기를 거른 것)는 폴더 연도로 덮지 않는다 — 폴더를 앞세우니 「2019년도 실적보고서」가
-            # 5차년도(2021) 폴더 연도로 바뀌었다(10/10 157 미리 보기 2,677건 중 다수)
+            # 본문 첫머리 연도(연혁 표기를 거른 것)는 폴더 연도로 덮지 않는다 — 폴더를 앞세우면 「2019년도 실적보고서」가
+            # 5차년도(2021) 폴더 연도로 바뀐다
             for seg in reversed(segs):
                 m = _SEG_YEAR.search(seg.strip())
                 if m and plausible_year(re.search(r"\d{4}", m.group(0)).group(0)):
@@ -810,8 +809,8 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                 continue
             if getattr(a, "year_src", "") == "head":
                 # 앞뒤 단계 사업도 맞지 않고 연도가 본문 앞머리에서 우연히 잡힌 것(협약 기업 설립 연도, 첫해 보고서의 직전 연도 실적)이면
-                # 수행 연도가 아니다 — 사업은 두고 연도만 버린다(K-20261004-03. 10/9: LINC3.0·LINC+ 폴더 문서 885건이 미분류로 남던 것).
-                # 앞뒤 단계로 옮기는 위 규칙이 먼저다 — 그 순서를 바꿨다가 「링크/RISE사업」 문서가 LINC 로 남은 회귀(10/9, 쓰기 전에 멈춤)
+                # 수행 연도가 아니다 — 사업은 두고 연도만 버린다(버리지 않으면 사업 폴더 문서가 대거 미분류로 남는다).
+                # 앞뒤 단계로 옮기는 위 규칙이 먼저다 — 순서를 바꾸면 뒤 단계 사업 문서가 앞 단계 사업에 남는다
                 a.evidence = list(a.evidence) + [f"본문 연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 연도만 버림"]
                 a.year = None
                 if a.round and 1 <= a.round <= ((end or start + 11) - start + 1):
@@ -824,7 +823,7 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
             fname = re.sub(r"[\s.·\-_]+", "", d.get("filename") or "").upper()
             if own and start - 2 <= a.year <= (end or 9999) + 1 and any(t and t in fname for t in own["terms"]):
                 # 파일 이름이 이 사업을 직접 부르고 연도는 기간 바로 앞뒤 — 「(신)2021학년도 교육과정표(LINC3.0)」처럼 신청 때 낸
-                # 직전 학년도 기준 자료나 종료 이듬해 정리 자료다. 사업은 두고 연도만 버린다(10/9: LINC3.0 교육과정표 수십 건이 검토 대기).
+                # 직전 학년도 기준 자료나 종료 이듬해 정리 자료다. 사업은 두고 연도만 버린다.
                 # 기간에서 더 먼 연도(「2014년 LINC+」)는 앞 단계 자료일 수 있어 아래처럼 확정하지 않는다
                 a.evidence = list(a.evidence) + [f"파일 이름이 이 사업을 부르고 연도 {a.year} 는 기간({start}~{end or ''}) 바로 앞뒤 — 연도만 버림"]
                 a.year = a.round = None
@@ -852,7 +851,7 @@ def load_reviews(path) -> list[dict]:
             continue
         if r.get("folder") and r.get("label") and r.get("confidence") in ("high", "medium"):
             out.append(r)
-    # 교차 검수(다른 검토자, 예: 아스트라 class_review_astra.jsonl) — 판정이 엇갈린 폴더는 쓰지 않는다(사람 검토 대기)
+    # 교차 검수(다른 검토자의 장부 <이름>_astra.jsonl) — 판정이 엇갈린 폴더는 쓰지 않는다(사람 검토 대기)
     cross = p.with_name(p.stem + "_astra.jsonl")
     if cross.is_file():
         disagree = set()
@@ -899,7 +898,7 @@ def apply_reviews(docs: list[dict], assigned: list[Assignment], reviews: list[di
             continue
         label = hit["label"].strip()
         # 파일 제 이름에 사업이 적힌 문서는 폴더 판정이 다른 사업으로 덮지 않는다 — 폴더에는 다른 사업 문서가 섞인다
-        # (실측 10/5: LINC+ 폴더의 「신산업분야 특화 선도전문대학 지원사업 사업계획서 작성 서식」이 LINC+ 로)
+        # (예: 한 사업 폴더 안에 든 다른 사업의 작성 서식)
         if a.program and any(e.startswith("제목에") for e in a.evidence):
             target = "" if label == "사업 아님" else (label.split(":", 1)[1].strip() if label.startswith("새 사업") else label)
             if not target or program_key(target) != program_key(a.program_name) and target not in (

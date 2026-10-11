@@ -61,8 +61,8 @@ def derive_col_widths(
         a, b = max(x0, min(lx0, lx1)), min(x1, max(lx0, lx1))
         if b - a > 0:
             spans.append((a, b))
-    # 열마다 글자 근거가 있어야 투영이 경계를 가른다 — 근거가 얕으면 폴백한다
-    # (실측: 3~8줄짜리 치우친 표에서 확신 있게 틀린 비율이 나왔다)
+    # 열마다 글자 근거가 있어야 투영이 경계를 가른다. 근거가 얕으면 폴백한다
+    # (3~8줄짜리 치우친 표에서는 틀린 비율이 확신 있게 나온다)
     if len(spans) < max(min_lines, 2 * n_cols):
         return ()
 

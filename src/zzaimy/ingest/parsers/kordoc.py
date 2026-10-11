@@ -1,6 +1,6 @@
 """kordoc 어댑터 — 한글(hwp·hwpx) 등을 kordoc(Node, MIT) 으로 읽어 우리 ParseResult 로 옮긴다(ADR-0033).
 
-왜: 옛 hwp 30MB 를 pyhwp 구조 XML 로 읽으면 3분, kordoc 은 1초(실측 2026-09-28). 표는 중첩·병합을 그대로 낸다.
+왜: 측정 결과 옛 hwp 30MB 를 pyhwp 구조 XML 로 읽으면 3분, kordoc 은 1초였다. 표는 중첩·병합을 그대로 낸다.
 어떻게: kordoc 은 어댑터 뒤에만 있다 — 판을 고정해 쓰고(설치 판은 실행 때 기록), 없거나 실패하면 호출부가 pyhwp 로 돌아간다.
 마스킹·조각·색인·판독은 우리 것 그대로. 내장 OCR 은 쓰지 않는다(모델 4종 규칙).
 설치(VM, root 없이): ~/opt/node(공식 tar), ~/opt/kordoc 에 `npm install kordoc` — HANDOFF 참조. 다른 자리는 ZZAIMY_KORDOC 로.
@@ -81,8 +81,8 @@ def _table(tb: dict, page_no: int) -> ParsedTable | None:
     n_cols = int(tb.get("cols") or max((len(r) for r in rows), default=0))
     if not rows or n_rows <= 0 or n_cols <= 0:
         return None
-    # kordoc 의 cells 는 행마다 열 수만큼 다 채운 격자다 — 병합 셀 뒤에는 빈 자리표 셀이 온다(실측 2026-09-28: 앞판은 자리표를
-    # 새 셀로 세어 열이 밀리고 7천 자를 잃었다). 격자 좌표를 그대로 쓰고, 앞 셀의 span 이 덮는 자리는 건너뛴다.
+    # kordoc 의 cells 는 행마다 열 수만큼 다 채운 격자다 — 병합 셀 뒤에는 빈 자리표 셀이 온다(자리표를 새 셀로
+    # 세면 열이 밀리고 글이 빠진다). 격자 좌표를 그대로 쓰고, 앞 셀의 span 이 덮는 자리는 건너뛴다.
     n_rows = max(n_rows, len(rows))
     n_cols = max(n_cols, max((len(r) for r in rows), default=0))
     occupied: set[tuple[int, int]] = set()
@@ -160,8 +160,8 @@ class KordocParser:
                               capture_output=True, text=True, timeout=self.timeout_s, env=_env())
         no_images = False
         if proc.returncode != 0 or not out.exists():
-            # 그림이 아주 많이 박힌 큰 한글 파일은 구조는 읽고 그림 내보내기에서 실패한다(실측 2026-10-01: LINC3.0 사업계획서
-            # 108MB — '[1/1] OK' 뒤 '문서 처리 중 오류', --no-images 는 3초에 성공). 구조가 더 중요하니 그림 없이 한 번 더 읽는다
+            # 그림이 아주 많이 박힌 큰 한글 파일(100MB 급)은 구조는 읽고 그림 내보내기에서 실패한다('[1/1] OK' 뒤
+            # '문서 처리 중 오류', --no-images 로는 읽힌다). 구조가 더 중요하니 그림 없이 한 번 더 읽는다
             first = (proc.stderr or proc.stdout)[-200:]
             out.unlink(missing_ok=True)
             proc = subprocess.run([str(exe), str(path), "--format", "json", "--no-images", "-o", str(out)],
