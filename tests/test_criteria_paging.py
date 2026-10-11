@@ -20,13 +20,15 @@ def test_library_list_pages_searches_and_filters(tmp_path):
     c = TestClient(app)
     assert c.post("/login", data={"username": "zzaimy", "pw": "boot-pass-1"}, follow_redirects=False).status_code == 303
     r = c.get("/?type=all")
-    assert r.status_code == 200 and "등록 문서 105건" in r.text and "1–50 / 105건" in r.text
+    assert r.status_code == 200 and "문서 105건" in r.text and "3쪽 중" in r.text
     assert "남의비밀" not in r.text and "공개문서104" in r.text and "공개문서000" not in r.text
-    assert "공개문서000" in c.get("/?type=all&page=2").text
+    assert "공개문서000" in c.get("/?type=all&page=3").text                  # 쪽 번호는 1부터
+    far = c.get("/?type=all&page=99", follow_redirects=False)                 # 범위 밖 쪽은 마지막 쪽으로
+    assert far.status_code == 303 and far.headers["location"].endswith("page=3")
     found = c.get("/", params={"type": "all", "q": "공개문서007"}).text
-    assert "검색 1건" in found and "공개문서007" in found
+    assert "검색 결과 1건" in found and "공개문서007" in found
     plans = c.get("/", params={"type": "all", "kind": "plan"}).text
-    assert "등록 문서 3건" in plans and "계획서 3" in plans
+    assert "문서 3건" in plans and "계획서 3" in plans
     d = TestClient(app)
     d.post("/login", data={"username": "zzdev", "pw": "devpass"})
-    assert "등록 문서 106건" in d.get("/?type=all").text          # 관리자는 전부
+    assert "문서 106건" in d.get("/?type=all").text          # 관리자는 전부

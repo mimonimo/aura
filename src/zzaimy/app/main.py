@@ -607,49 +607,59 @@ def create_app(
             **extra,
         }
 
+    @app.get("/inbox")
+    def inbox(request: Request):
+        """옛 문서함 주소 — 라이브러리 등록 문서 목록과 같은 화면이라 그쪽으로 보낸다(걸린 조건은 그대로)."""
+        qs = list(request.query_params.multi_items())
+        if not any(k == "type" for k, _v in qs):
+            qs.insert(0, ("type", "all"))
+        return RedirectResponse("/?" + urlencode(qs), status_code=303)
+
     @app.get("/", response_class=HTMLResponse)
-    @app.get("/inbox", response_class=HTMLResponse)
     def index(
         request: Request,
         type: str | None = None,
         q: str | None = None,
         project: int | None = None,
         flt: str | None = None,
-        page: int = 0,
+        page: int = 1,
         group: str = "all",
     ):
+        from zzaimy.app import library
+
         if getattr(request.state, "role", "") == "student":
             return RedirectResponse("/chat", status_code=303)        # 학생 첫 화면은 대화(ADR-0052)
-        if request.url.path == "/" and not any((type, q, project, flt, page)):
+        if not any((type, q, project, flt, request.query_params.get("page"))):
             return RedirectResponse("/chat", status_code=303)
         doc_type = type if type in INBOX_TYPES else None
-        # 문서 목록은 SQL 에서 거르고 쪽으로 자른다(열람 권한 포함). 전부 읽어 파이썬으로 거르면 수만 건에서 느리다.
-        # 문서함(/criteria)의 접수·첨부 목록도 여기 하나로 보인다
+        # 없는 업무 값은 조용히 전체로 떨어뜨리지 않고 알린다
+        unknown_type = type if type and type != "all" and doc_type is None else ""
+        # 문서 목록은 SQL 에서 거르고 쪽으로 자른다(열람 권한 포함). 판본 묶음은 id·제목만 읽어 묶는다(library.grouped)
         kind = (request.query_params.get("kind") or "").strip()
         acc, acc_args = _doc_access_sql(request)
         cond, args = ["1 = 1" + acc], list(acc_args)
         if doc_type:
             cond.append("d.doc_type = ?")
             args.append(doc_type)
-        group = group if group in ("all", "reference", "criteria", "extract") else "all"
-        if group == "criteria":
-            cond.append("d.doc_type = 'regulation'")
-        elif group == "extract":
-            cond.append("d.doc_type = 'ocr'")
-        elif group == "reference":
-            cond.append("d.doc_type NOT IN ('regulation', 'ocr')")
         if q:
             cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?)")
             args += [f"%{q}%", f"%{q}%"]
         if project:
             cond.append("d.project_id = ?")
             args.append(project)
+        base_where, base_args = " WHERE " + " AND ".join(cond), list(args)
+        group = group if group in ("all", "reference", "criteria", "extract") else "all"
+        group_sql = {"criteria": "d.doc_type = 'regulation'", "extract": "d.doc_type = 'ocr'",
+                     "reference": "d.doc_type NOT IN ('regulation', 'ocr')"}
+        if group in group_sql:
+            cond.append(group_sql[group])
         if kind == "_none":
             cond.append("COALESCE(d.kind, '') = ''")
         elif kind:
             cond.append("d.kind = ?")
             args.append(kind)
         where = " WHERE " + " AND ".join(cond)
+        PER = 50
         with db._conn() as conn:
             r = conn.execute(
                 "SELECT COUNT(*), SUM(CASE WHEN d.status IN ('received', 'processing') THEN 1 ELSE 0 END),"
@@ -662,47 +672,67 @@ def create_app(
             flt = flt if flt in fcond else None
             fwhere = where + (fcond[flt] if flt else "")
             total_docs = stats[flt] if flt else stats["total"]
-            PER = 50
-            page = max(page, 0)
-            docs = [dict(x) for x in conn.execute(
-                "SELECT d.id, d.receipt_no, d.filename, d.kind, d.doc_type, d.status, d.decision, d.created_at, d.project_id,"
-                f" p.name AS project_name FROM documents d LEFT JOIN projects p ON p.id = d.project_id{fwhere}"
-                " ORDER BY d.id DESC LIMIT ? OFFSET ?", [*args, PER, page * PER]).fetchall()]
+            groups = library.grouped(conn, fwhere, args)
+            pages = max(1, -(-len(groups) // PER))
+            if page > pages or page < 1:
+                # 범위 밖 쪽은 빈 목록 대신 가까운 끝 쪽으로
+                qs = [(k, v) for k, v in request.query_params.multi_items() if k != "page"]
+                qs.append(("page", str(min(max(page, 1), pages))))
+                return RedirectResponse("/?" + urlencode(qs), status_code=303)
+            shown = groups[(page - 1) * PER: page * PER]
+            ids = [i for g in shown for i in g[:21]]
+            rows: dict[int, dict] = {}
+            if ids:
+                rows = {int(x["id"]): dict(x) for x in conn.execute(
+                    "SELECT d.id, d.receipt_no, d.filename, d.kind, d.doc_type, d.status, d.decision, d.created_at,"
+                    " d.project_id, p.name AS project_name FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
+                    f" WHERE d.id IN ({','.join('?' * len(ids))})", ids).fetchall()}
             kinds = [(x[0] or "", int(x[1])) for x in conn.execute(
                 f"SELECT d.kind, COUNT(*) FROM documents d{where} GROUP BY d.kind ORDER BY 2 DESC", args).fetchall()]
+            gcount = {str(x[0]): int(x[1]) for x in conn.execute(
+                "SELECT CASE WHEN d.doc_type = 'regulation' THEN 'criteria' WHEN d.doc_type = 'ocr' THEN 'extract'"
+                f" ELSE 'reference' END AS g, COUNT(*) FROM documents d{base_where} GROUP BY 1", base_args).fetchall()}
         from zzaimy.app.doc_routing import KINDS as _KINDS_LIB
-        for d in docs:
-            d["kind_label"] = _KINDS_LIB.get(d.get("kind") or "", "")
+        docs = []
+        for g in shown:
+            head = rows.get(g[0])
+            if not head:
+                continue
+            head["kind_label"] = _KINDS_LIB.get(head.get("kind") or "", "")
+            head["versions"] = [rows[i] for i in g[1:21] if i in rows]
+            head["n_versions"] = len(g)
+            docs.append(head)
+        gcount["all"] = sum(gcount.values())
         projects = db.list_projects(doc_type) if doc_type else []
-        recent = db.recent_activity() if doc_type is None else []
-        # 섹터 화면에서는 그 섹터의 기준 문서(공고 등)를 접수 대상 선택지로 제공
-        sector_criteria = []
-        if doc_type:
-            sector_criteria = [
-                d for d in db.list_documents("regulation")
-                if d["status"] == "reviewed" and d["sector"] == doc_type
-            ]
         return templates.TemplateResponse(
             request,
             "index.html",
             ctx(request, {
                 "documents": docs, "active_tab": doc_type or "all", "q": q or "", "document_group": group,
-                "sector_criteria": sector_criteria,
+                "group_counts": gcount, "unknown_type": unknown_type,
                 "projects": projects, "active_project": project,
-                "stats": stats, "active_flt": flt, "recent_activity": recent,
-                "page": page, "per": PER, "total_docs": total_docs,
-                "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "갈래 미정") if k else "갈래 미정", n) for k, n in kinds],
-                "has_next": (page + 1) * PER < total_docs,
+                "stats": stats, "active_flt": flt,
+                "page": page, "pages": pages, "page_numbers": library.page_numbers(page, pages),
+                "per": PER, "total_docs": total_docs, "n_rows": len(groups),
+                "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "분류 전") if k else "분류 전", n) for k, n in kinds],
                 "business_units": _business_units(),
-                "common_templates": _common_templates(),
+                "common_templates": [t for t in _common_templates() if doc_type and t["sector"] == doc_type],
             }),
         )
 
     def _common_templates() -> list[dict]:
-        """구글 독스 공통 양식 4종(scripts/180 이 만든 것) — 라이브러리 바로가기. 이름에서 「 공통 양식(구글 독스)」는 뗀다."""
+        """구글 독스 공통 양식(scripts/180 이 만든 것) — 업무 탭의 「사본 만들기」 바로가기.
+
+        공용 원본을 편집 모드로 열지 않는다 — 누르면 사본을 만든다(library.copy_url). 업무는 양식 사양의 sector,
+        없으면 국고사업(양식이 국고사업 실문서 절 집계에서 나왔다). 이름에서 「 공통 양식(구글 독스)」는 뗀다."""
         try:
+            from zzaimy.app.library import copy_url
+            from zzaimy.ingest.gdocs_templates import SPECS
+
+            sectors = {s["title"]: s.get("sector") or "grant" for s in SPECS.values()}
             pub = _aj.loads((Path(__file__).resolve().parents[3] / "data/generated/templates/gdocs/published.json").read_text(encoding="utf-8"))
-            return [{"name": re.sub(r"\s*공통 양식\(구글 독스\)$", "", x["title"]), "url": x["url"]} for x in pub if x.get("url")]
+            return [{"name": re.sub(r"\s*공통 양식\(구글 독스\)$", "", x["title"]), "url": copy_url(x.get("url") or ""),
+                     "sector": sectors.get(x["title"], "grant")} for x in pub if copy_url(x.get("url") or "")]
         except Exception:
             return []
 

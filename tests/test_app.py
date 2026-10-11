@@ -590,7 +590,7 @@ def test_tiles_filter_document_list(client):
     page = client.get("/inbox?type=recruit&flt=pending").text
     table = page.split('<table class="intake-table">', 1)[-1].split("</table>", 1)[0]
     assert "대기문서.pdf" in table and "완료문서.pdf" not in table
-    assert "판정 대기" in page  # 걸린 필터가 표시된다
+    assert "담당자 확인 전" in page  # 걸린 필터가 표시된다
 
 
 def test_draft_shows_progress_immediately(client):

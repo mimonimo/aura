@@ -114,8 +114,8 @@ def test_project_library_keeps_creation_and_document_search(tmp_path, monkeypatc
     library = client.get('/?type=all').text
     assert '도서관 프로젝트' in library
     assert 'name="sector"' in library
-    assert '문서 검색 결과' not in library
+    assert '검색 결과' not in library
     search = client.get('/?type=all&q=없는문서')
-    assert search.status_code == 200 and '문서 검색 결과' in search.text
+    assert search.status_code == 200 and '검색 결과' in search.text
     assert 'href="/criteria"' in library and 'href="/archive"' in library
     assert 'data-page-back href="/chat"' in client.get('/criteria').text
