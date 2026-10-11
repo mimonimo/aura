@@ -1,10 +1,8 @@
-"""문서 접수·검토 플랫폼 — FastAPI 앱 (대시보드 v0.1).
+"""문서 접수·검토 플랫폼 FastAPI 앱.
 
-보안: 127.0.0.1에만 바인딩하고 원격 접속은 SSH 터널로 한다 (docs/risks.md §8).
-실행(Spark):
+보안: 기본은 127.0.0.1 에만 바인딩하고 원격 접속은 SSH 터널로 한다(docs/risks.md §8).
+실행:
     .venv/bin/python -m zzaimy.app.main
-접속(맥):
-    ssh -N -L 8800:localhost:8800 jun@<spark> 후 http://localhost:8800
 """
 
 from __future__ import annotations
@@ -130,8 +128,8 @@ _LIVE_TTL = 120.0
 def _live_models_cached(cid: str, ttl: float = _LIVE_TTL) -> dict:
     """연결이 지금 내어 주는 모델 목록 — 화면에서 고르라고 보여 준다.
 
-    연결에 저장된 모델 하나만 보여 주면 서버에 새로 올린 모델이 화면에 뜨지 않는다
-    (실측 2026-09-20: DGX 에 27B 를 받았는데 목록에 없었다). 페이지마다 물으면 느리므로
+    연결에 저장된 모델 하나만 보여 주면 서버에 새로 올린 모델이 화면에 뜨지 않는다.
+    페이지마다 물으면 느리므로
     짧게 캐시하고, 용도를 바꾸거나 연결을 고치면 캐시를 비운다.
     """
     import time as _t
@@ -154,7 +152,7 @@ def _live_models_cached(cid: str, ttl: float = _LIVE_TTL) -> dict:
 
 def _tidy_weekly_md(body: str) -> str:
     """모델이 쓴 마크다운을 화면·내보내기가 같은 구조로 읽게 고른다 — 연번 항목 앞에는 빈 줄, 세부 줄은 '   - '.
-    빈 줄 없이 '2. …' 가 불릿 뒤에 오면 마크다운이 앞 불릿의 이어지는 글로 붙인다(2026-09-22 실측)."""
+    빈 줄 없이 '2. …' 가 불릿 뒤에 오면 마크다운이 앞 불릿의 이어지는 글로 붙인다."""
     out: list[str] = []
     for ln in body.strip().splitlines():
         st = ln.strip()
@@ -365,8 +363,8 @@ def create_app(
             headers=getattr(exc, "headers", None),
         )
     class _FreshStatic(StaticFiles):
-        """정적 파일은 매번 바뀌었는지 묻게(no-cache — 안 바뀌었으면 304 로 가볍다). 배포 뒤 브라우저가 옛 CSS 를 그대로 써
-        새 화면이 깨져 보였다(10/10 프로젝트 검색 화면 확인)."""
+        """정적 파일은 매번 바뀌었는지 묻게 한다(no-cache, 안 바뀌었으면 304 로 가볍다).
+        그러지 않으면 배포 뒤 브라우저가 옛 CSS 를 그대로 써 새 화면이 깨져 보인다."""
 
         def file_response(self, *args, **kwargs):
             resp = super().file_response(*args, **kwargs)
@@ -426,12 +424,12 @@ def create_app(
         _lc.activate(_old["id"])
     _paths.ensure_layout(Path(db_path).parent)     # 문서·지식·캐시 폴더 뼈대(ADR-0031)
     app.state.db = db  # 테스트·운영 점검에서 접근할 수 있게 노출
-    # 프로젝트 검색(사이드바) — 계정 소유 프로젝트만, 제목·업무 영역으로 (Codex C-71, 독립 라우터)
+    # 프로젝트 검색(사이드바) — 계정 소유 프로젝트만, 제목·업무 영역으로(독립 라우터)
     from zzaimy.app.chat_documents import router as chat_documents_router
     from zzaimy.app.project_search import router as project_search_router
 
     app.include_router(project_search_router)
-    # 대화에 구글 독스를 연결해 읽고(요청마다), 담당자가 확인한 삽입만 쓴다 (Codex C-73, 독립 라우터)
+    # 대화에 구글 독스를 연결해 읽고(요청마다), 담당자가 확인한 삽입만 쓴다(독립 라우터)
     app.include_router(chat_documents_router)
     from zzaimy.app.notifications import router as notifications_router
     app.include_router(notifications_router)
@@ -457,7 +455,7 @@ def create_app(
     def _recover_dangling_chats() -> None:
         """재시작으로 끊긴 대화 복구 — 마지막 말이 담당자 질문이면(답변 스레드가 죽었다) 안내를 붙여 대화가 잠기지 않게 한다.
 
-        실측 2026-09-24: 배포 재시작 뒤 판독 요청이 답 없이 남아 그 대화는 새 질문·재생성이 모두 막혔다(409)."""
+        답 없이 남은 요청이 있으면 그 대화는 새 질문·재생성이 모두 막힌다(409)."""
         try:
             for sess in db.list_chat_sessions(limit=500):
                 last = db.list_chats(int(sess["id"]), limit=1)
@@ -470,7 +468,7 @@ def create_app(
     def _requeue_stalled_docs(min_age_min: int = 10) -> list[int]:
         """등록만 되고 처리가 끊긴 문서(받음·처리 중으로 멈춤)를 다시 처리한다 — 플랫폼에 파일이 있는 것만.
 
-        재시작하면 처리 작업(BackgroundTasks)이 사라져 문서가 「받음」으로 남았다(2026-10-06 확인, 10/2~3 반입 3건).
+        재시작하면 처리 작업(BackgroundTasks)이 사라져 문서가 「받음」으로 남는다.
         DGX 원본(dgx://)은 결과 들이기(168)가 맡으므로 여기서 다루지 않는다."""
         import threading
         from datetime import datetime as _dt, timedelta as _td
@@ -537,7 +535,7 @@ def create_app(
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.state.templates = templates
     templates.env.globals["status_labels"] = STATUS_LABELS
-    # 정적 파일 판 — 배포(재시작)마다 바뀌어 브라우저가 옛 CSS·JS 를 붙들지 않는다(10/10 각주·보관된 사업 버튼이 옛 모양으로 보임)
+    # 정적 파일 판 — 배포(재시작)마다 바뀌어 브라우저가 옛 CSS·JS 를 붙들지 않는다
     templates.env.globals["asset_v"] = _asset_version()
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
     templates.env.globals["decision_labels"] = DECISION_LABELS
@@ -611,8 +609,8 @@ def create_app(
         if request.url.path == "/" and not any((type, q, project, flt, page)):
             return RedirectResponse("/chat", status_code=303)
         doc_type = type if type in INBOX_TYPES else None
-        # 문서 목록은 SQL 에서 거르고 쪽으로 자른다(열람 권한 포함) — 예전에는 4만 건을 모두 읽어 파이썬으로 걸렀다.
-        # 문서함(/criteria)에 같던 접수·첨부 목록은 여기 하나로 합쳤다(2026-10-06 「라이브러리 하나로」)
+        # 문서 목록은 SQL 에서 거르고 쪽으로 자른다(열람 권한 포함). 전부 읽어 파이썬으로 거르면 수만 건에서 느리다.
+        # 문서함(/criteria)의 접수·첨부 목록도 여기 하나로 보인다
         kind = (request.query_params.get("kind") or "").strip()
         acc, acc_args = _doc_access_sql(request)
         cond, args = ["1 = 1" + acc], list(acc_args)
@@ -841,7 +839,7 @@ def create_app(
         is_student = password is not None and accounts.get(_sess0.get("owner") or "", {}).get("role") == "student"
         if is_student:
             web = ""
-        # 모델 지식 모드(2026-09-29): 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 머리에 붙인다
+        # 모델 지식 모드: 검색·문서 없이 27B 가 학습한 지식으로만 답한다 — 밖으로 나가는 것이 없고, 출처 없음을 답 머리에 붙인다
         if web == "model":
             _chat_step(session_id, "모델 지식으로 답변 작성 중")
             from zzaimy.app import web_search
@@ -852,7 +850,7 @@ def create_app(
                 logging.getLogger("zzaimy.app.web").warning("모델 지식 답변 실패 (대화 %s): %s", session_id, type(e).__name__)
                 db.add_chat(session_id, "assistant", f"모델 지식 답변을 만들지 못했습니다({type(e).__name__}). 잠시 뒤 다시 해 주세요.")
             return
-        # 외부 검색 모드(2026-09-29): 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
+        # 외부 검색 모드: 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
         if web:
             _chat_step(session_id, "웹 검색과 답변 작성 중")
             from zzaimy.app import web_search
@@ -925,7 +923,7 @@ def create_app(
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
         scope = ag.search_scope(dept, role, owner, Path(db_path).parent)
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
-        # 문서 작업 에이전트(10/11) — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
+        # 문서 작업 에이전트 — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
         if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
             if _run_doc_agent(session_id, q, owner, project, scope, scope_msg, data_dir, attachment_text, criteria, r):
                 return
@@ -958,7 +956,7 @@ def create_app(
                     _chat_sources[session_id] = []
                     return
         if not doc_material and _looks_like_drafting(q) and not _COMMON_ASKED.search(q):
-            # 양식은 27B 가 고른다(2026-10-11) — 코드는 후보(프로젝트 작성 서식·대화에서 정한 목차·공통 양식)만 모으고, 고른 것으로
+            # 양식은 27B 가 고른다 — 코드는 후보(프로젝트 작성 서식·대화에서 정한 목차·공통 양식)만 모으고, 고른 것으로
             # 바로 작업한다. 다른 후보는 「바꾸기」 선택지로. 고른 기록은 학습 재료(form_choice_episodes.jsonl)
             from zzaimy.app import form_choice
 
@@ -1051,7 +1049,7 @@ def create_app(
         """문서를 써 달라는 요청인가 — 질문·검토 요청과 구분한다(일반 낱말 단서, 특정 사례 없음).
 
         '초안'·'문서로 만들어' 같은 명시 단서가 있거나, 서류 갈래 낱말(계획서·공문 …)과 쓰기 동사가 함께 있을 때만.
-        '접수된 문서가 무엇인지 정리해 줘' 처럼 있는 문서를 묻는 말은 문서를 만들지 않는다(실측 2026-09-24)."""
+        '접수된 문서가 무엇인지 정리해 줘' 처럼 있는 문서를 묻는 말은 문서를 만들지 않는다."""
         q = q or ""
         if _DRAFT_EXPLICIT.search(q):
             return True
@@ -1064,7 +1062,7 @@ def create_app(
 
     _TITLE_CUT = re.compile(r"\s*(?:의\s*)?(?:초안|작성|써\s*줘|써줘|만들어|정리해|보고서로|문서로)")
 
-    # 조각마다 길이 상한·사이 공백 필수 — 공백이 선택이면 긴 입력에서 나누는 경우의 수가 폭주한다(ReDoS, 10/11 보안 검토)
+    # 조각마다 길이 상한·사이 공백 필수 — 공백이 선택이면 긴 입력에서 나누는 경우의 수가 폭주한다(ReDoS)
     _LAST_SECTION_REF = re.compile(r"(?:방금|아까|직전에?|앞서|조금 ?전에?) ?(?:쓴|작성한|채운|고친)(?: \S{1,20}){0,4}? ?\S{0,20}?절|(?:이|그) ?절(?:을|를|도|만)? ")
     _OUTLINE_POINTER = re.compile(r"(?:위|앞|이|그|방금|정한|잡은|만든)\s*(?:의\s*)?(?:목차|구성|개요|틀)|목차\s*(?:대로|에\s*따라|에\s*맞춰|를\s*바탕)")
     _POINTER_WORDS = {"위", "이", "그", "저", "아래", "앞", "앞의", "위의", "방금", "지금", "이번", "해당", "말한", "정리한", "잡은", "만든",
@@ -1078,7 +1076,7 @@ def create_app(
         cand = head[:m.start()] if m else head
         cand = re.sub(r"[\s,.:;·]+$", "", cand)
         cand = re.sub(r"(을|를|은|는|의|로|으로)$", "", cand).strip()
-        # 앞 대화를 가리키는 말(「위 목차대로」「이 내용에 맞춰」「방금」)은 제목이 아니다 — 문서 제목이 「위 목차대로 사업계획서」가 됐다(10/11)
+        # 앞 대화를 가리키는 말(「위 목차대로」「이 내용에 맞춰」「방금」)은 제목이 아니다
         words = [w for w in cand.split() if w.strip(".,!~?") not in _POINTER_WORDS and not _POINTER_TAIL.search(w.strip(".,!~?"))]
         cand = " ".join(words)
         return (cand or head or "새 문서")[:60]
@@ -1146,7 +1144,7 @@ def create_app(
                 scored.append((score, d))
                 if score > best_score:
                     best, best_score = d, score
-        # 비슷하게 맞는 후보가 둘 이상이면 짐작하지 않는다 — 호출 쪽이 되묻는다(사용자 지시: 어떤 문서를 고칠지 정확히)
+        # 비슷하게 맞는 후보가 둘 이상이면 짐작하지 않는다 — 호출 쪽이 되묻는다(고칠 문서는 정확해야 한다)
         rivals = [d for sc, d in scored if d is not best and sc >= best_score - 0.15 and d["id"] != (best or {}).get("id")]
         if best is None:
             # 사람은 긴 제목을 다 부르지 않는다("합본", "작성서식") — 한 문서에만 있는 뜻 있는 낱말 하나면 그 문서다
@@ -1219,14 +1217,14 @@ def create_app(
 
         if not gdrive.list_accounts():
             return False, ""
-        # 제목은 양식을 고른 Writer 가 짓는다(10/11 「좋아. 사업계획서」「아까 사업계획서」 — 낱말 목록으로 막는 건 끝이 없다).
+        # 제목은 양식을 고른 Writer 가 짓는다(「좋아. 사업계획서」 같은 말버릇을 낱말 목록으로 막는 데는 끝이 없다).
         # 못 지었을 때만 요청 문장에서 추린다
         title = title_override.strip() or _draft_title(q.removeprefix(_COMMON_PREFIX))
         kind_spec = spec_override or gdocs_templates.pick(q)
         if project and all(t in _GENERIC_WORDS or len(t) < 2 for t in re.split(r"\s+", title.strip()) if t):
             pname = project.get("name", "").strip()
             if kind_spec and title.strip() in ("문서", "자료", "새 문서", ""):
-                # 「문서」만 남으면 양식 갈래로 — 「아니 문서」·「인공지능 문서」 대신 「인공지능 사업계획서」(10/11)
+                # 「문서」만 남으면 양식 갈래로 — 「아니 문서」·「인공지능 문서」 대신 「인공지능 사업계획서」
                 title = re.sub(r"\s*공통\s*양식.*$", "", kind_spec.get("title", "")).strip() or title
             # 「사업계획서」 만으로는 어느 사업 것인지 모른다 — 프로젝트 이름에 이미 그 낱말이 있으면 이름만(「… 사업계획서 사업계획서」 방지)
             title = (pname if title.replace(" ", "") in pname.replace(" ", "") else f"{pname} {title}").strip()[:60] or title
@@ -1256,7 +1254,7 @@ def create_app(
                 _uni = (_inst.facts(db).get("대학명") or "").strip()
                 gdocs_templates.render(made["account"], made["doc"], spec, titled=True,
                                        fill={"○○대학교": _uni, "20○○. ○.": f"{_now_dt.now():%Y}. {_now_dt.now().month}."})
-                # 공통 양식으로 만든 문서 — 한글 원본 서식이 없으니 내보내기는 Word 로(남의 서식에 붓지 않게, 리허설 2026-10-08)
+                # 공통 양식으로 만든 문서 — 한글 원본 서식이 없으니 내보내기는 Word 로(남의 서식에 붓지 않게)
                 db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": made["doc"], "account": made["account"], "template": spec["id"]}))
                 if spec.get("intro", "").startswith("대화에서 정한 목차"):
                     n_ch = sum(1 for b_ in spec["blocks"] if b_.get("h") == 1)
@@ -1295,9 +1293,9 @@ def create_app(
         db.set_setting(f"chat_options:{session_id}", _aj.dumps(options[:4], ensure_ascii=False) if options else "")
 
     def _chat_suggestions(session_: dict | None, owner: str) -> list[dict]:
-        """대화 안에 선택지처럼 띄우는 다음 작업(사용자 지시 2026-09-25: 클로드가 선택지 주듯이, 작업 맥락에서 입력이 필요할 때만).
+        """대화 안에 선택지로 띄우는 다음 작업 — 작업 맥락에서 입력이 필요할 때만.
 
-        답변이 직접 낸 선택지(chat_options)만 보인다 — 프로젝트·연결 문서 상태로 만든 고정 제안은 두지 않는다(2026-09-25, C-99).
+        답변이 직접 낸 선택지(chat_options)만 보인다. 프로젝트·연결 문서 상태로 만든 고정 제안은 두지 않는다.
         질문 그대로 보낼 수 있게 question 을 함께 준다."""
         if not session_:
             return []
@@ -1311,7 +1309,7 @@ def create_app(
         return (opts or [])[:4]
 
     def _project_suggestions(project: dict | None) -> list[dict]:
-        """다음 작업 제안 — 무조건 돌리지 않고 알림처럼 내민다(사용자 지시 2026-09-24).
+        """다음 작업 제안 — 무조건 돌리지 않고 알림처럼 내민다.
 
         양식이 있으면 '그 양식으로 작성 시작', 글자 없는 그림 쪽이 있는 접수 문서가 있으면 '그림 쪽 판독'."""
         if not project:
@@ -1688,20 +1686,20 @@ def create_app(
                     return any(drafting.writable(x) for x in _gd0.get(link["account"], link["doc"])["sections"])
                 except Exception:
                     return False
-            # 「방금 쓴 절 다시 써 줘」「이 절」 — 이 대화에서 마지막으로 쓴 절로 짚는다(10/11 일반 편집으로 빠져 같은 글을 같은 글로 바꿈)
+            # 「방금 쓴 절 다시 써 줘」「이 절」 — 이 대화에서 마지막으로 쓴 절로 짚는다(안 그러면 일반 편집으로 빠진다)
             last_sec = db.get_setting(f"chat_last_section:{session_id}", "") or ""
             if last_sec and _LAST_SECTION_REF.search(q) and "「" not in q and not drafting._SECTION_NO.search(q):
                 q = f"{q} 「{last_sec}」 절"
             # 문서 전체 초안 요청인데 쓸 절 구조가 없는 문서(빈 새 문서)면 일반 편집 — 모델이 절부터 짜서 쓴다
             if drafting.looks_like_section_draft(q) and (not drafting.doc_draft_only(q) or _has_writable()):
-                # 절 작성 에이전트(사용자 지시 2026-09-27): 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
+                # 절 작성 에이전트: 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
                 # 절마다 재료(작성방법·평가지표·지난 자료의 같은 절·기관 정보)를 모아 27B 가 쓰고 넣는다. 한 번에 몇 절씩, 이어서는 선택지로.
                 from zzaimy.app.regulations import extract_nouns
                 from zzaimy.ingest import gdocs as _gd
 
                 info = _gd.get(link["account"], link["doc"])
                 try:
-                    # 이미 다룬 절은 연결 문서마다 — 대화 단위로 두니 문서를 새로 만든 뒤에도 옛 문서에서 다룬 「1. 추진 배경」을 건너뛰었다(10/11)
+                    # 이미 다룬 절은 연결 문서마다 둔다 — 대화 단위로 두면 문서를 새로 만든 뒤에도 옛 문서에서 다룬 절을 건너뛴다
                     raw_skip = _aj.loads(db.get_setting(f"chat_skip_sections:{session_id}", "") or "[]")
                     skip_ = set(raw_skip.get("heads", [])) if isinstance(raw_skip, dict) and raw_skip.get("doc") == link["doc"] else set()
                 except ValueError:
@@ -1718,7 +1716,7 @@ def create_app(
                 mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope,
                                           sink=_chat_sources.setdefault(session_id, []))
                 if drafting.is_event_record(info) and not mats.past_docs() and not sources:
-                    # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌려 「자료 필요」만 되풀이하던 것(10/10 시험).
+                    # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌리면 「자료 필요」만 되풀이한다.
                     # 필요한 자료를 한 번에 알리고 모델은 부르지 않는다
                     need = drafting.needed_sources(info)
                     text = ("이 문서는 한 번의 회의·운영을 적는 기록이라 이번 자료가 있어야 씁니다 — 문서함의 다른 회의·회차 값은 옮기지 않습니다.\n"
@@ -1759,9 +1757,9 @@ def create_app(
                         if rv.get("heading") == sec["heading"] and rv.get("text"):
                             cmd += "\n반영할 검토 의견(보완할 점을 고쳐 쓴다 — 자료에 없는 값은 여전히 비우고 묻는다):\n" + rv["text"][:2000]
                     refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
-                    # 절에 양식 표가 있으면 격자를 재료에 붙인다 — 모델이 fill 로 칸을 채운다(2026-09-29, 실측: 표 채움 0건이던 문제)
+                    # 절에 양식 표가 있으면 격자를 재료에 붙인다 — 모델이 fill 로 칸을 채운다(격자가 없으면 표를 채우지 못한다)
                     m["intent"] = drafting.conversation_intent(db.list_chats(session_id))
-                    # 찾을 것을 Writer 가 정한다(컨텍스트 구성 리즈닝, 10/11) — 코드는 그 계획대로 검색만 한다
+                    # 찾을 것을 Writer 가 정한다(컨텍스트 구성 리즈닝) — 코드는 그 계획대로 검색만 한다
                     from zzaimy.app import context_plan
 
                     _chat_step(session_id, f"「{sec['heading'][:24]}」 필요한 자료 찾는 중")
@@ -1796,7 +1794,7 @@ def create_app(
                     t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=_scrub_internal,
                                              evidence=m["criteria"], number_evidence=mats.number_evidence(), confirm=confirm, materials=materials_,
                                              focus=sec, references=refs, before_apply=before_apply, figure_folder=fig_folder)
-                    # 사용자에게는 참고한 자료 이름만 — 「낱말 겹침」「기준 조각 0건」 같은 내부 말이 답에 그대로 보였다(10/11)
+                    # 담당자에게는 참고한 자료 이름만 보인다 — 「낱말 겹침」「기준 조각 0건」 같은 내부 말은 답에 넣지 않는다
                     titles_ = list(dict.fromkeys(p_["title"] for p_ in m["past"] if p_.get("title")))
                     used = ", ".join(f"「{t[:30]}」" for t in titles_[:4]) + (f" 외 {len(titles_) - 4}건" if len(titles_) > 4 else "")
                     parts_.append(f"[{sec['heading'][:40]}]\n{t_}" + (f"\n참고한 자료: {used}" if used else ""))
@@ -1810,7 +1808,7 @@ def create_app(
                             parts_.append(f"완성본 대비 핵심 사실 반영 {sc['covered']}/{sc['total']} ({int(sc['ratio'] * 100)}%){miss}")
                     all_ops += o_
                     if not confirm:
-                        # 이 대화에서 다룬 절 — 쓴 것이 있든(근거 없는 칸은 비워 둠) 없든 「다음 절」은 그 뒤부터(리허설: 요약서 표를 두 번 채움).
+                        # 이 대화에서 다룬 절 — 쓴 것이 있든(근거 없는 칸은 비워 둠) 없든 「다음 절」은 그 뒤부터(같은 표를 두 번 채우지 않게).
                         # 절 번호로 짚으면 다시 쓴다
                         skip_.add(sec["heading"])
                         db.set_setting(f"chat_skip_sections:{session_id}", _aj.dumps({"doc": link["doc"], "heads": sorted(skip_)}, ensure_ascii=False))
@@ -1830,7 +1828,7 @@ def create_app(
                 opts = []
                 if pend:
                     opts.append(_asks.form_option(pend))
-                # 단추만 보고 무엇을 어느 절에 하는지 알 수 있게 — 절 이름을 단추에 넣는다(10/11 「다시 써 줘」가 무엇을 다시 쓰는지 몰랐다)
+                # 단추만 보고 무엇을 어느 절에 하는지 알 수 있게 절 이름을 단추에 넣는다
                 last_h = targets[-1]["heading"]
                 short_h = last_h if len(last_h) <= 18 else last_h[:17] + "…"
                 if left:
@@ -1845,7 +1843,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", text)
                 return
             if re.search(r"(한글|hwpx?)\s*(파일|문서|서식|완성본)?\s*(로|으로)?\s*(내보내|저장|만들|뽑|출력|채워|완성)", q, re.I) and not re.search(r"작업본", q):
-                # 한글 완성본(2026-09-28, ADR-0035): 작업본의 절 본문을 원본 서식(hwpx)에 서식을 보존한 채 넣어 프로젝트 '작성' 폴더에 올린다.
+                # 한글 완성본(ADR-0035): 작업본의 절 본문을 원본 서식(hwpx)에 서식을 보존한 채 넣어 프로젝트 '작성' 폴더에 올린다.
                 # 협업은 독스에서, 최종본은 원본 서식으로 — 스크립트가 정답을 채우는 것이 아니라 에이전트·담당자가 쓴 작업본을 옮기는 것
                 import tempfile
                 from datetime import date as _date
@@ -1944,7 +1942,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", _scrub_internal(text))
                 return
             if re.search(r"작업본\s*(?:을|를)?\s*(?:새로|다시)\s*(?:만들|떠|뜨|생성)|새\s*작업본|작업본\s*갱신", q):
-                # 작업본 새로 만들기(2026-09-28): 변환기가 좋아진 뒤 원본 서식을 다시 변환해 새 복제본을 만들고, 지금까지 쓴 절 본문을 옮긴다
+                # 작업본 새로 만들기: 변환기가 좋아진 뒤 원본 서식을 다시 변환해 새 복제본을 만들고, 지금까지 쓴 절 본문을 옮긴다
                 from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf
 
                 proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
@@ -2012,7 +2010,7 @@ def create_app(
             review_focus = None
             review_mat = ""
             if re.search(r"검토|점검|평가해|맞는지|채점|비교해", q):
-                # 절 검토: 지목한 절(번호) 또는 방금 쓴 절을 재료(작성방법·평가지표·지난 자료 같은 절)와 함께 준다 — 긴 문서의 앞 12000자만 보던 문제
+                # 절 검토: 지목한 절(번호) 또는 방금 쓴 절을 재료(작성방법·평가지표·지난 자료 같은 절)와 함께 준다(긴 문서의 앞부분만 보지 않게)
                 from zzaimy.app.regulations import extract_nouns
                 from zzaimy.ingest import gdocs as _gd
 
@@ -2044,7 +2042,7 @@ def create_app(
                     _set_options(session_id, [{"kind": "read", "text": sg["text"][:40], "question": sg["question"]} for sg in reads[:2]]
                                  + [{"kind": "skip", "text": "판독 없이 지금 있는 내용으로", "question": q}])
             if review_focus is not None and not _ops:
-                # 절 검토 뒤 — 의견을 기억해 두고 「반영해 다시 쓰기」로 잇는다(리허설 9: 검토 뒤 선택지가 비어 흐름이 끊김)
+                # 절 검토 뒤 — 의견을 기억해 두고 「반영해 다시 쓰기」로 잇는다(검토 뒤 선택지가 비면 흐름이 끊긴다)
                 db.set_setting(f"chat_last_review:{session_id}", _aj.dumps({"heading": review_focus["heading"], "text": text[:2500]}, ensure_ascii=False))
                 _set_options(session_id, [{"kind": "redo", "text": "검토 의견 반영해 다시 쓰기",
                                            "question": f"「{review_focus['heading']}」 절을 방금 검토 의견을 반영해 다시 써 줘"},
@@ -2125,7 +2123,7 @@ def create_app(
     ):
         from zzaimy.app.responder import normalize_input
 
-        q = normalize_input(question).strip()          # 전각 영문·숫자(ＡＩＤ)·「。、」 — 검색어가 맞지 않던 것(10/10 대화 23)
+        q = normalize_input(question).strip()          # 전각 영문·숫자(ＡＩＤ)·「。、」를 고쳐야 검색어가 맞는다
         if form_fields.get("values"):
             from zzaimy.app import asks as _asks
 
@@ -2146,7 +2144,7 @@ def create_app(
                     raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
                 title = f"[{proj['name'][:14]}] {q}"
             elif len(files) >= 2:
-                # 새 대화에 문서 세트를 던지면 프로젝트가 생긴다(사용자 지시 2026-09-24) — 이름은 묶음에서, 기준/접수로 나눠 들인다
+                # 새 대화에 문서 세트를 던지면 프로젝트가 생긴다 — 이름은 묶음에서, 기준/접수로 나눠 들인다
                 pname = _title_from_bundle(files)
                 pid = db.create_project("grant", pname, owner=getattr(request.state, "user", "zzaimy"))
                 made_project = db.get_project(pid) or {"id": pid, "sector": "grant", "name": pname}
@@ -2493,7 +2491,7 @@ def create_app(
         if defer_review and "defer_review" in _ins.signature(processor.process).parameters:
             processor.process(db_, doc_id, stored, defer_review=True)
             # 판독·색인까지 끝났으니 문서는 이미 쓸 수 있다 — 뒤 단계(정체 읽기 27B ~100초·분류·열람 PDF)는 묶음 판독이 다 끝난 뒤
-            # 한 줄 대기열로(_process_bundle). 판독과 겹치면 PDF 라이브러리(pdfium)를 두 스레드가 함께 써 프로세스가 죽었다(2026-10-09 실측)
+            # 한 줄 대기열로(_process_bundle). 판독과 겹치면 PDF 라이브러리(pdfium)를 두 스레드가 함께 써 프로세스가 죽는다
             return
         processor.process(db_, doc_id, stored)
         _after_process(db_, doc_id, user_chose_type)
@@ -2508,7 +2506,7 @@ def create_app(
             _auto_route(db_, doc_id, user_chose_type)
         except Exception:
             pass
-        # 사무 문서(한글·워드·엑셀·PPT)의 열람 PDF 도 반입 때 만든다(사용자 지시 2026-09-27) — 문서 화면 '원문' 탭이 바로 열린다
+        # 사무 문서(한글·워드·엑셀·PPT)의 열람 PDF 도 반입 때 만든다 — 문서 화면 '원문' 탭이 바로 열린다
         try:
             from zzaimy.app import office_pdf
 
@@ -2517,7 +2515,7 @@ def create_app(
                 office_pdf.render(db_, doc_)
         except Exception:
             pass
-        # 맥락 분석도 반입 때 해 둔다(사용자 지시 2026-09-27: 반입하면 자동 분석) — 버튼을 누르게 하지 않는다. 실패해도 접수는 유지
+        # 맥락 분석도 반입 때 해 둔다 — 버튼을 누르게 하지 않는다. 실패해도 접수는 유지
         try:
             doc_ = db_.get_document(doc_id) or {}
             if doc_.get("status") == "reviewed" and not (doc_.get("ai_review") or "").strip():
@@ -2577,7 +2575,7 @@ def create_app(
     @app.post("/doc/{doc_id}/scope")
     def doc_set_scope(request: Request, doc_id: int, dept: str = Form(""), access_level: str = Form(""),
                       back: str = Form("")):
-        """문서의 부서·열람 등급 바꾸기 — 조각에도 즉시 옮겨져 검색 범위가 따라간다(C-60 화면이 부른다).
+        """문서의 부서·열람 등급 바꾸기 — 조각에도 즉시 옮겨져 검색 범위가 따라간다(문서 화면이 부른다).
         관리자, 또는 그 문서를 올린 사람만."""
         from zzaimy.app.access_policy import LEVELS
 
@@ -2704,7 +2702,7 @@ def create_app(
         docs, chats, chunks, docs_more = [], [], [], False
         if term:
             owner = getattr(request.state, "user", "zzaimy")
-            # 열람 권한은 SQL 에서(문서함과 같은 규칙) — 예전에는 거르지 않아 남의 담당자 한정 문서 이름·본문이 보였다(2026-10-06)
+            # 열람 권한은 SQL 에서 거른다(문서함과 같은 규칙) — 다른 담당자 한정 문서의 이름·본문이 보이지 않게
             acc, acc_args = _doc_access_sql(request)
             with db._conn() as conn:
                 found = [dict(r) for r in conn.execute(
@@ -2713,7 +2711,7 @@ def create_app(
             seen = {d["id"] for d in found}
             for d in found:
                 d["snippet"] = ""
-            # 본문은 사업 문서 어휘 색인(grant_lex)으로 — 본문 846MB 를 처음부터 훑지 않는다. 권한은 색인 조회에서 거른다
+            # 본문은 사업 문서 어휘 색인(grant_lex)으로 찾는다 — 본문 전체를 처음부터 훑지 않는다. 권한은 색인 조회에서 거른다
             if len(found) < 11:
                 try:
                     from zzaimy.app import grant_lex, grant_search
@@ -2897,7 +2895,7 @@ def create_app(
                 jobs.append((doc_id, stored))
                 made["intake"].append(doc_id)
         if jobs:
-            # 묶음 문서 처리 — 동시 수는 ZZAIMY_BUNDLE_WORKERS(기본 1). 실측(2026-10-09, AID 5건): 한 건씩 977초, 3건씩은 더 느렸다 —
+            # 묶음 문서 처리 — 동시 수는 ZZAIMY_BUNDLE_WORKERS(기본 1). 측정 결과 3건씩 돌리면 한 건씩보다 느렸다 —
             # 시간 대부분이 토르 27B 생성(문서당 ~3분)인데 젯슨은 동시 요청에도 전체 생성 속도가 거의 안 늘고, MinerU(VM CPU)는 서로 다툰다
             background.add_task(_process_bundle, jobs)
         return made
@@ -2920,7 +2918,7 @@ def create_app(
 
     def _link_past_materials(project: dict) -> list[dict]:
         """같은 사업의 지난 자료(다른 연도의 공고·기본계획·지침) 를 프로젝트 기준으로 잇는다 — 이름 낱말(연도·번호 제외) 7할 이상 겹치는
-        문서함의 기준 문서. 사용자 지시(2026-09-24): 새 채팅에 던지면 지난 자료가 자동으로 이어져야 한다."""
+        문서함의 기준 문서. 새 대화에 문서를 던지면 지난 자료가 자동으로 이어진다."""
         name = project.get("name") or ""
         toks = [t.lower() for t in re.split(r"[\s\-_()\[\]{}.,:;·+/]+", name)
                 if len(t) >= 2 and not re.fullmatch(r"\d{2,4}(?:학년도|년도|년)?|(?:v|ver)?\d[\d.]*", t, re.I)]
@@ -2942,7 +2940,7 @@ def create_app(
         return picked
 
     def _link_past_projects(request: Request, project: dict, limit: int = 3, min_score: float = 0.4) -> list[dict]:
-        """새 프로젝트에 이름이 많이 겹치는 과거 사업 보관 묶음을 참조로 붙인다(C-192 흐름: 담당자가 만들면 관련 과거 사업이 붙는다).
+        """새 프로젝트에 이름이 많이 겹치는 과거 사업 보관 묶음을 참조로 붙인다(담당자가 만들면 관련 과거 사업이 붙는다).
         참조는 보관 해제·소유권 변경·문서 이동이 아니다. 지침·기준 탭에서 풀 수 있다. 열람 범위의 문서가 있는 묶음만."""
         from zzaimy.app import project_refs
         try:
@@ -2974,7 +2972,7 @@ def create_app(
                               name: str = Form(""), due_date: str = Form(""), unit: str = Form(""),
                               file: list[UploadFile] = File([])):
         """프로젝트 만들기 한 곳 — 자료(공고·기본계획·양식·계획서 …)를 고르면 그 묶음으로 만들고(이름은 비우면 묶음에서 뽑는다),
-        고르지 않으면 이름만으로 만든다(화면의 「만들기」·「묶음으로 만들기」 두 버튼을 하나로, 2026-10-09)."""
+        고르지 않으면 이름만으로 만든다(「만들기」·「묶음으로 만들기」를 한 버튼으로)."""
         if sector not in INBOX_TYPES:
             raise HTTPException(400, f"알 수 없는 업무 영역입니다: {sector}")
         files = [f for f in file if f and f.filename]
@@ -3135,7 +3133,7 @@ def create_app(
     def doc_view(request: Request, doc_id: int):
         """문서를 구글에서 연다 — 엑셀·PPT·워드는 시트·슬라이드·독스, 한글은 복원 docx→독스, PDF·그림은 드라이브 미리보기.
         열람본이 있으면 바로 넘기고, 없으면 뒤에서 만들며 기다림 화면을 준다 — 큰 한글 파일은 원본 받기·변환·올리기에 몇 분이 걸려
-        한 요청 안에서 만들면 브라우저가 끝없이 도는 것처럼 보였다(10/10). 허용 계정이 없으면 플랫폼 문서 화면으로."""
+        한 요청 안에서 만들면 브라우저가 끝없이 도는 것처럼 보인다. 허용 계정이 없으면 플랫폼 문서 화면으로."""
         import json as _vj
 
         from zzaimy.ingest import gdrive_files
@@ -3225,11 +3223,11 @@ def create_app(
         def rich(t: str) -> str:
             # 이스케이프한 뒤 굵게(**)와 줄바꿈(<br>)만 되살린다 — 생성 문서의 다른 태그는 글자 그대로
             s2 = _mre.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", str(_esc(t)))
-            # 기울임 「*AI물류:*」 — 별표가 그대로 보였다(10/10 대화 23). 곱셈·각주 별표(「* 표시」)는 양끝이 붙은 것만
+            # 기울임 「*AI물류:*」 — 별표가 그대로 보이지 않게. 곱셈·각주 별표(「* 표시」)는 양끝이 붙은 것만
             s2 = _mre.sub(r"(?<![\w*])\*(?=\S)([^*\n]+?)(?<=\S)\*(?![\w*])", r"<i>\1</i>", s2)
             return s2.replace("&lt;br&gt;", "<br>").replace("&lt;br/&gt;", "<br>").replace("&lt;br /&gt;", "<br>")
 
-        # 목록 줄 — 「- 」「* 」「• 」(모델이 「* 」로 쓰면 별표가 그대로 보였다, 10/10). 「**굵게**」로 시작하는 줄은 목록이 아니다
+        # 목록 줄 — 「- 」「* 」「• 」(모델이 「* 」로 쓴 목록도 목록으로). 「**굵게**」로 시작하는 줄은 목록이 아니다
         _item = _mre.compile(r"^\s*(?:[-•]|\*(?!\*))\s+")
         _num = _mre.compile(r"^\s*(?:\d{1,2}|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)[.)]\s+")
 
@@ -3275,7 +3273,7 @@ def create_app(
                 i += 1
                 continue
             m_h = _mre.match(r"^(#{4,6})\s+(.*)$", ln)
-            if m_h:                                         # 「#### Ⅰ.」 — 4단계 이하 제목이 글자 그대로 보였다
+            if m_h:                                         # 「#### Ⅰ.」 — 4단계 이하 제목도 제목으로 그린다
                 out.append(f'<h5 style="margin:14px 0 6px; font-size:14px;">{rich(m_h.group(2))}</h5>')
                 i += 1
                 continue
@@ -3298,7 +3296,7 @@ def create_app(
                     while (
                         i < len(lines) and lines[i].strip()
                         and not _item.match(lines[i])
-                        and not _num.match(lines[i])          # 「2.  사업 목표」는 새 번호 항목 — 앞 항목 끝에 붙던 것(10/10 대화 23)
+                        and not _num.match(lines[i])          # 「2.  사업 목표」는 새 번호 항목이라 앞 항목에 붙이지 않는다
                         and not lines[i].startswith(("#", "|"))
                     ):
                         body.append(lines[i].strip())
@@ -3543,7 +3541,7 @@ def create_app(
                 agg[area] = {"name": area, "done": 0, "total": 0, "features": []}
                 order.append(area)
             agg[area]["total"] += 1
-            agg[area]["features"].append(f)          # 기능별 상태는 영역별로 묶어 보인다(2026-09-22)
+            agg[area]["features"].append(f)          # 기능별 상태는 영역별로 묶어 보인다
             if f.get("status") == "done":
                 agg[area]["done"] += 1
         for a in agg.values():
@@ -3610,7 +3608,7 @@ def create_app(
 
     def _git_history() -> list[dict]:
         """커밋 이력을 깃에서 직접 읽는다 — 한 줄 = {day, time, subject, hash, areas, files}.
-        저장소 사본(dev-changelog.md)은 손으로 다시 만들어야 낡았으므로(9/22) 깃이 정본이다.
+        저장소 사본(dev-changelog.md)은 손으로 다시 만들어야 해 낡기 쉬우므로 깃이 정본이다.
         HEAD 가 같으면 캐시를 쓴다."""
         import subprocess
 
@@ -3693,7 +3691,7 @@ def create_app(
         "notes/2026-09-22-external-split-and-blockchain.md": "외부 모델 반분 위탁·블록체인 — 채택 안 함(이유·대안)",
         "notes/2026-09-22-vllm-vs-ollama.md": "서빙 엔진 비교 — 실측과 vLLM 통일 이유",
         "notes/2026-09-22-access-controlled-knowledge-base.md": "권한별 지식 베이스 — 권한 밖 질문(학생·타 부서 개인정보)에 어떻게 응답하나, 열람 등급·부서 범위",
-        "notes/meeting-w2-20260908.md": "2주차 미팅 메모(교수님)와 정합 분석",
+        "notes/meeting-w2-20260908.md": "2주차 미팅 메모와 정합 분석",
         "notes/2026-09-02-ocr-engine-refs.md": "OCR 엔진 후보 조사",
         "notes/2026-09-02-ocr-preprocessing-refs.md": "스캔 전처리·복원 후보 조사",
         "notes/2026-09-02-ocr-upgrade-refs.md": "OCR·문서이해 고도화 레퍼런스",
@@ -3827,7 +3825,7 @@ def create_app(
             "fname": fname,
             "doc": _dev_doc_view(_dev_read(name), fname),
             "papers": _dev_papers(),
-            # 설계·기술 문서는 논문 자료가 아니라 hwpx·docx 내보내기가 없다(항상 404였음)
+            # 설계·기술 문서는 논문 자료가 아니라 hwpx·docx 내보내기가 없다
             "show_export": False, "page_title": "설계·기술 문서",
         }))
 
@@ -4108,12 +4106,12 @@ def create_app(
             if meta["date"] and (d := date_re.search(meta["date"])):
                 meta["date"] = d.group(0)
             if not meta["date"] and not first_date:
-                # 머리에 날짜가 없는 문서는 깃의 마지막 수정일 — 목록의 날짜 칸이 들쭉날쭉하지 않게(2026-09-22 사용자 지적)
+                # 머리에 날짜가 없는 문서는 깃의 마지막 수정일 — 목록의 날짜 칸이 들쭉날쭉하지 않게
                 first_date = _doc_last_changed(rel)
             status = re.split(r"\s*[(（]", meta["status"], maxsplit=1)[0].strip()
             num = ""
             title = title or rel.rsplit("/", 1)[-1]
-            # ADR 제목은 '# NNNN. 제목' 이 규칙이지만 'ADR-NNNN' · 'NNNN ·' 꼴도 번호로 읽는다(2026-09-22)
+            # ADR 제목은 '# NNNN. 제목' 이 규칙이지만 'ADR-NNNN' · 'NNNN ·' 꼴도 번호로 읽는다
             if m := re.match(r"^(?:ADR-)?(\d{4})\s*[.·:]?\s+(.+)$", title):
                 num, title = m.group(1), m.group(2).lstrip("—– ")
             return {"href": href, "title": title, "num": num, "status": status,
@@ -4133,7 +4131,7 @@ def create_app(
                        for p in _dev_papers()],
             "adr_docs": [entry(f"decisions/{d['file']}", f"/dev/doc/decisions/{d['file']}",
                                d["title"]) for d in _dev_doc_list("decisions")],
-            # 기술 검토(조사·판단) 와 작업 메모(내부 메모)를 나눈다 — 한 목록에 섞여 무엇이 무엇인지 안 보였다(9/22)
+            # 기술 검토(조사·판단)와 작업 메모(내부 메모)를 나눠 보인다
             "note_docs": sorted([entry(f"notes/{d['file']}", f"/dev/doc/notes/{d['file']}", d["title"])
                                  for d in _dev_doc_list("notes") if d["file"] not in _NOTE_MEMO],
                                 key=lambda e: e["date"], reverse=True),
@@ -4155,7 +4153,7 @@ def create_app(
     @app.get("/dev/history", response_class=HTMLResponse)
     def dev_history_page(request: Request):
         """변경 이력 — 작업 기록(날짜별) + 커밋 이력 전체(깃에서 직접, 영역 표식).
-        주간 보고서 요약은 논문 자료 화면의 주간 보고서 칸으로 갔다(2026-09-22)."""
+        주간 보고서 요약은 논문 자료 화면의 주간 보고서 칸에 있다."""
         days = []
         for blk in re.split(r"\n(?=### )", _dev_now_parts()["recent_all"]):
             if blk.strip().startswith("### "):
@@ -4204,7 +4202,7 @@ def create_app(
             "policy": pii_audit.MASK_POLICY,
             "type_names": {t: name for t, name, *_ in pii_audit.MASK_POLICY},
             "entity_labels": pii_audit.ENTITY_LABELS,
-            # 권한 밖 시도(개인정보 요청·범위 밖 자료·유도 질문) — 최근 24시간, 화면은 C-59
+            # 권한 밖 시도(개인정보 요청·범위 밖 자료·유도 질문) — 최근 24시간
             "access_audit": [
                 {**r, "kind_label": access_guard.KIND_LABELS.get(r.get("kind"), r.get("kind"))}
                 for r in access_guard.recent(Path(db_path).parent, hours=24)
@@ -4279,7 +4277,7 @@ def create_app(
     def dev_reindex():
         """재색인 체인 실행 — 규정 조각 변경 후 질의·임베딩·앱 순차 갱신.
 
-        두 번 누르면 두 개가 돌던 문제: 실행 중이면 새로 띄우지 않는다(66 자체의
+        실행 중이면 새로 띄우지 않는다(66 자체의
         flock과 이중 방어). 로그 핸들은 자식이 물려받은 뒤 닫는다."""
         import subprocess
 
@@ -4361,7 +4359,7 @@ def create_app(
 
     @app.post("/dev/account/scope")
     def dev_account_scope(request: Request, uid: str = Form(...), dept: str = Form(""), role: str = Form("staff")):
-        """계정의 부서·역할 — 관리자만. 검색·대화 범위가 여기서 정해진다(C-59 화면이 부른다)."""
+        """계정의 부서·역할 — 관리자만. 검색·대화 범위가 여기서 정해진다(개인정보 화면이 부른다)."""
         from zzaimy.app.access_guard import ROLES
 
         if password is None:
@@ -4789,8 +4787,8 @@ def create_app(
         return _nas_redirect(f"「{src['name']}」 가져오기를 시작했습니다 — 끝나면 이 화면에 결과가 남습니다")
 
     # ---- 모델 학습 — 기성 오픈소스 도구 연결 (ADR-0011) ----
-    # 도구는 각자 프로세스로 돌고 플랫폼은 연결·임베드만 한다. GPU(DGX) 확보
-    # 후 실제 가동. 주소는 설정에 저장(없으면 미연결로 표시).
+    # 도구는 각자 프로세스로 돌고 플랫폼은 연결·임베드만 한다. GPU 도구는 DGX 에서
+    # 돈다. 주소는 설정에 저장(없으면 미연결로 표시).
 
     _TRAIN_TOOLS = [
         {"key": "labelstudio", "name": "Label Studio", "step": "검수",
@@ -4816,7 +4814,7 @@ def create_app(
         from zzaimy.dataset import ls_admin
         from zzaimy.generate import llm_connections, model_config
 
-        # Independent connection probes run together, and each connection is read once.
+        # 연결 확인은 동시에 돌리고, 연결마다 한 번만 묻는다.
         from concurrent.futures import ThreadPoolExecutor
         public_connections = llm_connections.list_public()
         with ThreadPoolExecutor(max_workers=4) as probes:
@@ -4895,9 +4893,8 @@ def create_app(
     ):
         """학습 산출물 반출 번들 — 선택 항목만 개방 표준으로 (ADR-0012).
 
-        폼은 항목마다 hidden 0 + checkbox 1 을 보내므로 해제한 항목은 0으로 온다
-        (기본값 1이던 때는 무엇을 꺼도 전부 반출됐다). 인자가 하나도 없는 맨 URL은
-        예전처럼 전체 반출."""
+        폼은 항목마다 hidden 0 + checkbox 1 을 보내므로 해제한 항목은 0으로 온다.
+        인자가 하나도 없는 맨 URL은 전체 반출."""
         from datetime import datetime as _dt
 
         from zzaimy.export.bundle import build_bundle
@@ -5380,11 +5377,11 @@ def create_app(
                         raise ValueError('기존 승인 파일 불일치')
                 approved_bytes(path, check_current=False)
                 active_filename = path.name
-                # Content-addressed imports do not duplicate identical snapshots.
+                # 내용 해시로 이름을 지으므로 같은 승인본은 두 번 등록하지 않는다.
                 if not db.get_setting('grounded_import:' + digest):
                     dsid = db.add_dataset(name='근거 문답 검수 승인', sources='labelstudio', path=str(path), n_pairs=len(pairs))
                     db.set_setting('grounded_import:' + digest, str(dsid))
-            # A changed/revoked review supersedes older imports, including zero approvals.
+            # 검수가 바뀌거나 철회되면(승인 0건 포함) 이번 결과가 이전 승인본을 대신한다.
             import tempfile
             with tempfile.NamedTemporaryFile(mode='w', dir=SFT_DIR, suffix='.tmp', delete=False) as active:
                 _aj.dump({'filename': active_filename}, active)
@@ -5508,7 +5505,7 @@ def create_app(
 
 
     def _weekly_sections(template: Path | None = None) -> tuple[str, bool]:
-        """보고서 항목 구성 — 사용자가 준 양식(docs/weekly/양식.md)이 있으면 그 구성을 그대로, 없으면 기본."""
+        """보고서 항목 구성 — 양식 파일(docs/weekly/양식.md)이 있으면 그 구성을 그대로, 없으면 기본."""
         f = template or _WEEKLY_TEMPLATE
         try:
             text = f.read_text(encoding="utf-8").strip() if f.exists() else ""
@@ -5620,7 +5617,7 @@ def create_app(
         except Exception:
             body = None
         if not body:
-            # 모델이 없으면 원자료(현재 상태 문서)를 그대로 보인다 — 커밋 목록을 쏟지 않는다(2026-09-22)
+            # 모델이 없으면 원자료(현재 상태 문서)를 그대로 보인다 — 커밋 목록을 쏟지 않는다
             body = ("(모델이 응답하지 않아 자동 작성을 못 했습니다. 아래는 현재 상태 문서의 내용입니다 — "
                     "모델 연결 뒤 '다시 만들기'를 누르십시오.)\n\n" + (now_text or "(기록 없음)"))
             return body                      # 실패본은 캐시하지 않는다
@@ -5637,7 +5634,7 @@ def create_app(
             if ln.startswith("|")
         )
         scale = " · ".join(f"{t['label']} {t['value']}" for t in _data_overview()["tiles"])
-        # 양식 밖의 것은 붙이지 않는다(2026-09-22 사용자: "너무 어렵게 적혀 있다"). 기간은 제목에 있다.
+        # 양식 밖의 것은 붙이지 않는다(읽기 쉽게). 기간은 제목에 있다.
         full = _tidy_weekly_md(body) + "\n"
         _ = (base_tbl, embed_tbl, scale)      # 지표는 화면(측정 기록)에서 본다
         if cache.exists():
@@ -5651,7 +5648,7 @@ def create_app(
         pending.replace(cache)
         return full
 
-    # 자동 작성 — 논문 자료 화면을 열면 이번 주 보고서가 없을 때 뒤에서 만든다(2026-09-22 사용자: "생성은 자동인가?").
+    # 자동 작성 — 논문 자료 화면을 열면 이번 주 보고서가 없을 때 뒤에서 만든다.
     # 피드백 저장·다시 만들기도 뒤에서 돌고, 화면은 끝나면 스스로 새로 고친다.
     _weekly_state: dict = {"monday": "", "running": False, "started": "", "error": ""}
     import threading as _weekly_threading
@@ -5869,7 +5866,7 @@ def create_app(
 
     @app.get("/settings", response_class=HTMLResponse)
     def settings_page(request: Request, ok: str = "", err: str = ""):
-        """내 설정 — 프로필·응답 지침·비밀번호·구글 계정을 한 화면에서(2026-10-06, 계정 메뉴의 두 항목을 합침)."""
+        """내 설정 — 프로필·응답 지침·비밀번호·구글 계정을 한 화면에서."""
         uid = getattr(request.state, "user", "") or ""
         acct = accounts.get(uid, {}) if password is not None else {}
         return templates.TemplateResponse(
@@ -5906,7 +5903,7 @@ def create_app(
         uid = getattr(request.state, "user", "") or ""
         if uid:
             db.set_profile(uid, name=name, call_me=call_me, instructions=instructions)
-        else:                                               # 인증 없는 로컬 모드 — 예전처럼 하나만
+        else:                                               # 인증 없는 로컬 모드 — 계정이 없으니 설정 하나에
             for key, val in (("name", name), ("call_me", call_me), ("instructions", instructions)):
                 db.set_setting(key, val.strip()[:4000])
         return RedirectResponse("/settings?ok=" + _q("저장했습니다"), status_code=303)
@@ -5917,7 +5914,7 @@ def create_app(
         if proj is None:
             raise HTTPException(404)
         proj_sector = proj["sector"]
-        # 문서 목록은 대화 문서함과 같은 세 갈래(project_documents) — 화면마다 따로 모으던 것을 하나로
+        # 문서 목록은 대화 문서함과 같은 세 갈래(project_documents)로 모은다
         doc_groups = _doc_groups(request, proj)
         docs = doc_groups["attached"]
         linked = set(db.get_project_criteria_ids(project_id))
@@ -5964,7 +5961,7 @@ def create_app(
         return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
 
     def _project_ref_ctx(request: Request, proj: dict, refq: str) -> dict:
-        """지침·기준 탭의 관련 보관 사업 — 연결된 것과 후보(검색어 또는 이름 겹침). 열람 범위의 문서만 센다(C-192)."""
+        """지침·기준 탭의 관련 보관 사업 — 연결된 것과 후보(검색어 또는 이름 겹침). 열람 범위의 문서만 센다."""
         from zzaimy.app import project_refs
         try:
             scope = _ref_scope(request)
@@ -6001,7 +5998,7 @@ def create_app(
     @app.get("/projects/archived", response_class=HTMLResponse)
     def projects_archived(request: Request, q: str = "", status: str = "archived", year: str = "", unit: str = "",
                           for_project: int | None = None, sort: str = ""):
-        """보관된 사업(통합 프로젝트 찾기, C-195) — 권한 범위의 진행 중·보관 묶음을 사업명·수행 연도·사업단으로. 화면은 아스트라 담당.
+        """보관된 사업(통합 프로젝트 찾기) — 권한 범위의 진행 중·보관 묶음을 사업명·수행 연도·사업단으로.
         결과는 같은 사업의 연도별 묶음을 한 카드로 모아 보인다(project_refs.group_items)."""
         from zzaimy.app import project_refs
         if for_project is not None:
@@ -6024,7 +6021,7 @@ def create_app(
     @app.get("/api/projects/browse")
     def projects_browse(request: Request, q: str = "", status: str = "archived", year: str = "", unit: str = "",
                         for_project: int | None = None, sort: str = ""):
-        """통합 프로젝트 찾기 JSON(C-195 데이터 계약) — project_refs.browse 참조. 연결은 POST /project/{id}/refs."""
+        """통합 프로젝트 찾기 JSON — 형식은 project_refs.browse 참조. 연결은 POST /project/{id}/refs."""
         from zzaimy.app import project_refs
         if for_project is not None:
             fp = db.get_project(for_project)
@@ -6408,7 +6405,7 @@ def create_app(
 
     def _original_file(doc: dict) -> tuple[Path, bool]:
         """문서의 원본 파일 — (경로, 임시 파일인가). 플랫폼에 있으면 그것, DGX 원본(dgx://)이면 읽기 전용 연결로 한 개만 받아 온다.
-        DGX 문서는 원본이 VM 에 없어 「원본 열기」가 404, 「구글에서 열기」가 같은 화면으로 돌아왔다(2026-10-06)."""
+        DGX 문서는 원본이 VM 에 없으므로 「원본 열기」·「구글에서 열기」가 이 함수로 받아 온다."""
         sp = str(doc.get("stored_path") or "")
         if sp and not sp.startswith("dgx://") and Path(sp).exists():
             return Path(sp), False
@@ -6493,7 +6490,7 @@ def create_app(
         변환·DGX 원본 받기는 뒤에서 하고 기다림 화면을 준다(큰 한글 파일은 몇 분). 만든 것은 남겨 두 번째부터 바로 열린다.
         보여 줄 수 없는 형식은 내려받기로 넘긴다. 파일은 통째로 메모리에 올리지 않고 흘려 보낸다(FileResponse)."""
         doc = db.get_document(doc_id)
-        if doc is None or not _visible(doc, **_doc_scope(request)):        # 예전에는 권한 확인 없이 내려주었다
+        if doc is None or not _visible(doc, **_doc_scope(request)):        # 원본도 열람 권한을 확인한다
             raise HTTPException(404)
         try:
             target, kind = _preview_target(doc)
@@ -7090,7 +7087,7 @@ def main() -> None:
     from zzaimy.app.pipeline import DocumentProcessor
 
     # 외부 접속 모드: ZZAIMY_PASSWORD와 인증서가 있을 때만 0.0.0.0 바인딩 허용.
-    # 공인 IP 장비에서 무인증·무암호화 외부 노출 금지 (risks.md §8 — 실사고 이력).
+    # 공인 IP 장비에서 무인증·무암호화로 외부에 노출하지 않는다(risks.md §8).
     password = os.environ.get("ZZAIMY_PASSWORD") or None
     host = os.environ.get("ZZAIMY_HOST", "127.0.0.1")
     port = int(os.environ.get("ZZAIMY_PORT", "8800"))
