@@ -154,6 +154,29 @@ def _table_counts(tbl: dict) -> tuple[int, int]:
     return cells, empty
 
 
+def _toc_entries(items: list[tuple], styled: bool) -> set[int]:
+    """목차 줄(번호 붙은 보통 문단)의 시작 위치 — 같은 글이 뒤에 제목으로 다시 나오는 앞쪽 줄. 목차를 절로 세면 절 쓰기가 목차
+    항목 아래에 들어갔다(10/11 「인공지능 사업계획서」 1. 추진 배경 본문이 2쪽 목차에). 진짜 같은 제목이 되풀이되는 문서를
+    건드리지 않게, 뒤의 것이 제목 스타일이거나 앞의 줄 바로 다음 줄도 번호 줄(목차처럼 잇달아)일 때만 목차로 본다."""
+    cand = [(i, _norm_heading(t), st) for i, (_s, _e, st, t, tb) in enumerate(items)
+            if not tb and t.strip() and (HEADING_LEVELS.get(st) is not None or _numbered_level(t) is not None)]
+    later: dict[str, list[tuple[int, str]]] = {}
+    for i, key, st in cand:
+        later.setdefault(key, []).append((i, st))
+    numbered = {i for i, _k, _st in cand}
+    out: set[int] = set()
+    for i, key, st in cand:
+        if HEADING_LEVELS.get(st) is not None or not key:
+            continue
+        after = [(j, st2) for j, st2 in later[key] if j > i]
+        if not after:
+            continue
+        nxt = next((j for j in range(i + 1, len(items)) if items[j][3].strip()), None)
+        if any(HEADING_LEVELS.get(st2) is not None for _j, st2 in after) or (nxt is not None and nxt in numbered):
+            out.add(int(items[i][0]))
+    return out
+
+
 def outline(document: dict) -> dict:
     """documents.get 결과 → {title, end, sections:[{index, level, heading, start, end, chars}], text}.
 
@@ -174,13 +197,14 @@ def outline(document: dict) -> dict:
             tcounts[int(el.get("startIndex", 0))] = _table_counts(el["table"])
     doc_end = int(body[-1].get("endIndex", 1)) if body else 1
     styled = any(HEADING_LEVELS.get(st) is not None and t.strip() for _s, _e, st, t, tb in items if not tb)
+    toc = _toc_entries(items, styled)
     sections: list[dict] = []
     cur = {"index": 0, "level": 0, "heading": "(앞머리)", "start": 1, "end": 1, "chars": 0, "table_end": 0, "text": "", "body_chars": 0}
     for start, end, style, text, is_table in items:
         # 제목 스타일이 있어도 번호 문단(Ⅰ. / 1.1.)은 절이다 — 변환한 한글 문서는 개요 스타일이 몇 개뿐이고 절 제목이 굵은 보통
         # 문단이라(실측 2026-09-24 사업계획서: 스타일 제목 3개, 번호 절 수십 개) 스타일만 보면 절이 3개로 잡힌다
         lvl = None if is_table else HEADING_LEVELS.get(style)
-        if lvl is None and not is_table:
+        if lvl is None and not is_table and start not in toc:
             lvl = _numbered_level(text)
             if lvl is not None and styled:
                 lvl = max(lvl, 2)                     # 스타일 제목 아래 급으로
