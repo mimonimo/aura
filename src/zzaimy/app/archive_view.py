@@ -144,9 +144,12 @@ class Programs:
                 groups[g].append(key)
         self.by_key = {k: "" for k in names}
         self.name: dict[str, str] = {}
+        self.count: dict[str, int] = {}
+        self.choices: list[dict] = []          # 마지막 resolve 가 하나로 정하지 못했을 때의 후보(많은 순)
         self.terms: dict[str, list[str]] = {}
         for g, keys in groups.items():
             gid = max(keys, key=lambda k: (names[k][1], k))
+            self.count[gid] = sum(names[k][1] for k in keys)
             for k in keys:
                 self.by_key[k] = gid
             self.name[gid] = program_names.display_name(nodes.get(gid) or "") or g
@@ -165,8 +168,36 @@ class Programs:
     def keys_of(self, gid: str) -> list[str]:
         return sorted(k for k, g in self.by_key.items() if (g or NONE) == gid)
 
+    def candidates(self, value: str) -> list[tuple[int, int, str]]:
+        """사업 조건 값에 맞는 묶음 — (순위, -원본 수, 묶음 열쇠) 순으로. 순위가 작을수록 강한 근거다.
+
+        0 같은 이름: 값이 묶음의 이름·별칭·약칭·옛 이름 하나와 같다(띄어쓰기·괄호·끝 「사업」 차이 무시, group_key)
+        1 같은 낱말: 값이 그 이름들의 낱말 하나와 같다(「RISE」 ↔ 「대구 RISE 협력 사업」의 RISE)
+        2 이름 일부: 값이 이름 속 어디엔가 있다"""
+        flat = program_names.group_key(value)
+        low = value.lower()
+        out = []
+        for g, ts in self.terms.items():
+            rank = 3
+            for t in ts:
+                if t == value or program_names.group_key(t) == flat:
+                    rank = 0
+                    break
+                words = {program_names.group_key(w) for w in re.split(r"[\s()\[\]·,/_\-]+", t) if w}
+                if flat and flat in words:
+                    rank = min(rank, 1)
+                elif low in t.lower():
+                    rank = min(rank, 2)
+            if rank < 3:
+                out.append((rank, -self.count.get(g, 0), g))
+        return sorted(out)
+
     def resolve(self, value: str) -> str:
-        """사업 조건 값 → 묶음 열쇠. 장부 열쇠 · 보일 이름 · 이름·약칭·옛 이름(정리 전후 모두) · 그 일부(묶음 하나만 맞을 때)."""
+        """사업 조건 값 → 묶음 열쇠. 장부 열쇠 · 사업 미분류 · 그 밖에는 candidates 순위로.
+
+        같은 이름(순위 0) 후보가 있으면 그중 원본이 가장 많은 묶음으로 정한다 — 이름·약칭이 그대로 맞은 것은 강한 근거다.
+        낱말·일부만 맞은 후보가 하나면 그것, 여럿이면 정하지 않고 choices 에 후보를 남긴다(화면이 「이 사업을 찾으셨나요?」로 보인다)."""
+        self.choices = []
         value = (value or "").strip()
         if not value or value == NONE:
             return value
@@ -174,15 +205,15 @@ class Programs:
             return NONE
         if value in self.by_key:
             return self.by_key[value] or NONE
-        flat = program_names.group_key(value)
-        exact = {g for g, ts in self.terms.items() if any(t == value or program_names.group_key(t) == flat for t in ts)}
-        if len(exact) == 1:
-            return exact.pop()
-        low = value.lower()
-        part = {g for g, ts in self.terms.items() if any(low in t.lower() for t in ts)}
-        if len(part) == 1:
-            return part.pop()
-        return value                          # 모르는 값 — 0건으로 보인다(조건 칩으로 지울 수 있다)
+        cands = self.candidates(value)
+        if not cands:
+            return value                      # 모르는 값 — 0건(조건 칩으로 지울 수 있다)
+        best = cands[0][0]
+        top = [c for c in cands if c[0] == best]
+        if best == 0 or len(top) == 1:
+            return top[0][2]
+        self.choices = [{"value": g, "name": self.name.get(g, g), "n": -neg} for _r, neg, g in cands[:6]]
+        return value
 
 
 def program_index(db, hidden: set[int]) -> dict[str, tuple[str, int]]:
@@ -544,7 +575,8 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
     ext_names = {e["value"]: e["label"] for e in exts}
     data = {"f": f, "view": view, "sorts": SORTS, "states": archive_state.STATES, "exts": exts, "page_size": PAGE_SIZE,
             "chips": chips(f, labels, ext_names, prog_of),
-            "program_label": NO_PROGRAM if f["program"] == NONE else prog_of.name.get(f["program"], f["program"]), "active": any(f[k] for k in FILTER_KEYS), "nokey": NONE,
+            "program_label": NO_PROGRAM if f["program"] == NONE else prog_of.name.get(f["program"], f["program"]),
+            "program_choices": prog_of.choices, "active": any(f[k] for k in FILTER_KEYS), "nokey": NONE,
             "no_program": NO_PROGRAM, "this_year": date.today().year, "prev_url": "", "next_url": "",
             "url": lambda **kw: page_url(f, **kw)}
     data.update(list_page(db, f, hidden, keys, view["total"], scope["role"], prog_of, labels, masker(db)))
@@ -557,7 +589,7 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
     overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else program_years(facet_rows(
         db, parse_filters(), hidden), prog_of), parse_filters(), prog_of, labels)
     data["overall"] = overall
-    data["program_names"] = sorted(set(prog_of.name.values()))
+    data["program_names"] = sorted(((prog_of.name[g], g, prog_of.count.get(g, 0)) for g in prog_of.name), key=lambda t: -t[2])
     return st.templates.TemplateResponse(request, "archive.html", st.page_ctx(request, data))
 
 

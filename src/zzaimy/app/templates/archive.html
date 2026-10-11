@@ -84,7 +84,7 @@
     <div class="ar-form">
       <label>검색<input name="q" value="{{ f.q }}" placeholder="파일 이름이나 폴더, 여러 낱말 가능" type="search" autocomplete="off"></label>
       <label>사업<input name="program" value="{{ program_label if f.program else '' }}" list="arPrograms" placeholder="사업 이름 일부" type="search" autocomplete="off"></label>
-      <datalist id="arPrograms">{% for name in program_names %}<option value="{{ name }}"></option>{% endfor %}<option value="{{ no_program }}"></option></datalist>
+      <datalist id="arPrograms">{% for name, key, n in program_names %}<option value="{{ name }}" data-key="{{ key }}" label="{{ "{:,}".format(n) }}건"></option>{% endfor %}<option value="{{ no_program }}" data-key="{{ nokey }}"></option></datalist>
       <label>문서 종류<select name="kind"><option value="">전체</option>{% for k in overall.kinds %}<option value="{{ k.value }}" {{ 'selected' if k.value == f.kind }}>{{ k.label }}</option>{% endfor %}</select></label>
       <label>처리 상태<select name="state"><option value="">전체</option>{% for k, label in states.items() %}<option value="{{ k }}" {{ 'selected' if k == f.state }}>{{ label }}</option>{% endfor %}</select></label>
     </div>
@@ -109,6 +109,10 @@
   const query = () => {
     const p = new URLSearchParams();
     for (const [k, v] of new FormData(form)) if (String(v).trim() && !(k === 'sort' && v === 'name')) p.set(k, String(v).trim());
+    if (p.has('program')) {                     // 제안에서 고른 사업 이름은 그 묶음 열쇠로 보낸다
+      const opt = [...document.querySelectorAll('#arPrograms option')].find(o => o.value === p.get('program'));
+      if (opt && opt.dataset.key) p.set('program', opt.dataset.key);
+    }
     return p;
   };
   const run = (page) => {
@@ -141,7 +145,10 @@
     if (a.dataset.set !== undefined) {
       e.preventDefault();
       for (const [k, v] of new URLSearchParams(a.dataset.set)) {
-        if (k === 'program') setField(k, v === '{{ nokey }}' ? '{{ no_program }}' : v); else setField(k, v);
+        if (k === 'program') {                  // 칸에는 사업 이름을 보이고, 보낼 때 query() 가 열쇠로 바꾼다
+          const opt = [...document.querySelectorAll('#arPrograms option')].find(o => o.dataset.key === v);
+          setField(k, opt ? opt.value : v);
+        } else setField(k, v);
       }
       run();
     } else if (a.dataset.clear) {

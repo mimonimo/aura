@@ -338,3 +338,28 @@ def test_counts_per_archive_key_survive_a_graph_rebuild_with_new_node_ids(client
         conn.execute("DELETE FROM kg_nodes")
     gone = snapshot()
     assert gone["program:b"][0] == "program:b" and gone["program:b"][2] == before["program:b"][2]
+
+
+def test_program_box_ranks_exact_acronym_over_word_and_part_matches(client):
+    """낱말 「NOVA」가 세 사업 이름에 들어 있을 때 — 약칭이 그대로 맞는 사업이 이기고, 낱말만 맞는 값은 후보를 보인다."""
+    db = client.app.state.db
+    rows = []
+    for key, name, n in (("program:nova", "새빛 인재양성체계(구 NOVA)", 30), ("program:dgnova", "대구 NOVA 협력 사업", 8),
+                         ("program:novalab", "경북 NOVA 실험실 사업", 5)):
+        rows += [{"rel": f"{key[8:]}/{i}.hwp", "size": 1, "mtime": 1, "ext": "hwp", "program": key, "program_name": name}
+                 for i in range(n)]
+    archive.load(db, rows)
+    _graph_program(db, "program:nova", "새빛 인재양성체계(구 NOVA)", ["NOVA"])
+    for value in ("NOVA", "NOVA사업", "nova 사업", "program:nova", "새빛 인재양성체계(구 NOVA)"):
+        page = client.get(f"/archive?program={value}").text
+        assert _count(page) == "30건 중 1–30", value
+        assert "이 사업을 찾으셨나요?" not in page
+    page = client.get("/archive?program=협력").text                                  # 이름 일부가 하나만 맞음
+    assert _count(page) == "8건 중 1–8"
+    page = client.get("/archive?program=NOV").text                                   # 셋에 맞는 일부 — 0건 대신 후보(많은 순)
+    assert "이 사업을 찾으셨나요?" in page
+    chooser = page[page.index("이 사업을 찾으셨나요?"):page.index("</ul>", page.index("이 사업을 찾으셨나요?"))]
+    assert chooser.index("새빛 인재양성체계(구 NOVA)") < chooser.index("대구 NOVA 협력 사업") < chooser.index("경북 NOVA 실험실 사업")
+    assert "program=program%3Adgnova" in chooser
+    full = client.get("/archive").text
+    assert '<option value="새빛 인재양성체계(구 NOVA)" data-key="program:nova" label="30건">' in full

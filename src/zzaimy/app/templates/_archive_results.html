@@ -1,5 +1,9 @@
 {# 원본 보관소 아래쪽 — 사업 → 연도 → 문서 종류 훑기와 원본 목록. 화면 전체에도, 조건을 바꿀 때 이 칸만 다시 그릴 때(partial=1)에도 쓴다 #}
 <section class="card" id="archive-browse"><div class="card-in">
+  {% if program_choices %}<div class="ar-choose" role="status"><p class="ar-h">이 사업을 찾으셨나요?</p>
+    <ul class="ar-facets" aria-label="사업 후보">{% for c in program_choices %}
+      <li><a class="ar-facet" href="{{ url(program=c.value) }}" data-set="program={{ c.value|urlencode }}">{{ c.name }}<span>{{ "{:,}".format(c.n) }}</span></a></li>
+    {% endfor %}</ul></div>{% endif %}
   <nav class="ar-crumb" aria-label="고른 분류">
     <a href="{{ url(program='', year='', round='', kind='') }}" data-set="program=&year=&round=&kind=">전체 사업</a>
     {% if f.program %}<span aria-hidden="true">›</span><a href="{{ url(year='', round='', kind='') }}" data-set="year=&round=&kind=">{{ program_label }}</a>{% endif %}
