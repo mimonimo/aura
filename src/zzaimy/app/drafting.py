@@ -184,6 +184,16 @@ class Materials:
         return [d for d in docs if d.get("status") == "reviewed" and int(d["id"]) not in self.form_source_ids
                 and d.get("kind") != "form"]
 
+    def number_evidence(self) -> list[dict]:
+        """수치 대조용 근거 — 프로젝트 원본 문서의 조각 전체(재료로 건넨 발췌만 보면 원문에 있는 수치도 「근거 없음」으로 가려진다, 10/11).
+        모델에게 건네지 않는다(수치 대조기만 쓴다). 대조에는 글자만 쓰므로 조각 글만 돌려준다."""
+        if not hasattr(self, "_num_ev"):
+            out: list[dict] = []
+            for d in self.past_docs()[:12]:
+                out += [{"content": str(c.get("content") or "")} for c in self._chunks_of(int(d["id"]))]
+            self._num_ev = out
+        return self._num_ev
+
     def _chunks_of(self, doc_id: int) -> list[dict]:
         if doc_id not in self._chunks:
             self._chunks[doc_id] = self.db.list_doc_chunks(doc_id)

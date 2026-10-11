@@ -1531,7 +1531,7 @@ def create_app(
                     except Exception:
                         fig_folder = None
                     t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=_scrub_internal,
-                                             evidence=m["criteria"], confirm=confirm, materials=materials_,
+                                             evidence=m["criteria"], number_evidence=mats.number_evidence(), confirm=confirm, materials=materials_,
                                              focus=sec, references=refs, before_apply=before_apply, figure_folder=fig_folder)
                     # 사용자에게는 참고한 자료 이름만 — 「낱말 겹침」「기준 조각 0건」 같은 내부 말이 답에 그대로 보였다(10/11)
                     titles_ = list(dict.fromkeys(p_["title"] for p_ in m["past"] if p_.get("title")))
