@@ -167,3 +167,10 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 #chatScroll .chat-progress .chat-progress-head { max-width:560px; }
 body #chatForm { max-width:1040px; }
 .msg hr { border:none; border-top:1px solid #E3E8EF; margin:14px 0; }
+/* 필요한 값 입력 폼 — 제목 한 줄, 칸은 제목 위·입력 아래로 두 열, 보내기는 오른쪽 아래(10/11 칸이 한 줄에 몰려 잘리던 것) */
+.chat-suggestions .chat-suggestion-form { flex:1 1 100%; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px 14px; padding:14px 16px; border:1px solid #DCE3EC; border-radius:12px; background:#FAFBFD; }
+.chat-suggestion-form .chat-form-title { grid-column:1 / -1; font-size:13px; font-weight:700; color:#23354D; }
+.chat-suggestion-form .chat-form-field { display:flex; flex-direction:column; gap:5px; min-width:0; font-size:12.5px; color:#3B4A5E; }
+.chat-suggestion-form .chat-form-field input { width:100%; min-width:0; box-sizing:border-box; padding:8px 10px; border:1px solid #CAD4E0; border-radius:8px; font:inherit; font-size:13px; background:#fff; }
+.chat-suggestion-form button[type=submit] { grid-column:1 / -1; justify-self:end; }
+@media (max-width: 720px) { .chat-suggestions .chat-suggestion-form { grid-template-columns:minmax(0,1fr); } }

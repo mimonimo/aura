@@ -1213,6 +1213,11 @@ def test_generic_draft_title_gets_project_name(docs_env, tmp_path, monkeypatch):
     assert "「지역혁신 2027 사업계획서」" in page
     sid = int(r.headers["location"].rstrip("/").split("/")[-1])
     assert json.loads(app.state.db.get_setting(f"chat_google_doc:{sid}"))["template"] == "plan"
+    pid2 = app.state.db.create_project("grant", "인공지능", owner="zzaimy")
+    r = client.post("/chat/send", data={"question": "위 목차대로 사업계획서 초안을 작성해 줘. 먼저 1장부터.", "project_id": str(pid2)},
+                    follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    assert "「인공지능 사업계획서」" in page and "위 목차대로" not in page.split("드라이브에 문서", 1)[-1][:40]
 
 
 def test_replace_does_not_touch_section_headings(tmp_path, monkeypatch):

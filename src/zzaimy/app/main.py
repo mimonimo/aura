@@ -1033,6 +1033,9 @@ def create_app(
 
     _TITLE_CUT = re.compile(r"\s*(?:의\s*)?(?:초안|작성|써\s*줘|써줘|만들어|정리해|보고서로|문서로)")
 
+    _POINTER_WORDS = {"위", "이", "그", "저", "아래", "앞", "앞의", "위의", "방금", "지금", "이번", "해당", "말한", "정리한", "잡은", "만든"}
+    _POINTER_TAIL = re.compile(r"(대로|따라|따라서|맞춰|맞춰서|맞게|바탕으로|기준으로)$")
+
     def _draft_title(q: str) -> str:
         """지시문에서 문서 제목을 추린다 — '2027년 사업계획서 초안을 써 줘. 절은…' → '2027년 사업계획서'."""
         head = (q or "").strip().splitlines()[0] if (q or "").strip() else ""
@@ -1040,6 +1043,9 @@ def create_app(
         cand = head[:m.start()] if m else head
         cand = re.sub(r"[\s,.:;·]+$", "", cand)
         cand = re.sub(r"(을|를|은|는|의|로|으로)$", "", cand).strip()
+        # 앞 대화를 가리키는 말(「위 목차대로」「이 내용에 맞춰」「방금」)은 제목이 아니다 — 문서 제목이 「위 목차대로 사업계획서」가 됐다(10/11)
+        words = [w for w in cand.split() if w not in _POINTER_WORDS and not _POINTER_TAIL.search(w)]
+        cand = " ".join(words)
         return (cand or head or "새 문서")[:60]
 
     _WORK_WORDS = re.compile(r"작업|작성|수정|편집|채워|채우|고쳐|고치|써\s*(?:보|줘|주)|열어|열고|독스로|구글\s*독스")
