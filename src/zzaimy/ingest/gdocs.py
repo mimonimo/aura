@@ -810,6 +810,22 @@ def redirect_total_row(cells: list[dict], first_col: list[str]) -> list[dict]:
 _VALUE_HEAD = re.compile(r"(?:19|20)(?:\d{2}|○○)|\d\s*차\s*(?:년도)?|[1-9]\s*년\s*차")
 
 
+def column_year(rows: list[dict], ri: int, ci: int) -> str:
+    """열 머리에 적힌 연도(「2023」) — 없으면 빈 문자열."""
+    for r_ in rows[:min(ri, 2)]:
+        tcs = r_.get("tableCells", [])
+        if ci < len(tcs):
+            m = re.search(r"(?:19|20)\d{2}", " ".join(_para_text(e["paragraph"]) for e in tcs[ci].get("content", []) if "paragraph" in e))
+            if m:
+                return m.group(0)
+    return ""
+
+
+def other_year(text: str, year: str) -> bool:
+    """칸 글에 열 머리와 다른 연도가 있는가 — 2022 칸에 「81.9% (2023)」·2024 칸에 「2030년 목표」."""
+    return bool(year) and any(y != year for y in re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", text or ""))
+
+
 def value_column(rows: list[dict], ri: int, ci: int) -> bool:
     """그 칸의 열 머리(값을 넣는 행보다 위, 앞 두 행)가 연도·차수인가 — 해마다·차수마다 값을 적는 칸."""
     heads = []
@@ -825,8 +841,8 @@ def too_wordy_for_value(text: str) -> bool:
     t = re.sub(r"\s+", "", text or "")
     if re.fullmatch(r"[(（]?(?:확인필요|해당없음|없음|미정|추후확정|-|–|○+)[)）]?", t):
         return False
-    if len(t) > 8 and not re.search(r"\d", t):
-        return True                                       # 숫자 하나 없는 글 — 「…구조 개편 추진」은 값이 아니다
+    if len(t) > 8 and not re.search(r"\d", re.sub(r"(?:19|20)\d{2}(?:년|학년도|년도)?", "", t)):
+        return True                                       # 연도 말고 숫자가 없는 글 — 「2022년 … 증가세 지속」은 값이 아니다
     if len(t) <= 24:
         return False
     numeric = len(re.findall(r"[\d.,%○()~\-·/]|명|건|개|원|억|만|천|점|회|시간|과목|곳", t))
@@ -890,7 +906,7 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
         if not content:
             skipped += 1
             continue
-        if text and value_column(rows, ri, ci) and too_wordy_for_value(text):
+        if text and value_column(rows, ri, ci) and (too_wordy_for_value(text) or other_year(text, column_year(rows, ri, ci))):
             skipped += 1                                      # 연도·차수 값 칸에 서술문 — 「최근 3년 값」 칸에 「2025년 기준 1,390억 원 … 투입」(10/11)
             continue
         start = int(content[0]["startIndex"])
