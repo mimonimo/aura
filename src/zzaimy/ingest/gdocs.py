@@ -516,6 +516,77 @@ def emphasize(email: str, doc: str, phrase: str, *, user: str, data_dir: Path, b
     return {"ok": True, "count": len(reqs)}
 
 
+def _labels(rows: list[list[str]]) -> set[str]:
+    """표의 머리 글자 — 첫 행과 첫 열의 칸 글(정규화, 빈 칸·기호 칸 제외)."""
+    out = {_norm_heading(str(c)) for c in (rows[0] if rows else [])}
+    out |= {_norm_heading(str(r[0])) for r in rows if r}
+    return {x for x in out if len(x) >= 2}
+
+
+def same_table_in_section(body: list[dict], info: dict, section_index: int, rows: list[list[str]]) -> int:
+    """절 안에 머리 글자(첫 행·첫 열)가 대부분 같은 표가 있으면 그 표 번호(1부터), 없으면 0."""
+    want = _labels(rows)
+    if len(want) < 3:
+        return 0
+    for t in _section_tables(body, info, section_index):
+        have_rows = [[" ".join(_para_text(e["paragraph"]) for e in c.get("content", []) if "paragraph" in e) for c in r.get("tableCells", [])]
+                     for r in t["el"]["table"].get("tableRows", [])]
+        # 표 안 어디든(SWOT 처럼 머리 칸이 가운데 열에도 있다) 같은 머리 글자가 있으면 센다
+        have = {_norm_heading(c) for r in have_rows for c in r if len(_norm_heading(c)) >= 2}
+        if len(want & have) >= max(3, int(len(want) * 0.6)):
+            return int(t["n"])
+    return 0
+
+
+def _fills_path(data_dir: Path) -> Path:
+    return Path(data_dir) / "gdocs_fills.json"
+
+
+def record_fills(data_dir: Path, doc: str, section: str, table_n: int, cells: list[tuple[int, int]]) -> None:
+    """채운 칸 기록 — 다시 쓰기가 그 칸만 비운다(서식의 머리 칸·라벨은 그대로)."""
+    p = _fills_path(data_dir)
+    try:
+        data = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    except ValueError:
+        data = {}
+    key = f"{doc_id(doc)}|{_norm_heading(section)}|{int(table_n)}"
+    have = {tuple(x) for x in data.get(key, [])}
+    data[key] = sorted(have | {tuple(c) for c in cells})
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def clear_recorded_fills(email: str, doc: str, section_index: int, *, data_dir: Path, http=None) -> int:
+    """기록된 채운 칸을 비운다(다시 쓰기 전). 비운 칸 수를 돌려준다."""
+    p = _fills_path(data_dir)
+    if not p.exists():
+        return 0
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except ValueError:
+        return 0
+    http = http or _http()
+    info = get(email, doc, http)
+    sec = next((x for x in info["sections"] if x["index"] == int(section_index)), None)
+    if sec is None:
+        return 0
+    r = _read(email, doc, http)
+    _raise(r)
+    ranges = []
+    for t in _section_tables(body_content(r.json()), info, int(section_index)):
+        key = f"{doc_id(doc)}|{_norm_heading(sec['heading'])}|{int(t['n'])}"
+        rows = t["el"]["table"].get("tableRows", [])
+        for ri, ci in data.pop(key, []):
+            if ri < len(rows) and ci < len(rows[ri].get("tableCells", [])):
+                content = [e for e in rows[ri]["tableCells"][ci].get("content", []) if "paragraph" in e]
+                if content and " ".join(_para_text(e["paragraph"]) for e in content).strip():
+                    ranges.append((int(content[0]["startIndex"]), int(content[-1]["endIndex"]) - 1))
+    if ranges:
+        _batch(email, doc, [{"deleteContentRange": {"range": {"startIndex": a, "endIndex": b}}} for a, b in sorted(ranges, reverse=True) if b > a], http)
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return len(ranges)
+
+
 def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]], *, user: str, data_dir: Path,
                  scrub=None, http=None) -> dict:
     """절 끝에 표를 넣고 셀을 채운다. 셀은 뒤에서부터 채워 앞 인덱스가 밀리지 않게 한다."""
@@ -528,6 +599,12 @@ def insert_table(email: str, doc: str, section_index: int, rows: list[list[str]]
     sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
     if sec is None:
         raise ValueError("절을 다시 골라 주세요")
+    r0 = _read(email, doc, http)
+    _raise(r0)
+    dup = same_table_in_section(body_content(r0.json()), info, int(section_index), rows)
+    if dup:
+        # 서식에 이미 있는 표를 새로 또 넣지 않는다 — SWOT 표가 두 벌이 됐다(10/11). 값은 칸 채우기(fill)로 넣는다
+        return {"ok": False, "duplicate": dup, "rows": len(rows), "cols": n_cols, "section": sec["heading"]}
     at = max(1, min(int(sec["end"]) - 1, int(info["end"]) - 1))
     _batch(email, doc, [{"insertTable": {"location": {"index": at}, "rows": len(rows), "columns": n_cols}}], http)
     r = _read(email, doc, http)
@@ -784,6 +861,7 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
     edits: list[tuple[int, int, str]] = []          # (start, end(지울 끝, 없으면 start), 글)
     skipped = 0
     seen: set[tuple[int, int]] = set()
+    written: set[tuple[int, int]] = set()
     for c in cells:
         try:
             ri, ci = int(c.get("row")), int(c.get("col"))
@@ -818,6 +896,8 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
             continue                                          # 빈 칸을 비우라는 것(근거 없는 값은 비워 둠) — 할 일이 없고 잘못도 아니다
             continue
         edits.append((start, end, text))                     # text 가 비면 칸을 비운다(모델이 잘못 든 값을 지울 때)
+        if text:
+            written.add((ri, ci))
         # 원점 칸이 덮은 칸에 남은(보이지 않는) 글은 지운다 — 예전 채우기가 덮인 칸에 넣은 값이 완성본으로 새지 않게
         for (cr, cc), origin in covered.items():
             if origin == (ri, ci) and cr < len(rows) and cc < len(rows[cr].get("tableCells", [])):
@@ -832,6 +912,10 @@ def fill_table(email: str, doc: str, section_index: int, table_n: int, cells: li
             reqs.append({"insertText": {"location": {"index": start}, "text": text}})
     if reqs:
         _batch(email, doc, reqs, http)
+    try:
+        record_fills(data_dir, doc, t["sec"]["heading"], int(table_n), sorted(written))
+    except OSError:
+        pass
     n_written = sum(1 for _s, _e, tx in edits if tx)
     n_cleared = sum(1 for _s, e_, tx in edits if not tx and e_ > _s)
     _audit(data_dir, {"user": user, "doc": doc_id(doc), "action": "fill", "section": t["sec"]["heading"], "table": int(table_n),
@@ -893,6 +977,10 @@ def clear_section_body(email: str, doc: str, section_index: int, *, user: str, d
     제목 뒤)의 문단·표를 지운다. end_index 를 주면 그 앞까지(소제목 절들까지 한 절로 볼 때). '다시 써 줘' 가 덧붙이지 않게.
     독스는 표 바로 앞의 빈 문단을 지우지 못하므로 상자 앞은 건드리지 않는다(실측 2026-09-27 400)."""
     http = http or _http()
+    try:                                                # 앞서 채운 서식 표 칸부터 비운다 — 본문만 비우니 옛 값이 표에 남았다(10/11)
+        clear_recorded_fills(email, doc, section_index, data_dir=data_dir, http=http)
+    except (ValueError, RuntimeError, OSError):
+        pass
     info = get(email, doc, http)
     sec = next((s for s in info["sections"] if s["index"] == int(section_index)), None)
     if sec is None:
