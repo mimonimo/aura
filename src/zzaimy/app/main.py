@@ -927,6 +927,7 @@ def create_app(
         if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
             if _run_doc_agent(session_id, q, owner, project, scope, scope_msg, data_dir, attachment_text, criteria, r):
                 return
+        # 아래 낱말 규칙 갈래(판독·문서 지목·초안·연결 문서 명령)는 모델이 돌지 못했을 때(_run_doc_agent 가 False)만 쓰는 대비 경로다
         if _looks_like_reading(q):
             target = _project_doc_named(project, session_id, q)
             if target is not None:
@@ -1112,10 +1113,8 @@ def create_app(
                 out.append(d)
         return out
 
-    def _project_doc_named(project: dict | None, session_id: int, q: str) -> dict | None:
-        """질문이 지목한 프로젝트 문서 — 제목 낱말(2자 이상)의 6할 이상이 질문에 있으면 그 문서. 가장 많이 겹치는 것."""
-        if not q:
-            return None
+    def _project_doc_candidates(project: dict | None, session_id: int) -> list[dict]:
+        """이 대화가 짚을 수 있는 문서 — 프로젝트 기준 문서·프로젝트 접수 문서·대화 첨부(같은 문서는 한 번)."""
         cands: list[dict] = []
         if project:
             for did in db.get_project_criteria_ids(int(project["id"])):
@@ -1127,6 +1126,14 @@ def create_app(
             d = db.get_document(int(f["doc_id"])) if f.get("doc_id") else None
             if d:
                 cands.append(d)
+        seen: set[int] = set()
+        return [d for d in cands if not (d["id"] in seen or seen.add(d["id"]))]
+
+    def _project_doc_named(project: dict | None, session_id: int, q: str) -> dict | None:
+        """질문이 지목한 프로젝트 문서 — 제목 낱말(2자 이상)의 6할 이상이 질문에 있으면 그 문서. 가장 많이 겹치는 것."""
+        if not q:
+            return None
+        cands = _project_doc_candidates(project, session_id)
         norm_q = re.sub(r"[\s\-_()\[\]{}.,:;·+/]+", "", q).lower()
         best, best_score = None, 0.0
         scored: list[tuple[float, dict]] = []
@@ -1287,6 +1294,14 @@ def create_app(
             return _sparse_cache[key]
         except Exception:
             return []
+
+    def _unread_pages(doc: dict) -> list[int]:
+        """글자 없는 쪽 가운데 아직 판독하지 않은 쪽."""
+        pages = _sparse_pages_of(doc)
+        if not pages:
+            return []
+        done = set(db.vision_pages(int(doc["id"])))
+        return [p for p in pages if p not in done]
 
     def _set_options(session_id: int, options: list[dict]) -> None:
         """이 답변에 딸린 선택지 — 담당자의 선택이 필요할 때 답 아래에 띄운다. 다음 질문이 오면 지운다."""
@@ -1473,9 +1488,14 @@ def create_app(
 
         def state() -> str:
             lines = [f"프로젝트: {project['name'] if project else '(없음 — 일반 대화)'}"]
-            if project:
-                docs = mats().past_docs()
-                lines.append("프로젝트 문서: " + (", ".join(f"「{storage.title_of(d.get('filename') or '')[:40]}」" for d in docs[:10]) or "(없음)"))
+            docs = _project_doc_candidates(project, session_id)
+            if project or docs:
+                # 열거나 판독할 문서는 이 제목으로 짚는다(open_project_document·read_document). 양식은 작성 서식, 판독 대기는 그림 쪽이 남은 문서
+                rows_ = []
+                for d in docs[:16]:
+                    tags = (["양식"] if d.get("kind") == "form" else []) + (["그림 쪽 판독 전"] if _unread_pages(d) else [])
+                    rows_.append(f"「{storage.title_of(d.get('filename') or '')[:50]}」" + (f"({', '.join(tags)})" if tags else ""))
+                lines.append("프로젝트 문서: " + (", ".join(rows_) or "(없음)"))
             if attachment_text:
                 lines.append(f"이번 메시지 첨부: 있음({len(attachment_text)}자)")
             lk = link()
@@ -1523,24 +1543,82 @@ def create_app(
             ms = db.list_chats(session_id)
             return (ms[-1]["content"] if ms and ms[-1]["role"] == "assistant" else "")[:1500]
 
-        def via_doc(cmd: str) -> str:
-            if not link().get("doc"):
-                return "연결된 문서가 없다 — create_document 로 먼저 만든다."
+        def with_notes(fn):
+            """에이전트가 찾은 근거를 절 쓰기 재료(gathered)에 덧붙여 fn 을 부른다 — 쓰는 동안만 둔다."""
             if notes:
                 _agent_notes[session_id] = "[에이전트가 찾은 근거 — 출처는 《 》 안의 문서 제목만]\n" + "\n".join(notes[-8:])
             try:
-                _edit_linked_doc(session_id, cmd, owner, data_dir, scope, scope_msg)
+                fn()
             finally:
                 _agent_notes.pop(session_id, None)
+
+        def via_doc(cmd: str) -> str:
+            """절 단위가 아닌 연결 문서 작업(검토·편집·내보내기·작업본) — 기존 연결 문서 경로에 코드가 정한 명령으로 넘긴다."""
+            if not link().get("doc"):
+                return "연결된 문서가 없다 — create_document 로 먼저 만든다."
+            with_notes(lambda: _edit_linked_doc(session_id, cmd, owner, data_dir, scope, scope_msg))
             return last_reply() or "(결과 없음)"
 
         def t_write(a: dict, redo: bool = False) -> str:
+            """모델이 고른 절을 그대로 쓴다 — 쓸 절·다시 쓰기 여부를 명령 글로 만들어 낱말 규칙으로 되읽지 않는다."""
+            if not link().get("doc"):
+                return "연결된 문서가 없다 — create_document 나 open_project_document 로 먼저 잇는다."
             sec = find_section(str(a.get("section") or ""))
             if sec is None:
                 return "그런 절이 없다 — 상태의 절 목록에서 고른다."
             memo = str(a.get("notes") or a.get("reason") or "").strip()
-            verb = "다시 써 줘" if redo else "작성방법에 맞춰 작성해 줘"
-            return via_doc(f"「{sec['heading']}」 절을 {verb}. 담당자 요청: {q}" + (f"\n에이전트 메모: {memo}" if memo else ""))
+            request = q + (f"\n에이전트 메모: {memo}" if memo else "")
+            n0 = len(db.list_chats(session_id))
+            with_notes(lambda: _draft_sections(session_id, owner, data_dir, scope, scope_msg, targets=[sec], redo=redo,
+                                               request=request, client=client))
+            added = [m_["content"] for m_ in db.list_chats(session_id)[n0:] if m_["role"] == "assistant"]
+            return "\n".join(added)[:1500] or "(결과 없음)"
+
+        def pick_document(title: str) -> tuple[dict | None, str]:
+            """모델이 상태의 「프로젝트 문서」 에서 고른 제목 → 문서. 같은 제목이 먼저, 없으면 한쪽이 다른 쪽을 품는 제목이 하나뿐일 때."""
+            def norm(t: str) -> str:
+                return re.sub(r"[\s\-_()\[\]{}.,:;·+/「」]+", "", t or "").lower()
+            want = norm(title)
+            docs = _project_doc_candidates(project, session_id)
+            if not want:
+                return None, "document 가 비었다 — 상태의 프로젝트 문서 제목 가운데 하나."
+            exact = [d for d in docs if norm(storage.title_of(d.get("filename") or "")) == want]
+            hits = exact or [d for d in docs if want in norm(storage.title_of(d.get("filename") or ""))
+                             or norm(storage.title_of(d.get("filename") or "")) in want]
+            if len(hits) == 1:
+                return hits[0], ""
+            names = ", ".join(f"「{storage.title_of(d.get('filename') or '')[:40]}」" for d in (hits or docs)[:8])
+            return None, (f"「{title}」 에 맞는 문서가 여럿이다: {names} — 정확한 제목으로 고르거나 ask_user 로 묻는다." if hits
+                          else f"「{title}」 문서가 없다. 있는 문서: {names or '(없음)'}")
+
+        def t_open(a: dict) -> str:
+            doc, why = pick_document(str(a.get("document") or ""))
+            if doc is None:
+                return why
+            made, why = _link_existing_document(session_id, doc, owner, project)
+            if made:
+                return last_reply() or "작업본을 만들어 연결했다."
+            return f"열지 못함: {why or '구글 연결 확인 필요'}"
+
+        def t_read_doc(a: dict) -> str:
+            doc, why = pick_document(str(a.get("document") or ""))
+            if doc is None:
+                return why
+            text = _read_named_document(session_id, doc)
+            db.add_chat(session_id, "assistant", text)
+            return text
+
+        def t_remember(a: dict) -> str:
+            vals = a.get("values") if isinstance(a.get("values"), dict) else {}
+            said = re.sub(r"\s+", "", q)
+            # 담당자 글에 그대로 있는 값만 받는다 — 모델이 값을 지어 넣지 않게(수치는 근거에서만)
+            given = {str(k).strip()[:60]: str(v).strip()[:200] for k, v in vals.items()
+                     if str(k).strip() and str(v).strip() and re.sub(r"\s+", "", str(v)) in said}
+            dropped = [str(k) for k in vals if str(k).strip()[:60] not in given]
+            if not given:
+                return "받은 값이 없다 — 값은 담당자 요청 글에 있는 그대로만 기억한다." + (f" (요청에 없는 값: {', '.join(dropped[:6])})" if dropped else "")
+            text = _remember_given(session_id, given)
+            return text + (f"\n요청 글에 없어 기억하지 않은 값: {', '.join(dropped[:6])}" if dropped else "")
 
         def t_create(a: dict) -> str:
             if link().get("doc"):
@@ -1595,6 +1673,12 @@ def create_app(
                            t_create, writes=True),
             doc_agent.Tool("write_section", "절 하나를 근거로 작성. args {section: 절 제목, notes: 이 절에 꼭 넣을 것·찾은 근거 요약}",
                            t_write, writes=True),
+            doc_agent.Tool("open_project_document", "프로젝트 문서(작성 서식 등)의 작업본을 만들어 이 대화의 작업 문서로 잇기(담당자가 그 문서로 작업하자고 할 때). "
+                           "args {document: 상태의 프로젝트 문서 제목}", t_open, writes=True),
+            doc_agent.Tool("read_document", "프로젝트 문서의 글자 없는 그림 쪽을 판독해 검색 재료로 더하기(담당자가 판독을 청할 때). "
+                           "args {document: 상태의 프로젝트 문서 제목}", t_read_doc, final=True),
+            doc_agent.Tool("remember_values", "담당자가 이번 요청에서 알려 준 값(받지 못한 값 등)을 기억해 이후 절·기입란에 쓰기. "
+                           "args {values: {이름: 담당자가 적은 값 그대로}}", t_remember),
             doc_agent.Tool("rewrite_section", "이미 쓴 절을 비우고 다시 작성(담당자가 다시 쓰라고 했을 때만). args {section, reason: 무엇을 고칠지}",
                            lambda a: t_write(a, redo=True), writes=True, consent=r"다시|새로|고쳐|수정|바꿔|보완|보강"),
             doc_agent.Tool("review_section", "쓴 절을 공고·평가지표 기준으로 검토. args {section}",
@@ -1614,7 +1698,7 @@ def create_app(
         if not ep.finished and ep.writes:
             # 걸음 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
             done = [str(s_.get("args", {}).get("section") or "") for s_ in ep.steps
-                    if s_.get("action") in ("write_section", "rewrite_section") and not str(s_.get("observation", "")).startswith(("그런 절", "담당자 요청에", "이번 요청의"))]
+                    if s_.get("action") in ("write_section", "rewrite_section") and not str(s_.get("observation", "")).startswith(("그런 절", "담당자 요청에", "이번 요청의", "연결된 문서가 없다"))]
             left = [x for x in sections() if drafting.writable(x) and drafting.is_unfilled(x)]
             msg = "이번 요청에서 " + (", ".join(f"「{d}」" for d in done if d) or f"{ep.writes}개 절") + " 을 썼습니다."
             if left:
@@ -1623,6 +1707,184 @@ def create_app(
         if len(db.list_chats(session_id)) > before:
             return True                                          # 무엇이든 남겼다(쓰기 결과·답·물음)
         return False
+
+    def _remember_given(session_id: int, given: dict) -> str:
+        """담당자가 알려 준 값(물었던 값) — 기억해 두고(프로젝트 값·기관 정보) 남은 질문만 다시 띄운다. 지어내지 않고 물어서 받는 길.
+        대화에 남긴 글을 돌려준다."""
+        from zzaimy.app import asks as _asks
+        from zzaimy.app import section_context
+
+        session_ = db.get_chat_session(session_id) or {}
+        pend = _asks.pending(db, session_id)
+        _asks.remember(db, session_, given)
+        left_asks = [a for a in pend if a["name"] not in given]
+        _asks.set_pending(db, session_id, left_asks)
+        text = "기억했습니다 — " + ", ".join(f"{k}: {v}" for k, v in given.items()) + ". 이후 작성하는 절과 기입란에 넣습니다."
+        opts = []
+        if left_asks:
+            text += "\n아직 못 받은 값: " + ", ".join(a["name"] for a in left_asks)
+            opts.append(_asks.form_option(left_asks))
+        last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
+        num = section_context.split_number(last)[0] if last else ""
+        if num:
+            opts.append({"kind": "redo", "text": f"{num} 절에 반영해 다시 쓰기", "question": f"{num} 절을 알려 준 값을 반영해 다시 써 줘"})
+        opts.append({"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
+        _set_options(session_id, opts)
+        text = _scrub_internal(text)
+        db.add_chat(session_id, "assistant", text)
+        return text
+
+    def _draft_sections(session_id: int, owner: str, data_dir: Path, scope: dict, scope_msg: str, *, targets: list[dict], redo: bool,
+                        request: str, client, info: dict | None = None) -> None:
+        """정해진 절(targets)을 하나씩 쓴다 — 쓸 절과 다시 쓰기 여부는 부르는 쪽이 정해 넘긴다(에이전트는 모델이 고른 절, 물러난 경로는 낱말 규칙).
+
+        절마다 Writer 가 찾을 것을 정하고(context_plan) 재료(작성방법·평가지표·지난 자료의 같은 절·기관 정보·서식 표 격자)를 모아
+        gdocs_agent 로 쓴다. 근거에 없는 수치는 number_evidence 대조로 가린다. 결과·남은 빈 값·다음 선택지를 대화에 남긴다."""
+        from zzaimy.app import asks as _asks
+        from zzaimy.app import chat_documents, drafting, gdocs_agent
+        from zzaimy.app.regulations import extract_nouns, find_relevant
+        from zzaimy.ingest import gdocs as _gd
+
+        link = chat_documents.binding(db, session_id, owner)
+        session_ = db.get_chat_session(session_id) or {}
+        crit_ids = db.get_project_criteria_ids(int(session_["project_id"])) if session_.get("project_id") else []
+        confirm = (db.get_setting(f"chat_google_doc_confirm:{session_id}", "") or "") == "1"
+        if info is None:
+            info = _gd.get(link["account"], link["doc"])
+        try:
+            # 이미 다룬 절은 연결 문서마다 둔다 — 대화 단위로 두면 문서를 새로 만든 뒤에도 옛 문서에서 다룬 절을 건너뛴다
+            raw_skip = _aj.loads(db.get_setting(f"chat_skip_sections:{session_id}", "") or "[]")
+            skip_ = set(raw_skip.get("heads", [])) if isinstance(raw_skip, dict) and raw_skip.get("doc") == link["doc"] else set()
+        except ValueError:
+            skip_ = set()
+        proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+        sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
+        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope,
+                                  sink=_chat_sources.setdefault(session_id, []))
+        if drafting.is_event_record(info) and not mats.past_docs() and not sources:
+            # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌리면 「자료 필요」만 되풀이한다.
+            # 필요한 자료를 한 번에 알리고 모델은 부르지 않는다
+            need = drafting.needed_sources(info)
+            text = ("이 문서는 한 번의 회의·운영을 적는 기록이라 이번 자료가 있어야 씁니다 — 문서함의 다른 회의·회차 값은 옮기지 않습니다.\n"
+                    "필요한 자료: " + (", ".join(need[:10]) if need else "회의·운영 기록") +
+                    "\n프로젝트에 올리거나 대화에 붙인 뒤 다시 「초안 써 줘」라고 하면 절마다 채웁니다.")
+            db.add_chat(session_id, "assistant", _scrub_internal(text))
+            return
+        inst = _asks.facts(db, session_)
+        parts_: list[str] = []
+        pend_before = {a["name"] for a in _asks.pending(db, session_id)}   # 이번 차례 전에 이미 모은 빈 값 — 답마다 되풀이하지 않게
+        all_ops: list[dict] = []
+        for sec in targets:
+            before_apply = None
+            if redo and not drafting.family_unfilled(info, sec):        # 소제목에 나눠 쓴 절도 다시 쓰기면 비운다
+                # 다시 쓰기 — 모델의 계획이 나온 뒤에 기존 초안을 비우고 넣는다(모델이 실패하면 문서는 그대로).
+                # 모델에게는 비운 뒤의 모습(제목·작성방법 상자만)을 보인다.
+                subs = drafting.subsections(info, sec)
+                after = next((x for x in sorted(info["sections"], key=lambda s_: s_.get("start", 0)) if x.get("start", 0) > (subs[-1] if subs else sec).get("start", 0)), None)
+
+                def before_apply(sec_=sec, subs_=subs, after_=after):
+                    cleared = _gd.clear_section_body(link["account"], link["doc"], sec_["index"], user=owner, data_dir=data_dir,
+                                                     end_index=after_["start"] if after_ else None,
+                                                     keep_headings={x["heading"] for x in subs_})
+                    return [f"기존 초안 {cleared['chars']}자를 지우고 다시 씀"] if cleared.get("chars") else []
+                # 모델에게는 비운 뒤의 모습(제목·작성방법 상자·소제목 뼈대)을 보인다
+                box_lines = [ln for ln in (sec.get("text") or "").split("\n") if ln.startswith(sec["heading"]) or "작성방법" in ln]
+                sec = dict(sec, text="\n".join(box_lines) + "".join(f"\n[절 {x['index']}] {x['heading']}" for x in subs), chars=0, body_chars=0)
+            else:
+                sec = dict(sec, text=drafting.family_text(info, sec))     # 소제목 뼈대가 있으면 같이 보인다 — 어디에 넣을지는 모델이 정한다
+            m = mats.for_section(info, sec, request, storage.title_of)
+            cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 {'새로 ' if redo else ''}작성해 줘. 담당자 지시: {request}"
+            if redo:
+                try:
+                    rv = _aj.loads(db.get_setting(f"chat_last_review:{session_id}", "") or "{}")
+                except ValueError:
+                    rv = {}
+                if rv.get("heading") == sec["heading"] and rv.get("text"):
+                    cmd += "\n반영할 검토 의견(보완할 점을 고쳐 쓴다 — 자료에 없는 값은 여전히 비우고 묻는다):\n" + rv["text"][:2000]
+            refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
+            # 절에 양식 표가 있으면 격자를 재료에 붙인다 — 모델이 fill 로 칸을 채운다(격자가 없으면 표를 채우지 못한다)
+            m["intent"] = drafting.conversation_intent(db.list_chats(session_id))
+            # 찾을 것을 Writer 가 정한다(컨텍스트 구성 리즈닝) — 코드는 그 계획대로 검색만 한다
+            from zzaimy.app import context_plan
+
+            _chat_step(session_id, f"「{sec['heading'][:24]}」 필요한 자료 찾는 중")
+            cp_ = context_plan.plan(client, doc_title=info.get("title", ""), heading=sec["heading"], guide=sec.get("text") or "",
+                                    intent=m["intent"], project_docs=context_plan._doc_list(mats.past_docs(), storage.title_of),
+                                    criteria_docs=context_plan._doc_list([db.get_document(i) for i in (crit_ids or [])], storage.title_of))
+            found_ = context_plan.execute(cp_, search_project=mats.search_project, search_criteria=mats.search_criteria,
+                                          search_library=mats.search_library)
+            m["gathered"] = context_plan.render(cp_, found_) + ("\n\n" + _agent_notes[session_id] if _agent_notes.get(session_id) else "")
+            context_plan.record(data_dir, {"session": session_id, "doc": link["doc"], "section": sec["heading"], "request": request[:800],
+                                           "plan": cp_, "found": [{**{k_: v_ for k_, v_ in n_.items() if k_ != "hits"},
+                                                                   "hits": [{"title": h_["title"], "doc_id": h_.get("doc_id"), "chunk_id": h_.get("chunk_id")}
+                                                                            for h_ in n_["hits"]]} for n_ in found_]})
+            materials_ = drafting.render_materials(m, inst)
+            try:
+                grids_ = _gd.table_grids(link["account"], link["doc"], sec["index"], info=info)
+                for x in drafting.subsections(info, sec):
+                    grids_ += _gd.table_grids(link["account"], link["doc"], x["index"], info=info)
+                if grids_:
+                    materials_ += "\n\n" + _gd.render_table_grids(grids_)
+            except Exception:
+                logging.getLogger("zzaimy.app.gdocs").exception("표 격자 읽기 실패 (대화 %s)", session_id)
+            fig_folder = None
+            try:
+                if proj_:
+                    from zzaimy.ingest import gdrive_files as _gf2
+
+                    acct_ = accounts.get(owner, {}) if password is not None else {}
+                    fig_folder = _gf2.project_folder_for(db, link["account"], proj_, acct_.get("dept") or None, sub="그림")
+            except Exception:
+                fig_folder = None
+            t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=_scrub_internal,
+                                     evidence=m["criteria"], number_evidence=mats.number_evidence(), confirm=confirm, materials=materials_,
+                                     focus=sec, references=refs, before_apply=before_apply, figure_folder=fig_folder)
+            # 담당자에게는 참고한 자료 이름만 보인다 — 「낱말 겹침」「기준 조각 0건」 같은 내부 말은 답에 넣지 않는다
+            titles_ = list(dict.fromkeys(p_["title"] for p_ in m["past"] if p_.get("title")))
+            used = ", ".join(f"「{t[:30]}」" for t in titles_[:4]) + (f" 외 {len(titles_) - 4}건" if len(titles_) > 4 else "")
+            parts_.append(f"[{sec['heading'][:40]}]\n{t_}" + (f"\n참고한 자료: {used}" if used else ""))
+            # 정답지(같은 절이 있는 완성본)와 견준 반영률 — 초안이 넣은 글 대 그 절의 핵심 사실(수치·고유명사)
+            if refs and o_:
+                draft_text = "\n".join(str(o.get("text") or "") for o in o_) + "\n" + "\n".join(
+                    str(c.get("text") or "") for o in o_ if o.get("op") == "fill" for c in (o.get("cells") or []) if isinstance(c, dict))
+                sc = drafting.score_against_reference(draft_text, "\n".join(r_["text"] for r_ in refs))
+                if sc["ratio"] is not None:
+                    miss = (" · 빠진 것: " + ", ".join(sc["missing"][:8])) if sc["missing"] else ""
+                    parts_.append(f"완성본 대비 핵심 사실 반영 {sc['covered']}/{sc['total']} ({int(sc['ratio'] * 100)}%){miss}")
+            all_ops += o_
+            if not confirm:
+                # 이 대화에서 다룬 절 — 쓴 것이 있든(근거 없는 칸은 비워 둠) 없든 「다음 절」은 그 뒤부터(같은 표를 두 번 채우지 않게).
+                # 절 번호로 짚으면 다시 쓴다
+                skip_.add(sec["heading"])
+                db.set_setting(f"chat_skip_sections:{session_id}", _aj.dumps({"doc": link["doc"], "heads": sorted(skip_)}, ensure_ascii=False))
+            info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
+        db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
+        pend = _asks.pending(db, session_id)
+        new_ = [a for a in pend if a["name"] not in pend_before]
+        if new_:
+            older = len(pend) - len(new_)
+            parts_.append("이번 절에서 자료에 없어 비워 둔 값 — " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in new_[:6])
+                          + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다." + (f" (앞 절에서 모은 빈 값 {older}개도 「필요한 값 입력」에 있습니다)" if older else ""))
+        elif pend:
+            parts_.append(f"아직 비어 있는 값 {len(pend)}개는 「필요한 값 입력」에서 채울 수 있습니다.")
+        text = "\n\n".join(parts_)
+        left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x) and x.get("heading") not in skip_]
+        opts = []
+        if pend:
+            opts.append(_asks.form_option(pend))
+        # 단추만 보고 무엇을 어느 절에 하는지 알 수 있게 절 이름을 단추에 넣는다
+        last_h = targets[-1]["heading"]
+        short_h = last_h if len(last_h) <= 18 else last_h[:17] + "…"
+        if left:
+            opts.append({"kind": "continue", "text": f"다음 절 이어 쓰기 · 「{left[0]['heading'][:18]}」 (남은 {len(left)}절)",
+                         "question": f"「{left[0]['heading']}」 절을 작성방법에 맞춰 작성해 줘"})
+        opts += [{"kind": "review", "text": f"「{short_h}」 검토", "question": f"「{last_h}」 절을 평가지표·공고 기준으로 검토해 줘"},
+                 {"kind": "redo", "text": f"「{short_h}」 다시 쓰기", "question": f"「{last_h}」 절을 더 구체적인 수치와 근거로 다시 써 줘"}]
+        _set_options(session_id, opts)
+        text = _scrub_internal(text)
+        if scope_msg:
+            text = scope_msg + "\n\n" + text
+        db.add_chat(session_id, "assistant", text)
 
     def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
         """연결된 구글 독스에 대한 명령 — 근거 조각을 붙여 편집 계획을 받고 적용한 결과를 채팅에 남긴다."""
@@ -1663,22 +1925,7 @@ def create_app(
             pend = _asks.pending(db, session_id)
             given = _asks.parse_pairs(q, [a["name"] for a in pend]) if pend else {}
             if given:
-                # 담당자가 물었던 값을 알려 줌 — 기억해 두고(프로젝트 값·기관 정보) 남은 질문만 다시 띄운다. 지어내지 않고 물어서 받는 길
-                _asks.remember(db, session_, given)
-                left_asks = [a for a in pend if a["name"] not in given]
-                _asks.set_pending(db, session_id, left_asks)
-                text = "기억했습니다 — " + ", ".join(f"{k}: {v}" for k, v in given.items()) + ". 이후 작성하는 절과 기입란에 넣습니다."
-                opts = []
-                if left_asks:
-                    text += "\n아직 못 받은 값: " + ", ".join(a["name"] for a in left_asks)
-                    opts.append(_asks.form_option(left_asks))
-                last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
-                num = section_context.split_number(last)[0] if last else ""
-                if num:
-                    opts.append({"kind": "redo", "text": f"{num} 절에 반영해 다시 쓰기", "question": f"{num} 절을 알려 준 값을 반영해 다시 써 줘"})
-                opts.append({"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"})
-                _set_options(session_id, opts)
-                db.add_chat(session_id, "assistant", _scrub_internal(text))
+                _remember_given(session_id, given)
                 return
             def _has_writable() -> bool:
                 from zzaimy.ingest import gdocs as _gd0
@@ -1692,9 +1939,7 @@ def create_app(
                 q = f"{q} 「{last_sec}」 절"
             # 문서 전체 초안 요청인데 쓸 절 구조가 없는 문서(빈 새 문서)면 일반 편집 — 모델이 절부터 짜서 쓴다
             if drafting.looks_like_section_draft(q) and (not drafting.doc_draft_only(q) or _has_writable()):
-                # 절 작성 에이전트: 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
-                # 절마다 재료(작성방법·평가지표·지난 자료의 같은 절·기관 정보)를 모아 27B 가 쓰고 넣는다. 한 번에 몇 절씩, 이어서는 선택지로.
-                from zzaimy.app.regulations import extract_nouns
+                # 모델 없이 물러난 경로 — 쓸 절은 낱말 규칙(target_sections)으로 고르고, 쓰기는 에이전트와 같은 _draft_sections
                 from zzaimy.ingest import gdocs as _gd
 
                 info = _gd.get(link["account"], link["doc"])
@@ -1711,136 +1956,8 @@ def create_app(
                                               for s_ in [x for x in info["sections"] if drafting.writable(x)][:3]])
                     db.add_chat(session_id, "assistant", _scrub_internal(text))
                     return
-                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
-                sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope,
-                                          sink=_chat_sources.setdefault(session_id, []))
-                if drafting.is_event_record(info) and not mats.past_docs() and not sources:
-                    # 회의록·결과보고서는 이번 회의·회차 자료가 있어야 쓴다 — 자료 없이 절마다 27B 를 돌리면 「자료 필요」만 되풀이한다.
-                    # 필요한 자료를 한 번에 알리고 모델은 부르지 않는다
-                    need = drafting.needed_sources(info)
-                    text = ("이 문서는 한 번의 회의·운영을 적는 기록이라 이번 자료가 있어야 씁니다 — 문서함의 다른 회의·회차 값은 옮기지 않습니다.\n"
-                            "필요한 자료: " + (", ".join(need[:10]) if need else "회의·운영 기록") +
-                            "\n프로젝트에 올리거나 대화에 붙인 뒤 다시 「초안 써 줘」라고 하면 절마다 채웁니다.")
-                    db.add_chat(session_id, "assistant", _scrub_internal(text))
-                    return
-                inst = _asks.facts(db, session_)
-                parts_: list[str] = []
-                pend_before = {a["name"] for a in _asks.pending(db, session_id)}   # 이번 차례 전에 이미 모은 빈 값 — 답마다 되풀이하지 않게
-                all_ops: list[dict] = []
                 redo = bool(re.search(r"다시\s*(?:써|쓰|작성)|새로\s*(?:써|쓰|작성)|바꿔\s*(?:써|쓰)", q))
-                for sec in targets:
-                    before_apply = None
-                    if redo and not drafting.family_unfilled(info, sec):        # 소제목에 나눠 쓴 절도 다시 쓰기면 비운다
-                        # 다시 쓰기 — 모델의 계획이 나온 뒤에 기존 초안을 비우고 넣는다(모델이 실패하면 문서는 그대로).
-                        # 모델에게는 비운 뒤의 모습(제목·작성방법 상자만)을 보인다.
-                        subs = drafting.subsections(info, sec)
-                        after = next((x for x in sorted(info["sections"], key=lambda s_: s_.get("start", 0)) if x.get("start", 0) > (subs[-1] if subs else sec).get("start", 0)), None)
-
-                        def before_apply(sec_=sec, subs_=subs, after_=after):
-                            cleared = _gd.clear_section_body(link["account"], link["doc"], sec_["index"], user=owner, data_dir=data_dir,
-                                                             end_index=after_["start"] if after_ else None,
-                                                             keep_headings={x["heading"] for x in subs_})
-                            return [f"기존 초안 {cleared['chars']}자를 지우고 다시 씀"] if cleared.get("chars") else []
-                        # 모델에게는 비운 뒤의 모습(제목·작성방법 상자·소제목 뼈대)을 보인다
-                        box_lines = [ln for ln in (sec.get("text") or "").split("\n") if ln.startswith(sec["heading"]) or "작성방법" in ln]
-                        sec = dict(sec, text="\n".join(box_lines) + "".join(f"\n[절 {x['index']}] {x['heading']}" for x in subs), chars=0, body_chars=0)
-                    else:
-                        sec = dict(sec, text=drafting.family_text(info, sec))     # 소제목 뼈대가 있으면 같이 보인다 — 어디에 넣을지는 모델이 정한다
-                    m = mats.for_section(info, sec, q, storage.title_of)
-                    cmd = f"「{sec['heading']}」 절을 작성방법에 맞춰 {'새로 ' if redo else ''}작성해 줘. 담당자 지시: {q}"
-                    if redo:
-                        try:
-                            rv = _aj.loads(db.get_setting(f"chat_last_review:{session_id}", "") or "{}")
-                        except ValueError:
-                            rv = {}
-                        if rv.get("heading") == sec["heading"] and rv.get("text"):
-                            cmd += "\n반영할 검토 의견(보완할 점을 고쳐 쓴다 — 자료에 없는 값은 여전히 비우고 묻는다):\n" + rv["text"][:2000]
-                    refs = [{"title": p_["title"], "text": p_["text"][:4000]} for p_ in m["past"] if p_["how"] == "같은 절"]
-                    # 절에 양식 표가 있으면 격자를 재료에 붙인다 — 모델이 fill 로 칸을 채운다(격자가 없으면 표를 채우지 못한다)
-                    m["intent"] = drafting.conversation_intent(db.list_chats(session_id))
-                    # 찾을 것을 Writer 가 정한다(컨텍스트 구성 리즈닝) — 코드는 그 계획대로 검색만 한다
-                    from zzaimy.app import context_plan
-
-                    _chat_step(session_id, f"「{sec['heading'][:24]}」 필요한 자료 찾는 중")
-                    cp_ = context_plan.plan(client, doc_title=info.get("title", ""), heading=sec["heading"], guide=sec.get("text") or "",
-                                            intent=m["intent"], project_docs=context_plan._doc_list(mats.past_docs(), storage.title_of),
-                                            criteria_docs=context_plan._doc_list([db.get_document(i) for i in (crit_ids or [])], storage.title_of))
-                    found_ = context_plan.execute(cp_, search_project=mats.search_project, search_criteria=mats.search_criteria,
-                                                  search_library=mats.search_library)
-                    m["gathered"] = context_plan.render(cp_, found_) + ("\n\n" + _agent_notes[session_id] if _agent_notes.get(session_id) else "")
-                    context_plan.record(data_dir, {"session": session_id, "doc": link["doc"], "section": sec["heading"], "request": q[:800],
-                                                   "plan": cp_, "found": [{**{k_: v_ for k_, v_ in n_.items() if k_ != "hits"},
-                                                                           "hits": [{"title": h_["title"], "doc_id": h_.get("doc_id"), "chunk_id": h_.get("chunk_id")}
-                                                                                    for h_ in n_["hits"]]} for n_ in found_]})
-                    materials_ = drafting.render_materials(m, inst)
-                    try:
-                        grids_ = _gd.table_grids(link["account"], link["doc"], sec["index"], info=info)
-                        for x in drafting.subsections(info, sec):
-                            grids_ += _gd.table_grids(link["account"], link["doc"], x["index"], info=info)
-                        if grids_:
-                            materials_ += "\n\n" + _gd.render_table_grids(grids_)
-                    except Exception:
-                        logging.getLogger("zzaimy.app.gdocs").exception("표 격자 읽기 실패 (대화 %s)", session_id)
-                    fig_folder = None
-                    try:
-                        if proj_:
-                            from zzaimy.ingest import gdrive_files as _gf2
-
-                            acct_ = accounts.get(owner, {}) if password is not None else {}
-                            fig_folder = _gf2.project_folder_for(db, link["account"], proj_, acct_.get("dept") or None, sub="그림")
-                    except Exception:
-                        fig_folder = None
-                    t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=_scrub_internal,
-                                             evidence=m["criteria"], number_evidence=mats.number_evidence(), confirm=confirm, materials=materials_,
-                                             focus=sec, references=refs, before_apply=before_apply, figure_folder=fig_folder)
-                    # 담당자에게는 참고한 자료 이름만 보인다 — 「낱말 겹침」「기준 조각 0건」 같은 내부 말은 답에 넣지 않는다
-                    titles_ = list(dict.fromkeys(p_["title"] for p_ in m["past"] if p_.get("title")))
-                    used = ", ".join(f"「{t[:30]}」" for t in titles_[:4]) + (f" 외 {len(titles_) - 4}건" if len(titles_) > 4 else "")
-                    parts_.append(f"[{sec['heading'][:40]}]\n{t_}" + (f"\n참고한 자료: {used}" if used else ""))
-                    # 정답지(같은 절이 있는 완성본)와 견준 반영률 — 초안이 넣은 글 대 그 절의 핵심 사실(수치·고유명사)
-                    if refs and o_:
-                        draft_text = "\n".join(str(o.get("text") or "") for o in o_) + "\n" + "\n".join(
-                            str(c.get("text") or "") for o in o_ if o.get("op") == "fill" for c in (o.get("cells") or []) if isinstance(c, dict))
-                        sc = drafting.score_against_reference(draft_text, "\n".join(r_["text"] for r_ in refs))
-                        if sc["ratio"] is not None:
-                            miss = (" · 빠진 것: " + ", ".join(sc["missing"][:8])) if sc["missing"] else ""
-                            parts_.append(f"완성본 대비 핵심 사실 반영 {sc['covered']}/{sc['total']} ({int(sc['ratio'] * 100)}%){miss}")
-                    all_ops += o_
-                    if not confirm:
-                        # 이 대화에서 다룬 절 — 쓴 것이 있든(근거 없는 칸은 비워 둠) 없든 「다음 절」은 그 뒤부터(같은 표를 두 번 채우지 않게).
-                        # 절 번호로 짚으면 다시 쓴다
-                        skip_.add(sec["heading"])
-                        db.set_setting(f"chat_skip_sections:{session_id}", _aj.dumps({"doc": link["doc"], "heads": sorted(skip_)}, ensure_ascii=False))
-                    info = _gd.get(link["account"], link["doc"])        # 다음 절의 위치는 방금 넣은 글 뒤로 밀렸다
-                db.set_setting(f"chat_last_section:{session_id}", targets[-1]["heading"])
-                pend = _asks.pending(db, session_id)
-                new_ = [a for a in pend if a["name"] not in pend_before]
-                if new_:
-                    older = len(pend) - len(new_)
-                    parts_.append("이번 절에서 자료에 없어 비워 둔 값 — " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in new_[:6])
-                                  + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다." + (f" (앞 절에서 모은 빈 값 {older}개도 「필요한 값 입력」에 있습니다)" if older else ""))
-                elif pend:
-                    parts_.append(f"아직 비어 있는 값 {len(pend)}개는 「필요한 값 입력」에서 채울 수 있습니다.")
-                text = "\n\n".join(parts_)
-                _ops = all_ops
-                left = [x for x in info["sections"] if drafting.writable(x) and drafting.is_unfilled(x) and x.get("heading") not in skip_]
-                opts = []
-                if pend:
-                    opts.append(_asks.form_option(pend))
-                # 단추만 보고 무엇을 어느 절에 하는지 알 수 있게 절 이름을 단추에 넣는다
-                last_h = targets[-1]["heading"]
-                short_h = last_h if len(last_h) <= 18 else last_h[:17] + "…"
-                if left:
-                    opts.append({"kind": "continue", "text": f"다음 절 이어 쓰기 · 「{left[0]['heading'][:18]}」 (남은 {len(left)}절)",
-                                 "question": f"「{left[0]['heading']}」 절을 작성방법에 맞춰 작성해 줘"})
-                opts += [{"kind": "review", "text": f"「{short_h}」 검토", "question": f"「{last_h}」 절을 평가지표·공고 기준으로 검토해 줘"},
-                         {"kind": "redo", "text": f"「{short_h}」 다시 쓰기", "question": f"「{last_h}」 절을 더 구체적인 수치와 근거로 다시 써 줘"}]
-                _set_options(session_id, opts)
-                text = _scrub_internal(text)
-                if scope_msg:
-                    text = scope_msg + "\n\n" + text
-                db.add_chat(session_id, "assistant", text)
+                _draft_sections(session_id, owner, data_dir, scope, scope_msg, targets=targets, redo=redo, request=q, client=client, info=info)
                 return
             if re.search(r"(한글|hwpx?)\s*(파일|문서|서식|완성본)?\s*(로|으로)?\s*(내보내|저장|만들|뽑|출력|채워|완성)", q, re.I) and not re.search(r"작업본", q):
                 # 한글 완성본(ADR-0035): 작업본의 절 본문을 원본 서식(hwpx)에 서식을 보존한 채 넣어 프로젝트 '작성' 폴더에 올린다.
