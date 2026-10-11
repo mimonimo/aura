@@ -24,6 +24,32 @@ def pending(db, session_id: int) -> list[dict]:
         return []
 
 
+FACT, DECISION = "사실", "결정"   # 사실: 자료에 있을 수 있는 값(찾아본다) · 결정: 담당자가 정할 목표·계획(찾지 않고 묻는다)
+
+
+def norm_kind(kind) -> str:
+    k = str(kind or "")
+    return DECISION if DECISION in k else FACT if FACT in k else ""
+
+
+def set_kinds(db, session_id: int, kinds: dict) -> int:
+    """갈래가 없는 받지 못한 값에 모델이 정한 갈래를 한 번 붙인다(이미 정한 갈래는 바꾸지 않는다). 붙인 수를 돌려준다."""
+    cur, n = pending(db, session_id), 0
+    for a in cur:
+        k = norm_kind((kinds or {}).get(a["name"]))
+        if k and not norm_kind(a.get("kind")):
+            a["kind"], n = k, n + 1
+    if n:
+        set_pending(db, session_id, cur)
+    return n
+
+
+def ask_keys(name: str) -> set[str]:
+    """값 이름의 낱말(두 글자 이상)과 그 두 글자 앞머리 — 검색어·결과 글이 이 값을 다루는지 볼 때 쓴다."""
+    keys = {w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", name or "")}
+    return keys | {w[:2] for w in keys if len(w) > 2}
+
+
 def set_pending(db, session_id: int, asks: list[dict]) -> None:
     db.set_setting(f"chat_asks:{session_id}", json.dumps(asks, ensure_ascii=False) if asks else "")
 
@@ -150,16 +176,20 @@ def candidate_spans(name: str, hits: list[dict], source_title: str, limit: int =
     물은 이름의 낱말(두 글자 앞머리 포함)이 든 줄과, 날짜·기간·수량 꼴 글을 고른다. 모델은 이 가운데 하나를 그대로 다시 낸다."""
     title = _squash(source_title).strip("《》「」")
     texts = [str(h.get("text") or "") for h in hits if _squash(h.get("title")).strip("《》「」") == title]
-    keys = {w for w in re.findall(r"[가-힣A-Za-z0-9]{2,}", name or "")}
-    keys |= {w[:2] for w in keys if len(w) > 2}
-    out: list[str] = []
-    for text in texts:
-        for line in re.split(r"[\n。]|(?<=[.)])\s{2,}", text):
-            line = line.strip()
-            if not line or not any(k in line for k in keys):
+    keys = ask_keys(name)
+    ranked: list[tuple[int, int, list[str]]] = []
+    for ti, text in enumerate(texts):
+        lines = [x.strip() for x in re.split(r"[\n。]|(?<=[.)])\s{2,}", text) if x.strip()]
+        for i, line in enumerate(lines):
+            score = sum(1 for k in keys if k in line)
+            if not score:
                 continue
-            out += [m.group(0).strip() for m in _DATEISH.finditer(line)]
-            out.append(line[:80])
+            got = [m.group(0).strip() for m in _DATEISH.finditer(line)]
+            if len(_squash(line)) < 30 and i + 1 < len(lines):      # 짧은 줄은 제목·항목 이름일 때가 많다 — 값은 다음 줄에
+                got.append(lines[i + 1][:80])
+            got.append(line[:80])
+            ranked.append((-score, ti * 1000 + i, got))
+    out = [c for _s, _i, got in sorted(ranked, key=lambda x: (x[0], x[1])) for c in got]   # 이름 낱말이 많이 든 줄부터
     seen: list[str] = []
     for c in out:
         if len(_squash(c)) >= 2 and c not in seen:

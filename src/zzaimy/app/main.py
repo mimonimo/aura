@@ -1654,22 +1654,45 @@ def create_app(
             pend = _asks.pending(db, session_id)
             if pend:
                 sug_ = _asks.suggestions(db, db.get_chat_session(session_id))
-                lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(a["name"] + (" (자료 제안 있음 · 담당자 확인 대기)" if a["name"] in sug_ else "")
-                                                                for a in pend[:10])
-                             + " — 묻기 전에 search 로 문서에서 찾아보고, 결과에 그대로 있으면 resolve_from_evidence 로 출처와 함께 기억한다. "
-                               "자료에 없을 때만 담당자에게 묻는다.")
+
+                def _tag(a_: dict) -> str:
+                    k_ = _asks.norm_kind(a_.get("kind")) or "갈래 모름"
+                    extra_ = (" · 자료 제안 있음, 담당자 확인 대기" if a_["name"] in sug_
+                              else " · 이번 요청에서 자료에서 못 찾음 — 더 찾지 않는다" if a_["name"] in gave_up else "")
+                    return f"{a_['name']}({k_}{extra_})"
+                lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(_tag(a) for a in pend[:10])
+                             + " — 사실 값만 search 로 찾고, 결과에 그대로 있으면 바로 다음 걸음에 resolve_from_evidence 로 출처와 함께 남긴다. "
+                               "결정 값(담당자가 정할 목표·계획)은 찾지 않고 묻는다. 방금 결과에 받지 못한 값의 글이 있으면 바로 resolve_from_evidence.")
             hist = [m_ for m_ in db.list_chats(session_id)[-8:-1]]
             if hist:
                 lines.append("최근 대화(맥락일 뿐 근거가 아니다 — 여기의 사실을 쓰려면 search 로 다시 확인):\n" + "\n".join(f"  [{m_['role']}] {(m_['content'] or '')[:300]}" for m_ in hist))
             return "\n".join(lines)
 
         notes: list[str] = []                                   # 에이전트가 찾은 근거 — 절 쓰기 재료로 넘긴다
+        search_misses: dict[str, int] = {}                      # 값마다 이번 요청에서 찾았지만 못 찾은 횟수
+        gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
         found: list[dict] = []                                  # 같은 근거를 조각으로 — 질문 답에 첫 근거로 넘긴다
+
+        def asks_in(query: str) -> list[dict]:
+            """이 검색어가 다루는 받지 못한 값 — 값 이름의 낱말이 검색어에 모두 있을 때(값마다 찾기 횟수를 세는 데 쓴다)."""
+            out_ = []
+            for a_ in _asks.pending(db, session_id):
+                words_ = [w for w in a_["name"].split() if len(w) >= 2] or [a_["name"]]
+                if all(w in query for w in words_) or sum(1 for w in _asks.ask_keys(a_["name"]) if len(w) >= 2 and w in query) >= 2:
+                    out_.append(a_)
+            return out_
 
         def t_search(a: dict) -> str:
             src, query = str(a.get("source") or "library"), str(a.get("query") or "").strip()
             if not query:
                 return "query 가 비었다."
+            targets = asks_in(query)
+            if targets and all(_asks.norm_kind(x.get("kind")) == _asks.DECISION for x in targets):
+                raise doc_agent.Retry("이 검색어는 결정 값(" + ", ".join(f"「{x['name']}」" for x in targets)
+                                      + ")을 찾는다 — 결정 값은 담당자가 정하므로 자료에서 찾지 않는다. ask_user 로 묻거나 다른 걸음을 고른다.")
+            if targets and all(x["name"] in gave_up for x in targets):
+                raise doc_agent.Retry("이 값(" + ", ".join(f"「{x['name']}」" for x in targets)
+                                      + ")은 이번 요청에서 세 번 찾아도 자료에 없었다 — 더 찾지 말고 다른 값으로 넘어가거나 ask_user·finish.")
             if src == "rules":
                 hits = [{"title": h.get("reg_title") or "규정", "text": h.get("content") or ""} for h in find_relevant(db, query, top_k=4, **scope)]
             else:
@@ -1677,13 +1700,29 @@ def create_app(
                 if fn is None:
                     return "source 는 project·criteria·library·rules 가운데 하나."
                 hits = fn(query)
+            def _missed() -> None:
+                for x in targets:
+                    if _asks.norm_kind(x.get("kind")) != _asks.DECISION:
+                        search_misses[x["name"]] = search_misses.get(x["name"], 0) + 1
+                        if search_misses[x["name"]] >= 3:
+                            gave_up.add(x["name"])
             if not hits:
+                _missed()
                 if src == "criteria":
                     return (f"「{query}」(criteria) — 찾지 못함. 이 프로젝트의 기준 문서에서 맞는 글이 없다"
                             + ("" if crit_ids else "(이어진 기준 문서가 없다)") + " — 공고·지침이 프로젝트 문서로 올라와 있으면 source=project 로 찾는다.")
                 return f"「{query}」({src}) — 찾지 못함"
             body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])
             hint = doc_agent.match_hint(query, [h["text"][:500] for h in hits[:4]], extract_nouns)
+            joined_ = re.sub(r"\s+", "", "\n".join(h["text"][:500] for h in hits[:4]))
+            seen_asks = [x["name"] for x in _asks.pending(db, session_id)
+                         if _asks.norm_kind(x.get("kind")) != _asks.DECISION and x["name"] not in gave_up
+                         and sum(1 for w in _asks.ask_keys(x["name"]) if len(w) >= 2 and w in joined_) >= 2]
+            if seen_asks and src in ("project", "criteria"):
+                hint = (hint + "\n" if hint else "") + ("받지 못한 값과 겹치는 글이 있다: " + ", ".join(f"「{n_}」" for n_ in seen_asks)
+                                                         + " — 결과에 값이 그대로 있으면 다음 걸음에 resolve_from_evidence.")
+            targets[:] = [x for x in targets if x["name"] not in seen_asks]   # 결과에 그 값의 글이 없으면 못 찾은 것으로 센다
+            _missed()
             notes.append(f"◇ {a.get('for') or query} — 검색 「{query}」({src})\n{body}")
             found.extend({"title": h.get("title") or "문서", "text": h.get("text") or "", "doc_id": h.get("doc_id"),
                           "note": h.get("note") or ""} for h in hits[:4])
@@ -1693,6 +1732,7 @@ def create_app(
             return (hint + "\n" + body) if hint else body          # 관찰은 길이 상한에서 잘리므로 일치 단서를 앞에 둔다
 
         seen_hits: list[dict] = []                             # 이번 요청의 프로젝트·기준 문서 search 결과 — 자료로 값 채우기의 근거
+        resolved_now: list[str] = []                           # 이번 요청에서 자료 제안으로 남긴 값
         run_id = f"{session_id}-{__import__('time').time_ns()}"                # 감사용 실행 id
 
         def t_resolve(a: dict) -> str:
@@ -1707,6 +1747,7 @@ def create_app(
                 raise doc_agent.Retry(why, data="\n".join(f"후보: {c}" for c in cands))
             # 확인 전 제안 — 「필요한 값 입력」 칸에 미리 채워 담당자가 「확인」 하거나 고친다. 그 전에는 담당자 값이 아니다
             _set_options(session_id, [_asks.form_option(_asks.pending(db, session_id), _asks.suggestions(db, sess_))])
+            resolved_now.append(name)
             db.add_chat(session_id, "assistant", _scrub_internal(
                 f"「{name}」 값을 자료에서 찾음: 《{title}》 — {value} (확인 전 — 「필요한 값 입력」에서 확인하거나 고쳐 주세요)"))
             return f"자료 제안으로 남겼다(담당자 확인 전) — {name} (《{title}》)"
@@ -1852,7 +1893,8 @@ def create_app(
             return text[:600]
 
         def t_ask(a: dict) -> str:
-            items = [{"name": str(x.get("name"))[:60], "hint": _ko.clip(str(x.get("why") or x.get("hint") or ""), 120)}
+            items = [{"name": str(x.get("name"))[:60], "hint": _ko.clip(str(x.get("why") or x.get("hint") or ""), 120),
+                      "kind": _asks.norm_kind(x.get("kind"))}
                      for x in (a.get("items") or []) if isinstance(x, dict) and x.get("name")]
             if not items:
                 return "items 가 비었다."
@@ -1903,11 +1945,26 @@ def create_app(
             doc_agent.Tool("answer_question", "문서를 고치지 않고 질문에 답하기(이번 요청에서 search 로 찾은 근거로). "
                            "args {question}", t_answer,
                            final=True, needs_evidence=True),
-            doc_agent.Tool("ask_user", "자료로 찾을 수 없어 담당자만 아는 값 묻기. args {items: [{name, why}], message}", t_ask, final=True),
+            doc_agent.Tool("ask_user", "자료로 찾을 수 없어 담당자만 아는 값 묻기. args {items: [{name, why, kind: 사실(자료에 있을 수 있는 값) 또는 결정(담당자가 정할 목표·계획)}], message}", t_ask, final=True),
             doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message}", t_finish, final=True),
         ]
-        ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label))
+        def on_json(step_: dict) -> None:                       # 걸음 JSON 에 덧붙인 받지 못한 값의 갈래(한 번)
+            if isinstance(step_.get("ask_kinds"), dict):
+                _asks.set_kinds(db, session_id, step_["ask_kinds"])
+
+        ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label), on_json=on_json)
         doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps})
+        if not ep.finished and resolved_now:
+            left_ = [x["name"] for x in _asks.pending(db, session_id) if x["name"] not in resolved_now]
+            msg_ = ("이번 요청에서 자료로 찾은 값: " + ", ".join(f"「{n_}」" for n_ in resolved_now)
+                    + " — 「필요한 값 입력」에서 확인해 주세요.")
+            if gave_up:
+                msg_ += " 자료에서 못 찾은 값: " + ", ".join(f"「{n_}」" for n_ in sorted(gave_up)) + "."
+            rest_ = [n_ for n_ in left_ if n_ not in gave_up]
+            if rest_:
+                msg_ += " 남은 값: " + ", ".join(f"「{n_}」" for n_ in rest_) + " — 직접 적어 주시거나 다시 찾아 달라고 해 주세요."
+            if not ep.writes:
+                db.add_chat(session_id, "assistant", _scrub_internal(msg_))
         if not ep.finished and ep.writes:
             # 걸음 한도에 닿아 마무리 없이 끝났다 — 쓴 절과 다음 할 일을 담당자에게 알린다(대화가 끊긴 것처럼 보이지 않게)
             done = [str(s_.get("args", {}).get("section") or "") for s_ in ep.steps

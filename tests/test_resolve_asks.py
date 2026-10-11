@@ -252,3 +252,106 @@ def test_criteria_search_without_criteria_docs_is_empty():
     m = _d.Materials(SimpleNamespace(get_document=lambda i: None, list_doc_chunks=lambda i: []), None, set(),
                      None, lambda q: set(), [], criteria_ids=[])
     assert m.search_criteria("본신청") == []
+
+
+# ---------------------------------------------------------------- 값의 갈래(사실·결정)·바로 남기기·값별 찾기 한도·마무리 요약
+
+
+import re as _re  # noqa: E402
+
+
+class _FollowsState:
+    """상태만 보고 움직이는 가짜 — 운영에서 본 꼴을 흉내 내 처음엔 결정 값을 찾으려 하고, 그 뒤엔 상태의 사실 값을 찾아
+    겹침 단서가 뜨면 결과 글의 후보로 남긴다. 다 남기면 마무리하지 않고 다른 검색을 이어 걸음 한도에 닿는다."""
+
+    def __init__(self):
+        self.model, self._extra, self.sent = "fake", {}, []
+        outer = self
+
+        class _C:
+            def create(self, **kw):
+                msgs = kw["messages"]
+                outer.sent.append(msgs)
+                cur = msgs[-1]["content"]
+                state = cur.split("아직 담당자에게 받지 못한 값:", 1)[1].split("\n", 1)[0] if "아직 담당자에게 받지 못한 값:" in cur else ""
+                log = cur.split("지금까지 한 걸음", 1)[1] if "지금까지 한 걸음" in cur else ""
+                if "갈래 모름" in state:
+                    content = json.dumps({"thought": "t", "action": "search", "args": {"source": "criteria", "query": "대표 성과 수치"},
+                                          "ask_kinds": {"본신청 마감일": "사실", "신청 자격 요건": "사실", "대표 성과 수치": "결정"}},
+                                         ensure_ascii=False)
+                    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+                todo = [n for n, k in _re.findall(r"([^,(]+?)\((사실|결정)[^)]*\)", state)
+                        if k == "사실" and f"{n.strip()}(사실 · 자료 제안" not in state]
+                todo = [n.strip() for n in todo]
+                results = [m["content"] for m in msgs if m["role"] == "user" and m["content"].startswith("[결과: search")]
+                content = None
+                for res in reversed(results):
+                    for n in todo:
+                        if f"「{n}」" in res.split("<<<", 1)[1].split(">>>", 1)[0].split("《", 1)[0]:
+                            body = res.split("<<<", 1)[1].split(">>>", 1)[0]
+                            title = _re.search(r"《([^》]+)》", body).group(1)
+                            text = body[body.index("《"):]
+                            cands = asks.candidate_spans(n, [{"title": title, "text": text}], title)
+                            content = _step("resolve_from_evidence", name=n, value=cands[0], source_title=title)
+                            break
+                    if content:
+                        break
+                if content is None:
+                    nxt = next((n for n in todo if f'"query": "{n}"' not in log), None)
+                    content = _step("search", source="criteria", query=nxt or f"기타 자료 {len(results)}")
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+        self.client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+
+
+def test_fact_asks_resolve_quickly_decision_ask_is_not_searched_and_run_closes_with_summary(tmp_path, monkeypatch):
+    from zzaimy.generate import client as _gc
+
+    monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(),
+                     drafter=FakeDrafter(), responder=FakeResponder())
+    client = TestClient(app)
+    db = app.state.db
+    pid = db.create_project("grant", "부트캠프 2025")
+    did = db.add_document("교육부 공고.pdf", str(tmp_path / "n.pdf"), sector="grant")
+    db.replace_doc_chunks(did, [{"kind": "text", "content": (
+        "1. 추진 일정\n본신청 접수 7.28.~8.6. 15:00 까지 온라인으로 접수한다.\n"
+        "2. 신청 자격 요건\n참여대학 요건 - 고등교육법 제2조제1호의 대학과 제4호의 전문대학\n"
+        "3. 선정 절차\n서류 심사 뒤 면접을 거쳐 최종 선발하며 결과는 개별 통보한다.")}])
+    db.set_project_criteria(pid, [did])
+    sid = db.create_chat_session("공고", owner="zzaimy", project_id=pid)
+    asks.set_pending(db, sid, [{"name": "본신청 마감일", "hint": ""}, {"name": "신청 자격 요건", "hint": ""},
+                               {"name": "대표 성과 수치", "hint": "올해 목표"}])
+    fake = _FollowsState()
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    r = client.post("/chat/send", data={"question": "필요한 값 중에 공고나 첨부 문서에서 찾을 수 있는 건 찾아서 채워 줘. 문서 본문은 고치지 말고.",
+                                        "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    ep = [json.loads(x) for x in (tmp_path / "doc_agent_episodes.jsonl").read_text(encoding="utf-8").splitlines()][-1]
+    acts = [(s.get("action"), s.get("args", {}).get("query") or s.get("args", {}).get("name")) for s in ep["steps"]]
+    resolved_at = [i for i, s in enumerate(ep["steps"]) if s.get("action") == "resolve_from_evidence"
+                   and str(s.get("observation", "")).startswith("자료 제안으로 남겼다")]
+    assert len(resolved_at) == 2 and resolved_at[-1] < 8, acts             # 두 사실 값은 여덟 걸음 안에
+    kinds = {a["name"]: a.get("kind") for a in asks.pending(db, sid)}
+    assert kinds == {"본신청 마감일": "사실", "신청 자격 요건": "사실", "대표 성과 수치": "결정"}
+    decision = [s for s in ep["steps"] if s.get("action") == "search" and s["args"].get("query") == "대표 성과 수치"]
+    assert decision and all("결정 값" in s["observation"] for s in decision)  # 결정 값은 찾지 않는다(막혔다)
+    sug = asks.suggestions(db, db.get_chat_session(sid))
+    assert sug["본신청 마감일"]["value"] == "7.28.~8.6. 15:00" and "고등교육법" in sug["신청 자격 요건"]["value"]
+    assert ep["stop"] == "steps"
+    assert "이번 요청에서 자료로 찾은 값: 「본신청 마감일」, 「신청 자격 요건」" in page and "남은 값: 「대표 성과 수치」" in page
+
+
+def test_three_failed_searches_for_one_ask_mark_it_not_found_for_this_run(tmp_path, monkeypatch):
+    from zzaimy.generate import client as _gc
+
+    monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")
+    app, client = _app(tmp_path, monkeypatch, [_hit("모집 공고", "선정 절차는 서류 심사와 면접으로 이루어지며 결과는 개별 통보한다. " * 2)])
+    db = app.state.db
+    sid = db.create_chat_session("값", owner="zzaimy")
+    asks.set_pending(db, sid, [{"name": "총괄책임자 연락처", "hint": "", "kind": "사실"}])
+    steps = [_step("search", source="project", query=f"총괄책임자 연락처 {i}") for i in range(4)] + [_step("finish", message="끝")]
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: _AgentFake(steps))
+    client.post("/chat/send", data={"question": "빈 값을 자료에서 찾아 줘", "session_id": str(sid)}, follow_redirects=False)
+    ep = [json.loads(x) for x in (tmp_path / "doc_agent_episodes.jsonl").read_text(encoding="utf-8").splitlines()][-1]
+    obs = [s["observation"] for s in ep["steps"] if s.get("action") == "search"]
+    assert "세 번 찾아도 자료에 없었다" in obs[3] and "세 번" not in obs[2]

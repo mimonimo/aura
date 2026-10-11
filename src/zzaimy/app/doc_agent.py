@@ -40,6 +40,9 @@ SYSTEM = """당신은 대학 행정 문서 작성 에이전트다. 담당자의 
 - 수치·고유명사는 찾은 근거에 있는 것만 쓴다. 자료로 찾을 수 없고 담당자만 아는 값은 ask_user 로 묻는다(먼저 찾아보고 묻는다).
 - 문서가 연결돼 있지 않은데 써야 하면, 담당자가 프로젝트 문서(작성 서식 등)를 짚었으면 open_project_document 로 그 문서의 작업본을 잇고,
   아니면 create_document 로 양식을 골라 문서부터 만든다. 문서 제목은 상태의 「프로젝트 문서」 에 있는 그대로 쓴다.
+- 받지 못한 값은 갈래가 있다 — 사실(자료에 있을 수 있는 값: 일정·자격·기관 정보 등)은 search 로 찾고, 결정(담당자가 정할 목표·계획·수치 목표)은
+  찾지 않고 ask_user 로 묻는다. 상태에 「갈래 모름」 값이 있으면 이번 JSON 에 "ask_kinds": {{"이름": "사실" 또는 "결정"}} 을 함께 낸다(한 번).
+  방금 검색 결과에 받지 못한 사실 값의 글이 있으면 다음 걸음에서 바로 resolve_from_evidence 로 남긴다.
 - 담당자가 이번 요청에서 값(받지 못한 값 등)을 알려 주면 remember_values 로 먼저 기억한다. 값은 담당자가 적은 그대로 넣는다.
 - 담당자가 문서의 그림 쪽 판독을 청하면 read_document 를 쓴다.
 - 절은 하나씩 쓴다(write_section). 한 번의 요청에서 최대 {max_writes}개. 다 쓰면 finish 로 담당자에게 무엇을 했고 다음에 무엇을 할지 알린다.
@@ -187,7 +190,7 @@ def _log_line(i: int, name: str, args: dict, outcome: str) -> str:
 
 
 def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on_step: Callable[[str], None] | None = None,
-        max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES) -> Episode:
+        max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES, on_json: Callable[[dict], None] | None = None) -> Episode:
     """에이전트 루프. state() 는 매 걸음 새로 읽는 상태 글(연결 문서·절 목록은 쓰기 뒤 달라진다).
 
     매 걸음 모델에 보내는 글: 시스템 + 지난 걸음(고른 JSON·결과) + 이번 상태·「지금까지 한 걸음」 기록·요청.
@@ -248,6 +251,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             ep.steps.append({"error": "형식 오류 두 번"})
             ep.stop = "format"
             return ep
+        if on_json:                                                    # 걸음 JSON 의 덧붙인 판단(받지 못한 값의 갈래 등)
+            try:
+                on_json(step)
+            except Exception:
+                pass
         name, args = step["action"], step.get("args") if isinstance(step.get("args"), dict) else {}
         tool = reg[name]
         key = name + json.dumps(args, ensure_ascii=False, sort_keys=True)
