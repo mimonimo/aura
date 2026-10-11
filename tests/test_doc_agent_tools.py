@@ -265,3 +265,61 @@ def test_documents_outside_scope_are_hidden_from_agent_and_fallback(tmp_path, mo
     assert seen and not any("지역혁신 작성서식" in t.split("[담당자 요청]")[0] for t in seen)   # 상태에 제목이 없다
     assert copied == []
     assert app.state.project_doc_named(db.get_project(pid), sid, "지역혁신 작성서식으로 작업하자") is None
+
+
+# ---------------------------------------------------------------- 검토·편집·내보내기·작업본·안내 상자 — 낱말 규칙 갈래를 지나지 않고 직접
+
+
+def _linked(app):
+    db = app.state.db
+    sid = db.create_chat_session("문서 대화", owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    return db, sid
+
+
+def test_review_section_goes_straight_to_the_chosen_section(agent_app, tmp_path, monkeypatch):
+    app, client = agent_app
+    db, sid = _linked(app)
+    runs: list = []
+    _stub_drafting(monkeypatch, runs)                    # target_sections·looks_like_section_draft 를 부르면 실패
+    _use_agent(monkeypatch, [_step("review_section", section="2. 추진 계획"), _step("finish", message="")])
+    client.post("/chat/send", data={"question": "추진 계획이 괜찮은지 봐 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert len(runs) == 1 and runs[0]["focus"]["heading"] == "2. 추진 계획" and runs[0]["materials"]
+    assert json.loads(db.get_setting(f"chat_last_review:{sid}"))["heading"] == "2. 추진 계획"
+
+
+def test_edit_document_applies_the_models_instruction(agent_app, tmp_path, monkeypatch):
+    app, client = agent_app
+    db, sid = _linked(app)
+    runs: list = []
+    _stub_drafting(monkeypatch, runs)
+    _use_agent(monkeypatch, [_step("edit_document", instruction="추진 배경 첫 문장을 간결하게"), _step("finish", message="")])
+    client.post("/chat/send", data={"question": "배경 문구 좀 고쳐 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert len(runs) == 1 and runs[0]["cmd"] == "추진 배경 첫 문장을 간결하게" and runs[0]["focus"] is None
+
+
+def test_export_and_new_copy_run_without_the_fallback_patterns(agent_app, tmp_path, monkeypatch):
+    """요청 글이 물러난 경로의 낱말 규칙(「한글 … 내보내」·「작업본 새로」)에 맞지 않아도 모델이 고른 도구가 그대로 돈다."""
+    app, client = agent_app
+    db, sid = _linked(app)
+    _use_agent(monkeypatch, [_step("export_hwp", remove_boxes=False)])
+    r = client.post("/chat/send", data={"question": "완성본 내보내 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert "한글 완성본을 만들 수 없습니다" in client.get(r.headers["location"]).text     # 원본 서식 없음 — _export_hwp 가 돌았다
+    _use_agent(monkeypatch, [_step("new_work_copy")])
+    r = client.post("/chat/send", data={"question": "작업본을 최신 변환으로 바꿔 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert "새 작업본을 만들 수 없습니다" in client.get(r.headers["location"]).text
+
+
+def test_guide_boxes_are_counted_first_and_removed_only_after_confirmation(agent_app, tmp_path, monkeypatch):
+    app, client = agent_app
+    db, sid = _linked(app)
+    from zzaimy.ingest import gdocs
+
+    calls: list = []
+    monkeypatch.setattr(gdocs, "remove_instruction_boxes", lambda *a, dry_run=False, **k: calls.append(dry_run) or {"count": 3})
+    _use_agent(monkeypatch, [_step("remove_guide_boxes")])
+    client.post("/chat/send", data={"question": "안내 상자 지워 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert calls == [True]                                                        # 처음엔 세기만
+    _use_agent(monkeypatch, [_step("remove_guide_boxes")])
+    client.post("/chat/send", data={"question": "안내 상자 삭제 확인, 지워 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert calls == [True, False]

@@ -1495,6 +1495,7 @@ def create_app(
             db.add_chat(session_id, "assistant", f"이 작업본의 원본 서식(문서함 문서)을 찾지 못해 {purpose} 수 없습니다. 문서함에서 '이 문서로 작업'을 다시 골라 주세요.")
         return src
 
+    _EDIT_CONSENT = r"고쳐|수정|바꿔|정리|지워|삭제|맞춰|넣어|빼|추가|편집"   # 문서를 바꾸는 도구 — 담당자 요청 글에 이 뜻이 있을 때만
     _agent_notes: dict[int, str] = {}                      # 에이전트가 찾은 근거 — 절 쓰기 재료에 덧붙인다(대화별, 쓰기 동안만)
 
     def _run_doc_agent(session_id: int, q: str, owner: str, project: dict | None, scope: dict, scope_msg: str, data_dir: Path,
@@ -1513,7 +1514,6 @@ def create_app(
         except Exception:
             return False
         before = len(db.list_chats(session_id))
-        session_ = db.get_chat_session(session_id) or {}
         crit_ids = db.get_project_criteria_ids(int(project["id"])) if project else []
         mats_box: dict = {}
 
@@ -1616,27 +1616,43 @@ def create_app(
             finally:
                 _agent_notes.pop(session_id, None)
 
-        def via_doc(cmd: str) -> str:
-            """절 단위가 아닌 연결 문서 작업(검토·편집·내보내기·작업본) — 기존 연결 문서 경로에 코드가 정한 명령으로 넘긴다."""
+        def run_doc(fn) -> str:
+            """연결 문서 작업 하나를 직접 부르고(모델이 고른 인자 그대로) 이번에 대화에 더해진 답을 관찰로 돌려준다.
+            실패하면 문서는 그대로라고 대화에 남긴다."""
             if not link().get("doc"):
-                return "연결된 문서가 없다 — create_document 로 먼저 만든다."
-            with_notes(lambda: _edit_linked_doc(session_id, cmd, owner, data_dir, scope, scope_msg))
-            return last_reply() or "(결과 없음)"
+                return "연결된 문서가 없다 — create_document 나 open_project_document 로 먼저 잇는다."
+            n0 = len(db.list_chats(session_id))
+            try:
+                with_notes(fn)
+            except Exception as e:
+                from zzaimy.generate.client import describe_llm_error
+
+                logging.getLogger("zzaimy.app.gdocs").exception("에이전트 문서 작업 실패 (대화 %s)", session_id)
+                db.add_chat(session_id, "assistant", describe_llm_error(e) + ". 문서는 바꾸지 않았습니다.")
+            added = [m_["content"] for m_ in db.list_chats(session_id)[n0:] if m_["role"] == "assistant"]
+            return "\n".join(added)[:1500] or "(결과 없음)"
 
         def t_write(a: dict, redo: bool = False) -> str:
             """모델이 고른 절을 그대로 쓴다 — 쓸 절·다시 쓰기 여부를 명령 글로 만들어 낱말 규칙으로 되읽지 않는다."""
-            if not link().get("doc"):
-                return "연결된 문서가 없다 — create_document 나 open_project_document 로 먼저 잇는다."
-            sec = find_section(str(a.get("section") or ""))
-            if sec is None:
+            sec = find_section(str(a.get("section") or "")) if link().get("doc") else None
+            if link().get("doc") and sec is None:
                 return "그런 절이 없다 — 상태의 절 목록에서 고른다."
             memo = str(a.get("notes") or a.get("reason") or "").strip()
             request = q + (f"\n에이전트 메모: {memo}" if memo else "")
-            n0 = len(db.list_chats(session_id))
-            with_notes(lambda: _draft_sections(session_id, owner, data_dir, scope, scope_msg, targets=[sec], redo=redo,
-                                               request=request, client=client))
-            added = [m_["content"] for m_ in db.list_chats(session_id)[n0:] if m_["role"] == "assistant"]
-            return "\n".join(added)[:1500] or "(결과 없음)"
+            return run_doc(lambda: _draft_sections(session_id, owner, data_dir, scope, scope_msg, targets=[sec], redo=redo,
+                                                   request=request, client=client))
+
+        def t_review(a: dict) -> str:
+            sec = find_section(str(a.get("section") or "")) if link().get("doc") else None
+            if link().get("doc") and sec is None:
+                return "그런 절이 없다 — 상태의 절 목록에서 고른다."
+            return run_doc(lambda: _run_doc_command(session_id, owner, data_dir, scope, scope_msg, client=client, review_focus=sec,
+                                                    command=f"「{sec['heading']}」 절을 평가지표·공고 기준으로 검토해 줘", request=q))
+
+        def t_edit(a: dict) -> str:
+            instruction = str(a.get("instruction") or "").strip() or q
+            return run_doc(lambda: _run_doc_command(session_id, owner, data_dir, scope, scope_msg, client=client,
+                                                    command=instruction, request=q))
 
         def pick_document(title: str) -> tuple[dict | None, str]:
             """모델이 상태의 「프로젝트 문서」 에서 고른 제목 → 문서. 같은 제목이 먼저, 없으면 한쪽이 다른 쪽을 품는 제목이 하나뿐일 때."""
@@ -1753,13 +1769,17 @@ def create_app(
                            "args {values: {이름: 담당자가 적은 값 그대로}}", t_remember),
             doc_agent.Tool("rewrite_section", "이미 쓴 절을 비우고 다시 작성(담당자가 다시 쓰라고 했을 때만). args {section, reason: 무엇을 고칠지}",
                            lambda a: t_write(a, redo=True), writes=True, consent=r"다시|새로|고쳐|수정|바꿔|보완|보강"),
-            doc_agent.Tool("review_section", "쓴 절을 공고·평가지표 기준으로 검토. args {section}",
-                           lambda a: via_doc(f"「{(find_section(str(a.get('section') or '')) or {}).get('heading', a.get('section'))}」 절을 평가지표·공고 기준으로 검토해 줘")),
+            doc_agent.Tool("review_section", "쓴 절을 공고·평가지표 기준으로 검토(문서는 고치지 않음). args {section}", t_review),
             doc_agent.Tool("edit_document", "절 단위가 아닌 문서 고치기(표 정리·문구 바꾸기·제목 변경 등, 담당자가 고치라고 했을 때만). args {instruction: 구체적 지시}",
-                           lambda a: via_doc(str(a.get("instruction") or q)), writes=True, consent=r"고쳐|수정|바꿔|정리|지워|삭제|맞춰|넣어|빼|추가|편집"),
-            doc_agent.Tool("export_hwp", "작업본을 한글(제출) 파일로 내보내기(담당자가 내보내라고 했을 때만). args {}", lambda a: via_doc("한글 파일로 내보내 줘"),
+                           t_edit, writes=True, consent=_EDIT_CONSENT),
+            doc_agent.Tool("remove_guide_boxes", "양식의 안내 상자(작성방법·증빙자료) 지우기 — 처음엔 개수를 알리고 확인을 받으며, 담당자가 확인한 뒤에 지운다. args {}",
+                           lambda a: run_doc(lambda: _remove_guide_boxes(session_id, owner, data_dir, confirmed=True)),
+                           final=True, consent=_EDIT_CONSENT),
+            doc_agent.Tool("export_hwp", "작업본을 한글(제출) 파일로 내보내기(담당자가 내보내라고 했을 때만). args {remove_boxes: 안내 상자를 뺀 제출본이면 true}",
+                           lambda a: run_doc(lambda: _export_hwp(session_id, owner, data_dir, remove_boxes=a.get("remove_boxes") is True, request=q)),
                            final=True, consent=r"내보내|한글\s*파일|hwp|제출본|완성본"),
-            doc_agent.Tool("new_work_copy", "작업본을 지금 변환기로 새로 만들기(담당자가 말했을 때만). args {}", lambda a: via_doc("작업본 새로 만들어 줘"),
+            doc_agent.Tool("new_work_copy", "작업본을 지금 변환기로 새로 만들기(담당자가 말했을 때만). args {}",
+                           lambda a: run_doc(lambda: _new_work_copy(session_id, owner, data_dir, request=q)),
                            final=True, consent=r"작업본"),
             doc_agent.Tool("answer_question", "문서를 고치지 않고 질문에 답하기(규정·사업 자료 근거). args {question}", t_answer, final=True),
             doc_agent.Tool("ask_user", "자료로 찾을 수 없어 담당자만 아는 값 묻기. args {items: [{name, why}], message}", t_ask, final=True),
@@ -1961,27 +1981,205 @@ def create_app(
             text = scope_msg + "\n\n" + text
         db.add_chat(session_id, "assistant", text)
 
-    def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
-        """연결된 구글 독스에 대한 명령 — 근거 조각을 붙여 편집 계획을 받고 적용한 결과를 채팅에 남긴다."""
-        from zzaimy.app import access_guard as ag
-        from zzaimy.app import chat_documents, drafting, gdocs_agent, section_context
-        from zzaimy.app.regulations import find_relevant
+    def _export_hwp(session_id: int, owner: str, data_dir: Path, *, remove_boxes: bool, request: str) -> None:
+        """한글 완성본(ADR-0035) — 작업본의 절 본문을 원본 서식(hwpx)에 서식을 보존한 채 넣어 프로젝트 '작성' 폴더에 올린다.
+        원본이 hwpx 가 아니거나 공통 양식 문서면 Word 로 낸다. remove_boxes 면 안내 상자를 뺀 제출본. 결과를 대화에 남긴다."""
+        from zzaimy.app import drafting
+        from zzaimy.app import chat_documents
 
         link = chat_documents.binding(db, session_id, owner)
-        # 프로젝트 대화면 그 프로젝트의 기준 문서(공고·기본계획·지침) 안에서 먼저 찾는다 — 문서함의 다른 사업 공고가 앞서지 않게
+        session_ = db.get_chat_session(session_id) or {}
+        # 한글 완성본(ADR-0035): 작업본의 절 본문을 원본 서식(hwpx)에 서식을 보존한 채 넣어 프로젝트 '작성' 폴더에 올린다.
+        # 협업은 독스에서, 최종본은 원본 서식으로 — 스크립트가 정답을 채우는 것이 아니라 에이전트·담당자가 쓴 작업본을 옮기는 것
+        import tempfile
+        from datetime import date as _date
+
+        from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf, hwpx_fill as _hf
+
+        proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+        def _word_export(reason: str) -> str:
+            """작업본을 Word(docx)로 같은 '작성' 폴더에 — 회색 작성 지침은 빼고(작업본엔 남김), 같은 이름의 옛 판은 휴지통."""
+            try:
+                info_ = _gd.get(link["account"], link["doc"])
+                from zzaimy.ingest import gdrive as _gdr
+                http_ = _gdr._http()
+                r_ = http_.get(f"{_gdr.API}/files/{_gd.doc_id(link['doc'])}/export", headers=_gf._headers(link["account"], http_),
+                               params={"mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"})
+                if r_.status_code != 200:
+                    raise RuntimeError(f"내보내기 {r_.status_code}")
+                title_ = info_["title"]
+                name_ = f"{title_} 완성본 {_date.today().isoformat()}.docx"
+                from zzaimy.ingest import gdocs_templates as _gt
+                try:
+                    data_, n_guides = _gt.strip_guides_docx(r_.content)       # 제출본엔 회색 작성 지침이 없어야 한다(작업본엔 남김)
+                except Exception:
+                    data_, n_guides = r_.content, 0
+                acct_ = accounts.get(owner, {}) if password is not None else {}
+                folder_ = _gf.project_folder_for(db, link["account"], proj_, acct_.get("dept") or None, sub="작성")
+                _gf.trash_older(link["account"], folder_, f"{title_} 완성본 ", ".docx")
+                up_ = _gf.upload_file(link["account"], data_, name_,
+                                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document", folder_, reuse=False)
+                db.add_file("google", up_["url"], name=name_, session_id=session_id)
+                return (f"{reason} Word 파일 「{name_}」 로 내보냈습니다"
+                        f"{f'(회색 작성 지침 {n_guides}곳은 뺐고, 작업본에는 남아 있습니다)' if n_guides else ''} — 한글에서 열어 hwpx 로 저장할 수 있습니다. "
+                        f"{up_['url']}")
+            except Exception as e:
+                logging.getLogger("zzaimy.app.gdocs").exception("Word 내보내기 실패 (대화 %s)", session_id)
+                return f"Word 로 내보내지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
+
+        if link.get("template"):
+            # 공통 양식으로 쓴 문서는 한글 원본 서식이 없다 — Word(docx)로 내보낸다
+            text = _word_export("이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다.")
+            if not text.startswith("Word 로 내보내지 못했"):
+                text += "\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」 으로 다시 쓰면 서식 그대로 채웁니다."
+            db.add_chat(session_id, "assistant", _scrub_internal(text))
+            return
+        src = _working_copy_source(session_id, session_, request, "한글 완성본을 만들")
+        if not src:
+            return
+        src_path = Path(src.get("stored_path") or "")
+        if src_path.suffix.lower() != ".hwpx" or not src_path.exists():
+            # 옛 한글(hwp) 서식은 서식 보존 채우기를 못 한다 — 그 자리에서 Word 로 내보내고, hwpx 로 다시 올리는 길을 알린다
+            text = _word_export(f"원본 서식 「{storage.title_of(src.get('filename') or '')}」 이 hwpx 가 아니라(또는 파일이 없어) "
+                                "서식 보존 채우기를 할 수 없어,")
+            text += ("\n서식 그대로의 한글 완성본이 필요하면 한글에서 그 서식을 'hwpx 로 저장'해 프로젝트에 올린 뒤 다시 「한글 파일로 내보내 줘」 라고 해 주세요.")
+            db.add_chat(session_id, "assistant", _scrub_internal(text))
+            return
+        email = link["account"]
+        remove = remove_boxes
+        try:
+            bodies = _gd.section_bodies(email, link["doc"])              # 빈 절도 함께 — 소제목의 부모를 알기 위해
+            out_dir = Path(tempfile.mkdtemp(prefix="zz-fill-"))
+            rep = _hf.fill(src_path, bodies, out_dir / "완성본.hwpx", remove_boxes=remove)
+            data = (out_dir / "완성본.hwpx").read_bytes()
+            title = storage.title_of(src.get("filename") or "")
+            name = f"{title} 완성본 {_date.today().isoformat()}.hwpx"
+            storage.save_generated(db, data, ref=src.get("receipt_no") or f"대화-{session_id}", kind="한글 완성본", ext="hwpx",
+                                   doc_id=int(src["id"]), session_id=session_id)
+            acct_ = accounts.get(owner, {}) if password is not None else {}
+            folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
+            try:                                        # 같은 서식의 옛 완성본은 휴지통으로 — 드라이브에 판이 쌓이지 않게(되돌릴 수 있음)
+                _gf.trash_older(email, folder, f"{title} 완성본 ", ".hwpx")
+            except Exception:
+                logging.getLogger("zzaimy.app.gdocs").warning("옛 완성본 정리 실패 (대화 %s)", session_id)
+            up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
+            db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
+            text = (f"「{name}」 을 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
+                    f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {up['url']}")
+            if rep["folded"]:
+                text += f"\n서식에 없는 소제목 {len(rep['folded'])}개는 바로 앞 절의 본문으로 이어 넣었습니다(" + ", ".join(h[:16] for h in rep["folded"][:5]) + ("…" if len(rep["folded"]) > 5 else "") + ")."
+            real_skipped = [h for h in rep["skipped"] if drafting.has_words(h)]   # '2cm' 같은 변환 찌꺼기 제목은 알릴 것이 아니다(쓸 절 판정과 같은 기준)
+            if real_skipped:
+                text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in real_skipped)
+            if rep["duplicates"]:
+                text += f"\n작업본에 같은 문단·표가 두 번 있는 곳 {len(rep['duplicates'])}건은 앞의 것만 넣었습니다 — 작업본에서 정리해 주세요: " + "; ".join(rep["duplicates"][:3])
+            if rep.get("checks"):
+                text += (f"\n자가 점검에서 문제 {len(rep['checks'])}건이 나왔습니다 — 한글에서 열리지 않거나 모양이 틀릴 수 있어 제출하지 마세요: "
+                         + "; ".join(rep["checks"][:3]))
+            if remove:
+                text += f"\n안내 상자 {rep['boxes_removed']}개를 뺀 제출본입니다. 한글에서 열어 표지·직인란·쪽수를 확인하세요."
+            else:
+                text += "\n안내 상자(【작성방법】)는 그대로 두었습니다. 제출본이면 '안내 상자 없이 한글로 내보내 줘'."
+            _set_options(session_id, [{"kind": "review", "text": "작업본 전체 검토", "question": "문서 전체를 공고·평가지표 기준으로 검토해 줘"},
+                                      {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
+        except Exception as e:
+            logging.getLogger("zzaimy.app.gdocs").exception("한글 완성본 만들기 실패 (대화 %s)", session_id)
+            text = f"한글 완성본을 만들지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
+        db.add_chat(session_id, "assistant", _scrub_internal(text))
+        return
+    def _new_work_copy(session_id: int, owner: str, data_dir: Path, *, request: str) -> None:
+        """작업본 새로 만들기 — 원본 서식을 지금 변환기로 다시 변환해 새 복제본을 만들고, 지금까지 쓴 절 본문을 옮긴다."""
+        from zzaimy.app import chat_documents
+
+        link = chat_documents.binding(db, session_id, owner)
+        session_ = db.get_chat_session(session_id) or {}
+        # 작업본 새로 만들기: 변환기가 좋아진 뒤 원본 서식을 다시 변환해 새 복제본을 만들고, 지금까지 쓴 절 본문을 옮긴다
+        from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf
+
+        proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+        src = _working_copy_source(session_id, session_, request, "새 작업본을 만들")
+        if not src:
+            return
+        acct_ = accounts.get(owner, {}) if password is not None else {}
+        email = link["account"]
+        try:
+            folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="첨부")
+            made = _gf.google_copy(db, src, email, folder, refresh=True)
+            from datetime import date as _date
+
+            title = storage.title_of(src.get("filename") or "")
+            work_title = f"{title} 작업본 {_date.today().isoformat()}"
+            work_folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
+            copy = _gf.copy_document(email, made["id"], work_title, work_folder)
+            moved = _gd.migrate_bodies(email, link["doc"], copy["id"], user=owner, data_dir=data_dir, scrub=_scrub_internal)
+            from zzaimy.app.gdocs_agent import quality_pass
+
+            checked = quality_pass(email, copy["id"])            # 옮긴 뒤 표 폭·반복 줄 관문
+            try:
+                _gf.rename_document(email, link["doc"], f"{_gd.get(email, link['doc'])['title']} (이전)")
+            except Exception:
+                pass
+            db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": copy["id"], "account": email}))
+            db.add_file("google", copy["url"], name=work_title, session_id=session_id, doc_id=int(src["id"]))
+            ok = [r for r in moved if r["done"] == "ok"]
+            text = (f"「{work_title}」 을 새로 만들어 이 대화에 연결했습니다(원본 서식을 지금 변환기로 다시 변환). "
+                    f"옮긴 절 {len(ok)}개 · 글 {sum(r['chars'] for r in ok):,}자 · 표 {sum(r['tables'] for r in ok)}개. 이전 작업본은 이름 뒤에 '(이전)'을 붙여 두었습니다. {copy['url']}")
+            skipped = [r for r in moved if r["done"] != "ok"]
+            if skipped:
+                text += "\n옮기지 못한 절: " + ", ".join(r["heading"][:24] for r in skipped)
+            if checked:
+                text += "\n" + "\n".join(checked)
+            _set_options(session_id, [{"kind": "review", "text": "옮긴 내용 검토", "question": "옮긴 절들이 빠짐없이 들어갔는지 검토해 줘"},
+                                      {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
+        except Exception as e:
+            logging.getLogger("zzaimy.app.gdocs").exception("작업본 새로 만들기 실패 (대화 %s)", session_id)
+            text = f"작업본을 새로 만들지 못했습니다({type(e).__name__}). 이전 작업본은 그대로 연결돼 있습니다."
+        db.add_chat(session_id, "assistant", _scrub_internal(text))
+        return
+    def _remove_guide_boxes(session_id: int, owner: str, data_dir: Path, *, confirmed: bool) -> None:
+        """양식의 안내 상자(【작성방법】·【증빙자료】) 지우기 — 되돌릴 수 없어 두 차례로 한다. 먼저 몇 개인지 세어 묻고(대기 표시),
+        대기 표시가 있고 confirmed 일 때만 지운다."""
+        from zzaimy.app import chat_documents
+
+        from zzaimy.ingest import gdocs as _gd
+
+        link = chat_documents.binding(db, session_id, owner)
+
+        sure = confirmed and (db.get_setting(f"chat_pending_boxes:{session_id}", "") or "") == "1"
+        if not sure:
+            cnt = _gd.remove_instruction_boxes(link["account"], link["doc"], user=owner, data_dir=data_dir, dry_run=True)["count"]
+            if cnt:
+                db.set_setting(f"chat_pending_boxes:{session_id}", "1")
+                text = f"작업본에 안내 상자(【작성방법】·【증빙자료】)가 {cnt}개 있습니다. 지우면 되돌릴 수 없고, 아직 안 쓴 절의 작성방법도 사라집니다. 지울까요?"
+                _set_options(session_id, [{"kind": "confirm", "text": f"안내 상자 {cnt}개 삭제 확인", "question": "안내 상자 삭제 확인, 지워 줘"},
+                                          {"kind": "skip", "text": "아직 두기", "question": "안내 상자는 아직 두고 다음 절을 작성해 줘"}])
+            else:
+                text = "지울 안내 상자가 없습니다."
+            db.add_chat(session_id, "assistant", _scrub_internal(text))
+            return
+        db.set_setting(f"chat_pending_boxes:{session_id}", "")
+        res = _gd.remove_instruction_boxes(link["account"], link["doc"], user=owner, data_dir=data_dir)
+        text = f"안내 상자 {res['count']}개를 지웠습니다. 제출 전에 표지의 대학명·직인란과 쪽수를 확인하세요."
+        _set_options(session_id, [{"kind": "review", "text": "전체 검토", "question": "문서 전체를 공고·평가지표 기준으로 검토해 줘"}])
+        db.add_chat(session_id, "assistant", _scrub_internal(text))
+        return
+    def _command_evidence(session_id: int, command: str, scope: dict) -> tuple[list[dict], list[dict]]:
+        """연결 문서 명령의 근거 — 프로젝트 기준 문서(없으면 문서함) 조각과 프로젝트 접수 문서·첨부 조각. 대화의 근거 목록도 새로 둔다."""
+        from zzaimy.app.regulations import find_relevant
+
         session_ = db.get_chat_session(session_id) or {}
         crit_ids = db.get_project_criteria_ids(int(session_["project_id"])) if session_.get("project_id") else []
         try:
             if crit_ids:
-                hits = find_relevant(db, q, top_k=5, chunks=db.chunks_for_docs(crit_ids), **scope)
+                hits = find_relevant(db, command, top_k=5, chunks=db.chunks_for_docs(crit_ids), **scope)
             else:
-                hits = find_relevant(db, q, top_k=5, **scope)
+                hits = find_relevant(db, command, top_k=5, **scope)
         except Exception:
             hits = []
         # 프로젝트의 접수 문서(완성된 합본·지난 계획서·현황표)와 이 대화의 첨부도 근거다 — 양식을 채울 재료는 거기 있다
         proj_hits: list[dict] = []
         try:
-            proj_hits = _project_evidence(session_id, q, limit=6)
+            proj_hits = _project_evidence(session_id, command, limit=6)
             hits = proj_hits + hits
         except Exception:
             pass
@@ -1990,7 +2188,93 @@ def create_app(
             "snippet": (h.get("content") or "")[:160], "doc_id": h.get("doc_id"), "origin": "교내 규정",
             "weak": bool(h.get("weak_evidence")),
         } for h in hits[:4]]
+        return hits, proj_hits
+
+    def _run_doc_command(session_id: int, owner: str, data_dir: Path, scope: dict, scope_msg: str, *, command: str, client,
+                         review_focus: dict | None = None, request: str | None = None,
+                         evidence: tuple[list[dict], list[dict]] | None = None) -> None:
+        """연결 문서에 명령 하나를 편집 계획으로 적용한다(gdocs_agent). review_focus 가 있으면 그 절을 재료와 함께 검토한다.
+        결과·다음 선택지를 대화에 남기고, 계획에 이름 바꾸기·프로젝트 옮기기가 있으면 대화에도 반영한다."""
+        from zzaimy.app import asks as _asks
+        from zzaimy.app import chat_documents, drafting, gdocs_agent
+        from zzaimy.app.regulations import extract_nouns, find_relevant
+        from zzaimy.ingest import gdocs as _gd
+
+        request = request if request is not None else command
+        link = chat_documents.binding(db, session_id, owner)
+        session_ = db.get_chat_session(session_id) or {}
+        crit_ids = db.get_project_criteria_ids(int(session_["project_id"])) if session_.get("project_id") else []
         confirm = (db.get_setting(f"chat_google_doc_confirm:{session_id}", "") or "") == "1"
+        hits, proj_hits = evidence if evidence is not None else _command_evidence(session_id, command, scope)
+        review_mat = ""
+        if review_focus is not None:
+            # 절 검토: 그 절을 재료(작성방법·평가지표·지난 자료 같은 절)와 함께 준다(긴 문서의 앞부분만 보지 않게)
+            try:
+                info = _gd.get(link["account"], link["doc"])
+                review_focus = next((x for x in info["sections"] if x["heading"] == review_focus["heading"]), review_focus)
+                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+                sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
+                mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope)
+                mm = mats.for_section(info, review_focus, request, storage.title_of)
+                review_mat = drafting.render_materials(mm, _asks.facts(db, session_))
+                hits = mm["criteria"] or hits
+            except Exception:
+                review_focus, review_mat = None, ""
+        extra_kw = {"materials": review_mat, "focus": review_focus} if review_focus is not None else {}
+        text, _ops = gdocs_agent.run(db, session_id, owner, command, link, client=client, data_dir=data_dir,
+                                     scrub=_scrub_internal, evidence=hits, confirm=confirm, **extra_kw)
+        if not _ops and not proj_hits:
+            session_ = db.get_chat_session(session_id) or {}
+            proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
+            reads = [sg for sg in _project_suggestions(proj_) if sg["kind"] == "read"]
+            if reads:
+                text += "\n\n재료가 될 그림 쪽이 아직 판독되지 않았습니다. 아래에서 고르면 바로 진행합니다."
+                _set_options(session_id, [{"kind": "read", "text": sg["text"][:40], "question": sg["question"]} for sg in reads[:2]]
+                             + [{"kind": "skip", "text": "판독 없이 지금 있는 내용으로", "question": request}])
+        if review_focus is not None and not _ops:
+            # 절 검토 뒤 — 의견을 기억해 두고 「반영해 다시 쓰기」로 잇는다(검토 뒤 선택지가 비면 흐름이 끊긴다)
+            db.set_setting(f"chat_last_review:{session_id}", _aj.dumps({"heading": review_focus["heading"], "text": text[:2500]}, ensure_ascii=False))
+            _set_options(session_id, [{"kind": "redo", "text": "검토 의견 반영해 다시 쓰기",
+                                       "question": f"「{review_focus['heading']}」 절을 방금 검토 의견을 반영해 다시 써 줘"},
+                                      {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
+        if _ops:
+            _set_options(session_id, [{"kind": "continue", "text": "이어서 다음 절 채우기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"},
+                                      {"kind": "review", "text": "방금 쓴 내용 검토", "question": "방금 쓴 절을 공고·평가지표 기준으로 검토해 줘"},
+                                      {"kind": "redo", "text": "다시 써 줘", "question": "방금 넣은 내용을 더 구체적인 수치와 근거로 다시 써 줘"}])
+        new_name = next((o.get("text") for o in _ops if o.get("op") == "rename" and (o.get("text") or "").strip()), "")
+        if new_name and not confirm:
+            try:
+                db.rename_chat_session(session_id, new_name.strip()[:60])
+            except Exception:
+                pass
+        move_to = next((o.get("text") for o in _ops if o.get("op") == "move" and (o.get("text") or "").strip()), "")
+        if move_to and not confirm:
+            proj = _project_by_name(owner, move_to)
+            if proj is None:
+                text += f"\n- 프로젝트 「{move_to}」 를 찾지 못해 옮기지 않았습니다"
+            else:
+                try:
+                    from zzaimy.ingest import gdrive_files
+
+                    db.set_chat_project(session_id, int(proj["id"]))
+                    acct_ = accounts.get(owner, {}) if password is not None else {}
+                    gdrive_files.move_to_project(db, session_id, proj["name"], dept=acct_.get("dept") or None)
+                    text += f"\n- 드라이브 문서를 「{proj['name']}」 폴더로 옮기고 대화를 그 프로젝트에 넣었습니다"
+                except Exception as e:
+                    text += f"\n- 문서를 옮기지 못했습니다({type(e).__name__})"
+        text = _scrub_internal(text)
+        if scope_msg:
+            text = scope_msg + "\n\n" + text
+        db.add_chat(session_id, "assistant", text)
+
+
+    def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
+        """연결된 구글 독스에 대한 명령 — 모델 없이 물러난 대비 경로. 요청 글을 낱말 규칙으로 갈래짓고(값 알려 줌·절 쓰기·한글 내보내기·
+        작업본 새로·안내 상자·검토·일반 편집) 에이전트 도구와 같은 함수로 보낸다."""
+        from zzaimy.app import chat_documents, drafting, section_context
+
+        link = chat_documents.binding(db, session_id, owner)
+        hits, proj_hits = _command_evidence(session_id, q, scope)
         try:
             from zzaimy.generate.client import VllmClient
 
@@ -2035,175 +2319,18 @@ def create_app(
                 _draft_sections(session_id, owner, data_dir, scope, scope_msg, targets=targets, redo=redo, request=q, client=client, info=info)
                 return
             if re.search(r"(한글|hwpx?)\s*(파일|문서|서식|완성본)?\s*(로|으로)?\s*(내보내|저장|만들|뽑|출력|채워|완성)", q, re.I) and not re.search(r"작업본", q):
-                # 한글 완성본(ADR-0035): 작업본의 절 본문을 원본 서식(hwpx)에 서식을 보존한 채 넣어 프로젝트 '작성' 폴더에 올린다.
-                # 협업은 독스에서, 최종본은 원본 서식으로 — 스크립트가 정답을 채우는 것이 아니라 에이전트·담당자가 쓴 작업본을 옮기는 것
-                import tempfile
-                from datetime import date as _date
-
-                from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf, hwpx_fill as _hf
-
-                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
-                def _word_export(reason: str) -> str:
-                    """작업본을 Word(docx)로 같은 '작성' 폴더에 — 회색 작성 지침은 빼고(작업본엔 남김), 같은 이름의 옛 판은 휴지통."""
-                    try:
-                        info_ = _gd.get(link["account"], link["doc"])
-                        from zzaimy.ingest import gdrive as _gdr
-                        http_ = _gdr._http()
-                        r_ = http_.get(f"{_gdr.API}/files/{_gd.doc_id(link['doc'])}/export", headers=_gf._headers(link["account"], http_),
-                                       params={"mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"})
-                        if r_.status_code != 200:
-                            raise RuntimeError(f"내보내기 {r_.status_code}")
-                        title_ = info_["title"]
-                        name_ = f"{title_} 완성본 {_date.today().isoformat()}.docx"
-                        from zzaimy.ingest import gdocs_templates as _gt
-                        try:
-                            data_, n_guides = _gt.strip_guides_docx(r_.content)       # 제출본엔 회색 작성 지침이 없어야 한다(작업본엔 남김)
-                        except Exception:
-                            data_, n_guides = r_.content, 0
-                        acct_ = accounts.get(owner, {}) if password is not None else {}
-                        folder_ = _gf.project_folder_for(db, link["account"], proj_, acct_.get("dept") or None, sub="작성")
-                        _gf.trash_older(link["account"], folder_, f"{title_} 완성본 ", ".docx")
-                        up_ = _gf.upload_file(link["account"], data_, name_,
-                                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document", folder_, reuse=False)
-                        db.add_file("google", up_["url"], name=name_, session_id=session_id)
-                        return (f"{reason} Word 파일 「{name_}」 로 내보냈습니다"
-                                f"{f'(회색 작성 지침 {n_guides}곳은 뺐고, 작업본에는 남아 있습니다)' if n_guides else ''} — 한글에서 열어 hwpx 로 저장할 수 있습니다. "
-                                f"{up_['url']}")
-                    except Exception as e:
-                        logging.getLogger("zzaimy.app.gdocs").exception("Word 내보내기 실패 (대화 %s)", session_id)
-                        return f"Word 로 내보내지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
-
-                if link.get("template"):
-                    # 공통 양식으로 쓴 문서는 한글 원본 서식이 없다 — Word(docx)로 내보낸다
-                    text = _word_export("이 문서는 공통 양식으로 만들어 한글 원본 서식이 없습니다.")
-                    if not text.startswith("Word 로 내보내지 못했"):
-                        text += "\n제출 서식이 따로 있으면 그 서식(hwpx)을 프로젝트에 올리고 「서식으로 작성」 으로 다시 쓰면 서식 그대로 채웁니다."
-                    db.add_chat(session_id, "assistant", _scrub_internal(text))
-                    return
-                src = _working_copy_source(session_id, session_, q, "한글 완성본을 만들")
-                if not src:
-                    return
-                src_path = Path(src.get("stored_path") or "")
-                if src_path.suffix.lower() != ".hwpx" or not src_path.exists():
-                    # 옛 한글(hwp) 서식은 서식 보존 채우기를 못 한다 — 그 자리에서 Word 로 내보내고, hwpx 로 다시 올리는 길을 알린다
-                    text = _word_export(f"원본 서식 「{storage.title_of(src.get('filename') or '')}」 이 hwpx 가 아니라(또는 파일이 없어) "
-                                        "서식 보존 채우기를 할 수 없어,")
-                    text += ("\n서식 그대로의 한글 완성본이 필요하면 한글에서 그 서식을 'hwpx 로 저장'해 프로젝트에 올린 뒤 다시 「한글 파일로 내보내 줘」 라고 해 주세요.")
-                    db.add_chat(session_id, "assistant", _scrub_internal(text))
-                    return
-                email = link["account"]
-                remove = bool(re.search(r"제출본|(안내\s*상자|작성방법)\s*(없이|빼고|지우고|삭제하고)", q))
-                try:
-                    bodies = _gd.section_bodies(email, link["doc"])              # 빈 절도 함께 — 소제목의 부모를 알기 위해
-                    out_dir = Path(tempfile.mkdtemp(prefix="zz-fill-"))
-                    rep = _hf.fill(src_path, bodies, out_dir / "완성본.hwpx", remove_boxes=remove)
-                    data = (out_dir / "완성본.hwpx").read_bytes()
-                    title = storage.title_of(src.get("filename") or "")
-                    name = f"{title} 완성본 {_date.today().isoformat()}.hwpx"
-                    storage.save_generated(db, data, ref=src.get("receipt_no") or f"대화-{session_id}", kind="한글 완성본", ext="hwpx",
-                                           doc_id=int(src["id"]), session_id=session_id)
-                    acct_ = accounts.get(owner, {}) if password is not None else {}
-                    folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
-                    try:                                        # 같은 서식의 옛 완성본은 휴지통으로 — 드라이브에 판이 쌓이지 않게(되돌릴 수 있음)
-                        _gf.trash_older(email, folder, f"{title} 완성본 ", ".hwpx")
-                    except Exception:
-                        logging.getLogger("zzaimy.app.gdocs").warning("옛 완성본 정리 실패 (대화 %s)", session_id)
-                    up = _gf.upload_file(email, data, name, "application/hwp+zip", folder, reuse=False)
-                    db.add_file("google", up["url"], name=name, session_id=session_id, doc_id=int(src["id"]))
-                    text = (f"「{name}」 을 만들었습니다 — 원본 서식에 작업본의 절 {len(rep['filled'])}개(새 문단 {rep['paragraphs']}·새 표 {rep['tables']}"
-                            f"·서식 표 채움 {rep['tables_updated']})를 서식 그대로 넣었습니다. 서식에 이미 있던 글·표 {rep['existing_kept']}건은 그대로 두었습니다. {up['url']}")
-                    if rep["folded"]:
-                        text += f"\n서식에 없는 소제목 {len(rep['folded'])}개는 바로 앞 절의 본문으로 이어 넣었습니다(" + ", ".join(h[:16] for h in rep["folded"][:5]) + ("…" if len(rep["folded"]) > 5 else "") + ")."
-                    real_skipped = [h for h in rep["skipped"] if drafting.has_words(h)]   # '2cm' 같은 변환 찌꺼기 제목은 알릴 것이 아니다(쓸 절 판정과 같은 기준)
-                    if real_skipped:
-                        text += "\n서식에서 제목을 찾지 못한 절: " + ", ".join(h[:24] for h in real_skipped)
-                    if rep["duplicates"]:
-                        text += f"\n작업본에 같은 문단·표가 두 번 있는 곳 {len(rep['duplicates'])}건은 앞의 것만 넣었습니다 — 작업본에서 정리해 주세요: " + "; ".join(rep["duplicates"][:3])
-                    if rep.get("checks"):
-                        text += (f"\n자가 점검에서 문제 {len(rep['checks'])}건이 나왔습니다 — 한글에서 열리지 않거나 모양이 틀릴 수 있어 제출하지 마세요: "
-                                 + "; ".join(rep["checks"][:3]))
-                    if remove:
-                        text += f"\n안내 상자 {rep['boxes_removed']}개를 뺀 제출본입니다. 한글에서 열어 표지·직인란·쪽수를 확인하세요."
-                    else:
-                        text += "\n안내 상자(【작성방법】)는 그대로 두었습니다. 제출본이면 '안내 상자 없이 한글로 내보내 줘'."
-                    _set_options(session_id, [{"kind": "review", "text": "작업본 전체 검토", "question": "문서 전체를 공고·평가지표 기준으로 검토해 줘"},
-                                              {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
-                except Exception as e:
-                    logging.getLogger("zzaimy.app.gdocs").exception("한글 완성본 만들기 실패 (대화 %s)", session_id)
-                    text = f"한글 완성본을 만들지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
-                db.add_chat(session_id, "assistant", _scrub_internal(text))
+                _export_hwp(session_id, owner, data_dir, request=q,
+                            remove_boxes=bool(re.search(r"제출본|(안내\s*상자|작성방법)\s*(없이|빼고|지우고|삭제하고)", q)))
                 return
             if re.search(r"작업본\s*(?:을|를)?\s*(?:새로|다시)\s*(?:만들|떠|뜨|생성)|새\s*작업본|작업본\s*갱신", q):
-                # 작업본 새로 만들기: 변환기가 좋아진 뒤 원본 서식을 다시 변환해 새 복제본을 만들고, 지금까지 쓴 절 본문을 옮긴다
-                from zzaimy.ingest import gdocs as _gd, gdrive_files as _gf
-
-                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
-                src = _working_copy_source(session_id, session_, q, "새 작업본을 만들")
-                if not src:
-                    return
-                acct_ = accounts.get(owner, {}) if password is not None else {}
-                email = link["account"]
-                try:
-                    folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="첨부")
-                    made = _gf.google_copy(db, src, email, folder, refresh=True)
-                    from datetime import date as _date
-
-                    title = storage.title_of(src.get("filename") or "")
-                    work_title = f"{title} 작업본 {_date.today().isoformat()}"
-                    work_folder = _gf.project_folder_for(db, email, proj_, acct_.get("dept") or None, sub="작성")
-                    copy = _gf.copy_document(email, made["id"], work_title, work_folder)
-                    moved = _gd.migrate_bodies(email, link["doc"], copy["id"], user=owner, data_dir=data_dir, scrub=_scrub_internal)
-                    from zzaimy.app.gdocs_agent import quality_pass
-
-                    checked = quality_pass(email, copy["id"])            # 옮긴 뒤 표 폭·반복 줄 관문
-                    try:
-                        _gf.rename_document(email, link["doc"], f"{_gd.get(email, link['doc'])['title']} (이전)")
-                    except Exception:
-                        pass
-                    db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": copy["id"], "account": email}))
-                    db.add_file("google", copy["url"], name=work_title, session_id=session_id, doc_id=int(src["id"]))
-                    ok = [r for r in moved if r["done"] == "ok"]
-                    text = (f"「{work_title}」 을 새로 만들어 이 대화에 연결했습니다(원본 서식을 지금 변환기로 다시 변환). "
-                            f"옮긴 절 {len(ok)}개 · 글 {sum(r['chars'] for r in ok):,}자 · 표 {sum(r['tables'] for r in ok)}개. 이전 작업본은 이름 뒤에 '(이전)'을 붙여 두었습니다. {copy['url']}")
-                    skipped = [r for r in moved if r["done"] != "ok"]
-                    if skipped:
-                        text += "\n옮기지 못한 절: " + ", ".join(r["heading"][:24] for r in skipped)
-                    if checked:
-                        text += "\n" + "\n".join(checked)
-                    _set_options(session_id, [{"kind": "review", "text": "옮긴 내용 검토", "question": "옮긴 절들이 빠짐없이 들어갔는지 검토해 줘"},
-                                              {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
-                except Exception as e:
-                    logging.getLogger("zzaimy.app.gdocs").exception("작업본 새로 만들기 실패 (대화 %s)", session_id)
-                    text = f"작업본을 새로 만들지 못했습니다({type(e).__name__}). 이전 작업본은 그대로 연결돼 있습니다."
-                db.add_chat(session_id, "assistant", _scrub_internal(text))
+                _new_work_copy(session_id, owner, data_dir, request=q)
                 return
             if re.search(r"(작성방법|안내|가이드)\s*(상자|박스|표)?[을를은는]?\s*(지워|삭제|없애|정리)|제출본|마무리\s*(해|정리)", q):
-                # 마무리 — 양식의 안내 상자(【작성방법】·【증빙자료】)를 지운다. 되돌릴 수 없으니 몇 개인지 먼저 세어 확인을 받는다
-                from zzaimy.ingest import gdocs as _gd
-
-                sure = bool(re.search(r"확인|그래|응|네|진행|지워\s*줘|삭제해\s*줘", q)) and (db.get_setting(f"chat_pending_boxes:{session_id}", "") or "") == "1"
-                if not sure:
-                    cnt = _gd.remove_instruction_boxes(link["account"], link["doc"], user=owner, data_dir=data_dir, dry_run=True)["count"]
-                    if cnt:
-                        db.set_setting(f"chat_pending_boxes:{session_id}", "1")
-                        text = f"작업본에 안내 상자(【작성방법】·【증빙자료】)가 {cnt}개 있습니다. 지우면 되돌릴 수 없고, 아직 안 쓴 절의 작성방법도 사라집니다. 지울까요?"
-                        _set_options(session_id, [{"kind": "confirm", "text": f"안내 상자 {cnt}개 삭제 확인", "question": "안내 상자 삭제 확인, 지워 줘"},
-                                                  {"kind": "skip", "text": "아직 두기", "question": "안내 상자는 아직 두고 다음 절을 작성해 줘"}])
-                    else:
-                        text = "지울 안내 상자가 없습니다."
-                    db.add_chat(session_id, "assistant", _scrub_internal(text))
-                    return
-                db.set_setting(f"chat_pending_boxes:{session_id}", "")
-                res = _gd.remove_instruction_boxes(link["account"], link["doc"], user=owner, data_dir=data_dir)
-                text = f"안내 상자 {res['count']}개를 지웠습니다. 제출 전에 표지의 대학명·직인란과 쪽수를 확인하세요."
-                _set_options(session_id, [{"kind": "review", "text": "전체 검토", "question": "문서 전체를 공고·평가지표 기준으로 검토해 줘"}])
-                db.add_chat(session_id, "assistant", _scrub_internal(text))
+                _remove_guide_boxes(session_id, owner, data_dir, confirmed=bool(re.search(r"확인|그래|응|네|진행|지워\s*줘|삭제해\s*줘", q)))
                 return
             review_focus = None
-            review_mat = ""
             if re.search(r"검토|점검|평가해|맞는지|채점|비교해", q):
-                # 절 검토: 지목한 절(번호) 또는 방금 쓴 절을 재료(작성방법·평가지표·지난 자료 같은 절)와 함께 준다(긴 문서의 앞부분만 보지 않게)
-                from zzaimy.app.regulations import extract_nouns
+                # 절 검토: 지목한 절(번호) 또는 방금 쓴 절
                 from zzaimy.ingest import gdocs as _gd
 
                 try:
@@ -2212,58 +2339,12 @@ def create_app(
                     last = db.get_setting(f"chat_last_section:{session_id}", "") or ""
                     if not cands and last:
                         cands = [x for x in info["sections"] if x["heading"] == last]
-                    if cands:
-                        review_focus = cands[0]
-                        proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
-                        sources = {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=session_id) if f.get("doc_id")}
-                        mats = drafting.Materials(db, proj_, sources, find_relevant, extract_nouns, db.chunks_for_docs(crit_ids) if crit_ids else [], scope=scope)
-                        mm = mats.for_section(info, review_focus, q, storage.title_of)
-                        review_mat = drafting.render_materials(mm, _asks.facts(db, session_))
-                        hits = mm["criteria"] or hits
+                    review_focus = cands[0] if cands else None
                 except Exception:
-                    review_focus, review_mat = None, ""
-            extra_kw = {"materials": review_mat, "focus": review_focus} if review_focus is not None else {}
-            text, _ops = gdocs_agent.run(db, session_id, owner, q, link, client=client, data_dir=data_dir,
-                                         scrub=_scrub_internal, evidence=hits, confirm=confirm, **extra_kw)
-            if not _ops and not proj_hits:
-                session_ = db.get_chat_session(session_id) or {}
-                proj_ = db.get_project(int(session_["project_id"])) if session_.get("project_id") else None
-                reads = [sg for sg in _project_suggestions(proj_) if sg["kind"] == "read"]
-                if reads:
-                    text += "\n\n재료가 될 그림 쪽이 아직 판독되지 않았습니다. 아래에서 고르면 바로 진행합니다."
-                    _set_options(session_id, [{"kind": "read", "text": sg["text"][:40], "question": sg["question"]} for sg in reads[:2]]
-                                 + [{"kind": "skip", "text": "판독 없이 지금 있는 내용으로", "question": q}])
-            if review_focus is not None and not _ops:
-                # 절 검토 뒤 — 의견을 기억해 두고 「반영해 다시 쓰기」로 잇는다(검토 뒤 선택지가 비면 흐름이 끊긴다)
-                db.set_setting(f"chat_last_review:{session_id}", _aj.dumps({"heading": review_focus["heading"], "text": text[:2500]}, ensure_ascii=False))
-                _set_options(session_id, [{"kind": "redo", "text": "검토 의견 반영해 다시 쓰기",
-                                           "question": f"「{review_focus['heading']}」 절을 방금 검토 의견을 반영해 다시 써 줘"},
-                                          {"kind": "continue", "text": "이어서 다음 절 작성", "question": "다음 절을 작성방법에 맞춰 작성해 줘"}])
-            if _ops:
-                _set_options(session_id, [{"kind": "continue", "text": "이어서 다음 절 채우기", "question": "작업본에서 아직 비어 있는 다음 절을 근거 문서 내용으로 채워 줘"},
-                                          {"kind": "review", "text": "방금 쓴 내용 검토", "question": "방금 쓴 절을 공고·평가지표 기준으로 검토해 줘"},
-                                          {"kind": "redo", "text": "다시 써 줘", "question": "방금 넣은 내용을 더 구체적인 수치와 근거로 다시 써 줘"}])
-            new_name = next((o.get("text") for o in _ops if o.get("op") == "rename" and (o.get("text") or "").strip()), "")
-            if new_name and not confirm:
-                try:
-                    db.rename_chat_session(session_id, new_name.strip()[:60])
-                except Exception:
-                    pass
-            move_to = next((o.get("text") for o in _ops if o.get("op") == "move" and (o.get("text") or "").strip()), "")
-            if move_to and not confirm:
-                proj = _project_by_name(owner, move_to)
-                if proj is None:
-                    text += f"\n- 프로젝트 「{move_to}」 를 찾지 못해 옮기지 않았습니다"
-                else:
-                    try:
-                        from zzaimy.ingest import gdrive_files
-
-                        db.set_chat_project(session_id, int(proj["id"]))
-                        acct_ = accounts.get(owner, {}) if password is not None else {}
-                        gdrive_files.move_to_project(db, session_id, proj["name"], dept=acct_.get("dept") or None)
-                        text += f"\n- 드라이브 문서를 「{proj['name']}」 폴더로 옮기고 대화를 그 프로젝트에 넣었습니다"
-                    except Exception as e:
-                        text += f"\n- 문서를 옮기지 못했습니다({type(e).__name__})"
+                    review_focus = None
+            _run_doc_command(session_id, owner, data_dir, scope, scope_msg, command=q, client=client, review_focus=review_focus,
+                             evidence=(hits, proj_hits))
+            return
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
 

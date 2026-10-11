@@ -118,18 +118,21 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | create_document | 연결 문서가 없을 때 양식 후보에서 골라 새 문서 | `form_choice` 후보 |
 | open_project_document | 프로젝트 문서(작성 서식 등)의 작업본을 대화에 잇기 | `_link_existing_document` |
 | write_section / rewrite_section | 고른 절 하나를 쓰거나 비우고 다시 쓰기 | `_draft_sections(targets=[그 절])` |
-| review_section · edit_document | 절 검토, 절 단위가 아닌 고치기 | 연결 문서 경로(`gdocs_agent`) |
-| export_hwp · new_work_copy | 한글 완성본 내보내기, 작업본 새로 만들기 | 연결 문서 경로 |
-| remember_values | 담당자가 알려 준 값을 기억하고 받지 못한 값 목록을 줄이기 | `asks.remember` — 요청 글에 그대로 있는 값만 |
+| review_section · edit_document | 고른 절 검토, 절 단위가 아닌 고치기 | `_run_doc_command`(`gdocs_agent` 편집 계획) |
+| export_hwp · new_work_copy | 한글 완성본 내보내기, 작업본 새로 만들기 | `_export_hwp` · `_new_work_copy` |
+| remove_guide_boxes | 안내 상자 지우기 — 처음엔 개수를 알리고, 담당자 확인 뒤에 지움 | `_remove_guide_boxes` |
+| remember_values | 담당자가 알려 준 값을 기억하고 받지 못한 값 목록을 줄이기 | `asks.remember` — 물었던 이름만, 요청 글에 두 글자 이상 그대로 있는 값만. 기관 설정(대학명·총장 등)은 관리자 값만 |
 | read_document | 프로젝트 문서의 그림 쪽 판독 | `_read_named_document` |
 | answer_question · ask_user · finish | 답하기, 자료에 없는 값 묻기, 마무리 알림 | |
 
-되돌리기 어려운 도구(다시 쓰기·편집·내보내기·작업본)는 담당자 요청 글에 그 뜻이 있을 때만 돈다. 걸음과 쓰기 횟수에 한도가 있고,
+되돌리기 어려운 도구(다시 쓰기·편집·안내 상자·내보내기·작업본)는 담당자 요청 글에 그 뜻이 있을 때만 돈다. 문서를 바꿔 잇거나
+판독하는 도구는 담당자 요청 글이 그 문서 제목과 흔한 갈래 낱말이 아닌 네 글자 이상을 함께 가질 때만 돈다(`_mentions_document`).
+프로젝트 문서 목록과 양식 후보는 대화 주인의 열람 범위 안의 것만 보인다. 걸음과 쓰기 횟수에 한도가 있고,
 도구 결과는 자료로만 모델에 돌려준다. 모든 걸음은 `doc_agent_episodes.jsonl` 에 남겨 리즈닝 학습 재료로 쓴다.
 절을 쓰기 전에는 Writer 가 필요한 정보와 찾을 곳·검색어를 정하고 코드가 그대로 검색한다(`app/context_plan.py`).
 
 모델 서버가 응답하지 않아 에이전트가 아무것도 남기지 못하면 낱말 규칙 경로(판독·문서 지목·초안·연결 문서 명령)로 물러난다.
-이 경로는 장애 대비이며, 쓸 절은 `drafting.target_sections` 로 고르고 쓰기는 에이전트와 같은 `_draft_sections` 를 쓴다.
+이 경로는 장애 대비이며, 갈래와 쓸 절만 낱말 규칙(`drafting.target_sections` 등)으로 정하고 실행은 에이전트 도구와 같은 함수를 쓴다.
 
 쓸 절은 Writer 가 상태의 절 목록에서 고른다. 물러난 경로에서는 비어 있는 절 앞쪽부터, 요약 절은 마지막, 이미 다룬 절은 건너뛰고, 「「제목」 절 써 줘」 처럼 집어 말하면 그 절이다. 재료는 그 절의 작성 지침,
 문서 전체 규칙, 기준 문서, 프로젝트 문서, 문서함의 사업 문서 RAG(보는 사람의 열람 범위 안, 실적보고서면 같은 연차 계획서도)다.

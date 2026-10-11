@@ -4,7 +4,8 @@
 - Writer: 매 걸음 상태(요청·최근 대화·프로젝트 문서 제목·연결 문서의 절 목록·받지 못한 값·앞 걸음 결과)를 보고 생각한 뒤
   도구 하나를 고른다 — JSON {thought, action, args}.
 - 코드: 고른 대상을 그대로 받아 도구를 실행한다. 요청 글을 낱말 규칙으로 다시 해석하지 않는다. 검색은 열람 범위 안에서,
-  절 쓰기는 절 작성 경로(main._draft_sections — 재료 모으기·수치 근거 대조·품질 관문)로 간다.
+  절 쓰기는 main._draft_sections(재료 모으기·수치 근거 대조·품질 관문), 검토·편집은 main._run_doc_command, 내보내기·작업본·
+  안내 상자는 main._export_hwp·_new_work_copy·_remove_guide_boxes 를 고른 인자로 바로 부른다.
 - 되돌리기 어려운 도구(consent)는 담당자 요청 글에 그 뜻이 있을 때만 돈다. 걸음·쓰기 횟수를 제한하고, 도구 결과는 울타리를 친
   자료로만 모델에 돌려준다. 모든 걸음을 doc_agent_episodes.jsonl 에 남긴다 — 리즈닝 학습 재료.
 - 모델 응답이 깨지면 같은 걸음을 한 번 더 청하고, 그래도 안 되면 루프를 끝내고 호출부가 낱말 규칙 대비 경로로 물러난다.
@@ -145,6 +146,10 @@ def _step_label(name: str, args: dict) -> str:
               "open_project_document": lambda a: f"작업본 여는 중 — 「{str(a.get('document', ''))[:30]}」",
               "read_document": lambda a: f"그림 쪽 판독 중 — 「{str(a.get('document', ''))[:30]}」",
               "remember_values": lambda a: "알려 준 값 기억하는 중",
+              "edit_document": lambda a: "문서 고치는 중",
+              "export_hwp": lambda a: "한글 완성본 만드는 중",
+              "new_work_copy": lambda a: "작업본 새로 만드는 중",
+              "remove_guide_boxes": lambda a: "안내 상자 확인 중",
               "answer_question": lambda a: "답변 작성 중",
               "ask_user": lambda a: "담당자에게 물을 값 정리 중"}
     f = labels.get(name)
