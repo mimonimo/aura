@@ -269,3 +269,33 @@ def test_ontology_tab_only_for_developers(tmp_path):
     c = TestClient(app)
     assert _login(c, "zzaimy", "boot-pass-1")
     assert 'data-mode="onto"' not in c.get("/graph/explore").text
+
+
+def test_alias_filter_on_stored_card_shape():
+    """저장된 카드 꼴 그대로 — 약칭 목록에 남의 약칭·오기가 섞여 있어도(그래프를 다시 짓기 전) 화면 별칭에서는 빠진다."""
+    prog = {"id": "program:qrx", "label": "별빛 산학 선도(QRX+) 육성사업",
+            "props": {"acronyms": ["OCX", "HARBOR", "QRX+", "QRG+", "QX+", "QRX"], "names": ["별빛 산학 선도(QRX+) 육성사업"]}}
+    others = [{"id": "program:ocx", "label": "바다 연안 탐사 지원사업", "props": {"acronyms": ["OCX"]}},
+              {"id": "program:바다항만", "label": "바다 항만 인재체계", "props": {"acronyms": []}}]
+    ledger = {"programs": [{"name": "바다 항만 인재체계", "terms": ["HARBOR"], "sources": ["https://example.org"]}]}
+    canon, foreign, allowed = programs.alias_filters(prog, others, ledger)
+    assert {"QRX", "QRX+"} <= canon and {"OCX", "HARBOR"} <= foreign
+    shown, _m = programs.alias_list(prog["props"]["names"], prog["props"]["acronyms"], foreign=foreign, canonical=canon, allowed=allowed)
+    assert set(shown) & {"OCX", "HARBOR", "QRG+", "QX+"} == set() and "QRX+" in shown
+    # 장부가 그 사업 표기로 적었으면 오기처럼 보여도 둔다
+    canon, foreign, allowed = programs.alias_filters(prog, others, {"programs": [{"name": "별빛 산학 선도(QRX+) 육성사업", "terms": ["QRG+"],
+                                                                                 "sources": ["https://example.org"]}]})
+    shown, _m = programs.alias_list([], prog["props"]["acronyms"], foreign=foreign, canonical=canon, allowed=allowed)
+    assert "QRG+" in shown and "QX+" not in shown
+
+
+def test_search_results_use_display_rules(tmp_path):
+    db = Database(tmp_path / "t.db")
+    kg_store.ensure(db)
+    with db._conn() as conn:
+        kg_store.put_nodes(conn, [("unit:a", "unit", ". QRX 비전 및 목표"), ("unit:b", "unit", "QRX 비전 및 목표"),
+                                  ("unit:c", "unit", "년 QRX운영위원회"), ("program:z", "program", "학년도 QRX 연계 사업"),
+                                  ("program:y", "program", "따라서 QRX 연계 사업")])
+    labels = [h["label"] for h in kg_explore.search(db, "QRX", {"role": "dev"})]
+    assert labels.count("QRX 비전 및 목표") == 1 and "QRX운영위원회" in labels and "QRX 연계 사업" in labels
+    assert not any(l.startswith(("따라서", ".", "년 ", "학년도")) for l in labels)

@@ -123,7 +123,9 @@ def label_of(n: dict) -> str:
         name = display_name(clean_label(label)) or label
         return f"{name} (묶음)" if typ == "program_group" else name
     if typ == "section":
-        return clean_heading(label)
+        return clean_heading(clean_label(label))
+    if typ == "unit":
+        return clean_label(label)
     if typ == "indicator":
         return strip_footnote(label)
     return label
@@ -232,7 +234,21 @@ def search(db, q: str, scope: dict, limit: int = 40) -> list[dict]:
     ok = _allowed(db, nodes, scope)
     order = {t: i for i, t in enumerate(SEARCH_TYPES)}
     hits = sorted((n for k, n in nodes.items() if k in ok), key=lambda n: (order.get(n["type"], 9), len(n["label"])))
-    return [_summary(n) for n in hits[:limit]]
+    # 보일 이름 규칙(label_of)을 거친 이름으로 — 문장 조각(사업·단위과제)은 빼고, 다듬은 뒤 같은 이름·같은 종류는 한 번만
+    from zzaimy.graph.programs import fragment_name
+    out, seen = [], set()
+    for n in hits:
+        sm = _summary(n)
+        if n["type"] in ("program", "unit") and fragment_name(sm["label"]):
+            continue
+        key = (n["type"], re.sub(r"[\s.·ㆍ\-_()]+", "", sm["label"]).upper())
+        if n["type"] != "doc" and key in seen:
+            continue
+        seen.add(key)
+        out.append(sm)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _scope_key(scope: dict | None) -> tuple:

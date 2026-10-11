@@ -98,13 +98,77 @@ _LEAD_CUT = re.compile(r"^(?:[a-z](?=[가-힣])|[가-힣]\s+(?=[가-힣A-Za-z]{2
 def clean_label(name: str) -> str:
     """보일 사업 이름의 앞 잘림을 다듬는다 — 글 속 줄바꿈 표기의 영문자, 한 글자만 남은 앞 낱말. 이미 지은 그래프 이름에도 쓴다."""
     s = " ".join((name or "").replace("\\n", " ").replace("\\t", " ").split())
-    out = _LEAD_CUT.sub("", s).strip()
+    s = re.sub(r"^[\s·ㆍ•∙\-–—*,.:;○●□■▶▷※]+", "", s)           # 앞 글머리·문장 부호(「. RISE 비전」)
+    # 숫자가 잘려 단위만 남은 앞말(「2025학년도」의 「학년도」, 「2025년」의 「년」) — 「년」 한 글자는 아래 한 글자 규칙이 뗀다
+    out = re.sub(r"^(?:학년도|년도)\s+(?=\S)", "", s)
+    out = _LEAD_CUT.sub("", out).strip()
     return out if len(out.replace(" ", "")) >= 4 else s
 
 
-def alias_list(names, acronyms=(), limit: int = 8, foreign: set[str] | frozenset = frozenset()) -> tuple[list[str], int]:
+def _same_acr(a: str, b: str) -> bool:
+    """기호만 다른 약칭(「LINC」=「LINC+」)인가 — 숫자·글자가 더 붙은 것(「LINC30」)은 다른 사업일 수 있어 같지 않다."""
+    if a == b:
+        return True
+    lo, hi = sorted((a, b), key=len)
+    return hi.startswith(lo) and not re.search(r"[A-Z0-9]", hi[len(lo):])
+
+
+def _one_edit(a: str, b: str) -> bool:
+    """글자 하나만 바꾸거나 빼거나 더한 사이인가(오기 판정)."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    lo, hi = sorted((a, b), key=len)
+    return any(hi[:i] + hi[i + 1:] == lo for i in range(len(hi)))
+
+
+def _id_acr(node_id: str) -> set[str]:
+    tail = (node_id or "").split(":", 1)[-1]
+    return {_acr(tail)} if re.fullmatch(r"[0-9a-z+.]{2,12}", tail) and re.search(r"[a-z]", tail) else set()
+
+
+def alias_filters(prog: dict, others: list[dict], ledger: dict | None = None) -> tuple[set[str], set[str], set[str]]:
+    """별칭 거르기 재료 (정체 약칭, 남의 약칭, 장부가 인정한 표기) — 모두 _acr 꼴.
+
+    - 정체 약칭: 사업 이름(label)에 든 약칭과 id 꼬리, 그리고 그와 기호만 다른 자기 약칭(LINC → LINC+). 카드에 섞여 들어온 약칭
+      목록 전체를 정체로 보지 않는다 — 그러면 잘못 붙은 남의 약칭이 「자기 것」이 되어 걸러지지 않는다
+    - 남의 약칭: 다른 사업 노드의 이름·id·약칭 목록에 있는 약칭 가운데 정체 약칭과 같지 않은 것
+    - 장부 표기: 외부 확인 장부(kg_external.json)의 사업 이름·terms — 오기처럼 보여도 출처가 있으면 둔다"""
+    def label_acrs(p: dict) -> set[str]:
+        return {_acr(t) for t in _ACR_TOKEN.findall(str(p.get("label") or ""))} | _id_acr(p.get("id") or "")
+    canon = label_acrs(prog)
+    own = {_acr(a) for a in ((prog.get("props") or {}).get("acronyms") or [])}
+    canon |= {a for a in own if any(_same_acr(a, c) for c in canon)}
+    foreign: set[str] = set()
+    for o in others:
+        foreign |= label_acrs(o) | {_acr(a) for a in ((o.get("props") or {}).get("acronyms") or [])}
+    foreign = {f for f in foreign if f and not any(_same_acr(f, c) for c in canon)}
+    # 장부: 이 사업 항목(정체 약칭이나 이름이 맞는 항목)의 표기는 인정, 다른 사업 항목의 약칭은 남의 약칭
+    allowed: set[str] = set()
+    label_flat = re.sub(_FLAT, "", str(prog.get("label") or "")).upper()
+    for e in (ledger or {}).get("programs", []) or []:
+        if not e.get("sources"):
+            continue
+        terms = [str(t) for t in (e.get("terms") or []) + [e.get("name") or ""] + (e.get("acronyms") or []) if t]
+        acrs = set()
+        for t in terms:
+            acrs |= {_acr(x) for x in _ACR_TOKEN.findall(t)} | ({_acr(t)} if _is_acr(t) else set())
+        mine = any(any(_same_acr(a, c) for c in canon) for a in acrs) or \
+            any(re.sub(_FLAT, "", t).upper() == label_flat for t in terms if t)
+        if mine:
+            allowed |= acrs
+        elif e.get("category") != "사업 아님":
+            foreign |= {a for a in acrs if not any(_same_acr(a, c) for c in canon)}
+    return canon, foreign - allowed, allowed
+
+
+def alias_list(names, acronyms=(), limit: int = 8, foreign: set[str] | frozenset = frozenset(),
+               canonical: set[str] | frozenset = frozenset(), allowed: set[str] | frozenset = frozenset()) -> tuple[list[str], int]:
     """화면에 보일 다른 이름 — 문장 조각을 거르고, 보일 이름 규칙(program_names.display_name)으로 다듬어 띄어쓰기만 다른 것은
-    하나로, 약칭 먼저·짧은 이름 순으로 limit 개. foreign(다른 사업 노드의 정체 약칭, _acr 꼴)이 낱말로 든 이름은 남의 사업이라 뺀다.
+    하나로, 약칭 먼저·짧은 이름 순으로 limit 개.
+    - foreign(남의 약칭, alias_filters)이 낱말로 든 이름은 남의 사업이라 뺀다
+    - canonical(정체 약칭)과 한 글자만 다른 약칭(「LNC+」「LING+」)은 오기로 보고 뺀다 — allowed(장부 표기)에 있으면 둔다
     돌려주는 것: (보일 이름들, 더 있는 수)."""
     from zzaimy.app.program_names import display_name
 
@@ -115,7 +179,11 @@ def alias_list(names, acronyms=(), limit: int = 8, foreign: set[str] | frozenset
         k = re.sub(r"[\s.·ㆍ\-_()]+", "", n).upper()
         if not k or k in seen or fragment_name(n):
             continue
-        if foreign and any(_acr(t) in foreign for t in _ACR_TOKEN.findall(n) + ([n] if _is_acr(n) else [])):
+        toks = {_acr(t) for t in _ACR_TOKEN.findall(n)} | ({_acr(n)} if _is_acr(n) else set())
+        if foreign and toks & set(foreign):
+            continue
+        if canonical and any(t not in canonical and t not in allowed and not any(_same_acr(t, c) for c in canonical)
+                             and any(_one_edit(t, c) for c in canonical) for t in toks):
             continue
         seen.add(k)
         out.append(n)
@@ -243,7 +311,7 @@ class ProgramCard:
         return {re.sub(_FLAT, "", n) for n in self.names} | {_acr(a) for a in self.acrs}
 
 
-_ACR_TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9+]{1,10}(?:\s?\d\.\d)?)(?![a-z])")
+_ACR_TOKEN = re.compile(r"(?<![A-Za-z0-9])([A-Z][A-Z0-9+]{1,10}(?:\.\d+)?(?:\s?\d\.\d)?)(?![a-z0-9.])")
 
 
 def lists_other_acronym(long_: str, short: str) -> bool:
