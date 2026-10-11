@@ -316,11 +316,11 @@ def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
     """(올릴 바이트, 이름, 원본 mime, 변환 목표). 한글은 복원 docx 로 바꿔 독스가 되게 한다. 못 바꾸면 원본 그대로."""
     from pathlib import Path
 
+    from zzaimy.app import storage
+
     src = Path(doc["stored_path"])
-    ext = src.suffix.lower()
-    name = (doc.get("filename") or src.name)
-    if ext and not name.lower().endswith(ext):            # 표시 이름(본문 제목)에는 확장자가 없다 — 붙여 두어야 아래 name[:-len(ext)] 가 제목 끝을 자르지 않는다
-        name = name + ext
+    ext = storage.original_ext(doc)                       # 형식은 실제 파일에서 — 표시 이름(본문 제목)에는 확장자가 없다
+    name = storage.original_name(doc)                     # 제목 + 실제 확장자 — 아래 name[:-len(ext)] 가 제목 끝을 자르지 않는다
     if ext == ".hwpx":
         try:
             from zzaimy.ingest import hwpx_docx

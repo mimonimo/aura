@@ -58,6 +58,48 @@ def title_of(filename: str) -> str:
     return t
 
 
+_SUFFIX = re.compile(r"\.[0-9A-Za-z]{1,8}$")
+_SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+
+
+def _suffix(name: str) -> str:
+    """이름·경로 끝의 확장자('.hwpx', 소문자). 없으면 ''.
+
+    확장자 목록이 아니라 모양으로 본다 — 점 뒤가 영문·숫자 1~8자이고 영문이 한 자는 있어야 한다.
+    그래서 처음 보는 형식도 그대로 통하고, '2. 도심 캠퍼스 안내'·'v1.2' 처럼 점이 든 제목은 확장자로 읽지 않는다."""
+    last = re.split(r"[\\/]", name or "")[-1]
+    m = _SUFFIX.search(last)
+    if not m or m.start() == 0 or not re.search(r"[A-Za-z]", m.group()):
+        return ""
+    return m.group().lower()
+
+
+def original_ext(doc: dict) -> str:
+    """원본 파일의 실제 확장자('.hwpx' 꼴, 소문자). 모르면 ''.
+
+    형식(미리보기 종류·MIME·변환기)은 표시 이름만으로 고르지 않는다. 반입 뒤 filename 은 확장자 없는 본문 제목이다.
+    먼저 실제 파일이 놓인 자리(stored_path — 'dgx://<보관소 경로>' 처럼 'scheme://' 가 붙은 원격 보관 위치면 그 뒤 경로)의
+    확장자, 그것이 없을 때만(확장자 없이 저장된 옛 기록) filename 의 확장자를 쓴다."""
+    sp = str(doc.get("stored_path") or "")
+    loc = _SCHEME.sub("", sp, count=1)
+    return _suffix(loc) or _suffix(str(doc.get("filename") or ""))
+
+
+def original_name(doc: dict) -> str:
+    """원본을 사람에게 보일 이름 — 표시 이름(본문 제목) + 실제 확장자. 내려받기 이름과 형식 판단에 쓴다.
+
+    형식은 이 이름이나 original_ext 로만 고른다 — filename(제목)을 그대로 kind_of·media_type·변환기에 넘기지 않는다.
+    filename 이 다른 확장자를 달고 있으면 실제 파일 쪽 확장자로 바꾼다."""
+    ext = original_ext(doc)
+    name = str(doc.get("filename") or "").strip()
+    cur = _suffix(name)
+    if cur:
+        if cur == ext:
+            return name
+        name = name[: -len(cur)].rstrip()
+    return (name or ORIGINAL) + ext
+
+
 def intake_dir(base: Path, doc: dict) -> Path:
     """반입 문서의 폴더 — 반입/<연도>/<유형>/<접수번호> <제목>."""
     title = safe_name(title_of(doc.get("filename") or ""))

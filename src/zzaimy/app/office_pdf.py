@@ -24,8 +24,10 @@ def is_office(path: str | Path) -> bool:
 
 
 def view_path(doc: dict) -> Path:
+    from zzaimy.app import storage
+
     source = Path(doc.get("stored_path") or "")
-    return source.parent / ("열람-시트전체-v1.pdf" if source.suffix.lower() in SHEET_EXTS else VIEW_NAME)
+    return source.parent / ("열람-시트전체-v1.pdf" if storage.original_ext(doc) in SHEET_EXTS else VIEW_NAME)
 
 
 def soffice() -> str | None:
@@ -85,12 +87,18 @@ def to_pdf(src: Path, out_dir: Path, timeout: int = SOFFICE_TIMEOUT) -> Path | N
         shutil.rmtree(profile, ignore_errors=True)
 
 
-def convert_file(src: Path, target: Path, progress=None) -> Path | None:
+def convert_file(src: Path, target: Path, progress=None, ext: str = "") -> Path | None:
     """원본 파일 하나를 열람 PDF(target)로 그린다. 한글은 docx 를 거친다. progress(step) 는 'convert'(한글 → docx)·
-    'render'(LibreOffice 로 PDF) 순으로 불린다 — 기다림 화면의 단계 표시용. 못 만들면 None."""
+    'render'(LibreOffice 로 PDF) 순으로 불린다 — 기다림 화면의 단계 표시용. 못 만들면 None.
+    변환기는 확장자로 형식을 고른다. ext(storage.original_ext) 가 파일 이름과 다르면 그 확장자를 단 사본으로 바꾼다."""
     src = Path(src)
     work = Path(tempfile.mkdtemp(prefix="zz-view-"))
     try:
+        if ext and src.suffix.lower() != ext.lower():
+            named = work / "src" / ("원본" + ext.lower())
+            named.parent.mkdir()
+            shutil.copyfile(src, named)
+            src = named
         if progress:
             progress("convert")
         conv = docx_for(src)
@@ -115,13 +123,16 @@ def convert_file(src: Path, target: Path, progress=None) -> Path | None:
 
 def render(db, doc: dict, force: bool = False, progress=None) -> Path | None:
     """문서의 열람 PDF — 있으면 그것, 없으면 지금 만든다. 만들면 files 장부(kind=view)에 적는다."""
+    from zzaimy.app import storage
+
     src = Path(doc.get("stored_path") or "")
-    if not src.exists() or not is_office(src):
+    ext = storage.original_ext(doc)
+    if not src.exists() or ext not in OFFICE_EXTS:
         return None
     target = view_path(doc)
     if target.exists() and target.stat().st_size > 0 and not force:
         return target
-    out = convert_file(src, target, progress=progress)
+    out = convert_file(src, target, progress=progress, ext=ext)
     if out is None:
         return None
     try:

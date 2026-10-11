@@ -418,7 +418,7 @@
      for(const [key] of DOC_GROUPS)for(const d of byGroup[key]||[]){
        const a=document.createElement('button');a.type='button';a.className='chat-doc-file';a.dataset.platformDoc=d.id;
        const detail=[d.via,d.kind,d.status].filter(Boolean).join(' · ');a.title=detail;
-       const isImage=imageFile(d.name),imageUrl='/doc/'+encodeURIComponent(d.id)+'/original';
+       const isImage=imageFile('.'+(d.original_format||'')),imageUrl='/doc/'+encodeURIComponent(d.id)+'/original';
        fileCard(a,d.name,detail,isImage?imageUrl:null,d.original_format);
        if((d.via||'').startsWith('에이전트'))a.classList.add('chat-file-agent');
        // Drive 참고 파일보다 플랫폼 문서를 앞에 둔다

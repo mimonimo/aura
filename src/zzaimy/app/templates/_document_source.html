@@ -9,7 +9,8 @@
 {% endmacro %}
 {% set has_pdf = doc.status == 'reviewed' and original_kind %}
 {# 형식은 실제 원본 확장자(storage.original_ext)로 — 반입 뒤 filename 은 확장자 없는 본문 제목이다 #}
-{% set is_spreadsheet = (original_ext or '') in ('.xlsx', '.xls', '.csv', '.ods') %}
+{% set _sheet_exts = ('.xlsx', '.xls', '.csv', '.ods') %}
+{% set is_spreadsheet = (original_ext or '') in _sheet_exts or (doc.stored_path or '').lower().endswith(_sheet_exts) %}
 <div class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:eye-scan-linear"></iconify-icon>문서 보기
     {% if doc.status == 'reviewed' and doc.doc_type not in ('regulation', 'ocr') %}
