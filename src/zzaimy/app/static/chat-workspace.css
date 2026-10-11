@@ -177,3 +177,5 @@ body #chatForm { max-width:1040px; }
 #chatScroll .chat-suggestion-form .chat-form-hint { font-size:11.5px; line-height:1.5; color:#65758A; overflow-wrap:anywhere; }
 #chatDocumentOpen[hidden] { display:none; }
 @media (max-width: 720px) { #chatScroll .chat-suggestions .chat-suggestion-form { grid-template-columns:minmax(0,1fr); } }
+
+#chatScroll .chat-jump-form { align-self:flex-start; margin:2px 4px 0; font-size:12.5px; padding:6px 12px; min-height:32px; }

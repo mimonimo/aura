@@ -72,6 +72,15 @@
     // 문서 패널(chat-documents.js)도 같은 진행 단계를 편집기 위에 표시한다
     root.dispatchEvent(new CustomEvent('chat-progress', {detail:{label:steps[steps.length - 1], steps}}));
   }
+  // 답이 「필요한 값 입력」을 가리키면 그 칸으로 데려간다(칸은 마지막 답 아래, 받지 못한 값이 있는 동안 늘 있다)
+  scroller.addEventListener('click', event => {
+    if (!event.target.closest('[data-jump-form]')) return;
+    const valueForm = document.getElementById('chatValueForm');
+    if (!valueForm) return;
+    pin.release();
+    valueForm.scrollIntoView({block:'center'});
+    valueForm.querySelector('input[type=text]')?.focus({preventScroll:true});
+  });
   scroller.addEventListener('click', event => {
     const button = event.target.closest('[data-progress-toggle]');
     if (!button) return;

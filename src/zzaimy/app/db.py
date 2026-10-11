@@ -587,6 +587,9 @@ class Database:
     def add_chat(self, session_id: int, role: str, content: str, mode: str | None = None) -> None:
         if mode not in (None, 'document', 'model', 'web'):
             raise ValueError('Invalid chat mode')
+        if role == 'assistant':          # 답 글 — 예외 이름을 빼고 되풀이된 문장을 한 번만(korean_text.tidy_reply)
+            from zzaimy.app.korean_text import tidy_reply
+            content = tidy_reply(content)
         with self._conn() as conn:
             lock_session(conn, session_id)
             conn.execute(

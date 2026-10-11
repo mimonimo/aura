@@ -895,7 +895,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", web_search.render_model(web_search.answer_from_model(q)))
             except Exception as e:
                 logging.getLogger("zzaimy.app.web").warning("모델 지식 답변 실패 (대화 %s): %s", session_id, type(e).__name__)
-                db.add_chat(session_id, "assistant", f"모델 지식 답변을 만들지 못했습니다({type(e).__name__}). 잠시 뒤 다시 해 주세요.")
+                db.add_chat(session_id, "assistant", f"모델 지식 답변을 만들지 못했습니다({_ko.reason(e)}). 잠시 뒤 다시 해 주세요.")
             return
         # 외부 검색 모드: 문서 작업이 아닌 일반 질문을 27B 가 웹 검색 결과로 답한다. 밖으로는 질문 글만 나간다
         if web:
@@ -909,7 +909,7 @@ def create_app(
                 db.add_chat(session_id, "assistant", str(e))
             except Exception as e:
                 logging.getLogger("zzaimy.app.web").warning("외부 검색 실패 (대화 %s): %s", session_id, type(e).__name__)   # 질문 글은 남기지 않는다
-                db.add_chat(session_id, "assistant", f"외부 검색을 쓰지 못했습니다({type(e).__name__}) — 검색 결과가 없는 것과 다릅니다. 잠시 뒤 다시 하거나 외부 검색을 끄고 물어 주세요.")
+                db.add_chat(session_id, "assistant", f"외부 검색을 쓰지 못했습니다({_ko.reason(e)}) — 검색 결과가 없는 것과 다릅니다. 잠시 뒤 다시 하거나 외부 검색을 끄고 물어 주세요.")
             return
         # 전송 직후 화면을 돌려주기 위해 무거운 단계(첨부 파싱·LLM)는 백그라운드에서
         attachment_text = None
@@ -918,7 +918,7 @@ def create_app(
             try:
                 attachment_text = processor.extract_text(stored)
             except Exception as e:
-                log_note = f"(첨부 처리 실패: {type(e).__name__})"
+                log_note = f"({_ko.reason(e)})"
                 db.add_chat(session_id, "assistant", f"첨부 문서를 읽지 못했습니다 {log_note}")
                 return
 
@@ -951,7 +951,7 @@ def create_app(
         except Exception as e:
             _chat_sources[session_id] = []
             db.add_chat(session_id, "assistant",
-                        f"연결된 구글 문서를 읽지 못했습니다({type(e).__name__}). 계정 허용과 문서 주소를 확인해 주세요.")
+                        f"연결된 구글 문서를 읽지 못했습니다({_ko.reason(e)}). 계정 허용과 문서 주소를 확인해 주세요.")
             return
         if doc_material:
             attachment_text = ((attachment_text or "") + "\n\n" + doc_material).strip()
@@ -1304,7 +1304,7 @@ def create_app(
             folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="첨부")
             made = gdrive_files.google_copy(db, doc, email, folder)
         except Exception as e:
-            return False, f"{_ko.quote(title, '을')} 독스로 바꾸지 못했습니다({type(e).__name__})."
+            return False, f"{_ko.quote(title, '을')} 독스로 바꾸지 못했습니다({_ko.reason(e)})."
         if made.get("mime") != "application/vnd.google-apps.document":
             return False, f"{_ko.quote(title, '은')} 독스 문서가 아니라(시트·슬라이드·PDF) 에이전트가 편집할 수 없습니다. 열람은 문서함에서 됩니다."
         # 원본 서식(변환본)은 그대로 두고 복제본을 만들어 그 복제본에서 작업한다 — 프로젝트 폴더의 '작성' 아래
@@ -1315,7 +1315,7 @@ def create_app(
             work_folder = gdrive_files.project_folder_for(db, email, project, acct_.get("dept") or None, sub="작성")
             copy = gdrive_files.copy_document(email, made["id"], work_title, work_folder)
         except Exception as e:
-            return False, f"{_ko.quote(title, '의')} 작업본을 만들지 못했습니다({type(e).__name__})."
+            return False, f"{_ko.quote(title, '의')} 작업본을 만들지 못했습니다({_ko.reason(e)})."
         db.set_setting(f"chat_google_doc:{session_id}", _aj.dumps({"doc": copy["id"], "account": email}))
         db.add_file("google", copy["url"], name=work_title, session_id=session_id, doc_id=int(doc["id"]))
         db.add_chat(session_id, "assistant", f"{_ko.quote(title, '의')} 복제본 {_ko.quote(work_title, '을')} 만들어 이 대화에 연결했습니다. 원본 서식은 그대로 두고 이 복제본을 고칩니다. {copy['url']}")
@@ -1349,7 +1349,7 @@ def create_app(
         except PermissionError as e:
             return False, f"{e} 그 뒤 다시 요청하면 문서를 만들어 바로 씁니다."
         except Exception as e:
-            return False, f"문서를 만들지 못했습니다({type(e).__name__}). 원천 관리에서 구글 연결 상태를 확인해 주세요."
+            return False, f"문서를 만들지 못했습니다({_ko.reason(e)}). 원천 관리에서 구글 연결 상태를 확인해 주세요."
         note = ""
         spec = spec_override or gdocs_templates.pick(q)
         if spec_override is None and _OUTLINE_POINTER.search(q or ""):
@@ -1422,13 +1422,16 @@ def create_app(
         if not session_:
             return []
         raw = db.get_setting(f"chat_options:{session_['id']}", "") or ""
-        if not raw:
-            return []
         try:
-            opts = _aj.loads(raw)
+            opts = list(_aj.loads(raw) or []) if raw else []
         except Exception:
-            return []
-        return (opts or [])[:4]
+            opts = []
+        # 아직 받지 못한 값이 있으면 「필요한 값 입력」 칸을 늘 다시 띄운다 — 답이 그 이름을 가리키는데 들어갈 곳이 없지 않게
+        from zzaimy.app import asks as _asks_ui
+        pend = _asks_ui.pending(db, int(session_["id"]))
+        if pend and not any(o.get("kind") == "form" and o.get("text") == "필요한 값 입력" for o in opts if isinstance(o, dict)):
+            opts = [_asks_ui.form_option(pend)] + opts
+        return opts[:4]
 
     def _project_suggestions(project: dict | None) -> list[dict]:
         """다음 작업 제안 — 무조건 돌리지 않고 알림처럼 내민다.
@@ -1465,7 +1468,7 @@ def create_app(
         try:
             res = fn(db, int(doc["id"]))
         except Exception as e:
-            return f"「{title}」 판독에 실패했습니다({type(e).__name__})."
+            return f"「{title}」 판독에 실패했습니다({_ko.reason(e)})."
         if not res.get("read"):
             return f"「{title}」 에 판독할 그림 쪽이 없거나 판독 모델이 꺼져 있습니다. {res.get('reason') or ''}".strip()
         return f"{_ko.quote(title, '의')} 그림 쪽 {res['read']}쪽(쪽 {', '.join(map(str, res['pages']))})을 판독해 조각 {res.get('chunks', 0)}개를 더했습니다. 이제 그 내용으로 작성을 요청할 수 있습니다."
@@ -2201,7 +2204,7 @@ def create_app(
                         f"{up_['url']}")
             except Exception as e:
                 logging.getLogger("zzaimy.app.gdocs").exception("Word 내보내기 실패 (대화 %s)", session_id)
-                return f"Word 로 내보내지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
+                return f"Word 로 내보내지 못했습니다({_ko.reason(e)}). 작업본은 그대로입니다."
 
         if link.get("template"):
             # 공통 양식으로 쓴 문서는 한글 원본 서식이 없다 — Word(docx)로 내보낸다
@@ -2260,7 +2263,7 @@ def create_app(
                                       {"kind": "continue", "text": "다음 절 쓰기", "question": "다음 절을 작성 방법에 맞춰 작성해 줘"}])
         except Exception as e:
             logging.getLogger("zzaimy.app.gdocs").exception("한글 완성본 만들기 실패 (대화 %s)", session_id)
-            text = f"한글 완성본을 만들지 못했습니다({type(e).__name__}). 작업본은 그대로입니다."
+            text = f"한글 완성본을 만들지 못했습니다({_ko.reason(e)}). 작업본은 그대로입니다."
         db.add_chat(session_id, "assistant", _scrub_internal(text))
         return
     def _new_work_copy(session_id: int, owner: str, data_dir: Path, *, request: str) -> None:
@@ -2309,7 +2312,7 @@ def create_app(
                                       {"kind": "continue", "text": "다음 절 쓰기", "question": "다음 절을 작성 방법에 맞춰 작성해 줘"}])
         except Exception as e:
             logging.getLogger("zzaimy.app.gdocs").exception("작업본 새로 만들기 실패 (대화 %s)", session_id)
-            text = f"작업본을 새로 만들지 못했습니다({type(e).__name__}). 이전 작업본은 그대로 연결돼 있습니다."
+            text = f"작업본을 새로 만들지 못했습니다({_ko.reason(e)}). 이전 작업본은 그대로 연결돼 있습니다."
         db.add_chat(session_id, "assistant", _scrub_internal(text))
         return
     def _remove_guide_boxes(session_id: int, owner: str, data_dir: Path, *, confirmed: bool) -> None:
@@ -2438,7 +2441,7 @@ def create_app(
                     gdrive_files.move_to_project(db, session_id, proj["name"], dept=acct_.get("dept") or None)
                     text += f"\n- 드라이브 문서를 「{proj['name']}」 폴더로 옮기고 대화를 그 프로젝트에 넣었습니다"
                 except Exception as e:
-                    text += f"\n- 문서를 옮기지 못했습니다({type(e).__name__})"
+                    text += f"\n- 문서를 옮기지 못했습니다({_ko.reason(e)})"
         text = _scrub_internal(text)
         if scope_msg:
             text = scope_msg + "\n\n" + text
@@ -2836,7 +2839,7 @@ def create_app(
                 return (f"「{conn['name']}」 연결됨 · 모델 {len(pr['models'])}개"
                         if pr["ok"] else f"「{conn['name']}」 연결 실패 — {pr['error']}")
         except Exception as e:                      # 어떤 실패도 대화를 끊지 않는다
-            return f"처리하지 못했습니다 ({type(e).__name__})"
+            return f"처리하지 못했습니다 ({_ko.reason(e)})"
         return ""
 
     def _page_actions(page: str, question: str = "") -> list[dict]:
@@ -3662,7 +3665,7 @@ def create_app(
         def fail(e: Exception) -> str:
             if isinstance(e, (FileNotFoundError, RuntimeError, ValueError)):
                 return f"구글 열람본을 만들지 못했습니다 — {e}"
-            return f"구글 열람본을 만들지 못했습니다({type(e).__name__})"
+            return f"구글 열람본을 만들지 못했습니다({_ko.reason(e)})"
 
         _VIEW_JOBS.start(doc_id, work, _op.STEPS_GOOGLE, fail)
         return _wait_page(request, doc, _VIEW_JOBS, title="구글에서 열 준비를 하고 있습니다",
@@ -3847,6 +3850,7 @@ def create_app(
         return head + Markup("<br>") + escape(rest) if rest else head
 
     templates.env.filters["attach_view"] = _attach_view
+    templates.env.filters["tidy_reply"] = _ko.tidy_reply          # 예외 이름 빼기·되풀이 문장 한 번만(저장 때도 같은 함수, db.add_chat)
     templates.env.filters["particles"] = _ko.attach_particles      # 「제목」 을 → 「제목」을 — 옛 답변도 화면에서 바로잡는다
     templates.env.filters["chat_title"] = _chat_title              # 대화 제목 — 전각→반각, 프로젝트 안에서는 접두어 생략
 
@@ -5089,7 +5093,7 @@ def create_app(
             acct_ = accounts.get(owner, {}) if password is not None else {}
             moved = gdrive_files.move_to_project(db, session_id, (proj or {}).get("name"), dept=acct_.get("dept") or None)
         except Exception as e:
-            db.add_chat(session_id, "assistant", f"대화는 프로젝트에 넣었지만 드라이브 문서는 옮기지 못했습니다({type(e).__name__}).")
+            db.add_chat(session_id, "assistant", f"대화는 프로젝트에 넣었지만 드라이브 문서는 옮기지 못했습니다({_ko.reason(e)}).")
         if moved:
             db.add_chat(session_id, "assistant", f"드라이브 문서를 「{moved['project']}」 폴더로 옮겼습니다.")
         return {"ok": True, "project_id": int(project_id) if proj else None, "moved": bool(moved)}
@@ -7110,7 +7114,7 @@ def create_app(
                 return "미리보기 PDF 를 만들지 못했습니다. 원본을 내려받아 열어 주세요."
             if isinstance(e, (FileNotFoundError, RuntimeError, ValueError)):
                 return f"원본을 열 수 없습니다 — {e}"
-            return f"미리보기를 만들지 못했습니다({type(e).__name__})"
+            return f"미리보기를 만들지 못했습니다({_ko.reason(e)})"
 
         def work(set_step):
             _build_preview(doc, target, kind, set_step)

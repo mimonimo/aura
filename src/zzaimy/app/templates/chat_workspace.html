@@ -165,13 +165,15 @@
   </div></div>
   {% endif %}
 
+  {% set value_form_open = (not waiting) and messages and messages[-1].role == 'assistant' and (suggestions or []) | selectattr('text', 'equalto', '필요한 값 입력') | list | length > 0 %}
   {% for m in messages %}
     <div class="turn {{ m.role }}" data-message-id="{{ m.id }}">
       <div class="chat-speaker">{{ '나' if m.role == 'user' else '짜이미' }}{% if m.role == 'user' and m.mode %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': '문서 작업', 'model': '기본 대화', 'web': '웹 검색'}.get(m.mode, '') }}</span>{% endif %}</div>
       {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
-      {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | particles | md_view | cite_links(sources) }}</div>
+      {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | tidy_reply | particles | md_view | cite_links(sources) }}</div>
+      {% if '필요한 값 입력' in m.content and value_form_open %}<button type="button" class="secondary chat-jump-form" data-jump-form>필요한 값 입력으로 이동</button>{% endif %}
       {% else %}<div class="msg user">{{ m.content | attach_view }}</div>{% endif %}
       {% endif %}
       {% if m.role == "assistant" %}
@@ -192,7 +194,7 @@
       {% endif %}
   {% if loop.last and m.role == 'assistant' and suggestions and not waiting %}
   <div class="chat-suggestions" aria-label="다음 작업 제안">
-    {% for sg in suggestions %}{% if sg.kind == 'form' and sg.fields %}<form action="/chat/send" method="post" class="chat-suggestion chat-suggestion-form" data-template="{{ sg.template }}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><input type="hidden" name="template" value="{{ sg.template }}"><span class="chat-form-title">{{ sg.text }}</span>{% for f in sg.fields %}<label class="chat-form-field"><span>{{ f.label }}</span><input type="text" name="field_{{ f.name }}" data-field="{{ f.name }}"{% if f.value %} value="{{ f.value }}"{% endif %}{% if f.placeholder %} aria-describedby="hint-{{ loop.index }}-{{ session_id }}"{% endif %}{% if f.required %} required{% endif %}>{% if f.placeholder %}<small class="chat-form-hint" id="hint-{{ loop.index }}-{{ session_id }}">{{ f.placeholder }}</small>{% endif %}</label>{% endfor %}<button type="submit" class="secondary">{{ sg.submit or '저장' }}</button></form>{% else %}<form action="/chat/send" method="post" class="chat-suggestion"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="secondary" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endif %}{% endfor %}
+    {% for sg in suggestions %}{% if sg.kind == 'form' and sg.fields %}<form action="/chat/send" method="post" class="chat-suggestion chat-suggestion-form" data-template="{{ sg.template }}"{% if sg.text == '필요한 값 입력' %} id="chatValueForm"{% endif %}><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><input type="hidden" name="template" value="{{ sg.template }}"><span class="chat-form-title">{{ sg.text }}</span>{% for f in sg.fields %}<label class="chat-form-field"><span>{{ f.label }}</span><input type="text" name="field_{{ f.name }}" data-field="{{ f.name }}"{% if f.value %} value="{{ f.value }}"{% endif %}{% if f.placeholder %} aria-describedby="hint-{{ loop.index }}-{{ session_id }}"{% endif %}{% if f.required %} required{% endif %}>{% if f.placeholder %}<small class="chat-form-hint" id="hint-{{ loop.index }}-{{ session_id }}">{{ f.placeholder }}</small>{% endif %}</label>{% endfor %}<button type="submit" class="secondary">{{ sg.submit or '저장' }}</button></form>{% else %}<form action="/chat/send" method="post" class="chat-suggestion"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><button type="submit" class="secondary" title="{{ sg.question }}">{{ sg.text }}</button></form>{% endif %}{% endfor %}
   </div>
   {% endif %}
     </div>

@@ -218,7 +218,7 @@
  function dialog(title){const d=document.createElement('dialog');d.className='chat-doc-dialog';d.setAttribute('aria-label',title);d.innerHTML='<h2></h2><form><div data-fields></div><p role="status"></p><footer><button type="button" class="secondary" data-cancel>취소</button><button type="submit" data-submit>연결</button></footer></form>';d.querySelector('h2').textContent=title;d.querySelector('[data-fields]').style.display='grid';d.querySelector('[data-fields]').style.gap='16px';d.querySelector('[data-cancel]').onclick=()=>d.close();d.addEventListener('close',()=>{d.remove();opener.focus();});document.body.append(d);d.showModal();return d;}
  async function connect(){const d=dialog('드라이브에서 문서 가져오기'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;submit.textContent='선택한 문서 가져오기';status.textContent='연결 계정 확인 중…';
  try{const data=await api('/api/chat-documents/accounts');if(!d.isConnected)return;
- fields.innerHTML='<label>Google 계정<select name="account" required></select></label><input type="hidden" name="doc"><div class="drive-picker-path"></div><div class="drive-picker-list"></div><p class="muted">Google Docs 문서를 선택하면 이 대화에서 작업할 수 있습니다. 다른 형식은 문서 추가를 이용해 주세요. 원본은 이동하거나 삭제하지 않습니다.</p>';
+ fields.innerHTML='<label>구글 계정<select name="account" required></select></label><input type="hidden" name="doc"><div class="drive-picker-path"></div><div class="drive-picker-list"></div><p class="muted">구글 문서를 고르면 이 대화에서 작업할 수 있습니다. 다른 형식은 문서 추가를 이용해 주세요. 원본은 이동하거나 삭제하지 않습니다.</p>';
  data.accounts.filter(a=>a.docs_ok).forEach(a=>{const o=document.createElement('option');o.value=a.email;o.textContent=a.email;fields.querySelector('select').append(o);});
  if(!fields.querySelector('option')){fields.replaceChildren();status.textContent='문서 편집 권한이 있는 연결 계정이 없습니다.';const a=document.createElement('a');a.href=opener.dataset.connections;a.textContent='계정 연결 설정';fields.append(a);submit.hidden=true;return;}
  const account=f.elements.account,list=fields.querySelector('.drive-picker-list'),path=fields.querySelector('.drive-picker-path');
@@ -232,7 +232,7 @@
      status.textContent=result.files.length?'문서를 선택하세요.':'이 폴더에 파일이 없습니다.';
      result.files.forEach(file=>{const folder=file.mimeType==='application/vnd.google-apps.folder',doc=file.mimeType==='application/vnd.google-apps.document';
        const b=document.createElement('button');b.type='button';b.className='drive-picker-item';b.textContent=(folder?'폴더 · ':'')+file.name;b.disabled=!folder&&!doc;
-       if(!folder&&!doc)b.title='현재 선택 가능 형식: Google Docs';
+       if(!folder&&!doc)b.title='고를 수 있는 형식: 구글 문서';
        b.onclick=()=>{if(folder){trail.push({id:file.id,name:file.name});load();return;}list.querySelectorAll('[aria-pressed]').forEach(el=>el.setAttribute('aria-pressed','false'));b.setAttribute('aria-pressed','true');f.elements.doc.value=file.id;submit.disabled=false;status.textContent='선택: '+file.name;};if(doc)b.setAttribute('aria-pressed','false');list.append(b);
      });
      if(result.next){const more=document.createElement('button');more.type='button';more.textContent='더 보기';more.onclick=()=>{more.remove();load(result.next);};list.append(more);}
@@ -249,7 +249,7 @@
  if(!d.isConnected)return;submit.disabled=!linked.sections.length;f.dataset.ready='true';
  let confirmed=false;f.addEventListener('input',()=>{confirmed=false;fields.querySelector('[data-confirmation]').hidden=true;submit.textContent='내용 확인';});
  f.onsubmit=async e=>{e.preventDefault();if(!confirmed){confirmed=true;const p=fields.querySelector('[data-confirmation]');p.textContent='「'+f.elements.section.selectedOptions[0].textContent+'」 아래에 '+f.elements.text.value.length+'자를 삽입합니다.';p.hidden=false;submit.textContent='삽입 확정';return;}submit.disabled=true;status.textContent='삽입 중…';const body=new FormData(f);body.set('confirmed','true');try{await api('/api/chat-documents/'+sid+'/insert',{method:'POST',body});status.textContent='삽입했습니다. 문서에서 확인하세요.';submit.hidden=true;f.querySelector('[data-cancel]').textContent='닫기';f.querySelectorAll('input,select,textarea').forEach(el=>el.disabled=true);}catch(error){status.textContent=error.message;submit.disabled=false;confirmed=false;submit.textContent='내용 확인';}};}
- function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 Google Docs');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 구글 서식 도구 보기</label><a target="_blank" rel="noopener">새 창에서 열기</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="Google Docs 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
+ function show(){if(panel&&panel.classList.contains('chat-doc-editor')){visibility(true);return;}if(panel)clearPanel();panel=document.createElement('section');panel.className='chat-doc-editor';panel.setAttribute('aria-label','연결된 구글 문서');panel.innerHTML='<header><strong></strong><label class="chat-doc-toolbar"><input type="checkbox" data-toolbar> 구글 서식 도구 보기</label><a target="_blank" rel="noopener">새 창에서 열기</a><button type="button" class="secondary" data-hide>닫기</button></header><iframe title="구글 문서 편집기"></iframe><div class="chat-doc-note">편집기가 열리지 않으면 새 창에서 편집하세요. <button type="button" class="act-btn" data-unlink>문서 연결 해제</button></div>';
  panel.querySelector('strong').textContent=linked.title;panel.querySelector('iframe').dataset.pendingSrc=linked.embed_url;panel.querySelector('a').href=linked.embed_url_toolbar||linked.embed_url;panel.querySelector('[data-toolbar]').onchange=switchFormatting;panel.querySelector('[data-hide]').onclick=()=>{visibility(false);opener.focus();};const insBtn=panel.querySelector('[data-insert]');if(insBtn)insBtn.onclick=insert;
  panel.querySelector('[data-unlink]').onclick=()=>{const d=dialog('문서 연결 해제');d.querySelector('[role=status]').textContent='원본 문서와 대화는 유지됩니다. 이 대화에서 문서 연결을 해제할까요?';d.querySelector('[data-submit]').textContent='연결 해제';d.querySelector('form').onsubmit=async e=>{e.preventDefault();d.querySelector('[data-submit]').disabled=true;try{await api('/api/chat-documents/'+sid,{method:'DELETE'});visibility(false);panel.remove();panel=null;linked=null;currentDoc=null;opener.hidden=false;opener.removeAttribute('aria-controls');d.close();}catch(error){d.querySelector('[role=status]').textContent=error.message;d.querySelector('[data-submit]').disabled=false;}};};main.prepend(panel);visibility(true);}
  // 플랫폼 문서(첨부·접수·기준)의 구글 열람본을 같은 자리(iframe)에 연다 — 연결 문서와 달리 에이전트 편집 대상은 아니다
@@ -406,7 +406,7 @@
      const active=Boolean(currentDoc)&&button.dataset.driveDoc===currentDoc;
      button.classList.toggle('chat-file-current',active);
      if(active)button.setAttribute('aria-current','true');else button.removeAttribute('aria-current');
-     button.querySelector('small').textContent=active?'현재 작업 중 · Google Docs':'Google Docs · 작업 문서';
+     button.querySelector('small').textContent=active?'현재 작업 중 · 구글 문서':'구글 문서 · 작업 문서';
    });
    const current=list.querySelector('[aria-current="true"]');if(current)list.prepend(current);
  }
@@ -500,7 +500,7 @@
        const button=document.createElement('button');button.type='button';button.className='chat-doc-file';
        const isImage=file.mime_type.startsWith('image/')||imageFile(file.name);
        const editable=file.mime_type==='application/vnd.google-apps.document';
-       fileCard(button,file.name,isImage?'이미지 · Google Drive':editable?'Google Docs · 작업 문서':'Google Drive · 참고 파일',null,editable?'Google Docs':null);
+       fileCard(button,file.name,isImage?'이미지 · 구글 드라이브':editable?'구글 문서 · 작업 문서':'구글 드라이브 · 참고 파일',null,editable?'Google Docs':null);
        button.dataset.driveDoc=file.id;
        if(!isImage&&!editable)button.dataset.driveRef='';
        (isImage?images:editable?workDocs:groups.reference.list).append(button);

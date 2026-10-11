@@ -433,7 +433,7 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
                                      user=user, data_dir=data_dir, scrub=scrub, http=http)
                 lines.append(f"「{r['section']}」 표 {r['table']} 의 칸 {r['cells']}개 채움" + (f"·{r['cleared']}개 비움" if r.get("cleared") else "") + (f"(건너뜀 {r['skipped']})" if r["skipped"] else ""))
         except Exception as e:      # 계정·문서 상태 문제 — 무엇이 안 됐는지 채팅에 남긴다
-            lines.append(f"적용 실패({type(e).__name__}): {str(e)[:80]}")
+            lines.append(f"적용하지 못했습니다: {_ko.reason(e)}")
     if ops:
         lines += quality_pass(account, doc, http=http)
     return lines
@@ -602,7 +602,7 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         try:
             pre = list(before_apply() or [])            # 계획이 나온 뒤에만 비운다 — 모델이 실패하면 문서는 그대로
         except Exception as e:
-            pre = [f"비우기 실패({type(e).__name__}) — 덧붙입니다"]
+            pre = [f"원래 글을 비우지 못해({_ko.reason(e)}) 뒤에 덧붙였습니다"]
     heads = None if re.search(r"제목", command or "") else {_norm(x["heading"]) for x in info.get("sections", []) if x.get("heading")}
     lines = apply(p["ops"], link["account"], link["doc"], user=owner, data_dir=data_dir, scrub=scrub, http=http, headings=heads,
                   doc_text=info["text"] if not pre else "", figure_folder=figure_folder)

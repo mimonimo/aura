@@ -17,6 +17,8 @@
 """
 from __future__ import annotations
 
+from zzaimy.app import korean_text as _ko
+
 import json
 import re
 from dataclasses import dataclass, field
@@ -144,7 +146,7 @@ def failure_message(ep: Episode) -> str:
     """모델이 요청을 끝내지 못했을 때 담당자에게 남길 글 — 무엇이 실패했고, 문서는 바꾸지 않았다는 것."""
     if ep.failures:
         last = ep.failures[-1]
-        what = f"「{_step_label(last['action'], last.get('args') or {})}」 단계가 실패했습니다({last['error']})"
+        what = f"「{_step_label(last['action'], last.get('args') or {})}」 단계가 실패했습니다({_ko.tidy_reply(str(last['error']))})"
     elif ep.stop == "overflow":
         what = "요청과 자료가 모델이 한 번에 읽을 수 있는 분량을 넘었습니다"
     elif ep.stop == "rejected":
@@ -154,7 +156,7 @@ def failure_message(ep: Episode) -> str:
     elif ep.finished:
         what = "처리를 마쳤지만 남길 답을 만들지 못했습니다"
     else:
-        what = "정해진 걸음 안에 요청을 끝내지 못했습니다"
+        what = "정해진 단계 수 안에 마치지 못했습니다"
     kept = " 문서는 바꾸지 않았습니다." if not ep.writes else ""
     found = ["「" + " ".join(str(s_["args"].get("query")).split())[:30] + "」" for s_ in ep.steps
              if s_.get("action") == "search" and s_.get("args", {}).get("query")
