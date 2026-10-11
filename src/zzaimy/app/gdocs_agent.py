@@ -554,11 +554,12 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
                 p["reply"] = (p.get("reply", "") + "\n" + msg).strip()
     if not p["ops"]:
         return p["reply"] or "문서를 고칠 내용은 없습니다.", []
-    unsupported = number_check(p["ops"], [materials, info.get("text") or "", command]
-                               + [str(c.get("content") or "") for c in (evidence or [])])
-    if unsupported:
-        # 절대 규칙 1 — 생성된 수치는 인출된 근거에 있어야 한다. 넣기는 하되(70% 초안) 담당자가 바로 확인하게 짚는다
-        p["reply"] = (p["reply"] + "\n근거에서 찾지 못한 수치(확인 필요): " + ", ".join(unsupported[:8])).strip()
+    ev_texts = [materials, info.get("text") or "", command] + [str(c.get("content") or "") for c in (evidence or [])]
+    masked = mask_ops_numbers(p["ops"], ev_texts)
+    if masked:
+        # 절대 규칙 1 — 수치는 인출만. 근거에 없는 수치는 문서에 넣기 전에 「○○」로 가리고 확인할 값으로 알린다
+        # (10/11 AID 「MD 과정 이수자 300명」「취업 연계율 80%」가 경고만 붙은 채 들어갔다)
+        p["reply"] = (p["reply"] + "\n근거에 없는 수치는 ○○로 비워 두었습니다(확인 필요): " + ", ".join(masked[:8])).strip()
     stray = source_check(p["ops"], [materials, command] + [str(c.get("reg_title") or "") + " " + str(c.get("content") or "") for c in (evidence or [])])
     if stray:
         p["reply"] = (p["reply"] + "\n재료에 없는 출처(확인 필요): " + ", ".join(stray[:6])).strip()
@@ -632,6 +633,27 @@ def _replace_in_cell(old: str, new: str, account: str, doc: str, *, user: str, d
     except Exception:
         return 0
     return 0
+
+
+def mask_ops_numbers(ops: list[dict], evidence_texts: list[str]) -> list[str]:
+    """편집 계획의 글·표·칸에서 근거에 없는 수치를 ○○로 바꾼다(제자리). 가린 수치(맥락 포함)를 돌려준다."""
+    from zzaimy.verify.numbers import mask_unsupported
+
+    ev = [t for t in evidence_texts if t]
+    out: list[str] = []
+
+    def fix(text: str) -> str:
+        new, hit = mask_unsupported(text, ev)
+        out.extend(h for h in hit if h not in out)
+        return new
+    for o in ops:
+        if o.get("op") in ("insert", "replace", "table") and o.get("text"):
+            o["text"] = fix(str(o["text"]))
+        if o.get("op") == "fill":
+            for c in o.get("cells") or []:
+                if isinstance(c, dict) and c.get("text"):
+                    c["text"] = fix(str(c["text"]))
+    return out
 
 
 def number_check(ops: list[dict], evidence_texts: list[str]) -> list[str]:
