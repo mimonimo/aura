@@ -1647,3 +1647,21 @@ def test_library_hits_report_pulled_documents_to_sink(monkeypatch, tmp_path):
                            scope={"user": "kim"}, sink=sink)
     m.library_hits({"heading": "1. 추진 배경"}, "배경")
     assert [(s["doc_id"], s["origin"], s["weak"]) for s in sink] == [(9, "문서함 검색", False)]
+
+
+def test_outline_skips_table_of_contents_lines():
+    """목차의 번호 줄은 절이 아니다 — 같은 글이 뒤에 제목으로 나오면 앞의 것은 목차(10/11 본문이 목차 아래에 들어가던 것)."""
+    def para(st, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": st + len(text) + 1,
+                "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text + "\n"}}]}}
+    styled = {"body": {"content": [para(1, "목 차"), para(10, "1. 추진 배경 및 필요성"), para(40, "2. 대학 여건"),
+                                    para(60, "Ⅰ. 사업 개요", "HEADING_1"), para(80, "1. 추진 배경 및 필요성", "HEADING_2"),
+                                    para(110, "본문이다."), para(130, "2. 대학 여건", "HEADING_2")]}}
+    heads = [(s["heading"], s["start"]) for s in gdocs.outline(styled)["sections"]]
+    assert ("1. 추진 배경 및 필요성", 10) not in heads and ("1. 추진 배경 및 필요성", 80) in heads
+    plain = {"body": {"content": [para(1, "1. 추진 배경"), para(10, "2. 추진 계획"), para(20, "1. 추진 배경"), para(30, "개요 본문."),
+                                   para(50, "2. 추진 계획"), para(60, "계획 본문.")]}}
+    starts = [s["start"] for s in gdocs.outline(plain)["sections"] if s["heading"] != "(앞머리)"]
+    assert starts == [20, 50]                                                  # 잇단 번호 줄(목차)은 빼고 본문 쪽만
+    same = {"body": {"content": [para(1, "1. 추진 배경"), para(10, "본문 하나."), para(30, "1. 추진 배경"), para(40, "본문 둘.")]}}
+    assert len([s for s in gdocs.outline(same)["sections"] if s["heading"] == "1. 추진 배경"]) == 2   # 진짜 되풀이 제목은 그대로
