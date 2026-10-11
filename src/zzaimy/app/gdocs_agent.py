@@ -554,7 +554,11 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
                 p["reply"] = (p.get("reply", "") + "\n" + msg).strip()
     if not p["ops"]:
         return p["reply"] or "문서를 고칠 내용은 없습니다.", []
-    ev_texts = [materials, info.get("text") or "", command] + [str(c.get("content") or "") for c in (evidence or [])]
+    doc_text = info.get("text") or ""
+    if focus is not None and (focus.get("text") or "").strip():
+        # 지금 쓰는 절의 현재 글은 근거가 아니다 — 앞서 잘못 넣은 수치가 문서에 있으면 그것이 근거가 되어 다시 통과했다(10/11)
+        doc_text = doc_text.replace(focus["text"].strip(), "")
+    ev_texts = [materials, doc_text, command] + [str(c.get("content") or "") for c in (evidence or [])]
     masked = mask_ops_numbers(p["ops"], ev_texts)
     if masked:
         # 절대 규칙 1 — 수치는 인출만. 근거에 없는 수치는 문서에 넣기 전에 「○○」로 가리고 확인할 값으로 알린다

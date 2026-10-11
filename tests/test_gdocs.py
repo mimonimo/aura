@@ -1665,3 +1665,15 @@ def test_outline_skips_table_of_contents_lines():
     assert starts == [20, 50]                                                  # 잇단 번호 줄(목차)은 빼고 본문 쪽만
     same = {"body": {"content": [para(1, "1. 추진 배경"), para(10, "본문 하나."), para(30, "1. 추진 배경"), para(40, "본문 둘.")]}}
     assert len([s for s in gdocs.outline(same)["sections"] if s["heading"] == "1. 추진 배경"]) == 2   # 진짜 되풀이 제목은 그대로
+
+
+def test_chapter_divider_title_is_not_table_of_contents():
+    """한글 서식의 장 표지 「Ⅰ. 사업추진 목표」는 뒤에 같은 글이 또 나와도 목차가 아니다 — 앞뒤가 번호 줄 묶음일 때만 목차(10/11)."""
+    def para(st, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": st + len(text) + 1,
+                "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text + "\n"}}]}}
+    doc = {"body": {"content": [para(1, "【대표과제 추진계획】"), para(20, "본문 상자 글."), para(40, "Ⅰ. 사업추진 목표"),
+                                 para(60, "AID 전환 중점 전문대학 지원사업"), para(90, "□ (세부)과제명: 가나다"),
+                                 para(120, "Ⅰ. 사업추진 목표"), para(140, "1. 대학의 여건 분석"), para(160, "본문.")]}}
+    starts = [s["start"] for s in gdocs.outline(doc)["sections"]]
+    assert 40 in starts                                                         # 장 표지가 절 경계로 남는다
