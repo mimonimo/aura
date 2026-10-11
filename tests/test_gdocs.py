@@ -809,6 +809,30 @@ def test_migrate_skips_form_native_paragraphs_and_tables(monkeypatch, tmp_path):
 
 
 
+def test_migrate_skips_short_lines_already_in_target_section(monkeypatch, tmp_path):
+    """짧은 서식 줄(「◦ 달성 계획 및 전략」)은 새 작업본의 같은 절에 있으면 다시 붙이지 않는다 — 새로 뜰 때마다 8줄씩 늘던 것(10/11)."""
+    import httpx
+
+    def para(st, en, text, style="NORMAL_TEXT"):
+        return {"startIndex": st, "endIndex": en, "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text}}]}}
+    src = [para(1, 20, "2.1. 절\n", "HEADING_2"), para(20, 40, "◦ 달성 계획 및 전략\n"), para(40, 60, "◦ 달성 계획 및 전략\n"),
+           para(60, 100, "AI 이수율을 해마다 10%p 높인다는 계획이다.\n"), para(100, 120, "2.2. 다음\n", "HEADING_2")]
+    dst = [para(1, 20, "2.1. 절\n", "HEADING_2"), para(20, 40, "◦ 달성 계획 및 전략\n"), para(40, 42, " \n"),
+           para(42, 60, "2.2. 다음\n", "HEADING_2"), para(60, 62, " \n")]
+    sent = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET":
+            return httpx.Response(200, json={"title": "t", "body": {"content": src if "/old" in req.url.path else dst}})
+        sent.append(json.loads(req.content)["requests"])
+        return httpx.Response(200, json={"documentId": "new", "replies": []})
+    monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    gdocs.migrate_bodies("a@b", "old", "new", user="u", data_dir=tmp_path, http=http)
+    text = "".join(q["insertText"]["text"] for b in sent for q in b if "insertText" in q)
+    assert "달성 계획 및 전략" not in text and "10%p" in text
+
+
 def test_fill_table_redirects_covered_cells_to_merge_origin_and_clears_hidden_text(monkeypatch, tmp_path):
     """병합에 덮인 칸(독스 API 에도 있음)을 지목하면 원점 칸에 넣고, 덮인 칸에 남은 보이지 않는 글은 지운다."""
     import httpx
