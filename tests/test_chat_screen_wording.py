@@ -66,7 +66,7 @@ def test_value_form_shows_hint_below_field_and_save(tmp_path):
     db.add_chat(sid, 'user', '1절 써 줘')
     db.add_chat(sid, 'assistant', '빈 값이 있습니다.')
     long_hint = '사업단 조직도에 쓰이는 값으로, 교육과정 편성표의 학과명과 글자까지 일치해야 합니다. 약칭은 쓰지 않습니다.'
-    db.set_setting(f'chat_options:{sid}', json.dumps([asks.form_option([{'name': '참여 학과명', 'hint': long_hint}])], ensure_ascii=False))
+    asks.set_pending(db, sid, [{'name': '참여 학과명', 'hint': long_hint}])     # 칸은 받을 값에서 만든다
     page = client.get(f'/chat/{sid}').text
     form = page.split('chat-suggestion-form', 1)[1].split('</form>', 1)[0]
     assert 'placeholder=' not in form

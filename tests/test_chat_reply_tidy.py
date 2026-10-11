@@ -71,6 +71,18 @@ def test_value_form_is_reshown_from_pending_asks_with_jump(tmp_path):
     assert 'id="chatValueForm"' in page and '가상 사업단명' in page
     assert 'data-jump-form>필요한 값 입력으로 이동</button>' in page
     assert '>다른 일</button>' in page
+    # 자료에서 찾은 확인 전 값이 있으면 다시 띄운 칸에도 미리 채운 값·출처 안내·「확인」이 그대로(답을 만들 때와 같은 form_option)
+    db.set_setting(f'chat_facts:{sid}:suggested', json.dumps(
+        {'가상 사업단명': {'value': '가상 미래교육 사업단', 'title': '가상 공고 제2099-1호'}}, ensure_ascii=False))
+    page = client.get(f'/chat/{sid}').text
+    form = page.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
+    assert 'value="가상 미래교육 사업단"' in form
+    assert '자료에서 찾음 · 확인 전 — 《가상 공고 제2099-1호》' in form
+    assert '>확인</button>' in form
+    # 저장된 옛 칸(값 없음)이 있어도 지금 값으로 다시 만든 칸 하나만
+    db.set_setting(f'chat_options:{sid}', json.dumps([asks.form_option([{'name': '가상 사업단명', 'hint': ''}])], ensure_ascii=False))
+    page = client.get(f'/chat/{sid}').text
+    assert page.count('id="chatValueForm"') == 1 and 'value="가상 미래교육 사업단"' in page
     # 받을 값이 없으면 칸도 이동 단추도 없다
     asks.set_pending(db, sid, [])
     page = client.get(f'/chat/{sid}').text

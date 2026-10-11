@@ -1429,8 +1429,12 @@ def create_app(
         # 아직 받지 못한 값이 있으면 「필요한 값 입력」 칸을 늘 다시 띄운다 — 답이 그 이름을 가리키는데 들어갈 곳이 없지 않게
         from zzaimy.app import asks as _asks_ui
         pend = _asks_ui.pending(db, int(session_["id"]))
-        if pend and not any(o.get("kind") == "form" and o.get("text") == "필요한 값 입력" for o in opts if isinstance(o, dict)):
-            opts = [_asks_ui.form_option(pend)] + opts
+        # 칸은 저장된 선택지를 쓰지 않고 지금의 받을 값·자료에서 찾은 확인 전 값으로 같은 함수(form_option)가 다시 만든다
+        # — 미리 채운 값·출처 안내·「확인」 단추가 답을 만들 때와 같다
+        # (받을 값이 없으면 저장된 옛 칸도 내리지 않는다)
+        opts = [o for o in opts if not (isinstance(o, dict) and o.get("kind") == "form" and o.get("text") == "필요한 값 입력")]
+        if pend:
+            opts = [_asks_ui.form_option(pend, _asks_ui.suggestions(db, session_))] + opts
         return opts[:4]
 
     def _project_suggestions(project: dict | None) -> list[dict]:
