@@ -66,3 +66,34 @@ def test_year_value_cells_reject_prose():
     assert g.value_column(rows, 2, 2) and not g.value_column(rows, 2, 3)
     assert g.too_wordy_for_value("2025년 기준 1,390억 원을 미래모빌리티 융합산업 육성에 투입")
     assert not g.too_wordy_for_value("67.3%") and not g.too_wordy_for_value("1,390억 원(2025년)")
+
+
+def test_same_table_in_section_detects_form_swot(tmp_path):
+    from zzaimy.ingest import gdocs as g
+
+    def para(s, t, style="NORMAL_TEXT"):
+        return {"startIndex": s, "endIndex": s + len(t) + 1, "paragraph": {"paragraphStyle": {"namedStyleType": style},
+                "elements": [{"textRun": {"content": t + "\n"}}]}}
+
+    def cell(t):
+        return {"content": [{"paragraph": {"elements": [{"textRun": {"content": t + "\n"}}]}}]}
+    swot = {"startIndex": 30, "endIndex": 90, "table": {"tableRows": [
+        {"tableCells": [cell("강점 (S)"), cell(""), cell("약점 (W)"), cell("")]},
+        {"tableCells": [cell("기회 (O)"), cell(""), cell("위협 (T)"), cell("")]},
+        {"tableCells": [cell("사업 시사점"), cell(""), cell(""), cell("")]}]}}
+    body = [para(1, "3. 대학 여건", "HEADING_2"), para(15, "본문"), swot, para(90, " "), para(92, "4. 다음", "HEADING_2")]
+    doc = {"body": {"content": body}}
+    info = g.outline(doc)
+    idx = next(s["index"] for s in info["sections"] if s["heading"] == "3. 대학 여건")
+    new = [["강점 (S)", "산업 기반", "약점 (W)", "인프라 부족"], ["기회 (O)", "정책", "위협 (T)", "경쟁"], ["사업 시사점", "융합 인재", "", ""]]
+    assert g.same_table_in_section(body, info, idx, new) == 1
+    assert g.same_table_in_section(body, info, idx, [["구분", "값"], ["가", "1"], ["나", "2"]]) == 0
+
+
+def test_record_fills_round_trip(tmp_path):
+    import json
+    from zzaimy.ingest import gdocs as g
+    g.record_fills(tmp_path, "DOC1", "3. 대학 여건", 1, [(2, 2), (2, 3)])
+    g.record_fills(tmp_path, "DOC1", "3. 대학 여건", 1, [(3, 2)])
+    data = json.loads((tmp_path / "gdocs_fills.json").read_text())
+    assert sorted(map(tuple, next(iter(data.values())))) == [(2, 2), (2, 3), (3, 2)]

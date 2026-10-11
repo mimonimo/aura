@@ -402,7 +402,10 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
             elif o["op"] == "table":
                 rows = [[c.strip() for c in ln.split("|")] for ln in (o.get("text") or "").splitlines() if ln.strip()]
                 r = gdocs.insert_table(account, doc, int(o["section"]), rows, user=user, data_dir=data_dir, scrub=scrub, http=http)
-                lines.append(f"「{r['section']}」 아래에 표 {r['rows']}×{r['cols']}")
+                if r.get("duplicate"):
+                    lines.append(f"「{r['section']}」 에 같은 표(표 {r['duplicate']})가 이미 있어 새로 넣지 않음")
+                else:
+                    lines.append(f"「{r['section']}」 아래에 표 {r['rows']}×{r['cols']}")
             elif o["op"] == "figure":
                 r = _apply_figure(o, account, doc, user=user, data_dir=data_dir, http=http, folder=figure_folder)
                 lines.append(r)
