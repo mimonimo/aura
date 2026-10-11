@@ -320,6 +320,7 @@ def _step_label(name: str, args: dict) -> str:
               "open_project_document": lambda a: f"작업본 여는 중 — 「{str(a.get('document', ''))[:30]}」",
               "read_document": lambda a: f"그림 쪽 판독 중 — 「{str(a.get('document', ''))[:30]}」",
               "remember_values": lambda a: "알려 준 값 기억하는 중",
+              "resolve_from_evidence": lambda a: f"자료에서 찾은 값 기억하는 중 — 「{str(a.get('name', ''))[:30]}」",
               "edit_document": lambda a: "문서 고치는 중",
               "export_hwp": lambda a: "한글 완성본 만드는 중",
               "new_work_copy": lambda a: "작업본 새로 만드는 중",

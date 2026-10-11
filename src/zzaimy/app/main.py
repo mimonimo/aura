@@ -1653,7 +1653,9 @@ def create_app(
                 lines.append("연결된 문서: 없음. 만들 때 고를 양식 후보:\n" + form_choice.render_candidates(cands))
             pend = _asks.pending(db, session_id)
             if pend:
-                lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(a["name"] for a in pend[:10]))
+                lines.append("아직 담당자에게 받지 못한 값: " + ", ".join(a["name"] for a in pend[:10])
+                             + " — 묻기 전에 search 로 문서에서 찾아보고, 결과에 그대로 있으면 resolve_from_evidence 로 출처와 함께 기억한다. "
+                               "자료에 없을 때만 담당자에게 묻는다.")
             hist = [m_ for m_ in db.list_chats(session_id)[-8:-1]]
             if hist:
                 lines.append("최근 대화(맥락일 뿐 근거가 아니다 — 여기의 사실을 쓰려면 search 로 다시 확인):\n" + "\n".join(f"  [{m_['role']}] {(m_['content'] or '')[:300]}" for m_ in hist))
@@ -1680,7 +1682,21 @@ def create_app(
             notes.append(f"◇ {a.get('for') or query} — 검색 「{query}」({src})\n{body}")
             found.extend({"title": h.get("title") or "문서", "text": h.get("text") or "", "doc_id": h.get("doc_id"),
                           "note": h.get("note") or ""} for h in hits[:4])
+            seen_hits.extend((str(h.get("title") or "문서"), h["text"][:500]) for h in hits[:4])   # 모델에게 보인 글 그대로
             return (hint + "\n" + body) if hint else body          # 관찰은 길이 상한에서 잘리므로 일치 단서를 앞에 둔다
+
+        seen_hits: list[tuple[str, str]] = []                  # 이번 요청의 search 가 보인 (출처 제목, 글) — 자료로 값 채우기의 근거
+
+        def t_resolve(a: dict) -> str:
+            name, value, title = (str(a.get(k) or "").strip() for k in ("name", "value", "source_title"))
+            why = _asks.resolve_from_evidence(db, db.get_chat_session(session_id), name, value, title, seen_hits)
+            if why:
+                raise doc_agent.Retry(why)
+            left = _asks.pending(db, session_id)
+            _set_options(session_id, [_asks.form_option(left)] if left else [])
+            db.add_chat(session_id, "assistant", _scrub_internal(
+                f"「{name}」 값을 자료에서 찾음: 《{title}》 — {value}" + (f"\n아직 못 받은 값: {', '.join(x['name'] for x in left)}" if left else "")))
+            return f"기억했다 — {name}: {value} (《{title}》)"
 
         def t_read(a: dict) -> str:
             sec = find_section(str(a.get("section") or ""))
@@ -1855,6 +1871,8 @@ def create_app(
                            "args {document: 상태의 프로젝트 문서 제목}", t_read_doc, final=True),
             doc_agent.Tool("remember_values", "담당자가 이번 요청에서 알려 준 값(받지 못한 값 등)을 기억해 이후 절·기입란에 쓰기. "
                            "args {values: {이름: 담당자가 적은 값 그대로}}", t_remember),
+            doc_agent.Tool("resolve_from_evidence", "받지 못한 값을 이번 search 결과에서 찾았을 때 출처와 함께 기억하기(값은 결과 글에 적힌 그대로). "
+                           "args {name: 받지 못한 값 이름, value: 결과 글 그대로, source_title: 결과의 《제목》}", t_resolve),
             doc_agent.Tool("rewrite_section", "이미 쓴 절을 비우고 다시 작성(담당자가 다시 쓰라고 했을 때만). args {section, reason: 무엇을 고칠지}",
                            lambda a: t_write(a, redo=True), writes=True, consent=_REWRITE_CONSENT),
             doc_agent.Tool("review_section", "쓴 절을 공고·평가지표 기준으로 검토(문서는 고치지 않음). args {section}", t_review),

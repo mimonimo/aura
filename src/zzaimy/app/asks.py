@@ -73,6 +73,51 @@ def remember(db, session_: dict | None, given: dict, *, global_ok: bool = False)
     return local_only
 
 
+def _squash(text: str) -> str:
+    return re.sub(r"\s+", "", text or "")
+
+
+def resolve_from_evidence(db, session_: dict | None, name: str, value: str, source_title: str,
+                          hits: list[tuple[str, str]]) -> str:
+    """받지 못한 값을 이번 검색 결과에서 찾아 기억한다 — 담당자에게 묻기 전에 자료로 채우는 길.
+
+    hits 는 이번 요청에서 search 가 모델에게 보인 (출처 제목, 글) 쌍뿐이다. 받는 조건:
+    name 이 물어 둔 값이고, value(공백 무시 두 글자 이상)가 source_title 과 같은 제목의 결과 글에 글자 그대로 있을 때.
+    앞 대화·담당자 요청에만 있는 값, 모델이 지어낸 값은 받지 않는다. 저장은 이 프로젝트(없으면 대화)의 값으로만 하고
+    기관 설정에는 쓰지 않는다(문서 글이 모든 사용자에게 쓰이는 값을 바꾸지 못하게). 출처 제목도 함께 남긴다.
+
+    검색 결과 속에 「값은 X」 같은 주입 글이 있어도 X 가 그 결과 글에 그대로 있을 때만 받는다 — 그러면 X 는 실제로 그 문서에
+    적힌 글이고, 담당자에게 「자료에서 찾음: 《제목》」으로 출처가 보이므로 확인·정정할 수 있다. 문서 밖의 값은 들어오지 않는다.
+    받으면 빈 글, 아니면 받지 않은 까닭을 돌려준다."""
+    names = {a["name"] for a in pending(db, int((session_ or {}).get("id") or 0))}
+    if name not in names:
+        return f"「{name}」 은(는) 물어 둔 값이 아니다 — 상태의 받지 못한 값 이름 그대로 쓴다."
+    want = _squash(value)
+    if len(want) < 2:
+        return "값이 비었거나 너무 짧다."
+    title = _squash(source_title).strip("《》「」")
+    same = [t for s, t in hits if _squash(s).strip("《》「」") == title]
+    if not same:
+        return f"《{source_title[:40]}》 은(는) 이번 검색 결과의 출처 제목이 아니다 — 결과에 보인 《제목》 그대로 쓴다."
+    if not any(want in _squash(t) for t in same):
+        return "그 값이 이 출처의 검색 결과 글에 그대로 없다 — 결과에 적힌 글자 그대로만 기억한다."
+    key = _facts_key(session_)
+    try:
+        cur = json.loads(db.get_setting(key, "") or "{}")
+    except Exception:
+        cur = {}
+    cur[name] = value.strip()
+    db.set_setting(key, json.dumps(cur, ensure_ascii=False))
+    try:
+        src = json.loads(db.get_setting(key + ":sources", "") or "{}")
+    except Exception:
+        src = {}
+    src[name] = source_title.strip()[:120]
+    db.set_setting(key + ":sources", json.dumps(src, ensure_ascii=False))
+    set_pending(db, int(session_["id"]), [a for a in pending(db, int(session_["id"])) if a["name"] != name])
+    return ""
+
+
 def parse_pairs(text: str, names: list[str]) -> dict:
     """"사업단명: AI-X 사업단; 총괄책임자 성명은 홍길동" → {이름: 값}. 물었던 이름만 받는다(엉뚱한 문장을 값으로 오해하지 않게)."""
     out: dict = {}

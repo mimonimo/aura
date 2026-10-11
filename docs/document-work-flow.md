@@ -122,6 +122,7 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | export_hwp · new_work_copy | 한글 완성본 내보내기, 작업본 새로 만들기 | `_export_hwp` · `_new_work_copy` |
 | remove_guide_boxes | 안내 상자 지우기 — 처음엔 개수를 알리고, 담당자 확인 뒤에 지움 | `_remove_guide_boxes` |
 | remember_values | 담당자가 알려 준 값을 기억하고 받지 못한 값 목록을 줄이기 | `asks.remember` — 물었던 이름만, 요청 글에 두 글자 이상 그대로 있는 값만. 기관 설정(대학명·총장 등)은 관리자 값만 |
+| resolve_from_evidence | 받지 못한 값을 이번 검색 결과에서 찾아 출처와 함께 기억 | `asks.resolve_from_evidence` — 물었던 이름만, 값이 그 출처의 이번 검색 결과 글에 그대로(공백 무시, 두 글자 이상) 있을 때만. 프로젝트(대화) 값으로만 저장하고 기관 설정에는 쓰지 않으며, 담당자에게 「자료에서 찾음: 《제목》」으로 알린다. 결과 속 「값은 X」 같은 글도 X 가 그 문서에 실제로 적혀 있을 때만 받히고 출처가 보이므로 담당자가 확인·정정할 수 있다 |
 | read_document | 프로젝트 문서의 그림 쪽 판독 | `_read_named_document` |
 | answer_question · ask_user · finish | 답하기, 자료에 없는 값 묻기, 마무리 알림 | 답은 에이전트가 search 로 찾은 근거를 첫 근거로 받고(출처 목록에도 들어감) 평소 검색을 더한다 |
 
