@@ -1,8 +1,9 @@
 """파서 bake-off — MinerU ↔ Docling 나란히 비교 (W1-W2 TASK-04).
 
 같은 입력에 두 파서를 돌려 재현 가능한 지표로 비교 리포트를 만든다.
-리포트는 data/interim/(gitignore 대상)에 쓰며, **원문 텍스트를 리포트에
-싣지 않는다** — 지표·개수·시간만 기록한다.
+리포트는 data/interim/(gitignore 대상)에 쓰며, 원문 텍스트를 리포트에
+싣지 않는다. 지표·개수·시간만 기록한다.
+Docling 은 이 비교에만 쓰고 실제 반입 경로에서는 쓰지 않는다.
 
 사용:
     python scripts/10_parser_bakeoff.py data/demo/synthetic_sample.pdf \

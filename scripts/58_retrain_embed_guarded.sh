@@ -1,9 +1,8 @@
 #!/bin/bash
-# Embed v0 재학습 가드 실행 (Spark).
+# Embed v0 재학습 가드 실행 (GPU 장비).
 #
-# 2026-09-02 새벽 1차 시도가 137/184 스텝에서 로그도 없이 죽었다.
-# 당시 가용 메모리 ~4GB (vLLM이 통합메모리 ~100GB 점유) — OOM 킬 정황.
-# 대책: vLLM 컨테이너를 잠시 내려 메모리를 확보하고 학습한 뒤 되살린다.
+# vLLM 이 통합 메모리 대부분(~100GB)을 점유하면 CPU 학습이 로그도 없이 OOM 킬로 죽는다.
+# 그래서 vLLM 컨테이너를 잠시 내려 메모리를 확보하고 학습한 뒤 되살린다.
 #
 # 실행: nohup bash scripts/58_retrain_embed_guarded.sh > /tmp/retrain-guard.log 2>&1 &
 set -uo pipefail

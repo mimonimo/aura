@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ADR 색인(docs/decisions/README.md 의 표)을 파일에서 만든다 — 손으로 적다 빠뜨린 줄이 아홉이었다(2026-09-21).
+"""ADR 색인(docs/decisions/README.md 의 표)을 파일에서 만든다 — 손으로 적으면 줄이 빠지기 쉽다.
 
 각 ADR 의 첫 제목 줄(# NNNN 제목)과 머리의 '상태'·'날짜' 줄을 읽는다. 표만 바꾸고 나머지 글은 둔다.
 사용: python scripts/127_adr_index.py [--check]   # --check 는 바꿀 것이 있으면 1 로 끝난다(회귀 점검용)

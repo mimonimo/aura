@@ -9,10 +9,10 @@ writer:                                   # ③ZZAIMY-Writer (Qwen3.8-27B) — A
   hosts:
     thor-02: { port: 8001, roles: [answer], util: 0.35 }              # 대화·초안 — 사람이 기다리는 일
     thor-03: { port: 8001, roles: [review, vision, query_expand], util: 0.35 }   # 반입 검토·이미지 판독 — 배치
-  precision_order: [NVFP4, FP8, bf16]     # 채택은 같은 입력에서 내용이 같음을 확인한 뒤(2026-09-21 실측)
+  precision_order: [NVFP4, FP8, bf16]     # 채택은 같은 입력에서 내용이 같음을 확인한 뒤
   rejected:
     - "FP8 (Qwen/Qwen3.8-27B-FP8): 0.19 빌드에서 KV 캐시 시험 실행의 cuBLAS 실패"
-    - "gemma4 (계획 외 모델): 없는 문장을 지어냄 — 제거(K-43)"
+    - "gemma4 (계획 외 모델): 없는 문장을 지어냄 — 제거"
 
 search_services:                          # 토르 03, --restart unless-stopped — ADR-0020·0021
   embed:   { port: 8016, model: /models/zzaimy-embed-v2,  script: scripts/103_serve_embed_on_thor.sh }
@@ -24,7 +24,7 @@ training:
   adapters: bf16 LoRA / 병합본 — configs/training/
 
 notes:
-  - "젯슨 통합 메모리: 큰 파일을 받은 뒤 페이지 캐시가 CUDA 메모리를 막는다 — root 로 `sync; sysctl vm.drop_caches=3` 뒤 서빙(K-47)"
-  - "컨테이너 강제 종료(docker rm -f)는 GPU 메모리를 붙잡아 재부팅이 필요했다(88GB, 2026-09-22) — 126 은 docker stop -t 60 으로 정상 종료를 기다린다"
-  - "서비스 포트는 학과망 안에서만. 인증 없는 엔드포인트를 공인망에 열지 않는다(2026-09-01 Spark 노출 사고, risks.md §8)"
-  - "초기 검증(2026-09-01, DGX Spark, vllm/vllm-openai nightly 다이제스트 df6c5814…, Qwen3.5-35B-A3B bf16 30.8 tok/s)은 ADR-0004 — 장비와 모델 모두 지금은 쓰지 않는다"
+  - "젯슨 통합 메모리: 큰 파일을 받은 뒤 페이지 캐시가 CUDA 메모리를 막는다 — root 로 `sync; sysctl vm.drop_caches=3` 뒤 서빙"
+  - "컨테이너 강제 종료(docker rm -f)는 GPU 메모리를 돌려주지 않아 재부팅이 필요할 수 있다 — 126 은 docker stop -t 60 으로 정상 종료를 기다린다"
+  - "서비스 포트는 학과망 안에서만. 인증 없는 엔드포인트를 공인망에 열지 않는다(risks.md §8)"
+  - "초기 검증(DGX Spark, vllm/vllm-openai nightly, Qwen3.5-35B-A3B bf16 30.8 tok/s)은 ADR-0004 — 장비와 모델 모두 지금은 쓰지 않는다"

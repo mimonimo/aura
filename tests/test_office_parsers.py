@@ -48,7 +48,7 @@ def test_pptx_text_and_table(tmp_path):
 
 
 def test_pptx_slide_with_unknown_element_falls_back_to_xml_text(tmp_path, monkeypatch):
-    """도형 해석이 실패한 슬라이드도 글자는 건진다(python-pptx 의 'has_ph_elm' 오류, 2026-10-06 13건)."""
+    """도형 해석이 실패한 슬라이드(python-pptx 의 'has_ph_elm' 오류 등)도 글자는 건진다."""
     from pptx import Presentation
     from pptx.util import Inches
 

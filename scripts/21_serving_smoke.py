@@ -1,10 +1,10 @@
-"""vLLM 서빙 스모크 + 간단 처리량 측정 (W1-W2 TASK-02).
+"""vLLM 서빙 스모크 + 간단 처리량 측정.
 
 OpenAI 호환 엔드포인트에 스트리밍 요청을 보내 첫 토큰 지연(TTFT)과
 생성 토큰/초를 측정한다. 측정 조건(배치 1, max_tokens, 프롬프트 길이)을
 함께 출력한다 — 조건 없는 수치는 기록하지 않는다.
 
-실행(Spark): .venv/bin/python scripts/21_serving_smoke.py --base-url http://localhost:8000/v1
+실행(서빙 장비): .venv/bin/python scripts/21_serving_smoke.py --base-url http://localhost:8000/v1
 """
 
 from __future__ import annotations

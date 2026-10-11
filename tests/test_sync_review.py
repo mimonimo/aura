@@ -1,7 +1,6 @@
-"""동기화 독립 검수. 알려진 결함은 strict xfail로 추적하며 수정 후 표시를 제거한다.
+"""동기화 작업(scripts/170_vm_sync.py) 검수 — 실패한 후처리는 다시 시도할 수 있게 남는다.
 
 실제 DGX·VM·임베딩 서비스에 접속하지 않고 임시 DB와 잠금 파일만 사용한다.
-재현: pytest tests/test_sync_review.py --runxfail
 """
 import builtins
 import fcntl

@@ -201,7 +201,7 @@ def test_program_identity_is_mined_from_repeated_title_cores():
 def test_title_pattern_without_body_support_is_not_a_program():
     """파일명 작명 습관은 사업이 아니다 — 본문이 뒷받침하지 않으면 만들지 않는다.
 
-    실측(운영 DB 교내문서 39건): 제목에서 캔 후보 18개 중 14개가 본문 등장 0건인
+    측정 결과 교내 문서 제목에서 캔 후보 18개 중 14개가 본문에 한 번도 나오지 않는
     문서 종류·학과 이름이었다("학년도 입학자 연계교육과정 편성표 학과 계열").
     """
     titles = {
@@ -230,7 +230,7 @@ def test_organization_and_time_expressions_are_not_programs():
 
 
 def test_ocr_corrupted_entity_merges_into_the_frequent_form():
-    """앞 글자가 오염된 같은 기관을 따로 세지 않는다(실측: 한국장학재단 / 기한국장학재단)."""
+    """앞 글자가 오염된 같은 기관을 따로 세지 않는다(예: 한국장학재단 / 기한국장학재단)."""
     counts = {
         ("한국장학재단", "org"): 12, ("기한국장학재단", "org"): 3,
         ("한국장학재단b", "org"): 2, ("국가우수장학재단", "org"): 4,

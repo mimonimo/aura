@@ -117,7 +117,7 @@ def test_project_relations_from_embeddings(db):
 
 
 def test_project_relations_need_a_descriptive_project(db):
-    """이름이 'ㅇㅇ'처럼 근거가 없으면 추정하지 않는다(실측: 무의미한 이름이 임의 문서와 엮였음)."""
+    """이름이 'ㅇㅇ'처럼 근거가 없으면 추정하지 않는다(무의미한 이름은 임의 문서와 엮이기 쉽다)."""
     db.add_document("장학금 지급 지침.pdf", "/x/a", doc_type="regulation")
     db.add_document("학칙.pdf", "/x/b", doc_type="regulation")
     db.add_document("취업규칙.pdf", "/x/c", doc_type="regulation")

@@ -146,7 +146,7 @@ def main() -> int:
                   f"{r['recall_at_10']:.3f} | {r['mrr_at_10']:.3f} | {r['sec_per_query']} |")
     md += ["", f"원자료: `{out.relative_to(ROOT)}` (산출: `scripts/90_llm_rerank_eval.py`)", ""]
     # 보고서는 기본적으로 원자료 옆(data/eval/)에 둔다. 평가는 임베딩·색인이 있는 운영 VM 에서
-    # 돌리는데, 저장소 파일(docs/)을 건드리면 그 체크아웃이 더러워져 배포가 멈춘다(실측 2026-09-20).
+    # 돌리는데, 저장소 파일(docs/)을 건드리면 그 체크아웃이 더러워져 배포가 멈춘다.
     # 저장소에 남길 판이면 --report 로 명시한다(맥에서 커밋할 때).
     md_out = (ROOT / "docs" / f"llm-rerank-eval{tag}.md") if args.report else out.with_suffix(".md")
     md_out.write_text("\n".join(md), encoding="utf-8")

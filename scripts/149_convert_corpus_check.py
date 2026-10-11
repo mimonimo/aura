@@ -2,7 +2,7 @@
 """변환 회귀 검사를 문서함 밖 파일 묶음에도 — 폴더의 hwp·hwpx 전부를 145 와 같은 잣대(글자·표·그림·구조 오류)로 잰다.
 
   실행(VM): env PYTHONPATH=src .venv/bin/python scripts/149_convert_corpus_check.py --dir data/platform/backup/<날짜>/documents [--limit 50] [--kinds hwpx]
-어떤 한글 문서든 깔끔하게(사용자 지시 2026-09-28) — 실문서가 많이 들어오기 전에 공개 문서 묶음으로 일반 결함을 찾는다. 등록하지 않는다.
+실문서가 많이 들어오기 전에 공개 문서 묶음으로 일반 결함을 찾는다. 등록하지 않는다.
 """
 
 from __future__ import annotations

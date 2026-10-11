@@ -7,7 +7,7 @@ name = "zzaimy"
 version = "0.1.0"
 description = "영남이공대학교 국고사업 계획서 작성 지원 시스템"
 readme = "README.md"
-# Spark 실기 확인값: Python 3.12.3 (spark-1397, 2026-09-01)
+# 학습 장비 확인값: Python 3.12.3
 requires-python = ">=3.12"
 dependencies = [
     "presidio-analyzer>=2.2",
@@ -17,7 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["psycopg[binary]>=3.2,<4"]
-# 파서 bake-off (TASK-04) — 무겁다. Spark에서만 설치해도 된다
+# 파서(TASK-04) — 무겁다. 파싱을 돌리는 장비에만 설치해도 된다
 parsers = [
     "mineru[core]>=2.0",
     "python-hwpx==6.3.0",

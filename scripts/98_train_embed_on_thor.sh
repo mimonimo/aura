@@ -1,5 +1,5 @@
 #!/bin/bash
-# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다
 [ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # ZZAIMY-Embed 학습 — 토르 GPU 에서 KURE-v1 을 대조학습(MNR)하고 홀드아웃으로 개선폭을 잰다.
 #
@@ -7,7 +7,7 @@
 # 학습본과 나란히 적는다. 문서 단위로 홀드아웃을 떼어 같은 문서의 질의가 양쪽에 가지 않게 한다.
 # 상황으로 묻는 질의(97)는 학습에 쓰지 않고 평가에만 쓴다 — 용어를 모를 때의 성능을 정직하게 본다.
 #
-# 왜 토르인가: VM CPU 로는 한 에폭에 몇 시간이고 예전 실측에서 OOM 으로 죽었다(58 주석).
+# 왜 토르인가: VM CPU 로는 한 에폭에 몇 시간이 걸리고 메모리가 모자라 죽는다(58 주석).
 # 토르는 통합 메모리 122GB GPU 라 몇 분이면 끝난다. 서비스 포트는 열지 않고 배치로만 쓴다.
 #
 # 사용 (맥에서):  bash scripts/98_train_embed_on_thor.sh [에폭수]
@@ -58,8 +58,8 @@ import json; d=json.load(open('$WORK/data.json'))
 print('조각', len(d['chunks']), '질의', len(d['rows']))\""
 
 echo "[$(date +%T)] 2/3 토르 GPU 학습·평가 (에폭 $EPOCHS) — 토르에서 떼어 놓고 돌린다"
-# 학습 본문을 토르에 먼저 올린다. 컨테이너는 -d 로 띄워 맥 연결이 끊겨도 계속 돈다
-# (2026-09-20: 맥 터미널 앱이 충돌해 붙어 있던 학습의 출력이 사라졌다. 기록은 $WORK/train.log 에 남는다)
+# 학습 본문을 토르에 먼저 올린다. 컨테이너는 -d 로 띄워 맥 연결이 끊겨도 계속 돈다.
+# 출력은 $WORK/train.log 에 남긴다.
 ssh -p $TP "$THOR" "cat > $WORK/train.py" <<'PY'
 import json, os, random, time
 import torch, torch.nn.functional as F

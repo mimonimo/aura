@@ -65,7 +65,7 @@ def client(tmp_path):
 
 
 def test_index_page_renders(client):
-    """첫 화면은 채팅이고, 문서 라이브러리는 /inbox 에서 프로젝트부터 보여 준다(C-20260920-09)."""
+    """첫 화면은 채팅이고, 문서 라이브러리는 /inbox 에서 프로젝트부터 보여 준다."""
     r = client.get("/", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].endswith("/chat")
     r = client.get("/inbox")
@@ -96,7 +96,7 @@ def test_reviewer_opinion_is_saved(client):
     r = client.post("/doc/1/review", data={"opinion": "검토자 의견: 보완 필요"},
                     follow_redirects=False)
     assert r.status_code == 303
-    # 검토 메모 UI 는 문서 화면에서 뺐다(아스트라 0c9ad70a) — 저장 자체를 확인한다
+    # 검토 메모 UI 는 문서 화면에 없다 — 저장 자체를 확인한다
     assert any("보완 필요" in (rv.get("opinion") or "") for rv in client.app.state.db.get_reviews(1))
     assert client.get("/doc/1").status_code == 200
 
@@ -132,7 +132,7 @@ def test_draft_generation_flow(client):
     )
     r = client.post("/doc/1/draft", follow_redirects=False)
     assert r.status_code == 303
-    d = client.app.state.db.get_document(1)          # 초안은 저장되지만 개별 문서 화면에는 안 보인다 — 초안은 에이전트 대화에서(9/27)
+    d = client.app.state.db.get_document(1)          # 초안은 저장되지만 개별 문서 화면에는 안 보인다 — 초안은 에이전트 대화에서
     assert "합성 초안 섹션" in (d.get("draft") or "") and "배점 커버리지 70/100점" in (d.get("coverage") or "")
     r = client.get("/doc/1")
     assert r.status_code == 200 and "계획서 초안 작성" not in r.text
@@ -153,7 +153,7 @@ def test_review_prompt_differs_by_doc_type():
 
 
 def _uploaded(client, doc_type: str = "recruit"):
-    # 판정(승인·반려)은 채용·입학 서류에만 있다(아스트라 4dd3c0c1) — 판정 흐름 테스트는 채용 서류로
+    # 판정(승인·반려)은 채용·입학 서류에만 있다 — 판정 흐름 테스트는 채용 서류로
     client.post("/upload", data={"doc_type": doc_type}, files={"file": ("a.pdf", b"%PDF fake", "application/pdf")})
     return client
 
@@ -704,7 +704,7 @@ def test_structured_chunks_preserve_table_structure():
 
 
 def test_original_file_served(client, tmp_path):
-    # 문서 추출 화면(/ocr)은 라이브러리 업로드와 겹쳐 없앴다(2026-10-06) — 원본 내려받기만 본다
+    # 문서 추출 화면(/ocr)은 라이브러리 업로드와 겹쳐 없앴다 — 원본 내려받기만 본다
     body = "%PDF-원본".encode()
     client.post("/upload", data={"doc_type": "auto"},
                 files={"file": ("원본.pdf", body, "application/pdf")})
@@ -869,7 +869,7 @@ def test_session_survives_app_restart(tmp_path):
 
 
 def test_recent_uploads_are_findable_in_library(client):
-    """'최근 활동' 칸은 라이브러리 개편(C-20260920-09)으로 빠졌다 — 새로 들어온 문서는 검색으로 찾는다."""
+    """라이브러리에는 '최근 활동' 칸이 없다 — 새로 들어온 문서는 검색으로 찾는다."""
     client.post("/upload", data={"doc_type": "recruit"},
                 files={"file": ("이력서R.pdf", b"%PDF", "application/pdf")})
     client.post("/criteria/upload", data={"sector": "common"},
@@ -1090,10 +1090,10 @@ def test_dev_train_page_and_url_save(client):
 
     r = client.post("/dev/train/url",
                     data={"setting": "tensorboard_url",
-                          "url": "http://192.168.16.226:6006"},
+                          "url": "http://10.0.0.5:6006"},
                     follow_redirects=False)
     assert r.status_code == 303
-    assert client.app.state.db.get_setting("tensorboard_url") == "http://192.168.16.226:6006"
+    assert client.app.state.db.get_setting("tensorboard_url") == "http://10.0.0.5:6006"
 
     r = client.post("/dev/train/url",
                     data={"setting": "tensorboard_url", "url": "notaurl"})
@@ -1121,7 +1121,7 @@ def test_dev_train_export_bundle(client, monkeypatch, tmp_path):
         assert "manifest.json" in z.namelist()
 
 
-# ---- 한글 에이전트 설치파일(setup.exe) 업로드·배포 ----
+# ---- 학습 자료 내보내기 ----
 
 def test_export_single_file_and_path_guard(client):
     page = client.get("/dev/train?tab=exports").text
@@ -1209,7 +1209,7 @@ def test_sidebar_shows_model_server_status(client, monkeypatch, tmp_path):
     monkeypatch.setattr(model_config, "probe", fake_probe)
     model_config.reset_status_cache()
     page = client.get("/").text
-    assert "서버 연결됨" in page and "qwen-x" in page      # 문구는 화면 소유자(Codex)가 정한다
+    assert "서버 연결됨" in page and "qwen-x" in page
     client.get("/"); client.get("/criteria")
     assert len(calls) == 1                                          # 60초 캐시 — 화면마다 다시 묻지 않는다
     model_config.set_override("", ""); model_config.reset_status_cache()

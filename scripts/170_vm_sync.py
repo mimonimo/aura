@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """VM 혼자 도는 원본 갱신 — DGX 원본 보관소를 읽기 전용 rsync 로 보고(파일 내용은 고른 것만), 원본 목록 장부·사업 분류·뼈대 반입·그래프·양식을 갱신한다.
 
-사용자 2026-10-02: "계속 업데이트 해야지.. 새로 받아오는중인데", "지금 계정으로는 안되는거야?" — DGX aura 계정에 VM 전용 키를
-「rrsync -ro ~/data」로 묶어 등록했다(명령 실행·쓰기 불가, 확인함). 그래서 운영 PC 없이 VM 의 cron 으로 돈다.
+원본은 계속 새로 들어오므로 주기적으로 갱신한다. DGX 계정에 VM 전용 키를 「rrsync -ro ~/data」로 묶어 등록해
+(명령 실행·쓰기 불가) 운영 PC 없이 VM 의 cron 으로 돈다.
 
 순서: ① rsync --list-only 로 경로·크기·시각 ② 원본 목록 장부(app/archive) ③ 사업 분류·뼈대 고르기(scripts/161 규칙)
       ④ 아직 안 들인 뼈대만 rsync 로 받아 받은 편지함에 ⑤ 164(반입·그래프 --full·양식·docx)
@@ -69,7 +69,7 @@ UPRSH = f"ssh -i {UPKEY} -p 8022 -o BatchMode=yes"
 
 def push_uploads(db, origins: dict[str, int], cards=None) -> None:
     """플랫폼(문서함·에이전트 채팅)에 올라온 원본을 DGX ~/zzaimy_uploads 로 올리고 원본 목록 장부에 「플랫폼 업로드」로 넣는다 —
-    들어온 길이 달라도 원본은 한 보관소·한 장부에(사용자 2026-10-02: "제각각이면 안되거든"). DGX 쪽 키는 그 폴더 쓰기 전용."""
+    들어온 길이 달라도 원본은 한 보관소·한 장부에 둔다. DGX 쪽 키는 그 폴더 쓰기 전용."""
     docs_root = ROOT / "data" / "platform" / "documents"
     from_dgx = set(origins.values())
     pushed_path = ROOT / "data" / "platform" / "uploads_pushed.jsonl"
@@ -89,8 +89,8 @@ def push_uploads(db, origins: dict[str, int], cards=None) -> None:
             continue
         f = Path(sp)
         if not f.is_absolute():
-            # 문서함은 저장 위치를 저장소 기준 상대 경로로 둔다 — 절대 경로(docs_root)와 견주면 늘 어긋나 업로드 원본이 하나도
-            # DGX 로 가지 않았다(10/10 확인: 10/2 뒤 0건, 프로젝트 만들기로 올린 문서도). 저장소 기준으로 푼다
+            # 문서함은 저장 위치를 저장소 기준 상대 경로로 둔다 — 그대로 절대 경로(docs_root)와 견주면 늘 어긋나므로
+            # 저장소 기준으로 푼다
             f = ROOT / f
         if not f.is_file():
             continue
@@ -139,8 +139,8 @@ PKEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_parsed")
 def import_parsed() -> None:
     """DGX 가 가볍게 처리한 원본(167 → ~/parsed, 읽기 전용 키)을 받아 'DGX 보관 문서'로 들인다(168, 이미 들인 원본은 건너뜀).
 
-    5분 주기(--parsed)와 10분 주기 전체 동기화가 둘 다 부른다 — 들이기 전용 잠금으로 한 번에 하나만(2026-10-02 실측:
-    둘이 같은 결과 파일을 동시에 읽어 같은 원본을 두 번 들였다, 3,507건)."""
+    5분 주기(--parsed)와 10분 주기 전체 동기화가 둘 다 부른다 — 둘이 같은 결과 파일을 동시에 읽으면 같은 원본을
+    두 번 들이므로 들이기 전용 잠금으로 한 번에 하나만 돈다."""
     import fcntl
     lock = open("/tmp/zz_parsed_import.lock", "w")
     try:
@@ -167,9 +167,6 @@ def import_parsed() -> None:
     m = re.match(r"들임 (\d+) · 새 판 갱신 (\d+)", last) or re.match(r"들임 (\d+)()", last)
     if m and (int(m.group(1)) or int(m.group(2) or 0)):
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
-
-
-# 본문 첫머리의 수행 연도 — 「2023학년도」「2023년도」「2023년」만. 「2023.10.12」「2023년 10월」 같은 작성일은 아니다
 
 
 def mark(kind: str, summary: str) -> None:

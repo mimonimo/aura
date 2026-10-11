@@ -1,9 +1,9 @@
 #!/bin/bash
-# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
 [ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # 조각별 질문(111 산출물)을 토르 GPU 로 임베딩해 보조 색인을 만든다.
 #
-# 규칙: **조각 색인과 같은 모델로** 만들어야 한다(같은 벡터 공간이어야 질의와 비교된다).
+# 규칙: 조각 색인과 같은 모델로 만들어야 한다(같은 벡터 공간이어야 질의와 비교된다).
 # 기본은 운영 임베딩 모델(zzaimy-embed-v2). 결과는 VM 의 data/platform/question_embeddings.npz
 # (--apply) 또는 /tmp (미리보기). 색인 형식: ids=질문 행 id, chunks=조각 id, vectors=(n,dim).
 #

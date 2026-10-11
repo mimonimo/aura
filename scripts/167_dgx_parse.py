@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """DGX 원본 보관소의 문서를 DGX 에서 가볍게 처리 — 문서함과 같은 처리기(DocumentProcessor)로 파싱·조각까지만(검토 의견 LLM·비전 판독 없이).
 
-사용자 2026-10-02: "해당 부분 분석한 자료라던지 이런건 VM 에도 다 있어야 … RAG 나 온톨로지, 문서 분류 이런거, 문서함에도 떠야".
-원본은 DGX 에 두고(ADR-0047), 결과(글·조각·분류)만 JSONL 로 낸다 → VM 에서 scripts/168 이 'DGX 보관 문서'로 문서함에 들인다.
+분석 결과는 VM 의 검색·온톨로지·문서 분류·문서함에서도 쓴다. 원본은 DGX 에 두고(ADR-0047), 결과(글·조각·분류)만
+JSONL 로 낸다 → VM 에서 scripts/168 이 'DGX 보관 문서'로 문서함에 들인다.
 
 입력: scripts/165 원본 목록(JSONL)과 이미 들인 원본 경로 목록(--skip, 한 줄에 하나).
 대상: 글이 있는 형식(hwp·hwpx·pdf·docx·xlsx), 이름·크기 중복 아님, 이미 들이지 않음. 작업자마다 따로 SQLite 를 임시로 쓴다.
@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / "src"))
 TEXT_EXT = {"hwp", "hwpx", "pdf", "docx", "xlsx", "pptx", "xls", "doc", "ppt"}   # 옛 오피스는 처리기가 LibreOffice 로 바꿔 읽는다
 MAX_BYTES = 300 * 1024 * 1024
 MAX_TEXT = 2_000_000       # 본문 상한(글자) — 넘으면 잘린 것을 기록에 남긴다(조각은 따로 전부 낸다)
-# 처리 상태 — 가벼운 처리 완료는 OCR 품질 통과·학습 승인이 아니다(C-183). 후속 단계는 이 값으로 가른다
+# 처리 상태 — 가벼운 처리 완료는 OCR 품질 통과·학습 승인이 아니다. 후속 단계는 이 값으로 가른다
 #   parsed: 글·조각 있음 · partial: 일부만 읽음(쪽 일부 판독·본문 잘림) · empty: 처리됐지만 글 없음 · failed: 오류·시간 초과
 QUALITY = "unchecked"      # OCR 품질 관문은 아직 거치지 않았다(171 대결 뒤 정한다)
 
@@ -43,12 +43,12 @@ def _alarm(_sig, _frm):
     raise DocTimeout()
 
 
-_ENV_ERR = re.compile(r"ModuleNotFoundError|LocalEntryNotFoundError|ImportError|새 형식 변환 실패")   # 변환 실패는 동시 실행 잠금 탓이었다(10/6)
+_ENV_ERR = re.compile(r"ModuleNotFoundError|LocalEntryNotFoundError|ImportError|새 형식 변환 실패")   # 새 형식 변환 실패는 대개 동시 실행 잠금 탓이다
 
 
 def jsonl_lines(path) -> "list[str]":
     """JSONL 줄 — 「\\n」으로만 나눈다. str.splitlines 는 본문 속 폼피드(\\x0c, PDF 글에 흔하다)·\\u2028 에서도 잘라
-    기록을 깨뜨렸다(10/5 실측: parsed-0 7,019건 중 51건이 안 보여 같은 원본을 매번 다시 처리, 집계는 「기록 0」)."""
+    기록을 깨뜨린다. 그러면 그 줄이 안 보여 같은 원본을 매번 다시 처리하고 집계도 틀린다."""
     with open(path, encoding="utf-8", newline="") as fh:
         return [ln.rstrip("\r\n") for ln in fh]
 
@@ -86,7 +86,7 @@ def _mem_available_gb() -> float:
 
 def _wait_for_memory(n: int) -> None:
     """공용 장비(DGX, 통합 메모리) — 가용 메모리가 하한 밑이면 여유가 생길 때까지 기다린다.
-    2026-10-02 실측: 작업자 14개가 MinerU 서버를 하나씩 띄워 121GB 를 다 쓰고 SSH 가 멎었다."""
+    작업자마다 MinerU 서버를 띄우면 메모리를 다 써 SSH 까지 멎을 수 있다."""
     waited = 0
     while _mem_available_gb() < MIN_FREE_GB:
         if waited % 300 == 0:
@@ -143,7 +143,7 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
     work = Path(out_dir) / f"w{n}"
     work.mkdir(parents=True, exist_ok=True)
     # tmp.db 는 한 문서를 읽는 동안만 쓰는 임시 자리다. 지난 실행 기록이 남아 있으면 강제 재처리(--force) 때 같은 파일이
-    # 자기 옛 기록과 「같은 내용의 문서가 이미 있습니다」로 걸린다(10/4 실측: kordoc 재처리 762건이 이렇게 빠짐).
+    # 자기 옛 기록과 「같은 내용의 문서가 이미 있습니다」로 걸려 빠진다.
     # 중복 판정은 운영 쪽(168·문서함)이 한다 — 여기서는 매번 비우고, 문서마다 읽은 뒤 지운다.
     for suffix in ("", "-wal", "-shm", "-journal"):
         (work / f"tmp.db{suffix}").unlink(missing_ok=True)
@@ -204,7 +204,7 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
         out.write(json.dumps(rec, ensure_ascii=False) + "\n")
         out.flush()
         progress.write_text(str(idx + 1))
-        # 판독 도구가 메모리를 쌓는다(10/3 실측: 21시간 뒤 작업자 6개가 25GB, 가용 메모리 하한에 스스로 걸려 멈춤) — 상한을 넘으면 끝내고 새로 뜬다
+        # 판독 도구가 오래 돌면 메모리를 쌓아 가용 메모리 하한에 걸린다 — 상한을 넘으면 끝내고 새로 뜬다
         if idx + 1 < len(items) and _rss_gb() > MAX_RSS_GB:
             out.close()
             sys.exit(RECYCLE)
@@ -219,7 +219,7 @@ def main() -> int:
     ap.add_argument("--out", default=str(Path.home() / "parsed"))
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--ext", default=",".join(sorted(TEXT_EXT)), help="처리할 형식(쉼표) — 엑셀은 docling 이 있어야 한다")
+    ap.add_argument("--ext", default=",".join(sorted(TEXT_EXT)), help="처리할 형식(쉼표)")
     ap.add_argument("--exclude", default="", help="경로가 이 정규식에 맞으면 뺀다 — 예: 지출·증빙 계열(절대 규칙 11 범위 밖)을 OCR 하지 않게")
     ap.add_argument("--only", default="", help="이 목록(한 줄에 원본 경로 하나)에 있는 원본만 — 스캔 PDF 핵심 문서처럼 범위를 좁혀 다시 돌릴 때")
     ap.add_argument("--force", action="store_true", help="이미 처리한 원본도 다시(읽기 도구가 나아졌을 때 — 예: kordoc 설치 뒤 한글). 168 이 같은 판이어도 같은 문서 번호로 갱신")
@@ -240,7 +240,6 @@ def main() -> int:
                 continue
             # 같은 경로라도 판(크기·수정 시각)이 다르면 다시 처리한다 — 열쇠는 경로+판
             # 처리 환경 오류(모듈·판독 모델 파일 없음)는 문서 탓이 아니다 — 끝난 것으로 치지 않아 주기 처리가 저절로 다시 시도한다
-            # (10/6: 환경이 깨져 있던 날의 실패 652건이 재처리 목록에서 빠져 남아 있었다)
             env_err = not rec.get("ok") and _ENV_ERR.search(str(rec.get("error") or ""))
             if rec.get("rel") and not args.force and (rec.get("ok") or not args.retry_failed) and not env_err:
                 done.add((rec["rel"], rec.get("version") or version(rec)))
@@ -303,7 +302,7 @@ def main() -> int:
                 bad.append((i, p.exitcode))
     if recycled:
         print(f"메모리 상한({MAX_RSS_GB:g}GB)으로 작업자 새로 띄움 {recycled}회", flush=True)
-    # 거짓 완료 막기(C-183) — 작업자 종료 코드와 이번 회차에 실제로 적힌 기록을 맞춰 본다
+    # 거짓 완료 막기 — 작업자 종료 코드와 이번 회차에 실제로 적힌 기록을 맞춰 본다
     after = _counts(Path(args.out))
     wrote = {k: after.get(k, 0) - before.get(k, 0) for k in set(after) | set(before)}
     n_written = sum(wrote.values())

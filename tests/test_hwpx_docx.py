@@ -381,7 +381,7 @@ def test_footer_auto_number_becomes_page_field(tmp_path):
 
 
 def test_page_number_inside_a_table_cell_still_reaches_the_footer(tmp_path):
-    """쪽 번호 매기기가 표 셀의 첫 문단에 있어도(작성서식 실측) 꼬리말 PAGE 필드가 된다."""
+    """쪽 번호 매기기가 표 셀의 첫 문단에 있어도(작성서식에 흔하다) 꼬리말 PAGE 필드가 된다."""
     section = SECTION.replace(
         '<hp:run charPrIDRef="1"><hp:t>제목 칸</hp:t></hp:run>',
         '<hp:run charPrIDRef="1"><hp:t>제목 칸</hp:t><hp:ctrl><hp:newNum num="1" numType="PAGE"/></hp:ctrl></hp:run>'
@@ -441,7 +441,7 @@ def test_tables_wider_than_the_text_area_are_narrowed(tmp_path):
 
 
 def test_object_anchored_before_text_is_drawn_before_the_paragraph(tmp_path):
-    """한글은 글자처럼 취급하지 않는 표의 앵커를 다음 문단 첫머리에 두곤 한다 — 그 문단 글보다 표가 앞에 보여야 한다(실측 2026-09-29)."""
+    """한글은 글자처럼 취급하지 않는 표의 앵커를 다음 문단 첫머리에 두곤 한다 — 그 문단 글보다 표가 앞에 보여야 한다."""
     table = ('<hp:tbl rowCnt="1" colCnt="1" borderFillIDRef="2"><hp:sz width="10000"/><hp:tr><hp:tc borderFillIDRef="2"><hp:subList><hp:p paraPrIDRef="0">'
              '<hp:run charPrIDRef="0"><hp:t>표 셋</hp:t></hp:run></hp:p></hp:subList><hp:cellAddr rowAddr="0" colAddr="0"/><hp:cellSpan rowSpan="1" colSpan="1"/>'
              '<hp:cellSz width="10000" height="500"/></hp:tc></hp:tr></hp:tbl>')

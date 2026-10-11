@@ -1,7 +1,7 @@
 #!/bin/bash
 # Label Studio 고정 토큰 프로비저닝 — 사람이 토큰을 복사해 붙여넣지 않게 한다.
 #
-# 운영 VM(aura@192.168.16.226)에서 저장소 루트 기준으로 실행한다. 하는 일:
+# 운영 VM 에서 저장소 루트 기준으로 실행한다. 하는 일:
 #   1) 토큰 결정: 유닛의 LABEL_STUDIO_USER_TOKEN → 플랫폼 설정 labelstudio_token → 새로 생성
 #   2) label-studio 유저 유닛에 고정 토큰·레거시 토큰 허용 env 기록 (바뀐 경우만 재시작)
 #   3) Label Studio DB 의 부트스트랩 사용자 토큰을 그 값으로 맞춤 (ls-venv 의 Django ORM)
@@ -11,7 +11,7 @@
 # 몇 번을 다시 실행해도 같은 결과(멱등). 토큰은 어디에도 출력하지 않는다.
 #
 # 사용: bash scripts/68_labelstudio_token.sh
-#   LS_URL=http://192.168.16.226:8080   플랫폼에 저장할 Label Studio 주소를 강제 (서버 이전 시)
+#   LS_URL=http://<VM 주소>:8080        플랫폼에 저장할 Label Studio 주소를 강제 (서버 이전 시)
 #   LS_UNIT=…  LS_VENV=…                유닛 파일·ls-venv 경로
 #                                       (기본 ~/.config/systemd/user/label-studio.service, ~/ls-venv)
 set -euo pipefail
@@ -29,7 +29,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 [ -f "$UNIT" ] || fail "유닛 파일이 없습니다: $UNIT"
 [ -x "$LS_PY" ] || fail "ls-venv 의 python 이 없습니다: $LS_PY"
 [ -x "$PLAT_PY" ] || fail "플랫폼 .venv 가 없습니다 — 저장소 루트에서 실행"
-# 플랫폼 DB 가 없으면 빈 DB 를 만들게 되므로 멈춘다 (2026-09-01 사고의 교훈)
+# 플랫폼 DB 가 없으면 빈 DB 를 만들게 되므로 멈춘다
 [ -f "$PLATFORM_DB" ] || fail "플랫폼 DB 가 없습니다: $PLATFORM_DB"
 
 PORT="$("$LS_PY" "$HELPER" unit-port "$UNIT")"

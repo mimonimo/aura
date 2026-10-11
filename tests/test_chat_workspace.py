@@ -202,7 +202,7 @@ def _history_client(tmp_path):
 
 
 def test_topic_search_pages_through_all_matches(tmp_path):
-    """주제 검색도 한 결과집합에서 걸러야 다음 쪽이 빠지지 않는다 (Codex C-20260920-21)."""
+    """주제 검색도 한 결과집합에서 걸러야 다음 쪽이 빠지지 않는다."""
     from zzaimy.app.chat_topics import ChatTopics
 
     c, db = _history_client(tmp_path)
@@ -220,7 +220,7 @@ def test_topic_search_pages_through_all_matches(tmp_path):
 
 
 def test_deleting_a_chat_removes_its_evidence_rows(tmp_path):
-    """대화를 지우면 근거 기록도 같이 지운다 (Codex C-20260920-21)."""
+    """대화를 지우면 근거 기록도 같이 지운다."""
     import sqlite3
 
     from zzaimy.app.chat_topics import ChatTopics
@@ -312,7 +312,7 @@ def test_document_panel_keeps_header_layout_when_open():
 
 def test_document_panel_follows_agent_progress_and_docs_url_form():
     """편집기 위 작업 중 줄은 대화 쪽 진행 단계 사건을 받아 그리고, 위치 이동은 독스 주소 꼴
-    (탭=질의, 제목=#)로 새로 불러온다(10/11). 실제 동작은 tests/chat_documents_browser.mjs 가 본다."""
+    (탭=질의, 제목=#)로 새로 불러온다. 실제 동작은 tests/chat_documents_browser.mjs 가 본다."""
     from pathlib import Path
     static = Path(main.__file__).parent / 'static'
     workspace_js = (static / 'chat-workspace.js').read_text()

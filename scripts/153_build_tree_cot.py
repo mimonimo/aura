@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""문서 구조 단계 문답(CoT) 학습쌍 — 사업명 → 개요 → 목차 → 절의 요구 항목 → 절의 뼈대(사용자 지시 2026-09-29).
+"""문서 구조 단계 문답(CoT) 학습쌍 — 사업명 → 개요 → 목차 → 절의 요구 항목 → 절의 뼈대.
 
   구조를 세우는 능력을 가르친다. 학습된 모델이 새 사업의 계획서 구조를 먼저 쓰고, 뼈대의 칸은 검색·추가 문서의 근거로 채운다.
   입력은 짧다(근거 조각 + 사슬 + 질문). 답은 [생각] 한두 문장 + [답]. 답의 수치가 입력에 없으면 폐기.
@@ -100,7 +100,7 @@ def main() -> int:
         print("공고·기본계획에서 사업 목적·개요를 찾지 못했습니다", file=sys.stderr)
         return 2
     manual_chunks = db.chunks_for_docs([args.manual])
-    # 근거 기록(아스트라 C-135 품질 관문): 입력 줄마다 문서·조각을 단다. 검수 판정은 사람이 남긴다
+    # 근거 기록(품질 관문): 입력 줄마다 문서·조각을 단다. 검수 판정은 사람이 남긴다
     program_id = args.program_id.strip()
     sources = (pv.Sources().add("form", db.list_doc_chunks(args.form)).add("done", done_chunks)
                .add("criteria", manual_chunks, prefix="reg:").add("criteria", db.list_doc_chunks(args.manual))

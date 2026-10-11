@@ -1,4 +1,4 @@
-"""독스·LibreOffice 표 행 간격 실험(2026-09-29 실측용) — VM 에서 env PYTHONPATH=src .venv/bin/python scripts/150_docs_row_pitch.py, 입력 docx 는 /tmp/rowpitch.docx. 기록: docs/notes/2026-09-29-line-spacing-measurement.md"""
+"""독스·LibreOffice 표 행 간격 측정 실험 — VM 에서 env PYTHONPATH=src .venv/bin/python scripts/150_docs_row_pitch.py, 입력 docx 는 /tmp/rowpitch.docx. 기록: docs/notes/2026-09-29-line-spacing-measurement.md"""
 import json, subprocess, tempfile, sqlite3
 from pathlib import Path
 import httpx, numpy as np

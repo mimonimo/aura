@@ -36,7 +36,7 @@ def main() -> int:
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     archive.ensure(db)
     led_path = ROOT / "data" / "platform" / "origins.jsonl"
-    # 원본 경로 → (문서 번호, 판). 판(크기:수정 시각)이 다른 새 기록이 오면 같은 문서 번호로 갱신한다(C-183).
+    # 원본 경로 → (문서 번호, 판). 판(크기:수정 시각)이 다른 새 기록이 오면 같은 문서 번호로 갱신한다.
     # 판을 적지 않은 옛 장부 줄은 판을 모르므로 건너뛴다 — 바뀐 원본은 170 의 원본 장부 대조(changed)가 따로 다시 처리한다
     have: dict[str, tuple[int, str]] = {}
     if led_path.is_file():
@@ -46,12 +46,12 @@ def main() -> int:
                 have[o["origin"]] = (int(o["doc_id"]), o.get("version") or "")
             except (ValueError, KeyError, TypeError):
                 continue
-    # DB 가 기준 — 장부 줄이 없더라도(문서를 만든 뒤 장부를 쓰기 전에 멈춘 경우) 같은 경로의 문서가 있으면 그 번호를 다시 쓴다(C-186)
+    # DB 가 기준 — 장부 줄이 없더라도(문서를 만든 뒤 장부를 쓰기 전에 멈춘 경우) 같은 경로의 문서가 있으면 그 번호를 다시 쓴다
     by_path: dict[str, int] = {}
     with db._conn() as conn:
         for sp, did0 in conn.execute("SELECT stored_path, id FROM documents WHERE stored_path LIKE 'dgx://%' ORDER BY id DESC").fetchall():
             by_path[str(sp)[len("dgx://"):]] = int(did0)
-        # 경로마다 문서 하나 — DB 가 막는다(동시 들이기 사고 2026-10-02). 중복이 남아 있으면 만들지 못하고 알린다
+        # 경로마다 문서 하나 — 동시 들이기로 생기는 중복을 DB 가 막는다. 중복이 남아 있으면 색인을 만들지 못하고 알린다
         try:
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_documents_dgx_path ON documents (stored_path) WHERE stored_path LIKE 'dgx://%'")
         except Exception as e:
@@ -76,7 +76,7 @@ def main() -> int:
             off_path.write_text(json.dumps(offsets), encoding="utf-8")
 
     # --rels <목록.json>: 그 원본들만 결과 파일 처음부터 다시 훑어 들인다(읽은 자리 무시·저장 안 함) — DGX 에 정상 기록이 있는데 문서함에
-    # 없는 원본(연동 점검 175 --find-reimport)을 메운다. 10/6: 1,133건이 그랬다
+    # 없는 원본(연동 점검 175 --find-reimport)을 메운다
     only: set[str] | None = None
     if len(sys.argv) > 2 and sys.argv[1] == "--rels":
         only = set(json.loads(Path(sys.argv[2]).read_text(encoding="utf-8")))
@@ -116,8 +116,8 @@ def main() -> int:
             continue
         ver = rec.get("version") or f"{int(rec.get('size') or 0)}:{int(float(rec.get('mtime') or 0))}"
         old = have.get(rel)
-        # 장부엔 있어도 문서가 아직 「받음·처리 중」이면 다시 쓴다 — 문서만 만들고 본문을 쓰다 멈춘 회차(10/2 NUL 사고)의 문서가
-        # 같은 판이라 계속 건너뛰어져 받음으로 남아 있었다(2026-10-06, 5건)
+        # 장부엔 있어도 문서가 아직 「받음·처리 중」이면 다시 쓴다 — 문서만 만들고 본문을 쓰다 멈춘 회차의 문서는
+        # 같은 판이라 계속 건너뛰어져 받음으로 남는다
         if old and (not old[1] or old[1] == ver) and not rec.get("force") and old[0] not in stalled:
             n_skip += 1
             continue
@@ -128,14 +128,14 @@ def main() -> int:
             fails.write(json.dumps({"rel": rel, "version": ver, "state": state, "error": str(rec.get("error") or "")[:200],
                                     "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
             continue
-        # 원본 장부의 현재 판과 같은 기록만 적용 — 여러 결과 파일에 옛 판이 뒤늦게 읽혀도 되돌리지 않는다(C-186).
+        # 원본 장부의 현재 판과 같은 기록만 적용 — 여러 결과 파일에 옛 판이 뒤늦게 읽혀도 되돌리지 않는다.
         # 장부가 아직 새 판을 모르면(목록 갱신 전) 여기서는 건너뛰고, 바뀐 원본은 170 의 원본 장부 대조(changed)가 다시 처리한다
         with db._conn() as conn:
             row = conn.execute("SELECT program_name, size, mtime, program, year, round FROM archive_files WHERE rel = ?", (rel,)).fetchone()
         if row is not None and row[1] is not None and f"{int(row[1] or 0)}:{int(float(row[2] or 0))}" != ver:
             n_stale += 1
             continue
-        # 처리 상태를 문서 기록에 남긴다 — 가벼운 처리 완료 ≠ OCR 품질 통과 ≠ 학습 승인(C-183)
+        # 처리 상태를 문서 기록에 남긴다 — 가벼운 처리 완료 ≠ OCR 품질 통과 ≠ 학습 승인
         note = (rec.get("parse_note") or "") + " · DGX 보관(가벼운 처리: 검토 의견 없음, OCR 품질 미검사)"
         if state == "partial":
             note += " · 일부만 읽음"
@@ -163,7 +163,7 @@ def main() -> int:
             db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=note)
         except Exception as e:
             # 한 문서의 오류로 들이기 전체가 멈추지 않게 — 그 문서만 실패 장부에 남기고 다음으로(멈추면 같은 자리에서 매번 다시 멈춰
-            # 그 결과 파일의 뒤 문서들이 들어오지 못했다, 10/6)
+            # 그 결과 파일의 뒤 문서들이 들어오지 못한다)
             n_fail += 1
             fails.write(json.dumps({"rel": rel, "version": ver, "state": "import_error", "error": f"{type(e).__name__}: {e}"[:200],
                                     "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")

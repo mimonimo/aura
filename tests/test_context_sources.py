@@ -91,7 +91,7 @@ def test_registered_search_keeps_sources_and_missing_evidence_notice(monkeypatch
 
 @pytest.mark.parametrize("weak", [True, False])
 def test_weak_regulations_dropped_when_grant_documents_answer(monkeypatch, weak):
-    """사업 문서 근거가 있으면 하한을 못 넘은 규정 근거는 빼고, 「근거가 약하다」 안내도 붙이지 않는다(10/5 RAG 실측)."""
+    """사업 문서 근거가 있으면 하한을 못 넘은 규정 근거는 빼고, 「근거가 약하다」 안내도 붙이지 않는다."""
     from zzaimy.app import grant_search, regulations, responder
     from zzaimy.generate import client
 

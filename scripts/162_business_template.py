@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """사업별 공통 양식 — 지식 그래프의 단위(여러 연차 문서에 되풀이되는 절)로 사업 × 문서 갈래(계획서·실적보고서)의 공통 뼈대를 만든다.
 
-사용자 2026-10-02: "사업 문서들을 보고 구글독스에서 작업하기 편한 공통 양식을 생성해서 제공". 내용은 채우지 않는다 — 절 제목과
-작성 안내(그 절이 나온 지난 문서·연차)만 둔다. 정답을 채워 찍어 내지 않는다(working-notes 9/27, 절대 규칙 10).
+사업 문서들로 구글 독스에서 작업하기 쉬운 공통 양식을 만든다. 내용은 채우지 않고 절 제목과
+작성 안내(그 절이 나온 지난 문서·연차)만 둔다. 정답을 채워 찍어 내지 않는다(절대 규칙 10).
 
 뼈대: 단위(unit)마다 그 갈래 문서 둘 이상에 나온 것만, 문서 안 상대 위치의 중앙값 순서로, 깊이는 원문 절 깊이의 최빈값.
 출력: data/generated/templates/<사업>_<갈래>.md (md_docx 로 docx·독스로 이어 쓴다).
@@ -149,7 +149,7 @@ def main() -> int:
     for prog in progs:
         pkey = prog["id"].split(":", 1)[1]
         for kind, kind_ko in KIND_KO.items():
-            # 다른 대학 자료(협의회 공유본 등, 157 의 other_org)는 우리 학교 양식의 뼈대가 되지 않는다
+            # 다른 대학 자료(협의회 공유본 등, 157 의 other_org)는 이 학교 양식의 뼈대가 되지 않는다
             docs = [d for d, ids in order.items() if prog_of.get(d) == prog["id"] and nodes[d]["props"].get("kind") == kind
                     and not nodes[d]["props"].get("other_org")]
             if not docs:
@@ -161,7 +161,7 @@ def main() -> int:
             def is_pdf(d):
                 return nodes[d]["label"].lower().endswith(".pdf")
             top_n = max(n_units(d) for d in docs)
-            # 한글 원본을 더 강하게 먼저 — PDF 글자층은 표가 조각으로 안 나와 양식에 표가 빠진다(10/4: LINC+ 보고서 양식 표 0)
+            # 한글 원본을 더 강하게 먼저 — PDF 글자층은 표가 조각으로 안 나와 양식에 표가 빠진다
             ranked = sorted(docs, key=lambda d: (not is_pdf(d) and n_units(d) >= 0.3 * top_n, n_units(d), int(nodes[d].get("doc_id") or 0)),
                             reverse=True)
 
@@ -270,7 +270,7 @@ def main() -> int:
             written.add(dest.name)
             print(f"{prog['label'][:30]} {kind_ko}: 절 {n_sec} (뼈대 #{nodes[skel].get('doc_id')}) → {dest}")
     if not args.program:
-        # 이번에 만들지 않은 옛 사업별 양식은 지운다 — 사업 id 가 바뀌면(카드 정리·이름 규칙) 옛 이름 양식이 남아 드라이브까지 올라갔다
+        # 이번에 만들지 않은 옛 사업별 양식은 지운다 — 사업 id 가 바뀌면(카드 정리·이름 규칙) 옛 이름 양식이 남아 드라이브까지 올라간다
         for f in [*out_dir.glob("*_plan.*"), *out_dir.glob("*_report.*")]:
             if f.suffix in (".md", ".docx") and f.with_suffix(".md").name not in written:
                 f.unlink(missing_ok=True)

@@ -1,9 +1,9 @@
 #!/bin/bash
-# 기준 저장소 야간 갱신 체인 (Spark에서 실행).
+# 기준 저장소 갱신 체인 (GPU 장비에서 실행).
 #
 # 1) 임베딩 학습(54)이 돌고 있으면 끝날 때까지 기다린다 (CPU 경합 방지)
 # 2) 마스킹 정책 변경 이전에 등록된 기준 문서를 원본 파일로 재처리한다
-#    — 기준 문서는 판단 근거이므로 마스킹하지 않는다 (2026-09-02 결정)
+#    — 기준 문서는 판단 근거이므로 마스킹하지 않는다
 # 3) 전체 조각 임베딩을 재계산한다 (52)
 # 4) 플랫폼을 재시작해 새 인덱스를 물린다
 #
@@ -24,7 +24,7 @@ from zzaimy.app.pipeline import DocumentProcessor
 
 db = Database(Path("data/platform/platform.db"))
 conn = sqlite3.connect("data/platform/platform.db"); conn.row_factory = sqlite3.Row
-# 오늘 교체한 정제 페이지(.txt, id>103)는 이미 새 파이프라인 산출물 — 그 외만
+# 정제본으로 교체한 페이지(.txt, id>103)는 이미 새 파이프라인 산출물 — 그 외만
 rows = [dict(r) for r in conn.execute(
     "SELECT id, filename, stored_path FROM documents"
     " WHERE doc_type='regulation' AND (filename NOT LIKE '%.txt' OR id = 13)"

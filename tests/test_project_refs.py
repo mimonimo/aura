@@ -1,4 +1,4 @@
-"""관련 보관 사업 참조(C-192) — 참조는 보관 해제·소유권 변경·문서 이동이 아니다. 문서 수는 열람 범위 안에서만."""
+"""관련 보관 사업 참조 — 참조는 보관 해제·소유권 변경·문서 이동이 아니다. 문서 수는 열람 범위 안에서만."""
 from zzaimy.app import project_refs
 from zzaimy.app.db import Database
 

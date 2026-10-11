@@ -1,4 +1,4 @@
-"""Record source-checked agent findings without granting training approval."""
+"""Record source-checked review findings without granting training approval."""
 import argparse
 from datetime import datetime, timezone
 import json

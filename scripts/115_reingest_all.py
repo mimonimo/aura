@@ -132,7 +132,7 @@ def main() -> int:
         child.start()
         return {"doc_id": doc_id, "proc": child, "t0": time.time(), "name": path.name}
 
-    # 문서 하나가 배치를 멈추지 못하게 제한 시간을 둔다(실측: 같은 스캔 PDF 가 두 번 반입을 세웠다).
+    # 문서 하나가 배치를 멈추지 못하게 제한 시간을 둔다(큰 스캔 PDF 하나가 반입 전체를 세울 수 있다).
     # 여러 건을 동시에 돌린다 — 파싱은 CPU, 검토는 서빙 장비라 겹쳐 돌리면 전체가 빨라진다.
     pending = list(plan)
     running: list[dict] = []

@@ -1,4 +1,4 @@
-"""DGX 대량 추출(167)·VM 들이기(168) 신뢰성 — C-183. 실제 원본·DGX·VM 없이 임시 파일과 가짜 작업자로."""
+"""DGX 대량 추출(167)·VM 들이기(168) 신뢰성 검사. 실제 원본·DGX·VM 없이 임시 파일과 가짜 작업자로 확인한다."""
 import importlib.util
 import json
 import sys
@@ -223,7 +223,7 @@ def test_worker_over_memory_limit_is_respawned_from_progress(tmp_path, monkeypat
 
 
 def test_forced_reparse_is_not_blocked_by_its_own_earlier_scratch_record(tmp_path, monkeypatch):
-    """작업자 임시 DB 에 지난 실행 기록이 남으면 같은 파일이 자기와 「같은 내용」으로 걸린다(10/4 kordoc 재처리 762건)."""
+    """강제 재처리는 작업자 임시 DB 에 남은 지난 실행 기록 때문에 자기 자신과 「같은 내용」으로 걸리지 않는다."""
     import hashlib
 
     from zzaimy.app import pipeline
@@ -255,7 +255,7 @@ def test_forced_reparse_is_not_blocked_by_its_own_earlier_scratch_record(tmp_pat
 
 
 def test_jsonl_lines_keep_records_with_form_feed_in_text(tmp_path):
-    """본문에 폼피드가 든 기록이 splitlines 로 깨져 「이미 처리」에서 빠지던 일(10/5)."""
+    """본문에 폼피드가 든 기록도 한 줄로 읽는다. splitlines 는 폼피드에서도 줄을 나눠 「이미 처리」 판정이 어긋난다."""
     job = _load("167_dgx_parse.py")
     p = tmp_path / "parsed-0.jsonl"
     recs = [{"rel": "a.pdf", "ok": True, "masked_text": "쪽1\x0c쪽2 끝"}, {"rel": "b.pdf", "ok": True}]
@@ -264,7 +264,7 @@ def test_jsonl_lines_keep_records_with_form_feed_in_text(tmp_path):
 
 
 def test_rels_mode_reimports_missed_records_ignoring_offsets(tmp_path, monkeypatch):
-    """읽은 자리를 지나쳤지만 문서함에 없는 원본을 --rels 로 다시 들인다(10/6: 1,133건). 다른 원본은 건드리지 않고 읽은 자리도 그대로."""
+    """읽은 자리를 지나쳤지만 문서함에 없는 원본을 --rels 로 다시 들인다. 다른 원본은 건드리지 않고 읽은 자리도 그대로 둔다."""
     job = _load("168_import_parsed.py")
     monkeypatch.setattr(job, "ROOT", tmp_path)
     (tmp_path / "data" / "platform").mkdir(parents=True, exist_ok=True)

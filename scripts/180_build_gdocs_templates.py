@@ -1,4 +1,4 @@
-"""구글 독스 공통 양식 4종을 독스 API 로 직접 만든다(K-20261008-01, src/zzaimy/ingest/gdocs_templates.py).
+"""구글 독스 공통 양식 4종을 독스 API 로 직접 만든다(src/zzaimy/ingest/gdocs_templates.py).
 
 실행(VM): env PYTHONPATH=src .venv/bin/python scripts/180_build_gdocs_templates.py --email <허용된 학교 계정> [--only plan]
   폴더: 내 드라이브 ZZAIMY/공통 양식(구글 독스) — 같은 이름의 옛 문서는 휴지통으로.
@@ -35,7 +35,7 @@ def main() -> int:
         out.append(got)
         print(f"{spec['title']} → {got['url']}", flush=True)
     print("폴더: https://drive.google.com/drive/folders/" + folder)
-    # 바로가기 목록은 폴더에 지금 있는 양식 전체로 — --only 로 하나만 다시 만들면 목록이 그 하나로 줄던 것(10/10)
+    # 바로가기 목록은 폴더에 지금 있는 양식 전체로 — --only 로 하나만 다시 만들어도 목록이 그 하나로 줄지 않게
     made = {g["title"]: g for g in out}
     pub = []
     for spec in gt.SPECS.values():

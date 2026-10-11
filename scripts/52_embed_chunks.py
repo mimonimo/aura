@@ -1,10 +1,10 @@
-"""규정 조각 임베딩 사전 계산 (야간 자동화 / 임베딩 RAG 전환 재료).
+"""규정 조각 임베딩 사전 계산 (임베딩 RAG 재료).
 
 KURE-v1(리서치 1안 베이스)로 규정 저장소 전체 조각을 임베딩해 저장한다.
 끝나면 프로브 질의 몇 개로 최근접 조각을 로그에 남겨 품질을 눈으로 확인할
 수 있게 한다.
 
-실행(Spark): .venv-train/bin/python scripts/52_embed_chunks.py
+실행(GPU 장비): .venv-train/bin/python scripts/52_embed_chunks.py
 """
 
 from __future__ import annotations

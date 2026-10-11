@@ -1,6 +1,6 @@
 """수집 코퍼스 → RAG 기준문서(regulation chunk) 인제스트.
 
-파이프라인(ADR-0014·브리프 절대규칙 3): 파싱 → **PII 마스킹(인덱싱 前)** →
+파이프라인(ADR-0014·브리프 절대규칙 3): 파싱 → PII 마스킹(색인 전) →
 조각화(split_regulation) → 문서·조각 DB 적재. 임베딩·재색인은 VM에서
 scripts/66_reindex.sh로 별도 실행(KURE-v1, 오프라인). 이 스크립트는 무인
 반복 가능(파일명 기준 idempotent).
@@ -78,7 +78,7 @@ def main() -> int:
             print(f"  [스킵:빈약 {len(text)}자] {name[:44]}")
             n_skip += 1
             continue
-        # PII 마스킹 — 반드시 조각화·적재 前 (절대규칙 3)
+        # PII 마스킹은 조각화·적재보다 먼저 한다 (절대규칙 3)
         try:
             masked, events = masker.mask(RawDocument(doc_id=name, text=text))
         except Exception as e:

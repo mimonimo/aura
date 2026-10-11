@@ -169,7 +169,7 @@ def test_kind_rules_cover_posters_spaced_headers_and_subtitled_reports():
 
 
 def test_general_document_kinds_from_title_words():
-    """서류 종류에 붙는 일반 낱말 — 증빙·교육과정·회의·홍보·도면·개인 제출물(2026-10-06 갈래 미정 표본)."""
+    """서류 종류에 붙는 일반 낱말로 갈래를 정한다. 증빙·교육과정·회의·홍보·도면·개인 제출물."""
     from zzaimy.app.doc_routing import guess_kind
 
     cases = {

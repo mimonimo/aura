@@ -44,7 +44,7 @@ TOKEN_KEY = "LABEL_STUDIO_USER_TOKEN"
 LEGACY_KEY = "LABEL_STUDIO_ENABLE_LEGACY_API_TOKEN"
 DEFAULT_USERNAME = "default_user@localhost"  # label-studio 의 기본 계정명
 
-# ExecStart 옵션 중 우리가 읽는 것 (label-studio 1.23 argparser 기준)
+# ExecStart 옵션 중 이 스크립트가 읽는 것 (label-studio 1.23 argparser 기준)
 _FLAGS = {
     "--port": "port", "-p": "port",
     "--data-dir": "data_dir", "--database": "database",

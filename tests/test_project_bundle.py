@@ -145,7 +145,7 @@ def test_rightmost_title_cue_decides_kind():
     assert guess_kind("AID선정평가 지표정의서 및 평가편람(ver5).hwpx", "")[0] == "guideline"
     assert guess_kind("AID선정평가사업계획서 작성서식(ver5).hwpx", "")[0] == "form"
     assert guess_kind("규정 개정 신청서.hwp", "")[0] == "form"
-    assert guess_kind("2026학년도 지원사업 기본계획.pdf", "")[0] == "basic_plan"      # 기본계획은 기준 문서 갈래(9/27)
+    assert guess_kind("2026학년도 지원사업 기본계획.pdf", "")[0] == "basic_plan"      # 기본계획은 기준 문서 갈래
 
 
 def test_project_doc_named_matches_title_words(tmp_path):
@@ -222,7 +222,7 @@ def test_ambiguous_document_reference_asks_instead_of_guessing(tmp_path, monkeyp
 
 def test_project_evidence_uses_intake_documents(tmp_path, monkeypatch):
     """절 작성 지시면 재료는 프로젝트의 접수 문서(합본·지난 계획서)에서 온다 — 같은 절이 없으면 낱말이 겹치는 조각이 재료로 붙고,
-    27B 는 그 재료와 대상 절 본문을 받아 쓴다(2026-09-27 절 작성 에이전트)."""
+    27B 는 그 재료와 대상 절 본문을 받아 쓴다(절 작성 에이전트)."""
     from zzaimy.app import gdocs_agent
     from zzaimy.ingest import gdocs, gdrive
     import json
@@ -364,7 +364,7 @@ def test_existing_chat_accepts_several_attachments(tmp_path):
                files=[("attachment", ("a.pdf", b"%PDF-1.4 a", "application/pdf")), ("attachment", ("b.pdf", b"%PDF-1.4 b", "application/pdf"))],
                follow_redirects=False)
     sid = int(r.headers["location"].rsplit("/", 1)[-1])
-    # 첨부 둘이지만 프로젝트는 만들지 않는다? — 두 건 이상이면 프로젝트다(문서 세트). 한 건이면 첨부만.
+    # 첨부가 두 건 이상이면 문서 세트로 보고 프로젝트를 만든다. 한 건이면 첨부만 남긴다.
     assert db.get_chat_session(sid)["project_id"] is not None
     r2 = c.post("/chat/send", data={"question": "하나만"}, files=[("attachment", ("c.pdf", b"%PDF-1.4 c", "application/pdf"))], follow_redirects=False)
     sid2 = int(r2.headers["location"].rsplit("/", 1)[-1])
@@ -430,7 +430,7 @@ def test_upload_file_reuses_same_name_in_folder(monkeypatch):
 
 
 def test_chat_shows_only_the_answers_own_chips(tmp_path):
-    """선택지는 답변이 낸 것만 — 프로젝트·연결 문서 상태로 만든 고정 제안은 없다(C-99)."""
+    """선택지는 답변이 낸 것만 — 프로젝트·연결 문서 상태로 만든 고정 제안은 없다."""
     app, c = _client(tmp_path)
     db = app.state.db
     pid = db.create_project("grant", "AID", owner="zzaimy")
@@ -470,7 +470,7 @@ def test_context_options_take_precedence_and_clear_on_next_question(tmp_path, mo
 
 
 def test_document_store_page_lists_intake_documents_and_basic_plan_kind(tmp_path):
-    """접수·첨부 문서는 라이브러리 목록에 갈래와 함께 보인다(문서함의 같은 목록은 2026-10-06 라이브러리로 합침). '기본계획'은 기준 갈래다."""
+    """접수·첨부 문서는 라이브러리 목록에 갈래와 함께 보인다(문서함의 같은 목록은 라이브러리로 합쳤다). '기본계획'은 기준 갈래다."""
     from zzaimy.app.doc_routing import guess_kind
 
     assert guess_kind("2026학년도 AID 전환 중점 전문대학 지원사업 기본계획.pdf", "")[0] == "basic_plan"
@@ -518,7 +518,7 @@ def test_receipt_number_can_be_changed_and_institution_saved(tmp_path):
     r = c.post(f"/doc/{d2}/receipt", data={"receipt_no": "이상한번호"}, follow_redirects=False)
     assert r.headers["location"].endswith("err=receipt")
     page = c.get(f"/doc/{d1}").text
-    assert 'name="receipt_no"' in page and 'value="2026-국고-0099"' in page          # 접수번호 수정 창(아스트라 f83d1731: 관리 모달)
+    assert 'name="receipt_no"' in page and 'value="2026-국고-0099"' in page          # 접수번호 수정 창(관리 모달)
     c.post("/institution", data={"대학명": "영남이공대학교", "주소": "", "총장": "홍길동", "대표전화": ""}, follow_redirects=False)
     from zzaimy.app import institution
     f = institution.facts(db)

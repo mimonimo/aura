@@ -1,6 +1,6 @@
 """배포 후 실동작 점검(운영 VM, 실제 DB) — 화면·검색·마스킹·연동을 한 번에 돈다.
 
-'되겠지'가 아니라 실제로 돌려서 확인한다. 앱 프로세스와 별개로 같은 코드를 인프로세스
+앱 프로세스와 별개로 같은 코드를 인프로세스
 (TestClient, 인증 없음)로 띄워 실제 platform.db 를 읽는다 — GET 만 치므로 데이터는
 바뀌지 않는다(PII 자가 점검·잔여 스캔 결과만 settings 에 저장).
 
@@ -63,8 +63,8 @@ def main() -> int:
         if not ok:
             fails.append(f"GET {r} -> {code}")
 
-    # 2) 검색 — 대화가 실제로 쓰는 사업 문서 검색(그래프로 사업·연차를 좁힌 RAG, ADR-0049). 규정류도 DGX 반입 뒤 이 색인에 있다
-    #    (규정 전용 색인 regulation_chunks 는 프로젝트 기준 문서 몇 건뿐 — 옛 점검은 거기서 찾아 늘 0건이었다, 2026-10-09)
+    # 2) 검색 — 대화가 실제로 쓰는 사업 문서 검색(그래프로 사업·연차를 좁힌 RAG, ADR-0049). 규정류도 이 색인에 있다.
+    #    규정 전용 색인 regulation_chunks 에는 프로젝트 기준 문서 몇 건만 있어 점검 대상으로 쓰지 않는다.
     print("== 2) 문서 검색 실측(사업 문서 RAG) ==")
     from zzaimy.app import grant_search
     for q in QUERIES:
@@ -98,7 +98,7 @@ def main() -> int:
         print(f"  잔여 스캔: 검사 {sc.get('scanned')} · 개인정보 표기 {sc.get('hits')}건 · 제외 {sc.get('excluded_docs')}건 · "
               f"내부 마스킹 {'켜짐' if sc.get('policy_enabled') else '꺼짐(ADR-0044 기본)'} · 가렸어야 할 잔여 {sc.get('enforced_hits')}건"
               f"{' — ' + sc['error'] if sc.get('error') else ''}")
-        # 실패는 정책이 켠 항목의 잔여만 — 정책이 꺼져 있으면 본문의 개인정보는 정책대로 남은 것(9/29 사용자 변경)
+        # 실패는 정책이 켠 항목의 잔여만 센다. 정책이 꺼져 있으면 본문의 개인정보는 정책대로 남은 것이다.
         if sc.get("enforced_hits") or sc.get("error"):
             fails.append(f"PII 잔여 {sc.get('enforced_hits')}건 {sc.get('error') or ''}"[:120])
     except Exception as e:  # noqa: BLE001

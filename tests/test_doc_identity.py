@@ -116,7 +116,7 @@ def test_title_is_read_from_the_head_of_regulation_text():
 
 def test_two_line_title_is_joined_and_partial_title_never_beats_a_meaningful_filename():
     """제목이 두 줄이면 앞줄을 이어 온전한 제목이 되고, 그래야 멀쩡한 파일 이름을 대신할 수 있다.
-    뒷줄만 잡힌 채로는(예전 동작) 파일 이름을 잘린 이름으로 바꾸지 않는다."""
+    뒷줄만 잡혔을 때는 파일 이름을 잘린 이름으로 바꾸지 않는다."""
     from zzaimy.app.doc_title import display_name, title_beats_filename
 
     doc = {"filename": "대학재정지원사업_운영관리_매뉴얼.pdf", "stored_path": "",

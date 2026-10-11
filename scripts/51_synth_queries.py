@@ -1,12 +1,12 @@
-"""합성 질의 생성 배치 (야간 자동화 / model-plan §1 Embed 데이터 파이프라인의 축소판).
+"""합성 질의 생성 배치 (model-plan §1 Embed 데이터 파이프라인의 축소판).
 
 규정 저장소의 각 조각에 대해 vLLM으로 검색 질의 3종(실무형·요구사항형·키워드형)을
 생성해 JSONL로 쌓는다. 재시작해도 이어서 돈다(이미 처리한 조각은 건너뜀).
 각 행에 정답 조각의 본문(gold_text·gold_title·gold_heading)을 같이 적는다 — 조각을
 재분할해 id가 바뀌어도 평가(53)가 본문으로 정답을 되찾는다.
-/tmp/stop-overnight 파일이 생기면 우아하게 종료한다.
+/tmp/stop-overnight 파일이 생기면 진행 중인 요청만 마치고 멈춘다.
 
-실행(Spark): .venv/bin/python scripts/51_synth_queries.py
+실행(GPU 장비): .venv/bin/python scripts/51_synth_queries.py
 """
 
 from __future__ import annotations

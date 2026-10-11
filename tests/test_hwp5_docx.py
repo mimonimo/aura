@@ -147,7 +147,7 @@ def test_paragraphs_under_a_column_set_inside_a_cell_are_kept(tmp_path):
 
 
 def test_formula_field_values_in_cells_are_kept(tmp_path):
-    """표 계산식 칸(=SUM 결과)은 FieldFormula 안의 Text 에 있다 — 필드를 건너뛰면 합계·소계 칸이 빈다(실측 2026-09-30)."""
+    """표 계산식 칸(=SUM 결과)은 FieldFormula 안의 Text 에 있다 — 필드를 건너뛰면 합계·소계 칸이 빈다."""
     cell = ('<Paragraph parashape-id="0" style-id="0" new-page="0"><LineSeg><Text charshape-id="0">소계 </Text>'
             '<FieldFormula chid="%fmu" command="=SUM(?13:?21)??%g,;;1,044"><Text charshape-id="0">1,044</Text></FieldFormula>'
             '<Text charshape-id="0"> 백만 원</Text></LineSeg></Paragraph>')

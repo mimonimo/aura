@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """접수 문서의 그림 쪽(글자층 없는 쪽)을 비전 모델로 판독해 조각으로 더한다 — 운영 서비스 밖에서 한 번에 여러 묶음.
 
-플랫폼의 요청 시 판독(POST /doc/{id}/read-pages, 12쪽씩)과 같은 코드(read_image_pages)를 쓴다. 서비스 재시작이 잦은 날
-긴 판독을 서비스 배경 작업에 맡기면 끊기므로(실측 2026-09-24) 이 스크립트로 돌린다. 마스킹 대상 문서면 가린다.
+플랫폼의 요청 시 판독(POST /doc/{id}/read-pages, 12쪽씩)과 같은 코드(read_image_pages)를 쓴다. 서비스가 재시작되면
+배경 작업의 긴 판독이 끊기므로 이 스크립트로 돌린다. 마스킹 대상 문서면 가린다.
 
 실행(VM): set -a; . .env.local; set +a; env PYTHONPATH=src .venv/bin/python scripts/143_read_image_pages.py --doc 565 [--rounds 6] [--batch 12]
 """

@@ -1,5 +1,5 @@
 #!/bin/bash
-# 학습본을 서빙 장비로 옮기고 서비스까지 바꾼다 — 사람이 손으로 이어 붙이던 단계를 한 번에.
+# 학습본을 서빙 장비로 옮기고 서비스까지 바꾼다 — 이관 단계를 한 번에 잇는다.
 #
 # 흐름: (학습 장비에서 복사) → 서빙 서비스 교체 → 임베딩이면 재색인 → 리랭커면 근거 하한 재측정
 #      → VM 설정 갱신 → 서비스 재시작 → 점검(110)
@@ -13,12 +13,12 @@
 #   bash scripts/116_ship_and_serve.sh rerank zzaimy-rerank-v2 --from <DGX 계정@주소>:~/zzaimy/models
 #   bash scripts/116_ship_and_serve.sh writer zzaimy-writer-v1 --from <DGX 계정@주소>:~/zzaimy/models   # 토르 02·03 둘 다
 set -euo pipefail
-# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
 [ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 VM=aura@192.168.16.226
 THOR=${THOR03_SSH:?.env.local 에 THOR03_SSH=계정@주소}
 TP=8022
-KIND="${1:?rerank | embed 중 하나}"
+KIND="${1:?rerank | embed | writer 중 하나}"
 NAME="${2:?학습본 폴더 이름 (예: zzaimy-rerank-v2)}"
 FROM=""
 [ "${3:-}" = "--from" ] && FROM="${4:?원본 주소}"
@@ -31,8 +31,8 @@ case "$KIND" in
 esac
 
 # ③Writer 학습본(bf16 병합본 — 양자화 판은 젯슨 vLLM 에서 적재 실패, ADR-0022) → 토르 02·03 둘 다.
-# 토르 02 = 대화·초안, 토르 03 = 반입 검토·판독. 같은 판을 두 대에 올려야 '뒤죽박죽'이 안 된다.
-# 젯슨은 큰 파일을 받은 뒤 페이지 캐시가 CUDA 메모리를 막는다(K-47) — 서빙 전에 CUDA 가용 메모리를
+# 토르 02 = 대화·초안, 토르 03 = 반입 검토·판독. 같은 판을 두 대에 올려야 단계마다 모델 판이 어긋나지 않는다.
+# 젯슨은 큰 파일을 받은 뒤 페이지 캐시가 CUDA 메모리를 막는다 — 서빙 전에 CUDA 가용 메모리를
 # 재고 모자라면 root 한 줄을 안내하고 멈춘다(같은 인자로 다시 돌리면 복사는 건너뛴다).
 if [ "$KIND" = "writer" ]; then
   IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor

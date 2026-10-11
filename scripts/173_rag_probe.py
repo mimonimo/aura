@@ -127,7 +127,7 @@ def main() -> int:
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
     ap.add_argument("--set", default=str(ROOT / "data/eval/rag_probe_set.json"),
                     help="고정 질문 집합 — 있으면 그대로 쓴다(측정끼리 같은 시험지). 질문을 그래프에서 매번 새로 뽑으면 그래프를 다시 지을 때마다"
-                         " 시험지가 바뀌어 c9·c10 이 겹치는 질문 2/40 이었다(2026-10-06)")
+                         " 시험지가 바뀌어 측정끼리 견줄 수 없다")
     ap.add_argument("--new-set", action="store_true", help="질문 집합을 새로 뽑아 --set 에 쓴다")
     args = ap.parse_args()
     from zzaimy.app import grant_search

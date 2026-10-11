@@ -53,7 +53,7 @@ def test_search_prefers_project_reference_documents(tmp_path, monkeypatch):
 
 
 def test_increment_removes_and_adds_in_one_array_and_checks_without_reloading(tmp_path, monkeypatch):
-    """10/4 VM OOM — 색인 갱신이 5GB 사본을 여러 벌 만들던 것을 한 배열로. 결과는 같아야 한다."""
+    """색인 갱신은 큰 배열 사본을 여러 벌 만들지 않고 한 배열에서 빼고 더한다(메모리 절약). 결과는 같아야 한다."""
     import numpy as np
     from zzaimy.app import grant_search as gs
     idx = tmp_path / "grant_embeddings.npz"

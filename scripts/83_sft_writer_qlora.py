@@ -120,7 +120,7 @@ def main() -> int:
         return 3
 
     # 통합 메모리 장비(DGX·토르)에서는 전부 GPU 에 올린다. device_map="auto" 는 그 순간의 여유 메모리만 보고
-    # 일부 층을 CPU/meta 로 내려 역전파가 "expected device meta but got cuda:0" 으로 죽는다(2026-09-22 실측).
+    # 일부 층을 CPU/meta 로 내려 역전파가 "expected device meta but got cuda:0" 으로 죽는다.
     load_kw: dict = {"dtype": torch.bfloat16, "device_map": {"": 0} if torch.cuda.is_available() else None}
     if args.four_bit:
         load_kw["quantization_config"] = BitsAndBytesConfig(

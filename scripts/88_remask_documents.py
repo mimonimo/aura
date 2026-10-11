@@ -65,7 +65,7 @@ def mask_table_json(masker: PiiMasker, raw: str, doc_id: int) -> tuple[str, int]
             if n:
                 cell[-1] = fixed
                 hits += n
-    # 옆 칸 문맥으로만 알아볼 수 있는 성명('과 장 | 김철수') — 행 단위로 한 번 더
+    # 옆 칸 문맥으로만 알아볼 수 있는 성명('과 장 | 홍길동') — 행 단위로 한 번 더
     from zzaimy.ingest.pii import mask_names_in_rows
 
     rowwise = mask_names_in_rows(cells)

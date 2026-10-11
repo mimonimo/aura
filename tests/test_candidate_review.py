@@ -7,7 +7,7 @@ def test_review_is_bound_to_candidate_and_never_human_approval():
     candidate = {'job':'abc','rows':[{'id':'one','answer':'first'}]}
     receipt = review_receipt(candidate, {'decision':'rework_required','issues':[
         {'sample_id':'one','reason':'unrelated metric evidence','action':'rewrite with matching evidence'}]},
-        reviewer='codex', reviewed_at='now')
+        reviewer='review-agent', reviewed_at='now')
     assert review_matches(candidate, receipt)
     assert receipt['reviewer_type'] == 'agent' and not receipt['approved']
     candidate['rows'][0]['answer'] = 'changed'
@@ -17,7 +17,7 @@ def test_review_is_bound_to_candidate_and_never_human_approval():
 def test_review_cannot_target_unseen_sample():
     with pytest.raises(ValueError):
         review_receipt({'job':'abc','rows':[]}, {'decision':'rework_required','issues':[
-            {'sample_id':'one','reason':'bad','action':'rewrite'}]}, reviewer='codex',reviewed_at='now')
+            {'sample_id':'one','reason':'bad','action':'rewrite'}]}, reviewer='review-agent',reviewed_at='now')
 
 
 def test_saved_review_excludes_rework_but_not_changed_candidates(tmp_path):
@@ -26,8 +26,8 @@ def test_saved_review_excludes_rework_but_not_changed_candidates(tmp_path):
                  'status':'candidate','completed_at':1}
     findings = {'decision':'rework_required','issues':[
         {'sample_id':'one','reason':'wrong evidence','action':'rewrite'}]}
-    path = save_review(tmp_path, candidate, findings, reviewer='codex', reviewed_at='now')
-    assert path == save_review(tmp_path, candidate, findings, reviewer='codex', reviewed_at='now')
+    path = save_review(tmp_path, candidate, findings, reviewer='review-agent', reviewed_at='now')
+    assert path == save_review(tmp_path, candidate, findings, reviewer='review-agent', reviewed_at='now')
     import json
     receipt = json.loads(path.read_text())
     totals = summarize([candidate], [receipt])['totals']

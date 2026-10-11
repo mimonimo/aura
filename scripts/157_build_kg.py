@@ -57,7 +57,7 @@ def stated_years(text: str) -> tuple[set, set]:
 
 def year_conflict(a: str, b: str) -> bool:
     """두 절이 밝힌 연차가 서로 다르면 같은 것의 계획과 실적이 아니다 — 같은 제목 「4. 사업 예산집행 계획」이 계획서는 4차년도,
-    보고서는 3차년도를 다루던 짝(판정 big_c8: 남긴 짝 오류 11건 중 다수). 한쪽이라도 밝히지 않으면 판단하지 않는다."""
+    보고서는 3차년도를 다루는 경우가 있다. 한쪽이라도 밝히지 않으면 판단하지 않는다."""
     ra, pa = stated_years(a)
     rb, pb = stated_years(b)
     if ra and rb and not (ra & rb):
@@ -65,7 +65,7 @@ def year_conflict(a: str, b: str) -> bool:
     return bool(pa and pb and not (pa & pb))
 
 
-ASPECT_BODY_MIN = 0.15          # 판정 all10 보정: 성과지표 0.02~0.04·예산 0.09~0.15(모두 다름), 추진 실적 0.15~0.24(대부분 같음)
+ASPECT_BODY_MIN = 0.15          # 측정 결과: 성과지표 0.02~0.04·예산 0.09~0.15(모두 다름), 추진 실적 0.15~0.24(대부분 같음)
 _HEAD_NOUN = re.compile(r"과제계획서|사업계획서|수행계획서|실적보고서|연차보고서|계획서|보고서")
 
 
@@ -96,7 +96,7 @@ def main() -> int:
     docs, chunk_map = [], {}
     from zzaimy.app.doc_routing import excluded_kinds
     EXCLUDED, dropped = set(excluded_kinds()), []
-    # 문서·프로젝트·조각을 묶어서 읽는다 — 문서마다 세 번씩 DB 를 오가면 3만 건에 10만 번(10/4 실측: 재구축이 몇 시간)
+    # 문서·프로젝트·조각을 묶어서 읽는다 — 문서마다 세 번씩 DB 를 오가면 3만 건에 10만 번이라 재구축이 몇 시간 걸린다
     want_ids = list(_ids(args.docs))
     doc_rows: dict[int, dict] = {}
     with db._conn() as conn:
@@ -164,7 +164,7 @@ def main() -> int:
         return None
     def card_by_surface(term: str):
         """관계(편입·앞 단계)의 대상 — 그 표기가 든 장부 항목의 표기들로 만들 수 있는 카드 id(program:rise·program:sck …)를
-        가진 카드. 쓴 횟수로 고르면 여러 사업 이름을 흡수한 큰 카드(LINC+)가 「RISE」「특성화 전문대학 육성사업」의 주인이 됐다(10/5)."""
+        가진 카드. 쓴 횟수로 고르면 여러 사업 이름을 흡수한 큰 카드(LINC+)가 다른 사업 이름의 주인이 될 수 있다."""
         entry = next((e for e in ledger.get("programs", []) if term in (e.get("terms") or [])), None)
         terms = (entry or {}).get("terms") or [term]
         ids = {"program:" + re.sub(r"[^0-9a-z가-힣]+", "", t.lower()) for t in terms}
@@ -214,7 +214,7 @@ def main() -> int:
     nodes: list[tuple] = []
     edges: list[tuple] = []
     # 사업마다 연도 → 차수 대응을 문서에서 배운다(「2017년도(1차년도) 실적보고서」). 연도만 있는 문서도 그 차수 노드로 보내
-    # 같은 연차가 r1·y2017 두 노드로 갈라지지 않게 한다(RISE r1/y2025, LINC+ r1/y2017 실측)
+    # 같은 연차가 r1·y2017 두 노드로 갈라지지 않게 한다
     year_round: dict[tuple[str, int], Counter] = defaultdict(Counter)
     for d in docs:
         a = assigns[d["id"]]
@@ -231,7 +231,7 @@ def main() -> int:
                     a.evidence = list(a.evidence) + [f"{a.year}년 = {r}차년도(같은 사업 문서 {n}건)"]
     by_year: dict[str, list[int]] = defaultdict(list)
     # 외부 확인 장부(data/platform/kg_external.json) — 사업이 같은지·이름이 바뀌었는지 같은 판단을 외부 검색으로 확인한 사실과 출처.
-    # 그래프 관계는 문서 근거로 만들고, 장부는 그 판단의 외부 확인으로 붙인다(사용자 2026-10-02: 판단이 필요하면 외부 검색으로 도움)
+    # 그래프 관계는 문서 근거로 만들고, 장부는 그 판단의 외부 확인으로 붙인다
     ext = []
     ext_path = ROOT / "data" / "platform" / "kg_external.json"
     if ext_path.is_file():
@@ -330,7 +330,7 @@ def main() -> int:
 
     def is_program_heading(title: str, prog: str) -> bool:
         """절 제목이 사업 이름 머리글인가 — 사업 이름·약칭을 지우고 남는 글자가 6자 이하(「대구광역시 지역혁신중심 대학지원체계(RISE)」).
-        이런 절은 과제가 아니라 문서 표지·머리글이라 제목이 같아도 계획↔실적 짝이 아니다(판정 2026-10-04: RISE 제목 짝 2/8)."""
+        이런 절은 과제가 아니라 문서 표지·머리글이라 제목이 같아도 계획↔실적 짝이 아니다."""
         t = re.sub(r"[\s.()·\-_「」\[\]]+", "", title or "").upper()
         if not t:
             return False
@@ -341,9 +341,9 @@ def main() -> int:
                 hit = True
         return hit and len(re.sub(r"[^가-힣A-Z0-9]", "", t)) <= 6
     # 서로 다른 사업 셋 이상의 문서에 같은 절 제목으로 나오는 제목(학교 이름 머리글·「추진 성과」 같은 상투 제목)은 제목만으로 잇지 않는다 —
-    # 제목이 같아도 한쪽은 목차, 다른 쪽은 실적 총괄표였다(판정 2026-10-04: RISE 「영남이공대학교」↔「영남이공대학교」 6쌍). 본문으로는 잇는다
+    # 제목이 같아도 한쪽은 목차, 다른 쪽은 실적 총괄표일 수 있다. 본문으로는 잇는다
     # 사업은 계열(앞 단계 → 다음 단계, 장부의 succeeded_by)로 묶어 센다 — LINC 1단계·LINC+·LINC3.0 이 함께 쓰는 「인력양성」
-    # 「기업연계 기반 공유·협업 활동」은 계열 고유의 절이지 상투 제목이 아니다(판정 c7 dropped: 같은 짝 3/10). 편입은 계열이 아니다
+    # 「기업연계 기반 공유·협업 활동」은 계열 고유의 절이지 상투 제목이 아니다. 편입은 계열이 아니다
     fam: dict[str, str] = {}
 
     def family(x: str) -> str:
@@ -362,8 +362,8 @@ def main() -> int:
                 title_progs[sections.title_key(sec.title)].add(family(pg))
     boiler = {k for k, ps in title_progs.items() if len(ps) >= 3}
     print(f"== 상투 절 제목(사업 계열 셋 이상) {len(boiler)}개 — 제목 짝에서 뺀다", flush=True)
-    # 다른 대학의 자료(협의회 공유본·공개용 사업계획서 「경복대학교 4차년도 사업수행계획서_공개용」 등)는 우리 학교의 계획↔실적 짝에서 뺀다
-    # (판정 2026-10-04: 가톨릭상지대학교 계획서 ↔ 우리 실적보고서). 우리 학교는 기관 정보의 대학명(문서에서 인출) — 이름을 코드에 두지 않는다
+    # 다른 대학의 자료(협의회 공유본·다른 대학의 공개용 사업계획서 등)는 우리 학교의 계획↔실적 짝에서 뺀다.
+    # 우리 학교는 기관 정보의 대학명(문서에서 인출) — 이름을 코드에 두지 않는다
     from zzaimy.app import institution as _inst
     own = (_inst.facts(db).get("대학명") or "").strip()
     own_stem = re.sub(r"(대학교|대학)$", "", own)
@@ -445,13 +445,13 @@ def main() -> int:
                         code_sections[code].append((r, s.path, s.title))
                         # 과제 코드로 계획서를 좁힌 뒤, 보고서 절 제목의 핵심 낱말(예산·성과지표·추진)을 가진 계획서 절과만 잇는다
                         # (「예산 집행 실적」 ↔ 「예산 운용」). 맞는 측면 절이 없으면(우수사례) 단위과제 노드로만 묶는다 —
-                        # 계획서 전체 ↔ 보고서 한 측면은 '같은 것의 계획과 실적'이 아니다(판정 all7: 23%)
+                        # 계획서 전체 ↔ 보고서 한 측면은 '같은 것의 계획과 실적'이 아니다
                         desc = [y for y in rsecs if y.path == s.path or y.path.startswith(s.path + ".")]
                         rtext = " ".join(text_full(y) for y in desc)[:6000]
                         ps, why = sections.aspect_match(docs_by_id[p]["sections"], s.title, text_full, rtext)
                         if ps is not None:
                             # 측면 낱말이 같아도 본문이 겹치지 않으면(계획서 「성과지표 관리 계획」= CQI 관리 체계, 보고서 = 지표 수치) 같은 것의
-                            # 계획과 실적이 아니다 — 그런 짝은 다음 층(성과지표 노드의 목표값↔달성값)에서 잇는다(판정 all10)
+                            # 계획과 실적이 아니다 — 그런 짝은 다음 층(성과지표 노드의 목표값↔달성값)에서 잇는다
                             pdesc = [y for y in docs_by_id[p]["sections"] if y.path == ps.path or y.path.startswith(ps.path + ".")]
                             body = sections._jac(sections._words(" ".join(text_full(y) for y in pdesc)[:6000]), sections._words(rtext))
                             if body < ASPECT_BODY_MIN:
@@ -564,8 +564,8 @@ def main() -> int:
     kg_store.ensure(db)
     with db._conn() as conn:
         if args.full:
-            # 전체 다시 짓기 — 문서 노드에 붙은 연차·사업 관계와 사업·연차·단위 노드는 clear_doc 이 지우지 않아 옛 빌드의 것(옛 연차 노드
-            # y2025, 옛 사업 id)이 쌓였다(2026-10-02 실측). 그래프 전체를 지우고 쓴다
+            # 전체 다시 짓기 — 문서 노드에 붙은 연차·사업 관계와 사업·연차·단위 노드는 clear_doc 이 지우지 않아 옛 빌드의 것(옛 연차 노드,
+            # 옛 사업 id)이 쌓인다. 그래프 전체를 지우고 쓴다
             conn.execute("DELETE FROM kg_edges")
             conn.execute("DELETE FROM kg_nodes")
         if not args.full:                     # 전체 다시 짓기는 위에서 다 지웠다 — 문서마다 LIKE 로 또 훑지 않는다
@@ -577,7 +577,7 @@ def main() -> int:
                 conn.execute("DELETE FROM kg_edges WHERE src = ? OR dst = ?", (f"doc:{did}", f"doc:{did}"))
         kg_store.put_nodes(conn, nodes)
         kg_store.put_edges(conn, edges)
-    # 같은 노드·관계가 목록에 여러 번 들어가도 DB 에는 하나(덮어쓰기) — 고유 수를 찍는다(목록 길이로 찍어 실제보다 3만 많게 보였다, 2026-10-08)
+    # 같은 노드·관계가 목록에 여러 번 들어가도 DB 에는 하나(덮어쓰기) — 목록 길이가 아니라 고유 수를 찍는다
     n_nodes, n_edges = len({n[0] for n in nodes}), len({(e[0], e[1], e[2]) for e in edges})
     print(f"썼다 — 노드 {n_nodes} · 관계 {n_edges}" + (f" · 범위 밖 갈래로 뺀 문서 {len(dropped)}" if dropped else ""))
     if args.full:
@@ -588,7 +588,7 @@ def main() -> int:
 def _export_assignments(docs: list[dict], assigns: dict) -> None:
     """문서별 배정(사업·연도·연차·갈래) 스냅숏과 지난번 대비 변경 기록, 사업 × 연도별 확정 핵심 문서 목록을 내보낸다.
 
-    학습 문답(데이터셋)은 근거 문서의 사업·연차가 바뀌면 다시 검수해야 한다(아스트라 C-199) — 변경은
+    학습 문답(데이터셋)은 근거 문서의 사업·연차가 바뀌면 다시 검수해야 한다 — 변경은
     data/platform/doc_program_changes.jsonl 에 덧붙고, 문답 재료가 될 확정 문서는 program_core_docs.json 으로 나간다."""
     import time as _t
     plat = ROOT / "data" / "platform"

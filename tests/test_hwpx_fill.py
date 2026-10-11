@@ -461,7 +461,7 @@ def test_no_hanging_registry_without_auto_tab(tmp_path):
 
 
 def test_map_cells_by_span_when_docs_grid_is_finer():
-    """독스가 병합 칸을 잘게 나눠 격자가 서식과 어긋나도, 작업본 칸 가운데가 든 서식 칸으로 대응한다(리허설: 11열 서식·21열 독스)."""
+    """독스가 병합 칸을 잘게 나눠 격자가 서식과 어긋나도, 작업본 칸 가운데가 든 서식 칸으로 대응한다(예: 11열 서식이 독스에서 21열로)."""
     C = hwpx_fill._Cell
     def cell(col, width, text=""):
         return C(tc=(0, 0), inner=(0, 0), col=col, text=text, nested=False, p_open="", char_ref="0", width=width)

@@ -75,7 +75,7 @@ def main() -> int:
             "--sector", "grant", "--owner", "zzdev",
             "--origin-base", job["inbox"], "--jobs", "3", "--timeout", "30", "--apply", *files])
     sys.path.insert(0, str(ROOT / "src"))
-    # 이번 회차에 실제로 들어오거나 다시 처리한 문서가 없으면 그래프·양식을 다시 짓지 않는다(같은 결과를 회차마다 다시 짓던 것)
+    # 이번 회차에 실제로 들어오거나 다시 처리한 문서가 없으면 그래프·양식을 다시 짓지 않는다(같은 결과를 되풀이해 짓지 않게)
     if not post_only and jobs:
         n_upd = sum(len(j.get("updates", [])) for j in jobs)
         if _intake_lines() <= before and not n_upd:

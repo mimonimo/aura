@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""실문서로 Writer 학습쌍을 만들고 Label Studio 검수 프로젝트에 올린다(사용자 지시 2026-09-29: "내가 제공한 실문서를 라벨해서 학습에 쓸 수 있도록").
+"""실문서로 Writer 학습쌍을 만들고 Label Studio 검수 프로젝트에 올린다.
 
   양식(--form 문서 id, 기본 557 작성서식 ver5) × 완성본(--done 문서 id, 기본 562 사업계획서 Ver.3.3) → 절마다
   입력 = 서빙 프롬프트 틀(작성방법·근거·사실 목록·양식 표 격자), 출력 = 완성본 절의 편집 계획 JSON(insert·table·fill).
@@ -79,7 +79,7 @@ def main() -> int:
     crit_chunks = db.chunks_for_docs(crit_ids)
     print(f"근거 문서 {len(crit_ids)}건, 조각 {len(crit_chunks)}개")
 
-    # 근거 기록(아스트라 C-135 품질 관문): 입력 줄마다 문서·조각을 단다. 검수 판정은 사람이 남긴다
+    # 근거 기록(품질 관문): 입력 줄마다 문서·조각을 단다. 검수 판정은 사람이 남긴다
     program_id = f"docset:{args.form}:{args.done}"
     sources = (pv.Sources().add("form", db.list_doc_chunks(args.form)).add("done", done_chunks)
                .add("criteria", crit_chunks, prefix="reg:"))

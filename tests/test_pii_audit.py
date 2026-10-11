@@ -370,7 +370,7 @@ def test_pipeline_records_mask_events(tmp_path, monkeypatch, masker, doc_type):
     assert SYN_PHONE not in _dump(db) and SYN_EMAIL not in _dump(db)
 
 
-# ---- 이미 가린 자리를 잔여로 세지 않는다 (2026-09-20 운영 자료 실측) ----
+# ---- 이미 가린 자리를 잔여로 세지 않는다 ----
 
 def test_already_masked_spans_are_not_counted():
     """마스킹 결과를 다시 잔여로 세면 점검이 영원히 실패한다."""
@@ -380,7 +380,7 @@ def test_already_masked_spans_are_not_counted():
     assert _already_masked("소***")
     assert _already_masked("010-***-****")
     assert _already_masked("[KR_NAME]")
-    assert not _already_masked("김철수")
+    assert not _already_masked("김민수")
     assert not _already_masked("010-1234-5678")
 
 
@@ -396,10 +396,10 @@ def test_scan_ignores_masked_text_but_finds_real_values():
 
 
 def test_degree_words_are_not_names():
-    """'지원자 | 박사 학위' 의 '박사'는 성명이 아니다 — 채용 서식(2026-09-21 실측)."""
+    """채용 서식의 '지원자 | 박사 학위'에서 '박사'는 성명이 아니다."""
     from zzaimy.ingest.pii import mask_names_in_rows
 
     rows = [[0, 0, 1, 1, True, "지원자"], [0, 1, 1, 1, False, "박사"], [0, 2, 1, 1, False, "학위"],
-            [1, 0, 1, 1, True, "지원자"], [1, 1, 1, 1, False, "김철수"]]
+            [1, 0, 1, 1, True, "지원자"], [1, 1, 1, 1, False, "김민수"]]
     out = mask_names_in_rows(rows)
     assert out[1][-1] == "박사" and out[4][-1] == "[KR_NAME]"

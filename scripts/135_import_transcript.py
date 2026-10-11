@@ -6,7 +6,7 @@ data/vision/<doc_id>/p<N>.md 가 있으면 그것을(쪽 순서대로), 없으�
 기준 조각(regulation_chunks: chunk_document → index_ready)도 다시 만든다. 공개 수집분이 아니면 본문을 마스킹한다.
 parse_note 에 '외부 전사' 표시를 남긴다. 끝나면 재색인 표시(.reindex-needed) — 96 을 이어서.
 
-실행(VM): env PYTHONPATH=src .venv/bin/python scripts/135_import_transcript.py --docs 429,451 [--by claude]
+실행(VM): env PYTHONPATH=src .venv/bin/python scripts/135_import_transcript.py --docs 429,451 [--by 전사자]
 """
 
 from __future__ import annotations

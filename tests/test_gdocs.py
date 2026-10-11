@@ -174,7 +174,7 @@ class _FakePlanner:
 
 
 def test_linked_doc_command_is_applied_to_the_document(docs_env, tmp_path, monkeypatch):
-    """채팅 명령 → 편집 계획 → 문서에 바로 적용 → 채팅에 결과(사용자 요구: 담당자가 옮겨 넣지 않는다)."""
+    """채팅 명령 → 편집 계획 → 문서에 바로 적용 → 채팅에 결과. 담당자가 결과를 손으로 옮겨 넣지 않아도 된다."""
     import json as _json
     from zzaimy.app.main import create_app as _create
 
@@ -455,7 +455,7 @@ def test_project_route_moves_document_and_agent_move_op(docs_env, tmp_path, monk
 
 
 def test_rename_and_move_ops_are_dropped_unless_the_user_asked(monkeypatch):
-    """모델이 근거 조각을 보고 제 이름을 붙이는 일(실측 2026-09-24: 질문에 '자기소개서'로 개명) — 담당자의 말에 그 뜻이 없으면 버린다."""
+    """모델이 근거 조각만 보고 내놓은 이름 바꾸기·옮기기 동작은 담당자의 말에 그 뜻이 없으면 버린다."""
     from zzaimy.app import gdocs_agent
 
     fake = _FakePlanner(json.dumps({"reply": "정리했습니다.", "ops": [
@@ -687,7 +687,7 @@ def test_section_bodies_and_migrate_skip_box_and_keep_order(monkeypatch, tmp_pat
     monkeypatch.setattr(gdrive, "access_token", lambda email, http: "AT")
     http = httpx.Client(transport=httpx.MockTransport(handler))
     bodies = gdocs.section_bodies("a@b", "old", http=http)
-    # 본문이 빈 절(1.2)도 차례에 있다 — 서식 채우기가 소제목의 부모를 알 수 있게(2026-09-29). 옮기기는 빈 절을 건너뛴다
+    # 본문이 빈 절(1.2)도 차례에 있다 — 서식 채우기가 소제목의 부모를 알 수 있게. 옮기기는 빈 절을 건너뛴다
     assert [(b["heading"], bool(b["items"])) for b in bodies] == [("1.1. 교육여건 분석", True), ("1.2. 특성화 방향", False)]
     assert [k for k, _ in bodies[0]["items"]] == ["text", "widths", "table", "text"]
     assert bodies[0]["items"][1][1] == [100.0, 200.0] and bodies[0]["items"][2][1] == [["강점", "약점"], ["S1", "W1"]]
@@ -778,7 +778,7 @@ def test_figure_op_renders_uploads_shares_briefly_and_inserts_image(monkeypatch,
 
 
 def test_migrate_skips_form_native_paragraphs_and_tables(monkeypatch, tmp_path):
-    """새 작업본(서식 변환본)에 이미 있는 서식 표·문단은 옮기지 않는다 — 재생성 뒤 같은 표가 두 벌이던 문제(2026-09-29)."""
+    """새 작업본(서식 변환본)에 이미 있는 서식 표·문단은 옮기지 않는다 — 재생성 뒤 같은 표가 두 벌이 되지 않게."""
     import httpx
 
     def para(st, en, text, style="NORMAL_TEXT"):
@@ -810,7 +810,7 @@ def test_migrate_skips_form_native_paragraphs_and_tables(monkeypatch, tmp_path):
 
 
 def test_migrate_skips_short_lines_already_in_target_section(monkeypatch, tmp_path):
-    """짧은 서식 줄(「◦ 달성 계획 및 전략」)은 새 작업본의 같은 절에 있으면 다시 붙이지 않는다 — 새로 뜰 때마다 8줄씩 늘던 것(10/11)."""
+    """짧은 서식 줄(「◦ 달성 계획 및 전략」)은 새 작업본의 같은 절에 있으면 다시 붙이지 않는다 — 작업본을 새로 만들 때마다 같은 줄이 쌓이지 않게."""
     import httpx
 
     def para(st, en, text, style="NORMAL_TEXT"):
@@ -864,7 +864,7 @@ def test_fill_table_redirects_covered_cells_to_merge_origin_and_clears_hidden_te
                          user="u", data_dir=tmp_path, http=http)
     assert r["cells"] == 2 and r["skipped"] == 0
     reqs = sent[0]
-    # (1,1) 은 덮인 칸 → 원점 (1,0) 'AI 이수율' 을 바꾸지 않고… 아니, 원점은 값 칸이 아니므로 덮인 칸을 지목했으면 원점에 쓴다(여기선 라벨 칸을 덮어씀)
+    # (1,1) 은 덮인 칸이라 병합 원점 (1,0) 에 쓴다. 이 표에서는 라벨 칸 'AI 이수율' 을 덮어쓴다
     kinds = [list(q.keys())[0] for q in reqs]
     assert "insertText" in kinds
     # 덮인 칸의 숨은 글 '옛'(50..52)은 지운다
@@ -935,7 +935,7 @@ def test_document_read_retries_timeouts_and_server_errors(monkeypatch):
 
 
 def test_section_append_requests_computes_table_cells_without_rereading():
-    """절 끝에 글·표·글을 한 요청으로 — 표 칸 자리는 넣은 자리로 계산(칸(r,c) = 자리+4+r(2열+1)+2c, 독스 실측), 칸은 뒤에서부터 채우고
+    """절 끝에 글·표·글을 한 요청으로 — 표 칸 자리는 넣은 자리로 계산(칸(r,c) = 자리+4+r(2열+1)+2c, 독스 동작 기준), 칸은 뒤에서부터 채우고
     머리 행은 칸마다 굵게, 다음 글은 표 뒤 문단에 붙는다."""
     sec = {"index": 2, "heading": "1.1 절", "start": 10, "end": 30}
     reqs = gdocs._section_append_requests(sec, 100, [("text", "앞 글"), ("table", [["구분", "값"], ["가", "1"]]), ("text", "뒤 글")])
@@ -1076,7 +1076,7 @@ def test_plan_splits_insert_that_carries_table_cells():
 
 
 def test_drafting_in_project_with_form_picks_form_and_records_choice(docs_env, tmp_path, monkeypatch):
-    """양식은 에이전트가 고른다(10/11) — 모델이 없으면 규칙: 요청 갈래에 맞는 프로젝트 작성 서식이 공통 양식보다 먼저. 고른 기록이 남는다."""
+    """양식은 에이전트가 고른다 — 모델이 없으면 규칙: 요청 갈래에 맞는 프로젝트 작성 서식이 공통 양식보다 먼저. 고른 기록이 남는다."""
     from zzaimy.app.main import create_app as _create
 
     t = json.loads((tmp_path / "gdrive_tokens.json").read_text())
@@ -1179,7 +1179,7 @@ def test_multiline_replace_falls_back_to_line_by_line(monkeypatch, tmp_path):
 
 
 def test_empty_form_table_rows_count_as_unfilled():
-    """머리행만 채운 양식 표(값 행은 빈칸) — 칸 수는 표 구조에서 세어 「안 쓴 절」로 본다(글에서는 빈 행이 빠져 다 쓴 표로 보이던 것)."""
+    """머리행만 채운 양식 표(값 행은 빈칸) — 칸 수는 표 구조에서 세어 「안 쓴 절」로 본다(글로만 세면 빈 행이 빠져 다 쓴 표로 보인다)."""
     from zzaimy.app import drafting
 
     def cell(t):
@@ -1514,7 +1514,7 @@ def test_bullet_layout_official_item_hierarchy():
 
 
 def test_outline_does_not_read_body_items_as_headings():
-    """절 아래 본문 항목(「가. 정책 환경」「1) …」)은 절이 아니다 — 내어쓰기 문단은 본문 항목, 「1)」은 제목 꼴이 아니다(10/11)."""
+    """절 아래 본문 항목(「가. 정책 환경」「1) …」)은 절이 아니다 — 내어쓰기 문단은 본문 항목, 「1)」은 제목 꼴이 아니다."""
     from zzaimy.ingest import gdocs
 
     def para(start: int, text: str, style: str = "NORMAL_TEXT", hang: bool = False) -> dict:
@@ -1531,7 +1531,7 @@ def test_outline_does_not_read_body_items_as_headings():
 
 
 def test_report_section_looks_up_plan_counterpart_section(monkeypatch, tmp_path):
-    """보고서 절은 계획서의 짝 절 이름을 「」로 묶어 찾고, 그래프 절이 걸린 첫 후보를 쓴다(보고서 절 제목으로는 계획서에서 못 찾았다)."""
+    """보고서 절은 계획서의 짝 절 이름을 「」로 묶어 찾고, 그래프 절이 걸린 첫 후보를 쓴다(보고서 절 제목으로는 계획서의 짝 절을 찾지 못한다)."""
     from zzaimy.app import drafting, grant_search
     from zzaimy.app.db import Database
 
@@ -1693,7 +1693,7 @@ def test_library_hits_report_pulled_documents_to_sink(monkeypatch, tmp_path):
 
 
 def test_outline_skips_table_of_contents_lines():
-    """목차의 번호 줄은 절이 아니다 — 같은 글이 뒤에 제목으로 나오면 앞의 것은 목차(10/11 본문이 목차 아래에 들어가던 것)."""
+    """목차의 번호 줄은 절이 아니다 — 같은 글이 뒤에 제목으로 나오면 앞의 것은 목차로 보고 본문을 그 아래에 넣지 않는다."""
     def para(st, text, style="NORMAL_TEXT"):
         return {"startIndex": st, "endIndex": st + len(text) + 1,
                 "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text + "\n"}}]}}
@@ -1711,7 +1711,7 @@ def test_outline_skips_table_of_contents_lines():
 
 
 def test_chapter_divider_title_is_not_table_of_contents():
-    """한글 서식의 장 표지 「Ⅰ. 사업추진 목표」는 뒤에 같은 글이 또 나와도 목차가 아니다 — 앞뒤가 번호 줄 묶음일 때만 목차(10/11)."""
+    """한글 서식의 장 표지 「Ⅰ. 사업추진 목표」는 뒤에 같은 글이 또 나와도 목차가 아니다 — 앞뒤가 번호 줄 묶음일 때만 목차다."""
     def para(st, text, style="NORMAL_TEXT"):
         return {"startIndex": st, "endIndex": st + len(text) + 1,
                 "paragraph": {"paragraphStyle": {"namedStyleType": style}, "elements": [{"textRun": {"content": text + "\n"}}]}}
@@ -1723,7 +1723,7 @@ def test_chapter_divider_title_is_not_table_of_contents():
 
 
 def test_section_end_stops_before_page_break_followed_by_tables_only():
-    """절 뒤 쪽 나눔 다음이 표(다음 장 목차·장 표지)뿐이면 넣을 자리는 쪽 나눔 앞(10/11 글이 장 표지 아래로)."""
+    """절 뒤 쪽 나눔 다음이 표(다음 장 목차·장 표지)뿐이면 넣을 자리는 쪽 나눔 앞이다. 글이 다음 장 표지 아래로 가지 않게."""
     def para(st, text, brk=False):
         els = [{"textRun": {"content": text + "\n"}}] if not brk else [{"pageBreak": {}}, {"textRun": {"content": "\n"}}]
         return {"startIndex": st, "endIndex": st + (len(text) + 1 if not brk else 2), "paragraph": {"paragraphStyle": {"namedStyleType": "NORMAL_TEXT"}, "elements": els}}

@@ -1,4 +1,4 @@
-"""C-134 독립 품질 계약(아스트라 작성). 합성 자료만 사용. K-74 에서 생성기를 고쳐 네 계약이 통과한다 — xfail 표시는 그때 뗐다."""
+"""학습쌍 생성기의 근거 품질 계약. 합성 자료만 쓴다."""
 from zzaimy.dataset import real_pairs as rp
 from zzaimy.dataset import tree_cot as tc
 

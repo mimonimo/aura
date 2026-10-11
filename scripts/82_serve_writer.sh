@@ -9,7 +9,7 @@
 # 나란히 올라가므로(모델 이름 zzaimy-base / zzaimy-writer) 베이스라인 대비 개선폭을
 # 같은 조건에서 잰다(절대규칙 2).
 #
-# 확인된 사실 (2026-09-20 토르 03 실측)
+# 토르 환경에서 확인한 것
 #   - 토르에는 pip vLLM 이 없다. NVIDIA 젯슨용 컨테이너
 #     ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor (vLLM 0.19.0, torch 2.10, CUDA 가능)를 쓴다.
 #   - 계정이 docker 그룹이라 sudo 없이 띄울 수 있다.

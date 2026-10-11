@@ -4,8 +4,8 @@ eGovFrame 사이트라 목록이 AJAX(search.do)로 오고 상세(detail.do)에 
 `/file/download.do?atchFileId=..&atchFileSeq=N`로 걸린다. 세션 쿠키 + Spring
 CSRF 토큰으로 상세를 순회해 첨부를 받는다(브라우저 불필요).
 
-브리프: 공개 공고, 파일럿 규모, data/ 아래(git 제외), 파인튜닝 아님(RAG/학습쌍
-재료, ADR-0014). 개인정보는 인제스트 전 스크리닝.
+공개 공고만 소규모로 받아 data/ 아래(git 제외)에 둔다. 파인튜닝이 아니라
+RAG·학습쌍 재료로 쓴다(ADR-0014). 개인정보는 인제스트 전에 걸러 낸다.
 
 사용:  python scripts/73_crawl_uniall_pbanc.py OUT_DIR [--max-id 30]
 """

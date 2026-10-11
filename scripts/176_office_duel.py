@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""오피스 파일 읽기 대결 — docling(지금) · 형식별 라이브러리(python-docx·openpyxl·python-pptx) · kordoc 을 실제 원본으로 견준다.
+"""오피스 파일 읽기 대결 — docling · 형식별 라이브러리(python-docx·openpyxl·python-pptx) · kordoc 을 실제 원본으로 견준다.
+
+이 대결 결과로 처리 경로는 docx·xlsx 를 kordoc 먼저, 실패하면 형식별 라이브러리로, pptx 를 python-pptx 로 읽는다(ADR-0051).
+docling 은 비교용으로만 남는다.
 
 정답: 오피스 파일 안의 XML 에서 직접 모은 글자(docx w:t · pptx a:t · xlsx 공유 문자열·셀 값). 옛 xls 는 LibreOffice 로 xlsx 로
 바꾼 뒤 같은 방식. 표 정답은 docx·pptx 의 표(행·열 수), xlsx 는 시트마다 쓰인 범위.

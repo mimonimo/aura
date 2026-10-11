@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# PaddleOCR-VL 0.9B 도전자 서빙 — Spark에서 실행.
-# dots.ocr 스모크(09-02)에서 검증된 구성 재사용: vllm-smoke와 같은 nightly
-# 이미지, 별도 컨테이너, 127.0.0.1 바인딩(공인 IP 노출 금지), gpu-mem 낮게.
+# PaddleOCR-VL 0.9B 도전자 서빙 — 학습 장비에서 실행.
+# dots.ocr 스모크에서 검증한 구성을 그대로 쓴다: vllm-smoke 와 같은 nightly
+# 이미지, 별도 컨테이너, 127.0.0.1 바인딩(외부 노출 금지), 낮은 gpu-mem.
 # 0.9B라 0.08(≈9.6GiB)이면 충분 — 가용범위를 꽉 채우지 않는다.
 #
 # 사용: bash scripts/serve-paddleocr-vl.sh        # 기동

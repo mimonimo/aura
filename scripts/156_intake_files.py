@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""고른 파일들을 한 프로젝트로 문서함에 반입한다 — 실문서 파일럿(2026-10-01, ADR-0047: LINC3.0 계획서·보고서 9건).
+"""고른 파일들을 한 프로젝트로 문서함에 반입한다 — 실문서 파일럿용(ADR-0047).
 
 문서함의 보통 반입과 같은 길이다: 등록 → 원본을 문서 폴더로(adopt_original, ADR-0030) → 처리기(DocumentProcessor:
 글·구조 추출, 개인정보 처리, 조각, 맥락 분석). 같은 내용(해시)이 이미 있으면 들이지 않는다. 문서마다 따로 돌리고 제한 시간을 둔다
@@ -52,7 +52,7 @@ def _sha1(p: Path) -> str:
 
 
 def _completed_ok(exitcode: int | None, doc: dict, *, timed_out: bool = False) -> bool:
-    """A normal worker exit alone does not mean the pipeline accepted the document."""
+    """작업 프로세스가 정상 종료했다고 처리기가 문서를 받아들였다는 뜻은 아니다 — 상태까지 본다."""
     return not timed_out and exitcode == 0 and doc.get("status") == "reviewed"
 
 
@@ -97,7 +97,7 @@ def main() -> int:
                                                                     archived=args.archived)
     print(f"프로젝트 #{project_id} 「{args.project}」")
     # 내용이 같은 문서가 이미 있어 건너뛰는 원본도 그 문서 번호로 원본 경로 장부에 적는다 — 안 적으면 동기화(170)가
-    # 회차마다 같은 원본을 「새 파일」로 다시 골라 그래프를 헛되이 다시 짓는다(2026-10-04 실측: 같은 2건이 회차마다)
+    # 회차마다 같은 원본을 「새 파일」로 다시 골라 그래프를 헛되이 다시 짓는다
     if args.origin_base:
         led = ROOT / "data" / "platform" / "origins.jsonl"
         with led.open("a", encoding="utf-8") as fh:

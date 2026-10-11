@@ -1,5 +1,5 @@
 #!/bin/bash
-# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
 [ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # KURE-v2(다중 벡터, ColBERT 계열) 색인을 토르 03 GPU 로 만든다 — ADR-0022 의 "바꾼다면" 조건을 재기 위한 준비.
 #

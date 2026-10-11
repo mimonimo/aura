@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """문서 갈래별 공통 양식 — 계획서·실적보고서처럼 어느 사업에든 쓰는 구글 독스 작업용 뼈대.
 
-사용자 2026-10-04: "문서별로 공통양식 — 보고서 양식, 계획서 양식 이런 식으로 각 사업에 필요한 문서이자 다른 사업에도 쓸 수 있는 것".
+보고서·계획서처럼 각 사업에 필요하면서 다른 사업에도 쓸 수 있는 문서 갈래별 양식이다.
 사업마다 들어가야 할 항목은 에이전트가 채팅 지시 때 지식 그래프의 사업 단위 절(162 가 쓰는 것)과 지난 문서를 꺼내 채운다.
 이 양식은 그 바탕이다 — 특정 사업·반·학과 이름을 박지 않는다.
 
@@ -10,7 +10,7 @@
 번호는 새로 매긴다(Ⅰ. → 1. → 가. → (1)). 표는 그 절 첫 표의 머리 행 가운데 가장 많은 사업이 쓴 꼴을 머리만 남겨 둔다.
 다른 대학 자료(157 의 other_org)는 뺀다. 내용은 채우지 않는다(절대 규칙 10).
 
-출력: data/generated/templates/common/<갈래>.md (md_docx 로 docx, 169 --common 으로 드라이브)
+출력: data/generated/templates/common/<갈래>.md (164 가 md_docx 로 docx 를 만든다)
 사용(VM): env PYTHONPATH=src .venv/bin/python scripts/172_common_templates.py [--min-programs 3]
 """
 from __future__ import annotations
@@ -38,7 +38,7 @@ _spec.loader.exec_module(_bt)
 label_ok, table_skeleton, _FRONT = _bt.label_ok, _bt.table_skeleton, _bt._FRONT
 
 # 문서 갈래 — 연차 사업계획서·실적보고서는 사업마다 대표 뼈대 하나씩(문서가 많은 사업으로 쏠리지 않게), 프로그램 단위 서류는
-# 파일 제목으로 고르고 사업마다 상한. 10/5 첫 판들: 절 수로만 가르면 기자재 구입 서식·표지 띠가 「공통」을 차지했다
+# 파일 제목으로 고르고 사업마다 상한. 절 수로만 가르면 기자재 구입 서식·표지 띠가 「공통」을 차지한다
 _ANNUAL = re.compile(r"사업\s*계획서|실적\s*보고서|성과\s*보고서|결과\s*보고서|자체\s*평가|수행\s*계획서")
 _PROG_PLAN = re.compile(r"계획")                     # 절 3~25개 조건과 함께 — 운영·실시·추진·개최 계획(안) 등 작은 계획서
 _PROG_REPORT = re.compile(r"결과\s*보고|운영\s*결과|실시\s*결과|개최\s*결과")
@@ -162,7 +162,7 @@ def render(items: list[dict], kind_ko: str, nodes: dict, db, max_depth: int = 4)
     n_sec = n_tab = 0
 
     def table_for(x, max_secs: int = 40) -> str | None:
-        """그 절 첫 표의 머리 — 사업마다 고르게 최대 max_secs 절만 본다(문서마다 조각 전체를 읽으면 수십 분, 10/5 실측)."""
+        """그 절 첫 표의 머리 — 사업마다 고르게 최대 max_secs 절만 본다(문서마다 조각 전체를 읽으면 수십 분 걸린다)."""
         votes: Counter = Counter()
         progs: dict[str, set] = defaultdict(set)
         by_prog: dict[str, list[str]] = defaultdict(list)
@@ -216,7 +216,7 @@ def render(items: list[dict], kind_ko: str, nodes: dict, db, max_depth: int = 4)
 
 
 # ── 사업 공통 구조(27B 묶기 + 코드 검증) ─────────────────────────────────────────────
-# 제목이 똑같은 절만 공통으로 세면 사업마다 다른 말(「추진 배경」「사업 필요성」)을 놓쳐 양식이 비었다(10/5: 연차 계획서 절 0).
+# 제목이 똑같은 절만 공통으로 세면 사업마다 다른 말(「추진 배경」「사업 필요성」)을 놓쳐 양식이 빈다.
 # 사업별 뼈대를 모델에 보여 뜻이 같은 절을 묶게 하고, 모델이 댄 출처(사업 번호·그 사업의 제목 그대로)를 코드가 뼈대와 대조해
 # 사업 셋 이상이 확인된 절만 남긴다. 모델은 구조만 다룬다 — 수치·내용을 만들지 않는다(절대 규칙 1·10).
 CONSENSUS_PROMPT = """아래는 여러 정부 재정지원사업에서 실제로 쓴 {kind_ko}의 목차(사업별)이다.
@@ -302,7 +302,7 @@ def _heads(table: str) -> set[str]:
 
 def shared_table(tables: list[str | None], min_programs: int = 2, sim: float = 0.6) -> str | None:
     """공통 양식의 표 — 머리 칸 구성이 비슷한(겹침 sim 이상) 표를 사업 min_programs 곳 이상이 쓸 때만, 그중 가장 흔한 꼴.
-    특정 연도·차년도가 박힌 머리(「1차년도(‘22.3∼‘23.2)」)는 한 사업의 표라 넣지 않는다(10/5: LINC3.0 지표 표가 공통 양식에)."""
+    특정 연도·차년도가 박힌 머리(「1차년도(‘22.3∼‘23.2)」)는 한 사업의 표라 넣지 않는다."""
     cands = [t for t in tables if t and not any(_DATED.search(h) for h in _heads(t))]
     best, best_n = None, 0
     for t in cands:

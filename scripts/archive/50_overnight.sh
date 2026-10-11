@@ -1,5 +1,5 @@
 #!/bin/bash
-# 야간 자동화 (Spark 단독 실행 — 노트북·VPN 연결과 무관)
+# 야간 자동화 (학습 장비에서 단독 실행 — 노트북·VPN 연결과 무관)
 # 실행: nohup bash scripts/50_overnight.sh > /tmp/overnight.log 2>&1 &
 # 중지: touch /tmp/stop-overnight
 set -u

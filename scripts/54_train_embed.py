@@ -7,7 +7,7 @@
 순서 규칙 준수: 베이스라인(53) 측정 후 학습. 홀드아웃은 규정 문서(reg_title)
 단위로 분리해 같은 문서의 질의가 학습·평가 양쪽에 가지 않는다.
 
-실행(Spark): ZZAIMY_EMBED_DEVICE=cpu .venv-train/bin/python scripts/54_train_embed.py
+실행(GPU 장비): ZZAIMY_EMBED_DEVICE=cpu .venv-train/bin/python scripts/54_train_embed.py
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import os
 
-# CPU 학습이 전 코어를 잡으면 sshd까지 굶는다(실측 사고) — 스레드를 제한한다
+# CPU 학습이 전 코어를 잡으면 sshd까지 굶는다 — 스레드를 제한한다
 os.environ.setdefault("OMP_NUM_THREADS", "10")
 os.environ.setdefault("MKL_NUM_THREADS", "10")
 import sqlite3
@@ -28,8 +28,8 @@ QUERIES = Path("data/interim/synth_queries.jsonl")
 OUT_DIR = Path("models/zzaimy-embed-v0")
 REPORT = Path("docs/embed-v0-report.md")
 HOLDOUT_RATIO = 0.2
-# 2026-09-02 새벽 2에폭(220스텝) 실행이 두 번 모두 후반부에서 SIGKILL —
-# 장시간 CPU 학습 중 메모리 증가 정황. 리허설 목적상 1에폭이면 충분하다.
+# 2에폭 실행은 장시간 CPU 학습 중 메모리가 늘어 후반부에 SIGKILL 될 수 있다.
+# 리허설 목적상 1에폭이면 충분하다.
 EPOCHS = int(os.environ.get("ZZAIMY_EMBED_EPOCHS", "1"))
 BATCH = int(os.environ.get("ZZAIMY_EMBED_BATCH", "8"))
 # KURE(BGE-M3) 기본 max_seq_length 8192 — CPU 학습에서 긴 배치가 메모리

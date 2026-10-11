@@ -52,7 +52,7 @@ def test_available_and_version_without_install(monkeypatch, tmp_path):
 
 
 def test_parse_retries_without_images_when_image_export_fails(monkeypatch, tmp_path):
-    """그림 내보내기에서 실패하면 --no-images 로 한 번 더 읽는다 — 큰 한글 파일의 구조를 살린다(실측 2026-10-01)."""
+    """그림 내보내기에서 실패하면 --no-images 로 한 번 더 읽는다 — 큰 한글 파일의 구조를 살린다."""
     import json as _json
     import subprocess as _sp
 

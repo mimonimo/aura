@@ -76,9 +76,8 @@ def test_page_without_lines_yields_nothing(tmp_path):
 def test_swap_matches_per_page_not_global_index():
     """여러 페이지의 표가 각각 자기 페이지의 괘선 표와 매칭된다.
 
-    회귀 잠금: 교체 이력(taken)을 전역 인덱스로 키잉해 2쪽 표가 0번을
-    차지하면 4쪽의 0번 후보가 건너뛰어지던 버그 (2026-09-08 실측 —
-    5개 표 중 1개만 교체됨).
+    교체 이력(taken)을 전역 인덱스로 키잉하면 2쪽 표가 0번을 차지했을 때
+    4쪽의 0번 후보가 건너뛰어진다. 페이지마다 따로 매칭하는지 확인한다.
     """
     from types import SimpleNamespace
 
@@ -113,9 +112,9 @@ def test_swap_matches_per_page_not_global_index():
 def test_swap_matches_by_content_when_bbox_conventions_differ():
     """bbox 좌표 관행이 어긋나도 셀 내용이 같으면 매칭된다 (2그램 대조).
 
-    실측: MinerU 레이아웃 bbox와 벡터 좌표의 원점·배율이 페이지에 따라
-    어긋나 겹침 0으로 매칭 실패하던 사례(통영시 p5·p6). 반대로 내용이
-    전혀 다른 표는 bbox가 어긋난 채로는 교체되지 않아야 한다(fail-closed).
+    MinerU 레이아웃 bbox와 벡터 좌표는 페이지에 따라 원점·배율이 어긋나
+    겹침이 0이 될 수 있다. 반대로 내용이 전혀 다른 표는 bbox가 어긋난
+    채로는 교체되지 않아야 한다(fail-closed).
     """
     from types import SimpleNamespace
 

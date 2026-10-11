@@ -32,7 +32,7 @@ try {
  assert.ok(Math.abs(wide.width-wide.viewport)<2);assert.ok(wide.scale<1);
  await evaluate(`const section=document.querySelector('[data-section-jump]');section.value='1';section.dispatchEvent(new Event('change'));`);
  assert.ok(await evaluate(`document.querySelector('iframe').src.includes('heading=h.test')`));
- // 독스 주소 꼴: 탭은 질의, 제목은 # — 매번 다른 zzjump 로 새로 불러온다(10/11)
+ // 독스 주소 꼴: 탭은 질의, 제목은 # — 매번 다른 zzjump 로 새로 불러온다
  const jumped=await evaluate(`(()=>{const u=new URL(document.querySelector('iframe').src);return {tab:u.searchParams.get('tab'),hash:u.hash,jump:u.searchParams.get('zzjump')}})()`);
  assert.equal(jumped.tab,'t.test');assert.equal(jumped.hash,'#heading=h.test');assert.ok(jumped.jump);
  await evaluate(`const turn=document.createElement('div');turn.className='turn assistant';turn.innerHTML='<div class="msg assistant">1. 추진 배경 내용을 확인했습니다.</div>';document.getElementById('chatWorkspace').append(turn);`);await new Promise(r=>setTimeout(r,250));
@@ -42,7 +42,7 @@ try {
  assert.ok(formatted.scale<1&&formatted.scale<=wide.scale);assert.ok(Math.abs(formatted.width-formatted.viewport)<2);
  assert.equal(await evaluate(`document.querySelector('[data-fit]')`),null);
  await evaluate(`const tb2=document.querySelector('[data-toolbar]');tb2.checked=false;tb2.dispatchEvent(new Event('change'));`);await new Promise(r=>setTimeout(r,150));
- // 답 속 [문서 n] 이 이 대화의 작업 문서면 미리보기 대신 편집기를 연다(10/11)
+ // 답 속 [문서 n] 이 이 대화의 작업 문서면 미리보기 대신 편집기를 연다
  await evaluate(`const own=document.createElement('a');own.dataset.documentLink='true';own.href='https://docs.google.com/document/d/docA/edit';own.textContent='[문서 2]';document.getElementById('chatWorkspace').append(own);own.click();`);await new Promise(r=>setTimeout(r,150));
  assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-viewer'))`),false);
  assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-editor [data-toolbar]'))`),true);
@@ -69,7 +69,7 @@ try {
  assert.equal(await evaluate(`document.querySelector('.doc-more').open`),false);
  await send('Input.dispatchMouseEvent',{type:'mousePressed',x:narrow.x,y:narrow.y,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:narrow.x,y:narrow.y,button:'left',clickCount:1});await send('Input.insertText',{text:'fit typing'});
  assert.equal(await evaluate(`document.querySelector('iframe').contentDocument.querySelector('input').value`),'fit typing');
- // 편집기 → 문서함으로 가도 사용자가 끌어 둔 폭을 그대로 쓴다(보기마다 폭이 바뀌어 입력창이 밀리던 것, 10/11)
+ // 편집기 → 문서함으로 가도 사용자가 끌어 둔 폭을 그대로 쓴다(보기마다 폭이 바뀌면 입력창이 밀린다)
  const editorWidth=await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`);
  assert.notEqual(editorWidth,'50%');
  await evaluate(`document.querySelector('[data-list]').click()`);await new Promise(r=>setTimeout(r,150));assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);

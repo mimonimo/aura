@@ -149,7 +149,7 @@ def test_unit_caption_is_not_body_and_stays_above_table():
 
 
 def test_slim_docx_drops_embedded_fonts_and_uses_word_font():
-    """독스가 심은 글꼴 파일을 빼고(첨부가 6MB 던 것) 글꼴 이름을 Word 기본 한글 글꼴로 — 글·모양은 그대로."""
+    """독스가 심은 글꼴 파일을 빼 첨부를 가볍게 하고, 글꼴 이름은 Word 기본 한글 글꼴로 바꾼다. 글·모양은 그대로다."""
     import io
     import zipfile
     buf = io.BytesIO()

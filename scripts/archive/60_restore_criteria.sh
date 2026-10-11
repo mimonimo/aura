@@ -1,6 +1,6 @@
 #!/bin/bash
 # 기준 문서 일괄 (재)등록 — /tmp/refs의 원본으로 규정 저장소를 복구한다.
-# Spark에서 실행: bash scripts/60_restore_criteria.sh
+# 실행: bash scripts/60_restore_criteria.sh
 set -u
 PASS=$(cat ~/.zzaimy-pass)
 BASE=https://localhost:8800

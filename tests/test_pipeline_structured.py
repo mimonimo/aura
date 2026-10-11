@@ -32,7 +32,7 @@ def test_overlay_text_layer_uses_original_chars(tmp_path):
 
 
 def test_llm_correction_covers_table_cells(monkeypatch):
-    """표 셀의 OCR 오타도 본문과 같은 교정을 거친다 — '주민등특번호' 사고 대응."""
+    """표 셀의 OCR 오타('주민등특번호' 같은)도 본문과 같은 교정을 거친다."""
     import json
 
     from zzaimy.app.pipeline import DocumentProcessor

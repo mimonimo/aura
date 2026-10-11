@@ -6,7 +6,7 @@
 #
 # 사용 (맥에서):  bash scripts/117_serve_writer_on_thor02.sh [포트]
 set -euo pipefail
-# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
 [ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 THOR=${THOR02_SSH:?.env.local 에 THOR02_SSH=계정@주소}
 TP=8022

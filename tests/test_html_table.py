@@ -1,4 +1,4 @@
-"""MinerU HTML 표 → 셀 그리드 변환 테스트 (W1-W2 TASK-04)."""
+"""MinerU HTML 표 → 셀 그리드 변환 테스트."""
 
 from zzaimy.ingest.parsers.html_table import parse_html_table
 

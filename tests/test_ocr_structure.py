@@ -1,4 +1,4 @@
-"""추출 문맥 고도화 회귀 잠금 — 표 평문·캡션·그림 글자(OCR)·한글 구조 (ADR-0016).
+"""추출 문맥 회귀 테스트 — 표 평문·캡션·그림 글자(OCR)·한글 구조 (ADR-0016).
 
 합성 입력만 쓴다. 외부 도구(tesseract·hwp5html)가 없는 환경에서는 조용히 생략돼야 한다.
 """
@@ -477,7 +477,7 @@ def test_analyze_feeds_table_text_not_json(tmp_path, monkeypatch):
 
 
 def test_image_document_falls_back_to_tesseract_when_docling_unavailable(tmp_path, monkeypatch):
-    """오프라인 VM 실측: docling 레이아웃 모델이 없어 PNG 접수가 실패했다 → 전체 이미지 tesseract 폴백."""
+    """docling 레이아웃 모델을 쓸 수 없으면(오프라인 등) 이미지 전체를 tesseract 로 읽는다."""
     from zzaimy.app.pipeline import DocumentProcessor
     from zzaimy.ingest.parsers import docling as docling_mod
 
@@ -502,7 +502,7 @@ def test_image_document_falls_back_to_tesseract_when_docling_unavailable(tmp_pat
 
 
 def test_sentence_is_not_a_caption():
-    """스캔 문제집 실측: 표 앞 문장이 표 제목으로 붙었다 → 문장은 본문으로, 명사구·표 N 은 캡션으로."""
+    """표 앞 문장을 표 제목으로 붙이지 않는다 — 문장은 본문으로, 명사구·표 N 은 캡션으로."""
     from zzaimy.app.pipeline import DocumentProcessor as P
 
     assert P._plausible_caption("표 1. 연도별 예산 내역")

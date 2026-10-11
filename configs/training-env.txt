@@ -1,5 +1,5 @@
 # 학습 스택 버전 고정 (W1-W2 TASK-03)
-# 환경: spark-1397, aarch64, GB10(sm_121), CUDA 13.0, Python 3.12.3, venv=.venv-train
+# 환경: DGX Spark, aarch64, GB10(sm_121), CUDA 13.0, Python 3.12.3, venv=.venv-train
 # 생성: 2026-09-01T16:01:50+09:00
 accelerate==1.11.0
 aiofiles==24.1.0

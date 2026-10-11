@@ -155,7 +155,7 @@ def test_browse_plan_and_filters(env, tmp_path):
 
 
 def test_source_dept_and_level_reach_imported_documents(env, tmp_path):
-    """원천에 적은 부서·열람 등급이 가져온 문서에 붙는다(C-64 지적: NAS 반입에 부서·등급 전달이 없었다)."""
+    """원천에 적은 부서·열람 등급이 가져온 문서에 붙는다."""
     app, client, nas = env
     r = client.post("/dev/nas/add", data={"name": "학생처 폴더", "backend": "local", "root": str(nas / "규정"),
                                           "target": "ocr", "sector": "common", "extensions": "", "recursive": "1",

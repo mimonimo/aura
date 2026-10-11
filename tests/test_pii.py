@@ -1,7 +1,7 @@
-"""PII 마스킹 파이프라인 테스트 (W1-W2 TASK-05).
+"""PII 마스킹 파이프라인 테스트.
 
-★ 모든 테스트 데이터는 합성이다. 실제 개인정보를 절대 쓰지 않는다.
-   주민등록번호·사업자등록번호는 체크섬만 유효하게 만든 가공 번호다.
+모든 테스트 데이터는 합성이다. 실제 개인정보는 쓰지 않는다.
+주민등록번호·사업자등록번호는 체크섬만 유효하게 만든 가공 번호다.
 """
 
 from dataclasses import asdict
@@ -153,19 +153,19 @@ def test_audit_events_do_not_contain_original_text(masker):
             assert VALID_RRN not in str(value)
 
 
-# ---- 표 칸에 직위가 끼어 든 경우 (2026-09-20 운영 자료 실측) ----
+# ---- 표 칸에 직위가 끼어 든 경우 ----
 
 def test_name_after_title_in_table_cells_is_masked():
-    """"담당자 | 사무관 | 홍길동" 처럼 직위 칸이 끼면 이름을 놓치던 문제."""
+    """"담당자 | 사무관 | 우지환" 처럼 직위 칸이 끼어도 이름을 가린다."""
     from zzaimy.ingest.pii import PiiMasker, RawDocument
 
     masker = PiiMasker()
-    text = ("| 대학규제혁신국 | 책임자 | 과 장 | 김철수 | (044-203-6900) "
-            "담당 부서 | 대학재정과 | 담당자 | 사무관 | 홍길동 | (044-203-6911)")
+    text = ("| 대학규제혁신국 | 책임자 | 과 장 | 김민준 | (044-203-6900) "
+            "담당 부서 | 대학재정과 | 담당자 | 사무관 | 우지환 | (044-203-6911)")
     out = masker.mask(RawDocument(doc_id=1, text=text))
     masked = getattr(out[0] if isinstance(out, tuple) else out, "text", "")
-    assert "김철수" not in masked
-    assert "홍길동" not in masked
+    assert "김민준" not in masked
+    assert "우지환" not in masked
     assert "044-203-6900" not in masked
 
 
@@ -183,7 +183,7 @@ def test_ordinary_sentences_with_titles_are_left_alone():
 
 
 def test_header_cells_of_form_tables_are_not_taken_as_names():
-    """표 머리줄의 항목 이름을 성명으로 가리면 안 된다 (재마스킹 미리보기 실측)."""
+    """표 머리줄의 항목 이름을 성명으로 가리면 안 된다."""
     from zzaimy.ingest.pii import PiiMasker, RawDocument
 
     masker = PiiMasker()
@@ -215,8 +215,8 @@ def test_names_in_table_cells_are_masked_with_row_context():
     from zzaimy.ingest.pii import mask_names_in_rows
 
     cells = [[0, 0, 1, 1, 0, "대학규제혁신국"], [0, 1, 1, 1, 0, "책임자"], [0, 2, 1, 1, 0, "과 장"],
-             [0, 3, 1, 1, 0, "김철수"], [0, 4, 1, 1, 0, "([KR_PHONE])"],
-             [1, 0, 1, 1, 0, "담당자"], [1, 1, 1, 1, 0, "사무관"], [1, 2, 1, 1, 0, "홍길동"],
+             [0, 3, 1, 1, 0, "김민준"], [0, 4, 1, 1, 0, "([KR_PHONE])"],
+             [1, 0, 1, 1, 0, "담당자"], [1, 1, 1, 1, 0, "사무관"], [1, 2, 1, 1, 0, "우지환"],
              [2, 0, 1, 1, 1, "구분"], [2, 1, 1, 1, 1, "성명"], [2, 2, 1, 1, 1, "연구실적"]]
     out = mask_names_in_rows(cells)
     assert out[3][-1] == "[KR_NAME]" and out[7][-1] == "[KR_NAME]"

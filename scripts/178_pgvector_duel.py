@@ -8,7 +8,7 @@
 
 단계:
   --load    grant_embeddings.npz → 표 grant_vec(chunk_id, doc_id, emb halfvec) (있으면 빠진 것만)
-            ※ 2026-10-06 채택(ADR-0057) 뒤 배열 파일은 지웠다 — 이 스크립트는 대결 기록용으로 남긴다(다시 재려면 배열을 새로 만들어야 한다)
+            pgvector 채택(ADR-0057) 뒤 배열 파일은 지웠다 — 이 스크립트는 대결 기록용으로 남긴다(다시 재려면 배열을 새로 만들어야 한다)
   --index   HNSW 색인(halfvec_ip_ops) 만들기
   --duel    대결 → data/eval/pgvector_duel.json, 한 줄 요약 PGVECTOR_DUEL
 실행: env PYTHONPATH=src .venv/bin/python scripts/178_pgvector_duel.py --load --index --duel
@@ -85,8 +85,8 @@ def duel(db, ids: np.ndarray, vecs: np.ndarray, n: int, seed: int, ef: int) -> d
         for r in conn.execute("SELECT chunk_id, doc_id FROM grant_vec"):
             pos_doc[int(r[0])] = int(r[1]) if r[1] is not None else -1
         size = conn.execute("SELECT pg_size_pretty(pg_total_relation_size('grant_vec'))").fetchone()[0]
-    # 같은 벡터 집합끼리 견준다 — 대결 도중에도 주기 작업이 배열 파일에 새 벡터를 더하므로, 정확 계산도 표에 있는 것만(2026-10-06:
-    # 이걸 안 해서 ef 를 올릴수록 recall 이 떨어져 보였다)
+    # 같은 벡터 집합끼리 견준다 — 대결 도중에도 주기 작업이 배열 파일에 새 벡터를 더하므로, 정확 계산도 표에 있는 것만
+    # (거르지 않으면 ef 를 올릴수록 recall 이 떨어져 보인다)
     keep = np.fromiter((int(c) in pos_doc for c in ids.tolist()), dtype=bool, count=len(ids))
     ids, vecs = ids[keep], vecs[keep]
     qs = rng.choice(len(ids), size=n, replace=False)          # 표본은 거른 뒤에 뽑는다

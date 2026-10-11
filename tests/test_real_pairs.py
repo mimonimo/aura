@@ -93,7 +93,7 @@ def test_section_pair_is_serving_shaped_and_numbers_come_from_input(tmp_path):
     assert pr["missing_numbers"] == []
     assert "[담당자 지시]" in pr["human"] and "[이 절의 양식 안내·작성방법]" in pr["human"] and "72.5%" in pr["human"]
     assert "1,000명" in pr["shown"]
-    assert "재학생은 1,000명이며 취업률은 72.5% 이다." in pr["human"]          # 수치 없는 사실도 문장째 입력에(C-134)
+    assert "재학생은 1,000명이며 취업률은 72.5% 이다." in pr["human"]          # 수치 없는 사실도 문장째 입력에 들어간다
 
 
 def test_sentence_facts_keep_leading_numbers_but_drop_numbering():

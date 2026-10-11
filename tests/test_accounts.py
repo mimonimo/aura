@@ -62,7 +62,7 @@ def test_self_password_change_requires_current_password(tmp_path):
 def test_profile_menu_changes_only_own_account(tmp_path):
     c = TestClient(_app(tmp_path))
     _login(c, "zzaimy", "boot-pass-1")
-    assert 'href="/settings"' in c.get("/").text and "내 설정" in c.get("/").text   # 계정 메뉴는 「내 설정」 하나(2026-10-06)
+    assert 'href="/settings"' in c.get("/").text and "내 설정" in c.get("/").text   # 계정 메뉴는 「내 설정」 하나
     page = c.get("/settings").text
     assert "비밀번호 변경" in page and 'name="target"' not in page   # 다른 계정 선택 라디오 없음
     assert 'action="/account/password"' in page

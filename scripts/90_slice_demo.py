@@ -1,10 +1,10 @@
-"""수직 슬라이스 관통 데모 (W1-W2 TASK-08).
+"""수직 슬라이스 관통 데모.
 
 공고 PDF 1건 → 파싱 → 스키마 추출(guided_json) → 검색(스텁) → 섹션 1개 생성
 → 검증기 3종 → 출처 주석 문단 출력. 품질보다 경로 — 각 단계 실패는 명확히
 로그에 남긴다. 발표 시연의 백업.
 
-사용(Spark, vLLM 기동 상태):
+사용(vLLM 서버가 떠 있는 상태):
     .venv/bin/python scripts/90_slice_demo.py data/demo/synthetic_announcement.pdf
 """
 
@@ -97,9 +97,9 @@ def main() -> int:
     for e in evidence:
         print(f"  · {e.source_doc} p.{e.source_page} — {e.text[:40]}…")
     if not audit.ok:
-        print(f"⚠ 근거 없는 수치 발견: {audit.violations} — 검수 필요")
+        print(f"[주의] 근거 없는 수치 발견: {audit.violations} — 검수 필요")
     if coverage.missing:
-        print(f"⚠ 배점 누락 항목: {[m.name for m in coverage.missing]}")
+        print(f"[주의] 배점 누락 항목: {[m.name for m in coverage.missing]}")
     return 0
 
 

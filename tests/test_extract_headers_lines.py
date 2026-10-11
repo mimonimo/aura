@@ -94,7 +94,7 @@ def test_table_text_does_not_repeat_column_merged_cells():
 
 
 def test_table_text_skips_rows_that_only_repeat_merged_cells():
-    """서식 표: 세로 병합 라벨 아래에 새 글이 없는 행은 되풀이하지 않는다(실측 2026-09-22 복학원)."""
+    """서식 표: 세로 병합 라벨 아래에 새 글이 없는 행은 되풀이하지 않는다."""
     from zzaimy.app.render import render_table_text
 
     data = {"n_rows": 3, "n_cols": 4, "cells": [
@@ -184,7 +184,7 @@ def test_lattice_cell_text_restores_word_gaps():
 
 
 def test_text_layer_pages_keep_page_numbers_on_chunks():
-    """글자층 직독 문서의 조각에는 쪽 번호가 붙는다(실측 2026-09-22: 250쪽 문서 조각 전부 쪽 없음)."""
+    """글자층 직독 문서의 조각에도 쪽 번호가 붙는다."""
     from zzaimy.app.pipeline import DocumentProcessor
 
     proc = DocumentProcessor.__new__(DocumentProcessor)

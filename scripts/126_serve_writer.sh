@@ -1,16 +1,16 @@
 #!/bin/bash
 # ③ZZAIMY-Writer(Qwen3.8-27B)를 토르에 올린다 — 어느 토르든, 어느 판(bf16·NVFP4)이든 같은 스크립트로.
 #
-# 구조(2026-09-21 확정): 토르 02 = 대화·초안(사람이 기다리는 일), 토르 03 = 반입 검토·이미지 판독(배치)
+# 구조: 토르 02 = 대화·초안(사람이 기다리는 일), 토르 03 = 반입 검토·이미지 판독(배치)
 #   + 임베딩·리랭커 서비스. 같은 27B 를 두 대에 각각 올려 배치가 대화를 막지 않게 한다.
 #   요청 하나의 속도는 대 수로 늘지 않는다 — 그건 NVFP4(무게 54GB→14GB)로 잡는다.
-# 실측(bf16, 토르 02): 동시 3요청에 생성 합계 14 토큰/초, 요청당 ~5 토큰/초.
+# 측정 결과(bf16, 토르 02): 동시 3요청에 생성 합계 14 토큰/초, 요청당 ~5 토큰/초.
 #
 # 사용 (맥에서):
 #   HOST=thor-03 MODEL=/models/Qwen3.8-27B-NVFP4 PORT=8001 bash scripts/126_serve_writer.sh
 #   HOST=thor-02 MODEL=/models/Qwen3.8-27B       PORT=8001 bash scripts/126_serve_writer.sh   # 지금 판(117 과 같음)
 set -euo pipefail
-# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
 [ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 HOST="${HOST:-thor-02}"
 case "$HOST" in
@@ -32,7 +32,7 @@ echo "[$(date +%T)] $HOST 서빙 시작 — $MODEL · 문맥 $MAXLEN · 포트 $
 ssh -p $TP "$THOR" "test -d \$HOME/zzaimy/models/$(basename $MODEL)" \
   || { echo "가중치가 없습니다: $HOST:~/zzaimy/models/$(basename $MODEL)" >&2; exit 2; }
 # 이미지마다 진입점이 다르다 — gemma4 빌드는 셸(명령에 vllm 을 써야 함), qwen3.8 빌드는 진입점이 이미 vllm 이다.
-# 진입점에 vllm 이 있으면 'serve …' 만 넘긴다(2026-09-21 실측: 'vllm vllm serve' 로 13번 재시작).
+# 진입점에 vllm 이 있으면 'serve …' 만 넘긴다('vllm vllm serve' 가 되면 컨테이너가 재시작을 되풀이한다).
 EP=$(ssh -p $TP "$THOR" "docker image inspect -f '{{join .Config.Entrypoint \" \"}}' $IMAGE 2>/dev/null")
 case "$EP" in
   *serve*) CMD="" ;;            # 진입점이 'vllm serve' — 모델 경로부터 넘긴다
@@ -40,8 +40,8 @@ case "$EP" in
   *)       CMD="vllm serve" ;;  # 진입점이 셸
 esac
 echo "   이미지 진입점: '${EP:-없음}' → 명령 '$CMD'"
-# 강제 종료(rm -f)하면 젯슨 GPU 드라이버가 메모리를 돌려받지 못하는 일이 있다(2026-09-22 실측: 토르 02 에 90GB 가
-# 어떤 프로세스에도 잡히지 않은 채 남아 재부팅해야 했다). 먼저 정상 종료를 기다리고, 그다음에 지운다.
+# 강제 종료(rm -f)하면 젯슨 GPU 드라이버가 메모리를 돌려받지 못해 재부팅이 필요할 수 있다.
+# 먼저 정상 종료를 기다리고, 그다음에 지운다.
 ssh -p $TP "$THOR" "docker stop -t 60 $NAME >/dev/null 2>&1 || true; docker rm $NAME >/dev/null 2>&1 || true
 docker run -d --name $NAME --restart unless-stopped --runtime nvidia --ipc host \
   -p $PORT:8000 -v \$HOME/zzaimy/models:/models \

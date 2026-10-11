@@ -1,5 +1,5 @@
 #!/bin/bash
-# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
 [ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # ②ZZAIMY-Rerank 학습 — 토르 GPU 에서 bge-reranker-v2-m3 를 우리 질의로 맞춘다.
 #
@@ -51,7 +51,7 @@ def add(path, tag):
             if not q:
                 continue
             # 운영과 같은 후보 수로 뽑는다(CANDIDATE_LIMIT=20). 리랭커가 실제로 보게 되는 목록이어야
-            # 학습 조건이 맞는다 — 예전에는 10 이었다(2026-09-20 후보 확대 반영).
+            # 학습 조건이 맞는다.
             cand = prod.hybrid(q, prod.lexical(q), prod.dense(q))[: reg.CANDIDATE_LIMIT]
             if not any(c in golds[i] for c in cand):
                 continue                      # 후보 안에 정답이 없으면 리랭커가 할 일이 없다

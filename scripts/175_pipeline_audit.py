@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """반입 연동 점검 — 원본 → 문서함 → 색인 → 그래프까지 단계마다 다음 단계로 넘어가지 못한 수를 센다(읽기만, 고치지 않는다).
 
-10/5: DGX 원본 목록이 10/3 것 그대로라 그 뒤 원본 2만여 건이 처리 대상에 오르지 않았고, pptx·xls 는 처리 형식에서 빠져 있었다 —
-사람이 우연히 숫자를 보고서야 알았다. 이 점검이 주기마다 같은 종류의 빈틈을 기계로 찾는다.
+원본 목록이 갱신되지 않거나 일부 형식이 처리 대상에서 빠지는 빈틈은 사람이 숫자를 보기 전에는 드러나지 않는다.
+이 점검이 주기마다 그런 빈틈을 기계로 찾는다.
 
 단계와 판정
 1. 원본 장부(archive_files) 의 처리 대상 = 문서 형식 · 범위 안(지출·증빙 등 경로 제외) · 중복 아님 · 있음
@@ -84,7 +84,7 @@ def find_reimport(db, missing: dict[str, str]) -> list[str]:
                 except ValueError:
                     continue
                 rel = r.get("rel")
-                # 판이 비어 있는 옛 기록은 크기·수정 시각으로(168 과 같은 계산) — 빈 판끼리 견주어 다시 들임에서 빠지던 것
+                # 판이 비어 있는 옛 기록은 크기·수정 시각으로(168 과 같은 계산) — 빈 판끼리 견주면 다시 들임에서 빠진다
                 ver = r.get("version") or f"{int(r.get('size') or 0)}:{int(float(r.get('mtime') or 0))}"
                 if rel in missing and r.get("chunks") and r.get("state") in (None, "parsed", "partial") and ver == missing[rel]:
                     hit.add(rel)
@@ -129,8 +129,8 @@ def main() -> int:
     with db._conn() as conn:
         rows = conn.execute("SELECT rel, ext, dup_of, doc_id, seen_at, COALESCE(removed_at, ''), size, mtime FROM archive_files").fetchall()
     total = len(rows)
-    # 같은 파일(이름·크기) 묶음 — DGX(165)와 VM(170)이 중복 묶음의 대표를 서로 다르게 골라, 처리된 쪽이 VM 에선 「중복」,
-    # 처리 안 된 쪽이 「대상」이 되어 놓침으로 잡혔다(2026-10-06, 155건 중 100건). 묶음 중 하나라도 들어왔으면 처리된 것으로 본다
+    # 같은 파일(이름·크기) 묶음 — DGX(165)와 VM(170)이 중복 묶음의 대표를 서로 다르게 고를 수 있어, 처리된 쪽이 VM 에선 「중복」,
+    # 처리 안 된 쪽이 「대상」이 되어 놓침으로 잡힌다. 묶음 중 하나라도 들어왔으면 처리된 것으로 본다
     covered_groups = set()
     for rel, ext, dup, doc_id, seen_at, removed, size, mtime in rows:
         if not removed and (doc_id or rel in origins):
@@ -222,8 +222,8 @@ def main() -> int:
         alerts.append(f"그래프에 없는 사업 문서 {n_docs - n_graph:,}건")
     reimport = []
     if args.find_reimport:
-        # 실패 장부에 있어도 같은 판의 정상 기록이 있으면 다시 들인다 — 환경 오류로 한 번 실패한 뒤 성공한 원본이 반입 중단(NUL 문자)으로
-        # 못 들어오고 실패 기록만 남았던 688건(10/6)
+        # 실패 장부에 있어도 같은 판의 정상 기록이 있으면 다시 들인다 — 환경 오류로 한 번 실패한 뒤 성공한 원본이 반입 중단으로
+        # 못 들어오면 실패 기록만 남는다
         reimport = find_reimport(db, no_result)
         (PLAT / "reimport_rels.json").write_text(json.dumps(reimport, ensure_ascii=False), encoding="utf-8")
         if reimport:

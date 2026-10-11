@@ -1,4 +1,4 @@
-"""직접 작성한 JSON 문답을 SSH를 통해 교내 Label Studio 누적 프로젝트에 게시.
+"""직접 작성한 JSON 문답을 SSH 로 교내 Label Studio 누적 프로젝트에 게시한다.
 
 원문은 VM에서만 읽어 Label Studio로 전달한다. 기존 태스크 삭제/변경 없음.
 """

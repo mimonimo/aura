@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """①Embed 학습본 검증 — 학습에 쓰지 않은 문서의 질의로 '후보 진입률'과 최종 지표를 비교한다.
 
-왜 이 지표인가: 리랭커는 후보 안의 순서만 바꾼다. 임베딩이 할 일은 **정답을 후보 20 안에
-들여놓는 것**이다. v1 은 조밀 단독 지표만 보고 채택을 검토했다가 하이브리드에서 이득이
-없어 접었다(2026-09-20). 그래서 여기서는 운영 경로 그대로 재고, 후보 진입률을 함께 적는다.
+왜 이 지표인가: 리랭커는 후보 안의 순서만 바꾼다. 임베딩이 할 일은 정답을 후보 20 안에
+들여놓는 것이다. v1 은 조밀 단독 지표로는 나아졌지만 하이브리드에서 이득이 없어
+채택하지 않았다. 그래서 여기서는 운영 경로 그대로 재고, 후보 진입률을 함께 적는다.
 
 두 번 돈다: 지금 운영 임베딩(기본 환경) / 후보 임베딩(--cand-url·--cand-index).
 조각 색인은 후보 모델로 미리 만들어 둬야 한다(`MODEL=… OUT_NAME=… scripts/96_embed_on_thor.sh`).
@@ -11,7 +11,7 @@
 사용 (VM 에서):
   env PYTHONPATH=src .venv/bin/python scripts/109_embed_holdout_check.py \
       --holdout 10,113,122 --cand-url http://토르:8016/embed \
-      --cand-index /home/aura/zzaimy-capstone/data/platform/chunk_embeddings.v2.npz
+      --cand-index data/platform/chunk_embeddings.v2.npz
 """
 from __future__ import annotations
 

@@ -708,7 +708,7 @@ def test_fill_period_aligns_round_to_year_when_they_disagree():
 
 
 def test_titles_ending_in_yo_nouns_are_headings_not_sentences():
-    """「개요·필요·주요」로 끝나는 제목이 문장(…해요)으로 잘못 걸려 「Ⅰ. 사업 개요」 장이 통째로 빠지던 일."""
+    """「개요·필요·주요」로 끝나는 제목은 문장(…해요)이 아니라 제목이다 — 문장으로 걸리면 「Ⅰ. 사업 개요」 장이 통째로 빠진다."""
     assert sections._line_heading("Ⅰ. 사업 개요") == "Ⅰ. 사업 개요"
     assert sections._line_heading("1. 추진 필요") == "1. 추진 필요"
     assert sections._line_heading("1. 자료를 제출해요") is None
@@ -920,7 +920,7 @@ def test_fill_period_drops_only_body_year_out_of_period():
 
 
 def test_head_year_still_moves_to_matching_phase_program_first():
-    """본문 연도가 기간 밖이어도 기간·이름이 맞는 앞뒤 단계 사업이 있으면 그리로 옮긴다(연도만 버리기보다 먼저) — 「링크/RISE사업」 회귀."""
+    """본문 연도가 기간 밖이어도 기간·이름이 맞는 앞뒤 단계 사업이 있으면 그리로 옮긴다(연도만 버리기보다 먼저)."""
     from zzaimy.graph import programs as P
 
     x = P.Assignment(doc_id=1, program="program:linc", program_name="LINC", year=2025, status="auto")
