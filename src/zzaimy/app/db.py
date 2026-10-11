@@ -358,72 +358,58 @@ class Database:
 
     def fill_identity_from_text(self, doc_id: int, overwrite: bool = False,
                                 text: str = "", ask=None) -> dict:
-        """문서 본문에서 이름·날짜를 찾아 문서 이름으로 삼는다.
+        """문서 본문과 올라온 파일 이름으로 문서 이름을 정한다(규칙은 app/doc_naming 한 곳).
 
-        파일 이름은 'test.pdf' 처럼 아무것이나 될 수 있고 같은 이름이 여럿 들어올 수도 있다.
-        그래서 본문에서 찾은 이름을 문서의 이름으로 바꾸고, 올라온 파일 이름은 정체에
-        `original_filename` 으로 남긴다. 파일 자체는 건드리지 않는다(stored_path 그대로).
+        파일 이름은 'test.pdf'·'05_…_ver.1' 처럼 아무것이나 될 수 있고 같은 이름이 여럿 들어올 수도 있다.
+        본문 제목이 검사를 통과하면 그것, 아니면 군더더기를 걷어 낸 파일 이름, 둘 다 빈약하면 「갈래 · 사업 연도」.
+        올라온 파일 이름은 정체에 `original_filename` 으로, 이름을 정한 근거는 `name_source` 로 남긴다.
+        파일 자체(stored_path)와 접수번호는 건드리지 않는다. 담당자가 붙인 이름(name_source=user)은 바꾸지 않는다.
         """
-        from zzaimy.app.doc_title import (display_name, meaningless_filename, resolved_title,
-                                          tidy_name)
+        from zzaimy.app.doc_naming import USER_SOURCE, choose_name, naming_meta
+        from zzaimy.app.doc_title import meaningless_filename
 
         doc = self.get_document(doc_id)
         if doc is None:
             return {}
         have = self.get_doc_identity(doc_id)
+        if have.get("name_source") == USER_SOURCE:
+            return have
         if not overwrite and have.get("title"):
-            return have
-        # 규정식 제목(제N조·규정·지침)뿐 아니라 '2022학년도 입학자 연계교육과정 편성표' 처럼
-        # 첫 쪽 제목 줄만 있는 문서도 이름으로 삼는다. 파일 이름이 더 나으면 그대로 둔다.
-        probe = dict(doc)
-        if overwrite:
-            # 이름 규칙이 바뀌어 다시 매길 때다 — 저장된 이름을 무시하고 본문에서 다시 읽는다
-            probe["identity"] = None
-            have = {k: v for k, v in have.items() if k not in ("title", "date")}
-        if text:
-            probe["masked_text"] = text
-        title, date = resolved_title(probe)
-        if not title and ask is not None and meaningless_filename(probe.get("filename") or ""):
-            # 규칙이 못 찾았고 파일 이름도 뜻이 없다 — 모델에게 제목 줄을 짚게 한다(본문 대조 통과분만)
-            from zzaimy.app.doc_identity import find_title_by_model
-
-            got = find_title_by_model(probe.get("masked_text") or "", ask)
-            title = tidy_name(got) if got else None
-        found = {k: v for k, v in (("title", title), ("date", date)) if v}
-        if not found:
-            # 제목이 없으면 파일 이름이 이름이다 — 그래도 첨부 표시·기호는 뗀다
-            back = doc.get("filename") or ""
-            if overwrite:
-                # 다시 읽어도 이름이 없으면 옛 이름을 버리고 올라온 파일 이름으로 돌아간다
-                back = have.get("original_filename") or back
-            name = tidy_name(back) or back
-            if meaningless_filename(name):
-                # 규칙도 모델도 제목을 못 찾았고 파일 이름은 URL 이다 — 그 사실을 이름으로 말한다.
-                # 올라온 이름은 identity.original_filename 에 남는다.
-                have.setdefault("original_filename", back)
-                name = f"제목 없음 · {doc.get('receipt_no') or doc_id}"
-            if name != doc.get("filename") or overwrite:
-                if name != back:
-                    have.setdefault("original_filename", back)
-                with self._conn() as conn:
-                    conn.execute("UPDATE documents SET identity = ?, filename = ? WHERE id = ?",
-                                 (json.dumps(have, ensure_ascii=False), name, doc_id))
-                    conn.execute("UPDATE regulation_chunks SET reg_title = ? WHERE doc_id = ?",
-                                 (name, doc_id))
-            return have
-        found.setdefault("original_filename", doc.get("filename") or "")
-        self.set_doc_identity(doc_id, found)
-        have.update(found)
-        name = display_name({**doc, "identity": json.dumps(have, ensure_ascii=False)})
-        if name:
-            name = self._unique_name(name, doc_id, text or doc.get("masked_text") or "")
-        if name and name != doc.get("filename"):
+            return have                      # 본문 제목을 이미 찾았다 — 파일 이름·대체 이름이면 새 본문으로 다시 본다
+        # 올라온 파일 이름 — 정체에 남긴 것, DGX 보관 문서는 원본 경로의 파일 이름, 아니면 지금 이름
+        sp = str(doc.get("stored_path") or "")
+        original = (have.get("original_filename") or (sp[6:].rsplit("/", 1)[-1] if sp.startswith("dgx://") else "")
+                    or doc.get("filename") or "").strip()
+        body = text or doc.get("masked_text") or ""
+        if not body:
+            # 본문을 조각으로만 둔 문서(규정 등록 등) — 앞 조각을 이어 첫머리로 쓴다
             with self._conn() as conn:
-                conn.execute("UPDATE documents SET filename = ? WHERE id = ?", (name, doc_id))
-                # 인용에 쓰는 기준명도 같은 이름을 본다 — 이름이 바뀌었는데 인용만 옛 이름이면 안 된다
-                conn.execute("UPDATE regulation_chunks SET reg_title = ? WHERE doc_id = ?",
-                             (name, doc_id))
-        return have
+                rows = conn.execute("SELECT content FROM doc_chunks WHERE doc_id = ? ORDER BY seq LIMIT 20", (doc_id,)).fetchall()
+                if not rows:
+                    rows = conn.execute("SELECT content FROM regulation_chunks WHERE doc_id = ? ORDER BY id LIMIT 20",
+                                        (doc_id,)).fetchall()
+            body = "\n".join(str(r[0] or "") for r in rows)
+        got = choose_name(original, body, naming_meta(self, doc), ask=ask)
+        name = got["name"]
+        if got["title"] and got["date"]:
+            name = f"{got['title']} · {got['date']}"
+        if not name or meaningless_filename(name):
+            # 규칙도 모델도 제목을 못 찾았고 파일 이름은 URL·사람 이름뿐이다 — 그 사실을 이름으로 말한다
+            name = f"제목 없음 · {doc.get('receipt_no') or doc_id}"
+        ident = {k: v for k, v in have.items() if k not in ("title", "date")}
+        ident["original_filename"] = original
+        ident["name_source"] = got["source"]
+        for k in ("title", "date"):
+            if got.get(k):
+                ident[k] = got[k]
+        if not name.startswith("제목 없음 · "):
+            name = self._unique_name(name, doc_id, body)
+        with self._conn() as conn:
+            conn.execute("UPDATE documents SET identity = ?, filename = ? WHERE id = ?",
+                         (json.dumps(ident, ensure_ascii=False), name, doc_id))
+            # 인용에 쓰는 기준명도 같은 이름을 본다 — 이름이 바뀌었는데 인용만 옛 이름이면 안 된다
+            conn.execute("UPDATE regulation_chunks SET reg_title = ? WHERE doc_id = ?", (name, doc_id))
+        return ident
 
     def _unique_name(self, name: str, doc_id: int, text: str) -> str:
         """같은 제목의 문서가 이미 있으면 구분되는 말을 덧붙인다.
@@ -450,12 +436,22 @@ class Database:
         def _squash(t: str) -> str:
             return _re.sub(r"[\s()（）*'\"·]", "", t)
 
+        def _noise(sub: str) -> bool:
+            """작성 안내·연락처·번호 붙은 절 제목·기호로 시작하는 줄·빈칸 자리 표시('OO대학교')·항목 머리('지원대상 :')는
+            문서를 가르는 말이 아니다."""
+            from zzaimy.app.doc_naming import title_problem
+
+            return bool(title_problem(sub) or _re.match(r"^\s*(?:[^\w(\[]|\d+(?:[-.]\d+)*[.)]?\s)", sub)
+                        or _re.search(r"[OＯ○◯]{2}", sub) or _re.search(r"[:：]\s*$", sub))
+
         def _usable(sub: str) -> bool:
             # 띄어쓰기만 다른 같은 제목('가구원 정보 제공 동의 절차')은 구분이 아니다
             if not (2 <= len(sub) <= 60) or "|" in sub or _squash(sub) in _squash(name) or _squash(name.split(" · ")[0]) in _squash(sub):
                 return False
             if _ORG_ONLY.match(sub.replace(" ", "")) or _re.search(r"(팀|실|과|부|처|국|원)$", sub):
                 return False                      # 부서·기관 줄은 문서를 가르는 말이 아니다
+            if _noise(sub):
+                return False
             return _title_like(_re.sub(r"[:：]", " ", sub))   # '법인사업자:지점' 같은 항목:값도 구분이 된다
 
         lines = [_plain(ln) for ln in text.splitlines() if _plain(ln)]
@@ -486,8 +482,17 @@ class Database:
             if any(k in line for k in ("학과", "계열", "전공", "과정", "대상", "유형", "차수")):
                 # 표에서 온 줄이면 이름 칸이 아니라 값 칸을 쓴다('학과(계열) | 건축학과' → '건축학과')
                 cells = [c.strip() for c in line.split("|") if c.strip()]
-                qualifier = cells[-1] if len(cells) > 1 else line
-                if len(qualifier) < 2 or qualifier in name:
+                if len(cells) < 2:
+                    # 표 칸이 아니면 '학과(계열) 건축과'·'대상: 재학생' 처럼 그 낱말이 줄 머리(항목 이름)일 때만 값을 쓴다 —
+                    # 본문 문장 속의 '교육과정'·'유형' 은 값이 아니다
+                    m = _re.match(r"^\s*(?:학과|계열|전공|과정|대상|유형|차수)(?:\s*\([가-힣]{1,4}\))?\s*[:：]?\s+([^,，]+)$", line)
+                    if not m:
+                        continue
+                    cells = [m.group(1).strip()]
+                qualifier = cells[-1]
+                # 값은 짧은 이름이다('건축학과') — 본문 문장·항목 머리·작성 안내는 구분 말이 아니다
+                if (len(qualifier) < 2 or len(qualifier) > 24 or qualifier in name or _noise(qualifier)
+                        or _re.match(r"(?:및|등|또는|그리고)\s", qualifier)):
                     continue
                 merged = f"{name} · {qualifier}"
                 if merged not in taken:

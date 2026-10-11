@@ -145,7 +145,7 @@ def test_meaningless_filename_gets_first_title_line():
     doc = {"filename": "www.ync.ac.kr__UPLOAD_PDF_CommonFile_2023_11_HbY1XWA0.PDF", "stored_path": "",
            "masked_text": "2023-11-02\n2024학년도 1학기 국가근로장학금 신청 안내\n1. 신청 기간: 2023.11.20.~12.5.\n학생 여러분의 많은 참여 바랍니다."}
     assert display_name(doc) == "2024학년도 1학기 국가근로장학금 신청 안내"
-    # 한글 파일 이름이 있으면 느슨한 규칙을 쓰지 않는다
+    # 한글 파일 이름이 있으면 화면에서는 느슨한 규칙을 쓰지 않는다(본문 제목 판단은 반입 때 db.rename_from_text 가 한다)
     doc2 = dict(doc, filename="장학금_안내.pdf")
     assert display_name(doc2) == "장학금_안내.pdf"
 
@@ -315,8 +315,8 @@ def test_renaming_updates_the_citation_title(tmp_path):
     doc_id = db.add_document(filename="붙임1. 2024년 글로컬대학 지정계획.hwpx", stored_path="", doc_type="regulation")
     db.add_regulation_chunks(doc_id, "붙임1. 2024년 글로컬대학 지정계획.hwpx", chunk_document(body))
     db.rename_from_text(doc_id, body, overwrite=True)
-    assert db.get_document(doc_id)["filename"] == "2024년 글로컬대학 지정계획.hwpx"
-    assert {c["reg_title"] for c in db.list_regulation_chunks()} == {"2024년 글로컬대학 지정계획.hwpx"}
+    assert db.get_document(doc_id)["filename"] == "2024년 글로컬대학 지정계획"
+    assert {c["reg_title"] for c in db.list_regulation_chunks()} == {"2024년 글로컬대학 지정계획"}
 
 
 def test_same_file_is_not_ingested_twice(tmp_path):

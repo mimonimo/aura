@@ -296,7 +296,20 @@ def resolved_title(doc: dict) -> tuple[str | None, str | None]:
 
 
 def display_name(doc: dict) -> str:
-    """화면에 보일 이름 — '이름 · 날짜', 못 찾으면 파일 이름."""
+    """화면에 보일 이름.
+
+    반입 때 이름 규칙(app/doc_naming)으로 정한 문서(identity.name_source 있음)는 그 이름 그대로다. 아직 다시 매기지 않은
+    옛 문서는 첫 쪽 이름('이름 · 날짜'), 못 찾으면 파일 이름 — 이름은 반입 단계(db.rename_from_text)와 다시 매기기(scripts/124)가 정한다.
+    """
+    import json
+
+    try:
+        ident = json.loads(doc.get("identity") or "{}") if isinstance(
+            doc.get("identity"), str) else (doc.get("identity") or {})
+    except ValueError:
+        ident = {}
+    if ident.get("name_source"):
+        return doc.get("filename") or ""
     title, date = resolved_title(doc)
     if not title:
         return tidy_name(doc.get("filename") or "")

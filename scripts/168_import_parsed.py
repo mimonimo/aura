@@ -154,7 +154,9 @@ def main() -> int:
             prog_name = row[0] if row is not None else rec.get("program_name")
             prog_id = row[3] if row is not None and len(row) > 3 else rec.get("program")
             # 부서는 원본 최상위 폴더로(RAG 공간의 범위, ADR-0053), 열람은 교직원 전체(공개 등급 — 학생은 역할로 막힌다)
-            did = db.add_document(filename=rec.get("filename") or Path(rel).name, stored_path=f"dgx://{rel}", doc_type="grant",
+            # 문서 이름은 원본 파일 이름에서 시작해 VM 의 이름 규칙(아래 rename_from_text)으로 정한다 — DGX 기록의 filename 은
+            # DGX 임시 DB 에서 그곳 코드 판으로 정한 이름이라, 그대로 쓰면 올라온 이름(original_filename)을 잃고 규칙 개선도 닿지 않는다
+            did = db.add_document(filename=Path(rel).name or rec.get("filename") or "", stored_path=f"dgx://{rel}", doc_type="grant",
                                   sector="grant", dept=rag_spaces.dept_of_rel(rel, ROOT / "data" / "platform"), access_level="public",
                                   project_id=archive.program_project(
                                       db, prog_id or "", prog_name or "", projects,
@@ -165,6 +167,11 @@ def main() -> int:
         try:
             db.replace_doc_chunks(did, [c for c in rec["chunks"] if c.get("content") is not None])
             db.update_document(did, status="reviewed", masked_text=rec.get("masked_text") or "", parse_note=note)
+            if rec.get("doc_kind"):
+                db.set_document_kind(did, rec["doc_kind"])      # 대체 이름(「갈래 · 사업 연도」)이 갈래를 쓴다
+            # 반입과 같은 이름 규칙(app/doc_naming) — 본문 제목, 군더더기를 걷은 파일 이름, 「갈래 · 사업 연도」 순.
+            # 새 판이면 본문이 바뀌었으니 다시 매긴다. 담당자가 붙인 이름은 규칙이 건드리지 않는다
+            db.rename_from_text(did, rec.get("masked_text") or "", overwrite=bool(existing))
         except Exception as e:
             # 한 문서의 오류로 들이기 전체가 멈추지 않게 — 그 문서만 실패 장부에 남기고 다음으로(멈추면 같은 자리에서 매번 다시 멈춰
             # 그 결과 파일의 뒤 문서들이 들어오지 못한다)
@@ -172,8 +179,6 @@ def main() -> int:
             fails.write(json.dumps({"rel": rel, "version": ver, "state": "import_error", "error": f"{type(e).__name__}: {e}"[:200],
                                     "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
             continue
-        if rec.get("doc_kind"):
-            db.set_document_kind(did, rec["doc_kind"])
         led.write(json.dumps({"doc_id": did, "origin": rel, "version": ver, "state": state, "at": time.strftime("%Y-%m-%d %H:%M"),
                               "via": "dgx-parse"}, ensure_ascii=False) + "\n")
         try:
