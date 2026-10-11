@@ -349,6 +349,8 @@ def apply(ops: list[dict], account: str, doc: str, *, user: str, data_dir: Path,
     figure_folder 는 도식 그림(PNG)을 올릴 드라이브 폴더(프로젝트 그림 폴더)."""
     lines: list[str] = []
     for o in split_pipe_tables(ops):
+        if o.get("op") == "replace" and str(o.get("old") or "").strip() == str(o.get("text") or "").strip():
+            continue                                     # 같은 글을 같은 글로 — 할 일이 없다(「적용됨」에 헛편집이 찍히던 것, 10/11)
         if o["op"] == "insert" and doc_text:
             o = dict(o, text=_drop_existing(o["text"], doc_text))
             if not o["text"].strip():
@@ -523,6 +525,11 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
             pass                                        # 격자를 못 읽어도 편집은 계속
     p = plan(client, command, info, evidence, materials=materials, focus=focus)
     p["reply"] = plain_reply(p.get("reply") or "")
+    noop = [o for o in p.get("ops") or [] if o.get("op") == "replace" and str(o.get("old") or "").strip() == str(o.get("text") or "").strip()]
+    if noop:
+        p["ops"] = [o for o in p["ops"] if o not in noop]
+        if not p["ops"]:
+            p["reply"] = "이번에는 문서를 실제로 바꾸는 편집이 나오지 않았습니다 — 같은 요청을 다시 보내거나 절 번호·바꿀 내용을 짚어 주세요."
     # 모델이 물어야 한다고 한 값 — 호출부가 입력 양식 선택지로 띄운다(chat_asks 에 쌓아 둠, 답이 오면 지운다)
     if p.get("asks"):
         try:
