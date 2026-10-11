@@ -38,6 +38,11 @@
      if(section.tab_id)url.searchParams.set('tab',section.tab_id);else url.searchParams.delete('tab');
      url.hash='heading='+section.heading_id;
    }
+   // 독스를 다시 그리는 동안(20~30초) 빈 칸만 보여 「안 된다」고 느꼈다(10/11) — 다 그릴 때까지 한 줄 안내
+   const viewport=frame.parentElement;let note=viewport.querySelector('.chat-doc-loading');
+   if(!note){note=document.createElement('div');note.className='chat-doc-loading';note.innerHTML='<span class="chat-doc-busy-dot" aria-hidden="true"></span><span></span>';viewport.append(note);}
+   note.querySelector('span:last-child').textContent=section?`「${section.heading}」 위치로 이동하는 중…`:'문서를 새로 불러오는 중…';
+   note.hidden=false;frame.addEventListener('load',()=>{note.hidden=true;},{once:true});
    frame.src=url.href;
  }
  function isEditor(){return Boolean(panel&&panel.querySelector('[data-toolbar]')&&!panel.classList.contains('chat-doc-viewer'));}
