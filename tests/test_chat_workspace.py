@@ -30,7 +30,7 @@ def test_question_modes_survive_reload_and_regeneration(tmp_path, monkeypatch):
         sid = {'document': 1, 'model': 2, 'web': 3}[expected]
         rows = client.app.state.db.list_chats(sid)
         assert rows[0]['mode'] == expected
-        assert f'class="chat-message-mode">{label}</span>' in client.get(f'/chat/{sid}').text
+        assert f'class="chat-message-mode"><span class="sr-only">, </span>{label}</span>' in client.get(f'/chat/{sid}').text
         if value:
             response = client.post(f'/chat/{sid}/messages/{rows[0]["id"]}/edit', data={
                 'question': '수정 질문', 'expected_content': rows[0]['content'], 'expected_tail_id': rows[-1]['id']})
@@ -91,7 +91,7 @@ def test_waiting_chat_allows_composing_next_question(tmp_path, monkeypatch):
     db.add_chat(session, 'user', '대기 질문')
     page = client.get(f'/chat/{session}').text
     assert 'data-waiting="true"' in page
-    assert '<h1 title="합성 대화">합성 대화</h1>' in page
+    assert '<h1>합성 대화</h1>' in page
     assert '최근 요청 · 대기 질문' in page
     input_tag = page.split('id="chatInput"', 1)[1].split('>', 1)[0]
     assert 'disabled' not in input_tag

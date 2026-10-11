@@ -127,6 +127,8 @@ html:not(.sidebar-collapsed) .sidebar, body.nav-open .sidebar { transition-delay
 .session-popover { position:fixed; inset:auto; margin:0; width:156px; max-width:calc(100vw - 16px); padding:4px; border:1px solid var(--line); border-radius:10px; background:white; color:var(--ink); box-shadow:0 6px 20px #15243c18; font-size:13px; line-height:1.6; }
 .session-popover .session-delete-action { width:100%; justify-content:flex-start; padding:9px 10px; border:0; border-radius:6px; background:transparent; color:#a53636; font-size:13px; font-weight:500; box-shadow:none; }
 .session-popover .session-delete-action:hover { background:#fff1f1; }
+.session-popover .session-menu-action { width:100%; justify-content:flex-start; padding:9px 10px; border:0; border-radius:6px; background:transparent; color:var(--ink); font-size:13px; font-weight:500; box-shadow:none; }
+.session-popover .session-menu-action:hover { background:var(--panel); }
 .session-popover .session-delete-action:focus-visible { outline:1px solid #c7a0a0; outline-offset:-2px; }
 .session-popover.confirming { width:280px; padding:16px; }
 .session-popover p { margin:0 0 10px; overflow-wrap:anywhere; }

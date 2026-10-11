@@ -15,13 +15,15 @@
       menu.onclick = () => {
         document.querySelector('.session-popover')?.remove();
         const pop = document.createElement('div'); pop.className = 'session-popover'; pop.setAttribute('popover','auto'); pop.setAttribute('role','dialog'); pop.setAttribute('aria-label','대화 관리');
-        pop.innerHTML = '<button type="button" class="session-delete-action" data-delete><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>삭제</button>';
+        pop.innerHTML = '<button type="button" class="session-menu-action" data-rename><iconify-icon icon="solar:pen-linear"></iconify-icon>이름 변경</button><button type="button" class="session-menu-action" data-archive><iconify-icon icon="solar:archive-linear"></iconify-icon>보관</button><button type="button" class="session-delete-action" data-delete><iconify-icon icon="solar:trash-bin-trash-linear"></iconify-icon>삭제</button><p role="alert"></p>';
         document.body.append(pop); pop.showPopover();
         menu.setAttribute('aria-expanded','true');
         const rect = menu.getBoundingClientRect();
         function position() {
-          pop.style.left = Math.max(8, Math.min(rect.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8)) + 'px';
-          pop.style.top = Math.max(8, Math.min(rect.bottom + 4, innerHeight - pop.offsetHeight - 8)) + 'px';
+          // 줄 오른쪽 바깥에 띄워 아래 대화 줄을 가리지 않는다. 자리가 없으면 줄 아래로
+          const side = rect.right + 6 + pop.offsetWidth <= innerWidth - 8;
+          pop.style.left = (side ? rect.right + 6 : Math.max(8, Math.min(rect.right - pop.offsetWidth, innerWidth - pop.offsetWidth - 8))) + 'px';
+          pop.style.top = Math.max(8, Math.min(side ? rect.top : rect.bottom + 4, innerHeight - pop.offsetHeight - 8)) + 'px';
         }
         position();
         pop.querySelector('button').focus();
@@ -29,6 +31,30 @@
           if(e.key === 'Escape') { e.preventDefault(); pop.hidePopover(); if(menu.isConnected) menu.focus(); }
         });
         pop.addEventListener('toggle', e => { if (e.newState === 'closed') {pop.remove(); menu.setAttribute('aria-expanded','false');} });
+        async function change(values) {
+          const response = await fetch('/api/chat/sessions/' + id, {method:'POST', body:new URLSearchParams(values)});
+          if (!response.ok || response.redirected) throw new Error('바꾸지 못했습니다. 다시 시도해 주세요.');
+          document.dispatchEvent(new CustomEvent('chat-history-changed'));
+        }
+        pop.querySelector('[data-archive]').onclick = async () => {
+          pop.querySelectorAll('button').forEach(b => b.disabled = true);
+          try { await change({archived:'true'}); pop.hidePopover(); }
+          catch (error) { pop.querySelector('[role=alert]').textContent = error.message; pop.querySelectorAll('button').forEach(b => b.disabled = false); }
+        };
+        pop.querySelector('[data-rename]').onclick = () => {
+          pop.classList.add('confirming');
+          pop.innerHTML = '<form class="session-rename"><input required maxlength="80" aria-label="대화 이름"><button type="submit">저장</button><button type="button" class="secondary" data-cancel>취소</button><p role="alert"></p></form>';
+          const form = pop.querySelector('form'), field = form.querySelector('input');
+          field.value = link.title || link.textContent.trim(); position(); field.focus(); field.select();
+          form.querySelector('[data-cancel]').onclick = () => {pop.hidePopover(); if(menu.isConnected) menu.focus();};
+          form.onsubmit = async event => {
+            event.preventDefault();
+            if (!field.value.trim()) return;
+            form.querySelectorAll('button').forEach(b => b.disabled = true);
+            try { await change({title:field.value.trim()}); pop.hidePopover(); }
+            catch (error) { form.querySelector('[role=alert]').textContent = error.message; form.querySelectorAll('button').forEach(b => b.disabled = false); }
+          };
+        };
         pop.querySelector('[data-delete]').onclick = () => {
           pop.classList.add('confirming');
           pop.innerHTML = '<p class="session-delete-title"></p><p>이 대화와 수정 이력을 삭제할까요? 복구할 수 없습니다. 프로젝트·등록 문서·첨부 원본 파일은 유지됩니다.</p><div><button type="button" class="secondary" data-cancel>취소</button><button type="button" data-confirm>삭제</button></div><p role="alert"></p>';
@@ -63,7 +89,7 @@
     const dialog = document.createElement('dialog');
     dialog.className = 'session-manager';
     dialog.setAttribute('aria-label', '대화 기록 검색');
-    dialog.innerHTML = '<header><h2>대화 검색</h2><button type="button" class="secondary" data-close>닫기</button></header><form class="session-search"><input type="search" aria-label="대화 이름 또는 프로젝트 검색" placeholder="대화 이름, 프로젝트 검색"><button type="submit" class="secondary">검색</button><div class="session-filters"><label>상태<select aria-label="기록 구분"><option value="0">진행 중</option><option value="1">보관됨</option></select></label><label>검색 범위<select aria-label="찾을 범위" data-scope><option value="title">이름·프로젝트·사업</option><option value="all">대화 내용 포함</option></select></label></div></form><p role="status"></p><div class="session-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button>';
+    dialog.innerHTML = '<header><h2>대화 검색</h2><button type="button" class="dialog-close" data-close aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></header><form class="session-search"><input type="search" aria-label="대화 이름 또는 프로젝트 검색" placeholder="대화 이름, 프로젝트 검색"><button type="submit" class="secondary">검색</button><div class="session-filters"><label>상태<select aria-label="기록 구분"><option value="0">진행 중</option><option value="1">보관됨</option></select></label><label>검색 범위<select aria-label="찾을 범위" data-scope><option value="title">이름·프로젝트·사업</option><option value="all">대화 내용 포함</option></select></label></div></form><p role="status"></p><div class="session-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button>';
     document.body.appendChild(dialog); dialog.showModal();
     dialog.querySelector('[data-close]').onclick = () => dialog.close();
     dialog.addEventListener('close', () => { token++; controller?.abort(); dialog.remove(); if(opener.isConnected) opener.focus({preventScroll:true}); });
@@ -149,7 +175,8 @@
           actions.append(rename, archive, remove); row.append(link, meta, actions); results.appendChild(row);
         }
         offset += data.sessions.length; more.hidden = !data.has_more;
-        status.textContent = offset ? (archived ? '보관한 대화' : '최근 대화') + ' · ' + offset + '개' : '검색 결과가 없습니다.';
+        const term = form.querySelector('input').value.trim();
+        status.textContent = offset ? (term ? '「' + term + '」 결과 ' + offset + '개' : (archived ? '보관한 대화' : '최근 대화') + ' · ' + offset + '개') : '검색 결과가 없습니다.';
       } catch (error) { if(current===token && error.name !== 'AbortError') status.textContent = error.message || '기록을 불러오지 못했습니다. 검색을 눌러 다시 시도하세요.'; }
       finally { if(current===token) more.disabled = false; }
     }

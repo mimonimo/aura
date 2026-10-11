@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 router = APIRouter()
-SECTORS = {"grant": "국고사업", "recruit": "채용", "admission": "입학", "common": "공통"}
+SECTORS = {"grant": "국고사업", "recruit": "채용", "admission": "입학", "auto": "일반 행정", "common": "공통"}
 
 
 def search(db, owner: str, q: str = "", offset: int = 0) -> dict:

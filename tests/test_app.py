@@ -1201,7 +1201,7 @@ def test_sidebar_shows_model_server_status(client, monkeypatch, tmp_path):
 
     lc.configure(tmp_path / "none.json"); model_config.set_override("", "")
     monkeypatch.delenv("VLLM_BASE_URL", raising=False)
-    assert "AI 모델 서버 미연결" in client.get("/").text            # 주소 없음 → 미연결
+    assert "AI 미연결" in client.get("/").text                     # 주소 없음 → 미연결
     monkeypatch.setenv("VLLM_BASE_URL", "http://gpu:8000/v1")
     calls = []
     def fake_probe(base_url=None, timeout=3.0):
@@ -1209,7 +1209,7 @@ def test_sidebar_shows_model_server_status(client, monkeypatch, tmp_path):
     monkeypatch.setattr(model_config, "probe", fake_probe)
     model_config.reset_status_cache()
     page = client.get("/").text
-    assert "서버 연결됨" in page and "qwen-x" in page
+    assert "서버 연결됨" in page and "qwen-x" in page               # 개발자에게는 서버·모델 이름까지
     client.get("/"); client.get("/criteria")
     assert len(calls) == 1                                          # 60초 캐시 — 화면마다 다시 묻지 않는다
     model_config.set_override("", ""); model_config.reset_status_cache()

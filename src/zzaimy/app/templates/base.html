@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}YNC 행정 에이전트{% endblock %}</title>
+{% if false %}{% block title %}{% endblock %}{% endif %}{# 화면 이름 — 탭 제목은 「화면 이름 · 짜이미」 #}
+{%- set page_title = self.title() | trim -%}
+<title>{{ (page_title ~ " · 짜이미") if page_title and not page_title.endswith("짜이미") else (page_title or "짜이미") }}</title>
 <link rel="stylesheet"
   href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
   integrity="sha384-GIdEBaqGN9mNkDkMkzMHW8EKUqtpPIe/sLj1X7DIrnc9uPtLROJgmuDlh+3rBw0j" crossorigin="anonymous">
@@ -369,6 +371,13 @@
   .modal-head { display: flex; align-items: center; justify-content: space-between;
                 margin-bottom: 14px; }
   .modal-head h2 { margin: 0; }
+  /* 창 닫기는 한 모양 — 머리 오른쪽 아이콘 하나(모달·검색 창 공용). 글자 「×」로 쓴 창도 같은 모양으로 맞춘다 */
+  .dialog-close, .modal-head [data-modal-close] { flex: none; width: 32px; height: 32px; padding: 0;
+    border: 0; border-radius: 8px; background: transparent; color: var(--muted); box-shadow: none;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; cursor: pointer; }
+  .dialog-close:hover, .modal-head [data-modal-close]:hover { background: #EEF1F5; color: var(--ink); border: 0; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
   .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
   .form-row > .muted { font-size: 12.5px; }
   .modal-back select, .modal-back input[type=password], .modal-back input[type=text] {
@@ -433,7 +442,7 @@
 try {
   const owner = {{ request.state.user | tojson }};
   if (sessionStorage.getItem('chatOwner') !== owner) {
-    Object.keys(sessionStorage).filter(key => key === 'agentSession' || key === 'agentDraftTransfer' || key.startsWith('chatCriteria:')).forEach(key => sessionStorage.removeItem(key));
+    Object.keys(sessionStorage).filter(key => key === 'agentSession' || key === 'chatWidgetSession' || key === 'agentDraftTransfer' || key.startsWith('chatCriteria:')).forEach(key => sessionStorage.removeItem(key));
   }
   sessionStorage.setItem('chatOwner', owner);
 } catch (_) {}
@@ -453,7 +462,7 @@ document.addEventListener('submit', function(event) {
   <a class="side-brand" href="/">
     <img src="/static/ync-logo.png" alt="영남이공대학교">
   </a>
-  <p class="sidebar-service-name">행정 에이전트 플랫폼</p>
+  <p class="sidebar-service-name">짜이미</p>
   </div>
   {% set developer_space = request.url.path.startswith('/dev') and request.state.role == 'dev' %}
   {% if developer_space %}
@@ -463,7 +472,7 @@ document.addEventListener('submit', function(event) {
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
     {% if request.state.role != 'student' %}
-    <button type="button" class="side-search" data-project-search><iconify-icon icon="solar:magnifer-linear"></iconify-icon>프로젝트 검색</button>
+    <button type="button" class="side-search" data-project-search><iconify-icon icon="solar:magnifer-linear"></iconify-icon>진행 중 프로젝트 찾기</button>
     <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox', '/criteria') or request.url.path.startswith('/archive') else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
     {% endif %}
@@ -478,7 +487,7 @@ document.addEventListener('submit', function(event) {
        class="{{ 'active' if request.url.path == '/project/' ~ pj.id else '' }}" title="{{ pj.name }}">
       <iconify-icon icon="solar:folder-2-linear"></iconify-icon>
       <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ pj.name }}</span>
-      <span class="muted" style="margin-left:auto; font-size:11.5px;">{{ pj.n_docs }}</span></a>
+      <span class="muted" style="margin-left:auto; font-size:11.5px;" title="프로젝트에 등록된 문서 {{ pj.n_docs }}건"><span class="sr-only">프로젝트에 등록된 문서 </span>{{ pj.n_docs }}<span class="sr-only">건</span></span></a>
     {% endfor %}
   </nav>
   {% endif %}
@@ -508,14 +517,16 @@ document.addEventListener('submit', function(event) {
     {% endif %}
     {% endif %}
     {% if llm_status is defined %}
-    <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok else '' }}">
-      {% if llm_status.ok %}
+    <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok and request.state.role == 'dev' else '' }}">
+      {% if llm_status.ok and request.state.role != 'dev' %}
+      <span class="side-connection-status"><span style="color:var(--green);" aria-hidden="true">●</span> AI 연결됨</span>
+      {% elif llm_status.ok %}{# 서버·모델 이름은 개발자에게만 #}
       <span class="side-connection-status"><span style="color:var(--green);" aria-hidden="true">●</span> 기본 AI 서버 연결됨</span>
       {% if llm_status.source is defined and llm_status.source.startswith('연결: ') %}
       <span class="side-connection-device">{{ llm_status.source[4:] }}</span>
       {% else %}<span class="side-connection-device">{{ llm_status.source | default('서버명 미등록') }}</span>{% endif %}
       {% if llm_status.model %}<span class="side-connection-model" title="{{ llm_status.model }}">{{ llm_status.model }}</span>{% endif %}
-      {% else %}<span style="color:var(--amber);">●</span> AI 모델 서버 미연결 · 답변 대기{% endif %}</div>
+      {% else %}<span style="color:var(--amber);" aria-hidden="true">●</span> AI 미연결 · 답변 대기{% endif %}</div>
     {% endif %}
   </div>
 </aside>
@@ -539,17 +550,16 @@ document.addEventListener('submit', function(event) {
         {% if alert_count %}<span class="badge-n">{{ alert_count }}</span>{% endif %}
       </button>
       <div class="popover" id="bellPop">
-        <h5>확인할 문서 <span>{{ alert_count }}</span></h5>
-        <p class="notification-help">열어 본 알림은 정리됩니다. 문서의 업무 상태는 바뀌지 않습니다.</p>
-        {% if notification_pending or failed_docs or recent_reviewed %}<button type="button" class="btn-ghost" id="notificationReadAll">모두 확인</button>{% endif %}
+        <h5>확인할 문서{% if alert_count %} <span>{{ alert_count }}</span>{% endif %}</h5>
+        {% if alert_count %}<p class="notification-help">열어 본 알림은 정리됩니다. 문서의 업무 상태는 바뀌지 않습니다.</p>
+        <button type="button" class="btn-ghost" id="notificationReadAll">모두 확인</button>
+        {% else %}<div class="pop-empty">새로 확인할 문서가 없습니다.</div>{% endif %}
         {% if notification_pending %}<h6 class="notification-section">판정 필요</h6>{% endif %}
         {% for d in notification_pending %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
           <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 확인 후 판정{% if d.receipt_no %} · {{ d.receipt_no }}{% endif %}</small></span>
         </a>
-        {% else %}
-        {% if not failed_docs and not recent_reviewed %}<div class="pop-empty">확인할 문서가 없습니다.</div>{% endif %}
         {% endfor %}
         {% if failed_docs %}
         <h5 style="margin-top:10px;">처리 실패 {{ failed_docs|length }}</h5>
@@ -582,7 +592,8 @@ document.addEventListener('submit', function(event) {
           <span class="pop-avatar"><iconify-icon icon="solar:user-linear"></iconify-icon></span>
           <div style="min-width:0;">
             <div class="pop-name">{{ profile_name or request.state.user or "담당자" }}</div>
-            <div class="pop-sub">{{ request.state.user or "" }}{% if request.state.user %} · {% endif %}{{ "개발자" if request.state.role == "dev" else "담당자" }}{% if profile_dept %} · {{ profile_dept }}{% endif %}</div>
+            {% set sub = [request.state.user if profile_name and profile_name != request.state.user else "", role_labels.get(request.state.role, "담당자"), profile_dept or ""] | select | list %}
+            <div class="pop-sub">{{ sub | join(" · ") }}</div>
           </div>
         </div>
         <div class="pop-div"></div>
@@ -708,7 +719,7 @@ document.addEventListener('submit', function(event) {
       try {
         await acknowledge(links());
         bell.querySelectorAll('.pop-item,.notification-section,h5[style],#notificationReadAll').forEach(e => e.remove());
-        bell.querySelector('h5 span').textContent = '0';
+        bell.querySelector('h5 span')?.remove();
         document.querySelector('[data-pop="bellPop"] .badge-n')?.remove();
         const empty = document.createElement('p');empty.className='pop-empty';empty.textContent='모든 알림을 확인했습니다.';bell.append(empty);
       } catch (e) { this.disabled=false;this.textContent='다시 확인'; }
@@ -842,6 +853,11 @@ document.addEventListener('submit', function(event) {
             background: transparent; font: inherit; font-size: 13px; color: var(--ink);
             padding: 9px 10px; border-radius: 8px; cursor: pointer; text-align: left; }
   .ag-menu button:hover { background: var(--panel); }
+  /* 넓은 화면에서는 위젯이 표의 오른쪽 칸·단추를 덮지 않게 본문을 밀어낸다. 좁은 화면만 덮개 */
+  @media (min-width: 1200px) {
+    body.ag-open .content-col { padding-right: 420px; transition: padding-right .2s ease; }
+    body.ag-open .ag-panel { top: 76px; bottom: 16px; height: auto; max-height: none; }
+  }
   @media (max-width: 560px) {
     .ag-panel { right: 12px; left: 12px; width: auto; bottom: 14px; }
     .ag-fab { right: 14px; bottom: 14px; }
@@ -856,13 +872,13 @@ document.addEventListener('submit', function(event) {
     <iconify-icon icon="solar:chat-round-line-linear" style="color:var(--navy); font-size:18px;"></iconify-icon>
     <b id="agTitle" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">새 대화</b>
     <button type="button" class="icon-btn" data-chat-history title="대화 기록" aria-label="대화 기록" style="width:28px; height:28px; font-size:14px;"><iconify-icon icon="solar:history-linear"></iconify-icon></button>
-    <button type="button" class="icon-btn" id="agNew" title="새 대화"
+    <button type="button" class="icon-btn" id="agNew" title="새 대화" aria-label="새 대화"
             style="width:28px; height:28px; font-size:14px;">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></button>
-    <a class="icon-btn" id="agFull" href="/chat" title="전체 화면으로 열기"
+    <a class="icon-btn" id="agFull" href="/chat" title="전체 화면으로 열기" aria-label="전체 화면으로 열기"
        style="width:28px; height:28px; font-size:14px;">
       <iconify-icon icon="solar:maximize-square-linear"></iconify-icon></a>
-    <button type="button" class="icon-btn" id="agClose" title="닫기"
+    <button type="button" class="icon-btn" id="agClose" title="닫기" aria-label="닫기"
             style="width:28px; height:28px; font-size:14px;">
       <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
   </div>
@@ -878,12 +894,12 @@ document.addEventListener('submit', function(event) {
     <div class="ag-quote" id="agQuote" hidden>
       <iconify-icon icon="solar:quote-square-linear" style="font-size:14px; flex:none;"></iconify-icon>
       <span id="agQuoteText"></span>
-      <button type="button" id="agQuoteClear" title="빼기">
+      <button type="button" id="agQuoteClear" title="고른 글 빼기" aria-label="고른 글 빼기">
         <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
     </div>
     <div class="ag-row">
       <textarea id="agInput" rows="1" placeholder="메시지를 입력하세요"></textarea>
-      <button type="button" class="ag-send" id="agSend" title="보내기" disabled>
+      <button type="button" class="ag-send" id="agSend" title="보내기" aria-label="보내기" disabled>
         <iconify-icon icon="solar:plain-2-linear"></iconify-icon></button>
     </div>
   </div>
@@ -921,12 +937,14 @@ document.addEventListener('submit', function(event) {
   var sid = null, busy = false, quoted = "", posting = false, generation = 0, pollTimer;
   var pageProject = {{ (project.id if project is defined and project else none) | tojson }};
   var chatTitle = document.getElementById("agTitle");
-  try { sid = sessionStorage.getItem("agentSession") || null; } catch (e) {}
+  // 위젯은 위젯에서 시작한 대화만 이어 간다 — 채팅 화면에서 마지막에 본 프로젝트 대화를 이어 열지 않는다
+  var KEY = "chatWidgetSession";
+  try { sid = sessionStorage.getItem(KEY) || null; } catch (e) {}
 
   function setSid(v) {
     if (sid !== v) { generation++; clearTimeout(pollTimer); }
     sid = v;
-    try { if (v) sessionStorage.setItem("agentSession", v); else sessionStorage.removeItem("agentSession"); } catch (e) {}
+    try { if (v) sessionStorage.setItem(KEY, v); else sessionStorage.removeItem(KEY); } catch (e) {}
     if (full) full.href = v ? "/chat/" + v : (pageProject ? "/chat?project=" + pageProject : "/chat");
     chatTitle.textContent = v ? "이어서 대화" : "새 대화";
   }
@@ -1015,9 +1033,10 @@ document.addEventListener('submit', function(event) {
       .then(function (r) { if (!r.ok || r.redirected) { var error = new Error(); error.status = r.status; throw error; } return r.json(); })
       .then(function (d) {
         if (token !== generation || requestedSession !== sid) return;
-        if (pageProject && d.project_id !== pageProject) {
+        if ((d.project_id || null) !== (pageProject || null)) {
+          // 다른 프로젝트(또는 프로젝트 밖) 대화는 이 화면에서 이어 쓰지 않는다 — 새 대화로 시작하고, 이어 쓰기는 대화 기록에서 고른다
           setSid(null); busy = false; lastActions = []; render([]); paintSend();
-          chatTitle.textContent = "이 프로젝트의 새 대화"; return;
+          chatTitle.textContent = pageProject ? "이 프로젝트의 새 대화" : "새 대화"; return;
         }
         if (!Array.isArray(d.messages)) throw new Error();
         render(d.messages);
@@ -1042,17 +1061,19 @@ document.addEventListener('submit', function(event) {
 
   function open() {
     panel.inert = false; panel.setAttribute('aria-hidden', 'false');
-    panel.classList.add("open");
+    panel.classList.add("open"); document.body.classList.add("ag-open");
     fab.hidden = true; fab.setAttribute("aria-expanded", "true");
     if (sid) load(true);
     setTimeout(function () { if (panel.classList.contains('open')) input.focus(); }, 180);
   }
-  function close() { panel.classList.remove("open"); panel.inert = true; panel.setAttribute('aria-hidden', 'true'); clearTimeout(pollTimer); fab.hidden = false; fab.setAttribute("aria-expanded", "false"); fab.focus(); }
+  function close(keepFocus) { panel.classList.remove("open"); document.body.classList.remove("ag-open"); panel.inert = true; panel.setAttribute('aria-hidden', 'true'); clearTimeout(pollTimer); fab.hidden = false; fab.setAttribute("aria-expanded", "false"); if (!keepFocus) fab.focus(); }
   panel.addEventListener('keydown', function(event) { if(event.key === 'Escape') { event.stopPropagation(); close(); } });
   fab.addEventListener("click", function () {
     if (panel.classList.contains("open")) close(); else open();
   });
-  document.getElementById("agClose").addEventListener("click", close);
+  document.getElementById("agClose").addEventListener("click", function () { close(); });
+  // 대화 기록은 전역 검색 창으로 연다 — 위젯은 접어서 창 위에 겹쳐 남지 않게
+  panel.querySelector("[data-chat-history]").addEventListener("click", function () { close(true); });
   document.getElementById("agNew").addEventListener("click", function () {
     if (posting) return;
     if (input.value.trim() && !confirm("작성 중인 내용을 지우고 새 대화를 시작할까요?")) return;
