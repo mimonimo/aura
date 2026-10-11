@@ -46,7 +46,7 @@ def _run_one(db_path: str, doc_id: int, file_path: str) -> None:
 
 SOURCES = [
     # (폴더, 문서 유형, 설명, 소유) — 앞에서부터 순서대로 올린다.
-    # 소유 corpus = 공개 수집 문서: 마스킹 대상이며, 공개 자료 판독(외부 모델)을 쓸 수 있다.
+    # 소유 corpus = 공개 수집 문서: 마스킹 대상. 판독은 교내 문서와 같은 판독 모델로 한다(ADR-0061).
     ("data/scraped/iacf", "regulation", "영남이공대학교 산학협력단 규정", "zzaimy"),
     ("data/external", "recruit", "외부 기관 공고·안내", "corpus"),
     ("data/scraped/files", "regulation", "교내 내려받기 문서", "zzaimy"),

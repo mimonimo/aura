@@ -83,21 +83,6 @@ def test_model_thinking_is_stripped_from_transcripts():
     assert _strip_think("푸른등대") == "푸른등대"
 
 
-def test_public_documents_may_use_the_public_reader_only_when_set(tmp_path):
-    from zzaimy.app.pipeline import DocumentProcessor
-    from zzaimy.generate import llm_connections as lc
-
-    lc.configure(tmp_path / "c.json")
-    proc = DocumentProcessor()
-    proc._doc_public = True
-    assert proc._vision_role() == "vision"                    # 지정이 없으면 교내 판독
-    ext = lc.add("클로드", "anthropic", "https://api.anthropic.com/v1/", "claude-sonnet-5", "sk-test")
-    lc.set_role("vision_public", ext["id"], "claude-sonnet-5")
-    assert proc._vision_role() == "vision_public"
-    proc._doc_public = False
-    assert proc._vision_role() == "vision"                    # 교내 문서는 언제나 교내 판독
-
-
 def test_review_continues_when_the_model_hits_the_length_limit(monkeypatch):
     """검토 의견이 상한에 걸리면 한 번 이어 쓰고, 그래도 끝나지 않으면 끊겼다고 적는다."""
     from types import SimpleNamespace

@@ -1,18 +1,54 @@
 """LLM 연결 설정 규칙."""
 
 
-def test_external_connection_only_for_public_reading(tmp_path):
-    """외부 서버(클로드 등)는 공개 자료 판독에만 — 교내 문서가 지나가는 용도에는 지정되지 않는다."""
+def test_external_connection_is_never_assigned_to_a_role(tmp_path):
+    """외부 서버는 어떤 용도에도 직접 지정되지 않는다 — 단건·일괄 저장 모두."""
     import pytest
     from zzaimy.generate import llm_connections as lc
 
     lc.configure(tmp_path / "c.json")
-    ext = lc.add("클로드", "anthropic", "https://api.anthropic.com/v1/", "claude-sonnet-5", "sk-test")
-    for role in ("answer", "review", "vision"):
+    ext = lc.add("외부 기관", "partner", "https://llm.partner.example/v1", "m-x", "k-1234")
+    for role in lc.ROLES:
         with pytest.raises(ValueError):
-            lc.set_role(role, ext["id"], "claude-sonnet-5")
-    lc.set_role("vision_public", ext["id"], "claude-sonnet-5")
-    assert lc.role_is_set("vision_public") and not lc.role_is_set("vision")
+            lc.set_role(role, ext["id"], "m-x")
+        with pytest.raises(ValueError):
+            lc.set_roles({role: (ext["id"], "m-x")})
+        assert not lc.role_is_set(role)
+
+
+def test_retired_kind_and_role_in_saved_config_are_ignored(tmp_path, caplog):
+    """폐기된 상용 API 연결·공개 자료 판독 용도가 든 옛 설정을 읽어도 죽지 않고, 쓰이지도 보이지도 않는다(ADR-0061)."""
+    import json
+    import logging
+    from zzaimy.generate import llm_connections as lc
+
+    path = tmp_path / "c.json"
+    path.write_text(json.dumps({
+        "connections": [
+            {"id": "in1", "name": "토르", "kind": "vllm", "external": False, "base_url": "http://t:8001/v1", "model": "w"},
+            {"id": "old1", "name": "클로드", "kind": "anthropic", "external": True,
+             "base_url": "https://api.example.invalid/v1/", "model": "x", "api_key": "sk-test"},
+        ],
+        "active": "old1", "external": "old1",
+        "roles": {"vision_public": {"id": "old1", "model": "x"}, "vision": {"id": "old1", "model": "x"},
+                  "answer": {"id": "in1", "model": "w"}},
+    }), encoding="utf-8")
+    lc.configure(path)
+    lc._warned.clear()
+    with caplog.at_level(logging.WARNING, logger=lc.__name__):
+        names = [c["name"] for c in lc.list_public()]
+        lc.list_public()                                          # 두 번 읽어도 기록은 한 번
+    assert names == ["토르"]
+    assert "anthropic" not in lc.KINDS and "vision_public" not in lc.ROLES
+    assert lc.active() is None and lc.external() is None
+    assert lc.role_conn("vision") is None                         # 빠진 연결로 가지 않는다
+    assert lc.role_conn("answer")["name"] == "토르"
+    assert [r["role"] for r in lc.roles_public()] == list(lc.ROLES)
+    assert sum("anthropic" in r.getMessage() for r in caplog.records) == 1
+    assert sum("vision_public" in r.getMessage() for r in caplog.records) == 1
+    lc.set_role("review", "in1", "w")                             # 다음 저장에서 파일에서도 빠진다
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert [c["id"] for c in saved["connections"]] == ["in1"] and "vision_public" not in saved["roles"]
 
 
 def test_role_change_is_seen_without_restart(tmp_path):
@@ -53,7 +89,7 @@ def test_role_fails_over_to_internal_server_with_same_model(tmp_path, monkeypatc
     t2 = lc.add("토르 02", "vllm", "http://t2:8001/v1", "", "")
     other = lc.add("다른 모델", "vllm", "http://o:8001/v1", "", "")
     t3 = lc.add("토르 03", "vllm", "http://t3:8001/v1", "", "")
-    lc.add("클로드", "anthropic", "https://api.anthropic.com/v1/", "zzaimy-writer", "sk-test")
+    lc.add("외부 기관", "partner", "https://llm.partner.example/v1", "zzaimy-writer", "k-1234")
     lc.set_role("answer", t2["id"], "zzaimy-writer")
     up = {"http://t2:8001/v1": True, "http://o:8001/v1": True, "http://t3:8001/v1": True}
     served = {"http://o:8001/v1": ("gemma",), "http://t3:8001/v1": ("zzaimy-writer",)}

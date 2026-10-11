@@ -291,15 +291,12 @@
     <div class="use-list">
       {% for r in llm_roles %}
       {% set own = (connections | selectattr('id', 'equalto', r.id) | list | first) if r.id else none %}
-      {# 공개 자료 판독은 지정이 없으면 기본 연결이 아니라 '문서 이미지 판독' 모델을 쓴다.
-         공개 수집 문서는 운영 범위에서 빠져 이 단계는 지정이 없을 때 감춘다(값은 그대로 함께 저장) #}
-      {% set srv = own or (none if r.role == 'vision_public' else act) %}
-      <div class="use-row" id="use-{{ r.role }}"{{ ' hidden' if r.role == 'vision_public' and not r.id }}>
+      {% set srv = own or act %}
+      <div class="use-row" id="use-{{ r.role }}">
         <input type="hidden" name="role" value="{{ r.role }}">
         <div class="use-name">{{ r.label }}</div>
         <div class="use-now">
-          {% if not srv and r.role == 'vision_public' %}<span class="muted">지정 없음 — 문서 이미지 판독 모델을 씁니다</span>
-          {% elif srv %}
+          {% if srv %}
             <strong>{{ srv.name }}</strong>
             <span class="use-model">{{ (r.model if own else none) or srv.model or "자동" }}</span>
             {% if not own %}<span class="pill use-tag">자동</span>{% endif %}
@@ -368,7 +365,7 @@
   <div class="srv-head muted">계획 모델과 현재 서빙 연결</div>
   <p class="muted">서버 응답 여부를 표시합니다. 정상 연결은 SFT 완료나 품질 검증 완료를 뜻하지 않습니다.</p>
   <div class="plan-list">
-    {% for p in serving_plan if not (p.key == 'vision_public' and not p.model) %}
+    {% for p in serving_plan %}
     <div class="plan-row">
       <span class="plan-name">{{ p.name }}</span>
       <span class="muted plan-role">{{ p.role }}</span>

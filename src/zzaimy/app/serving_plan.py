@@ -28,8 +28,6 @@ PLAN = [
      "role": "문서를 들일 때 요약·판정 — 문서 작업이므로 Writer 가 한다", "kind": "chat"},
     {"key": "vision", "name": "문서 이미지 판독", "base": "Qwen3.8-27B (③Writer, 멀티모달)",
      "role": "스캔·그림에서 글자 읽기 — 계획의 Writer 가 곧 판독 모델", "kind": "chat"},
-    {"key": "vision_public", "name": "공개 자료 판독", "base": "외부 모델 허용",
-     "role": "공개 수집 문서(국고 공고·외부 안내)만 — 지정이 없으면 위 판독 모델을 쓴다", "kind": "chat"},
 ]
 
 
@@ -58,14 +56,6 @@ def status(live_models=None) -> list[dict]:
                        ok=bool(part.get("ok")), detail=part.get("detail", ""))
         else:
             r = roles.get(item["key"])
-            if item["key"] == "vision_public" and not (r and r.get("id")):
-                # 지정이 없으면 판독 모델이 맡는다 — 기본 연결을 보이면 거짓이다
-                vr = roles.get("vision") or {}
-                vconn = conns.get(vr.get("id") or "") or active
-                row.update(model="", where=vconn["name"] if vconn else "",
-                           ok=True, detail="지정 없음 — 문서 이미지 판독 모델을 씁니다", matches_plan=True)
-                out.append(row)
-                continue
             conn = conns.get(r["id"]) if r and r.get("id") else active
             if conn is not None:
                 model = (r.get("model") if r and r.get("id") else "") or conn.get("model") or ""

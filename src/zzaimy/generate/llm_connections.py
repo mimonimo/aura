@@ -1,6 +1,7 @@
 """LLM 연결 관리 — 교내 GPU 서버와 외부 GPU 서버(OpenAI 호환 규격 API)를 등록하고 용도를 정한다.
 
-- 상용 클라우드 API 는 공개 자료 판독에만 쓴다(교내 문서는 보내지 않는다). '외부'는 교내망 밖의 서버를 뜻한다.
+- 상용 클라우드 API 연결은 두지 않는다(ADR-0017·0061). '외부'는 교내망 밖의 기관 GPU 서버를 뜻한다.
+- 외부 서버는 어떤 용도(역할)에도 직접 지정할 수 없다. 문서 작업 기본 연결로만, 개인정보 검토 확인 뒤에 쓴다.
 - 저장: data/platform/llm_connections.json (0600). API 키는 이 파일에만 있고 화면에는 끝 4자리만 보인다.
 - 문서 작업(채팅·검토·초안·요약)의 기본 연결: 교내 서버는 바로, 외부 서버는 개인정보 검토 확인(ack) 후에 지정한다.
 - 외부 AI 참조(민감정보 제거 후 일반 지식 질의, ADR-0008)는 외부 서버 연결만 쓴다.
@@ -25,13 +26,9 @@ from pathlib import Path
 KINDS = {
     "vllm": {"label": "교내 GPU 서버", "external": False, "base_url": "http://<교내 GPU 서버>:8000/v1"},
     "partner": {"label": "외부 GPU 서버", "external": True, "base_url": "https://<외부 GPU 서버 주소>/v1"},
-    # 상용 API — OpenAI 호환 주소로 부른다(같은 클라이언트). 공개 자료 판독에만 쓴다(아래 set_role 의 규칙).
-    "anthropic": {"label": "Anthropic 클로드 (상용 API)", "external": True,
-                  "base_url": "https://api.anthropic.com/v1/"},
 }
-# 외부(교외) 연결을 맡길 수 있는 용도 — 공개 자료만 다루는 용도뿐이다. 교내 문서·개인정보가 지나가는
-# 용도(문서 작업·반입 검토·일반 판독)에는 외부 연결을 지정할 수 없다(절대규칙 3).
-EXTERNAL_OK_ROLES = ("vision_public",)
+# 설정 파일에 KINDS·ROLES 에 없는 종류·용도가 남아 있으면(폐기된 상용 API 연결, 공개 자료 판독 용도 등,
+# ADR-0061) 읽을 때 빼고 한 번만 기록한다. 다음 저장 때 파일에서도 빠진다.
 
 _path: Path | None = None
 _cache: dict | None = None
@@ -79,8 +76,48 @@ def _load() -> dict:
     data.setdefault("active", "")
     data.setdefault("roles", {})
     data.setdefault("external", "")
+    _drop_unknown(data)
     _cache = data
     return data
+
+
+_warned: set[str] = set()
+
+
+def _warn_once(key: str, msg: str, *args) -> None:
+    if key in _warned:
+        return
+    _warned.add(key)
+    import logging
+    logging.getLogger(__name__).warning(msg, *args)
+
+
+def _drop_unknown(data: dict) -> None:
+    """지원하지 않는 종류의 연결과 없는 용도를 설정에서 뺀다 — 기동·호출이 죽지 않고 그 연결이 쓰이지도 않게."""
+    keep, gone = [], set()
+    for c in data["connections"]:
+        if isinstance(c, dict) and c.get("id") and c.get("kind") in KINDS:
+            keep.append(c)
+        else:
+            cid = c.get("id", "") if isinstance(c, dict) else ""
+            gone.add(cid)
+            kind = c.get("kind", "") if isinstance(c, dict) else type(c).__name__
+            _warn_once(f"conn:{cid}:{kind}", "지원하지 않는 연결 종류라 무시합니다: %s (%s)", kind,
+                       c.get("name", "") if isinstance(c, dict) else "")
+    data["connections"] = keep
+    for key in ("active", "external"):
+        if data[key] and data[key] in gone:
+            data[key] = ""
+    if not isinstance(data["roles"], dict):
+        data["roles"] = {}
+    for role in list(data["roles"]):
+        raw = data["roles"][role]
+        cid = raw.get("id", "") if isinstance(raw, dict) else str(raw or "")
+        if role not in ROLES:
+            _warn_once(f"role:{role}", "없는 용도 지정이라 무시합니다: %s", role)
+            data["roles"].pop(role)
+        elif cid and cid in gone:
+            data["roles"].pop(role)
 
 
 def _save(data: dict) -> None:
@@ -139,21 +176,27 @@ ROLES = {
     "answer": "문서 작업 (채팅·초안)",
     "review": "반입 검토 의견 (문서를 들일 때 요약·판정)",
     "vision": "문서 이미지 판독 (스캔·그림)",
-    "vision_public": "공개 자료 판독 (외부 모델 허용 — 공개 수집 문서만)",
 }
+
+
+def _check_pick(role: str, cid: str) -> None:
+    """용도 지정 검사. 외부 서버는 어느 용도에도 직접 맡기지 않는다 — 교내 문서가 지나가기 때문이다(절대 규칙 3)."""
+    if role not in ROLES:
+        raise ValueError(f"알 수 없는 단계입니다: {role}")
+    if not cid:
+        return
+    conn = get(cid)
+    if conn is None:
+        raise ValueError("없는 연결입니다")
+    if conn.get("external"):
+        raise ValueError("외부 서버는 용도에 지정할 수 없습니다 — 교내 문서는 나가지 않습니다")
 
 
 def set_role(role: str, cid: str, model: str = "") -> dict:
     """용도에 쓸 서버와 모델을 정한다. cid 가 비면 그 용도를 문서 작업 기본 연결에 맡긴다."""
-    if role not in ROLES:
-        raise ValueError(f"알 수 없는 역할입니다: {role}")
+    _check_pick(role, cid)
     data = _load()
     if cid:
-        conn = get(cid)
-        if conn is None:
-            raise ValueError("없는 연결입니다")
-        if conn.get("external") and role not in EXTERNAL_OK_ROLES:
-            raise ValueError("외부 서버는 공개 자료 판독에만 지정할 수 있습니다 — 교내 문서는 나가지 않습니다")
         data["roles"][role] = {"id": cid, "model": (model or "").strip()}
     else:
         data["roles"].pop(role, None)
@@ -169,10 +212,7 @@ def set_roles(picks: dict[str, tuple[str, str]]) -> dict:
     전부 검증하고 한 번만 파일에 쓴다.
     """
     for role, (cid, _model) in picks.items():
-        if role not in ROLES:
-            raise ValueError(f"알 수 없는 단계입니다: {role}")
-        if cid and get(cid) is None:
-            raise ValueError("없는 연결입니다")
+        _check_pick(role, cid)
     data = _load()
     for role, (cid, model) in picks.items():
         if cid:

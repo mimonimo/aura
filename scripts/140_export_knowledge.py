@@ -93,7 +93,7 @@ def main() -> int:
     args = ap.parse_args()
     levels = tuple(x.strip() for x in args.levels.split(",") if x.strip())
     if "owner" in levels:
-        print("담당자 한정 자료는 내보내지 않습니다(ADR-0024·0031)", file=sys.stderr)
+        print("담당자 한정 자료는 내보내지 않습니다(ADR-0031)", file=sys.stderr)
         return 2
     base = Path(args.db).parent
     out = Path(args.out) if args.out else paths.exports_dir(base) / datetime.now().strftime("%Y%m%d-%H%M%S")

@@ -717,18 +717,6 @@ class DocumentProcessor:
                 mds.append(got)
         return mds, read
 
-    def _vision_role(self) -> str:
-        """이 문서를 읽을 판독 용도 — 공개 수집 문서(owner=corpus)에 공개 판독 지정이 있으면 그것.
-
-        외부 모델은 여기로만 나간다. 교내 문서·사용자 문서는 언제나 교내 판독 모델이다.
-        """
-        if getattr(self, "_doc_public", False):
-            from zzaimy.generate import llm_connections
-
-            if llm_connections.role_is_set("vision_public"):
-                return "vision_public"
-        return "vision"
-
     def _vlm_transcribe(self, image_path: Path) -> str | None:
         """비전 모델로 사진 속 문서 전사 — 손글씨·도장 문구까지 읽는다.
 
@@ -755,7 +743,7 @@ class DocumentProcessor:
                     im.convert("RGB").save(send_path, quality=88)
             mime = "image/png" if send_path.suffix.lower() == ".png" else "image/jpeg"
             b64 = base64.b64encode(send_path.read_bytes()).decode()
-            client = VllmClient(role=self._vision_role())
+            client = VllmClient(role="vision")
             resp = client.client.chat.completions.create(
                 model=getattr(client, "vision_model", client.model),
                 temperature=0.0,
@@ -2438,7 +2426,6 @@ class DocumentProcessor:
                 db.set_document_family(doc_id, (db.get_document(doc_id) or {}).get("family"), version_of=int(twin["id"]))
                 return
         db.update_document(doc_id, status="processing")
-        self._doc_public = ((db.get_document(doc_id) or {}).get("owner") == "corpus")
         # 재처리 시 파생 캐시(복원 PDF·페이지 렌더)를 비운다
         try:
             base = Path(db.path).parent

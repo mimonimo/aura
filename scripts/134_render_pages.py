@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""전사(판독) 대상 문서의 쪽을 그림으로 뽑는다 — 사람이나 외부 판독 모델이 원본을 보고 옮겨 적기 위한 준비.
+"""전사(판독) 대상 문서의 쪽을 그림으로 뽑는다 — 사람이 원본을 보고 옮겨 적거나 판독 결과와 대조하기 위한 준비.
 
-공개 문서만 대상으로 한다(owner=corpus 또는 --force). 접수 서류처럼 개인정보가 든 문서는 밖으로 내지 않는다(ADR-0024).
+공개 문서만 대상으로 한다(owner=corpus 또는 --force). 접수 서류처럼 개인정보가 든 문서는 그림으로 꺼내 두지 않는다.
+외부 판독 모델로 보내는 경로는 없다(ADR-0061).
 PDF 는 pypdfium2 로 쪽마다 PNG, 이미지 문서는 그대로 복사. 산출: data/vision/<doc_id>/p<N>.png + manifest.json
 
 실행(VM): env PYTHONPATH=src .venv/bin/python scripts/134_render_pages.py --docs 429,451,320 [--dpi 130] [--force]
