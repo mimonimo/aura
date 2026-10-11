@@ -74,3 +74,60 @@ def test_library_hides_empty_groups_and_flags_unknown_business(tmp_path):
     assert "업무 문서 1" in group and "본문에서 나온 문서" not in group      # 0건 출처는 고를 수 없다
     assert "「admin」 업무는 없습니다" in c.get("/?type=admin").text
     assert "공통 양식" not in page                                            # 양식 바로가기는 그 업무 탭에만
+
+
+def test_library_list_follows_each_viewer_scope_and_permission_changes(tmp_path):
+    """판본 묶음 목록은 사용자마다 그 자리에서 계산한다 — 부서가 다른 두 사람이 결과를 나눠 갖지 않고, 열람 등급 변경은 바로 반영."""
+    import json
+
+    from zzaimy.app.db import Database
+
+    (tmp_path / "accounts.json").write_text(json.dumps({
+        "kim": {"pw": "kim-pass", "role": "staff", "dept": "학생처"},
+        "lee": {"pw": "lee-pass", "role": "staff", "dept": "산학협력단"},
+    }))
+    db = Database(tmp_path / "t.db")
+    old = db.add_document("장학 심사 기록_ver1.hwp", "x", doc_type="auto", owner="kim", dept="학생처", access_level="dept")
+    new = db.add_document("장학 심사 기록_ver2.hwp", "x", doc_type="auto", owner="kim", dept="학생처", access_level="dept")
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(),
+                     password="boot-pass-1")
+
+    def page(uid, pw):
+        c = TestClient(app)
+        assert c.post("/login", data={"username": uid, "pw": pw}, follow_redirects=False).status_code == 303
+        return c.get("/?type=all").text
+
+    kim = page("kim", "kim-pass")
+    assert f'href="/doc/{new}"' in kim and "판본 2개" in kim
+    lee = page("lee", "lee-pass")                                            # 같은 조건을 바로 뒤에 다른 부서가
+    assert "장학 심사 기록" not in lee and f'href="/doc/{old}"' not in lee
+    db.set_document_scope(new, access_level="owner")                           # 최신 판은 올린 사람 한정으로
+    db.set_document_scope(old, access_level="public")                          # 옛 판은 공개로 — 문서 수는 그대로
+    lee = page("lee", "lee-pass")
+    assert f'href="/doc/{old}"' in lee and f'href="/doc/{new}"' not in lee and "판본 2개" not in lee
+    kim = page("kim", "kim-pass")
+    assert f'href="/doc/{new}"' in kim and "판본 2개" in kim                    # 올린 사람은 여전히 둘 다
+
+
+def test_shell_names_service_hides_server_details_from_staff_and_quiet_bell(tmp_path):
+    _app, c = _client(tmp_path)
+    page = c.get("/?type=all").text
+    assert "<title>등록 문서 · 짜이미</title>" in page and "행정 에이전트" not in page
+    assert "기본 AI 서버" not in page                                  # 업무 사용자에게는 연결 여부만
+    assert "새로 확인할 문서가 없습니다" in page and 'id="notificationReadAll"' not in page
+    assert 'var KEY = "chatWidgetSession"' in page                       # 위젯은 채팅 화면의 마지막 대화를 잇지 않는다
+    assert "진행 중 프로젝트 찾기" in page and "열람 범위:" in c.get("/chat").text
+
+
+def test_search_groups_versions_and_links_onward(tmp_path):
+    app, c = _client(tmp_path)
+    db = app.state.db
+    db.add_document("연구비 집행 안내_v1.hwp", "x", doc_type="grant")
+    db.add_document("연구비 집행 안내_v2.hwp", "x", doc_type="grant")
+    db.create_project("grant", "연구비 집행 점검", owner="zzaimy")
+    page = c.get("/search", params={"q": "연구비 집행"}).text
+    docs = page.split('id="srDocuments"', 1)[1].split('id="srEvidence"', 1)[0]
+    assert "판본 2개" in docs and docs.count('class="sr-row"') == 1
+    assert "연구비 집행 점검" in page.split('id="srProjects"', 1)[1]
+    assert "/projects/archived?q=" in page and "/?type=all&amp;q=" in page
+    assert page.count('role="search"') == 1                                # 머리말 검색창 하나만

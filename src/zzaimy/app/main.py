@@ -360,7 +360,7 @@ def create_app(
 
         dependencies = [Depends(open_auth)]
 
-    app = FastAPI(title="YNC 행정문서 검토 플랫폼", dependencies=dependencies)
+    app = FastAPI(title="짜이미", dependencies=dependencies)
 
     from fastapi import status as _status
     from fastapi.responses import JSONResponse
@@ -554,6 +554,8 @@ def create_app(
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
     templates.env.globals["decision_labels"] = DECISION_LABELS
     templates.env.globals["sector_labels"] = SECTOR_LABELS
+    from zzaimy.app.access_guard import ROLES as _ROLES
+    templates.env.globals["role_labels"] = _ROLES
     # 문서 이름 — 'law03.pdf' 같은 파일 이름 대신 첫 쪽의 규정 이름·날짜
     from zzaimy.app.doc_title import display_name as _doc_name
     templates.env.globals["doc_name"] = _doc_name
@@ -686,7 +688,7 @@ def create_app(
                 rows = {int(x["id"]): dict(x) for x in conn.execute(
                     "SELECT d.id, d.receipt_no, d.filename, d.kind, d.doc_type, d.status, d.decision, d.created_at,"
                     " d.project_id, p.name AS project_name FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
-                    f" WHERE d.id IN ({','.join('?' * len(ids))})", ids).fetchall()}
+                    f" WHERE d.id IN ({','.join('?' * len(ids))}){acc}", [*ids, *acc_args]).fetchall()}   # 열람 조건을 다시 건다
             kinds = [(x[0] or "", int(x[1])) for x in conn.execute(
                 f"SELECT d.kind, COUNT(*) FROM documents d{where} GROUP BY d.kind ORDER BY 2 DESC", args).fetchall()]
             gcount = {str(x[0]): int(x[1]) for x in conn.execute(
@@ -763,14 +765,14 @@ def create_app(
         return session
 
     def _scope_label(request: Request) -> str:
-        """대화 화면 상단의 '내 범위' 한 줄 — 부서와 역할. 부서가 없으면 전체."""
-        from zzaimy.app.access_guard import ROLES
-
-        role = ROLES.get(getattr(request.state, "role", ""), "담당자")
+        """대화 화면 상단의 열람 범위 한 줄 — 검색이 실제로 거르는 범위(_doc_access_sql)와 같은 말로. 역할 이름은 사용자 메뉴에 있다."""
+        role = getattr(request.state, "role", "")
         dept = getattr(request.state, "dept", "") or ""
-        if getattr(request.state, "role", "") == "student":
-            return f"내 범위: 공개 규정·학사 안내 · {role}"
-        return f"내 범위: {dept or '전체'} · {role}"
+        if role == "student":
+            return "열람 범위: 공개 규정·학사 안내"
+        if role == "dev":
+            return "열람 범위: 전체 문서"
+        return f"열람 범위: 공개 문서와 {dept} 문서" if dept and dept != "공통" else "열람 범위: 공개 문서"
 
     @app.get("/chat", response_class=HTMLResponse)
     def chat_new(request: Request, project: int | None = None):
@@ -3023,45 +3025,92 @@ def create_app(
 
     @app.get("/search", response_class=HTMLResponse)
     def search_all(request: Request, q: str = ""):
-        """한 곳에서 찾기 — 문서·대화·근거 조각. 상단 검색창이 여기로 온다.
+        """한 곳에서 찾기 — 문서·근거·프로젝트·대화. 상단 검색창이 여기로 온다.
 
-        대화는 제목·프로젝트·사업(주제)뿐 아니라 주고받은 글에서도 찾는다. 근거 조각은
-        어휘 검색(Kiwi 명사 겹침)만 쓴다 — 검색창 한 번에 모델을 부르지 않기 위해서다.
+        문서는 제목(파일 이름·접수번호)과 본문 어휘 색인에서 찾고 같은 문서의 판본은 한 줄로 묶는다(library.version_key).
+        근거는 열람 범위 안의 모든 문서 본문 — 사업 문서 조각(grant_lex)과 기준 문서 조각(regulations.sparse_search)을
+        함께 보인다. 어휘 검색만 쓴다 — 검색창 한 번에 모델을 부르지 않기 위해서다.
+        대화는 제목·프로젝트·사업(주제)뿐 아니라 주고받은 글에서도 찾는다.
         """
+        from zzaimy.app import library
+        from zzaimy.app import project_search as _ps
 
         term = (q or "").strip()[:200]
-        docs, chats, chunks, docs_more = [], [], [], False
+        docs, chats, chunks, projects, docs_more = [], [], [], [], False
+        DOCS = 10
         if term:
             owner = getattr(request.state, "user", "zzaimy")
-            # 열람 권한은 SQL 에서 거른다(문서함과 같은 규칙) — 다른 담당자 한정 문서의 이름·본문이 보이지 않게
+            # 열람 권한은 SQL 에서 거른다(라이브러리와 같은 규칙) — 다른 담당자 한정 문서의 이름·본문이 보이지 않게
             acc, acc_args = _doc_access_sql(request)
             with db._conn() as conn:
                 found = [dict(r) for r in conn.execute(
                     "SELECT d.id, d.filename, d.doc_type, d.status, d.created_at, d.receipt_no, d.project_id, d.kind FROM documents d"
-                    f" WHERE d.filename LIKE ?{acc} ORDER BY d.id DESC LIMIT 11", [f"%{term}%", *acc_args]).fetchall()]
-            seen = {d["id"] for d in found}
+                    f" WHERE d.filename LIKE ?{acc} ORDER BY d.id DESC LIMIT 200", [f"%{term}%", *acc_args]).fetchall()]
             for d in found:
                 d["snippet"] = ""
-            # 본문은 사업 문서 어휘 색인(grant_lex)으로 찾는다 — 본문 전체를 처음부터 훑지 않는다. 권한은 색인 조회에서 거른다
-            if len(found) < 11:
-                try:
-                    from zzaimy.app import grant_lex, grant_search
-                    from zzaimy.app.regulations import extract_nouns
+            # 본문은 사업 문서 어휘 색인(grant_lex)으로 찾는다 — 권한은 색인 조회에서 거른다. 찾은 조각은 근거로도 보인다
+            body_hits: list[dict] = []
+            try:
+                from zzaimy.app import grant_lex, grant_search
+                from zzaimy.app.regulations import extract_nouns
 
-                    user = None if request.state.role == "dev" else (request.state.user or "")
-                    ids = grant_lex.rank(db, extract_nouns(term), None, user, limit=60)
-                    for h in grant_search.chunks_by_ids(db, ids[:60]):
-                        if h["doc_id"] in seen or len(found) >= 11:
-                            continue
-                        body = h["content"] or ""
-                        i = body.lower().find(term.lower())
-                        found.append({"id": h["doc_id"], "filename": h["filename"], "doc_type": "grant", "status": "reviewed",
-                                      "snippet": " ".join((body[max(0, i - 40):i + 80] if i >= 0 else body[:120]).split())})
-                        seen.add(h["doc_id"])
-                except Exception:
-                    pass
-            docs_more = len(found) > 10
-            docs = found[:10]
+                user = None if request.state.role == "dev" else (request.state.user or "")
+                ids = grant_lex.rank(db, extract_nouns(term), None, user, limit=60)
+                body_hits = grant_search.chunks_by_ids(db, ids[:60])
+                order = {cid: i for i, cid in enumerate(ids)}
+                body_hits.sort(key=lambda h: order.get(h["id"], 1 << 30))
+            except Exception:
+                body_hits = []
+
+            def snippet(body: str, n: int = 120) -> str:
+                i = body.lower().find(term.lower())
+                return " ".join((body[max(0, i - 40):i + n] if i >= 0 else body[:n]).split())
+
+            seen = {d["id"] for d in found}
+            for h in body_hits:
+                if h["doc_id"] not in seen:
+                    found.append({"id": h["doc_id"], "filename": h["filename"], "doc_type": "grant", "status": "reviewed",
+                                  "snippet": snippet(h["content"] or "")})
+                    seen.add(h["doc_id"])
+            try:
+                from zzaimy.app.regulations import sparse_search
+
+                sc = {} if request.state.role == "dev" else {"dept": getattr(request.state, "dept", "") or "공통", "user": request.state.user or ""}
+                reg_hits = sparse_search(db, term, top_k=8, **sc)
+            except Exception:
+                reg_hits = []
+            # 근거: 사업 문서 본문과 기준 문서 조문을 번갈아 — 한쪽 갈래가 다른 쪽을 밀어내지 않게. 한 문서에서 둘까지
+            grant_ev = [{"doc_id": h["doc_id"], "title": h["filename"], "heading": "", "snippet": snippet(h["content"] or "")}
+                        for h in body_hits]
+            reg_ev = [{"doc_id": h.get("doc_id"), "title": h.get("reg_title") or "문서", "heading": h.get("heading") or "",
+                       "snippet": snippet(h.get("content") or "")} for h in reg_hits]
+            per_doc: dict = {}
+            for pair in zip(grant_ev + [None] * len(reg_ev), reg_ev + [None] * len(grant_ev)):
+                for ev in pair:
+                    if ev is None or len(chunks) >= 10 or per_doc.get(ev["doc_id"], 0) >= 2:
+                        continue
+                    per_doc[ev["doc_id"]] = per_doc.get(ev["doc_id"], 0) + 1
+                    chunks.append(ev)
+            # 기준 문서는 본문 대신 규정 조각 검색(권한 범위 안)에서 찾은 문서로도 채운다
+            for ev in reg_ev:
+                if ev["doc_id"] is not None and ev["doc_id"] not in seen:
+                    found.append({"id": ev["doc_id"], "filename": ev["title"], "doc_type": "regulation", "status": "reviewed",
+                                  "snippet": ev["snippet"][:120]})
+                    seen.add(ev["doc_id"])
+            # 같은 문서의 판본은 한 줄 — 최신 판이 대표, 판본 수를 붙인다
+            groups: dict[tuple, dict] = {}
+            for d in found:
+                key = (d.get("doc_type") or "", library.version_key(d.get("filename") or "") or f"#{d['id']}")
+                g = groups.get(key)
+                if g is None:
+                    groups[key] = dict(d, n_versions=1)
+                else:
+                    g["n_versions"] += 1
+                    if not g.get("snippet") and d.get("snippet"):
+                        g["snippet"] = d["snippet"]
+            docs_more = len(groups) > DOCS or len(found) >= 200
+            docs = list(groups.values())[:DOCS]
+            projects = _ps.search(db, owner, term)["projects"][:5]
             rows = chat_history.sessions(owner, term, False, 0, 10,
                                          chat_topics.match_clause(term), 'all')
             names = chat_topics.topics([r["id"] for r in rows])
@@ -3071,34 +3120,9 @@ def create_app(
                         "SELECT content FROM chat_messages WHERE session_id = ?"
                         " AND instr(lower(content), lower(?)) > 0 ORDER BY id LIMIT 1",
                         (r["id"], term)).fetchone()
-                    snip = ""
-                    if hit:
-                        body = hit["content"]
-                        i = body.lower().find(term.lower())
-                        snip = " ".join(body[max(0, i - 40):i + 80].split())
-                    chats.append(dict(r, topic=names.get(r["id"]), snippet=snip))
-            try:
-                from zzaimy.app.regulations import sparse_search
-
-                sc = {} if request.state.role == "dev" else {"dept": getattr(request.state, "dept", "") or "공통", "user": request.state.user or ""}
-                for h in sparse_search(db, term, top_k=8, **sc):
-                    body = h.get("content") or ""
-                    i = body.lower().find(term.lower())
-                    chunks.append({
-                        "doc_id": h.get("doc_id"), "reg_title": h.get("reg_title") or "문서",
-                        "heading": h.get("heading") or "",
-                        "snippet": " ".join((body[max(0, i - 40):i + 120] if i >= 0 else body[:120]).split()),
-                    })
-            except Exception:
-                chunks = []
-            # 규정 문서는 본문 대신 규정 조각 검색(권한 범위 안)에서 찾은 문서로 채운다
-            for h in chunks:
-                if h["doc_id"] is not None and h["doc_id"] not in seen and len(docs) < 10:
-                    docs.append({"id": h["doc_id"], "filename": h["reg_title"], "doc_type": "regulation", "status": "reviewed",
-                                 "snippet": h["snippet"][:120]})
-                    seen.add(h["doc_id"])
+                    chats.append(dict(r, topic=names.get(r["id"]), snippet=snippet(hit["content"]) if hit else ""))
         return templates.TemplateResponse(request, "search.html", ctx(request, {
-            "q": term, "docs": docs, "docs_more": docs_more, "chats": chats, "chunks": chunks,
+            "q": term, "docs": docs, "docs_more": docs_more, "chats": chats, "chunks": chunks, "projects": projects,
         }))
 
     @app.get("/criteria", response_class=HTMLResponse)

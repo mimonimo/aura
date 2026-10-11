@@ -9,8 +9,6 @@
 from __future__ import annotations
 
 import re
-import threading
-import time
 
 from zzaimy.app.doc_family import family_key
 
@@ -56,30 +54,13 @@ def group_ids(rows: list[tuple]) -> list[list[int]]:
     return order
 
 
-# 같은 조건의 쪽 넘김마다 수만 줄을 다시 묶지 않게 — 문서 수·최대 번호가 그대로면 재사용(이름 변경은 TTL 안에서 늦게 반영)
-_CACHE: dict[tuple, tuple[float, tuple, list[list[int]]]] = {}
-_LOCK = threading.Lock()
-_TTL = 120.0
-_MAX = 32
-
-
 def grouped(conn, where: str, args: list) -> list[list[int]]:
-    """조건(where 는 ' WHERE …', 표 별칭 d)에 맞는 문서를 판본 묶음 목록으로."""
-    sig = tuple(conn.execute(f"SELECT COUNT(*), MAX(d.id) FROM documents d{where}", args).fetchone())
-    key = (where, tuple(args))
-    now = time.monotonic()
-    with _LOCK:
-        hit = _CACHE.get(key)
-        if hit and hit[1] == sig and now - hit[0] < _TTL:
-            return hit[2]
+    """조건(where 는 ' WHERE …', 표 별칭 d, 열람 조건 포함)에 맞는 문서를 판본 묶음 목록으로.
+
+    요청마다 새로 계산한다 — 사용자·권한 사이에 결과를 나눠 쓰지 않는다(열람 등급이 바뀌면 바로 반영)."""
     rows = [tuple(r) for r in conn.execute(
         f"SELECT d.id, d.doc_type, d.filename FROM documents d{where} ORDER BY d.id DESC", args).fetchall()]
-    groups = group_ids(rows)
-    with _LOCK:
-        if len(_CACHE) >= _MAX:
-            _CACHE.pop(min(_CACHE, key=lambda k: _CACHE[k][0]))
-        _CACHE[key] = (now, sig, groups)
-    return groups
+    return group_ids(rows)
 
 
 def page_numbers(page: int, pages: int, around: int = 2) -> list[int | None]:
