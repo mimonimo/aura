@@ -92,3 +92,13 @@ def test_group_names_merges_rare_acronym_typo_into_frequent_program():
     assert pn.group_names(counts, aliases={"4단계 별빛 육성사업": ["ZETA3.0"]})["ZOTA3.0"] == "4단계 별빛 육성사업"
     assert pn.group_names({"4단계 별빛 육성사업": 50, "ZOTA3.0": 9},                  # 열 배 미만이면 근거 부족
                           aliases={"4단계 별빛 육성사업": ["ZETA3.0"]})["ZOTA3.0"] == "ZOTA3.0"
+
+
+def test_classified_names_need_no_program_word_but_still_drop_junk():
+    formal = "별누리 인재양성체계(구 ZETA)"
+    assert not pn.is_program_name(formal) and pn.is_program_name(formal, classified=True)
+    for junk in ("Setup2.1", "QuickInstall4.0", "통합공고 사업", "수익 비수익 사업", "과제 2차년도 이월사업"):
+        assert not pn.is_program_name(junk, classified=True), junk
+    assert pn.is_program_name("ZETA", classified=True)
+    g = pn.group_names({formal: 10, "통합공고 사업": 1}, classified=True)
+    assert g[formal] == formal and g["통합공고 사업"] == ""

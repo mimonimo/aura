@@ -96,8 +96,12 @@ _PROCEDURE = re.compile(r"비수익|수익|수행|통합|공고|과제|이월|�
 _TIME = re.compile(rf"{_YEAR}\s*(?:학년도|년도|년)?|[1-9]\s*차\s*년도")
 
 
-def is_program_name(name: str) -> bool:
+def is_program_name(name: str, classified: bool = False) -> bool:
     """사업 이름으로 보일 만한가 — 두 조건을 모두 맞아야 한다.
+
+    classified=True 는 사업 분류기(graph.programs)가 이미 사업 카드로 세운 이름(원본 장부의 사업 열쇠가 있는 이름)이다.
+    그때는 1을 「사업 낱말이 없어도 되지만, 영문만으로 된 이름이면 약칭 꼴이어야 한다」로 늦춘다 — 외부 확인 장부의
+    정식 이름(「○○ 인재양성체계(구 △△)」)은 「사업」 낱말 없이 쓰이기 때문이다. 2는 그대로 건다.
 
     1. 사업을 가리키는 꼴: 「사업·프로젝트·프로그램」 낱말이 있거나, 영문 약칭 하나(대문자 시작, 소문자 셋 이상 잇따르지 않음)
     2. 고유한 낱말: 때 표기·절차 일반어(수익·수행·통합·공고·과제·이월 …)·사업 일반어(지원·육성·대학 …,
@@ -111,7 +115,11 @@ def is_program_name(name: str) -> bool:
     if not s:
         return False
     bare = s.replace(" ", "")
-    if not _PROGRAM_WORD.search(s) and not (_ACRONYM.match(bare) and not re.search(r"[a-z]{3}", bare)):
+    acronym = bool(_ACRONYM.match(bare)) and not re.search(r"[a-z]{3}", bare)
+    if classified:
+        if re.fullmatch(r"[A-Za-z0-9+.\-]+", bare) and not acronym:      # 「Setup2.1」 같은 영문 파일·제품 이름
+            return False
+    elif not _PROGRAM_WORD.search(s) and not acronym:
         return False
     core = _PROCEDURE.sub("", _TIME.sub("", s))
     return not vague_name(core)
@@ -159,6 +167,11 @@ def _ledger_sets(ledger: dict | None) -> list[set[str]]:
     return [s for s in out if s]
 
 
+def ledger_terms(ledger: dict | None) -> set[str]:
+    """외부 확인 장부가 출처와 함께 사업으로 적은 이름·별칭의 열쇠(group_key) 전부 — 「사업 아님」 항목은 뺀다."""
+    return set().union(*_ledger_sets(ledger)) if _ledger_sets(ledger) else set()
+
+
 _BARE_ACR = re.compile(r"^([A-Z][A-Z+]{2,9})(\d+(?:\.\d+)?)?$")
 
 
@@ -182,12 +195,14 @@ def spelling_variant(short: str, other_acronyms: Iterable[str]) -> str | None:
 
 
 def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = None,
-                aliases: dict[str, Iterable[str]] | None = None, known: Iterable[str] = ()) -> dict[str, str]:
+                aliases: dict[str, Iterable[str]] | None = None, known: Iterable[str] = (),
+                classified: bool = False) -> dict[str, str]:
     """원래 이름 → 대표 보일 이름. 사업 이름이 아니면 ""(화면은 「사업 미분류」로 둔다).
 
     aliases: 원래 이름 → 그 사업의 다른 이름·약칭(그래프 사업 노드 등). 오타 판정(4)에만 쓴다.
     known: 사업 노드·외부 확인 장부가 이미 사업으로 확인한 이름 — is_program_name 검사 없이 사업으로 둔다
     (장부의 정식 이름은 「지역성장 인재양성체계(앵커)」처럼 「사업」 낱말이 없을 수 있다).
+    classified: 이름 전부가 사업 분류기가 세운 사업 카드의 이름일 때 — is_program_name(classified=True) 로 검사한다.
 
     다른 이름을 하나로 묶는 근거는 넷뿐이다. 근거가 없으면 따로 둔다.
     1. 같은 열쇠(group_key) — 띄어쓰기·괄호·앞 부처명·때 꼬리표만 다른 이름
@@ -210,7 +225,7 @@ def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = No
     by_key: dict[str, list[str]] = defaultdict(list)
     for raw in counts:
         disp = display_name(raw)
-        if not raw or (raw not in known_set and not is_program_name(disp)):
+        if not raw or (raw not in known_set and not is_program_name(disp, classified)):
             out[raw] = ""
             continue
         shown[raw] = disp

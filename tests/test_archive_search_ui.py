@@ -283,16 +283,14 @@ def test_every_program_keeps_its_count_after_name_normalisation(client):
     """정리 전(장부 열쇠별 원본 수)과 정리 뒤(묶음별 원본 수)의 합이 같고, 그래프에 있는 사업은 미분류로 떨어지지 않는다."""
     db = client.app.state.db
     _graph_program(db, "program:a2", "해양미래부 은하수 개척 사업")
-    names = archive_view.program_index(db, set())
-    progs = archive_view.Programs(names, archive_view._surfaces(db, [k for k in names if k]),
-                                  archive_view._nodes(db, [k for k in names if k]))
+    names, progs = archive_view.load_programs(db, set())
     view = archive_view.browse(archive_view.program_years(archive_view.facet_rows(db, archive_view.parse_filters(), set()), progs),
                                archive_view.parse_filters(), progs, archive_view.kind_labels())
     shown = {p["value"]: p["n"] for p in view["programs"]}
     unclassified = (view["unclassified"] or {}).get("n", 0)
     assert sum(shown.values()) + unclassified == sum(n for _name, n in names.values())
     for key, (_name, n) in names.items():
-        if key and key in archive_view._nodes(db, [key]):
+        if key and key in archive_view.graph_match(db, names)[1]:
             assert progs.of(key), key
     for gid, n in shown.items():
         assert n == sum(names[k][1] for k in progs.keys_of(gid))
@@ -317,3 +315,26 @@ def test_shared_vocabulary_and_format_groups(client):
     assert f"<dt>{vocab.STATUS_LABELS['reviewed']}</dt>" in page and "등록됨" not in page
     from zzaimy.app import main
     assert main.STATUS_LABELS is vocab.STATUS_LABELS
+
+
+def test_counts_per_archive_key_survive_a_graph_rebuild_with_new_node_ids(client):
+    """그래프를 다시 지어 사업 노드 id 가 바뀌어도(이름은 같음) 장부 열쇠별 건수·묶음·보일 이름이 그대로다."""
+    db = client.app.state.db
+    with db._conn() as conn:
+        conn.execute("UPDATE archive_files SET program_name = '별누리 인재양성체계(구 ZETA)' WHERE program = 'program:b'")
+    _graph_program(db, "program:b", "별누리 인재양성체계(구 ZETA)", ["ZETA"])
+
+    def snapshot():
+        names, progs = archive_view.load_programs(db, set())
+        return {k: (progs.of(k), progs.label(k), n) for k, (_nm, n) in names.items()}
+    before = snapshot()
+    with db._conn() as conn:                                  # 다시 지은 그래프 — 같은 사업이 다른 id 로
+        conn.execute("DELETE FROM kg_nodes WHERE id = 'program:b'")
+    _graph_program(db, "program:zeta", "별누리 인재양성체계(구 ZETA)", ["ZETA"])
+    after = snapshot()
+    assert before == after and after["program:b"][1] == "별누리 인재양성체계(구 ZETA)"
+    assert _count(client.get("/archive?program=ZETA").text) == "61건 중 1–50"
+    with db._conn() as conn:                                  # 그래프가 아예 비어도 장부 이름으로 남는다(미분류로 안 떨어짐)
+        conn.execute("DELETE FROM kg_nodes")
+    gone = snapshot()
+    assert gone["program:b"][0] == "program:b" and gone["program:b"][2] == before["program:b"][2]

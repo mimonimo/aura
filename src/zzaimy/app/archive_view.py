@@ -111,19 +111,23 @@ def _ledger() -> dict:
 
 
 class Programs:
-    """사업 묶음 — 묶음 열쇠는 장부의 사업 열쇠(program:…) 가운데 하나라서 이름 정리 규칙이 바뀌어도 거르기가 흔들리지 않는다.
+    """사업 묶음 — 묶음 열쇠는 원본 장부의 사업 열쇠(archive_files.program) 가운데 하나라서 이름 정리 규칙이 바뀌어도
+    거르기가 흔들리지 않는다. 그래프 노드 id 는 그래프를 다시 지을 때 바뀔 수 있어 열쇠로 쓰지 않고 보일 이름·약칭에만 쓴다.
 
     by_key: 장부 열쇠 → 묶음 열쇠("" 은 사업 미분류) · name: 묶음 열쇠 → 보일 이름 · terms: 묶음 열쇠 → 찾을 말(이름·약칭·옛 이름)
-    - 그래프 사업 노드나 외부 확인 장부가 있는 열쇠는 사업으로 확인된 것이라 이름 검사(is_program_name)로 떨어뜨리지 않는다
-    - 묶음 열쇠는 묶음 안에서 파일이 가장 많은 열쇠, 보일 이름은 그 열쇠의 그래프 노드 이름(없으면 group_names 의 대표 이름)
+    - 그래프 사업 노드(id 또는 이름·약칭으로 맞춘 것)나 외부 확인 장부에 있는 이름은 사업으로 확인된 것이라
+      이름 검사(is_program_name)로 떨어뜨리지 않는다
+    - 묶음 열쇠는 묶음 안에서 파일이 가장 많은 장부 열쇠, 보일 이름은 그 열쇠에 맞춘 그래프 노드 이름(없으면 group_names 의 대표 이름)
     """
 
     def __init__(self, names: dict[str, tuple[str, int]], surfaces: dict[str, list[str]] | None = None,
                  nodes: dict[str, str] | None = None):
         surfaces, nodes = surfaces or {}, nodes or {}
+        self.surfaces = surfaces
         counts: dict[str, int] = defaultdict(int)
         aliases: dict[str, list[str]] = defaultdict(list)
-        known = set()
+        ledger_keys = program_names.ledger_terms(_ledger())
+        known = {nm for nm, _n in names.values() if nm and program_names.group_key(nm) in ledger_keys}
         for key, (name, n) in names.items():
             if not key:
                 continue
@@ -132,7 +136,7 @@ class Programs:
             aliases[nm] += list(surfaces.get(key, []))
             if key in nodes:
                 known.add(nm)
-        rep = program_names.group_names(counts, _ledger(), aliases, known=known)
+        rep = program_names.group_names(counts, _ledger(), aliases, known=known, classified=True)   # 장부 열쇠 = 분류기의 사업 카드
         groups: dict[str, list[str]] = defaultdict(list)
         for key, (name, _n) in names.items():
             g = rep.get(name or nodes.get(key) or key, "") if key else ""
@@ -191,36 +195,47 @@ def program_index(db, hidden: set[int]) -> dict[str, tuple[str, int]]:
     return {str(r[0] or ""): (str(r[1] or ""), int(r[2])) for r in rows}
 
 
-def _nodes(db, keys: list[str]) -> dict[str, str]:
-    """장부 열쇠 → 그래프 사업 노드 이름(있는 것만)."""
-    if not keys:
-        return {}
-    try:
-        with db._conn() as conn:
-            rows = conn.execute(f"SELECT id, label FROM kg_nodes WHERE type = 'program' AND id IN ({','.join('?' * len(keys))})",
-                                keys).fetchall()
-    except Exception:
-        return {}
-    return {str(r[0]): str(r[1] or "") for r in rows}
+def graph_match(db, names: dict[str, tuple[str, int]]) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """장부 열쇠마다 그래프 사업 노드를 맞춘다 — (열쇠 → 노드의 이름·약칭, 열쇠 → 노드 이름).
 
-
-def _surfaces(db, keys: list[str]) -> dict[str, list[str]]:
-    """사업 열쇠 → 이름·약칭(그래프 사업 노드). 파일 이름에 사업이 나오는지 볼 때 쓴다. 그래프가 없으면 빈 것."""
-    if not keys:
-        return {}
+    노드 id 가 장부 열쇠와 같으면 그것, 아니면 장부 이름이 노드의 이름·별칭·약칭 하나와 같은 열쇠(group_key)인 노드가
+    하나뿐일 때 그것. 그래프를 다시 지어 노드 id 가 바뀌어도 이름으로 다시 맞는다."""
     import json
-    out: dict[str, list[str]] = {}
     try:
         with db._conn() as conn:
-            rows = conn.execute(f"SELECT id, label, props FROM kg_nodes WHERE id IN ({','.join('?' * len(keys))})", keys).fetchall()
+            rows = conn.execute("SELECT id, label, props FROM kg_nodes WHERE type = 'program'").fetchall()
     except Exception:
-        return {}
+        return {}, {}
+    nodes = {}
+    by_term: dict[str, set[str]] = defaultdict(set)
     for nid, label, props in rows:
         p = props if isinstance(props, dict) else json.loads(props or "{}")
         acr = p.get("acronyms") or []
         acr = list(acr.keys()) if isinstance(acr, dict) else list(acr)
-        out[str(nid)] = [label or ""] + [str(x) for x in (p.get("names") or [])] + [str(x) for x in acr]
-    return out
+        terms = [label or ""] + [str(x) for x in (p.get("names") or [])] + [str(x) for x in acr]
+        nodes[str(nid)] = (str(label or ""), [t for t in terms if t])
+        for t in terms:
+            if t:
+                by_term[program_names.group_key(t)].add(str(nid))
+    surf, label = {}, {}
+    for key, (name, _n) in names.items():
+        if not key:
+            continue
+        nid = key if key in nodes else None
+        if nid is None and name:
+            cands = by_term.get(program_names.group_key(name), set())
+            nid = next(iter(cands)) if len(cands) == 1 else None
+        if nid is not None:
+            label[key], surf[key] = nodes[nid][0], nodes[nid][1]
+    return surf, label
+
+
+def load_programs(db, hidden: set[int]) -> tuple[dict[str, tuple[str, int]], "Programs"]:
+    """장부 열쇠별 원본 수와 사업 묶음 — 화면과 점검이 같은 길로 만든다."""
+    names = program_index(db, hidden)
+    surf, labels_g = graph_match(db, names)
+    acr = _key_acronyms(names)
+    return names, Programs(names, {k: surf.get(k, []) + acr.get(k, []) for k in names if k}, labels_g)
 
 
 def _key_acronyms(names: dict) -> dict[str, list[str]]:
@@ -455,7 +470,7 @@ def list_page(db, f: dict, hidden: set[int], keys: list[str] | None, total: int,
     cols = ("rel", "size", "ext", "program", "program_name", "kind", "year", "round", "doc_id", "status", "dup_of", "analysis",
             "doc_name", "state")
     items = [dict(zip(cols, r)) for r in rows]
-    surf = _surfaces(db, sorted({it["program"] for it in items if it["program"]}))
+    surf = prog_of.surfaces
     for it in items:
         name = it["rel"].rsplit("/", 1)[-1]
         prog = prog_of.label(it["program"])
@@ -518,9 +533,7 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
     f = parse_filters(q, program, year, round, kind, ext, state, sort, page)
     labels = kind_labels()
     rows = facet_rows(db, f, hidden)
-    names = program_index(db, hidden)
-    real = sorted(k for k in names if k)
-    prog_of = Programs(names, _surfaces(db, real) | _key_acronyms(names), _nodes(db, real))
+    names, prog_of = load_programs(db, hidden)
     program_years(rows, prog_of)
     f["program"] = resolve_program(f["program"], prog_of)
     view = browse(rows, f, prog_of, labels)
