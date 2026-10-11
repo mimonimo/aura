@@ -1033,6 +1033,7 @@ def create_app(
 
     _TITLE_CUT = re.compile(r"\s*(?:의\s*)?(?:초안|작성|써\s*줘|써줘|만들어|정리해|보고서로|문서로)")
 
+    _LAST_SECTION_REF = re.compile(r"(?:방금|아까|직전에?|앞서|조금\s*전에?)\s*(?:쓴|작성한|채운|고친)\s*(?:\S+\s*){0,4}?절|(?:이|그)\s*절(?:을|를|도|만)?\s")
     _OUTLINE_POINTER = re.compile(r"(?:위|앞|이|그|방금|정한|잡은|만든)\s*(?:의\s*)?(?:목차|구성|개요|틀)|목차\s*(?:대로|에\s*따라|에\s*맞춰|를\s*바탕)")
     _POINTER_WORDS = {"위", "이", "그", "저", "아래", "앞", "앞의", "위의", "방금", "지금", "이번", "해당", "말한", "정리한", "잡은", "만든"}
     _POINTER_TAIL = re.compile(r"(대로|따라|따라서|맞춰|맞춰서|맞게|바탕으로|기준으로)$")
@@ -1438,6 +1439,10 @@ def create_app(
                     return any(drafting.writable(x) for x in _gd0.get(link["account"], link["doc"])["sections"])
                 except Exception:
                     return False
+            # 「방금 쓴 절 다시 써 줘」「이 절」 — 이 대화에서 마지막으로 쓴 절로 짚는다(10/11 일반 편집으로 빠져 같은 글을 같은 글로 바꿈)
+            last_sec = db.get_setting(f"chat_last_section:{session_id}", "") or ""
+            if last_sec and _LAST_SECTION_REF.search(q) and "「" not in q and not drafting._SECTION_NO.search(q):
+                q = f"{q} 「{last_sec}」"
             # 문서 전체 초안 요청인데 쓸 절 구조가 없는 문서(빈 새 문서)면 일반 편집 — 모델이 절부터 짜서 쓴다
             if drafting.looks_like_section_draft(q) and (not drafting.doc_draft_only(q) or _has_writable()):
                 # 절 작성 에이전트(사용자 지시 2026-09-27): 검토 → 문서함의 지난 사업 자료 → 맥락 → 양식 작성방법대로 절마다 초안.
