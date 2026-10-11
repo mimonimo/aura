@@ -1,6 +1,6 @@
 # 0016. 표·그림 문맥 추출 계약 — 표 평문, 그림 속 글자(CPU OCR), 캡션 부착
 
-- 상태: 확정 (사용자 요청 2026-09-15: "표, 표 안 내용, 그림, 그림 속 내용, 문맥을 잘 가져와야 함")
+- 상태: 확정 (요구: 표와 표 안 내용, 그림과 그림 속 글자, 주변 문맥을 함께 가져와야 한다)
 - 날짜: 2026-09-15
 - 관련: ADR-0007(OCR 표준 파이프라인), `src/zzaimy/app/pipeline.py`, `render.py`,
   `drafter.py`, `ingest/parsers/{mineru,hwpx,hwp5}.py`, `scripts/79_ocr_structure_check.py`

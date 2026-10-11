@@ -46,7 +46,7 @@ Google Docs는 공동 작업에, HWPX는 최종 산출에 사용한다.
 
 ## 다음 확인
 
-- 표지·본문 렌더 화질을 우리 LibreOffice PDF 와 나란히(사용자가 볼 것).
+- 표지·본문 렌더 화질을 우리 LibreOffice PDF 와 나란히 비교.
 - Ver.3.3 hwp 의 표 244(kordoc) 대 112(우리)의 차이가 쪽에 걸친 표 분할인지 우리 누락인지 몇 개 골라 대조.
 - Node 사이드카 시안: `kordoc <file> --format chunks` 를 반입 파이프라인의 hwp 읽기 자리에 두는 시험(별도 분기, 145 대조 뒤 ADR).
 

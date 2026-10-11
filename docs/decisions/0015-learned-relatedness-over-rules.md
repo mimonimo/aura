@@ -1,6 +1,6 @@
 # 0015. 연관·반영 판정은 학습된 의미 표현으로 한다 (규칙·키워드 짜맞추기 폐기)
 
-- 상태: 확정 (사용자 지시 2026-09-14: "실제 연관 있고 중요한 키워드를 찾아 묶는 능력이 되어야 한다. RAG 생성도 무식하게 하면 안 된다")
+- 상태: 확정 (요구: 실제로 연관 있고 중요한 내용을 찾아 묶어야 하며, RAG 재료 선별도 같은 기준이어야 한다)
 - 날짜: 2026-09-14
 - 관련: ADR-0009(그래프 온톨로지), ADR-0010(개체 계층), `docs/context/working-notes.md` 하드코딩 금지, `src/zzaimy/graph/build.py`, `src/zzaimy/verify/coverage.py`, `src/zzaimy/app/drafter.py`
 

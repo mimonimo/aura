@@ -6,7 +6,7 @@
 
 ## 맥락
 
-ADR-0050 뒤에도 docx·xlsx·pptx 의 구조 읽기에는 docling 이 남아 있었다. 사용자가 "대조해 보고 나은 걸로 바꿔"라고 했다.
+ADR-0050 뒤에도 docx·xlsx·pptx 의 구조 읽기에는 docling 이 남아 있었다. 대조해서 나은 쪽으로 바꾸기로 했다.
 DGX 원본에서 형식마다 24~25건을 무작위로 골라 견줬다(scripts/176, 범위 밖 경로·중복 제외).
 정답은 파일 안 XML 에서 직접 모은 글자다(docx w:t · pptx a:t · xlsx 공유 문자열·셀 값, xls 는 LibreOffice 로 xlsx 로 바꾼 뒤 같은 방식).
 

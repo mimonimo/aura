@@ -15,8 +15,8 @@
 | GPU compute capability | 12.1 |
 | 메모리 총량 | 119.7 GiB |
 | 메모리 가용량 | 116.6 GiB |
-| Python | 3.12.3 (/home/jun/zzaimy-capstone/.venv/bin/python) |
-| pip | pip 24.0 from /home/jun/zzaimy-capstone/.venv/lib/python3.12/site-packages/pip (python 3.12) |
+| Python | 3.12.3 (~/zzaimy-capstone/.venv/bin/python) |
+| pip | pip 24.0 from ~/zzaimy-capstone/.venv/lib/python3.12/site-packages/pip (python 3.12) |
 
 ## nvidia-smi 전체 출력
 

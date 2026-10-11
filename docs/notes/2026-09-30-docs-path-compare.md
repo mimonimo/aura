@@ -1,7 +1,7 @@
 # 한글 → 구글 독스 변환 경로 견주기
 
 작성 2026-09-30(측정은 9/29 밤 VM). 스크립트 `scripts/154_docs_path_compare.py`, 수치 원본은 VM 의
-`data/eval/docs_path_compare.json`. 올린 결과는 모두 드라이브 ZZAIMY/_변환실험 에 남겨 두었다(지우지 않음).
+`data/eval/docs_path_compare.json`. 올린 결과 문서는 교내 드라이브의 실험 폴더에 있다.
 
 ## 견준 경로
 
@@ -33,7 +33,7 @@
 
 ## 눈으로 본 것
 
-쪽 그림은 1·3·8·15쪽을 60dpi 로 떠서 봤다(세션 scratchpad `paths/<문서>/<경로>-<쪽>.png`, 커밋 대상 아님).
+쪽 그림은 1·3·8·15쪽을 60dpi 로 떠서 봤다.
 
 A 는 셋 가운데 유일하게 "원본처럼" 보인다. A4 용지·원본 여백, 표 테두리 굵기, 머리 칸 음영, 병합 칸, 가운데 정렬, 표 제목 상자까지 살아 있다. 평가편람 3쪽은 원본 편람과 거의 같은 모양이다. 흠은 세 가지다.
 - 글꼴에 없는 글자가 네모로 나온다. 한글 전용 사용자 영역 글자(원문자 ①)가 PDF 에서 깨진 글자로 남고, 반각 가운뎃점(･)이 일부 칸에서 ▣ 로 보인다. 덮기 4% 손실의 대부분이 이것이다.
@@ -51,22 +51,8 @@ B·B2 가 A 보다 나은 점도 있다. 제목이 제목 문단으로 들어와
 - 사람이 "원본처럼" 보고 고쳐 쓰는 작업본(양식·계획서·편람)은 A 를 유지한다. 모양 충실도에서 B·B2 와 격차가 크다.
 - hwp → md → 독스(B·B2)는 열람용 작업본으로는 부족하다. 레터 용지, 열 폭 없음, 테두리 없음(B)이 구조적 한계이고, 이것을 채우려면 결국 docx 에서 하는 일을 HTML 로 다시 하게 된다. 글·표 구조·제목만 필요한 곳(에이전트가 읽는 사본, 검색용 요약, 초안 뼈대)에는 B2 가 충분하고 가볍다.
 - 그림이 있는 문서를 md 경로로 보낼 때는 B 가 아니라 B2(--inline-images, data URI)여야 한다. B 는 그림이 모두 빈 자리로 남는다. 다만 그림이 많으면 HTML 이 커진다(사업계획서 51MB, 이번에는 통과).
-- A 에서 고칠 것은 이번 측정으로 분명해졌다: 사용자 영역 원문자·반각 가운뎃점의 글꼴 대체(또는 표준 문자로 바꾸기), hwp5_docx 의 표 수치 누락, 사업계획서 쪽수 부풀림. kordoc 마크다운을 A 결과의 글자 대조 기준으로 쓰면(이 스크립트의 덮기 잣대) 회귀 점검에 바로 쓸 수 있다.
+- A 에서 고칠 것: 사용자 영역 원문자·반각 가운뎃점의 글꼴 대체(또는 표준 문자로 바꾸기), hwp5_docx 의 표 수치 누락, 사업계획서 쪽수 부풀림. kordoc 마크다운을 A 결과의 글자 대조 기준으로 쓰면(이 스크립트의 덮기 잣대) 회귀 점검에 바로 쓸 수 있다.
 - A 의 제목 문단이 0~2개인 것은 독스 개요 탐색에 불리하다. kordoc 이 잡는 제목 위계를 A 의 docx 문단 스타일(제목 1~3)로 옮기는 것을 다음 후보로 둔다(모양은 그대로, 스타일만).
-
-## 결과 문서(드라이브 ZZAIMY/_변환실험)
-
-- 작성서식 A https://docs.google.com/document/d/1Bhkwk_MMRV18cXEwiTy7EPrHTAPf6qcPqUjiFtzSB2g/edit
-- 작성서식 B https://docs.google.com/document/d/1V1Qu1FcJ-B7KIxfOrcMKmARgM4itsm3mZpwnWSPth7c/edit
-- 작성서식 B2 https://docs.google.com/document/d/1rujtfcPphQJAk_tPKcUtJC7GZKZsNIS9UZwy-NFkTME/edit
-- 사업계획서 A https://docs.google.com/document/d/1vnzmlyptwfq00R8FJ5YwdvdOogmiMrYQQ__4CcT5dBM/edit
-- 사업계획서 B https://docs.google.com/document/d/1v2NPLm6jOnSgH5b1x_Py6dboGlCJA3BSmFYI1Y00Lhg/edit
-- 사업계획서 B2 https://docs.google.com/document/d/1zsH1aZlCJsK2xhgXKlxtobGoBT6n7iMntRWroqFP_p0/edit
-- 평가편람 A https://docs.google.com/document/d/1sd0n-BI6-ia05qj_xdPmMD6stljBh0UY58gk3F-ExNY/edit
-- 평가편람 B https://docs.google.com/document/d/16oyrogt4Fnj59qSCkrcv_POqcClZTAD00JY0gqwUVVY/edit
-- 평가편람 B2 https://docs.google.com/document/d/1BoS-DzITzMrE24bUSlC2vz25PliBGUpJPC6NEXhJtAM/edit
-
-첫 시험 실행(평가편람만)에서 올린 세 벌(1FN9hc…, 13JxF1…, 1k4z3w…)도 같은 폴더에 남아 있다. 수치는 위 평가편람 행과 같다.
 
 ## 다시 돌리기
 

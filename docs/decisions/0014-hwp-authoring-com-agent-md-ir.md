@@ -5,7 +5,7 @@
 - 상태: 확정
 - 날짜: 2026-09-08
 - 관련: ADR-0013(대체함: rhwp 채택 철회), `tools/hwp-agent`,
-  `docs/notes/hwpx-agent-skills.md`, 사용자 확정(2026-09-08)
+  `docs/notes/hwpx-agent-skills.md`, 확정(2026-09-08)
 
 ## 맥락
 

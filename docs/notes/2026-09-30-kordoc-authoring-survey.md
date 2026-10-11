@@ -7,7 +7,7 @@
 
 - README 1,392줄 전부(변경 내역 포함)를 읽었다.
 - dist 의 소스맵(`*.js.map`)에 TypeScript 원문이 들어 있어 거기서 `roundtrip/`·`form/`·`hwpx/`·`validate.ts` 를 복원해 읽었다.
-- VM `/tmp/kordoc-survey/` 에 557 작성서식(ver5) 원본.hwpx 사본을 두고 patch·validate·generate·profile·render 를 돌렸다. 끝나고 지웠다. 저장소와 문서함은 건드리지 않았다.
+- 557 작성서식(ver5) 원본.hwpx 의 임시 사본으로 patch·validate·generate·profile·render 를 돌렸다.
 
 ## 1. kordoc 의 쓰기·편집 기능 목록
 

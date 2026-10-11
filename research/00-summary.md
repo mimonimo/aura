@@ -1,6 +1,6 @@
 # Phase 0 리서치 요약 — 「짜이미」 기술 스택 추천
 
-> 조사 기간: 2026-08-15 · 상세 근거는 각 `01-{영역}.md`, 모델 트랙은 `50-model-track.md`, 사용자 확인 사항은 `99-open-questions.md`.
+> 조사 기간: 2026-08-15 · 상세 근거는 각 `01-{영역}.md`, 모델 트랙은 `50-model-track.md`, 확인 사항은 `99-open-questions.md`.
 > 원칙: aarch64(DGX Spark) 1차 필터 · 한국어 성능 기준 · 라이선스 위험 보고 · 검증 불가 정보는 "미확인" 표기.
 
 ---
@@ -62,7 +62,7 @@
 
 ### K. 생성 모델 (01-K)
 - **명명 자유도가 강한 필터로 작동**: EXAONE(연구 한정 라이선스), Solar Open('Solar' 접두사 의무), Kanana-2('Kanana' 접두사 의무), Llama('Llama' 포함 의무) 전부 ZZAIMY-* 불가. gpt-oss는 한국어 약세 문서화로 탈락.
-- 남는 유력지: **Qwen3.5/3.6-35B-A3B**(Apache 2.0, MoE A3B — 대역폭 이론상 ~180 tok/s급 vs dense 72B ~7 tok/s급). 한국어 특화 vs 명명 제약의 트레이드오프(Kanana-2)는 Phase 3 실측 후 사용자 결정 사항.
+- 남는 유력지: **Qwen3.5/3.6-35B-A3B**(Apache 2.0, MoE A3B — 대역폭 이론상 ~180 tok/s급 vs dense 72B ~7 tok/s급). 한국어 특화 vs 명명 제약의 트레이드오프(Kanana-2)는 Phase 3 실측 후 결정 사항.
 - 국산 대안: Mi:dm 2.0(MIT)·A.X-4.0-Light(Apache 2.0)는 Extract 후보 겸 Writer 비교군.
 
 ### L·M. 평가 / PII (01-L, 01-M)
@@ -81,8 +81,8 @@
 2. **Spark(aarch64+sm_121) 특유의 빌드/휠 이슈** — vLLM·학습 프레임워크 모두 "검증 이미지 태그 고정" 규율 필요. PaddlePaddle GPU 계열은 구조적 회피.
 3. **합성 데이터 품질**(질의 생성·retro-fill)이 축 B 성과의 상한 — 프롬프트 버전 관리 + 표본 사람 검수 의무화.
 4. **수치 환각** — 파이프라인 구조(인출·대조·빈칸 규약)와 학습 데이터 정제(출력 수치 ⊆ 입력 근거)의 이중 방어. 50-model-track의 정제 규칙이 절대 규칙.
-5. **문서 실물 의존 미지수** — HWP 비율, 스캔 품질, 계획서 양식 일관성, 열람 등급 체계(99-open-questions 1~14) — Phase 1 설계 전 사용자 답변 필요.
+5. **문서 실물 의존 미지수** — HWP 비율, 스캔 품질, 계획서 양식 일관성, 열람 등급 체계(99-open-questions 1~14) — Phase 1 설계 전 답변 필요.
 
 ## 다음 단계
 
-사용자 검토·승인 후 Phase 1 착수: `docs/architecture.md` · `model-plan.md` · `eval-plan.md` · `pilot-plan.md` · `risks.md` (브리프 9장). 승인 전 99-open-questions의 답변(특히 1·2·7·12·13번)을 받으면 설계 정밀도가 크게 오른다.
+검토·승인 후 Phase 1 착수: `docs/architecture.md` · `model-plan.md` · `eval-plan.md` · `pilot-plan.md` · `risks.md` (브리프 9장). 승인 전 99-open-questions의 답변(특히 1·2·7·12·13번)을 받으면 설계 정밀도가 크게 오른다.

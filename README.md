@@ -15,7 +15,7 @@ Google 계정의 Docs에 두고, 외부 검색을 켠 질문만 질문 글이 �
 분류한다. 뽑은 글은 조각으로 나눠 색인하고, 사업 → 연차 → 문서 → 절의 관계를 지식 그래프로 묶는다. 사업 사이의
 연결은 근거가 확인된 경우에만 만든다.
 
-질문에는 어휘 검색과 의미 검색을 합친 결과를 재정렬해 답하고, 답마다 원문 출처를 붙인다. 열람 권한은 검색
+질문에는 어휘 검색과 의미 검색을 합친 결과로 답하고(규정 문서는 리랭커로 한 번 더 재정렬한다), 답마다 원문 출처를 붙인다. 열람 권한은 검색
 단계에서 거르므로 볼 수 없는 문서는 근거로도 쓰이지 않는다.
 
 문서 작성은 Google Docs 작업본에서 절 단위로 한다. 쓴 글의 수치는 근거와 대조해 근거에 없는 값을 가리고 담당자에게
@@ -54,7 +54,8 @@ Google 계정의 Docs에 두고, 외부 검색을 켠 질문만 질문 글이 �
 | 웹 플랫폼 | FastAPI, PostgreSQL(pgvector), Google Docs·Drive 연동 |
 | 모델 서빙 | vLLM, Writer 27B NVFP4 (젯슨 토르 2대) |
 | 학습 | LLaMA-Factory, sentence-transformers (DGX) |
-| 문서 추출 | 글자층 직독, MinerU, kordoc(한글), Docling(오피스) |
+| 문서 추출 | 디지털 PDF 글자층 직독(pypdf), 스캔 PDF는 MinerU, 한글·docx·xlsx는 kordoc과 자체 변환기, 오피스는 python-docx·openpyxl·python-pptx, 옛 형식 변환은 LibreOffice |
+| 지식 그래프 | PostgreSQL 테이블, rdflib·pySHACL(온톨로지 내보내기·검사), Cytoscape.js(탐색 화면) |
 
 ## 저장소 구조
 

@@ -1,8 +1,7 @@
 # AI 읽기 표/레이아웃 원본 불일치 — 원인 진단
 
-작성 2026-09-08. 사용자 지적(문서 104·105 "연계교육과정 편성표", MinerU 파싱)
-세 증상을 코드 조사 + 실데이터 렌더로 진단했다. 이 문서는 조사·보고이며 수정은
-합의 후. 캡처: `scratchpad/tbl_render.png`(현재), `scratchpad/tbl_mid.png`(개선안).
+작성 2026-09-08. 문서 104·105("연계교육과정 편성표", MinerU 파싱)에서 보인 세 증상을
+코드 조사와 실데이터 렌더로 진단했다.
 
 ## 방법
 
@@ -29,11 +28,10 @@
   행). 다만 `table.extract td { vertical-align: top }`이라 텍스트가 칸 위쪽에
   붙어 아래 절반이 비어 보인다 — 이것이 "첫 행에만 값, 아랫행 빈 칸"의 정체다.
 
-해법(합의 시): `table.extract th, table.extract td`의 `vertical-align: top`을
+해법: `table.extract th, table.extract td`의 `vertical-align: top`을
 `middle`로. before/after 캡처로 확인했고, middle이면 병합 셀 텍스트가 두 행
 중앙에 놓여 원본 편성표처럼 "한 칸이 두 행을 덮는" 게 명확해진다. 한 줄 변경,
-저위험. 위치는 `base.html`의 `.extract` CSS(공용 파일이라 소유자와 조율 필요)
-또는 render.py에서 병합 셀에 인라인 정렬을 부여하는 방식.
+저위험. 위치는 `base.html`의 `.extract` CSS 또는 render.py에서 병합 셀에 인라인 정렬을 부여하는 방식.
 
 ## 증상 2 — 표 비율(열 폭·전체 폭)이 원본과 다르다 → **기하 정보 부재 (부분 수정 가능)**
 

@@ -36,4 +36,4 @@
 
 - [인수인계](HANDOFF.md): 운영 구성, 접속·실행 절차, 남은 일
 - [현재 작업](dev-now.md) · [변경 기록(9월)](dev-changelog.md)
-- [작업 노트](notes/) · [협업 기록](collaboration/) · [작업 맥락](context/working-notes.md) · [초기 작업 지시서](instructions/W1-W2.md)
+- [작업 노트](notes/) · [협업 기록](collaboration/) · [작업 맥락](context/working-notes.md) · [1~2주차 계획](instructions/W1-W2.md)
