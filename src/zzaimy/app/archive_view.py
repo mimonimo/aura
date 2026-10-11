@@ -122,6 +122,7 @@ class Programs:
 
     def __init__(self, names: dict[str, tuple[str, int]], surfaces: dict[str, list[str]] | None = None,
                  nodes: dict[str, str] | None = None):
+        from zzaimy.graph import programs as gp
         surfaces, nodes = surfaces or {}, nodes or {}
         self.surfaces = surfaces
         counts: dict[str, int] = defaultdict(int)
@@ -146,7 +147,10 @@ class Programs:
         self.name: dict[str, str] = {}
         self.count: dict[str, int] = {}
         self.choices: list[dict] = []          # 마지막 resolve 가 하나로 정하지 못했을 때의 후보(많은 순)
-        self.terms: dict[str, list[str]] = {}
+        self.terms: dict[str, list[str]] = {}       # 묶음 제 이름(장부 이름·보일 이름·노드 이름)
+        self.alias: dict[str, list[str]] = {}       # 그래프에서 온 다른 이름·약칭(거른 것)
+        self.own: dict[str, set[str]] = {}         # 묶음 제 약칭 — 장부 열쇠 꼬리·제 이름 속 약칭
+        self.key_acr: dict[str, set[str]] = {}     # 장부 열쇠 꼬리의 약칭(program:abcd → ABCD)
         for g, keys in groups.items():
             gid = max(keys, key=lambda k: (names[k][1], k))
             self.count[gid] = sum(names[k][1] for k in keys)
@@ -155,8 +159,19 @@ class Programs:
             self.name[gid] = program_names.display_name(nodes.get(gid) or "") or g
             terms = {g, self.name[gid]}
             for k in keys:
-                terms |= {names[k][0] or "", nodes.get(k, ""), *surfaces.get(k, [])}
+                terms |= {names[k][0] or "", nodes.get(k, "")}
             self.terms[gid] = sorted(t for t in terms if t)
+            self.alias[gid] = sorted({t for k in keys for t in surfaces.get(k, []) if t} - set(self.terms[gid]))
+            self.key_acr[gid] = set().union(*(gp._id_acr(k) for k in keys))
+            self.own[gid] = self.key_acr[gid] | {gp._acr(a) for t in self.terms[gid] for a in gp._ACR_TOKEN.findall(t)}
+        # 남의 제 약칭이 든 별칭은 이 묶음을 가리키지 않는다(그래프 카드에 섞여 들어온 다른 사업 약칭)
+        for gid in self.alias:
+            theirs = set().union(*(o for g2, o in self.own.items() if g2 != gid)) if len(self.own) > 1 else set()
+            theirs = {a for a in theirs if not any(gp._same_acr(a, m) for m in self.own[gid])}
+            def foreign(t: str) -> bool:
+                toks = {gp._acr(a) for a in gp._ACR_TOKEN.findall(t)} | ({gp._acr(t)} if gp._is_acr(t) else set())
+                return bool(toks & theirs)
+            self.alias[gid] = [t for t in self.alias[gid] if not foreign(t)]
 
     def of(self, key: str) -> str:
         return self.by_key.get(key or "", "")
@@ -171,31 +186,40 @@ class Programs:
     def candidates(self, value: str) -> list[tuple[int, int, str]]:
         """사업 조건 값에 맞는 묶음 — (순위, -원본 수, 묶음 열쇠) 순으로. 순위가 작을수록 강한 근거다.
 
-        0 같은 이름: 값이 묶음의 이름·별칭·약칭·옛 이름 하나와 같다(띄어쓰기·괄호·끝 「사업」 차이 무시, group_key)
-        1 같은 낱말: 값이 그 이름들의 낱말 하나와 같다(「RISE」 ↔ 「대구 RISE 협력 사업」의 RISE)
-        2 이름 일부: 값이 이름 속 어디엔가 있다"""
+        0 제 열쇠·제 이름: 값이 장부 열쇠 꼬리의 약칭(program:abcd ↔ ABCD)과 같거나, 묶음 제 이름과 같다(group_key)
+        1 제 이름 속 약칭: 값이 묶음 제 이름에 든 약칭과 같다(「…(구 ABCD)」)
+        2 그래프 별칭: 값이 거른 다른 이름·약칭 하나와 같다 — 별칭만 맞는 묶음은 제 이름·열쇠로 맞는 묶음을 이기지 못한다
+        3 같은 낱말 · 4 이름 일부"""
+        from zzaimy.graph import programs as gp
         flat = program_names.group_key(value)
+        vac = gp._acr(flat)
         low = value.lower()
         out = []
         for g, ts in self.terms.items():
-            rank = 3
-            for t in ts:
-                if t == value or program_names.group_key(t) == flat:
-                    rank = 0
-                    break
-                words = {program_names.group_key(w) for w in re.split(r"[\s()\[\]·,/_\-]+", t) if w}
-                if flat and flat in words:
-                    rank = min(rank, 1)
-                elif low in t.lower():
-                    rank = min(rank, 2)
-            if rank < 3:
+            als = self.alias.get(g, [])
+            if vac and any(gp._same_acr(vac, a) for a in self.key_acr.get(g, ())) or any(
+                    t == value or program_names.group_key(t) == flat for t in ts):
+                rank = 0
+            elif vac and any(gp._same_acr(vac, a) for a in self.own.get(g, ())):
+                rank = 1
+            elif any(t == value or program_names.group_key(t) == flat for t in als):
+                rank = 2
+            else:
+                rank = 5
+                for t in ts + als:
+                    words = {program_names.group_key(w) for w in re.split(r"[\s()\[\]·,/_\-]+", t) if w}
+                    if flat and flat in words:
+                        rank = min(rank, 3)
+                    elif low in t.lower():
+                        rank = min(rank, 4)
+            if rank < 5:
                 out.append((rank, -self.count.get(g, 0), g))
         return sorted(out)
 
     def resolve(self, value: str) -> str:
         """사업 조건 값 → 묶음 열쇠. 장부 열쇠 · 사업 미분류 · 그 밖에는 candidates 순위로.
 
-        같은 이름(순위 0) 후보가 있으면 그중 원본이 가장 많은 묶음으로 정한다 — 이름·약칭이 그대로 맞은 것은 강한 근거다.
+        제 열쇠·제 이름·별칭이 그대로 맞은 후보(순위 0~2)가 있으면 가장 높은 순위에서 원본이 가장 많은 묶음으로 정한다.
         낱말·일부만 맞은 후보가 하나면 그것, 여럿이면 정하지 않고 choices 에 후보를 남긴다(화면이 「이 사업을 찾으셨나요?」로 보인다)."""
         self.choices = []
         value = (value or "").strip()
@@ -210,7 +234,7 @@ class Programs:
             return value                      # 모르는 값 — 0건(조건 칩으로 지울 수 있다)
         best = cands[0][0]
         top = [c for c in cands if c[0] == best]
-        if best == 0 or len(top) == 1:
+        if best <= 2 or len(top) == 1:
             return top[0][2]
         self.choices = [{"value": g, "name": self.name.get(g, g), "n": -neg} for _r, neg, g in cands[:6]]
         return value
@@ -227,27 +251,38 @@ def program_index(db, hidden: set[int]) -> dict[str, tuple[str, int]]:
 
 
 def graph_match(db, names: dict[str, tuple[str, int]]) -> tuple[dict[str, list[str]], dict[str, str]]:
-    """장부 열쇠마다 그래프 사업 노드를 맞춘다 — (열쇠 → 노드의 이름·약칭, 열쇠 → 노드 이름).
+    """장부 열쇠마다 그래프 사업 노드를 맞춘다 — (열쇠 → 노드의 믿을 만한 다른 이름·약칭, 열쇠 → 노드 이름).
 
-    노드 id 가 장부 열쇠와 같으면 그것, 아니면 장부 이름이 노드의 이름·별칭·약칭 하나와 같은 열쇠(group_key)인 노드가
-    하나뿐일 때 그것. 그래프를 다시 지어 노드 id 가 바뀌어도 이름으로 다시 맞는다."""
+    - 노드 id 가 장부 열쇠와 같으면 그것, 아니면 장부 이름이 노드의 이름·별칭(약칭 목록은 빼고) 하나와 같은 열쇠(group_key)인
+      노드가 하나뿐일 때 그것. 그래프를 다시 지어 노드 id 가 바뀌어도 이름으로 다시 맞는다
+    - 노드의 약칭·별칭 목록에는 다른 사업의 약칭이나 한 글자 오기가 섞여 들어올 수 있다 — 그래프 화면과 같은 거르기
+      (graph.programs.alias_filters·alias_list: 남의 약칭이 든 이름, 정체 약칭의 한 글자 오기를 뺌, 장부 표기는 둠)를 거친 것만 쓴다"""
     import json
+
+    from zzaimy.graph import programs as gp
     try:
         with db._conn() as conn:
             rows = conn.execute("SELECT id, label, props FROM kg_nodes WHERE type = 'program'").fetchall()
     except Exception:
         return {}, {}
-    nodes = {}
-    by_term: dict[str, set[str]] = defaultdict(set)
+    progs = []
     for nid, label, props in rows:
         p = props if isinstance(props, dict) else json.loads(props or "{}")
         acr = p.get("acronyms") or []
-        acr = list(acr.keys()) if isinstance(acr, dict) else list(acr)
-        terms = [label or ""] + [str(x) for x in (p.get("names") or [])] + [str(x) for x in acr]
-        nodes[str(nid)] = (str(label or ""), [t for t in terms if t])
-        for t in terms:
+        p = {**p, "acronyms": list(acr.keys()) if isinstance(acr, dict) else list(acr)}
+        progs.append({"id": str(nid), "label": str(label or ""), "props": p})
+    ledger = _ledger()
+    nodes: dict[str, tuple[str, list[str]]] = {}
+    by_term: dict[str, set[str]] = defaultdict(set)
+    for prog in progs:
+        others = [o for o in progs if o is not prog]
+        canon, foreign, allowed = gp.alias_filters(prog, others, ledger)
+        kept, _more = gp.alias_list([str(x) for x in prog["props"].get("names") or []], prog["props"]["acronyms"], limit=10_000,
+                                    foreign=foreign, canonical=canon, allowed=allowed)
+        nodes[prog["id"]] = (prog["label"], [prog["label"]] + kept)
+        for t in [prog["label"]] + [str(x) for x in prog["props"].get("names") or []]:
             if t:
-                by_term[program_names.group_key(t)].add(str(nid))
+                by_term[program_names.group_key(t)].add(prog["id"])
     surf, label = {}, {}
     for key, (name, _n) in names.items():
         if not key:

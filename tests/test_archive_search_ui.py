@@ -363,3 +363,23 @@ def test_program_box_ranks_exact_acronym_over_word_and_part_matches(client):
     assert "program=program%3Adgnova" in chooser
     full = client.get("/archive").text
     assert '<option value="새빛 인재양성체계(구 NOVA)" data-key="program:nova" label="30건">' in full
+
+
+def test_polluted_graph_aliases_never_steal_another_programs_acronym(client):
+    """큰 사업 A 의 그래프 카드에 다른 사업 B 의 약칭이 섞여 있어도 B 의 약칭을 치면 B 로 간다."""
+    db = client.app.state.db
+    rows = [{"rel": f"a/{i}.hwp", "size": 1, "mtime": 1, "ext": "hwp", "program": "program:orbit",
+             "program_name": "별빛 대학(ORBIT+) 육성사업"} for i in range(40)]
+    rows += [{"rel": f"b/{i}.hwp", "size": 1, "mtime": 1, "ext": "hwp", "program": "program:nova",
+              "program_name": "새빛 인재양성체계(구 NOVA)"} for i in range(9)]
+    rows += [{"rel": f"c/{i}.hwp", "size": 1, "mtime": 1, "ext": "hwp", "program": "program:새빛누리",
+              "program_name": "누리 연계 체계(구 VEGA)"} for i in range(4)]
+    archive.load(db, rows)
+    # A 의 카드에 B·C 의 약칭과 자기 약칭의 한 글자 오기(ORBT+)가 섞여 들어옴
+    _graph_program(db, "program:orbit", "별빛 대학(ORBIT+) 육성사업", ["ORBIT+", "NOVA", "VEGA", "ORBT+"])
+    _graph_program(db, "program:nova", "새빛 인재양성체계(구 NOVA)", ["NOVA"])
+    for value, want in (("NOVA", "9건 중 1–9"), ("NOVA사업", "9건 중 1–9"), ("VEGA", "4건 중 1–4"),
+                        ("ORBIT", "40건 중 1–40"), ("ORBIT+", "40건 중 1–40")):
+        assert _count(client.get(f"/archive?program={value}").text) == want, value
+    names, progs = archive_view.load_programs(db, set())
+    assert not any("NOVA" in a or "VEGA" in a for a in progs.alias[progs.of("program:orbit")])
