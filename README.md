@@ -25,7 +25,7 @@ ZZAIMY는 대학 행정 부서를 위한 문서 업무 플랫폼이다. 국고�
 [반입]      PDF · HWP/HWPX · 오피스 문서 · 이미지
    │
    ▼
-[추출·분류]  글자층 직독 · MinerU OCR · Writer 이미지 판독 · kordoc
+[추출]      글자층 직독 · MinerU OCR · Writer 이미지 판독 · kordoc
    │
    ▼
 [저장]      PostgreSQL: 문서·조각·권한 · 어휘 색인 · pgvector · 지식 그래프
@@ -56,8 +56,8 @@ ZZAIMY는 대학 행정 부서를 위한 문서 업무 플랫폼이다. 국고�
 |---|---|---|---|
 | ZZAIMY-Embed | KURE-v1 | 의미 검색 임베딩 | v2 운영 |
 | ZZAIMY-Rerank | bge-reranker-v2-m3 | 검색 후보 재정렬 | v1 운영 |
-| ZZAIMY-Writer | Qwen3.8-27B | 문서 이해·검토·초안 작성·그림 판독·에이전트 판단 | 베이스 모델 운영, 학습 데이터 검수 중 |
-| ZZAIMY-Extract | Qwen3.8-27B (Writer와 같은 모델) | 실적 정보 구조화 추출 | 예정 |
+| ZZAIMY-Writer | Qwen3.8-27B | 검토·초안 작성·그림 판독·에이전트 판단 | 베이스 운영, 학습 데이터 검수 중 |
+| ZZAIMY-Extract | Qwen3.8-27B | 실적 정보 구조화 추출(Writer와 같은 모델) | 예정 |
 
 베이스는 모두 Apache 2.0·MIT 라이선스의 오픈웨이트 모델이다. 사실과 수치는 검색으로 공급하고, 모델에는 맥락을 파악해 근거를
 골라 쓰는 능력만 학습시킨다. 새 모델은 결정 기록과 같은 입력의 비교 측정을 거쳐서만 들인다.
@@ -65,15 +65,13 @@ ZZAIMY는 대학 행정 부서를 위한 문서 업무 플랫폼이다. 국고�
 
 ## 기술 구성
 
-| 구분 | 구성 |
-|---|---|
-| 웹 플랫폼 | Python 3.12, FastAPI, Jinja2, PostgreSQL |
-| 검색 | PostgreSQL 전문 색인, Kiwi 형태소 분석, pgvector(HNSW), RRF 융합 |
-| 지식 그래프 | PostgreSQL 테이블, rdflib·pySHACL(OWL·RDF 내보내기와 검사), Cytoscape.js(탐색 화면) |
-| 문서 추출 | pypdf(디지털 PDF 글자층), MinerU(스캔 PDF), kordoc(한글·docx·xlsx), python-docx·openpyxl·python-pptx, LibreOffice(옛 오피스 형식 변환) |
-| 문서 작성 | Google Docs·Drive API(작업본), 자체 HWPX 서식 채우기 |
-| 모델 서빙 | vLLM, Writer 27B NVFP4 양자화(NVIDIA Jetson AGX Thor 2대), 임베딩·리랭커 서비스 |
-| 학습 | LLaMA-Factory, sentence-transformers, Label Studio(검수) |
+- 웹 플랫폼: Python 3.12, FastAPI, Jinja2, PostgreSQL
+- 검색: PostgreSQL 전문 색인, Kiwi 형태소 분석, pgvector(HNSW), RRF 융합
+- 지식 그래프: PostgreSQL 테이블, rdflib·pySHACL(OWL·RDF 내보내기와 검사), Cytoscape.js(탐색 화면)
+- 문서 추출: pypdf(디지털 PDF 글자층), MinerU(스캔 PDF), kordoc(한글·docx·xlsx), python-docx·openpyxl·python-pptx, LibreOffice(옛 오피스 형식 변환)
+- 문서 작성: Google Docs·Drive API(작업본), 자체 HWPX 서식 채우기
+- 모델 서빙: vLLM, Writer 27B NVFP4 양자화(NVIDIA Jetson AGX Thor 2대), 임베딩·리랭커 서비스
+- 학습: LLaMA-Factory, sentence-transformers, Label Studio(검수)
 
 ## 저장소 구조
 
