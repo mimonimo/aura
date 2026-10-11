@@ -37,6 +37,8 @@ _LEAD = [
     re.compile(r"^\s*\d{6}(?:\d{2})?\s*[_\-]\s*"),
     # '(공고문) …', '[보도자료 03-10(금)] …' — 앞에 붙은 꼬리표 괄호. 안에 한글 두 글자 이상('(주)'·'(안)' 은 이름의 일부다)
     re.compile(r"^\s*(?:\[[^\[\]]*[가-힣][^\[\]]*[가-힣][^\[\]]*\]|\((?=[^()]*[가-힣][^()]*[가-힣])[^()]{2,20}\))\s*"),
+    # '117.가나병원', '18-가나과' — 한글 이름에 바로 붙은 순번(점·붙임표). 네 자리(연도)·'3.4.2.' 은 위·아래 규칙이 본다
+    re.compile(r"^\s*\d{1,3}[.\-](?=[가-힣])"),
     # '05_', '4_', '07-' — 번호 + 밑줄·붙임표. 네 자리(연도)는 아니다
     re.compile(r"^\s*\d{1,3}\s*[_]\s*|^\s*\d{1,3}\s*-\s+"),
     # '2번 ', '3번_' — 순번 낱말
@@ -44,7 +46,7 @@ _LEAD = [
     # 'p)', 'a.', '가.', '나)' — 목록 기호. 라틴 한 글자는 ')' 일 때만('S.W.' 는 이름이다)
     re.compile(r"^\s*(?:[A-Za-z]\)|[가-하][.)])\s*"),
     # '발표3.', '자료 2_', '안건1)' — 짧은 낱말 + 번호 + 구분자. 'LINC3.0' 처럼 번호 뒤에 숫자가 이어지면 아니다
-    re.compile(r"^\s*[가-힣]{1,4}\s*\d{1,3}(?:-\d{1,2})?\s*[.)_\]:]\s*(?!\d)"),
+    re.compile(r"^\s*[가-힣]{1,4}\s*\d{1,3}(?:-\d{1,2})?\s*[.)\]:]\s*(?!\d)"),   # 밑줄은 아니다('가나30_…' 은 이름)
     # '최종!', '[최종]', '(수정)_', '최종_' — 앞에 붙은 상태 표시. 맨 띄어쓰기만으로는 떼지 않는다('최종 결과보고서')
     re.compile(r"^\s*[\[(]\s*(?:최종|수정|확정|완료|초안|가안|제출용?|검토|원본|사본)본?\s*[\])]\s*[_\-]?\s*"
                r"|^\s*(?:최종|수정|확정|완료|초안|가안|제출용?|원본|사본)본?\s*[!_]+\s*"),
@@ -57,7 +59,7 @@ _SEAL = r"(?:직[인임]\s*(?:X|x|×|없음|미포함|제외|생략|포함|본)?
 _STATUS_ANY = r"(?:최종|최최종|수정|확정|완료|제출|검토|결재|초안|가안|원본|사본|복사본|OK|ok|Ok|final|Final|FINAL|fin)"
 _TAIL = [
     # '- 복사본', ' - 사본 (2)', '_copy'
-    re.compile(r"[\s_\-]*(?:복사본|사본|copy|Copy)(?:\s*\(\d{1,2}\))?\s*$"),
+    re.compile(r"[\s_\-]+(?:복사본|사본|copy|Copy)(?:\s*\(\d{1,2}\))?\s*$"),   # 띄어 쓴 것만 — '통장사본' 은 서류 이름
     # 윈도 중복 표시 ' (1)' — 앞에 띄어쓰기가 있을 때만
     re.compile(r"\s+\(\d\)\s*$"),
     # '_ver.1', ' v2', '_rev3', 'V1.2'
@@ -89,7 +91,9 @@ _TAIL = [
 _ROLE = r"(?:[가-힣]{0,5}(?:장|교수|관|담당자?|위원)|교수님|선생님|님|박사|조교|연구원|주무관)"
 _EDIT = r"(?:수정|작성|검토|정리|편집|제출|발표)"
 # 이름 같지 않은 끝 글자 — 서류 갈래 꼬리와 개인정보 탐지기의 '이름 아닌 꼬리'
-_NOT_NAME_END = tuple(_KIND_TAIL) + ("금", "비", "급", "료", "회", "과", "실", "팀", "관", "소", "청", "화", "식", "업", "사")
+_NOT_NAME_END = tuple(_KIND_TAIL) + ("금", "비", "급", "료", "회", "과", "실", "팀", "관", "소", "청", "화", "업", "사",
+                                          # 이름에 드문 끝 글자 — 보통 명사의 꼬리('한국어'·'방법론'·'제작물'·'기술'·'제품')
+                                          "어", "론", "법", "술", "품", "물", "류", "권", "률", "율")
 
 
 @lru_cache(maxsize=1)
@@ -119,29 +123,46 @@ def _looks_like_name(tok: str, strong: bool, text: str | None) -> bool:
     return len(body) >= 200 and tok not in body
 
 
-def drop_person(stem: str, text: str | None = None) -> str:
+_UNIT_END = re.compile(r"(?:학과|계열|전공|과|팀|부|처|실|센터|사업단|대학교|대학)$")
+
+
+def _after_unit(head: str, m) -> bool:
+    """'가나학과-김○○' 처럼 소속(학과·계열·팀 …) 바로 뒤에 붙임표·밑줄로 붙은 이름 — 구조 증거."""
+    sep = m.group(0)[:1]
+    return sep in "_-" and bool(_UNIT_END.search(head.strip()))
+
+
+def drop_person(stem: str, text: str | None = None, whole_ok: bool = False) -> str:
     """파일 이름 앞뒤의 사람 이름(과 붙은 직위·'수정' 표시)을 뗀다. 탐지기가 이름으로 보지 않으면 그대로 둔다."""
     s = stem
     for _ in range(3):
         before = s
-        # '(김○○교수)', '(이○○ 수정)', '(홍○○)'
+        # '(김○○교수)', '(이○○ 수정)', '(홍○○)' — 끝의 괄호에 세 글자 이름만 있는 자리는 그 자체가 구조 증거다
         m = re.search(r"\s*[(\[]\s*([가-힣]{2,4})\s*(" + _ROLE + r"|" + _EDIT + r")?\s*[)\]]\s*$", s)
-        if m and _looks_like_name(m.group(1), bool(m.group(2)), text):
+        if m and _looks_like_name(m.group(1), bool(m.group(2)) or len(m.group(1)) == 3, text):
             s = s[: m.start()]
             continue
-        # '… 사업단장 남○○', '…_김○○', '… 김○○ 교수'
-        m = re.search(r"(?:^|[\s_\-])(?:(" + _ROLE + r")\s*)?([가-힣]{3})(?:\s*(" + _ROLE + r"))?\s*$", s)
-        if m and _looks_like_name(m.group(2), bool(m.group(1) or m.group(3)), text):
+        # '(가나학과_김○○)' — 끝 괄호 안에서 소속 뒤에 붙은 이름은 이름만 뗀다
+        m = re.search(r"[_\s\-]([가-힣]{3})\s*\)\s*$", s)
+        if m and "(" in s[: m.start()] and _looks_like_name(m.group(1), True, text):
+            s = s[: m.start()] + ")"
+            continue
+        # '… 사업단장 남○○', '…_김○○', '… 김○○ 교수' — 앞 직위는 띄어 쓴 것만('장한건설' 의 '장' 은 직위가 아니다)
+        m = re.search(r"(?:^|[\s_\-])(?:(" + _ROLE + r")\s+)?([가-힣]{3})(?:\s*(" + _ROLE + r"))?\s*$", s)
+        # 이름 하나만 남은 것('전단지')은 번호가 붙어 있던 파일 이름('[4-4]유○○')일 때만 사람 이름으로 본다
+        if m and (m.start() > 0 or whole_ok) \
+                and _looks_like_name(m.group(2), bool(m.group(1) or m.group(3)) or _after_unit(s[: m.start()], m)
+                                     or (m.start() == 0 and whole_ok), text):
             s = s[: m.start()]
             continue
         # '60안○○', '[4-4]유○○' 처럼 번호에 바로 붙은 이름만 남은 이름 — 학번·순번 + 이름
         m = re.fullmatch(r"\s*\d{1,10}\s*([가-힣]{2,4})\s*", s)
-        if m and _looks_like_name(m.group(1), False, text):
+        if m and _looks_like_name(m.group(1), whole_ok and len(m.group(1)) == 3, text):
             s = ""
             break
-        # '김○○_과제계획서' — 앞에 붙은 이름
+        # '김○○_과제계획서' — 앞에 붙은 이름. 뒤가 서류 이름(갈래 낱말로 끝남)이고 세 글자면 구조 증거다
         m = re.match(r"^\s*([가-힣]{2,4})\s*[_\-]\s*", s)
-        if m and _looks_like_name(m.group(1), False, text):
+        if m and _looks_like_name(m.group(1), len(m.group(1)) == 3 and complete_title(s[m.end():]), text):
             s = s[m.end():]
             continue
         if s == before:
@@ -159,6 +180,8 @@ def clean_filename(name: str, text: str | None = None) -> str:
     text(마스킹된 본문)를 주면 사람 이름 판단에 증거로 쓴다. 아무것도 남지 않으면 빈 문자열.
     """
     s = _EXT.sub("", (name or "").strip())
+    # '[4-4]유○○', '60안○○' — 괄호 번호나 숫자에 바로 붙은 세 글자뿐인 이름(순번·학번 + 사람). '00-전단지' 는 아니다
+    numbered = bool(re.fullmatch(r"\s*(?:[\[(【]\s*[\d\-]+\s*[\])】]|\d+)\s*[가-힣]{3}\s*", s))
     s = tidy_name(s)
     s = _EXT.sub("", s)
     for _ in range(6):                                    # 앞 표시가 겹친 것('05_1. …', '[붙임] 3.4.2. …')
@@ -175,6 +198,10 @@ def clean_filename(name: str, text: str | None = None) -> str:
         s = s[: m.start()]
     if " " not in s and "+" in s:                        # 누리집 내려받기가 띄어쓰기를 '+' 로 바꾼 이름
         s = s.replace("+", " ")
+    # '김○○_교육과정표' — 밑줄로 붙은 앞 이름은 밑줄이 공백으로 바뀌기 전에 본다(뒤가 서류 이름일 때만 구조 증거)
+    m = re.match(r"^\s*([가-힣]{3})\s*_\s*", s)
+    if m and _looks_like_name(m.group(1), complete_title(s[m.end():].replace("_", " ")), text):
+        s = s[m.end():]
     s = s.replace("_", " ")
     s = re.sub(r"\s{2,}", " ", s).strip()
     for _ in range(8):                                    # 뒤 표시가 겹친 것('_0123_OK', '- 제출본(190424)')
@@ -183,7 +210,7 @@ def clean_filename(name: str, text: str | None = None) -> str:
             m = rx.search(s)
             if m and m.start() > 0 and _meaningful(s[: m.start()]):
                 s = s[: m.start()].rstrip(" _-·,.")
-        s = drop_person(s, text)
+        s = drop_person(s, text, whole_ok=numbered)
         if s == prev:
             break
     # 다시 한 번 앞 표시 — 뒤를 떼고 나서 드러나는 것('최종! … - 제출본')
@@ -267,6 +294,43 @@ def title_problem(line: str, text: str = "") -> str | None:
     return None
 
 
+# ── 본문 제목의 모양 관문 — 파일 이름을 대신할 제목은 명사구 서류 이름이어야 한다 ─────────────
+_HONORIFIC = re.compile(r"님(?=[\s)\]]|$)|귀하|귀중")
+_APPROVAL_WORDS = re.compile(r"문서\s*번호|(?:기안|결재|전결|협조|수신|발신)(?:\s|$).*(?:팀장|처장|과장|총장|실장|국장|부장|원장)")
+_FIELD_LABELS = ("생년월일", "주민등록번호", "성명", "연락처", "휴대전화", "주소", "학번", "여권번호", "이메일", "전화번호")
+_OPEN, _CLOSE = "([「『｢［", ")]」』｣］"
+
+
+def shape_problem(t: str) -> str | None:
+    """제목 모양이 아닌 까닭 — 호칭·결재란·항목 이름 나열·괄호 조각·구호·서류 낱말 없는 명사 나열·같은 말 되풀이."""
+    s = (t or "").strip()
+    if not s:
+        return "빈 제목"
+    if _HONORIFIC.search(s):
+        return "호칭·수신 표시"
+    if _APPROVAL_WORDS.search(s):
+        return "결재란"
+    if sum(lab in s.replace(" ", "") for lab in _FIELD_LABELS) >= 2 or re.search(r"[가-힣]{2,}\s*/\s*[A-Za-z가-힣]{2,}.*/", s) \
+            or re.search(r"[가-힣]{2,}\s*/\s*[A-Za-z]{2,}", s):
+        return "항목 이름 나열"
+    if any(s.count(o) != s.count(c) for o, c in zip(_OPEN, _CLOSE)) or re.search(r"[\[［(]\s*[\]］)]", s):
+        return "괄호 조각"
+    if re.match(r"[“”\"‘]|'(?!\d)", s):
+        return "따옴표로 여는 구호"
+    if not has_kind_word(s):
+        return "서류 낱말 없음"
+    return None
+
+
+def repeats(s: str) -> bool:
+    """같은 연도(또는 연도 둘)·같은 낱말(세 글자 이상)이 되풀이되는지 — 여러 줄을 이을 때 표 머리·부제가 섞인 표시."""
+    years = re.findall(r"(?<![\d~\-])((?:19|20)\d{2})(?![\d~\-])", s or "")
+    if len(years) >= 2:
+        return True
+    flat = re.sub(r"[^가-힣A-Za-z0-9]", "", s or "")
+    return bool(re.search(r"([가-힣A-Za-z]{3,}).+\1", flat))
+
+
 # 서류 갈래로 끝나는 제목은 완결된 제목이다 — 갈래 단서는 반입 분류(doc_routing)와 같은 일반 낱말
 @lru_cache(maxsize=1)
 def _complete_rx() -> re.Pattern:
@@ -276,6 +340,24 @@ def _complete_rx() -> re.Pattern:
     # 한 글자 꼬리는 서류 이름에 흔한 것만('…서'·'…표'·'…록'·'…집'·'…증') — '학원'·'방안' 같은 낱말을 완결로 보지 않게
     tails = [t for t in _KIND_TAIL if len(t) >= 2] + ["서", "표", "록", "집", "증"]
     return re.compile(r"(?:" + cues + r"|" + "|".join(map(re.escape, tails)) + r")\s*[)）\]]?\s*$")
+
+
+@lru_cache(maxsize=1)
+def _kind_anywhere() -> re.Pattern:
+    from zzaimy.app.doc_routing import _KIND_CUES
+
+    cues = "|".join(f"(?:{v.replace('$', '')})" for v in _KIND_CUES.values())
+    return re.compile(r"(?:" + cues + r"|" + "|".join(map(re.escape, [t for t in _KIND_TAIL if len(t) >= 2])) + r"|[가-힣]{2,}[서표록증])")
+
+
+# 서류를 가리키는 일반 명사 — 갈래 단서(doc_routing)에 없는 것('절차'·'자료'·'개요' …)
+_DOC_NOUNS = ("절차", "자료", "개요", "요약", "소개", "설명", "가이드", "프로그램", "교육과정", "협약", "심의", "평가", "조사", "설문",
+              "결과", "보고", "일정", "목록", "명세", "내역", "기록", "공문", "발표", "회의", "현황", "계획", "안내", "지침", "규정")
+
+
+def has_kind_word(s: str) -> bool:
+    """서류를 가리키는 낱말이 어디든 있는지('…교육과정표 … (주간)' 처럼 끝이 아니어도)."""
+    return bool(_kind_anywhere().search(s or "")) or any(n in (s or "") for n in _DOC_NOUNS)
 
 
 def complete_title(s: str) -> bool:
@@ -295,6 +377,7 @@ def _header_words() -> frozenset:
 
 def strip_header(ln: str) -> str:
     """'구분 전문대 첨단산업 … 사업계획서' 처럼 표 머리 칸 낱말이 줄 앞에 붙은 것을 뗀다(뒤에 이름이 남을 때만)."""
+    ln = re.sub(r"^제\s*목\s*[:：]?\s+", "", ln)                   # '제 목 …' — 공문의 제목 칸 이름
     toks = ln.split(None, 1)
     if len(toks) == 2 and re.sub(r"[:：|]$", "", toks[0]) in _header_words() and _meaningful(toks[1]):
         return toks[1].lstrip(":：| ")
@@ -375,6 +458,8 @@ def body_title(text: str) -> tuple[str | None, str | None]:
                     break
                 if len(joined) + 1 + len(nxt) > 90:
                     break
+                if repeats(f"{joined} {nxt}") and not repeats(joined):
+                    break                      # 이으면 같은 연도·낱말이 되풀이된다 — 다른 줄(표 머리·부제)이다
                 joined, used = f"{joined} {nxt}", used + 1
                 if complete_title(joined):
                     title = joined
@@ -468,7 +553,8 @@ def body_beats_file(title: str, fname: str, programs=()) -> bool:
     regions = {n for names in _REGIONS for n in names}
     content = [w for w in _words(fname) if re.search(r"[가-힣]", w) and not complete_title(w) and w not in regions]
     if not content:
-        return True
+        # 파일 이름이 서류 갈래 낱말뿐('가나수익명세서')이면 본문 제목이 그 낱말을 담을 때만
+        return all(w in tq for w in _words(fname) if re.search(r"[가-힣]", w))
     hit = [w for w in content if w in tq]
     return len(hit) * 2 >= len(content)
 
@@ -495,6 +581,10 @@ def choose_name(original: str, text: str = "", meta: dict | None = None,
     """
     fname = clean_filename(original, text or None)
     title, date = body_title(text) if text else (None, None)
+    if title:
+        title = drop_person(title, text) or None           # 본문 제목에도 사람 이름은 싣지 않는다
+    if title and shape_problem(title):
+        title, date = None, None
     if title and not (prefer_file and not poor_name(fname)) and body_beats_file(title, fname, (meta or {}).get("programs") or ()):
         return {"name": title, "title": title, "date": date, "source": "body"}
     if not title and ask is not None and poor_name(fname) and text:
@@ -502,7 +592,7 @@ def choose_name(original: str, text: str = "", meta: dict | None = None,
 
         got = find_title_by_model(text, ask)
         got = tidy_name(got) if got else None
-        if got and not title_problem(got, text):
+        if got and not title_problem(got, text) and not shape_problem(got):
             return {"name": got, "title": got, "date": None, "source": "model"}
     if not poor_name(fname):
         return {"name": fname, "title": None, "date": None, "source": "file"}

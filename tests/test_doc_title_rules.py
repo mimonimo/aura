@@ -454,3 +454,109 @@ def test_cover_slogan_that_keeps_only_the_region_does_not_replace_the_filename()
 def test_numbered_stage_line_is_a_title():
     assert body_title("3단계 가나 선도대학 육성사업(ABC 3.0) 2차년도 수정사업계획서\n" + BODY)[0] \
         == "3단계 가나 선도대학 육성사업(ABC 3.0) 2차년도 수정사업계획서"
+
+
+# ── 두 번째 미리보기에서 드러난 것: 본문 제목 모양 관문, 구조로 찾는 사람 이름, 순번, 이은 줄의 되풀이 ──────
+META = {"kind_label": "증빙·회계 서류", "program": "가나사업", "year": "2026"}
+
+
+@pytest.mark.parametrize("line, why", [
+    ("가나대학교산학협력단(홍길동)님", "호칭·수신 표시"),
+    ("가나재단 귀하", "호칭·수신 표시"),
+    ("문서번호 기획조정 2026-0001 기안 팀장 처장", "결재란"),
+    ("생년월일/Date of birth 주민등록번호/Personal No", "항목 이름 나열"),
+    ("성명 연락처 주소", "항목 이름 나열"),
+    ("의3서식]", "괄호 조각"),
+    ("ABC3.0 [] 가나 보고서", "괄호 조각"),
+    ("“기대보다 더 큰 만족을 주는 대학", "따옴표로 여는 구호"),
+    ("대주주 주식수(천 주) 지분율", "서류 낱말 없음"),
+    ("타대학과의 교류", "서류 낱말 없음"),
+])
+def test_shape_gate_rejects_non_title_lines(line, why):
+    from zzaimy.app.doc_naming import shape_problem
+
+    assert shape_problem(line) == why
+
+
+@pytest.mark.parametrize("line", [
+    "가구원 정보제공 동의 절차",
+    "'26년 2학기 가나장학금(Ⅰ·Ⅱ유형) 및 다자녀 가나장학금 신청 매뉴얼",
+    "2025년-2027년 가나사업 기본계획",
+    "개인정보 제공·활용 동의서",
+    "2023학년도 가나계열 교육과정표 다라전공 (주간)",
+    "주소 변경 신청서",                     # 항목 이름 하나는 서류 이름의 일부일 수 있다
+])
+def test_shape_gate_keeps_noun_phrase_titles(line):
+    from zzaimy.app.doc_naming import shape_problem
+
+    assert shape_problem(line) is None
+
+
+@pytest.mark.parametrize("raw, body, want, source", [
+    ("공문.pdf", "문서번호 기획조정 2026-0001 기안 팀장 처장\n", "증빙·회계 서류 · 가나사업 2026", "meta"),   # 파일 이름 빈약 → 대체 이름
+    ("4.통장사본.pdf", "가나대학교산학협력단(홍길동)님\n", "통장사본", "file"),                         # '통장사본' 은 서류 이름
+    ("여권사본.pdf", "생년월일/Date of birth 주민등록번호/Personal No\n", "여권사본", "file"),
+    ("[별지 4의3] 가나수익명세서.hwp", "의3서식]\n", "가나수익명세서", "file"),
+    ("[별첨] CQI보고서 및 가나평가서.hwp", "ABC3.0 [] CQI 보고서\n", "CQI보고서 및 가나평가서", "file"),
+    ("가나건설.pdf", "대주주 주식수(천 주) 지분율\n", "가나건설", "file"),
+    ("00-전단지.ppt", "“기대보다 더 큰 만족을 주는 대학\n", "전단지", "file"),
+])
+def test_failed_body_titles_fall_back(raw, body, want, source):
+    got = choose_name(raw, body + BODY, META)
+    assert (got["name"], got["source"]) == (want, source)
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("건축과 교수학습지침서 결과보고서(배하늘).pdf", "건축과 교수학습지침서 결과보고서"),     # 끝 괄호 속 세 글자 이름
+    ("58.조하린_교육과정표.pdf", "교육과정표"),                                          # 순번 + 이름_ + 서류 이름
+    ("가나치료과-강하준.pdf", "가나치료과"),                                             # 소속-이름
+    ("017 (가나자동화과_김하늘).hwp", "017 (가나자동화과)"),                              # 괄호 속 소속_이름
+    ("AI 물류 기업(손하람).xlsx", "AI 물류 기업"),
+])
+def test_person_names_found_by_position_are_removed(raw, want):
+    assert clean_filename(raw) == want
+
+
+@pytest.mark.parametrize("raw", [
+    "가나건설.pdf",                      # 첫 글자가 직위 꼬리('장')여도 띄어 쓰지 않았으면 직위가 아니다
+    "한국어_교육과정표.hwp",              # 이름에 드문 끝 글자(어)
+    "교육과정 운영(주간).hwp",            # 두 글자 괄호
+    "기업소개 자료(가나기업).hwpx",        # 네 글자 괄호
+    "졸업식(입학식).hwp",
+    "통장사본.pdf",
+])
+def test_names_that_only_look_like_people_stay(raw):
+    assert clean_filename(raw) == raw.rsplit(".", 1)[0].replace("_", " ")
+
+
+def test_body_title_never_carries_a_person_name():
+    got = choose_name("242Lk13.pdf", "가나계열 교육과정 운영계획서(홍길동)\n" + BODY)
+    assert got["name"] == "가나계열 교육과정 운영계획서"
+
+
+@pytest.mark.parametrize("raw, want", [
+    ("117.가나중앙병원.pdf", "가나중앙병원"),
+    ("18-가나자동차과.hwp", "가나자동차과"),
+])
+def test_leading_sequence_number_before_an_organisation_name(raw, want):
+    assert clean_filename(raw) == want
+
+
+def test_leading_number_rules_leave_names_with_numbers():
+    assert clean_filename("가나30_다라 운영 계획.xlsx") == "가나30 다라 운영 계획"     # 밑줄 앞 '낱말+번호' 는 이름
+    assert clean_filename("2025.10.08 회의록.hwp") == "2025.10.08 회의록"
+
+
+def test_join_that_repeats_a_year_or_phrase_is_rejected():
+    from zzaimy.app.doc_naming import repeats
+
+    assert body_title("2025 가나수익 집행 현황\n(2) 2025년 가나수익 현황\n" + BODY)[0] == "2025 가나수익 집행 현황"
+    assert body_title("2022학년도ABC참여학생\n2022년 ABC 3.0 참여학생, 협약산업체 현황\n" + BODY)[0] != \
+        "2022학년도ABC참여학생 2022년 ABC 3.0 참여학생, 협약산업체 현황"
+    assert repeats("미팅위크(총괄) 2018년 총장특강(미팅위크) 개최 현황")
+    assert not repeats("2025-2027 가나사업 기본계획")                # 연도 범위는 되풀이가 아니다
+
+
+def test_number_plus_lone_name_is_a_person_even_without_body():
+    assert clean_filename("60윤하늘.pdf") == "" and clean_filename("[4-4]한바다.pdf") == ""
+    assert choose_name("60윤하늘.pdf", "", META)["name"] == "증빙·회계 서류 · 가나사업 2026"
