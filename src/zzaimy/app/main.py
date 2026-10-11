@@ -3042,6 +3042,10 @@ def create_app(
             owner = getattr(request.state, "user", "zzaimy")
             # 열람 권한은 SQL 에서 거른다(라이브러리와 같은 규칙) — 다른 담당자 한정 문서의 이름·본문이 보이지 않게
             acc, acc_args = _doc_access_sql(request)
+            from zzaimy.app import access_guard as _ag
+
+            space = _ag.search_scope(getattr(request.state, "dept", "") or None, request.state.role, request.state.user or "",
+                                     Path(db_path).parent)
             with db._conn() as conn:
                 found = [dict(r) for r in conn.execute(
                     "SELECT d.id, d.filename, d.doc_type, d.status, d.created_at, d.receipt_no, d.project_id, d.kind FROM documents d"
@@ -3054,8 +3058,11 @@ def create_app(
                 from zzaimy.app import grant_lex, grant_search
                 from zzaimy.app.regulations import extract_nouns
 
-                user = None if request.state.role == "dev" else (request.state.user or "")
-                ids = grant_lex.rank(db, extract_nouns(term), None, user, limit=60)
+                # 채팅 검색과 같은 범위(RAG 공간·계정별 추가 권한, ADR-0053) — 검색창이 공간 제한을 우회하지 않게
+                ids = []
+                if space.get("grant"):
+                    user = None if request.state.role == "dev" else (request.state.user or "")
+                    ids = grant_lex.rank(db, extract_nouns(term), None, user, limit=60, depts=space.get("grant_depts"))
                 body_hits = grant_search.chunks_by_ids(db, ids[:60])
                 order = {cid: i for i, cid in enumerate(ids)}
                 body_hits.sort(key=lambda h: order.get(h["id"], 1 << 30))
@@ -3075,7 +3082,7 @@ def create_app(
             try:
                 from zzaimy.app.regulations import sparse_search
 
-                sc = {} if request.state.role == "dev" else {"dept": getattr(request.state, "dept", "") or "공통", "user": request.state.user or ""}
+                sc = {k: space[k] for k in ("levels", "dept", "user") if k in space}
                 reg_hits = sparse_search(db, term, top_k=8, **sc)
             except Exception:
                 reg_hits = []

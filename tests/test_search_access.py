@@ -20,3 +20,24 @@ def test_search_hides_others_private_documents(tmp_path):
     d = TestClient(app)
     d.post("/login", data={"username": "zzdev", "pw": "devpass"})
     assert "비밀본" in d.get("/search", params={"q": "감사보고"}).text
+
+
+def test_search_body_hits_follow_rag_space(tmp_path, monkeypatch):
+    """검색창의 본문 대목도 채팅 검색과 같은 공간 범위(ADR-0053)를 쓴다 — 사업 문서를 못 보는 공간이면 조회하지 않고,
+    부서가 정해진 공간이면 그 부서만 넘긴다."""
+    from zzaimy.app import access_guard, grant_lex
+
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(),
+                     password="boot-pass-1")
+    calls = []
+    monkeypatch.setattr(grant_lex, "rank", lambda *a, **k: calls.append(k.get("depts")) or [])
+    c = TestClient(app)
+    c.post("/login", data={"username": "zzaimy", "pw": "boot-pass-1"})
+
+    monkeypatch.setattr(access_guard, "search_scope", lambda *a, **k: {"grant": False, "grant_depts": [], "dept": "공통", "user": "zzaimy"})
+    assert c.get("/search", params={"q": "감사보고"}).status_code == 200
+    assert calls == []                                            # 사업 문서를 못 보는 공간 — 본문 색인을 묻지 않는다
+
+    monkeypatch.setattr(access_guard, "search_scope", lambda *a, **k: {"grant": True, "grant_depts": ["가부서", "공통"], "dept": "가부서", "user": "zzaimy"})
+    c.get("/search", params={"q": "감사보고"})
+    assert calls == [["가부서", "공통"]]
