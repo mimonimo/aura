@@ -157,25 +157,29 @@ def _table_counts(tbl: dict) -> tuple[int, int]:
 
 
 def _toc_entries(items: list[tuple], styled: bool) -> set[int]:
-    """목차 줄(번호 붙은 보통 문단)의 시작 위치 — 같은 글이 뒤에 제목으로 다시 나오는 앞쪽 줄. 목차를 절로 세면 절 쓰기가 목차
-    항목 아래에 들어갔다(10/11 「인공지능 사업계획서」 1. 추진 배경 본문이 2쪽 목차에). 진짜 같은 제목이 되풀이되는 문서를
-    건드리지 않게, 뒤의 것이 제목 스타일이거나 앞의 줄 바로 다음 줄도 번호 줄(목차처럼 잇달아)일 때만 목차로 본다."""
-    cand = [(i, _norm_heading(t), st) for i, (_s, _e, st, t, tb) in enumerate(items)
-            if not tb and t.strip() and (HEADING_LEVELS.get(st) is not None or _numbered_level(t) is not None)]
-    later: dict[str, list[tuple[int, str]]] = {}
-    for i, key, st in cand:
-        later.setdefault(key, []).append((i, st))
-    numbered = {i for i, _k, _st in cand}
+    """목차 줄(번호 붙은 보통 문단)의 시작 위치 — 같은 글이 뒤에 다시 나오고, 앞이나 뒤 줄도 장·절 번호 줄(Ⅰ. / 1.)인 묶음 안의 줄.
+    목차를 절로 세면 절 쓰기가 목차 항목 아래에 들어갔다(10/11). 같은 글이 뒤에 나온다는 것만으로 보면 한글 서식의 장 표지
+    「Ⅰ. 사업추진 목표」까지 목차로 빠져 절 경계가 사라졌다(10/11 AID 대표과제 글이 장 표지 쪽에 붙음) — 그래서 묶음일 때만.
+    □·가. 같은 본문 기호 줄은 묶음으로 치지 않는다."""
+    def chapter_or_num(text: str) -> bool:
+        m = _NUMBERED.match((text or "").strip())
+        return bool(m and (m.group("roman") or (m.group("num") and m.group("rest") is not None)) and _numbered_level(text) is not None)
+
+    lines = [(i, _s, st, t) for i, (_s, _e, st, t, tb) in enumerate(items) if not tb and t.strip()]
+    keyed: dict[str, list[int]] = {}
+    for i, _s, st, t in lines:
+        if HEADING_LEVELS.get(st) is not None or _numbered_level(t) is not None:
+            keyed.setdefault(_norm_heading(t), []).append(i)
     out: set[int] = set()
-    for i, key, st in cand:
-        if HEADING_LEVELS.get(st) is not None or not key:
+    for pos, (i, start, st, t) in enumerate(lines):
+        if HEADING_LEVELS.get(st) is not None or not chapter_or_num(t):
             continue
-        after = [(j, st2) for j, st2 in later[key] if j > i]
-        if not after:
+        if not any(j > i for j in keyed.get(_norm_heading(t), [])):
             continue
-        nxt = next((j for j in range(i + 1, len(items)) if items[j][3].strip()), None)
-        if any(HEADING_LEVELS.get(st2) is not None for _j, st2 in after) or (nxt is not None and nxt in numbered):
-            out.add(int(items[i][0]))
+        prev_ = lines[pos - 1][3] if pos > 0 else ""
+        next_ = lines[pos + 1][3] if pos + 1 < len(lines) else ""
+        if chapter_or_num(prev_) or chapter_or_num(next_):
+            out.add(int(start))
     return out
 
 
