@@ -1870,7 +1870,7 @@ def create_app(
                            lambda a: run_doc(lambda: _new_work_copy(session_id, owner, data_dir, request=q)),
                            final=True, consent=_COPY_CONSENT),
             doc_agent.Tool("answer_question", "문서를 고치지 않고 질문에 답하기(이번 요청에서 search 로 찾은 근거로). "
-                           "args {question, facts: 자료의 사실(수치·날짜·조건)을 묻는 질문이 아니면 false}", t_answer,
+                           "args {question}", t_answer,
                            final=True, needs_evidence=True),
             doc_agent.Tool("ask_user", "자료로 찾을 수 없어 담당자만 아는 값 묻기. args {items: [{name, why}], message}", t_ask, final=True),
             doc_agent.Tool("finish", "이번 요청을 마치며 담당자에게 한 일과 다음 할 일 알리기. args {message}", t_finish, final=True),
