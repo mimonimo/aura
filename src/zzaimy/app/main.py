@@ -48,9 +48,9 @@ ALLOWED_EXTENSIONS = {
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 STATUS_LABELS = {
-    "received": "접수됨",
+    "received": "처리 중",                  # 대기열에 든 것도 화면에는 처리 중 하나로(등록 완료 / 처리 중 / 실패)
     "processing": "처리 중",
-    "reviewed": "검토 완료",
+    "reviewed": "등록 완료",
     "failed": "실패",
 }
 
@@ -555,6 +555,9 @@ def create_app(
     # 문서 이름 — 'law03.pdf' 같은 파일 이름 대신 첫 쪽의 규정 이름·날짜
     from zzaimy.app.doc_title import display_name as _doc_name
     templates.env.globals["doc_name"] = _doc_name
+    from zzaimy.app.doc_title import display_title as _doc_title, receipt_label as _receipt_label
+    templates.env.globals["doc_title"] = _doc_title
+    templates.env.globals["receipt_label"] = _receipt_label
     templates.env.globals["quality_kind_labels"] = QUALITY_KIND_LABELS
     # 지표 이름·정의(metric_label·metric_tip)와 개발 화면 이름표(dev_page_name) — 화면마다 같은 이름을 쓰게
     from zzaimy.app import dev_nav as _dev_nav
@@ -2552,6 +2555,15 @@ def create_app(
             processor.process(db, doc_id, stored, defer_review=True)
         else:
             processor.process(db, doc_id, stored)
+        _link_criteria_kind(db, doc_id)
+
+    def _link_criteria_kind(db_, doc_id: int) -> None:
+        """공고·지침·기준으로 분류된 문서는 그 프로젝트의 기준 문서로 잇는다(project_documents.link_criteria_kind). 실패해도 접수는 유지."""
+        from zzaimy.app import project_documents
+        try:
+            project_documents.link_criteria_kind(db_, doc_id)
+        except Exception:
+            logging.getLogger("zzaimy.app.web").exception("기준 문서 자동 연결 실패 doc=%s", doc_id)
 
     def _strip_attach_prefix(text: str) -> str:
         """저장된 사용자 메시지에서 첨부 표시줄을 떼고 질문만 남긴다."""
@@ -2839,6 +2851,7 @@ def create_app(
             _auto_route(db_, doc_id, user_chose_type)
         except Exception:
             pass
+        _link_criteria_kind(db_, doc_id)
         # 사무 문서(한글·워드·엑셀·PPT)의 열람 PDF 도 반입 때 만든다 — 문서 화면 '원문' 탭이 바로 열린다
         try:
             from zzaimy.app import office_pdf
@@ -3140,19 +3153,26 @@ def create_app(
         counts = db.regulation_chunk_counts()
         families = db.family_counts("regulation")
         names = {d["id"]: d["filename"] for d in docs}
+        status_n: dict[str, int] = {}
+        kind_n: dict[str, int] = {}
         for d in docs:
             d["n_chunks"] = counts.get(d["id"], 0)
-            d["kind_label"] = KINDS.get(d.get("kind") or "", "")
+            # 문서 종류·처리 상태는 화면 표시 이름 하나로 묶어 거른다(갈래가 없으면 「분류 전」, 접수·처리는 「처리 중」)
+            d["kind_key"] = d.get("kind") if (d.get("kind") or "") in KINDS else "_none"
+            d["kind_label"] = KINDS.get(d["kind_key"], "분류 전")
+            d["status_group"] = "processing" if d.get("status") == "received" else (d.get("status") or "")
+            kind_n[d["kind_key"]] = kind_n.get(d["kind_key"], 0) + 1
+            status_n[d["status_group"]] = status_n.get(d["status_group"], 0) + 1
             # 같은 제목의 판본이 여럿이면 몇 판째인지·어느 공고에 딸렸는지 보여 준다
             d["family_count"] = families.get(d.get("family") or "", 1)
-            d["head_title"] = names.get(d.get("related_criteria_id") or -1, "")
-        from zzaimy.app import institution
-
-        inst = institution.facts(db)
-        inst_set = {k: bool((db.get_setting(f"institution:{k}", "") or "").strip()) for k in institution.KEYS}
+            d["head_title"] = storage.title_of(names.get(d.get("related_criteria_id") or -1, ""))
+        status_options = [(k, STATUS_LABELS.get(k, k), status_n[k]) for k in ("reviewed", "processing", "failed") if status_n.get(k)]
+        kind_options = [(k, v, kind_n[k]) for k, v in KINDS.items() if kind_n.get(k)]
+        if kind_n.get("_none"):
+            kind_options.append(("_none", "분류 전", kind_n["_none"]))
         return templates.TemplateResponse(
             request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS,
-                                                     "institution": inst, "institution_set": inst_set})
+                                                     "status_options": status_options, "kind_options": kind_options})
         )
 
     @app.post("/criteria/upload")
@@ -3212,7 +3232,7 @@ def create_app(
         _link_past_projects(request, db.get_project(pid) or {"id": pid, "name": name.strip()})
         return RedirectResponse(f"/project/{pid}", status_code=303)
 
-    _CRITERIA_KINDS = {"announcement", "guideline", "criteria", "regulation", "basic_plan"}
+    from zzaimy.app.project_documents import CRITERIA_KINDS as _CRITERIA_KINDS
     _BASE_PLAN = re.compile(r"기본\s*계획|추진\s*계획|시행\s*계획|운영\s*계획")
 
     def _bundle_role(filename: str) -> str:
@@ -6271,13 +6291,15 @@ def create_app(
         """내 설정 — 프로필·응답 지침·비밀번호·구글 계정을 한 화면에서."""
         uid = getattr(request.state, "user", "") or ""
         acct = accounts.get(uid, {}) if password is not None else {}
+        gst = _gimport.status(db, uid) if uid else {}
         return templates.TemplateResponse(
             request, "settings.html",
             ctx(request, {"s": db.profile_for(uid or None), "active_tab": "all", "uid": uid,
                           "acct_dept": acct.get("dept", ""), "acct_role": acct.get("role", request.state.role),
                           "has_password": password is not None,
                           "google": _user_admin_status(request), "ok": ok, "err": err,
-                          "gimport": _gimport.status(db, uid) if uid else {}, "gimport_folder": _gimport.FOLDER_NAME}),
+                          "gimport": gst, "gimport_folder": _gimport.FOLDER_NAME,
+                          "gimport_minutes": _gimport.interval_minutes(), "gimport_stalled": _gimport.stalled(gst)}),
         )
 
     @app.post("/account/google/import")
@@ -6345,6 +6367,18 @@ def create_app(
                 db.add_project_note(project_id, legacy_memo)
             db.update_project_meta(project_id, instructions="", memo="")
             proj = db.get_project(project_id) or proj
+        # 작업 문서 — 이 프로젝트 대화들이 만든 구글 문서(작업본). 고치는 곳은 그 대화의 문서 패널이다
+        project_chats = db.list_project_chat_sessions(project_id)
+        work_docs: list[dict] = []
+        seen_urls: set[str] = set()
+        for cs in project_chats:
+            for f in db.list_files(kind="google", session_id=int(cs["id"]), limit=20):
+                url = f.get("path") or ""
+                if url.startswith("https://") and url not in seen_urls:
+                    seen_urls.add(url)
+                    work_docs.append({"name": f.get("name") or "작업 문서", "url": url, "chat_id": cs["id"],
+                                      "chat_title": cs.get("title") or "", "created_at": f.get("created_at") or ""})
+        work_docs.sort(key=lambda w: w["created_at"], reverse=True)
         return templates.TemplateResponse(
             request,
             "project.html",
@@ -6353,22 +6387,34 @@ def create_app(
                 "suggestions": _project_suggestions(proj),
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
-                "project_chats": db.list_project_chat_sessions(project_id),
+                "project_chats": project_chats,
+                "work_docs": work_docs,
                 "project_notes": db.list_project_notes(project_id),
-                **_project_ref_ctx(request, proj, refq),
+                **_project_ref_ctx(request, proj, refq, _ref_names(doc_groups)),
             }),
         )
 
     def _ref_scope(request: Request) -> dict:
         return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
 
-    def _project_ref_ctx(request: Request, proj: dict, refq: str) -> dict:
-        """지침·기준 탭의 관련 보관 사업 — 연결된 것과 후보(검색어 또는 이름 겹침). 열람 범위의 문서만 센다."""
+    def _ref_names(doc_groups: dict) -> list[str]:
+        """보관 사업 후보를 찾을 이름 — 프로젝트 기준 문서의 제목과, 프로젝트 문서에서 읽은 사업명(정체)."""
+        names: list[str] = []
+        for d in doc_groups.get("rules", []):
+            names.append(storage.title_of(d.get("filename") or ""))
+        for d in doc_groups.get("rules", []) + doc_groups.get("attached", []):
+            program = (db.get_doc_identity(int(d["id"])) or {}).get("program") or ""
+            if program.strip():
+                names.append(program)
+        return list(dict.fromkeys(n for n in names if n.strip()))[:20]
+
+    def _project_ref_ctx(request: Request, proj: dict, refq: str, names: list[str] | None = None) -> dict:
+        """지침·기준 탭의 관련 보관 사업 — 연결된 것과 후보(검색어, 또는 이름·기준 제목·사업명 겹침). 열람 범위의 문서만 센다."""
         from zzaimy.app import project_refs
         try:
             scope = _ref_scope(request)
             return {"project_refs": project_refs.list_refs(db, int(proj["id"]), scope),
-                    "ref_candidates": [] if proj.get("archived") else project_refs.candidates(db, proj, refq, scope),
+                    "ref_candidates": [] if proj.get("archived") else project_refs.candidates(db, proj, refq, scope, names=names),
                     "refq": refq, "business_units": _business_units()}
         except Exception:
             logging.getLogger("zzaimy.app.web").exception("관련 보관 사업 조회 실패")
@@ -6761,10 +6807,14 @@ def create_app(
             suggested = _json.loads(doc.get("suggested_criteria") or "[]")
         except _json.JSONDecodeError:
             suggested = []
-        referencing = (
-            db.referencing_documents(doc_id)
-            if doc["doc_type"] == "regulation" else []
-        )
+        from zzaimy.app.regulations import criteria_link_evidence, evidenced_suggestions
+
+        # 검색 유사도로 고른 추천은 같은 프로젝트·같은 사업 근거가 있을 때만 「자동 연결」로 보인다
+        suggested = evidenced_suggestions(db, doc, suggested)
+        referencing = [
+            r for r in (db.referencing_documents(doc_id) if doc["doc_type"] == "regulation" else [])
+            if r.get("related_criteria_id") == doc_id or criteria_link_evidence(db, r, doc_id)
+        ]
         return templates.TemplateResponse(
             request,
             "doc.html",

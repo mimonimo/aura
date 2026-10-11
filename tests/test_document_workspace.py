@@ -29,10 +29,10 @@ def test_document_keeps_project_context_and_evidence_first(workspace):
     assert '>담당자 판정' not in page
     assert '/doc/1/decision' not in page
     assert 'id="reviewMemo"' not in page
-    # 텍스트 문서는 원본 미리보기가 없다 — 나란히 보기 대신 넓게 보이고 까닭을 한 줄로
+    # 텍스트 문서는 원본 미리보기가 없다 — 나란히 보기 대신 넓게 보인다(까닭 문구는 두지 않는다)
     assert 'id="documentWidthToggle"' not in page
     assert 'class="document-columns source-expanded"' in page
-    assert '원본 미리보기가 없어 넓게 표시합니다' in page
+    assert '원본 미리보기가 없어 넓게 표시합니다' not in page
     assert 'data-modal-open="#documentManageModal"' in page
     assert page.index('id="receiptEditModal"') < page.index('id="receiptNumber"')
     assert '문서 폴더 이름도 함께 변경됩니다' in page

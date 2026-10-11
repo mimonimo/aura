@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ doc_name(doc) }} — 검토{% endblock %}
+{% block title %}{{ doc_title(doc) }}{% endblock %}
 {% block pagetitle %}{{ "기준 문서" if doc.doc_type == "regulation" else "문서 검토" }}{% endblock %}
 {% block head %}
   <link rel="stylesheet" href="/static/document-workspace.css?v={{ asset_v }}">
@@ -8,7 +8,7 @@
 {% block content %}
 {% if dgx_origin %}
 <div class="card"><div class="card-in" style="font-size:12.5px;">
-  <strong>DGX 원본 보관소 문서</strong> · 원본 파일은 DGX 에 있고 여기에는 추출한 본문만 있습니다. 원본 경로: <span class="muted" style="word-break:break-all;">{{ dgx_origin }}</span>
+  원본 보관소 문서 · 원본 파일은 원본 보관소에 있고 여기에는 본문만 있습니다. 원본 위치: <span class="muted" style="word-break:break-all;">{{ dgx_origin }}</span>
   · <a href="/archive?q={{ dgx_origin.split('/')[-1] | urlencode }}">원본 보관소에서 보기</a>
 </div></div>
 {% endif %}
@@ -25,12 +25,6 @@
     {% for d in same_program or [] %}
       <a href="/doc/{{ d.id }}" class="pill type" style="text-decoration:none;" title="같은 사업을 다루는 문서">{{ doc_name(d) }}{% if d.year %} · {{ d.year }}{% endif %}</a>
     {% endfor %}
-    {% if doc.masked_text and show_action %}
-    <form action="/doc/{{ doc.id }}/identity" method="post" style="margin:0;">
-      <button type="submit" class="btn-ghost doc-meta-btn" data-busy="읽는 중…"
-              title="본문에서 사업·주체·근거를 다시 읽습니다">{{ "다시 읽기" if shown else "사업 정보 읽기" }}</button>
-    </form>
-    {% endif %}
   </div>
 {% endmacro %}
 {% set drafting = doc.coverage and (doc.coverage.startswith("초안 작성 중") or doc.coverage.startswith("분석 중")) %}
@@ -91,13 +85,13 @@
 
 <div class="card reveal">
   <div class="card-in">
-    <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon><span title="{{ doc.filename }}">{{ doc_name(doc) }}</span></h2>
+    <h2><iconify-icon icon="solar:document-text-linear"></iconify-icon><span>{{ doc_title(doc) }}</span></h2>
     {% if request.query_params.get('msg') %}<p class="notice" role="alert" style="margin:-6px 0 10px;">{{ request.query_params.get('msg') }}</p>{% endif %}
     {% if request.query_params.get('view') == 'local' %}<p class="muted" style="margin:-6px 0 10px;">연결된 Google 계정이 없어 플랫폼 화면으로 열었습니다{% if request.query_params.get('err') %} ({{ request.query_params.get('err') }}){% endif %}. 계정은 설정 화면에서 연결합니다.</p>{% endif %}
     <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:0 0 14px;">
       <span class="pill type">{{ doc_type_labels.get(doc.doc_type, doc.doc_type) }}</span>
       {% if doc.doc_type in ("regulation", "ocr") %}
-        <span class="pill reviewed" {% if doc.parse_note %}title="{{ doc.parse_note }}"{% endif %}>{{ ("등록됨" if doc.doc_type == "regulation" else "추출 완료") if doc.status == "reviewed" else status_labels.get(doc.status, doc.status) }}</span>
+        <span class="pill {{ doc.status }}" {% if doc.parse_note and request.state.role == 'dev' %}title="{{ doc.parse_note }}"{% endif %}>{{ status_labels.get(doc.status, doc.status) }}</span>
         {% if doc.doc_type == "regulation" and request.state.role != 'student' %}
         {# 학생 공개 — 학생 계정의 대화는 학생 공개로 지정한 학사 규정만 근거로 쓴다(ADR-0052) #}
         <form method="post" action="/doc/{{ doc.id }}/audience" style="display:inline; margin:0;">
@@ -110,25 +104,25 @@
         <span class="pill {{ doc.status }}">{{ status_labels.get(doc.status, doc.status) }}</span>
         {% if doc.doc_type in ('recruit', 'admission') %}<span class="pill {{ doc.decision }}">{{ decision_labels.get(doc.decision, doc.decision) }}</span>{% endif %}
       {% endif %}
-      {% if related %}<span class="pill">대상: {{ doc_name(related) }}</span>{% endif %}
+      {% if related %}<span class="pill">대상: {{ doc_title(related) }}</span>{% endif %}
       {% for sc in suggested_criteria or [] %}
       <a class="pill" href="/doc/{{ sc.id }}" style="text-decoration:none; background:#EEF7F1; color:var(--green);"
-         title="연관성으로 자동 연결된 기준">
-        <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}</a>
+         title="{{ sc.why }} 근거로 이어진 기준 문서: {{ sc.title }}">
+        <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}{{ "…" if sc.title|length > 24 else "" }}</a>
       {% endfor %}
-      <span class="muted">접수번호 {{ doc.receipt_no or '미지정' }} · 접수 {{ doc.created_at[:16].replace("T", " ") }}</span>
+      <span class="muted">접수번호 {{ receipt_label(doc.receipt_no) or '미지정' }} · 등록 {{ doc.created_at[:16].replace("T", " ") }}</span>
     </div>
     {# 문서 동작 — 같은 동작은 이 줄에만 둔다 #}
     <div class="doc-actions" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
-      <a class="btn secondary" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener" title="브라우저에서 원본 보기 — 한글·워드·엑셀·PPT 는 PDF 로 바꿔 보여 줍니다">
+      <a class="btn secondary" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener" title="브라우저에서 원본을 봅니다. 한글·워드·엑셀·PPT는 PDF로 바꿔 보여 줍니다.">
         <iconify-icon icon="solar:document-text-linear"></iconify-icon>원본 열기</a>
-      <a class="btn-ghost" href="/doc/{{ doc.id }}/original/download" title="원본 파일 그대로 — {{ doc.filename }}">
+      <a class="btn-ghost" href="/doc/{{ doc.id }}/original/download" title="원본 파일을 그대로 내려받습니다.">
         <iconify-icon icon="solar:file-download-linear"></iconify-icon>내려받기</a>
-      <a class="btn secondary" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener" title="엑셀·PPT·워드는 시트·슬라이드·독스로, 한글은 복원 문서로, PDF·그림은 드라이브 미리보기로 엽니다">
+      <a class="btn secondary" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener" title="엑셀·PPT·워드는 구글 시트·슬라이드·문서로, 한글 파일은 구글 문서로 바꿔 엽니다. PDF·그림은 드라이브 미리보기로 엽니다. 구글에서 고친 내용은 이 화면의 본문에 반영되지 않습니다.">
         <iconify-icon icon="solar:square-top-up-linear"></iconify-icon>구글에서 열기</a>
       {% if doc.doc_type == 'grant' %}
-      <a class="btn secondary" href="/graph/explore?id=doc:{{ doc.id }}" title="이 문서의 연결을 그래프에서 봅니다">
-        <iconify-icon icon="solar:graph-new-linear"></iconify-icon>그래프</a>
+      <a class="btn secondary" href="/graph/explore?id=doc:{{ doc.id }}" title="이 문서와 이어진 사업·문서를 봅니다">
+        <iconify-icon icon="solar:graph-new-linear"></iconify-icon>관계 보기</a>
       {% endif %}
       <button type="button" class="btn-ghost" data-modal-open="#documentManageModal" style="margin-left:auto;">관리</button>
     </div>
@@ -144,21 +138,34 @@
   </div>
 </div>
 
-<div id="documentManageModal" class="modal-back">
+<div id="documentManageModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="documentManageTitle">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2>문서 관리</h2><button type="button" class="icon-btn" data-modal-close aria-label="닫기">×</button></div>
-    <p class="muted">{{ doc_name(doc) }}</p>
+    <div class="modal-head"><h2 id="documentManageTitle">문서 관리</h2><button type="button" class="icon-btn" data-modal-close title="닫기" aria-label="닫기"
+        style="width:32px; height:32px; font-size:15px;"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <p class="muted">{{ doc_title(doc) }}</p>
+    <dl class="muted" style="font-size:12px; margin:0 0 14px; display:grid; grid-template-columns:auto 1fr; gap:4px 12px;">
+      <dt>원본 파일</dt><dd style="margin:0; overflow-wrap:anywhere;">{{ doc.filename }}{{ original_ext if original_ext and not doc.filename.lower().endswith(original_ext) else '' }}</dd>
+    </dl>
     <div class="document-form-actions">
+      {% if doc.masked_text and doc.doc_type not in ('regulation', 'ocr') %}
+      <form action="/doc/{{ doc.id }}/identity" method="post" style="margin:0;">
+        <button type="submit" class="secondary" data-busy="찾는 중…" title="본문에서 사업·주체·근거를 다시 찾습니다">사업 정보 다시 찾기</button>
+      </form>
+      {% endif %}
+      {% if request.state.role == 'dev' %}
       <button type="button" class="secondary" data-modal-close data-modal-open="#receiptEditModal">접수번호 수정</button>
-      <form action="/doc/{{ doc.id }}/delete" method="post" onsubmit="return confirm('이 문서와 관련 기록을 삭제할까요?');">
+      {% endif %}
+      <form action="/doc/{{ doc.id }}/delete" method="post" data-confirm="이 문서와 관련 기록을 삭제할까요? 삭제는 되돌릴 수 없습니다.">
         <button type="submit" class="btn-ghost" style="color:var(--red);">문서 삭제</button>
       </form>
     </div>
   </div></div>
 </div>
-<div id="receiptEditModal" class="modal-back">
+{% if request.state.role == 'dev' %}
+<div id="receiptEditModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="receiptEditTitle">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2>접수번호 수정</h2><button type="button" class="icon-btn" data-modal-close aria-label="닫기">×</button></div>
+    <div class="modal-head"><h2 id="receiptEditTitle">접수번호 수정</h2><button type="button" class="icon-btn" data-modal-close title="닫기" aria-label="닫기"
+        style="width:32px; height:32px; font-size:15px;"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form action="/doc/{{ doc.id }}/receipt" method="post">
       <label class="form-row" for="receiptNumber">접수번호
         <input id="receiptNumber" type="text" name="receipt_no" required value="{{ doc.receipt_no or '' }}" pattern="\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}" aria-describedby="receiptEditHelp">
@@ -168,6 +175,7 @@
     </form>
   </div></div>
 </div>
+{% endif %}
 <div id="documentUpdate" class="notice" role="status" hidden>
   <span>처리가 완료되었습니다. 작성 중인 내용을 저장한 뒤 새 결과를 확인하세요.</span>
   <button type="button" class="secondary" id="documentRefresh">새 결과 보기</button>
@@ -260,12 +268,12 @@
 <div class="card reveal">
   <div class="card-in">
     <h2><iconify-icon icon="solar:link-minimalistic-2-linear"></iconify-icon>이 기준을 참조한 문서</h2>
-    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">이 규정을 근거로
-      지정했거나, 연관성으로 자동 연결됐거나, 같은 프로젝트에 묶인 문서입니다.</p>
+    <p class="muted" style="font-size:12.5px; margin:0 0 10px;">이 기준을 대상으로 지정했거나,
+      같은 프로젝트·같은 사업으로 이어진 문서입니다.</p>
     {% for r in referencing %}
     <p style="margin:4px 0; font-size:13.5px;">
       <a href="/doc/{{ r.id }}" style="color:var(--navy); font-weight:600; text-decoration:none;">
-        <iconify-icon icon="solar:document-text-linear"></iconify-icon> {{ doc_name(r) }}</a>
+        <iconify-icon icon="solar:document-text-linear"></iconify-icon> {{ doc_title(r) }}</a>
       <span class="pill type" style="font-size:11px;">{{ doc_type_labels.get(r.doc_type, r.doc_type) }}</span>
       <span class="muted" style="font-size:11.5px;">{{ r.created_at[:10] }}</span></p>
     {% endfor %}

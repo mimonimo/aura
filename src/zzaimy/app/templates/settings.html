@@ -65,7 +65,7 @@
     <div class="ms-field">
       <label>소속 부서</label>
       <div class="ms-ro">{{ acct_dept or "부서 미지정(교직원 전체 자료)" }}</div>
-      <span class="muted" style="font-size:11.5px;">검색 범위(RAG 공간)를 정하므로 관리자가 계정 관리에서 바꿉니다.</span>
+      <span class="muted" style="font-size:11.5px;">볼 수 있는 문서 범위를 정하므로 관리자가 바꿉니다.</span>
     </div>
     <div class="ms-field">
       <label>계정</label>
@@ -114,15 +114,18 @@
   {% if google.bound and google.bound_ok %}
   <p style="margin:0 0 6px;">{{ google.bound }}</p>
   <p class="ms-desc">작성하는 문서는 이 계정의 드라이브에 만들어집니다.</p>
+  {% if gimport_stalled %}
+  <p class="notice" role="alert" style="margin:0 0 12px;"><iconify-icon icon="solar:danger-triangle-linear"></iconify-icon><span>자동 가져오기가 멈췄습니다 — 마지막 확인 {{ gimport.at }}. 「지금 가져오기」로 바로 가져올 수 있고, 계속 멈춰 있으면 관리자에게 알려 주세요.</span></p>
+  {% endif %}
   <div class="ms-ro" style="margin:0 0 12px; font-size:13px; line-height:1.7;">
-    <b>자동 가져오기</b> — 내 드라이브의 「{{ gimport_folder }}」 폴더에 파일을 넣으면 10분 안에 라이브러리로 들어옵니다(드라이브의 다른 파일은 보지 않습니다).
+    자동 가져오기 — 내 드라이브의 「{{ gimport_folder }}」 폴더에 파일을 넣으면 {{ gimport_minutes }}분마다 확인해 라이브러리로 가져옵니다(드라이브의 다른 파일은 보지 않습니다).
     {% if gimport.folder_id %}<br><a href="https://drive.google.com/drive/folders/{{ gimport.folder_id }}" target="_blank" rel="noopener">폴더 열기 ↗</a>{% endif %}
     {% if gimport.at %}<br><span class="muted">마지막 확인 {{ gimport.at }} · 지금까지 {{ gimport.imported_total or 0 }}건{% if gimport.last_imported %} · 최근: {{ gimport.last_imported|join(", ") }}{% endif %}</span>{% endif %}
     {% if gimport.errors %}<br><span class="muted">건너뜀: {{ gimport.errors|join(" / ") }}</span>{% endif %}
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    <form action="/account/google/import" method="post"><button type="submit">지금 가져오기</button></form>
-    <form action="/account/google/disconnect" method="post" onsubmit="return confirm('구글 계정 연결을 해제할까요? 이미 만든 문서는 드라이브에 그대로 남습니다.')">
+    <form action="/account/google/import" method="post"><button type="submit" data-busy="가져오는 중…">지금 가져오기</button></form>
+    <form action="/account/google/disconnect" method="post" data-confirm="구글 계정 연결을 해제할까요? 이미 만든 문서는 드라이브에 그대로 남습니다.">
       <button type="submit" class="secondary">연결 해제</button>
     </form>
   </div>

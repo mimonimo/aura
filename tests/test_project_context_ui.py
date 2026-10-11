@@ -15,8 +15,10 @@ def test_project_context_and_unified_intake(client):
     assert '그래프에서 보기' not in page
     assert '한글 문서 연결' not in page
     assert 'id="hwpTargetModal"' not in page
-    assert '기준 문서 2건, 접수 문서 3건' in page
-    assert 'id="projectCriteriaHeading">규정·지침' in page
+    assert '기준 문서 2건, 첨부 문서 3건' in page
+    assert 'id="projectCriteriaHeading">기준 문서' in page
+    assert 'id="intakeConfirm"' in page                 # 고른 파일은 확인 뒤에 올린다
+    assert 'id="noteSave" disabled' in page             # 빈 원칙은 저장하지 않는다
     assert 'data-doc-group="attached"' in page and 'data-doc-group="reference"' in page and 'data-doc-group="rules"' in page
     assert 'class="project-overview-grid"' in page
     assert 'id="projectTabDocs"' not in page
@@ -30,7 +32,7 @@ def test_linked_criteria_has_readable_title_and_separate_actions(client):
     client.post('/project/1/criteria', data={'criteria': ['1']})
     page = client.get('/project/1').text
     assert 'class="project-criterion-title"' in page
-    assert 'class="project-criterion-open project-action-link"' in page
+    assert 'class="project-criterion-open' not in page   # 제목 링크 하나로 문서를 연다(진입 버튼 한 곳)
     assert '원본 문서는 유지됩니다.' in page
     assert 'class="criteria-picker-item"' in page
     assert 'class="criteria-picker-name"' in page
@@ -51,8 +53,8 @@ def test_criteria_picker_uses_saved_classification_and_retains_hidden_selection(
     page = client.get('/project/1').text
     assert 'data-criteria-kind="announcement"' in page
     assert 'data-criteria-kind="criteria"' in page
-    assert 'data-criteria-kind="" aria-pressed="false">미분류 <span>2</span>' in page
+    assert 'data-criteria-kind="" aria-pressed="false">분류 전 <span>2</span>' in page
     assert '심사·평가 기준' in page
     assert 'id="criteriaSelectedOnly"' in page
-    assert '문서명·접수번호 검색' in page
+    assert '제목·접수번호 검색' in page
     assert set(db.get_project_criteria_ids(1)) == {ids[0], ids[2]}

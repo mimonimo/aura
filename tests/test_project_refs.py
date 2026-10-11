@@ -52,7 +52,7 @@ def test_project_page_shows_refs_and_link_route(tmp_path):
     client = TestClient(app)
     assert _login(client, "zzaimy", "boot-pass-1")
     page = client.get(f"/project/{mine}")
-    assert page.status_code == 200 and "관련 보관 사업" in page.text and "2025년 AID" in page.text
+    assert page.status_code == 200 and "관련 지난 사업" in page.text and "2025년 AID" in page.text
     assert client.post(f"/project/{mine}/refs", data={"ref_project_id": past, "reason": "이름 겹침"},
                        follow_redirects=False).status_code == 303
     assert db.get_project(past)["archived"] == 1

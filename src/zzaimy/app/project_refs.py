@@ -59,13 +59,29 @@ def _visible_counts(db, project_ids: list[int], scope: dict | None) -> dict[int,
     return counts
 
 
-def candidates(db, project: dict, q: str = "", scope: dict | None = None, limit: int = 12) -> list[dict]:
-    """보관 묶음 후보 — 검색어가 있으면 이름에 그 글이 든 것, 없으면 프로젝트 이름과 겹치는 순. 볼 수 있는 문서가 없는 묶음은 뺀다."""
+NAME_SHARE_MIN = 0.3
+
+
+def candidates(db, project: dict, q: str = "", scope: dict | None = None, limit: int = 12,
+               names: list[str] | None = None) -> list[dict]:
+    """보관 묶음 후보 — 검색어가 있으면 이름에 그 글이 든 것, 없으면 프로젝트 이름·기준 문서 제목·사업명(names)과 겹치는 순.
+    볼 수 있는 문서가 없는 묶음은 뺀다.
+
+    프로젝트 이름만 보면 「인공지능 분야 계획서」처럼 사업명이 이름에 없을 때 후보가 없다 — 프로젝트에 이은 공고·기준의 제목과
+    문서에서 읽은 사업명도 같은 방식(글자 조각 겹침, 같은 이름 열쇠면 바로 일치)으로 견준다. 사업 이름은 코드에 두지 않는다."""
+    from zzaimy.app.program_names import display_name, group_key
+
     with db._conn() as conn:
         rows = [dict(r) for r in conn.execute("SELECT id, name, program FROM projects WHERE archived = 1 AND id <> ?",
                                               (int(project["id"]),)).fetchall()]
     linked = {r["ref_project_id"] for r in list_refs(db, int(project["id"]), None)}
-    mine = _grams(project.get("name") or "")
+    sources = [("이름", project.get("name") or "")] + [("기준·사업명", n) for n in (names or []) if (n or "").strip()]
+    probes = []
+    for label, raw in sources:
+        shown = display_name(raw)
+        grams = _grams(shown)
+        if grams:
+            probes.append((label, shown, grams, group_key(shown)))
     picked = []
     for r in rows:
         if r["id"] in linked:
@@ -75,12 +91,24 @@ def candidates(db, project: dict, q: str = "", scope: dict | None = None, limit:
                 continue
             score, why = 1.0, f"검색어 「{q.strip()[:20]}」"
         else:
-            theirs = _grams(r["name"] or "")
-            common = mine & theirs
-            if not common:
+            theirs_name = display_name(r["name"] or "")
+            theirs = _grams(theirs_name)
+            best = None
+            for label, shown, grams, key in probes:
+                if key and key == group_key(theirs_name):
+                    cand = (1.0, f"{label} 일치: {shown[:30]}")
+                else:
+                    common = grams & theirs
+                    share = len(common) / max(len(grams), 1)
+                    # 기준 제목·사업명은 길고 일반어가 섞여 조각 한두 개는 우연히 겹친다 — 3할 이상 겹칠 때만 후보로
+                    if not common or (label != "이름" and share < NAME_SHARE_MIN):
+                        continue
+                    cand = (share, f"{label} 겹침: " + "·".join(sorted(common)[:6]))
+                if best is None or cand[0] > best[0]:
+                    best = cand
+            if best is None:
                 continue
-            score = len(common) / max(len(mine), 1)
-            why = "이름 겹침: " + "·".join(sorted(common)[:6])
+            score, why = best
         picked.append({**r, "score": score, "why": why})
     unit = (project.get("unit") or "").strip()
     if unit and picked:                                # 담당자가 고른 사업단의 과거 묶음을 조금 앞으로(같은 조직의 자료)

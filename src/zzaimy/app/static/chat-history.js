@@ -182,6 +182,7 @@
     }
     form.onsubmit = event => {event.preventDefault(); load();};
     form.querySelectorAll('select').forEach(select => { select.onchange = () => load(); });
+    if (opener.dataset.chatHistoryQ) form.querySelector('input').value = opener.dataset.chatHistoryQ;   // 프로젝트 화면에서 열면 그 프로젝트 이름으로 미리 좁힌다
     more.onclick = () => load(true); load();
   });
   let sidebarRevision = 0;

@@ -268,7 +268,7 @@ def test_regulation_docs_are_separated_from_inbox(client):
     assert "계획서.pdf" in table
     assert "학칙.pdf" not in table  # 기준 문서는 접수 표에 안 섞인다 (최근 활동에는 보임)
     criteria = client.get("/criteria").text
-    assert "학칙.pdf" in criteria
+    assert ">학칙</a>" in criteria  # 화면에는 제목(확장자 없이)
     assert ">1건</span>" in criteria  # 등록 건수 1건 — 접수 문서는 기준 목록에 안 들어간다
 
 
@@ -336,7 +336,7 @@ def test_sector_upload_binds_related_criteria(client):
         files={"file": ("지원서.pdf", b"%PDF", "application/pdf")},
     )
     page = client.get("/doc/2").text
-    assert "채용공고A.pdf" in page  # 대상 공고가 문서 화면에 표시된다
+    assert "대상: 채용공고A<" in page  # 대상 공고가 문서 화면에 표시된다
 
 
 def test_sector_page_is_project_hub(client):
@@ -348,7 +348,7 @@ def test_sector_page_is_project_hub(client):
     client.post("/criteria/upload", data={"sector": "recruit"},
                 files={"file": ("채용공고B.pdf", b"%PDF", "application/pdf")})
     client.post("/projects", data={"sector": "recruit", "name": "공고1"})
-    assert "채용공고B.pdf" in client.get("/project/1").text
+    assert "criteria-picker-name\">채용공고B<" in client.get("/project/1").text
 
 
 def test_receipt_number_scheme(client):
@@ -578,7 +578,7 @@ def test_criteria_bulk_upload(client):
     ], follow_redirects=False)
     assert r.status_code == 303
     page = client.get("/criteria").text
-    assert "공고A.pdf" in page and "공고B.pdf" in page and "내규C.pdf" in page
+    assert ">공고A</a>" in page and ">공고B</a>" in page and ">내규C</a>" in page
 
 
 def test_tiles_filter_document_list(client):
@@ -875,7 +875,7 @@ def test_recent_uploads_are_findable_in_library(client):
     client.post("/criteria/upload", data={"sector": "common"},
                 files={"file": ("규정R.pdf", b"%PDF", "application/pdf")})
     assert "이력서R.pdf" in client.get("/inbox?q=이력서R").text
-    assert "규정R.pdf" in client.get("/criteria").text
+    assert ">규정R</a>" in client.get("/criteria").text
 
 
 def test_docx_restoration_export(client):

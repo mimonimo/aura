@@ -263,6 +263,64 @@ def export_markdown(filename: str, chunks: list[dict]) -> str:
     return "\n".join(lines)
 
 
+# 번호만 있는 줄 — 「0」「1.」「가.」「①」「Ⅱ」처럼 제목 번호가 떨어져 나온 조각
+_LONE_MARK = re.compile(r"^\s*(?:\d{1,3}|[가-하]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]{1,4}|[IVX]{1,4})?\s*[.)]?\s*$|^\s*[①-⑳○●□■◦▶▷※-]\s*$")
+# 제목 앞 번호 — 「0 사업 …」「1.1. …」「Ⅱ. …」「가) …」
+_LEAD_NUM = re.compile(r"^\s*(?:(?:\d{1,3}\.)+\d{0,3}|\d{1,3}|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]{1,4}\.?|[가-하][.)]|[①-⑳])\s+")
+# 값이 빈 목차·양식 칸 — 「1.11. (자율지표)성과지표명 :」처럼 이름 뒤에 쌍점만 있고 내용이 없는 줄
+_EMPTY_FIELD = re.compile(r"[:：]\s*$")
+
+
+def _empty_field(body: str) -> bool:
+    """번호 붙은 한 줄 항목인데 쌍점 뒤가 비었다 — 뒤 조각도 내용이 아니면 빈 칸으로 본다."""
+    return len(body) <= 60 and "\n" not in body and bool(_LEAD_NUM.match(body)) and bool(_EMPTY_FIELD.search(body))
+
+
+def _squash_text(text: str) -> str:
+    return re.sub(r"[^0-9A-Za-z가-힣]", "", text or "")
+
+
+def _heading_key(text: str) -> str:
+    """같은 제목 판정 열쇠 — 앞 번호와 기호·띄어쓰기를 뗀 글자."""
+    return _squash_text(_LEAD_NUM.sub("", text or "", count=1))
+
+
+def _table_squash(content: str) -> str:
+    try:
+        return _squash_text(table_text(content))
+    except Exception:
+        return ""
+
+
+def _skip_chunk(c: dict, prev: dict | None, nxt: dict | None, last_key: str) -> bool:
+    """화면에 그리지 않을 조각 — 추출이 남긴 군더더기. 원래 조각(검색·내보내기)은 그대로 둔다.
+
+    - 번호만 남은 조각(제목 번호가 떨어져 나온 것)
+    - 바로 앞 제목과 앞 번호만 다른 같은 제목(「0 사업 가신청서…」 다음의 「사업 가신청서…」)
+    - 값이 빈 번호 항목(이름 뒤 쌍점만 있고 다음도 제목이거나 빈 항목)
+    - 바로 앞·뒤 표와 글자가 같은 평문(표를 글과 표로 두 번 그리지 않는다)
+    어느 문서에나 같은 규칙이다 — 특정 문서의 글을 보지 않는다."""
+    if c.get("kind") not in ("text", "heading"):
+        return False
+    body = (c.get("content") or "").strip()
+    if not body or _LONE_MARK.match(body):
+        return True
+    if last_key and _heading_key(body) == last_key:
+        return True
+    if _empty_field(body) and (nxt is None or nxt.get("kind") == "heading"
+                               or _empty_field((nxt.get("content") or "").strip())):
+        return True
+    flat = _squash_text(body)
+    if len(flat) >= 12:
+        for other in (prev, nxt):
+            if other and other.get("kind") == "table":
+                tflat = _table_squash(other.get("content") or "")
+                if tflat and (flat == tflat or (len(flat) >= 0.9 * len(tflat) and flat in tflat)
+                              or (len(tflat) >= 0.9 * len(flat) and tflat in flat)):
+                    return True
+    return False
+
+
 def chunk_blocks(
     chunks: list[dict],
     doc_id: int | None = None,
@@ -272,7 +330,14 @@ def chunk_blocks(
     blocks: list[Markup] = []
     last_page: int | None = None
     prev_kind = ""
-    for c in chunks:
+    last_key = ""                                       # 바로 앞에 그린 제목·문단의 같은 제목 열쇠
+    for i, c in enumerate(chunks):
+        if _skip_chunk(c, chunks[i - 1] if i else None, chunks[i + 1] if i + 1 < len(chunks) else None, last_key):
+            continue
+        if c.get("kind") in ("text", "heading"):
+            last_key = _heading_key(c.get("content") or "")
+        else:
+            last_key = ""
         pg = c.get("page_no")
         # 문서 보기의 탭(본문·표·그림)과 문서 내 검색이 쓰는 표지 — 갈래와 쪽
         at = Markup(' data-kind="{}" data-page="{}"').format(
@@ -328,9 +393,9 @@ def chunk_blocks(
                 ).format(note)
             if doc_id is not None and c.get("id"):
                 block += Markup(
-                    '<p style="margin:-10px 0 14px; text-align:right;">'
+                    '<p class="table-dl" style="margin:-10px 0 14px; text-align:right;">'
                     '<a href="/doc/{}/table/{}.csv" class="muted"'
-                    ' style="font-size:11.5px;">표 CSV 내려받기</a></p>'
+                    ' style="font-size:11.5px;">표 내려받기(엑셀)</a></p>'
                 ).format(doc_id, c["id"])
             blocks.append(block + Markup("</div>"))
         elif c["kind"] == "heading":

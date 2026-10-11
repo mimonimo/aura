@@ -1,12 +1,12 @@
-"""프로젝트·대화 문서의 세 갈래 — 사용자 첨부 문서 / 참고 문서 / 규정·지침.
+"""프로젝트·대화 문서의 세 갈래 — 첨부 문서 / 참고 문서 / 기준 문서.
 
 대화 문서함 패널, 프로젝트 화면의 문서 목록, 지침·기준 탭이 모두 이 목록 하나를 본다.
 화면마다 따로 모으면(소유자·섹터·검토 상태 거르기가 제각각) 같은 프로젝트인데 문서가 달라 보이기 때문이다.
 
-- attached  사용자 첨부 문서: 프로젝트에 올린 문서와 대화에 첨부한 문서
+- attached  첨부 문서: 프로젝트에 올린 문서와 대화에 첨부한 문서
 - reference 참고 문서: 문서함의 기존 문서를 끌어온 것 — 에이전트가 답·초안에 근거로 불러온 문서(chat_sources),
             작업 원본으로 이은 문서
-- rules     규정·지침: 프로젝트에 연결된 기준 문서(공고·기본계획·지침·심사 기준)와 프로젝트에 올린 기준 문서
+- rules     기준 문서: 프로젝트에 연결된 기준 문서(공고·기본계획·지침·심사 기준)와 프로젝트에 올린 기준 문서
 
 프로젝트 대화면 프로젝트 단위(그 프로젝트의 모든 대화)로 모아 어느 화면에서 봐도 같다. 프로젝트 없는 대화는 그 대화만.
 열람 권한(access_policy.visible)을 통과한 문서만 담는다.
@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from zzaimy.app.access_policy import visible
 
-GROUPS = (("attached", "사용자 첨부 문서"), ("reference", "참고 문서"), ("rules", "규정·지침"))
+GROUPS = (("attached", "첨부 문서"), ("reference", "참고 문서"), ("rules", "기준 문서"))
+# 근거 기준이 되는 서류 갈래(doc_routing.KINDS 의 열쇠) — 공고·지침·심사 기준·규정·기본계획
+CRITERIA_KINDS = frozenset({"announcement", "guideline", "criteria", "regulation", "basic_plan"})
 GROUP_LABELS = dict(GROUPS)
 AGENT_NOTE = "에이전트가 불러옴"
 REFERENCE_LIMIT = 40
@@ -64,6 +66,11 @@ def _session_files(db, sids: list[int], kind: str) -> list[int]:
     return list(dict.fromkeys(ids))
 
 
+def _uploaded_via(d: dict) -> str:
+    """프로젝트 문서가 어디서 왔는가 — 원본 보관소에서 가져온 문서(dgx://)는 그 출처를 그대로 보인다."""
+    return "원본 보관소에서 가져옴" if str(d.get("stored_path") or "").startswith("dgx://") else "프로젝트에 올림"
+
+
 def collect(db, project: dict | None = None, session_id: int | None = None, *,
             dept: str | None = None, user: str | None = None, role: str = "") -> dict[str, list[dict]]:
     """세 갈래 문서 목록. 항목은 문서 행(dict)에 group·group_label·via(어디서 왔는가)를 더한 것."""
@@ -86,14 +93,14 @@ def collect(db, project: dict | None = None, session_id: int | None = None, *,
 
     project_docs = db.list_documents(project_id=pid) if pid else []
     project_docs.sort(key=lambda d: int(d["id"]), reverse=True)
-    # ③ 규정·지침 — 연결된 기준이 먼저, 프로젝트에 올렸지만 연결이 풀린 기준 문서도 여기에
+    # ③ 기준 문서 — 연결된 기준이 먼저, 프로젝트에 올렸지만 연결이 풀린 기준 문서도 여기에
     if pid:
         for did in db.get_project_criteria_ids(pid):
             _add(_doc(int(did)), "rules", "프로젝트에 연결")
         for d in project_docs:
             if d.get("doc_type") == "regulation":
-                _add(d, "rules", "프로젝트에 올림")
-    # ① 사용자 첨부 문서 — 대화 첨부를 먼저, 그다음 프로젝트에 올린 문서
+                _add(d, "rules", _uploaded_via(d))
+    # ① 첨부 문서 — 대화 첨부를 먼저, 그다음 프로젝트에 올린 문서
     attached_ids = _session_files(db, sids, "attachment")
     for did in attached_ids:
         d = _doc(did)
@@ -103,7 +110,7 @@ def collect(db, project: dict | None = None, session_id: int | None = None, *,
             _add(d, "attached", "대화 첨부")
     for d in project_docs:
         if d.get("doc_type") != "regulation":
-            _add(d, "attached", "프로젝트에 올림")
+            _add(d, "attached", _uploaded_via(d))
     # ② 참고 문서 — 작업 원본으로 이은 문서, 에이전트가 불러온 문서(최근 것부터)
     for did in _session_files(db, sids, "google"):
         if len(groups["reference"]) >= REFERENCE_LIMIT:
@@ -114,6 +121,34 @@ def collect(db, project: dict | None = None, session_id: int | None = None, *,
             break
         _add(_doc(did), "reference", AGENT_NOTE + (f" · {origin}" if origin else ""))
     return groups
+
+
+def projects_of(db, doc: dict) -> list[int]:
+    """문서가 속한 프로젝트 — 프로젝트에 올린 문서면 그 프로젝트, 프로젝트 대화에 첨부한 문서면 그 대화의 프로젝트."""
+    pids: list[int] = []
+    if doc.get("project_id"):
+        pids.append(int(doc["project_id"]))
+    for f in db.list_files(kind="attachment", doc_id=int(doc["id"])):
+        sess = db.get_chat_session(int(f["session_id"])) if f.get("session_id") else None
+        if sess and sess.get("project_id") and int(sess["project_id"]) not in pids:
+            pids.append(int(sess["project_id"]))
+    return pids
+
+
+def link_criteria_kind(db, doc_id: int) -> list[int]:
+    """공고·지침·기준으로 분류된 문서를 그 문서가 속한 프로젝트의 근거 기준으로 잇는다 — 연결한 프로젝트 번호.
+
+    갈래(kind)는 반입 뒤 분류(doc_routing)가 정한다. 어느 문서든 같은 규칙이고, 사업 이름은 보지 않는다.
+    이미 이어져 있으면 그대로 둔다. 연결을 풀면 첨부 문서로 돌아가고, 다시 분류될 때만 다시 잇는다."""
+    doc = db.get_document(int(doc_id))
+    if not doc or (doc.get("kind") or "") not in CRITERIA_KINDS:
+        return []
+    done = []
+    for pid in projects_of(db, doc):
+        if int(doc_id) not in {int(x) for x in db.get_project_criteria_ids(pid)}:
+            db.add_project_criteria(pid, [int(doc_id)])
+            done.append(pid)
+    return done
 
 
 def counts(groups: dict[str, list[dict]]) -> dict[str, int]:

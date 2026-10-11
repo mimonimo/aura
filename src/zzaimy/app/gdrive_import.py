@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -18,7 +19,8 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 FOLDER_NAME = "ZZAIMY 가져오기"
-INTERVAL = 600                       # 10분마다
+INTERVAL = int(os.environ.get("ZZAIMY_GIMPORT_INTERVAL", "600") or 600)   # 가져오기 주기(초) — 기본 10분
+STALE_FACTOR = 3                     # 마지막 확인이 주기의 이 배수보다 오래되면 멈춘 것으로 본다
 MAX_BYTES = 100_000_000
 SUFFIXES = {".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md", ".png", ".jpg", ".jpeg", ".csv"}
 EXPORT = {                            # 구글 고유 형식 → 내보낼 형식
@@ -45,6 +47,22 @@ def status(db, user: str) -> dict:
         return json.loads(db.get_setting(f"gimport_status:{user}", "") or "{}")
     except ValueError:
         return {}
+
+
+def interval_minutes() -> int:
+    """화면에 보일 가져오기 주기(분)."""
+    return max(1, round(INTERVAL / 60))
+
+
+def stalled(st: dict, now: datetime | None = None) -> bool:
+    """자동 가져오기가 멈췄는가 — 마지막 확인(st["at"])이 주기의 STALE_FACTOR 배보다 오래됐으면 True.
+    아직 한 번도 돌지 않았거나(at 없음) 시각을 읽지 못하면 판단하지 않는다(False)."""
+    at = (st or {}).get("at") or ""
+    try:
+        last = datetime.strptime(at[:16], "%Y-%m-%d %H:%M")
+    except ValueError:
+        return False
+    return ((now or datetime.now()) - last).total_seconds() > INTERVAL * STALE_FACTOR
 
 
 def _list(email: str, folder_id: str, http) -> list[dict]:
@@ -164,7 +182,7 @@ _started = False
 
 
 def ensure_scheduler(db, processor, inbox_dir: Path, dept_of=None, rank=None) -> None:
-    """앱이 뜰 때 한 번 — 구글 앱이 등록돼 있을 때만 10분마다 돈다."""
+    """앱이 뜰 때 한 번 — 구글 앱이 등록돼 있을 때만 INTERVAL 마다 돈다."""
     global _started
     from zzaimy.ingest import gdrive
     if _started or not gdrive.configured():

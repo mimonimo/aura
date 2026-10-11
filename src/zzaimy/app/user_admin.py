@@ -99,6 +99,9 @@ def overview(db, accounts: dict) -> dict:
 
 @router.get("/account/google")
 def my_google(request: Request):
+    """내 구글 연결 상태(JSON). 브라우저로 주소를 열면(text/html 요청) 설정 화면의 구글 계정 칸으로 보낸다."""
+    if "text/html" in (request.headers.get("accept") or ""):
+        return RedirectResponse("/settings#myGoogle", status_code=303)
     a = _accounts(request).get(_user(request), {})
     return JSONResponse(user_status(request.app.state.db, _user(request), a.get("dept") or None))
 

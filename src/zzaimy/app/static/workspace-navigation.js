@@ -31,7 +31,9 @@
     const message = form.dataset.confirm || (/\/notes\//.test(action.pathname)
       ? '이 메모를 삭제할까요? 삭제 후에는 복구할 수 없습니다.'
       : '이 항목을 삭제할까요?');
-    if (!window.confirm(message)) { event.preventDefault(); event.stopImmediatePropagation(); }
+    // 확인은 한 번만 — 화면이 따로 붙인 같은 확인(data-confirm 직접 처리)까지 이어지지 않게 여기서 끊는다. 제출은 그대로 간다
+    event.stopImmediatePropagation();
+    if (!window.confirm(message)) event.preventDefault();
   }, true);
   document.addEventListener('click', event => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

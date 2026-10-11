@@ -314,3 +314,27 @@ def display_name(doc: dict) -> str:
     if not title:
         return tidy_name(doc.get("filename") or "")
     return f"{title} · {date}" if date else title
+
+
+_FILE_EXT = re.compile(r"\.(pdf|hwpx?|docx?|xlsx?|pptx?|png|jpe?g|txt|md|csv)$", re.IGNORECASE)
+
+
+def display_title(doc: dict) -> str:
+    """화면 제목 — display_name 에서 파일 확장자를 뗀 것. 파일 이름(확장자 포함)은 원본 정보에만 보인다."""
+    name = display_name(doc)
+    bare = _FILE_EXT.sub("", name).strip()
+    return bare or name
+
+
+_RECEIPT = re.compile(r"^(\d{4}-[^-]+-)(\d+)$")
+RECEIPT_DIGITS = 5                                   # 접수번호 끝 일련번호의 표시 자릿수(가장 긴 번호에 맞춘다)
+
+
+def receipt_label(receipt_no: str | None) -> str:
+    """접수번호 표시 — 끝 일련번호를 같은 자릿수로 맞춰 보인다(2026-기준-0003 → 2026-기준-00003). 저장 값은 바꾸지 않는다.
+    꼴이 다르면 그대로 돌려준다."""
+    s = (receipt_no or "").strip()
+    m = _RECEIPT.match(s)
+    if not m:
+        return s
+    return m.group(1) + m.group(2).zfill(RECEIPT_DIGITS)

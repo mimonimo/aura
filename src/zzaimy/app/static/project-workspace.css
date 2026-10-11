@@ -132,3 +132,11 @@
 #projectWorkspace .project-doc-count { font-size:11.5px; font-weight:600; color:var(--muted); background:var(--soft, #F1F4F9); border-radius:999px; padding:1px 8px; }
 #projectWorkspace .project-doc-group .project-document-list { margin-top:10px; }
 #projectWorkspace .project-doc-empty { margin:8px 0 0; font-size:12.5px; color:var(--muted); line-height:1.6; }
+/* 관련 지난 사업은 두 칸을 다 쓴다 — 왼쪽 한 칸에만 서고 오른쪽이 비지 않게 */
+.project-context-grid #paneRefs{grid-column:1/-1}
+.project-breadcrumb{display:inline-flex;align-items:center;gap:4px}
+.project-doc-more{margin-top:12px}
+.project-doc-more>summary{cursor:pointer;font-size:12.5px;font-weight:600;color:var(--muted)}
+.project-doc-more>summary:hover{color:var(--navy)}
+.project-conversation a{color:inherit;text-decoration:none}
+.project-conversation .project-action-link{color:#355984}

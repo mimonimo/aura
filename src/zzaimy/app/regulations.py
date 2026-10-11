@@ -991,6 +991,49 @@ def suggest_criteria_docs(
     return ranked[:top_k]
 
 
+def _program_key(db: Database, doc_id: int) -> str:
+    """문서 정체에서 읽은 사업 이름의 같은 이름 열쇠 — 없으면 ''."""
+    from zzaimy.app.program_names import group_key
+
+    program = (db.get_doc_identity(int(doc_id)) or {}).get("program") or ""
+    return group_key(program) if program.strip() else ""
+
+
+def criteria_link_evidence(db: Database, doc: dict, criteria_id: int) -> str:
+    """문서와 기준 문서를 잇는 근거 — 「같은 프로젝트」·「같은 사업」 중 하나, 없으면 ''.
+
+    본문이 비슷하다는 것(검색 유사도)은 근거가 아니다(절대 규칙 12: 관계 근거가 있을 때만 사업 간 연결).
+    - 같은 프로젝트: 기준이 문서가 속한 프로젝트(올린 곳·첨부한 대화의 프로젝트)에 연결돼 있거나 거기에 올라 있다
+    - 같은 사업: 두 문서의 정체(사업 이름)가 같은 이름 열쇠(program_names.group_key)로 맞는다
+    사업 이름을 코드에 적지 않으므로 어느 사업에나 같은 규칙이다."""
+    from zzaimy.app.project_documents import projects_of
+
+    crit = db.get_document(int(criteria_id))
+    if not crit:
+        return ""
+    pids = projects_of(db, doc)
+    if pids and (crit.get("project_id") in pids
+                 or any(int(criteria_id) in {int(x) for x in db.get_project_criteria_ids(p)} for p in pids)):
+        return "같은 프로젝트"
+    mine = _program_key(db, int(doc["id"]))
+    if mine and mine == _program_key(db, int(criteria_id)):
+        return "같은 사업"
+    return ""
+
+
+def evidenced_suggestions(db: Database, doc: dict, suggested: list[dict]) -> list[dict]:
+    """자동 추천 기준(suggested_criteria) 가운데 근거가 있는 것만, 근거(why)를 붙여서."""
+    out = []
+    for s in suggested or []:
+        try:
+            why = criteria_link_evidence(db, doc, int(s.get("id")))
+        except (TypeError, ValueError):
+            continue
+        if why:
+            out.append({**s, "why": why})
+    return out
+
+
 def compose_review_context(
     db: Database, masked_text: str, sector: str | None = None,
     dept: str | None = None,
