@@ -71,7 +71,12 @@ def writable(section: dict) -> bool:
     num, rest = section_context.split_number(section.get("heading") or "")
     if not has_words(rest):
         return False                                    # 「2cm」 같은 치수·기호만 있는 줄은 절이 아니다(리허설 2026-10-08: 변환본 여백 표기가 첫 빈 절로 뽑혀 맴돎)
-    return "." in num or (bool(section.get("leaf")) and int(section.get("level") or 0) >= 1)
+    if "." in num or (bool(section.get("leaf")) and int(section.get("level") or 0) >= 1):
+        return True
+    # 장 제목이라도 바로 아래에 제 서식 표·작성 지침이 있으면 채울 자리가 있는 절이다 — 「사업 개요」 표(사업명·기간·사업비)가
+    # 소제목(사업 요약)을 거느렸다는 까닭으로 아무도 안 채웠다(10/12)
+    from zzaimy.ingest.gdocs import GUIDE_PREFIX
+    return int(section.get("tbl_cells") or 0) > 0 or GUIDE_PREFIX.strip() in (section.get("text") or "")
 
 
 def has_words(text: str) -> bool:

@@ -115,3 +115,10 @@ def test_outline_spec_from_conversation_toc():
     assert T.outline_spec(T.SPECS["plan"], "그냥 답변입니다.\n1. 하나\n2. 둘") is None
     bold = "#### **Ⅰ. 대학의 역량**\n1. **대학 기본 교육 현황**\n   - 학과 현황\n2. **실습 여건**\n#### **Ⅱ. 사업 추진내용**\n1. **추진체계**\n2. **교육과정**\n"
     assert [b["text"] for b in T.outline_spec(T.SPECS["plan"], bold)["blocks"] if b.get("h") == 2][:2] == ["1. 대학 기본 교육 현황", "2. 실습 여건"]
+
+
+def test_chapter_with_own_form_table_is_writable():
+    from zzaimy.app import drafting
+    chapter_only = {"heading": "Ⅰ. 사업 추진 배경", "level": 1, "leaf": False, "text": "Ⅰ. 사업 추진 배경", "tbl_cells": 0}
+    with_table = {"heading": "사업 개요", "level": 1, "leaf": False, "text": "사업 개요\n작성 지침 — 공고의 사업명…", "tbl_cells": 36}
+    assert not drafting.writable(chapter_only) and drafting.writable(with_table)
