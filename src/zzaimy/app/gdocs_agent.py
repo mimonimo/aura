@@ -439,6 +439,9 @@ _CELL = re.compile(r"\b([rc])(\d+)\b")
 
 def plain_reply(text: str) -> str:
     """모델 답의 내부 말(프롬프트의 묶음 이름·필드 이름·칸 좌표)을 사용자 말로 — 칸 좌표 r1·c2 는 0부터라 한 칸씩 더한다."""
+    from zzaimy.app.responder import strip_emoji
+
+    text = strip_emoji(text)
     for rx, rep in _JARGON:
         text = rx.sub(rep, text)
     text = re.sub(r"\s*\((?:Fill|fill|Insert|insert|Replace|replace)\)", "", text)

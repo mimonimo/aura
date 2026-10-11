@@ -63,6 +63,14 @@ def normalize_input(text: str) -> str:
     return t.replace("。", ". ").replace("、", ", ").replace("  ", " ")
 
 
+_EMOJI = re.compile("[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F000-\U0001F2FF\uFE0F\u200D]")
+
+
+def strip_emoji(text: str) -> str:
+    """답의 이모지를 뺀다 — 행정 문서·화면은 이모지를 쓰지 않는다(「💡 작성 팁」, 10/11). 기호(□○※·→)는 그대로."""
+    return re.sub(r"[ \t]{2,}", " ", _EMOJI.sub("", text or ""))
+
+
 _HAN = re.compile(r"[\u4e00-\u9fff]{2,}")
 
 
@@ -329,4 +337,4 @@ class AgentResponder:
                 text = text.rstrip() + "\n" + (more.choices[0].message.content or "").lstrip()
             except Exception:
                 pass
-        return fix_foreign_han(text.strip(), user_content, client)
+        return strip_emoji(fix_foreign_han(text.strip(), user_content, client))
