@@ -186,3 +186,26 @@ def collapse_split_numbering(text: str) -> str:
         out.append(lines[i])
         i += 1
     return "\n".join(out)
+
+
+# 제목 앞 「0」 — 판독기가 글머리 기호(○·◯·❍)를 숫자 0 으로 읽은 것. 절 번호는 1 부터 매기므로 0 하나 뒤에 제목이 오면 글머리로 본다.
+# 「0 원」「0 건」처럼 값인 줄을 건드리지 않게, 뒤가 한글로 시작하는 넉 자 이상 제목이고 단위 낱말 하나로 끝나지 않을 때만.
+_ZERO_BULLET = re.compile(r"^(\s*)[0Oo○◯❍]\s+(?=[가-힣])(?![가-힣]{1,2}\s*$)")
+
+
+def drop_zero_bullet(line: str) -> str:
+    """줄 첫머리의 0(○ 를 잘못 읽은 글머리)을 뗀다 — 「0 사업 가신청서 제출 방법」 → 「사업 가신청서 제출 방법」."""
+    if not line:
+        return line
+    m = _ZERO_BULLET.match(line)
+    rest = line[m.end():] if m else ""
+    if m and len(rest.strip()) >= 4 and len(rest) <= 60:
+        return m.group(1) + rest
+    return line
+
+
+def normalize_numbering(text: str) -> str:
+    """판독 글의 번호 정리 — 겹쳐 읽힌 「번호 제목 / 번호 / 제목」을 한 줄로 모으고, 0 으로 읽힌 글머리를 뗀다."""
+    if not text:
+        return text
+    return "\n".join(drop_zero_bullet(ln) for ln in collapse_split_numbering(text).split("\n"))

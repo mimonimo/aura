@@ -134,3 +134,11 @@
 /* 창 닫기 아이콘은 공용 모양(base.html .modal-head [data-modal-close]) — 위 문서 화면 주 버튼 색(#23354D)을 물려받지 않게 */
 #documentWorkspace .modal-head [data-modal-close] { background:transparent; border:0; color:var(--muted); }
 #documentWorkspace .modal-head [data-modal-close]:hover { background:#EEF1F5; color:var(--ink); border:0; }
+/* 위 규칙이 이기도록 — 문서 화면의 주 버튼 규칙(#documentWorkspace button:not(...)) 보다 구체적으로 */
+#documentWorkspace .modal-head button[data-modal-close]:not(.secondary):not(.btn-ghost) { background:transparent; border:0; color:var(--muted); }
+#documentWorkspace .modal-head button[data-modal-close]:not(.secondary):not(.btn-ghost):hover { background:#EEF1F5; color:var(--ink); }
+/* 표 내려받기 링크 자체를 숨긴다 — 표에 마우스를 올리거나 링크에 키보드 포커스가 오면 보인다 */
+.extract-table .table-dl, .extract-table .table-dl a { opacity:0; }
+.extract-table:hover .table-dl, .extract-table:hover .table-dl a,
+.extract-table .table-dl:focus-within, .extract-table .table-dl a:focus-visible { opacity:1; }
+@media (hover:none) { .extract-table .table-dl, .extract-table .table-dl a { opacity:1; } }

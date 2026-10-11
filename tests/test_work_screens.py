@@ -262,3 +262,39 @@ def test_library_tab_names_come_from_one_place(client):
     templates = Path(__file__).resolve().parents[1] / "src" / "zzaimy" / "app" / "templates"
     for f in templates.glob("*.html"):
         assert "「프로젝트·문서」" not in f.read_text(encoding="utf-8"), f.name
+
+
+def test_zero_bullet_and_empty_field_headings():
+    from zzaimy.app.render import chunk_blocks
+    from zzaimy.app.text_repair import drop_zero_bullet, normalize_numbering
+
+    assert drop_zero_bullet("0 시범 신청 방법") == "시범 신청 방법"          # 0 으로 읽힌 글머리
+    assert drop_zero_bullet("○ 운영 계획 수립") == "운영 계획 수립"
+    assert drop_zero_bullet("0 원") == "0 원" and drop_zero_bullet("0 건수") == "0 건수"   # 값인 줄은 그대로
+    assert drop_zero_bullet("1 사업신청 방법") == "1 사업신청 방법"          # 절 번호는 그대로
+    assert normalize_numbering("0 시범 신청 방법\n0\n시범 신청 방법\n가. 기간") == "시범 신청 방법\n가. 기간"
+    html = "".join(str(b) for b in chunk_blocks([
+        {"id": 1, "kind": "heading", "content": "2.4. (선택지표)참여 인원 :", "page_no": 1},
+        {"id": 2, "kind": "table", "content": json.dumps({"n_rows": 1, "n_cols": 1, "cells": [[0, 0, 1, 1, False, "지표명"]]}), "page_no": 1},
+        {"id": 3, "kind": "heading", "content": "0 추진 체계", "page_no": 1},
+    ], 3, {}))
+    assert '<h4 class="extract-h"' in html and "(선택지표)참여 인원 :</p>" in html   # 빈 양식 칸 제목은 목차(h4)에 올리지 않는다
+    assert ">추진 체계</h4>" in html
+
+
+def test_archived_candidates_compare_words_not_jamo_and_skip_self(client):
+    import unicodedata
+
+    from zzaimy.app import project_refs
+
+    db = client.app.state.db
+    pid = db.create_project("grant", unicodedata.normalize("NFD", "가상 해양 드론"))     # 맥 파일 이름처럼 자모가 풀린 이름
+    past = db.create_project("grant", "가상 해양드론 실증 사업", archived=True)
+    db.add_document("옛 보고서.pdf", "/tmp/o.pdf", doc_type="grant", project_id=past)
+    got = project_refs.browse(db, None, status="all", for_project=pid)
+    ids = [it["id"] for it in got["items"]]
+    assert pid not in ids                                              # 연결하려는 프로젝트 자신은 후보가 아니다
+    whys = [it["why"] for it in got["items"] if it["why"]]
+    assert all(not any("\u1100" <= ch <= "\u11ff" for ch in w) for w in whys)   # 자모 조각이 까닭에 나오지 않는다
+    cand = project_refs.candidates(db, db.get_project(pid), names=["가상 해양드론 실증 사업 공고"])
+    assert [c["id"] for c in cand] == [past]

@@ -2,19 +2,20 @@
 
 참조는 보관 해제가 아니다. 묶음의 보관 상태·소유자·문서 소속을 바꾸지 않고 관계만 둔다(project_refs).
 같은 과거 묶음을 여러 프로젝트가 참조할 수 있다. 문서 수는 보는 사람이 열람할 수 있는 것만 센다(절대 규칙 4, access_policy.visible).
-후보 찾기: 프로젝트 이름과 보관 묶음 이름의 글자 겹침(2글자 조각, 연도·흔한 꼬리말 제외) — 특정 사업 이름을 코드에 두지 않는다.
+후보 찾기: 프로젝트 이름(과 기준 문서 제목·사업명)과 보관 묶음 이름의 낱말 겹침(형태소 명사·영문 약칭, 연도·일반 낱말 제외) — 특정 사업 이름을 코드에 두지 않는다.
 """
 
 from __future__ import annotations
 
 import re
 import time
+import unicodedata
+from functools import lru_cache
 
 _SCHEMA = ("CREATE TABLE IF NOT EXISTS project_refs (project_id INTEGER NOT NULL, ref_project_id INTEGER NOT NULL,"
            " reason TEXT NOT NULL DEFAULT '', linked_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '',"
            " PRIMARY KEY (project_id, ref_project_id))")
 _ensured: set[str] = set()
-_STOP = re.compile(r"\d{2,4}\s*(?:학년도|년도|년|차년도|차)?|사업|지원|선도|전문대학|대학|육성|\(.*?\)|[\s·\-_()]+")
 
 
 def ensure(db) -> None:
@@ -29,15 +30,56 @@ def ensure(db) -> None:
     _ensured.add(db.path)
 
 
-def _grams(name: str) -> set[str]:
-    core = _STOP.sub(" ", name or "")
-    out: set[str] = set()
-    for word in core.split():
-        if re.fullmatch(r"[A-Za-z0-9.+]+", word):
-            out.add(word.upper())
-            continue
-        out.update(word[i:i + 2] for i in range(len(word) - 1))
+# 어느 사업에나 붙는 일반 낱말 — 겹쳐도 같은 사업이라는 단서가 아니다
+_GENERAL = re.compile(r"^(?:사업|사업단|사업계획서|계획서|계획|지원|지원사업|선도|전문대학|대학|대학교|육성|분야|안내|제출|공고|"
+                      r"결과|보고서|결과보고서|운영|추진|연도|차년도|내|프로젝트)$")
+
+
+@lru_cache(maxsize=4096)
+def _tokens(name: str) -> frozenset[str]:
+    """이름의 낱말 — 형태소 분석 명사(regulations.extract_nouns)와 영문 약칭. 글자·자모 조각으로 견주지 않는다.
+    이름은 먼저 NFKC 로 맞춘다(맥 파일 이름처럼 자모가 풀린 NFD 이름도 같은 낱말이 되게)."""
+    from zzaimy.app.regulations import extract_nouns
+
+    text = unicodedata.normalize("NFKC", name or "")
+    text = re.sub(r"(?:19|20)\d{2}\s*(?:학년도|년도|년)?|\d+\s*차\s*년도", " ", text)
+    words = {w.replace(" ", "") for w in extract_nouns(text)}
+    words |= {w.upper() for w in re.findall(r"[A-Za-z][A-Za-z0-9.+]{1,}", text)}
+    return frozenset(w for w in words if len(w) >= 2 and not _GENERAL.match(w))
+
+
+def _probes(project_name: str, names: list[str] | None = None) -> list[tuple[str, str, frozenset, str]]:
+    """견줄 이름들 — (출처 이름표, 보일 이름, 낱말, 같은 이름 열쇠). 프로젝트 이름 + 기준 문서 제목·사업명."""
+    from zzaimy.app.program_names import display_name, group_key
+
+    out = []
+    for label, raw in [("이름", project_name or "")] + [("기준·사업명", n) for n in (names or []) if (n or "").strip()]:
+        shown = display_name(raw)
+        toks = _tokens(shown)
+        if toks:
+            out.append((label, shown, toks, group_key(shown)))
     return out
+
+
+def _overlap(probes, name: str) -> tuple[float, str] | None:
+    """가장 많이 겹치는 이름의 (점수, 까닭). 같은 이름 열쇠면 1. 기준 제목·사업명은 3할 이상 겹칠 때만."""
+    from zzaimy.app.program_names import display_name, group_key
+
+    shown = display_name(name or "")
+    theirs, key = _tokens(shown), group_key(shown)
+    best = None
+    for label, p_shown, toks, p_key in probes:
+        if p_key and p_key == key:
+            cand = (1.0, f"{label} 일치: {p_shown[:30]}")
+        else:
+            common = toks & theirs
+            share = len(common) / max(len(toks), 1)
+            if not common or (label != "이름" and share < NAME_SHARE_MIN):
+                continue
+            cand = (share, f"{label} 같은 낱말: " + "·".join(sorted(common)[:6]))
+        if best is None or cand[0] > best[0]:
+            best = cand
+    return best
 
 
 def _visible_counts(db, project_ids: list[int], scope: dict | None) -> dict[int, int]:
@@ -69,19 +111,11 @@ def candidates(db, project: dict, q: str = "", scope: dict | None = None, limit:
 
     프로젝트 이름만 보면 「인공지능 분야 계획서」처럼 사업명이 이름에 없을 때 후보가 없다 — 프로젝트에 이은 공고·기준의 제목과
     문서에서 읽은 사업명도 같은 방식(글자 조각 겹침, 같은 이름 열쇠면 바로 일치)으로 견준다. 사업 이름은 코드에 두지 않는다."""
-    from zzaimy.app.program_names import display_name, group_key
-
     with db._conn() as conn:
         rows = [dict(r) for r in conn.execute("SELECT id, name, program FROM projects WHERE archived = 1 AND id <> ?",
                                               (int(project["id"]),)).fetchall()]
     linked = {r["ref_project_id"] for r in list_refs(db, int(project["id"]), None)}
-    sources = [("이름", project.get("name") or "")] + [("기준·사업명", n) for n in (names or []) if (n or "").strip()]
-    probes = []
-    for label, raw in sources:
-        shown = display_name(raw)
-        grams = _grams(shown)
-        if grams:
-            probes.append((label, shown, grams, group_key(shown)))
+    probes = _probes(project.get("name") or "", names)
     picked = []
     for r in rows:
         if r["id"] in linked:
@@ -91,21 +125,7 @@ def candidates(db, project: dict, q: str = "", scope: dict | None = None, limit:
                 continue
             score, why = 1.0, f"검색어 「{q.strip()[:20]}」"
         else:
-            theirs_name = display_name(r["name"] or "")
-            theirs = _grams(theirs_name)
-            best = None
-            for label, shown, grams, key in probes:
-                if key and key == group_key(theirs_name):
-                    cand = (1.0, f"{label} 일치: {shown[:30]}")
-                else:
-                    common = grams & theirs
-                    share = len(common) / max(len(grams), 1)
-                    # 기준 제목·사업명은 길고 일반어가 섞여 조각 한두 개는 우연히 겹친다 — 3할 이상 겹칠 때만 후보로
-                    if not common or (label != "이름" and share < NAME_SHARE_MIN):
-                        continue
-                    cand = (share, f"{label} 겹침: " + "·".join(sorted(common)[:6]))
-                if best is None or cand[0] > best[0]:
-                    best = cand
+            best = _overlap(probes, r["name"] or "")
             if best is None:
                 continue
             score, why = best
@@ -258,7 +278,7 @@ def ongoing(period: tuple[int, int | None] | None, years: set[int], this_year: i
 
 
 def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: str = "", unit: str = "",
-           for_project: int | None = None, limit: int = 200, sort: str = "") -> dict:
+           for_project: int | None = None, limit: int = 200, sort: str = "", names: list[str] | None = None) -> dict:
     """통합 프로젝트 찾기 — 진행 중(본인 것)·보관(문서 열람 권한 기준)을 사업명·수행 연도·사업단·상태로.
 
     돌려주는 것 {"items": [{id, name, status, year, round, when, group, group_name, program, units, n_docs, why, linked}],
@@ -328,19 +348,21 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
     counts = _visible_counts(db, [r["id"] for r in keep], scope)
     units = _units(db, [r["id"] for r in keep])
     linked: set[int] = set()
-    mine: set[str] = set()
+    probes: list = []
     if for_project:
         linked = {x["ref_project_id"] for x in list_refs(db, int(for_project))}
         proj = next((r for r in rows if r["id"] == int(for_project)), None)
-        mine = _grams((proj or {}).get("name") or "")
+        probes = _probes((proj or {}).get("name") or "", names)
     want_y, want_r, want_none = year_option(year)
     pool = []
     for r in keep:
+        if for_project and r["id"] == int(for_project):
+            continue                                   # 연결하려는 프로젝트 자신은 후보가 아니다
         n = counts.get(r["id"], 0)
         if r["status"] == "archived" and not n:
             continue                                   # 볼 수 있는 문서가 없는 보관 묶음은 이름도 보이지 않는다
         us = units.get(r["id"], [])[:3] if r["status"] == "archived" else ([r["unit"]] if r.get("unit") else [])
-        common = sorted(mine & _grams(r["name"] or "")) if mine else []
+        hit = _overlap(probes, r["name"] or "") if probes else None
         when = (f"{r['year']}" + (f" · {r['round']}차년도" if r["round"] else "")) if r["year"] else \
             (f"{r['round']}차년도 (연도 미상)" if r["round"] else "연도 미상")
         future = bool(r["year"]) and int(r["year"]) > this_year         # 올해 뒤 연도 — 그 해 계획 자료다
@@ -352,8 +374,8 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
                      "ongoing": r["status"] == "archived" and ongoing(periods.get(base), prog_years.get(base, set()), this_year),
                      "group": base if base and r["status"] == "archived" else f"project:{r['id']}",
                      "group_name": _group_name(r["name"] or "") if r["status"] == "archived" else (r["name"] or ""),
-                     "units": us, "n_docs": n, "why": ("이름 겹침: " + "·".join(common[:6])) if common else "",
-                     "linked": r["id"] in linked, "score": len(common) / max(len(mine), 1) if mine else 0.0})
+                     "units": us, "n_docs": n, "why": hit[1] if hit else "",
+                     "linked": r["id"] in linked, "score": hit[0] if hit else 0.0})
 
     def year_ok(it):
         if want_none:                                  # 「연도 미상」 하나 — 연차만 아는 묶음도 연도는 모른다

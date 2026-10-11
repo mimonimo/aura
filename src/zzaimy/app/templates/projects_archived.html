@@ -12,7 +12,7 @@
     <p class="browser-intro">내 프로젝트와 보관된 사업 자료를 사업 단위로 찾기</p></div>
   </div>
   {% if for_project %}
-  <div class="browser-context"><span>현재 프로젝트에 연결할 과거 사업을 선택하세요.</span><a class="browser-action" href="/project/{{ for_project }}#paneRefs">지침·기준으로 돌아가기</a></div>
+  <div class="browser-context"><span>현재 프로젝트에 연결할 과거 사업을 선택하세요.</span><a class="browser-action" href="/project/{{ for_project }}#paneRefs">프로젝트로 돌아가기</a></div>
   {% endif %}
   <form id="browserForm" class="browser-filters" method="get" action="/projects/archived" role="search">
     {% if for_project %}<input type="hidden" name="for_project" value="{{ for_project }}">{% endif %}

@@ -19,7 +19,7 @@ GROUPS = (("attached", "첨부 문서"), ("reference", "참고 문서"), ("rules
 # 근거 기준이 되는 서류 갈래(doc_routing.KINDS 의 열쇠) — 공고·지침·심사 기준·규정·기본계획
 CRITERIA_KINDS = frozenset({"announcement", "guideline", "criteria", "regulation", "basic_plan"})
 GROUP_LABELS = dict(GROUPS)
-AGENT_NOTE = "에이전트가 불러옴"
+AGENT_NOTE = "에이전트 참고"                # 에이전트가 답·초안의 근거로 불러온 문서(어떻게 찾았는지는 화면에 보이지 않는다)
 REFERENCE_LIMIT = 40
 
 
@@ -116,10 +116,10 @@ def collect(db, project: dict | None = None, session_id: int | None = None, *,
         if len(groups["reference"]) >= REFERENCE_LIMIT:
             break
         _add(_doc(did), "reference", "작업 원본으로 불러옴")
-    for did, origin in agent_doc_ids(db, sids):
+    for did, _origin in agent_doc_ids(db, sids):
         if len(groups["reference"]) >= REFERENCE_LIMIT:
             break
-        _add(_doc(did), "reference", AGENT_NOTE + (f" · {origin}" if origin else ""))
+        _add(_doc(did), "reference", AGENT_NOTE)
     return groups
 
 

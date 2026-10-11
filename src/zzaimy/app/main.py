@@ -6607,7 +6607,8 @@ def create_app(
                 raise HTTPException(404)
         status = status if status in ("archived", "active", "all") else "all"
         q = (q or "").strip()[:200]
-        data = project_refs.browse(db, _ref_scope(request), q, status, year, unit, for_project, sort=sort)
+        names = _ref_names(_doc_groups(request, fp)) if for_project is not None else None
+        data = project_refs.browse(db, _ref_scope(request), q, status, year, unit, for_project, sort=sort, names=names)
         y, r, none = project_refs.year_option(year)
         year = "none" if none else (f"r{r}" if r is not None else y)
         year_label = "연도 미상" if none else (f"{r}차년도" if r is not None else y)

@@ -47,11 +47,10 @@
 </style>
 {% endblock %}
 {% block content %}
-<header class="space-intro"><h1>라이브러리</h1></header>
+<header class="space-intro"><h1>{{ library_tabs.criteria }}</h1></header>{# 라이브러리 탭마다 H1 은 그 탭 이름(등록 문서 화면과 같은 짜임) #}
 {% include "_library_tabs.html" %}
 
 <div class="criteria-hero">
-  <h2>기준 문서</h2>
   <p class="muted">기준 문서로 등록한 공고·규정·지침·평가 기준입니다. 검토와 초안 작성의 근거로 씁니다.
     등록하지 않은 공고·규정은 <a href="/?type=all">{{ library_tabs.docs }}</a> 탭에서 문서 종류로 찾습니다.</p>
   <div class="hero-row">

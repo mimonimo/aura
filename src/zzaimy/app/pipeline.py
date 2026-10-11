@@ -1706,9 +1706,9 @@ class DocumentProcessor:
         spacing_needed = getattr(parsed, "parser", "") == "mineru"
 
         def mk(t: str) -> str:
-            from zzaimy.app.text_repair import collapse_split_numbering
+            from zzaimy.app.text_repair import normalize_numbering
 
-            t = collapse_split_numbering(t)                  # 「번호 제목 / 번호 / 제목」으로 겹쳐 읽힌 상자 제목은 한 줄로
+            t = normalize_numbering(t)                  # 「번호 제목 / 번호 / 제목」으로 겹쳐 읽힌 상자 제목은 한 줄로
             if spacing_needed:
                 # OCR이 떨어뜨린 어절 공백 복원 후 마스킹 — 원본의 디지털 재구성
                 from zzaimy.app.regulations import restore_spacing
@@ -2755,9 +2755,9 @@ class DocumentProcessor:
                             ensure_ascii=False,
                         ),
                     )
-            from zzaimy.app.text_repair import collapse_split_numbering
+            from zzaimy.app.text_repair import normalize_numbering
 
-            review_input = collapse_split_numbering(masked.text)     # 번호·제목이 겹쳐 읽힌 줄은 한 번만(검토 의견이 겹친 번호를 인용하지 않게)
+            review_input = normalize_numbering(masked.text)     # 번호·제목이 겹쳐 읽힌 줄은 한 번만(검토 의견이 겹친 번호를 인용하지 않게)
             if reg_context:
                 review_input = f"{review_input}\n\n{reg_context}"
             review_input += _guidance_block(db, project)

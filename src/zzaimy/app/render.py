@@ -61,10 +61,10 @@ def table_html(content: str) -> Markup:
         return Markup('<pre class="doc-text">{}</pre>').format(content)
 
     rows: dict[int, list] = defaultdict(list)
-    from zzaimy.app.text_repair import collapse_split_numbering
+    from zzaimy.app.text_repair import normalize_numbering
 
     for r, c, rs, cs, hd, txt in cells:
-        rows[int(r)].append((int(c), int(rs), int(cs), bool(hd), collapse_split_numbering(str(txt))))
+        rows[int(r)].append((int(c), int(rs), int(cs), bool(hd), normalize_numbering(str(txt))))
 
     # 목차 표 감지 — 점선 리더(····)+쪽번호 셀이 많으면 표 대신 목차로 그린다
     all_texts = [str(t) for *_, t in cells if str(t).strip()]
@@ -401,11 +401,18 @@ def chunk_blocks(
                 ).format(doc_id, c["id"])
             blocks.append(block + Markup("</div>"))
         elif c["kind"] == "heading":
-            blocks.append(Markup('<h4 class="extract-h"{}>{}</h4>').format(at, _rich(c["content"])))
-        else:
-            from zzaimy.app.text_repair import collapse_split_numbering
+            from zzaimy.app.text_repair import normalize_numbering
 
-            blocks.append(Markup('<p class="extract-p"{}>{}</p>').format(at, _rich(collapse_split_numbering(c["content"]))))
+            head = normalize_numbering(c["content"])
+            if _empty_field(head.strip()):
+                # 값이 빈 양식 칸 제목(「1.11. ○○명 :」) — 본문에는 두되 목차(h4)에는 올리지 않는다
+                blocks.append(Markup('<p class="extract-p extract-field"{}>{}</p>').format(at, _rich(head)))
+            else:
+                blocks.append(Markup('<h4 class="extract-h"{}>{}</h4>').format(at, _rich(head)))
+        else:
+            from zzaimy.app.text_repair import normalize_numbering
+
+            blocks.append(Markup('<p class="extract-p"{}>{}</p>').format(at, _rich(normalize_numbering(c["content"]))))
     return blocks
 
 
