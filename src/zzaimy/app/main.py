@@ -1513,8 +1513,10 @@ def create_app(
                     t_, o_ = gdocs_agent.run(db, session_id, owner, cmd, link, client=client, data_dir=data_dir, scrub=_scrub_internal,
                                              evidence=m["criteria"], confirm=confirm, materials=materials_,
                                              focus=sec, references=refs, before_apply=before_apply, figure_folder=fig_folder)
-                    used = ", ".join(f"{p_['title'][:18]}({p_['how']})" for p_ in m["past"]) or "없음"
-                    parts_.append(f"[{sec['heading'][:40]}]\n{t_}\n재료 — 지난 자료: {used} · 기준 조각 {len(m['criteria'])}건")
+                    # 사용자에게는 참고한 자료 이름만 — 「낱말 겹침」「기준 조각 0건」 같은 내부 말이 답에 그대로 보였다(10/11)
+                    titles_ = list(dict.fromkeys(p_["title"] for p_ in m["past"] if p_.get("title")))
+                    used = ", ".join(f"「{t[:30]}」" for t in titles_[:4]) + (f" 외 {len(titles_) - 4}건" if len(titles_) > 4 else "")
+                    parts_.append(f"[{sec['heading'][:40]}]\n{t_}" + (f"\n참고한 자료: {used}" if used else ""))
                     # 정답지(같은 절이 있는 완성본)와 견준 반영률 — 초안이 넣은 글 대 그 절의 핵심 사실(수치·고유명사)
                     if refs and o_:
                         draft_text = "\n".join(str(o.get("text") or "") for o in o_) + "\n" + "\n".join(
