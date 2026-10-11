@@ -8,7 +8,7 @@
 # 사용 (맥에서):  bash scripts/110_serving_check.sh
 set -uo pipefail
 VM=aura@192.168.16.226
-THOR_HOST=<토르03 주소>
+THOR_HOST=${THOR03_SSH#*@}
 fail=0
 
 echo "[$(date +%T)] 1/3 토르 서비스"

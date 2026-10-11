@@ -32,7 +32,7 @@ from zzaimy.app.db import Database  # noqa: E402
 from zzaimy.graph import programs  # noqa: E402
 
 KEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_ro")
-REMOTE = "aura@<DGX 주소>:"
+REMOTE = os.environ.get("ZZAIMY_DGX_SSH", "") + ":"          # DGX 계정@주소 — .env.local(공개 저장소에 주소를 두지 않는다)
 RSH = f"ssh -i {KEY} -p 8022 -o BatchMode=yes"
 _LINE = re.compile(r"^-\S+\s+([\d,]+)\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(.+)$")
 PRI = {"evaluation": 0, "plan": 1, "report": 2, "basic_plan": 3, "announcement": 4, "criteria": 5, "guideline": 6}
@@ -103,7 +103,7 @@ def push_uploads(db, origins: dict[str, int], cards=None) -> None:
         return
     lst = docs_root / ".push-from"
     lst.write_text("\n".join(t[2] for t in todo) + "\n", encoding="utf-8")
-    r = subprocess.run(["rsync", "-e", UPRSH, "-a", "--files-from", str(lst), str(docs_root) + "/", "aura@<DGX 주소>:./"],
+    r = subprocess.run(["rsync", "-e", UPRSH, "-a", "--files-from", str(lst), str(docs_root) + "/", REMOTE + "./"],
                        capture_output=True)
     if r.returncode != 0:
         print("업로드 원본 DGX 올리기 실패:", r.stderr.decode("utf-8", "replace")[-200:], flush=True)
@@ -151,7 +151,7 @@ def import_parsed() -> None:
     dest = ROOT / "data" / "inbox" / "parsed"
     dest.mkdir(parents=True, exist_ok=True)
     r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} -p 8022 -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--exclude=*",
-                        "aura@<DGX 주소>:./", str(dest) + "/"], capture_output=True)
+                        REMOTE + "./", str(dest) + "/"], capture_output=True)
     if r.returncode != 0:
         print("DGX 처리 결과 받기 실패:", r.stderr.decode("utf-8", "replace")[-160:], flush=True)
         return

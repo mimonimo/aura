@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # ②ZZAIMY-Rerank 학습 — 토르 GPU 에서 bge-reranker-v2-m3 를 우리 질의로 맞춘다.
 #
 # 절대규칙 2: 베이스라인 먼저. 베이스라인은 운영과 같은 조건(GPU·512토큰·문서 이름 포함)에서
@@ -12,7 +14,7 @@
 # 사용 (맥에서):  bash scripts/104_train_rerank_on_thor.sh [에폭수]
 set -euo pipefail
 VM=aura@192.168.16.226
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 EPOCHS="${1:-2}"

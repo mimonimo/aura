@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # 조각별 질문(111 산출물)을 토르 GPU 로 임베딩해 보조 색인을 만든다.
 #
 # 규칙: **조각 색인과 같은 모델로** 만들어야 한다(같은 벡터 공간이어야 질의와 비교된다).
@@ -8,7 +10,7 @@
 # 사용 (맥에서):  bash scripts/112_question_index_on_thor.sh [--apply]
 set -euo pipefail
 VM=aura@192.168.16.226
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 MODEL="${MODEL:-/models/zzaimy-embed-v2}"

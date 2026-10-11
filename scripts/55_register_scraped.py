@@ -16,7 +16,7 @@ import subprocess
 import time
 from pathlib import Path
 
-BASE = "https://<DGX 예비 주소>:8800"
+BASE = "https://<옛 Spark 주소>:8800"
 PAGES = Path("data/scraped/pages")
 FILES = Path("data/scraped/files")
 

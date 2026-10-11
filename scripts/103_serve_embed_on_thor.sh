@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # ①ZZAIMY-Embed 질의 임베딩 서빙 — 검색 때마다 도는 임베딩을 토르 GPU 로 옮긴다.
 #
 # 왜: 조각 벡터는 배치로 미리 만들어 두지만(96), 질의 벡터는 검색마다 새로 만든다.
@@ -9,7 +11,7 @@
 #
 # 사용 (맥에서):  bash scripts/103_serve_embed_on_thor.sh [포트]
 set -euo pipefail
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8014}"
@@ -79,7 +81,7 @@ from zzaimy.app import embed_search
 
 texts = ['산학협력단 업무분장', '연구비 정산 절차는 어떻게 되나요', '지방대학 특성화 사업 신청 자격']
 local = embed_search.embed_texts(texts)
-req = urllib.request.Request(f\"http://<토르03 주소>:{os.environ['PORT']}/embed\",
+req = urllib.request.Request(f\"http://${THOR03_SSH#*@}:{os.environ['PORT']}/embed\",
                              data=json.dumps({'texts': texts}).encode(),
                              headers={'Content-Type': 'application/json'})
 remote = np.array(json.load(urllib.request.urlopen(req, timeout=30))['vectors'])
@@ -90,4 +92,4 @@ else:
     print('코사인', [round(c, 5) for c in cos], '→ 최소', round(min(cos), 5))
 PY"
 echo
-echo "VM 적용: .env.local 에 ZZAIMY_EMBED_URL=http://<토르03 주소>:$PORT/embed 를 넣고 서비스를 재시작하십시오."
+echo "VM 적용: .env.local 에 ZZAIMY_EMBED_URL=http://${THOR03_SSH#*@}:$PORT/embed 를 넣고 서비스를 재시작하십시오."

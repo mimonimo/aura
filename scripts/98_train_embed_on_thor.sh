@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # ZZAIMY-Embed 학습 — 토르 GPU 에서 KURE-v1 을 대조학습(MNR)하고 홀드아웃으로 개선폭을 잰다.
 #
 # 절대규칙 2(베이스라인 먼저)를 지킨다: 같은 홀드아웃에서 베이스 모델 점수를 먼저 재고,
@@ -11,7 +13,7 @@
 # 사용 (맥에서):  bash scripts/98_train_embed_on_thor.sh [에폭수]
 set -euo pipefail
 VM=aura@192.168.16.226
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 EPOCHS="${1:-2}"

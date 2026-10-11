@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # ①ZZAIMY-Embed v2 — 오답을 '운영 하이브리드가 실제로 올린 후보'에서 뽑아 다시 학습한다.
 #
 # v1 의 실패에서 배운 것(2026-09-20): 조밀 검색 단독 홀드아웃은 올랐는데(R@5 0.722→0.811)
@@ -11,7 +13,7 @@
 # 사용 (맥에서):  bash scripts/108_train_embed_v2_on_thor.sh [에폭수]
 set -euo pipefail
 VM=aura@192.168.16.226
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 EPOCHS="${1:-2}"

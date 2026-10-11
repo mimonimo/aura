@@ -6,7 +6,9 @@
 #
 # 사용 (맥에서):  bash scripts/117_serve_writer_on_thor02.sh [포트]
 set -euo pipefail
-THOR=thor-02@<토르02 주소>
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+THOR=${THOR02_SSH:?.env.local 에 THOR02_SSH=계정@주소}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8001}"
@@ -32,6 +34,6 @@ for i in $(seq 1 60); do
   sleep 15
 done
 echo "[$(date +%T)] VM 에서 닿는지 확인"
-ssh -o BatchMode=yes aura@192.168.16.226 "curl -s -m 5 http://<토르02 주소>:$PORT/v1/models | head -c 160 || echo '닿지 않음'"
+ssh -o BatchMode=yes aura@192.168.16.226 "curl -s -m 5 http://${THOR02_SSH#*@}:$PORT/v1/models | head -c 160 || echo '닿지 않음'"
 echo
 echo "다음: 화면의 '단계별 모델' 에서 문서 작업을 토르 02 · zzaimy-writer 로 지정하십시오."

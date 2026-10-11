@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # KURE-v2(다중 벡터, ColBERT 계열) 색인을 토르 03 GPU 로 만든다 — ADR-0022 의 "바꾼다면" 조건을 재기 위한 준비.
 #
 # 왜 별도 색인인가: 지금 운영 색인(96)은 조각당 벡터 하나(1024차원)를 코사인으로 견준다. KURE-v2 는 조각의
@@ -14,7 +16,7 @@
 # 산출: 토르 ~/zzaimy/index/kure2/{tokens.npy(fp16 [N,L,128]), lens.npy, ids.npy, meta.json}
 set -euo pipefail
 VM=aura@192.168.16.226
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 MODEL="${MODEL:-/models/KURE-v2}"

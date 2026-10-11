@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # KURE-v2 다중 벡터 검색 서비스 — 128 이 만든 색인을 GPU 에 올려 놓고 질의마다 MaxSim 으로 순위를 낸다.
 # 운영 검색(어휘 + 임베딩 :8016 + 리랭커 :8015)과 나란히 두는 비교용 서비스다. 채택 전에는 운영이 부르지 않는다.
 #
@@ -6,7 +8,7 @@
 #       POST /score {"query": "...", "ids": [...]} → {"scores": [...]}   (후보 재정렬 비교용)
 # 사용 (맥에서):  bash scripts/129_serve_kure2_on_thor.sh [포트=8017]
 set -euo pipefail
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8017}"

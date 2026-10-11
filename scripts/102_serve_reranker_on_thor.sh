@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # ②ZZAIMY-Rerank 서빙 — 리랭커를 토르 GPU 에 올린다. VM 은 점수만 물어 온다.
 #
 # 왜: 운영 VM(CPU)에서 리랭킹은 질의당 3.75초이고, 쌍 길이를 256 토큰으로 줄여 놨는데
@@ -11,7 +13,7 @@
 #
 # 사용 (맥에서):  bash scripts/102_serve_reranker_on_thor.sh [포트]
 set -euo pipefail
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8013}"
@@ -78,6 +80,6 @@ for i in $(seq 1 40); do
   sleep 5
 done
 echo "[$(date +%T)] VM 에서 닿는지 확인"
-ssh -o BatchMode=yes aura@192.168.16.226 "curl -s -m 5 http://<토르03 주소>:$PORT/health || echo '닿지 않음 — 방화벽 확인'"
+ssh -o BatchMode=yes aura@192.168.16.226 "curl -s -m 5 http://${THOR03_SSH#*@}:$PORT/health || echo '닿지 않음 — 방화벽 확인'"
 echo
-echo "VM 적용: .env.local 에 ZZAIMY_RERANK_URL=http://<토르03 주소>:$PORT/score 를 넣고 서비스를 재시작하십시오."
+echo "VM 적용: .env.local 에 ZZAIMY_RERANK_URL=http://${THOR03_SSH#*@}:$PORT/score 를 넣고 서비스를 재시작하십시오."

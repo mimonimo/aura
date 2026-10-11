@@ -10,10 +10,12 @@
 #   HOST=thor-03 MODEL=/models/Qwen3.8-27B-NVFP4 PORT=8001 bash scripts/126_serve_writer.sh
 #   HOST=thor-02 MODEL=/models/Qwen3.8-27B       PORT=8001 bash scripts/126_serve_writer.sh   # 지금 판(117 과 같음)
 set -euo pipefail
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 HOST="${HOST:-thor-02}"
 case "$HOST" in
-  thor-02) THOR=thor-02@<토르02 주소>; IP=<토르02 주소> ;;
-  thor-03) THOR=thor-03@<토르03 주소>; IP=<토르03 주소> ;;
+  thor-02) THOR=${THOR02_SSH:?.env.local 에 THOR02_SSH=계정@주소}; IP=${THOR02_SSH#*@} ;;
+  thor-03) THOR=${THOR03_SSH:?.env.local 에 THOR03_SSH=계정@주소}; IP=${THOR03_SSH#*@} ;;
   *) echo "HOST 는 thor-02 또는 thor-03" >&2; exit 2 ;;
 esac
 TP=8022

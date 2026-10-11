@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # 규정 조각 임베딩을 젯슨 토르 GPU 로 계산한다 — 52_embed_chunks.py 의 GPU 판.
 #
 # 왜: VM CPU 로는 조각 3,603개에 한 시간이 넘게 걸린다(2026-09-20 실측). 토르는 서비스 포트를
@@ -13,7 +15,7 @@
 #   bash scripts/96_embed_on_thor.sh [--apply]      # --apply 없으면 대조까지만 하고 바꾸지 않는다
 set -euo pipefail
 VM=aura@192.168.16.226
-THOR=thor-03@<토르03 주소>
+THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
 TP=8022
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 APPLY="${1:-}"

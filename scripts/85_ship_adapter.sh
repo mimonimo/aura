@@ -1,4 +1,6 @@
 #!/bin/bash
+# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다(10/11)
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
 # 학습 결과(LoRA 어댑터)를 서빙 장비(젯슨 토르)로 옮긴다.
 #
 # 83_sft_writer_qlora.py 가 만든 폴더를 그대로 보낸다. 어댑터만 보내므로 수백 MB 다.
@@ -6,7 +8,7 @@
 # 무엇을 학습했는지 추적할 수 있게 manifest.json(보낸 시각·원본 경로·파일 해시)을 함께 둔다.
 #
 # 사용 (학습 장비에서):
-#   bash scripts/85_ship_adapter.sh data/train/writer-qlora writer-sft-01 thor-03@<토르03 주소>
+#   bash scripts/85_ship_adapter.sh data/train/writer-qlora writer-sft-01 ${THOR03_SSH:?.env.local 의 THOR03_SSH}
 set -euo pipefail
 
 SRC="${1:?어댑터 폴더}"

@@ -39,7 +39,7 @@ def fetch(row: dict) -> Path:
         with tempfile.TemporaryDirectory(prefix="zzaimy-original-transfer-") as directory:
             subprocess.run(
                 ["rsync", "-e", rsh, "-t", "--no-links", "--max-size=100000000",
-                 "--from0", "--files-from=-", "--", "aura@<DGX 주소>:./", directory + "/"],
+                 "--from0", "--files-from=-", "--", os.environ.get("ZZAIMY_DGX_SSH", "") + ":./", directory + "/"],
                 input=rel.encode("utf-8") + b"\0", stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, timeout=transfer_timeout(size), check=True,
             )
