@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 import time
 from collections import Counter
@@ -31,14 +30,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from zzaimy.app import archive_state  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 
-DOC_EXT = {"hwp", "hwpx", "pdf", "docx", "xlsx", "pptx", "xls", "doc", "ppt"}
+DOC_EXT = set(archive_state.DOC_EXT)       # 처리 대상·범위 밖·상한은 원본 보관소 화면과 같은 기준(app/archive_state)
 IMG_EXT = {"jpg", "jpeg", "png", "bmp", "gif", "tif", "tiff", "heic", "webp"}
 ARC_EXT = {"zip", "7z", "rar", "egg", "alz"}
-OUT_OF_SCOPE = re.compile(r"지출|증빙|스캔|영수|정산|집행")      # 절대 규칙 11 — DGX 주기 처리(zz_dgx_cycle.sh)와 같은 기준
+OUT_OF_SCOPE = archive_state.OUT_OF_SCOPE      # 절대 규칙 11 — DGX 주기 처리(zz_dgx_cycle.sh)와 같은 기준
 LAG_H = 6
-MAX_PARSE_BYTES = 300 * 1024 * 1024        # scripts/167 MAX_BYTES 와 같다
+MAX_PARSE_BYTES = archive_state.MAX_PARSE_BYTES
 PLAT = ROOT / "data" / "platform"
 
 

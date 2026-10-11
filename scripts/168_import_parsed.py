@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from zzaimy.app import archive, rag_spaces  # noqa: E402
+from zzaimy.app import archive, archive_state, rag_spaces  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 
 
@@ -127,6 +127,10 @@ def main() -> int:
             # 실패도 남긴다 — 연동 점검(175)이 「결과 없음(놓침)」과 「실패(사유 있음)」를 가른다
             fails.write(json.dumps({"rel": rel, "version": ver, "state": state, "error": str(rec.get("error") or "")[:200],
                                     "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
+            try:                                   # 원본 보관소의 처리 상태 「실패」 — 같은 기준(app/archive_state)
+                archive_state.mark_failures(db, {rel: str(rec.get("error") or state)})
+            except Exception:
+                pass                               # 장부 잠금 중이면 다음 실행의 채우기(archive_state --mark-failures)가 맞춘다
             continue
         # 원본 장부의 현재 판과 같은 기록만 적용 — 여러 결과 파일에 옛 판이 뒤늦게 읽혀도 되돌리지 않는다.
         # 장부가 아직 새 판을 모르면(목록 갱신 전) 여기서는 건너뛰고, 바뀐 원본은 170 의 원본 장부 대조(changed)가 다시 처리한다

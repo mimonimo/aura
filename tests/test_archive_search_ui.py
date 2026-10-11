@@ -1,4 +1,6 @@
-"""DGX 원본 보관소 「원본 찾기」 — 조건(사업 이름·연도·연차·형식·연결)·정렬·쪽 넘김·조건 칩·결과 칸만 다시 그리기."""
+"""원본 보관소 — 사업 → 사업 연도 → 문서 종류 훑기, 겹치는 조건(사업·연도·종류·형식·처리 상태·검색), 쪽 넘김, 표시 이름.
+
+사업 이름은 합성 이름이다(규칙이 특정 사업에 묶이지 않았는지 본다)."""
 
 import re
 
@@ -6,103 +8,168 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.test_accounts import _app, _login
-from zzaimy.app import archive, archive_view
+from zzaimy.app import archive, archive_state, archive_view
+
+LINKED = "은하수/2031/1차년도/계획서/은하수_개척_사업계획서.hwp"
 
 
 def _rows():
     rows = [
-        {"rel": "링크/LINC3.0 모음/2022/1차년도/계획서/LINC 사업계획서.hwp", "size": 2_500_000, "mtime": 1, "ext": "hwp",
-         "program": "program:linc30", "program_name": "LINC3.0 육성사업", "kind": "plan", "year": 2022, "round": 1},
-        {"rel": "링크/LINC3.0 모음/2023/2차년도/보고/LINC 실적보고서.pdf", "size": 900, "mtime": 1, "ext": "pdf",
-         "program": "program:linc30", "program_name": "LINC3.0 육성사업", "kind": "report", "year": 2023, "round": 2},
-        {"rel": "앵커/RISE/공고 100%_안내.pdf", "size": 40, "mtime": 1, "ext": ".PDF",
-         "program": "program:rise", "program_name": "RISE사업", "kind": "notice", "year": 2024},
-        {"rel": "기타/분류 전/메모.txt", "size": 10, "mtime": 1, "ext": "txt"},
+        {"rel": LINKED, "size": 2_500_000, "mtime": 1, "ext": "hwp", "status": "auto",
+         "program": "program:a", "program_name": "은하수 개척 사업", "kind": "plan", "year": 2031, "round": 1},
+        {"rel": "은하수/2032/2차년도/보고/은하수 개척 결과보고서.pdf", "size": 900, "mtime": 1, "ext": "pdf", "status": "auto",
+         "program": "program:a", "program_name": "은하수 개척 사업", "kind": "report", "year": 2032, "round": 2},
+        # 이름 표기만 다른 열쇠(앞 부처명) — 같은 사업으로 보인다
+        {"rel": "은하수/채용/01_계약직원 채용 평가기준.hwp", "size": 700, "mtime": 1, "ext": "hwp", "status": "auto",
+         "program": "program:a2", "program_name": "해양미래부 은하수 개척 사업", "kind": "criteria", "year": 2033, "round": 3},
+        {"rel": "은하수/지출/영수증 모음.pdf", "size": 10, "mtime": 1, "ext": "pdf", "status": "folder",
+         "program": "program:a", "program_name": "은하수 개척 사업", "kind": "evidence"},
+        {"rel": "은하수/실패/깨진 문서.hwp", "size": 10, "mtime": 1, "ext": "hwp", "status": "auto",
+         "program": "program:a", "program_name": "은하수 개척 사업", "kind": ""},
+        {"rel": "기타/공고 100%_안내.다운로드", "size": 40, "mtime": 1, "ext": "다운로드",
+         "program": "program:x", "program_name": "통합공고 사업", "kind": "notice"},         # 사업 아닌 이름 → 사업 미분류
+        {"rel": "기타/표지.ai", "size": 10, "mtime": 1, "ext": "ai"},
     ]
-    rows += [{"rel": f"앵커/RISE/사진/{i:03d}.jpg", "size": i, "mtime": 1, "ext": "jpg",
-              "program": "program:rise", "program_name": "RISE사업", "kind": ""} for i in range(60)]
+    rows += [{"rel": f"별빛/사진/{i:03d}.jpg", "size": i, "mtime": 1, "ext": "jpg", "status": "auto",
+              "program": "program:b", "program_name": "별빛 부트랩 사업", "kind": ""} for i in range(61)]
+    rows += [{"rel": f"꼬리/{i}/자료.hwp", "size": 1, "mtime": 1, "ext": "hwp", "status": "auto",
+              "program": f"program:t{i}", "program_name": f"꼬리{chr(0xAC00 + i * 7)}{chr(0xB098 + i)} 지원사업", "kind": "plan"}
+             for i in range(13)]
     return rows
 
 
 @pytest.fixture
 def client(tmp_path):
     app = _app(tmp_path)
-    archive.load(app.state.db, _rows(), origins={"링크/LINC3.0 모음/2022/1차년도/계획서/LINC 사업계획서.hwp": 7})
+    db = app.state.db
+    archive.load(db, _rows(), origins={LINKED: 7})
+    archive_state.mark_failures(db, {"은하수/실패/깨진 문서.hwp": "암호 문서", LINKED: "무시돼야 함"})
     c = TestClient(app)
     assert _login(c, "zzdev", "devpass")
     return c
 
 
-def _names(html: str) -> list[str]:
+def _titles(html: str) -> list[str]:
     return re.findall(r'<span class="ar-name" title="[^"]*">([^<]+)</span>', html)
 
 
-def test_program_picker_is_searchable_and_accepts_name_or_key(client):
+def _count(html: str) -> str:
+    m = re.search(r'<p class="ar-count" role="status">(.*?)</p>', html)
+    return re.sub(r"<[^>]+>", "", m.group(1)) if m else ""
+
+
+def test_page_wording_and_labels(client):
     page = client.get("/archive").text
-    assert 'list="arPrograms"' in page and '<option value="LINC3.0 육성사업">' in page
-    assert '<select name="program"' not in page and 'name="program" value=""' in page   # 미분류(빈 열쇠)가 기본값으로 들어가지 않게
-    by_key = _names(client.get("/archive?program=program:linc30").text)
-    assert by_key == _names(client.get("/archive?program=LINC3.0 육성사업").text)
-    assert by_key == _names(client.get("/archive?program=linc").text)          # 이름 일부·대소문자 무관
-    assert sorted(by_key) == ["LINC 사업계획서.hwp", "LINC 실적보고서.pdf"]
-    assert 'value="LINC3.0 육성사업"' in client.get("/archive?program=program:linc30").text   # 열쇠로 와도 칸에는 이름
-    assert "조건에 맞는 파일이 없습니다" in client.get("/archive?program=없는사업").text
+    assert "<title>" in page and "DGX" not in page
+    assert "원본 보관소" in page and "학교 문서 원본을 모아 둔 곳입니다" in page
+    assert "문서함 연결 수는 등록된 문서 수와 다를 수 있습니다" in page
+    for internal in ("플랫폼 원본 대장", "OCR·분석 완료율", "미정", "파일명으로 검색", ">evidence", ">curriculum"):
+        assert internal not in page, internal
+    from zzaimy.app.doc_routing import KINDS
+    assert KINDS["evidence"] in page and KINDS["plan"] in page                     # 라이브러리와 같은 종류 이름
+    kinds = page[page.index('aria-label="문서 종류"'):]
+    kinds = kinds[:kinds.index("</ul>")]
+    assert kinds.rstrip().endswith("</a></li>") and kinds.rindex("분류 전") > kinds.index(KINDS["plan"])   # 분류 전은 끝
+    fmt = page[page.index('name="ext"'):page.index("</select>", page.index('name="ext"'))]
+    assert "AI(일러스트)" in fmt and "다운로드" not in fmt and 'value="hwp"' in fmt
 
 
-def test_quick_filters_and_literal_like(client):
-    assert _names(client.get("/archive?year=2023&q=linc").text) == ["LINC 실적보고서.pdf"]
-    assert _names(client.get("/archive?round=1&q=linc").text) == ["LINC 사업계획서.hwp"]
-    assert sorted(_names(client.get("/archive?ext=pdf").text)) == ["LINC 실적보고서.pdf", "공고 100%_안내.pdf"]
-    assert _names(client.get("/archive?linked=yes").text) == ["LINC 사업계획서.hwp"]
-    assert "LINC 사업계획서.hwp" not in client.get("/archive?linked=no&q=linc").text
-    assert _names(client.get("/archive?q=100%25_").text) == ["공고 100%_안내.pdf"]   # %·_ 는 글자 그대로
-    assert _names(client.get("/archive?q=1_0").text) == []
-    assert _names(client.get("/archive?q=실적 linc").text) == ["LINC 실적보고서.pdf"]   # 여러 낱말은 모두 포함
+def test_program_groups_long_tail_and_unclassified(client):
+    page = client.get("/archive").text
+    table = page[page.index('aria-label="사업별 원본 수"'):]
+    assert "해양미래부" not in table                                                # 앞 부처명만 다른 이름은 한 사업
+    assert re.search(r">은하수 개척 사업</a>.*?<td class=\"num\">5</td>", table, re.S)
+    assert "통합공고 사업" not in page                                              # 사업 아닌 값은 사업 미분류로
+    assert "그 밖의 사업 3개" in page                                               # 상위 12개만 펼침(사업 15개)
+    assert table.index("사업 미분류") > table.index("별빛 부트랩 사업")
+    assert table.count(">파일 보기</a>") == 16                                       # 사업 15 + 미분류 — 모든 줄에 같은 단추
+    assert "/projects/archived?q=" in table                                         # 사업 화면은 프로젝트 검색으로
 
 
-def test_sort_count_and_pagination(client):
-    first = client.get("/archive?program=program:rise").text
-    assert "<strong>61</strong>개 중 1–50" in first and "1 / 2쪽" in first
-    assert len(_names(first)) == 50 and "page=2" in first and "최대 200개" not in first
-    second = client.get("/archive?program=program:rise&page=2").text
-    assert len(_names(second)) == 11 and "51–61" in second
-    assert len(_names(client.get("/archive?program=program:rise&page=99").text)) == 11   # 넘친 쪽은 마지막 쪽
-    by_size = _names(client.get("/archive?q=linc&sort=size").text)
-    assert by_size == ["LINC 사업계획서.hwp", "LINC 실적보고서.pdf"]
-    by_year = _names(client.get("/archive?q=linc&sort=year").text)
-    assert by_year == ["LINC 실적보고서.pdf", "LINC 사업계획서.hwp"]
+def test_browse_levels_and_combined_filters(client):
+    by_name = client.get("/archive?program=해양미래부 은하수 개척 사업").text      # 어떤 표기로 와도 같은 묶음
+    assert _count(by_name) == "5건 중 1–5"
+    assert _count(client.get("/archive?program=program:a2").text) == "5건 중 1–5"   # 장부 열쇠로 와도
+    years = by_name[by_name.index('aria-label="사업 연도"'):by_name.index("</ul>", by_name.index('aria-label="사업 연도"'))]
+    assert "2031년 · 1차년도" in years and "2033년 · 3차년도" in years and "연도 미상" in years
+    assert _titles(client.get("/archive?program=program:a&year=2032").text) == ["은하수 개척 결과보고서"]
+    assert _titles(client.get("/archive?program=program:a&kind=criteria&year=2033").text) == ["01_계약직원 채용 평가기준"]
+    assert _titles(client.get("/archive?program=program:a&kind=none").text) == ["깨진 문서"]
+    assert _count(client.get("/archive?program=none").text) == "2건 중 1–2"
+    assert _titles(client.get("/archive?ext=ai").text) == ["표지.ai"]
+    assert _titles(client.get("/archive?q=결과보고서 은하수").text) == ["은하수 개척 결과보고서"]
+    assert _titles(client.get("/archive?q=100%25_").text) == ["공고 100%_안내.다운로드"]   # %·_ 는 글자 그대로
+    assert _titles(client.get("/archive?q=1_0").text) == []
+
+
+def test_processing_states(client):
+    assert _titles(client.get("/archive?state=registered").text) == ["은하수 개척 사업계획서"]
+    excluded = client.get("/archive?state=excluded&program=program:a").text
+    assert _titles(excluded) == ["영수증 모음"] and "범위 밖 경로" in excluded
+    failed = client.get("/archive?state=failed").text
+    assert _titles(failed) == ["깨진 문서"] and "암호 문서" in failed
+    waiting = client.get("/archive?state=waiting&program=program:a").text
+    assert sorted(_titles(waiting)) == ["01_계약직원 채용 평가기준", "은하수 개척 결과보고서"]
+    states = client.get("/archive?program=program:a").text
+    assert re.search(r"처리 제외\(범위 밖\)<span>1</span>", states) and re.search(r"실패<span>1</span>", states)
+
+
+def test_row_title_tags_and_buttons(client):
+    page = client.get("/archive?state=registered").text
+    row = page[page.index('<li class="ar-row">'):page.index("</li>", page.index('<li class="ar-row">'))]
+    assert "은하수 개척 사업계획서" in row and "은하수_개척" not in row.split("<code>")[0]   # 파일 이름이 아니라 제목
+    assert f"<code>{LINKED}</code>" in row and "… / 2031 / 1차년도 / 계획서" in row
+    assert ">원본 열기</a>" in row and 'href="/doc/7"' in row and ">등록 문서 보기</a>" in row
+    assert ">열기</a>" not in row and ">문서 보기</a>" not in row
+    assert "2.5 MB" in row and "1차년도" in row and "2031년" in row and "폴더 기준" not in row
+    recruit = client.get("/archive?q=채용").text                                     # 파일 이름이 사업을 부르지 않는다
+    assert "폴더 기준" in recruit
+    folder = client.get("/archive?q=영수증").text                                    # 상위 폴더 물려받기
+    assert "폴더 기준" in folder
+
+
+def test_round_converted_year_is_marked_as_program_year(client):
+    page = client.get("/archive?q=채용").text                                        # 경로에 2033 이 없다 → 연차 환산
+    assert "2033년(사업 연도)" in page
+    page = client.get("/archive?state=registered").text                              # 경로에 연도가 있다
+    assert "(사업 연도)" not in page
+
+
+def test_paging(client):
+    first = client.get("/archive?program=별빛 부트랩 사업").text
+    assert _count(first) == "61건 중 1–50" and "1 / 2쪽" in first and len(_titles(first)) == 50
+    second = client.get("/archive?program=별빛 부트랩 사업&page=2").text
+    assert _count(second) == "61건 중 51–61" and len(_titles(second)) == 11
+    assert _count(client.get("/archive?program=별빛 부트랩 사업&page=99").text) == "61건 중 51–61"
+    assert _titles(client.get("/archive?q=은하수&sort=size").text)[0] == "은하수 개척 사업계획서"
 
 
 def test_chips_remove_one_condition_and_keep_others(client):
-    page = client.get("/archive?q=linc&year=2023&sort=size").text
-    chips = dict(re.findall(r'<a class="ar-chip" href="([^"]+)" data-clear="(\w+)"', page))
-    by_key = {v: k.replace("&amp;", "&") for k, v in chips.items()}
-    assert by_key["year"] == "/archive?q=linc&sort=size#archive-search"
-    assert by_key["q"] == "/archive?year=2023&sort=size#archive-search"
-    assert "2023년" in page and "모두 지우기" in page
+    page = client.get("/archive?q=은하수&year=2032&sort=size").text
+    chips = {k: v.replace("&amp;", "&") for v, k in re.findall(r'<a class="ar-chip" href="([^"]+)" data-clear="(\w+)"', page)}
+    assert chips["year"].startswith("/archive?q=") and "sort=size" in chips["year"] and "year" not in chips["year"]
+    assert "year=2032" in chips["q"] and "모두 지우기" in page
 
 
-def test_result_row_layout(client):
-    page = client.get("/archive?q=사업계획서").text
-    row = page[page.index('<li class="ar-row">'):page.index("</li>", page.index('<li class="ar-row">'))]
-    assert 'data-ext="hwp"' in row and ">HWP<" in row
-    assert "… / 2022 / 1차년도 / 계획서" in row                                    # 마지막 폴더 셋
-    assert 'title="링크/LINC3.0 모음/2022/1차년도/계획서/LINC 사업계획서.hwp"' in row  # 전체 경로는 툴팁·펼침
-    assert "LINC3.0 육성사업" in row and "계획서</span>" in row and "1차년도</span>" in row
-    assert "2.5 MB" in row and ">열기</a>" in row and 'href="/doc/7"' in row and "경로 복사" in row
-    assert 'href="/archive/original?rel=' in row
+def test_partial_returns_only_lower_sections(client):
+    part = client.get("/archive?q=은하수&partial=1").text
+    assert 'id="archive-browse"' in part and 'id="archive-list"' in part
+    assert "<html" not in part and 'id="arForm"' not in part and "partial" not in part
 
 
-def test_partial_returns_only_results(client):
-    part = client.get("/archive?q=linc&partial=1").text
-    assert part.lstrip().startswith('<div class="ar-resbar">') and "<html" not in part
-    assert "LINC 실적보고서.pdf" in part and "사업별 보관 현황" not in part
-    assert "partial" not in part                                                   # 공유 주소에 남기지 않는다
+def test_masking_follows_internal_setting(client):
+    from zzaimy.app import privacy_policy
+    db = client.app.state.db
+    archive.load(db, [{"rel": "연락/담당 연락처 010-1234-5678.hwp", "size": 1, "mtime": 1, "ext": "hwp"}])
+    assert "010-1234-5678" in client.get("/archive?q=연락").text                       # 기본은 꺼짐(ADR-0044)
+    privacy_policy.save(db, True, ["KR_PHONE"], "zzdev")
+    page = client.get("/archive?q=연락").text
+    assert "010-1234-5678" not in page.split('href="/archive/original')[0]
 
 
-def test_staff_cannot_open_unlinked_and_hidden_docs_excluded(client, monkeypatch):
+def test_staff_cannot_open_unregistered_and_hidden_docs_excluded(client, monkeypatch):
     assert _login(client, "zzaimy", "boot-pass-1")
-    page = client.get("/archive?q=메모").text
+    page = client.get("/archive?q=깨진").text
     assert "열람 권한 필요" in page and 'href="/archive/original' not in page
     from zzaimy.app import access_policy
     monkeypatch.setattr(access_policy, "visible", lambda *a, **kw: False)
@@ -111,11 +178,17 @@ def test_staff_cannot_open_unlinked_and_hidden_docs_excluded(client, monkeypatch
     assert hidden
     with client.app.state.db._conn() as conn:
         conn.execute("UPDATE archive_files SET doc_id = ? WHERE doc_id = 7", (min(hidden),))
-    page = client.get("/archive?q=linc").text
-    assert _names(page) == ["LINC 실적보고서.pdf"] and "<strong>1</strong>개" in page
+    page = client.get("/archive?q=은하수 개척 사업").text
+    assert _titles(page) == [] and _count(page) == "0건"
 
 
-def test_short_path():
+def test_helpers():
     assert archive_view.short_path("a/b/c/d/e.pdf") == "… / b / c / d"
-    assert archive_view.short_path("a/e.pdf") == "a"
-    assert archive_view.short_path("e.pdf") == ""
+    assert archive_view.short_path("a/e.pdf") == "a" and archive_view.short_path("e.pdf") == ""
+    assert [archive_view.ext_of(x) for x in ("PDF", ".hwpx", "다운로드", "rdf/rds", "", "toolongext", "123")] == \
+        ["pdf", "hwpx", "", "", "", "", ""]
+    assert archive_view.ext_label("ai") == "AI(일러스트)" and archive_view.ext_label("hwp") == "HWP"
+    assert archive_view.kind_label("") == "분류 전"
+    assert archive_view.named_in_file("은하수_개척_계획.hwp", "은하수 개척 사업", [])
+    assert not archive_view.named_in_file("채용 평가기준.hwp", "은하수 개척 사업", [])
+    assert archive_view.named_in_file("ZT3.0 보고.hwp", "은하수 개척 사업", ["ZT 3.0"])
