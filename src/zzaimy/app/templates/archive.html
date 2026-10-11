@@ -16,7 +16,7 @@
 .ar-grid th{font-size:12px;color:var(--muted);font-weight:600}.ar-grid .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;width:90px}
 .ar-grid a{text-decoration:none}.ar-grid td>a:hover{text-decoration:underline}
 .ar-sub{display:block;color:var(--muted);font-size:12px;margin-top:3px}
-.ar-acts{width:220px;white-space:nowrap}.ar-acts{display:grid;grid-template-columns:repeat(2,104px);gap:6px}
+.ar-acts-cell{width:220px}.ar-acts{display:grid;grid-template-columns:repeat(2,104px);gap:6px}.ar-acts .btn{width:100%;box-sizing:border-box}
 .ar-rest{margin-top:8px}.ar-rest summary{cursor:pointer;font-size:13px;color:var(--muted);padding:8px 10px}
 .ar-crumb{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--muted)}.ar-crumb a{text-decoration:none}
 .ar-crumb a:hover{text-decoration:underline}.ar-crumb>:last-child{color:var(--ink);font-weight:600}
@@ -62,7 +62,11 @@
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 @media(max-width:960px){.ar-form{grid-template-columns:repeat(2,minmax(0,1fr))}.ar-more{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.ar-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.ar-summary dd{font-size:23px}.ar-form{grid-template-columns:1fr}
- .ar-acts{grid-template-columns:1fr;width:auto}
+ .ar-grid thead{display:none}.ar-grid,.ar-grid tbody{display:block}
+ .ar-grid tr{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
+ .ar-grid td{padding:0;border:0;min-width:0;overflow-wrap:anywhere}.ar-grid .num{width:auto}
+ .ar-grid .num::before{content:attr(data-label) " ";color:var(--muted);font-size:11px}
+ .ar-acts-cell{grid-column:1/-1;width:auto}.ar-acts{display:flex;flex-wrap:wrap;gap:6px}.ar-acts .btn{width:auto;flex:1 1 120px}
  .ar-row{grid-template-columns:44px minmax(0,1fr);align-items:start}.ar-size{grid-column:2;text-align:left}
  .ar-btns{grid-column:1/-1;display:flex;justify-content:flex-start;flex-wrap:wrap}.ar-slot{display:none}.ar-btns .btn,.ar-locked{flex:1 1 0;min-height:40px}}
 </style>
@@ -79,13 +83,13 @@
   <form id="arForm" method="get" action="/archive#archive-list" role="search" aria-label="원본 찾기">
     <div class="ar-form">
       <label>검색<input name="q" value="{{ f.q }}" placeholder="파일 이름이나 폴더, 여러 낱말 가능" type="search" autocomplete="off"></label>
-      <label>사업<input name="program" value="{{ (no_program if f.program == none else f.program) if f.program else '' }}" list="arPrograms" placeholder="사업 이름 일부" type="search" autocomplete="off"></label>
+      <label>사업<input name="program" value="{{ (no_program if f.program == nokey else f.program) if f.program else '' }}" list="arPrograms" placeholder="사업 이름 일부" type="search" autocomplete="off"></label>
       <datalist id="arPrograms">{% for name in program_names %}<option value="{{ name }}"></option>{% endfor %}<option value="{{ no_program }}"></option></datalist>
       <label>문서 종류<select name="kind"><option value="">전체</option>{% for k in overall.kinds %}<option value="{{ k.value }}" {{ 'selected' if k.value == f.kind }}>{{ k.label }}</option>{% endfor %}</select></label>
       <label>처리 상태<select name="state"><option value="">전체</option>{% for k, label in states.items() %}<option value="{{ k }}" {{ 'selected' if k == f.state }}>{{ label }}</option>{% endfor %}</select></label>
     </div>
     <div class="ar-more">
-      <label>사업 연도<select name="year"><option value="">전체</option>{% for y in overall.years if y.year %}<option value="{{ y.year }}" {{ 'selected' if y.year == f.year }}>{{ y.label if y.year == none else y.year ~ '년' }}</option>{% endfor %}</select></label>
+      <label>사업 연도<select name="year"><option value="">전체</option>{% for y in overall.years if y.year and y.year != nokey %}<option value="{{ y.year }}" {{ 'selected' if y.year == f.year }}>{{ y.year }}년</option>{% endfor %}{% if overall.years|selectattr('year', 'equalto', nokey)|list %}<option value="{{ nokey }}" {{ 'selected' if f.year == nokey }}>연도 미상</option>{% endif %}</select></label>
       <label>형식<select name="ext"><option value="">전체</option>{% for e in exts %}<option value="{{ e.value }}" {{ 'selected' if e.value == f.ext }}>{{ e.label }}</option>{% endfor %}</select></label>
       <label>정렬<select name="sort">{% for k, s in sorts.items() %}<option value="{{ k }}" {{ 'selected' if k == f.sort }}>{{ s[0] }}</option>{% endfor %}</select></label>
       <input type="hidden" name="round" value="{{ f.round }}">
@@ -137,7 +141,7 @@
     if (a.dataset.set !== undefined) {
       e.preventDefault();
       for (const [k, v] of new URLSearchParams(a.dataset.set)) {
-        if (k === 'program') setField(k, v === '{{ none }}' ? '{{ no_program }}' : v); else setField(k, v);
+        if (k === 'program') setField(k, v === '{{ nokey }}' ? '{{ no_program }}' : v); else setField(k, v);
       }
       run();
     } else if (a.dataset.clear) {

@@ -111,12 +111,15 @@ def _ledger() -> dict:
     return _LEDGER["v"]
 
 
-def program_groups(names: dict[str, tuple[str, int]]) -> dict[str, str]:
-    """사업 열쇠 → 보일 사업 이름("" 은 사업 미분류). names: 열쇠 → (장부 이름, 건수)."""
+def program_groups(names: dict[str, tuple[str, int]], surfaces: dict[str, list[str]] | None = None) -> dict[str, str]:
+    """사업 열쇠 → 보일 사업 이름("" 은 사업 미분류). names: 열쇠 → (장부 이름, 건수).
+    surfaces: 열쇠 → 그 사업의 다른 이름·약칭(그래프 노드) — 약칭 오타 판정의 근거로 넘긴다."""
     counts: dict[str, int] = defaultdict(int)
-    for _key, (name, n) in names.items():
+    aliases: dict[str, list[str]] = defaultdict(list)
+    for key, (name, n) in names.items():
         counts[name or ""] += n
-    rep = program_names.group_names(counts, _ledger())
+        aliases[name or ""] += list((surfaces or {}).get(key, []))
+    rep = program_names.group_names(counts, _ledger(), aliases)
     return {key: (rep.get(name or "", "") if key else "") for key, (name, _n) in names.items()}
 
 
@@ -136,6 +139,16 @@ def _surfaces(db, keys: list[str]) -> dict[str, list[str]]:
         acr = p.get("acronyms") or []
         acr = list(acr.keys()) if isinstance(acr, dict) else list(acr)
         out[str(nid)] = [label or ""] + [str(x) for x in (p.get("names") or [])] + [str(x) for x in acr]
+    return out
+
+
+def _key_acronyms(names: dict) -> dict[str, list[str]]:
+    """열쇠가 영문 약칭에서 온 경우(「program:abcd30」) 그 약칭 — 그래프 노드가 없을 때도 오타 판정의 근거가 된다."""
+    out = {}
+    for k in names:
+        m = re.fullmatch(r"program:([a-z][a-z0-9+]{2,15})", k or "")
+        if m:
+            out[k] = [m.group(1).upper()]
     return out
 
 
@@ -172,8 +185,11 @@ def parse_filters(q="", program="", year="", round="", kind="", ext="", state=""
 
 
 def _base_where(f: dict, hidden: set[int]) -> tuple[str, list]:
-    """묶음 수에도 목록에도 거는 조건 — 검색어·형식·권한."""
+    """묶음 수에도 목록에도 거는 조건 — 학교 원본만(archive_state.ORIGINAL_SQL)·검색어·형식·권한."""
     q, args = " WHERE a.removed_at = ''", []
+    orig, orig_args = archive_state.original_sql("a.")
+    q += " AND " + orig
+    args += orig_args
     if f["ext"]:
         q += " AND LOWER(REPLACE(a.ext, '.', '')) = ?"
         args.append(f["ext"])
@@ -202,7 +218,9 @@ def ext_options(db) -> list[dict]:
     """형식 선택지 — 확장자다운 값만, 많은 순."""
     archive.ensure(db)
     with db._conn() as conn:
-        rows = conn.execute("SELECT LOWER(ext), COUNT(*) FROM archive_files WHERE removed_at = '' GROUP BY LOWER(ext)").fetchall()
+        orig, orig_args = archive_state.original_sql()
+        rows = conn.execute(f"SELECT LOWER(ext), COUNT(*) FROM archive_files WHERE removed_at = '' AND {orig} GROUP BY LOWER(ext)",
+                            orig_args).fetchall()
     tally: dict[str, int] = defaultdict(int)
     for e, n in rows:
         e = ext_of(str(e or ""))
@@ -228,6 +246,22 @@ def _match(r: dict, f: dict, prog_of: dict[str, str], skip: str = "") -> bool:
     if skip != "state" and f["state"] and r["state"] != f["state"]:
         return False
     return True
+
+
+def program_years(rows: list[dict], prog_of: dict[str, str]) -> list[dict]:
+    """연도·연차는 사업 연도다 — 사업으로 분류된 파일의 그럴듯한 연도(graph.programs.plausible_year)만 남기고 나머지는 연도 미상.
+    사업이 없는 파일의 연도는 파일 이름 속 숫자(서식 번호 「…_2000.rdf」 등)라서 사업 연도로 쓰지 않는다."""
+    from zzaimy.graph.programs import plausible_year
+    for r in rows:
+        if not prog_of.get(r["program"] or "") or not plausible_year(r["year"]):
+            r["year"] = None
+        if not prog_of.get(r["program"] or ""):
+            r["round"] = None
+    return rows
+
+
+def _dated_keys(prog_of: dict[str, str]) -> list[str]:
+    return sorted(k for k, g in prog_of.items() if k and g)
 
 
 def browse(rows: list[dict], f: dict, prog_of: dict[str, str], labels: dict[str, str]) -> dict:
@@ -292,19 +326,25 @@ def list_page(db, f: dict, hidden: set[int], keys: list[str] | None, total: int,
               prog_of: dict[str, str], labels: dict[str, str], mask) -> dict:
     """조건에 맞는 한 쪽(PAGE_SIZE개). keys 는 고른 사업 묶음의 장부 열쇠(None 이면 사업 조건 없음)."""
     from zzaimy.app.storage import title_of
+    from zzaimy.graph.programs import plausible_year
 
     where, args = _base_where(f, hidden)
     if keys is not None:
         where += (" AND a.program IN (" + ",".join("?" * len(keys)) + ")") if keys else " AND 1 = 0"
         args += keys
+    import datetime as _dt
+    dated = _dated_keys(prog_of)                 # 사업 연도가 있을 수 있는 열쇠(program_years 와 같은 기준)
+    in_dated = ("a.program IN (" + ",".join("?" * len(dated)) + ")") if dated else "1 = 0"
+    lo, hi = 2000, _dt.date.today().year + 2     # graph.programs.plausible_year 와 같은 범위
     if f["year"] == NONE:
-        where += " AND a.year IS NULL"
+        where += f" AND (a.year IS NULL OR a.year < ? OR a.year > ? OR NOT {in_dated})"
+        args += [lo, hi, *dated]
     elif f["year"]:
-        where += " AND a.year = ?"
-        args.append(f["year"])
+        where += f" AND a.year = ? AND {in_dated}"
+        args += [f["year"], *dated]
     if f["round"]:
-        where += " AND a.round = ?"
-        args.append(f["round"])
+        where += f" AND a.round = ? AND {in_dated}"
+        args += [f["round"], *dated]
     if f["kind"]:
         where += " AND a.kind = ?"
         args.append("" if f["kind"] == NONE else f["kind"])
@@ -342,6 +382,7 @@ def list_page(db, f: dict, hidden: set[int], keys: list[str] | None, total: int,
                  else (it["analysis"] or "")[len(archive_state.FAILED_MARK) + 2:] if it["state"] == "failed" else ""),
             # 사업 연도 — 파일 이름·경로에 그 연도가 없으면 연차를 사업 기간으로 환산한 값이다(scripts/165·170)
             year_from_round=bool(it["year"] and it["round"] and str(it["year"]) not in it["rel"]),
+            show_year=bool(prog) and plausible_year(it["year"]), show_round=bool(prog) and bool(it["round"]),
             can_open=(bool(it["doc_id"]) or role == "dev") and not it["rel"].startswith(archive.UPLOAD_PREFIX))
         it["short_path"] = short_path(it["path"])
     first = (page - 1) * PAGE_SIZE + 1 if items else 0
@@ -403,7 +444,8 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
     for r in rows:
         name, n = names.get(r["program"] or "", ("", 0))
         names[r["program"] or ""] = (max(name, r["program_name"] or ""), n + r["n"])
-    prog_of = program_groups(names)
+    prog_of = program_groups(names, _surfaces(db, sorted(k for k in names if k)) | _key_acronyms(names))
+    program_years(rows, prog_of)
     f["program"] = resolve_program(f["program"], prog_of)
     view = browse(rows, f, prog_of, labels)
     keys = None
@@ -412,7 +454,7 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
     exts = ext_options(db)
     ext_names = {e["value"]: e["label"] for e in exts}
     data = {"f": f, "view": view, "sorts": SORTS, "states": archive_state.STATES, "exts": exts, "page_size": PAGE_SIZE,
-            "chips": chips(f, labels, ext_names), "active": any(f[k] for k in FILTER_KEYS), "none": NONE,
+            "chips": chips(f, labels, ext_names), "active": any(f[k] for k in FILTER_KEYS), "nokey": NONE,
             "no_program": NO_PROGRAM, "this_year": date.today().year, "prev_url": "", "next_url": "",
             "url": lambda **kw: page_url(f, **kw)}
     data.update(list_page(db, f, hidden, keys, view["total"], scope["role"], prog_of, labels, masker(db)))
@@ -422,8 +464,8 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
         data["next_url"] = page_url(f, page=data["page"] + 1)
     if partial:                              # 조건을 바꿀 때마다 아래쪽(훑기·목록)만 다시 그린다
         return st.templates.TemplateResponse(request, "_archive_results.html", data)
-    overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else facet_rows(
-        db, parse_filters(), hidden), parse_filters(), prog_of, labels)
+    overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else program_years(facet_rows(
+        db, parse_filters(), hidden), prog_of), parse_filters(), prog_of, labels)
     data["overall"] = overall
     data["program_names"] = sorted({g for g in prog_of.values() if g})
     return st.templates.TemplateResponse(request, "archive.html", st.page_ctx(request, data))

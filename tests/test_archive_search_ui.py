@@ -10,18 +10,18 @@ from fastapi.testclient import TestClient
 from tests.test_accounts import _app, _login
 from zzaimy.app import archive, archive_state, archive_view
 
-LINKED = "은하수/2031/1차년도/계획서/은하수_개척_사업계획서.hwp"
+LINKED = "은하수/2024/1차년도/계획서/은하수_개척_사업계획서.hwp"
 
 
 def _rows():
     rows = [
         {"rel": LINKED, "size": 2_500_000, "mtime": 1, "ext": "hwp", "status": "auto",
-         "program": "program:a", "program_name": "은하수 개척 사업", "kind": "plan", "year": 2031, "round": 1},
-        {"rel": "은하수/2032/2차년도/보고/은하수 개척 결과보고서.pdf", "size": 900, "mtime": 1, "ext": "pdf", "status": "auto",
-         "program": "program:a", "program_name": "은하수 개척 사업", "kind": "report", "year": 2032, "round": 2},
+         "program": "program:a", "program_name": "은하수 개척 사업", "kind": "plan", "year": 2024, "round": 1},
+        {"rel": "은하수/2025/2차년도/보고/은하수 개척 결과보고서.pdf", "size": 900, "mtime": 1, "ext": "pdf", "status": "auto",
+         "program": "program:a", "program_name": "은하수 개척 사업", "kind": "report", "year": 2025, "round": 2},
         # 이름 표기만 다른 열쇠(앞 부처명) — 같은 사업으로 보인다
         {"rel": "은하수/채용/01_계약직원 채용 평가기준.hwp", "size": 700, "mtime": 1, "ext": "hwp", "status": "auto",
-         "program": "program:a2", "program_name": "해양미래부 은하수 개척 사업", "kind": "criteria", "year": 2033, "round": 3},
+         "program": "program:a2", "program_name": "해양미래부 은하수 개척 사업", "kind": "criteria", "year": 2026, "round": 3},
         {"rel": "은하수/지출/영수증 모음.pdf", "size": 10, "mtime": 1, "ext": "pdf", "status": "folder",
          "program": "program:a", "program_name": "은하수 개척 사업", "kind": "evidence"},
         {"rel": "은하수/실패/깨진 문서.hwp", "size": 10, "mtime": 1, "ext": "hwp", "status": "auto",
@@ -78,7 +78,7 @@ def test_program_groups_long_tail_and_unclassified(client):
     page = client.get("/archive").text
     table = page[page.index('aria-label="사업별 원본 수"'):]
     assert "해양미래부" not in table                                                # 앞 부처명만 다른 이름은 한 사업
-    assert re.search(r">은하수 개척 사업</a>.*?<td class=\"num\">5</td>", table, re.S)
+    assert re.search(r'>은하수 개척 사업</a>.*?<td class="num" data-label="원본">5</td>', table, re.S)
     assert "통합공고 사업" not in page                                              # 사업 아닌 값은 사업 미분류로
     assert "그 밖의 사업 3개" in page                                               # 상위 12개만 펼침(사업 15개)
     assert table.index("사업 미분류") > table.index("별빛 부트랩 사업")
@@ -91,9 +91,9 @@ def test_browse_levels_and_combined_filters(client):
     assert _count(by_name) == "5건 중 1–5"
     assert _count(client.get("/archive?program=program:a2").text) == "5건 중 1–5"   # 장부 열쇠로 와도
     years = by_name[by_name.index('aria-label="사업 연도"'):by_name.index("</ul>", by_name.index('aria-label="사업 연도"'))]
-    assert "2031년 · 1차년도" in years and "2033년 · 3차년도" in years and "연도 미상" in years
-    assert _titles(client.get("/archive?program=program:a&year=2032").text) == ["은하수 개척 결과보고서"]
-    assert _titles(client.get("/archive?program=program:a&kind=criteria&year=2033").text) == ["01_계약직원 채용 평가기준"]
+    assert "2024년 · 1차년도" in years and "2026년 · 3차년도" in years and "연도 미상" in years
+    assert _titles(client.get("/archive?program=program:a&year=2025").text) == ["은하수 개척 결과보고서"]
+    assert _titles(client.get("/archive?program=program:a&kind=criteria&year=2026").text) == ["01_계약직원 채용 평가기준"]
     assert _titles(client.get("/archive?program=program:a&kind=none").text) == ["깨진 문서"]
     assert _count(client.get("/archive?program=none").text) == "2건 중 1–2"
     assert _titles(client.get("/archive?ext=ai").text) == ["표지.ai"]
@@ -118,10 +118,10 @@ def test_row_title_tags_and_buttons(client):
     page = client.get("/archive?state=registered").text
     row = page[page.index('<li class="ar-row">'):page.index("</li>", page.index('<li class="ar-row">'))]
     assert "은하수 개척 사업계획서" in row and "은하수_개척" not in row.split("<code>")[0]   # 파일 이름이 아니라 제목
-    assert f"<code>{LINKED}</code>" in row and "… / 2031 / 1차년도 / 계획서" in row
+    assert f"<code>{LINKED}</code>" in row and "… / 2024 / 1차년도 / 계획서" in row
     assert ">원본 열기</a>" in row and 'href="/doc/7"' in row and ">등록 문서 보기</a>" in row
     assert ">열기</a>" not in row and ">문서 보기</a>" not in row
-    assert "2.5 MB" in row and "1차년도" in row and "2031년" in row and "폴더 기준" not in row
+    assert "2.5 MB" in row and "1차년도" in row and "2024년" in row and "폴더 기준" not in row
     recruit = client.get("/archive?q=채용").text                                     # 파일 이름이 사업을 부르지 않는다
     assert "폴더 기준" in recruit
     folder = client.get("/archive?q=영수증").text                                    # 상위 폴더 물려받기
@@ -129,8 +129,8 @@ def test_row_title_tags_and_buttons(client):
 
 
 def test_round_converted_year_is_marked_as_program_year(client):
-    page = client.get("/archive?q=채용").text                                        # 경로에 2033 이 없다 → 연차 환산
-    assert "2033년(사업 연도)" in page
+    page = client.get("/archive?q=채용").text                                        # 경로에 2026 이 없다 → 연차 환산
+    assert "2026년(사업 연도)" in page
     page = client.get("/archive?state=registered").text                              # 경로에 연도가 있다
     assert "(사업 연도)" not in page
 
@@ -145,10 +145,10 @@ def test_paging(client):
 
 
 def test_chips_remove_one_condition_and_keep_others(client):
-    page = client.get("/archive?q=은하수&year=2032&sort=size").text
+    page = client.get("/archive?q=은하수&year=2025&sort=size").text
     chips = {k: v.replace("&amp;", "&") for v, k in re.findall(r'<a class="ar-chip" href="([^"]+)" data-clear="(\w+)"', page)}
     assert chips["year"].startswith("/archive?q=") and "sort=size" in chips["year"] and "year" not in chips["year"]
-    assert "year=2032" in chips["q"] and "모두 지우기" in page
+    assert "year=2025" in chips["q"] and "모두 지우기" in page
 
 
 def test_partial_returns_only_lower_sections(client):
@@ -192,3 +192,63 @@ def test_helpers():
     assert archive_view.named_in_file("은하수_개척_계획.hwp", "은하수 개척 사업", [])
     assert not archive_view.named_in_file("채용 평가기준.hwp", "은하수 개척 사업", [])
     assert archive_view.named_in_file("ZT3.0 보고.hwp", "은하수 개척 사업", ["ZT 3.0"])
+
+
+def test_platform_copies_and_converter_byproducts_are_not_originals(client):
+    from zzaimy.app.archive import UPLOAD_PREFIX
+    db = client.app.state.db
+    archive.load(db, [
+        {"rel": UPLOAD_PREFIX + "반입/2024/국고/2024-국고-0001 은하수/원본.hwpx", "size": 1, "mtime": 1, "ext": "hwpx",
+         "program": "program:a", "program_name": "은하수 개척 사업", "kind": "plan"},
+        {"rel": "은하수/2024/계획서/은하수_개척_사업계획서_imgs/image10.JPEG", "size": 1, "mtime": 1, "ext": "jpeg",
+         "program": "program:a", "program_name": "은하수 개척 사업"},
+        {"rel": "은하수/2024/계획서/보고_mineru_out/auto/page1.png", "size": 1, "mtime": 1, "ext": "png",
+         "program": "program:a", "program_name": "은하수 개척 사업"},
+        {"rel": "은하수/2024/my_imgs_folder/사진.jpg", "size": 1, "mtime": 1, "ext": "jpg",          # 접미가 폴더 이름 끝이 아님
+         "program": "program:a", "program_name": "은하수 개척 사업"},
+    ])
+    page = client.get("/archive?program=program:a").text
+    assert "원본.hwpx" not in page and "image10" not in page and "page1" not in page
+    assert _count(page) == "6건 중 1–6"                                               # 원래 5건 + my_imgs_folder 사진
+    assert "jpeg" not in page[page.index('name="ext"'):page.index("</select>", page.index('name="ext"'))]
+    assert archive_state.is_original("a/b.hwp") and not archive_state.is_original("a/b_kordoc/c.md")
+
+
+def test_year_options_and_non_program_years(client):
+    db = client.app.state.db
+    archive.load(db, [{"rel": "회계/서식/ACA0040_2000.rdf", "size": 1, "mtime": 1, "ext": "rdf", "year": 2000},
+                      {"rel": "은하수/옛/1987년 자료.hwp", "size": 1, "mtime": 1, "ext": "hwp", "year": 1987,
+                       "program": "program:a", "program_name": "은하수 개척 사업"}])
+    page = client.get("/archive").text
+    sel = page[page.index('name="year"'):page.index("</select>", page.index('name="year"'))]
+    assert "none년" not in sel and ">연도 미상<" in sel and "2000년" not in sel and "1987년" not in sel
+    assert ">2024년<" in sel
+    assert "2000년" not in client.get("/archive?q=ACA0040").text                       # 사업 없는 파일의 숫자는 사업 연도가 아님
+    assert _titles(client.get("/archive?year=2000").text) == []
+    assert "ACA0040_2000.rdf" in client.get("/archive?year=none&q=ACA").text
+
+
+def test_rare_acronym_typo_joins_frequent_program(client):
+    db = client.app.state.db
+    archive.load(db, [{"rel": f"별빛/ZETA3.0/{i}.hwp", "size": 1, "mtime": 1, "ext": "hwp", "program": "program:zeta30",
+                       "program_name": "4단계 별빛 선도대학 육성사업"} for i in range(20)]
+                 + [{"rel": "별빛/오타/ZOTA3.0 회의.hwp", "size": 1, "mtime": 1, "ext": "hwp", "program": "program:zota30",
+                     "program_name": "ZOTA3.0"}])
+    page = client.get("/archive").text
+    assert ">ZOTA3.0<" not in page and "ZOTA3.0</option>" not in page
+    assert _count(client.get("/archive?program=4단계 별빛 선도대학 육성사업").text) == "21건 중 1–21"
+
+
+def test_program_table_actions_wrap_on_narrow_screens(client):
+    page = client.get("/archive").text
+    assert '<td class="ar-acts-cell"><div class="ar-acts">' in page
+    css = page[page.index("@media(max-width:760px)"):]
+    assert ".ar-acts{display:flex;flex-wrap:wrap" in css and ".ar-grid thead{display:none}" in css
+
+
+def test_unclassified_row_has_no_project_link(client):
+    table = client.get("/archive").text
+    table = table[table.index('aria-label="사업별 원본 수"'):]
+    row = table[table.rindex("<tr>", 0, table.index(">사업 미분류<")):]
+    row = row[:row.index("</tr>")]
+    assert "프로젝트 검색" not in row and "파일 보기" in row

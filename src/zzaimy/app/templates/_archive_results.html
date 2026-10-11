@@ -2,8 +2,8 @@
 <section class="card" id="archive-browse"><div class="card-in">
   <nav class="ar-crumb" aria-label="고른 분류">
     <a href="{{ url(program='', year='', round='', kind='') }}" data-set="program=&year=&round=&kind=">전체 사업</a>
-    {% if f.program %}<span aria-hidden="true">›</span><a href="{{ url(year='', round='', kind='') }}" data-set="year=&round=&kind=">{{ no_program if f.program == none else f.program }}</a>{% endif %}
-    {% if f.year or f.round %}<span aria-hidden="true">›</span><a href="{{ url(kind='') }}" data-set="kind=">{{ '연도 미상' if f.year == none else (f.year ~ '년' if f.year else f.round ~ '차년도') }}</a>{% endif %}
+    {% if f.program %}<span aria-hidden="true">›</span><a href="{{ url(year='', round='', kind='') }}" data-set="year=&round=&kind=">{{ no_program if f.program == nokey else f.program }}</a>{% endif %}
+    {% if f.year or f.round %}<span aria-hidden="true">›</span><a href="{{ url(kind='') }}" data-set="kind=">{{ '연도 미상' if f.year == nokey else (f.year ~ '년' if f.year else f.round ~ '차년도') }}</a>{% endif %}
     {% if f.kind %}<span aria-hidden="true">›</span><span>{{ (chips|selectattr('key', 'equalto', 'kind')|first).label }}</span>{% endif %}
   </nav>
   {% if not f.program %}
@@ -14,8 +14,8 @@
     <tbody>
     {% macro prow(p) %}<tr>
       <td><a href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">{{ p.name }}</a>{% if p.kinds %}<span class="ar-sub">{% for k, n in p.kinds %}{{ k }} {{ "{:,}".format(n) }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
-      <td class="num">{{ "{:,}".format(p.n) }}</td><td class="num">{{ "{:,}".format(p.registered) }}</td>
-      <td class="ar-acts"><a class="btn secondary" href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">파일 보기</a>{% if p.value != none %}<a class="btn secondary" href="/projects/archived?{{ {'q': p.name, 'status': 'all'}|urlencode }}">프로젝트 검색</a>{% else %}<span class="ar-slot" aria-hidden="true"></span>{% endif %}</td>
+      <td class="num" data-label="원본">{{ "{:,}".format(p.n) }}</td><td class="num" data-label="등록됨">{{ "{:,}".format(p.registered) }}</td>
+      <td class="ar-acts-cell"><div class="ar-acts"><a class="btn secondary" href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">파일 보기</a>{% if p.value != nokey %}<a class="btn secondary" href="/projects/archived?{{ {'q': p.name, 'status': 'all'}|urlencode }}">프로젝트 검색</a>{% else %}<span class="ar-slot" aria-hidden="true"></span>{% endif %}</div></td>
     </tr>{% endmacro %}
     {% for p in view.programs[:top] %}{{ prow(p) }}{% endfor %}
     {% if view.unclassified %}{{ prow(view.unclassified) }}{% endif %}
@@ -60,7 +60,7 @@
         {% if it.short_path %}<details class="ar-where"><summary>{{ it.short_path }}</summary><code>{{ it.path }}</code></details>{% endif %}
         <span class="ar-tags">
           <span class="ar-tag">{{ it.program_label }}</span>{% if it.by_folder %}<span class="ar-tag folder" title="파일 이름에 사업 이름이 없어 폴더 위치로 정한 분류입니다">폴더 기준</span>{% endif %}
-          {% if it.round %}<span class="ar-tag">{{ it.round }}차년도</span>{% endif %}{% if it.year %}<span class="ar-tag"{% if it.year_from_round %} title="연차를 사업 기간으로 환산한 사업 연도"{% endif %}>{{ it.year }}년{% if it.year_from_round %}(사업 연도){% endif %}</span>{% endif %}
+          {% if it.show_round %}<span class="ar-tag">{{ it.round }}차년도</span>{% endif %}{% if it.show_year %}<span class="ar-tag"{% if it.year_from_round %} title="연차를 사업 기간으로 환산한 사업 연도"{% endif %}>{{ it.year }}년{% if it.year_from_round %}(사업 연도){% endif %}</span>{% endif %}
           <span class="ar-tag">{{ it.kind_label }}</span>
           <span class="ar-tag state-{{ it.state }}"{% if it.why %} title="{{ it.why }}"{% endif %}>{{ it.state_label }}{% if it.why and it.state == 'excluded' %} · {{ it.why }}{% endif %}</span>
         </span>

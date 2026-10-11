@@ -159,10 +159,35 @@ def _ledger_sets(ledger: dict | None) -> list[set[str]]:
     return [s for s in out if s]
 
 
-def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = None) -> dict[str, str]:
+_BARE_ACR = re.compile(r"^([A-Z][A-Z+]{2,9})(\d+(?:\.\d+)?)?$")
+
+
+def spelling_variant(short: str, other_acronyms: Iterable[str]) -> str | None:
+    """약칭 이름 하나(「ABCD3.0」처럼 영문 약칭 + 판 번호뿐)가 다른 사업 약칭의 한 글자 오타인가 — 맞으면 그 약칭.
+
+    조건: 둘 다 영문 약칭 + 같은 판 번호, 영문 부분의 길이가 같고(4자 이상) 정확히 한 글자만 다르다. 세 글자 약칭은
+    한 글자 차이로 전혀 다른 약칭이 흔해(WCC·WCU) 보지 않는다. 판 번호가 다르면 다른 단계 사업이다."""
+    m = _BARE_ACR.match(_FLAT.sub("", unicodedata.normalize("NFKC", short or "")).upper())
+    if not m or len(m.group(1)) < 4:
+        return None
+    hits = set()
+    for o in other_acronyms:
+        n = _BARE_ACR.match(_FLAT.sub("", unicodedata.normalize("NFKC", o or "")).upper())
+        if not n or (n.group(2) or "").replace(".", "") != (m.group(2) or "").replace(".", ""):
+            continue
+        a, b = m.group(1), n.group(1)
+        if len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1:
+            hits.add(o)
+    return hits.pop() if len(hits) == 1 else None
+
+
+def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = None,
+                aliases: dict[str, Iterable[str]] | None = None) -> dict[str, str]:
     """원래 이름 → 대표 보일 이름. 사업 이름이 아니면 ""(화면은 「사업 미분류」로 둔다).
 
-    다른 이름을 하나로 묶는 근거는 셋뿐이다. 근거가 없으면 따로 둔다.
+    aliases: 원래 이름 → 그 사업의 다른 이름·약칭(그래프 사업 노드 등). 오타 판정(4)에만 쓴다.
+
+    다른 이름을 하나로 묶는 근거는 넷뿐이다. 근거가 없으면 따로 둔다.
     1. 같은 열쇠(group_key) — 띄어쓰기·괄호·앞 부처명·때 꼬리표만 다른 이름
     2. 외부 확인 장부 — 출처가 있는 한 사업 항목의 이름·별칭이거나 「이름 바뀜」 사실로 이어진 이름
     3. 앞 수식어만 뗀 이름 — 짧은 이름이 긴 이름의 앞 낱말 몇 개를 통째로 뗀 것과 같을 때(「○○ △△ 부트캠프 사업」 ⊃
@@ -170,6 +195,8 @@ def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = No
        - 짧은 이름에 일반어를 빼고 세 글자 이상 고유한 말이 남아야 하고(「인재육성사업」 같은 일반 이름은 묶지 않는다)
        - 그런 긴 이름이 하나뿐이어야 하고(여럿이면 어느 사업인지 모른다)
        - 두 이름의 영문 약칭이 서로 다르거나 장부가 서로 다른 사업으로 적었으면 묶지 않는다
+    4. 약칭 오타 — 영문 약칭 + 판 번호뿐인 이름이 다른 묶음 하나의 약칭(이름 속 약칭·aliases)과 한 글자만 다르고(spelling_variant)
+       그 묶음의 파일이 열 배 이상 많을 때. 드문 표기가 많이 쓰인 약칭의 오타라는 근거다
     대표 이름은 묶음에서 건수가 가장 많은 이름(같으면 긴 이름)이다."""
     from zzaimy.graph.programs import vague_name
 
@@ -231,6 +258,27 @@ def group_names(counts: dict[str, int] | Iterable[str], ledger: dict | None = No
         if mine_e is not None and their_e and mine_e not in their_e:
             continue
         union(other, k)
+    # 4. 약칭 오타
+    size: dict[str, int] = defaultdict(int)
+    acrs: dict[str, set[str]] = defaultdict(set)
+    for k, raws in by_key.items():
+        for r in raws:
+            size[find(k)] += int(counts.get(r) or 0)
+            acrs[find(k)] |= {a for a in re.findall(r"[A-Z][A-Za-z+]{2,9}\s?\d*(?:\.\d+)?", unicodedata.normalize("NFKC", r))}
+            acrs[find(k)] |= {str(a) for a in (aliases or {}).get(r, ()) if a}
+    for k, raws in by_key.items():
+        root = find(k)
+        if not _BARE_ACR.match(k) or len(by_key) < 2:
+            continue
+        cands = {}
+        for other in {find(x) for x in by_key} - {root}:
+            hit = spelling_variant(shown[raws[0]], acrs[other])
+            if hit:
+                cands[other] = hit
+        if len(cands) == 1:
+            (other,) = cands
+            if size[other] >= 10 * max(size[root], 1):
+                union(other, root)
     groups: dict[str, list[str]] = defaultdict(list)
     for k, raws in by_key.items():
         groups[find(k)].extend(raws)

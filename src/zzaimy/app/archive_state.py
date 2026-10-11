@@ -22,6 +22,30 @@ OUT_OF_SCOPE = re.compile("|".join(OUT_OF_SCOPE_WORDS))
 MAX_PARSE_BYTES = 300 * 1024 * 1024                                     # scripts/167 MAX_BYTES 와 같다
 FAILED_MARK = "처리 실패"
 
+# 학교 원본이 아닌 것 — 원본 보관소 목록·건수에서 뺀다
+# 1. 플랫폼이 보관한 사본(archive.UPLOAD_PREFIX 아래: 반입·첨부 문서의 플랫폼 저장본). 원본은 학교 폴더에 있다
+# 2. 우리 변환기가 문서 옆에 만든 부산물 폴더 — 「<문서 이름><접미>/」. 접미는 변환기 코드의 출력 이름과 같다:
+#    _imgs(app/pipeline·ingest/parsers/hwpx 추출 그림), _hwp5_out(parsers/hwp5), _mineru_out(parsers/mineru), _kordoc(parsers/kordoc)
+BYPRODUCT_DIR_SUFFIXES = ("_imgs", "_hwp5_out", "_mineru_out", "_kordoc")
+
+
+def original_sql(alias: str = "") -> tuple[str, list]:
+    """학교 원본만 남기는 SQL 조건과 인자(SQLite·PostgreSQL 공통)."""
+    from zzaimy.app.archive import UPLOAD_PREFIX
+
+    def esc(t: str) -> str:
+        return t.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+    conds = [f"{alias}rel NOT LIKE ? ESCAPE '!'"] + [f"{alias}rel NOT LIKE ? ESCAPE '!'" for _ in BYPRODUCT_DIR_SUFFIXES]
+    args = [esc(UPLOAD_PREFIX) + "%"] + [f"%{esc(sfx)}/%" for sfx in BYPRODUCT_DIR_SUFFIXES]
+    return "(" + " AND ".join(conds) + ")", args
+
+
+def is_original(rel: str) -> bool:
+    from zzaimy.app.archive import UPLOAD_PREFIX
+    parts = (rel or "").split("/")[:-1]
+    return not (rel or "").startswith(UPLOAD_PREFIX) and not any(p.endswith(BYPRODUCT_DIR_SUFFIXES) for p in parts)
+
+
 STATES = {"registered": "등록됨", "excluded": "처리 제외(범위 밖)", "failed": "실패", "waiting": "대기"}
 
 

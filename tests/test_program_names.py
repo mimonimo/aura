@@ -72,3 +72,23 @@ def test_group_names_uses_ledger_identity_and_difference():
     apart = {"programs": [{"terms": ["별누리 사업"], "sources": ["s"]}, {"terms": ["가람 별누리 사업"], "sources": ["s"]}]}
     g = pn.group_names(counts, apart)
     assert g["별누리 사업"] == "별누리 사업"                                            # 장부가 다른 사업이라 함
+
+
+def test_spelling_variant_of_acronym():
+    assert pn.spelling_variant("ZOTA3.0", ["ZETA 3.0", "QX"]) == "ZETA 3.0"
+    assert pn.spelling_variant("ZOTA3.0", ["ZETA 2.0"]) is None                       # 판 번호가 다르면 다른 단계
+    assert pn.spelling_variant("WXC", ["WCC"]) is None                                # 세 글자 약칭은 보지 않음
+    assert pn.spelling_variant("ZOTA", ["ZETA", "ZOTB"]) is None                      # 후보가 둘이면 모름
+    assert pn.spelling_variant("은하수 사업", ["ZETA"]) is None
+
+
+def test_group_names_merges_rare_acronym_typo_into_frequent_program():
+    counts = {"별빛 대학(ZETA3.0) 육성사업": 400, "ZOTA3.0": 9, "QUUX": 5}
+    g = pn.group_names(counts)
+    assert g["ZOTA3.0"] == "별빛 대학(ZETA3.0) 육성사업" and g["QUUX"] == "QUUX"
+    # 약칭이 이름에 없으면 aliases(그래프 노드의 약칭)로
+    counts = {"4단계 별빛 육성사업": 400, "ZOTA3.0": 9}
+    assert pn.group_names(counts)["ZOTA3.0"] == "ZOTA3.0"
+    assert pn.group_names(counts, aliases={"4단계 별빛 육성사업": ["ZETA3.0"]})["ZOTA3.0"] == "4단계 별빛 육성사업"
+    assert pn.group_names({"4단계 별빛 육성사업": 50, "ZOTA3.0": 9},                  # 열 배 미만이면 근거 부족
+                          aliases={"4단계 별빛 육성사업": ["ZETA3.0"]})["ZOTA3.0"] == "ZOTA3.0"
