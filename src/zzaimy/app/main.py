@@ -1064,7 +1064,7 @@ def create_app(
     _LAST_SECTION_REF = re.compile(r"(?:방금|아까|직전에?|앞서|조금 ?전에?) ?(?:쓴|작성한|채운|고친)(?: \S{1,20}){0,4}? ?\S{0,20}?절|(?:이|그) ?절(?:을|를|도|만)? ")
     _OUTLINE_POINTER = re.compile(r"(?:위|앞|이|그|방금|정한|잡은|만든)\s*(?:의\s*)?(?:목차|구성|개요|틀)|목차\s*(?:대로|에\s*따라|에\s*맞춰|를\s*바탕)")
     _POINTER_WORDS = {"위", "이", "그", "저", "아래", "앞", "앞의", "위의", "방금", "지금", "이번", "해당", "말한", "정리한", "잡은", "만든",
-                      "좋아", "좋아요", "좋습니다", "그래", "네", "응", "예", "오케이", "그럼", "자", "이제"}     # 맞장구·이음말(「좋아. 사업계획서」)
+                      "좋아", "좋아요", "좋습니다", "그래", "네", "응", "예", "오케이", "그럼", "자", "이제", "아니", "아니요", "아냐"}     # 맞장구·이음말(「좋아. 사업계획서」)
     _POINTER_TAIL = re.compile(r"(대로|따라|따라서|맞춰|맞춰서|맞게|바탕으로|기준으로)$")
 
     def _draft_title(q: str) -> str:
@@ -1216,8 +1216,12 @@ def create_app(
         if not gdrive.list_accounts():
             return False, ""
         title = _draft_title(q.removeprefix(_COMMON_PREFIX))
+        kind_spec = spec_override or gdocs_templates.pick(q)
         if project and all(t in _GENERIC_WORDS or len(t) < 2 for t in re.split(r"\s+", title.strip()) if t):
             pname = project.get("name", "").strip()
+            if kind_spec and title.strip() in ("문서", "자료", "새 문서", ""):
+                # 「문서」만 남으면 양식 갈래로 — 「아니 문서」·「인공지능 문서」 대신 「인공지능 사업계획서」(10/11)
+                title = re.sub(r"\s*공통\s*양식.*$", "", kind_spec.get("title", "")).strip() or title
             # 「사업계획서」 만으로는 어느 사업 것인지 모른다 — 프로젝트 이름에 이미 그 낱말이 있으면 이름만(「… 사업계획서 사업계획서」 방지)
             title = (pname if title.replace(" ", "") in pname.replace(" ", "") else f"{pname} {title}").strip()[:60] or title
         try:
