@@ -18,11 +18,13 @@ from functools import lru_cache
 
 from zzaimy.app.doc_title import (_CELL, _KIND_TAIL, _ORG_ONLY, _cell_title, _plain, _title_like, _unspace,
                                   find_title, meaningless_filename, tidy_name)
+from zzaimy.doc_formats import ARCHIVE_EXT as _ARC, DOC_EXT as _DOC, IMAGE_EXT as _IMG
 
 # 사람이 손으로 고친 이름 — 다시 매기기(scripts/124)가 건드리지 않는다
 USER_SOURCE = "user"
 
-_EXT = re.compile(r"(?:\.(?:hwpx?|pdf|docx?|xlsx?|pptx?|jpe?g|png|tiff?|bmp|webp|txt|md|zip|csv))+$", re.I)
+# 확장자 — 처리하는 문서·그림·압축 형식 목록 한 곳(doc_formats)에서. 새 형식을 들이면 이름에서도 떨어진다
+_EXT = re.compile(r"(?:\.(?:" + "|".join(sorted({*_DOC, *_IMG, *_ARC, "md", "hwt"}, key=len, reverse=True)) + r"))+$", re.I)
 
 # ── 1. 파일 이름의 앞 군더더기 ─────────────────────────────────────────────
 # 뒤에 제목이 이어질 때만 뗀다(떼고 나서 남는 것이 없으면 그대로 둔다).

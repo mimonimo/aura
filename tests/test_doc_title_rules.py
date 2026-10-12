@@ -713,3 +713,8 @@ def test_hash_separator_copy_number_and_color_mark():
     assert clean_filename("2021#가나대학교#자체진단보고서#4.2.활동#0524.hwp") == "2021 가나대학교 자체진단보고서 4.2.활동"
     assert clean_filename("2014가나예산서 0806(빨간색).xlsx") == "2014가나예산서"
     assert clean_filename("과제계획서 4-2.hwp") == "과제계획서 4-2"                      # 숫자 뒤 붙임표는 항목 번호
+
+
+def test_new_document_formats_lose_their_extension_in_names():
+    for name in ("가나 신청서.xlsm", "가나 요청.mht", "가나 회의록.eml", "가나 양식.pptm", "가나 안내.html"):
+        assert "." not in clean_filename(name)
