@@ -86,26 +86,70 @@ def test_ontology_downloads(tmp_path):
     assert c.get("/graph/explore/schema").json()["shacl"] is None          # 아직 검사 전
 
 
-def test_default_program_is_the_one_with_most_docs():
-    progs = [{"id": "program_group:G", "type": "program_group", "n_docs": 90},
-             {"id": "program:A", "type": "program", "n_docs": 3}, {"id": "program:B", "type": "program", "n_docs": 12}]
-    assert kg_explore.default_program(progs) == "program:B"                  # 묶음이 더 커도 사업 하나
-    assert kg_explore.default_program(progs[:1]) == "program_group:G"
-    assert kg_explore.default_program([]) == ""
+def _program_graph(db):
+    """묶음 하나(사업 둘)·묶음 밖 사업 하나, 사업마다 문서 — 개요에 문서 노드가 끼지 않는지 본다."""
+    kg_store.ensure(db)
+    d1 = db.add_document("가 계획서.hwp", "x/1.hwp", doc_type="grant", access_level="public")
+    d2 = db.add_document("나 계획서.hwp", "x/2.hwp", doc_type="grant", access_level="public")
+    d3 = db.add_document("다 계획서.hwp", "x/3.hwp", doc_type="grant", access_level="public")
+    with db._conn() as conn:
+        kg_store.put_nodes(conn, [("group:G", "program_group", "갈래 묶음"), ("program:A", "program", "가온 사업"),
+                                  ("program:B", "program", "누리 사업"), ("program:C", "program", "다솜 사업"),
+                                  ("year:A:r1", "year", "가온 사업 1차년도", {"round": 1}),
+                                  ("org:M", "org", "어느 부처"),
+                                  *[(f"doc:{d}", "doc", f"문서 {d}", {}, d) for d in (d1, d2, d3)]])
+        kg_store.put_edges(conn, [("group:G", "program:A", "contains", "분류", ["분류"]), ("group:G", "program:B", "contains", "분류", ["분류"]),
+                                  ("program:A", "year:A:r1", "contains", "분류", ["분류"]), ("year:A:r1", f"doc:{d1}", "contains", "분류", ["분류"]),
+                                  ("program:A", f"doc:{d2}", "contains", "분류", ["분류"]), ("program:B", f"doc:{d2}", "contains", "분류", ["분류"]),
+                                  ("program:C", f"doc:{d3}", "contains", "분류", ["분류"]),
+                                  ("program:A", "program:C", "related", "유사도", ["근거"]), ("program:A", "org:M", "supervised_by", "분류", ["장부"])])
+    return d1, d2, d3
 
 
-def test_explore_opens_default_program_and_keeps_dev_sidebar(tmp_path):
+def test_overview_has_programs_and_groups_only(tmp_path):
+    db = Database(tmp_path / "t.db")
+    _program_graph(db)
+    kg_explore._cache.clear()
+    ov = kg_explore.overview(db)
+    types = {n["id"]: n["type"] for n in ov["nodes"]}
+    assert types == {"group:G": "program_group", "program:A": "program", "program:B": "program", "program:C": "program"}
+    assert {(e["src"], e["kind"], e["dst"]) for e in ov["edges"]} == {
+        ("group:G", "contains", "program:A"), ("group:G", "contains", "program:B"), ("program:A", "related", "program:C")}
+    by = {n["id"]: n for n in ov["nodes"]}
+    assert by["program:A"]["n_docs"] == 2 and by["group:G"]["n_docs"] == 2            # 크기 = 문서 수(묶음은 합집합)
+    assert by["program:A"]["groups"] == ["group:G"] and by["program:C"]["groups"] == []
+    assert ov["totals"] == {"programs": 3, "groups": 1, "docs": 3}                   # 두 사업에 걸린 문서는 한 번
+
+
+def test_explore_default_overview_and_selection_query(tmp_path):
     from tests.test_accounts import _app, _login
 
     app = _app(tmp_path)
     kg_explore._cache.clear()
-    pub, _sec = _graph(app.state.db)
+    d1, _d2, _d3 = _program_graph(app.state.db)
     c = TestClient(app)
     assert _login(c, "zzdev", "devpass")
+    ov = c.get("/graph/explore/overview").json()
+    assert ov["nodes"] and not any(n["type"] in ("doc", "section", "year", "org") for n in ov["nodes"])
     page = c.get("/graph/explore").text
-    assert 'data-focus="program:P"' in page                                 # 처음 열면 문서가 가장 많은 사업
+    assert '"sel": []' in page and 'data-focus=' not in page                       # 처음 열면 고른 것 없이 전체 개요
+    assert 'data-group="group:G"' in page and "묶음 밖 사업" in page and "전체 보기" in page
+    assert '"sel": ["program:A", "program:C"]' in c.get("/graph/explore", params={"sel": "program:A,program:C"}).text
+    assert '"sel": ["doc:' + str(d1) + '"]' in c.get("/graph/explore", params={"id": f"doc:{d1}"}).text   # 옛 id= 링크는 하나 고르기
+    assert 'data-tab="onto"' in c.get("/graph/explore", params={"tab": "onto"}).text
     assert "업무 화면으로" in page and "진행 중 프로젝트 찾기" not in page     # 개발 메뉴의 화면은 개발 사이드바
-    assert 'data-focus="doc:' + str(pub) + '"' in c.get("/graph/explore", params={"id": f"doc:{pub}"}).text
     staff = TestClient(app)
     assert _login(staff, "zzaimy", "boot-pass-1")
-    assert "진행 중 프로젝트 찾기" in staff.get("/graph/explore").text          # 개발자가 아니면 업무 사이드바
+    sp = staff.get("/graph/explore", params={"tab": "onto"}).text
+    assert "진행 중 프로젝트 찾기" in sp and 'data-tab="kg"' in sp               # 온톨로지 탭은 개발자만
+
+
+def test_ontology_default_schema_has_classes_and_attributes(tmp_path):
+    db = Database(tmp_path / "t.db")
+    _program_graph(db)
+    kg_explore._cache.clear()
+    sc = kg_explore.schema(db)
+    by = {t["type"]: t for t in sc["types"]}
+    assert {"program_group", "program", "year", "org", "doc"} <= set(by)
+    assert by["year"]["attrs"].get("차년도") == 100                                   # 속성(채워진 비율)도 함께 그린다
+    assert any(r["src"] == "program" and r["dst"] == "org" and r["kind"] == "supervised_by" for r in sc["rels"])

@@ -422,19 +422,59 @@ def shapes_ttl(request: Request):
                     headers={"Content-Disposition": "attachment; filename=zzaimy-shapes.ttl"})
 
 
-def default_program(progs: list[dict]) -> str:
-    """처음 열 때 펼칠 사업 — 볼 수 있는 문서가 가장 많은 사업(사업 묶음이 아닌 사업 하나). 사업이 없으면 묶음, 둘 다 없으면 빈 값."""
-    pool = [p for p in progs if p.get("type") == "program" and p.get("n_docs")] or [p for p in progs if p.get("n_docs")]
-    return max(pool, key=lambda p: p["n_docs"])["id"] if pool else ""
+def overview(db, scope: dict | None = None) -> dict:
+    """처음 여는 그림 — 왼쪽 목록과 같은 사업·사업 묶음(programs)을 노드로, 그 사이 관계를 선으로. 노드 크기는 문서 수.
+    문서·절·연차·기관 노드는 넣지 않는다 — 사업 100여 개 규모에서도 노드·관계가 수백 안쪽이라 처음 그리기가 가볍다.
+
+    같은 사업으로 묶인 이름(programs 의 ids)은 대표 노드 하나로 모으고, 관계도 대표끼리로 옮긴다(자기 자신으로 가는 선은 뺀다).
+    totals 의 문서 수는 사업마다 센 문서(program_doc_sets)의 합집합 — 여러 사업에 걸린 문서도 한 번만 센다."""
+    rows = programs(db, scope)
+    rep = {i: r["id"] for r in rows for i in r["ids"]}
+    sets = program_doc_sets(db, scope)
+    ids = sorted(rep)
+    edges: dict[tuple, dict] = {}
+    with db._conn() as conn:
+        for i in range(0, len(ids), 500):
+            part = ids[i:i + 500]
+            for r in conn.execute(f"SELECT src, dst, kind, basis, evidence, weight FROM kg_edges WHERE src IN ({','.join('?' * len(part))})", part):
+                r = dict(r)
+                a, b = rep.get(r["src"]), rep.get(r["dst"])
+                if not a or not b or a == b or (a, b, r["kind"]) in edges:
+                    continue
+                edges[(a, b, r["kind"])] = {"src": a, "dst": b, "kind": r["kind"], "label": KIND_KO.get(r["kind"], (r["kind"],))[0],
+                                            "basis": r["basis"], "evidence": _props(r["evidence"])[:2] if isinstance(r["evidence"], str) else [],
+                                            "weight": r["weight"]}
+    kind_of = {r["id"]: r["type"] for r in rows}
+    groups_of: dict[str, list[str]] = defaultdict(list)
+    for e in edges.values():
+        if e["kind"] == "contains" and kind_of[e["src"]] == "program_group" and kind_of[e["dst"]] == "program":
+            groups_of[e["dst"]].append(e["src"])
+    docs: set[int] = set()
+    for r in rows:
+        if r["type"] == "program":
+            for i in r["ids"]:
+                docs |= sets.get(i, set())
+    nodes = [{**r, "short": r["label"], "groups": groups_of.get(r["id"], [])} for r in rows]
+    return {"nodes": nodes, "edges": list(edges.values()),
+            "totals": {"programs": sum(r["type"] == "program" for r in rows),
+                       "groups": sum(r["type"] == "program_group" for r in rows), "docs": len(docs)}}
 
 
 @router.get("/graph/explore", response_class=HTMLResponse)
-def explore_page(request: Request, id: str = "", q: str = ""):
+def explore_page(request: Request, id: str = "", sel: str = "", q: str = "", tab: str = ""):
+    """처음 열면 전체 개요(사업·묶음). sel=노드,노드 는 고른 것만 펼쳐 보기, id= 는 sel 하나와 같다(다른 화면의 「그래프에서 보기」)."""
     st = request.app.state
-    progs = programs(st.db, _scope(request))
+    ov = overview(st.db, _scope(request))
+    picked = [x for x in ([id] if id else []) + [s for s in sel.split(",") if s.strip()] if x]
     return st.templates.TemplateResponse(request, "kg_explore.html", st.page_ctx(request, {
-        "focus": id, "q": q, "programs": progs, "type_ko": TYPE_KO,
-        "default_focus": "" if (id or q) else default_program(progs)}))
+        "q": q, "programs": ov["nodes"], "totals": ov["totals"], "type_ko": TYPE_KO,
+        "kind_ko": {k: v[0] for k, v in KIND_KO.items()}, "sel": list(dict.fromkeys(picked)),
+        "tab": "onto" if tab == "onto" and request.state.role == "dev" else "kg"}))
+
+
+@router.get("/graph/explore/overview")
+def explore_overview(request: Request):
+    return JSONResponse(overview(request.app.state.db, _scope(request)))
 
 
 @router.get("/graph/explore/neighbors")
