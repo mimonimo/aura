@@ -205,7 +205,7 @@
     {% endif %}
     {% else %}
     <div class="lib-empty">
-      <p class="muted">{% if q %}「{{ q }}」에 맞는 문서가 없습니다.{% elif active_flt or kind or document_group != 'all' %}고른 조건에 맞는 문서가 없습니다.{% else %}아직 등록된 문서가 없습니다. 문서는 프로젝트 화면의 「문서 추가」로 등록합니다.{% endif %}</p>
+      <p class="muted">{% if q %}제목에 「{{ q }}」 낱말이 모두 든 문서가 없습니다. <a href="/search?q={{ q | urlencode }}">본문까지 찾기</a>{% elif active_flt or kind or document_group != 'all' %}고른 조건에 맞는 문서가 없습니다.{% else %}아직 등록된 문서가 없습니다. 문서는 프로젝트 화면의 「문서 추가」로 등록합니다.{% endif %}</p>
       {% if q or active_flt or kind or document_group != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
     </div>
     {% endif %}

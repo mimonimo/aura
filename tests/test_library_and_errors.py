@@ -1,4 +1,4 @@
-"""브라우저로 연 없는 주소·권한 밖 화면은 안내 화면으로, API 요청은 JSON 그대로."""
+"""브라우저로 연 없는 주소는 안내 화면으로(API 는 JSON 그대로), 라이브러리 제목 찾기는 낱말마다."""
 
 from __future__ import annotations
 
@@ -27,3 +27,14 @@ def test_api_keeps_json_errors(tmp_path):
     assert r.status_code == 404 and r.json()["detail"]
     r = client.get("/no-such-page", headers={"accept": "application/json"})
     assert r.status_code == 404 and r.json()["detail"]
+
+
+def test_library_title_search_matches_each_word(tmp_path):
+    client = make(tmp_path)
+    db = client.app.state.db
+    db.add_document("가나 3.0 수정 사업계획서 핵심 성과지표 총괄", str(tmp_path / "a.pdf"), doc_type="grant")
+    db.add_document("다른 문서", str(tmp_path / "b.pdf"), doc_type="grant")
+    page = client.get("/?type=all&q=핵심성과지표 총괄").text
+    assert "핵심 성과지표 총괄" in page and "다른 문서" not in page
+    page = client.get("/?type=all&q=없는낱말").text
+    assert "본문까지 찾기" in page and "/search?q=" in page

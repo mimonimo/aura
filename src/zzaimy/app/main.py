@@ -662,8 +662,11 @@ def create_app(
             cond.append("d.doc_type = ?")
             args.append(doc_type)
         if q:
-            cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?)")
-            args += [f"%{q}%", f"%{q}%"]
+            # 낱말마다 제목에 있어야 한다(띄어쓰기 무시) — 「핵심성과지표 총괄」 이 「핵심 성과지표 총괄표」 도 찾는다
+            words = [w for w in q.split() if w][:6]
+            title = " AND ".join("REPLACE(d.filename, ' ', '') LIKE ?" for _ in words)
+            cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?)")
+            args += [f"%{w}%" for w in words] + [f"%{q}%"]
         if project:
             cond.append("d.project_id = ?")
             args.append(project)
