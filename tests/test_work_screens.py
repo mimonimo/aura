@@ -314,3 +314,19 @@ def test_project_refs_use_attachment_titles_and_work_docs_include_linked_doc(cli
     assert f'href="/project/{past}"' in page                          # 첨부 문서 제목으로 지난 사업을 찾는다
     assert "https://docs.google.com/document/d/AbC_123-x/edit" in page # 양식으로 만든(파일 기록 없는) 작업 문서
     assert f'data-sessions="{sid}"' in page                            # 화면이 문서 패널과 같은 목록을 불러온다
+
+
+def test_gimport_status_uses_the_account_that_actually_runs(tmp_path):
+    """같은 구글 메일에 계정 둘이 이어져 있으면 가져오기는 한쪽 이름으로만 돈다 — 다른 쪽 화면이 「멈춤」 으로 보이지 않게."""
+    import json as _json
+    from pathlib import Path as _P
+    from zzaimy.app import gdrive_import as g
+    from zzaimy.app.db import Database
+    db = Database(_P(tmp_path) / "g.db")
+    db.set_setting("google_account:가", "x@example.test")
+    db.set_setting("google_account:나", "x@example.test")
+    db.set_setting("gimport_status:가", _json.dumps({"at": "2026-01-01 10:00", "email": "x@example.test"}))
+    db.set_setting("gimport_status:나", _json.dumps({"at": "2026-01-05 09:00", "email": "x@example.test"}))
+    st = g.status(db, "가")
+    assert st["at"] == "2026-01-05 09:00" and st["runs_as"] == "나"
+    assert "runs_as" not in g.status(db, "나")

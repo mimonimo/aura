@@ -42,11 +42,27 @@ def bound_users(db) -> list[tuple[str, str]]:
     return out
 
 
-def status(db, user: str) -> dict:
+def _own_status(db, user: str) -> dict:
     try:
         return json.loads(db.get_setting(f"gimport_status:{user}", "") or "{}")
     except ValueError:
         return {}
+
+
+def status(db, user: str) -> dict:
+    """가져오기 상태 — 같은 구글 메일에 이어진 계정이 여럿이면 가져오기는 그중 한 계정(run_all 의 rank)으로만 돈다.
+    그래서 계정마다 제 기록만 보면 실제로 도는 데도 「멈춤」 으로 보인다 — 같은 메일 계정들 가운데 가장 최근 기록을 쓰고,
+    그 기록의 계정을 runs_as 로 알린다."""
+    own = _own_status(db, user)
+    email = own.get("email") or next((e for u, e in bound_users(db) if u == user), "")
+    best, who = own, user
+    for other, mail in bound_users(db):
+        if other == user or not email or mail != email:
+            continue
+        st = _own_status(db, other)
+        if (st.get("at") or "") > (best.get("at") or ""):
+            best, who = st, other
+    return {**best, "runs_as": who} if who != user else best
 
 
 def interval_minutes() -> int:
@@ -143,7 +159,7 @@ def run_for_user(db, processor, inbox_dir: Path, user: str, email: str, dept: st
             log.warning("가져온 문서 처리 실패 doc=%s: %s", doc_id, e)
         db.set_setting(key, f"{f.get('modifiedTime')}|{doc_id}")
         imported.append({"doc_id": doc_id, "name": name})
-    st = status(db, user)
+    st = _own_status(db, user)
     st.update({"at": datetime.now().strftime("%Y-%m-%d %H:%M"), "folder_id": folder_id, "email": email,
                "imported_total": int(st.get("imported_total") or 0) + len(imported),
                "last_imported": [x["name"] for x in imported][:5] or st.get("last_imported", []), "errors": errors[:5]})
@@ -170,7 +186,7 @@ def run_all(db, processor, inbox_dir: Path, dept_of=None, rank=None) -> dict:
                 out[user] = len(got["imported"])
             except Exception as e:
                 log.warning("드라이브 가져오기 실패 %s: %s", user, e)
-                st = status(db, user)
+                st = _own_status(db, user)
                 st.update({"at": datetime.now().strftime("%Y-%m-%d %H:%M"), "errors": [str(e)[:200]]})
                 db.set_setting(f"gimport_status:{user}", json.dumps(st, ensure_ascii=False))
         return out
