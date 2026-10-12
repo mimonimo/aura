@@ -699,3 +699,10 @@ def test_saved_time_and_status_version_are_noise():
     from zzaimy.app.doc_naming import poor_name
     assert poor_name(clean_filename("2021 0413 오전 14시30분 최종Ver.hwp"))      # 날짜·시각·상태뿐 — 본문 제목이나 대체 이름으로
     assert clean_filename("3시간 집중 교육 계획.hwp") == "3시간 집중 교육 계획"   # '3시간' 은 시각이 아니다
+
+
+def test_cut_tail_leaves_no_open_bracket_and_time_is_not_a_unit():
+    assert clean_filename("4.2 가나 활동(ver. 210511) 제출본 수정ver09.hwp") == "4.2 가나 활동"
+    m = {"kind_label": "계획서", "program": "가나사업", "year": "2021"}
+    assert choose_name("2021 0413 오전 14시30분 최종Ver.hwp", "", m)["name"] == "계획서 · 가나사업 2021"
+    assert choose_name("호텔.pdf", "", m)["name"] == "계획서 · 가나사업 2021 · 호텔"

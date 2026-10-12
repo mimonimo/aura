@@ -246,6 +246,10 @@ def clean_filename(name: str, text: str | None = None) -> str:
         if m and m.end() < len(s) and _meaningful(s[m.end():]):
             s = s[m.end():]
     s = re.sub(r"\(\s*\)|\[\s*\]", "", s)
+    # 꼬리를 떼다 괄호 안이 잘렸으면('… 활동(ver') 닫히지 않은 괄호 조각도 뗀다
+    m = re.search(r"\s*\([^()]*$", s)
+    if m and _meaningful(s[: m.start()]):
+        s = s[: m.start()]
     s = re.sub(r"\s{2,}", " ", s).strip(" _-·,.")
     return s
 
@@ -675,7 +679,8 @@ def choose_name(original: str, text: str = "", meta: dict | None = None,
     if alt:
         # 짧은 파일 이름('호텔'·'화공'·'3전기')은 학과·부서 같은 단위다 — 뜻이 있으면 끝에 붙여 남긴다
         unit = re.sub(r"^[\d\s.\-_]+", "", fname).strip()
-        if len(re.findall(r"[가-힣]", unit)) >= 2 and unit not in _GENERIC_SHORT and unit not in alt:
+        bare = re.sub(r"\d+\s*(?:번|차|호|쪽|년|월|일|시|분)|오전|오후", "", unit)     # 날짜·시각 낱말은 단위가 아니다
+        if len(re.findall(r"[가-힣]", bare)) >= 2 and unit not in _GENERIC_SHORT and unit not in alt:
             alt = f"{alt} · {unit}"
         return {"name": alt, "title": None, "date": None, "source": "meta"}
     return {"name": fname, "title": None, "date": None, "source": "file"}
