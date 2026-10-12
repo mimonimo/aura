@@ -80,7 +80,7 @@ def test_project_evidence_becomes_an_unconfirmed_suggestion_until_confirmed(tmp_
     assert [a["name"] for a in asks.pending(db, sid)] == ["본신청 마감일"]
     form = json.loads(db.get_setting(f"chat_options:{sid}"))[0]
     assert form["submit"] == "확인" and form["fields"][0]["value"] == "7.28.~8.6. 15:00" and "확인 전" in form["fields"][0]["placeholder"]
-    assert "자료에서 찾음: 《" in page and 'value="7.28.~8.6. 15:00"' in page
+    assert "자료에서 찾음: 《" in page and '>7.28.~8.6. 15:00</textarea>' in page
     # 「확인」 — 미리 채운 칸을 그대로 보내면 담당자 값이 된다
     _run(client, monkeypatch, sid, [_step("remember_values", values={"본신청 마감일": "7.28.~8.6. 15:00"}), _step("finish", message="끝")],
          "본신청 마감일: 7.28.~8.6. 15:00")
