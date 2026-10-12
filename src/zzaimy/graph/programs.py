@@ -1108,11 +1108,11 @@ def apply_reviews(docs: list[dict], assigned: list[Assignment], reviews: list[di
         if label == "사업 아님":
             a.program, a.program_name = "", ""
             a.status = "agent"
-            a.evidence = [f"검토({hit.get('reviewer', '에이전트')}): 사업 아님 — {hit.get('reason', '')[:80]}"]
+            a.evidence = [f"검토: 사업 아님 — {hit.get('reason', '')[:80]}"]   # 누가(어떤 도구가) 검토했는지는 검토 기록에만, 화면 근거에는 싣지 않는다
         else:
             name = label.split(":", 1)[1].strip() if label.startswith("새 사업") else label
             c = card_named(name)
             a.program, a.program_name, a.status = c.node_id, c.name, "agent"
-            a.evidence = [f"검토({hit.get('reviewer', '에이전트')}): {hit.get('reason', '')[:80]}"]
+            a.evidence = [f"검토: {hit.get('reason', '')[:80]}"]
         n += 1
     return n
