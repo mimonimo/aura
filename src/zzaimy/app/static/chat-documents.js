@@ -38,7 +38,7 @@
      if(section.tab_id)url.searchParams.set('tab',section.tab_id);else url.searchParams.delete('tab');
      url.hash='heading='+section.heading_id;
    }
-   loadFrame(frame,url.href,section?`「${section.heading}」 위치로 이동하는 중…`:'문서를 새로 불러오는 중…');
+   loadFrame(frame,url.href,section?`「${section.heading}」 위치로 이동하는 중…`:'문서를 새로 불러오는 중…',{quick:Boolean(section)});
  }
  // iframe 을 (다시) 불러오는 동안 안내를 띄운다. 구글 편집기는 교차 출처라 다 그렸는지 알 수 없고, 첫 load(약 3초) 뒤에도
  // 편집기 스크립트가 글을 그리느라 10초 안팎 비어 있다. 그래서 첫 load 로 걷지 않고 다음 중 먼저 오는 때에 걷는다:
@@ -46,9 +46,11 @@
  //   ③ 시작으로부터 30초(어떤 경우에도 안내가 남아 있지 않게), ④ 담당자가 안내를 누를 때.
  // 걷을 때는 흐리게 사라진다. 불러오기마다 번호를 매겨 앞선 불러오기의 load·타이머가 새 안내를 건드리지 않게 한다.
  // 시간 값은 시험에서만 window.chatDocLoadTiming 으로 줄인다.
- const LOAD_TIMING=Object.assign({settle:10000,cap:30000,slow:15000},window.chatDocLoadTiming||{});
+ // 안내는 편집기를 가리지 않는 작은 알림이다(위에 떠 있고 아래 문서는 그대로 스크롤된다). 위치 이동(quick)은 이미 연 문서를
+ // 다시 여는 것이라 편집기가 곧 보인다 — 첫 load 뒤 짧게(jump) 두고 걷는다.
+ const LOAD_TIMING=Object.assign({settle:10000,cap:30000,slow:15000,jump:1200},window.chatDocLoadTiming||{});
  let loadSeq=0;
- function loadFrame(frame,url,text){
+ function loadFrame(frame,url,text,{quick=false}={}){
    const viewport=frame.parentElement;if(!viewport)return;
    let note=[...viewport.children].find(el=>el.classList.contains('chat-doc-loading'));
    if(!note){
@@ -75,6 +77,7 @@
      if(!current()){cleanup();return;}
      loads+=1;
      if(loads>=2){later(finish,600);return;}
+     if(quick){later(finish,LOAD_TIMING.jump);return;}
      note.lastElementChild.textContent='편집기를 그리는 중…';
      later(finish,LOAD_TIMING.settle);
    }
@@ -89,19 +92,24 @@
    if(!section?.heading_id||!linked)return;
    show();visibility(true);
    navigateEditor(section);
-   const select=panel.querySelector('[data-section-jump]');if(select)select.value=String(section.index);
+   const chapter=panel.querySelector('[data-section-chapter]');if(chapter?._show)chapter._show(section.index);
+   const select=panel.querySelector('[data-section-jump]');if(select)select.value=[...select.options].some(o=>o.value===String(section.index))?String(section.index):'';
  }
  function addLocationButtons(){
    if(!linked)return;
    const normalize=value=>value.replace(/\s+/g,' ').trim();
    workspace.querySelectorAll('[data-section-location]').forEach(button=>{if(button.dataset.locationDoc!==String(linked.doc||''))button.remove();});
+   workspace.querySelectorAll('.chat-locations').forEach(row=>{if(!row.querySelector('[data-section-location]'))row.remove();});
    workspace.querySelectorAll('.turn.assistant .msg.assistant').forEach(message=>{
      const text=normalize(message.textContent);
      (linked.sections||[]).filter(s=>s.heading_id&&s.heading.length>=6&&text.includes(normalize(s.heading))).slice(0,3).forEach(s=>{
        if(message.querySelector(`[data-section-location="${s.index}"]`))return;
        const button=document.createElement('button');button.type='button';button.className='secondary chat-location-button';button.dataset.sectionLocation=s.index;
        const documentId=String(linked.doc||'');button.dataset.locationDoc=documentId;
-       button.textContent='문서에서 보기 · '+s.heading;button.onclick=()=>{if(String(linked?.doc||'')===documentId)jumpToSection(s);};message.append(button);
+       button.textContent=s.heading;button.title='문서에서 「'+s.heading+'」 위치 보기';button.onclick=()=>{if(String(linked?.doc||'')===documentId)jumpToSection(s);};
+       let row=message.querySelector(':scope > .chat-locations');
+       if(!row){row=document.createElement('div');row.className='chat-locations';const label=document.createElement('span');label.textContent='문서에서 보기';row.append(label);message.append(row);}
+       row.append(button);
      });
    });
  }
@@ -310,18 +318,44 @@
    header.append(titleRow,tools);
    panel.querySelector('.chat-doc-note')?.remove();
  }
- // 문서 위치 이동 — 제목 id 가 있는 절만 고른다(id 가 없으면 이동할 곳이 없다). 답이 끝나 절이
- // 바뀌면 다시 만든다.
+ // 문서 위치 이동 — 제목 id 가 있는 절만 고른다(id 가 없으면 이동할 곳이 없다). 답이 끝나 절이 바뀌면 다시 만든다.
+ // 절이 많고 단계가 둘 이상이면 두 칸으로 나눈다: 앞 칸은 맨 윗단계(장), 뒤 칸([data-section-jump])은 고른 장 안의 절.
+ // 장을 고르면 그 장 머리로 가고 뒤 칸이 그 장의 절로 바뀐다. 절이 적거나 단계가 하나면 한 칸에 모두 둔다(단계는 들여 쓴다).
+ const FLAT_LIMIT=12;
+ function sectionTree(destinations){
+   const level=s=>Number(s.level)||1;
+   const top=Math.min(...destinations.map(level));
+   const chapters=[];
+   destinations.forEach(s=>{if(level(s)<=top||!chapters.length)chapters.push({head:s,items:[]});else chapters.at(-1).items.push(s);});
+   return {chapters,top,level};
+ }
+ function fillOptions(select,prompt,items,depth){
+   select.replaceChildren();
+   const first=document.createElement('option');first.value='';first.textContent=prompt;select.append(first);
+   items.forEach(s=>{const o=document.createElement('option');o.value=s.index;o.textContent='   '.repeat(Math.max(0,depth(s)))+s.heading;select.append(o);});
+ }
  function buildSectionJump(tools){
    tools=tools||panel?.querySelector('.doc-view-tools');if(!tools||!linked)return;
-   tools.querySelector('[data-section-jump]')?.remove();
+   tools.querySelector('[data-section-jump]')?.remove();tools.querySelector('[data-section-chapter]')?.remove();
    const destinations=(linked.sections||[]).filter(s=>s.heading_id&&s.heading);
    if(!destinations.length)return;
+   const {chapters,top,level}=sectionTree(destinations);
    const select=document.createElement('select');select.dataset.sectionJump='';select.setAttribute('aria-label','목차에서 고른 제목 위치로 이동');
-   const prompt=document.createElement('option');prompt.value='';prompt.textContent='목차로 이동';select.append(prompt);
-   destinations.forEach(s=>{const option=document.createElement('option');option.value=s.index;option.textContent=s.heading;select.append(option);});
-   select.onchange=()=>{const section=destinations.find(s=>String(s.index)===select.value);if(section)jumpToSection(section);};
-   tools.prepend(select);
+   const go=value=>{const section=destinations.find(s=>String(s.index)===value);if(section)jumpToSection(section);};
+   select.onchange=()=>go(select.value);
+   const nested=destinations.length>FLAT_LIMIT&&chapters.some(c=>c.items.length);
+   if(!nested){fillOptions(select,'목차로 이동',destinations,s=>level(s)-top);tools.prepend(select);return;}
+   const chapter=document.createElement('select');chapter.dataset.sectionChapter='';chapter.setAttribute('aria-label','장 고르기');
+   fillOptions(chapter,'장 고르기',chapters.map(c=>c.head),()=>0);
+   const showChapter=c=>{
+     const items=c?c.items:[];
+     fillOptions(select,c?(items.length?`절 고르기 · ${items.length}개`:'이 장에는 절이 없습니다'):'장을 먼저 고르세요',items,s=>level(s)-top-1);
+     select.disabled=!items.length;
+   };
+   chapter.onchange=()=>{const c=chapters.find(c=>String(c.head.index)===chapter.value);showChapter(c);if(c)go(chapter.value);};
+   chapter._show=index=>{const c=chapters.find(c=>c.head.index===index||c.items.some(s=>s.index===index));if(!c)return;chapter.value=String(c.head.index);showChapter(c);};
+   showChapter(null);
+   tools.prepend(chapter,select);
  }
  document.addEventListener('pointerdown',e=>{const more=panel?.querySelector('.doc-more[open]');if(more&&!more.contains(e.target))more.open=false;});
  show=()=>{

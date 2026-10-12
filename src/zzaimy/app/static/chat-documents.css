@@ -75,9 +75,14 @@ button.chat-doc-file.chat-doc-file{display:flex!important;align-items:center;gap
 .chat-doc-viewer header .chat-doc-mini{font-size:12px;padding:4px 8px}
 body .doc-view-tools{flex-wrap:wrap;min-width:0}
 body .doc-view-tools .chat-doc-toolbar{white-space:nowrap;flex-shrink:0}
-body .doc-view-tools [data-section-jump]{flex:1;min-width:120px;max-width:100%;width:180px;border-radius:8px;font-size:12px;padding:7px 10px}
-body .chat-location-button{display:block;margin-top:12px;max-width:100%;white-space:normal;text-align:left;font-size:12px}
-.chat-doc-loading{position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;padding:24px;background:#f6f7f9;color:#536477;font-size:13px;text-align:center}
+body .doc-view-tools :is([data-section-jump],[data-section-chapter]){flex:1;min-width:120px;max-width:100%;width:180px;border-radius:8px;font-size:12px;padding:7px 10px}
+body .doc-view-tools [data-section-chapter]{font-weight:600;color:#1b3b75}
+body .doc-view-tools [data-section-jump]:disabled{color:#8a96a6;background:#f6f8fb}
+/* 답 아래 「문서에서 보기」 — 한 줄의 작은 칩 묶음 */
+body .chat-locations{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px;font-size:12px;color:var(--muted)}
+body .chat-locations>span{margin-right:2px}
+body .chat-location-button{display:inline-flex;align-items:center;gap:4px;max-width:100%;min-height:28px;padding:3px 10px;border-radius:999px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;font-size:12px}
+body .chat-location-button::before{content:'↗';color:#497bfb}
 /* 문서함 머리줄 단추는 전역 버튼 스타일과 상관없이 작게 둔다 */
 .chat-file-library{background:#fff}
 .chat-file-library>header{padding:12px 16px;gap:8px;flex-wrap:nowrap;min-height:56px;box-sizing:border-box}
@@ -100,7 +105,9 @@ body .chat-location-button{display:block;margin-top:12px;max-width:100%;white-sp
 .chat-doc-busy-dot{flex:none;width:12px;height:12px;box-sizing:border-box;border:2px solid #dce5f2;border-top-color:var(--navy,#1f3b63);border-right-color:var(--navy,#1f3b63);border-radius:50%;animation:chat-doc-busy-spin .9s linear infinite}
 @keyframes chat-doc-busy-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.chat-doc-busy-dot{animation:none}}
-.chat-doc-loading{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--line);border-radius:10px;background:#fff;color:#2c4a73;font-size:13px;box-shadow:0 4px 14px rgba(15,30,60,.08);z-index:2}
+/* 불러오는 동안 안내 — 편집기를 덮지 않는 작은 알림(아래 문서는 그대로 보이고 스크롤된다) */
+.chat-doc-loading{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100% - 32px);box-sizing:border-box;padding:7px 14px;border:1px solid var(--line);border-radius:999px;background:#fff;color:#2c4a73;font-size:12px;line-height:1.5;box-shadow:0 4px 14px rgba(15,30,60,.10);z-index:2}
+.chat-doc-loading>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-doc-loading[hidden]{display:none}
 /* 답이 끝난 뒤 편집기 위 한 줄(쓴 절 · 그 위치로 이동) — 진행 줄(.chat-doc-busy)과 같은 자리 */
 .chat-doc-done{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 14px;border-bottom:1px solid var(--line);background:#f3f8f3;color:#2d5233;font-size:12px;line-height:1.5;min-width:0}

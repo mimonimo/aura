@@ -65,17 +65,17 @@ try {
  const jumpNote=await evaluate(`(()=>{document.querySelector('.chat-doc-done button.secondary').click();const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:Boolean(n&&!n.hidden),text:n?.textContent,busy:document.querySelector('.chat-doc-viewport').getAttribute('aria-busy')}})()`);
  assert.deepEqual(jumpNote,{shown:true,text:'「1. 추진 배경」 위치로 이동하는 중…',busy:'true'});
  assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-done'))`),false);
- // 첫 load 로는 걷지 않는다(구글 편집기는 그 뒤에도 그리는 중) — 두 번째 load 가 오면 걷힌다
- assert.deepEqual(await evaluate(`(()=>{const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:!n.hidden,text:n.textContent}})()`),{shown:true,text:'편집기를 그리는 중…'});
- await evaluate(`document.querySelector('.chat-doc-editor iframe').dispatchEvent(new Event('load'))`);await new Promise(r=>setTimeout(r,1100));
+ // 위치 이동은 이미 연 문서를 다시 여는 것 — 안내는 이동 문구 그대로이고, 첫 load 뒤 짧게(1.2초) 두고 걷힌다
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').textContent`),'「1. 추진 배경」 위치로 이동하는 중…');
+ await evaluate(`document.querySelector('.chat-doc-editor iframe').dispatchEvent(new Event('load'))`);await new Promise(r=>setTimeout(r,1500));
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
  assert.ok(await evaluate(`(()=>{const s=document.querySelector('.chat-doc-editor iframe').src;return s!==beforeAnswer&&new URL(s).hash==='#heading=h.test'})()`));
  // 앞선 이동이 끝나기 전에 다시 옮기면 안내는 나중 것 — 앞 이동의 load 처리기는 나중 안내를 지우지 않고 빠진다
  const twice=await evaluate(`(()=>{const sel=document.querySelector('[data-section-jump]');sel.value='1';sel.dispatchEvent(new Event('change'));const f=document.querySelector('.chat-doc-editor iframe');const first=f.dataset.loadSeq;sel.dispatchEvent(new Event('change'));const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {moved:f.dataset.loadSeq!==first,shown:!n.hidden}})()`);
  assert.deepEqual(twice,{moved:true,shown:true});
- // 첫 load 로는 걷지 않는다(구글 편집기는 그 뒤에도 그리는 중) — 두 번째 load 가 오면 걷힌다
- assert.deepEqual(await evaluate(`(()=>{const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:!n.hidden,text:n.textContent}})()`),{shown:true,text:'편집기를 그리는 중…'});
- await evaluate(`document.querySelector('.chat-doc-editor iframe').dispatchEvent(new Event('load'))`);await new Promise(r=>setTimeout(r,1100));
+ // 위치 이동은 이미 연 문서를 다시 여는 것 — 안내는 이동 문구 그대로이고, 첫 load 뒤 짧게(1.2초) 두고 걷힌다
+ assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').textContent`),'「1. 추진 배경」 위치로 이동하는 중…');
+ await evaluate(`document.querySelector('.chat-doc-editor iframe').dispatchEvent(new Event('load'))`);await new Promise(r=>setTimeout(r,1500));
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
  // 다시 보내면(대기) 쓴 절 알림은 걷힌다
  await evaluate(`document.getElementById('chatWorkspace').dispatchEvent(new CustomEvent('chat-session-updated',{detail:{session:'1',waiting:false}}))`);

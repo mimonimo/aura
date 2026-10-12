@@ -100,7 +100,7 @@ def current(request: Request, sid: int):
     info = read_document(link['account'], link['doc'])
     return {'connected':True, **link, 'title':info['title'], 'embed_url':gdocs.embed_url(link['doc']),
             'embed_url_toolbar':gdocs.embed_url(link['doc'], toolbar=True),
-            'sections':[{'index':s['index'],'heading':s['heading'],
+            'sections':[{'index':s['index'],'heading':s['heading'],'level':s.get('level'),
                          'heading_id':s.get('heading_id'),'tab_id':s.get('tab_id')} for s in info['sections']]}
 
 
