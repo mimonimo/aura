@@ -3224,7 +3224,14 @@ def create_app(
                 body_hits = []
 
             def snippet(body: str, n: int = 120) -> str:
-                i = body.lower().find(term.lower())
+                # 판독 본문의 그림 표시(![image](…))·표 칸 줄(|)·글머리 사용자 영역 글자는 미리 보기 글이 아니다 — 걷어 내고,
+                # 검색어 전체가 없으면 첫 낱말이 나온 곳 앞뒤를 보인다
+                body = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", body or "")
+                body = re.sub(r"[\uE000-\uF8FF]|\s*\|\s*", " ", body)
+                low = body.lower()
+                i = low.find(term.lower())
+                if i < 0:
+                    i = min((j for j in (low.find(w.lower()) for w in term.split()) if j >= 0), default=-1)
                 return " ".join((body[max(0, i - 40):i + n] if i >= 0 else body[:n]).split())
 
             seen = {d["id"] for d in found}
