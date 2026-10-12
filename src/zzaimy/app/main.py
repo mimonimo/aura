@@ -579,6 +579,8 @@ def create_app(
     from zzaimy.app import metrics as _metrics
     _metrics.install(templates.env)
     _dev_nav.install(templates.env)
+    from zzaimy.app import passwords as _passwords
+    _passwords.install(templates.env)
 
     import re as _re
 
@@ -5042,25 +5044,33 @@ def create_app(
         request: Request, current_pw: str = Form(""), new_pw: str = Form(...),
         confirm: str = Form(""), back: str = Form("/"),
     ):
-        """내 비밀번호 변경 — 로그인한 본인 계정만. 현재 비밀번호를 맞혀야 바꿀 수 있다."""
+        """내 비밀번호 변경 — 로그인한 본인 계정만. 현재 비밀번호를 맞혀야 바꿀 수 있다.
+        화면은 「보기」 토글로 확인 칸 없이 보내고, 확인 칸(confirm)은 예전 폼·스크립트를 위해 왔을 때만 맞춰 본다.
+        규칙(길이·현재와 다름)은 passwords.problem 한 곳."""
+        from zzaimy.app import passwords as _pw_rules
+
         if password is None:
             raise HTTPException(400, "인증 없는 로컬 모드에서는 계정이 없습니다")
         uid = getattr(request.state, "user", "")
         dest = back if back.startswith("/") and not back.startswith("//") else "/"
-        sep = "&" if "?" in dest else "?"
+        # 「/settings#password」처럼 조각(#)이 붙은 자리면 결과 글(?ok=/err=)은 조각 앞에 — 뒤에 붙으면 배너가 안 보인다
+        path, _, frag = dest.partition("#")
+        sep = "&" if "?" in path else "?"
+
+        def _go(kind: str, msg: str) -> RedirectResponse:
+            return RedirectResponse(f"{path}{sep}{kind}={_q(msg)}" + (f"#{frag}" if frag else ""), status_code=303)
+
         if not _verify_pw(uid, current_pw):
-            return RedirectResponse(
-                f"{dest}{sep}err=현재 비밀번호가 맞지 않습니다", status_code=303)
-        if len(new_pw) < 8:
-            return RedirectResponse(
-                f"{dest}{sep}err=새 비밀번호는 8자 이상이어야 합니다", status_code=303)
-        if new_pw != confirm:
-            return RedirectResponse(
-                f"{dest}{sep}err=새 비밀번호 확인이 일치하지 않습니다", status_code=303)
+            return _go("err", "현재 비밀번호가 맞지 않습니다")
+        bad = _pw_rules.problem(new_pw, current_pw)
+        if bad:
+            return _go("err", bad)
+        if confirm and new_pw != confirm:
+            return _go("err", "새 비밀번호 확인이 일치하지 않습니다")
         _set_pw(accounts[uid], new_pw)
         accounts[uid].pop("must_change", None)
         _save_accounts()
-        return RedirectResponse(f"{dest}{sep}ok=비밀번호를 변경했습니다", status_code=303)
+        return _go("ok", "비밀번호를 변경했습니다")
 
     # ---- 학습 도구 계정·연결 — 모델 학습 화면의 도구 카드에서 다룬다 ----
 

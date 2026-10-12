@@ -26,6 +26,16 @@
 .ms-field .ms-ro { padding:9px 14px; border-radius:12px; background:var(--panel); font-size:14px; color:var(--ink); }
 .my-settings textarea { min-height:140px; }
 .ms-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+.pw-wrap { position:relative; }
+.pw-wrap input { padding-right:84px; }
+.pw-wrap .pw-eye { position:absolute; right:6px; top:50%; transform:translateY(-50%); min-height:30px; padding:3px 10px;
+  gap:4px; font-size:12px; font-weight:600; background:#fff; color:#36465B; border:1px solid #D6DEE8; border-radius:8px; }
+.pw-wrap .pw-eye:hover { background:var(--panel); border-color:#94A3B8; }
+.pw-rules { list-style:none; margin:4px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:4px 14px; font-size:12px; color:var(--muted); }
+.pw-rules li { display:inline-flex; align-items:center; gap:5px; }
+.pw-rules li iconify-icon { font-size:14px; color:var(--faint); }
+.pw-rules li[data-state="ok"] { color:#23684C; } .pw-rules li[data-state="ok"] iconify-icon { color:#2F8F5B; }
+.pw-rules li[data-state="bad"] { color:#B4232A; } .pw-rules li[data-state="bad"] iconify-icon { color:#C0392B; }
 @media(max-width:640px) { .ms-fields { grid-template-columns:1fr; } .my-settings .card-in { padding:18px; } }
 </style>
 {% endblock %}
@@ -86,26 +96,69 @@
 {% if has_password and uid %}
 <section class="card reveal" id="password"><div class="card-in">
   <h2><iconify-icon icon="solar:lock-password-linear"></iconify-icon>비밀번호</h2>
-  <p class="ms-desc">본인 계정 비밀번호만 바꿉니다. 8자 이상.</p>
-  <form action="/account/password" method="post">
-    <input type="hidden" name="back" value="/settings#password">
+  <p class="ms-desc">본인 계정 비밀번호 변경 · 「보기」로 입력한 글자 확인</p>
+  {# 확인 칸 대신 「보기」 토글 — 브라우저 비밀번호 관리자가 username·current-password·new-password 로 알아보고 강한 비밀번호를 제안한다.
+     규칙 체크는 화면 표시용, 받아들일지는 서버(passwords.problem)가 같은 값으로 정한다 #}
+  <form action="/account/password" method="post" data-pw-form data-min="{{ password_rules.min_length }}">
+    <input type="hidden" name="back" value="/settings">
+    <input type="text" name="username" value="{{ uid }}" autocomplete="username" readonly hidden>
     <div class="ms-fields">
-      <div class="ms-field" style="grid-column:1 / -1; max-width:420px;">
+      <div class="ms-field">
         <label for="pw-cur">현재 비밀번호</label>
         <input id="pw-cur" type="password" name="current_pw" required autocomplete="current-password">
       </div>
       <div class="ms-field">
         <label for="pw-new">새 비밀번호</label>
-        <input id="pw-new" type="password" name="new_pw" required minlength="8" autocomplete="new-password">
-      </div>
-      <div class="ms-field">
-        <label for="pw-ok">새 비밀번호 확인</label>
-        <input id="pw-ok" type="password" name="confirm" required minlength="8" autocomplete="new-password">
+        <div class="pw-wrap">
+          <input id="pw-new" type="password" name="new_pw" required minlength="{{ password_rules.min_length }}" autocomplete="new-password"
+                 aria-describedby="pw-rules" spellcheck="false" autocapitalize="off">
+          <button type="button" class="pw-eye" data-pw-show aria-controls="pw-new" aria-pressed="false" aria-label="새 비밀번호 보기">
+            <iconify-icon icon="solar:eye-linear" aria-hidden="true"></iconify-icon><span>보기</span></button>
+        </div>
+        <ul class="pw-rules" id="pw-rules">
+          <li data-rule="length"><iconify-icon icon="solar:record-linear" aria-hidden="true"></iconify-icon><span>{{ password_rules.min_length }}자 이상</span></li>
+          <li data-rule="differs"><iconify-icon icon="solar:record-linear" aria-hidden="true"></iconify-icon><span>현재 비밀번호와 다름</span></li>
+        </ul>
       </div>
     </div>
-    <div class="ms-actions"><button type="submit">비밀번호 변경</button></div>
+    <div class="ms-actions"><button type="submit" data-pw-submit>비밀번호 변경</button></div>
   </form>
 </div></section>
+<script>
+(function () {
+  var form = document.querySelector("[data-pw-form]");
+  if (!form) return;
+  var min = parseInt(form.getAttribute("data-min"), 10) || 0;
+  var cur = form.elements.current_pw, nw = form.elements.new_pw;
+  var show = form.querySelector("[data-pw-show]"), submit = form.querySelector("[data-pw-submit]");
+  var ICON = { ok: "solar:check-circle-bold", bad: "solar:close-circle-bold", wait: "solar:record-linear" };
+  function mark(rule, state, text) {
+    var li = form.querySelector('[data-rule="' + rule + '"]');
+    li.setAttribute("data-state", state);
+    li.querySelector("iconify-icon").setAttribute("icon", ICON[state]);
+    if (text) li.querySelector("span").textContent = text;
+  }
+  function check() {
+    var v = nw.value, longEnough = v.length >= min, same = v !== "" && v === cur.value;
+    mark("length", v === "" ? "wait" : (longEnough ? "ok" : "bad"),
+         min + "자 이상" + (v && !longEnough ? " · 지금 " + v.length + "자" : ""));
+    mark("differs", v === "" ? "wait" : (same ? "bad" : "ok"), same ? "현재 비밀번호와 같습니다 — 다른 비밀번호로" : "현재 비밀번호와 다름");
+    submit.disabled = !(cur.value && longEnough && !same);
+  }
+  ["input", "change"].forEach(function (ev) { nw.addEventListener(ev, check); cur.addEventListener(ev, check); });
+  show.addEventListener("click", function () {
+    var on = nw.type === "password";
+    nw.type = on ? "text" : "password";
+    show.setAttribute("aria-pressed", String(on));
+    show.setAttribute("aria-label", on ? "새 비밀번호 가리기" : "새 비밀번호 보기");
+    show.querySelector("span").textContent = on ? "가리기" : "보기";
+    show.querySelector("iconify-icon").setAttribute("icon", on ? "solar:eye-closed-linear" : "solar:eye-linear");
+  });
+  // 보낼 때는 다시 가린다 — 브라우저가 글자를 평문 칸으로 기억하지 않게
+  form.addEventListener("submit", function () { nw.type = "password"; });
+  check();
+})();
+</script>
 {% endif %}
 
 {% if google %}
@@ -119,7 +172,7 @@
   {% endif %}
   <div class="ms-ro" style="margin:0 0 12px; font-size:13px; line-height:1.7;">
     자동 가져오기 — 내 드라이브의 「{{ gimport_folder }}」 폴더에 파일을 넣으면 {{ gimport_minutes }}분마다 확인해 라이브러리로 가져옵니다(드라이브의 다른 파일은 보지 않습니다).
-    {% if gimport.folder_id %}<br><a href="https://drive.google.com/drive/folders/{{ gimport.folder_id }}" target="_blank" rel="noopener">폴더 열기 ↗</a>{% endif %}
+    {% if gimport.folder_id %}<br><a class="mini-btn" style="margin:6px 0 2px;" href="https://drive.google.com/drive/folders/{{ gimport.folder_id }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>폴더 열기</a>{% endif %}
     {% if gimport.at %}<br><span class="muted">마지막 확인 {{ gimport.at }} · 지금까지 {{ gimport.imported_total or 0 }}건{% if gimport.last_imported %} · 최근: {{ gimport.last_imported|join(", ") }}{% endif %}</span>{% endif %}
     {% if gimport.errors %}<br><span class="muted">건너뜀: {{ gimport.errors|join(" / ") }}</span>{% endif %}
   </div>

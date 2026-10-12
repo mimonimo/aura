@@ -18,12 +18,13 @@
   파이썬: metrics.get(db, "archive_linked") → {"key","label","value","definition","source","as_of","tip"}
           metrics.values(db, ["documents", "grant_chunks"]) → {key: value}
           metrics.tip("documents") → "정의 · 기준" 한 줄(툴팁)
-  화면:   {{ metric_label("archive_linked") }}  → 이름에 정의 툴팁을 붙인 <abbr>
+  화면:   {{ metric_label("archive_linked") }}  → 이름 + 정보 아이콘(ⓘ) + 정의 툴팁(마우스·키보드 초점, aria-describedby)
           {{ metric_tip("archive_linked") }}    → title 속성에 넣을 글
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import threading
 import time
@@ -129,10 +130,19 @@ def tip(key: str, as_of: str = "") -> str:
     return f"{m.definition} · 기준: {src}{(' ' + as_of) if as_of else ''}"
 
 
+_tip_ids = itertools.count(1)
+
+
 def label_html(key: str, as_of: str = "", text: str = "") -> Markup:
-    """이름에 정의 툴팁을 붙인 <abbr> — 화면에서 이름만 보여도 마우스를 올리면 무엇을 셌는지 나온다."""
+    """이름 + 작은 정보 아이콘 + 정의 툴팁 — 밑줄 없이(링크로 오해하지 않게) 마우스를 올리거나 키보드로 초점을 주면
+    무엇을 셌는지 나온다. 툴팁 글은 숨긴 채 aria-describedby 로 잇고, 띄우기는 base.html 의 공용 스크립트가 맡는다."""
     m = DEFS[key]
-    return Markup('<abbr class="metric" title="{}">{}</abbr>').format(tip(key, as_of), text or m.label)
+    tip_id = f"mt-{key}-{next(_tip_ids)}"
+    return Markup(
+        '<span class="metric" tabindex="0" aria-describedby="{id}">{text}'
+        '<iconify-icon class="metric-i" icon="solar:info-circle-linear" aria-hidden="true"></iconify-icon>'
+        '<span class="metric-tip" id="{id}" role="tooltip" hidden>{tip}</span></span>'
+    ).format(id=tip_id, text=text or m.label, tip=tip(key, as_of))
 
 
 def _one(conn, sql: str, args=()) -> int:

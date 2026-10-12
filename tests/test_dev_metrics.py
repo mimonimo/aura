@@ -39,8 +39,22 @@ def test_every_metric_has_distinct_label_per_source_and_a_definition():
 
 def test_label_html_escapes_and_carries_definition():
     html = str(metrics.label_html("archive_linked", "2026-01-02 03:04", "<b>연결</b>"))
-    assert html.startswith('<abbr class="metric" title="') and "&lt;b&gt;연결&lt;/b&gt;" in html
+    assert "&lt;b&gt;연결&lt;/b&gt;" in html
     assert "라이브러리 문서와 이어진 원본 파일" in html and "기준: 지금 DB 2026-01-02 03:04" in html
+
+
+def test_label_html_is_info_icon_tooltip_not_underlined_abbr():
+    """지표 이름은 밑줄 친 <abbr title> 이 아니라 이름 + 정보 아이콘 + 키보드로도 닿는 툴팁(aria-describedby)."""
+    import re
+    html = str(metrics.label_html("documents", "", "문서 <3>건"))
+    assert "<abbr" not in html and "title=" not in html and "text-decoration" not in html
+    m = re.fullmatch(r'<span class="metric" tabindex="0" aria-describedby="([^"]+)">문서 &lt;3&gt;건'
+                     r'<iconify-icon class="metric-i" icon="solar:info-circle-linear" aria-hidden="true"></iconify-icon>'
+                     r'<span class="metric-tip" id="([^"]+)" role="tooltip" hidden>([^<]+)</span></span>', html)
+    assert m and m.group(1) == m.group(2) and m.group(3) == metrics.tip("documents")
+    other = str(metrics.label_html("documents"))
+    assert re.search(r'aria-describedby="([^"]+)"', other).group(1) != m.group(1)   # 한 화면에 여러 번 써도 id 가 겹치지 않는다
+    assert metrics.DEFS["documents"].label in other
 
 
 def test_live_counts_on_fresh_db_and_as_of(client, tmp_path):
@@ -267,3 +281,12 @@ def test_originals_exclude_platform_copies_and_byproducts(client, tmp_path):
     assert metrics.DEFS["archive_files"].label != metrics.DEFS["archive_originals"].label
     page = client.get("/archive").text
     assert metrics.tip("archive_originals").split(" · ")[0] in page          # 보관소 머리 숫자도 같은 지표 정의
+
+
+def test_shared_small_button_and_page_head_classes_are_defined_once_in_base():
+    """동작 링크용 작은 보조 단추(.mini-btn, 카드 머리용 .h-link 같은 모양)와 머리 줄(.page-head)은 base.html 한 곳."""
+    from pathlib import Path
+
+    base = (Path(metrics.__file__).parent / "templates" / "base.html").read_text(encoding="utf-8")
+    assert ".mini-btn, .h-link {" in base and ".page-head {" in base and ".page-head-actions {" in base
+    assert ".metric-pop {" in base and 'closest(".metric[aria-describedby]")' in base

@@ -215,7 +215,7 @@
   </div>
   {% else %}<p class="muted">실패 항목 없음</p>{% endif %}
   <p class="muted" style="margin:8px 0 0; font-size:12px;">지원 유형: {{ selftest.supported | join(', ') }}</p>
-  <a href="/dev/pii?view=checks&amp;detail=selftest">전체 항목별 결과 보기</a>
+  <p style="margin:10px 0 0;"><a class="mini-btn" href="/dev/pii?view=checks&amp;detail=selftest">전체 항목별 결과 보기</a></p>
   {% endif %}
 </div></div>
 
@@ -337,7 +337,7 @@
   <h3>{% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>{% else %}{{ doc_name(d) }}{% endif %}</h3>
   <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ (d.recorded_at | kst) or '기록 없음' }}</p>
   <div style="display:flex;gap:6px;flex-wrap:wrap">{% for key,n in d.by_type.items() %}<span class="pill type">{{ entity_labels.get(key,key) }} {{ n }}</span>{% else %}<span class="pill">{{ '0건' if d.recorded else '기록 없음' }}</span>{% endfor %}</div>
-  {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}">가린 문맥 표본 보기</a>{% endif %}
+  {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}" class="mini-btn">가린 문맥 표본 보기</a>{% endif %}
   </article>{% endfor %}
   <nav class="privacy-nav" aria-label="기록 페이지">
   {% if src.page>1 %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page-1 }}">이전</a>{% endif %}<span>{{ src.page }} / {{ src.pages }}</span>

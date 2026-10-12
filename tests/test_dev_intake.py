@@ -46,12 +46,20 @@ def _audit(tmp_path, **over):
     (tmp_path / "pipeline_audit.json").write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
 
 
+def _metric_names(page: str) -> str:
+    """지표 이름 마크업(이름 + 정보 아이콘 + 숨긴 툴팁)을 「[이름]」 으로 접는다 — 문구 확인용."""
+    import re
+    return re.sub(r'<span class="metric"[^>]*>(.*?)<iconify-icon class="metric-i"[^>]*></iconify-icon>'
+                  r'<span class="metric-tip"[^>]*>.*?</span></span>', r"[\1]", page)
+
+
 def test_empty_missed_and_failed_are_one_line_not_cards(tmp_path):
     _audit(tmp_path)
     page = _client(tmp_path).get("/dev/intake").text
     assert "/dev/intake/missed.csv" not in page and "/dev/intake/failed.csv" not in page   # 빈 표 카드 없음
     assert "놓친 원본 예시" not in page
-    assert ">놓친 원본</abbr> <b>0</b>" in page and ">실패</abbr> <b>0</b>" in page
+    names = _metric_names(page)
+    assert "[놓친 원본] <b>0</b>" in names and "[실패] <b>0</b>" in names
 
 
 def test_failed_card_states_retry_rule_from_parse_script(tmp_path):
@@ -62,6 +70,7 @@ def test_failed_card_states_retry_rule_from_parse_script(tmp_path):
     assert isinstance(limit, int) and limit > 0
     assert f"새 형식 변환 실패는 같은 판에서 {limit}번까지" in page and "고쳐질 때까지" in page
     assert "/dev/intake/failed.csv" in page and "/dev/intake/missed.csv" not in page
+    assert 'class="h-link" href="/dev/intake/failed.csv" download' in page and 'class="pill"' not in page.split("failed.csv")[0][-80:]
 
 
 def test_retry_limit_reads_constant_without_running(tmp_path):
@@ -82,7 +91,7 @@ def test_sync_listing_number_gets_its_own_name(tmp_path):
     (tmp_path / "sync_status.json").write_text(json.dumps({"full": {"at": "2031-02-03 04:00", "summary": "원본 4321 · 새로 1"}},
                                                           ensure_ascii=False), encoding="utf-8")
     page = _client(tmp_path).get("/dev/intake").text
-    assert ">DGX 목록</abbr> 4,321 · 새로 1" in page and "원본 4321" not in page
+    assert "[DGX 목록] 4,321 · 새로 1" in _metric_names(page) and "원본 4321" not in page
     assert "원본 장부의 파일 전부" in page and "학교 원본 폴더의 파일" in page     # 장부 전체와 학교 원본은 이름이 다르다
 
 

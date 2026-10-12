@@ -14,7 +14,7 @@
 
 <div id="projectWorkspace">
 <a class="project-breadcrumb" href="/?type={{ project.sector }}"><iconify-icon icon="solar:arrow-left-linear" aria-hidden="true"></iconify-icon> {{ sector_name }} 프로젝트 목록</a>
-<div class="project-head" style="display:flex; align-items:center; gap:14px; padding:2px 2px 16px;
+<div class="page-head project-head" style="justify-content:flex-start; gap:14px; padding:2px 2px 16px;
             border-bottom:1px solid var(--line); margin-bottom:20px;">
   <div style="width:42px; height:42px; border-radius:12px; background:#E8EFFC;
               color:var(--navy); display:flex; align-items:center; justify-content:center; flex:none;">
@@ -28,7 +28,7 @@
       {% if project.due_date %} · <b style="color:#C05621;">마감 {{ project.due_date }}</b>{% endif %}
       · 만든 날 {{ project.created_at[:10] }}</div>
   </div>
-  <div style="margin-left:auto; display:flex; gap:8px; flex:none; align-items:center;">
+  <div class="page-head-actions" style="flex:none;">
     {% if project.archived %}
     <form action="/project/{{ project.id }}/unarchive" method="post" style="margin:0;">
       <button type="submit" class="secondary">보관 해제</button></form>

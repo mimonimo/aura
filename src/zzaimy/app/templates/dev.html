@@ -206,7 +206,7 @@
       <span>{{ metric_label("audit_in_library", pl.at, "그중 라이브러리 반영") }} <b>{{ "{:,}".format(pl.in_docbox) }}</b> ({{ pl.pct.in_docbox }}%)</span>
       <span class="muted" style="font-size:12.5px;">{{ metric_label("audit_failed", pl.at, "실패") }} {{ "{:,}".format(pl.failed) }} · {{ metric_label("audit_missed", pl.at, "놓침") }} {{ "{:,}".format(pl.missed) }} · {{ metric_label("audit_waiting", pl.at, "대기") }} {{ "{:,}".format(pl.waiting) }}</span>
     </div>
-    {% for a in pl.alerts %}<div class="ik2-warn">{{ a }} — <a href="/dev/intake">관리</a></div>{% endfor %}
+    {% for a in pl.alerts %}<div class="ik2-warn">{{ a }} <a class="mini-btn" href="/dev/intake">관리</a></div>{% endfor %}
     {% endif %}
     <div class="ik2-grid">
       <div>

@@ -23,6 +23,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
+from zzaimy.app import passwords
 from zzaimy.app.access_guard import ROLES
 from zzaimy.ingest import gdocs, gdrive, gdrive_files
 
@@ -179,7 +180,8 @@ def dev_google_moved():
 def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form(""), name: str = Form(""),
                    role: str = Form("staff"), dept: str = Form(""), active: str = Form(""), new_pw: str = Form(""),
                    google: str = Form("")):
-    """사용자 추가·수정 — 역할·부서·사용 여부, 비밀번호(새 계정은 필수, 기존 계정은 적으면 초기화), 구글 계정 이음."""
+    """사용자 추가·수정 — 역할·부서·사용 여부, 임시 비밀번호(새 계정은 필수, 기존 계정은 왔을 때만 초기화), 구글 계정 이음.
+    관리자가 넣은 비밀번호는 임시다 — 계정에 must_change 를 달아 다음 로그인 때 본인이 바꾸게 한다. 값은 응답에 싣지 않는다."""
     st = request.app.state
     accounts = _accounts(request)
     uid = uid.strip().lower()
@@ -193,12 +195,12 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
             return _back("아이디는 영문 소문자·숫자로 3~32자입니다(_ - 가능)", ok=False)
         if uid in accounts:
             return _back(f"{uid} 는 이미 있는 아이디입니다", ok=False)
-        if len(new_pw) < 8:
-            return _back("새 계정의 초기 비밀번호는 8자 이상이어야 합니다", ok=False)
+        if passwords.problem(new_pw):
+            return _back(f"새 계정의 임시 비밀번호는 {passwords.MIN_LENGTH}자 이상이어야 합니다", ok=False)
     elif uid not in accounts:
         raise HTTPException(404, "계정이 없습니다")
-    elif new_pw and len(new_pw) < 8:
-        return _back("비밀번호는 8자 이상이어야 합니다", ok=False)
+    elif new_pw and passwords.problem(new_pw):
+        return _back(f"임시 비밀번호는 {passwords.MIN_LENGTH}자 이상이어야 합니다", ok=False)
     on = bool(active) or new
     me = _user(request)
     if uid == me and (not on or role != "dev"):
@@ -222,14 +224,16 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
         if new_pw:
             st.set_pw(accounts[uid], new_pw)
         accounts[uid]["name"] = name.strip()
+    if new_pw:
+        accounts[uid]["must_change"] = True
     accounts[uid].update(role=role, dept=dept, active=on, updated_at=__import__("datetime").datetime.now().isoformat(timespec="seconds"))
     st.save_accounts()
     old = (st.db.get_setting(f"google_account:{uid}", "") or "").strip()
     if google != old:
         st.db.set_setting(f"google_account:{uid}", google)
-    msg = f"{uid} 계정을 만들었습니다 — 초기 비밀번호를 전달하고 첫 로그인 뒤 바꾸게 하세요" if new else f"{uid} 계정을 저장했습니다"
+    msg = f"{uid} 계정을 만들었습니다 — 임시 비밀번호를 전달하세요. 첫 로그인 때 새 비밀번호로 바꾸게 됩니다" if new else f"{uid} 계정을 저장했습니다"
     if new_pw and not new:
-        msg += "(비밀번호 초기화)"
+        msg += " — 임시 비밀번호로 바꿨습니다. 다음 로그인 때 새 비밀번호로 바꾸게 됩니다"
     return _back(msg)
 
 

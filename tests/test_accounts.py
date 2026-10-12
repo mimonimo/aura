@@ -155,3 +155,68 @@ def test_ls_admin_ignores_stderr_warnings(monkeypatch, tmp_path):
     monkeypatch.setattr(ls_admin.subprocess, "run", fake_helper_fail)
     ok, msg = ls_admin.set_password("abcdefgh")
     assert not ok and msg.startswith("FAIL")
+
+
+def test_password_change_without_confirm_field_and_server_rules(tmp_path):
+    """확인 칸 없이 바뀐다(화면은 「보기」 토글). 규칙 위반·현재 비밀번호 틀림·현재와 같음은 서버가 거절한다."""
+    from urllib.parse import unquote
+
+    from zzaimy.app import passwords
+
+    c = TestClient(_app(tmp_path))
+    assert _login(c, "zzaimy", "boot-pass-1")
+
+    def post(cur, new, **extra):
+        r = c.post("/account/password", data={"current_pw": cur, "new_pw": new, "back": "/settings#password", **extra},
+                   follow_redirects=False)
+        return unquote(r.headers["location"])
+
+    short = "x" * (passwords.MIN_LENGTH - 1)
+    loc = post("boot-pass-1", short)
+    assert loc.startswith("/settings?err=") and f"{passwords.MIN_LENGTH}자 이상" in loc and loc.endswith("#password")
+    assert short not in loc                                                         # 비밀번호 값은 주소에 싣지 않는다
+    assert "현재 비밀번호가 맞지 않습니다" in post("wrong-pass-0", "new-pass-123")
+    assert "현재 비밀번호와 같습니다" in post("boot-pass-1", "boot-pass-1")
+    assert "확인이 일치하지 않습니다" in post("boot-pass-1", "new-pass-123", confirm="other-pass-9")   # 예전 폼은 그대로 맞춰 본다
+    assert _login(TestClient(c.app), "zzaimy", "boot-pass-1")                     # 거절된 동안은 그대로
+    assert post("boot-pass-1", "new-pass-123").startswith("/settings?ok=")          # 확인 칸 없이 바뀐다
+    fresh = TestClient(c.app)
+    assert not _login(fresh, "zzaimy", "boot-pass-1") and _login(fresh, "zzaimy", "new-pass-123")
+
+
+def test_settings_password_form_has_show_toggle_and_live_rules(tmp_path):
+    import re
+
+    from zzaimy.app import passwords
+
+    c = TestClient(_app(tmp_path))
+    _login(c, "zzaimy", "boot-pass-1")
+    page = c.get("/settings").text
+    form = re.search(r'<form action="/account/password".*?</form>', page, re.S).group(0)
+    assert 'name="confirm"' not in form                                               # 확인 칸 없음
+    assert 'autocomplete="current-password"' in form and 'autocomplete="new-password"' in form
+    assert 'autocomplete="username"' in form                                          # 비밀번호 관리자가 계정을 알아보게
+    assert "data-pw-show" in form and 'aria-pressed="false"' in form and "보기" in form
+    assert f'data-min="{passwords.MIN_LENGTH}"' in form and f'minlength="{passwords.MIN_LENGTH}"' in form
+    assert 'data-rule="length"' in form and 'data-rule="differs"' in form
+    assert f"{passwords.MIN_LENGTH}자 이상" in form
+
+
+def test_password_rule_module():
+    from zzaimy.app import passwords
+
+    assert passwords.problem("a" * passwords.MIN_LENGTH) == ""
+    assert passwords.problem("a" * (passwords.MIN_LENGTH - 1))
+    assert passwords.problem("same-pass-1", "same-pass-1") and not passwords.problem("same-pass-1", "other-pass-1")
+
+
+def test_library_head_puts_action_at_row_end(tmp_path):
+    """화면 머리 줄 — 제목 왼쪽, 동작 단추는 공용 .page-head-actions 안(오른쪽 끝)."""
+    import re
+
+    c = TestClient(_app(tmp_path))
+    _login(c, "zzaimy", "boot-pass-1")
+    head = re.search(r'<section class="page-head"[^>]*>.*?</section>', c.get("/?type=all").text, re.S).group(0)
+    assert re.search(r"<h1>[^<]+</h1>", head)                                   # 제목(라이브러리 탭 이름)은 왼쪽
+    actions = re.search(r'<div class="page-head-actions">(.*?)</div>', head, re.S).group(1)
+    assert "프로젝트 추가" in actions and 'data-modal-open="#projectModal"' in actions

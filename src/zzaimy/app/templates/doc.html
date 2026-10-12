@@ -10,8 +10,8 @@
 <div class="doc-origin" title="{{ origin_place.path }}">
   <iconify-icon icon="solar:archive-linear" aria-hidden="true"></iconify-icon>
   <span class="doc-origin-place">{{ origin_place.label }}</span>
-  <a href="{{ origin_place.href }}">원본 보관소에서 보기</a>
-  <button type="button" class="doc-origin-copy" data-copy="{{ origin_place.path }}" title="전체 경로 복사: {{ origin_place.path }}" aria-label="원본 전체 경로 복사">경로 복사</button>
+  <a class="mini-btn" href="{{ origin_place.href }}"><iconify-icon icon="solar:archive-linear" aria-hidden="true"></iconify-icon>원본 보관소에서 보기</a>
+  <button type="button" class="mini-btn doc-origin-copy" data-copy="{{ origin_place.path }}" title="전체 경로 복사: {{ origin_place.path }}" aria-label="원본 전체 경로 복사">경로 복사</button>
 </div>
 <script>
 (function () {

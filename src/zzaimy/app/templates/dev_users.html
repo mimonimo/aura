@@ -42,6 +42,10 @@
   #userEdit input[readonly] { background:var(--bg); color:var(--muted); }
   #userEdit .ua-hint { margin:0; font-size:12px; line-height:1.6; color:var(--muted); font-weight:400; }
   #userEdit .ua-options { border-top:1px solid var(--line); padding-top:16px; }
+  #userEdit .ua-temp-pw { display:flex; flex-direction:column; gap:7px; margin-top:12px; }
+  #userEdit .ua-temp-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  #userEdit .ua-temp-row .mini-btn { min-height:40px; padding:6px 12px; }
+  #userEdit .ua-temp-row input { flex:1 1 180px; min-width:0; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:.04em; background:var(--panel); }
   #userPasswordFields { margin-top:16px; }
   #userEdit .ua-options label.check { margin-top:18px; }
   /* 사용 중지 토글 — 라벨 전체가 누름 영역, 스페이스로 켜고 끈다 */
@@ -126,7 +130,7 @@
     <tr>
       <td>{{ d.dept }}</td>
       <td>{{ d.account or '—' }}</td>
-      <td>{% if d.root %}<a href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener">폴더 열기</a>{% else %}<span class="muted">개인 드라이브</span>{% endif %}</td>
+      <td>{% if d.root %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>폴더 열기</a>{% else %}<span class="muted">개인 드라이브</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#deptEdit"
             data-dept="{{ d.dept }}" data-account="{{ d.account }}" data-root="{{ d.root }}" aria-label="{{ d.dept }} 부서 편집">편집</button></td>
     </tr>
@@ -159,10 +163,18 @@
       <div data-initial-password></div>
       <input type="hidden" name="active" value="1">
       <section class="ua-options" data-account-options hidden>
-        <button type="button" class="secondary" data-password-toggle aria-expanded="false" aria-controls="userPasswordFields">비밀번호 변경</button>
+        <button type="button" class="secondary" data-password-toggle aria-expanded="false" aria-controls="userPasswordFields">임시 비밀번호 만들기</button>
         <div id="userPasswordFields" hidden>
-        <label data-password-field><span data-pw-label>새 비밀번호</span><input type="password" name="new_pw" autocomplete="new-password" minlength="8" placeholder="8자 이상"></label>
-        <p class="ua-hint">비워두면 기존 비밀번호를 유지합니다.</p>
+        {# 관리자는 비밀번호를 정하지 않는다 — 무작위 임시 비밀번호를 만들어 전달하고, 사용자는 다음 로그인 때 바꾼다(서버가 must_change 로 강제) #}
+        <div class="ua-temp-pw" data-password-field>
+          <label for="uaTempPw"><span data-pw-label>임시 비밀번호</span></label>
+          <div class="ua-temp-row">
+            <input id="uaTempPw" type="text" name="new_pw" readonly autocomplete="off" spellcheck="false" minlength="{{ password_rules.min_length }}" aria-describedby="uaTempHelp">
+            <button type="button" class="mini-btn" data-temp-new><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>다시 만들기</button>
+            <button type="button" class="mini-btn" data-temp-copy><iconify-icon icon="solar:copy-linear" aria-hidden="true"></iconify-icon><span>복사</span></button>
+          </div>
+          <p class="ua-hint" id="uaTempHelp">저장하면 이 비밀번호로 바뀝니다 · 사용자에게 전달 · 다음 로그인 때 본인이 새 비밀번호로 변경</p>
+        </div>
         </div>
       <div data-account-status hidden>
         <label class="ua-switch"><input type="checkbox" name="suspended" role="switch" aria-describedby="accountStatusHelp"><span class="ua-switch-track" aria-hidden="true"></span><span>계정 사용 중지</span></label>
@@ -205,9 +217,8 @@
   passwordToggle.addEventListener('click', function () {
     passwordFields.hidden = !passwordFields.hidden;
     passwordToggle.setAttribute('aria-expanded', String(!passwordFields.hidden));
-    passwordToggle.textContent = passwordFields.hidden ? '비밀번호 변경' : '비밀번호 변경 취소';
+    passwordToggle.textContent = passwordFields.hidden ? '임시 비밀번호 만들기' : '임시 비밀번호 취소';
     if (passwordFields.hidden) userForm.elements.new_pw.value = '';
-    else userForm.elements.new_pw.focus();
   });
   function syncAccountStatus() {
     userForm.elements.active.value = userForm.elements.is_new.value === '1' || !userForm.elements.suspended.checked ? '1' : '';
@@ -251,16 +262,16 @@
       options.hidden = isNew;
       passwordFields.hidden = true;
       passwordToggle.setAttribute('aria-expanded', 'false');
-      passwordToggle.textContent = '비밀번호 변경';
+      passwordToggle.textContent = '임시 비밀번호 만들기';
       var passwordField = document.querySelector('#userEdit [data-password-field]');
       if (isNew) document.querySelector('#userEdit [data-initial-password]').appendChild(passwordField);
-      else passwordFields.insertBefore(passwordField, passwordFields.querySelector('.ua-hint'));
+      else passwordFields.appendChild(passwordField);
       syncAccountStatus();
       f.new_pw.value = '';
       f.new_pw.required = isNew;
       document.querySelector('#userEdit [data-title]').textContent = isNew ? '사용자 추가' : '사용자 편집';
       document.querySelector('#userEdit [data-save-user]').textContent = isNew ? '사용자 추가' : '변경 사항 저장';
-      document.querySelector('#userEdit [data-pw-label]').textContent = isNew ? '초기 비밀번호(8자 이상)' : '비밀번호 초기화(바꿀 때만)';
+      document.querySelector('#userEdit [data-pw-label]').textContent = isNew ? '임시 비밀번호(첫 로그인용)' : '임시 비밀번호';
     });
   });
   document.querySelectorAll('[data-modal-open="#deptEdit"]').forEach(function (btn) {
@@ -274,6 +285,40 @@
       document.querySelector('[data-folder-selection]').textContent = f.root.value ? '기존 저장 위치 유지 · 변경하려면 폴더를 선택하세요' : '저장 위치: 각자 내 드라이브';
       window.openDepartmentFolders();
     });
+  });
+})();
+</script>
+<script>
+// 임시 비밀번호 — 브라우저에서 무작위로 만든다(헷갈리는 글자 0·O·1·l·I 빼고, 4자씩 묶어 불러 주기 쉽게).
+// 값은 이 창의 칸에만 있고 저장 뒤 서버 응답·주소·로그에 남지 않는다. 길이 규칙은 서버(passwords.problem)와 같다
+(function () {
+  var form = document.getElementById('userEditForm');
+  if (!form || !window.crypto || !crypto.getRandomValues) return;
+  var field = form.elements.new_pw, fields = document.getElementById('userPasswordFields');
+  var copy = form.querySelector('[data-temp-copy]'), min = parseInt(field.getAttribute('minlength'), 10) || 8;
+  var ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+  function make() {
+    var groups = Math.max(3, Math.ceil(min / 4)), out = [], buf = new Uint32Array(groups * 4);
+    crypto.getRandomValues(buf);
+    for (var g = 0; g < groups; g++) {
+      var part = '';
+      for (var i = 0; i < 4; i++) part += ABC[buf[g * 4 + i] % ABC.length];
+      out.push(part);
+    }
+    field.value = out.join('-');
+    copy.querySelector('span').textContent = '복사';
+  }
+  form.querySelector('[data-temp-new]').addEventListener('click', make);
+  copy.addEventListener('click', function () {
+    function done(ok) { copy.querySelector('span').textContent = ok ? '복사됨' : '복사 실패 — 칸을 눌러 직접 복사'; }
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(field.value).then(function () { done(true); }, function () { done(false); });
+    else { field.select(); done(false); }
+  });
+  field.addEventListener('focus', function () { field.select(); });
+  // 편집 창의 「임시 비밀번호 만들기」를 펼치거나 새 사용자 창을 열면 바로 하나 만든다(기존 처리 뒤에 이어 붙는 손잡이)
+  document.querySelector('[data-password-toggle]').addEventListener('click', function () { if (!fields.hidden) make(); });
+  document.querySelectorAll('[data-modal-open="#userEdit"]').forEach(function (btn) {
+    btn.addEventListener('click', function () { if (btn.hasAttribute('data-user-new')) make(); });
   });
 })();
 </script>

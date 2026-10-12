@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import unquote
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.test_accounts import _app, _login
@@ -42,8 +44,14 @@ def test_dev_creates_user_and_new_user_can_log_in(tmp_path, monkeypatch):
     data = json.loads((tmp_path / "accounts.json").read_text())
     assert data["kim_ops"]["dept"] == "산학협력단" and data["kim_ops"]["role"] == "staff" and "pw" not in data["kim_ops"]
     assert c.app.state.db.get_setting("google_account:kim_ops") == "kim@ync.ac.kr"
+    assert data["kim_ops"]["must_change"] is True and "init-pass-1" not in r.headers["location"]   # 관리자가 준 값은 임시
     c2 = TestClient(c.app)
     assert _login(c2, "kim_ops", "init-pass-1")
+    r = c2.get("/account/google", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/settings")                # 바꾸기 전에는 설정 화면만
+    r = c2.post("/account/password", data={"current_pw": "init-pass-1", "new_pw": "own-pass-77", "back": "/settings"},
+                follow_redirects=False)
+    assert "ok=" in r.headers["location"]
     status = c2.get("/account/google").json()
     assert status["bound"] == "kim@ync.ac.kr" and status["bound_ok"] and status["via"] == "본인"
     assert "구글 계정" in c2.get("/settings").text and 'id="myGoogle"' in c2.get("/settings").text
@@ -72,7 +80,10 @@ def test_user_save_rejects_bad_input_and_self_lockout(tmp_path, monkeypatch):
 def test_deactivate_and_reset_password(tmp_path, monkeypatch):
     _fake_google(monkeypatch)
     c = _dev(tmp_path)
-    c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "new_pw": "reset-pass-9", "active": "1"})
+    r = c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff", "new_pw": "reset-pass-9", "active": "1"},
+               follow_redirects=False)
+    assert "임시 비밀번호" in unquote(r.headers["location"]) and "reset-pass-9" not in r.headers["location"]
+    assert json.loads((tmp_path / "accounts.json").read_text())["zzaimy"]["must_change"] is True
     c2 = TestClient(c.app)
     assert _login(c2, "zzaimy", "reset-pass-9")
     c.post("/dev/users/save", data={"uid": "zzaimy", "role": "staff"})                            # 사용 끔
@@ -107,7 +118,7 @@ for (const key of ['is_new','uid','name','role','dept','google','active','suspen
 let isNew = true;
 const btn = {dataset:{user:'worker',role:'staff',active:'1'}, hasAttribute() {return isNew;}, addEventListener(k, fn) {this[k] = fn;}};
 const status = {hidden:true}, title = {}, save = {}, pw = {};
-const options = {hidden:true, open:false, insertBefore(){}, querySelector(){return {};}};
+const options = {hidden:true, open:false, insertBefore(){}, appendChild(){}, querySelector(){return {};}};
 const initial = {appendChild(){}};
 const passwordToggle = {addEventListener(k, fn){this[k]=fn;}, setAttribute(){}};
 f.role.querySelectorAll = () => [];
@@ -212,3 +223,45 @@ def test_dept_is_picked_from_known_list(tmp_path, monkeypatch):
     assert "err=" in save("가상 교무쳐")                        # 오타 — 새 부서가 생기지 않는다
     assert "ok=" in save("가상 교무처")
     assert json.loads((tmp_path / "accounts.json").read_text())["lee_ops"]["dept"] == "가상 교무처"
+
+
+def test_admin_password_is_generated_temporary_with_copy(tmp_path, monkeypatch):
+    """관리자 화면은 비밀번호를 입력받지 않고 임시 비밀번호를 만들어 복사하게 한다 — 길이는 서버 규칙과 같은 값."""
+    import re
+    import shutil
+    import subprocess
+
+    from zzaimy.app import passwords
+
+    _fake_google(monkeypatch)
+    page = _dev(tmp_path).get("/dev/users").text
+    field = re.search(r'<input id="uaTempPw"[^>]*>', page).group(0)
+    assert 'type="text"' in field and "readonly" in field and 'name="new_pw"' in field
+    assert f'minlength="{passwords.MIN_LENGTH}"' in field
+    assert "data-temp-new" in page and "data-temp-copy" in page and "임시 비밀번호 만들기" in page
+    assert 'name="new_pw" autocomplete="new-password"' not in page        # 관리자가 직접 정하는 칸 없음
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("JavaScript runtime unavailable")
+    script = next(s for s in re.findall(r'<script[^>]*>(.*?)</script>', page, re.S) if 'data-temp-new' in s)
+    harness = r'''
+const assert = require('node:assert/strict');
+const handlers = {};
+const btn = (k) => ({addEventListener(e, fn){ handlers[k] = fn; }, querySelector(){ return this.span || (this.span = {textContent:''}); }});
+const field = {value:'', getAttribute(){ return '8'; }, addEventListener(){}};
+const form = {elements:{new_pw: field}, querySelector(s){ return s.includes('temp-copy') ? copy : s.includes('temp-new') ? gen : null; }};
+const copy = btn('copy'), gen = btn('new'), toggle = btn('toggle');
+const fields = {hidden:true};
+global.window = {crypto: require('node:crypto').webcrypto};
+global.crypto = window.crypto;
+global.document = {getElementById(id){ return id === 'userEditForm' ? form : fields; },
+  querySelector(){ return toggle; }, querySelectorAll(){ return []; }};
+'''
+    checks = r'''
+handlers.new(); const a = field.value; handlers.new(); const b = field.value;
+assert.match(a, /^[A-HJ-NP-Za-km-z2-9]{4}(-[A-HJ-NP-Za-km-z2-9]{4}){2,}$/);
+assert.ok(a.replace(/-/g, '').length >= 8); assert.notEqual(a, b);
+field.value = ''; handlers.toggle(); assert.equal(field.value, '');   // 접힌 채면 만들지 않는다
+fields.hidden = false; handlers.toggle(); assert.ok(field.value.length >= 8);
+'''
+    subprocess.run([node, '-e', harness + script + checks], check=True, capture_output=True, text=True)

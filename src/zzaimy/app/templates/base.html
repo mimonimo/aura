@@ -321,14 +321,38 @@
   .btn-ghost.on-dark:hover { background: rgba(255,255,255,.26); color: #fff;
            border-color: rgba(255,255,255,.6); }
   .muted { color: var(--muted); font-size: 13px; }
-  /* 카드 머리 오른쪽의 보조 링크(설계 근거·상세·품질 체계 등) — 밑줄 글자 대신 작은 테두리 버튼 */
-  .h-link { display: inline-flex; align-items: center; gap: 5px; margin-left: auto;
-            background: #fff; color: var(--muted); border: 1px solid var(--line);
-            border-radius: 8px; padding: 4px 10px; font-size: 12px; font-weight: 600;
-            line-height: 1.2; text-decoration: none; white-space: nowrap;
+  /* 작은 보조 단추 — 동작을 하는 링크(내려받기·열기·보기·복사·관리)는 밑줄 글자 대신 이 모양 하나로.
+     a·button 어디에 붙여도 같은 높이·테두리. 문장 속 탐색 링크는 밑줄 그대로 둔다.
+     .h-link 는 카드 머리 오른쪽 끝에 붙는 같은 단추(margin-left:auto 만 다르다) */
+  .mini-btn, .h-link { display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+            box-sizing: border-box; min-height: 30px; margin: 0; vertical-align: middle;
+            background: #fff; color: #36465B; border: 1px solid #D6DEE8; box-shadow: none;
+            border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 12px; font-weight: 600;
+            line-height: 1.2; text-decoration: none; white-space: nowrap; cursor: pointer;
             transition: all .2s var(--ease); }
-  .h-link:hover { color: var(--ink); border-color: #94A3B8; background: var(--panel); }
-  .h-link iconify-icon { font-size: 14px; color: inherit; }
+  .h-link { margin-left: auto; }
+  .mini-btn:hover, .h-link:hover { color: var(--ink); border-color: #94A3B8; background: var(--panel); }
+  .mini-btn:focus-visible, .h-link:focus-visible { outline: 2px solid #607C9E; outline-offset: 2px; }
+  .mini-btn iconify-icon, .h-link iconify-icon { font-size: 14px; color: inherit; }
+  a.pill { text-decoration: none; }
+  /* 화면 머리 줄 — 제목(과 한 줄 설명)은 왼쪽, 동작 단추는 오른쪽 끝. 좁으면 단추가 다음 줄 오른쪽으로 */
+  .page-head { display: flex; align-items: center; justify-content: space-between;
+            flex-wrap: wrap; gap: 10px 16px; margin: 0 0 16px; max-width: none; }
+  .page-head > :first-child { min-width: 0; }
+  :where(.page-head) h1 { font-size: 22px; font-weight: 650; line-height: 1.4; margin: 0;
+            letter-spacing: -.025em; overflow-wrap: anywhere; }
+  .page-head-actions { display: flex; align-items: center; justify-content: flex-end;
+            flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  /* 지표 이름(metric_label) — 밑줄 없이 이름 + 작은 정보 아이콘. 툴팁은 마우스·키보드 초점 모두 */
+  .metric { cursor: help; border-radius: 4px; white-space: normal; }
+  .metric:focus-visible { outline: 2px solid #607C9E; outline-offset: 2px; }
+  .metric .metric-i { margin: 0 0 0 3px; font-size: .85em; color: var(--faint); vertical-align: -0.1em; }
+  .metric:hover .metric-i, .metric:focus .metric-i { color: var(--navy); }
+  .metric-pop { position: fixed; z-index: 400; max-width: min(320px, calc(100vw - 24px));
+            padding: 8px 11px; border-radius: 8px; background: #1F2D44; color: #F1F5FB;
+            font-size: 12px; font-weight: 500; line-height: 1.55; letter-spacing: 0;
+            box-shadow: 0 8px 24px rgba(15,30,55,.22); pointer-events: none;
+            white-space: normal; text-align: left; overflow-wrap: anywhere; }
   .notice { display: flex; gap: 9px; font-size: 13px; color: var(--muted);
             background: var(--panel); border: 1px solid #EDF2F7;
             border-radius: 10px; padding: 11px 14px; margin-top: 12px; line-height: 1.65; }
@@ -450,6 +474,31 @@ document.addEventListener('submit', function(event) {
   if (event.target.getAttribute('action') !== '/logout') return;
   try { Object.keys(sessionStorage).filter(key => key.startsWith('chat') || key === 'agentSession' || key === 'agentDraftTransfer').forEach(key => sessionStorage.removeItem(key)); } catch (_) {}
 });
+</script>
+<script>
+// 지표 이름 툴팁 — metric_label 이 숨겨 둔 정의(aria-describedby)를 마우스·키보드 초점에 띄운다.
+// 표·카드의 overflow 에 잘리지 않게 화면 고정 위치 말풍선 하나를 같이 쓴다.
+(function () {
+  var pop = null, cur = null;
+  function show(el) {
+    var tip = document.getElementById(el.getAttribute("aria-describedby") || "");
+    if (!tip) return;
+    if (!pop) { pop = document.createElement("div"); pop.className = "metric-pop"; pop.setAttribute("aria-hidden", "true"); document.body.appendChild(pop); }
+    cur = el; pop.textContent = tip.textContent; pop.hidden = false;
+    var r = el.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12));
+    var top = r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8;
+    pop.style.left = left + "px"; pop.style.top = top + "px";
+  }
+  function hide(el) { if (pop && (!el || el === cur)) { pop.hidden = true; cur = null; } }
+  function metricOf(t) { return t && t.closest ? t.closest(".metric[aria-describedby]") : null; }
+  document.addEventListener("mouseover", function (e) { var m = metricOf(e.target); if (m && m !== cur) show(m); });
+  document.addEventListener("mouseout", function (e) { var m = metricOf(e.target); if (m && !m.contains(e.relatedTarget)) hide(m); });
+  document.addEventListener("focusin", function (e) { var m = metricOf(e.target); if (m) show(m); });
+  document.addEventListener("focusout", function (e) { var m = metricOf(e.target); if (m) hide(m); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") hide(); });
+  window.addEventListener("scroll", function () { hide(); }, true);
+})();
 </script>
 {% block head %}{% endblock %}
 <link rel="stylesheet" href="/static/platform-spaces.css?v={{ asset_v }}">

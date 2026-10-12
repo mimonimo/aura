@@ -4,7 +4,7 @@
 {% block head %}<link rel="stylesheet" href="/static/gdocs-work.css?v={{ asset_v }}"><script src="/static/gdocs-work.js?v={{ asset_v }}" defer></script><script src="/static/drive-browser.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 <div class="gd-work">
-<header class="gd-intro"><div><h1>연결된 Drive</h1><p>연결 계정의 폴더와 파일을 확인하세요. 에이전트와의 작업은 프로젝트 대화에서 이어집니다.</p></div><a class="gd-action-link" href="{% if request.state.role == 'dev' %}/dev/nas#googleConnection{% else %}/settings#myGoogle{% endif %}">연결 관리</a></header>
+<header class="page-head gd-intro"><div><h1>연결된 Drive</h1><p>연결 계정의 폴더와 파일을 확인하세요. 에이전트와의 작업은 프로젝트 대화에서 이어집니다.</p></div><div class="page-head-actions"><a class="gd-action-link" href="{% if request.state.role == 'dev' %}/dev/nas#googleConnection{% else %}/settings#myGoogle{% endif %}">연결 관리</a></div></header>
 {% if err %}<p class="notice error" role="alert">{{ err }}</p>{% endif %}{% if ok %}<p class="notice" role="status">{{ ok }}</p>{% endif %}
 {% if not accounts %}
 <section class="gd-empty"><h2>Google 계정을 연결하세요</h2><p>문서를 열고 검토하려면 계정 연결이 필요합니다.</p>{% if request.state.role == 'dev' %}<a class="btn" href="/dev/nas#googleConnection">계정 연결 설정</a>{% else %}<p>관리자에게 계정 연결을 요청하세요.</p>{% endif %}</section>
@@ -13,7 +13,7 @@
 {% if accounts | selectattr('docs_ok', 'equalto', false) | list %}<p class="gd-hint">편집 권한이 없는 계정은 연결 관리에서 다시 인증해 주세요.</p>{% endif %}
 {% endif %}
 {% if doc_id and info %}
-<div class="gd-split"><section class="gd-editor" aria-label="문서 편집기"><header><h2>{{ info.title }}</h2><a href="https://docs.google.com/document/d/{{ doc_id }}/edit" target="_blank" rel="noopener">새 창에서 열기 ↗</a></header><iframe src="{{ embed_url }}" title="{{ info.title }} — Google Docs 편집기" loading="lazy"></iframe></section>
+<div class="gd-split"><section class="gd-editor" aria-label="문서 편집기"><header><h2>{{ info.title }}</h2><a class="mini-btn" href="https://docs.google.com/document/d/{{ doc_id }}/edit" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>새 창에서 열기</a></header><iframe src="{{ embed_url }}" title="{{ info.title }} — Google Docs 편집기" loading="lazy"></iframe></section>
 <aside class="gd-agent" aria-label="문서 에이전트"><header><h2>에이전트</h2><span>현재 문서 기준</span></header><div class="gd-agent-body">
 <form method="post" action="/gdocs/ask" class="gd-form"><input type="hidden" name="doc" value="{{ doc_id }}"><input type="hidden" name="account" value="{{ account }}"><label for="gdQuestion">검토 요청</label><textarea id="gdQuestion" name="question" rows="4" required placeholder="검토하거나 작성할 내용을 입력하세요">{{ question }}</textarea><div class="gd-actions"><button type="submit">요청 보내기</button></div></form>
 {% if answer %}<article class="gd-answer"><h3>답변</h3><div id="gdAnswer">{{ answer }}</div><button type="button" class="secondary" data-use-answer>삽입할 내용으로 사용</button></article>{% endif %}
