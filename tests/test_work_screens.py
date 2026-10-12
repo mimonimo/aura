@@ -326,7 +326,9 @@ def test_gimport_status_uses_the_account_that_actually_runs(tmp_path):
     db.set_setting("google_account:가", "x@example.test")
     db.set_setting("google_account:나", "x@example.test")
     db.set_setting("gimport_status:가", _json.dumps({"at": "2026-01-01 10:00", "email": "x@example.test"}))
-    db.set_setting("gimport_status:나", _json.dumps({"at": "2026-01-05 09:00", "email": "x@example.test"}))
+    db.set_setting("gimport_status:나", _json.dumps({"at": "2026-01-05 09:00", "email": "x@example.test",
+                                                      "last_imported": [{"doc_id": 9, "name": "나만 볼 문서"}], "imported_total": 3}))
     st = g.status(db, "가")
     assert st["at"] == "2026-01-05 09:00" and st["runs_as"] == "나"
+    assert "나만 볼 문서" not in _json.dumps(st, ensure_ascii=False) and not st.get("imported_total")   # 남의 문서 이름은 싣지 않는다
     assert "runs_as" not in g.status(db, "나")

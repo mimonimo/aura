@@ -62,7 +62,10 @@ def status(db, user: str) -> dict:
         st = _own_status(db, other)
         if (st.get("at") or "") > (best.get("at") or ""):
             best, who = st, other
-    return {**best, "runs_as": who} if who != user else best
+    if who == user:
+        return own
+    # 남의 기록에서는 시각·오류만 빌린다 — 가져온 문서 이름(last_imported)·건수는 그 계정 것이라 이 계정 화면에 싣지 않는다
+    return {**own, "at": best.get("at", ""), "errors": best.get("errors", []), "runs_as": who}
 
 
 def interval_minutes() -> int:
