@@ -79,7 +79,7 @@
     if (!valueForm) return;
     pin.release();
     valueForm.scrollIntoView({block:'center'});
-    valueForm.querySelector('input[type=text]')?.focus({preventScroll:true});
+    ([...valueForm.querySelectorAll('textarea')].find(t => !t.value) || valueForm.querySelector('textarea'))?.focus({preventScroll:true});   // 빈 칸부터
   });
   scroller.addEventListener('click', event => {
     const button = event.target.closest('[data-progress-toggle]');

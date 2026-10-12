@@ -59,7 +59,7 @@ def test_answers_attach_particles_and_header_is_plain(tmp_path):
     assert 'aria-label="문서 패널 열기" aria-expanded="false"' in page
 
 
-def test_value_form_shows_hint_below_field_and_save(tmp_path):
+def test_value_form_shows_hint_before_field_and_save(tmp_path):
     client = _client(tmp_path)
     db = client.app.state.db
     sid = db.create_chat_session('합성 대화')
@@ -72,6 +72,8 @@ def test_value_form_shows_hint_below_field_and_save(tmp_path):
     assert 'placeholder=' not in form
     assert f'<small class="chat-form-hint"' in form and long_hint in form
     assert '>저장</button>' in form
+    # 설명은 칸 이름 바로 아래(칸보다 앞), 칸은 길게 쓸 수 있는 여러 줄, 머리에 채운 수
+    assert form.index('chat-form-hint') < form.index('<textarea') and '1개 중 0개 채움' in form
 
 
 def test_ask_hint_is_cut_on_word_boundary():

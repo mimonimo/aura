@@ -17,7 +17,7 @@ try {
  const css=(await readFile(root+'chat-documents.css','utf8'))+(await readFile(root+'platform-spaces.css','utf8'));const js=await readFile(root+'chat-documents.js','utf8');
  await evaluate(`document.head.innerHTML='';document.body.innerHTML='<main style="display:flex;height:900px;width:1500px"><section id="chatWorkspace" data-session="1"><button id="chatDocumentOpen">문서</button></section></main>';const style=document.createElement('style');style.textContent=${JSON.stringify(css)};document.head.append(style);window.fetch=async(url)=>({ok:true,redirected:false,json:async()=>url.endsWith('/files')?{account:'test@example.test',folder_url:'https://drive.google.com/drive/folders/test',files:[{id:'docA',name:'시험 문서',mime_type:'application/vnd.google-apps.document'}]}:url.endsWith('/folder')?{url:null}:{connected:true,title:'시험 문서',embed_url:'about:blank',sections:[]}});`);
  await evaluate(`const fixtureFetch=window.fetch;window.fetch=async(...args)=>{const response=await fixtureFetch(...args);const json=response.json;response.json=async()=>{const data=await json();if(data.connected){data.doc='docA';data.sections=[{index:1,heading:'1. 추진 배경',heading_id:'h.test',tab_id:'t.test'}];}return data;};return response;};`);
- await evaluate(js);await evaluate(`document.getElementById('chatDocumentOpen').click()`);await new Promise(r=>setTimeout(r,150));
+ await evaluate(`window.chatDocLoadTiming={jump:800}`);await evaluate(js);await evaluate(`document.getElementById('chatDocumentOpen').click()`);await new Promise(r=>setTimeout(r,150));
  await evaluate(`const output=document.createElement('a');output.dataset.documentLink='true';output.href='https://docs.google.com/document/d/test_output/edit';output.textContent='[문서 1]';workspaceLink=document.getElementById('chatWorkspace');workspaceLink.append(output);output.click();`);
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewer iframe').src`),'https://docs.google.com/document/d/test_output/preview');
  assert.equal(await evaluate(`Array.from(document.querySelectorAll('.chat-doc-viewer button')).some(b=>b.textContent==='이 문서로 작업')`),false);
@@ -61,11 +61,11 @@ try {
  assert.equal(await evaluate(`document.querySelector('.chat-doc-busy')`),null);
  assert.equal(await evaluate(`document.querySelector('.chat-doc-editor iframe').src===beforeAnswer`),true);
  assert.equal(await evaluate(`document.querySelector('.chat-doc-done span').textContent`),'「1. 추진 배경」에 썼습니다. 편집기에 바로 반영됩니다.');
- // 위치 이동 — 누르는 즉시 덮개 안내가 뜨고, load 가 오면 걷힌다. 앞선 이동의 load 는 새 안내를 지우지 않는다
+ // 위치 이동 — 누르는 즉시 안내가 뜨고, load 가 오면 걷힌다. 앞선 이동의 load 는 새 안내를 지우지 않는다
  const jumpNote=await evaluate(`(()=>{document.querySelector('.chat-doc-done button.secondary').click();const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {shown:Boolean(n&&!n.hidden),text:n?.textContent,busy:document.querySelector('.chat-doc-viewport').getAttribute('aria-busy')}})()`);
  assert.deepEqual(jumpNote,{shown:true,text:'「1. 추진 배경」 위치로 이동하는 중…',busy:'true'});
  assert.equal(await evaluate(`Boolean(document.querySelector('.chat-doc-done'))`),false);
- // 위치 이동은 이미 연 문서를 다시 여는 것 — 안내는 이동 문구 그대로이고, 첫 load 뒤 짧게(1.2초) 두고 걷힌다
+ // 위치 이동 — 안내는 이동 문구 그대로이고, 첫 load 뒤 jump(시험에서는 0.8초) 두고 걷힌다
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').textContent`),'「1. 추진 배경」 위치로 이동하는 중…');
  await evaluate(`document.querySelector('.chat-doc-editor iframe').dispatchEvent(new Event('load'))`);await new Promise(r=>setTimeout(r,1500));
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);
@@ -73,7 +73,7 @@ try {
  // 앞선 이동이 끝나기 전에 다시 옮기면 안내는 나중 것 — 앞 이동의 load 처리기는 나중 안내를 지우지 않고 빠진다
  const twice=await evaluate(`(()=>{const sel=document.querySelector('[data-section-jump]');sel.value='1';sel.dispatchEvent(new Event('change'));const f=document.querySelector('.chat-doc-editor iframe');const first=f.dataset.loadSeq;sel.dispatchEvent(new Event('change'));const n=document.querySelector('.chat-doc-viewport .chat-doc-loading');return {moved:f.dataset.loadSeq!==first,shown:!n.hidden}})()`);
  assert.deepEqual(twice,{moved:true,shown:true});
- // 위치 이동은 이미 연 문서를 다시 여는 것 — 안내는 이동 문구 그대로이고, 첫 load 뒤 짧게(1.2초) 두고 걷힌다
+ // 위치 이동 — 안내는 이동 문구 그대로이고, 첫 load 뒤 jump(시험에서는 0.8초) 두고 걷힌다
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').textContent`),'「1. 추진 배경」 위치로 이동하는 중…');
  await evaluate(`document.querySelector('.chat-doc-editor iframe').dispatchEvent(new Event('load'))`);await new Promise(r=>setTimeout(r,1500));
  assert.equal(await evaluate(`document.querySelector('.chat-doc-viewport .chat-doc-loading').hidden`),true);

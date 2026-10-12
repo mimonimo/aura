@@ -46,9 +46,9 @@
  //   ③ 시작으로부터 30초(어떤 경우에도 안내가 남아 있지 않게), ④ 담당자가 안내를 누를 때.
  // 걷을 때는 흐리게 사라진다. 불러오기마다 번호를 매겨 앞선 불러오기의 load·타이머가 새 안내를 건드리지 않게 한다.
  // 시간 값은 시험에서만 window.chatDocLoadTiming 으로 줄인다.
- // 안내는 편집기를 가리지 않는 작은 알림이다(위에 떠 있고 아래 문서는 그대로 스크롤된다). 위치 이동(quick)은 이미 연 문서를
- // 다시 여는 것이라 편집기가 곧 보인다 — 첫 load 뒤 짧게(jump) 두고 걷는다.
- const LOAD_TIMING=Object.assign({settle:10000,cap:30000,slow:15000,jump:1200},window.chatDocLoadTiming||{});
+ // 안내는 편집기를 가리지 않는 작은 알림이다(위에 떠 있고 아래 문서는 그대로 보이고 스크롤된다). 위치 이동(quick)도 편집기가
+ // 그 위치를 그리기까지 첫 load 뒤 5~7초 비어 있어(실측) 그동안 이동 문구를 두고(jump) 걷는다.
+ const LOAD_TIMING=Object.assign({settle:10000,cap:30000,slow:15000,jump:6000},window.chatDocLoadTiming||{});
  let loadSeq=0;
  function loadFrame(frame,url,text,{quick=false}={}){
    const viewport=frame.parentElement;if(!viewport)return;
