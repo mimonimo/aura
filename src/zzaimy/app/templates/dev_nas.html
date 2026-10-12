@@ -319,7 +319,7 @@
 
 <script>
   (function () {
-    var hints = { local: "예: /mnt/share/규정  (관리자가 마운트한 공유 경로)", smb: "예: \\\\nas.ync.ac.kr\\문서\\규정",
+    var hints = { local: "예: /mnt/share/규정  (관리자가 마운트한 공유 경로)", smb: "예: \\\\nas.example.ac.kr\\문서\\규정",
                   gdrive: "드라이브 폴더 주소(…/folders/ID) 또는 폴더 ID · 공유 드라이브도 됩니다" };
     function joinPath(root, name, backend) {
       var sep = (backend === "smb" || root.indexOf("\\") >= 0) ? "\\" : "/";
