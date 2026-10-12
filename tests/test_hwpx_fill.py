@@ -474,7 +474,7 @@ def test_map_cells_by_span_when_docs_grid_is_finer():
 
 
 def test_rewritten_form_table_matches_by_shape_within_its_section(tmp_path):
-    """글을 크게 고쳐 써 칸 글자가 하나도 안 겹쳐도, 이 절 안의 같은 모양 서식 표면 그 표에 채운다 — 다음 절의 표와는 엮지 않는다."""
+    """글을 크게 고쳐 써 칸 글자가 하나도 안 겹쳐도, 이 절 안의 같은 모양 서식 표면 그 표에 채운다 — 다음 절의 표와는 묶지 않는다."""
     src = _hwpx(tmp_path)
     rep = hwpx_fill.fill(src, [{"heading": "1.2 특성화 방향", "items": [("table", [["전혀 다른 머리", "완전히 새 값"]])]}], tmp_path / "a.hwpx")
     assert rep["tables_updated"] == 1 and rep["tables"] == 0

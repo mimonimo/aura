@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-{% if false %}{% block title %}{% endblock %}{% endif %}{# 화면 이름 — 탭 제목은 「화면 이름 · 짜이미」 #}
+{% if false %}{% block title %}{% endblock %}{% endif %}{# 화면 이름 — 탭 제목은 「화면 이름 · AURA」 #}
 {%- set page_title = self.title() | trim -%}
-<title>{{ (page_title ~ " · 짜이미") if page_title and not page_title.endswith("짜이미") else (page_title or "짜이미") }}</title>
+<title>{{ (page_title ~ " · AURA") if page_title and not page_title.endswith("AURA") else (page_title or "AURA") }}</title>
 <link rel="stylesheet"
   href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
   integrity="sha384-GIdEBaqGN9mNkDkMkzMHW8EKUqtpPIe/sLj1X7DIrnc9uPtLROJgmuDlh+3rBw0j" crossorigin="anonymous">
@@ -462,7 +462,7 @@ document.addEventListener('submit', function(event) {
   <a class="side-brand" href="/">
     <img src="/static/ync-logo.png" alt="영남이공대학교">
   </a>
-  <p class="sidebar-service-name">짜이미</p>
+  <p class="sidebar-service-name">AURA</p>
   </div>
   {% set developer_space = request.url.path.startswith('/dev') and request.state.role == 'dev' %}
   {% if developer_space %}

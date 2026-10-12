@@ -1,6 +1,6 @@
 # kordoc 과의 비교 — 흐름·아이디어 대조와 채택 후보 (2026-09-28)
 
-chrisryugj/kordoc과 ZZAIMY의 문서 처리 방식 및 적용 후보를 비교한다.
+chrisryugj/kordoc과 AURA의 문서 처리 방식 및 적용 후보를 비교한다.
 당시 조사 정보: MIT, TypeScript/Node, 2.2k★. 실물 공문서 수천 건 검증은 프로젝트 소개에 따른다.
 Google Docs는 공동 작업에, HWPX는 최종 산출에 사용한다.
 

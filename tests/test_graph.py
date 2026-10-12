@@ -104,7 +104,7 @@ def test_project_relations_from_embeddings(db):
             break
     g = build_graph(db, include_similarity=False, embed_fn=_fake_embed)
     rel = {(e["s"], e["t"]) for e in g["edges"] if e["kind"] == "relates"}
-    assert rel == {(f"p{proj}", f"d{a}")}           # 주제가 같은 문서만, 나머지는 안 엮인다
+    assert rel == {(f"p{proj}", f"d{a}")}           # 주제가 같은 문서만, 나머지는 안 이어진다
     w = [e["w"] for e in g["edges"] if e["kind"] == "relates"][0]
     assert 0.99 <= w <= 1.0
 
@@ -117,7 +117,7 @@ def test_project_relations_from_embeddings(db):
 
 
 def test_project_relations_need_a_descriptive_project(db):
-    """이름이 'ㅇㅇ'처럼 근거가 없으면 추정하지 않는다(무의미한 이름은 임의 문서와 엮이기 쉽다)."""
+    """이름이 'ㅇㅇ'처럼 근거가 없으면 추정하지 않는다(무의미한 이름은 임의 문서와 이어지기 쉽다)."""
     db.add_document("장학금 지급 지침.pdf", "/x/a", doc_type="regulation")
     db.add_document("학칙.pdf", "/x/b", doc_type="regulation")
     db.add_document("취업규칙.pdf", "/x/c", doc_type="regulation")

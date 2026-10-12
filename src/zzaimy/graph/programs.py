@@ -365,7 +365,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
         return x
 
     # 파일 이름에 자주(5번 이상) 나오는 영문 약칭은 사업의 정체다 — 서로 다른 정체를 이미 가진 두 묶음은
-    # 「다른 이름」 짝만으로 엮지 않는다. 본문 앞머리의 앞 단계 언급(LINC3.0 문서 속 「…대학(LINC+) 육성사업」)이
+    # 「다른 이름」 짝만으로 합치지 않는다. 본문 앞머리의 앞 단계 언급(LINC3.0 문서 속 「…대학(LINC+) 육성사업」)이
     # 두 사업을 한 카드로 만들지 않게 한다
     fn_acr: Counter = Counter()
     for d in docs:
@@ -381,7 +381,7 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
         ia = ident.get(ra, {ra} & strong)
         ib = ident.get(rb, {rb} & strong)
         if not force and ia and ib and ia.isdisjoint(ib):
-            return                                     # 서로 다른 정체 — 엮지 않는다
+            return                                     # 서로 다른 정체 — 합치지 않는다
         parent[rb] = ra
         ident[ra] = ia | ib
 

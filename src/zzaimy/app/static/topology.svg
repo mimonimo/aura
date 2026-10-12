@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 560" width="980" height="560" font-family="Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif" role="img" aria-labelledby="t d">
-  <title id="t">ZZAIMY 시스템 구성</title>
+  <title id="t">AURA 시스템 구성</title>
   <desc id="d">사용자는 운영 VM 의 플랫폼을 쓰고, VM 은 토르 02·03 의 모델을 부른다. 원본 문서와 무거운 처리·학습은 DGX 에서 하고 처리본은 VM 으로, 승인된 학습 데이터셋은 DGX 로, 학습본은 토르로 간다.</desc>
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">

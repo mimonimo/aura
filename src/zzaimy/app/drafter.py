@@ -167,7 +167,7 @@ class SliceDrafter:
 
             criteria_text = ", ".join(f"{c.name}({c.points}점)" for c in schema.criteria)
 
-            parts: list[str] = [f"# {schema.title} — 계획서 초안 (70% 초안, 담당자 검토 전제)"]
+            parts: list[str] = [f"# {schema.title} — 계획서 초안 (담당자 검토 전제)"]
             full_text = ""
             all_evidence: list[str] = []
             for section in schema.sections:

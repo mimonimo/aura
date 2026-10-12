@@ -351,7 +351,7 @@ def create_app(
 
         dependencies = [Depends(open_auth)]
 
-    app = FastAPI(title="짜이미", dependencies=dependencies)
+    app = FastAPI(title="AURA", dependencies=dependencies)
 
     from fastapi import status as _status
     from fastapi.responses import JSONResponse
