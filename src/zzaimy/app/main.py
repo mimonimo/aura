@@ -2217,6 +2217,10 @@ def create_app(
                                                                    "hits": [{"title": h_["title"], "doc_id": h_.get("doc_id"), "chunk_id": h_.get("chunk_id")}
                                                                             for h_ in n_["hits"]]} for n_ in found_]})
             materials_ = drafting.render_materials(m, inst)
+            asked_ = [a["name"] for a in _asks.pending(db, session_id)]
+            if asked_:
+                # 이미 담당자에게 묻고 있는 값 — 같은 뜻의 빈 값을 새 이름으로 또 묻지 않게(같은 이름이면 코드가 하나로 합친다)
+                materials_ += "\n\n[이미 담당자에게 묻고 있는 값]\n" + "\n".join(f"- {n}" for n in asked_[-30:])
             try:
                 grids_ = _gd.table_grids(link["account"], link["doc"], sec["index"], info=info)
                 for x in drafting.subsections(info, sec):

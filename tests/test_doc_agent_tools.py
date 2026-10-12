@@ -564,3 +564,18 @@ def test_step_limit_answers_from_the_evidence_found_so_far(tmp_path, monkeypatch
     assert "걸음 한도(2)" in fake.agent_msgs[-1][-1]["content"]
     assert "가상지표 목록을 정리했습니다" in page and "요청을 끝내지 못했습니다" not in page
     assert fake.prompts and "가상지표 001" in fake.prompts[0]
+
+
+def test_section_writer_sees_values_already_being_asked(agent_app, tmp_path, monkeypatch):
+    """절 작성 모델은 이미 묻고 있는 값 이름을 본다 — 같은 뜻의 빈 값을 새 이름으로 또 묻지 않게(합치는 판단은 모델)."""
+    app, client = agent_app
+    db = app.state.db
+    sid = db.create_chat_session("문서 대화", owner="zzaimy")
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "docA", "account": "staff@example.ac.kr"}))
+    asks.set_pending(db, sid, [{"name": "가상 취업 실적(최근 3년)", "hint": ""}])
+    runs: list = []
+    _stub_drafting(monkeypatch, runs)
+    _use_agent(monkeypatch, [_step("write_section", section="2. 추진 계획"), _step("finish", message="썼습니다.")])
+    client.post("/chat/send", data={"question": "계획 부분을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
+    assert runs and "[이미 담당자에게 묻고 있는 값]\n- 가상 취업 실적(최근 3년)" in runs[0]["materials"]
+    assert "같은 뜻의 값이 있으면 asks 에 새 이름을 만들지 말고" in gdocs_agent._PROMPT
