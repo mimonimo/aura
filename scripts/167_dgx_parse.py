@@ -5,7 +5,8 @@
 JSONL 로 낸다 → VM 에서 scripts/168 이 'DGX 보관 문서'로 문서함에 들인다.
 
 입력: scripts/165 원본 목록(JSONL)과 이미 들인 원본 경로 목록(--skip, 한 줄에 하나).
-대상: 처리 대상 문서 형식(zzaimy/doc_formats.DOC_EXT), 같은 파일(이름·크기·내용) 중복 아님, 이미 들이지 않음. 작업자마다 따로 SQLite 를 임시로 쓴다.
+대상: 처리 대상 문서 형식(zzaimy/doc_formats.DOC_EXT), 부산물 폴더(변환기 출력·웹 페이지 저장 자료, doc_formats.is_byproduct) 밖,
+      같은 파일(이름·크기·내용) 중복 아님, 이미 들이지 않음. 작업자마다 따로 SQLite 를 임시로 쓴다.
 출력: --out 디렉터리에 작업자별 parsed-<n>.jsonl (한 줄 = 문서 하나: rel·분류·글·조각)
 
 사용(DGX): ZZAIMY_LIGHT_PROCESS=1 PYTHONPATH=src .venv-parse/bin/python scripts/167_dgx_parse.py \\
@@ -27,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from zzaimy.doc_formats import DOC_EXT  # noqa: E402
+from zzaimy.doc_formats import DOC_EXT, empty_reason, is_byproduct  # noqa: E402
 
 TEXT_EXT = set(DOC_EXT)      # 처리 대상 문서 형식은 한 곳(zzaimy/doc_formats) — 옛 오피스·ods·rtf 는 처리기가 LibreOffice 로 바꿔 읽는다
 MAX_BYTES = 300 * 1024 * 1024
@@ -193,7 +194,10 @@ def worker(n: int, items: list[dict], data_root: str, out_dir: str, timeout_s: i
                 state = "partial"
             else:
                 state = "parsed"
-            rec.update({"ok": state in ("parsed", "partial"), "state": state, "error": d.get("error"),
+            err = d.get("error")
+            if state == "empty" and not err:
+                err = empty_reason(src.name)       # 오류 없이 빈 채로 끝난 문서도 같은 사유 글을 남긴다
+            rec.update({"ok": state in ("parsed", "partial"), "state": state, "error": err,
                         "filename": d.get("filename") or src.name, "parse_note": note,
                         "masked_text": text[:MAX_TEXT], "text_len": len(text), "truncated": truncated,
                         "doc_kind": d.get("kind"), "family": d.get("family"), "chunks": chunks})
@@ -271,6 +275,8 @@ def main() -> int:
         if it.get("ext") not in exts or it.get("dup_of") or it["rel"] in skip or (it["rel"], version(it)) in done:
             continue
         if int(it.get("size") or 0) > MAX_BYTES or Path(it["rel"]).name.startswith("~$"):
+            continue
+        if is_byproduct(it["rel"]):                   # 웹 페이지 저장 자료(<이름>_files/)·변환기 출력 — 본문 문서의 부속
             continue
         items.append(it)
     # 계획·보고·평가·기본계획을 먼저, 큰 파일은 뒤로

@@ -27,8 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from zzaimy import archive_dups  # noqa: E402
-from zzaimy.app import archive  # noqa: E402
+from zzaimy import archive_dups, doc_formats  # noqa: E402
+from zzaimy.app import archive, archive_state  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 from zzaimy.graph import programs  # noqa: E402
 from zzaimy import hosts  # noqa: E402
@@ -170,6 +170,19 @@ def import_parsed() -> None:
     m = re.match(r"들임 (\d+) · 새 판 갱신 (\d+)", last) or re.match(r"들임 (\d+)()", last)
     if m and (int(m.group(1)) or int(m.group(2) or 0)):
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
+
+
+def mark_new_failures(db, added: list[str], failures_path: Path | None = None) -> int:
+    """새로 장부에 들어온 원본 가운데 실패 장부(parse_failures.jsonl)에 이미 사유가 있는 것을 「처리 실패」로 적는다.
+
+    DGX 처리 결과 들이기(168, 5분 주기)는 원본 목록 갱신(이 스크립트, 10분 주기)보다 먼저 돌 수 있다. 그때 168 의
+    실패 표시(archive_state.mark_failures, UPDATE)는 장부에 아직 없는 줄이라 0행이 되고, 뒤에 여기서 빈 analysis 로 넣은
+    줄은 실패가 빠져 「대기」로 보인다. 부산물 폴더는 처리 대상이 아니므로 적지 않는다."""
+    if not added:
+        return 0
+    fails = archive_state.read_failures(failures_path or ROOT / "data" / "platform" / "parse_failures.jsonl")
+    hit = {rel: fails[rel] for rel in added if rel in fails and not doc_formats.is_byproduct(rel)}
+    return archive_state.mark_failures(db, hit) if hit else 0
 
 
 FACTS = ROOT / "data" / "platform" / archive_dups.FACTS_NAME
@@ -447,6 +460,9 @@ def main() -> int:
             print(f"  {n:6}  {y0 or '-'}년·{r0 or '-'}차 → {y1 or '-'}년·{r1 or '-'}차", flush=True)
     if not args.dry:
         diff = archive.sync(db, rows, origins)
+        n_fail = mark_new_failures(db, diff["added"])
+        if n_fail:
+            print(f"새로 들어온 원본 가운데 처리 실패 표시 {n_fail}건(실패 장부에 먼저 적힌 것)", flush=True)
         stamp = time.strftime("%Y-%m-%d %H:%M")
         with led.open("a", encoding="utf-8") as fh:
             for old, new, did in diff["moved"]:          # 옮긴 원본 — 문서 번호를 새 경로로 잇는다
@@ -486,6 +502,8 @@ def main() -> int:
         groups = defaultdict(list)
         for d, a in items:
             ext = d["ext"]
+            if doc_formats.is_byproduct(d["rel"]):           # 웹 페이지 저장 자료·변환기 출력 — 본문 문서의 부속
+                continue
             if a.kind not in sel.CORE or ext not in sel.DOC_RANK or sel.EVIDENCE.search(d["rel"]) or not sel.is_core(d, a.kind, surfaces):
                 continue
             when = a.round or a.year or (programs._PATH_YEAR.findall(d["path"]) or [""])[-1]

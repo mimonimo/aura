@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from zzaimy import doc_formats  # noqa: E402
 from zzaimy.app import archive, archive_state, rag_spaces  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 
@@ -61,7 +62,7 @@ def main() -> int:
         stalled = {int(r[0]) for r in conn.execute(
             "SELECT id FROM documents WHERE status IN ('received', 'processing') AND stored_path LIKE 'dgx://%'").fetchall()}
 
-    n_ok = n_upd = n_skip = n_fail = n_link_later = n_stale = 0
+    n_ok = n_upd = n_skip = n_fail = n_link_later = n_stale = n_byproduct = 0
     led = led_path.open("a", encoding="utf-8")
     fails = (ROOT / "data" / "platform" / "parse_failures.jsonl").open("a", encoding="utf-8")
     # 파일마다 읽은 자리를 기억한다(DGX 결과 파일은 덧붙기만 한다) — 5분 주기가 매번 처음부터 읽지 않게
@@ -114,6 +115,11 @@ def main() -> int:
         rel = rec.get("rel")
         if not rel:
             continue
+        if doc_formats.is_byproduct(rel):
+            # 부산물 폴더(웹 페이지 저장 자료 <이름>_files/·변환기 출력) — 본문 문서의 부속이라 들이지 않는다(167 도 고르지 않는다).
+            # 규칙 전에 DGX 가 처리해 둔 옛 기록이 다시 읽혀도 문서함·실패 장부에 넣지 않는다
+            n_byproduct += 1
+            continue
         ver = rec.get("version") or f"{int(rec.get('size') or 0)}:{int(float(rec.get('mtime') or 0))}"
         old = have.get(rel)
         # 장부엔 있어도 문서가 아직 「받음·처리 중」이면 다시 쓴다 — 문서만 만들고 본문을 쓰다 멈춘 회차의 문서는
@@ -124,6 +130,8 @@ def main() -> int:
         state = rec.get("state") or ("parsed" if rec.get("ok") else "failed")
         if state not in ("parsed", "partial") or not rec.get("chunks"):
             n_fail += 1
+            if not rec.get("error") and (state == "empty" or state in ("parsed", "partial")):
+                rec["error"] = doc_formats.empty_reason(rel)    # 오류 글 없이 빈 채로 끝난 옛 기록 — 167 과 같은 사유 글
             # 실패도 남긴다 — 연동 점검(175)이 「결과 없음(놓침)」과 「실패(사유 있음)」를 가른다
             fails.write(json.dumps({"rel": rel, "version": ver, "state": state, "error": str(rec.get("error") or "")[:200],
                                     "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
@@ -195,6 +203,7 @@ def main() -> int:
     save_offsets()
     print(f"들임 {n_ok} · 새 판 갱신 {n_upd} · 이미 있음 {n_skip} · 처리 실패·빈 문서 {n_fail}"
           + (f" · 장부 판과 다름(건너뜀) {n_stale}" if n_stale else "")
+          + (f" · 부산물 폴더(건너뜀) {n_byproduct}" if n_byproduct else "")
           + (f" · 원본 장부 연결 미룸 {n_link_later}" if n_link_later else ""))
     return 0
 

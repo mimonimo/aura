@@ -201,7 +201,7 @@
     <p class="muted" style="font-size:12px; margin:0 0 8px;">{{ intake.at }} 기준{% if pl %} · 처리 대상 수치는 반입 연동 점검 {{ pl.at }} 기준{% endif %} · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다 · <a href="/dev/intake">반입 연동 관리</a> · <a href="/dev/rag">RAG 공간</a> · <a href="/archive">원본 보관소</a> · <a href="/dev/api/intake">JSON</a></p>
     {% if pl %}
     <div class="ik2-sum">
-      <span>{{ metric_label("archive_files", intake.at, "원본 파일") }} <b>{{ "{:,}".format(intake.archive.total) }}</b></span><span>→</span>
+      <span>{{ metric_label("archive_files", intake.at) }} <b>{{ "{:,}".format(intake.archive.total) }}</b></span><span>→</span>
       <span>{{ metric_label("audit_targets", pl.at, "처리 대상 문서") }} <b>{{ "{:,}".format(pl.targets) }}</b></span><span>→</span>
       <span>{{ metric_label("audit_in_library", pl.at, "그중 라이브러리 반영") }} <b>{{ "{:,}".format(pl.in_docbox) }}</b> ({{ pl.pct.in_docbox }}%)</span>
       <span class="muted" style="font-size:12.5px;">{{ metric_label("audit_failed", pl.at, "실패") }} {{ "{:,}".format(pl.failed) }} · {{ metric_label("audit_missed", pl.at, "놓침") }} {{ "{:,}".format(pl.missed) }} · {{ metric_label("audit_waiting", pl.at, "대기") }} {{ "{:,}".format(pl.waiting) }}</span>

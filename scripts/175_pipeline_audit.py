@@ -5,7 +5,8 @@
 이 점검이 주기마다 그런 빈틈을 기계로 찾는다.
 
 단계와 판정
-1. 원본 장부(archive_files) 의 처리 대상 = 문서 형식 · 범위 안(지출·증빙 등 경로 제외) · 같은 파일(이름·크기·내용) 중복 아님 · 있음
+1. 원본 장부(archive_files) 의 처리 대상 = 문서 형식 · 부산물 폴더(변환기 출력·웹 페이지 저장 자료, doc_formats.is_byproduct) 밖 ·
+   범위 안(지출·증빙 등 경로 제외) · 같은 파일(이름·크기·내용) 중복 아님 · 있음
    → 결과가 있는가: 문서함 연결(doc_id·origins.jsonl) 또는 실패 사유(parse_failures.jsonl)
    → 없으면 「대기」, 들어오거나 바뀐 지 LAG_H 시간이 넘으면 「놓침」(형식별·폴더별로 센다)
 2. 문서함: 처리 중(received·processing)으로 1시간 넘게 멈춘 문서
@@ -153,6 +154,9 @@ def main() -> int:
     for rel, ext, dup, doc_id, seen_at, removed, size, mtime in rows:
         e = (ext or "").lower().lstrip(".")
         if removed:
+            continue
+        if doc_formats.is_byproduct(rel):              # 변환기 출력·웹 페이지 저장 자료 폴더 — 원본 보관소·DGX 처리(167)와 같은 규칙
+            comp["부산물(변환 출력·웹 페이지 저장 자료)"] += 1
             continue
         if e in IMG_EXT:
             comp["사진·그림"] += 1

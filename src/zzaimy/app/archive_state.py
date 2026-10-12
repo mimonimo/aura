@@ -25,9 +25,8 @@ FAILED_MARK = "처리 실패"
 
 # 학교 원본이 아닌 것 — 원본 보관소 목록·건수에서 뺀다
 # 1. 플랫폼이 보관한 사본(archive.UPLOAD_PREFIX 아래: 반입·첨부 문서의 플랫폼 저장본). 원본은 학교 폴더에 있다
-# 2. 우리 변환기가 문서 옆에 만든 부산물 폴더 — 「<문서 이름><접미>/」. 접미는 변환기 코드의 출력 이름과 같다:
-#    _imgs(app/pipeline·ingest/parsers/hwpx 추출 그림), _hwp5_out(parsers/hwp5), _mineru_out(parsers/mineru), _kordoc(parsers/kordoc)
-BYPRODUCT_DIR_SUFFIXES = ("_imgs", "_hwp5_out", "_mineru_out", "_kordoc")
+# 2. 부산물 폴더(「<문서 이름><접미>/」 아래) — 우리 변환기 출력과 웹 페이지 저장 자료 폴더. 접미 목록은 한 곳(zzaimy/doc_formats)
+from zzaimy.doc_formats import BYPRODUCT_DIR_SUFFIXES, empty_reason, is_byproduct  # noqa: E402,F401
 
 
 def original_sql(alias: str = "") -> tuple[str, list]:
@@ -43,8 +42,7 @@ def original_sql(alias: str = "") -> tuple[str, list]:
 
 def is_original(rel: str) -> bool:
     from zzaimy.app.archive import UPLOAD_PREFIX
-    parts = (rel or "").split("/")[:-1]
-    return not (rel or "").startswith(UPLOAD_PREFIX) and not any(p.endswith(BYPRODUCT_DIR_SUFFIXES) for p in parts)
+    return not (rel or "").startswith(UPLOAD_PREFIX) and not is_byproduct(rel)
 
 
 from zzaimy.app.vocab import ARCHIVE_STATE_LABELS as STATES  # noqa: E402  화면 용어는 한 곳(app/vocab)
@@ -77,13 +75,16 @@ def exclusion_reason(row: dict) -> str:
 
 
 def mark_failures(db, failures: dict[str, str]) -> int:
-    """실패한 원본(rel → 사유)을 장부에 적는다 — 문서함에 이어진 것(나중에 성공)은 건드리지 않는다. 적은 수를 돌려준다."""
+    """실패한 원본(rel → 사유)을 장부에 적는다 — 문서함에 이어진 것(나중에 성공)과 부산물 폴더(처리 대상 아님)는 건드리지 않는다.
+    적은 수를 돌려준다."""
     from zzaimy.app import archive
 
     archive.ensure(db)
     n = 0
     with db._conn() as conn:
         for rel, why in failures.items():
+            if is_byproduct(rel):
+                continue
             cur = conn.execute("UPDATE archive_files SET analysis = ? WHERE rel = ? AND doc_id IS NULL",
                                (f"{FAILED_MARK}: {why}"[:200], rel))
             n += max(int(getattr(cur, "rowcount", 0) or 0), 0)
@@ -101,7 +102,8 @@ def read_failures(path: Path) -> dict[str, str]:
         except ValueError:
             continue
         if r.get("rel"):
-            out[r["rel"]] = str(r.get("error") or r.get("state") or "")[:160]
+            why = r.get("error") or (empty_reason(r["rel"]) if r.get("state") == "empty" else r.get("state"))
+            out[r["rel"]] = str(why or "")[:160]     # 오류 글 없이 빈 채로 끝난 옛 기록도 같은 사유 글(doc_formats.empty_reason)
     return out
 
 

@@ -19,6 +19,30 @@ ARCHIVE_EXT = ("zip", "7z", "rar", "egg", "alz")
 # 브라우저가 내려받다 만 파일·웹 페이지 저장 부속은 이름 끝이 「다운로드」다(예: 「보고서.pdf다운로드」, 「x.js.다운로드」)
 DOWNLOAD_TAIL = "다운로드"
 
+# 학교 원본 문서가 아닌 부산물 폴더 — 「<문서 이름><접미>/」 아래 파일. 원본 장부에는 남기되 처리(DGX 167)·처리 대상 집계(175)·
+# 원본 보관소 목록에서 뺀다(app/archive_state 가 같은 값을 쓴다)
+# 1. 우리 변환기가 문서 옆에 만든 출력 — 접미는 변환기 코드의 출력 이름과 같다:
+#    _imgs(app/pipeline·ingest/parsers/hwpx 추출 그림), _hwp5_out(parsers/hwp5), _mineru_out(parsers/mineru), _kordoc(parsers/kordoc)
+CONVERTER_DIR_SUFFIXES = ("_imgs", "_hwp5_out", "_mineru_out", "_kordoc")
+# 2. 웹 페이지를 「다른 이름으로 저장」할 때 페이지 옆에 생기는 자료 폴더 — 브라우저는 「<이름>_files/」, 오피스(엑셀·워드를
+#    웹 페이지로 저장)는 「<이름>.files/」. 안의 htm(sheet001.htm·tabstrip.htm, 프레임 outer·channel·inner 등)은 본문 페이지의
+#    부속이라 따로 문서가 아니다 — 본문은 폴더 옆 <이름>.htm(l) 이 갖는다
+WEB_SAVE_DIR_SUFFIXES = ("_files", ".files")
+BYPRODUCT_DIR_SUFFIXES = CONVERTER_DIR_SUFFIXES + WEB_SAVE_DIR_SUFFIXES
+
+
+def empty_reason(name: str) -> str:
+    """처리는 됐지만 글(조각)이 없는 문서의 사유 — 처리기(app/pipeline)가 글 없는 문서를 오류로 낼 때와 같은 글.
+    DGX 처리(167)·반입(168)이 오류 글 없이 빈 채로 끝난 문서에도 같은 사유를 남겨, 실패 장부·원본 보관소에 사유가 비지 않게 한다."""
+    ext = file_ext(name).upper() or "확장자 없음"
+    return f"문서 판독 실패 (글이 없는 문서 — {ext})"
+
+
+def is_byproduct(rel: str) -> bool:
+    """원본 경로가 부산물 폴더(변환기 출력·웹 페이지 저장 자료) 아래에 있는가. 파일 이름 자체는 보지 않는다."""
+    return any(p.endswith(BYPRODUCT_DIR_SUFFIXES) for p in (rel or "").split("/")[:-1])
+
+
 # 파일 머리로 판별한 실제 형식 가운데 문서인 것 → 원본 장부의 형식. 글 파일(.txt 판별)은 넣지 않는다 — 확장자 없는
 # 글 파일은 웹 페이지 부속(스크립트·스타일)과 구별할 수 없다
 SNIFF_DOC = {".pdf": "pdf", ".hwp": "hwp", ".hwp3": "hwp", ".hml": "hwp", ".hwpx": "hwpx", ".docx": "docx",
