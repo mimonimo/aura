@@ -84,6 +84,10 @@ _TAIL = [
     re.compile(r"\s+-\s*" + _STATUS_ANY + r"(?:본|용)?\s*$"),
     # 맨 띄어쓰기 뒤에는 뜻이 갈리지 않는 표시만('적합성 검토' 의 '검토' 는 이름이다)
     re.compile(r"\s+(?:최종본?|최최종|수정본|제출본|제출용|OK|ok|final|Final|FINAL)\s*$"),
+    # '최종Ver', '수정 ver2' — 상태 낱말에 붙은 판 표시
+    re.compile(r"[\s_\-]+(?:최종|수정|제출)\s*(?:ver|v)\.?\s*\d{0,3}\s*$", re.I),
+    # '오전 14시30분', '오후 3시' — 저장한 시각
+    re.compile(r"[\s_\-]+(?:오전|오후|AM|PM)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?\s*$", re.I),
     # 끝에 남은 느낌표·물결
     re.compile(r"\s*[!~]+\s*$"),
 ]
@@ -253,7 +257,7 @@ def poor_name(name: str) -> bool:
         return True
     if _DATE_ONLY.fullmatch(s):
         return True
-    hangul = len(re.findall(r"[가-힣]", re.sub(r"\d+\s*(?:번|차|호|쪽|년|월|일)", "", s)))
+    hangul = len(re.findall(r"[가-힣]", re.sub(r"\d+\s*(?:번|차|호|쪽|년|월|일|시|분)|오전|오후", "", s)))   # 날짜·시각 낱말은 뜻이 아니다
     latin_words = [w for w in re.findall(r"[A-Za-z]{3,}", s)]
     return hangul < 3 and not latin_words
 

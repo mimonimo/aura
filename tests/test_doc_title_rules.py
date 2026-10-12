@@ -692,3 +692,10 @@ def test_memo_subject_yields_to_file_name_on_collision():
     letter = "가나대학교\n\n수신자 내부결재\n\n제목 2026학년도 학생 정원조정 결과 보고\n\n1. 관련"
     got = choose_name("01_정원조정 결과 보고(2026)_다라학부 정원 증원.pdf", letter, {}, prefer_file=True)
     assert got["source"] == "file" and "다라학부" in got["name"]
+
+
+def test_saved_time_and_status_version_are_noise():
+    assert clean_filename("회의록_오후 3시_최종ver2.hwp") == "회의록"
+    from zzaimy.app.doc_naming import poor_name
+    assert poor_name(clean_filename("2021 0413 오전 14시30분 최종Ver.hwp"))      # 날짜·시각·상태뿐 — 본문 제목이나 대체 이름으로
+    assert clean_filename("3시간 집중 교육 계획.hwp") == "3시간 집중 교육 계획"   # '3시간' 은 시각이 아니다
