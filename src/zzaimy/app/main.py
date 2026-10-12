@@ -356,13 +356,30 @@ def create_app(
     from fastapi import status as _status
     from fastapi.responses import JSONResponse
 
-    @app.exception_handler(HTTPException)
-    async def _auth_redirect(request: Request, exc: HTTPException):
+    from starlette.exceptions import HTTPException as _StarletteHTTPException
+
+    _ERROR_PAGES = {404: ("페이지를 찾을 수 없습니다", "주소가 바뀌었거나 없는 화면입니다. 처음 화면이나 사이드바에서 다시 찾아 주세요."),
+                    403: ("볼 수 있는 권한이 없습니다", "이 화면이나 문서는 계정의 열람 범위 밖입니다. 필요하면 관리자에게 권한을 요청해 주세요."),
+                    405: ("이 방법으로는 열 수 없는 주소입니다", "버튼이나 메뉴로 다시 들어와 주세요.")}
+
+    def _wants_page(request: Request) -> bool:
+        """사람이 브라우저로 연 화면인가 — API·스크립트 요청(JSON)은 그대로 JSON 으로 둔다."""
+        path = request.url.path
+        return (request.method == "GET" and not path.startswith(("/api/", "/static/"))
+                and "text/html" in request.headers.get("accept", ""))
+
+    @app.exception_handler(_StarletteHTTPException)
+    async def _auth_redirect(request: Request, exc: _StarletteHTTPException):
         # 세션 없는 브라우저 접근은 로그인 페이지로 보낸다
         if exc.status_code == 401 and exc.detail == "login-required":
             return RedirectResponse("/login", status_code=_status.HTTP_303_SEE_OTHER)
         if exc.status_code == 401 and exc.detail == "password-change-required":
             return RedirectResponse("/settings?err=첫 비밀번호를 바꿔 주세요", status_code=_status.HTTP_303_SEE_OTHER)
+        if exc.status_code in _ERROR_PAGES and _wants_page(request):
+            heading, message = _ERROR_PAGES[exc.status_code]
+            detail = exc.detail if isinstance(exc.detail, str) and exc.detail not in ("Not Found", "Forbidden", "Method Not Allowed") else ""
+            return templates.TemplateResponse(request, "_error.html", {"code": exc.status_code, "heading": detail or heading,
+                                                                       "message": message}, status_code=exc.status_code)
         return JSONResponse(
             {"detail": exc.detail}, status_code=exc.status_code,
             headers=getattr(exc, "headers", None),

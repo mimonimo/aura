@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ heading }} · AURA</title>
+<link rel="stylesheet"
+  href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+  integrity="sha384-GIdEBaqGN9mNkDkMkzMHW8EKUqtpPIe/sLj1X7DIrnc9uPtLROJgmuDlh+3rBw0j" crossorigin="anonymous">
+<style>
+  {# 오류 화면 — 브라우저로 연 주소가 없거나 열 수 없을 때. 사이드바 없이 플랫폼 색·글꼴만(_wait.html 과 같은 값) #}
+  :root { --navy: #1B3B75; --blue: #497BFB; --ink: #1F2937; --muted: #64748B; --bg: #F1F5F9; --line: #E2E8F0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body { background: var(--bg); color: var(--ink); font-size: 15px; min-height: 100vh;
+         font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", sans-serif;
+         word-break: keep-all; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+  .err-card { background: #fff; border: 1px solid var(--line); border-radius: 18px; width: 440px; max-width: 100%;
+              padding: 30px 30px 24px; box-shadow: 0 16px 48px rgba(27,59,117,.08); }
+  .err-code { color: var(--muted); font-size: 13px; margin: 0 0 6px; }
+  h1 { font-size: 18px; margin: 0 0 8px; letter-spacing: -.01em; }
+  p { color: var(--muted); font-size: 13.5px; line-height: 1.6; margin: 0 0 20px; }
+  .err-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .err-acts a, .err-acts button { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; border-radius: 9px;
+              font: inherit; font-size: 13.5px; text-decoration: none; cursor: pointer; border: 1px solid var(--line);
+              background: #fff; color: var(--navy); }
+  .err-acts a.primary { background: var(--navy); border-color: var(--navy); color: #fff; }
+</style>
+</head>
+<body>
+<main class="err-card">
+  <img src="/static/ync-logo.png" alt="영남이공대학교" style="height:28px;width:auto;display:block;margin-bottom:22px;">
+  <p class="err-code">{{ code }}</p>
+  <h1>{{ heading }}</h1>
+  <p>{{ message }}</p>
+  <div class="err-acts">
+    <a class="primary" href="/">처음 화면으로</a>
+    <button type="button" onclick="history.back()">이전 화면</button>
+  </div>
+</main>
+</body>
+</html>
