@@ -133,11 +133,11 @@ Writer 가 매 걸음 상태(프로젝트 문서 제목, 연결 문서의 절 �
 | 도구 | 하는 일 | 실행 |
 |---|---|---|
 | search | 프로젝트·기준·문서함·규정에서 근거 찾기 | 열람 범위 안 검색, 찾은 근거는 절 쓰기 재료에 덧붙음 |
-| read_found | 이번 search 결과에 나온 문서를 이어 읽기(결과가 잘려 표·목록의 나머지가 필요할 때). 인자는 결과의 《제목》 또는 문서 번호, 이어 볼 낱말(around), 앞 결과가 알려 준 다음 위치(from·line) | 이번 요청의 검색 결과에 있던 문서만, 대화 주인의 열람 범위를 다시 확인. 검색이 건네는 것과 같은 조각 글(접수 때 가린 글, 표는 같은 평문 변환)을 걸린 조각이나 around 낱말 자리부터 관찰 한도 안에서 조각·줄 경계로 잘라 주고 「뒤에 더 있음 · 다음 위치」 를 붙인다. 읽은 글은 search 근거와 같은 길로 답의 근거(앞자리)·출처 목록·절 쓰기 재료에 들어감 |
+| read_found | 이번 search 결과에 나온 문서를 이어 읽기(결과가 잘려 표·목록의 나머지가 필요할 때). 인자는 결과의 《제목》 또는 문서 번호, 이어 볼 낱말(around), 앞 결과가 알려 준 다음 위치(from·line) | 이번 요청의 검색 결과에 있던 문서만, 대화 주인의 열람 범위를 다시 확인. 한 요청에서 한 문서는 4번까지 읽는다(`READ_PER_DOC`). 검색이 건네는 것과 같은 조각 글(접수 때 가린 글, 표는 같은 평문 변환)을 걸린 조각이나 around 낱말 자리부터 관찰 한도 안에서 조각·줄 경계로 잘라 주고 「뒤에 더 있음 · 다음 위치」 를 붙인다. 읽은 글은 search 근거와 같은 길로 답의 근거(앞자리)·출처 목록·절 쓰기 재료에 들어감 |
 | read_section | 연결 문서의 절 글 읽기 | 독스 구조 |
 | create_document | 연결 문서가 없을 때 양식 후보에서 골라 새 문서 | `form_choice` 후보 |
 | open_project_document | 프로젝트 문서(작성 서식 등)의 작업본을 대화에 잇기 | `_link_existing_document` |
-| write_section / rewrite_section | 고른 절 하나를 쓰거나 비우고 다시 쓰기 | `_draft_sections(targets=[그 절])` |
+| write_section / rewrite_section | 고른 절 하나를 쓰거나 비우고 다시 쓰기 — 그 절의 작성방법 상자·평가 기준·지난 자료·기관 정보·이미 묻는 값 목록은 도구가 모아 넘긴다 | `_draft_sections(targets=[그 절])` |
 | review_section · edit_document | 고른 절 검토, 절 단위가 아닌 고치기 | `_run_doc_command`(`gdocs_agent` 편집 계획) |
 | export_hwp · new_work_copy | 한글 완성본 내보내기, 작업본 새로 만들기 | `_export_hwp` · `_new_work_copy` |
 | remove_guide_boxes | 안내 상자 지우기 — 처음엔 개수를 알리고, 담당자 확인 뒤에 지움 | `_remove_guide_boxes` |

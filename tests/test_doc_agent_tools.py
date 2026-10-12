@@ -579,3 +579,21 @@ def test_section_writer_sees_values_already_being_asked(agent_app, tmp_path, mon
     client.post("/chat/send", data={"question": "계획 부분을 채워 줘", "session_id": str(sid)}, follow_redirects=False)
     assert runs and "[이미 담당자에게 묻고 있는 값]\n- 가상 취업 실적(최근 3년)" in runs[0]["materials"]
     assert "같은 뜻의 값이 있으면 asks 에 새 이름을 만들지 말고" in gdocs_agent._PROMPT
+
+
+
+def test_read_found_stops_after_per_document_budget(agent_app, tmp_path, monkeypatch):
+    """한 요청에서 한 문서를 READ_PER_DOC 번 넘게 이어 읽지 않는다 — 조각을 하나씩 넘기며 걸음을 다 쓰지 않게."""
+    from zzaimy.app import doc_agent as da
+    app, client = agent_app
+    db = app.state.db
+    did, cid = _kpi_doc(db, tmp_path)
+    sid = db.create_chat_session("지표 질문", owner="zzaimy")
+    monkeypatch.setattr(drafting.Materials, "search_library", lambda self, query, k=4: [_truncated_hit(db, did, cid)])
+    reads = [_step("read_found", document=str(did), around=f"가상지표 {i:03d}") for i in range(1, da.READ_PER_DOC + 2)]
+    _use_agent(monkeypatch, [_step("search", source="library", query="핵심 성과지표")] + reads + [_step("finish", message="끝")])
+    client.post("/chat/send", data={"question": "핵심 성과지표 알려 줘", "session_id": str(sid)}, follow_redirects=False)
+    steps = [s_ for s_ in _episodes(tmp_path)[-1]["steps"] if s_.get("action") == "read_found"]
+    assert len(steps) == da.READ_PER_DOC + 1
+    assert all("가상지표" in s_["observation"] for s_ in steps[:da.READ_PER_DOC])
+    assert "이미 4번 읽었다" in steps[-1]["observation"] and "write_section" in steps[-1]["observation"]

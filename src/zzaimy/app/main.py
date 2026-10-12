@@ -1808,6 +1808,11 @@ def create_app(
             if not doc or not _viewer_sees(session_id, doc):    # 검색이 거른 범위를 한 번 더 — 그 사이 권한이 바뀌었을 수도
                 raise doc_agent.Retry("열람 범위 밖 문서라 읽지 않는다.")
             fd = found_docs[did]
+            # 한 요청에서 한 문서는 READ_PER_DOC 번까지 — 찾는 내용이 그 문서에 없을 때 조각을 하나씩 넘기며 걸음을 다 쓰지 않게
+            fd["reads"] = fd.get("reads", 0) + 1
+            if fd["reads"] > doc_agent.READ_PER_DOC:
+                raise doc_agent.Retry(f"이 문서는 이번 요청에서 이미 {doc_agent.READ_PER_DOC}번 읽었다 — 찾는 내용이 여기 없으면 다른 걸음을 고른다"
+                                      "(절을 쓰는 일이면 write_section 이 그 절의 작성방법·평가 기준·지난 자료를 모아 쓴다).")
             texts, ids = found_texts(did)
             if not texts:
                 raise doc_agent.Retry("고른 문서에 읽을 글이 없다 — 다른 걸음을 고른다.")
@@ -2040,7 +2045,9 @@ def create_app(
             doc_agent.Tool("read_section", "연결 문서의 절 글 읽기. args {section: 절 제목 또는 번호}", t_read),
             doc_agent.Tool("create_document", "연결 문서가 없을 때 양식을 골라 새 문서. args {form: 양식 후보 id, title: 문서 제목(사업 이름+서류 갈래), why}",
                            t_create, writes=True),
-            doc_agent.Tool("write_section", "절 하나를 근거로 작성. args {section: 절 제목, notes: 이 절에 꼭 넣을 것·찾은 근거 요약}",
+            doc_agent.Tool("write_section", "절 하나를 작성. 그 절의 양식 안내·작성방법 상자, 공고·평가 기준, 지난 사업 자료, 기관 정보, 담당자가 알려 준 값은 "
+                           "이 도구가 모아 넘기고 절마다 필요한 정보도 따로 찾는다 — 작성 방법·서식을 미리 찾지 않아도 된다. "
+                           "args {section: 절 제목, notes: 담당자 요청에서 이 절에 꼭 넣을 것·이번에 찾은 근거 요약}",
                            t_write, writes=True),
             doc_agent.Tool("open_project_document", "프로젝트 문서(작성 서식 등)의 작업본을 만들어 이 대화의 작업 문서로 잇기(담당자가 그 문서로 작업하자고 할 때). "
                            "args {document: 상태의 프로젝트 문서 제목}", t_open, writes=True),
