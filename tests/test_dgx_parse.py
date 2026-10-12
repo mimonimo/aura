@@ -98,6 +98,13 @@ def test_conversion_failure_stops_retrying_after_cap(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["167", "--inventory", str(_inventory(tmp_path)), "--out", str(out), "--workers", "1"])
     job.main()
     assert seen == ["p/1.hwp"]
+    # 모듈 없음 같은 진짜 환경 오류는 몇 번이든 다시 한다
+    missing = json.dumps({"rel": "p/0.hwp", "ok": False, "size": 10, "mtime": 1, "error": "ModuleNotFoundError: 가상모듈"}) + "\n"
+    (out / "parsed-0.jsonl").write_text(missing * 6 + json.dumps({"rel": "p/1.hwp", "ok": True, "size": 11, "mtime": 1}) + "\n",
+                                        encoding="utf-8")
+    seen.clear()
+    job.main()
+    assert seen == ["p/0.hwp"]
 
 def _import(tmp_path, monkeypatch, recs, name):
     job = _load("168_import_parsed.py")
