@@ -433,7 +433,7 @@ class DocumentProcessor:
                 if real == ".hwp3" and not conv.is_file():
                     raise RuntimeError(f"{why} — 실제 형식 한글 3.0, LibreOffice 변환 실패")
                 if not conv.is_file():
-                    raise RuntimeError(f"{why} — 실제 형식 {real.lstrip('.').upper()}, 새 형식 변환 실패")
+                    raise RuntimeError(f"{why} — 실제 형식 {real.lstrip('.').upper()}, 새 형식 변환 실패(암호가 걸렸거나 손상된 파일일 수 있음)")
                 target = conv
             if target.suffix not in READABLE:
                 raise RuntimeError(f"{why} — 실제 형식 {real.lstrip('.').upper()}")

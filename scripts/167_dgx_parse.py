@@ -43,7 +43,10 @@ def _alarm(_sig, _frm):
     raise DocTimeout()
 
 
-_ENV_ERR = re.compile(r"ModuleNotFoundError|LocalEntryNotFoundError|ImportError|새 형식 변환 실패")   # 새 형식 변환 실패는 대개 동시 실행 잠금 탓이다
+_ENV_ERR = re.compile(r"ModuleNotFoundError|LocalEntryNotFoundError|ImportError|새 형식 변환 실패")   # 새 형식 변환 실패는 동시 실행 잠금 탓일 때가 있다
+# 환경 탓으로 보는 실패도 같은 판에서 이만큼 되풀이되면 문서 탓(암호 걸린 파일·손상)으로 보고 다시 하지 않는다 — 주기마다 같은 파일을
+# 끝없이 다시 처리하고 실패 장부를 키우지 않게. 판이 바뀌거나 --retry-failed 면 다시 한다
+ENV_RETRY_MAX = 3
 
 
 def jsonl_lines(path) -> "list[str]":
@@ -232,6 +235,7 @@ def main() -> int:
     exts = {e.strip() for e in args.ext.split(",") if e.strip()}
     skip = set(Path(args.skip).read_text(encoding="utf-8").splitlines()) if args.skip and Path(args.skip).is_file() else set()
     done = set()
+    env_fails: dict = {}
     for f in Path(args.out).glob("parsed-*.jsonl"):
         for line in jsonl_lines(f):
             try:
@@ -241,8 +245,12 @@ def main() -> int:
             # 같은 경로라도 판(크기·수정 시각)이 다르면 다시 처리한다 — 열쇠는 경로+판
             # 처리 환경 오류(모듈·판독 모델 파일 없음)는 문서 탓이 아니다 — 끝난 것으로 치지 않아 주기 처리가 저절로 다시 시도한다
             env_err = not rec.get("ok") and _ENV_ERR.search(str(rec.get("error") or ""))
+            key = (rec.get("rel"), rec.get("version") or version(rec))
+            if env_err and rec.get("rel"):
+                env_fails[key] = env_fails.get(key, 0) + 1
+                env_err = env_fails[key] < ENV_RETRY_MAX
             if rec.get("rel") and not args.force and (rec.get("ok") or not args.retry_failed) and not env_err:
-                done.add((rec["rel"], rec.get("version") or version(rec)))
+                done.add(key)
     only = set(Path(args.only).read_text(encoding="utf-8").splitlines()) if args.only else None
     import re as _re
     exclude = _re.compile(args.exclude) if args.exclude else None

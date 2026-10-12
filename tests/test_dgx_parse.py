@@ -77,6 +77,28 @@ def test_changed_version_is_parsed_again(tmp_path, monkeypatch, capsys):
     assert seen == ["p/1.hwp"]
 
 
+
+def test_conversion_failure_stops_retrying_after_cap(tmp_path, monkeypatch):
+    """새 형식 변환 실패(환경 탓일 수 있음)는 같은 판에서 ENV_RETRY_MAX 번까지만 다시 한다 — 암호 걸린·손상 파일을 끝없이 돌지 않게."""
+    job = _load("167_dgx_parse.py")
+    out = tmp_path / "out"
+    out.mkdir()
+    fail = lambda i: json.dumps({"rel": f"p/{i}.hwp", "ok": False, "state": "failed", "size": 10 + i, "mtime": 1,
+                                 "error": "RuntimeError: 옛 XLS 형식 — 실제 형식 XLS, 새 형식 변환 실패"}) + "\n"
+    # 0번은 이미 상한만큼 실패, 1번은 한 번만 실패 → 1번만 다시
+    (out / "parsed-0.jsonl").write_text(fail(0) * job.ENV_RETRY_MAX + fail(1), encoding="utf-8")
+    seen = []
+
+    class _Recorder(_DeadWorker):
+        def __init__(self, target=None, args=()):
+            super().__init__()
+            seen.extend(it["rel"] for it in args[1])
+
+    monkeypatch.setattr(job.mp, "Process", _Recorder)
+    monkeypatch.setattr(sys, "argv", ["167", "--inventory", str(_inventory(tmp_path)), "--out", str(out), "--workers", "1"])
+    job.main()
+    assert seen == ["p/1.hwp"]
+
 def _import(tmp_path, monkeypatch, recs, name):
     job = _load("168_import_parsed.py")
     monkeypatch.setattr(job, "ROOT", tmp_path)
