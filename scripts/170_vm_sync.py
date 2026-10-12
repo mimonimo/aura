@@ -4,7 +4,7 @@
 원본은 계속 새로 들어오므로 주기적으로 갱신한다. DGX 계정에 VM 전용 키를 「rrsync -ro ~/data」로 묶어 등록해
 (명령 실행·쓰기 불가) 운영 PC 없이 VM 의 cron 으로 돈다.
 
-순서: ① rsync --list-only 로 경로·크기·시각 ② 원본 목록 장부(app/archive) ③ 사업 분류·뼈대 고르기(scripts/161 규칙)
+순서: ① rsync --list-only 로 경로·크기·시각(+ DGX 파일 사실 장부로 내용 지문·실제 형식) ② 원본 목록 장부(app/archive) ③ 사업 분류·뼈대 고르기(scripts/161 규칙)
       ④ 아직 안 들인 뼈대만 rsync 로 받아 받은 편지함에 ⑤ 164(반입·그래프 --full·양식·docx)
 겹쳐 돌지 않게 cron 에서 flock 으로 감싼다.
 
@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from zzaimy import archive_dups  # noqa: E402
 from zzaimy.app import archive  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 from zzaimy.graph import programs  # noqa: E402
@@ -169,6 +170,29 @@ def import_parsed() -> None:
     m = re.match(r"들임 (\d+) · 새 판 갱신 (\d+)", last) or re.match(r"들임 (\d+)()", last)
     if m and (int(m.group(1)) or int(m.group(2) or 0)):
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
+
+
+FACTS = ROOT / "data" / "platform" / archive_dups.FACTS_NAME
+
+
+def fetch_facts() -> dict[str, dict]:
+    """DGX 파일 사실 장부(165 가 ~/parsed 에 쓴다: 내용 지문·실제 형식)를 처리 결과와 같은 읽기 전용 키로 받는다.
+    VM 은 원본 목록을 이름·크기·시각으로만 보므로 같은 파일 판정(내용)과 확장자 없는 문서의 실제 형식은 이 장부로 한다.
+    받기에 실패하면 지난번 받은 장부로(없으면 이름·크기 기준)."""
+    FACTS.parent.mkdir(parents=True, exist_ok=True)
+    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes", "-t", REMOTE + archive_dups.FACTS_NAME,
+                        str(FACTS)], capture_output=True)
+    if r.returncode != 0:
+        print("DGX 파일 사실 장부 받기 실패 — 지난 장부로:", r.stderr.decode("utf-8", "replace")[-160:], flush=True)
+    return archive_dups.load_facts(FACTS)
+
+
+def mark_dups(files: list[dict], facts: dict[str, dict]) -> dict:
+    """원본 목록의 형식·같은 파일 판정 — DGX 목록(165)과 같은 규칙(zzaimy/archive_dups)."""
+    n_real = archive_dups.apply_real_ext(files, facts)
+    got = archive_dups.assign_dups(files, facts)
+    got["real_ext"] = n_real
+    return got
 
 
 def mark(kind: str, summary: str) -> None:
@@ -319,13 +343,13 @@ def main() -> int:
         push_uploads(db, origins, None)
         return post_if_changed(db)
     files = listing()
-    first: dict = {}
     for i, f in enumerate(files):
         f["id"] = i
         f["head"] = ""
-        key = (f["filename"], f["size"])
-        f["dup_of"] = first.get(key, "")
-        first.setdefault(key, f["rel"])
+    # 같은 파일 = 이름·크기·내용 지문이 같은 것(지문은 DGX 장부) — 이름·크기만 같고 내용이 다른 문서를 중복으로 빼지 않는다
+    dd = mark_dups(files, fetch_facts())
+    print(f"같은 파일 판정: 내용이 달라 중복 아님 {dd['split_by_content']} · 지문 몰라 이름·크기로 {dd['unknown_digest']}"
+          f" · 실제 형식으로 본 확장자 없는 문서 {dd['real_ext']}", flush=True)
     docs = [f for f in files if not f["dup_of"]]
     cards = programs.build_cards(docs)
     res = {a.doc_id: a for a in programs.classify(docs, cards)}

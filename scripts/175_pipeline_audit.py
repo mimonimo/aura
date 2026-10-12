@@ -5,7 +5,7 @@
 이 점검이 주기마다 그런 빈틈을 기계로 찾는다.
 
 단계와 판정
-1. 원본 장부(archive_files) 의 처리 대상 = 문서 형식 · 범위 안(지출·증빙 등 경로 제외) · 중복 아님 · 있음
+1. 원본 장부(archive_files) 의 처리 대상 = 문서 형식 · 범위 안(지출·증빙 등 경로 제외) · 같은 파일(이름·크기·내용) 중복 아님 · 있음
    → 결과가 있는가: 문서함 연결(doc_id·origins.jsonl) 또는 실패 사유(parse_failures.jsonl)
    → 없으면 「대기」, 들어오거나 바뀐 지 LAG_H 시간이 넘으면 「놓침」(형식별·폴더별로 센다)
 2. 문서함: 처리 중(received·processing)으로 1시간 넘게 멈춘 문서
@@ -30,12 +30,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
+from zzaimy import doc_formats  # noqa: E402
 from zzaimy.app import archive_state  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 
-DOC_EXT = set(archive_state.DOC_EXT)       # 처리 대상·범위 밖·상한은 원본 보관소 화면과 같은 기준(app/archive_state)
-IMG_EXT = {"jpg", "jpeg", "png", "bmp", "gif", "tif", "tiff", "heic", "webp"}
-ARC_EXT = {"zip", "7z", "rar", "egg", "alz"}
+DOC_EXT = set(archive_state.DOC_EXT)       # 처리 대상·범위 밖·상한은 원본 보관소 화면과 같은 기준(app/archive_state ← zzaimy/doc_formats)
+IMG_EXT = set(doc_formats.IMAGE_EXT)
+ARC_EXT = set(doc_formats.ARCHIVE_EXT)
 OUT_OF_SCOPE = archive_state.OUT_OF_SCOPE      # 절대 규칙 11 — DGX 주기 처리(zz_dgx_cycle.sh)와 같은 기준
 LAG_H = 6
 MAX_PARSE_BYTES = archive_state.MAX_PARSE_BYTES
@@ -129,12 +130,13 @@ def main() -> int:
     with db._conn() as conn:
         rows = conn.execute("SELECT rel, ext, dup_of, doc_id, seen_at, COALESCE(removed_at, ''), size, mtime FROM archive_files").fetchall()
     total = len(rows)
-    # 같은 파일(이름·크기) 묶음 — DGX(165)와 VM(170)이 중복 묶음의 대표를 서로 다르게 고를 수 있어, 처리된 쪽이 VM 에선 「중복」,
-    # 처리 안 된 쪽이 「대상」이 되어 놓침으로 잡힌다. 묶음 중 하나라도 들어왔으면 처리된 것으로 본다
+    # 같은 파일 묶음(이름·크기·내용 — dup_of 가 묶음의 대표를 가리킨다, zzaimy/archive_dups) — DGX(165)와 VM(170)이 대표를 서로
+    # 다르게 고를 수 있어, 처리된 쪽이 VM 에선 「중복」, 처리 안 된 쪽이 「대상」이 되어 놓침으로 잡힌다. 묶음 중 하나라도
+    # 들어왔으면 처리된 것으로 본다. 이름·크기만 같고 내용이 다른 파일은 다른 묶음이다
     covered_groups = set()
     for rel, ext, dup, doc_id, seen_at, removed, size, mtime in rows:
         if not removed and (doc_id or rel in origins):
-            covered_groups.add(((rel or "").rsplit("/", 1)[-1], int(size or 0)))
+            covered_groups.add(dup or rel)
     too_big = 0
     target = done = failed = waiting = 0
     missed: Counter = Counter()
@@ -166,7 +168,7 @@ def main() -> int:
             continue
         comp["처리 대상 문서"] += 1
         target += 1
-        if doc_id or rel in origins or ((rel or "").rsplit("/", 1)[-1], int(size or 0)) in covered_groups:
+        if doc_id or rel in origins or rel in covered_groups:
             done += 1
             continue
         if int(size or 0) > MAX_PARSE_BYTES:          # DGX 처리기(167)가 정책상 건너뛰는 크기 — 놓침이 아니다

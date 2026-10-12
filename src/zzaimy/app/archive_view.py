@@ -465,7 +465,7 @@ def facet_rows(db, f: dict, hidden: set[int]) -> list[dict]:
 
 
 def ext_options(db) -> list[dict]:
-    """형식 선택지 — 원본 문서 형식 갈래(app/vocab.FORMAT_GROUPS: 문서·표·발표·그림·도면)의 확장자만 많은 순으로,
+    """형식 선택지 — 원본 문서 형식 갈래(app/vocab.FORMAT_GROUPS: 문서·표·발표·웹 문서·메일·그림·도면)의 확장자만 많은 순으로,
     나머지(프로그램·시스템·웹·백업 파일 등)는 「그 밖의 형식」 하나로."""
     archive.ensure(db)
     with db._conn() as conn:

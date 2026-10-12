@@ -130,4 +130,4 @@ def _xml_paragraphs(elm) -> list[str]:
     return out
 
 
-PARSERS = {".docx": parse_docx, ".xlsx": parse_xlsx, ".pptx": parse_pptx}
+PARSERS = {".docx": parse_docx, ".xlsx": parse_xlsx, ".xlsm": parse_xlsx, ".pptx": parse_pptx, ".pptm": parse_pptx}   # 매크로 묶음도 같은 구조

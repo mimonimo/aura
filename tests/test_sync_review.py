@@ -86,6 +86,7 @@ def test_dry_does_not_run_post_processing(sync_job, monkeypatch):
     monkeypatch.setattr(job.sys, "argv", ["170_vm_sync.py", "--dry"])
     monkeypatch.setattr(job, "Database", lambda path: db)
     monkeypatch.setattr(job, "listing", lambda: [])
+    monkeypatch.setattr(job, "fetch_facts", lambda: {})          # DGX 파일 사실 장부 받기(rsync)를 하지 않는다
     calls = []
     monkeypatch.setattr(job, "post_if_changed", lambda db: calls.append("post") or 0)
     # 목록이 비어 있으므로 실제 파일 선택기를 불러올 필요가 없다.

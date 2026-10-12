@@ -33,14 +33,17 @@ UNSORTED_KIND = "분류 전"
 # 파일 형식 갈래 — 원본 보관소의 형식 선택지는 아래 갈래(학교 문서 원본이 되는 형식)만 보인다.
 # 프로그램·시스템·웹 자료·백업 파일(exe·dll·css·rdf 같은 회계 프로그램 서식 등)은 원본 문서가 아니라서 「그 밖의 형식」 하나로 둔다.
 # 확장자는 형식 갈래의 표준 확장자다. 오늘 장부에 있는 값을 옮겨 적은 것이 아니다.
+# 처리 대상 문서 형식(zzaimy/doc_formats.DOC_EXT)은 모두 이 갈래 어딘가에 든다(tests/test_doc_formats 가 지킨다).
 FORMAT_GROUPS = {
     "문서": ("hwp", "hwpx", "hwt", "pdf", "doc", "docx", "odt", "rtf", "txt", "md"),
-    "표": ("xls", "xlsx", "xlsm", "csv", "ods", "cell"),
-    "발표": ("ppt", "pptx", "ppsx", "odp", "show"),
+    "표": ("xls", "xlsx", "xlsm", "xlt", "csv", "ods", "cell"),
+    "발표": ("ppt", "pptx", "pptm", "ppsx", "odp", "show"),
+    "웹 문서": ("html", "htm", "mht"),
+    "메일": ("eml",),
     "그림": ("jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff", "webp", "heic", "svg", "ai", "psd"),
     "도면": ("dwg", "dxf"),
 }
-FORMAT_NOTE = {"ai": "일러스트", "psd": "포토샵", "dwg": "도면", "dxf": "도면", "hwt": "한글 서식", "show": "한쇼", "cell": "한셀"}
+FORMAT_NOTE = {"mht": "웹 보관", "eml": "메일", "xlt": "엑셀 서식", "ai": "일러스트", "psd": "포토샵", "dwg": "도면", "dxf": "도면", "hwt": "한글 서식", "show": "한쇼", "cell": "한셀"}
 OTHER_FORMAT = "other"
 OTHER_FORMAT_LABEL = "그 밖의 형식"
 

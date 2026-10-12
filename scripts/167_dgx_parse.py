@@ -5,7 +5,7 @@
 JSONL 로 낸다 → VM 에서 scripts/168 이 'DGX 보관 문서'로 문서함에 들인다.
 
 입력: scripts/165 원본 목록(JSONL)과 이미 들인 원본 경로 목록(--skip, 한 줄에 하나).
-대상: 글이 있는 형식(hwp·hwpx·pdf·docx·xlsx), 이름·크기 중복 아님, 이미 들이지 않음. 작업자마다 따로 SQLite 를 임시로 쓴다.
+대상: 처리 대상 문서 형식(zzaimy/doc_formats.DOC_EXT), 같은 파일(이름·크기·내용) 중복 아님, 이미 들이지 않음. 작업자마다 따로 SQLite 를 임시로 쓴다.
 출력: --out 디렉터리에 작업자별 parsed-<n>.jsonl (한 줄 = 문서 하나: rel·분류·글·조각)
 
 사용(DGX): ZZAIMY_LIGHT_PROCESS=1 PYTHONPATH=src .venv-parse/bin/python scripts/167_dgx_parse.py \\
@@ -27,7 +27,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-TEXT_EXT = {"hwp", "hwpx", "pdf", "docx", "xlsx", "pptx", "xls", "doc", "ppt"}   # 옛 오피스는 처리기가 LibreOffice 로 바꿔 읽는다
+from zzaimy.doc_formats import DOC_EXT  # noqa: E402
+
+TEXT_EXT = set(DOC_EXT)      # 처리 대상 문서 형식은 한 곳(zzaimy/doc_formats) — 옛 오피스·ods·rtf 는 처리기가 LibreOffice 로 바꿔 읽는다
 MAX_BYTES = 300 * 1024 * 1024
 MAX_TEXT = 2_000_000       # 본문 상한(글자) — 넘으면 잘린 것을 기록에 남긴다(조각은 따로 전부 낸다)
 # 처리 상태 — 가벼운 처리 완료는 OCR 품질 통과·학습 승인이 아니다. 후속 단계는 이 값으로 가른다

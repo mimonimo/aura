@@ -2,7 +2,7 @@
 
 반입 연동 점검(scripts/175)과 원본 보관소 화면이 같은 기준을 쓴다.
 - 등록됨: 문서함 문서에 이어짐(doc_id)
-- 처리 제외: 글 문서 형식이 아님 · 이름·크기가 같은 파일의 중복 · 범위 밖 경로(지출·증빙 등, 절대 규칙 11) · 처리 상한보다 큼
+- 처리 제외: 글 문서 형식이 아님 · 같은 파일(이름·크기·내용 지문이 같음, zzaimy/archive_dups)의 중복 · 범위 밖 경로(지출·증빙 등, 절대 규칙 11) · 처리 상한보다 큼
 - 실패: DGX 처리·반입이 실패로 적힌 것(analysis 칸이 「처리 실패」로 시작 — scripts/168 이 적고, 지난 실패는 이 모듈로 채운다)
 - 대기: 나머지(처리 대상인데 아직 결과가 없음)
 
@@ -16,7 +16,8 @@ import json
 import re
 from pathlib import Path
 
-DOC_EXT = ("hwp", "hwpx", "pdf", "docx", "xlsx", "pptx", "xls", "doc", "ppt")
+from zzaimy.doc_formats import DOC_EXT  # noqa: E402,F401  처리 대상 문서 형식은 한 곳(zzaimy/doc_formats)
+
 OUT_OF_SCOPE_WORDS = ("지출", "증빙", "스캔", "영수", "정산", "집행")      # 절대 규칙 11 — DGX 주기 처리와 같은 기준
 OUT_OF_SCOPE = re.compile("|".join(OUT_OF_SCOPE_WORDS))
 MAX_PARSE_BYTES = 300 * 1024 * 1024                                     # scripts/167 MAX_BYTES 와 같다

@@ -289,9 +289,15 @@ def _format_mismatch(file_path: Path) -> str | None:
     return f"{kind} 형식이 아닙니다 ({size:,}바이트)"
 
 
-_OLE = b"\xd0\xcf\x11\xe0"
-READABLE = {".pdf", ".hwp", ".hwpx", ".docx", ".xlsx", ".pptx", ".txt"}
-LEGACY = {".xls": ".xlsx", ".doc": ".docx", ".ppt": ".pptx", ".hwp3": ".docx"}     # LibreOffice 로 새 형식으로(HWP 3.0 은 Hwp97 필터)
+from zzaimy.doc_formats import SNIFF_DOC, sniff_suffix  # noqa: E402  형식 판별은 한 곳(zzaimy/doc_formats)
+from zzaimy.ingest.parsers.plain import READERS as PLAIN_READERS  # noqa: E402  글·웹 문서·메일
+
+READABLE = {".pdf", ".hwp", ".hwpx", ".docx", ".xlsx", ".xlsm", ".pptx", ".pptm", *PLAIN_READERS}
+# LibreOffice 로 새 형식으로 바꿔 읽는 것 — 옛 오피스(xls·doc·ppt)·옛 엑셀 서식(xlt)·열린 문서 표(ods)·서식 있는 글(rtf)·HWP 3.0(Hwp97 필터)
+LEGACY = {".xls": ".xlsx", ".doc": ".docx", ".ppt": ".pptx", ".xlt": ".xlsx", ".ods": ".xlsx", ".rtf": ".docx",
+          ".hwp3": ".docx"}
+_OLD_OFFICE = {".xls", ".doc", ".ppt"}
+_IMAGE_SUFFIX = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 # 읽지 않는 것 — 이유만 밝힌다(암호 문서는 풀지 않는다: 성적표 등 개인정보)
 UNREADABLE = {".encrypted": "암호가 걸린 문서", ".empty": "빈 파일"}
 
@@ -308,64 +314,6 @@ def hwpml_text(path: Path) -> str:
                 paras.append(t)
             el.clear()
     return "\n".join(paras)
-
-
-def sniff_suffix(file_path: Path) -> str | None:
-    """파일 머리로 실제 형식(확장자)을 판별한다 — 모르면 None. 확장자와 내용이 다른 원본을
-    「형식이 아닙니다」로 버리지 않고 실제 형식으로 읽기 위해."""
-    try:
-        with file_path.open("rb") as fh:
-            head = fh.read(2048)
-    except OSError:
-        return None
-    if not head.strip(b"\x00 \r\n\t"):
-        return ".empty"
-    if b"%PDF-" in head[:1024]:
-        return ".pdf"
-    if head.startswith(b"HWP Document File"):
-        return ".hwp3"                                   # 한글 3.0(옛 이진 형식)
-    body = head.lstrip(b"\xef\xbb\xbf \r\n\t")
-    if body.startswith(b"<?xml") and b"<HWPML" in head:
-        return ".hml"
-    if head.startswith(b"PK"):
-        import zipfile
-        try:
-            with zipfile.ZipFile(file_path) as zf:
-                names = zf.namelist()
-                mime = zf.read("mimetype").decode("ascii", "ignore") if "mimetype" in names else ""
-        except (zipfile.BadZipFile, OSError, KeyError):
-            return None
-        if "hwp" in mime or any(n.startswith("Contents/") for n in names):
-            return ".hwpx"
-        for prefix, ext in (("word/", ".docx"), ("xl/", ".xlsx"), ("ppt/", ".pptx")):
-            if any(n.startswith(prefix) for n in names):
-                return ext
-        return None
-    if head.startswith(_OLE):
-        try:
-            import olefile
-            with olefile.OleFileIO(str(file_path)) as ole:
-                streams = {"/".join(e) for e in ole.listdir()}
-        except Exception:
-            return None
-        if streams & {"EncryptionInfo", "EncryptedPackage"}:
-            return ".encrypted"
-        if "FileHeader" in streams:
-            return ".hwp"
-        if streams & {"Workbook", "Book"}:
-            return ".xls"
-        if "WordDocument" in streams:
-            return ".doc"
-        if "PowerPoint Document" in streams:
-            return ".ppt"
-        return None
-    if b"\x00" not in head and not body.lower().startswith((b"<!doctype", b"<html", b"<?xml")):
-        try:
-            head.decode("utf-8")
-            return ".txt"                                # 글 파일에 한글·오피스 확장자를 붙인 것
-        except UnicodeDecodeError:
-            pass
-    return None
 
 
 class DocumentProcessor:
@@ -438,8 +386,14 @@ class DocumentProcessor:
             if target.suffix not in READABLE:
                 raise RuntimeError(f"{why} — 실제 형식 {real.lstrip('.').upper()}")
             text = self._parse_inner(target)
-            note = (f"옛 {real.lstrip('.').upper()} 형식 — LibreOffice 로 새 형식으로 바꿔 읽음" if real == file_path.suffix.lower()
-                    else f"확장자 {file_path.suffix} 이지만 실제 {real.lstrip('.').upper()} — 실제 형식으로 읽음")
+            name = real.lstrip('.').upper()
+            if real != file_path.suffix.lower():
+                note = (f"확장자 {file_path.suffix} 이지만 실제 {name} — 실제 형식으로 읽음" if file_path.suffix
+                        else f"확장자 없음 — 파일 머리로 본 실제 형식 {name} 으로 읽음")
+            elif real in _OLD_OFFICE:
+                note = f"옛 {name} 형식 — LibreOffice 로 새 형식으로 바꿔 읽음"
+            else:
+                note = f"{name} 형식 — LibreOffice 로 {LEGACY.get(real, real).lstrip('.').upper()} 로 바꿔 읽음"
             self._last_parse_note = (note + (" · " + self._last_parse_note if self._last_parse_note else ""))
             return text
         finally:
@@ -463,11 +417,24 @@ class DocumentProcessor:
                 return self._parse_as(file_path, real, bad)
             raise RuntimeError(bad)
         suffix = file_path.suffix.lower()
+        if suffix not in READABLE and suffix not in LEGACY and suffix not in _IMAGE_SUFFIX:
+            # 확장자로 형식을 알 수 없는 파일(확장자 없음·「…다운로드」 등) — 파일 머리로 본 실제 형식이 문서면 그 형식으로 읽는다.
+            # 글 파일 판별(.txt)은 받지 않는다: 웹 페이지 부속(스크립트·스타일)과 구별할 수 없다
+            real = sniff_suffix(file_path)
+            if real in SNIFF_DOC or real in UNREADABLE:
+                return self._parse_as(file_path, real, f"확장자로 형식을 알 수 없는 파일({file_path.name[-40:]})")
+            raise RuntimeError(f"문서 판독 실패 (문서 형식이 아님 — 확장자 {suffix or '없음'})")
         if suffix in LEGACY and suffix != ".hwp3":
-            # 옛 오피스(xls·doc·ppt) — LibreOffice 로 새 형식으로 바꿔 읽는다(docling 은 옛 형식을 못 읽는다)
-            return self._parse_as(file_path, suffix, f"옛 {suffix.lstrip('.').upper()} 형식")
-        if suffix in (".txt", ".md"):
-            return file_path.read_text(encoding="utf-8", errors="replace")
+            # 옛 오피스(xls·doc·ppt)·xlt·ods·rtf — LibreOffice 로 새 형식으로 바꿔 읽는다(docling 은 옛 형식을 못 읽는다)
+            why = f"옛 {suffix.lstrip('.').upper()} 형식" if suffix in _OLD_OFFICE else f"{suffix.lstrip('.').upper()} 형식"
+            return self._parse_as(file_path, suffix, why)
+        if suffix in PLAIN_READERS:
+            text = PLAIN_READERS[suffix](file_path)
+            if suffix not in (".txt", ".md") and not text.strip():
+                raise RuntimeError(f"문서 판독 실패 (글이 없는 문서 — {suffix.lstrip('.').upper()})")
+            if suffix not in (".txt", ".md"):
+                self._last_parse_note = f"{suffix.lstrip('.').upper()} 본문 글자 읽기"
+            return text
         if suffix == ".hwp":
             return self._parse_hwp_structured(file_path)
         if suffix == ".hwpx":
@@ -591,7 +558,7 @@ class DocumentProcessor:
         # MinerU(오픈소스, PaddleOCR 계열)는 표를 구조로, 그림을 파일로 뽑아준다
         n_pages = max(len(parsed.pages), 1)
         # 엑셀은 스캔본일 수 없고 원래 짧을 수 있다 — 글이 빈약해도 OCR 로 다시 읽지 않는다
-        if suffix != ".xlsx" and len(text.strip()) < max(400, 60 * n_pages) and not os.environ.get(
+        if suffix not in (".xlsx", ".xlsm") and len(text.strip()) < max(400, 60 * n_pages) and not os.environ.get(
             "ZZAIMY_NO_OCR_FALLBACK"
         ):
             ocr_text = self._parse_mineru(file_path)
