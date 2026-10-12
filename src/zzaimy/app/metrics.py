@@ -64,6 +64,8 @@ _DEFS = [
     Metric("documents_reviewed", "처리 완료 문서 수", "등록 문서 가운데 처리(판독·조각·검토)가 끝난 것", "live"),
     Metric("documents_visible", "열람 가능 등록 문서", "지금 계정이 볼 수 있는 등록 문서 — 고른 업무·조건 적용", "view"),
     Metric("grant_reviewed", "처리 완료 사업 문서 수", "사업 문서(국고) 가운데 처리 완료된 것 — 검색 범위(RAG 공간)가 세는 집합", "live"),
+    Metric("grant_regulation_kind", "규정 갈래 사업 문서 수", "처리 완료 사업 문서 가운데 서류 갈래가 규정인 것 — 사업 문서 검색으로 찾음, 규정 색인과 별개", "live"),
+    Metric("student_regulations", "학생 공개 규정 수", "처리 완료 규정 문서(기준 문서) 가운데 학생 공개로 지정된 것 — 학생 계정 검색의 대상", "live"),
     # 프로젝트 — 진행 중 프로젝트와 보관된 지난 사업(사업·연도 묶음)은 같은 표에 있지만 다른 집합이다
     Metric("projects_active", "프로젝트 수", "진행 중인 프로젝트(보관되지 않은 것) — 사이드바·업무 화면의 프로젝트", "live"),
     Metric("projects_archived", "지난 사업 묶음 수", "보관된 지난 사업 — 원본 보관소에서 사업·연도별로 묶어 둔 것", "live"),
@@ -149,6 +151,10 @@ def _count_live(db) -> dict[str, int]:
             "grant_chunks": _one(conn, "SELECT COUNT(*) FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
                                        " WHERE d.doc_type = 'grant' AND d.status = 'reviewed'"
                                        " AND c.kind IN ('text', 'table', 'image_text')"),
+            "grant_regulation_kind": _one(conn, "SELECT COUNT(*) FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'"
+                                                " AND kind = 'regulation'"),
+            "student_regulations": _one(conn, "SELECT COUNT(*) FROM documents WHERE doc_type = 'regulation'"
+                                              " AND status = 'reviewed' AND audience = 'student'"),
             "regulation_chunks": _one(conn, "SELECT COUNT(*) FROM regulation_chunks"),
             "regulation_docs": _one(conn, "SELECT COUNT(DISTINCT doc_id) FROM regulation_chunks"),
             "entities": _one(conn, "SELECT COUNT(*) FROM entities"),

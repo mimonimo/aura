@@ -112,24 +112,238 @@ def backfill_depts(db, data_dir: str | Path) -> dict:
 def stats(db, data_dir: str | Path, accounts: dict) -> list[dict]:
     """공간마다 실제로 들어 있는 것 — 규정 조각 수·사업 문서 수, 쓰는 계정."""
     cfg = config(data_dir)
-    depts = sorted({v for v in cfg["dept_of_area"].values()} | {a.get("dept") for a in accounts.values() if a.get("dept")})
+    depts = known_depts(cfg, accounts)
     rows = []
     cases = [("student", {"role": "student", "dept": ""}), ("staff", {"role": "staff", "dept": ""})] + \
             [(f"dept:{d}", {"role": "staff", "dept": d}) for d in depts]
     for sid, who in cases:
         sc = search_scope(who["role"], who["dept"], None, data_dir)
         reg = db.list_regulation_chunks(**{k: sc[k] for k in ("levels", "dept") if k in sc})
-        n_grant = 0
-        if sc.get("grant"):
+        n_grant = n_grant_reg = 0
+        where = _grant_where(sc)
+        if where is not None:
             with db._conn() as conn:
-                if sc.get("grant_depts") is None:
-                    n_grant = conn.execute("SELECT COUNT(*) FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'").fetchone()[0]
-                elif sc["grant_depts"]:
-                    ph = ",".join("?" * len(sc["grant_depts"]))
-                    n_grant = conn.execute(f"SELECT COUNT(*) FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'"
-                                           f" AND COALESCE(dept, '공통') IN ({ph})", sc["grant_depts"]).fetchone()[0]
+                n_grant = conn.execute(f"SELECT COUNT(*) FROM documents WHERE {where[0]}", where[1]).fetchone()[0]
+                n_grant_reg = conn.execute(f"SELECT COUNT(*) FROM documents WHERE {where[0]} AND kind = 'regulation'",
+                                           where[1]).fetchone()[0]
         users = [u for u, a in accounts.items() if resolve(a.get("role", "staff"), a.get("dept"), data_dir)["id"] == sid]
         rows.append({"id": sid, "label": resolve(who["role"], who["dept"], data_dir)["label"], "reg_chunks": len(reg),
                      "reg_docs": len({r["doc_id"] for r in reg}), "grant": bool(sc.get("grant")),
-                     "grant_depts": sc.get("grant_depts"), "grant_docs": int(n_grant), "users": users})
+                     "grant_depts": sc.get("grant_depts"), "grant_docs": int(n_grant), "grant_reg_docs": int(n_grant_reg),
+                     "users": users})
     return rows
+
+
+# ---------------------------------------------------------------- 관리 화면(/dev/rag) 도구 — 권한 규칙은 위 함수 그대로 쓴다
+
+def known_depts(cfg: dict, accounts: dict) -> list[str]:
+    """고를 수 있는 부서 — 폴더 짝·계정·공간 설정에 이미 쓰인 부서. 새 부서는 계정에 부서를 정하면 생긴다(코드에 이름을 두지 않는다)."""
+    out = set(cfg.get("dept_of_area", {}).values())
+    out |= {str(a.get("dept")).strip() for a in accounts.values() if str(a.get("dept") or "").strip()}
+    for sp in cfg.get("spaces", []):
+        out |= {d for d in sp.get("depts", []) if d}
+    return sorted(out - {"공통"})
+
+
+def dept_spaces(cfg: dict, accounts: dict) -> list[str]:
+    """계정별 추가 권한으로 줄 수 있는 부서 공간."""
+    return [f"dept:{d}" for d in known_depts(cfg, accounts)]
+
+
+def area_folders(db) -> list[dict]:
+    """원본 보관소의 최상위 폴더와 파일 수 — 원본 장부(archive_files) 경로의 첫 단계. 플랫폼 업로드처럼 경로와 다른 묶음은 뺀다."""
+    try:
+        from zzaimy.app import archive
+        archive.ensure(db)
+        with db._conn() as conn:
+            rows = conn.execute("SELECT area, COUNT(*) FROM archive_files WHERE removed_at = '' AND area <> ''"
+                                " AND rel LIKE area || '/%' GROUP BY area ORDER BY 2 DESC").fetchall()
+    except Exception:
+        return []
+    return [{"folder": str(r[0]), "files": int(r[1])} for r in rows]
+
+
+def grant_changes(cfg: dict, accounts: dict, cells: list[str], was: list[str], on: list[str],
+                  data_dir: str | Path | None = None) -> tuple[dict, list, list]:
+    """계정 × 부서 공간 표의 저장 — 화면에 보인 칸(cells) 가운데 처음 값(was)과 지금 값(on)이 다른 칸만 지금 설정에 반영한다.
+    칸 열쇠는 「계정\\t공간」. 돌려주는 것: (새 grants, 반영한 [(계정, 공간, 켬?)], 거절한 [(칸, 사유)])."""
+    grants = {u: list(v) for u, v in cfg.get("grants", {}).items()}
+    allowed = set(dept_spaces(cfg, accounts))
+    was_s, on_s = set(was), set(on)
+    done, bad = [], []
+    for key in dict.fromkeys(cells):
+        want = key in on_s
+        if want == (key in was_s):
+            continue
+        user, _, sid = key.partition("\t")
+        role = accounts.get(user, {}).get("role")
+        if user not in accounts:
+            bad.append((key, "없는 계정"))
+        elif role in ("student", "dev"):
+            bad.append((key, "학생·관리자 계정은 추가 권한 대상이 아님"))
+        elif sid not in allowed:
+            bad.append((key, "없는 부서 공간"))
+        elif want and resolve(role or "staff", accounts[user].get("dept"), data_dir).get("grant_depts") is None:
+            bad.append((key, "이미 사업 문서 전부를 검색하는 계정"))
+        else:
+            cur = grants.setdefault(user, [])
+            if want and sid not in cur:
+                cur.append(sid)
+            elif not want and sid in cur:
+                cur.remove(sid)
+            done.append((user, sid, want))
+    grants = {u: sorted(v) for u, v in grants.items() if v}
+    return grants, done, bad
+
+
+def area_changes(cfg: dict, accounts: dict, folders_known: list[str], folders: list[str], depts: list[str]) -> tuple[dict, list, list]:
+    """폴더별 담당 부서 저장 — 고른 값만 받는다(원본 장부의 폴더·이미 설정된 폴더, 알려진 부서 또는 빈 값=정하지 않음).
+    돌려주는 것: (새 dept_of_area, 바뀐 [(폴더, 전, 후)], 거절한 [(폴더, 사유)]). 거절이 있으면 부른 쪽이 저장하지 않는다."""
+    cur = dict(cfg.get("dept_of_area", {}))
+    ok_folders = set(folders_known) | set(cur)
+    ok_depts = set(known_depts(cfg, accounts))
+    new, changed, bad = dict(cur), [], []
+    if len(folders) != len(depts):
+        return cur, [], [("", "폴더와 부서 수가 맞지 않음")]
+    for f, d in zip(folders, depts):
+        f, d = f.strip(), d.strip()
+        if f not in ok_folders:
+            bad.append((f, "원본 장부에 없는 폴더"))
+            continue
+        before = cur.get(f, "")
+        if d == before:
+            continue                                   # 그대로 둔 줄 — 예전에 손으로 적은 부서도 그대로 남는다
+        if d and d not in ok_depts:
+            bad.append((f, f"알 수 없는 부서 「{d}」"))
+            continue
+        if d:
+            new[f] = d
+        else:
+            new.pop(f, None)
+        changed.append((f, before, d))
+    return new, changed, bad
+
+
+def backfill_preview(db, data_dir: str | Path) -> dict:
+    """「이미 반입된 문서에도 적용」을 누르면 바뀌는 문서 수 — backfill_depts 와 같은 조건에서 부서·열람 등급이 지금과 다른 것만. {부서: 건수}."""
+    cfg = config(data_dir)
+    out: dict[str, int] = {}
+    with db._conn() as conn:
+        for area, dept in cfg["dept_of_area"].items():
+            n = conn.execute("SELECT COUNT(*) FROM documents WHERE stored_path LIKE ? AND doc_type = 'grant'"
+                             " AND (COALESCE(dept, '') <> ? OR COALESCE(access_level, '') <> 'public')",
+                             (f"dgx://{area}/%", dept)).fetchone()[0]
+            out[dept] = out.get(dept, 0) + int(n or 0)
+    return out
+
+
+def _grant_where(sc: dict, a: str = "") -> tuple[str, list] | None:
+    """공간의 사업 문서 집합 조건(공간 목록과 같은 집합) — a 는 documents 표 별칭(「d.」). 사업 문서를 쓰지 않는 공간이면 None."""
+    if not sc.get("grant"):
+        return None
+    base = f"{a}doc_type = 'grant' AND {a}status = 'reviewed'"
+    if sc.get("grant_depts") is None:
+        return base, []
+    if not sc["grant_depts"]:
+        return None
+    ph = ",".join("?" * len(sc["grant_depts"]))
+    return f"{base} AND COALESCE({a}dept, '공통') IN ({ph})", list(sc["grant_depts"])
+
+
+def target_scope(target: str, accounts: dict, data_dir: str | Path | None = None) -> tuple[str, dict] | None:
+    """「space:<공간>」 또는 「user:<계정>」 → (보이는 이름, 검색 범위). 범위는 search_scope 그대로(채팅·검색창과 같다)."""
+    kind, _, val = (target or "").partition(":")
+    if kind == "user":
+        a = accounts.get(val)
+        if a is None:
+            return None
+        role, dept = a.get("role", "staff"), a.get("dept") or None
+        return f"{val} 계정", search_scope(role, dept, val, data_dir)
+    if kind == "space":
+        if val == "dev":
+            role, dept = "dev", None
+        elif val == "student":
+            role, dept = "student", None
+        elif val == "staff":
+            role, dept = "staff", None
+        elif val.startswith("dept:") and val[5:]:
+            role, dept = "staff", val[5:]
+        else:
+            return None
+        return f"{val} 공간", search_scope(role, dept, None, data_dir)
+    return None
+
+
+def composition(db, sc: dict, limit: int = 8) -> dict:
+    """공간의 문서 구성 — 사업 문서는 사업별(원본 장부 사업 분류)·갈래별 상위, 규정 색인은 문서별 조각 수 상위."""
+    from zzaimy.app.doc_routing import KINDS
+    from zzaimy.app.program_names import display_name
+
+    out: dict = {"programs": [], "kinds": [], "regulations": [], "grant_docs": 0}
+    where = _grant_where(sc)
+    if where is not None:
+        cond, args = where
+        dcond = _grant_where(sc, "d.")[0]
+        try:
+            from zzaimy.app import archive
+            archive.ensure(db)                        # 원본 장부 표가 없는 새 설치에서도 사업별 줄이 나오게
+        except Exception:
+            pass
+        with db._conn() as conn:
+            out["grant_docs"] = int(conn.execute(f"SELECT COUNT(*) FROM documents WHERE {cond}", args).fetchone()[0] or 0)
+            kinds = conn.execute(f"SELECT kind, COUNT(*) FROM documents WHERE {cond} GROUP BY kind ORDER BY 2 DESC", args).fetchall()
+            try:
+                progs = conn.execute(
+                    "SELECT a.program_name, COUNT(DISTINCT d.id) FROM documents d LEFT JOIN archive_files a"
+                    f" ON a.doc_id = d.id AND a.removed_at = '' WHERE {dcond} GROUP BY a.program_name", args).fetchall()
+            except Exception:                         # 원본 장부를 못 읽으면 사업 분류 없이 센다
+                progs = [("", out["grant_docs"])]
+        merged: dict[str, int] = {}
+        for name, n in progs:
+            label = display_name(str(name or "")) or "사업 미분류"
+            merged[label] = merged.get(label, 0) + int(n or 0)
+        out["programs"] = [{"name": k, "n": v} for k, v in sorted(merged.items(), key=lambda kv: -kv[1])[:limit]]
+        out["kinds"] = [{"name": KINDS.get(str(k or ""), str(k or "") or "갈래 미정"), "n": int(n or 0)} for k, n in kinds[:limit]]
+    reg = db.list_regulation_chunks(**{k: sc[k] for k in ("levels", "dept") if k in sc})
+    per: dict[int, list] = {}
+    for r in reg:
+        per.setdefault(int(r["doc_id"]), [r.get("reg_title") or "", 0])[1] += 1
+    out["regulations"] = [{"doc_id": d, "name": t, "n": n} for d, (t, n) in sorted(per.items(), key=lambda kv: -kv[1][1])[:limit]]
+    return out
+
+
+def preview_search(db, sc: dict, question: str, k: int = 5) -> dict:
+    """그 범위로 실제 검색한 상위 결과 — 규정은 운영 후보 단계(어휘·임베딩 융합, regulations.hybrid_candidates), 사업 문서는
+    운영 검색(grant_search.search). 범위 인자는 응답기(responder)가 넘기는 것과 같다. 생성 모델은 부르지 않는다."""
+    from zzaimy.app.doc_routing import KINDS
+    from zzaimy.app.storage import title_of
+
+    out: dict = {"regulation": [], "grant": [], "notes": []}
+    titles: dict[int, dict] = {}
+
+    def _doc(did: int) -> dict:
+        if did not in titles:
+            titles[did] = db.get_document(did) or {}
+        return titles[did]
+
+    try:
+        from zzaimy.app.regulations import hybrid_candidates
+        for h in hybrid_candidates(db, question, 2, None, sc.get("dept"), user=sc.get("user"), levels=sc.get("levels"))[:k]:
+            d = _doc(int(h["doc_id"]))
+            out["regulation"].append({"doc_id": int(h["doc_id"]), "title": h.get("reg_title") or title_of(d.get("filename") or ""),
+                                      "where": h.get("heading") or "", "head": (h.get("content") or "")[:160]})
+    except Exception as e:
+        out["notes"].append(f"규정 검색 실패: {type(e).__name__}")
+    if sc.get("role") == "student" or not sc.get("grant"):
+        out["notes"].append("이 범위는 사업 문서를 쓰지 않음")
+    else:
+        try:
+            from zzaimy.app import grant_search
+            for h in grant_search.search(db, question, k=k, user=sc.get("user"), depts=sc.get("grant_depts"))["hits"]:
+                d = _doc(int(h["doc_id"]))
+                out["grant"].append({"doc_id": int(h["doc_id"]), "title": title_of(d.get("filename") or h.get("filename") or ""),
+                                     "where": " > ".join(h.get("path", [])[:-1]) or KINDS.get(d.get("kind") or "", ""),
+                                     "dept": d.get("dept") or "공통", "head": (h.get("content") or "")[:160]})
+        except Exception as e:
+            out["notes"].append(f"사업 문서 검색 실패: {type(e).__name__}")
+    return out

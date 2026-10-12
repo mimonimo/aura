@@ -3,86 +3,334 @@
 {% block pagetitle %}{{ dev_page_name('/dev/rag') }}{% endblock %}
 {% block content %}
 <style>
-.rg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr));gap:16px;align-items:start;}
+.rg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;align-items:start;}
+.rg-scroll{overflow-x:auto;max-width:100%;}
 .rg-table{width:100%;border-collapse:collapse;font-size:13px;}
-.rg-table td,.rg-table th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
+.rg-table td,.rg-table th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;}
+.rg-table th{font-weight:600;color:var(--muted);font-size:12px;}
 .rg-table td.n,.rg-table th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
-.rg-wrap{overflow-wrap:anywhere;font-size:12.5px;}
-.rg-checks{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12.5px;}
-textarea.rg-map{width:100%;min-height:110px;font:13px/1.5 ui-monospace,monospace;}
+.rg-table td.c,.rg-table th.c{text-align:center;}
+.rg-wrap{word-break:keep-all;overflow-wrap:break-word;font-size:12.5px;}
+.rg-scroll > .rg-table{min-width:640px;}
+.rg-table td:first-child{word-break:keep-all;}
+.rg-sub{color:var(--muted);font-size:12px;}
+.rg-note{color:var(--muted);font-size:12px;margin:8px 0 0;}
+.rg-warn td{background:#fff8ec;color:#7a4b00;font-size:12.5px;}
+.rg-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;}
+.rg-bar input[type=search],.rg-bar input[type=text],.rg-bar select{min-height:34px;padding:5px 9px;font-size:13px;border:1px solid var(--line);border-radius:7px;background:#fff;}
+.rg-bar input[type=search],.rg-bar input[type=text]{flex:1 1 200px;min-width:0;}
+.rg-bar select{flex:1 1 260px;min-width:0;max-width:100%;}
+/* 토글 — 칸 전체가 눌리는 라벨, 안의 체크 상자는 키보드(Tab·Space)로 다룬다 */
+.rg-sw{display:flex;align-items:center;justify-content:center;min-height:40px;min-width:64px;cursor:pointer;position:relative;border-radius:8px;}
+.rg-sw:hover{background:#f2f5f9;}
+.rg-sw input{position:absolute;opacity:0;width:1px;height:1px;}
+.rg-sw .tr{width:40px;height:22px;border-radius:11px;background:#d5dbe3;position:relative;transition:background .15s;}
+.rg-sw .tr::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s;}
+.rg-sw input:checked + .tr{background:var(--navy);}
+.rg-sw input:checked + .tr::after{left:21px;}
+.rg-sw input:focus-visible + .tr{outline:2px solid #607c9e;outline-offset:2px;}
+td.rg-changed{background:#fff4d6;box-shadow:inset 0 0 0 2px #e0b347;}
+.rg-fixed{color:var(--muted);font-size:12.5px;}
+.rg-save{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;}
+.rg-save .rg-sub{flex:1 1 200px;}
+.rg-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px;margin-top:10px;}
+.rg-results h3{font-size:13px;margin:0 0 6px;}
+.rg-hit{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin:0 0 6px;font-size:12.5px;}
+.rg-hit .t{font-weight:600;overflow-wrap:anywhere;}
+.rg-hit .w{color:var(--muted);font-size:12px;overflow-wrap:anywhere;}
+.rg-hit .h{margin-top:4px;color:var(--ink);overflow-wrap:anywhere;}
+.rg-comp{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;padding:6px 0;}
+.rg-comp h4{font-size:12px;margin:0 0 4px;color:var(--muted);font-weight:600;}
+.rg-comp ol{margin:0;padding-left:18px;font-size:12.5px;}
+.rg-pill-on{display:inline-block;padding:2px 8px;border-radius:999px;background:#e6f2ea;color:#1d6a3a;font-size:12px;white-space:nowrap;}
+.rg-pill-off{display:inline-block;padding:2px 8px;border-radius:999px;background:#f0f2f5;color:var(--muted);font-size:12px;white-space:nowrap;}
+select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid var(--line);border-radius:7px;background:#fff;max-width:100%;}
 </style>
 
 {% set q = request.query_params %}
-{% if q.get('ok') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
-{% if q.get('err') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
+{% if q.get('ok') %}<p class="pill" role="status" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
+{% if q.get('err') %}<p class="pill" role="alert" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
 
 <section class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:database-linear"></iconify-icon>공간 목록</h2>
-  <table class="rg-table">
-    <tr><th>공간</th><th>사업 문서 범위</th><th class="n">{{ metric_label("grant_reviewed", "", "처리 완료 사업 문서") }}</th><th class="n">{{ metric_label("regulation_docs", "", "규정 문서") }}</th><th class="n">{{ metric_label("regulation_chunks", "", "규정 조각") }}</th><th>쓰는 계정</th></tr>
+  <div class="rg-scroll">
+  <table class="rg-table" id="rgSpaces">
+    <tr><th>공간</th><th>사업 문서 범위</th>
+      <th class="n">{{ metric_label("grant_reviewed", "", "사업 문서(처리 완료)") }}</th>
+      <th class="n">{{ metric_label("grant_regulation_kind", "", "그 가운데 규정 갈래") }}</th>
+      <th class="n">{{ metric_label("regulation_docs", "", "규정 색인 문서") }}</th>
+      <th class="n">{{ metric_label("regulation_chunks", "", "규정 색인 조각") }}</th>
+      <th>쓰는 계정</th><th></th></tr>
     {% for s in spaces %}
-    <tr><td><b>{{ s.id }}</b><br><span class="muted" style="font-size:12px;">{{ s.label }}</span></td>
+    <tr><td><b>{{ s.id }}</b><br><span class="rg-sub">{{ s.label }}</span></td>
       <td class="rg-wrap">{% if not s.grant %}쓰지 않음{% elif s.grant_depts is none %}전부{% else %}{{ s.grant_depts|join(", ") }}{% endif %}</td>
-      <td class="n">{{ "{:,}".format(s.grant_docs) }}</td><td class="n">{{ "{:,}".format(s.reg_docs) }}</td>
+      <td class="n">{{ "{:,}".format(s.grant_docs) if s.grant else "—" }}</td>
+      <td class="n">{{ "{:,}".format(s.grant_reg_docs) if s.grant else "—" }}</td>
+      <td class="n">{{ "{:,}".format(s.reg_docs) }}</td>
       <td class="n">{{ "{:,}".format(s.reg_chunks) }}</td>
-      <td class="rg-wrap">{{ s.users|join(", ") if s.users else "—" }}</td></tr>
+      <td class="rg-wrap">{{ s.users|join(", ") if s.users else "—" }}</td>
+      <td><button type="button" class="btn" data-comp="space:{{ s.id }}" aria-expanded="false">구성 보기</button></td></tr>
+    <tr hidden data-comp-row="space:{{ s.id }}"><td colspan="8"><div class="rg-comp" aria-live="polite"></div></td></tr>
+    {% if s.id == "student" and s.reg_docs == 0 %}
+    <tr class="rg-warn"><td colspan="8">학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다 · <a href="#student-regs">학생 공개 규정 지정</a></td></tr>
+    {% endif %}
     {% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">공간은 계정마다 검색할 수 있는 문서 범위입니다. 색인은 하나이고, 계정의 역할·부서에 따라 볼 수 있는 범위만 달라집니다. 부서가 있는 교직원은 그 부서 공간, 관리자는 전부를 봅니다.</p>
+  </div>
+  <p class="rg-note">사업 문서는 사업 문서 검색으로, 규정 색인은 규정 검색으로 찾습니다. 「규정 갈래」는 사업 문서 가운데 서류 갈래가 규정인 것으로 규정 색인과 별개입니다. 부서가 있는 교직원은 그 부서 공간, 부서 없는 교직원은 staff, 관리자는 전부를 봅니다.</p>
 </div></section>
 
-<div class="rg-grid">
-<section class="card"><div class="card-in">
+<section class="card" id="try"><div class="card-in">
+  <h2>검색해 보기</h2>
+  <form class="rg-bar" id="rgTry" data-own-confirm>
+    <label class="rg-sub" for="rgTryTarget">범위</label>
+    <select id="rgTryTarget" name="target" required>
+      <optgroup label="공간">
+        {% for s in spaces %}<option value="space:{{ s.id }}">{{ s.id }} — {{ s.label }}</option>{% endfor %}
+        <option value="space:dev">dev — 관리자 전부</option>
+      </optgroup>
+      <optgroup label="계정">
+        {% for a in accts %}<option value="user:{{ a.id }}">{{ a.id }} ({{ a.role }}{{ " · " ~ a.dept if a.dept }})</option>{% endfor %}
+      </optgroup>
+    </select>
+    <input type="search" name="q" id="rgTryQ" placeholder="검색어 — 예: 장학금 지급 기준" maxlength="200" required aria-label="검색어">
+    <button class="btn primary" type="submit">검색</button>
+  </form>
+  <p class="rg-sub" id="rgTryStatus" aria-live="polite">고른 공간·계정의 실제 검색 범위로 규정 색인과 사업 문서를 찾은 상위 5건. 답변 생성 없이 검색만 합니다.</p>
+  <div class="rg-results" id="rgTryOut" hidden>
+    <div><h3>규정 색인</h3><div data-out="regulation"></div></div>
+    <div><h3>사업 문서</h3><div data-out="grant"></div></div>
+  </div>
+</div></section>
+
+<section class="card" id="grants"><div class="card-in">
   <h2>계정별 추가 권한</h2>
-  <table class="rg-table">
-    <tr><th>계정</th><th>기본 공간</th><th>더 볼 부서 공간</th></tr>
-    {% for a in accts %}
-    <tr><td>{{ a.id }}<br><span class="muted" style="font-size:12px;">{{ a.role }}{{ " · " ~ a.dept if a.dept }}</span></td>
-      <td class="rg-wrap">{{ a.space }}</td>
-      <td>{% if a.role == "student" %}<span class="muted">학생은 학사 규정만</span>
-        {% elif a.role == "dev" %}<span class="muted">전부</span>
+  {% if not dept_spaces %}
+  <p class="rg-sub">부서 공간 없음 — 계정에 부서를 정하면 생깁니다 · <a href="/dev/users">사용자·계정</a></p>
+  {% else %}
+  <form method="post" action="/dev/rag/grant" id="rgGrant">
+    <div class="rg-bar">
+      <input type="search" id="rgAcctFind" placeholder="계정·부서 찾기" aria-label="계정 찾기">
+      <span class="rg-sub" id="rgAcctCount"></span>
+    </div>
+    <div class="rg-scroll">
+    <table class="rg-table" id="rgGrantTable">
+      <thead><tr><th>계정</th><th>기본 공간</th>
+        {% for sp in dept_spaces %}<th class="c">{{ sp[5:] }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for a in accts %}
+      <tr data-find="{{ (a.id ~ ' ' ~ a.role ~ ' ' ~ a.dept)|lower }}">
+        <td>{{ a.id }}<br><span class="rg-sub">{{ a.role }}{{ " · " ~ a.dept if a.dept }}</span></td>
+        <td class="rg-wrap">{{ a.space }}</td>
+        {% if a.role == "student" %}
+        <td colspan="{{ dept_spaces|length }}" class="rg-fixed">고정 — 학생은 학생 공개 규정만 검색(추가 권한 없음)</td>
+        {% elif a.role == "dev" %}
+        <td colspan="{{ dept_spaces|length }}" class="rg-fixed">고정 — 관리자는 전부 검색</td>
+        {% elif a.all_grant %}
+        <td colspan="{{ dept_spaces|length }}" class="rg-fixed">고정 — 부서 없는 교직원은 사업 문서 전부 검색</td>
         {% else %}
-        <form method="post" action="/dev/rag/grant">
-          <input type="hidden" name="user" value="{{ a.id }}">
-          <div class="rg-checks">
           {% for sp in dept_spaces %}
-            <label><input type="checkbox" name="spaces" value="{{ sp }}" {{ 'checked' if sp in a.grants }}> {{ sp[5:] }} 문서도 검색</label>
+          {% set key = a.id ~ "\t" ~ sp %}
+          {% set own = a.space == sp %}
+          <td class="c">
+            {% if own %}<span class="rg-fixed" title="기본 공간이라 늘 검색">기본</span>
+            {% else %}
+            <input type="hidden" name="cell" value="{{ key }}">
+            {% if sp in a.grants %}<input type="hidden" name="was" value="{{ key }}">{% endif %}
+            <label class="rg-sw" title="{{ a.id }} — {{ sp[5:] }} 사업 문서도 검색">
+              <input type="checkbox" name="on" value="{{ key }}" {{ 'checked' if sp in a.grants }} data-was="{{ '1' if sp in a.grants else '0' }}"
+                     aria-label="{{ a.id }} 계정에 {{ sp[5:] }} 사업 문서 검색 권한">
+              <span class="tr" aria-hidden="true"></span>
+            </label>
+            {% endif %}
+          </td>
           {% endfor %}
-          </div>
-          <button class="btn" style="margin-top:6px;">추가 권한 저장</button>
-        </form>
-        {% endif %}</td></tr>
-    {% else %}<tr><td colspan="3" class="muted">계정 없음</td></tr>{% endfor %}
-  </table>
-</div></section>
-
-<section class="card"><div class="card-in">
-  <h2>원본 폴더별 담당 부서</h2>
-  <p class="muted" style="font-size:12.5px;margin:0 0 8px;">DGX 원본 폴더마다 담당 부서를 정해 두면, 그 폴더에서 들어온 문서는 그 부서 열람 범위로 색인됩니다.</p>
-  <form method="post" action="/dev/rag/area">
-    <textarea class="rg-map" name="mapping">{% for k, v in cfg.dept_of_area.items() %}{{ k }}={{ v }}
-{% endfor %}</textarea>
-    <p class="muted" style="font-size:12px;margin:6px 0;">한 줄에 「원본 최상위 폴더=부서」. 부서를 정하지 않은 폴더의 문서는 모든 교직원이 검색합니다. 저장한 뒤 새로 반입되는 문서부터 적용됩니다.</p>
-    <button class="btn">폴더별 부서 저장</button>
+        {% endif %}
+      </tr>
+      {% else %}<tr><td colspan="{{ 2 + dept_spaces|length }}" class="rg-sub">계정 없음</td></tr>{% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="rg-save">
+      <span class="rg-sub">켠 칸의 부서 사업 문서가 그 계정의 검색 범위에 더해집니다. 바뀐 칸은 노란 테두리.</span>
+      <button type="reset" class="btn" id="rgGrantReset" disabled>되돌리기</button>
+      <button class="btn primary" id="rgGrantSave" disabled>변경 0건 저장</button>
+    </div>
   </form>
-  <form method="post" action="/dev/rag/backfill" style="margin-top:10px;" data-confirm="저장된 폴더별 부서를 이미 반입된 사업 문서 전부에 다시 붙일까요? 문서의 부서가 바뀌어 계정마다 검색되는 범위가 달라집니다. 되돌리려면 짝을 고쳐 저장한 뒤 다시 적용해야 합니다.">
-    <button class="btn primary">이미 반입된 문서에도 적용</button>
-  </form>
-  <p class="muted" style="font-size:12px;margin:6px 0 0;">저장할 때마다 이전 설정을 남깁니다.</p>
-</div></section>
-</div>
-
-<section class="card"><div class="card-in">
-  <h2>학생 공개 규정 {{ student_regs|length }}건 <span class="muted" style="font-size:12px;font-weight:400;margin-left:8px;">검토 끝난 규정 {{ n_regs }}건 중</span></h2>
-  <table class="rg-table">
-    {% for d in student_regs %}<tr><td class="rg-wrap"><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td></tr>
-    {% else %}<tr><td class="muted">아직 없음 — 규정 문서 화면의 「학생 공개하기」로 지정합니다.</td></tr>{% endfor %}
-  </table>
-  {% if student_hints %}
-  <h3 style="font-size:14px;margin:14px 0 6px;">학생 관련으로 보이는 규정(미지정) {{ student_hints|length }}건</h3>
-  <table class="rg-table">
-    {% for d in student_hints %}<tr><td class="rg-wrap"><a href="/doc/{{ d.id }}">{{ d.filename }}</a></td></tr>{% endfor %}
-  </table>
   {% endif %}
 </div></section>
+
+<section class="card" id="areas"><div class="card-in">
+  <h2>원본 폴더별 담당 부서</h2>
+  {% if folders %}
+  <form method="post" action="/dev/rag/area" id="rgArea">
+    <div class="rg-scroll">
+    <table class="rg-table">
+      <tr><th>원본 최상위 폴더</th><th class="n">{{ metric_label("archive_files", "", "원본 파일") }}</th><th>담당 부서</th></tr>
+      {% for f in folders %}
+      {% set cur = cfg.dept_of_area.get(f.folder, "") %}
+      <tr><td class="rg-wrap">{{ f.folder }}{% if f.files is none %}<br><span class="rg-sub">원본 장부에 없음 — 설정에만 남은 폴더</span>{% endif %}</td>
+        <td class="n">{{ "{:,}".format(f.files) if f.files is not none else "—" }}</td>
+        <td><input type="hidden" name="folder" value="{{ f.folder }}">
+          <select name="dept" class="rg-dept" data-was="{{ cur }}" aria-label="{{ f.folder }} 폴더의 담당 부서">
+            <option value="" {{ 'selected' if not cur }}>정하지 않음(모든 교직원)</option>
+            {% for d in depts %}<option value="{{ d }}" {{ 'selected' if d == cur }}>{{ d }}</option>{% endfor %}
+            {% if cur and cur not in depts %}<option value="{{ cur }}" selected>{{ cur }} (계정·공간에 없는 부서)</option>{% endif %}
+          </select></td></tr>
+      {% endfor %}
+    </table>
+    </div>
+    <div class="rg-save">
+      <span class="rg-sub">폴더에서 들어오는 사업 문서가 그 부서 공간으로 색인됩니다. 부서 목록은 계정·공간에 쓰인 부서(새 부서는 <a href="/dev/users">사용자·계정</a>에서). 저장할 때마다 이전 설정을 남깁니다.</span>
+      <button class="btn primary" id="rgAreaSave" disabled>폴더별 부서 저장</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="rg-sub">원본 장부에 폴더 없음 — 원본 목록을 들인 뒤 고를 수 있습니다.</p>
+  {% endif %}
+  <form method="post" action="/dev/rag/backfill" style="margin-top:12px;"
+        data-confirm="저장된 폴더별 부서를 이미 반입된 사업 문서에 다시 붙일까요? 부서·열람 등급이 바뀌는 문서 {{ '{:,}'.format(backfill_total) }}건{% if backfill_total %} ({% for k, v in backfill_preview.items() if v %}{{ k }} {{ '{:,}'.format(v) }}{{ ', ' if not loop.last }}{% endfor %}){% endif %}. 계정마다 검색되는 범위가 달라지며, 되돌리려면 짝을 고쳐 저장한 뒤 다시 적용해야 합니다.">
+    <div class="rg-save">
+      <span class="rg-sub">저장된 짝 기준으로 바뀌는 문서 {{ "{:,}".format(backfill_total) }}건</span>
+      <button class="btn" {{ 'disabled' if not backfill_total }}>이미 반입된 문서에도 적용</button>
+    </div>
+  </form>
+</div></section>
+
+<section class="card" id="student-regs"><div class="card-in">
+  <h2>학생 공개 규정 {{ n_student_regs }}건 <span class="rg-sub" style="font-weight:400;margin-left:8px;">{{ metric_label("regulation_docs", "", "규정 문서") }} {{ regs|length }}건 중</span></h2>
+  {% if regs %}
+  {% if regs|length > 8 %}<div class="rg-bar"><input type="search" id="rgRegFind" placeholder="규정 이름 찾기" aria-label="규정 찾기"></div>{% endif %}
+  <div class="rg-scroll">
+  <table class="rg-table" id="rgRegTable">
+    <tr><th>규정 문서</th><th>상태</th><th></th></tr>
+    {% for d in regs %}
+    <tr data-find="{{ (d.filename or '')|lower }}">
+      <td class="rg-wrap"><a href="/doc/{{ d.id }}">{{ d.filename }}</a>{% if d.id in student_hint and d.audience != 'student' %}<br><span class="rg-sub">학생 관련 낱말이 이름에 있음</span>{% endif %}</td>
+      <td>{% if d.audience == 'student' %}<span class="rg-pill-on">학생 공개</span>{% else %}<span class="rg-pill-off">교직원만</span>{% endif %}</td>
+      <td class="n">
+        <form method="post" action="/doc/{{ d.id }}/audience" style="margin:0;"
+              {% if d.audience != 'student' %}data-confirm="「{{ d.filename }}」을 학생 계정 검색에 넣을까요? 공개 등급 조각만 학생에게 보입니다."{% endif %}>
+          <input type="hidden" name="audience" value="{{ 'staff' if d.audience == 'student' else 'student' }}">
+          <input type="hidden" name="back" value="/dev/rag#student-regs">
+          <button class="btn{{ '' if d.audience == 'student' else ' primary' }}">{{ '학생 공개 해제' if d.audience == 'student' else '학생 공개로 지정' }}</button>
+        </form></td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="rg-sub">처리 완료된 규정 문서 없음 — 규정을 기준 문서로 반입하면 여기서 학생 공개를 정합니다.</p>
+  {% endif %}
+  {% if n_grant_reg %}
+  <p class="rg-note">사업 문서 가운데 규정 갈래 {{ "{:,}".format(n_grant_reg) }}건은 사업 문서 검색으로 교직원에게만 쓰입니다. 학생 공개는 기준 문서로 반입한 규정만 됩니다.</p>
+  {% endif %}
+</div></section>
+
+<script>
+(() => {
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const num = n => Number(n || 0).toLocaleString('ko-KR');
+
+  // 찾기 칸 — 줄의 data-find 에 낱말이 들어 있으면 보인다
+  const finder = (input, rows, counter) => {
+    if (!input) return;
+    const run = () => {
+      const t = input.value.trim().toLowerCase();
+      let shown = 0;
+      rows.forEach(r => { const hit = !t || r.dataset.find.includes(t); r.hidden = !hit; if (hit) shown++; });
+      if (counter) counter.textContent = t ? `${shown} / ${rows.length}개 계정` : `${rows.length}개 계정`;
+    };
+    input.addEventListener('input', run);
+    run();
+  };
+  finder(document.getElementById('rgAcctFind'), [...document.querySelectorAll('#rgGrantTable tbody tr[data-find]')],
+         document.getElementById('rgAcctCount'));
+  finder(document.getElementById('rgRegFind'), [...document.querySelectorAll('#rgRegTable tr[data-find]')]);
+
+  // 계정 × 부서 공간 — 바뀐 칸 표시와 저장 단추의 변경 수
+  const grant = document.getElementById('rgGrant');
+  if (grant) {
+    const boxes = [...grant.querySelectorAll('input[name=on]')];
+    const save = document.getElementById('rgGrantSave'), reset = document.getElementById('rgGrantReset');
+    const sync = () => {
+      let n = 0;
+      boxes.forEach(b => { const ch = b.checked !== (b.dataset.was === '1'); b.closest('td').classList.toggle('rg-changed', ch); if (ch) n++; });
+      save.textContent = `변경 ${n}건 저장`;
+      save.disabled = reset.disabled = n === 0;
+    };
+    grant.addEventListener('change', sync);
+    grant.addEventListener('reset', () => setTimeout(sync, 0));
+    sync();
+  }
+
+  // 폴더별 부서 — 바뀐 줄이 있을 때만 저장
+  const area = document.getElementById('rgArea');
+  if (area) {
+    const sels = [...area.querySelectorAll('select[name=dept]')];
+    const save = document.getElementById('rgAreaSave');
+    const sync = () => {
+      let n = 0;
+      sels.forEach(s => { const ch = s.value !== s.dataset.was; s.closest('td').classList.toggle('rg-changed', ch); if (ch) n++; });
+      save.textContent = n ? `폴더별 부서 저장 (${n}곳)` : '폴더별 부서 저장';
+      save.disabled = n === 0;
+    };
+    area.addEventListener('change', sync);
+    sync();
+  }
+
+  // 공간 구성 보기 — 사업별·갈래별 상위와 규정 색인 문서
+  const list = (title, rows, unit) => `<div><h4>${esc(title)}</h4>` + (rows.length
+    ? `<ol>${rows.map(r => `<li>${esc(r.name)} <span class="rg-sub">${num(r.n)}${unit}</span></li>`).join('')}</ol>`
+    : '<p class="rg-sub" style="margin:0;">없음</p>') + '</div>';
+  document.querySelectorAll('[data-comp]').forEach(btn => btn.addEventListener('click', async () => {
+    const row = document.querySelector(`[data-comp-row="${btn.dataset.comp}"]`);
+    const box = row.querySelector('.rg-comp');
+    const open = row.hidden;
+    row.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+    btn.textContent = open ? '구성 닫기' : '구성 보기';
+    if (!open || box.dataset.loaded) return;
+    box.innerHTML = '<p class="rg-sub" style="margin:0;">불러오는 중…</p>';
+    try {
+      const r = await fetch('/dev/rag/space?target=' + encodeURIComponent(btn.dataset.comp));
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+      const d = await r.json();
+      box.innerHTML = list('사업별 사업 문서', d.programs, '건') + list('갈래별 사업 문서', d.kinds, '건')
+        + list('규정 색인 문서(조각 수)', d.regulations, '조각');
+      box.dataset.loaded = '1';
+    } catch (e) {
+      box.innerHTML = `<p class="rg-sub" style="margin:0;">구성을 불러오지 못했습니다(${esc(e.message)})</p>`;
+    }
+  }));
+
+  // 검색해 보기
+  const tryForm = document.getElementById('rgTry');
+  const status = document.getElementById('rgTryStatus'), out = document.getElementById('rgTryOut');
+  const hits = (rows, empty) => rows.length ? rows.map(h => `<div class="rg-hit"><div class="t"><a href="/doc/${h.doc_id}">${esc(h.title || '문서')}</a></div>`
+    + `<div class="w">${esc([h.where, h.dept ? '부서 ' + h.dept : ''].filter(Boolean).join(' · '))}</div><div class="h">${esc(h.head)}</div></div>`).join('')
+    : `<p class="rg-sub" style="margin:0;">${esc(empty)}</p>`;
+  tryForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    const fd = new FormData(tryForm);
+    const btn = tryForm.querySelector('button');
+    btn.disabled = true;
+    status.textContent = '찾는 중…';
+    try {
+      const r = await fetch('/dev/rag/try?' + new URLSearchParams(fd));
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
+      const d = await r.json();
+      const range = d.student_only ? '학생 공개 규정만' : (!d.uses_grant ? '규정만' : (d.grant_depts == null ? '사업 문서 전부 + 규정' : '사업 문서 ' + d.grant_depts.join(', ') + ' + 규정'));
+      status.textContent = `${d.label} · 공간 ${d.space} · 범위 ${range}` + (d.notes.length ? ' · ' + d.notes.join(' · ') : '');
+      out.querySelector('[data-out=regulation]').innerHTML = hits(d.regulation, '맞는 규정 조각 없음');
+      out.querySelector('[data-out=grant]').innerHTML = hits(d.grant, d.uses_grant ? '맞는 사업 문서 조각 없음' : '이 범위는 사업 문서를 쓰지 않음');
+      out.hidden = false;
+    } catch (err) {
+      status.textContent = `검색하지 못했습니다(${err.message})`;
+      out.hidden = true;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+})();
+</script>
 {% endblock %}

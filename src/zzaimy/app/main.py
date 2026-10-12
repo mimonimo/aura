@@ -3189,7 +3189,7 @@ def create_app(
         return RedirectResponse(dest, status_code=303)
 
     @app.post("/doc/{doc_id}/audience")
-    def doc_set_audience(request: Request, doc_id: int, audience: str = Form("staff")):
+    def doc_set_audience(request: Request, doc_id: int, audience: str = Form("staff"), back: str = Form("")):
         """규정 문서의 학생 공개 켜기·끄기(ADR-0052) — 관리자, 또는 그 문서를 올린 사람만. 규정이 아니면 학생 공개가 되지 않는다."""
         doc = db.get_document(doc_id)
         if doc is None:
@@ -3199,7 +3199,8 @@ def create_app(
         if audience not in ("staff", "student") or (audience == "student" and doc.get("doc_type") != "regulation"):
             raise HTTPException(400, "학생 공개는 규정 문서만 할 수 있습니다")
         db.set_document_audience(doc_id, audience)
-        return RedirectResponse(f"/doc/{doc_id}", status_code=303)
+        dest = back if back.startswith("/") and not back.startswith("//") else f"/doc/{doc_id}"
+        return RedirectResponse(dest, status_code=303)
 
     @app.post("/doc/{doc_id}/route")
     def doc_route(doc_id: int):
@@ -4576,59 +4577,100 @@ def create_app(
         data_dir = Path(db_path).parent
         cfg = rag_spaces.config(data_dir)
         regs = [d for d in db.list_documents("regulation") if d.get("status") == "reviewed"]
+        grants = cfg.get("grants", {})
         accts = [{"id": u, "role": a.get("role", "staff"), "dept": a.get("dept", ""),
-                  "space": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir)["label"],
-                  "grants": cfg.get("grants", {}).get(u, [])} for u, a in accounts.items()]
-        dept_spaces = sorted({f"dept:{v}" for v in cfg["dept_of_area"].values()} | {f"dept:{a['dept']}" for a in accts if a["dept"]})
+                  "space": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir)["id"],
+                  "all_grant": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir).get("grant_depts") is None,
+                  "grants": grants.get(u, [])} for u, a in sorted(accounts.items())]
+        folders = rag_spaces.area_folders(db)
+        seen = {f["folder"] for f in folders}
+        # 설정에만 있고 원본 장부에 없는 폴더도 줄로 보인다 — 지울 수 있게
+        folders += [{"folder": k, "files": None} for k in cfg["dept_of_area"] if k not in seen]
+        regs.sort(key=lambda d: (d.get("audience") != "student", not _STUDENT_HINT.search(d.get("filename") or ""),
+                                 d.get("filename") or ""))
+        spaces = rag_spaces.stats(db, data_dir, accounts)
+        preview = rag_spaces.backfill_preview(db, data_dir)
         return templates.TemplateResponse(request, "dev_rag.html", ctx(request, {
-            "spaces": rag_spaces.stats(db, data_dir, accounts), "cfg": cfg, "accts": accts, "dept_spaces": dept_spaces,
-            "student_regs": [d for d in regs if d.get("audience") == "student"],
-            "student_hints": [d for d in regs if d.get("audience") != "student" and _STUDENT_HINT.search(d.get("filename") or "")],
-            "n_regs": len(regs)}))
-
-    @app.post("/dev/rag/area")
-    def dev_rag_area(mapping: str = Form("")):
-        """원본 최상위 폴더 → 부서 짝 — 한 줄에 「폴더=부서」."""
-        from zzaimy.app import rag_spaces
-        data_dir = Path(db_path).parent
-        pairs = {}
-        for line in mapping.splitlines():
-            if "=" in line:
-                k, v = (x.strip() for x in line.split("=", 1))
-                if k and v:
-                    pairs[k] = v
-        if not pairs:
-            return RedirectResponse("/dev/rag?err=짝이 비었습니다", status_code=303)
-        cfg = dict(rag_spaces.config(data_dir))
-        cfg["dept_of_area"] = pairs
-        rag_spaces.save_config(cfg, data_dir)
-        return RedirectResponse("/dev/rag?ok=폴더·부서 짝을 저장했습니다 — 기존 문서에는 「이미 반입된 문서에도 적용」으로", status_code=303)
+            "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts),
+            "depts": rag_spaces.known_depts(cfg, accounts), "folders": folders,
+            "backfill_preview": preview, "backfill_total": sum(preview.values()),
+            "regs": regs, "student_hint": {d["id"] for d in regs if _STUDENT_HINT.search(d.get("filename") or "")},
+            "n_student_regs": sum(1 for d in regs if d.get("audience") == "student"),
+            "n_grant_reg": next((s_["grant_reg_docs"] for s_ in spaces if s_["id"] == "staff"), 0)}))
 
     @app.post("/dev/rag/grant")
-    def dev_rag_grant(user: str = Form(...), spaces: list[str] = Form([])):
-        """계정별 추가 권한 — 그 계정의 검색 범위에 고른 부서 공간의 사업 문서를 더한다(학생 계정에는 주지 않는다)."""
+    async def dev_rag_grant(request: Request):
+        """계정 × 부서 공간 표 저장 — 화면에서 바뀐 칸만 지금 설정에 반영한다(다른 사람이 그사이 바꾼 칸은 그대로). 학생·관리자 계정은 대상이 아니다."""
         from zzaimy.app import rag_spaces
         data_dir = Path(db_path).parent
-        if user not in accounts:
-            raise HTTPException(404)
-        if accounts[user].get("role") == "student" and spaces:
-            return RedirectResponse("/dev/rag?err=학생 계정에는 추가 권한을 줄 수 없습니다", status_code=303)
+        form = await request.form()
         cfg = dict(rag_spaces.config(data_dir))
-        grants = dict(cfg.get("grants", {}))
-        clean = sorted({x for x in spaces if x.startswith("dept:")})
-        if clean:
-            grants[user] = clean
-        else:
-            grants.pop(user, None)
+        grants, done, bad = rag_spaces.grant_changes(cfg, accounts, [str(x) for x in form.getlist("cell")],
+                                                     [str(x) for x in form.getlist("was")], [str(x) for x in form.getlist("on")],
+                                                     data_dir)
+        if bad:
+            return RedirectResponse("/dev/rag?" + urlencode({"err": "저장하지 않았습니다 — " + ", ".join(
+                f"{k.replace(chr(9), ' · ')}({why})" for k, why in bad[:5])}) + "#grants", status_code=303)
+        if not done:
+            return RedirectResponse("/dev/rag?" + urlencode({"ok": "바뀐 칸이 없습니다"}) + "#grants", status_code=303)
         cfg["grants"] = grants
         rag_spaces.save_config(cfg, data_dir)
-        return RedirectResponse(f"/dev/rag?ok={user} 의 추가 권한을 저장했습니다", status_code=303)
+        on = [f"{u} → {sid[5:]}" for u, sid, w in done if w]
+        off = [f"{u} → {sid[5:]}" for u, sid, w in done if not w]
+        msg = f"추가 권한 {len(done)}건 저장" + (f" · 켬: {', '.join(on)}" if on else "") + (f" · 끔: {', '.join(off)}" if off else "")
+        return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#grants", status_code=303)
+
+    @app.post("/dev/rag/area")
+    async def dev_rag_area(request: Request):
+        """원본 최상위 폴더 → 부서 — 줄마다 고른 부서(빈 값 = 정하지 않음). 원본 장부에 없는 폴더·알 수 없는 부서가 오면 저장하지 않는다."""
+        from zzaimy.app import rag_spaces
+        data_dir = Path(db_path).parent
+        form = await request.form()
+        cfg = dict(rag_spaces.config(data_dir))
+        known = [f["folder"] for f in rag_spaces.area_folders(db)]
+        pairs, changed, bad = rag_spaces.area_changes(cfg, accounts, known, [str(x) for x in form.getlist("folder")],
+                                                      [str(x) for x in form.getlist("dept")])
+        if bad:
+            return RedirectResponse("/dev/rag?" + urlencode({"err": "저장하지 않았습니다 — " + ", ".join(
+                f"{f}({why})" for f, why in bad[:5])}) + "#areas", status_code=303)
+        if not changed:
+            return RedirectResponse("/dev/rag?" + urlencode({"ok": "바뀐 폴더가 없습니다"}) + "#areas", status_code=303)
+        cfg["dept_of_area"] = pairs
+        rag_spaces.save_config(cfg, data_dir)
+        msg = "폴더별 부서 저장 — " + ", ".join(f"{f}: {b or '정하지 않음'} → {a or '정하지 않음'}" for f, b, a in changed) + \
+              " · 이미 반입된 문서는 「이미 반입된 문서에도 적용」으로"
+        return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#areas", status_code=303)
 
     @app.post("/dev/rag/backfill")
     def dev_rag_backfill():
         from zzaimy.app import rag_spaces
         got = rag_spaces.backfill_depts(db, Path(db_path).parent)
-        return RedirectResponse("/dev/rag?ok=이미 반입된 문서에 부서를 적용했습니다 — " + ", ".join(f"{k} {v:,}" for k, v in got.items()), status_code=303)
+        return RedirectResponse("/dev/rag?" + urlencode({"ok": "이미 반입된 문서에 부서를 적용했습니다 — " + (", ".join(
+            f"{k} {v:,}" for k, v in got.items()) or "짝 없음")}) + "#areas", status_code=303)
+
+    @app.get("/dev/rag/try")
+    def dev_rag_try(target: str = "", q: str = "", k: int = 5):
+        """검색해 보기 — 공간·계정의 실제 검색 범위(search_scope)로 규정·사업 문서를 찾은 상위 결과. 생성 모델은 부르지 않는다."""
+        from zzaimy.app import rag_spaces
+        got = rag_spaces.target_scope(target, accounts, Path(db_path).parent)
+        if got is None:
+            raise HTTPException(400, "공간이나 계정을 고르세요")
+        term = (q or "").strip()[:200]
+        if not term:
+            raise HTTPException(400, "검색어를 넣으세요")
+        label, sc = got
+        res = rag_spaces.preview_search(db, sc, term, k=max(1, min(int(k), 10)))
+        return {"label": label, "space": sc["space"], "uses_grant": bool(sc.get("grant")), "grant_depts": sc.get("grant_depts"),
+                "student_only": sc.get("levels") == ("student",), **res}
+
+    @app.get("/dev/rag/space")
+    def dev_rag_space(target: str = ""):
+        """공간(또는 계정)의 문서 구성 — 사업별·갈래별 사업 문서 수, 규정 색인 문서별 조각 수 상위."""
+        from zzaimy.app import rag_spaces
+        got = rag_spaces.target_scope(target, accounts, Path(db_path).parent)
+        if got is None:
+            raise HTTPException(400, "공간이나 계정을 고르세요")
+        return {"label": got[0], **rag_spaces.composition(db, got[1])}
 
     # 반입 연동 관리 — 원본 → 문서함 → 색인 → 그래프의 빈틈(scripts/175)과 조치(맞추기·다시 점검). 개발자만(/dev 미들웨어)
     _INTAKE_JOBS = {"reconcile": ("zz_reconcile.sh", Path("/tmp/intake_reconcile.log")),
