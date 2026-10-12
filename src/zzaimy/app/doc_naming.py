@@ -88,6 +88,10 @@ _TAIL = [
     re.compile(r"[\s_\-]+(?:최종|수정|제출)\s*(?:ver|v)\.?\s*\d{0,3}\s*$", re.I),
     # '오전 14시30분', '오후 3시' — 저장한 시각
     re.compile(r"[\s_\-]+(?:오전|오후|AM|PM)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?\s*$", re.I),
+    # 한글 바로 뒤 붙임표 번호('…박○○-2', '…표-1') — 사본·순번 표시. 숫자 뒤('1-2')는 항목 번호라 두지 않는다
+    re.compile(r"(?<=[가-힣])\s*-\s*\d{1,2}\s*$"),
+    # '(빨간색)', '(파랑)' — 검토할 때 칠한 색 표시
+    re.compile(r"\s*\(\s*(?:빨간|빨강|파란|파랑|노란|노랑|초록|녹색|주황|보라|분홍|회|검정|검은)\s*색?\s*(?:표시)?\s*\)\s*$"),
     # 끝에 남은 느낌표·물결
     re.compile(r"\s*[!~]+\s*$"),
 ]
@@ -230,6 +234,7 @@ def clean_filename(name: str, text: str | None = None) -> str:
     if m and _looks_like_name(m.group(1), complete_title(s[m.end():].replace("_", " ")), text):
         s = s[m.end():]
     s = s.replace("_", " ")
+    s = re.sub(r"\s*#\s*", " ", s)                      # '2021#가나대#자체진단보고서#…' — 해시 기호를 칸 구분으로 쓴 이름
     s = re.sub(r"\s{2,}", " ", s).strip()
     for _ in range(8):                                    # 뒤 표시가 겹친 것('_0123_OK', '- 제출본(190424)')
         prev = s

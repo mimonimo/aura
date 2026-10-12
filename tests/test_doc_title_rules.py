@@ -706,3 +706,10 @@ def test_cut_tail_leaves_no_open_bracket_and_time_is_not_a_unit():
     m = {"kind_label": "계획서", "program": "가나사업", "year": "2021"}
     assert choose_name("2021 0413 오전 14시30분 최종Ver.hwp", "", m)["name"] == "계획서 · 가나사업 2021"
     assert choose_name("호텔.pdf", "", m)["name"] == "계획서 · 가나사업 2021 · 호텔"
+
+
+def test_hash_separator_copy_number_and_color_mark():
+    assert clean_filename("2014가나예산서 김가나-2.xlsx") == "2014가나예산서"           # 사본 번호를 떼면 사람 이름도 떨어진다
+    assert clean_filename("2021#가나대학교#자체진단보고서#4.2.활동#0524.hwp") == "2021 가나대학교 자체진단보고서 4.2.활동"
+    assert clean_filename("2014가나예산서 0806(빨간색).xlsx") == "2014가나예산서"
+    assert clean_filename("과제계획서 4-2.hwp") == "과제계획서 4-2"                      # 숫자 뒤 붙임표는 항목 번호
