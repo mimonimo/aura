@@ -37,7 +37,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(ROOT / "data" / "platform" / "platform.db"))
     ap.add_argument("--docs", required=True)
-    ap.add_argument("--by", default="claude", help="전사 주체 표시(parse_note)")
+    ap.add_argument("--by", default="수기 전사", help="전사 주체 표시(parse_note)")
     args = ap.parse_args()
     db = Database(Path(args.db))
     proc = DocumentProcessor.__new__(DocumentProcessor)     # 마스커만 쓴다 — 파서 초기화는 생략

@@ -39,7 +39,7 @@ def test_imports_new_and_changed_files_only(tmp_path, monkeypatch):
              {"id": "c", "name": "사진.heic", "mimeType": "image/heic", "modifiedTime": "t1", "size": "10"},
              {"id": "d", "name": "하위폴더", "mimeType": "application/vnd.google-apps.folder", "modifiedTime": "t1"}]
     http, proc = FakeHttp(files), FakeProcessor()
-    got = gdrive_import.run_for_user(db, proc, tmp_path / "inbox", "kim", "kim@ync.ac.kr", http=http)
+    got = gdrive_import.run_for_user(db, proc, tmp_path / "inbox", "kim", "kim@example.ac.kr", http=http)
     names = sorted(x["name"] for x in got["imported"])
     assert names == ["계획서.pdf", "회의록.docx"] and len(proc.done) == 2
     assert any("export" in u for u, _ in http.downloads)                 # 구글 문서는 내보내기로
@@ -48,7 +48,7 @@ def test_imports_new_and_changed_files_only(tmp_path, monkeypatch):
     assert doc["owner"] == "kim"
     # 다시 돌리면 그대로인 것은 건너뛰고, 바뀐 것만 다시
     files[0]["modifiedTime"] = "t2"
-    again = gdrive_import.run_for_user(db, proc, tmp_path / "inbox", "kim", "kim@ync.ac.kr", http=http)
+    again = gdrive_import.run_for_user(db, proc, tmp_path / "inbox", "kim", "kim@example.ac.kr", http=http)
     assert [x["name"] for x in again["imported"]] == ["계획서.pdf"] and again["skipped"] == 2
     st = gdrive_import.status(db, "kim")
     assert st["imported_total"] == 3 and st["folder_id"] == "F1"
@@ -56,15 +56,15 @@ def test_imports_new_and_changed_files_only(tmp_path, monkeypatch):
 
 def test_bound_users_lists_personal_connections_only(tmp_path):
     db = Database(tmp_path / "t.db")
-    db.set_setting("google_account:kim", "kim@ync.ac.kr")
-    db.set_setting("google_account_dept:산학협력단", "shared@ync.ac.kr")
-    assert gdrive_import.bound_users(db) == [("kim", "kim@ync.ac.kr")]
+    db.set_setting("google_account:kim", "kim@example.ac.kr")
+    db.set_setting("google_account_dept:산학협력단", "shared@example.ac.kr")
+    assert gdrive_import.bound_users(db) == [("kim", "kim@example.ac.kr")]
 
 
 def test_same_google_account_imports_once(tmp_path, monkeypatch):
     db = Database(tmp_path / "t.db")
-    db.set_setting("google_account:zzdev", "s@ync.ac.kr")
-    db.set_setting("google_account:kim", "s@ync.ac.kr")
+    db.set_setting("google_account:zzdev", "s@example.ac.kr")
+    db.set_setting("google_account:kim", "s@example.ac.kr")
     monkeypatch.setattr(gdrive_files, "ensure_folder", lambda email, parts, http=None, root="root": "F1")
     monkeypatch.setattr(gdrive_files, "_headers", lambda email, http: {})
     monkeypatch.setattr(gdrive_files, "has_file_scope", lambda email: True)

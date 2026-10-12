@@ -200,10 +200,10 @@ def test_user_status_names_fallback_account(monkeypatch, tmp_path):
     from zzaimy.app import user_admin
     from zzaimy.app.db import Database
     db = Database(tmp_path / "u.db")
-    monkeypatch.setattr(user_admin, "connected_emails", lambda: {"shared@ync.ac.kr": {}})
-    monkeypatch.setattr(user_admin.gdrive_files, "account_for", lambda db, uid, dept: "shared@ync.ac.kr")
+    monkeypatch.setattr(user_admin, "connected_emails", lambda: {"shared@example.ac.kr": {}})
+    monkeypatch.setattr(user_admin.gdrive_files, "account_for", lambda db, uid, dept: "shared@example.ac.kr")
     st = user_admin.user_status(db, "someone", None)
-    assert st["bound"] == "" and st["effective"] == "shared@ync.ac.kr" and st["via"] == "공용 계정 사용"
+    assert st["bound"] == "" and st["effective"] == "shared@example.ac.kr" and st["via"] == "공용 계정 사용"
 
 
 # ---- 무거운 개발 화면은 작업자를 붙잡지 않는다 ----
