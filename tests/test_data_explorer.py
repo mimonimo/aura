@@ -344,3 +344,28 @@ def test_grant_docs_count_grant_index_chunks(db):
     view = dx.doc_chunks_view(db, g, None, db.get_document(g))
     assert view["n_grant"] == 2
     assert dx.doc_chunks_view(db, g, None)["n_grant"] is None
+
+
+def test_ledger_tab_shows_raw_values_and_points_to_archive(client, tmp_path):
+    from zzaimy.app import archive
+    db = Database(tmp_path / "test.db")
+    archive.ensure(db)
+    with db._conn() as conn:
+        conn.execute("INSERT INTO archive_files(rel, program_name, ext, status, dup_of, analysis, seen_at, removed_at) VALUES"
+                     " (?, ?, ?, ?, ?, ?, ?, '')", ('가상사업/폴더/아주긴이름의계획서.hwp', '가상사업', 'hwp', 'auto', '가상사업/대표.hwp',
+                                                    '처리 실패: 시험', '2031-01-02T03:04:05'))
+        conn.execute("INSERT INTO archive_files(rel, ext, removed_at) VALUES (?, ?, '')", (archive.UPLOAD_PREFIX + "반입/원본.pdf", 'pdf'))
+    page = client.get("/dev/db?tab=archive&q=가상 계획서").text
+    assert 'type="search" name="q"' in page and 'href="/archive?q=' in page
+    assert 'title="가상사업/폴더/아주긴이름의계획서.hwp"' in page and 'title="가상사업/대표.hwp"' in page
+    assert ">auto<" in page and "2031-01-02 03:04" in page and "처리 실패: 시험" in page
+    top = page.split('class="searchbox"', 1)[1].split("</form>", 1)[0]
+    assert 'value=""' in top                                   # 화면 안 검색어가 상단 전역 검색창에 들어가지 않는다
+    assert "사본·부산물" in client.get("/dev/db?tab=archive&q=반입").text
+    assert dx.archive_tab(db, q='가상 계획서')['total'] == 1 and dx.archive_tab(db, q='100%')['total'] == 0
+
+
+def test_global_search_box_keeps_query_only_on_search_page(client):
+    page = client.get("/search?q=가상검색어").text
+    top = page.split('class="searchbox"', 1)[1].split("</form>", 1)[0]
+    assert 'value="가상검색어"' in top

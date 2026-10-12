@@ -26,7 +26,7 @@ from zzaimy.app import paths as _paths
 META_PATH = _paths.index_meta()
 
 TABS: list[tuple[str, str]] = [
-    ("archive", "반입 원본"),
+    ("archive", "원본 장부"),
     ("docs", "문서"),
     ("regulation", "규정"),
     ("chat", "채팅 기록"),
@@ -153,23 +153,34 @@ def type_counts(db) -> list[dict]:
     return [{"doc_type": r[0] or "", "n": int(r[1])} for r in rows]
 
 
+ARCHIVE_COLS = ('rel', 'ext', 'size', 'mtime', 'program_name', 'status', 'doc_id', 'dup_of', 'analysis', 'seen_at')
+
+
 def archive_tab(db, q: str = '', page: int = 0) -> dict:
+    """원본 장부(archive_files) 원값 — 개발자가 장부 자체를 확인하는 화면. 사업·연도·처리 상태로 훑는 일반 목록은
+    원본 보관소(/archive)가 맡는다. 여기서는 정리된 이름 대신 장부에 적힌 값(분류 상태 코드·문서 번호·같은 파일 대표·
+    처리 기록·목록에서 본 때)을 그대로 보이고, 원본 보관소가 빼는 플랫폼 사본·변환 부산물도 함께 보인다."""
     from zzaimy.app.archive import ensure
+    from zzaimy.app.archive_state import is_original
     ensure(db)
     page = max(0, page)
     where = "removed_at = ''"
     args = []
-    if q.strip():
-        where += ' AND (rel LIKE ? OR program_name LIKE ?)'
-        args = [f'%{q.strip()}%'] * 2
+    for term in q.split()[:6]:                       # 여러 낱말은 모두 들어간 것만(원본 보관소와 같은 규칙)
+        where += " AND (rel LIKE ? ESCAPE '!' OR program_name LIKE ? ESCAPE '!')"
+        like = '%' + term.replace('!', '!!').replace('%', '!%').replace('_', '!_') + '%'
+        args += [like, like]
     with db._conn() as conn:
         total = conn.execute(f'SELECT COUNT(*) FROM archive_files WHERE {where}', args).fetchone()[0]
         rows = conn.execute(
-            f'SELECT rel, ext, program_name, doc_id, dup_of, seen_at FROM archive_files WHERE {where}'
+            f'SELECT {", ".join(ARCHIVE_COLS)} FROM archive_files WHERE {where}'
             ' ORDER BY rel LIMIT ? OFFSET ?', [*args, 50, page * 50]).fetchall()
-    keys = ('rel', 'ext', 'program_name', 'doc_id', 'dup_of', 'seen_at')
-    return {'rows': [dict(zip(keys, r)) for r in rows], 'total': total,
-            'page': page, 'has_next': (page + 1) * 50 < total}
+    out = []
+    for r in rows:
+        row = dict(zip(ARCHIVE_COLS, r))
+        row['original'] = is_original(row['rel'] or '')
+        out.append(row)
+    return {'rows': out, 'total': total, 'page': page, 'has_next': (page + 1) * 50 < total}
 
 
 def list_docs(db, q: str = "", doc_type: str = "", limit: int = LIST_LIMIT) -> list[dict]:

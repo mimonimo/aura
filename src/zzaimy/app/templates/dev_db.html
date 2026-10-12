@@ -166,6 +166,37 @@ table.dx-list tr.on td { background:#edf3fc; }
 .dx-reader-head h2 { margin:0; flex:1; min-width:0; overflow-wrap:anywhere; font-size:17px; }
 .dx-reader-head button { flex:none; }
 .dx-reader pre { margin:0; padding:24px; white-space:pre-wrap; overflow-wrap:anywhere; font-family:inherit; font-size:14px; line-height:1.85; max-height:65dvh; overflow:auto; overscroll-behavior:contain; }
+/* 원본 장부 탭 — 고정 열 폭, 긴 값은 말줄임(전체는 툴팁) */
+.dx-search-row { flex-wrap:nowrap; }
+.dx-search-row input[type=search], .dx-search-row input[type=text] { flex:1 1 auto; min-width:0; }
+.dx-search-row select { flex:0 1 auto; min-width:0; max-width:46%; text-overflow:ellipsis; }
+.dx-search-row button { flex:none; min-height:40px; }
+.dx-ledger-wrap { border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.dx-ledger-wrap table.dx-ledger { width:100%; table-layout:fixed; font-size:12.5px; border-collapse:collapse; }
+.dx-ledger-wrap table.dx-ledger th { position:static; background:#F8FAFC; padding:7px 10px; text-align:left; font-weight:600; }
+.dx-ledger-wrap table.dx-ledger td { border-top:1px solid var(--line); }
+.dx-ledger-wrap table.dx-ledger th:nth-child(1) { width:auto; }
+.dx-ledger-wrap table.dx-ledger th:nth-child(2) { width:118px; }
+.dx-ledger-wrap table.dx-ledger th:nth-child(3) { width:15%; }
+.dx-ledger-wrap table.dx-ledger th:nth-child(4) { width:72px; }
+.dx-ledger-wrap table.dx-ledger th:nth-child(5) { width:72px; }
+.dx-ledger-wrap table.dx-ledger th:nth-child(6) { width:12%; }
+.dx-ledger-wrap table.dx-ledger th:nth-child(7) { width:12%; }
+.dx-ledger-wrap table.dx-ledger th:nth-child(8) { width:128px; }
+.dx-ledger-wrap table.dx-ledger th { white-space:nowrap; }
+.dx-ledger-wrap table.dx-ledger td { padding:8px 10px; vertical-align:middle; overflow-wrap:normal; }
+.dx-ledger-wrap table.dx-ledger td.dx-ell { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dx-ledger-wrap table.dx-ledger td.dx-nowrap { white-space:nowrap; font-variant-numeric:tabular-nums; }
+.dx-path { display:flex; align-items:center; gap:4px; min-width:0; white-space:nowrap; }
+.dx-path .d { flex:0 1000 auto; min-width:24px; overflow:hidden; text-overflow:ellipsis; color:var(--muted); }
+.dx-path .f { flex:0 1 auto; min-width:0; max-width:75%; overflow:hidden; text-overflow:ellipsis; color:var(--ink); font-weight:500; }
+.dx-path .pill { flex:none; }
+.dx-pager { display:flex; align-items:center; gap:10px; margin:12px 0 0; }
+@media(max-width:900px) {
+  .dx-ledger-wrap { overflow-x:auto; overscroll-behavior-x:contain; }
+  .dx-ledger-wrap table.dx-ledger { min-width:1000px; }
+  .dx-ledger-wrap table.dx-ledger th:nth-child(1) { width:260px; }
+}
 @media(max-width:1200px) { .dx-grid, .dx-grid.rev { grid-template-columns:minmax(0,1fr); } .dx-scroll { max-height:42dvh; } }
 @media(max-width:600px) { .dx-card > .card-in { padding:16px; } .dx-links { margin-left:0; flex-wrap:wrap; } .dx-reader pre { padding:18px; } }
 </style>
@@ -181,20 +212,39 @@ table.dx-list tr.on td { background:#edf3fc; }
 
 {# ---------------- 문서 ---------------- #}
 {% if tab == 'archive' %}
-<section class="card"><div class="card-in">
-<h2>DGX 반입 원본</h2>
-<p class="muted">원본 목록 {{ view.total }}개 · 문서함 연결은 검색·학습 준비 완료를 뜻하지 않습니다.</p>
-<form method="get"><input type="hidden" name="tab" value="archive"><input name="q" value="{{ q }}" placeholder="사업명 또는 파일 경로"><button type="submit">검색</button></form>
-<div style="overflow-x:auto"><table><thead><tr><th>원본 경로</th><th>사업</th><th>연결 상태</th><th>목록 확인</th></tr></thead><tbody>
-{% for row in view.rows %}<tr><td style="overflow-wrap:anywhere">{{ row.rel }}</td><td>{{ row.program_name or '미분류' }}</td><td>{% if row.doc_id %}<a href="/dev/db?tab=docs&amp;doc={{ row.doc_id }}">문서함 보기</a>{% elif row.dup_of %}중복 후보{% else %}문서함 미연결{% endif %}</td><td>{{ row.seen_at }}</td></tr>
-{% else %}<tr><td colspan="4">검색 결과가 없습니다.</td></tr>{% endfor %}
-</tbody></table></div>
-<p>{% if view.page > 0 %}<a class="btn-ghost" href="/dev/db?tab=archive&amp;q={{ q|urlencode }}&amp;page={{ view.page - 1 }}">이전</a>{% endif %} {{ view.page + 1 }} 페이지 {% if view.has_next %}<a class="btn-ghost" href="/dev/db?tab=archive&amp;q={{ q|urlencode }}&amp;page={{ view.page + 1 }}">다음</a>{% endif %}</p>
+<section class="card dx-card"><div class="card-in">
+<div class="dx-head"><h2><iconify-icon icon="solar:database-linear"></iconify-icon>원본 장부 원값</h2>
+  <span class="dx-links"><a class="h-link" href="/archive{{ ('?q=' ~ (q|urlencode)) if q else '' }}#archive-list"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>원본 보관소에서 찾기</a></span></div>
+<p class="muted dx-foot" style="margin:0 0 12px;">{{ metric_label("archive_files") }} {{ view.total|num }}{% if q %}(검색 결과){% endif %} · 사업·연도·처리 상태로 훑기는 원본 보관소 · 여기는 장부에 적힌 값 그대로(분류 상태 코드·문서 번호·같은 파일 대표·처리 기록·목록에서 본 때)</p>
+<form method="get" action="/dev/db" class="dx-search dx-search-row">
+  <input type="hidden" name="tab" value="archive">
+  <input type="search" name="q" value="{{ q }}" placeholder="파일 경로 · 장부 사업 이름(여러 낱말 가능)" aria-label="원본 장부 검색" autocomplete="off">
+  <button type="submit" class="secondary">찾기</button>
+</form>
+<div class="dx-ledger-wrap"><table class="dx-ledger">
+  <thead><tr><th>원본 경로</th><th>형식·크기</th><th>장부 사업</th><th>분류 상태</th><th>문서</th><th>같은 파일 대표</th><th>처리 기록</th><th>목록에서 본 때</th></tr></thead>
+  <tbody>
+{% for row in view.rows %}<tr>
+  {% set parts = (row.rel or '').rsplit('/', 1) %}
+  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 부산물">사본·부산물</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
+  <td class="dx-nowrap">{{ row.ext or '—' }} · {{ row.size|num }}</td>
+  <td class="dx-ell" title="{{ row.program_name }}">{{ row.program_name or '—' }}</td>
+  <td class="dx-mono">{{ row.status or '—' }}</td>
+  <td class="dx-nowrap">{% if row.doc_id %}<a href="/dev/db?tab=docs&amp;doc={{ row.doc_id }}" title="이 문서를 문서 탭에서 보기">#{{ row.doc_id }}</a>{% else %}—{% endif %}</td>
+  <td class="dx-ell" title="{{ row.dup_of }}">{{ row.dup_of or '—' }}</td>
+  <td class="dx-ell" title="{{ row.analysis }}">{{ row.analysis or '—' }}</td>
+  <td class="dx-nowrap">{{ (row.seen_at or '')[:16]|replace('T', ' ') or '—' }}</td>
+</tr>
+{% else %}<tr><td colspan="8" class="dx-empty">{{ '찾는 원본이 없습니다' if q else '원본 장부가 비어 있습니다' }}</td></tr>{% endfor %}
+  </tbody></table></div>
+{% if view.page > 0 or view.has_next %}
+<p class="dx-pager">{% if view.page > 0 %}<a class="btn-ghost" href="/dev/db?tab=archive&amp;q={{ q|urlencode }}&amp;page={{ view.page - 1 }}">이전</a>{% endif %}<span class="muted">{{ view.page + 1 }}쪽</span>{% if view.has_next %}<a class="btn-ghost" href="/dev/db?tab=archive&amp;q={{ q|urlencode }}&amp;page={{ view.page + 1 }}">다음</a>{% endif %}</p>
+{% endif %}
 </div></section>
 {% elif tab == 'docs' %}
 <div class="dx-grid">
   <div class="card dx-card"><div class="card-in">
-    <form method="get" action="/dev/db" class="dx-search">
+    <form method="get" action="/dev/db" class="dx-search dx-search-row">
       <input type="hidden" name="tab" value="docs">
       <input type="text" name="q" value="{{ q }}" placeholder="접수번호 · 제목" aria-label="문서 검색">
       <select name="type" aria-label="문서 유형">
@@ -203,7 +253,7 @@ table.dx-list tr.on td { background:#edf3fc; }
         <option value="{{ t.doc_type }}" {{ 'selected' if t.doc_type == type else '' }}>{{ doc_type_labels.get(t.doc_type, t.doc_type) }} {{ t.n }}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="secondary">검색</button>
+      <button type="submit" class="secondary">찾기</button>
     </form>
     <div class="dx-scroll">
       <table class="dx-list">

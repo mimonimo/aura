@@ -3,7 +3,10 @@
 {% block pagetitle %}{{ dev_page_name('/dev/intake') }}{% endblock %}
 {% block content %}
 <style>
-.ik-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;align-items:start;}
+.ik-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px;align-items:stretch;margin-bottom:16px;}
+.ik-grid > .card{margin:0;height:100%;}
+.ik-line{display:flex;flex-wrap:wrap;gap:6px 18px;margin:10px 0 0;font-size:13px;}
+.ik-line b{font-variant-numeric:tabular-nums;}
 .ik-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--line);margin:10px 0 6px;}
 .ik-bar span{display:block;height:100%;}
 .ik-ok{background:#2f8f5b}.ik-fail{background:#c9822b}.ik-wait{background:#7a8fb3}.ik-miss{background:#c0392b}
@@ -33,7 +36,15 @@
   {% if not p %}
   <p class="muted">점검 결과 없음 · 「다시 점검」 또는 10분 동기화 때 자동 점검</p>
   {% else %}
-  <p class="muted" style="font-size:12px;margin:0;">점검 {{ p.at }} 기준 · {{ metric_label("archive_files", live.at) }} {{ "{:,}".format(live["values"].archive_files) }}건(지금) · 맞추기는 매일 04:30 자동 · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다</p>
+  {% set lv = live["values"] %}
+  <p class="muted" style="font-size:12px;margin:0;">점검 {{ p.at }} 기준 · 맞추기는 매일 04:30 자동 · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다</p>
+  <p class="ik-line">
+    <span>{{ metric_label("archive_originals", live.at) }} <b>{{ lv.archive_originals|num }}</b></span>
+    <span>{{ metric_label("archive_files", live.at) }} <b>{{ lv.archive_files|num }}</b></span>
+    {% if p.dgx_listing is not none %}<span>{{ metric_label("dgx_listing", (p.sync.get("full") or {}).get("at", "")) }} <b>{{ p.dgx_listing|num }}</b></span>{% endif %}
+    {% if not p.missed %}<span>{{ metric_label("audit_missed", p.at, "놓친 원본") }} <b>0</b></span>{% endif %}
+    {% if not p.failed %}<span>{{ metric_label("audit_failed", p.at, "실패") }} <b>0</b></span>{% endif %}
+  </p>
   {% for a in p.alerts %}<div class="ik-alert">{{ a }}</div>{% endfor %}
   {% endif %}
 </div></section>
@@ -57,13 +68,13 @@
 </div></section>
 
 <section class="card"><div class="card-in">
-  <h2>원본 구성</h2>
+  <h2>{{ metric_label("archive_files", p.at, "원본 장부 구성") }}</h2>
   <table class="ik-table">
     {% for k, v in (p.composition or {}).items()|sort(attribute=1, reverse=True) %}
     <tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>
     {% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">라이브러리·색인·그래프에는 처리 대상 문서만 반영 · 지출·증빙·정산 문서는 이번 범위에서 제외</p>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">합계 {{ (p.composition or {}).values()|sum|num }} · 라이브러리·색인·그래프에는 처리 대상 문서만 반영 · 지출·증빙·정산 문서는 이번 범위에서 제외</p>
 </div></section>
 
 <section class="card"><div class="card-in">
@@ -79,48 +90,56 @@
 </div></section>
 </div>
 
+{% if p.missed or p.failed %}
 <div class="ik-grid">
+{% if p.missed %}
 <section class="card"><div class="card-in">
-  <h2>놓친 원본 {{ "{:,}".format(p.missed) }}건 <a class="pill" style="margin-left:auto;" href="/dev/intake/missed.csv">목록 내려받기</a></h2>
-  {% if p.missed and p.missed_by_ext %}
+  <h2>{{ metric_label("audit_missed", p.at, "놓친 원본 " ~ "{:,}".format(p.missed) ~ "건") }} <a class="pill" style="margin-left:auto;" href="/dev/intake/missed.csv">목록 내려받기</a></h2>
+  {% if p.missed_by_ext %}
   <table class="ik-table">
     <tr><th>형식</th><th class="n">건수</th></tr>
-    {% for k, v in (p.missed_by_ext or {}).items()|sort(attribute=1, reverse=True) %}<tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
+    {% for k, v in p.missed_by_ext.items()|sort(attribute=1, reverse=True) %}<tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
   </table>
   {% endif %}
-  {% if p.missed and p.missed_by_dir %}
+  {% if p.missed_by_dir %}
   <table class="ik-table" style="margin-top:12px;">
     <tr><th>폴더</th><th class="n">건수</th></tr>
-    {% for k, v in (p.missed_by_dir or {}).items() %}<tr><td class="ik-rel">{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
+    {% for k, v in p.missed_by_dir.items() %}<tr><td class="ik-rel">{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
   </table>
   {% endif %}
 </div></section>
-
+{% endif %}
+{% if p.failed %}
 <section class="card"><div class="card-in">
-  <h2>실패 {{ "{:,}".format(p.failed) }}건 <a class="pill" style="margin-left:auto;" href="/dev/intake/failed.csv">목록 내려받기</a></h2>
+  <h2>{{ metric_label("audit_failed", p.at, "실패 " ~ "{:,}".format(p.failed) ~ "건") }} <a class="pill" style="margin-left:auto;" href="/dev/intake/failed.csv">목록 내려받기</a></h2>
   <table class="ik-table">
     <tr><th>사유</th><th class="n">건수</th></tr>
     {% for k, v in (p.failed_by_reason or {}).items()|sort(attribute=1, reverse=True) %}<tr><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}
   </table>
-  <p class="muted" style="font-size:12px;margin:8px 0 0;">판독 환경 오류·변환 실패는 DGX 주기 처리(30분)가 다시 시도 · 암호 문서는 풀지 않음</p>
+  <p class="muted" style="font-size:12px;margin:8px 0 0;">DGX 주기 처리(30분)의 다시 하기 · 판독 환경 오류(모듈 없음 등)는 고쳐질 때까지 · 새 형식 변환 실패는 같은 판에서 {{ p.retry_limit ~ "번" if p.retry_limit else "정해진 횟수" }}까지 · 그 밖의 실패는 원본이 바뀔 때 · 암호 문서는 풀지 않음</p>
 </div></section>
+{% endif %}
 </div>
+{% endif %}
 
+{% if p.missed %}
 <section class="card"><div class="card-in">
   <h2>놓친 원본 예시</h2>
   <table class="ik-table">
     <tr><th>원본 경로</th><th>형식</th><th>들어온·바뀐 때</th></tr>
     {% for r in missed %}<tr><td class="ik-rel">{{ r.rel }}</td><td>{{ r.ext }}</td><td style="white-space:nowrap;">{{ r.seen_at }}</td></tr>
-    {% else %}<tr><td colspan="3" class="muted">없음</td></tr>{% endfor %}
+    {% else %}<tr><td colspan="3" class="muted">목록 파일 없음 · 다시 점검하면 채워짐</td></tr>{% endfor %}
   </table>
 </div></section>
+{% endif %}
 
 <section class="card"><div class="card-in">
   <h2>주기 작업</h2>
   <table class="ik-table">
     {% for k, label in [("full", "원본 동기화(10분)"), ("parsed", "DGX 결과 들이기(5분)"), ("index", "색인(2분)"), ("lexical", "어휘 색인"), ("graph", "그래프"), ("audit", "연동 점검")] %}
     <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ (p.sync.get(k) or {}).get("at", "기록 없음") }}</td>
-      <td>{{ (p.sync.get(k) or {}).get("summary", "") }}</td></tr>
+      {% set summary = (p.sync.get(k) or {}).get("summary", "") %}
+      <td>{% if k == "full" and p.dgx_listing is not none %}{{ metric_label("dgx_listing", (p.sync.get(k) or {}).get("at", ""), "DGX 목록") }} {{ p.dgx_listing|num }}{% if " · " in summary %} · {{ summary.split(" · ", 1)[1] }}{% endif %}{% else %}{{ summary }}{% endif %}</td></tr>
     {% endfor %}
   </table>
 </div></section>

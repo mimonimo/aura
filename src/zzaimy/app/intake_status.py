@@ -130,6 +130,31 @@ def snapshot(db, force: bool = False) -> dict:
     return data
 
 
+_PARSE_SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "167_dgx_parse.py"
+
+
+def retry_limit(script: Path = _PARSE_SCRIPT) -> int | None:
+    """DGX 처리기(scripts/167)가 새 형식 변환 실패를 같은 판에서 다시 하는 횟수(ENV_RETRY_MAX) — 화면 안내가 처리기 규칙과
+    어긋나지 않게 코드에서 읽는다. 스크립트를 실행하지 않고 상수만 읽는다. 못 읽으면 None."""
+    import ast
+    try:
+        tree = ast.parse(script.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, ValueError):
+        return None
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "ENV_RETRY_MAX" for t in node.targets)
+                and isinstance(node.value, ast.Constant) and isinstance(node.value.value, int)):
+            return node.value.value
+    return None
+
+
+def dgx_listing(sync: dict) -> int | None:
+    """마지막 원본 동기화(scripts/170 의 full 기록 「원본 N · 새로 …」)가 본 DGX 원본 목록 수. 기록이 없으면 None."""
+    import re
+    m = re.match(r"\s*원본\s+([\d,]+)", str((sync.get("full") or {}).get("summary") or ""))
+    return int(m.group(1).replace(",", "")) if m else None
+
+
 def pipeline(db_path: str) -> dict | None:
     """반입 연동 점검(scripts/175) 결과 — 원본 구성·처리 대상 상태·놓침·실패·색인·그래프·경고. 없으면 None."""
     p = Path(db_path).parent / "pipeline_audit.json"
@@ -140,6 +165,8 @@ def pipeline(db_path: str) -> dict | None:
     t = max(int(data.get("targets") or 0), 1)
     data["pct"] = {k: round(100 * int(data.get(k) or 0) / t, 1) for k in ("in_docbox", "failed", "waiting", "missed")}
     data["sync"] = _sync_state(db_path)
+    data["dgx_listing"] = dgx_listing(data["sync"])
+    data["retry_limit"] = retry_limit()
     return data
 
 

@@ -708,6 +708,8 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
     overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else program_years(facet_rows(
         db, parse_filters(), hidden), prog_of), parse_filters(), prog_of, labels)
     data["overall"] = overall
+    # 머리 숫자의 이름·정의는 지표 모듈에서 — 열람 제한이 없으면 학교 원본 전부(archive_originals), 있으면 열람 범위(archive_visible)
+    data["head_metric"] = "archive_visible" if hidden else "archive_originals"
     data["program_names"] = sorted(((prog_of.name[g], g, prog_of.count.get(g, 0)) for g in prog_of.name), key=lambda t: -t[2])
     return st.templates.TemplateResponse(request, "archive.html", st.page_ctx(request, data))
 

@@ -8,6 +8,7 @@
 기준(source)
   live   지금 DB 를 센 값(60초 재사용)
   index  색인 파일의 메타(색인을 마지막으로 만든 때)
+  sync   원본 동기화(scripts/170)가 data/platform/sync_status.json 에 남긴 마지막 기록
   audit  반입 연동 점검(scripts/175)의 마지막 결과 data/platform/pipeline_audit.json
   scan   개인정보 잔여 검사의 마지막 결과
   eval   검색 품질 측정의 마지막 결과
@@ -39,13 +40,14 @@ class Metric:
     key: str
     label: str          # 화면 이름 — 다른 집합이면 다른 이름
     definition: str     # 무엇을 셌는지 한 줄
-    source: str         # live | index | audit | scan | eval | view
+    source: str         # live | index | audit | sync | scan | eval | view
 
 
 SOURCE_LABEL = {
     "live": "지금 DB",
     "index": "색인 파일",
     "audit": "반입 연동 점검",
+    "sync": "원본 동기화 기록",
     "scan": "개인정보 잔여 검사",
     "eval": "검색 품질 측정",
     "view": "보는 사람의 열람 범위",
@@ -53,8 +55,14 @@ SOURCE_LABEL = {
 
 _DEFS = [
     # 원본 보관소 — 원본 장부(archive_files)
-    Metric("archive_files", "원본 파일 수", "원본 장부에 있는 파일 전부 — 사진·압축·같은 파일 중복 포함, 지운 파일 제외", "live"),
-    Metric("archive_unique", "중복 제외 원본 수", "같은 파일 묶음마다 대표 하나만 센 원본 파일", "live"),
+    # 원본 장부에는 학교 원본 말고도 플랫폼 사본(반입·첨부 저장본)과 변환 부산물(그림 추출 폴더)이 함께 있다 — 같은
+    # 「원본」이라도 장부 전체·학교 원본·DGX 목록·열람 범위는 다른 집합이라 이름을 따로 둔다(archive_state.original_sql)
+    Metric("archive_files", "원본 장부 파일 수", "원본 장부의 파일 전부 — 학교 원본에 플랫폼 사본·변환 부산물(그림 추출 폴더)까지, 사진·압축·같은 파일 중복 포함, 지운 파일 제외", "live"),
+    Metric("archive_originals", "원본 파일 수", "학교 원본 폴더의 파일 — 플랫폼 사본·변환 부산물 제외, 사진·압축·같은 파일 중복 포함, 지운 파일 제외(원본 보관소 머리 숫자)", "live"),
+    Metric("archive_visible", "열람 가능 원본 파일 수", "원본 파일 가운데 지금 계정이 볼 수 있는 것 — 볼 수 없는 문서에 이어진 파일 제외", "view"),
+    Metric("archive_failed", "처리 실패 원본 수", "학교 원본 가운데 처리 상태가 실패인 것 — 판독·반입 실패가 원본 장부에 적힌 처리 대상(원본 보관소 「실패」)", "live"),
+    Metric("dgx_listing", "DGX 원본 목록 수", "마지막 원본 동기화 때 DGX 원본 폴더 목록의 파일 — 변환 부산물 포함, 플랫폼 사본 제외", "sync"),
+    Metric("archive_unique", "중복 제외 원본 수", "같은 파일 묶음마다 대표 하나만 센 원본 장부 파일", "live"),
     Metric("archive_linked", "원본 연결 수", "라이브러리 문서와 이어진 원본 파일 — 한 문서에 원본이 여럿이면 각각 셈", "live"),
     Metric("archive_removed", "지운 원본 수", "원본 장부에 남아 있지만 보관소에서 지워진 파일", "live"),
     # 라이브러리 — documents
@@ -85,7 +93,7 @@ _DEFS = [
     # 반입 연동 점검(scripts/175)
     Metric("audit_targets", "처리 대상 문서 수", "원본 가운데 문서 형식·범위 안(지출·증빙 제외)·중복 아님인 파일", "audit"),
     Metric("audit_in_library", "처리 대상 중 라이브러리 반영", "처리 대상 문서 가운데 라이브러리 문서로 들어온 것", "audit"),
-    Metric("audit_failed", "처리 대상 중 실패", "처리 대상 문서 가운데 판독에 실패해 사유가 남은 것", "audit"),
+    Metric("audit_failed", "처리 대상 중 실패", "처리 대상 문서 가운데 판독에 실패해 실패 장부에 사유가 남은 것 — 원본 보관소 「실패」와 같은 집합, 실패가 원본 장부에 아직 옮겨 적히지 않은 만큼 더 많을 수 있음", "audit"),
     Metric("audit_waiting", "처리 대상 중 대기", "들어오거나 바뀐 지 6시간이 안 돼 아직 결과가 없는 것", "audit"),
     Metric("audit_missed", "처리 대상 중 놓침", "들어오거나 바뀐 지 6시간이 넘었는데 결과가 없는 것", "audit"),
     Metric("audit_graph_docs", "그래프 대상 사업 문서 수", "처리 완료 사업 문서에서 범위 밖 갈래(지출·계약 증빙)를 뺀 것", "audit"),
@@ -138,8 +146,14 @@ def _count_live(db) -> dict[str, int]:
     from contextlib import closing
 
     from zzaimy.app.database_backend import connect
+    from zzaimy.app import archive_state
+    orig, orig_args = archive_state.original_sql()
+    state, state_args = archive_state.state_sql()
     with closing(connect(str(db.path), readonly=True)) as conn:
         v = {
+            "archive_originals": _one(conn, f"SELECT COUNT(*) FROM archive_files WHERE removed_at = '' AND {orig}", orig_args),
+            "archive_failed": _one(conn, f"SELECT COUNT(*) FROM archive_files WHERE removed_at = '' AND {orig} AND {state} = 'failed'",
+                                   orig_args + state_args),
             "archive_files": _one(conn, "SELECT COUNT(*) FROM archive_files WHERE removed_at = ''"),
             "archive_unique": _one(conn, "SELECT COUNT(*) FROM archive_files WHERE removed_at = '' AND dup_of = ''"),
             "archive_linked": _one(conn, "SELECT COUNT(*) FROM archive_files WHERE removed_at = '' AND doc_id IS NOT NULL"),

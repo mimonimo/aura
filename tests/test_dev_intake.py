@@ -35,3 +35,64 @@ def test_intake_page_shows_audit_and_lists(tmp_path):
 def test_intake_page_without_audit(tmp_path):
     r = _client(tmp_path).get("/dev/intake")
     assert r.status_code == 200 and "점검 결과 없음" in r.text
+
+
+def _audit(tmp_path, **over):
+    base = {"at": "2031-02-03 04:05", "archive_files": 50, "targets": 20, "in_docbox": 20, "failed": 0, "waiting": 0, "missed": 0,
+            "composition": {"처리 대상 문서": 20, "사진·그림": 30}, "missed_by_ext": {}, "missed_by_dir": {}, "failed_by_reason": {},
+            "stuck_docs": 0, "grant_chunks": 1, "embedding_index": 1, "lexical_index": 1, "grant_docs": 1, "graph_doc_nodes": 1,
+            "alerts": []}
+    base.update(over)
+    (tmp_path / "pipeline_audit.json").write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
+
+
+def test_empty_missed_and_failed_are_one_line_not_cards(tmp_path):
+    _audit(tmp_path)
+    page = _client(tmp_path).get("/dev/intake").text
+    assert "/dev/intake/missed.csv" not in page and "/dev/intake/failed.csv" not in page   # 빈 표 카드 없음
+    assert "놓친 원본 예시" not in page
+    assert ">놓친 원본</abbr> <b>0</b>" in page and ">실패</abbr> <b>0</b>" in page
+
+
+def test_failed_card_states_retry_rule_from_parse_script(tmp_path):
+    from zzaimy.app import intake_status
+    _audit(tmp_path, failed=7, failed_by_reason={"글 없는 문서": 7})
+    page = _client(tmp_path).get("/dev/intake").text
+    limit = intake_status.retry_limit()
+    assert isinstance(limit, int) and limit > 0
+    assert f"새 형식 변환 실패는 같은 판에서 {limit}번까지" in page and "고쳐질 때까지" in page
+    assert "/dev/intake/failed.csv" in page and "/dev/intake/missed.csv" not in page
+
+
+def test_retry_limit_reads_constant_without_running(tmp_path):
+    from zzaimy.app import intake_status
+    script = tmp_path / "parse.py"
+    script.write_text("import sys\nENV_RETRY_MAX = 5\nraise SystemExit('실행되면 안 됨')\n", encoding="utf-8")
+    assert intake_status.retry_limit(script) == 5
+    script.write_text("X = 1\n", encoding="utf-8")
+    assert intake_status.retry_limit(script) is None
+    assert intake_status.retry_limit(tmp_path / "없음.py") is None
+
+
+def test_sync_listing_number_gets_its_own_name(tmp_path):
+    from zzaimy.app import intake_status
+    assert intake_status.dgx_listing({"full": {"summary": "원본 1234 · 새로 2 · 바뀜 0"}}) == 1234
+    assert intake_status.dgx_listing({"full": {"summary": "목록 실패"}}) is None and intake_status.dgx_listing({}) is None
+    _audit(tmp_path)
+    (tmp_path / "sync_status.json").write_text(json.dumps({"full": {"at": "2031-02-03 04:00", "summary": "원본 4321 · 새로 1"}},
+                                                          ensure_ascii=False), encoding="utf-8")
+    page = _client(tmp_path).get("/dev/intake").text
+    assert ">DGX 목록</abbr> 4,321 · 새로 1" in page and "원본 4321" not in page
+    assert "원본 장부의 파일 전부" in page and "학교 원본 폴더의 파일" in page     # 장부 전체와 학교 원본은 이름이 다르다
+
+
+def test_audit_reason_treats_empty_state_as_no_text():
+    import importlib.util
+    from pathlib import Path
+    path = Path(__file__).resolve().parent.parent / "scripts" / "175_pipeline_audit.py"
+    spec = importlib.util.spec_from_file_location("audit175", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.reason("", "empty") == "글 없는 문서"
+    assert mod.reason("", "failed") == "기타 판독 실패"
+    assert mod.reason("암호가 걸린 문서", "empty") == "암호 문서"

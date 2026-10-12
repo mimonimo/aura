@@ -74,8 +74,8 @@
   <div class="ar-head"><h2>원본 보관소</h2></div>
   <p class="ar-note">학교 문서 원본을 모아 둔 곳입니다.</p>
   <dl class="ar-summary">
-    <div><dt>원본 파일</dt><dd>{{ "{:,}".format(overall.total) }}<small>건</small></dd></div>
-    {% for s in overall.states %}<div><dt>{{ s.label }}</dt><dd>{{ "{:,}".format(s.n) }}<small>건</small></dd></div>{% endfor %}
+    <div><dt title="{{ metric_tip(head_metric) }}">{{ '열람 가능 원본 파일' if head_metric == 'archive_visible' else '원본 파일' }}</dt><dd>{{ "{:,}".format(overall.total) }}<small>건</small></dd></div>
+    {% for s in overall.states %}<div><dt{% if s.value == 'failed' and head_metric == 'archive_originals' %} title="{{ metric_tip('archive_failed') }}"{% endif %}>{{ s.label }}</dt><dd>{{ "{:,}".format(s.n) }}<small>건</small></dd></div>{% endfor %}
   </dl>
   <p class="ar-note">문서함 연결 수는 등록된 문서 수와 다를 수 있습니다.</p>
 </div></section>

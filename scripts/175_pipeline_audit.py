@@ -106,13 +106,16 @@ def _jsonl_rels(path: Path, key: str) -> dict[str, dict]:
     return out
 
 
-def reason(err: str) -> str:
+def reason(err: str, state: str = "") -> str:
+    """실패 사유 갈래. 처리기(167)는 읽었지만 글이 없는 문서를 오류 글 없이 state 「empty」로만 적기도 한다 — 그것도 글 없는 문서."""
     e = err or ""
     for k, label in (("암호", "암호 문서"), ("빈 파일", "빈 파일"), ("형식이 아닙니다", "형식 불일치"), ("시간 초과", "시간 초과"),
                      ("같은 내용", "같은 내용 중복"), ("스캔 PDF", "스캔 판독 없음"), ("ModuleNotFound", "판독 환경 오류"),
                      ("글이 없는", "글 없는 문서")):
         if k in e:
             return label
+    if state == "empty":
+        return "글 없는 문서"
     return "기타 판독 실패"
 
 
@@ -177,7 +180,7 @@ def main() -> int:
         no_result[rel] = f"{int(size or 0)}:{int(float(mtime or 0))}"
         if rel in fails:
             failed += 1
-            why = reason(fails[rel].get("error", ""))
+            why = reason(fails[rel].get("error", ""), fails[rel].get("state", ""))
             fail_why[why] += 1
             failed_rows.append({"rel": rel, "reason": why, "error": fails[rel].get("error", "")[:160]})
             continue

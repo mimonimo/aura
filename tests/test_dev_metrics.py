@@ -249,3 +249,20 @@ def test_dev_role_label_comes_from_access_guard(client):
     from zzaimy.app.access_guard import ROLES
     page = client.get("/settings").text                 # 업무 화면 사이드바의 개발 현황 진입
     assert f"개발 현황 ({ROLES['dev']})" in page and "(개발자)" not in page
+
+
+def test_originals_exclude_platform_copies_and_byproducts(client, tmp_path):
+    from zzaimy.app import archive
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "test.db")
+    archive.ensure(db)
+    rows = [("가상과/계획.hwp", "hwp", ""), ("가상과/계획_imgs/그림1.png", "png", ""), (archive.UPLOAD_PREFIX + "반입/원본.pdf", "pdf", ""),
+            ("가상과/깨진.pdf", "pdf", "처리 실패: 손상"), ("가상과/사진.jpg", "jpg", "")]
+    with db._conn() as conn:
+        for rel, ext, analysis in rows:
+            conn.execute("INSERT INTO archive_files (rel, ext, analysis, removed_at) VALUES (?, ?, ?, '')", (rel, ext, analysis))
+    v = metrics.live(db, force=True)["values"]
+    assert v["archive_files"] == 5 and v["archive_originals"] == 3 and v["archive_failed"] == 1
+    assert metrics.DEFS["archive_files"].label != metrics.DEFS["archive_originals"].label
+    page = client.get("/archive").text
+    assert metrics.tip("archive_originals").split(" · ")[0] in page          # 보관소 머리 숫자도 같은 지표 정의
