@@ -1,6 +1,6 @@
 #!/bin/bash
-# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
 # KURE-v2 다중 벡터 검색 서비스 — 128 이 만든 색인을 GPU 에 올려 놓고 질의마다 MaxSim 으로 순위를 낸다.
 # 운영 검색(어휘 + 임베딩 :8016 + 리랭커 :8015)과 나란히 두는 비교용 서비스다. 채택 전에는 운영이 부르지 않는다.
 #
@@ -8,13 +8,14 @@
 #       POST /score {"query": "...", "ids": [...]} → {"scores": [...]}   (후보 재정렬 비교용)
 # 사용 (맥에서):  bash scripts/129_serve_kure2_on_thor.sh [포트=8017]
 set -euo pipefail
-THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
-TP=8022
+need_host ZZAIMY_THOR03_SSH
+THOR=$ZZAIMY_THOR03_SSH
+TP=$ZZAIMY_THOR_SSH_PORT
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8017}"
 NAME="zzaimy-kure2-$PORT"
 MODEL="${MODEL:-/models/KURE-v2}"
-INDEX=/home/thor-03/zzaimy/index/kure2
+INDEX='$HOME/zzaimy/index/kure2'  # 서버 쪽 셸이 풀어 쓴다
 
 ssh -p $TP "$THOR" "test -f $INDEX/tokens.npy" || { echo "색인이 없습니다 — 먼저 scripts/128_kure2_index_on_thor.sh" >&2; exit 2; }
 ssh -p $TP "$THOR" "cat > ~/zzaimy/serve/kure2_search.py" <<'PY'

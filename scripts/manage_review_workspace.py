@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 
 REMOTE = '''
 import json,sys
@@ -53,13 +54,20 @@ if payload['apply']:
 print(json.dumps(report,ensure_ascii=False))
 '''
 
+def _vm_ssh() -> str:
+    """운영 VM 접속(계정@주소) — 공개 저장소에 두지 않고 환경 변수·configs/hosts.env 에서 읽는다."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+    from zzaimy import hosts
+    return hosts.require('ZZAIMY_VM_SSH')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
-    command = 'cd /home/aura/zzaimy-capstone && .venv/bin/python -c ' + shlex.quote(REMOTE)
+    command = 'cd ~/zzaimy-capstone && .venv/bin/python -c ' + shlex.quote(REMOTE)
     result = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5',
-                             'aura@192.168.16.226', command], input=json.dumps({
+                             _vm_ssh(), command], input=json.dumps({
         'planner': (root/'src/zzaimy/dataset/workspace.py').read_text(), 'apply': args.apply}), text=True)
     raise SystemExit(result.returncode)

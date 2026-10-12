@@ -30,10 +30,12 @@ sys.path.insert(0, str(ROOT / "src"))
 from zzaimy.app import archive  # noqa: E402
 from zzaimy.app.db import Database  # noqa: E402
 from zzaimy.graph import programs  # noqa: E402
+from zzaimy import hosts  # noqa: E402
 
 KEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_ro")
-REMOTE = os.environ.get("ZZAIMY_DGX_SSH", "") + ":"          # DGX 계정@주소 — .env.local(공개 저장소에 주소를 두지 않는다)
-RSH = f"ssh -i {KEY} -p 8022 -o BatchMode=yes"
+REMOTE = hosts.get("ZZAIMY_DGX_SSH") + ":"          # DGX 계정@주소 — .env.local·configs/hosts.env(공개 저장소에 주소를 두지 않는다)
+DGX_PORT = " ".join(hosts.ssh_port_args("ZZAIMY_DGX_SSH_PORT"))
+RSH = f"ssh -i {KEY} {DGX_PORT} -o BatchMode=yes"
 _LINE = re.compile(r"^-\S+\s+([\d,]+)\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(.+)$")
 PRI = {"evaluation": 0, "plan": 1, "report": 2, "basic_plan": 3, "announcement": 4, "criteria": 5, "guideline": 6}
 
@@ -64,7 +66,7 @@ def listing() -> list[dict]:
 
 
 UPKEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_up")
-UPRSH = f"ssh -i {UPKEY} -p 8022 -o BatchMode=yes"
+UPRSH = f"ssh -i {UPKEY} {DGX_PORT} -o BatchMode=yes"
 
 
 def push_uploads(db, origins: dict[str, int], cards=None) -> None:
@@ -150,7 +152,7 @@ def import_parsed() -> None:
         return
     dest = ROOT / "data" / "inbox" / "parsed"
     dest.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} -p 8022 -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--exclude=*",
+    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--exclude=*",
                         REMOTE + "./", str(dest) + "/"], capture_output=True)
     if r.returncode != 0:
         print("DGX 처리 결과 받기 실패:", r.stderr.decode("utf-8", "replace")[-160:], flush=True)

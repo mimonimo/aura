@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path, PurePosixPath
 from threading import BoundedSemaphore
 
+from zzaimy import hosts
+
 MAX_BYTES = 100_000_000
 
 
@@ -34,12 +36,12 @@ def fetch(row: dict) -> Path:
     try:
         # 기존 VM 동기화와 같은 읽기 전용 키. 서버 명령 실행·쓰기 권한은 추가하지 않는다.
         key = os.environ.get("ZZAIMY_DGX_READ_KEY", str(Path.home() / ".ssh/id_ed25519_dgx_ro"))
-        rsh = shlex.join(["ssh", "-i", key, "-p", "8022", "-o", "BatchMode=yes",
+        rsh = shlex.join(["ssh", "-i", key, *hosts.ssh_port_args("ZZAIMY_DGX_SSH_PORT"), "-o", "BatchMode=yes",
                          "-o", "StrictHostKeyChecking=yes", "-o", "ConnectTimeout=8"])
         with tempfile.TemporaryDirectory(prefix="zzaimy-original-transfer-") as directory:
             subprocess.run(
                 ["rsync", "-e", rsh, "-t", "--no-links", "--max-size=100000000",
-                 "--from0", "--files-from=-", "--", os.environ.get("ZZAIMY_DGX_SSH", "") + ":./", directory + "/"],
+                 "--from0", "--files-from=-", "--", hosts.get("ZZAIMY_DGX_SSH") + ":./", directory + "/"],
                 input=rel.encode("utf-8") + b"\0", stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, timeout=transfer_timeout(size), check=True,
             )

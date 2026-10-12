@@ -5,8 +5,11 @@
 # (색인을 안 만들면 검색이 옛 조각을 가리키고, 개체를 안 뽑으면 그래프가 비어 보인다).
 #
 # 사용 (맥에서):  bash scripts/119_after_ingest.sh
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
 set -uo pipefail
-VM=aura@192.168.16.226
+need_host ZZAIMY_VM_SSH
+VM=$ZZAIMY_VM_SSH
 fail=0
 
 echo "[$(date +%T)] 1/4 검토 의견 채우기 (반입 중 놓친 것)"

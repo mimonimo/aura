@@ -13,11 +13,13 @@
 #   bash scripts/116_ship_and_serve.sh rerank zzaimy-rerank-v2 --from <DGX 계정@주소>:~/zzaimy/models
 #   bash scripts/116_ship_and_serve.sh writer zzaimy-writer-v1 --from <DGX 계정@주소>:~/zzaimy/models   # 토르 02·03 둘 다
 set -euo pipefail
-# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
-VM=aura@192.168.16.226
-THOR=${THOR03_SSH:?.env.local 에 THOR03_SSH=계정@주소}
-TP=8022
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
+need_host ZZAIMY_VM_SSH
+VM=$ZZAIMY_VM_SSH
+need_host ZZAIMY_THOR03_SSH
+THOR=$ZZAIMY_THOR03_SSH
+TP=$ZZAIMY_THOR_SSH_PORT
 KIND="${1:?rerank | embed | writer 중 하나}"
 NAME="${2:?학습본 폴더 이름 (예: zzaimy-rerank-v2)}"
 FROM=""
@@ -37,7 +39,7 @@ esac
 if [ "$KIND" = "writer" ]; then
   IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
   for HOST in thor-02 thor-03; do
-    case "$HOST" in thor-02) THOR=${THOR02_SSH:?.env.local 에 THOR02_SSH=계정@주소} ;; thor-03) THOR=${THOR03_SSH:?.env.local 에 THOR03_SSH=계정@주소} ;; esac
+    case "$HOST" in thor-02) need_host ZZAIMY_THOR02_SSH; THOR=$ZZAIMY_THOR02_SSH ;; thor-03) need_host ZZAIMY_THOR03_SSH; THOR=$ZZAIMY_THOR03_SSH ;; esac
     echo "[$(date +%T)] $HOST 1/3 학습본 준비 — ~/zzaimy/models/$NAME"
     if ! ssh -p $TP "$THOR" "test -d ~/zzaimy/models/$NAME"; then
       [ -n "$FROM" ] || { echo "$HOST 에 학습본이 없고 --from 도 없습니다" >&2; exit 3; }
@@ -82,7 +84,7 @@ if [ "$KIND" = "rerank" ]; then
 else
   MODEL=/models/$NAME bash "$(dirname "$0")/103_serve_embed_on_thor.sh" $PORT >/dev/null
 fi
-ssh "$VM" "curl -s -m 5 http://${THOR03_SSH#*@}:$PORT/health" | grep -q '"ok":true' \
+ssh "$VM" "curl -s -m 5 http://${ZZAIMY_THOR03_SSH#*@}:$PORT/health" | grep -q '"ok":true' \
   || { echo "새 서비스가 응답하지 않습니다" >&2; exit 4; }
 
 if [ "$KIND" = "embed" ]; then
@@ -93,8 +95,8 @@ else
 fi
 
 echo "[$(date +%T)] 4/6 VM 설정 갱신"
-ssh "$VM" "cd ~/zzaimy-capstone && sed -i 's|^$ENV_KEY=.*|$ENV_KEY=http://${THOR03_SSH#*@}:$PORT$PATH_SUFFIX|' .env.local \
-  && grep -q '^$ENV_KEY=' .env.local || echo '$ENV_KEY=http://${THOR03_SSH#*@}:$PORT$PATH_SUFFIX' >> ~/zzaimy-capstone/.env.local"
+ssh "$VM" "cd ~/zzaimy-capstone && sed -i 's|^$ENV_KEY=.*|$ENV_KEY=http://${ZZAIMY_THOR03_SSH#*@}:$PORT$PATH_SUFFIX|' .env.local \
+  && grep -q '^$ENV_KEY=' .env.local || echo '$ENV_KEY=http://${ZZAIMY_THOR03_SSH#*@}:$PORT$PATH_SUFFIX' >> ~/zzaimy-capstone/.env.local"
 
 if [ "$KIND" = "rerank" ]; then
   echo "[$(date +%T)] 5/6 근거 하한 재측정 — 모델마다 눈금이 다르다"

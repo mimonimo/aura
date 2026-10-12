@@ -14,7 +14,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-HOST=aura@192.168.16.226
+. scripts/_hosts.sh; need_host ZZAIMY_VM_SSH; HOST=$ZZAIMY_VM_SSH   # 접속 정보는 configs/hosts.env
 BRANCH="${BRANCH:-main}"
 
 # 1) 배포는 '푸시한 커밋'만 나간다. 작업 트리에 미커밋 변경이 있어도 그건 나가지 않으므로

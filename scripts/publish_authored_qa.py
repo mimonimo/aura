@@ -5,6 +5,7 @@
 import argparse
 import json
 import subprocess
+import sys
 from pathlib import Path
 from zzaimy.dataset.authoring import validate_rows, validate_manifest
 
@@ -70,6 +71,13 @@ CONFIG = '''<View><Header value="직접 작성 문답 — 원문 대조 검수"/
 from zzaimy.dataset.authored_review import upgrade_config
 CONFIG = upgrade_config(CONFIG)
 
+def _vm_ssh() -> str:
+    """운영 VM 접속(계정@주소) — 공개 저장소에 두지 않고 환경 변수·configs/hosts.env 에서 읽는다."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+    from zzaimy import hosts
+    return hosts.require('ZZAIMY_VM_SSH')
+
+
 if __name__ == '__main__':
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('input',type=Path)
     p.add_argument('--project',default='ZZAIMY 근거 기반 문답 검수')
@@ -82,7 +90,7 @@ if __name__ == '__main__':
     manifest=json.loads(a.manifest.read_text())
     validate_manifest(manifest)
     import shlex
-    cmd='cd /home/aura/zzaimy-capstone && .venv/bin/python -c '+shlex.quote(REMOTE)
-    subprocess.run(['ssh','-o','ConnectTimeout=10','aura@192.168.16.226',cmd],
+    cmd='cd ~/zzaimy-capstone && .venv/bin/python -c '+shlex.quote(REMOTE)
+    subprocess.run(['ssh','-o','ConnectTimeout=10',_vm_ssh(),cmd],
                    input=json.dumps({'rows':rows,'config':CONFIG,'project':a.project,'manifest':manifest,
                                      'author':a.author,'dry_run':a.dry_run},ensure_ascii=False),text=True,check=True)

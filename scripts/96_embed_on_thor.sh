@@ -1,6 +1,6 @@
 #!/bin/bash
-# 서버 주소는 공개 저장소에 두지 않는다 — .env.local 에서 읽는다
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
 # 규정 조각 임베딩을 젯슨 토르 GPU 로 계산한다 — 52_embed_chunks.py 의 GPU 판.
 #
 # 왜: VM CPU 로는 조각 3,603개에 한 시간이 넘게 걸린다(측정값). 토르는 서비스 포트를
@@ -14,9 +14,11 @@
 # 사용 (맥에서 — 맥만 VM·토르 양쪽에 키가 있다):
 #   bash scripts/96_embed_on_thor.sh [--apply]      # --apply 없으면 대조까지만 하고 바꾸지 않는다
 set -euo pipefail
-VM=aura@192.168.16.226
-THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
-TP=8022
+need_host ZZAIMY_VM_SSH
+VM=$ZZAIMY_VM_SSH
+need_host ZZAIMY_THOR03_SSH
+THOR=$ZZAIMY_THOR03_SSH
+TP=$ZZAIMY_THOR_SSH_PORT
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 APPLY="${1:-}"
 MODEL="${MODEL:-/models/zzaimy-embed-v2}"   # 운영 모델(ADR-0021). 후보 모델로 색인을 만들 때만 바꾼다 — 색인과 질의 모델은 한 짝(110 이 대조)

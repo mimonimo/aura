@@ -57,7 +57,7 @@ def test_search_fetch_and_answer_with_sources(monkeypatch):
 def test_private_targets_and_sensitive_questions_are_blocked(monkeypatch):
     """사설망·루프백 주소는 받지 않고, 개인정보가 든 질문은 밖으로 보내지 않는다."""
     import pytest
-    for bad in ("http://127.0.0.1/x", "http://10.0.0.5/", "http://192.168.0.10/login", "http://169.254.169.254/latest", "http://localhost/", "ftp://example.org/"):
+    for bad in ("http://127.0.0.1/x", "http://10.0.0.5/", "http://172.16.5.10/login", "http://169.254.169.254/latest", "http://localhost/", "ftp://example.org/"):
         assert web_search._safe_url(bad) is False
     assert web_search._safe_url("http://8.8.8.8/") is True
     # 리다이렉트 목적지가 사설망이면 따라가지 않는다

@@ -6,9 +6,12 @@
 # '근거 약함' 표시가 틀어진다. 이 셋을 한 번에 확인한다.
 #
 # 사용 (맥에서):  bash scripts/110_serving_check.sh
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
 set -uo pipefail
-VM=aura@192.168.16.226
-THOR_HOST=${THOR03_SSH#*@}
+need_host ZZAIMY_VM_SSH ZZAIMY_THOR03_SSH
+VM=$ZZAIMY_VM_SSH
+THOR_HOST=${ZZAIMY_THOR03_SSH#*@}
 fail=0
 
 echo "[$(date +%T)] 1/3 토르 서비스"

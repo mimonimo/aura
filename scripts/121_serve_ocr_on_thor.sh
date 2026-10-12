@@ -1,6 +1,7 @@
 #!/bin/bash
-# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
+need_host ZZAIMY_VM_SSH
 # 문서 판독(OCR) 도전자 PaddleOCR-VL(0.9B) 을 토르 GPU 에 올린다.
 #
 # 왜: 검색·리랭킹은 GPU 에서 도는데 문서 판독은 VM CPU 라 스캔 PDF 한 건에 수 분이 걸린다
@@ -8,12 +9,13 @@
 #
 # 채택 판단은 기존 대결 스크립트로 한다(새로 만들지 않는다):
 #   기준선  scripts/68_ocr_cer_bench.py  (현행 경로, 어절 F1)
-#   도전자  scripts/69_ocr_duel.py <문서id> <쪽수> http://${THOR03_SSH#*@}:8002/v1
+#   도전자  scripts/69_ocr_duel.py <문서id> <쪽수> http://${ZZAIMY_THOR03_SSH#*@}:8002/v1
 #
 # 사용 (맥에서):  bash scripts/121_serve_ocr_on_thor.sh [포트]
 set -euo pipefail
-THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
-TP=8022
+need_host ZZAIMY_THOR03_SSH
+THOR=$ZZAIMY_THOR03_SSH
+TP=$ZZAIMY_THOR_SSH_PORT
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8002}"
 NAME="zzaimy-ocr-$PORT"
@@ -36,6 +38,6 @@ for i in $(seq 1 40); do
   fi
   sleep 15
 done
-ssh -o BatchMode=yes aura@192.168.16.226 "curl -s -m 5 http://${THOR03_SSH#*@}:$PORT/v1/models | head -c 140 || echo '닿지 않음'"
+ssh -o BatchMode=yes "$ZZAIMY_VM_SSH" "curl -s -m 5 http://${ZZAIMY_THOR03_SSH#*@}:$PORT/v1/models | head -c 140 || echo '닿지 않음'"
 echo
-echo "대결: VM 에서 env PYTHONPATH=src .venv/bin/python scripts/69_ocr_duel.py <문서id> 3 http://${THOR03_SSH#*@}:$PORT/v1"
+echo "대결: VM 에서 env PYTHONPATH=src .venv/bin/python scripts/69_ocr_duel.py <문서id> 3 http://${ZZAIMY_THOR03_SSH#*@}:$PORT/v1"

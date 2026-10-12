@@ -1,6 +1,6 @@
 #!/bin/bash
-# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
 # ②ZZAIMY-Rerank 베이스라인 — 계획서 장비 구성대로 GPU 에서 잰다.
 #
 # 왜 이 스크립트인가: 리랭커(bge-reranker-v2-m3)를 VM CPU 에서 재면 질의당 3.75초라
@@ -13,9 +13,11 @@
 #   예) bash scripts/101_rerank_eval_on_thor.sh "" 150
 #       bash scripts/101_rerank_eval_on_thor.sh data/interim/synth_queries_paraphrase.jsonl 150
 set -euo pipefail
-VM=aura@192.168.16.226
-THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
-TP=8022
+need_host ZZAIMY_VM_SSH
+VM=$ZZAIMY_VM_SSH
+need_host ZZAIMY_THOR03_SSH
+THOR=$ZZAIMY_THOR03_SSH
+TP=$ZZAIMY_THOR_SSH_PORT
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 MODEL="${MODEL:-/models/bge-reranker-v2-m3}"
 QUERIES="${1:-}"

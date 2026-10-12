@@ -1,6 +1,6 @@
 #!/bin/bash
-# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
 # KURE-v2(다중 벡터, ColBERT 계열) 색인을 토르 03 GPU 로 만든다 — ADR-0022 의 "바꾼다면" 조건을 재기 위한 준비.
 #
 # 왜 별도 색인인가: 지금 운영 색인(96)은 조각당 벡터 하나(1024차원)를 코사인으로 견준다. KURE-v2 는 조각의
@@ -15,13 +15,15 @@
 # 사용 (맥에서):  bash scripts/128_kure2_index_on_thor.sh
 # 산출: 토르 ~/zzaimy/index/kure2/{tokens.npy(fp16 [N,L,128]), lens.npy, ids.npy, meta.json}
 set -euo pipefail
-VM=aura@192.168.16.226
-THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
-TP=8022
+need_host ZZAIMY_VM_SSH
+VM=$ZZAIMY_VM_SSH
+need_host ZZAIMY_THOR03_SSH
+THOR=$ZZAIMY_THOR03_SSH
+TP=$ZZAIMY_THOR_SSH_PORT
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 MODEL="${MODEL:-/models/KURE-v2}"
 DOC_LEN="${DOC_LEN:-1024}"          # 조각은 1200자 안팎이라 8192 까지 갈 일이 없다 — 색인 크기를 위해 상한
-OUT=/home/thor-03/zzaimy/index/kure2
+OUT='$HOME/zzaimy/index/kure2'  # 서버 쪽 셸이 풀어 쓴다
 WORK=/tmp/zz-kure2-$(date +%Y%m%d-%H%M%S)
 
 echo "[$(date +%T)] 1/3 VM 에서 조각 글 내보내기 (96 과 같은 구성)"

@@ -1,6 +1,6 @@
 #!/bin/bash
-# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
 # ①ZZAIMY-Embed v2 — 오답을 '운영 하이브리드가 실제로 올린 후보'에서 뽑아 다시 학습한다.
 #
 # v1 에서 확인한 것: 조밀 검색 단독 홀드아웃은 올랐는데(R@5 0.722→0.811)
@@ -12,9 +12,11 @@
 # 자료는 104 가 쓰는 것과 같은 내보내기(질의·정답·하이브리드 후보)를 재사용한다.
 # 사용 (맥에서):  bash scripts/108_train_embed_v2_on_thor.sh [에폭수]
 set -euo pipefail
-VM=aura@192.168.16.226
-THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
-TP=8022
+need_host ZZAIMY_VM_SSH
+VM=$ZZAIMY_VM_SSH
+need_host ZZAIMY_THOR03_SSH
+THOR=$ZZAIMY_THOR03_SSH
+TP=$ZZAIMY_THOR_SSH_PORT
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 EPOCHS="${1:-2}"
 STAMP=$(date +%Y%m%d-%H%M%S)

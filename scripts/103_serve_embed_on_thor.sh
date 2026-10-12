@@ -1,6 +1,7 @@
 #!/bin/bash
-# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
+need_host ZZAIMY_VM_SSH
 # ①ZZAIMY-Embed 질의 임베딩 서빙 — 검색 때마다 도는 임베딩을 토르 GPU 로 옮긴다.
 #
 # 왜: 조각 벡터는 배치로 미리 만들어 두지만(96), 질의 벡터는 검색마다 새로 만든다.
@@ -11,8 +12,9 @@
 #
 # 사용 (맥에서):  bash scripts/103_serve_embed_on_thor.sh [포트]
 set -euo pipefail
-THOR=${THOR03_SSH:?.env.local 의 THOR03_SSH}
-TP=8022
+need_host ZZAIMY_THOR03_SSH
+THOR=$ZZAIMY_THOR03_SSH
+TP=$ZZAIMY_THOR_SSH_PORT
 IMAGE=ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor
 PORT="${1:-8014}"
 NAME="zzaimy-embed-$PORT"      # 포트를 붙인다 — 102 와 같은 이유
@@ -74,14 +76,14 @@ for i in $(seq 1 40); do
   sleep 5
 done
 echo "[$(date +%T)] VM 에서 벡터 공간 대조 — 같은 글을 VM CPU 와 토르에서 임베딩해 코사인을 본다"
-ssh -o BatchMode=yes aura@192.168.16.226 "cd ~/zzaimy-capstone && env PYTHONPATH=src PORT=$PORT .venv/bin/python - <<'PY'
+ssh -o BatchMode=yes "$ZZAIMY_VM_SSH" "cd ~/zzaimy-capstone && env PYTHONPATH=src PORT=$PORT .venv/bin/python - <<'PY'
 import json, os, urllib.request
 import numpy as np
 from zzaimy.app import embed_search
 
 texts = ['산학협력단 업무분장', '연구비 정산 절차는 어떻게 되나요', '지방대학 특성화 사업 신청 자격']
 local = embed_search.embed_texts(texts)
-req = urllib.request.Request(f\"http://${THOR03_SSH#*@}:{os.environ['PORT']}/embed\",
+req = urllib.request.Request(f\"http://${ZZAIMY_THOR03_SSH#*@}:{os.environ['PORT']}/embed\",
                              data=json.dumps({'texts': texts}).encode(),
                              headers={'Content-Type': 'application/json'})
 remote = np.array(json.load(urllib.request.urlopen(req, timeout=30))['vectors'])
@@ -92,4 +94,4 @@ else:
     print('코사인', [round(c, 5) for c in cos], '→ 최소', round(min(cos), 5))
 PY"
 echo
-echo "VM 적용: .env.local 에 ZZAIMY_EMBED_URL=http://${THOR03_SSH#*@}:$PORT/embed 를 넣고 서비스를 재시작하십시오."
+echo "VM 적용: .env.local 에 ZZAIMY_EMBED_URL=http://${ZZAIMY_THOR03_SSH#*@}:$PORT/embed 를 넣고 서비스를 재시작하십시오."

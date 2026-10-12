@@ -10,15 +10,16 @@
 #   HOST=thor-03 MODEL=/models/Qwen3.8-27B-NVFP4 PORT=8001 bash scripts/126_serve_writer.sh
 #   HOST=thor-02 MODEL=/models/Qwen3.8-27B       PORT=8001 bash scripts/126_serve_writer.sh   # 지금 판(117 과 같음)
 set -euo pipefail
-# 서버 주소는 저장소에 두지 않고 .env.local 에서 읽는다.
-[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+# 장비 접속 정보는 저장소에 두지 않는다 — scripts/_hosts.sh 가 configs/hosts.env·.env.local 에서 읽는다.
+. "$(dirname "$0")/_hosts.sh"
+need_host ZZAIMY_VM_SSH
 HOST="${HOST:-thor-02}"
 case "$HOST" in
-  thor-02) THOR=${THOR02_SSH:?.env.local 에 THOR02_SSH=계정@주소}; IP=${THOR02_SSH#*@} ;;
-  thor-03) THOR=${THOR03_SSH:?.env.local 에 THOR03_SSH=계정@주소}; IP=${THOR03_SSH#*@} ;;
+  thor-02) need_host ZZAIMY_THOR02_SSH; THOR=$ZZAIMY_THOR02_SSH; IP=${ZZAIMY_THOR02_SSH#*@} ;;
+  thor-03) need_host ZZAIMY_THOR03_SSH; THOR=$ZZAIMY_THOR03_SSH; IP=${ZZAIMY_THOR03_SSH#*@} ;;
   *) echo "HOST 는 thor-02 또는 thor-03" >&2; exit 2 ;;
 esac
-TP=8022
+TP=$ZZAIMY_THOR_SSH_PORT
 IMAGE="${IMAGE:-ghcr.io/nvidia-ai-iot/vllm:gemma4-jetson-thor}"   # Qwen3.8 전용 빌드: qwen3.8-next-jetson-thor-latest
 PORT="${PORT:-8001}"
 MODEL="${MODEL:-/models/Qwen3.8-27B}"
@@ -60,7 +61,7 @@ for i in $(seq 1 80); do
   sleep 15
 done
 echo "[$(date +%T)] 속도 실측 (요청 1개)"
-ssh -o BatchMode=yes aura@192.168.16.226 "curl -s -m 600 http://$IP:$PORT/v1/chat/completions -H 'Content-Type: application/json' \
+ssh -o BatchMode=yes "$ZZAIMY_VM_SSH" "curl -s -m 600 http://$IP:$PORT/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{\"model\":\"$SERVED\",\"max_tokens\":300,\"temperature\":0,\"chat_template_kwargs\":{\"enable_thinking\":false},\"messages\":[{\"role\":\"user\",\"content\":\"대학 국고사업 계획서의 추진 체계 절을 300자 안팎으로 써라.\"}]}' \
   -w '\n%{time_total}' | python3 -c \"
 import sys, json
