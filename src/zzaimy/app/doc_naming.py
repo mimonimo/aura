@@ -649,7 +649,8 @@ def choose_name(original: str, text: str = "", meta: dict | None = None,
     if subj:
         subj = drop_person(subj, text) or None
     # 공문 제목은 서류 갈래 낱말 없이도('… 확인 협조') 그 문서의 이름이다 — 나머지 모양 관문은 그대로
-    if subj and shape_problem(subj) in (None, "서류 낱말 없음") and (poor_name(fname) or body_beats_file(subj, fname, (meta or {}).get("programs") or ())):
+    if subj and shape_problem(subj) in (None, "서류 낱말 없음") and not (prefer_file and not poor_name(fname)) \
+            and (poor_name(fname) or body_beats_file(subj, fname, (meta or {}).get("programs") or ())):
         return {"name": subj, "title": subj, "date": date, "source": "body"}
     if title:
         title = drop_person(title, text) or None           # 본문 제목에도 사람 이름은 싣지 않는다

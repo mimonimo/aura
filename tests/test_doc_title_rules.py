@@ -684,3 +684,11 @@ def test_memo_subject_needs_recipient_field():
 
     assert memo_subject("제목 없는 문서 작성 안내\n\n본문") is None
     assert memo_subject("회의 자료\n제목: 다음 회의 일정\n수신자 전 직원") is None
+
+
+def test_memo_subject_yields_to_file_name_on_collision():
+    from zzaimy.app.doc_naming import choose_name
+
+    letter = "가나대학교\n\n수신자 내부결재\n\n제목 2026학년도 학생 정원조정 결과 보고\n\n1. 관련"
+    got = choose_name("01_정원조정 결과 보고(2026)_다라학부 정원 증원.pdf", letter, {}, prefer_file=True)
+    assert got["source"] == "file" and "다라학부" in got["name"]
