@@ -29,3 +29,11 @@ def test_remember_routes_institution_keys_and_project_facts(tmp_path):
     assert db.get_setting("institution:총장", "") == "홍길동"
     asks.add_pending(db, 3, [{"name": "사업단명", "hint": "h"}]); asks.add_pending(db, 3, [{"name": "사업단명", "hint": "h"}, {"name": "예산", "hint": ""}])
     assert [a["name"] for a in asks.pending(db, 3)] == ["사업단명", "예산"]
+
+
+def test_form_shows_latest_asks_and_counts_the_rest():
+    from zzaimy.app import asks as a
+    names = [{"name": f"값{i}", "hint": ""} for i in range(9)]
+    opt = a.form_option(names)
+    assert [f["name"] for f in opt["fields"]] == [f"값{i}" for i in range(3, 9)]   # 방금 물은 값이 칸에
+    assert opt["more"] == 3 and "값8: (값)" in opt["question"]

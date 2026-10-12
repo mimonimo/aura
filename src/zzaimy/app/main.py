@@ -2142,7 +2142,7 @@ def create_app(
         if new_:
             older = len(pend) - len(new_)
             parts_.append("이번 절에서 자료에 없어 비워 둔 값 — " + ", ".join(f"{a['name']}({a['hint']})" if a.get("hint") else a["name"] for a in new_[:6])
-                          + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다." + (f" (앞 절에서 모은 빈 값 {older}개도 「필요한 값 입력」에 있습니다)" if older else ""))
+                          + ". 알려 주시면 기억해 두고 이후 작성에 넣습니다." + (f" (앞 절에서 모은 빈 값 {older}개는 「필요한 값 입력」에서 이어서 받습니다)" if older else ""))
         elif pend:
             parts_.append(f"아직 비어 있는 값 {len(pend)}개는 「필요한 값 입력」에서 채울 수 있습니다.")
         text = "\n\n".join(parts_)

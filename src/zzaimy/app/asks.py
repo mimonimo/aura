@@ -202,13 +202,16 @@ def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
     자료에서 찾은 확인 전 값(suggested)은 칸에 미리 채우고 출처를 알린다 — 담당자가 고치거나 그대로 「확인」."""
     suggested = suggested or {}
     fields = []
-    for a in asks[:6]:
+    # 칸은 여섯 개까지 — 가장 최근에 모은 값부터(방금 답이 물은 값이 칸에 있어야 답과 칸이 맞는다). 앞 절에서 모은 나머지는
+    # 이 칸을 채우거나 기억하면 다음 차례에 나온다
+    shown = asks[-6:]
+    for a in shown:
         s = suggested.get(a["name"]) or {}
         hint = (f"자료에서 찾음 · 확인 전 — 《{s.get('title', '')}》" if s.get("value") else a.get("hint") or "")
         fields.append({"name": a["name"], "label": a["name"], "placeholder": hint, "required": False, "value": s.get("value") or ""})
-    return {"kind": "form", "text": "필요한 값 입력", "fields": fields,
-            "template": "; ".join(f"{a['name']}: {{{a['name']}}}" for a in asks[:6]),
-            "question": "; ".join(f"{a['name']}: (값)" for a in asks[:6]),
+    return {"kind": "form", "text": "필요한 값 입력", "fields": fields, "more": len(asks) - len(shown),
+            "template": "; ".join(f"{a['name']}: {{{a['name']}}}" for a in shown),
+            "question": "; ".join(f"{a['name']}: (값)" for a in shown),
             "submit": "확인" if any(f["value"] for f in fields) else "저장"}
 
 def parse_pairs(text: str, names: list[str]) -> dict:

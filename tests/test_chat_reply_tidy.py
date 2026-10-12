@@ -76,13 +76,13 @@ def test_value_form_is_reshown_from_pending_asks_with_jump(tmp_path):
         {'가상 사업단명': {'value': '가상 미래교육 사업단', 'title': '가상 공고 제2099-1호'}}, ensure_ascii=False))
     page = client.get(f'/chat/{sid}').text
     form = page.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
-    assert 'value="가상 미래교육 사업단"' in form
+    assert '>가상 미래교육 사업단</textarea>' in form
     assert '자료에서 찾음 · 확인 전 — 《가상 공고 제2099-1호》' in form
     assert '>확인</button>' in form
     # 저장된 옛 칸(값 없음)이 있어도 지금 값으로 다시 만든 칸 하나만
     db.set_setting(f'chat_options:{sid}', json.dumps([asks.form_option([{'name': '가상 사업단명', 'hint': ''}])], ensure_ascii=False))
     page = client.get(f'/chat/{sid}').text
-    assert page.count('id="chatValueForm"') == 1 and 'value="가상 미래교육 사업단"' in page
+    assert page.count('id="chatValueForm"') == 1 and '>가상 미래교육 사업단</textarea>' in page
     # 받을 값이 없으면 칸도 이동 단추도 없다
     asks.set_pending(db, sid, [])
     page = client.get(f'/chat/{sid}').text
