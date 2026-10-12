@@ -56,3 +56,18 @@ def test_endpoint_scopes_results_and_disables_cache(tmp_path):
     assert result.status_code == 200
     assert len(result.json()['projects']) == 1
     assert result.headers['cache-control'] == 'no-store'
+
+
+def test_search_also_finds_by_document_and_chat_titles(tmp_path):
+    db = make_db(tmp_path)
+    pid = db.create_project('grant', '가나', owner='owner')
+    db.add_document('2099년 다라 부트캠프 사업 계획', str(tmp_path / 'a.pdf'), doc_type='grant', project_id=pid, owner='owner')
+    other = db.create_project('grant', '마바', owner='owner')
+    db.create_chat_session('사아 공고 검토', project_id=other, owner='owner')
+    named = db.create_project('grant', '부트캠프 준비', owner='owner')
+    got = search(db, 'owner', '부트캠프')['projects']
+    assert [p['id'] for p in got] == [named, pid]                 # 이름에서 찾은 것이 먼저
+    assert got[1]['matched'] == 'document' and got[0]['matched'] == 'name'
+    assert search(db, 'owner', '사아 공고')['projects'][0]['matched'] == 'chat'
+    db.add_document('남의 부트캠프', str(tmp_path / 'b.pdf'), doc_type='grant', project_id=pid, owner='other')
+    assert len(search(db, 'other', '부트캠프')['projects']) == 0    # 남의 프로젝트는 문서가 있어도 안 보인다
