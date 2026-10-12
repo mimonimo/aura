@@ -37,7 +37,15 @@ def is_active(href: str, path: str, train_tab: str) -> bool:
     return path == href
 
 
+def in_developer_space(path: str, role: str) -> bool:
+    """개발 사이드바를 보일 화면인가 — 개발자 역할이고, /dev 아래이거나 개발 메뉴에 올린 다른 주소(그래프 탐색 등)."""
+    if role != "dev":
+        return False
+    return path.startswith("/dev") or path in {href.split("?", 1)[0] for href in NAMES}
+
+
 def install(env) -> None:
+    env.globals["dev_space"] = in_developer_space
     env.globals["dev_page_name"] = page_name
     env.globals["dev_nav_groups"] = GROUPS
     env.globals["dev_nav_active"] = is_active

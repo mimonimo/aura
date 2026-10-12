@@ -461,6 +461,7 @@ def create_app(
     # 사용자 관리·사용자별 구글 계정 연결(/dev/users, /account/google) — 계정 표와 저장 함수를 라우터에 넘긴다
     from zzaimy.app.user_admin import router as user_admin_router
     app.state.accounts = accounts
+    app.state.data_dir = Path(db_path).parent      # 부서 목록(user_admin.known_depts)이 RAG 공간 설정을 읽는 자리
     app.state.save_accounts = _save_accounts
     app.state.set_pw = _set_pw
     app.state.new_account = _new_account
@@ -7183,6 +7184,24 @@ def create_app(
             r for r in (db.referencing_documents(doc_id) if doc["doc_type"] == "regulation" else [])
             if r.get("related_criteria_id") == doc_id or criteria_link_evidence(db, r, doc_id)
         ]
+        from zzaimy.app import doc_origin
+
+        # 돌아갈 곳 — 진행 중 프로젝트 › 들어온 곳(from= · Referer) › 보관 묶음 · 기준 문서 · 라이브러리
+        back = doc_origin.back_link(
+            doc, db.get_project(int(doc["project_id"])) if doc.get("project_id") else None,
+            request.query_params.get("from", ""), request.headers.get("referer", ""), request.url.netloc,
+        )
+        dgx_rel = (doc.get("stored_path") or "")[6:] if (doc.get("stored_path") or "").startswith("dgx://") else ""
+        origin_place = None
+        if dgx_rel:
+            from zzaimy.app import archive as _archive
+
+            _archive.ensure(db)
+            with db._conn() as conn:
+                row = conn.execute("SELECT program, program_name, year FROM archive_files WHERE rel = ?",
+                                   (dgx_rel,)).fetchone()
+            origin_place = doc_origin.archive_location(
+                dgx_rel, dict(zip(("program", "program_name", "year"), row)) if row else None)
         return templates.TemplateResponse(
             request,
             "doc.html",
@@ -7200,7 +7219,7 @@ def create_app(
                 "original_kind": original_kind,
                 "original_ext": storage.original_ext(doc),
                 # DGX 원본 보관소 문서(가벼운 처리) — 원본은 DGX 에 있고 글·조각만 여기에(ADR-0047)
-                "dgx_origin": (doc.get("stored_path") or "")[6:] if (doc.get("stored_path") or "").startswith("dgx://") else "",
+                "dgx_origin": dgx_rel, "origin_place": origin_place, "back": back,
                 "suggested_criteria": suggested,
                 "referencing": referencing,
                 "identity": db.get_doc_identity(doc_id),

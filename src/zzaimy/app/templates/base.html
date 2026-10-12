@@ -464,7 +464,7 @@ document.addEventListener('submit', function(event) {
   </a>
   <p class="sidebar-service-name">AURA</p>
   </div>
-  {% set developer_space = request.url.path.startswith('/dev') and request.state.role == 'dev' %}
+  {% set developer_space = dev_space(request.url.path, request.state.role) %}
   {% if developer_space %}
     {% include "_developer_sidebar.html" %}
   {% else %}

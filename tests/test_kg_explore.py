@@ -84,3 +84,28 @@ def test_ontology_downloads(tmp_path):
     assert owl.status_code == 200 and "owl:Ontology" in owl.text and "z:Program" in owl.text
     assert "sh:NodeShape" in c.get("/graph/explore/shapes.ttl").text
     assert c.get("/graph/explore/schema").json()["shacl"] is None          # 아직 검사 전
+
+
+def test_default_program_is_the_one_with_most_docs():
+    progs = [{"id": "program_group:G", "type": "program_group", "n_docs": 90},
+             {"id": "program:A", "type": "program", "n_docs": 3}, {"id": "program:B", "type": "program", "n_docs": 12}]
+    assert kg_explore.default_program(progs) == "program:B"                  # 묶음이 더 커도 사업 하나
+    assert kg_explore.default_program(progs[:1]) == "program_group:G"
+    assert kg_explore.default_program([]) == ""
+
+
+def test_explore_opens_default_program_and_keeps_dev_sidebar(tmp_path):
+    from tests.test_accounts import _app, _login
+
+    app = _app(tmp_path)
+    kg_explore._cache.clear()
+    pub, _sec = _graph(app.state.db)
+    c = TestClient(app)
+    assert _login(c, "zzdev", "devpass")
+    page = c.get("/graph/explore").text
+    assert 'data-focus="program:P"' in page                                 # 처음 열면 문서가 가장 많은 사업
+    assert "업무 화면으로" in page and "진행 중 프로젝트 찾기" not in page     # 개발 메뉴의 화면은 개발 사이드바
+    assert 'data-focus="doc:' + str(pub) + '"' in c.get("/graph/explore", params={"id": f"doc:{pub}"}).text
+    staff = TestClient(app)
+    assert _login(staff, "zzaimy", "boot-pass-1")
+    assert "진행 중 프로젝트 찾기" in staff.get("/graph/explore").text          # 개발자가 아니면 업무 사이드바

@@ -6,11 +6,26 @@
   <script src="/static/document-workspace.js?v={{ asset_v }}" defer></script>
 {% endblock %}
 {% block content %}
-{% if dgx_origin %}
-<div class="card"><div class="card-in" style="font-size:12.5px;">
-  원본 보관소 문서 · 원본 파일은 원본 보관소에 있고 여기에는 본문만 있습니다. 원본 위치: <span class="muted" style="word-break:break-all;">{{ dgx_origin }}</span>
-  · <a href="/archive?q={{ dgx_origin.split('/')[-1] | urlencode }}">원본 보관소에서 보기</a>
-</div></div>
+{% if dgx_origin and origin_place %}
+<div class="doc-origin" title="{{ origin_place.path }}">
+  <iconify-icon icon="solar:archive-linear" aria-hidden="true"></iconify-icon>
+  <span class="doc-origin-place">{{ origin_place.label }}</span>
+  <a href="{{ origin_place.href }}">원본 보관소에서 보기</a>
+  <button type="button" class="doc-origin-copy" data-copy="{{ origin_place.path }}" title="전체 경로 복사: {{ origin_place.path }}" aria-label="원본 전체 경로 복사">경로 복사</button>
+</div>
+<script>
+(function () {
+  var b = document.querySelector(".doc-origin-copy");
+  if (!b) return;
+  b.addEventListener("click", function () {
+    var text = b.getAttribute("data-copy") || "";
+    function done(ok) { b.textContent = ok ? "복사됨" : "복사 실패"; setTimeout(function () { b.textContent = "경로 복사"; }, 1600); }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+    } else { done(false); }
+  });
+})();
+</script>
 {% endif %}
 {% macro program_meta(show_action=true) %}
   {# 사업 정보 — 따로 칸을 두지 않고 문서 이름 아래 한 줄로. 본문에서 확인된 값만 #}
@@ -80,8 +95,7 @@
     });
   });
 </script>
-<p><a href="{{ '/project/' ~ doc.project_id if doc.project_id else ('/criteria' if doc.doc_type == 'regulation' else '/?type=all') }}" class="btn-ghost">
-  ← {{ "프로젝트로 돌아가기" if doc.project_id else ("기준 문서로" if doc.doc_type == "regulation" else "라이브러리로") }}</a></p>
+<p><a href="{{ back.href }}" class="btn-ghost"{% if back.title %} title="{{ back.title }}"{% endif %}>← {{ back.label }}</a></p>
 
 <div class="card reveal">
   <div class="card-in">
@@ -113,10 +127,10 @@
       <span class="muted">접수번호 {{ receipt_label(doc.receipt_no) or '미지정' }} · 등록 {{ doc.created_at[:16].replace("T", " ") }}</span>
     </div>
     {# 문서 동작 — 같은 동작은 이 줄에만 둔다 #}
-    <div class="doc-actions" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
+    <div class="doc-actions control-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
       <a class="btn secondary" href="/doc/{{ doc.id }}/original" target="_blank" rel="noopener" title="브라우저에서 원본을 봅니다. 한글·워드·엑셀·PPT는 PDF로 바꿔 보여 줍니다.">
         <iconify-icon icon="solar:document-text-linear"></iconify-icon>원본 열기</a>
-      <a class="btn-ghost" href="/doc/{{ doc.id }}/original/download" title="원본 파일을 그대로 내려받습니다.">
+      <a class="btn secondary" href="/doc/{{ doc.id }}/original/download" title="원본 파일을 그대로 내려받습니다.">
         <iconify-icon icon="solar:file-download-linear"></iconify-icon>내려받기</a>
       <a class="btn secondary" href="/doc/{{ doc.id }}/view" target="_blank" rel="noopener" title="엑셀·PPT·워드는 구글 시트·슬라이드·문서로, 한글 파일은 구글 문서로 바꿔 엽니다. PDF·그림은 드라이브 미리보기로 엽니다. 구글에서 고친 내용은 이 화면의 본문에 반영되지 않습니다.">
         <iconify-icon icon="solar:square-top-up-linear"></iconify-icon>구글에서 열기</a>
@@ -124,7 +138,7 @@
       <a class="btn secondary" href="/graph/explore?id=doc:{{ doc.id }}" title="이 문서와 이어진 사업·문서를 봅니다">
         <iconify-icon icon="solar:graph-new-linear"></iconify-icon>관계 보기</a>
       {% endif %}
-      <button type="button" class="btn-ghost" data-modal-open="#documentManageModal" style="margin-left:auto;">관리</button>
+      <button type="button" class="secondary" data-modal-open="#documentManageModal" style="margin-left:auto;">관리</button>
     </div>
     {% if request.query_params.get('err') in ('receipt', 'receipt_dup') %}
     <p class="notice" role="alert">{{ '이미 사용하는 접수번호입니다.' if request.query_params.get('err') == 'receipt_dup' else '접수번호 형식을 확인해 주세요. 예: 2026-국고-0004' }} <button type="button" class="btn-ghost" data-modal-open="#receiptEditModal">다시 수정</button></p>

@@ -69,6 +69,24 @@ def user_status(db, uid: str, dept: str | None) -> dict:
             "domain": gdrive.allowed_domain(), "app_ready": gdrive.configured()}
 
 
+def known_depts(db, accounts: dict, data_dir=None) -> list[str]:
+    """알려진 부서 — 계정에 지정된 부서, 부서 공용 계정·저장 위치를 정한 부서, RAG 공간 설정(원본 폴더 담당 부서
+    dept_of_area · 공간의 depts · 계정별 추가 권한 dept:<부서>). 사용자 편집·RAG 공간 화면이 같은 목록을 쓴다.
+    「공통」은 문서 쪽 꼬리표(부서 없는 사업 문서)라 사용자 부서가 아니다 — 부서를 정하지 않으면 교직원 전체다."""
+    from zzaimy.app import rag_spaces
+
+    names = {str(a.get("dept") or "").strip() for a in (accounts or {}).values()}
+    names |= {k.split(":", 1)[1] for k, v in (db.all_settings() if db is not None else {}).items()
+              if k.startswith(("google_account_dept:", "google_root:")) and (v or "").strip()}
+    cfg = rag_spaces.config(data_dir)
+    names |= {str(v).strip() for v in (cfg.get("dept_of_area") or {}).values()}
+    for sp in cfg.get("spaces") or []:
+        names |= {str(d).strip() for d in sp.get("depts") or []}
+    for granted in (cfg.get("grants") or {}).values():
+        names |= {str(sid)[5:].strip() for sid in granted or [] if str(sid).startswith("dept:")}
+    return sorted(n for n in names if n and n != "공통")
+
+
 def overview(db, accounts: dict) -> dict:
     conn = connected_emails()
     users = []
@@ -150,6 +168,7 @@ def dev_users(request: Request, ok: str = "", err: str = ""):
     st = request.app.state
     data = overview(st.db, _accounts(request))
     data["me"] = _user(request)
+    data["dept_choices"] = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None))
     return st.templates.TemplateResponse(request, "dev_users.html", st.page_ctx(request, {**data, "ok": ok, "err": err}))
 
 
@@ -189,6 +208,9 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
     others_dev = [u for u, a in accounts.items() if u != uid and a.get("role") == "dev" and a.get("active", True)]
     if not others_dev and (role != "dev" or not on):
         return _back("사용 중인 관리자 계정이 하나는 남아 있어야 합니다", ok=False)
+    dept = dept.strip()
+    if dept and dept not in known_depts(st.db, accounts, getattr(st, "data_dir", None)):
+        return _back("부서는 목록에서 골라 주세요 — 새 부서는 「부서 공용」의 부서 추가로 먼저 만듭니다", ok=False)
     google = google.strip()
     if google:
         if google not in connected_emails():
@@ -202,7 +224,7 @@ def dev_users_save(request: Request, uid: str = Form(""), is_new: str = Form("")
         if new_pw:
             st.set_pw(accounts[uid], new_pw)
         accounts[uid]["name"] = name.strip()
-    accounts[uid].update(role=role, dept=dept.strip(), active=on, updated_at=__import__("datetime").datetime.now().isoformat(timespec="seconds"))
+    accounts[uid].update(role=role, dept=dept, active=on, updated_at=__import__("datetime").datetime.now().isoformat(timespec="seconds"))
     st.save_accounts()
     old = (st.db.get_setting(f"google_account:{uid}", "") or "").strip()
     if google != old:

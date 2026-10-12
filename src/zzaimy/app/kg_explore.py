@@ -422,11 +422,19 @@ def shapes_ttl(request: Request):
                     headers={"Content-Disposition": "attachment; filename=zzaimy-shapes.ttl"})
 
 
+def default_program(progs: list[dict]) -> str:
+    """처음 열 때 펼칠 사업 — 볼 수 있는 문서가 가장 많은 사업(사업 묶음이 아닌 사업 하나). 사업이 없으면 묶음, 둘 다 없으면 빈 값."""
+    pool = [p for p in progs if p.get("type") == "program" and p.get("n_docs")] or [p for p in progs if p.get("n_docs")]
+    return max(pool, key=lambda p: p["n_docs"])["id"] if pool else ""
+
+
 @router.get("/graph/explore", response_class=HTMLResponse)
 def explore_page(request: Request, id: str = "", q: str = ""):
     st = request.app.state
+    progs = programs(st.db, _scope(request))
     return st.templates.TemplateResponse(request, "kg_explore.html", st.page_ctx(request, {
-        "focus": id, "q": q, "programs": programs(st.db, _scope(request)), "type_ko": TYPE_KO}))
+        "focus": id, "q": q, "programs": progs, "type_ko": TYPE_KO,
+        "default_focus": "" if (id or q) else default_program(progs)}))
 
 
 @router.get("/graph/explore/neighbors")

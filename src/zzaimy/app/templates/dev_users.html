@@ -44,6 +44,16 @@
   #userEdit .ua-options { border-top:1px solid var(--line); padding-top:16px; }
   #userPasswordFields { margin-top:16px; }
   #userEdit .ua-options label.check { margin-top:18px; }
+  /* 사용 중지 토글 — 라벨 전체가 누름 영역, 스페이스로 켜고 끈다 */
+  #userEdit .ua-options label.ua-switch { flex-direction:row; align-items:center; gap:12px; margin-top:18px; padding:10px 12px; min-height:44px; box-sizing:border-box;
+    border:1px solid var(--line); border-radius:10px; font-size:14px; font-weight:600; color:var(--ink); cursor:pointer; position:relative; }
+  #userEdit .ua-switch input { position:absolute; opacity:0; width:1px; height:1px; margin:0; }
+  #userEdit .ua-switch-track { flex:none; position:relative; width:42px; height:24px; border-radius:999px; background:#CBD5E1; transition:background .15s ease; }
+  #userEdit .ua-switch-track::after { content:""; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.2); transition:transform .15s ease; }
+  #userEdit .ua-switch input:checked + .ua-switch-track { background:var(--red, #C0392B); }
+  #userEdit .ua-switch input:checked + .ua-switch-track::after { transform:translateX(18px); }
+  #userEdit .ua-switch input:focus-visible + .ua-switch-track { outline:2px solid #607C9E; outline-offset:2px; }
+  #userEdit .ua-switch:hover { background:var(--panel); }
   #userEdit .ua-footer { flex:none; display:flex; justify-content:flex-end; gap:8px; padding:16px 24px; border-top:1px solid var(--line); background:var(--bg); }
   #userEdit .ua-footer button { min-height:40px; border-radius:8px; padding:8px 18px; }
   #userEdit [hidden] { display:none !important; }
@@ -138,7 +148,8 @@
       </div>
       <div class="row">
         <label>역할<select name="role">{% for k, v in roles.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
-        <label>부서<input type="text" name="dept" list="uaDepts" autocomplete="off" placeholder="비우면 전체"></label>
+        <label>부서<select name="dept"><option value="">정하지 않음(교직원 전체)</option>
+          {% for d in dept_choices %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select></label>
       </div>
       <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
       <label>본인 구글 계정<select name="google"><option value="">본인 연결 없음</option>
@@ -154,7 +165,7 @@
         <p class="ua-hint">비워두면 기존 비밀번호를 유지합니다.</p>
         </div>
       <div data-account-status hidden>
-        <label class="check"><input type="checkbox" name="suspended" aria-describedby="accountStatusHelp">계정 사용 중지</label>
+        <label class="ua-switch"><input type="checkbox" name="suspended" role="switch" aria-describedby="accountStatusHelp"><span class="ua-switch-track" aria-hidden="true"></span><span>계정 사용 중지</span></label>
         <p class="ua-hint" id="accountStatusHelp">선택 후 저장하면 로그인이 차단됩니다. 계정과 기존 자료는 삭제되지 않습니다.</p>
       </div>
       </section>
@@ -219,7 +230,15 @@
         f.role.add(legacy);
       }
       f.role.value = role;
-      f.dept.value = isNew ? '' : (btn.dataset.dept || '');
+      // 부서는 알려진 부서 목록(user_admin.known_depts)에서만 고른다 — 목록에 없는 값이 오면 지금 값으로 보이게만 한다
+      f.dept.querySelectorAll('[data-legacy-dept]').forEach(function (option) { option.remove(); });
+      var dept = isNew ? '' : (btn.dataset.dept || '');
+      if (dept && !Array.from(f.dept.options).some(function (option) { return option.value === dept; })) {
+        var oldDept = new Option(dept + ' (목록에 없음)', dept);
+        oldDept.dataset.legacyDept = '1';
+        f.dept.add(oldDept);
+      }
+      f.dept.value = dept;
       f.google.value = isNew ? '' : (btn.dataset.google || '');
       // 본인 연결이 없어도 부서 공용·공용 계정으로 문서를 쓰는 사용자 — 표의 「문서 작업 계정」과 같은 말을 창에서도 한다
       var eff = document.querySelector('#userEdit [data-effective-hint]');

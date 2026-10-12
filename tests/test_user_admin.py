@@ -112,6 +112,8 @@ const initial = {appendChild(){}};
 const passwordToggle = {addEventListener(k, fn){this[k]=fn;}, setAttribute(){}};
 f.role.querySelectorAll = () => [];
 f.role.options = [{value:'staff'}, {value:'head'}, {value:'dev'}];
+f.dept.querySelectorAll = () => [];
+f.dept.options = [{value:''}];
 global.document = {
  getElementById() { return options; },
  querySelector(s) { return s.includes('data-password-toggle') ? passwordToggle : s.endsWith(' form') ? f : s.includes('data-account-options') ? options : s.includes('data-initial-password') ? initial : s.includes('data-password-field') ? {} : s.includes('data-account-status') ? status : s.includes('data-save-user') ? save : s.includes('data-pw-label') ? pw : title; },
@@ -185,3 +187,28 @@ def test_exchange_code_rejects_other_domain(monkeypatch, tmp_path):
         gdrive.exchange_code("code", "st", "https://x/cb", http=http)
     assert any("revoke" in u for u in posts)
     assert "hd=ync.ac.kr" in gdrive.auth_url("https://x/cb")
+
+
+def test_dept_is_picked_from_known_list(tmp_path, monkeypatch):
+    """부서는 알려진 부서(계정·부서 공용 설정·RAG 공간 설정)에서만 — 목록 밖 값(오타)은 서버가 거절한다."""
+    from zzaimy.app.user_admin import known_depts
+
+    _fake_google(monkeypatch)
+    c = _dev(tmp_path)
+    db = c.app.state.db
+    db.set_setting("google_root:가상 기획처", "0AbCdEfGhIjKlMnOp")
+    (tmp_path / "rag_spaces.json").write_text(json.dumps({"dept_of_area": {"폴더갑": "가상 교무처"},
+                                                         "grants": {"zzaimy": ["dept:가상 학생처"]}}), encoding="utf-8")
+    names = known_depts(db, c.app.state.accounts, tmp_path)
+    assert {"가상 기획처", "가상 교무처", "가상 학생처"} <= set(names) and "공통" not in names and "" not in names
+    page = c.get("/dev/users").text
+    assert '<select name="dept">' in page and "정하지 않음(교직원 전체)" in page and ">가상 교무처<" in page
+    assert 'role="switch"' in page and 'class="ua-switch"' in page
+
+    def save(dept):
+        r = c.post("/dev/users/save", data={"uid": "lee_ops", "is_new": "1", "role": "staff", "dept": dept,
+                                            "new_pw": "init-pass-1"}, follow_redirects=False)
+        return r.headers["location"]
+    assert "err=" in save("가상 교무쳐")                        # 오타 — 새 부서가 생기지 않는다
+    assert "ok=" in save("가상 교무처")
+    assert json.loads((tmp_path / "accounts.json").read_text())["lee_ops"]["dept"] == "가상 교무처"

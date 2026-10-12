@@ -55,7 +55,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="gx" id="gx" data-focus="{{ focus }}" data-q="{{ q }}">
+<div class="gx" id="gx" data-focus="{{ focus or default_focus }}" data-q="{{ q }}">
   <aside class="gx-rail">
     <div class="gx-find"><input type="search" id="gxQ" placeholder="사업·문서·단위과제·지표 검색" aria-label="그래프 검색" autocomplete="off"></div>
     <div class="gx-list" id="gxList">
@@ -81,7 +81,7 @@
     </div>
     <div class="gx-legend" id="gxLegend"></div>
     <div id="gxCy" aria-label="그래프"></div>
-    <p class="gx-blank" id="gxBlank">목록에서 사업을 고르거나 검색하세요. 노드를 두 번 누르면 이웃을 펼칩니다.</p>
+    <p class="gx-blank" id="gxBlank">사업을 고르거나 검색 · 노드를 두 번 누르면 이웃 펼침</p>
   </section>
 
   <aside class="gx-panel">

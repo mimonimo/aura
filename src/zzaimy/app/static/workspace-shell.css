@@ -126,3 +126,10 @@ body .modal-back input:is([type=text],[type=password],[type=url],[type=search]):
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { scroll-behavior:auto !important; animation-duration:.01ms !important; transition-duration:.01ms !important; transition-delay:0s !important; }
 }
+/* 한 줄 조작부 — 선택·입력·단추를 공용 높이 하나로(--control-h). 줄을 감싸는 요소에 control-row 를 붙인다 */
+:root { --control-h:38px; }
+.control-row :is(select, input[type=text], input[type=search], input[type=number], input[type=date], button, .btn, .btn-ghost) {
+  height:var(--control-h); min-height:var(--control-h); box-sizing:border-box; padding-top:0; padding-bottom:0;
+  line-height:1.2; font-size:13px; border-radius:8px; vertical-align:middle; }
+.control-row select { border:1px solid #CAD4E0; font-weight:500; }
+.control-row :is(button, .btn, .btn-ghost) { padding-left:14px; padding-right:14px; }

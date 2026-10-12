@@ -44,6 +44,7 @@
 
 <section class="work-start lib-head" aria-label="등록 문서">
   <h1>등록 문서</h1>
+  {# 프로젝트 만들기(/projects/bundle)의 화면 진입은 여기 하나 — 사이드바는 찾기·열기만, 프로젝트 화면은 만든 뒤의 작업 #}
   <button type="button" class="secondary" data-modal-open="#projectModal" style="padding:7px 16px; font-size:13px;">
     <iconify-icon icon="solar:add-circle-linear"></iconify-icon>프로젝트 추가</button>
 </section>
@@ -134,7 +135,7 @@
     <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{% if q %}검색 결과 {{ "{:,}".format(total_docs) }}건{% else %}{{ metric_label('documents_visible', '', '문서 ' ~ "{:,}".format(total_docs) ~ '건') }}{% endif %}
       {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
       {% if n_rows < total_docs %}<span class="muted" style="font-size:12.5px; font-weight:500;">같은 문서의 판본 {{ "{:,}".format(total_docs - n_rows) }}건은 최신본 아래에 묶음</span>{% endif %}</h2>
-    <form action="/" method="get" class="intake-toolbar lib-filters" role="search" aria-label="등록 문서 찾기" data-autosubmit>
+    <form action="/" method="get" class="intake-toolbar lib-filters control-row" role="search" aria-label="등록 문서 찾기" data-autosubmit>
       <input type="hidden" name="type" value="{{ active_tab }}">
       <select name="group" aria-label="문서 출처">
         {% for key, label in group_labels %}{% set n = group_counts.get(key, 0) %}
