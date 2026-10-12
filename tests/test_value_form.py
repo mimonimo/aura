@@ -82,3 +82,20 @@ def test_value_form_rows_have_check_hint_later_and_source(tmp_path):
     assert 'is-filled is-suggested' in form and 'data-accept-value>확인</button>' in form and 'data-edit-value>고치기</button>' in form
     assert '자료에서 찾음 · 확인 전 — 《가상 공고》' in form and 'title="협약 기간"' in form   # 설명은 원래 설명, 출처는 따로
     assert '2개 중 1개 채움' in form and 'data-form-submit>확인</button>' in form
+
+
+def test_form_values_are_remembered_directly_without_the_agent(tmp_path, monkeypatch):
+    """칸에 적어 보낸 값은 물었던 값의 대답이다 — 모델에게 해석을 맡기지 않고 그대로 기억하고 받을 값 목록에서 뺀다."""
+    client = _client(tmp_path)
+    db = client.app.state.db
+    sid = db.create_chat_session('합성 대화')
+    asks.set_pending(db, sid, _asks('가상 사업단명', '가상 책임자'))
+    r = client.post('/chat/send', data={'session_id': str(sid), 'question': '가상 사업단명: (값); 가상 책임자: (값)',
+                                        'template': '가상 사업단명: {가상 사업단명}; 가상 책임자: {가상 책임자}',
+                                        'field_가상 사업단명': '가나 사업단', 'field_가상 책임자': ''},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    assert [a['name'] for a in asks.pending(db, sid)] == ['가상 책임자']            # 채운 값만 빠진다
+    assert asks.facts(db, db.get_chat_session(sid))['가상 사업단명'] == '가나 사업단'
+    msgs = [m['content'] for m in db.list_chats(sid)]
+    assert any('가나 사업단' in m for m in msgs) and any(m.startswith('기억했습니다') for m in msgs)

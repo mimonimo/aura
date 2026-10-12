@@ -2750,6 +2750,14 @@ def create_app(
                 _asks.defer(db, session_id, later)
             vals = {k: v for k, v in (form_fields.get("values") or {}).items() if v and k not in later}
             composed = _asks.compose(form_fields.get("template") or "; ".join(f"{k}: {{{k}}}" for k in vals), vals) if vals else ""
+            asked = {a["name"] for a in _asks.pending(db, session_id)} if session_id is not None else set()
+            given = {k: v for k, v in vals.items() if k in asked}
+            if given and session_id is not None:
+                # 칸에 적어 보낸 값은 물었던 값의 대답 그 자체다 — 자유 글처럼 모델에게 해석을 맡기지 않고 그대로 기억한다
+                _owned_chat(request, session_id)
+                db.add_chat(session_id, "user", composed or "; ".join(f"{k}: {v}" for k, v in given.items()), mode="document")
+                _remember_given(session_id, given)
+                return RedirectResponse(f"/chat/{session_id}", status_code=303)
             if composed:
                 q = composed
             elif later and session_id is not None:
