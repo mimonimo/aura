@@ -98,7 +98,10 @@ _LEAD_CUT = re.compile(r"^(?:[a-z](?=[가-힣])|[가-힣]\s+(?=[가-힣A-Za-z]{2
 def clean_label(name: str) -> str:
     """보일 사업 이름의 앞 잘림을 다듬는다 — 글 속 줄바꿈 표기의 영문자, 한 글자만 남은 앞 낱말. 이미 지은 그래프 이름에도 쓴다."""
     s = " ".join((name or "").replace("\\n", " ").replace("\\t", " ").split())
-    s = re.sub(r"^[\s·ㆍ•∙\-–—*,.:;○●□■▶▷※]+", "", s)           # 앞 글머리·문장 부호(「. RISE 비전」)
+    s = re.sub(r"^[\s·ㆍ•∙\-–—*+,.:;○●□■▶▷※]+", "", s)           # 앞 글머리·문장 부호(「. RISE 비전」)
+    # 앞이 잘려 닫는 괄호부터 시작하는 조각(「) 3단계 …」), 번호 꼬리표(「01) …」), 가린 연도 자리표시(「0000년 …」)
+    s = re.sub(r"^(?:\d{1,3}\s*)?\)\s*", "", s)
+    s = re.sub(r"^0{2,4}\s*(?:학년도|년도|년)\s*", "", s)
     # 숫자가 잘려 단위만 남은 앞말(「2025학년도」의 「학년도」, 「2025년」의 「년」) — 「년」 한 글자는 아래 한 글자 규칙이 뗀다
     out = re.sub(r"^(?:학년도|년도)\s+(?=\S)", "", s)
     out = _LEAD_CUT.sub("", out).strip()
@@ -354,6 +357,34 @@ def _mentions(text: str) -> tuple[list[str], list[str], list[tuple[str, str]]]:
     return names, acrs, pairs
 
 
+RENAME_NAME_MIN = 6        # 이름 바뀜 근거로 쓰는 사업 이름 표기의 최소 글자 수(띄어쓰기 뺀 것)
+
+
+def rename_hits(title: str, keys: list[str]) -> list[str]:
+    """이름 바뀜 표기(現·재구조화·명칭 변경)가 든 제목이 부르는 사업 표기들 — build_cards 의 키(「a:약칭」「n:이름」) 가운데
+
+    - 약칭(a:)은 영문·숫자 낱말 경계에서 맞을 때만(「RIS」가 「RISE」 안에서 맞지 않게)
+    - 이름(n:)은 RENAME_NAME_MIN 자 이상이고 일반어만으로 되지 않은 것만 — 「재구조화」「인재양성」「지역혁신」 같은 낱말 키가
+      제목 글자 속에서 맞아 그 낱말을 품은 다른 사업 묶음을 끌어들이지 않게
+    - 맞은 이름이 다른 맞은 이름 속에 들어 있으면 긴 쪽만(「대학지원체계」 ⊂ 「지역혁신중심대학지원체계」)
+    특정 사업 이름이 아니라 표기의 꼴로만 고른다."""
+    flat_tp = re.sub(_FLAT, "", title or "").upper()
+    hits: dict[str, str] = {}
+    for k in keys:
+        surf = re.sub(_FLAT, "", k[2:]).upper()
+        if len(surf) < 2 or surf not in flat_tp:
+            continue
+        if k.startswith("a:"):
+            if re.search(r"[A-Z0-9]", surf) and not re.search(
+                    r"(?<![A-Z0-9])" + re.escape(surf) + r"(?![A-Z0-9])", flat_tp):
+                continue
+        elif len(surf) < RENAME_NAME_MIN or vague_name(k[2:]) or surf.count("(") != surf.count(")"):
+            continue
+        hits[k] = surf
+    names = [s for k, s in hits.items() if k.startswith("n:")]
+    return [k for k, s in hits.items() if k.startswith("a:") or not any(s != o and s in o for o in names)]
+
+
 def build_cards(docs: list[dict]) -> list[ProgramCard]:
     """문서들에서 사업 카드를 만든다. docs = [{id, filename, head, path?}] — 같은 사업의 다른 표기를 문서 속 짝으로 묶는다."""
     parent: dict[str, str] = {}
@@ -464,14 +495,15 @@ def build_cards(docs: list[dict]) -> list[ProgramCard]:
         tp = tp.split("\n")[0]                     # 파일 이름만 — 폴더 경로에는 여러 사업이 함께 나온다(「업무공유(LINC사업단)」 아래 LINC+·LINC3.0)
         if not _RENAMED.search(tp):
             continue
-        flat_tp = re.sub(_FLAT, "", tp).upper()
-        hit = []
-        for k in list(parent):
-            surf = k[2:]
-            if len(surf) >= 2 and re.sub(_FLAT, "", surf).upper() in flat_tp:
-                hit.append(k)
-        roots = {find(k) for k in hit}
-        if len(roots) >= 2:
+        # 묶음은 제 정체로 불릴 때만 센다 — 파일 이름에 자주 나오는 약칭(정체)을 가진 묶음은 그 약칭으로, 정체 약칭이 없는 묶음은
+        # 이름·약칭으로. 묶음에 섞여 든 다른 이름·약칭(본문 조각) 하나가 제목에 맞았다고 그 묶음을 이름 바뀜에 끌어들이지 않는다
+        roots = set()
+        for k in rename_hits(tp, list(parent)):
+            r = find(k)
+            own = ident.get(r, {r} & strong)
+            if not own or k in own:
+                roots.add(r)
+        if len(roots) == 2:                        # 셋 이상이면 어느 둘이 같은 사업인지 모른다 — 잇지 않는다
             ks = sorted(roots)
             for k in ks[1:]:
                 union(ks[0], k, force=True)        # 「現·재구조화·명칭 변경」이 적힌 이름 바뀜 — 정체가 달라도 같은 사업
@@ -757,14 +789,19 @@ def ledger_link(cards: list, ledger: dict) -> dict:
     # 끝의 「사업」「지원사업」은 떼고도 견준다 — 장부 「대학일자리플러스센터」 = 카드 「대학일자리플러스센터 사업」
     # 「지원사업」의 지원은 이름의 일부일 수 있다(혁신지원사업) — 끝의 「사업」만 뗀다
     core = lambda t: (lambda f: f[:-2] if f.endswith("사업") and len(f) >= 6 else f)(flat(t))
+    # 카드 id 꼬리가 영문 약칭(program:abcd30)이면 그 약칭을 표기로 가진 항목이 먼저다 — 앞 단계 사업의 긴 이름이 본문에서 섞여
+    # 들어와 더 길게 맞아도(「…(ABCD+) 육성사업」) 카드의 정체가 가리키는 항목의 주인이 된다
+    id_form = lambda t: re.sub(r"[^0-9a-z가-힣]+", "", (t or "").lower())
+    rank: dict[str, tuple[bool, int]] = {}
     for i, (_e, _s, _t, terms) in enumerate(entries):
         want = {flat(t) for t in terms} | {core(t) for t in terms}
         for c in cards:
             hit = want & ({flat(x) for x in c.surfaces()} | {core(x) for x in c.surfaces()})
             if hit:
-                ln = max(len(h) for h in hit)
-                if c.node_id not in owner or ln > owner[c.node_id][1]:
-                    owner[c.node_id] = (i, ln)
+                tail = c.node_id.split(":", 1)[-1]
+                r = (bool(_id_acr(c.node_id)) and any(id_form(t) == tail for t in terms), max(len(h) for h in hit))
+                if c.node_id not in owner or r > rank[c.node_id]:
+                    owner[c.node_id], rank[c.node_id] = (i, r[1]), r
     # 대표 카드 순서 — 표기 그대로 맞은 카드, 긴 표기, 문서에서 많이 쓰인 카드 순(합칠 때 문서 많은 원래 카드의 id 를 지킨다.
     # 「…사업」을 떼고 맞은 작은 카드가 대표가 되면 기존 문서들의 사업 id 가 바뀐다)
     size = {c.node_id: sum(getattr(c, "names", {}).values()) + sum(getattr(c, "acrs", {}).values()) for c in cards}
@@ -778,7 +815,7 @@ def ledger_link(cards: list, ledger: dict) -> dict:
     for cid, (i, ln) in owner.items():
         by_entry[i].append((cid, ln))
     for i in by_entry:
-        by_entry[i].sort(key=lambda t: (not exact.get((i, t[0])), -t[1], -size.get(t[0], 0)))
+        by_entry[i].sort(key=lambda t: (not exact.get((i, t[0])), not rank[t[0]][0], -t[1], -size.get(t[0], 0)))
     periods: dict[str, tuple[int, int | None]] = {}
     aliases: dict[str, str] = {}
     spans = []

@@ -151,18 +151,28 @@ class Programs:
         self.alias: dict[str, list[str]] = {}       # 그래프에서 온 다른 이름·약칭(거른 것)
         self.own: dict[str, set[str]] = {}         # 묶음 제 약칭 — 장부 열쇠 꼬리·제 이름 속 약칭
         self.key_acr: dict[str, set[str]] = {}     # 장부 열쇠 꼬리의 약칭(program:abcd → ABCD)
+        gids: dict[str, list[str]] = {}
+        rep_of: dict[str, str] = {}
         for g, keys in groups.items():
             gid = max(keys, key=lambda k: (names[k][1], k))
+            gids[gid], rep_of[gid] = keys, g
             self.count[gid] = sum(names[k][1] for k in keys)
             for k in keys:
                 self.by_key[k] = gid
             self.name[gid] = program_names.display_name(nodes.get(gid) or "") or g
+        self.collisions = self._settle_names(gids, rep_of, names, nodes)
+        for gid, keys in gids.items():
+            g = rep_of[gid]
+            trusted = {k: nodes[k] for k in keys if k in nodes and gid not in self.collisions}
             terms = {g, self.name[gid]}
             for k in keys:
-                terms |= {names[k][0] or "", nodes.get(k, "")}
+                terms |= {names[k][0] or "", trusted.get(k, "")}
             self.terms[gid] = sorted(t for t in terms if t)
-            self.alias[gid] = sorted({t for k in keys for t in surfaces.get(k, []) if t} - set(self.terms[gid]))
             self.key_acr[gid] = set().union(*(gp._id_acr(k) for k in keys))
+            als = {t for k in keys for t in surfaces.get(k, []) if t}
+            if gid in self.collisions:                 # 맞춘 노드가 남의 사업이었다 — 그 노드의 별칭은 버리고 열쇠 꼬리 약칭만
+                als = {t for t in als if gp._acr(t) in self.key_acr[gid]}
+            self.alias[gid] = sorted(als - set(self.terms[gid]))
             self.own[gid] = self.key_acr[gid] | {gp._acr(a) for t in self.terms[gid] for a in gp._ACR_TOKEN.findall(t)}
         # 남의 제 약칭이 든 별칭은 이 묶음을 가리키지 않는다(그래프 카드에 섞여 들어온 다른 사업 약칭)
         for gid in self.alias:
@@ -172,6 +182,36 @@ class Programs:
                 toks = {gp._acr(a) for a in gp._ACR_TOKEN.findall(t)} | ({gp._acr(t)} if gp._is_acr(t) else set())
                 return bool(toks & theirs)
             self.alias[gid] = [t for t in self.alias[gid] if not foreign(t)]
+
+    def _settle_names(self, gids: dict[str, list[str]], rep_of: dict[str, str], names: dict, nodes: dict) -> set[str]:
+        """묶음 둘이 같은 보일 이름을 갖지 않게 한다(자가 점검) — 그래프 노드 이름은 다시 지을 때 앞뒤 단계 사업 이름으로
+        바뀌거나 여러 장부 열쇠가 한 노드에 맞을 수 있다. 같은 이름(group_key)을 가진 묶음 가운데 제 장부 이름이 그 이름과
+        같은 사업(same_program)인 묶음 하나만 노드 이름을 쓰고, 나머지는 제 장부 대표 이름으로 돌린다.
+        돌려주는 것: 노드 이름을 쓰지 않게 된 묶음 열쇠들."""
+        reverted: set[str] = set()
+        for _round in range(3):
+            seen: dict[str, list[str]] = defaultdict(list)
+            for gid in gids:
+                seen[program_names.group_key(self.name[gid])].append(gid)
+            clash = [gs for gs in seen.values() if len(gs) > 1]
+            if not clash:
+                break
+            for gs in clash:
+                own = [g for g in gs if g not in reverted
+                       and any(same_program(names[k][0] or "", self.name[g]) for k in gids[g])]
+                keep = own[0] if len(own) == 1 else None
+                for g in gs:
+                    if g != keep and g not in reverted:
+                        reverted.add(g)
+                        self.name[g] = rep_of[g]
+        return reverted
+
+    def name_clashes(self) -> list[list[str]]:
+        """보일 이름이 같은 묶음들 — 비어 있어야 한다(화면 생성 때 _settle_names 가 풀고, 점검·테스트가 이것으로 확인한다)."""
+        seen: dict[str, list[str]] = defaultdict(list)
+        for gid, nm in self.name.items():
+            seen[program_names.group_key(nm)].append(gid)
+        return [sorted(gs) for gs in seen.values() if len(gs) > 1]
 
     def of(self, key: str) -> str:
         return self.by_key.get(key or "", "")
@@ -250,13 +290,46 @@ def program_index(db, hidden: set[int]) -> dict[str, tuple[str, int]]:
     return {str(r[0] or ""): (str(r[1] or ""), int(r[2])) for r in rows}
 
 
+_PAREN = re.compile(r"\([^()]*\)")
+
+
+def _name_sig(name: str) -> tuple[str, set[str]]:
+    """같은 사업 이름 판정 재료 — (괄호를 뺀 이름의 group_key, 이름 속 영문 약칭들). 약칭은 판 번호의 점을 지운 꼴(LINC 3.0 = LINC30)."""
+    from zzaimy.graph import programs as gp
+    core = program_names.group_key(_PAREN.sub("", name or "")) or program_names.group_key(name or "")
+    return core, {gp._acr(a).replace(".", "") for a in gp._ACR_TOKEN.findall(name or "")}
+
+
+def same_program(a: str, b: str) -> bool:
+    """두 이름이 같은 사업을 부르는가 — 괄호 밖 이름(group_key)이 같고 양쪽에 약칭이 있으면 하나라도 같다
+    (「…대학(ABCD+) 육성사업」 = 「…대학(ABCD+)육성사업」, 「…대학(ABCD) 육성사업」 ≠ 「…대학(ABCD+) 육성사업」).
+    또는 이름 하나가 약칭뿐이면 다른 이름 속 약칭과 같다(「ABCD사업」 = 「새 이름(구 ABCD)」)."""
+    if not a or not b:
+        return False
+    if program_names.group_key(a) == program_names.group_key(b):
+        return True
+    (ca, xa), (cb, xb) = _name_sig(a), _name_sig(b)
+    if ca and ca == cb:
+        return not (xa and xb) or bool(xa & xb)
+    bare = lambda core, acr: bool(acr) and core in {x.upper() for x in acr}
+    return bool(xa & xb) and (bare(ca, xa) or bare(cb, xb))
+
+
+def _key_tail(key: str) -> str:
+    m = re.fullmatch(r"program:([a-z][a-z0-9+.]{1,15})", key or "")
+    return re.sub(r"[^0-9A-Z]", "", m.group(1).upper()) if m else ""
+
+
 def graph_match(db, names: dict[str, tuple[str, int]]) -> tuple[dict[str, list[str]], dict[str, str]]:
     """장부 열쇠마다 그래프 사업 노드를 맞춘다 — (열쇠 → 노드의 믿을 만한 다른 이름·약칭, 열쇠 → 노드 이름).
 
-    - 노드 id 가 장부 열쇠와 같으면 그것, 아니면 장부 이름이 노드의 이름·별칭(약칭 목록은 빼고) 하나와 같은 열쇠(group_key)인
-      노드가 하나뿐일 때 그것. 그래프를 다시 지어 노드 id 가 바뀌어도 이름으로 다시 맞는다
-    - 노드의 약칭·별칭 목록에는 다른 사업의 약칭이나 한 글자 오기가 섞여 들어올 수 있다 — 그래프 화면과 같은 거르기
-      (graph.programs.alias_filters·alias_list: 남의 약칭이 든 이름, 정체 약칭의 한 글자 오기를 뺌, 장부 표기는 둠)를 거친 것만 쓴다"""
+    노드 id 는 그래프를 다시 지을 때 바뀌고, 다시 지은 노드의 대표 이름이 앞뒤 단계 사업 이름으로 바뀔 수도 있어 id 만으로 믿지 않는다.
+    1) 노드 id 가 장부 열쇠와 같고 노드 이름이 장부 이름과 같은 사업(same_program)이면 그것
+    2) 노드 이름이 장부 이름과 같은 사업인 노드가 하나면 그것(여럿이면 id 꼬리 약칭이 열쇠 꼬리와 같은 것)
+    3) 장부 이름이 노드의 거른 별칭 하나와 같은 열쇠(group_key)인 노드가 하나뿐이면 그것
+    - 노드의 이름·약칭 목록에는 다른 사업의 이름·약칭이나 한 글자 오기가 섞여 들어올 수 있다 — 그래프 화면과 같은 거르기
+      (graph.programs.alias_filters·alias_list: 남의 약칭이 든 이름, 정체 약칭의 한 글자 오기를 뺌, 장부 표기는 둠)를 거친 것만
+      별칭으로 쓰고 맞추기에도 쓴다(거르지 않은 원시 이름 목록으로 맞추면 남의 사업 노드로 간다)"""
     import json
 
     from zzaimy.graph import programs as gp
@@ -280,17 +353,28 @@ def graph_match(db, names: dict[str, tuple[str, int]]) -> tuple[dict[str, list[s
         kept, _more = gp.alias_list([str(x) for x in prog["props"].get("names") or []], prog["props"]["acronyms"], limit=10_000,
                                     foreign=foreign, canonical=canon, allowed=allowed)
         nodes[prog["id"]] = (prog["label"], [prog["label"]] + kept)
-        for t in [prog["label"]] + [str(x) for x in prog["props"].get("names") or []]:
+        for t in [prog["label"]] + kept:
             if t:
                 by_term[program_names.group_key(t)].add(prog["id"])
+
+    def pick(cands: set[str], key: str) -> str | None:
+        if len(cands) == 1:
+            return next(iter(cands))
+        tail = _key_tail(key)
+        hit = [n for n in cands if tail and _key_tail(n) == tail]
+        return hit[0] if len(hit) == 1 else None
+
     surf, label = {}, {}
     for key, (name, _n) in names.items():
         if not key:
             continue
-        nid = key if key in nodes else None
+        nid = None
+        if key in nodes and (not name or same_program(name, nodes[key][0])):
+            nid = key
         if nid is None and name:
-            cands = by_term.get(program_names.group_key(name), set())
-            nid = next(iter(cands)) if len(cands) == 1 else None
+            nid = pick({i for i, (lb, _a) in nodes.items() if same_program(name, lb)}, key)
+        if nid is None and name:
+            nid = pick(by_term.get(program_names.group_key(name), set()), key)
         if nid is not None:
             label[key], surf[key] = nodes[nid][0], nodes[nid][1]
     return surf, label
