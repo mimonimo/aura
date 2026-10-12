@@ -665,3 +665,22 @@ def test_meta_name_without_a_kind_has_no_placeholder_word():
 
     assert meta_name({"program": "가나사업", "year": "2025"}) == "가나사업 2025"
     assert meta_name({"kind_label": "결과보고서", "program": "가나사업", "year": "2025"}) == "결과보고서 · 가나사업 2025"
+
+
+def test_memo_subject_names_official_letter():
+    from zzaimy.app.doc_naming import choose_name
+
+    meta = {"kind_label": "공문", "program": "가나 사업", "year": "2020"}
+    letter = "가나대학교\n\n수신자 다라시장\n\n(경유)\n\n제목 2020년 가나 사업 참여기관 참여의사 확인 협조\n\n1. 귀 기관의 발전을 기원합니다."
+    got = choose_name("1.공문.pdf", letter, meta)
+    assert got["name"] == "2020년 가나 사업 참여기관 참여의사 확인 협조" and got["source"] == "body"
+    # 표로 판독돼 칸이 한 줄에 붙은 내부 결재 공문 — 수신 칸 값 「내부결재」 와 다음 칸은 이름이 아니다
+    flat = "가나대학교\n\n수신자 (경유) 제목 | 내부결재 가나대학교 현장연수 세부시행 방안 허가\n관련 내규 | 1. 관련근거: 학칙"
+    assert choose_name("3-3(2).pdf", flat, meta)["name"] == "가나대학교 현장연수 세부시행 방안 허가"
+
+
+def test_memo_subject_needs_recipient_field():
+    from zzaimy.app.doc_naming import memo_subject
+
+    assert memo_subject("제목 없는 문서 작성 안내\n\n본문") is None
+    assert memo_subject("회의 자료\n제목: 다음 회의 일정\n수신자 전 직원") is None

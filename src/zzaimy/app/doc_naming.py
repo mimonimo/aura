@@ -609,6 +609,32 @@ def meta_name(meta: dict | None) -> str:
     return " · ".join(x for x in (kind, tail) if x)          # 갈래를 모르면 '문서 ·' 같은 빈말을 붙이지 않는다
 
 
+# 공문의 머리 — 「수신(자)」 칸 뒤의 「제목」 칸이 그 공문의 이름이다(행정 공문 서식의 일반 꼴). 표로 판독되면 칸이
+# 한 줄에 붙어 오고('수신자 (경유) 제목 | …'), 내부 결재 공문은 수신 칸 값 「내부결재」 가 제목 앞에 붙는다
+_MEMO_RECIPIENT = re.compile(r"^수\s?신(?:\s?자)?(?:\s|$|[:：|])")
+_MEMO_SUBJECT = re.compile(r"(?:^|[\s|])제\s?목\s*[:：|]?\s*(?=\S)(.+)$")
+
+
+def memo_subject(text: str) -> str | None:
+    """공문 「제목」 칸의 글 — 수신 칸이 먼저 나온 문서에서만. 없으면 None."""
+    seen = False
+    for raw in (text or "").replace("\r", "\n").split("\n")[: _HEAD * 2]:
+        ln = _plain(raw)
+        if not ln:
+            continue
+        if _MEMO_RECIPIENT.match(ln):
+            seen = True
+        if not seen:
+            continue
+        m = _MEMO_SUBJECT.search(ln)
+        if not m:
+            continue
+        subj = re.split(r"\s\|\s", m.group(1).lstrip("|: "), maxsplit=1)[0]
+        subj = re.sub(r"^내부\s?결재\s+", "", subj).strip()
+        return polish_title(subj) if _meaningful(subj) else None
+    return None
+
+
 def choose_name(original: str, text: str = "", meta: dict | None = None,
                 ask=None, prefer_file: bool = False) -> dict:
     """문서 이름을 고른다 — {name, title, date, source}. source: body · model · file · meta.
@@ -619,6 +645,12 @@ def choose_name(original: str, text: str = "", meta: dict | None = None,
     """
     fname = clean_filename(original, text or None)
     title, date = body_title(text) if text else (None, None)
+    subj = memo_subject(text) if text else None
+    if subj:
+        subj = drop_person(subj, text) or None
+    # 공문 제목은 서류 갈래 낱말 없이도('… 확인 협조') 그 문서의 이름이다 — 나머지 모양 관문은 그대로
+    if subj and shape_problem(subj) in (None, "서류 낱말 없음") and (poor_name(fname) or body_beats_file(subj, fname, (meta or {}).get("programs") or ())):
+        return {"name": subj, "title": subj, "date": date, "source": "body"}
     if title:
         title = drop_person(title, text) or None           # 본문 제목에도 사람 이름은 싣지 않는다
     if title and shape_problem(title):
