@@ -39,15 +39,5 @@
     if (draft.value.trim() && draft.value !== answer && !await confirmChange('작성 중인 내용을 답변으로 바꿀까요?', event.currentTarget)) return;
     draft.value = answer; draft.focus(); draft.scrollIntoView({block:'nearest'});
   });
-  document.querySelectorAll('form[data-confirm]').forEach(form => {
-    form.dataset.ownConfirm = '';   // 이 화면의 확인창을 쓴다 — 공용 확인(workspace-navigation.js)은 건너뛴다
-    let confirmed = false, pending = false;
-    form.addEventListener('submit', async event => {
-      if (confirmed) return;
-      event.preventDefault(); if (pending) return; pending = true;
-      const accepted = await confirmChange(form.dataset.confirm, event.submitter);
-      pending = false;
-      if (accepted) { confirmed = true; form.requestSubmit(event.submitter || undefined); confirmed = false; }
-    });
-  });
+  // data-confirm 폼은 공용 확인창(workspace-navigation.js)이 묻는다 — 이 화면이 따로 묻지 않는다
 })();

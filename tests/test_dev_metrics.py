@@ -117,8 +117,9 @@ def test_heavy_dev_actions_ask_first(client):
 def test_shared_confirm_covers_any_form_with_data_confirm():
     js = (ROOT / "src/zzaimy/app/static/workspace-navigation.js").read_text(encoding="utf-8")
     assert "'confirm' in form.dataset" in js and "'ownConfirm' in form.dataset" in js
-    # 자체 확인창을 쓰는 화면은 스스로 표시해 두 번 묻지 않는다
-    assert "form.dataset.ownConfirm" in (ROOT / "src/zzaimy/app/static/gdocs-work.js").read_text(encoding="utf-8")
+    # 확인창은 공용 대화상자 하나 — 브라우저 기본 confirm() 을 띄우지 않고, 구글 문서 화면도 따로 묻지 않는다
+    assert "window.confirm(" not in js and "showModal()" in js
+    assert "form[data-confirm]" not in (ROOT / "src/zzaimy/app/static/gdocs-work.js").read_text(encoding="utf-8")
 
 
 # ---- 이름표 ----

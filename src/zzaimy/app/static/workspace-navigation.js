@@ -21,19 +21,84 @@
   }
   // 되돌리기 어려운 동작의 확인 — 삭제 경로(/delete)는 늘, 그 밖의 폼은 data-confirm 을 단 것만 묻는다.
   // 자체 확인창을 쓰는 화면은 폼에 data-own-confirm 을 달아 두 번 묻지 않게 한다.
+  // 확인창은 플랫폼 대화상자(<dialog>) — 제목(data-confirm-title)·설명(data-confirm)·「취소」「확인」(data-confirm-ok),
+  // 위험 동작(삭제 경로, 폼이나 누른 단추의 data-confirm-danger)은 확인 단추가 빨강. Esc·바깥 누름은 취소.
+  // 확인하면 누른 단추(name/value)를 그대로 실어 다시 제출하고, 제출이 떠난 뒤의 거듭 누름은 막는다.
+  const accepted = new Set(), sent = new Set();
+  let asking = false;
+  function askConfirm({title, message, ok, danger}, opener) {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'confirm-dialog';
+      dialog.setAttribute('aria-labelledby', 'confirmDialogTitle');
+      dialog.setAttribute('aria-describedby', 'confirmDialogText');
+      dialog.innerHTML = '<h2 id="confirmDialogTitle"></h2><p id="confirmDialogText"></p>'
+        + '<footer><button type="button" class="secondary" data-confirm-cancel>취소</button><button type="button" data-confirm-accept></button></footer>';
+      dialog.querySelector('h2').textContent = title;
+      dialog.querySelector('p').textContent = message;
+      const accept = dialog.querySelector('[data-confirm-accept]');
+      accept.textContent = ok;
+      accept.classList.toggle('danger', danger);
+      dialog.querySelector('[data-confirm-cancel]').addEventListener('click', () => dialog.close());
+      accept.addEventListener('click', () => dialog.close('accept'));
+      // 바깥(배경) 누름 = 취소 — 대화상자 상자 밖 좌표일 때만
+      dialog.addEventListener('click', event => {
+        if (event.target !== dialog) return;
+        const box = dialog.getBoundingClientRect();
+        if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dialog.close();
+      });
+      dialog.addEventListener('close', () => {
+        const yes = dialog.returnValue === 'accept';
+        dialog.remove();
+        if (opener?.isConnected) opener.focus({preventScroll: true});
+        resolve(yes);
+      }, {once: true});
+      document.body.append(dialog);
+      dialog.showModal();
+      accept.focus();
+    });
+  }
+  window.addEventListener('pageshow', () => { asking = false; sent.clear(); });
   document.addEventListener('submit', event => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement) || event.defaultPrevented || form.hasAttribute('onsubmit')) return;
     if ('ownConfirm' in form.dataset) return;
     const action = new URL(form.action, location.href);
     if (action.origin !== location.origin) return;
-    if (!/\/delete\/?$/.test(action.pathname) && !('confirm' in form.dataset)) return;
-    const message = form.dataset.confirm || (/\/notes\//.test(action.pathname)
+    const isDelete = /\/delete\/?$/.test(action.pathname);
+    if (!isDelete && !('confirm' in form.dataset)) return;
+    // 확인은 한 번만 — 화면이 따로 붙인 같은 확인(data-confirm 직접 처리)까지 이어지지 않게 여기서 끊는다
+    event.stopImmediatePropagation();
+    if (accepted.has(form)) {
+      // 확인을 마친 다시 제출 — 그대로 보낸다. 다른 처리기가 막지 않았으면 떠나는 동안의 거듭 제출을 막는다
+      accepted.delete(form);
+      sent.add(form);
+      queueMicrotask(() => { if (event.defaultPrevented) sent.delete(form); });
+      // 화면이 바뀌지 않는 제출(내려받기 등)이면 잠시 뒤 다시 누를 수 있게 푼다
+      setTimeout(() => sent.delete(form), 8000);
+      return;
+    }
+    event.preventDefault();
+    if (asking || sent.has(form)) return;
+    const submitter = event.submitter;
+    const pick = name => submitter?.dataset[name] ?? form.dataset[name];
+    const message = pick('confirm') || (/\/notes\//.test(action.pathname)
       ? '이 메모를 삭제할까요? 삭제 후에는 복구할 수 없습니다.'
       : '이 항목을 삭제할까요?');
-    // 확인은 한 번만 — 화면이 따로 붙인 같은 확인(data-confirm 직접 처리)까지 이어지지 않게 여기서 끊는다. 제출은 그대로 간다
-    event.stopImmediatePropagation();
-    if (!window.confirm(message)) event.preventDefault();
+    const danger = isDelete || pick('confirmDanger') !== undefined;
+    // 제목은 누른 단추의 이름(무엇을 하려는지) — 글자 없는 단추면 aria-label·title, 그것도 없으면 일반 제목
+    const label = submitter && (submitter.textContent.trim() || submitter.getAttribute('aria-label') || submitter.title || submitter.value);
+    const title = pick('confirmTitle') || (label ? label.replace(/\s+/g, ' ').slice(0, 40) : '진행 확인');
+    asking = true;
+    askConfirm({title, message, ok: pick('confirmOk') || '확인', danger}, submitter || form.querySelector('button, [type=submit]'))
+      .then(yes => {
+        asking = false;
+        if (!yes || !form.isConnected) return;
+        accepted.add(form);
+        if (submitter && submitter.form === form && !submitter.disabled) form.requestSubmit(submitter);
+        else form.requestSubmit();
+        accepted.delete(form);
+      });
   }, true);
   document.addEventListener('click', event => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
