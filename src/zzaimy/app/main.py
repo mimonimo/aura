@@ -571,7 +571,7 @@ def create_app(
     from zzaimy.app.doc_title import display_title as _doc_title, receipt_label as _receipt_label
     templates.env.globals["doc_title"] = _doc_title
     # 라이브러리 탭 이름 — 탭(_library_tabs)과 안내문이 같은 이름을 쓴다
-    templates.env.globals["library_tabs"] = {"docs": "등록 문서", "criteria": "기준 문서", "archive": "원본 보관소"}
+    templates.env.globals["library_tabs"] = {"docs": "문서", "archive": "원본 보관소"}
     templates.env.globals["receipt_label"] = _receipt_label
     templates.env.globals["quality_kind_labels"] = QUALITY_KIND_LABELS
     # 지표 이름·정의(metric_label·metric_tip)와 개발 화면 이름표(dev_page_name) — 화면마다 같은 이름을 쓰게
@@ -644,39 +644,49 @@ def create_app(
         project: int | None = None,
         flt: str | None = None,
         page: int = 1,
-        group: str = "all",
+        use: str = "all",
     ):
         from zzaimy.app import library
 
         if getattr(request.state, "role", "") == "student":
             return RedirectResponse("/chat", status_code=303)        # 학생 첫 화면은 대화(ADR-0052)
-        if not any((type, q, project, flt, request.query_params.get("page"))):
+        if not any((type, q, project, flt, request.query_params.get("page"), request.query_params.get("use"),
+                    request.query_params.get("group"))):
             return RedirectResponse("/chat", status_code=303)
-        doc_type = type if type in INBOX_TYPES else None
+        if "group" in request.query_params:
+            # 옛 「문서 출처」 선택(group=…) — 「기준 문서 탭에 등록」 은 기준 칩으로, 나머지 출처 구분은 없어졌다(ADR-0062)
+            qs = [(k, v) for k, v in request.query_params.multi_items() if k not in ("group", "use")]
+            if request.query_params.get("group") == "criteria":
+                qs.append(("use", "criteria"))
+            return RedirectResponse("/?" + urlencode(qs or [("type", "all")]), status_code=303)
+        business = type if type in INBOX_TYPES else None
         # 없는 업무 값은 조용히 전체로 떨어뜨리지 않고 알린다
-        unknown_type = type if type and type != "all" and doc_type is None else ""
+        unknown_type = type if type and type != "all" and business is None else ""
+        use = use if use in dict(library.USES) else "all"
         # 문서 목록은 SQL 에서 거르고 쪽으로 자른다(열람 권한 포함). 판본 묶음은 id·제목만 읽어 묶는다(library.grouped)
         kind = (request.query_params.get("kind") or "").strip()
         acc, acc_args = _doc_access_sql(request)
+        biz_col = library.business_sql(INBOX_TYPES)
         cond, args = ["1 = 1" + acc], list(acc_args)
-        if doc_type:
-            cond.append("d.doc_type = ?")
-            args.append(doc_type)
+        if project:
+            cond.append("d.project_id = ?")
+            args.append(project)
+        tab_where, tab_args = " WHERE " + " AND ".join(cond), list(args)
+        if business:
+            c_, a_ = library.business_filter_sql(business, INBOX_TYPES)
+            cond.append(c_)
+            args += a_
         if q:
             # 낱말마다 제목에 있어야 한다(띄어쓰기 무시) — 「핵심성과지표 총괄」 이 「핵심 성과지표 총괄표」 도 찾는다
             words = [w for w in q.split() if w][:6]
             title = " AND ".join("REPLACE(d.filename, ' ', '') LIKE ?" for _ in words)
             cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?)")
             args += [f"%{w}%" for w in words] + [f"%{q}%"]
-        if project:
-            cond.append("d.project_id = ?")
-            args.append(project)
         base_where, base_args = " WHERE " + " AND ".join(cond), list(args)
-        group = group if group in ("all", "reference", "criteria", "extract") else "all"
-        group_sql = {"criteria": "d.doc_type = 'regulation'", "extract": "d.doc_type = 'ocr'",
-                     "reference": "d.doc_type NOT IN ('regulation', 'ocr')"}
-        if group in group_sql:
-            cond.append(group_sql[group])
+        use_c, use_a = library.use_sql(use)
+        if use_c:
+            cond.append(use_c)
+            args += use_a
         if kind == "_none":
             cond.append("COALESCE(d.kind, '') = ''")
         elif kind:
@@ -708,14 +718,22 @@ def create_app(
             rows: dict[int, dict] = {}
             if ids:
                 rows = {int(x["id"]): dict(x) for x in conn.execute(
-                    "SELECT d.id, d.receipt_no, d.filename, d.kind, d.doc_type, d.status, d.decision, d.created_at,"
-                    " d.project_id, p.name AS project_name FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
+                    "SELECT d.id, d.receipt_no, d.filename, d.kind, d.doc_type, d.sector, d.status, d.decision, d.created_at,"
+                    f" d.project_id, p.name AS project_name, {biz_col} AS business"
+                    " FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
                     f" WHERE d.id IN ({','.join('?' * len(ids))}){acc}", [*ids, *acc_args]).fetchall()}   # 열람 조건을 다시 건다
             kinds = [(x[0] or "", int(x[1])) for x in conn.execute(
                 f"SELECT d.kind, COUNT(*) FROM documents d{where} GROUP BY d.kind ORDER BY 2 DESC", args).fetchall()]
-            gcount = {str(x[0]): int(x[1]) for x in conn.execute(
-                "SELECT CASE WHEN d.doc_type = 'regulation' THEN 'criteria' WHEN d.doc_type = 'ocr' THEN 'extract'"
-                f" ELSE 'reference' END AS g, COUNT(*) FROM documents d{base_where} GROUP BY 1", base_args).fetchall()}
+            case_sql, case_args = library.use_case_sql()
+            ucount = {str(x[0]): int(x[1]) for x in conn.execute(
+                f"SELECT {case_sql} AS u, COUNT(*) FROM documents d{base_where} GROUP BY 1", [*case_args, *base_args]).fetchall()}
+            bcount = {str(x[0]): int(x[1]) for x in conn.execute(
+                f"SELECT {biz_col} AS b, COUNT(*) FROM documents d{tab_where} GROUP BY 1", tab_args).fetchall()}
+            # 규정 색인 문서(기준 꼬리표) 가운데 조각이 없는 것 — 처리는 끝났는데 규정 검색에 안 잡힌다
+            reg_ids = [i for i, x in rows.items() if x.get("doc_type") == "regulation"]
+            reg_chunks = {int(x[0]): int(x[1]) for x in conn.execute(
+                f"SELECT doc_id, COUNT(*) FROM regulation_chunks WHERE doc_id IN ({','.join('?' * len(reg_ids))}) GROUP BY doc_id",
+                reg_ids).fetchall()} if reg_ids else {}
         from zzaimy.app.doc_routing import KINDS as _KINDS_LIB
         docs = []
         for g in shown:
@@ -723,24 +741,28 @@ def create_app(
             if not head:
                 continue
             head["kind_label"] = _KINDS_LIB.get(head.get("kind") or "", "")
+            head["in_index"] = head.get("doc_type") == "regulation"
+            head["no_chunks"] = head["in_index"] and head.get("status") == "reviewed" and not reg_chunks.get(int(head["id"]))
             head["versions"] = [rows[i] for i in g[1:21] if i in rows]
             head["n_versions"] = len(g)
             docs.append(head)
-        gcount["all"] = sum(gcount.values())
-        projects = db.list_projects(doc_type) if doc_type else []
+        ucount["all"] = sum(ucount.values())
+        projects = db.list_projects(business) if business else []
         return templates.TemplateResponse(
             request,
             "index.html",
             ctx(request, {
-                "documents": docs, "active_tab": doc_type or "all", "q": q or "", "document_group": group,
-                "group_counts": gcount, "unknown_type": unknown_type,
+                "documents": docs, "active_tab": business or "all", "q": q or "", "use": use,
+                "uses": library.USES, "use_counts": ucount, "use_metrics": library.USE_METRICS,
+                "business_counts": bcount, "business_tabs": library.show_business_tabs(bcount, INBOX_TYPES),
+                "unknown_type": unknown_type,
                 "projects": projects, "active_project": project,
                 "stats": stats, "active_flt": flt,
                 "page": page, "pages": pages, "page_numbers": library.page_numbers(page, pages),
                 "per": PER, "total_docs": total_docs, "n_rows": len(groups),
                 "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "분류 전") if k else "분류 전", n) for k, n in kinds],
                 "business_units": _business_units(),
-                "common_templates": [t for t in _common_templates() if doc_type and t["sector"] == doc_type],
+                "common_templates": [t for t in _common_templates() if business and t["sector"] == business],
             }),
         )
 
@@ -3406,35 +3428,12 @@ def create_app(
             "q": term, "docs": docs, "docs_more": docs_more, "chats": chats, "chunks": chunks, "projects": projects,
         }))
 
-    @app.get("/criteria", response_class=HTMLResponse)
-    def criteria(request: Request):
-        from zzaimy.app.doc_routing import KINDS
+    CRITERIA_LIST = "/?type=all&use=criteria"     # 기준 문서 목록 — 라이브러리 한 목록의 「기준」 칩(ADR-0062)
 
-        docs = db.list_documents("regulation")
-        counts = db.regulation_chunk_counts()
-        families = db.family_counts("regulation")
-        names = {d["id"]: d["filename"] for d in docs}
-        status_n: dict[str, int] = {}
-        kind_n: dict[str, int] = {}
-        for d in docs:
-            d["n_chunks"] = counts.get(d["id"], 0)
-            # 문서 종류·처리 상태는 화면 표시 이름 하나로 묶어 거른다(갈래가 없으면 「분류 전」, 접수·처리는 「처리 중」)
-            d["kind_key"] = d.get("kind") if (d.get("kind") or "") in KINDS else "_none"
-            d["kind_label"] = KINDS.get(d["kind_key"], "분류 전")
-            d["status_group"] = "processing" if d.get("status") == "received" else (d.get("status") or "")
-            kind_n[d["kind_key"]] = kind_n.get(d["kind_key"], 0) + 1
-            status_n[d["status_group"]] = status_n.get(d["status_group"], 0) + 1
-            # 같은 제목의 판본이 여럿이면 몇 판째인지·어느 공고에 딸렸는지 보여 준다
-            d["family_count"] = families.get(d.get("family") or "", 1)
-            d["head_title"] = storage.title_of(names.get(d.get("related_criteria_id") or -1, ""))
-        status_options = [(k, STATUS_LABELS.get(k, k), status_n[k]) for k in ("reviewed", "processing", "failed") if status_n.get(k)]
-        kind_options = [(k, v, kind_n[k]) for k, v in KINDS.items() if kind_n.get(k)]
-        if kind_n.get("_none"):
-            kind_options.append(("_none", "분류 전", kind_n["_none"]))
-        return templates.TemplateResponse(
-            request, "criteria.html", ctx(request, {"documents": docs, "kind_labels": KINDS,
-                                                     "status_options": status_options, "kind_options": kind_options})
-        )
+    @app.get("/criteria")
+    def criteria(request: Request):
+        """옛 기준 문서 탭 — 라이브러리 목록의 「기준」 칩으로 넘긴다(북마크·걸린 링크가 깨지지 않게)."""
+        return RedirectResponse(CRITERIA_LIST, status_code=303)
 
     @app.post("/criteria/upload")
     def criteria_upload(
@@ -3468,7 +3467,7 @@ def create_app(
         if link_project_id and db.get_project(link_project_id):
             db.add_project_criteria(link_project_id, new_ids)
             return RedirectResponse(f"/project/{link_project_id}", status_code=303)
-        return RedirectResponse("/criteria", status_code=303)
+        return RedirectResponse(CRITERIA_LIST, status_code=303)
 
     @app.post("/project/{project_id}/criteria/unlink")
     def project_criteria_unlink(project_id: int, criteria_doc_id: int = Form(...)):
@@ -7868,7 +7867,7 @@ figure img{{width:100%;display:block}}
             raise HTTPException(404)
         db.delete_document(doc_id)
         storage.remove_intake_dir(db, doc)          # 원본·추출 그림이 든 문서 폴더째 지운다
-        dest = "/criteria" if doc["doc_type"] == "regulation" else "/?type=all"
+        dest = CRITERIA_LIST if doc["doc_type"] == "regulation" else "/?type=all"
         return RedirectResponse(dest, status_code=303)
 
     _RECEIPT_RE = re.compile(r"^\d{4}-[가-힣A-Za-z]{1,8}-\d{3,5}$")

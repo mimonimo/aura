@@ -16,7 +16,7 @@ ORIGINS: dict[str, tuple[str, str]] = {
     "library": ("라이브러리", "/?type=all"),
     "archive": ("원본 보관소", "/archive"),
     "search": ("검색", "/search"),
-    "criteria": ("기준 문서", "/criteria"),
+    "criteria": ("기준 문서", "/?type=all&use=criteria"),     # 옛 /criteria 탭은 라이브러리 기준 칩(ADR-0062)
     "graph": ("그래프 탐색", "/graph/explore"),
 }
 _PREFIX = (("/archive", "archive"), ("/search", "search"), ("/criteria", "criteria"), ("/graph", "graph"),
@@ -75,7 +75,7 @@ def back_link(doc: dict, project: dict | None, from_: str = "", referer: str = "
     if project:
         return {"label": "보관된 사업으로", "href": f"/project/{project['id']}", "title": str(project.get("name") or "")}
     if doc.get("doc_type") == "regulation":
-        return {"label": "기준 문서로", "href": "/criteria", "title": ""}
+        return {"label": "기준 문서로", "href": ORIGINS["criteria"][1], "title": ""}
     if str(doc.get("stored_path") or "").startswith("dgx://"):
         return {"label": "원본 보관소로", "href": "/archive", "title": ""}
     return {"label": "라이브러리로", "href": "/?type=all", "title": ""}

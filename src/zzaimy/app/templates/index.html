@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block pagetitle %}라이브러리{% endblock %}
-{% block title %}등록 문서{% if active_tab != "all" %} · {{ doc_type_labels.get(active_tab, "") }}{% endif %} · AURA{% endblock %}
+{% block title %}{{ library_tabs.docs }}{% if active_tab != "all" %} · {{ doc_type_labels.get(active_tab, "") }}{% endif %} · AURA{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/intake-workspace.css?v={{ asset_v }}">
 <style>
   .lib-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
@@ -23,6 +23,15 @@
   .lib-jump button { padding:6px 12px; font-size:12.5px; }
   .lib-empty { padding:28px 8px; text-align:center; }
   .lib-empty p { margin:0 0 10px; }
+  .lib-uses { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 14px; }
+  .lib-uses a { display:inline-flex; align-items:center; gap:6px; min-height:34px; padding:0 14px; border-radius:999px;
+                border:1px solid var(--line); background:#fff; color:var(--muted); font-size:13px; font-weight:600; text-decoration:none; }
+  .lib-uses a:hover { border-color:#94A3B8; color:var(--ink); }
+  .lib-uses a[aria-current=true] { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .lib-uses a span { font-weight:500; font-variant-numeric:tabular-nums; opacity:.85; }
+  .lib-uses .lib-uses-act { margin-left:auto; }
+  .pill.lib-criteria { background:#E8F0FE; color:var(--navy); }
+  .lib-note { display:block; font-size:11.5px; margin-top:3px; }
 </style>
 {% endblock %}
 {% block content %}
@@ -42,18 +51,21 @@
 {# 업무마다 보이는 칸 — 사업단·공고 자료 안내는 국고사업에만 #}
 {% set grant_like = active_tab in ("all", "grant") %}
 
-<section class="work-start lib-head" aria-label="등록 문서">
-  <h1>등록 문서</h1>
+<section class="work-start lib-head" aria-label="{{ library_tabs.docs }}">
+  <h1>{{ library_tabs.docs }}</h1>
   {# 프로젝트 만들기(/projects/bundle)의 화면 진입은 여기 하나 — 사이드바는 찾기·열기만, 프로젝트 화면은 만든 뒤의 작업 #}
   <button type="button" class="secondary" data-modal-open="#projectModal" style="padding:7px 16px; font-size:13px;">
     <iconify-icon icon="solar:add-circle-linear"></iconify-icon>프로젝트 추가</button>
 </section>
 {% include "_library_tabs.html" %}
 
+{# 업무 탭 줄은 문서가 있는 업무가 둘 이상일 때만(library.show_business_tabs) — 하나뿐이면 목록의 업무 선택 상자에서 고른다 #}
+{% if business_tabs %}
 <nav class="space-links" aria-label="업무" style="font-size:13px;">
-  <a href="/?type=all" {% if active_tab == 'all' %}aria-current="page"{% endif %}>전체 업무</a>
-  {% for key, meta in sector_meta.items() %}<a href="/?type={{ key }}" {% if active_tab == key %}aria-current="page"{% endif %}>{{ meta[1] }}</a>{% endfor %}
+  <a href="/?type=all&amp;use={{ use }}" {% if active_tab == 'all' %}aria-current="page"{% endif %}>전체 업무</a>
+  {% for key, meta in sector_meta.items() %}{% if business_counts.get(key) or active_tab == key %}<a href="/?type={{ key }}&amp;use={{ use }}" {% if active_tab == key %}aria-current="page"{% endif %}>{{ meta[1] }}</a>{% endif %}{% endfor %}
 </nav>
+{% endif %}
 {% if unknown_type %}
 <p class="notice" role="status"><iconify-icon icon="solar:info-circle-linear"></iconify-icon>「{{ unknown_type }}」 업무는 없습니다. 전체 업무의 문서를 보여 줍니다.</p>
 {% endif %}
@@ -126,22 +138,29 @@
 {% endif %}
 
 {% set flt_labels = {"processing": "처리 중", "reviewed": "처리 완료", "pending": "담당자 확인 전"} %}
-{% set group_labels = [('all', '모든 출처'), ('reference', '업무 문서'), ('criteria', '기준 문서 탭에 등록'), ('extract', '본문에서 나온 문서')] %}
 {% set run_labels = {"received": "처리 중", "processing": "처리 중", "failed": "처리 실패"} %}
 {% set keep_qs = (("&project=" ~ active_project) if active_project else "") %}
-{% set base_qs = "type=" ~ active_tab ~ "&group=" ~ document_group ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
+{% set use_qs = "type=" ~ active_tab ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") %}
+{% set base_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
 <div class="card">
   <div class="card-in">
     <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{% if q %}검색 결과 {{ "{:,}".format(total_docs) }}건{% else %}{{ metric_label('documents_visible', '', '문서 ' ~ "{:,}".format(total_docs) ~ '건') }}{% endif %}
       {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
       {% if n_rows < total_docs %}<span class="muted" style="font-size:12.5px; font-weight:500;">같은 문서의 판본 {{ "{:,}".format(total_docs - n_rows) }}건은 최신본 아래에 묶음</span>{% endif %}</h2>
-    <form action="/" method="get" class="intake-toolbar lib-filters control-row" role="search" aria-label="등록 문서 찾기" data-autosubmit>
-      <input type="hidden" name="type" value="{{ active_tab }}">
-      <select name="group" aria-label="문서 출처">
-        {% for key, label in group_labels %}{% set n = group_counts.get(key, 0) %}
-        {% if n or document_group == key %}<option value="{{ key }}" {% if document_group == key %}selected{% endif %}>{{ label }} {{ "{:,}".format(n) }}</option>{% endif %}
-        {% endfor %}
-      </select>
+    {# 쓰임새 칩 — 기준(공고·지침·규정·평가 기준·기본계획, 규정 색인 문서) / 작성·결과(그 밖). 데이터는 그대로, 목록만 거른다(ADR-0062) #}
+    <nav class="lib-uses" aria-label="쓰임새">
+      {% for key, label in uses %}<a href="/?{{ use_qs }}{% if key != 'all' %}&amp;use={{ key }}{% endif %}" {% if use == key %}aria-current="true"{% endif %}
+         title="{{ metric_tip(use_metrics[key]) }}">{{ label }} <span>{{ "{:,}".format(use_counts.get(key, 0)) }}</span></a>{% endfor %}
+      {% if use == 'criteria' %}<button type="button" class="secondary lib-uses-act" data-modal-open="#criteriaUploadModal">
+        <iconify-icon icon="solar:add-circle-linear"></iconify-icon>기준 등록</button>{% endif %}
+    </nav>
+    <form action="/" method="get" class="intake-toolbar lib-filters control-row" role="search" aria-label="문서 찾기" data-autosubmit>
+      {% if business_tabs %}<input type="hidden" name="type" value="{{ active_tab }}">
+      {% else %}<select name="type" aria-label="업무">
+        <option value="all">전체 업무</option>
+        {% for key, meta in sector_meta.items() %}<option value="{{ key }}" {% if active_tab == key %}selected{% endif %}>{{ meta[1] }} {{ "{:,}".format(business_counts.get(key, 0)) }}</option>{% endfor %}
+      </select>{% endif %}
+      <input type="hidden" name="use" value="{{ use }}">
       {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
       {% if active_flt %}<input type="hidden" name="flt" value="{{ active_flt }}">{% endif %}
       <select name="kind" aria-label="문서 종류">
@@ -150,23 +169,26 @@
       </select>
       <input type="search" name="q" value="{{ q }}" placeholder="제목·접수번호" aria-label="제목·접수번호로 찾기">
       <button type="submit" class="secondary">찾기</button>
-      {% if q or active_flt or kind or document_group != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
+      {% if q or active_flt or kind or use != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
     </form>
     <p class="muted" style="margin-top:0;">학교에 등록된 문서입니다. 작업 중인 구글 문서는 채팅의 문서 패널에서 봅니다.</p>
     {% if documents %}
     <div class="table-scroll">
       <table class="intake-table">
-        <tr><th>접수번호</th><th>문서 제목</th>{% if active_tab == 'all' %}<th>업무</th>{% endif %}<th>등록일</th></tr>
+        {% set show_business = business_tabs and active_tab == 'all' %}
+        <tr><th>접수번호</th><th>문서 제목</th>{% if show_business %}<th>업무</th>{% endif %}<th>등록일</th></tr>
         {% for d in documents %}
         <tr>
           <td class="muted">{{ receipt_label(d.receipt_no) or d.id }}</td>
           <td class="doc-cell"><a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
             <div class="doc-meta">
               <span class="muted">{{ d.kind_label or "분류 전" }}</span>
+              {% if d.in_index %}<span class="pill lib-criteria" title="규정 색인 문서 — 규정 검색·학생 공개·프로젝트 기준 선택에 씀">기준</span>{% endif %}
               {% if d.status in run_labels %}<span class="pill {{ 'failed' if d.status == 'failed' else 'processing' }}">{{ run_labels[d.status] }}</span>{% endif %}
               {% if d.decision and d.decision != 'pending' and d.doc_type not in ('regulation', 'ocr') %}<span class="pill {{ d.decision }}">담당자 {{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}
               {% if d.project_name %}<span class="pill"><iconify-icon icon="solar:folder-2-linear" style="font-size:12px;" aria-hidden="true"></iconify-icon>{{ d.project_name }}</span>{% endif %}
             </div>
+            {% if d.no_chunks %}<span class="muted lib-note">본문을 찾지 못해 규정 검색에 잡히지 않습니다</span>{% endif %}
             {% if d.n_versions > 1 %}
             <details class="lib-versions">
               <summary>판본 {{ d.n_versions }}개</summary>
@@ -178,7 +200,7 @@
               </ul>
             </details>
             {% endif %}</td>
-          {% if active_tab == 'all' %}<td><span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) if d.doc_type not in ('regulation', 'ocr') else ('기준 문서' if d.doc_type == 'regulation' else '본문에서 나온 문서') }}</span></td>{% endif %}
+          {% if show_business %}<td><span class="pill type">{{ sector_labels.get(d.business, d.business) }}</span></td>{% endif %}
           <td class="muted">{{ (d.created_at or '')[:10] }}</td>
         </tr>
         {% endfor %}
@@ -194,7 +216,7 @@
       {% endfor %}
       {% if page < pages %}<a href="/?{{ base_qs }}&amp;page={{ page + 1 }}" aria-label="다음 쪽">→</a>{% endif %}
       <form class="lib-jump" action="/" method="get">
-        <input type="hidden" name="type" value="{{ active_tab }}"><input type="hidden" name="group" value="{{ document_group }}">
+        <input type="hidden" name="type" value="{{ active_tab }}"><input type="hidden" name="use" value="{{ use }}">
         {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
         {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
         {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
@@ -206,13 +228,43 @@
     {% endif %}
     {% else %}
     <div class="lib-empty">
-      <p class="muted">{% if q %}제목에 「{{ q }}」 낱말이 모두 든 문서가 없습니다. <a href="/search?q={{ q | urlencode }}">본문까지 찾기</a>{% elif active_flt or kind or document_group != 'all' %}고른 조건에 맞는 문서가 없습니다.{% else %}아직 등록된 문서가 없습니다. 문서는 프로젝트 화면의 「문서 추가」로 등록합니다.{% endif %}</p>
-      {% if q or active_flt or kind or document_group != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
+      <p class="muted">{% if q %}제목에 「{{ q }}」 낱말이 모두 든 문서가 없습니다. <a href="/search?q={{ q | urlencode }}">본문까지 찾기</a>{% elif use == 'criteria' and not (active_flt or kind) %}기준 문서가 없습니다. 「기준 등록」으로 공고·규정 파일을 올립니다.{% elif active_flt or kind or use != 'all' %}고른 조건에 맞는 문서가 없습니다.{% else %}아직 등록된 문서가 없습니다. 문서는 프로젝트 화면의 「문서 추가」로 등록합니다.{% endif %}</p>
+      {% if q or active_flt or kind or use != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
     </div>
     {% endif %}
   </div>
 </div>
+{# 기준 등록 — 규정 색인 반입은 이 한 경로(/criteria/upload: doc_type=regulation, 원문 유지, 규정 조각 적재) #}
+<div id="criteriaUploadModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="criteriaUploadTitle">
+  <div class="card">
+    <div class="card-in">
+      <div class="modal-head">
+        <h2 id="criteriaUploadTitle"><iconify-icon icon="solar:library-linear"></iconify-icon>기준 등록</h2>
+        <button type="button" data-modal-close class="dialog-close" aria-label="닫기" title="닫기">
+          <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+      </div>
+      <form action="/criteria/upload" method="post" enctype="multipart/form-data" id="criteriaUploadForm">
+        <label class="form-row"><span class="muted">업무</span>
+          <select name="sector">{% for sec, label in sector_labels.items() %}<option value="{{ sec }}" {% if sec == active_tab %}selected{% endif %}>{{ label }}{{ " (모든 업무에 적용)" if sec == "common" else "" }}</option>{% endfor %}</select></label>
+        <div class="form-row"><span class="muted">공고·규정·지침·평가 기준 파일(여러 개 가능) — 원문 그대로 규정 검색에 들어갑니다</span>
+          <input type="file" name="file" required multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
+        <div style="display:flex; justify-content:flex-end; gap:10px;">
+          <button type="button" data-modal-close class="secondary">취소</button>
+          <button type="submit" disabled>등록</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 <script>
+(function () {
+  // 기준 등록 창 — 파일을 고르기 전에는 「등록」을 끈다
+  var up = document.getElementById("criteriaUploadForm");
+  if (up) {
+    var upFile = up.querySelector('input[type="file"]'), upSubmit = up.querySelector('button[type="submit"]');
+    upFile.addEventListener("change", function () { upSubmit.disabled = !upFile.files.length; });
+  }
+})();
 (function () {
   // 선택 상자는 바꾸는 즉시 적용한다(쪽은 1쪽으로). 검색어는 「찾기」로.
   document.querySelectorAll("form[data-autosubmit] select").forEach(function (s) {

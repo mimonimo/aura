@@ -258,18 +258,17 @@ def test_hwpx_parsing_extracts_text(tmp_path):
     assert "<hp:t>" not in text
 
 
-def test_regulation_docs_are_separated_from_inbox(client):
+def test_regulation_docs_share_one_library_list_with_criteria_chip(client):
     client.post("/upload", data={"doc_type": "grant"},
                 files={"file": ("계획서.pdf", b"%PDF", "application/pdf")})
     client.post("/criteria/upload",
                 files={"file": ("학칙.pdf", b"%PDF", "application/pdf")})
-    inbox = client.get("/").text
-    table = inbox.split("<th>접수번호</th>", 1)[-1].split("</table>", 1)[0]
-    assert "계획서.pdf" in table
-    assert "학칙.pdf" not in table  # 기준 문서는 접수 표에 안 섞인다 (최근 활동에는 보임)
-    criteria = client.get("/criteria").text
-    assert ">학칙</a>" in criteria  # 화면에는 제목(확장자 없이)
-    assert ">1건</span>" in criteria  # 등록 건수 1건 — 접수 문서는 기준 목록에 안 들어간다
+    table = lambda page: page.split("<th>접수번호</th>", 1)[-1].split("</table>", 1)[0]
+    every = table(client.get("/?type=all").text)
+    assert ">계획서</a>" in every and ">학칙</a>" in every  # 한 목록(ADR-0062) — 화면에는 제목(확장자 없이)
+    criteria = client.get("/criteria").text                # 옛 기준 문서 탭 → 기준 칩
+    assert ">학칙</a>" in table(criteria) and ">계획서</a>" not in table(criteria)
+    assert 'aria-current="true"' in criteria.split('aria-label="쓰임새"', 1)[1].split("</nav>", 1)[0]
 
 
 class FakeResponder:

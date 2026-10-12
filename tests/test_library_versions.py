@@ -70,8 +70,7 @@ def test_library_hides_empty_groups_and_flags_unknown_business(tmp_path):
     app, c = _client(tmp_path)
     app.state.db.add_document("공문.hwp", "x", doc_type="grant")
     page = c.get("/?type=all").text
-    group = page.split('name="group"', 1)[1].split("</select>", 1)[0]
-    assert "업무 문서 1" in group and "본문에서 나온 문서" not in group      # 0건 출처는 고를 수 없다
+    assert 'name="group"' not in page                                          # 출처 선택은 쓰임새 칩으로 바뀌었다(ADR-0062)
     assert "「admin」 업무는 없습니다" in c.get("/?type=admin").text
     assert "공통 양식" not in page                                            # 양식 바로가기는 그 업무 탭에만
 
@@ -112,7 +111,7 @@ def test_library_list_follows_each_viewer_scope_and_permission_changes(tmp_path)
 def test_shell_names_service_hides_server_details_from_staff_and_quiet_bell(tmp_path):
     _app, c = _client(tmp_path)
     page = c.get("/?type=all").text
-    assert "<title>등록 문서 · AURA</title>" in page and "행정 에이전트" not in page
+    assert "<title>문서 · AURA</title>" in page and "행정 에이전트" not in page
     assert "기본 AI 서버" not in page                                  # 업무 사용자에게는 연결 여부만
     assert "새로 확인할 문서가 없습니다" in page and 'id="notificationReadAll"' not in page
     assert 'var KEY = "chatWidgetSession"' in page                       # 위젯은 채팅 화면의 마지막 대화를 잇지 않는다

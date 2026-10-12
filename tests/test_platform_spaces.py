@@ -99,12 +99,13 @@ def test_sidebar_has_one_entry_per_resource_function(tmp_path, monkeypatch):
     sidebar = page.split('id="workspaceSidebar"', 1)[1].split('</aside>', 1)[0]
     assert sidebar.count('data-chat-history') == 1
     assert 'href="/criteria"' not in sidebar
-    assert 'href="/criteria"' in page and 'href="/archive"' in page   # 라이브러리 탭(기준 문서·원본 보관소)
+    assert 'href="/criteria"' not in page and 'href="/archive"' in page   # 라이브러리 탭(문서·원본 보관소) — 기준은 목록의 칩
     assert 'work-nav' not in sidebar
     assert '>처리 현황</div>' not in page
     assert '>접수 문서' not in page
     assert 'name="sector"' in page
-    assert client.get('/criteria').status_code == 200
+    old = client.get('/criteria', follow_redirects=False)
+    assert old.status_code == 303 and old.headers['location'] == '/?type=all&use=criteria'
 
 
 def test_project_library_keeps_creation_and_document_search(tmp_path, monkeypatch):
@@ -117,5 +118,5 @@ def test_project_library_keeps_creation_and_document_search(tmp_path, monkeypatc
     assert '검색 결과' not in library
     search = client.get('/?type=all&q=없는문서')
     assert search.status_code == 200 and '검색 결과' in search.text
-    assert 'href="/criteria"' in library and 'href="/archive"' in library
+    assert 'use=criteria' in library and 'href="/archive"' in library
     assert 'data-page-back href="/chat"' in client.get('/criteria').text

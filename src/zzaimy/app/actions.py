@@ -57,7 +57,7 @@ REGISTRY: tuple[Action, ...] = (
            ("고쳐", "바꿔", "수정", "다시 써", "반영해"), True, auto=True),
 
     # ---- 문서 모음 ----
-    Action("criteria.list", "기준 문서 목록", "/criteria", "get", (),
+    Action("criteria.list", "기준 문서 목록", "/?type=all&use=criteria", "get", (),
            ("기준", "규정", "지침", "학칙")),
     Action("docs.list", "접수 문서함", "/", "get", (), ("문서함", "접수", "목록")),
     Action("graph.open", "지식 그래프", "/graph/explore", "get", (),

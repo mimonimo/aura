@@ -69,25 +69,23 @@ def test_extract_view_drops_split_numbers_duplicate_headings_and_table_echo():
 
 # ── 기준 문서 화면 ─────────────────────────────────────────────────────────
 
-def test_criteria_page_script_is_scoped_and_filters_have_counts(client):
+def test_criteria_chip_script_is_scoped_and_filters_have_counts(client):
     db = client.app.state.db
     a = _doc(db, "가상 공고문.pdf", doc_type="regulation")
     db.set_document_kind(a, "announcement")
     b = _doc(db, "가상 내규.pdf", doc_type="regulation")
     db.set_document_kind(b, None)
-    c_ = db.add_document("처리중 기준.pdf", "/tmp/x.pdf", doc_type="regulation")   # 접수 상태 그대로
-    page = client.get("/criteria").text
+    db.add_document("처리중 기준.pdf", "/tmp/x.pdf", doc_type="regulation")   # 접수 상태 그대로
+    page = client.get("/criteria").text                                # 옛 기준 문서 탭 → 라이브러리 「기준」 칩
     script = page.split('<script>\n(function () {', 1)
     assert len(script) == 2                                            # 화면 스크립트는 함수로 감싼다
     assert "var status " not in page and "var status=" not in page
-    assert '<option value="_none">분류 전 2</option>' in page
-    assert '<option value="announcement">공고 1</option>' in page
-    assert '<option value="processing">처리 중 1</option>' in page and '<option value="reviewed">등록 완료 2</option>' in page
-    assert f'data-status="processing"' in page and c_
+    assert '<option value="_none" >분류 전 2</option>' in page
+    assert '<option value="announcement" >공고 1</option>' in page
     assert "검색 자료" not in page and "적용 영역" not in page
     assert "<h1>" in page and page.count("<h1") == 1
     assert 'type="submit" disabled>등록</button>' in page          # 파일을 고르기 전에는 등록을 끈다
-    assert "sel.selectedIndex = 0" in page                            # 초기화는 모든 필터 칸을 되돌린다
+    assert 'action="/criteria/upload"' in page                       # 기준 등록은 기존 반입 경로 그대로
 
 
 # ── 공고 갈래 → 프로젝트 기준 문서 ─────────────────────────────────────────
@@ -257,8 +255,8 @@ def test_split_numbering_lines_collapse_but_numbers_stay():
 
 
 def test_library_tab_names_come_from_one_place(client):
-    page = client.get("/criteria").text
-    assert page.count(">등록 문서</a>") == 2                         # 탭과 안내문이 같은 이름
+    page = client.get("/?type=all").text
+    assert page.count(">문서</a>") == 1 and "<h1>문서</h1>" in page     # 탭과 머리 제목이 같은 이름(library_tabs)
     templates = Path(__file__).resolve().parents[1] / "src" / "zzaimy" / "app" / "templates"
     for f in templates.glob("*.html"):
         assert "「프로젝트·문서」" not in f.read_text(encoding="utf-8"), f.name

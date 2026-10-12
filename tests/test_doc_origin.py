@@ -21,7 +21,7 @@ def test_back_link_prefers_active_project_then_origin():
     archived = {"id": 9, "name": "보관 묶음", "archived": 1}
     assert doc_origin.back_link(doc, archived)["label"] == "보관된 사업으로"
     assert doc_origin.back_link(doc, archived, "graph")["label"] == "그래프 탐색으로"
-    assert doc_origin.back_link({"doc_type": "regulation"}, None)["href"] == "/criteria"
+    assert doc_origin.back_link({"doc_type": "regulation"}, None)["href"] == "/?type=all&use=criteria"
     assert doc_origin.back_link({"doc_type": "grant", "stored_path": "dgx://가/나.pdf"}, None)["href"] == "/archive"
 
 

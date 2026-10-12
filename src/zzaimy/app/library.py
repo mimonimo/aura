@@ -87,3 +87,62 @@ def copy_url(url: str) -> str:
     """구글 문서 주소 → 사본 만들기 주소. 공용 원본을 편집 모드로 열지 않는다. 구글 문서가 아니면 빈 문자열."""
     m = _GDOC.match((url or "").strip())
     return f"{m.group(1)}/copy" if m else ""
+
+
+# ---- 쓰임새 칩과 업무 — 한 목록(ADR-0062) ----
+#
+# 라이브러리는 문서 목록 하나다. 「기준」 은 따로 쌓아 둔 탭이 아니라 쓰임새로 고르는 칩이다 — 서류 갈래(kind)가
+# 공고·지침·규정·심사 기준·기본계획이거나(project_documents.CRITERIA_KINDS, 프로젝트 기준 자동 연결과 같은 집합)
+# 규정 색인에 든 문서(doc_type='regulation'). 나머지는 「작성·결과」(계획서·보고서·양식·현황표·분류 전 …).
+# 데이터는 바꾸지 않는다 — 칩은 목록을 거르기만 하고, 규정 색인 반입은 기존 경로(/criteria/upload)만 쓴다.
+
+USES = (("all", "전체"), ("criteria", "기준"), ("work", "작성·결과"))
+USE_METRICS = {"all": "documents_visible", "criteria": "documents_use_criteria", "work": "documents_use_work"}
+
+
+def _criteria_kinds() -> list[str]:
+    from zzaimy.app.project_documents import CRITERIA_KINDS
+
+    return sorted(CRITERIA_KINDS)
+
+
+def use_of(doc_type: str | None, kind: str | None) -> str:
+    """문서 하나의 쓰임새 — criteria | work. use_sql 과 같은 규칙(테스트가 대조한다)."""
+    return "criteria" if (doc_type or "") == "regulation" or (kind or "") in _criteria_kinds() else "work"
+
+
+def use_sql(use: str) -> tuple[str, list]:
+    """쓰임새 칩의 SQL 조건(표 별칭 d) — (조건, 인자). all 이나 모르는 값이면 빈 조건."""
+    kinds = _criteria_kinds()
+    marks = ",".join("?" * len(kinds))
+    crit = f"(COALESCE(d.doc_type, '') = 'regulation' OR COALESCE(d.kind, '') IN ({marks}))"
+    if use == "criteria":
+        return crit, list(kinds)
+    if use == "work":
+        return f"NOT {crit}", list(kinds)
+    return "", []
+
+
+def use_case_sql() -> tuple[str, list]:
+    """쓰임새를 한 열로 — 칩마다 수를 한 번에 센다."""
+    kinds = _criteria_kinds()
+    marks = ",".join("?" * len(kinds))
+    return (f"CASE WHEN COALESCE(d.doc_type, '') = 'regulation' OR COALESCE(d.kind, '') IN ({marks})"
+            " THEN 'criteria' ELSE 'work' END"), list(kinds)
+
+
+def business_sql(businesses) -> str:
+    """문서의 업무 열(표 별칭 d) — 접수 문서는 처리 갈래(doc_type), 기준·추출 문서는 업무 영역(sector), 없으면 공통."""
+    keys = ",".join(f"'{k}'" for k in businesses)     # 화면 상수(INBOX_TYPES)의 열쇠만 — 사용자 값이 아니다
+    return (f"CASE WHEN COALESCE(d.doc_type, '') IN ({keys}) THEN d.doc_type"
+            f" WHEN COALESCE(d.sector, '') IN ({keys}) THEN d.sector ELSE 'common' END")
+
+
+def business_filter_sql(business: str, businesses) -> tuple[str, list]:
+    """고른 업무의 문서 — 그 업무 문서와 공통(모든 업무에 적용하는 기준·공통 문서)."""
+    return f"{business_sql(businesses)} IN (?, 'common')", [business]
+
+
+def show_business_tabs(counts: dict[str, int], businesses) -> bool:
+    """업무 탭 줄은 문서가 있는 업무가 둘 이상일 때만 — 하나뿐이면 탭은 고를 것이 없다(선택 상자에서 고른다)."""
+    return sum(1 for k in businesses if counts.get(k)) >= 2

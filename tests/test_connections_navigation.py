@@ -7,7 +7,7 @@ def test_library_tabs_and_no_connections_menu(client):
     for path in ("/?type=all", "/criteria", "/archive"):
         page = client.get(path).text
         assert 'aria-label="라이브러리"' in page, path
-        assert 'href="/criteria"' in page and 'href="/archive"' in page, path
+        assert 'href="/criteria"' not in page and 'href="/archive"' in page, path   # 기준은 목록의 칩(ADR-0062)
         assert ">자료 연결<" not in page, path
     assert client.get("/connections").status_code == 404
     assert client.get("/ocr").status_code == 404
