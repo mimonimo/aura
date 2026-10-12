@@ -171,19 +171,58 @@ body .chat-doc-editor header { padding:12px 16px; gap:8px; }
 #chatScroll .chat-progress .chat-progress-head { max-width:560px; }
 body #chatForm { max-width:1040px; }
 .msg hr { border:none; border-top:1px solid #E3E8EF; margin:14px 0; }
-/* 필요한 값 입력 폼 — 제목 한 줄, 칸은 제목 위·입력 아래로 두 열, 보내기는 오른쪽 아래. 칸이 한 줄에 몰려 잘리지 않게 한다 */
-#chatScroll .chat-suggestions .chat-suggestion-form { flex:1 1 100%; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:4px 16px; padding:14px 16px; border:1px solid #DCE3EC; border-radius:12px; background:#FAFBFD; }
-#chatScroll .chat-suggestion-form .chat-form-title { grid-column:1 / -1; margin-bottom:6px; font-size:13px; font-weight:700; color:#23354D; }
-/* 칸 하나 = 이름 · 설명 · 입력 세 줄. 같은 행의 두 칸이 이름·설명·입력끼리 나란하도록 부모 격자의 행을 함께 쓴다(subgrid) */
-#chatScroll .chat-suggestion-form .chat-form-field { display:grid; grid-row:span 3; grid-template-rows:subgrid; row-gap:4px; min-width:0; font-size:12.5px; color:#3B4A5E; }
-#chatScroll .chat-suggestion-form .chat-form-field textarea { width:100%; min-width:0; box-sizing:border-box; min-height:36px; max-height:180px; padding:8px 10px; border:1px solid #CAD4E0; border-radius:8px; font:inherit; font-size:13px; line-height:1.5; background:#fff; resize:none; field-sizing:content; align-self:start; }
+/* 필요한 값 입력 폼 — 한 열 목록. 줄마다 [채움 표시·이름 / 한 줄 설명] [입력(내용만큼 자람) · 자료 출처] [모름·나중에].
+   넓은 화면에서도 이름과 칸이 한 줄에 맞물려 위에서 아래로 훑어 채운다 */
+#chatScroll .chat-suggestions .chat-suggestion-form { flex:1 1 100%; display:block; padding:14px 16px 12px; border:1px solid #DCE3EC; border-radius:12px; background:#FAFBFD; }
+#chatScroll .chat-suggestion-form .chat-form-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+#chatScroll .chat-suggestion-form .chat-form-title { font-size:13.5px; font-weight:700; color:#23354D; }
+#chatScroll .chat-suggestion-form .chat-form-count { font-size:12px; color:#3F5F8A; font-variant-numeric:tabular-nums; }
+#chatScroll .chat-suggestion-form .chat-form-more { font-size:12px; color:#65758A; }
+#chatScroll .chat-suggestion-form .chat-form-tip { margin:4px 0 8px; font-size:11.5px; color:#7B889A; }
+#chatScroll .chat-suggestion-form .chat-form-list { list-style:none; margin:0; padding:0; border-top:1px solid #E6EBF2; }
+#chatScroll .chat-suggestion-form .chat-form-field { display:grid; grid-template-columns:minmax(150px,240px) minmax(0,1fr) auto; align-items:start; gap:4px 14px; padding:9px 0; border-bottom:1px solid #E6EBF2; min-width:0; font-size:12.5px; color:#3B4A5E; }
+#chatScroll .chat-suggestion-form .chat-form-name { min-width:0; padding-top:6px; }
+#chatScroll .chat-suggestion-form .chat-form-label { display:flex; align-items:center; gap:7px; font-weight:600; color:#23354D; font-size:13px; line-height:1.5; cursor:pointer; }
+#chatScroll .chat-suggestion-form .chat-form-check { flex:none; width:16px; height:16px; box-sizing:border-box; border:1.5px solid #B8C4D3; border-radius:50%; background:#fff; position:relative; }
+#chatScroll .chat-suggestion-form .is-filled .chat-form-check { border-color:#2E7D4F; background:#2E7D4F; }
+#chatScroll .chat-suggestion-form .is-filled .chat-form-check::after { content:''; position:absolute; left:4px; top:1px; width:4px; height:8px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+#chatScroll .chat-suggestion-form .is-later .chat-form-check { border-style:dashed; }
+/* 설명은 이름 아래 한 줄 — 넘치면 말줄임, 전체는 툴팁(title)·누르면 펼침 */
+#chatScroll .chat-suggestion-form .chat-form-hint { display:block; margin:2px 0 0 23px; font-size:11.5px; line-height:1.5; color:#65758A; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; cursor:default; }
+#chatScroll .chat-suggestion-form .chat-form-hint:empty { display:none; }
+#chatScroll .chat-suggestion-form .chat-form-hint.is-open { white-space:normal; overflow-wrap:anywhere; }
+#chatScroll .chat-suggestion-form .chat-form-input { min-width:0; }
+#chatScroll .chat-suggestion-form .chat-form-field textarea { display:block; width:100%; min-width:0; box-sizing:border-box; min-height:36px; max-height:180px; margin:0; padding:7px 10px; border:1px solid #CAD4E0; border-radius:8px; font:inherit; font-size:13px; line-height:1.5; background:#fff; resize:none; field-sizing:content; overflow-y:auto; }
 #chatScroll .chat-suggestion-form .chat-form-field textarea:focus { outline:2px solid #497BFB; outline-offset:0; border-color:#497BFB; }
-#chatScroll .chat-suggestion-form .chat-form-label { font-weight:600; color:#23354D; margin-top:10px; }
-#chatScroll .chat-suggestion-form .chat-form-count { margin-left:8px; font-size:12px; font-weight:400; color:#65758A; }
-#chatScroll .chat-suggestion-form button[type=submit] { grid-column:1 / -1; justify-self:end; margin-top:10px; }
-/* 칸 설명은 칸 아래 한 줄(자리표시 글은 칸 폭에서 잘린다) */
-#chatScroll .chat-suggestion-form .chat-form-hint { font-size:11.5px; line-height:1.5; color:#65758A; overflow-wrap:anywhere; }
+#chatScroll .chat-suggestion-form .chat-form-field textarea:disabled { background:#F1F4F8; color:#8995A6; border-style:dashed; }
+#chatScroll .chat-suggestion-form .is-later .chat-form-label, #chatScroll .chat-suggestion-form .is-later .chat-form-hint { color:#8995A6; }
+/* 자료에서 찾은 확인 전 값 — 칸 테두리·출처 줄을 노랑으로, 「확인」 뒤에는 초록 */
+#chatScroll .chat-suggestion-form .is-suggested textarea { border-color:#E0B54B; background:#FFFCF2; }
+#chatScroll .chat-suggestion-form .chat-form-source { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:5px; font-size:11.5px; color:#7A5A12; }
+#chatScroll .chat-suggestion-form .chat-form-source > span { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+#chatScroll .chat-suggestion-form .chat-form-source button { min-height:26px; padding:2px 10px; border-radius:7px; font-size:11.5px; }
+#chatScroll .chat-suggestion-form .is-accepted textarea { border-color:#9CCBAE; background:#F6FBF8; }
+#chatScroll .chat-suggestion-form .is-accepted .chat-form-source { color:#2E6B45; }
+#chatScroll .chat-suggestion-form .is-accepted [data-accept-value] { display:none; }
+/* 모름·나중에 — 칸 오른쪽 작은 토글(라벨 전체가 누름 영역) */
+#chatScroll .chat-suggestion-form .chat-form-later { display:inline-flex; align-items:center; gap:6px; min-height:36px; padding:0 10px; border:1px solid #DCE3EC; border-radius:8px; background:#fff; color:#53647B; font-size:12px; white-space:nowrap; cursor:pointer; user-select:none; }
+#chatScroll .chat-suggestion-form .chat-form-later input { width:15px; height:15px; margin:0; accent-color:#3F5F8A; cursor:pointer; }
+#chatScroll .chat-suggestion-form .chat-form-later:hover { border-color:#AEBBCD; }
+#chatScroll .chat-suggestion-form .chat-form-later:has(input:checked) { background:#EEF2F7; border-color:#8FA2BB; color:#23354D; }
+#chatScroll .chat-suggestion-form .chat-form-later:has(input:focus-visible) { outline:2px solid #497BFB; outline-offset:2px; }
+#chatScroll .chat-suggestion-form .chat-form-foot { display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-top:12px; }
+#chatScroll .chat-suggestion-form .chat-form-status { flex:1; min-width:0; font-size:12px; color:#3F5F8A; }
+#chatScroll .chat-suggestion-form .chat-form-foot button[type=submit] { border-radius:9px; min-height:36px; padding:8px 16px; font-size:13px; background:#1B3B75; border:1px solid #1B3B75; color:#fff; }
+#chatScroll .chat-suggestion-form .chat-form-foot button[type=submit]:hover:not(:disabled) { background:#16305F; border-color:#16305F; }
+#chatScroll .chat-suggestion-form .chat-form-foot button[type=submit]:disabled { opacity:.55; cursor:default; }
+/* 저장 뒤 — 폼을 접고 진행 한 줄(대화 진행 카드가 이어받는다) */
+#chatScroll .chat-suggestion-form.is-sent > :not(.chat-form-sent) { display:none; }
+#chatScroll .chat-suggestion-form .chat-form-sent { display:flex; align-items:center; gap:9px; font-size:13px; color:var(--navy,#1B3B75); font-weight:600; }
 #chatDocumentOpen[hidden] { display:none; }
-@media (max-width: 720px) { #chatScroll .chat-suggestions .chat-suggestion-form { grid-template-columns:minmax(0,1fr); } }
+@media (max-width: 720px) {
+  #chatScroll .chat-suggestion-form .chat-form-field { grid-template-columns:minmax(0,1fr) auto; }
+  #chatScroll .chat-suggestion-form .chat-form-name { grid-column:1 / -1; padding-top:0; }
+  #chatScroll .chat-suggestion-form .chat-form-later { padding:0 8px; }
+}
 
 #chatScroll .chat-jump-form { align-self:flex-start; margin:2px 4px 0; font-size:12.5px; padding:6px 12px; min-height:32px; }

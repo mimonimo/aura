@@ -57,9 +57,37 @@ def set_pending(db, session_id: int, asks: list[dict]) -> None:
 def add_pending(db, session_id: int, asks: list[dict]) -> list[dict]:
     cur = pending(db, session_id)
     names = {a["name"] for a in cur}
-    cur += [a for a in asks if a.get("name") and a["name"] not in names]
+    new = [a for a in asks if a.get("name") and a["name"] not in names]
+    if new:                                   # 새로 물을 값이 생기면 앞서 미룬 값도 다시 차례를 다툰다(맨 뒤 자리는 그대로)
+        for a in cur:
+            a.pop(LATER, None)
+    cur += new
     set_pending(db, session_id, cur)
     return cur
+
+
+LATER = "later"
+
+
+def defer(db, session_id: int, names) -> list[str]:
+    """담당자가 「모름·나중에」 로 고른 값 — 이번 칸에서 빼고 차례의 맨 뒤로 보낸다. 미룬 값을 돌려준다.
+
+    칸은 받을 값 목록의 끝(가장 최근)부터 채우므로 「맨 뒤 차례」 는 목록의 앞자리다. 미룬 값에는 표시를 붙여
+    이번 칸에서 빼고(form_option), 다른 값이 다 차거나 담당자가 다시 미루면(표시를 새로 매긴다) 다음 차례에 나온다.
+    물었던 이름만 받는다 — 엉뚱한 이름은 무시한다."""
+    cur = pending(db, session_id)
+    want = [n for n in dict.fromkeys(str(x).strip() for x in (names or [])) if n]
+    have = {a["name"] for a in cur}
+    want = [n for n in want if n in have]
+    if not want:
+        return []
+    for a in cur:
+        a.pop(LATER, None)
+    later = [a for a in cur if a["name"] in want]
+    for a in later:
+        a[LATER] = True
+    set_pending(db, session_id, later + [a for a in cur if a["name"] not in want])
+    return [a["name"] for a in later]
 
 
 def _facts_key(session_: dict | None) -> str:
@@ -203,13 +231,17 @@ def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
     suggested = suggested or {}
     fields = []
     # 칸은 여섯 개까지 — 가장 최근에 모은 값부터(방금 답이 물은 값이 칸에 있어야 답과 칸이 맞는다). 앞 절에서 모은 나머지는
-    # 이 칸을 채우거나 기억하면 다음 차례에 나온다
-    shown = asks[-6:]
+    # 이 칸을 채우거나 기억하면 다음 차례에 나온다. 「나중에」 로 미룬 값(defer)은 다른 값이 남아 있는 동안 칸에서 뺀다
+    now = [a for a in asks if not a.get(LATER)] or asks
+    shown = now[-6:]
     for a in shown:
         s = suggested.get(a["name"]) or {}
-        hint = (f"자료에서 찾음 · 확인 전 — 《{s.get('title', '')}》" if s.get("value") else a.get("hint") or "")
-        fields.append({"name": a["name"], "label": a["name"], "placeholder": hint, "required": False, "value": s.get("value") or ""})
+        found = bool(s.get("value"))
+        hint = (f"자료에서 찾음 · 확인 전 — 《{s.get('title', '')}》" if found else a.get("hint") or "")
+        fields.append({"name": a["name"], "label": a["name"], "placeholder": hint, "required": False, "value": s.get("value") or "",
+                       "hint": a.get("hint") or "", "source": str(s.get("title") or "") if found else "", "suggested": found})
     return {"kind": "form", "text": "필요한 값 입력", "fields": fields, "more": len(asks) - len(shown),
+            "later": sum(1 for a in asks if a.get(LATER) and a not in shown),
             "template": "; ".join(f"{a['name']}: {{{a['name']}}}" for a in shown),
             "question": "; ".join(f"{a['name']}: (값)" for a in shown),
             "submit": "확인" if any(f["value"] for f in fields) else "저장"}

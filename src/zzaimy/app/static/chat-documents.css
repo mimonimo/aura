@@ -28,6 +28,13 @@ main>.chat-doc-editor{transition:none}
  main>#chatWorkspace{flex:0 0 100%;width:100%;min-width:0;box-sizing:border-box;transition:flex-basis .26s var(--ease,ease),width .26s var(--ease,ease)}
  main.chat-doc-open.chat-doc-closing>#chatWorkspace{flex-basis:100%;width:100%}
  main.chat-doc-resizing>#chatWorkspace{transition:none}
+ /* 문서 칸 자리는 전환에 기대지 않는다 — 열면 곧바로 오른쪽 끝에 제 폭으로 서고(대화 칸만 줄어든다), 닫을 때만 밀려 나간다.
+    탭이 뒤에 있거나 전환이 멈춰도 패널 머리(닫기)가 화면 밖으로 넘치지 않게 */
+ main.chat-doc-open:has(>#chatWorkspace){position:relative}
+ main.chat-doc-open>.chat-doc-editor{position:absolute;top:0;right:0;bottom:0;height:auto;z-index:2}
+ main.chat-doc-open>.chat-doc-divider{position:absolute;top:0;bottom:0;left:calc(var(--chat-width,50%) - 4px);width:8px;z-index:2}
+ main.chat-doc-open.chat-doc-closing>.chat-doc-editor{transform:translateX(100%);transition:transform .26s var(--ease,ease)}
+ main.chat-doc-open.chat-doc-closing>.chat-doc-divider{visibility:hidden}
 }
 @media(prefers-reduced-motion:reduce){main>#chatWorkspace{transition:none!important}}
 

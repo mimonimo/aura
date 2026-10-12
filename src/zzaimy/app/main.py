@@ -2718,7 +2718,10 @@ def create_app(
         except Exception:
             return {}
         vals = {k[6:]: str(v).strip() for k, v in form.multi_items() if k.startswith("field_") and not hasattr(v, "filename")}
-        return {"values": vals, "template": str(form.get("template") or "")} if vals else {}
+        later = [str(v).strip() for k, v in form.multi_items() if k == "later" and not hasattr(v, "filename") and str(v).strip()]
+        if not vals and not later:
+            return {}
+        return {"values": vals, "template": str(form.get("template") or ""), "later": later}
 
     @app.post("/chat/send")
     def chat_send(
@@ -2735,12 +2738,22 @@ def create_app(
         from zzaimy.app.responder import normalize_input
 
         q = normalize_input(question).strip()          # 전각 영문·숫자(ＡＩＤ)·「。、」를 고쳐야 검색어가 맞는다
-        if form_fields.get("values"):
+        if form_fields:
             from zzaimy.app import asks as _asks
 
-            composed = _asks.compose(form_fields.get("template") or "; ".join(f"{k}: {{{k}}}" for k in form_fields["values"]), form_fields["values"])
+            # 「모름·나중에」 로 고른 값은 이번에 묻지 않고 차례의 뒤로 — 같은 칸에 적은 값이 있으면 값이 먼저다
+            later = [n for n in form_fields.get("later") or [] if not (form_fields.get("values") or {}).get(n)]
+            if later and session_id is not None:
+                _owned_chat(request, session_id)
+                _asks.defer(db, session_id, later)
+            vals = {k: v for k, v in (form_fields.get("values") or {}).items() if v and k not in later}
+            composed = _asks.compose(form_fields.get("template") or "; ".join(f"{k}: {{{k}}}" for k in vals), vals) if vals else ""
             if composed:
                 q = composed
+            elif later and session_id is not None:
+                return RedirectResponse(f"/chat/{session_id}", status_code=303)   # 미루기만 — 대화로 보낼 값이 없다
+            elif form_fields.get("template"):
+                return RedirectResponse(f"/chat/{session_id}" if session_id is not None else "/chat", status_code=303)   # 빈 칸만 — 「(값)」 틀을 보내지 않는다
         if not q:
             return RedirectResponse("/chat", status_code=303)
         files = [f for f in (attachment or []) if f is not None and f.filename]
