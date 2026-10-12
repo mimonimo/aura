@@ -5082,13 +5082,17 @@ def create_app(
     def dev_nas(request: Request, ok: str = "", err: str = "", probe: str = "", plan: str = ""):
         from zzaimy.ingest import nas_sync
 
+        # 연결 확인·미리보기 결과는 그 폴더 카드 바로 아래에 둔다(되돌아오는 주소의 #result-{id} 로 그 자리까지 내려간다)
         probe_result = plan_result = None
+        from datetime import datetime as _dt
+
+        checked_at = _dt.now().strftime("%H:%M:%S")
         if probe:
             src = nas_sync.get(probe)
-            probe_result = {"name": src["name"], **nas_sync.probe(src)} if src else None
+            probe_result = {"id": src["id"], "name": src["name"], "at": checked_at, **nas_sync.probe(src)} if src else None
         if plan:
             src = nas_sync.get(plan)
-            plan_result = {"name": src["name"], **nas_sync.plan(src)} if src else None
+            plan_result = {"id": src["id"], "name": src["name"], "at": checked_at, **nas_sync.plan(src)} if src else None
         smb_ok = True
         try:
             import smbclient  # noqa: F401
@@ -5101,7 +5105,7 @@ def create_app(
         return templates.TemplateResponse(request, "dev_nas.html", ctx(request, {
             "ok": ok, "err": err, "sources": nas_sync.list_public(),
             "backends": nas_sync.BACKENDS, "targets": nas_sync.TARGETS, "sectors": nas_sync.SECTORS,
-            "default_exts": " ".join(nas_sync.DEFAULT_EXTENSIONS), "probe_result": probe_result,
+            "probe_result": probe_result,
             "plan_result": plan_result, "type_groups": nas_sync.TYPE_GROUPS, "smb_ok": smb_ok,
             "gdrive": {**gdrive.public_status(), "redirect_uri": _gdrive_redirect_uri(request)},
             "levels": LEVELS, "dept_choices": [d.get("dept") for d in db.department_counts() if d.get("dept")],
@@ -5406,7 +5410,7 @@ def create_app(
 
     @app.post("/dev/nas/{sid}/plan")
     def dev_nas_plan(sid: str):
-        return RedirectResponse(f"/dev/nas?plan={sid}", status_code=303)
+        return RedirectResponse(f"/dev/nas?plan={_q(sid)}#result-{_q(sid)}", status_code=303)
 
     @app.post("/dev/nas/add")
     def dev_nas_add(name: str = Form(""), backend: str = Form("local"), root: str = Form(""),
@@ -5466,7 +5470,7 @@ def create_app(
 
     @app.post("/dev/nas/{sid}/probe")
     def dev_nas_probe(sid: str):
-        return RedirectResponse(f"/dev/nas?probe={sid}", status_code=303)
+        return RedirectResponse(f"/dev/nas?probe={_q(sid)}#result-{_q(sid)}", status_code=303)
 
     @app.post("/dev/nas/{sid}/sync")
     def dev_nas_sync(sid: str, wait: str = Form("")):

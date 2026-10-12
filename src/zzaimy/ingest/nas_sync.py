@@ -28,7 +28,14 @@ BACKENDS = {
 TARGETS = {"regulation": "기준 문서(규정·지침·공고)로 등록", "ocr": "일반 문서로 등록(본문 읽기)"}
 # 업무 목록은 공용 표 하나에서 — 화면마다 업무가 빠지지 않게
 from zzaimy.app.work_areas import SECTOR_LABELS as SECTORS  # noqa: E402
-DEFAULT_EXTENSIONS = [".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".xls", ".xlsx", ".png", ".jpg", ".jpeg", ".tif", ".tiff"]
+# 가져올 수 있는 형식은 한 곳에서 — 처리 대상 문서 형식(doc_formats.DOC_EXT)과, 사진 형식 가운데 반입 처리기가
+# 글자를 읽는 것(pipeline 의 이미지 판독). 여기 목록을 따로 적지 않는다(새 형식이 처리 대상이 되면 화면·필터가 따라온다)
+from zzaimy import doc_formats  # noqa: E402
+from zzaimy.app.pipeline import _IMAGE_SUFFIX as _READABLE_IMAGES  # noqa: E402
+
+PROCESSABLE_EXTENSIONS = [f".{e}" for e in doc_formats.DOC_EXT] + [
+    f".{e}" for e in doc_formats.IMAGE_EXT if f".{e}" in _READABLE_IMAGES]
+DEFAULT_EXTENSIONS = list(PROCESSABLE_EXTENSIONS)
 MAX_FILE_BYTES = 200 * 1024 * 1024
 
 _sources_path: Path | None = None
@@ -84,6 +91,8 @@ def public(src: dict) -> dict:
     c["target_label"] = TARGETS.get(src.get("target", ""), src.get("target", ""))
     c["sector_label"] = SECTORS.get(src.get("sector", "common"), src.get("sector", ""))
     c["run"] = _runs.get(src["id"], {})
+    c["root_label"] = root_label(src)
+    c["ext_groups"] = extension_groups(src)
     return c
 
 
@@ -103,10 +112,55 @@ def _norm_exts(text: str) -> list[str]:
     return exts or list(DEFAULT_EXTENSIONS)
 
 
-TYPE_GROUPS = [
-    ("pdf", "PDF", [".pdf"]), ("hwp", "한글", [".hwp", ".hwpx"]), ("word", "워드", [".doc", ".docx"]),
-    ("excel", "엑셀", [".xls", ".xlsx"]), ("image", "이미지", [".png", ".jpg", ".jpeg", ".tif", ".tiff"]),
+# 화면의 파일 종류 묶음 — 이름만 여기서 붙이고, 묶음에 드는 확장자는 PROCESSABLE_EXTENSIONS 에 있는 것만 남긴다.
+# 어느 묶음에도 들지 않은 처리 형식은 「그 밖의 문서」로 모아 빠지는 형식이 없게 한다(tests/test_nas_sync 가 지킨다)
+_GROUP_NAMES = [
+    ("pdf", "PDF", ("pdf",)), ("hwp", "한글", ("hwp", "hwpx")), ("word", "워드·서식 있는 글", ("doc", "docx", "rtf")),
+    ("excel", "엑셀·표", ("xls", "xlsx", "xlsm", "xlt", "ods", "csv")), ("slide", "발표", ("ppt", "pptx", "pptm")),
+    ("text", "글·웹 문서·메일", ("txt", "html", "htm", "mht", "eml")), ("image", "이미지", doc_formats.IMAGE_EXT),
 ]
+
+
+def _type_groups() -> list[tuple[str, str, list[str]]]:
+    groups, seen = [], set()
+    for key, label, names in _GROUP_NAMES:
+        exts = [e for e in PROCESSABLE_EXTENSIONS if e.lstrip(".") in names]
+        if exts:
+            groups.append((key, label, exts))
+            seen.update(exts)
+    rest = [e for e in PROCESSABLE_EXTENSIONS if e not in seen]
+    if rest:
+        groups.append(("other", "그 밖의 문서", rest))
+    return groups
+
+
+TYPE_GROUPS = _type_groups()
+
+
+def effective_extensions(src: dict) -> list[str]:
+    """원천이 실제로 가져오는 확장자 — 고른 묶음은 지금의 묶음 전체로 넓힌다(묶음에 새 처리 형식이 더해지면 따라온다).
+    묶음에 들지 않는 확장자를 직접 적은 원천은 그 확장자도 그대로 둔다."""
+    chosen = [e.lower() for e in (src.get("extensions") or DEFAULT_EXTENSIONS)]
+    out: list[str] = []
+    for _key, _label, exts in TYPE_GROUPS:
+        if any(e in chosen for e in exts):
+            out += exts
+    out += [e for e in chosen if e not in out]
+    return out
+
+
+def extension_groups(src: dict) -> list[dict]:
+    """화면의 「대상 형식」 — 고른 묶음 이름과 그 확장자."""
+    chosen = set(effective_extensions(src))
+    return [{"key": k, "label": label, "exts": exts} for k, label, exts in TYPE_GROUPS if chosen & set(exts)]
+
+
+def root_label(src: dict) -> str:
+    """폴더 경로를 사람 말로 — 구글 드라이브의 'root'(빈 값)는 「내 드라이브 최상위」."""
+    root = (src.get("root") or "").strip()
+    if src.get("backend") == "gdrive" and root.lower() in ("", "root"):
+        return "내 드라이브 최상위"
+    return root
 
 
 def _parse_since(text: str) -> float:
@@ -125,7 +179,7 @@ def _norm_excludes(text: str) -> list[str]:
 
 
 def _passes_filters(src: dict, rel: str, size: int, mtime: float) -> bool:
-    exts = set(src.get("extensions") or DEFAULT_EXTENSIONS)
+    exts = set(effective_extensions(src))
     if Path(rel).suffix.lower() not in exts:
         return False
     parts = Path(rel).parts[:-1]

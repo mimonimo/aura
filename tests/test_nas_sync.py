@@ -19,7 +19,7 @@ def env(tmp_path, monkeypatch):
     (nas / "규정" / "하위").mkdir(parents=True)
     (nas / "규정" / "학칙.pdf").write_bytes(b"%PDF-1.4 rule one")
     (nas / "규정" / "하위" / "장학규정.hwp").write_bytes(b"HWP rule two")
-    (nas / "규정" / "메모.txt").write_bytes(b"not a target")
+    (nas / "규정" / "설치.exe").write_bytes(b"not a target")   # 처리 형식(doc_formats)이 아닌 파일
     (nas / "규정" / ".숨김.pdf").write_bytes(b"hidden")
     app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox",
                      processor=FakeProcessor(), drafter=FakeDrafter())
@@ -38,7 +38,7 @@ def test_local_source_sync_dedup_and_update(env, tmp_path):
     # 연결 확인 — 목록만
     pr = nas_sync.probe(src)
     assert pr["ok"] and pr["n_match"] == 2 and "학칙.pdf" in pr["sample"] and not any(".숨김" in p for p in pr["sample"])
-    # 반입(동기) → 기준 문서 2건, txt 는 대상 아님
+    # 반입(동기) → 기준 문서 2건, 처리 형식이 아닌 exe 는 대상 아님
     from urllib.parse import unquote
     r = client.post(f"/dev/nas/{src['id']}/sync", data={"wait": "1"}, follow_redirects=False)
     assert "새로 2" in unquote(r.headers["location"])
@@ -59,7 +59,7 @@ def test_local_source_sync_dedup_and_update(env, tmp_path):
     assert res["dup"] == 1 and res["new"] == 1 and res["failed"] == 0
     assert len(db.list_documents("regulation")) == 3
     # NAS 원본은 손대지 않았다
-    assert {x.name for x in (nas / "규정").iterdir()} == {".숨김.pdf", "메모.txt", "하위", "학칙-사본.pdf", "학칙.pdf"}
+    assert {x.name for x in (nas / "규정").iterdir()} == {".숨김.pdf", "설치.exe", "하위", "학칙-사본.pdf", "학칙.pdf"}
     assert (nas / "규정" / "하위" / "장학규정.hwp").read_bytes() == b"HWP rule two"
     # 화면: 원천·마지막 반입 요약·결과 표, 비밀번호는 안 보인다
     page = client.get("/dev/nas").text
@@ -130,7 +130,7 @@ def test_browse_plan_and_filters(env, tmp_path):
     base = {"backend": "local", "root": str(nas / "규정"), "recursive": "1"}
     d = client.post("/dev/nas/browse-draft", data=dict(base, rel="")).json()
     assert d["ok"] and [x["name"] for x in d["dirs"]] == ["백업", "하위"]
-    assert d["counts"]["pdf"] == 3 and d["counts"]["hwp"] == 1 and d["other"] == 1   # txt 는 기타
+    assert d["counts"]["pdf"] == 3 and d["counts"]["hwp"] == 1 and d["other"] == 1   # exe 는 기타
     d1 = client.post("/dev/nas/browse-draft", data=dict(base, rel="하위")).json()
     assert d1["ok"] and d1["dirs"] == [] and d1["counts"]["hwp"] == 1 and d1["n_files"] == 1
     assert not client.post("/dev/nas/browse-draft", data=dict(base, rel="../x")).json()["ok"]
