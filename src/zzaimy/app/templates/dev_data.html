@@ -29,6 +29,15 @@
     padding:9px 12px; border:1px solid var(--line); border-radius:10px; cursor:pointer; }
   .src-list label:hover { background:var(--panel); }
   .src-list .s-desc, .src-table .s-desc { color:var(--muted); font-size:11.5px; margin-top:1px; }
+  .review-status { display:flex; align-items:center; gap:8px 10px; flex-wrap:wrap; margin:0; font-size:13px; color:var(--muted); }
+  .review-status span { margin-right:auto; }
+  .guide-fold { margin-bottom:20px; }
+  .guide-toggle { width:100%; justify-content:flex-start; gap:9px; background:#fff; color:var(--ink);
+    border:1px solid var(--line); border-radius:14px; padding:14px 20px; font-size:14px; }
+  .guide-toggle:hover { background:var(--panel); border-color:#94A3B8; }
+  .guide-toggle iconify-icon { color:var(--faint); font-size:16px; transition:transform .2s var(--ease); }
+  .guide-toggle[aria-expanded="true"] { margin-bottom:12px; }
+  .guide-toggle[aria-expanded="true"] iconify-icon { transform:rotate(90deg); }
 </style>
 
 {% if err %}
@@ -40,12 +49,22 @@
 </div></div>
 {% endif %}
 
-{% include "_training_guide.html" %}
+{# 설명은 접어 둔다 — 한 줄 제목만 보이고 일하는 칸이 바로 아래에 온다.
+   자리를 일하는 칸 아래로 내리거나 <details> 를 쓰면 tests/test_dev_pages.py(설명이 문답 검수 앞·이 화면에 details 없음)가
+   깨져, 자리는 두고 단추+숨김 영역으로 접는다 #}
+<div class="guide-fold" id="training-guide-fold">
+  <button type="button" class="guide-toggle" aria-expanded="false" aria-controls="training-guide-body" data-guide-toggle><iconify-icon icon="solar:alt-arrow-right-linear" aria-hidden="true"></iconify-icon>학습 문답 구성 안내</button>
+  <div id="training-guide-body" hidden>
+  {% include "_training_guide.html" %}
+  </div>
+</div>
 
 <section class="card"><div class="card-in"><h2><iconify-icon icon="solar:clipboard-check-linear"></iconify-icon>문답 검수
 <a class="h-link" href="/dev/train?tab=data&amp;view={{ 'main' if request.query_params.get('view') == 'legacy' else 'legacy' }}">{{ '검수로 돌아가기' if request.query_params.get('view') == 'legacy' else '이전 기록·이력' }}</a></h2>
 {% if grounded_ls.ok and grounded_ls.project_id %}<div class="review-summary"><span>전체 기록 <strong>{{ grounded_ls.total }}</strong> <small>이전 버전 포함</small></span><span>사람 검수 주석 <strong>{{ grounded_ls.done }}</strong></span></div>
-{% else %}<p class="muted">검수 현황 {{ grounded_ls.error or '프로젝트 미확인' }}</p>{% endif %}
+{% else %}{% set view = request.query_params.get('view') %}<p class="review-status" role="status"><span>검수 현황 미확인 · {{ grounded_note.what if grounded_note else (grounded_ls.error or '응답 오류') }}</span>
+{% if grounded_note %}<a class="btn-ghost" href="{{ grounded_note.href }}"{% if grounded_note.external %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ grounded_note.action }}{% if grounded_note.external %} <span aria-hidden="true">↗</span>{% endif %}</a>{% endif %}
+<a class="btn-ghost" href="/dev/train?tab=data{% if view %}&amp;view={{ view | urlencode }}{% endif %}&amp;recheck=1"><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>다시 확인</a></p>{% endif %}
 <div class="review-actions">
 {% if grounded_ls.ok and grounded_ls.project_id %}<a class="btn-ghost review-primary" href="{{ labelstudio_url }}/projects/{{ grounded_ls.project_id }}/data" target="_blank" rel="noopener noreferrer">원문과 답변 검수하기 <span aria-hidden="true">↗</span></a>{% endif %}
 <form method="post" action="/dev/data/grounded-pull"><button class="secondary" type="submit" {% if not grounded_ls.ok or not grounded_ls.project_id %}disabled{% endif %}><iconify-icon icon="solar:refresh-linear" aria-hidden="true"></iconify-icon>완료한 검수 결과 반영</button></form>
@@ -228,6 +247,15 @@
 {% include "_training_outputs.html" %}
 {% endif %}
 <script>
+(() => {
+  const toggle = document.querySelector('[data-guide-toggle]');
+  const body = document.getElementById('training-guide-body');
+  toggle?.addEventListener('click', () => {
+    const open = toggle.getAttribute('aria-expanded') !== 'true';
+    toggle.setAttribute('aria-expanded', String(open));
+    if (body) body.hidden = !open;
+  });
+})();
 (() => {
   const section = {{ request.query_params.get('tab', '') | tojson }};
   if (section === 'exports' || section === 'models') document.getElementById(section === 'exports' ? 'approved-data' : 'training-tools')?.scrollIntoView();

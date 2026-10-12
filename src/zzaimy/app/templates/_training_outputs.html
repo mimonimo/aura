@@ -1,9 +1,9 @@
 <style>
   #approved-data, #training-tools { scroll-margin-top:100px; }
-  .training-output-row, .training-tool-row { display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; padding:14px 0; border-bottom:1px solid var(--line); }
-  .training-output-row:last-child, .training-tool-row:last-child { border-bottom:0; }
-  .training-output-row > div, .training-tool-row > div { flex:1; min-width:160px; }
-  .training-output-row p, .training-tool-row p { margin:4px 0 0; font-size:12px; }
+  .training-output-row { display:flex; flex-wrap:wrap; gap:10px 16px; align-items:center; padding:14px 0; border-bottom:1px solid var(--line); }
+  .training-output-row:last-child { border-bottom:0; }
+  .training-output-row > div { flex:1; min-width:160px; }
+  .training-output-row p { margin:4px 0 0; font-size:12px; }
   .training-files { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
   .training-files a { display:inline-flex; align-items:center; gap:7px; max-width:100%; padding:6px 10px; border:1px solid var(--line); border-radius:7px; font-size:12px; background:var(--panel); }
   .training-files a span { overflow-wrap:anywhere; min-width:0; }
@@ -11,8 +11,24 @@
   .training-files a:hover { border-color:var(--navy); text-decoration:none; }
   .output-heading { display:flex; align-items:center; flex-wrap:wrap; gap:8px; font-size:13px; }
   .output-count { font-size:11px; font-weight:500; color:var(--muted); }
-  .output-selection { display:flex; align-items:center; gap:8px; cursor:pointer; }
-  .output-selection input { margin:0; }
+  /* 체크 상자는 이름·파일 수까지 라벨 전체가 누름 영역 */
+  .output-selection { display:inline-flex; align-items:center; gap:10px; min-height:40px; padding:6px 14px 6px 10px;
+    border:1px solid var(--line); border-radius:10px; cursor:pointer; background:#fff; }
+  .output-selection:hover { background:var(--panel); border-color:#94A3B8; }
+  .output-selection:has(input:checked) { border-color:#AABFD8; background:#F4F8FD; }
+  .output-selection:has(input:focus-visible) { outline:2px solid #94A3B8; outline-offset:2px; }
+  .output-selection input { margin:0; width:18px; height:18px; accent-color:var(--navy); cursor:pointer; flex:none; }
+  .output-note { margin:2px 0 0; font-size:12px; color:var(--muted); }
+  .output-footer .output-picked { font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .output-footer .output-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-left:auto; }
+  .tool-cards { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; }
+  @media (max-width:900px) { .tool-cards { grid-template-columns:1fr; } }
+  .tool-card { display:flex; flex-direction:column; gap:6px; min-height:132px; padding:16px 18px;
+    border:1px solid var(--line); border-radius:14px; background:#fff; }
+  .tool-card b { font-size:14px; color:var(--ink); }
+  .tool-card p { margin:0; font-size:12px; flex:1; }
+  .tool-card .tool-entry { margin-top:auto; align-self:flex-start; }
+  .tool-card .tool-missing { margin-top:auto; font-size:12px; }
   .output-empty { color:var(--muted); font-size:12px; }
   .output-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding-top:14px; }
   .output-footer p { margin:0; font-size:12px; }
@@ -20,32 +36,51 @@
 <section class="card" id="approved-data"><div class="card-in">
   <h2><iconify-icon icon="solar:export-linear"></iconify-icon>승인 데이터·산출물</h2>
   <p class="muted" style="font-size:12px;">학습 파일은 승인·개인정보·품질 검사 통과분만 제공됩니다. 검색 인덱스는 별도 산출물입니다.</p>
-  <form action="/dev/train/export.zip" method="get">
+  <form action="/dev/train/export.zip" method="get" id="trainingExportForm">
     {% for g in export_preview %}
     <div class="training-output-row">
       <input type="hidden" name="{{ g.group }}" value="0">
       <div><div class="output-heading">
-        {% if g.files %}<label class="output-selection"><input type="checkbox" name="{{ g.group }}" value="1" checked><b>{{ g.label }}</b></label><span class="output-count">파일 {{ g.files | length }}개</span>
+        {% if g.files %}<label class="output-selection"><input type="checkbox" name="{{ g.group }}" value="1" checked data-output-pick><b>{{ g.label }}</b><span class="output-count">파일 {{ g.files | length }}개</span></label>
         {% else %}<b>{{ g.label }}</b><span class="output-empty">반출할 파일 없음</span>{% endif %}
-        </div><p class="muted">{{ g.desc }}</p>
+        </div><p class="muted">{{ g.desc }}</p>{% if g.note %}<p class="output-note">{{ g.note }}</p>{% endif %}
         {% if g.files %}<div class="training-files">{% for f in g.files %}<a href="/dev/train/export/file?path={{ f.path | urlencode }}" aria-label="{{ f.path.rsplit('/', 1)[-1] }} 다운로드"><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon><span>{{ f.path.rsplit('/', 1)[-1] }}</span></a>{% endfor %}</div>{% endif %}
       </div>
     </div>
     {% else %}<p class="muted">산출물 목록을 불러오지 못했습니다. 새로고침 후 다시 확인하세요.</p>{% endfor %}
-    {% if export_preview | selectattr('files') | list %}<div class="output-footer"><p class="muted">파일은 개별로, 선택한 항목은 ZIP으로 내려받습니다.</p><button type="submit" class="secondary"><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon>선택 항목 내려받기</button></div>{% endif %}
+    {% if export_preview | selectattr('files') | list %}<div class="output-footer"><p class="muted">파일은 개별로, 선택한 항목은 ZIP으로 내려받습니다.</p><div class="output-actions"><span class="output-picked" role="status" data-output-picked></span><button type="submit" class="secondary" data-output-submit><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon>선택 항목 내려받기</button></div></div>{% endif %}
   </form>
 </div></section>
 <section class="card" id="training-tools"><div class="card-in">
   <h2><iconify-icon icon="solar:cpu-linear"></iconify-icon>학습·평가</h2>
+  <div class="tool-cards">
   {% for name, url, action, description in [
-    ('LLaMA Board', llamaboard_url, '학습 도구 실행', '내려받은 승인 데이터를 학습 도구에서 선택합니다.'),
-    ('TensorBoard', tensorboard_url, '학습 그래프 확인', '실행 중인 학습의 손실·평가 지표를 확인합니다.'),
+    ('LLaMA Board', llamaboard_url, '학습 도구 실행', '내려받은 승인 데이터 선택·학습 실행'),
+    ('TensorBoard', tensorboard_url, '학습 그래프 확인', '실행 중인 학습의 손실·평가 지표 그래프'),
     ('품질·성능 측정', '/dev/quality', '평가 결과·측정 열기', '검색 평가 결과 비교와 재측정')
   ] %}
-  <div class="training-tool-row"><div><b>{{ name }}</b><p class="muted">{{ description }}</p></div>
-    {% if url %}<a class="btn-ghost" href="{{ url }}" {% if name != '품질·성능 측정' %}target="_blank" rel="noopener noreferrer"{% endif %}>{{ action }}</a>
-    {% else %}<span class="muted">도구·모델 연결에서 주소 등록 필요</span>{% endif %}
+  <div class="tool-card"><b>{{ name }}</b><p class="muted">{{ description }}</p>
+    {% if url %}<a class="btn-ghost tool-entry" href="{{ url }}" {% if name != '품질·성능 측정' %}target="_blank" rel="noopener noreferrer"{% endif %}>{{ action }}</a>
+    {% else %}<a class="tool-missing" href="/dev/train?tab=settings">도구·모델 연결에서 주소 등록 필요</a>{% endif %}
   </div>
   {% endfor %}
+  </div>
   <p class="muted" style="margin:12px 0 0;font-size:12px;">도구 열기는 학습 시작이 아닙니다. 데이터는 자동 전달되지 않으며 평가셋 분리와 베이스라인 확인 후 실행합니다.</p>
 </div></section>
+<script>
+(() => {
+  // 선택 수 표시 · 선택이 없으면 「선택 항목 내려받기」 비활성
+  const form = document.getElementById('trainingExportForm');
+  const picked = form?.querySelector('[data-output-picked]');
+  const submit = form?.querySelector('[data-output-submit]');
+  if (!form || !picked || !submit) return;
+  const boxes = form.querySelectorAll('[data-output-pick]');
+  function sync() {
+    const n = [...boxes].filter(box => box.checked).length;
+    picked.textContent = n ? n + '/' + boxes.length + '개 선택' : '선택 없음';
+    submit.disabled = n === 0;
+  }
+  form.addEventListener('change', sync);
+  sync();
+})();
+</script>

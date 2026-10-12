@@ -5837,6 +5837,11 @@ def create_app(
                 dataset["export_ready"] = True
             except (ValueError, OSError):
                 dataset["export_ready"] = False
+        # 「다시 확인」 — 30초 캐시를 비우고 Label Studio 에 바로 다시 묻는다
+        if request.query_params.get("recheck"):
+            _grounded_cache["value"] = None
+        grounded_ls = _grounded_ls_status()
+        labelstudio_url = db.get_setting("labelstudio_url")
         try:
             review_report = _aj.loads(db.get_setting('grounded_review_report', '{}') or '{}')
         except ValueError:
@@ -5852,7 +5857,8 @@ def create_app(
             "development_tab": "data",
             "export_preview": export_preview,
             "tensorboard_url": db.get_setting("tensorboard_url", ""),
-            "grounded_ls": _grounded_ls_status(),
+            "grounded_ls": grounded_ls,
+            "grounded_note": _grounded_status_note(grounded_ls, labelstudio_url),
             "rag_rows": rag_rows or [],
             "source_preview": source_preview or [],
             "datasets": datasets,
@@ -5860,7 +5866,7 @@ def create_app(
             "ds_has_next": (ds_page + 1) * DS_PER < ds_total,
             "err": err, "ok": ok,
             "ls": _ls_status() if show_legacy else {"ok": False},
-            "labelstudio_url": db.get_setting("labelstudio_url"),
+            "labelstudio_url": labelstudio_url,
             "llamaboard_url": db.get_setting("llamaboard_url"),
         }))
 
@@ -5949,7 +5955,21 @@ def create_app(
     def _ls_status_reset() -> None:
         _ls_status_cache["value"] = None
 
+    _GROUNDED_PROJECT = "ZZAIMY 근거 기반 문답 검수"
     _grounded_cache: dict = {"at": 0.0, "value": None}
+
+    def _grounded_status_note(st: dict, ls_url: str | None) -> dict | None:
+        """검수 현황을 못 보일 때 무엇이 안 됐는지(한 줄)와 어디서 확인하는지.
+        연결은 됐는데 프로젝트가 없는 경우와 연결 자체가 안 된 경우를 나눈다."""
+        if st.get("ok") and st.get("project_id"):
+            return None
+        if st.get("ok"):
+            return {"what": f"Label Studio 연결됨 · 「{_GROUNDED_PROJECT}」 프로젝트 없음",
+                    "href": f"{ls_url.rstrip('/')}/projects" if ls_url else "/dev/train?tab=settings",
+                    "action": "Label Studio 프로젝트 목록" if ls_url else "도구·모델 연결",
+                    "external": bool(ls_url)}
+        return {"what": f"Label Studio 미연결({st.get('error') or '응답 오류'})",
+                "href": "/dev/train?tab=settings", "action": "도구·모델 연결", "external": False}
 
     def _grounded_ls_status():
         from zzaimy.dataset.ls_client import LabelStudioError
@@ -5957,7 +5977,7 @@ def create_app(
         if _grounded_cache["value"] is not None and now - _grounded_cache["at"] < 30:
             return _grounded_cache["value"]
         try:
-            value = _ls_client().status("ZZAIMY 근거 기반 문답 검수")
+            value = _ls_client().status(_GROUNDED_PROJECT)
         except LabelStudioError:
             value = {"ok": False, "error": "연결 설정 없음", "total": 0, "done": 0, "pending": 0, "project_id": None}
         _grounded_cache.update(at=now, value=value)

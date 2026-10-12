@@ -50,9 +50,11 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
     if Path(INDEX_PATH).exists():
         rag_files.append({"path": "rag/chunk_embeddings.npz",
                           "bytes": Path(INDEX_PATH).stat().st_size})
-    tree.append({"group": "rag", "label": "RAG 인덱스",
+    # 반출 대상은 규정 조각뿐 — 사업 문서 색인은 이 서버 DB 에 두고 반출하지 않는다(이름에서 드러나게)
+    tree.append({"group": "rag", "label": "규정 색인",
                  # 임베딩 이름은 색인을 실제로 만든 모델(색인 메타) — 환경 기본값이 아니라 /dev/quality·/dev/db 와 같은 값
                  "desc": f"규정 조각 {len(chunks):,}개 + 임베딩({_index_model_name() or MODEL_NAME})",
+                 "note": "사업 문서 색인은 이 서버 DB에 있어 반출 대상 아님",
                  "files": rag_files})
 
     # 학습 데이터
