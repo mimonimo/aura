@@ -1694,6 +1694,7 @@ def create_app(
         search_misses: dict[str, int] = {}                      # 값마다 이번 요청에서 찾았지만 못 찾은 횟수
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
         found: list[dict] = []                                  # 같은 근거를 조각으로 — 질문 답에 첫 근거로 넘긴다
+        found_docs: dict[int, dict] = {}                        # 이번 요청의 search 결과에 나온 문서 — read_found 가 읽을 수 있는 것만
 
         def asks_in(query: str) -> list[dict]:
             """이 검색어가 다루는 받지 못한 값 — 값 이름의 낱말이 검색어에 모두 있을 때(값마다 찾기 횟수를 세는 데 쓴다)."""
@@ -1735,6 +1736,15 @@ def create_app(
                             + ("" if crit_ids else "(이어진 기준 문서가 없다)") + " — 공고·지침이 프로젝트 문서로 올라와 있으면 source=project 로 찾는다.")
                 return f"「{query}」({src}) — 찾지 못함"
             body = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}\n{h['text'][:500]}" for h in hits[:4])
+            for h in hits[:4]:                                  # 이어 읽을 수 있는 문서 — 이번 검색(열람 범위 안)이 낸 것만
+                if h.get("doc_id") is not None:
+                    fd = found_docs.setdefault(int(h["doc_id"]), {"title": str(h.get("title") or "문서"), "chunks": [], "src": src})
+                    if h.get("chunk_id") is not None:
+                        fd["chunks"].append(int(h["chunk_id"]))
+            # 모델에게 보일 결과에는 문서 번호를 붙인다(read_found 로 이어 읽을 때 짚는 데) — 절 쓰기 재료(notes)에는 싣지 않는다
+            shown = "\n".join(f"《{h['title']}》{(' · ' + h['note']) if h.get('note') else ''}"
+                              + (f" (문서 {h['doc_id']})" if h.get("doc_id") is not None else "")
+                              + f"\n{h['text'][:500]}" for h in hits[:4])
             hint = doc_agent.match_hint(query, [h["text"][:500] for h in hits[:4]], extract_nouns)
             joined_ = re.sub(r"\s+", "", "\n".join(h["text"][:500] for h in hits[:4]))
             seen_asks = [x["name"] for x in _asks.pending(db, session_id)
@@ -1751,7 +1761,92 @@ def create_app(
             if src in ("project", "criteria"):                  # 값 채우기 근거는 이 프로젝트 문서의 결과만 — 문서함 전체는 아니다
                 seen_hits.extend({"title": str(h.get("title") or "문서"), "text": h["text"][:500], "doc_id": h.get("doc_id"),
                                   "chunk_id": h.get("chunk_id")} for h in hits[:4])   # 모델에게 보인 글 그대로
-            return (hint + "\n" + body) if hint else body          # 관찰은 길이 상한에서 잘리므로 일치 단서를 앞에 둔다
+            if any(len(h["text"]) > 500 for h in hits[:4] if h.get("doc_id") is not None):
+                hint = (hint + "\n" if hint else "") + "잘린 결과가 있다 — 필요한 부분이 잘렸으면 read_found 로 그 문서를 이어 읽는다."
+            return (hint + "\n" + shown) if hint else shown        # 관찰은 길이 상한에서 잘리므로 일치 단서를 앞에 둔다
+
+        def found_texts(did: int) -> tuple[list[str], list[int]]:
+            """찾은 문서의 조각 글(차례대로)과 조각 id — 검색이 조각을 건넬 때와 같은 글(접수 때 가린 조각, 표는 같은 평문 변환)."""
+            from zzaimy.app import grant_search
+
+            rows = [c for c in db.list_doc_chunks(did) if c.get("kind") in grant_search.TEXT_KINDS]
+            if rows:
+                return [grant_search._text(c) for c in rows], [int(c["id"]) for c in rows]
+            regs = db.chunks_for_docs([did])                    # 규정 색인에 있는 기준 문서
+            return ([(f"{c['heading']}\n" if (c.get("heading") or "").strip() else "") + str(c.get("content") or "") for c in regs],
+                    [int(c["id"]) for c in regs])
+
+        def pick_found(want: str) -> tuple[int | None, str]:
+            """모델이 짚은 문서 — 이번 search 결과의 문서 번호나 《제목》. 결과에 없던 문서는 고를 수 없다."""
+            def norm(t: str) -> str:
+                return re.sub(r"[\s\-_()\[\]{}.,:;·+/「」《》]+", "", t or "").lower()
+            names = ", ".join(f"《{v['title'][:40]}》(문서 {k})" for k, v in list(found_docs.items())[:8])
+            m_ = re.fullmatch(r"\s*(?:문서\s*)?(\d+)\s*", want or "")
+            if m_:
+                did_ = int(m_.group(1))
+                return (did_, "") if did_ in found_docs else (None, f"문서 {did_} 은(는) 이번 search 결과에 없다 — 결과에 나온 문서만 읽는다: {names}")
+            w = norm(want)
+            if not w:
+                return None, f"document 가 비었다 — 이번 search 결과의 《제목》이나 문서 번호: {names}"
+            exact = [k for k, v in found_docs.items() if norm(v["title"]) == w]
+            hits_ = exact or [k for k, v in found_docs.items() if w in norm(v["title"]) or norm(v["title"]) in w]
+            if len(hits_) == 1:
+                return hits_[0], ""
+            if hits_:
+                return None, "맞는 문서가 여럿이다 — 문서 번호로 고른다: " + ", ".join(f"《{found_docs[k]['title'][:40]}》(문서 {k})" for k in hits_[:8])
+            return None, f"「{want}」 은(는) 이번 search 결과에 없던 문서다 — 결과에 나온 문서만 읽는다: {names}"
+
+        def t_read_found(a: dict) -> str:
+            # 읽지 못한 경우는 Retry — 근거를 찾은 걸음으로 세지 않는다(먼저 찾기 관문을 건너뛰지 못하게)
+            if not found_docs:
+                raise doc_agent.Retry("이번 요청에서 search 로 찾은 문서가 없다 — 먼저 search 로 찾은 뒤 그 결과의 문서를 읽는다.")
+            did, why = pick_found(str(a.get("document") or ""))
+            if did is None:                                     # 문서 제목은 문서에서 온 글 — 안내가 아니라 자료로
+                raise doc_agent.Retry("이번 search 결과에 나온 문서 하나를 골라야 읽는다 — 위 자료를 보고 《제목》이나 문서 번호로 다시 고른다.",
+                                      data=why)
+            doc = db.get_document(did)
+            if not doc or not _viewer_sees(session_id, doc):    # 검색이 거른 범위를 한 번 더 — 그 사이 권한이 바뀌었을 수도
+                raise doc_agent.Retry("열람 범위 밖 문서라 읽지 않는다.")
+            fd = found_docs[did]
+            texts, ids = found_texts(did)
+            if not texts:
+                raise doc_agent.Retry("고른 문서에 읽을 글이 없다 — 다른 걸음을 고른다.")
+            note_ = ""
+            try:
+                start, line = int(a.get("from") or 0) - 1, max(0, int(a.get("line") or 1) - 1)
+            except (TypeError, ValueError):
+                start, line = -1, 0
+            if start < 0 or start >= len(texts):
+                start, line = -1, 0
+                around = str(a.get("around") or "").strip()
+                at = doc_agent.locate(texts, around) if around else None
+                if at:
+                    start, line = at
+                    head_ = "\n".join(texts[start].split("\n")[:line])
+                    if len(head_) < doc_agent.READ_CHARS // 2:     # 조각 머리(표 머리)부터 보여도 넉넉하면 조각 처음부터
+                        line = 0
+                else:
+                    if around:
+                        note_ = f"「{around}」 은(는) 이 문서에 없다 — 검색에 걸린 조각부터 보인다.\n"
+                    pos = {cid: k for k, cid in enumerate(ids)}
+                    start = min((pos[c] for c in fd["chunks"] if c in pos), default=0)
+            text, end, nxt = doc_agent.read_window(texts, start, line)
+            head = f"《{fd['title']}》 (문서 {did}) — 조각 {start + 1}~{end + 1} / 전체 {len(texts)}" + (f", {line + 1}째 줄부터" if line else "")
+            tail = (f"뒤에 더 있음 · 다음 위치: read_found {{document: {did}, from: {nxt[0] + 1}" + (f", line: {nxt[1] + 1}" if nxt[1] else "") + "}"
+                    if nxt else "문서 끝")
+            # 찾은 근거로 기록 — 질문 답의 근거(먼저 읽은 것부터)·절 쓰기 재료·값 채우기 근거에 search 결과와 같은 길로
+            notes.append(f"◇ {a.get('for') or fd['title']} — 이어 읽기 《{fd['title']}》\n{text}")
+            piece, pieces = "", []
+            for ln in text.split("\n"):                         # 답변기는 근거 하나를 1200자까지 읽는다 — 줄 경계로 나눠 싣는다
+                if piece and len(piece) + len(ln) + 1 > 1100:
+                    pieces.append(piece)
+                    piece = ""
+                piece += ("\n" if piece else "") + ln
+            pieces.append(piece)
+            found.extend({"title": fd["title"], "text": p_, "doc_id": did, "note": "", "read": True} for p_ in pieces if p_.strip())
+            if fd["src"] in ("project", "criteria"):
+                seen_hits.append({"title": fd["title"], "text": text, "doc_id": did, "chunk_id": ids[start]})
+            return note_ + head + "\n" + text + "\n" + tail
 
         seen_hits: list[dict] = []                             # 이번 요청의 프로젝트·기준 문서 search 결과 — 자료로 값 채우기의 근거
         resolved_now: list[str] = []                           # 이번 요청에서 자료 제안으로 남긴 값
@@ -1906,7 +2001,9 @@ def create_app(
             if "scope" in params:
                 kw["scope"] = scope
             if "evidence" in params and found:
-                kw["evidence"] = list({(e["title"], e["text"][:200]): e for e in found}.values())   # 찾은 근거를 버리지 않고 답의 근거로
+                # 찾은 근거를 버리지 않고 답의 근거로 — 이어 읽은 글(잘린 결과의 나머지)을 앞에, 검색 조각은 뒤에
+                ordered = [e for e in found if e.get("read")] + [e for e in found if not e.get("read")]
+                kw["evidence"] = list({(e["title"], e["text"][:200]): e for e in ordered}.values())
             text = r.answer(db, str(a.get("question") or q), **kw)
             src = getattr(r, "last_sources", None)
             if src is not None:
@@ -1937,6 +2034,9 @@ def create_app(
         tools = [
             doc_agent.Tool("search", "근거 찾기. args {source: project|library|criteria|rules, query: 검색어(명사 2~6낱말), for: 무엇을 위해}", t_search,
                            gathers=True),
+            doc_agent.Tool("read_found", "이번 search 결과에 나온 문서를 이어 읽기(맞는 문서를 찾았는데 결과가 잘려 표·목록의 나머지가 필요할 때). "
+                           "args {document: 결과의 《제목》 또는 (문서 번호), around: 이어 볼 낱말이나 표 머리(선택), "
+                           "from·line: 앞 결과가 알려 준 다음 위치(선택)}", t_read_found, gathers=True),
             doc_agent.Tool("read_section", "연결 문서의 절 글 읽기. args {section: 절 제목 또는 번호}", t_read),
             doc_agent.Tool("create_document", "연결 문서가 없을 때 양식을 골라 새 문서. args {form: 양식 후보 id, title: 문서 제목(사업 이름+서류 갈래), why}",
                            t_create, writes=True),

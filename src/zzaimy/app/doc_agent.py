@@ -13,6 +13,8 @@
   고르게 하고, 끝내 못 하면 호출부가 무엇이 실패했고 아무것도 바꾸지 않았다고 담당자에게 알린다(failure_message).
 - 모든 호출은 문맥 한도 안에서만 보낸다(llm_budget) — 오래된 결과·걸음부터 줄이되 최근 걸음과 「지금까지 한 걸음」 기록은 늘 싣는다.
   같은 걸음을 되풀이하면 그때 결과를 다시 보여 주고, 잇달아 세 번이면 멈춘다(stop=repeat).
+- 걸음 한도에 닿았을 때 이번 요청에서 근거를 찾았으면 마지막 걸음을 한 번 더 준다 — 문서를 바꾸지 않는 답하기 도구(answer_question)만
+  고를 수 있고, 답할 수 없다고 판단하면 모델이 stop 을 낸다. 그 걸음이 깨지면 한도 안내(stop=steps)로 끝낸다.
 특정 사업·문서 이름이나 사례 규칙을 두지 않는다.
 """
 from __future__ import annotations
@@ -39,6 +41,7 @@ SYSTEM = """당신은 대학 행정 문서 작성 에이전트다. 담당자의 
 - 답과 글에 쓰는 사실(수치·날짜·기한·자격·고유명사)은 이번 요청에서 search 로 찾은 결과에 있는 것만 쓴다. 상태의 「최근 대화」 는
   맥락일 뿐 근거가 아니다 — 앞 대화에서 본 사실을 쓰려면 다시 search 로 확인한다. 생각(thought)에도 이번 결과에 없는 사실을 확인됐다고 쓰지 않는다.
 - 검색 결과에 묻는 사실이 없으면(결과 머리의 「검색어 일치」 를 본다) 다른 표현·낱말로 다시 찾는다. 다시 찾아도 없으면 없다고 답한다.
+- 맞는 문서를 찾았는데 결과가 잘려 필요한 부분(표의 나머지 등)이 없으면 검색어를 바꾸기보다 그 문서를 read_found 로 이어 읽는다.
 - 수치·고유명사는 찾은 근거에 있는 것만 쓴다. 자료로 찾을 수 없고 담당자만 아는 값은 ask_user 로 묻는다(먼저 찾아보고 묻는다).
 - 문서가 연결돼 있지 않은데 써야 하면, 담당자가 프로젝트 문서(작성 서식 등)를 짚었으면 open_project_document 로 그 문서의 작업본을 잇고,
   아니면 create_document 로 양식을 골라 문서부터 만든다. 문서 제목은 상태의 「프로젝트 문서」 에 있는 그대로 쓴다.
@@ -68,6 +71,16 @@ class Tool:
     consent: str = ""             # 되돌리기 어려운 도구 — 담당자 요청 글에 이 뜻이 있을 때만(문서 속 글이 시키는 것을 막는다)
     gathers: bool = False         # 근거를 찾는 도구(search)
     needs_evidence: bool = False  # 사실을 답하는 도구 — 이번 요청에서 찾기 전이면 한 번 먼저 찾게 한다
+
+
+LAST_STEP = ("걸음 한도({max_steps})에 닿았다 — 이번이 마지막 걸음이고 문서를 바꾸는 도구는 더 쓸 수 없다. "
+             "이번 요청에서 찾은 근거로 답할 수 있으면 {tools} 가운데 하나를 고른다(찾은 범위만 답하고 못 찾은 부분은 못 찾았다고 밝힌다). "
+             "답할 질문이 아니거나 근거가 모자라면 {{\"action\": \"stop\"}} 을 낸다.")
+
+
+def last_step_tools(tools: list["Tool"]) -> list[str]:
+    """걸음 한도 뒤 마지막 걸음에 고를 수 있는 도구 — 찾은 근거로 답하는 최종 도구(문서를 바꾸지 않고 동의 관문도 없는 것)만."""
+    return [t.name for t in tools if t.final and t.needs_evidence and not t.writes and not t.consent]
 
 
 class Retry(Exception):
@@ -117,6 +130,66 @@ def match_hint(query: str, texts: list[str], nouns) -> str:
     if miss:
         line += " · 없음 " + "".join(f"「{w}」" for w in miss) + " — 없는 낱말이 묻는 사실이면 다른 표현으로 다시 찾는다."
     return line
+
+
+READ_CHARS = OBS_CHARS - 300       # 이어 읽기 한 번에 건넬 본문 — 머리·다음 위치 줄이 관찰 한도 안에 들어가게
+
+
+def _squash(t: str) -> str:
+    return re.sub(r"\s+", "", t or "")
+
+
+def locate(texts: list[str], words: str) -> tuple[int, int] | None:
+    """조각 글 목록에서 낱말(띄어쓰기 무시)이 처음 나오는 (조각, 줄) 위치."""
+    want = _squash(words)
+    if not want:
+        return None
+    for k, t in enumerate(texts):
+        if want in _squash(t):
+            lines = t.split("\n")
+            acc = ""
+            for j, ln in enumerate(lines):                           # 처음 나온 자리가 끝나는 줄
+                acc += _squash(ln)
+                if want in acc:
+                    return k, j
+            return k, 0
+    return None
+
+
+def read_window(texts: list[str], start: int, line: int = 0, budget: int = READ_CHARS) -> tuple[str, int, tuple[int, int] | None]:
+    """문서 조각 글(차례대로)을 (start 조각, line 줄)부터 budget 글자 안에서 잇는다 — 조각 경계에서 끊고, 한 조각이 넘치면
+    줄 경계에서 끊는다(표가 줄 중간에서 잘리지 않게). 돌려주는 것: (글, 마지막으로 담은 조각, 다음 위치 또는 None)."""
+    out: list[str] = []
+    used = 0
+    k, j = max(0, start), max(0, line)
+    last = k
+    while k < len(texts):
+        lines = texts[k].split("\n")[j:]
+        whole = "\n".join(lines)
+        sep = 2 if out else 0
+        if used + sep + len(whole) <= budget:                    # 조각 하나가 통째로 들어간다
+            out.append(whole)
+            used += sep + len(whole)
+            last, k, j = k, k + 1, 0
+            continue
+        if out and used >= budget // 2:                          # 이미 넉넉히 담았으면 조각 경계에서 멈춘다
+            return "\n\n".join(out), last, (k, j)
+        took: list[str] = []
+        room = budget - used - sep
+        for ln in lines:
+            if len(ln) + 1 > room:
+                break
+            took.append(ln)
+            room -= len(ln) + 1
+        if not took and not out:                                 # 한 줄이 한도보다 길다 — 글자에서 자르고 다음 줄로
+            took, cut = [lines[0][:budget]], 1
+        else:
+            cut = len(took)
+        if took:
+            out.append("\n".join(took))
+        nxt = j + cut
+        return "\n\n".join(out), k, ((k, nxt) if nxt < len(texts[k].split("\n")) else ((k + 1, 0) if k + 1 < len(texts) else None))
+    return "\n\n".join(out), last, None
 
 
 @dataclass
@@ -210,11 +283,17 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
     fail_count: dict[str, int] = {}
     searched = nudged = False
     repeats = 0                                        # 잇달아 거절한 같은 걸음 수
-    for _i in range(max_steps):
+    grace = last_step_tools(tools)
+    for _i in range(max_steps + 1):
+        last = _i == max_steps                         # 한도 뒤 마지막 걸음 — 이번에 근거를 찾았고 답하기 도구가 있을 때만
+        if last and not (searched and grace):
+            break
+        allowed = set(grace) if last else set(reg)
         st = state()
         # 상태(문서 제목·절 이름·최근 대화)와 걸음 기록도 문서에서 온 글을 품으므로 울타리 안에 둔다
         current = (fenced("상태", st) + "\n\n" + fenced("지금까지 한 걸음 — 같은 걸음을 되풀이하지 않는다", "\n".join(log) or "(아직 없음)")
-                   + "\n\n위 [담당자 요청]에 대해 다음 걸음을 JSON 으로.")
+                   + ("\n\n[안내] " + LAST_STEP.format(max_steps=max_steps, tools=", ".join(grace)) if last
+                      else "\n\n위 [담당자 요청]에 대해 다음 걸음을 JSON 으로."))
         step = None
         extra: list[dict] = []
         for _try in range(2):
@@ -237,22 +316,29 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 raw = resp.choices[0].message.content or ""
             except llm_budget.ContextOverflow as e:
                 ep.steps.append({"error": f"문맥 한도: {str(e)[:160]}"})
-                ep.stop = "overflow"
+                ep.stop = "steps" if last else "overflow"
                 return ep
             except Exception as e:                                     # 서버 끊김이면 호출부가 물러나고, 거절이면 담당자에게 알린다
                 ep.steps.append({"error": f"{type(e).__name__}: {str(e)[:120]}"})
-                ep.stop = "unreachable" if _unreachable(e) else "rejected"
+                ep.stop = "steps" if last else "unreachable" if _unreachable(e) else "rejected"
                 return ep
             step = _parse(raw)
-            if step and step.get("action") in reg:
+            if step and (step.get("action") in allowed or (last and step.get("action") == "stop")):
                 break
             extra = [{"role": "assistant", "content": raw[:800]},
-                     {"role": "user", "content": "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라."}]
+                     {"role": "user", "content": ("마지막 걸음이다 — " + ", ".join(grace) + " 또는 stop 가운데 하나를 고른 JSON 하나만 다시 답하라."
+                                                  if last else "도구 이름이 없거나 JSON 이 아니다. 위 도구 가운데 하나를 고른 JSON 하나만 다시 답하라.")}]
             step = None
         if step is None:
-            ep.steps.append({"error": "형식 오류 두 번"})
+            ep.steps.append({"error": "형식 오류 두 번" + (" — 걸음 한도 뒤 마지막 걸음" if last else "")})
+            if last:                                                   # 한도 안내로 끝낸다(낱말 규칙 경로로 물러나지 않는다)
+                break
             ep.stop = "format"
             return ep
+        if last and step.get("action") == "stop":                      # 모델이 답하지 않기로 했다
+            ep.steps.append({"thought": str(step.get("thought") or "")[:500], "action": "stop", "args": {},
+                             "observation": "걸음 한도 뒤 마지막 걸음 — 답하지 않고 멈춤"})
+            break
         if on_json:                                                    # 걸음 JSON 의 덧붙인 판단(받지 못한 값의 갈래 등)
             try:
                 on_json(step)
@@ -340,6 +426,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
 def _step_label(name: str, args: dict) -> str:
     """화면 진행 표시 — 에이전트가 지금 무엇을 하는지."""
     labels = {"search": lambda a: f"찾는 중 — 「{a.get('query', '')[:30]}」",
+              "read_found": lambda a: f"찾은 문서 이어 읽는 중 — 「{str(a.get('document', ''))[:30]}」",
               "read_section": lambda a: f"절 읽는 중 — 「{a.get('section', '')[:30]}」",
               "write_section": lambda a: f"절 쓰는 중 — 「{a.get('section', '')[:30]}」",
               "rewrite_section": lambda a: f"절 다시 쓰는 중 — 「{a.get('section', '')[:30]}」",

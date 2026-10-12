@@ -421,3 +421,146 @@ def test_must_change_account_cannot_use_chat_or_other_posts(tmp_path, monkeypatc
         assert len(app.state.db.list_chat_sessions()) == n
     r = c.post("/api/chat-documents/create", data={"title": "x"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].startswith("/settings")
+
+
+# ---------------------------------------------------------------- 찾은 문서 이어 읽기(read_found) · 걸음 한도 뒤 답하기
+
+
+_KPI_ROWS = [f"| 가상지표 {i:03d} | 목표 {i * 7}건 |" for i in range(1, 101)]    # 한 조각이 관찰 한도를 넘는 표
+_TITLE = "가상 사업 2차년도 계획서"
+
+
+def _kpi_doc(db, tmp_path, *, owner=None, level=None, title=_TITLE):
+    did = db.add_document(filename=f"{title}.hwpx", stored_path=str(tmp_path / f"{title}.hwpx"), doc_type="grant",
+                          sector="grant", access_level=level, **({"owner": owner} if owner else {}))
+    db.update_document(did, status="reviewed")
+    db.replace_doc_chunks(did, [{"kind": "text", "content": "1. 사업 개요\n가상 사업의 추진 배경"},
+                                {"kind": "text", "content": "핵심 성과지표 총괄표\n" + "\n".join(_KPI_ROWS)},
+                                {"kind": "text", "content": "3. 예산 계획\n가상 예산 표"}])
+    return did, db.list_doc_chunks(did)[1]["id"]
+
+
+def _truncated_hit(db, did, chunk_id):
+    text = db.list_doc_chunks(did)[1]["content"]
+    return {"title": _TITLE, "text": text[:600], "doc_id": did, "chunk_id": chunk_id, "note": ""}
+
+
+class _WriterAndAnswer:
+    """에이전트 걸음은 정해진 JSON 으로, 답변기 호출은 받은 프롬프트를 남기고 정해진 답으로."""
+
+    model, _extra = "fake", {}
+
+    def __init__(self, steps, answer=f"가상지표 목록을 정리했습니다(《{_TITLE}》)."):
+        self.steps, self.prompts, self.agent_msgs = list(steps), [], []
+        outer = self
+
+        class _C:
+            def create(self, **kw):
+                if kw["messages"][0]["content"].startswith("당신은 대학 행정 문서 작성 에이전트다"):
+                    outer.agent_msgs.append(kw["messages"])
+                    content = outer.steps.pop(0) if outer.steps else _step("finish", message="")
+                else:
+                    outer.prompts.append(kw["messages"][-1]["content"])
+                    content = answer
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content), finish_reason="stop")])
+        self.client = SimpleNamespace(chat=SimpleNamespace(completions=_C()))
+
+
+def _answer_app(tmp_path, monkeypatch):
+    from zzaimy.app.responder import AgentResponder
+
+    monkeypatch.setenv("ZZAIMY_DOC_AGENT", "1")
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(),
+                     drafter=FakeDrafter(), responder=AgentResponder())
+    return app, TestClient(app)
+
+
+def test_read_found_continues_a_truncated_table_and_answers_from_it(tmp_path, monkeypatch):
+    from zzaimy.app import doc_agent
+    from zzaimy.generate import client as _gc
+
+    app, client = _answer_app(tmp_path, monkeypatch)
+    db = app.state.db
+    did, cid = _kpi_doc(db, tmp_path)
+    sid = db.create_chat_session("지표 질문", owner="zzaimy")
+    monkeypatch.setattr(drafting.Materials, "search_library", lambda self, query, k=4: [_truncated_hit(db, did, cid)])
+    # 첫 이어 읽기가 알려 줄 다음 위치 — 모델은 결과 끝의 「다음 위치」 를 그대로 인자로 낸다
+    texts = [c["content"] for c in db.list_doc_chunks(did)]
+    _t, _e, nxt = doc_agent.read_window(texts, 1, 0)
+    fake = _WriterAndAnswer([_step("search", source="library", query="핵심 성과지표 목표값"),
+                             _step("read_found", document=_TITLE),
+                             _step("read_found", document=str(did), **{"from": nxt[0] + 1, "line": nxt[1] + 1}),
+                             _step("answer_question", question="핵심 성과지표와 목표값은?")])
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    r = client.post("/chat/send", data={"question": f"{_TITLE}의 핵심 성과지표와 목표값 알려 줘. 출처도",
+                                        "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    ep = _episodes(tmp_path)[-1]
+    assert [s_["action"] for s_ in ep["steps"]] == ["search", "read_found", "read_found", "answer_question"]
+    assert ep["stop"] == "finished"
+    assert f"(문서 {did})" in ep["steps"][0]["observation"] and "read_found" in ep["steps"][0]["observation"]
+    obs1, obs2 = ep["steps"][1]["observation"], ep["steps"][2]["observation"]
+    assert "가상지표 001" in obs1 and f"다음 위치: read_found {{document: {did}, from: {nxt[0] + 1}" in obs1
+    assert all(ln in obs1 + obs2 for ln in _KPI_ROWS) and "문서 끝" in obs2      # 표 전체를 두 번에 나눠, 줄을 자르지 않고
+    assert fake.prompts and "| 가상지표 100 | 목표 700건 |" in fake.prompts[0]     # 잘렸던 표 끝이 답의 근거에 들어감
+    assert "가상지표 목록을 정리했습니다" in page and _TITLE in page                     # 답과 출처 목록
+
+
+def test_read_found_refuses_documents_that_were_not_in_the_results(agent_app, tmp_path, monkeypatch):
+    app, client = agent_app
+    db = app.state.db
+    did, cid = _kpi_doc(db, tmp_path)
+    other, _ = _kpi_doc(db, tmp_path, title="가상 비밀 메모")
+    db.replace_doc_chunks(other, [{"kind": "text", "content": "결과에 없던 가상 문서 본문 ZQX"}])
+    sid = db.create_chat_session("지표 질문", owner="zzaimy")
+    monkeypatch.setattr(drafting.Materials, "search_library", lambda self, query, k=4: [_truncated_hit(db, did, cid)])
+    _use_agent(monkeypatch, [_step("read_found", document=_TITLE),                     # 찾기 전 — 읽을 문서 없음
+                             _step("search", source="library", query="핵심 성과지표"),
+                             _step("read_found", document="가상 비밀 메모"),
+                             _step("read_found", document=str(other)),
+                             _step("finish", message="끝")])
+    client.post("/chat/send", data={"question": "핵심 성과지표 알려 줘", "session_id": str(sid)}, follow_redirects=False)
+    steps = _episodes(tmp_path)[-1]["steps"]
+    assert "search 로 찾은 문서가 없다" in steps[0]["observation"]
+    for s_ in steps[2:4]:
+        assert "결과에 나온 문서 하나를" in s_["observation"] and "ZQX" not in s_["observation"]
+
+
+def test_read_found_rechecks_the_viewer_scope(tmp_path, monkeypatch):
+    app, client = _password_app(tmp_path, monkeypatch, {"staffer": {"pw": "pw-staff-1", "role": "staff", "dept": "기획"}})
+    _login(client, "staffer", "pw-staff-1")
+    db = app.state.db
+    did, cid = _kpi_doc(db, tmp_path, owner="someone", level="owner")
+    sid = db.create_chat_session("지표 질문", owner="staffer")
+    # 검색 결과에 범위 밖 문서가 섞여 들어왔다고 가정해도(그 사이 권한이 바뀐 경우 등) 이어 읽기는 범위를 다시 본다
+    monkeypatch.setattr(drafting.Materials, "search_library", lambda self, query, k=4: [_truncated_hit(db, did, cid)])
+    _use_agent(monkeypatch, [_step("search", source="library", query="핵심 성과지표"),
+                             _step("read_found", document=_TITLE), _step("finish", message="끝")])
+    client.post("/chat/send", data={"question": "핵심 성과지표 알려 줘", "session_id": str(sid)}, follow_redirects=False)
+    obs = _episodes(tmp_path)[-1]["steps"][1]["observation"]
+    assert "열람 범위 밖" in obs and "가상지표 001" not in obs
+
+
+def test_step_limit_answers_from_the_evidence_found_so_far(tmp_path, monkeypatch):
+    import functools
+
+    from zzaimy.app import doc_agent
+    from zzaimy.generate import client as _gc
+
+    app, client = _answer_app(tmp_path, monkeypatch)
+    db = app.state.db
+    did, cid = _kpi_doc(db, tmp_path)
+    sid = db.create_chat_session("지표 질문", owner="zzaimy")
+    monkeypatch.setattr(drafting.Materials, "search_library", lambda self, query, k=4: [_truncated_hit(db, did, cid)])
+    monkeypatch.setattr(doc_agent, "run", functools.partial(doc_agent.run, max_steps=2))
+    fake = _WriterAndAnswer([_step("search", source="library", query="핵심 성과지표"),
+                             _step("search", source="library", query="성과지표 목표값"),
+                             _step("answer_question", question="핵심 성과지표와 목표값은?")])
+    monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
+    r = client.post("/chat/send", data={"question": "핵심 성과지표와 목표값 알려 줘", "session_id": str(sid)}, follow_redirects=False)
+    page = client.get(r.headers["location"]).text
+    ep = _episodes(tmp_path)[-1]
+    assert ep["stop"] == "finished" and [s_["action"] for s_ in ep["steps"]] == ["search", "search", "answer_question"]
+    assert "걸음 한도(2)" in fake.agent_msgs[-1][-1]["content"]
+    assert "가상지표 목록을 정리했습니다" in page and "요청을 끝내지 못했습니다" not in page
+    assert fake.prompts and "가상지표 001" in fake.prompts[0]
