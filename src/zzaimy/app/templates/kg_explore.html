@@ -140,6 +140,9 @@
   .gx-docs a.gx-doclink small { color:var(--navy); }
   .gx-docs a.gx-more { display:block; text-decoration:none; }
 
+  .gx-stage { position: relative; }
+  .gx-toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); background: #1F2A3A; color: #fff; font-size: 12.5px;
+              padding: 8px 14px; border-radius: 999px; box-shadow: 0 4px 14px rgba(0,0,0,.18); z-index: 5; max-width: 80%; text-align: center; }
   .gx-legend .gx-iso { margin-left: auto; appearance: none; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 1px 10px; font-size: 11.5px; color: var(--navy); cursor: pointer; box-shadow: none; min-height: 0; }
   .gx-legend .gx-iso:hover { background: #F1F5FB; }
 </style>
@@ -191,6 +194,7 @@
     <div class="gx-legend" id="gxLegend"></div>
     <div id="gxCy" aria-label="그래프"></div>
     <p class="gx-blank" id="gxBlank">불러오는 중…</p>
+    <div class="gx-toast" id="gxToast" role="status" aria-live="polite" hidden></div>
   </section>
 
   <aside class="gx-panel" aria-label="고른 노드">
@@ -704,7 +708,14 @@
     addEdge(m.edge);
     return cy.getElementById(m.node.id);
   }
+  var toastTimer = 0;
+  function toast(msg) {
+    var t = document.getElementById("gxToast"); if (!t) return;
+    t.textContent = msg; t.hidden = false; clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, 3200);
+  }
   function expand(id, more, quiet) {
+    var before = cy.nodes().length;
     var url = "/graph/explore/neighbors?id=" + encodeURIComponent(id) + (more ? "&more=" + encodeURIComponent(more) : "");
     return fetch(url, { credentials: "same-origin" }).then(function (r) {
       if (!r.ok) throw new Error(r.status === 404 ? "그래프에 없거나 볼 수 없는 노드입니다 — 그래프에는 사업 문서만 들어갑니다" : "불러오지 못했습니다");
@@ -744,6 +755,13 @@
       if (state.sel.indexOf(id) >= 0) c.addClass("picked");
       loaded[id] = 1;
       blank.hidden = true;
+      if (!quiet) {
+        // 두 번 눌러도 그림이 그대로면 왜 그런지 — 새로 놓은 이웃 수를 알린다
+        var added = cy.nodes().length - before;
+        var total = d.groups.reduce(function (a, g) { return a + (g.total || 0); }, 0);
+        toast(added > 0 ? "이웃 " + added + "개를 펼쳤습니다" + (total > added ? " · 나머지는 오른쪽 목록에서 더 받기" : "")
+              : (total > 0 ? "이웃 " + fmt(total) + "개가 모두 이미 그림에 있습니다" : "더 펼칠 이웃이 없습니다 — 이 노드에 이어진 관계·문서가 없습니다"));
+      }
       if (quiet) return;
       relayout(fresh);
       cy.$(":selected").unselect();
@@ -909,7 +927,9 @@
   cy.on("dbltap", "node[type != 'bundle']", function (ev) {
     if (state.tab !== "kg") return;
     var id = ev.target.id();
-    if (!state.sel.length) setSel([id]); else if (!loaded[id]) expand(id);
+    if (!state.sel.length) setSel([id]);
+    else if (!loaded[id]) expand(id);
+    else toast("이미 펼친 노드입니다 — 오른쪽 목록에서 관계별로 더 받거나 다른 노드를 두 번 누르세요");
   });
   cy.on("tap", "edge", function (ev) { if (state.tab === "kg") showEdge(ev.target); });
   function farLabels() { cy.nodes(".ov.small").toggleClass("far", cy.zoom() < 1.6); }
