@@ -8,7 +8,6 @@
   .lib-sector-note { margin:-8px 0 16px; }
   .lib-filters select { max-width:100%; }
   .lib-versions { margin-top:4px; font-size:12px; }
-  .lib-versions summary { cursor:pointer; color:var(--muted); }
   .lib-versions ul { list-style:none; margin:6px 0 2px; padding:0 0 0 10px; border-left:2px solid var(--line); }
   .lib-versions li { display:flex; flex-wrap:wrap; gap:4px 10px; padding:3px 0; }
   .lib-versions li a { font-weight:500; }
@@ -203,7 +202,7 @@
           </div>
           {% if d.no_chunks %}<span class="muted lib-note">본문을 찾지 못해 규정 검색에 잡히지 않습니다</span>{% endif %}
           {% if d.n_versions > 1 %}
-          <details class="lib-versions">
+          <details class="lib-versions chip-toggle">
             <summary>판본 {{ d.n_versions }}개</summary>
             <ul>
               {% for v in d.versions %}

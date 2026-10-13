@@ -198,8 +198,8 @@
       <h2><iconify-icon icon="solar:notebook-linear"></iconify-icon>기술 검토
         <span class="doc-cnt">{{ note_docs|length }}</span></h2>
       {{ rows(note_docs) }}
-      <details class="doc-memo">
-        <summary>작업 메모 {{ memo_docs|length }} — 백로그·용어집·조사 노트 (펼치기)</summary>
+      <details class="doc-memo chip-toggle">
+        <summary>작업 메모 {{ memo_docs|length }} — 백로그·용어집·조사 노트</summary>
         {{ rows(memo_docs) }}
       </details>
     </div></div>

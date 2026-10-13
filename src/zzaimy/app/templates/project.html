@@ -91,7 +91,7 @@
       {% if items %}
       <div class="project-document-list">
         {% for d in items %}
-        {% if loop.index == ref_shown + 1 %}<details class="project-doc-more"><summary>{{ items|length - ref_shown }}건 더 보기</summary><div class="project-document-list">{% endif %}
+        {% if loop.index == ref_shown + 1 %}<details class="project-doc-more chip-toggle"><summary>{{ items|length - ref_shown }}건 더 보기</summary><div class="project-document-list">{% endif %}
         <article class="project-document-item">
           <a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
           <span class="muted">{{ d.via }} · {{ receipt_label(d.receipt_no) or d.id }} · {{ d.created_at[:16].replace("T", " ") }}</span>

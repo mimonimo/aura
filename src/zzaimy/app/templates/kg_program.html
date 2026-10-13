@@ -15,7 +15,7 @@
   .kg-pairs .why { color:var(--muted); font-size:11.5px; white-space:nowrap; }
   .kg-chips { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 10px; }
   .kg-arrow { color:var(--faint); padding:0 4px; }
-  details.kg-more summary { cursor:pointer; color:var(--muted); font-size:12.5px; margin:8px 0; }
+  details.kg-more { margin:8px 0; } details.kg-more[open] > summary { margin-bottom:8px; }
   .kg-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
   .kg-head h2 { margin:0; }
   .kg-facts { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:6px 16px; margin:14px 0 4px; font-size:13px; line-height:1.6; }
@@ -42,9 +42,9 @@
     {% if taxonomy and taxonomy.related %}<dt>연관 사업</dt><dd>{% for t in taxonomy.related %}<a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% if t.out %} <span class="muted">({{ t.why }})</span>{% endif %}{{ ', ' if not loop.last }}{% endfor %} <span class="muted">· 문서 근거</span></dd>{% endif %}
     {% if ledger %}<dt>외부 확인</dt><dd>{% if ledger.period %}기간 {{ ledger.period }} · {% endif %}{% if ledger.status %}{{ ledger.status }} · {% endif %}{% if ledger.yncu %}영남이공대 — {{ ledger.yncu }} · {% endif %}출처 {% for u in ledger.sources %}<a href="{{ u }}" target="_blank" rel="noopener">[{{ loop.index }}]</a>{% endfor %}</dd>{% endif %}
   </dl>
-  {% if request.state.role == 'dev' %}<details class="kg-more"><summary>그래프 구성 수(개발)</summary><p class="muted" style="margin:0; font-size:12px;">절 {{ '{:,}'.format(n_sections) }}개
+  {% if request.state.role == 'dev' %}<details class="kg-more chip-toggle"><summary>그래프 구성 수(개발)</summary><p class="muted" style="margin:0; font-size:12px;">절 {{ '{:,}'.format(n_sections) }}개
     · 관계 {% for k, b, v in counts %}{{ k }}({{ b }}) {{ '{:,}'.format(v) }}{{ ' · ' if not loop.last }}{% endfor %}</p></details>{% endif %}
-  <details class="kg-more"><summary>다른 사업 고르기 · {{ chips | length }}개</summary>
+  <details class="kg-more chip-toggle"><summary>다른 사업 고르기 · {{ chips | length }}개</summary>
   <div class="kg-chips">
     {% for p in chips %}<a class="pill" href="/graph/program?id={{ p.id | urlencode }}" title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건" style="{{ 'font-weight:700;' if program.id in p.ids }}">{{ p.label }} <small class="muted">{{ '{:,}'.format(p.n_docs) }}</small></a>{% endfor %}
   </div></details>
@@ -103,7 +103,7 @@
   <h2><iconify-icon icon="solar:transfer-horizontal-linear"></iconify-icon>계획 ↔ 실적 대응</h2>
   <p class="muted" style="margin:0 0 8px; font-size:12.5px;">같은 연차의 계획서 절과 실적보고서 절 · 제목이 같고 상위 절·본문 맥락이 비슷한 짝</p>
   {% for year, pairs in plans_reports.items() %}
-  <details class="kg-more" {{ 'open' if loop.first }}><summary>{{ year }} · {{ '{:,}'.format(plans_reports_total[year]) }}쌍{% if plans_reports_total[year] > pairs | length %} (앞 {{ pairs | length }}쌍 표시){% endif %}</summary>
+  <details class="kg-more chip-toggle" {{ 'open' if loop.first }}><summary>{{ year }} · {{ '{:,}'.format(plans_reports_total[year]) }}쌍{% if plans_reports_total[year] > pairs | length %} (앞 {{ pairs | length }}쌍 표시){% endif %}</summary>
     <div class="table-scroll"><table class="kg-pairs">
       <tr><th>계획서 절</th><th></th><th>실적보고서 절</th><th>근거</th></tr>
       {% for p in pairs %}<tr><td><a href="/doc/{{ p.a_doc }}">{{ p.a }}</a></td><td class="kg-arrow">↔</td>
@@ -115,7 +115,7 @@
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:double-alt-arrow-right-linear"></iconify-icon>연차 사이 같은 절 · 평가</h2>
-  <details class="kg-more"><summary>다음 연차 계획서로 이어지는 절 {{ '{:,}'.format(continues_total) }}쌍{% if continues_total > continues | length %} (앞 {{ continues | length }}쌍 표시){% endif %}</summary>
+  <details class="kg-more chip-toggle"><summary>다음 연차 계획서로 이어지는 절 {{ '{:,}'.format(continues_total) }}쌍{% if continues_total > continues | length %} (앞 {{ continues | length }}쌍 표시){% endif %}</summary>
     <div class="table-scroll"><table class="kg-pairs">
       <tr><th>앞 연차</th><th></th><th>다음 연차</th><th>근거</th></tr>
       {% for p in continues %}<tr><td><a href="/doc/{{ p.a_doc }}">{{ p.a }}</a></td><td class="kg-arrow">→</td>

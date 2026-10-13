@@ -279,3 +279,13 @@ body .ag-empty .ag-empty-hint { font-size:11px; color:var(--muted); max-width:23
 .library-tabs { align-items:center; }
 .library-tabs a.library-graph { margin-left:auto; border:1px solid var(--line); background:#fff; color:var(--navy); font-weight:600; padding:7px 12px; }
 .library-tabs a.library-graph:hover { background:#EEF3FB; border-color:#B9C9DE; color:var(--navy); }
+/* 펼치기 — 세모 표식은 쓰지 않는다. 접고 펴는 곳은 「펼치기/접기」 글이 붙은 단추 꼴(chip-toggle) */
+summary { list-style:none; }
+summary::-webkit-details-marker { display:none; }
+summary::marker { content:""; }
+.chip-toggle > summary { display:inline-flex; align-items:center; gap:6px; width:max-content; max-width:100%; padding:3px 11px; border:1px solid var(--line); border-radius:999px; background:#fff; color:var(--ink); font-size:12px; font-weight:500; line-height:1.6; cursor:pointer; user-select:none; }
+.chip-toggle > summary::after { content:"펼치기"; color:var(--muted); font-weight:400; }
+.chip-toggle[open] > summary::after { content:"접기"; color:#2d4f7c; }
+.chip-toggle > summary:hover { background:#f3f6fb; border-color:#cfd8e3; }
+.chip-toggle[open] > summary { background:#eef3fa; border-color:#c9d6e8; }
+.chip-toggle > summary:focus-visible { outline:2px solid #607c9e; outline-offset:2px; }
