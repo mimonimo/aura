@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ dev_page_name('/dev/intake') }} · 폴더별 담당 부서{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/intake') }}{% endblock %}
+{% block content %}
+{% include "_intake_tabs.html" %}
+{% set q = request.query_params %}
+{% if q.get('ok') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
+{% if q.get('err') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
+{% include "_rag_areas.html" %}
+{% endblock %}

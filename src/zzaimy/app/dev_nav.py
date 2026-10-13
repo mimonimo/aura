@@ -9,14 +9,14 @@ from __future__ import annotations
 # (주소, 이름) — 사이드바 순서대로 묶음별로
 GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
     ("개발", [("/dev", "개발 현황")]),
-    ("데이터·모델", [("/dev/train", "데이터·학습"), ("/dev/db", "원천 데이터"), ("/dev/intake", "반입 연동"),
-                   ("/dev/nas", "문서 가져오기"), ("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색")]),
+    ("데이터·모델", [("/dev/train", "데이터·학습"), ("/dev/db", "원천 데이터"), ("/dev/intake", "문서 반입"),
+                   ("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색")]),
     ("운영", [("/dev/train?tab=settings", "도구·모델 연결"), ("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검")]),
     ("기록", [("/dev/quality", "품질·성능"), ("/dev/docs", "논문·설계 문서")]),
 ]
 
 # 사이드바에 없는 개발 화면
-EXTRA = {"/dev/history": "변경 이력"}
+EXTRA = {"/dev/history": "변경 이력", "/dev/nas": "문서 반입"}     # Google Drive 가져오기는 문서 반입의 탭
 
 NAMES: dict[str, str] = {href: name for _, links in GROUPS for href, name in links} | EXTRA
 
@@ -34,6 +34,8 @@ def is_active(href: str, path: str, train_tab: str) -> bool:
         return path == "/dev/data" or (path == "/dev/train" and train_tab != "settings")
     if href == "/dev/docs":
         return path.startswith("/dev/doc")
+    if href == "/dev/intake":
+        return path in ("/dev/intake", "/dev/nas")
     return path == href
 
 

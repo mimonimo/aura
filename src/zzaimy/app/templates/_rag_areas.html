@@ -1,0 +1,74 @@
+{# 원본 폴더별 담당 부서 — 폴더에서 들어오는 사업 문서의 부서(부서 공간·열람 범위). 문서 반입의 설정 탭(/dev/intake?tab=areas) #}
+<style>
+.rg-scroll{overflow-x:auto;max-width:100%;}
+.rg-table{width:100%;border-collapse:collapse;font-size:13px;}
+.rg-table td,.rg-table th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;}
+.rg-table th{font-weight:600;color:var(--muted);font-size:12px;}
+.rg-table td.n,.rg-table th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.rg-table td.c,.rg-table th.c{text-align:center;}
+.rg-wrap{word-break:keep-all;overflow-wrap:break-word;font-size:12.5px;}
+.rg-scroll > .rg-table{min-width:640px;}
+.rg-table td:first-child{word-break:keep-all;}
+.rg-sub{color:var(--muted);font-size:12px;}
+.rg-note{color:var(--muted);font-size:12px;margin:8px 0 0;}
+.rg-save{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;}
+.rg-save .rg-sub{flex:1 1 200px;}
+.rg-save{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px}
+.rg-changed select{outline:2px solid #E8B64C;outline-offset:1px}
+</style>
+<section class="card" id="areas"><div class="card-in">
+  <h2>원본 폴더별 담당 부서</h2>
+  {% if folders %}
+  <form method="post" action="/dev/rag/area" id="rgArea">
+    <div class="rg-scroll">
+    <table class="rg-table">
+      <tr><th>원본 최상위 폴더</th><th class="n">{{ metric_label("archive_files", "", "장부 파일") }}</th><th>담당 부서</th></tr>
+      {% for f in folders %}
+      {% set cur = cfg.dept_of_area.get(f.folder, "") %}
+      <tr><td class="rg-wrap">{{ f.folder }}{% if f.files is none %}<br><span class="rg-sub">원본 장부에 없음 — 설정에만 남은 폴더</span>{% endif %}</td>
+        <td class="n">{{ "{:,}".format(f.files) if f.files is not none else "—" }}</td>
+        <td><input type="hidden" name="folder" value="{{ f.folder }}">
+          <select name="dept" class="rg-dept" data-was="{{ cur }}" aria-label="{{ f.folder }} 폴더의 담당 부서">
+            <option value="" {{ 'selected' if not cur }}>정하지 않음(모든 교직원)</option>
+            {% for d in depts %}<option value="{{ d }}" {{ 'selected' if d == cur }}>{{ d }}</option>{% endfor %}
+            {% if cur and cur not in depts %}<option value="{{ cur }}" selected>{{ cur }} (계정·공간에 없는 부서)</option>{% endif %}
+          </select></td></tr>
+      {% endfor %}
+    </table>
+    </div>
+    <div class="rg-save">
+      <span class="rg-sub">폴더에서 들어오는 사업 문서가 그 부서 공간으로 색인됩니다. 부서 목록은 계정·공간에 쓰인 부서(새 부서는 <a href="/dev/users">사용자·계정</a>에서). 저장할 때마다 이전 설정을 남깁니다.</span>
+      <button class="btn primary" id="rgAreaSave" disabled>폴더별 부서 저장</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="rg-sub">원본 장부에 폴더 없음 — 원본 목록을 들인 뒤 고를 수 있습니다.</p>
+  {% endif %}
+  <form method="post" action="/dev/rag/backfill" style="margin-top:12px;"
+        data-confirm="저장된 폴더별 부서를 이미 반입된 사업 문서에 다시 붙일까요? 부서·열람 등급이 바뀌는 문서 {{ '{:,}'.format(backfill_total) }}건{% if backfill_total %} ({% for k, v in backfill_preview.items() if v %}{{ k }} {{ '{:,}'.format(v) }}{{ ', ' if not loop.last }}{% endfor %}){% endif %}. 계정마다 검색되는 범위가 달라지며, 되돌리려면 짝을 고쳐 저장한 뒤 다시 적용해야 합니다.">
+    <div class="rg-save">
+      <span class="rg-sub">저장된 짝 기준으로 바뀌는 문서 {{ "{:,}".format(backfill_total) }}건</span>
+      <button class="btn" {{ 'disabled' if not backfill_total }}>이미 반입된 문서에도 적용</button>
+    </div>
+  </form>
+</div></section>
+
+<script>
+(() => {
+  // 폴더별 부서 — 바뀐 줄이 있을 때만 저장
+  const area = document.getElementById('rgArea');
+  if (area) {
+    const sels = [...area.querySelectorAll('select[name=dept]')];
+    const save = document.getElementById('rgAreaSave');
+    const sync = () => {
+      let n = 0;
+      sels.forEach(s => { const ch = s.value !== s.dataset.was; s.closest('td').classList.toggle('rg-changed', ch); if (ch) n++; });
+      save.textContent = n ? `폴더별 부서 저장 (${n}곳)` : '폴더별 부서 저장';
+      save.disabled = n === 0;
+    };
+    area.addEventListener('change', sync);
+    sync();
+  }
+
+})();
+</script>

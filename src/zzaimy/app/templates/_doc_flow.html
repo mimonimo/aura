@@ -1,0 +1,21 @@
+{# 문서 흐름 — 원본 → 처리 대상 → 라이브러리 → 검색. 같은 수를 화면마다 다른 이름으로 부르지 않게 한 곳에서(metrics.flow) #}
+{% set fl = doc_flow() %}
+{% macro step(k, note="", tail="") %}<div class="df-step"><span class="df-n">{{ "{:,}".format(fl[k].value) if fl[k].value is not none else "—" }}</span>
+  <span class="df-l" title="{{ fl[k].tip }}">{{ fl[k].label }}{{ tail }}</span>{% if note %}<span class="df-note">{{ note }}</span>{% endif %}</div>{% endmacro %}
+<div class="df" aria-label="문서 흐름">
+  {{ step("archive_originals", "학교 원본 폴더 — 사진·압축·중복 포함") }}<span class="df-arrow" aria-hidden="true">→</span>
+  {{ step("audit_targets", "문서 형식·범위 안·중복 아님") }}<span class="df-arrow" aria-hidden="true">→</span>
+  {{ step("audit_in_library", "처리 대상의 " ~ (fl.pct_in_library if fl.pct_in_library is not none else "—") ~ "%") }}<span class="df-arrow" aria-hidden="true">+</span>
+  {{ step("documents", "직접 올린 문서·드라이브 포함 전체") }}<span class="df-arrow" aria-hidden="true">→</span>
+  <div class="df-step df-search"><span class="df-n">{{ "{:,}".format(fl.grant_reviewed.value or 0) }} · {{ "{:,}".format(fl.regulation_docs.value or 0) }}</span>
+    <span class="df-l" title="{{ fl.grant_reviewed.tip }} / {{ fl.regulation_docs.tip }}">검색 — 사업 문서 · 기준 문서</span><span class="df-note">사업 문서 검색 · 규정 검색(조문)</span></div>
+</div>
+<style>
+.df{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:10px 0 4px}
+.df-step{display:flex;flex-direction:column;gap:2px;min-width:140px;flex:1 1 140px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.df-n{font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--navy)}
+.df-l{font-size:12.5px;font-weight:600;cursor:help}.df-note{font-size:11.5px;color:var(--muted)}
+.df-arrow{align-self:center;color:#9AA6B6;font-size:14px}
+.df-search{background:#F5F8FD}
+@media (max-width:700px){.df-arrow{display:none}}
+</style>

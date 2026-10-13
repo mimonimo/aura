@@ -20,10 +20,16 @@
 .ik-alert{padding:8px 12px;border-left:3px solid #c0392b;background:rgba(192,57,43,.06);margin:6px 0;font-size:13px;}
 </style>
 
+{% include "_intake_tabs.html" %}
 {% set q = request.query_params %}
 {% if q.get('ok') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
 {% if q.get('err') %}<p class="pill" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
 
+<section class="card"><div class="card-in">
+  <h2 style="margin-bottom:2px;">문서 흐름</h2>
+  <p class="muted" style="font-size:12px;margin:0;">원본 → 처리 대상 → 라이브러리 → 검색. 개발 현황·라이브러리와 같은 수·같은 이름입니다(이름에 마우스를 올리면 무엇을 셌는지).</p>
+  {% include "_doc_flow.html" %}
+</div></section>
 <section class="card"><div class="card-in">
   <h2><iconify-icon icon="solar:transfer-vertical-linear"></iconify-icon>연동 점검
     <span class="ik-actions" style="margin-left:auto;">

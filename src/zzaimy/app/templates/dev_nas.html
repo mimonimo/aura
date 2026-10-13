@@ -3,6 +3,7 @@
 {% block pagetitle %}{{ dev_page_name('/dev/nas') }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/gdocs-work.css?v={{ asset_v }}"><script src="/static/gdocs-work.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
+{% include "_intake_tabs.html" %}
 <style>
   .nas-form { display:flex; flex-direction:column; gap:14px; }
   .nas-form fieldset { border:1px solid var(--line); border-radius:12px; padding:12px 14px 14px; margin:0; display:grid; gap:10px; }

@@ -123,13 +123,15 @@
     <a href="/dev/db" class="btn-ghost" style="padding:3px 9px; font-size:11.5px;">{{ dev_page_name('/dev/db') }}</a>
   </div>
 
+  <h3 style="font-size:13.5px; margin:16px 0 0;">문서 흐름 <a href="/dev/intake" class="btn-ghost" style="padding:2px 8px; font-size:11.5px; margin-left:6px;">문서 반입</a></h3>
+  {% include "_doc_flow.html" %}
+
   {% include "dev-topology.html" %}
 
   {# 구축 현황(기능 상태표)과 진행 현황(dev-now.md 서술)은 원천이 달라 탭으로 나란히 둔다 #}
   <div class="tabbar" style="max-width:520px; margin:18px 0 14px;">
     <button type="button" class="on" data-tab="paneBuild">구축 현황</button>
     <button type="button" data-tab="paneNow">진행 현황</button>
-    <button type="button" data-tab="paneIntake">반입 현황</button>
     <button type="button" data-tab="paneFlow">답변 흐름</button>
     <button type="button" data-tab="paneTech">핵심 기술</button>
   </div>
@@ -245,94 +247,6 @@
     {% endfor %}
   </table></div>
   {% endfor %}
-  </div>
-  {# 반입 현황 — 원천 app/intake_status.snapshot(DB·장부·색인 파일, 60초 재사용). 같은 값은 /dev/api/intake(JSON) #}
-  <div id="paneIntake" class="tab-pane">
-  <style>
-  .ik2-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:14px 20px;align-items:start;margin-top:12px;}
-  .ik2-t{width:100%;border-collapse:collapse;font-size:13px;}
-  .ik2-t td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top;}
-  .ik2-t td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
-  .ik2-t tr.sub td:first-child{padding-left:18px;color:var(--muted);}
-  .ik2-h{font-size:13px;font-weight:700;margin:0 0 6px;}
-  .ik2-sum{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline;font-size:14px;}
-  .ik2-sum b{font-size:18px;font-variant-numeric:tabular-nums;}
-  .ik2-warn{padding:6px 10px;border-left:3px solid #c0392b;background:rgba(192,57,43,.06);margin:8px 0 0;font-size:12.5px;}
-  </style>
-  {% if intake %}
-    {% set pl = intake.pipeline %}
-    <p class="muted" style="font-size:12px; margin:0 0 8px;">{{ intake.at }} 기준{% if pl %} · 처리 대상 수치는 반입 연동 점검 {{ pl.at }} 기준{% endif %} · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다 · <a href="/dev/intake">반입 연동 관리</a> · <a href="/dev/rag">RAG 공간</a> · <a href="/archive">원본 보관소</a> · <a href="/dev/api/intake">JSON</a></p>
-    {% if pl %}
-    <div class="ik2-sum">
-      <span>{{ metric_label("archive_files", intake.at) }} <b>{{ "{:,}".format(intake.archive.total) }}</b></span><span>→</span>
-      <span>{{ metric_label("audit_targets", pl.at, "처리 대상 문서") }} <b>{{ "{:,}".format(pl.targets) }}</b></span><span>→</span>
-      <span>{{ metric_label("audit_in_library", pl.at, "그중 라이브러리 반영") }} <b>{{ "{:,}".format(pl.in_docbox) }}</b> ({{ pl.pct.in_docbox }}%)</span>
-      <span class="muted" style="font-size:12.5px;">{{ metric_label("audit_failed", pl.at, "실패") }} {{ "{:,}".format(pl.failed) }} · {{ metric_label("audit_missed", pl.at, "놓침") }} {{ "{:,}".format(pl.missed) }} · {{ metric_label("audit_waiting", pl.at, "대기") }} {{ "{:,}".format(pl.waiting) }}</span>
-    </div>
-    {% for a in pl.alerts %}<div class="ik2-warn">{{ a }} <a class="mini-btn" href="/dev/intake">관리</a></div>{% endfor %}
-    {% endif %}
-    <div class="ik2-grid">
-      <div>
-        <p class="ik2-h">원본 보관소</p>
-        <table class="ik2-t">
-          <tr><td>{{ metric_label("archive_files", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.archive.total) }}</td></tr>
-          <tr><td>{{ metric_label("archive_unique", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.archive.unique) }}</td></tr>
-          <tr><td>{{ metric_label("archive_linked", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.archive.linked) }}</td></tr>
-          {% if pl and pl.composition %}{% for k, v in pl.composition.items()|sort(attribute=1, reverse=True) %}
-          <tr class="sub"><td>{{ k }}</td><td class="n">{{ "{:,}".format(v) }}</td></tr>{% endfor %}{% endif %}
-        </table>
-        <p class="ik2-h" style="margin-top:12px;">사업 분류(중복 제외 원본)</p>
-        <table class="ik2-t">
-          {% for x in intake.archive.status %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
-        </table>
-      </div>
-      <div>
-        <p class="ik2-h">라이브러리(등록 문서)</p>
-        <table class="ik2-t">
-          <tr><td>{{ metric_label("documents", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.store.total) }}</td></tr>
-          <tr class="sub"><td>{{ metric_label("documents_light", intake.at, "DGX 보관(가벼운 처리)") }}</td><td class="n">{{ "{:,}".format(intake.store.dgx) }}</td></tr>
-          <tr class="sub"><td>{{ metric_label("documents_full", intake.at, "원본 반입·업로드") }}</td><td class="n">{{ "{:,}".format(intake.store.full) }}</td></tr>
-          {% for x in intake.store.status %}<tr class="sub"><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
-        </table>
-        <p class="ik2-h" style="margin-top:12px;">읽은 방법</p>
-        <table class="ik2-t">
-          {% for x in intake.store.paths %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
-          {% for x in intake.store.flags if x.n %}<tr class="sub"><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
-        </table>
-      </div>
-      <div>
-        <p class="ik2-h">사업별 원본 연결 수</p>
-        <table class="ik2-t">
-          {% for x in intake.programs %}<tr><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
-        </table>
-      </div>
-      <div>
-        <p class="ik2-h">색인</p>
-        <table class="ik2-t">
-          <tr><td>{{ metric_label("grant_chunks", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.index.live) }}</td></tr>
-          <tr class="sub"><td>{{ metric_label("embedding_index", intake.index.updated, "임베딩 색인") }}</td><td class="n">{{ "{:,}".format(intake.index.chunks) }}</td></tr>
-          <tr class="sub"><td>{{ metric_label("embedding_pending", intake.at, "색인 대기") }}</td><td class="n">{{ "{:,}".format(intake.index.pending) }}</td></tr>
-          {% if pl %}<tr class="sub"><td>{{ metric_label("audit_lexical_index", pl.at, "어휘 색인") }}</td><td class="n">{{ "{:,}".format(pl.lexical_index) }}</td></tr>{% endif %}
-        </table>
-        <p class="ik2-h" style="margin-top:12px;">지식 그래프</p>
-        <table class="ik2-t">
-          {% if intake.graph_total %}<tr><td>{{ metric_label("graph_nodes", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.graph_total.nodes) }}</td></tr>
-          <tr><td>{{ metric_label("graph_edges", intake.at) }}</td><td class="n">{{ "{:,}".format(intake.graph_total.edges) }}</td></tr>{% endif %}
-          {% for x in intake.graph %}<tr class="sub"><td>{{ x.label }}</td><td class="n">{{ "{:,}".format(x.n) }}</td></tr>{% endfor %}
-        </table>
-      </div>
-    </div>
-    <p class="ik2-h" style="margin-top:16px;">주기 작업</p>
-    <table class="ik2-t">
-      {% for k, label in [("full", "원본 목록(10분)"), ("parsed", "DGX 결과 들이기(5분)"), ("index", "임베딩 색인(2분)"), ("lexical", "어휘 색인(2분)"), ("graph", "그래프·양식 다시 짓기"), ("audit", "연동 점검(10분)")] %}
-      {% set v = intake.sync.get(k) or {} %}
-      <tr><td style="white-space:nowrap;">{{ label }}</td><td class="muted" style="white-space:nowrap;">{{ v.get("ago") or v.get("at", "기록 없음") }}</td>
-        <td>{{ v.get("summary", "") }}</td></tr>
-      {% endfor %}
-    </table>
-  {% else %}
-    <p class="muted" role="status">{{ '반입 현황을 세는 중입니다 — 잠시 뒤 다시 열어 주세요.' if intake_state == 'pending' else '반입 현황을 읽지 못했습니다.' }}</p>
-  {% endif %}
   </div>
 </div></div>
 

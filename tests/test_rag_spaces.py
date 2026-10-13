@@ -82,10 +82,11 @@ def test_rag_page_sections(tmp_path):
     r = c.get("/dev/rag")
     assert r.status_code == 200
     for text in ("공간 목록", "그 가운데 규정 갈래", "규정 색인 문서", "검색해 보기", "계정별 추가 권한", "변경 0건 저장",
-                 "원본 폴더별 담당 부서", "학생 공개 규정", "dept:가부서", "고정 — 학생은", "고정 — 관리자는"):
+                 "규정·기준 문서", "dept:가부서", "고정 — 학생은", "고정 — 관리자는"):
         assert text in r.text, text
     # 학생 공간이 비면 그 줄에 안내와 지정 링크
     assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="#student-regs"' in r.text
+    assert 'href="/dev/intake?tab=areas"' in r.text                    # 폴더별 담당 부서는 문서 반입으로 옮겼다
     assert 'name="on" value="u-ga\tdept:나부서"' in r.text            # 계정 × 부서 공간 칸
     assert 'value="u-stu\tdept' not in r.text                          # 학생 줄에는 토글이 없다
 
@@ -136,7 +137,7 @@ def test_area_folders_from_ledger_and_select_save(tmp_path):
     _archive(db, [("가폴더/2024/a.hwp", "가폴더"), ("가폴더/b.pdf", "가폴더"), ("나폴더/c.hwp", "나폴더"),
                   ("_플랫폼업로드/d.hwp", "플랫폼 업로드")])
     assert rag_spaces.area_folders(db) == [{"folder": "가폴더", "files": 2}, {"folder": "나폴더", "files": 1}]
-    page = c.get("/dev/rag").text
+    page = c.get("/dev/intake?tab=areas").text
     assert 'name="folder" value="가폴더"' in page and "플랫폼 업로드" not in page
     assert '<option value="다부서"' in page and "정하지 않음(모든 교직원)" in page
     before = dict(rag_spaces.config(tmp_path)["dept_of_area"])
@@ -163,7 +164,7 @@ def test_backfill_preview_counts_changes_in_confirm(tmp_path):
     db.add_document("b.hwp", "dgx://가폴더/b.hwp", doc_type="grant", dept="가부서", access_level="public")
     db.add_document("c.hwp", "dgx://나폴더/c.hwp", doc_type="grant", dept="공통")
     assert rag_spaces.backfill_preview(db, tmp_path) == {"가부서": 1}
-    assert "바뀌는 문서 1건" in c.get("/dev/rag").text
+    assert "바뀌는 문서 1건" in c.get("/dev/intake?tab=areas").text
     c.post("/dev/rag/backfill")
     assert rag_spaces.backfill_preview(db, tmp_path) == {"가부서": 0}
 

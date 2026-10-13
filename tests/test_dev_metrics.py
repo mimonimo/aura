@@ -123,7 +123,7 @@ def test_intake_page_names_each_number(client, tmp_path):
 
 
 def test_heavy_dev_actions_ask_first(client):
-    assert 'data-confirm="저장된 폴더별 부서를' in client.get("/dev/rag").text
+    assert 'data-confirm="저장된 폴더별 부서를' in client.get("/dev/intake?tab=areas").text
     q = client.get("/dev/quality").text
     assert "/dev/eval/run" not in q or 'data-confirm="규정 검색 품질을 다시 잴까요?' in q
 
@@ -140,7 +140,7 @@ def test_shared_confirm_covers_any_form_with_data_confirm():
 
 def test_dev_titles_match_sidebar_names(client):
     for href, name in [("/dev/db", "원천 데이터"), ("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검"),
-                       ("/dev/nas", "문서 가져오기"), ("/dev", "개발 현황")]:
+                       ("/dev/nas", "문서 반입"), ("/dev/intake", "문서 반입"), ("/dev", "개발 현황")]:
         page = client.get(href).text
         assert f"<title>{name}" in page, href
         sidebar = page.split("data-developer-navigation", 1)[1].split("</aside>", 1)[0]

@@ -821,7 +821,9 @@ def create_app(
             _units_cache.update(at=_t.time(), v=_archive.business_units(db))
         return _units_cache["v"]
 
-    templates.env.globals["project_unit_options"] = _business_units   # 사이드바의 프로젝트 추가 창(_project_modal.html)
+    templates.env.globals["project_unit_options"] = _business_units
+    # 문서 흐름(원본 → 처리 대상 → 라이브러리 → 검색) — 개발 현황·문서 반입이 같은 수·같은 이름(_doc_flow.html)
+    templates.env.globals["doc_flow"] = lambda: __import__("zzaimy.app.metrics", fromlist=["flow"]).flow(db)   # 사이드바의 프로젝트 추가 창(_project_modal.html)
 
     def _criteria_docs(request: Request | None = None) -> list[dict]:
         counts = db.regulation_chunk_counts()
@@ -4613,7 +4615,6 @@ def create_app(
             "n_papers": len(_dev_papers()),
             "n_adr": len(_dev_doc_list("decisions")),
             "n_notes": len(_dev_doc_list("notes")),
-            **dict(zip(("intake", "intake_state"), _dev_slow("intake", _intake_snapshot, ttl_s=60))),   # 무거운 집계 — 늦으면 「잠시 뒤 다시」
             "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
             # 답변 흐름 — 그래프 관계 수·관계 질문 측정(scripts/184)은 기계 산출물에서
             "flow": __import__("zzaimy.app.answer_flow", fromlist=["snapshot"]).snapshot(db, Path(db_path).parent.parent / "eval"),
@@ -4698,21 +4699,21 @@ def create_app(
         pairs, changed, bad = rag_spaces.area_changes(cfg, accounts, known, [str(x) for x in form.getlist("folder")],
                                                       [str(x) for x in form.getlist("dept")])
         if bad:
-            return RedirectResponse("/dev/rag?" + urlencode({"err": "저장하지 않았습니다 — " + ", ".join(
+            return RedirectResponse("/dev/intake?tab=areas&" + urlencode({"err": "저장하지 않았습니다 — " + ", ".join(
                 f"{f}({why})" for f, why in bad[:5])}) + "#areas", status_code=303)
         if not changed:
-            return RedirectResponse("/dev/rag?" + urlencode({"ok": "바뀐 폴더가 없습니다"}) + "#areas", status_code=303)
+            return RedirectResponse("/dev/intake?tab=areas&" + urlencode({"ok": "바뀐 폴더가 없습니다"}) + "#areas", status_code=303)
         cfg["dept_of_area"] = pairs
         rag_spaces.save_config(cfg, data_dir)
         msg = "폴더별 부서 저장 — " + ", ".join(f"{f}: {b or '정하지 않음'} → {a or '정하지 않음'}" for f, b, a in changed) + \
               " · 이미 반입된 문서는 「이미 반입된 문서에도 적용」으로"
-        return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#areas", status_code=303)
+        return RedirectResponse("/dev/intake?tab=areas&" + urlencode({"ok": msg}) + "#areas", status_code=303)
 
     @app.post("/dev/rag/backfill")
     def dev_rag_backfill():
         from zzaimy.app import rag_spaces
         got = rag_spaces.backfill_depts(db, Path(db_path).parent)
-        return RedirectResponse("/dev/rag?" + urlencode({"ok": "이미 반입된 문서에 부서를 적용했습니다 — " + (", ".join(
+        return RedirectResponse("/dev/intake?tab=areas&" + urlencode({"ok": "이미 반입된 문서에 부서를 적용했습니다 — " + (", ".join(
             f"{k} {v:,}" for k, v in got.items()) or "짝 없음")}) + "#areas", status_code=303)
 
     # 규정·기준 문서 — 반입한 규정을 골라 기준 문서로 올리고(조문 조각), 학생 공개를 정한다(regulation_register)
@@ -4786,9 +4787,21 @@ def create_app(
         return subprocess.run(["pgrep", "-f", pat], capture_output=True).returncode == 0
 
     @app.get("/dev/intake", response_class=HTMLResponse)
-    def dev_intake(request: Request):
+    def dev_intake(request: Request, tab: str = ""):
         from zzaimy.app import intake_status
         from zzaimy.app import metrics
+        if tab == "areas":
+            # 폴더별 담당 부서 — 반입 설정(예전 RAG 공간의 칸). 저장은 /dev/rag/area 그대로
+            from zzaimy.app import rag_spaces
+            data_dir = Path(db_path).parent
+            cfg = rag_spaces.config(data_dir)
+            folders = rag_spaces.area_folders(db)
+            seen = {f["folder"] for f in folders}
+            folders += [{"folder": k, "files": None} for k in cfg["dept_of_area"] if k not in seen]
+            preview = rag_spaces.backfill_preview(db, data_dir)
+            return templates.TemplateResponse(request, "dev_intake_areas.html", ctx(request, {
+                "cfg": cfg, "folders": folders, "depts": rag_spaces.known_depts(cfg, accounts),
+                "backfill_preview": preview, "backfill_total": sum(preview.values())}))
         data = intake_status.pipeline(db_path)
         return templates.TemplateResponse(request, "dev_intake.html", ctx(request, {
             "p": data, "live": metrics.live(db), "running": {k: _intake_job_running(k) for k in _INTAKE_JOBS},

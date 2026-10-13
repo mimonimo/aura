@@ -320,3 +320,18 @@ def install(env) -> None:
 
 __all__ = ["DEFS", "Metric", "SOURCE_LABEL", "audit", "definition", "duration_ms", "get", "install", "kst", "label_html", "live", "num",
            "tip", "values"]
+
+
+# ---- 문서 흐름 — 원본 → 처리 대상 → 라이브러리 → 검색. 화면마다 같은 다섯 수를 같은 이름으로(개발 현황·문서 반입) ----
+FLOW = ("archive_originals", "audit_targets", "audit_in_library", "documents", "grant_reviewed", "regulation_docs")
+
+
+def flow(db) -> dict:
+    """{key: {label, value, tip}} — 값이 없는(점검 전) 단계는 value None."""
+    out = {}
+    for k in FLOW:
+        g = get(db, k)
+        out[k] = {"label": g["label"], "value": g["value"], "tip": g["tip"]}
+    t, lib = out["audit_targets"]["value"], out["audit_in_library"]["value"]
+    out["pct_in_library"] = round(lib * 100 / t, 1) if t and lib is not None else None
+    return out
