@@ -315,6 +315,21 @@ def programs(db, scope: dict | None = None) -> list[dict]:
             merged[k]["ids"].append(r["id"])
         else:
             merged[k] = {**r, "label": rep.get(r["label"]) or r["label"], "ids": [r["id"]]}
+    # 장부 항목 하나에 이어지는 이름(정식 이름이 이름 속에 든 것 — 「2차년도(2023) ○○사업」)도 한 줄로. 사업 목록 나무
+    # (app.program_tree)와 같은 찾기라 라이브러리·그래프 목록에 같은 사업이 두 줄로 서지 않는다
+    from zzaimy.app.program_tree import Ledger
+    lg, owner = Ledger(load_ledger()), {}
+    for k, r in sorted(merged.items(), key=lambda kv: -len(kv[1]["docs"])):
+        e = lg.find(r["label"])
+        if e is None:
+            continue
+        if id(e) in owner:
+            top = merged[owner[id(e)]]
+            top["docs"] = top["docs"] | r["docs"]
+            top["ids"] += r["ids"]
+            del merged[k]
+        else:
+            owner[id(e)] = k
     out = [{"id": r["id"], "type": r["type"], "type_ko": TYPE_KO.get(r["type"], r["type"]), "label": r["label"],
             "n_docs": len(r["docs"]), "ids": r.get("ids", [r["id"]])}
            for r in [x for x in rows if x["type"] == "program_group"] + list(merged.values())]
