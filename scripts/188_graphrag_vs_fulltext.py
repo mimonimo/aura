@@ -1,0 +1,329 @@
+#!/usr/bin/env python3
+"""GraphRAG(온톨로지 + RAG) 대 풀텍스트 RAG — 같은 시험지로 검색 정확도·답변 시간·답변 품질을 견준다.
+
+모드(grant_search.graph_mode, 운영 기본은 바꾸지 않는다):
+- fulltext   : 그래프 단계를 끈다 — 사업 좁히기·그래프 절·관계 근거 없이 사업 문서 전체 조각에서 어휘+임베딩(RRF)만
+- graph      : 운영 경로 — 그래프 단계(이름 맞추기)로 사업·연차·갈래를 좁히고 관계 근거를 담은 뒤 같은 RAG
+- graph_read : graph + 27B 질문 읽기(graph.question_read, ZZAIMY_GRAPH_READ=1 과 같은 일)
+재순위(ZZAIMY_GRANT_RERANK)는 운영 설정을 그대로 따른다 — 세 모드가 같다.
+
+시험지는 사람이 고르지 않는다. 이미 고정해 둔 두 집합을 그대로 쓴다(측정끼리 같은 시험지).
+- 절 질문: data/eval/rag_probe_set.json (scripts/173 — 계획서·실적보고서의 절을 무작위로 골라 만든 질문, 정답 문서·절 글)
+- 관계 질문: data/eval/graph_relation_set.json (scripts/184 — 그래프의 계획↔실적·앞뒤 단계·평가 관계에서 뽑은 질문)
+재는 것:
+- 검색(모든 질문 × 모드): 절 질문 doc@k·twin@k·prog@k·정답 문서 순위, 관계 질문 ok(정답 문서 조건)·계획/실적 각각, 걸린 시간
+- 답변(앞에서 고른 일부 × --answer-modes): AgentResponder 를 그대로 — 단계별 시간(규정·사업 문서 검색·생성·전체),
+  빈 답·오류, 근거 없음 답, 근거에 없는 숫자(지어낸 수치 의심), 정답 절 글과 겹치는 낱말 비율(절 질문), 근거에 정답 문서가 들었나
+- 눈가림 판정용 묶음(--blind): 질문마다 fulltext·graph 답을 무작위 순서 「가·나」로 — 열쇠는 결과 파일에만
+같은 질문에서 모드를 번갈아 돌린다(서버 부하가 한 모드에만 몰리지 않게). 27B 질문 읽기 캐시는 매번 비운다(시간이 실제와 같게).
+출력: data/eval/graphrag_vs_fulltext_<tag>.json 과 요약 한 줄(GRAPHRAG_VS), 표(마크다운).
+
+사용(VM, .env.local 필수):
+  scripts/zz_run.sh 16G env PYTHONPATH=src .venv/bin/python scripts/188_graphrag_vs_fulltext.py --tag v1 --answer-sec 12 --answer-rel 12
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import random
+import re
+import statistics
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from zzaimy.app.db import Database  # noqa: E402
+
+MODES = ("fulltext", "graph", "graph_read")
+LABEL = {"fulltext": "A 풀텍스트 RAG", "graph": "B 온톨로지+RAG", "graph_read": "C B+27B 읽기"}
+_NUM = re.compile(r"(?<![\d.])\d{2,}(?:[,.]\d+)*")
+_DATE = re.compile(r"((?:19|20)\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})")
+_WORD = re.compile(r"[가-힣A-Za-z0-9]{2,}")
+_NO_EVID = re.compile(r"(?:근거|자료|내용|정보)[를을가이]?\s*(?:찾지\s*못|찾을\s*수\s*없|확인(?:되지|할\s*수)\s*(?:않|없))|관련\s*근거를\s*찾지")
+
+
+def _date(g) -> tuple[int, int, int]:
+    return int(g[0]), int(g[1]), int(g[2])
+
+
+def unsupported_numbers(question: str, answer: str, ctx: str) -> list[str]:
+    """답의 숫자 가운데 질문에도, 모델에 건넨 글에도 없는 것(scripts/173 과 같은 판정)."""
+    qn = set(_NUM.findall(question))
+    ctx_digits = re.sub(r"\D", "", ctx)
+    ctx_dates = {_date(m) for m in _DATE.findall(ctx)}
+    return [x for x in _NUM.findall(answer) if x not in qn and x not in ctx
+            and re.sub(r"\D", "", x) not in ctx_digits
+            and not (_DATE.fullmatch(x) and _date(_DATE.fullmatch(x).groups()) in ctx_dates)]
+
+
+def load_sets(sec_path: Path, rel_path: Path) -> list[dict]:
+    items: list[dict] = []
+    for i, x in enumerate(json.loads(sec_path.read_text(encoding="utf-8"))["items"]):
+        items.append({"id": f"sec{i:03d}", "set": "section", "type": "section", "q": x["q"], "doc_id": x["doc_id"],
+                      "twins": set(x["twins"]), "prog_docs": set(x["prog_docs"]), "gold_text": x.get("gold", "")})
+    for i, x in enumerate(json.loads(rel_path.read_text(encoding="utf-8"))["items"]):
+        items.append({"id": f"rel{i:03d}", "set": "relation", "type": x["type"], "q": x["q"], "gold": list(x["gold"]),
+                      "any": bool(x.get("any"))})
+    return items
+
+
+def pick_answer_items(items: list[dict], n_sec: int, n_rel: int) -> list[dict]:
+    """답변을 받을 질문 — 절 질문은 앞에서(집합이 이미 무작위 순서), 관계 질문은 갈래를 번갈아(갈래가 고루 들게)."""
+    sec = [x for x in items if x["set"] == "section"][:n_sec]
+    by_type: dict[str, list[dict]] = {}
+    for x in items:
+        if x["set"] == "relation":
+            by_type.setdefault(x["type"], []).append(x)
+    rel: list[dict] = []
+    while len(rel) < n_rel and any(by_type.values()):
+        for t in list(by_type):
+            if by_type[t] and len(rel) < n_rel:
+                rel.append(by_type[t].pop(0))
+    return sec + rel
+
+
+def judge_search(it: dict, got: list[int]) -> dict:
+    if it["set"] == "section":
+        rank = got.index(it["doc_id"]) + 1 if it["doc_id"] in got else None
+        return {"doc_hit": it["doc_id"] in got, "twin_hit": bool(it["twins"] & set(got)),
+                "prog_hit": any(h in it["prog_docs"] for h in got), "rank": rank}
+    gold = set(it["gold"])
+    ok = bool(gold & set(got)) if it["any"] else gold <= set(got)
+    out = {"ok": ok}
+    if it["type"] == "plan_report":
+        out.update(plan_ok=it["gold"][0] in got, report_ok=it["gold"][1] in got)
+    return out
+
+
+def _clear_reader_cache() -> None:
+    try:
+        from zzaimy.graph import question_read
+        with question_read._lock:
+            question_read._cache.clear()
+    except Exception:
+        pass
+
+
+def run_search(db, it: dict, mode: str, k_sec: int, k_rel: int) -> dict:
+    from zzaimy.app import grant_search
+    _clear_reader_cache()
+    k = k_sec if it["set"] == "section" else k_rel
+    t0 = time.time()
+    err = ""
+    try:
+        with grant_search.graph_mode(mode):
+            g = grant_search.search(db, it["q"], k=k, user=None)
+    except Exception as e:                                    # 검색 실패도 결과다
+        g, err = {"hits": [], "steps": []}, f"{type(e).__name__}: {e}"[:200]
+    got = [h["doc_id"] for h in g["hits"]]
+    return {"got": got, "sec": round(time.time() - t0, 2), "error": err, "steps": g.get("steps", [])[:6],
+            "relation_added": sum(1 for h in g["hits"] if h.get("relation")), **judge_search(it, got)}
+
+
+def run_answer(db, it: dict, mode: str) -> dict:
+    from zzaimy.app import grant_search
+    from zzaimy.app.responder import AgentResponder
+    _clear_reader_cache()
+    ar = AgentResponder()
+    t0 = time.time()
+    try:
+        with grant_search.graph_mode(mode):
+            ans = ar.answer(db, it["q"], scope={"user": None})
+        err = ""
+    except Exception as e:
+        ans, err = "", f"{type(e).__name__}: {e}"[:200]
+    wall = round(time.time() - t0, 2)
+    ctx = getattr(ar, "last_context", "") or ""
+    used = [d for d in (getattr(ar, "last_grant_docs", []) or []) if d is not None]
+    row = {"answer": ans[:2500], "error": err, "wall_sec": wall, "timing": dict(getattr(ar, "last_timing", {}) or {}),
+           "evidence_docs": used, "empty": len(ans.strip()) < 20, "no_evidence": bool(_NO_EVID.search(ans[:400])),
+           "unsupported_numbers": unsupported_numbers(it["q"], ans, ctx)[:10] if ans else []}
+    if it["set"] == "section":
+        gw, aw = set(_WORD.findall(it["gold_text"])), set(_WORD.findall(ans))
+        row["gold_overlap"] = round(len(gw & aw) / max(len(aw), 1), 3)
+        row["evidence_has_gold"] = it["doc_id"] in used or bool(it["twins"] & set(used))
+    else:
+        gold = set(it["gold"])
+        row["evidence_has_gold"] = bool(gold & set(used)) if it["any"] else gold <= set(used)
+    return row
+
+
+def _rate(rows: list[dict], key: str) -> float | None:
+    vals = [bool(r[key]) for r in rows if key in r]
+    return round(sum(vals) / len(vals), 3) if vals else None
+
+
+def _med(vals: list[float]) -> float | None:
+    vals = [v for v in vals if v is not None]
+    return round(statistics.median(vals), 2) if vals else None
+
+
+def _p90(vals: list[float]) -> float | None:
+    vals = sorted(v for v in vals if v is not None)
+    return round(vals[min(len(vals) - 1, int(0.9 * len(vals)))], 2) if vals else None
+
+
+def summarize(rows: list[dict], mode: str) -> dict:
+    srch = [r["search"][mode] for r in rows if mode in r.get("search", {})]
+    sec = [r["search"][mode] for r in rows if r["set"] == "section" and mode in r.get("search", {})]
+    rel_rows = [r for r in rows if r["set"] == "relation" and mode in r.get("search", {})]
+    out: dict = {"search": {
+        "n": len(srch), "errors": sum(bool(s["error"]) for s in srch), "empty_hits": sum(not s["got"] for s in srch),
+        "sec_median": _med([s["sec"] for s in srch]), "sec_p90": _p90([s["sec"] for s in srch]),
+        "section": {"n": len(sec), "doc_at_k": _rate(sec, "doc_hit"), "twin_at_k": _rate(sec, "twin_hit"),
+                    "prog_at_k": _rate(sec, "prog_hit"),
+                    "mrr": round(sum(1 / s["rank"] for s in sec if s["rank"]) / len(sec), 3) if sec else None},
+        "relation": {"n": len(rel_rows), "ok": _rate([r["search"][mode] for r in rel_rows], "ok")}}}
+    for t in ("plan_report", "lineage", "evaluates"):
+        part = [r["search"][mode] for r in rel_rows if r["type"] == t]
+        if part:
+            d = {"n": len(part), "ok": _rate(part, "ok")}
+            if t == "plan_report":
+                d.update(plan=_rate(part, "plan_ok"), report=_rate(part, "report_ok"))
+            out["search"]["relation"][t] = d
+    ans = [r["answers"][mode] for r in rows if mode in r.get("answers", {})]
+    if ans:
+        ok = [a for a in ans if not a["error"]]
+        tm = [a["timing"] for a in ok]
+        out["answer"] = {
+            "n": len(ans), "errors": sum(bool(a["error"]) for a in ans), "empty": sum(a["empty"] for a in ans),
+            "no_evidence": sum(a["no_evidence"] for a in ok),
+            "with_unsupported_numbers": sum(bool(a["unsupported_numbers"]) for a in ok),
+            "unsupported_numbers_total": sum(len(a["unsupported_numbers"]) for a in ok),
+            "evidence_has_gold": _rate(ok, "evidence_has_gold"),
+            "gold_overlap_median": _med([a["gold_overlap"] for a in ok if "gold_overlap" in a]),
+            "wall_sec_median": _med([a["wall_sec"] for a in ok]), "wall_sec_p90": _p90([a["wall_sec"] for a in ok]),
+            "search_sec_median": _med([t.get("search_sec") for t in tm]),
+            "grant_sec_median": _med([t.get("grant_sec") for t in tm]),
+            "regulation_sec_median": _med([t.get("regulation_sec") for t in tm]),
+            "generate_sec_median": _med([t.get("generate_sec") for t in tm])}
+        for part in ("section", "relation"):
+            sub = [r["answers"][mode] for r in rows if mode in r.get("answers", {}) and r["set"] == part]
+            sub = [a for a in sub if not a["error"]]
+            if sub:
+                out["answer"][part] = {"n": len(sub), "evidence_has_gold": _rate(sub, "evidence_has_gold"),
+                                       "with_unsupported_numbers": sum(bool(a["unsupported_numbers"]) for a in sub),
+                                       "wall_sec_median": _med([a["wall_sec"] for a in sub])}
+    return out
+
+
+def table(summary: dict) -> str:
+    modes = [m for m in MODES if m in summary]
+    pct = lambda v: "—" if v is None else f"{v * 100:.1f}%"   # noqa: E731
+    num = lambda v: "—" if v is None else f"{v}"                # noqa: E731
+    lines = ["| 지표 | " + " | ".join(LABEL[m] for m in modes) + " |", "|---|" + "---|" * len(modes)]
+
+    def row(name, f):
+        lines.append(f"| {name} | " + " | ".join(f(summary[m]) for m in modes) + " |")
+    row("절 질문 doc@k", lambda s: pct(s["search"]["section"]["doc_at_k"]))
+    row("절 질문 twin@k", lambda s: pct(s["search"]["section"]["twin_at_k"]))
+    row("절 질문 prog@k", lambda s: pct(s["search"]["section"]["prog_at_k"]))
+    row("절 질문 MRR", lambda s: num(s["search"]["section"]["mrr"]))
+    row("관계 질문 전체", lambda s: pct(s["search"]["relation"]["ok"]))
+    row("계획↔실적 둘 다", lambda s: pct((s["search"]["relation"].get("plan_report") or {}).get("ok")))
+    row("앞·뒤 단계 사업", lambda s: pct((s["search"]["relation"].get("lineage") or {}).get("ok")))
+    row("평가 의견", lambda s: pct((s["search"]["relation"].get("evaluates") or {}).get("ok")))
+    row("검색 시간 중앙값(초)", lambda s: num(s["search"]["sec_median"]))
+    row("검색 시간 p90(초)", lambda s: num(s["search"]["sec_p90"]))
+    if any("answer" in summary[m] for m in modes):
+        a = lambda s, k: (s.get("answer") or {}).get(k)          # noqa: E731
+        row("답변 수", lambda s: num(a(s, "n")))
+        row("답변 전체 시간 중앙값(초)", lambda s: num(a(s, "wall_sec_median")))
+        row("  그중 검색(규정+사업 문서)", lambda s: num(a(s, "search_sec_median")))
+        row("  그중 생성(27B)", lambda s: num(a(s, "generate_sec_median")))
+        row("근거에 정답 문서", lambda s: pct(a(s, "evidence_has_gold")))
+        row("정답 절 낱말 겹침 중앙값", lambda s: num(a(s, "gold_overlap_median")))
+        row("근거에 없는 숫자가 든 답", lambda s: num(a(s, "with_unsupported_numbers")))
+        row("근거 없음 답", lambda s: num(a(s, "no_evidence")))
+        row("빈 답·오류", lambda s: f"{a(s, 'empty')}·{a(s, 'errors')}" if a(s, "n") else "—")
+    return "\n".join(lines)
+
+
+def blind_pack(rows: list[dict], seed: int) -> list[dict]:
+    """눈가림 판정 묶음 — fulltext·graph 답을 무작위로 가·나에 놓는다. 열쇠(key)는 결과 파일에만 두고 판정자에게는 뺀 꼴을 준다."""
+    rnd = random.Random(seed)
+    out = []
+    for r in rows:
+        a = r.get("answers", {})
+        if "fulltext" not in a or "graph" not in a:
+            continue
+        order = ["fulltext", "graph"]
+        rnd.shuffle(order)
+        out.append({"id": r["id"], "q": r["q"], "set": r["set"], "type": r["type"],
+                    "gold_text": (r.get("gold_text") or "")[:1500], "gold_docs": r.get("gold_docs") or [],
+                    "가": a[order[0]]["answer"], "나": a[order[1]]["answer"], "key": {"가": order[0], "나": order[1]}})
+    return out
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--modes", default="fulltext,graph,graph_read")
+    ap.add_argument("--answer-modes", default="fulltext,graph")
+    ap.add_argument("--answer-sec", type=int, default=12, help="절 질문 앞에서 몇 개를 답변까지")
+    ap.add_argument("--answer-rel", type=int, default=12, help="관계 질문 몇 개를 답변까지(갈래를 번갈아)")
+    ap.add_argument("--k-sec", type=int, default=5)
+    ap.add_argument("--k-rel", type=int, default=6)
+    ap.add_argument("--limit", type=int, default=0, help="시험지 앞에서 몇 문만(시험 실행)")
+    ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
+    ap.add_argument("--sec-set", default=str(ROOT / "data/eval/rag_probe_set.json"))
+    ap.add_argument("--rel-set", default=str(ROOT / "data/eval/graph_relation_set.json"))
+    args = ap.parse_args()
+    modes = [m for m in args.modes.split(",") if m in MODES]
+    amodes = [m for m in args.answer_modes.split(",") if m in MODES]
+    db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
+    items = load_sets(Path(args.sec_set), Path(args.rel_set))
+    if args.limit:
+        items = [x for x in items if x["set"] == "section"][: args.limit] + [x for x in items if x["set"] == "relation"][: args.limit]
+    ans_ids = {x["id"] for x in pick_answer_items(items, args.answer_sec, args.answer_rel)}
+    print(f"시험지: 절 {sum(x['set'] == 'section' for x in items)}문 · 관계 {sum(x['set'] == 'relation' for x in items)}문 · "
+          f"답변 {len(ans_ids)}문 × {','.join(amodes)} · 모드 {','.join(modes)}", flush=True)
+    run_search(db, items[0], "graph", args.k_sec, args.k_rel)          # 데우기(색인·DB 캐시) — 기록하지 않는다
+    rows: list[dict] = []
+    started = time.time()
+    for i, it in enumerate(items):
+        row = {"id": it["id"], "set": it["set"], "type": it["type"], "q": it["q"], "search": {}, "answers": {}}
+        if it["set"] == "section":
+            row.update(doc_id=it["doc_id"], gold_text=it["gold_text"][:1500])
+        else:
+            row["gold_docs"] = it["gold"]
+        order = list(modes)
+        random.Random(f"{args.seed}:{it['id']}").shuffle(order)          # 모드 차례를 질문마다 섞는다
+        for m in order:
+            row["search"][m] = run_search(db, it, m, args.k_sec, args.k_rel)
+        if it["id"] in ans_ids:
+            for m in [m for m in order if m in amodes]:
+                row["answers"][m] = run_answer(db, it, m)
+        rows.append(row)
+        mark = " ".join(f"{m[:2]}:{'O' if (row['search'][m].get('doc_hit') if it['set'] == 'section' else row['search'][m]['ok']) else 'X'}"
+                        f"/{row['search'][m]['sec']}s" for m in modes)
+        extra = " ".join(f"ans {m[:2]} {row['answers'][m]['wall_sec']}s" for m in row["answers"])
+        print(f"[{i + 1}/{len(items)}] {it['id']} {mark} {extra} {it['q'][:50]}", flush=True)
+    summary = {m: summarize(rows, m) for m in modes}
+    out = ROOT / "data" / "eval" / f"graphrag_vs_fulltext_{args.tag}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    blind = blind_pack(rows, args.seed)
+    out.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "tag": args.tag, "modes": modes, "answer_modes": amodes,
+                               "k": {"section": args.k_sec, "relation": args.k_rel},
+                               "rerank_on": os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1",
+                               "sets": {"section": Path(args.sec_set).name, "relation": Path(args.rel_set).name},
+                               "elapsed_min": round((time.time() - started) / 60, 1),
+                               "summary": summary, "rows": rows, "blind_key": {b["id"]: b["key"] for b in blind}},
+                              ensure_ascii=False, indent=1), encoding="utf-8")
+    bl = ROOT / "data" / "eval" / f"graphrag_blind_{args.tag}.json"
+    bl.write_text(json.dumps([{k: v for k, v in b.items() if k != "key"} for b in blind], ensure_ascii=False, indent=1),
+                  encoding="utf-8")
+    print(table(summary))
+    print("GRAPHRAG_VS " + json.dumps({m: {"section": summary[m]["search"]["section"], "relation_ok": summary[m]["search"]["relation"]["ok"],
+                                            "search_sec_median": summary[m]["search"]["sec_median"],
+                                            "answer": {k: v for k, v in (summary[m].get("answer") or {}).items()
+                                                       if not isinstance(v, dict)}} for m in modes}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

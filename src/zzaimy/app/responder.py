@@ -202,6 +202,10 @@ class AgentResponder:
         question = normalize_input(question)
 
         self.last_sources = []
+        import time as _time
+        _t0 = _time.time()
+        self.last_grant_docs: list = []
+        self.last_timing = {}                               # 단계별 걸린 시간(초) — 측정 스크립트(scripts/188)가 읽는다
         if on_progress:
             on_progress("관련 근거 검색 중")
         if criteria_ids:
@@ -215,6 +219,8 @@ class AgentResponder:
             # 현재 등록 문서만 검색한다. 폐기한 공개 코퍼스는 조회하지 않는다.
             hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"),
                                  user=scope.get("user"), levels=scope.get("levels"))
+            self.last_timing["regulation_sec"] = round(_time.time() - _t0, 2)
+            _t1 = _time.time()
             blocks = []
             if hits:
                 blocks.append(
@@ -263,6 +269,8 @@ class AgentResponder:
                 import logging
                 logging.getLogger(__name__).warning("사업 문서 검색 실패: %s: %s", type(e).__name__, str(e)[:200])
                 grant_hits = []
+            self.last_timing["grant_sec"] = round(_time.time() - _t1, 2)
+            self.last_grant_docs = [h.get("doc_id") for h in grant_hits]
             if grant_hits and hits and all(h.get("weak_evidence") for h in hits) and blocks and blocks[0].startswith("[교내 규정"):
                 # 사업 문서 근거가 있는데 규정 근거는 하한을 못 넘은 것뿐이면 규정 묶음은 빼고 사업 문서만 — 관계없는 규정이
                 # 다른 사업·연도 질문의 답에 끼어들지 않게
@@ -336,6 +344,8 @@ class AgentResponder:
         messages.append({"role": "user", "content": user_content})
 
         client = VllmClient(role="answer")
+        self.last_timing["search_sec"] = round(_time.time() - _t0, 2)
+        _t2 = _time.time()
         if on_progress:
             on_progress("답변 작성 중")
         # 목차·개요처럼 긴 답은 짧은 상한(1,024 토큰)에서 중간에 끊긴다. 상한을 넉넉히 두고, 그래도 끊기면 한 번 잇는다
@@ -368,4 +378,7 @@ class AgentResponder:
                 text = text.rstrip() + "\n" + (more.choices[0].message.content or "").lstrip()
             except Exception:
                 pass
-        return strip_emoji(fix_foreign_han(text.strip(), user_content, client))
+        out = strip_emoji(fix_foreign_han(text.strip(), user_content, client))
+        self.last_timing["generate_sec"] = round(_time.time() - _t2, 2)
+        self.last_timing["total_sec"] = round(_time.time() - _t0, 2)
+        return out

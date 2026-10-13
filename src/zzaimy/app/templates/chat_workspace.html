@@ -240,6 +240,14 @@
       <option value="model">기본 대화</option>
       <option value="1">웹 검색</option>
     </select>
+    {% if request.state.role == 'dev' %}{# 관리자 실험 — GraphRAG 와 풀텍스트 RAG 비교(scripts/188, docs/notes/2026-10-13-graphrag-vs-fulltext.md). 기본은 운영 그대로 #}
+    <select name="retrieval" id="retrievalMode" class="chat-answer-mode" aria-label="검색 방식(관리자 실험)" title="검색 방식(관리자 실험) — 문서 작업 답변의 사업 문서 검색만 바꿉니다">
+      <option value="">검색: 기본</option>
+      <option value="graph">검색: 온톨로지+RAG</option>
+      <option value="fulltext">검색: 풀텍스트 RAG</option>
+      <option value="graph_read">검색: 온톨로지+RAG·27B 읽기</option>
+    </select>
+    {% endif %}
     <button type="submit" id="sendBtn" disabled aria-label="보내기" title="보내기">
       <iconify-icon icon="solar:arrow-up-linear"></iconify-icon></button>
   </div>

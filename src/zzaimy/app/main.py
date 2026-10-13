@@ -2836,19 +2836,27 @@ def create_app(
             text = scope_msg + "\n\n" + text
         db.add_chat(session_id, "assistant", text)
 
-    def _answer_task(session_id, q, stored, criteria, web=""):
+    _RETRIEVAL_NOTE = {"fulltext": "풀텍스트 RAG — 그래프 단계 끔", "graph": "온톨로지 + RAG(운영 기본)",
+                       "graph_read": "온톨로지 + RAG, 27B 질문 읽기"}
+
+    def _answer_task(session_id, q, stored, criteria, web="", retrieval=""):
+        from zzaimy.app import grant_search as _gs_mode
         try:
-            _answer_task_impl(session_id, q, stored, criteria, web)
+            # 관리자 실험(GraphRAG 비교) — 이 답변 안의 사업 문서 검색만 그 모드로. 기본("")은 운영 그대로
+            with _gs_mode.graph_mode(retrieval):
+                if retrieval:
+                    _chat_step(session_id, f"[실험] 검색 방식: {_RETRIEVAL_NOTE.get(retrieval, retrieval)}")
+                _answer_task_impl(session_id, q, stored, criteria, web)
         finally:
             _chat_running.discard(session_id)
             _chat_progress.pop(session_id, None)
 
-    def _schedule_answer(background, session_id, q, stored, criteria, web=""):
+    def _schedule_answer(background, session_id, q, stored, criteria, web="", retrieval=""):
         import time
 
         _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"]}
         _chat_running.add(session_id)
-        background.add_task(_answer_task, session_id, q, stored, criteria, web)
+        background.add_task(_answer_task, session_id, q, stored, criteria, web, retrieval)
 
     install_chat_revisions(app, db, chat_revisions, _schedule_answer,
                            lambda sid: sid in _chat_running, inbox_dir,
@@ -2877,8 +2885,13 @@ def create_app(
         attachment: list[UploadFile] = File([]),
         project_id: int | None = Form(None),
         web: str = Form(""),
+        retrieval: str = Form(""),
     ):
         from zzaimy.app.responder import normalize_input
+        from zzaimy.app.grant_search import GRAPH_MODES
+
+        # 검색 방식 실험(풀텍스트 RAG 대조)은 관리자만 — 다른 계정이 보내도 운영 기본으로
+        retrieval = retrieval if getattr(request.state, "role", "") == "dev" and retrieval in GRAPH_MODES else ""
 
         q = normalize_input(question).strip()          # 전각 영문·숫자(ＡＩＤ)·「。、」를 고쳐야 검색어가 맞는다
         if form_fields:
@@ -2983,9 +2996,12 @@ def create_app(
             shown = "\n".join(markers) + "\n" + q
 
         _set_options(session_id, [])
+        if retrieval and not web:
+            shown = f"[실험 · {_RETRIEVAL_NOTE[retrieval]}]\n" + shown     # 화면 기록용 — 검색에 쓰는 질문(q)은 그대로
         db.add_chat(session_id, "user", shown, mode="model" if web == "model" else "web" if web else "document")
         chat_revisions.remember(db.list_chats(session_id, limit=1)[0]["id"], stored, criteria)
-        _schedule_answer(background, session_id, q, stored, criteria, (web or "").strip().lower()[:8])   # "1"=웹 검색, "model"=모델 지식
+        _schedule_answer(background, session_id, q, stored, criteria, (web or "").strip().lower()[:8],   # "1"=웹 검색, "model"=모델 지식
+                         retrieval="" if web else retrieval)
         return RedirectResponse(f"/chat/{session_id}", status_code=303)
 
     def _process_attachment(doc_id: int, stored: Path) -> None:
@@ -3008,7 +3024,7 @@ def create_app(
     def _strip_attach_prefix(text: str) -> str:
         """저장된 사용자 메시지에서 첨부 표시줄을 떼고 질문만 남긴다."""
         lines = (text or "").split("\n")
-        while len(lines) > 1 and lines[0].startswith("[첨부"):
+        while len(lines) > 1 and (lines[0].startswith("[첨부") or lines[0].startswith("[실험 · ")):
             lines.pop(0)
         return "\n".join(lines)
 

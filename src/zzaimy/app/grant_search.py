@@ -13,11 +13,13 @@
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
 import logging
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from zzaimy.app import paths as _paths
@@ -28,6 +30,23 @@ TEXT_KINDS = ("text", "table", "image_text")
 TOP_K = 60
 _lock = threading.Lock()
 _cache: dict = {"mtime": None, "ids": None, "vecs": None}
+
+# 그래프 단계 실험 스위치 — 운영 기본("")은 그래프 단계(이름 맞추기, ZZAIMY_GRAPH_READ=1 이면 27B 읽기)를 그대로 쓴다.
+# "fulltext": 그래프 단계를 끈다(사업 좁히기·그래프 절·관계 근거 없이 전체 조각에서 어휘+임베딩만) — 풀텍스트 RAG 대조군.
+# "graph": 운영 기본과 같다(실험 기록에 이름만 남긴다). "graph_read": 그래프 단계에서 질문을 27B 로 읽는다(측정용 강제).
+# 비교 실험(scripts/188)과 관리자 대화의 실험 선택에서만 바꾼다.
+GRAPH_MODES = ("", "fulltext", "graph", "graph_read")
+GRAPH_MODE: contextvars.ContextVar[str] = contextvars.ContextVar("grant_graph_mode", default="")
+
+
+@contextmanager
+def graph_mode(mode: str | None):
+    """이 블록 안의 사업 문서 검색(답변·문서 에이전트가 부르는 것까지)을 실험 모드로. 모르는 값이면 운영 기본."""
+    token = GRAPH_MODE.set(mode if mode in GRAPH_MODES else "")
+    try:
+        yield
+    finally:
+        GRAPH_MODE.reset(token)
 
 
 def _text(c: dict) -> str:
@@ -409,9 +428,10 @@ def docs_under(db, program: str) -> set[int]:
 
 
 def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: set[int] | None = None,
-           depts: list[str] | None = None, reader=None) -> dict:
+           depts: list[str] | None = None, reader=None, graph: bool | None = None) -> dict:
     """질문 → {steps, hits:[{chunk_id, doc_id, content, path, score}]}. steps 는 리즈닝 단계 기록(graph/retrieve 와 같은 말).
-    reader: 질문을 온톨로지 말(사업·연차·갈래·관계)로 읽는 모델(graph.question_read.reader_for). 없으면 이름 맞추기."""
+    reader: 질문을 온톨로지 말(사업·연차·갈래·관계)로 읽는 모델(graph.question_read.reader_for). 없으면 이름 맞추기.
+    graph: False 면 그래프 단계를 건너뛴다(풀텍스트 RAG 대조 실험). None 이면 GRAPH_MODE(실험 모드, 기본은 켬)를 따른다."""
     from zzaimy.app.embed_search import rrf_merge
     from zzaimy.app.regulations import _lexical_ids, extract_nouns
     from zzaimy.graph import kg_store
@@ -423,12 +443,21 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     path_of: dict[int, list[str]] = {}
     cover: list[tuple[str, set[int]]] = []
     partners: dict = {}
-    try:
-        sc = gr.scope(db, question, reader=reader)
-        steps += sc.steps
-        scope_docs, program_docs, path_of, cover, partners = sc.docs, sc.program_docs, sc.path_of, sc.cover, sc.partners
-    except Exception as e:
-        log.warning("그래프 좁히기 실패: %s", e)
+    mode = GRAPH_MODE.get()
+    if graph is None:
+        graph = mode != "fulltext"
+    if graph and reader is None and mode == "graph_read":
+        from zzaimy.graph.question_read import reader_for
+        reader = reader_for("answer", force=True)
+    if not graph:
+        steps.append("[실험 · 풀텍스트] 그래프 단계를 끄고 사업 문서 전체 조각에서 어휘·임베딩으로만 찾는다")
+    else:
+        try:
+            sc = gr.scope(db, question, reader=reader)
+            steps += sc.steps
+            scope_docs, program_docs, path_of, cover, partners = sc.docs, sc.program_docs, sc.path_of, sc.cover, sc.partners
+        except Exception as e:
+            log.warning("그래프 좁히기 실패: %s", e)
     if prefer_docs:
         # 프로젝트가 참조로 붙인 과거 사업 묶음의 문서부터(그래프로 좁힌 범위와 겹치면 그 겹침, 아니면 묶음 전체)
         narrowed = (prefer_docs & scope_docs) if scope_docs else set()

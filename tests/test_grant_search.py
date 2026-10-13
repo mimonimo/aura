@@ -183,3 +183,35 @@ def test_access_excludes_out_of_scope_kinds(monkeypatch):
     monkeypatch.setenv("ZZAIMY_EXCLUDE_KINDS", "")
     sql, args = grant_search._access("u")
     assert "d.kind" not in sql
+
+
+def test_graph_switch_off_skips_graph_stage_and_default_keeps_it(tmp_path, monkeypatch):
+    """풀텍스트 대조 실험 스위치 — graph=False·graph_mode("fulltext") 면 그래프 단계를 부르지 않고, 기본은 그대로 부른다."""
+    from types import SimpleNamespace
+    from zzaimy.app import grant_search as gs
+    from zzaimy.graph import retrieve as gr
+    monkeypatch.setattr(gs, "INDEX", tmp_path / "none.npz")
+    db = Database(tmp_path / "t.db")
+    a = db.add_document("a.hwp", "x", doc_type="grant")
+    b = db.add_document("b.hwp", "x", doc_type="grant")
+    for d, text in ((a, "취업률 목표 70% 달성 계획"), (b, "취업률 목표 80% 달성 실적")):
+        db.replace_doc_chunks(d, [{"seq": 0, "kind": "text", "content": text}])
+        db.update_document(d, status="reviewed")
+    calls = []
+
+    def fake_scope(db_, q, reader=None):
+        calls.append(reader)
+        return SimpleNamespace(steps=["[그래프] 가짜"], docs={a}, program_docs={a}, path_of={a: ["사업"]}, cover=[], partners={})
+    monkeypatch.setattr(gr, "scope", fake_scope)
+    monkeypatch.setattr(gs, "dense_ids", lambda *x, **kw: [])
+    got = gs.search(db, "취업률 목표", k=5)                                   # 운영 기본 — 그래프로 좁힌다
+    assert len(calls) == 1 and [h["doc_id"] for h in got["hits"]] == [a]
+    got = gs.search(db, "취업률 목표", k=5, graph=False)                      # 끔 — 전체 조각에서
+    assert len(calls) == 1 and {h["doc_id"] for h in got["hits"]} == {a, b}
+    assert any("풀텍스트" in s for s in got["steps"])
+    with gs.graph_mode("fulltext"):                                            # 실험 모드(대화·측정 스크립트)
+        assert {h["doc_id"] for h in gs.search(db, "취업률 목표", k=5)["hits"]} == {a, b}
+    assert len(calls) == 1 and gs.GRAPH_MODE.get() == ""                       # 블록을 나오면 기본으로
+    with gs.graph_mode("엉뚱한 값"):
+        gs.search(db, "취업률 목표", k=5)
+    assert len(calls) == 2
