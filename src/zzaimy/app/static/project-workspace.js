@@ -28,7 +28,9 @@
       if (next>=0) { event.preventDefault(); activate(tabs[next].dataset.projectTab, true); }
     });
   });
-  try { activate(sessionStorage.getItem(key) || 'projectConversations'); } catch (_) {}
+  // 주소의 ?tab=context(작성 원칙·기준 문서)·?tab=chat 이 먼저 — 다른 화면의 바로가기가 그 탭으로 열리게
+  const want = ({context: 'projectContext', chat: 'projectConversations'})[new URLSearchParams(location.search).get('tab') || ''];
+  try { activate(want || sessionStorage.getItem(key) || 'projectConversations'); } catch (_) { activate(want || 'projectConversations'); }
   function revealLinkedSection() {
     const section = document.getElementById((location.hash || '').slice(1));
     const panel = section?.closest('.project-panel');
