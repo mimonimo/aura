@@ -46,7 +46,8 @@ def test_dept_of_rel(tmp_path):
 
 def test_access_filter_by_dept():
     sql, args = grant_search._access("u", ["LINC사업단", "공통"])
-    assert "COALESCE(d.dept, '공통') IN (?,?)" in sql and args[-3:] == ["u", "LINC사업단", "공통"]
+    assert "COALESCE(d.dept, '공통') IN (?,?)" in sql and args[-2:] == ["LINC사업단", "공통"] and "u" in args
+    assert "d.access_level = 'dept'" in sql                              # 부서 RAG 문서는 그 부서 범위의 계정이 찾는다
     assert grant_search._access(None, [])[0] == " AND 1 = 0"
     assert "d.dept" not in grant_search._access(None, None)[0]          # 부서로 자르지 않음(범위 밖 갈래 조건만)
 
