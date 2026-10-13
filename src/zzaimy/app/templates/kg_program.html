@@ -16,33 +16,38 @@
   .kg-chips { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 10px; }
   .kg-arrow { color:var(--faint); padding:0 4px; }
   details.kg-more summary { cursor:pointer; color:var(--muted); font-size:12.5px; margin:8px 0; }
+  .kg-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .kg-head h2 { margin:0; }
+  .kg-facts { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:6px 16px; margin:14px 0 4px; font-size:13px; line-height:1.6; }
+  .kg-facts dt { color:var(--muted); font-size:12px; font-weight:600; padding-top:1px; }
+  .kg-facts dd { margin:0; min-width:0; overflow-wrap:anywhere; }
+  @media (max-width:600px) { .kg-facts { grid-template-columns:1fr; } .kg-facts dd { margin-bottom:6px; } }
 </style>
 
 {% if not program %}
 <div class="card"><div class="card-in"><p class="muted" style="margin:0;">아직 그래프가 없습니다. 문서를 반입하고 그래프를 만들면 사업별로 보입니다.</p></div></div>
 {% else %}
 <div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:structure-linear"></iconify-icon>{{ program_label }}</h2>
+  <div class="kg-head"><h2><iconify-icon icon="solar:structure-linear"></iconify-icon>{{ program_label }}</h2>
+    <a class="btn secondary" href="/graph/explore?id={{ program.id | urlencode }}"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>그래프로 보기</a></div>
+  {# 머리는 줄마다 한 가지 — 수 · 이름 · 사업 사이 관계 · 외부 확인. 내부 관계 이름(식별자 일치 등)은 개발자에게만 접어 둔다 #}
+  <dl class="kg-facts">
+    <dt>문서</dt><dd><b>{{ '{:,}'.format(n_docs) }}</b>건 <span class="muted">볼 수 있는 등록 문서</span></dd>
+    {% if aliases %}<dt>다른 이름</dt><dd>{{ aliases | join(' · ') }}{% if more_aliases %} <span class="muted">외 {{ more_aliases }}개</span>{% endif %}</dd>{% endif %}
+    {% if taxonomy and taxonomy.groups %}<dt>분류</dt><dd>{{ taxonomy.groups | join(', ') }}</dd>{% endif %}
+    {% if taxonomy and (taxonomy.pred or taxonomy.succ) %}<dt>단계</dt><dd>
+      {% for t in taxonomy.pred %}<a href="/graph/program?id={{ t.id }}">{{ t.name }}</a> <span class="kg-arrow">→</span> {% endfor %}<b>이 사업</b>{% for t in taxonomy.succ %} <span class="kg-arrow">→</span> <a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% endfor %}</dd>{% endif %}
+    {% if taxonomy and taxonomy.integrated %}<dt>편입</dt><dd>{% for t in taxonomy.integrated %}<a href="/graph/program?id={{ t.id }}">{{ t.to }}</a>에 편입 <span class="muted">({{ t.why }})</span>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+    {% if taxonomy and taxonomy.members %}<dt>편입된 사업</dt><dd>{% for t in taxonomy.members %}<a href="/graph/program?id={{ t.id }}">{{ t.name }}</a> <span class="muted">({{ t.why }})</span>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+    {% if taxonomy and taxonomy.related %}<dt>연관 사업</dt><dd>{% for t in taxonomy.related %}<a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% if t.out %} <span class="muted">({{ t.why }})</span>{% endif %}{{ ', ' if not loop.last }}{% endfor %} <span class="muted">· 문서 근거</span></dd>{% endif %}
+    {% if ledger %}<dt>외부 확인</dt><dd>{% if ledger.period %}기간 {{ ledger.period }} · {% endif %}{% if ledger.status %}{{ ledger.status }} · {% endif %}{% if ledger.yncu %}영남이공대 — {{ ledger.yncu }} · {% endif %}출처 {% for u in ledger.sources %}<a href="{{ u }}" target="_blank" rel="noopener">[{{ loop.index }}]</a>{% endfor %}</dd>{% endif %}
+  </dl>
+  {% if request.state.role == 'dev' %}<details class="kg-more"><summary>그래프 구성 수(개발)</summary><p class="muted" style="margin:0; font-size:12px;">절 {{ '{:,}'.format(n_sections) }}개
+    · 관계 {% for k, b, v in counts %}{{ k }}({{ b }}) {{ '{:,}'.format(v) }}{{ ' · ' if not loop.last }}{% endfor %}</p></details>{% endif %}
   <details class="kg-more"><summary>다른 사업 고르기 · {{ chips | length }}개</summary>
   <div class="kg-chips">
     {% for p in chips %}<a class="pill" href="/graph/program?id={{ p.id | urlencode }}" title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건" style="{{ 'font-weight:700;' if program.id in p.ids }}">{{ p.label }} <small class="muted">{{ '{:,}'.format(p.n_docs) }}</small></a>{% endfor %}
   </div></details>
-  <p class="muted" style="margin:0; font-size:12.5px;">문서 {{ '{:,}'.format(n_docs) }}건(볼 수 있는 등록 문서){% if aliases %} · 다른 이름: {{ aliases | join(' · ') }}{% if more_aliases %} 외 {{ more_aliases }}개{% endif %}{% endif %}</p>
-  {% if request.state.role == 'dev' %}<p class="muted" style="margin:2px 0 0; font-size:12px;">절 {{ '{:,}'.format(n_sections) }}개
-    · 관계 {% for k, b, v in counts %}{{ k }}({{ b }}) {{ '{:,}'.format(v) }}{{ ' · ' if not loop.last }}{% endfor %}</p>{% endif %}
-  {% if taxonomy and (taxonomy.groups or taxonomy.integrated or taxonomy.pred or taxonomy.succ or taxonomy.members or taxonomy.related) %}
-  <p style="margin:6px 0 0; font-size:12.5px;">
-    {% if taxonomy.groups %}분류: {{ taxonomy.groups | join(', ') }}{% endif %}
-    {% for t in taxonomy.integrated %} · <a href="/graph/program?id={{ t.id }}">{{ t.to }}</a>에 편입({{ t.why }}){% endfor %}
-    {% for t in taxonomy.pred %} · 앞 단계 <a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% endfor %}
-    {% for t in taxonomy.succ %} · 다음 단계 <a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% endfor %}
-    {% if taxonomy.members %} · 편입된 사업: {% for t in taxonomy.members %}<a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>({{ t.why }}){{ ', ' if not loop.last }}{% endfor %}{% endif %}
-    {% if taxonomy.related %} · 연관 사업(문서 근거): {% for t in taxonomy.related %}<a href="/graph/program?id={{ t.id }}">{{ t.name }}</a>{% if t.out %}({{ t.why }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
-  </p>
-  {% endif %}
-  {% if ledger %}
-  <p class="muted" style="margin:4px 0 0; font-size:12px;">외부 확인: {% if ledger.period %}기간 {{ ledger.period }} · {% endif %}{% if ledger.status %}{{ ledger.status }} · {% endif %}{% if ledger.yncu %}영남이공대 — {{ ledger.yncu }} · {% endif %}출처 {% for u in ledger.sources %}<a href="{{ u }}" target="_blank" rel="noopener">[{{ loop.index }}]</a>{% endfor %}</p>
-  {% endif %}
 </div></div>
 
 {% if year_view %}
