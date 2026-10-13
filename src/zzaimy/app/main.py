@@ -684,8 +684,11 @@ def create_app(
             # 낱말마다 제목에 있어야 한다(띄어쓰기 무시) — 「핵심성과지표 총괄」 이 「핵심 성과지표 총괄표」 도 찾는다
             words = [w for w in q.split() if w][:6]
             title = " AND ".join("REPLACE(d.filename, ' ', '') LIKE ?" for _ in words)
-            cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?)")
-            args += [f"%{w}%" for w in words] + [f"%{q}%"]
+            # 화면의 접수번호(「2026-43149」 — 기본 유형 코드를 뺀 꼴)로도 찾는다
+            from zzaimy.app.doc_title import receipt_queries
+            rq = receipt_queries(q)
+            cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?" + "".join(" OR d.receipt_no = ?" for _ in rq) + ")")
+            args += [f"%{w}%" for w in words] + [f"%{q}%"] + rq
         rail_cond, rail_args = list(cond), list(args)                         # 사업 목록은 사업 조건만 빼고 같은 조건으로 센다
         rep, members = _program_groups()
         if prog.startswith("prog:"):                                           # 그래프의 대표가 아닌 이름으로 와도 묶음 대표로
@@ -4683,7 +4686,7 @@ def create_app(
 
     @app.get("/dev/rag", response_class=HTMLResponse)
     def dev_rag(request: Request):
-        """RAG 공간 — 공간 목록·검색해 보기·계정별 추가 권한·규정·기준 문서(목록은 /dev/rag/regs 로 따로 불러온다).
+        """RAG 공간 — 검색 공간·규정·기준 문서·계정별 추가 권한·검색 범위 시험(목록은 /dev/rag/regs 로 따로 불러온다).
         폴더별 담당 부서는 문서 반입(/dev/intake?tab=areas)으로 옮겼다."""
         from zzaimy.app import rag_spaces
         data_dir = Path(db_path).parent
@@ -4782,7 +4785,7 @@ def create_app(
 
     @app.get("/dev/rag/try")
     def dev_rag_try(target: str = "", q: str = "", k: int = 5):
-        """검색해 보기 — 공간·계정의 실제 검색 범위(search_scope)로 규정·사업 문서를 찾은 상위 결과. 생성 모델은 부르지 않는다."""
+        """검색 범위 시험 — 공간·계정의 실제 검색 범위(search_scope)로 규정·사업 문서를 찾은 상위 결과. 생성 모델은 부르지 않는다."""
         from zzaimy.app import rag_spaces
         got = rag_spaces.target_scope(target, accounts, Path(db_path).parent)
         if got is None:

@@ -34,7 +34,10 @@ def test_receipt_and_title_display():
     from zzaimy.app.doc_title import display_title, receipt_label
 
     assert receipt_label("2026-기준-0003") == "2026-기준-00003"
-    assert receipt_label("2026-국고-41768") == "2026-국고-41768"
+    assert receipt_label("2026-국고-41768") == "2026-41768"          # 사업 문서 기본 코드는 표시에서 뺀다
+    assert receipt_label("2026-국고-0003") == "2026-00003"
+    from zzaimy.app.doc_title import receipt_queries
+    assert receipt_queries("2026-00003") == ["2026-국고-0003", "2026-국고-3"] and receipt_queries("장학") == []
     assert receipt_label("2031-입학-7") == "2031-입학-00007"
     assert receipt_label("") == "" and receipt_label("임시번호") == "임시번호"
     assert display_title({"filename": "가상 연구소 운영 지침.hwpx"}) == "가상 연구소 운영 지침"

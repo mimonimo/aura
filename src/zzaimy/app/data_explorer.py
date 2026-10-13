@@ -200,8 +200,10 @@ def list_docs(db, q: str = "", doc_type: str = "", limit: int = LIST_LIMIT) -> l
         cond.append("d.doc_type = ?")
         params.append(doc_type)
     if q.strip():
-        cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?)")
-        params += [f"%{q.strip()}%"] * 2
+        from zzaimy.app.doc_title import receipt_queries
+        rq = receipt_queries(q)                       # 화면의 접수번호 꼴(2026-43149)
+        cond.append("(d.filename LIKE ? OR COALESCE(d.receipt_no, '') LIKE ?" + "".join(" OR d.receipt_no = ?" for _ in rq) + ")")
+        params += [f"%{q.strip()}%"] * 2 + rq
     if cond:
         sql += " WHERE " + " AND ".join(cond)
     sql += " ORDER BY d.id DESC LIMIT ?"

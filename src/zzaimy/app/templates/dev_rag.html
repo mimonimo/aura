@@ -71,7 +71,8 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 {% if q.get('err') %}<p class="pill" role="alert" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
 
 <section class="card"><div class="card-in">
-  <h2><iconify-icon icon="solar:database-linear"></iconify-icon>공간 목록</h2>
+  <h2><iconify-icon icon="solar:database-linear"></iconify-icon>검색 공간</h2>
+  <p class="rg-sub" style="margin:0 0 8px;">계정이 답변을 받을 때 찾는 자료의 범위입니다. 역할·부서로 정해집니다.</p>
   <div class="rg-scroll">
   <table class="rg-table" id="rgSpaces">
     <tr><th>공간</th><th>사업 문서 범위</th>
@@ -96,90 +97,8 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     {% endfor %}
   </table>
   </div>
-  <p class="rg-note">사업 문서는 사업 문서 검색으로, 규정 색인은 규정 검색으로 찾습니다. 「규정 갈래」는 사업 문서 가운데 서류 갈래가 규정인 것으로 규정 색인과 별개입니다. 부서가 있는 교직원은 그 부서 공간, 부서 없는 교직원은 staff, 관리자는 전부를 봅니다.</p>
+  <p class="rg-note">부서가 있는 교직원은 그 부서 공간, 부서 없는 교직원은 staff, 학생은 student, 관리자는 전부. 「규정 갈래」는 사업 문서 가운데 서류 갈래가 규정인 것이고 규정 색인과 별개입니다.</p>
 </div></section>
-
-<section class="card" id="try"><div class="card-in">
-  <h2>검색해 보기</h2>
-  <form class="rg-bar" id="rgTry" data-own-confirm>
-    <label class="rg-sub" for="rgTryTarget">범위</label>
-    <select id="rgTryTarget" name="target" required>
-      <optgroup label="공간">
-        {% for s in spaces %}<option value="space:{{ s.id }}">{{ s.id }} — {{ s.label }}</option>{% endfor %}
-        <option value="space:dev">dev — 관리자 전부</option>
-      </optgroup>
-      <optgroup label="계정">
-        {% for a in accts %}<option value="user:{{ a.id }}">{{ a.id }} ({{ a.role }}{{ " · " ~ a.dept if a.dept }})</option>{% endfor %}
-      </optgroup>
-    </select>
-    <input type="search" name="q" id="rgTryQ" placeholder="검색어 — 예: 장학금 지급 기준" maxlength="200" required aria-label="검색어">
-    <button class="btn primary" type="submit">검색</button>
-  </form>
-  <p class="rg-sub" id="rgTryStatus" aria-live="polite">고른 공간·계정의 실제 검색 범위로 규정 색인과 사업 문서를 찾은 상위 5건. 답변 생성 없이 검색만 합니다.</p>
-  <div class="rg-results" id="rgTryOut" hidden>
-    <div><h3>규정 색인</h3><div data-out="regulation"></div></div>
-    <div><h3>사업 문서</h3><div data-out="grant"></div></div>
-  </div>
-</div></section>
-
-<section class="card" id="grants"><div class="card-in">
-  <h2>계정별 추가 권한</h2>
-  {% if not dept_spaces %}
-  <p class="rg-sub">부서 공간 없음 — 계정에 부서를 정하면 생깁니다 · <a href="/dev/users">사용자·계정</a></p>
-  {% else %}
-  <form method="post" action="/dev/rag/grant" id="rgGrant">
-    <div class="rg-bar">
-      <input type="search" id="rgAcctFind" placeholder="계정·부서 찾기" aria-label="계정 찾기">
-      <span class="rg-sub" id="rgAcctCount"></span>
-    </div>
-    <div class="rg-scroll">
-    <table class="rg-table" id="rgGrantTable">
-      <thead><tr><th>계정</th><th>기본 공간</th>
-        {% for sp in dept_spaces %}<th class="c">{{ sp[5:] }}</th>{% endfor %}</tr></thead>
-      <tbody>
-      {% for a in accts %}
-      <tr data-find="{{ (a.id ~ ' ' ~ a.role ~ ' ' ~ a.dept)|lower }}">
-        <td>{{ a.id }}<br><span class="rg-sub">{{ a.role }}{{ " · " ~ a.dept if a.dept }}</span></td>
-        <td class="rg-wrap">{{ a.space }}</td>
-        {% if a.role == "student" %}
-        <td colspan="{{ dept_spaces|length }}" class="rg-fixed">고정 — 학생은 학생 공개 규정만 검색(추가 권한 없음)</td>
-        {% elif a.role == "dev" %}
-        <td colspan="{{ dept_spaces|length }}" class="rg-fixed">고정 — 관리자는 전부 검색</td>
-        {% elif a.all_grant %}
-        <td colspan="{{ dept_spaces|length }}" class="rg-fixed">고정 — 부서 없는 교직원은 사업 문서 전부 검색</td>
-        {% else %}
-          {% for sp in dept_spaces %}
-          {% set key = a.id ~ "\t" ~ sp %}
-          {% set own = a.space == sp %}
-          <td class="c">
-            {% if own %}<span class="rg-fixed" title="기본 공간이라 늘 검색">기본</span>
-            {% else %}
-            <input type="hidden" name="cell" value="{{ key }}">
-            {% if sp in a.grants %}<input type="hidden" name="was" value="{{ key }}">{% endif %}
-            <label class="rg-sw" title="{{ a.id }} — {{ sp[5:] }} 사업 문서도 검색">
-              <input type="checkbox" name="on" value="{{ key }}" {{ 'checked' if sp in a.grants }} data-was="{{ '1' if sp in a.grants else '0' }}"
-                     aria-label="{{ a.id }} 계정에 {{ sp[5:] }} 사업 문서 검색 권한">
-              <span class="tr" aria-hidden="true"></span>
-            </label>
-            {% endif %}
-          </td>
-          {% endfor %}
-        {% endif %}
-      </tr>
-      {% else %}<tr><td colspan="{{ 2 + dept_spaces|length }}" class="rg-sub">계정 없음</td></tr>{% endfor %}
-      </tbody>
-    </table>
-    </div>
-    <div class="rg-save">
-      <span class="rg-sub">켠 칸의 부서 사업 문서가 그 계정의 검색 범위에 더해집니다. 바뀐 칸은 노란 테두리.</span>
-      <button type="reset" class="btn" id="rgGrantReset" disabled>되돌리기</button>
-      <button class="btn primary" id="rgGrantSave" disabled>변경 0건 저장</button>
-    </div>
-  </form>
-  {% endif %}
-</div></section>
-
-<p class="rg-note" style="margin:0 0 16px;">원본 폴더별 담당 부서는 반입 설정이라 <a href="/dev/intake?tab=areas">문서 반입 › 폴더별 담당 부서</a>로 옮겼습니다.</p>
 
 <section class="card" id="student-regs"><div class="card-in">
   {# 규정·기준 문서 — 왼쪽은 등록된 기준 문서(학생 공개·해제), 오른쪽은 반입 자료의 규정 후보(골라 등록). 목록을 다 펼치지 않고 찾아 고른다 #}
@@ -208,6 +127,86 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     </div>
   </div>
   <p class="rr-status" role="status" id="rrStatus"></p>
+</div></section>
+
+<section class="card" id="grants"><div class="card-in">
+  <h2>계정별 추가 권한</h2>
+  {% set ns = namespace(fixed=[], open=[]) %}
+  {% for a in accts %}{% if a.role in ("student", "dev") or a.all_grant %}{% set ns.fixed = ns.fixed + [a] %}{% else %}{% set ns.open = ns.open + [a] %}{% endif %}{% endfor %}
+  <p class="rg-sub" style="margin:0 0 10px;">부서가 정해진 교직원 계정에 다른 부서의 사업 문서 검색을 더해 줍니다.
+    {% if ns.fixed %}범위가 정해진 계정 {{ ns.fixed|length }}개({% for a in ns.fixed %}{{ a.id }} — {% if a.role == "student" %}학생 공개 규정만{% elif a.role == "dev" %}관리자, 전부{% else %}부서 없음, 사업 문서 전부{% endif %}{{ ", " if not loop.last }}{% endfor %})는 더할 것이 없어 표에서 뺐습니다.{% endif %}</p>
+  {% if not dept_spaces or not ns.open %}
+  <p class="rg-sub" style="margin:0;">추가 권한을 줄 계정이 없습니다 — <a href="/dev/users">사용자·계정</a>에서 교직원 계정에 부서를 정하면 여기에 나옵니다.</p>
+  {% else %}
+  <form method="post" action="/dev/rag/grant" id="rgGrant">
+    {% if ns.open|length > 8 %}<div class="rg-bar">
+      <input type="search" id="rgAcctFind" placeholder="계정·부서 찾기" aria-label="계정 찾기">
+      <span class="rg-sub" id="rgAcctCount"></span>
+    </div>{% endif %}
+    <div class="rg-scroll">
+    <table class="rg-table" id="rgGrantTable">
+      <thead><tr><th>계정</th><th>기본 공간</th>
+        {% for sp in dept_spaces %}<th class="c">{{ sp[5:] }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for a in ns.open %}
+      <tr data-find="{{ (a.id ~ ' ' ~ a.role ~ ' ' ~ a.dept)|lower }}">
+        <td>{{ a.id }}<br><span class="rg-sub">{{ a.role }}{{ " · " ~ a.dept if a.dept }}</span></td>
+        <td class="rg-wrap">{{ a.space }}</td>
+          {% for sp in dept_spaces %}
+          {% set key = a.id ~ "\t" ~ sp %}
+          {% set own = a.space == sp %}
+          <td class="c">
+            {% if own %}<span class="rg-fixed" title="기본 공간이라 늘 검색">기본</span>
+            {% else %}
+            <input type="hidden" name="cell" value="{{ key }}">
+            {% if sp in a.grants %}<input type="hidden" name="was" value="{{ key }}">{% endif %}
+            <label class="rg-sw" title="{{ a.id }} — {{ sp[5:] }} 사업 문서도 검색">
+              <input type="checkbox" name="on" value="{{ key }}" {{ 'checked' if sp in a.grants }} data-was="{{ '1' if sp in a.grants else '0' }}"
+                     aria-label="{{ a.id }} 계정에 {{ sp[5:] }} 사업 문서 검색 권한">
+              <span class="tr" aria-hidden="true"></span>
+            </label>
+            {% endif %}
+          </td>
+          {% endfor %}
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="rg-save">
+      <span class="rg-sub">켠 칸의 부서 사업 문서가 그 계정의 검색 범위에 더해집니다. 바뀐 칸은 노란 테두리.</span>
+      <button type="reset" class="btn" id="rgGrantReset" disabled>되돌리기</button>
+      <button class="btn primary" id="rgGrantSave" disabled>변경 0건 저장</button>
+    </div>
+  </form>
+  {% endif %}
+</div></section>
+
+
+<section class="card" id="try"><div class="card-in">
+  <details class="chip-toggle rg-try" id="rgTryBox">
+  <summary>검색 범위 시험</summary>
+  <p class="rg-sub" style="margin:10px 0 8px;">계정이나 공간을 골라 그 범위로 실제 검색해 봅니다 — 「이 계정이 이 규정을 찾는가」를 확인할 때.</p>
+  <form class="rg-bar" id="rgTry" data-own-confirm>
+    <label class="rg-sub" for="rgTryTarget">범위</label>
+    <select id="rgTryTarget" name="target" required>
+      <optgroup label="공간">
+        {% for s in spaces %}<option value="space:{{ s.id }}">{{ s.id }} — {{ s.label }}</option>{% endfor %}
+        <option value="space:dev">dev — 관리자 전부</option>
+      </optgroup>
+      <optgroup label="계정">
+        {% for a in accts %}<option value="user:{{ a.id }}">{{ a.id }} ({{ a.role }}{{ " · " ~ a.dept if a.dept }})</option>{% endfor %}
+      </optgroup>
+    </select>
+    <input type="search" name="q" id="rgTryQ" placeholder="검색어 — 예: 장학금 지급 기준" maxlength="200" required aria-label="검색어">
+    <button class="btn primary" type="submit">검색</button>
+  </form>
+  <p class="rg-sub" id="rgTryStatus" aria-live="polite">규정 색인과 사업 문서에서 상위 5건씩. 답변은 만들지 않습니다.</p>
+  <div class="rg-results" id="rgTryOut" hidden>
+    <div><h3>규정 색인</h3><div data-out="regulation"></div></div>
+    <div><h3>사업 문서</h3><div data-out="grant"></div></div>
+  </div>
+  </details>
 </div></section>
 
 <script>
@@ -271,8 +270,9 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     }
   }));
 
-  // 검색해 보기
+  // 검색 범위 시험
   const tryForm = document.getElementById('rgTry');
+  if (location.hash === '#try') document.getElementById('rgTryBox').open = true;     // 다른 화면의 「검색 범위 시험」 바로가기
   const status = document.getElementById('rgTryStatus'), out = document.getElementById('rgTryOut');
   const hits = (rows, empty) => rows.length ? rows.map(h => `<div class="rg-hit"><div class="t"><a href="/doc/${h.doc_id}">${esc(h.title || '문서')}</a></div>`
     + `<div class="w">${esc([h.where, h.dept ? '부서 ' + h.dept : ''].filter(Boolean).join(' · '))}</div><div class="h">${esc(h.head)}</div></div>`).join('')

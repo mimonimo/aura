@@ -81,12 +81,15 @@ def test_rag_page_sections(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/rag")
     assert r.status_code == 200
-    for text in ("공간 목록", "그 가운데 규정 갈래", "규정 색인 문서", "검색해 보기", "계정별 추가 권한", "변경 0건 저장",
-                 "규정·기준 문서", "dept:가부서", "고정 — 학생은", "고정 — 관리자는"):
+    for text in ("검색 공간", "그 가운데 규정 갈래", "규정 색인 문서", "검색 범위 시험", "계정별 추가 권한", "변경 0건 저장",
+                 "규정·기준 문서", "dept:가부서", "학생 공개 규정만", "관리자, 전부"):
         assert text in r.text, text
     # 학생 공간이 비면 그 줄에 안내와 지정 링크
     assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="#student-regs"' in r.text
-    assert 'href="/dev/intake?tab=areas"' in r.text                    # 폴더별 담당 부서는 문서 반입으로 옮겼다
+    # 범위가 정해진 계정(학생·관리자)은 표에 줄을 두지 않고 한 줄 안내로
+    assert '<tr data-find="u-stu' not in r.text and "더할 것이 없어 표에서 뺐습니다" in r.text
+    # 순서: 검색 공간 → 규정·기준 문서 → 계정별 추가 권한 → 검색 범위 시험(접힘)
+    assert r.text.index("규정·기준 문서</h2>") < r.text.index("계정별 추가 권한</h2>") < r.text.index("<summary>검색 범위 시험")
     assert 'name="on" value="u-ga\tdept:나부서"' in r.text            # 계정 × 부서 공간 칸
     assert 'value="u-stu\tdept' not in r.text                          # 학생 줄에는 토글이 없다
 
@@ -244,3 +247,12 @@ def test_student_audience_set_and_unset_from_rag_page(tmp_path, monkeypatch):
     # 바깥 주소로는 돌려보내지 않는다
     r = c.post(f"/doc/{reg_t}/audience", data={"audience": "staff", "back": "//evil.example"}, follow_redirects=False)
     assert r.headers["location"] == f"/doc/{reg_t}"
+
+
+def test_grants_without_eligible_accounts_shows_one_line(tmp_path):
+    from tests.test_accounts import _app, _login
+    from fastapi.testclient import TestClient
+    c = TestClient(_app(tmp_path))
+    assert _login(c, "zzdev", "devpass")
+    t = c.get("/dev/rag").text
+    assert 'id="rgGrantTable"' not in t and "추가 권한을 줄 계정이 없습니다" in t

@@ -56,7 +56,7 @@ def test_search_shows_titles_and_padded_receipt_numbers(tmp_path):
     docs = page.split('id="srDocuments"', 1)[1].split('id="srEvidence"', 1)[0]
     assert "현장실습 안내문.hwpx" not in docs and "현장실습 안내문" in docs
     head, seq = receipt.rsplit("-", 1)
-    assert f"{head}-{seq.zfill(5)}" in docs
+    assert f"{head[:4]}-{seq.zfill(5)}" in docs                          # 사업 문서 기본 코드(국고)는 표시에서 뺀다
 
 
 def test_chat_search_matches_full_and_half_width_in_both_places(tmp_path):

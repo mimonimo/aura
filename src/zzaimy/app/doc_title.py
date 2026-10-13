@@ -331,11 +331,27 @@ _RECEIPT = re.compile(r"^(\d{4}-[^-]+-)(\d+)$")
 RECEIPT_DIGITS = 5                                   # 접수번호 끝 일련번호의 표시 자릿수(가장 긴 번호에 맞춘다)
 
 
+RECEIPT_PLAIN = "국고"                                # 반입 사업 문서의 유형 코드 — 거의 모든 문서라 표시에서 뺀다
+
+
 def receipt_label(receipt_no: str | None) -> str:
-    """접수번호 표시 — 끝 일련번호를 같은 자릿수로 맞춰 보인다(2026-기준-0003 → 2026-기준-00003). 저장 값은 바꾸지 않는다.
-    꼴이 다르면 그대로 돌려준다."""
+    """접수번호 표시 — 끝 일련번호를 같은 자릿수로 맞추고(2026-기준-0003 → 2026-기준-00003), 사업 문서의 기본 유형 코드
+    「국고」는 뺀다(2026-국고-43149 → 2026-43149). 다른 유형(기준·채용 …)은 일련번호가 따로라 코드를 남겨야 번호가 겹치지 않는다.
+    저장 값은 바꾸지 않는다(폴더 이름·링크가 쓴다). 꼴이 다르면 그대로 돌려준다."""
     s = (receipt_no or "").strip()
     m = _RECEIPT.match(s)
     if not m:
         return s
-    return m.group(1) + m.group(2).zfill(RECEIPT_DIGITS)
+    head = m.group(1)
+    if head[5:-1] == RECEIPT_PLAIN:
+        head = head[:5]
+    return head + m.group(2).zfill(RECEIPT_DIGITS)
+
+
+def receipt_queries(q: str) -> list[str]:
+    """화면에 보이는 접수번호(2026-43149·2026-00012)로 찾을 때 맞춰 볼 저장 값들 — 빈 목록이면 접수번호 꼴이 아니다."""
+    m = re.match(r"^\s*(\d{4})-(\d+)\s*$", q or "")
+    if not m:
+        return []
+    n = int(m.group(2))
+    return list(dict.fromkeys(f"{m.group(1)}-{RECEIPT_PLAIN}-{n:0{w}d}" for w in (4, len(str(n)))))
