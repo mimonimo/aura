@@ -836,6 +836,14 @@ def create_app(
                         owner.setdefault(id(e), p["id"])
                 with db._conn() as _c:
                     loose = [(r[0], r[1]) for r in _c.execute("SELECT id, label FROM kg_nodes WHERE type = 'program'").fetchall() if r[0] not in rep]
+                    # 그래프 노드가 없는 보관 묶음 열쇠 — 묶음 이름(「2024년 ○○사업 (2차년도)」)에서 사업 이름으로
+                    seen = {nid for nid, _ in loose}
+                    for prog_key, pname in _c.execute(
+                            "SELECT program, MAX(name) FROM projects WHERE program LIKE 'program:%' GROUP BY program").fetchall():
+                        base = str(prog_key).split("|", 1)[0]
+                        if base not in rep and base not in seen:
+                            seen.add(base)
+                            loose.append((base, __import__("zzaimy.app.library", fromlist=["_bundle_name"])._bundle_name(pname or "")))
                 for nid, label in loose:
                     e = lg.find(label or "")
                     if e is not None and id(e) in owner:
