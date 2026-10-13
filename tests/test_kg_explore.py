@@ -133,7 +133,7 @@ def test_explore_default_overview_and_selection_query(tmp_path):
     assert ov["nodes"] and not any(n["type"] in ("doc", "section", "year", "org") for n in ov["nodes"])
     page = c.get("/graph/explore").text
     assert '"sel": []' in page and 'data-focus=' not in page                       # 처음 열면 고른 것 없이 전체 개요
-    assert 'data-group="group:G"' in page and "묶음 밖 사업" in page and "전체 보기" in page
+    assert 'data-id="group:G"' in page and "data-l1" in page and "전체 보기" in page
     assert '"sel": ["program:A", "program:C"]' in c.get("/graph/explore", params={"sel": "program:A,program:C"}).text
     assert '"sel": ["doc:' + str(d1) + '"]' in c.get("/graph/explore", params={"id": f"doc:{d1}"}).text   # 옛 id= 링크는 하나 고르기
     assert 'data-tab="onto"' in c.get("/graph/explore", params={"tab": "onto"}).text

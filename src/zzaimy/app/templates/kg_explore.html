@@ -4,7 +4,6 @@
 
 {% macro item(p, kid=false) -%}
 <div class="gx-item{% if kid %} kid{% endif %}" data-id="{{ p.id }}" data-type="{{ p.type }}" data-label="{{ p.label }}">
-  {%- if p.type == 'program_group' %}<button type="button" class="gx-caret" aria-expanded="false" aria-label="{{ p.label }} 펼치기"><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></button>{% endif -%}
   <label class="gx-chk" title="여러 개 고르기"><input type="checkbox" aria-label="{{ p.label }} 고르기"></label>
   <button type="button" class="gx-name" title="{{ p.label }} — 이것만 보기"><i data-type="{{ p.type }}"></i><span>{{ p.label }}</span></button>
   <span class="gx-n" title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건">{{ "{:,}".format(p.n_docs) }}</span>
@@ -45,14 +44,22 @@
   .gx-cap { display: flex; justify-content: space-between; padding: 10px 8px 4px; font-size: 11px; font-weight: 700; color: var(--faint); }
   .gx-item { display: flex; align-items: center; gap: 2px; border-radius: 8px; padding-right: 8px; position: relative; }
   .gx-item:hover { background: #F1F5FB; }
-  .gx-item.kid { padding-left: 20px; }
+  .gx-item.kid { padding-left: 14px; }
+  .gx-l1 { margin: 6px 0 2px; }
+  .gx-l1-h { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; border-radius: 8px; cursor: pointer; background: #F6F8FB; font-size: 12.5px; }
+  .gx-l1-h b { flex: 1; min-width: 0; font-weight: 700; color: var(--ink); }
+  .gx-l1-h small { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .gx-l1-h:hover { background: #EEF3FA; } .gx-l1-h:focus-visible { outline: 2px solid #607C9E; outline-offset: 1px; }
+  .gx-fold { font-style: normal; font-size: 11px; color: var(--faint); }
+  .gx-l1[data-open="1"] .gx-fold::after { content: "접기"; } .gx-l1[data-open="0"] .gx-fold::after { content: "펼치기"; }
+  .gx-l1[data-open="0"] .gx-l1-body { display: none; }
+  .gx-l1.unknown .gx-l1-h b { font-weight: 600; color: #53647B; }
+  .gx-l2 { display: flex; gap: 8px; padding: 8px 10px 3px 12px; font-size: 11.5px; font-weight: 600; color: #53647B; }
+  .gx-l2 span { flex: 1; min-width: 0; } .gx-l2 small { color: var(--faint); font-weight: 400; }
+  .gx-l2.node { display: block; padding: 4px 0 0 4px; }
   .gx-item.on { background: #E3ECFB; }
   .gx-item.on::before { content: ""; position: absolute; left: 0; top: 5px; bottom: 5px; width: 3px; border-radius: 2px; background: var(--navy); }
-  .gx-caret { flex: none; width: 22px; height: 30px; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--muted); }
-  .gx-caret:hover { background: transparent; color: var(--navy); }
-  .gx-caret iconify-icon { transition: transform .15s; }
-  .gx-caret[aria-expanded="true"] iconify-icon { transform: rotate(90deg); }
-  .gx-item:not([data-type="program_group"]):not(.kid) { padding-left: 22px; }
+
   .gx-chk { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 30px; cursor: pointer; }
   .gx-chk input { width: 16px; height: 16px; margin: 0; accent-color: var(--navy); cursor: pointer; }
   .gx-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; justify-content: flex-start; text-align: left;
@@ -149,19 +156,19 @@
     </div>
     <div class="gx-chips" id="gxChips" aria-label="고른 항목"></div>
     <div class="gx-list" id="gxList">
-      {% set groups = programs|selectattr("type", "equalto", "program_group")|list %}
-      {% set loose = programs|selectattr("type", "equalto", "program")|selectattr("groups", "equalto", [])|list %}
-      <div class="gx-cap" title="이름을 누르면 그것만, 체크하면 여러 개를 함께 봅니다"><span>사업 묶음 · 사업</span><span title="볼 수 있는 등록 문서 수">문서 수</span></div>
-      {% for g in groups %}
-      <div class="gx-box" data-group="{{ g.id }}">
-        {{ item(g) }}
-        <div class="gx-kids" hidden>
-          {% for p in programs if p.type == 'program' and g.id in p.groups %}{{ item(p, true) }}{% endfor %}
+      <div class="gx-cap" title="이름을 누르면 그것만, 체크하면 여러 개를 함께 봅니다"><span>지원 주체 · 갈래 · 사업</span><span title="볼 수 있는 등록 문서 수">문서 수</span></div>
+      {% for t in tree %}
+      <section class="gx-l1{{ ' unknown' if t.unknown }}" data-l1 data-open="{{ '0' if t.unknown else '1' }}">
+        <button type="button" class="gx-l1-h" aria-expanded="{{ 'false' if t.unknown else 'true' }}"><b>{{ t.label }}</b><small>{{ "{:,}".format(t.n) }}</small><em class="gx-fold"></em></button>
+        <div class="gx-l1-body">
+          {% for g in t.groups %}
+          {% if g.node %}<div class="gx-l2 node" data-l2>{{ item(g.node) }}</div>
+          {% elif g.label %}<div class="gx-l2" data-l2><span>{{ g.label }}</span><small>{{ "{:,}".format(g.n) }}</small></div>{% endif %}
+          {% for p in g.progs %}{{ item(p, true) }}{% endfor %}
+          {% endfor %}
         </div>
-      </div>
+      </section>
       {% endfor %}
-      {% if groups and loose %}<div class="gx-cap"><span>묶음 밖 사업</span></div>{% endif %}
-      {% for p in loose %}{{ item(p) }}{% endfor %}
       {% if not programs %}<p class="gx-empty">그래프가 아직 없습니다.</p>{% endif %}
       <p class="gx-empty" id="gxNoMatch" hidden>맞는 사업이 없습니다.</p>
       <div id="gxHits"></div>
@@ -367,7 +374,7 @@
       var hit = !!on[r.dataset.id];
       r.classList.toggle("on", hit);
       var c = r.querySelector("input[type=checkbox]"); if (c) c.checked = hit;
-      if (hit && r.classList.contains("kid")) openGroup(r.closest(".gx-box"), true);
+      if (hit) { var sec = r.closest("[data-l1]"); if (sec) openL1(sec, true); }
     });
     var chips = document.getElementById("gxChips"); chips.innerHTML = "";
     state.sel.forEach(function (id) {
@@ -383,39 +390,39 @@
     if (state.sel.length) { cnt.appendChild(document.createTextNode("고른 ")); cnt.appendChild(el("b", null, state.sel.length + "개")); }
     else cnt.textContent = "고른 것 없음 · 전체 개요";
   }
-  function openGroup(box, open) {
-    if (!box) return;
-    var kids = box.querySelector(".gx-kids"), c = box.querySelector(".gx-caret");
-    if (!kids.children.length) { if (c) c.style.visibility = "hidden"; return; }
-    kids.hidden = !open; c.setAttribute("aria-expanded", open ? "true" : "false");
-  }
   function bindItems(scope) {
     scope.querySelectorAll(".gx-item").forEach(function (r) {
       var id = r.dataset.id;
       r.querySelector(".gx-name").addEventListener("click", function () { setSel(state.sel.length === 1 && state.sel[0] === id ? [] : [id]); });
       r.querySelector("input[type=checkbox]").addEventListener("change", function () { toggle(id); });
-      var c = r.querySelector(".gx-caret");
-      if (c) c.addEventListener("click", function () { var b = r.closest(".gx-box"); openGroup(b, b.querySelector(".gx-kids").hidden); });
     });
   }
   bindItems(listBox);
-  listBox.querySelectorAll(".gx-box").forEach(function (b) { openGroup(b, false); });
+  function openL1(sec, open) { sec.dataset.open = open ? "1" : "0"; sec.querySelector(".gx-l1-h").setAttribute("aria-expanded", open ? "true" : "false"); }
+  listBox.querySelectorAll(".gx-l1-h").forEach(function (b) {
+    b.addEventListener("click", function () { var sec = b.closest("[data-l1]"); openL1(sec, sec.dataset.open !== "1"); });
+  });
 
   // 찾기 — 목록은 바로 거르고, 문서·단위과제·지표 같은 다른 노드는 서버 검색으로 아래에 붙인다
   var timer = null;
   function filterList(q) {
     var key = q.replace(/\s+/g, "").toLowerCase(), any = false;
-    listBox.querySelectorAll(".gx-box").forEach(function (b) {
-      var gm = !key || b.querySelector(".gx-item").dataset.label.replace(/\s+/g, "").toLowerCase().indexOf(key) >= 0, km = false;
-      b.querySelectorAll(".gx-kids .gx-item").forEach(function (r) {
-        var m = !key || gm || r.dataset.label.replace(/\s+/g, "").toLowerCase().indexOf(key) >= 0;
-        r.hidden = !m; km = km || (m && !!key);
+    var hit = function (r) { return !key || r.dataset.label.replace(/\s+/g, "").toLowerCase().indexOf(key) >= 0; };
+    listBox.querySelectorAll("[data-l1]").forEach(function (sec) {
+      var secAny = false, l2 = null, l2Any = false, l2Hit = false;
+      var close = function () { if (l2) l2.hidden = !(l2Any || l2Hit); };
+      sec.querySelectorAll(".gx-l1-body > *").forEach(function (x) {
+        if (x.hasAttribute("data-l2")) {
+          close(); l2 = x; l2Any = false;
+          var gi = x.querySelector(".gx-item"); l2Hit = !!gi && !!key && hit(gi);
+          if (l2Hit) secAny = true;
+          return;
+        }
+        var m = hit(x) || l2Hit; x.hidden = !m; if (m) { l2Any = true; secAny = true; }
       });
-      b.hidden = !(gm || km); any = any || !b.hidden;
-      openGroup(b, km || (!key && !!b.querySelector(".gx-kids .gx-item.on")));
-    });
-    listBox.querySelectorAll(".gx-list > .gx-item").forEach(function (r) {
-      r.hidden = !!key && r.dataset.label.replace(/\s+/g, "").toLowerCase().indexOf(key) < 0; any = any || !r.hidden;
+      close();
+      sec.hidden = !secAny; any = any || secAny;
+      if (key) openL1(sec, secAny);
     });
     document.getElementById("gxNoMatch").hidden = any || !key;
   }

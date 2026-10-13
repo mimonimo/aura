@@ -88,12 +88,67 @@ def dept_alias(dept: str) -> str:
     return d if re.search(r"[A-Za-z]{3,}", d) and len(d) <= 20 else ""
 
 
+def _gap_variant(a: str, b: str, most: int = 3) -> bool:
+    """짧은 열쇠 a 가 긴 열쇠 b 에서 붙은 글자 몇 개(most 이하)만 뺀 것인가 — 「청해진대학」 ⊂ 「신청해진대학」,
+    「학업중단숙려제위탁프로그램」 ⊂ 「학업중단숙려제외부위탁프로그램」."""
+    if not a or len(b) <= len(a) or len(b) - len(a) > most:
+        return False
+    cut = len(b) - len(a)
+    # 뺀 글자가 영문·숫자면 판·갈래 표시다(「2.0」「AI」) — 다른 사업일 수 있어 묶지 않는다
+    return any(b[:i] + b[i + cut:] == a and not re.search(r"[0-9A-Z]", b[i:i + cut]) for i in range(len(b) - cut + 1))
+
+
+def consolidate(entries: list[dict]) -> list[tuple[str, str]]:
+    """학교 표에서 온 항목끼리(같은 지원기관) 이름이 글자 몇 개만 다른 것을 하나로 — 해마다 표에 적힌 이름이 조금씩 달라
+    (띄어쓰기·「신」「외부」「지원」 같은 덧말) 같은 사업이 장부에 여러 항목으로 남는다.
+    짧은 이름이 긴 이름 여럿의 변형이면(「재학생 …」 ⊂ 「대학 재학생 …」·「고교 재학생 …」) 어느 쪽인지 모르므로 두지 않는다.
+    남는 항목은 연도가 더 많은(같으면 최근) 쪽, 이름·별칭·연도는 합친다. [(지운 이름, 남긴 이름)] 을 돌려준다."""
+    from zzaimy.app.program_names import group_key
+    school = [e for e in entries if e.get("school") and e.get("category") != "사업 아님"]
+    key = {id(e): group_key(e.get("name") or "") for e in school}
+    gov = lambda e: re.split(r"[,(]", str(e.get("ministry") or ""))[0].strip()
+    pairs = []
+    for a in school:
+        hits = [b for b in school if b is not a and gov(b) == gov(a) and _gap_variant(key[id(a)], key[id(b)])]
+        if len(hits) == 1:
+            pairs.append((a, hits[0]))
+    gone: list[tuple[str, str]] = []
+    dead: set[int] = set()
+    for a, b in pairs:
+        if id(a) in dead or id(b) in dead:
+            continue
+        ya, yb = a["school"].get("years") or [], b["school"].get("years") or []
+        keep, drop = (a, b) if (len(ya), max(ya or [0])) > (len(yb), max(yb or [0])) else (b, a)
+        keep["terms"] = list(dict.fromkeys([*(keep.get("terms") or []), drop.get("name") or "", *(drop.get("terms") or [])]))
+        ks, ds = keep["school"], drop["school"]
+        for f in ("years", "names", "subs", "depts"):
+            ks[f] = sorted(set(ks.get(f) or []) | set(ds.get(f) or []))
+        dead.add(id(drop))
+        gone.append((drop.get("name") or "", keep.get("name") or ""))
+    entries[:] = [e for e in entries if id(e) not in dead]
+    return gone
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("files", nargs="+")
+    ap.add_argument("files", nargs="*")
     ap.add_argument("--ledger", default=str(ROOT / "data/platform/kg_external.json"))
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--consolidate", action="store_true", help="표를 읽지 않고 장부의 학교 표 항목끼리 이름 변형만 합친다")
     args = ap.parse_args()
+    if args.consolidate:
+        ledger = json.loads(Path(args.ledger).read_text(encoding="utf-8"))
+        gone = consolidate(ledger.setdefault("programs", []))
+        for d, k in gone:
+            print(f"  합침  {d}  →  {k}")
+        print(f"합친 항목 {len(gone)}개")
+        if args.apply and gone:
+            hist = Path(args.ledger).parent / "history"
+            hist.mkdir(exist_ok=True)
+            shutil.copy2(args.ledger, hist / f"kg_external.{time.strftime('%Y%m%d%H%M%S')}.json")
+            Path(args.ledger).write_text(json.dumps(ledger, ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"썼다 — {args.ledger} (사본 history/)")
+        return 0
     rows = [r for f in args.files for r in read_sheet(Path(f))]
     ledger = json.loads(Path(args.ledger).read_text(encoding="utf-8"))
     entries = ledger.setdefault("programs", [])
@@ -142,6 +197,8 @@ def main() -> int:
     hist.mkdir(exist_ok=True)
     shutil.copy2(args.ledger, hist / f"kg_external.{time.strftime('%Y%m%d%H%M%S')}.json")
     entries.extend(new_entries)
+    for d, k in consolidate(entries):
+        print(f"  합침  {d}  →  {k}")
     Path(args.ledger).write_text(json.dumps(ledger, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"썼다 — {args.ledger} (사본 history/)")
     return 0

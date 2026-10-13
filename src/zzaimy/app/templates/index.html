@@ -44,7 +44,19 @@
   .lib-rail-item:hover { background:#F3F6FB; }
   .lib-rail-item.on { background:#EAF0FA; color:var(--navy); font-weight:700; }
   .lib-rail-item.fixed { color:#53647B; } .lib-rail-item.fixed:first-of-type { margin-top:6px; }
-  .lib-rail-item[hidden] { display:none; }
+  .lib-rail-item[hidden], .lib-l2[hidden], .lib-l1[hidden] { display:none; }
+  .lib-l1 { margin-top:6px; }
+  .lib-l1-h { all:unset; box-sizing:border-box; display:flex; align-items:center; gap:6px; width:100%; padding:7px 9px; border-radius:8px; cursor:pointer; font-size:12.5px; color:var(--ink); background:#F6F8FB; }
+  .lib-l1-h b { flex:1; min-width:0; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lib-l1-h small { color:var(--muted); font-variant-numeric:tabular-nums; }
+  .lib-l1-h:hover { background:#EEF3FA; } .lib-l1-h:focus-visible { outline:2px solid #607C9E; outline-offset:1px; }
+  .lib-fold { font-style:normal; font-size:11px; color:var(--faint, #8A94A6); }
+  .lib-l1[data-open="1"] .lib-fold::after { content:"접기"; } .lib-l1[data-open="0"] .lib-fold::after { content:"펼치기"; }
+  .lib-l1[data-open="0"] .lib-l1-body { display:none; }
+  .lib-l1.unknown .lib-l1-h b { font-weight:600; color:#53647B; }
+  .lib-l2 { display:flex; gap:8px; padding:8px 9px 3px 12px; font-size:11.5px; font-weight:600; color:#53647B; }
+  .lib-l2 span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .lib-l2 small { color:var(--faint, #8A94A6); font-weight:400; }
+  .lib-rail-item.lib-l3 { padding-left:20px; } .lib-rail-item.lib-l3.flat { padding-left:14px; }
   .lib-pick { display:flex; align-items:center; gap:10px; margin:0 0 10px; font-size:15px; }
   .lib-pick-graph { margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-size:12.5px; text-decoration:none; padding:4px 10px; border:1px solid var(--line); border-radius:8px; }
   .lib-pick-x { text-decoration:none; color:var(--muted); font-size:18px; padding:0 6px; border-radius:6px; } .lib-pick-x:hover { background:#F3F6FB; }
@@ -141,10 +153,23 @@
   <input type="search" class="lib-rail-find" id="libRailFind" placeholder="사업 이름 거르기" aria-label="사업 이름 거르기">
   <nav class="lib-rail-list" id="libRail">
     <a href="/?{{ rail_qs }}" class="lib-rail-item{{ ' on' if not prog }}"{% if not prog %} aria-current="true"{% endif %}><span>전체</span><small>{{ "{:,}".format(rail | sum(attribute='n')) }}</small></a>
-    {% for g in rail %}
-    <a href="/?{{ rail_qs }}&amp;prog={{ g.key | urlencode }}" class="lib-rail-item{{ ' on' if prog == g.key }}{{ ' fixed' if not g.key.startswith('prog:') }}"{% if prog == g.key %} aria-current="true"{% endif %}
-       data-name="{{ g.label | lower }}" title="{{ g.label }}"><span>{{ g.label }}</span><small>{{ "{:,}".format(g.n) }}</small></a>
+    {% macro rail_item(g, cls='') -%}
+    <a href="/?{{ rail_qs }}&amp;prog={{ g.key | urlencode }}" class="lib-rail-item {{ cls }}{{ ' on' if prog == g.key }}"{% if prog == g.key %} aria-current="true"{% endif %}
+       data-name="{{ (g.label ~ ' ' ~ (g.raw_label or '')) | lower }}" title="{{ g.label }}{% if g.raw_label and g.raw_label != g.label %} (문서 속 이름: {{ g.raw_label }}){% endif %}"><span>{{ g.label }}</span><small>{{ "{:,}".format(g.n) }}</small></a>
+    {%- endmacro %}
+    {% for t in rail_tree %}
+    {% set has_on = prog and (t.groups | map(attribute='progs') | sum(start=[]) | selectattr('key', 'equalto', prog) | list) %}
+    <section class="lib-l1{{ ' unknown' if t.unknown }}" data-l1 data-open="{{ '0' if (t.unknown and not has_on) else '1' }}">
+      <button type="button" class="lib-l1-h" aria-expanded="{{ 'false' if (t.unknown and not has_on) else 'true' }}"><b>{{ t.label }}</b><small>{{ "{:,}".format(t.n) }}</small><em class="lib-fold"></em></button>
+      <div class="lib-l1-body">
+        {% for g in t.groups %}
+        {% if g.label %}<div class="lib-l2" data-l2><span>{{ g.label }}</span><small>{{ "{:,}".format(g.n) }}</small></div>{% endif %}
+        {% for it in g.progs %}{{ rail_item(it, 'lib-l3' ~ (' flat' if not g.label else '')) }}{% endfor %}
+        {% endfor %}
+      </div>
+    </section>
     {% endfor %}
+    {% for g in rail_fixed %}{{ rail_item(g, 'fixed') }}{% endfor %}
   </nav>
 </aside>
 <div class="card lib-main">
@@ -279,6 +304,23 @@
     var t = f.value.replace(/\s+/g, "").toLowerCase();
     document.querySelectorAll("#libRail .lib-rail-item[data-name]").forEach(function (a) {
       a.hidden = !!t && a.dataset.name.replace(/\s+/g, "").indexOf(t) < 0 && !a.classList.contains("on");
+    });
+    // 걸러 낸 뒤 빈 중분류·대분류는 숨기고, 걸러 낸 동안에는 닫힌 대분류도 펼쳐 보인다
+    document.querySelectorAll("#libRail [data-l1]").forEach(function (sec) {
+      var any = false, l2 = null, l2any = false;
+      sec.querySelectorAll(".lib-l1-body > *").forEach(function (x) {
+        if (x.hasAttribute("data-l2")) { if (l2) l2.hidden = !l2any; l2 = x; l2any = false; return; }
+        if (!x.hidden) { any = true; l2any = true; }
+      });
+      if (l2) l2.hidden = !l2any;
+      sec.hidden = !any;
+      if (t) sec.dataset.open = "1";
+    });
+  });
+  document.querySelectorAll("#libRail .lib-l1-h").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var sec = b.closest("[data-l1]"), open = sec.dataset.open !== "1";
+      sec.dataset.open = open ? "1" : "0"; b.setAttribute("aria-expanded", open ? "true" : "false");
     });
   });
 })();

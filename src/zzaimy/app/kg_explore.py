@@ -303,7 +303,9 @@ def programs(db, scope: dict | None = None) -> list[dict]:
     from zzaimy.app.program_names import is_program_name
     rows = [r for r in rows if r["type"] != "program" or "사업" not in r["label"] or is_program_name(r["label"])]
     plain = [r for r in rows if r["type"] == "program"]
-    rep = group_names({r["label"]: len(r["docs"]) for r in plain})
+    # 외부 확인 장부(학교 재정지원사업 현황 포함)가 같은 사업이라 적은 이름은 한 줄로 — 표기·약칭·해마다 바뀐 이름
+    from zzaimy.app.program_names import load_ledger
+    rep = group_names({r["label"]: len(r["docs"]) for r in plain}, ledger=load_ledger(), known=[r["label"] for r in plain])
     merged: dict[str, dict] = {}
     for r in sorted(plain, key=lambda r: -len(r["docs"])):
         # 사업 이름 꼴이면 group_names 의 대표 이름, 아니면(「…체계(앵커)」처럼 「사업」 낱말이 없는 이름) 같은 열쇠끼리만
@@ -471,6 +473,25 @@ def overview(db, scope: dict | None = None) -> dict:
                        "groups": sum(r["type"] == "program_group" for r in rows), "docs": len(docs)}}
 
 
+def program_tree(nodes: list[dict]) -> list[dict]:
+    """왼쪽 목록의 대·중·소 분류 — 라이브러리 「사업별로 보기」와 같은 나무(app.program_tree). 교육부 재정지원 체계 갈래(중분류)는
+    그래프의 사업 묶음 노드와 같은 갈래라 그 노드를 달아 체크로 고를 수 있게 한다."""
+    from zzaimy.app import program_tree as pt
+    from zzaimy.app.program_names import load_ledger
+    tree = pt.build([{**n, "key": n["id"], "n": n["n_docs"]} for n in nodes if n["type"] == "program"], load_ledger())
+    groups = [n for n in nodes if n["type"] == "program_group"]
+    for t in tree:
+        for g in t["groups"]:
+            g["node"] = next((n for n in groups if g["label"] and str(n["label"]).startswith(g["label"])), None)
+    used = {g["node"]["id"] for t in tree for g in t["groups"] if g.get("node")}
+    # 중분류에 달리지 않은 묶음 노드(교육부 체계 밖 묶음 등)도 고를 수 있게 맨 위 「사업 묶음」으로
+    rest = [n for n in groups if n["id"] not in used]
+    if rest:
+        tree.insert(0, {"label": "사업 묶음", "n": sum(n["n_docs"] for n in rest), "unknown": False,
+                        "groups": [{"label": "", "n": 0, "node": None, "progs": rest}]})
+    return tree
+
+
 @router.get("/graph/explore", response_class=HTMLResponse)
 def explore_page(request: Request, id: str = "", sel: str = "", q: str = "", tab: str = ""):
     """처음 열면 전체 개요(사업·묶음). sel=노드,노드 는 고른 것만 펼쳐 보기, id= 는 sel 하나와 같다(다른 화면의 「그래프에서 보기」)."""
@@ -478,7 +499,7 @@ def explore_page(request: Request, id: str = "", sel: str = "", q: str = "", tab
     ov = overview(st.db, _scope(request))
     picked = [x for x in ([id] if id else []) + [s for s in sel.split(",") if s.strip()] if x]
     return st.templates.TemplateResponse(request, "kg_explore.html", st.page_ctx(request, {
-        "q": q, "programs": ov["nodes"], "totals": ov["totals"], "type_ko": TYPE_KO,
+        "q": q, "programs": ov["nodes"], "tree": program_tree(ov["nodes"]), "totals": ov["totals"], "type_ko": TYPE_KO,
         "kind_ko": {k: v[0] for k, v in KIND_KO.items()}, "sel": list(dict.fromkeys(picked)),
         "tab": "onto" if tab == "onto" and request.state.role == "dev" else "kg"}))
 

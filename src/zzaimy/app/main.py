@@ -743,6 +743,14 @@ def create_app(
                     " FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
                     f" WHERE d.id IN ({','.join('?' * len(ids))}){acc}", [*ids, *acc_args]).fetchall()}   # 열람 조건을 다시 건다
             rail = library.rail(conn, rail_where, rail_args, rep)
+        # 사업 목록의 대·중·소 분류(외부 확인 장부 = 학교 재정지원사업 현황 기준) — 그래프 탐색 왼쪽 목록과 같은 나무
+        from zzaimy.app import program_tree
+        from zzaimy.app.program_names import load_ledger
+        rail_tree = program_tree.build([g for g in rail if g["key"].startswith("prog:")], load_ledger())
+        shown_label = {it["key"]: it["label"] for t in rail_tree for gg in t["groups"] for it in gg["progs"]}
+        for g in rail:
+            g["label"] = shown_label.get(g["key"], g["label"])
+        with db._conn() as conn:
             kinds = [(x[0] or "", int(x[1])) for x in conn.execute(
                 f"SELECT d.kind, COUNT(*) FROM documents d{where} GROUP BY d.kind ORDER BY 2 DESC", args).fetchall()]
             case_sql, case_args = library.use_case_sql()
@@ -782,7 +790,8 @@ def create_app(
                 "page": page, "pages": pages, "page_numbers": library.page_numbers(page, pages),
                 "per": PER, "total_docs": total_docs, "n_rows": len(groups),
                 "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "분류 전") if k else "분류 전", n) for k, n in kinds],
-                "rail": rail, "prog": prog, "year": year,
+                "rail": rail, "rail_tree": rail_tree, "rail_fixed": [g for g in rail if not g["key"].startswith("prog:")],
+                "prog": prog, "year": year,
                 "rail_pick": next((g for g in rail if g["key"] == prog), None),
                 "common_templates": [t for t in _common_templates() if business and t["sector"] == business],
             }),
