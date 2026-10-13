@@ -257,7 +257,7 @@ body #chatForm { max-width:1040px; }
 #chatScroll .chat-suggestion-form .chat-form-later:has(input:checked) .off { display:none; }
 #chatScroll .chat-suggestion-form .chat-form-later:has(input:checked) .on { display:inline; }
 #chatScroll .chat-suggestion-form .chat-form-foot { border-top:1px solid #EEF1F5; padding-top:12px; margin-top:4px; }
-#chatScroll .chat-suggestion-form .chat-form-foot .chat-form-tip { margin:0; font-size:11.5px; color:#8A96A6; }
+#chatScroll .chat-suggestion-form .chat-form-foot .chat-form-tip { flex:1; min-width:0; margin:0; font-size:11.5px; color:#8A96A6; }
 #chatScroll .chat-suggestion-form .chat-form-status:empty { display:none; }
 @media (hover: none) { #chatScroll .chat-suggestion-form .chat-form-later { opacity:1; } }
 /* 마지막 답 아래 제안·단추가 입력창 뒤에 가리지 않게 */
