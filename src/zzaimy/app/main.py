@@ -977,10 +977,10 @@ def create_app(
         if role == "student":
             return "검색 범위: 학생 공개 규정"
         if role == "dev":
-            return "검색 범위: 공통 RAG + 모든 부서 RAG"
+            return "검색 범위: 모든 문서(관리자)"
         extra = [d for d in _extra_depts(getattr(request.state, "user", "")) if d != dept]
         mine = [d for d in [dept, *extra] if d and d != "공통"]
-        return "검색 범위: 공통 RAG" + (" + " + "·".join(mine) + " 부서 RAG" if mine else "")
+        return "검색 범위: 전체 공개 문서" + (" + " + "·".join(mine) + " 문서" if mine else "")
 
     @app.get("/chat", response_class=HTMLResponse)
     def chat_new(request: Request, project: int | None = None):
