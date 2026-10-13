@@ -148,3 +148,4 @@
 .doc-origin-place { color:var(--ink); font-weight:600; overflow-wrap:anywhere; }
 #documentWorkspace .doc-actions .btn.secondary { background:#fff; border:1px solid #D6DEE8; color:#36465B; box-shadow:none; }
 #documentWorkspace .doc-actions .btn.secondary:hover { background:#F3F6FA; border-color:#AEBBCD; }
+.document-extract .extract-table-note, .extract-table-note { margin:4px 0 14px; font-size:11.5px; color:#8A96A6; }

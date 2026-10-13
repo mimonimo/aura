@@ -92,7 +92,9 @@
         <article class="project-document-item">
           <a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
           <span class="muted">{{ d.via }} · {{ receipt_label(d.receipt_no) or d.id }} · {{ d.created_at[:16].replace("T", " ") }}</span>
-          <div><span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span>{% if key == 'attached' and d.doc_type in ('recruit', 'admission') %} <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}{% if key == 'rules' %} <span class="muted">{{ kind_labels.get(d.kind or '', '분류 전') }}</span>{% endif %}</div>
+          {# 상태는 평소(등록 완료)와 다를 때만 — 모든 카드에 같은 초록 꼬리표는 가려 주는 것이 없다 #}
+          {% set show_status = d.status != 'reviewed' %}{% set show_decision = key == 'attached' and d.doc_type in ('recruit', 'admission') %}
+          {% if show_status or show_decision or key == 'rules' %}<div>{% if show_status %}<span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span>{% endif %}{% if show_decision %} <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}{% if key == 'rules' %} <span class="muted">{{ kind_labels.get(d.kind or '', '분류 전') }}</span>{% endif %}</div>{% endif %}
         </article>
         {% if loop.last and loop.length > ref_shown %}</div></details>{% endif %}
         {% endfor %}

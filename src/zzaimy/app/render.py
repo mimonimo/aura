@@ -87,7 +87,12 @@ def table_html(content: str) -> Markup:
         parts = ['<div class="table-scroll"><table class="extract">']
     occupied: set[tuple[int, int]] = set()
     n_cols = int(data.get("n_cols") or max((int(c) + int(cs) for _, c, _, cs, _, _ in cells), default=0))
-    for r in range(n_rows):
+    # 양식 표 끝의 통째로 빈 줄(적을 칸만 그어 둔 줄)은 셋 이상이면 접는다 — 글자 있는 줄은 그대로 다 그린다
+    filled = [int(r) + int(rs) - 1 for r, _c, rs, _cs, _hd, txt in cells if str(txt).strip()]
+    last = max(filled, default=n_rows - 1)
+    skipped = n_rows - 1 - last if n_rows - 1 - last >= 3 else 0
+    n_show = n_rows - skipped
+    for r in range(n_show):
         parts.append("<tr>")
         cursor = 0
         for c, rs, cs, hd, txt in sorted(rows.get(r, [])):
@@ -96,6 +101,7 @@ def table_html(content: str) -> Markup:
                     parts.append('<td></td>')
                 cursor += 1
             tag = "th" if hd else "td"
+            rs = min(rs, n_show - r)
             attrs = (f' rowspan="{rs}"' if rs > 1 else "") + (
                 f' colspan="{cs}"' if cs > 1 else ""
             )
@@ -110,6 +116,8 @@ def table_html(content: str) -> Markup:
             cursor += 1
         parts.append("</tr>")
     parts.append("</table></div>")
+    if skipped:
+        parts.append(f'<p class="extract-table-note">표 끝의 빈 줄 {skipped}개는 접었습니다 — 원문에서 확인</p>')
     return Markup("".join(parts))
 
 
