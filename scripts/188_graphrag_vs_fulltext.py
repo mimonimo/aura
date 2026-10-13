@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import random
@@ -272,17 +273,41 @@ def main() -> int:
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
     ap.add_argument("--sec-set", default=str(ROOT / "data/eval/rag_probe_set.json"))
     ap.add_argument("--rel-set", default=str(ROOT / "data/eval/graph_relation_set.json"))
+    ap.add_argument("--new-rel-set", default="", help="관계 질문 집합을 지금 그래프에서 새로 뽑아 이 경로에 쓰고 쓴다(scripts/184 make_set)"
+                    " — 예: 40,30,20 = 계획↔실적 40·앞뒤 단계 30·평가 20")
     args = ap.parse_args()
+    if args.new_rel_set:
+        spec = importlib.util.spec_from_file_location("s184", ROOT / "scripts" / "184_graph_relation_probe.py")
+        s184 = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(s184)
+        n_pair, n_lin, n_ev = (int(x) for x in args.new_rel_set.split(","))
+        db0 = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
+        made = s184.make_set(db0, args.seed, n_pair, n_lin, n_ev)
+        Path(args.rel_set).write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "seed": args.seed, "items": made},
+                                                 ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"관계 질문 집합 새로 뽑음 {len(made)}문 → {Path(args.rel_set).name}", flush=True)
     modes = [m for m in args.modes.split(",") if m in MODES]
     amodes = [m for m in args.answer_modes.split(",") if m in MODES]
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     items = load_sets(Path(args.sec_set), Path(args.rel_set))
+    # 정답 문서가 지금 문서함에 없는 질문은 뺀다(반입 정리로 빠진 문서) — 뺀 수는 결과에 남긴다
+    with db._conn() as conn:
+        live = {int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'").fetchall()}
+    dropped = [x["id"] for x in items if (x["doc_id"] not in live if x["set"] == "section"
+                                          else not (set(x["gold"]) & live if x["any"] else set(x["gold"]) <= live))]
+    items = [x for x in items if x["id"] not in set(dropped)]
     if args.limit:
         items = [x for x in items if x["set"] == "section"][: args.limit] + [x for x in items if x["set"] == "relation"][: args.limit]
     ans_ids = {x["id"] for x in pick_answer_items(items, args.answer_sec, args.answer_rel)}
     print(f"시험지: 절 {sum(x['set'] == 'section' for x in items)}문 · 관계 {sum(x['set'] == 'relation' for x in items)}문 · "
           f"답변 {len(ans_ids)}문 × {','.join(amodes)} · 모드 {','.join(modes)}", flush=True)
-    run_search(db, items[0], "graph", args.k_sec, args.k_rel)          # 데우기(색인·DB 캐시) — 기록하지 않는다
+    if dropped:
+        print(f"정답 문서가 문서함에 없어 뺀 질문 {len(dropped)}문: {', '.join(dropped[:20])}", flush=True)
+    for m in modes:
+        run_search(db, items[0], m, args.k_sec, args.k_rel)             # 데우기(색인·DB 캐시) — 기록하지 않는다
+    if ans_ids:
+        from zzaimy.app.regulations import find_relevant
+        find_relevant(db, items[0]["q"])                                 # 규정 검색(재순위 모델) 데우기 — 첫 답만 수십 초 느려지지 않게
     rows: list[dict] = []
     started = time.time()
     for i, it in enumerate(items):
@@ -311,7 +336,7 @@ def main() -> int:
                                "k": {"section": args.k_sec, "relation": args.k_rel},
                                "rerank_on": os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1",
                                "sets": {"section": Path(args.sec_set).name, "relation": Path(args.rel_set).name},
-                               "elapsed_min": round((time.time() - started) / 60, 1),
+                               "elapsed_min": round((time.time() - started) / 60, 1), "dropped": dropped,
                                "summary": summary, "rows": rows, "blind_key": {b["id"]: b["key"] for b in blind}},
                               ensure_ascii=False, indent=1), encoding="utf-8")
     bl = ROOT / "data" / "eval" / f"graphrag_blind_{args.tag}.json"
