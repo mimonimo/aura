@@ -22,7 +22,11 @@ import re
 import time
 from pathlib import Path
 
-GENRE = re.compile(r"(규정|규칙|내규|세칙|학칙|(?:^|\s|법인)정관|지침)(?:\s*\(.*\))?(?:\s*·.*)?$")
+# 정규식은 모두 수량에 상한을 두고(역추적이 제목 길이의 제곱으로 늘지 않게), 제목은 TITLE_MAX 자까지만 본다
+TITLE_MAX = 300
+Q_MAX, Q_WORDS = 100, 8      # 후보 찾기 낱말 — 글자 수·낱말 수 상한
+IDS_MAX = 500                # 한 번에 올리거나 해제하는 문서 수 상한
+GENRE = re.compile(r"(규정|규칙|내규|세칙|학칙|(?:^|\s|법인)정관|지침)(?:\s{0,3}\([^()]{0,120}\))?(?:\s{0,3}·[^·]{0,120}){0,3}$")
 GENRE_WORDS = ("규정", "규칙", "내규", "세칙", "학칙", "정관", "지침")
 NOT_RULE = re.compile(r"협약|계약서|공문|요청|안내|개정\s*\(?안\)?|신구\s*조문|대비표|검토|회의|결과|신청서")
 KINDS = ("regulation", "guideline")
@@ -31,17 +35,17 @@ MIN_CHARS = 80
 
 OURS = ("영남이공대학교", "영남이공대학")
 # 제목 첫머리의 발행 기관 — '금오공과대학교연구비관리규정' · '대전보건대학 교외 …' · '한국연구재단 …'
-_ISSUER = re.compile(r"^[\s(\[]*([가-힣]+?(?:대학교|대학|재단))")
+_ISSUER = re.compile(r"^[\s(\[]{0,5}([가-힣]{1,30}?(?:대학교|대학|재단))")
 # 기관 이름이 아니라 대학의 갈래를 이르는 말 — '전문대학 교육역량강화사업' · '산학협력선도전문대학 육성사업'
 _GENERIC_SCHOOL = re.compile(r"(?:선도|중심|혁신|협력|육성|지원|특성화|사업|우리|본|타|해당|국내|외국|교류|일반|전문)(?:대학교|대학)$")
 # 규정집 번호 앞머리 — '4-37 ' · '10-02 ' · '3-1.' · '1-1. ' (번호 뒤에 띄어쓰기나 점이 있을 때만; '3단계'·'3-3규정' 은 이름)
-_NUM_HEAD = re.compile(r"^\s*\d+(?:\s*-\s*\d+)*(?:\.\s*|\s+)")
+_NUM_HEAD = re.compile(r"^\s{0,5}\d{1,6}(?:\s{0,2}-\s{0,2}\d{1,6}){0,5}(?:\.\s{0,5}|\s{1,5})")
 _PAREN = re.compile(r"[(（\[]([^()（）\[\]]*)[)）\]]")
 # 판·초안을 가리키는 괄호 — 숫자(날짜·차수·LINC 3.0)가 있거나 개정·상정·공시·시행·초안·안·령·붙임
 _REV_PAREN = re.compile(r"\d|개정|상정|공시|시행|초안|최종|수정|령$|^\s*안\s*$|붙임|별첨")
 _ACAD_YEAR = re.compile(r"(?:19|20)\d{2}\s*학년도")
 # 법령 번호 — '교육부훈령 제511호' · '(교육부 훈령 제381호)' 는 판 표시다(훈령은 개정마다 번호가 바뀐다)
-_ORDER_NO = re.compile(r"(?:[가-힣]+부\s*)?(?:훈령|예규|고시)\s*제\s*\d+\s*호")
+_ORDER_NO = re.compile(r"(?:[가-힣]{1,10}부\s{0,3})?(?:훈령|예규|고시)\s{0,3}제\s{0,3}\d{1,6}\s{0,3}호")
 # 라틴 약어만 든 괄호 — '(RISE)' · '(LINC+)' 는 앞 이름의 다른 표기다
 _ABBR_PAREN = re.compile(r"^[A-Za-z0-9+＋.\s]*$")
 _DATE_SEG = re.compile(r"^[\d\s.\-/년월일()]+$")
@@ -49,7 +53,7 @@ _DATE_SEG = re.compile(r"^[\d\s.\-/년월일()]+$")
 
 def issuer(title: str) -> str:
     """제목 첫머리의 발행 기관 이름(우리 학교면 빈 문자열). 대학의 갈래를 이르는 말은 기관이 아니다."""
-    t = _NUM_HEAD.sub("", title or "")
+    t = _NUM_HEAD.sub("", (title or "")[:TITLE_MAX])
     m = _ISSUER.match(t)
     if not m:
         return ""
@@ -61,7 +65,7 @@ def issuer(title: str) -> str:
 
 def rule_key(title: str) -> str:
     """같은 규정의 판을 묶는 열쇠 — 규정집 번호·제정일·학년도·판 괄호·학교 이름·띄어쓰기를 뗀 규정 이름."""
-    s = (title or "").strip()
+    s = (title or "")[:TITLE_MAX].strip()
     s = re.sub(r"\.(hwpx?|pdf|docx?)$", "", s, flags=re.I)
     segs = [x for x in re.split(r"\s+·\s+", s)]
     while len(segs) > 1 and _DATE_SEG.match(segs[-1]) and re.search(r"\d", segs[-1]):
@@ -106,6 +110,7 @@ def revision(title: str, family: str = "", text: str = "") -> tuple:
     cap = int(time.strftime("%Y")) + 1
     body = text or ""
     m = _BUCHIK.search(body)
+    title, family = (title or "")[:TITLE_MAX], (family or "")[:TITLE_MAX]
     found = _dates(title, cap) + _dates(family, cap) + _dates(body[:600], cap) + (_dates(body[m.end():], cap) if m else [])
     acad = [int(x.group(0)[:4]) for x in _ACAD_YEAR.finditer(title or "")]
     order = [int(re.sub(r"\D", "", x.group(0))) for x in _ORDER_NO.finditer(title or "")]
@@ -155,7 +160,7 @@ def _texts(db, ids) -> dict[int, str]:
 
 def candidates(db, q: str = "", limit: int = 400) -> dict:
     """{items:[{id,title,kind,versions,dept}], total, registered:[...]} — 후보는 규정마다(rule_key) 최신 판 하나."""
-    words = [w for w in re.split(r"\s+", (q or "").strip()) if w]
+    words = [w for w in (q or "")[:Q_MAX].split() if w][:Q_WORDS]
     with db._conn() as conn:
         rows = [dict(r) for r in conn.execute(
             "SELECT id, filename, family, kind, dept, created_at, LENGTH(COALESCE(masked_text, '')) AS n FROM documents"
@@ -169,8 +174,8 @@ def candidates(db, q: str = "", limit: int = 400) -> dict:
             "SELECT id, family, filename FROM documents WHERE doc_type = 'regulation'").fetchall()]
     # 제목이 규정 갈래 이름으로 끝나는 것만 — 서류 갈래(kind)가 규정이어도 조문 머리만 있는 협약서·업체 서류일 수 있다.
     # 다른 기관의 규정(제목 첫머리가 우리 학교가 아닌 대학·재단)은 참고 자료다 — 우리 기준 문서가 아니다
-    pool = [r for r in rows if (r["n"] or 0) >= MIN_CHARS and not NOT_RULE.search(r["filename"] or "")
-            and GENRE.search(r["filename"] or "") and not issuer(r["filename"] or "")]
+    pool = [r for r in rows if (r["n"] or 0) >= MIN_CHARS and not NOT_RULE.search((r["filename"] or "")[:TITLE_MAX])
+            and GENRE.search((r["filename"] or "")[:TITLE_MAX]) and not issuer(r["filename"] or "")]
     fam: dict[str, list[dict]] = {}
     for r in pool:
         fam.setdefault(rule_key(r["filename"] or "") or f"#{r['id']}", []).append(r)
@@ -220,7 +225,7 @@ def register(db, doc_ids: list[int], data_dir: Path, by: str = "") -> dict:
     같은 규정(rule_key)의 옛 판이 기준 문서로 있으면 사업 문서로 되돌린다 — 한 규정에 기준 문서는 한 판이다."""
     from zzaimy.app.regulations import chunk_document, index_ready
     done, skipped, made = [], [], 0
-    for did in dict.fromkeys(int(x) for x in doc_ids):
+    for did in list(dict.fromkeys(int(x) for x in doc_ids))[:IDS_MAX]:
         d = db.get_document(did)
         if not d or d.get("doc_type") != "grant" or d.get("status") != "reviewed" or issuer(d.get("filename") or ""):
             skipped.append(did)
@@ -307,6 +312,6 @@ def unregister(db, doc_ids: list[int], data_dir: Path, by: str = "") -> dict:
                 continue
             ids = set(rec.get("docs") or [])
             mine = (mine | ids) if rec.get("action") == "register" else (mine - ids)
-    ids = list(dict.fromkeys(int(x) for x in doc_ids))
+    ids = list(dict.fromkeys(int(x) for x in doc_ids))[:IDS_MAX]
     done = demote(db, [i for i in ids if i in mine], data_dir, by=by)
     return {"unregistered": len(done), "kept": len(ids) - len(done)}

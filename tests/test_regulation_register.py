@@ -119,3 +119,19 @@ def test_clipped_filename_yields_to_body_title():
     got = choose_name("04_남이공대학교 비정년계열전임교원 계약임용에 관한 규정.hwp", text, prefer_file=True)
     assert got["name"].startswith("영남이공대학교") and got["source"] == "body"
     assert not clipped_title("비정년계열전임교원 계약임용에 관한 규정", "영남이공대학교 비정년계열전임교원 계약임용에 관한 규정")
+
+
+def test_patterns_and_query_stay_cheap_on_hostile_input(tmp_path):
+    """긴 제목·되풀이 글자·긴 찾기 낱말에서도 정규식이 역추적으로 늘어지지 않는다(제목 상한·수량 상한·낱말 상한)."""
+    import time
+    hostile = ["가" * 50000, "규정(" * 20000 + "x", "규정 ·" * 20000 + "(", "1-" * 20000 + "x", "(" * 50000,
+               "교육부" * 20000 + "훈령", "대학" * 25000]
+    t0 = time.perf_counter()
+    for t in hostile:
+        rr.GENRE.search(t[:rr.TITLE_MAX]); rr.issuer(t); rr.rule_key(t); rr.revision(t, t, t[:20000])
+    assert time.perf_counter() - t0 < 2.0
+    db = Database(tmp_path / "r.db")
+    _doc(db, "가" * 5000 + " 규정")
+    t0 = time.perf_counter()
+    got = rr.candidates(db, "가 " * 100000)
+    assert time.perf_counter() - t0 < 2.0 and got["total"] <= 1
