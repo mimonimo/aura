@@ -57,7 +57,7 @@ def test_send_defers_later_and_skips_blank_fields(tmp_path):
     assert len(db.list_chats(sid)) == 1
     page = client.get(f'/chat/{sid}').text
     form = page.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
-    assert 'data-field="가상 기간"' not in form and '1개는 다음 차례 · 미룬 값 1개 포함' in form
+    assert 'data-field="가상 기간"' not in form and '이어서 1개(미룬 값 1개 포함)' in form
     # 빈 칸만 — 「(값)」 틀을 질문으로 보내지 않는다
     r = client.post('/chat/send', data={'session_id': sid, 'question': opt['question'], 'template': opt['template'],
                                         'field_가상 이름': ' ', 'field_가상 수량': ''}, follow_redirects=False)

@@ -142,6 +142,7 @@
     const {filled, later, typed} = valueCounts(form_);
     const count = form_.querySelector('[data-form-count]');
     if (count) count.textContent = total + '개 중 ' + filled + '개 채움' + (later ? ' · 나중에 ' + later + '개' : '');
+    form_.style.setProperty('--vf-done', String(total ? Math.min(1, (filled + later) / total) : 0));
     const verb = typed ? '저장' : (form_.dataset.verb || '저장');
     const submit = form_.querySelector('[data-form-submit]');
     if (submit) {

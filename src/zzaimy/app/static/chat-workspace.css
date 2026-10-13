@@ -226,3 +226,39 @@ body #chatForm { max-width:1040px; }
 }
 
 #chatScroll .chat-jump-form { align-self:flex-start; margin:2px 4px 0; font-size:12.5px; padding:6px 12px; min-height:32px; }
+
+/* 필요한 값 입력 — 다듬은 꼴: 빈 원 대신 채우면 초록 체크만, 「나중에」 는 줄에 올리거나 초점이 갈 때만 보이는 글자 단추,
+   머리에 채운 비율 막대, 안내는 아래 줄로 */
+#chatScroll .chat-suggestions .chat-suggestion-form { background:#fff; border-color:#E2E8F0; box-shadow:0 1px 2px rgba(15,30,60,.04); padding:16px 18px 14px; }
+#chatScroll .chat-suggestion-form .chat-form-head { align-items:center; gap:6px 10px; padding-bottom:12px; }
+#chatScroll .chat-suggestion-form .chat-form-title { font-size:14px; }
+#chatScroll .chat-suggestion-form .chat-form-count { padding:2px 8px; border-radius:999px; background:#EEF3FB; color:#2C4A73; font-weight:600; font-size:11.5px; }
+#chatScroll .chat-suggestion-form .chat-form-more { font-size:11.5px; }
+#chatScroll .chat-suggestion-form .chat-form-bar { flex:1 0 100%; height:4px; border-radius:999px; background:#EEF1F5; overflow:hidden; }
+#chatScroll .chat-suggestion-form .chat-form-bar i { display:block; height:100%; width:calc(var(--vf-done, 0) * 100%); background:#2E7D4F; border-radius:inherit; transition:width .2s ease; }
+#chatScroll .chat-suggestion-form .chat-form-field { grid-template-columns:minmax(160px,260px) minmax(0,1fr) 92px; gap:4px 16px; padding:10px 0; border-bottom-color:#EEF1F5; }
+#chatScroll .chat-suggestion-form .chat-form-field:last-child { border-bottom:0; }
+#chatScroll .chat-suggestion-form .chat-form-check { display:none; }
+#chatScroll .chat-suggestion-form .is-filled .chat-form-check { display:inline-block; width:15px; height:15px; }
+#chatScroll .chat-suggestion-form .chat-form-hint { margin-left:0; }
+#chatScroll .chat-suggestion-form .is-filled .chat-form-hint { margin-left:22px; }
+#chatScroll .chat-suggestion-form .chat-form-field textarea { border-color:#DCE3EC; background:#FBFCFE; }
+#chatScroll .chat-suggestion-form .chat-form-field textarea:hover { border-color:#C3CFDD; }
+#chatScroll .chat-suggestion-form .chat-form-field textarea:focus { background:#fff; }
+#chatScroll .chat-suggestion-form .chat-form-field textarea::placeholder { color:#A6B1C0; }
+#chatScroll .chat-suggestion-form .chat-form-later { justify-content:center; min-height:36px; padding:0 8px; border-color:transparent; background:transparent; color:#7B889A; font-size:12px; opacity:0; transition:opacity .15s ease; }
+#chatScroll .chat-suggestion-form .chat-form-later input { position:absolute; opacity:0; pointer-events:none; }
+#chatScroll .chat-suggestion-form .chat-form-later .on { display:none; }
+#chatScroll .chat-suggestion-form .chat-form-field:hover .chat-form-later,
+#chatScroll .chat-suggestion-form .chat-form-field:focus-within .chat-form-later,
+#chatScroll .chat-suggestion-form .chat-form-later:has(input:checked) { opacity:1; }
+#chatScroll .chat-suggestion-form .chat-form-later:hover { color:#23354D; background:#F1F5FA; border-color:transparent; }
+#chatScroll .chat-suggestion-form .chat-form-later:has(input:checked) { background:#EEF2F7; border-color:transparent; color:#53647B; }
+#chatScroll .chat-suggestion-form .chat-form-later:has(input:checked) .off { display:none; }
+#chatScroll .chat-suggestion-form .chat-form-later:has(input:checked) .on { display:inline; }
+#chatScroll .chat-suggestion-form .chat-form-foot { border-top:1px solid #EEF1F5; padding-top:12px; margin-top:4px; }
+#chatScroll .chat-suggestion-form .chat-form-foot .chat-form-tip { margin:0; font-size:11.5px; color:#8A96A6; }
+#chatScroll .chat-suggestion-form .chat-form-status:empty { display:none; }
+@media (hover: none) { #chatScroll .chat-suggestion-form .chat-form-later { opacity:1; } }
+/* 마지막 답 아래 제안·단추가 입력창 뒤에 가리지 않게 */
+#chatScroll > :last-child { margin-bottom:24px; }
