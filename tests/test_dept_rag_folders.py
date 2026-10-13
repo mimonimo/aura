@@ -147,3 +147,15 @@ def test_project_program_link(tmp_path, monkeypatch):
     assert db.get_project(pid)["program"] == "program:다라ai인재사업|2026"
     c.post(f"/projects/{pid}/rename", data={"name": "인공지능 작업", "program": "none"})
     assert db.get_project(pid)["program"] == ""
+
+
+def test_folder_delete_keeps_docs(tmp_path):
+    app, c = _dev(tmp_path)
+    db = app.state.db
+    c.post("/library/folders", data={"name": "임시", "dept": "공통"})
+    key = next(f["key"] for f in lf.folders(db, tmp_path) if f["name"] == "임시")
+    d = db.add_document("가.hwp", "x", doc_type="grant")
+    lf.put(db, key, [d])
+    r = c.post("/library/folders/delete", data={"key": key}, follow_redirects=False)
+    assert "ok=" in r.headers["location"] and db.get_document(d) is not None
+    assert not [f for f in lf.folders(db, tmp_path) if f["name"] == "임시"]

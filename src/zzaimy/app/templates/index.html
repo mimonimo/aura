@@ -212,7 +212,9 @@
       {% if request.state.role == 'dev' %}<form method="post" action="/library/folders/scope" data-confirm="폴더의 문서 {{ '{:,}'.format(folder_pick.docs) }}건이 고른 검색 범위로 옮겨 갑니다. 바꿀까요?">
         <input type="hidden" name="key" value="{{ folder_pick.key }}">
         <select name="dept" aria-label="검색 범위">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == folder_pick.dept }}>{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>
-        <button class="secondary" type="submit">범위 바꾸기</button></form>{% endif %}
+        <button class="secondary" type="submit">범위 바꾸기</button></form>
+      {% if folder_pick.kind == '만든' %}<form method="post" action="/library/folders/delete" data-confirm="「{{ folder_pick.name }}」 폴더를 지웁니다. 문서 {{ '{:,}'.format(folder_pick.docs) }}건은 지우지 않고 폴더에서만 뺍니다." style="margin:0;">
+        <input type="hidden" name="key" value="{{ folder_pick.key }}"><button class="btn-ghost" type="submit" style="color:var(--red);">폴더 지우기</button></form>{% endif %}{% endif %}
       <a class="lib-pick-x" href="/?type=all" aria-label="폴더 고르기 풀기">×</a></div>{% endif %}
     {% if rail_pick %}<div class="lib-pick"><b>{{ rail_pick.label }}</b>
       {% if rail_pick.key.startswith('prog:') %}<a class="lib-pick-graph" href="/graph/explore?id={{ rail_pick.key[5:] | urlencode }}"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>{% endif %}

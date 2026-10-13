@@ -113,3 +113,15 @@ def set_dept(db, data_dir: Path, key: str, dept: str, allowed: list[str] | None 
     with db._conn() as conn:
         ids = [int(r[0]) for r in conn.execute(f"SELECT d.id FROM documents d WHERE {where}", args)]
     return rag_spaces.move_docs(db, ids, dept), ""
+
+
+def delete(db, key: str) -> int:
+    """만든 폴더를 지운다 — 문서는 지우지 않고 폴더에서만 뺀다(검색 범위는 그대로). 뺀 문서 수."""
+    if not key.startswith(MADE) or not key[len(MADE):].isdigit():
+        return -1
+    fid = int(key[len(MADE):])
+    with db._conn() as conn:
+        n = conn.execute("SELECT COUNT(*) FROM doc_folders WHERE folder_id = ?", (fid,)).fetchone()[0]
+        conn.execute("DELETE FROM doc_folders WHERE folder_id = ?", (fid,))
+        conn.execute("DELETE FROM library_folders WHERE id = ?", (fid,))
+    return int(n)

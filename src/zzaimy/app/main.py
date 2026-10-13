@@ -7323,6 +7323,17 @@ def create_app(
             return _lib_back(key, err=err)
         return _lib_back(key, ok=f"검색 범위를 {dept if dept != '공통' else '공통 RAG'}(으)로 바꿨습니다 · 문서 {n:,}건")
 
+    @app.post("/library/folders/delete")
+    def library_folder_delete(request: Request, key: str = Form("")):
+        """만든 폴더 지우기 — 문서는 그대로(폴더에서만 빠진다). 관리자만."""
+        from zzaimy.app import library_folders as lf
+        if request.state.role != "dev":
+            raise HTTPException(403, "관리자만 지울 수 있습니다")
+        n = lf.delete(db, key)
+        if n < 0:
+            return _lib_back(err="원본 폴더는 지울 수 없습니다 — 원본 보관소의 폴더입니다")
+        return _lib_back(ok=f"폴더를 지웠습니다 · 문서 {n:,}건은 라이브러리에 그대로 있습니다")
+
     @app.post("/library/upload")
     def library_upload(request: Request, background: BackgroundTasks, files: list[UploadFile] = File(...),
                        folder: str = Form(""), dept: str = Form("공통"), doc_type: str = Form("auto"),
