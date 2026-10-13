@@ -823,7 +823,25 @@ def create_app(
                 from zzaimy.app.kg_explore import programs as _progs
                 rows = [p for p in _progs(db, None) if p["type"] == "program"]
                 rep = {i: p["id"] for p in rows for i in p["ids"]}
-                _pg_cache.update(at=_t.time(), v=(rep, {p["id"]: list(p["ids"]) for p in rows}))
+                members = {p["id"]: list(p["ids"]) for p in rows}
+                # 그래프 목록에 서지 않은 사업 노드(문서가 거의 없거나 이름만 다른 것)도 장부 항목이 같으면 그 사업으로 —
+                # 보관 묶음(projects.program)은 그런 노드를 가리킬 수 있다
+                from zzaimy.app.program_names import load_ledger as _ll
+                from zzaimy.app.program_tree import Ledger as _Lg
+                lg = _Lg(_ll())
+                owner = {}
+                for p in sorted(rows, key=lambda p: -p["n_docs"]):
+                    e = lg.find(p["label"])
+                    if e is not None:
+                        owner.setdefault(id(e), p["id"])
+                with db._conn() as _c:
+                    loose = [(r[0], r[1]) for r in _c.execute("SELECT id, label FROM kg_nodes WHERE type = 'program'").fetchall() if r[0] not in rep]
+                for nid, label in loose:
+                    e = lg.find(label or "")
+                    if e is not None and id(e) in owner:
+                        rep[nid] = owner[id(e)]
+                        members[owner[id(e)]].append(nid)
+                _pg_cache.update(at=_t.time(), v=(rep, members))
             except Exception:
                 _pg_cache.update(at=_t.time(), v=({}, {}))
         return _pg_cache["v"]
