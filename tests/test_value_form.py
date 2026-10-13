@@ -42,34 +42,30 @@ def test_more_than_six_keeps_deferred_out_until_rest_done():
     assert [f['name'] for f in opt['fields']] == [f'값{i}' for i in range(2, 8)] and opt['more'] == 2 and opt['later'] == 1
 
 
-def test_send_defers_later_and_skips_blank_fields(tmp_path):
+def test_send_defers_blank_fields(tmp_path):
+    """비워 두고 저장한 칸은 따로 「나중에」 를 누르지 않아도 다음 차례로 간다."""
     client = _client(tmp_path)
     db = client.app.state.db
     sid = db.create_chat_session('합성 대화')
     db.add_chat(sid, 'assistant', '빈 값이 있습니다.')
     asks.set_pending(db, sid, _asks('가상 이름', '가상 기간', '가상 수량'))
     opt = asks.form_option(asks.pending(db, sid))
-    # 미루기만 — 대화로 보낼 값이 없으니 메시지를 남기지 않고 대화로 돌아온다
+    later = lambda: {a['name'] for a in asks.pending(db, sid) if a.get('later')}
+    # 모두 비우고 「모두 다음에 받기」 — 대화로 보낼 값이 없으니 메시지 없이 돌아오고 칸들은 뒤로
     r = client.post('/chat/send', data={'session_id': sid, 'question': opt['question'], 'template': opt['template'],
-                                        'field_가상 이름': '', 'later': '가상 기간'}, follow_redirects=False)
+                                        'field_가상 이름': '', 'field_가상 기간': ' '}, follow_redirects=False)
     assert r.status_code == 303 and r.headers['location'] == f'/chat/{sid}'
-    assert [a['name'] for a in asks.pending(db, sid)][0] == '가상 기간'
-    assert len(db.list_chats(sid)) == 1
-    page = client.get(f'/chat/{sid}').text
-    form = page.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
-    assert 'data-field="가상 기간"' not in form and '이어서 1개(미룬 값 1개 포함)' in form
-    # 빈 칸만 — 「(값)」 틀을 질문으로 보내지 않는다
-    r = client.post('/chat/send', data={'session_id': sid, 'question': opt['question'], 'template': opt['template'],
-                                        'field_가상 이름': ' ', 'field_가상 수량': ''}, follow_redirects=False)
-    assert r.status_code == 303 and len(db.list_chats(sid)) == 1
-    # 값이 있으면 비운 칸·미룬 칸의 구절은 빼고 보낸다(같은 칸에 값이 있으면 값이 먼저)
+    assert later() == {'가상 이름', '가상 기간'} and len(db.list_chats(sid)) == 1
+    form = client.get(f'/chat/{sid}').text.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
+    assert 'data-field="가상 기간"' not in form and '이어서 2개(미룬 값 2개 포함)' in form
+    # 값이 있으면 그 값만 보내고 비운 칸은 뒤로(예전 화면이 보내는 later 도 그대로 받는다)
     client.post('/chat/send', data={'session_id': sid, 'question': opt['question'], 'template': opt['template'],
-                                    'field_가상 이름': '합성 사업단', 'field_가상 수량': '', 'later': ['가상 수량', '가상 이름']})
+                                    'field_가상 이름': '합성 사업단', 'field_가상 수량': '', 'later': ['가상 이름']})
     assert db.list_chats(sid)[1]['content'] == '가상 이름: 합성 사업단'
-    assert [a['name'] for a in asks.pending(db, sid)][0] == '가상 수량'
+    assert '가상 수량' in later() and '가상 이름' not in {a['name'] for a in asks.pending(db, sid)}
 
 
-def test_value_form_rows_have_check_hint_later_and_source(tmp_path):
+def test_value_form_rows_have_pick_hint_and_source(tmp_path):
     client = _client(tmp_path)
     db = client.app.state.db
     sid = db.create_chat_session('합성 대화')
@@ -78,7 +74,7 @@ def test_value_form_rows_have_check_hint_later_and_source(tmp_path):
     import json
     db.set_setting(f'chat_facts:{sid}:suggested', json.dumps({'가상 기간': {'value': '2099. 1. 1.', 'title': '가상 공고'}}, ensure_ascii=False))
     form = client.get(f'/chat/{sid}').text.split('id="chatValueForm"', 1)[1].split('</form>', 1)[0]
-    assert form.count('class="chat-form-check"') == 2 and form.count('name="later"') == 2
+    assert form.count('data-pick ') == 2 and 'data-pick-all' in form and 'name="later"' not in form   # 비우면 저절로 다음 차례
     assert 'is-filled is-suggested' in form and 'data-accept-value>확인</button>' in form and 'data-edit-value>고치기</button>' in form
     assert '자료에서 찾음 · 확인 전 — 《가상 공고》' in form and 'title="협약 기간"' in form   # 설명은 원래 설명, 출처는 따로
     assert '2개 중 1개 채움' in form and 'data-form-submit>확인</button>' in form

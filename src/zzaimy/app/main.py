@@ -2743,8 +2743,9 @@ def create_app(
         if form_fields:
             from zzaimy.app import asks as _asks
 
-            # 「모름·나중에」 로 고른 값은 이번에 묻지 않고 차례의 뒤로 — 같은 칸에 적은 값이 있으면 값이 먼저다
-            later = [n for n in form_fields.get("later") or [] if not (form_fields.get("values") or {}).get(n)]
+            # 비워 둔 칸(과 「나중에」 로 고른 값)은 이번에 묻지 않고 차례의 뒤로 — 같은 칸에 적은 값이 있으면 값이 먼저다
+            blank = [k for k, v in (form_fields.get("values") or {}).items() if not v]
+            later = [n for n in dict.fromkeys([*(form_fields.get("later") or []), *blank]) if not (form_fields.get("values") or {}).get(n)]
             if later and session_id is not None:
                 _owned_chat(request, session_id)
                 _asks.defer(db, session_id, later)

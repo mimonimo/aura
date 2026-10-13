@@ -60,7 +60,7 @@ try {
   // ── 값 폼 ──
   await open('/chat/1', 1440);
   assert.equal(await evaluate(`document.querySelector('[data-form-count]').textContent`), '6개 중 1개 채움');
-  assert.equal(await evaluate(`document.querySelector('[data-form-submit]').textContent`), '1개 확인');
+  assert.equal(await evaluate(`document.querySelector('[data-form-submit]').textContent`), '1개 확인 · 빈 칸 5개는 다음에');
   // 한 열 목록 — 칸마다 한 줄(이름 칸·입력 칸이 같은 줄), 긴 설명은 한 줄 말줄임 + 툴팁
   const rows = await evaluate(`[...document.querySelectorAll('#chatValueForm .chat-form-field')].map(li=>{const n=li.querySelector('.chat-form-label').getBoundingClientRect(),a=li.querySelector('textarea').getBoundingClientRect();return {sameRow:Math.abs(n.top-a.top)<12, right:a.left>n.right}})`);
   assert.ok(rows.length === 6 && rows.every(r => r.sameRow && r.right), JSON.stringify(rows));
@@ -82,11 +82,9 @@ try {
   await key('Escape');
   assert.equal(await evaluate(`document.activeElement.tagName`), 'BODY');
   assert.equal(await evaluate(`${F('가상 책임자')}.value`), '합성인');
-  // 모름·나중에 — 실제 마우스로 라벨을 누른다. 칸은 잠기고 수·단추 글이 바뀐다
-  await mouse('#chatValueForm li:nth-child(3) .chat-form-later');
-  assert.equal(await evaluate(`${F('가상 금액')}.disabled`), true);
-  assert.equal(await evaluate(`document.querySelector('[data-form-count]').textContent`), '6개 중 4개 채움 · 나중에 1개');
-  assert.equal(await evaluate(`document.querySelector('[data-form-submit]').textContent`), '4개 저장 · 1개 나중에');
+  // 비운 칸은 따로 누를 것 없이 저장할 때 다음 차례로 — 단추 글이 그것을 알린다
+  assert.equal(await evaluate(`document.querySelector('[data-form-submit]').textContent`), '4개 저장 · 빈 칸 2개는 다음에');
+  assert.equal(await evaluate(`document.querySelectorAll('#chatValueForm .chat-form-later').length`), 0);
   // 자료 값 「확인」 — 확인함 표시, 다음 빈 칸으로
   await mouse('#chatValueForm [data-accept-value]');
   assert.match(await evaluate(`document.querySelector('[data-source-state]').textContent`), /^자료에서 찾음 · 확인함/);
@@ -97,36 +95,39 @@ try {
   assert.deepEqual(await evaluate(`[document.querySelector('#chatValueForm')?.classList.contains('is-sent'), document.querySelector('.chat-form-sent')?.textContent]`), [true, '4개 저장 — 에이전트가 반영 중']);
   await wait(800);
   const sent = await evaluate('window.__sent');
-  assert.ok(sent.includes('field_가상 이름=합성 사업단') && sent.includes('later=가상 금액') && sent.includes('field_가상 기간=2099. 1. 1. ~ 2099. 12. 31.'), sent.join(' | '));
+  assert.ok(sent.includes('field_가상 이름=합성 사업단') && sent.includes('field_가상 기간=2099. 1. 1. ~ 2099. 12. 31.'), sent.join(' | '));
   assert.ok(!sent.some(x => x.startsWith('field_가상 목표') || x.startsWith('field_가상 금액')), sent.join(' | '));
   // 800px 에서도 한 줄 목록(이름 위, 칸·나중에 아래)이 칸 밖으로 넘치지 않는다
   await open('/chat/1', 800);
   assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll('#chatValueForm textarea')].every(t=>t.getBoundingClientRect().right<=document.querySelector('#chatValueForm').getBoundingClientRect().right)`), true);
 
-  // 줄 고르기 — 실제 마우스로 줄 앞 체크, Shift+체크로 범위, 고른 줄에 나중에 ↔ 취소, 전체 고르기·풀기
+  // 줄 고르기 — 실제 마우스로 줄 앞 체크, Shift+체크로 범위, 빈 칸 고르기 → 하나 빼기 → 고른 줄만 자료에서 찾기, 전체 고르기·풀기
   await open('/chat/1', 1440);
   const tools = () => evaluate(`[...document.querySelectorAll('#chatValueForm [data-bulk]')].filter(b=>!b.hidden).map(b=>b.textContent)`);
   const pickRow = n => `#chatValueForm li:nth-child(${n}) [data-pick]`;
-  assert.deepEqual(await tools(), ['빈 칸 5개 나중에', '빈 칸 5개 자료에서 찾기']);
+  const picks = () => evaluate(`[...document.querySelectorAll('#chatValueForm [data-pick]')].map(b=>b.checked)`);
+  assert.deepEqual(await tools(), ['빈 칸 5개 고르기']);
+  assert.equal(await evaluate(`document.querySelector('[data-form-submit]').textContent`), '1개 확인 · 빈 칸 5개는 다음에');
   await mouse(pickRow(2)); await mouse(pickRow(5), 8);
-  assert.deepEqual(await evaluate(`[...document.querySelectorAll('#chatValueForm [data-pick]')].map(b=>b.checked)`), [false, true, true, true, true, false]);
+  assert.deepEqual(await picks(), [false, true, true, true, true, false]);
   assert.deepEqual(await evaluate(`(()=>{const a=document.querySelector('[data-pick-all]');return [a.checked,a.indeterminate]})()`), [false, true]);
-  assert.deepEqual(await tools(), ['고른 4개 나중에', '고른 3개 자료에서 찾기', '고르기 풀기']);
-  await mouse('#chatValueForm [data-bulk=later]');
-  assert.equal(await evaluate(`document.querySelector('[data-form-count]').textContent`), '6개 중 0개 채움 · 나중에 4개');
-  assert.equal(await evaluate(`document.querySelectorAll('#chatValueForm [data-pick]:checked').length`), 0);
-  await mouse(pickRow(2)); await mouse(pickRow(3));
-  assert.deepEqual(await tools(), ['고른 2개 나중에 취소', '고른 2개 자료에서 찾기', '고르기 풀기']);
-  await mouse('#chatValueForm [data-bulk=later]');
-  assert.equal(await evaluate(`document.querySelector('[data-form-count]').textContent`), '6개 중 0개 채움 · 나중에 2개');
-  assert.match(await evaluate(`document.querySelector('[data-form-status]').textContent`), /2개를 다시 지금 받기로 되돌림/);
+  assert.deepEqual(await tools(), ['고른 3개 자료에서 찾기', '고르기 풀기']);   // 이미 값이 있는 「가상 기간」 은 찾지 않는다
+  await mouse('#chatValueForm [data-bulk=clear]');
+  assert.deepEqual(await picks(), [false, false, false, false, false, false]);
+  await mouse('#chatValueForm [data-bulk=pick-empty]');
+  assert.deepEqual(await picks(), [true, true, true, false, true, true]);
+  await mouse(pickRow(1));
+  assert.deepEqual(await tools(), ['고른 4개 자료에서 찾기', '고르기 풀기']);
   await mouse('#chatValueForm [data-pick-all]');
   assert.equal(await evaluate(`document.querySelectorAll('#chatValueForm [data-pick]:checked').length`), 6);
-  await mouse('#chatValueForm [data-bulk=clear]');
-  assert.deepEqual(await evaluate(`[document.querySelectorAll('#chatValueForm [data-pick]:checked').length, document.querySelector('[data-pick-all]').checked]`), [0, false]);
-  // 채운 줄은 오른쪽에 「채움」, 「나중에」 단추는 숨김
+  await mouse('#chatValueForm [data-pick-all]');
+  assert.equal(await evaluate(`document.querySelectorAll('#chatValueForm [data-pick]:checked').length`), 0);
+  // 모두 비우면 저장 단추는 「모두 다음에 받기」(보조 단추 모양)
+  await evaluate(`(()=>{const a=${F('가상 기간')};a.value='';a.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+  assert.deepEqual(await evaluate(`(()=>{const b=document.querySelector('[data-form-submit]');return [b.textContent,b.disabled,b.classList.contains('is-skip')]})()`), ['모두 다음에 받기', false, true]);
+  // 채운 줄은 오른쪽에 「채움」
   await open('/chat/1', 1440);
-  assert.deepEqual(await evaluate(`(()=>{const li=document.querySelector('#chatValueForm li.is-filled');return [getComputedStyle(li.querySelector('.chat-form-done')).display, getComputedStyle(li.querySelector('.chat-form-later')).display]})()`), ['flex', 'none']);
+  assert.equal(await evaluate(`getComputedStyle(document.querySelector('#chatValueForm li.is-filled .chat-form-done')).display`), 'flex');
 
   // ── 새 대화 문서 패널 ──
   const panelBox = `(()=>{const p=document.getElementById('chatDocumentPanel'),r=p.getBoundingClientRect(),c=p.querySelector('[data-close]').getBoundingClientRect();return {open:document.getElementById('chatDocumentOpen').getAttribute('aria-expanded'),left:Math.round(r.left),width:Math.round(r.width),inside:r.right<=innerWidth+0.5&&c.right<=innerWidth}})()`;

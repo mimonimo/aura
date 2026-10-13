@@ -271,7 +271,7 @@ body #chatForm { max-width:1040px; }
 #chatScroll .chat-suggestion-form .chat-form-field.is-picked .chat-form-label { color:#1B3B75; }
 #chatScroll .chat-suggestion-form .chat-form-field { padding-left:8px; padding-right:8px; border-radius:8px; }
 /* 줄 고르기 — 줄 앞 네모 체크(고르기), 채움·미룸은 오른쪽 상태 칸. 둘을 다른 자리·다른 꼴로 둬서 헷갈리지 않게 */
-#chatScroll .chat-suggestion-form .chat-form-field { grid-template-columns:18px minmax(150px,250px) minmax(0,1fr) 108px; gap:4px 12px; }
+#chatScroll .chat-suggestion-form .chat-form-field { grid-template-columns:18px minmax(150px,250px) minmax(0,1fr) 64px; gap:4px 12px; }
 #chatScroll .chat-suggestion-form .chat-form-head { padding-left:8px; padding-right:0; }
 #chatScroll .chat-suggestion-form .chat-form-pick { appearance:none; -webkit-appearance:none; flex:none; width:18px; height:18px; margin:9px 0 0; box-sizing:border-box; border:1.5px solid #C3CEDB; border-radius:5px; background:#fff; cursor:pointer; position:relative; transition:border-color .12s ease, background-color .12s ease; }
 #chatScroll .chat-suggestion-form .chat-form-head .chat-form-pick { margin:0 2px 0 0; align-self:center; }
@@ -299,3 +299,10 @@ body #chatForm { max-width:1040px; }
 }
 /* 칸이 많아 내려가도 머리(전체 고르기·한꺼번에 단추·채운 비율)는 위에 붙어 있게 */
 #chatScroll .chat-suggestion-form .chat-form-head { position:sticky; top:-1px; z-index:2; background:#fff; margin:-16px -18px 0; padding:14px 18px 10px 26px; border-radius:12px 12px 0 0; }
+#chatScroll .chat-suggestion-form .chat-form-pickhint { align-self:center; font-size:11.5px; color:#8A96A6; }
+#chatScroll .chat-suggestion-form .chat-form-pickhint[hidden] { display:none; }
+#chatScroll .chat-suggestion-form .chat-form-tool[data-bulk=find] { background:#1B3B75; border-color:#1B3B75; color:#fff; }
+#chatScroll .chat-suggestion-form .chat-form-tool[data-bulk=find]:hover:not(:disabled) { background:#16305F; border-color:#16305F; }
+@media (max-width: 720px) { #chatScroll .chat-suggestion-form .chat-form-pickhint { display:none; } }
+#chatScroll .chat-suggestion-form .chat-form-foot button[type=submit].is-skip { background:#fff; color:#3F5F8A; border-color:#C9D4E2; }
+#chatScroll .chat-suggestion-form .chat-form-foot button[type=submit].is-skip:hover { background:#F1F5FA; border-color:#AEBBCD; }

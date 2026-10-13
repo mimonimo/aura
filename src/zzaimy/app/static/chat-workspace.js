@@ -153,27 +153,31 @@
     const all = form_.querySelector('[data-pick-all]');
     if (all) { all.checked = rows.length > 0 && picked.length === rows.length; all.indeterminate = picked.length > 0 && picked.length < rows.length; }
     form_.classList.toggle('is-picking', picked.length > 0);
-    const toolLater = form_.querySelector('[data-bulk=later]'), toolFind = form_.querySelector('[data-bulk=find]'),
-          toolClear = form_.querySelector('[data-bulk=clear]');
-    if (toolLater) {
-      // 고른 줄이 모두 이미 미뤄져 있으면 되돌리기, 아니면 미루기 — 같은 버튼으로 오간다
-      const undo = picked.length ? picked.every(row => rowLater(row)?.checked) : !empty.length && laterRows.length > 0;
-      toolLater.textContent = picked.length ? '고른 ' + picked.length + '개 ' + (undo ? '나중에 취소' : '나중에')
-                                            : undo ? '나중에 모두 취소' : '빈 칸 ' + empty.length + '개 나중에';
-      toolLater.dataset.undo = undo ? '1' : '';
-      toolLater.disabled = !picked.length && !empty.length && !laterRows.length;
+    // 자료에서 찾기는 고른 줄에만 — 먼저 체크로 고르고(빈 칸 고르기로 한 번에 체크한 뒤 빼도 된다) 그다음 찾기
+    const toolFind = form_.querySelector('[data-bulk=find]'),
+          toolClear = form_.querySelector('[data-bulk=clear]'), toolPick = form_.querySelector('[data-bulk=pick-empty]');
+    const unpicked = empty.filter(row => !isPicked(row));
+    if (toolPick) {
+      toolPick.hidden = !unpicked.length || picked.length > 0;
+      toolPick.textContent = '빈 칸 ' + unpicked.length + '개 고르기';
     }
     if (toolFind) {
-      const targets = picked.length ? picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked) : empty;
-      toolFind.textContent = (picked.length ? '고른 ' : '빈 칸 ') + targets.length + '개 자료에서 찾기';
+      const targets = picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked);
+      toolFind.hidden = !picked.length;
+      toolFind.textContent = '고른 ' + targets.length + '개 자료에서 찾기';
       toolFind.disabled = !targets.length;
     }
     if (toolClear) { toolClear.hidden = !picked.length; toolClear.textContent = '고르기 풀기'; }
+    const pickHint = form_.querySelector('[data-pick-hint]');
+    if (pickHint) pickHint.hidden = picked.length > 0 || !unpicked.length;
     const verb = typed ? '저장' : (form_.dataset.verb || '저장');
     const submit = form_.querySelector('[data-form-submit]');
     if (submit) {
-      submit.textContent = filled ? filled + '개 ' + verb + (later ? ' · ' + later + '개 나중에' : '') : later ? later + '개 나중에' : verb;
-      submit.disabled = !filled && !later;
+      // 비운 칸은 저장할 때 다음 차례로 — 따로 「나중에」 를 누르지 않는다. 다 비우고 누르면 이 칸들을 통째로 다음에
+      const rest = empty.length + later;
+      submit.textContent = filled ? filled + '개 ' + verb + (rest ? ' · 빈 칸 ' + rest + '개는 다음에' : '') : '모두 다음에 받기';
+      submit.disabled = false;
+      submit.classList.toggle('is-skip', !filled);
     }
   }
   function paintValueForms() { scroller.querySelectorAll('form.chat-suggestion-form').forEach(paintValueForm); }
@@ -266,19 +270,13 @@
       const form_ = tool.closest('form'), rows = valueRows(form_);
       const picked = rows.filter(isPicked);
       const unpick = () => { picked.forEach(row => { rowPick(row).checked = false; }); lastPick = null; };
-      if (tool.dataset.bulk === 'clear') {
+      if (tool.dataset.bulk === 'pick-empty') {
+        rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim()).forEach(row => { rowPick(row).checked = true; });
+        lastPick = null;
+      } else if (tool.dataset.bulk === 'clear') {
         unpick();
-      } else if (tool.dataset.bulk === 'later') {
-        const undo = Boolean(tool.dataset.undo);
-        const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
-        const target = picked.length ? picked : undo ? rows : empty;
-        let moved = 0;
-        target.forEach(row => { const box = rowLater(row); if (box && box.checked !== !undo) { box.checked = !undo; moved++; } });
-        unpick();
-        formStatus(form_, undo ? moved + '개를 다시 지금 받기로 되돌림' : moved + '개를 다음 차례로 미룸 — 저장하면 반영됩니다');
       } else if (tool.dataset.bulk === 'find') {
-        const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
-        const names = (picked.length ? picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked) : empty).map(row => rowArea(row).dataset.field);
+        const names = picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked).map(row => rowArea(row).dataset.field);
         if (names.length && input && form) {
           input.value = names.map(name => '「' + name + '」').join(', ') + ' 값을 이 프로젝트 자료에서 찾아 채워 줘';
           input.dispatchEvent(new Event('input', {bubbles: true}));
@@ -303,13 +301,12 @@
   });
   async function sendValueForm(form_) {
     if (sending || waiting) return;
-    const {filled, later} = valueCounts(form_);
-    if (!filled && !later) { formStatus(form_, '채운 칸이 없습니다.'); form_.querySelector('textarea:not(:disabled)')?.focus(); return; }
+    const {filled} = valueCounts(form_);
     const payload = new FormData(form_);
     for (const [key, value] of [...payload.entries()]) {                                  // 비운 칸은 보내지 않는다
       if (key.startsWith('field_') && !String(value).trim()) payload.delete(key);
     }
-    const label = filled ? filled + '개 저장 — 에이전트가 반영 중' : later + '개를 다음 차례로 미루는 중';
+    const label = filled ? filled + '개 저장 — 에이전트가 반영 중' : '이 칸들은 다음 차례로 — 다음 값을 불러오는 중';
     const sent = document.createElement('div');
     sent.className = 'chat-form-sent'; sent.setAttribute('role', 'status');
     sent.innerHTML = '<span class="chat-progress-dot" aria-hidden="true"></span><span></span>';
