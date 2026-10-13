@@ -21,7 +21,8 @@ def test_candidates_newest_version_and_excludes_agreements(tmp_path):
     new = _doc(db, "영남이공대학교 연구비 관리 규정 · 2024년 3월 1일", family="연구비관리규정")
     _doc(db, "LINC3.0 협약서", kind="regulation")
     _doc(db, "현장실습 운영 지침", kind="guideline")
-    _doc(db, "(주)대영코어텍", kind="regulation")                     # 갈래만 규정 — 제목이 규정 이름이 아니다
+    _doc(db, "(주)대영코어텍", kind="regulation")
+    _doc(db, "05-06 컴정관", kind="regulation")                          # 낱말 속 「정관」 은 정관이 아니다                     # 갈래만 규정 — 제목이 규정 이름이 아니다
     _doc(db, "사업 계획서", kind="plan")
     got = rr.candidates(db)
     titles = {i["title"]: i for i in got["items"]}

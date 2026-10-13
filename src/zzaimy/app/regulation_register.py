@@ -17,7 +17,8 @@ import re
 import time
 from pathlib import Path
 
-GENRE = re.compile(r"(규정|규칙|내규|세칙|학칙|정관|지침)(?:\s*\(.*\))?(?:\s*·.*)?$")
+GENRE = re.compile(r"(규정|규칙|내규|세칙|학칙|(?:^|\s|법인)정관|지침)(?:\s*\(.*\))?(?:\s*·.*)?$")
+GENRE_WORDS = ("규정", "규칙", "내규", "세칙", "학칙", "정관", "지침")
 NOT_RULE = re.compile(r"협약|계약서|공문|요청|안내|개정\s*\(?안\)?|신구\s*조문|대비표|검토|회의|결과|신청서")
 KINDS = ("regulation", "guideline")
 MIN_CHARS = 80
@@ -39,7 +40,8 @@ def candidates(db, q: str = "", limit: int = 400) -> dict:
     with db._conn() as conn:
         rows = [dict(r) for r in conn.execute(
             "SELECT id, filename, family, kind, dept, created_at, LENGTH(COALESCE(masked_text, '')) AS n FROM documents"
-            " WHERE doc_type = 'grant' AND status = 'reviewed'").fetchall()]
+            " WHERE doc_type = 'grant' AND status = 'reviewed' AND (" + " OR ".join("filename LIKE ?" for _ in GENRE_WORDS) + ")",
+            [f"%{w}%" for w in GENRE_WORDS]).fetchall()]
         reg = [dict(r) for r in conn.execute(
             "SELECT d.id, d.filename, d.kind, d.audience, d.dept, COUNT(c.id) AS chunks FROM documents d"
             " LEFT JOIN regulation_chunks c ON c.doc_id = d.id WHERE d.doc_type = 'regulation' AND d.status = 'reviewed'"
