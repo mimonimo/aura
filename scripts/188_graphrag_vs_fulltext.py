@@ -438,8 +438,10 @@ def main() -> int:
                 if lab in j.get("scores", {}):
                     judged[(j["id"], mode)] = j["scores"][lab]
     prev: dict = {}
+    prev_meta: dict = {}
     if args.reuse:
-        prev = {r["id"]: r for r in json.loads(Path(args.reuse).read_text(encoding="utf-8"))["rows"]}
+        prev_meta = json.loads(Path(args.reuse).read_text(encoding="utf-8"))
+        prev = {r["id"]: r for r in prev_meta["rows"]}
     rows: list[dict] = []
     started = time.time()
     for i, it in enumerate(items):
@@ -479,6 +481,8 @@ def main() -> int:
         code = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
     except Exception:
         code = ""
+    if prev_meta.get("code"):
+        code = f"{prev_meta['code']}(재사용: {prev_meta.get('tag')})" + (f" · 이번 {code}" if code and code != prev_meta["code"] else "")
     out.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "tag": args.tag, "code": code, "modes": modes, "answer_modes": amodes,
                                "k": {"section": args.k_sec, "relation": args.k_rel},
                                "rerank_on": os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1",
