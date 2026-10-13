@@ -25,6 +25,8 @@
   .gx .gx-tool:disabled { background: var(--panel); color: var(--faint); border-color: var(--line); cursor: default; }
   .gx .gx-tool iconify-icon { font-size: 15px; }
 
+  .gx.is-onto .gx-rail > * { opacity: .38; pointer-events: none; }
+  .gx.is-onto .gx-rail::before { content: "온톨로지는 사업과 상관없는 전체 구조입니다. 사업을 고르려면 「지식그래프」로 바꿉니다."; display: block; margin: 12px 12px 4px; padding: 10px 12px; border-radius: 8px; background: #F3F6FB; color: #3F5F8A; font-size: 12px; line-height: 1.6; }
   .gx-rail { width: 290px; flex: none; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .gx-find, .gx-selbar, .gx-chips { flex: none; }
   .gx-find { padding: 12px 12px 8px; }
@@ -748,6 +750,7 @@
   function done() { idlePanel(); legend(); }
   function render() {
     syncList();
+    document.getElementById("gx").classList.toggle("is-onto", state.tab === "onto");   // 온톨로지는 전체 구조 — 사업 목록은 쉬게
     document.querySelectorAll("#gxMode button").forEach(function (b) {
       var on = b.dataset.mode === state.tab; b.classList.toggle("on", on); b.setAttribute("aria-selected", on ? "true" : "false");
     });
