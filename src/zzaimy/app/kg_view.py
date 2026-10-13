@@ -284,6 +284,9 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
     aliases, more_aliases = alias_list((prog.get("props") or {}).get("names") or [], (prog.get("props") or {}).get("acronyms") or [],
                                        foreign=foreign, canonical=canon, allowed=allowed)
     shown = label_of(prog)
+    # 파일 이름에서 온 표기의 「+」 띄어쓰기(「3단계+산학연협력+…」)는 빈칸으로 — 한글 사이의 「+」만(LINC+ 같은 약칭은 그대로)
+    _plus = __import__("re").compile(r"(?<=[가-힣0-9])\+(?=[가-힣])")
+    aliases = list(dict.fromkeys(_plus.sub(" ", a) for a in aliases))
     aliases = [a for a in aliases if a.replace(" ", "") != shown.replace(" ", "")]
     # 위 칩 — 그래프 탐색 왼쪽 목록과 같은 이름·같은 수(kg_explore.programs). 볼 수 있는 사업만
     from zzaimy.app.kg_explore import program_doc_sets, programs as program_list
