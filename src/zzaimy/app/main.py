@@ -5285,22 +5285,24 @@ def create_app(
         return False
 
     @app.post("/dev/reindex")
-    def dev_reindex():
+    def dev_reindex(back: str = Form("/dev")):
         """재색인 체인 실행 — 규정 조각 변경 후 질의·임베딩·앱 순차 갱신.
 
         실행 중이면 새로 띄우지 않는다(66 자체의
-        flock과 이중 방어). 로그 핸들은 자식이 물려받은 뒤 닫는다."""
+        flock과 이중 방어). 로그 핸들은 자식이 물려받은 뒤 닫는다. 끝나면 누른 화면(개발 현황·RAG 공간)으로 돌아간다."""
         import subprocess
 
+        back = back if back in ("/dev", "/dev/rag") else "/dev"
+
         if _reindex_running():
-            return RedirectResponse("/dev?err=재색인이 이미 실행 중입니다", status_code=303)
+            return RedirectResponse(f"{back}?err=재색인이 이미 실행 중입니다", status_code=303)
         script = Path(__file__).resolve().parents[3] / "scripts" / "66_reindex.sh"
         with _REINDEX_LOG.open("w") as log_f:
             _reindex_proc["p"] = subprocess.Popen(
                 ["nohup", "bash", str(script)],
                 stdout=log_f, stderr=subprocess.STDOUT, start_new_session=True,
             )
-        return RedirectResponse("/dev", status_code=303)
+        return RedirectResponse(back, status_code=303)
 
     def _retrieval_eval_state() -> dict:
         from zzaimy.eval.retrieval_eval import dashboard_state
