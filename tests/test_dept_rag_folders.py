@@ -93,3 +93,27 @@ def test_library_filters_format_sort_and_body(tmp_path, monkeypatch):
     page = c.get("/?type=all&sort=old").text
     assert page.index("가 계획서") < page.index("나 결과보고서")
     assert 'name="body"' in page and 'name="fmt"' in page and 'name="since"' in page
+
+
+def test_owner_cannot_move_doc_into_other_dept(tmp_path):
+    app = _app(tmp_path)
+    c = TestClient(app)
+    db = app.state.db
+    from zzaimy.app import rag_spaces as rs
+    rs.save_config({"dept_rags": [{"dept": "교무처"}]}, tmp_path)
+    assert _login(c, "zzaimy", "boot-pass-1")
+    d = db.add_document("내 문서.hwp", "x", doc_type="grant", owner="zzaimy")
+    assert c.post(f"/doc/{d}/scope", data={"dept": "교무처"}, follow_redirects=False).status_code == 403
+    assert db.get_document(d)["dept"] == "공통"
+
+
+def test_users_page_creates_dept_shared_with_rag(tmp_path):
+    app, c = _dev(tmp_path)
+    r = c.post("/dev/users/dept", data={"action": "create", "name": "교무처"}, follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    assert "교무처" in c.get("/dev/rag").text                                   # 부서 RAG 로 바로 보인다
+    page = c.get("/dev/users").text
+    assert 'id="depts"' in page and "교무처" in page and 'action="/dev/users/dept"' in page
+    assert '<option value="교무처"' in c.get("/?type=all").text                 # 검색 범위·폴더 범위에서 고른다
+    c.post("/dev/users/dept", data={"action": "delete", "name": "교무처"})
+    assert "교무처" not in rag_spaces.known_depts(rag_spaces.config(tmp_path), {})

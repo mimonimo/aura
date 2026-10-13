@@ -119,27 +119,46 @@
   {% else %}<p class="muted" style="margin:0;">연결된 구글 계정이 없습니다. 사용자는 설정 화면의 '내 구글 계정'에서 연결합니다.</p>{% endif %}
 </div></div>
 
-<div class="card reveal"><div class="card-in">
-  <h2 class="ua-head"><iconify-icon icon="solar:folder-with-files-linear"></iconify-icon>부서 공용
-    <button type="button" class="secondary spacer" data-modal-open="#deptEdit" data-dept-new style="padding:6px 12px; font-size:12.5px;">
+<div class="card reveal" id="depts"><div class="card-in">
+  <h2 class="ua-head"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
+    <button type="button" class="secondary spacer" data-modal-open="#deptCreate" style="padding:6px 12px; font-size:12.5px;">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button></h2>
+  <p class="muted" style="margin:0 0 10px; font-size:12.5px;">여기서 만든 부서가 계정의 부서, 부서 RAG(<a href="/dev/rag#dept-rags">RAG 공간</a>), 라이브러리의 검색 범위·폴더 범위에 같은 목록으로 쓰입니다. 문서는 정하지 않으면 공통 RAG 입니다.</p>
   {% if depts %}
   <div class="table-scroll">
   <table class="ua-table">
-    <tr><th>부서</th><th>공용 계정</th><th>공유 드라이브</th><th></th></tr>
+    <tr><th>부서</th><th>계정</th><th>부서 RAG 문서</th><th>공용 계정</th><th>공유 드라이브</th><th></th></tr>
     {% for d in depts %}
     <tr>
-      <td>{{ d.dept }}</td>
+      <td><b>{{ d.dept }}</b></td>
+      <td>{{ d.members | join(", ") if d.members else '—' }}</td>
+      <td>{{ "{:,}".format(d.docs) }}</td>
       <td>{{ d.account or '—' }}</td>
       <td>{% if d.root %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>폴더 열기</a>{% else %}<span class="muted">개인 드라이브</span>{% endif %}</td>
-      <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#deptEdit"
-            data-dept="{{ d.dept }}" data-account="{{ d.account }}" data-root="{{ d.root }}" aria-label="{{ d.dept }} 부서 편집">편집</button></td>
+      <td class="act" style="white-space:nowrap;"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#deptEdit"
+            data-dept="{{ d.dept }}" data-account="{{ d.account }}" data-root="{{ d.root }}" aria-label="{{ d.dept }} 저장 위치">저장 위치</button>
+        {% if not d.members %}<form method="post" action="/dev/users/dept" style="display:inline; margin:0;" data-confirm="부서 「{{ d.dept }}」을 지웁니다. 부서 RAG 문서 {{ '{:,}'.format(d.docs) }}건은 공통 RAG 로 돌아갑니다.">
+          <input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ d.dept }}">
+          <button type="submit" class="btn-ghost" style="padding:5px 9px; font-size:12px; color:var(--red);">지우기</button></form>{% endif %}</td>
     </tr>
     {% endfor %}
   </table>
   </div>
-  {% else %}<p class="muted" style="margin:0;">부서가 지정된 사용자가 없습니다.</p>{% endif %}
+  {% else %}<p class="muted" style="margin:0;">아직 부서가 없습니다. 「부서 추가」로 만들면 계정·부서 RAG 에서 고를 수 있습니다.</p>{% endif %}
 </div></div>
+
+<div class="modal-back" id="deptCreate">
+  <div class="card"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:17px;">부서 추가</h2>
+      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    <form action="/dev/users/dept" method="post" class="ua-form">
+      <input type="hidden" name="action" value="create">
+      <label>부서 이름<input type="text" name="name" required maxlength="30" autocomplete="off" placeholder="예: 교무처, 산학협력단"></label>
+      <p class="ua-hint">만들면 부서 RAG 가 함께 생깁니다(문서는 비어 있음). 부서 공용 구글 계정·공유 드라이브는 목록의 「저장 위치」에서 정합니다.</p>
+      <footer class="ua-footer" style="padding:0; border:0;"><button type="button" class="secondary" data-modal-close>취소</button><button type="submit">만들기</button></footer>
+    </form>
+  </div></div>
+</div>
 
 <div class="modal-back" id="userEdit">
   <div class="card"><div class="card-in">
@@ -153,7 +172,7 @@
       </div>
       <div class="row">
         <label>역할<select name="role">{% for k, v in roles.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
-        <label>부서<select name="dept"><option value="">정하지 않음(교직원 전체)</option>
+        <label>부서<select name="dept"><option value="">정하지 않음(공통 RAG만)</option>
           {% for d in dept_choices %}<option value="{{ d }}">{{ d }}</option>{% endfor %}</select></label>
       </div>
       <datalist id="uaDepts">{% for d in depts %}<option value="{{ d.dept }}">{% endfor %}</datalist>
@@ -189,10 +208,10 @@
 
 <div class="modal-back" id="deptEdit">
   <div class="card"><div class="card-in">
-    <div class="modal-head"><h2 style="font-size:17px;" data-dept-title>부서 추가</h2>
+    <div class="modal-head"><h2 style="font-size:17px;" data-dept-title>저장 위치</h2>
       <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <form id="departmentFolderForm" action="/dev/google/dept" method="post" class="ua-form">
-      <label>부서<input type="text" name="dept" list="uaDepts" required autocomplete="off"></label>
+      <label>부서<input type="text" name="dept" list="uaDepts" required autocomplete="off" readonly></label>
       <input type="hidden" name="account" value="">
       <input type="hidden" name="root" value="">
       <p class="muted" style="margin:0; font-size:13px;">부서 문서의 저장 위치를 선택하세요. 각 사용자는 본인의 학교 계정으로 작성하며, 해당 폴더의 쓰기 권한이 필요합니다.</p>

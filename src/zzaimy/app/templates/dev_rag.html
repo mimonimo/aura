@@ -106,24 +106,18 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     라이브러리 「문서 올리기」·폴더의 검색 범위, 문서 화면의 검색 범위로 넣고, 그 부서 계정은 공통 RAG 와 함께 찾습니다.</p>
   {% if dept_rags %}
   <div class="rg-scroll"><table class="rg-table">
-    <tr><th>부서 RAG</th><th class="n">문서</th><th>쓰는 계정</th><th>추가 권한 계정</th><th>반입 폴더</th><th></th></tr>
+    <tr><th>부서 RAG</th><th class="n">문서</th><th>쓰는 계정</th><th>추가 권한 계정</th><th>반입 폴더</th></tr>
     {% for r in dept_rags %}
     <tr><td><b>{{ r.dept }}</b>{% if r.made.at %}<br><span class="rg-sub">{{ r.made.at }} 만듦{{ " · " ~ r.made.by if r.made.by }}</span>{% endif %}</td>
       <td class="n">{{ "{:,}".format(r.docs) }}</td>
       <td class="rg-wrap">{{ r.members | join(", ") if r.members else "—" }}</td>
       <td class="rg-wrap">{{ r.granted | join(", ") if r.granted else "—" }}</td>
       <td class="rg-wrap">{{ r.folders | join(", ") if r.folders else "—" }}</td>
-      <td>{% if not r.members %}<form method="post" action="/dev/rag/dept" data-confirm="「{{ r.dept }}」 부서 RAG 를 지웁니다. 든 문서 {{ '{:,}'.format(r.docs) }}건은 공통 RAG 로 돌아갑니다." style="margin:0;">
-        <input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ r.dept }}">
-        <button class="btn" type="submit">지우기</button></form>{% else %}<span class="rg-sub" title="이 부서 계정이 있어 지울 수 없습니다">계정 있음</span>{% endif %}</td></tr>
+      </tr>
     {% endfor %}
   </table></div>
-  {% else %}<p class="rg-sub" style="margin:0 0 10px;">아직 부서 RAG 가 없습니다 — 지금은 모든 문서가 공통 RAG 에 있습니다.</p>{% endif %}
-  <form method="post" action="/dev/rag/dept" class="rg-bar" style="margin-top:12px;">
-    <input type="hidden" name="action" value="create">
-    <input type="text" name="name" required maxlength="30" placeholder="부서 이름 — 계정의 부서 이름과 같게(예: 교무처)" aria-label="부서 이름">
-    <button class="btn primary" type="submit">부서 RAG 만들기</button>
-  </form>
+  {% else %}<p class="rg-sub" style="margin:0 0 10px;">아직 부서 RAG 가 없습니다 — 지금은 모든 문서가 공통 RAG 에 있습니다. <a href="/dev/users#depts">부서 추가</a></p>{% endif %}
+  <p class="rg-note">부서를 만들고 지우는 곳은 <a href="/dev/users#depts">사용자·계정 › 부서</a> 한 곳입니다 — 만든 부서가 여기 부서 RAG 로 나옵니다.</p>
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">

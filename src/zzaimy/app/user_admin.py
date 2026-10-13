@@ -86,7 +86,7 @@ def known_depts(db, accounts: dict, data_dir=None) -> list[str]:
     return sorted(n for n in names if n and n != "공통")
 
 
-def overview(db, accounts: dict) -> dict:
+def overview(db, accounts: dict, data_dir=None) -> dict:
     conn = connected_emails()
     users = []
     for uid, a in sorted(accounts.items(), key=lambda kv: (not kv[1].get("active", True), kv[1].get("dept") or "", kv[0])):
@@ -94,10 +94,17 @@ def overview(db, accounts: dict) -> dict:
         users.append({**st, "name": a.get("name", ""), "role": a.get("role", "staff"), "role_label": ROLES.get(a.get("role", "staff"), ""),
                       "dept": a.get("dept", ""), "active": a.get("active", True), "created_at": (a.get("created_at") or "")[:10]})
     settings = db.all_settings()
-    depts = sorted({a.get("dept") for a in accounts.values() if a.get("dept")} |
-                   {k.split(":", 1)[1] for k, v in settings.items() if k.startswith(("google_account_dept:", "google_root:")) and v})
+    # 부서 목록은 한 곳(known_depts) — 여기서 만든 부서가 RAG 공간의 부서 RAG·검색 범위·폴더 범위에 그대로 쓰인다
+    depts = known_depts(db, accounts, data_dir)
+    n_docs: dict[str, int] = {}
+    if depts:
+        with db._conn() as c:
+            n_docs = {str(r[0]): int(r[1]) for r in c.execute(
+                f"SELECT dept, COUNT(*) FROM documents WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept", depts)}
     dept_rows = [{"dept": d, "account": (settings.get(f"google_account_dept:{d}") or "").strip(),
-                  "root": (settings.get(f"google_root:{d}") or "").strip()} for d in depts]
+                  "root": (settings.get(f"google_root:{d}") or "").strip(),
+                  "members": sorted(u for u, a in accounts.items() if (a.get("dept") or "").strip() == d),
+                  "docs": n_docs.get(d, 0)} for d in depts]
     owners: dict[str, list[str]] = {}
     sharers: dict[str, list[str]] = {}         # 본인 연결 없이 이 계정으로 문서를 쓰는 사용자(부서 공용·공용 계정)
     for u in users:
@@ -165,7 +172,7 @@ def _back(msg: str, ok: bool = True) -> RedirectResponse:
 @router.get("/dev/users", response_class=HTMLResponse)
 def dev_users(request: Request, ok: str = "", err: str = ""):
     st = request.app.state
-    data = overview(st.db, _accounts(request))
+    data = overview(st.db, _accounts(request), getattr(st, "data_dir", None))
     data["me"] = _user(request)
     data["dept_choices"] = known_depts(st.db, _accounts(request), getattr(st, "data_dir", None))
     return st.templates.TemplateResponse(request, "dev_users.html", st.page_ctx(request, {**data, "ok": ok, "err": err}))
@@ -277,6 +284,35 @@ def dev_google_dept(request: Request, dept: str = Form(""), account: str = Form(
     db.set_setting(f"google_account_dept:{dept}", account)
     db.set_setting(f"google_root:{dept}", folder)
     return _back(f"부서 {dept} 설정을 저장했습니다")
+
+
+@router.post("/dev/users/dept")
+def dev_users_dept(request: Request, action: str = Form(""), name: str = Form("")):
+    """부서 만들기·지우기 — 부서 목록은 RAG 공간 설정(dept_rags)에 하나로 둔다. 만든 부서는 부서 RAG·검색 범위·폴더 범위·계정 부서에서
+    바로 고를 수 있다. 지우면 그 부서 문서는 공통 RAG 로 돌아가고 추가 권한·폴더 짝·부서 공용 설정도 풀린다(계정이 있으면 못 지운다)."""
+    from zzaimy.app import rag_spaces
+    st = request.app.state
+    data_dir = getattr(st, "data_dir", None)
+    cfg = dict(rag_spaces.config(data_dir))
+    name = " ".join((name or "").split())
+    if action == "create":
+        new, err = rag_spaces.create_dept_rag(cfg, name, by=_user(request))
+        if err:
+            return _back(err, ok=False)
+        rag_spaces.save_config(new, data_dir)
+        return RedirectResponse(f"/dev/users?ok={quote(f'부서 「{name}」을 만들었습니다 — 계정 부서·부서 RAG·검색 범위에서 고를 수 있습니다')}#depts",
+                                status_code=303)
+    if action == "delete":
+        if any((a.get("dept") or "").strip() == name for a in _accounts(request).values()):
+            return _back(f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 계정의 부서를 먼저 바꿉니다", ok=False)
+        if name not in known_depts(st.db, _accounts(request), data_dir):
+            return _back("없는 부서입니다", ok=False)
+        new, moved = rag_spaces.delete_dept_rag(st.db, cfg, name)
+        rag_spaces.save_config(new, data_dir)
+        for k in (f"google_account_dept:{name}", f"google_root:{name}", f"google_root_name:{name}"):
+            st.db.set_setting(k, "")
+        return RedirectResponse(f"/dev/users?ok={quote(f'부서 「{name}」을 지웠습니다 · 문서 {moved}건은 공통 RAG 로')}#depts", status_code=303)
+    return _back("알 수 없는 요청", ok=False)
 
 
 @router.get("/dev/google/folders")

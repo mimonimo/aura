@@ -214,7 +214,7 @@ def test_dept_is_picked_from_known_list(tmp_path, monkeypatch):
     names = known_depts(db, c.app.state.accounts, tmp_path)
     assert {"가상 기획처", "가상 교무처", "가상 학생처"} <= set(names) and "공통" not in names and "" not in names
     page = c.get("/dev/users").text
-    assert '<select name="dept">' in page and "정하지 않음(교직원 전체)" in page and ">가상 교무처<" in page
+    assert '<select name="dept">' in page and "정하지 않음(공통 RAG만)" in page and ">가상 교무처<" in page
     assert 'role="switch"' in page and 'class="ua-switch"' in page
 
     def save(dept):

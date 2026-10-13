@@ -3376,6 +3376,8 @@ def create_app(
             from zzaimy.app import rag_spaces
             if d != "공통" and d not in _all_depts():
                 raise HTTPException(400, f"없는 부서 RAG: {d}")
+            if d not in _scope_choices(request):           # 올린 사람은 공통·자기 부서만 — 다른 부서 RAG 로는 관리자만
+                raise HTTPException(403, f"이 계정은 「{d}」 부서 RAG 로 옮길 수 없습니다")
             rag_spaces.move_docs(db, [doc_id], d)
         if access_level in LEVELS:
             db.set_document_scope(doc_id, access_level=access_level)
