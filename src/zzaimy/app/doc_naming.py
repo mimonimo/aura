@@ -650,6 +650,23 @@ def memo_subject(text: str) -> str | None:
     return None
 
 
+CLIP_CHARS = 1         # 파일 이름이 본문 제목의 첫 한글 이만큼을 잃은 꼴이면 잘린 제목으로 본다
+
+
+def clipped_title(fname: str, title: str) -> bool:
+    """파일 이름이 본문 제목의 첫 한글 한 글자를 잃은 꼴인지 — 옮겨 적다 첫 글자를 잃은 파일 이름('남이공대학교 …').
+
+    뒤쪽이 짧은 파일 이름('… 계획' ← '… 계획(안)')이나 앞 낱말이 빠진 이름('기술지도일지' ← '애로기술 지도 일지')은
+    잘린 것이 아니라 줄여 붙인 이름일 수 있어 여기서 다루지 않는다."""
+    fq, tq = _squash(_FILE_EXT_RX.sub("", fname or "")), _squash(title)
+    if len(fq) < 6 or len(tq) - len(fq) != CLIP_CHARS or not tq.endswith(fq):
+        return False
+    return bool(re.fullmatch(r"[가-힣]+", tq[:CLIP_CHARS]))
+
+
+_FILE_EXT_RX = re.compile(r"\.(pdf|hwpx?|docx?|xlsx?|pptx?|png|jpe?g|txt|md)$", re.IGNORECASE)
+
+
 def choose_name(original: str, text: str = "", meta: dict | None = None,
                 ask=None, prefer_file: bool = False) -> dict:
     """문서 이름을 고른다 — {name, title, date, source}. source: body · model · file · meta.
@@ -671,7 +688,11 @@ def choose_name(original: str, text: str = "", meta: dict | None = None,
         title = drop_person(title, text) or None           # 본문 제목에도 사람 이름은 싣지 않는다
     if title and shape_problem(title):
         title, date = None, None
-    if title and not (prefer_file and not poor_name(fname)) and body_beats_file(title, fname, (meta or {}).get("programs") or ()):
+    # 파일 이름이 본문 제목에서 앞뒤 한두 글자만 떨어진 꼴이면('남이공대학교 …' ← '영남이공대학교 …') 잘린 제목이다 —
+    # 본문 제목과 겹치지 않게 하려고 잘린 이름을 쓸 까닭이 없다(구별 정보가 더 없다). 날짜가 붙어 이름은 따로 선다
+    clipped = bool(title) and clipped_title(fname, title)
+    if title and (clipped or not (prefer_file and not poor_name(fname))) \
+            and body_beats_file(title, fname, (meta or {}).get("programs") or ()):
         return {"name": title, "title": title, "date": date, "source": "body"}
     if not title and ask is not None and poor_name(fname) and text:
         from zzaimy.app.doc_identity import find_title_by_model

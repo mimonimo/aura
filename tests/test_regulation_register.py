@@ -61,3 +61,54 @@ def test_newer_revision_stays_candidate_after_older_registered(tmp_path):
     older = _doc(db, "가상 연구비 규정 · 2020년 3월 1일", family="연구비")
     ids = {i["id"] for i in rr.candidates(db)["items"]}
     assert new in ids and older not in ids                                  # 개정판은 후보, 옛 판은 아니다
+
+
+def test_rule_key_groups_revisions_and_issuer_flags_other_schools():
+    same = ["영남이공대학교 연봉계약제전임교원 계약임용에 관한 규정 · 2018년 05월 24일", "연봉계약제 전임교원 계약임용에 관한 규정",
+            "4-37 연봉계약제전임교원 계약임용에 관한 규정(2013-11-27)"]
+    assert len({rr.rule_key(t) for t in same}) == 1
+    assert rr.rule_key("자체운영지침(가족회사)") != rr.rule_key("자체운영지침(캡스톤디자인)")   # 판이 아닌 괄호는 이름이다
+    assert rr.rule_key("3-3규정&지침") != rr.rule_key("3-5규정&지침")                       # 띄어쓰기 없는 번호는 이름의 일부
+    assert rr.issuer("금오공과대학교연구비관리규정") == "금오공과대학교"
+    assert rr.issuer("대전보건대학 교외 연구비 관리규정") == "대전보건대학"
+    for ours in ("영남이공대학교 학칙", "2-2.(영남이공대학교)사업자체규정", "전문대학 교육역량강화사업 지침",
+                 "산학협력선도전문대학육성사업 지침", "지역혁신중심 대학지원체계 운영규정"):
+        assert rr.issuer(ours) == "", ours
+
+
+def test_candidates_skip_other_institutions_and_group_by_rule(tmp_path):
+    db = Database(tmp_path / "r.db")
+    _doc(db, "영남대학교외부연구비간접비운영에관한세칙")
+    old = _doc(db, "4-37 연봉계약제전임교원 계약임용에 관한 규정", family="a2018", text="머리\n" + BODY + "\n부 칙(2018. 5. 24)\n시행")
+    new = _doc(db, "연봉계약제 전임교원 계약임용에 관한 규정", family="b", text="머리\n" + BODY + "\n부 칙(2025. 2. 28)\n시행")
+    got = rr.candidates(db)["items"]
+    assert [(i["id"], i["versions"]) for i in got] == [(new, 2)]
+    assert old != new
+
+
+def test_register_newer_demotes_older_and_pick_skips_clipped(tmp_path):
+    db = Database(tmp_path / "r.db")
+    old = _doc(db, "가상 운영 규정 · 2020년 3월 1일", family="x1")
+    rr.register(db, [old], tmp_path)
+    new = _doc(db, "4-1 가상 운영 규정 · 2024년 3월 1일", family="x2")
+    out = rr.register(db, [new], tmp_path)
+    assert out["replaced"] == 1 and db.get_document(old)["doc_type"] == "grant"
+    assert rr.superseded(db) == []
+    long, short = {"id": 1, "title": "규정 · 2020년 3월 1일", "text": "가" * 1000}, {"id": 2, "title": "규정 · 2024년 3월 1일", "text": "가" * 100}
+    assert rr.pick_current([long, short])["id"] == 1                       # 가장 새 판이 잘린 판독이면 다음 판
+    bundle = {"id": 3, "title": "규정 · 2004년 3월 1일", "text": "가" * 5000}           # 옛 합본은 새 판을 밀어내지 못한다
+    mid = {"id": 4, "title": "규정 · 2012년 3월 1일", "text": "가" * 900}
+    assert rr.pick_current([long, mid, bundle])["id"] == 1
+    a = {"id": 5, "title": "2014학년도 지침(안)", "family": "20131126", "text": ""}
+    b = {"id": 6, "title": "2014학년도 지침", "family": "20131217", "text": ""}
+    c = {"id": 7, "title": "1-1. 2014학년도 지침", "text": ""}
+    d = {"id": 8, "title": "2013학년도 지침", "family": "20121115", "text": ""}
+    assert rr.pick_current([a, b, c, d])["id"] == 6                       # 학년도 먼저, 그 안에서 날짜
+
+
+def test_clipped_filename_yields_to_body_title():
+    from zzaimy.app.doc_naming import choose_name, clipped_title
+    text = "영남이공대학교 비정년계열전임교원 계약임용에 관한 규정\n\n학과장회 통과일자 : 2021년 03월 25일\n\n제1조(목적) 이 규정은"
+    got = choose_name("04_남이공대학교 비정년계열전임교원 계약임용에 관한 규정.hwp", text, prefer_file=True)
+    assert got["name"].startswith("영남이공대학교") and got["source"] == "body"
+    assert not clipped_title("비정년계열전임교원 계약임용에 관한 규정", "영남이공대학교 비정년계열전임교원 계약임용에 관한 규정")
