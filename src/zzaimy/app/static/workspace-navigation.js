@@ -58,6 +58,9 @@
       accept.focus();
     });
   }
+  // 폼이 아닌 동작(fetch)도 같은 확인창을 쓰게 — await window.platformConfirm('설명', {title, ok, danger})
+  window.platformConfirm = (message, o = {}) => askConfirm({title: o.title || '확인', message, ok: o.ok || '확인', danger: !!o.danger},
+                                                           document.activeElement);
   window.addEventListener('pageshow', () => { asking = false; sent.clear(); });
   document.addEventListener('submit', event => {
     const form = event.target;

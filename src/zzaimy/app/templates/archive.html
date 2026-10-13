@@ -85,6 +85,66 @@
   </dl>
   <p class="ar-note">「문서 연결됨」은 라이브러리 문서와 이어진 원본 파일 수입니다. 한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다.</p>
 </div></section>
+{% if request.state.role == 'dev' %}
+{# 정리 — 처리하지 않는 원본(사진·압축·범위 밖·중복·크기 초과). 정리함은 보관소에서만 빼는 표시이고 되돌릴 수 있다. 실제 삭제는 따로 #}
+<section class="card" id="archive-cleanup"><div class="card-in">
+  <div class="ac-head"><h2>정리</h2><span class="ar-note" id="acSum">불러오는 중…</span></div>
+  <p class="ar-note" style="margin-top:4px;">검색·답변에 쓰지 않는 원본입니다. 「정리함으로」 옮기면 보관소 목록과 건수에서 빠지고 언제든 되돌릴 수 있습니다. 원본 파일은 원본 저장소에 그대로 있으며, 실제 삭제는 정리함을 확인한 뒤 따로 합니다.</p>
+  <table class="ac-table"><thead><tr><th>갈래</th><th class="num">남은 원본</th><th class="num">용량</th><th class="num">정리함</th><th></th></tr></thead><tbody id="acRows"></tbody></table>
+  <div class="ac-sample" id="acSample" hidden></div>
+  <p class="ar-note" role="status" id="acStatus"></p>
+</div></section>
+<style>
+.ac-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.ac-head h2{margin:0}
+.ac-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}.ac-table th{font-size:12px;color:var(--muted);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.ac-table td{padding:8px;border-bottom:1px solid #EEF1F5;vertical-align:middle}.ac-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ac-table td small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
+.ac-acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}.ac-acts .btn{min-height:30px;padding:3px 10px;font-size:12px}
+.ac-sample{margin-top:10px;padding:10px 12px;border-radius:8px;background:#F5F7FB;font-size:12px;max-height:220px;overflow:auto}
+.ac-sample code{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:#3B4A5E}
+</style>
+<script>
+(() => {
+  const $ = id => document.getElementById(id), gb = b => (b / 1e9).toFixed(1) + 'GB', n = x => Number(x || 0).toLocaleString();
+  const esc = t => String(t || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  function paint(d) {
+    const left = d.items.reduce((a, x) => a + x.n, 0);
+    $('acSum').textContent = `정리할 수 있는 원본 ${n(left)}건 · 정리함 ${n(d.cleaned_total)}건`;
+    $('acRows').innerHTML = d.items.map(x => `<tr><td><b>${esc(x.label)}</b><small>${esc(x.note)}</small></td><td class="num">${n(x.n)}</td><td class="num">${gb(x.bytes)}</td><td class="num">${n(x.cleaned)}</td>
+      <td><div class="ac-acts"><button class="btn secondary" type="button" data-ac="sample" data-key="${x.key}" ${x.n ? '' : 'disabled'}>목록 보기</button>
+      <button class="btn" type="button" data-ac="move" data-key="${x.key}" data-label="${esc(x.label)}" data-n="${x.n}" ${x.n ? '' : 'disabled'}>정리함으로</button>
+      <button class="btn secondary" type="button" data-ac="restore" data-key="${x.key}" data-label="${esc(x.label)}" ${x.cleaned ? '' : 'disabled'}>되돌리기</button></div></td></tr>`).join('');
+  }
+  const load = () => fetch('/archive/cleanup', {cache: 'no-store'}).then(r => r.json()).then(paint).catch(() => { $('acSum').textContent = '불러오지 못했습니다'; });
+  async function post(url, key) {
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({key})});
+    if (!r.ok) throw new Error('요청 실패 ' + r.status); return r.json();
+  }
+  $('acRows').addEventListener('click', async e => {
+    const b = e.target.closest('[data-ac]'); if (!b) return;
+    const key = b.dataset.key;
+    if (b.dataset.ac === 'sample') {
+      const d = await fetch('/archive/cleanup/sample?key=' + encodeURIComponent(key)).then(r => r.json());
+      $('acSample').hidden = false;
+      $('acSample').innerHTML = `<b>예시 ${d.rels.length}건</b>` + d.rels.map(x => `<code title="${esc(x)}">${esc(x)}</code>`).join('');
+      return;
+    }
+    const move = b.dataset.ac === 'move';
+    const msg = move ? `「${b.dataset.label}」 ${n(b.dataset.n)}건을 정리함으로 옮길까요? 보관소 목록·건수에서 빠지고, 되돌릴 수 있습니다(원본 파일은 지우지 않습니다).`
+                     : `「${b.dataset.label}」 정리함을 되돌릴까요? 보관소 목록에 다시 보입니다.`;
+    const ok = window.platformConfirm ? await window.platformConfirm(msg, {title: move ? '정리함으로 옮기기' : '정리함 되돌리기', ok: move ? '옮기기' : '되돌리기'}) : confirm(msg);
+    if (!ok) return;
+    b.disabled = true; $('acStatus').textContent = '처리 중…';
+    try {
+      const d = await post(move ? '/archive/cleanup/move' : '/archive/cleanup/restore', key);
+      $('acStatus').textContent = move ? `${n(d.moved)}건을 정리함으로 옮겼습니다 — 새로고침하면 위 건수에도 반영됩니다` : `${n(d.restored)}건을 되돌렸습니다`;
+      paint(d);
+    } catch (err) { $('acStatus').textContent = err.message; b.disabled = false; }
+  });
+  load();
+})();
+</script>
+{% endif %}
 <section class="card" id="archive-search"><div class="card-in">
   <form id="arForm" method="get" action="/archive#archive-list" role="search" aria-label="원본 찾기">
     <div class="ar-form">

@@ -53,6 +53,12 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content    TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS archive_cleanup (
+    rel TEXT PRIMARY KEY,
+    category TEXT NOT NULL DEFAULT '',
+    at TEXT NOT NULL DEFAULT '',
+    by_user TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS projects (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   sector     TEXT NOT NULL,

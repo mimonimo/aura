@@ -16,7 +16,7 @@ from datetime import date
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.background import BackgroundTask
 
 from zzaimy.app import archive, archive_state, program_names, vocab
@@ -671,6 +671,44 @@ def chips(f: dict, labels: dict[str, str], ext_labels: dict[str, str], progs: "P
 
 def resolve_program(value: str, prog_of: "Programs") -> str:
     return prog_of.resolve(value)
+
+
+def _dev(request: Request) -> None:
+    if getattr(request.state, "role", "") != "dev":
+        raise HTTPException(403, "원본 정리는 관리자만 합니다")
+
+
+@router.get("/archive/cleanup")
+def archive_cleanup_summary(request: Request):
+    """정리 — 처리하지 않는 원본의 갈래별 건수·용량과 정리함에 든 수(관리자)."""
+    from zzaimy.app import archive_cleanup
+    _dev(request)
+    return JSONResponse(archive_cleanup.summary(request.app.state.db))
+
+
+@router.get("/archive/cleanup/sample")
+def archive_cleanup_sample(request: Request, key: str):
+    from zzaimy.app import archive_cleanup
+    _dev(request)
+    return JSONResponse({"key": key, "rels": archive_cleanup.sample(request.app.state.db, key)})
+
+
+@router.post("/archive/cleanup/move")
+async def archive_cleanup_move(request: Request):
+    from zzaimy.app import archive_cleanup
+    _dev(request)
+    key = str((await request.json()).get("key") or "")
+    n = archive_cleanup.move(request.app.state.db, key, by=getattr(request.state, "user", "") or "")
+    return JSONResponse({"moved": n, **archive_cleanup.summary(request.app.state.db, force=True)})
+
+
+@router.post("/archive/cleanup/restore")
+async def archive_cleanup_restore(request: Request):
+    from zzaimy.app import archive_cleanup
+    _dev(request)
+    key = str((await request.json()).get("key") or "")
+    n = archive_cleanup.restore(request.app.state.db, key)
+    return JSONResponse({"restored": n, **archive_cleanup.summary(request.app.state.db, force=True)})
 
 
 @router.get("/archive", response_class=HTMLResponse)

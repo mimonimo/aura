@@ -37,6 +37,8 @@ def original_sql(alias: str = "") -> tuple[str, list]:
         return t.replace("!", "!!").replace("%", "!%").replace("_", "!_")
     conds = [f"{alias}rel NOT LIKE ? ESCAPE '!'"] + [f"{alias}rel NOT LIKE ? ESCAPE '!'" for _ in BYPRODUCT_DIR_SUFFIXES]
     args = [esc(UPLOAD_PREFIX) + "%"] + [f"%{esc(sfx)}/%" for sfx in BYPRODUCT_DIR_SUFFIXES]
+    # 정리함으로 옮긴 원본(사진·압축·범위 밖 등, archive_cleanup)은 보관소 목록·건수에서 뺀다 — 되돌리면 다시 보인다
+    conds.append(f"{alias}rel NOT IN (SELECT rel FROM archive_cleanup)")
     return "(" + " AND ".join(conds) + ")", args
 
 
