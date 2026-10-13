@@ -32,6 +32,37 @@
   .lib-uses .lib-uses-act { margin-left:auto; }
   .pill.lib-criteria { background:#E8F0FE; color:var(--navy); }
   .lib-note { display:block; font-size:11.5px; margin-top:3px; }
+
+  /* 사업별로 보기 — 왼쪽 목록 + 오른쪽 문서. 줄은 제목 한 줄 + 정보 한 줄 */
+  .lib-layout { display:grid; grid-template-columns:260px minmax(0,1fr); gap:16px; align-items:start; }
+  .lib-rail { position:sticky; top:72px; display:flex; flex-direction:column; max-height:calc(100vh - 96px); border:1px solid var(--line); border-radius:14px; background:#fff; padding:12px; }
+  .lib-rail-h { font-size:13px; margin:0 2px 8px; }
+  .lib-rail-find { width:100%; box-sizing:border-box; height:32px; padding:5px 9px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; margin-bottom:8px; }
+  .lib-rail-list { overflow:auto; min-height:0; display:flex; flex-direction:column; gap:1px; }
+  .lib-rail-item { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:12.5px; }
+  .lib-rail-item span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lib-rail-item small { color:var(--muted); font-variant-numeric:tabular-nums; }
+  .lib-rail-item:hover { background:#F3F6FB; }
+  .lib-rail-item.on { background:#EAF0FA; color:var(--navy); font-weight:700; }
+  .lib-rail-item.fixed { color:#53647B; } .lib-rail-item.fixed:first-of-type { margin-top:6px; }
+  .lib-rail-item[hidden] { display:none; }
+  .lib-pick { display:flex; align-items:center; gap:10px; margin:0 0 10px; font-size:15px; }
+  .lib-pick-graph { margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-size:12.5px; text-decoration:none; padding:4px 10px; border:1px solid var(--line); border-radius:8px; }
+  .lib-pick-x { text-decoration:none; color:var(--muted); font-size:18px; padding:0 6px; border-radius:6px; } .lib-pick-x:hover { background:#F3F6FB; }
+  .lib-years { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 12px; }
+  .lib-years a { padding:4px 11px; border-radius:999px; border:1px solid var(--line); font-size:12px; text-decoration:none; color:var(--muted); background:#fff; }
+  .lib-years a span { font-variant-numeric:tabular-nums; opacity:.8; }
+  .lib-years a[aria-current=true] { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .lib-rows { list-style:none; margin:4px 0 0; padding:0; border-top:1px solid var(--line); }
+  .lib-row { display:flex; align-items:flex-start; gap:12px; padding:10px 4px; border-bottom:1px solid #EEF1F5; }
+  .lib-row-main { flex:1; min-width:0; }
+  .lib-row-title { font-weight:600; font-size:13.5px; text-decoration:none; color:var(--navy); overflow-wrap:anywhere; }
+  .lib-row-title:hover { text-decoration:underline; }
+  .lib-row-meta { display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px; margin-top:3px; font-size:12px; color:var(--muted); }
+  .lib-row-proj { color:#3F5F8A; text-decoration:none; max-width:420px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .lib-row-proj:hover { text-decoration:underline; }
+  .lib-row-no { font-variant-numeric:tabular-nums; color:#9AA6B6; }
+  .lib-row-date { flex:none; font-size:12px; color:#9AA6B6; font-variant-numeric:tabular-nums; padding-top:2px; }
+  @media (max-width: 900px) { .lib-layout { grid-template-columns:1fr; } .lib-rail { position:static; max-height:280px; } }
 </style>
 {% endblock %}
 {% block content %}
@@ -53,11 +84,6 @@
 
 <section class="page-head" aria-label="{{ library_tabs.docs }}">
   <h1>{{ library_tabs.docs }}</h1>
-  {# 프로젝트 만들기(/projects/bundle)의 화면 진입은 여기 하나 — 사이드바는 찾기·열기만, 프로젝트 화면은 만든 뒤의 작업 #}
-  <div class="page-head-actions">
-    <button type="button" class="secondary" data-modal-open="#projectModal">
-      <iconify-icon icon="solar:add-circle-linear"></iconify-icon>프로젝트 추가</button>
-  </div>
 </section>
 {% include "_library_tabs.html" %}
 
@@ -98,42 +124,6 @@
 </div></div>
 {% endif %}
 
-<div id="projectModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
-  <div class="card">
-    <div class="card-in">
-      <div class="modal-head">
-        <h2 id="projectModalTitle"><iconify-icon icon="solar:folder-2-linear"></iconify-icon>프로젝트 추가</h2>
-        <button type="button" data-modal-close class="dialog-close" aria-label="닫기" title="닫기">
-          <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
-      </div>
-      <form action="/projects/bundle" method="post" enctype="multipart/form-data" id="projectCreateForm">
-        {% if active_tab == 'all' %}
-        <label class="form-row"><span class="muted">업무</span><select name="sector" required data-sector-pick>{% for key, meta in sector_meta.items() %}<option value="{{ key }}"{% if key == 'grant' %} selected{% endif %}>{{ meta[1] }}</option>{% endfor %}</select></label>
-        {% else %}<input type="hidden" name="sector" value="{{ active_tab }}">{% endif %}
-        <div class="form-row"><span class="muted" data-grant-only {% if not grant_like %}hidden{% endif %}>자료(선택) — 공고나 지난 계획서를 고르면 이름이 자동으로 정해집니다.</span>
-          <span class="muted" data-grant-other {% if grant_like %}hidden{% endif %}>자료(선택) — 고른 파일이 프로젝트 문서로 등록되고, 이름이 비어 있으면 자료에서 정해집니다.</span>
-          <input type="file" name="file" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
-        <div class="form-row">
-          <span class="muted">프로젝트 이름 — 자료를 고르면 비워 둘 수 있습니다.</span>
-          <input type="text" name="name" placeholder="{{ project_hints.get(active_tab, '') or '예: 2026학년도 AID 전환 중점 전문대학 지원사업' }}">
-        </div>
-        {% if business_units %}
-        <label class="form-row" data-grant-only {% if not grant_like %}hidden{% endif %}><span class="muted">사업단(선택)</span><select name="unit"><option value="">선택 안 함</option>{% for u in business_units %}<option value="{{ u }}">{{ u }}</option>{% endfor %}</select></label>
-        {% endif %}
-        <div class="form-row">
-          <span class="muted">마감일(선택)</span>
-          <input type="date" name="due_date"
-                 style="border:1.5px solid var(--line); border-radius:12px; padding:10px 14px;
-                        font-family:inherit; font-size:14px;">
-        </div>
-        <p class="muted" data-create-hint style="margin:0 0 10px;">프로젝트 이름을 쓰거나 자료를 고르면 만들 수 있습니다.</p>
-        <div style="display:flex; justify-content:flex-end; gap:10px;">
-          <button type="submit" data-create-submit disabled>만들기</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
 {% if common_templates %}
 <p class="lib-templates"><span class="muted">공통 양식 사본 만들기</span>
   {% for t in common_templates %}<a class="pill" href="{{ t.url }}" target="_blank" rel="noopener" title="내 구글 드라이브에 사본을 만듭니다(새 창)">{{ t.name }}</a>{% endfor %}</p>
@@ -141,11 +131,32 @@
 
 {% set flt_labels = {"processing": "처리 중", "reviewed": "처리 완료", "pending": "담당자 확인 전"} %}
 {% set run_labels = {"received": "처리 중", "processing": "처리 중", "failed": "처리 실패"} %}
-{% set keep_qs = (("&project=" ~ active_project) if active_project else "") %}
+{% set keep_qs = (("&project=" ~ active_project) if active_project else "") ~ (("&prog=" ~ (prog | urlencode)) if prog else "") ~ (("&year=" ~ (year | urlencode)) if year else "") %}
+{% set rail_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") %}
 {% set use_qs = "type=" ~ active_tab ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") %}
 {% set base_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
-<div class="card">
+<div class="lib-layout">
+{# 사업별로 보기 — 문서가 속한 프로젝트의 사업으로 묶은 목록. 고르면 오른쪽이 그 사업 문서, 연도 칩으로 좁힌다 #}
+<aside class="lib-rail" aria-label="사업별로 보기">
+  <div class="lib-rail-h"><b>사업별로 보기</b></div>
+  <input type="search" class="lib-rail-find" id="libRailFind" placeholder="사업 이름 거르기" aria-label="사업 이름 거르기">
+  <nav class="lib-rail-list" id="libRail">
+    <a href="/?{{ rail_qs }}" class="lib-rail-item{{ ' on' if not prog }}"{% if not prog %} aria-current="true"{% endif %}><span>전체</span><small>{{ "{:,}".format(rail | sum(attribute='n')) }}</small></a>
+    {% for g in rail %}
+    <a href="/?{{ rail_qs }}&amp;prog={{ g.key | urlencode }}" class="lib-rail-item{{ ' on' if prog == g.key }}{{ ' fixed' if not g.key.startswith('prog:') }}"{% if prog == g.key %} aria-current="true"{% endif %}
+       data-name="{{ g.label | lower }}" title="{{ g.label }}"><span>{{ g.label }}</span><small>{{ "{:,}".format(g.n) }}</small></a>
+    {% endfor %}
+  </nav>
+</aside>
+<div class="card lib-main">
   <div class="card-in">
+    {% if rail_pick %}<div class="lib-pick"><b>{{ rail_pick.label }}</b>
+      {% if rail_pick.key.startswith('prog:') %}<a class="lib-pick-graph" href="/graph/explore?id={{ rail_pick.key[5:] | urlencode }}"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>{% endif %}
+      <a class="lib-pick-x" href="/?{{ rail_qs }}" aria-label="사업 고르기 풀기">×</a></div>
+    {% if rail_pick.years | length > 1 %}<nav class="lib-years" aria-label="연도">
+      <a href="/?{{ rail_qs }}&amp;prog={{ prog | urlencode }}"{% if not year %} aria-current="true"{% endif %}>전체 연도</a>
+      {% for y in rail_pick.years %}<a href="/?{{ rail_qs }}&amp;prog={{ prog | urlencode }}&amp;year={{ y.tail | urlencode }}"{% if year == y.tail %} aria-current="true"{% endif %}>{{ y.label }} <span>{{ "{:,}".format(y.n) }}</span></a>{% endfor %}
+    </nav>{% endif %}{% endif %}
     <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>{% if q %}검색 결과 {{ "{:,}".format(total_docs) }}건{% else %}{{ metric_label('documents_visible', '', '문서 ' ~ "{:,}".format(total_docs) ~ '건') }}{% endif %}
       {% if active_flt %}<span class="pill type" style="margin-left:6px;">{{ flt_labels.get(active_flt, active_flt) }}</span>{% endif %}
       {% if n_rows < total_docs %}<span class="muted" style="font-size:12.5px; font-weight:500;">같은 문서의 판본 {{ "{:,}".format(total_docs - n_rows) }}건은 최신본 아래에 묶음</span>{% endif %}</h2>
@@ -164,6 +175,7 @@
       </select>{% endif %}
       <input type="hidden" name="use" value="{{ use }}">
       {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
+      {% if prog %}<input type="hidden" name="prog" value="{{ prog }}">{% endif %}{% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
       {% if active_flt %}<input type="hidden" name="flt" value="{{ active_flt }}">{% endif %}
       <select name="kind" aria-label="문서 종류">
         <option value="">모든 종류</option>
@@ -173,41 +185,39 @@
       <button type="submit" class="secondary">찾기</button>
       {% if q or active_flt or kind or use != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
     </form>
-    <p class="muted" style="margin-top:0;">학교에 등록된 문서입니다. 작업 중인 구글 문서는 채팅의 문서 패널에서 봅니다.</p>
     {% if documents %}
-    <div class="table-scroll">
-      <table class="intake-table">
-        {% set show_business = business_tabs and active_tab == 'all' %}
-        <tr><th>접수번호</th><th>문서 제목</th>{% if show_business %}<th>업무</th>{% endif %}<th>등록일</th></tr>
-        {% for d in documents %}
-        <tr>
-          <td class="muted">{{ receipt_label(d.receipt_no) or d.id }}</td>
-          <td class="doc-cell"><a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
-            <div class="doc-meta">
-              <span class="muted">{{ d.kind_label or "분류 전" }}</span>
-              {% if d.in_index %}<span class="pill lib-criteria" title="규정 색인 문서 — 규정 검색·학생 공개·프로젝트 기준 선택에 씀">기준</span>{% endif %}
-              {% if d.status in run_labels %}<span class="pill {{ 'failed' if d.status == 'failed' else 'processing' }}">{{ run_labels[d.status] }}</span>{% endif %}
-              {% if d.decision and d.decision != 'pending' and d.doc_type not in ('regulation', 'ocr') %}<span class="pill {{ d.decision }}">담당자 {{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}
-              {% if d.project_name %}<span class="pill"><iconify-icon icon="solar:folder-2-linear" style="font-size:12px;" aria-hidden="true"></iconify-icon>{{ d.project_name }}</span>{% endif %}
-            </div>
-            {% if d.no_chunks %}<span class="muted lib-note">본문을 찾지 못해 규정 검색에 잡히지 않습니다</span>{% endif %}
-            {% if d.n_versions > 1 %}
-            <details class="lib-versions">
-              <summary>판본 {{ d.n_versions }}개</summary>
-              <ul>
-                {% for v in d.versions %}
-                <li><a href="/doc/{{ v.id }}">{{ doc_title(v) }}</a><span class="muted">{{ receipt_label(v.receipt_no) or v.id }} · {{ (v.created_at or '')[:10] }}</span>{% if v.project_name %}<span class="muted">{{ v.project_name }}</span>{% endif %}</li>
-                {% endfor %}
-                {% if d.n_versions - 1 > d.versions|length %}<li class="muted">그 밖의 판본 {{ d.n_versions - 1 - d.versions|length }}개 — 제목으로 찾으면 모두 보입니다.</li>{% endif %}
-              </ul>
-            </details>
-            {% endif %}</td>
-          {% if show_business %}<td><span class="pill type">{{ sector_labels.get(d.business, d.business) }}</span></td>{% endif %}
-          <td class="muted">{{ (d.created_at or '')[:10] }}</td>
-        </tr>
-        {% endfor %}
-      </table>
-    </div>
+    {% set show_business = business_tabs and active_tab == 'all' %}
+    <ul class="lib-rows" data-doc-list>
+      {% for d in documents %}
+      <li class="lib-row">
+        <div class="lib-row-main">
+          <a class="lib-row-title" href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
+          <div class="lib-row-meta">
+            <span>{{ d.kind_label or "분류 전" }}</span>
+            {% if d.in_index %}<span class="pill lib-criteria" title="기준 문서 — 규정 검색·학생 공개·프로젝트 기준 선택에 씀">기준</span>{% endif %}
+            {% if d.status in run_labels %}<span class="pill {{ 'failed' if d.status == 'failed' else 'processing' }}">{{ run_labels[d.status] }}</span>{% endif %}
+            {% if d.decision and d.decision != 'pending' and d.doc_type not in ('regulation', 'ocr') %}<span class="pill {{ d.decision }}">담당자 {{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}
+            {% if d.project_name and not prog %}<a class="lib-row-proj" href="/project/{{ d.project_id }}" title="이 문서가 속한 프로젝트">{{ d.project_name }}</a>{% endif %}
+            {% if show_business %}<span class="lib-row-biz">{{ sector_labels.get(d.business, d.business) }}</span>{% endif %}
+            <span class="lib-row-no">{{ receipt_label(d.receipt_no) or d.id }}</span>
+          </div>
+          {% if d.no_chunks %}<span class="muted lib-note">본문을 찾지 못해 규정 검색에 잡히지 않습니다</span>{% endif %}
+          {% if d.n_versions > 1 %}
+          <details class="lib-versions">
+            <summary>판본 {{ d.n_versions }}개</summary>
+            <ul>
+              {% for v in d.versions %}
+              <li><a href="/doc/{{ v.id }}">{{ doc_title(v) }}</a><span class="muted">{{ receipt_label(v.receipt_no) or v.id }} · {{ (v.created_at or '')[:10] }}</span>{% if v.project_name %}<span class="muted">{{ v.project_name }}</span>{% endif %}</li>
+              {% endfor %}
+              {% if d.n_versions - 1 > d.versions|length %}<li class="muted">그 밖의 판본 {{ d.n_versions - 1 - d.versions|length }}개 — 제목으로 찾으면 모두 보입니다.</li>{% endif %}
+            </ul>
+          </details>
+          {% endif %}
+        </div>
+        <span class="lib-row-date">{{ (d.created_at or '')[:10] }}</span>
+      </li>
+      {% endfor %}
+    </ul><!-- /lib-rows -->
     {% if pages > 1 %}
     <nav class="lib-pager" aria-label="쪽 이동">
       {% if page > 1 %}<a href="/?{{ base_qs }}&amp;page={{ page - 1 }}" aria-label="이전 쪽">←</a>{% endif %}
@@ -220,6 +230,7 @@
       <form class="lib-jump" action="/" method="get">
         <input type="hidden" name="type" value="{{ active_tab }}"><input type="hidden" name="use" value="{{ use }}">
         {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
+        {% if prog %}<input type="hidden" name="prog" value="{{ prog }}">{% endif %}{% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
         {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
         {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
         {% if active_flt %}<input type="hidden" name="flt" value="{{ active_flt }}">{% endif %}
@@ -235,6 +246,7 @@
     </div>
     {% endif %}
   </div>
+</div>
 </div>
 {# 기준 등록 — 규정 색인 반입은 이 한 경로(/criteria/upload: doc_type=regulation, 원문 유지, 규정 조각 적재) #}
 <div id="criteriaUploadModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="criteriaUploadTitle">
@@ -260,6 +272,16 @@
 </div>
 <script>
 (function () {
+  // 사업 목록 거르기 — 이름에 낱말이 든 사업만(고른 사업과 「전체」 는 늘 보인다)
+  var f = document.getElementById("libRailFind");
+  if (f) f.addEventListener("input", function () {
+    var t = f.value.replace(/\s+/g, "").toLowerCase();
+    document.querySelectorAll("#libRail .lib-rail-item[data-name]").forEach(function (a) {
+      a.hidden = !!t && a.dataset.name.replace(/\s+/g, "").indexOf(t) < 0 && !a.classList.contains("on");
+    });
+  });
+})();
+(function () {
   // 기준 등록 창 — 파일을 고르기 전에는 「등록」을 끈다
   var up = document.getElementById("criteriaUploadForm");
   if (up) {
@@ -272,21 +294,6 @@
   document.querySelectorAll("form[data-autosubmit] select").forEach(function (s) {
     s.addEventListener("change", function () { s.form.requestSubmit ? s.form.requestSubmit() : s.form.submit(); });
   });
-  // 프로젝트 추가 — 이름도 자료도 없으면 만들기를 끄고, 업무에 맞는 칸만 보인다
-  var form = document.getElementById("projectCreateForm");
-  if (!form) return;
-  var submit = form.querySelector("[data-create-submit]"), hint = form.querySelector("[data-create-hint]");
-  function paint() {
-    var ready = !!form.elements.name.value.trim() || !!(form.elements.file.files && form.elements.file.files.length);
-    submit.disabled = !ready; hint.hidden = ready;
-    var pick = form.querySelector("[data-sector-pick]");
-    if (pick) {
-      var grant = pick.value === "grant";
-      form.querySelectorAll("[data-grant-only]").forEach(function (el) { el.hidden = !grant; });
-      form.querySelectorAll("[data-grant-other]").forEach(function (el) { el.hidden = grant; });
-    }
-  }
-  form.addEventListener("input", paint); form.addEventListener("change", paint); paint();
 })();
 </script>
 {% endblock %}

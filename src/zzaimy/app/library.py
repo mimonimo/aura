@@ -146,3 +146,90 @@ def business_filter_sql(business: str, businesses) -> tuple[str, list]:
 def show_business_tabs(counts: dict[str, int], businesses) -> bool:
     """업무 탭 줄은 문서가 있는 업무가 둘 이상일 때만 — 하나뿐이면 탭은 고를 것이 없다(선택 상자에서 고른다)."""
     return sum(1 for k in businesses if counts.get(k)) >= 2
+
+
+# ---- 사업별로 보기 — 왼쪽 사업 목록(문서가 속한 프로젝트의 사업 열쇠로 묶는다) ----
+# 묶음 열쇠: 「prog:<사업 id>」(지난 사업 보관 묶음의 사업), 「work」(담당자가 만든 진행 중 프로젝트),
+# 「nonprogram」(기관 일반 업무, 사업 아님), 「none」(사업 미분류·프로젝트 없음)
+RAIL_FIXED = {"work": "진행 중 프로젝트", "nonprogram": "기관 일반 업무 (사업 아님)", "none": "사업 미분류"}
+
+
+def rail_key(program: str | None, archived, has_project: bool) -> tuple[str, str]:
+    """(묶음 열쇠, 연도 꼬리) — 프로젝트의 program 값(「program:linc30|2024」)에서."""
+    if not has_project:
+        return "none", ""
+    p = program or ""
+    base, _, tail = p.partition("|")
+    if base.startswith("program:"):
+        return "prog:" + base, tail
+    if base == "nonprogram":
+        return "nonprogram", ""
+    if not p and not archived:
+        return "work", ""
+    return "none", ""
+
+
+def _bundle_name(name: str) -> str:
+    """보관 묶음 이름(「2024년 ○○ 사업 (2차년도)」)에서 사업 이름만."""
+    import re
+    name = re.sub(r"^\s*(?:19|20)\d{2}\s*년\s*", "", name or "")
+    return re.sub(r"\s*\((?:\d+차년도|연도 미상)\)\s*$|\s*\d+차년도\s*$", "", name).strip()
+
+
+def year_label(tail: str) -> str:
+    if not tail or tail in ("?", "*"):
+        return "연도 미상"
+    if tail.startswith("r") and tail[1:].isdigit():
+        return f"{tail[1:]}차년도"
+    return f"{tail}년" if tail.isdigit() else tail
+
+
+def rail_sql(key: str, tail: str = "") -> tuple[str, list]:
+    """고른 사업 묶음(과 연도)의 문서 조건(표 별칭 d)."""
+    if key.startswith("prog:"):
+        base = key[5:]
+        if tail:
+            return "d.project_id IN (SELECT id FROM projects WHERE program = ?)", [f"{base}|{tail}"]
+        return "d.project_id IN (SELECT id FROM projects WHERE program = ? OR program LIKE ?)", [base, base + "|%"]
+    if key == "nonprogram":
+        return "d.project_id IN (SELECT id FROM projects WHERE program LIKE 'nonprogram%')", []
+    if key == "work":
+        return "d.project_id IN (SELECT id FROM projects WHERE COALESCE(program, '') = '' AND COALESCE(archived, 0) = 0)", []
+    if key == "none":
+        return ("(d.project_id IS NULL OR d.project_id IN (SELECT id FROM projects WHERE program LIKE 'none%'"
+                " OR (COALESCE(program, '') = '' AND COALESCE(archived, 0) <> 0)))"), []
+    return "", []
+
+
+def rail(conn, where: str, args: list) -> list[dict]:
+    """조건에 맞는 문서를 사업 묶음으로 센다 — [{key, label, n, years:[{tail, label, n}]}], 사업은 문서 많은 순, 고정 묶음은 끝."""
+    rows = conn.execute(
+        "SELECT p.program, p.archived, d.project_id IS NOT NULL AND p.id IS NOT NULL, COUNT(*), MAX(p.name) FROM documents d"
+        f" LEFT JOIN projects p ON p.id = d.project_id{where} GROUP BY 1, 2, 3", args).fetchall()
+    out: dict[str, dict] = {}
+    for program, archived, has_p, n, pname in rows:
+        key, tail = rail_key(program, archived, bool(has_p))
+        g = out.setdefault(key, {"key": key, "n": 0, "years": {}, "pname": _bundle_name(pname or "")})
+        g["n"] += int(n)
+        if key.startswith("prog:"):
+            g["years"][tail] = g["years"].get(tail, 0) + int(n)
+    ids = [k[5:] for k in out if k.startswith("prog:")]
+    labels = {}
+    try:                                                    # 그래프가 없으면 보관 묶음 이름에서
+        for i in range(0, len(ids), 500):
+            part = ids[i:i + 500]
+            labels.update({r[0]: r[1] for r in conn.execute(
+                f"SELECT id, label FROM kg_nodes WHERE id IN ({','.join('?' * len(part))})", part).fetchall()})
+    except Exception:
+        labels = {}
+    res = []
+    for g in out.values():
+        k = g["key"]
+        g["label"] = RAIL_FIXED.get(k) or labels.get(k[5:]) or g.pop("pname", "") or k[5:].split(":", 1)[-1]
+        g.pop("pname", None)
+        g["years"] = sorted(({"tail": t, "label": year_label(t), "n": n} for t, n in g["years"].items()),
+                            key=lambda y: (not (y["tail"] or "").isdigit(), y["tail"]), reverse=False)
+        res.append(g)
+    progs = sorted((g for g in res if g["key"].startswith("prog:")), key=lambda g: (-g["n"], g["label"]))
+    fixed = [g for k in ("work", "nonprogram", "none") for g in res if g["key"] == k]
+    return progs + fixed

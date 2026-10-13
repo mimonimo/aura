@@ -454,6 +454,9 @@
     main { padding: 22px 20px 60px; }
   }
   @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
+
+  .side-label-row .side-label-add { appearance:none; border:0; background:none; box-shadow:none; padding:2px; margin-left:4px; min-height:0; color:var(--muted); cursor:pointer; font-size:16px; line-height:1; border-radius:6px; display:inline-flex; }
+  .side-label-row .side-label-add:hover { color:var(--navy); background:#EEF3FB; }
 </style>
 <link rel="stylesheet" href="/static/workspace-shell.css?v={{ asset_v }}">
 <script src="/static/chat-history.js?v={{ asset_v }}" defer></script>
@@ -528,6 +531,7 @@ document.addEventListener('submit', function(event) {
   </nav>
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}
   <div class="side-label side-label-row">프로젝트
+    <button type="button" class="side-label-add" data-modal-open="#projectModal" aria-label="프로젝트 추가" title="프로젝트 추가"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon></button>
     <a href="/projects/archived" class="side-label-action{{ ' active' if request.url.path == '/projects/archived' else '' }}"><iconify-icon icon="solar:archive-linear" aria-hidden="true"></iconify-icon>보관된 사업</a></div>
   {% if side_projects %}
   <nav class="side-nav" style="max-height:180px; overflow-y:auto;">
@@ -1219,5 +1223,6 @@ document.addEventListener('submit', function(event) {
 })();
 </script>
 {% endif %}
+{% if request.state.role and request.state.role != 'student' %}{% include "_project_modal.html" %}{% endif %}
 </body>
 </html>

@@ -216,7 +216,9 @@ def test_library_head_puts_action_at_row_end(tmp_path):
 
     c = TestClient(_app(tmp_path))
     _login(c, "zzaimy", "boot-pass-1")
-    head = re.search(r'<section class="page-head"[^>]*>.*?</section>', c.get("/?type=all").text, re.S).group(0)
-    assert re.search(r"<h1>[^<]+</h1>", head)                                   # 제목(라이브러리 탭 이름)은 왼쪽
-    actions = re.search(r'<div class="page-head-actions">(.*?)</div>', head, re.S).group(1)
-    assert "프로젝트 추가" in actions and 'data-modal-open="#projectModal"' in actions
+    page = c.get("/?type=all").text
+    head = re.search(r'<section class="page-head"[^>]*>.*?</section>', page, re.S).group(0)
+    assert re.search(r"<h1>[^<]+</h1>", head) and "프로젝트 추가" not in head     # 라이브러리는 문서를 보는 곳 — 만들기 단추 없음
+    # 프로젝트 추가는 사이드바 「프로젝트」 줄의 + 하나(어느 화면에서든), 창은 공용
+    assert 'class="side-label-add" data-modal-open="#projectModal"' in page and 'id="projectModal"' in page
+    assert 'id="projectModal"' in c.get("/chat").text

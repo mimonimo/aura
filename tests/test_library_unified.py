@@ -23,7 +23,7 @@ def _client(tmp_path):
 
 
 def _table(page: str) -> str:
-    return page.split("<th>접수번호</th>", 1)[-1].split("</table>", 1)[0]
+    return page.split("data-doc-list>", 1)[-1].split("<!-- /lib-rows -->", 1)[0]
 
 
 def _ids(page: str) -> set[int]:
@@ -57,7 +57,7 @@ def test_criteria_tag_marks_only_regulation_index_documents(tmp_path):
     db.set_document_kind(notice, "announcement")
     db.update_document(reg, status="reviewed")                            # 처리 끝났는데 규정 조각이 없다
     page = c.get("/?type=all&use=criteria").text
-    rows = {int(m.group(1)): m.group(0) for m in re.finditer(r'href="/doc/(\d+)".*?</td>', _table(page), re.S)}
+    rows = {int(m.group(1)): m.group(0) for m in re.finditer(r'class="lib-row-title" href="/doc/(\d+)".*?</li>', _table(page), re.S)}
     assert set(rows) == {reg, notice}                                     # 공고 갈래 사업 문서도 기준 칩에 든다
     assert 'class="pill lib-criteria"' in rows[reg] and "lib-criteria" not in rows[notice]
     assert "규정 검색에 잡히지 않습니다" in rows[reg]
@@ -89,12 +89,12 @@ def test_business_tabs_show_only_with_two_or_more_businesses(tmp_path):
     page = c.get("/?type=all").text
     assert 'aria-label="업무"' in page and '<nav class="space-links" aria-label="업무"' not in page   # 탭 줄 없음
     assert '<select name="type" aria-label="업무">' in page                 # 선택 상자에서만
-    assert "<th>업무</th>" not in page                                       # 하나뿐이면 업무 열도 없다
+    assert 'class="lib-row-biz"' not in page                                # 하나뿐이면 업무 표시도 없다
     assert common in _ids(c.get("/?type=grant").text)                       # 공통 기준은 모든 업무에 보인다
     assert library.show_business_tabs({"grant": 3, "common": 2}, INBOX_TYPES) is False
     db.add_document("가상 채용 서류.pdf", "x", doc_type="recruit")           # 다른 업무 문서가 생기면 다시 보인다
     page = c.get("/?type=all").text
-    assert '<nav class="space-links" aria-label="업무"' in page and "<th>업무</th>" in page
+    assert '<nav class="space-links" aria-label="업무"' in page and 'class="lib-row-biz"' in page
     tabs = page.split('<nav class="space-links" aria-label="업무"', 1)[1].split("</nav>", 1)[0]
     assert ">채용</a>" in tabs and ">국고사업</a>" in tabs and ">입학</a>" not in tabs   # 문서 없는 업무 탭은 없다
     assert '<select name="type"' not in page
@@ -114,3 +114,23 @@ def test_criteria_registration_uses_existing_intake_path_only(tmp_path):
     paths = {getattr(rt, "path", "") for rt in app.routes}
     assert not [p for p in paths if p.startswith("/doc/") and "criteria" in p]   # 기준으로 쓰기·빼기 우회 없음
     assert 'data-modal-open="#criteriaUploadModal"' not in c.get("/?type=all").text   # 등록 단추는 기준 칩에 한 곳
+
+
+def test_library_browses_by_program_and_year(tmp_path):
+    """사업별로 보기 — 왼쪽 목록은 문서가 속한 프로젝트의 사업 열쇠로 묶고, 고르면 그 사업 문서만, 연도 칩으로 좁힌다."""
+    app, c = _client(tmp_path)
+    db = app.state.db
+    with db._conn() as conn:
+        p24 = conn.execute("INSERT INTO projects (sector, name, created_at, owner, archived, program) VALUES "
+                           "('grant', '2024년 가상 사업', '2026-01-01', 'zzaimy', 1, 'program:gasang|2024') RETURNING id").fetchone()[0]
+        p25 = conn.execute("INSERT INTO projects (sector, name, created_at, owner, archived, program) VALUES "
+                           "('grant', '2025년 가상 사업', '2026-01-01', 'zzaimy', 1, 'program:gasang|2025') RETURNING id").fetchone()[0]
+    a = db.add_document("가상 계획서 2024.pdf", "x", doc_type="grant", project_id=p24)
+    b = db.add_document("가상 계획서 2025.pdf", "x", doc_type="grant", project_id=p25)
+    loose = db.add_document("떠도는 문서.pdf", "x", doc_type="grant")
+    page = c.get("/?type=all").text
+    assert 'href="/?type=all&amp;use=all&amp;prog=prog%3Aprogram%3Agasang"' in page and "사업 미분류" in page
+    picked = c.get("/?type=all&prog=prog:program:gasang").text
+    assert _ids(picked) == {a, b} and "2024년" in picked and "2025년" in picked
+    assert _ids(c.get("/?type=all&prog=prog:program:gasang&year=2025").text) == {b}
+    assert _ids(c.get("/?type=all&prog=none").text) == {loose}

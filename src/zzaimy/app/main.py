@@ -647,12 +647,14 @@ def create_app(
         flt: str | None = None,
         page: int = 1,
         use: str = "all",
+        prog: str = "",
+        year: str = "",
     ):
         from zzaimy.app import library
 
         if getattr(request.state, "role", "") == "student":
             return RedirectResponse("/chat", status_code=303)        # 학생 첫 화면은 대화(ADR-0052)
-        if not any((type, q, project, flt, request.query_params.get("page"), request.query_params.get("use"),
+        if not any((type, q, project, flt, prog, request.query_params.get("page"), request.query_params.get("use"),
                     request.query_params.get("group"))):
             return RedirectResponse("/chat", status_code=303)
         if "group" in request.query_params:
@@ -694,6 +696,13 @@ def create_app(
         elif kind:
             cond.append("d.kind = ?")
             args.append(kind)
+        rail_where, rail_args = " WHERE " + " AND ".join(cond), list(args)      # 사업 목록은 사업 조건을 빼고 센다
+        rc, ra = library.rail_sql(prog, year) if prog else ("", [])
+        if rc:
+            cond.append(rc)
+            args += ra
+        else:
+            prog = ""
         where = " WHERE " + " AND ".join(cond)
         PER = 50
         with db._conn() as conn:
@@ -724,6 +733,7 @@ def create_app(
                     f" d.project_id, p.name AS project_name, {biz_col} AS business"
                     " FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
                     f" WHERE d.id IN ({','.join('?' * len(ids))}){acc}", [*ids, *acc_args]).fetchall()}   # 열람 조건을 다시 건다
+            rail = library.rail(conn, rail_where, rail_args)
             kinds = [(x[0] or "", int(x[1])) for x in conn.execute(
                 f"SELECT d.kind, COUNT(*) FROM documents d{where} GROUP BY d.kind ORDER BY 2 DESC", args).fetchall()]
             case_sql, case_args = library.use_case_sql()
@@ -763,7 +773,8 @@ def create_app(
                 "page": page, "pages": pages, "page_numbers": library.page_numbers(page, pages),
                 "per": PER, "total_docs": total_docs, "n_rows": len(groups),
                 "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "분류 전") if k else "분류 전", n) for k, n in kinds],
-                "business_units": _business_units(),
+                "rail": rail, "prog": prog, "year": year,
+                "rail_pick": next((g for g in rail if g["key"] == prog), None),
                 "common_templates": [t for t in _common_templates() if business and t["sector"] == business],
             }),
         )
@@ -793,6 +804,8 @@ def create_app(
             from zzaimy.app import archive as _archive
             _units_cache.update(at=_t.time(), v=_archive.business_units(db))
         return _units_cache["v"]
+
+    templates.env.globals["project_unit_options"] = _business_units   # 사이드바의 프로젝트 추가 창(_project_modal.html)
 
     def _criteria_docs(request: Request | None = None) -> list[dict]:
         counts = db.regulation_chunk_counts()

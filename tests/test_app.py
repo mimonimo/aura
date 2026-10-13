@@ -193,8 +193,8 @@ def test_sector_tab_filters_documents(client):
     all_page = client.get("/inbox?q=pdf").text
     assert "공고문.pdf" in all_page and "이력서.pdf" in all_page
     recruit_page = client.get("/inbox?type=recruit&q=pdf").text
-    table = recruit_page.split('<table class="intake-table">', 1)[-1].split("</table>", 1)[0]
-    assert '<td class="doc-cell"><a href="/doc/2">이력서</a>' in table
+    table = recruit_page.split("data-doc-list>", 1)[-1].split("<!-- /lib-rows -->", 1)[0]
+    assert '<a class="lib-row-title" href="/doc/2">이력서</a>' in table
     assert '<a href="/doc/1">공고문.pdf' not in table
 
 
@@ -587,7 +587,7 @@ def test_tiles_filter_document_list(client):
     client.post("/upload", data={"doc_type": "recruit"},
                 files={"file": ("대기문서.pdf", b"%PDF", "application/pdf")})  # 판정 대기
     page = client.get("/inbox?type=recruit&flt=pending").text
-    table = page.split('<table class="intake-table">', 1)[-1].split("</table>", 1)[0]
+    table = page.split("data-doc-list>", 1)[-1].split("<!-- /lib-rows -->", 1)[0]
     assert "대기문서" in table and "완료문서" not in table
     assert "담당자 확인 전" in page  # 걸린 필터가 표시된다
 

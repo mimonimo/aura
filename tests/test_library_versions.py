@@ -50,8 +50,8 @@ def test_library_shows_latest_version_with_count(tmp_path):
     new = db.add_document("장학 운영 보고 (최종).hwp", "x", doc_type="grant")
     other = db.add_document("기숙사 안내.pdf", "x", doc_type="grant")
     page = c.get("/?type=all").text
-    table = page.split('class="intake-table"', 1)[1].split("</table>", 1)[0]
-    assert "판본 3개" in table and table.count("<tr>") == 3                   # 머리 줄 + 묶음 2줄
+    table = page.split("data-doc-list>", 1)[1].split("<!-- /lib-rows -->", 1)[0]
+    assert "판본 3개" in table and table.count('<li class="lib-row">') == 2       # 묶음 2줄
     assert table.index(f'href="/doc/{other}"') < table.index(f'href="/doc/{new}"')   # 묶음 순서는 최신 판 기준
     versions = table.split("판본 3개", 1)[1]
     assert f'href="/doc/{mid}"' in versions and f'href="/doc/{old}"' in versions
