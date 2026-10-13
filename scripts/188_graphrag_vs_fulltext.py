@@ -407,6 +407,12 @@ def main() -> int:
         Path(args.rel_set).write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "seed": args.seed, "items": made},
                                                  ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"관계 질문 집합 새로 뽑음 {len(made)}문 → {Path(args.rel_set).name}", flush=True)
+    import subprocess
+    try:                                                    # 측정 시작 때 판 — 도는 동안 저장소가 바뀌어도 불러온 코드는 이것
+        code_at_start = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True,
+                                       timeout=10).stdout.strip()
+    except Exception:
+        code_at_start = ""
     modes = [m for m in args.modes.split(",") if m in MODES]
     amodes = [m for m in args.answer_modes.split(",") if m in MODES]
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
@@ -476,11 +482,7 @@ def main() -> int:
     out = ROOT / "data" / "eval" / f"graphrag_vs_fulltext_{args.tag}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     blind, bkey = blind_pack(db, rows, {x["id"]: x for x in items}, args.seed)
-    import subprocess
-    try:
-        code = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
-    except Exception:
-        code = ""
+    code = code_at_start
     if prev_meta.get("code"):
         code = f"{prev_meta['code']}(재사용: {prev_meta.get('tag')})" + (f" · 이번 {code}" if code and code != prev_meta["code"] else "")
     out.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "tag": args.tag, "code": code, "modes": modes, "answer_modes": amodes,

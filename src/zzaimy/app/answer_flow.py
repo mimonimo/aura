@@ -139,9 +139,9 @@ def compare_rows(eval_dir: Path) -> dict:
 
 
 def _why_line(summ: dict) -> str:
-    """「왜 그래프를 쓰나」 한 줄 — 풀텍스트 대비 그래프(운영) 차이와 지연 비용을 결과 파일 수치로 만든다."""
-    a, b = summ.get("fulltext"), summ.get("graph")
-    if not a or not b:
+    """「왜 그래프를 쓰나」 한 줄 — 모드마다(풀텍스트 → 온톨로지+RAG → +27B 읽기) 질문 갈래별 차이와 지연 비용을 결과 파일 수치로 만든다."""
+    modes = [(m, lab) for m, lab in COMPARE_MODES if m in summ]
+    if len(modes) < 2 or modes[0][0] != "fulltext":
         return ""
 
     def r(s, *path):
@@ -149,15 +149,19 @@ def _why_line(summ: dict) -> str:
         for k in path:
             v = v.get(k) if isinstance(v, dict) else None
         return v
-    parts = []
-    for label, path in (("절 질문 정답 문서", ("search", "section", "doc_at_k")), ("관계 질문 양쪽 근거", ("search", "relation", "ok")),
-                        ("계획·실적 둘 다", ("search", "relation", "plan_report", "ok"))):
-        x, y = r(a, *path), r(b, *path)
-        if x is not None and y is not None:
-            parts.append(f"{label} {x * 100:.0f}% → {y * 100:.0f}%")
-    xs, ys = r(a, "search", "sec_median"), r(b, "search", "sec_median")
-    cost = f" · 검색 한 번 {xs}초 → {ys}초" if xs is not None and ys is not None else ""
-    xw, yw = r(a, "answer", "wall_sec_median"), r(b, "answer", "wall_sec_median")
-    if xw is not None and yw is not None:
-        cost += f" · 답변까지 {xw}초 → {yw}초"
-    return ("풀텍스트 RAG → 온톨로지+RAG: " + ", ".join(parts) + cost) if parts else ""
+
+    def chain(path, fmt):
+        vals = [r(summ[m], *path) for m, _ in modes]
+        return " → ".join(fmt(v) for v in vals) if all(v is not None for v in vals) else ""
+    pct = lambda v: f"{v * 100:.0f}%"                       # noqa: E731
+    sec = lambda v: f"{v}초"                                 # noqa: E731
+    parts = [f"{label} {c}" for label, path, f in (
+        ("절 질문 정답 문서", ("search", "section", "doc_at_k"), pct),
+        ("관계 양쪽 근거", ("search", "relation", "ok"), pct),
+        ("앞·뒤 단계 사업", ("search", "relation", "lineage", "ok"), pct),
+        ("평가 의견", ("search", "relation", "evaluates", "ok"), pct),
+        ("계획·실적 둘 다", ("search", "relation", "plan_report", "ok"), pct),
+        ("답변 판정 정답성(0~2)", ("answer", "judge", "correct_mean"), str),
+        ("검색 한 번", ("search", "sec_median"), sec),
+        ("답변까지", ("answer", "wall_sec_median"), sec)) if (c := chain(path, f))]
+    return (" → ".join(lab for _, lab in modes) + ": " + " · ".join(parts)) if parts else ""

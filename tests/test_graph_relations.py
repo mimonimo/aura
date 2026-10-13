@@ -131,7 +131,7 @@ def test_answer_flow_reads_numbers_only_from_machine_outputs(graph, tmp_path):
     assert cmp_["modes"] == ["풀텍스트 RAG", "온톨로지+RAG"] and cmp_["n_sec"] == 74 and cmp_["n_ans"] == 30
     assert cmp_["rows"][0]["vals"] == ["50% (37/74, 39~61%)", "—"]          # 파일 값 그대로
     assert {r["label"]: r["vals"] for r in cmp_["rows"]}["답변까지 전체 중앙값"] == ["50.0초", "60.0초"]
-    assert cmp_["summary"].startswith("풀텍스트 RAG → 온톨로지+RAG: 절 질문 정답 문서 50% → 70%, 관계 질문 양쪽 근거 20% → 60%")
+    assert cmp_["summary"].startswith("풀텍스트 RAG → 온톨로지+RAG: 절 질문 정답 문서 50% → 70% · 관계 양쪽 근거 20% → 60%")
     assert "답변까지 50.0초 → 60.0초" in cmp_["summary"]
 
 
