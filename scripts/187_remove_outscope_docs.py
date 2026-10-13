@@ -79,25 +79,51 @@ def backup(db, ids: list[int], out: Path) -> int:
     return n
 
 
+def _retry(fn, tries: int = 8):
+    """동기화(170)가 원본 장부를 잡고 있으면 잠금 시간 초과가 난다 — 잠시 뒤 다시."""
+    for k in range(tries):
+        try:
+            return fn()
+        except Exception as e:                    # psycopg LockNotAvailable 등
+            if "lock" not in str(e).lower() or k == tries - 1:
+                raise
+            time.sleep(5 * (k + 1))
+
+
 def remove(db, ids: list[int]) -> int:
-    """문서를 빼고, 이어져 있던 학교 원본은 정리함 「지출·계약 증빙」으로 — 맞추기(175 --find-reimport)가 다시 들이지 않게."""
+    """문서를 빼고, 이어져 있던 학교 원본은 정리함 「지출·계약 증빙」으로 — 맞추기(175 --find-reimport)가 다시 들이지 않게.
+    문서 한 건씩 끝맺는다(중간에 멈춰도 뺀 문서의 원본은 정리함에 있다)."""
     from zzaimy.app import archive_cleanup
     with db._conn() as conn:
         have = set(table_names(conn))
-        rels = []
-        for i in range(0, len(ids), 500):
-            part = ids[i:i + 500]
-            rels += [r[0] for r in conn.execute(f"SELECT rel FROM archive_files WHERE doc_id IN ({','.join('?' * len(part))})", part)]
-    for i, did in enumerate(ids, 1):
+    moved = 0
+
+    def one(did: int) -> int:
         with db._conn() as conn:
+            rels = [r[0] for r in conn.execute("SELECT rel FROM archive_files WHERE doc_id = ?", (did,))]
             for t in ("grant_lex", "grant_vec"):
                 if t in have:
                     conn.execute(f"DELETE FROM {t} WHERE doc_id = ?", (did,))
             conn.execute("UPDATE archive_files SET doc_id = NULL WHERE doc_id = ?", (did,))
+        archive_cleanup.put(db, rels, "evidence", by="scripts/187")
         db.delete_document(did)
-        if i % 500 == 0:
+        return len(rels)
+
+    for i, did in enumerate(ids, 1):
+        moved += _retry(lambda: one(did))
+        if i % 200 == 0:
             print(f"  {i}/{len(ids)}", flush=True)
-    return archive_cleanup.put(db, rels, "evidence", by="scripts/187")
+    return moved
+
+
+def put_from_backup(db, path: Path) -> int:
+    """앞선 실행이 멈췄을 때 — 백업에 적힌 원본 이음 가운데 이미 끊긴 것을 정리함으로."""
+    from zzaimy.app import archive_cleanup
+    rels = [r["row"]["k"] for r in map(json.loads, gzip.open(path, "rt", encoding="utf-8"))
+            if r["t"] == "link" and r["row"]["table"] == "archive_files"]
+    with db._conn() as conn:
+        loose = [rel for rel in rels if (conn.execute("SELECT doc_id FROM archive_files WHERE rel = ?", (rel,)).fetchone() or [1])[0] is None]
+    return archive_cleanup.put(db, loose, "evidence", by="scripts/187")
 
 
 def restore(db, path: Path) -> None:
@@ -123,11 +149,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--restore", default="")
+    ap.add_argument("--settle", default="", help="멈춘 실행의 백업 파일 — 이미 끊긴 원본을 정리함으로")
     args = ap.parse_args()
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     if args.restore:
         restore(db, Path(args.restore))
         return 0
+    if args.settle:
+        print(f"정리함으로 {put_from_backup(db, Path(args.settle))}건")
     ids = targets(db)
     with db._conn() as conn:
         sample = [r[0] for r in conn.execute(f"SELECT filename FROM documents WHERE id IN ({','.join('?' * min(8, len(ids)))})", ids[:8])] if ids else []
