@@ -74,7 +74,7 @@ def known_depts(db, accounts: dict, data_dir=None) -> list[str]:
     """알려진 부서 — 계정에 지정된 부서, 부서 공용 계정·저장 위치를 정한 부서, RAG 공간 설정(원본 폴더 담당 부서
     dept_of_area · 공간의 depts · 계정별 추가 권한 dept:<부서>). 사용자 편집 화면이 쓴다.
     rag_spaces.known_depts(폴더 짝·계정·공간) 위에 부서 공용 설정·추가 권한 부서를 더한다.
-    「공통」은 문서 쪽 꼬리표(부서 없는 사업 문서)라 사용자 부서가 아니다 — 부서를 정하지 않으면 교직원 전체다."""
+    「공통」은 문서 쪽 꼬리표(부서 없는 사업 문서)라 사용자 부서가 아니다 — 부서를 정하지 않으면 공통 RAG 만 찾는다."""
     from zzaimy.app import rag_spaces
 
     cfg = rag_spaces.config(data_dir)

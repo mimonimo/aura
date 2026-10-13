@@ -74,7 +74,7 @@
     </div>
     <div class="ms-field">
       <label>소속 부서</label>
-      <div class="ms-ro">{{ acct_dept or "부서 미지정(교직원 전체 자료)" }}</div>
+      <div class="ms-ro">{{ (acct_dept ~ " — 공통 RAG + " ~ acct_dept ~ " 부서 RAG") if acct_dept else "부서 없음 — 공통 RAG(전체 공개 문서)" }}</div>
       <span class="muted" style="font-size:11.5px;">볼 수 있는 문서 범위를 정하므로 관리자가 바꿉니다.</span>
     </div>
     <div class="ms-field">

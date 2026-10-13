@@ -358,9 +358,9 @@ def test_receipt_number_scheme(client):
     client.post("/upload", data={"doc_type": "grant"},
                 files={"file": ("c.pdf", b"%PDF", "application/pdf")})
     page = client.get("/inbox?q=pdf").text
-    assert "2026-채용-0001" in page
-    assert "2026-채용-0002" in page
-    assert "2026-국고-0001" in page  # 섹터별 독립 일련번호
+    assert "2026-채용-00001" in page      # 표시는 일련번호 다섯 자리(receipt_label)
+    assert "2026-채용-00002" in page
+    assert "2026-00001" in page           # 섹터별 독립 일련번호 — 사업 문서 기본 코드(국고)는 표시에서 뺀다
 
 
 def test_document_delete_removes_everything(client, tmp_path):
