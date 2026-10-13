@@ -1,8 +1,8 @@
 {# 문서 반입 — DGX 원본 동기화(반입 연동)·Google Drive 가져오기·폴더별 담당 부서를 한 메뉴로 #}
-{% set it_tab = 'areas' if request.url.path == '/dev/intake' and request.query_params.get('tab') == 'areas' else ('drive' if request.url.path.startswith('/dev/nas') else 'dgx') %}
+{% set it_tab = request.query_params.get('tab') if request.query_params.get('tab') in ('areas', 'drive') else 'dgx' %}
 <nav class="tabbar it-tabs" aria-label="문서 반입" style="max-width:640px; margin:0 0 16px;">
   <a href="/dev/intake" class="{{ 'on' if it_tab == 'dgx' }}"{% if it_tab == 'dgx' %} aria-current="page"{% endif %}>DGX 원본 동기화</a>
-  <a href="/dev/nas" class="{{ 'on' if it_tab == 'drive' }}"{% if it_tab == 'drive' %} aria-current="page"{% endif %}>Google Drive 가져오기</a>
+  <a href="/dev/intake?tab=drive" class="{{ 'on' if it_tab == 'drive' }}"{% if it_tab == 'drive' %} aria-current="page"{% endif %}>Google Drive 가져오기</a>
   <a href="/dev/intake?tab=areas" class="{{ 'on' if it_tab == 'areas' }}"{% if it_tab == 'areas' %} aria-current="page"{% endif %}>폴더별 담당 부서</a>
 </nav>
 <style>.it-tabs a{flex:1 1 0;min-width:0;text-align:center;text-decoration:none;color:var(--muted);border-radius:9px;padding:8px 10px;font-size:13px;font-weight:600;white-space:nowrap}

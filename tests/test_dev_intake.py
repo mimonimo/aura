@@ -59,7 +59,8 @@ def test_empty_missed_and_failed_are_one_line_not_cards(tmp_path):
     assert "/dev/intake/missed.csv" not in page and "/dev/intake/failed.csv" not in page   # 빈 표 카드 없음
     assert "놓친 원본 예시" not in page
     names = _metric_names(page)
-    assert "[놓친 원본] <b>0</b>" in names and "[실패] <b>0</b>" in names
+    assert "[놓침 0]" in names and "[실패 0]" in names                  # 0 은 처리 대상 범례에서 한 번만
+    assert "[놓친 원본]" not in names
 
 
 def test_failed_card_states_retry_rule_from_parse_script(tmp_path):

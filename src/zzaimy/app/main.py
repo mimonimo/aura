@@ -4349,7 +4349,7 @@ def create_app(
         request: Request, tab: str = "", q: str = "", type: str = "",
         doc: int | None = None, table: str = "", page: int = 0,
     ):
-        """데이터 열람 — 문서 중심 탐색기. 탭: 문서·규정·국고 코퍼스·채팅 기록.
+        """데이터 열람 — 문서 중심 탐색기. 탭: 원본 장부·문서·규정·채팅 기록.
 
         표·행 덤프 대신 문서 하나의 개요(마스킹 기록)·RAG 조각(임베딩 유무)·그래프
         연관을 본다. 조립은 zzaimy.app.data_explorer(순수 함수)가 하고, 모델이
@@ -4358,10 +4358,15 @@ def create_app(
         """
         from zzaimy.app import data_explorer as dx
 
+        if tab == "corpus":                 # 예전 공개 문서 모음 탭(파일럿, 거둠) — 문서 탭으로
+            return RedirectResponse("/dev/db?tab=docs", status_code=303)
         tab = dx.normalize_tab(tab, table)
         index = dx.embedding_index() if tab != "archive" else {}
+        ledger = None
         if tab == "archive":
+            from zzaimy.app import intake_status
             view = dx.archive_tab(db, q=q, page=page)
+            ledger = intake_status.ledger_breakdown(db)
         elif tab == "docs":
             scope = {"dept": getattr(request.state, "dept", "") or None,
                      "user": request.state.user, "role": request.state.role}
@@ -4374,19 +4379,11 @@ def create_app(
                 return find_relevant(db, text, top_k=10)   # 채팅과 같은 운영 검색 경로
 
             view = dx.regulation_tab(db, q=q, doc_id=doc, search_fn=_search, index=index)
-        elif tab == "corpus":
-            from zzaimy.app.corpus_search import _CORPUS_NPZ, corpus_hybrid_search
-
-            cdb = Database(_CORPUS_DB) if _CORPUS_DB.exists() else None
-            view = dx.corpus_tab(
-                cdb, q=q, dense_ready=_CORPUS_NPZ.exists(),
-                search_fn=lambda text: corpus_hybrid_search(cdb, text, top_k=15),
-            )
         else:
             view = dx.chat_tab(db, sources_by_session=_chat_sources)
         return templates.TemplateResponse(request, "dev_db.html", ctx(request, {
             "tab": tab, "tabs": dx.TABS, "q": q, "type": type, "doc_id": doc,
-            "view": view, "index": index,
+            "view": view, "index": index, "lg": ledger, "extract_page": dx.EXTRACT_PAGE,
             "overview": _data_overview(),
         }))
 
@@ -4986,9 +4983,12 @@ def create_app(
         return subprocess.run(["pgrep", "-f", pat], capture_output=True).returncode == 0
 
     @app.get("/dev/intake", response_class=HTMLResponse)
-    def dev_intake(request: Request, tab: str = ""):
+    def dev_intake(request: Request, tab: str = "", ok: str = "", err: str = "", probe: str = "", plan: str = ""):
         from zzaimy.app import intake_status
         from zzaimy.app import metrics
+        if tab == "drive":
+            # Google Drive 가져오기 — 문서 반입의 탭(예전 /dev/nas 는 이리로 보낸다)
+            return _nas_page(request, ok, err, probe, plan)
         if tab == "areas":
             # 폴더별 담당 부서 — 반입 설정(예전 RAG 공간의 칸). 저장은 /dev/rag/area 그대로
             from zzaimy.app import rag_spaces
@@ -5003,7 +5003,7 @@ def create_app(
                 "backfill_preview": preview, "backfill_total": sum(preview.values())}))
         data = intake_status.pipeline(db_path)
         return templates.TemplateResponse(request, "dev_intake.html", ctx(request, {
-            "p": data, "live": metrics.live(db), "running": {k: _intake_job_running(k) for k in _INTAKE_JOBS},
+            "p": data, "live": metrics.live(db), "lg": intake_status.ledger_breakdown(db), "running": {k: _intake_job_running(k) for k in _INTAKE_JOBS},
             "missed": intake_status.listing(db_path, "missed")[:50], "failed": intake_status.listing(db_path, "failed")[:50]}))
 
     @app.get("/dev/intake/{name}.csv")
@@ -5379,11 +5379,18 @@ def create_app(
 
     # ---- NAS 수집 — 읽기 전용 공유 폴더에서 기준 문서·문서 추출로 자동 반입 (개발자 전용) ----
 
-    def _nas_redirect(msg: str, ok: bool = True) -> RedirectResponse:
-        return RedirectResponse(f"/dev/nas?{'ok' if ok else 'err'}={msg}", status_code=303)
+    _DRIVE_TAB = "/dev/intake?tab=drive"
 
-    @app.get("/dev/nas", response_class=HTMLResponse)
-    def dev_nas(request: Request, ok: str = "", err: str = "", probe: str = "", plan: str = ""):
+    def _nas_redirect(msg: str, ok: bool = True) -> RedirectResponse:
+        return RedirectResponse(f"{_DRIVE_TAB}&{'ok' if ok else 'err'}={_q(msg)}", status_code=303)
+
+    @app.get("/dev/nas")
+    def dev_nas(request: Request):
+        """예전 주소 — 문서 반입의 Google Drive 탭으로(결과 글·확인 결과 인자는 그대로 넘긴다)."""
+        qs = str(request.url.query or "")
+        return RedirectResponse(_DRIVE_TAB + ("&" + qs if qs else ""), status_code=303)
+
+    def _nas_page(request: Request, ok: str = "", err: str = "", probe: str = "", plan: str = ""):
         from zzaimy.ingest import nas_sync
 
         # 연결 확인·미리보기 결과는 그 폴더 카드 바로 아래에 둔다(되돌아오는 주소의 #result-{id} 로 그 자리까지 내려간다)
@@ -5714,7 +5721,7 @@ def create_app(
 
     @app.post("/dev/nas/{sid}/plan")
     def dev_nas_plan(sid: str):
-        return RedirectResponse(f"/dev/nas?plan={_q(sid)}#result-{_q(sid)}", status_code=303)
+        return RedirectResponse(f"{_DRIVE_TAB}&plan={_q(sid)}#result-{_q(sid)}", status_code=303)
 
     @app.post("/dev/nas/add")
     def dev_nas_add(name: str = Form(""), backend: str = Form("local"), root: str = Form(""),
@@ -5774,7 +5781,7 @@ def create_app(
 
     @app.post("/dev/nas/{sid}/probe")
     def dev_nas_probe(sid: str):
-        return RedirectResponse(f"/dev/nas?probe={_q(sid)}#result-{_q(sid)}", status_code=303)
+        return RedirectResponse(f"{_DRIVE_TAB}&probe={_q(sid)}#result-{_q(sid)}", status_code=303)
 
     @app.post("/dev/nas/{sid}/sync")
     def dev_nas_sync(sid: str, wait: str = Form("")):

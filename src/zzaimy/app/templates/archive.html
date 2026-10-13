@@ -83,7 +83,7 @@
     <div><dt title="{{ metric_tip(head_metric) }}">{{ '열람 가능 원본 파일' if head_metric == 'archive_visible' else '원본 파일' }}</dt><dd>{{ "{:,}".format(overall.total) }}<small>건</small></dd></div>
     {% for s in overall.states %}<div><dt{% if s.value == 'failed' and head_metric == 'archive_originals' %} title="{{ metric_tip('archive_failed') }}"{% endif %}>{{ s.label }}</dt><dd>{{ "{:,}".format(s.n) }}<small>건</small></dd></div>{% endfor %}
   </dl>
-  <p class="ar-note">「문서 연결됨」은 라이브러리 문서와 이어진 원본 파일 수입니다. 한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다.</p>
+  <p class="ar-note">원본 파일 기준 건수입니다. 「문서 연결됨」은 라이브러리 문서와 이어진 원본 파일 수로, 한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다.</p>
 </div></section>
 {% if request.state.role == 'dev' %}
 {# 정리 — 처리하지 않는 원본(사진·압축·범위 밖·중복·크기 초과). 정리함은 보관소에서만 빼는 표시이고 되돌릴 수 있다. 실제 삭제는 따로 #}

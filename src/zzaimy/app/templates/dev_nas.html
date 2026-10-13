@@ -1,6 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ dev_page_name('/dev/nas') }}{% endblock %}
-{% block pagetitle %}{{ dev_page_name('/dev/nas') }}{% endblock %}
+{% block title %}{{ dev_page_name('/dev/intake') }} · Google Drive 가져오기{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/intake') }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/gdocs-work.css?v={{ asset_v }}"><script src="/static/gdocs-work.js?v={{ asset_v }}" defer></script>{% endblock %}
 {% block content %}
 {% include "_intake_tabs.html" %}
@@ -89,7 +89,6 @@
 {% set kind_names = {'gdrive': 'Google Drive', 'local': '서버 공유 폴더', 'smb': 'NAS(SMB)'} %}
 {% set used_kinds = sources | map(attribute='backend') | unique | list %}
 <p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
-  <a href="/dev" class="btn-ghost">← 개발 현황</a>
   <span class="muted" style="font-size:12.5px;">{% if used_kinds %}{% for k in kind_names if k in used_kinds %}{{ kind_names[k] }}{{ '·' if not loop.last }}{% endfor %}{% else %}Google Drive{% endif %} 폴더 → 라이브러리</span></p>
 
 {% if err %}
@@ -127,8 +126,7 @@
     </section>
     <div class="nas-form" id="googleAccounts">
       <fieldset><legend>연결 계정</legend>
-        {% if gdrive.accounts %}
-        <div class="gd-accounts">{% for a in gdrive.accounts %}<article class="gd-account"><div><strong>{{ a.email }}</strong><small>{{ '문서 편집 가능' if 'https://www.googleapis.com/auth/documents' in a.scopes else '편집 권한 확인 필요' }}</small></div><form action="/dev/gdrive/revoke" method="post" data-confirm-danger data-confirm="이 계정의 연결을 해제할까요? 연결된 폴더와 문서에 접근할 수 없게 되고, 이 계정으로 이어진 사용자·부서 연결도 함께 풀립니다."><input type="hidden" name="email" value="{{ a.email }}"><button type="submit" class="secondary">연결 해제</button></form></article>{% endfor %}</div>
+        {% if gdrive.accounts %}<p class="gd-hint">연결 계정 {{ gdrive.accounts|length }}개 · 목록·연결 해제는 <a href="/dev/users#google-links">사용자·계정 › 학교 계정 연결 현황</a></p>
         {% elif gdrive.configured %}<p class="gd-hint">연결된 계정이 없습니다.</p>
         {% else %}<p class="gd-hint">앱 설정을 저장하면 계정을 연결할 수 있습니다.</p>{% endif %}
         <div class="gd-account-actions">

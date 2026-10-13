@@ -208,6 +208,8 @@ table.dx-list tr.on td { background:#edf3fc; }
 .dx-regbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px}.dx-regbar input[type=search]{flex:1 1 180px;min-width:0;height:32px;padding:5px 9px;border:1px solid var(--line);border-radius:8px;font-size:12.5px}
 .dx-regbar label{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
 tr.pick[hidden]{display:none}
+.dx-help{border-bottom:1px dotted var(--muted);cursor:help}
+.dx-extract-more{margin:8px 0 0}.dx-extract-more > .dx-rows{margin-top:8px}
 </style>
 
 <p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
@@ -215,7 +217,7 @@ tr.pick[hidden]{display:none}
 
 <div class="dx-tabs">
   {% for key, label in tabs %}
-  <a href="/dev/db?tab={{ key }}" class="{{ 'on' if key == tab else '' }}" {% if key == tab %}aria-current="page"{% endif %}>{{ {'docs':'문서', 'regulation':'기준 문서', 'corpus':'공개 문서 모음', 'chat':'대화 기록'}.get(key, label) }}</a>
+  <a href="/dev/db?tab={{ key }}" class="{{ 'on' if key == tab else '' }}" {% if key == tab %}aria-current="page"{% endif %}>{{ {'docs':'문서', 'regulation':'기준 문서', 'chat':'대화 기록'}.get(key, label) }}</a>
   {% endfor %}
 </div>
 
@@ -224,7 +226,8 @@ tr.pick[hidden]{display:none}
 <section class="card dx-card"><div class="card-in">
 <div class="dx-head"><h2><iconify-icon icon="solar:database-linear"></iconify-icon>원본 장부 원값</h2>
   <span class="dx-links"><a class="h-link" href="/archive{{ ('?q=' ~ (q|urlencode)) if q else '' }}#archive-list"><iconify-icon icon="solar:folder-open-linear"></iconify-icon>원본 보관소에서 찾기</a></span></div>
-<p class="muted dx-foot" style="margin:0 0 12px;">{{ metric_label("archive_files") }} {{ view.total|num }}{% if q %}(검색 결과){% endif %} · 사업·연도·처리 상태로 훑기는 원본 보관소 · 여기는 장부에 적힌 값 그대로(분류 상태 코드·문서 번호·같은 파일 대표·처리 기록·목록에서 본 때)</p>
+<p class="muted dx-foot" style="margin:0 0 4px;">{% if q %}검색 결과 {{ view.total|num }} · {% endif %}{% if lg %}{{ metric_label("archive_files", "", "원본 장부 전체(부산물·정리함 포함)") }} {{ lg.total|num }} = {{ metric_label("archive_originals", "", "학교 원본") }} {{ lg.originals|num }} + 정리함 {{ lg.cleaned|num }} + 부산물 {{ lg.byproduct|num }}{% if lg.platform %} + 플랫폼 사본 {{ lg.platform|num }}{% endif %}{% else %}{{ metric_label("archive_files", "", "원본 장부 전체(부산물·정리함 포함)") }} {{ view.total|num }}{% endif %}</p>
+<p class="muted dx-foot" style="margin:0 0 12px;">사업·연도·처리 상태로 훑기는 원본 보관소 · 여기는 장부에 적힌 값 그대로(분류 상태·문서 번호·같은 파일 대표·처리 기록·목록에서 본 때) · <span class="pill dx-pill">정리함</span> 원본 보관소 정리함에 옮긴 원본(보관소 목록·건수에서 빠짐, 되돌릴 수 있음)</p>
 <form method="get" action="/dev/db" class="dx-search dx-search-row">
   <input type="hidden" name="tab" value="archive">
   <input type="search" name="q" value="{{ q }}" placeholder="파일 경로 · 장부 사업 이름(여러 낱말 가능)" aria-label="원본 장부 검색" autocomplete="off">
@@ -235,13 +238,13 @@ tr.pick[hidden]{display:none}
   <tbody>
 {% for row in view.rows %}<tr>
   {% set parts = (row.rel or '').rsplit('/', 1) %}
-  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 부산물">사본·부산물</span>{% endif %}{% if row.cleaned %}<span class="pill dx-pill" title="원본 보관소 「정리함」에 든 원본 — 보관소 목록·건수에서는 빠진다">정리함</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
+  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 부산물">사본·부산물</span>{% endif %}{% if row.cleaned %}<span class="pill dx-pill" title="원본 보관소 「정리함」에 옮긴 원본 — 보관소 목록·건수에서 빠지고 되돌릴 수 있음(원본 파일은 그대로)">정리함</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
   <td class="dx-nowrap">{{ row.ext or '—' }} · {{ row.size|num }}</td>
   <td class="dx-ell" title="{{ row.program_name }}">{{ row.program_name or '—' }}</td>
-  <td class="dx-mono">{{ row.status or '—' }}</td>
+  <td class="dx-nowrap" title="장부 코드 {{ row.status or '없음' }}">{{ row.status_label or '—' }}</td>
   <td class="dx-nowrap">{% if row.doc_id %}<a href="/dev/db?tab=docs&amp;doc={{ row.doc_id }}" title="이 문서를 문서 탭에서 보기">#{{ row.doc_id }}</a>{% else %}—{% endif %}</td>
   <td class="dx-ell" title="{{ row.dup_of }}">{{ row.dup_of or '—' }}</td>
-  <td class="dx-ell" title="{{ row.analysis }}">{{ row.analysis or '—' }}</td>
+  <td class="dx-ell" title="{{ row.analysis }}{{ (' — ' ~ row.analysis_note) if row.analysis_note }}">{% if row.analysis_note %}<span class="dx-help">{{ row.analysis }}</span>{% else %}{{ row.analysis or '—' }}{% endif %}</td>
   <td class="dx-nowrap">{{ (row.seen_at or '')[:16]|replace('T', ' ') or '—' }}</td>
 </tr>
 {% else %}<tr><td colspan="8" class="dx-empty">{{ '찾는 원본이 없습니다' if q else '원본 장부가 비어 있습니다' }}</td></tr>{% endfor %}
@@ -377,6 +380,9 @@ tr.pick[hidden]{display:none}
         <div class="dx-rows-wrap"><table class="dx-rows">
           <tr><th>#</th><th>종류</th><th class="dx-num">쪽</th><th class="dx-num">길이</th><th>본문</th></tr>
           {% for r in c.extract %}
+          {% if loop.index0 == extract_page %}</table>
+          <details class="chip-toggle dx-extract-more"><summary>더 보기 · 나머지 {{ "{:,}".format(c.extract|length - extract_page) }}건</summary>
+          <table class="dx-rows">{% endif %}
           <tr>
             <td class="dx-mono">{{ r.seq + 1 if r.seq is not none else loop.index }}</td>
             <td><span class="pill dx-pill">{{ r.kind_label }}</span></td>
@@ -385,7 +391,7 @@ tr.pick[hidden]{display:none}
             <td class="prev"><details class="dx-more can"><summary><span class="p">{{ r.preview or '—' }}</span><span class="t"></span></summary><pre>{{ r.content }}</pre></details></td>
           </tr>
           {% endfor %}
-        </table></div>
+        </table>{% if c.extract|length > extract_page %}</details>{% endif %}</div>
         {% else %}<p class="muted" style="font-size:12.5px; margin:4px 0 0;">추출 항목 없음</p>{% endif %}
       </section>
     </div>
@@ -528,60 +534,6 @@ tr.pick[hidden]{display:none}
 </div>
 
 {# ---------------- 국고 공개 문서 모음 ---------------- #}
-{% elif tab == 'corpus' %}
-{% set cs = view.summary %}
-{% if not cs.exists %}
-<div class="card dx-card" style="border-color:#F0D9B8;"><div class="card-in" style="font-size:13px;">
-  등록된 공개 문서 모음이 없습니다.</div></div>
-{% else %}
-<div class="dx-grid rev">
-  <div class="card dx-card"><div class="card-in">
-    <div class="dx-head">
-      <h2><iconify-icon icon="solar:library-linear"></iconify-icon>공개 문서 검색</h2>
-      <span class="dx-links"><a class="h-link" href="/dev/pii"><iconify-icon icon="solar:eye-closed-linear"></iconify-icon>마스킹 기록·점검</a></span>
-    </div>
-    <div class="dx-pills" style="margin-bottom:12px; gap:14px;">
-      <span><span class="dx-big">{{ "{:,}".format(cs.docs) }}</span> <span class="muted" style="font-size:12px;">문서</span></span>
-      <span><span class="dx-big">{{ "{:,}".format(cs.chunks) }}</span> <span class="muted" style="font-size:12px;">자료(검색 자료)</span></span>
-      <span class="pill {{ 'reviewed' if view.dense_ready else 'processing' }} dx-pill">{{ '하이브리드 (형태소+의미 검색 색인)' if view.dense_ready else '형태소 검색만' }}</span>
-      <span class="muted" style="font-size:12px;">공개 국고사업 문서(공고·기본계획·서식) · 색인 전 마스킹 · 별도 DB</span>
-    </div>
-    <form method="get" action="/dev/db" class="dx-search">
-      <input type="hidden" name="tab" value="corpus">
-      <input type="text" name="q" value="{{ q }}" placeholder="예: 사업계획서 성과지표 작성 / 사업비 집행 기준 / 글로컬대학 신청 서식">
-      <button type="submit" class="secondary">검색</button>
-    </form>
-    {% if q and not view.results %}
-    <p class="muted" style="margin:0; font-size:13px;">‘{{ q }}’에 대한 검색 결과가 없습니다.</p>
-    {% elif view.results %}
-    <p class="muted" style="margin:0 0 4px; font-size:12.5px;">‘{{ q }}’ 관련 자료 {{ view.results|length }}건 · {{ '하이브리드(RRF)' if view.dense_ready else '형태소 검색' }} 순위</p>
-    {% for r in view.results %}
-    <div class="dx-hit">
-      <div style="display:flex; gap:8px; align-items:baseline; min-width:0;">
-        <span class="pill type dx-pill" style="flex:none;">{{ r.rank }}{% if r.score is not none %} · {{ r.score }}{% endif %}</span>
-        <span style="font-weight:600; font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ r.heading or '(제목 없음)' }}</span>
-        <span class="muted" style="font-size:11.5px; margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:45%; flex:none;">{{ r.reg_title }}</span>
-      </div>
-      <p style="margin:5px 0 0; font-size:12.5px; line-height:1.6; color:#33425c;">{{ r.preview }}</p>
-    </div>
-    {% endfor %}
-    {% endif %}
-  </div></div>
-
-  <div class="card dx-card"><div class="card-in">
-    <h2 style="font-size:15px;"><iconify-icon icon="solar:documents-linear"></iconify-icon>수집 문서
-      <span class="muted" style="margin-left:auto; font-size:12px; font-weight:500;">자료 많은 순 {{ cs.by_source|length }} / {{ cs.docs }}</span></h2>
-    {% for s in cs.by_source %}
-    <div style="display:flex; gap:10px; align-items:center; padding:5px 0; border-bottom:1px solid var(--panel); font-size:12.5px;">
-      <span class="pill dx-pill" style="flex:none;">{{ s.n }}</span>
-      <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="{{ s.name }}">{{ s.name }}</span>
-    </div>
-    {% endfor %}
-  </div></div>
-</div>
-{% endif %}
-
-{# ---------------- 채팅 기록 ---------------- #}
 {% elif tab == 'chat' %}
 <div class="card dx-card"><div class="card-in">
   <div class="dx-head">

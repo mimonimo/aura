@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 from zzaimy.app.embed_search import INDEX_PATH
+from zzaimy.app.intake_status import ARCHIVE_STATUS
 from zzaimy.app.pii_audit import ENTITY_LABELS, is_masking_subject
 
 from zzaimy.app import paths as _paths
@@ -155,6 +156,13 @@ def type_counts(db) -> list[dict]:
 
 ARCHIVE_COLS = ('rel', 'ext', 'size', 'mtime', 'program_name', 'status', 'doc_id', 'dup_of', 'analysis', 'seen_at')
 
+# 처리 기록(analysis) 값 가운데 뜻이 바로 안 읽히는 것 — 화면에 짧은 풀이(마우스를 올리면)
+ANALYSIS_NOTES = {
+    "가벼운 처리": "DGX 에서 판독·조각까지만 하고 검토 의견 생성은 건너뛴 처리 — 원본은 DGX 에 두고 글·조각만 들임, OCR 품질 미검사",
+    "부산물": "변환기 출력·웹 페이지 저장 자료 폴더의 파일 — 처리 대상 아님",
+}
+EXTRACT_PAGE = 100     # 문서 자세히의 추출 내용은 앞 100건만 펼쳐 두고 나머지는 「더 보기」로
+
 
 def archive_tab(db, q: str = '', page: int = 0) -> dict:
     """원본 장부(archive_files) 원값 — 개발자가 장부 자체를 확인하는 화면. 사업·연도·처리 상태로 훑는 일반 목록은
@@ -183,6 +191,9 @@ def archive_tab(db, q: str = '', page: int = 0) -> dict:
         row = dict(zip(ARCHIVE_COLS, r))
         row['original'] = is_original(row['rel'] or '')
         row['cleaned'] = row['rel'] in cleaned          # 원본 보관소 「정리함」 — 보관소 목록·건수에서는 빠진다
+        row['status_label'] = ARCHIVE_STATUS.get(row['status'] or '', row['status'] or '')
+        an = str(row['analysis'] or '')
+        row['analysis_note'] = next((v for k, v in ANALYSIS_NOTES.items() if an.startswith(k)), '')
         out.append(row)
     return {'rows': out, 'total': total, 'page': page, 'has_next': (page + 1) * 50 < total}
 
@@ -626,37 +637,6 @@ def regulation_tab(
             "n_embedded": None if ids is None else sum(1 for u in units if u["embedded"]),
         }
     return view
-
-
-# --- 국고 코퍼스 ---
-
-
-def corpus_summary(cdb, top: int = 15) -> dict:
-    """코퍼스 파일럿 DB 요약 — 문서·조각 수, 조각 많은 문서 상위."""
-    if cdb is None:
-        return {"exists": False, "docs": 0, "chunks": 0, "by_source": []}
-    with cdb._conn() as conn:  # noqa: SLF001
-        docs = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
-        chunks = conn.execute("SELECT COUNT(*) FROM regulation_chunks").fetchone()[0]
-        by_source = [
-            {"name": r[0], "n": int(r[1])} for r in conn.execute(
-                "SELECT d.filename, COUNT(*) FROM regulation_chunks r"
-                " JOIN documents d ON d.id = r.doc_id"
-                " GROUP BY r.doc_id ORDER BY 2 DESC LIMIT ?", (int(top),))
-        ]
-    return {"exists": True, "docs": int(docs), "chunks": int(chunks), "by_source": by_source}
-
-
-def corpus_tab(
-    cdb, q: str = "", search_fn: Callable[[str], list[dict]] | None = None,
-    dense_ready: bool = False,
-) -> dict:
-    """국고 코퍼스 탭 — 요약·검색 결과·수집 문서."""
-    summary = corpus_summary(cdb)
-    results = (
-        search_hits(search_fn(q)) if (summary["exists"] and q.strip() and search_fn) else []
-    )
-    return {"summary": summary, "results": results, "dense_ready": bool(dense_ready)}
 
 
 # --- 채팅 기록 ---

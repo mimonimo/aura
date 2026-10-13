@@ -69,8 +69,10 @@ def test_root_label_in_plain_words(backend, root, label):
 
 def test_header_names_only_connected_kinds(docs_env, tmp_path):  # noqa: F811
     client = client_for(tmp_path)
-    head = lambda page: re.search(r'btn-ghost">← 개발 현황</a>\s*<span[^>]*>(.*?)</span>', page, re.S).group(1)
-    assert "NAS" not in head(client.get("/dev/nas").text)                  # 연결 없음 — 기본은 Google Drive
+    head = lambda page: re.search(r'</nav>.*?<span class="muted" style="font-size:12.5px;">(.*?)</span>', page, re.S).group(1)
+    page = client.get("/dev/nas").text                                     # 예전 주소 → 문서 반입의 Drive 탭
+    assert "← 개발 현황" not in page and 'href="/dev/intake?tab=drive" class="on"' in page
+    assert "NAS" not in head(page)                                         # 연결 없음 — 기본은 Google Drive
     _drive()
     assert head(client.get("/dev/nas").text) == "Google Drive 폴더 → 라이브러리"
     nas_sync.add("공유", "smb", r"\\nas.example\문서", "ocr")
@@ -83,8 +85,9 @@ def test_app_card_hides_client_id_and_account_button_reads_by_state(docs_env, tm
     page = client_for(tmp_path).get("/dev/nas").text
     assert "abc.apps" not in page and "등록 완료" in page                 # 클라이언트 id 는 화면에 없다
     accounts = page.split('id="googleAccounts"', 1)[1].split("</fieldset>", 1)[0]
-    # 계정이 있으면 「다른 계정 연결」, 계정 목록 아래
-    assert accounts.index("staff@example.ac.kr") < accounts.index("다른 계정 연결")
+    # 계정 목록은 사용자·계정 화면 한 곳에 — 여기는 개수와 그 자리 링크, 계정이 있으면 「다른 계정 연결」
+    assert "<strong>staff@example.ac.kr" not in accounts and "연결 계정 " in accounts and 'href="/dev/users#google-links"' in accounts
+    assert accounts.index("/dev/users#google-links") < accounts.index("다른 계정 연결")
     assert "Google 계정 연결" not in accounts
     monkeypatch.setattr(gdrive, "list_accounts", lambda: [])
     page = client_for(tmp_path).get("/dev/nas").text

@@ -3,6 +3,8 @@
 반입 연동 점검(scripts/175)과 원본 보관소 화면이 같은 기준을 쓴다.
 - 등록됨: 문서함 문서에 이어짐(doc_id)
 - 처리 제외: 글 문서 형식이 아님 · 같은 파일(이름·크기·내용 지문이 같음, zzaimy/archive_dups)의 중복 · 범위 밖 경로(지출·증빙 등, 절대 규칙 11) · 처리 상한보다 큼
+  · 같은 파일 묶음의 대표인데 묶음의 다른 사본이 문서에 이어짐(DGX 와 VM 이 대표를 달리 골라 처리된 쪽이 사본 — 연동 점검이
+    「라이브러리 반영」으로 세는 것과 같은 판단. 이것을 대기로 두면 보관소 「대기」가 점검의 「대기」보다 부풀었다)
 - 실패: DGX 처리·반입이 실패로 적힌 것(analysis 칸이 「처리 실패」로 시작 — scripts/168 이 적고, 지난 실패는 이 모듈로 채운다)
 - 대기: 나머지(처리 대상인데 아직 결과가 없음)
 
@@ -57,14 +59,17 @@ def state_sql(alias: str = "") -> tuple[str, list]:
     a = alias
     exts = ", ".join("?" * len(DOC_EXT))
     scope = " OR ".join(f"{a}rel LIKE ?" for _ in OUT_OF_SCOPE_WORDS)
+    # 같은 파일 묶음의 다른 사본이 문서에 이어진 대표 — 묶음이 이미 처리됐다. 상관 없는 하위 질의(IN)라 한 번만 훑는다
+    covered = (f"{a}rel IN (SELECT g.dup_of FROM archive_files g WHERE g.dup_of <> '' AND g.doc_id IS NOT NULL"
+               f" AND g.removed_at = '')")
     expr = (f"(CASE WHEN {a}doc_id IS NOT NULL THEN 'registered'"
-            f" WHEN {a}dup_of <> '' OR LOWER(REPLACE({a}ext, '.', '')) NOT IN ({exts}) OR {a}size > ? OR {scope} THEN 'excluded'"
+            f" WHEN {covered} OR {a}dup_of <> '' OR LOWER(REPLACE({a}ext, '.', '')) NOT IN ({exts}) OR {a}size > ? OR {scope} THEN 'excluded'"
             f" WHEN {a}analysis LIKE ? THEN 'failed' ELSE 'waiting' END)")
     return expr, [*DOC_EXT, MAX_PARSE_BYTES, *(f"%{w}%" for w in OUT_OF_SCOPE_WORDS), FAILED_MARK + "%"]
 
 
 def exclusion_reason(row: dict) -> str:
-    """처리 제외의 까닭 한 마디(화면 표시용)."""
+    """처리 제외의 까닭 한 마디(화면 표시용). 아래 까닭이 다 아니면 같은 파일 묶음의 다른 사본이 처리된 대표다(state_sql)."""
     ext = (row.get("ext") or "").lower().lstrip(".")
     if ext not in DOC_EXT:
         return "문서 형식 아님"
@@ -74,7 +79,10 @@ def exclusion_reason(row: dict) -> str:
         return "처리 상한 초과"
     if OUT_OF_SCOPE.search(row.get("rel") or ""):
         return "범위 밖 경로"
-    return ""
+    return COVERED_REASON
+
+
+COVERED_REASON = "같은 파일 사본이 처리됨"
 
 
 def mark_failures(db, failures: dict[str, str]) -> int:

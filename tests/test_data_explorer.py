@@ -246,16 +246,6 @@ def test_chat_sessions_view_counts_messages_and_known_sources(db):
     assert rows[other]["n_messages"] == 0 and rows[other]["n_sources"] is None   # 이번 프로세스가 모르는 세션
 
 
-def test_corpus_tab_without_db_and_with_search(db):
-    assert dx.corpus_tab(None, q="장학")["summary"] == {
-        "exists": False, "docs": 0, "chunks": 0, "by_source": []}
-    _seed(db)   # 코퍼스 DB도 같은 스키마 — 규정 조각을 코퍼스 조각으로 쓴다
-    view = dx.corpus_tab(db, q="휴학", search_fn=lambda t: db.chunks_for_docs([1])[:1], dense_ready=True)
-    assert view["summary"]["docs"] == 2 and view["summary"]["chunks"] == 2
-    assert view["summary"]["by_source"][0] == {"name": "학칙.pdf", "n": 2}
-    assert view["results"][0]["rank"] == 1 and view["results"][0]["heading"] == "제1조(목적)"
-
-
 def test_normalize_tab_maps_legacy_table_urls():
     assert dx.normalize_tab("corpus") == "docs"  # retired pilot collection
     assert dx.normalize_tab("", "regulation_chunks") == "regulation"
@@ -288,8 +278,8 @@ def test_dev_db_renders_tabs_and_document_detail(client):
 
 def test_dev_db_other_tabs_and_legacy_urls(client):
     assert client.get("/dev/db?tab=regulation").status_code == 200
-    corpus = client.get("/dev/db?tab=corpus")   # 코퍼스 DB는 작업 폴더 기준 — 있으면 검색 화면, 없으면 안내
-    assert corpus.status_code == 200 and "공개 문서 검색" not in corpus.text
+    corpus = client.get("/dev/db?tab=corpus", follow_redirects=False)   # 거둔 공개 문서 모음 탭 → 문서 탭
+    assert corpus.status_code == 303 and corpus.headers["location"] == "/dev/db?tab=docs"
     chat = client.get("/dev/db?tab=chat")
     assert chat.status_code == 200 and "채팅 기록 없음" in chat.text
     legacy = client.get("/dev/db?table=regulation_chunks")
@@ -358,7 +348,8 @@ def test_ledger_tab_shows_raw_values_and_points_to_archive(client, tmp_path):
     page = client.get("/dev/db?tab=archive&q=가상 계획서").text
     assert 'type="search" name="q"' in page and 'href="/archive?q=' in page
     assert 'title="가상사업/폴더/아주긴이름의계획서.hwp"' in page and 'title="가상사업/대표.hwp"' in page
-    assert ">auto<" in page and "2031-01-02 03:04" in page and "처리 실패: 시험" in page
+    assert ">규칙으로 확정<" in page and 'title="장부 코드 auto"' in page                  # 분류 상태는 코드 대신 이름(코드는 툴팁)
+    assert "2031-01-02 03:04" in page and "처리 실패: 시험" in page
     top = page.split('class="searchbox"', 1)[1].split("</form>", 1)[0]
     assert 'value=""' in top                                   # 화면 안 검색어가 상단 전역 검색창에 들어가지 않는다
     assert "사본·부산물" in client.get("/dev/db?tab=archive&q=반입").text

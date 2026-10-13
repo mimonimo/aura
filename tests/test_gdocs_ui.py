@@ -41,8 +41,7 @@ def test_connection_panel_and_disconnect_confirmation(docs_env, tmp_path):
     assert page.status_code == 200
     assert 'id="googleConnection"' in page.text
     assert 'class="gd-connect-grid"' in page.text
-    assert '연결 해제' in page.text and 'data-confirm=' in page.text
-    assert '편집 권한 확인 필요' in page.text
+    assert 'href="/dev/users#google-links"' in page.text      # 계정 목록·연결 해제는 사용자·계정 화면 한 곳
     assert 'aria-label="Google Drive 연결 단계"' in page.text
     assert 'id="googleAppForm" data-configured="true"' in page.text
     assert 'data-app-edit' in page.text
