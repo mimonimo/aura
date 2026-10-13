@@ -70,54 +70,44 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 {% if q.get('ok') %}<p class="pill" role="status" style="margin-bottom:12px;">{{ q.get('ok') }}</p>{% endif %}
 {% if q.get('err') %}<p class="pill" role="alert" style="margin-bottom:12px;">{{ q.get('err') }}</p>{% endif %}
 
-<section class="card"><div class="card-in">
-  <h2><iconify-icon icon="solar:database-linear"></iconify-icon>검색 공간</h2>
-  <p class="rg-sub" style="margin:0 0 8px;">계정이 답변을 받을 때 찾는 자료의 범위입니다. 역할·부서로 정해집니다.</p>
+<section class="card" id="dept-rags"><div class="card-in">
+  <h2><iconify-icon icon="solar:database-linear"></iconify-icon>RAG 목록</h2>
+  <p class="rg-sub" style="margin:0 0 8px;">답변할 때 찾는 자료 묶음입니다. 문서는 정하지 않으면 공통 RAG 에 들어가고, 부서 계정은 공통 RAG 와 자기 부서 RAG 를 함께 찾습니다. 관리자는 모두 찾습니다.</p>
+  {% set staff = spaces | selectattr("id", "equalto", "staff") | first %}
+  {% set stu = spaces | selectattr("id", "equalto", "student") | first %}
   <div class="rg-scroll">
   <table class="rg-table" id="rgSpaces">
-    <tr><th>공간</th><th>사업 문서 범위</th>
-      <th class="n">{{ metric_label("grant_reviewed", "", "사업 문서(처리 완료)") }}</th>
-      <th class="n">{{ metric_label("grant_regulation_kind", "", "그 가운데 규정 갈래") }}</th>
-      <th class="n">{{ metric_label("regulation_docs", "", "규정 색인 문서") }}</th>
-      <th class="n">{{ metric_label("regulation_chunks", "", "규정 색인 조각") }}</th>
-      <th>쓰는 계정</th><th></th></tr>
-    {% for s in spaces %}
-    <tr><td><b>{{ s.id }}</b><br><span class="rg-sub">{{ s.label }}</span></td>
-      <td class="rg-wrap">{% if not s.grant %}쓰지 않음{% elif s.grant_depts is none %}전부{% else %}{{ s.grant_depts|join(", ") }}{% endif %}</td>
-      <td class="n">{{ "{:,}".format(s.grant_docs) if s.grant else "—" }}</td>
-      <td class="n">{{ "{:,}".format(s.grant_reg_docs) if s.grant else "—" }}</td>
-      <td class="n">{{ "{:,}".format(s.reg_docs) }}</td>
-      <td class="n">{{ "{:,}".format(s.reg_chunks) }}</td>
-      <td class="rg-wrap">{{ s.users|join(", ") if s.users else "—" }}</td>
-      <td><button type="button" class="btn" data-comp="space:{{ s.id }}" aria-expanded="false">구성 보기</button></td></tr>
-    <tr hidden data-comp-row="space:{{ s.id }}"><td colspan="8"><div class="rg-comp" aria-live="polite"></div></td></tr>
-    {% if s.id == "student" and s.reg_docs == 0 %}
-    <tr class="rg-warn"><td colspan="8">학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다 · <a href="#student-regs">학생 공개 규정 지정</a></td></tr>
+    <tr><th>RAG</th><th class="n">문서</th><th class="n">규정 색인(문서·조각)</th><th>쓰는 계정</th><th>추가 권한 계정</th><th>반입 폴더</th><th></th></tr>
+    {% if staff %}
+    <tr><td><b>공통 RAG</b><br><span class="rg-sub">전 교직원 · 기본</span></td>
+      <td class="n"><a href="/?type=all&amp;scope=%EA%B3%B5%ED%86%B5" title="라이브러리에서 보기">{{ "{:,}".format(staff.grant_docs) }}</a></td>
+      <td class="n">{{ "{:,}".format(staff.reg_docs) }} · {{ "{:,}".format(staff.reg_chunks) }}</td>
+      <td class="rg-wrap">모든 교직원{% if staff.users %} <span class="rg-sub">(부서 없음: {{ staff.users|join(", ") }})</span>{% endif %}</td>
+      <td>—</td><td class="rg-wrap">{{ "정하지 않은 폴더 전부" }}</td>
+      <td><button type="button" class="btn" data-comp="space:staff" aria-expanded="false">구성 보기</button></td></tr>
+    <tr hidden data-comp-row="space:staff"><td colspan="7"><div class="rg-comp" aria-live="polite"></div></td></tr>
     {% endif %}
-    {% endfor %}
-  </table>
-  </div>
-  <p class="rg-note">부서가 있는 교직원은 그 부서 공간, 부서 없는 교직원은 staff, 학생은 student, 관리자는 전부. 「규정 갈래」는 사업 문서 가운데 서류 갈래가 규정인 것이고 규정 색인과 별개입니다.</p>
-</div></section>
-
-<section class="card" id="dept-rags"><div class="card-in">
-  <h2>부서 RAG</h2>
-  <p class="rg-sub" style="margin:0 0 10px;">문서는 정하지 않으면 모두 공통 RAG(전 교직원)에 들어갑니다. 부서 RAG 를 만들어 두면 특정 문서를 그 부서에만 둘 수 있습니다 —
-    라이브러리 「문서 올리기」·폴더의 검색 범위, 문서 화면의 검색 범위로 넣고, 그 부서 계정은 공통 RAG 와 함께 찾습니다.</p>
-  {% if dept_rags %}
-  <div class="rg-scroll"><table class="rg-table">
-    <tr><th>부서 RAG</th><th class="n">문서</th><th>쓰는 계정</th><th>추가 권한 계정</th><th>반입 폴더</th></tr>
     {% for r in dept_rags %}
-    <tr><td><b>{{ r.dept }}</b>{% if r.made.at %}<br><span class="rg-sub">{{ r.made.at }} 만듦{{ " · " ~ r.made.by if r.made.by }}</span>{% endif %}</td>
-      <td class="n">{{ "{:,}".format(r.docs) }}</td>
+    <tr><td><b>{{ r.dept }} 부서 RAG</b>{% if r.made.at %}<br><span class="rg-sub">{{ r.made.at }} 만듦</span>{% endif %}</td>
+      <td class="n"><a href="/?type=all&amp;scope={{ r.dept | urlencode }}" title="라이브러리에서 보기">{{ "{:,}".format(r.docs) }}</a></td>
+      <td class="n rg-sub">공통 규정</td>
       <td class="rg-wrap">{{ r.members | join(", ") if r.members else "—" }}</td>
       <td class="rg-wrap">{{ r.granted | join(", ") if r.granted else "—" }}</td>
       <td class="rg-wrap">{{ r.folders | join(", ") if r.folders else "—" }}</td>
-      </tr>
+      <td><button type="button" class="btn" data-comp="space:dept:{{ r.dept }}" aria-expanded="false" title="이 부서 계정이 실제로 찾는 범위(공통 RAG 포함)">구성 보기</button></td></tr>
+    <tr hidden data-comp-row="space:dept:{{ r.dept }}"><td colspan="7"><div class="rg-comp" aria-live="polite"></div></td></tr>
     {% endfor %}
-  </table></div>
-  {% else %}<p class="rg-sub" style="margin:0 0 10px;">아직 부서 RAG 가 없습니다 — 지금은 모든 문서가 공통 RAG 에 있습니다. <a href="/dev/users#depts">부서 추가</a></p>{% endif %}
-  <p class="rg-note">부서를 만들고 지우는 곳은 <a href="/dev/users#depts">사용자·계정 › 부서</a> 한 곳입니다 — 만든 부서가 여기 부서 RAG 로 나옵니다.</p>
+    {% if stu %}
+    <tr><td><b>학생 RAG</b><br><span class="rg-sub">학생 공개로 지정한 규정만</span></td>
+      <td class="n">—</td><td class="n">{{ "{:,}".format(stu.reg_docs) }} · {{ "{:,}".format(stu.reg_chunks) }}</td>
+      <td class="rg-wrap">{{ stu.users|join(", ") if stu.users else "학생 계정" }}</td><td>—</td><td>—</td>
+      <td><button type="button" class="btn" data-comp="space:student" aria-expanded="false">구성 보기</button></td></tr>
+    <tr hidden data-comp-row="space:student"><td colspan="7"><div class="rg-comp" aria-live="polite"></div></td></tr>
+    {% if stu.reg_docs == 0 %}<tr class="rg-warn"><td colspan="7">학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다 · <a href="#student-regs">학생 공개 규정 지정</a></td></tr>{% endif %}
+    {% endif %}
+  </table>
+  </div>
+  <p class="rg-note">부서 RAG 는 <a href="/dev/users#depts">사용자·계정 › 부서</a>에서 만들고, 문서는 라이브러리(「문서 올리기」의 검색 범위·폴더·여러 건 고르기)나 문서 화면에서 넣습니다.{% if not dept_rags %} 아직 부서 RAG 가 없습니다.{% endif %}</p>
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">

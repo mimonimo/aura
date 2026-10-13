@@ -7222,6 +7222,8 @@ def create_app(
                     return RedirectResponse(f"/project/{project_id}?" + urlencode({"err": err}), status_code=303)
             elif program.startswith("program:"):
                 key = program.split("|", 1)[0]
+                from zzaimy.graph import kg_store as _ks
+                _ks.ensure(db)
                 with db._conn() as conn:
                     if not conn.execute("SELECT 1 FROM kg_nodes WHERE id = ? AND type = 'program'", (key,)).fetchone():
                         return RedirectResponse(f"/project/{project_id}?" + urlencode({"err": "없는 사업입니다"}), status_code=303)
@@ -7364,6 +7366,8 @@ def create_app(
             if err:
                 return _lib_back(folder, err=err)
         elif program.startswith("program:"):
+            from zzaimy.graph import kg_store as _ks
+            _ks.ensure(db)
             with db._conn() as conn:
                 row = conn.execute("SELECT label FROM kg_nodes WHERE id = ? AND type = 'program'", (program,)).fetchone()
             if not row:                                    # 그래프에 없는 사업 열쇠는 받지 않는다(새 사업은 「새 사업 등록」으로)

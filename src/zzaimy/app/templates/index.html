@@ -50,6 +50,8 @@
   .lib-mini:hover { background:#EEF3FA; }
   .lib-folders { display:flex; flex-direction:column; gap:1px; margin-bottom:4px; }
   .lib-folders iconify-icon { flex:none; color:#8A94A6; }
+  .lib-folders .lib-rail-item span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; -webkit-line-clamp:unset; display:block; }
+  .lib-folders .lib-scope { max-width:72px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .lib-scope { flex:none; font-style:normal; font-size:11px; padding:1px 7px; border-radius:999px; background:#EEF1F5; color:#53647B; }
   .lib-scope.dept { background:#FFF4E0; color:#8A5A00; }
   .lib-more { display:flex; flex-wrap:wrap; gap:8px; width:100%; }
@@ -79,9 +81,18 @@
   .lib-years a { padding:4px 11px; border-radius:999px; border:1px solid var(--line); font-size:12px; text-decoration:none; color:var(--muted); background:#fff; }
   .lib-years a span { font-variant-numeric:tabular-nums; opacity:.8; }
   .lib-years a[aria-current=true] { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .scope-pick { border:0; padding:0; margin:0 0 12px; display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .scope-pick legend { font-size:12.5px; margin-bottom:6px; padding:0; }
+  .scope-opt { display:flex; gap:8px; align-items:flex-start; padding:10px 12px; border:1.5px solid var(--line); border-radius:10px; cursor:pointer; background:#fff; }
+  .scope-opt input { margin-top:3px; accent-color:#1B3B75; flex:none; }
+  .scope-opt b { display:block; font-size:13px; } .scope-opt small { display:block; font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .scope-opt:has(input:checked) { border-color:#1B3B75; background:#F2F6FC; }
+  .scope-opt.off { opacity:.55; cursor:not-allowed; }
+  .scope-dept { grid-column:1 / -1; min-height:36px; }
   .lib-bulk { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0 4px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:#F8FAFC; font-size:12.5px; }
   .lib-bulk select { min-height:30px; font-size:12.5px; max-width:240px; }
   .lib-bulk .secondary { min-height:30px; padding:3px 11px; font-size:12.5px; }
+  .lib-bulk-g { display:inline-flex; gap:6px; align-items:center; padding-left:8px; border-left:1px solid var(--line); }
   .lib-bulk-all { display:inline-flex; align-items:center; gap:5px; cursor:pointer; }
   .lib-bulk-n { flex:1; min-width:140px; color:var(--muted); } .lib-bulk-msg { color:#2D4F7C; }
   .lib-pick { margin-top:3px; width:16px; height:16px; accent-color:#1B3B75; flex:none; }
@@ -98,6 +109,18 @@
 </style>
 {% endblock %}
 {% block content %}
+{% macro scope_pick(name, id_prefix, current='공통') -%}
+<fieldset class="scope-pick" data-scope-pick>
+  <legend class="muted">검색 범위</legend>
+  <label class="scope-opt"><input type="radio" name="{{ id_prefix }}_kind" value="common" {{ 'checked' if current == '공통' }}>
+    <span><b>공통 RAG</b><small>전 교직원이 찾습니다 · 기본</small></span></label>
+  <label class="scope-opt{{ ' off' if scope_choices | length < 2 }}"><input type="radio" name="{{ id_prefix }}_kind" value="dept" {{ 'checked' if current != '공통' }} {{ 'disabled' if scope_choices | length < 2 }}>
+    <span><b>부서 RAG</b><small>{% if scope_choices | length < 2 %}만든 부서가 없습니다 — 사용자·계정 › 부서{% else %}고른 부서 사람만 찾습니다{% endif %}</small></span></label>
+  <select class="scope-dept" aria-label="부서" {{ 'hidden' if current == '공통' }}>{% for d in scope_choices if d != '공통' %}<option value="{{ d }}" {{ 'selected' if d == current }}>{{ d }}</option>{% endfor %}</select>
+  <input type="hidden" name="{{ name }}" value="{{ current }}">
+</fieldset>
+{%- endmacro %}
+
 
 {% set sector_meta = {
   "grant": ("solar:buildings-2-linear", "국고사업", "공고 분석 · 계획서 초안 · 실적 근거 검토"),
@@ -275,10 +298,10 @@
     <div class="lib-bulk" id="libBulk">
       <label class="lib-bulk-all"><input type="checkbox" id="libPickAll"> 이 쪽 모두</label>
       <span class="lib-bulk-n" id="libPickN">문서를 고르면 한꺼번에 옮길 수 있습니다</span>
-      {% if made_folders %}<select id="libBulkFolder" aria-label="담을 폴더"><option value="">폴더에서 빼기</option>{% for f in made_folders %}<option value="{{ f.key }}">{{ f.name }} — {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}</option>{% endfor %}</select>
-      <button type="button" class="secondary" data-bulk="folder" disabled>폴더에 담기</button>{% endif %}
-      {% if request.state.role == 'dev' and scope_choices | length > 1 %}<select id="libBulkScope" aria-label="검색 범위">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>
-      <button type="button" class="secondary" data-bulk="scope" disabled>검색 범위 바꾸기</button>{% endif %}
+      {% if made_folders %}<span class="lib-bulk-g"><select id="libBulkFolder" aria-label="담을 폴더"><option value="">폴더에서 빼기</option>{% for f in made_folders %}<option value="{{ f.key }}">{{ f.name }} — {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}</option>{% endfor %}</select>
+      <button type="button" class="secondary" data-bulk="folder" disabled>폴더에 담기</button></span>{% endif %}
+      {% if request.state.role == 'dev' and scope_choices | length > 1 %}<span class="lib-bulk-g"><select id="libBulkScope" aria-label="검색 범위">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>
+      <button type="button" class="secondary" data-bulk="scope" disabled>검색 범위 바꾸기</button></span>{% endif %}
       <span class="lib-bulk-msg" id="libBulkMsg" role="status"></span>
     </div>{% endif %}
     <ul class="lib-rows" data-doc-list>
@@ -359,8 +382,7 @@
           <option value="" data-dept="">폴더 없이</option>
           {% for f in folders if f.kind == '만든' %}<option value="{{ f.key }}" data-dept="{{ f.dept }}" {{ 'selected' if folder == f.key }}>{{ f.name }} — {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}</option>{% endfor %}
         </select></label>
-      <label class="form-row" id="libUpScopeRow"><span class="muted">검색 범위 — 정하지 않으면 공통 RAG(전 교직원)</span>
-        <select name="dept">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG — 그 부서만' }}</option>{% endfor %}</select></label>
+      <div id="libUpScopeRow">{{ scope_pick("dept", "up") }}</div>
       <p class="muted" id="libUpScopeNote" style="font-size:12px; margin:-4px 0 10px;" hidden></p>
       <label class="form-row"><span class="muted">사업 — 고르면 그 사업의 연도 묶음에 들어가 사업 목록·사업 그래프에서 함께 보입니다</span>
         <select name="program" id="libUpProg">
@@ -396,8 +418,7 @@
     </div>
     <form action="/library/folders" method="post">
       <label class="form-row"><span class="muted">폴더 이름</span><input type="text" name="name" required maxlength="40" placeholder="예: 교무처 지침"></label>
-      <label class="form-row"><span class="muted">검색 범위</span>
-        <select name="dept">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG — 전 교직원' if d == '공통' else d ~ ' 부서 RAG — 그 부서만' }}</option>{% endfor %}</select></label>
+      {{ scope_pick("dept", "fold") }}
       {% if request.state.role == 'dev' and scope_choices | length == 1 %}<p class="muted" style="font-size:12px; margin:-4px 0 10px;">부서 RAG 는 <a href="/dev/rag#dept-rags">RAG 공간 › 부서 RAG</a>에서 먼저 만듭니다.</p>{% endif %}
       <div style="display:flex; justify-content:flex-end; gap:10px;">
         <button type="button" data-modal-close class="secondary">취소</button>
@@ -429,6 +450,17 @@
   </div>
 </div>
 <script>
+(function () {
+  // 검색 범위 고르기 — 공통 RAG / 부서 RAG(부서를 고를 때만 목록)
+  document.querySelectorAll("[data-scope-pick]").forEach(function (fs) {
+    var out = fs.querySelector("input[type=hidden]"), sel = fs.querySelector(".scope-dept");
+    var sync = function () {
+      var dept = fs.querySelector("input[type=radio][value=dept]:checked");
+      sel.hidden = !dept; out.value = dept && sel.value ? sel.value : "공통";
+    };
+    fs.addEventListener("change", sync); sync();
+  });
+})();
 (function () {
   // 여러 문서 고르기 — 폴더에 담기·검색 범위 바꾸기
   var bar = document.getElementById("libBulk");

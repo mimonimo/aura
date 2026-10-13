@@ -84,7 +84,7 @@ def test_rag_page_sections(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/rag")
     assert r.status_code == 200
-    for text in ("검색 공간", "그 가운데 규정 갈래", "규정 색인 문서", "검색 범위 시험", "계정별 추가 권한", "변경 0건 저장",
+    for text in ("RAG 목록", "공통 RAG", "규정 색인(문서·조각)", "검색 범위 시험", "계정별 추가 권한", "변경 0건 저장",
                  "규정·기준 문서", "dept:가부서", "학생 공개 규정만", "관리자, 전부"):
         assert text in r.text, text
     # 학생 공간이 비면 그 줄에 안내와 지정 링크
