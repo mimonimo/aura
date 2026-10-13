@@ -125,7 +125,7 @@
         <iconify-icon icon="solar:link-minimalistic-2-linear" style="font-size:12px;"></iconify-icon>{{ sc.title[:24] }}{{ "…" if sc.title|length > 24 else "" }}</a>
       {% endfor %}
       <span class="muted">접수번호 {{ receipt_label(doc.receipt_no) or '미지정' }} · 등록 {{ doc.created_at[:16].replace("T", " ") }}</span>
-      {% set _sc = doc.dept or '공통' %}<span class="pill" title="이 문서를 찾는 범위" style="{{ 'background:#FFF4E0; color:#8A5A00;' if _sc != '공통' }}">{{ '공통 RAG' if _sc == '공통' else _sc ~ ' 부서 RAG' }}</span>
+      {% set _sc = doc.dept or '공통' %}<span class="pill" title="이 문서를 찾고 볼 수 있는 사람" style="{{ 'background:#FFF4E0; color:#8A5A00;' if _sc != '공통' }}">{{ '전체 공개' if _sc == '공통' else _sc ~ '만 공개' }}</span>
     </div>
     {# 문서 동작 — 같은 동작은 이 줄에만 둔다 #}
     <div class="doc-actions control-row" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 14px;">
@@ -160,18 +160,18 @@
     <p class="muted">{{ doc_title(doc) }}</p>
     <dl class="muted" style="font-size:12px; margin:0 0 14px; display:grid; grid-template-columns:auto 1fr; gap:4px 12px;">
       <dt>원본 파일</dt><dd style="margin:0; overflow-wrap:anywhere;">{{ doc.filename }}{{ original_ext if original_ext and not doc.filename.lower().endswith(original_ext) else '' }}</dd>
-      <dt>검색 범위</dt><dd style="margin:0;">{{ '공통 RAG — 전 교직원' if (doc.dept or '공통') == '공통' else doc.dept ~ ' 부서 RAG — 그 부서만' }}</dd>
+      <dt>공개 범위</dt><dd style="margin:0;">{{ '전체 공개 — 모든 교직원이 찾고 봄(공통 RAG)' if (doc.dept or '공통') == '공통' else doc.dept ~ '만 — 그 부서 사람과 관리자만(부서 RAG)' }}</dd>
     </dl>
     {% if (request.state.role == 'dev' or doc.owner == request.state.user) and made_folders %}
     <form action="/doc/{{ doc.id }}/folder" method="post" class="control-row" style="display:flex; gap:8px; align-items:center; margin:0 0 10px; font-size:12.5px;">
-      <select name="folder" aria-label="폴더"><option value="">폴더 없음</option>{% for f in made_folders %}<option value="{{ f.key }}" {{ 'selected' if f.key == doc_folder }}>{{ f.name }} — {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}</option>{% endfor %}</select>
+      <select name="folder" aria-label="폴더"><option value="">폴더 없음</option>{% for f in made_folders %}<option value="{{ f.key }}" {{ 'selected' if f.key == doc_folder }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept ~ '만' }}</option>{% endfor %}</select>
       <button type="submit" class="secondary">폴더에 담기</button>
     </form>{% endif %}
     {% if (request.state.role == 'dev' or doc.owner == request.state.user) and (scope_choices | length > 1 or (doc.dept or '공통') != '공통') %}
     <form action="/doc/{{ doc.id }}/scope" method="post" class="control-row" style="display:flex; gap:8px; align-items:center; margin:0 0 14px; font-size:12.5px;">
       <input type="hidden" name="back" value="/doc/{{ doc.id }}">
-      <select name="dept" aria-label="검색 범위">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == (doc.dept or '공통') }}>{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>
-      <button type="submit" class="secondary">검색 범위 바꾸기</button>
+      <select name="dept" aria-label="공개 범위">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == (doc.dept or '공통') }}>{{ '전체 공개(공통 RAG)' if d == '공통' else d ~ '만(부서 RAG)' }}</option>{% endfor %}</select>
+      <button type="submit" class="secondary">공개 범위 바꾸기</button>
     </form>{% endif %}
     <div class="document-form-actions">
       {% if doc.masked_text and doc.doc_type not in ('regulation', 'ocr') %}

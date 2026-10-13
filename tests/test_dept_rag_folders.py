@@ -43,7 +43,7 @@ def test_library_folders_upload_and_scope(tmp_path):
     f = next(f for f in lf.folders(db, tmp_path) if f["key"] == key)
     assert f["docs"] == 1 and f["dept"] == "공통"
     page = c.get("/?type=all&folder=" + key).text
-    assert "학사 지침" in page and "검색 범위 공통 RAG" in page and 'id="libUploadModal"' in page
+    assert "학사 지침" in page and "공개 전체" in page and 'id="libUploadModal"' in page
     c.post("/library/folders/scope", data={"key": key, "dept": "교무처"})
     with db._conn() as conn:
         did = conn.execute("SELECT doc_id FROM doc_folders").fetchone()[0]

@@ -113,11 +113,11 @@
 {% block content %}
 {% macro scope_pick(name, id_prefix, current='공통') -%}
 <fieldset class="scope-pick" data-scope-pick>
-  <legend class="muted">검색 범위</legend>
+  <legend class="muted">공개 범위 — 누가 이 문서를 찾고 볼 수 있나</legend>
   <label class="scope-opt"><input type="radio" name="{{ id_prefix }}_kind" value="common" {{ 'checked' if current == '공통' }}>
-    <span><b>공통 RAG</b><small>전 교직원이 찾습니다 · 기본</small></span></label>
+    <span><b>전체 공개</b><small>모든 교직원 · 공통 RAG · 기본</small></span></label>
   <label class="scope-opt{{ ' off' if scope_choices | length < 2 }}"><input type="radio" name="{{ id_prefix }}_kind" value="dept" {{ 'checked' if current != '공통' }} {{ 'disabled' if scope_choices | length < 2 }}>
-    <span><b>부서 RAG</b><small>{% if scope_choices | length < 2 %}만든 부서가 없습니다 — 사용자·계정 › 부서{% else %}고른 부서 사람만 찾습니다{% endif %}</small></span></label>
+    <span><b>부서만</b><small>{% if scope_choices | length < 2 %}만든 부서가 없습니다 — 사용자·계정 › 부서{% else %}고른 부서 사람과 관리자만 · 부서 RAG{% endif %}</small></span></label>
   <select class="scope-dept" aria-label="부서" {{ 'hidden' if current == '공통' }}>{% for d in scope_choices if d != '공통' %}<option value="{{ d }}" {{ 'selected' if d == current }}>{{ d }}</option>{% endfor %}</select>
   <input type="hidden" name="{{ name }}" value="{{ current }}">
 </fieldset>
@@ -201,9 +201,9 @@
   <nav class="lib-folders" aria-label="폴더">
     <a href="/?type=all" class="lib-rail-item{{ ' on' if not folder }}"><span>모든 폴더</span></a>
     {% for f in folders %}
-    <a href="/?type=all&amp;folder={{ f.key | urlencode }}" class="lib-rail-item{{ ' on' if folder == f.key }}" title="{{ f.name }} — {{ '원본 보관소 폴더' if f.kind == '원본' else '라이브러리에서 만든 폴더' }} · 검색 범위 {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}">
+    <a href="/?type=all&amp;folder={{ f.key | urlencode }}" class="lib-rail-item{{ ' on' if folder == f.key }}" title="{{ f.name }} — {{ '원본 보관소 폴더' if f.kind == '원본' else '라이브러리에서 만든 폴더' }} · 공개 {{ '전체' if f.dept == '공통' else f.dept ~ '만' }}">
       <iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ f.name }}</span>
-      <em class="lib-scope{{ ' dept' if f.dept != '공통' }}">{{ '공통' if f.dept == '공통' else f.dept }}</em><small>{{ "{:,}".format(f.docs) }}</small></a>
+      <em class="lib-scope{{ ' dept' if f.dept != '공통' }}" title="공개 범위">{{ '전체' if f.dept == '공통' else f.dept ~ '만' }}</em><small>{{ "{:,}".format(f.docs) }}</small></a>
     {% endfor %}
   </nav>
   <div class="lib-rail-h" style="margin-top:12px;"><b>사업별로 보기</b></div>
@@ -234,8 +234,8 @@
     {% if request.query_params.get('ok') %}<p class="pill lib-flash" role="status">{{ request.query_params.get('ok') }}</p>{% endif %}
     {% if request.query_params.get('err') %}<p class="pill lib-flash" role="alert">{{ request.query_params.get('err') }}</p>{% endif %}
     {% if folder_pick %}<div class="lib-folder-pick"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><b>{{ folder_pick.name }}</b>
-      <span class="lib-scope{{ ' dept' if folder_pick.dept != '공통' }}">검색 범위 {{ '공통 RAG' if folder_pick.dept == '공통' else folder_pick.dept ~ ' 부서 RAG' }}</span>
-      {% if request.state.role == 'dev' %}<button type="button" class="secondary lib-mini2" data-modal-open="#folderScopeModal">검색 범위 바꾸기…</button>
+      <span class="lib-scope{{ ' dept' if folder_pick.dept != '공통' }}">공개 {{ '전체' if folder_pick.dept == '공통' else folder_pick.dept ~ '만' }}</span>
+      {% if request.state.role == 'dev' %}<button type="button" class="secondary lib-mini2" data-modal-open="#folderScopeModal">공개 범위 바꾸기…</button>
       {% if folder_pick.kind == '만든' %}<form method="post" action="/library/folders/delete" data-confirm="「{{ folder_pick.name }}」 폴더를 지웁니다. 문서 {{ '{:,}'.format(folder_pick.docs) }}건은 지우지 않고 폴더에서만 뺍니다." style="margin:0;">
         <input type="hidden" name="key" value="{{ folder_pick.key }}"><button class="btn-ghost" type="submit" style="color:var(--red);">폴더 지우기</button></form>{% endif %}{% endif %}
       <a class="lib-pick-x" href="/?type=all" aria-label="폴더 고르기 풀기">×</a></div>{% endif %}
@@ -282,8 +282,8 @@
           {% for k, lab in [("7d","최근 7일"),("30d","최근 30일"),("1y","최근 1년")] %}<option value="{{ k }}" {{ 'selected' if since == k }}>{{ lab }}</option>{% endfor %}</select>
         <select name="flt" aria-label="처리 상태"><option value="">모든 상태</option>
           {% for k, lab in flt_labels.items() %}<option value="{{ k }}" {{ 'selected' if active_flt == k }}>{{ lab }}</option>{% endfor %}</select>
-        {% if scope_choices | length > 1 or scope %}<select name="scope" aria-label="검색 범위"><option value="">모든 검색 범위</option>
-          {% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if scope == d }}>{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>{% endif %}
+        {% if scope_choices | length > 1 or scope %}<select name="scope" aria-label="공개 범위"><option value="">모든 공개 범위</option>
+          {% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if scope == d }}>{{ '전체 공개(공통 RAG)' if d == '공통' else d ~ '만(부서 RAG)' }}</option>{% endfor %}</select>{% endif %}
         <select name="sort" aria-label="정렬">
           {% for k, lab in [("new","최근 등록순"),("old","오래된 순"),("name","이름순")] %}<option value="{{ k }}" {{ 'selected' if sort == k }}>{{ lab }}</option>{% endfor %}</select>
       </div>
@@ -297,10 +297,10 @@
     <div class="lib-bulk" id="libBulk">
       <label class="lib-bulk-all"><input type="checkbox" id="libPickAll"> 이 쪽 모두</label>
       <span class="lib-bulk-n" id="libPickN">문서를 고르면 한꺼번에 옮길 수 있습니다</span>
-      {% if made_folders %}<span class="lib-bulk-g"><select id="libBulkFolder" aria-label="담을 폴더"><option value="">폴더에서 빼기</option>{% for f in made_folders %}<option value="{{ f.key }}">{{ f.name }} — {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}</option>{% endfor %}</select>
+      {% if made_folders %}<span class="lib-bulk-g"><select id="libBulkFolder" aria-label="담을 폴더"><option value="">폴더에서 빼기</option>{% for f in made_folders %}<option value="{{ f.key }}">{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept ~ '만' }}</option>{% endfor %}</select>
       <button type="button" class="secondary" data-bulk="folder" disabled>폴더에 담기</button></span>{% endif %}
-      {% if request.state.role == 'dev' and scope_choices | length > 1 %}<span class="lib-bulk-g"><select id="libBulkScope" aria-label="검색 범위">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>
-      <button type="button" class="secondary" data-bulk="scope" disabled>검색 범위 바꾸기</button></span>{% endif %}
+      {% if request.state.role == 'dev' and scope_choices | length > 1 %}<span class="lib-bulk-g"><select id="libBulkScope" aria-label="공개 범위">{% for d in scope_choices %}<option value="{{ d }}">{{ '전체 공개(공통 RAG)' if d == '공통' else d ~ '만(부서 RAG)' }}</option>{% endfor %}</select>
+      <button type="button" class="secondary" data-bulk="scope" disabled>공개 범위 바꾸기</button></span>{% endif %}
       <span class="lib-bulk-msg" id="libBulkMsg" role="status"></span>
     </div>{% endif %}
     <ul class="lib-rows" data-doc-list>
@@ -357,7 +357,7 @@
     {% endif %}
     {% else %}
     <div class="lib-empty">
-      <p class="muted">{% if q %}{% if body %}제목·본문에 「{{ q }}」 낱말이 든 문서가 없습니다. <a href="/search?q={{ q | urlencode }}">대화·근거까지 찾기</a>{% else %}제목에 「{{ q }}」 낱말이 모두 든 문서가 없습니다. <a href="/?{{ use_qs }}&amp;use={{ use }}&amp;body=1">본문까지 찾기</a>{% endif %}{% elif use == 'criteria' and not (active_flt or kind) %}기준 문서가 없습니다. 「기준 등록」으로 공고·규정 파일을 올립니다.{% elif active_flt or kind or use != 'all' %}고른 조건에 맞는 문서가 없습니다.{% elif folder_pick %}이 폴더에 문서가 없습니다. 「문서 올리기」에서 이 폴더를 고르면 폴더의 검색 범위로 들어갑니다.{% else %}아직 등록된 문서가 없습니다. 「문서 올리기」로 바로 올리거나 프로젝트 화면의 「문서 추가」로 등록합니다.{% endif %}</p>
+      <p class="muted">{% if q %}{% if body %}제목·본문에 「{{ q }}」 낱말이 든 문서가 없습니다. <a href="/search?q={{ q | urlencode }}">대화·근거까지 찾기</a>{% else %}제목에 「{{ q }}」 낱말이 모두 든 문서가 없습니다. <a href="/?{{ use_qs }}&amp;use={{ use }}&amp;body=1">본문까지 찾기</a>{% endif %}{% elif use == 'criteria' and not (active_flt or kind) %}기준 문서가 없습니다. 「기준 등록」으로 공고·규정 파일을 올립니다.{% elif active_flt or kind or use != 'all' %}고른 조건에 맞는 문서가 없습니다.{% elif folder_pick %}이 폴더에 문서가 없습니다. 「문서 올리기」에서 이 폴더를 고르면 폴더의 공개 범위로 들어갑니다.{% else %}아직 등록된 문서가 없습니다. 「문서 올리기」로 바로 올리거나 프로젝트 화면의 「문서 추가」로 등록합니다.{% endif %}</p>
       {% if q or active_flt or kind or use != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
     </div>
     {% endif %}
@@ -379,7 +379,7 @@
       <label class="form-row"><span class="muted">폴더</span>
         <select name="folder" id="libUpFolder">
           <option value="" data-dept="">폴더 없이</option>
-          {% for f in folders if f.kind == '만든' %}<option value="{{ f.key }}" data-dept="{{ f.dept }}" {{ 'selected' if folder == f.key }}>{{ f.name }} — {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}</option>{% endfor %}
+          {% for f in folders if f.kind == '만든' %}<option value="{{ f.key }}" data-dept="{{ f.dept }}" {{ 'selected' if folder == f.key }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept ~ '만' }}</option>{% endfor %}
         </select></label>
       <div id="libUpScopeRow">{{ scope_pick("dept", "up") }}</div>
       <p class="muted" id="libUpScopeNote" style="font-size:12px; margin:-4px 0 10px;" hidden></p>
@@ -412,12 +412,12 @@
 <div id="folderScopeModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="folderScopeTitle">
   <div class="card"><div class="card-in">
     <div class="modal-head">
-      <h2 id="folderScopeTitle"><iconify-icon icon="solar:folder-linear"></iconify-icon>「{{ folder_pick.name }}」 검색 범위</h2>
+      <h2 id="folderScopeTitle"><iconify-icon icon="solar:folder-linear"></iconify-icon>「{{ folder_pick.name }}」 폴더 공개 범위</h2>
       <button type="button" data-modal-close class="dialog-close" aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
     </div>
     <form method="post" action="/library/folders/scope">
       <input type="hidden" name="key" value="{{ folder_pick.key }}">
-      <p class="muted" style="font-size:12.5px; margin:0 0 10px;">지금: {{ '공통 RAG' if folder_pick.dept == '공통' else folder_pick.dept ~ ' 부서 RAG' }} · 이 폴더 문서 {{ "{:,}".format(folder_pick.docs) }}건이 고른 범위로 옮겨 갑니다{% if folder_pick.kind == '원본' %}. 원본 폴더라 앞으로 이 폴더로 반입되는 문서도 같은 범위로 들어옵니다{% endif %}.</p>
+      <p class="muted" style="font-size:12.5px; margin:0 0 10px;">지금: {{ '전체 공개' if folder_pick.dept == '공통' else folder_pick.dept ~ '만' }} · 이 폴더 문서 {{ "{:,}".format(folder_pick.docs) }}건이 고른 범위로 옮겨 갑니다{% if folder_pick.kind == '원본' %}. 원본 폴더라 앞으로 이 폴더로 반입되는 문서도 같은 범위로 들어옵니다{% endif %}.</p>
       {{ scope_pick("dept", "fscope", folder_pick.dept) }}
       <div style="display:flex; justify-content:flex-end; gap:10px;">
         <button type="button" data-modal-close class="secondary">취소</button>
@@ -512,7 +512,7 @@
     var sync = function () {
       var o = sel.options[sel.selectedIndex], d = o && o.dataset.dept;
       row.hidden = !!sel.value; note.hidden = !sel.value;
-      if (sel.value) note.textContent = "검색 범위: 폴더를 따라 " + (d === "공통" ? "공통 RAG" : d + " 부서 RAG");
+      if (sel.value) note.textContent = "공개 범위: 폴더를 따라 " + (d === "공통" ? "전체 공개" : d + "만");
     };
     sel.addEventListener("change", sync); sync();
   }

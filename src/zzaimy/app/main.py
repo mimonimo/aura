@@ -4846,7 +4846,7 @@ def create_app(
             if err:
                 return RedirectResponse("/dev/rag?" + urlencode({"err": err}) + "#dept-rags", status_code=303)
             rag_spaces.save_config(new, data_dir)
-            return RedirectResponse("/dev/rag?" + urlencode({"ok": f"「{name}」 부서 RAG 를 만들었습니다 — 문서 화면·문서 올리기에서 검색 범위로 고르면 들어갑니다"})
+            return RedirectResponse("/dev/rag?" + urlencode({"ok": f"「{name}」 부서 RAG 를 만들었습니다 — 문서 화면·문서 올리기에서 공개 범위를 「부서만」으로 고르면 들어갑니다"})
                                     + "#dept-rags", status_code=303)
         if action == "delete" and name in _all_depts():
             if any(str(a.get("dept") or "").strip() == name for a in accounts.values()):
@@ -7313,11 +7313,11 @@ def create_app(
         """라이브러리 폴더 만들기 — 검색 범위는 공통 RAG(기본) 또는 부서 RAG."""
         from zzaimy.app import library_folders as lf
         if dept not in _scope_choices(request):
-            return _lib_back(err=f"고를 수 없는 검색 범위: {dept}")
+            return _lib_back(err=f"고를 수 없는 공개 범위: {dept}")
         fid, err = lf.create(db, Path(db_path).parent, name, dept, by=request.state.user or "", allowed=_all_depts())
         if err:
             return _lib_back(err=err)
-        return _lib_back(f"{lf.MADE}{fid}", ok=f"「{' '.join(name.split())}」 폴더를 만들었습니다 · 검색 범위 {dept if dept != '공통' else '공통 RAG'}")
+        return _lib_back(f"{lf.MADE}{fid}", ok=f"「{' '.join(name.split())}」 폴더를 만들었습니다 · 공개 {dept + '만' if dept != '공통' else '전체'}")
 
     @app.post("/library/folders/scope")
     def library_folder_scope(request: Request, key: str = Form(""), dept: str = Form("공통")):
@@ -7328,7 +7328,7 @@ def create_app(
         n, err = lf.set_dept(db, Path(db_path).parent, key, dept, allowed=_all_depts())
         if err:
             return _lib_back(key, err=err)
-        return _lib_back(key, ok=f"검색 범위를 {dept if dept != '공통' else '공통 RAG'}(으)로 바꿨습니다 · 문서 {n:,}건")
+        return _lib_back(key, ok=f"공개 범위를 「{dept + '만' if dept != '공통' else '전체 공개'}」로 바꿨습니다 · 문서 {n:,}건")
 
     @app.post("/library/folders/delete")
     def library_folder_delete(request: Request, key: str = Form("")):
@@ -7399,7 +7399,7 @@ def create_app(
             made.append(doc_id)
         if folder.startswith(lf.MADE):
             lf.put(db, folder, made)
-        msg = f"{len(made)}건을 올렸습니다 · 검색 범위 {scope if scope != '공통' else '공통 RAG'}" + \
+        msg = f"{len(made)}건을 올렸습니다 · 공개 {scope + '만' if scope != '공통' else '전체'}" + \
             (f" · 사업 {prog_label}" if prog_label else "") + " · 처리가 끝나면 검색에 들어갑니다"
         if skipped:
             msg += f" · 형식이 맞지 않아 건너뜀 {len(skipped)}건"
