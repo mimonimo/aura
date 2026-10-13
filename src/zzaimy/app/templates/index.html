@@ -299,10 +299,11 @@
       <span class="lib-bulk-n" id="libPickN">문서를 고르면 폴더에 담거나 공개 범위를 바꿀 수 있습니다</span>
       <span class="lib-bulk-g" id="libBulkActs" hidden>
         <select id="libBulkAct" aria-label="고른 문서에 할 일">
+          <option value="" selected disabled>할 일 고르기…</option>
           {% if made_folders %}<optgroup label="폴더">{% for f in made_folders %}<option value="folder:{{ f.key }}">「{{ f.name }}」 폴더에 담기</option>{% endfor %}<option value="folder:">폴더에서 빼기</option></optgroup>{% endif %}
           {% if request.state.role == 'dev' and scope_choices | length > 1 %}<optgroup label="공개 범위">{% for d in scope_choices %}<option value="scope:{{ d }}">{{ '전체 공개로' if d == '공통' else d ~ '만 공개로' }}</option>{% endfor %}</optgroup>{% endif %}
         </select>
-        <button type="button" class="secondary" id="libBulkGo">적용</button>
+        <button type="button" class="secondary" id="libBulkGo" disabled>적용</button>
       </span>
       <span class="lib-bulk-msg" id="libBulkMsg" role="status"></span>
     </div>{% endif %}
@@ -496,6 +497,7 @@
   };
   document.addEventListener("change", function (e) { if (e.target.classList && e.target.classList.contains("lib-pick")) paint(); });
   document.getElementById("libPickAll").addEventListener("change", function (e) { picks().forEach(function (c) { c.checked = e.target.checked; }); paint(); });
+  document.getElementById("libBulkAct").addEventListener("change", function (e) { document.getElementById("libBulkGo").disabled = !e.target.value; });
   document.getElementById("libBulkGo").addEventListener("click", function () {
     var b = this, v = document.getElementById("libBulkAct").value, ids = chosen();
     var folder = v.indexOf("folder:") === 0, arg = v.slice(v.indexOf(":") + 1);
