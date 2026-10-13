@@ -18,6 +18,8 @@
   .ua-form .row { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
   .ua-form .check { flex-direction:row; align-items:center; gap:8px; font-size:13px; color:var(--ink); }
   .ua-form footer { display:flex; gap:8px; justify-content:flex-end; }
+  .ua-steps { margin:0 0 12px; padding-left:20px; font-size:12.5px; color:var(--muted); line-height:1.7; }
+  .ua-steps b { color:var(--ink); font-weight:600; }
   #deptEdit { padding:16px; box-sizing:border-box; }
   #deptEdit > .card { width:560px; max-height:calc(100dvh - 32px); overflow:hidden; border-radius:18px; }
   #deptEdit .card-in { padding:0; display:flex; flex-direction:column; max-height:calc(100dvh - 32px); }
@@ -96,8 +98,11 @@
   <h2 class="ua-head"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
     <button type="button" class="secondary spacer" data-modal-open="#deptCreate" style="padding:6px 12px; font-size:12.5px;">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button></h2>
-  <p class="muted" style="margin:0 0 10px; font-size:12.5px;">여기서 만든 부서가 계정의 부서, 부서 RAG(<a href="/dev/rag#dept-rags">RAG 공간</a>), 라이브러리의 검색 범위·폴더 범위에 같은 목록으로 쓰입니다. 문서는 정하지 않으면 공통 RAG 입니다.
-    다른 부서 RAG 를 함께 찾게 하려면 <a href="/dev/rag#grants">RAG 공간 › 계정별 추가 권한</a>.</p>
+  <ol class="ua-steps">
+    <li><b>부서 추가</b> — 부서를 만들면 그 부서의 RAG(검색 공간)가 함께 생깁니다. 문서는 비어 있고, 정하지 않은 문서는 모두 공통 RAG 에 있습니다.</li>
+    <li><b>계정에 부서 지정</b> — 위 사용자 목록의 「편집」에서 부서를 고르면 그 사람은 공통 RAG 와 자기 부서 RAG 를 함께 찾습니다.</li>
+    <li><b>문서 넣기</b> — 라이브러리에서 ① 「문서 올리기」의 검색 범위, ② 이 부서 범위의 폴더(「폴더 만들기」), ③ 목록에서 여러 건 골라 「검색 범위 바꾸기」, ④ 문서 화면의 「관리」. 그 부서 사람과 관리자만 봅니다.</li>
+  </ol>
   {% if depts %}
   <div class="table-scroll">
   <table class="ua-table">
@@ -106,10 +111,11 @@
     <tr>
       <td><b>{{ d.dept }}</b></td>
       <td>{{ d.members | join(", ") if d.members else '—' }}</td>
-      <td>{{ "{:,}".format(d.docs) }}</td>
+      <td><a href="/?type=all&amp;scope={{ d.dept | urlencode }}" title="이 부서 RAG 문서를 라이브러리에서 보기">{{ "{:,}".format(d.docs) }}건</a></td>
       <td>{{ d.account or '—' }}</td>
       <td>{% if d.root %}<a class="mini-btn" href="https://drive.google.com/drive/folders/{{ d.root }}" target="_blank" rel="noopener"><iconify-icon icon="solar:square-top-down-linear" aria-hidden="true"></iconify-icon>폴더 열기</a>{% else %}<span class="muted">개인 드라이브</span>{% endif %}</td>
-      <td class="act" style="white-space:nowrap;"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#deptEdit"
+      <td class="act" style="white-space:nowrap;"><a class="secondary btn" href="/?type=all" style="padding:5px 11px; font-size:12px;" title="라이브러리에서 문서를 골라 이 부서 RAG 로 넣습니다">문서 넣기</a>
+        <button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#deptEdit"
             data-dept="{{ d.dept }}" data-account="{{ d.account }}" data-root="{{ d.root }}" aria-label="{{ d.dept }} 저장 위치">저장 위치</button>
         {% if not d.members %}<form method="post" action="/dev/users/dept" style="display:inline; margin:0;" data-confirm="부서 「{{ d.dept }}」을 지웁니다. 부서 RAG 문서 {{ '{:,}'.format(d.docs) }}건은 공통 RAG 로 돌아갑니다.">
           <input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ d.dept }}">
