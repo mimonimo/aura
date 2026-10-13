@@ -46,9 +46,12 @@ def candidates(db, q: str = "", limit: int = 400) -> dict:
             "SELECT d.id, d.filename, d.kind, d.audience, d.dept, COUNT(c.id) AS chunks FROM documents d"
             " LEFT JOIN regulation_chunks c ON c.doc_id = d.id WHERE d.doc_type = 'regulation' AND d.status = 'reviewed'"
             " GROUP BY d.id, d.filename, d.kind, d.audience, d.dept ORDER BY d.filename").fetchall()]
-    # 제목이 규정 갈래 이름으로 끝나는 것만 — 서류 갈래(kind)가 규정이어도 조문 머리만 있는 협약서·업체 서류일 수 있다
+        done_fams = {r[0] for r in conn.execute(
+            "SELECT DISTINCT family FROM documents WHERE doc_type = 'regulation' AND COALESCE(family, '') <> ''").fetchall()}
+    # 제목이 규정 갈래 이름으로 끝나는 것만 — 서류 갈래(kind)가 규정이어도 조문 머리만 있는 협약서·업체 서류일 수 있다.
+    # 같은 판본 묶음이 이미 기준 문서면 옛 판은 후보가 아니다(최신 판을 올린 뒤 옛 판이 다시 후보로 올라오지 않게)
     pool = [r for r in rows if (r["n"] or 0) >= MIN_CHARS and not NOT_RULE.search(r["filename"] or "")
-            and GENRE.search(r["filename"] or "")]
+            and GENRE.search(r["filename"] or "") and not (r["family"] and r["family"] in done_fams)]
     fam: dict[str, list[dict]] = {}
     for r in pool:
         fam.setdefault(r["family"] or f"#{r['id']}", []).append(r)

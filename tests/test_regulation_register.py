@@ -41,6 +41,11 @@ def test_register_then_unregister_only_what_we_registered(tmp_path):
     out = rr.register(db, [did], tmp_path)
     assert out["registered"] == 1 and out["chunks"] > 0 and db.get_document(did)["doc_type"] == "regulation"
     assert (tmp_path / ".reindex-needed").exists() and rr.candidates(db)["registered"][0]["id"] in (did, native)
+    assert rr.candidates(db)["total"] == 0
+    old = _doc(db, "산학협력단 운영 규정 · 2012년", family=db.get_document(did).get("family") or "fam")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET family = ? WHERE id IN (?, ?)", ("fam", did, old))
+    assert old not in {i["id"] for i in rr.candidates(db)["items"]}           # 최신 판을 올렸으면 옛 판은 후보가 아니다
     back = rr.unregister(db, [did, native], tmp_path)
     assert back == {"unregistered": 1, "kept": 1}
     assert db.get_document(did)["doc_type"] == "grant" and db.get_document(native)["doc_type"] == "regulation"
