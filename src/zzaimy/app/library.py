@@ -184,13 +184,15 @@ def year_label(tail: str) -> str:
     return f"{tail}년" if tail.isdigit() else tail
 
 
-def rail_sql(key: str, tail: str = "") -> tuple[str, list]:
-    """고른 사업 묶음(과 연도)의 문서 조건(표 별칭 d)."""
+def rail_sql(key: str, tail: str = "", members: dict[str, list[str]] | None = None) -> tuple[str, list]:
+    """고른 사업 묶음(과 연도)의 문서 조건(표 별칭 d). members: 대표 사업 id → 같은 사업으로 묶인 id 들(그래프의 이름 묶음)."""
     if key.startswith("prog:"):
-        base = key[5:]
+        ids = (members or {}).get(key[5:]) or [key[5:]]
         if tail:
-            return "d.project_id IN (SELECT id FROM projects WHERE program = ?)", [f"{base}|{tail}"]
-        return "d.project_id IN (SELECT id FROM projects WHERE program = ? OR program LIKE ?)", [base, base + "|%"]
+            return (f"d.project_id IN (SELECT id FROM projects WHERE program IN ({','.join('?' * len(ids))}))",
+                    [f"{b}|{tail}" for b in ids])
+        cond = " OR ".join("program = ? OR program LIKE ?" for _ in ids)
+        return f"d.project_id IN (SELECT id FROM projects WHERE {cond})", [x for b in ids for x in (b, b + "|%")]
     if key == "nonprogram":
         return "d.project_id IN (SELECT id FROM projects WHERE program LIKE 'nonprogram%')", []
     if key == "work":
@@ -201,14 +203,17 @@ def rail_sql(key: str, tail: str = "") -> tuple[str, list]:
     return "", []
 
 
-def rail(conn, where: str, args: list) -> list[dict]:
-    """조건에 맞는 문서를 사업 묶음으로 센다 — [{key, label, n, years:[{tail, label, n}]}], 사업은 문서 많은 순, 고정 묶음은 끝."""
+def rail(conn, where: str, args: list, rep: dict[str, str] | None = None) -> list[dict]:
+    """조건에 맞는 문서를 사업 묶음으로 센다 — [{key, label, n, years:[{tail, label, n}]}], 사업은 문서 많은 순, 고정 묶음은 끝.
+    rep: 사업 id → 대표 id(그래프 탐색 왼쪽 목록과 같은 이름 묶음, kg_explore.programs) — 같은 사업의 다른 열쇠를 한 줄로."""
     rows = conn.execute(
         "SELECT p.program, p.archived, d.project_id IS NOT NULL AND p.id IS NOT NULL, COUNT(*), MAX(p.name) FROM documents d"
         f" LEFT JOIN projects p ON p.id = d.project_id{where} GROUP BY 1, 2, 3", args).fetchall()
     out: dict[str, dict] = {}
     for program, archived, has_p, n, pname in rows:
         key, tail = rail_key(program, archived, bool(has_p))
+        if key.startswith("prog:") and rep:
+            key = "prog:" + rep.get(key[5:], key[5:])
         g = out.setdefault(key, {"key": key, "n": 0, "years": {}, "pname": _bundle_name(pname or "")})
         g["n"] += int(n)
         if key.startswith("prog:"):

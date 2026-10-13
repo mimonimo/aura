@@ -686,6 +686,14 @@ def create_app(
             title = " AND ".join("REPLACE(d.filename, ' ', '') LIKE ?" for _ in words)
             cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?)")
             args += [f"%{w}%" for w in words] + [f"%{q}%"]
+        rail_where, rail_args = " WHERE " + " AND ".join(cond), list(args)      # 사업 목록은 사업 조건을 빼고 센다
+        rep, members = _program_groups()
+        rc, ra = library.rail_sql(prog, year, members) if prog else ("", [])
+        if rc:                                                                 # 고른 사업 — 쓰임새 칩·종류 수도 그 안에서
+            cond.append(rc)
+            args += ra
+        else:
+            prog = ""
         base_where, base_args = " WHERE " + " AND ".join(cond), list(args)
         use_c, use_a = library.use_sql(use)
         if use_c:
@@ -696,13 +704,6 @@ def create_app(
         elif kind:
             cond.append("d.kind = ?")
             args.append(kind)
-        rail_where, rail_args = " WHERE " + " AND ".join(cond), list(args)      # 사업 목록은 사업 조건을 빼고 센다
-        rc, ra = library.rail_sql(prog, year) if prog else ("", [])
-        if rc:
-            cond.append(rc)
-            args += ra
-        else:
-            prog = ""
         where = " WHERE " + " AND ".join(cond)
         PER = 50
         with db._conn() as conn:
@@ -733,7 +734,7 @@ def create_app(
                     f" d.project_id, p.name AS project_name, {biz_col} AS business"
                     " FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
                     f" WHERE d.id IN ({','.join('?' * len(ids))}){acc}", [*ids, *acc_args]).fetchall()}   # 열람 조건을 다시 건다
-            rail = library.rail(conn, rail_where, rail_args)
+            rail = library.rail(conn, rail_where, rail_args, rep)
             kinds = [(x[0] or "", int(x[1])) for x in conn.execute(
                 f"SELECT d.kind, COUNT(*) FROM documents d{where} GROUP BY d.kind ORDER BY 2 DESC", args).fetchall()]
             case_sql, case_args = library.use_case_sql()
@@ -794,6 +795,21 @@ def create_app(
                      "sector": sectors.get(x["title"], "grant")} for x in pub if copy_url(x.get("url") or "")]
         except Exception:
             return []
+
+    _pg_cache: dict = {"at": 0.0, "v": ({}, {})}
+
+    def _program_groups() -> tuple[dict, dict]:
+        """그래프의 사업 이름 묶음 — (사업 id → 대표 id, 대표 id → 묶인 id 들). 10분 재사용, 그래프가 없으면 빈 묶음."""
+        import time as _t
+        if _t.time() - _pg_cache["at"] > 600:
+            try:
+                from zzaimy.app.kg_explore import programs as _progs
+                rows = [p for p in _progs(db, None) if p["type"] == "program"]
+                rep = {i: p["id"] for p in rows for i in p["ids"]}
+                _pg_cache.update(at=_t.time(), v=(rep, {p["id"]: list(p["ids"]) for p in rows}))
+            except Exception:
+                _pg_cache.update(at=_t.time(), v=({}, {}))
+        return _pg_cache["v"]
 
     _units_cache: dict = {"at": 0.0, "v": []}
 
