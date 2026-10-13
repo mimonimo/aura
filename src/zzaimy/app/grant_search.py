@@ -28,6 +28,13 @@ log = logging.getLogger(__name__)
 INDEX = _paths.index_npz().parent / "grant_embeddings.npz"
 TEXT_KINDS = ("text", "table", "image_text")
 TOP_K = 60
+# 어휘 축 가중(RRF) — 규정 검색의 0.4 를 그대로 쓰면 드문 낱말(사업 이름·고유명사)로 어휘 1위인 조각이 임베딩 후보 60개 뒤로 밀려 빠진다.
+# 값은 scripts/173 비교로 정한다(ZZAIMY_GRANT_LEX_W)
+def _lex_w() -> float:
+    try:
+        return float(os.environ.get("ZZAIMY_GRANT_LEX_W", "0.4"))
+    except ValueError:
+        return 0.4
 _lock = threading.Lock()
 _cache: dict = {"mtime": None, "ids": None, "vecs": None}
 
@@ -486,7 +493,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
             steps.append("그 사업의 문서 조각에서 맞는 것이 없어 사업 문서 전체에서 찾는다")
             lex = grant_lex.rank(db, lq, None, user, depts=depts) if lq else []
             den = dense_ids(question, None, scope_docs=None, user=user, db=db, depts=depts)
-        merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
+        merged = rrf_merge(lex[:TOP_K], den, w_a=_lex_w(), w_b=1.0) if den else lex
         sec = section_hits(db, question, scope_docs)
         if sec:
             # 그래프 축 — 질문에 묶어 적은 절 이름이 있으면 범위 안 문서에서 그 제목의 절(그래프 절 노드)을 바로 후보 앞에
@@ -503,7 +510,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         allowed = {c["id"] for c in chunks}
         lex = _lexical_ids(query, chunks, 1) if query else []
         den = dense_ids(question, allowed)
-        merged = rrf_merge(lex[:TOP_K], den, w_a=0.4, w_b=1.0) if den else lex
+        merged = rrf_merge(lex[:TOP_K], den, w_a=_lex_w(), w_b=1.0) if den else lex
         by_id = {c["id"]: c for c in chunks}
         pool = f"{len(chunks)}개"
     hits = []
