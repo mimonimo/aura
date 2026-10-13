@@ -306,11 +306,11 @@
   {% endif %}
 
   {% if src.docs %}
-  <p class="privacy-help">검색 결과 {{ src.filtered_total }}건 · 한 페이지 10건</p>
+  <p class="privacy-help">검색 결과 {{ src.filtered_total | num }}건 · 한 페이지 10건</p>
   {% for d in src.docs %}<article class="privacy-record">
   <h3>{% if src.linkable %}<a href="/doc/{{ d.doc_id }}">{{ doc_name(d) }}</a>{% else %}{{ doc_name(d) }}{% endif %}</h3>
-  <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ (d.recorded_at | kst) or '기록 없음' }}</p>
-  <div style="display:flex;gap:6px;flex-wrap:wrap">{% for key,n in d.by_type.items() %}<span class="pill type">{{ entity_labels.get(key,key) }} {{ n }}</span>{% else %}<span class="pill">{{ '0건' if d.recorded else '기록 없음' }}</span>{% endfor %}</div>
+  <p class="muted">{{ type_names.get(d.doc_type,d.doc_type) }} · {{ (d.recorded_at | kst) or '마스킹 기록 없음' }}</p>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">{% for key,n in d.by_type.items() %}<span class="pill type">{{ entity_labels.get(key,key) }} {{ n }}</span>{% else %}{% if d.recorded %}<span class="pill">가린 항목 0건</span>{% endif %}{% endfor %}</div>
   {% if request.query_params.get('doc') == d.doc_id|string %}{% for c in d.contexts[:2] %}<p>{{ c.context }}</p>{% endfor %}{% elif d.contexts %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page }}&amp;doc={{ d.doc_id }}" class="mini-btn">가린 문맥 표본 보기</a>{% endif %}
   </article>{% endfor %}
   <nav class="privacy-nav" aria-label="기록 페이지">
