@@ -77,7 +77,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   {% set stu = spaces | selectattr("id", "equalto", "student") | first %}
   <div class="rg-scroll">
   <table class="rg-table" id="rgSpaces">
-    <tr><th>RAG</th><th class="n">문서</th><th class="n">규정 색인(문서·조각)</th><th>쓰는 계정</th><th>추가 권한 계정</th><th>반입 폴더</th><th></th></tr>
+    <tr><th>RAG</th><th class="n">문서</th><th class="n">기준 문서(문서·조각)</th><th>쓰는 계정</th><th>추가 권한 계정</th><th>반입 폴더</th><th></th></tr>
     {% if staff %}
     <tr><td><b>공통 RAG</b><br><span class="rg-sub">전 교직원 · 기본</span></td>
       <td class="n"><a href="/?type=all&amp;scope=%EA%B3%B5%ED%86%B5" title="라이브러리에서 보기">{{ "{:,}".format(staff.grant_docs) }}</a></td>
@@ -90,7 +90,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     {% for r in dept_rags %}
     <tr><td><b>{{ r.dept }} 부서 RAG</b>{% if r.made.at %}<br><span class="rg-sub">{{ r.made.at }} 만듦</span>{% endif %}</td>
       <td class="n"><a href="/?type=all&amp;scope={{ r.dept | urlencode }}" title="라이브러리에서 보기">{{ "{:,}".format(r.docs) }}</a></td>
-      <td class="n rg-sub">공통 규정</td>
+      <td class="n">{{ "{:,}".format(r.reg_docs) }} · {{ "{:,}".format(r.reg_chunks) }}</td>
       <td class="rg-wrap">{{ r.members | join(", ") if r.members else "—" }}</td>
       <td class="rg-wrap">{{ r.granted | join(", ") if r.granted else "—" }}</td>
       <td class="rg-wrap">{{ r.folders | join(", ") if r.folders else "—" }}</td>
@@ -107,7 +107,10 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     {% endif %}
   </table>
   </div>
-  <p class="rg-note">부서 RAG 는 <a href="/dev/users#depts">사용자·계정 › 부서</a>에서 만들고, 문서는 라이브러리(「문서 올리기」의 검색 범위·폴더·여러 건 고르기)나 문서 화면에서 넣습니다.{% if not dept_rags %} 아직 부서 RAG 가 없습니다.{% endif %}</p>
+  {% set tot_docs = (staff.grant_docs if staff else 0) + (dept_rags | sum(attribute='docs')) %}
+  {% set tot_regs = (staff.reg_docs if staff else 0) + (dept_rags | sum(attribute='reg_docs')) %}
+  <p class="rg-note">합계 — 사업 문서 {{ "{:,}".format(tot_docs) }}건 · 기준 문서 {{ "{:,}".format(tot_regs) }}건(공통 RAG + 부서 RAG). 부서 계정은 공통 RAG 행과 자기 부서 행을 함께 찾습니다.<br>
+    부서 RAG 는 <a href="/dev/users#depts">사용자·계정 › 부서</a>에서 만들고, 문서는 라이브러리(「문서 올리기」의 검색 범위·폴더·여러 건 고르기)나 문서 화면에서 넣습니다.{% if not dept_rags %} 아직 부서 RAG 가 없습니다.{% endif %}</p>
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">
@@ -155,13 +158,13 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     </div>{% endif %}
     <div class="rg-scroll">
     <table class="rg-table" id="rgGrantTable">
-      <thead><tr><th>계정</th><th>기본 공간</th>
-        {% for sp in dept_spaces %}<th class="c">{{ sp[5:] }}</th>{% endfor %}</tr></thead>
+      <thead><tr><th>계정</th><th>지금 찾는 범위</th>
+        {% for sp in dept_spaces %}<th class="c">{{ sp[5:] }} 더하기</th>{% endfor %}</tr></thead>
       <tbody>
       {% for a in ns.open %}
       <tr data-find="{{ (a.id ~ ' ' ~ a.role ~ ' ' ~ a.dept)|lower }}">
         <td>{{ a.id }}<br><span class="rg-sub">{{ a.role }}{{ " · " ~ a.dept if a.dept }}</span></td>
-        <td class="rg-wrap">{{ a.space }}</td>
+        <td class="rg-wrap">{% if a.space.startswith('dept:') %}공통 + {{ a.space[5:] }}{% elif a.space == 'staff' %}공통{% else %}{{ a.space }}{% endif %}</td>
           {% for sp in dept_spaces %}
           {% set key = a.id ~ "\t" ~ sp %}
           {% set own = a.space == sp %}

@@ -368,8 +368,14 @@ def dept_rag_rows(db, cfg: dict, accounts: dict, depts: list[str] | None = None)
         with db._conn() as conn:
             counts = {str(r[0]): int(r[1]) for r in conn.execute(
                 f"SELECT dept, COUNT(*) FROM documents WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept", depts)}
+    regs: dict[str, tuple[int, int]] = {}
+    if depts:
+        with db._conn() as conn:
+            regs = {str(r[0]): (int(r[1]), int(r[2])) for r in conn.execute(
+                f"SELECT dept, COUNT(DISTINCT doc_id), COUNT(*) FROM regulation_chunks WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept",
+                depts)}
     grants = cfg.get("grants", {})
-    return [{"dept": d, "docs": counts.get(d, 0),
+    return [{"dept": d, "docs": counts.get(d, 0), "reg_docs": regs.get(d, (0, 0))[0], "reg_chunks": regs.get(d, (0, 0))[1],
              "members": sorted(u for u, a in accounts.items() if str(a.get("dept") or "").strip() == d),
              "granted": sorted(u for u, g in grants.items() if f"dept:{d}" in g),
              "made": made.get(d, {}), "folders": sorted(f for f, v in cfg.get("dept_of_area", {}).items() if v == d)}
