@@ -57,3 +57,39 @@ def test_staff_cannot_pick_other_dept_or_change_folder_scope(tmp_path):
     assert "err=" in r.headers["location"]
     assert c.post("/library/folders/scope", data={"key": "f:1", "dept": "공통"}).status_code == 403
     assert c.post("/docs/scope", json={"ids": [1], "dept": "공통"}).status_code == 403
+
+
+def test_upload_with_existing_or_new_program(tmp_path, monkeypatch):
+    app, c = _dev(tmp_path)
+    db = app.state.db
+    from zzaimy.app import paths
+    monkeypatch.setattr(paths, "platform_dir", lambda: tmp_path)
+    r = c.post("/library/upload", data={"program": "_new", "new_program": "가나 인재양성 사업", "new_ministry": "고용노동부", "year": "2026"},
+               files=[("files", ("계획.txt", io.BytesIO("본문".encode()), "text/plain"))], follow_redirects=False)
+    assert "ok=" in r.headers["location"]
+    import json
+    led = json.loads((tmp_path / "kg_external.json").read_text(encoding="utf-8"))
+    assert led["programs"][0]["name"] == "가나 인재양성 사업" and led["programs"][0]["ministry"] == "고용노동부"
+    with db._conn() as conn:
+        doc = dict(conn.execute("SELECT d.doc_type, p.program FROM documents d JOIN projects p ON p.id = d.project_id").fetchone())
+    assert doc["doc_type"] == "grant" and doc["program"] == "program:가나인재양성사업|2026"
+    # 같은 이름으로 다시 등록하면 장부에 새 항목을 만들지 않는다
+    c.post("/library/upload", data={"program": "_new", "new_program": "가나 인재양성 사업"},
+           files=[("files", ("결과.txt", io.BytesIO("본문".encode()), "text/plain"))])
+    assert len(json.loads((tmp_path / "kg_external.json").read_text(encoding="utf-8"))["programs"]) == 1
+
+
+def test_library_filters_format_sort_and_body(tmp_path, monkeypatch):
+    app, c = _dev(tmp_path)
+    db = app.state.db
+    a = db.add_document("가 계획서.pdf", "x/a.pdf", doc_type="grant")
+    b = db.add_document("나 결과보고서.hwp", "x/b.hwp", doc_type="grant")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET status = 'reviewed' WHERE id IN (?, ?)", (a, b))
+    page = c.get("/?type=all&fmt=hwp").text
+    assert "나 결과보고서" in page and "가 계획서" not in page
+    page = c.get("/?type=all&sort=name").text
+    assert page.index("가 계획서") < page.index("나 결과보고서")
+    page = c.get("/?type=all&sort=old").text
+    assert page.index("가 계획서") < page.index("나 결과보고서")
+    assert 'name="body"' in page and 'name="fmt"' in page and 'name="since"' in page

@@ -56,12 +56,15 @@ def group_ids(rows: list[tuple]) -> list[list[int]]:
     return order
 
 
-def grouped(conn, where: str, args: list) -> list[list[int]]:
-    """조건(where 는 ' WHERE …', 표 별칭 d, 열람 조건 포함)에 맞는 문서를 판본 묶음 목록으로.
+ORDERS = {"new": "d.id DESC", "old": "d.id ASC", "name": "d.filename ASC, d.id DESC"}
+
+
+def grouped(conn, where: str, args: list, sort: str = "new") -> list[list[int]]:
+    """조건(where 는 ' WHERE …', 표 별칭 d, 열람 조건 포함)에 맞는 문서를 판본 묶음 목록으로. sort: 최근 등록·오래된 순·이름순.
 
     요청마다 새로 계산한다 — 사용자·권한 사이에 결과를 나눠 쓰지 않는다(열람 등급이 바뀌면 바로 반영)."""
     rows = [tuple(r) for r in conn.execute(
-        f"SELECT d.id, d.doc_type, d.filename FROM documents d{where} ORDER BY d.id DESC", args).fetchall()]
+        f"SELECT d.id, d.doc_type, d.filename FROM documents d{where} ORDER BY {ORDERS.get(sort, ORDERS['new'])}", args).fetchall()]
     return group_ids(rows)
 
 

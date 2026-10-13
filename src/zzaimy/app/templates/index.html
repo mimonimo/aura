@@ -52,6 +52,9 @@
   .lib-folders iconify-icon { flex:none; color:#8A94A6; }
   .lib-scope { flex:none; font-style:normal; font-size:11px; padding:1px 7px; border-radius:999px; background:#EEF1F5; color:#53647B; }
   .lib-scope.dept { background:#FFF4E0; color:#8A5A00; }
+  .lib-more { display:flex; flex-wrap:wrap; gap:8px; width:100%; }
+  .lib-more select { flex:1 1 130px; min-width:0; max-width:220px; }
+  .lib-body { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; color:var(--muted); white-space:nowrap; cursor:pointer; }
   .lib-folder-pick { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; font-size:15px; }
   .lib-folder-pick form { display:flex; gap:6px; align-items:center; margin:0 0 0 auto; font-size:12.5px; }
   .lib-folder-pick select { min-height:30px; font-size:12.5px; }
@@ -153,8 +156,9 @@
 
 {% set flt_labels = {"processing": "처리 중", "reviewed": "처리 완료", "pending": "담당자 확인 전"} %}
 {% set run_labels = {"received": "처리 중", "processing": "처리 중", "failed": "처리 실패"} %}
-{% set keep_qs = (("&project=" ~ active_project) if active_project else "") ~ (("&prog=" ~ (prog | urlencode)) if prog else "") ~ (("&year=" ~ (year | urlencode)) if year else "") %}
-{% set rail_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&folder=" ~ (folder | urlencode)) if folder else "") %}
+{% set more_qs = (("&folder=" ~ (folder | urlencode)) if folder else "") ~ (("&fmt=" ~ fmt) if fmt else "") ~ (("&scope=" ~ (scope | urlencode)) if scope else "") ~ (("&since=" ~ since) if since else "") ~ (("&sort=" ~ sort) if sort != "new" else "") ~ ("&body=1" if body else "") %}
+{% set keep_qs = (("&project=" ~ active_project) if active_project else "") ~ (("&prog=" ~ (prog | urlencode)) if prog else "") ~ (("&year=" ~ (year | urlencode)) if year else "") ~ more_qs %}
+{% set rail_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&folder=" ~ (folder | urlencode)) if folder else "") ~ (("&fmt=" ~ fmt) if fmt else "") ~ (("&scope=" ~ (scope | urlencode)) if scope else "") ~ (("&since=" ~ since) if since else "") ~ (("&sort=" ~ sort) if sort != "new" else "") ~ ("&body=1" if body else "") %}
 {% set use_qs = "type=" ~ active_tab ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") %}
 {% set base_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
 <div class="lib-layout">
@@ -232,14 +236,27 @@
       <input type="hidden" name="use" value="{{ use }}">
       {% if active_project %}<input type="hidden" name="project" value="{{ active_project }}">{% endif %}
       {% if prog %}<input type="hidden" name="prog" value="{{ prog }}">{% endif %}{% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
-      {% if active_flt %}<input type="hidden" name="flt" value="{{ active_flt }}">{% endif %}
       <select name="kind" aria-label="문서 종류">
         <option value="">모든 종류</option>
         {% for k, label, n in kind_counts %}<option value="{{ k or '_none' }}" {% if kind == (k or '_none') %}selected{% endif %}>{{ label }} {{ "{:,}".format(n) }}</option>{% endfor %}
       </select>
-      <input type="search" name="q" value="{{ q }}" placeholder="제목·접수번호" aria-label="제목·접수번호로 찾기">
+      <input type="search" name="q" value="{{ q }}" placeholder="{{ '제목·접수번호·본문 낱말' if body else '제목·접수번호' }}" aria-label="찾을 낱말">
+      <label class="lib-body" title="사업 문서 본문(어휘 색인)에 낱말이 든 문서까지 찾습니다"><input type="checkbox" name="body" value="1" {{ 'checked' if body }}> 본문까지</label>
       <button type="submit" class="secondary">찾기</button>
-      {% if q or active_flt or kind or use != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
+      {% if folder %}<input type="hidden" name="folder" value="{{ folder }}">{% endif %}
+      <div class="lib-more" role="group" aria-label="더 거르기">
+        <select name="fmt" aria-label="파일 형식"><option value="">모든 형식</option>
+          {% for k, lab in [("pdf","PDF"),("hwp","한글"),("word","워드"),("excel","엑셀"),("ppt","PPT"),("image","그림"),("text","글 파일")] %}<option value="{{ k }}" {{ 'selected' if fmt == k }}>{{ lab }}</option>{% endfor %}</select>
+        <select name="since" aria-label="등록 시기"><option value="">모든 기간</option>
+          {% for k, lab in [("7d","최근 7일"),("30d","최근 30일"),("1y","최근 1년")] %}<option value="{{ k }}" {{ 'selected' if since == k }}>{{ lab }}</option>{% endfor %}</select>
+        <select name="flt" aria-label="처리 상태"><option value="">모든 상태</option>
+          {% for k, lab in flt_labels.items() %}<option value="{{ k }}" {{ 'selected' if active_flt == k }}>{{ lab }}</option>{% endfor %}</select>
+        {% if scope_choices | length > 1 or scope %}<select name="scope" aria-label="검색 범위"><option value="">모든 검색 범위</option>
+          {% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if scope == d }}>{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>{% endif %}
+        <select name="sort" aria-label="정렬">
+          {% for k, lab in [("new","최근 등록순"),("old","오래된 순"),("name","이름순")] %}<option value="{{ k }}" {{ 'selected' if sort == k }}>{{ lab }}</option>{% endfor %}</select>
+      </div>
+      {% if q or active_flt or kind or use != 'all' or fmt or since or scope or sort != 'new' or body %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ (('&prog=' ~ (prog | urlencode)) if prog else '') ~ (('&folder=' ~ (folder | urlencode)) if folder else '') }}">조건 지우기</a>{% endif %}
     </form>
     {% if documents %}
     {% set show_business = business_tabs and active_tab == 'all' %}
@@ -289,8 +306,7 @@
         {% if prog %}<input type="hidden" name="prog" value="{{ prog }}">{% endif %}{% if year %}<input type="hidden" name="year" value="{{ year }}">{% endif %}
         {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
         {% if kind %}<input type="hidden" name="kind" value="{{ kind }}">{% endif %}
-        {% if active_flt %}<input type="hidden" name="flt" value="{{ active_flt }}">{% endif %}
-        <label>{{ "{:,}".format(pages) }}쪽 중 <input type="number" name="page" min="1" max="{{ pages }}" value="{{ page }}" aria-label="이동할 쪽"></label>
+          <label>{{ "{:,}".format(pages) }}쪽 중 <input type="number" name="page" min="1" max="{{ pages }}" value="{{ page }}" aria-label="이동할 쪽"></label>
         <button type="submit" class="secondary">이동</button>
       </form>
     </nav>
@@ -324,6 +340,22 @@
       <label class="form-row" id="libUpScopeRow"><span class="muted">검색 범위 — 정하지 않으면 공통 RAG(전 교직원)</span>
         <select name="dept">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG — 그 부서만' }}</option>{% endfor %}</select></label>
       <p class="muted" id="libUpScopeNote" style="font-size:12px; margin:-4px 0 10px;" hidden></p>
+      <label class="form-row"><span class="muted">사업 — 고르면 그 사업의 연도 묶음에 들어가 사업 목록·사업 그래프에서 함께 보입니다</span>
+        <select name="program" id="libUpProg">
+          <option value="">사업 없음</option>
+          <option value="_new">＋ 새 사업 등록…</option>
+          {% for t in rail_tree if not t.unknown %}<optgroup label="{{ t.label }}">
+            {% for g in t.groups %}{% for it in g.progs %}<option value="{{ it.key[5:] }}" {{ 'selected' if prog == it.key }}>{{ it.label }}</option>{% endfor %}{% endfor %}
+          </optgroup>{% endfor %}
+        </select></label>
+      <div id="libUpNew" hidden>
+        <label class="form-row"><span class="muted">새 사업 이름 — 재정지원사업 현황의 사업명처럼</span><input type="text" name="new_program" maxlength="80" placeholder="예: 2027 지역 맞춤형 인재양성 사업"></label>
+        <label class="form-row"><span class="muted">지원기관 — 사업 목록의 대분류·중분류가 이것으로 정해집니다</span>
+          <input type="text" name="new_ministry" maxlength="40" list="libMinistries" placeholder="예: 교육부, 고용노동부, 대구광역시"></label>
+        <datalist id="libMinistries">{% for m in ministries %}<option value="{{ m }}">{% endfor %}</datalist>
+      </div>
+      <label class="form-row" id="libUpYearRow"><span class="muted">사업 연도(선택)</span>
+        <input type="text" name="year" inputmode="numeric" maxlength="4" pattern="(19|20)[0-9]{2}" placeholder="예: 2026 — 비우면 연도 미상"></label>
       <label class="form-row"><span class="muted">업무 갈래</span>
         <select name="doc_type"><option value="auto">자동으로 정하기</option>{% for k, v in inbox_types.items() if k != 'auto' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
       <div style="display:flex; justify-content:flex-end; gap:10px;">
@@ -385,6 +417,15 @@
       if (sel.value) note.textContent = "검색 범위: 폴더를 따라 " + (d === "공통" ? "공통 RAG" : d + " 부서 RAG");
     };
     sel.addEventListener("change", sync); sync();
+  }
+  // 사업 — 「새 사업 등록」을 고르면 이름·지원기관 칸, 사업을 고르면 연도 칸
+  var pg = document.getElementById("libUpProg"), nw = document.getElementById("libUpNew"), yr = document.getElementById("libUpYearRow");
+  if (pg) {
+    var psync = function () {
+      nw.hidden = pg.value !== "_new"; yr.hidden = !pg.value;
+      nw.querySelector("[name=new_program]").required = pg.value === "_new";
+    };
+    pg.addEventListener("change", psync); psync();
   }
 })();
 (function () {

@@ -658,6 +658,11 @@ def create_app(
         prog: str = "",
         year: str = "",
         folder: str = "",
+        body: str = "",
+        fmt: str = "",
+        scope: str = "",
+        since: str = "",
+        sort: str = "new",
     ):
         from zzaimy.app import library
         from zzaimy.app import library_folders as _lf
@@ -697,8 +702,46 @@ def create_app(
             # 화면의 접수번호(「2026-43149」 — 기본 유형 코드를 뺀 꼴)로도 찾는다
             from zzaimy.app.doc_title import receipt_queries
             rq = receipt_queries(q)
-            cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?" + "".join(" OR d.receipt_no = ?" for _ in rq) + ")")
-            args += [f"%{w}%" for w in words] + [f"%{q}%"] + rq
+            # 본문까지 — 사업 문서 어휘 색인(grant_lex)에서 낱말이 든 조각의 문서. 권한은 색인 조회에서 거른다(채팅 검색과 같은 범위)
+            body_ids: list[int] = []
+            if body == "1":
+                try:
+                    from zzaimy.app import access_guard as _ag, grant_lex as _gl
+                    sp = _ag.search_scope(getattr(request.state, "dept", "") or None, request.state.role, request.state.user or "",
+                                          Path(db_path).parent)
+                    if sp.get("grant"):
+                        cids = _gl.rank(db, _gl.lex_terms(q), None, None if request.state.role == "dev" else (request.state.user or ""),
+                                        limit=3000, depts=sp.get("grant_depts"))
+                        if cids:
+                            with db._conn() as _c:
+                                for i in range(0, len(cids), 900):
+                                    part = cids[i:i + 900]
+                                    body_ids += [int(r[0]) for r in _c.execute(
+                                        f"SELECT DISTINCT doc_id FROM doc_chunks WHERE id IN ({','.join('?' * len(part))})", part)]
+                except Exception:
+                    body_ids = []
+                body_ids = sorted(set(body_ids))[:5000]
+            cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?" + "".join(" OR d.receipt_no = ?" for _ in rq)
+                        + (f" OR d.id IN ({','.join('?' * len(body_ids))})" if body_ids else "") + ")")
+            args += [f"%{w}%" for w in words] + [f"%{q}%"] + rq + body_ids
+        # 더 거르기 — 파일 형식·검색 범위·등록 시기. 사업 목록 수도 같은 조건으로 센다
+        FMTS = {"pdf": ("pdf",), "hwp": ("hwp", "hwpx"), "word": ("doc", "docx"), "excel": ("xls", "xlsx", "xlsm", "csv"),
+                "ppt": ("ppt", "pptx"), "image": ("png", "jpg", "jpeg"), "text": ("txt", "md")}
+        if fmt in FMTS:
+            cond.append("(" + " OR ".join("LOWER(d.stored_path) LIKE ?" for _ in FMTS[fmt]) + ")")
+            args += [f"%.{e}" for e in FMTS[fmt]]
+        else:
+            fmt = ""
+        if scope:
+            cond.append("COALESCE(d.dept, '공통') = ?")
+            args.append(scope)
+        SINCE = {"7d": 7, "30d": 30, "1y": 365}
+        if since in SINCE:
+            from datetime import datetime as _dt, timedelta as _td
+            cond.append("d.created_at >= ?")
+            args.append((_dt.now() - _td(days=SINCE[since])).strftime("%Y-%m-%d"))
+        else:
+            since = ""
         fc, fa = _lf.filter_sql(folder) if folder else ("", [])
         if fc:                                                                 # 고른 폴더 — 사업 목록도 그 폴더 안에서 센다
             cond.append(fc)
@@ -745,7 +788,7 @@ def create_app(
             flt = flt if flt in fcond else None
             fwhere = where + (fcond[flt] if flt else "")
             total_docs = stats[flt] if flt else stats["total"]
-            groups = library.grouped(conn, fwhere, args)
+            groups = library.grouped(conn, fwhere, args, sort)
             pages = max(1, -(-len(groups) // PER))
             if page > pages or page < 1:
                 # 범위 밖 쪽은 빈 목록 대신 가까운 끝 쪽으로
@@ -810,8 +853,10 @@ def create_app(
                 "per": PER, "total_docs": total_docs, "n_rows": len(groups),
                 "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "분류 전") if k else "분류 전", n) for k, n in kinds],
                 "folders": (_folders := _lf.folders(db, Path(db_path).parent)), "folder": folder,
+                "body": body == "1", "fmt": fmt, "scope": scope, "since": since, "sort": sort if sort in ("new", "old", "name") else "new",
                 "folder_pick": next((f for f in _folders if f["key"] == folder), None),
                 "scope_choices": _scope_choices(request), "inbox_types": INBOX_TYPES,
+                "ministries": sorted({str(e.get("ministry") or "").split(",")[0].strip() for e in load_ledger().get("programs", [])} - {""}),
                 "rail": rail, "rail_tree": rail_tree, "rail_fixed": [g for g in rail if not g["key"].startswith("prog:")],
                 "prog": prog, "year": year,
                 "rail_pick": next((g for g in rail if g["key"] == prog), None),
@@ -7171,7 +7216,8 @@ def create_app(
 
     @app.post("/library/upload")
     def library_upload(request: Request, background: BackgroundTasks, files: list[UploadFile] = File(...),
-                       folder: str = Form(""), dept: str = Form("공통"), doc_type: str = Form("auto")):
+                       folder: str = Form(""), dept: str = Form("공통"), doc_type: str = Form("auto"),
+                       program: str = Form(""), new_program: str = Form(""), new_ministry: str = Form(""), year: str = Form("")):
         """라이브러리에 직접 올리기 — 프로젝트 없이. 폴더를 고르면 그 폴더의 검색 범위, 아니면 고른 범위(기본 공통 RAG)."""
         from zzaimy.app import library_folders as lf
         from zzaimy.app.access_policy import classify
@@ -7184,6 +7230,26 @@ def create_app(
         if scope not in _scope_choices(request) and not (folder and scope == "공통"):
             return _lib_back(folder, err=f"이 계정은 「{scope}」 부서 RAG 에 올릴 수 없습니다")
         owner = getattr(request.state, "user", "zzaimy")
+        # 사업 — 고른 기존 사업 또는 새 사업(장부에 등록). 그 사업 × 연도 묶음에 넣어 사업 목록·그래프에서 함께 보인다
+        project_id, prog_label = None, ""
+        if program == "_new":
+            from zzaimy.app import program_register as _pr
+            from zzaimy.app import paths as _paths
+            program, prog_label, err = _pr.register(_paths.platform_dir() / "kg_external.json", new_program, new_ministry, by=owner)
+            if err:
+                return _lib_back(folder, err=err)
+        elif program.startswith("program:"):
+            with db._conn() as conn:
+                row = conn.execute("SELECT label FROM kg_nodes WHERE id = ?", (program,)).fetchone()
+            prog_label = (row[0] if row else "") or program.split(":", 1)[1]
+        else:
+            program = ""
+        if program:
+            from zzaimy.app import archive as _archive
+            y = year if year.isdigit() and len(year) == 4 else None
+            project_id = _archive.program_project(db, program, prog_label, None, y)
+            if doc_type == "auto":
+                doc_type = "grant"                  # 사업을 고른 문서는 사업 문서(사업 문서 검색에 든다)
         made, skipped = [], []
         for f in files:
             name = f.filename or "이름없음"
@@ -7196,13 +7262,14 @@ def create_app(
                 shutil.copyfileobj(f.file, out)
             d_dept, d_level = classify(doc_type, owner=owner, dept=scope)
             doc_id = db.add_document(filename=name, stored_path=str(stored), doc_type=doc_type, owner=owner,
-                                     dept=d_dept, access_level=d_level)
+                                     dept=d_dept, access_level=d_level, project_id=project_id)
             stored = storage.adopt_original(db, doc_id, stored)
             background.add_task(processor.process, db, doc_id, stored)
             made.append(doc_id)
         if folder.startswith(lf.MADE):
             lf.put(db, folder, made)
-        msg = f"{len(made)}건을 올렸습니다 · 검색 범위 {scope if scope != '공통' else '공통 RAG'} · 처리가 끝나면 검색에 들어갑니다"
+        msg = f"{len(made)}건을 올렸습니다 · 검색 범위 {scope if scope != '공통' else '공통 RAG'}" + \
+            (f" · 사업 {prog_label}" if prog_label else "") + " · 처리가 끝나면 검색에 들어갑니다"
         if skipped:
             msg += f" · 형식이 맞지 않아 건너뜀 {len(skipped)}건"
         return _lib_back(folder if folder.startswith(lf.MADE) else "", ok=msg)
