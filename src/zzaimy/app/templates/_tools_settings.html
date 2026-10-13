@@ -345,7 +345,7 @@
       {% elif p.ok and p.matches_plan %}<span class="pill reviewed">연결 확인</span>
       {% elif p.ok %}<span class="pill type">다른 모델</span>
       {% else %}<span class="pill processing">준비 안 됨</span>{% endif %}
-      {% if p.detail %}<span class="{{ 'muted' if p.ok or p.kind == 'planned' else 'srv-bad' }}">{{ p.detail }}</span>{% endif %}
+      {% if p.detail %}<span class="{{ 'muted' if (p.ok or p.kind == 'planned') and p.fallback_same is not false else 'srv-bad' }}">{{ p.detail }}</span>{% endif %}
     </div>
     {% endfor %}
   </div>

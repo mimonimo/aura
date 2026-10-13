@@ -37,6 +37,25 @@ def _health(url: str) -> dict:
         return {"ok": False, "model": "", "detail": type(e).__name__}
 
 
+def fallback_model(key: str) -> str:
+    """서비스가 꺼졌을 때 VM 이 쓰는 모델의 끝 이름 — ZZAIMY_EMBED_MODEL·ZZAIMY_RERANK_MODEL(없으면 원본 모델)."""
+    if key == "embed":
+        from zzaimy.app.embed_search import MODEL_NAME as m
+    else:
+        from zzaimy.app.rerank import _MODEL as m
+    return str(m).rstrip("/").rsplit("/", 1)[-1]
+
+
+def _fallback_note(key: str, served: str) -> str:
+    """비상용(VM) 모델이 서비스 모델과 같은가 — 다르면 서비스가 꺼졌을 때 품질이 달라진다(임베딩은 색인과 공간이 어긋남)."""
+    fb = fallback_model(key)
+    if not served or fb == served:
+        return f"비상용 VM {fb}"
+    if key == "embed":
+        return f"비상용 VM {fb} — 서비스 모델과 달라 서비스가 꺼지면 뜻 검색이 어긋납니다(ZZAIMY_EMBED_MODEL)"
+    return f"비상용 VM {fb} — 서비스 모델과 달라 서비스가 꺼지면 재정렬 기준이 바뀝니다(ZZAIMY_RERANK_MODEL)"
+
+
 def status(ttl: float = _TTL) -> list[dict]:
     """[{key, label, where, model, ok, remote}] — 화면에 그대로 뿌릴 수 있는 형태."""
     out = []
@@ -60,9 +79,12 @@ def status(ttl: float = _TTL) -> list[dict]:
 
             floor = os.environ.get("ZZAIMY_RERANK_MIN", "").strip() or f"{RERANK_MIN}"
             detail = f"{detail} · 근거 하한 {floor}" if detail else f"근거 하한 {floor}"
+        model = (got["model"] or "").rsplit("/", 1)[-1]
+        note = _fallback_note(key, model)
+        detail = f"{detail} · {note}" if detail else note
         out.append({"key": key, "label": label, "where": f"서빙 장비 {host}",
-                    "model": (got["model"] or "").rsplit("/", 1)[-1],
-                    "ok": got["ok"], "remote": True, "detail": detail})
+                    "model": model, "ok": got["ok"], "remote": True, "detail": detail,
+                    "fallback": fallback_model(key), "fallback_same": model in ("", fallback_model(key))})
     return out
 
 

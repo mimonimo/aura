@@ -16,7 +16,7 @@ import os
 
 log = logging.getLogger(__name__)
 
-_MODEL = "BAAI/bge-reranker-v2-m3"
+_MODEL = os.environ.get("ZZAIMY_RERANK_MODEL", "BAAI/bge-reranker-v2-m3")   # 서비스가 꺼졌을 때 VM 에서 쓸 모델 — 서비스와 같은 학습본을 둔다
 # 쌍 길이 상한(토큰). 운영 VM(CPU 8코어)에서 후보 10개 기준 측정:
 #   512 → 9.2s/질의, 256 → 4.6s/질의. 순위 일치 top-1 1.00 · 상위3 0.94 · 쌍별 0.96.
 # 조각 본문 앞 350자 안팎(표제 + 조문 요지)이면 관련도 판단에 충분하다. int8 양자화는

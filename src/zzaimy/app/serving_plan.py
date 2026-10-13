@@ -53,7 +53,8 @@ def status(live_models=None) -> list[dict]:
         if item["kind"] == "service":
             part = serving.get(item["key"], {})
             row.update(model=part.get("model", ""), where=part.get("where", ""),
-                       ok=bool(part.get("ok")), detail=part.get("detail", ""))
+                       ok=bool(part.get("ok")), detail=part.get("detail", ""),
+                       fallback_same=part.get("fallback_same", True))
         else:
             r = roles.get(item["key"])
             conn = conns.get(r["id"]) if r and r.get("id") else active

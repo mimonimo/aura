@@ -64,3 +64,19 @@ def test_embed_chunks_reuses_unchanged_text(tmp_path, monkeypatch):
     s52.main()
     assert calls[0] == 1                                     # 새 조각 하나만 계산(뒤는 프로브 질의)
     assert json.loads(meta.read_text())["n_chunks"] == 3
+
+
+def test_serving_status_flags_fallback_model_mismatch(monkeypatch):
+    from zzaimy.app import search_serving
+
+    monkeypatch.setenv("ZZAIMY_EMBED_URL", "http://x/embed")
+    monkeypatch.delenv("ZZAIMY_RERANK_URL", raising=False)
+    monkeypatch.setattr(search_serving, "_health", lambda url: {"ok": True, "model": "/models/zzaimy-embed-v2", "detail": ""})
+    search_serving.clear_cache()
+    monkeypatch.setattr(embed_search, "MODEL_NAME", "nlpai-lab/KURE-v1")
+    row = next(p for p in search_serving.status() if p["key"] == "embed")
+    assert row["fallback_same"] is False and "어긋납니다" in row["detail"]
+    search_serving.clear_cache()
+    monkeypatch.setattr(embed_search, "MODEL_NAME", "/home/x/models/zzaimy-embed-v2")
+    row = next(p for p in search_serving.status() if p["key"] == "embed")
+    assert row["fallback_same"] is True and row["detail"] == "비상용 VM zzaimy-embed-v2"
