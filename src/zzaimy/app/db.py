@@ -1099,9 +1099,33 @@ class Database:
                 conn.execute("UPDATE archive_files SET doc_id = NULL WHERE doc_id = ?", (doc_id,))
             if 'chat_sources' in table_names(conn):
                 conn.execute("UPDATE chat_sources SET doc_id = NULL WHERE doc_id = ?", (doc_id,))
+            if 'kg_nodes' in table_names(conn):
+                self._drop_doc_from_graph(conn, doc_id)
             conn.execute("UPDATE documents SET related_criteria_id = NULL WHERE related_criteria_id = ?", (doc_id,))
             conn.execute("UPDATE documents SET version_of = NULL WHERE version_of = ?", (doc_id,))
             conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+
+    @staticmethod
+    def _drop_doc_from_graph(conn, doc_id: int) -> None:
+        """그래프에서 문서 노드와 그 관계를 지운다. 문서 때문에 생겼다가 이제 문서가 하나도 안 걸린 연차, 그리고
+        문서·연차가 하나도 안 걸린 사업도 함께 지운다 — 다른 문서가 걸린 노드는 그대로다."""
+        nodes = [r[0] for r in conn.execute("SELECT id FROM kg_nodes WHERE doc_id = ?", (doc_id,)).fetchall()]
+        # 차례: 문서 → 문서가 안 남은 연차 → 문서·연차가 안 남은 사업. (다음에 볼 갈래, 그 갈래를 붙잡아 두는 이웃 갈래)
+        for kind, hold in (("year", ("doc",)), ("program", ("doc", "year")), (None, ())):
+            if not nodes:
+                return
+            marks = ",".join("?" * len(nodes))
+            near = {n for r in conn.execute(
+                f"SELECT src, dst FROM kg_edges WHERE src IN ({marks}) OR dst IN ({marks})", (*nodes, *nodes)).fetchall()
+                for n in r} - set(nodes)
+            conn.execute(f"DELETE FROM kg_edges WHERE src IN ({marks}) OR dst IN ({marks})", (*nodes, *nodes))
+            conn.execute(f"DELETE FROM kg_nodes WHERE id IN ({marks})", tuple(nodes))
+            if kind is None:
+                return
+            tm = ",".join("?" * len(hold))
+            nodes = [n for n in near if n.startswith(kind + ":") and not conn.execute(
+                "SELECT 1 FROM kg_edges e JOIN kg_nodes o ON o.id = CASE WHEN e.src = ? THEN e.dst ELSE e.src END"
+                f" WHERE (e.src = ? OR e.dst = ?) AND o.type IN ({tm}) LIMIT 1", (n, n, n, *hold)).fetchone()]
 
     def add_regulation_chunks(
         self, doc_id: int, reg_title: str, chunks,
