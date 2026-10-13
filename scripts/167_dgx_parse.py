@@ -235,6 +235,7 @@ def main() -> int:
     ap.add_argument("--only", default="", help="이 목록(한 줄에 원본 경로 하나)에 있는 원본만 — 스캔 PDF 핵심 문서처럼 범위를 좁혀 다시 돌릴 때")
     ap.add_argument("--force", action="store_true", help="이미 처리한 원본도 다시(읽기 도구가 나아졌을 때 — 예: kordoc 설치 뒤 한글). 168 이 같은 판이어도 같은 문서 번호로 갱신")
     ap.add_argument("--retry-failed", action="store_true", help="이전에 실패한 원본도 다시(판독 도구를 새로 깐 뒤). 성공하면 같은 rel 의 새 줄이 덧붙고 168 이 그것을 들인다")
+    ap.add_argument("--max-bytes", type=int, default=MAX_BYTES, help="이보다 큰 원본은 건너뛴다(0 = 상한 없음). 상한을 넘은 문서를 --only 로 따로 처리할 때")
     ap.add_argument("--dry-run", action="store_true", help="대상만 세어 보이고 끝낸다(처리하지 않음)")
     ap.add_argument("--doc-timeout", type=int, default=900, help="문서 한 건 제한 시간(초) — 넘으면 failed(시간 초과)로 적고 다음 문서로")
     args = ap.parse_args()
@@ -274,7 +275,7 @@ def main() -> int:
             continue
         if it.get("ext") not in exts or it.get("dup_of") or it["rel"] in skip or (it["rel"], version(it)) in done:
             continue
-        if int(it.get("size") or 0) > MAX_BYTES or Path(it["rel"]).name.startswith("~$"):
+        if (args.max_bytes and int(it.get("size") or 0) > args.max_bytes) or Path(it["rel"]).name.startswith("~$"):
             continue
         if is_byproduct(it["rel"]):                   # 웹 페이지 저장 자료(<이름>_files/)·변환기 출력 — 본문 문서의 부속
             continue
