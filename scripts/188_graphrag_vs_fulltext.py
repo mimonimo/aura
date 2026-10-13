@@ -14,7 +14,9 @@
 - 검색(모든 질문 × 모드): 절 질문 doc@k·twin@k·prog@k·정답 문서 순위, 관계 질문 ok(정답 문서 조건)·계획/실적 각각, 걸린 시간
 - 답변(앞에서 고른 일부 × --answer-modes): AgentResponder 를 그대로 — 단계별 시간(규정·사업 문서 검색·생성·전체),
   빈 답·오류, 근거 없음 답, 근거에 없는 숫자(지어낸 수치 의심), 정답 절 글과 겹치는 낱말 비율(절 질문), 근거에 정답 문서가 들었나
-- 눈가림 판정용 묶음(--blind): 질문마다 fulltext·graph 답을 무작위 순서 「가·나」로 — 열쇠는 결과 파일에만
+- 답 품질(quality): 정답 절 숫자 사실 재현율, 근거 밖 수치 비율, 근거에 정답 문서, 관계 양쪽 근거·계획과 실적을 다 다뤘나
+- 눈가림 판정 묶음: 질문마다 모드별 답을 무작위로 「가·나·다」에 놓고 정답 자료와 함께 graphrag_blind_<tag>.json 에,
+  열쇠는 graphrag_blind_key_<tag>.json 에 따로. 판정 결과는 --judge·--judge-key 로 다시 붙인다(--reuse 로 다시 돌지 않고)
 같은 질문에서 모드를 번갈아 돌린다(서버 부하가 한 모드에만 몰리지 않게). 27B 질문 읽기 캐시는 매번 비운다(시간이 실제와 같게).
 출력: data/eval/graphrag_vs_fulltext_<tag>.json 과 요약 한 줄(GRAPHRAG_VS), 표(마크다운).
 
@@ -43,6 +45,7 @@ MODES = ("fulltext", "graph", "graph_read")
 LABEL = {"fulltext": "A 풀텍스트 RAG", "graph": "B 온톨로지+RAG", "graph_read": "C B+27B 읽기"}
 _NUM = re.compile(r"(?<![\d.])\d{2,}(?:[,.]\d+)*")
 _DATE = re.compile(r"((?:19|20)\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})")
+_FACT = re.compile(r"(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d{2,})(?:\.\d+)?")   # 1,200 · 70 · 3.5 — 천 단위 쉼표를 한 수로
 _WORD = re.compile(r"[가-힣A-Za-z0-9]{2,}")
 _NO_EVID = re.compile(r"(?:근거|자료|내용|정보)[를을가이]?\s*(?:찾지\s*못|찾을\s*수\s*없|확인(?:되지|할\s*수)\s*(?:않|없))|관련\s*근거를\s*찾지")
 
@@ -153,6 +156,67 @@ def run_answer(db, it: dict, mode: str) -> dict:
     return row
 
 
+def _digits(x: str) -> str:
+    return re.sub(r"\D", "", x)
+
+
+def gold_facts(text: str, question: str, limit: int = 40) -> list[str]:
+    """정답 절의 핵심 사실 — 숫자(2자리 이상, 날짜·금액·비율·건수).
+    질문에 있던 숫자(연도 등)는 빼고, 같은 숫자는 한 번만. 이름은 낱말 겹침(gold_overlap)이 따로 본다."""
+    qd = {_digits(x) for x in _NUM.findall(question)}
+    out: list[str] = []
+    for x in _FACT.findall(text or ""):
+        d = _digits(x)
+        if d and d not in qd and d not in out and not re.fullmatch(r"0+", d):
+            out.append(d)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def quality(it: dict, a: dict) -> dict:
+    """답 하나의 품질 — 결과 파일의 답 글과 정답(시험지)에서 다시 계산한다(재사용한 답도 같은 잣대).
+    fact_recall: 정답 절 숫자 사실 가운데 답에 나온 비율(사실 단위 재현율, 절 질문)
+    num_total·num_unsupported: 답의 숫자 수와 그중 건넨 근거에 없던 수(근거 밖 수치 비율의 분자·분모)
+    both_sides: 관계 질문에서 관계 양쪽 문서가 답의 근거에 다 들었나(계획↔실적은 계획서·실적보고서 둘 다)
+    mentions_both: 계획↔실적 질문의 답이 계획과 실적을 둘 다 다뤘나(낱말)"""
+    ans = a.get("answer") or ""
+    qd = {_digits(x) for x in _NUM.findall(it["q"])}
+    nums = [x for x in _NUM.findall(ans) if _digits(x) not in qd]
+    out = {"num_total": len(nums), "num_unsupported": len(a.get("unsupported_numbers") or [])}
+    used = set(a.get("evidence_docs") or [])
+    if it["set"] == "section":
+        facts = gold_facts(it.get("gold_text", ""), it["q"])
+        got = {_digits(x) for x in _FACT.findall(ans)}
+        hit = [f for f in facts if f in got]
+        out.update(n_facts=len(facts), fact_hits=len(hit), fact_recall=round(len(hit) / len(facts), 3) if facts else None)
+    else:
+        gold = list(it["gold"])
+        if it["type"] == "plan_report":
+            out["both_sides"] = set(gold[:2]) <= used
+            out["mentions_both"] = bool(re.search(r"계획|목표", ans)) and bool(re.search(r"실적|성과|달성|결과", ans))
+        else:
+            out["both_sides"] = bool(set(gold) & used)
+    return out
+
+
+def _wilson(k: int, n: int, z: float = 1.96) -> list[float] | None:
+    """비율의 95% 윌슨 구간 — 표본이 작을 때 정규 근사보다 낫다."""
+    if not n:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return [round(max(0.0, c - h), 3), round(min(1.0, c + h), 3)]
+
+
+def _cnt(rows: list[dict], key: str) -> dict:
+    vals = [bool(r[key]) for r in rows if key in r and r[key] is not None]
+    k, n = sum(vals), len(vals)
+    return {"k": k, "n": n, "rate": round(k / n, 3) if n else None, "ci95": _wilson(k, n)}
+
+
 def _rate(rows: list[dict], key: str) -> float | None:
     vals = [bool(r[key]) for r in rows if key in r]
     return round(sum(vals) / len(vals), 3) if vals else None
@@ -177,12 +241,14 @@ def summarize(rows: list[dict], mode: str) -> dict:
         "sec_median": _med([s["sec"] for s in srch]), "sec_p90": _p90([s["sec"] for s in srch]),
         "section": {"n": len(sec), "doc_at_k": _rate(sec, "doc_hit"), "twin_at_k": _rate(sec, "twin_hit"),
                     "prog_at_k": _rate(sec, "prog_hit"),
+                    "counts": {k: _cnt(sec, k) for k in ("doc_hit", "twin_hit", "prog_hit")},
                     "mrr": round(sum(1 / s["rank"] for s in sec if s["rank"]) / len(sec), 3) if sec else None},
-        "relation": {"n": len(rel_rows), "ok": _rate([r["search"][mode] for r in rel_rows], "ok")}}}
+        "relation": {"n": len(rel_rows), "ok": _rate([r["search"][mode] for r in rel_rows], "ok"),
+                     "counts": _cnt([r["search"][mode] for r in rel_rows], "ok")}}}
     for t in ("plan_report", "lineage", "evaluates"):
         part = [r["search"][mode] for r in rel_rows if r["type"] == t]
         if part:
-            d = {"n": len(part), "ok": _rate(part, "ok")}
+            d = {"n": len(part), "ok": _rate(part, "ok"), "counts": _cnt(part, "ok")}
             if t == "plan_report":
                 d.update(plan=_rate(part, "plan_ok"), report=_rate(part, "report_ok"))
             out["search"]["relation"][t] = d
@@ -201,7 +267,25 @@ def summarize(rows: list[dict], mode: str) -> dict:
             "search_sec_median": _med([t.get("search_sec") for t in tm]),
             "grant_sec_median": _med([t.get("grant_sec") for t in tm]),
             "regulation_sec_median": _med([t.get("regulation_sec") for t in tm]),
-            "generate_sec_median": _med([t.get("generate_sec") for t in tm])}
+            "generate_sec_median": _med([t.get("generate_sec") for t in tm]),
+            "search_sec_p90": _p90([t.get("search_sec") for t in tm]),
+            "generate_sec_p90": _p90([t.get("generate_sec") for t in tm]),
+            "evidence_has_gold_counts": _cnt(ok, "evidence_has_gold")}
+        qs = [a.get("quality") or {} for a in ok]
+        nt, nu = sum(q.get("num_total", 0) for q in qs), sum(q.get("num_unsupported", 0) for q in qs)
+        fr = [q for q in qs if q.get("fact_recall") is not None]
+        out["answer"].update(
+            numbers_total=nt, numbers_unsupported=nu, unsupported_number_ratio=round(nu / nt, 3) if nt else None,
+            fact_recall_mean=round(sum(q["fact_recall"] for q in fr) / len(fr), 3) if fr else None,
+            fact_recall_median=_med([q["fact_recall"] for q in fr]),
+            fact_hits=sum(q.get("fact_hits", 0) for q in fr), facts_total=sum(q.get("n_facts", 0) for q in fr),
+            relation_both_sides=_cnt([q for q in qs if "both_sides" in q], "both_sides"),
+            plan_report_mentions_both=_cnt([q for q in qs if "mentions_both" in q], "mentions_both"))
+        if any(a.get("judge") for a in ok):
+            js = [a["judge"] for a in ok if a.get("judge")]
+            out["answer"]["judge"] = {"n": len(js), "correct_mean": round(sum(j["correct"] for j in js) / len(js), 3),
+                                      "correct_full": _cnt([{"x": j["correct"] == 2} for j in js], "x"),
+                                      "complete_mean": round(sum(j.get("complete", 0) for j in js) / len(js), 3)}
         for part in ("section", "relation"):
             sub = [r["answers"][mode] for r in rows if mode in r.get("answers", {}) and r["set"] == part]
             sub = [a for a in sub if not a["error"]]
@@ -238,26 +322,60 @@ def table(summary: dict) -> str:
         row("  그중 생성(27B)", lambda s: num(a(s, "generate_sec_median")))
         row("근거에 정답 문서", lambda s: pct(a(s, "evidence_has_gold")))
         row("정답 절 낱말 겹침 중앙값", lambda s: num(a(s, "gold_overlap_median")))
+        row("정답 절 숫자 사실 재현율(평균)", lambda s: num(a(s, "fact_recall_mean")))
+        row("근거 밖 수치 비율", lambda s: f"{a(s, 'numbers_unsupported')}/{a(s, 'numbers_total')}" if a(s, "n") else "—")
+        row("관계 양쪽 근거(답변)", lambda s: (lambda c: f"{c['k']}/{c['n']}" if c else "—")(a(s, "relation_both_sides")))
+        row("판정 정답성 평균(0~2)", lambda s: num((a(s, "judge") or {}).get("correct_mean")))
         row("근거에 없는 숫자가 든 답", lambda s: num(a(s, "with_unsupported_numbers")))
         row("근거 없음 답", lambda s: num(a(s, "no_evidence")))
         row("빈 답·오류", lambda s: f"{a(s, 'empty')}·{a(s, 'errors')}" if a(s, "n") else "—")
     return "\n".join(lines)
 
 
-def blind_pack(rows: list[dict], seed: int) -> list[dict]:
-    """눈가림 판정 묶음 — fulltext·graph 답을 무작위로 가·나에 놓는다. 열쇠(key)는 결과 파일에만 두고 판정자에게는 뺀 꼴을 준다."""
+def gold_reference(db, it: dict, limit: int = 1800) -> str:
+    """판정자에게 줄 정답 자료 — 절 질문은 정답 절 글, 관계 질문은 정답 문서마다 질문에 묶어 적은 절 이름의 절 글(없으면 문서 앞부분)."""
+    if it["set"] == "section":
+        return (it.get("gold_text") or "")[:limit]
+    m = re.search(r"「([^」]{2,60})」", it["q"])
+    key = re.sub(r"\s+", "", m.group(1)) if m else ""
+    parts = []
+    per = limit // max(1, min(2, len(it["gold"])))
+    for did in list(it["gold"])[:2]:
+        doc = db.get_document(int(did)) or {}
+        name = doc.get("filename") or f"문서 {did}"
+        text = ""
+        with db._conn() as conn:
+            rows = conn.execute("SELECT label, props FROM kg_nodes WHERE type = 'section' AND doc_id = ?", (int(did),)).fetchall()
+        seqs: list[int] = []
+        for lab, props in rows:
+            if key and key[:12] in re.sub(r"\s+", "", lab or ""):
+                seqs = (json.loads(props or "{}").get("chunks") or [])[:4]
+                break
+        chunks = {c["seq"]: str(c.get("content") or "") for c in db.list_doc_chunks(int(did)) if c.get("kind") == "text"}
+        text = "\n".join(chunks.get(q, "") for q in seqs) if seqs else "\n".join(chunks[q] for q in sorted(chunks)[:3])
+        parts.append(f"《{name}》\n{text[:per]}")
+    return "\n\n".join(parts)
+
+
+LABELS = ("가", "나", "다")
+
+
+def blind_pack(db, rows: list[dict], items: dict, seed: int) -> tuple[list[dict], dict]:
+    """눈가림 판정 묶음 — 질문마다 모드별 답을 무작위로 가·나·다에 놓는다. 열쇠는 따로(판정자에게 주지 않는다)."""
     rnd = random.Random(seed)
-    out = []
+    out, key = [], {}
     for r in rows:
         a = r.get("answers", {})
-        if "fulltext" not in a or "graph" not in a:
+        modes = [m for m in MODES if m in a]
+        if len(modes) < 2:
             continue
-        order = ["fulltext", "graph"]
-        rnd.shuffle(order)
+        rnd.shuffle(modes)
+        labs = dict(zip(LABELS, modes))
+        key[r["id"]] = labs
         out.append({"id": r["id"], "q": r["q"], "set": r["set"], "type": r["type"],
-                    "gold_text": (r.get("gold_text") or "")[:1500], "gold_docs": r.get("gold_docs") or [],
-                    "가": a[order[0]]["answer"], "나": a[order[1]]["answer"], "key": {"가": order[0], "나": order[1]}})
-    return out
+                    "reference": gold_reference(db, items[r["id"]]),
+                    "answers": {lab: a[m]["answer"] for lab, m in labs.items()}})
+    return out, key
 
 
 def main() -> int:
@@ -273,6 +391,9 @@ def main() -> int:
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
     ap.add_argument("--sec-set", default=str(ROOT / "data/eval/rag_probe_set.json"))
     ap.add_argument("--rel-set", default=str(ROOT / "data/eval/graph_relation_set.json"))
+    ap.add_argument("--reuse", default="", help="앞선 결과 파일 — 같은 질문·모드의 검색·답을 그대로 쓰고 없는 것만 돈다(답변 표본 늘리기)")
+    ap.add_argument("--judge", default="", help="눈가림 판정 결과(graphrag_judge_*.json) — 답마다 정답성·완결성 점수를 붙인다")
+    ap.add_argument("--judge-key", default="", help="판정 묶음의 열쇠(graphrag_blind_key_*.json)")
     ap.add_argument("--new-rel-set", default="", help="관계 질문 집합을 지금 그래프에서 새로 뽑아 이 경로에 쓰고 쓴다(scripts/184 make_set)"
                     " — 예: 40,30,20 = 계획↔실적 40·앞뒤 단계 30·평가 20")
     args = ap.parse_args()
@@ -308,21 +429,42 @@ def main() -> int:
     if ans_ids:
         from zzaimy.app.regulations import find_relevant
         find_relevant(db, items[0]["q"])                                 # 규정 검색(재순위 모델) 데우기 — 첫 답만 수십 초 느려지지 않게
+    judged: dict = {}
+    if args.judge:
+        jd = json.loads(Path(args.judge).read_text(encoding="utf-8"))
+        jkey = json.loads(Path(args.judge_key).read_text(encoding="utf-8"))
+        for j in jd["items"]:
+            for lab, mode in jkey.get(j["id"], {}).items():
+                if lab in j.get("scores", {}):
+                    judged[(j["id"], mode)] = j["scores"][lab]
+    prev: dict = {}
+    if args.reuse:
+        prev = {r["id"]: r for r in json.loads(Path(args.reuse).read_text(encoding="utf-8"))["rows"]}
     rows: list[dict] = []
     started = time.time()
     for i, it in enumerate(items):
         row = {"id": it["id"], "set": it["set"], "type": it["type"], "q": it["q"], "search": {}, "answers": {}}
+        old = prev.get(it["id"])
+        if old and old.get("q") == it["q"]:
+            row["search"] = {m: v for m, v in old.get("search", {}).items() if m in modes}
+            row["answers"] = {m: v for m, v in old.get("answers", {}).items() if m in modes}
         if it["set"] == "section":
-            row.update(doc_id=it["doc_id"], gold_text=it["gold_text"][:1500])
+            row.update(doc_id=it["doc_id"], gold_text=it["gold_text"][:3000])
         else:
             row["gold_docs"] = it["gold"]
         order = list(modes)
         random.Random(f"{args.seed}:{it['id']}").shuffle(order)          # 모드 차례를 질문마다 섞는다
         for m in order:
-            row["search"][m] = run_search(db, it, m, args.k_sec, args.k_rel)
+            if m not in row["search"]:
+                row["search"][m] = run_search(db, it, m, args.k_sec, args.k_rel)
         if it["id"] in ans_ids:
             for m in [m for m in order if m in amodes]:
-                row["answers"][m] = run_answer(db, it, m)
+                if m not in row["answers"]:
+                    row["answers"][m] = run_answer(db, it, m)
+        for m, a in row["answers"].items():
+            a["quality"] = quality(it, a)
+            if judged.get((it["id"], m)):
+                a["judge"] = judged[(it["id"], m)]
         rows.append(row)
         mark = " ".join(f"{m[:2]}:{'O' if (row['search'][m].get('doc_hit') if it['set'] == 'section' else row['search'][m]['ok']) else 'X'}"
                         f"/{row['search'][m]['sec']}s" for m in modes)
@@ -331,17 +473,17 @@ def main() -> int:
     summary = {m: summarize(rows, m) for m in modes}
     out = ROOT / "data" / "eval" / f"graphrag_vs_fulltext_{args.tag}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    blind = blind_pack(rows, args.seed)
+    blind, bkey = blind_pack(db, rows, {x["id"]: x for x in items}, args.seed)
     out.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "tag": args.tag, "modes": modes, "answer_modes": amodes,
                                "k": {"section": args.k_sec, "relation": args.k_rel},
                                "rerank_on": os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1",
                                "sets": {"section": Path(args.sec_set).name, "relation": Path(args.rel_set).name},
                                "elapsed_min": round((time.time() - started) / 60, 1), "dropped": dropped,
-                               "summary": summary, "rows": rows, "blind_key": {b["id"]: b["key"] for b in blind}},
+                               "summary": summary, "rows": rows, "judged": len(judged)},
                               ensure_ascii=False, indent=1), encoding="utf-8")
     bl = ROOT / "data" / "eval" / f"graphrag_blind_{args.tag}.json"
-    bl.write_text(json.dumps([{k: v for k, v in b.items() if k != "key"} for b in blind], ensure_ascii=False, indent=1),
-                  encoding="utf-8")
+    bl.write_text(json.dumps(blind, ensure_ascii=False, indent=1), encoding="utf-8")
+    (ROOT / "data" / "eval" / f"graphrag_blind_key_{args.tag}.json").write_text(json.dumps(bkey, ensure_ascii=False), encoding="utf-8")
     print(table(summary))
     print("GRAPHRAG_VS " + json.dumps({m: {"section": summary[m]["search"]["section"], "relation_ok": summary[m]["search"]["relation"]["ok"],
                                             "search_sec_median": summary[m]["search"]["sec_median"],

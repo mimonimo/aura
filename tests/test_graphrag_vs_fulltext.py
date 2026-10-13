@@ -9,7 +9,7 @@ spec.loader.exec_module(s188)
 
 def _items():
     sec = [{"id": f"sec{i}", "set": "section", "type": "section", "q": f"q{i}", "doc_id": i, "twins": {i}, "prog_docs": {i, 99},
-            "gold_text": "취업률 목표 달성"} for i in range(4)]
+            "gold_text": "취업률 목표 70% 달성, 80명"} for i in range(4)]
     rel = [{"id": f"rel{i}", "set": "relation", "type": t, "q": f"r{i}", "gold": [10 + i, 20 + i], "any": t == "lineage"}
            for i, t in enumerate(["plan_report", "plan_report", "lineage", "evaluates"])]
     return sec + rel
@@ -41,4 +41,11 @@ def test_judge_and_summary_table():
     md = s188.table(summ)
     assert "A 풀텍스트 RAG" in md and "100.0%" in md
     assert s188.unsupported_numbers("2023년 계획", "2023년 목표 75%, 2024. 3. 1.", "목표 75 % 2024.03.01") == []
-    assert len(s188.blind_pack(rows, 7)) == len(items)
+    for r, it in zip(rows, items):
+        for a in r["answers"].values():
+            a["quality"] = s188.quality(it, a)
+    summ = {m: s188.summarize(rows, m) for m in ("fulltext", "graph")}
+    assert summ["graph"]["answer"]["numbers_total"] == len(items) and summ["graph"]["answer"]["fact_recall_mean"] == 0.5
+    assert summ["graph"]["answer"]["relation_both_sides"]["n"] == 4
+    assert s188._wilson(0, 0) is None and s188._wilson(5, 10)[0] < 0.5 < s188._wilson(5, 10)[1]
+    assert s188.gold_facts("목표 70% 2023년 1,200명 70", "2023년") == ["70", "1200"]

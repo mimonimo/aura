@@ -74,8 +74,24 @@ def snapshot(db, eval_dir: Path) -> dict:
 COMPARE_MODES = (("fulltext", "풀텍스트 RAG"), ("graph", "온톨로지+RAG"), ("graph_read", "+27B 읽기"))
 
 
+def _cell(v, kind: str) -> str:
+    if v is None:
+        return "—"
+    if kind == "cnt":                                   # {"k","n","rate","ci95"} → 「62% (41/66, 50~73%)」
+        if not v.get("n"):
+            return "—"
+        ci = v.get("ci95") or [None, None]
+        band = f", {ci[0] * 100:.0f}~{ci[1] * 100:.0f}%" if ci[0] is not None else ""
+        return f"{v['rate'] * 100:.0f}% ({v['k']}/{v['n']}{band})"
+    if kind == "sec":
+        return f"{v}초"
+    if kind == "ratio":
+        return f"{v * 100:.1f}%"
+    return str(v)
+
+
 def compare_rows(eval_dir: Path) -> dict:
-    """scripts/188 결과(graphrag_vs_fulltext_*.json 가장 최근) → 화면 표. 값은 파일의 summary 를 그대로 옮긴다."""
+    """scripts/188 결과(graphrag_vs_fulltext_*.json 가장 최근) → 화면 표와 한 줄 요약. 값은 파일의 summary 를 그대로 옮긴다."""
     data, name = _latest(eval_dir, "graphrag_vs_fulltext_*.json")
     if not data or not data.get("summary"):
         return {}
@@ -87,27 +103,61 @@ def compare_rows(eval_dir: Path) -> dict:
     def get(m, *path):
         v = summ[m]
         for k in path:
-            v = (v or {}).get(k) if isinstance(v, dict) else None
+            v = v.get(k) if isinstance(v, dict) else None
         return v
     spec = (
-        ("절 질문 — 정답 문서가 상위에(doc@k)", ("search", "section", "doc_at_k"), "pct"),
-        ("절 질문 — 같은 사업 문서가 상위에(prog@k)", ("search", "section", "prog_at_k"), "pct"),
-        ("관계 질문 — 관계 양쪽 근거", ("search", "relation", "ok"), "pct"),
-        ("계획서·실적보고서 둘 다", ("search", "relation", "plan_report", "ok"), "pct"),
-        ("앞·뒤 단계 사업", ("search", "relation", "lineage", "ok"), "pct"),
-        ("평가 의견", ("search", "relation", "evaluates", "ok"), "pct"),
-        ("검색 한 번(중앙값)", ("search", "sec_median"), "sec"),
-        ("답변까지 전체(중앙값)", ("answer", "wall_sec_median"), "sec"),
-        ("답변 근거에 정답 문서", ("answer", "evidence_has_gold"), "pct"),
-        ("근거에 없는 숫자가 든 답", ("answer", "with_unsupported_numbers"), "count"),
+        ("검색", "절 질문 — 정답 문서가 근거 상위에", ("search", "section", "counts", "doc_hit"), "cnt"),
+        ("검색", "절 질문 — 같은 사업·같은 해 쌍둥이 문서", ("search", "section", "counts", "twin_hit"), "cnt"),
+        ("검색", "절 질문 — 같은 사업 문서", ("search", "section", "counts", "prog_hit"), "cnt"),
+        ("검색", "관계 질문 — 관계 양쪽 근거", ("search", "relation", "counts"), "cnt"),
+        ("검색", "  계획서·실적보고서 둘 다", ("search", "relation", "plan_report", "counts"), "cnt"),
+        ("검색", "  앞·뒤 단계 사업", ("search", "relation", "lineage", "counts"), "cnt"),
+        ("검색", "  평가 의견", ("search", "relation", "evaluates", "counts"), "cnt"),
+        ("시간", "검색 한 번 중앙값", ("search", "sec_median"), "sec"),
+        ("시간", "검색 한 번 p90", ("search", "sec_p90"), "sec"),
+        ("시간", "답변까지 전체 중앙값", ("answer", "wall_sec_median"), "sec"),
+        ("시간", "답변까지 전체 p90", ("answer", "wall_sec_p90"), "sec"),
+        ("시간", "  그중 근거 찾기(규정+사업 문서) 중앙값", ("answer", "search_sec_median"), "sec"),
+        ("시간", "  그중 27B 생성 중앙값", ("answer", "generate_sec_median"), "sec"),
+        ("답변", "답의 근거에 정답 문서", ("answer", "evidence_has_gold_counts"), "cnt"),
+        ("답변", "정답 절 숫자 사실 재현율(평균)", ("answer", "fact_recall_mean"), "ratio"),
+        ("답변", "근거 밖 수치 비율", ("answer", "unsupported_number_ratio"), "ratio"),
+        ("답변", "관계 질문 — 답의 근거에 양쪽 문서", ("answer", "relation_both_sides"), "cnt"),
+        ("답변", "눈가림 판정 — 정답(2점) 비율", ("answer", "judge", "correct_full"), "cnt"),
+        ("답변", "눈가림 판정 — 정답성 평균(0~2)", ("answer", "judge", "correct_mean"), "num"),
     )
     rows = []
-    for label, path, kind in spec:
+    for group, label, path, kind in spec:
         vals = [get(m, *path) for m, _ in modes]
         if all(v is None for v in vals):
             continue
-        rows.append({"label": label, "kind": kind, "vals": vals})
-    n_sec, n_rel = get(modes[0][0], "search", "section", "n"), get(modes[0][0], "search", "relation", "n")
-    n_ans = next((get(m, "answer", "n") for m, _ in modes if get(m, "answer", "n")), None)
+        rows.append({"group": group, "label": label, "vals": [_cell(v, kind) for v in vals]})
+    ans_n = {lab: get(m, "answer", "n") for m, lab in modes}
     return {"file": name, "made": data.get("made", ""), "modes": [lab for _, lab in modes], "rows": rows,
-            "n_sec": n_sec, "n_rel": n_rel, "n_ans": n_ans}
+            "n_sec": get(modes[0][0], "search", "section", "n"), "n_rel": get(modes[0][0], "search", "relation", "n"),
+            "n_ans": max([v for v in ans_n.values() if v] or [0]) or None, "summary": _why_line(summ)}
+
+
+def _why_line(summ: dict) -> str:
+    """「왜 그래프를 쓰나」 한 줄 — 풀텍스트 대비 그래프(운영) 차이와 지연 비용을 결과 파일 수치로 만든다."""
+    a, b = summ.get("fulltext"), summ.get("graph")
+    if not a or not b:
+        return ""
+
+    def r(s, *path):
+        v = s
+        for k in path:
+            v = v.get(k) if isinstance(v, dict) else None
+        return v
+    parts = []
+    for label, path in (("절 질문 정답 문서", ("search", "section", "doc_at_k")), ("관계 질문 양쪽 근거", ("search", "relation", "ok")),
+                        ("계획·실적 둘 다", ("search", "relation", "plan_report", "ok"))):
+        x, y = r(a, *path), r(b, *path)
+        if x is not None and y is not None:
+            parts.append(f"{label} {x * 100:.0f}% → {y * 100:.0f}%")
+    xs, ys = r(a, "search", "sec_median"), r(b, "search", "sec_median")
+    cost = f" · 검색 한 번 {xs}초 → {ys}초" if xs is not None and ys is not None else ""
+    xw, yw = r(a, "answer", "wall_sec_median"), r(b, "answer", "wall_sec_median")
+    if xw is not None and yw is not None:
+        cost += f" · 답변까지 {xw}초 → {yw}초"
+    return ("풀텍스트 RAG → 온톨로지+RAG: " + ", ".join(parts) + cost) if parts else ""

@@ -121,14 +121,18 @@ def test_answer_flow_reads_numbers_only_from_machine_outputs(graph, tmp_path):
     assert snap["timing"] == {"name": 1.0, "model": 2.0}
     assert snap["compare"] == {}
     (tmp_path / "eval" / "graphrag_vs_fulltext_t.json").write_text(json.dumps({"made": "2026-10-13 23:00", "summary": {
-        "fulltext": {"search": {"sec_median": 1.1, "section": {"n": 74, "doc_at_k": 0.5}, "relation": {"n": 59, "ok": 0.2}},
-                     "answer": {"n": 24, "wall_sec_median": 50.0}},
-        "graph": {"search": {"sec_median": 2.2, "section": {"n": 74, "doc_at_k": 0.7}, "relation": {"n": 59, "ok": 0.6}}}}}),
-        encoding="utf-8")
+        "fulltext": {"search": {"sec_median": 1.1, "section": {"n": 74, "doc_at_k": 0.5,
+                                                               "counts": {"doc_hit": {"k": 37, "n": 74, "rate": 0.5, "ci95": [0.39, 0.61]}}},
+                                "relation": {"n": 59, "ok": 0.2}},
+                     "answer": {"n": 30, "wall_sec_median": 50.0}},
+        "graph": {"search": {"sec_median": 2.2, "section": {"n": 74, "doc_at_k": 0.7}, "relation": {"n": 59, "ok": 0.6}},
+                  "answer": {"n": 30, "wall_sec_median": 60.0}}}}), encoding="utf-8")
     cmp_ = answer_flow.snapshot(graph, tmp_path / "eval")["compare"]
-    assert cmp_["modes"] == ["풀텍스트 RAG", "온톨로지+RAG"] and cmp_["n_sec"] == 74 and cmp_["n_ans"] == 24
-    assert cmp_["rows"][0]["vals"] == [0.5, 0.7]                         # 파일 값 그대로
-    assert {r["label"]: r["vals"] for r in cmp_["rows"]}["답변까지 전체(중앙값)"] == [50.0, None]
+    assert cmp_["modes"] == ["풀텍스트 RAG", "온톨로지+RAG"] and cmp_["n_sec"] == 74 and cmp_["n_ans"] == 30
+    assert cmp_["rows"][0]["vals"] == ["50% (37/74, 39~61%)", "—"]          # 파일 값 그대로
+    assert {r["label"]: r["vals"] for r in cmp_["rows"]}["답변까지 전체 중앙값"] == ["50.0초", "60.0초"]
+    assert cmp_["summary"].startswith("풀텍스트 RAG → 온톨로지+RAG: 절 질문 정답 문서 50% → 70%, 관계 질문 양쪽 근거 20% → 60%")
+    assert "답변까지 50.0초 → 60.0초" in cmp_["summary"]
 
 
 def test_partner_of_evidence_doc_is_added(monkeypatch):
