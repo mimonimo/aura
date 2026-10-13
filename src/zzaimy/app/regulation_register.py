@@ -4,8 +4,8 @@
 학생 공개는 기준 문서(doc_type regulation)만 된다. 그래서 담당자가 후보 가운데 골라 기준 문서로 올린다 — 다시 판독하지 않고
 저장된 본문(masked_text)을 반입과 같은 조문 청킹·잡음 관문(regulations.chunk_document·index_ready)으로 조각낸다(scripts/123 과 같은 길).
 
-후보: 처리 완료 사업 문서 가운데 서류 갈래가 규정·지침이거나 제목이 규정 갈래 낱말(규정·규칙·내규·세칙·학칙·정관·지침)로
-끝나는 것. 협약서·공문·개정안 대비표처럼 규정을 다루는 다른 서류는 뺀다. 같은 판본 묶음(family)은 최신 판 하나만 후보로
+후보: 처리 완료 사업 문서 가운데 제목이 규정 갈래 낱말(규정·규칙·내규·세칙·학칙·정관·지침)로 끝나는 것
+(서류 갈래만 규정인 것은 조문 머리가 있는 협약서·업체 서류일 수 있어 후보로 두지 않는다). 협약서·공문·개정안 대비표처럼 규정을 다루는 다른 서류는 뺀다. 같은 판본 묶음(family)은 최신 판 하나만 후보로
 보이고 판 수를 붙인다(옛 판은 사업 문서로 남아 연도를 묻는 질문에 쓰인다).
 등록·해제는 기록(regulation_register.jsonl)에 남고, 등록 뒤에는 규정 임베딩을 다시 만들어야 뜻 검색에 든다(.reindex-needed).
 """
@@ -44,8 +44,9 @@ def candidates(db, q: str = "", limit: int = 400) -> dict:
             "SELECT d.id, d.filename, d.kind, d.audience, d.dept, COUNT(c.id) AS chunks FROM documents d"
             " LEFT JOIN regulation_chunks c ON c.doc_id = d.id WHERE d.doc_type = 'regulation' AND d.status = 'reviewed'"
             " GROUP BY d.id, d.filename, d.kind, d.audience, d.dept ORDER BY d.filename").fetchall()]
+    # 제목이 규정 갈래 이름으로 끝나는 것만 — 서류 갈래(kind)가 규정이어도 조문 머리만 있는 협약서·업체 서류일 수 있다
     pool = [r for r in rows if (r["n"] or 0) >= MIN_CHARS and not NOT_RULE.search(r["filename"] or "")
-            and (r["kind"] in KINDS or GENRE.search(r["filename"] or ""))]
+            and GENRE.search(r["filename"] or "")]
     fam: dict[str, list[dict]] = {}
     for r in pool:
         fam.setdefault(r["family"] or f"#{r['id']}", []).append(r)
