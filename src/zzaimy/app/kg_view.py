@@ -263,6 +263,18 @@ def program_view(db, program_id: str | None, scope: dict | None = None) -> dict:
             taxonomy.setdefault("related", []).append({"name": name(other), "id": other,
                                                        "why": e["evidence"][0] if e["evidence"] else "",
                                                        "out": e["src"] == prog["id"]})
+    # 같은 이름의 다른 노드(별칭 노드 등)로 같은 사업이 여러 번 나오지 않게 — 이름마다 하나, 근거 글이 있는 쪽을 남긴다
+    me = label_of(prog).replace(" ", "")
+    for key in ("related", "members", "pred", "succ"):
+        seen: dict[str, dict] = {}
+        for t in taxonomy.get(key) or []:
+            k = t["name"].replace(" ", "")
+            if k == me:
+                continue
+            if k not in seen or (not seen[k].get("why") and t.get("why")):
+                seen[k] = t
+        if key in taxonomy:
+            taxonomy[key] = list(seen.values())
     ledger = (prog.get("props") or {}).get("ledger") or {}
     vis_docs = None if scope is None or scope.get("role") == "dev" else allowed_docs
     indicators = indicator_table([nodes[e["dst"]] for e in out_of[prog["id"]] if e["kind"] == "has_indicator" and e["dst"] in nodes], vis_docs)
