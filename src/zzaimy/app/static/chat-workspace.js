@@ -143,6 +143,23 @@
     const count = form_.querySelector('[data-form-count]');
     if (count) count.textContent = total + '개 중 ' + filled + '개 채움' + (later ? ' · 나중에 ' + later + '개' : '');
     form_.style.setProperty('--vf-done', String(total ? Math.min(1, (filled + later) / total) : 0));
+    // 한꺼번에 — 고른 줄이 있으면 고른 줄, 없으면 아직 비어 있는(미루지 않은) 줄이 대상
+    const rows = valueRows(form_), picked = rows.filter(row => row.classList.contains('is-picked'));
+    const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
+    const laterRows = rows.filter(row => rowLater(row)?.checked);
+    const toolLater = form_.querySelector('[data-bulk=later]'), toolFind = form_.querySelector('[data-bulk=find]'),
+          toolClear = form_.querySelector('[data-bulk=clear]');
+    if (toolLater) {
+      const undo = !picked.length && !empty.length && laterRows.length;
+      toolLater.textContent = picked.length ? '고른 ' + picked.length + '개 나중에' : undo ? '나중에 모두 취소' : '빈 칸 ' + empty.length + '개 나중에';
+      toolLater.disabled = !picked.length && !empty.length && !laterRows.length;
+    }
+    if (toolFind) {
+      const n = picked.length || empty.length;
+      toolFind.textContent = picked.length ? '고른 ' + n + '개 자료에서 찾기' : '빈 칸 ' + n + '개 자료에서 찾기';
+      toolFind.disabled = !n;
+    }
+    if (toolClear) toolClear.hidden = !picked.length;
     const verb = typed ? '저장' : (form_.dataset.verb || '저장');
     const submit = form_.querySelector('[data-form-submit]');
     if (submit) {
@@ -197,6 +214,42 @@
     formStatus(form_, '붙여 넣은 ' + names.length + '개를 칸에 나눠 채움' + (lines > names.length ? ' · 맞는 칸이 없는 ' + (lines - names.length) + '줄은 넣지 않음' : ''));
   });
   scroller.addEventListener('click', event => {
+    // 여러 줄 고르기 — Ctrl(⌘)+이름 누름. 고른 줄에 「나중에」·「자료에서 찾기」 를 한꺼번에
+    const nameHit = event.target.closest('form.chat-suggestion-form .chat-form-label');
+    if (nameHit && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      const row = nameHit.closest('.chat-form-field');
+      row.classList.toggle('is-picked');
+      row.setAttribute('aria-selected', String(row.classList.contains('is-picked')));
+      paintValueForm(row.closest('form'));
+      return;
+    }
+    const tool = event.target.closest('form.chat-suggestion-form [data-bulk]');
+    if (tool) {
+      const form_ = tool.closest('form'), rows = valueRows(form_);
+      const picked = rows.filter(row => row.classList.contains('is-picked'));
+      if (tool.dataset.bulk === 'clear') {
+        picked.forEach(row => { row.classList.remove('is-picked'); row.removeAttribute('aria-selected'); });
+      } else if (tool.dataset.bulk === 'later') {
+        const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
+        const target = picked.length ? picked : empty;
+        if (target.length) target.forEach(row => { const box = rowLater(row); if (box) box.checked = true; });
+        else rows.forEach(row => { const box = rowLater(row); if (box) box.checked = false; });   // 나중에 모두 취소
+        picked.forEach(row => { row.classList.remove('is-picked'); row.removeAttribute('aria-selected'); });
+        formStatus(form_, target.length ? target.length + '개를 다음 차례로 미룸 — 저장하면 반영됩니다' : '미룬 값을 모두 되돌림');
+      } else if (tool.dataset.bulk === 'find') {
+        const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
+        const names = (picked.length ? picked : empty).map(row => rowArea(row).dataset.field);
+        if (names.length && input && form) {
+          input.value = names.map(name => '「' + name + '」').join(', ') + ' 값을 이 프로젝트 자료에서 찾아 채워 줘';
+          input.dispatchEvent(new Event('input', {bubbles: true}));
+          form.requestSubmit();
+        }
+        return;
+      }
+      paintValueForm(form_);
+      return;
+    }
     const hint = event.target.closest('form.chat-suggestion-form .chat-form-hint');
     if (hint) { hint.classList.toggle('is-open'); return; }
     const accept = event.target.closest('[data-accept-value]'), edit = event.target.closest('[data-edit-value]');
