@@ -75,30 +75,28 @@
 {% if selected == 'policy' %}
 <div class="card"><div class="card-in">
   <h2>내부 마스킹 설정</h2>
-  <p class="privacy-help" role="status">현재 저장된 상태: <strong>내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong></p>
   {% if request.query_params.get('saved') %}<p role="status">설정을 저장했습니다. 이후 처리부터 적용됩니다.</p>{% endif %}
   <form method="post" action="/dev/pii/policy" id="privacyPolicyForm">
   <input type="hidden" name="enabled" id="privacyEnabledValue" value="{{ 'on' if internal_policy.enabled else 'off' }}">
   <div class="privacy-switch-row"><div><strong>내부 문서의 개인정보 가리기</strong><p class="privacy-help">새 반입·첨부·내부 응답에 적용</p></div>
-  <label><input type="checkbox" role="switch" id="privacyEnabled" aria-label="내부 마스킹" aria-controls="privacyEntities" {% if internal_policy.enabled %}checked{% endif %}><span id="privacySwitchLabel">{{ '켜짐' if internal_policy.enabled else '꺼짐' }}</span></label></div>
+  <label><input type="checkbox" role="switch" id="privacyEnabled" aria-label="내부 마스킹" aria-controls="privacyEntities" {% if internal_policy.enabled %}checked{% endif %}><span id="privacySwitchLabel">{{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</span></label></div>
   <fieldset id="privacyEntities" {% if not internal_policy.enabled %}hidden{% endif %}><legend>가릴 항목</legend><div class="privacy-options">
   {% for key,label in masking_entities.items() %}<label><input type="checkbox" name="entities" value="{{ key }}" {% if key in internal_policy.entities %}checked{% endif %}>{{ label }}</label>{% endfor %}
   </div></fieldset>
   <p class="privacy-help">기준 문서의 원문 유지 예외는 유지합니다. 원본 파일·기존 본문·검색 조각을 소급 변경하지 않습니다.</p>
-  <div class="privacy-switch-row"><span id="privacySaveStatus" class="privacy-help" role="status">변경 후 저장하면 적용됩니다.</span><button type="submit">설정 저장</button></div></form>
+  <div class="privacy-switch-row"><span id="privacySaveStatus" class="privacy-help" role="status">저장된 설정: 내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐' }} · 마지막 변경 {{ (internal_policy.updated_at | kst) or '없음(기본값)' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</span><button type="submit">설정 저장</button></div></form>
   <script>
   (function(){
     var form=document.getElementById('privacyPolicyForm'), toggle=document.getElementById('privacyEnabled');
     form.addEventListener('change',function(){
       document.getElementById('privacyEnabledValue').value=toggle.checked?'on':'off';
       document.getElementById('privacyEntities').hidden=!toggle.checked;
-      document.getElementById('privacySwitchLabel').textContent=toggle.checked?'켜짐':'꺼짐';
-      document.getElementById('privacySaveStatus').textContent='저장하지 않은 변경사항이 있습니다.';
+      document.getElementById('privacySwitchLabel').textContent=toggle.checked?'켜짐':'꺼짐 · 원문 활용';
+      document.getElementById('privacySaveStatus').textContent='저장하지 않은 변경 — 「설정 저장」 을 눌러야 적용됩니다.';
     });
   })();
   </script>
   <noscript>설정 변경에는 JavaScript가 필요합니다. 현재 저장된 설정은 유지됩니다.</noscript>
-  <p class="privacy-help">마지막 변경: {{ (internal_policy.updated_at | kst) or '기본값 · 내부 마스킹 꺼짐' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</p>
   <div class="privacy-policy-note">
   <p class="privacy-help">내부 마스킹 설정으로 학습 반출 검수를 끌 수 없습니다. 자동 탐지는 자유 문장 속 성명·주소 등을 놓칠 수 있어 사람 검수를 대신하지 않습니다.</p>
   <p class="privacy-help">문서 접근 권한은 별도로 유지합니다. 마스킹을 꺼도 다른 부서의 문서 권한이 열리지 않습니다.</p>

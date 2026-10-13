@@ -3437,6 +3437,18 @@ def create_app(
                         g["snippet"] = d["snippet"]
             docs_more = len(groups) > DOCS or len(found) >= 200
             docs = list(groups.values())[:DOCS]
+            # 줄마다 서류 갈래·사업 이름 — 거의 다 국고사업이라 문서 계열 표시는 가려 주는 것이 없다(라이브러리 목록과 같은 표시)
+            if docs:
+                from zzaimy.app.doc_routing import KINDS as _kinds
+
+                with db._conn() as conn:
+                    extra = {r["id"]: dict(r) for r in conn.execute(
+                        "SELECT d.id, d.kind, p.name AS project_name FROM documents d LEFT JOIN projects p ON p.id = d.project_id"
+                        f" WHERE d.id IN ({','.join('?' * len(docs))})", [d["id"] for d in docs]).fetchall()}
+                for d in docs:
+                    e = extra.get(d["id"]) or {}
+                    d["kind_label"] = _kinds.get(e.get("kind") or d.get("kind") or "", "")
+                    d["project_name"] = e.get("project_name") or ""
             projects = _ps.search(db, owner, term)["projects"][:5]
             rows = chat_history.sessions(owner, term, False, 0, 10,
                                          chat_topics.match_clause(term), 'all')

@@ -12,10 +12,15 @@
     status.textContent = '폴더를 불러오는 중…';
     if (!page) files.replaceChildren();
     path.replaceChildren();
+    // 경로는 「내 드라이브 › 폴더 › 지금 폴더」 — 앞 단계는 눌러 돌아가는 글자 단추, 지금 폴더는 글자만
     trail.forEach((folder, index) => {
+      if (index) { const sep = document.createElement('span'); sep.className = 'drive-path-sep'; sep.setAttribute('aria-hidden', 'true'); sep.textContent = '›'; path.append(sep); }
+      if (index === trail.length - 1) {
+        const here = document.createElement('span'); here.className = 'drive-path-here'; here.textContent = folder.name;
+        here.setAttribute('aria-current', 'location'); path.append(here); return;
+      }
       const button = document.createElement('button');
-      button.type = 'button'; button.className = 'secondary'; button.textContent = folder.name;
-      if (index === trail.length - 1) button.setAttribute('aria-current', 'location');
+      button.type = 'button'; button.className = 'drive-path-step'; button.textContent = folder.name;
       button.onclick = () => { trail = trail.slice(0, index + 1); load(); };
       path.append(button);
     });

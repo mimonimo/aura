@@ -116,8 +116,8 @@
             <iconify-icon icon="solar:eye-linear" aria-hidden="true"></iconify-icon><span>보기</span></button>
         </div>
         <ul class="pw-rules" id="pw-rules">
-          <li data-rule="length"><iconify-icon icon="solar:record-linear" aria-hidden="true"></iconify-icon><span>{{ password_rules.min_length }}자 이상</span></li>
-          <li data-rule="differs"><iconify-icon icon="solar:record-linear" aria-hidden="true"></iconify-icon><span>현재 비밀번호와 다름</span></li>
+          <li data-rule="length"><iconify-icon icon="solar:check-circle-linear" aria-hidden="true"></iconify-icon><span>{{ password_rules.min_length }}자 이상</span></li>
+          <li data-rule="differs"><iconify-icon icon="solar:check-circle-linear" aria-hidden="true"></iconify-icon><span>현재 비밀번호와 다름</span></li>
         </ul>
       </div>
     </div>
@@ -131,7 +131,7 @@
   var min = parseInt(form.getAttribute("data-min"), 10) || 0;
   var cur = form.elements.current_pw, nw = form.elements.new_pw;
   var show = form.querySelector("[data-pw-show]"), submit = form.querySelector("[data-pw-submit]");
-  var ICON = { ok: "solar:check-circle-bold", bad: "solar:close-circle-bold", wait: "solar:record-linear" };
+  var ICON = { ok: "solar:check-circle-bold", bad: "solar:close-circle-bold", wait: "solar:check-circle-linear" };   // 아직 — 빈 원은 고르는 단추로 보여 체크 모양 윤곽으로
   function mark(rule, state, text) {
     var li = form.querySelector('[data-rule="' + rule + '"]');
     li.setAttribute("data-state", state);
@@ -142,7 +142,9 @@
     var v = nw.value, longEnough = v.length >= min, same = v !== "" && v === cur.value;
     mark("length", v === "" ? "wait" : (longEnough ? "ok" : "bad"),
          min + "자 이상" + (v && !longEnough ? " · 지금 " + v.length + "자" : ""));
-    mark("differs", v === "" ? "wait" : (same ? "bad" : "ok"), same ? "현재 비밀번호와 같습니다 — 다른 비밀번호로" : "현재 비밀번호와 다름");
+    // 현재 비밀번호를 아직 안 적었으면 다른지 알 수 없다 — 통과로 보이지 않게 기다림
+    mark("differs", v === "" || cur.value === "" ? "wait" : (same ? "bad" : "ok"),
+         same ? "현재 비밀번호와 같습니다 — 다른 비밀번호로" : v && !cur.value ? "현재 비밀번호와 다름 · 현재 비밀번호를 적으면 확인" : "현재 비밀번호와 다름");
     submit.disabled = !(cur.value && longEnough && !same);
   }
   ["input", "change"].forEach(function (ev) { nw.addEventListener(ev, check); cur.addEventListener(ev, check); });

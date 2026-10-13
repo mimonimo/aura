@@ -42,7 +42,8 @@
   {% for d in docs %}
   <div class="sr-row"><div class="sr-main">
     <a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
-    <span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span>
+    {% if d.kind_label %}<span class="pill type">{{ d.kind_label }}</span>{% elif d.doc_type == 'regulation' %}<span class="pill type">{{ doc_type_labels.get(d.doc_type, d.doc_type) }}</span>{% endif %}
+    {% if d.project_name %}<span class="pill"><iconify-icon icon="solar:folder-2-linear" aria-hidden="true"></iconify-icon>{{ d.project_name }}</span>{% endif %}
     {% if d.n_versions > 1 %}<span class="pill">판본 {{ d.n_versions }}개</span>{% endif %}
     <div class="sr-sub">{{ receipt_label(d.receipt_no) }}{% if d.receipt_no and d.snippet %} · {% endif %}{{ d.snippet or "" }}</div>
   </div></div>
