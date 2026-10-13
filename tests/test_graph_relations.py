@@ -119,6 +119,16 @@ def test_answer_flow_reads_numbers_only_from_machine_outputs(graph, tmp_path):
     snap = answer_flow.snapshot(graph, tmp_path / "eval")
     assert snap["probe"][0]["name"] == 0.5 and snap["probe"][0]["model"] == 1.0 and snap["probe"][-1]["label"] == "전체"
     assert snap["timing"] == {"name": 1.0, "model": 2.0}
+    assert snap["compare"] == {}
+    (tmp_path / "eval" / "graphrag_vs_fulltext_t.json").write_text(json.dumps({"made": "2026-10-13 23:00", "summary": {
+        "fulltext": {"search": {"sec_median": 1.1, "section": {"n": 74, "doc_at_k": 0.5}, "relation": {"n": 59, "ok": 0.2}},
+                     "answer": {"n": 24, "wall_sec_median": 50.0}},
+        "graph": {"search": {"sec_median": 2.2, "section": {"n": 74, "doc_at_k": 0.7}, "relation": {"n": 59, "ok": 0.6}}}}}),
+        encoding="utf-8")
+    cmp_ = answer_flow.snapshot(graph, tmp_path / "eval")["compare"]
+    assert cmp_["modes"] == ["풀텍스트 RAG", "온톨로지+RAG"] and cmp_["n_sec"] == 74 and cmp_["n_ans"] == 24
+    assert cmp_["rows"][0]["vals"] == [0.5, 0.7]                         # 파일 값 그대로
+    assert {r["label"]: r["vals"] for r in cmp_["rows"]}["답변까지 전체(중앙값)"] == [50.0, None]
 
 
 def test_partner_of_evidence_doc_is_added(monkeypatch):

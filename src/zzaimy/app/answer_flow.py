@@ -1,7 +1,7 @@
 """개발 현황 「답변 흐름」 탭 — 답이 근거를 찾는 순서(질문 읽기 → 그래프 → 문서 검색 → 답변)와 그 단계의 실제 수치.
 
 수치는 모두 기계 산출물에서 읽는다 — 관계 수는 그래프(kg_edges), 관계 질문 측정은 scripts/184 결과 파일,
-일반 질문 측정은 scripts/173 결과 파일. 파일이 없으면 「측정 전」 으로 둔다.
+일반 질문 측정은 scripts/173 결과 파일, GraphRAG 대 풀텍스트 RAG 비교는 scripts/188 결과 파일. 파일이 없으면 「측정 전」 으로 둔다.
 """
 
 from __future__ import annotations
@@ -63,8 +63,51 @@ def snapshot(db, eval_dir: Path) -> dict:
     else:
         timing = {}
     return {
+        "compare": compare_rows(eval_dir),
         "relations": [{"label": lab, "kind": kind, "n": edges.get(kind)} for lab, kind, _ in RELATION_ROWS],
         "probe": rows, "probe_file": rel_file, "probe_at": (rel or {}).get("made", ""), "timing": timing,
         "model_read_on": os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1",
         "grant_rerank_on": os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1",
     }
+
+
+COMPARE_MODES = (("fulltext", "풀텍스트 RAG"), ("graph", "온톨로지+RAG"), ("graph_read", "+27B 읽기"))
+
+
+def compare_rows(eval_dir: Path) -> dict:
+    """scripts/188 결과(graphrag_vs_fulltext_*.json 가장 최근) → 화면 표. 값은 파일의 summary 를 그대로 옮긴다."""
+    data, name = _latest(eval_dir, "graphrag_vs_fulltext_*.json")
+    if not data or not data.get("summary"):
+        return {}
+    summ = data["summary"]
+    modes = [(m, lab) for m, lab in COMPARE_MODES if m in summ]
+    if not modes:
+        return {}
+
+    def get(m, *path):
+        v = summ[m]
+        for k in path:
+            v = (v or {}).get(k) if isinstance(v, dict) else None
+        return v
+    spec = (
+        ("절 질문 — 정답 문서가 상위에(doc@k)", ("search", "section", "doc_at_k"), "pct"),
+        ("절 질문 — 같은 사업 문서가 상위에(prog@k)", ("search", "section", "prog_at_k"), "pct"),
+        ("관계 질문 — 관계 양쪽 근거", ("search", "relation", "ok"), "pct"),
+        ("계획서·실적보고서 둘 다", ("search", "relation", "plan_report", "ok"), "pct"),
+        ("앞·뒤 단계 사업", ("search", "relation", "lineage", "ok"), "pct"),
+        ("평가 의견", ("search", "relation", "evaluates", "ok"), "pct"),
+        ("검색 한 번(중앙값)", ("search", "sec_median"), "sec"),
+        ("답변까지 전체(중앙값)", ("answer", "wall_sec_median"), "sec"),
+        ("답변 근거에 정답 문서", ("answer", "evidence_has_gold"), "pct"),
+        ("근거에 없는 숫자가 든 답", ("answer", "with_unsupported_numbers"), "count"),
+    )
+    rows = []
+    for label, path, kind in spec:
+        vals = [get(m, *path) for m, _ in modes]
+        if all(v is None for v in vals):
+            continue
+        rows.append({"label": label, "kind": kind, "vals": vals})
+    n_sec, n_rel = get(modes[0][0], "search", "section", "n"), get(modes[0][0], "search", "relation", "n")
+    n_ans = next((get(m, "answer", "n") for m, _ in modes if get(m, "answer", "n")), None)
+    return {"file": name, "made": data.get("made", ""), "modes": [lab for _, lab in modes], "rows": rows,
+            "n_sec": n_sec, "n_rel": n_rel, "n_ans": n_ans}
