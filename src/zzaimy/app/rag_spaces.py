@@ -245,7 +245,7 @@ def _grant_where(sc: dict, a: str = "") -> tuple[str, list] | None:
     """공간의 사업 문서 집합 조건(공간 목록과 같은 집합) — a 는 documents 표 별칭(「d.」). 사업 문서를 쓰지 않는 공간이면 None."""
     if not sc.get("grant"):
         return None
-    base = f"{a}doc_type = 'grant' AND {a}status = 'reviewed'"
+    base = f"{a}doc_type IN ('grant', 'auto', 'recruit', 'admission') AND {a}status = 'reviewed'"
     if sc.get("grant_depts") is None:
         return base, []
     if not sc["grant_depts"]:

@@ -71,7 +71,7 @@ def sync(db, limit: int = 20000) -> dict:
     with db._conn() as conn:
         live = {int(r[0]) for r in conn.execute(
             "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
-            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
+            " WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission') AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
         have = {int(r[0]) for r in conn.execute("SELECT chunk_id FROM grant_lex").fetchall()}
     gone = sorted(have - live)
     removed = 0
@@ -137,7 +137,7 @@ def _coverage(db) -> tuple[int, int]:
         if "grant_lex" not in table_names(conn):
             return 0, 1
         have = conn.execute("SELECT COUNT(*) FROM grant_lex").fetchone()[0]
-        want = conn.execute("SELECT COUNT(*) FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant'"
+        want = conn.execute("SELECT COUNT(*) FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission')"
                             " AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchone()[0]
     return int(have or 0), int(want or 0)
 

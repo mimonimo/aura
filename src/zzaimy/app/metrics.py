@@ -173,11 +173,11 @@ def _count_live(db) -> dict[str, int]:
             "documents": _one(conn, "SELECT COUNT(*) FROM documents"),
             "documents_light": _one(conn, "SELECT COUNT(*) FROM documents WHERE stored_path LIKE 'dgx://%'"),
             "documents_reviewed": _one(conn, "SELECT COUNT(*) FROM documents WHERE status = 'reviewed'"),
-            "grant_reviewed": _one(conn, "SELECT COUNT(*) FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'"),
+            "grant_reviewed": _one(conn, "SELECT COUNT(*) FROM documents WHERE doc_type IN ('grant', 'auto', 'recruit', 'admission') AND status = 'reviewed'"),
             "grant_chunks": _one(conn, "SELECT COUNT(*) FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
-                                       " WHERE d.doc_type = 'grant' AND d.status = 'reviewed'"
+                                       " WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission') AND d.status = 'reviewed'"
                                        " AND c.kind IN ('text', 'table', 'image_text')"),
-            "grant_regulation_kind": _one(conn, "SELECT COUNT(*) FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'"
+            "grant_regulation_kind": _one(conn, "SELECT COUNT(*) FROM documents WHERE doc_type IN ('grant', 'auto', 'recruit', 'admission') AND status = 'reviewed'"
                                                 " AND kind = 'regulation'"),
             "student_regulations": _one(conn, "SELECT COUNT(*) FROM documents WHERE doc_type = 'regulation'"
                                               " AND status = 'reviewed' AND audience = 'student'"),

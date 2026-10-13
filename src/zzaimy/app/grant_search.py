@@ -1,7 +1,7 @@
 """사업 문서 계열 검색 — 국고 사업 문서(계획서·실적보고서·평가·지침 …)의 조각을 찾는다(ADR-0049).
 
 절대 규칙 6: 문서 계열을 단일 색인으로 합치지 않는다 — 규정 계열(regulation_chunks·chunk_embeddings.npz)과 따로 둔다.
-들어온 길(DGX 원본 동기화·DGX 가벼운 처리·문서함 업로드·채팅 첨부)과 상관없이 문서함의 사업 문서(doc_type grant) 조각은 모두 이 색인에
+들어온 길(DGX 원본 동기화·DGX 가벼운 처리·문서함 업로드·채팅 첨부)과 상관없이 문서함의 업무 문서(국고사업·일반 행정·채용·입학 — 기준 문서 말고 전부) 조각은 모두 이 색인에
 들어간다 — 1분 주기 동기화(scripts/170 --quick)가 새 조각만 임베딩해 덧붙인다(build_increment).
 
 순서(에이전트 리즈닝 앞 단계와 같은 꼴, graph/retrieve):
@@ -63,7 +63,7 @@ def corpus(db, doc_ids: set[int] | None = None, user: str | None = None, depts: 
     """사업 문서 조각 — 글이 있는 조각만, 열람 가능한 문서만(+ RAG 공간의 부서)."""
     dsql, dargs = _access(None, depts)
     q = ("SELECT c.id, c.doc_id, c.seq, c.kind, c.content, d.filename, d.owner, d.access_level FROM doc_chunks c"
-         " JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)" + dsql)
+         " JOIN documents d ON d.id = c.doc_id WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission') AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)" + dsql)
     with db._conn() as conn:
         rows = conn.execute(q, (*TEXT_KINDS, *dargs)).fetchall()
     out = []
@@ -182,7 +182,7 @@ def _dense_pg(db, qv, top_k: int, scope_docs: set[int] | None, user: str | None,
             conn.execute("SET hnsw.iterative_scan = relaxed_order")      # 거르는 조건이 있어도 k 개를 채운다
             rows = conn.execute(
                 "SELECT g.chunk_id FROM grant_vec g JOIN documents d ON d.id = g.doc_id"
-                f" WHERE d.doc_type = 'grant' AND d.status = 'reviewed'{acc}{scope_sql}"
+                f" WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission') AND d.status = 'reviewed'{acc}{scope_sql}"
                 " ORDER BY g.emb <#> ?::halfvec LIMIT ?", [*args, vec, int(top_k)]).fetchall()
         return [int(r[0]) for r in rows]
     except Exception as e:                                              # 표·확장이 없거나 연결 문제 — 배열 방식으로
@@ -275,7 +275,7 @@ def scoped_chunk_ids(db, scope_docs: set[int], user: str | None, depts: list[str
         for i in range(0, len(ids), 5000):
             part = ids[i:i + 5000]
             out += [int(r[0]) for r in conn.execute(
-                "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant' AND d.status = 'reviewed'"
+                "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission') AND d.status = 'reviewed'"
                 f" AND c.kind IN (?, ?, ?) AND c.doc_id IN ({','.join('?' * len(part))})" + acc,
                 (*TEXT_KINDS, *part, *args)).fetchall()]
     return out
@@ -287,7 +287,7 @@ def permitted(db, chunk_ids: list[int], user: str | None, depts: list[str] | Non
     acc, args = _access(user, depts)
     with db._conn() as conn:
         return {int(r[0]) for r in conn.execute(
-            "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type = 'grant' AND d.status = 'reviewed'"
+            "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission') AND d.status = 'reviewed'"
             f" AND c.kind IN (?, ?, ?) AND c.id IN ({','.join('?' * len(chunk_ids))})" + acc,
             (*TEXT_KINDS, *chunk_ids, *args)).fetchall()}
 
@@ -609,7 +609,7 @@ def _promote_revisions(db, hits: list[dict], user: str | None, depts: list[str] 
                 orig = conn.execute("SELECT content, kind FROM doc_chunks WHERE id = ?", (h["chunk_id"],)).fetchone()
                 if not orig:
                     continue
-                docs = conn.execute("SELECT id, filename FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'"
+                docs = conn.execute("SELECT id, filename FROM documents WHERE doc_type IN ('grant', 'auto', 'recruit', 'admission') AND status = 'reviewed'"
                                     " AND filename LIKE ? AND id <> ?",
                                     (h["filename"][: m.start()].rstrip() + "%", h["doc_id"])).fetchall()
                 newer = sorted(((r2[1], int(r[0]), r[1]) for r in docs if (r2 := _revision(r[1] or "")) and r2[0] == rev[0]
@@ -728,7 +728,7 @@ def _build_increment_pg(db, batch: int, limit: int) -> dict:
     with db._conn() as conn:
         live = {int(r[0]) for r in conn.execute(
             "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
-            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
+            " WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission') AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
         have = {int(r[0]) for r in conn.execute("SELECT chunk_id FROM grant_vec").fetchall()}
     todo = sorted(live - have)
     gone = sorted(have - live)
@@ -767,7 +767,7 @@ def _build_increment(db, batch: int, limit: int) -> dict:
     with db._conn() as conn:
         live = {int(r[0]) for r in conn.execute(
             "SELECT c.id FROM doc_chunks c JOIN documents d ON d.id = c.doc_id"
-            " WHERE d.doc_type = 'grant' AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
+            " WHERE d.doc_type IN ('grant', 'auto', 'recruit', 'admission') AND d.status = 'reviewed' AND c.kind IN (?, ?, ?)", TEXT_KINDS).fetchall()}
     todo = sorted(live - have)
     new = _fetch(db, todo[:limit])
     keep_mask = np.array([int(i) in live for i in ids]) if ids is not None and len(ids) else None
