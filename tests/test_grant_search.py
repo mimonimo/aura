@@ -215,3 +215,16 @@ def test_graph_switch_off_skips_graph_stage_and_default_keeps_it(tmp_path, monke
     with gs.graph_mode("엉뚱한 값"):
         gs.search(db, "취업률 목표", k=5)
     assert len(calls) == 2
+
+
+def test_lexical_top_hits_survive_fusion(monkeypatch):
+    """임베딩 후보가 많아도 어휘 1위 조각(드문 낱말이 정확히 맞은 것)은 후보에 남는다."""
+    from zzaimy.app.embed_search import rrf_merge
+    from zzaimy.app import grant_search as gs
+    lex, den = [999], list(range(1, 61))
+    merged = rrf_merge(lex, den, w_a=0.4, w_b=1.0)
+    assert merged.index(999) >= 5                          # 섞기만 하면 뒤로 밀린다
+    k = 5
+    keep = [c for c in lex[:gs.LEX_KEEP] if c not in merged[:k]]
+    merged = merged[:k] + keep + [c for c in merged[k:] if c not in keep]
+    assert 999 in merged[:k + gs.LEX_KEEP]

@@ -28,6 +28,7 @@ log = logging.getLogger(__name__)
 INDEX = _paths.index_npz().parent / "grant_embeddings.npz"
 TEXT_KINDS = ("text", "table", "image_text")
 TOP_K = 60
+LEX_KEEP = int(os.environ.get("ZZAIMY_GRANT_LEX_KEEP", "3") or 3)   # 섞은 순위에 늘 남기는 어휘 상위 조각 수
 # 어휘 축 가중(RRF) — 규정 검색의 0.4 를 그대로 쓰면 드문 낱말(사업 이름·고유명사)로 어휘 1위인 조각이 임베딩 후보 60개 뒤로 밀려 빠진다.
 # 값은 scripts/173 비교로 정한다(ZZAIMY_GRANT_LEX_W)
 def _lex_w() -> float:
@@ -494,6 +495,11 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
             lex = grant_lex.rank(db, lq, None, user, depts=depts) if lq else []
             den = dense_ids(question, None, scope_docs=None, user=user, db=db, depts=depts)
         merged = rrf_merge(lex[:TOP_K], den, w_a=_lex_w(), w_b=1.0) if den else lex
+        # 어휘 상위는 지킨다 — 드문 낱말(사업 이름·고유명사)이 정확히 맞은 조각이 임베딩 후보에 밀려 빠지지 않게. 섞은 순위 앞쪽(k)에
+        # 없으면 그 바로 뒤에 둔다(재순위·문서당 상한은 그대로 거친다)
+        keep = [c for c in lex[:LEX_KEEP] if c not in merged[:k]]
+        if keep:
+            merged = merged[:k] + keep + [c for c in merged[k:] if c not in keep]
         sec = section_hits(db, question, scope_docs)
         if sec:
             # 그래프 축 — 질문에 묶어 적은 절 이름이 있으면 범위 안 문서에서 그 제목의 절(그래프 절 노드)을 바로 후보 앞에
