@@ -51,3 +51,13 @@ def test_register_then_unregister_only_what_we_registered(tmp_path):
     assert db.get_document(did)["doc_type"] == "grant" and db.get_document(native)["doc_type"] == "regulation"
     with db._conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM regulation_chunks WHERE doc_id = ?", (did,)).fetchone()[0] == 0
+
+
+def test_newer_revision_stays_candidate_after_older_registered(tmp_path):
+    db = Database(tmp_path / "r.db")
+    old = _doc(db, "가상 연구비 규정 · 2023년 3월 1일", family="연구비")
+    rr.register(db, [old], tmp_path)
+    new = _doc(db, "가상 연구비 규정 · 2025년 3월 1일", family="연구비")
+    older = _doc(db, "가상 연구비 규정 · 2020년 3월 1일", family="연구비")
+    ids = {i["id"] for i in rr.candidates(db)["items"]}
+    assert new in ids and older not in ids                                  # 개정판은 후보, 옛 판은 아니다

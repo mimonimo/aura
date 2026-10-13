@@ -38,7 +38,8 @@ def original_sql(alias: str = "") -> tuple[str, list]:
     conds = [f"{alias}rel NOT LIKE ? ESCAPE '!'"] + [f"{alias}rel NOT LIKE ? ESCAPE '!'" for _ in BYPRODUCT_DIR_SUFFIXES]
     args = [esc(UPLOAD_PREFIX) + "%"] + [f"%{esc(sfx)}/%" for sfx in BYPRODUCT_DIR_SUFFIXES]
     # 정리함으로 옮긴 원본(사진·압축·범위 밖 등, archive_cleanup)은 보관소 목록·건수에서 뺀다 — 되돌리면 다시 보인다
-    conds.append(f"{alias}rel NOT IN (SELECT rel FROM archive_cleanup)")
+    # NOT IN 하위 질의는 PostgreSQL 에서 정리함이 커지면 행마다 다시 훑는다 — 표 이름을 붙인 NOT EXISTS 로
+    conds.append(f"NOT EXISTS (SELECT 1 FROM archive_cleanup ac WHERE ac.rel = {alias or 'archive_files.'}rel)")
     return "(" + " AND ".join(conds) + ")", args
 
 

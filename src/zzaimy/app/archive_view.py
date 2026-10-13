@@ -697,7 +697,8 @@ def archive_cleanup_sample(request: Request, key: str):
 async def archive_cleanup_move(request: Request):
     from zzaimy.app import archive_cleanup
     _dev(request)
-    key = str((await request.json()).get("key") or "")
+    body = await request.json()
+    key = str((body.get("key") if isinstance(body, dict) else "") or "")
     n = archive_cleanup.move(request.app.state.db, key, by=getattr(request.state, "user", "") or "")
     return JSONResponse({"moved": n, **archive_cleanup.summary(request.app.state.db, force=True)})
 
@@ -706,7 +707,8 @@ async def archive_cleanup_move(request: Request):
 async def archive_cleanup_restore(request: Request):
     from zzaimy.app import archive_cleanup
     _dev(request)
-    key = str((await request.json()).get("key") or "")
+    body = await request.json()
+    key = str((body.get("key") if isinstance(body, dict) else "") or "")
     n = archive_cleanup.restore(request.app.state.db, key)
     return JSONResponse({"restored": n, **archive_cleanup.summary(request.app.state.db, force=True)})
 

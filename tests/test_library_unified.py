@@ -135,3 +135,17 @@ def test_library_browses_by_program_and_year(tmp_path):
     assert _ids(picked) == {a, b} and "2024년" in picked and "2025년" in picked
     assert _ids(c.get("/?type=all&prog=prog:program:gasang&year=2025").text) == {b}
     assert _ids(c.get("/?type=all&prog=none").text) == {loose}
+
+
+def test_rail_counts_follow_use_filter_and_non_rep_key(tmp_path):
+    app, c = _client(tmp_path)
+    db = app.state.db
+    with db._conn() as conn:
+        p = conn.execute("INSERT INTO projects (sector, name, created_at, owner, archived, program) VALUES "
+                         "('grant', '2024년 가상', '2026-01-01', 'zzaimy', 1, 'program:gasang|2024') RETURNING id").fetchone()[0]
+    a = db.add_document("가상 공고.pdf", "x", doc_type="grant", project_id=p)
+    db.set_document_kind(a, "announcement")
+    db.add_document("가상 계획서.pdf", "x", doc_type="grant", project_id=p)
+    page = c.get("/?type=all&use=criteria").text
+    rail = page.split('id="libRail"', 1)[1].split("</nav>", 1)[0]
+    assert re.search(r"가상</span><small>1</small>", rail)                    # 기준 칩을 고르면 사업 목록 수도 기준만

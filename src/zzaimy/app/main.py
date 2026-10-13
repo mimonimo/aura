@@ -686,8 +686,10 @@ def create_app(
             title = " AND ".join("REPLACE(d.filename, ' ', '') LIKE ?" for _ in words)
             cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?)")
             args += [f"%{w}%" for w in words] + [f"%{q}%"]
-        rail_where, rail_args = " WHERE " + " AND ".join(cond), list(args)      # 사업 목록은 사업 조건을 빼고 센다
+        rail_cond, rail_args = list(cond), list(args)                         # 사업 목록은 사업 조건만 빼고 같은 조건으로 센다
         rep, members = _program_groups()
+        if prog.startswith("prog:"):                                           # 그래프의 대표가 아닌 이름으로 와도 묶음 대표로
+            prog = "prog:" + rep.get(prog[5:], prog[5:])
         rc, ra = library.rail_sql(prog, year, members) if prog else ("", [])
         if rc:                                                                 # 고른 사업 — 쓰임새 칩·종류 수도 그 안에서
             cond.append(rc)
@@ -699,12 +701,18 @@ def create_app(
         if use_c:
             cond.append(use_c)
             args += use_a
+            rail_cond.append(use_c)
+            rail_args += use_a
         if kind == "_none":
             cond.append("COALESCE(d.kind, '') = ''")
+            rail_cond.append("COALESCE(d.kind, '') = ''")
         elif kind:
             cond.append("d.kind = ?")
             args.append(kind)
+            rail_cond.append("d.kind = ?")
+            rail_args.append(kind)
         where = " WHERE " + " AND ".join(cond)
+        rail_where = " WHERE " + " AND ".join(rail_cond)
         PER = 50
         with db._conn() as conn:
             r = conn.execute(

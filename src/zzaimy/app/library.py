@@ -177,7 +177,9 @@ def _bundle_name(name: str) -> str:
 
 
 def year_label(tail: str) -> str:
-    if not tail or tail in ("?", "*"):
+    if tail == "*":
+        return "전체 기간"                         # 연도로 나누지 않은 묶음(기관 일반 업무 등)
+    if not tail or tail == "?":
         return "연도 미상"
     if tail.startswith("r") and tail[1:].isdigit():
         return f"{tail[1:]}차년도"

@@ -75,7 +75,8 @@ def _visible_docs(db, doc_ids: set[int], scope: dict | None) -> set[int]:
             if every:
                 out |= {int(r[0]) for r in conn.execute(f"SELECT id FROM documents WHERE id IN ({','.join('?' * len(part))})", part)}
                 continue
-            rows = conn.execute(f"SELECT * FROM documents WHERE id IN ({','.join('?' * len(part))})", part).fetchall()
+            rows = conn.execute("SELECT id, access_level, dept, doc_type, audience, owner FROM documents"      # 판정에 쓰는 칸만(본문 빼고)
+                                f" WHERE id IN ({','.join('?' * len(part))})", part).fetchall()
             out |= {int(dict(r)["id"]) for r in rows if visible(dict(r), **scope)}
     return out
 
