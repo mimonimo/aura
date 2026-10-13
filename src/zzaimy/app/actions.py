@@ -74,7 +74,7 @@ REGISTRY: tuple[Action, ...] = (
            ("외부", "참조", "구독", "로그인")),
 
     # ---- 자료 관리 ----
-    Action("nas.page", "문서 가져오기", "/dev/nas", "get", (),
+    Action("nas.page", "문서 반입 · Google Drive", "/dev/nas", "get", (),
            ("가져오", "반입", "폴더", "공유")),
     Action("reindex", "검색 색인 다시 만들기", "/dev/reindex", "post", (),
            ("색인", "재색인", "검색 다시"), True),

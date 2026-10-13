@@ -292,18 +292,23 @@ def dev_google_folders(request: Request, parent: str = 'root', q: str = '', toke
         return JSONResponse({'error': '목록을 불러오지 못했습니다. 계정 연결과 폴더 권한을 확인한 뒤 다시 시도해 주세요.'}, status_code=400)
 
 
-@router.post("/dev/google/revoke")
-def dev_google_revoke(request: Request, email: str = Form("")):
-    """연결된 구글 계정을 지운다 — 보관 토큰과 그 계정으로 이어진 사용자·부서 이음을 모두 푼다."""
-    db = request.app.state.db
-    email = email.strip()
-    if not email:
-        return _back("계정을 골라 주세요", ok=False)
-    for uid, e in bindings(db, _accounts(request)).items():
+def unlink_google(db, accounts: dict, email: str) -> None:
+    """구글 계정 연결 해제 — 보관 토큰과 그 계정으로 이어진 사용자·부서 이음을 모두 푼다.
+    사용자·계정 화면과 문서 반입(Google Drive) 화면이 같은 이 함수를 쓴다(토큰만 지우면 사용자 이음이 죽은 계정을 가리킨다)."""
+    for uid, e in bindings(db, accounts).items():
         if e == email:
             db.set_setting(f"google_account:{uid}", "")
     for k, v in db.all_settings().items():
         if k.startswith("google_account_dept:") and (v or "").strip() == email:
             db.set_setting(k, "")
     gdrive.revoke(email)
+
+
+@router.post("/dev/google/revoke")
+def dev_google_revoke(request: Request, email: str = Form("")):
+    """연결된 구글 계정을 지운다 — unlink_google."""
+    email = email.strip()
+    if not email:
+        return _back("계정을 골라 주세요", ok=False)
+    unlink_google(request.app.state.db, _accounts(request), email)
     return _back(f"{email} 연결을 지웠습니다(구글 쪽 권한은 그 계정의 보안 설정에서 따로 지울 수 있습니다)")

@@ -4630,41 +4630,29 @@ def create_app(
 
     @app.get("/dev/api/intake")
     def dev_api_intake():
-        """반입 현황(JSON) — 개발 현황 「반입 현황」 탭과 같은 원천(app/intake_status)."""
+        """반입 현황(JSON) — 문서 반입 화면과 같은 원천(app/intake_status)."""
         data = _intake_snapshot()
         if data is None:
             raise HTTPException(500, "반입 현황을 읽지 못했습니다")
         return data
 
     # RAG 공간 관리(ADR-0053) — 공간별 자료 수·쓰는 계정, 계정별 추가 권한, 폴더→부서 짝, 학생 공개 규정. 개발자만(/dev 미들웨어)
-    _STUDENT_HINT = re.compile(r"학칙|학사|수업|성적|휴학|복학|장학|졸업|학생|교육과정|학점|수강|등록금|학위|전과|편입")
 
     @app.get("/dev/rag", response_class=HTMLResponse)
     def dev_rag(request: Request):
+        """RAG 공간 — 공간 목록·검색해 보기·계정별 추가 권한·규정·기준 문서(목록은 /dev/rag/regs 로 따로 불러온다).
+        폴더별 담당 부서는 문서 반입(/dev/intake?tab=areas)으로 옮겼다."""
         from zzaimy.app import rag_spaces
         data_dir = Path(db_path).parent
         cfg = rag_spaces.config(data_dir)
-        regs = [d for d in db.list_documents("regulation") if d.get("status") == "reviewed"]
         grants = cfg.get("grants", {})
         accts = [{"id": u, "role": a.get("role", "staff"), "dept": a.get("dept", ""),
                   "space": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir)["id"],
                   "all_grant": rag_spaces.resolve(a.get("role", "staff"), a.get("dept"), data_dir).get("grant_depts") is None,
                   "grants": grants.get(u, [])} for u, a in sorted(accounts.items())]
-        folders = rag_spaces.area_folders(db)
-        seen = {f["folder"] for f in folders}
-        # 설정에만 있고 원본 장부에 없는 폴더도 줄로 보인다 — 지울 수 있게
-        folders += [{"folder": k, "files": None} for k in cfg["dept_of_area"] if k not in seen]
-        regs.sort(key=lambda d: (d.get("audience") != "student", not _STUDENT_HINT.search(d.get("filename") or ""),
-                                 d.get("filename") or ""))
         spaces = rag_spaces.stats(db, data_dir, accounts)
-        preview = rag_spaces.backfill_preview(db, data_dir)
         return templates.TemplateResponse(request, "dev_rag.html", ctx(request, {
-            "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts),
-            "depts": rag_spaces.known_depts(cfg, accounts), "folders": folders,
-            "backfill_preview": preview, "backfill_total": sum(preview.values()),
-            "regs": regs, "student_hint": {d["id"] for d in regs if _STUDENT_HINT.search(d.get("filename") or "")},
-            "n_student_regs": sum(1 for d in regs if d.get("audience") == "student"),
-            "n_grant_reg": next((s_["grant_reg_docs"] for s_ in spaces if s_["id"] == "staff"), 0)}))
+            "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts)}))
 
     @app.post("/dev/rag/grant")
     async def dev_rag_grant(request: Request):
@@ -5175,24 +5163,6 @@ def create_app(
     def _train_redirect(msg: str, ok: bool = True) -> RedirectResponse:
         return _llm_redirect(msg, ok)
 
-    @app.post("/dev/account/scope")
-    def dev_account_scope(request: Request, uid: str = Form(...), dept: str = Form(""), role: str = Form("staff")):
-        """계정의 부서·역할 — 관리자만. 검색·대화 범위가 여기서 정해진다(개인정보 화면이 부른다)."""
-        from zzaimy.app.access_guard import ROLES
-
-        if password is None:
-            raise HTTPException(400, "인증 없는 로컬 모드에서는 계정이 없습니다")
-        if uid not in accounts:
-            raise HTTPException(404, "계정이 없습니다")
-        if role not in ROLES:
-            raise HTTPException(400, "역할 값이 올바르지 않습니다")
-        accounts[uid]["dept"] = dept.strip()
-        accounts[uid]["role"] = role
-        accounts[uid]["updated_at"] = _now_iso()
-        _save_accounts()
-        return RedirectResponse("/dev/pii?ok=계정 범위를 저장했습니다", status_code=303)
-
-
     # ---- NAS 수집 — 읽기 전용 공유 폴더에서 기준 문서·문서 추출로 자동 반입 (개발자 전용) ----
 
     def _nas_redirect(msg: str, ok: bool = True) -> RedirectResponse:
@@ -5465,10 +5435,10 @@ def create_app(
 
     @app.post("/dev/gdrive/revoke")
     def dev_gdrive_revoke(email: str = Form("")):
-        from zzaimy.ingest import gdrive
+        from zzaimy.app.user_admin import unlink_google
 
-        gdrive.revoke(email.strip())
-        return _nas_redirect(f"구글 계정 {email} 의 허용을 지웠습니다(구글 쪽 접근 권한은 계정 설정에서 따로 지웁니다)")
+        unlink_google(db, accounts, email.strip())            # 사용자·계정 화면의 연결 삭제와 같은 동작
+        return _nas_redirect(f"구글 계정 {email} 연결을 지웠습니다 — 이 계정으로 이어진 사용자·부서 연결도 풀었습니다")
 
     def _nas_form_bits(ext_group: list[str], interval_min: int) -> tuple[str, bool, int]:
         # 확장자 묶음 칩 → 확장자 목록, 자동 반입 선택(0=끔) → (auto, interval)

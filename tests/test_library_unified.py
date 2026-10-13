@@ -101,7 +101,8 @@ def test_business_tabs_show_only_with_two_or_more_businesses(tmp_path):
 
 
 def test_criteria_registration_uses_existing_intake_path_only(tmp_path):
-    """기준으로 넣는 길은 기존 반입(/criteria/upload) 하나 — 목록 화면에 doc_type 을 바꾸는 새 동작을 두지 않는다."""
+    """라이브러리 목록 화면에서 기준으로 넣는 길은 기존 반입(/criteria/upload) 하나 — 목록에 doc_type 을 바꾸는 동작을 두지 않는다.
+    (이미 반입된 규정을 기준 문서로 올리는 일은 개발자 RAG 공간의 「규정·기준 문서」에서 — regulation_register)"""
     app, c = _client(tmp_path)
     r = c.post("/criteria/upload", data={"sector": "grant"},
                files={"file": ("가상 지침.pdf", b"%PDF", "application/pdf")}, follow_redirects=False)

@@ -248,7 +248,8 @@
   </div>
 </div>
 </div>
-{# 기준 등록 — 규정 색인 반입은 이 한 경로(/criteria/upload: doc_type=regulation, 원문 유지, 규정 조각 적재) #}
+{# 기준 등록 — 새 파일을 기준 문서로(/criteria/upload: doc_type=regulation, 원문 유지, 규정 조각 적재).
+   이미 반입된 사업 문서 가운데 규정을 기준 문서로 올리는 길은 RAG 공간 「규정·기준 문서」(개발자, regulation_register) #}
 <div id="criteriaUploadModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="criteriaUploadTitle">
   <div class="card">
     <div class="card-in">
@@ -262,6 +263,7 @@
           <select name="sector">{% for sec, label in sector_labels.items() %}<option value="{{ sec }}" {% if sec == active_tab %}selected{% endif %}>{{ label }}{{ " (모든 업무에 적용)" if sec == "common" else "" }}</option>{% endfor %}</select></label>
         <div class="form-row"><span class="muted">공고·규정·지침·평가 기준 파일(여러 개 가능) — 원문 그대로 규정 검색에 들어갑니다</span>
           <input type="file" name="file" required multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
+        {% if request.state.role == 'dev' %}<p class="muted" style="font-size:12px; margin:0 0 10px;">이미 반입된 자료 속 규정은 파일을 다시 올리지 않고 <a href="/dev/rag#student-regs">RAG 공간 › 규정·기준 문서</a>에서 골라 올립니다.</p>{% endif %}
         <div style="display:flex; justify-content:flex-end; gap:10px;">
           <button type="button" data-modal-close class="secondary">취소</button>
           <button type="submit" disabled>등록</button>

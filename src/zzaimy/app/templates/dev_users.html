@@ -93,13 +93,14 @@
 </div></div>
 
 <div class="card reveal"><div class="card-in">
+  <p class="muted" style="font-size:12px; margin:-6px 0 14px;">역할·부서 밖의 검색 범위(다른 부서 사업 문서)는 <a href="/dev/rag#grants">RAG 공간 › 계정별 추가 권한</a>에서 정합니다.</p>
   <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
     <a class="btn-ghost spacer" href="/settings">내 학교 계정 연결</a></h2>
   <div class="ua-chips">
     <span class="pill">{{ '앱 등록 완료' if app.configured else '앱 등록 필요' }}</span>
     <span class="pill">허용 도메인 {{ domain or '제한 없음' }}</span>
   </div>
-  {% if not app.configured %}<p class="muted" style="margin:0 0 10px;">앱 등록은 <a href="/dev/nas">문서 가져오기</a>의 Google 앱 설정에서 합니다.</p>{% endif %}
+  {% if not app.configured %}<p class="muted" style="margin:0 0 10px;">앱 등록은 <a href="/dev/nas">문서 반입 › Google Drive 가져오기</a>의 Google 앱 설정에서 합니다.</p>{% endif %}
   {% if emails %}
   <div class="table-scroll">
   <table class="ua-table">

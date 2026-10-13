@@ -414,11 +414,7 @@ table.dx-list tr.on td { background:#edf3fc; }
 {% elif tab == 'regulation' %}
 <div class="dx-grid">
   <div class="card dx-card"><div class="card-in">
-    <form method="get" action="/dev/db" class="dx-search">
-      <input type="hidden" name="tab" value="regulation">
-      <input type="text" name="q" value="{{ q }}" placeholder="기준 문서 내용 검색" aria-label="기준 문서 검색">
-      <button type="submit" class="secondary">검색</button>
-    </form>
+    <p class="muted" style="font-size:12px; margin:0 0 8px;">규정 검색 시험은 <a href="/dev/rag#try">RAG 공간 › 검색해 보기</a>(공간·계정 범위 그대로)에서, 등록·해제는 <a href="/dev/rag#student-regs">규정·기준 문서</a>에서 합니다. 여기서는 조각을 열람합니다.</p>
     <div class="dx-scroll">
       <table class="dx-list">
         <thead><tr><th>규정</th><th>계열</th><th class="dx-num">자료</th><th class="dx-num">의미 검색 색인</th></tr></thead>
@@ -438,8 +434,8 @@ table.dx-list tr.on td { background:#edf3fc; }
         </tbody>
       </table>
     </div>
-    <p class="muted dx-foot">{{ view.docs|length }}종 ·
-      {% if index.exists %}검색 색인 {{ index.model }} · {{ "{:,}".format(index.n_chunks) }}자료{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}
+    <p class="muted dx-foot">기준 문서 {{ view.docs|length }}건(조각이 없는 것 포함) ·
+      {% if index.exists %}규정 임베딩 색인 {{ index.model }} · {{ "{:,}".format(index.n_chunks) }}조각{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}
       {% else %}검색 색인 없음 — 형태소 검색만{% endif %}</p>
   </div></div>
 

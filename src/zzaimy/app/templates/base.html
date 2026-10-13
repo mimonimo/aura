@@ -532,7 +532,7 @@ document.addEventListener('submit', function(event) {
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}
   <div class="side-label side-label-row">프로젝트
     <button type="button" class="side-label-add" data-modal-open="#projectModal" aria-label="프로젝트 추가" title="프로젝트 추가"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon></button>
-    <a href="/projects/archived" class="side-label-action{{ ' active' if request.url.path == '/projects/archived' else '' }}"><iconify-icon icon="solar:archive-linear" aria-hidden="true"></iconify-icon>보관된 사업</a></div>
+    <a href="/projects/archived?status=archived" class="side-label-action{{ ' active' if request.url.path == '/projects/archived' else '' }}"><iconify-icon icon="solar:archive-linear" aria-hidden="true"></iconify-icon>보관된 사업</a></div>
   {% if side_projects %}
   <nav class="side-nav" style="max-height:180px; overflow-y:auto;">
     {% for pj in side_projects %}

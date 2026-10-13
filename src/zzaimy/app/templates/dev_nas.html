@@ -128,7 +128,7 @@
     <div class="nas-form" id="googleAccounts">
       <fieldset><legend>연결 계정</legend>
         {% if gdrive.accounts %}
-        <div class="gd-accounts">{% for a in gdrive.accounts %}<article class="gd-account"><div><strong>{{ a.email }}</strong><small>{{ '문서 편집 가능' if 'https://www.googleapis.com/auth/documents' in a.scopes else '편집 권한 확인 필요' }}</small></div><form action="/dev/gdrive/revoke" method="post" data-confirm-danger data-confirm="이 계정의 연결을 해제할까요? 연결된 폴더와 문서에 접근할 수 없게 됩니다."><input type="hidden" name="email" value="{{ a.email }}"><button type="submit" class="secondary">연결 해제</button></form></article>{% endfor %}</div>
+        <div class="gd-accounts">{% for a in gdrive.accounts %}<article class="gd-account"><div><strong>{{ a.email }}</strong><small>{{ '문서 편집 가능' if 'https://www.googleapis.com/auth/documents' in a.scopes else '편집 권한 확인 필요' }}</small></div><form action="/dev/gdrive/revoke" method="post" data-confirm-danger data-confirm="이 계정의 연결을 해제할까요? 연결된 폴더와 문서에 접근할 수 없게 되고, 이 계정으로 이어진 사용자·부서 연결도 함께 풀립니다."><input type="hidden" name="email" value="{{ a.email }}"><button type="submit" class="secondary">연결 해제</button></form></article>{% endfor %}</div>
         {% elif gdrive.configured %}<p class="gd-hint">연결된 계정이 없습니다.</p>
         {% else %}<p class="gd-hint">앱 설정을 저장하면 계정을 연결할 수 있습니다.</p>{% endif %}
         <div class="gd-account-actions">
