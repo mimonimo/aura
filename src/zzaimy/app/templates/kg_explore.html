@@ -6,7 +6,7 @@
 <div class="gx-item{% if kid %} kid{% endif %}" data-id="{{ p.id }}" data-type="{{ p.type }}" data-label="{{ p.label }}">
   {%- if p.type == 'program_group' %}<button type="button" class="gx-caret" aria-expanded="false" aria-label="{{ p.label }} 펼치기"><iconify-icon icon="solar:alt-arrow-right-linear"></iconify-icon></button>{% endif -%}
   <label class="gx-chk" title="여러 개 고르기"><input type="checkbox" aria-label="{{ p.label }} 고르기"></label>
-  <button type="button" class="gx-name" title="{{ p.label }}만 보기"><i data-type="{{ p.type }}"></i><span>{{ p.label }}</span></button>
+  <button type="button" class="gx-name" title="{{ p.label }} — 이것만 보기"><i data-type="{{ p.type }}"></i><span>{{ p.label }}</span></button>
   <span class="gx-n" title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건">{{ "{:,}".format(p.n_docs) }}</span>
 </div>
 {%- endmacro %}
@@ -27,7 +27,7 @@
 
   .gx.is-onto .gx-rail > * { opacity: .38; pointer-events: none; }
   .gx.is-onto .gx-rail::before { content: "온톨로지는 사업과 상관없는 전체 구조입니다. 사업을 고르려면 「지식그래프」로 바꿉니다."; display: block; margin: 12px 12px 4px; padding: 10px 12px; border-radius: 8px; background: #F3F6FB; color: #3F5F8A; font-size: 12px; line-height: 1.6; }
-  .gx-rail { width: 290px; flex: none; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .gx-rail { width: 320px; flex: none; background: #fff; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .gx-find, .gx-selbar, .gx-chips { flex: none; }
   .gx-find { padding: 12px 12px 8px; }
   .gx-find input { width: 100%; height: 34px; }
@@ -60,7 +60,8 @@
   .gx-name:hover { background: transparent; color: var(--navy); }
   .gx-item.on .gx-name { color: var(--navy); font-weight: 700; }
   .gx-name i { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-  .gx-name span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gx-name span { flex: 1; min-width: 0; overflow: hidden; white-space: normal; line-height: 1.35; text-align: left;
+                  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: keep-all; overflow-wrap: anywhere; }
   .gx-item[data-type="program_group"] > .gx-name { font-weight: 600; }
   .gx-n { flex: none; min-width: 42px; text-align: right; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .gx-hit-type { flex: none; color: var(--faint); font-size: 11.5px; }
@@ -120,6 +121,9 @@
   .gx-docs a.gx-doclink { text-decoration:none; color:inherit; }
   .gx-docs a.gx-doclink small { color:var(--navy); }
   .gx-docs a.gx-more { display:block; text-decoration:none; }
+
+  .gx-legend .gx-iso { margin-left: auto; appearance: none; border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 1px 10px; font-size: 11.5px; color: var(--navy); cursor: pointer; box-shadow: none; min-height: 0; }
+  .gx-legend .gx-iso:hover { background: #F1F5FB; }
 </style>
 {% endblock %}
 
@@ -242,6 +246,8 @@
       { selector: "edge:loop", style: { label: "", "loop-direction": "-45deg", "loop-sweep": "-30deg" } },
       { selector: "node.ov", style: { "font-size": 12, "min-zoomed-font-size": 8 } },
       { selector: "node.ov[type = 'program_group']", style: { "font-size": 19 } },
+      { selector: "node.ov.small", style: { "min-zoomed-font-size": 14 } },          // 작은 사업 이름은 확대하거나 올렸을 때만
+      { selector: "node.ov.small.lbl, node.ov.small:selected", style: { "min-zoomed-font-size": 1 } },
       { selector: "edge:selected", style: { width: 4, opacity: 1 } },
       { selector: ".faded", style: { opacity: 0.12 } }
     ]
@@ -280,6 +286,13 @@
     });
     if (!state.sel.length) box.appendChild(el("span", null, "크기 = 문서 수"));
     if (guess) box.appendChild(el("span", null, "점선 = 유사도로 추정한 관계"));
+    if (!state.sel.length && isolated) {
+      // 관계 없는 작은 사업 — 그림에서 빼 둔 수와 보이기 토글
+      var t = el("button", "gx-iso", (showIsolated ? "관계 없는 사업 " + isolated + "개 숨기기" : "관계 없는 사업 " + isolated + "개 보이기"));
+      t.type = "button"; t.title = "다른 사업과 이어진 관계가 없고 문서가 30건 미만인 사업 — 왼쪽 목록에서는 늘 고를 수 있습니다";
+      t.addEventListener("click", function () { showIsolated = !showIsolated; drawn = ""; render(); });
+      box.appendChild(t);
+    }
   }
 
   function addNode(n) {
@@ -294,6 +307,7 @@
              width: e.kind === "contains" ? 1 : 2, guess: e.basis === "유사도" ? 1 : 0, raw: e } });
   }
 
+  var isolated = 0, showIsolated = false;     // 개요에서 뺀 관계 없는 작은 사업 수, 보이기 토글
   var placedIds = {};                        // 이미 자리를 잡은 노드 — 더 펼칠 때 움직이지 않는다
   function relayout(fresh) {
     // 처음 그릴 때는 무작위에서 시작해야 고르게 퍼진다. 더 펼칠 때는 이미 있던 노드는 제자리에 두고(고정) 새 노드만
@@ -590,12 +604,21 @@
   function drawOverview() {
     var go = function (d) {
       cy.elements().remove(); loaded = {}; lastData = {}; placedIds = {}; ringCount = {};
-      d.nodes.forEach(function (n) {
+      // 관계가 하나도 없는 작은 사업은 그림 대신 목록에 — 수십 개가 한 덩어리로 겹쳐 그림을 가린다(토글로 보이기)
+      var linked = {};
+      d.edges.forEach(function (e) { linked[e.src] = linked[e.dst] = 1; });
+      var lonely = d.nodes.filter(function (n) { return n.type === "program" && !linked[n.id] && (n.n_docs || 0) < 30; });
+      isolated = lonely.length;
+      var skip = showIsolated ? {} : Object.fromEntries(lonely.map(function (n) { return [n.id, 1]; }));
+      var smallCut = 30;
+      d.nodes.filter(function (n) { return !skip[n.id]; }).forEach(function (n) {
         labelOf[n.id] = n.label; docsOf[n.id] = n.n_docs;
         cy.add({ group: "nodes", data: { id: n.id, label: n.label, short: clip(n.short || n.label, 22), type: n.type,
-                 color: COLOR[n.type] || "#8892A6", size: sizeByDocs(n.n_docs), raw: n }, classes: "ov" });
+                 color: COLOR[n.type] || "#8892A6", size: sizeByDocs(n.n_docs), raw: n },
+                 classes: "ov" + (n.type === "program" && (n.n_docs || 0) < smallCut ? " small" : "") });
       });
       d.edges.forEach(function (e) {
+        if (skip[e.src] || skip[e.dst]) return;
         cy.add({ group: "edges", data: { id: e.src + "|" + e.kind + "|" + e.dst, source: e.src, target: e.dst, kind: e.kind,
                  color: EDGE_COLOR[e.kind] || "#B8C4D6", width: e.kind === "contains" ? 1.2 : 2, guess: e.basis === "유사도" ? 1 : 0, raw: e } });
       });
