@@ -92,7 +92,9 @@
   .lib-bulk { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0 4px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:#F8FAFC; font-size:12.5px; }
   .lib-bulk select { min-height:30px; font-size:12.5px; max-width:240px; }
   .lib-bulk .secondary { min-height:30px; padding:3px 11px; font-size:12.5px; }
-  .lib-bulk-g { display:inline-flex; gap:6px; align-items:center; padding-left:8px; border-left:1px solid var(--line); }
+  .lib-mini2 { min-height:30px; padding:3px 11px; font-size:12.5px; margin-left:auto; }
+  .lib-bulk-g select { max-width:180px; }
+  .lib-bulk-g { flex-wrap:nowrap; display:inline-flex; gap:6px; align-items:center; padding-left:8px; border-left:1px solid var(--line); }
   .lib-bulk-all { display:inline-flex; align-items:center; gap:5px; cursor:pointer; }
   .lib-bulk-n { flex:1; min-width:140px; color:var(--muted); } .lib-bulk-msg { color:#2D4F7C; }
   .lib-pick { margin-top:3px; width:16px; height:16px; accent-color:#1B3B75; flex:none; }
@@ -233,10 +235,7 @@
     {% if request.query_params.get('err') %}<p class="pill lib-flash" role="alert">{{ request.query_params.get('err') }}</p>{% endif %}
     {% if folder_pick %}<div class="lib-folder-pick"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><b>{{ folder_pick.name }}</b>
       <span class="lib-scope{{ ' dept' if folder_pick.dept != '공통' }}">검색 범위 {{ '공통 RAG' if folder_pick.dept == '공통' else folder_pick.dept ~ ' 부서 RAG' }}</span>
-      {% if request.state.role == 'dev' %}<form method="post" action="/library/folders/scope" data-confirm="폴더의 문서 {{ '{:,}'.format(folder_pick.docs) }}건이 고른 검색 범위로 옮겨 갑니다. 바꿀까요?">
-        <input type="hidden" name="key" value="{{ folder_pick.key }}">
-        <select name="dept" aria-label="검색 범위">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == folder_pick.dept }}>{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>
-        <button class="secondary" type="submit">범위 바꾸기</button></form>
+      {% if request.state.role == 'dev' %}<button type="button" class="secondary lib-mini2" data-modal-open="#folderScopeModal">검색 범위 바꾸기…</button>
       {% if folder_pick.kind == '만든' %}<form method="post" action="/library/folders/delete" data-confirm="「{{ folder_pick.name }}」 폴더를 지웁니다. 문서 {{ '{:,}'.format(folder_pick.docs) }}건은 지우지 않고 폴더에서만 뺍니다." style="margin:0;">
         <input type="hidden" name="key" value="{{ folder_pick.key }}"><button class="btn-ghost" type="submit" style="color:var(--red);">폴더 지우기</button></form>{% endif %}{% endif %}
       <a class="lib-pick-x" href="/?type=all" aria-label="폴더 고르기 풀기">×</a></div>{% endif %}
@@ -409,6 +408,24 @@
     </form>
   </div></div>
 </div>
+{% if folder_pick and request.state.role == 'dev' %}
+<div id="folderScopeModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="folderScopeTitle">
+  <div class="card"><div class="card-in">
+    <div class="modal-head">
+      <h2 id="folderScopeTitle"><iconify-icon icon="solar:folder-linear"></iconify-icon>「{{ folder_pick.name }}」 검색 범위</h2>
+      <button type="button" data-modal-close class="dialog-close" aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+    </div>
+    <form method="post" action="/library/folders/scope">
+      <input type="hidden" name="key" value="{{ folder_pick.key }}">
+      <p class="muted" style="font-size:12.5px; margin:0 0 10px;">지금: {{ '공통 RAG' if folder_pick.dept == '공통' else folder_pick.dept ~ ' 부서 RAG' }} · 이 폴더 문서 {{ "{:,}".format(folder_pick.docs) }}건이 고른 범위로 옮겨 갑니다{% if folder_pick.kind == '원본' %}. 원본 폴더라 앞으로 이 폴더로 반입되는 문서도 같은 범위로 들어옵니다{% endif %}.</p>
+      {{ scope_pick("dept", "fscope", folder_pick.dept) }}
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" data-modal-close class="secondary">취소</button>
+        <button type="submit">바꾸기</button>
+      </div>
+    </form>
+  </div></div>
+</div>{% endif %}
 {# 폴더 만들기 — 이름과 검색 범위. 검색 범위는 나중에 폴더 머리에서 바꿀 수 있다(관리자) #}
 <div id="folderModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="folderTitle">
   <div class="card"><div class="card-in">
