@@ -4686,6 +4686,39 @@ def create_app(
         return RedirectResponse("/dev/rag?" + urlencode({"ok": "이미 반입된 문서에 부서를 적용했습니다 — " + (", ".join(
             f"{k} {v:,}" for k, v in got.items()) or "짝 없음")}) + "#areas", status_code=303)
 
+    # 규정·기준 문서 — 반입한 규정을 골라 기준 문서로 올리고(조문 조각), 학생 공개를 정한다(regulation_register)
+    @app.get("/dev/rag/regs")
+    def dev_rag_regs(q: str = ""):
+        from zzaimy.app import regulation_register
+        got = regulation_register.candidates(db, q)
+        return {**got, "reindex_needed": (Path(db_path).parent / ".reindex-needed").exists(), "reindex_running": _reindex_running()}
+
+    async def _ids_from(request: Request) -> list[int]:
+        body = await request.json()
+        return [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:500]
+
+    @app.post("/dev/rag/regs/register")
+    async def dev_rag_regs_register(request: Request):
+        from zzaimy.app import regulation_register
+        return regulation_register.register(db, await _ids_from(request), Path(db_path).parent, by=request.state.user or "")
+
+    @app.post("/dev/rag/regs/unregister")
+    async def dev_rag_regs_unregister(request: Request):
+        from zzaimy.app import regulation_register
+        return regulation_register.unregister(db, await _ids_from(request), Path(db_path).parent, by=request.state.user or "")
+
+    @app.post("/dev/rag/regs/audience")
+    async def dev_rag_regs_audience(request: Request):
+        body = await request.json()
+        aud = "student" if body.get("audience") == "student" else "staff"
+        n = 0
+        for did in [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:500]:
+            d = db.get_document(did)
+            if d and d.get("doc_type") == "regulation":
+                db.set_document_audience(did, aud)
+                n += 1
+        return {"changed": n, "audience": aud}
+
     @app.get("/dev/rag/try")
     def dev_rag_try(target: str = "", q: str = "", k: int = 5):
         """검색해 보기 — 공간·계정의 실제 검색 범위(search_scope)로 규정·사업 문서를 찾은 상위 결과. 생성 모델은 부르지 않는다."""
