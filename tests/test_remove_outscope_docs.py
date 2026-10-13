@@ -59,3 +59,12 @@ def test_prune_dup_and_tiny(tmp_path):
     assert rm.remove(db, [ids["시안"]], "tiny") == 1
     with db._conn() as conn:
         assert conn.execute("SELECT category FROM archive_cleanup WHERE rel = ?", ("링크/시안.pdf",)).fetchone()[0] == "pruned"
+
+
+def test_evidence_by_title(tmp_path):
+    db = _app(tmp_path).state.db
+    a = db.add_document("세금계산서.pdf", "x", doc_type="grant")
+    b = db.add_document("결과보고서.hwp", "y", doc_type="grant")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET kind = 'table' WHERE id IN (?, ?)", (a, b))
+    assert rm.targets(db, "evidence_title") == [a]

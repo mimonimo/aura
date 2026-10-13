@@ -39,12 +39,13 @@ LINKS = (("archive_files", "rel", "doc_id"), ("files", "id", "doc_id"), ("chat_s
 
 WHAT = {
     "evidence": "지출·계약 증빙 갈래",
+    "evidence_title": "제목이 지출·계약 증빙인 문서(갈래는 본문으로 달리 붙었어도)",
     "dup": "같은 본문 여분(사업마다 한 건만 남김)",
     "tiny": "본문 100자 미만(양식 제외)",
     "drawing": "도면 갈래",
     "personal": "개인 제출물 갈래(수기·응모작 등)",
 }
-CLEANUP = {"evidence": "evidence"}                    # 원본을 옮길 정리함 갈래 — 나머지는 pruned
+CLEANUP = {"evidence": "evidence", "evidence_title": "evidence"}                    # 원본을 옮길 정리함 갈래 — 나머지는 pruned
 TINY = 100
 # 같은 본문 묶음에서 남길 쪽을 고를 때 뒤로 미는 경로 낱말 — 사람이 만든 사본·넘겨받은 묶음
 _COPYISH = re.compile(r"인수인계|사본|복사본|백업|backup|copy|(^|/)새 폴더", re.I)
@@ -70,6 +71,12 @@ def targets(db, what: str = "evidence") -> list[int]:
             ids = [int(r[0]) for r in conn.execute(
                 f"SELECT id FROM documents WHERE doc_type = 'grant' AND kind IN ({','.join('?' * len(kinds))})", list(kinds))] if kinds else []
             return sorted(ids)                    # 증빙은 직접 올린 것도 같은 규칙(처음 정리 때와 같게)
+        if what == "evidence_title":
+            # 사람도 서류를 제목으로 안다 — 제목의 머리 낱말이 증빙(세금계산서·거래명세서·견적서·청구서·계약서 …)이면 지출·계약 계열
+            from zzaimy.app.doc_routing import excluded_kinds, guess_kind
+            kinds = set(excluded_kinds())
+            return sorted(int(r[0]) for r in conn.execute("SELECT id, filename, kind FROM documents WHERE doc_type = 'grant'")
+                          if (r[2] or "") not in kinds and guess_kind(r[1] or "", "")[0] in kinds)
         if what in ("drawing", "personal"):
             return sorted(int(r[0]) for r in conn.execute(
                 "SELECT id FROM documents WHERE doc_type = 'grant' AND kind = ?", (what,)) if int(r[0]) in school)
