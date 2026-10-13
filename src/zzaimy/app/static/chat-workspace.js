@@ -115,6 +115,8 @@
   const valueRows = form_ => [...form_.querySelectorAll('.chat-form-field')];
   const rowArea = row => row.querySelector('textarea');
   const rowLater = row => row.querySelector('input[name=later]');
+  const rowPick = row => row.querySelector('input[data-pick]');
+  const isPicked = row => Boolean(rowPick(row)?.checked);
   function valueCounts(form_) {
     let filled = 0, later = 0, typed = 0;
     for (const row of valueRows(form_)) {
@@ -133,6 +135,7 @@
       area.disabled = later;
       row.classList.toggle('is-later', later);
       row.classList.toggle('is-filled', !later && Boolean(area.value.trim()));
+      row.classList.toggle('is-picked', isPicked(row));
       if (row.classList.contains('is-suggested') && area.value !== area.defaultValue && !row.classList.contains('is-edited')) {
         row.classList.add('is-edited'); row.classList.remove('is-accepted');
         const note = row.querySelector('[data-source-state]');
@@ -144,22 +147,28 @@
     if (count) count.textContent = total + '개 중 ' + filled + '개 채움' + (later ? ' · 나중에 ' + later + '개' : '');
     form_.style.setProperty('--vf-done', String(total ? Math.min(1, (filled + later) / total) : 0));
     // 한꺼번에 — 고른 줄이 있으면 고른 줄, 없으면 아직 비어 있는(미루지 않은) 줄이 대상
-    const rows = valueRows(form_), picked = rows.filter(row => row.classList.contains('is-picked'));
+    const rows = valueRows(form_), picked = rows.filter(isPicked);
     const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
     const laterRows = rows.filter(row => rowLater(row)?.checked);
+    const all = form_.querySelector('[data-pick-all]');
+    if (all) { all.checked = rows.length > 0 && picked.length === rows.length; all.indeterminate = picked.length > 0 && picked.length < rows.length; }
+    form_.classList.toggle('is-picking', picked.length > 0);
     const toolLater = form_.querySelector('[data-bulk=later]'), toolFind = form_.querySelector('[data-bulk=find]'),
           toolClear = form_.querySelector('[data-bulk=clear]');
     if (toolLater) {
-      const undo = !picked.length && !empty.length && laterRows.length;
-      toolLater.textContent = picked.length ? '고른 ' + picked.length + '개 나중에' : undo ? '나중에 모두 취소' : '빈 칸 ' + empty.length + '개 나중에';
+      // 고른 줄이 모두 이미 미뤄져 있으면 되돌리기, 아니면 미루기 — 같은 버튼으로 오간다
+      const undo = picked.length ? picked.every(row => rowLater(row)?.checked) : !empty.length && laterRows.length > 0;
+      toolLater.textContent = picked.length ? '고른 ' + picked.length + '개 ' + (undo ? '나중에 취소' : '나중에')
+                                            : undo ? '나중에 모두 취소' : '빈 칸 ' + empty.length + '개 나중에';
+      toolLater.dataset.undo = undo ? '1' : '';
       toolLater.disabled = !picked.length && !empty.length && !laterRows.length;
     }
     if (toolFind) {
-      const n = picked.length || empty.length;
-      toolFind.textContent = picked.length ? '고른 ' + n + '개 자료에서 찾기' : '빈 칸 ' + n + '개 자료에서 찾기';
-      toolFind.disabled = !n;
+      const targets = picked.length ? picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked) : empty;
+      toolFind.textContent = (picked.length ? '고른 ' : '빈 칸 ') + targets.length + '개 자료에서 찾기';
+      toolFind.disabled = !targets.length;
     }
-    if (toolClear) toolClear.hidden = !picked.length;
+    if (toolClear) { toolClear.hidden = !picked.length; toolClear.textContent = '고르기 풀기'; }
     const verb = typed ? '저장' : (form_.dataset.verb || '저장');
     const submit = form_.querySelector('[data-form-submit]');
     if (submit) {
@@ -168,14 +177,31 @@
     }
   }
   function paintValueForms() { scroller.querySelectorAll('form.chat-suggestion-form').forEach(paintValueForm); }
-  function formStatus(form_, text) { const box = form_.querySelector('[data-form-status]'); if (box) box.textContent = text; }
+  function formStatus(form_, text) {
+    const box = form_.querySelector('[data-form-status]');
+    if (!box) return;
+    box.textContent = text;
+    clearTimeout(box._clear);
+    if (text) box._clear = setTimeout(() => { box.textContent = ''; }, 5000);           // 알림은 잠깐만, 남아 있으면 지금 상태로 오해한다
+  }
+  let lastPick = null;
   scroller.addEventListener('input', event => {
+    if (event.target.type === 'checkbox') return;                                          // 체크는 change 에서 — input 이 먼저 와서 전체 고르기를 덮어쓴다
     const form_ = event.target.closest('form.chat-suggestion-form');
     if (form_) { formStatus(form_, ''); paintValueForm(form_); }
   });
   scroller.addEventListener('change', event => {
     const form_ = event.target.closest('form.chat-suggestion-form');
-    if (!form_ || event.target.name !== 'later') return;
+    if (!form_) return;
+    if (event.target.matches('[data-pick-all]')) {
+      const on = event.target.checked;
+      valueRows(form_).forEach(row => { const box = rowPick(row); if (box) box.checked = on; });
+      lastPick = null;
+      paintValueForm(form_);
+      return;
+    }
+    if (event.target.matches('[data-pick]')) { paintValueForm(form_); return; }
+    if (event.target.name !== 'later') return;
     paintValueForm(form_);
     if (!event.target.checked) rowArea(event.target.closest('.chat-form-field'))?.focus();
   });
@@ -214,32 +240,45 @@
     formStatus(form_, '붙여 넣은 ' + names.length + '개를 칸에 나눠 채움' + (lines > names.length ? ' · 맞는 칸이 없는 ' + (lines - names.length) + '줄은 넣지 않음' : ''));
   });
   scroller.addEventListener('click', event => {
-    // 여러 줄 고르기 — Ctrl(⌘)+이름 누름. 고른 줄에 「나중에」·「자료에서 찾기」 를 한꺼번에
+    // 여러 줄 고르기 — 줄 앞 체크, Shift+체크는 앞에 고른 줄부터 범위, Ctrl(⌘)+이름도 같은 동작
+    const pickBox = event.target.closest('form.chat-suggestion-form input[data-pick]');
+    if (pickBox) {
+      const rows = valueRows(pickBox.form), row = pickBox.closest('.chat-form-field');
+      if (event.shiftKey && lastPick && lastPick !== row && rows.includes(lastPick)) {
+        const [a, b] = [rows.indexOf(lastPick), rows.indexOf(row)].sort((x, y) => x - y);
+        rows.slice(a, b + 1).forEach(item => { rowPick(item).checked = pickBox.checked; });
+      }
+      lastPick = row;
+      paintValueForm(pickBox.form);
+      return;
+    }
     const nameHit = event.target.closest('form.chat-suggestion-form .chat-form-label');
     if (nameHit && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
-      const row = nameHit.closest('.chat-form-field');
-      row.classList.toggle('is-picked');
-      row.setAttribute('aria-selected', String(row.classList.contains('is-picked')));
+      const row = nameHit.closest('.chat-form-field'), box = rowPick(row);
+      if (box) box.checked = !box.checked;
+      lastPick = row;
       paintValueForm(row.closest('form'));
       return;
     }
     const tool = event.target.closest('form.chat-suggestion-form [data-bulk]');
     if (tool) {
       const form_ = tool.closest('form'), rows = valueRows(form_);
-      const picked = rows.filter(row => row.classList.contains('is-picked'));
+      const picked = rows.filter(isPicked);
+      const unpick = () => { picked.forEach(row => { rowPick(row).checked = false; }); lastPick = null; };
       if (tool.dataset.bulk === 'clear') {
-        picked.forEach(row => { row.classList.remove('is-picked'); row.removeAttribute('aria-selected'); });
+        unpick();
       } else if (tool.dataset.bulk === 'later') {
+        const undo = Boolean(tool.dataset.undo);
         const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
-        const target = picked.length ? picked : empty;
-        if (target.length) target.forEach(row => { const box = rowLater(row); if (box) box.checked = true; });
-        else rows.forEach(row => { const box = rowLater(row); if (box) box.checked = false; });   // 나중에 모두 취소
-        picked.forEach(row => { row.classList.remove('is-picked'); row.removeAttribute('aria-selected'); });
-        formStatus(form_, target.length ? target.length + '개를 다음 차례로 미룸 — 저장하면 반영됩니다' : '미룬 값을 모두 되돌림');
+        const target = picked.length ? picked : undo ? rows : empty;
+        let moved = 0;
+        target.forEach(row => { const box = rowLater(row); if (box && box.checked !== !undo) { box.checked = !undo; moved++; } });
+        unpick();
+        formStatus(form_, undo ? moved + '개를 다시 지금 받기로 되돌림' : moved + '개를 다음 차례로 미룸 — 저장하면 반영됩니다');
       } else if (tool.dataset.bulk === 'find') {
         const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
-        const names = (picked.length ? picked : empty).map(row => rowArea(row).dataset.field);
+        const names = (picked.length ? picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked) : empty).map(row => rowArea(row).dataset.field);
         if (names.length && input && form) {
           input.value = names.map(name => '「' + name + '」').join(', ') + ' 값을 이 프로젝트 자료에서 찾아 채워 줘';
           input.dispatchEvent(new Event('input', {bubbles: true}));

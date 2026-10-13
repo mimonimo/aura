@@ -268,6 +268,32 @@ body #chatForm { max-width:1040px; }
 #chatScroll .chat-suggestion-form .chat-form-tool:hover:not(:disabled) { background:#F1F5FA; border-color:#B6C7DC; }
 #chatScroll .chat-suggestion-form .chat-form-tool:disabled { opacity:.45; cursor:default; }
 #chatScroll .chat-suggestion-form .chat-form-tool[hidden] { display:none; }
-#chatScroll .chat-suggestion-form .chat-form-field.is-picked { background:#F3F7FF; box-shadow:inset 3px 0 0 #497BFB; }
 #chatScroll .chat-suggestion-form .chat-form-field.is-picked .chat-form-label { color:#1B3B75; }
 #chatScroll .chat-suggestion-form .chat-form-field { padding-left:8px; padding-right:8px; border-radius:8px; }
+/* 줄 고르기 — 줄 앞 네모 체크(고르기), 채움·미룸은 오른쪽 상태 칸. 둘을 다른 자리·다른 꼴로 둬서 헷갈리지 않게 */
+#chatScroll .chat-suggestion-form .chat-form-field { grid-template-columns:18px minmax(150px,250px) minmax(0,1fr) 108px; gap:4px 12px; }
+#chatScroll .chat-suggestion-form .chat-form-head { padding-left:8px; padding-right:0; }
+#chatScroll .chat-suggestion-form .chat-form-pick { appearance:none; -webkit-appearance:none; flex:none; width:18px; height:18px; margin:9px 0 0; box-sizing:border-box; border:1.5px solid #C3CEDB; border-radius:5px; background:#fff; cursor:pointer; position:relative; transition:border-color .12s ease, background-color .12s ease; }
+#chatScroll .chat-suggestion-form .chat-form-head .chat-form-pick { margin:0 2px 0 0; align-self:center; }
+#chatScroll .chat-suggestion-form .chat-form-pick:hover { border-color:#7F95B2; }
+#chatScroll .chat-suggestion-form .chat-form-pick:focus-visible { outline:2px solid #497BFB; outline-offset:2px; }
+#chatScroll .chat-suggestion-form .chat-form-pick:checked,
+#chatScroll .chat-suggestion-form .chat-form-pick:indeterminate { background:#1B3B75; border-color:#1B3B75; }
+#chatScroll .chat-suggestion-form .chat-form-pick:checked::after { content:''; position:absolute; left:5px; top:1.5px; width:4px; height:9px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+#chatScroll .chat-suggestion-form .chat-form-pick:indeterminate::after { content:''; position:absolute; left:3.5px; right:3.5px; top:7px; height:2px; border-radius:1px; background:#fff; }
+#chatScroll .chat-suggestion-form .chat-form-field.is-picked { background:#F2F6FD; }
+#chatScroll .chat-suggestion-form .chat-form-field.is-picked + .chat-form-field.is-picked { border-top-left-radius:0; border-top-right-radius:0; }
+#chatScroll .chat-suggestion-form .chat-form-label .chat-form-check, #chatScroll .chat-suggestion-form .is-filled .chat-form-check { display:none; }
+#chatScroll .chat-suggestion-form .is-filled .chat-form-hint { margin-left:0; }
+#chatScroll .chat-suggestion-form .chat-form-state { display:flex; align-items:center; justify-content:flex-end; min-height:36px; }
+#chatScroll .chat-suggestion-form .chat-form-done { display:none; align-items:center; gap:5px; font-size:12px; font-weight:600; color:#2E7D4F; }
+#chatScroll .chat-suggestion-form .chat-form-done::before { content:''; width:16px; height:16px; border-radius:50%; background:#2E7D4F url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.3l2.3 2.2 4.7-4.9' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat; }
+#chatScroll .chat-suggestion-form .is-filled .chat-form-done { display:inline-flex; }
+#chatScroll .chat-suggestion-form .is-filled .chat-form-later { display:none; }
+#chatScroll .chat-suggestion-form.is-picking .chat-form-later:not(:has(input:checked)) { opacity:0; pointer-events:none; }
+@media (max-width: 720px) {
+  #chatScroll .chat-suggestion-form .chat-form-field { grid-template-columns:18px minmax(0,1fr) auto; }
+  #chatScroll .chat-suggestion-form .chat-form-name { grid-column:2 / -1; }
+  #chatScroll .chat-suggestion-form .chat-form-input { grid-column:2; }
+  #chatScroll .chat-suggestion-form .chat-form-pick { margin-top:2px; }
+}

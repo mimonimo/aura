@@ -48,9 +48,9 @@ try {
   const wait = ms => new Promise(r => setTimeout(r, ms));
   const evaluate = async expression => { const r = await send('Runtime.evaluate', {expression, awaitPromise:true, returnByValue:true}); if (r.exceptionDetails) throw Error(JSON.stringify(r.exceptionDetails)); return r.result.value; };
   const open = async (path, width) => { await send('Emulation.setDeviceMetricsOverride', {width, height:1000, deviceScaleFactor:1, mobile:false}); await send('Page.navigate', {url:`http://127.0.0.1:${port}${path}`}); await wait(1500); };
-  const mouse = async selector => {   // 실제 마우스 눌림(Input.dispatchMouseEvent) — el.click() 과 달리 겹친 요소·pointerdown 처리기를 거친다
+  const mouse = async (selector, modifiers = 0) => {   // 실제 마우스 눌림(Input.dispatchMouseEvent) — el.click() 과 달리 겹친 요소·pointerdown 처리기를 거친다
     const b = await evaluate(`(()=>{const r=document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
-    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', {type, x:b.x, y:b.y, button:'left', clickCount:1});
+    for (const type of ['mouseMoved', 'mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', {type, x:b.x, y:b.y, button:'left', clickCount:1, modifiers});
   };
   const key = async (k, shift = false) => { const code = {Enter:13, Escape:27}[k];
     await send('Input.dispatchKeyEvent', {type:'keyDown', key:k, code:k, windowsVirtualKeyCode:code, modifiers:shift ? 8 : 0, ...(k === 'Enter' ? {text:'\r'} : {})});
@@ -102,6 +102,31 @@ try {
   // 800px 에서도 한 줄 목록(이름 위, 칸·나중에 아래)이 칸 밖으로 넘치지 않는다
   await open('/chat/1', 800);
   assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll('#chatValueForm textarea')].every(t=>t.getBoundingClientRect().right<=document.querySelector('#chatValueForm').getBoundingClientRect().right)`), true);
+
+  // 줄 고르기 — 실제 마우스로 줄 앞 체크, Shift+체크로 범위, 고른 줄에 나중에 ↔ 취소, 전체 고르기·풀기
+  await open('/chat/1', 1440);
+  const tools = () => evaluate(`[...document.querySelectorAll('#chatValueForm [data-bulk]')].filter(b=>!b.hidden).map(b=>b.textContent)`);
+  const pickRow = n => `#chatValueForm li:nth-child(${n}) [data-pick]`;
+  assert.deepEqual(await tools(), ['빈 칸 5개 나중에', '빈 칸 5개 자료에서 찾기']);
+  await mouse(pickRow(2)); await mouse(pickRow(5), 8);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('#chatValueForm [data-pick]')].map(b=>b.checked)`), [false, true, true, true, true, false]);
+  assert.deepEqual(await evaluate(`(()=>{const a=document.querySelector('[data-pick-all]');return [a.checked,a.indeterminate]})()`), [false, true]);
+  assert.deepEqual(await tools(), ['고른 4개 나중에', '고른 3개 자료에서 찾기', '고르기 풀기']);
+  await mouse('#chatValueForm [data-bulk=later]');
+  assert.equal(await evaluate(`document.querySelector('[data-form-count]').textContent`), '6개 중 0개 채움 · 나중에 4개');
+  assert.equal(await evaluate(`document.querySelectorAll('#chatValueForm [data-pick]:checked').length`), 0);
+  await mouse(pickRow(2)); await mouse(pickRow(3));
+  assert.deepEqual(await tools(), ['고른 2개 나중에 취소', '고른 2개 자료에서 찾기', '고르기 풀기']);
+  await mouse('#chatValueForm [data-bulk=later]');
+  assert.equal(await evaluate(`document.querySelector('[data-form-count]').textContent`), '6개 중 0개 채움 · 나중에 2개');
+  assert.match(await evaluate(`document.querySelector('[data-form-status]').textContent`), /2개를 다시 지금 받기로 되돌림/);
+  await mouse('#chatValueForm [data-pick-all]');
+  assert.equal(await evaluate(`document.querySelectorAll('#chatValueForm [data-pick]:checked').length`), 6);
+  await mouse('#chatValueForm [data-bulk=clear]');
+  assert.deepEqual(await evaluate(`[document.querySelectorAll('#chatValueForm [data-pick]:checked').length, document.querySelector('[data-pick-all]').checked]`), [0, false]);
+  // 채운 줄은 오른쪽에 「채움」, 「나중에」 단추는 숨김
+  await open('/chat/1', 1440);
+  assert.deepEqual(await evaluate(`(()=>{const li=document.querySelector('#chatValueForm li.is-filled');return [getComputedStyle(li.querySelector('.chat-form-done')).display, getComputedStyle(li.querySelector('.chat-form-later')).display]})()`), ['flex', 'none']);
 
   // ── 새 대화 문서 패널 ──
   const panelBox = `(()=>{const p=document.getElementById('chatDocumentPanel'),r=p.getBoundingClientRect(),c=p.querySelector('[data-close]').getBoundingClientRect();return {open:document.getElementById('chatDocumentOpen').getAttribute('aria-expanded'),left:Math.round(r.left),width:Math.round(r.width),inside:r.right<=innerWidth+0.5&&c.right<=innerWidth}})()`;
