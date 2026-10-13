@@ -467,7 +467,11 @@
       if (t !== "program" && t !== "program_group") return;
       var k = e.data("kind"), fwd = e.source().id() === node.id();
       var rel = k === "contains" ? (t === "program_group" ? "속한 묶음" : "묶인 사업") : (KIND_KO[k] || k) + (fwd ? "" : " ←");
-      out.push({ node: o, rel: rel });
+      // 같은 이름의 다른 노드(별칭 노드)는 한 줄로 — 관계 이름만 모은다
+      var name = String(o.data("label") || "").replace(/\s+/g, "");
+      var same = out.filter(function (x) { return x.name === name; })[0];
+      if (same) { if (same.rel.split(" · ").indexOf(rel) < 0) same.rel += " · " + rel; return; }
+      out.push({ node: o, rel: rel, name: name });
     });
     return out;
   }

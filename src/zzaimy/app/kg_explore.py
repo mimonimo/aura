@@ -524,7 +524,9 @@ def explore_docs(request: Request, id: str, per: int = 6):
     for src, ylab, did, label in rows:
         if did not in ok:
             continue
-        g = out.setdefault(src, {"id": src, "label": ylab, "n": 0, "docs": []})
+        # 연차 이름은 사업 이름을 앞에 단다(「○○사업 2차년도 (2023)」) — 패널은 그 사업 안이라 연차 부분만
+        m = re.search(r"\d+\s*차년도.*$|\(?(?:19|20)\d{2}\)?\s*$", ylab or "")
+        g = out.setdefault(src, {"id": src, "label": (m.group(0).strip() if m and src != id else ylab), "n": 0, "docs": []})
         g["n"] += 1
         g["docs"].append({"doc_id": did, "label": label})
     def when(g):                                  # 최근 연도 먼저, 연차 미상(사업에 바로 매단 문서)은 끝
