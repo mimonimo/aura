@@ -179,7 +179,7 @@
     {% endfor %}
   </div>
   <div id="paneNow" class="tab-pane">
-  <div>{{ dev_now | md_view }}</div>
+  <div>{{ dev_now | for_people | md_view }}</div>
   {% if dev_now_more %}
   <p style="margin:10px 0 0;"><a href="/dev/history#recent" class="btn-ghost">이전 작업 기록</a></p>
   {% endif %}
@@ -241,15 +241,14 @@
   <h3 style="font-size:14px; margin:14px 0 6px;">{{ area }}</h3>
   <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:12.5px;">
     <tr style="text-align:left; color:var(--muted);"><th style="padding:5px 8px;">이름</th><th style="padding:5px 8px;">하는 일</th>
-      <th style="padding:5px 8px; white-space:nowrap;">판</th><th style="padding:5px 8px;">라이선스</th><th style="padding:5px 8px;">어디서</th><th style="padding:5px 8px;">근거</th></tr>
+      <th style="padding:5px 8px; white-space:nowrap;">판</th><th style="padding:5px 8px;">라이선스</th><th style="padding:5px 8px;">어디서</th></tr>
     {% for r in rows %}
     <tr style="border-top:1px solid var(--line); vertical-align:top;">
       <td style="padding:6px 8px; font-weight:600;">{{ r.name }}</td>
-      <td style="padding:6px 8px;">{{ r.role }}</td>
+      <td style="padding:6px 8px;">{{ r.role | for_people }}</td>
       <td style="padding:6px 8px; white-space:nowrap; font-variant-numeric:tabular-nums;" title="{{ r.source }}">{{ r.version or "—" }}</td>
       <td style="padding:6px 8px;">{% if r.ours %}<span class="pill">{{ r.license }}</span>{% else %}{{ r.license or "—" }}{% endif %}</td>
-      <td style="padding:6px 8px;" class="muted">{{ r.where }}</td>
-      <td style="padding:6px 8px;" class="muted">{{ r.ref }}</td>
+      <td style="padding:6px 8px;" class="muted">{{ r.where | for_people }}</td>
     </tr>
     {% endfor %}
   </table></div>

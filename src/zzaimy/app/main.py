@@ -4184,6 +4184,20 @@ def create_app(
 
     templates.env.filters["md_view"] = _md_view
 
+    def _for_people(text: str) -> str:
+        """화면에 보이는 개발 메모에서 내부 표기를 걷어 낸다 — 코드 경로·파일 이름·스크립트 번호·환경 변수(괄호 묶음째)와
+        `코드` 표기. 문장 뜻은 남는다(메모 원문은 문서 화면에 그대로 있다)."""
+        import re as _re
+        t = str(text or "")
+        internal = r"(?:[\w.-]+/[\w./-]+|\b[\w-]+\.(?:py|json|jsonl|md|html|sh|npz)\b|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|\bscripts?/?\d{2,3}\b|\b\d{3}(?=[ ·,)]|$)|[a-z]+_[a-z_]+)"
+        t = _re.sub(r"\s*\((?=[^()]*" + internal + r")[^()]*\)", "", t)       # 내부 표기를 담은 괄호 묶음
+        t = _re.sub(r"`[^`]*`", "", t)                                       # 남은 코드 표기
+        t = _re.sub(r"[ \t]{2,}", " ", t)
+        t = _re.sub(r" ([,.·])", r"\1", t)
+        return t
+
+    templates.env.filters["for_people"] = _for_people
+
     def _cite_links(html, sources) -> "Markup":
         """답변에 나온 문서 이름을 근거 문서 링크로 — 근거 목록에 있는 이름만."""
         from markupsafe import Markup as _M
