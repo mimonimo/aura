@@ -178,7 +178,7 @@ table.dx-list tr.on td { background:#edf3fc; }
 .dx-ledger-wrap table.dx-ledger th:nth-child(1) { width:auto; }
 .dx-ledger-wrap table.dx-ledger th:nth-child(2) { width:118px; }
 .dx-ledger-wrap table.dx-ledger th:nth-child(3) { width:15%; }
-.dx-ledger-wrap table.dx-ledger th:nth-child(4) { width:72px; }
+.dx-ledger-wrap table.dx-ledger th:nth-child(4) { width:124px; }
 .dx-ledger-wrap table.dx-ledger th:nth-child(5) { width:72px; }
 .dx-ledger-wrap table.dx-ledger th:nth-child(6) { width:12%; }
 .dx-ledger-wrap table.dx-ledger th:nth-child(7) { width:12%; }
@@ -241,7 +241,7 @@ tr.pick[hidden]{display:none}
   <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 부산물">사본·부산물</span>{% endif %}{% if row.cleaned %}<span class="pill dx-pill" title="원본 보관소 「정리함」에 옮긴 원본 — 보관소 목록·건수에서 빠지고 되돌릴 수 있음(원본 파일은 그대로)">정리함</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
   <td class="dx-nowrap">{{ row.ext or '—' }} · {{ row.size|num }}</td>
   <td class="dx-ell" title="{{ row.program_name }}">{{ row.program_name or '—' }}</td>
-  <td class="dx-nowrap" title="장부 코드 {{ row.status or '없음' }}">{{ row.status_label or '—' }}</td>
+  <td class="dx-ell" title="{{ row.status_label or '분류 없음' }} · 장부 코드 {{ row.status or '없음' }}">{{ row.status_label or '—' }}</td>
   <td class="dx-nowrap">{% if row.doc_id %}<a href="/dev/db?tab=docs&amp;doc={{ row.doc_id }}" title="이 문서를 문서 탭에서 보기">#{{ row.doc_id }}</a>{% else %}—{% endif %}</td>
   <td class="dx-ell" title="{{ row.dup_of }}">{{ row.dup_of or '—' }}</td>
   <td class="dx-ell" title="{{ row.analysis }}{{ (' — ' ~ row.analysis_note) if row.analysis_note }}">{% if row.analysis_note %}<span class="dx-help">{{ row.analysis }}</span>{% else %}{{ row.analysis or '—' }}{% endif %}</td>
