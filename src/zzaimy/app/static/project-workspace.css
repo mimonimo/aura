@@ -140,3 +140,9 @@
 .project-doc-more>summary:hover{color:var(--navy)}
 .project-conversation a{color:inherit;text-decoration:none}
 .project-conversation .project-action-link{color:#355984}
+/* 기준 문서·지난 사업 줄 — 넓은 화면에서는 한 줄(아이콘 · 제목 · 단추), 줄 사이를 띄운다 */
+@media (min-width: 721px) {
+  #projectWorkspace .project-context-section .project-criterion-item { flex-wrap:nowrap; padding:12px 14px; }
+  #projectWorkspace .project-context-section .project-criterion-item .project-criterion-title { flex:1 1 auto; min-width:0; }
+}
+#projectWorkspace .project-context-section .project-criterion-item + .project-criterion-item { margin-top:8px; }
