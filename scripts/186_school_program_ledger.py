@@ -63,7 +63,14 @@ def read_sheet(path: Path) -> list[dict]:
 
 def match(entries: list[dict], name: str) -> int | None:
     """학교 표의 사업명 → 장부 항목 번호. 장부의 이름·별칭(3자 이상)이 학교 이름에 들어 있거나 그 반대면 이어진다 —
-    가장 긴 겹침을 고른다. 겹침이 없으면 None."""
+    가장 긴 겹침을 고른다. 겹침이 없으면 None.
+    괄호 속이 따로 있는 사업이면(「전문대학혁신지원사업(지방전문대학활성화)」) 괄호 속 사업이 먼저다 — 큰 사업에 붙이면
+    그 사업의 문서를 큰 사업이 가져간다."""
+    inner = re.findall(r"\(([^)]{4,})\)", name or "")
+    for part in inner:
+        got = match(entries, part)
+        if got is not None:
+            return got
     n = _norm(name)
     best = (0, None)
     for i, e in enumerate(entries):
