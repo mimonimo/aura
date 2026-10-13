@@ -94,6 +94,7 @@
   .lib-bulk .secondary { min-height:30px; padding:3px 11px; font-size:12.5px; }
   .lib-mini2 { min-height:30px; padding:3px 11px; font-size:12.5px; margin-left:auto; }
   .lib-bulk-g select { max-width:180px; }
+  .lib-chip { display:inline-flex; align-items:center; padding:4px 10px; border-radius:999px; background:#FFF4E0; color:#8A5A00; font-size:12px; text-decoration:none; white-space:nowrap; }
   .lib-bulk-g { flex-wrap:nowrap; display:inline-flex; gap:6px; align-items:center; padding-left:8px; border-left:1px solid var(--line); }
   .lib-bulk-all { display:inline-flex; align-items:center; gap:5px; cursor:pointer; }
   .lib-bulk-n { flex:1; min-width:140px; color:var(--muted); } .lib-bulk-msg { color:#2D4F7C; }
@@ -282,8 +283,7 @@
           {% for k, lab in [("7d","최근 7일"),("30d","최근 30일"),("1y","최근 1년")] %}<option value="{{ k }}" {{ 'selected' if since == k }}>{{ lab }}</option>{% endfor %}</select>
         <select name="flt" aria-label="처리 상태"><option value="">모든 상태</option>
           {% for k, lab in flt_labels.items() %}<option value="{{ k }}" {{ 'selected' if active_flt == k }}>{{ lab }}</option>{% endfor %}</select>
-        {% if scope_choices | length > 1 or scope %}<select name="scope" aria-label="공개 범위"><option value="">모든 공개 범위</option>
-          {% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if scope == d }}>{{ '전체 공개(공통 RAG)' if d == '공통' else d ~ '만(부서 RAG)' }}</option>{% endfor %}</select>{% endif %}
+        {% if scope %}<input type="hidden" name="scope" value="{{ scope }}"><a class="lib-chip" href="/?type={{ active_tab }}{{ ('&folder=' ~ (folder | urlencode)) if folder }}" title="공개 범위 거르기 풀기">공개 {{ '전체' if scope == '공통' else scope ~ '만' }} ×</a>{% endif %}
         <select name="sort" aria-label="정렬">
           {% for k, lab in [("new","최근 등록순"),("old","오래된 순"),("name","이름순")] %}<option value="{{ k }}" {{ 'selected' if sort == k }}>{{ lab }}</option>{% endfor %}</select>
       </div>
@@ -296,11 +296,14 @@
     {% if made_folders or (request.state.role == 'dev' and scope_choices | length > 1) %}
     <div class="lib-bulk" id="libBulk">
       <label class="lib-bulk-all"><input type="checkbox" id="libPickAll"> 이 쪽 모두</label>
-      <span class="lib-bulk-n" id="libPickN">문서를 고르면 한꺼번에 옮길 수 있습니다</span>
-      {% if made_folders %}<span class="lib-bulk-g"><select id="libBulkFolder" aria-label="담을 폴더"><option value="">폴더에서 빼기</option>{% for f in made_folders %}<option value="{{ f.key }}">{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept ~ '만' }}</option>{% endfor %}</select>
-      <button type="button" class="secondary" data-bulk="folder" disabled>폴더에 담기</button></span>{% endif %}
-      {% if request.state.role == 'dev' and scope_choices | length > 1 %}<span class="lib-bulk-g"><select id="libBulkScope" aria-label="공개 범위">{% for d in scope_choices %}<option value="{{ d }}">{{ '전체 공개(공통 RAG)' if d == '공통' else d ~ '만(부서 RAG)' }}</option>{% endfor %}</select>
-      <button type="button" class="secondary" data-bulk="scope" disabled>공개 범위 바꾸기</button></span>{% endif %}
+      <span class="lib-bulk-n" id="libPickN">문서를 고르면 폴더에 담거나 공개 범위를 바꿀 수 있습니다</span>
+      <span class="lib-bulk-g" id="libBulkActs" hidden>
+        <select id="libBulkAct" aria-label="고른 문서에 할 일">
+          {% if made_folders %}<optgroup label="폴더">{% for f in made_folders %}<option value="folder:{{ f.key }}">「{{ f.name }}」 폴더에 담기</option>{% endfor %}<option value="folder:">폴더에서 빼기</option></optgroup>{% endif %}
+          {% if request.state.role == 'dev' and scope_choices | length > 1 %}<optgroup label="공개 범위">{% for d in scope_choices %}<option value="scope:{{ d }}">{{ '전체 공개로' if d == '공통' else d ~ '만 공개로' }}</option>{% endfor %}</optgroup>{% endif %}
+        </select>
+        <button type="button" class="secondary" id="libBulkGo">적용</button>
+      </span>
       <span class="lib-bulk-msg" id="libBulkMsg" role="status"></span>
     </div>{% endif %}
     <ul class="lib-rows" data-doc-list>
@@ -479,29 +482,29 @@
   });
 })();
 (function () {
-  // 여러 문서 고르기 — 폴더에 담기·검색 범위 바꾸기
+  // 여러 문서 고르기 — 고르면 할 일 하나를 골라 적용(폴더에 담기·빼기·공개 범위)
   var bar = document.getElementById("libBulk");
   if (!bar) return;
   var picks = function () { return Array.prototype.slice.call(document.querySelectorAll(".lib-pick")); };
   var chosen = function () { return picks().filter(function (c) { return c.checked; }).map(function (c) { return Number(c.value); }); };
+  var acts = document.getElementById("libBulkActs");
   var paint = function () {
     var n = chosen().length;
-    document.getElementById("libPickN").textContent = n ? "고른 문서 " + n + "건" : "문서를 고르면 한꺼번에 옮길 수 있습니다";
-    bar.querySelectorAll("[data-bulk]").forEach(function (b) { b.disabled = !n; });
+    document.getElementById("libPickN").textContent = n ? "고른 문서 " + n + "건" : "문서를 고르면 폴더에 담거나 공개 범위를 바꿀 수 있습니다";
+    acts.hidden = !n;
     document.getElementById("libPickAll").checked = n > 0 && n === picks().length;
   };
   document.addEventListener("change", function (e) { if (e.target.classList && e.target.classList.contains("lib-pick")) paint(); });
   document.getElementById("libPickAll").addEventListener("change", function (e) { picks().forEach(function (c) { c.checked = e.target.checked; }); paint(); });
-  bar.querySelectorAll("[data-bulk]").forEach(function (b) {
-    b.addEventListener("click", function () {
-      var ids = chosen(), folder = b.dataset.bulk === "folder";
-      var body = folder ? { ids: ids, folder: document.getElementById("libBulkFolder").value } : { ids: ids, dept: document.getElementById("libBulkScope").value };
-      b.disabled = true;
-      fetch(folder ? "/docs/folder" : "/docs/scope", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-        .then(function (d) { document.getElementById("libBulkMsg").textContent = d.moved + "건을 옮겼습니다 — 새로 고치면 반영됩니다"; setTimeout(function () { location.reload(); }, 900); })
-        .catch(function (e) { document.getElementById("libBulkMsg").textContent = "옮기지 못했습니다(" + e.message + ")"; b.disabled = false; });
-    });
+  document.getElementById("libBulkGo").addEventListener("click", function () {
+    var b = this, v = document.getElementById("libBulkAct").value, ids = chosen();
+    var folder = v.indexOf("folder:") === 0, arg = v.slice(v.indexOf(":") + 1);
+    var body = folder ? { ids: ids, folder: arg } : { ids: ids, dept: arg };
+    b.disabled = true;
+    fetch(folder ? "/docs/folder" : "/docs/scope", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) { document.getElementById("libBulkMsg").textContent = d.moved + "건 적용 — 새로 고칩니다"; setTimeout(function () { location.reload(); }, 800); })
+      .catch(function (e) { document.getElementById("libBulkMsg").textContent = "적용하지 못했습니다(" + e.message + ")"; b.disabled = false; });
   });
   paint();
 })();
