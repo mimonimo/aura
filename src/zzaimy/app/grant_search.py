@@ -422,10 +422,11 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     program_docs: set[int] | None = None
     path_of: dict[int, list[str]] = {}
     cover: list[tuple[str, set[int]]] = []
+    partners: dict = {}
     try:
         sc = gr.scope(db, question, reader=reader)
         steps += sc.steps
-        scope_docs, program_docs, path_of, cover = sc.docs, sc.program_docs, sc.path_of, sc.cover
+        scope_docs, program_docs, path_of, cover, partners = sc.docs, sc.program_docs, sc.path_of, sc.cover, sc.partners
     except Exception as e:
         log.warning("그래프 좁히기 실패: %s", e)
     if prefer_docs:
@@ -501,20 +502,24 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     if any(moved.values()):
         steps.append(f"[최신 개정판] 옛 개정판 조각 — 같은 글 {moved['same']}개·고쳐진 조항 {moved['revised']}개를 최신 판 조각으로,"
                      f" 최신 판에 없는 글 {moved['stale']}개는 옛 판 표시")
-    for why, n in _cover_relations(db, lq, hits, order, cover, user, depts, path_of):
+    for why, n in _cover_relations(db, lq, hits, order, cover, user, depts, path_of, partners):
         steps.append(f"[관계 근거] {why} 쪽 근거가 상위에 없어 그 문서에서 {n}개를 더함")
     steps.append(f"[3단계: 근거 선택] 사업 문서 조각 {pool} 중 어휘 {len(lex)}·임베딩 {len(den)} 순위를 섞어 {len(hits)}개")
     return {"steps": steps, "hits": hits}
 
 
-def _cover_relations(db, lq, hits: list[dict], order: list[dict], cover, user, depts, path_of) -> list[tuple[str, int]]:
-    """질문이 관계(계획↔실적·앞 단계 사업·평가)를 물었으면 관계의 양쪽이 근거에 한 조각씩은 들어가게 한다(제자리).
-    순위 안에 그쪽 조각이 있으면 그것, 없으면 그쪽 문서 안에서 같은 낱말로 다시 찾은 첫 조각. 찾을 것이 없으면 그대로 둔다."""
+PARTNER_MAX = 3      # 짝 문서로 더 담는 조각 수 상한
+
+
+def _cover_relations(db, lq, hits: list[dict], order: list[dict], cover, user, depts, path_of,
+                     partners: dict | None = None) -> list[tuple[str, int]]:
+    """질문이 관계(계획↔실적·앞 단계 사업·평가)를 물었으면 관계의 양쪽이 근거에 들어가게 한다(제자리).
+    먼저 짝 — 근거에 든 문서의 짝 문서(그 계획서의 실적보고서 등)를 한 조각씩. 그다음 묶음 — 관계 한쪽 문서가 하나도
+    없으면 그쪽에서 한 조각. 순위 안에 있으면 그 조각, 없으면 그 문서 안에서 같은 낱말로 다시 찾은 첫 조각."""
     from zzaimy.app import grant_lex
     added = []
-    for why, ds in cover or []:
-        if not ds or any(h["doc_id"] in ds for h in hits):
-            continue
+
+    def pick_in(ds: set[int]):
         pick = next((c for c in order if c["doc_id"] in ds), None)
         if pick is None and lq:
             try:
@@ -523,11 +528,28 @@ def _cover_relations(db, lq, hits: list[dict], order: list[dict], cover, user, d
                 pick = cands[0] if cands else None
             except Exception:
                 pick = None
-        if pick is None:
-            continue
+        return pick
+
+    def put(pick, why):
         hits.append({"chunk_id": pick["id"], "doc_id": pick["doc_id"], "content": pick["content"][:EXPAND_TO],
                      "filename": pick["filename"], "path": path_of.get(pick["doc_id"], []) + [pick["filename"]], "relation": why})
         added.append((why, 1))
+
+    n_pair = 0
+    for h in list(hits):
+        for why, other in (partners or {}).get(h["doc_id"], [])[:1]:
+            if n_pair >= PARTNER_MAX or any(x["doc_id"] == other for x in hits):
+                continue
+            pick = pick_in({other})
+            if pick is not None:
+                put(pick, why)
+                n_pair += 1
+    for why, ds in cover or []:
+        if not ds or any(h["doc_id"] in ds for h in hits):
+            continue
+        pick = pick_in(ds)
+        if pick is not None:
+            put(pick, why)
     return added
 
 

@@ -179,6 +179,7 @@ class Scope:
     programs: list[str] = field(default_factory=list)       # 질문이 말한 사업(여럿일 수 있다)
     relations: list[str] = field(default_factory=list)      # 따라간 관계(question_read.RELATIONS 의 열쇠)
     cover: list[tuple[str, set[int]]] = field(default_factory=list)   # 근거에 한 조각씩은 꼭 들어갈 묶음(관계의 양쪽)
+    partners: dict[int, list[tuple[str, int]]] = field(default_factory=dict)  # 문서 → [(관계, 짝 문서)] — 근거에 든 문서의 짝을 담는다
     read_by: str = "이름 맞추기"
 
 
@@ -349,6 +350,9 @@ def scope(db, question: str, reader=None) -> Scope:
             if pairs:
                 plans, reports = {a for a, _ in pairs}, {b for _, b in pairs}
                 docs |= plans | reports
+                for a, b in pairs:
+                    sc.partners.setdefault(a, []).append(("그 계획서의 실적보고서", b))
+                    sc.partners.setdefault(b, []).append(("그 실적보고서의 계획서", a))
                 sc.cover += [("계획서", plans), ("실적보고서", reports)]
                 sc.steps.append(f"[관계] 계획↔실적 짝 {len(pairs)}쌍 — 계획서 {len(plans)}건·실적보고서 {len(reports)}건을 함께 본다")
             else:
@@ -358,6 +362,8 @@ def scope(db, question: str, reader=None) -> Scope:
             if pairs:
                 judges = {a for a, _ in pairs}
                 docs |= judges | {b for _, b in pairs}
+                for a, b in pairs:
+                    sc.partners.setdefault(b, []).append(("그 문서의 평가", a))
                 sc.cover.append(("평가 문서", judges))
                 sc.steps.append(f"[관계] 평가 관계 {len(pairs)}건 — 평가 문서 {len(judges)}건을 함께 본다")
         if sc.kinds and ({"plan_report", "evaluates"} & set(sc.relations)):

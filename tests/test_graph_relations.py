@@ -96,7 +96,9 @@ class _Client:
 def test_model_reading_keeps_only_catalog_names_and_caches(graph):
     question_read._cache.clear()
     progs = gr._programs(graph)
-    c = _Client(json.dumps({"programs": ["가나 2단계 사업", "없는 사업"], "years": [2024], "rounds": [],
+    catalog, ids = question_read._catalog("가나 2단계 계획 대비 실적", progs)
+    assert ids[0] == "program:new" and "다라" not in catalog            # 질문과 겹치는 사업만, 번호로
+    c = _Client(json.dumps({"programs": [1, 99], "years": [2024], "rounds": [],
                             "kinds": ["plan", "bogus"], "relations": ["plan_report", "bogus"]}, ensure_ascii=False))
     r = question_read.read(c, "가나 2단계 계획 대비 실적", progs)
     assert r.programs == ["program:new"] and r.kinds == ["plan"] and r.relations == ["plan_report"] and r.years == [2024]
@@ -117,3 +119,14 @@ def test_answer_flow_reads_numbers_only_from_machine_outputs(graph, tmp_path):
     snap = answer_flow.snapshot(graph, tmp_path / "eval")
     assert snap["probe"][0]["name"] == 0.5 and snap["probe"][0]["model"] == 1.0 and snap["probe"][-1]["label"] == "전체"
     assert snap["timing"] == {"name": 1.0, "model": 2.0}
+
+
+def test_partner_of_evidence_doc_is_added(monkeypatch):
+    """근거에 든 계획서의 「짝」 실적보고서를 담는다 — 같은 연차의 아무 실적보고서가 아니라."""
+    from zzaimy.app import grant_search
+    order = [{"id": 11, "doc_id": 1, "content": "계획", "filename": "계획서"}, {"id": 99, "doc_id": 9, "content": "남", "filename": "다른 실적"},
+             {"id": 22, "doc_id": 2, "content": "실적", "filename": "실적보고서"}]
+    hits = [{"chunk_id": 11, "doc_id": 1, "content": "계획", "filename": "계획서", "path": []}]
+    added = grant_search._cover_relations(None, [], hits, order, [("실적보고서", {2, 9})], None, None, {},
+                                          {1: [("그 계획서의 실적보고서", 2)]})
+    assert [h["doc_id"] for h in hits] == [1, 2] and added == [("그 계획서의 실적보고서", 1)]

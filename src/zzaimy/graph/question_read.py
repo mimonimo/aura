@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -30,12 +31,13 @@ RELATIONS: dict[str, tuple[str, str]] = {
     "related": ("related", "문서 근거로 이어진 연관 사업까지 본다 — 연관 사업, 함께 추진한 사업"),
     "group": ("contains", "같은 사업 묶음(갈래)의 다른 사업까지 본다 — 같은 갈래의 사업들 비교"),
 }
+CATALOG_MAX = 15
 KINDS = {"plan": "계획서", "report": "실적·결과 보고서", "evaluation": "평가 결과·의견"}
 
 SCHEMA = {
     "type": "object",
     "properties": {
-        "programs": {"type": "array", "items": {"type": "string"}, "maxItems": 4},
+        "programs": {"type": "array", "items": {"type": "integer"}, "maxItems": 4},
         "years": {"type": "array", "items": {"type": "integer"}, "maxItems": 4},
         "rounds": {"type": "array", "items": {"type": "integer"}, "maxItems": 4},
         "kinds": {"type": "array", "items": {"type": "string", "enum": list(KINDS)}},
@@ -56,22 +58,36 @@ class Reading:
     seconds: float = 0.0
 
 
-def _catalog(programs: list[dict]) -> tuple[str, dict[str, str]]:
-    """모델에게 보일 사업 목록과 이름 → 노드 id. 이름은 화면 이름 하나, 약칭은 괄호로 덧붙인다(이름으로만 고르게)."""
-    lines, by_name = [], {}
+def _grams(t: str) -> set[str]:
+    t = re.sub(r"[^가-힣A-Za-z0-9]", "", (t or "").upper())
+    return {t[i:i + 2] for i in range(len(t) - 1)}
+
+
+def _catalog(question: str, programs: list[dict], limit: int = CATALOG_MAX) -> tuple[str, list[str]]:
+    """모델에게 보일 사업 목록(번호) — 질문과 글자 두 자가 겹치는 사업만, 많이 겹치는 순으로. 모델은 번호로 답한다
+    (긴 이름을 그대로 적게 하면 답이 길어져 느리다). 돌려주는 것: 목록 글과 번호 → 노드 id."""
+    qg = _grams(question)
+    scored = []
     for p in programs:
         label = (p.get("label") or "").strip()
         if not label:
             continue
         acr = [a for a in (p.get("props") or {}).get("acronyms") or [] if a and a not in label][:3]
-        lines.append(f"- {label}" + (f" (약칭: {', '.join(acr)})" if acr else ""))
-        by_name[label.replace(" ", "")] = p["id"]
-    return "\n".join(lines), by_name
+        surf = _grams(label) | {g for a in acr for g in _grams(a)}
+        hit = len(qg & surf)
+        if hit >= 2:
+            scored.append((hit / (len(surf) or 1) + hit, label, acr, p["id"]))
+    scored.sort(key=lambda x: -x[0])
+    lines, ids = [], []
+    for n, (_, label, acr, pid) in enumerate(scored[:limit], 1):
+        lines.append(f"{n}. {label}" + (f" (약칭: {', '.join(acr)})" if acr else ""))
+        ids.append(pid)
+    return "\n".join(lines) or "(질문과 이름이 겹치는 사업 없음)", ids
 
 
 _PROMPT = """질문을 사업 문서 그래프에서 찾을 조건으로 옮긴다. JSON 하나만 낸다.
 
-사업 목록(그래프에 있는 사업 — programs 에는 이 목록의 이름을 그대로 적는다. 질문이 사업을 말하지 않으면 빈 배열):
+사업 후보(그래프에 있는 사업 — programs 에는 질문이 말하는 사업의 번호를 적는다. 질문이 사업을 말하지 않거나 후보에 없으면 빈 배열):
 {catalog}
 
 따라갈 관계(질문이 관계를 물을 때만 고른다):
@@ -97,7 +113,7 @@ def read(client, question: str, programs: list[dict], timeout: float | None = No
         hit = _cache.get(q)
         if hit and time.time() - hit[0] < CACHE_SEC:
             return hit[1]
-    catalog, by_name = _catalog(programs)
+    catalog, ids_by_no = _catalog(q, programs)
     prompt = _PROMPT.format(catalog=catalog, question=q,
                             relations="\n".join(f"- {k}: {v[1]}" for k, v in RELATIONS.items()),
                             kinds=", ".join(f"{k}({v})" for k, v in KINDS.items()))
@@ -106,14 +122,15 @@ def read(client, question: str, programs: list[dict], timeout: float | None = No
     try:
         api = client.client.with_options(timeout=timeout or float(os.environ.get("ZZAIMY_GRAPH_READ_TIMEOUT", "20")), max_retries=0)
         resp = api.chat.completions.create(
-            model=client.model, messages=[{"role": "user", "content": prompt}], temperature=0.0, max_tokens=300,
+            model=client.model, messages=[{"role": "user", "content": prompt}], temperature=0.0, max_tokens=120,
             response_format={"type": "json_schema", "json_schema": {"name": "GraphQuery", "schema": SCHEMA}},
             extra_body=getattr(client, "_extra", None) or None)
         raw = (resp.choices[0].message.content or "").strip()
         raw = raw[raw.find("{"): raw.rfind("}") + 1] if "{" in raw else raw
         data = json.loads(raw)
-        names = [str(n).strip() for n in data.get("programs") or [] if str(n).strip()]
-        ids = list(dict.fromkeys(by_name[n.replace(" ", "")] for n in names if n.replace(" ", "") in by_name))
+        nos = [int(n) for n in data.get("programs") or [] if str(n).strip().lstrip("-").isdigit()]
+        ids = list(dict.fromkeys(ids_by_no[n - 1] for n in nos if 1 <= n <= len(ids_by_no)))
+        names = [str(n) for n in nos]
         out = Reading(programs=ids, names=names,
                       years=[int(y) for y in data.get("years") or [] if 1990 <= int(y) <= 2100][:4],
                       rounds=[int(r) for r in data.get("rounds") or [] if 1 <= int(r) <= 20][:4],
