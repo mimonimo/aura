@@ -7177,6 +7177,58 @@ def create_app(
         db.delete_project(project_id)
         return RedirectResponse(f"/?type={proj['sector']}", status_code=303)
 
+    def _doc_folder_ctx(doc_id: int) -> dict:
+        """문서 화면의 폴더 고르기 — 만든 폴더 목록과 지금 담긴 폴더."""
+        from zzaimy.app import library_folders as lf
+        made = [f for f in lf.folders(db, Path(db_path).parent) if f["kind"] == "만든"]
+        with db._conn() as conn:
+            row = conn.execute("SELECT folder_id FROM doc_folders WHERE doc_id = ?", (doc_id,)).fetchone()
+        return {"made_folders": made, "doc_folder": f"{lf.MADE}{row[0]}" if row else ""}
+
+    def _can_edit_doc(request: Request, doc: dict | None) -> bool:
+        return bool(doc) and (request.state.role == "dev" or doc.get("owner") == request.state.user)
+
+    @app.post("/doc/{doc_id}/folder")
+    def doc_set_folder(request: Request, doc_id: int, folder: str = Form("")):
+        """문서를 만든 폴더에 담거나 뺀다 — 폴더의 검색 범위로 함께 옮긴다(폴더 없음이면 범위는 그대로)."""
+        from zzaimy.app import library_folders as lf, rag_spaces
+        doc = db.get_document(doc_id)
+        if not _can_edit_doc(request, doc):
+            raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+        n = move_to_folder(request, [doc_id], folder)
+        if n is None:
+            raise HTTPException(400, "없는 폴더이거나 이 계정이 쓸 수 없는 범위의 폴더입니다")
+        return RedirectResponse(f"/doc/{doc_id}", status_code=303)
+
+    def move_to_folder(request: Request, ids: list[int], folder: str) -> int | None:
+        """문서들을 만든 폴더에 담는다(빈 값 = 폴더에서 뺌). 폴더의 검색 범위가 이 계정이 고를 수 없는 부서면 None."""
+        from zzaimy.app import library_folders as lf, rag_spaces
+        if not folder:
+            with db._conn() as conn:
+                for d in ids:
+                    conn.execute("DELETE FROM doc_folders WHERE doc_id = ?", (int(d),))
+            return len(ids)
+        f = next((x for x in lf.folders(db, Path(db_path).parent) if x["key"] == folder and x["kind"] == "만든"), None)
+        if f is None or f["dept"] not in _scope_choices(request):
+            return None
+        lf.put(db, folder, ids)
+        rag_spaces.move_docs(db, ids, f["dept"])
+        return len(ids)
+
+    @app.post("/docs/folder")
+    async def docs_set_folder(request: Request):
+        """라이브러리에서 고른 여러 문서를 폴더에 담는다(JSON {ids, folder}). 관리자, 또는 자기가 올린 문서만."""
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(400, "잘못된 요청")
+        ids = [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:2000]
+        if request.state.role != "dev":
+            ids = [d for d in ids if _can_edit_doc(request, db.get_document(d))]
+        n = move_to_folder(request, ids, str(body.get("folder") or ""))
+        if n is None:
+            raise HTTPException(400, "없는 폴더이거나 이 계정이 쓸 수 없는 범위의 폴더입니다")
+        return {"moved": n}
+
     def _lib_back(key: str = "", **msg) -> RedirectResponse:
         qs = {"type": "all", **({"folder": key} if key else {}), **msg}
         return RedirectResponse("/?" + urlencode(qs), status_code=303)
@@ -7560,6 +7612,7 @@ def create_app(
             "doc.html",
             ctx(request, {
                 "doc": doc, "reviews": db.get_reviews(doc_id), "related": related, "scope_choices": _scope_choices(request),
+                **_doc_folder_ctx(doc_id),
                 "assets": assets,
                 "extract_blocks": blocks, "layout_pages": layout,
                 "restored_pdf": Path(doc["stored_path"]).suffix.lower()

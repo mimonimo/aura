@@ -117,3 +117,19 @@ def test_users_page_creates_dept_shared_with_rag(tmp_path):
     assert '<option value="교무처"' in c.get("/?type=all").text                 # 검색 범위·폴더 범위에서 고른다
     c.post("/dev/users/dept", data={"action": "delete", "name": "교무처"})
     assert "교무처" not in rag_spaces.known_depts(rag_spaces.config(tmp_path), {})
+
+
+def test_doc_and_bulk_folder_moves(tmp_path):
+    app, c = _dev(tmp_path)
+    db = app.state.db
+    c.post("/dev/users/dept", data={"action": "create", "name": "교무처"})
+    c.post("/library/folders", data={"name": "교무 지침", "dept": "교무처"})
+    key = next(f["key"] for f in lf.folders(db, tmp_path) if f["name"] == "교무 지침")
+    a = db.add_document("가.hwp", "x", doc_type="grant")
+    b = db.add_document("나.hwp", "y", doc_type="grant")
+    assert c.post("/docs/folder", json={"ids": [a, b], "folder": key}).json()["moved"] == 2
+    assert db.get_document(a)["dept"] == "교무처"                                # 폴더의 검색 범위를 따른다
+    c.post(f"/doc/{a}/folder", data={"folder": ""})
+    assert next(f for f in lf.folders(db, tmp_path) if f["key"] == key)["docs"] == 1
+    page = c.get("/?type=all").text
+    assert 'id="libBulk"' in page and 'class="lib-pick"' in page

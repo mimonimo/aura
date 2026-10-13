@@ -80,7 +80,7 @@
     <tr class="{{ '' if u.active else 'off' }}">
       <td>{{ u.user }}{% if u.user == me %} <span class="pill">나</span>{% endif %}<span class="ua-sub">{{ u.name or '' }}{% if not u.active %} · 사용 중지{% endif %}</span></td>
       <td>{{ u.role_label }}</td>
-      <td>{{ u.dept or '전체' }}</td>
+      <td>{% if u.dept %}{{ u.dept }}{% else %}<span class="muted" title="부서를 정하지 않은 계정은 공통 RAG 만 찾습니다">없음 · 공통 RAG</span>{% endif %}</td>
       <td>{% if u.effective %}{{ u.effective }}<span class="ua-sub">{{ u.via }}</span>{% elif u.bound %}{{ u.bound }}<span class="ua-sub">재연결 필요</span>{% else %}<span class="muted">본인 연결 필요</span>{% endif %}</td>
       <td class="act"><button type="button" class="secondary" style="padding:5px 11px; font-size:12px;" data-modal-open="#userEdit"
             data-user="{{ u.user }}" data-name="{{ u.name }}" data-role="{{ u.role }}" data-dept="{{ u.dept }}"
@@ -92,38 +92,12 @@
   </div>
 </div></div>
 
-<div class="card reveal"><div class="card-in">
-  <p class="muted" style="font-size:12px; margin:-6px 0 14px;">역할·부서 밖의 검색 범위(다른 부서 사업 문서)는 <a href="/dev/rag#grants">RAG 공간 › 계정별 추가 권한</a>에서 정합니다.</p>
-  <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
-    <a class="btn-ghost spacer" href="/settings">내 학교 계정 연결</a></h2>
-  <div class="ua-chips">
-    <span class="pill">{{ '앱 등록 완료' if app.configured else '앱 등록 필요' }}</span>
-    <span class="pill">허용 도메인 {{ domain or '제한 없음' }}</span>
-  </div>
-  {% if not app.configured %}<p class="muted" style="margin:0 0 10px;">앱 등록은 <a href="/dev/nas">문서 반입 › Google Drive 가져오기</a>의 Google 앱 설정에서 합니다.</p>{% endif %}
-  {% if emails %}
-  <div class="table-scroll">
-  <table class="ua-table">
-    <tr><th>연결된 계정</th><th>이어진 사용자</th><th class="wide">연결일</th><th></th></tr>
-    {% for e in emails %}
-    <tr>
-      <td>{{ e.email }}{% if not e.docs_ok %}<span class="ua-sub">문서 편집 권한 확인 필요</span>{% endif %}</td>
-      <td>{{ e.users | join(', ') if e.users else '—' }}{% if e.shared %}<span class="ua-sub">대신 쓰는 사용자: {{ e.shared | join(', ') }}</span>{% endif %}</td>
-      <td class="wide">{{ e.granted_at }}</td>
-      <td class="act"><form action="/dev/google/revoke" method="post" data-confirm="{{ e.email }} 연결을 지울까요? 이 계정으로 이어진 사용자·부서 연결도 함께 풀립니다.">
-        <input type="hidden" name="email" value="{{ e.email }}"><button type="submit" class="secondary" style="padding:5px 11px; font-size:12px;">연결 삭제</button></form></td>
-    </tr>
-    {% endfor %}
-  </table>
-  </div>
-  {% else %}<p class="muted" style="margin:0;">연결된 구글 계정이 없습니다. 사용자는 설정 화면의 '내 구글 계정'에서 연결합니다.</p>{% endif %}
-</div></div>
-
 <div class="card reveal" id="depts"><div class="card-in">
   <h2 class="ua-head"><iconify-icon icon="solar:buildings-2-linear"></iconify-icon>부서
     <button type="button" class="secondary spacer" data-modal-open="#deptCreate" style="padding:6px 12px; font-size:12.5px;">
       <iconify-icon icon="solar:add-circle-linear"></iconify-icon>부서 추가</button></h2>
-  <p class="muted" style="margin:0 0 10px; font-size:12.5px;">여기서 만든 부서가 계정의 부서, 부서 RAG(<a href="/dev/rag#dept-rags">RAG 공간</a>), 라이브러리의 검색 범위·폴더 범위에 같은 목록으로 쓰입니다. 문서는 정하지 않으면 공통 RAG 입니다.</p>
+  <p class="muted" style="margin:0 0 10px; font-size:12.5px;">여기서 만든 부서가 계정의 부서, 부서 RAG(<a href="/dev/rag#dept-rags">RAG 공간</a>), 라이브러리의 검색 범위·폴더 범위에 같은 목록으로 쓰입니다. 문서는 정하지 않으면 공통 RAG 입니다.
+    다른 부서 RAG 를 함께 찾게 하려면 <a href="/dev/rag#grants">RAG 공간 › 계정별 추가 권한</a>.</p>
   {% if depts %}
   <div class="table-scroll">
   <table class="ua-table">
@@ -159,6 +133,32 @@
     </form>
   </div></div>
 </div>
+
+<div class="card reveal"><div class="card-in">
+  <h2 class="ua-head"><iconify-icon icon="solar:link-circle-linear"></iconify-icon>학교 계정 연결 현황
+    <a class="btn-ghost spacer" href="/settings">내 학교 계정 연결</a></h2>
+  <div class="ua-chips">
+    <span class="pill">{{ '앱 등록 완료' if app.configured else '앱 등록 필요' }}</span>
+    <span class="pill">허용 도메인 {{ domain or '제한 없음' }}</span>
+  </div>
+  {% if not app.configured %}<p class="muted" style="margin:0 0 10px;">앱 등록은 <a href="/dev/nas">문서 반입 › Google Drive 가져오기</a>의 Google 앱 설정에서 합니다.</p>{% endif %}
+  {% if emails %}
+  <div class="table-scroll">
+  <table class="ua-table">
+    <tr><th>연결된 계정</th><th>이어진 사용자</th><th class="wide">연결일</th><th></th></tr>
+    {% for e in emails %}
+    <tr>
+      <td>{{ e.email }}{% if not e.docs_ok %}<span class="ua-sub">문서 편집 권한 확인 필요</span>{% endif %}</td>
+      <td>{{ e.users | join(', ') if e.users else '—' }}{% if e.shared %}<span class="ua-sub">대신 쓰는 사용자: {{ e.shared | join(', ') }}</span>{% endif %}</td>
+      <td class="wide">{{ e.granted_at }}</td>
+      <td class="act"><form action="/dev/google/revoke" method="post" data-confirm="{{ e.email }} 연결을 지울까요? 이 계정으로 이어진 사용자·부서 연결도 함께 풀립니다.">
+        <input type="hidden" name="email" value="{{ e.email }}"><button type="submit" class="secondary" style="padding:5px 11px; font-size:12px;">연결 삭제</button></form></td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}<p class="muted" style="margin:0;">연결된 구글 계정이 없습니다. 사용자는 설정 화면의 '내 구글 계정'에서 연결합니다.</p>{% endif %}
+</div></div>
 
 <div class="modal-back" id="userEdit">
   <div class="card"><div class="card-in">

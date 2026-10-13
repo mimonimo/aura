@@ -78,6 +78,12 @@
   .lib-years a { padding:4px 11px; border-radius:999px; border:1px solid var(--line); font-size:12px; text-decoration:none; color:var(--muted); background:#fff; }
   .lib-years a span { font-variant-numeric:tabular-nums; opacity:.8; }
   .lib-years a[aria-current=true] { background:var(--navy); border-color:var(--navy); color:#fff; }
+  .lib-bulk { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0 4px; padding:8px 10px; border:1px solid var(--line); border-radius:10px; background:#F8FAFC; font-size:12.5px; }
+  .lib-bulk select { min-height:30px; font-size:12.5px; max-width:240px; }
+  .lib-bulk .secondary { min-height:30px; padding:3px 11px; font-size:12.5px; }
+  .lib-bulk-all { display:inline-flex; align-items:center; gap:5px; cursor:pointer; }
+  .lib-bulk-n { flex:1; min-width:140px; color:var(--muted); } .lib-bulk-msg { color:#2D4F7C; }
+  .lib-pick { margin-top:3px; width:16px; height:16px; accent-color:#1B3B75; flex:none; }
   .lib-rows { list-style:none; margin:4px 0 0; padding:0; border-top:1px solid var(--line); }
   .lib-row { display:flex; align-items:flex-start; gap:12px; padding:10px 4px; border-bottom:1px solid #EEF1F5; }
   .lib-row-main { flex:1; min-width:0; }
@@ -260,9 +266,22 @@
     </form>
     {% if documents %}
     {% set show_business = business_tabs and active_tab == 'all' %}
+    {# 여러 문서 고르기 — 폴더에 담기·검색 범위 바꾸기(관리자). 올린 사람은 자기 문서만 담긴다(서버가 거른다) #}
+    {% set made_folders = folders | selectattr("kind", "equalto", "만든") | list %}
+    {% if made_folders or (request.state.role == 'dev' and scope_choices | length > 1) %}
+    <div class="lib-bulk" id="libBulk">
+      <label class="lib-bulk-all"><input type="checkbox" id="libPickAll"> 이 쪽 모두</label>
+      <span class="lib-bulk-n" id="libPickN">문서를 고르면 한꺼번에 옮길 수 있습니다</span>
+      {% if made_folders %}<select id="libBulkFolder" aria-label="담을 폴더"><option value="">폴더에서 빼기</option>{% for f in made_folders %}<option value="{{ f.key }}">{{ f.name }} — {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}</option>{% endfor %}</select>
+      <button type="button" class="secondary" data-bulk="folder" disabled>폴더에 담기</button>{% endif %}
+      {% if request.state.role == 'dev' and scope_choices | length > 1 %}<select id="libBulkScope" aria-label="검색 범위">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>
+      <button type="button" class="secondary" data-bulk="scope" disabled>검색 범위 바꾸기</button>{% endif %}
+      <span class="lib-bulk-msg" id="libBulkMsg" role="status"></span>
+    </div>{% endif %}
     <ul class="lib-rows" data-doc-list>
       {% for d in documents %}
       <li class="lib-row">
+        {% if made_folders or (request.state.role == 'dev' and scope_choices | length > 1) %}<input type="checkbox" class="lib-pick" value="{{ d.id }}" aria-label="{{ doc_title(d) }} 고르기">{% endif %}
         <div class="lib-row-main">
           <a class="lib-row-title" href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
           <div class="lib-row-meta">
@@ -407,6 +426,33 @@
   </div>
 </div>
 <script>
+(function () {
+  // 여러 문서 고르기 — 폴더에 담기·검색 범위 바꾸기
+  var bar = document.getElementById("libBulk");
+  if (!bar) return;
+  var picks = function () { return Array.prototype.slice.call(document.querySelectorAll(".lib-pick")); };
+  var chosen = function () { return picks().filter(function (c) { return c.checked; }).map(function (c) { return Number(c.value); }); };
+  var paint = function () {
+    var n = chosen().length;
+    document.getElementById("libPickN").textContent = n ? "고른 문서 " + n + "건" : "문서를 고르면 한꺼번에 옮길 수 있습니다";
+    bar.querySelectorAll("[data-bulk]").forEach(function (b) { b.disabled = !n; });
+    document.getElementById("libPickAll").checked = n > 0 && n === picks().length;
+  };
+  document.addEventListener("change", function (e) { if (e.target.classList && e.target.classList.contains("lib-pick")) paint(); });
+  document.getElementById("libPickAll").addEventListener("change", function (e) { picks().forEach(function (c) { c.checked = e.target.checked; }); paint(); });
+  bar.querySelectorAll("[data-bulk]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var ids = chosen(), folder = b.dataset.bulk === "folder";
+      var body = folder ? { ids: ids, folder: document.getElementById("libBulkFolder").value } : { ids: ids, dept: document.getElementById("libBulkScope").value };
+      b.disabled = true;
+      fetch(folder ? "/docs/folder" : "/docs/scope", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(function (d) { document.getElementById("libBulkMsg").textContent = d.moved + "건을 옮겼습니다 — 새로 고치면 반영됩니다"; setTimeout(function () { location.reload(); }, 900); })
+        .catch(function (e) { document.getElementById("libBulkMsg").textContent = "옮기지 못했습니다(" + e.message + ")"; b.disabled = false; });
+    });
+  });
+  paint();
+})();
 (function () {
   // 문서 올리기 — 폴더를 고르면 검색 범위는 그 폴더를 따른다
   var sel = document.getElementById("libUpFolder"), row = document.getElementById("libUpScopeRow"), note = document.getElementById("libUpScopeNote");
