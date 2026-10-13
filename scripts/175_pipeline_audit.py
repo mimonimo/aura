@@ -175,7 +175,8 @@ def main() -> int:
         if dup:
             comp["같은 파일 중복"] += 1
             continue
-        if OUT_OF_SCOPE.search(rel or ""):
+        # 범위 밖 경로(정산·집행 폴더)라도 라이브러리에 든 문서(그 폴더 속 계획서·보고서 — 증빙 갈래는 187 이 뺐다)는 처리 대상으로 센다
+        if OUT_OF_SCOPE.search(rel or "") and not doc_id:
             comp["범위 밖(지출·증빙·정산 등)"] += 1
             continue
         comp["처리 대상 문서"] += 1
