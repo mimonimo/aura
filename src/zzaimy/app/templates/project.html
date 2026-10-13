@@ -314,6 +314,21 @@
         {% if business_units and not project.archived %}
         <label class="form-row"><span class="muted">사업단</span><select name="unit"><option value="">선택 안 함</option>{% for u in business_units %}<option value="{{ u }}" {{ 'selected' if project.unit == u else '' }}>{{ u }}</option>{% endfor %}</select></label>
         {% endif %}
+        {% if not project.archived %}
+        <label class="form-row"><span class="muted">사업 — 고르면 이 프로젝트 문서가 라이브러리 사업 목록·사업 그래프에 함께 보입니다</span>
+          <select name="program" id="projProg"><option value="none">정하지 않음</option><option value="_new">＋ 새 사업 등록…</option>
+            {% for g in program_options %}<optgroup label="{{ g.label }}">{% for it in g["items"] %}<option value="{{ it.key }}" {{ 'selected' if it.key == project_program }}>{{ it.label }}</option>{% endfor %}</optgroup>{% endfor %}
+          </select></label>
+        <div id="projProgNew" hidden>
+          <label class="form-row"><span class="muted">새 사업 이름</span><input type="text" name="new_program" maxlength="80"></label>
+          <label class="form-row"><span class="muted">지원기관</span><input type="text" name="new_ministry" maxlength="40" list="projMinistries" placeholder="예: 교육부, 대구광역시"></label>
+          <datalist id="projMinistries">{% for m in ministries %}<option value="{{ m }}">{% endfor %}</datalist>
+        </div>
+        <label class="form-row"><span class="muted">사업 연도(선택)</span><input type="text" name="program_year" inputmode="numeric" maxlength="4" value="{{ project_program_year if project_program_year != '?' else '' }}" placeholder="예: 2026"></label>
+        <script>(function () { var p = document.getElementById("projProg"), n = document.getElementById("projProgNew");
+          var f = function () { n.hidden = p.value !== "_new"; n.querySelector("[name=new_program]").required = p.value === "_new"; };
+          p.addEventListener("change", f); f(); })();</script>
+        {% endif %}
         <div style="display:flex; justify-content:flex-end; gap:10px;">
           <button type="button" data-modal-close class="secondary">취소</button>
           <button type="submit">저장</button>

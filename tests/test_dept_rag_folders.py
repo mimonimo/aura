@@ -133,3 +133,17 @@ def test_doc_and_bulk_folder_moves(tmp_path):
     assert next(f for f in lf.folders(db, tmp_path) if f["key"] == key)["docs"] == 1
     page = c.get("/?type=all").text
     assert 'id="libBulk"' in page and 'class="lib-pick"' in page
+
+
+def test_project_program_link(tmp_path, monkeypatch):
+    app, c = _dev(tmp_path)
+    db = app.state.db
+    from zzaimy.app import paths
+    monkeypatch.setattr(paths, "platform_dir", lambda: tmp_path)
+    pid = db.create_project("grant", "인공지능 작업", owner="zzdev")
+    assert 'id="projProg"' in c.get(f"/project/{pid}").text
+    c.post(f"/projects/{pid}/rename", data={"name": "인공지능 작업", "program": "_new", "new_program": "다라 AI 인재 사업",
+                                            "new_ministry": "교육부", "program_year": "2026"})
+    assert db.get_project(pid)["program"] == "program:다라ai인재사업|2026"
+    c.post(f"/projects/{pid}/rename", data={"name": "인공지능 작업", "program": "none"})
+    assert db.get_project(pid)["program"] == ""

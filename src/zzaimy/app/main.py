@@ -921,6 +921,25 @@ def create_app(
                 _pg_cache.update(at=_t.time(), v=({}, {}))
         return _pg_cache["v"]
 
+    _popt_cache: dict = {"at": 0.0, "v": []}
+
+    def _program_options() -> list[dict]:
+        """사업 고르기 목록 — 사업 목록 나무(program_tree)의 정식 이름, 대분류로 묶음(10분 재사용)."""
+        import time as _t
+        if _t.time() - _popt_cache["at"] > 600:
+            try:
+                from zzaimy.app import program_tree as _pt
+                from zzaimy.app.kg_explore import programs as _progs
+                from zzaimy.app.program_names import load_ledger as _ll
+                rows = [{"key": p["id"], "label": p["label"], "n": p["n_docs"]} for p in _progs(db, None) if p["type"] == "program"]
+                tree = _pt.build(rows, _ll())
+                _popt_cache.update(at=_t.time(), v=[{"label": t["label"], "items": [{"key": it["key"], "label": it["label"]}
+                                                                                       for g in t["groups"] for it in g["progs"]]}
+                                                     for t in tree if not t["unknown"]])
+            except Exception:
+                _popt_cache.update(at=_t.time(), v=[])
+        return _popt_cache["v"]
+
     _units_cache: dict = {"at": 0.0, "v": []}
 
     def _business_units() -> list[str]:
@@ -956,10 +975,12 @@ def create_app(
         role = getattr(request.state, "role", "")
         dept = getattr(request.state, "dept", "") or ""
         if role == "student":
-            return "열람 범위: 공개 규정·학사 안내"
+            return "검색 범위: 학생 공개 규정"
         if role == "dev":
-            return "열람 범위: 전체 문서"
-        return f"열람 범위: 공개 문서와 {dept} 문서" if dept and dept != "공통" else "열람 범위: 공개 문서"
+            return "검색 범위: 공통 RAG + 모든 부서 RAG"
+        extra = [d for d in _extra_depts(getattr(request.state, "user", "")) if d != dept]
+        mine = [d for d in [dept, *extra] if d and d != "공통"]
+        return "검색 범위: 공통 RAG" + (" + " + "·".join(mine) + " 부서 RAG" if mine else "")
 
     @app.get("/chat", response_class=HTMLResponse)
     def chat_new(request: Request, project: int | None = None):
@@ -7021,6 +7042,10 @@ def create_app(
             "project.html",
             ctx(request, {
                 "project": proj, "documents": docs, "doc_groups": doc_groups, "active_tab": proj["sector"],
+                "program_options": _program_options() if not proj.get("archived") else [],
+                "project_program": (proj.get("program") or "").split("|", 1)[0], "project_program_year": ((proj.get("program") or "") + "|").split("|")[1],
+                "ministries": sorted({str(e.get("ministry") or "").split(",")[0].strip()
+                                      for e in __import__("zzaimy.app.program_names", fromlist=["load_ledger"]).load_ledger().get("programs", [])} - {""}),
                 "suggestions": _project_suggestions(proj),
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
@@ -7171,7 +7196,8 @@ def create_app(
 
     @app.post("/projects/{project_id}/rename")
     def rename_project(
-        project_id: int, name: str = Form(...), due_date: str | None = Form(None), unit: str | None = Form(None)
+        request: Request, project_id: int, name: str = Form(...), due_date: str | None = Form(None), unit: str | None = Form(None),
+        program: str = Form("__keep__"), new_program: str = Form(""), new_ministry: str = Form(""), program_year: str = Form(""),
     ):
         proj = db.get_project(project_id)
         if proj is None:
@@ -7183,6 +7209,19 @@ def create_app(
             db.update_project_meta(project_id, due_date=due_date.strip())
         if unit is not None:
             db.set_project_unit(project_id, unit.strip() if unit.strip() in _business_units() else "")
+        if program != "__keep__" and not proj.get("archived"):          # 「none」 = 사업 풀기(빈 폼 값은 FastAPI 가 기본값으로 바꾼다)
+            # 사업 — 기존 사업 또는 새 사업(장부에 등록). 프로젝트 문서가 라이브러리 사업 목록·사업 그래프에 함께 선다
+            key = ""
+            if program == "_new":
+                from zzaimy.app import paths as _paths, program_register as _pr
+                key, _label, err = _pr.register(_paths.platform_dir() / "kg_external.json", new_program, new_ministry,
+                                                by=getattr(request.state, "user", ""))
+                if err:
+                    return RedirectResponse(f"/project/{project_id}?" + urlencode({"err": err}), status_code=303)
+            elif program.startswith("program:"):
+                key = program.split("|", 1)[0]
+            y = program_year.strip()
+            db.set_project_program(project_id, (key + (f"|{y}" if key and y.isdigit() and len(y) == 4 else "")) if key else "")
         return RedirectResponse(f"/project/{project_id}", status_code=303)
 
     @app.post("/projects/{project_id}/delete")

@@ -1043,6 +1043,11 @@ class Database:
             ).fetchall()
             return [r["criteria_doc_id"] for r in rows]
 
+    def set_project_program(self, project_id: int, program: str) -> None:
+        """프로젝트가 다루는 사업(program:…|연도) — 라이브러리 사업 목록·사업 그래프에 이 프로젝트 문서가 함께 선다."""
+        with self._conn() as conn:
+            conn.execute("UPDATE projects SET program = ? WHERE id = ?", (program[:200], project_id))
+
     def set_project_unit(self, project_id: int, unit: str) -> None:
         with self._conn() as conn:
             conn.execute("UPDATE projects SET unit = ? WHERE id = ?", (unit[:40], project_id))

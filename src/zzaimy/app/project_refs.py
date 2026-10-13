@@ -415,11 +415,17 @@ def group_items(items: list[dict]) -> list[dict]:
             n = display_name(it["group_name"]) or it["group_name"]
             totals[n] = totals.get(n, 0) + it["n_docs"]
     rep_of = group_names(totals)
+    # 보일 이름은 라이브러리 사업 목록과 같은 장부 정식 이름(학교 재정지원사업 현황) — 같은 사업이 화면마다 다른 이름으로 서지 않게
+    from zzaimy.app.program_names import load_ledger
+    from zzaimy.app.program_tree import Ledger
+    lg = Ledger(load_ledger())
     groups: dict[str, dict] = {}
     for it in items:
         if it["status"] == "archived":
             shown = display_name(it["group_name"]) or it["group_name"]
             name = rep_of.get(shown) or shown
+            e = lg.find(name)
+            name = (e.get("name") if e else None) or name
             key = "name:" + name
         else:
             name, key = it["group_name"], it["group"]
