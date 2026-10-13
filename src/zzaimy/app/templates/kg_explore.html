@@ -246,8 +246,9 @@
       { selector: "edge:loop", style: { label: "", "loop-direction": "-45deg", "loop-sweep": "-30deg" } },
       { selector: "node.ov", style: { "font-size": 12, "min-zoomed-font-size": 8 } },
       { selector: "node.ov[type = 'program_group']", style: { "font-size": 19 } },
-      { selector: "node.ov.small", style: { "min-zoomed-font-size": 21 } },          // 작은 사업 이름은 크게 확대(약 1.8배)하거나 올렸을 때만
-      { selector: "node.ov.small.lbl, node.ov.small:selected", style: { "min-zoomed-font-size": 1 } },
+      // 작은 사업 이름은 확대(1.6배 이상)하거나 올렸을 때만 — 확대 정도는 zoom 처리기가 .far 로 알린다
+      { selector: "node.ov.small.far", style: { label: "" } },
+      { selector: "node.ov.small.far.lbl, node.ov.small.far:selected", style: { label: "data(short)" } },
       { selector: "edge:selected", style: { width: 4, opacity: 1 } },
       { selector: ".faded", style: { opacity: 0.12 } }
     ]
@@ -868,6 +869,9 @@
     if (!state.sel.length) setSel([id]); else if (!loaded[id]) expand(id);
   });
   cy.on("tap", "edge", function (ev) { if (state.tab === "kg") showEdge(ev.target); });
+  function farLabels() { cy.nodes(".ov.small").toggleClass("far", cy.zoom() < 1.6); }
+  cy.on("zoom", farLabels);
+  cy.on("layoutstop", farLabels);
   cy.on("mouseover", "node", function (ev) { cy.elements().not(ev.target.closedNeighborhood()).addClass("faded"); ev.target.addClass("lbl"); });
   cy.on("mouseout", "node", function () { cy.elements().removeClass("faded"); cy.nodes().removeClass("lbl"); });
 
