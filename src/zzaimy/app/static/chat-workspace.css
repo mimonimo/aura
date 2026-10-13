@@ -297,3 +297,5 @@ body #chatForm { max-width:1040px; }
   #chatScroll .chat-suggestion-form .chat-form-input { grid-column:2; }
   #chatScroll .chat-suggestion-form .chat-form-pick { margin-top:2px; }
 }
+/* 칸이 많아 내려가도 머리(전체 고르기·한꺼번에 단추·채운 비율)는 위에 붙어 있게 */
+#chatScroll .chat-suggestion-form .chat-form-head { position:sticky; top:-1px; z-index:2; background:#fff; margin:-16px -18px 0; padding:14px 18px 10px 26px; border-radius:12px 12px 0 0; }
