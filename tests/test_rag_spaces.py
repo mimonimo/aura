@@ -227,7 +227,12 @@ def test_student_audience_set_and_unset_from_rag_page(tmp_path, monkeypatch):
     c = _client(tmp_path)
     db, ga, na, reg_s, reg_t = _search_fixture(tmp_path, monkeypatch)
     page = c.get("/dev/rag").text
-    assert f'action="/doc/{reg_t}/audience"' in page and "학생 공개로 지정" in page and "학생 공개 해제" in page
+    assert 'id="rrReg"' in page and 'data-rr="student"' in page        # 목록은 /dev/rag/regs 에서 불러와 골라 바꾼다
+    regs = {d["id"]: d for d in c.get("/dev/rag/regs").json()["registered"]}
+    assert reg_t in regs and ga not in regs
+    assert c.post("/dev/rag/regs/audience", json={"ids": [reg_t, ga], "audience": "student"}).json()["changed"] == 1
+    assert db.get_document(reg_t)["audience"] == "student" and db.get_document(ga).get("audience") != "student"
+    c.post("/dev/rag/regs/audience", json={"ids": [reg_t], "audience": "staff"})
     r = c.post(f"/doc/{reg_t}/audience", data={"audience": "student", "back": "/dev/rag#student-regs"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/dev/rag#student-regs"
     assert db.get_document(reg_t)["audience"] == "student"
