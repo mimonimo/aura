@@ -33,6 +33,12 @@ def category(row: dict) -> str:
     ext = (row.get("ext") or "").lower().lstrip(".")
     if why == "문서 형식 아님":
         return "photo" if ext in IMAGE else ("archive" if ext in ARCHIVE else "")
+    # 크기 초과이면서 범위 밖 경로(지출·증빙 폴더의 큰 스캔)는 처리할 대상이 아니므로 범위 밖으로 — 「처리 상한 초과」에는
+    # 상한을 넘겨 따로 처리할 문서만 남긴다
+    if why == "처리 상한 초과":
+        from zzaimy.app.archive_state import OUT_OF_SCOPE
+        if OUT_OF_SCOPE.search(row.get("rel") or ""):
+            return "scope"
     return {"같은 파일 중복": "dup", "처리 상한 초과": "big", "범위 밖 경로": "scope"}.get(why, "")
 
 
