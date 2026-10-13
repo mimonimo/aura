@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 INDEX = _paths.index_npz().parent / "grant_embeddings.npz"
 TEXT_KINDS = ("text", "table", "image_text")
 TOP_K = 60
-LEX_KEEP = int(os.environ.get("ZZAIMY_GRANT_LEX_KEEP", "3") or 3)   # 섞은 순위에 늘 남기는 어휘 상위 조각 수
+LEX_KEEP = int(os.environ.get("ZZAIMY_GRANT_LEX_KEEP", "1"))   # 섞은 순위에 늘 남기는 어휘 상위 조각 수(173: 1 이 정답 문서@5 63.7%·짝 91.2%, 0 은 62.5%·93.8%, 3 은 62.5%·88.7% — 회차 차이 ±4pt 안)
 # 어휘 축 가중(RRF) — 규정 검색의 0.4 를 그대로 쓰면 드문 낱말(사업 이름·고유명사)로 어휘 1위인 조각이 임베딩 후보 60개 뒤로 밀려 빠진다.
 # 값은 scripts/173 비교로 정한다(ZZAIMY_GRANT_LEX_W)
 def _lex_w() -> float:
