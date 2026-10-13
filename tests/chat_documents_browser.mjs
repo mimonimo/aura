@@ -25,7 +25,7 @@ try {
  assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);
  assert.equal(await evaluate(`document.querySelectorAll('iframe').length`),0);
  await new Promise(r=>setTimeout(r,400));
- assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'50%');
+ assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'70%');                    // 문서 목록은 좁게(패널 30%)
  await evaluate(`document.querySelector('.chat-doc-file').click()`);await new Promise(r=>setTimeout(r,400));
  const wide=await evaluate(`(()=>{const f=document.querySelector('iframe');return {width:f.getBoundingClientRect().width,scale:new DOMMatrix(getComputedStyle(f).transform).a,viewport:f.parentElement.clientWidth}})()`);
  assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'50%');
@@ -89,12 +89,13 @@ try {
  assert.equal(await evaluate(`document.querySelector('.doc-more').open`),false);
  await send('Input.dispatchMouseEvent',{type:'mousePressed',x:narrow.x,y:narrow.y,button:'left',clickCount:1});await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:narrow.x,y:narrow.y,button:'left',clickCount:1});await send('Input.insertText',{text:'fit typing'});
  assert.equal(await evaluate(`document.querySelector('iframe').contentDocument.querySelector('input').value`),'fit typing');
- // 편집기 → 문서함으로 가도 사용자가 끌어 둔 폭을 그대로 쓴다(보기마다 폭이 바뀌면 입력창이 밀린다)
+ // 폭은 보기마다 따로 기억한다 — 편집기에서 끌어 둔 폭은 편집기 것, 문서 목록은 목록 폭(기본 패널 30%)
  const editorWidth=await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`);
  assert.notEqual(editorWidth,'50%');
+ assert.equal(await evaluate(`sessionStorage.getItem('chatDocRatio:1')+'%'`),editorWidth);
  await evaluate(`document.querySelector('[data-list]').click()`);await new Promise(r=>setTimeout(r,150));assert.equal(await evaluate(`document.querySelectorAll('.chat-doc-file').length`),1);
  await new Promise(r=>setTimeout(r,400));
- assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),editorWidth);
+ assert.equal(await evaluate(`document.querySelector('main').style.getPropertyValue('--chat-width')`),'70%');
  assert.equal(await evaluate(`document.getElementById('chatDocumentOpen').hidden`),true);
  await evaluate(`document.querySelector('.chat-doc-editor :is([data-hide],[data-close])').click()`);await new Promise(r=>setTimeout(r,400));assert.equal(await evaluate(`document.querySelector('.chat-doc-editor').hidden`),true);
  assert.equal(await evaluate(`document.getElementById('chatDocumentOpen').hidden`),false);

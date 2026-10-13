@@ -157,16 +157,24 @@
  divider.setAttribute('aria-label','채팅과 문서 너비 조절');
  divider.setAttribute('aria-controls','chatWorkspace chatDocumentPanel');
  divider.title='드래그로 너비 조절 · 두 번 클릭하면 반반';
- let ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||50;
+ // 폭은 보기마다 따로 — 문서를 열어 볼 때(편집기·열람)는 넓게(기본 반반), 문서 목록만 볼 때는 좁게(기본 대화 70% · 패널 30%).
+ // 끌어 둔 폭도 보기마다 따로 기억한다.
+ const LIST_DEFAULT=70, DOC_DEFAULT=50;
+ let ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||DOC_DEFAULT;
+ let listRatio=Number(sessionStorage.getItem('chatDocListRatio'))||LIST_DEFAULT;
+ const listMode=()=>Boolean(panel&&panel.classList.contains('chat-file-library'));
+ const currentRatio=()=>listMode()?listRatio:ratio;
  function setRatio(value,persist=true){
    const available=Math.max(main.clientWidth-8,1), minimum=Math.min(45,Math.max(20,260/available*100));
-   ratio=Math.max(minimum,Math.min(100-minimum,value));
-   main.style.setProperty('--chat-width',ratio+'%');
+   const next=Math.max(minimum,Math.min(100-minimum,value));
+   if(listMode()){listRatio=next;if(persist)sessionStorage.setItem('chatDocListRatio',String(next));}
+   else{ratio=next;if(persist)sessionStorage.setItem('chatDocRatio:'+sid,String(next));}
+   const shown=next;
+   main.style.setProperty('--chat-width',shown+'%');
    divider.setAttribute('aria-valuemin',String(Math.ceil(minimum)));
    divider.setAttribute('aria-valuemax',String(Math.floor(100-minimum)));
-   divider.setAttribute('aria-valuenow',String(Math.round(ratio)));
-   divider.setAttribute('aria-valuetext','채팅 '+Math.round(ratio)+'%, 문서 '+Math.round(100-ratio)+'%');
-   if(persist)sessionStorage.setItem('chatDocRatio:'+sid,String(ratio));
+   divider.setAttribute('aria-valuenow',String(Math.round(shown)));
+   divider.setAttribute('aria-valuetext','채팅 '+Math.round(shown)+'%, 문서 '+Math.round(100-shown)+'%');
  }
  divider.addEventListener('pointerdown',event=>{
    if(event.button!==0)return;
@@ -179,12 +187,12 @@
  });
  const stopResize=()=>main.classList.remove('chat-doc-resizing');
  ['pointerup','pointercancel','lostpointercapture'].forEach(name=>divider.addEventListener(name,stopResize));
- divider.addEventListener('dblclick',()=>setRatio(50));
+ divider.addEventListener('dblclick',()=>setRatio(listMode()?LIST_DEFAULT:DOC_DEFAULT));
  divider.addEventListener('keydown',event=>{
    if(!['ArrowLeft','ArrowRight','Home','End','Enter'].includes(event.key))return;
-   event.preventDefault();setRatio(event.key==='Enter'?50:event.key==='Home'?0:event.key==='End'?100:ratio+(event.key==='ArrowLeft'?-2:2));
+   event.preventDefault();setRatio(event.key==='Enter'?(listMode()?LIST_DEFAULT:DOC_DEFAULT):event.key==='Home'?0:event.key==='End'?100:currentRatio()+(event.key==='ArrowLeft'?-2:2));
  });
- new ResizeObserver(()=>{if(main.classList.contains('chat-doc-open'))setRatio(ratio,false);}).observe(main);
+ new ResizeObserver(()=>{if(main.classList.contains('chat-doc-open'))setRatio(currentRatio(),false);}).observe(main);
  // 여닫기는 CSS 의 대화 칸 폭 전환으로 부드럽게 — 닫을 때는 전환이 끝난 뒤에 패널을 숨긴다.
  let closing=0;
  function motionMs(){
@@ -200,7 +208,7 @@
  function reveal(){
    if(closing){clearTimeout(closing);closing=0;}
    main.classList.remove('chat-doc-closing');
-   setRatio(ratio,false);
+   setRatio(currentRatio(),false);
    panel.hidden=false;main.classList.add('chat-doc-open');
  }
  function conceal(){
@@ -455,10 +463,9 @@
  const inProject=()=>Boolean(document.querySelector('#chatForm [name=project_id]'));
  let refreshLibrary=null;
  async function showFiles(){
-   // 문서함도 편집기·열람과 같은 폭(끌어 둔 비율)으로 연다. 보기마다 폭을 바꾸면 대화 칸이 오가며
-   // 입력창이 밀린다.
+   // 문서 목록은 좁게 연다(목록 폭, 기본 패널 30%) — 문서를 열면 편집기·열람 폭으로 넓어진다
    clearPanel();showEmpty();
-   panel.classList.add('chat-file-library');panel.querySelector('header strong').textContent='문서 패널';
+   panel.classList.add('chat-file-library');setRatio(listRatio,false);panel.querySelector('header strong').textContent='문서 패널';
    const refresh=document.createElement('button');refresh.type='button';refresh.className='secondary doc-icon-button';refresh.innerHTML='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5M20 12a8 8 0 1 0-2.3 5.7"/></svg>';refresh.title='목록 새로고침';refresh.setAttribute('aria-label',refresh.title);refresh.onclick=showFiles;
    panel.querySelector('header').insertBefore(refresh,panel.querySelector('[data-close]'));
    const current=panel,body=panel.querySelector('.chat-doc-empty');body.className='chat-doc-files';body.replaceChildren();
@@ -673,7 +680,7 @@
    agentBusy=Boolean(event.detail?.waiting);busyLabel='';
    sid=next;linked=null;currentDoc=null;loadError='';
    visibility(false);clearPanel();
-   ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||50;
+   ratio=Number(sessionStorage.getItem('chatDocRatio:'+sid))||DOC_DEFAULT;
    initializeSession();
  });
  initializeSession();
