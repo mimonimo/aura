@@ -159,3 +159,14 @@ def test_folder_delete_keeps_docs(tmp_path):
     r = c.post("/library/folders/delete", data={"key": key}, follow_redirects=False)
     assert "ok=" in r.headers["location"] and db.get_document(d) is not None
     assert not [f for f in lf.folders(db, tmp_path) if f["name"] == "임시"]
+
+
+def test_other_users_project_cannot_be_edited(tmp_path):
+    app = _app(tmp_path)
+    db = app.state.db
+    pid = db.create_project("grant", "남의 프로젝트", owner="zzdev")
+    c = TestClient(app)
+    assert _login(c, "zzaimy", "boot-pass-1")
+    assert c.post(f"/projects/{pid}/rename", data={"name": "바꿈", "program": "none"}).status_code == 404
+    assert c.post(f"/projects/{pid}/delete").status_code == 404
+    assert db.get_project(pid)["name"] == "남의 프로젝트"

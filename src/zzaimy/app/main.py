@@ -7202,6 +7202,8 @@ def create_app(
         proj = db.get_project(project_id)
         if proj is None:
             raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
+        if request.state.role != "dev" and proj.get("owner") != request.state.user:      # 남의 프로젝트는 고칠 수 없다
+            raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
         if not name.strip():
             raise HTTPException(400, "프로젝트 이름을 입력하세요")
         db.rename_project(project_id, name.strip())
@@ -7225,9 +7227,9 @@ def create_app(
         return RedirectResponse(f"/project/{project_id}", status_code=303)
 
     @app.post("/projects/{project_id}/delete")
-    def delete_project(project_id: int):
+    def delete_project(request: Request, project_id: int):
         proj = db.get_project(project_id)
-        if proj is None:
+        if proj is None or (request.state.role != "dev" and proj.get("owner") != request.state.user):
             raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
         db.delete_project(project_id)
         return RedirectResponse(f"/?type={proj['sector']}", status_code=303)
