@@ -170,3 +170,12 @@ def test_other_users_project_cannot_be_edited(tmp_path):
     assert c.post(f"/projects/{pid}/rename", data={"name": "바꿈", "program": "none"}).status_code == 404
     assert c.post(f"/projects/{pid}/delete").status_code == 404
     assert db.get_project(pid)["name"] == "남의 프로젝트"
+
+
+def test_upload_rejects_unknown_program_key(tmp_path):
+    app, c = _dev(tmp_path)
+    r = c.post("/library/upload", data={"program": "program:가짜사업"},
+               files=[("files", ("a.txt", io.BytesIO("본문".encode()), "text/plain"))], follow_redirects=False)
+    assert "err=" in r.headers["location"]
+    with app.state.db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM projects WHERE program LIKE 'program:가짜사업%'").fetchone()[0] == 0

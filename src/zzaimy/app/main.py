@@ -7222,6 +7222,9 @@ def create_app(
                     return RedirectResponse(f"/project/{project_id}?" + urlencode({"err": err}), status_code=303)
             elif program.startswith("program:"):
                 key = program.split("|", 1)[0]
+                with db._conn() as conn:
+                    if not conn.execute("SELECT 1 FROM kg_nodes WHERE id = ? AND type = 'program'", (key,)).fetchone():
+                        return RedirectResponse(f"/project/{project_id}?" + urlencode({"err": "없는 사업입니다"}), status_code=303)
             y = program_year.strip()
             db.set_project_program(project_id, (key + (f"|{y}" if key and y.isdigit() and len(y) == 4 else "")) if key else "")
         return RedirectResponse(f"/project/{project_id}", status_code=303)
@@ -7362,8 +7365,10 @@ def create_app(
                 return _lib_back(folder, err=err)
         elif program.startswith("program:"):
             with db._conn() as conn:
-                row = conn.execute("SELECT label FROM kg_nodes WHERE id = ?", (program,)).fetchone()
-            prog_label = (row[0] if row else "") or program.split(":", 1)[1]
+                row = conn.execute("SELECT label FROM kg_nodes WHERE id = ? AND type = 'program'", (program,)).fetchone()
+            if not row:                                    # 그래프에 없는 사업 열쇠는 받지 않는다(새 사업은 「새 사업 등록」으로)
+                return _lib_back(folder, err="없는 사업입니다 — 목록에서 고르거나 「새 사업 등록」으로 만듭니다")
+            prog_label = row[0] or program.split(":", 1)[1]
         else:
             program = ""
         if program:
