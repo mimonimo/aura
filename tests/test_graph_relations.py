@@ -103,3 +103,17 @@ def test_model_reading_keeps_only_catalog_names_and_caches(graph):
     question_read.read(c, "가나 2단계 계획 대비 실적", progs)
     assert c.calls == 1                                   # 같은 질문은 다시 묻지 않는다
     assert question_read.read(_Client("형식 아님"), "다른 질문", progs) is None
+
+
+def test_answer_flow_reads_numbers_only_from_machine_outputs(graph, tmp_path):
+    from zzaimy.app import answer_flow
+    answer_flow._cache.update(at=0.0, edges=None)
+    empty = answer_flow.snapshot(graph, tmp_path / "eval")
+    assert empty["probe"] == [] and {r["kind"]: r["n"] for r in empty["relations"]}["plans_reports"] == 1
+    (tmp_path / "eval").mkdir()
+    (tmp_path / "eval" / "graph_relation_probe_t.json").write_text(json.dumps({"made": "2026-10-13 12:00", "name": {"summary": {
+        "n": 2, "ok": 0.5, "sec_median": 1.0, "plan_report": {"n": 2, "ok": 0.5}}}, "model": {"summary": {
+        "n": 2, "ok": 1.0, "sec_median": 2.0, "plan_report": {"n": 2, "ok": 1.0}}}}), encoding="utf-8")
+    snap = answer_flow.snapshot(graph, tmp_path / "eval")
+    assert snap["probe"][0]["name"] == 0.5 and snap["probe"][0]["model"] == 1.0 and snap["probe"][-1]["label"] == "전체"
+    assert snap["timing"] == {"name": 1.0, "model": 2.0}

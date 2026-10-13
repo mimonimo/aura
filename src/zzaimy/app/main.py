@@ -4586,6 +4586,8 @@ def create_app(
             "n_notes": len(_dev_doc_list("notes")),
             **dict(zip(("intake", "intake_state"), _dev_slow("intake", _intake_snapshot, ttl_s=60))),   # 무거운 집계 — 늦으면 「잠시 뒤 다시」
             "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
+            # 답변 흐름 — 그래프 관계 수·관계 질문 측정(scripts/184)은 기계 산출물에서
+            "flow": __import__("zzaimy.app.answer_flow", fromlist=["snapshot"]).snapshot(db, Path(db_path).parent.parent / "eval"),
         }))
 
     def _intake_snapshot() -> dict | None:
