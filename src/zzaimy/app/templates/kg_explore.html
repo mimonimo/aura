@@ -473,7 +473,7 @@
     if (state.tab === "onto") { if (schemaData) schemaPanel(schemaData); return; }
     if (!state.sel.length) {
       var t = init.totals || {};
-      var body = panel("전체 개요", "모든 사업", stats([["사업", t.programs], ["사업 묶음", t.groups], ["문서", t.docs]]));
+      var body = panel("전체 개요", "모든 사업", stats([["사업", t.programs], ["사업 묶음", t.groups], ["사업에 배정된 문서", t.docs]]));
       body.appendChild(el("p", "gx-note", "노드를 누르면 요약 · 두 번 누르면 그 사업만 펼침 · 빈 곳을 누르면 해제"));
       return;
     }
