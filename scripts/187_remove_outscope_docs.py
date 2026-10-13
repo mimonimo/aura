@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""범위 밖(지출·증빙·정산 경로, 절대 규칙 11) 원본에서 들어온 라이브러리 문서를 뺀다 — 원본 파일은 그대로, 되돌릴 수 있게.
+"""범위 밖 지출·계약 증빙 서류(절대 규칙 11)를 라이브러리에서 뺀다 — 원본 파일은 그대로, 되돌릴 수 있게.
 
-처리 대상 규칙(archive_state.exclusion_reason 「범위 밖 경로」)이 생기기 전에 들어온 문서가 라이브러리·검색에 남아 있다.
-- 대상: 학교 원본 파일과 이어진 문서 가운데, 이어진 원본이 모두 범위 밖 경로인 것(기준 문서는 빼지 않는다).
+- 대상: 서류 갈래가 증빙(excluded_kinds)인 사업 문서. 검색·그래프에서는 이미 빠져 있고 라이브러리에만 남아 있었다.
+  경로 규칙(archive_state 「범위 밖 경로」)만으로는 고르지 않는다 — 정산 폴더 속 계획서·보고서까지 걸린다.
 - 지우기 전에 문서 행과 그 문서에 딸린 행(doc_id 칸이 있는 표 전부 — 조각·그림·개체·검토·어휘 색인 등)과
   원본·파일 장부·대화 출처·판본 이음을 한 파일(data/platform/backups/outscope-<시각>.jsonl.gz)에 남긴다.
-- 지우기는 db.delete_document 와 같은 길(파생물까지), 원본 장부의 이음(doc_id)은 비운다 — 원본은 「처리 제외」로 보인다.
+- 지우기는 db.delete_document 와 같은 길(파생물까지). 원본 장부의 이음(doc_id)은 비우고 그 원본은 정리함 「지출·계약 증빙」으로
+  옮긴다(파일은 그대로) — 보관소 건수에서 빠지고, 맞추기가 다시 들이지 않는다.
 
 사용(VM): env PYTHONPATH=src .venv/bin/python scripts/187_remove_outscope_docs.py            # 미리 보기
           ... --apply
@@ -35,16 +36,15 @@ LINKS = (("archive_files", "rel", "doc_id"), ("files", "id", "doc_id"), ("chat_s
 
 
 def targets(db) -> list[int]:
-    from zzaimy.app import archive_state as st
-    orig, oa = st.original_sql()
+    """지출·계약 증빙 갈래(doc_routing.excluded_kinds, 기본 evidence)의 사업 문서 — 절대 규칙 11 의 범위 밖 계열.
+    경로만으로 고르지 않는다: 「정산·집행」 폴더에도 사업계획서·실적보고서·집행 요령이 있다(그것은 남긴다)."""
+    from zzaimy.app.doc_routing import excluded_kinds
+    kinds = excluded_kinds()
+    if not kinds:
+        return []
     with db._conn() as conn:
-        rows = [dict(r) for r in conn.execute(
-            f"SELECT rel, ext, size, dup_of, doc_id FROM archive_files WHERE removed_at = '' AND doc_id IS NOT NULL AND {orig}", oa)]
-        reg = {int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE doc_type = 'regulation'")}
-    by_doc: dict[int, list[str]] = {}
-    for r in rows:
-        by_doc.setdefault(int(r["doc_id"]), []).append(st.exclusion_reason(r) or "처리 대상")
-    return sorted(d for d, whys in by_doc.items() if d not in reg and all(w == "범위 밖 경로" for w in whys))
+        return sorted(int(r[0]) for r in conn.execute(
+            f"SELECT id FROM documents WHERE doc_type = 'grant' AND kind IN ({','.join('?' * len(kinds))})", list(kinds)))
 
 
 def _cols(conn, table: str) -> list[str]:
@@ -79,9 +79,15 @@ def backup(db, ids: list[int], out: Path) -> int:
     return n
 
 
-def remove(db, ids: list[int]) -> None:
+def remove(db, ids: list[int]) -> int:
+    """문서를 빼고, 이어져 있던 학교 원본은 정리함 「지출·계약 증빙」으로 — 맞추기(175 --find-reimport)가 다시 들이지 않게."""
+    from zzaimy.app import archive_cleanup
     with db._conn() as conn:
         have = set(table_names(conn))
+        rels = []
+        for i in range(0, len(ids), 500):
+            part = ids[i:i + 500]
+            rels += [r[0] for r in conn.execute(f"SELECT rel FROM archive_files WHERE doc_id IN ({','.join('?' * len(part))})", part)]
     for i, did in enumerate(ids, 1):
         with db._conn() as conn:
             for t in ("grant_lex", "grant_vec"):
@@ -91,6 +97,7 @@ def remove(db, ids: list[int]) -> None:
         db.delete_document(did)
         if i % 500 == 0:
             print(f"  {i}/{len(ids)}", flush=True)
+    return archive_cleanup.put(db, rels, "evidence", by="scripts/187")
 
 
 def restore(db, path: Path) -> None:
@@ -104,6 +111,7 @@ def restore(db, path: Path) -> None:
                 cols = list(row)
                 conn.execute(f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))}) ON CONFLICT DO NOTHING",
                              [row[c] for c in cols])
+        conn.execute("DELETE FROM archive_cleanup WHERE category = 'evidence'")   # 정리함에서도 되돌린다
         ok = {(t, k, c) for t, k, c in LINKS}
         for rec in (r["row"] for r in rows if r["t"] == "link"):
             if (rec["table"], rec["key"], rec["col"]) in ok:
@@ -123,7 +131,7 @@ def main() -> int:
     ids = targets(db)
     with db._conn() as conn:
         sample = [r[0] for r in conn.execute(f"SELECT filename FROM documents WHERE id IN ({','.join('?' * min(8, len(ids)))})", ids[:8])] if ids else []
-    print(f"범위 밖 원본에서만 온 라이브러리 문서 {len(ids)}건 — 예: {sample}")
+    print(f"지출·계약 증빙 갈래 라이브러리 문서 {len(ids)}건 — 예: {sample}")
     if not args.apply:
         print("미리 보기입니다 — --apply 로 백업 뒤 뺍니다")
         return 0
@@ -131,8 +139,8 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     n = backup(db, ids, out)
     print(f"백업 {n}줄 → {out}")
-    remove(db, ids)
-    print(f"뺐다 — {len(ids)}건. 되돌리기: scripts/187_remove_outscope_docs.py --restore {out}")
+    moved = remove(db, ids)
+    print(f"뺐다 — {len(ids)}건 · 원본 {moved}건 정리함(지출·계약 증빙)으로. 되돌리기: scripts/187_remove_outscope_docs.py --restore {out}")
     return 0
 
 

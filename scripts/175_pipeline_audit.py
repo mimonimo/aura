@@ -133,6 +133,8 @@ def main() -> int:
     fails = _jsonl_rels(PLAT / "parse_failures.jsonl", "rel")
     with db._conn() as conn:
         rows = conn.execute("SELECT rel, ext, dup_of, doc_id, seen_at, COALESCE(removed_at, ''), size, mtime FROM archive_files").fetchall()
+        # 정리함(archive_cleanup)으로 옮긴 원본 — 처리 제외로 확인된 것. 대상·놓침·다시 들임에서 뺀다
+        cleaned = {r[0] for r in conn.execute("SELECT rel FROM archive_cleanup").fetchall()} if _has(conn, "archive_cleanup") else set()
     total = len(rows)
     # 같은 파일 묶음(이름·크기·내용 — dup_of 가 묶음의 대표를 가리킨다, zzaimy/archive_dups) — DGX(165)와 VM(170)이 대표를 서로
     # 다르게 고를 수 있어, 처리된 쪽이 VM 에선 「중복」, 처리 안 된 쪽이 「대상」이 되어 놓침으로 잡힌다. 묶음 중 하나라도
@@ -154,6 +156,9 @@ def main() -> int:
     for rel, ext, dup, doc_id, seen_at, removed, size, mtime in rows:
         e = (ext or "").lower().lstrip(".")
         if removed:
+            continue
+        if rel in cleaned:
+            comp["정리함"] += 1
             continue
         if doc_formats.is_byproduct(rel):              # 변환기 출력·웹 페이지 저장 자료 폴더 — 원본 보관소·DGX 처리(167)와 같은 규칙
             comp["부산물(변환 출력·웹 페이지 저장 자료)"] += 1

@@ -113,7 +113,7 @@
     $('acRows').innerHTML = d.items.map(x => `<tr><td><b>${esc(x.label)}</b><small>${esc(x.note)}</small></td><td class="num">${n(x.n)}</td><td class="num">${gb(x.bytes)}</td><td class="num">${n(x.cleaned)}</td>
       <td><div class="ac-acts"><button class="btn secondary" type="button" data-ac="sample" data-key="${x.key}" ${x.n ? '' : 'disabled'}>목록 보기</button>
       <button class="btn" type="button" data-ac="move" data-key="${x.key}" data-label="${esc(x.label)}" data-n="${x.n}" ${x.n ? '' : 'disabled'}>정리함으로</button>
-      <button class="btn secondary" type="button" data-ac="restore" data-key="${x.key}" data-label="${esc(x.label)}" ${x.cleaned ? '' : 'disabled'}>되돌리기</button></div></td></tr>`).join('');
+      <button class="btn secondary" type="button" data-ac="restore" data-key="${x.key}" data-label="${esc(x.label)}" ${x.cleaned && !x.manual ? '' : 'disabled'} ${x.manual ? 'title="문서까지 함께 되살리는 도구(scripts/187 --restore)로 되돌립니다"' : ''}>되돌리기</button></div></td></tr>`).join('');
   }
   const load = () => fetch('/archive/cleanup', {cache: 'no-store'}).then(r => r.json()).then(paint).catch(() => { $('acSum').textContent = '불러오지 못했습니다'; });
   async function post(url, key) {

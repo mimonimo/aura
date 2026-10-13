@@ -17,7 +17,10 @@ CATEGORIES = (
     ("scope", "범위 밖(지출·증빙)", "경로에 지출·증빙·스캔·영수·정산·집행 — 처리 범위 밖(절대 규칙 11)"),
     ("dup", "같은 파일 중복", "이름·크기·내용 지문이 같은 다른 파일이 있음"),
     ("big", "처리 상한 초과", "300MB 를 넘어 처리하지 않는 파일"),
+    # 경로 규칙으로 못 거른 지출·계약 증빙 — 서류 갈래로 알아보고 라이브러리에서 뺀 문서의 원본(scripts/187 이 옮긴다)
+    ("evidence", "지출·계약 증빙", "견적서·거래명세서·영수증 같은 증빙 서류 — 라이브러리에서 뺀 문서의 원본"),
 )
+MANUAL = ("evidence",)                                     # 규칙으로 고르지 않고 도구가 직접 옮기는 갈래
 LABEL = {k: lab for k, lab, _ in CATEGORIES}
 _cache: dict = {"at": 0.0, "v": None}
 
@@ -54,7 +57,8 @@ def summary(db, force: bool = False) -> dict:
             count[k][1] += int(r.get("size") or 0)
     with db._conn() as conn:
         cleaned = {str(r[0]): int(r[1]) for r in conn.execute("SELECT category, COUNT(*) FROM archive_cleanup GROUP BY category").fetchall()}
-    out = {"items": [{"key": k, "label": lab, "note": note, "n": count[k][0], "bytes": count[k][1], "cleaned": cleaned.get(k, 0)}
+    out = {"items": [{"key": k, "label": lab, "note": note, "n": count[k][0], "bytes": count[k][1], "cleaned": cleaned.get(k, 0),
+                      "manual": k in MANUAL}
                      for k, lab, note in CATEGORIES],
            "cleaned_total": sum(cleaned.values())}
     _cache.update(at=time.time(), v=out)
@@ -67,7 +71,7 @@ def sample(db, key: str, limit: int = 40) -> list[str]:
 
 def move(db, key: str, by: str = "") -> int:
     """갈래 하나를 정리함으로 — 옮긴 수."""
-    if key not in LABEL:
+    if key not in LABEL or key in MANUAL:
         return 0
     rels = [r["rel"] for r in _rows(db) if category(r) == key]
     now = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -79,10 +83,25 @@ def move(db, key: str, by: str = "") -> int:
     return len(rels)
 
 
-def restore(db, key: str = "") -> int:
-    """정리함에서 되돌리기 — 갈래 하나 또는 전부(key='')."""
+def put(db, rels: list[str], key: str, by: str = "") -> int:
+    """고른 원본을 정리함으로(MANUAL 갈래)."""
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
     with db._conn() as conn:
-        n = conn.execute("SELECT COUNT(*) FROM archive_cleanup" + (" WHERE category = ?" if key else ""), [key] if key else []).fetchone()[0]
-        conn.execute("DELETE FROM archive_cleanup" + (" WHERE category = ?" if key else ""), [key] if key else [])
+        for i in range(0, len(rels), 500):
+            conn.executemany("INSERT INTO archive_cleanup (rel, category, at, by_user) VALUES (?, ?, ?, ?) ON CONFLICT (rel) DO NOTHING",
+                             [(rel, key, now, by) for rel in rels[i:i + 500]])
+    _cache.update(v=None)
+    return len(rels)
+
+
+def restore(db, key: str = "") -> int:
+    """정리함에서 되돌리기 — 갈래 하나 또는 전부(key=''). 도구가 옮긴 갈래(MANUAL)는 문서까지 되살리는 그 도구로만."""
+    if key in MANUAL:
+        return 0
+    with db._conn() as conn:
+        where = " WHERE category = ?" if key else f" WHERE category NOT IN ({','.join('?' * len(MANUAL))})"
+        args = [key] if key else list(MANUAL)
+        n = conn.execute("SELECT COUNT(*) FROM archive_cleanup" + where, args).fetchone()[0]
+        conn.execute("DELETE FROM archive_cleanup" + where, args)
     _cache.update(v=None)
     return int(n)
