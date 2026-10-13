@@ -33,7 +33,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from zzaimy.app import search_serving, serving_plan
+from zzaimy.app import serving_plan
 from zzaimy.app import paths as _paths
 from zzaimy.app import storage
 from zzaimy.app import korean_text as _ko
@@ -5043,6 +5043,8 @@ def create_app(
     @app.get("/dev/quality", response_class=HTMLResponse)
     def dev_quality(request: Request):
         """품질·성능 — 규정 검색 정확도(기계 산출물)와 추출 품질 백로그."""
+        from zzaimy.app import metrics as _metrics_mod
+
         return templates.TemplateResponse(request, "dev_quality.html", ctx(request, {
             "retrieval_eval": _retrieval_eval_state(),
             # 지금 색인을 만든 임베딩 — 측정 당시 임베딩과 다르면 화면이 「옛 측정」 경고를 띄운다
@@ -5050,8 +5052,8 @@ def create_app(
             "reindex_running": _reindex_running(),
             "quality": db.quality_report_stats(),
             "quality_open": db.list_quality_reports(status="open", limit=10),
-            "grounded_ls": _grounded_ls_status(),
-            "labelstudio_url": db.get_setting("labelstudio_url"),
+            # 지금 규정 조각 수 — 측정 당시 조각 수와 다르면 지난 측정을 「구성 다름」으로 접는다
+            "current_chunks": _metrics_mod.live(db)["values"].get("regulation_chunks", 0),
         }))
 
     _doc_dates: dict[str, str] = {}
@@ -5189,8 +5191,11 @@ def create_app(
 
         플랫폼 DB와, 옆에 있으면 코퍼스 파일럿 DB(스크립트 74 기본 대상)까지
         본다. 자가 점검 결과는 DB와 무관하므로 플랫폼 DB settings에만 둔다.
+        외부 연결(웹 검색·구독 CLI)은 도구·모델 연결(/dev/tools)로 옮겼다 — 옛 탭 주소는 그리로 보낸다.
         """
-        from zzaimy.app import access_guard, pii_audit, web_search
+        if request.query_params.get("view") == "external":
+            return RedirectResponse("/dev/tools#external", status_code=303)
+        from zzaimy.app import access_guard, pii_audit
 
         sources = [pii_audit.source_view(db, name="플랫폼 DB", linkable=True, q=q, entity=entity, page=page)]
         corpus_path = pii_audit.corpus_db_path(db)
@@ -5203,8 +5208,6 @@ def create_app(
             "masking_entities": privacy_policy.ENTITIES,
             "history_source": "corpus" if source == "corpus" and len(sources) > 1 else "platform",
             "history_q": q, "history_entity": entity,
-            "search_provider": web_search.provider(),
-            "subscription_checks": _aj.loads(db.get_setting("subscription_checks", "{}")),
             "sources": sources,
             "selftest": pii_audit.load_json(db, pii_audit.SELFTEST_KEY),
             "policy": pii_audit.MASK_POLICY,
@@ -5232,7 +5235,7 @@ def create_app(
         checks = {name: probe(name) for name in ("claude", "codex")}
         checks["at"] = datetime.now(timezone.utc).isoformat()
         db.set_setting("subscription_checks", _aj.dumps(checks))
-        return RedirectResponse("/dev/pii?view=external", status_code=303)
+        return RedirectResponse("/dev/tools#external", status_code=303)
 
     @app.post("/dev/pii/policy")
     def dev_privacy_policy(request: Request, enabled: str = Form(...), entities: list[str] = Form([])):
@@ -5807,17 +5810,23 @@ def create_app(
 
     @app.get("/dev/train", response_class=HTMLResponse)
     def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "data", ds_page: int = 0):
-        # 화면은 둘 — 데이터·학습(data)과 도구·모델 연결(settings). 옛 tab 값(models·exports)이나 없는 값은
-        # 같은 화면을 다른 주소로 보이지 않게 data 로 보낸다(안내·쪽 번호는 그대로)
-        if tab not in {"data", "settings"}:
-            from urllib.parse import urlencode
+        # 데이터·학습 화면. 도구·모델 연결은 /dev/tools 로 옮겼다 — 옛 주소(tab=settings)는 안내·오류 문구를
+        # 그대로 들고 새 주소로 보낸다. 옛 tab 값(models·exports)이나 없는 값은 data 로 보낸다
+        from urllib.parse import urlencode
+        if tab == "settings":
+            keep = {k: v for k, v in (("err", err), ("ok", ok)) if v}
+            return RedirectResponse("/dev/tools" + ("?" + urlencode(keep) if keep else ""), status_code=303)
+        if tab != "data":
             keep = {k: v for k, v in (("err", err), ("ok", ok), ("ds_page", ds_page or "")) if v}
             return RedirectResponse("/dev/train?" + urlencode({"tab": "data", **keep}), status_code=303)
-        if tab != "settings":
-            return _dev_data_view(request, err, ok, ds_page)
+        return _dev_data_view(request, err, ok, ds_page)
+
+    @app.get("/dev/tools", response_class=HTMLResponse)
+    def dev_tools(request: Request, err: str = "", ok: str = ""):
+        """도구·모델 연결 — 학습 도구 주소·계정, LLM 연결·단계별 모델, 계획 모델 서빙, 외부 연결(웹 검색·구독 CLI)."""
         # 연결마다 서버가 지금 내어 주는 모델 목록 — 저장된 값이 아니라 실시간(짧게 캐시)
         # Label Studio 는 실제 연결 여부(connected)로 표시 — 주소만 있다고 연결됨이 아니다.
-        # 도구 계정·주소(LS 아이디·비밀번호 재설정, GPU 도구 주소)도 이 화면의 도구 카드에서 다룬다.
+        from zzaimy.app import web_search
         from zzaimy.dataset import ls_admin
         from zzaimy.generate import llm_connections, model_config
 
@@ -5828,72 +5837,36 @@ def create_app(
             live_results = list(probes.map(_live_models_cached, [c['id'] for c in public_connections]))
         live_by_id = dict(zip([c['id'] for c in public_connections], live_results))
 
-        ls = _ls_status() if tab in {"models", "settings"} else {"ok": False}
+        ls = _ls_status()
         tools = [
             {**t, "url": db.get_setting(t["setting"], ""),
              "connected": ls["ok"] if t["key"] == "labelstudio" else None}
             for t in _TRAIN_TOOLS
         ]
-        from zzaimy.export.bundle import preview_bundle
-        try:
-            export_preview = preview_bundle(
-                db, model_dir=os.environ.get("ZZAIMY_MODEL_DIR")) if tab == "exports" else []
-        except Exception:
-            export_preview = []
-        # 학습 순서 — 단계별 상태는 DB(학습 데이터 묶음), 측정 산출물(검색 정확도), 설정(도구 주소)에서만
-        datasets = db.list_datasets(limit=10)
-        llamaboard_url = db.get_setting("llamaboard_url", "")
         llm = model_config.current()
         llm_probe = (live_by_id.get(llm.get("connection_id")) or model_config.probe()) if llm["configured"] else {"ok": False, "models": [], "error": "미확인"}
-        llm_url = llm["base_url"] if llm["configured"] else ""
-        try:
-            ev = _retrieval_eval_state().get("result") or {}
-        except Exception:
-            ev = {}
-        measured = (ev.get("measured_at") or "")[:10]
-        steps = [
-            {"title": "학습 데이터 준비", "desc": "데이터 공방에서 예시 생성, Label Studio 검수",
-             "status": "문답·근거 검수 중 · 학습 승인 별도",
-             "state": "doing"},
-            {"title": "베이스라인 측정", "desc": "학습 전 성능 기록 (개선폭의 기준)",
-             "status": (f"검색 정확도 측정 {measured}" if measured else "검색 정확도 측정 전")
-             + " · Writer 공개 표본 측정 기록 있음 / 실문서 평가셋 재측정 필요",
-             "state": "doing" if measured else "todo"},
-            {"title": "SFT 실행", "desc": "LLaMA Board에서 능력 학습, TensorBoard로 진행 확인",
-             "status": "도구 주소 설정됨 · 학습 시작 전" if llamaboard_url else "도구 주소 미설정",
-             "state": "todo"},
-            {"title": "DPO", "desc": "담당자 판정·재작성 이력으로 선호 학습",
-             "status": "SFT 후", "state": "todo"},
-            {"title": "모델 서버 연결", "desc": "문서 작업의 기본 연결",
-             "status": (f"연결됨 · {llm['model'] or (llm_probe['models'][0] if llm_probe['models'] else '모델 미선택')}"
-                        if llm_probe["ok"] else ("주소 설정됨 · " + llm_probe["error"] if llm_url else "주소 미설정")),
-             "state": "done" if llm_probe["ok"] else "todo"},
-        ]
-        return templates.TemplateResponse(request, "dev_train.html", ctx(request, {
-            "development_tab": tab,
+        return templates.TemplateResponse(request, "dev_tools.html", ctx(request, {
             "err": err, "ok": ok,
             "tools": tools,
-            "steps": steps,
             "ls": ls,
             "ls_username": db.get_setting("labelstudio_username", ""),
             "ls_token_set": bool(db.get_setting("labelstudio_token")),
             "ls_admin_available": ls_admin.available(),
-            "llm_url": llm_url,
             "llm": llm, "llm_probe": llm_probe,
             "connections": [dict(c, usage=model_config.usage_today(c["id"]),
                                  live=live_by_id[c["id"]])
                             for c in public_connections],
             "llm_kinds": llm_connections.KINDS,
             "usage_all": model_config.usage_today(),
-            "datasets": datasets,
-            "export_preview": export_preview,
             "llm_roles": llm_connections.roles_public(),
             "role_labels": llm_connections.ROLES,
-            "search_serving": search_serving.status() if tab == "settings" else [],
             "serving_plan": serving_plan.status(lambda cid: live_by_id.get(cid) or _live_models_cached(cid)),
             "train_host": serving_plan.training_box(),
             # 입력 예시는 계획서 모델에서(절대 규칙 9 — 계획 밖 모델 이름을 예로 들지 않는다)
             "plan_writer": next((p["base"] for p in serving_plan.PLAN if p["key"] == "answer"), ""),
+            # 외부 연결 — 개인정보 화면에서 옮겨 온 칸
+            "search_provider": web_search.provider(),
+            "subscription_checks": _aj.loads(db.get_setting("subscription_checks", "{}")),
         }))
 
     @app.get("/dev/train/export.zip")

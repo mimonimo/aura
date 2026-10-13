@@ -44,30 +44,11 @@
 {% endblock %}
 {% block content %}
 {% set selected = request.query_params.get('view', 'policy') %}
-{% if selected not in ['policy', 'checks', 'history', 'external'] %}{% set selected = 'policy' %}{% endif %}
+{% if selected not in ['policy', 'checks', 'history'] %}{% set selected = 'policy' %}{% endif %}
 <div class="privacy-page">
 
-{% if selected == 'checks' %}
-<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>문서 활용과 개인정보 보호</h2>
-  <p style="margin:0; font-size:13.5px; line-height:1.7;">
-    내부 검색·검토·초안은 문서 접근 권한을 따릅니다. 학습·외부 전송 사본은 내부 설정과 별도로 보호합니다.</p>
-  <p class="privacy-help" role="status">현재 저장된 상태: <strong>내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong></p>
-  {% set scan0 = sources[0].scan if sources else none %}
-  {% if selected == 'checks' %}<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
-    {% if selftest and not selftest.error %}
-      <span class="pill {{ 'reviewed' if selftest.ok else 'failed' }}">자가 점검 {{ selftest.passed }}/{{ selftest.total }} · {{ (selftest.at or '')[:16] | replace('T', ' ') }}</span>
-    {% else %}<span class="pill processing">자가 점검 미실행</span>{% endif %}
-    {% if scan0 and not scan0.error %}
-      <span class="pill {{ 'reviewed' if scan0.hits == 0 else 'processing' }}">최근 정규식 탐지 {{ scan0.hits | num }}건 · {{ scan0.at | kst }}</span>
-    {% else %}<span class="pill processing">잔여 검사 미실행</span>{% endif %}
-    {% if sources %}<span class="pill type" title="{{ metric_tip('pii_recorded') }}">마스킹 기록 있는 문서 {{ sources[0].recorded_subjects | num }} / 마스킹 대상 문서 {{ sources[0].subject_docs | num }}</span>{% endif %}
-  </div>{% endif %}
-</div></div>
-{% endif %}
-
 <nav class="privacy-nav" aria-label="개인정보 점검 메뉴">
-{% for key, label in [('policy','처리 정책'),('external','외부 연결'),('checks','점검 도구'),('history','과거 처리 기록')] %}
+{% for key, label in [('policy','처리 정책'),('checks','점검 도구'),('history','과거 처리 기록')] %}
 <a href="/dev/pii?view={{ key }}" {% if selected == key %}aria-current="page"{% endif %}>{{ label }}</a>
 {% endfor %}
 </nav>
@@ -132,32 +113,24 @@
 {% endif %}
 {% endif %}
 
-{% if selected == 'external' %}
-<div class="card"><div class="card-in">
-  <h2>외부 연결 방식</h2>
-  <div class="privacy-principles">
-    <article><h3>웹 검색</h3><p>검색 제공자: {{ {'duckduckgo':'DuckDuckGo','google':'Google','naver':'네이버'}.get(search_provider, search_provider) }}<br>채팅에서 웹 검색을 선택한 요청에 사용합니다. 검색 결과 답변과 외부 AI 로그인은 별도 기능입니다.</p></article>
-    <article><h3>구독 로그인·작업 세션</h3><p><span class="pill processing">세션 실행 연결 준비 중</span><br>Claude Code·Codex 구독 로그인을 사용합니다. API 키 호출로 대체하지 않습니다.</p></article>
-  </div>
-  <p class="privacy-help">로컬 로그인은 인증 방식일 뿐이며, 입력 내용이 외부 AI 서비스로 전송되는지는 따로 확인해야 합니다. 웹 검색 보호와 학습 데이터 개인정보 검수는 그대로 유지합니다.</p>
-</div></div>
-<div class="card"><div class="card-in">
-  <h2>외부 참조 AI · 구독 연결 확인</h2>
-  <p class="privacy-help">플랫폼 서버에서 CLI가 설치되어 있고 구독 계정으로 인증됐는지 확인합니다. 이 PC의 로그인 상태와는 다를 수 있습니다. 인증 토큰·이메일·CLI 원 출력은 표시하거나 저장하지 않습니다.</p>
-  <div class="privacy-principles">
-  {% set states = {'missing':'CLI 미설치','authenticated':'구독 로그인 확인','signed_out':'로그인 필요','unsupported_auth':'구독 인증 방식 확인 필요','unknown':'확인 실패'} %}
-  {% for key, name in [('claude','Claude Code'),('codex','아스트라 · Codex')] %}
-  {% set check = subscription_checks.get(key,{}) %}
-  <article><h3>{{ name }}</h3><p><span class="pill">{{ states.get(check.get('state'),'미확인') }}</span></p></article>
-  {% endfor %}
-  </div>
-  <p class="privacy-help">마지막 확인: {{ subscription_checks.get('at','아직 확인하지 않음') }} · 과거 확인 결과이며 현재 로그인 상태는 다시 확인해야 합니다.</p>
-  <form action="/dev/pii/subscriptions/check" method="post"><button type="submit">연결 상태 확인</button></form>
-</div></div>
-{% endif %}
-
 {% if selected == 'checks' %}
-<p class="privacy-help">읽기 전용 진단입니다. 내부 마스킹이 꺼져 있을 때 원문에서 개인정보가 탐지되는 것은 예상되는 결과입니다. 검사 결과로 반출을 승인하거나 처리 설정을 바꾸지 않습니다.</p>
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:shield-check-linear"></iconify-icon>문서 활용과 개인정보 보호</h2>
+  <p style="margin:0; font-size:13.5px; line-height:1.7;">
+    내부 검색·검토·초안은 문서 접근 권한을 따릅니다. 학습·외부 전송 사본은 내부 설정과 별도로 보호합니다.</p>
+  <p class="privacy-help" role="status">현재 저장된 상태: <strong>내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐 · 원문 활용' }}</strong></p>
+  {% set scan0 = sources[0].scan if sources else none %}
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; font-size:12.5px;">
+    {% if selftest and not selftest.error %}
+      <span class="pill {{ 'reviewed' if selftest.ok else 'failed' }}">자가 점검 {{ selftest.passed }}/{{ selftest.total }} · {{ selftest.at | kst }}</span>
+    {% else %}<span class="pill processing">자가 점검 미실행</span>{% endif %}
+    {% if scan0 and not scan0.error %}
+      <span class="pill {{ 'reviewed' if scan0.hits == 0 else 'processing' }}">최근 정규식 탐지 {{ scan0.hits | num }}건 · {{ scan0.at | kst }}</span>
+    {% else %}<span class="pill processing">잔여 검사 미실행</span>{% endif %}
+    {% if sources %}<span class="pill type" title="{{ metric_tip('pii_recorded') }}">마스킹 기록 있는 문서 {{ sources[0].recorded_subjects | num }} / 마스킹 대상 문서 {{ sources[0].subject_docs | num }}</span>{% endif %}
+  </div>
+</div></div>
+<p class="privacy-help">읽기 전용 진단 · 검사 결과로 반출을 승인하거나 처리 설정을 바꾸지 않음</p>
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:test-tube-linear"></iconify-icon>마스커 자가 점검
     <form method="post" action="/dev/pii/selftest" style="margin-left:auto;">
@@ -173,7 +146,7 @@
     <span class="pill failed">실패</span>
     <span style="margin-left:6px;">{{ selftest.error }}</span>
     <div class="muted" style="margin-top:6px; font-size:12px;">
-      {{ (selftest.at or '')[:16] | replace('T', ' ') }} — 도구 점검 실패입니다. 실제 반입 처리의 성공 여부는 해당 처리 기록에서 별도로 확인하세요.</div>
+      {{ selftest.at | kst }} — 도구 점검 실패입니다. 실제 반입 처리의 성공 여부는 해당 처리 기록에서 별도로 확인하세요.</div>
   </div>
   {% else %}
   <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:13px; margin-bottom:10px;">
@@ -189,7 +162,7 @@
     {% for c in selftest.checks if request.query_params.get('detail') == 'selftest' or not c.passed %}
     <tr>
       <td style="white-space:nowrap;">
-        {% if c.kind == 'mask' %}<span class="pill type" style="font-size:11px;">{{ c.entity_type }}</span>
+        {% if c.kind == 'mask' %}<span class="pill type" style="font-size:11px;" title="{{ c.entity_type }}">{{ entity_labels.get(c.entity_type, c.entity_type) }}</span>
         {% elif c.kind == 'keep' %}<span class="pill" style="font-size:11px;">오탐 방지</span>
         {% else %}<span class="pill" style="font-size:11px;">복합</span>{% endif %}
         {{ c.label }}</td>
@@ -202,8 +175,7 @@
     {% endfor %}
     {% for e in selftest.uncovered %}
     <tr>
-      <td style="white-space:nowrap;"><span class="pill type" style="font-size:11px;">{{ e }}</span>
-        {{ entity_labels.get(e, e) }}</td>
+      <td style="white-space:nowrap;"><span class="pill type" style="font-size:11px;" title="{{ e }}">{{ entity_labels.get(e, e) }}</span></td>
       <td><span class="pill processing">미확인</span></td>
       <td class="muted" style="font-size:12px;">표본 없음</td>
       <td class="muted" style="font-size:12px;">마스커가 지원하지만 자가 점검 표본이 없는 유형입니다 — pii_audit.SELFTEST_CASES에 추가해야 합니다.</td>
@@ -212,7 +184,7 @@
   </table>
   </div>
   {% else %}<p class="muted">실패 항목 없음</p>{% endif %}
-  <p class="muted" style="margin:8px 0 0; font-size:12px;">지원 유형: {{ selftest.supported | join(', ') }}</p>
+  <p class="muted" style="margin:8px 0 0; font-size:12px;">지원 유형: {% for e in selftest.supported %}{{ entity_labels.get(e, e) }}{{ ', ' if not loop.last }}{% endfor %}</p>
   <p style="margin:10px 0 0;"><a class="mini-btn" href="/dev/pii?view=checks&amp;detail=selftest">전체 항목별 결과 보기</a></p>
   {% endif %}
 </div></div>
@@ -245,6 +217,7 @@
       {% if scan.hits == 0 %}<span class="pill reviewed">정규식 탐지 0건</span>
       {% else %}<span class="pill processing">확인할 탐지 {{ scan.hits | num }}건</span>{% endif %}
     </div>
+    {% if scan.hits %}<p class="muted scan-context" style="margin:6px 0 0; font-size:12px;">{% if internal_policy.enabled %}내부 마스킹 켜짐 · 가린 뒤에도 남은 값이라 확인 필요, 정규식 특성상 오탐 포함 가능{% else %}내부 마스킹 꺼짐 · 원문을 그대로 검사하므로 탐지가 나오는 것이 정상, 오탐 포함 가능{% endif %}</p>{% endif %}
     {% if scan.hits %}
     <div style="display:flex; gap:6px; flex-wrap:wrap; margin:8px 0;">
       {% for k, v in scan.by_type.items() %}
@@ -275,7 +248,7 @@
     </table>
     </div>
     {% endif %}
-    <p class="muted" style="margin:6px 0 0; font-size:12px;">탐지기: {{ scan.detectors | join(', ') }}</p>
+    <p class="muted" style="margin:6px 0 0; font-size:12px;">탐지 항목: {% for e in scan.detectors %}{{ entity_labels.get(e, e) }}{{ ', ' if not loop.last }}{% endfor %}</p>
     {% endif %}
   </div>
   {% endfor %}
@@ -283,7 +256,7 @@
 {% endif %}
 
 {% if selected == 'history' %}
-<p class="privacy-help">과거 실행 때 남긴 기록입니다. 현재 정책의 활성화 여부나 개인정보가 없는 상태를 보증하지 않습니다.</p>
+<p class="privacy-help">처리 때 남긴 마스킹 기록 · 현재 설정과 별개</p>
 <form method="get" action="/dev/pii" class="privacy-nav">
 <input type="hidden" name="view" value="history">
 <select name="source" aria-label="기록 저장소"><option value="platform">플랫폼 DB</option>{% if sources|length > 1 %}<option value="corpus" {% if history_source=='corpus' %}selected{% endif %}>국고 코퍼스 (별도 DB)</option>{% endif %}</select>
@@ -292,6 +265,9 @@
 {% for src in [sources[1] if history_source=='corpus' else sources[0]] %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:documents-linear"></iconify-icon>마스킹 기록 — {{ src.name }}</h2>
+  {% if not src.stats.total and not src.docs and not history_q and not history_entity %}
+  <p class="muted pii-empty" style="margin:0; font-size:12.5px;">마스킹 기록 없음</p>
+  {% else %}
   <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:12px;">
     <div class="card" style="margin:0;"><div class="card-in" style="padding:14px 16px;">
       <div class="muted" style="font-size:12px;">{{ metric_label("pii_subjects") }}</div>
@@ -341,7 +317,8 @@
   {% if src.page>1 %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page-1 }}">이전</a>{% endif %}<span>{{ src.page }} / {{ src.pages }}</span>
   {% if src.page<src.pages %}<a href="/dev/pii?view=history&amp;source={{ history_source }}&amp;q={{ history_q|urlencode }}&amp;entity={{ history_entity|urlencode }}&amp;page={{ src.page+1 }}">다음</a>{% endif %}</nav>
   {% else %}
-  <p class="muted" style="margin:0; font-size:12.5px;">조건에 맞는 기록이 없습니다.</p>
+  <p class="muted pii-empty" style="margin:0; font-size:12.5px;">{{ '조건에 맞는 기록 없음' if history_q or history_entity else '마스킹 기록 없음' }}</p>
+  {% endif %}
   {% endif %}
 </div></div>
 {% endfor %}

@@ -14,15 +14,12 @@
 .quality-bars { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr)); gap:16px 24px; margin:16px 0 24px; }
 .quality-bars label { display:flex; justify-content:space-between; gap:10px; font-size:13px; margin-bottom:6px; }
 .quality-bars meter { display:block; width:100%; height:12px; }
+.eval-past { margin-top:14px; }
+.eval-past > summary { color:var(--muted); }
+.eval-past-body { color:var(--muted); filter:grayscale(1); opacity:.72; margin-top:10px; }
+.eval-now { font-size:13px; margin:0 0 6px; }
 @media(max-width:700px){.quality-report { grid-template-columns:minmax(0,1fr); }.card h2 { flex-wrap:wrap; }}
 </style>
-<section class="card"><div class="card-in"><h2>문답 학습 데이터 품질</h2>
-{% if grounded_ls.ok and grounded_ls.project_id %}
-<p>전체 기록 {{ grounded_ls.total }}건(이전 버전 포함) · 사람 검수 주석 {{ grounded_ls.done }}건</p>
-{% else %}<p class="muted">문답 검수 현황 {{ grounded_ls.error or '프로젝트 미확인' }} · 연결되지 않은 상태를 0건으로 표시하지 않습니다.</p>{% endif %}
-<p class="muted">사람 검수 주석 수는 학습 승인 수가 아닙니다. 승인 여부는 검수 반영 결과에서 확인합니다.</p>
-</div></section>
-
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:chart-2-linear"></iconify-icon>규정 검색 품질
     <span style="margin-left:auto; display:flex; align-items:center; gap:8px;">
@@ -48,14 +45,16 @@
     이전 측정 실패: {{ retrieval_eval.last_error }}</p>
   {% endif %}
   {% set ev = retrieval_eval.result %}
-  {% if ev %}
+  {# 측정 당시 구성(임베딩·규정 조각 수)이 지금 운영 색인과 다르면 그 수치는 지금 구성의 성능이 아니다 —
+     맨 위에는 「현재 구성 측정 없음」을 두고, 지난 수치는 회색으로 접어 둔다(새 수치를 지어내지 않는다) #}
+  {% set embed_differs = ev and index_model and ev.embedding_model and ev.embedding_model != index_model %}
+  {% set chunks_differ = ev and current_chunks and ev.n_chunks and ev.n_chunks != current_chunks %}
+  {% set stale = ev and (embed_differs or chunks_differ) %}
+  {% if ev %}{% set eval_body %}
   <p class="muted" style="font-size:12px; margin:0 0 8px;">마지막 측정
     {{ retrieval_eval.measured_at_display }} · 질의 {{ ev.n_queries }}건
     · {{ metric_label("eval_chunks", retrieval_eval.measured_at_display, "측정 당시 규정 조각") }} {{ ev.n_chunks }}개 · 측정 당시 임베딩 {{ ev.embedding_model or '미확인' }}
     {% if index_model is defined %} · 지금 색인 임베딩 {{ index_model or '미확인' }}{% endif %}</p>
-  {% if index_model is defined and index_model and ev.embedding_model and ev.embedding_model != index_model %}
-  <p style="font-size:12.5px; margin:0 0 10px; color:var(--red);">지금 운영 색인과 다른 구성으로 잰 옛 측정입니다. 재측정해야 현재 구성의 수치가 됩니다.</p>
-  {% endif %}
   <div class="quality-bars" aria-label="상위 5건 검색 적중률 비교">
     {% for r in ev.rows if r.recall_at_5 is not none %}
     <div><label for="recall-{{ loop.index }}"><span>{{ r.method }}{% if r.production %} · 운영{% endif %}</span><b>{{ "%.1f" | format(r.recall_at_5 * 100) }}%</b></label>
@@ -89,6 +88,21 @@
   <p class="muted" style="font-size:11.5px; margin:8px 0 0;">재측정 불가 —
     {{ retrieval_eval.query_set_message }}</p>
   {% endif %}
+  {% endset %}{% endif %}
+  {% if stale %}
+  <p class="eval-now">현재 구성 측정 없음 —
+    {% if retrieval_eval.running %}측정 진행 중
+    {% elif retrieval_eval.query_set_missing %}{{ retrieval_eval.query_set_message }}
+    {% else %}재측정 단추로 실행(scripts/53_eval_retrieval.py, 몇 분){% endif %}</p>
+  <p class="muted" style="font-size:12px; margin:0 0 4px;">지금 구성 · 규정 조각 {{ current_chunks | num }}개 · 임베딩 {{ index_model or '미확인' }}</p>
+  <details class="chip-toggle eval-past">
+    <summary>지난 측정(구성 다름) · {{ retrieval_eval.measured_at_display }} · 조각 {{ ev.n_chunks | num }}개 · {{ ev.embedding_model or '임베딩 미확인' }}</summary>
+    <div class="eval-past-body">
+  {{ eval_body }}
+    </div>
+  </details>
+  {% elif ev %}
+  {{ eval_body }}
   {% elif retrieval_eval.running %}
   <p style="font-size:13px; margin:0;">아직 측정 없음 — 첫 측정이 진행 중입니다.</p>
   {% elif retrieval_eval.query_set_missing %}
