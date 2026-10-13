@@ -62,13 +62,18 @@ def program_project(db, program: str, name: str, cache: dict | None = None, year
         key, title = f"{program}|*", "{name}"
     if cache is not None and key in cache:
         return cache[key]
+    want = title.format(name=name or "사업 미분류")
     with db._conn() as conn:
         row = conn.execute(
-            "SELECT id FROM projects WHERE program = ? AND archived = 1"
+            "SELECT id, name FROM projects WHERE program = ? AND archived = 1"
             " AND owner = 'zzdev' AND archive_source = 'dgx' ORDER BY id LIMIT 1", (key,)
         ).fetchone()
+        # 자동 묶음 이름은 사업의 지금 이름을 따른다 — 처음 만들 때 붙은 이름(부서 이름·옛 표기)이 남아 같은 사업이
+        # 보관된 사업 목록에 다른 이름으로 서지 않게. 이름을 모르면(name 비었음) 바꾸지 않는다
+        if row and name and str(row[1] or "") != want:
+            conn.execute("UPDATE projects SET name = ? WHERE id = ?", (want, int(row[0])))
     pid = int(row[0]) if row else db.create_project(
-        "grant", title.format(name=name or "사업 미분류"), owner="zzdev", archived=True, program=key, archive_source="dgx")
+        "grant", want, owner="zzdev", archived=True, program=key, archive_source="dgx")
     if cache is not None:
         cache[key] = pid
     return pid

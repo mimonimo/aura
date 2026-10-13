@@ -167,3 +167,14 @@ def test_agent_judged_non_program_goes_to_institution_bundle(tmp_path):
     ar.align_archived_projects(db)
     pa, pb = (db.get_project(db.get_document(x)["project_id"]) for x in (a, b))
     assert pa["name"] == "기관 일반 업무 (사업 아님)" and pb["name"] == "사업 미분류 (검토 대기)"
+
+
+def test_program_project_follows_current_program_name(tmp_path):
+    """자동 보관 묶음은 사업의 지금 이름을 따른다 — 처음 붙은 부서 이름이 남아 같은 사업이 다른 이름으로 서지 않게."""
+    db = Database(tmp_path / "t.db")
+    pid = archive.program_project(db, "program:abcd", "가나사업단", None, 2026)
+    assert db.get_project(pid)["name"] == "2026년 가나사업단"
+    assert archive.program_project(db, "program:abcd", "가나 다라 사업(ABCD)", None, 2026) == pid
+    assert db.get_project(pid)["name"] == "2026년 가나 다라 사업(ABCD)"
+    assert archive.program_project(db, "program:abcd", "", None, 2026) == pid      # 이름을 모르면 그대로
+    assert db.get_project(pid)["name"] == "2026년 가나 다라 사업(ABCD)"

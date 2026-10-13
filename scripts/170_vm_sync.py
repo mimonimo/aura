@@ -429,7 +429,10 @@ def main() -> int:
         a = by_rel.get(f["dup_of"] or f["rel"])
         r = {k: f[k] for k in ("rel", "size", "mtime", "ext", "area", "dup_of")}
         if a is not None:
-            r.update({"program": a.program, "program_name": a.program_name, "status": a.status, "kind": a.kind, "year": a.year, "round": a.round})
+            # 보일 사업 이름은 카드 이름(장부 정식 이름이 있으면 그것, apply_display) — 분류 때 붙은 이름은 문서에 가장 많이 나온
+            # 표기라 부서 이름(「○○사업단」)일 수 있다. 보관 묶음 이름이 이 값을 따른다(archive.program_project)
+            r.update({"program": a.program, "program_name": names.get(a.program) or a.program_name if a.program else a.program_name,
+                      "status": a.status, "kind": a.kind, "year": a.year, "round": a.round})
         rows.append(r)
     origins = {}
     led = ROOT / "data" / "platform" / "origins.jsonl"
