@@ -19,7 +19,7 @@
     {% macro prow(p) %}<tr>
       <td><a href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">{{ p.name }}</a>{% if p.kinds %}<span class="ar-sub">{% for k, n in p.kinds %}{{ k }} {{ "{:,}".format(n) }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
       <td class="num" data-label="원본">{{ "{:,}".format(p.n) }}</td><td class="num" data-label="{{ states.registered }}">{{ "{:,}".format(p.registered) }}</td>
-      <td class="ar-acts-cell"><div class="ar-acts"><a class="btn secondary" href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">파일 보기</a>{% if p.value != nokey %}<a class="btn secondary" href="/projects/archived?{{ {'q': p.name, 'status': 'all'}|urlencode }}">프로젝트 검색</a>{% else %}<span class="ar-slot" aria-hidden="true"></span>{% endif %}</div></td>
+      <td class="ar-acts-cell"><div class="ar-acts"><a class="btn secondary" href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">파일 보기</a>{% if p.value != nokey %}<a class="btn secondary" href="/projects/archived?{{ {'q': p.name, 'status': 'all'}|urlencode }}">프로젝트 검색</a><a class="btn secondary ar-graph" href="/graph/explore?id={{ p.value|urlencode }}" title="이 사업과 이어진 사업·문서를 그래프로" aria-label="{{ p.name }} 그래프"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>그래프</a>{% else %}<span class="ar-slot" aria-hidden="true"></span><span class="ar-slot ar-slot-graph" aria-hidden="true"></span>{% endif %}</div></td>
     </tr>{% endmacro %}
     {% for p in view.programs[:top] %}{{ prow(p) }}{% endfor %}
     {% if view.unclassified %}{{ prow(view.unclassified) }}{% endif %}
@@ -27,24 +27,27 @@
     </tbody>
   </table>
   {% if view.programs|length > top %}
-  <details class="ar-rest"><summary>그 밖의 사업 {{ view.programs|length - top }}개 · {{ "{:,}".format(view.programs[top:]|sum(attribute='n')) }}건</summary>
+  <details class="ar-rest"><summary><span class="ar-rest-open">그 밖의 사업 {{ view.programs|length - top }}개 펼치기</span><span class="ar-rest-close">그 밖의 사업 접기</span><span class="ar-rest-n">{{ "{:,}".format(view.programs[top:]|sum(attribute='n')) }}건</span><iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></summary>
     <table class="ar-grid" aria-label="그 밖의 사업"><tbody>{% for p in view.programs[top:] %}{{ prow(p) }}{% endfor %}</tbody></table>
   </details>
   {% endif %}
   {% else %}
   <h2 class="ar-h">사업 연도</h2>
   <ul class="ar-facets" aria-label="사업 연도">{% for y in view.years %}
-    <li><a class="ar-facet{{ ' on' if (y.year and y.year == f.year) or (y.round and y.round == f.round and not f.year) }}" href="{{ url(year=y.year, round=y.round) }}" data-set="year={{ y.year }}&round={{ y.round }}">{{ y.label }}<span>{{ "{:,}".format(y.n) }}</span></a></li>
+    {% set on = (y.year and y.year == f.year) or (y.round and y.round == f.round and not f.year) %}
+    <li><a class="ar-facet{{ ' on' if on }}" {% if on %}aria-pressed="true" title="다시 누르면 풉니다" href="{{ url(year='', round='') }}" data-set="year=&round="{% else %}aria-pressed="false" href="{{ url(year=y.year, round=y.round) }}" data-set="year={{ y.year }}&round={{ y.round }}"{% endif %}>{{ y.label }}<span>{{ "{:,}".format(y.n) }}</span></a></li>
   {% else %}<li class="ar-muted">연도 정보가 없습니다.</li>{% endfor %}</ul>
   <p class="ar-note">연도는 파일 이름·폴더의 연도이고, 없으면 연차를 사업 기간으로 환산한 연도입니다.</p>
   {% endif %}
   <h2 class="ar-h">문서 종류</h2>
   <ul class="ar-facets" aria-label="문서 종류">{% for k in view.kinds %}
-    <li><a class="ar-facet{{ ' on' if k.value == f.kind }}" href="{{ url(kind=k.value) }}" data-set="kind={{ k.value }}">{{ k.label }}<span>{{ "{:,}".format(k.n) }}</span></a></li>
+    {% set on = k.value == f.kind %}
+    <li><a class="ar-facet{{ ' on' if on }}" aria-pressed="{{ 'true' if on else 'false' }}" {% if on %}title="다시 누르면 풉니다" {% endif %}href="{{ url(kind='' if on else k.value) }}" data-set="kind={{ '' if on else k.value }}">{{ k.label }}<span>{{ "{:,}".format(k.n) }}</span></a></li>
   {% endfor %}</ul>
   <h2 class="ar-h">처리 상태</h2>
   <ul class="ar-facets" aria-label="처리 상태">{% for s in view.states %}
-    <li><a class="ar-facet{{ ' on' if s.value == f.state }}" href="{{ url(state=s.value) }}" data-set="state={{ s.value }}">{{ s.label }}<span>{{ "{:,}".format(s.n) }}</span></a></li>
+    {% set on = s.value == f.state %}
+    <li><a class="ar-facet{{ ' on' if on }}" aria-pressed="{{ 'true' if on else 'false' }}" {% if on %}title="다시 누르면 풉니다" {% endif %}href="{{ url(state='' if on else s.value) }}" data-set="state={{ '' if on else s.value }}">{{ s.label }}<span>{{ "{:,}".format(s.n) }}</span></a></li>
   {% endfor %}</ul>
 </div></section>
 

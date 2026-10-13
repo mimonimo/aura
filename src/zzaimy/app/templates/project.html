@@ -29,6 +29,9 @@
       · 만든 날 {{ project.created_at[:10] }}</div>
   </div>
   <div class="page-head-actions" style="flex:none;">
+    {% set gid = (project.program or '').split('|')[0] %}
+    {% if gid.startswith('program:') %}<a class="btn secondary" href="/graph/explore?id={{ gid|urlencode }}" title="이 사업과 이어진 사업·문서를 그래프로">
+      <iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>{% endif %}
     {% if project.archived %}
     <form action="/project/{{ project.id }}/unarchive" method="post" style="margin:0;">
       <button type="submit" class="secondary">보관 해제</button></form>

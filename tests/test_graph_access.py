@@ -121,3 +121,16 @@ def test_similarity_only_uses_visible_documents(setup, monkeypatch, tmp_path):
     edges.clear()
     build._add_similarity_edges(db, [], lambda *args, **kwargs: edges.append(args))
     assert edges == []
+
+
+def test_ontology_endpoints_are_developer_only(tmp_path):
+    """일반 계정은 그래프 탐색의 지식그래프만 — 온톨로지 탭·스키마·설계도 주소는 열리지 않고 개발 사이드바도 없다."""
+    from fastapi.testclient import TestClient
+    from tests.test_accounts import _app, _login
+
+    c = TestClient(_app(tmp_path))
+    assert _login(c, "zzaimy", "boot-pass-1")
+    page = c.get("/graph/explore").text
+    assert 'data-mode="onto"' not in page and "개발 현황" not in page
+    for path in ("/graph/explore/schema", "/graph/explore/ontology.ttl", "/graph/explore/shapes.ttl"):
+        assert c.get(path).status_code == 404

@@ -359,8 +359,16 @@ def schema(db) -> dict:
     return out
 
 
+def _dev_only(request: Request) -> None:
+    """온톨로지(전체 스키마·검사 규칙)는 개발 화면 — 일반 계정에는 탭도 주소도 열지 않는다. 그래프 수는 권한 범위 밖 문서까지 센다."""
+    if request.state.role != "dev":
+        from fastapi import HTTPException
+        raise HTTPException(404, "찾을 수 없습니다.")
+
+
 @router.get("/graph/explore/schema")
 def explore_schema(request: Request):
+    _dev_only(request)
     out = dict(schema(request.app.state.db))
     rep = _ontology_dir(request) / "shacl_report.json"
     try:
@@ -402,6 +410,7 @@ def _ontology_dir(request: Request):
 @router.get("/graph/explore/ontology.ttl")
 def ontology_ttl(request: Request):
     """온톨로지 설계도(OWL, Turtle) — 내보낸 파일이 있으면 그것, 없으면 지금 그래프에서 만든다. Protégé·WebVOWL 로 연다."""
+    _dev_only(request)
     from fastapi.responses import Response
     f = _ontology_dir(request) / "ontology.ttl"
     if f.is_file():
@@ -416,6 +425,7 @@ def ontology_ttl(request: Request):
 @router.get("/graph/explore/shapes.ttl")
 def shapes_ttl(request: Request):
     """검사 규칙(SHACL, Turtle)."""
+    _dev_only(request)
     from fastapi.responses import Response
     from zzaimy.graph import ontology_rdf
     return Response(ontology_rdf.SHAPES.read_text(encoding="utf-8"), media_type="text/turtle; charset=utf-8",

@@ -3,4 +3,8 @@
 <nav class="space-links library-tabs" aria-label="라이브러리" style="margin:0 0 18px;">
   <a href="/?type=all" {% if lp in ('/', '/inbox') %}aria-current="page"{% endif %}>{{ library_tabs.docs }}</a>
   <a href="/archive" {% if lp.startswith('/archive') %}aria-current="page"{% endif %}>{{ library_tabs.archive }}</a>
+  {# 그래프는 문서를 보는 다른 방법 — 여기서는 전체, 원본 보관소에서 사업을 골랐으면 그 사업 중심 #}
+  {% set gp = request.query_params.get('program', '') if lp.startswith('/archive') else '' %}
+  <a class="library-graph" href="/graph/explore{{ ('?id=' ~ (gp|urlencode)) if gp.startswith('program:') else '' }}">
+    <iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>{{ '이 사업 그래프' if gp.startswith('program:') else ('지식그래프·온톨로지' if request.state.role == 'dev' else '지식그래프') }}</a>
 </nav>
