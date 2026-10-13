@@ -166,7 +166,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   <form method="post" action="/dev/rag/area" id="rgArea">
     <div class="rg-scroll">
     <table class="rg-table">
-      <tr><th>원본 최상위 폴더</th><th class="n">{{ metric_label("archive_files", "", "원본 파일") }}</th><th>담당 부서</th></tr>
+      <tr><th>원본 최상위 폴더</th><th class="n">{{ metric_label("archive_files", "", "장부 파일") }}</th><th>담당 부서</th></tr>
       {% for f in folders %}
       {% set cur = cfg.dept_of_area.get(f.folder, "") %}
       <tr><td class="rg-wrap">{{ f.folder }}{% if f.files is none %}<br><span class="rg-sub">원본 장부에 없음 — 설정에만 남은 폴더</span>{% endif %}</td>
