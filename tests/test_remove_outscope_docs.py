@@ -38,3 +38,24 @@ def test_remove_and_restore(tmp_path):
     with db._conn() as conn:
         assert conn.execute("SELECT doc_id FROM archive_files WHERE rel = ?", ("링크/지출/영수증.pdf",)).fetchone()[0] == out
         assert conn.execute("SELECT COUNT(*) FROM doc_chunks WHERE doc_id = ?", (out,)).fetchone()[0] == 1
+
+
+def test_prune_dup_and_tiny(tmp_path):
+    db = _app(tmp_path).state.db
+    archive.ensure(db)
+    body = "가나다 사업 계획 본문입니다. " * 20
+    ids = {}
+    for name, rel, text, kind in (("계획서", "링크/계획서.hwp", body, "plan"), ("계획서 사본", "링크/인수인계/계획서.hwp", body, "plan"),
+                                  ("시안", "링크/시안.pdf", "짧음", ""), ("빈 양식", "링크/양식.hwp", "칸", "form"),
+                                  ("올린 문서", "", "짧음", "")):
+        d = db.add_document(name + ".hwp", "x", doc_type="grant")
+        ids[name] = d
+        with db._conn() as conn:
+            conn.execute("UPDATE documents SET masked_text = ?, kind = ?, status = 'reviewed' WHERE id = ?", (text, kind, d))
+            if rel:
+                conn.execute("INSERT INTO archive_files (rel, size, mtime, ext, dup_of, doc_id) VALUES (?, 1, 0, 'hwp', '', ?)", (rel, d))
+    assert rm.targets(db, "dup") == [ids["계획서 사본"]]                  # 사본·인수인계 경로 쪽을 뺀다
+    assert rm.targets(db, "tiny") == [ids["시안"]]                        # 양식·직접 올린 문서는 남긴다
+    assert rm.remove(db, [ids["시안"]], "tiny") == 1
+    with db._conn() as conn:
+        assert conn.execute("SELECT category FROM archive_cleanup WHERE rel = ?", ("링크/시안.pdf",)).fetchone()[0] == "pruned"

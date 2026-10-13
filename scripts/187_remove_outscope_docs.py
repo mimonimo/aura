@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""범위 밖 지출·계약 증빙 서류(절대 규칙 11)를 라이브러리에서 뺀다 — 원본 파일은 그대로, 되돌릴 수 있게.
+"""필요 없는 문서를 라이브러리에서 뺀다 — 지출·계약 증빙(절대 규칙 11)·같은 본문 여분·빈 문서·도면·개인 제출물(--what).
+원본 파일은 그대로, 백업으로 되돌릴 수 있게.
 
 - 대상: 서류 갈래가 증빙(excluded_kinds)인 사업 문서. 검색·그래프에서는 이미 빠져 있고 라이브러리에만 남아 있었다.
   경로 규칙(archive_state 「범위 밖 경로」)만으로는 고르지 않는다 — 정산 폴더 속 계획서·보고서까지 걸린다.
 - 지우기 전에 문서 행과 그 문서에 딸린 행(doc_id 칸이 있는 표 전부 — 조각·그림·개체·검토·어휘 색인 등)과
   원본·파일 장부·대화 출처·판본 이음을 한 파일(data/platform/backups/outscope-<시각>.jsonl.gz)에 남긴다.
 - 지우기는 db.delete_document 와 같은 길(파생물까지). 원본 장부의 이음(doc_id)은 비우고 그 원본은 정리함 「지출·계약 증빙」으로
-  옮긴다(파일은 그대로) — 보관소 건수에서 빠지고, 맞추기가 다시 들이지 않는다.
+  옮긴다(증빙은 「지출·계약 증빙」, 나머지는 「라이브러리에서 뺀 문서」. 파일은 그대로) — 보관소 건수에서 빠지고, 맞추기가 다시 들이지 않는다.
 
 사용(VM): env PYTHONPATH=src .venv/bin/python scripts/187_remove_outscope_docs.py            # 미리 보기
-          ... --apply
+          ... --what dup,tiny --apply
           ... --restore data/platform/backups/outscope-<시각>.jsonl.gz
 """
 from __future__ import annotations
@@ -18,6 +19,7 @@ import argparse
 import gzip
 import json
 import os
+import re
 import sys
 import time
 from collections import Counter
@@ -35,16 +37,67 @@ LINKS = (("archive_files", "rel", "doc_id"), ("files", "id", "doc_id"), ("chat_s
          ("documents", "id", "version_of"), ("documents", "id", "related_criteria_id"))
 
 
-def targets(db) -> list[int]:
-    """지출·계약 증빙 갈래(doc_routing.excluded_kinds, 기본 evidence)의 사업 문서 — 절대 규칙 11 의 범위 밖 계열.
-    경로만으로 고르지 않는다: 「정산·집행」 폴더에도 사업계획서·실적보고서·집행 요령이 있다(그것은 남긴다)."""
-    from zzaimy.app.doc_routing import excluded_kinds
-    kinds = excluded_kinds()
-    if not kinds:
-        return []
+WHAT = {
+    "evidence": "지출·계약 증빙 갈래",
+    "dup": "같은 본문 여분(사업마다 한 건만 남김)",
+    "tiny": "본문 100자 미만(양식 제외)",
+    "drawing": "도면 갈래",
+    "personal": "개인 제출물 갈래(수기·응모작 등)",
+}
+CLEANUP = {"evidence": "evidence"}                    # 원본을 옮길 정리함 갈래 — 나머지는 pruned
+TINY = 100
+# 같은 본문 묶음에서 남길 쪽을 고를 때 뒤로 미는 경로 낱말 — 사람이 만든 사본·넘겨받은 묶음
+_COPYISH = re.compile(r"인수인계|사본|복사본|백업|backup|copy|(^|/)새 폴더", re.I)
+
+
+def _school(conn) -> set[int]:
+    """학교 원본과 이어진 문서 — 사람이 직접 올린 문서·프로젝트 첨부는 건드리지 않는다."""
+    return {int(r[0]) for r in conn.execute("SELECT DISTINCT doc_id FROM archive_files WHERE doc_id IS NOT NULL")}
+
+
+def targets(db, what: str = "evidence") -> list[int]:
+    """고른 갈래의 라이브러리 문서(학교 원본에서 온 사업 문서만).
+    evidence — 지출·계약 증빙 갈래(doc_routing.excluded_kinds, 절대 규칙 11). 경로만으로 고르지 않는다: 「정산·집행」 폴더에도
+               사업계획서·실적보고서·집행 요령이 있다(그것은 남긴다)
+    dup      — 본문이 글자 하나 다르지 않은 문서 묶음에서, 같은 사업 안의 여분. 남기는 쪽은 사본·인수인계 경로가 아닌 것 → 최신
+    tiny     — 처리는 끝났는데 본문이 TINY 자 미만(시안·빈 표·그림만 있는 파일). 양식은 빈 칸이 본문이라 남긴다
+    drawing·personal — 서류 갈래(guess_kind)가 도면·개인 제출물"""
     with db._conn() as conn:
-        return sorted(int(r[0]) for r in conn.execute(
-            f"SELECT id FROM documents WHERE doc_type = 'grant' AND kind IN ({','.join('?' * len(kinds))})", list(kinds)))
+        school = _school(conn)
+        if what == "evidence":
+            from zzaimy.app.doc_routing import excluded_kinds
+            kinds = excluded_kinds()
+            ids = [int(r[0]) for r in conn.execute(
+                f"SELECT id FROM documents WHERE doc_type = 'grant' AND kind IN ({','.join('?' * len(kinds))})", list(kinds))] if kinds else []
+            return sorted(ids)                    # 증빙은 직접 올린 것도 같은 규칙(처음 정리 때와 같게)
+        if what in ("drawing", "personal"):
+            return sorted(int(r[0]) for r in conn.execute(
+                "SELECT id FROM documents WHERE doc_type = 'grant' AND kind = ?", (what,)) if int(r[0]) in school)
+        if what == "tiny":
+            return sorted(int(r[0]) for r in conn.execute(
+                "SELECT id FROM documents WHERE doc_type = 'grant' AND status = 'reviewed' AND COALESCE(kind, '') <> 'form'"
+                " AND LENGTH(COALESCE(masked_text, '')) < ?", (TINY,)) if int(r[0]) in school)
+        if what == "dup":
+            import hashlib
+            rel = {int(r[0]): r[1] for r in conn.execute("SELECT doc_id, MIN(rel) FROM archive_files WHERE doc_id IS NOT NULL GROUP BY doc_id")}
+            prog = {int(r[0]): (r[1] or "").split("|", 1)[0] for r in conn.execute(
+                "SELECT d.id, p.program FROM documents d LEFT JOIN projects p ON p.id = d.project_id WHERE d.doc_type = 'grant'")}
+            groups: dict[tuple, list[int]] = {}
+            top = int(conn.execute("SELECT COALESCE(MAX(id), 0) FROM documents").fetchone()[0])
+            for lo in range(0, top + 1, 2000):                # 본문을 한꺼번에 읽지 않게 번호 구간마다
+                for did, text in conn.execute("SELECT id, masked_text FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'"
+                                              " AND id >= ? AND id < ? AND LENGTH(COALESCE(masked_text, '')) >= ?", (lo, lo + 2000, TINY)):
+                    did = int(did)
+                    if did in school:
+                        h = hashlib.sha1((text or "").encode("utf-8")).hexdigest()
+                        groups.setdefault((h, prog.get(did, "")), []).append(did)
+            out = []
+            for ids in groups.values():
+                if len(ids) > 1:
+                    keep = min(ids, key=lambda d: (bool(_COPYISH.search(rel.get(d, ""))), -d))
+                    out += [d for d in ids if d != keep]
+            return sorted(out)
+    raise SystemExit(f"모르는 갈래: {what} — {', '.join(WHAT)}")
 
 
 def _cols(conn, table: str) -> list[str]:
@@ -90,7 +143,7 @@ def _retry(fn, tries: int = 8):
             time.sleep(5 * (k + 1))
 
 
-def remove(db, ids: list[int]) -> int:
+def remove(db, ids: list[int], what: str = "evidence") -> int:
     """문서를 빼고, 이어져 있던 학교 원본은 정리함 「지출·계약 증빙」으로 — 맞추기(175 --find-reimport)가 다시 들이지 않게.
     문서 한 건씩 끝맺는다(중간에 멈춰도 뺀 문서의 원본은 정리함에 있다)."""
     from zzaimy.app import archive_cleanup
@@ -105,7 +158,7 @@ def remove(db, ids: list[int]) -> int:
                 if t in have:
                     conn.execute(f"DELETE FROM {t} WHERE doc_id = ?", (did,))
             conn.execute("UPDATE archive_files SET doc_id = NULL WHERE doc_id = ?", (did,))
-        archive_cleanup.put(db, rels, "evidence", by="scripts/187")
+        archive_cleanup.put(db, rels, CLEANUP.get(what, "pruned"), by="scripts/187")
         db.delete_document(did)
         return len(rels)
 
@@ -137,7 +190,9 @@ def restore(db, path: Path) -> None:
                 cols = list(row)
                 conn.execute(f"INSERT INTO {t} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))}) ON CONFLICT DO NOTHING",
                              [row[c] for c in cols])
-        conn.execute("DELETE FROM archive_cleanup WHERE category = 'evidence'")   # 정리함에서도 되돌린다
+        # 정리함에서도 되돌린다 — 이 백업이 옮긴 원본만
+        for rec in (r["row"] for r in rows if r["t"] == "link" and r["row"]["table"] == "archive_files"):
+            conn.execute("DELETE FROM archive_cleanup WHERE rel = ? AND category IN ('evidence', 'pruned')", (rec["k"],))
         ok = {(t, k, c) for t, k, c in LINKS}
         for rec in (r["row"] for r in rows if r["t"] == "link"):
             if (rec["table"], rec["key"], rec["col"]) in ok:
@@ -148,6 +203,7 @@ def restore(db, path: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--what", default="evidence", help="뺄 갈래(쉼표): " + ", ".join(f"{k}={v}" for k, v in WHAT.items()))
     ap.add_argument("--restore", default="")
     ap.add_argument("--settle", default="", help="멈춘 실행의 백업 파일 — 이미 끊긴 원본을 정리함으로")
     args = ap.parse_args()
@@ -157,19 +213,21 @@ def main() -> int:
         return 0
     if args.settle:
         print(f"정리함으로 {put_from_backup(db, Path(args.settle))}건")
-    ids = targets(db)
-    with db._conn() as conn:
-        sample = [r[0] for r in conn.execute(f"SELECT filename FROM documents WHERE id IN ({','.join('?' * min(8, len(ids)))})", ids[:8])] if ids else []
-    print(f"지출·계약 증빙 갈래 라이브러리 문서 {len(ids)}건 — 예: {sample}")
+    for what in [w.strip() for w in args.what.split(",") if w.strip()]:
+        ids = targets(db, what)
+        with db._conn() as conn:
+            sample = [r[0] for r in conn.execute(f"SELECT filename FROM documents WHERE id IN ({','.join('?' * min(8, len(ids)))})", ids[:8])] if ids else []
+        print(f"[{what}] {WHAT.get(what, what)} — 라이브러리 문서 {len(ids)}건 · 예: {sample}")
+        if not args.apply or not ids:
+            continue
+        out = ROOT / "data/platform/backups" / f"prune-{what}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl.gz"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        n = backup(db, ids, out)
+        print(f"  백업 {n}줄 → {out}")
+        moved = remove(db, ids, what)
+        print(f"  뺐다 — {len(ids)}건 · 원본 {moved}건 정리함으로. 되돌리기: scripts/187_remove_outscope_docs.py --restore {out}", flush=True)
     if not args.apply:
         print("미리 보기입니다 — --apply 로 백업 뒤 뺍니다")
-        return 0
-    out = ROOT / "data/platform/backups" / f"outscope-{time.strftime('%Y%m%d-%H%M%S')}.jsonl.gz"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    n = backup(db, ids, out)
-    print(f"백업 {n}줄 → {out}")
-    moved = remove(db, ids)
-    print(f"뺐다 — {len(ids)}건 · 원본 {moved}건 정리함(지출·계약 증빙)으로. 되돌리기: scripts/187_remove_outscope_docs.py --restore {out}")
     return 0
 
 
