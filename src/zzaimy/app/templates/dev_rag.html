@@ -100,6 +100,32 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   <p class="rg-note">부서가 있는 교직원은 그 부서 공간, 부서 없는 교직원은 staff, 학생은 student, 관리자는 전부. 「규정 갈래」는 사업 문서 가운데 서류 갈래가 규정인 것이고 규정 색인과 별개입니다.</p>
 </div></section>
 
+<section class="card" id="dept-rags"><div class="card-in">
+  <h2>부서 RAG</h2>
+  <p class="rg-sub" style="margin:0 0 10px;">문서는 정하지 않으면 모두 공통 RAG(전 교직원)에 들어갑니다. 부서 RAG 를 만들어 두면 특정 문서를 그 부서에만 둘 수 있습니다 —
+    라이브러리 「문서 올리기」·폴더의 검색 범위, 문서 화면의 검색 범위로 넣고, 그 부서 계정은 공통 RAG 와 함께 찾습니다.</p>
+  {% if dept_rags %}
+  <div class="rg-scroll"><table class="rg-table">
+    <tr><th>부서 RAG</th><th class="n">문서</th><th>쓰는 계정</th><th>추가 권한 계정</th><th>반입 폴더</th><th></th></tr>
+    {% for r in dept_rags %}
+    <tr><td><b>{{ r.dept }}</b>{% if r.made.at %}<br><span class="rg-sub">{{ r.made.at }} 만듦{{ " · " ~ r.made.by if r.made.by }}</span>{% endif %}</td>
+      <td class="n">{{ "{:,}".format(r.docs) }}</td>
+      <td class="rg-wrap">{{ r.members | join(", ") if r.members else "—" }}</td>
+      <td class="rg-wrap">{{ r.granted | join(", ") if r.granted else "—" }}</td>
+      <td class="rg-wrap">{{ r.folders | join(", ") if r.folders else "—" }}</td>
+      <td>{% if not r.members %}<form method="post" action="/dev/rag/dept" data-confirm="「{{ r.dept }}」 부서 RAG 를 지웁니다. 든 문서 {{ '{:,}'.format(r.docs) }}건은 공통 RAG 로 돌아갑니다." style="margin:0;">
+        <input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ r.dept }}">
+        <button class="btn" type="submit">지우기</button></form>{% else %}<span class="rg-sub" title="이 부서 계정이 있어 지울 수 없습니다">계정 있음</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table></div>
+  {% else %}<p class="rg-sub" style="margin:0 0 10px;">아직 부서 RAG 가 없습니다 — 지금은 모든 문서가 공통 RAG 에 있습니다.</p>{% endif %}
+  <form method="post" action="/dev/rag/dept" class="rg-bar" style="margin-top:12px;">
+    <input type="hidden" name="action" value="create">
+    <input type="text" name="name" required maxlength="30" placeholder="부서 이름 — 계정의 부서 이름과 같게(예: 교무처)" aria-label="부서 이름">
+    <button class="btn primary" type="submit">부서 RAG 만들기</button>
+  </form>
+</div></section>
+
 <section class="card" id="student-regs"><div class="card-in">
   {# 규정·기준 문서 — 왼쪽은 등록된 기준 문서(학생 공개·해제), 오른쪽은 반입 자료의 규정 후보(골라 등록). 목록을 다 펼치지 않고 찾아 고른다 #}
   <div class="rr-head"><h2>규정·기준 문서</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>

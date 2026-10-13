@@ -45,6 +45,17 @@
   .lib-rail-item.on { background:#EAF0FA; color:var(--navy); font-weight:700; }
   .lib-rail-item.fixed { color:#53647B; } .lib-rail-item.fixed:first-of-type { margin-top:6px; }
   .lib-rail-item[hidden], .lib-l2[hidden], .lib-l1[hidden] { display:none; }
+  .lib-fold-h { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .lib-mini { all:unset; cursor:pointer; font-size:11.5px; color:#2D4F7C; padding:2px 8px; border:1px solid var(--line); border-radius:999px; background:#fff; }
+  .lib-mini:hover { background:#EEF3FA; }
+  .lib-folders { display:flex; flex-direction:column; gap:1px; margin-bottom:4px; }
+  .lib-folders iconify-icon { flex:none; color:#8A94A6; }
+  .lib-scope { flex:none; font-style:normal; font-size:11px; padding:1px 7px; border-radius:999px; background:#EEF1F5; color:#53647B; }
+  .lib-scope.dept { background:#FFF4E0; color:#8A5A00; }
+  .lib-folder-pick { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; font-size:15px; }
+  .lib-folder-pick form { display:flex; gap:6px; align-items:center; margin:0 0 0 auto; font-size:12.5px; }
+  .lib-folder-pick select { min-height:30px; font-size:12.5px; }
+  .lib-flash { margin:0 0 10px; }
   .lib-l1 { margin-top:6px; }
   .lib-l1-h { all:unset; box-sizing:border-box; display:flex; align-items:center; gap:6px; width:100%; padding:7px 9px; border-radius:8px; cursor:pointer; font-size:12.5px; color:var(--ink); background:#F6F8FB; }
   .lib-l1-h b { flex:1; min-width:0; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -143,13 +154,23 @@
 {% set flt_labels = {"processing": "처리 중", "reviewed": "처리 완료", "pending": "담당자 확인 전"} %}
 {% set run_labels = {"received": "처리 중", "processing": "처리 중", "failed": "처리 실패"} %}
 {% set keep_qs = (("&project=" ~ active_project) if active_project else "") ~ (("&prog=" ~ (prog | urlencode)) if prog else "") ~ (("&year=" ~ (year | urlencode)) if year else "") %}
-{% set rail_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") %}
+{% set rail_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&folder=" ~ (folder | urlencode)) if folder else "") %}
 {% set use_qs = "type=" ~ active_tab ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") %}
 {% set base_qs = "type=" ~ active_tab ~ "&use=" ~ use ~ keep_qs ~ (("&q=" ~ (q | urlencode)) if q else "") ~ (("&kind=" ~ (kind | urlencode)) if kind else "") ~ (("&flt=" ~ active_flt) if active_flt else "") %}
 <div class="lib-layout">
 {# 사업별로 보기 — 문서가 속한 프로젝트의 사업으로 묶은 목록. 고르면 오른쪽이 그 사업 문서, 연도 칩으로 좁힌다 #}
-<aside class="lib-rail" aria-label="사업별로 보기">
-  <div class="lib-rail-h"><b>사업별로 보기</b></div>
+<aside class="lib-rail" aria-label="폴더·사업별로 보기">
+  {# 폴더 — 원본 폴더(링크·앵커 …)와 만든 폴더. 옆의 꼬리표가 검색 범위(공통 RAG 또는 부서 RAG) #}
+  <div class="lib-rail-h lib-fold-h"><b>폴더</b><button type="button" class="lib-mini" data-modal-open="#folderModal">+ 폴더 만들기</button></div>
+  <nav class="lib-folders" aria-label="폴더">
+    <a href="/?type=all" class="lib-rail-item{{ ' on' if not folder }}"><span>모든 폴더</span></a>
+    {% for f in folders %}
+    <a href="/?type=all&amp;folder={{ f.key | urlencode }}" class="lib-rail-item{{ ' on' if folder == f.key }}" title="{{ f.name }} — {{ '원본 보관소 폴더' if f.kind == '원본' else '라이브러리에서 만든 폴더' }} · 검색 범위 {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}">
+      <iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><span>{{ f.name }}</span>
+      <em class="lib-scope{{ ' dept' if f.dept != '공통' }}">{{ '공통' if f.dept == '공통' else f.dept }}</em><small>{{ "{:,}".format(f.docs) }}</small></a>
+    {% endfor %}
+  </nav>
+  <div class="lib-rail-h" style="margin-top:12px;"><b>사업별로 보기</b></div>
   <input type="search" class="lib-rail-find" id="libRailFind" placeholder="사업 이름 거르기" aria-label="사업 이름 거르기">
   <nav class="lib-rail-list" id="libRail">
     <a href="/?{{ rail_qs }}" class="lib-rail-item{{ ' on' if not prog }}"{% if not prog %} aria-current="true"{% endif %}><span>전체</span><small>{{ "{:,}".format(rail | sum(attribute='n')) }}</small></a>
@@ -174,6 +195,15 @@
 </aside>
 <div class="card lib-main">
   <div class="card-in">
+    {% if request.query_params.get('ok') %}<p class="pill lib-flash" role="status">{{ request.query_params.get('ok') }}</p>{% endif %}
+    {% if request.query_params.get('err') %}<p class="pill lib-flash" role="alert">{{ request.query_params.get('err') }}</p>{% endif %}
+    {% if folder_pick %}<div class="lib-folder-pick"><iconify-icon icon="solar:folder-linear" aria-hidden="true"></iconify-icon><b>{{ folder_pick.name }}</b>
+      <span class="lib-scope{{ ' dept' if folder_pick.dept != '공통' }}">검색 범위 {{ '공통 RAG' if folder_pick.dept == '공통' else folder_pick.dept ~ ' 부서 RAG' }}</span>
+      {% if request.state.role == 'dev' %}<form method="post" action="/library/folders/scope" data-confirm="폴더의 문서 {{ '{:,}'.format(folder_pick.docs) }}건이 고른 검색 범위로 옮겨 갑니다. 바꿀까요?">
+        <input type="hidden" name="key" value="{{ folder_pick.key }}">
+        <select name="dept" aria-label="검색 범위">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == folder_pick.dept }}>{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG' }}</option>{% endfor %}</select>
+        <button class="secondary" type="submit">범위 바꾸기</button></form>{% endif %}
+      <a class="lib-pick-x" href="/?type=all" aria-label="폴더 고르기 풀기">×</a></div>{% endif %}
     {% if rail_pick %}<div class="lib-pick"><b>{{ rail_pick.label }}</b>
       {% if rail_pick.key.startswith('prog:') %}<a class="lib-pick-graph" href="/graph/explore?id={{ rail_pick.key[5:] | urlencode }}"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>{% endif %}
       <a class="lib-pick-x" href="/?{{ rail_qs }}" aria-label="사업 고르기 풀기">×</a></div>
@@ -189,7 +219,9 @@
       {% for key, label in uses %}<a href="/?{{ use_qs }}{% if key != 'all' %}&amp;use={{ key }}{% endif %}" {% if use == key %}aria-current="true"{% endif %}
          title="{{ metric_tip(use_metrics[key]) }}">{{ label }} <span>{{ "{:,}".format(use_counts.get(key, 0)) }}</span></a>{% endfor %}
       {% if use == 'criteria' %}<button type="button" class="secondary lib-uses-act" data-modal-open="#criteriaUploadModal">
-        <iconify-icon icon="solar:add-circle-linear"></iconify-icon>기준 등록</button>{% endif %}
+        <iconify-icon icon="solar:add-circle-linear"></iconify-icon>기준 등록</button>
+      {% else %}<button type="button" class="secondary lib-uses-act" data-modal-open="#libUploadModal">
+        <iconify-icon icon="solar:upload-linear"></iconify-icon>문서 올리기</button>{% endif %}
     </nav>
     <form action="/" method="get" class="intake-toolbar lib-filters control-row" role="search" aria-label="문서 찾기" data-autosubmit>
       {% if business_tabs %}<input type="hidden" name="type" value="{{ active_tab }}">
@@ -274,6 +306,52 @@
 </div>
 {# 기준 등록 — 새 파일을 기준 문서로(/criteria/upload: doc_type=regulation, 원문 유지, 규정 조각 적재).
    이미 반입된 사업 문서 가운데 규정을 기준 문서로 올리는 길은 RAG 공간 「규정·기준 문서」(개발자, regulation_register) #}
+{# 문서 올리기 — 프로젝트 없이 라이브러리에 바로. 폴더를 고르면 그 폴더의 검색 범위, 아니면 고른 범위(기본 공통 RAG) #}
+<div id="libUploadModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="libUploadTitle">
+  <div class="card"><div class="card-in">
+    <div class="modal-head">
+      <h2 id="libUploadTitle"><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 올리기</h2>
+      <button type="button" data-modal-close class="dialog-close" aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+    </div>
+    <form action="/library/upload" method="post" enctype="multipart/form-data" id="libUploadForm">
+      <div class="form-row"><span class="muted">파일(여러 개 가능)</span>
+        <input type="file" name="files" required multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md"></div>
+      <label class="form-row"><span class="muted">폴더</span>
+        <select name="folder" id="libUpFolder">
+          <option value="" data-dept="">폴더 없이</option>
+          {% for f in folders if f.kind == '만든' %}<option value="{{ f.key }}" data-dept="{{ f.dept }}" {{ 'selected' if folder == f.key }}>{{ f.name }} — {{ '공통 RAG' if f.dept == '공통' else f.dept ~ ' 부서 RAG' }}</option>{% endfor %}
+        </select></label>
+      <label class="form-row" id="libUpScopeRow"><span class="muted">검색 범위 — 정하지 않으면 공통 RAG(전 교직원)</span>
+        <select name="dept">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG' if d == '공통' else d ~ ' 부서 RAG — 그 부서만' }}</option>{% endfor %}</select></label>
+      <p class="muted" id="libUpScopeNote" style="font-size:12px; margin:-4px 0 10px;" hidden></p>
+      <label class="form-row"><span class="muted">업무 갈래</span>
+        <select name="doc_type"><option value="auto">자동으로 정하기</option>{% for k, v in inbox_types.items() if k != 'auto' %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" data-modal-close class="secondary">취소</button>
+        <button type="submit">올리기</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{# 폴더 만들기 — 이름과 검색 범위. 검색 범위는 나중에 폴더 머리에서 바꿀 수 있다(관리자) #}
+<div id="folderModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="folderTitle">
+  <div class="card"><div class="card-in">
+    <div class="modal-head">
+      <h2 id="folderTitle"><iconify-icon icon="solar:folder-add-linear"></iconify-icon>폴더 만들기</h2>
+      <button type="button" data-modal-close class="dialog-close" aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
+    </div>
+    <form action="/library/folders" method="post">
+      <label class="form-row"><span class="muted">폴더 이름</span><input type="text" name="name" required maxlength="40" placeholder="예: 교무처 지침"></label>
+      <label class="form-row"><span class="muted">검색 범위</span>
+        <select name="dept">{% for d in scope_choices %}<option value="{{ d }}">{{ '공통 RAG — 전 교직원' if d == '공통' else d ~ ' 부서 RAG — 그 부서만' }}</option>{% endfor %}</select></label>
+      {% if request.state.role == 'dev' and scope_choices | length == 1 %}<p class="muted" style="font-size:12px; margin:-4px 0 10px;">부서 RAG 는 <a href="/dev/rag#dept-rags">RAG 공간 › 부서 RAG</a>에서 먼저 만듭니다.</p>{% endif %}
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button type="button" data-modal-close class="secondary">취소</button>
+        <button type="submit">만들기</button>
+      </div>
+    </form>
+  </div></div>
+</div>
 <div id="criteriaUploadModal" class="modal-back" role="dialog" aria-modal="true" aria-labelledby="criteriaUploadTitle">
   <div class="card">
     <div class="card-in">
@@ -297,6 +375,18 @@
   </div>
 </div>
 <script>
+(function () {
+  // 문서 올리기 — 폴더를 고르면 검색 범위는 그 폴더를 따른다
+  var sel = document.getElementById("libUpFolder"), row = document.getElementById("libUpScopeRow"), note = document.getElementById("libUpScopeNote");
+  if (sel) {
+    var sync = function () {
+      var o = sel.options[sel.selectedIndex], d = o && o.dataset.dept;
+      row.hidden = !!sel.value; note.hidden = !sel.value;
+      if (sel.value) note.textContent = "검색 범위: 폴더를 따라 " + (d === "공통" ? "공통 RAG" : d + " 부서 RAG");
+    };
+    sel.addEventListener("change", sync); sync();
+  }
+})();
 (function () {
   // 사업 목록 거르기 — 이름에 낱말이 든 사업만(고른 사업과 「전체」 는 늘 보인다)
   var f = document.getElementById("libRailFind");

@@ -53,6 +53,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   content    TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS library_folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    dept TEXT NOT NULL DEFAULT '공통',
+    created_at TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS doc_folders (
+    doc_id INTEGER PRIMARY KEY,
+    folder_id INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS archive_cleanup (
     rel TEXT PRIMARY KEY,
     category TEXT NOT NULL DEFAULT '',

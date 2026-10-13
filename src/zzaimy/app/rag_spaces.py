@@ -11,16 +11,19 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 DEFAULT = {
-    # LINC·앵커 사업단은 산학협력단 소속이라 한 공간으로 묶는다
-    "dept_of_area": {"링크": "산학협력단", "앵커": "산학협력단", "산단": "산학협력단"},
+    # 원본 폴더 → 부서 RAG. 비어 있으면 모든 반입 문서가 공통 RAG(2026-10-13 결정) — 폴더를 부서 RAG 에 짝지을 때만 적는다
+    "dept_of_area": {},
+    # 만든 부서 RAG — [{"dept": 이름, "at": 날짜, "by": 계정}]. 계정에 부서가 없어도 문서를 먼저 넣어 둘 수 있다
+    "dept_rags": [],
     "spaces": [
         {"id": "student", "label": "학생 — 학사 규정", "roles": ["student"],
          "regulation": {"audience": "student"}, "grant": False},
-        {"id": "staff", "label": "교직원 전체", "roles": ["staff", "head"], "depts": [""],
-         "regulation": {}, "grant": True},
+        {"id": "staff", "label": "교직원 — 공통 RAG", "roles": ["staff", "head"], "depts": [""],
+         "regulation": {}, "grant": True, "grant_depts": ["공통"]},
     ],
     # 부서가 정해진 교직원은 공간을 따로 적지 않아도 dept:<부서> 공간을 받는다 — 그 부서 사업 문서 + 공통·그 부서 규정
     "dept_default": {"regulation": {}, "grant": True},
@@ -57,7 +60,7 @@ def resolve(role: str, dept: str | None, data_dir: str | Path | None = None) -> 
             return {**sp, "grant_depts": sp.get("grant_depts")}
     if dept and role in ("staff", "head"):
         d = cfg.get("dept_default", {})
-        return {"id": f"dept:{dept}", "label": f"{dept} — 부서 사업 문서·규정", "regulation": d.get("regulation", {}),
+        return {"id": f"dept:{dept}", "label": f"{dept} — 공통 RAG + 부서 RAG", "regulation": d.get("regulation", {}),
                 "grant": d.get("grant", True), "grant_depts": [dept, "공통"]}
     # 모르는 역할은 가장 좁게 — 공개 규정만
     return {"id": "public", "label": "공개 규정", "regulation": {}, "grant": False, "grant_depts": []}
@@ -97,14 +100,14 @@ def save_config(cfg: dict, data_dir: str | Path) -> None:
 
 
 def backfill_depts(db, data_dir: str | Path) -> dict:
-    """DGX 원본 문서(stored_path dgx://)의 부서를 원본 최상위 폴더로 다시 붙인다. 열람은 교직원 전체(공개 등급)로 두고 부서는
-    RAG 공간의 범위로만 쓴다 — 부서 없는 교직원 계정에서 자료가 사라지지 않게. {부서: 건수}."""
+    """DGX 원본 문서(stored_path dgx://)의 부서를 원본 최상위 폴더로 다시 붙인다 — 폴더를 부서 RAG 에 짝지었으면 부서 제한,
+    공통이면 전체 공개. {부서: 건수}."""
     cfg = config(data_dir)
     out: dict[str, int] = {}
     with db._conn() as conn:
         for area, dept in cfg["dept_of_area"].items():
-            cur = conn.execute("UPDATE documents SET dept = ?, access_level = 'public' WHERE stored_path LIKE ? AND doc_type = 'grant'",
-                               (dept, f"dgx://{area}/%"))
+            cur = conn.execute("UPDATE documents SET dept = ?, access_level = ? WHERE stored_path LIKE ? AND doc_type = 'grant'",
+                               (dept, "public" if dept == "공통" else "dept", f"dgx://{area}/%"))
             out[dept] = out.get(dept, 0) + int(cur.rowcount or 0)
     return out
 
@@ -139,6 +142,7 @@ def stats(db, data_dir: str | Path, accounts: dict) -> list[dict]:
 def known_depts(cfg: dict, accounts: dict) -> list[str]:
     """고를 수 있는 부서 — 폴더 짝·계정·공간 설정에 이미 쓰인 부서. 새 부서는 계정에 부서를 정하면 생긴다(코드에 이름을 두지 않는다)."""
     out = set(cfg.get("dept_of_area", {}).values())
+    out |= {str(r.get("dept") or "").strip() for r in cfg.get("dept_rags", []) if str(r.get("dept") or "").strip()}
     out |= {str(a.get("dept")).strip() for a in accounts.values() if str(a.get("dept") or "").strip()}
     for sp in cfg.get("spaces", []):
         out |= {d for d in sp.get("depts", []) if d}
@@ -183,7 +187,7 @@ def grant_changes(cfg: dict, accounts: dict, cells: list[str], was: list[str], o
             bad.append((key, "학생·관리자 계정은 추가 권한 대상이 아님"))
         elif sid not in allowed:
             bad.append((key, "없는 부서 공간"))
-        elif want and resolve(role or "staff", accounts[user].get("dept"), data_dir).get("grant_depts") is None:
+        elif want and resolve(role or "staff", accounts[user].get("dept"), data_dir).get("grant_depts") is None:   # 전부 검색(관리자 꼴)
             bad.append((key, "이미 사업 문서 전부를 검색하는 계정"))
         else:
             cur = grants.setdefault(user, [])
@@ -231,8 +235,8 @@ def backfill_preview(db, data_dir: str | Path) -> dict:
     with db._conn() as conn:
         for area, dept in cfg["dept_of_area"].items():
             n = conn.execute("SELECT COUNT(*) FROM documents WHERE stored_path LIKE ? AND doc_type = 'grant'"
-                             " AND (COALESCE(dept, '') <> ? OR COALESCE(access_level, '') <> 'public')",
-                             (f"dgx://{area}/%", dept)).fetchone()[0]
+                             " AND (COALESCE(dept, '') <> ? OR COALESCE(access_level, '') <> ?)",
+                             (f"dgx://{area}/%", dept, "public" if dept == "공통" else "dept")).fetchone()[0]
             out[dept] = out.get(dept, 0) + int(n or 0)
     return out
 
@@ -347,3 +351,65 @@ def preview_search(db, sc: dict, question: str, k: int = 5) -> dict:
         except Exception as e:
             out["notes"].append(f"사업 문서 검색 실패: {type(e).__name__}")
     return out
+
+
+# ---------------------------------------------------------------- 부서 RAG — 공통 RAG 옆에 부서마다 따로 두는 검색 범위
+
+_DEPT_NAME = re.compile(r"^[0-9A-Za-z가-힣][0-9A-Za-z가-힣 .·()\-+&]{1,29}$")
+
+
+def dept_rag_rows(db, cfg: dict, accounts: dict, depts: list[str] | None = None) -> list[dict]:
+    """부서 RAG 목록 — 부서마다 든 문서 수, 쓰는 계정(그 부서 계정), 추가 권한으로 쓰는 계정, 만든 기록.
+    depts: 부서 목록(사용자 관리의 부서 공용까지 — user_admin.known_depts). 없으면 이 설정이 아는 부서."""
+    made = {str(r.get("dept")): r for r in cfg.get("dept_rags", [])}
+    depts = depts if depts is not None else known_depts(cfg, accounts)
+    counts: dict[str, int] = {}
+    if depts:
+        with db._conn() as conn:
+            counts = {str(r[0]): int(r[1]) for r in conn.execute(
+                f"SELECT dept, COUNT(*) FROM documents WHERE dept IN ({','.join('?' * len(depts))}) GROUP BY dept", depts)}
+    grants = cfg.get("grants", {})
+    return [{"dept": d, "docs": counts.get(d, 0),
+             "members": sorted(u for u, a in accounts.items() if str(a.get("dept") or "").strip() == d),
+             "granted": sorted(u for u, g in grants.items() if f"dept:{d}" in g),
+             "made": made.get(d, {}), "folders": sorted(f for f, v in cfg.get("dept_of_area", {}).items() if v == d)}
+            for d in depts]
+
+
+def create_dept_rag(cfg: dict, name: str, by: str = "") -> tuple[dict, str]:
+    """부서 RAG 하나를 만든다(빈 공간) — (새 설정, 오류). 이름은 계정의 부서 이름과 같게 적는다."""
+    import time
+    name = " ".join((name or "").split())
+    if not _DEPT_NAME.match(name) or name == "공통":
+        return cfg, "부서 이름은 2~30자의 한글·영문·숫자로 적습니다(「공통」은 쓸 수 없음)"
+    if any(str(r.get("dept")) == name for r in cfg.get("dept_rags", [])):
+        return cfg, f"「{name}」 부서 RAG 는 이미 있습니다"
+    new = dict(cfg)
+    new["dept_rags"] = [*cfg.get("dept_rags", []), {"dept": name, "at": time.strftime("%Y-%m-%d"), "by": by}]
+    return new, ""
+
+
+def move_docs(db, ids: list[int], dept: str) -> int:
+    """문서를 부서 RAG(dept) 또는 공통 RAG(「공통」)로 — 부서 RAG 는 부서 제한, 공통은 전체 공개. 조각까지 바로 따라간다."""
+    level = "public" if dept in ("", "공통") else "dept"
+    dept = dept or "공통"
+    n = 0
+    for did in dict.fromkeys(int(x) for x in ids):
+        if db.get_document(did) is None:
+            continue
+        db.set_document_scope(did, dept=dept, access_level=level)
+        n += 1
+    return n
+
+
+def delete_dept_rag(db, cfg: dict, name: str) -> tuple[dict, int]:
+    """부서 RAG 를 지운다 — 든 문서는 공통 RAG 로 돌리고, 추가 권한·폴더 짝에서도 뺀다. (새 설정, 공통으로 돌린 문서 수)."""
+    with db._conn() as conn:
+        ids = [int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE dept = ?", (name,))]
+    moved = move_docs(db, ids, "공통")
+    new = dict(cfg)
+    new["dept_rags"] = [r for r in cfg.get("dept_rags", []) if str(r.get("dept")) != name]
+    new["grants"] = {u: [s for s in g if s != f"dept:{name}"] for u, g in cfg.get("grants", {}).items()}
+    new["grants"] = {u: g for u, g in new["grants"].items() if g}
+    new["dept_of_area"] = {f: v for f, v in cfg.get("dept_of_area", {}).items() if v != name}
+    return new, moved

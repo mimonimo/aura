@@ -36,7 +36,7 @@ def test_search_scope_and_allowed_docs(tmp_path):
     dev = ag.search_scope("학생처", "dev")
     assert dev["space"] == "dev" and dev["grant_depts"] is None and "levels" not in dev and "dept" not in dev
     nod = ag.search_scope(None, "staff")
-    assert (nod["user"], nod["dept"], nod["space"], nod["grant_depts"]) == ("", "공통", "staff", None)
+    assert (nod["user"], nod["dept"], nod["space"], nod["grant_depts"]) == ("", "공통", "staff", ["공통"])
     db = Database(tmp_path / "t.db")
     a = db.add_document("공통규정.txt", "x", doc_type="regulation")
     b = db.add_document("산단서류.txt", "y", doc_type="auto", dept="산학협력단")     # 부서 제한 접수 문서
@@ -88,8 +88,9 @@ def test_intake_assigns_department_and_level_and_chunks_inherit(tmp_path):
     from zzaimy.app.regulations import RegulationChunk
 
     assert classify("regulation") == ("공통", "public")
-    assert classify("auto", uploader_dept="학생처") == ("학생처", "dept")
-    assert classify("auto", project_dept="입학처") == ("입학처", "dept")
+    assert classify("auto", uploader_dept="학생처") == ("공통", "public")      # 기본은 공통 RAG — 올린 사람 부서와 상관없이
+    assert classify("auto", project_dept="입학처") == ("공통", "public")
+    assert classify("auto", dept="입학처") == ("입학처", "dept")                # 부서 RAG 는 고른 경우에만
     assert classify("auto", access_level="owner", dept="산학협력단") == ("산학협력단", "owner")
     assert classify("auto", owner="corpus") == ("공통", "public")
 

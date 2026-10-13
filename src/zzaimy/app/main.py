@@ -300,6 +300,13 @@ def create_app(
         return bool((_STUDENT_POST if method == "POST" else _STUDENT_GET).match(path))
     from zzaimy.app.access_policy import visible as _visible
 
+    def _extra_depts(user: str | None) -> list[str]:
+        """계정별 추가 권한으로 받은 부서 RAG 이름들(RAG 공간 설정 grants) — 열람 검사와 목록 SQL 이 같은 값을 쓴다."""
+        if not user:
+            return []
+        from zzaimy.app import rag_spaces as _rs
+        return [sid[5:] for sid in _rs.config(Path(db_path).parent).get("grants", {}).get(user, []) if sid.startswith("dept:")]
+
     if password is not None:
         basic = HTTPBasic(auto_error=False)
 
@@ -338,7 +345,8 @@ def create_app(
             m = _DOC_PATH.match(request.url.path)
             if m:
                 doc = db.get_document(int(m.group(1)))
-                if doc is not None and not _visible(doc, dept=request.state.dept or None, user=user, role=request.state.role):
+                if doc is not None and not _visible(doc, dept=request.state.dept or None, user=user, role=request.state.role,
+                                                    also=_extra_depts(user)):
                     raise HTTPException(404, "문서를 찾을 수 없습니다")
 
         dependencies = [Depends(check_auth)]
@@ -649,12 +657,14 @@ def create_app(
         use: str = "all",
         prog: str = "",
         year: str = "",
+        folder: str = "",
     ):
         from zzaimy.app import library
+        from zzaimy.app import library_folders as _lf
 
         if getattr(request.state, "role", "") == "student":
             return RedirectResponse("/chat", status_code=303)        # 학생 첫 화면은 대화(ADR-0052)
-        if not any((type, q, project, flt, prog, request.query_params.get("page"), request.query_params.get("use"),
+        if not any((type, q, project, flt, prog, folder, request.query_params.get("page"), request.query_params.get("use"),
                     request.query_params.get("group"))):
             return RedirectResponse("/chat", status_code=303)
         if "group" in request.query_params:
@@ -689,6 +699,12 @@ def create_app(
             rq = receipt_queries(q)
             cond.append(f"(({title}) OR COALESCE(d.receipt_no, '') LIKE ?" + "".join(" OR d.receipt_no = ?" for _ in rq) + ")")
             args += [f"%{w}%" for w in words] + [f"%{q}%"] + rq
+        fc, fa = _lf.filter_sql(folder) if folder else ("", [])
+        if fc:                                                                 # 고른 폴더 — 사업 목록도 그 폴더 안에서 센다
+            cond.append(fc)
+            args += fa
+        else:
+            folder = ""
         rail_cond, rail_args = list(cond), list(args)                         # 사업 목록은 사업 조건만 빼고 같은 조건으로 센다
         rep, members = _program_groups()
         if prog.startswith("prog:"):                                           # 그래프의 대표가 아닌 이름으로 와도 묶음 대표로
@@ -793,6 +809,9 @@ def create_app(
                 "page": page, "pages": pages, "page_numbers": library.page_numbers(page, pages),
                 "per": PER, "total_docs": total_docs, "n_rows": len(groups),
                 "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "분류 전") if k else "분류 전", n) for k, n in kinds],
+                "folders": (_folders := _lf.folders(db, Path(db_path).parent)), "folder": folder,
+                "folder_pick": next((f for f in _folders if f["key"] == folder), None),
+                "scope_choices": _scope_choices(request), "inbox_types": INBOX_TYPES,
                 "rail": rail, "rail_tree": rail_tree, "rail_fixed": [g for g in rail if not g["key"].startswith("prog:")],
                 "prog": prog, "year": year,
                 "rail_pick": next((g for g in rail if g["key"] == prog), None),
@@ -3307,8 +3326,14 @@ def create_app(
         user = getattr(request.state, "user", "")
         if getattr(request.state, "role", "") != "dev" and doc.get("owner") != user:
             raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
-        db.set_document_scope(doc_id, dept=dept.strip() or None,
-                              access_level=access_level if access_level in LEVELS else None)
+        d = dept.strip()
+        if d:                                            # 검색 범위 — 공통 RAG(전체 공개) 또는 부서 RAG(부서 제한)
+            from zzaimy.app import rag_spaces
+            if d != "공통" and d not in _all_depts():
+                raise HTTPException(400, f"없는 부서 RAG: {d}")
+            rag_spaces.move_docs(db, [doc_id], d)
+        if access_level in LEVELS:
+            db.set_document_scope(doc_id, access_level=access_level)
         dest = back if back.startswith("/") and not back.startswith("//") else f"/doc/{doc_id}"
         return RedirectResponse(dest, status_code=303)
 
@@ -3409,9 +3434,10 @@ def create_app(
         """문서 목록 SQL 의 열람 조건(access_policy.visible 과 같은 규칙, 학생 제외 — 학생은 이 화면들에 못 온다). 관리자는 조건 없음."""
         if request.state.role == "dev":
             return "", []
+        mine = [getattr(request.state, "dept", "") or "", *_extra_depts(request.state.user)]     # 자기 부서 + 추가 권한 부서 RAG
         return (" AND (COALESCE(d.access_level, 'public') = 'public'"
-                " OR (d.access_level = 'dept' AND (COALESCE(d.dept, '공통') = '공통' OR COALESCE(d.dept, '공통') = ?))"
-                " OR COALESCE(d.owner, '') = ?)", [getattr(request.state, "dept", "") or "", request.state.user or ""])
+                f" OR (d.access_level = 'dept' AND (COALESCE(d.dept, '공통') = '공통' OR COALESCE(d.dept, '공통') IN ({','.join('?' * len(mine))})))"
+                " OR COALESCE(d.owner, '') = ?)", [*mine, request.state.user or ""])
 
     @app.get("/search", response_class=HTMLResponse)
     def search_all(request: Request, q: str = ""):
@@ -4698,7 +4724,8 @@ def create_app(
                   "grants": grants.get(u, [])} for u, a in sorted(accounts.items())]
         spaces = rag_spaces.stats(db, data_dir, accounts)
         return templates.TemplateResponse(request, "dev_rag.html", ctx(request, {
-            "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts)}))
+            "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts),
+            "dept_rags": rag_spaces.dept_rag_rows(db, cfg, accounts, _all_depts())}))
 
     @app.post("/dev/rag/grant")
     async def dev_rag_grant(request: Request):
@@ -4721,6 +4748,46 @@ def create_app(
         off = [f"{u} → {sid[5:]}" for u, sid, w in done if not w]
         msg = f"추가 권한 {len(done)}건 저장" + (f" · 켬: {', '.join(on)}" if on else "") + (f" · 끔: {', '.join(off)}" if off else "")
         return RedirectResponse("/dev/rag?" + urlencode({"ok": msg}) + "#grants", status_code=303)
+
+    @app.post("/dev/rag/dept")
+    async def dev_rag_dept(request: Request):
+        """부서 RAG 만들기·지우기 — action=create(name) | delete(name, 든 문서는 공통 RAG 로)."""
+        from zzaimy.app import rag_spaces
+        data_dir = Path(db_path).parent
+        form = await request.form()
+        action, name = str(form.get("action") or ""), " ".join(str(form.get("name") or "").split())
+        cfg = dict(rag_spaces.config(data_dir))
+        if action == "create":
+            new, err = rag_spaces.create_dept_rag(cfg, name, by=request.state.user or "")
+            if err:
+                return RedirectResponse("/dev/rag?" + urlencode({"err": err}) + "#dept-rags", status_code=303)
+            rag_spaces.save_config(new, data_dir)
+            return RedirectResponse("/dev/rag?" + urlencode({"ok": f"「{name}」 부서 RAG 를 만들었습니다 — 문서 화면·문서 올리기에서 검색 범위로 고르면 들어갑니다"})
+                                    + "#dept-rags", status_code=303)
+        if action == "delete" and name in _all_depts():
+            if any(str(a.get("dept") or "").strip() == name for a in accounts.values()):
+                return RedirectResponse("/dev/rag?" + urlencode({"err": f"「{name}」 부서 계정이 있어 지울 수 없습니다 — 사용자·계정에서 부서를 먼저 바꿉니다"})
+                                        + "#dept-rags", status_code=303)
+            new, moved = rag_spaces.delete_dept_rag(db, cfg, name)
+            rag_spaces.save_config(new, data_dir)
+            return RedirectResponse("/dev/rag?" + urlencode({"ok": f"「{name}」 부서 RAG 를 지웠습니다 · 문서 {moved}건은 공통 RAG 로"})
+                                    + "#dept-rags", status_code=303)
+        return RedirectResponse("/dev/rag?" + urlencode({"err": "알 수 없는 요청"}) + "#dept-rags", status_code=303)
+
+    @app.post("/docs/scope")
+    async def docs_set_scope(request: Request):
+        """여러 문서의 검색 범위 — 공통 RAG 또는 부서 RAG(JSON {ids, dept}). 관리자만."""
+        if request.state.role != "dev":
+            raise HTTPException(403, "관리자만 바꿀 수 있습니다")
+        from zzaimy.app import rag_spaces
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(400, "잘못된 요청")
+        dept = str(body.get("dept") or "공통").strip()
+        if dept != "공통" and dept not in _all_depts():
+            raise HTTPException(400, f"없는 부서 RAG: {dept}")
+        ids = [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:5000]
+        return {"moved": rag_spaces.move_docs(db, ids, dept), "dept": dept}
 
     @app.post("/dev/rag/area")
     async def dev_rag_area(request: Request):
@@ -7063,6 +7130,83 @@ def create_app(
         db.delete_project(project_id)
         return RedirectResponse(f"/?type={proj['sector']}", status_code=303)
 
+    def _lib_back(key: str = "", **msg) -> RedirectResponse:
+        qs = {"type": "all", **({"folder": key} if key else {}), **msg}
+        return RedirectResponse("/?" + urlencode(qs), status_code=303)
+
+    def _all_depts() -> list[str]:
+        """부서 목록 한 곳 — 부서 RAG·폴더 짝·계정·사용자 관리의 부서 공용(user_admin.known_depts)."""
+        from zzaimy.app import user_admin as _ua
+        return _ua.known_depts(db, accounts, Path(db_path).parent)
+
+    def _scope_choices(request: Request) -> list[str]:
+        """이 계정이 고를 수 있는 검색 범위 — 공통 RAG, 관리자는 모든 부서 RAG, 교직원은 자기 부서 RAG."""
+        from zzaimy.app import rag_spaces
+        if request.state.role == "dev":
+            return ["공통", *_all_depts()]
+        mine = (getattr(request.state, "dept", "") or "").strip()
+        return ["공통", *([mine] if mine else [])]
+
+    @app.post("/library/folders")
+    def library_folder_create(request: Request, name: str = Form(""), dept: str = Form("공통")):
+        """라이브러리 폴더 만들기 — 검색 범위는 공통 RAG(기본) 또는 부서 RAG."""
+        from zzaimy.app import library_folders as lf
+        if dept not in _scope_choices(request):
+            return _lib_back(err=f"고를 수 없는 검색 범위: {dept}")
+        fid, err = lf.create(db, Path(db_path).parent, name, dept, by=request.state.user or "", allowed=_all_depts())
+        if err:
+            return _lib_back(err=err)
+        return _lib_back(f"{lf.MADE}{fid}", ok=f"「{' '.join(name.split())}」 폴더를 만들었습니다 · 검색 범위 {dept if dept != '공통' else '공통 RAG'}")
+
+    @app.post("/library/folders/scope")
+    def library_folder_scope(request: Request, key: str = Form(""), dept: str = Form("공통")):
+        """폴더의 검색 범위 바꾸기 — 폴더의 문서가 함께 옮겨 간다. 관리자만."""
+        from zzaimy.app import library_folders as lf
+        if request.state.role != "dev":
+            raise HTTPException(403, "관리자만 바꿀 수 있습니다")
+        n, err = lf.set_dept(db, Path(db_path).parent, key, dept, allowed=_all_depts())
+        if err:
+            return _lib_back(key, err=err)
+        return _lib_back(key, ok=f"검색 범위를 {dept if dept != '공통' else '공통 RAG'}(으)로 바꿨습니다 · 문서 {n:,}건")
+
+    @app.post("/library/upload")
+    def library_upload(request: Request, background: BackgroundTasks, files: list[UploadFile] = File(...),
+                       folder: str = Form(""), dept: str = Form("공통"), doc_type: str = Form("auto")):
+        """라이브러리에 직접 올리기 — 프로젝트 없이. 폴더를 고르면 그 폴더의 검색 범위, 아니면 고른 범위(기본 공통 RAG)."""
+        from zzaimy.app import library_folders as lf
+        from zzaimy.app.access_policy import classify
+        if request.state.role == "student":
+            raise HTTPException(403, "학생 계정에서는 올릴 수 없습니다")
+        if doc_type not in INBOX_TYPES:
+            doc_type = "auto"
+        data_dir = Path(db_path).parent
+        scope = lf.folder_dept(db, data_dir, folder) if folder else (dept or "공통")
+        if scope not in _scope_choices(request) and not (folder and scope == "공통"):
+            return _lib_back(folder, err=f"이 계정은 「{scope}」 부서 RAG 에 올릴 수 없습니다")
+        owner = getattr(request.state, "user", "zzaimy")
+        made, skipped = [], []
+        for f in files:
+            name = f.filename or "이름없음"
+            suffix = Path(name).suffix.lower()
+            if suffix not in ALLOWED_EXTENSIONS:
+                skipped.append(name)
+                continue
+            stored = inbox_dir / f"{uuid.uuid4().hex}{suffix}"
+            with stored.open("wb") as out:
+                shutil.copyfileobj(f.file, out)
+            d_dept, d_level = classify(doc_type, owner=owner, dept=scope)
+            doc_id = db.add_document(filename=name, stored_path=str(stored), doc_type=doc_type, owner=owner,
+                                     dept=d_dept, access_level=d_level)
+            stored = storage.adopt_original(db, doc_id, stored)
+            background.add_task(processor.process, db, doc_id, stored)
+            made.append(doc_id)
+        if folder.startswith(lf.MADE):
+            lf.put(db, folder, made)
+        msg = f"{len(made)}건을 올렸습니다 · 검색 범위 {scope if scope != '공통' else '공통 RAG'} · 처리가 끝나면 검색에 들어갑니다"
+        if skipped:
+            msg += f" · 형식이 맞지 않아 건너뜀 {len(skipped)}건"
+        return _lib_back(folder if folder.startswith(lf.MADE) else "", ok=msg)
+
     @app.post("/upload")
     def upload(
         request: Request,
@@ -7346,7 +7490,7 @@ def create_app(
             request,
             "doc.html",
             ctx(request, {
-                "doc": doc, "reviews": db.get_reviews(doc_id), "related": related,
+                "doc": doc, "reviews": db.get_reviews(doc_id), "related": related, "scope_choices": _scope_choices(request),
                 "assets": assets,
                 "extract_blocks": blocks, "layout_pages": layout,
                 "restored_pdf": Path(doc["stored_path"]).suffix.lower()
@@ -7397,7 +7541,8 @@ def create_app(
         raise FileNotFoundError("원본 파일을 찾을 수 없습니다")
 
     def _doc_scope(request: Request) -> dict:
-        return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
+        return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role,
+                "also": _extra_depts(request.state.user)}
 
     def _preview_target(doc: dict) -> tuple[Path | None, str]:
         """원본 열기에서 보여 줄 파일이 놓일 자리 — (경로, 종류). 플랫폼 사무 문서는 문서 폴더의 열람 PDF(반입 때 만드는 것과 같은 파일),

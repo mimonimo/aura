@@ -38,6 +38,7 @@ def test_dev_creates_user_and_new_user_can_log_in(tmp_path, monkeypatch):
     c = _dev(tmp_path)
     page = c.get("/dev/users").text
     assert "사용자·계정" in page and "zzaimy" in page and "허용 도메인 ync.ac.kr" in page
+    c.post("/dev/rag/dept", data={"action": "create", "name": "산학협력단"})     # 부서는 만든 뒤 고른다(부서 RAG = 부서 목록)
     r = c.post("/dev/users/save", data={"uid": "Kim_ops", "is_new": "1", "name": "김담당", "role": "staff", "dept": "산학협력단",
                                         "new_pw": "init-pass-1", "google": "kim@ync.ac.kr"}, follow_redirects=False)
     assert r.status_code == 303 and "ok=" in r.headers["location"]

@@ -26,8 +26,8 @@ def test_search_scope_grants_add_depts_but_never_to_students(tmp_path):
     assert sc["grant_depts"] == ["LINC사업단", "공통", "앵커사업단"] and sc["space"].startswith("dept:LINC사업단+")
     st = rag_spaces.search_scope("student", "", "stu", tmp_path)
     assert st["grant"] is False and st["levels"] == ("student",)
-    # 부서 없는 교직원(전부)은 추가 권한으로 좁아지지 않는다
-    assert rag_spaces.search_scope("staff", "", "kim", tmp_path)["grant_depts"] is None
+    # 부서 없는 교직원은 공통 RAG — 추가 권한으로 부서 RAG 를 더 받는다
+    assert rag_spaces.search_scope("staff", "", "kim", tmp_path)["grant_depts"] == ["공통", "앵커사업단"]
 
 
 def test_save_config_keeps_backup(tmp_path):
@@ -38,6 +38,8 @@ def test_save_config_keeps_backup(tmp_path):
 
 
 def test_dept_of_rel(tmp_path):
+    assert rag_spaces.dept_of_rel("링크/2024/계획.hwp", tmp_path) == "공통"              # 기본은 공통 RAG
+    rag_spaces.save_config({"dept_of_area": {"링크": "산학협력단"}}, tmp_path)          # 폴더를 부서 RAG 에 짝지을 때만
     assert rag_spaces.dept_of_rel("링크/2024/계획.hwp", tmp_path) == "산학협력단"
     assert rag_spaces.dept_of_rel("기타/a.pdf", tmp_path) == "공통"
 
@@ -53,10 +55,11 @@ def test_backfill_depts(tmp_path):
     db = Database(tmp_path / "t.db")
     a = db.add_document("a.hwp", "dgx://링크/2024/a.hwp", doc_type="grant", dept="공통", access_level="dept")
     b = db.add_document("b.hwp", "dgx://기타/b.hwp", doc_type="grant", dept="공통")
+    rag_spaces.save_config({"dept_of_area": {"링크": "산학협력단"}}, tmp_path)
     got = rag_spaces.backfill_depts(db, tmp_path)
     assert got["산학협력단"] == 1
     da, dbb = db.get_document(a), db.get_document(b)
-    assert da["dept"] == "산학협력단" and da["access_level"] == "public"
+    assert da["dept"] == "산학협력단" and da["access_level"] == "dept"                 # 부서 RAG 문서는 그 부서만
     assert dbb["dept"] == "공통"
 
 
@@ -117,7 +120,7 @@ def test_grant_table_saves_only_changed_cells(tmp_path):
 def test_grant_table_rejects_students_unknown_and_all_access(tmp_path):
     c = _client(tmp_path)
     rag_spaces.save_config({"grants": {}}, tmp_path)
-    for cell in ("u-stu\tdept:가부서", "u-ga\tdept:없는부서", "ghost\tdept:가부서", "zzaimy\tdept:가부서", "zzdev\tdept:가부서"):
+    for cell in ("u-stu\tdept:가부서", "u-ga\tdept:없는부서", "ghost\tdept:가부서", "zzdev\tdept:가부서"):
         r = c.post("/dev/rag/grant", data={"cell": [cell], "on": [cell]}, follow_redirects=False)
         assert "err=" in r.headers["location"], cell
     assert _grants(tmp_path) == {}
@@ -164,7 +167,7 @@ def test_backfill_preview_counts_changes_in_confirm(tmp_path):
     db = Database(tmp_path / "test.db")
     rag_spaces.save_config({"dept_of_area": {"가폴더": "가부서"}}, tmp_path)
     db.add_document("a.hwp", "dgx://가폴더/a.hwp", doc_type="grant", dept="공통")
-    db.add_document("b.hwp", "dgx://가폴더/b.hwp", doc_type="grant", dept="가부서", access_level="public")
+    db.add_document("b.hwp", "dgx://가폴더/b.hwp", doc_type="grant", dept="가부서", access_level="dept")   # 이미 맞는 문서
     db.add_document("c.hwp", "dgx://나폴더/c.hwp", doc_type="grant", dept="공통")
     assert rag_spaces.backfill_preview(db, tmp_path) == {"가부서": 1}
     assert "바뀌는 문서 1건" in c.get("/dev/intake?tab=areas").text
@@ -222,7 +225,7 @@ def test_space_composition_and_regulation_kind_column(tmp_path, monkeypatch):
     assert got["grant_docs"] == 1 and got["kinds"] == [{"name": "규정", "n": 1}]
     assert got["programs"] == [{"name": "사업 미분류", "n": 1}]
     rows = {s["id"]: s for s in rag_spaces.stats(db, tmp_path, {"u-ga": {"role": "staff", "dept": "가부서"}})}
-    assert rows["staff"]["grant_docs"] == 2 and rows["staff"]["grant_reg_docs"] == 1
+    assert rows["staff"]["grant_docs"] == 0                    # 부서 없는 교직원은 공통 RAG 만 — 부서 문서는 보이지 않는다
     assert rows["student"]["reg_docs"] == 1 and rows["student"]["grant"] is False
     assert "학생 공개 규정 없음" not in c.get("/dev/rag").text
 

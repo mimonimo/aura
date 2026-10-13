@@ -161,11 +161,13 @@ def main() -> int:
             # 사업 분류는 원본 장부의 현재 값(검토 판정 반영) — 기록의 값은 DGX 목록을 만들 때의 옛 분류일 수 있다
             prog_name = row[0] if row is not None else rec.get("program_name")
             prog_id = row[3] if row is not None and len(row) > 3 else rec.get("program")
-            # 부서는 원본 최상위 폴더로(RAG 공간의 범위, ADR-0053), 열람은 교직원 전체(공개 등급 — 학생은 역할로 막힌다)
+            # 검색 범위는 원본 최상위 폴더로(RAG 공간 폴더별 부서, ADR-0053) — 짝이 없으면 공통 RAG(전체 공개), 부서 RAG 에 짝지은
+            # 폴더면 그 부서만(부서 제한)
             # 문서 이름은 원본 파일 이름에서 시작해 VM 의 이름 규칙(아래 rename_from_text)으로 정한다 — DGX 기록의 filename 은
             # DGX 임시 DB 에서 그곳 코드 판으로 정한 이름이라, 그대로 쓰면 올라온 이름(original_filename)을 잃고 규칙 개선도 닿지 않는다
+            _dept = rag_spaces.dept_of_rel(rel, ROOT / "data" / "platform")
             did = db.add_document(filename=Path(rel).name or rec.get("filename") or "", stored_path=f"dgx://{rel}", doc_type="grant",
-                                  sector="grant", dept=rag_spaces.dept_of_rel(rel, ROOT / "data" / "platform"), access_level="public",
+                                  sector="grant", dept=_dept, access_level="public" if _dept == "공통" else "dept",
                                   project_id=archive.program_project(
                                       db, prog_id or "", prog_name or "", projects,
                                       row[4] if row is not None else rec.get("year"), row[5] if row is not None else rec.get("round")),
