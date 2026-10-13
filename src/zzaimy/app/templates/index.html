@@ -39,7 +39,7 @@
   .lib-rail-find { width:100%; box-sizing:border-box; height:32px; padding:5px 9px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; margin-bottom:8px; }
   .lib-rail-list { overflow:auto; min-height:0; display:flex; flex-direction:column; gap:1px; }
   .lib-rail-item { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:8px; color:var(--ink); text-decoration:none; font-size:12.5px; }
-  .lib-rail-item span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lib-rail-item span { flex:1; min-width:0; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; line-height:1.4; overflow-wrap:anywhere; }
   .lib-rail-item small { color:var(--muted); font-variant-numeric:tabular-nums; }
   .lib-rail-item:hover { background:#F3F6FB; }
   .lib-rail-item.on { background:#EAF0FA; color:var(--navy); font-weight:700; }
@@ -55,7 +55,7 @@
   .lib-l1[data-open="0"] .lib-l1-body { display:none; }
   .lib-l1.unknown .lib-l1-h b { font-weight:600; color:#53647B; }
   .lib-l2 { display:flex; gap:8px; padding:8px 9px 3px 12px; font-size:11.5px; font-weight:600; color:#53647B; }
-  .lib-l2 span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; } .lib-l2 small { color:var(--faint, #8A94A6); font-weight:400; }
+  .lib-l2 span { flex:1; min-width:0; line-height:1.4; } .lib-l2 small { color:var(--faint, #8A94A6); font-weight:400; }
   .lib-rail-item.lib-l3 { padding-left:20px; } .lib-rail-item.lib-l3.flat { padding-left:14px; }
   .lib-pick { display:flex; align-items:center; gap:10px; margin:0 0 10px; font-size:15px; }
   .lib-pick-graph { margin-left:auto; display:inline-flex; align-items:center; gap:4px; font-size:12.5px; text-decoration:none; padding:4px 10px; border:1px solid var(--line); border-radius:8px; }

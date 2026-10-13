@@ -501,6 +501,15 @@ def program_tree(nodes: list[dict]) -> list[dict]:
     used = {g["node"]["id"] for t in tree for g in t["groups"] if g.get("node")}
     # 중분류에 달리지 않은 묶음 노드(교육부 체계 밖 묶음 등)도 고를 수 있게 맨 위 「사업 묶음」으로
     rest = [n for n in groups if n["id"] not in used]
+    # 묶음의 사업 대부분(8할 이상)이 한 대분류에 있으면 그 대분류 맨 위에 단다(「교육부 체계 밖」 묶음 → 다른 부처·지자체 …)
+    l1_of = {it["key"]: t for t in tree for g in t["groups"] for it in g["progs"]}
+    for n in list(rest):
+        homes = [l1_of[p["id"]]["label"] for p in nodes if p["type"] == "program" and n["id"] in (p.get("groups") or []) and p["id"] in l1_of]
+        top = max(set(homes), key=homes.count) if homes else None
+        if top and homes.count(top) >= 0.8 * len(homes):
+            t = next(t for t in tree if t["label"] == top)
+            t["groups"].insert(0, {"label": n["label"], "n": n["n_docs"], "node": n, "progs": []})
+            rest.remove(n)
     if rest:
         tree.insert(0, {"label": "사업 묶음", "n": sum(n["n_docs"] for n in rest), "unknown": False,
                         "groups": [{"label": "", "n": 0, "node": None, "progs": rest}]})
