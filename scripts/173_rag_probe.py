@@ -129,7 +129,10 @@ def main() -> int:
                     help="고정 질문 집합 — 있으면 그대로 쓴다(측정끼리 같은 시험지). 질문을 그래프에서 매번 새로 뽑으면 그래프를 다시 지을 때마다"
                          " 시험지가 바뀌어 측정끼리 견줄 수 없다")
     ap.add_argument("--new-set", action="store_true", help="질문 집합을 새로 뽑아 --set 에 쓴다")
+    ap.add_argument("--reader", action="store_true", help="그래프 단계에서 질문을 모델로 읽는다(graph.question_read)")
     args = ap.parse_args()
+    from zzaimy.graph.question_read import reader_for
+    reader = reader_for("answer", force=True) if args.reader else None
     from zzaimy.app import grant_search
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     set_path = Path(args.set)
@@ -147,7 +150,7 @@ def main() -> int:
         t0 = time.time()
         err = ""
         try:
-            g = grant_search.search(db, p["q"], k=args.k, user=None)
+            g = grant_search.search(db, p["q"], k=args.k, user=None, reader=reader)
         except Exception as e:                              # 검색 실패도 결과다
             g, err = {"hits": [], "steps": []}, f"{type(e).__name__}: {e}"[:200]
         dt = time.time() - t0

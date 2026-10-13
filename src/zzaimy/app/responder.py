@@ -227,6 +227,9 @@ class AgentResponder:
                 if scope.get("role") == "student" or scope.get("grant") is False:
                     raise LookupError("이 RAG 공간은 사업 문서를 쓰지 않는다(ADR-0052·0053)")
                 from zzaimy.app import grant_search
+                from zzaimy.graph.question_read import reader_for
+                # 질문을 온톨로지 말(사업·연차·갈래·따라갈 관계)로 읽는 일은 모델이 — 실패하면 이름 맞추기로 물러난다
+                reader = reader_for("answer")
                 prefer = None
                 own: set[int] = set()
                 if project and project.get("id"):
@@ -243,11 +246,11 @@ class AgentResponder:
                             prefer = {int(r[0]) for r in conn.execute(
                                 f"SELECT id FROM documents WHERE project_id IN ({','.join('?' * len(ref_ids))})", ref_ids).fetchall()}
                 g = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=prefer,
-                                        depts=scope.get("grant_depts"))
+                                        depts=scope.get("grant_depts"), reader=reader)
                 grant_hits = g["hits"]
                 if own:
                     mine = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=own,
-                                               depts=scope.get("grant_depts"))["hits"]
+                                               depts=scope.get("grant_depts"), reader=reader)["hits"]
                     mine = [h for h in mine if h.get("doc_id") in own]
                     seen = {h.get("chunk_id") for h in mine}
                     grant_hits = mine + [h for h in grant_hits if h.get("chunk_id") not in seen][: max(2, 7 - len(mine))]

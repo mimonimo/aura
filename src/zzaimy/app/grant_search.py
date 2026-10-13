@@ -409,8 +409,9 @@ def docs_under(db, program: str) -> set[int]:
 
 
 def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: set[int] | None = None,
-           depts: list[str] | None = None) -> dict:
-    """질문 → {steps, hits:[{chunk_id, doc_id, content, path, score}]}. steps 는 리즈닝 단계 기록(graph/retrieve 와 같은 말)."""
+           depts: list[str] | None = None, reader=None) -> dict:
+    """질문 → {steps, hits:[{chunk_id, doc_id, content, path, score}]}. steps 는 리즈닝 단계 기록(graph/retrieve 와 같은 말).
+    reader: 질문을 온톨로지 말(사업·연차·갈래·관계)로 읽는 모델(graph.question_read.reader_for). 없으면 이름 맞추기."""
     from zzaimy.app.embed_search import rrf_merge
     from zzaimy.app.regulations import _lexical_ids, extract_nouns
     from zzaimy.graph import kg_store
@@ -420,10 +421,11 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     scope_docs: set[int] | None = None
     program_docs: set[int] | None = None
     path_of: dict[int, list[str]] = {}
+    cover: list[tuple[str, set[int]]] = []
     try:
-        sc = gr.scope(db, question)
+        sc = gr.scope(db, question, reader=reader)
         steps += sc.steps
-        scope_docs, program_docs, path_of = sc.docs, sc.program_docs, sc.path_of
+        scope_docs, program_docs, path_of, cover = sc.docs, sc.program_docs, sc.path_of, sc.cover
     except Exception as e:
         log.warning("그래프 좁히기 실패: %s", e)
     if prefer_docs:
@@ -499,8 +501,34 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     if any(moved.values()):
         steps.append(f"[최신 개정판] 옛 개정판 조각 — 같은 글 {moved['same']}개·고쳐진 조항 {moved['revised']}개를 최신 판 조각으로,"
                      f" 최신 판에 없는 글 {moved['stale']}개는 옛 판 표시")
+    for why, n in _cover_relations(db, lq, hits, order, cover, user, depts, path_of):
+        steps.append(f"[관계 근거] {why} 쪽 근거가 상위에 없어 그 문서에서 {n}개를 더함")
     steps.append(f"[3단계: 근거 선택] 사업 문서 조각 {pool} 중 어휘 {len(lex)}·임베딩 {len(den)} 순위를 섞어 {len(hits)}개")
     return {"steps": steps, "hits": hits}
+
+
+def _cover_relations(db, lq, hits: list[dict], order: list[dict], cover, user, depts, path_of) -> list[tuple[str, int]]:
+    """질문이 관계(계획↔실적·앞 단계 사업·평가)를 물었으면 관계의 양쪽이 근거에 한 조각씩은 들어가게 한다(제자리).
+    순위 안에 그쪽 조각이 있으면 그것, 없으면 그쪽 문서 안에서 같은 낱말로 다시 찾은 첫 조각. 찾을 것이 없으면 그대로 둔다."""
+    from zzaimy.app import grant_lex
+    added = []
+    for why, ds in cover or []:
+        if not ds or any(h["doc_id"] in ds for h in hits):
+            continue
+        pick = next((c for c in order if c["doc_id"] in ds), None)
+        if pick is None and lq:
+            try:
+                ids = grant_lex.rank(db, lq, ds, user, depts=depts)[:4]
+                cands = quality_filter(chunks_by_ids(db, ids)) if ids else []
+                pick = cands[0] if cands else None
+            except Exception:
+                pick = None
+        if pick is None:
+            continue
+        hits.append({"chunk_id": pick["id"], "doc_id": pick["doc_id"], "content": pick["content"][:EXPAND_TO],
+                     "filename": pick["filename"], "path": path_of.get(pick["doc_id"], []) + [pick["filename"]], "relation": why})
+        added.append((why, 1))
+    return added
 
 
 REVISED_MIN = 0.6     # 최신 판 조각과 이만큼 겹치면 같은 조항이 고쳐진 것으로 본다(SequenceMatcher 비율)

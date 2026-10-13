@@ -176,61 +176,193 @@ class Scope:
     program_docs: set[int] | None = None           # 사업 전체 문서(좁힌 범위가 비거나 맞는 조각이 없을 때 물러날 곳)
     path_of: dict[int, list[str]] = field(default_factory=dict)
     steps: list[str] = field(default_factory=list)
+    programs: list[str] = field(default_factory=list)       # 질문이 말한 사업(여럿일 수 있다)
+    relations: list[str] = field(default_factory=list)      # 따라간 관계(question_read.RELATIONS 의 열쇠)
+    cover: list[tuple[str, set[int]]] = field(default_factory=list)   # 근거에 한 조각씩은 꼭 들어갈 묶음(관계의 양쪽)
+    read_by: str = "이름 맞추기"
 
 
-def scope(db, question: str) -> Scope:
-    """retrieve 의 1·2단계만 — 사업·연차·문서 갈래로 문서 범위를 SQL 몇 번으로 정한다. 검색 질의마다 쓰는 가벼운 길이다
-    (그래프 전체를 읽는 retrieve 는 측정 결과 질의 하나에 19초가 걸렸다)."""
-    import json
-    sc = Scope()
-    q_flat = re.sub(r"[\s.]+", "", question or "").upper()
+def _flat(t: str) -> str:
+    return re.sub(r"[\s.]+", "", t or "").upper()
+
+
+def _match_program(question: str, progs: list[dict]) -> dict | None:
+    """이름 맞추기 — 화면 이름(장부 name)이 질문에 있으면 먼저, 그다음 문서에서 모은 이름·약칭. 모델 읽기가 없을 때 쓴다."""
+    q_flat = _flat(question)
     best = ((0, 0), None)
-    for p in _programs(db):
-        # 화면에 보이는 정식 이름(장부 name)이 질문에 들어 있으면 그것이 먼저다. 다른 카드에 섞인 같은 길이 이름과 비기면
+    for p in progs:
+        # 화면에 보이는 정식 이름이 질문에 들어 있으면 그것이 먼저다. 다른 카드에 섞인 같은 길이 이름과 비기면
         # 먼저 나온 카드가 이겨 비슷한 이름의 다른 사업으로 간다. 그다음 문서에서 모은 이름·약칭
-        label = re.sub(r"[\s.]+", "", p["label"] or "").upper()
+        label = _flat(p["label"])
         lab_hit = max((len(s) for s in (label, re.sub(r"\([^)]*\)", "", label)) if len(s) >= 4 and s in q_flat), default=0)
         hit = max((len(s) for s in _surfaces(p["props"]) if len(s) >= 3 and s in q_flat), default=0)
         key = (lab_hit, hit)
         if key > best[0]:
             best = (key, p)
-    m = _ROUND.search(question or "")
-    sc.round = int(m.group(1)) if m else None
-    y = _YEAR.search(question or "")
-    sc.year = int(y.group(1)) if y else None
-    sc.kinds = [kd for kd, pat in _KIND_WORDS.items() if re.search(pat, question or "")]
-    if not best[1]:
-        sc.steps.append("[1단계: 질문 파악] 사업 이름을 찾지 못함 — 모든 사업에서 찾는다")
+    return best[1]
+
+
+def _related_programs(conn, ids: list[str], relations: list[str]) -> dict[str, str]:
+    """관계를 따라 더 볼 사업 — {사업 id: 어떤 관계로 왔는지}. 그래프에 있는 관계만 탄다."""
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    out: dict[str, str] = {}
+
+    def add(rows, why):
+        for (pid,) in rows:
+            if pid not in ids and pid.startswith("program:"):
+                out.setdefault(pid, why)
+    if "predecessor" in relations:
+        add(conn.execute(f"SELECT src FROM kg_edges WHERE kind = 'succeeded_by' AND dst IN ({ph})", ids), "앞 단계 사업")
+    if "successor" in relations:
+        add(conn.execute(f"SELECT dst FROM kg_edges WHERE kind = 'succeeded_by' AND src IN ({ph})", ids), "다음 단계 사업")
+    if "integrated" in relations:
+        add(conn.execute(f"SELECT dst FROM kg_edges WHERE kind = 'integrated_into' AND src IN ({ph})", ids), "편입된 사업")
+        add(conn.execute(f"SELECT src FROM kg_edges WHERE kind = 'integrated_into' AND dst IN ({ph})", ids), "편입해 온 사업")
+    if "related" in relations:
+        add(conn.execute(f"SELECT dst FROM kg_edges WHERE kind = 'related' AND src IN ({ph})", ids), "연관 사업")
+        add(conn.execute(f"SELECT src FROM kg_edges WHERE kind = 'related' AND dst IN ({ph})", ids), "연관 사업")
+    if "group" in relations:
+        add(conn.execute(f"SELECT b.dst FROM kg_edges a JOIN kg_edges b ON b.src = a.src AND b.kind = 'contains'"
+                         f" WHERE a.kind = 'contains' AND a.src LIKE 'group:%' AND a.dst IN ({ph})", ids), "같은 사업 묶음")
+    return out
+
+
+def _doc_pairs(conn, kind: str, doc_ids: set[int]) -> list[tuple[int, int]]:
+    """문서끼리의 관계(계획→실적, 평가함→평가받음) 가운데 한쪽이 doc_ids 에 든 것 — (src 문서, dst 문서)."""
+    if not doc_ids:
+        return []
+    nodes = [f"doc:{d}" for d in doc_ids]
+    out = []
+    for i in range(0, len(nodes), 500):
+        part = nodes[i:i + 500]
+        ph = ",".join("?" * len(part))
+        for a, b in conn.execute(f"SELECT src, dst FROM kg_edges WHERE kind = ? AND (src IN ({ph}) OR dst IN ({ph}))",
+                                 [kind, *part, *part]):
+            if ":sec:" in a or ":sec:" in b:
+                continue
+            try:
+                out.append((int(a.split(":")[1]), int(b.split(":")[1])))
+            except (IndexError, ValueError):
+                continue
+    return out
+
+
+def scope(db, question: str, reader=None) -> Scope:
+    """retrieve 의 1·2단계 — 사업·연차·문서 갈래로 문서 범위를 SQL 몇 번으로 정하고, 질문이 관계를 물으면 그 관계를 따라 넓힌다.
+    reader(question, programs) → question_read.Reading: 질문을 온톨로지 말로 읽는 모델(없거나 실패하면 이름 맞추기).
+    검색 질의마다 쓰는 가벼운 길이다(그래프 전체를 읽는 retrieve 는 측정 결과 질의 하나에 19초가 걸렸다)."""
+    import json
+    sc = Scope()
+    progs = _programs(db)
+    by_id = {p["id"]: p for p in progs}
+    reading = None
+    if reader is not None:
+        try:
+            reading = reader(question, progs)
+        except Exception:
+            reading = None
+    if reading is not None:
+        sc.read_by = "모델 읽기"
+        sc.programs = [pid for pid in reading.programs if pid in by_id]
+        sc.kinds, sc.relations = list(reading.kinds), list(reading.relations)
+        years, rounds = list(reading.years), list(reading.rounds)
+        if not sc.programs and reading.names:
+            sc.steps.append(f"[1단계: 질문 파악 · 모델] 「{', '.join(reading.names)[:60]}」 는 그래프의 사업 이름이 아님")
+    else:
+        hit = _match_program(question, progs)
+        sc.programs = [hit["id"]] if hit else []
+        m = _ROUND.search(question or "")
+        rounds = [int(m.group(1))] if m else []
+        y = _YEAR.search(question or "")
+        years = [int(y.group(1))] if y else []
+        sc.kinds = [kd for kd, pat in _KIND_WORDS.items() if re.search(pat, question or "")]
+    sc.round = rounds[0] if rounds else None
+    sc.year = years[0] if years else None
+    if not sc.programs:
+        sc.steps.append(f"[1단계: 질문 파악 · {sc.read_by}] 사업 이름을 찾지 못함 — 모든 사업에서 찾는다"
+                        + (f" (관계 {', '.join(sc.relations)} 는 기준 사업이 없어 따라가지 않음)" if sc.relations else ""))
         return sc
-    sc.program, sc.program_label = best[1]["id"], best[1]["label"]
-    sc.steps.append(f"[1단계: 질문 파악] 사업 = {sc.program_label}({sc.program})")
-    when = " · ".join(str(v) for v in (sc.year, f"{sc.round}차년도" if sc.round else None) if v)
-    sc.steps.append(f"연차 = {when or '미지정'} · 문서 갈래 = {sc.kinds or '미지정'}")
+    sc.program = sc.programs[0]
+    sc.program_label = by_id[sc.program]["label"]
+    labels = " · ".join(by_id[p]["label"] for p in sc.programs)
+    sc.steps.append(f"[1단계: 질문 파악 · {sc.read_by}] 사업 = {labels}")
+    when = " · ".join([*(str(y_) for y_ in years), *(f"{r}차년도" for r in rounds)])
+    sc.steps.append(f"연차 = {when or '미지정'} · 문서 갈래 = {sc.kinds or '미지정'}"
+                    + (f" · 관계 = {', '.join(sc.relations)}" if sc.relations else ""))
     with db._conn() as conn:
-        years = {r[0]: (r[1], json.loads(r[2] or "{}")) for r in conn.execute(
-            "SELECT n.id, n.label, n.props FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst"
-            " WHERE e.kind = 'contains' AND e.src = ? AND e.dst LIKE 'year:%'", (sc.program,)).fetchall()}
-        srcs = [sc.program, *years]
-        rows = conn.execute(
-            "SELECT e.src, n.doc_id, n.label, n.props FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst WHERE e.kind = 'contains'"
-            f" AND e.src IN ({','.join('?' * len(srcs))}) AND e.dst LIKE 'doc:%' AND n.doc_id IS NOT NULL", srcs).fetchall()
-    sc.program_docs = set()
-    picked = set()
-    for src, did, label, props in rows:
-        did = int(did)
-        sc.program_docs.add(did)
-        ylabel, yprops = years.get(src, ("", {}))
-        sc.path_of.setdefault(did, [x for x in (sc.program_label, ylabel) if x])
-        if sc.round and not (src.endswith(f":r{sc.round}") or yprops.get("round") == sc.round):
-            continue
-        if sc.year and not (src.endswith(f":y{sc.year}") or yprops.get("year") == sc.year):
-            continue
-        if (sc.round or sc.year) and src == sc.program:
-            continue                              # 연차를 모르는 문서는 연차를 물은 질문의 범위가 아니다
-        if sc.kinds and json.loads(props or "{}").get("kind") not in sc.kinds:
-            continue
-        picked.add(did)
-    sc.docs = picked or sc.program_docs
-    sc.steps.append(f"[2단계: 그래프 탐색] 사업 문서 {len(sc.program_docs)}건 → 연차·갈래로 {len(picked)}건"
-                    + ("" if picked else " (맞는 문서가 없어 사업 전체)"))
+        extra = _related_programs(conn, sc.programs, sc.relations)
+        all_progs = [*sc.programs, *(p for p in extra if p in by_id)]
+        years_of: dict[str, tuple[str, dict]] = {}
+        owner: dict[str, str] = {}
+        for pid in all_progs:
+            for nid, label, props in conn.execute(
+                    "SELECT n.id, n.label, n.props FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst"
+                    " WHERE e.kind = 'contains' AND e.src = ? AND e.dst LIKE 'year:%'", (pid,)).fetchall():
+                years_of[nid] = (label, json.loads(props or "{}"))
+                owner[nid] = pid
+        srcs = [*all_progs, *years_of]
+        rows = []
+        for i in range(0, len(srcs), 500):
+            part = srcs[i:i + 500]
+            rows += conn.execute(
+                "SELECT e.src, n.doc_id, n.label, n.props FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst WHERE e.kind = 'contains'"
+                f" AND e.src IN ({','.join('?' * len(part))}) AND e.dst LIKE 'doc:%' AND n.doc_id IS NOT NULL", part).fetchall()
+        sc.program_docs = set()
+        picked: set[int] = set()
+        added: dict[str, set[int]] = {}
+        kind_of: dict[int, str] = {}
+        for src, did, label, props in rows:
+            did = int(did)
+            pid = owner.get(src, src)
+            ylabel, yprops = years_of.get(src, ("", {}))
+            sc.path_of.setdefault(did, [x for x in (by_id.get(pid, {}).get("label", ""), ylabel) if x])
+            kind_of[did] = json.loads(props or "{}").get("kind") or ""
+            if pid in extra:                       # 관계로 온 사업 — 연차는 그 사업 것이 아니므로 갈래만 본다
+                if not sc.kinds or kind_of[did] in sc.kinds:
+                    added.setdefault(extra[pid], set()).add(did)
+                continue
+            sc.program_docs.add(did)
+            if rounds and not any(src.endswith(f":r{r}") or yprops.get("round") == r for r in rounds):
+                continue
+            if years and not any(src.endswith(f":y{y_}") or yprops.get("year") == y_ for y_ in years):
+                continue
+            if (rounds or years) and src == pid:
+                continue                              # 연차를 모르는 문서는 연차를 물은 질문의 범위가 아니다
+            if sc.kinds and kind_of[did] not in sc.kinds:
+                # 계획↔실적·평가를 묻는 질문이면 갈래는 짝을 찾은 뒤에 거른다(한쪽 갈래만 남지 않게)
+                if not ({"plan_report", "evaluates"} & set(sc.relations)):
+                    continue
+            picked.add(did)
+        base = picked or set(sc.program_docs)
+        sc.steps.append(f"[2단계: 그래프 탐색] 사업 문서 {len(sc.program_docs)}건 → 연차·갈래로 {len(picked)}건"
+                        + ("" if picked else " (맞는 문서가 없어 사업 전체)"))
+        docs = set(base)
+        for why, ds in added.items():
+            docs |= ds
+            sc.cover.append((why, ds))
+            sc.steps.append(f"[관계] {why} {len(ds)}건을 더 본다: "
+                            + ", ".join(by_id[p]["label"] for p, w in extra.items() if w == why and p in by_id)[:80])
+        if "plan_report" in sc.relations:
+            pairs = _doc_pairs(conn, "plans_reports", base)
+            if pairs:
+                plans, reports = {a for a, _ in pairs}, {b for _, b in pairs}
+                docs |= plans | reports
+                sc.cover += [("계획서", plans), ("실적보고서", reports)]
+                sc.steps.append(f"[관계] 계획↔실적 짝 {len(pairs)}쌍 — 계획서 {len(plans)}건·실적보고서 {len(reports)}건을 함께 본다")
+            else:
+                sc.steps.append("[관계] 계획↔실적 짝을 그래프에서 찾지 못함 — 좁힌 문서에서만 찾는다")
+        if "evaluates" in sc.relations:
+            pairs = _doc_pairs(conn, "evaluates", base)
+            if pairs:
+                judges = {a for a, _ in pairs}
+                docs |= judges | {b for _, b in pairs}
+                sc.cover.append(("평가 문서", judges))
+                sc.steps.append(f"[관계] 평가 관계 {len(pairs)}건 — 평가 문서 {len(judges)}건을 함께 본다")
+        if sc.kinds and ({"plan_report", "evaluates"} & set(sc.relations)):
+            keep = set(sc.kinds) | ({"plan", "report"} if "plan_report" in sc.relations else set()) \
+                | ({"evaluation"} if "evaluates" in sc.relations else set())
+            docs = {d for d in docs if kind_of.get(d, "") in keep or d not in kind_of}
+    sc.docs = docs
     return sc
