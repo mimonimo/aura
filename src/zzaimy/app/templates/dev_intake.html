@@ -45,7 +45,6 @@
   {% set lv = live["values"] %}
   <p class="muted" style="font-size:12px;margin:0;">점검 {{ p.at }} 기준 · 맞추기는 매일 04:30 자동 · 숫자 이름에 마우스를 올리면 무엇을 셌는지 나옵니다</p>
   <p class="ik-line">
-    <span>{{ metric_label("archive_originals", live.at) }} <b>{{ lv.archive_originals|num }}</b></span>
     <span>{{ metric_label("archive_files", live.at) }} <b>{{ lv.archive_files|num }}</b></span>
     {% if p.dgx_listing is not none %}<span>{{ metric_label("dgx_listing", (p.sync.get("full") or {}).get("at", "")) }} <b>{{ p.dgx_listing|num }}</b></span>{% endif %}
     {% if not p.missed %}<span>{{ metric_label("audit_missed", p.at, "놓친 원본") }} <b>0</b></span>{% endif %}

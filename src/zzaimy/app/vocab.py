@@ -9,13 +9,13 @@ from __future__ import annotations
 STATUS_LABELS = {
     "received": "처리 중",                  # 대기열에 든 것도 화면에는 처리 중 하나로(등록 완료 / 처리 중 / 실패)
     "processing": "처리 중",
-    "reviewed": "등록 완료",
+    "reviewed": "처리 완료",                # 라이브러리 필터·문서 상태 모두 「처리 완료」 하나
     "failed": "실패",
 }
 
 # 원본 파일의 처리 상태(app/archive_state) — 등록 문서와 겹치는 상태는 같은 이름
 ARCHIVE_STATE_LABELS = {
-    "registered": STATUS_LABELS["reviewed"],
+    "registered": "문서 연결됨",           # 원본 파일에 라이브러리 문서가 이어짐 — 문서의 처리 상태와 다른 말(한 문서에 원본 여럿)
     "excluded": "처리 제외(범위 밖)",
     "failed": STATUS_LABELS["failed"],
     "waiting": "대기",

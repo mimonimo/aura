@@ -8,7 +8,7 @@
   {{ step("audit_in_library", "처리 대상의 " ~ (fl.pct_in_library if fl.pct_in_library is not none else "—") ~ "%") }}<span class="df-arrow" aria-hidden="true">+</span>
   {{ step("documents", "직접 올린 문서·드라이브 포함 전체") }}<span class="df-arrow" aria-hidden="true">→</span>
   <div class="df-step df-search"><span class="df-n">{{ "{:,}".format(fl.grant_reviewed.value or 0) }} · {{ "{:,}".format(fl.regulation_docs.value or 0) }}</span>
-    <span class="df-l" title="{{ fl.grant_reviewed.tip }} / {{ fl.regulation_docs.tip }}">검색 — 사업 문서 · 기준 문서</span><span class="df-note">사업 문서 검색 · 규정 검색(조문)</span></div>
+    <span class="df-l" title="{{ fl.grant_reviewed.tip }} / {{ fl.regulation_docs.tip }}">{{ fl.grant_reviewed.label }} · {{ fl.regulation_docs.label }}</span><span class="df-note">검색 대상 — 사업 문서 검색 · 규정 검색(조문)</span></div>
 </div>
 <style>
 .df{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px;margin:10px 0 4px}

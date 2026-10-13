@@ -320,7 +320,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     $('rrCand').innerHTML = state.cand.map(d => row(d, state.pickCand.has(d.id), `<span class="rr-tag">${KIND[d.kind] || '제목'}</span>${d.versions > 1 ? ' 판 ' + d.versions : ''}`)).join('')
       || '<p class="rr-empty">맞는 후보가 없습니다.</p>';
     const stu = state.reg.filter(d => d.audience === 'student').length;
-    $('rrSummary').textContent = `등록 ${state.reg.length}건 · 조각 ${state.reg.reduce((a, d) => a + (d.chunks || 0), 0).toLocaleString()} · 학생 공개 ${stu}건`;
+    $('rrSummary').textContent = `규정 색인 문서 ${state.reg.length}건 · 규정 색인 조각 ${state.reg.reduce((a, d) => a + (d.chunks || 0), 0).toLocaleString()} · 학생 공개 ${stu}건`;
     $('rrRegCount').textContent = regs.length !== state.reg.length ? `${regs.length} / ${state.reg.length}건` : `${state.reg.length}건`;
     $('rrCandCount').textContent = `${state.candTotal.toLocaleString()}건(판 묶음마다 최신 판)` + (state.cand.length < state.candTotal ? ` · 앞 ${state.cand.length}건 표시` : '');
     $('rrRegPicked').textContent = state.pickReg.size ? `고른 ${state.pickReg.size}건` : '';

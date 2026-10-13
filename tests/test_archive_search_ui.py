@@ -62,7 +62,7 @@ def test_page_wording_and_labels(client):
     page = client.get("/archive").text
     assert "<title>" in page and "DGX" not in page
     assert "원본 보관소" in page and "학교 문서 원본을 모아 둔 곳입니다" in page
-    assert "문서함 연결 수는 등록된 문서 수와 다를 수 있습니다" in page
+    assert "한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다" in page
     for internal in ("플랫폼 원본 대장", "OCR·분석 완료율", "미정", "파일명으로 검색", ">evidence", ">curriculum"):
         assert internal not in page, internal
     from zzaimy.app.doc_routing import KINDS
@@ -311,8 +311,9 @@ def test_shared_vocabulary_and_format_groups(client):
     assert ">그 밖의 형식<" in fmt and ">HWP<" in fmt and "AI(일러스트)" in fmt
     assert sorted(_titles(client.get("/archive?ext=other&q=.").text)) == sorted(
         ["ACA0040.rdf", "공고 100%_안내.다운로드", "setup.exe", "style.css"])
-    assert vocab.ARCHIVE_STATE_LABELS["registered"] == vocab.STATUS_LABELS["reviewed"] == "등록 완료"
-    assert f"<dt>{vocab.STATUS_LABELS['reviewed']}</dt>" in page and "등록됨" not in page
+    # 원본의 「문서 연결됨」과 문서의 「처리 완료」는 다른 말 — 같은 이름이면 서로 다른 수가 모순처럼 보인다
+    assert vocab.ARCHIVE_STATE_LABELS["registered"] == "문서 연결됨" and vocab.STATUS_LABELS["reviewed"] == "처리 완료"
+    assert f"<dt>{vocab.ARCHIVE_STATE_LABELS['registered']}</dt>" in page and "등록됨" not in page
     from zzaimy.app import main
     assert main.STATUS_LABELS is vocab.STATUS_LABELS
 

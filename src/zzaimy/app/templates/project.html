@@ -63,7 +63,7 @@
   </div>
 </div>
 <p class="muted" id="intakeStatus" role="status" hidden>문서를 등록하는 중입니다…</p>
-{% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다 — 기준 문서 {{ received[0] }}건, 첨부 문서 {{ received[-1] }}건. 본문을 읽고 열람 화면을 준비하는 중이며, 끝나면 상태가 「등록 완료」로 바뀝니다.</span></p>{% endif %}
+{% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다 — 기준 문서 {{ received[0] }}건, 첨부 문서 {{ received[-1] }}건. 본문을 읽고 열람 화면을 준비하는 중이며, 끝나면 상태가 「처리 완료」로 바뀝니다.</span></p>{% endif %}
 <section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
 {% if not project.archived %}
 <div class="project-chat-row project-start">
@@ -95,7 +95,7 @@
         <article class="project-document-item">
           <a href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
           <span class="muted">{{ d.via }} · {{ receipt_label(d.receipt_no) or d.id }} · {{ d.created_at[:16].replace("T", " ") }}</span>
-          {# 상태는 평소(등록 완료)와 다를 때만 — 모든 카드에 같은 초록 꼬리표는 가려 주는 것이 없다 #}
+          {# 상태는 평소(처리 완료)와 다를 때만 — 모든 카드에 같은 초록 꼬리표는 가려 주는 것이 없다 #}
           {% set show_status = d.status != 'reviewed' %}{% set show_decision = key == 'attached' and d.doc_type in ('recruit', 'admission') %}
           {% if show_status or show_decision or key == 'rules' %}<div>{% if show_status %}<span class="pill {{ d.status }}">{{ status_labels.get(d.status, d.status) }}</span>{% endif %}{% if show_decision %} <span class="pill {{ d.decision }}">{{ decision_labels.get(d.decision, d.decision) }}</span>{% endif %}{% if key == 'rules' %} <span class="muted">{{ kind_labels.get(d.kind or '', '분류 전') }}</span>{% endif %}</div>{% endif %}
         </article>
