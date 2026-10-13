@@ -63,6 +63,7 @@ def test_prune_dup_and_tiny(tmp_path):
 
 def test_evidence_by_title(tmp_path):
     db = _app(tmp_path).state.db
+    archive.ensure(db)
     a = db.add_document("세금계산서.pdf", "x", doc_type="grant")
     b = db.add_document("결과보고서.hwp", "y", doc_type="grant")
     with db._conn() as conn:
