@@ -54,7 +54,8 @@
   .lib-scope.dept { background:#FFF4E0; color:#8A5A00; }
   .lib-more { display:flex; flex-wrap:wrap; gap:8px; width:100%; }
   .lib-more select { flex:1 1 130px; min-width:0; max-width:220px; }
-  .lib-body { display:inline-flex; align-items:center; gap:5px; font-size:12.5px; color:var(--muted); white-space:nowrap; cursor:pointer; }
+  .lib-body { display:inline-flex !important; flex:none !important; width:auto !important; align-items:center; gap:5px; font-size:12.5px; color:var(--muted); white-space:nowrap; cursor:pointer; }
+  .lib-body input { width:16px !important; height:16px; min-height:0 !important; margin:0; flex:none; accent-color:#1B3B75; }
   .lib-folder-pick { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; font-size:15px; }
   .lib-folder-pick form { display:flex; gap:6px; align-items:center; margin:0 0 0 auto; font-size:12.5px; }
   .lib-folder-pick select { min-height:30px; font-size:12.5px; }
@@ -334,7 +335,7 @@
     {% endif %}
     {% else %}
     <div class="lib-empty">
-      <p class="muted">{% if q %}제목에 「{{ q }}」 낱말이 모두 든 문서가 없습니다. <a href="/search?q={{ q | urlencode }}">본문까지 찾기</a>{% elif use == 'criteria' and not (active_flt or kind) %}기준 문서가 없습니다. 「기준 등록」으로 공고·규정 파일을 올립니다.{% elif active_flt or kind or use != 'all' %}고른 조건에 맞는 문서가 없습니다.{% else %}아직 등록된 문서가 없습니다. 문서는 프로젝트 화면의 「문서 추가」로 등록합니다.{% endif %}</p>
+      <p class="muted">{% if q %}{% if body %}제목·본문에 「{{ q }}」 낱말이 든 문서가 없습니다. <a href="/search?q={{ q | urlencode }}">대화·근거까지 찾기</a>{% else %}제목에 「{{ q }}」 낱말이 모두 든 문서가 없습니다. <a href="/?{{ use_qs }}&amp;use={{ use }}&amp;body=1">본문까지 찾기</a>{% endif %}{% elif use == 'criteria' and not (active_flt or kind) %}기준 문서가 없습니다. 「기준 등록」으로 공고·규정 파일을 올립니다.{% elif active_flt or kind or use != 'all' %}고른 조건에 맞는 문서가 없습니다.{% elif folder_pick %}이 폴더에 문서가 없습니다. 「문서 올리기」에서 이 폴더를 고르면 폴더의 검색 범위로 들어갑니다.{% else %}아직 등록된 문서가 없습니다. 「문서 올리기」로 바로 올리거나 프로젝트 화면의 「문서 추가」로 등록합니다.{% endif %}</p>
       {% if q or active_flt or kind or use != 'all' %}<a class="btn-ghost" href="/?type={{ active_tab }}{{ keep_qs }}">조건 지우기</a>{% endif %}
     </div>
     {% endif %}
