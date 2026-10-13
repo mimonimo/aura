@@ -273,7 +273,7 @@ tr.pick[hidden]{display:none}
         {% set href = '/dev/db?tab=docs&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') ~ ('&type=' ~ type if type else '') %}
         <tr class="pick {{ 'on' if d.id == sel_id else '' }}" data-href="{{ href }}">
           <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.filename }}</a>
-            <div class="sub {{ d.status }}">{{ doc_type_labels.get(d.doc_type, d.doc_type) }} · <span class="dx-mono">{{ d.receipt_no or '—' }}</span> · {{ status_labels.get(d.status, d.status) }}</div></td>
+            <div class="sub {{ d.status }}">{{ doc_type_labels.get(d.doc_type, d.doc_type) }} · <span class="dx-mono">{{ receipt_label(d.receipt_no) or '—' }}</span> · {{ status_labels.get(d.status, d.status) }}</div></td>
           <td class="dx-num dx-counts">추출 {{ d.n_chunks }} · {% if d.n_grant is not none %}사업 색인 {{ d.n_grant }}{% else %}규정 색인 {{ d.n_units }}{% endif %}</td>
         </tr>
         {% else %}
@@ -307,7 +307,7 @@ tr.pick[hidden]{display:none}
     <div class="dx-sec">
       <h3>개요</h3>
       <div class="dx-kv">
-        <div><span>접수번호</span><b class="dx-mono" style="font-size:12.5px;">{{ o.receipt_no or '—' }}</b></div>
+        <div><span>접수번호</span><b class="dx-mono" style="font-size:12.5px;">{{ receipt_label(o.receipt_no) or '—' }}</b></div>
         <div><span>접수 시각</span>{{ (o.created_at or '')[:16] | replace('T', ' ') or '—' }}</div>
         {% set sector_name = sector_labels.get(o.sector, o.sector) %}
         <div><span>계열 · 부서</span>{{ sector_name }}{% if o.dept and o.dept != sector_name %} · {{ o.dept }}{% endif %}</div>
@@ -505,7 +505,7 @@ tr.pick[hidden]{display:none}
       <span class="pill type dx-pill">{{ sector_name }}{% if s.dept and s.dept != sector_name %} · {{ s.dept }}{% endif %}</span>
       <span class="pill dx-pill">자료 {{ s.n_units }}</span>
       {% if s.n_embedded is not none %}<span class="pill {{ 'reviewed' if s.n_embedded == s.n_units else 'processing' }} dx-pill">의미 검색 색인 {{ s.n_embedded }}/{{ s.n_units }}</span>{% endif %}
-      <span class="muted" style="font-size:12px;">{{ s.receipt_no or '—' }} · {{ (s.created_at or '')[:16] | replace('T', ' ') }}</span>
+      <span class="muted" style="font-size:12px;">{{ receipt_label(s.receipt_no) or '—' }} · {{ (s.created_at or '')[:16] | replace('T', ' ') }}</span>
     </div>
     {% if s.units %}
     <div class="dx-rows-wrap" style="max-height:calc(100vh - 220px);"><table class="dx-rows">

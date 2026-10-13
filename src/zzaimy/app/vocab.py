@@ -16,7 +16,7 @@ STATUS_LABELS = {
 # 원본 파일의 처리 상태(app/archive_state) — 등록 문서와 겹치는 상태는 같은 이름
 ARCHIVE_STATE_LABELS = {
     "registered": "문서 연결됨",           # 원본 파일에 라이브러리 문서가 이어짐 — 문서의 처리 상태와 다른 말(한 문서에 원본 여럿)
-    "excluded": "처리 제외(범위 밖)",
+    "excluded": "처리 제외",
     "failed": STATUS_LABELS["failed"],
     "waiting": "대기",
 }

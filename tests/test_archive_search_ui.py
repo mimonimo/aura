@@ -114,7 +114,7 @@ def test_processing_states(client):
     waiting = client.get("/archive?state=waiting&program=program:a").text
     assert sorted(_titles(waiting)) == ["01_계약직원 채용 평가기준", "은하수 개척 결과보고서"]
     states = client.get("/archive?program=program:a").text
-    assert re.search(r"처리 제외\(범위 밖\)<span>1</span>", states) and re.search(r"실패<span>1</span>", states)
+    assert re.search(r"처리 제외<span>1</span>", states) and re.search(r"실패<span>1</span>", states)
 
 
 def test_row_title_tags_and_buttons(client):

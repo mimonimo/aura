@@ -611,7 +611,7 @@ document.addEventListener('submit', function(event) {
         {% for d in notification_pending %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 확인 후 판정{% if d.receipt_no %} · {{ d.receipt_no }}{% endif %}</small></span>
+          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 확인 후 판정{% if d.receipt_no %} · {{ receipt_label(d.receipt_no) }}{% endif %}</small></span>
         </a>
         {% endfor %}
         {% if failed_docs %}
@@ -628,7 +628,7 @@ document.addEventListener('submit', function(event) {
         {% for d in recent_reviewed if d not in notification_pending %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
           <iconify-icon icon="solar:document-text-linear" aria-hidden="true"></iconify-icon>
-          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 보기{% if d.receipt_no %} · {{ d.receipt_no }}{% endif %}</small></span>
+          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>검토 결과 보기{% if d.receipt_no %} · {{ receipt_label(d.receipt_no) }}{% endif %}</small></span>
           <iconify-icon icon="solar:alt-arrow-right-linear" aria-hidden="true"></iconify-icon>
         </a>
         {% endfor %}
