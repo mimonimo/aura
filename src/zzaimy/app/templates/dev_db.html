@@ -226,7 +226,7 @@ table.dx-list tr.on td { background:#edf3fc; }
   <tbody>
 {% for row in view.rows %}<tr>
   {% set parts = (row.rel or '').rsplit('/', 1) %}
-  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 부산물">사본·부산물</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
+  <td title="{{ row.rel }}"><span class="dx-path">{% if not row.original %}<span class="pill dx-pill" title="원본 보관소가 세지 않는 플랫폼 사본·변환 부산물">사본·부산물</span>{% endif %}{% if row.cleaned %}<span class="pill dx-pill" title="원본 보관소 「정리함」에 든 원본 — 보관소 목록·건수에서는 빠진다">정리함</span>{% endif %}{% if parts|length > 1 %}<span class="d">{{ parts[0] }}/</span>{% endif %}<span class="f">{{ parts[-1] }}</span></span></td>
   <td class="dx-nowrap">{{ row.ext or '—' }} · {{ row.size|num }}</td>
   <td class="dx-ell" title="{{ row.program_name }}">{{ row.program_name or '—' }}</td>
   <td class="dx-mono">{{ row.status or '—' }}</td>

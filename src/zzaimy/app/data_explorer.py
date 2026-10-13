@@ -175,10 +175,14 @@ def archive_tab(db, q: str = '', page: int = 0) -> dict:
         rows = conn.execute(
             f'SELECT {", ".join(ARCHIVE_COLS)} FROM archive_files WHERE {where}'
             ' ORDER BY rel LIMIT ? OFFSET ?', [*args, 50, page * 50]).fetchall()
+        rels = [r[ARCHIVE_COLS.index('rel')] for r in rows]
+        cleaned = {x[0] for x in conn.execute(
+            f"SELECT rel FROM archive_cleanup WHERE rel IN ({','.join('?' * len(rels))})", rels).fetchall()} if rels else set()
     out = []
     for r in rows:
         row = dict(zip(ARCHIVE_COLS, r))
         row['original'] = is_original(row['rel'] or '')
+        row['cleaned'] = row['rel'] in cleaned          # 원본 보관소 「정리함」 — 보관소 목록·건수에서는 빠진다
         out.append(row)
     return {'rows': out, 'total': total, 'page': page, 'has_next': (page + 1) * 50 < total}
 
