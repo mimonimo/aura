@@ -40,7 +40,7 @@ def reader(**kw):
 def test_plan_report_relation_brings_both_sides_and_marks_them_for_cover(graph):
     sc = gr.scope(graph, "가나 2단계 2024 계획 대비 실적", reader=reader(programs=["program:new"], years=[2024], kinds=["plan"],
                                                                         relations=["plan_report"]))
-    assert sc.read_by == "모델 읽기" and {1, 2} <= sc.docs and 3 not in sc.docs   # 평가는 이 관계의 갈래가 아니다
+    assert sc.read_by == "이름 맞추기 + 모델 읽기" and {1, 2} <= sc.docs and 3 not in sc.docs   # 평가는 이 관계의 갈래가 아니다
     assert {why for why, _ in sc.cover} == {"계획서", "실적보고서"}
 
 

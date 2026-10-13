@@ -264,21 +264,22 @@ def scope(db, question: str, reader=None) -> Scope:
             reading = reader(question, progs)
         except Exception:
             reading = None
+    # 이름 맞추기 — 질문에 적힌 사업 이름·「N차년도」·갈래 낱말. 적힌 것은 이것이 먼저다(측정: 모델만 쓰면 보통 질문이 나빠졌다)
+    hit = _match_program(question, progs)
+    sc.programs = [hit["id"]] if hit else []
+    m = _ROUND.search(question or "")
+    rounds = [int(m.group(1))] if m else []
+    y = _YEAR.search(question or "")
+    years = [int(y.group(1))] if y else []
+    sc.kinds = [kd for kd, pat in _KIND_WORDS.items() if re.search(pat, question or "")]
     if reading is not None:
-        sc.read_by = "모델 읽기"
-        sc.programs = [pid for pid in reading.programs if pid in by_id]
-        sc.kinds, sc.relations = list(reading.kinds), list(reading.relations)
-        years, rounds = list(reading.years), list(reading.rounds)
-        if not sc.programs and reading.names:
-            sc.steps.append(f"[1단계: 질문 파악 · 모델] 「{', '.join(reading.names)[:60]}」 는 그래프의 사업 이름이 아님")
-    else:
-        hit = _match_program(question, progs)
-        sc.programs = [hit["id"]] if hit else []
-        m = _ROUND.search(question or "")
-        rounds = [int(m.group(1))] if m else []
-        y = _YEAR.search(question or "")
-        years = [int(y.group(1))] if y else []
-        sc.kinds = [kd for kd, pat in _KIND_WORDS.items() if re.search(pat, question or "")]
+        # 모델 읽기는 이름 맞추기가 못 하는 것만 보탠다 — 따라갈 관계, 둘째 사업, 적히지 않은(바꿔 말한) 사업·연도·갈래
+        sc.read_by = "이름 맞추기 + 모델 읽기"
+        sc.relations = list(reading.relations)
+        sc.programs = list(dict.fromkeys([*sc.programs, *(pid for pid in reading.programs if pid in by_id)]))
+        years = years or list(reading.years)
+        rounds = rounds or list(reading.rounds)
+        sc.kinds = sc.kinds or list(reading.kinds)
     sc.round = rounds[0] if rounds else None
     sc.year = years[0] if years else None
     if not sc.programs:
@@ -332,9 +333,7 @@ def scope(db, question: str, reader=None) -> Scope:
             if (rounds or years) and src == pid:
                 continue                              # 연차를 모르는 문서는 연차를 물은 질문의 범위가 아니다
             if sc.kinds and kind_of[did] not in sc.kinds:
-                # 계획↔실적·평가를 묻는 질문이면 갈래는 짝을 찾은 뒤에 거른다(한쪽 갈래만 남지 않게)
-                if not ({"plan_report", "evaluates"} & set(sc.relations)):
-                    continue
+                continue                              # 짝(계획↔실적·평가)은 아래에서 관계로 더한다 — 갈래는 출발 문서에만
             picked.add(did)
         base = picked or set(sc.program_docs)
         sc.steps.append(f"[2단계: 그래프 탐색] 사업 문서 {len(sc.program_docs)}건 → 연차·갈래로 {len(picked)}건"
@@ -366,9 +365,5 @@ def scope(db, question: str, reader=None) -> Scope:
                     sc.partners.setdefault(b, []).append(("그 문서의 평가", a))
                 sc.cover.append(("평가 문서", judges))
                 sc.steps.append(f"[관계] 평가 관계 {len(pairs)}건 — 평가 문서 {len(judges)}건을 함께 본다")
-        if sc.kinds and ({"plan_report", "evaluates"} & set(sc.relations)):
-            keep = set(sc.kinds) | ({"plan", "report"} if "plan_report" in sc.relations else set()) \
-                | ({"evaluation"} if "evaluates" in sc.relations else set())
-            docs = {d for d in docs if kind_of.get(d, "") in keep or d not in kind_of}
     sc.docs = docs
     return sc
