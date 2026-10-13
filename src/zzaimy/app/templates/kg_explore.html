@@ -118,7 +118,18 @@
   .gx-docs .gx-year summary { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:#3B4A5E; padding:4px 2px; }
   .gx-docs .gx-year summary span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .gx-docs .gx-year summary small { color:var(--muted); }
-  .gx-docs a.gx-doclink { text-decoration:none; color:inherit; }
+  .gx-docs .gx-year summary { border-radius:6px; }
+  .gx-docs .gx-year summary:hover { background:#EEF3FB; }
+  .gx-docs .gx-year summary::after { content:"펼치기"; font-size:11px; color:var(--faint); }
+  .gx-docs .gx-year[open] summary::after { content:"접기"; color:#2D4F7C; }
+  .gx-doc { display:flex; align-items:center; gap:6px; padding:3px 2px 3px 8px; border-radius:6px; }
+  .gx-doc:hover { background:#F3F6FB; }
+  .gx-doc a.t { flex:1; min-width:0; color:var(--ink); text-decoration:none; font-size:12.5px; line-height:1.45;
+                display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+  .gx-doc a.t:hover { color:#2D4F7C; text-decoration:underline; }
+  .gx-doc .acts { flex:none; display:flex; gap:4px; }
+  .gx-doc .acts a { font-size:11px; padding:1px 7px; border:1px solid var(--line); border-radius:999px; color:#3B4A5E; text-decoration:none; background:#fff; white-space:nowrap; }
+  .gx-doc .acts a:hover { border-color:#C9D6E8; background:#EEF3FA; color:#2D4F7C; }
   .gx-docs a.gx-doclink small { color:var(--navy); }
   .gx-docs a.gx-more { display:block; text-decoration:none; }
 
@@ -261,7 +272,7 @@
   // 개요 노드 크기 — 문서 수(로그)로. 문서 1건 22px, 1,000건 49px 안팎
   function sizeByDocs(n) { return Math.round(Math.max(18, Math.min(64, 19 + 10 * Math.log10((n || 0) + 1)))); }
   function tool(text, fn, main) { var b = el("button", "gx-tool" + (main ? " main" : ""), text); b.type = "button"; b.addEventListener("click", fn); return b; }
-  function linkTool(href, text) { var a = el("a", "gx-tool", text); a.href = href; return a; }
+  function linkTool(href, text, blank) { var a = el("a", "gx-tool", text); a.href = href; if (blank) { a.target = "_blank"; a.rel = "noopener"; } return a; }
 
   // ── 범례 — 지금 그림에 있는 종류·관계만 ──
   function legend() {
@@ -502,7 +513,10 @@
     if (!only) acts.appendChild(tool("이것만 보기", function () { setSel([id]); }, true));
     acts.appendChild(tool(state.sel.indexOf(id) >= 0 ? "고르기에서 빼기" : "고르기에 더하기", function () { toggle(id); }));
     if (state.sel.length && !loaded[id]) acts.appendChild(tool("이웃 펼치기", function () { expand(id); }));
-    if (n.doc_id != null) acts.appendChild(linkTool("/doc/" + n.doc_id, "문서 열기"));
+    if (n.doc_id != null) {
+      acts.appendChild(linkTool("/doc/" + n.doc_id, "문서 열기 ↗", true));
+      acts.appendChild(linkTool("/doc/" + n.doc_id + "/original", "원본 파일 ↗", true));
+    }
     if (n.type === "program") acts.appendChild(linkTool("/graph/program?id=" + encodeURIComponent(id), "사업별 표"));
 
     var links = linkedPrograms(node);
@@ -566,14 +580,36 @@
       cnt.textContent = fmt(d.total) + "건";
       if (!d.total) { box.appendChild(el("p", "gx-note", "볼 수 있는 문서가 없습니다.")); return; }
       d.years.forEach(function (y) {
-        var yd = el("details", "gx-year"); if (d.years.length <= 3) yd.open = true;
+        var yd = el("details", "gx-year"); if (d.years.length <= 3 || y === d.years[0]) yd.open = true;
         var sm = el("summary"); sm.appendChild(el("span", null, y.label)); sm.appendChild(el("small", null, fmt(y.n) + "건")); yd.appendChild(sm);
-        y.docs.forEach(function (x) {
-          var a = el("a", "gx-row gx-doclink"); a.href = "/doc/" + x.doc_id; a.target = "_blank"; a.rel = "noopener";
-          var dot = el("i"); dot.style.background = COLOR.doc || "#4C7BE8"; a.appendChild(dot);
-          a.appendChild(el("span", null, String(x.label).replace(/_+/g, " "))); a.appendChild(el("small", null, "열기 ↗"));
-          yd.appendChild(a);
-        });
+        var list = el("div"); yd.appendChild(list);
+        var row = function (x) {
+          // 제목 = 문서 화면, 「원본」 = 원본 파일 미리보기, 「받기」 = 원본 내려받기 — 모두 새 탭
+          var r = el("div", "gx-doc");
+          var t = el("a", "t", String(x.label).replace(/_+/g, " ")); t.href = "/doc/" + x.doc_id; t.target = "_blank"; t.rel = "noopener";
+          t.title = "문서 화면을 새 탭에서 열기"; r.appendChild(t);
+          var acts = el("span", "acts");
+          var o = el("a", null, "원본"); o.href = "/doc/" + x.doc_id + "/original"; o.target = "_blank"; o.rel = "noopener"; o.title = "원본 파일을 새 탭에서 보기";
+          var dl = el("a", null, "받기"); dl.href = "/doc/" + x.doc_id + "/original/download"; dl.title = "원본 파일 내려받기";
+          acts.appendChild(o); acts.appendChild(dl); r.appendChild(acts);
+          list.appendChild(r);
+        };
+        y.docs.forEach(row);
+        if (y.n > y.docs.length) {
+          var more = el("button", "gx-more", "더 보기 (" + fmt(y.n - y.docs.length) + "건 남음)"); more.type = "button";
+          more.addEventListener("click", function () {
+            more.disabled = true;
+            fetch("/graph/explore/docs?per=30&id=" + encodeURIComponent(y.id), { credentials: "same-origin" })
+              .then(function (r) { return r.json(); })
+              .then(function (d2) {
+                var g = (d2.years || []).filter(function (v) { return v.id === y.id; })[0]; if (!g) return;
+                list.innerHTML = ""; g.docs.forEach(row);
+                if (g.n > g.docs.length) { more.textContent = "나머지 " + fmt(g.n - g.docs.length) + "건은 라이브러리에서"; }
+                else more.remove();
+              }).catch(function () { more.disabled = false; });
+          });
+          yd.appendChild(more);
+        }
         box.appendChild(yd);
       });
       if (id.indexOf("program:") === 0) {
