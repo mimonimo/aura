@@ -266,6 +266,20 @@ def _strip_think(text: str) -> str:
     return text.strip()
 
 
+def _pdf_locked(file_path: Path) -> bool:
+    """열람 암호가 걸린 PDF 인가 — 암호 없이는 글자층도 쪽 그림도 꺼낼 수 없다. 이런 PDF 를 스캔본으로 보고 OCR 로 넘기면
+    「스캔 PDF — 판독 없음」으로 잘못 남는다(실제 사유는 암호). 판독기를 열 수 없으면(설치 안 됨) 모른다고 본다."""
+    try:
+        import pypdfium2 as pdfium
+    except ImportError:
+        return False
+    try:
+        pdfium.PdfDocument(str(file_path)).close()
+    except Exception as e:  # PdfiumError — 「Incorrect password error」
+        return "password" in str(e).lower()
+    return False
+
+
 def _format_mismatch(file_path: Path) -> str | None:
     """열어 보기 전에 형식을 확인한다. 맞으면 None, 아니면 사람이 읽을 이유."""
     want = _MAGIC.get(file_path.suffix.lower())
@@ -369,12 +383,13 @@ class DocumentProcessor:
                 exe = soffice()
                 if not exe:
                     raise RuntimeError(f"{why} — 실제 형식은 옛 {real.lstrip('.').upper()}(LibreOffice 없어 못 읽음)")
+                # 큰 옛 엑셀(수십 MB)은 180초 안에 못 바뀐다 — 실패분을 다시 돌릴 때 ZZAIMY_SOFFICE_TIMEOUT 으로 늘린다
                 # 사용자 프로필은 임시 폴더로 — 작업자 여럿이 같은 프로필로 동시에 띄우면 잠금에 걸려 변환이 실패한다(office_pdf 와 같게)
                 env = {"HOME": str(tmp), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "ko_KR.UTF-8"}
                 try:
                     subprocess.run([exe, "--headless", "--norestore", f"-env:UserInstallation=file://{tmp}/profile",
                                     "--convert-to", LEGACY[real].lstrip("."), "--outdir", str(tmp), str(target)],
-                                   capture_output=True, timeout=180, env=env)
+                                   capture_output=True, timeout=int(os.environ.get("ZZAIMY_SOFFICE_TIMEOUT", "180")), env=env)
                 except subprocess.TimeoutExpired:
                     pass
                 conv = target.with_suffix(LEGACY[real])
@@ -417,6 +432,9 @@ class DocumentProcessor:
                 return self._parse_as(file_path, real, bad)
             raise RuntimeError(bad)
         suffix = file_path.suffix.lower()
+        if suffix == ".pdf" and _pdf_locked(file_path):
+            # 암호 문서는 풀지 않는다(UNREADABLE 과 같은 방침) — 사유만 바로 남긴다
+            raise RuntimeError("문서 판독 실패 (PDF 열람 암호가 걸린 문서)")
         if suffix not in READABLE and suffix not in LEGACY and suffix not in _IMAGE_SUFFIX:
             # 확장자로 형식을 알 수 없는 파일(확장자 없음·「…다운로드」 등) — 파일 머리로 본 실제 형식이 문서면 그 형식으로 읽는다.
             # 글 파일 판별(.txt)은 받지 않는다: 웹 페이지 부속(스크립트·스타일)과 구별할 수 없다

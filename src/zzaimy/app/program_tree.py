@@ -7,16 +7,20 @@
 - 중분류: 교육부는 재정지원 체계 갈래(장부 categories 의 이름), 나머지는 지원기관
 - 소분류: 사업. 보일 이름은 장부의 정식 이름(엑셀에 적힌 이름) — 문서에서 뽑힌 이름의 띄어쓰기·약칭·오타 차이를 지운다
 장부에 없는 이름은 「장부에 없는 이름」으로 따로 모아 확인할 수 있게 둔다(지어낸 갈래에 넣지 않는다).
+그 가운데 「사업」 낱말은 있지만 사업 하나를 가리키지 않는 이름(절차·일반어뿐 — program_names.is_program_name 에 걸리는
+「수익 비수익 사업」 같은 것)은 확인할 사업이 아니라 「사업 이름 아닌 묶음」으로 뺀다. 그래프 탐색 목록(kg_explore.programs)이
+같은 판정으로 이런 이름을 사업 목록에서 빼는 것과 맞춘다. 장부가 출처·근거와 함께 「사업 아님」으로 적은 이름도 여기로 간다.
 """
 from __future__ import annotations
 
 import re
 
-from zzaimy.app.program_names import group_key
+from zzaimy.app.program_names import group_key, is_program_name
 
-L1_EDU, L1_GOV, L1_LOCAL, L1_ORG, L1_OTHER, L1_UNKNOWN = (
-    "교육부 재정지원", "다른 부처 사업", "지자체·교육청 사업", "공공기관·기업 등", "그 밖의 사업", "장부에 없는 이름 (확인 필요)")
-ORDER = (L1_EDU, L1_GOV, L1_LOCAL, L1_ORG, L1_OTHER, L1_UNKNOWN)
+L1_EDU, L1_GOV, L1_LOCAL, L1_ORG, L1_OTHER, L1_UNKNOWN, L1_NOT_NAME = (
+    "교육부 재정지원", "다른 부처 사업", "지자체·교육청 사업", "공공기관·기업 등", "그 밖의 사업", "장부에 없는 이름 (확인 필요)",
+    "사업 이름 아닌 묶음 (절차·일반어)")
+ORDER = (L1_EDU, L1_GOV, L1_LOCAL, L1_ORG, L1_OTHER, L1_UNKNOWN, L1_NOT_NAME)
 EDU_CATS = ("일반재정지원", "RISE·앵커", "특수목적")
 EDU_REST = "그 밖의 교육부 사업(장학·학생 지원 등)"
 
@@ -59,8 +63,10 @@ class Ledger:
         self.categories = ledger.get("categories") or {}
         self.exact: dict[str, dict] = {}
         self.keys: list[tuple[str, dict]] = []
+        self.not_program: set[str] = set()          # 장부가 「사업 아님」으로 적은 이름의 열쇠 — 확인을 마친 이름
         for e in ledger.get("programs") or []:
             if e.get("category") == "사업 아님":
+                self.not_program |= {k for t in [e.get("name") or "", *(e.get("terms") or [])] if (k := group_key(t))}
                 continue
             for t in [e.get("name") or "", *(e.get("terms") or [])]:
                 k = group_key(t)
@@ -90,6 +96,9 @@ def build(items: list[dict], ledger: dict | None) -> list[dict]:
     for it in items:
         e = lg.find(it.get("label") or "")
         l1, l2 = place(e, lg.categories)
+        if e is None and (group_key(it.get("label") or "") in lg.not_program
+                          or ("사업" in (it.get("label") or "") and not is_program_name(it.get("label") or ""))):
+            l1 = L1_NOT_NAME
         row = {**it, "raw_label": it.get("label"), "label": (e.get("name") if e else None) or it.get("label"),
                "in_ledger": e is not None}
         tree.setdefault(l1, {}).setdefault(l2, []).append(row)
@@ -102,5 +111,5 @@ def build(items: list[dict], ledger: dict | None) -> list[dict]:
             rows.sort(key=lambda r: -int(r.get("n") or 0))
             groups.append({"label": l2, "n": sum(int(r.get("n") or 0) for r in rows), "progs": rows})
         groups.sort(key=lambda g: (g["label"] == EDU_REST, -g["n"]))
-        out.append({"label": l1, "n": sum(g["n"] for g in groups), "groups": groups, "unknown": l1 == L1_UNKNOWN})
+        out.append({"label": l1, "n": sum(g["n"] for g in groups), "groups": groups, "unknown": l1 in (L1_UNKNOWN, L1_NOT_NAME)})
     return out

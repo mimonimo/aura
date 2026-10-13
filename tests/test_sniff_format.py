@@ -59,3 +59,23 @@ def test_sniff_text_empty_hwp3_and_hwpml(tmp_path):
     import pytest
     with pytest.raises(RuntimeError, match="빈 파일"):
         proc._parse_as(e, ".empty", "PDF 형식이 아닙니다")
+
+
+def test_password_locked_pdf_is_reported_as_encrypted(tmp_path):
+    """열람 암호가 걸린 PDF 는 스캔본으로 OCR 하지 않고 암호 문서로 바로 실패한다(실패 사유 갈래가 「암호 문서」로 선다)."""
+    import pytest
+    pypdf = pytest.importorskip("pypdf")
+    w = pypdf.PdfWriter()
+    w.add_blank_page(width=200, height=200)
+    plain = tmp_path / "plain.pdf"
+    with plain.open("wb") as fh:
+        w.write(fh)
+    w.encrypt(user_password="secret", owner_password="owner")
+    locked = tmp_path / "locked.pdf"
+    with locked.open("wb") as fh:
+        w.write(fh)
+    assert pipeline._pdf_locked(locked) is True
+    assert pipeline._pdf_locked(plain) is False
+    proc = pipeline.DocumentProcessor()
+    with pytest.raises(RuntimeError, match="암호"):
+        proc._parse(locked)

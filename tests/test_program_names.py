@@ -48,14 +48,14 @@ def test_group_key_ignores_spacing_dots_brackets_and_tail_word():
 def test_group_names_merges_only_with_evidence():
     counts = {"은하수 개척 사업": 50, "은하수개척 사업": 3, "해양미래부 은하수 개척 사업": 2,       # 같은 열쇠
               "첨성대 별빛 부트랩 사업": 40, "부트랩 사업": 4,                                  # 앞 수식어만 뗀 이름(하나뿐)
-              "인재육성사업": 5, "별빛 인재육성 사업": 9,                                        # 일반 이름 — 묶지 않음
+              "인재육성사업": 5, "별빛 인재육성 사업": 9,                                        # 일반 이름 — 사업 이름 아님·묶지 않음
               "다온 정원 사업": 6, "가람 다온 정원 사업": 7, "누리 다온 정원 사업": 8,             # 긴 이름이 둘 — 모름
               "별빛 대학(ZETA) 육성사업": 30, "새물결 별빛 대학(ZETA+) 육성사업": 20,             # 약칭이 다름
               "통합공고 사업": 1, "Setup2.1": 1, "": 3}
     g = pn.group_names(counts)
     assert g["은하수개척 사업"] == g["해양미래부 은하수 개척 사업"] == "은하수 개척 사업"
     assert g["부트랩 사업"] == "첨성대 별빛 부트랩 사업"
-    assert g["인재육성사업"] == "인재육성사업" and g["별빛 인재육성 사업"] == "별빛 인재육성 사업"
+    assert g["인재육성사업"] == "" and g["별빛 인재육성 사업"] == "별빛 인재육성 사업"
     assert g["다온 정원 사업"] == "다온 정원 사업"
     assert g["별빛 대학(ZETA) 육성사업"] != g["새물결 별빛 대학(ZETA+) 육성사업"]
     assert g["통합공고 사업"] == g["Setup2.1"] == g[""] == ""
@@ -102,3 +102,12 @@ def test_classified_names_need_no_program_word_but_still_drop_junk():
     assert pn.is_program_name("ZETA", classified=True)
     g = pn.group_names({formal: 10, "통합공고 사업": 1}, classified=True)
     assert g[formal] == formal and g["통합공고 사업"] == ""
+
+
+def test_funding_type_and_field_words_are_not_a_program():
+    """재원 갈래(지방보조)·분야 일반어(인재·양성)와 때 표기만 남는 이름은 사업 하나를 가리키지 않는다."""
+    from zzaimy.app.program_names import is_program_name
+    assert not is_program_name("3차년도 지방보조사업")
+    assert not is_program_name("인재육성사업")
+    assert is_program_name("가나다 인재양성 지원사업")
+    assert is_program_name("SW 인재양성 사업")
