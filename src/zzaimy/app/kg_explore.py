@@ -496,6 +496,45 @@ def explore_neighbors(request: Request, id: str, more: str = ""):
     return JSONResponse(neighbors(request.app.state.db, id, _scope(request), offset=offset))
 
 
+@router.get("/graph/explore/docs")
+def explore_docs(request: Request, id: str, per: int = 6):
+    """사업·연차 노드의 문서 — 연차별로 볼 수 있는 문서(최근 것부터 per 건)와 연차별 전체 수. 오른쪽 패널에서 문서로 바로 간다."""
+    db = request.app.state.db
+    per = max(1, min(int(per), 30))
+    with db._conn() as conn:
+        if id.startswith("program:"):
+            years = [(r[0], r[1]) for r in conn.execute(
+                "SELECT n.id, n.label FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst"
+                " WHERE e.kind = 'contains' AND e.src = ? AND e.dst LIKE 'year:%'", (id,)).fetchall()]
+            srcs = [(id, "연차 미상"), *years]
+        elif id.startswith("year:"):
+            lab = conn.execute("SELECT label FROM kg_nodes WHERE id = ?", (id,)).fetchone()
+            srcs = [(id, lab[0] if lab else id)]
+        else:
+            return JSONResponse({"years": [], "total": 0})
+        rows = []
+        for src, ylab in srcs:
+            for nid, label, did in conn.execute(
+                    "SELECT n.id, n.label, n.doc_id FROM kg_edges e JOIN kg_nodes n ON n.id = e.dst"
+                    " WHERE e.kind = 'contains' AND e.src = ? AND e.dst LIKE 'doc:%' AND n.doc_id IS NOT NULL", (src,)).fetchall():
+                rows.append((src, ylab, int(did), label))
+    ok = _visible_docs(db, {d for _, _, d, _ in rows}, _scope(request))
+    out: dict[str, dict] = {}
+    for src, ylab, did, label in rows:
+        if did not in ok:
+            continue
+        g = out.setdefault(src, {"id": src, "label": ylab, "n": 0, "docs": []})
+        g["n"] += 1
+        g["docs"].append({"doc_id": did, "label": label})
+    def when(g):                                  # 최근 연도 먼저, 연차 미상(사업에 바로 매단 문서)은 끝
+        m = re.findall(r"(?:19|20)\d{2}", g["label"] or "")
+        return (g["id"] != id, int(m[-1]) if m else 0)
+    years = sorted(out.values(), key=when, reverse=True)
+    for g in years:
+        g["docs"] = sorted(g["docs"], key=lambda d: -d["doc_id"])[:per]
+    return JSONResponse({"years": years, "total": sum(g["n"] for g in years)})
+
+
 @router.get("/graph/explore/search")
 def explore_search(request: Request, q: str = ""):
     return JSONResponse(search(request.app.state.db, q, _scope(request)))

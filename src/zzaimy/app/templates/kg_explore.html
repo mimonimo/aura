@@ -112,6 +112,14 @@
     .gx-stage { flex: none; height: 62vh; }
     .gx-head .gx-tools { margin-left: 0; }
   }
+
+  .gx-docs .gx-year { margin:2px 0; }
+  .gx-docs .gx-year summary { display:flex; align-items:center; gap:6px; cursor:pointer; font-size:12px; color:#3B4A5E; padding:4px 2px; }
+  .gx-docs .gx-year summary span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gx-docs .gx-year summary small { color:var(--muted); }
+  .gx-docs a.gx-doclink { text-decoration:none; color:inherit; }
+  .gx-docs a.gx-doclink small { color:var(--navy); }
+  .gx-docs a.gx-more { display:block; text-decoration:none; }
 </style>
 {% endblock %}
 
@@ -286,13 +294,21 @@
              width: e.kind === "contains" ? 1 : 2, guess: e.basis === "유사도" ? 1 : 0, raw: e } });
   }
 
+  var placedIds = {};                        // 이미 자리를 잡은 노드 — 더 펼칠 때 움직이지 않는다
   function relayout(fresh) {
-    // 처음 그릴 때는 무작위에서 시작해야 고르게 퍼진다. 더 펼칠 때는 지금 자리를 살려 움직임을 줄인다. 늘 화면에 맞춘다
-    var opts = cy.nodes().length > 1 && window.cytoscapeFcose
-      ? { name: "fcose", quality: "proof", randomize: !!fresh, animate: !fresh, animationDuration: 450, nodeRepulsion: 12000,
-          idealEdgeLength: 110, nodeSeparation: 110, fit: true, padding: 40 }
-      : { name: "grid", fit: true, padding: 40 };
-    cy.layout(opts).run();
+    // 처음 그릴 때는 무작위에서 시작해야 고르게 퍼진다. 더 펼칠 때는 이미 있던 노드는 제자리에 두고(고정) 새 노드만
+    // 부드럽게 자리를 잡는다 — 펼칠 때마다 그림 전체가 흩어지지 않게. 화면 맞춤도 천천히
+    if (!(cy.nodes().length > 1 && window.cytoscapeFcose)) { cy.layout({ name: "grid", fit: true, padding: 40 }).run(); return; }
+    var fixed = fresh ? [] : cy.nodes().filter(function (n) { return placedIds[n.id()]; })
+      .map(function (n) { return { nodeId: n.id(), position: { x: n.position("x"), y: n.position("y") } }; });
+    var lay = cy.layout({ name: "fcose", quality: "proof", randomize: !!fresh, animate: !fresh, animationDuration: 650,
+      animationEasing: "ease-out-cubic", nodeRepulsion: 12000, idealEdgeLength: 110, nodeSeparation: 110,
+      fixedNodeConstraint: fixed.length && fixed.length < cy.nodes().length ? fixed : undefined, fit: !!fresh, padding: 40 });
+    lay.one("layoutstop", function () {
+      cy.nodes().forEach(function (n) { placedIds[n.id()] = 1; });
+      if (!fresh) cy.animate({ fit: { eles: cy.elements(), padding: 40 }, duration: 450, easing: "ease-out-cubic" });
+    });
+    lay.run();
   }
 
   // ── 주소 — 고르기·탭을 쿼리에 남겨 새로고침·뒤로가기로 돌아온다 ──
@@ -483,6 +499,7 @@
       });
       body.appendChild(box);
     }
+    if (n.type === "program" || n.type === "year") docsBox(id, body);
     var d = lastData[id];
     if (!state.sel.length) { if (!links.length) body.appendChild(el("p", "gx-note", "다른 사업과 이어진 관계가 없습니다.")); return; }
     if (!d) { body.appendChild(el("p", "gx-note", "아직 펼치지 않았습니다. 두 번 누르거나 「이웃 펼치기」.")); return; }
@@ -521,6 +538,37 @@
     });
   }
 
+  // 사업·연차의 문서 — 연차별 최근 문서로 바로 간다. 다 보려면 라이브러리의 그 사업
+  var docsCache = {};
+  function docsBox(id, body) {
+    var box = el("div", "gx-grp gx-docs"), h = el("h4"); h.appendChild(el("b", null, "문서")); var cnt = el("span", null, "…"); h.appendChild(cnt);
+    box.appendChild(h); body.appendChild(box);
+    var draw = function (d) {
+      cnt.textContent = fmt(d.total) + "건";
+      if (!d.total) { box.appendChild(el("p", "gx-note", "볼 수 있는 문서가 없습니다.")); return; }
+      d.years.forEach(function (y) {
+        var yd = el("details", "gx-year"); if (d.years.length <= 3) yd.open = true;
+        var sm = el("summary"); sm.appendChild(el("span", null, y.label)); sm.appendChild(el("small", null, fmt(y.n) + "건")); yd.appendChild(sm);
+        y.docs.forEach(function (x) {
+          var a = el("a", "gx-row gx-doclink"); a.href = "/doc/" + x.doc_id; a.target = "_blank"; a.rel = "noopener";
+          var dot = el("i"); dot.style.background = COLOR.doc || "#4C7BE8"; a.appendChild(dot);
+          a.appendChild(el("span", null, String(x.label).replace(/_+/g, " "))); a.appendChild(el("small", null, "열기 ↗"));
+          yd.appendChild(a);
+        });
+        box.appendChild(yd);
+      });
+      if (id.indexOf("program:") === 0) {
+        var all = el("a", "gx-more", "라이브러리에서 이 사업 문서 모두 보기 →");
+        all.href = "/?type=all&prog=" + encodeURIComponent("prog:" + id); box.appendChild(all);
+      }
+    };
+    if (docsCache[id]) return draw(docsCache[id]);
+    fetch("/graph/explore/docs?id=" + encodeURIComponent(id), { credentials: "same-origin" })
+      .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+      .then(function (d) { docsCache[id] = d; draw(d); })
+      .catch(function () { cnt.textContent = ""; box.appendChild(el("p", "gx-note", "문서를 불러오지 못했습니다.")); });
+  }
+
   function showEdge(edge) {
     var r = edge.data("raw") || {};
     var body = document.getElementById("gxPBody");
@@ -537,7 +585,7 @@
   // ── 지식그래프: 전체 개요(사업·묶음만) ──
   function drawOverview() {
     var go = function (d) {
-      cy.elements().remove(); loaded = {}; lastData = {};
+      cy.elements().remove(); loaded = {}; lastData = {}; placedIds = {}; ringCount = {};
       d.nodes.forEach(function (n) {
         labelOf[n.id] = n.label; docsOf[n.id] = n.n_docs;
         cy.add({ group: "nodes", data: { id: n.id, label: n.label, short: clip(n.short || n.label, 22), type: n.type,
@@ -552,6 +600,7 @@
         ? { name: "fcose", quality: "default", randomize: true, animate: false, nodeRepulsion: 9000, idealEdgeLength: 90,
             nodeSeparation: 80, packComponents: true, fit: true, padding: 30 }
         : { name: "grid", fit: true, padding: 30 }).run();
+      cy.nodes().forEach(function (n) { placedIds[n.id()] = 1; });
       done();
     };
     if (overviewData) return go(overviewData);
@@ -567,10 +616,20 @@
     var n = byId[other];
     return n ? e.kind + ":" + (out ? "out" : "in") + ":" + n.type : null;
   }
-  function placeNear(nid, pos) { cy.getElementById(nid).position({ x: pos.x + (Math.random() - .5) * 160, y: pos.y + (Math.random() - .5) * 160 }); }
+  // 새 노드는 펼친 노드 둘레에 고르게 — 그림 가운데 반대쪽(빈 쪽)부터 부채꼴로 놓아 선이 얽히지 않게
+  var ringCount = {};
+  function placeNear(nid, pos, centerId) {
+    var key = centerId || "_", k = ringCount[key] = (ringCount[key] || 0) + 1;
+    var bb = cy.nodes().boundingBox(), cx = (bb.x1 + bb.x2) / 2, cyy = (bb.y1 + bb.y2) / 2;
+    var away = Math.atan2(pos.y - cyy, pos.x - cx);
+    if (!isFinite(away) || (pos.x === cx && pos.y === cyy)) away = 0;
+    var step = 0.42, idx = k - 1, side = idx % 2 ? -1 : 1;
+    var ang = away + side * Math.ceil(idx / 2) * step, r = 150 + Math.floor(idx / 14) * 70;
+    cy.getElementById(nid).position({ x: pos.x + r * Math.cos(ang), y: pos.y + r * Math.sin(ang) });
+  }
   function revealMember(id, m) {
     var c = cy.getElementById(id);
-    if (cy.getElementById(m.node.id).empty()) { addNode(m.node); placeNear(m.node.id, c.position()); }
+    if (cy.getElementById(m.node.id).empty()) { addNode(m.node); placeNear(m.node.id, c.position(), id); }
     addEdge(m.edge);
     return cy.getElementById(m.node.id);
   }
@@ -605,7 +664,7 @@
           cy.add({ group: "nodes", data: { id: bid, type: "bundle", label: g.label, short: g.label + " " + fmt(g.total),
                    color: COLOR[g.type] || "#8892A6", size: Math.min(58, 24 + 6 * Math.log10(g.total + 1)),
                    raw: { bundle: true, of: id, key: g.key } } });
-          placeNear(bid, pos);
+          placeNear(bid, pos, id);
           cy.add({ group: "edges", data: { id: bid + "|e", source: g.dir === "out" ? id : bid, target: g.dir === "out" ? bid : id,
                    kind: g.kind, color: EDGE_COLOR[g.kind] || "#B8C4D6", width: 2.5, guess: 0, raw: { kind: g.kind, bundle: true } } });
         }
@@ -623,7 +682,7 @@
     });
   }
   function drawFocus() {
-    cy.elements().remove(); loaded = {}; lastData = {};
+    cy.elements().remove(); loaded = {}; lastData = {}; placedIds = {}; ringCount = {};
     blank.hidden = false; blank.textContent = "불러오는 중…";
     var key = state.sel.join(","), errs = [];
     // 고른 것을 차례로 펼친 뒤 한 번만 배치한다(여러 개면 고른 것끼리 이어진 관계도 함께 보인다)

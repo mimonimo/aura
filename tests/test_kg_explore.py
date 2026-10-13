@@ -153,3 +153,31 @@ def test_ontology_default_schema_has_classes_and_attributes(tmp_path):
     assert {"program_group", "program", "year", "org", "doc"} <= set(by)
     assert by["year"]["attrs"].get("차년도") == 100                                   # 속성(채워진 비율)도 함께 그린다
     assert any(r["src"] == "program" and r["dst"] == "org" and r["kind"] == "supervised_by" for r in sc["rels"])
+
+
+def test_program_docs_panel_lists_visible_docs_by_year(tmp_path):
+    """오른쪽 패널의 「문서」 — 사업 노드의 연차별 문서(볼 수 있는 것만)와 라이브러리 바로가기."""
+    from fastapi.testclient import TestClient
+    from tests.test_accounts import _app, _login
+    from zzaimy.graph import kg_store
+
+    app = _app(tmp_path)
+    c = TestClient(app)
+    assert _login(c, "zzaimy", "boot-pass-1")
+    db = app.state.db
+    kg_store.ensure(db)
+    a = db.add_document("가 계획서.pdf", "x", doc_type="grant", access_level="public")
+    b = db.add_document("가 보고서.pdf", "x", doc_type="grant", access_level="public")
+    with db._conn() as conn:
+        kg_store.put_node(conn, "program:ga", "program", "가 사업", {})
+        kg_store.put_node(conn, "year:ga:y2024", "year", "가 사업 1차년도 (2024)", {"year": 2024})
+        kg_store.put_edge(conn, "program:ga", "year:ga:y2024", "contains", "분류", ["연도"])
+        for did, src in ((a, "year:ga:y2024"), (b, "program:ga")):
+            kg_store.put_node(conn, f"doc:{did}", "doc", f"문서{did}", {}, did)
+            kg_store.put_edge(conn, src, f"doc:{did}", "contains", "분류", ["분류"])
+    got = c.get("/graph/explore/docs?id=program:ga").json()
+    assert got["total"] == 2 and got["years"][0]["label"].endswith("(2024)") and got["years"][-1]["label"] == "연차 미상"
+    assert {d["doc_id"] for y in got["years"] for d in y["docs"]} == {a, b}
+    assert c.get("/graph/explore/docs?id=doc:1").json()["total"] == 0
+    page = c.get("/graph/explore").text
+    assert "docsBox(id, body)" in page and "fixedNodeConstraint" in page
