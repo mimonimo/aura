@@ -187,6 +187,20 @@ def ensure(db) -> None:
 _CLASS = ("program", "program_name", "status", "kind", "year", "round", "dup_of", "ext", "area")
 
 
+def _alive(db, origins: dict[str, int]) -> dict[str, int]:
+    """반입 기록(origins.jsonl)의 원본 → 문서 번호 가운데 지금 있는 문서만 — 라이브러리에서 뺀 문서(증빙·중복 정리 등)의
+    옛 번호를 동기화가 다시 잇지 않게. 기록은 그대로 두어 맞추기(175)가 다시 들이지도 않는다."""
+    ids = sorted({int(v) for v in origins.values() if v is not None})
+    if not ids:
+        return dict(origins)
+    have: set[int] = set()
+    with db._conn() as conn:
+        for i in range(0, len(ids), 900):
+            part = ids[i:i + 900]
+            have |= {int(r[0]) for r in conn.execute(f"SELECT id FROM documents WHERE id IN ({','.join('?' * len(part))})", part)}
+    return {k: v for k, v in origins.items() if v is not None and int(v) in have}
+
+
 def sync(db, rows: list[dict], origins: dict[str, int] | None = None) -> dict:
     """DGX 의 지금 목록과 장부를 견줘 차이만 반영한다(전체를 덮어쓰지 않는다).
 
@@ -194,7 +208,7 @@ def sync(db, rows: list[dict], origins: dict[str, int] | None = None) -> dict:
     옮김(문서 번호 유지), 목록에서 사라진 파일 → removed_at 표시(문서는 지우지 않음), 다시 나타난 파일 → 표시 해제.
     분류만 바뀐 행도 고쳐 쓴다. 돌려주는 것: 각 갈래의 목록."""
     ensure(db)
-    origins = origins or {}
+    origins = _alive(db, origins or {})
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     with db._conn() as conn:
         cur = {r[0]: {"size": r[1], "mtime": r[2], "doc_id": r[3], "removed_at": r[4] or "",
@@ -259,7 +273,7 @@ def sync(db, rows: list[dict], origins: dict[str, int] | None = None) -> dict:
 def load(db, rows: list[dict], origins: dict[str, int] | None = None) -> dict:
     """목록을 들인다(전체 교체가 아니라 덮어쓰기 — 사라진 파일은 seen_at 이 오래된 채 남아 '없어짐'으로 보인다)."""
     ensure(db)
-    origins = origins or {}
+    origins = _alive(db, origins or {})
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     n = 0
     with db._conn() as conn:

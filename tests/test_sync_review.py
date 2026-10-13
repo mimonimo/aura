@@ -109,8 +109,9 @@ def test_sync_attaches_newly_ingested_document(tmp_path):
     db = Database(tmp_path / "test.db")
     rows = [dict(rel="program/report.pdf", size=10, mtime=1)]
     archive.sync(db, rows)
-    archive.sync(db, rows, {rows[0]["rel"]: 42})
-    assert archive.find(db)[0]["doc_id"] == 42
+    d = db.add_document("report.pdf", "x", doc_type="grant")
+    archive.sync(db, rows, {rows[0]["rel"]: d})
+    assert archive.find(db)[0]["doc_id"] == d
 
 
 def test_private_upload_path_is_not_visible_to_other_user(tmp_path):

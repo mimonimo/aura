@@ -2,8 +2,17 @@ from zzaimy.app import archive
 from zzaimy.app.db import Database
 
 
+
+def _docs(db, *ids):
+    """반입 기록이 가리키는 문서 — 동기화는 지금 있는 문서만 잇는다(archive._alive)."""
+    for i in ids:
+        d = db.add_document(f"doc{i}.hwp", f"x{i}", doc_type="grant")
+        with db._conn() as conn:
+            conn.execute("UPDATE documents SET id = ? WHERE id = ?", (i, d))
+
 def test_archive_load_summary_find(tmp_path):
     db = Database(tmp_path / "t.db")
+    _docs(db, 577)
     rows = [{"rel": "링크/LINC3.0 모음/1차년도/계획서.hwp", "size": 10, "mtime": 1, "ext": "hwp", "area": "링크",
              "program": "program:linc30", "program_name": "LINC3.0", "status": "auto", "kind": "plan", "year": 2022, "round": 1},
             {"rel": "링크/LINC3.0 모음/1차년도/실적보고서.hwp", "size": 20, "mtime": 1, "ext": "hwp", "area": "링크",
@@ -34,6 +43,7 @@ def test_archive_page_renders(tmp_path):
 
 def test_archive_sync_add_change_move_remove(tmp_path):
     db = Database(tmp_path / "t.db")
+    _docs(db, 577)
     base = {"ext": "hwp", "area": "링크", "program": "program:linc30", "program_name": "LINC3.0", "status": "auto", "kind": "plan"}
     a = {"rel": "링크/a/계획서.hwp", "size": 10, "mtime": 1, **base}
     b = {"rel": "링크/a/보고서.hwp", "size": 20, "mtime": 1, **base}
@@ -65,6 +75,7 @@ def test_archive_move_with_multiple_old_candidates_stays_unlinked(tmp_path):
 
 def test_archive_origin_link_is_idempotent_and_not_cleared(tmp_path):
     db = Database(tmp_path / "t.db")
+    _docs(db, 42, 99)
     row = dict(rel="a/report.pdf", size=10, mtime=1)
     archive.sync(db, [row])
     for _ in range(2):
@@ -83,6 +94,7 @@ def test_archive_origin_link_is_idempotent_and_not_cleared(tmp_path):
 
 def test_archive_changed_file_uses_late_origin_link(tmp_path):
     db = Database(tmp_path / "t.db")
+    _docs(db, 42, 99)
     row = dict(rel="a/report.pdf", size=10, mtime=1)
     archive.sync(db, [row])
     changed = {**row, "size": 20, "mtime": 2}
@@ -178,3 +190,21 @@ def test_program_project_follows_current_program_name(tmp_path):
     assert db.get_project(pid)["name"] == "2026년 가나 다라 사업(ABCD)"
     assert archive.program_project(db, "program:abcd", "", None, 2026) == pid      # 이름을 모르면 그대로
     assert db.get_project(pid)["name"] == "2026년 가나 다라 사업(ABCD)"
+
+
+def test_sync_does_not_relink_deleted_docs(tmp_path):
+    from zzaimy.app import archive
+    from zzaimy.app.db import Database
+    db = Database(tmp_path / "t.db")
+    archive.ensure(db)
+    d = db.add_document("a.hwp", "dgx://링크/a.hwp", doc_type="grant")
+    row = {"rel": "링크/a.hwp", "size": 1, "mtime": 1, "ext": "hwp"}
+    archive.sync(db, [row], {"링크/a.hwp": d})
+    with db._conn() as conn:
+        assert conn.execute("SELECT doc_id FROM archive_files WHERE rel = ?", ("링크/a.hwp",)).fetchone()[0] == d
+    db.delete_document(d)
+    with db._conn() as conn:
+        assert conn.execute("SELECT doc_id FROM archive_files WHERE rel = ?", ("링크/a.hwp",)).fetchone()[0] is None
+    archive.sync(db, [row], {"링크/a.hwp": d})            # 기록에 옛 번호가 남아 있어도 다시 잇지 않는다
+    with db._conn() as conn:
+        assert conn.execute("SELECT doc_id FROM archive_files WHERE rel = ?", ("링크/a.hwp",)).fetchone()[0] is None

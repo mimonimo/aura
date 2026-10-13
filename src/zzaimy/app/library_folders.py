@@ -29,11 +29,13 @@ def folders(db, data_dir: Path) -> list[dict]:
     areas = {f["folder"] for f in rag_spaces.area_folders(db)}
     out = []
     with db._conn() as conn:
+        # 라이브러리 목록과 같은 수 — 지금 있는 문서만(지운 문서를 가리키는 옛 이음은 세지 않는다)
         n_area = {str(r[0]): int(r[1]) for r in conn.execute(
-            "SELECT area, COUNT(DISTINCT doc_id) FROM archive_files WHERE doc_id IS NOT NULL AND removed_at = '' AND area <> ''"
-            " GROUP BY area") if str(r[0]) in areas}
+            "SELECT a.area, COUNT(DISTINCT a.doc_id) FROM archive_files a JOIN documents d ON d.id = a.doc_id"
+            " WHERE a.removed_at = '' AND a.area <> '' GROUP BY a.area") if str(r[0]) in areas}
         made = [dict(r) for r in conn.execute("SELECT id, name, dept FROM library_folders ORDER BY name")]
-        n_made = {int(r[0]): int(r[1]) for r in conn.execute("SELECT folder_id, COUNT(*) FROM doc_folders GROUP BY folder_id")}
+        n_made = {int(r[0]): int(r[1]) for r in conn.execute(
+            "SELECT f.folder_id, COUNT(*) FROM doc_folders f JOIN documents d ON d.id = f.doc_id GROUP BY f.folder_id")}
     for a in sorted(areas, key=lambda a: -n_area.get(a, 0)):
         if n_area.get(a):
             out.append({"key": AREA + a, "name": a, "kind": "원본", "dept": cfg.get("dept_of_area", {}).get(a) or "공통",

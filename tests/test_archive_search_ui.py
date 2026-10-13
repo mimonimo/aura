@@ -42,6 +42,9 @@ def _rows():
 def client(tmp_path):
     app = _app(tmp_path)
     db = app.state.db
+    d = db.add_document("은하수 개척 사업계획서.hwp", "x", doc_type="grant")   # 반입 기록이 가리키는 문서(지금 있는 문서만 잇는다)
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET id = 7 WHERE id = ?", (d,))
     archive.load(db, _rows(), origins={LINKED: 7})
     archive_state.mark_failures(db, {"은하수/실패/깨진 문서.hwp": "암호 문서", LINKED: "무시돼야 함"})
     c = TestClient(app)

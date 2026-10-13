@@ -188,6 +188,9 @@ def test_audit_counts_byproducts_apart(tmp_path, monkeypatch):
     plat.mkdir()
     monkeypatch.setattr(job, "PLAT", plat)
     db = Database(plat / "platform.db")
+    d = db.add_document("명단.htm", "x", doc_type="grant")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET id = 3 WHERE id = ?", (d,))
     archive.load(db, [{"rel": r, "ext": doc_formats.file_ext(r), "size": 1, "mtime": 1}
                       for r in ("가/명단.htm", "가/명단.files/sheet001.htm", "가/검색_files/outer.html", "가/계획_imgs/p.png")],
                  {"가/명단.htm": 3})

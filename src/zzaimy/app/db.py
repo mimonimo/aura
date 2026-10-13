@@ -1095,6 +1095,8 @@ class Database:
             conn.execute("DELETE FROM project_criteria WHERE criteria_doc_id = ?", (doc_id,))
             # Keep file registry and historical chat citations, but detach deleted IDs.
             conn.execute("UPDATE files SET doc_id = NULL WHERE doc_id = ?", (doc_id,))
+            if 'archive_files' in table_names(conn):        # 원본 장부의 이음도 — 지운 문서를 「문서 연결됨」으로 세지 않게
+                conn.execute("UPDATE archive_files SET doc_id = NULL WHERE doc_id = ?", (doc_id,))
             if 'chat_sources' in table_names(conn):
                 conn.execute("UPDATE chat_sources SET doc_id = NULL WHERE doc_id = ?", (doc_id,))
             conn.execute("UPDATE documents SET related_criteria_id = NULL WHERE related_criteria_id = ?", (doc_id,))

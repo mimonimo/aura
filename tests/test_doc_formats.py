@@ -148,7 +148,8 @@ def test_audit_covers_only_same_content_group(tmp_path, monkeypatch):
     rows = [dict(rel="가/계획.hwp", size=10, mtime=1, ext="hwp", dup_of=""),
             dict(rel="나/계획.hwp", size=10, mtime=1, ext="hwp", dup_of="가/계획.hwp"),   # 같은 내용 — 이쪽이 들어옴
             dict(rel="다/계획.hwp", size=10, mtime=1, ext="hwp", dup_of="")]              # 이름·크기만 같은 다른 내용
-    archive.load(db, rows, {"나/계획.hwp": 7})
+    d7 = db.add_document("계획.hwp", "x", doc_type="grant")         # 반입 기록이 가리키는 문서(지금 있는 문서만 잇는다)
+    archive.load(db, rows, {"나/계획.hwp": d7})
     with db._conn() as conn:
         conn.execute("UPDATE archive_files SET seen_at = '2000-01-01 00:00'")
     monkeypatch.setenv("ZZAIMY_PLATFORM_SQLITE_PATH", str(plat / "platform.db"))

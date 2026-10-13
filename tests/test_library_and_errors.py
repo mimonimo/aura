@@ -37,4 +37,6 @@ def test_library_title_search_matches_each_word(tmp_path):
     page = client.get("/?type=all&q=핵심성과지표 총괄").text
     assert "핵심 성과지표 총괄" in page and "다른 문서" not in page
     page = client.get("/?type=all&q=없는낱말").text
-    assert "본문까지 찾기" in page and "/search?q=" in page
+    assert "본문까지 찾기" in page and "body=1" in page                  # 라이브러리에서 본문까지(어휘 색인)
+    page = client.get("/?type=all&q=없는낱말&body=1").text
+    assert "대화·근거까지 찾기" in page and "/search?q=" in page
