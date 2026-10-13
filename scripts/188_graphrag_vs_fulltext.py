@@ -474,7 +474,12 @@ def main() -> int:
     out = ROOT / "data" / "eval" / f"graphrag_vs_fulltext_{args.tag}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     blind, bkey = blind_pack(db, rows, {x["id"]: x for x in items}, args.seed)
-    out.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "tag": args.tag, "modes": modes, "answer_modes": amodes,
+    import subprocess
+    try:
+        code = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception:
+        code = ""
+    out.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "tag": args.tag, "code": code, "modes": modes, "answer_modes": amodes,
                                "k": {"section": args.k_sec, "relation": args.k_rel},
                                "rerank_on": os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1",
                                "sets": {"section": Path(args.sec_set).name, "relation": Path(args.rel_set).name},
