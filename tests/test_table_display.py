@@ -24,10 +24,12 @@ def test_rowspan_and_colspan_do_not_create_extra_cells():
     assert '<tr><td></td><td>첫 줄\n둘째 줄 &lt;검수&gt;</td></tr>' in html
 
 
-def test_trailing_blank_form_rows_fold_but_inner_blanks_stay():
+def test_runs_of_blank_form_rows_fold_into_one_line():
     cells = [[0, 0, 1, 1, True, '이름'], [0, 1, 1, 1, True, '금액'], [1, 0, 1, 1, False, '가'], [1, 1, 1, 1, False, '1'],
-             [2, 0, 1, 1, False, ''], [3, 0, 1, 1, False, '나']]
-    html = str(table_html(json.dumps({'n_rows': 10, 'n_cols': 2, 'cells': cells})))
-    assert html.count('<tr>') == 4 and '빈 줄 6개는 접었습니다' in html         # 가운데 빈 줄(2)은 그대로
-    few = str(table_html(json.dumps({'n_rows': 6, 'n_cols': 2, 'cells': cells})))
-    assert few.count('<tr>') == 6 and '접었습니다' not in few                   # 둘 이하는 접지 않는다
+             [2, 0, 1, 1, False, ''], [3, 0, 1, 1, False, '나'], [7, 0, 1, 1, False, '합계']]
+    html = str(table_html(json.dumps({'n_rows': 12, 'n_cols': 2, 'cells': cells})))
+    # 줄 2(빈 줄 하나)는 그대로, 4~6(셋)·8~11(넷)은 한 줄씩으로
+    assert html.count('<tr>') == 5 and '빈 줄 3개' in html and '빈 줄 4개' in html and html.count('extract-fold') == 2
+    spans = [[0, 0, 4, 1, False, '구분'], [0, 1, 1, 1, False, '값']]
+    kept = str(table_html(json.dumps({'n_rows': 4, 'n_cols': 2, 'cells': spans})))
+    assert 'extract-fold' not in kept and 'rowspan="4"' in kept                  # 병합 칸이 걸친 줄은 접지 않는다

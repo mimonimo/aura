@@ -87,12 +87,34 @@ def table_html(content: str) -> Markup:
         parts = ['<div class="table-scroll"><table class="extract">']
     occupied: set[tuple[int, int]] = set()
     n_cols = int(data.get("n_cols") or max((int(c) + int(cs) for _, c, _, cs, _, _ in cells), default=0))
-    # 양식 표 끝의 통째로 빈 줄(적을 칸만 그어 둔 줄)은 셋 이상이면 접는다 — 글자 있는 줄은 그대로 다 그린다
-    filled = [int(r) + int(rs) - 1 for r, _c, rs, _cs, _hd, txt in cells if str(txt).strip()]
-    last = max(filled, default=n_rows - 1)
-    skipped = n_rows - 1 - last if n_rows - 1 - last >= 3 else 0
-    n_show = n_rows - skipped
-    for r in range(n_show):
+    # 양식 표의 빈 줄(적을 칸만 그어 둔 줄)이 셋 이상 이어지면 한 줄 「빈 줄 N개」 로 접는다.
+    # 병합 칸이 걸친 줄과 글자가 있는 줄은 그대로 그린다 — 표 모양은 원문 보기에서 확인한다
+    spanned: set[int] = set()
+    texted: set[int] = set()
+    for r, _c, rs, _cs, _hd, txt in cells:
+        if int(rs) > 1:
+            spanned.update(range(int(r), int(r) + int(rs)))
+        if str(txt).strip():
+            texted.add(int(r))
+    blank = [r not in spanned and r not in texted for r in range(n_rows)]
+    fold: dict[int, int] = {}                     # 접는 묶음의 첫 줄 → 줄 수
+    r = 0
+    while r < n_rows:
+        if blank[r]:
+            end = r
+            while end + 1 < n_rows and blank[end + 1]:
+                end += 1
+            if end - r + 1 >= 3:
+                fold[r] = end - r + 1
+            r = end + 1
+        else:
+            r += 1
+    skip = {i for start, n in fold.items() for i in range(start, start + n)}
+    for r in range(n_rows):
+        if r in fold:
+            parts.append(f'<tr class="extract-fold"><td colspan="{max(n_cols, 1)}">빈 줄 {fold[r]}개</td></tr>')
+        if r in skip:
+            continue
         parts.append("<tr>")
         cursor = 0
         for c, rs, cs, hd, txt in sorted(rows.get(r, [])):
@@ -101,7 +123,6 @@ def table_html(content: str) -> Markup:
                     parts.append('<td></td>')
                 cursor += 1
             tag = "th" if hd else "td"
-            rs = min(rs, n_show - r)
             attrs = (f' rowspan="{rs}"' if rs > 1 else "") + (
                 f' colspan="{cs}"' if cs > 1 else ""
             )
@@ -116,8 +137,6 @@ def table_html(content: str) -> Markup:
             cursor += 1
         parts.append("</tr>")
     parts.append("</table></div>")
-    if skipped:
-        parts.append(f'<p class="extract-table-note">표 끝의 빈 줄 {skipped}개는 접었습니다 — 원문에서 확인</p>')
     return Markup("".join(parts))
 
 
