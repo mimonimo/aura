@@ -40,6 +40,10 @@ _PAREN = re.compile(r"[(（\[]([^()（）\[\]]*)[)）\]]")
 # 판·초안을 가리키는 괄호 — 숫자(날짜·차수·LINC 3.0)가 있거나 개정·상정·공시·시행·초안·안·령·붙임
 _REV_PAREN = re.compile(r"\d|개정|상정|공시|시행|초안|최종|수정|령$|^\s*안\s*$|붙임|별첨")
 _ACAD_YEAR = re.compile(r"(?:19|20)\d{2}\s*학년도")
+# 법령 번호 — '교육부훈령 제511호' · '(교육부 훈령 제381호)' 는 판 표시다(훈령은 개정마다 번호가 바뀐다)
+_ORDER_NO = re.compile(r"(?:[가-힣]+부\s*)?(?:훈령|예규|고시)\s*제\s*\d+\s*호")
+# 라틴 약어만 든 괄호 — '(RISE)' · '(LINC+)' 는 앞 이름의 다른 표기다
+_ABBR_PAREN = re.compile(r"^[A-Za-z0-9+＋.\s]*$")
 _DATE_SEG = re.compile(r"^[\d\s.\-/년월일()]+$")
 
 
@@ -67,11 +71,13 @@ def rule_key(title: str) -> str:
     while prev != s:
         prev = s
         s = _NUM_HEAD.sub("", s)
-    s = _PAREN.sub(lambda m: "" if (_REV_PAREN.search(m.group(1)) or m.group(1).strip() in OURS) else m.group(0), s)
+    s = _ORDER_NO.sub("", s)
+    s = _PAREN.sub(lambda m: "" if (_REV_PAREN.search(m.group(1)) or m.group(1).strip() in OURS
+                                    or _ABBR_PAREN.match(m.group(1))) else m.group(0), s)
     s = _ACAD_YEAR.sub("", s)
     for o in OURS:
         s = s.replace(o, "")
-    s = re.sub(r"[^가-힣A-Za-z0-9＋+()]", "", s)
+    s = re.sub(r"[^가-힣A-Za-z0-9()]", "", s)          # '＋'·'+' 도 뗀다('LINC＋' = 'LINC(＋)')
     return s.lower()
 
 
@@ -91,7 +97,8 @@ def _dates(text: str, cap: int) -> list[tuple]:
 
 
 def revision(title: str, family: str = "", text: str = "") -> tuple:
-    """판의 순서 (학년도, (연, 월, 일)) — 학년도는 제목에 적힌 것(해마다 새로 내는 지침), 날짜는 제목·파일 이름(family)·
+    """판의 순서 (학년도, 법령 번호, (연, 월, 일)) — 학년도는 제목에 적힌 것(해마다 새로 내는 지침), 법령 번호는 제목의
+    '훈령 제553호'(개정마다 커진다), 날짜는 제목·파일 이름(family)·
     머리(통과일자)·부칙에 적힌 날짜 가운데 가장 늦은 것. 없으면 0.
 
     본문 날짜는 머리 600자와 첫 「부칙」 뒤만 본다 — 조문 속 날짜(경과 규정·기한)는 판의 날짜가 아니다.
@@ -101,7 +108,8 @@ def revision(title: str, family: str = "", text: str = "") -> tuple:
     m = _BUCHIK.search(body)
     found = _dates(title, cap) + _dates(family, cap) + _dates(body[:600], cap) + (_dates(body[m.end():], cap) if m else [])
     acad = [int(x.group(0)[:4]) for x in _ACAD_YEAR.finditer(title or "")]
-    return (max(acad) if acad else 0, max(found) if found else (0, 0, 0))
+    order = [int(re.sub(r"\D", "", x.group(0))) for x in _ORDER_NO.finditer(title or "")]
+    return (max(acad) if acad else 0, max(order) if order else 0, max(found) if found else (0, 0, 0))
 
 
 _DRAFT = re.compile(r"\(\s*안\s*\)|초안|상정\s*안|개정\s*\(?안")
@@ -176,16 +184,23 @@ def candidates(db, q: str = "", limit: int = 400) -> dict:
     need += [r["id"] for g in done_by.values() for r in g]
     text = _texts(db, need)
 
-    def rev(r: dict) -> tuple:
-        return revision(r["filename"] or "", r.get("family") or "", text.get(r["id"], ""))
+    rr_pick = pick_current
+
+    def entry(r: dict) -> dict:
+        return {"id": r["id"], "title": r["filename"] or "", "family": r.get("family") or "", "text": text.get(r["id"], "")}
 
     items = []
     for k, group in fam.items():
-        group.sort(key=rev, reverse=True)
-        top = group[0]
-        # 같은 규정이 이미 기준 문서면 그보다 옛 판·같은 판은 후보가 아니다 — 나중에 들어온 개정판(더 새 판)만 후보로 남는다
-        if k in done_by and rev(top) <= max(rev(r) for r in done_by[k]):
+        # 판 고르기는 정리(superseded)와 같은 규칙(pick_current) — 같은 규정이 이미 기준 문서면 그것과 함께 견줘,
+        # 기준 문서가 이기면(더 새 판이 없거나 새 판이 잘린 판독) 후보가 아니다. 나중에 들어온 개정판만 후보로 남는다
+        mates = done_by.get(k, [])
+        best = rr_pick([entry(r) for r in group + mates]) if (len(group) > 1 or mates) else entry(group[0])
+        if any(best["id"] == r["id"] for r in mates):
             continue
+        if mates and revision(best["title"], best["family"], best["text"]) <= max(
+                revision(r["filename"] or "", r.get("family") or "", text.get(r["id"], "")) for r in mates):
+            continue                                   # 기준 문서와 같은 판(사본) — 새 판이 아니다
+        top = next(r for r in group if r["id"] == best["id"])
         title = top["filename"] or ""
         if words and not all(w.replace(" ", "") in title.replace(" ", "") for w in words):
             continue

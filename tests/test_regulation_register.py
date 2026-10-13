@@ -69,6 +69,10 @@ def test_rule_key_groups_revisions_and_issuer_flags_other_schools():
     assert len({rr.rule_key(t) for t in same}) == 1
     assert rr.rule_key("자체운영지침(가족회사)") != rr.rule_key("자체운영지침(캡스톤디자인)")   # 판이 아닌 괄호는 이름이다
     assert rr.rule_key("3-3규정&지침") != rr.rule_key("3-5규정&지침")                       # 띄어쓰기 없는 번호는 이름의 일부
+    assert rr.rule_key("교육부훈령 제 553 호 지역혁신중심 대학지원체계 운영규정") == rr.rule_key(
+        "지역혁신중심 대학지원체계(RISE) 운영규정(교육부훈령 제511호)")
+    assert rr.rule_key("사회맞춤형 LINC＋사업단 규정") == rr.rule_key("사회맞춤형 LINC(＋)사업단 규정")
+    assert rr.revision("교육부훈령 제553호 운영규정") > rr.revision("운영규정(교육부훈령 제511호)", "", "부 칙 2024. 12. 30.")
     assert rr.issuer("금오공과대학교연구비관리규정") == "금오공과대학교"
     assert rr.issuer("대전보건대학 교외 연구비 관리규정") == "대전보건대학"
     for ours in ("영남이공대학교 학칙", "2-2.(영남이공대학교)사업자체규정", "전문대학 교육역량강화사업 지침",
@@ -83,6 +87,9 @@ def test_candidates_skip_other_institutions_and_group_by_rule(tmp_path):
     new = _doc(db, "연봉계약제 전임교원 계약임용에 관한 규정", family="b", text="머리\n" + BODY + "\n부 칙(2025. 2. 28)\n시행")
     got = rr.candidates(db)["items"]
     assert [(i["id"], i["versions"]) for i in got] == [(new, 2)]
+    rr.register(db, [new], tmp_path)
+    _doc(db, "영남이공대학교 연봉계약제전임교원 계약임용에 관한 규정", text="머리\n" + BODY + "\n부 칙(2025. 2. 28)\n시행")
+    assert rr.candidates(db)["total"] == 0                                 # 기준 문서와 같은 판의 사본은 후보가 아니다
     assert old != new
 
 
