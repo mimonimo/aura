@@ -199,6 +199,15 @@ table.dx-list tr.on td { background:#edf3fc; }
 }
 @media(max-width:1200px) { .dx-grid, .dx-grid.rev { grid-template-columns:minmax(0,1fr); } .dx-scroll { max-height:42dvh; } }
 @media(max-width:600px) { .dx-card > .card-in { padding:16px; } .dx-links { margin-left:0; flex-wrap:wrap; } .dx-reader pre { padding:18px; } }
+
+.dx-status .card-in{display:flex;flex-wrap:wrap;align-items:stretch;gap:10px}
+.dx-stat{flex:1 1 150px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;display:flex;flex-direction:column;gap:2px}
+.dx-stat b{font-size:18px;color:var(--navy);font-variant-numeric:tabular-nums}.dx-stat span{font-size:12px;color:var(--muted)}
+.dx-stat.warn{border-color:#F1D9A8;background:#FFF8EB}.dx-stat.warn b{color:#9A6A12}
+.dx-stat-note{flex:1 1 100%;margin:0;font-size:12px}
+.dx-regbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 8px}.dx-regbar input[type=search]{flex:1 1 180px;min-width:0;height:32px;padding:5px 9px;border:1px solid var(--line);border-radius:8px;font-size:12.5px}
+.dx-regbar label{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--muted)}
+tr.pick[hidden]{display:none}
 </style>
 
 <p style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 14px;">
@@ -412,19 +421,33 @@ table.dx-list tr.on td { background:#edf3fc; }
 
 {# ---------------- 규정 ---------------- #}
 {% elif tab == 'regulation' %}
+{# 현황 — 기준 문서·규정 색인 조각·임베딩된 조각을 위에 한 줄로(임베딩이 덜 된 문서가 있으면 알림) #}
+{% set n_units = view.docs | sum(attribute='n_units') %}
+{% set n_emb = (view.docs | selectattr('n_embedded') | map(attribute='n_embedded') | sum) if index.exists else none %}
+{% set n_missing = (view.docs | rejectattr('n_embedded') | selectattr('n_units') | list | length) if index.exists else none %}
+<div class="card dx-status"><div class="card-in">
+  <div class="dx-stat"><b>{{ "{:,}".format(view.docs|length) }}</b><span>기준 문서</span></div>
+  <div class="dx-stat"><b>{{ "{:,}".format(n_units) }}</b><span>규정 색인 조각</span></div>
+  <div class="dx-stat"><b>{{ "{:,}".format(n_emb) if n_emb is not none else "—" }}</b><span>임베딩된 조각{% if n_emb is not none and n_units %} · {{ (n_emb * 100 / n_units) | round(1) }}%{% endif %}</span></div>
+  <div class="dx-stat{{ ' warn' if n_missing }}"><b>{{ "{:,}".format(n_missing) if n_missing is not none else "—" }}</b><span>임베딩 안 된 문서</span></div>
+  <p class="muted dx-stat-note">{% if index.exists %}임베딩 모델 {{ index.model }}{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}{% else %}임베딩 색인 없음 — 낱말 검색만{% endif %}
+    {% if n_missing %} · 임베딩이 없는 문서도 낱말 검색으로는 찾습니다. 다시 만들기는 <a href="/dev/rag#student-regs">RAG 공간</a>{% endif %}</p>
+</div></div>
 <div class="dx-grid">
   <div class="card dx-card"><div class="card-in">
+    <div class="dx-regbar"><input type="search" id="dxRegFind" placeholder="규정 이름 거르기" aria-label="규정 거르기">
+      <label><input type="checkbox" id="dxRegMissing"> 임베딩 안 된 것만</label></div>
     <p class="muted" style="font-size:12px; margin:0 0 8px;">규정 검색 시험은 <a href="/dev/rag#try">RAG 공간 › 검색해 보기</a>(공간·계정 범위 그대로)에서, 등록·해제는 <a href="/dev/rag#student-regs">규정·기준 문서</a>에서 합니다. 여기서는 조각을 열람합니다.</p>
     <div class="dx-scroll">
       <table class="dx-list">
-        <thead><tr><th>규정</th><th>계열</th><th class="dx-num">자료</th><th class="dx-num">의미 검색 색인</th></tr></thead>
+        <thead><tr><th>규정</th><th>부서</th><th class="dx-num">조각</th><th class="dx-num">임베딩</th></tr></thead>
         <tbody>
         {% for d in view.docs %}
         {% set href = '/dev/db?tab=regulation&doc=' ~ d.id ~ ('&q=' ~ (q|urlencode) if q else '') %}
-        <tr class="pick {{ 'on' if d.id == doc_id else '' }}" data-href="{{ href }}">
-          <td class="name" title="{{ d.filename }}"><a href="{{ href }}">{{ d.filename }}</a>
-            <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis;">{{ d.receipt_no or '—' }} · {{ d.dept }}</div></td>
-          <td><span class="pill type dx-pill">{{ sector_labels.get(d.sector, d.sector) }}</span></td>
+        <tr class="pick {{ 'on' if d.id == doc_id else '' }}" data-href="{{ href }}" data-name="{{ (d.filename or '')|lower }}" data-missing="{{ '1' if index.exists and d.n_units and not d.n_embedded else '' }}">
+          <td class="name"><a href="{{ href }}">{{ d.filename }}</a>
+            <div class="muted" style="font-size:11px; overflow:hidden; text-overflow:ellipsis;">{{ receipt_label(d.receipt_no) or '—' }}</div></td>
+          <td class="muted" style="font-size:12px;">{{ d.dept }}</td>
           <td class="dx-num">{{ d.n_units }}</td>
           <td class="dx-num">{{ '—' if d.n_embedded is none else d.n_embedded }}</td>
         </tr>
@@ -434,9 +457,17 @@ table.dx-list tr.on td { background:#edf3fc; }
         </tbody>
       </table>
     </div>
-    <p class="muted dx-foot">기준 문서 {{ view.docs|length }}건(조각이 없는 것 포함) ·
-      {% if index.exists %}규정 임베딩 색인 {{ index.model }} · {{ "{:,}".format(index.n_chunks) }}조각{% if index.updated_at %} · {{ index.updated_at | replace('T', ' ') }}{% endif %}
-      {% else %}검색 색인 없음 — 형태소 검색만{% endif %}</p>
+    <p class="muted dx-foot" id="dxRegCount">{{ "{:,}".format(view.docs|length) }}건</p>
+    <script>
+    (() => {
+      const f = document.getElementById('dxRegFind'), m = document.getElementById('dxRegMissing');
+      const rows = [...document.querySelectorAll('tr.pick[data-name]')], c = document.getElementById('dxRegCount');
+      const run = () => { const t = (f.value || '').replace(/\s+/g, '').toLowerCase(); let n = 0;
+        rows.forEach(r => { const hit = (!t || r.dataset.name.replace(/\s+/g, '').includes(t)) && (!m.checked || r.dataset.missing); r.hidden = !hit; if (hit) n++; });
+        c.textContent = n === rows.length ? rows.length.toLocaleString() + '건' : n.toLocaleString() + ' / ' + rows.length.toLocaleString() + '건'; };
+      f.addEventListener('input', run); m.addEventListener('change', run);
+    })();
+    </script>
   </div></div>
 
   <div class="card dx-card dx-detail" id="dxDetail"><div class="card-in">
