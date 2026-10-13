@@ -90,8 +90,21 @@ class EmbedIndex:
         self._failed = False
         self._remote_only = False
         self._floor: float | None = None
+        self._mtime: float | None = None
+
+    def _stale(self) -> bool:
+        """색인 파일이 읽은 뒤에 바뀌었는가 — 52 가 새로 쓰면 앱을 재시작하지 않고 다음 검색에서 다시 읽는다."""
+        try:
+            return self._mtime is not None and INDEX_PATH.stat().st_mtime != self._mtime
+        except OSError:
+            return False
 
     def _load(self) -> bool:
+        if self._stale():
+            with self._lock:
+                if self._stale():
+                    self._ids = self._vectors = self._floor = None
+                    self._failed = False
         if self._failed:
             return False
         if self._ids is not None and (self._model is not None or self._remote_only):
@@ -112,6 +125,7 @@ class EmbedIndex:
 
                 if not INDEX_PATH.exists():
                     raise FileNotFoundError(INDEX_PATH)
+                self._mtime = INDEX_PATH.stat().st_mtime
                 data = np.load(INDEX_PATH)
                 self._ids = data["ids"]
                 self._vectors = data["vectors"]

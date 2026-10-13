@@ -118,7 +118,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   <div class="rr-head"><h2>규정·기준 문서</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>
   <p class="rg-note" style="margin-top:0;">기준 문서는 규정 검색(조문 단위)으로 찾고 학생 공개를 정할 수 있습니다. 반입 자료의 규정·지침은 처음엔 사업 문서로 들어오므로, 아래 후보에서 골라 기준 문서로 올립니다(같은 규정의 옛 판은 사업 문서로 남습니다). 새 파일은 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」으로 올립니다.</p>
   <div class="rr-reindex" id="rrReindex" hidden><span>새로 올린 기준 문서는 임베딩을 다시 만들어야 뜻 검색에 듭니다(낱말 검색은 바로 됩니다).</span>
-    <form method="post" action="/dev/reindex" style="margin:0;" data-confirm="규정 검색 색인을 다시 만들까요? 몇 분 걸리며, 끝나면 앱이 잠시 재시작되어 접속 중인 화면이 끊깁니다."><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">임베딩 다시 만들기</button></form></div>
+    <form method="post" action="/dev/reindex" style="margin:0;"><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">임베딩 다시 만들기</button></form></div>
   <div class="rr-grid">
     <div class="rr-pane">
       <div class="rr-pane-h"><b>등록된 기준 문서</b><span class="rg-sub" id="rrRegCount"></span></div>

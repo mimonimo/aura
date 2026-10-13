@@ -1,10 +1,5 @@
 #!/bin/bash
-# 재색인 체인 — 규정 조각 변경 후 질의 세트·임베딩·앱을 순서대로 갱신한다.
-# (조각을 재구성하면 질의 세트·임베딩 같은 파생물이 무효가 되므로 함께 갱신한다)
-#
-# 운영 VM(GPU·LLM 없음) 기준. 합성 질의(51)는 LLM이 필요해 VLLM_BASE_URL이
-# 설정된 경우에만 돌린다 — 생략되면 53 평가는 낡은 질의 세트라 무효이며,
-# LLM 연결 후 이 체인을 다시 돌려야 한다.
+# 재색인 — 규정 조각을 등록·해제·재분할한 뒤 조각 임베딩 색인을 맞춘다.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # 오프라인 자립 — 모델은 로컬 캐시에서만. 미설정 시 허브 접속 재시도로
@@ -19,43 +14,22 @@ NCPU=$(nproc 2>/dev/null || echo 8)
 OMP=$(( NCPU / 2 )); [ "$OMP" -lt 1 ] && OMP=1
 PY=.venv/bin/python
 [ -x .venv-train/bin/python ] && PY=.venv-train/bin/python
-# 임베딩 인터프리터에도 PostgreSQL 드라이버가 있어야 한다 — 없으면 무효화 표시를 지우거나
-# 앱을 재시작하기 전에 멈춘다.
+# 임베딩 인터프리터에도 PostgreSQL 드라이버가 있어야 한다 — 없으면 무효화 표시를 지우기 전에 멈춘다.
 env PYTHONPATH=src "$PY" -c 'from zzaimy.app.database_backend import connect; c=connect("data/platform/platform.db", readonly=True); c.execute("SELECT 1"); c.close()'
 
-# LLM 이 붙어 있는가 — 환경변수 또는 화면에서 등록한 기본 연결
-has_llm() {
-  grep -qE '^\s*VLLM_BASE_URL=' .env.local 2>/dev/null && return 0
-  .venv/bin/python - <<'PY' 2>/dev/null
-import json, sys
-try:
-    d = json.load(open("data/platform/llm_connections.json"))
-except Exception:
-    sys.exit(1)
-sys.exit(0 if any(c.get("id") == d.get("active") for c in d.get("connections", [])) else 1)
-PY
-}
-if has_llm; then
-  echo "[$(date +%T)] 1/3 합성 질의 재생성"
+# 임베딩 서비스 주소(ZZAIMY_EMBED_URL) 등 운영 설정 — 앱이 띄운 경우에도 손으로 돌린 경우에도 같게
+[ -f .env.local ] && { set -a; . ./.env.local; set +a; }
+
+# 합성 질의(51)는 검색 평가(53)용이다 — 27B 로 조각마다 묻느라 몇 시간이 걸리고 서빙 장비를 붙잡으므로
+# 색인 갱신에서는 기본으로 돌리지 않는다. 평가 질의까지 새로 만들 때만 ZZAIMY_REINDEX_SYNTH=1.
+if [ "${ZZAIMY_REINDEX_SYNTH:-0}" = "1" ]; then
+  echo "[$(date +%T)] 합성 질의 재생성(평가용)"
   env PYTHONPATH=src nice -n 10 .venv/bin/python scripts/51_synth_queries.py
-else
-  echo "[$(date +%T)] 1/3 합성 질의 생략 (LLM 미연결) — 53 평가는 LLM 연결 후 재생성 필요"
 fi
 
-echo "[$(date +%T)] 2/3 임베딩 재계산 (코어 $OMP)"
-env PYTHONPATH=src OMP_NUM_THREADS=$OMP MKL_NUM_THREADS=$OMP ZZAIMY_EMBED_DEVICE=cpu \
-  nice -n 10 "$PY" scripts/52_embed_chunks.py
+# 조각 벡터 — 서빙 장비의 운영 학습본으로, 글이 그대로인 조각은 재사용(52). 앱은 색인 파일이 바뀌면
+# 다음 검색에서 다시 읽으므로 재시작하지 않는다.
+echo "[$(date +%T)] 규정 조각 임베딩 갱신"
+env PYTHONPATH=src OMP_NUM_THREADS=$OMP MKL_NUM_THREADS=$OMP nice -n 10 "$PY" scripts/52_embed_chunks.py
 rm -f data/platform/.reindex-needed
-
-echo "[$(date +%T)] 3/3 앱 재시작"
-if systemctl --user is-enabled zzaimy.service >/dev/null 2>&1; then
-  systemctl --user restart zzaimy.service
-  sleep 8
-  curl -sk -o /dev/null -w "앱: %{http_code}\n" https://localhost/login || true
-else
-  pkill -f "[z]zaimy.app.main"; sleep 1
-  (nohup ~/start-platform.sh > /tmp/platform.log 2>&1 &)
-  sleep 8
-  curl -sk -o /dev/null -w "앱: %{http_code}\n" https://localhost:8800/login || true
-fi
 echo REINDEX_DONE
