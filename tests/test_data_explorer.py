@@ -348,7 +348,7 @@ def test_ledger_tab_shows_raw_values_and_points_to_archive(client, tmp_path):
     page = client.get("/dev/db?tab=archive&q=가상 계획서").text
     assert 'type="search" name="q"' in page and 'href="/archive?q=' in page
     assert 'title="가상사업/폴더/아주긴이름의계획서.hwp"' in page and 'title="가상사업/대표.hwp"' in page
-    assert ">규칙으로 확정<" in page and 'title="장부 코드 auto"' in page                  # 분류 상태는 코드 대신 이름(코드는 툴팁)
+    assert ">규칙으로 확정<" in page and '장부 코드 auto"' in page                  # 분류 상태는 코드 대신 이름(코드는 툴팁)
     assert "2031-01-02 03:04" in page and "처리 실패: 시험" in page
     top = page.split('class="searchbox"', 1)[1].split("</form>", 1)[0]
     assert 'value=""' in top                                   # 화면 안 검색어가 상단 전역 검색창에 들어가지 않는다
