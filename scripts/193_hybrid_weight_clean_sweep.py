@@ -16,7 +16,7 @@
 
 사용 (VM, 저장소 루트에서 — .env.local 을 읽고 띄운다):
   set -a; . ./.env.local; set +a
-  PYTHONPATH=src .venv/bin/python scripts/191_hybrid_weight_clean_sweep.py \\
+  PYTHONPATH=src .venv/bin/python scripts/193_hybrid_weight_clean_sweep.py \\
       --train-export /path/to/embed2-data.json --holdout 4,10,107,... --out /tmp/sweep.json
 """
 
