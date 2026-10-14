@@ -43,3 +43,21 @@ def test_flow_numbers_come_from_outputs(tmp_path):
 def test_overview_links_to_flow(tmp_path):
     _, c = _client(tmp_path)
     assert 'href="/dev/flow"' in c.get("/dev").text
+
+
+def test_compare_keeps_latest_complete_run(tmp_path):
+    """관계 질문만 다시 잰 더 최근 측정이 있어도, 비교 표는 세 갈래를 다 잰 가장 최근 측정을 쓴다."""
+    import os
+    import time
+    from zzaimy.app import answer_flow
+    ev = tmp_path / "eval"
+    ev.mkdir()
+    full = {"summary": {"fulltext": {"search": {"section": {"n": 73, "counts": {"doc_hit": {"k": 13, "n": 73, "rate": 0.18}}},
+                                                "relation": {"n": 75}}, "answer": {"n": 36}}}}
+    part = {"summary": {"fulltext": {"search": {"section": {"n": 0}, "relation": {"n": 75}}}}}
+    (ev / "graphrag_vs_fulltext_full.json").write_text(json.dumps(full))
+    (ev / "graphrag_vs_fulltext_part.json").write_text(json.dumps(part))
+    later = time.time() + 10
+    os.utime(ev / "graphrag_vs_fulltext_part.json", (later, later))
+    got = answer_flow.compare_rows(ev)
+    assert got["file"] == "graphrag_vs_fulltext_full.json" and got["n_sec"] == 73

@@ -90,9 +90,28 @@ def _cell(v, kind: str) -> str:
     return str(v)
 
 
+def _latest_complete(eval_dir: Path) -> tuple[dict | None, str]:
+    """가장 최근의 「온전한」 비교 측정 — 세 방식 모두 절·관계 질문 검색과 답변까지 잰 파일.
+    한 갈래만 다시 잰 측정(예: 관계 질문만 --only)이 더 최근이어도 표를 비우지 않는다."""
+    files = sorted(eval_dir.glob("graphrag_vs_fulltext_*.json"), key=lambda p: p.stat().st_mtime, reverse=True) \
+        if eval_dir.is_dir() else []
+    for f in files:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        summ = data.get("summary") or {}
+        modes = [m for m, _ in COMPARE_MODES if m in summ]
+        if modes and all(((summ[m].get("search") or {}).get("section") or {}).get("n")
+                         and ((summ[m].get("search") or {}).get("relation") or {}).get("n")
+                         and (summ[m].get("answer") or {}).get("n") for m in modes):
+            return data, f.name
+    return None, ""
+
+
 def compare_rows(eval_dir: Path) -> dict:
     """scripts/188 결과(graphrag_vs_fulltext_*.json 가장 최근) → 화면 표와 한 줄 요약. 값은 파일의 summary 를 그대로 옮긴다."""
-    data, name = _latest(eval_dir, "graphrag_vs_fulltext_*.json")
+    data, name = _latest_complete(eval_dir)
     if not data or not data.get("summary"):
         return {}
     summ = data["summary"]
