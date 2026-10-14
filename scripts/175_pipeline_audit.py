@@ -185,7 +185,8 @@ def main() -> int:
         if doc_id or rel in origins or rel in covered_groups:
             done += 1
             continue
-        if int(size or 0) > MAX_PARSE_BYTES:          # DGX 처리기(167)가 정책상 건너뛰는 크기 — 놓침이 아니다
+        # 상한을 넘어도 처리를 시도해 실패했으면 실패로 센다(사유가 보여야 손쓸 수 있다) — 시도 전인 것만 크기 초과
+        if int(size or 0) > MAX_PARSE_BYTES and rel not in fails:   # DGX 처리기(167)가 정책상 건너뛰는 크기 — 놓침이 아니다
             too_big += 1
             too_big_rows.append({"rel": rel, "mb": round(int(size or 0) / 1e6)})
             continue
