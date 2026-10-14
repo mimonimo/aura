@@ -1916,6 +1916,7 @@ def create_app(
         search_misses: dict[str, int] = {}                      # 값마다 이번 요청에서 찾았지만 못 찾은 횟수
         gave_up: set[str] = set()                               # 세 번 못 찾아 이번 요청에서는 더 찾지 않는 값
         found: list[dict] = []                                  # 같은 근거를 조각으로 — 질문 답에 첫 근거로 넘긴다
+        searched_srcs: set[str] = set()                         # 에이전트가 이미 찾은 출처 — 답하기가 같은 출처를 다시 찾지 않게
         found_docs: dict[int, dict] = {}                        # 이번 요청의 search 결과에 나온 문서 — read_found 가 읽을 수 있는 것만
 
         def asks_in(query: str) -> list[dict]:
@@ -1980,6 +1981,8 @@ def create_app(
             notes.append(f"◇ {a.get('for') or query} — 검색 「{query}」({src})\n{body}")
             found.extend({"title": h.get("title") or "문서", "text": h.get("text") or "", "doc_id": h.get("doc_id"),
                           "note": h.get("note") or ""} for h in hits[:4])
+            if hits:
+                searched_srcs.add(src)
             if src in ("project", "criteria"):                  # 값 채우기 근거는 이 프로젝트 문서의 결과만 — 문서함 전체는 아니다
                 seen_hits.extend({"title": str(h.get("title") or "문서"), "text": h["text"][:500], "doc_id": h.get("doc_id"),
                                   "chunk_id": h.get("chunk_id")} for h in hits[:4])   # 모델에게 보인 글 그대로
@@ -2231,6 +2234,8 @@ def create_app(
                 kw["scope"] = scope
             if "on_partial" in params:
                 kw["on_partial"] = lambda text: _chat_partial(session_id, text)
+            if "searched" in params and found:
+                kw["searched"] = set(searched_srcs)
             if "evidence" in params and found:
                 # 찾은 근거를 버리지 않고 답의 근거로 — 이어 읽은 글(잘린 결과의 나머지)을 앞에, 검색 조각은 뒤에
                 ordered = [e for e in found if e.get("read")] + [e for e in found if not e.get("read")]
