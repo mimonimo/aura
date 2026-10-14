@@ -154,3 +154,9 @@ def test_out_of_period_doc_moves_to_ledger_lineage_program():
     assert "앞뒤 단계" in res[0].evidence[-1]
     assert (res[1].program, res[1].status) == ("", "review")          # 어느 단계 기간에도 없는 연도
     assert st["moved_to_lineage"] == 1
+    # 검토가 이 사업 기간 안 연도로 적은 폴더의 문서는 연도가 엇갈려도 옮기지 않는다
+    r3 = P.Assignment(doc_id=3, program="program:abcd30", program_name=NEW, status="agent", year=2019,
+                      evidence=["검토: ABCD3.0 폴더의 1차년도(2021) 업무"])
+    P.fill_period([{"id": 3, "filename": "입찰공고(2019).pdf", "path": "사업단/ABCD3.0 자료/구매"}], [r3],
+                  link["periods"], link["spans"], link["aliases"])
+    assert (r3.program, r3.status) == ("", "review")

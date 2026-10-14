@@ -1058,7 +1058,10 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
             # 앞 단계 시절 문서(「LINC 3.0」 폴더의 2021년 협의체 자료 → LINC+). 둘 이상이면 고르지 않는다
             lin = [sp for sp in (spans or []) if own and sp["id"] in own.get("lineage", ())
                    and sp["start"] <= a.year <= (sp["end"] or 9999)]
-            if len(lin) == 1:
+            # 검토가 그 폴더를 이 사업의 기간 안 연도로 적었으면(「LINC3.0 폴더의 1차년도(2022) 업무」) 연도끼리 엇갈린 것이다 —
+            # 앞뒤 단계로 옮기지 않고 사람 검토로 둔다
+            said = [int(y) for e in a.evidence if str(e).startswith("검토:") for y in re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", str(e))]
+            if len(lin) == 1 and not any(start <= y <= (end or 9999) for y in said):
                 other = lin[0]
                 a.evidence = list(a.evidence) + [f"연도 {a.year} 가 「{a.program_name}」 기간({start}~{end or ''}) 밖 — "
                                                  f"외부 확인 장부의 앞뒤 단계 사업 「{other['name']}」({other['start']}~{other['end'] or ''}) 기간 안"]
