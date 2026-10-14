@@ -144,6 +144,7 @@ def main() -> int:
         if not removed and (doc_id or rel in origins):
             covered_groups.add(dup or rel)
     too_big = 0
+    too_big_rows: list[dict] = []
     target = done = failed = waiting = 0
     missed: Counter = Counter()
     missed_dirs: Counter = Counter()
@@ -186,6 +187,7 @@ def main() -> int:
             continue
         if int(size or 0) > MAX_PARSE_BYTES:          # DGX 처리기(167)가 정책상 건너뛰는 크기 — 놓침이 아니다
             too_big += 1
+            too_big_rows.append({"rel": rel, "mb": round(int(size or 0) / 1e6)})
             continue
         no_result[rel] = f"{int(size or 0)}:{int(float(mtime or 0))}"
         if rel in fails:
@@ -248,7 +250,7 @@ def main() -> int:
         tmpf.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows_), encoding="utf-8")
         tmpf.replace(PLAT / name)                         # 화면의 목록 내려받기(/dev/intake)가 읽는다
     out = {"at": now.strftime("%Y-%m-%d %H:%M"), "reimport": len(reimport), "composition": dict(comp), "archive_files": total, "targets": target, "in_docbox": done, "failed": failed,
-           "waiting": waiting, "too_big": too_big, "missed": sum(missed.values()), "missed_by_ext": dict(missed), "missed_by_dir": dict(missed_dirs.most_common(15)),
+           "waiting": waiting, "too_big": too_big, "too_big_rows": too_big_rows[:50], "missed": sum(missed.values()), "missed_by_ext": dict(missed), "missed_by_dir": dict(missed_dirs.most_common(15)),
            "missed_examples": examples, "failed_by_reason": dict(fail_why), "stuck_docs": stuck, "grant_chunks": n_chunks,
            "embedding_index": n_emb, "lexical_index": n_lex, "grant_docs": n_docs, "graph_doc_nodes": n_graph, "alerts": alerts}
     (PLAT / "pipeline_audit.json").write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
