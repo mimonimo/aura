@@ -128,7 +128,7 @@ def test_answer_flow_reads_numbers_only_from_machine_outputs(graph, tmp_path):
         "graph": {"search": {"sec_median": 2.2, "section": {"n": 74, "doc_at_k": 0.7}, "relation": {"n": 59, "ok": 0.6}},
                   "answer": {"n": 30, "wall_sec_median": 60.0}}}}), encoding="utf-8")
     cmp_ = answer_flow.snapshot(graph, tmp_path / "eval")["compare"]
-    assert cmp_["modes"] == ["① 풀텍스트 RAG — 그래프 없이", "② GraphRAG — 코드가 이름으로 좁힘"] and cmp_["n_sec"] == 74 and cmp_["n_ans"] == 30
+    assert cmp_["modes"] == ["① 풀텍스트 RAG — 그래프 없이", "② GraphRAG — 질문 해석: 코드(낱말 맞추기)"] and cmp_["n_sec"] == 74 and cmp_["n_ans"] == 30
     assert cmp_["adopted"] == [False, True]                                    # 27B 읽기를 끈 설정 — ② 가 운영
     assert cmp_["rows"][0]["vals"] == ["50% (37/74, 39~61%)", "—"]          # 파일 값 그대로
     assert {r["label"]: r["vals"] for r in cmp_["rows"]}["답이 나오기까지 — 보통(중앙값)"] == ["50.0초", "60.0초"]

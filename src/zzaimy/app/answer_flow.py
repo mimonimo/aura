@@ -72,8 +72,8 @@ def snapshot(db, eval_dir: Path) -> dict:
 
 
 # 세 방식 — ① 그래프 없이 전체에서 찾기 ② 그래프로 좁히되 질문 해석은 코드(이름·연도·갈래 낱말 맞추기) ③ 질문 해석을 27B 가(운영)
-COMPARE_MODES = (("fulltext", "① 풀텍스트 RAG — 그래프 없이"), ("graph", "② GraphRAG — 코드가 이름으로 좁힘"),
-                 ("graph_read", "③ GraphRAG — 27B 가 질문을 읽고 좁힘"))
+COMPARE_MODES = (("fulltext", "① 풀텍스트 RAG — 그래프 없이"), ("graph", "② GraphRAG — 질문 해석: 코드(낱말 맞추기)"),
+                 ("graph_read", "③ GraphRAG — 질문 해석: 27B"))
 
 
 def adopted_mode() -> str:

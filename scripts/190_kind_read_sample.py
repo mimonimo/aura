@@ -54,6 +54,7 @@ def main() -> int:
     ap.add_argument("--url", default="http://localhost:11434")
     ap.add_argument("--model", default="qwen3.8:27b")
     ap.add_argument("--seed", type=int, default=20261014)
+    ap.add_argument("--rels", default="", help="이 목록(JSONL 의 rel, 또는 한 줄에 경로 하나)만 다시 판정 — 갈래 설명을 고친 뒤 엇갈린 것만 볼 때")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
     docs = latest(args.parsed)
@@ -62,6 +63,13 @@ def main() -> int:
     empty = sorted(r for r, d in docs.items() if not d.get("doc_kind"))
     pick = [("규칙 있음", r) for r in rng.sample(ruled, min(args.n, len(ruled)))] + \
            [("규칙 비움", r) for r in rng.sample(empty, min(args.n, len(empty)))]
+    if args.rels:
+        wanted = []
+        for line in Path(args.rels).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                wanted.append(json.loads(line)["rel"] if line.startswith("{") else line)
+        pick = [("규칙 있음" if docs[r].get("doc_kind") else "규칙 비움", r) for r in wanted if r in docs]
     print(f"문서 {len(docs)} · 규칙 있음 {len(ruled)} · 규칙 비움 {len(empty)} · 표본 {len(pick)}", flush=True)
     complete = ollama(args.url, args.model)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
