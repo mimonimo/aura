@@ -63,7 +63,7 @@ def main() -> int:
                 n_skip += 1
                 continue
             fo.write(json.dumps({"rel": rel, "version": str(d.get("version") or ""), "kind": got[0], "why": got[1],
-                                 "rule": d.get("doc_kind") or "", "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
+                                 "rule": d.get("doc_kind") or "", "chars": len((d.get("masked_text") or "").strip()), "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
             fo.flush()
             n_ok += 1
             if i % 200 == 0:

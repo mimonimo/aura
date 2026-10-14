@@ -10,7 +10,9 @@ import json
 import re
 from typing import Callable
 
-from zzaimy.app.doc_routing import KINDS
+from zzaimy.app.doc_routing import KINDS, excluded_kinds
+
+THIN = 200                                                          # 이보다 짧은 본문은 제목만 본 판정으로 친다
 
 # 갈래마다 한 줄 설명 — 특정 문서가 아니라 서류 종류의 생김새
 KIND_DESC = {
@@ -38,6 +40,7 @@ KIND_DESC = {
 SYSTEM = (
     "너는 대학 행정 문서를 분류하는 담당자다. 문서의 제목·폴더·본문 앞머리를 보고 서류 갈래를 하나 고른다. "
     "제목만 보지 말고 본문의 생김새(조문·빈칸·표·보고 문장)도 본다. 확신이 없으면 \"\"(모름)를 고른다. "
+    "본문이 비었거나 몇 줄뿐이면 제목만으로 정하게 되니, 제목이 서류 종류를 분명히 말하지 않는 한 모름을 고른다. "
     "답은 JSON 하나만: {\"kind\": \"갈래 열쇠 또는 빈 문자열\", \"why\": \"한 문장\"}"
 )
 
@@ -71,3 +74,11 @@ def read_kind(complete: Callable[[list[dict]], str], title: str, text: str, fold
         return parse(complete(prompt(title, text, folder)))
     except Exception:
         return None
+
+
+def thin_exclusion(kind: str, rule: str, chars: int | None) -> bool:
+    """검색에서 빠지는 갈래(excluded_kinds — 기본 증빙)를 본문이 얇은 문서에 규칙과 엇갈리게 붙이려 한다 — 받지 않는다.
+    제목만 보고 내린 판정으로 문서를 검색·문서함에서 빼지 않기 위해서다. 본문 길이를 모르면(None) 막지 않는다."""
+    if chars is None or kind not in excluded_kinds() or (rule or "") == kind:
+        return False
+    return chars < THIN

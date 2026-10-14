@@ -4,6 +4,8 @@
 - DGX 보관 문서(stored_path = dgx://<원본 경로>)만, 판(version)이 지금 원본과 같을 때만.
 - 기준 문서(doc_type regulation)와 담당자가 고친 갈래(identity.kind_by_hand)는 건드리지 않는다.
 - 바꾸기 전 갈래를 백업 파일(data/platform/backups/kind27b-YYYYMMDD.jsonl)에 덧붙인다 — --restore 로 되돌린다.
+- 검색에서 빠지는 갈래(doc_routing.excluded_kinds — 기본 증빙)는 본문이 얇은(kind_read.THIN 자 미만) 문서에서 규칙과 엇갈리면 적용하지 않는다.
+  제목만 보고 내린 판정으로 문서를 정리함에 옮기지 않기 위해서다(본문 길이를 모르는 옛 판정은 그대로 적용).
 - 같은 판정은 다시 적용해도 그대로다(이미 같으면 건너뜀). 바뀐 문서가 있으면 그래프를 다시 짓게 .kg-dirty 를 남긴다.
 사용(VM): env PYTHONPATH=src .venv/bin/python scripts/192_kind_apply.py data/inbox/parsed/kind27b-0.jsonl [--apply]
           env PYTHONPATH=src .venv/bin/python scripts/192_kind_apply.py --restore data/platform/backups/kind27b-20261014.jsonl
@@ -21,7 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 from zzaimy.app.db import Database  # noqa: E402
-from zzaimy.app.doc_routing import KINDS  # noqa: E402
+from zzaimy.app.doc_routing import KINDS
+from zzaimy.app.kind_read import thin_exclusion  # noqa: E402
 
 
 def _db() -> Database:
@@ -52,7 +55,8 @@ def plan(db: Database, judged: dict[str, dict]) -> list[tuple[int, str, str]]:
     for did, sp, kind, dtype, ident in rows:
         rel = str(sp)[len("dgx://"):]
         j = judged.get(rel)
-        if not j or dtype == "regulation" or (kind or "") == j["kind"]:
+        if not j or dtype == "regulation" or (kind or "") == j["kind"] \
+                or thin_exclusion(j["kind"], j.get("rule") or "", j.get("chars")):
             continue
         try:
             if json.loads(ident or "{}").get("kind_by_hand"):

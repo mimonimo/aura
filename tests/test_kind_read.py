@@ -36,3 +36,13 @@ def test_ingest_uses_27b_kind_and_falls_back_to_rule(tmp_path, monkeypatch):
     monkeypatch.setenv("ZZAIMY_LIGHT_PROCESS", "1")                    # DGX 가벼운 처리는 규칙만 — 27B 는 일괄(191)이
     monkeypatch.setattr(pipeline, "_kind_complete", lambda m: '{"kind": "report", "why": ""}')
     assert pipeline.DocumentProcessor._assign_kind(db, did, "2024 운영 현황", "본문", "grant") == "table"
+
+
+def test_thin_body_does_not_exclude(monkeypatch):
+    from zzaimy.app import kind_read
+    monkeypatch.delenv("ZZAIMY_EXCLUDE_KINDS", raising=False)
+    assert kind_read.thin_exclusion("evidence", "", 30)                 # 제목만 본 증빙 판정은 받지 않는다
+    assert not kind_read.thin_exclusion("evidence", "", 800)            # 본문이 있으면 받는다
+    assert not kind_read.thin_exclusion("evidence", "evidence", 30)     # 규칙도 증빙이면 받는다
+    assert not kind_read.thin_exclusion("notice", "", 30)               # 검색에 남는 갈래는 막지 않는다
+    assert not kind_read.thin_exclusion("evidence", "", None)           # 길이를 모르는 옛 판정

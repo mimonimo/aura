@@ -1631,7 +1631,7 @@ class DocumentProcessor:
                     and os.environ.get("ZZAIMY_KIND_READ", "1") != "0":
                 from zzaimy.app import kind_read
                 got = kind_read.read_kind(_kind_complete, filename, text)
-                if got and got[0]:
+                if got and got[0] and not kind_read.thin_exclusion(got[0], kind, len((text or "").strip())):
                     kind = got[0]
             db.set_document_kind(doc_id, kind or None)
             return kind
