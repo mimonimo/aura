@@ -363,16 +363,12 @@ def test_answer_question_uses_the_evidence_the_agent_found(tmp_path, monkeypatch
 
     fake = _Fake()
     monkeypatch.setattr(_gc, "VllmClient", lambda *a, **k: fake)
-    from zzaimy.app import grant_search
-    grant_calls: list = []
-    monkeypatch.setattr(grant_search, "search", lambda *a, **k: grant_calls.append(1) or {"hits": []})
     r = client.post("/chat/send", data={"question": "신청 자격과 본신청 마감일만 공고 기준으로 알려 줘. 문서는 고치지 말고.",
                                         "session_id": str(sid)}, follow_redirects=False)
     page = client.get(r.headers["location"]).text
     assert prompts and "본신청 접수 7.28.~8.6." in prompts[0] and "《부트캠프 공고》" in prompts[0]
     assert NO_EVIDENCE_NOTE.strip() not in prompts[0]                              # 「근거 없음」 길로 가지 않는다
     assert "본신청 마감은 8.6." in page and "부트캠프 공고" in page                     # 출처 목록에도 선다
-    assert grant_calls == []                           # 에이전트가 이미 라이브러리(사업 문서)를 찾았다 — 답하기가 다시 찾지 않는다
 
 
 # ---------------------------------------------------------------- 보안: 직접 부르는 함수의 열람 범위·검토의 쓰기

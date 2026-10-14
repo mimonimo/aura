@@ -227,12 +227,9 @@ class AgentResponder:
         on_progress=None,
         evidence: list[dict] | None = None,
         on_partial=None,
-        searched: set[str] | None = None,
     ) -> str:
         """evidence: 부른 쪽(문서 작업 에이전트)이 이미 찾아 둔 근거 [{title, text, doc_id?, note?}]. 열람 범위 안에서 찾은 것이며,
-        답의 첫 근거로 건네고 출처 목록에도 넣는다. 수치는 이 근거와 아래 검색 근거에 있는 것만 쓴다.
-        searched: 그 근거를 찾은 출처(library=사업 문서, rules=규정) — 같은 검색 엔진으로 이미 찾았으니 다시 찾지 않는다.
-        찾지 않은 출처는 아래에서 지금처럼 찾는다."""
+        답의 첫 근거로 건네고 출처 목록에도 넣는다. 수치는 이 근거와 아래 검색 근거에 있는 것만 쓴다."""
         from zzaimy.generate.client import VllmClient
         from zzaimy.app.regulations import find_relevant
 
@@ -256,10 +253,8 @@ class AgentResponder:
             context, hits = pack_criteria_context(ordered)
         else:
             # 현재 등록 문서만 검색한다. 폐기한 공개 코퍼스는 조회하지 않는다.
-            done = set(searched or ()) if evidence else set()
-            hits = [] if "rules" in done else find_relevant(
-                db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"),
-                user=scope.get("user"), levels=scope.get("levels"))
+            hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"),
+                                 user=scope.get("user"), levels=scope.get("levels"))
             self.last_timing["regulation_sec"] = round(_time.time() - _t0, 2)
             _t1 = _time.time()
             blocks = []
@@ -273,8 +268,6 @@ class AgentResponder:
             try:
                 if scope.get("role") == "student" or scope.get("grant") is False:
                     raise LookupError("이 RAG 공간은 사업 문서를 쓰지 않는다(ADR-0052·0053)")
-                if "library" in done:
-                    raise LookupError("에이전트가 이미 사업 문서를 찾았다 — 그 근거를 쓴다")
                 from zzaimy.app import grant_search
                 from zzaimy.graph.question_read import reader_for
                 # 질문을 온톨로지 말(사업·연차·갈래·따라갈 관계)로 읽는 일은 모델이 — 실패하면 이름 맞추기로 물러난다
