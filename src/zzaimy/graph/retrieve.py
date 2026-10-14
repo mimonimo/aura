@@ -165,6 +165,10 @@ def _programs(db) -> list[dict]:
     return _PROG_CACHE["rows"]
 
 
+# 문서 갈래 둘을 잇는 관계(question_read.RELATIONS 의 열쇠 → 양 끝 갈래). 그래프 빌드(157)가 이 갈래끼리만 잇는다
+KIND_RELATIONS: dict[str, tuple[str, str]] = {"plan_report": ("plan", "report")}
+
+
 @dataclass
 class Scope:
     program: str = ""
@@ -280,6 +284,11 @@ def scope(db, question: str, reader=None) -> Scope:
         years = years or list(reading.years)
         rounds = rounds or list(reading.rounds)
         sc.kinds = sc.kinds or list(reading.kinds)
+    # 질문이 고른 갈래가 온톨로지 관계의 양 끝을 다 가리키면 그 관계를 따른다 — 낱말 규칙을 더하지 않고 이미 읽은 갈래와
+    # 관계의 정의(KIND_RELATIONS)로. 모델 읽기가 없어도 「계획서와 실적보고서」를 함께 물으면 두 문서를 짝으로 본다
+    for rel, ends in KIND_RELATIONS.items():
+        if rel not in sc.relations and set(ends) <= set(sc.kinds):
+            sc.relations.append(rel)
     sc.round = rounds[0] if rounds else None
     sc.year = years[0] if years else None
     if not sc.programs:

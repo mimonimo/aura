@@ -144,3 +144,41 @@ def test_partner_of_evidence_doc_is_added(monkeypatch):
     added = grant_search._cover_relations(None, [], hits, order, [("실적보고서", {2, 9})], None, None, {},
                                           {1: [("그 계획서의 실적보고서", 2)]})
     assert [h["doc_id"] for h in hits] == [1, 2] and added == [("그 계획서의 실적보고서", 1)]
+
+
+def test_kinds_at_both_ends_follow_the_relation_without_model(graph):
+    """모델 읽기 없이도 물은 갈래가 관계의 양 끝(계획서·실적보고서)이면 그 관계(계획↔실적 짝)를 따른다."""
+    sc = gr.scope(graph, "가나 2단계 사업 2024년 계획서와 실적보고서")
+    assert sc.read_by == "이름 맞추기" and sc.relations == ["plan_report"]
+    assert sc.partners == {1: [("그 계획서의 실적보고서", 2)], 2: [("그 실적보고서의 계획서", 1)]}
+    assert {why for why, _ in sc.cover} == {"계획서", "실적보고서"}
+    one = gr.scope(graph, "가나 2단계 사업 2024년 실적보고서")
+    assert one.relations == [] and not one.partners                   # 한쪽 갈래만 물으면 따라가지 않는다
+
+
+def test_each_evidence_doc_brings_a_different_best_ranked_partner(monkeypatch):
+    """문서 짝이 같은 연차의 계획서 × 실적보고서를 모두 이을 때 — 근거 문서마다 아직 없는 짝 가운데 순위가 앞선 것을 담아
+    실적보고서가 하나만 되풀이되지 않는다. 순위에 없는 짝은 짝 문서들 안에서 같은 낱말로 다시 찾은 순위로."""
+    from zzaimy.app import grant_lex, grant_search
+    pair = [("그 계획서의 실적보고서", r) for r in (20, 21, 22)]
+    partners = {1: pair, 3: pair}
+    order = [{"id": 11, "doc_id": 1, "content": "계획 가", "filename": "계획서 가"},
+             {"id": 31, "doc_id": 3, "content": "계획 나", "filename": "계획서 나"},
+             {"id": 221, "doc_id": 22, "content": "실적 다", "filename": "실적보고서 다"}]
+    hits = [{"chunk_id": 11, "doc_id": 1, "content": "계획 가", "filename": "계획서 가", "path": []},
+            {"chunk_id": 31, "doc_id": 3, "content": "계획 나", "filename": "계획서 나", "path": []}]
+    seen = {}
+
+    def fake_rank(db, lq, scope_docs, user, depts=None):
+        seen["scope"] = set(scope_docs)
+        return [211, 201]                                      # 짝 안에서 다시 찾은 순위 — 21 이 20 보다 앞
+
+    monkeypatch.setattr(grant_lex, "rank", fake_rank)
+    monkeypatch.setattr(grant_search, "chunks_by_ids", lambda db, ids: [
+        {"id": 201, "doc_id": 20, "content": "실적 가 " * 80, "filename": "실적보고서 가", "seq": 1},
+        {"id": 211, "doc_id": 21, "content": "실적 나 " * 80, "filename": "실적보고서 나", "seq": 1}])
+    monkeypatch.setattr(grant_search, "expand_many", lambda db, chunks: None)
+    added = grant_search._cover_relations(None, frozenset({"실적"}), hits, order, [], None, None, {}, partners)
+    assert seen["scope"] == {20, 21}                           # 순위에 이미 있는 짝(22)은 다시 찾지 않는다
+    assert [h["doc_id"] for h in hits] == [1, 3, 22, 21]       # 순위에 있는 짝 먼저, 그다음 다시 찾은 순위로 — 서로 다른 짝
+    assert added == [("그 계획서의 실적보고서", 1)] * 2

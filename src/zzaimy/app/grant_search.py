@@ -557,6 +557,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
 
 
 PARTNER_MAX = 3      # 짝 문서로 더 담는 조각 수 상한
+PARTNER_POOL = 200   # 순위에 없는 짝 문서들 안에서 다시 찾을 때 볼 조각 수
 
 
 def _cover_relations(db, lq, hits: list[dict], order: list[dict], cover, user, depts, path_of,
@@ -583,15 +584,44 @@ def _cover_relations(db, lq, hits: list[dict], order: list[dict], cover, user, d
                      "filename": pick["filename"], "path": path_of.get(pick["doc_id"], []) + [pick["filename"]], "relation": why})
         added.append((why, 1))
 
+    # 짝 — 근거에 든 문서마다 아직 근거에 없는 짝 가운데 질문과 가장 맞는 것 하나(검색 순위에 있으면 그 순위, 없으면 짝 문서들
+    # 안에서 같은 낱말로 다시 찾은 순위). 문서 짝은 같은 사업·연차의 계획서 × 실적보고서를 모두 잇기 때문에 첫 짝만 보면 근거마다
+    # 같은 문서가 나와 실적보고서 하나만 담긴다 — 상위 문서마다 서로 다른 짝을 담아 관계 건너편도 여러 문서로 고르게
+    partners = partners or {}
+    have = {x["doc_id"] for x in hits}
+    pos: dict[int, int] = {}
+    for i, c in enumerate(order):
+        pos.setdefault(c["doc_id"], i)
+    want = {o for h in hits for _w, o in partners.get(h["doc_id"], []) if o not in have}
+    lex_pick: dict[int, dict] = {}
+    missing = {d for d in want if d not in pos}
+    if missing and lq:
+        try:
+            ids = grant_lex.rank(db, lq, missing, user, depts=depts)[:PARTNER_POOL]
+            rank_of = {cid: i for i, cid in enumerate(ids)}
+            got = sorted(chunks_by_ids(db, ids), key=lambda c: rank_of.get(c["id"], len(ids)))
+            expand_many(db, got)
+            for c in quality_filter(got):
+                lex_pick.setdefault(c["doc_id"], c)
+        except Exception:
+            lex_pick = {}
+    lex_pos = {d: i for i, d in enumerate(lex_pick)}
+
+    def rank_key(d: int):
+        return (0, pos[d]) if d in pos else (1, lex_pos[d]) if d in lex_pos else None
+
     n_pair = 0
     for h in list(hits):
-        for why, other in (partners or {}).get(h["doc_id"], [])[:1]:
-            if n_pair >= PARTNER_MAX or any(x["doc_id"] == other for x in hits):
-                continue
-            pick = pick_in({other})
-            if pick is not None:
-                put(pick, why)
-                n_pair += 1
+        if n_pair >= PARTNER_MAX:
+            break
+        cands = [(why, o) for why, o in partners.get(h["doc_id"], []) if o not in have and rank_key(o) is not None]
+        if not cands:
+            continue
+        why, other = min(cands, key=lambda x: rank_key(x[1]))
+        pick = next((c for c in order if c["doc_id"] == other), None) or lex_pick[other]
+        put(pick, why)
+        have.add(other)
+        n_pair += 1
     for why, ds in cover or []:
         if not ds or any(h["doc_id"] in ds for h in hits):
             continue
