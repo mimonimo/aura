@@ -56,10 +56,10 @@
   <rect class="box" x="288" y="216" width="172" height="62" rx="8"/>
   <text class="b" x="302" y="238">온톨로지·지식그래프</text>
   <text class="t" x="302" y="256">사업→연차→문서→절</text>
-  <text class="t" x="302" y="271">→지표·예산·조직·규정</text>
+  <text class="t" x="302" y="271">→단위과제·성과지표·기관</text>
   <rect class="box" x="470" y="216" width="172" height="62" rx="8"/>
   <text class="b" x="484" y="238">학습 데이터셋</text>
-  <text class="t" x="484" y="256">리즈닝 기록 후보·검수</text>
+  <text class="t" x="484" y="256">학습 후보 · 자동 검사 · 사람 검수</text>
   <text class="t" x="484" y="271">승인본(반출 관문)</text>
   <text class="s" x="290" y="300">사실·수치는 그래프와 색인에서 인출(규칙 1·8)</text>
   <text class="s" x="290" y="318">모델에는 지식을 넣지 않는다 — 리즈닝만 학습</text>
@@ -69,7 +69,7 @@
   <text class="h" x="758" y="48">서빙 장비 02</text>
   <text class="t" x="758" y="70">Writer 27B (NVFP4)</text>
   <text class="t" x="758" y="88">대화 · 초안 — 실시간</text>
-  <text class="s" x="758" y="108">학습본으로 교체</text>
+  <text class="s" x="758" y="108">학습본은 준비 중(베이스 서빙)</text>
   <rect class="host" x="740" y="146" width="220" height="122" rx="14"/>
   <text class="h" x="758" y="174">서빙 장비 03</text>
   <text class="t" x="758" y="196">Writer 27B 검토 · 판독</text>
@@ -91,12 +91,12 @@
   <text class="t" x="464" y="506">처리본 생성</text>
   <rect class="box" x="622" y="450" width="160" height="72" rx="8"/>
   <text class="b" x="636" y="472">일괄 모델 작업</text>
-  <text class="t" x="636" y="490">그래프 추출 · 임베딩</text>
+  <text class="t" x="636" y="490">MinerU OCR · 대량 판독</text>
   <text class="t" x="636" y="506">27B 가중치 사본</text>
   <rect class="box" x="794" y="450" width="150" height="72" rx="8"/>
   <text class="b" x="808" y="472">SFT 학습</text>
-  <text class="t" x="808" y="490">리즈닝 기록으로</text>
-  <text class="t" x="808" y="506">bf16 → NVFP4</text>
+  <text class="t" x="808" y="490">Writer SFT — 준비 중</text>
+  <text class="t" x="808" y="506">베이스라인 측정 뒤 LoRA</text>
 
   <!-- 연결 -->
   <path class="ln2" d="M210 79 L270 79"/>
