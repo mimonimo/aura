@@ -130,6 +130,8 @@ KINDS = {
     # 갈래 미정 문서 표본에서 드러난 일반 서류 종류
     "evidence": "증빙·회계 서류", "curriculum": "교육과정·교과", "minutes": "회의 자료", "promo": "홍보물",
     "drawing": "도면", "personal": "개인 제출물",
+    # 기관 사이 역할·의무를 약속한 문서(산학 협약서·채용 약정서·업무협약) — 돈이 오간 증빙(evidence)과 다르다(검색·그래프에 남는다)
+    "agreement": "협약·약정서",
     # 사업 분류(graph/programs.classify)가 제목의 「평가 결과·종합의견」으로 붙이는 갈래 — 원본 보관소·라이브러리가 같은 이름을 쓴다
     "evaluation": "평가 결과",
 }
@@ -157,6 +159,7 @@ _KIND_CUES = {
     # 지출·계약 증빙(절대 규칙 11 의 범위 밖 계열) — 폴더 이름으로 못 거른 것을 서류 이름으로 알아본다
     "evidence": r"견적서|통장\s*사본|사업자\s*(?:등록증)?\s*사본|거래\s*명세|세금\s*계산서|영수증|입금표|송금|청구서|납품서|"
                 r"검수\s*조서|지출\s*결의|계약서|구매\s*요청",
+    "agreement": r"협약서|약정서|업무\s*협약|협정서|MOU",
     "curriculum": r"교과\s*과정|교육\s*과정|강의\s*계획|교안|커리큘럼|이수\s*체계",
     "minutes": r"회의록|회의\s*자료|회의\s*결과|협의회\s*자료|위원회\s*자료",
     "promo": r"리플[렛릿]|브로[슈셔]어?|포스터|홍보물|카드\s*뉴스|현수막|팸플릿|홍보\s*자료",
@@ -164,7 +167,7 @@ _KIND_CUES = {
     "personal": r"수기|소감문|자기\s*소개서|포트폴리오|참가\s*후기|활동\s*일지",
     "notice": r"안내|공지|알림|확인사항|유의사항|이벤트|박람회|축제|체험|캠페인|참여방법|관광|예매|입장권|페스타|페스티벌|공연|마라톤",
 }
-_KIND_ORDER = ("regulation", "evidence", "certificate", "form", "report", "criteria", "announcement", "guideline", "basic_plan", "plan",
+_KIND_ORDER = ("regulation", "agreement", "evidence", "certificate", "form", "report", "criteria", "announcement", "guideline", "basic_plan", "plan",
                "minutes", "curriculum", "drawing", "promo", "personal", "table", "notice")
 # '-원'으로 끝나는 서류 이름은 신청 서식이다(복학원·재입학원·학점취소원). 기관 이름의 '원'은 아니다.
 _WON_FORM = re.compile(r"[가-힣()/]{2,}원$")
