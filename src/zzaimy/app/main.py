@@ -5330,7 +5330,7 @@ def create_app(
         if rev.running_state(Path(db_path).parent / "eval"):
             return HTMLResponse("이미 측정 중입니다", status_code=409)
         root = Path(__file__).resolve().parents[3]
-        subprocess.Popen(
+        proc = subprocess.Popen(
             ["nohup", sys.executable, str(root / "scripts" / "53_eval_retrieval.py"),
              "--db", str(Path(db_path).resolve())],
             stdout=open(rev.LOG_PATH, "w"),
@@ -5339,6 +5339,8 @@ def create_app(
             cwd=root,
             env={**os.environ, "PYTHONPATH": str(root / "src")},
         )
+        # 측정 스크립트가 표시를 쓰기 전에 화면이 먼저 돌아오면 「측정 중」 이 안 보인다 — 띄운 즉시 쓴다
+        rev.mark_running(Path(db_path).parent / "eval", pid=proc.pid)
         return RedirectResponse("/dev/quality", status_code=303)
 
     @app.post("/account/password")

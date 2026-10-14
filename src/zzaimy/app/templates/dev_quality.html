@@ -33,8 +33,7 @@
       {% endif %}
     </span></h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
-    합성 질의로 정답 조각을 되찾는 정확도입니다. R@5는 검색한 상위 5개 안에 정답이 포함된 비율, MRR@10은 정답이 앞에 나올수록 높아지는 점수입니다. 문서 작성 품질이나 Writer SFT 성능을 뜻하지 않습니다.</p>
-  <p class="muted">확인 순서: 평가 질문·정답 연결 확인 → 동일 검색 구성으로 측정 → 방식별 결과 비교. 낮은 결과는 질문의 정답 연결, 문서 추출 누락, 검색 순위 문제를 구분해 조사합니다.</p>
+    합성 질의로 정답 조각을 되찾는 비율(R@5: 상위 5개 안, MRR@10: 앞에 나올수록 높음). 사업 문서 검색 비교는 개발 현황 「답변 흐름」.</p>
   {% if retrieval_eval.running %}
   <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 중
     ({{ retrieval_eval.started_at_display }} 시작)
@@ -93,7 +92,7 @@
   <p class="eval-now">현재 구성 측정 없음 —
     {% if retrieval_eval.running %}측정 진행 중
     {% elif retrieval_eval.query_set_missing %}{{ retrieval_eval.query_set_message }}
-    {% else %}재측정 단추로 실행(scripts/53_eval_retrieval.py, 몇 분){% endif %}</p>
+    {% else %}재측정 단추로 실행(몇 분){% endif %}</p>
   <p class="muted" style="font-size:12px; margin:0 0 4px;">지금 구성 · 규정 조각 {{ current_chunks | num }}개 · 임베딩 {{ index_model or '미확인' }}</p>
   <details class="chip-toggle eval-past">
     <summary>지난 측정(구성 다름) · {{ retrieval_eval.measured_at_display }} · 조각 {{ ev.n_chunks | num }}개 · {{ ev.embedding_model or '임베딩 미확인' }}</summary>

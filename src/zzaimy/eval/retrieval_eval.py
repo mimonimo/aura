@@ -645,12 +645,13 @@ def load_latest(eval_dir: Path) -> dict | None:
 
 # ---------------------------------------------------------------- 실행 상태 (대시보드)
 
-def mark_running(eval_dir: Path) -> Path:
+def mark_running(eval_dir: Path, pid: int | None = None) -> Path:
+    """측정 중 표시 — 화면이 띄울 때(pid 를 넘겨) 바로 쓰고, 측정 스크립트가 시작하며 한 번 더 쓴다."""
     eval_dir = Path(eval_dir)
     eval_dir.mkdir(parents=True, exist_ok=True)
     p = eval_dir / RUNNING_NAME
     p.write_text(json.dumps({
-        "pid": os.getpid(),
+        "pid": pid or os.getpid(),
         "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }), encoding="utf-8")
     return p
