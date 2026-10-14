@@ -232,7 +232,7 @@ def snapshot(db) -> dict:
     prod = next((r for r in ev.get("rows") or [] if r.get("production")), {})
     vals["reg_r1"] = prod.get("recall_at_1")
     vals["reg_r5"] = prod.get("recall_at_5")
-    cmp_ = answer_flow.compare_rows(data_dir / "eval")
+    cmp_ = answer_flow.compare_rows(data_dir.parent / "eval")         # 비교 측정(scripts/188)은 data/eval — 개발 현황 「답변 흐름」 과 같은 곳
     doc_row = next((r for r in cmp_.get("rows") or [] if "정답 문서가 근거 상위" in r["label"]), None)
     for i, mode in enumerate(("cmp_fulltext", "cmp_graph", "cmp_graph_read")):
         vals[mode] = doc_row["vals"][i] if doc_row and i < len(doc_row["vals"]) else None
