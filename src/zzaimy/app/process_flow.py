@@ -123,16 +123,16 @@ STAGES = (
      "nums": [("reg_r1", "운영 구성 R@1"), ("reg_r5", "운영 구성 R@5"), ("regulation_docs", "기준 문서")],
      "link": ("/dev/quality", "품질·성능")},
     {"n": 8, "name": "사업 문서 검색(GraphRAG)", "where": ["운영 VM", "토르 02"], "state": "운영 중", "every": "질문마다",
-     "does": "질문에서 사업·연차·서류 갈래를 읽어 그래프로 범위를 좁히고, 관계를 따라 짝 문서를 함께 담은 뒤 그 안에서 찾는다.",
+     "does": "질문에서 사업·연차·서류 갈래와 관계를 읽어 그래프로 범위를 좁히고, 관계를 따라 짝·전신 사업 문서를 함께 담은 뒤 그 안에서 찾는다. 새 사업도 문서만 반입되면 그래프에 생겨 바로 대상이 된다(사업 이름을 코드에 두지 않음).",
      "how": ["① 그래프 단계: 장부의 사업 이름 · 「N차년도」·연도 · 갈래(계획·실적·평가)로 사업 → 연차 → 문서를 좁힘",
              "② 관계 따라가기: 계획서와 실적보고서를 함께 물으면 짝을, 근거 문서마다 서로 다른 짝으로 최대 3개",
-             "③ (선택) 27B 질문 읽기: 모델이 사업·연차·관계 7종을 고르면 코드가 그래프를 따라감 — 지금 꺼짐",
+             "③ 27B 질문 읽기: 모델이 질문 뜻을 읽어 사업·연차·관계 7종(전신·후속·짝 등)을 고르면 코드가 그래프를 따라감 — 20초 안에 못 읽으면 ①로",
              "④ 좁힌 범위 안에서 낱말 + 뜻 검색, 낱말 1위 조각은 순위에서 밀리지 않게 지킴",
              "⑤ 판본 묶음은 최종본만, 문서당 2조각, 권한 밖·지출 증빙은 제외"],
      "out": "근거 조각 + 경로(사업 > 연차 > 문서)",
      "why": "같은 질문을 풀텍스트 RAG 로만 찾으면 정답 문서가 상위 5건에 드는 비율이 크게 낮다 — 아래 수치",
      "example": "「LINC 3.0 2023년 계획서의 사업 실적」 → 사업·연차·갈래를 정하고 그 문서들 안에서만 찾는다",
-     "nums": [("cmp_fulltext", "풀텍스트 RAG"), ("cmp_graph", "온톨로지+RAG"), ("cmp_graph_read", "+27B 읽기")],
+     "nums": [("graph_read", "27B 질문 읽기"), ("cmp_fulltext", "풀텍스트 RAG"), ("cmp_graph", "온톨로지+RAG"), ("cmp_graph_read", "+27B 읽기")],
      "link": ("/dev", "개발 현황 › 답변 흐름")},
     {"n": 9, "name": "답변·문서 작업", "where": ["토르 02", "운영 VM"], "state": "운영 중", "every": "질문마다",
      "does": "27B(Writer)가 걸음마다 도구를 골라 찾고 읽고 쓴다. 코드는 고른 도구를 실행하고 기록한다.",
@@ -236,6 +236,8 @@ def snapshot(db) -> dict:
     doc_row = next((r for r in cmp_.get("rows") or [] if "정답 문서가 근거 상위" in r["label"]), None)
     for i, mode in enumerate(("cmp_fulltext", "cmp_graph", "cmp_graph_read")):
         vals[mode] = doc_row["vals"][i] if doc_row and i < len(doc_row["vals"]) else None
+    import os
+    vals["graph_read"] = "켜짐" if os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1" else "꺼짐"
     out = {k: _fmt(v) for k, v in vals.items()}
     return {"vals": out, "cmp_note": "절 질문에서 정답 문서가 근거 상위 5건에 든 비율" if doc_row else "",
             "cmp_file": cmp_.get("file", ""), "eval_at": (ev.get("measured_at") or "")[:16].replace("T", " "),
