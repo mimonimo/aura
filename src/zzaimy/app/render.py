@@ -13,10 +13,24 @@ from collections import defaultdict
 from markupsafe import Markup, escape
 
 
-def _rich(text: str) -> Markup:
-    """이스케이프 후 **굵게**만 살린다 — 비전 판독의 강조 보존."""
+# 판독 본문의 그림 자리(![image](image_001.jpg)) — 글자 그대로 보이면 안 된다. 그림이 플랫폼에 있으면 그림으로, 없으면 「[그림]」
+_IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)")
+
+
+def _img_refs(escaped: str, doc_id: int | None = None, assets: dict[str, int] | None = None) -> str:
+    """이스케이프된 글의 그림 자리를 바꾼다 — 그림 이름은 이스케이프된 글에서 꺼내므로 따로 끼워 넣을 글자가 없다."""
+    def sub(m: re.Match) -> str:
+        aid = (assets or {}).get(m.group(1).rsplit("/", 1)[-1])
+        if doc_id is not None and aid is not None:
+            return f'<img src="/doc/{int(doc_id)}/asset/{int(aid)}" alt="그림" style="max-width:100%; height:auto;">'
+        return '<span class="img-ref" title="원본의 그림 자리">[그림]</span>'
+    return _IMG_REF.sub(sub, escaped)
+
+
+def _rich(text: str, doc_id: int | None = None, assets: dict[str, int] | None = None) -> Markup:
+    """이스케이프 후 **굵게**만 살린다 — 비전 판독의 강조 보존. 그림 자리는 그림·「[그림]」 으로."""
     escaped = str(escape(text))
-    return Markup(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped))
+    return Markup(_img_refs(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped), doc_id, assets))
 
 
 _TOC_LINE = re.compile(r"[·.…]{3,}\s*\d{1,3}")
@@ -51,7 +65,7 @@ def _toc_html(rows: dict[int, list], n_rows: int) -> Markup:
     return Markup("".join(parts))
 
 
-def table_html(content: str) -> Markup:
+def table_html(content: str, doc_id: int | None = None, assets: dict[str, int] | None = None) -> Markup:
     try:
         data = json.loads(content)
         cells = data["cells"]
@@ -126,7 +140,7 @@ def table_html(content: str) -> Markup:
             attrs = (f' rowspan="{rs}"' if rs > 1 else "") + (
                 f' colspan="{cs}"' if cs > 1 else ""
             )
-            parts.append(f"<{tag}{attrs}>{escape(txt)}</{tag}>")
+            parts.append(f"<{tag}{attrs}>{_img_refs(str(escape(txt)), doc_id, assets)}</{tag}>")
             for dr in range(rs):
                 for dc in range(cs):
                     occupied.add((r + dr, c + dc))
@@ -402,7 +416,7 @@ def chunk_blocks(
             blocks.append(Markup(
                 '<div class="extract-figtext muted"{} style="{}">'
                 '<span style="font-weight:700;">그림 설명·글자</span> {}</div>'
-            ).format(at, Markup(style), _rich(c["content"])))
+            ).format(at, Markup(style), _rich(c["content"], doc_id, asset_by_name)))
             prev_kind = "image_text"
             continue
         prev_kind = c["kind"]
@@ -414,7 +428,7 @@ def chunk_blocks(
                     '<div class="extract-caption" style="font-size:13px; font-weight:700;'
                     ' color:var(--navy); margin:8px 0 4px;">{}</div>'
                 ).format(caption)
-            block += table_html(c["content"])
+            block += table_html(c["content"], doc_id, asset_by_name)
             if note:
                 block += Markup(
                     '<div class="extract-note muted" style="font-size:12px;'
@@ -439,7 +453,7 @@ def chunk_blocks(
         else:
             from zzaimy.app.text_repair import normalize_numbering
 
-            blocks.append(Markup('<p class="extract-p"{}>{}</p>').format(at, _rich(normalize_numbering(c["content"]))))
+            blocks.append(Markup('<p class="extract-p"{}>{}</p>').format(at, _rich(normalize_numbering(c["content"]), doc_id, asset_by_name)))
     return blocks
 
 
