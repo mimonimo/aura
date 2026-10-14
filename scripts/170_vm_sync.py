@@ -310,6 +310,16 @@ def _prune_outscope(db) -> None:
         print("범위 밖 정리 실패:", type(e).__name__, str(e)[:120], flush=True)
 
 
+def _graph_input_sig(conn) -> str:
+    """그래프가 읽는 문서 칸(이름·프로젝트·갈래)의 지문 — 수가 같아도 갈래만 바뀐 경우(27B 갈래 반영·담당자 수정)를 잡는다."""
+    import hashlib
+    h = hashlib.sha1()
+    for r in conn.execute("SELECT id, filename, project_id, kind FROM documents WHERE status = 'reviewed' ORDER BY id"):
+        h.update("\x1f".join(str(x or "") for x in r).encode("utf-8"))
+        h.update(b"\x1e")
+    return h.hexdigest()[:16]
+
+
 def post_if_changed(db) -> int:
     """문서함이 바뀌었으면(어느 길로 들어왔든 — DGX 동기화·문서함 업로드·채팅 첨부) 그래프·양식·색인을 다시 짓는다.
 
@@ -325,7 +335,8 @@ def post_if_changed(db) -> int:
     with db._conn() as conn:
         n, hi = conn.execute("SELECT COUNT(*), MAX(id) FROM documents WHERE status = 'reviewed'").fetchone()
         nc = conn.execute("SELECT COUNT(*) FROM doc_chunks").fetchone()[0]
-    now = {"docs": int(n or 0), "max_id": int(hi or 0), "chunks": int(nc or 0)}
+        sig = _graph_input_sig(conn)
+    now = {"docs": int(n or 0), "max_id": int(hi or 0), "chunks": int(nc or 0), "sig": sig}
     mpath = ROOT / "data" / "platform" / "kg_marker.json"
     old = json.loads(mpath.read_text(encoding="utf-8")) if mpath.is_file() else {}
     # 사업 문서 색인은 매번(새 조각만) — 색인 전용 주기(--index)가 돌고 있으면 그쪽에 맡긴다(npz 를 둘이 동시에 쓰지 않게)
@@ -350,7 +361,9 @@ def post_if_changed(db) -> int:
     if {k: v for k, v in old.items() if k != "at"} == now:
         return 0
     # 그래프 전체 재구축은 15분에 한 번까지 — 1분마다 다시 지으면 쉬지 않고 돈다. 그 사이 바뀐 것은 다음 회차에 모아서
-    if time.time() - float(old.get("at", 0)) < 15 * 60:
+    # 갈래만 바뀐 것(27B 갈래 반영이 5분마다 조금씩)은 한 시간에 한 번까지 — 문서가 들고 난 것은 15분
+    only_sig = all(old.get(k) == now[k] for k in ("docs", "max_id", "chunks"))
+    if time.time() - float(old.get("at", 0)) < (60 if only_sig else 15) * 60:
         (Path(db.path).parent / ".kg-dirty").touch()
         return 0
     now["at"] = time.time()

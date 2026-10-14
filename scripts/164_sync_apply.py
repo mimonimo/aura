@@ -2,7 +2,7 @@
 """170(VM 동기화)이 받은 편지함에 받아 둔 새 뼈대 문서를 반입하고 그래프·양식을 다시 짓는다.
 
 작업 목록: data/inbox/core/sync_manifest.json = [{program, project, inbox, files: [상대 경로]}]
-순서: 사업마다 156 반입(원본 경로 장부·내용 해시로 중복 건너뜀, 분석은 ZZAIMY_ROLE_CONN 로 놀고 있는 토르) → 157 --full → 162(사업별)·172(갈래별 공통) → docx.
+순서: 사업마다 156 반입(원본 경로 장부·내용 해시로 중복 건너뜀, 분석은 ZZAIMY_ROLE_CONN 로 놀고 있는 토르) → 157 --full → 162(사업별)·172(갈래별 공통) → 177(온톨로지·SHACL) → docx.
 진행 기록: /tmp/sync_apply.log (끝나면 SYNC_DONE)
 
 사용(VM): scripts/170 이 부른다. 그래프·양식만 다시: PYTHONPATH=src .venv/bin/python scripts/164_sync_apply.py --post-only
@@ -94,6 +94,7 @@ def main() -> int:
     sh([PY, "scripts/157_build_kg.py", "--docs", f"{lo}-{hi}", "--apply", "--full"])
     sh([PY, "scripts/162_business_template.py"])
     sh([PY, "scripts/172_common_templates.py"])          # 문서 갈래별 공통 양식(사업 공통) — 드라이브 「ZZAIMY/공통 양식」
+    sh([PY, "scripts/177_ontology_export.py"])           # 온톨로지 내보내기·SHACL 검사 — 내려받기·미분류 경고가 그래프와 같은 때를 본다
     from zzaimy.ingest import md_docx
     tpl = ROOT / "data" / "generated" / "templates"
     for f in sorted([*tpl.glob("*.md"), *(tpl / "common").glob("*.md")]):

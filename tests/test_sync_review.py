@@ -130,3 +130,24 @@ def test_private_upload_path_is_not_visible_to_other_user(tmp_path):
     response = client.get("/archive", params={"q": "private-test"})
     assert response.status_code in (200, 403, 404)
     assert "private-test.pdf" not in response.text
+
+
+def test_kind_change_alone_triggers_graph_rebuild(sync_job, monkeypatch):
+    """문서 수·조각 수가 같아도 갈래가 바뀌면 그래프를 다시 짓는다(27B 갈래 반영)."""
+    job, db, data, lock = sync_job
+    did = db.add_document("협약서.pdf", "dgx://a/협약서.pdf")
+    with db._conn() as conn:
+        conn.execute("UPDATE documents SET status = 'reviewed' WHERE id = ?", (did,))
+    calls = []
+    monkeypatch.setattr(job.subprocess, "call", lambda *a, **k: calls.append(a) or 0)
+    monkeypatch.setattr(job, "mark", lambda *a, **k: None, raising=False)
+    job.post_if_changed(db)
+    assert len(calls) == 1
+    job.post_if_changed(db)
+    assert len(calls) == 1                                   # 그대로면 다시 짓지 않는다
+    import json
+    m = data / "kg_marker.json"
+    m.write_text(json.dumps({**json.loads(m.read_text(encoding="utf-8")), "at": 0}), encoding="utf-8")   # 15분 간격 풀기
+    db.set_document_kind(did, "agreement")
+    job.post_if_changed(db)
+    assert len(calls) == 2
