@@ -5040,6 +5040,16 @@ def create_app(
                                                   cwd=str(root), start_new_session=True)
         return RedirectResponse("/dev/intake?ok=" + ("맞추기를 시작했습니다" if kind == "reconcile" else "점검을 시작했습니다"), status_code=303)
 
+    @app.get("/dev/flow", response_class=HTMLResponse)
+    def dev_flow(request: Request):
+        """처리 흐름 — 원본 수집부터 서빙까지 단계별 설명과 지금 수치(기계 산출물)."""
+        from zzaimy.app import process_flow as pf
+
+        return templates.TemplateResponse(request, "dev_flow.html", ctx(request, {
+            "terms": pf.TERMS, "hosts": pf.HOSTS, "stages": pf.STAGES, "question_path": pf.QUESTION_PATH,
+            "cycles": pf.CYCLES, "flow": pf.snapshot(db),
+        }))
+
     @app.get("/dev/quality", response_class=HTMLResponse)
     def dev_quality(request: Request):
         """품질·성능 — 규정 검색 정확도(기계 산출물)와 추출 품질 백로그."""

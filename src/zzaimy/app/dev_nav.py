@@ -8,7 +8,7 @@ from __future__ import annotations
 
 # (주소, 이름) — 사이드바 순서대로 묶음별로
 GROUPS: list[tuple[str, list[tuple[str, str]]]] = [
-    ("개발", [("/dev", "개발 현황")]),
+    ("개발", [("/dev", "개발 현황"), ("/dev/flow", "처리 흐름")]),
     ("데이터·모델", [("/dev/train", "데이터·학습"), ("/dev/db", "원천 데이터"), ("/dev/intake", "문서 반입"),
                    ("/dev/rag", "RAG 공간"), ("/graph/explore", "그래프 탐색")]),
     ("운영", [("/dev/tools", "도구·모델 연결"), ("/dev/users", "사용자·계정"), ("/dev/pii", "개인정보·반출 점검")]),

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}{{ dev_page_name('/dev/flow') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/flow') }}{% endblock %}
+{% block content %}
+<style>
+.pf-lead{font-size:13px;color:var(--muted);margin:0 0 4px;}
+.pf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;}
+.pf-term,.pf-host{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--card,#fff);display:flex;flex-direction:column;gap:6px;min-width:0;}
+.pf-term h3,.pf-host h3{font-size:14px;margin:0;}
+.pf-term p,.pf-host p{font-size:12.5px;margin:0;line-height:1.55;overflow-wrap:anywhere;}
+.pf-k{font-size:11px;color:var(--muted);display:block;margin-bottom:1px;}
+.pf-stage{display:grid;grid-template-columns:200px minmax(0,1fr);gap:8px 22px;padding:16px 0;border-top:1px solid var(--line);}
+.pf-stage:first-of-type{border-top:0;}
+.pf-side{display:flex;flex-direction:column;gap:6px;align-items:flex-start;}
+.pf-no{font-size:11.5px;color:var(--muted);}
+.pf-side h3{font-size:15px;margin:0;line-height:1.35;}
+.pf-chips{display:flex;flex-wrap:wrap;gap:4px;}
+.pf-chip{font-size:11px;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:#3b4757;background:#f6f8fb;}
+.pf-state{font-size:11px;border-radius:999px;padding:1px 8px;}
+.pf-state.on{background:#e8f3ec;color:#1f6b3a;}
+.pf-state.part{background:#fff4e0;color:#8a5a00;}
+.pf-every{font-size:11.5px;color:var(--muted);}
+.pf-body p{font-size:13px;margin:0 0 8px;line-height:1.6;}
+.pf-body ul{margin:0 0 8px;padding-left:18px;font-size:12.5px;line-height:1.65;}
+.pf-row{display:grid;grid-template-columns:64px minmax(0,1fr);gap:4px 10px;font-size:12.5px;line-height:1.55;margin-top:4px;}
+.pf-row dt{color:var(--muted);}
+.pf-row dd{margin:0;overflow-wrap:anywhere;}
+.pf-nums{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;font-size:12.5px;}
+.pf-nums span b{font-variant-numeric:tabular-nums;}
+.pf-link{font-size:12px;margin-top:8px;display:inline-block;}
+.pf-path{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:10px;counter-reset:pf;}
+.pf-path div{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.55;}
+.pf-path div b{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:2px;}
+.pf-cycles{width:100%;font-size:12.5px;border-collapse:collapse;}
+.pf-cycles td,.pf-cycles th{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;}
+@media(max-width:760px){.pf-stage{grid-template-columns:minmax(0,1fr);}}
+</style>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>문서가 답과 초안이 되기까지</h2>
+  <p class="pf-lead">단계마다 하는 일 · 장비 · 방법 · 결과물 · 지금 수치. 수치는 기계 산출물 기준({{ flow.at }}), 산출물이 없으면 「—」.</p>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:book-2-linear"></iconify-icon>낱말 다섯</h2>
+  <div class="pf-grid">
+    {% for t in terms %}
+    <article class="pf-term">
+      <h3>{{ t.name }}</h3>
+      <p>{{ t.what }}</p>
+      <p><span class="pf-k">우리 시스템에서</span>{{ t.ours }}</p>
+      <p><span class="pf-k">어디에</span>{{ t.where }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:server-2-linear"></iconify-icon>장비</h2>
+  <div class="pf-grid">
+    {% for h in hosts %}
+    <article class="pf-host"><h3>{{ h.name }}</h3><p>{{ h.role }}</p><p class="muted">{{ h.spec }}</p></article>
+    {% endfor %}
+  </div>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:list-check-linear"></iconify-icon>처리 단계</h2>
+  {% for s in stages %}
+  <section class="pf-stage" id="stage-{{ s.n }}">
+    <div class="pf-side">
+      <span class="pf-no">{{ s.n }}단계</span>
+      <h3>{{ s.name }}</h3>
+      <div class="pf-chips">{% for w in s.where %}<span class="pf-chip">{{ w }}</span>{% endfor %}</div>
+      <span class="pf-state {{ 'on' if s.state == '운영 중' else 'part' }}">{{ s.state }}</span>
+      <span class="pf-every">{{ s.every }}</span>
+    </div>
+    <div class="pf-body">
+      <p>{{ s.does }}</p>
+      <ul>{% for h in s.how %}<li>{{ h }}</li>{% endfor %}</ul>
+      <dl class="pf-row">
+        <dt>결과물</dt><dd>{{ s.out }}</dd>
+        <dt>왜</dt><dd>{{ s.why }}</dd>
+        <dt>예</dt><dd>{{ s.example }}</dd>
+      </dl>
+      {% if s.nums %}
+      <div class="pf-nums">{% for key, label in s.nums %}<span>{{ label }} <b>{{ flow.vals.get(key, '—') }}</b></span>{% endfor %}</div>
+      {% if s.n == 8 and flow.cmp_note %}<p class="muted" style="font-size:11.5px;margin:4px 0 0;">{{ flow.cmp_note }} · {{ flow.cmp_file }}</p>{% endif %}
+      {% if s.n == 7 and flow.eval_at %}<p class="muted" style="font-size:11.5px;margin:4px 0 0;">합성 질의 측정 {{ flow.eval_at }}</p>{% endif %}
+      {% endif %}
+      <a class="pf-link" href="{{ s.link[0] }}">{{ s.link[1] }} 열기 →</a>
+    </div>
+  </section>
+  {% endfor %}
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:question-circle-linear"></iconify-icon>질문 하나의 길</h2>
+  <div class="pf-path">{% for k, v in question_path %}<div><b>{{ loop.index }}. {{ k }}</b>{{ v }}</div>{% endfor %}</div>
+</div></div>
+
+<div class="card reveal"><div class="card-in">
+  <h2><iconify-icon icon="solar:clock-circle-linear"></iconify-icon>주기 작업</h2>
+  <div class="table-scroll"><table class="pf-cycles">
+    <tr><th>주기</th><th>장비</th><th>하는 일</th></tr>
+    {% for every, host, what in cycles %}<tr><td style="white-space:nowrap;">{{ every }}</td><td style="white-space:nowrap;">{{ host }}</td><td>{{ what }}</td></tr>{% endfor %}
+  </table></div>
+</div></div>
+{% endblock %}

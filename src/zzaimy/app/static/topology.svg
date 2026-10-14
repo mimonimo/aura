@@ -41,7 +41,7 @@
   <!-- 운영 VM -->
   <rect class="host" x="270" y="20" width="390" height="330" rx="14"/>
   <text class="h" x="290" y="48">운영 VM</text>
-  <text class="s" x="290" y="66">CPU 8 · 메모리 31GB · 디스크 491GB · PostgreSQL</text>
+  <text class="s" x="290" y="66">CPU 8 · 메모리 64GB · 디스크 491GB · PostgreSQL</text>
   <rect class="box" x="288" y="80" width="354" height="54" rx="8"/>
   <text class="b" x="302" y="102">플랫폼 · 에이전트 리즈닝 루프</text>
   <text class="t" x="302" y="122">질문 파악 → 그래프 탐색 → 근거 검색 → 컨텍스트 → 생성 → 대조</text>
