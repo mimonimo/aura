@@ -5149,7 +5149,8 @@ def create_app(
                                  for d in _dev_doc_list("notes") if d["file"] in _NOTE_MEMO],
                                 key=lambda e: e["date"], reverse=True),
             # 현황(먼저 볼 것) · 설계·계획 · 측정 기록 · 모델 카드 — docs/ 바로 아래 파일들
-            "status_docs": [entry(f, f"/dev/doc/{f}") for f in ("HANDOFF.md", "dev-now.md")],
+            # dev-now 는 머리 제목 없이 절(## 지금 하는 일)로 시작한다 — 파일 이름 대신 화면 이름으로
+            "status_docs": [entry("HANDOFF.md", "/dev/doc/HANDOFF.md"), entry("dev-now.md", "/dev/doc/dev-now.md", "진행 현황")],
             "plan_docs": [entry(f, f"/dev/doc/{f}") for f in (
                 "architecture.md", "model-plan.md", "eval-plan.md", "capstone-plan.md",
                 "pilot-plan.md", "risks.md", "quality-system.md", "workflow.md")],
