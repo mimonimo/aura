@@ -22,6 +22,7 @@ from __future__ import annotations
 from zzaimy.app import korean_text as _ko
 
 import json
+import time
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -299,6 +300,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                       else "\n\n위 [담당자 요청]에 대해 다음 걸음을 JSON 으로."))
         step = None
         extra: list[dict] = []
+        t_decide = time.monotonic()                                    # 걸음 기록에 시간을 남긴다 — 고르기(27B)와 도구 실행을 따로
         for _try in range(2):
             messages = [{"role": "system", "content": system}, {"role": "user", "content": f"[담당자 요청]\n{request}"}]
             for call, res in turns:
@@ -347,6 +349,8 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 on_json(step)
             except Exception:
                 pass
+        decide_s = round(time.monotonic() - t_decide, 1)
+        run_s = 0.0
         name, args = step["action"], step.get("args") if isinstance(step.get("args"), dict) else {}
         tool = reg[name]
         key = name + json.dumps(args, ensure_ascii=False, sort_keys=True)
@@ -381,7 +385,11 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             if on_step:
                 on_step(_step_label(name, args))
             try:
-                data = str(tool.run(args) or "")
+                t_run = time.monotonic()
+                try:
+                    data = str(tool.run(args) or "")
+                finally:
+                    run_s = round(time.monotonic() - t_run, 1)
                 done = True
                 first_obs[key] = (len(log) + 1, data)
                 if tool.writes:
@@ -408,7 +416,8 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         if not duplicate:
             repeats = 0
         obs = "\n".join(x for x in (note, data) if x)                # 기록용(episodes) — 모델에는 아래처럼 나눠 건넨다
-        ep.steps.append({"thought": str(step.get("thought") or "")[:500], "action": name, "args": args, "observation": obs[:OBS_CHARS]})
+        ep.steps.append({"thought": str(step.get("thought") or "")[:500], "action": name, "args": args, "observation": obs[:OBS_CHARS],
+                         "decide_s": decide_s, "run_s": run_s})
         outcome = ("같은 걸음 — 거절" if duplicate else _summary(data) if done
                    else "실패" if name in [f_["action"] for f_ in ep.failures[-1:]] and data else "하지 않음")
         log.append(_log_line(len(log) + 1, name, args, outcome))

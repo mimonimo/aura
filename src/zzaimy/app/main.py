@@ -431,7 +431,10 @@ def create_app(
         if progress is not None:
             steps = progress["steps"]
             if not steps or steps[-1] != label:
+                # 단계마다 시작 시각을 함께 — 화면이 단계별 걸린 초를 보인다(어디서 오래 머무는지)
+                at = progress.get("at") or [progress.get("started_at", time.time())] * len(steps)
                 progress["steps"] = (steps + [label])[-12:]
+                progress["at"] = (at + [time.time()])[-12:]
     # 화면에서 고른 모델 서버 주소·모델을 프로세스 전체에 적용 (설정 > 환경변수)
     from zzaimy.generate import model_config as _mc
 
@@ -1080,8 +1083,9 @@ def create_app(
     def chat_status(request: Request, session_id: int):
         _owned_chat(request, session_id)
         messages = db.list_chats(session_id)
+        prog = _chat_progress.get(session_id)
         return {"waiting": session_id in _chat_running or (bool(messages) and messages[-1]["role"] == "user"),
-                "progress": _chat_progress.get(session_id)}
+                "progress": ({**prog, "now": time.time()} if prog else prog)}
 
     # 세션별 최근 검색 근거(연관 자료) — 채팅 사이드바에 노출한다.
     _chat_sources: dict[int, list] = {}
@@ -2189,6 +2193,8 @@ def create_app(
                 made, why = _auto_link_document(session_id, q, owner, project, spec_override=chosen["spec"], title_override=str(a.get("title") or ""))
             return f"「{chosen['label']}」 양식으로 문서를 만들어 연결했다." if made else f"만들지 못함: {why or '구글 연결 확인 필요'}"
 
+        answer_timing: dict = {}
+
         def t_answer(a: dict) -> str:
             kw = dict(attachment_text=attachment_text, criteria_ids=criteria, session_id=session_id, project=project)
             params = _insp.signature(r.answer).parameters
@@ -2199,6 +2205,7 @@ def create_app(
                 ordered = [e for e in found if e.get("read")] + [e for e in found if not e.get("read")]
                 kw["evidence"] = list({(e["title"], e["text"][:200]): e for e in ordered}.values())
             text = r.answer(db, str(a.get("question") or q), **kw)
+            answer_timing.update(getattr(r, "last_timing", None) or {})    # 걸음 기록용 — 근거 찾기·생성 시간
             src = getattr(r, "last_sources", None)
             if src is not None:
                 _chat_sources.setdefault(session_id, []).extend(src)
@@ -2271,7 +2278,8 @@ def create_app(
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])
 
         ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label), on_json=on_json)
-        doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps})
+        doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps,
+                                    "answer_timing": answer_timing, "graph_read": os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1"})
         if not ep.finished and resolved_now:
             left_ = [x["name"] for x in _asks.pending(db, session_id) if x["name"] not in resolved_now]
             msg_ = ("이번 요청에서 자료로 찾은 값: " + ", ".join(f"「{n_}」" for n_ in resolved_now)
@@ -2877,7 +2885,7 @@ def create_app(
     def _schedule_answer(background, session_id, q, stored, criteria, web="", retrieval=""):
         import time
 
-        _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"]}
+        _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
         _chat_running.add(session_id)
         background.add_task(_answer_task, session_id, q, stored, criteria, web, retrieval)
 

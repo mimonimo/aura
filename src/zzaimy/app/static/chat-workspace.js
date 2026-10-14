@@ -59,12 +59,26 @@
     if (!steps.length) return;
     panel.querySelector('[data-progress-label]').textContent = steps[steps.length - 1];
     if (Number.isFinite(progress.started_at)) {
-      panel.querySelector('[data-progress-time]').textContent = Math.max(0, Math.floor(Date.now() / 1000 - progress.started_at)) + '초';
+      const now0 = Number.isFinite(progress.now) ? progress.now : Date.now() / 1000;
+      panel.dataset.startedAt = String(progress.started_at);
+      panel.dataset.clockSkew = String(Date.now() / 1000 - now0);          // 서버·브라우저 시계 차이를 빼고 센다
+      panel.querySelector('[data-progress-time]').textContent = Math.max(0, Math.floor(now0 - progress.started_at)) + '초';
     }
     const list = panel.querySelector('ol');
+    // 단계마다 걸린 초 — 다음 단계가 시작된 시각까지, 지금 단계는 지금까지(서버 시각 기준)
+    const at = Array.isArray(progress.at) && progress.at.length === progress.steps.length ? progress.at : null;
+    const now = Number.isFinite(progress.now) ? progress.now : Date.now() / 1000;
     list.replaceChildren(...steps.map((text, index) => {
       const item = document.createElement('li');
       item.textContent = text;
+      if (at && Number.isFinite(at[index])) {
+        const end = index + 1 < at.length ? at[index + 1] : now;
+        const sec = document.createElement('span');
+        sec.className = 'chat-step-sec';
+        sec.textContent = ' · ' + Math.max(0, end - at[index]).toFixed(index === steps.length - 1 ? 0 : 1) + '초';
+        if (index === steps.length - 1) { sec.dataset.liveFrom = String(at[index]); sec.dataset.clockSkew = String(Date.now() / 1000 - now); }
+        item.append(sec);
+      }
       if (index === steps.length - 1) item.setAttribute('aria-current', 'step');
       return item;
     }));
@@ -72,6 +86,16 @@
     // 문서 패널(chat-documents.js)도 같은 진행 단계를 편집기 위에 표시한다
     root.dispatchEvent(new CustomEvent('chat-progress', {detail:{label:steps[steps.length - 1], steps}}));
   }
+  // 기다리는 동안 경과 초를 1초마다 — 서버에 다시 묻는 간격(2~4초)마다 뛰어 「끊겨 보이는」 것을 막는다
+  setInterval(() => {
+    const panel = document.getElementById('chatProgress');
+    if (!panel || panel.hidden) return;
+    const time = panel.querySelector('[data-progress-time]');
+    const started = Number(panel.dataset.startedAt), skew = Number(panel.dataset.clockSkew || 0);
+    if (time && Number.isFinite(started) && started > 0) time.textContent = Math.max(0, Math.floor(Date.now() / 1000 - skew - started)) + '초';
+    const live = panel.querySelector('.chat-step-sec[data-live-from]');
+    if (live) live.textContent = ' · ' + Math.max(0, Math.floor(Date.now() / 1000 - Number(live.dataset.clockSkew || 0) - Number(live.dataset.liveFrom))) + '초';
+  }, 1000);
   // 답이 「필요한 값 입력」을 가리키면 그 칸으로 데려간다(칸은 마지막 답 아래, 받지 못한 값이 있는 동안 늘 있다)
   scroller.addEventListener('click', event => {
     if (!event.target.closest('[data-jump-form]')) return;
