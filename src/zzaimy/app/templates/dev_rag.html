@@ -250,7 +250,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     const find = document.getElementById('rgDeptFind');
     let who = null;
     const syncNote = () => {
-      const n = [...list.querySelectorAll('input[name=on]')].filter(b => b.checked !== (b.dataset.was === '1')).length;
+      const n = [...list.querySelectorAll('input[name=on]:not(:disabled)')].filter(b => b.checked !== (b.dataset.was === '1')).length;
       note.textContent = n ? `바뀐 부서 ${n}곳` : '';
     };
     document.querySelectorAll('[data-grant-edit]').forEach(btn => btn.addEventListener('click', () => {
