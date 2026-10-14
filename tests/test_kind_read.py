@@ -46,3 +46,9 @@ def test_thin_body_does_not_exclude(monkeypatch):
     assert not kind_read.thin_exclusion("evidence", "evidence", 30)     # 규칙도 증빙이면 받는다
     assert not kind_read.thin_exclusion("notice", "", 30)               # 검색에 남는 갈래는 막지 않는다
     assert not kind_read.thin_exclusion("evidence", "", None)           # 길이를 모르는 옛 판정
+
+
+def test_performance_evidence_bundle_is_report_not_accounting():
+    from zzaimy.app import kind_read
+    assert "결과보고서" in kind_read.KIND_DESC["evidence"]                # 성과 증빙 묶음은 회계 증빙과 갈린다
+    assert kind_read.PROMPT_VER
