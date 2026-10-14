@@ -160,3 +160,9 @@ def test_out_of_period_doc_moves_to_ledger_lineage_program():
     P.fill_period([{"id": 3, "filename": "입찰공고(2019).pdf", "path": "사업단/ABCD3.0 자료/구매"}], [r3],
                   link["periods"], link["spans"], link["aliases"])
     assert (r3.program, r3.status) == ("", "review")
+    # 폴더 경로의 연도가 문서 연도와 같으면 경로·문서가 검토의 연도를 이긴다
+    r4 = P.Assignment(doc_id=4, program="program:abcd30", program_name=NEW, status="agent", year=2019,
+                      evidence=["검토: ABCD3.0 폴더의 1차년도(2021) 업무"])
+    P.fill_period([{"id": 4, "filename": "입찰공고.pdf", "path": "사업단/ABCD3.0 점검/2019학년도 계약 서류/구매"}], [r4],
+                  link["periods"], link["spans"], link["aliases"])
+    assert (r4.program, r4.status) == ("program:abcd", "period")

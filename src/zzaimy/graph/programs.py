@@ -1061,7 +1061,9 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
             # 검토가 그 폴더를 이 사업의 기간 안 연도로 적었으면(「LINC3.0 폴더의 1차년도(2022) 업무」) 연도끼리 엇갈린 것이다 —
             # 앞뒤 단계로 옮기지 않고 사람 검토로 둔다
             said = [int(y) for e in a.evidence if str(e).startswith("검토:") for y in re.findall(r"(?<!\d)(?:19|20)\d{2}(?!\d)", str(e))]
-            if len(lin) == 1 and not any(start <= y <= (end or 9999) for y in said):
+            # 단, 폴더 경로의 연도(「2021학년도 국고 계약 관련 서류」)가 문서 연도와 같으면 경로·문서 두 근거가 검토의 연도를 이긴다
+            path_years = {int(re.search(r"\d{4}", m.group(0)).group(0)) for seg in segs if (m := _SEG_YEAR.search(seg.strip()))}
+            if len(lin) == 1 and (a.year in path_years or not any(start <= y <= (end or 9999) for y in said)):
                 other = lin[0]
                 a.evidence = list(a.evidence) + [f"연도 {a.year} 가 「{a.program_name}」 기간({start}~{end or ''}) 밖 — "
                                                  f"외부 확인 장부의 앞뒤 단계 사업 「{other['name']}」({other['start']}~{other['end'] or ''}) 기간 안"]
