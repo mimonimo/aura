@@ -186,4 +186,4 @@ scripts/zz_run.sh 16G env PYTHONPATH=src .venv/bin/python scripts/188_graphrag_v
 #   --judge data/eval/graphrag_judge_<태그>.json --judge-key data/eval/graphrag_blind_key_<태그>.json
 ```
 
-결과 파일의 summary 가 개발 현황 「답변 흐름」 탭의 「풀텍스트 RAG 와 비교」 표와 한 줄 요약으로 그대로 나온다(app/answer_flow.py).
+결과 파일의 summary 가 품질·성능 「사업 문서 검색(GraphRAG)」 카드의 「풀텍스트 RAG 와 비교」 표와 한 줄 요약으로 그대로 나온다(app/answer_flow.py).

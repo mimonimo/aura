@@ -133,7 +133,7 @@ STAGES = (
      "why": "같은 질문을 풀텍스트 RAG 로만 찾으면 정답 문서가 상위 5건에 드는 비율이 크게 낮다 — 아래 수치",
      "example": "「LINC 3.0 2023년 계획서의 사업 실적」 → 사업·연차·갈래를 정하고 그 문서들 안에서만 찾는다",
      "nums": [("graph_read", "27B 질문 읽기"), ("cmp_fulltext", "풀텍스트 RAG"), ("cmp_graph", "온톨로지+RAG"), ("cmp_graph_read", "+27B 읽기")],
-     "link": ("/dev", "개발 현황 › 답변 흐름")},
+     "link": ("/dev/quality#grant-search", "품질·성능 › 사업 문서 검색")},
     {"n": 9, "name": "답변·문서 작업", "where": ["토르 02", "운영 VM"], "state": "운영 중", "every": "질문마다",
      "does": "27B(Writer)가 걸음마다 도구를 골라 찾고 읽고 쓴다. 코드는 고른 도구를 실행하고 기록한다.",
      "how": ["답변 방식 3가지: 문서 작업(기본, 문서 근거) · 기본 대화(모델 지식, 「출처 없음」 표시) · 웹 검색(질문 글만 밖으로)",
@@ -232,7 +232,7 @@ def snapshot(db) -> dict:
     prod = next((r for r in ev.get("rows") or [] if r.get("production")), {})
     vals["reg_r1"] = prod.get("recall_at_1")
     vals["reg_r5"] = prod.get("recall_at_5")
-    cmp_ = answer_flow.compare_rows(data_dir.parent / "eval")         # 비교 측정(scripts/188)은 data/eval — 개발 현황 「답변 흐름」 과 같은 곳
+    cmp_ = answer_flow.compare_rows(data_dir.parent / "eval")         # 비교 측정(scripts/188)은 data/eval — 품질·성능 「사업 문서 검색」 과 같은 곳
     doc_row = next((r for r in cmp_.get("rows") or [] if "정답 문서가 근거 상위" in r["label"]), None)
     for i, mode in enumerate(("cmp_fulltext", "cmp_graph", "cmp_graph_read")):
         vals[mode] = doc_row["vals"][i] if doc_row and i < len(doc_row["vals"]) else None

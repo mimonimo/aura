@@ -4,25 +4,6 @@
 {% block head %}<link rel="stylesheet" href="/static/dev-topology.css?v={{ asset_v }}">{% endblock %}
 {% block content %}
 <style>
-  /* 답변 흐름 — 네 단계 카드(좁으면 아래로), 낱말 풀이, 수치 표 */
-  .flow-steps { list-style:none; margin:0 0 14px; padding:0; display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:10px; counter-reset:none; }
-  .flow-steps li { position:relative; display:flex; flex-direction:column; gap:6px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; background:#fff; font-size:12.5px; line-height:1.6; }
-  .flow-steps li + li::before { content:'→'; position:absolute; left:-10px; top:50%; transform:translate(-50%,-50%); color:#9AA6B6; font-size:13px; }
-  .flow-steps b { font-size:13.5px; color:var(--navy); }
-  .flow-steps small { margin-top:auto; padding-top:6px; border-top:1px dashed var(--line); color:var(--muted); font-size:11.5px; }
-  .flow-steps em { font-style:normal; font-weight:600; }
-  .flow-terms { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin:0 0 16px; }
-  .flow-terms div { padding:10px 12px; border-radius:8px; background:#F5F7FB; font-size:12px; line-height:1.6; }
-  .flow-terms b { display:block; font-size:12.5px; margin-bottom:2px; }
-  .flow-why { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:6px 16px; margin:0 0 16px; font-size:12.5px; line-height:1.65; }
-  .flow-why dt { font-weight:700; color:var(--navy); white-space:nowrap; } .flow-why dd { margin:0; color:#3B4A5E; }
-  @media (max-width:700px) { .flow-why { grid-template-columns:1fr; } .flow-why dd { margin-bottom:6px; } }
-  .flow-table { width:100%; max-width:640px; border-collapse:collapse; font-size:12.5px; margin-bottom:12px; }
-  .flow-table th { text-align:left; color:var(--muted); font-weight:600; padding:5px 8px; border-bottom:1px solid var(--line); }
-  .flow-table td { padding:6px 8px; border-bottom:1px solid #EEF1F5; }
-  .flow-table .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
-  .flow-table .flow-total td { font-weight:700; } .flow-table .flow-time td { color:var(--muted); }
-  @media (max-width: 900px) { .flow-steps, .flow-terms { grid-template-columns:1fr; } .flow-steps li + li::before { content:'↓'; left:50%; top:-10px; } }
 
   /* 섹션 구분 라벨 */
   .dev-section { font-size: 12.5px; font-weight: 700; color: var(--faint);
@@ -132,8 +113,6 @@
   <div class="tabbar" style="max-width:520px; margin:18px 0 14px;">
     <button type="button" class="on" data-tab="paneBuild">구축 현황</button>
     <button type="button" data-tab="paneNow">진행 현황</button>
-    <button type="button" data-tab="paneFlow">답변 흐름</button>
-    <button type="button" data-tab="paneTech">핵심 기술</button>
   </div>
   <div id="paneBuild" class="tab-pane on">
     <p class="muted" style="font-size:12px; margin:0 0 10px;">{% if progress.updated %}{{ progress.updated }} 기준(기능 상태 파일의 마지막 변경일) · {% endif %}완료 {{ progress.features | selectattr("status", "equalto", "done") | list | length }}
@@ -183,78 +162,6 @@
   {% if dev_now_more %}
   <p style="margin:10px 0 0;"><a href="/dev/history#recent" class="btn-ghost">이전 작업 기록</a></p>
   {% endif %}
-  </div>
-  {# 답변 흐름 — 답이 근거를 찾는 순서. 원천 app/answer_flow.py(관계 수는 그래프, 측정은 scripts/184 결과 파일) #}
-  <div id="paneFlow" class="tab-pane">
-  <p class="muted" style="font-size:12.5px; margin:0 0 12px;">질문 하나가 답이 되기까지 — 온톨로지(그래프)로 범위를 잡고, RAG(문서 검색)로 정확한 글을 찾고, 그 글만 근거로 답합니다.</p>
-  <ol class="flow-steps">
-    <li><b>① 질문 읽기</b><span>어느 사업·연도·문서(계획서·실적·평가)를 묻는지, 계획 대비 실적·앞 단계 사업 같은 <em>관계</em>를 묻는지 알아봅니다.</span>
-      <small>지금: {{ '27B 가 질문을 온톨로지 말로 읽음(실패하면 이름 맞추기)' if flow.model_read_on else '이름 맞추기(사업 이름·「N차년도」·갈래 낱말) — 27B 읽기는 측정 뒤 켭니다' }}</small></li>
-    <li><b>② 그래프 탐색 · 온톨로지</b><span>지식그래프에서 사업 → 연차 → 문서를 따라가 후보 문서를 좁히고, 물은 관계가 있으면 그 관계를 따라 짝 문서·앞뒤 사업까지 넓힙니다.</span>
-      <small>지금: 사업·연차·갈래로 좁히기{{ ' + 관계 따라가기 · 관계 양쪽 근거 담기' if flow.model_read_on else ' (관계 따라가기는 ① 이 27B 일 때)' }}</small></li>
-    <li><b>③ 문서 검색 · RAG</b><span>좁힌 문서 안에서 낱말 검색과 뜻 검색(임베딩)을 섞어 맞는 조각을 고릅니다. 같은 문서의 옛 판은 빼고 최신 판을 씁니다.</span>
-      <small>지금: 사업 문서 재순위 {{ '켜짐' if flow.grant_rerank_on else '꺼짐' }} · 규정 검색은 재순위(Rerank v1) 사용</small></li>
-    <li><b>④ 답변</b><span>27B 가 고른 조각만 근거로 답합니다. 수치는 근거에 있는 것만 쓰고 출처 문서를 밝힙니다.</span>
-      <small>근거가 없으면 없다고 답합니다</small></li>
-  </ol>
-  <div class="flow-terms">
-    <div><b>온톨로지</b><span>설계도 — 「사업에는 연차가, 연차에는 계획서·실적보고서가 있고 계획과 실적은 짝」 같은 종류와 관계의 규칙</span></div>
-    <div><b>지식그래프</b><span>설계도대로 채운 실제 내용 — 「LINC 3.0 → 2023 → ○○ 계획서 → 3절」</span></div>
-    <div><b>RAG</b><span>문서 조각에서 질문에 맞는 글을 찾아 답의 근거로 붙이는 방식</span></div>
-  </div>
-  <h4 class="extract-h">왜 기성 도구 대신 직접 만들었나</h4>
-  <p class="muted" style="font-size:12px; margin:0 0 8px;">LangChain·LlamaIndex 의 RAG, Microsoft GraphRAG, Neo4j 같은 그래프 DB 를 그대로 쓰지 않고 지식그래프·온톨로지·검색을 우리 코드로 만들었습니다. 부품(PostgreSQL·Kiwi·임베딩 모델 등)은 오픈소스를 씁니다 — 「핵심 기술」 탭.</p>
-  <dl class="flow-why">
-    <dt>문서가 행정 문서다</dt><dd>한글(hwp)·스캔 PDF·병합 칸이 많은 표가 대부분이라 범용 도구의 문서 자르기로는 표와 절이 깨집니다. 절·표·조문 단위로 자르는 규칙과 판독을 우리 문서에 맞춰 만들었습니다.</dd>
-    <dt>사업 구조가 정해져 있다</dt><dd>사업 → 연차 → 계획서·실적보고서, 계획↔실적 짝, 앞·뒤 단계 사업처럼 관계가 분명합니다. 범용 GraphRAG 는 글에서 관계를 LLM 으로 뽑아 비용이 크고 틀릴 수 있어, 파일 이름·폴더·외부 확인 장부 같은 근거로 관계를 짓고 근거를 함께 적습니다.</dd>
-    <dt>권한과 보안</dt><dd>부서·열람 등급·학생 공개를 검색 단계에서 걸러야 하고(절대 규칙 4), 원문이 학교 밖으로 나가면 안 됩니다. 폐쇄망·자체 서버에서 돌고, 권한 필터가 검색 SQL 안에 들어가도록 직접 짰습니다.</dd>
-    <dt>수치를 지어내지 않게</dt><dd>답의 수치는 근거에 있는 것만 쓰도록 근거 조각·출처를 끝까지 들고 다닙니다. 단계마다 무엇을 왜 골랐는지 기록(리즈닝 단계)이 남아 검수와 학습 데이터로 이어집니다.</dd>
-    <dt>운영 규모와 비용</dt><dd>그래프(규모는 위 「현재 규모」의 그래프 노드)를 이미 쓰는 PostgreSQL 한 곳에 두어 따로 그래프 DB 를 운영하지 않습니다. 측정 도구(scripts/173·184)로 바꿀 때마다 수치를 견줍니다.</dd>
-  </dl>
-  <h4 class="extract-h">그래프에 있는 관계</h4>
-  <div class="table-scroll"><table class="flow-table">
-    <tr><th>관계</th><th class="num">수</th></tr>
-    {% for r in flow.relations %}<tr><td>{{ r.label }}</td><td class="num">{{ '{:,}'.format(r.n) if r.n is not none else '—' }}</td></tr>{% endfor %}
-  </table></div>
-  <h4 class="extract-h">관계 질문 측정 <span class="muted" style="font-weight:400; font-size:12px;">{% if flow.probe %}{{ flow.probe_at }} · {{ flow.probe_file }} · 그래프에서 자동으로 뽑은 질문, 정답 문서가 근거 상위에 들었나{% endif %}</span></h4>
-  {% if flow.probe %}
-  <div class="table-scroll"><table class="flow-table">
-    <tr><th>질문 갈래</th><th class="num">질문</th><th class="num">이름 맞추기</th><th class="num">27B 읽기</th></tr>
-    {% for r in flow.probe %}<tr{% if r.label == '전체' %} class="flow-total"{% endif %}><td>{{ r.label }}</td><td class="num">{{ r.n or '—' }}</td>
-      <td class="num">{{ '%.0f%%' % (r.name * 100) if r.name is not none else '—' }}</td><td class="num">{{ '%.0f%%' % (r.model * 100) if r.model is not none else '—' }}</td></tr>{% endfor %}
-    {% if flow.timing %}<tr class="flow-time"><td>검색 한 번 걸린 시간(중앙값)</td><td></td><td class="num">{{ flow.timing.name }}초</td><td class="num">{{ flow.timing.model }}초</td></tr>{% endif %}
-  </table></div>
-  {% else %}<p class="muted" style="font-size:12.5px;">측정 전 — scripts/184 를 돌리면 여기에 나옵니다.</p>{% endif %}
-  <h4 class="extract-h">풀텍스트 RAG 와 비교 <span class="muted" style="font-weight:400; font-size:12px;">{% if flow.compare %}{{ flow.compare.made }} · {{ flow.compare.file }} · 같은 시험지 — 절 질문 {{ flow.compare.n_sec }} · 관계 질문 {{ flow.compare.n_rel }}{% if flow.compare.n_ans %} · 답변 {{ flow.compare.n_ans }}문{% endif %}, 그래프에서 자동으로 뽑은 질문{% endif %}</span></h4>
-  {% if flow.compare %}
-  {% if flow.compare.summary %}<p style="font-size:12.5px; margin:0 0 8px;">{{ flow.compare.summary }}</p>{% endif %}
-  <div class="table-scroll"><table class="flow-table">
-    <tr><th>지표 <span class="muted" style="font-weight:400;">비율(맞힌 수/질문 수, 95% 구간)</span></th>{% for m in flow.compare.modes %}<th class="num">{{ m }}</th>{% endfor %}</tr>
-    {% for r in flow.compare.rows %}{% if loop.first or r.group != flow.compare.rows[loop.index0 - 1].group %}<tr class="flow-time"><td colspan="{{ flow.compare.modes | length + 1 }}">{{ r.group }}</td></tr>{% endif %}
-    <tr><td>{{ r.label }}</td>{% for v in r.vals %}<td class="num">{{ v }}</td>{% endfor %}</tr>{% endfor %}
-  </table></div>
-  {% else %}<p class="muted" style="font-size:12.5px;">측정 전 — scripts/188 을 돌리면 여기에 나옵니다.</p>{% endif %}
-  </div>
-  {# 핵심 기술 — 원천 app/tech_stack.py. 파이썬 패키지 판·라이선스는 이 서버 설치본에서, PostgreSQL 판은 DB 에서 읽는다 #}
-  <div id="paneTech" class="tab-pane">
-  <p class="muted" style="font-size:12.5px; margin:0 0 10px;">오픈소스 부품 {{ tech.n_open }}개 · 우리 코드·데이터 {{ tech.n_ours }}개 ·
-    판은 이 서버 설치본·DB 기준, 다른 장비 부품과 화면 동봉 JS 는 {{ tech.checked }} 확인</p>
-  {% for area, rows in tech.areas.items() %}
-  <h3 style="font-size:14px; margin:14px 0 6px;">{{ area }}</h3>
-  <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:12.5px;">
-    <tr style="text-align:left; color:var(--muted);"><th style="padding:5px 8px;">이름</th><th style="padding:5px 8px;">하는 일</th>
-      <th style="padding:5px 8px; white-space:nowrap;">판</th><th style="padding:5px 8px;">라이선스</th><th style="padding:5px 8px;">어디서</th></tr>
-    {% for r in rows %}
-    <tr style="border-top:1px solid var(--line); vertical-align:top;">
-      <td style="padding:6px 8px; font-weight:600;">{{ r.name }}</td>
-      <td style="padding:6px 8px;">{{ r.role | for_people }}</td>
-      <td style="padding:6px 8px; white-space:nowrap; font-variant-numeric:tabular-nums;" title="{{ r.source }}">{{ r.version or "—" }}</td>
-      <td style="padding:6px 8px;">{% if r.ours %}<span class="pill">{{ r.license }}</span>{% else %}{{ r.license or "—" }}{% endif %}</td>
-      <td style="padding:6px 8px;" class="muted">{{ r.where | for_people }}</td>
-    </tr>
-    {% endfor %}
-  </table></div>
-  {% endfor %}
   </div>
 </div></div>
 

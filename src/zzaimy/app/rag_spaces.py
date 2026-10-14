@@ -200,47 +200,6 @@ def grant_changes(cfg: dict, accounts: dict, cells: list[str], was: list[str], o
     return grants, done, bad
 
 
-def area_changes(cfg: dict, accounts: dict, folders_known: list[str], folders: list[str], depts: list[str]) -> tuple[dict, list, list]:
-    """폴더별 담당 부서 저장 — 고른 값만 받는다(원본 장부의 폴더·이미 설정된 폴더, 알려진 부서 또는 빈 값=정하지 않음).
-    돌려주는 것: (새 dept_of_area, 바뀐 [(폴더, 전, 후)], 거절한 [(폴더, 사유)]). 거절이 있으면 부른 쪽이 저장하지 않는다."""
-    cur = dict(cfg.get("dept_of_area", {}))
-    ok_folders = set(folders_known) | set(cur)
-    ok_depts = set(known_depts(cfg, accounts))
-    new, changed, bad = dict(cur), [], []
-    if len(folders) != len(depts):
-        return cur, [], [("", "폴더와 부서 수가 맞지 않음")]
-    for f, d in zip(folders, depts):
-        f, d = f.strip(), d.strip()
-        if f not in ok_folders:
-            bad.append((f, "원본 장부에 없는 폴더"))
-            continue
-        before = cur.get(f, "")
-        if d == before:
-            continue                                   # 그대로 둔 줄 — 예전에 손으로 적은 부서도 그대로 남는다
-        if d and d not in ok_depts:
-            bad.append((f, f"알 수 없는 부서 「{d}」"))
-            continue
-        if d:
-            new[f] = d
-        else:
-            new.pop(f, None)
-        changed.append((f, before, d))
-    return new, changed, bad
-
-
-def backfill_preview(db, data_dir: str | Path) -> dict:
-    """「이미 반입된 문서에도 적용」을 누르면 바뀌는 문서 수 — backfill_depts 와 같은 조건에서 부서·열람 등급이 지금과 다른 것만. {부서: 건수}."""
-    cfg = config(data_dir)
-    out: dict[str, int] = {}
-    with db._conn() as conn:
-        for area, dept in cfg["dept_of_area"].items():
-            n = conn.execute("SELECT COUNT(*) FROM documents WHERE stored_path LIKE ? AND doc_type = 'grant'"
-                             " AND (COALESCE(dept, '') <> ? OR COALESCE(access_level, '') <> ?)",
-                             (f"dgx://{area}/%", dept, "public" if dept == "공통" else "dept")).fetchone()[0]
-            out[dept] = out.get(dept, 0) + int(n or 0)
-    return out
-
-
 def _grant_where(sc: dict, a: str = "") -> tuple[str, list] | None:
     """공간의 사업 문서 집합 조건(공간 목록과 같은 집합) — a 는 documents 표 별칭(「d.」). 사업 문서를 쓰지 않는 공간이면 None."""
     if not sc.get("grant"):

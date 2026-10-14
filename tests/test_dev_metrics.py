@@ -123,7 +123,6 @@ def test_intake_page_names_each_number(client, tmp_path):
 
 
 def test_heavy_dev_actions_ask_first(client):
-    assert 'data-confirm="저장된 폴더별 부서를' in client.get("/dev/intake?tab=areas").text
     q = client.get("/dev/quality").text
     assert "/dev/eval/run" not in q or 'data-confirm="규정 검색 품질을 다시 잴까요?' in q
 

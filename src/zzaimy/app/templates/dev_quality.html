@@ -33,7 +33,7 @@
       {% endif %}
     </span></h2>
   <p class="muted" style="font-size:12.5px; margin:0 0 10px; line-height:1.6;">
-    합성 질의로 정답 조각을 되찾는 비율(R@5: 상위 5개 안, MRR@10: 앞에 나올수록 높음). 사업 문서 검색 비교는 개발 현황 「답변 흐름」.</p>
+    합성 질의로 정답 조각을 되찾는 비율(R@5: 상위 5개 안, MRR@10: 앞에 나올수록 높음). 사업 문서 검색(GraphRAG) 측정은 아래.</p>
   {% if retrieval_eval.running %}
   <p class="muted" style="font-size:12px; margin:0 0 10px;">측정 중
     ({{ retrieval_eval.started_at_display }} 시작)
@@ -118,6 +118,12 @@
 (function poll(){setTimeout(async function(){try{const r=await fetch('/dev/eval/status');if(!r.ok)throw Error();const s=await r.json();if(!s.running){const el=document.getElementById('eval-live');el.textContent=s.failed?'측정이 끝났지만 오류가 있습니다. ':'측정이 완료됐습니다. ';const a=document.createElement('a');a.href='/dev/quality';a.textContent='결과 확인';el.appendChild(a);return;}}catch(e){}poll();},8000);})();
 </script>
 {% endif %}
+
+<div class="card reveal" id="grant-search"><div class="card-in">
+  <h2><iconify-icon icon="solar:routing-2-linear"></iconify-icon>사업 문서 검색(GraphRAG)</h2>
+  <p class="muted" style="font-size:12.5px; margin:0 0 6px;">그래프에서 자동으로 뽑은 같은 시험지로 — 관계 질문 측정, 풀텍스트 RAG 와 비교. 27B 질문 읽기 지금 {{ '켜짐' if flow.model_read_on else '꺼짐' }}.</p>
+  {% include "_search_compare.html" %}
+</div></div>
 
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:flag-linear"></iconify-icon>추출 품질 백로그

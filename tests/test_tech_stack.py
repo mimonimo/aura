@@ -15,7 +15,7 @@ def test_snapshot_reads_installed_versions():
     assert cy["version"] == "3.30.4" and cy["license"] == "MIT"
 
 
-def test_dev_page_has_tech_tab(tmp_path):
+def test_flow_page_has_tech_parts(tmp_path):
     app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter())
-    page = TestClient(app).get("/dev").text
-    assert "핵심 기술" in page and "Cytoscape.js" in page and "kordoc" in page and "MinerU" in page
+    page = TestClient(app).get("/dev/flow").text
+    assert "쓰는 부품" in page and "Cytoscape.js" in page and "kordoc" in page and "MinerU" in page

@@ -4784,9 +4784,6 @@ def create_app(
             "n_papers": len(_dev_papers()),
             "n_adr": len(_dev_doc_list("decisions")),
             "n_notes": len(_dev_doc_list("notes")),
-            "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
-            # 답변 흐름 — 그래프 관계 수·관계 질문 측정(scripts/184)은 기계 산출물에서
-            "flow": __import__("zzaimy.app.answer_flow", fromlist=["snapshot"]).snapshot(db, Path(db_path).parent.parent / "eval"),
         }))
 
     def _intake_snapshot() -> dict | None:
@@ -4886,34 +4883,6 @@ def create_app(
         ids = [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:5000]
         return {"moved": rag_spaces.move_docs(db, ids, dept), "dept": dept}
 
-    @app.post("/dev/rag/area")
-    async def dev_rag_area(request: Request):
-        """원본 최상위 폴더 → 부서 — 줄마다 고른 부서(빈 값 = 정하지 않음). 원본 장부에 없는 폴더·알 수 없는 부서가 오면 저장하지 않는다."""
-        from zzaimy.app import rag_spaces
-        data_dir = Path(db_path).parent
-        form = await request.form()
-        cfg = dict(rag_spaces.config(data_dir))
-        known = [f["folder"] for f in rag_spaces.area_folders(db)]
-        pairs, changed, bad = rag_spaces.area_changes(cfg, accounts, known, [str(x) for x in form.getlist("folder")],
-                                                      [str(x) for x in form.getlist("dept")])
-        if bad:
-            return RedirectResponse("/dev/intake?tab=areas&" + urlencode({"err": "저장하지 않았습니다 — " + ", ".join(
-                f"{f}({why})" for f, why in bad[:5])}) + "#areas", status_code=303)
-        if not changed:
-            return RedirectResponse("/dev/intake?tab=areas&" + urlencode({"ok": "바뀐 폴더가 없습니다"}) + "#areas", status_code=303)
-        cfg["dept_of_area"] = pairs
-        rag_spaces.save_config(cfg, data_dir)
-        msg = "폴더별 부서 저장 — " + ", ".join(f"{f}: {b or '정하지 않음'} → {a or '정하지 않음'}" for f, b, a in changed) + \
-              " · 이미 반입된 문서는 「이미 반입된 문서에도 적용」으로"
-        return RedirectResponse("/dev/intake?tab=areas&" + urlencode({"ok": msg}) + "#areas", status_code=303)
-
-    @app.post("/dev/rag/backfill")
-    def dev_rag_backfill():
-        from zzaimy.app import rag_spaces
-        got = rag_spaces.backfill_depts(db, Path(db_path).parent)
-        return RedirectResponse("/dev/intake?tab=areas&" + urlencode({"ok": "이미 반입된 문서에 부서를 적용했습니다 — " + (", ".join(
-            f"{k} {v:,}" for k, v in got.items()) or "짝 없음")}) + "#areas", status_code=303)
-
     # 규정·기준 문서 — 반입한 규정을 골라 기준 문서로 올리고(조문 조각), 학생 공개를 정한다(regulation_register)
     @app.get("/dev/rag/regs")
     def dev_rag_regs(q: str = ""):
@@ -4992,17 +4961,8 @@ def create_app(
             # Google Drive 가져오기 — 문서 반입의 탭(예전 /dev/nas 는 이리로 보낸다)
             return _nas_page(request, ok, err, probe, plan)
         if tab == "areas":
-            # 폴더별 담당 부서 — 반입 설정(예전 RAG 공간의 칸). 저장은 /dev/rag/area 그대로
-            from zzaimy.app import rag_spaces
-            data_dir = Path(db_path).parent
-            cfg = rag_spaces.config(data_dir)
-            folders = rag_spaces.area_folders(db)
-            seen = {f["folder"] for f in folders}
-            folders += [{"folder": k, "files": None} for k in cfg["dept_of_area"] if k not in seen]
-            preview = rag_spaces.backfill_preview(db, data_dir)
-            return templates.TemplateResponse(request, "dev_intake_areas.html", ctx(request, {
-                "cfg": cfg, "folders": folders, "depts": rag_spaces.known_depts(cfg, accounts),
-                "backfill_preview": preview, "backfill_total": sum(preview.values())}))
+            # 폴더별 담당 부서는 라이브러리 폴더 목록의 「공개 범위 바꾸기」 한 곳에서 바꾼다(같은 설정) — RAG 공간에서 본다
+            return RedirectResponse("/dev/rag", status_code=303)
         data = intake_status.pipeline(db_path)
         return templates.TemplateResponse(request, "dev_intake.html", ctx(request, {
             "p": data, "live": metrics.live(db), "lg": intake_status.ledger_breakdown(db), "running": {k: _intake_job_running(k) for k in _INTAKE_JOBS},
@@ -5050,6 +5010,7 @@ def create_app(
         return templates.TemplateResponse(request, "dev_flow.html", ctx(request, {
             "terms": pf.TERMS, "hosts": pf.HOSTS, "stages": pf.STAGES, "question_path": pf.QUESTION_PATH,
             "cycles": pf.CYCLES, "flow": pf.snapshot(db),
+            "tech": __import__("zzaimy.app.tech_stack", fromlist=["snapshot"]).snapshot(db),
         }))
 
     @app.get("/dev/quality", response_class=HTMLResponse)
@@ -5066,6 +5027,8 @@ def create_app(
             "quality_open": db.list_quality_reports(status="open", limit=10),
             # 지금 규정 조각 수 — 측정 당시 조각 수와 다르면 지난 측정을 「구성 다름」으로 접는다
             "current_chunks": _metrics_mod.live(db)["values"].get("regulation_chunks", 0),
+            # 사업 문서 검색 측정(관계 질문·풀텍스트 RAG 비교) — 결과 파일은 data/eval
+            "flow": __import__("zzaimy.app.answer_flow", fromlist=["snapshot"]).snapshot(db, Path(db_path).parent.parent / "eval"),
         }))
 
     _doc_dates: dict[str, str] = {}

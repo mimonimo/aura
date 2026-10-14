@@ -110,7 +110,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   {% set tot_docs = (staff.grant_docs if staff else 0) + (dept_rags | sum(attribute='docs')) %}
   {% set tot_regs = (staff.reg_docs if staff else 0) + (dept_rags | sum(attribute='reg_docs')) %}
   <p class="rg-note">합계 — 사업 문서 {{ "{:,}".format(tot_docs) }}건 · 기준 문서 {{ "{:,}".format(tot_regs) }}건(공통 RAG + 부서 RAG). 부서 계정은 공통 RAG 행과 자기 부서 행을 함께 찾습니다.<br>
-    부서 RAG 는 <a href="/dev/users#depts">사용자·계정 › 부서</a>에서 만들고, 문서는 라이브러리(「문서 올리기」의 검색 범위·폴더·여러 건 고르기)나 문서 화면에서 넣습니다.{% if not dept_rags %} 아직 부서 RAG 가 없습니다.{% endif %}</p>
+    부서 RAG 는 <a href="/dev/users#depts">사용자·계정 › 부서</a>에서 만들고, 문서는 라이브러리(「문서 올리기」의 검색 범위·폴더·여러 건 고르기)나 문서 화면에서 넣습니다. 원본 폴더째 부서에 두려면 <a href="/?type=all">라이브러리</a> 폴더 목록의 「공개 범위 바꾸기」 — 앞으로 그 폴더로 반입되는 문서도 같은 부서로 갑니다(표의 「반입 폴더」).{% if not dept_rags %} 아직 부서 RAG 가 없습니다.{% endif %}</p>
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">

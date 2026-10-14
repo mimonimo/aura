@@ -138,42 +138,21 @@ def _archive(db, rels):
             conn.execute("INSERT INTO archive_files (rel, area) VALUES (?, ?)", (rel, area))
 
 
-def test_area_folders_from_ledger_and_select_save(tmp_path):
-    c = _client(tmp_path)
+def test_area_folders_from_ledger(tmp_path):
+    """원본 장부의 최상위 폴더 목록 — 라이브러리 폴더 목록(원본 폴더)과 같은 집합. 플랫폼 업로드는 빠진다."""
+    _client(tmp_path)
     db = Database(tmp_path / "test.db")
     _archive(db, [("가폴더/2024/a.hwp", "가폴더"), ("가폴더/b.pdf", "가폴더"), ("나폴더/c.hwp", "나폴더"),
                   ("_플랫폼업로드/d.hwp", "플랫폼 업로드")])
     assert rag_spaces.area_folders(db) == [{"folder": "가폴더", "files": 2}, {"folder": "나폴더", "files": 1}]
-    page = c.get("/dev/intake?tab=areas").text
-    assert 'name="folder" value="가폴더"' in page and "플랫폼 업로드" not in page
-    assert '<option value="다부서"' in page and "정하지 않음(모든 교직원)" in page
-    before = dict(rag_spaces.config(tmp_path)["dept_of_area"])
-    r = c.post("/dev/rag/area", data={"folder": ["가폴더", "나폴더"], "dept": ["가부서", ""]}, follow_redirects=False)
-    assert "ok=" in r.headers["location"]
-    assert rag_spaces.config(tmp_path)["dept_of_area"] == {**before, "가폴더": "가부서"}
-    # 없는 폴더·없는 부서는 저장하지 않는다
-    for data in ({"folder": ["없는폴더"], "dept": ["가부서"]}, {"folder": ["나폴더"], "dept": ["없는부서"]},
-                 {"folder": ["가폴더", "나폴더"], "dept": ["가부서"]}):
-        r = c.post("/dev/rag/area", data=data, follow_redirects=False)
-        assert "err=" in r.headers["location"], data
-    assert rag_spaces.config(tmp_path)["dept_of_area"] == {**before, "가폴더": "가부서"}
-    # 「정하지 않음」으로 바꾸면 짝이 빠진다
-    c.post("/dev/rag/area", data={"folder": ["가폴더"], "dept": [""]})
-    assert "가폴더" not in rag_spaces.config(tmp_path)["dept_of_area"]
-    assert list(tmp_path.glob("rag_spaces.json.bak-*"))
 
 
-def test_backfill_preview_counts_changes_in_confirm(tmp_path):
+def test_old_area_tab_points_to_rag_space(tmp_path):
+    """폴더별 담당 부서는 라이브러리 폴더의 「공개 범위 바꾸기」 한 곳 — 옛 문서 반입 탭 주소는 RAG 공간으로."""
     c = _client(tmp_path)
-    db = Database(tmp_path / "test.db")
-    rag_spaces.save_config({"dept_of_area": {"가폴더": "가부서"}}, tmp_path)
-    db.add_document("a.hwp", "dgx://가폴더/a.hwp", doc_type="grant", dept="공통")
-    db.add_document("b.hwp", "dgx://가폴더/b.hwp", doc_type="grant", dept="가부서", access_level="dept")   # 이미 맞는 문서
-    db.add_document("c.hwp", "dgx://나폴더/c.hwp", doc_type="grant", dept="공통")
-    assert rag_spaces.backfill_preview(db, tmp_path) == {"가부서": 1}
-    assert "바뀌는 문서 1건" in c.get("/dev/intake?tab=areas").text
-    c.post("/dev/rag/backfill")
-    assert rag_spaces.backfill_preview(db, tmp_path) == {"가부서": 0}
+    r = c.get("/dev/intake?tab=areas", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/dev/rag"
+    assert "폴더별 담당 부서" not in c.get("/dev/intake").text
 
 
 def _search_fixture(tmp_path, monkeypatch):
