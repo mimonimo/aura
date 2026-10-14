@@ -51,13 +51,69 @@ def _noun_key(text: str) -> str:
     return hashlib.blake2b((text or "").encode("utf-8"), digest_size=16).hexdigest()
 
 
+# 명사 캐시를 파일에도 둔다 — 규정 조각 9천여 개를 형태소 분석하는 데 1분 가까이 걸려, 메모리에만 두면 서비스를
+# 다시 띄울 때마다(배포마다) 첫 질문이 그 1분을 떠안는다. 열쇠가 본문 해시라 조각이 바뀌면 자연히 새로 센다.
+_noun_file_state = {"loaded": False, "dirty": 0}
+
+
+def _noun_file():
+    """색인 폴더의 명사 캐시 파일 — 폴더가 없으면(시험·새 설치) 파일을 쓰지 않는다."""
+    from zzaimy.app import paths as _paths
+    d = _paths.index_npz().parent
+    return d / "reg_nouns.json" if d.is_dir() else None
+
+
+def _load_noun_file() -> None:
+    if _noun_file_state["loaded"]:
+        return
+    _noun_file_state["loaded"] = True
+    p = _noun_file()
+    if p is None or not p.exists():
+        return
+    try:
+        import json as _json
+        for k, v in _json.loads(p.read_text(encoding="utf-8")).items():
+            _noun_cache.setdefault(k, frozenset(v))
+    except (OSError, ValueError):
+        pass
+
+
+def save_noun_cache(force: bool = False) -> None:
+    """새로 센 명사가 있으면 파일에 쓴다(통째로 바꿔 끼움)."""
+    if not (_noun_file_state["dirty"] or force):
+        return
+    p = _noun_file()
+    if p is None:
+        return
+    import json as _json
+    tmp = p.with_suffix(".tmp")
+    try:
+        tmp.write_text(_json.dumps({k: sorted(v) for k, v in _noun_cache.items()}, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(p)
+        _noun_file_state["dirty"] = 0
+    except OSError:
+        pass
+
+
 def chunk_nouns(chunk: dict) -> frozenset[str]:
-    """조각의 명사 집합(캐시) — 본문이 같으면 다시 계산하지 않는다."""
+    """조각의 명사 집합(캐시) — 본문이 같으면 다시 계산하지 않는다. 처음엔 파일 캐시를 읽는다."""
+    _load_noun_file()
     key = _noun_key(chunk.get("content") or "")
     got = _noun_cache.get(key)
     if got is None:
         got = _noun_cache[key] = extract_nouns(chunk.get("content") or "")
+        _noun_file_state["dirty"] += 1
     return got
+
+
+def warm_nouns(db) -> int:
+    """서비스가 뜰 때 뒤에서 — 규정 조각 명사를 미리 세어(파일에 없던 것만) 첫 질문이 기다리지 않게. 센 조각 수."""
+    with db._conn() as conn:
+        rows = [{"content": r[0]} for r in conn.execute("SELECT content FROM regulation_chunks")]
+    for r in rows:
+        chunk_nouns(r)
+    save_noun_cache()
+    return len(rows)
 
 
 # 교내·행정 도메인 용어 사전 — 형태소 분석기가 쪼개지 않게 통단어로 등록.
@@ -712,6 +768,8 @@ def sparse_search(
         return []
     chunks = db.list_regulation_chunks(sector=sector, dept=dept, user=user, levels=levels)
     nouns = {c["id"]: chunk_nouns(c) for c in chunks}
+    if _noun_file_state["dirty"] > 200:                     # 많이 새로 셌으면 파일에도 — 다음 시작 때 다시 세지 않게
+        save_noun_cache()
     n = max(len(chunks), 1)
     df = {t: sum(1 for c in chunks if t in nouns[c["id"]]) for t in query}
     idf = {t: math.log(1 + n / (1 + df[t])) for t in query}
@@ -766,6 +824,8 @@ def _lexical_ids(query: frozenset[str], chunks: list[dict], min_overlap: int) ->
     프로세스 내 캐시로 재계산을 피한다.
     """
     nouns = {c["id"]: chunk_nouns(c) for c in chunks}
+    if _noun_file_state["dirty"] > 200:                     # 많이 새로 셌으면 파일에도 — 다음 시작 때 다시 세지 않게
+        save_noun_cache()
     n = max(len(chunks), 1)
     df = {t: sum(1 for c in chunks if t in nouns[c["id"]]) for t in query}
     return lexical_score(query, nouns, df, n, min_overlap)

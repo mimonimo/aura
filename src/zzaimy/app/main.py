@@ -488,6 +488,20 @@ def create_app(
     app.include_router(archive_view_router)
 
     @app.on_event("startup")
+    def _warm_regulation_nouns() -> None:
+        """규정 조각 명사를 뒤에서 미리 — 서비스를 다시 띄운 뒤 첫 규정 검색이 형태소 분석(1분 가까이)을 기다리지 않게."""
+        import threading
+
+        def _run() -> None:
+            try:
+                from zzaimy.app import regulations as _regs
+                _regs.warm_nouns(db)
+            except Exception as e:                             # 실패해도 첫 검색이 그때 센다(지금과 같음)
+                logging.getLogger("zzaimy.app").warning("규정 명사 미리 세기 실패: %s", type(e).__name__)
+        if os.environ.get("ZZAIMY_WARM_NOUNS", "1") != "0":
+            threading.Thread(target=_run, name="warm-nouns", daemon=True).start()
+
+    @app.on_event("startup")
     def _recover_dangling_chats() -> None:
         """재시작으로 끊긴 대화 복구 — 마지막 말이 담당자 질문이면(답변 스레드가 죽었다) 안내를 붙여 대화가 잠기지 않게 한다.
 
