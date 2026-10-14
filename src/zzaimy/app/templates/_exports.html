@@ -1,0 +1,64 @@
+{# 산출물 내려받기 줄 — 항목 정의는 app/exports.py 한 곳.
+   넣는 법: {% with groups="rag" %}{% include "_exports.html" %}{% endwith %}  (묶음: ontology · graph · rag · train, 쉼표로 여럿)
+   화면에 넣으면 자리만 두고 /dev/export?groups=… 로 줄을 받아 끼운다(크기·건수는 그때 센다). 관리자 화면에서만 쓴다. #}
+{% if export_rows is defined %}
+<div class="ex-list">
+  {% for g in export_rows %}
+  <section class="ex-group" data-group="{{ g.group }}">
+    {% if export_rows|length > 1 %}<h4 class="ex-gh">{{ g.group_label }}</h4>{% endif %}
+    {% for it in g["items"] %}
+    <div class="ex-row{% if not it.info %} is-none{% endif %}" data-key="{{ it.key }}">
+      <div class="ex-main">
+        <b class="ex-name">{{ it.name }}</b>
+        <span class="ex-desc">{{ it.desc }}</span>
+      </div>
+      <span class="ex-fmt">{{ it.fmt }}</span>
+      <span class="ex-info">{{ it.info or "아직 없음" }}</span>
+      {% if it.info %}<a class="btn secondary ex-get" href="{{ it.href }}" download>받기</a>
+      {% else %}<button type="button" class="secondary ex-get" disabled aria-disabled="true">받기</button>{% endif %}
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+{% else %}
+<div class="ex-slot" data-export-groups="{{ groups | default('ontology,graph,rag,train') }}"><p class="ex-wait">내려받기 목록 불러오는 중…</p></div>
+<script>
+(function () {
+  var slot = document.currentScript.previousElementSibling;
+  function load() {
+    fetch("/dev/export?groups=" + encodeURIComponent(slot.dataset.exportGroups), { credentials: "same-origin" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function (html) { slot.innerHTML = html; })
+      .catch(function () { slot.innerHTML = '<p class="ex-wait">내려받기 목록을 불러오지 못했습니다.</p>'; });
+  }
+  slot.addEventListener("exports:reload", load);
+  // 창(.modal-back) 안에 있으면 처음 열 때 센다 — 화면을 열 때마다 그래프 수를 세지 않게
+  var modal = slot.closest(".modal-back");
+  if (!modal || !modal.id) { load(); return; }
+  var done = false;
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest('[data-modal-open="#' + modal.id + '"]');
+    if (b && !done) { done = true; load(); }
+  });
+})();
+</script>
+<style>
+  .ex-slot { font-size: 13px; }
+  .ex-wait { margin: 6px 0; color: var(--muted); font-size: 12.5px; }
+  .ex-group + .ex-group { margin-top: 12px; }
+  .ex-gh { margin: 0 0 4px; font-size: 12.5px; color: var(--muted); font-weight: 600; }
+  .ex-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px;
+            padding: 9px 0; border-top: 1px solid var(--line); }
+  .ex-group .ex-row:first-of-type { border-top: 0; }
+  .ex-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .ex-name { font-size: 13.5px; color: var(--ink); }
+  .ex-desc { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .ex-fmt { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .ex-info { font-size: 12px; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; min-width: 90px; text-align: right; }
+  .ex-row.is-none .ex-info { color: var(--faint, #94A3B8); }
+  .ex-get { padding: 5px 12px; font-size: 12.5px; text-decoration: none; }
+  .ex-get[disabled] { opacity: .45; cursor: not-allowed; }
+  @media (max-width: 640px) { .ex-row { grid-template-columns: minmax(0, 1fr) auto; } .ex-fmt { display: none; } .ex-info { min-width: 0; } }
+</style>
+{% endif %}

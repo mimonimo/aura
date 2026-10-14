@@ -189,6 +189,7 @@
         <button type="button" class="gx-tool" id="gxLayout" title="노드를 다시 배치하고 화면에 맞춥니다"><iconify-icon icon="solar:refresh-linear"></iconify-icon>다시 배치</button>
         <button type="button" class="gx-tool" id="gxFit" title="배치는 두고 화면에 맞춥니다"><iconify-icon icon="solar:maximize-square-linear"></iconify-icon>화면 맞춤</button>
         <a class="gx-tool" href="/graph/program" title="사업별 연차·문서 표"><iconify-icon icon="solar:document-text-linear"></iconify-icon>사업별 표</a>
+        {% if request.state.role == 'dev' %}<button type="button" class="gx-tool" id="gxExport" data-modal-open="#gxExportModal" title="온톨로지·지식그래프 파일 내려받기"><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기</button>{% endif %}
       </span>
     </div>
     <div class="gx-legend" id="gxLegend"></div>
@@ -207,6 +208,16 @@
     <div class="gx-p-body" id="gxPBody"></div>
   </aside>
 </div>
+
+{% if request.state.role == 'dev' %}
+<div class="modal-back" id="gxExportModal">
+  <div class="card" style="width: 620px;"><div class="card-in">
+    <div class="modal-head"><h2 style="font-size:17px;">내려받기</h2>
+      <button type="button" class="icon-btn" data-modal-close aria-label="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
+    {% with groups="ontology,graph" %}{% include "_exports.html" %}{% endwith %}
+  </div></div>
+</div>
+{% endif %}
 
 <script src="/static/cytoscape.min.js?v={{ asset_v }}"></script>
 <script src="/static/layout-base.js?v={{ asset_v }}"></script>

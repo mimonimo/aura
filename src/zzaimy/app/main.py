@@ -479,6 +479,8 @@ def create_app(
     app.include_router(kg_view_router)
     from zzaimy.app.kg_explore import router as kg_explore_router   # 지식 그래프 탐색(Cytoscape.js) — 노드 하나씩 펼침
     app.include_router(kg_explore_router)
+    from zzaimy.app.exports import router as exports_router   # 산출물 내려받기(/dev/export, 관리자만)
+    app.include_router(exports_router)
     from zzaimy.app.archive_view import router as archive_view_router   # DGX 원본 보관소(원본 목록 장부)
     app.include_router(archive_view_router)
 
