@@ -835,6 +835,27 @@ def ledger_link(cards: list, ledger: dict) -> dict:
         match = terms + [t for t in e.get("acronyms", []) if t]
         spans.append({"id": sid, "name": e.get("name") or terms[-1], "start": start, "end": end,
                       "terms": sorted({re.sub(r"[\s.·\-_]+", "", t).upper() for t in match}, key=len, reverse=True)})
+    # 계열 — 장부의 앞 단계(predecessor)로 이은 앞뒤 단계 사업(양쪽으로, 건너 이어진 것까지). 기간 밖 연도 문서를 옮길 곳을 찾는 데 쓴다
+    sid_of = {}
+    for i, (e, _s, _t, terms) in enumerate(entries):
+        owners = by_entry.get(i, [])
+        sid_of[i] = owners[0][0] if owners else "program:" + program_key(terms[-1])
+    term_entry = {flat(t): i for i, (_e, _s, _t, terms) in enumerate(entries) for t in terms}
+    near: dict[str, set[str]] = defaultdict(set)
+    for i, (e, _s, _t, _terms) in enumerate(entries):
+        for pred in e.get("predecessor", []) or []:
+            j = term_entry.get(flat(pred))
+            if j is not None and sid_of[j] != sid_of[i]:
+                near[sid_of[i]].add(sid_of[j])
+                near[sid_of[j]].add(sid_of[i])
+    for sp in spans:
+        seen, todo = set(), [sp["id"]]
+        while todo:
+            for n in near.get(todo.pop(), ()):
+                if n not in seen and n != sp["id"]:
+                    seen.add(n)
+                    todo.append(n)
+        sp["lineage"] = sorted(seen)
     owner_of = {}
     matched = set()
     for i, (_e, _s, _t, terms) in enumerate(entries):
@@ -1032,6 +1053,18 @@ def fill_period(docs: list[dict], assigned: list, periods: dict[str, tuple[int, 
                 a.evidence = list(a.evidence) + [f"파일 이름이 이 사업을 부르고 연도 {a.year} 는 기간({start}~{end or ''}) 바로 앞뒤 — 연도만 버림"]
                 a.year = a.round = None
                 stats["named_near_year_dropped"] = stats.get("named_near_year_dropped", 0) + 1
+                continue
+            # 장부가 앞뒤 단계로 이은 사업 가운데 그 연도를 기간에 품은 것이 하나뿐이면 그쪽 — 다음 단계 사업 폴더에 함께 보관된
+            # 앞 단계 시절 문서(「LINC 3.0」 폴더의 2021년 협의체 자료 → LINC+). 둘 이상이면 고르지 않는다
+            lin = [sp for sp in (spans or []) if own and sp["id"] in own.get("lineage", ())
+                   and sp["start"] <= a.year <= (sp["end"] or 9999)]
+            if len(lin) == 1:
+                other = lin[0]
+                a.evidence = list(a.evidence) + [f"연도 {a.year} 가 「{a.program_name}」 기간({start}~{end or ''}) 밖 — "
+                                                 f"외부 확인 장부의 앞뒤 단계 사업 「{other['name']}」({other['start']}~{other['end'] or ''}) 기간 안"]
+                a.program, a.program_name, a.status = other["id"], (card_names or {}).get(other["id"]) or other["name"], "period"
+                a.round = a.year - other["start"] + 1
+                stats["moved_to_lineage"] = stats.get("moved_to_lineage", 0) + 1
                 continue
             a.evidence = list(a.evidence) + [f"연도 {a.year} 가 이 사업 기간({start}~{end or ''}) 밖 — 확정하지 않음"]
             a.program, a.program_name, a.status = "", "", "review"

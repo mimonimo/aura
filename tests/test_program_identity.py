@@ -126,3 +126,31 @@ def test_same_program_names():
     assert not sp("은하 선도대학(ABCD) 육성사업", "은하 선도대학(ABCD+) 육성사업")
     assert sp("4단계 은하 선도대학 육성사업", NEW) and sp("ABCD3.0 사업", NEW)
     assert not sp("4단계 은하 선도대학 육성사업", OLD)
+
+
+def test_out_of_period_doc_moves_to_ledger_lineage_program():
+    """다음 단계 사업 폴더의 앞 단계 시절 문서 — 장부의 앞 단계(predecessor)가 그 연도를 품으면 그 사업으로, 아니면 검토로 남긴다."""
+
+    class C:
+        def __init__(self, node_id, surfaces):
+            self.node_id, self._s, self.name = node_id, surfaces, surfaces[0]
+
+        def surfaces(self):
+            return set(self._s)
+
+    cards = [C("program:abcd30", ["ABCD3.0", "4단계은하선도대학육성사업"]), C("program:abcd", ["ABCD+", "별빛맞춤형은하선도대학육성사업"])]
+    ledger = {"programs": [
+        {"terms": ["ABCD+", "별빛맞춤형 은하 선도대학 육성사업"], "name": OLD, "period": "2015~2020", "sources": ["s"]},
+        {"terms": ["ABCD 3.0", "4단계 은하 선도대학 육성사업"], "name": NEW, "period": "2021~2026", "sources": ["s"],
+         "predecessor": ["ABCD+"]}]}
+    link = P.ledger_link(cards, ledger)
+    assert {sp["id"]: sp["lineage"] for sp in link["spans"]} == {"program:abcd": ["program:abcd30"], "program:abcd30": ["program:abcd"]}
+    docs = [{"id": 1, "filename": "협의체 회의(2019.05.02).pdf", "path": "사업단/ABCD3.0 자료/협의체"},
+            {"id": 2, "filename": "기술자문(2011).pdf", "path": "사업단/ABCD3.0 자료/기술자문"}]
+    res = [P.Assignment(doc_id=1, program="program:abcd30", program_name=NEW, status="agent", year=2019),
+           P.Assignment(doc_id=2, program="program:abcd30", program_name=NEW, status="agent", year=2011)]
+    st = P.fill_period(docs, res, link["periods"], link["spans"], link["aliases"])
+    assert (res[0].program, res[0].status, res[0].round) == ("program:abcd", "period", 5)
+    assert "앞뒤 단계" in res[0].evidence[-1]
+    assert (res[1].program, res[1].status) == ("", "review")          # 어느 단계 기간에도 없는 연도
+    assert st["moved_to_lineage"] == 1
