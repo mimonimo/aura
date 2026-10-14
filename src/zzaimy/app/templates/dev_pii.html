@@ -64,7 +64,7 @@
   <fieldset id="privacyEntities" {% if not internal_policy.enabled %}hidden{% endif %}><legend>가릴 항목</legend><div class="privacy-options">
   {% for key,label in masking_entities.items() %}<label><input type="checkbox" name="entities" value="{{ key }}" {% if key in internal_policy.entities %}checked{% endif %}>{{ label }}</label>{% endfor %}
   </div></fieldset>
-  <p class="privacy-help">기준 문서의 원문 유지 예외는 유지합니다. 원본 파일·기존 본문·검색 조각을 소급 변경하지 않습니다.</p>
+  <p class="privacy-help">기준 문서는 원문 유지 · 원본 파일·기존 본문·검색 조각은 소급 변경 없음</p>
   <div class="privacy-switch-row"><span id="privacySaveStatus" class="privacy-help" role="status">저장된 설정: 내부 마스킹 {{ '켜짐' if internal_policy.enabled else '꺼짐' }} · 마지막 변경 {{ (internal_policy.updated_at | kst) or '없음(기본값)' }}{% if internal_policy.updated_by %} · {{ internal_policy.updated_by }}{% endif %}</span><button type="submit">설정 저장</button></div></form>
   <script>
   (function(){
@@ -79,9 +79,7 @@
   </script>
   <noscript>설정 변경에는 JavaScript가 필요합니다. 현재 저장된 설정은 유지됩니다.</noscript>
   <div class="privacy-policy-note">
-  <p class="privacy-help">내부 마스킹 설정으로 학습 반출 검수를 끌 수 없습니다. 자동 탐지는 자유 문장 속 성명·주소 등을 놓칠 수 있어 사람 검수를 대신하지 않습니다.</p>
-  <p class="privacy-help">문서 접근 권한은 별도로 유지합니다. 마스킹을 꺼도 다른 부서의 문서 권한이 열리지 않습니다.</p>
-  <p class="privacy-help">기존 마스킹 본문은 자동 복원되지 않습니다. 원본 재추출과 권한·반출 경로 검증을 함께 진행해야 합니다.</p>
+  <p class="privacy-help">학습 반출 검수·문서 접근 권한과는 별개입니다(끄더라도 반출 검수와 부서 권한은 그대로). 이미 가린 본문은 자동으로 되돌리지 않습니다.</p>
   </div>
 </div></div>
 {% if request.query_params.get('legacy') == '1' %}
