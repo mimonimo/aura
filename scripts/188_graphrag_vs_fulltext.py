@@ -11,7 +11,8 @@
 - 절 질문: data/eval/rag_probe_set.json (scripts/173 — 계획서·실적보고서의 절을 무작위로 골라 만든 질문, 정답 문서·절 글)
 - 관계 질문: data/eval/graph_relation_set.json (scripts/184 — 그래프의 계획↔실적·앞뒤 단계·평가 관계에서 뽑은 질문)
 재는 것:
-- 검색(모든 질문 × 모드): 절 질문 doc@k·twin@k·prog@k·정답 문서 순위, 관계 질문 ok(정답 문서 조건)·계획/실적 각각, 걸린 시간
+- 검색(모든 질문 × 모드): 절 질문 doc@k·twin@k·prog@k·정답 문서 순위, 관계 질문 ok(정답 문서 조건)·계획/실적 각각,
+  계획↔실적 짝 성립(pair_any — 시험지 짝이 여럿 중 하나라 함께 본다, pair_sides), 걸린 시간
 - 답변(앞에서 고른 일부 × --answer-modes): AgentResponder 를 그대로 — 단계별 시간(규정·사업 문서 검색·생성·전체),
   빈 답·오류, 근거 없음 답, 근거에 없는 숫자(지어낸 수치 의심), 정답 절 글과 겹치는 낱말 비율(절 질문), 근거에 정답 문서가 들었나
 - 답 품질(quality): 정답 절 숫자 사실 재현율, 근거 밖 수치 비율, 근거에 정답 문서, 관계 양쪽 근거·계획과 실적을 다 다뤘나
@@ -90,6 +91,34 @@ def pick_answer_items(items: list[dict], n_sec: int, n_rel: int) -> list[dict]:
     return sec + rel
 
 
+def pair_sides(db, it: dict) -> None:
+    """계획↔실적 질문의 「짝 성립」 묶음을 붙인다(제자리) — plan_alts·report_alts.
+
+    시험지의 짝은 그래프의 문서 짝(plans_reports) 가운데 하나를 무작위로 고른 것이다. 문서 짝은 같은 사업·연차의 계획서 ×
+    실적보고서를 모두 잇기 때문에, 한 연차에 같은 절을 가진 계획서 판본이 여럿이고 실적보고서도 여럿이면 질문 글만으로는
+    시험지가 고른 두 문서를 가릴 수 없다(엄격 지표 ok 는 운에 크게 기댄다). 그래서 함께 본다:
+    계획 쪽 = 시험지 계획서, 또는 시험지 실적보고서와 그래프 짝이면서 질문에 묶어 적은 절 제목의 절을 가진 계획서.
+    실적 쪽 = 시험지 실적보고서, 또는 시험지 계획서와 그래프 짝인 실적보고서."""
+    if it.get("type") != "plan_report":
+        return
+    pa, pb = int(it["gold"][0]), int(it["gold"][1])
+    m = re.findall(r"「([^」]{2,60})」", it["q"])
+    sec = re.sub(r"\s+", "", m[-1]) if m else ""
+    with db._conn() as conn:
+        plans = {int(a.split(":")[1]) for (a,) in conn.execute(
+            "SELECT src FROM kg_edges WHERE kind = 'plans_reports' AND dst = ? AND src NOT LIKE '%:sec:%'", (f"doc:{pb}",)).fetchall()}
+        reports = {int(b.split(":")[1]) for (b,) in conn.execute(
+            "SELECT dst FROM kg_edges WHERE kind = 'plans_reports' AND src = ? AND dst NOT LIKE '%:sec:%'", (f"doc:{pa}",)).fetchall()}
+        with_sec: set[int] = set()
+        if sec and plans:
+            ids = sorted(plans)
+            with_sec = {int(d) for (d,) in conn.execute(
+                f"SELECT DISTINCT doc_id FROM kg_nodes WHERE type = 'section' AND doc_id IN ({','.join('?' * len(ids))})"
+                " AND REPLACE(label, ' ', '') LIKE ?", (*ids, f"%{sec}%")).fetchall()}
+    it["plan_alts"] = sorted(with_sec | {pa})
+    it["report_alts"] = sorted(reports | {pb})
+
+
 def judge_search(it: dict, got: list[int]) -> dict:
     if it["set"] == "section":
         rank = got.index(it["doc_id"]) + 1 if it["doc_id"] in got else None
@@ -100,6 +129,9 @@ def judge_search(it: dict, got: list[int]) -> dict:
     out = {"ok": ok}
     if it["type"] == "plan_report":
         out.update(plan_ok=it["gold"][0] in got, report_ok=it["gold"][1] in got)
+        if "plan_alts" in it:
+            pa_ok, rb_ok = bool(set(it["plan_alts"]) & set(got)), bool(set(it["report_alts"]) & set(got))
+            out.update(plan_any=pa_ok, report_any=rb_ok, pair_any=pa_ok and rb_ok)
     return out
 
 
@@ -251,6 +283,9 @@ def summarize(rows: list[dict], mode: str) -> dict:
             d = {"n": len(part), "ok": _rate(part, "ok"), "counts": _cnt(part, "ok")}
             if t == "plan_report":
                 d.update(plan=_rate(part, "plan_ok"), report=_rate(part, "report_ok"))
+                if any("pair_any" in x for x in part):
+                    d.update(pair_any=_rate(part, "pair_any"), plan_any=_rate(part, "plan_any"), report_any=_rate(part, "report_any"),
+                             pair_any_counts=_cnt(part, "pair_any"))
             out["search"]["relation"][t] = d
     ans = [r["answers"][mode] for r in rows if mode in r.get("answers", {})]
     if ans:
@@ -310,6 +345,9 @@ def table(summary: dict) -> str:
     row("절 질문 MRR", lambda s: num(s["search"]["section"]["mrr"]))
     row("관계 질문 전체", lambda s: pct(s["search"]["relation"]["ok"]))
     row("계획↔실적 둘 다", lambda s: pct((s["search"]["relation"].get("plan_report") or {}).get("ok")))
+    row("  계획 · 실적 각각(시험지 문서)", lambda s: "{} · {}".format(*(pct((s["search"]["relation"].get("plan_report") or {}).get(k))
+                                                                for k in ("plan", "report"))))
+    row("계획↔실적 짝 성립(같은 절 계획서 + 짝 실적보고서)", lambda s: pct((s["search"]["relation"].get("plan_report") or {}).get("pair_any")))
     row("앞·뒤 단계 사업", lambda s: pct((s["search"]["relation"].get("lineage") or {}).get("ok")))
     row("평가 의견", lambda s: pct((s["search"]["relation"].get("evaluates") or {}).get("ok")))
     row("검색 시간 중앙값(초)", lambda s: num(s["search"]["sec_median"]))
@@ -387,6 +425,8 @@ def main() -> int:
     ap.add_argument("--k-sec", type=int, default=5)
     ap.add_argument("--k-rel", type=int, default=6)
     ap.add_argument("--limit", type=int, default=0, help="시험지 앞에서 몇 문만(시험 실행)")
+    ap.add_argument("--only", default="", help="이 갈래의 질문만 — section · relation · plan_report · lineage · evaluates(쉼표로 여럿)."
+                    " 27B 읽기(C) 측정을 필요한 질문으로만 줄일 때")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
     ap.add_argument("--sec-set", default=str(ROOT / "data/eval/rag_probe_set.json"))
@@ -423,6 +463,11 @@ def main() -> int:
     dropped = [x["id"] for x in items if (x["doc_id"] not in live if x["set"] == "section"
                                           else not (set(x["gold"]) & live if x["any"] else set(x["gold"]) <= live))]
     items = [x for x in items if x["id"] not in set(dropped)]
+    if args.only:
+        only = set(args.only.split(","))
+        items = [x for x in items if x["set"] in only or x["type"] in only]
+    for x in items:
+        pair_sides(db, x)
     if args.limit:
         items = [x for x in items if x["set"] == "section"][: args.limit] + [x for x in items if x["set"] == "relation"][: args.limit]
     ans_ids = {x["id"] for x in pick_answer_items(items, args.answer_sec, args.answer_rel)}
