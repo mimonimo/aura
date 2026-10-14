@@ -427,13 +427,17 @@ def create_app(
     _chat_progress: dict[int, dict] = {}
 
     def _chat_partial(session_id: int, text: str) -> None:
-        """쓰는 중인 답 — 진행 상태에 실어 화면이 보인다. 식별 정보 가림은 최종 답과 같게 먼저 한다."""
+        """쓰는 중인 답 — 진행 상태에 실어 화면이 보인다. 식별 정보 가림은 최종 답과 같게 먼저 한다.
+        가림은 완성된 글의 꼴(번호·이름)을 보고 찾으므로, 아직 쓰는 중인 마지막 낱말(「010-12」처럼 덜 쓰인 번호)은
+        가림을 비켜 갈 수 있다 — 마지막 빈칸·줄바꿈까지만 보이고, 그 뒤 낱말은 다음 낱말이 시작돼 완성된 뒤에 보인다."""
         progress = _chat_progress.get(session_id)
         if progress is not None:
             try:
-                progress["partial"] = _scrub_internal(text)[-12000:]
-            except Exception:
-                pass
+                masked = _scrub_internal(text)
+                cut = max(masked.rfind(" "), masked.rfind("\n"), masked.rfind("\t"))
+                progress["partial"] = masked[:cut][-12000:] if cut > 0 else ""
+            except Exception:                                   # 가림이 실패하면 쓰는 중인 답을 보이지 않는다(최종 답만)
+                progress.pop("partial", None)
 
     def _chat_step(session_id: int, label: str):
         progress = _chat_progress.get(session_id)

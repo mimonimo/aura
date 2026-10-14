@@ -52,6 +52,16 @@
     const answers = scroller.querySelectorAll('.turn.assistant:not(.chat-progress)');
     return answers[answers.length - 1] || null;
   }
+  // 쓰는 중인 답의 가벼운 그리기 — 글은 먼저 이스케이프하고 굵게·목록·제목 기호만 바꾼다(최종 답은 서버가 그린다)
+  function lightMarkdown(text) {
+    const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc.split('\n').map(line => {
+      let l = line.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+      if (/^\s*[*-]\s+/.test(l)) l = l.replace(/^(\s*)[*-]\s+/, '$1• ');
+      if (/^#{1,4}\s+/.test(l)) l = '<b>' + l.replace(/^#{1,4}\s+/, '') + '</b>';
+      return l;
+    }).join('\n');
+  }
   function showProgress(progress) {
     const panel = document.getElementById('chatProgress');
     if (!panel || !progress || !Array.isArray(progress.steps) || !progress.steps.length) return;
@@ -93,7 +103,7 @@
         panel.append(draft);
       }
       const near = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
-      draft.textContent = progress.partial;
+      draft.innerHTML = lightMarkdown(progress.partial);
       if (near) scroller.scrollTop = scroller.scrollHeight;
     } else if (draft) draft.remove();
     // 문서 패널(chat-documents.js)도 같은 진행 단계를 편집기 위에 표시한다
