@@ -230,7 +230,7 @@
    opener.title='문서 패널 열기';opener.setAttribute('aria-label',opener.title);
    sessionStorage.setItem('chatDocHidden:'+sid,visible?'0':'1');
  }
- async function api(url,options={}){const response=await fetch(url,{cache:'no-store',...options});if(!response.ok||response.redirected){let message='요청을 처리하지 못했습니다.';try{const data=await response.json();if(typeof data.detail==='string')message=data.detail;}catch(_){}throw new Error(message);}return response.json();}
+ async function api(url,options={}){const response=await fetch(url,{cache:'no-store',...options});if(!response.ok||response.redirected){let message='요청을 처리하지 못했습니다.';try{const data=await response.json();if(typeof data.detail==='string')message=data.detail;}catch(_){}const err=new Error(message);err.status=response.status;throw err;}return response.json();}
  function dialog(title){const d=document.createElement('dialog');d.className='chat-doc-dialog';d.setAttribute('aria-label',title);d.innerHTML='<h2></h2><form><div data-fields></div><p role="status"></p><footer><button type="button" class="secondary" data-cancel>취소</button><button type="submit" data-submit>연결</button></footer></form>';d.querySelector('h2').textContent=title;d.querySelector('[data-fields]').style.display='grid';d.querySelector('[data-fields]').style.gap='16px';d.querySelector('[data-cancel]').onclick=()=>d.close();d.addEventListener('close',()=>{d.remove();opener.focus();});document.body.append(d);d.showModal();return d;}
  async function connect(){const d=dialog('드라이브에서 문서 가져오기'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;submit.textContent='선택한 문서 가져오기';status.textContent='연결 계정 확인 중…';
  try{const data=await api('/api/chat-documents/accounts');if(!d.isConnected)return;
@@ -582,7 +582,7 @@
      // 요청 중 사용자가 목록에서 다른 문서를 선택했다면 그 선택을 보존한다.
      if(session!==sid)return;
      if(!linked&&data.connected){linked=data;currentDoc=data.doc;show();}
-   }catch(_){}
+   }catch(e){if(e.status===404||e.status===403)return;}   // 지워졌거나 볼 수 없는 대화 — 더 묻지 않는다
    if(session===sid&&!linked&&workspace.isConnected)watch=setTimeout(checkCreatedDocument,6000);
  }
  function initializeSession(){

@@ -665,4 +665,7 @@ document.addEventListener("DOMContentLoaded", function () {
 </script>
 
 {% endif %}
+{% if development_tab != 'settings' %}
+<div class="card reveal" id="exports"><div class="card-in"><h2><iconify-icon icon="solar:download-minimalistic-linear"></iconify-icon>내려받기</h2>{% with groups="train,ontology,graph,rag" %}{% include "_exports.html" %}{% endwith %}</div></div>
+{% endif %}
 {% endblock %}
