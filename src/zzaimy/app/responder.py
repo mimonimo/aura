@@ -180,6 +180,41 @@ def compose_system(profile: dict) -> str:
 
 
 class AgentResponder:
+    @staticmethod
+    def _stream(client, messages, limit, cuts, on_fitted, on_partial) -> tuple[str, str]:
+        """조각 응답으로 답 생성 — (글, 끝난 까닭). 0.4초마다 지금까지 쓴 글을 on_partial 로 넘긴다."""
+        import time as _time
+
+        from zzaimy.generate import model_config
+
+        stream = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=on_fitted, temperature=0.2,
+                                          stream=True, stream_options={"include_usage": True},
+                                          extra_body=getattr(client, "_extra", {}))
+        parts: list[str] = []
+        finish, last, usage = "", 0.0, None
+        for chunk in stream:
+            if getattr(chunk, "usage", None):
+                usage = chunk.usage
+            for ch in getattr(chunk, "choices", None) or []:
+                piece = getattr(getattr(ch, "delta", None), "content", None)
+                if piece:
+                    parts.append(piece)
+                if getattr(ch, "finish_reason", None):
+                    finish = ch.finish_reason
+            now = _time.monotonic()
+            if parts and now - last >= 0.4:
+                last = now
+                try:
+                    on_partial("".join(parts))
+                except Exception:
+                    pass
+        if usage is not None:                                     # 조각 응답은 사용량 기록을 건너뛰므로 여기서
+            try:
+                model_config.record_usage(getattr(client, "connection_id", None), client.model, usage)
+            except Exception:
+                pass
+        return "".join(parts), finish
+
     def answer(
         self,
         db: Database,
@@ -191,6 +226,7 @@ class AgentResponder:
         scope: dict | None = None,
         on_progress=None,
         evidence: list[dict] | None = None,
+        on_partial=None,
     ) -> str:
         """evidence: 부른 쪽(문서 작업 에이전트)이 이미 찾아 둔 근거 [{title, text, doc_id?, note?}]. 열람 범위 안에서 찾은 것이며,
         답의 첫 근거로 건네고 출처 목록에도 넣는다. 수치는 이 근거와 아래 검색 근거에 있는 것만 쓴다."""
@@ -362,11 +398,20 @@ class AgentResponder:
             sent["messages"] = msgs
             self.last_context = msgs[-1]["content"]         # 모델에 실제로 건넨 글(측정 스크립트가 답의 수치를 이것과 대조한다)
 
-        resp = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=_sent, temperature=0.2,
-                                        extra_body=getattr(client, "_extra", {}))
+        text, finish = "", ""
+        if on_partial is not None:
+            # 쓰는 대로 화면에 — 답 생성(초당 10토큰 안팎)이 끝날 때까지 기다리지 않게. 조각 응답을 못 하는 서버면 아래 한 번에 받기로
+            try:
+                text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial)
+            except Exception:
+                text, finish = "", ""
+        if not text:
+            resp = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=_sent, temperature=0.2,
+                                            extra_body=getattr(client, "_extra", {}))
+            text = resp.choices[0].message.content or ""
+            finish = getattr(resp.choices[0], "finish_reason", "")
         messages, user_content = sent["messages"], sent["messages"][-1]["content"]
-        text = resp.choices[0].message.content or ""
-        if getattr(resp.choices[0], "finish_reason", "") == "length" and text:
+        if finish == "length" and text:
             if on_progress:
                 on_progress("답변 이어 쓰는 중")
             try:

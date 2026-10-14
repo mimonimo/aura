@@ -426,6 +426,15 @@ def create_app(
     _chat_running: set[int] = set()
     _chat_progress: dict[int, dict] = {}
 
+    def _chat_partial(session_id: int, text: str) -> None:
+        """쓰는 중인 답 — 진행 상태에 실어 화면이 보인다. 식별 정보 가림은 최종 답과 같게 먼저 한다."""
+        progress = _chat_progress.get(session_id)
+        if progress is not None:
+            try:
+                progress["partial"] = _scrub_internal(text)[-12000:]
+            except Exception:
+                pass
+
     def _chat_step(session_id: int, label: str):
         progress = _chat_progress.get(session_id)
         if progress is not None:
@@ -1301,6 +1310,8 @@ def create_app(
                 kw["scope"] = scope
             if "on_progress" in _insp.signature(r.answer).parameters:
                 kw["on_progress"] = lambda label: _chat_step(session_id, label)
+            if "on_partial" in _insp.signature(r.answer).parameters:
+                kw["on_partial"] = lambda text: _chat_partial(session_id, text)
             _chat_step(session_id, "답변 준비 중")
             answer = r.answer(db, q, **kw)
         except Exception as e:
@@ -2214,6 +2225,8 @@ def create_app(
             params = _insp.signature(r.answer).parameters
             if "scope" in params:
                 kw["scope"] = scope
+            if "on_partial" in params:
+                kw["on_partial"] = lambda text: _chat_partial(session_id, text)
             if "evidence" in params and found:
                 # 찾은 근거를 버리지 않고 답의 근거로 — 이어 읽은 글(잘린 결과의 나머지)을 앞에, 검색 조각은 뒤에
                 ordered = [e for e in found if e.get("read")] + [e for e in found if not e.get("read")]

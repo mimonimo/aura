@@ -83,6 +83,19 @@
       return item;
     }));
     status.textContent = steps[steps.length - 1];
+    // 쓰는 중인 답 — 다 쓰면 최종 답(가림·출처 처리 후)으로 바뀐다
+    let draft = panel.querySelector('.chat-partial');
+    if (typeof progress.partial === 'string' && progress.partial.trim()) {
+      if (!draft) {
+        draft = document.createElement('div');
+        draft.className = 'chat-partial';
+        draft.setAttribute('aria-live', 'off');
+        panel.append(draft);
+      }
+      const near = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
+      draft.textContent = progress.partial;
+      if (near) scroller.scrollTop = scroller.scrollHeight;
+    } else if (draft) draft.remove();
     // 문서 패널(chat-documents.js)도 같은 진행 단계를 편집기 위에 표시한다
     root.dispatchEvent(new CustomEvent('chat-progress', {detail:{label:steps[steps.length - 1], steps}}));
   }
@@ -412,6 +425,8 @@
       }
       status.textContent = '요청 처리 중입니다.';
       showProgress(state.progress);
+      timer = setTimeout(poll, state.progress && state.progress.partial ? 1000 : 3000);   // 답이 흘러나오는 동안은 1초마다
+      return;
     } catch (_) {
       status.textContent = '연결을 다시 확인하고 있습니다. 작성 중인 내용은 유지됩니다.';
     }

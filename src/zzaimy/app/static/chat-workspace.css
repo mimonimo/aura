@@ -307,3 +307,4 @@ body #chatForm { max-width:1040px; }
 #chatScroll .chat-suggestion-form .chat-form-foot button[type=submit].is-skip { background:#fff; color:#3F5F8A; border-color:#C9D4E2; }
 #chatScroll .chat-suggestion-form .chat-form-foot button[type=submit].is-skip:hover { background:#F1F5FA; border-color:#AEBBCD; }
 .chat-step-sec { color: var(--faint, #8a96a8); font-variant-numeric: tabular-nums; font-size: 12px; }
+.chat-partial { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); color: var(--ink, #1f2a37); font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
