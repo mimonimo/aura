@@ -700,6 +700,9 @@ def classify(docs: list[dict], cards: list[ProgramCard]) -> list[Assignment]:
             a.year_src = "head" if a.year else ""
         if _EVAL_RESULT.search(title):                          # 평가 '기준'이 아니라 평가 '결과·의견'
             a.kind, a.kind_reason = "evaluation", "제목에 평가 결과·종합의견"
+        elif d.get("kind"):                                     # 문서에 저장된 갈래(27B 판정·담당자 지정)가 먼저 — 제목 규칙으로 다시 세지 않는다
+            from zzaimy.app.doc_routing import KINDS
+            a.kind, a.kind_reason = d["kind"], f"문서의 갈래 「{KINDS.get(d['kind'], d['kind'])}」"
         else:
             a.kind, a.kind_reason = guess_kind(d.get("filename") or "", head)
         out.append(a)

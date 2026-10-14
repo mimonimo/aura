@@ -153,7 +153,7 @@ def import_parsed() -> None:
         return
     dest = ROOT / "data" / "inbox" / "parsed"
     dest.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--exclude=*",
+    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--include=kind27b-*.jsonl", "--exclude=*",
                         REMOTE + "./", str(dest) + "/"], capture_output=True)
     if r.returncode != 0:
         print("DGX 처리 결과 받기 실패:", r.stderr.decode("utf-8", "replace")[-160:], flush=True)
@@ -170,6 +170,28 @@ def import_parsed() -> None:
     m = re.match(r"들임 (\d+) · 새 판 갱신 (\d+)", last) or re.match(r"들임 (\d+)()", last)
     if m and (int(m.group(1)) or int(m.group(2) or 0)):
         (ROOT / "data" / "platform" / ".kg-dirty").touch()   # 1분 주기가 그래프·색인을 맞춘다
+    _apply_kind27b(dest)
+
+
+def _apply_kind27b(dest: Path) -> None:
+    """DGX 의 27B 서류 갈래 판정(scripts/191 → kind27b-*.jsonl)이 늘었으면 문서 갈래에 반영한다(scripts/192, 백업 뒤).
+    파일 크기를 표시 파일에 적어 같은 판정을 5분마다 다시 훑지 않는다."""
+    files = sorted(str(f) for f in dest.glob("kind27b-*.jsonl"))
+    if not files:
+        return
+    marker = ROOT / "data" / "platform" / "kind27b_marker.json"
+    seen = sum(Path(f).stat().st_size for f in files)
+    try:
+        if json.loads(marker.read_text(encoding="utf-8")).get("bytes") == seen:
+            return
+    except (OSError, ValueError):
+        pass
+    out = subprocess.run([sys.executable, str(ROOT / "scripts" / "192_kind_apply.py"), *files, "--apply"], cwd=ROOT, capture_output=True)
+    print("27B 갈래:", " ".join(out.stdout.decode("utf-8", "replace").split())[:300], flush=True)
+    if out.returncode == 0:
+        marker.write_text(json.dumps({"bytes": seen}), encoding="utf-8")
+    else:
+        print(out.stderr.decode("utf-8", "replace")[-300:], flush=True)
 
 
 def mark_new_failures(db, added: list[str], failures_path: Path | None = None) -> int:

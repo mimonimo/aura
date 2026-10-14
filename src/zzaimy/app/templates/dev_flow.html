@@ -1,24 +1,6 @@
 {% extends "base.html" %}
-{% block title %}{{ dev_page_name('/dev/flow') }}<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:lightbulb-linear"></iconify-icon>왜 기성 도구 대신 직접 만들었나</h2>
-  {% include "_build_why.html" %}
-</div></div>
-
-<div class="card reveal" id="tech"><div class="card-in">
-  <h2><iconify-icon icon="solar:box-linear"></iconify-icon>쓰는 부품</h2>
-  {% include "_tech_stack.html" %}
-</div></div>
-{% endblock %}
-{% block pagetitle %}{{ dev_page_name('/dev/flow') }}<div class="card reveal"><div class="card-in">
-  <h2><iconify-icon icon="solar:lightbulb-linear"></iconify-icon>왜 기성 도구 대신 직접 만들었나</h2>
-  {% include "_build_why.html" %}
-</div></div>
-
-<div class="card reveal" id="tech"><div class="card-in">
-  <h2><iconify-icon icon="solar:box-linear"></iconify-icon>쓰는 부품</h2>
-  {% include "_tech_stack.html" %}
-</div></div>
-{% endblock %}
+{% block title %}{{ dev_page_name('/dev/flow') }}{% endblock %}
+{% block pagetitle %}{{ dev_page_name('/dev/flow') }}{% endblock %}
 {% block content %}
 <style>
 .pf-lead{font-size:13px;color:var(--muted);margin:0 0 4px;}

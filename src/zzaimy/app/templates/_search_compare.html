@@ -1,6 +1,6 @@
 {# 사업 문서 검색 측정 — 관계 질문 측정(scripts/184)·풀텍스트 RAG 비교(scripts/188). 원천 app/answer_flow.py, 값은 결과 파일 그대로 #}
 <style>
-  .flow-table { width:100%; max-width:640px; border-collapse:collapse; font-size:12.5px; margin-bottom:12px; }
+  .flow-table { width:100%; border-collapse:collapse; font-size:12.5px; margin-bottom:12px; }
   .flow-table th { text-align:left; color:var(--muted); font-weight:600; padding:5px 8px; border-bottom:1px solid var(--line); }
   .flow-table td { padding:6px 8px; border-bottom:1px solid #EEF1F5; }
   .flow-table .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -10,7 +10,7 @@
   <h4 class="extract-h">관계 질문 측정 <span class="muted" style="font-weight:400; font-size:12px;">{% if flow.probe %}{{ flow.probe_at }} · {{ flow.probe_file }} · 그래프에서 자동으로 뽑은 질문, 정답 문서가 근거 상위에 들었나{% endif %}</span></h4>
   {% if flow.probe %}
   <div class="table-scroll"><table class="flow-table">
-    <tr><th>질문 갈래</th><th class="num">질문</th><th class="num">이름 맞추기</th><th class="num">27B 읽기</th></tr>
+    <tr><th>질문 갈래</th><th class="num">질문</th><th class="num">② 코드가 이름으로 좁힘</th><th class="num">③ 27B 가 질문을 읽고 좁힘</th></tr>
     {% for r in flow.probe %}<tr{% if r.label == '전체' %} class="flow-total"{% endif %}><td>{{ r.label }}</td><td class="num">{{ r.n or '—' }}</td>
       <td class="num">{{ '%.0f%%' % (r.name * 100) if r.name is not none else '—' }}</td><td class="num">{{ '%.0f%%' % (r.model * 100) if r.model is not none else '—' }}</td></tr>{% endfor %}
     {% if flow.timing %}<tr class="flow-time"><td>검색 한 번 걸린 시간(중앙값)</td><td></td><td class="num">{{ flow.timing.name }}초</td><td class="num">{{ flow.timing.model }}초</td></tr>{% endif %}
@@ -18,9 +18,9 @@
   {% else %}<p class="muted" style="font-size:12.5px;">측정 전 — scripts/184 를 돌리면 여기에 나옵니다.</p>{% endif %}
   <h4 class="extract-h">풀텍스트 RAG 와 비교 <span class="muted" style="font-weight:400; font-size:12px;">{% if flow.compare %}{{ flow.compare.made }} · {{ flow.compare.file }} · 같은 시험지 — 절 질문 {{ flow.compare.n_sec }} · 관계 질문 {{ flow.compare.n_rel }}{% if flow.compare.n_ans %} · 답변 {{ flow.compare.n_ans }}문{% endif %}, 그래프에서 자동으로 뽑은 질문{% endif %}</span></h4>
   {% if flow.compare %}
-  {% if flow.compare.summary %}<p style="font-size:12.5px; margin:0 0 8px;">{{ flow.compare.summary }}</p>{% endif %}
+  {% if flow.compare.summary %}<ul style="font-size:12.5px; margin:0 0 10px; padding-left:18px; line-height:1.7;">{% for line in flow.compare.summary %}<li>{{ line }}</li>{% endfor %}</ul>{% endif %}
   <div class="table-scroll"><table class="flow-table">
-    <tr><th>지표 <span class="muted" style="font-weight:400;">비율(맞힌 수/질문 수, 95% 구간)</span></th>{% for m in flow.compare.modes %}<th class="num">{{ m }}</th>{% endfor %}</tr>
+    <tr><th>지표 <span class="muted" style="font-weight:400;">비율(맞힌 수/질문 수, 오차 범위)</span></th>{% for m in flow.compare.modes %}<th class="num">{{ m }}{% if flow.compare.adopted and flow.compare.adopted[loop.index0] %}<br><span class="pill reviewed" style="font-size:11px;">채택 · 운영 중</span>{% endif %}</th>{% endfor %}</tr>
     {% for r in flow.compare.rows %}{% if loop.first or r.group != flow.compare.rows[loop.index0 - 1].group %}<tr class="flow-time"><td colspan="{{ flow.compare.modes | length + 1 }}">{{ r.group }}</td></tr>{% endif %}
     <tr><td>{{ r.label }}</td>{% for v in r.vals %}<td class="num">{{ v }}</td>{% endfor %}</tr>{% endfor %}
   </table></div>

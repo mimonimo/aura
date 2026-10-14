@@ -107,7 +107,7 @@ def main() -> int:
                 if (r[4] or "") in EXCLUDED:                 # 범위 밖 갈래(지출·계약 증빙, 규칙 11) — 그래프에 넣지 않는다
                     dropped.append(int(r[0]))
                     continue
-                doc_rows[int(r[0])] = {"filename": r[1], "stored_path": r[2], "project_id": r[3]}
+                doc_rows[int(r[0])] = {"filename": r[1], "stored_path": r[2], "project_id": r[3], "kind": r[4] or ""}
             for r in conn.execute(f"SELECT * FROM doc_chunks WHERE doc_id IN ({','.join('?' * len(part))}) ORDER BY doc_id, seq",
                                   part).fetchall():
                 r = dict(r)
@@ -124,7 +124,7 @@ def main() -> int:
         origin = origins.get(did, "")
         path = str(Path(origin).parent) if origin else (proj or {}).get("name", "")
         docs.append({"id": did, "filename": d["filename"], "head": head, "path": path, "origin": origin,
-                     "light": str(d.get("stored_path") or "").startswith("dgx://")})
+                     "light": str(d.get("stored_path") or "").startswith("dgx://"), "kind": d.get("kind") or ""})
     cards = programs.build_cards(docs)
     # 외부 확인 장부의 「이름 바뀜」 사실(출처 있는 것만)은 사업 카드의 다른 이름으로 — 문서만으로 약칭이 서지 않을 때(VM 뼈대 문서에 「앵커사업」 꼴이 없음)
     ext_path = ROOT / "data" / "platform" / "kg_external.json"

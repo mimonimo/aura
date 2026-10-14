@@ -330,6 +330,15 @@ def hwpml_text(path: Path) -> str:
     return "\n".join(paras)
 
 
+
+def _kind_complete(messages: list[dict]) -> str:
+    """갈래 판정에 쓰는 27B — 반입 검토와 같은 연결(review). 짧은 답이라 출력 상한을 작게 둔다."""
+    from zzaimy.generate.client import VllmClient
+    client = VllmClient(role="review")
+    resp = client.client.chat.completions.create(model=client.model, messages=messages, max_tokens=200, temperature=0,
+                                                 extra_body=getattr(client, "_extra", {}), timeout=60)
+    return resp.choices[0].message.content or ""
+
 class DocumentProcessor:
     """실제 처리기. 테스트에서는 FakeProcessor로 대체된다."""
 
@@ -1611,11 +1620,19 @@ class DocumentProcessor:
 
     @staticmethod
     def _assign_kind(db: Database, doc_id: int, filename: str, text: str, doc_type: str | None) -> str:
-        """서류 갈래(공고·양식·계획서 …)를 정해 적는다 — 확신이 없으면 비워 둔다."""
+        """서류 갈래(공고·양식·계획서 …)를 정해 적는다 — 27B 가 제목·본문 앞머리를 읽고 정한다(app/kind_read).
+        모델에 닿지 않거나 목록 밖 답이면 제목 낱말 규칙(guess_kind)으로 물러난다. 확신이 없으면 비워 둔다.
+        가벼운 처리(DGX, ZZAIMY_LIGHT_PROCESS)는 규칙만 — 27B 판정은 DGX 일괄(scripts/191)이 따로 한다."""
         try:
             from zzaimy.app.doc_routing import guess_kind
 
             kind, _why = guess_kind(filename, text, doc_type)
+            if doc_type != "regulation" and not os.environ.get("ZZAIMY_LIGHT_PROCESS") \
+                    and os.environ.get("ZZAIMY_KIND_READ", "1") != "0":
+                from zzaimy.app import kind_read
+                got = kind_read.read_kind(_kind_complete, filename, text)
+                if got and got[0]:
+                    kind = got[0]
             db.set_document_kind(doc_id, kind or None)
             return kind
         except Exception:

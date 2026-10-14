@@ -71,7 +71,14 @@ def snapshot(db, eval_dir: Path) -> dict:
     }
 
 
-COMPARE_MODES = (("fulltext", "풀텍스트 RAG"), ("graph", "온톨로지+RAG"), ("graph_read", "+27B 읽기"))
+# 세 방식 — ① 그래프 없이 전체에서 찾기 ② 그래프로 좁히되 질문 해석은 코드(이름·연도·갈래 낱말 맞추기) ③ 질문 해석을 27B 가(운영)
+COMPARE_MODES = (("fulltext", "① 풀텍스트 RAG — 그래프 없이"), ("graph", "② GraphRAG — 코드가 이름으로 좁힘"),
+                 ("graph_read", "③ GraphRAG — 27B 가 질문을 읽고 좁힘"))
+
+
+def adopted_mode() -> str:
+    """지금 운영이 쓰는 방식 — 27B 질문 읽기(ZZAIMY_GRAPH_READ)를 켰으면 ③, 아니면 ②(그래프 단계는 늘 켜짐)."""
+    return "graph_read" if os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1" else "graph"
 
 
 def _cell(v, kind: str) -> str:
@@ -125,25 +132,25 @@ def compare_rows(eval_dir: Path) -> dict:
             v = v.get(k) if isinstance(v, dict) else None
         return v
     spec = (
-        ("검색", "절 질문 — 정답 문서가 근거 상위에", ("search", "section", "counts", "doc_hit"), "cnt"),
-        ("검색", "절 질문 — 같은 사업·같은 해 쌍둥이 문서", ("search", "section", "counts", "twin_hit"), "cnt"),
-        ("검색", "절 질문 — 같은 사업 문서", ("search", "section", "counts", "prog_hit"), "cnt"),
-        ("검색", "관계 질문 — 관계 양쪽 근거", ("search", "relation", "counts"), "cnt"),
-        ("검색", "  계획서·실적보고서 둘 다", ("search", "relation", "plan_report", "counts"), "cnt"),
-        ("검색", "  앞·뒤 단계 사업", ("search", "relation", "lineage", "counts"), "cnt"),
-        ("검색", "  평가 의견", ("search", "relation", "evaluates", "counts"), "cnt"),
-        ("시간", "검색 한 번 중앙값", ("search", "sec_median"), "sec"),
-        ("시간", "검색 한 번 p90", ("search", "sec_p90"), "sec"),
-        ("시간", "답변까지 전체 중앙값", ("answer", "wall_sec_median"), "sec"),
-        ("시간", "답변까지 전체 p90", ("answer", "wall_sec_p90"), "sec"),
-        ("시간", "  그중 근거 찾기(규정+사업 문서) 중앙값", ("answer", "search_sec_median"), "sec"),
-        ("시간", "  그중 27B 생성 중앙값", ("answer", "generate_sec_median"), "sec"),
-        ("답변", "답의 근거에 정답 문서", ("answer", "evidence_has_gold_counts"), "cnt"),
-        ("답변", "정답 절 숫자 사실 재현율(평균)", ("answer", "fact_recall_mean"), "ratio"),
-        ("답변", "근거 밖 수치 비율", ("answer", "unsupported_number_ratio"), "ratio"),
-        ("답변", "관계 질문 — 답의 근거에 양쪽 문서", ("answer", "relation_both_sides"), "cnt"),
-        ("답변", "눈가림 판정 — 정답(2점) 비율", ("answer", "judge", "correct_full"), "cnt"),
-        ("답변", "눈가림 판정 — 정답성 평균(0~2)", ("answer", "judge", "correct_mean"), "num"),
+        ("검색", "특정 문서의 한 부분을 묻는 질문 — 그 문서가 상위 5건에", ("search", "section", "counts", "doc_hit"), "cnt"),
+        ("검색", "  같은 질문 — 같은 사업·같은 해의 거의 같은 문서까지 인정", ("search", "section", "counts", "twin_hit"), "cnt"),
+        ("검색", "  같은 질문 — 같은 사업 문서면 인정", ("search", "section", "counts", "prog_hit"), "cnt"),
+        ("검색", "관계를 묻는 질문 — 관계 양쪽 문서가 모두 상위에", ("search", "relation", "counts"), "cnt"),
+        ("검색", "  계획서와 그 결과보고서", ("search", "relation", "plan_report", "counts"), "cnt"),
+        ("검색", "  전신·후속 사업", ("search", "relation", "lineage", "counts"), "cnt"),
+        ("검색", "  평가 결과와 평가받은 문서", ("search", "relation", "evaluates", "counts"), "cnt"),
+        ("시간", "검색 한 번 — 보통(중앙값)", ("search", "sec_median"), "sec"),
+        ("시간", "검색 한 번 — 느린 쪽(10건 중 9번째)", ("search", "sec_p90"), "sec"),
+        ("시간", "답이 나오기까지 — 보통(중앙값)", ("answer", "wall_sec_median"), "sec"),
+        ("시간", "답이 나오기까지 — 느린 쪽(10건 중 9번째)", ("answer", "wall_sec_p90"), "sec"),
+        ("시간", "  그중 근거 문서 찾기(규정·사업 문서)", ("answer", "search_sec_median"), "sec"),
+        ("시간", "  그중 27B 가 답을 쓰는 시간", ("answer", "generate_sec_median"), "sec"),
+        ("답변", "답이 정답 문서를 근거로 썼나", ("answer", "evidence_has_gold_counts"), "cnt"),
+        ("답변", "정답 문서의 숫자가 답에 들어간 비율(평균)", ("answer", "fact_recall_mean"), "ratio"),
+        ("답변", "근거 문서에 없는 숫자가 답에 나온 비율(낮을수록 좋음)", ("answer", "unsupported_number_ratio"), "ratio"),
+        ("답변", "관계를 묻는 질문 — 답이 양쪽 문서를 근거로 썼나", ("answer", "relation_both_sides"), "cnt"),
+        ("답변", "답 채점 — 완전히 맞은 답(2점) 비율", ("answer", "judge", "correct_full"), "cnt"),
+        ("답변", "답 채점 — 평균 점수(0~2점, 어느 방식 답인지 가리고 매김)", ("answer", "judge", "correct_mean"), "num"),
     )
     rows = []
     for group, label, path, kind in spec:
@@ -153,15 +160,16 @@ def compare_rows(eval_dir: Path) -> dict:
         rows.append({"group": group, "label": label, "vals": [_cell(v, kind) for v in vals]})
     ans_n = {lab: get(m, "answer", "n") for m, lab in modes}
     return {"file": name, "made": data.get("made", ""), "modes": [lab for _, lab in modes], "rows": rows,
+            "adopted": [m == adopted_mode() for m, _ in modes],
             "n_sec": get(modes[0][0], "search", "section", "n"), "n_rel": get(modes[0][0], "search", "relation", "n"),
             "n_ans": max([v for v in ans_n.values() if v] or [0]) or None, "summary": _why_line(summ)}
 
 
-def _why_line(summ: dict) -> str:
-    """「왜 그래프를 쓰나」 한 줄 — 모드마다(풀텍스트 → 온톨로지+RAG → +27B 읽기) 질문 갈래별 차이와 지연 비용을 결과 파일 수치로 만든다."""
+def _why_line(summ: dict) -> list[str]:
+    """비교 요약 — 항목마다 세 방식의 값을 나란히(①·②·③). 화살표로 잇지 않는다(읽기 어렵다). 값은 결과 파일 그대로."""
     modes = [(m, lab) for m, lab in COMPARE_MODES if m in summ]
     if len(modes) < 2 or modes[0][0] != "fulltext":
-        return ""
+        return []
 
     def r(s, *path):
         v = s
@@ -169,18 +177,16 @@ def _why_line(summ: dict) -> str:
             v = v.get(k) if isinstance(v, dict) else None
         return v
 
-    def chain(path, fmt):
-        vals = [r(summ[m], *path) for m, _ in modes]
-        return " → ".join(fmt(v) for v in vals) if all(v is not None for v in vals) else ""
+    marks = "①②③"
     pct = lambda v: f"{v * 100:.0f}%"                       # noqa: E731
     sec = lambda v: f"{v}초"                                 # noqa: E731
-    parts = [f"{label} {c}" for label, path, f in (
-        ("절 질문 정답 문서", ("search", "section", "doc_at_k"), pct),
-        ("관계 양쪽 근거", ("search", "relation", "ok"), pct),
-        ("앞·뒤 단계 사업", ("search", "relation", "lineage", "ok"), pct),
-        ("평가 의견", ("search", "relation", "evaluates", "ok"), pct),
-        ("계획·실적 둘 다", ("search", "relation", "plan_report", "ok"), pct),
-        ("답변 판정 정답성(0~2)", ("answer", "judge", "correct_mean"), str),
-        ("검색 한 번", ("search", "sec_median"), sec),
-        ("답변까지", ("answer", "wall_sec_median"), sec)) if (c := chain(path, f))]
-    return (" → ".join(lab for _, lab in modes) + ": " + " · ".join(parts)) if parts else ""
+    lines = []
+    for label, path, f in (
+            ("특정 문서의 한 부분을 묻는 질문 — 그 문서가 상위 5건에", ("search", "section", "doc_at_k"), pct),
+            ("관계를 묻는 질문 — 관계 양쪽 문서가 모두 상위에", ("search", "relation", "ok"), pct),
+            ("답 채점 평균(0~2점, 어느 방식 답인지 가리고 매김)", ("answer", "judge", "correct_mean"), str),
+            ("답이 나오기까지(보통)", ("answer", "wall_sec_median"), sec)):
+        vals = [r(summ[m], *path) for m, _ in modes]
+        if all(v is not None for v in vals):
+            lines.append(f"{label}: " + " · ".join(f"{marks[i]} {f(v)}" for i, v in enumerate(vals)))
+    return lines

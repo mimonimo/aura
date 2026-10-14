@@ -61,3 +61,11 @@ def test_compare_keeps_latest_complete_run(tmp_path):
     os.utime(ev / "graphrag_vs_fulltext_part.json", (later, later))
     got = answer_flow.compare_rows(ev)
     assert got["file"] == "graphrag_vs_fulltext_full.json" and got["n_sec"] == 73
+
+
+def test_flow_page_title_is_plain(tmp_path):
+    """블록 끝 표시를 잘못 바꿔 카드가 제목에 들어가는 일이 없게 — 탭 제목은 화면 이름뿐."""
+    _, c = _client(tmp_path)
+    page = c.get("/dev/flow").text
+    title = page.split("<title>", 1)[1].split("</title>", 1)[0]
+    assert "<div" not in title and "처리 흐름" in title and page.count("왜 기성 도구 대신 직접 만들었나</h2>") == 1
