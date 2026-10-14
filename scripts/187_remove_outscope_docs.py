@@ -207,6 +207,25 @@ def restore(db, path: Path) -> None:
     print(f"되돌림 — {Counter(r['t'] for r in rows)}")
 
 
+def prune_new(db, whats=("evidence", "evidence_title")) -> int:
+    """동기화가 부르는 상시 정리 — 학교 원본에서 새로 들어온 지출·계약 증빙을 처음 정리와 같은 규칙으로 정리함에.
+    사람이 직접 올린 문서는 건드리지 않는다(올린 사람이 둔 것). 백업을 남기므로 --restore 로 되돌린다."""
+    with db._conn() as conn:
+        school = _school(conn)
+    total = 0
+    for what in whats:
+        ids = [i for i in targets(db, what) if i in school]
+        if not ids:
+            continue
+        out = ROOT / "data/platform/backups" / f"prune-{what}-{time.strftime('%Y%m%d-%H%M%S')}.jsonl.gz"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        backup(db, ids, out)
+        moved = remove(db, ids, what)
+        print(f"범위 밖 정리 [{what}] {len(ids)}건 · 원본 {moved}건 정리함으로 · 되돌리기 --restore {out.name}", flush=True)
+        total += len(ids)
+    return total
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")

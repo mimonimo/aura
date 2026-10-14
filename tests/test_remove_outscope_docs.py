@@ -69,3 +69,21 @@ def test_evidence_by_title(tmp_path):
     with db._conn() as conn:
         conn.execute("UPDATE documents SET kind = 'table' WHERE id IN (?, ?)", (a, b))
     assert rm.targets(db, "evidence_title") == [a]
+
+
+def test_prune_new_leaves_direct_uploads(tmp_path, monkeypatch):
+    """상시 정리는 학교 원본에서 온 증빙만 — 사람이 직접 올린 증빙 문서는 남긴다."""
+    m = rm
+    db = _app(tmp_path).state.db
+    kind = "evidence"
+    school = db.add_document("청구서.hwpx", "x", doc_type="grant")
+    mine = db.add_document("청구서 사본.hwpx", "x", doc_type="grant")
+    with db._conn() as c:
+        c.execute("UPDATE documents SET kind = ? WHERE id IN (?, ?)", (kind, school, mine))
+    monkeypatch.setattr(m, "_school", lambda conn: {school})
+    monkeypatch.setattr(m, "ROOT", tmp_path)
+    removed = []
+    monkeypatch.setattr(m, "remove", lambda db_, ids, what: removed.extend(ids) or 0)
+    monkeypatch.setattr(m, "backup", lambda db_, ids, out: 0)
+    assert m.prune_new(db, whats=("evidence",)) == 1
+    assert removed == [school]

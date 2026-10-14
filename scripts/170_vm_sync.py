@@ -265,6 +265,29 @@ def index_catchup(db, budget_s: int = 50 * 60) -> int:
     return 0
 
 
+def _prune_outscope(db) -> None:
+    """새로 들어온 문서가 있을 때만 — 학교 원본에서 온 지출·계약 증빙(절대 규칙 11)을 정리함으로(scripts/187 와 같은 규칙).
+    마지막으로 본 처리 완료 문서 수·번호를 표시 파일에 적어 1분 주기마다 다시 훑지 않는다."""
+    import importlib.util
+    marker = Path(db.path).parent / "prune_marker.json"
+    with db._conn() as conn:
+        n, hi = conn.execute("SELECT COUNT(*), COALESCE(MAX(id), 0) FROM documents WHERE status = 'reviewed'").fetchone()
+    seen = f"{int(n)}:{int(hi)}"                         # 처리가 끝난 문서(갈래가 붙은 문서)가 늘면 다시 본다
+    try:
+        if json.loads(marker.read_text(encoding="utf-8")).get("seen") == seen:
+            return
+    except (OSError, ValueError):
+        pass
+    try:
+        spec = importlib.util.spec_from_file_location("prune187", ROOT / "scripts" / "187_remove_outscope_docs.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.prune_new(db)
+        marker.write_text(json.dumps({"seen": seen}), encoding="utf-8")
+    except Exception as e:
+        print("범위 밖 정리 실패:", type(e).__name__, str(e)[:120], flush=True)
+
+
 def post_if_changed(db) -> int:
     """문서함이 바뀌었으면(어느 길로 들어왔든 — DGX 동기화·문서함 업로드·채팅 첨부) 그래프·양식·색인을 다시 짓는다.
 
@@ -276,6 +299,7 @@ def post_if_changed(db) -> int:
     except OSError:
         (Path(db.path).parent / ".kg-dirty").touch()     # 다른 후속 처리가 돌고 있다 — 다음 회차에
         return 0
+    _prune_outscope(db)
     with db._conn() as conn:
         n, hi = conn.execute("SELECT COUNT(*), MAX(id) FROM documents WHERE status = 'reviewed'").fetchone()
         nc = conn.execute("SELECT COUNT(*) FROM doc_chunks").fetchone()[0]
