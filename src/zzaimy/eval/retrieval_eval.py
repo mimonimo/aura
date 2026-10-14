@@ -102,6 +102,13 @@ MATCH_MIN = 0.5  # 최고 후보의 겹침(정답 기준·후보 기준 중 큰 
 COVER_MIN = 0.6  # 후보 채택 — 정답 본문 대부분을 담거나(병합) 후보 대부분이 정답 안에 있음(분할)
 BEST_SHARE = 0.5  # 분할 후보는 최고 후보의 절반 이상 겹쳐야 한다(표제만 남은 조각 배제)
 GOLD_SHARE_MIN = 0.2  # 최고 후보라도 정답 본문의 20%는 담아야 한다
+# 같은 본문 — 정답 본문의 이 비율 이상을 담은 다른 조각도 정답이다. 같은 규정이 판본·파일만
+# 달리해 여러 번 등록되면 운영 후보 정리(select_candidates)는 같은 본문을 한 번만 남기는데,
+# 남은 쪽이 원래 정답 id 가 아니면 채점이 놓쳤다고 셌다
+# (측정: 깨끗한 합성 질의 22,082건 중 1,247건, scripts/194).
+# 띄어쓰기·줄바꿈은 보지 않는다 — 판본마다 「제 1 조」·「제1조」, 줄 끝 끊김이 달라 같은 조문이
+# 공백 때문에 다른 본문으로 셌다(후보 정리의 중복 판정도 공백을 지운 글자열로 본다).
+SAME_TEXT_COVER = 0.9
 
 
 def _shingles(text: str, n: int = SHINGLE_N) -> set[int]:
@@ -121,6 +128,7 @@ class ChunkMatcher:
         self._norm = {cid: normalize_text(c.get("content")) for cid, c in self.by_id.items()}
         self._index: dict[int, list[int]] | None = None
         self._size: dict[int, int] = {}
+        self._tight_index: dict[int, list[int]] | None = None
 
     def _build(self) -> dict[int, list[int]]:
         if self._index is None:
@@ -133,6 +141,24 @@ class ChunkMatcher:
             self._index = index
         return self._index
 
+    def same_text(self, text: str) -> set[int]:
+        """본문(공백 무시)의 SAME_TEXT_COVER 이상을 담은 조각 — 다른 판본·중복 등록의 같은 조문."""
+        g = _WS.sub("", text or "")
+        if not g:
+            return set()
+        if self._tight_index is None:
+            index: dict[int, list[int]] = {}
+            for cid, t in self._norm.items():
+                for s in _shingles(_WS.sub("", t)):
+                    index.setdefault(s, []).append(cid)
+            self._tight_index = index
+        gs = _shingles(g)
+        hits: Counter[int] = Counter()
+        for s in gs:
+            for cid in self._tight_index.get(s, ()):
+                hits[cid] += 1
+        return {cid for cid, h in hits.items() if h >= SAME_TEXT_COVER * len(gs)}
+
     def resolve(self, gold_id: int | None, gold_text: str | None) -> set[int]:
         """정답 조각 id 집합. 빈 집합 = 현재 코퍼스에서 정답 본문을 찾지 못함(질의 제외)."""
         g = normalize_text(gold_text)
@@ -140,7 +166,8 @@ class ChunkMatcher:
             # 본문 없는 옛 행 — id가 아직 살아 있으면 그대로(AUTOINCREMENT라 재사용되지 않음)
             return {gold_id} if gold_id in self.by_id else set()
         if gold_id in self.by_id and self._norm[gold_id] == g:
-            return {gold_id}
+            # id·본문 일치 — 그 조각과 같은 본문을 담은 다른 조각(다른 판본·중복 등록)도 정답
+            return {gold_id} | self.same_text(g)
         gs = _shingles(g)
         index = self._build()
         hits: Counter[int] = Counter()
@@ -234,8 +261,10 @@ def resolve_golds(
         stats[source] += 1
         if not ids:
             stats["unmapped"] += 1
-        elif gid is None or ids != {gid}:
+        elif gid is None or gid not in ids:
             stats["remapped"] += 1
+        elif len(ids) > 1:
+            stats["same_text"] += 1  # 원래 id 와 같은 본문의 다른 조각도 정답
         golds.append(ids)
     return golds, dict(stats)
 

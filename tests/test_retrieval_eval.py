@@ -55,6 +55,21 @@ def test_gold_remap_exact_id_then_content():
     assert m.resolve(101, TEXT_A) == {102}  # id가 다른 조각을 가리켜도 본문이 이긴다
 
 
+def test_gold_includes_same_text_chunks():
+    # 같은 규정이 두 번 등록되면 같은 본문 조각이 둘 — 운영 후보는 하나만 남기므로
+    # 둘 다 정답이어야 한다
+    m = rev.ChunkMatcher([_chunk(401, TEXT_A), _chunk(402, TEXT_A), _chunk(403, TEXT_B),
+                          _chunk(404, TEXT_A + " " + TEXT_C)])
+    assert m.resolve(401, TEXT_A) == {401, 402, 404}  # 본문을 통째로 담은 조각까지
+    assert m.resolve(403, TEXT_B) == {403}
+    # 판본마다 띄어쓰기·줄바꿈만 다른 같은 조문도 같은 본문
+    spaced = TEXT_B.replace("제7조", "제 7 조").replace("정산하고 ", "정산하\n고 ")
+    m2 = rev.ChunkMatcher([_chunk(501, TEXT_B), _chunk(502, spaced), _chunk(503, TEXT_C)])
+    assert m2.resolve(501, TEXT_B) == {501, 502}
+    golds, stats = rev.resolve_golds([{"chunk_id": 401, "gold_text": TEXT_A}], m)
+    assert golds == [{401, 402, 404}] and stats.get("same_text") == 1 and not stats.get("remapped")
+
+
 def test_gold_remap_merge_split_loss():
     # 병합: 옛 정답 A가 새 조각 A+B 안에 들어감
     m = rev.ChunkMatcher([_chunk(201, TEXT_A + " " + TEXT_B), _chunk(202, TEXT_C)])
