@@ -85,7 +85,7 @@ def test_rag_page_sections(tmp_path):
     c = _client(tmp_path)
     r = c.get("/dev/rag")
     assert r.status_code == 200
-    for text in ("RAG 목록", "공통 RAG", "기준 문서(문서·조각)", "검색 범위 시험", "계정별 추가 권한", "변경 0건 저장",
+    for text in ("RAG 목록", "공통 RAG", "기준 문서(문서·조각)", "검색 범위 시험", "계정별 추가 권한", "더해 찾는 부서",
                  "규정·기준 문서", "dept:가부서", "학생 공개 규정만", "관리자, 전부"):
         assert text in r.text, text
     # 학생 공간이 비면 그 줄에 안내와 지정 링크
@@ -94,8 +94,9 @@ def test_rag_page_sections(tmp_path):
     assert '<tr data-find="u-stu' not in r.text and "더할 것이 없어 표에서 뺐습니다" in r.text
     # 순서: 검색 공간 → 규정·기준 문서 → 계정별 추가 권한 → 검색 범위 시험(접힘)
     assert r.text.index("규정·기준 문서</h2>") < r.text.index("계정별 추가 권한</h2>") < r.text.index("<summary>검색 범위 시험")
-    assert 'name="on" value="u-ga\tdept:나부서"' in r.text            # 계정 × 부서 공간 칸
-    assert 'value="u-stu\tdept' not in r.text                          # 학생 줄에는 토글이 없다
+    # 계정마다 한 줄 + 「설정」 창 — 부서는 열이 아니라 창의 체크 목록(부서가 늘어도 표가 넓어지지 않음)
+    assert 'data-grant-edit="u-ga"' in r.text and "나부서 더하기" not in r.text
+    assert 'data-grant-edit="u-stu"' not in r.text                     # 학생 줄은 없다
 
 
 def test_grant_table_saves_only_changed_cells(tmp_path):

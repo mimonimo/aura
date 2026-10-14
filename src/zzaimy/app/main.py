@@ -4807,7 +4807,7 @@ def create_app(
     @app.get("/dev/rag", response_class=HTMLResponse)
     def dev_rag(request: Request):
         """RAG 공간 — 검색 공간·규정·기준 문서·계정별 추가 권한·검색 범위 시험(목록은 /dev/rag/regs 로 따로 불러온다).
-        폴더별 담당 부서는 문서 반입(/dev/intake?tab=areas)으로 옮겼다."""
+        원본 폴더별 부서는 라이브러리 폴더의 「공개 범위 바꾸기」 에서 바꾸고 여기 「RAG 목록」 의 반입 폴더 칸에서 본다."""
         from zzaimy.app import rag_spaces
         data_dir = Path(db_path).parent
         cfg = rag_spaces.config(data_dir)
@@ -4819,6 +4819,7 @@ def create_app(
         spaces = rag_spaces.stats(db, data_dir, accounts)
         return templates.TemplateResponse(request, "dev_rag.html", ctx(request, {
             "spaces": spaces, "cfg": cfg, "accts": accts, "dept_spaces": rag_spaces.dept_spaces(cfg, accounts),
+            "dict_grants": {a["id"]: {"space": a["space"], "grants": a["grants"]} for a in accts},
             "dept_rags": rag_spaces.dept_rag_rows(db, cfg, accounts, _all_depts())}))
 
     @app.post("/dev/rag/grant")

@@ -841,10 +841,10 @@
     var nAttr = 0; d.types.forEach(function (t) { nAttr += Object.keys(t.attrs || {}).length; });
     var body = panel("온톨로지", "전체 스키마", stats([["노드 종류", d.types.length], ["관계(기준별)", d.rels.length], ["속성", nAttr]]));
     var acts = document.getElementById("gxPActs");
-    [["/graph/explore/ontology.ttl", "설계도 내려받기", "OWL(Turtle) — Protégé·WebVOWL 로 연다"],
-     ["/graph/explore/shapes.ttl", "검사 규칙 내려받기", "SHACL(Turtle)"]].forEach(function (x) {
-      var a = linkTool(x[0], x[1]); a.title = x[2]; acts.appendChild(a);
-    });
+    // 내려받기는 머리의 「내려받기」 창 한 곳(설계도·인스턴스·검사 규칙·검사 결과·그래프 CSV)
+    var exp = document.getElementById("gxExport");
+    if (exp) { var b = el("button", "gx-tool", "온톨로지 파일 내려받기"); b.type = "button"; b.title = "설계도(OWL)·인스턴스·검사 규칙(SHACL)·검사 결과";
+      b.addEventListener("click", function () { exp.click(); }); acts.appendChild(b); }
     // 표준 검사(SHACL, scripts/177) 결과 — 규칙별 위반 수
     var sh = d.shacl, box = el("div", "gx-ev");
     if (!sh) box.appendChild(el("div", null, "구조 검사 결과가 아직 없습니다. 그래프를 다시 만들 때 함께 검사합니다."));

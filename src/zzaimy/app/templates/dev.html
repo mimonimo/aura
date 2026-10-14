@@ -169,20 +169,32 @@
 
 
 <script>
-  // 프로젝트 현황 탭 — 마지막 선택을 브라우저에 기억
-  document.querySelectorAll(".tabbar button[data-tab]").forEach(function (b) {
-    b.addEventListener("click", function () {
+  // 프로젝트 현황 탭 — 다른 개발 화면의 탭처럼 주소(?tab=build|now)에 남겨 뒤로·앞으로 가기와 링크가 탭을 따른다
+  (function () {
+    var KEY = { paneBuild: "build", paneNow: "now" };
+    var buttons = Array.prototype.slice.call(document.querySelectorAll(".tabbar button[data-tab]"));
+    function show(id) {
+      var b = buttons.find(function (x) { return x.dataset.tab === id; }) || buttons[0];
+      if (!b) return;
       var bar = b.closest(".tabbar"), host = bar.parentElement;
-      bar.querySelectorAll("button").forEach(function (x) { x.classList.toggle("on", x === b); });
+      bar.querySelectorAll("button").forEach(function (x) { x.classList.toggle("on", x === b); x.setAttribute("aria-selected", String(x === b)); });
       host.querySelectorAll(":scope > .tab-pane").forEach(function (p) { p.classList.toggle("on", p.id === b.dataset.tab); });
-      try { localStorage.setItem("devTab", b.dataset.tab); } catch (e) {}
+    }
+    function fromUrl() {
+      var key = new URLSearchParams(location.search).get("tab");
+      return Object.keys(KEY).find(function (id) { return KEY[id] === key; }) || "paneBuild";
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () {
+        show(b.dataset.tab);
+        var u = new URL(location.href);
+        if (b.dataset.tab === "paneBuild") u.searchParams.delete("tab"); else u.searchParams.set("tab", KEY[b.dataset.tab]);
+        if (u.href !== location.href) history.pushState(null, "", u.pathname + u.search + u.hash);
+      });
     });
-  });
-  try {
-    var saved = localStorage.getItem("devTab");
-    var sb = saved && document.querySelector('.tabbar button[data-tab="' + saved + '"]');
-    if (sb && !sb.classList.contains("on")) sb.click();
-  } catch (e) {}
+    window.addEventListener("popstate", function () { show(fromUrl()); });
+    show(fromUrl());
+  })();
 </script>
 
 {% endblock %}
