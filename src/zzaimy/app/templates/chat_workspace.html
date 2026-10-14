@@ -388,7 +388,8 @@
   if (input) {
     input.addEventListener("input", function () { grow(); clearHint(); });
     input.addEventListener("keydown", function (e) {
-      if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      // 한글 조합 중 Enter 는 글자 확정 — 사파리는 조합이 끝난 뒤 keyCode 229 로 한 번 더 보낸다
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
         e.preventDefault();
         if (form.requestSubmit) form.requestSubmit(); else form.submit();
       }
