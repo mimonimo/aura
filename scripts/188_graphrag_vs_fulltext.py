@@ -21,8 +21,15 @@
 같은 질문에서 모드를 번갈아 돌린다(서버 부하가 한 모드에만 몰리지 않게). 27B 질문 읽기 캐시는 매번 비운다(시간이 실제와 같게).
 출력: data/eval/graphrag_vs_fulltext_<tag>.json 과 요약 한 줄(GRAPHRAG_VS), 표(마크다운).
 
+답 생성 변형 축(--think-compare): 검색은 운영 모드(graph_read) 하나로 두고, 같은 질문의 답 쓰기를 생각 끔(think_off, 운영
+현재)과 켬(think_on, ZZAIMY_ANSWER_THINK=1)으로 번갈아(질문마다 먼저 도는 쪽을 바꿔) 돌린다. 생성·전체 시간·출력 토큰·빈 답·
+근거 밖 수치·정답 사실 재현율과 눈가림 묶음(가·나)을 낸다. 판정은 답마다 {"score": 0~2} — 붙이면 모드별 평균과 짝 비교(나아짐·
+나빠짐·같음, 켬 기준)를 함께 낸다. 출력: data/eval/graphrag_think_<tag>.json · 요약 한 줄(GRAPHRAG_THINK)
+
 사용(VM, .env.local 필수):
   scripts/zz_run.sh 16G env PYTHONPATH=src .venv/bin/python scripts/188_graphrag_vs_fulltext.py --tag v1 --answer-sec 12 --answer-rel 12
+  scripts/zz_run.sh 16G env PYTHONPATH=src .venv/bin/python scripts/188_graphrag_vs_fulltext.py --think-compare --tag think1 \
+      --answer-sec 12 --answer-rel 12 --limit 12      # 판정 뒤: --reuse <결과> --judge <판정> --judge-key <열쇠>
 """
 from __future__ import annotations
 
@@ -44,6 +51,8 @@ from zzaimy.app.db import Database  # noqa: E402
 
 MODES = ("fulltext", "graph", "graph_read")
 LABEL = {"fulltext": "A 풀텍스트 RAG", "graph": "B 온톨로지+RAG", "graph_read": "C B+27B 읽기"}
+THINK = ("think_off", "think_on")                 # --think-compare 의 답 생성 변형(검색은 graph_read)
+THINK_LABEL = {"think_off": "생각 끔(운영)", "think_on": "생각 켬"}
 _NUM = re.compile(r"(?<![\d.])\d{2,}(?:[,.]\d+)*")
 _DATE = re.compile(r"((?:19|20)\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})")
 _FACT = re.compile(r"(?<![\d.,])(?:\d{1,3}(?:,\d{3})+|\d{2,})(?:\.\d+)?")   # 1,200 · 70 · 3.5 — 천 단위 쉼표를 한 수로
@@ -160,11 +169,15 @@ def run_search(db, it: dict, mode: str, k_sec: int, k_rel: int) -> dict:
             "relation_added": sum(1 for h in g["hits"] if h.get("relation")), **judge_search(it, got)}
 
 
-def run_answer(db, it: dict, mode: str) -> dict:
+def run_answer(db, it: dict, mode: str, think: bool | None = None) -> dict:
+    """think: None 이면 환경 그대로, True·False 면 이 답 한 번만 ZZAIMY_ANSWER_THINK 를 그렇게 둔다(--think-compare)."""
     from zzaimy.app import grant_search
     from zzaimy.app.responder import AgentResponder
     _clear_reader_cache()
     ar = AgentResponder()
+    old_think = os.environ.get("ZZAIMY_ANSWER_THINK")
+    if think is not None:
+        os.environ["ZZAIMY_ANSWER_THINK"] = "1" if think else "0"
     t0 = time.time()
     try:
         with grant_search.graph_mode(mode):
@@ -172,6 +185,12 @@ def run_answer(db, it: dict, mode: str) -> dict:
         err = ""
     except Exception as e:
         ans, err = "", f"{type(e).__name__}: {e}"[:200]
+    finally:
+        if think is not None:
+            if old_think is None:
+                os.environ.pop("ZZAIMY_ANSWER_THINK", None)
+            else:
+                os.environ["ZZAIMY_ANSWER_THINK"] = old_think
     wall = round(time.time() - t0, 2)
     ctx = getattr(ar, "last_context", "") or ""
     used = [d for d in (getattr(ar, "last_grant_docs", []) or []) if d is not None]
@@ -395,16 +414,96 @@ def gold_reference(db, it: dict, limit: int = 1800) -> str:
     return "\n\n".join(parts)
 
 
+def _mean(vals: list) -> float | None:
+    vals = [v for v in vals if v is not None]
+    return round(sum(vals) / len(vals), 2) if vals else None
+
+
+def summarize_think(rows: list[dict]) -> dict:
+    """--think-compare 요약 — 변형별 시간·출력 토큰·빈 답·근거 밖 수치·재현율·판정 점수, 그리고 판정 짝 비교(켬 − 끔)."""
+    out: dict = {}
+    for v in THINK:
+        ans = [r["answers"][v] for r in rows if v in r.get("answers", {})]
+        if not ans:
+            continue
+        ok = [a for a in ans if not a["error"]]
+        tm = [a.get("timing") or {} for a in ok]
+        qs = [a.get("quality") or {} for a in ok]
+        nt, nu = sum(q.get("num_total", 0) for q in qs), sum(q.get("num_unsupported", 0) for q in qs)
+        fr = [q["fact_recall"] for q in qs if q.get("fact_recall") is not None]
+        js = [a["judge"]["score"] for a in ok if (a.get("judge") or {}).get("score") is not None]
+        out[v] = {"n": len(ans), "errors": sum(bool(a["error"]) for a in ans), "empty": sum(a["empty"] for a in ans),
+                  "generate_sec_mean": _mean([t.get("generate_sec") for t in tm]), "generate_sec_median": _med([t.get("generate_sec") for t in tm]),
+                  "generate_sec_p90": _p90([t.get("generate_sec") for t in tm]),
+                  "wall_sec_mean": _mean([a["wall_sec"] for a in ok]), "wall_sec_median": _med([a["wall_sec"] for a in ok]),
+                  "completion_tokens_mean": _mean([t.get("completion_tokens") for t in tm]),
+                  "completion_tokens_median": _med([t.get("completion_tokens") for t in tm]),
+                  "answer_chars_mean": _mean([len(a.get("answer") or "") for a in ok]),
+                  "think_on_calls": sum(bool(t.get("think")) for t in tm),
+                  "numbers_total": nt, "numbers_unsupported": nu, "unsupported_number_ratio": round(nu / nt, 3) if nt else None,
+                  "with_unsupported_numbers": sum(bool(a["unsupported_numbers"]) for a in ok),
+                  "fact_recall_mean": round(sum(fr) / len(fr), 3) if fr else None,
+                  "fact_hits": sum(q.get("fact_hits", 0) for q in qs if q.get("fact_recall") is not None),
+                  "facts_total": sum(q.get("n_facts", 0) for q in qs if q.get("fact_recall") is not None),
+                  "judge_n": len(js), "judge_mean": round(sum(js) / len(js), 3) if js else None,
+                  "judge_full": sum(1 for j in js if j == 2)}
+        for part in ("section", "relation"):
+            sub = [r["answers"][v] for r in rows if v in r.get("answers", {}) and r["set"] == part and not r["answers"][v]["error"]]
+            pj = [a["judge"]["score"] for a in sub if (a.get("judge") or {}).get("score") is not None]
+            if sub:
+                out[v][part] = {"n": len(sub), "judge_mean": round(sum(pj) / len(pj), 3) if pj else None,
+                                "generate_sec_mean": _mean([(a.get("timing") or {}).get("generate_sec") for a in sub])}
+    pairs = [(r["answers"]["think_off"]["judge"]["score"], r["answers"]["think_on"]["judge"]["score"])
+             for r in rows if all((r.get("answers", {}).get(v) or {}).get("judge") for v in THINK)]
+    if pairs:
+        d = [b - a for a, b in pairs]
+        out["pairs"] = {"n": len(pairs), "better": sum(x > 0 for x in d), "worse": sum(x < 0 for x in d),
+                        "same": sum(x == 0 for x in d), "mean_diff": round(sum(d) / len(d), 3)}
+        # 부호 검정(같음 제외, 양측) — 표본이 작아 나아짐이 우연인지 가늠만
+        k, n = out["pairs"]["better"], out["pairs"]["better"] + out["pairs"]["worse"]
+        if n:
+            from math import comb
+            tail = sum(comb(n, i) for i in range(0, min(k, n - k) + 1)) / 2 ** n
+            out["pairs"]["sign_test_p"] = round(min(1.0, 2 * tail), 3)
+    return out
+
+
+def think_table(s: dict) -> str:
+    vs = [v for v in THINK if v in s]
+    num = lambda v: "—" if v is None else f"{v}"                # noqa: E731
+    lines = ["| 지표 | " + " | ".join(THINK_LABEL[v] for v in vs) + " |", "|---|" + "---|" * len(vs)]
+
+    def row(name, f):
+        lines.append(f"| {name} | " + " | ".join(f(s[v]) for v in vs) + " |")
+    row("답변 수", lambda x: num(x["n"]))
+    row("생성 시간 평균·중앙값·p90(초)", lambda x: f"{num(x['generate_sec_mean'])} · {num(x['generate_sec_median'])} · {num(x['generate_sec_p90'])}")
+    row("전체 시간 평균·중앙값(초)", lambda x: f"{num(x['wall_sec_mean'])} · {num(x['wall_sec_median'])}")
+    row("출력 토큰 평균·중앙값", lambda x: f"{num(x['completion_tokens_mean'])} · {num(x['completion_tokens_median'])}")
+    row("답 글자 수 평균", lambda x: num(x["answer_chars_mean"]))
+    row("빈 답·오류", lambda x: f"{x['empty']}·{x['errors']}")
+    row("근거 밖 수치", lambda x: f"{x['numbers_unsupported']}/{x['numbers_total']}")
+    row("근거 밖 수치가 든 답", lambda x: num(x["with_unsupported_numbers"]))
+    row("정답 사실 재현율(절 질문 평균)", lambda x: f"{num(x['fact_recall_mean'])} ({x['fact_hits']}/{x['facts_total']})")
+    row("판정 점수 평균(0~2)", lambda x: num(x["judge_mean"]))
+    row("  절 질문 · 관계 질문", lambda x: f"{num((x.get('section') or {}).get('judge_mean'))} · {num((x.get('relation') or {}).get('judge_mean'))}")
+    row("판정 2점(만점) 답", lambda x: f"{x['judge_full']}/{x['judge_n']}")
+    if s.get("pairs"):
+        p = s["pairs"]
+        lines.append(f"\n짝 비교(켬 기준, {p['n']}문): 나아짐 {p['better']} · 나빠짐 {p['worse']} · 같음 {p['same']} · "
+                     f"평균 차 {p['mean_diff']:+} · 부호 검정 p={p.get('sign_test_p', '—')}")
+    return "\n".join(lines)
+
+
 LABELS = ("가", "나", "다")
 
 
-def blind_pack(db, rows: list[dict], items: dict, seed: int) -> tuple[list[dict], dict]:
+def blind_pack(db, rows: list[dict], items: dict, seed: int, keys: tuple = MODES) -> tuple[list[dict], dict]:
     """눈가림 판정 묶음 — 질문마다 모드별 답을 무작위로 가·나·다에 놓는다. 열쇠는 따로(판정자에게 주지 않는다)."""
     rnd = random.Random(seed)
     out, key = [], {}
     for r in rows:
         a = r.get("answers", {})
-        modes = [m for m in MODES if m in a]
+        modes = [m for m in keys if m in a]
         if len(modes) < 2:
             continue
         rnd.shuffle(modes)
@@ -434,6 +533,8 @@ def main() -> int:
     ap.add_argument("--reuse", default="", help="앞선 결과 파일 — 같은 질문·모드의 검색·답을 그대로 쓰고 없는 것만 돈다(답변 표본 늘리기)")
     ap.add_argument("--judge", default="", help="눈가림 판정 결과(graphrag_judge_*.json) — 답마다 정답성·완결성 점수를 붙인다")
     ap.add_argument("--judge-key", default="", help="판정 묶음의 열쇠(graphrag_blind_key_*.json)")
+    ap.add_argument("--think-compare", action="store_true",
+                    help="답 생성 변형 축 — 검색은 graph_read 하나, 답 쓰기를 생각 끔/켬(ZZAIMY_ANSWER_THINK)으로 번갈아 견준다")
     ap.add_argument("--new-rel-set", default="", help="관계 질문 집합을 지금 그래프에서 새로 뽑아 이 경로에 쓰고 쓴다(scripts/184 make_set)"
                     " — 예: 40,30,20 = 계획↔실적 40·앞뒤 단계 30·평가 20")
     args = ap.parse_args()
@@ -455,6 +556,8 @@ def main() -> int:
         code_at_start = ""
     modes = [m for m in args.modes.split(",") if m in MODES]
     amodes = [m for m in args.answer_modes.split(",") if m in MODES]
+    if args.think_compare:
+        modes, amodes = ["graph_read"], list(THINK)
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
     items = load_sets(Path(args.sec_set), Path(args.rel_set))
     # 정답 문서가 지금 문서함에 없는 질문은 뺀다(반입 정리로 빠진 문서) — 뺀 수는 결과에 남긴다
@@ -500,7 +603,7 @@ def main() -> int:
         old = prev.get(it["id"])
         if old and old.get("q") == it["q"]:
             row["search"] = {m: v for m, v in old.get("search", {}).items() if m in modes}
-            row["answers"] = {m: v for m, v in old.get("answers", {}).items() if m in modes}
+            row["answers"] = {m: v for m, v in old.get("answers", {}).items() if m in amodes}
         if it["set"] == "section":
             row.update(doc_id=it["doc_id"], gold_text=it["gold_text"][:3000])
         else:
@@ -510,7 +613,13 @@ def main() -> int:
         for m in order:
             if m not in row["search"]:
                 row["search"][m] = run_search(db, it, m, args.k_sec, args.k_rel)
-        if it["id"] in ans_ids:
+        if it["id"] in ans_ids and args.think_compare:
+            # 끔·켬을 번갈아 — 답변 질문마다 먼저 도는 쪽을 바꾼다(서버 부하·캐시가 한쪽에 몰리지 않게)
+            seq = THINK if sum(1 for r in rows if r["id"] in ans_ids) % 2 == 0 else THINK[::-1]
+            for v in seq:
+                if v not in row["answers"]:
+                    row["answers"][v] = dict(run_answer(db, it, "graph_read", think=(v == "think_on")), first=(v == seq[0]))
+        elif it["id"] in ans_ids:
             for m in [m for m in order if m in amodes]:
                 if m not in row["answers"]:
                     row["answers"][m] = run_answer(db, it, m)
@@ -524,9 +633,10 @@ def main() -> int:
         extra = " ".join(f"ans {m[:2]} {row['answers'][m]['wall_sec']}s" for m in row["answers"])
         print(f"[{i + 1}/{len(items)}] {it['id']} {mark} {extra} {it['q'][:50]}", flush=True)
     summary = {m: summarize(rows, m) for m in modes}
-    out = ROOT / "data" / "eval" / f"graphrag_vs_fulltext_{args.tag}.json"
+    think = summarize_think(rows) if args.think_compare else None
+    out = ROOT / "data" / "eval" / (f"graphrag_think_{args.tag}.json" if args.think_compare else f"graphrag_vs_fulltext_{args.tag}.json")
     out.parent.mkdir(parents=True, exist_ok=True)
-    blind, bkey = blind_pack(db, rows, {x["id"]: x for x in items}, args.seed)
+    blind, bkey = blind_pack(db, rows, {x["id"]: x for x in items}, args.seed, keys=THINK if args.think_compare else MODES)
     code = code_at_start
     if prev_meta.get("code"):
         code = f"{prev_meta['code']}(재사용: {prev_meta.get('tag')})" + (f" · 이번 {code}" if code and code != prev_meta["code"] else "")
@@ -535,12 +645,15 @@ def main() -> int:
                                "rerank_on": os.environ.get("ZZAIMY_GRANT_RERANK", "0") == "1",
                                "sets": {"section": Path(args.sec_set).name, "relation": Path(args.rel_set).name},
                                "elapsed_min": round((time.time() - started) / 60, 1), "dropped": dropped,
-                               "summary": summary, "rows": rows, "judged": len(judged)},
+                               "summary": summary, "think": think, "rows": rows, "judged": len(judged)},
                               ensure_ascii=False, indent=1), encoding="utf-8")
     bl = ROOT / "data" / "eval" / f"graphrag_blind_{args.tag}.json"
     bl.write_text(json.dumps(blind, ensure_ascii=False, indent=1), encoding="utf-8")
     (ROOT / "data" / "eval" / f"graphrag_blind_key_{args.tag}.json").write_text(json.dumps(bkey, ensure_ascii=False), encoding="utf-8")
     print(table(summary))
+    if think is not None:
+        print(think_table(think))
+        print("GRAPHRAG_THINK " + json.dumps(think, ensure_ascii=False))
     print("GRAPHRAG_VS " + json.dumps({m: {"section": summary[m]["search"]["section"], "relation_ok": summary[m]["search"]["relation"]["ok"],
                                             "search_sec_median": summary[m]["search"]["sec_median"],
                                             "answer": {k: v for k, v in (summary[m].get("answer") or {}).items()

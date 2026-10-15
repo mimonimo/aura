@@ -55,6 +55,24 @@ WEAK_EVIDENCE_NOTE = (
 )
 
 
+# 답 쓰기(생성 단계)의 생각 모드 손잡이 — 기본은 끈다(운영 동작). ZZAIMY_ANSWER_THINK=1 이면 내부 vLLM 에 생각을 켜고
+# 생각에 쓸 몫만큼 출력 한도와 시간 제한을 넓힌다(생각 글은 reasoning_content 로 따로 오고 답 글에는 섞지 않는다).
+# 생각을 켜는 인자(chat_template_kwargs)는 그 인자를 받는 서버(client._extra 에 있는 경우)에만 보낸다. 측정: scripts/188 --think-compare
+def answer_think() -> bool:
+    return os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on")
+
+
+def answer_gen_options(client) -> tuple[int, dict]:
+    """답 생성 호출의 (출력 한도, 추가 인자). 생각을 끈 기본은 지금까지와 같다 — 3,072 토큰, client._extra 그대로."""
+    extra = getattr(client, "_extra", {})
+    limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
+    if not answer_think() or "chat_template_kwargs" not in (extra or {}):
+        return limit, {"extra_body": extra}
+    eb = dict(extra, chat_template_kwargs={**(extra.get("chat_template_kwargs") or {}), "enable_thinking": True})
+    return (int(os.environ.get("ZZAIMY_ANSWER_THINK_MAX_TOKENS", "8192")),
+            {"extra_body": eb, "timeout": float(os.environ.get("ZZAIMY_ANSWER_THINK_TIMEOUT", "900"))})
+
+
 _FULLWIDTH = {c: c - 0xFEE0 for c in range(0xFF01, 0xFF5F)}
 _FULLWIDTH.update({0x3000: 0x20})
 
@@ -181,15 +199,18 @@ def compose_system(profile: dict) -> str:
 
 class AgentResponder:
     @staticmethod
-    def _stream(client, messages, limit, cuts, on_fitted, on_partial) -> tuple[str, str]:
-        """조각 응답으로 답 생성 — (글, 끝난 까닭). 0.4초마다 지금까지 쓴 글을 on_partial 로 넘긴다."""
+    def _stream(client, messages, limit, cuts, on_fitted, on_partial, gen: dict | None = None,
+                usage_out: list | None = None) -> tuple[str, str]:
+        """조각 응답으로 답 생성 — (글, 끝난 까닭). 0.4초마다 지금까지 쓴 글을 on_partial 로 넘긴다.
+        gen: 생성 추가 인자(answer_gen_options) — 없으면 client._extra. 생각 글(delta.reasoning_content)은 답에 넣지 않는다.
+        usage_out: 주면 마지막 사용량(usage)을 덧붙인다(측정용)."""
         import time as _time
 
         from zzaimy.generate import model_config
 
+        gen = gen if gen is not None else {"extra_body": getattr(client, "_extra", {})}
         stream = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=on_fitted, temperature=0.2,
-                                          stream=True, stream_options={"include_usage": True},
-                                          extra_body=getattr(client, "_extra", {}))
+                                          stream=True, stream_options={"include_usage": True}, **gen)
         parts: list[str] = []
         finish, last, usage = "", 0.0, None
         for chunk in stream:
@@ -208,6 +229,8 @@ class AgentResponder:
                     on_partial("".join(parts))
                 except Exception:
                     pass
+        if usage is not None and usage_out is not None:
+            usage_out.append(usage)
         if usage is not None:                                     # 조각 응답은 사용량 기록을 건너뛰므로 여기서
             try:
                 model_config.record_usage(getattr(client, "connection_id", None), client.model, usage)
@@ -385,7 +408,10 @@ class AgentResponder:
         if on_progress:
             on_progress("답변 작성 중")
         # 목차·개요처럼 긴 답은 짧은 상한(1,024 토큰)에서 중간에 끊긴다. 상한을 넉넉히 두고, 그래도 끊기면 한 번 잇는다
-        limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
+        # 생각 모드는 기본 끔 — ZZAIMY_ANSWER_THINK=1 일 때만 켜고 한도·시간 제한을 넓힌다(answer_gen_options)
+        limit, gen = answer_gen_options(client)
+        self.last_timing["think"] = bool(((gen.get("extra_body") or {}).get("chat_template_kwargs") or {}).get("enable_thinking"))
+        usages: list = []
         # 문맥 한도 — 요청과 에이전트가 찾은 근거는 끝까지 남기고, 첨부·연결 문서 → 오래된 대화 → 출력 상한(바닥까지)
         # → 검색 근거 → 에이전트 근거 차례로 줄인다(llm_budget). 다 줄여도 넘으면 보내지 않는다(ContextOverflow)
         hist_cuts = [llm_budget.Cut(msg=i) for i in range(1, 1 + len(history))]
@@ -402,13 +428,13 @@ class AgentResponder:
         if on_partial is not None:
             # 쓰는 대로 화면에 — 답 생성(초당 10토큰 안팎)이 끝날 때까지 기다리지 않게. 조각 응답을 못 하는 서버면 아래 한 번에 받기로
             try:
-                text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial)
+                text, finish = self._stream(client, messages, limit, cuts, _sent, on_partial, gen=gen, usage_out=usages)
             except Exception:
                 text, finish = "", ""
         if not text:
-            resp = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=_sent, temperature=0.2,
-                                            extra_body=getattr(client, "_extra", {}))
-            text = resp.choices[0].message.content or ""
+            resp = llm_budget.create_fitted(client, messages, limit, cuts, floor=1024, on_fitted=_sent, temperature=0.2, **gen)
+            usages.append(getattr(resp, "usage", None))
+            text = resp.choices[0].message.content or ""            # 생각 글(reasoning_content)은 답에 넣지 않는다
             finish = getattr(resp.choices[0], "finish_reason", "")
         messages, user_content = sent["messages"], sent["messages"][-1]["content"]
         if finish == "length" and text:
@@ -419,11 +445,15 @@ class AgentResponder:
                                         {"role": "user", "content": "끊긴 곳 바로 뒤부터 이어서 끝까지 쓰세요. 앞 내용은 되풀이하지 마세요."}]
                 more = llm_budget.create_fitted(client, more_msgs, limit,
                                                 [llm_budget.Cut(msg=i) for i in range(1, len(messages) - 1)], floor=512,
-                                                temperature=0.2, extra_body=getattr(client, "_extra", {}))
+                                                temperature=0.2, **gen)
+                usages.append(getattr(more, "usage", None))
                 text = text.rstrip() + "\n" + (more.choices[0].message.content or "").lstrip()
             except Exception:
                 pass
         out = strip_emoji(fix_foreign_han(text.strip(), user_content, client))
         self.last_timing["generate_sec"] = round(_time.time() - _t2, 2)
+        toks = [getattr(u, "completion_tokens", None) for u in usages if u is not None]
+        if any(isinstance(t, int) for t in toks):
+            self.last_timing["completion_tokens"] = sum(t for t in toks if isinstance(t, int))
         self.last_timing["total_sec"] = round(_time.time() - _t0, 2)
         return out

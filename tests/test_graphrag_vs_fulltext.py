@@ -49,3 +49,46 @@ def test_judge_and_summary_table():
     assert summ["graph"]["answer"]["relation_both_sides"]["n"] == 4
     assert s188._wilson(0, 0) is None and s188._wilson(5, 10)[0] < 0.5 < s188._wilson(5, 10)[1]
     assert s188.gold_facts("목표 70% 2023년 1,200명 70", "2023년") == ["70", "1200"]
+
+
+def test_think_compare_summary_pairs_and_blind_keys():
+    """--think-compare — 변형별 요약·짝 비교(켬 기준)·눈가림 열쇠가 끔/켬으로 붙는다."""
+    rows = []
+    scores = [(1, 2), (2, 2), (0, 1), (2, 1)]
+    for i, (off, on) in enumerate(scores):
+        r = {"id": f"sec{i}", "set": "section", "type": "section", "q": f"q{i}", "search": {}, "answers": {}}
+        for v, sc, sec in (("think_off", off, 20.0), ("think_on", on, 90.0)):
+            r["answers"][v] = {"answer": "취업률 목표 70%", "error": "", "wall_sec": sec + 5, "empty": False,
+                               "timing": {"generate_sec": sec, "completion_tokens": int(sec * 12), "think": v == "think_on"},
+                               "unsupported_numbers": [], "quality": {"num_total": 1, "num_unsupported": 0, "fact_recall": 0.5,
+                                                                      "fact_hits": 1, "n_facts": 2},
+                               "judge": {"score": sc}}
+        rows.append(r)
+    t = s188.summarize_think(rows)
+    assert t["think_off"]["generate_sec_mean"] == 20.0 and t["think_on"]["completion_tokens_mean"] == 1080
+    assert t["think_on"]["think_on_calls"] == 4 and t["think_off"]["think_on_calls"] == 0
+    assert t["pairs"] == {"n": 4, "better": 2, "worse": 1, "same": 1, "mean_diff": 0.25, "sign_test_p": 1.0}
+    assert "짝 비교" in s188.think_table(t)
+
+    class DB:
+        pass
+    blind, key = s188.blind_pack(DB(), rows, {r["id"]: {"set": "section", "gold_text": "정답"} for r in rows}, 7, keys=s188.THINK)
+    assert len(blind) == 4 and all(set(k.values()) == set(s188.THINK) for k in key.values())
+    assert all(set(b["answers"]) == {"가", "나"} for b in blind)
+
+
+def test_run_answer_think_sets_env_only_for_that_call(monkeypatch):
+    import os
+    from zzaimy.app import responder
+    seen = []
+
+    class AR:
+        def answer(self, db, q, scope=None):
+            seen.append(os.environ.get("ZZAIMY_ANSWER_THINK"))
+            return "답"
+    monkeypatch.setattr(responder, "AgentResponder", AR)
+    monkeypatch.delenv("ZZAIMY_ANSWER_THINK", raising=False)
+    it = {"q": "q", "set": "relation", "type": "lineage", "gold": [1], "any": True}
+    s188.run_answer(None, it, "graph_read", think=True)
+    s188.run_answer(None, it, "graph_read", think=False)
+    assert seen == ["1", "0"] and "ZZAIMY_ANSWER_THINK" not in os.environ
