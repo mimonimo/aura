@@ -319,7 +319,21 @@ def chunks_by_ids(db, chunk_ids: list[int]) -> list[dict]:
 
 
 PER_DOC = 2
+SECTION_FIRST = 12                 # 그래프 절 축이 후보 앞에 두는 절 조각 수
+SECTION_POOL = 200                 # 그 12개를 고를 같은 제목 절의 범위(순위로 고른다)
 _QUOTED = re.compile(r"[「『\"“]([^」』\"”]{2,60})[」』\"”]")
+
+
+def _chunk_docs(db, ids: list[int]) -> dict[int, int]:
+    """조각 번호 → 문서 번호."""
+    ids = list(dict.fromkeys(int(i) for i in ids))
+    out: dict[int, int] = {}
+    with db._conn() as conn:
+        for i in range(0, len(ids), 500):
+            part = ids[i:i + 500]
+            out.update({int(a): int(b) for a, b in conn.execute(
+                f"SELECT id, doc_id FROM doc_chunks WHERE id IN ({','.join('?' * len(part))})", part).fetchall()})
+    return out
 
 
 def section_phrases(question: str, skip: list[str] | tuple = ()) -> list[str]:
@@ -508,7 +522,15 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         keep = [c for c in lex[:LEX_KEEP] if c not in merged[:k]]
         if keep:
             merged = merged[:k] + keep + [c for c in merged[k:] if c not in keep]
-        sec = section_hits(db, question, scope_docs, skip=doc_names)
+        sec = section_hits(db, question, scope_docs, limit=SECTION_POOL, skip=doc_names)
+        if len(sec) > SECTION_FIRST:
+            # 같은 제목의 절이 많으면(단위과제·협약반마다 같은 서식) 어느 것을 앞에 둘지를 DB 순서가 아니라 이미 섞은 순위로 —
+            # 어휘·임베딩이 질문과 가깝다고 본 조각이 든 문서의 절부터. 순위에 문서가 없는 절은 그 뒤에 원래 순서대로
+            doc_of = _chunk_docs(db, [*sec, *merged[:TOP_K]])
+            doc_rank: dict[int, int] = {}
+            for i, c in enumerate(merged[:TOP_K]):          # 문서마다 그 문서 조각의 가장 높은 순위
+                doc_rank.setdefault(doc_of.get(c, -1), i)
+            sec = sorted(sec, key=lambda c: doc_rank.get(doc_of.get(c, -1), TOP_K))[:SECTION_FIRST]
         if sec:
             # 그래프 축 — 질문에 묶어 적은 절 이름이 있으면 범위 안 문서에서 그 제목의 절(그래프 절 노드)을 바로 후보 앞에
             steps.append(f"[그래프 절] 「{section_phrases(question, doc_names)[0][:30]}」 제목의 절 조각 {len(sec)}개를 먼저")
