@@ -311,3 +311,20 @@ def test_helper_chats_stay_out_of_sidebar(tmp_path, monkeypatch):
     assert helper in mine and work not in mine
     page = c.get("/chat").text
     assert f'/chat/{helper}"' not in page                         # 사이드바 최근 대화에 없다
+
+
+def test_find_document_is_one_query_and_picks_clear_winner(tmp_path):
+    """질문 속 문서 짚기는 문서 수와 상관없이 한 번에 찾는다 — 문서마다 따로 묻지 않는다(수만 건에서 창이 멈추던 것)."""
+    from zzaimy.app.db import Database
+    c = _client(tmp_path)
+    db = Database(tmp_path / "t.db")
+    a = db.add_document("LINC3 성과보고서 2024.hwp", "x")
+    db.add_document("다른 공고.hwp", "x")
+    calls = []
+    orig = Database.get_doc_identity
+    Database.get_doc_identity = lambda self, i: calls.append(i) or orig(self, i)
+    try:
+        sid = c.post("/chat/ask", data={"question": "LINC3 성과보고서 요약", "page": "/"}).json()["session_id"]
+    finally:
+        Database.get_doc_identity = orig
+    assert sid and len(calls) < 5

@@ -3231,21 +3231,31 @@ def create_app(
         파일 이름과 문서 정체(사업 이름)의 낱말이 얼마나 겹치는지로 고른다.
         으뜸이 버금보다 뚜렷하게 앞설 때만 고른다 — 애매하면 고르지 않는다.
         """
+        import json
         import re as _re
 
         words = {w for w in _re.findall(r"[0-9A-Za-z가-힣]{2,}", question or "")}
         if not words:
             return None
+        # 문서마다 따로 묻지 않는다 — 문서가 수만 건이라 질문 하나에 수만 번 DB 를 오가 창이 멈췄다(10-15).
+        # 낱말이 이름·정체에 든 문서만 한 번에 가져와(낱말은 긴 것부터 8개) 그 안에서 겹침을 센다
+        probe = sorted(words, key=len, reverse=True)[:8]
+        cond = " OR ".join(["filename LIKE ?", "COALESCE(identity, '') LIKE ?"] * len(probe))
+        args = [f"%{w}%" for w in probe for _ in (0, 1)]
+        with db._conn() as conn:
+            rows = conn.execute(f"SELECT id, filename, identity FROM documents WHERE {cond} LIMIT 5000", args).fetchall()
         best, second, best_id = 0, 0, None
-        for d in db.list_documents():
-            name = d.get("filename") or ""
-            hay = set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", name))
-            ident = db.get_doc_identity(d["id"])
-            if ident.get("program"):
-                hay |= set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", ident["program"]))
+        for did, name, ident_raw in rows:
+            hay = set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", name or ""))
+            try:
+                ident = json.loads(ident_raw or "{}")
+            except ValueError:
+                ident = {}
+            if isinstance(ident, dict) and ident.get("program"):
+                hay |= set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", str(ident["program"])))
             score = len(words & hay)
             if score > best:
-                best, second, best_id = score, best, d["id"]
+                best, second, best_id = score, best, int(did)
             elif score > second:
                 second = score
         return best_id if best >= 2 and best > second else None
