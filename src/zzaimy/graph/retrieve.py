@@ -283,6 +283,20 @@ def _named_docs(conn, question: str, docs: set[int]) -> dict[str, set[int]]:
     return out
 
 
+def _is_section_title(conn, phrase: str, docs: set[int]) -> bool:
+    """범위 안 문서에 이 이름(번호·띄어쓰기 무시)을 제목으로 가진 절이 있나 — 그래프 절 노드로."""
+    key = _flat(phrase)
+    ids = sorted(docs)[:5000]
+    if not key or not ids:
+        return False
+    like = "%" + re.sub(r"\s+", "", phrase) + "%"
+    rows = conn.execute(
+        "SELECT label FROM kg_nodes WHERE type = 'section'"
+        f" AND doc_id IN ({','.join('?' * len(ids))}) AND REPLACE(label, ' ', '') LIKE ? LIMIT 50", (*ids, like)).fetchall()
+    # 제목이 그 이름이거나 앞에 번호만 붙은 것(「3. 사업 예산집행 계획」) — 긴 제목 속 일부는 아니다
+    return any((t := _flat(r[0] or "")).endswith(key) and len(t) - len(key) <= 6 for r in rows)
+
+
 def scope(db, question: str, reader=None) -> Scope:
     """retrieve 의 1·2단계 — 사업·연차·문서 갈래로 문서 범위를 SQL 몇 번으로 정하고, 질문이 관계를 물으면 그 관계를 따라 넓힌다.
     reader(question, programs) → question_read.Reading: 질문을 온톨로지 말로 읽는 모델(없거나 실패하면 이름 맞추기).
@@ -377,6 +391,10 @@ def scope(db, question: str, reader=None) -> Scope:
                 continue                              # 짝(계획↔실적·평가)은 아래에서 관계로 더한다 — 갈래는 출발 문서에만
             picked.add(did)
         named = _named_docs(conn, question, sc.program_docs)
+        # 같은 이름이 연차·갈래 범위 안 문서의 절 제목이기도 하면 절 이름으로 읽는다(「사업 예산집행 계획」 은 계획서의 절이자
+        # 같은 이름의 붙임 문서이기도 하다) — 문서 이름으로 좁히는 것은 범위 안에 그 제목의 절이 없을 때만
+        for ph in [ph for ph in named if _is_section_title(conn, ph, picked or sc.program_docs)]:
+            named.pop(ph)
         if named:
             # 질문이 문서를 이름으로 짚었다 — 연차·갈래보다 그 문서가 먼저다(이름이 가리키는 문서가 곧 범위)
             sc.doc_names = list(named)

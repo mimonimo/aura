@@ -199,5 +199,15 @@ def test_quoted_document_name_narrows_to_that_document(graph):
         conn.execute("UPDATE documents SET access_level = 'owner' WHERE id = 2")
     hidden = gr.scope(graph, "가나 2단계 사업 2024년 「단위과제(2-3) 2차년도 실적보고서」의 「추진 실적」 내용을 알려줘")
     assert hidden.doc_names == [] and not any("단위과제" in s_ for s_ in hidden.steps)
+    # 범위 안 문서에 같은 제목의 절이 있으면 절 이름으로 읽는다(같은 이름의 붙임 문서가 있어도)
+    assert graph.add_document("추진 실적.hwp", "x/추진 실적.hwp") == 6
+    with graph._conn() as conn:
+        kg_store.put_node(conn, "doc:6", "doc", "문서6", {"kind": "report"}, 6)
+        kg_store.put_edge(conn, "year:new:y2024", "doc:6", "contains", "분류", ["분류"])
+    assert gr.scope(graph, "가나 2단계 사업 2024년 계획서의 「추진 실적」 내용을 알려줘").doc_names == ["추진 실적"]  # 절이 없으면 문서 이름
+    with graph._conn() as conn:
+        kg_store.put_node(conn, "doc:1:sec:a", "section", "3. 추진 실적", {}, 1)
+    sec = gr.scope(graph, "가나 2단계 사업 2024년 계획서의 「추진 실적」 내용을 알려줘")
+    assert sec.doc_names == [] and sec.docs == {1}
     from zzaimy.app import grant_search
     assert grant_search.section_phrases("「단위과제(2-3) 2차년도 실적보고서」의 「추진 실적」", sc.doc_names) == ["추진 실적"]
