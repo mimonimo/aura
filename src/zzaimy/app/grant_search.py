@@ -322,10 +322,15 @@ PER_DOC = 2
 _QUOTED = re.compile(r"[「『\"“]([^」』\"”]{2,60})[」』\"”]")
 
 
-def section_hits(db, question: str, scope_docs: set[int] | None, limit: int = 12) -> list[int]:
+def section_phrases(question: str, skip: list[str] | tuple = ()) -> list[str]:
+    """질문에 묶어 적은 이름 가운데 절 이름 후보 — 그래프 좁히기가 문서 이름으로 쓴 것(skip)은 뺀다."""
+    return [m for m in _QUOTED.findall(question or "") if m not in set(skip)]
+
+
+def section_hits(db, question: str, scope_docs: set[int] | None, limit: int = 12, skip: list[str] | tuple = ()) -> list[int]:
     """질문에 묶어 적은 절 이름(「행사 개요」)과 제목이 같은 절의 첫 조각 — 범위(사업·연차·갈래) 안 문서에서 그래프 절 노드로.
-    어휘·임베딩 후보만으로는 같은 제목의 절이 상위에 들지 못하는 경우가 있어 그래프로 직접 찾는다."""
-    phrases = [re.sub(r"\s+", "", m) for m in _QUOTED.findall(question or "")]
+    어휘·임베딩 후보만으로는 같은 제목의 절이 상위에 들지 못하는 경우가 있어 그래프로 직접 찾는다. skip: 문서 이름이었던 것."""
+    phrases = [re.sub(r"\s+", "", m) for m in section_phrases(question, skip)]
     if not phrases or not scope_docs or len(phrases[0]) < 2:
         return []
     ids = sorted(scope_docs)[:5000]
@@ -352,9 +357,10 @@ def section_hits(db, question: str, scope_docs: set[int] | None, limit: int = 12
     return out
 
 
-def rerank_hits(question: str, chunks: list[dict]) -> list[dict]:
-    """질문에 묶어 적은 문구(「절 이름」·"…")가 있으면 그 문구가 든 조각을 앞으로 — 순서는 그 안에서 그대로(안정 정렬)."""
-    phrases = [re.sub(r"\s+", "", m) for m in _QUOTED.findall(question or "")]
+def rerank_hits(question: str, chunks: list[dict], skip: list[str] | tuple = ()) -> list[dict]:
+    """질문에 묶어 적은 문구(「절 이름」·"…")가 있으면 그 문구가 든 조각을 앞으로 — 순서는 그 안에서 그대로(안정 정렬).
+    skip: 그래프 좁히기가 문서 이름으로 쓴 것(조각 본문에는 없는 이름이라 앞세울 기준이 아니다)."""
+    phrases = [re.sub(r"\s+", "", m) for m in section_phrases(question, skip)]
     if not phrases:
         return chunks
     def has(c):
@@ -457,6 +463,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
     path_of: dict[int, list[str]] = {}
     cover: list[tuple[str, set[int]]] = []
     partners: dict = {}
+    doc_names: list[str] = []
     mode = GRAPH_MODE.get()
     if graph is None:
         graph = mode != "fulltext"
@@ -470,6 +477,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
             sc = gr.scope(db, question, reader=reader)
             steps += sc.steps
             scope_docs, program_docs, path_of, cover, partners = sc.docs, sc.program_docs, sc.path_of, sc.cover, sc.partners
+            doc_names = list(sc.doc_names)
         except Exception as e:
             log.warning("그래프 좁히기 실패: %s", e)
     if prefer_docs:
@@ -500,10 +508,10 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         keep = [c for c in lex[:LEX_KEEP] if c not in merged[:k]]
         if keep:
             merged = merged[:k] + keep + [c for c in merged[k:] if c not in keep]
-        sec = section_hits(db, question, scope_docs)
+        sec = section_hits(db, question, scope_docs, skip=doc_names)
         if sec:
             # 그래프 축 — 질문에 묶어 적은 절 이름이 있으면 범위 안 문서에서 그 제목의 절(그래프 절 노드)을 바로 후보 앞에
-            steps.append(f"[그래프 절] 「{_QUOTED.findall(question)[0][:30]}」 제목의 절 조각 {len(sec)}개를 먼저")
+            steps.append(f"[그래프 절] 「{section_phrases(question, doc_names)[0][:30]}」 제목의 절 조각 {len(sec)}개를 먼저")
             merged = sec + [c for c in merged if c not in set(sec)]
         by_id = {c["id"]: c for c in chunks_by_ids(db, merged[: k * 6])}
         pool = f"색인 {have}개"
@@ -532,7 +540,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
             c.setdefault("reg_title", c.get("filename") or "")
         cands = rerank_chunks(question, cands)
         steps.append("[재순위] 후보 조각을 재순위 모델로 다시 정렬")
-    order = rerank_hits(question, cands)
+    order = rerank_hits(question, cands, skip=doc_names)
     newest = _newest_in_family(db, {c["doc_id"] for c in order})
     per_doc: dict[int, int] = {}
     for c in order:

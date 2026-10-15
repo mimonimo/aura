@@ -16,6 +16,9 @@ from zzaimy.graph import kg_store
 _ROUND = re.compile(r"(?<!\d)([1-9]\d*)\s*차\s*년도")
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})\s*(?:년|학년도)?")
 _KIND_WORDS = {"plan": r"계획서|사업계획|계획(?!\s*대비)", "report": r"실적|결과\s*보고|성과\s*보고", "evaluation": r"평가\s*(?:결과|의견)|종합\s*의견|지적"}
+# 질문에 묶어 적은 이름 — 절 이름일 수도, 문서 이름일 수도 있다(그래프에 그 이름의 문서가 있는지로 가른다)
+_QUOTED = re.compile(r"[「『\"“]([^」』\"”]{2,60})[」』\"”]")
+NAMED_DOCS_MAX = 20                                   # 이보다 많은 문서가 걸리면 문서 이름이 아니라 흔한 낱말로 본다
 _STOP = {"무엇", "어떻게", "있어", "있나", "알려", "줘", "대한", "관련", "사업", "내용", "해당", "그리고", "에서", "으로"}
 
 
@@ -185,6 +188,7 @@ class Scope:
     cover: list[tuple[str, set[int]]] = field(default_factory=list)   # 근거에 한 조각씩은 꼭 들어갈 묶음(관계의 양쪽)
     partners: dict[int, list[tuple[str, int]]] = field(default_factory=dict)  # 문서 → [(관계, 짝 문서)] — 근거에 든 문서의 짝을 담는다
     read_by: str = "이름 맞추기"
+    doc_names: list[str] = field(default_factory=list)       # 질문이 묶어 적은 것 가운데 문서 이름이었던 것(절 이름이 아니다)
 
 
 def _flat(t: str) -> str:
@@ -254,6 +258,28 @@ def _doc_pairs(conn, kind: str, doc_ids: set[int]) -> list[tuple[int, int]]:
     return out
 
 
+def _named_docs(conn, question: str, docs: set[int]) -> dict[str, set[int]]:
+    """질문에 묶어 적은 이름 가운데 사업 문서의 이름(파일 이름·본문 제목)인 것 → 그 문서들. 걸리는 문서가 없거나 너무 많으면
+    문서 이름이 아니다(절 이름이거나 흔한 낱말). 이름 규칙을 덧대지 않고 그래프·문서함에 있는 이름으로만 가른다."""
+    phrases = [m for m in _QUOTED.findall(question or "") if len(_flat(m)) >= 4]
+    if not phrases or not docs:
+        return {}
+    names: dict[int, str] = {}
+    ids = sorted(docs)
+    for i in range(0, len(ids), 500):
+        part = ids[i:i + 500]
+        for did, fn in conn.execute(
+                f"SELECT id, filename FROM documents WHERE id IN ({','.join('?' * len(part))})", part).fetchall():
+            names[int(did)] = _flat(re.sub(r"\.[A-Za-z0-9]{2,5}$", "", fn or ""))   # 문서 이름 — 반입 때 본문 제목으로 바꿔 둔 것
+    out: dict[str, set[int]] = {}
+    for ph in phrases:
+        key = _flat(re.sub(r"\.[A-Za-z0-9]{2,5}$", "", ph))
+        hit = {d for d, n in names.items() if key in n}
+        if 0 < len(hit) <= NAMED_DOCS_MAX:
+            out[ph] = hit
+    return out
+
+
 def scope(db, question: str, reader=None) -> Scope:
     """retrieve 의 1·2단계 — 사업·연차·문서 갈래로 문서 범위를 SQL 몇 번으로 정하고, 질문이 관계를 물으면 그 관계를 따라 넓힌다.
     reader(question, programs) → question_read.Reading: 질문을 온톨로지 말로 읽는 모델(없거나 실패하면 이름 맞추기).
@@ -271,11 +297,14 @@ def scope(db, question: str, reader=None) -> Scope:
     # 이름 맞추기 — 질문에 적힌 사업 이름·「N차년도」·갈래 낱말. 적힌 것은 이것이 먼저다(측정: 모델만 쓰면 보통 질문이 나빠졌다)
     hit = _match_program(question, progs)
     sc.programs = [hit["id"]] if hit else []
-    m = _ROUND.search(question or "")
+    # 연차·갈래 낱말은 묶어 적은 이름 밖에서만 읽는다 — 「사업 실적(기타)」 같은 절 이름·「…2차년도 과제계획서」 같은 문서 이름 속
+    # 낱말이 질문의 갈래·연차로 읽혀 범위를 엉뚱하게 좁히지 않게
+    bare = _QUOTED.sub(" ", question or "")
+    m = _ROUND.search(bare)
     rounds = [int(m.group(1))] if m else []
-    y = _YEAR.search(question or "")
+    y = _YEAR.search(bare)
     years = [int(y.group(1))] if y else []
-    sc.kinds = [kd for kd, pat in _KIND_WORDS.items() if re.search(pat, question or "")]
+    sc.kinds = [kd for kd, pat in _KIND_WORDS.items() if re.search(pat, bare)]
     if reading is not None:
         # 모델 읽기는 이름 맞추기가 못 하는 것만 보탠다 — 따라갈 관계, 둘째 사업, 적히지 않은(바꿔 말한) 사업·연도·갈래
         sc.read_by = "이름 맞추기 + 모델 읽기"
@@ -344,9 +373,17 @@ def scope(db, question: str, reader=None) -> Scope:
             if sc.kinds and kind_of[did] not in sc.kinds:
                 continue                              # 짝(계획↔실적·평가)은 아래에서 관계로 더한다 — 갈래는 출발 문서에만
             picked.add(did)
+        named = _named_docs(conn, question, sc.program_docs)
+        if named:
+            # 질문이 문서를 이름으로 짚었다 — 연차·갈래보다 그 문서가 먼저다(이름이 가리키는 문서가 곧 범위)
+            sc.doc_names = list(named)
+            picked = set().union(*named.values())
+            sc.steps.append(f"[2단계: 그래프 탐색] 사업 문서 {len(sc.program_docs)}건 → 문서 이름 "
+                            + ", ".join(f"「{n[:30]}」 {len(d)}건" for n, d in named.items()))
         base = picked or set(sc.program_docs)
-        sc.steps.append(f"[2단계: 그래프 탐색] 사업 문서 {len(sc.program_docs)}건 → 연차·갈래로 {len(picked)}건"
-                        + ("" if picked else " (맞는 문서가 없어 사업 전체)"))
+        if not named:
+            sc.steps.append(f"[2단계: 그래프 탐색] 사업 문서 {len(sc.program_docs)}건 → 연차·갈래로 {len(picked)}건"
+                            + ("" if picked else " (맞는 문서가 없어 사업 전체)"))
         docs = set(base)
         for why, ds in added.items():
             docs |= ds

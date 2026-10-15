@@ -134,7 +134,7 @@ def add_named(db: Database, items: list[dict]) -> int:
         if "q_named" in p:
             continue
         doc = db.get_document(int(p["doc_id"])) or {}
-        name = doc.get("title") or doc.get("filename") or ""
+        name = doc.get("filename") or ""                    # 문서함의 이름(반입 때 본문 제목으로 바꾼 것)
         p["q_named"] = named_question(p["q"], p["title"], name) if len(p["twins"]) > 1 else p["q"]
         n += 1
     return n

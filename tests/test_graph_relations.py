@@ -184,3 +184,16 @@ def test_each_evidence_doc_brings_a_different_best_ranked_partner(monkeypatch):
     assert seen["scope"] == {20, 21}                           # 순위에 이미 있는 짝(22)은 다시 찾지 않는다
     assert [h["doc_id"] for h in hits] == [1, 3, 22, 21]       # 순위에 있는 짝 먼저, 그다음 다시 찾은 순위로 — 서로 다른 짝
     assert added == [("그 계획서의 실적보고서", 1)] * 2
+
+
+def test_quoted_document_name_narrows_to_that_document(graph):
+    """질문이 문서 이름을 묶어 적으면 그 문서로 좁힌다 — 이름 속 「2차년도」·「실적」 은 질문의 연차·갈래로 읽지 않고,
+    절 이름으로도 쓰지 않는다. 문서함에 없는 이름이면 예전처럼 연차·갈래로 좁힌다."""
+    names = ["단위과제(2-1) 과제계획서.hwpx", "단위과제(2-3) 2차년도 실적보고서.hwpx", "평가 결과.pdf", "옛 계획서.hwp", "다라 보고서.hwp"]
+    assert [graph.add_document(n, f"x/{n}") for n in names] == [1, 2, 3, 4, 5]
+    sc = gr.scope(graph, "가나 2단계 사업 2024년 「단위과제(2-3) 2차년도 실적보고서」의 「추진 실적」 내용을 알려줘")
+    assert sc.doc_names == ["단위과제(2-3) 2차년도 실적보고서"] and sc.docs == {2} and sc.round is None
+    plain = gr.scope(graph, "가나 2단계 사업 2024년 계획서의 「추진 실적」 내용을 알려줘")
+    assert plain.doc_names == [] and plain.kinds == ["plan"] and plain.docs == {1}     # 절 이름 속 「실적」 은 갈래가 아니다
+    from zzaimy.app import grant_search
+    assert grant_search.section_phrases("「단위과제(2-3) 2차년도 실적보고서」의 「추진 실적」", sc.doc_names) == ["추진 실적"]
