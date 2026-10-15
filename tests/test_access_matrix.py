@@ -239,3 +239,17 @@ def test_professor_sees_like_staff_of_same_dept():
     assert not ap.visible(docs[2], dept="기획처", user="p", role="professor")
     assert ap.viewer("professor", "기획처", "p")["role"] == "professor" and ap.can_browse("professor")
     assert ap.role_class("professor") == "staff" and ap.role_class("student") == "student"
+
+
+def test_student_chat_is_academic_qa():
+    """학생 대화 화면은 학사 질문용 — 예시 질문, 첨부·문서 패널·답변 방식 숨김, 답 지시는 학생 안내(교직원 업무 관점 아님)."""
+    from zzaimy.app.responder import compose_system
+    assert "학사 질문" in compose_system({}, "student") and "교직원" not in compose_system({}, "student").split("\n")[0]
+    assert compose_system({}).startswith("당신은 영남이공대학교 행정 담당자")
+
+
+def test_student_chat_page_shows_academic_examples(world):
+    app = world["app"] if isinstance(world, dict) and "app" in world else world[0]
+    page = _client(app, "stu").get("/chat").text
+    assert "학사 관련해 무엇이든" in page and 'data-example="휴학은' in page
+    assert 'id="attachButton"' in page and 'id="attachButton" title="파일 또는 사진 첨부" aria-label="파일 또는 사진 첨부" hidden' in page

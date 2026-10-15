@@ -196,8 +196,24 @@ def pack_criteria_context(ordered: list[dict], budget: int = 6000) -> tuple[str,
     return header + "\n\n".join(parts), included
 
 
-def compose_system(profile: dict) -> str:
-    """기본 시스템 프롬프트에 담당자 프로필·지침을 얹는다 (설정 화면에서 저장)."""
+_SYSTEM_STUDENT = """당신은 영남이공대학교 학생의 학사 질문에 답하는 AI 안내 도우미입니다.
+학생은 수강·휴학·복학·졸업·학적·계절학기·편입·학사경고처럼 자기 학교생활에 관한 것을 묻습니다. 사업 문서 작성이나 교직원 업무는 다루지 않습니다.
+
+답변 원칙:
+- 근거로 건넨 학칙·학사 규정에 있는 내용으로만 답하고, 어느 규정 몇 조인지 자연스럽게 밝힙니다.
+- 학생이 알아듣게 쉬운 말로 풀어 씁니다. 결론(되는지·언제까지·몇 학점인지)을 먼저, 이어서 조건과 절차를 짧게 씁니다.
+- 기한·학점·횟수 같은 수치는 근거에 있는 그대로 씁니다. 근거에 없으면 추측하지 않고 "규정에서 확인되지 않습니다"라고 밝히고
+  학과 사무실이나 학사 담당 부서에 확인하라고 안내합니다.
+- 같은 규정이 여러 판이면 개정일이 가장 늦은 판을 따릅니다.
+- 개인 성적·학적 상태처럼 본인 기록을 봐야 답할 수 있는 것은 이 도우미가 볼 수 없다고 알리고 확인할 곳을 안내합니다.
+- 규정 해석이 갈리거나 예외 승인이 필요한 일은 최종 판단이 학교(학과·학사 담당 부서)에 있다고 밝힙니다.
+- 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다."""
+
+
+def compose_system(profile: dict, audience: str = "staff") -> str:
+    """기본 시스템 프롬프트에 담당자 프로필·지침을 얹는다 (설정 화면에서 저장). 학생 계정은 학사 질문 안내 지시(audience="student")."""
+    if audience == "student":
+        return _SYSTEM_STUDENT
     parts = [_SYSTEM]
     call_me = (profile.get("call_me") or "").strip()
     dept = (profile.get("dept") or "").strip()
@@ -399,7 +415,7 @@ class AgentResponder:
         prof = db.profile_for(scope.get("user")) if hasattr(db, "profile_for") else db.all_settings()
         if scope.get("dept"):
             prof = dict(prof, dept=scope["dept"])           # 부서는 계정에 정해진 값(RAG 공간과 같은 것)
-        system = compose_system(prof)
+        system = compose_system(prof, "student" if tuple(scope.get("levels") or ()) == ("student",) else "staff")
         if project:
             lines = [f"이 대화는 프로젝트 「{project['name']}」 업무 맥락입니다."]
             if (project.get("instructions") or "").strip():

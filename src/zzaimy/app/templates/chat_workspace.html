@@ -145,24 +145,36 @@
 {% block content %}
 
 <div class="chat-main" id="chatWorkspace" data-session="{{ session_id or '' }}" data-waiting="{{ 'true' if waiting else 'false' }}">
+{% set is_student = request.state.role == 'student' %}{# 학생은 학사 질문이 목적 — 사업 문서 작성 도구(첨부·문서 패널·답변 방식)는 두지 않는다 #}
 <header class="chat-workspace-head">
   <div class="chat-heading">
-    <span class="chat-eyebrow">{{ sector_labels.get(chat_project.sector, '행정 업무') ~ ' · 프로젝트' if chat_project else ('업무 상담' if messages else '새 대화') }}</span>
-    {% set conversation_title = chat_project.name if chat_project else (chat_session.title if chat_session else '근거를 찾고, 문서를 다듬으세요') %}
+    <span class="chat-eyebrow">{% if is_student %}학사 질문{% else %}{{ sector_labels.get(chat_project.sector, '행정 업무') ~ ' · 프로젝트' if chat_project else ('업무 상담' if messages else '새 대화') }}{% endif %}</span>
+    {% set conversation_title = chat_project.name if chat_project else (chat_session.title if chat_session else ('학교생활·학사 규정을 물어보세요' if is_student else '근거를 찾고, 문서를 다듬으세요')) %}
     <h1>{% if chat_project %}<a href="/project/{{ chat_project.id }}">{{ conversation_title }}</a>{% else %}{{ conversation_title }}{% endif %}</h1>
     {% if scope_label %}<p class="chat-scope">{{ scope_label }}</p>{% endif %}
   </div>
   <div class="chat-head-actions">
-    <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen" title="문서 패널 열기" aria-label="문서 패널 열기" aria-expanded="false" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/settings#myGoogle' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
+    <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen"{% if is_student %} hidden{% endif %} title="문서 패널 열기" aria-label="문서 패널 열기" aria-expanded="false" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/settings#myGoogle' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
   </div>
 </header>
 <div class="drop-veil" id="dropVeil" hidden>파일을 놓으면 첨부됩니다</div>
 <div class="chat-scroll" id="chatScroll" aria-label="대화 내용" tabindex="0">
   {% if not messages %}
+  {% if is_student %}
+  <div class="card chat-empty-state"><div class="card-in">
+    <h2>학사 관련해 무엇이든 물어보세요</h2>
+    <p class="muted">학칙과 학사 규정을 찾아 근거 조항과 함께 답합니다. 본인 성적·학적 기록은 볼 수 없으니 그런 것은 학과나 학사 담당 부서에 확인하세요.</p>
+    <div class="chat-suggestions" aria-label="질문 예시">
+      {% for ex in ["휴학은 최대 몇 학기까지 할 수 있나요?", "계절학기에는 몇 학점까지 들을 수 있나요?", "학사경고를 받으면 어떻게 되나요?", "졸업하려면 몇 학점을 이수해야 하나요?"] %}
+      <button type="button" class="chat-suggestion" data-example="{{ ex }}">{{ ex }}</button>{% endfor %}
+    </div>
+  </div></div>
+  {% else %}
   <div class="card chat-empty-state"><div class="card-in">
     <h2>어떤 업무를 도와드릴까요?</h2>
     <p class="muted">{% if chat_project %}{{ chat_project.name }}의 자료와 지침을 바탕으로 시작합니다.{% else %}질문하거나 문서를 첨부해 업무를 시작하세요.{% endif %}</p>
   </div></div>
+  {% endif %}
   {% endif %}
 
   {% set value_form_open = (not waiting) and messages and messages[-1].role == 'assistant' and (suggestions or []) | selectattr('text', 'equalto', '필요한 값 입력') | list | length > 0 %}
@@ -240,10 +252,10 @@
   <div class="dock-row">
     <input type="file" name="attachment" id="chatFile" hidden accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
     <input type="hidden" name="web" id="webField" value="">
-    <button type="button" class="dock-btn" id="attachButton" title="파일 또는 사진 첨부" aria-label="파일 또는 사진 첨부"><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
-    <textarea name="question" id="chatInput" rows="1" placeholder="질문이나 수정할 내용을 입력하세요"
+    <button type="button" class="dock-btn" id="attachButton" title="파일 또는 사진 첨부" aria-label="파일 또는 사진 첨부"{% if is_student %} hidden{% endif %}><iconify-icon icon="solar:paperclip-linear"></iconify-icon></button>
+    <textarea name="question" id="chatInput" rows="1" placeholder="{{ '학사 관련 질문을 입력하세요' if is_student else '질문이나 수정할 내용을 입력하세요' }}"
               aria-label="질문 또는 수정 요청" autofocus autocomplete="off"></textarea>
-    <select id="answerMode" class="chat-answer-mode" aria-label="답변 방식" title="답변 방식 — 문서 작업: 등록 문서를 근거로 답하고 작업 문서를 고칩니다 · 기본 대화: 문서 없이 모델이 답합니다 · 웹 검색: 질문만 밖으로 보내 웹에서 찾습니다">
+    <select id="answerMode" class="chat-answer-mode" aria-label="답변 방식"{% if is_student %} hidden{% endif %} title="답변 방식 — 문서 작업: 등록 문서를 근거로 답하고 작업 문서를 고칩니다 · 기본 대화: 문서 없이 모델이 답합니다 · 웹 검색: 질문만 밖으로 보내 웹에서 찾습니다">
       <option value="">문서 작업</option>
       <option value="model">기본 대화</option>
       <option value="1">웹 검색</option>
@@ -712,4 +724,17 @@
   });
 })();
 </script>
+{% if request.state.role == 'student' %}
+<script>
+  // 질문 예시 — 누르면 입력칸에 넣고 바로 보낸다
+  document.querySelectorAll("[data-example]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var input = document.getElementById("chatInput"), form = input && input.form;
+      if (!input || !form) return;
+      input.value = b.dataset.example; input.dispatchEvent(new Event("input", { bubbles: true }));
+      if (form.requestSubmit) form.requestSubmit(); else form.submit();
+    });
+  });
+</script>
+{% endif %}
 {% endblock %}
