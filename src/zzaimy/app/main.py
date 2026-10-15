@@ -3225,7 +3225,7 @@ def create_app(
 
     from zzaimy.generate import llm_connections
 
-    def _find_document(question: str) -> int | None:
+    def _find_document(question: str, viewer: dict | None = None) -> int | None:
         """말 속에서 어느 문서를 가리키는지 찾는다.
 
         파일 이름과 문서 정체(사업 이름)의 낱말이 얼마나 겹치는지로 고른다.
@@ -3242,8 +3242,12 @@ def create_app(
         probe = sorted(words, key=len, reverse=True)[:8]
         cond = " OR ".join(["filename LIKE ?", "COALESCE(identity, '') LIKE ?"] * len(probe))
         args = [f"%{w}%" for w in probe for _ in (0, 1)]
+        # 묻는 사람이 볼 수 있는 문서 안에서만(access_policy) — 짚은 문서가 단추·안내로 드러나므로
+        from zzaimy.app import access_policy as _ap
+        acc, acc_args = _ap.doc_sql(viewer or _ap.viewer("", None, ""), alias="")
         with db._conn() as conn:
-            rows = conn.execute(f"SELECT id, filename, identity FROM documents WHERE {cond} LIMIT 5000", args).fetchall()
+            rows = conn.execute(f"SELECT id, filename, identity FROM documents WHERE ({cond}){acc} LIMIT 5000",
+                                [*args, *acc_args]).fetchall()
         best, second, best_id = 0, 0, None
         for did, name, ident_raw in rows:
             hay = set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", name or ""))
@@ -3345,7 +3349,7 @@ def create_app(
             return f"처리하지 못했습니다 ({_ko.reason(e)})"
         return ""
 
-    def _page_actions(page: str, question: str = "") -> list[dict]:
+    def _page_actions(page: str, question: str = "", viewer: dict | None = None) -> list[dict]:
         """말과 화면을 보고 지금 할 수 있는 일 — 되돌리기 어려운 일만 단추로 남긴다."""
         from zzaimy.app import actions as _acts
 
@@ -3354,7 +3358,7 @@ def create_app(
         if active:
             extra["cid"] = active[0]["id"]
         if "doc_id" not in _acts.context_from_page(page):
-            found = _find_document(question)
+            found = _find_document(question, viewer)
             if found is not None:
                 extra["doc_id"] = found
         extra["question"] = question          # 고치기 요청은 말 자체가 내용이다
@@ -3412,7 +3416,7 @@ def create_app(
             _chat_pages[session_id] = page
         else:
             _chat_pages.pop(session_id, None)
-        found = _page_actions(page, q)
+        found = _page_actions(page, q, _ap.request_viewer(request))
         done: list[str] = []
         for a in [x for x in found if x.get("auto")][:1]:
             line = _run_action(a["key"], a.get("ctx") or {})
