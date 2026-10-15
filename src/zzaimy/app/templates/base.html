@@ -69,6 +69,14 @@
                 border-radius: 9px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
 
     .side-bottom { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+  .view-as-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; margin: 6px 0;
+                  border: 1px dashed var(--line); border-radius: 8px; font-size: 12px; }
+  .view-as-form .view-as-label { color: var(--muted); width: 100%; }
+  .view-as-form select { font-size: 12px; padding: 3px 6px; max-width: 100%; }
+  .view-as-form button { font-size: 12px; padding: 3px 10px; }
+  .view-as-bar { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 7px 14px;
+                 background: #fff4d6; border-bottom: 1px solid #f0d58a; font-size: 13px; }
+  .view-as-bar button { font-size: 12.5px; padding: 3px 12px; border-radius: 6px; border: 1px solid #c9a227; background: #fff; cursor: pointer; }
   [hidden] { display: none !important; }
   .side-note { font-size: 11px; color: var(--faint); padding: 10px 12px 0; line-height: 1.5; }
 
@@ -568,6 +576,15 @@ document.addEventListener('submit', function(event) {
        style="opacity:.7; font-size:12.5px;">
       <iconify-icon icon="solar:code-square-linear"></iconify-icon>{{ dev_page_name('/dev') }} ({{ role_labels.get('dev') }})</a>
     {% endif %}
+    {% if request.state.real_role is defined and request.state.real_role == 'dev' and not request.state.view_as %}{# 개발자만 — 다른 계정 범위로 시험 #}
+    <form method="post" action="/view-as" class="view-as-form" aria-label="테스트 보기">
+      <input type="hidden" name="back" value="{{ request.url.path }}">
+      <span class="view-as-label">테스트 보기</span>
+      <select name="role" aria-label="역할">{% for k, v in view_as_roles.items() %}<option value="{{ k }}"{% if k == 'staff' %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+      <select name="dept" aria-label="부서"><option value="">부서 없음(공통)</option>{% for d in view_as_depts() %}{% if d and d != '공통' %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}</select>
+      <button type="submit" class="secondary">적용</button>
+    </form>
+    {% endif %}
     {% endif %}
     {% if llm_status is defined %}
     <div class="side-note" style="padding-top:4px;" title="{{ llm_status.error if not llm_status.ok and request.state.role == 'dev' else '' }}">
@@ -586,6 +603,13 @@ document.addEventListener('submit', function(event) {
 
 <div class="nav-backdrop" id="navBackdrop"></div>
 <div class="content-col">
+  {% if request.state.view_as is defined and request.state.view_as %}
+  <form method="post" action="/view-as/clear" class="view-as-bar" role="status">
+    <input type="hidden" name="back" value="{{ request.url.path if request.url.path != '/chat' else '/' }}">
+    <span>테스트 보기 중 — {{ (request.state.view_as.dept ~ ' ') if request.state.view_as.dept else '' }}{{ view_as_roles.get(request.state.view_as.role, request.state.view_as.role) }} 계정의 화면·검색 범위입니다.</span>
+    <button type="submit">원래대로</button>
+  </form>
+  {% endif %}
   <div class="topbar">
     <button type="button" class="navtoggle" id="navToggle" aria-label="메뉴 열기">
       <iconify-icon icon="solar:hamburger-menu-linear"></iconify-icon></button>

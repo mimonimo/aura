@@ -279,6 +279,30 @@ def create_app(
         ).hexdigest()
         return f"{base}.{sig}"
 
+    VIEW_AS_ROLES = ("student", "staff", "professor", "head")      # 개발자 「테스트 보기」로 고를 수 있는 역할 — 권한을 좁히기만 한다
+
+    def _view_as(user: str) -> dict | None:
+        """개발자 계정의 「테스트 보기」 — 고른 역할·부서로 화면·검색·대화 범위를 본다(db 설정 view_as:<계정>). 개발자만, 좁히기만."""
+        if not user or (accounts.get(user, {}) or {}).get("role", "staff") != "dev":
+            return None
+        try:
+            v = _aj.loads(db.get_setting(f"view_as:{user}", "") or "null")
+        except ValueError:
+            return None
+        if not isinstance(v, dict) or v.get("role") not in VIEW_AS_ROLES:
+            return None
+        return {"role": v["role"], "dept": str(v.get("dept") or "")}
+
+    def _acct_role_dept(user: str) -> tuple[str, str | None]:
+        """계정의 지금 역할·부서 — 계정 설정에 「테스트 보기」를 얹은 값. 화면 요청·뒤에서 도는 답변·도우미가 같은 값을 쓴다."""
+        if password is None:
+            return "dev", None
+        acct = accounts.get(user, {}) or {}
+        va = _view_as(user)
+        if va:
+            return va["role"], va["dept"] or None
+        return acct.get("role", "staff"), acct.get("dept") or None
+
     def _session_user(token: str) -> str | None:
         parts = token.split(".")
         if len(parts) != 3:
@@ -309,8 +333,10 @@ def create_app(
 
     def _req_viewer(request: Request) -> dict:
         """요청의 보는 사람 — 열람 규칙은 access_policy 한 곳(visible·doc_sql)."""
+        # 「테스트 보기」 중에는 개발자가 올린 문서를 「자기 문서」로 보지 않는다 — 고른 계정이 실제로 보는 범위와 같게
+        user = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
         return _ap.viewer(getattr(request.state, "role", ""), getattr(request.state, "dept", "") or None,
-                          getattr(request.state, "user", ""), Path(db_path).parent)
+                          user, Path(db_path).parent)
 
     if password is not None:
         basic = HTTPBasic(auto_error=False)
@@ -333,9 +359,15 @@ def create_app(
             if user is None:
                 # 인증 정보가 아예 없는 브라우저 요청 — 로그인 페이지로
                 raise HTTPException(401, detail="login-required")
-            request.state.role = accounts.get(user, {}).get("role", "staff")
+            request.state.real_role = accounts.get(user, {}).get("role", "staff")
+            request.state.role = request.state.real_role
             request.state.dept = accounts.get(user, {}).get("dept", "")     # 검색·대화 범위(부서). 비면 전체
             request.state.user = user
+            # 개발자 「테스트 보기」 — 고른 역할·부서로 이 요청을 판정한다. 끄고 켜는 경로(/view-as)만은 원래 권한으로
+            va = _view_as(user)
+            request.state.view_as = va
+            if va and not request.url.path.startswith("/view-as"):
+                request.state.role, request.state.dept = va["role"], va["dept"]
             # 무작위 첫 비밀번호 계정은 바꾸기 전까지 설정 화면(비밀번호 바꾸기)과 로그아웃만
             if accounts.get(user, {}).get("must_change") and request.url.path not in ("/settings", "/account/password", "/logout"):
                 raise HTTPException(401, detail="password-change-required")
@@ -358,6 +390,8 @@ def create_app(
         # 인증 없는 로컬 개발 모드 — 개발자 뷰까지 전부 연다
         def open_auth(request: Request) -> None:
             request.state.role = "dev"
+            request.state.real_role = "dev"
+            request.state.view_as = None
             request.state.dept = ""
             request.state.user = "zzaimy"
 
@@ -651,6 +685,11 @@ def create_app(
         actionable = unread(db, owner, actionable)
         failed = unread(db, owner, failed)
         recent_reviewed = unread(db, owner, db.reviewed_documents(owner))
+        if getattr(request.state, "view_as", None):
+            # 테스트 보기 — 알림도 고른 계정이 볼 수 있는 문서만(개발자가 올린 문서라도 범위 밖이면 빼고)
+            _v = _req_viewer(request)
+            actionable, failed, recent_reviewed = ([d for d in xs if _visible(d, **_v)]
+                                                   for xs in (actionable, failed, recent_reviewed))
         from zzaimy.generate import model_config as _mc2
 
         try:
@@ -743,7 +782,7 @@ def create_app(
             if body == "1":
                 try:
                     from zzaimy.app import access_guard as _ag, grant_lex as _gl
-                    sp = _ag.search_scope(getattr(request.state, "dept", "") or None, request.state.role, request.state.user or "",
+                    sp = _ag.search_scope(getattr(request.state, "dept", "") or None, request.state.role, "" if getattr(request.state, "view_as", None) else (request.state.user or ""),
                                           Path(db_path).parent)
                     if sp.get("grant"):
                         cids = _gl.rank(db, _gl.lex_terms(q), None, None if request.state.role == "dev" else (request.state.user or ""),
@@ -1186,9 +1225,7 @@ def create_app(
         from zzaimy.app import access_guard as ag
 
         owner = (session or {}).get("owner") or ""
-        acct = accounts.get(owner, {}) if password is not None else {}
-        role = acct.get("role", "dev" if password is None else "staff")
-        dept = acct.get("dept") or None
+        role, dept = _acct_role_dept(owner)
         data_dir = Path(db_path).parent
         # 대화에 연결된 구글 독스가 있으면 본문을 첨부처럼 붙인다. 못 읽으면 읽은 척하지 않고 그렇게 말한다.
         try:
@@ -1218,7 +1255,7 @@ def create_app(
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner, data_dir)
-        scope = ag.search_scope(dept, role, owner, Path(db_path).parent)
+        scope = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent)
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
         # 문서 작업 에이전트 — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
         if os.environ.get("ZZAIMY_DOC_AGENT", "1") != "0" and not is_student:
@@ -1451,14 +1488,14 @@ def create_app(
     def _session_viewer(session_id: int) -> tuple[str, str, str | None]:
         """대화 주인의 (계정, 역할, 부서) — _answer_task_impl 과 같은 규칙(인증 없이 띄운 앱은 관리자)."""
         owner = (db.get_chat_session(session_id) or {}).get("owner") or ""
-        acct = accounts.get(owner, {}) if password is not None else {}
-        return owner, acct.get("role", "dev" if password is None else "staff"), acct.get("dept") or None
+        role, dept = _acct_role_dept(owner)
+        return owner, role, dept
 
     def _viewer_sees(session_id: int, doc: dict) -> bool:
         from zzaimy.app.access_policy import visible
 
         owner, role, dept = _session_viewer(session_id)
-        return visible(doc, **_ap.viewer(role, dept, owner, Path(db_path).parent))
+        return visible(doc, **_ap.viewer(role, dept, "" if _view_as(owner) else owner, Path(db_path).parent))
 
     def _mentions_document(request: str, title: str, min_len: int = 4) -> bool:
         """담당자 요청 글이 이 문서를 스스로 짚었는가 — 공백·문장부호를 뺀 두 글이 min_len 자 이상 이어진 공통 부분을 갖고,
@@ -3704,7 +3741,7 @@ def create_app(
             acc, acc_args = _doc_access_sql(request)
             from zzaimy.app import access_guard as _ag
 
-            space = _ag.search_scope(getattr(request.state, "dept", "") or None, request.state.role, request.state.user or "",
+            space = _ag.search_scope(getattr(request.state, "dept", "") or None, request.state.role, "" if getattr(request.state, "view_as", None) else (request.state.user or ""),
                                      Path(db_path).parent)
             with db._conn() as conn:
                 found = [dict(r) for r in conn.execute(
@@ -5658,9 +5695,7 @@ def create_app(
         if not q:
             return _gdocs_page(request, doc, account, err="질문을 적어 주세요")
         owner = getattr(request.state, "user", "zzaimy")
-        acct = accounts.get(owner, {}) if password is not None else {}
-        role = acct.get("role", "dev" if password is None else "staff")
-        dept = acct.get("dept") or None
+        role, dept = _acct_role_dept(owner)
         note = ag.pii_request(q)
         if note:
             ag.audit(Path(db_path).parent, owner, "pii", q, dept, role)
@@ -5676,7 +5711,7 @@ def create_app(
             r_ = responder or _default_responder()
             kw = dict(attachment_text=material, criteria_ids=ag.allowed_doc_ids(db, [], dept, role, owner))
             if "scope" in _insp.signature(r_.answer).parameters:
-                kw["scope"] = ag.search_scope(dept, role, owner, Path(db_path).parent)
+                kw["scope"] = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent)
             answer = r_.answer(db, q, **kw)
             # 범위 밖 부서 자료를 가리키는 질문 — 대화 화면과 같은 안내(검색은 원래 범위 안에서만 돈다)
             scope_msg = ag.scope_note(q, dept, role, sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()}),
@@ -7432,6 +7467,32 @@ def create_app(
     def _lib_back(key: str = "", **msg) -> RedirectResponse:
         qs = {"type": "all", **({"folder": key} if key else {}), **msg}
         return RedirectResponse("/?" + urlencode(qs), status_code=303)
+
+    @app.post("/view-as")
+    def view_as_set(request: Request, role: str = Form(""), dept: str = Form(""), back: str = Form("/")):
+        """개발자 「테스트 보기」 켜기 — 고른 역할·부서로 화면·검색·대화를 본다. 개발자 계정만, 권한은 좁히기만."""
+        if getattr(request.state, "real_role", request.state.role) != "dev":
+            raise HTTPException(403, "개발자 계정 전용입니다")
+        if role not in VIEW_AS_ROLES:
+            raise HTTPException(400, "고를 수 없는 역할입니다")
+        dept = (dept or "").strip()
+        if dept and dept not in _all_depts():
+            raise HTTPException(400, "없는 부서입니다")
+        db.set_setting(f"view_as:{request.state.user}", _aj.dumps({"role": role, "dept": "" if role == "student" else dept}))
+        dest = back if back.startswith("/") and not back.startswith("//") and not back.startswith("/dev") else "/"
+        return RedirectResponse("/chat" if role == "student" else dest, status_code=303)
+
+    @app.post("/view-as/clear")
+    def view_as_clear(request: Request, back: str = Form("/")):
+        """테스트 보기 끄기 — 원래 개발자 권한으로."""
+        if getattr(request.state, "real_role", request.state.role) != "dev":
+            raise HTTPException(403, "개발자 계정 전용입니다")
+        db.set_setting(f"view_as:{request.state.user}", "")
+        dest = back if back.startswith("/") and not back.startswith("//") else "/"
+        return RedirectResponse(dest, status_code=303)
+
+    templates.env.globals["view_as_roles"] = {r: _ROLES.get(r, r) for r in VIEW_AS_ROLES}
+    templates.env.globals["view_as_depts"] = lambda: _all_depts()
 
     def _all_depts() -> list[str]:
         """부서 목록 한 곳 — 부서 RAG·폴더 짝·계정·사용자 관리의 부서 공용(user_admin.known_depts)."""

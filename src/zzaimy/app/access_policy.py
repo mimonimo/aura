@@ -89,7 +89,8 @@ def request_viewer(request) -> dict:
     """요청의 보는 사람 — 로그인 검사(main.check_auth)가 request.state 에 둔 역할·부서·계정과 RAG 공간 설정의 추가 권한."""
     st = request.state
     data_dir = getattr(request.app.state, "data_dir", None)
-    return viewer(getattr(st, "role", ""), getattr(st, "dept", "") or None, getattr(st, "user", ""), data_dir)
+    user = "" if getattr(st, "view_as", None) else getattr(st, "user", "")      # 테스트 보기 중에는 개발자 자기 문서를 빼고
+    return viewer(getattr(st, "role", ""), getattr(st, "dept", "") or None, user, data_dir)
 
 
 def can_browse(role: str | None) -> bool:

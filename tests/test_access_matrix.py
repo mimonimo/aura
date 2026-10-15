@@ -253,3 +253,22 @@ def test_student_chat_page_shows_academic_examples(world):
     page = _client(app, "stu").get("/chat").text
     assert "학사 관련해 무엇이든" in page and 'data-example="휴학은' in page
     assert 'id="attachButton"' in page and 'id="attachButton" title="파일 또는 사진 첨부" aria-label="파일 또는 사진 첨부" hidden' in page
+
+
+def test_dev_view_as_narrows_to_chosen_account(world):
+    """개발자 「테스트 보기」 — 역할·부서를 고르면 그 계정이 보는 범위로(개발자가 올린 문서도 자기 문서로 치지 않는다), 원래대로 돌아온다.
+    개발자 아닌 계정은 켤 수 없다."""
+    app = world["app"] if isinstance(world, dict) and "app" in world else world[0]
+    dev = _client(app, "zzdev")
+    r = dev.post("/view-as", data={"role": "staff", "dept": "기획처", "back": "/"}, follow_redirects=False)
+    assert r.status_code == 303
+    page = dev.get("/?type=all").text
+    assert "테스트 보기 중" in page and "기획처내부계획" in page and "산학내부계획" not in page
+    assert dev.get("/dev").status_code == 403                     # 고른 계정 그대로 — 개발자 화면도 막힌다
+    assert dev.post("/view-as/clear", data={"back": "/"}, follow_redirects=False).status_code == 303
+    assert "산학내부계획" in dev.get("/?type=all").text and dev.get("/dev").status_code == 200
+    dev.post("/view-as", data={"role": "student", "back": "/"})
+    assert dev.get("/?type=all").status_code in (403, 303) or "학생" in dev.get("/chat").text
+    dev.post("/view-as/clear", data={"back": "/"})
+    assert _client(app, "plan").post("/view-as", data={"role": "student"}).status_code == 403
+    assert dev.post("/view-as", data={"role": "dev"}).status_code == 400
