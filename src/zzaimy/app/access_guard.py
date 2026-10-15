@@ -65,27 +65,43 @@ def injection_like(question: str) -> bool:
     return bool(_INJECTION.search(question or ""))
 
 
-def scope_note(question: str, dept: str | None, role: str, depts: list[str]) -> str | None:
+SCOPE_DENIED = "{depts} 자료는 열람 권한이 없습니다. 공통 자료{mine} 안에서만 찾아 답합니다. 필요하면 해당 부서나 관리자에게 권한을 요청해 주십시오."
+
+
+def scope_note(question: str, dept: str | None, role: str, depts: list[str], also: tuple | list = ()) -> str | None:
     """질문이 사용자 범위 밖의 부서 자료를 가리키면 안내문, 아니면 None.
 
-    학생은 부서 자료 전체가 범위 밖이다. 담당자·부서장은 자기 부서와 공통만 범위다.
-    존재 여부 자체가 비밀인 자료는 없다고 전제한다(있다면 별도 저장소에 두고 검색 대상에서 뺀다).
+    판정은 계정 범위로 한다 — 플랫폼이 아는 부서 이름(부서 RAG·계정의 부서) 가운데 질문에 나온 것이 이 계정의 범위
+    (소속 부서 + 계정별 추가 권한 부서) 밖이면 안내한다. 검색은 원래 범위 안에서만 돌므로(search_scope) 이 안내는 답의 머리말일 뿐
+    근거를 거르는 관문이 아니다. 안내에는 그 부서 이름만 — 범위 밖 문서의 제목·건수·있고 없음은 싣지 않는다.
+    학생은 부서 자료 전체가 범위 밖이다.
     """
     q = question or ""
     mentioned = [d for d in _dept_words(depts) if d in q]
-    if role == "student":
+    if role == "student" or role not in ("staff", "head", "dev"):
         # 부서명이 자료에 없어도 업무 자료를 가리키는 말이면 안내한다(사업계획서·접수 서류·지원자…)
         if mentioned or _STAFF_MATERIAL.search(q):
             return ("학생 계정에서는 부서 업무 자료를 볼 수 없습니다. 공개된 규정과 학사 안내만 답할 수 있으며, "
                     "그 밖의 문의는 학생 민원 창구나 해당 부서에 해 주십시오.")
         return None
-    if role == "dev" or not dept:
+    if role == "dev":
         return None
-    others = [d for d in mentioned if d != dept]
+    mine = [x for x in [dept or "", *(also or ())] if x and x not in ("공통", "common", "전체")]
+    others = [d for d in mentioned if d not in mine and not any(d in m for m in mine)]
     if others:
-        return (f"{', '.join(others)} 자료는 현재 계정({dept})의 열람 범위에 없습니다. "
-                "공통 규정과 소속 부서 자료로만 답합니다. 필요하면 해당 부서나 관리자에게 요청해 주십시오.")
+        return SCOPE_DENIED.format(depts=", ".join(others), mine=("와 " + "·".join(mine) + " 자료") if mine else "")
     return None
+
+
+def reg_kwargs(scope: dict) -> dict:
+    """규정 검색(regulations.find_relevant·sparse_search·hybrid_candidates)에 넘길 범위 인자만 — 검색 범위 dict 를 통째로
+    넘기면 모르는 열쇠(space·grant…)로 호출이 깨진다. 부서는 소속 부서 + 추가 권한 부서(reg_depts)."""
+    out = {k: scope[k] for k in ("user", "levels") if scope.get(k) is not None}
+    if scope.get("reg_depts"):
+        out["dept"] = list(scope["reg_depts"])
+    elif scope.get("dept"):
+        out["dept"] = scope["dept"]
+    return out
 
 
 def search_scope(dept: str | None, role: str, user: str | None = None, data_dir=None) -> dict:
@@ -95,16 +111,17 @@ def search_scope(dept: str | None, role: str, user: str | None = None, data_dir=
     return rag_spaces.search_scope(role, dept, user, data_dir)
 
 
-def allowed_doc_ids(db, doc_ids: list[int], dept: str | None, role: str, user: str | None = None) -> list[int]:
+def allowed_doc_ids(db, doc_ids: list[int], dept: str | None, role: str, user: str | None = None, data_dir=None) -> list[int]:
     """담당자가 직접 고른 기준 문서도 범위 안의 것만 남긴다 — 검색 SQL 과 같은 규칙(access_policy.visible)."""
-    from zzaimy.app.access_policy import visible
+    from zzaimy.app.access_policy import viewer, visible
 
     if not doc_ids or role == "dev":
         return list(doc_ids)
+    v = viewer(role, dept, user, data_dir)
     out: list[int] = []
     for did in doc_ids:
         d = db.get_document(did) or {}
-        if visible(d, dept=dept, user=user, role=role):
+        if visible(d, **v):
             out.append(did)
     return out
 

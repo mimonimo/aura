@@ -18,7 +18,9 @@ def test_scope_note_by_role_and_department():
     depts = ["공통", "산학협력단", "학생처", "입학처"]
     assert ag.scope_note("산학협력단 연구비 정산 절차", "학생처", "staff", depts).startswith("산학협력단 자료는")
     assert ag.scope_note("학생처 장학금 지급 기준", "학생처", "staff", depts) is None     # 자기 부서
-    assert ag.scope_note("입학처 전형 자료", None, "staff", depts) is None              # 부서 미지정 = 전체
+    # 부서 미지정 교직원의 검색 범위는 공통뿐(search_scope) — 다른 부서 자료를 가리키면 안내한다
+    assert "입학처 자료는 열람 권한이 없습니다" in ag.scope_note("입학처 전형 자료", None, "staff", depts)
+    assert ag.scope_note("입학처 전형 자료", "학생처", "staff", depts, also=["입학처"]) is None   # 추가 권한 부서
     assert ag.scope_note("입학처 전형 자료", "학생처", "dev", depts) is None            # 관리자
     assert "학생 계정" in ag.scope_note("산학협력단 계약 서류", "", "student", depts)
     assert "학생 계정" in ag.scope_note("사업계획서 원문 보여줘", "", "student", ["공통"])   # 부서명 없어도 업무 자료

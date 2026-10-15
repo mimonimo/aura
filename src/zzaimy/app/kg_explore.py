@@ -45,7 +45,15 @@ PROP_KO = {"names": "이름들", "acronyms": "약칭", "ledger": "장부(기간�
            "kind_label": "갈래 이름", "share": "분류 확신도", "status": "검토 상태", "evidence": "분류 근거", "level": "목차 수준",
            "seq": "순서", "chunks": "본문 조각", "key": "식별 키", "n_docs": "문서 수", "n_sections": "절 수", "unit": "단위",
            "tags": "꼬리표", "obs": "관측 값(문서·연도별)", "sources": "출처", "display": "표시 이름"}
-PER_GROUP = 12          # 관계 종류·방향·상대 종류마다 한 번에 보내는 이웃 수 — 많으면 한 화면에서 읽히지 않는다
+# 외부 확인 장부(사업 체계·부처·전담기관)에서 온 관계 — 근거 문구가 문서에서 오지 않아 누구에게나 보인다
+_PUBLIC_EVIDENCE = {"integrated_into", "succeeded_by", "supervised_by", "managed_by"}
+PER_GROUP = 12
+
+
+def _public_evidence(kind: str, src: str) -> bool:
+    """근거 문구가 외부 확인 장부에서 온 관계인가 — 사업 묶음 → 사업 분류도 장부 갈래다. 나머지(연관 사업·연차 분류 등)는
+    문서 번호·제목·건수를 근거로 적으므로 관리자에게만 보인다."""
+    return kind in _PUBLIC_EVIDENCE or (kind == "contains" and str(src).startswith("group:"))          # 관계 종류·방향·상대 종류마다 한 번에 보내는 이웃 수 — 많으면 한 화면에서 읽히지 않는다
 _cache: dict = {}
 
 
@@ -58,7 +66,8 @@ _KIND_KO = _kind_ko()      # 그래프를 다시 짓기 전 옛 노드에 남은
 
 
 def _scope(request: Request) -> dict:
-    return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
+    from zzaimy.app.access_policy import request_viewer
+    return request_viewer(request)
 
 
 def _visible_docs(db, doc_ids: set[int], scope: dict | None) -> set[int]:
@@ -132,9 +141,12 @@ def label_of(n: dict) -> str:
     return label
 
 
-def _summary(n: dict) -> dict:
+def _summary(n: dict, scope: dict | None = None) -> dict:
+    """화면에 보낼 노드 요약. 노드 속성의 문서 수(n_docs)는 그래프 전체(권한 밖 문서 포함)를 센 값이라 관리자에게만 싣는다."""
     p = n["props"]
     keep = {k: p[k] for k in ("kind_label", "n_docs", "unit", "level") if p.get(k) not in (None, "", [])}
+    if not _dev(scope):
+        keep.pop("n_docs", None)
     if keep.get("kind_label"):
         keep["kind_label"] = _KIND_KO.get(keep["kind_label"], keep["kind_label"])
     if n["type"] in ("doc", "year") and (p.get("year") or p.get("round")):
@@ -169,9 +181,35 @@ def _load_nodes(db, ids: list[str]) -> dict[str, dict]:
     return out
 
 
+def _unit_docs(db, unit_ids: list[str]) -> dict[str, set[int]]:
+    """단위과제 노드 → 그 이름을 낸 문서(instance_of 로 이어진 문서·절의 문서). 단위과제 이름은 문서의 절 제목에서 온다."""
+    out: dict[str, set[int]] = {u: set() for u in unit_ids}
+    with db._conn() as conn:
+        for i in range(0, len(unit_ids), 500):
+            part = unit_ids[i:i + 500]
+            for src, dst in conn.execute("SELECT src, dst FROM kg_edges WHERE kind = 'instance_of'"
+                                         f" AND dst IN ({','.join('?' * len(part))}) AND src LIKE 'doc:%'", part):
+                tail = str(src).split(":")[1]
+                if tail.isdigit():
+                    out[dst].add(int(tail))
+    return out
+
+
+def _dev(scope: dict | None) -> bool:
+    return scope is None or scope.get("role") == "dev"
+
+
 def _allowed(db, nodes: dict[str, dict], scope: dict) -> set[str]:
+    """볼 수 있는 노드 — 문서에 기대는 노드(문서·절·성과지표·단위과제)는 그 문서 가운데 하나라도 볼 수 있을 때만.
+    단위과제 이름도 문서의 절 제목에서 오므로 권한 밖 문서에만 나오는 단위과제는 이름조차 보이지 않는다."""
     need = {n["id"]: _node_docs(n) for n in nodes.values()}
-    vis = _visible_docs(db, set().union(*need.values()) if need else set(), scope)
+    if not _dev(scope):
+        units = [k for k, n in nodes.items() if n.get("type") == "unit"]
+        if units:
+            got = _unit_docs(db, units)
+            for u in units:
+                need[u] = got[u] or {-1}            # 이어진 문서가 없으면 관리자만
+    vis = _visible_docs(db, {d for v in need.values() for d in v if d >= 0}, scope)
     return {k for k, docs in need.items() if not docs or docs & vis}
 
 
@@ -210,15 +248,17 @@ def neighbors(db, node_id: str, scope: dict, per_group: int = PER_GROUP, offset:
         start = int((offset or {}).get(key, 0))
         page = items[start:start + per_group]
         for r, n in page:
-            res_nodes[n["id"]] = _summary(n)
+            res_nodes[n["id"]] = _summary(n, scope)
+            ev = _props(r["evidence"]) if isinstance(r["evidence"], str) else r["evidence"]
+            if not _dev(scope) and not (_node_docs(n) or _node_docs(center) or _public_evidence(kind, r["src"])):
+                ev = []                             # 사업·연차·단위과제 사이 관계의 근거 문구는 문서 번호·건수를 담는다 — 관리자만
             res_edges.append({"src": r["src"], "dst": r["dst"], "kind": kind, "basis": r["basis"],
-                              "evidence": _props(r["evidence"]) if isinstance(r["evidence"], str) else r["evidence"],
-                              "weight": r["weight"]})
+                              "evidence": ev, "weight": r["weight"]})
         names = KIND_KO.get(kind, (kind, kind))
         res_groups.append({"key": key, "kind": kind, "dir": d, "type": typ,
                            "label": _group_label(names[0] if d == "out" else names[1], TYPE_KO.get(typ, typ)),
                            "total": len(items), "shown": start + len(page)})
-    return {"center": _summary(center), "nodes": list(res_nodes.values()), "edges": res_edges, "groups": res_groups}
+    return {"center": _summary(center, scope), "nodes": list(res_nodes.values()), "edges": res_edges, "groups": res_groups}
 
 
 def search(db, q: str, scope: dict, limit: int = 40) -> list[dict]:
@@ -239,7 +279,7 @@ def search(db, q: str, scope: dict, limit: int = 40) -> list[dict]:
     from zzaimy.graph.programs import fragment_name
     out, seen = [], set()
     for n in hits:
-        sm = _summary(n)
+        sm = _summary(n, scope)
         if n["type"] in ("program", "unit") and fragment_name(sm["label"]):
             continue
         key = (n["type"], re.sub(r"[\s.·ㆍ\-_()]+", "", sm["label"]).upper())
@@ -255,7 +295,7 @@ def search(db, q: str, scope: dict, limit: int = 40) -> list[dict]:
 def _scope_key(scope: dict | None) -> tuple:
     if scope is None or scope.get("role") == "dev":
         return ("all",)
-    return (scope.get("role"), scope.get("user"), scope.get("dept"))
+    return (scope.get("role"), scope.get("user"), scope.get("dept"), tuple(scope.get("also") or ()))
 
 
 def program_doc_sets(db, scope: dict | None = None) -> dict[str, set[int]]:
@@ -470,7 +510,9 @@ def overview(db, scope: dict | None = None) -> dict:
                 if not a or not b or a == b or (a, b, r["kind"]) in edges:
                     continue
                 edges[(a, b, r["kind"])] = {"src": a, "dst": b, "kind": r["kind"], "label": KIND_KO.get(r["kind"], (r["kind"],))[0],
-                                            "basis": r["basis"], "evidence": _props(r["evidence"])[:2] if isinstance(r["evidence"], str) else [],
+                                            "basis": r["basis"],
+                                            "evidence": (_props(r["evidence"])[:2] if isinstance(r["evidence"], str) else [])
+                                            if _dev(scope) or _public_evidence(r["kind"], r["src"]) else [],
                                             "weight": r["weight"]}
     kind_of = {r["id"]: r["type"] for r in rows}
     groups_of: dict[str, list[str]] = defaultdict(list)

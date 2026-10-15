@@ -22,8 +22,14 @@ def _cfg(data_dir: Path) -> dict:
     return rag_spaces.config(data_dir)
 
 
-def folders(db, data_dir: Path) -> list[dict]:
-    """[{key, name, kind(원본|만든), dept, docs}] — 원본 폴더 먼저(문서 많은 순), 만든 폴더는 이름순."""
+def folders(db, data_dir: Path, viewer: dict | None = None) -> list[dict]:
+    """[{key, name, kind(원본|만든), dept, docs}] — 원본 폴더 먼저(문서 많은 순), 만든 폴더는 이름순.
+    viewer(access_policy.viewer)를 주면 그 계정이 볼 수 있는 문서만 세고, 범위 밖 부서의 폴더는 이름도 내지 않는다."""
+    from zzaimy.app import access_policy as ap
+    acc, acc_args = ap.doc_sql(viewer) if viewer else ("", [])
+    keep = None
+    if viewer and viewer.get("role") != "dev":
+        keep = {ap.DEFAULT_DEPT, viewer.get("dept") or ap.DEFAULT_DEPT, *(viewer.get("also") or ())}
     from zzaimy.app import rag_spaces
     cfg = _cfg(data_dir)
     areas = {f["folder"] for f in rag_spaces.area_folders(db)}
@@ -32,10 +38,14 @@ def folders(db, data_dir: Path) -> list[dict]:
         # 라이브러리 목록과 같은 수 — 지금 있는 문서만(지운 문서를 가리키는 옛 이음은 세지 않는다)
         n_area = {str(r[0]): int(r[1]) for r in conn.execute(
             "SELECT a.area, COUNT(DISTINCT a.doc_id) FROM archive_files a JOIN documents d ON d.id = a.doc_id"
-            " WHERE a.removed_at = '' AND a.area <> '' GROUP BY a.area") if str(r[0]) in areas}
+            f" WHERE a.removed_at = '' AND a.area <> ''{acc} GROUP BY a.area", acc_args) if str(r[0]) in areas}
         made = [dict(r) for r in conn.execute("SELECT id, name, dept FROM library_folders ORDER BY name")]
         n_made = {int(r[0]): int(r[1]) for r in conn.execute(
-            "SELECT f.folder_id, COUNT(*) FROM doc_folders f JOIN documents d ON d.id = f.doc_id GROUP BY f.folder_id")}
+            f"SELECT f.folder_id, COUNT(*) FROM doc_folders f JOIN documents d ON d.id = f.doc_id WHERE 1 = 1{acc} GROUP BY f.folder_id",
+            acc_args)}
+    if keep is not None:
+        made = [r for r in made if (r["dept"] or ap.DEFAULT_DEPT) in keep]
+        areas = {a for a in areas if (cfg.get("dept_of_area", {}).get(a) or ap.DEFAULT_DEPT) in keep}
     for a in sorted(areas, key=lambda a: -n_area.get(a, 0)):
         if n_area.get(a):
             out.append({"key": AREA + a, "name": a, "kind": "원본", "dept": cfg.get("dept_of_area", {}).get(a) or "공통",

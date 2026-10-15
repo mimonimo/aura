@@ -300,14 +300,17 @@ def create_app(
 
     def _student_allowed(method: str, path: str) -> bool:
         return bool((_STUDENT_POST if method == "POST" else _STUDENT_GET).match(path))
+    from zzaimy.app import access_policy as _ap
     from zzaimy.app.access_policy import visible as _visible
 
     def _extra_depts(user: str | None) -> list[str]:
         """계정별 추가 권한으로 받은 부서 RAG 이름들(RAG 공간 설정 grants) — 열람 검사와 목록 SQL 이 같은 값을 쓴다."""
-        if not user:
-            return []
-        from zzaimy.app import rag_spaces as _rs
-        return [sid[5:] for sid in _rs.config(Path(db_path).parent).get("grants", {}).get(user, []) if sid.startswith("dept:")]
+        return _ap.extra_depts(user, Path(db_path).parent)
+
+    def _req_viewer(request: Request) -> dict:
+        """요청의 보는 사람 — 열람 규칙은 access_policy 한 곳(visible·doc_sql)."""
+        return _ap.viewer(getattr(request.state, "role", ""), getattr(request.state, "dept", "") or None,
+                          getattr(request.state, "user", ""), Path(db_path).parent)
 
     if password is not None:
         basic = HTTPBasic(auto_error=False)
@@ -347,8 +350,7 @@ def create_app(
             m = _DOC_PATH.match(request.url.path)
             if m:
                 doc = db.get_document(int(m.group(1)))
-                if doc is not None and not _visible(doc, dept=request.state.dept or None, user=user, role=request.state.role,
-                                                    also=_extra_depts(user)):
+                if doc is not None and not _visible(doc, **_req_viewer(request)):
                     raise HTTPException(404, "문서를 찾을 수 없습니다")
 
         dependencies = [Depends(check_auth)]
@@ -886,7 +888,7 @@ def create_app(
                 "page": page, "pages": pages, "page_numbers": library.page_numbers(page, pages),
                 "per": PER, "total_docs": total_docs, "n_rows": len(groups),
                 "kind": kind, "kind_counts": [(k, _KINDS_LIB.get(k, "분류 전") if k else "분류 전", n) for k, n in kinds],
-                "folders": (_folders := _lf.folders(db, Path(db_path).parent)), "folder": folder,
+                "folders": (_folders := _lf.folders(db, Path(db_path).parent, _req_viewer(request))), "folder": folder,
                 "body": body == "1", "fmt": fmt, "scope": scope, "since": since, "sort": sort if sort in ("new", "old", "name") else "new",
                 "folder_pick": next((f for f in _folders if f["key"] == folder), None),
                 "scope_choices": _scope_choices(request), "inbox_types": INBOX_TYPES,
@@ -990,11 +992,12 @@ def create_app(
 
     def _criteria_docs(request: Request | None = None) -> list[dict]:
         counts = db.regulation_chunk_counts()
-        student = request is not None and getattr(request.state, "role", "") == "student"
+        # 기준 문서 목록도 열람 규칙 그대로 — 부서 제한 규정은 그 부서(와 추가 권한) 계정에만. 요청이 없으면 부르는 쪽이 거른다
+        v = _req_viewer(request) if request is not None else None
         return [
             d | {"n_chunks": counts.get(d["id"], 0)}
             for d in db.list_documents("regulation")
-            if d["status"] == "reviewed" and (not student or _visible(d, dept=None, user=None, role="student"))
+            if d["status"] == "reviewed" and (v is None or _visible(d, **v))
         ]
 
 
@@ -1052,6 +1055,8 @@ def create_app(
             return []
         scored: list[tuple[int, int]] = []
         for d in _criteria_docs():
+            if session_id is not None and not _viewer_sees(session_id, d):
+                continue
             hay = set(_re.findall(r"[0-9A-Za-z가-힣]{2,}", d.get("filename") or ""))
             n = len(words & hay)
             if n:
@@ -1208,11 +1213,11 @@ def create_app(
             return
         if ag.injection_like(q):
             ag.audit(data_dir, owner, "injection", q, dept, role)
-        depts = [d.get("dept") or "" for d in db.department_counts()]
-        scope_msg = ag.scope_note(q, dept, role, depts)
+        depts = sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()})
+        scope_msg = ag.scope_note(q, dept, role, depts, _extra_depts(owner) if role in ("staff", "head") else ())
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
-        criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner)
+        criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner, data_dir)
         scope = ag.search_scope(dept, role, owner, Path(db_path).parent)
         # 대화에 구글 독스가 연결돼 있으면 답만 하지 않고 문서를 바로 고친다(gdocs_agent) — 명령 → 편집 계획 → 적용
         # 문서 작업 에이전트 — 안전 관문 뒤부터는 Writer 가 도구를 골라 가며 처리한다. 실패하면 아래 기존 경로로 물러난다
@@ -1453,7 +1458,7 @@ def create_app(
         from zzaimy.app.access_policy import visible
 
         owner, role, dept = _session_viewer(session_id)
-        return visible(doc, dept=dept, user=owner, role=role)
+        return visible(doc, **_ap.viewer(role, dept, owner, Path(db_path).parent))
 
     def _mentions_document(request: str, title: str, min_len: int = 4) -> bool:
         """담당자 요청 글이 이 문서를 스스로 짚었는가 — 공백·문장부호를 뺀 두 글이 min_len 자 이상 이어진 공통 부분을 갖고,
@@ -1831,6 +1836,7 @@ def create_app(
 
         from zzaimy.app import asks as _asks
         from zzaimy.app import chat_documents, doc_agent, drafting, form_choice, section_context
+        from zzaimy.app.access_guard import reg_kwargs as _reg_kwargs
         from zzaimy.app.regulations import extract_nouns, find_relevant
         from zzaimy.generate.client import VllmClient
         from zzaimy.ingest import gdocs as _gd
@@ -1948,7 +1954,8 @@ def create_app(
                 raise doc_agent.Retry("이 값(" + ", ".join(f"「{x['name']}」" for x in targets)
                                       + ")은 이번 요청에서 세 번 찾아도 자료에 없었다 — 더 찾지 말고 다른 값으로 넘어가거나 ask_user·finish.")
             if src == "rules":
-                hits = [{"title": h.get("reg_title") or "규정", "text": h.get("content") or ""} for h in find_relevant(db, query, top_k=4, **scope)]
+                hits = [{"title": h.get("reg_title") or "규정", "text": h.get("content") or ""}
+                        for h in find_relevant(db, query, top_k=4, **_reg_kwargs(scope))]
             else:
                 fn = {"project": mats().search_project, "criteria": mats().search_criteria, "library": mats().search_library}.get(src)
                 if fn is None:
@@ -3655,13 +3662,8 @@ def create_app(
         }
 
     def _doc_access_sql(request: Request) -> tuple[str, list]:
-        """문서 목록 SQL 의 열람 조건(access_policy.visible 과 같은 규칙, 학생 제외 — 학생은 이 화면들에 못 온다). 관리자는 조건 없음."""
-        if request.state.role == "dev":
-            return "", []
-        mine = [getattr(request.state, "dept", "") or "", *_extra_depts(request.state.user)]     # 자기 부서 + 추가 권한 부서 RAG
-        return (" AND (COALESCE(d.access_level, 'public') = 'public'"
-                f" OR (d.access_level = 'dept' AND (COALESCE(d.dept, '공통') = '공통' OR COALESCE(d.dept, '공통') IN ({','.join('?' * len(mine))})))"
-                " OR COALESCE(d.owner, '') = ?)", [*mine, request.state.user or ""])
+        """문서 목록 SQL 의 열람 조건 — access_policy.doc_sql(visible 과 같은 뜻). 관리자는 조건 없음."""
+        return _ap.doc_sql(_req_viewer(request))
 
     @app.get("/search", response_class=HTMLResponse)
     def search_all(request: Request, q: str = ""):
@@ -3729,8 +3731,7 @@ def create_app(
             try:
                 from zzaimy.app.regulations import sparse_search
 
-                sc = {k: space[k] for k in ("levels", "dept", "user") if k in space}
-                reg_hits = sparse_search(db, term, top_k=8, **sc)
+                reg_hits = sparse_search(db, term, top_k=8, **_ag.reg_kwargs(space))
             except Exception:
                 reg_hits = []
             # 근거: 사업 문서 본문과 기준 문서 조문을 번갈아 — 한쪽 갈래가 다른 쪽을 밀어내지 않게. 한 문서에서 둘까지
@@ -4006,8 +4007,7 @@ def create_app(
         return RedirectResponse(f"/project/{project_id}?bundle={len(made['criteria'])}+{len(made['intake'])}", status_code=303)
 
     def _viewer(request: Request) -> dict:
-        return {"dept": getattr(request.state, "dept", None), "user": getattr(request.state, "user", "zzaimy"),
-                "role": getattr(request.state, "role", "")}
+        return _req_viewer(request)
 
     def _doc_groups(request: Request, project: dict | None, session_id: int | None = None) -> dict[str, list[dict]]:
         """프로젝트·대화 문서의 세 갈래(사용자 첨부 / 참고 / 규정·지침) — 대화 문서함·프로젝트 화면·지침·기준 탭이 같이 쓴다."""
@@ -5660,6 +5660,12 @@ def create_app(
             if "scope" in _insp.signature(r_.answer).parameters:
                 kw["scope"] = ag.search_scope(dept, role, owner, Path(db_path).parent)
             answer = r_.answer(db, q, **kw)
+            # 범위 밖 부서 자료를 가리키는 질문 — 대화 화면과 같은 안내(검색은 원래 범위 안에서만 돈다)
+            scope_msg = ag.scope_note(q, dept, role, sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()}),
+                                      _extra_depts(owner) if role in ("staff", "head") else ())
+            if scope_msg:
+                ag.audit(Path(db_path).parent, owner, "scope", q, dept, role)
+                answer = scope_msg + "\n\n" + answer
         except Exception as e:
             from zzaimy.generate.client import describe_llm_error
 
@@ -7103,9 +7109,10 @@ def create_app(
         doc_groups = _doc_groups(request, proj)
         docs = doc_groups["attached"]
         linked = set(db.get_project_criteria_ids(project_id))
+        _pv = _req_viewer(request)
         sector_criteria = [
             d for d in db.list_documents("regulation")
-            if d["status"] == "reviewed" and d["sector"] in (proj_sector, "common")
+            if d["status"] == "reviewed" and d["sector"] in (proj_sector, "common") and _visible(d, **_pv)
         ]
         # 이 섹터 전용 기준을 공통보다 위에 보여준다
         sector_criteria.sort(key=lambda d: d["sector"] != proj_sector)
@@ -7170,7 +7177,7 @@ def create_app(
         )
 
     def _ref_scope(request: Request) -> dict:
-        return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
+        return _req_viewer(request)
 
     def _ref_names(doc_groups: dict) -> list[str]:
         """보관 사업 후보를 찾을 이름 — 프로젝트 기준 문서·첨부 문서의 제목과, 그 문서들에서 읽은 사업명(정체)."""
@@ -7352,10 +7359,10 @@ def create_app(
         db.delete_project(project_id)
         return RedirectResponse(f"/?type={proj['sector']}", status_code=303)
 
-    def _doc_folder_ctx(doc_id: int) -> dict:
-        """문서 화면의 폴더 고르기 — 만든 폴더 목록과 지금 담긴 폴더."""
+    def _doc_folder_ctx(doc_id: int, request: Request) -> dict:
+        """문서 화면의 폴더 고르기 — 만든 폴더 목록(이 계정의 범위 안)과 지금 담긴 폴더."""
         from zzaimy.app import library_folders as lf
-        made = [f for f in lf.folders(db, Path(db_path).parent) if f["kind"] == "만든"]
+        made = [f for f in lf.folders(db, Path(db_path).parent, _req_viewer(request)) if f["kind"] == "만든"]
         with db._conn() as conn:
             row = conn.execute("SELECT folder_id FROM doc_folders WHERE doc_id = ?", (doc_id,)).fetchone()
         return {"made_folders": made, "doc_folder": f"{lf.MADE}{row[0]}" if row else ""}
@@ -7383,7 +7390,7 @@ def create_app(
                 for d in ids:
                     conn.execute("DELETE FROM doc_folders WHERE doc_id = ?", (int(d),))
             return len(ids)
-        f = next((x for x in lf.folders(db, Path(db_path).parent) if x["key"] == folder and x["kind"] == "만든"), None)
+        f = next((x for x in lf.folders(db, Path(db_path).parent, _req_viewer(request)) if x["key"] == folder and x["kind"] == "만든"), None)
         if f is None or f["dept"] not in _scope_choices(request):
             return None
         lf.put(db, folder, ids)
@@ -7648,8 +7655,17 @@ def create_app(
         doc = db.get_document(doc_id)
         if doc is None:
             raise HTTPException(404)
+        _dv = _req_viewer(request)
+
+        def _sees(did) -> bool:
+            """문서 화면에 걸리는 다른 문서(연결 기준·추천·같은 사업·참조)도 이 계정이 볼 수 있는 것만 — 제목조차 드러내지 않는다."""
+            try:
+                return _visible(db.get_document(int(did)) or {}, **_dv)
+            except (TypeError, ValueError):
+                return False
+
         related = None
-        if doc.get("related_criteria_id"):
+        if doc.get("related_criteria_id") and _sees(doc["related_criteria_id"]):
             related = db.get_document(doc["related_criteria_id"])
         chunks = db.list_doc_chunks(doc_id)
         from zzaimy.app.render import chunk_blocks
@@ -7774,10 +7790,10 @@ def create_app(
         from zzaimy.app.regulations import criteria_link_evidence, evidenced_suggestions
 
         # 검색 유사도로 고른 추천은 같은 프로젝트·같은 사업 근거가 있을 때만 「자동 연결」로 보인다
-        suggested = evidenced_suggestions(db, doc, suggested)
+        suggested = [x for x in evidenced_suggestions(db, doc, suggested) if _sees(x.get("id"))]
         referencing = [
             r for r in (db.referencing_documents(doc_id) if doc["doc_type"] == "regulation" else [])
-            if r.get("related_criteria_id") == doc_id or criteria_link_evidence(db, r, doc_id)
+            if (r.get("related_criteria_id") == doc_id or criteria_link_evidence(db, r, doc_id)) and _visible(r, **_dv)
         ]
         from zzaimy.app import doc_origin
 
@@ -7802,7 +7818,7 @@ def create_app(
             "doc.html",
             ctx(request, {
                 "doc": doc, "reviews": db.get_reviews(doc_id), "related": related, "scope_choices": _scope_choices(request),
-                **_doc_folder_ctx(doc_id),
+                **_doc_folder_ctx(doc_id, request),
                 "assets": assets,
                 "extract_blocks": blocks, "layout_pages": layout,
                 "restored_pdf": Path(doc["stored_path"]).suffix.lower()
@@ -7819,7 +7835,7 @@ def create_app(
                 "suggested_criteria": suggested,
                 "referencing": referencing,
                 "identity": db.get_doc_identity(doc_id),
-                "same_program": db.docs_sharing_program(doc_id),
+                "same_program": [x for x in db.docs_sharing_program(doc_id) if _sees(x["id"])],
                 "n_text_chunks": sum(1 for c in chunks if c["kind"] == "text"),
                 "n_table_chunks": sum(1 for c in chunks if c["kind"] == "table"),
                 "n_figtext_chunks": sum(1 for c in chunks if c["kind"] == "image_text"),
@@ -7853,8 +7869,7 @@ def create_app(
         raise FileNotFoundError("원본 파일을 찾을 수 없습니다")
 
     def _doc_scope(request: Request) -> dict:
-        return {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role,
-                "also": _extra_depts(request.state.user)}
+        return _req_viewer(request)
 
     def _preview_target(doc: dict) -> tuple[Path | None, str]:
         """원본 열기에서 보여 줄 파일이 놓일 자리 — (경로, 종류). 플랫폼 사무 문서는 문서 폴더의 열람 PDF(반입 때 만드는 것과 같은 파일),

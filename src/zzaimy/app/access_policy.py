@@ -38,7 +38,8 @@ def classify(doc_type: str | None, *, owner: str | None = None, dept: str | None
 
 
 def visible(doc: dict, *, dept: str | None, user: str | None, role: str, also: tuple | list = ()) -> bool:
-    """이 문서를 이 사용자가 볼 수 있는가 — 검색 SQL 과 같은 규칙(테스트·자가 점검에서 대조).
+    """이 문서를 이 사용자가 볼 수 있는가 — 열람 규칙의 원본. 목록 SQL(doc_sql)·검색 조건이 같은 뜻이다(tests/test_access_matrix).
+    관리자=전부, 학생=학생 공개 규정만, 교직원=전체 공개 + 공통·자기 부서·추가 권한 부서의 부서 제한 문서 + 자기가 올린 문서.
     also: 계정별 추가 권한으로 더 받은 부서 RAG(rag_spaces grants) — 그 부서 문서도 연다."""
     if not doc:
         return False
@@ -49,8 +50,57 @@ def visible(doc: dict, *, dept: str | None, user: str | None, role: str, also: t
     if role == "student":
         # 학생은 학생 공개로 지정된 규정만(학사 규정 RAG, ADR-0052) — 교직원 자료는 공개 등급이어도 보이지 않는다
         return level == "public" and doc.get("doc_type") == "regulation" and (doc.get("audience") or "staff") == "student"
-    if level == "public":
+    if level == "public" or (bool(user) and doc.get("owner") == user):
         return True
     if level == "dept":
         return d == DEFAULT_DEPT or (bool(dept) and d == dept) or d in (also or ())
-    return bool(user) and doc.get("owner") == user
+    return False
+
+
+def extra_depts(user: str | None, data_dir=None) -> list[str]:
+    """계정별 추가 권한으로 받은 부서 RAG 이름들(RAG 공간 설정 grants). 학생·관리자에게는 주지 않는다(rag_spaces.grant_changes)."""
+    if not user or data_dir is None:
+        return []
+    from zzaimy.app import rag_spaces
+    return [s[5:] for s in rag_spaces.config(data_dir).get("grants", {}).get(user, []) if str(s).startswith("dept:")]
+
+
+def viewer(role: str | None, dept: str | None, user: str | None, data_dir=None) -> dict:
+    """열람 판정에 넘기는 보는 사람 — visible(doc, **viewer)·doc_sql(viewer) 가 같은 값을 쓴다. 계정의 모르는 역할은 교직원으로 보지 않고
+    가장 좁게(학생과 같은 범위). visible 에 역할을 직접 넘기는 내부 호출(역할 빈 값)은 예전처럼 공개·공통만 본다."""
+    role = role or ""
+    if role not in ("dev", "staff", "head", "student"):
+        role = "student"
+    also = tuple(extra_depts(user, data_dir)) if role in ("staff", "head") else ()
+    return {"role": role, "dept": (dept or "").strip() or None, "user": user or "", "also": also}
+
+
+def request_viewer(request) -> dict:
+    """요청의 보는 사람 — 로그인 검사(main.check_auth)가 request.state 에 둔 역할·부서·계정과 RAG 공간 설정의 추가 권한."""
+    st = request.state
+    data_dir = getattr(request.app.state, "data_dir", None)
+    return viewer(getattr(st, "role", ""), getattr(st, "dept", "") or None, getattr(st, "user", ""), data_dir)
+
+
+def can_browse(role: str | None) -> bool:
+    """문서함·검색·지식그래프·RAG 공간 같은 문서 둘러보기 화면을 열 수 있는가 — 학생(과 모르는 역할)은 대화만."""
+    return role in ("dev", "staff", "head")
+
+
+def doc_sql(v: dict, alias: str = "d.") -> tuple[str, list]:
+    """visible 과 같은 뜻의 SQL 조건(앞에 「 AND」 를 붙여 돌려준다) — 문서 목록·건수·칩·폴더·사업 목록이 이것으로 거른다.
+    관리자는 조건 없음."""
+    a = alias
+    role = v.get("role") or ""
+    if role == "dev":
+        return "", []
+    if role == "student":
+        return (f" AND COALESCE({a}access_level, 'public') = 'public' AND {a}doc_type = 'regulation'"
+                f" AND COALESCE({a}audience, 'staff') = 'student'"), []
+    mine = [x for x in [v.get("dept") or "", *(v.get("also") or ())] if x]
+    dept_in = f" OR COALESCE({a}dept, '{DEFAULT_DEPT}') IN ({','.join('?' * len(mine))})" if mine else ""
+    user = v.get("user") or ""
+    own = f" OR ({a}owner = ? AND {a}owner <> '')" if user else ""
+    sql = (f" AND (COALESCE({a}access_level, 'public') = 'public'"
+           f" OR ({a}access_level = 'dept' AND (COALESCE({a}dept, '{DEFAULT_DEPT}') = '{DEFAULT_DEPT}'{dept_in})){own})")
+    return sql, [*mine, *([user] if user else [])]

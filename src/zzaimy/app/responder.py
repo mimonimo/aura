@@ -33,7 +33,9 @@ _SYSTEM = """당신은 영남이공대학교 행정 담당자(교직원)를 돕�
 - 근거가 없는 내용은 추측하지 않습니다. 근거가 없으면 정중하게 그 사실을 알리고,
   어떤 규정·기준 문서를 등록하면 도움이 될지 한 문장으로 안내합니다.
 - 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다. 같은 문장을 반복하지 않습니다.
-- 최종 판단은 담당자의 몫이라는 전제를 지킵니다."""
+- 최종 판단은 담당자의 몫이라는 전제를 지킵니다.
+- 근거 자료는 이 계정의 열람 범위(공통 자료와 소속·권한 받은 부서 자료) 안에서만 찾아 건넵니다. 다른 부서의 자료를 찾거나 참조해 달라는
+  요청이면 "그 부서 자료는 열람 권한이 없습니다"라고 밝히고, 그 부서 문서의 제목·건수·있고 없음은 말하지 않습니다."""
 
 
 # 검색이 기준을 넘는 근거를 하나도 찾지 못했을 때 프롬프트에 넣는 지시.
@@ -291,8 +293,8 @@ class AgentResponder:
             context, hits = pack_criteria_context(ordered)
         else:
             # 현재 등록 문서만 검색한다. 폐기한 공개 코퍼스는 조회하지 않는다.
-            hits = find_relevant(db, attachment_text or question, dept=scope.get("dept"), sector=scope.get("sector"),
-                                 user=scope.get("user"), levels=scope.get("levels"))
+            from zzaimy.app.access_guard import reg_kwargs
+            hits = find_relevant(db, attachment_text or question, sector=scope.get("sector"), **reg_kwargs(scope))
             self.last_timing["regulation_sec"] = round(_time.time() - _t0, 2)
             _t1 = _time.time()
             blocks = []

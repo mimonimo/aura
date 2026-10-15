@@ -82,9 +82,22 @@ def search_scope(role: str, dept: str | None, user: str | None = None, data_dir:
         scope["levels"] = ("student",)
     elif role != "dev":
         scope.update({"user": user or "", "dept": dept or "공통"})
+        more = [sid[5:] for sid in extra if sid.startswith("dept:") and sid[5:] != (dept or "공통")]
+        if more:                                    # 추가 권한 부서의 규정도 — 사업 문서와 같은 범위(규정 검색은 reg_depts 를 쓴다)
+            scope["reg_depts"] = [dept or "공통", *more]
     scope["grant"] = bool(sp.get("grant"))
     scope["grant_depts"] = sp.get("grant_depts")
     return scope
+
+
+def _reg_args(sc: dict) -> dict:
+    """공간 범위 → 규정 조각 조건(levels·dept). 추가 권한 부서가 있으면 dept 는 부서 목록(reg_depts)."""
+    out = {k: sc[k] for k in ("levels",) if k in sc}
+    if sc.get("reg_depts"):
+        out["dept"] = list(sc["reg_depts"])
+    elif "dept" in sc:
+        out["dept"] = sc["dept"]
+    return out
 
 
 def save_config(cfg: dict, data_dir: str | Path) -> None:
@@ -121,7 +134,7 @@ def stats(db, data_dir: str | Path, accounts: dict) -> list[dict]:
             [(f"dept:{d}", {"role": "staff", "dept": d}) for d in depts]
     for sid, who in cases:
         sc = search_scope(who["role"], who["dept"], None, data_dir)
-        reg = db.list_regulation_chunks(**{k: sc[k] for k in ("levels", "dept") if k in sc})
+        reg = db.list_regulation_chunks(**_reg_args(sc))
         n_grant = n_grant_reg = 0
         where = _grant_where(sc)
         if where is not None:
@@ -267,7 +280,7 @@ def composition(db, sc: dict, limit: int = 8) -> dict:
             merged[label] = merged.get(label, 0) + int(n or 0)
         out["programs"] = [{"name": k, "n": v} for k, v in sorted(merged.items(), key=lambda kv: -kv[1])[:limit]]
         out["kinds"] = [{"name": KINDS.get(str(k or ""), str(k or "") or "갈래 미정"), "n": int(n or 0)} for k, n in kinds[:limit]]
-    reg = db.list_regulation_chunks(**{k: sc[k] for k in ("levels", "dept") if k in sc})
+    reg = db.list_regulation_chunks(**_reg_args(sc))
     per: dict[int, list] = {}
     for r in reg:
         per.setdefault(int(r["doc_id"]), [r.get("reg_title") or "", 0])[1] += 1
@@ -291,7 +304,8 @@ def preview_search(db, sc: dict, question: str, k: int = 5) -> dict:
 
     try:
         from zzaimy.app.regulations import hybrid_candidates
-        for h in hybrid_candidates(db, question, 2, None, sc.get("dept"), user=sc.get("user"), levels=sc.get("levels"))[:k]:
+        ra = _reg_args(sc)
+        for h in hybrid_candidates(db, question, 2, None, ra.get("dept"), user=sc.get("user"), levels=sc.get("levels"))[:k]:
             d = _doc(int(h["doc_id"]))
             out["regulation"].append({"doc_id": int(h["doc_id"]), "title": h.get("reg_title") or title_of(d.get("filename") or ""),
                                       "where": h.get("heading") or "", "head": (h.get("content") or "")[:160]})

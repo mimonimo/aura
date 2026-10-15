@@ -63,7 +63,7 @@ def test_private_document_and_unlinked_denied(setup, monkeypatch):
     monkeypatch.setattr(access_policy, "visible", lambda *a, **kw: False)
     with app.state.db._conn() as conn:
         conn.execute("UPDATE archive_files SET doc_id = 999 WHERE rel = '사업/계획서.pdf'")
-    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 403
+    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 404   # 권한 밖 문서는 없는 것과 같다
 
 
 def test_staff_can_open_only_visible_linked_document(setup, monkeypatch, tmp_path):
@@ -77,7 +77,7 @@ def test_staff_can_open_only_visible_linked_document(setup, monkeypatch, tmp_pat
     file = tmp_path / "authorized-file"
     file.write_bytes(b"test")
     monkeypatch.setattr(archive_original, "fetch", lambda row: file)
-    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 403
+    assert client.get("/archive/original", params={"rel": "사업/계획서.pdf"}).status_code == 404
     assert file.exists()
     with db._conn() as conn:
         conn.execute("UPDATE documents SET access_level = 'public' WHERE id = ?", (doc_id,))

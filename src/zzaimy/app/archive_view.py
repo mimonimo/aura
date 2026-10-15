@@ -71,12 +71,22 @@ def short_path(rel: str) -> str:
 
 
 # ── 권한 ────────────────────────────────────────────────────────────────────
-def _hidden_docs(db, scope: dict | None) -> set[int]:
-    """이 사용자가 열람할 수 없는 문서 번호 — 장부의 경로·이름·집계에서도 뺀다(절대 규칙 4, 문서함과 같은 visible 규칙)."""
+class Hidden(set):
+    """볼 수 없는 문서 번호 + 등록 전 원본을 감출 최상위 폴더(areas) — 부서 RAG 에 짝지은 폴더 가운데 이 계정의 범위 밖인 것."""
+    areas: tuple = ()
+
+
+def _hidden_docs(db, scope: dict | None, data_dir=None) -> set[int]:
+    """이 사용자가 열람할 수 없는 문서 번호 — 장부의 경로·이름·집계에서도 뺀다(절대 규칙 4, 문서함과 같은 visible 규칙).
+    아직 등록되지 않은 원본(doc_id 없음)은 원본 폴더의 부서(rag_spaces.dept_of_area)로 판정한다 — 범위 밖 부서 폴더는 감춘다."""
     if not scope or scope.get("role") == "dev":
         return set()
-    from zzaimy.app.access_policy import visible
-    return {int(d["id"]) for d in db.list_documents() if not visible(d, **scope)}
+    from zzaimy.app import rag_spaces
+    from zzaimy.app.access_policy import DEFAULT_DEPT, visible
+    out = Hidden(int(d["id"]) for d in db.list_documents() if not visible(d, **scope))
+    mine = {scope.get("dept") or "", *(scope.get("also") or ()), DEFAULT_DEPT}
+    out.areas = tuple(sorted(a for a, d in rag_spaces.config(data_dir).get("dept_of_area", {}).items() if d not in mine))
+    return out
 
 
 # ── 마스킹(ADR-0044 내부 마스킹 설정) ─────────────────────────────────────────
@@ -448,6 +458,10 @@ def _base_where(f: dict, hidden: set[int]) -> tuple[str, list]:
         args.append("%" + term.lower().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%")
     if hidden:                               # 볼 수 없는 문서에 이어진 파일은 건수·목록 모두에서 뺀다(정수만 SQL 에 넣는다)
         q += " AND (a.doc_id IS NULL OR a.doc_id NOT IN (" + ",".join(str(int(i)) for i in sorted(hidden)) + "))"
+    areas = getattr(hidden, "areas", ())
+    if areas:                                # 범위 밖 부서 폴더의 등록 전 원본도 이름·건수에서 뺀다
+        q += f" AND NOT (a.doc_id IS NULL AND a.area IN ({','.join('?' * len(areas))}))"
+        args += list(areas)
     return q, args
 
 
@@ -718,8 +732,9 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
                  ext: str = "", state: str = "", sort: str = "name", page: str = "1", partial: str = ""):
     st = request.app.state
     db = st.db
-    scope = {"dept": getattr(request.state, "dept", "") or None, "user": request.state.user, "role": request.state.role}
-    hidden = _hidden_docs(db, scope)
+    from zzaimy.app.access_policy import request_viewer
+    scope = request_viewer(request)
+    hidden = _hidden_docs(db, scope, getattr(st, "data_dir", None))
     f = parse_filters(q, program, year, round, kind, ext, state, sort, page)
     labels = kind_labels()
     rows = facet_rows(db, f, hidden)
@@ -771,12 +786,12 @@ def archive_original(request: Request, rel: str):
     if not row:
         raise HTTPException(404, "원본 목록에서 파일을 찾을 수 없습니다.")
     record = dict(zip(("rel", "size", "mtime", "doc_id"), row))
-    scope = {"dept": getattr(request.state, "dept", "") or None,
-             "user": request.state.user, "role": request.state.role}
+    from zzaimy.app.access_policy import request_viewer
+    scope = request_viewer(request)
     if record["doc_id"]:
         doc = db.get_document(int(record["doc_id"]))
         if not doc or not visible(doc, **scope):
-            raise HTTPException(403, "이 문서를 열람할 권한이 없습니다.")
+            raise HTTPException(404, "원본 목록에서 파일을 찾을 수 없습니다.")     # 권한 밖 문서는 없는 것과 같다
     elif scope["role"] != "dev":
         raise HTTPException(403, "등록되지 않은 원본은 개발자 확인 뒤 열 수 있습니다.")
     try:

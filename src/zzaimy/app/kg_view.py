@@ -336,8 +336,8 @@ def year_page(data: dict, year_id: str, page: int = 1) -> dict:
 @router.get("/graph/program", response_class=HTMLResponse)
 def graph_program(request: Request, id: str = "", year: str = "", page: int = 1):
     st = request.app.state
-    scope = {"dept": getattr(request.state, "dept", "") or None,
-             "user": request.state.user, "role": request.state.role}
+    from zzaimy.app.access_policy import request_viewer
+    scope = request_viewer(request)
     data = program_view(st.db, id or None, scope=scope)
     if year and data.get("program"):
         data["year_view"] = year_page(data, year, page)

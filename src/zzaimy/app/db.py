@@ -1259,8 +1259,10 @@ class Database:
             cond.append("sector IN (?, 'common')")
             params.append(sector)
         if dept:
-            cond.append("dept IN (?, '공통')")
-            params.append(dept)
+            # dept 는 부서 하나 또는 목록(소속 부서 + 계정별 추가 권한 부서)
+            ds = [dept] if isinstance(dept, str) else [x for x in dept if x]
+            cond.append(f"dept IN ({','.join('?' * len(ds))}, '공통')")
+            params.extend(ds)
         if levels and "student" in levels:
             # 학생용 말뭉치 — 학생 공개로 지정된 규정 문서의 공개 조각만(교직원 자료는 후보에도 들지 않는다, ADR-0052)
             cond.append("access_level = 'public' AND doc_id IN (SELECT id FROM documents WHERE audience = 'student'"
