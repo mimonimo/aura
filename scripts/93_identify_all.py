@@ -3,9 +3,10 @@
 
 화면의 '사업 정보 읽기'와 같은 경로(doc_identity.extract — 본문에 있는 값만 남긴다)를
 기본 LLM 연결로 돌린다. 대화 주제·같은 사업 문서 연결·그래프가 이 값을 쓴다.
-이미 사업(program) 값이 있는 문서는 건너뛴다.
+이미 정체 값(doc_identity.FIELDS 가운데 하나라도)이 있는 문서는 건너뛴다. 모델은 검토 연결(review) — 답변 연결은 채팅 몫.
+--uploads 는 문서함에 올린 문서만(DGX 원본의 가벼운 처리 문서는 뺀다).
 
-사용:  PYTHONPATH=src .venv/bin/python scripts/93_identify_all.py [--limit N]
+사용:  PYTHONPATH=src .venv/bin/python scripts/93_identify_all.py [--uploads] [--limit N]
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ sys.path.insert(0, str(ROOT / "src"))
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--uploads", action="store_true", help="문서함에 올린 문서만(dgx:// 원본 제외)")
     args = ap.parse_args()
 
     from zzaimy.app import doc_identity as di
@@ -31,7 +33,7 @@ def main() -> int:
 
     db = Database(ROOT / "data" / "platform" / "platform.db")
     llm_connections.configure(ROOT / "data" / "platform" / "llm_connections.json")
-    client = VllmClient()
+    client = VllmClient(role="review")
     print(f"모델: {client.model}", flush=True)
 
     def call(prompt: str) -> str:
@@ -47,7 +49,9 @@ def main() -> int:
             ident = json.loads(d.get("identity") or "{}")
         except ValueError:
             ident = {}
-        if not ident.get("program"):
+        if args.uploads and str(d.get("stored_path") or "").startswith("dgx://"):
+            continue
+        if not (set(ident) & set(di.FIELDS)):
             todo.append(d)
     if args.limit:
         todo = todo[: args.limit]
