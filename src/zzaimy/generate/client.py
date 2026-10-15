@@ -228,6 +228,16 @@ class VllmClient:
             self.client.chat.completions.create = _create
         except Exception:  # 가짜 클라이언트 등 — 기록만 건너뛴다
             pass
+        # 외부 서버 연결이면 모든 생성 요청이 공통 관문을 거친다 — 개인정보를 토큰으로 바꿔 보내고 답에서 되돌린다(ADR-0044).
+        # 관문을 씌우지 못하면 이 연결을 쓰지 않는다(원문 통과 금지).
+        self.external = bool(cfg.get("external")) and (base_url is None or base_url == cfg.get("base_url"))
+        if self.external:
+            from zzaimy.generate import outbound
+
+            try:
+                outbound.guard_client(self.client)
+            except Exception as e:
+                raise RuntimeError("외부 연결의 개인정보 가림 관문을 준비하지 못해 이 연결을 쓰지 않습니다") from e
         # 문서 이미지 판독은 비전 모델이 따로 있으면 그것으로 (없으면 같은 모델).
         # 글 모델에 이미지를 보내면 거절당하거나 연결이 끊긴다. 그래서 따로 지정된
         # 모델이 있는지를 함께 알려, 호출부가 헛걸음하지 않게 한다.

@@ -291,7 +291,7 @@ def create_app(
             return user
         return None
 
-    _DOC_PATH = re.compile(r"^/(?:doc|chat/peek)/(\d+)(?:/|$)")
+    _DOC_PATH = re.compile(r"^/(?:doc|chat/peek|api/doc)/(\d+)(?:/|$)")   # api/doc: 구글 열람본 만들기(드라이브로 나가는 길)
     # 학생 허용 경로 — 대화(보내기·읽기·다시·지우기)와 문서 읽기(학생 공개 규정만, 열람 판정은 _DOC_PATH 가 한다)
     _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view(?:/status)?|original(?:/status|/download)?|page/\d+\.png))?$|logout$)")
     _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|logout)$")
@@ -1537,6 +1537,9 @@ def create_app(
 
         if not gdrive.list_accounts():
             return False, ""
+        if not _viewer_sees(session_id, doc):
+            # 드라이브로 올리기 전 관문 — 대화 주인이 열람할 수 없는 문서는 어느 길로 골랐든 올리지 않는다
+            return False, "열람 범위 밖 문서라 작업본을 만들 수 없습니다."
         acct_ = accounts.get(owner, {}) if password is not None else {}
         email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)
         if not email or not gdrive_files.has_file_scope(email):
@@ -3951,8 +3954,8 @@ def create_app(
         from zzaimy.ingest import gdrive_files
 
         doc = db.get_document(doc_id)
-        if doc is None:
-            raise HTTPException(404)
+        if doc is None or not _visible(doc, **_doc_scope(request)):
+            raise HTTPException(404)                        # 열람 범위 밖 문서는 드라이브로 올리지 않는다
         owner = getattr(request.state, "user", "zzaimy")
         acct_ = accounts.get(owner, {}) if password is not None else {}
         email = gdrive_files.account_for(db, owner, acct_.get("dept") or None)

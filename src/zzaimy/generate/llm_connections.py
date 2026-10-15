@@ -231,6 +231,13 @@ def _role_entry(data: dict, role: str) -> tuple[str, str]:
     return str(raw), ""
 
 
+def _is_external(conn: dict | None) -> bool:
+    """외부 서버 연결인가 — 저장된 표시와 종류 둘 중 하나라도 외부면 외부로 본다."""
+    if not conn:
+        return False
+    return bool(conn.get("external")) or bool(KINDS.get(conn.get("kind", ""), {}).get("external"))
+
+
 def role_is_set(role: str) -> bool:
     """그 용도에 연결을 명시적으로 정해 뒀는가(기본 연결로 물러나는 경우는 아니다)."""
     return bool(_role_entry(_load(), role)[0])
@@ -247,11 +254,18 @@ def role_conn(role: str) -> dict | None:
     # ZZAIMY_ROLE_CONN="review=<연결 id>,vision=<연결 id>"
     for pair in (os.environ.get("ZZAIMY_ROLE_CONN") or "").split(","):
         r, _, c = pair.partition("=")
-        if r.strip() == role and c.strip() and get(c.strip()):
+        if r.strip() == role and c.strip() and get(c.strip()) and not _is_external(get(c.strip())):
             cid = c.strip()
     conn = get(cid) if cid else None
+    if conn is not None and _is_external(conn):
+        _warn_once(f"role-ext:{role}", "외부 서버가 용도 %s 에 지정돼 있어 무시합니다", role)
+        conn = None
     if conn is None:
         conn = get(data["active"]) if data["active"] else None
+        # 문서 작업 기본 연결이 외부 서버여도(개인정보 검토 확인 뒤 지정) 반입 검토·이미지 판독은 그쪽으로 넘기지 않는다 —
+        # 들이는 문서 전체와 쪽 그림이 지나가는 용도라서다. 교내 경로(환경변수 설정)로 돌린다.
+        if conn is not None and role != "answer" and _is_external(conn):
+            return None
         return _failover(data, conn, "") if conn else conn
     conn = dict(conn, model=model) if model else conn
     return _failover(data, conn, model)

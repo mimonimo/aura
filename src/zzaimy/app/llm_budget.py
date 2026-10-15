@@ -94,6 +94,8 @@ def estimate_messages(messages: list[dict]) -> int:
 def _server_count(client, messages: list[dict]) -> int | None:
     """vLLM /tokenize 로 실제 입력 토큰 수. 안 되는 서버면 연결마다 한 번만 시도하고 None."""
     base = _base(client)
+    if getattr(client, "external", False) is True:
+        return None                    # 외부 연결에는 가리기 전 메시지를 세러 보내지 않는다 — 어림값으로 맞춘다
     if not base.startswith(("http://", "https://")) or _TOKENIZE_OK.get(base) is False:
         return None
     root = base[:-3] if base.endswith("/v1") else base

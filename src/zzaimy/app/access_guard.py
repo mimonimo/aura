@@ -151,6 +151,19 @@ KIND_LABELS = {"pii": "개인정보 요청", "scope": "범위 밖 자료", "inje
 _masker = None
 
 
+def masker_ready() -> bool:
+    """개인정보 검사기를 쓸 수 있는가 — 밖으로 보내기 전 관문이 검사기 없이 통과시키지 않게(외부 검색 질문 검사)."""
+    global _masker
+    try:
+        if _masker is None:
+            from zzaimy.ingest.pii import PiiMasker
+
+            _masker = PiiMasker()
+        return True
+    except Exception:
+        return False
+
+
 WRITING_ENTITIES = ["KR_RRN", "KR_BRN", "KR_BANK_ACCOUNT", "KR_PASSPORT"]
 
 

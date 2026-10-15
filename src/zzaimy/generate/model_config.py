@@ -35,7 +35,7 @@ def current(role: str = "") -> dict:
             "api_key": llm_connections.resolve_key(conn) or "dummy",
             "configured": True,
             "source": "연결: " + conn["name"] + (f" ({conn['failover_from']} 응답 없음 — 넘김)" if conn.get("failover_from") else ""),
-            "kind": conn["kind"], "external": bool(conn.get("external")),
+            "kind": conn["kind"], "external": llm_connections._is_external(conn),
             "connection_id": conn["id"],
         }
     env_url = os.environ.get("VLLM_BASE_URL", "")

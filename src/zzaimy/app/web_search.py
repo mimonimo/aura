@@ -57,13 +57,18 @@ def _safe_url(url: str) -> bool:
 
 
 def screen_question(question: str) -> bool:
-    """질문 글에 개인정보(주민번호·계좌·전화 등)가 있는가 — 접수 문서 마스킹과 같은 검사기(access_guard.scrub)로 본다. 있으면 밖으로 보내지 않는다."""
+    """질문 글에 개인정보(주민번호·계좌·전화 등)가 있는가 — 접수 문서 마스킹과 같은 검사기(access_guard.scrub)로 본다. 있으면 밖으로 보내지 않는다.
+    검사기를 준비하지 못하면 있는 것으로 본다(원문 통과 금지)."""
     try:
-        from zzaimy.app.access_guard import scrub
+        from zzaimy.app import access_guard
 
-        return scrub(question) != question
+        if not access_guard.masker_ready():
+            return True
+        return access_guard.scrub(question) != question
     except Exception:
-        return False
+        return True
+
+
 _RESULT = re.compile(r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', re.S)
 _SNIPPET = re.compile(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', re.S)
 _TAG = re.compile(r"<[^>]+>")
@@ -84,10 +89,12 @@ def _real_url(href: str) -> str:
 
 def provider() -> str:
     """검색 제공자 — 키가 있으면 구글 CSE(ZZAIMY_GOOGLE_CSE_KEY·ZZAIMY_GOOGLE_CSE_CX) 또는 네이버(ZZAIMY_NAVER_CLIENT_ID·SECRET),
-    없으면 덕덕고. ZZAIMY_WEB_SEARCH 로 고정할 수 있다(google|naver|duckduckgo)."""
+    없으면 덕덕고. ZZAIMY_WEB_SEARCH 로 고정할 수 있다(google|naver|duckduckgo). off 면 외부 검색을 쓰지 않는다."""
     import os
 
     forced = (os.environ.get("ZZAIMY_WEB_SEARCH") or "").strip().lower()
+    if forced in ("off", "0", "none"):
+        return "off"
     if forced:
         return forced
     if os.environ.get("ZZAIMY_GOOGLE_CSE_KEY") and os.environ.get("ZZAIMY_GOOGLE_CSE_CX"):
@@ -104,8 +111,10 @@ def search_google(query: str, k: int = 5, http=None) -> list[dict]:
     import httpx
 
     http = http or httpx.Client(timeout=20)
+    # 키는 주소가 아니라 머리글로 — 주소는 요청 기록(httpx 로그·프록시 기록)에 그대로 남는다
     r = http.get("https://www.googleapis.com/customsearch/v1",
-                 params={"key": os.environ["ZZAIMY_GOOGLE_CSE_KEY"], "cx": os.environ["ZZAIMY_GOOGLE_CSE_CX"], "q": query, "num": min(k, 10), "hl": "ko"})
+                 params={"cx": os.environ["ZZAIMY_GOOGLE_CSE_CX"], "q": query, "num": min(k, 10), "hl": "ko"},
+                 headers={"X-goog-api-key": os.environ["ZZAIMY_GOOGLE_CSE_KEY"]})
     if r.status_code != 200:
         raise RuntimeError(f"구글 검색 API 오류 {r.status_code}")
     return [{"title": it.get("title", "")[:120], "url": it.get("link", ""), "snippet": it.get("snippet", "")[:300]}
@@ -132,6 +141,8 @@ def search(query: str, k: int = 5, http=None) -> list[dict]:
     import httpx
 
     which = provider()
+    if which == "off":
+        raise Blocked("외부 검색이 관리자 설정으로 꺼져 있습니다.")
     if which == "google":
         return search_google(query, k, http)
     if which == "naver":
@@ -199,6 +210,8 @@ _PROMPT = """당신은 대학 행정 담당자를 돕는 에이전트다. 아래
 def answer_with_web(question: str, client=None, k: int = 4, http=None, max_tokens: int = 1500) -> dict:
     """웹 검색 → 상위 쪽 글 → 27B 답. 돌려주는 것: {answer, sources:[{n,title,url}], searched: n}.
     질문에 개인정보가 있으면 Blocked — 보내지 않는다. 질문 글은 기록에 남기지 않는다."""
+    if provider() == "off":
+        raise Blocked("외부 검색이 관리자 설정으로 꺼져 있습니다. 외부 검색을 끄고 물어 주세요.")
     if screen_question(question):
         raise Blocked("질문에 개인정보(주민번호·계좌·전화 같은 것)가 있어 외부로 보내지 않았습니다. 그 부분을 빼고 다시 물어 주세요.")
     results = search(question, k=k, http=http)

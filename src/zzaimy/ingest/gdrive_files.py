@@ -307,9 +307,19 @@ def share_anyone(email: str, file_id: str, http=None) -> str:
     return r.json()["id"]
 
 
-def unshare(email: str, file_id: str, permission_id: str, http=None) -> None:
+def unshare(email: str, file_id: str, permission_id: str, http=None) -> bool:
+    """잠깐 연 공개 권한을 닫는다. 한 번 더 시도하고도 못 닫으면 경고를 남긴다 — 파일이 '링크가 있는 누구나'로 남는다."""
     http = http or httpx.Client(timeout=60)
-    http.delete(f"{gdrive.API}/files/{file_id}/permissions/{permission_id}", headers=_headers(email, http))
+    for _ in range(2):
+        try:
+            r = http.delete(f"{gdrive.API}/files/{file_id}/permissions/{permission_id}", headers=_headers(email, http))
+            if getattr(r, "status_code", 204) in (200, 204, 404):
+                return True
+        except Exception:
+            pass
+    import logging
+    logging.getLogger(__name__).warning("드라이브 파일 %s 의 공개 권한을 닫지 못했습니다 — 드라이브에서 공유를 확인해 주세요", file_id)
+    return False
 
 
 def bytes_for_view(db, doc: dict) -> tuple[bytes, str, str, str]:
