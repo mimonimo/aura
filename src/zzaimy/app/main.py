@@ -279,6 +279,13 @@ def create_app(
         ).hexdigest()
         return f"{base}.{sig}"
 
+    _LOCAL_PATH = re.compile(r"/(?![/\\])[^\s\\]*")
+
+    def _local_back(back: str, default: str = "/") -> str:
+        """되돌아갈 주소 — 이 서비스 안의 경로만(「//」「/\\」 처럼 브라우저가 다른 사이트로 읽는 꼴·공백·역슬래시 금지)."""
+        back = (back or "").strip()
+        return back if _LOCAL_PATH.fullmatch(back) else default
+
     VIEW_AS_ROLES = ("student", "staff", "professor", "head")      # 개발자 「테스트 보기」로 고를 수 있는 역할 — 권한을 좁히기만 한다
 
     def _view_as(user: str) -> dict | None:
@@ -3620,7 +3627,7 @@ def create_app(
             rag_spaces.move_docs(db, [doc_id], d)
         if access_level in LEVELS:
             db.set_document_scope(doc_id, access_level=access_level)
-        dest = back if back.startswith("/") and not back.startswith("//") else f"/doc/{doc_id}"
+        dest = _local_back(back, f"/doc/{doc_id}")
         return RedirectResponse(dest, status_code=303)
 
     @app.post("/doc/{doc_id}/audience")
@@ -3634,7 +3641,7 @@ def create_app(
         if audience not in ("staff", "student") or (audience == "student" and doc.get("doc_type") != "regulation"):
             raise HTTPException(400, "학생 공개는 규정 문서만 할 수 있습니다")
         db.set_document_audience(doc_id, audience)
-        dest = back if back.startswith("/") and not back.startswith("//") else f"/doc/{doc_id}"
+        dest = _local_back(back, f"/doc/{doc_id}")
         return RedirectResponse(dest, status_code=303)
 
     @app.post("/doc/{doc_id}/route")
@@ -5526,7 +5533,7 @@ def create_app(
         if password is None:
             raise HTTPException(400, "인증 없는 로컬 모드에서는 계정이 없습니다")
         uid = getattr(request.state, "user", "")
-        dest = back if back.startswith("/") and not back.startswith("//") else "/"
+        dest = _local_back(back)
         # 「/settings#password」처럼 조각(#)이 붙은 자리면 결과 글(?ok=/err=)은 조각 앞에 — 뒤에 붙으면 배너가 안 보인다
         path, _, frag = dest.partition("#")
         sep = "&" if "?" in path else "?"
@@ -7479,7 +7486,7 @@ def create_app(
         if dept and dept not in _all_depts():
             raise HTTPException(400, "없는 부서입니다")
         db.set_setting(f"view_as:{request.state.user}", _aj.dumps({"role": role, "dept": "" if role == "student" else dept}))
-        dest = back if back.startswith("/") and not back.startswith("//") and not back.startswith("/dev") else "/"
+        dest = _local_back(back) if not _local_back(back).startswith("/dev") else "/"
         return RedirectResponse("/chat" if role == "student" else dest, status_code=303)
 
     @app.post("/view-as/clear")
@@ -7488,7 +7495,7 @@ def create_app(
         if getattr(request.state, "real_role", request.state.role) != "dev":
             raise HTTPException(403, "개발자 계정 전용입니다")
         db.set_setting(f"view_as:{request.state.user}", "")
-        dest = back if back.startswith("/") and not back.startswith("//") else "/"
+        dest = _local_back(back)
         return RedirectResponse(dest, status_code=303)
 
     templates.env.globals["view_as_roles"] = {r: _ROLES.get(r, r) for r in VIEW_AS_ROLES}

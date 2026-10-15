@@ -272,3 +272,13 @@ def test_dev_view_as_narrows_to_chosen_account(world):
     dev.post("/view-as/clear", data={"back": "/"})
     assert _client(app, "plan").post("/view-as", data={"role": "student"}).status_code == 403
     assert dev.post("/view-as", data={"role": "dev"}).status_code == 400
+
+
+def test_view_as_back_is_local_only(world):
+    """되돌아갈 주소는 서비스 안 경로만 — 「/\\evil.com」 처럼 브라우저가 다른 사이트로 읽는 꼴은 기본 화면으로."""
+    app = world["app"] if isinstance(world, dict) and "app" in world else world[0]
+    dev = _client(app, "zzdev")
+    for bad in ("//evil.com", "/\\evil.com", "https://evil.com", "/\\\\evil.com"):
+        r = dev.post("/view-as/clear", data={"back": bad}, follow_redirects=False)
+        assert r.headers["location"] == "/", bad
+    assert dev.post("/view-as/clear", data={"back": "/chat"}, follow_redirects=False).headers["location"] == "/chat"
