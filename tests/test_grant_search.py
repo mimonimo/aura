@@ -228,3 +228,31 @@ def test_lexical_top_hits_survive_fusion(monkeypatch):
     keep = [c for c in lex[:gs.LEX_KEEP] if c not in merged[:k]]
     merged = merged[:k] + keep + [c for c in merged[k:] if c not in keep]
     assert 999 in merged[:k + gs.LEX_KEEP]
+
+
+def test_section_axis_respects_access(tmp_path, monkeypatch):
+    """그래프 절 축으로 앞에 두는 조각도 열람 권한을 거친다 — 남의 비공개 문서의 같은 제목 절이 근거로 나오지 않게."""
+    from types import SimpleNamespace
+    from zzaimy.app import grant_search as gs
+    from zzaimy.graph import kg_store
+    from zzaimy.graph import retrieve as gr
+    monkeypatch.setattr(gs, "INDEX", tmp_path / "none.npz")
+    db = Database(tmp_path / "t.db")
+    kg_store.ensure(db)
+    pub = db.add_document("공개 계획서.hwp", "x", doc_type="grant")
+    sec = db.add_document("비공개 계획서.hwp", "x", doc_type="grant")
+    for d, body in ((pub, "공개 행사 내용"), (sec, "비공개 행사 내용 비밀")):
+        db.replace_doc_chunks(d, [{"seq": 0, "kind": "text", "content": "표지"}, {"seq": 1, "kind": "text", "content": "1. 행사 개요 " + body}])
+        db.update_document(d, status="reviewed")
+    with db._conn() as c:
+        c.execute("UPDATE documents SET access_level='owner', owner='other' WHERE id=?", (sec,))
+        for d in (pub, sec):
+            kg_store.put_node(c, f"doc:{d}:sec:1", "section", "1. 행사 개요", {"chunks": [1]}, d)
+    monkeypatch.setattr(gr, "scope", lambda db_, q, reader=None: SimpleNamespace(
+        steps=[], docs={pub, sec}, program_docs={pub, sec}, path_of={}, cover=[], partners={}))
+    monkeypatch.setattr(gs, "dense_ids", lambda *x, **kw: [])
+    from zzaimy.app import grant_lex                                    # 운영과 같은 색인 경로로(색인이 찼다고 둔다)
+    monkeypatch.setattr(grant_lex, "coverage", lambda db_: (10, 10))
+    monkeypatch.setattr(grant_lex, "rank", lambda *a, **kw: [])
+    got = gs.search(db, "계획서의 「행사 개요」 내용", k=5, user="zzaimy")
+    assert sec not in {h["doc_id"] for h in got["hits"]} and pub in {h["doc_id"] for h in got["hits"]}

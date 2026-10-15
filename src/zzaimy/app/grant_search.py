@@ -491,7 +491,7 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
             sc = gr.scope(db, question, reader=reader)
             steps += sc.steps
             scope_docs, program_docs, path_of, cover, partners = sc.docs, sc.program_docs, sc.path_of, sc.cover, sc.partners
-            doc_names = list(sc.doc_names)
+            doc_names = list(getattr(sc, "doc_names", []) or [])
         except Exception as e:
             log.warning("그래프 좁히기 실패: %s", e)
     if prefer_docs:
@@ -523,6 +523,10 @@ def search(db, question: str, k: int = 6, user: str | None = None, prefer_docs: 
         if keep:
             merged = merged[:k] + keep + [c for c in merged[k:] if c not in keep]
         sec = section_hits(db, question, scope_docs, limit=SECTION_POOL, skip=doc_names)
+        if sec:
+            # 그래프 절 노드는 열람 권한을 모른다 — 어휘·임베딩 축과 같은 조건(열람 권한·부서 범위·범위 밖 갈래)으로 거른다
+            ok = permitted(db, sec, user, depts)
+            sec = [c for c in sec if c in ok]
         if len(sec) > SECTION_FIRST:
             # 같은 제목의 절이 많으면(단위과제·협약반마다 같은 서식) 어느 것을 앞에 둘지를 DB 순서가 아니라 이미 섞은 순위로 —
             # 어휘·임베딩이 질문과 가깝다고 본 조각이 든 문서의 절부터. 순위에 문서가 없는 절은 그 뒤에 원래 순서대로
