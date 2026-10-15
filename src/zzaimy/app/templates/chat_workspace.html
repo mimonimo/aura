@@ -180,7 +180,7 @@
   {% set value_form_open = (not waiting) and messages and messages[-1].role == 'assistant' and (suggestions or []) | selectattr('text', 'equalto', '필요한 값 입력') | list | length > 0 %}
   {% for m in messages %}
     <div class="turn {{ m.role }}" data-message-id="{{ m.id }}">
-      <div class="chat-speaker">{{ '나' if m.role == 'user' else 'AURA' }}{% if m.role == 'user' and m.mode %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': '문서 작업', 'model': '기본 대화', 'web': '웹 검색'}.get(m.mode, '') }}</span>{% endif %}</div>
+      <div class="chat-speaker">{{ '나' if m.role == 'user' else 'AURA' }}{% if m.role == 'user' and m.mode and not is_student %}<span class="chat-message-mode"><span class="sr-only">, </span>{{ {'document': '문서 작업', 'model': '기본 대화', 'web': '웹 검색'}.get(m.mode, '') }}</span>{% endif %}</div>
       {% if m.role == "assistant" and ("생성에 실패했습니다" in m.content) and ("Error" in m.content) %}
       <div class="msg assistant">AI 모델 서버가 연결되지 않아 답변을 만들지 못했습니다.</div>
       {% else %}
