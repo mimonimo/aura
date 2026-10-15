@@ -86,14 +86,14 @@ def test_rag_page_sections(tmp_path):
     r = c.get("/dev/rag")
     assert r.status_code == 200
     for text in ("RAG 목록", "공통 RAG", "기준 문서(문서·조각)", "검색 범위 시험", "계정별 추가 권한", "더해 찾는 부서",
-                 "규정·기준 문서", "dept:가부서", "학생 공개 규정만", "관리자, 전부"):
+                 "규정·지침", "dept:가부서", "학생 공개 규정만", "관리자, 전부"):
         assert text in r.text, text
     # 학생 공간이 비면 그 줄에 안내와 지정 링크
     assert "학생 공개 규정 없음 — 학생 계정은 찾을 문서가 없습니다" in r.text and 'href="#student-regs"' in r.text
     # 범위가 정해진 계정(학생·관리자)은 표에 줄을 두지 않고 한 줄 안내로
     assert '<tr data-find="u-stu' not in r.text and "더할 것이 없어 표에서 뺐습니다" in r.text
     # 순서: 검색 공간 → 규정·기준 문서 → 계정별 추가 권한 → 검색 범위 시험(접힘)
-    assert r.text.index("규정·기준 문서</h2>") < r.text.index("계정별 추가 권한</h2>") < r.text.index("<summary>검색 범위 시험")
+    assert r.text.index("규정·지침</h2>") < r.text.index("계정별 추가 권한</h2>") < r.text.index("<summary>검색 범위 시험")
     # 계정마다 한 줄 + 「설정」 창 — 부서는 열이 아니라 창의 체크 목록(부서가 늘어도 표가 넓어지지 않음)
     assert 'data-grant-edit="u-ga"' in r.text and "나부서 더하기" not in r.text
     assert 'data-grant-edit="u-stu"' not in r.text                     # 학생 줄은 없다
@@ -215,7 +215,7 @@ def test_student_audience_set_and_unset_from_rag_page(tmp_path, monkeypatch):
     c = _client(tmp_path)
     db, ga, na, reg_s, reg_t = _search_fixture(tmp_path, monkeypatch)
     page = c.get("/dev/rag").text
-    assert 'id="rrReg"' in page and 'data-rr="student"' in page        # 목록은 /dev/rag/regs 에서 불러와 골라 바꾼다
+    assert 'id="rrList"' in page and 'data-rr="student"' in page        # 목록은 /dev/rag/regs 에서 불러와 골라 바꾼다
     regs = {d["id"]: d for d in c.get("/dev/rag/regs").json()["registered"]}
     assert reg_t in regs and ga not in regs
     assert c.post("/dev/rag/regs/audience", json={"ids": [reg_t, ga], "audience": "student"}).json()["changed"] == 1

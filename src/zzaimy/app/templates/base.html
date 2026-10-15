@@ -69,11 +69,15 @@
                 border-radius: 9px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
 
     .side-bottom { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
-  .view-as-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; margin: 6px 0;
-                  border: 1px dashed var(--line); border-radius: 8px; font-size: 12px; }
-  .view-as-form .view-as-label { color: var(--muted); width: 100%; }
-  .view-as-form select { font-size: 12px; padding: 3px 6px; max-width: 100%; }
-  .view-as-form button { font-size: 12px; padding: 3px 10px; }
+  .side-viewas { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; font: inherit;
+                 color: inherit; padding: 8px 12px; border-radius: 8px; cursor: pointer; text-align: left; }
+  .side-viewas:hover { background: var(--panel); }
+  .view-as-dialog { border: 1px solid var(--line); border-radius: 14px; padding: 22px 24px; width: min(360px, 92vw); }
+  .view-as-dialog h2 { margin: 0 0 6px; font-size: 16px; }
+  .view-as-dialog p { margin: 0 0 14px; font-size: 12.5px; }
+  .view-as-dialog label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
+  .view-as-dialog select { font-size: 13.5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
+  .view-as-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 6px; }
   .view-as-bar { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 7px 14px;
                  background: #fff4d6; border-bottom: 1px solid #f0d58a; font-size: 13px; }
   .view-as-bar button { font-size: 12.5px; padding: 3px 12px; border-radius: 6px; border: 1px solid #c9a227; background: #fff; cursor: pointer; }
@@ -576,14 +580,19 @@ document.addEventListener('submit', function(event) {
        style="opacity:.7; font-size:12.5px;">
       <iconify-icon icon="solar:code-square-linear"></iconify-icon>{{ dev_page_name('/dev') }} ({{ role_labels.get('dev') }})</a>
     {% endif %}
-    {% if request.state.real_role is defined and request.state.real_role == 'dev' and not request.state.view_as %}{# 개발자만 — 다른 계정 범위로 시험 #}
-    <form method="post" action="/view-as" class="view-as-form" aria-label="테스트 보기">
-      <input type="hidden" name="back" value="{{ request.url.path }}">
-      <span class="view-as-label">테스트 보기</span>
-      <select name="role" aria-label="역할">{% for k, v in view_as_roles.items() %}<option value="{{ k }}"{% if k == 'staff' %} selected{% endif %}>{{ v }}</option>{% endfor %}</select>
-      <select name="dept" aria-label="부서"><option value="">부서 없음(공통)</option>{% for d in view_as_depts() %}{% if d and d != '공통' %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}</select>
-      <button type="submit" class="secondary">적용</button>
-    </form>
+    {% if request.state.real_role is defined and request.state.real_role == 'dev' and not request.state.view_as %}{# 개발자만 — 다른 계정 범위로 시험(한 줄 + 작은 창) #}
+    <button type="button" class="side-viewas" onclick="document.getElementById('viewAsDialog').showModal()"
+            style="opacity:.7; font-size:12.5px;"><iconify-icon icon="solar:user-id-linear"></iconify-icon>테스트 보기</button>
+    <dialog id="viewAsDialog" class="view-as-dialog" aria-labelledby="viewAsTitle">
+      <form method="post" action="/view-as">
+        <h2 id="viewAsTitle">테스트 보기</h2>
+        <p class="muted">고른 계정이 보는 화면·검색·답변 범위로 바꿉니다. 맨 위 띠의 「원래대로」로 돌아옵니다.</p>
+        <input type="hidden" name="back" value="{{ request.url.path }}">
+        <label>역할<select name="role">{% for k, v in view_as_roles.items() %}<option value="{{ k }}"{% if k == 'staff' %} selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+        <label>부서<select name="dept"><option value="">부서 없음(공통)</option>{% for d in view_as_depts() %}{% if d and d != '공통' %}<option value="{{ d }}">{{ d }}</option>{% endif %}{% endfor %}</select></label>
+        <footer><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit">적용</button></footer>
+      </form>
+    </dialog>
     {% endif %}
     {% endif %}
     {% if llm_status is defined %}

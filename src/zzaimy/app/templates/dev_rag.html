@@ -53,7 +53,15 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 .rr-pane-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:13.5px}
 .rr-find{width:100%;box-sizing:border-box;height:34px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;margin-bottom:8px}
 .rr-list{height:340px;overflow:auto;border:1px solid #EEF1F5;border-radius:8px}
-.rr-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F3F7;font-size:12.5px;cursor:pointer}
+.rr-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F3F7;font-size:12.5px}
+.rr-row .a{display:flex;gap:6px}.rr-row .mini{font-size:11.5px;padding:3px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer;white-space:nowrap}
+.rr-row .mini:hover{background:#F2F5FA}
+.rr-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px;border-bottom:1px solid var(--line)}
+.rr-tab{border:0;background:none;padding:8px 12px;font:inherit;font-size:13.5px;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer}
+.rr-tab.on{color:var(--ink);font-weight:600;border-bottom-color:#1B3B75}.rr-tab span{color:var(--muted);font-weight:400;margin-left:2px}
+.rr-filter{margin-left:auto;display:flex;gap:4px}.rr-chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer}
+.rr-chip.on{background:#1B3B75;border-color:#1B3B75;color:#fff}
+.rr-one{max-height:420px}.rr-hint{margin:4px 0 8px}
 .rr-row:hover{background:#F7F9FC}.rr-row.on{background:#EEF3FB}
 .rr-row input{width:16px;height:16px;margin:0;accent-color:#1B3B75}
 .rr-row .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rr-row .t a{color:inherit;text-decoration:none}.rr-row .t a:hover{text-decoration:underline}
@@ -118,31 +126,26 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">
-  {# 규정·기준 문서 — 왼쪽은 등록된 기준 문서(학생 공개·해제), 오른쪽은 반입 자료의 규정 후보(골라 등록). 목록을 다 펼치지 않고 찾아 고른다 #}
-  <div class="rr-head"><h2>규정·기준 문서</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>
-  <p class="rg-note" style="margin-top:0;">기준 문서는 규정 검색(조문 단위)으로 찾고 학생 공개를 정할 수 있습니다. 반입 자료의 규정·지침은 처음엔 사업 문서로 들어오므로, 아래 후보에서 선택해 기준 문서로 올립니다(같은 규정의 옛 판은 사업 문서로 남습니다). 새 파일은 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」으로 올립니다.</p>
-  <div class="rr-reindex" id="rrReindex" hidden><span>새로 올린 기준 문서는 임베딩을 다시 만들어야 뜻 검색에 듭니다(낱말 검색은 바로 됩니다).</span>
+  {# 규정·지침 — 한 목록에 두 탭: 검색에 쓰는 규정(학생 공개/교직원만·빼기), 추가할 수 있는 규정(반입 자료 속 규정). 줄마다 단추, 여럿은 체크 뒤 아래 줄 #}
+  <div class="rr-head"><h2>규정·지침</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>
+  <p class="rg-note" style="margin-top:0;">답변이 조항 단위로 찾는 학교 규정·지침입니다. 학생에게 보일 규정은 「학생 공개」로 둡니다. 새 파일은 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」으로 올립니다.</p>
+  <div class="rr-reindex" id="rrReindex" hidden><span>새로 추가한 규정은 뜻 검색에 들도록 임베딩을 다시 만들어야 합니다(낱말 검색은 바로 됩니다).</span>
     <form method="post" action="/dev/reindex" style="margin:0;"><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">임베딩 다시 만들기</button></form></div>
-  <div class="rr-grid">
-    <div class="rr-pane">
-      <div class="rr-pane-h"><b>등록된 기준 문서</b><span class="rg-sub" id="rrRegCount"></span></div>
-      <input type="search" class="rr-find" id="rrRegFind" placeholder="이름으로 거르기" aria-label="등록된 기준 문서 거르기">
-      <div class="rr-list" id="rrReg" aria-live="polite"></div>
-      <div class="rr-bar"><label class="rr-all"><input type="checkbox" id="rrRegAll"> 보이는 것 모두</label>
-        <span class="rr-picked" id="rrRegPicked"></span>
-        <button type="button" class="btn" data-rr="student" disabled>학생 공개</button>
-        <button type="button" class="btn" data-rr="staff" disabled>교직원만</button>
-        <button type="button" class="btn" data-rr="unregister" disabled>등록 해제</button></div>
-    </div>
-    <div class="rr-pane">
-      <div class="rr-pane-h"><b>반입 자료의 규정 후보</b><span class="rg-sub" id="rrCandCount"></span></div>
-      <input type="search" class="rr-find" id="rrCandFind" placeholder="규정 이름 찾기 — 예: 현장실습, 연구비" aria-label="규정 후보 찾기">
-      <div class="rr-list" id="rrCand" aria-live="polite"></div>
-      <div class="rr-bar"><label class="rr-all"><input type="checkbox" id="rrCandAll"> 보이는 것 모두</label>
-        <span class="rr-picked" id="rrCandPicked"></span>
-        <button type="button" class="btn primary" data-rr="register" disabled>기준 문서로 등록</button></div>
-    </div>
+  <div class="rr-tabs" role="tablist">
+    <button type="button" role="tab" class="rr-tab on" data-tab="reg" aria-selected="true">검색에 쓰는 규정 <span id="rrRegCount"></span></button>
+    <button type="button" role="tab" class="rr-tab" data-tab="cand" aria-selected="false">추가할 수 있는 규정 <span id="rrCandCount"></span></button>
+    <span class="rr-filter" id="rrFilter">
+      <button type="button" class="rr-chip on" data-aud="">전체</button><button type="button" class="rr-chip" data-aud="student">학생 공개</button><button type="button" class="rr-chip" data-aud="staff">교직원만</button></span>
   </div>
+  <input type="search" class="rr-find" id="rrFind" placeholder="규정 이름으로 찾기 — 예: 학칙, 현장실습, 연구비" aria-label="규정 찾기">
+  <p class="rg-sub rr-hint" id="rrHint"></p>
+  <div class="rr-list rr-one" id="rrList" aria-live="polite"></div>
+  <div class="rr-bar"><label class="rr-all"><input type="checkbox" id="rrAll"> 보이는 것 모두</label>
+    <span class="rr-picked" id="rrPicked"></span>
+    <span data-for="reg"><button type="button" class="btn" data-rr="student" disabled>학생 공개</button>
+      <button type="button" class="btn" data-rr="staff" disabled>교직원만</button>
+      <button type="button" class="btn" data-rr="unregister" disabled>검색에서 빼기</button></span>
+    <span data-for="cand" hidden><button type="button" class="btn primary" data-rr="register" disabled>검색에 추가</button></span></div>
   <p class="rr-status" role="status" id="rrStatus"></p>
 </div></section>
 
@@ -341,69 +344,87 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const state = {reg: [], cand: [], pickReg: new Set(), pickCand: new Set()};
+  const state = {tab: 'reg', aud: '', reg: [], cand: [], candTotal: 0, pick: {reg: new Set(), cand: new Set()}};
   const esc = t => String(t || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const KIND = {regulation: '규정', guideline: '지침'};
-  function row(item, picked, meta) {
-    return `<label class="rr-row${picked ? ' on' : ''}" data-id="${item.id}"><input type="checkbox"${picked ? ' checked' : ''} aria-label="${esc(item.title || item.filename)} 선택">`
-      + `<span class="t" title="${esc(item.title || item.filename)}"><a href="/doc/${item.id}" target="_blank" rel="noopener">${esc(item.title || item.filename)}</a></span><span class="m">${meta}</span></label>`;
+  const flat = t => String(t || '').replace(/\s+/g, '').toLowerCase();
+  function visibleRows() {
+    const f = flat($('rrFind').value);
+    if (state.tab === 'cand') return state.cand;
+    return state.reg.filter(d => (!f || flat(d.filename).includes(f)) && (!state.aud || (d.audience || 'staff') === state.aud));
+  }
+  function row(d) {
+    const picked = state.pick[state.tab].has(d.id), name = esc(d.title || d.filename);
+    let meta, acts;
+    if (state.tab === 'reg') {
+      const stu = d.audience === 'student';
+      meta = `${d.chunks}조각 <span class="rr-tag${stu ? ' stu' : ''}">${stu ? '학생 공개' : '교직원만'}</span>`;
+      acts = `<button type="button" class="mini" data-one="${stu ? 'staff' : 'student'}" data-id="${d.id}">${stu ? '교직원만으로' : '학생 공개로'}</button>`
+           + `<button type="button" class="mini" data-one="unregister" data-id="${d.id}">빼기</button>`;
+    } else {
+      meta = `<span class="rr-tag">${KIND[d.kind] || '제목'}</span>${d.versions > 1 ? ' 판 ' + d.versions : ''}`;
+      acts = `<button type="button" class="mini" data-one="register" data-id="${d.id}">검색에 추가</button>`;
+    }
+    return `<div class="rr-row${picked ? ' on' : ''}" data-id="${d.id}"><input type="checkbox"${picked ? ' checked' : ''} aria-label="${name} 선택">`
+      + `<span class="t" title="${name}"><a href="/doc/${d.id}" target="_blank" rel="noopener">${name}</a></span><span class="m">${meta}</span><span class="a">${acts}</span></div>`;
   }
   function paint() {
-    const f = ($('rrRegFind').value || '').replace(/\s+/g, '').toLowerCase();
-    const regs = state.reg.filter(d => !f || (d.filename || '').replace(/\s+/g, '').toLowerCase().includes(f));
-    $('rrReg').innerHTML = regs.map(d => row(d, state.pickReg.has(d.id), `${d.chunks}조각 <span class="rr-tag${d.audience === 'student' ? ' stu' : ''}">${d.audience === 'student' ? '학생 공개' : '교직원만'}</span>`)).join('')
-      || '<p class="rr-empty">등록된 기준 문서가 없습니다.</p>';
-    $('rrCand').innerHTML = state.cand.map(d => row(d, state.pickCand.has(d.id), `<span class="rr-tag">${KIND[d.kind] || '제목'}</span>${d.versions > 1 ? ' 판 ' + d.versions : ''}`)).join('')
-      || '<p class="rr-empty">맞는 후보가 없습니다.</p>';
+    const rows = visibleRows(), pick = state.pick[state.tab];
+    document.querySelectorAll('.rr-tab').forEach(t => { const on = t.dataset.tab === state.tab; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
+    $('rrFilter').hidden = state.tab !== 'reg';
+    document.querySelectorAll('.rr-chip').forEach(c => c.classList.toggle('on', c.dataset.aud === state.aud));
+    document.querySelectorAll('[data-for]').forEach(x => { x.hidden = x.dataset.for !== state.tab; });
+    $('rrHint').textContent = state.tab === 'reg'
+      ? '답변이 지금 찾는 규정입니다. 줄의 단추로 학생 공개 여부를 바꾸거나 검색에서 뺍니다.'
+      : '반입한 자료 속에 들어 있어 아직 일반 문서로만 쓰이는 규정입니다. 「검색에 추가」 하면 조항 단위로 찾게 됩니다(같은 규정의 옛 판은 일반 문서로 남습니다).';
+    $('rrList').innerHTML = rows.map(row).join('') || `<p class="rr-empty">${state.tab === 'reg' ? '맞는 규정이 없습니다.' : '맞는 후보가 없습니다.'}</p>`;
     const stu = state.reg.filter(d => d.audience === 'student').length;
-    $('rrSummary').textContent = `규정 색인 문서 ${state.reg.length}건 · 규정 색인 조각 ${state.reg.reduce((a, d) => a + (d.chunks || 0), 0).toLocaleString()} · 학생 공개 ${stu}건`;
-    $('rrRegCount').textContent = regs.length !== state.reg.length ? `${regs.length} / ${state.reg.length}건` : `${state.reg.length}건`;
-    $('rrCandCount').textContent = `${state.candTotal.toLocaleString()}건(판 묶음마다 최신 판)` + (state.cand.length < state.candTotal ? ` · 앞 ${state.cand.length}건 표시` : '');
-    $('rrRegPicked').textContent = state.pickReg.size ? `선택한 ${state.pickReg.size}건` : '';
-    $('rrCandPicked').textContent = state.pickCand.size ? `선택한 ${state.pickCand.size}건` : '';
-    document.querySelectorAll('[data-rr=student],[data-rr=staff],[data-rr=unregister]').forEach(b => { b.disabled = !state.pickReg.size; });
-    document.querySelector('[data-rr=register]').disabled = !state.pickCand.size;
-    $('rrRegAll').checked = regs.length > 0 && regs.every(d => state.pickReg.has(d.id));
-    $('rrCandAll').checked = state.cand.length > 0 && state.cand.every(d => state.pickCand.has(d.id));
+    $('rrSummary').textContent = `검색에 쓰는 규정 ${state.reg.length}건 · 학생 공개 ${stu}건 · 조각 ${state.reg.reduce((a, d) => a + (d.chunks || 0), 0).toLocaleString()}`;
+    $('rrRegCount').textContent = state.reg.length;
+    $('rrCandCount').textContent = state.candTotal.toLocaleString();
+    $('rrPicked').textContent = pick.size ? `선택한 ${pick.size}건` : '';
+    document.querySelectorAll('[data-rr]').forEach(b => { b.disabled = !pick.size; });
+    $('rrAll').checked = rows.length > 0 && rows.every(d => pick.has(d.id));
   }
   let timer = 0;
-  async function load(q) {
-    const r = await fetch('/dev/rag/regs?' + new URLSearchParams({q: q || ''}), {cache: 'no-store'});
+  async function load() {
+    const q = state.tab === 'cand' ? $('rrFind').value : '';
+    const r = await fetch('/dev/rag/regs?' + new URLSearchParams({q}), {cache: 'no-store'});
     const d = await r.json();
     state.reg = d.registered; state.cand = d.items; state.candTotal = d.total;
     $('rrReindex').hidden = !d.reindex_needed;
     $('rrReindexBtn').disabled = d.reindex_running; $('rrReindexBtn').textContent = d.reindex_running ? '임베딩 만드는 중…' : '임베딩 다시 만들기';
     paint();
   }
-  $('rrCandFind').addEventListener('input', e => { clearTimeout(timer); timer = setTimeout(() => load(e.target.value), 250); });
-  $('rrRegFind').addEventListener('input', paint);
-  function toggle(listId, set) {
-    $(listId).addEventListener('change', e => {
-      const r = e.target.closest('.rr-row'); if (!r) return;
-      const id = Number(r.dataset.id); e.target.checked ? set.add(id) : set.delete(id); paint();
-    });
-  }
-  toggle('rrReg', state.pickReg); toggle('rrCand', state.pickCand);
-  $('rrRegAll').addEventListener('change', e => { const f = ($('rrRegFind').value || '').replace(/\s+/g, '').toLowerCase();
-    state.reg.filter(d => !f || (d.filename || '').replace(/\s+/g, '').toLowerCase().includes(f)).forEach(d => e.target.checked ? state.pickReg.add(d.id) : state.pickReg.delete(d.id)); paint(); });
-  $('rrCandAll').addEventListener('change', e => { state.cand.forEach(d => e.target.checked ? state.pickCand.add(d.id) : state.pickCand.delete(d.id)); paint(); });
+  document.querySelectorAll('.rr-tab').forEach(t => t.addEventListener('click', () => { state.tab = t.dataset.tab; load(); }));
+  document.querySelectorAll('.rr-chip').forEach(c => c.addEventListener('click', () => { state.aud = c.dataset.aud; paint(); }));
+  $('rrFind').addEventListener('input', () => { if (state.tab === 'reg') paint(); else { clearTimeout(timer); timer = setTimeout(load, 250); } });
+  $('rrList').addEventListener('change', e => {
+    const r = e.target.closest('.rr-row'); if (!r || e.target.type !== 'checkbox') return;
+    const id = Number(r.dataset.id), pick = state.pick[state.tab]; e.target.checked ? pick.add(id) : pick.delete(id); paint();
+  });
+  $('rrAll').addEventListener('change', e => { visibleRows().forEach(d => e.target.checked ? state.pick[state.tab].add(d.id) : state.pick[state.tab].delete(d.id)); paint(); });
   async function post(url, body) {
     const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     if (!r.ok) throw new Error('요청 실패 ' + r.status);
     return r.json();
   }
-  document.querySelectorAll('[data-rr]').forEach(b => b.addEventListener('click', async () => {
-    const act = b.dataset.rr, ids = [...(act === 'register' ? state.pickCand : state.pickReg)];
-    if (!ids.length) return;
-    b.disabled = true; $('rrStatus').textContent = '처리 중…';
+  async function act(kind, ids) {
+    $('rrStatus').textContent = '처리 중…';
     try {
-      if (act === 'register') { const d = await post('/dev/rag/regs/register', {ids}); $('rrStatus').textContent = `${d.registered}건을 기준 문서로 올렸습니다 · 조각 ${d.chunks.toLocaleString()}개` + (d.skipped ? ` · 본문이 없어 건너뜀 ${d.skipped}건` : ''); state.pickCand.clear(); }
-      else if (act === 'unregister') { const d = await post('/dev/rag/regs/unregister', {ids}); $('rrStatus').textContent = `${d.unregistered}건을 사업 문서로 되돌렸습니다` + (d.kept ? ` · 처음부터 기준 문서였던 ${d.kept}건은 그대로` : ''); state.pickReg.clear(); }
-      else { const d = await post('/dev/rag/regs/audience', {ids, audience: act}); $('rrStatus').textContent = `${d.changed}건을 ${act === 'student' ? '학생 공개로' : '교직원만으로'} 바꿨습니다`; state.pickReg.clear(); }
-      await load($('rrCandFind').value);
-    } catch (err) { $('rrStatus').textContent = err.message; b.disabled = false; }
+      if (kind === 'register') { const d = await post('/dev/rag/regs/register', {ids}); $('rrStatus').textContent = `${d.registered}건을 검색에 추가했습니다 · 조각 ${d.chunks.toLocaleString()}개` + (d.skipped ? ` · 본문이 없어 건너뜀 ${d.skipped}건` : ''); }
+      else if (kind === 'unregister') { const d = await post('/dev/rag/regs/unregister', {ids}); $('rrStatus').textContent = `${d.unregistered}건을 검색에서 뺐습니다(일반 문서로 남음)` + (d.kept ? ` · 처음부터 기준으로 올린 ${d.kept}건은 그대로` : ''); }
+      else { const d = await post('/dev/rag/regs/audience', {ids, audience: kind}); $('rrStatus').textContent = `${d.changed}건을 ${kind === 'student' ? '학생 공개로' : '교직원만으로'} 바꿨습니다`; }
+      ids.forEach(id => state.pick.reg.delete(id) || state.pick.cand.delete(id));
+      await load();
+    } catch (err) { $('rrStatus').textContent = err.message; }
+  }
+  $('rrList').addEventListener('click', e => { const b = e.target.closest('[data-one]'); if (!b) return; b.disabled = true; act(b.dataset.one, [Number(b.dataset.id)]); });
+  document.querySelectorAll('[data-rr]').forEach(b => b.addEventListener('click', () => {
+    const ids = [...state.pick[b.dataset.rr === 'register' ? 'cand' : 'reg']];
+    if (ids.length) { b.disabled = true; act(b.dataset.rr, ids); }
   }));
-  load('');
+  load();
 })();
 </script>
 {% endblock %}
