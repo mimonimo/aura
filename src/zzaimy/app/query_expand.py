@@ -5,7 +5,8 @@
 12건 중 6건). 서빙 장비의 작은 모델로 규정에 나올 법한 용어를 몇 개 뽑아 원 질의 뒤에 붙인다.
 모델이 지어낸 낱말은 검색어일 뿐 답변 근거가 아니므로 절대규칙 1과 부딪히지 않는다.
 
-켜는 법: ZZAIMY_QUERY_EXPAND=<OpenAI 호환 주소>|<모델>. 기본은 꺼져 있다. 평가: scripts/90 --expand.
+켜는 법: ZZAIMY_QUERY_EXPAND=answer — 답변 연결(용도 answer)의 모델을 그대로 쓴다(모델을 바꾸면 따라 바뀐다, 권장).
+<OpenAI 호환 주소>|<모델> 로 따로 정할 수도 있다(그 모델에 묶인다). 기본은 꺼져 있다. 평가: scripts/90 --expand.
 """
 from __future__ import annotations
 
@@ -18,8 +19,14 @@ PROMPT = (
 )
 
 
-def configured() -> tuple[str, str] | None:
+ROLE_FORMS = ("answer", "role:answer")
+
+
+def configured() -> tuple[str, str] | str | None:
+    """("주소", "모델") · "answer"(답변 연결을 따름) · None(꺼짐)."""
     raw = os.environ.get("ZZAIMY_QUERY_EXPAND", "").strip()
+    if raw.lower() in ROLE_FORMS:
+        return "answer"
     if "|" not in raw:
         return None
     url, model = raw.split("|", 1)
@@ -40,9 +47,10 @@ def expand(query: str, base_url: str | None = None, model: str | None = None) ->
         # 생성 호출은 VllmClient 를 거친다 — 생각 끄기 인자(Ollama·vLLM·연결 설정)는 거기서 정한다.
         # 후보 모델 점검(ZZAIMY_LLM_TRY_*) 중이면 확장도 후보 모델로 돈다(scripts/195)
         trial = bool(os.environ.get("ZZAIMY_LLM_TRY_CONN") or os.environ.get("ZZAIMY_LLM_TRY_MODEL"))
-        key = ("trial",) if trial else conf
+        by_role = trial or conf == "answer"
+        key = ("answer",) if by_role else conf
         if key not in _clients:
-            _clients[key] = (_cl.VllmClient(role="answer", timeout=20, max_retries=0) if trial
+            _clients[key] = (_cl.VllmClient(role="answer", timeout=20, max_retries=0) if by_role
                              else _cl.VllmClient(base_url=conf[0], model=conf[1], timeout=20, max_retries=0))
         c = _clients[key]
         r = c.client.chat.completions.create(

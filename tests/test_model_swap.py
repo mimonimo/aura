@@ -383,3 +383,30 @@ def test_save_baseline_overwrites(s195, tmp_path):
     assert not saved and b["metrics"]["a"]["x"] == 1
     b, saved = s195.ensure_baseline(p, {"metrics": {"a": {"x": 2}}}, force=True)
     assert saved and json.loads(p.read_text())["metrics"]["a"]["x"] == 2
+
+
+def test_query_expand_follows_answer_connection(monkeypatch):
+    """ZZAIMY_QUERY_EXPAND=answer 면 답변 연결(용도 answer)을 따른다 — 모델을 바꾸면 확장도 따라 바뀐다. 주소|모델 꼴은 그대로."""
+    from zzaimy.app import query_expand as qe
+    from zzaimy.generate import client as cl
+    made = []
+
+    class Fake:
+        def __init__(self, **kw):
+            made.append(kw)
+            self.model, self._extra = "m", {}
+            msg = type("M", (), {"content": "임용권자, 결재"})()
+            self.client = type("C", (), {"chat": type("H", (), {"completions": type("P", (), {
+                "create": staticmethod(lambda **k: type("R", (), {"choices": [type("Ch", (), {"message": msg})()]})())})()})()})()
+
+    monkeypatch.setattr(cl, "VllmClient", Fake)
+    qe._clients.clear()
+    monkeypatch.setenv("ZZAIMY_QUERY_EXPAND", "answer")
+    assert qe.configured() == "answer"
+    assert qe.expand("계약직 결재는 누가?").endswith("임용권자 결재") and made[-1].get("role") == "answer"
+    qe._clients.clear()
+    monkeypatch.setenv("ZZAIMY_QUERY_EXPAND", "http://x/v1|small")
+    qe.expand("질문")
+    assert made[-1].get("model") == "small" and "role" not in made[-1]
+    monkeypatch.setenv("ZZAIMY_QUERY_EXPAND", "")
+    assert qe.configured() is None and qe.expand("질문") == "질문"

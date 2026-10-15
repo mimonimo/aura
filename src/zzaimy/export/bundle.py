@@ -18,6 +18,16 @@ from pathlib import Path
 from zzaimy.dataset.privacy import approved_bytes
 
 
+def _writer_model() -> str:
+    """반출 당시 답변 연결의 모델 — 서버가 알려 주는 정보(어댑터·바탕 포함). 못 읽으면 「모름」."""
+    try:
+        from zzaimy.generate import model_info
+        from zzaimy.generate.client import VllmClient
+        return model_info.label(model_info.stamp(VllmClient(role="answer", timeout=5, max_retries=0)))
+    except Exception:
+        return "모름"
+
+
 def _git_commit() -> str:
     try:
         import subprocess
@@ -193,7 +203,7 @@ def build_bundle(db, sft_dir: Path | str = "data/interim/sft",
         "base_models": {
             "embedding": MODEL_NAME,
             "reranker": "BAAI/bge-reranker-v2-m3",
-            "writer_base": "Qwen/Qwen3.8-27B",
+            "writer_base": _writer_model(),
         },
         "portability": "개방 표준만(JSONL·npz·safetensors·JSON). ADR-0012.",
         "sensitivity": "기준 문서는 원문, 인풋 유래는 마스킹본만.",
