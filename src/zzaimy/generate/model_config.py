@@ -26,9 +26,11 @@ def current(role: str = "") -> dict:
     """지금 쓸 서버·모델. role 을 주면 그 용도로 지정한 것(없으면 문서 작업 기본)을 쓴다."""
     from zzaimy.generate import llm_connections
 
-    conn = llm_connections.role_conn(role) if role else llm_connections.active()
+    conn = llm_connections.trial_conn(role)          # 후보 모델 점검(그 프로세스에서만) — 없으면 None
+    if conn is None:
+        conn = llm_connections.role_conn(role) if role else llm_connections.active()
     if conn:  # 등록된 기본 연결이 최우선 — 내부 vLLM 이든 외부 API 든 같은 경로로 쓴다
-        return {
+        return {**_options(conn),
             "base_url": conn["base_url"],
             "model": conn.get("model", ""),
             "vision_model": conn.get("vision_model", ""),
@@ -40,7 +42,7 @@ def current(role: str = "") -> dict:
         }
     env_url = os.environ.get("VLLM_BASE_URL", "")
     base_url = _override.get("base_url") or env_url or DEFAULT_BASE_URL
-    return {
+    return {**_options({}),
         "base_url": base_url,
         "model": _override.get("model") or os.environ.get("VLLM_MODEL", ""),
         "api_key": os.environ.get("VLLM_API_KEY", "dummy"),
@@ -48,6 +50,46 @@ def current(role: str = "") -> dict:
         "source": "설정" if _override.get("base_url") else ("환경변수" if env_url else "기본값"),
         "kind": "vllm", "external": False, "connection_id": "",
     }
+
+
+def _json_opt(raw):
+    """연결 설정 값 또는 환경변수 글(JSON) → dict. 「none」·「{}」 는 「보내지 않음」(빈 dict), 없거나 못 읽으면 None(자동)."""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, dict):
+        return dict(raw)
+    t = str(raw).strip()
+    if t.lower() in ("none", "off", "{}"):
+        return {}
+    try:
+        import json
+
+        v = json.loads(t)
+    except ValueError:
+        return None
+    return v if isinstance(v, dict) else None
+
+
+def _options(conn: dict) -> dict:
+    """모델 계열마다 다른 요청 규약 — 연결 설정이 있으면 그것, 없으면 환경변수, 둘 다 없으면 자동(None·「auto」).
+
+    no_think    생각 끄기 추가 인자(extra_body). 자동이면 vLLM 은 chat_template_kwargs.enable_thinking=false, Ollama 는 reasoning_effort=none
+    think       생각 켜기 추가 인자(ZZAIMY_ANSWER_THINK=1 일 때 답 쓰기에만). 자동이면 no_think 가 자동일 때만 chat_template_kwargs 식
+    structured  구조화 출력(response_format json_schema)을 쓰나 — auto(쓰고, 서버가 거절하면 JSON 지시+파싱으로 물러남)·
+                json_schema(물러나지 않음)·prompt(처음부터 JSON 지시+파싱)
+    context     서버가 문맥 한도(max_model_len)를 알려 주지 않을 때 쓸 값(0 이면 ZZAIMY_WRITER_CONTEXT)
+    """
+    env = os.environ
+    no_think = _json_opt(conn.get("no_think")) if "no_think" in conn else _json_opt(env.get("ZZAIMY_LLM_NO_THINK"))
+    think = _json_opt(conn.get("think")) if "think" in conn else _json_opt(env.get("ZZAIMY_LLM_THINK"))
+    structured = str(conn.get("structured") or env.get("ZZAIMY_LLM_STRUCTURED") or "auto").strip().lower()
+    if structured not in ("auto", "json_schema", "prompt"):
+        structured = "auto"
+    try:
+        context = int(conn.get("context") or 0)
+    except (TypeError, ValueError):
+        context = 0
+    return {"no_think": no_think, "think": think, "structured": structured, "context": context}
 
 
 _status_cache: dict = {"at": 0.0, "key": "", "result": None}

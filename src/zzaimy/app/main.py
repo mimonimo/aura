@@ -39,6 +39,7 @@ from zzaimy.app import storage
 from zzaimy.app import korean_text as _ko
 from zzaimy.app.chat_history import display_title as _chat_title
 from zzaimy.app.db import Database
+from zzaimy.generate import model_info as _model_info
 
 ALLOWED_EXTENSIONS = {
     ".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
@@ -1260,7 +1261,8 @@ def create_app(
             dec = form_choice.decide(fc_client, q, cands)
             chosen = next(c for c in cands if c["id"] == dec["choice"])
             form_choice.record(data_dir, {"session": session_id, "request": q[:1500], "candidates": [
-                {"id": c["id"], "label": c["label"], "note": c["note"]} for c in cands], **dec})
+                {"id": c["id"], "label": c["label"], "note": c["note"]} for c in cands], **dec,
+                **({"llm": _model_info.stamp(fc_client)} if dec.get("by") == "model" else {})})
             if chosen["kind"] == "form":
                 made, why = _link_existing_document(session_id, chosen["doc"], owner, project)
                 if made:
@@ -2313,6 +2315,7 @@ def create_app(
 
         ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label), on_json=on_json)
         doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps,
+                                    "llm": _model_info.stamp(client),
                                     "answer_timing": answer_timing, "graph_read": os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1"})
         if not ep.finished and resolved_now:
             left_ = [x["name"] for x in _asks.pending(db, session_id) if x["name"] not in resolved_now]
@@ -2451,6 +2454,7 @@ def create_app(
                                           search_library=mats.search_library)
             m["gathered"] = context_plan.render(cp_, found_) + ("\n\n" + _agent_notes[session_id] if _agent_notes.get(session_id) else "")
             context_plan.record(data_dir, {"session": session_id, "doc": link["doc"], "section": sec["heading"], "request": request[:800],
+                                           "llm": _model_info.stamp(client),
                                            "plan": cp_, "found": [{**{k_: v_ for k_, v_ in n_.items() if k_ != "hits"},
                                                                    "hits": [{"title": h_["title"], "doc_id": h_.get("doc_id"), "chunk_id": h_.get("chunk_id")}
                                                                             for h_ in n_["hits"]]} for n_ in found_]})

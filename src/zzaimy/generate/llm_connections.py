@@ -271,6 +271,57 @@ def role_conn(role: str) -> dict | None:
     return _failover(data, conn, model)
 
 
+# 후보 모델 점검 — 운영 용도 지정(roles)은 그대로 두고, 그 프로세스에서만 생성 용도를 후보 연결·모델로 돌린다(scripts/195).
+# ZZAIMY_LLM_TRY_CONN=<연결 id>  ZZAIMY_LLM_TRY_MODEL=<서빙 이름>  — 둘 중 하나만 줘도 된다(모델만 주면 지금 연결에서 그 이름으로).
+# 문서 이미지 판독(vision)은 바꾸지 않는다. 외부 서버 연결은 후보로도 쓰지 않는다(절대 규칙 3).
+TRIAL_ROLES = ("", "answer", "review")
+
+
+def trial_conn(role: str = "") -> dict | None:
+    cid = (os.environ.get("ZZAIMY_LLM_TRY_CONN") or "").strip()
+    model = (os.environ.get("ZZAIMY_LLM_TRY_MODEL") or "").strip()
+    if (not cid and not model) or role not in TRIAL_ROLES:
+        return None
+    if cid:
+        conn = get(cid)
+        if conn is None or _is_external(conn):
+            _warn_once(f"try:{cid}", "후보 연결 %s 이 없거나 외부 서버라 쓰지 않습니다", cid)
+            return None
+    else:
+        conn = role_conn(role) if role else active()
+        if conn is None or _is_external(conn):
+            return None
+    return dict(conn, model=model) if model else dict(conn)
+
+
+OPTION_KEYS = ("no_think", "think", "structured", "context")
+
+
+def set_options(cid: str, **opts) -> dict:
+    """연결의 모델 계열 설정(model_config._options 설명). 값이 None 이면 그 설정을 지워 자동으로 돌린다.
+
+    no_think·think 는 dict(보낼 추가 인자) 또는 {}(보내지 않음), structured 는 auto·json_schema·prompt, context 는 정수."""
+    data = _load()
+    conn = get(cid)
+    if conn is None:
+        raise ValueError("없는 연결입니다")
+    for k, v in opts.items():
+        if k not in OPTION_KEYS:
+            raise ValueError(f"모르는 설정입니다: {k}")
+        if v is None:
+            conn.pop(k, None)
+        elif k in ("no_think", "think") and not isinstance(v, dict):
+            raise ValueError(f"{k} 는 추가 인자 dict 여야 합니다")
+        elif k == "structured" and v not in ("auto", "json_schema", "prompt"):
+            raise ValueError("structured 는 auto·json_schema·prompt 가운데 하나입니다")
+        elif k == "context" and (not isinstance(v, int) or v < 0):
+            raise ValueError("context 는 0 이상의 정수입니다")
+        else:
+            conn[k] = v
+    _save(data)
+    return conn
+
+
 # 장애 넘김 — 역할에 정한 서버가 연결을 받지 않으면(점검·재기동·컨테이너 정지) 같은 모델을 내어 주는 다른 교내 서버로.
 # 서빙 장비 하나의 컨테이너가 멈춰도 다른 장비가 같은 Writer 를 내어 주고 있으면 대화·답변이 끊기지 않게 한다.
 # 외부 연결로는 넘기지 않는다(절대 규칙 3). 확인 결과는 잠시 기억해 요청마다 묻지 않는다. 끄기: ZZAIMY_LLM_FAILOVER=0

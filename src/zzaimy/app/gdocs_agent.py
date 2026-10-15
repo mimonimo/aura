@@ -19,6 +19,7 @@ from pathlib import Path
 
 from zzaimy.app import korean_text as _ko
 from zzaimy.ingest import gdocs
+from zzaimy.generate import model_info as _model_info
 
 PLAN_SCHEMA = {
     "type": "object",
@@ -114,7 +115,7 @@ _PROMPT = """당신은 대학 행정 문서를 함께 쓰는 에이전트다. �
 """
 
 
-CONTEXT_TOKENS = int(os.environ.get("ZZAIMY_WRITER_CONTEXT", "16384"))   # 상한 — 실제 한도는 서버의 max_model_len 과 작은 쪽
+CONTEXT_TOKENS = int(os.environ.get("ZZAIMY_WRITER_CONTEXT", "16384"))   # 서버가 한도를 알려 주지 않을 때만 — 알려 주면 그 값(모델을 바꾸면 따라간다)
 _MIN_OUTPUT = 3000
 
 
@@ -130,7 +131,7 @@ def _context_of(client) -> int | None:
     try:
         from zzaimy.app import llm_budget
 
-        return llm_budget.context_len(client)
+        return llm_budget.served_context_len(client)
     except Exception:
         return None
 
@@ -140,7 +141,7 @@ def _fit_context(prompt: str, max_tokens: int, materials: str, text: str, contex
 
     토큰 수는 문자 기반 추정이며 실제 토크나이저 계측을 대체하지 않는다. context 는 서빙 모델의 문맥 한도(없으면 CONTEXT_TOKENS).
     """
-    limit = min(CONTEXT_TOKENS, context or CONTEXT_TOKENS) - 256
+    limit = (context or CONTEXT_TOKENS) - 256
     over = _est_tokens(prompt) + max_tokens - limit
     if over <= 0:
         return prompt, max_tokens
@@ -197,8 +198,8 @@ def plan(client, command: str, info: dict, evidence: list[dict] | None = None, m
                             evidence=ev, command=command.strip())
     # 절 하나를 통째로 쓰면 JSON 이 2048 토큰을 넘어 잘린다. 절 작성(focus)은 넉넉히 주고, 잘리면 한 번 더 짧게 쓰라고 청한다.
     max_tokens = 8192 if focus is not None else 2048
-    # 입력+출력이 서빙 모델의 문맥 한도(16,384) 안에 들어가야 한다. 넘으면 vLLM 이 400 으로 거절한다.
-    # 한글은 대략 1.5자에 토큰 하나로 어림한다.
+    # 입력+출력이 서빙 모델의 문맥 한도(서버의 max_model_len, 지금 운영 16,384) 안에 들어가야 한다. 넘으면 vLLM 이 400 으로 거절한다.
+    # 토큰은 글자 갈래별 비율로 넉넉히 어림한다(llm_budget).
     prompt, max_tokens = _fit_context(prompt, max_tokens, rendered_materials, visible_text, _context_of(client))
     data = None
     for attempt in range(2):
@@ -570,7 +571,7 @@ def run(db, session_id: int, owner: str, command: str, link: dict, *, client, da
         _episode(data_dir, {"session": session_id, "user": owner, "doc": gdocs.doc_id(link["doc"]), "section": focus.get("heading"),
                             "command": command, "materials": materials, "reply": p["reply"],
                             "draft": [{"op": o.get("op"), "text": o.get("text"), **({"table": o.get("table"), "cells": o.get("cells")} if o.get("op") == "fill" else {})} for o in p["ops"]],
-                            "references": references or [], "score": score})
+                            "references": references or [], "score": score, "llm": _model_info.stamp(client)})
     if focus is not None:
         # 못 채운 까닭 — 원인 갈래로 남기고(fill_gaps.jsonl) 담당자에게 무엇이 있으면 이어 쓰는지 한 줄로
         from zzaimy.app import fill_gaps

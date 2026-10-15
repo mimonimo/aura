@@ -37,12 +37,16 @@ def expand(query: str, base_url: str | None = None, model: str | None = None) ->
     try:
         from zzaimy.generate import client as _cl
 
-        if conf not in _clients:
-            _clients[conf] = _cl.OpenAI(base_url=conf[0], api_key="none", timeout=20, max_retries=0)
-        extra = ({"reasoning_effort": "none"} if _cl.is_ollama(conf[0])
-                 else {"chat_template_kwargs": {"enable_thinking": False}})
-        r = _clients[conf].chat.completions.create(
-            model=conf[1], temperature=0.0, max_tokens=60, extra_body=extra,
+        # 생성 호출은 VllmClient 를 거친다 — 생각 끄기 인자(Ollama·vLLM·연결 설정)는 거기서 정한다.
+        # 후보 모델 점검(ZZAIMY_LLM_TRY_*) 중이면 확장도 후보 모델로 돈다(scripts/195)
+        trial = bool(os.environ.get("ZZAIMY_LLM_TRY_CONN") or os.environ.get("ZZAIMY_LLM_TRY_MODEL"))
+        key = ("trial",) if trial else conf
+        if key not in _clients:
+            _clients[key] = (_cl.VllmClient(role="answer", timeout=20, max_retries=0) if trial
+                             else _cl.VllmClient(base_url=conf[0], model=conf[1], timeout=20, max_retries=0))
+        c = _clients[key]
+        r = c.client.chat.completions.create(
+            model=c.model, temperature=0.0, max_tokens=60, extra_body=c._extra,
             messages=[{"role": "user", "content": PROMPT.format(q=query[:500])}])
         terms = [t.strip(" .·\"'") for t in re.split(r"[,，\n]", r.choices[0].message.content or "")]
         terms = [t for t in terms if 1 < len(t) <= 20][:6]

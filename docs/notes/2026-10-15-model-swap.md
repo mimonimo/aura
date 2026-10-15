@@ -1,0 +1,145 @@
+# 생성 모델 교체 절차와 모델에 묶인 가정 (2026-10-15)
+
+실제 도입 때 생성 모델을 더 큰 모델이나 27B 를 파인튜닝한 판으로 바꾸는 일이 「설정 변경 → 점검 한 번 → 수치 비교」로
+끝나게 하는 것이 목표다. 서빙은 계속 토르의 vLLM 이 맡고, 새 모델은 같은 장비에 다른 포트나 vLLM LoRA 어댑터(다른 서빙 이름)로
+함께 띄워 시험한 뒤 용도 지정만 옮긴다. 임베딩·리랭커는 이미 교체 장치가 있다(색인 모델 이름 대조와 재색인, ZZAIMY_RERANK_MODEL).
+이 문서는 생성 모델만 다룬다.
+
+## 1. 교체 절차
+
+### 1.1 후보 띄우기
+
+- 새 이름으로 띄운다. 다른 포트에 새 vLLM 을 띄우거나, 같은 vLLM 에 LoRA 어댑터를 다른 서빙 이름으로 올린다.
+- 같은 서빙 이름을 덮어쓰지 않는다. 까닭은 둘이다.
+  - 되돌리기: 옛 판이 그대로 떠 있으면 되돌리기는 용도 지정을 원래 연결·이름으로 돌리는 것으로 끝난다. 덮어쓰면 옛 가중치를
+    다시 올리고 재기동해야 한다.
+  - 기록 구분: 결과 기록에는 서빙 이름과 서버가 알려 주는 실제 모델 정보를 함께 남기지만, 서빙 이름이 다르면 화면과 기록 어디서나
+    한눈에 갈린다. 덮어쓰면 재기동 전후 기록이 같은 이름으로 섞인다.
+- 다른 포트로 띄웠으면 개발 화면의 LLM 연결에 교내 연결로 등록한다(연결 등록). 같은 연결의 어댑터면 등록할 것이 없다.
+
+### 1.2 후보로 점검
+
+운영 용도 지정은 바꾸지 않고 점검 스크립트에만 후보를 알려 준다.
+
+```
+scripts/zz_run.sh 16G env PYTHONPATH=src .venv/bin/python scripts/195_model_swap_check.py \
+    --candidate-conn <연결 id> --candidate-model <서빙 이름>
+```
+
+- 어댑터면 `--candidate-model <어댑터 서빙 이름>` 만 준다(지금 연결에서 그 이름으로).
+- 스크립트는 같은 실행에서 운영과 후보를 차례로 돌린다(같은 데이터 상태에서 견주게). 운영을 건너뛰려면 `--no-current`.
+- 후보는 하위 실행의 환경변수(ZZAIMY_LLM_TRY_CONN·ZZAIMY_LLM_TRY_MODEL)로만 들어간다. 그 프로세스에서 답·반입 검토·기본 연결이
+  후보로 돌고, 문서 이미지 판독은 그대로다. 외부 서버 연결은 후보로도 쓰지 않는다. 설정 파일은 바뀌지 않는다.
+- 스크립트가 `.env.local` 을 읽는다(없으면 경고 — 임베딩·재순위가 CPU 대체로 돌아 수치가 운영과 다르다).
+
+점검 단계(각각 `--skip search,answer,kind` 로 끌 수 있다):
+
+| 단계 | 하는 일 | 보는 수치 |
+|---|---|---|
+| search | scripts/173 검색 실측 두 번(`--reader`, `--reader --named`) | 정답 문서@k·같은 판 문서@k·같은 사업@k·시간·오류 |
+| answer | scripts/188 운영 경로(graph_read) 답 표본(절 6·관계 4, 시험지 앞 10문씩) | 오류·빈 답·근거 밖 수치·정답 사실 재현율·시간 |
+| kind | scripts/190 갈래 판정 표본을 review 용도 연결로(묶음마다 25건) | 규칙 갈래와 같은 비율·규칙이 비운 문서를 채운 비율·실패·시간 |
+
+`--quick` 은 검색 한 번·답 3문·갈래 6건이다. 배선과 속도 확인용이고 수치 비교에는 기본 실행을 쓴다.
+
+결과는 `data/eval/model_swap_<tag>.json` 과 표(기준·운영·후보를 나란히, 기준 대비 나아짐·나빠짐)로 나온다. 표 머리에 답 모델·판정
+모델·연결 이름이 붙는다. 서버 주소는 결과에 남기지 않는다.
+
+### 1.3 기준과 비교
+
+- 기준은 `data/eval/model_baseline.json` 이다. 없으면 첫 실행의 운영 결과가 기준으로 저장된다. 운영 모델을 바꾼 뒤에는
+  `--save-baseline` 으로 다시 돌려 새 기준을 남긴다. 후보 결과는 기준으로 저장하지 않는다.
+- 기준과 이번 실행의 규모(`--quick` 여부)가 다르면 경고를 낸다.
+- 채택은 수치로 한다. 검색(모델 읽기)·답의 근거 밖 수치·정답 사실 재현율이 나빠지지 않고 시간이 받아들일 만하면 다음 단계로 간다.
+  답 품질 채점이 필요하면 scripts/188 의 눈가림 묶음(graphrag_blind_*)을 따로 채점해 `--judge` 로 붙인다.
+
+### 1.4 용도 바꾸기
+
+개발 화면의 LLM 연결에서 용도(answer·review)를 후보 연결·서빙 이름으로 옮긴다. 코드 배포나 재기동은 필요 없다(설정 파일이
+바뀌면 돌고 있던 프로세스도 다음 호출부터 새 지정을 따른다). 옮긴 뒤 `--save-baseline` 으로 한 번 더 돌려 기준을 바꾼다.
+
+### 1.5 갈래 재판정 여부
+
+갈래 판정 줄(`kind27b-0.jsonl`)마다 판정한 모델 정보(llm)가 남는다. 다시 볼지는 점검의 kind 단계 수치로 정한다.
+
+- 규칙 갈래와 같은 비율이 비슷하고 실패가 늘지 않았으면 다시 보지 않는다. 새 문서부터 새 모델이 판정한다.
+- 나아졌거나 판정이 크게 달라졌으면 DGX 에서 `scripts/191_kind_read_all.py --redo-model` 로 다른 모델(또는 모델 정보가 없는
+  예전 줄)이 내린 판정을 앞에서부터 다시 본다. `--max-sec` 로 나눠 돈다. 지금 모델의 판 정보(digest·바탕 가중치)를 서버에서 읽지
+  못하면 이 설정은 건너뛴다(모든 줄을 다시 보는 일을 막는다).
+- DGX 가 아닌 연결로 판정하려면 `--role review`(VM 의 review 용도 연결, `.env.local` 과 함께).
+
+### 1.6 되돌리기
+
+용도 지정을 원래 연결·서빙 이름으로 돌린다. 옛 판을 내리지 않았으므로 그것으로 끝난다. 되돌린 뒤의 기록은 다시 옛 모델 정보로
+남으므로 문제 기간의 결과는 기록의 llm 으로 골라낼 수 있다.
+
+## 2. 결과 기록에 남기는 모델 정보
+
+모델이 만든 결과에는 llm 필드에 모델 정보를 남긴다(`generate/model_info.py`).
+
+- 서빙 이름만으로는 그 뒤의 가중치를 바꿔 올려도 같게 보인다. 그래서 서버가 알려 주는 실제 정보를 함께 남긴다.
+  vLLM 은 /v1/models 의 root(가중치 위치의 마지막 이름만), LoRA 어댑터면 어댑터 이름(adapter)과 바탕 모델(parent·base),
+  max_model_len. Ollama 는 /api/tags 의 digest 앞 12자. 서버에서 못 읽으면 서빙 이름만 남는다.
+- 서버 주소(IP·URL)와 가중치의 전체 경로는 남기지 않는다. 외부 연결에는 정보를 묻지 않는다(서빙 이름만).
+- 연결·모델마다 한 번 읽어 한 시간 기억한다(못 읽었으면 5분 뒤 다시). 호출마다 묻지 않는다.
+- 모델 정보가 없는 예전 기록은 「모름」으로 읽힌다. 두 기록이 같은 모델인지 볼 때 한쪽이라도 모르면 다르다고 본다.
+
+남기는 곳: 갈래 판정 줄(scripts/191)·표본(scripts/190), 문서 에이전트 걸음 기록(doc_agent_episodes), 절 작성 기록
+(drafting_episodes), 찾을 것 계획 기록(context_plan_episodes), 양식 고르기 기록(모델이 골랐을 때, form_choice_episodes),
+질문 읽기 결과(question_read.Reading.llm → 검색 범위 Scope.read_llm), 교체 점검 결과(model_swap_*.json).
+
+## 3. 연결 설정(모델 계열마다 다른 요청 규약)
+
+연결마다 아래 값을 둘 수 있다. 두지 않으면 자동이고, 자동은 지금 운영 동작과 같다.
+
+| 설정 | 뜻 | 자동(지금 동작) |
+|---|---|---|
+| no_think | 생각 끄기 추가 인자(extra_body). `{}` 이면 보내지 않음 | 교내 서버: `chat_template_kwargs.enable_thinking=false`, Ollama 로 판별되면 `reasoning_effort=none`, 외부 연결: 보내지 않음 |
+| think | 생각 켜기 추가 인자(ZZAIMY_ANSWER_THINK=1 일 때 답 쓰기에만) | no_think 가 자동일 때만 `chat_template_kwargs.enable_thinking=true` |
+| structured | 구조화 출력 | auto: json_schema 를 보내고, 서버가 400·422 로 거절하면 JSON 지시 + 파싱으로 물러나 그 뒤로는 처음부터 지시로. json_schema: 물러나지 않음. prompt: 처음부터 지시 |
+| context | 서버가 문맥 한도를 알려 주지 않을 때 쓸 값 | ZZAIMY_WRITER_CONTEXT(기본 16384) |
+
+설정은 VM 에서 저장소 루트로 한 줄로 바꾼다(값을 None 으로 주면 지워 자동으로 돌아간다).
+
+```
+PYTHONPATH=src .venv/bin/python -c 'from zzaimy.generate import llm_connections as L; L.set_options("<연결 id>", structured="prompt")'
+```
+
+연결이 없는 경로(환경변수 VLLM_BASE_URL)는 ZZAIMY_LLM_NO_THINK·ZZAIMY_LLM_THINK(JSON 또는 none)·ZZAIMY_LLM_STRUCTURED 로 같은
+값을 준다.
+
+## 4. 모델에 묶인 가정 목록과 판단
+
+판단은 셋 가운데 하나다. 바꿈(설정·서버에서 읽게 바꿈), 그대로(그대로 둬도 됨), 결정 필요.
+
+| 가정 | 위치 | 판단 | 근거·바꾼 내용 |
+|---|---|---|---|
+| 문맥 한도 16384 | app/llm_budget.py | 그대로(이미 서버 우선) | /v1/models 의 max_model_len 을 연결·모델마다 읽고, 못 읽으면 기본값. 이번에 연결 설정 context 를 기본값 앞에 둠 |
+| 문맥 한도 상한 16384 | app/gdocs_agent.py CONTEXT_TOKENS | 바꿈 | 서버 값과 작은 쪽을 쓰던 것을 서버 값 우선으로. 더 큰 모델로 바꾸면 절 작성도 따라간다. 서버가 알려 주지 않을 때만 ZZAIMY_WRITER_CONTEXT |
+| 생각 끄기 인자(Qwen 전용 chat_template_kwargs) | generate/client.py 래퍼, 호출부의 client._extra | 바꿈 | 연결 설정 no_think 로. 자동은 지금과 같다 |
+| 생각 켜기 인자 | app/responder.py answer_gen_options | 바꿈 | 연결 설정 think 로. 지금 판단 기준(인자 이름 확인)은 설정이 없는 꼴에서만 쓴다 |
+| 생각 끄기를 직접 만들던 호출 | app/query_expand.py, app/llm_rerank.py | 바꿈 | 날 OpenAI 클라이언트 대신 VllmClient 를 거친다(생각 끄기·사용량 기록이 한 곳). 질의 확장은 후보 점검 중이면 후보 모델로 돈다 |
+| with_options 사본이 래퍼를 건너뜀 | graph/question_read.py 등 | 바꿈 | 사본의 생성 호출도 같은 래퍼(생각 끄기·구조화 출력 물러남·사용량 기록)를 거친다. 외부 가림 관문은 원래부터 사본에도 걸렸다 |
+| response_format json_schema 의존 | gdocs_agent.plan, question_read, client.extract_schema, scripts/190 | 바꿈 | 거절하는 서버면 JSON 지시 + 파싱으로 물러남(연결 설정 structured). 호출부의 파싱(울타리 걷기·중괄호 찾기)은 그대로 쓴다 |
+| 토큰 어림 비율(Qwen BPE 기준) | app/llm_budget.py _RATES | 그대로 | 넉넉한 쪽 어림이고, vLLM /tokenize 로 연결마다 보정하며, 한도 초과 400 을 받으면 실측으로 보정해 한 번 다시 보낸다. 토크나이저가 아주 다른 모델이면 점검의 오류 수에 드러난다 |
+| 출력 한도(답 3072, 절 작성 8192·2048, 질문 읽기 120, 갈래 160 등) | 호출부 | 그대로 | 일의 크기에 맞춘 값이고 모델과 무관하다. 문맥이 모자라면 llm_budget 이 출력 한도를 바닥까지 줄인다. 말이 긴 모델에서 질문 읽기 120 토큰이 모자라면 점검의 검색(모델 읽기) 수치가 떨어져 드러난다 |
+| 생각만 하고 빈 답 | client.py 빈 답 다시 받기(ZZAIMY_LLM_THINKING_FLOOR·CEILING) | 그대로 | 응답 필드(reasoning·reasoning_content)와 finish_reason 으로 보며 모델 이름에 묶이지 않는다 |
+| 답에 섞인 생각 표시(<think>) 걷기 | app/pipeline.py | 그대로 | 표시가 없으면 아무 일도 하지 않는다 |
+| Ollama 판별 | client.is_ollama(/api/version) | 그대로 | 서버 종류 판별이며 모델 이름과 무관하다. 연결 설정 no_think 를 두면 판별을 쓰지 않는다 |
+| DGX 일괄 판정 기본 모델 이름 | scripts/190·191 --model 기본값 | 그대로 | 명령줄 인자이고 판정 줄에 모델 정보가 남는다. 바꿀 때는 인자로 준다 |
+| 오프라인 스크립트의 생각 끄기 직접 지정 | scripts/51·111·158·172 등 | 그대로 | 운영 경로가 아닌 일회성·학습 데이터 스크립트다. 다른 계열로 다시 돌릴 때 그 자리에서 고친다(학습 데이터 스크립트는 아스트라 담당) |
+| 화면·계획 설명의 모델 이름 | app/serving_plan.py, model_tracks.py, tech_stack.py, process_flow.py | 그대로 | 모델 계획 문서와 맞춘 설명 글이다. 운영 모델을 바꾸면 계획 문서와 함께 사람이 고친다 |
+| 반출 묶음의 바탕 모델 이름 | export/bundle.py manifest writer_base | 결정 필요 | 지금은 고정 글이다. 반출 때 answer 용도 연결의 모델 정보(model_info)로 채울지, 학습 계획의 바탕 모델로 둘지 정해야 한다 |
+| 질의 확장 연결 | ZZAIMY_QUERY_EXPAND(주소와 서빙 이름) | 결정 필요 | 운영에서 켜져 있고 용도 지정이 아니라 환경변수로 모델을 정한다. 용도를 옮겨도 질의 확장은 옛 이름을 부른다. answer 용도를 따르게 할지 정해야 한다(점검 중에는 후보를 따른다) |
+
+## 5. 손댄 곳
+
+- generate/model_info.py(새): 모델 정보 읽기·기억·표시·같은 모델 판단
+- generate/model_config.py·llm_connections.py: 연결 설정(no_think·think·structured·context), 후보 점검 환경변수(trial_conn), set_options
+- generate/client.py: 생각 끄기·켜기 인자를 연결 설정에서, 구조화 출력 물러남, with_options 사본도 래퍼로, 주소를 직접 준 호출은
+  등록 연결의 키·설정을 끌어 쓰지 않음, info(모델 정보)
+- app/llm_budget.py(served_context_len, 연결 설정 context), app/gdocs_agent.py(서버 한도 우선, 절 작성 기록에 llm)
+- app/responder.py(생각 켜기 인자), app/query_expand.py·llm_rerank.py(VllmClient 경유)
+- app/main.py(에이전트·찾을 것 계획·양식 고르기 기록에 llm), graph/question_read.py·retrieve.py(읽은 모델)
+- scripts/190(--role, 요약 줄 KIND_READ, 줄마다 llm), scripts/191(--role, 줄마다 llm, --redo-model), scripts/195(새)
+- tests/test_model_swap.py

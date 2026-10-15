@@ -56,6 +56,7 @@ class Reading:
     relations: list[str] = field(default_factory=list)
     names: list[str] = field(default_factory=list)          # 모델이 고른 이름(기록용)
     seconds: float = 0.0
+    llm: dict = field(default_factory=dict)                 # 읽은 모델(generate.model_info — 서빙 이름·바탕 가중치)
 
 
 def _grams(t: str) -> set[str]:
@@ -137,6 +138,8 @@ def read(client, question: str, programs: list[dict], timeout: float | None = No
                       kinds=[k for k in data.get("kinds") or [] if k in KINDS],
                       relations=list(dict.fromkeys(r for r in data.get("relations") or [] if r in RELATIONS)),
                       seconds=round(time.time() - t0, 2))
+        from zzaimy.generate import model_info
+        out.llm = model_info.stamp(client)
     except Exception as e:                              # 읽기 실패는 이름 맞추기로 물러난다 — 검색은 멈추지 않는다
         log.warning("질문 읽기 실패(이름 맞추기로): %s: %s", type(e).__name__, str(e)[:200])
         out = None

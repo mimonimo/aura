@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 
 try:
@@ -91,6 +92,46 @@ def _rejects_extra(exc: Exception) -> bool:
     return "unknown" in str(exc).lower() and "field" in str(exc).lower()
 
 
+# 구조화 출력(response_format json_schema)을 거절하는 서버면 JSON 지시 + 파싱으로 물러난다. 거절인지는 상태 코드(400·422)와
+# 오류 글에 구조화 출력 낱말이 있는지로 본다 — 그 밖의 400 은 아래 확장 인자 거절 처리로 넘긴다.
+_SCHEMA_WORDS = ("response_format", "json_schema", "guided", "structured", "grammar", "format")
+_DEFAULT_NO_THINK = {"chat_template_kwargs": {"enable_thinking": False}}
+_DEFAULT_THINK = {"chat_template_kwargs": {"enable_thinking": True}}
+
+
+def _rejects_schema(exc: Exception) -> bool:
+    status = getattr(exc, "status_code", None)
+    if status not in (400, 422):
+        return False
+    text = str(exc).lower()
+    return any(w in text for w in _SCHEMA_WORDS)
+
+
+def schema_as_prompt(kw: dict) -> dict:
+    """response_format 을 빼고 같은 요구를 글 지시로 옮긴다 — 호출부는 지금처럼 JSON 을 파싱한다(울타리·앞뒤 글은 호출부가 걷는다)."""
+    rf = kw.get("response_format") or {}
+    if not isinstance(rf, dict) or rf.get("type") not in ("json_schema", "json_object"):
+        return kw
+    import json as _json
+
+    schema = ((rf.get("json_schema") or {}).get("schema")) if rf.get("type") == "json_schema" else None
+    note = ("\n\n[출력 형식] 다른 글 없이 JSON 객체 하나만 출력하라. 코드 울타리(```)를 쓰지 마라."
+            + (" 다음 JSON 스키마를 따른다:\n" + _json.dumps(schema, ensure_ascii=False) if schema else ""))
+    msgs = [dict(m) for m in (kw.get("messages") or [])]
+    for m in reversed(msgs):
+        if m.get("role") == "user":
+            if isinstance(m.get("content"), str):
+                m["content"] = m["content"] + note
+            elif isinstance(m.get("content"), list):
+                m["content"] = list(m["content"]) + [{"type": "text", "text": note.strip()}]
+            break
+    else:
+        msgs.append({"role": "user", "content": note.strip()})
+    out = {k: v for k, v in kw.items() if k != "response_format"}
+    out["messages"] = msgs
+    return out
+
+
 _OLLAMA_CACHE: dict[str, bool] = {}
 
 
@@ -147,22 +188,35 @@ def model_can_see(base_url: str, model: str) -> bool:
 
 class VllmClient:
     def __init__(self, base_url: str | None = None, model: str | None = None,
-                 role: str = "") -> None:
+                 role: str = "", *, timeout: float | None = None, max_retries: int | None = None) -> None:
         """role 을 주면 그 용도로 지정한 서버·모델을 쓴다(화면의 '용도별 지정')."""
         from zzaimy.generate import model_config
 
         cfg = model_config.current(role)      # 용도 지정 > 기본 연결 > 화면 설정 > 환경변수
+        if base_url and base_url != cfg.get("base_url"):
+            # 주소를 직접 준 호출(환경변수로 켠 질의 확장·LLM 재순위 등) — 등록 연결의 종류·키·설정을 끌어 쓰지 않는다(키가 다른 서버로 새지 않게)
+            cfg = {**cfg, **model_config._options({}), "kind": "vllm", "connection_id": "", "external": False,
+                   "vision_model": "", "api_key": os.environ.get("VLLM_API_KEY", "none")}
         if OpenAI is None:
             raise RuntimeError("openai 패키지가 없습니다 — 생성 서버 호출에 필요합니다")
         self.kind = cfg.get("kind", "vllm")
         self.connection_id = cfg.get("connection_id", "")
+        self.structured = cfg.get("structured") or "auto"
+        self.context_default = int(cfg.get("context") or 0)
         # 시간 제한·재시도는 어느 OpenAI 호환 서버든 같은 규약(429·5xx 는 SDK 가 백오프 재시도)
         self.client = OpenAI(
             base_url=base_url or cfg["base_url"], api_key=cfg["api_key"],
-            timeout=float(os.environ.get("ZZAIMY_LLM_TIMEOUT", "180")),
-            max_retries=int(os.environ.get("ZZAIMY_LLM_RETRIES", "3")),
+            timeout=float(timeout if timeout is not None else os.environ.get("ZZAIMY_LLM_TIMEOUT", "180")),
+            max_retries=int(max_retries if max_retries is not None else os.environ.get("ZZAIMY_LLM_RETRIES", "3")),
         )
         self.model = model or cfg["model"] or self.client.models.list().data[0].id
+        # 생각 끄기·켜기 인자 — 모델 계열마다 다르다. 연결 설정(no_think·think)이 있으면 그것, 없으면 내부 서버(vllm 종류)는
+        # Qwen 식 chat_template_kwargs 가 기본(운영 그대로), 외부 연결은 보내지 않는다(모르는 인자를 거부한다)
+        no_think = cfg.get("no_think")
+        self._no_think = dict(no_think) if no_think is not None else (dict(_DEFAULT_NO_THINK) if self.kind == "vllm" else {})
+        think = cfg.get("think")
+        self.think_extra = dict(think) if think is not None else (
+            dict(_DEFAULT_THINK) if no_think is None and self.kind == "vllm" else None)
         # 응답의 usage 를 연결·모델·날짜별로 기록한다 (한도 관리용) — SDK 호출은 그대로 감싼다
         try:
             _orig = self.client.chat.completions.create
@@ -180,10 +234,13 @@ class VllmClient:
                     thought = thought or (getattr(choice.message, field, None) or "")
                 return bool(thought) or getattr(choice, "finish_reason", "") == "length"
 
-            ollama = self.kind == "vllm" and is_ollama(str(getattr(self.client, "base_url", "") or ""))
+            # Ollama 자동 판별은 생각 끄기 인자를 연결에 따로 정하지 않았을 때만 쓴다
+            ollama = self.kind == "vllm" and no_think is None and is_ollama(str(getattr(self.client, "base_url", "") or ""))
             _no_extra: list = []                                       # 확장 인자를 거절한 서버 — 한 번 겪으면 더 보내지 않는다
+            _no_schema: list = ["x"] if self.structured == "prompt" else []   # 구조화 출력을 거절한 서버(또는 설정이 prompt)
 
-            def _create(*a, **kw):
+            def _create(*a, _via=None, **kw):
+                orig = _via or _orig                                   # with_options 사본이면 그 사본의 호출
                 # Ollama 는 생각 끄기 인자가 다르다 — 호출부가 따로 정하지 않았으면 끈다
                 if ollama and "reasoning_effort" not in kw and not (
                     kw.get("extra_body") or {}).get("reasoning_effort"):
@@ -192,20 +249,30 @@ class VllmClient:
                     eb["reasoning_effort"] = "none"
                     kw = dict(kw, extra_body=eb)
                 # 내부 vLLM 은 생각 모드가 기본으로 켜져 있다 — 호출부가 정하지 않았으면 끈다. 빠뜨린 호출이 출력 한도를
-                # 생각에 다 써 느려지지 않게(반입 정체 읽기가 한 건 100초 걸리던 원인). 서버가 거절한 적이 있으면 보내지 않는다
-                elif self.kind == "vllm" and not _no_extra and "chat_template_kwargs" not in (kw.get("extra_body") or {}):
-                    kw = dict(kw, extra_body={**(kw.get("extra_body") or {}), "chat_template_kwargs": {"enable_thinking": False}})
+                # 생각에 다 써 느려지지 않게(반입 정체 읽기가 한 건 100초 걸리던 원인). 서버가 거절한 적이 있으면 보내지 않는다.
+                # 끄는 인자는 연결 설정(no_think)을 따른다 — 호출부가 같은 이름의 인자를 정했으면 그 값이 먼저다
+                elif self._no_think and not _no_extra and not (set(self._no_think) & set(kw.get("extra_body") or {})):
+                    kw = dict(kw, extra_body={**(kw.get("extra_body") or {}), **self._no_think})
+                if _no_schema and kw.get("response_format"):
+                    kw = schema_as_prompt(kw)
                 try:
-                    resp = _orig(*a, **kw)
+                    resp = orig(*a, **kw)
                 except TypeError:
                     raise
                 except Exception as e:
+                    # 서버가 구조화 출력을 거절하면 JSON 지시로 옮겨 다시 보낸다(설정이 json_schema 면 물러나지 않는다)
+                    if kw.get("response_format") and self.structured == "auto" and _rejects_schema(e):
+                        _no_schema.append(True)
+                        import logging
+                        logging.getLogger(__name__).warning("구조화 출력을 서버가 거절해 JSON 지시로 물러납니다: %s", self.model)
+                        kw = schema_as_prompt(kw)
+                        resp = orig(*a, **kw)
                     # 서버가 모르는 확장 인자를 거부하면 한 번만 빼고 다시 보낸다
-                    if kw.get("extra_body") and _rejects_extra(e):
+                    elif kw.get("extra_body") and _rejects_extra(e):
                         self._extra = {}
                         _no_extra.append(True)
                         kw = dict(kw, extra_body=None)
-                        resp = _orig(*a, **kw)
+                        resp = orig(*a, **kw)
                     else:
                         raise
                 if not kw.get("stream"):
@@ -217,7 +284,7 @@ class VllmClient:
                         asked = int(kw.get("max_tokens") or 0)
                         wider = min(max(asked * 4, _THINKING_FLOOR), _THINKING_CEILING)
                         if wider > asked:
-                            resp2 = _orig(*a, **dict(kw, max_tokens=wider))
+                            resp2 = orig(*a, **dict(kw, max_tokens=wider))
                             model_config.record_usage(
                                 self.connection_id, kw.get("model", self.model),
                                 getattr(resp2, "usage", None),
@@ -226,6 +293,18 @@ class VllmClient:
                 return resp
 
             self.client.chat.completions.create = _create
+            # with_options 로 만든 사본(시간 제한만 바꾼 호출)도 같은 규약을 거치게 — 사본의 생성 호출을 같은 방식으로 감싼다
+            if hasattr(self.client, "with_options"):
+                _with = self.client.with_options
+
+                def _with_options(*wa, **wkw):
+                    other = _with(*wa, **wkw)
+                    inner = other.chat.completions.create
+
+                    other.chat.completions.create = functools.partial(_create, _via=inner)
+                    return other
+                self.client.with_options = _with_options
+                self.client.copy = _with_options
         except Exception:  # 가짜 클라이언트 등 — 기록만 건너뛴다
             pass
         # 외부 서버 연결이면 모든 생성 요청이 공통 관문을 거친다 — 개인정보를 토큰으로 바꿔 보내고 답에서 되돌린다(ADR-0044).
@@ -246,8 +325,18 @@ class VllmClient:
         if not self.has_vision and self.kind == "vllm":
             # 비전 모델을 따로 지정하지 않아도, 기본 모델이 이미지를 읽을 수 있으면 쓴다
             self.has_vision = model_can_see(str(getattr(self.client, "base_url", "") or ""), self.model)
-        # vLLM 전용 요청 옵션(생각 모드 끄기)은 내부 서버에만 보낸다 — 외부 API 는 모르는 인자를 거부한다
-        self._extra = {"chat_template_kwargs": {"enable_thinking": False}} if self.kind == "vllm" else {}
+        # 생각 모드 끄기 인자는 내부 서버에만 보낸다(연결 설정이 있으면 그것) — 외부 API 는 모르는 인자를 거부한다
+        self._extra = dict(self._no_think)
+
+    @property
+    def info(self) -> dict:
+        """결과 기록에 남길 모델 정보(model_info — 서빙 이름·바탕 가중치·어댑터, 주소는 빼고). 연결·모델마다 한 번만 묻는다."""
+        from zzaimy.generate import model_info
+
+        try:
+            return model_info.describe(self)
+        except Exception:
+            return {"name": self.model}
 
     def extract_schema(self, announcement_text: str) -> AnnouncementSchema:
         resp = self.client.chat.completions.create(

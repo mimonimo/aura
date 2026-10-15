@@ -188,6 +188,7 @@ class Scope:
     cover: list[tuple[str, set[int]]] = field(default_factory=list)   # 근거에 한 조각씩은 꼭 들어갈 묶음(관계의 양쪽)
     partners: dict[int, list[tuple[str, int]]] = field(default_factory=dict)  # 문서 → [(관계, 짝 문서)] — 근거에 든 문서의 짝을 담는다
     read_by: str = "이름 맞추기"
+    read_llm: dict = field(default_factory=dict)             # 질문을 읽은 모델(모델 읽기를 썼을 때 — generate.model_info)
     doc_names: list[str] = field(default_factory=list)       # 질문이 묶어 적은 것 가운데 문서 이름이었던 것(절 이름이 아니다)
 
 
@@ -328,6 +329,7 @@ def scope(db, question: str, reader=None) -> Scope:
     if reading is not None:
         # 모델 읽기는 이름 맞추기가 못 하는 것만 보탠다 — 따라갈 관계, 둘째 사업, 적히지 않은(바꿔 말한) 사업·연도·갈래
         sc.read_by = "이름 맞추기 + 모델 읽기"
+        sc.read_llm = dict(getattr(reading, "llm", None) or {})
         sc.relations = list(reading.relations)
         sc.programs = list(dict.fromkeys([*sc.programs, *(pid for pid in reading.programs if pid in by_id)]))
         years = years or list(reading.years)

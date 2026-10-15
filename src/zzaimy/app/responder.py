@@ -62,13 +62,28 @@ def answer_think() -> bool:
     return os.environ.get("ZZAIMY_ANSWER_THINK", "0").strip().lower() in ("1", "true", "yes", "on")
 
 
+_NOT_SET = object()
+
+
+def _think_extra(client, extra: dict) -> dict | None:
+    """생각을 켜는 추가 인자 — 연결 설정(client.think_extra)이 있으면 그것. 그 속성이 없는 클라이언트(가짜·옛 꼴)는
+    끄는 인자에 chat_template_kwargs 가 있을 때만 그 안의 enable_thinking 을 켠다(예전 규칙)."""
+    think = getattr(client, "think_extra", _NOT_SET)
+    if think is _NOT_SET:
+        return {"chat_template_kwargs": {"enable_thinking": True}} if "chat_template_kwargs" in (extra or {}) else None
+    return think or None
+
+
 def answer_gen_options(client) -> tuple[int, dict]:
     """답 생성 호출의 (출력 한도, 추가 인자). 생각을 끈 기본은 지금까지와 같다 — 3,072 토큰, client._extra 그대로."""
     extra = getattr(client, "_extra", {})
     limit = int(os.environ.get("ZZAIMY_ANSWER_MAX_TOKENS", "3072"))
-    if not answer_think() or "chat_template_kwargs" not in (extra or {}):
+    think = _think_extra(client, extra) if answer_think() else None
+    if not think:
         return limit, {"extra_body": extra}
-    eb = dict(extra, chat_template_kwargs={**(extra.get("chat_template_kwargs") or {}), "enable_thinking": True})
+    eb = dict(extra or {})
+    for k, v in think.items():                       # 같은 이름의 인자는 안쪽 값만 덮는다(chat_template_kwargs 의 다른 값은 둔다)
+        eb[k] = {**eb[k], **v} if isinstance(v, dict) and isinstance(eb.get(k), dict) else v
     return (int(os.environ.get("ZZAIMY_ANSWER_THINK_MAX_TOKENS", "8192")),
             {"extra_body": eb, "timeout": float(os.environ.get("ZZAIMY_ANSWER_THINK_TIMEOUT", "900"))})
 
@@ -410,7 +425,7 @@ class AgentResponder:
         # 목차·개요처럼 긴 답은 짧은 상한(1,024 토큰)에서 중간에 끊긴다. 상한을 넉넉히 두고, 그래도 끊기면 한 번 잇는다
         # 생각 모드는 기본 끔 — ZZAIMY_ANSWER_THINK=1 일 때만 켜고 한도·시간 제한을 넓힌다(answer_gen_options)
         limit, gen = answer_gen_options(client)
-        self.last_timing["think"] = bool(((gen.get("extra_body") or {}).get("chat_template_kwargs") or {}).get("enable_thinking"))
+        self.last_timing["think"] = answer_think() and bool(_think_extra(client, getattr(client, "_extra", {}) or {}))
         usages: list = []
         # 문맥 한도 — 요청과 에이전트가 찾은 근거는 끝까지 남기고, 첨부·연결 문서 → 오래된 대화 → 출력 상한(바닥까지)
         # → 검색 근거 → 에이전트 근거 차례로 줄인다(llm_budget). 다 줄여도 넘으면 보내지 않는다(ContextOverflow)

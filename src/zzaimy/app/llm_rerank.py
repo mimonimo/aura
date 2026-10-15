@@ -38,9 +38,8 @@ def make_scorer(base_url: str, model: str, *, workers: int = 4, body_chars: int 
 
     if _cl.OpenAI is None:
         raise RuntimeError("openai 패키지가 없습니다 — LLM 리랭커에 필요합니다")
-    client = _cl.OpenAI(base_url=base_url, api_key="none", timeout=60, max_retries=1)
-    extra = ({"reasoning_effort": "none"} if _cl.is_ollama(base_url)
-             else {"chat_template_kwargs": {"enable_thinking": False}})
+    vc = _cl.VllmClient(base_url=base_url, model=model, timeout=60, max_retries=1)   # 생각 끄기 인자는 VllmClient 가 정한다
+    client, extra = vc.client, vc._extra
 
     def one(q: str, c: dict) -> int:
         try:

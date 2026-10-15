@@ -3,7 +3,7 @@
 vLLM 은 입력 토큰 + max_tokens 가 max_model_len 을 넘으면 400 으로 거절한다. 답변·에이전트 경로의 호출은 모두
 fit_messages(또는 create_fitted)를 거친다:
 - 한도: 서빙 엔드포인트의 /v1/models 가 돌려주는 max_model_len 을 연결(base_url·모델)마다 한 번 읽어 둔다.
-  읽지 못하면 설정값(ZZAIMY_WRITER_CONTEXT, 기본 16384 = configs/serving.yaml writer.max_model_len)을 쓴다.
+  읽지 못하면 연결 설정(context), 그다음 ZZAIMY_WRITER_CONTEXT(기본 16384 = configs/serving.yaml writer.max_model_len)를 쓴다.
 - 토큰 수: 이 장비에는 토크나이저가 없다(transformers·tokenizers 미설치). 서버가 vLLM 이면 /tokenize 로 실제 수를
   한 번 재어 어림의 오차를 보정하고, 아니면 아래 글자 갈래별 비율로 넉넉히(크게) 어림한다.
 - 줄이는 순서는 호출부가 정한다(cuts) — 요청과 에이전트가 찾은 근거는 맨 뒤, 첨부·연결 문서·오래된 대화가 먼저.
@@ -51,7 +51,8 @@ def _base(client) -> str:
 
 def context_len(client) -> int:
     """이 연결의 서빙 모델 문맥 한도. vLLM /v1/models 의 max_model_len, 없으면 설정 기본값."""
-    default = int(os.environ.get("ZZAIMY_WRITER_CONTEXT", str(DEFAULT_CONTEXT)))
+    # 서버에서 읽지 못할 때: 연결 설정(context) > ZZAIMY_WRITER_CONTEXT > 기본값
+    default = int(getattr(client, "context_default", 0) or 0) or int(os.environ.get("ZZAIMY_WRITER_CONTEXT", str(DEFAULT_CONTEXT)))
     key = (_base(client), str(getattr(client, "model", "") or ""))
     got = _LEN_CACHE.get(key)
     if got and (got[2] or time.time() - got[1] < _LEN_RETRY_SEC):
@@ -73,6 +74,15 @@ def context_len(client) -> int:
         found = None
     _LEN_CACHE[key] = (found or default, time.time(), bool(found))
     return found or default
+
+
+def served_context_len(client) -> int | None:
+    """서버가 알려 준 문맥 한도만(없으면 연결 설정 context, 그것도 없으면 None) — 호출부가 자기 기본값을 쓸 수 있게."""
+    n = context_len(client)
+    got = _LEN_CACHE.get((_base(client), str(getattr(client, "model", "") or "")))
+    if got and got[2]:
+        return n
+    return int(getattr(client, "context_default", 0) or 0) or None
 
 
 def estimate_tokens(text: str) -> int:

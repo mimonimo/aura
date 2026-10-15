@@ -33,6 +33,26 @@ def ollama(url: str, model: str):
     return complete
 
 
+def via_client(client, max_tokens: int = 160):
+    """VM 등 OpenAI 호환 연결(VllmClient — 생각 끄기·구조화 출력 물러남·외부 가림 관문이 거기 있다)로 판정한다."""
+    def complete(messages: list[dict]) -> str:
+        r = client.client.chat.completions.create(model=client.model, messages=messages, temperature=0.0,
+                                                  max_tokens=max_tokens, response_format={"type": "json_object"},
+                                                  extra_body=client._extra)
+        return r.choices[0].message.content or ""
+    return complete
+
+
+def make_complete(url: str, model: str, role: str = ""):
+    """(complete, 모델 정보). role 을 주면 그 용도의 연결(VM 의 review 등)로, 아니면 주소의 Ollama 로."""
+    from zzaimy.generate import model_info
+    if role:
+        from zzaimy.generate.client import VllmClient
+        c = VllmClient(role=role)
+        return via_client(c), model_info.stamp(c)
+    return ollama(url, model), model_info.describe_url(url, model)
+
+
 def latest(parsed_dir: str) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for f in sorted(glob.glob(str(Path(parsed_dir) / "parsed-*.jsonl"))):
@@ -47,12 +67,29 @@ def latest(parsed_dir: str) -> dict[str, dict]:
     return out
 
 
+def summarize(rows: list[dict]) -> dict:
+    """묶음별 요약 — 교체 점검(scripts/195)이 기준과 견주는 수치."""
+    out: dict = {"n": len(rows), "fail": sum(1 for r in rows if r["model"] is None)}
+    for key, group in (("ruled", "규칙 있음"), ("empty", "규칙 비움")):
+        g = [r for r in rows if r["group"] == group]
+        if not g:
+            continue
+        ok = [r for r in g if r["model"] is not None]
+        out[key] = {"n": len(g), "fail": len(g) - len(ok),
+                    "same_as_rule": round(sum(1 for r in ok if r["model"] == r["rule"]) / len(g), 3),
+                    "filled": round(sum(1 for r in ok if r["model"]) / len(g), 3)}
+    secs = sorted(r["sec"] for r in rows)
+    out["sec_median"] = secs[len(secs) // 2] if secs else None
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--parsed", default=str(Path.home() / "parsed"))
     ap.add_argument("--n", type=int, default=150, help="묶음마다(규칙 있음·규칙 비움) 표본 수")
     ap.add_argument("--url", default="http://localhost:11434")
     ap.add_argument("--model", default="qwen3.8:27b")
+    ap.add_argument("--role", default="", help="이 용도(review·answer)의 연결로 판정한다 — VM 에서 .env.local 과 함께(--url·--model 은 무시)")
     ap.add_argument("--seed", type=int, default=20261014)
     ap.add_argument("--rels", default="", help="이 목록(JSONL 의 rel, 또는 한 줄에 경로 하나)만 다시 판정 — 갈래 설명을 고친 뒤 엇갈린 것만 볼 때")
     ap.add_argument("--out", required=True)
@@ -71,7 +108,9 @@ def main() -> int:
                 wanted.append(json.loads(line)["rel"] if line.startswith("{") else line)
         pick = [("규칙 있음" if docs[r].get("doc_kind") else "규칙 비움", r) for r in wanted if r in docs]
     print(f"문서 {len(docs)} · 규칙 있음 {len(ruled)} · 규칙 비움 {len(empty)} · 표본 {len(pick)}", flush=True)
-    complete = ollama(args.url, args.model)
+    complete, llm = make_complete(args.url, args.model, args.role)
+    from zzaimy.generate import model_info
+    print(f"판정 모델: {model_info.label(llm)}", flush=True)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     rows = []
     with open(args.out, "w", encoding="utf-8") as fo:
@@ -82,7 +121,8 @@ def main() -> int:
             t0 = time.time()
             got = kind_read.read_kind(complete, title, d.get("masked_text") or "", folder)
             row = {"group": group, "rel": rel, "title": title, "rule": d.get("doc_kind") or "",
-                   "model": (got[0] if got else None), "why": (got[1] if got else "실패"), "sec": round(time.time() - t0, 1)}
+                   "model": (got[0] if got else None), "why": (got[1] if got else "실패"), "sec": round(time.time() - t0, 1),
+                   "llm": llm}
             rows.append(row)
             fo.write(json.dumps(row, ensure_ascii=False) + "\n")
             if i % 20 == 0:
@@ -96,6 +136,7 @@ def main() -> int:
               f"모델 갈래 {Counter(r['model'] for r in g if r['model']).most_common(6)}", flush=True)
     secs = sorted(r["sec"] for r in rows)
     print(f"한 건 중앙값 {secs[len(secs) // 2] if secs else 0}초 · 전체 {sum(secs):.0f}초", flush=True)
+    print("KIND_READ " + json.dumps(summarize(rows), ensure_ascii=False), flush=True)
     print("KIND_READ_DONE", flush=True)
     return 0
 
