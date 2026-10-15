@@ -36,6 +36,7 @@ from fastapi.templating import Jinja2Templates
 from zzaimy.app import serving_plan
 from zzaimy.app import paths as _paths
 from zzaimy.app import storage
+from zzaimy.app import platform_guide, platform_ops
 from zzaimy.app import korean_text as _ko
 from zzaimy.app.chat_history import display_title as _chat_title
 from zzaimy.app.db import Database
@@ -1079,6 +1080,7 @@ def create_app(
                 "messages": messages, "criteria_docs": _criteria_docs(request),
                 "waiting": waiting, "session_id": session_id,
                 "suggestions": [] if waiting else _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
+                "proposals": [] if waiting else platform_ops.pending(db, session_id),
                 "sources": _chat_sources.get(session_id) or chat_topics.latest(session_id),
                 "recommended_criteria": _recommended_criteria(session_id, messages),
                 "chat_session": session, "chat_project": project, "chat_topic": topic,
@@ -1117,6 +1119,8 @@ def create_app(
 
     # 세션별 최근 검색 근거(연관 자료) — 채팅 사이드바에 노출한다.
     _chat_sources: dict[int, list] = {}
+    # 떠 있는 창이 보낸 「지금 보는 화면」 경로 — 에이전트 상태에 넣는다(platform_guide.where_line)
+    _chat_pages: dict[int, str] = {}
 
     def _answer_task_impl(
         session_id: int, q: str, stored: Path | None, criteria: list[int],
@@ -3106,10 +3110,84 @@ def create_app(
             "title": session["title"], "project_id": session.get("project_id"),
             "waiting": session_id in _chat_running or (bool(rows) and rows[-1]["role"] == "user"),
             "suggestions": _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
+            "proposals": platform_ops.pending(db, session_id),
             "messages": [
                 {"id": m["id"], "role": m["role"], "content": m["content"], "mode": m.get("mode")} for m in rows
             ],
         }
+
+    def _ops_ctx(user: str, role: str, background: BackgroundTasks | None = None) -> "platform_ops.Ctx":
+        """플랫폼 동작의 손잡이 — background 가 있으면(실행 때) 새 에이전트 대화를 열고 첫 요청의 답을 뒤에서 만든다."""
+        def start_chat(project_id: int | None, question: str) -> int:
+            sid_ = db.create_chat_session(title=_chat_title(question)[:60], project_id=project_id, owner=user or "zzaimy")
+            db.add_chat(sid_, "user", question)
+            _schedule_answer(background, sid_, question, None, [])
+            return sid_
+        return platform_ops.Ctx(db=db, data_dir=Path(db_path).parent, user=user or "", role=role or "", depts=_all_depts,
+                                sectors=dict(INBOX_TYPES), start_chat=start_chat if background is not None else None)
+
+    def _helper_task(session_id: int, q: str, page: str) -> None:
+        """플랫폼 업무 도우미(app/platform_helper) — 떠 있는 창의 질문. 모델에 닿지 못하면 안내 자료에서 찾은 화면을 그대로 보인다."""
+        from zzaimy.app import platform_helper
+        from zzaimy.generate.client import VllmClient
+
+        try:
+            owner, role, dept = _session_viewer(session_id)
+            sess = db.get_chat_session(session_id) or {}
+            project = db.get_project(int(sess["project_id"])) if sess.get("project_id") else None
+            before = len(db.list_chats(session_id))
+            env = platform_helper.Env(db=db, data_dir=Path(db_path).parent, session_id=session_id, user=owner, role=role, dept=dept,
+                                      page=page, ctx=_ops_ctx(owner, role), project=project,
+                                      say=lambda text: db.add_chat(session_id, "assistant", _scrub_internal(text)),
+                                      on_step=lambda label: _chat_step(session_id, label))
+            ep = None
+            try:
+                ep = platform_helper.run(env, VllmClient(role=platform_helper.model_role()), q)
+            except Exception as e:
+                logging.getLogger("zzaimy.app.helper").warning("도우미 실패 (대화 %s): %s", session_id, type(e).__name__)
+            if len(db.list_chats(session_id)) > before:
+                return
+            if ep is not None and not ep.may_fall_back:
+                db.add_chat(session_id, "assistant", _scrub_internal(doc_agent_failure(ep)))
+                return
+            db.add_chat(session_id, "assistant", "도우미 모델에 닿지 못해 안내 자료에서 찾은 화면만 보입니다.\n\n"
+                        + platform_guide.lookup(q, current=page, role=role))
+        finally:
+            _chat_running.discard(session_id)
+            _chat_progress.pop(session_id, None)
+
+    def doc_agent_failure(ep) -> str:
+        from zzaimy.app import doc_agent as _da
+        return _da.failure_message(ep).replace(" 문서는 바꾸지 않았습니다.", " 아무것도 바꾸지 않았습니다.")
+
+    @app.post("/chat/{session_id}/proposals/{pid}/run")
+    def chat_proposal_run(request: Request, background: BackgroundTasks, session_id: int, pid: str, back: str = Form("")):
+        """도우미가 제안한 플랫폼 동작을 담당자가 [실행] 으로 누른다 — 권한·대상은 여기서 다시 본다(platform_ops.run_proposal).
+        결과와 바뀐 것은 대화에 남는다. 떠 있는 창은 JSON 을(go: 옮겨 갈 주소), 대화 화면의 폼(back)은 그 대화로 돌아간다."""
+        _owned_chat(request, session_id)
+        go = ""
+        if session_id in _chat_running:
+            out = {"ok": False, "error": "답변을 만드는 중입니다 — 끝난 뒤 눌러 주세요"}
+        else:
+            try:
+                ctx_ = _ops_ctx(request.state.user, request.state.role, background)
+                text = platform_ops.run_proposal(ctx_, session_id, pid)
+                db.add_chat(session_id, "assistant", "실행했습니다 — " + text)
+                go = ctx_.after.get("go", "")
+                out = {"ok": True, "message": text, "go": go}
+            except KeyError:
+                raise HTTPException(404, "제안을 찾을 수 없습니다")
+            except platform_ops.OpRefused as e:
+                if request.state.role != "dev" and "관리자" in str(e):
+                    raise HTTPException(403, "관리자 계정만 할 수 있는 일입니다")
+                out = {"ok": False, "error": str(e)}
+                db.add_chat(session_id, "assistant", f"실행하지 않았습니다 — {e}")
+            except Exception as e:
+                out = {"ok": False, "error": f"실행하지 못했습니다({_ko.reason(e)}) — 바뀐 것은 없습니다"}
+                db.add_chat(session_id, "assistant", out["error"])
+        if back == f"/chat/{session_id}":
+            return RedirectResponse(go or back, status_code=303)
+        return out
 
     @app.post("/chat/{session_id}/retry")
     def chat_retry(request: Request, background: BackgroundTasks, session_id: int):
@@ -3308,6 +3386,10 @@ def create_app(
                 title=_chat_title(q)[:60], project_id=page_project, owner=getattr(request.state, "user", "zzaimy")
             )
         db.add_chat(session_id, "user", asked)
+        if re.fullmatch(r"/[0-9A-Za-z/_\-.]{0,120}", page or ""):
+            _chat_pages[session_id] = page
+        else:
+            _chat_pages.pop(session_id, None)
         found = _page_actions(page, q)
         done: list[str] = []
         for a in [x for x in found if x.get("auto")][:1]:
@@ -3315,7 +3397,13 @@ def create_app(
             if line:
                 done.append(line)
                 db.add_chat(session_id, "assistant", line)
-        _schedule_answer(background, session_id, asked, None, [])
+        # 떠 있는 창에 직접 쓴 질문은 플랫폼 업무 도우미가 받는다. 화면 글을 골라 묻는 질문(context)은 문서 내용이라 기존 답변 경로로
+        if not quoted and os.environ.get("ZZAIMY_PLATFORM_HELPER", "1") != "0" and getattr(request.state, "role", "") != "student":
+            _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
+            _chat_running.add(session_id)
+            background.add_task(_helper_task, session_id, asked, _chat_pages.get(session_id, ""))
+        else:
+            _schedule_answer(background, session_id, asked, None, [])
         return {"ok": True, "session_id": session_id, "done": done,
                 "actions": [x for x in found if not x.get("auto")]}
 

@@ -920,7 +920,7 @@ document.addEventListener('submit', function(event) {
 <button type="button" class="ag-fab" id="agFab" title="에이전트에게 묻기" aria-label="에이전트에게 묻기" aria-controls="agPanel" aria-expanded="false">
   <iconify-icon icon="solar:chat-round-line-linear"></iconify-icon></button>
 
-<div class="ag-panel" id="agPanel" role="dialog" aria-label="에이전트" aria-hidden="true" inert>
+<div class="ag-panel" id="agPanel" role="dialog" aria-label="플랫폼 업무 도우미" aria-hidden="true" inert>
   <div class="ag-head">
     <iconify-icon icon="solar:chat-round-line-linear" style="color:var(--navy); font-size:18px;"></iconify-icon>
     <b id="agTitle" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">새 대화</b>
@@ -939,7 +939,7 @@ document.addEventListener('submit', function(event) {
     <div class="ag-empty" id="agEmpty">
       <iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>
       <h3>{% if project is defined and project %}프로젝트 업무를 함께 진행하세요{% else %}어떤 업무를 도와드릴까요?{% endif %}</h3>
-      <p>{% if project is defined and project %}{{ project.name }}{% else %}필요한 작업을 아래에 입력하세요.{% endif %}</p>
+      <p>{% if project is defined and project %}{{ project.name }}{% else %}플랫폼 쓰는 법을 묻거나 할 일을 맡기세요. 문서 내용·작성은 에이전트 대화로 이어 줍니다.{% endif %}</p>
       <p class="ag-empty-hint">이전 대화는 상단의 기록 버튼에서 찾을 수 있습니다.</p>
     </div>
   </div>
@@ -1039,10 +1039,59 @@ document.addEventListener('submit', function(event) {
     messages.forEach(function (m) {
       var el = document.createElement("div");
       el.className = "ag-msg " + (m.role === "user" ? "user" : "assistant");
-      el.textContent = plain(m.content);
+      if (m.role === "user") el.textContent = plain(m.content);
+      else linkify(el, plain(m.content));
       body.appendChild(el);
     });
     body.scrollTop = body.scrollHeight;
+  }
+  // 답 속 화면 주소(/dev/rag#student-regs 등)는 누르면 그 화면으로 — 글은 textContent 로만 넣는다
+  function linkify(el, text) {
+    var re = /(^|[\s(「])(\/(?:dev|chat|graph|project|settings|search)(?:[\/#?][\w\/#?=&.-]*)?)/g, at = 0, m;
+    while ((m = re.exec(text))) {
+      var start = m.index + m[1].length;
+      el.appendChild(document.createTextNode(text.slice(at, start)));
+      var a = document.createElement("a"); a.href = m[2]; a.textContent = m[2];
+      el.appendChild(a); at = start + m[2].length;
+    }
+    el.appendChild(document.createTextNode(text.slice(at)));
+  }
+  // 도우미가 낸 제안 — run 은 「이렇게 하겠습니다」 와 [실행](누르면 서버가 권한·대상을 다시 보고 실행), go 는 화면 열기.
+  // 단추에 가리킬 화면 요소(data-target-path·data-target-selector)를 달아 둔다 — 화면 위 커서·강조가 쓴다
+  var lastProposals = [];
+  function drawProposals() {
+    lastProposals.forEach(function (p) {
+      var box = document.createElement("div");
+      box.className = "ag-msg assistant ag-proposal";
+      var t = p.target || {};
+      box.dataset.targetPath = t.path || ""; box.dataset.targetSelector = t.selector || "";
+      var plan = document.createElement("div");
+      plan.textContent = (p.kind === "go" ? "" : "이렇게 하겠습니다 — ") + p.plan;
+      var row = document.createElement("div"); row.className = "ag-acts";
+      var go = document.createElement("a"); go.href = p.screen;
+      go.textContent = p.kind === "go" ? p.label : "화면에서 직접";
+      if (p.kind !== "go") {
+        var run = document.createElement("button"); run.type = "button"; run.textContent = "실행";
+        run.addEventListener("click", function () {
+          if (!sid) return;
+          run.disabled = true; run.textContent = "실행 중…";
+          fetch("/chat/" + sid + "/proposals/" + encodeURIComponent(p.id) + "/run", { method: "POST" })
+            .then(function (r) { return r.json().catch(function () { return { ok: false, error: r.status === 403 ? "관리자 계정만 할 수 있는 일입니다" : "실행 결과를 받지 못했습니다" }; }); })
+            .then(function (d) {
+              if (!d.ok && d.detail) d.error = d.detail;
+              if (d.ok && d.go) { location.href = d.go; return; }
+              if (!d.ok) { run.textContent = d.error || "실행하지 못했습니다"; }
+              load(false);
+            })
+            .catch(function () { run.disabled = false; run.textContent = "실행"; });
+        });
+        row.appendChild(run);
+      }
+      row.appendChild(go);
+      box.appendChild(plan); box.appendChild(row);
+      body.appendChild(box);
+    });
+    if (lastProposals.length) body.scrollTop = body.scrollHeight;
   }
   // 이 화면에서 바로 시킬 수 있는 일 — 누를 때 실행한다
   var lastActions = [];
@@ -1099,7 +1148,7 @@ document.addEventListener('submit', function(event) {
         if (d.waiting) {
           busy = true; paintSend(); if (showPending) pending();
           pollTimer = setTimeout(function () { if (token === generation) load(true); }, 2000);
-        } else { busy = false; paintSend(); drawActions(); }
+        } else { busy = false; paintSend(); lastProposals = d.proposals || []; drawProposals(); drawActions(); }
       })
       .catch(function (error) {
         if (token !== generation) return;

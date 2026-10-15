@@ -272,14 +272,16 @@ def _log_line(i: int, name: str, args: dict, outcome: str) -> str:
 
 
 def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on_step: Callable[[str], None] | None = None,
-        max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES, on_json: Callable[[dict], None] | None = None) -> Episode:
+        max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES, on_json: Callable[[dict], None] | None = None,
+        system: str | None = None) -> Episode:
     """에이전트 루프. state() 는 매 걸음 새로 읽는 상태 글(연결 문서·절 목록은 쓰기 뒤 달라진다).
 
     매 걸음 모델에 보내는 글: 시스템 + 지난 걸음(고른 JSON·결과) + 이번 상태·「지금까지 한 걸음」 기록·요청.
     기록은 걸음마다 다시 만들어 늘 실린다. 문맥 한도에서는 오래된 결과 글 → 오래된 걸음 → 상태 글 뒤쪽 → 최근 결과 글
-    차례로 줄이고, 최근 KEEP_STEPS 걸음과 기록은 빼지 않는다 — 모델이 이미 한 걸음을 못 보고 되풀이하지 않게."""
+    차례로 줄이고, 최근 KEEP_STEPS 걸음과 기록은 빼지 않는다 — 모델이 이미 한 걸음을 못 보고 되풀이하지 않게.
+    system 을 주면 그 지시로 돈다({tools}·{max_writes} 자리는 같다) — 플랫폼 업무 도우미(platform_helper)가 같은 걸음 구조를 쓴다."""
     reg = {t.name: t for t in tools}
-    system = SYSTEM.format(max_writes=max_writes, tools="\n".join(f"- {t.name}: {t.desc}" for t in tools))
+    system = (system or SYSTEM).format(max_writes=max_writes, tools="\n".join(f"- {t.name}: {t.desc}" for t in tools))
     from zzaimy.app import llm_budget
 
     ep = Episode()

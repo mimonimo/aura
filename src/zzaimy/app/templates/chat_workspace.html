@@ -192,6 +192,14 @@
         <button type="button" class="act-btn" data-resend-question="{{ m.content }}" data-resend-id="{{ m.id }}" title="이 질문부터 답변 다시 생성 · 이후 대화는 이력에 보관" aria-label="이 질문부터 다시 생성"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>
       </div>
       {% endif %}
+  {% if loop.last and m.role == 'assistant' and proposals and not waiting %}{# 에이전트가 제안한 플랫폼 동작 — 누를 때 서버가 권한·대상을 다시 본다 #}
+  <div class="chat-suggestions" aria-label="실행 제안">
+    {% for p in proposals %}{% if p.kind == 'go' %}<a class="chat-suggestion" href="{{ p.screen }}">{{ p.label }} — {{ p.plan }}</a>
+    {% else %}<form action="/chat/{{ session_id }}/proposals/{{ p.id }}/run" method="post" class="chat-suggestion">
+      <input type="hidden" name="back" value="/chat/{{ session_id }}">
+      <span>이렇게 하겠습니다 — {{ p.plan }}</span> <button type="submit">실행</button> <a href="{{ p.screen }}">화면에서 직접</a></form>{% endif %}{% endfor %}
+  </div>
+  {% endif %}
   {% if loop.last and m.role == 'assistant' and suggestions and not waiting %}
   <div class="chat-suggestions" aria-label="다음 작업 제안">
     {% for sg in suggestions %}{% if sg.kind == 'form' and sg.fields %}{% set filled = sg.fields | selectattr('value') | list | length %}<form action="/chat/send" method="post" class="chat-suggestion chat-suggestion-form" data-template="{{ sg.template }}"{% if sg.text == '필요한 값 입력' %} id="chatValueForm"{% endif %} data-total="{{ sg.fields | length }}" data-verb="{{ sg.submit or '저장' }}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><input type="hidden" name="template" value="{{ sg.template }}">
