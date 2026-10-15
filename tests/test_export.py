@@ -80,7 +80,14 @@ def test_bundle_includes_model_when_present(db, tmp_path):
     assert any(a["kind"] == "model" for a in manifest["artifacts"])
 
 
-def test_manifest_names_base_models(db):
+def test_manifest_names_base_models(db, monkeypatch):
+    """writer_base 는 반출 때 답변 연결이 실제로 돌리는 모델(서버 정보) — 고정 글이 아니다. 못 읽으면 「모름」."""
+    from zzaimy.generate import client as cl
+    from zzaimy.generate import model_info
+    monkeypatch.setattr(cl, "VllmClient", lambda **kw: object())             # 연결 없는 시험 — 서버 정보만 흉내
+    monkeypatch.setattr(model_info, "stamp", lambda client: {"name": "zzaimy-writer", "base": "Qwen3.8-27B-NVFP4"})
     _data, manifest = build_bundle(db)
-    assert manifest["base_models"]["writer_base"] == "Qwen/Qwen3.8-27B"
+    assert manifest["base_models"]["writer_base"] == "zzaimy-writer (Qwen3.8-27B-NVFP4)"
     assert "embedding" in manifest["base_models"]
+    monkeypatch.setattr(model_info, "stamp", lambda client: {})
+    assert build_bundle(db)[1]["base_models"]["writer_base"] == "모름"

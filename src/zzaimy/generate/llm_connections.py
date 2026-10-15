@@ -176,6 +176,7 @@ ROLES = {
     "answer": "문서 작업 (채팅·초안)",
     "review": "반입 검토 의견 (문서를 들일 때 요약·판정)",
     "vision": "문서 이미지 판독 (스캔·그림)",
+    "helper": "플랫폼 업무 도우미 (떠 있는 창 — 비워 두면 문서 작업 연결)",
 }
 
 
@@ -274,7 +275,7 @@ def role_conn(role: str) -> dict | None:
 # 후보 모델 점검 — 운영 용도 지정(roles)은 그대로 두고, 그 프로세스에서만 생성 용도를 후보 연결·모델로 돌린다(scripts/195).
 # ZZAIMY_LLM_TRY_CONN=<연결 id>  ZZAIMY_LLM_TRY_MODEL=<서빙 이름>  — 둘 중 하나만 줘도 된다(모델만 주면 지금 연결에서 그 이름으로).
 # 문서 이미지 판독(vision)은 바꾸지 않는다. 외부 서버 연결은 후보로도 쓰지 않는다(절대 규칙 3).
-TRIAL_ROLES = ("", "answer", "review")
+TRIAL_ROLES = ("", "answer", "review", "helper")
 
 
 def trial_conn(role: str = "") -> dict | None:
