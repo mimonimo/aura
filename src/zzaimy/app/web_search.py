@@ -87,16 +87,18 @@ def _real_url(href: str) -> str:
     return href if href.startswith("http") else "https:" + href if href.startswith("//") else href
 
 
+PROVIDERS = ("google", "naver", "duckduckgo")
+
+
 def provider() -> str:
     """검색 제공자 — 키가 있으면 구글 CSE(ZZAIMY_GOOGLE_CSE_KEY·ZZAIMY_GOOGLE_CSE_CX) 또는 네이버(ZZAIMY_NAVER_CLIENT_ID·SECRET),
     없으면 덕덕고. ZZAIMY_WEB_SEARCH 로 고정할 수 있다(google|naver|duckduckgo). off 면 외부 검색을 쓰지 않는다."""
     import os
 
     forced = (os.environ.get("ZZAIMY_WEB_SEARCH") or "").strip().lower()
-    if forced in ("off", "0", "none"):
-        return "off"
     if forced:
-        return forced
+        # 아는 제공자 이름이 아니면(false·disabled·오타) 끈 것으로 — 끄려던 설정이 기본 제공자로 새지 않게
+        return forced if forced in PROVIDERS else "off"
     if os.environ.get("ZZAIMY_GOOGLE_CSE_KEY") and os.environ.get("ZZAIMY_GOOGLE_CSE_CX"):
         return "google"
     if os.environ.get("ZZAIMY_NAVER_CLIENT_ID") and os.environ.get("ZZAIMY_NAVER_CLIENT_SECRET"):
@@ -147,6 +149,8 @@ def search(query: str, k: int = 5, http=None) -> list[dict]:
         return search_google(query, k, http)
     if which == "naver":
         return search_naver(query, k, http)
+    if which != "duckduckgo":
+        raise Blocked("외부 검색 제공자 설정을 알 수 없어 보내지 않았습니다.")
     http = http or httpx.Client(timeout=20, headers=_UA, follow_redirects=True)
     r = http.post(SEARCH_URL, data={"q": query, "kl": "kr-kr"}, headers=_UA)
     if r.status_code != 200:

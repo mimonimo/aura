@@ -209,3 +209,16 @@ def test_google_view_copy_of_hidden_document_is_refused(tmp_path):
     assert lee.get(f"/api/doc/{did}/google").status_code == 404
     kim = _client(tmp_path, "kim", "kim-pass")
     assert kim.get(f"/api/doc/{did}/google").status_code == 400           # 볼 수 있는 사람은 계정 연결 안내까지 간다
+
+
+def test_unknown_web_search_setting_means_off(monkeypatch):
+    """끄려던 설정(false·disabled·오타)이 기본 제공자(덕덕고)로 새지 않는다 — 아는 이름만 받고 나머지는 끈 것으로."""
+    import pytest
+    from zzaimy.app import web_search
+    for val in ("false", "disabled", "googel", "off", "0"):
+        monkeypatch.setenv("ZZAIMY_WEB_SEARCH", val)
+        assert web_search.provider() == "off"
+        with pytest.raises(web_search.Blocked):
+            web_search.search("질문", http=object())
+    monkeypatch.setenv("ZZAIMY_WEB_SEARCH", "duckduckgo")
+    assert web_search.provider() == "duckduckgo"
