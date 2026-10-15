@@ -44,8 +44,17 @@
 ## 화면 요소 짚기
 
 제안과 안내 항목마다 같은 일을 하는 화면 자리(`screen`)와 요소 선택자(`target.selector`, 예: `[data-rr="student"]`)를 함께 둔다.
-떠 있는 창의 제안 상자에 `data-target-path`·`data-target-selector` 로 붙어 있어, 화면 위 커서가 그 단추를 강조하거나 누르는 모습을 그릴 때 쓴다.
-실제 실행은 늘 [실행] 뒤 서버에서 한다.
+떠 있는 창의 제안 상자에 `data-target-path`·`data-target-selector` 로 붙어 있고, 화면 위 AURA 커서(`base.html` 의 `auraCursor`)가 쓴다.
+같은 화면이면 「화면에서 직접」·[실행] 을 누를 때 커서가 그 요소로 옮겨 가 강조하고 누르는 모양을 보인다. 다른 화면이면 주소를 옮긴 뒤
+(15초 안, `sessionStorage` 의 `auraPoint`) 그 화면에서 이어 가리킨다. 목록을 늦게 불러와 대상이 밀려도 0.1초마다 다시 재어 따라간다.
+선택자가 숨은 요소면 자리(`#id`)를 가리킨다. 커서는 보이기만 하고, 실제 실행은 늘 [실행] 뒤 서버에서 한다.
+
+## 작성 카드
+
+문서 작업 에이전트가 문서에 쓰는 도구(write_section·rewrite_section·edit_document·create_document)를 부르면 `doc_agent.run` 의
+`on_act(도구, 인자, start|done|fail)` 이 진행 상태에 `writing` (지금 쓰는 절, 이번 요청에서 쓴 절)을 싣는다. 대화 쪽 진행 카드에는
+「「절」 쓰는 중 · 이번 요청에서 쓴 절 n개」 카드가, 편집기 위 진행 줄에는 AURA 커서와 「AURA가 「절」 작성 중」 이 뜬다.
+화면 표시가 실패해도 에이전트 걸음에는 영향이 없다.
 
 ## 안내 자료가 낡지 않게
 
@@ -55,6 +64,5 @@
 
 ## 남은 것
 
-- 모델 용도 「helper」 를 화면에서 고르려면 `generate/llm_connections.ROLES` 에 넣어야 한다(지금은 `ZZAIMY_ROLE_CONN=helper=<연결>` 이나 기본 answer 연결).
+- 모델 용도 「helper」 는 연결 화면에서 고른다(비워 두면 문서 작업 연결).
 - 동작 늘리기: 계정별 추가 권한, 문서 검색 범위 옮기기, 모델 연결 확인 등 화면에 이미 있는 일.
-- 화면 위 커서·강조.
