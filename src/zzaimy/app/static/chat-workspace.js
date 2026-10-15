@@ -160,21 +160,42 @@
   const PAIR_SEP = /[;\n]|,\s*(?=[^,]{1,40}?\s*(?:[:：]|은|는|이|가)\s)/;
   const PAIR_TAIL = /\s*(?:입니다|이다|이고|이며|임|예요|에요)\.?$/;
   const escapeRe = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // 서버 asks.parse_pairs 와 같은 규칙 — 여러 줄 값(표 칸·목록): 이름 뒤가 비면 다음 줄들이 값(빈 줄·다음 이름 줄까지),
+  // 값이 있는 이름 뒤에는 목록 글머리·표 줄로 시작하는 줄만 잇는다
+  const ITEM_LINE = /^\s*(?:[-•·∙*○●□■▪]|\d{1,2}[.)]|[①-⑳]|\|)/;
   function parsePairs(text, names) {
     const out = {};
     if (!text || !names.length) return out;
     const ordered = [...names].sort((a, b) => b.length - a.length);
-    for (const raw of text.split(PAIR_SEP)) {
-      const piece = (raw || '').trim();
-      if (!piece) continue;
+    const match = piece => {
       for (const name of ordered) {
-        const m = piece.match(new RegExp('^\\s*' + escapeRe(name) + '\\s*(?:[:：]|은|는|이|가)\\s*(.+)$'));
-        if (!m) continue;
-        const value = m[1].trim().replace(PAIR_TAIL, '').replace(/^[ .]+|[ .]+$/g, '');
-        if (value && !/^(?:[○◯?？]+|\(값\)|\(번호\))$/.test(value)) out[name] = value;
-        break;
+        const m = piece.match(new RegExp('^\\s*' + escapeRe(name) + '\\s*(?:[:：]|은|는|이|가)\\s*(.*)$'));
+        if (m) return [name, m[1].trim()];
       }
+      return null;
+    };
+    const keep = (name, raw) => {
+      const value = raw.includes('\n') ? raw.trim() : raw.trim().replace(PAIR_TAIL, '').replace(/^[ .]+|[ .]+$/g, '');
+      if (value && !/^(?:[○◯?？]+|\(값\)|\(번호\))$/.test(value)) out[name] = value;
+    };
+    let block = null, open = false, lines = [];
+    const close = () => { if (block !== null && lines.length) keep(block, lines.join('\n')); block = null; lines = []; };
+    for (const line of text.split('\n')) {
+      if (!line.trim()) { close(); continue; }
+      if (block !== null) {
+        if (!match(line) && (!lines.length || ITEM_LINE.test(line) || open)) { lines.push(line.trimEnd()); continue; }
+        close();
+      }
+      const pieces = line.split(PAIR_SEP).filter(piece => piece && piece.trim());
+      pieces.forEach((piece, index) => {
+        const got = match(piece);
+        if (!got) return;
+        const [name, raw] = got;
+        if (index === pieces.length - 1) { block = name; open = !raw; lines = raw ? [raw] : []; if (raw) keep(name, raw); }
+        else keep(name, raw);
+      });
     }
+    close();
     return out;
   }
   window.ChatValueForm = {parsePairs};

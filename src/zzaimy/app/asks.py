@@ -14,6 +14,7 @@ import re
 from zzaimy.app import institution
 
 _SEP = re.compile(r"[;\n]|,\s*(?=[^,]{1,40}?\s*(?:[:：]|은|는|이|가)\s)")
+VALUE_MAX = 2000                     # 값 하나의 길이 상한 — 여러 줄 값(명단·일정표·표 칸)을 담는다
 _TAIL = re.compile(r"\s*(?:입니다|이다|이고|이며|임|예요|에요)\.?$")
 
 
@@ -187,7 +188,7 @@ def resolve_from_evidence(db, session_: dict | None, name: str, value: str, sour
     from datetime import datetime
 
     sug = suggestions(db, session_)
-    sug[name] = {"value": value.strip()[:200], "title": str(hit.get("title") or "")[:120], "doc_id": hit.get("doc_id"),
+    sug[name] = {"value": value.strip()[:VALUE_MAX], "title": str(hit.get("title") or "")[:120], "doc_id": hit.get("doc_id"),
                  "chunk_id": hit.get("chunk_id"), "run": run, "at": datetime.now().isoformat(timespec="seconds")}
     db.set_setting(key + ":suggested", json.dumps(sug, ensure_ascii=False))
     return ""
@@ -246,22 +247,65 @@ def form_option(asks: list[dict], suggested: dict | None = None) -> dict:
             "question": "; ".join(f"{a['name']}: (값)" for a in shown),
             "submit": "확인" if any(f["value"] for f in fields) else "저장"}
 
+# 여러 줄 값의 이어지는 줄 — 목록 글머리(-·•·1.·①)나 표 줄(|)로 시작하는 줄
+_ITEM_LINE = re.compile(r"^\s*(?:[-•·∙*○●□■▪]|\d{1,2}[.)]|[①-⑳]|\|)")
+
+
 def parse_pairs(text: str, names: list[str]) -> dict:
-    """"사업단명: AI-X 사업단; 총괄책임자 성명은 홍길동" → {이름: 값}. 물었던 이름만 받는다(엉뚱한 문장을 값으로 오해하지 않게)."""
+    """"사업단명: AI-X 사업단; 총괄책임자 성명은 홍길동" → {이름: 값}. 물었던 이름만 받는다(엉뚱한 문장을 값으로 오해하지 않게).
+
+    여러 줄 값(표 칸·목록): 「참여 기관:」 처럼 이름 뒤가 비었으면 다음 줄들이 값이다(다음 이름 줄·빈 줄까지). 값이 있는 이름 뒤에는
+    목록 글머리·표 줄로 시작하는 줄만 이어 붙인다 — 「그리고 초안 써 줘」 같은 다음 문장은 값에 섞지 않는다."""
     out: dict = {}
     if not text or not names:
         return out
-    for piece in _SEP.split(text):
-        piece = (piece or "").strip()
-        if not piece:
-            continue
-        for name in sorted(names, key=len, reverse=True):
-            m = re.match(rf"\s*{re.escape(name)}\s*(?:[:：]|은|는|이|가)\s*(.+)$", piece)
+    order = sorted(names, key=len, reverse=True)
+
+    def match(piece: str):
+        for name in order:
+            m = re.match(rf"\s*{re.escape(name)}\s*(?:[:：]|은|는|이|가)\s*(.*)$", piece)
             if m:
-                val = _TAIL.sub("", m.group(1).strip()).strip(" .")
-                if val and not re.fullmatch(r"[○◯?？]+|\(값\)|\(번호\)", val):
-                    out[name] = val
-                break
+                return name, m.group(1).strip()
+        return None
+
+    def keep(name: str, raw: str) -> None:
+        val = _TAIL.sub("", raw.strip()).strip(" .") if "\n" not in raw else raw.strip()
+        if val and not re.fullmatch(r"[○◯?？]+|\(값\)|\(번호\)", val):
+            out[name] = val[:VALUE_MAX]
+
+    block: str | None = None          # 지금 여러 줄 값을 모으는 이름
+    block_open = False                # 이름 뒤가 비어 다음 줄들이 값인가
+    lines: list[str] = []
+
+    def close() -> None:
+        nonlocal block, lines
+        if block is not None and lines:
+            keep(block, "\n".join(lines))
+        block, lines = None, []
+
+    for line in text.split("\n"):
+        if not line.strip():                             # 빈 줄은 여러 줄 값의 끝
+            close()
+            continue
+        if block is not None:
+            if match(line) is None and (not lines or _ITEM_LINE.match(line) or block_open):
+                lines.append(line.rstrip())
+                continue
+            close()
+        pieces = [p for p in _SEP.split(line) if p and p.strip()]
+        for i, piece in enumerate(pieces):
+            got = match(piece)
+            if got is None:
+                continue
+            name, raw = got
+            if i == len(pieces) - 1:                     # 줄의 마지막 값 — 다음 줄이 이어질 수 있다
+                block, block_open = name, not raw
+                lines = [raw] if raw else []
+                if raw:
+                    keep(name, raw)
+            else:
+                keep(name, raw)
+    close()
     return out
 
 

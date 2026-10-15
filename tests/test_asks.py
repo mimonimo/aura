@@ -37,3 +37,16 @@ def test_form_shows_latest_asks_and_counts_the_rest():
     opt = a.form_option(names)
     assert [f["name"] for f in opt["fields"]] == [f"값{i}" for i in range(3, 9)]   # 방금 물은 값이 칸에
     assert opt["more"] == 3 and "값8: (값)" in opt["question"]
+
+
+def test_parse_pairs_takes_multi_line_values_without_swallowing_the_next_sentence():
+    names = ["사업단명", "참여 기관", "추진 일정"]
+    # 이름 뒤가 비면 다음 줄들이 값(빈 줄·다음 이름 줄까지)
+    got = asks.parse_pairs("참여 기관:\n가나 대학교\n다라 산업(주)\n\n그리고 초안 써 줘", names)
+    assert got == {"참여 기관": "가나 대학교\n다라 산업(주)"}
+    # 값이 있는 이름 뒤에는 목록 글머리·표 줄만 잇는다
+    got = asks.parse_pairs("참여 기관: 가나 대학교\n- 다라 산업(주)\n사업단명: X 사업단\n그리고 초안 써 줘", names)
+    assert got == {"참여 기관": "가나 대학교\n- 다라 산업(주)", "사업단명": "X 사업단"}
+    got = asks.parse_pairs("추진 일정:\n| 1분기 | 기획 |\n| 2분기 | 운영 |", names)
+    assert got == {"추진 일정": "| 1분기 | 기획 |\n| 2분기 | 운영 |"}
+    assert len(asks.parse_pairs("참여 기관:\n" + "\n".join(f"- 기관 {i}" for i in range(400)), names)["참여 기관"]) == asks.VALUE_MAX

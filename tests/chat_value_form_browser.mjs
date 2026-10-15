@@ -101,23 +101,23 @@ try {
   await open('/chat/1', 800);
   assert.equal(await evaluate(`document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll('#chatValueForm textarea')].every(t=>t.getBoundingClientRect().right<=document.querySelector('#chatValueForm').getBoundingClientRect().right)`), true);
 
-  // 줄 고르기 — 실제 마우스로 줄 앞 체크, Shift+체크로 범위, 빈 칸 고르기 → 하나 빼기 → 고른 줄만 자료에서 찾기, 전체 고르기·풀기
+  // 줄 선택 — 실제 마우스로 줄 앞 체크, Shift+체크로 범위, 빈 칸 선택 → 하나 빼기 → 선택한 줄만 자료에서 찾기, 전체 선택·해제
   await open('/chat/1', 1440);
   const tools = () => evaluate(`[...document.querySelectorAll('#chatValueForm [data-bulk]')].filter(b=>!b.hidden).map(b=>b.textContent)`);
   const pickRow = n => `#chatValueForm li:nth-child(${n}) [data-pick]`;
   const picks = () => evaluate(`[...document.querySelectorAll('#chatValueForm [data-pick]')].map(b=>b.checked)`);
-  assert.deepEqual(await tools(), ['빈 칸 5개 고르기']);
+  assert.deepEqual(await tools(), ['빈 칸 5개 선택']);
   assert.equal(await evaluate(`document.querySelector('[data-form-submit]').textContent`), '1개 확인 · 빈 칸 5개는 다음에');
   await mouse(pickRow(2)); await mouse(pickRow(5), 8);
   assert.deepEqual(await picks(), [false, true, true, true, true, false]);
   assert.deepEqual(await evaluate(`(()=>{const a=document.querySelector('[data-pick-all]');return [a.checked,a.indeterminate]})()`), [false, true]);
-  assert.deepEqual(await tools(), ['고른 3개 자료에서 찾기', '고르기 풀기']);   // 이미 값이 있는 「가상 기간」 은 찾지 않는다
+  assert.deepEqual(await tools(), ['선택한 3개 자료에서 찾기', '선택 해제']);   // 이미 값이 있는 「가상 기간」 은 찾지 않는다
   await mouse('#chatValueForm [data-bulk=clear]');
   assert.deepEqual(await picks(), [false, false, false, false, false, false]);
   await mouse('#chatValueForm [data-bulk=pick-empty]');
   assert.deepEqual(await picks(), [true, true, true, false, true, true]);
   await mouse(pickRow(1));
-  assert.deepEqual(await tools(), ['고른 4개 자료에서 찾기', '고르기 풀기']);
+  assert.deepEqual(await tools(), ['선택한 4개 자료에서 찾기', '선택 해제']);
   await mouse('#chatValueForm [data-pick-all]');
   assert.equal(await evaluate(`document.querySelectorAll('#chatValueForm [data-pick]:checked').length`), 6);
   await mouse('#chatValueForm [data-pick-all]');

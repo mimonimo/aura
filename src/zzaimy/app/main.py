@@ -2273,7 +2273,7 @@ def create_app(
             asked = {x["name"] for x in _asks.pending(db, session_id)}
             said = re.sub(r"\s+", "", q)
             # 물었던 값만, 담당자 글에 두 글자 이상 그대로 이어진 값만 받는다 — 모델이 값을 지어 넣거나 다른 이름으로 쓰지 않게
-            given = {str(k).strip(): str(v).strip()[:200] for k, v in vals.items()
+            given = {str(k).strip(): str(v).strip()[:_asks.VALUE_MAX] for k, v in vals.items()
                      if str(k).strip() in asked and len(re.sub(r"\s+", "", str(v))) >= 2 and re.sub(r"\s+", "", str(v)) in said}
             dropped = [str(k) for k in vals if str(k).strip() not in given]
             if not given:
