@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 from zzaimy.app.db import Database  # noqa: E402
-from zzaimy.app.doc_routing import KINDS
+from zzaimy.app.doc_routing import KINDS, excluded_kinds  # noqa: E402
 from zzaimy.app.kind_read import thin_exclusion  # noqa: E402
 
 
@@ -39,8 +39,8 @@ def load(files: list[str]) -> dict[str, dict]:
                 d = json.loads(line)
             except ValueError:
                 continue
-            if d.get("rel") and d.get("kind") in KINDS:
-                out[d["rel"]] = d                                   # 같은 원본은 마지막 판정
+            if d.get("rel") and (d.get("kind") in KINDS or d.get("kind") == ""):
+                out[d["rel"]] = d                                   # 같은 원본은 마지막 판정 — 빈 갈래는 「앞 판정을 거둔다」
     return out
 
 
@@ -55,6 +55,8 @@ def plan(db: Database, judged: dict[str, dict]) -> list[tuple[int, str, str]]:
     for did, sp, kind, dtype, ident in rows:
         rel = str(sp)[len("dgx://"):]
         j = judged.get(rel)
+        if j and j["kind"] == "" and (kind or "") not in excluded_kinds():
+            continue                                                # 빈 갈래는 빠지는 갈래만 거둔다(규칙 갈래는 그대로)
         if not j or dtype == "regulation" or (kind or "") == j["kind"] \
                 or thin_exclusion(j["kind"], j.get("rule") or "", j.get("chars")):
             continue
@@ -92,7 +94,7 @@ def main() -> int:
     with bak.open("a", encoding="utf-8") as fo, db._conn() as conn:
         for did, old, new in changes:
             fo.write(json.dumps({"id": did, "old": old, "new": new, "at": time.strftime("%Y-%m-%d %H:%M")}, ensure_ascii=False) + "\n")
-            conn.execute("UPDATE documents SET kind = ? WHERE id = ?", (new, did))
+            conn.execute("UPDATE documents SET kind = ? WHERE id = ?", (new or None, did))
     (Path(db.path).parent / ".kg-dirty").touch()
     print(f"  적용 {len(changes)}건 · 되돌리기: scripts/192_kind_apply.py --restore {bak}", flush=True)
     return 0

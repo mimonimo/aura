@@ -62,14 +62,19 @@ def main() -> int:
         print(f"다시 볼 판정({','.join(sorted(redo_kinds))}) {len(redo)}", flush=True)
     print(f"문서 {len(docs)} · 이미 판정 {len(docs) - len(todo)} · 남음 {len(todo)}", flush=True)
     complete = s190.ollama(args.url, args.model)
+    from zzaimy.app.doc_routing import excluded_kinds
+    excluded = set(excluded_kinds())
     t0, n_ok, n_skip = time.time(), 0, 0
     with out.open("a", encoding="utf-8") as fo:
         for i, rel in enumerate(todo, 1):
             if args.max_sec and time.time() - t0 > args.max_sec:
                 break
             d = docs[rel]
-            got = kind_read.read_kind(complete, Path(d.get("filename") or rel).stem, d.get("masked_text") or "", str(Path(rel).parent))
-            if not got or not got[0]:
+            got = kind_read.judge(complete, Path(d.get("filename") or rel).stem, d.get("masked_text") or "", str(Path(rel).parent))
+            prev = last.get(rel, {}).get("kind")
+            if got and not got[0] and prev in excluded:                 # 앞 판정이 빠지는 갈래였는데 이제 모름 — 갈래를 비우라고 적는다
+                got = ("", got[1])
+            elif not got or not got[0]:
                 n_skip += 1
                 continue
             fo.write(json.dumps({"rel": rel, "version": str(d.get("version") or ""), "kind": got[0], "why": got[1],

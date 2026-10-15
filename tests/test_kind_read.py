@@ -52,3 +52,48 @@ def test_performance_evidence_bundle_is_report_not_accounting():
     from zzaimy.app import kind_read
     assert "결과보고서" in kind_read.KIND_DESC["evidence"]                # 성과 증빙 묶음은 회계 증빙과 갈린다
     assert kind_read.PROMPT_VER
+
+
+def test_judge_confirms_excluded_kind_and_repicks(monkeypatch):
+    """검색에서 빠지는 갈래(증빙)는 한 번 더 확인 — 아니라면 그 갈래를 뺀 목록에서 다시 고른다."""
+    from zzaimy.app import kind_read
+    monkeypatch.delenv("ZZAIMY_EXCLUDE_KINDS", raising=False)
+    seen = []
+
+    def model(answers):
+        it = iter(answers)
+
+        def complete(messages):
+            seen.append(messages)
+            return next(it)
+        return complete
+
+    seen.clear()
+    got = kind_read.judge(model(['{"kind": "evidence", "why": "증빙"}', '{"same": false, "why": "성과 묶음"}',
+                                 '{"kind": "report", "why": "실적 보고"}']), "실적 증빙자료", "본문")
+    assert got[0] == "report" and "다시 보니" in got[1]
+    assert "evidence:" not in seen[-1][1]["content"]                   # 다시 고를 때는 빠지는 갈래가 목록에 없다
+    assert kind_read.judge(model(['{"kind": "evidence", "why": "세금계산서"}', '{"same": true, "why": "그 자체"}']),
+                           "세금계산서", "공급가액")[0] == "evidence"
+    assert kind_read.judge(model(['{"kind": "evidence", "why": "x"}', "형식 아님"]), "t", "b") is None   # 확인 못 하면 물러남
+    assert kind_read.judge(model(['{"kind": "plan", "why": "계획"}']), "계획서", "b")[0] == "plan"        # 남는 갈래는 한 번만
+
+
+def test_apply_clears_only_excluded_kind(tmp_path, monkeypatch):
+    """빈 갈래 판정은 앞서 붙은 빠지는 갈래(증빙)만 거둔다 — 규칙이 붙인 다른 갈래는 그대로."""
+    import importlib.util
+    from pathlib import Path
+    from zzaimy.app.db import Database
+    monkeypatch.delenv("ZZAIMY_EXCLUDE_KINDS", raising=False)
+    spec = importlib.util.spec_from_file_location("s192", Path(__file__).resolve().parents[1] / "scripts/192_kind_apply.py")
+    s192 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(s192)
+    from zzaimy.app import archive
+    db = Database(tmp_path / "p.db")
+    archive.ensure(db)
+    a = db.add_document("a.pdf", "dgx://x/a.pdf")
+    b = db.add_document("b.pdf", "dgx://x/b.pdf")
+    db.set_document_kind(a, "evidence")
+    db.set_document_kind(b, "table")
+    judged = {"x/a.pdf": {"rel": "x/a.pdf", "kind": ""}, "x/b.pdf": {"rel": "x/b.pdf", "kind": ""}}
+    assert s192.plan(db, judged) == [(a, "evidence", "")]
