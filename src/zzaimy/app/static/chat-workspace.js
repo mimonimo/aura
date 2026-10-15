@@ -118,9 +118,10 @@
       }
       const now = writing.state === 'writing';
       card.classList.toggle('is-writing', now);
+      // 지금 쓰는 절 이름은 바로 위 진행 줄에 있다 — 카드는 문서 단위로(무엇을 하는지·지금까지 쓴 절)
       card.querySelector('b').textContent = now
-        ? (writing.section ? '「' + writing.section + '」 ' : '문서 ') + (writing.act === 'rewrite_section' ? '다시 쓰는 중' : writing.act === 'edit_document' ? '고치는 중' : writing.act === 'create_document' ? '만드는 중' : '쓰는 중')
-        : '다음 걸음 준비 중';
+        ? 'AURA가 문서를 ' + (writing.act === 'rewrite_section' ? '다시 쓰고' : writing.act === 'edit_document' ? '고치고' : writing.act === 'create_document' ? '만들고' : '쓰고') + ' 있습니다'
+        : '다음 작업 준비 중';
       const done = (writing.done || []).filter(x => typeof x === 'string');
       card.querySelector('small').textContent = done.length ? '이번 요청에서 쓴 절 ' + done.length + '개 · ' + done.join(', ') : '';
     } else if (card) card.remove();
