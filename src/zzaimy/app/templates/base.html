@@ -1138,17 +1138,18 @@ document.addEventListener('submit', function(event) {
     function point(t, label, then) {
       var hit = find(t || {});
       if (!hit) { if (then) then(false); return; }
-      hit.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
+      hit.scrollIntoView({ behavior: still ? "instant" : "smooth", block: "center" });
       var c = cursor(); c.classList.remove("leaving");
       c.querySelector(".aura-cursor-tag").textContent = label ? "AURA · " + label : "AURA";
       // 보이는 동안 0.1초마다 대상 자리를 다시 재어 따라간다 — 부드러운 스크롤 중이거나, 목록이 늦게 불러와져 대상이
-      // 밀려나도 커서가 대상 위에 있다. 0.6초 뒤에도 화면 밖이면 바로 옮긴다
+      // 밀려나도 커서가 대상 위에 있다. 0.6초 뒤에도 화면 밖이면 바로 옮긴다(html 의 scroll-behavior: smooth 를 instant 로 누른다 —
+      // 부드러운 스크롤은 뒤에 있는 탭에서 돌지 않는다)
       var t0 = Date.now(), pressed = false;
       if (ringOn && ringOn !== hit) ringOn.classList.remove("aura-ring");
       ringOn = hit; clearTimeout(c._follow);
       (function follow() {
         var r = hit.getBoundingClientRect(), age = Date.now() - t0;
-        if (age > 600 && age < 2000 && (r.top < 0 || r.bottom > innerHeight)) { hit.scrollIntoView({ block: "center" }); r = hit.getBoundingClientRect(); }
+        if (age > 600 && age < 2000 && (r.top < 0 || r.bottom > innerHeight)) { hit.scrollIntoView({ block: "center", behavior: "instant" }); r = hit.getBoundingClientRect(); }
         c.style.left = Math.round(r.left + Math.min(r.width / 2, 40)) + "px";
         c.style.top = Math.round(r.top + Math.min(r.height / 2, 18)) + "px";
         if (!pressed && age > (still ? 0 : 1000)) {
