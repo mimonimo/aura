@@ -74,10 +74,12 @@ def unsupported_numbers(question: str, answer: str, ctx: str) -> list[str]:
             and not (_DATE.fullmatch(x) and _date(_DATE.fullmatch(x).groups()) in ctx_dates)]
 
 
-def load_sets(sec_path: Path, rel_path: Path) -> list[dict]:
+def load_sets(sec_path: Path, rel_path: Path, named: bool = False) -> list[dict]:
+    """named: 절 질문 가운데 같은 제목의 절을 가진 문서가 여럿인 것은 문서 이름을 넣은 질문(scripts/173 q_named)으로."""
     items: list[dict] = []
     for i, x in enumerate(json.loads(sec_path.read_text(encoding="utf-8"))["items"]):
-        items.append({"id": f"sec{i:03d}", "set": "section", "type": "section", "q": x["q"], "doc_id": x["doc_id"],
+        q = x.get("q_named") or x["q"] if named else x["q"]
+        items.append({"id": f"sec{i:03d}", "set": "section", "type": "section", "q": q, "doc_id": x["doc_id"],
                       "twins": set(x["twins"]), "prog_docs": set(x["prog_docs"]), "gold_text": x.get("gold", "")})
     for i, x in enumerate(json.loads(rel_path.read_text(encoding="utf-8"))["items"]):
         items.append({"id": f"rel{i:03d}", "set": "relation", "type": x["type"], "q": x["q"], "gold": list(x["gold"]),
@@ -529,6 +531,7 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
     ap.add_argument("--sec-set", default=str(ROOT / "data/eval/rag_probe_set.json"))
+    ap.add_argument("--named", action="store_true", help="절 질문은 문서 이름을 넣은 질문(q_named, scripts/173 이 집합에 적어 둔 것)으로")
     ap.add_argument("--rel-set", default=str(ROOT / "data/eval/graph_relation_set.json"))
     ap.add_argument("--reuse", default="", help="앞선 결과 파일 — 같은 질문·모드의 검색·답을 그대로 쓰고 없는 것만 돈다(답변 표본 늘리기)")
     ap.add_argument("--judge", default="", help="눈가림 판정 결과(graphrag_judge_*.json) — 답마다 정답성·완결성 점수를 붙인다")
@@ -559,7 +562,7 @@ def main() -> int:
     if args.think_compare:
         modes, amodes = ["graph_read"], list(THINK)
     db = Database(Path(os.environ.get("ZZAIMY_PLATFORM_SQLITE_PATH") or ROOT / "data/platform/platform.db"))
-    items = load_sets(Path(args.sec_set), Path(args.rel_set))
+    items = load_sets(Path(args.sec_set), Path(args.rel_set), named=args.named)
     # 정답 문서가 지금 문서함에 없는 질문은 뺀다(반입 정리로 빠진 문서) — 뺀 수는 결과에 남긴다
     with db._conn() as conn:
         live = {int(r[0]) for r in conn.execute("SELECT id FROM documents WHERE doc_type = 'grant' AND status = 'reviewed'").fetchall()}

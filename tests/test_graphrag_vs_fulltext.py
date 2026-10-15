@@ -92,3 +92,16 @@ def test_run_answer_think_sets_env_only_for_that_call(monkeypatch):
     s188.run_answer(None, it, "graph_read", think=True)
     s188.run_answer(None, it, "graph_read", think=False)
     assert seen == ["1", "0"] and "ZZAIMY_ANSWER_THINK" not in os.environ
+
+
+def test_named_question_points_to_one_document():
+    """같은 제목의 절을 가진 문서가 여럿이면 갈래 낱말 자리에 문서 이름을 넣는다 — 원래 질문은 그대로."""
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("s173", Path(__file__).resolve().parents[1] / "scripts/173_rag_probe.py")
+    s173 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(s173)
+    q = "별빛 사업 2025년 계획서의 「과제 배경 및 목표」 내용을 알려줘"
+    assert s173.named_question(q, "과제 배경 및 목표", "단위과제(2-1) 과제계획서.hwpx") == \
+        "별빛 사업 2025년 「단위과제(2-1) 과제계획서」의 「과제 배경 및 목표」 내용을 알려줘"
+    assert s173.named_question(q, "과제 배경 및 목표", "") == q

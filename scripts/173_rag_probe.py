@@ -118,6 +118,28 @@ def probes(db, n: int, seed: int) -> list[dict]:
     return out
 
 
+def named_question(q: str, title: str, doc_name: str) -> str:
+    """같은 사업·연도에 같은 제목의 절을 가진 문서가 여럿이면(협약반·단위과제마다 같은 서식) 질문이 문서 하나를 가리키지 못한다 —
+    갈래 낱말 자리에 그 문서 이름을 넣은 질문. 정답 문서 하나만 맞게 치는 채점(doc@k·답 채점)을 공정하게 하려는 것."""
+    doc_name = re.sub(r"\.[A-Za-z0-9]{2,5}$", "", (doc_name or "").strip())[:60]
+    if not doc_name:
+        return q
+    return re.sub(r"\S+의 「" + re.escape(title) + "」", f"「{doc_name}」의 「{title}」", q, count=1)
+
+
+def add_named(db: Database, items: list[dict]) -> int:
+    """쌍둥이 문서가 있는 질문에 q_named 를 붙인다(없을 때만). 붙인 수를 돌려준다 — 원래 질문 q 는 그대로(옛 측정과 견주게)."""
+    n = 0
+    for p in items:
+        if "q_named" in p:
+            continue
+        doc = db.get_document(int(p["doc_id"])) or {}
+        name = doc.get("title") or doc.get("filename") or ""
+        p["q_named"] = named_question(p["q"], p["title"], name) if len(p["twins"]) > 1 else p["q"]
+        n += 1
+    return n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=80)
@@ -130,6 +152,7 @@ def main() -> int:
                          " 시험지가 바뀌어 측정끼리 견줄 수 없다")
     ap.add_argument("--new-set", action="store_true", help="질문 집합을 새로 뽑아 --set 에 쓴다")
     ap.add_argument("--reader", action="store_true", help="그래프 단계에서 질문을 모델로 읽는다(graph.question_read)")
+    ap.add_argument("--named", action="store_true", help="쌍둥이 문서가 있는 질문은 문서 이름을 넣은 질문(q_named)으로")
     args = ap.parse_args()
     from zzaimy.graph.question_read import reader_for
     reader = reader_for("answer", force=True) if args.reader else None
@@ -144,7 +167,16 @@ def main() -> int:
         set_path.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "seed": args.seed,
                                         "items": [dict(x, twins=sorted(x["twins"]), prog_docs=sorted(x["prog_docs"])) for x in items]},
                                        ensure_ascii=False), encoding="utf-8")
-    print(f"질문 집합 {set_path.name} · {len(items)}문", flush=True)
+    if add_named(db, items):                               # 문서 이름 질문은 집합 파일에 한 번 적어 둔다(측정끼리 같은 시험지)
+        raw = json.loads(set_path.read_text(encoding="utf-8"))
+        for x, y in zip(raw["items"], items):
+            x["q_named"] = y["q_named"]
+        set_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    n_named = sum(1 for x in items if x["q_named"] != x["q"])
+    if args.named:
+        items = [dict(x, q=x["q_named"]) for x in items]
+    print(f"질문 집합 {set_path.name} · {len(items)}문 · 쌍둥이 문서가 있어 이름을 넣을 질문 {n_named}"
+          + (" (이름 넣은 질문으로 잼)" if args.named else ""), flush=True)
     rows = []
     for i, p in enumerate(items):
         t0 = time.time()
