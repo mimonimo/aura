@@ -15,5 +15,6 @@ def _isolate_google(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("ZZAIMY_WARM_NOUNS", "0")         # 서비스 시작 때 규정 명사 미리 세기(뒤 스레드) — 시험 DB 와 다투지 않게
     monkeypatch.setenv("ZZAIMY_KIND_READ", "0")          # 반입 때 서류 갈래 27B 판정 — 모델 서버가 없으니 규칙으로(test_kind_read 가 따로 켠다)
     monkeypatch.setenv("ZZAIMY_PLATFORM_HELPER", "0")    # 떠 있는 창의 플랫폼 업무 도우미도 모델 서버가 있어야 돈다 — test_platform_agent 가 켠다
+    monkeypatch.setenv("ZZAIMY_MINERU_STRUCTURE", "1")   # PDF 구조 추출 경로를 그대로 시험(운영 VM 은 GPU 가 없어 생략 — test_pdf_skip 이 따로)
     monkeypatch.setenv("ZZAIMY_DOC_AGENT", "0")          # 문서 작업 에이전트는 모델 서버가 있어야 돈다 — 에이전트 테스트가 따로 켠다(test_doc_agent)
     yield

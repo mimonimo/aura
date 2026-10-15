@@ -94,6 +94,29 @@ _REVIEW_QUEUE = __import__("concurrent.futures").futures.ThreadPoolExecutor(max_
 _MINERU_SLOT = threading.BoundedSemaphore(int(os.environ.get("ZZAIMY_MINERU_SLOTS", "1") or 1))
 
 
+_MINERU_OK: list = []
+
+
+def _mineru_structure_ok() -> bool:
+    """이 서버에서 MinerU 구조 추출(디지털 PDF)을 돌릴 만한가 — ZZAIMY_MINERU_STRUCTURE=1/0 이 있으면 그대로,
+    없으면 GPU(nvidia-smi 가 장치를 보이는지)가 있을 때만. 한 번 보고 기억한다."""
+    forced = (os.environ.get("ZZAIMY_MINERU_STRUCTURE") or "").strip()
+    if forced in ("0", "1"):
+        return forced == "1"
+    if not _MINERU_OK:
+        ok = False
+        try:
+            import shutil
+            import subprocess
+            if shutil.which("nvidia-smi"):
+                r = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=5)
+                ok = r.returncode == 0 and "GPU" in (r.stdout or "")
+        except Exception:
+            ok = False
+        _MINERU_OK.append(ok)
+    return _MINERU_OK[0]
+
+
 def _vision_available() -> bool:
     """비전 모델이 따로 지정돼 있는가. 없으면 이미지 판독을 아예 건너뛴다."""
     if os.environ.get("ZZAIMY_NO_VISION"):        # 대량 가벼운 처리 — 비전 서버를 부르지 않는다
@@ -495,6 +518,16 @@ class DocumentProcessor:
                     self._note_partial_vision(file_path, pages[:read])
                     self._last_md = [(pg, m) for (pg, _p), m in zip(pages[:read], mds)]
                     return "\n\n".join(self._md_to_text(m) for m in mds)
+
+        if suffix == ".pdf" and not _mineru_structure_ok() and self._pdf_has_text_layer(file_path):
+            # 구조 추출을 제때 끝낼 수 없는 곳(GPU 없는 VM — 14일 동안 성공 0·시간 초과 5)에서는 기다리지 않고 글자층을 읽는다.
+            # 시간 초과 뒤 물러나던 것과 같은 결과를 5분 일찍 낸다. 표 구조가 필요한 대량 반입은 GPU 가 있는 DGX 가 맡는다
+            direct = self._read_text_layer(file_path, min_pages=1)
+            if direct:
+                self._ocr_used = False
+                self._last_pages = direct[2]
+                self._last_parse_note = f"글자층 직독 (구조 추출 생략 — 이 서버에 GPU 없음, 쪽수 {direct[1]})"
+                return direct[0]
 
         if suffix == ".pdf" and not os.environ.get("ZZAIMY_NO_MINERU_DEFAULT"):
             # PDF 기본 파서는 MinerU — 표 구조·2단 레이아웃·읽기 순서 보존.

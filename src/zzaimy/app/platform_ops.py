@@ -104,6 +104,15 @@ def _names(rows: list[dict], key: str = "filename", n: int = 6) -> str:
 AUD = {"student": "학생 공개", "staff": "교직원만"}
 
 
+def _ro(word: str) -> str:
+    """조사 「로·으로」 — 받침이 없거나 ㄹ 받침이면 로."""
+    c = (word or " ")[-1]
+    if not ("가" <= c <= "힣"):
+        return "로"
+    jong = (ord(c) - 0xAC00) % 28
+    return "로" if jong in (0, 8) else "으로"
+
+
 def _audience_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
     aud = str(a.get("audience") or "student")
     if aud not in AUD:
@@ -112,7 +121,7 @@ def _audience_check(ctx: Ctx, a: dict) -> tuple[str, dict]:
     todo = [r for r in rows if (r.get("audience") or "staff") != aud]
     if not todo:
         raise OpRefused(f"고른 기준 문서는 이미 {AUD[aud]}이다 — 바꿀 것이 없다.")
-    plan = (f"기준 문서 {len(todo)}건을 「{AUD[aud]}」으로 바꿉니다 — {_names(todo)}. "
+    plan = (f"기준 문서 {len(todo)}건을 「{AUD[aud]}」{_ro(AUD[aud])} 바꿉니다 — {_names(todo)}. "
             + ("학생 계정이 찾는 학생 RAG 에 들어갑니다." if aud == "student" else "학생 RAG 에서 빠집니다."))
     return plan, {"ids": [int(r["id"]) for r in todo], "audience": aud}
 
