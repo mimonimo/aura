@@ -175,7 +175,7 @@
   const query = () => {
     const p = new URLSearchParams();
     for (const [k, v] of new FormData(form)) if (String(v).trim() && !(k === 'sort' && v === 'name')) p.set(k, String(v).trim());
-    if (p.has('program')) {                     // 제안에서 고른 사업 이름은 그 묶음 열쇠로 보낸다
+    if (p.has('program')) {                     // 제안에서 선택한 사업 이름은 그 묶음 열쇠로 보낸다
       const opt = [...document.querySelectorAll('#arPrograms option')].find(o => o.value === p.get('program'));
       if (opt && opt.dataset.key) p.set('program', opt.dataset.key);
     }

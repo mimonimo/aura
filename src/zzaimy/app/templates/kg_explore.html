@@ -4,7 +4,7 @@
 
 {% macro item(p, kid=false) -%}
 <div class="gx-item{% if kid %} kid{% endif %}" data-id="{{ p.id }}" data-type="{{ p.type }}" data-label="{{ p.label }}">
-  <label class="gx-chk" title="여러 개 고르기"><input type="checkbox" aria-label="{{ p.label }} 고르기"></label>
+  <label class="gx-chk" title="여러 개 선택"><input type="checkbox" aria-label="{{ p.label }} 선택"></label>
   <button type="button" class="gx-name" title="{{ p.label }} — 이것만 보기"><i data-type="{{ p.type }}"></i><span>{{ p.label }}</span></button>
   <span class="gx-n" title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건">{{ "{:,}".format(p.n_docs) }}</span>
 </div>
@@ -151,13 +151,13 @@
 {% block content %}
 <div class="gx" id="gx" data-q="{{ q }}" data-tab="{{ tab }}">
   <script type="application/json" id="gxInit">{{ {"sel": sel, "totals": totals}|tojson }}</script>
-  <aside class="gx-rail" aria-label="사업 고르기">
+  <aside class="gx-rail" aria-label="사업 선택">
     <div class="gx-find"><input type="search" id="gxQ" placeholder="사업 찾기 · 문서·단위과제·지표도" aria-label="사업·노드 찾기" autocomplete="off"></div>
     <div class="gx-selbar">
-      <button type="button" class="gx-tool" id="gxAll" title="고른 것을 모두 풀고 전체 개요로">전체 보기</button>
+      <button type="button" class="gx-tool" id="gxAll" title="선택을 모두 해제하고 전체 개요로">전체 보기</button>
       <span class="gx-count" id="gxCount" aria-live="polite"></span>
     </div>
-    <div class="gx-chips" id="gxChips" aria-label="고른 항목"></div>
+    <div class="gx-chips" id="gxChips" aria-label="선택한 항목"></div>
     <div class="gx-list" id="gxList">
       <div class="gx-cap" title="이름을 누르면 그것만, 체크하면 여러 개를 함께 봅니다"><span>지원 주체 · 갈래 · 사업</span><span title="볼 수 있는 등록 문서 수">문서 수</span></div>
       {% for t in tree %}
@@ -198,7 +198,7 @@
     <div class="gx-toast" id="gxToast" role="status" aria-live="polite" hidden></div>
   </section>
 
-  <aside class="gx-panel" aria-label="고른 노드">
+  <aside class="gx-panel" aria-label="선택한 노드">
     <div class="gx-p-head">
       <span class="gx-pill" id="gxPType" hidden></span>
       <h3 class="gx-p-title" id="gxPTitle"></h3>
@@ -240,7 +240,7 @@
   var init = JSON.parse(document.getElementById("gxInit").textContent);
   var blank = document.getElementById("gxBlank");
   var listBox = document.getElementById("gxList");
-  // 상태 — 고른 노드(sel)와 탭(tab)은 주소에 남는다. 나머지(펼친 노드)는 그림 안에서만
+  // 상태 — 선택한 노드(sel)와 탭(tab)은 주소에 남는다. 나머지(펼친 노드)는 그림 안에서만
   var state = { sel: init.sel || [], tab: root.dataset.tab || "kg" };
   var loaded = {}, lastData = {}, schemaData = null, overviewData = null, drawn = "", kgSnap = null;
   var labelOf = {}, docsOf = {};
@@ -359,7 +359,7 @@
     lay.run();
   }
 
-  // ── 주소 — 고르기·탭을 쿼리에 남겨 새로고침·뒤로가기로 돌아온다 ──
+  // ── 주소 — 선택·탭을 쿼리에 남겨 새로고침·뒤로가기로 돌아온다 ──
   function urlOf() {
     var u = new URL(location.href);
     ["id", "sel", "tab"].forEach(function (k) { u.searchParams.delete(k); });
@@ -382,7 +382,7 @@
     render();
   });
 
-  // ── 왼쪽 목록 — 체크·강조·칩·고른 수 ──
+  // ── 왼쪽 목록 — 체크·강조·칩·선택한 수 ──
   function syncList() {
     var on = {}; state.sel.forEach(function (id) { on[id] = 1; });
     listBox.querySelectorAll(".gx-item").forEach(function (r) {
@@ -402,8 +402,8 @@
     chips.hidden = !state.sel.length;
     document.getElementById("gxAll").disabled = !state.sel.length && state.tab === "kg";
     var cnt = document.getElementById("gxCount"); cnt.innerHTML = "";
-    if (state.sel.length) { cnt.appendChild(document.createTextNode("고른 ")); cnt.appendChild(el("b", null, state.sel.length + "개")); }
-    else cnt.textContent = "고른 것 없음 · 전체 개요";
+    if (state.sel.length) { cnt.appendChild(document.createTextNode("선택한 ")); cnt.appendChild(el("b", null, state.sel.length + "개")); }
+    else cnt.textContent = "선택한 것 없음 · 전체 개요";
   }
   function bindItems(scope) {
     scope.querySelectorAll(".gx-item").forEach(function (r) {
@@ -452,7 +452,7 @@
       hits.forEach(function (n) {
         labelOf[n.id] = String(n.label).replace(/_+/g, " ");
         var r = el("div", "gx-item"); r.dataset.id = n.id; r.dataset.label = labelOf[n.id]; r.dataset.type = n.type;
-        var lab = el("label", "gx-chk"), cb = el("input"); cb.type = "checkbox"; cb.setAttribute("aria-label", labelOf[n.id] + " 고르기"); lab.appendChild(cb); r.appendChild(lab);
+        var lab = el("label", "gx-chk"), cb = el("input"); cb.type = "checkbox"; cb.setAttribute("aria-label", labelOf[n.id] + " 선택"); lab.appendChild(cb); r.appendChild(lab);
         var b = el("button", "gx-name"); b.type = "button"; var i = el("i"); i.dataset.type = n.type; b.appendChild(i);
         var s = el("span", null, labelOf[n.id]); s.title = labelOf[n.id]; b.appendChild(s); r.appendChild(b);
         r.appendChild(el("span", "gx-hit-type", n.type_ko));
@@ -483,7 +483,7 @@
     pairs.forEach(function (p) { var d = el("div"); d.appendChild(el("b", null, fmt(p[1]))); d.appendChild(el("span", null, p[0])); g.appendChild(d); });
     return g;
   }
-  // 아무것도 누르지 않았을 때 — 개요면 전체 요약, 고른 것이 있으면 고른 목록
+  // 아무것도 누르지 않았을 때 — 개요면 전체 요약, 선택한 것이 있으면 선택한 목록
   function idlePanel() {
     if (state.tab === "onto") { if (schemaData) schemaPanel(schemaData); return; }
     if (!state.sel.length) {
@@ -493,7 +493,7 @@
       return;
     }
     var sum = 0; state.sel.forEach(function (id) { sum += docsOf[id] || 0; });
-    var b2 = panel("고른 항목", "고른 " + state.sel.length + "개", sum ? "문서 " + fmt(sum) + "건(사업별 합)" : "");
+    var b2 = panel("선택한 항목", "선택한 " + state.sel.length + "개", sum ? "문서 " + fmt(sum) + "건(사업별 합)" : "");
     document.getElementById("gxPActs").appendChild(tool("전체 보기", function () { setSel([]); }));
     state.sel.forEach(function (id) {
       var n = cy.getElementById(id), r = el("button", "gx-row"); r.type = "button";
@@ -533,7 +533,7 @@
     var acts = document.getElementById("gxPActs");
     var only = state.sel.length === 1 && state.sel[0] === id;
     if (!only) acts.appendChild(tool("이것만 보기", function () { setSel([id]); }, true));
-    acts.appendChild(tool(state.sel.indexOf(id) >= 0 ? "고르기에서 빼기" : "고르기에 더하기", function () { toggle(id); }));
+    acts.appendChild(tool(state.sel.indexOf(id) >= 0 ? "선택에서 빼기" : "선택에 더하기", function () { toggle(id); }));
     if (state.sel.length && !loaded[id]) acts.appendChild(tool("이웃 펼치기", function () { expand(id); }));
     if (n.doc_id != null) {
       acts.appendChild(linkTool("/doc/" + n.doc_id, "문서 열기 ↗", true));
@@ -695,7 +695,7 @@
       .catch(function () { blank.textContent = "전체 개요를 불러오지 못했습니다."; });
   }
 
-  // ── 지식그래프: 고른 노드 펼치기 ──
+  // ── 지식그래프: 선택한 노드 펼치기 ──
   var BUNDLE_MIN = 6, BUNDLE_TYPES = { doc: 1, section: 1, unit: 1, indicator: 1 };
   function memberKey(id, e, byId) {
     var out = e.src === id, other = out ? e.dst : e.src;
@@ -785,7 +785,7 @@
     cy.elements().remove(); loaded = {}; lastData = {}; placedIds = {}; ringCount = {};
     blank.hidden = false; blank.textContent = "불러오는 중…";
     var key = state.sel.join(","), errs = [];
-    // 고른 것을 차례로 펼친 뒤 한 번만 배치한다(여러 개면 고른 것끼리 이어진 관계도 함께 보인다)
+    // 선택한 것을 차례로 펼친 뒤 한 번만 배치한다(여러 개면 선택한 것끼리 이어진 관계도 함께 보인다)
     state.sel.reduce(function (p, id) {
       return p.then(function () { return expand(id, null, true).catch(function (e) { errs.push((labelOf[id] || id) + ": " + e.message); }); });
     }, Promise.resolve()).then(function () {
@@ -905,7 +905,7 @@
     });
   }
 
-  // ── 그리기 — 상태(탭·고른 것)가 바뀔 때만 다시 그린다. 지식그래프로 돌아오면 펼쳐 둔 그림을 되살린다 ──
+  // ── 그리기 — 상태(탭·선택한 것)가 바뀔 때만 다시 그린다. 지식그래프로 돌아오면 펼쳐 둔 그림을 되살린다 ──
   function done() { idlePanel(); legend(); }
   function render() {
     syncList();
@@ -914,7 +914,7 @@
       var on = b.dataset.mode === state.tab; b.classList.toggle("on", on); b.setAttribute("aria-selected", on ? "true" : "false");
     });
     document.getElementById("gxWhere").textContent = state.tab === "onto" ? "클래스 · 속성 · 관계" :
-      state.sel.length ? "고른 " + state.sel.length + "개 펼침" : "전체 개요 · 사업과 묶음";
+      state.sel.length ? "선택한 " + state.sel.length + "개 펼침" : "전체 개요 · 사업과 묶음";
     var key = state.tab + ":" + (state.tab === "kg" ? state.sel.join(",") : "");
     if (key === drawn) return;
     if (drawn.indexOf("kg:") === 0 && state.tab === "onto") kgSnap = { key: drawn, els: cy.elements().jsons(), loaded: loaded, lastData: lastData };
@@ -959,7 +959,7 @@
 
   history.replaceState({ sel: state.sel, tab: state.tab }, "", urlOf());
   render();
-  // 주소로 고른 채 열면 첫 고른 항목이 목록에 보이게(목록 안에서만 굴린다)
+  // 주소로 선택한 채 열면 첫 선택한 항목이 목록에 보이게(목록 안에서만 굴린다)
   var first = listBox.querySelector(".gx-item.on");
   if (first) listBox.scrollTop = Math.max(0, first.getBoundingClientRect().top - listBox.getBoundingClientRect().top - 40);
   if (root.dataset.q) { var qi = document.getElementById("gxQ"); qi.value = root.dataset.q; qi.dispatchEvent(new Event("input")); }

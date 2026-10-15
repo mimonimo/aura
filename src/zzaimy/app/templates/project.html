@@ -54,7 +54,7 @@
 <form id="intakeForm" action="/project/{{ project.id }}/bundle" method="post" enctype="multipart/form-data" hidden>
   <input type="file" name="file" id="intakeFile" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,.md">
 </form>
-{# 고른 파일을 확인한 뒤 올린다 — 잘못 고른 파일은 여기서 취소 #}
+{# 선택한 파일을 확인한 뒤 올린다 — 잘못 선택한 파일은 여기서 취소 #}
 <div id="intakeConfirm" class="notice" role="region" aria-label="추가할 파일 확인" hidden>
   <div style="flex:1; min-width:0;">
     <p style="margin:0 0 6px;"><span id="intakeCount"></span>개 파일을 프로젝트에 추가합니다. 공고·지침·기준은 기준 문서로, 나머지는 첨부 문서로 들어갑니다.</p>

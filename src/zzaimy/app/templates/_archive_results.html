@@ -4,7 +4,7 @@
     <ul class="ar-facets" aria-label="사업 후보">{% for c in program_choices %}
       <li><a class="ar-facet" href="{{ url(program=c.value) }}" data-set="program={{ c.value|urlencode }}">{{ c.name }}<span>{{ "{:,}".format(c.n) }}</span></a></li>
     {% endfor %}</ul></div>{% endif %}
-  <nav class="ar-crumb" aria-label="고른 분류">
+  <nav class="ar-crumb" aria-label="선택한 분류">
     <a href="{{ url(program='', year='', round='', kind='') }}" data-set="program=&year=&round=&kind=">전체 사업</a>
     {% if f.program %}<span aria-hidden="true">›</span><a href="{{ url(year='', round='', kind='') }}" data-set="year=&round=&kind=">{{ program_label }}</a>{% endif %}
     {% if f.year or f.round %}<span aria-hidden="true">›</span><a href="{{ url(kind='') }}" data-set="kind=">{{ '연도 미상' if f.year == nokey else (f.year ~ '년' if f.year else f.round ~ '차년도') }}</a>{% endif %}

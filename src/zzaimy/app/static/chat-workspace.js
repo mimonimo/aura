@@ -193,28 +193,28 @@
     const count = form_.querySelector('[data-form-count]');
     if (count) count.textContent = total + '개 중 ' + filled + '개 채움' + (later ? ' · 나중에 ' + later + '개' : '');
     form_.style.setProperty('--vf-done', String(total ? Math.min(1, (filled + later) / total) : 0));
-    // 한꺼번에 — 고른 줄이 있으면 고른 줄, 없으면 아직 비어 있는(미루지 않은) 줄이 대상
+    // 한꺼번에 — 선택한 줄이 있으면 선택한 줄, 없으면 아직 비어 있는(미루지 않은) 줄이 대상
     const rows = valueRows(form_), picked = rows.filter(isPicked);
     const empty = rows.filter(row => !rowLater(row)?.checked && !rowArea(row).value.trim());
     const laterRows = rows.filter(row => rowLater(row)?.checked);
     const all = form_.querySelector('[data-pick-all]');
     if (all) { all.checked = rows.length > 0 && picked.length === rows.length; all.indeterminate = picked.length > 0 && picked.length < rows.length; }
     form_.classList.toggle('is-picking', picked.length > 0);
-    // 자료에서 찾기는 고른 줄에만 — 먼저 체크로 고르고(빈 칸 고르기로 한 번에 체크한 뒤 빼도 된다) 그다음 찾기
+    // 자료에서 찾기는 선택한 줄에만 — 먼저 체크로 고르고(빈 칸 선택로 한 번에 체크한 뒤 빼도 된다) 그다음 찾기
     const toolFind = form_.querySelector('[data-bulk=find]'),
           toolClear = form_.querySelector('[data-bulk=clear]'), toolPick = form_.querySelector('[data-bulk=pick-empty]');
     const unpicked = empty.filter(row => !isPicked(row));
     if (toolPick) {
       toolPick.hidden = !unpicked.length || picked.length > 0;
-      toolPick.textContent = '빈 칸 ' + unpicked.length + '개 고르기';
+      toolPick.textContent = '빈 칸 ' + unpicked.length + '개 선택';
     }
     if (toolFind) {
       const targets = picked.filter(row => !rowArea(row).value.trim() || rowLater(row)?.checked);
       toolFind.hidden = !picked.length;
-      toolFind.textContent = '고른 ' + targets.length + '개 자료에서 찾기';
+      toolFind.textContent = '선택한 ' + targets.length + '개 자료에서 찾기';
       toolFind.disabled = !targets.length;
     }
-    if (toolClear) { toolClear.hidden = !picked.length; toolClear.textContent = '고르기 풀기'; }
+    if (toolClear) { toolClear.hidden = !picked.length; toolClear.textContent = '선택 해제'; }
     const pickHint = form_.querySelector('[data-pick-hint]');
     if (pickHint) pickHint.hidden = picked.length > 0 || !unpicked.length;
     const verb = typed ? '저장' : (form_.dataset.verb || '저장');
@@ -237,7 +237,7 @@
   }
   let lastPick = null;
   scroller.addEventListener('input', event => {
-    if (event.target.type === 'checkbox') return;                                          // 체크는 change 에서 — input 이 먼저 와서 전체 고르기를 덮어쓴다
+    if (event.target.type === 'checkbox') return;                                          // 체크는 change 에서 — input 이 먼저 와서 전체 선택를 덮어쓴다
     const form_ = event.target.closest('form.chat-suggestion-form');
     if (form_) { formStatus(form_, ''); paintValueForm(form_); }
   });
@@ -291,7 +291,7 @@
     formStatus(form_, '붙여 넣은 ' + names.length + '개를 칸에 나눠 채움' + (lines > names.length ? ' · 맞는 칸이 없는 ' + (lines - names.length) + '줄은 넣지 않음' : ''));
   });
   scroller.addEventListener('click', event => {
-    // 여러 줄 고르기 — 줄 앞 체크, Shift+체크는 앞에 고른 줄부터 범위, Ctrl(⌘)+이름도 같은 동작
+    // 여러 줄 선택 — 줄 앞 체크, Shift+체크는 앞에 선택한 줄부터 범위, Ctrl(⌘)+이름도 같은 동작
     const pickBox = event.target.closest('form.chat-suggestion-form input[data-pick]');
     if (pickBox) {
       const rows = valueRows(pickBox.form), row = pickBox.closest('.chat-form-field');
@@ -498,7 +498,7 @@
     form.requestSubmit();
   });
   input.addEventListener('input', () => { paint(); resize(); });
-  // 첨부 단추는 파일 고르기 하나만 — 답변 방식(웹 검색 포함)은 입력줄 오른쪽 고르기에서 정한다
+  // 첨부 단추는 파일 선택 하나만 — 답변 방식(웹 검색 포함)은 입력줄 오른쪽 선택에서 정한다
   document.getElementById('attachButton').addEventListener('click', () => file.click());
   function editQuestion(button) {
     if (waiting || sending) { notify('답변 작성이 끝난 뒤 수정해 주세요.'); return; }

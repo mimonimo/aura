@@ -234,7 +234,7 @@
  function dialog(title){const d=document.createElement('dialog');d.className='chat-doc-dialog';d.setAttribute('aria-label',title);d.innerHTML='<h2></h2><form><div data-fields></div><p role="status"></p><footer><button type="button" class="secondary" data-cancel>취소</button><button type="submit" data-submit>연결</button></footer></form>';d.querySelector('h2').textContent=title;d.querySelector('[data-fields]').style.display='grid';d.querySelector('[data-fields]').style.gap='16px';d.querySelector('[data-cancel]').onclick=()=>d.close();d.addEventListener('close',()=>{d.remove();opener.focus();});document.body.append(d);d.showModal();return d;}
  async function connect(){const d=dialog('드라이브에서 문서 가져오기'), f=d.querySelector('form'), fields=d.querySelector('[data-fields]'), status=d.querySelector('[role=status]'), submit=d.querySelector('[data-submit]');submit.disabled=true;submit.textContent='선택한 문서 가져오기';status.textContent='연결 계정 확인 중…';
  try{const data=await api('/api/chat-documents/accounts');if(!d.isConnected)return;
- fields.innerHTML='<label>구글 계정<select name="account" required></select></label><input type="hidden" name="doc"><div class="drive-picker-path"></div><div class="drive-picker-list"></div><p class="muted">구글 문서를 고르면 이 대화에서 작업할 수 있습니다. 다른 형식은 문서 추가를 이용해 주세요. 원본은 이동하거나 삭제하지 않습니다.</p>';
+ fields.innerHTML='<label>구글 계정<select name="account" required></select></label><input type="hidden" name="doc"><div class="drive-picker-path"></div><div class="drive-picker-list"></div><p class="muted">구글 문서를 선택하면 이 대화에서 작업할 수 있습니다. 다른 형식은 문서 추가를 이용해 주세요. 원본은 이동하거나 삭제하지 않습니다.</p>';
  data.accounts.filter(a=>a.docs_ok).forEach(a=>{const o=document.createElement('option');o.value=a.email;o.textContent=a.email;fields.querySelector('select').append(o);});
  if(!fields.querySelector('option')){fields.replaceChildren();status.textContent='문서 편집 권한이 있는 연결 계정이 없습니다.';const a=document.createElement('a');a.href=opener.dataset.connections;a.textContent='계정 연결 설정';fields.append(a);submit.hidden=true;return;}
  const account=f.elements.account,list=fields.querySelector('.drive-picker-list'),path=fields.querySelector('.drive-picker-path');
@@ -327,7 +327,7 @@
    panel.querySelector('.chat-doc-note')?.remove();
  }
  // 문서 위치 이동 — 제목 id 가 있는 절만 고른다(id 가 없으면 이동할 곳이 없다). 답이 끝나 절이 바뀌면 다시 만든다.
- // 절이 많고 단계가 둘 이상이면 두 칸으로 나눈다: 앞 칸은 맨 윗단계(장), 뒤 칸([data-section-jump])은 고른 장 안의 절.
+ // 절이 많고 단계가 둘 이상이면 두 칸으로 나눈다: 앞 칸은 맨 윗단계(장), 뒤 칸([data-section-jump])은 선택한 장 안의 절.
  // 장을 고르면 그 장 머리로 가고 뒤 칸이 그 장의 절로 바뀐다. 절이 적거나 단계가 하나면 한 칸에 모두 둔다(단계는 들여 쓴다).
  const FLAT_LIMIT=12;
  function sectionTree(destinations){
@@ -348,16 +348,16 @@
    const destinations=(linked.sections||[]).filter(s=>s.heading_id&&s.heading);
    if(!destinations.length)return;
    const {chapters,top,level}=sectionTree(destinations);
-   const select=document.createElement('select');select.dataset.sectionJump='';select.setAttribute('aria-label','목차에서 고른 제목 위치로 이동');
+   const select=document.createElement('select');select.dataset.sectionJump='';select.setAttribute('aria-label','목차에서 선택한 제목 위치로 이동');
    const go=value=>{const section=destinations.find(s=>String(s.index)===value);if(section)jumpToSection(section);};
    select.onchange=()=>go(select.value);
    const nested=destinations.length>FLAT_LIMIT&&chapters.some(c=>c.items.length);
    if(!nested){fillOptions(select,'목차로 이동',destinations,s=>level(s)-top);tools.prepend(select);return;}
-   const chapter=document.createElement('select');chapter.dataset.sectionChapter='';chapter.setAttribute('aria-label','장 고르기');
-   fillOptions(chapter,'장 고르기',chapters.map(c=>c.head),()=>0);
+   const chapter=document.createElement('select');chapter.dataset.sectionChapter='';chapter.setAttribute('aria-label','장 선택');
+   fillOptions(chapter,'장 선택',chapters.map(c=>c.head),()=>0);
    const showChapter=c=>{
      const items=c?c.items:[];
-     fillOptions(select,c?(items.length?`절 고르기 · ${items.length}개`:'이 장에는 절이 없습니다'):'장을 먼저 고르세요',items,s=>level(s)-top-1);
+     fillOptions(select,c?(items.length?`절 선택 · ${items.length}개`:'이 장에는 절이 없습니다'):'장을 먼저 선택하세요',items,s=>level(s)-top-1);
      select.disabled=!items.length;
    };
    chapter.onchange=()=>{const c=chapters.find(c=>String(c.head.index)===chapter.value);showChapter(c);if(c)go(chapter.value);};

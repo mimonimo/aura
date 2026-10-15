@@ -114,13 +114,13 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   {% set tot_docs = (staff.grant_docs if staff else 0) + (dept_rags | sum(attribute='docs')) %}
   {% set tot_regs = (staff.reg_docs if staff else 0) + (dept_rags | sum(attribute='reg_docs')) %}
   <p class="rg-note">합계 — 사업 문서 {{ "{:,}".format(tot_docs) }}건 · 기준 문서 {{ "{:,}".format(tot_regs) }}건(공통 RAG + 부서 RAG). 부서 계정은 공통 RAG 행과 자기 부서 행을 함께 찾습니다.<br>
-    부서 RAG 는 <a href="/dev/users#depts">사용자·계정 › 부서</a>에서 만들고, 문서는 라이브러리(「문서 올리기」의 검색 범위·폴더·여러 건 고르기)나 문서 화면에서 넣습니다. 원본 폴더째 부서에 두려면 <a href="/?type=all">라이브러리</a> 폴더 목록의 「공개 범위 바꾸기」 — 앞으로 그 폴더로 반입되는 문서도 같은 부서로 갑니다(표의 「반입 폴더」).{% if not dept_rags %} 아직 부서 RAG 가 없습니다.{% endif %}</p>
+    부서 RAG 는 <a href="/dev/users#depts">사용자·계정 › 부서</a>에서 만들고, 문서는 라이브러리(「문서 올리기」의 검색 범위·폴더·여러 건 선택)나 문서 화면에서 넣습니다. 원본 폴더째 부서에 두려면 <a href="/?type=all">라이브러리</a> 폴더 목록의 「공개 범위 바꾸기」 — 앞으로 그 폴더로 반입되는 문서도 같은 부서로 갑니다(표의 「반입 폴더」).{% if not dept_rags %} 아직 부서 RAG 가 없습니다.{% endif %}</p>
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">
   {# 규정·기준 문서 — 왼쪽은 등록된 기준 문서(학생 공개·해제), 오른쪽은 반입 자료의 규정 후보(골라 등록). 목록을 다 펼치지 않고 찾아 고른다 #}
   <div class="rr-head"><h2>규정·기준 문서</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>
-  <p class="rg-note" style="margin-top:0;">기준 문서는 규정 검색(조문 단위)으로 찾고 학생 공개를 정할 수 있습니다. 반입 자료의 규정·지침은 처음엔 사업 문서로 들어오므로, 아래 후보에서 골라 기준 문서로 올립니다(같은 규정의 옛 판은 사업 문서로 남습니다). 새 파일은 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」으로 올립니다.</p>
+  <p class="rg-note" style="margin-top:0;">기준 문서는 규정 검색(조문 단위)으로 찾고 학생 공개를 정할 수 있습니다. 반입 자료의 규정·지침은 처음엔 사업 문서로 들어오므로, 아래 후보에서 선택해 기준 문서로 올립니다(같은 규정의 옛 판은 사업 문서로 남습니다). 새 파일은 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」으로 올립니다.</p>
   <div class="rr-reindex" id="rrReindex" hidden><span>새로 올린 기준 문서는 임베딩을 다시 만들어야 뜻 검색에 듭니다(낱말 검색은 바로 됩니다).</span>
     <form method="post" action="/dev/reindex" style="margin:0;"><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">임베딩 다시 만들기</button></form></div>
   <div class="rr-grid">
@@ -174,7 +174,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     </tbody>
   </table>
   </div>
-  <p class="rg-sub" style="margin:8px 0 0;">「설정」 에서 고른 부서의 사업 문서가 그 계정의 검색 범위에 더해집니다. 부서가 늘어도 표는 계정마다 한 줄.</p>
+  <p class="rg-sub" style="margin:8px 0 0;">「설정」 에서 선택한 부서의 사업 문서가 그 계정의 검색 범위에 더해집니다. 부서가 늘어도 표는 계정마다 한 줄.</p>
   <script type="application/json" id="rgGrantData">{{ {"spaces": dept_spaces, "accts": ns.open | map(attribute='id') | list} | tojson }}</script>
   <script type="application/json" id="rgGrantAcct">{{ dict_grants | tojson }}</script>
   <div class="modal-back" id="rgGrantModal">
@@ -196,7 +196,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 <section class="card" id="try"><div class="card-in">
   <details class="chip-toggle rg-try" id="rgTryBox">
   <summary>검색 범위 시험</summary>
-  <p class="rg-sub" style="margin:10px 0 8px;">계정이나 공간을 골라 그 범위로 실제 검색해 봅니다 — 「이 계정이 이 규정을 찾는가」를 확인할 때.</p>
+  <p class="rg-sub" style="margin:10px 0 8px;">계정이나 공간을 선택해 그 범위로 실제 검색해 봅니다 — 「이 계정이 이 규정을 찾는가」를 확인할 때.</p>
   <form class="rg-bar" id="rgTry" data-own-confirm>
     <label class="rg-sub" for="rgTryTarget">범위</label>
     <select id="rgTryTarget" name="target" required>
@@ -345,7 +345,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   const esc = t => String(t || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
   const KIND = {regulation: '규정', guideline: '지침'};
   function row(item, picked, meta) {
-    return `<label class="rr-row${picked ? ' on' : ''}" data-id="${item.id}"><input type="checkbox"${picked ? ' checked' : ''} aria-label="${esc(item.title || item.filename)} 고르기">`
+    return `<label class="rr-row${picked ? ' on' : ''}" data-id="${item.id}"><input type="checkbox"${picked ? ' checked' : ''} aria-label="${esc(item.title || item.filename)} 선택">`
       + `<span class="t" title="${esc(item.title || item.filename)}"><a href="/doc/${item.id}" target="_blank" rel="noopener">${esc(item.title || item.filename)}</a></span><span class="m">${meta}</span></label>`;
   }
   function paint() {
@@ -359,8 +359,8 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     $('rrSummary').textContent = `규정 색인 문서 ${state.reg.length}건 · 규정 색인 조각 ${state.reg.reduce((a, d) => a + (d.chunks || 0), 0).toLocaleString()} · 학생 공개 ${stu}건`;
     $('rrRegCount').textContent = regs.length !== state.reg.length ? `${regs.length} / ${state.reg.length}건` : `${state.reg.length}건`;
     $('rrCandCount').textContent = `${state.candTotal.toLocaleString()}건(판 묶음마다 최신 판)` + (state.cand.length < state.candTotal ? ` · 앞 ${state.cand.length}건 표시` : '');
-    $('rrRegPicked').textContent = state.pickReg.size ? `고른 ${state.pickReg.size}건` : '';
-    $('rrCandPicked').textContent = state.pickCand.size ? `고른 ${state.pickCand.size}건` : '';
+    $('rrRegPicked').textContent = state.pickReg.size ? `선택한 ${state.pickReg.size}건` : '';
+    $('rrCandPicked').textContent = state.pickCand.size ? `선택한 ${state.pickCand.size}건` : '';
     document.querySelectorAll('[data-rr=student],[data-rr=staff],[data-rr=unregister]').forEach(b => { b.disabled = !state.pickReg.size; });
     document.querySelector('[data-rr=register]').disabled = !state.pickCand.size;
     $('rrRegAll').checked = regs.length > 0 && regs.every(d => state.pickReg.has(d.id));

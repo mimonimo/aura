@@ -44,7 +44,7 @@
   </dl>
   {% if request.state.role == 'dev' %}<details class="kg-more chip-toggle"><summary>그래프 구성 수(개발)</summary><p class="muted" style="margin:0; font-size:12px;">절 {{ '{:,}'.format(n_sections) }}개
     · 관계 {% for k, b, v in counts %}{{ k }}({{ b }}) {{ '{:,}'.format(v) }}{{ ' · ' if not loop.last }}{% endfor %}</p></details>{% endif %}
-  <details class="kg-more chip-toggle"><summary>다른 사업 고르기 · {{ chips | length }}개</summary>
+  <details class="kg-more chip-toggle"><summary>다른 사업 선택 · {{ chips | length }}개</summary>
   <div class="kg-chips">
     {% for p in chips %}<a class="pill" href="/graph/program?id={{ p.id | urlencode }}" title="볼 수 있는 등록 문서 {{ '{:,}'.format(p.n_docs) }}건" style="{{ 'font-weight:700;' if program.id in p.ids }}">{{ p.label }} <small class="muted">{{ '{:,}'.format(p.n_docs) }}</small></a>{% endfor %}
   </div></details>

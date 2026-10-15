@@ -832,7 +832,7 @@ document.addEventListener('submit', function(event) {
 {% if request.state.role %}
 {% endif %}
 
-{# 떠 있는 에이전트 — 모든 화면에서 묻고, 글을 고른 뒤 오른쪽 단추로도 묻는다 #}
+{# 떠 있는 에이전트 — 모든 화면에서 묻고, 글을 선택한 뒤 오른쪽 단추로도 묻는다 #}
 {% if request.state.role and not request.url.path.startswith('/chat') %}
 <style>
   .ag-fab { position: fixed; right: 22px; bottom: 22px; z-index: 60; width: 54px; height: 54px;
@@ -947,7 +947,7 @@ document.addEventListener('submit', function(event) {
     <div class="ag-quote" id="agQuote" hidden>
       <iconify-icon icon="solar:quote-square-linear" style="font-size:14px; flex:none;"></iconify-icon>
       <span id="agQuoteText"></span>
-      <button type="button" id="agQuoteClear" title="고른 글 빼기" aria-label="고른 글 빼기">
+      <button type="button" id="agQuoteClear" title="선택한 글 빼기" aria-label="선택한 글 빼기">
         <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
     </div>
     <div class="ag-row">
@@ -959,13 +959,13 @@ document.addEventListener('submit', function(event) {
 </div>
 
 <div class="ag-menu" id="agMenu">
-  <button type="button" class="ag-menu-go" data-q="고른 부분을 쉽게 설명해 주세요.">
+  <button type="button" class="ag-menu-go" data-q="선택한 부분을 쉽게 설명해 주세요.">
     <iconify-icon icon="solar:lightbulb-linear" style="color:var(--navy);"></iconify-icon>
     쉽게 설명</button>
-  <button type="button" class="ag-menu-go" data-q="고른 부분을 짧게 간추려 주세요.">
+  <button type="button" class="ag-menu-go" data-q="선택한 부분을 짧게 간추려 주세요.">
     <iconify-icon icon="solar:list-down-linear" style="color:var(--navy);"></iconify-icon>
     간추리기</button>
-  <button type="button" class="ag-menu-go" data-q="고른 부분과 관련된 교내 규정을 찾아 주세요.">
+  <button type="button" class="ag-menu-go" data-q="선택한 부분과 관련된 교내 규정을 찾아 주세요.">
     <iconify-icon icon="solar:library-linear" style="color:var(--navy);"></iconify-icon>
     관련 규정 찾기</button>
   <button type="button" id="agMenuAsk">
@@ -1236,7 +1236,7 @@ document.addEventListener('submit', function(event) {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
   });
 
-  /* 글을 고른 뒤 오른쪽 단추 — 고른 글이 있을 때만 우리 메뉴를 띄운다 */
+  /* 글을 선택한 뒤 오른쪽 단추 — 선택한 글이 있을 때만 우리 메뉴를 띄운다 */
   function selectedText() {
     var s = window.getSelection();
     return s && s.toString().trim() ? s.toString().trim() : "";
@@ -1259,7 +1259,7 @@ document.addEventListener('submit', function(event) {
     hideMenu();
     open();
   });
-  // 고른 글에 대해 바로 묻는다 — 따로 타이핑하지 않아도 된다
+  // 선택한 글에 대해 바로 묻는다 — 따로 타이핑하지 않아도 된다
   document.querySelectorAll(".ag-menu-go[data-q]").forEach(function (b) {
     b.addEventListener("click", function () {
       setQuote(menu.dataset.text || "");

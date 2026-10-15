@@ -101,7 +101,7 @@
     .aside-empty { font-size: 12px; color: var(--faint); padding: 2px; line-height: 1.6; }
     .aside-fab { position: fixed; top: 74px; right: 16px; z-index: 40; }
 
-    /* 기준 고르기 — 검색 + 계열 묶음 */
+    /* 기준 선택 — 검색 + 계열 묶음 */
     .crit-search { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line);
                  border-radius: 10px; padding: 6px 10px; margin-bottom: 8px; }
     .crit-search input { border: 0; outline: none; font: inherit; font-size: 12.5px;
@@ -203,10 +203,10 @@
   {% if loop.last and m.role == 'assistant' and suggestions and not waiting %}
   <div class="chat-suggestions" aria-label="다음 작업 제안">
     {% for sg in suggestions %}{% if sg.kind == 'form' and sg.fields %}{% set filled = sg.fields | selectattr('value') | list | length %}<form action="/chat/send" method="post" class="chat-suggestion chat-suggestion-form" data-template="{{ sg.template }}"{% if sg.text == '필요한 값 입력' %} id="chatValueForm"{% endif %} data-total="{{ sg.fields | length }}" data-verb="{{ sg.submit or '저장' }}"><input type="hidden" name="session_id" value="{{ session_id }}"><input type="hidden" name="question" value="{{ sg.question }}"><input type="hidden" name="template" value="{{ sg.template }}">
-    <div class="chat-form-head"><input type="checkbox" class="chat-form-pick" data-pick-all aria-label="모든 줄 고르기" title="모든 줄 고르기·풀기"><span class="chat-form-title">{{ sg.text }}</span><span class="chat-form-count" data-form-count aria-live="polite">{{ sg.fields | length }}개 중 {{ filled }}개 채움</span>{% if sg.more %}<span class="chat-form-more">이어서 {{ sg.more }}개{% if sg.later %}(미룬 값 {{ sg.later }}개 포함){% endif %}</span>{% endif %}<span class="chat-form-tools"><span class="chat-form-pickhint" data-pick-hint>모르는 값은 체크해 자료에서 찾기</span><button type="button" class="chat-form-tool" data-bulk="pick-empty">빈 칸 고르기</button><button type="button" class="chat-form-tool" data-bulk="find" hidden title="고른 칸의 값을 에이전트가 이 프로젝트 자료에서 찾아 「확인 전」 값으로 채웁니다">고른 줄 자료에서 찾기</button><button type="button" class="chat-form-tool" data-bulk="clear" hidden>고르기 풀기</button></span><span class="chat-form-bar" aria-hidden="true"><i></i></span></div>
+    <div class="chat-form-head"><input type="checkbox" class="chat-form-pick" data-pick-all aria-label="모든 줄 선택" title="모든 줄 선택·선택 해제"><span class="chat-form-title">{{ sg.text }}</span><span class="chat-form-count" data-form-count aria-live="polite">{{ sg.fields | length }}개 중 {{ filled }}개 채움</span>{% if sg.more %}<span class="chat-form-more">이어서 {{ sg.more }}개{% if sg.later %}(미룬 값 {{ sg.later }}개 포함){% endif %}</span>{% endif %}<span class="chat-form-tools"><span class="chat-form-pickhint" data-pick-hint>모르는 값은 체크해 자료에서 찾기</span><button type="button" class="chat-form-tool" data-bulk="pick-empty">빈 칸 선택</button><button type="button" class="chat-form-tool" data-bulk="find" hidden title="선택한 칸의 값을 에이전트가 이 프로젝트 자료에서 찾아 「확인 전」 값으로 채웁니다">선택한 줄 자료에서 찾기</button><button type="button" class="chat-form-tool" data-bulk="clear" hidden>선택 해제</button></span><span class="chat-form-bar" aria-hidden="true"><i></i></span></div>
     <ol class="chat-form-list">{% for f in sg.fields %}{% set fid = 'vf-' ~ loop.index ~ '-' ~ (session_id or 0) %}
       <li class="chat-form-field{% if f.value %} is-filled{% endif %}{% if f.suggested %} is-suggested{% endif %}" data-name="{{ f.name }}">
-        <input type="checkbox" class="chat-form-pick" data-pick aria-label="{{ f.label }} 고르기">
+        <input type="checkbox" class="chat-form-pick" data-pick aria-label="{{ f.label }} 선택">
         <div class="chat-form-name"><label class="chat-form-label" for="{{ fid }}"><span class="chat-form-check" aria-hidden="true"></span>{{ f.label }}</label>{% set hint = f.hint if f.suggested else f.placeholder %}<small class="chat-form-hint" id="hint-{{ fid }}"{% if hint %} title="{{ hint }}"{% endif %}>{{ hint or "" }}</small></div>
         <div class="chat-form-input"><textarea id="{{ fid }}" rows="1" placeholder="값 입력" name="field_{{ f.name }}" data-field="{{ f.name }}" aria-describedby="hint-{{ fid }}{% if f.suggested %} src-{{ fid }}{% endif %}"{% if f.required %} required{% endif %}>{{ f.value or '' }}</textarea>{% if f.suggested %}
           <div class="chat-form-source"><span id="src-{{ fid }}" data-source-state>{{ f.placeholder }}</span><button type="button" class="secondary" data-accept-value>확인</button><button type="button" class="secondary" data-edit-value>고치기</button></div>{% endif %}</div>
@@ -483,7 +483,7 @@
     });
   }
 
-  /* ---- 적용 기준: 검색·묶음·패널 안에서 고르기 ---- */
+  /* ---- 적용 기준: 검색·묶음·패널 안에서 선택 ---- */
   var DOCS = [
     {% for c in criteria_docs %}
     { id: {{ c.id }}, name: {{ c.filename | tojson }},
