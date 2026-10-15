@@ -595,7 +595,7 @@
  }
  // 에이전트 작업 중 표시 — 대화 쪽 진행 카드(chat-workspace.js 의 폴링)의 현재 단계를 편집기 위 한 줄로
  // 비춘다. 단계 글은 'chat-progress' 사건으로, 대기 시작·끝은 'chat-session-updated' 의 waiting 으로 받는다.
- let agentBusy=workspace.dataset.waiting==='true', busyLabel='';
+ let agentBusy=workspace.dataset.waiting==='true', busyLabel='', busyWriting=null;
  function paintBusy(){
    if(!isEditor())return;
    let strip=panel.querySelector('.chat-doc-busy');
@@ -606,11 +606,18 @@
      strip.append(dot,document.createElement('span'));panel.querySelector('header').after(strip);
    }
    const label=busyLabel||document.querySelector('#chatProgress [data-progress-label]')?.textContent.trim()||'요청 처리 중';
-   strip.lastElementChild.textContent=label;
+   // 작성 카드 — 문서에 쓰는 중이면 AURA 커서와 「지금 쓰는 절 · 쓴 절 수」
+   const writing=busyWriting&&busyWriting.state==='writing';
+   strip.classList.toggle('is-writing',writing);
+   const done=(busyWriting?.done||[]).length;
+   strip.lastElementChild.textContent=writing&&busyWriting.section
+     ?`AURA가 「${busyWriting.section}」 작성 중`+(done?` · 이번 요청에서 ${done}개 씀`:'')
+     :label+(done?` · 이번 요청에서 ${done}개 씀`:'');
  }
  workspace.addEventListener('chat-progress',event=>{
    const label=event.detail?.label;
    if(typeof label!=='string'||!label.trim())return;
+   busyWriting=event.detail?.writing||null;
    agentBusy=true;busyLabel=label.trim();paintBusy();
  });
  // 답이 막 끝난 대화에서 에이전트가 쓴 절 — 답 머리의 [제목] 표시를 먼저, 없으면 답에 나온 절 제목 중
@@ -671,7 +678,7 @@
    // (새 첨부, 에이전트가 근거로 불러온 문서가 제 갈래에 바로 선다).
    if(next===sid){
      const waiting=Boolean(event.detail?.waiting), wasBusy=agentBusy;
-     agentBusy=waiting;if(waiting){busyLabel='';panel?.querySelector('.chat-doc-done')?.remove();}
+     agentBusy=waiting;if(waiting){busyLabel='';busyWriting=null;panel?.querySelector('.chat-doc-done')?.remove();}
      paintBusy();
      if(!waiting&&panel?.classList.contains('chat-file-library'))refreshLibrary?.();
      if(!waiting&&wasBusy)afterAnswer();

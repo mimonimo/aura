@@ -926,6 +926,17 @@ document.addEventListener('submit', function(event) {
             align-items: center; justify-content: center; font-size: 16px;
             box-shadow: none; padding: 0; }
   .ag-send:disabled { background: var(--line); color: #fff; cursor: default; }
+  .aura-cursor { position: fixed; z-index: 2147483000; pointer-events: none; display: flex; align-items: flex-start; gap: 2px;
+    transition: left .7s cubic-bezier(.3,.7,.2,1), top .7s cubic-bezier(.3,.7,.2,1), opacity .4s ease; }
+  .aura-cursor.leaving { opacity: 0; }
+  .aura-cursor-arrow { width: 20px; height: 22px; background: var(--navy, #1f3b63); filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.35));
+    clip-path: polygon(0 0, 0 100%, 30% 72%, 52% 100%, 66% 92%, 45% 64%, 85% 62%); transition: transform .15s ease; }
+  .aura-cursor.press .aura-cursor-arrow { transform: scale(.82); }
+  .aura-cursor-tag { margin-top: 16px; padding: 2px 8px; border-radius: 999px; background: var(--navy, #1f3b63); color: #fff;
+    font-size: 11.5px; font-weight: 600; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .aura-ring { outline: 2px solid var(--navy, #1f3b63) !important; outline-offset: 3px; border-radius: 6px;
+    box-shadow: 0 0 0 6px rgba(31,59,99,.14) !important; transition: box-shadow .3s ease; }
+  @media (prefers-reduced-motion: reduce) { .aura-cursor { transition: opacity .2s ease; } }
   .ag-acts { display: flex; flex-wrap: wrap; gap: 6px; align-self: flex-start;
             max-width: 92%; }
   .ag-acts button, .ag-acts a { border: 1px solid var(--line); background: #fff;
@@ -1102,6 +1113,60 @@ document.addEventListener('submit', function(event) {
   }
   // 도우미가 낸 제안 — run 은 「이렇게 하겠습니다」 와 [실행](누르면 서버가 권한·대상을 다시 보고 실행), go 는 화면 열기.
   // 단추에 가리킬 화면 요소(data-target-path·data-target-selector)를 달아 둔다 — 화면 위 커서·강조가 쓴다
+  // AURA 커서 — 도우미가 가리키는 화면 요소로 커서가 움직여 강조한다. 다른 화면이면 옮겨 간 뒤 그 화면에서 이어 움직인다
+  var auraCursor = (function () {
+    var KEY = "auraPoint", el = null, ringOn = null, still = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    function find(t) {
+      var hit = null;
+      try {
+        if (t.selector) hit = Array.prototype.find.call(document.querySelectorAll(t.selector), function (x) { return x.offsetParent !== null; }) || null;
+        if (!hit && t.anchor) hit = document.getElementById(t.anchor);
+      } catch (e) { hit = null; }
+      return hit;
+    }
+    function cursor() {
+      if (el) return el;
+      el = document.createElement("div"); el.className = "aura-cursor"; el.setAttribute("aria-hidden", "true");
+      el.innerHTML = '<span class="aura-cursor-arrow"></span><span class="aura-cursor-tag">AURA</span>';
+      var start = document.getElementById("agFab");
+      var r = start ? start.getBoundingClientRect() : { left: innerWidth - 60, top: innerHeight - 60, width: 0, height: 0 };
+      el.style.left = (r.left + r.width / 2) + "px"; el.style.top = (r.top + r.height / 2) + "px";
+      document.body.appendChild(el);
+      return el;
+    }
+    // 대상으로 옮겨 가 누르는 모양을 보인 뒤 then() — 대상이 없으면 바로 then()
+    function point(t, label, then) {
+      var hit = find(t || {});
+      if (!hit) { if (then) then(false); return; }
+      hit.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
+      var c = cursor(); c.classList.remove("leaving");
+      c.querySelector(".aura-cursor-tag").textContent = label ? "AURA · " + label : "AURA";
+      setTimeout(function () {
+        var r = hit.getBoundingClientRect();
+        c.style.left = Math.round(r.left + Math.min(r.width / 2, 40)) + "px";
+        c.style.top = Math.round(r.top + Math.min(r.height / 2, 18)) + "px";
+        if (ringOn) ringOn.classList.remove("aura-ring");
+        ringOn = hit;
+        setTimeout(function () {
+          hit.classList.add("aura-ring"); c.classList.add("press");
+          setTimeout(function () { c.classList.remove("press"); if (then) then(true); }, 450);
+          setTimeout(function () { hit.classList.remove("aura-ring"); c.classList.add("leaving"); }, 2600);
+        }, still ? 0 : 700);
+      }, still ? 0 : 350);
+    }
+    // 다른 화면 — 옮겨 간 화면이 이어서 가리키게 남긴다(15초 안에 그 주소를 연 경우만)
+    function later(t, label) {
+      try { sessionStorage.setItem(KEY, JSON.stringify({ t: t, label: label || "", at: Date.now() })); } catch (e) {}
+    }
+    function resume() {
+      var v = null;
+      try { v = JSON.parse(sessionStorage.getItem(KEY) || "null"); sessionStorage.removeItem(KEY); } catch (e) { v = null; }
+      if (!v || !v.t || Date.now() - v.at > 15000 || v.t.path !== location.pathname) return;
+      setTimeout(function () { point(v.t, v.label); }, 400);
+    }
+    return { point: point, later: later, resume: resume, here: function (t) { return !!t && t.path === location.pathname; } };
+  })();
+  auraCursor.resume();
   var lastProposals = [];
   function drawProposals() {
     lastProposals.forEach(function (p) {
@@ -1114,11 +1179,16 @@ document.addEventListener('submit', function(event) {
       var row = document.createElement("div"); row.className = "ag-acts";
       var go = document.createElement("a"); go.href = p.screen;
       go.textContent = p.kind === "go" ? p.label : "화면에서 직접";
+      go.addEventListener("click", function (ev) {
+        if (auraCursor.here(t)) { ev.preventDefault(); auraCursor.point(t, p.kind === "go" ? "" : p.label); }
+        else auraCursor.later(t, p.kind === "go" ? "" : p.label);
+      });
       if (p.kind !== "go") {
         var run = document.createElement("button"); run.type = "button"; run.textContent = "실행";
         run.addEventListener("click", function () {
           if (!sid) return;
           run.disabled = true; run.textContent = "실행 중…";
+          if (auraCursor.here(t)) auraCursor.point(t, p.label);     // 같은 화면이면 그 단추 자리를 가리키며 실행
           fetch("/chat/" + sid + "/proposals/" + encodeURIComponent(p.id) + "/run", { method: "POST" })
             .then(function (r) { return r.json().catch(function () { return { ok: false, error: r.status === 403 ? "관리자 계정만 할 수 있는 일입니다" : "실행 결과를 받지 못했습니다" }; }); })
             .then(function (d) {

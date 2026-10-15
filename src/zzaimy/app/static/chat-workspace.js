@@ -106,8 +106,26 @@
       draft.innerHTML = lightMarkdown(progress.partial);
       if (near) scroller.scrollTop = scroller.scrollHeight;
     } else if (draft) draft.remove();
+    // 작성 카드 — 에이전트가 문서에 쓰는 동안 지금 쓰는 절과 이번 요청에서 쓴 절
+    const writing = progress.writing && typeof progress.writing === 'object' ? progress.writing : null;
+    let card = panel.querySelector('.chat-writing');
+    if (writing && (writing.state === 'writing' || (Array.isArray(writing.done) && writing.done.length))) {
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'chat-writing';
+        card.innerHTML = '<span class="aura-cursor-mark" aria-hidden="true"></span><div><b></b><small></small></div>';
+        panel.querySelector('.chat-progress-head').after(card);
+      }
+      const now = writing.state === 'writing';
+      card.classList.toggle('is-writing', now);
+      card.querySelector('b').textContent = now
+        ? (writing.section ? '「' + writing.section + '」 ' : '문서 ') + (writing.act === 'rewrite_section' ? '다시 쓰는 중' : writing.act === 'edit_document' ? '고치는 중' : writing.act === 'create_document' ? '만드는 중' : '쓰는 중')
+        : '다음 걸음 준비 중';
+      const done = (writing.done || []).filter(x => typeof x === 'string');
+      card.querySelector('small').textContent = done.length ? '이번 요청에서 쓴 절 ' + done.length + '개 · ' + done.join(', ') : '';
+    } else if (card) card.remove();
     // 문서 패널(chat-documents.js)도 같은 진행 단계를 편집기 위에 표시한다
-    root.dispatchEvent(new CustomEvent('chat-progress', {detail:{label:steps[steps.length - 1], steps}}));
+    root.dispatchEvent(new CustomEvent('chat-progress', {detail:{label:steps[steps.length - 1], steps, writing}}));
   }
   // 기다리는 동안 경과 초를 1초마다 — 서버에 다시 묻는 간격(2~4초)마다 뛰어 「끊겨 보이는」 것을 막는다
   setInterval(() => {

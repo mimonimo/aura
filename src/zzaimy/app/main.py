@@ -493,6 +493,22 @@ def create_app(
                 at = progress.get("at") or [progress.get("started_at", time.time())] * len(steps)
                 progress["steps"] = (steps + [label])[-12:]
                 progress["at"] = (at + [time.time()])[-12:]
+    # 문서에 쓰는 도구 — 진행 상태에 「작성 카드」(지금 쓰는 절·이번 요청에서 쓴 절)를 싣는다
+    _WRITE_ACTS = {"write_section", "rewrite_section", "edit_document", "create_document"}
+
+    def _chat_act(session_id: int, name: str, args: dict, phase: str) -> None:
+        progress = _chat_progress.get(session_id)
+        if progress is None or name not in _WRITE_ACTS:
+            return
+        w = progress.setdefault("writing", {"done": []})
+        section = _scrub_internal(str(args.get("section") or args.get("title") or ""))[:60]
+        if phase == "start":
+            w.update(act=name, section=section, state="writing", since=time.time())
+        else:
+            w["state"] = "idle"
+            if phase == "done" and section and section not in w["done"]:
+                w["done"] = (w["done"] + [section])[-12:]
+
     # 화면에서 고른 모델 서버 주소·모델을 프로세스 전체에 적용 (설정 > 환경변수)
     from zzaimy.generate import model_config as _mc
 
@@ -2368,7 +2384,8 @@ def create_app(
             if isinstance(step_.get("ask_kinds"), dict):
                 _asks.set_kinds(db, session_id, step_["ask_kinds"])
 
-        ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label), on_json=on_json)
+        ep = doc_agent.run(client, q, state, tools, on_step=lambda label: _chat_step(session_id, label), on_json=on_json,
+                           on_act=lambda n, a, ph: _chat_act(session_id, n, a, ph))
         doc_agent.record(data_dir, {"session": session_id, "request": q[:1500], "finished": ep.finished, "writes": ep.writes, "stop": ep.stop, "run": run_id, "steps": ep.steps,
                                     "llm": _model_info.stamp(client),
                                     "answer_timing": answer_timing, "graph_read": os.environ.get("ZZAIMY_GRAPH_READ", "0") == "1"})

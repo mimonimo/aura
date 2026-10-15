@@ -31,6 +31,25 @@ def test_loop_runs_tools_until_finish_and_limits_writes():
     assert "쓰기 한도" in ep.steps[2]["observation"]
 
 
+def test_on_act_reports_tool_start_and_end_and_never_breaks_the_loop():
+    seen = []
+
+    def boom(a):
+        raise RuntimeError("x")
+    tools = [doc_agent.Tool("write_section", "쓰기", lambda a: "썼다", writes=True),
+             doc_agent.Tool("edit_document", "고치기", boom, writes=True),
+             doc_agent.Tool("finish", "끝", lambda a: "", final=True)]
+    replies = [_step("write_section", section="1. 현황"), _step("edit_document", instruction="표"), _step("finish", message="끝")]
+    ep = doc_agent.run(_client(replies), "초안 써 줘", lambda: "s", tools, on_act=lambda n, a, ph: seen.append((n, ph)))
+    assert seen[:4] == [("write_section", "start"), ("write_section", "done"), ("edit_document", "start"), ("edit_document", "fail")]
+    assert ep.finished
+
+    def bad_hook(n, a, ph):                                     # 화면 표시가 실패해도 걸음은 이어진다
+        raise ValueError("화면")
+    ep = doc_agent.run(_client(replies[:1] + replies[2:]), "초안 써 줘", lambda: "s", tools, on_act=bad_hook)
+    assert ep.finished and ep.steps[0]["observation"] == "썼다"
+
+
 def test_repeated_call_is_refused_and_bad_output_ends_loop():
     tools = [doc_agent.Tool("search", "찾기", lambda a: "결과"), doc_agent.Tool("finish", "끝", lambda a: "", final=True)]
     ep = doc_agent.run(_client([_step("search", query="a"), _step("search", query="a"), "x", "y"]), "q", lambda: "s", tools)

@@ -275,13 +275,14 @@ def _log_line(i: int, name: str, args: dict, outcome: str) -> str:
 
 def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on_step: Callable[[str], None] | None = None,
         max_steps: int = MAX_STEPS, max_writes: int = MAX_WRITES, on_json: Callable[[dict], None] | None = None,
-        system: str | None = None) -> Episode:
+        system: str | None = None, on_act: Callable[[str, dict, str], None] | None = None) -> Episode:
     """에이전트 루프. state() 는 매 걸음 새로 읽는 상태 글(연결 문서·절 목록은 쓰기 뒤 달라진다).
 
     매 걸음 모델에 보내는 글: 시스템 + 지난 걸음(고른 JSON·결과) + 이번 상태·「지금까지 한 걸음」 기록·요청.
     기록은 걸음마다 다시 만들어 늘 실린다. 문맥 한도에서는 오래된 결과 글 → 오래된 걸음 → 상태 글 뒤쪽 → 최근 결과 글
     차례로 줄이고, 최근 KEEP_STEPS 걸음과 기록은 빼지 않는다 — 모델이 이미 한 걸음을 못 보고 되풀이하지 않게.
-    system 을 주면 그 지시로 돈다({tools}·{max_writes} 자리는 같다) — 플랫폼 업무 도우미(platform_helper)가 같은 걸음 구조를 쓴다."""
+    system 을 주면 그 지시로 돈다({tools}·{max_writes} 자리는 같다) — 플랫폼 업무 도우미(platform_helper)가 같은 걸음 구조를 쓴다.
+    on_act(도구, 인자, start|done|fail) 은 화면 표시용(작성 카드) — 실패해도 걸음에는 영향이 없다."""
     reg = {t.name: t for t in tools}
     system = (system or SYSTEM).format(max_writes=max_writes, tools="\n".join(f"- {t.name}: {t.desc}" for t in tools))
     from zzaimy.app import llm_budget
@@ -391,6 +392,7 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
         else:
             if on_step:
                 on_step(_step_label(name, args))
+            _act(on_act, name, args, "start")
             try:
                 t_run = time.monotonic()
                 try:
@@ -398,18 +400,21 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
                 finally:
                     run_s = round(time.monotonic() - t_run, 1)
                 done = True
+                _act(on_act, name, args, "done")
                 first_obs[key] = (len(log) + 1, data)
                 if tool.writes:
                     ep.writes += 1
                 if tool.gathers:
                     searched = True
             except Retry as e:                                         # 코드가 쓴 안내(+ 함께 보일 자료)
+                _act(on_act, name, args, "fail")
                 note, data = str(e), str(getattr(e, "data", "") or "")
                 rejected[key] = (len(log) + 1, note, data)
             except Exception as e:
                 from zzaimy.generate.client import describe_llm_error
 
                 # 담당자에게 보일 까닭은 오류 갈래만 — 오류 글(문서 글이 섞일 수 있다)은 옮기지 않는다
+                _act(on_act, name, args, "fail")
                 why = describe_llm_error(e).rstrip(".") if type(e).__module__.startswith("openai") else type(e).__name__
                 ep.failures.append({"action": name, "args": args, "error": why})
                 again = sum(1 for f_ in ep.failures if f_["action"] == name)
@@ -440,6 +445,14 @@ def run(client, request: str, state: Callable[[], str], tools: list[Tool], *, on
             return ep
     ep.stop = "steps"
     return ep
+
+
+def _act(on_act, name: str, args: dict, phase: str) -> None:
+    if on_act:
+        try:
+            on_act(name, args, phase)
+        except Exception:                                              # 화면 표시가 걸음을 막지 않는다
+            pass
 
 
 def _step_label(name: str, args: dict) -> str:

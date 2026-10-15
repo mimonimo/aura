@@ -112,6 +112,11 @@ body .chat-location-button::before{content:'↗';color:#497bfb}
 .chat-doc-busy-dot{flex:none;width:12px;height:12px;box-sizing:border-box;border:2px solid #dce5f2;border-top-color:var(--navy,#1f3b63);border-right-color:var(--navy,#1f3b63);border-radius:50%;animation:chat-doc-busy-spin .9s linear infinite}
 @keyframes chat-doc-busy-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.chat-doc-busy-dot{animation:none}}
+/* 문서에 쓰는 중 — 도는 점 대신 AURA 커서 */
+.chat-doc-busy.is-writing{background:#eef4fc}
+.chat-doc-busy.is-writing .chat-doc-busy-dot{width:14px;height:14px;border:0;border-radius:0;background:var(--navy,#1f3b63);clip-path:polygon(0 0,0 100%,30% 72%,52% 100%,66% 92%,45% 64%,85% 62%);animation:chat-doc-busy-type 1.2s ease-in-out infinite}
+@keyframes chat-doc-busy-type{0%,100%{transform:translate(0,0)}50%{transform:translate(3px,2px)}}
+@media(prefers-reduced-motion:reduce){.chat-doc-busy.is-writing .chat-doc-busy-dot{animation:none}}
 /* 불러오는 동안 안내 — 편집기를 덮지 않는 작은 알림(아래 문서는 그대로 보이고 스크롤된다) */
 .chat-doc-loading{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100% - 32px);box-sizing:border-box;padding:7px 14px;border:1px solid var(--line);border-radius:999px;background:#fff;color:#2c4a73;font-size:12px;line-height:1.5;box-shadow:0 4px 14px rgba(15,30,60,.10);z-index:2}
 .chat-doc-loading>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
