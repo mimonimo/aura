@@ -56,7 +56,7 @@ class ChatHistory:
     def connect(self):
         return connect(self.path)
 
-    def sessions(self, owner, query='', archived=False, offset=0, limit=30, topic_match=None, scope='title'):
+    def sessions(self, owner, query='', archived=False, offset=0, limit=30, topic_match=None, scope='title', channel='chat'):
         """계정의 대화 목록. topic_match 는 주제(근거 문서의 사업·규정 이름) 검색 조건을 함께 건다.
 
         주제 조건도 같은 질의 안에서 걸러야 정렬·페이지 나눔이 한 결과집합에 적용된다.
@@ -84,9 +84,9 @@ class ChatHistory:
                 FROM chat_sessions s
                 LEFT JOIN projects p ON p.id=s.project_id
                 LEFT JOIN chat_session_preferences pref ON pref.session_id=s.id
-                WHERE s.owner=? AND COALESCE(pref.archived,0)=?{where_q}
+                WHERE s.owner=? AND COALESCE(pref.archived,0)=? AND COALESCE(s.channel,'chat')=?{where_q}
                 ORDER BY last_message DESC, s.id DESC LIMIT ? OFFSET ?
-            ''', (owner, int(archived), *match_args, limit, offset)).fetchall()
+            ''', (owner, int(archived), 'helper' if channel == 'helper' else 'chat', *match_args, limit, offset)).fetchall()
         return [dict(row) | {'title': display_title(row['title'])} for row in rows]
 
     def change(self, owner, session_id, title=None, archived=None):
@@ -129,12 +129,12 @@ def install_routes(app, history):
         return {'ok': True}
 
     @app.get('/api/chat/sessions')
-    def sessions(request: Request, q: str='', archived: bool=False, offset: int=0, scope: str='title'):
+    def sessions(request: Request, q: str='', archived: bool=False, offset: int=0, scope: str='title', channel: str='chat'):
         topics = getattr(history, 'topics', None)
         # 사업 이름으로도 찾는다 — 제목에 없어도 근거 문서의 사업이 맞으면 나온다(한 질의 안에서)
         match = topics.match_clause(q[:200]) if (topics is not None and q.strip()) else None
         rows = history.sessions(request.state.user, q[:200], archived, max(0,offset), 31, match,
-                                'all' if scope == 'all' else 'title')
+                                'all' if scope == 'all' else 'title', channel)
         if topics is not None:  # 근거 문서에서 정한 대화 주제(chat_topics.py)
             names = topics.topics([r['id'] for r in rows])
             for r in rows:

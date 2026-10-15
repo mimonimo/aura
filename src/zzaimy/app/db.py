@@ -267,6 +267,8 @@ class Database:
         "ALTER TABLE projects ADD COLUMN unit TEXT NOT NULL DEFAULT ''",
         # 공개 대상 — staff(교직원·교수, 기본) · student(학생에게도 공개하는 학사 규정). 학생 검색은 student 규정만(ADR-0052)
         "ALTER TABLE documents ADD COLUMN audience TEXT NOT NULL DEFAULT 'staff'",
+        # 대화 갈래 — chat(에이전트 대화: 문서 작성·업무) · helper(떠 있는 창의 플랫폼 업무 도우미). 사이드바는 chat 만
+        "ALTER TABLE chat_sessions ADD COLUMN channel TEXT NOT NULL DEFAULT 'chat'",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -541,13 +543,13 @@ class Database:
             ).fetchall()]
 
     def create_chat_session(
-        self, title: str, project_id: int | None = None, owner: str = "zzaimy"
+        self, title: str, project_id: int | None = None, owner: str = "zzaimy", channel: str = "chat"
     ) -> int:
         with self._conn() as conn:
             cur = conn.execute(
-                "INSERT INTO chat_sessions (title, created_at, project_id, owner)"
-                " VALUES (?, ?, ?, ?)",
-                (title[:60], _now(), project_id, owner),
+                "INSERT INTO chat_sessions (title, created_at, project_id, owner, channel)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (title[:60], _now(), project_id, owner, "helper" if channel == "helper" else "chat"),
             )
             return int(cur.lastrowid or 0)
 

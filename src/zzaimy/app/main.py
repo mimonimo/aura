@@ -3381,9 +3381,14 @@ def create_app(
             last = db.list_chats(session_id, limit=1)
             if session_id in _chat_running or (last and last[-1]["role"] == "user"):
                 return {"ok": False, "error": "앞선 답변을 기다리는 중입니다", "session_id": session_id}
-        else:
+        # 떠 있는 창에 직접 쓴 질문은 플랫폼 업무 도우미가 받는다. 화면 글을 골라 묻는 질문(context)은 문서 내용이라 기존 답변 경로로
+        use_helper = (not quoted and os.environ.get("ZZAIMY_PLATFORM_HELPER", "1") != "0"
+                      and getattr(request.state, "role", "") != "student")
+        if session_id is None:
+            # 도우미 대화는 「업무 상담」 — 왼쪽 사이드바(문서 작성·업무 대화)에는 싣지 않고 떠 있는 창의 기록에서 다룬다
             session_id = db.create_chat_session(
-                title=_chat_title(q)[:60], project_id=page_project, owner=getattr(request.state, "user", "zzaimy")
+                title=_chat_title(q)[:60], project_id=page_project, owner=getattr(request.state, "user", "zzaimy"),
+                channel="helper" if use_helper else "chat",
             )
         db.add_chat(session_id, "user", asked)
         if re.fullmatch(r"/[0-9A-Za-z/_\-.]{0,120}", page or ""):
@@ -3397,8 +3402,7 @@ def create_app(
             if line:
                 done.append(line)
                 db.add_chat(session_id, "assistant", line)
-        # 떠 있는 창에 직접 쓴 질문은 플랫폼 업무 도우미가 받는다. 화면 글을 골라 묻는 질문(context)은 문서 내용이라 기존 답변 경로로
-        if not quoted and os.environ.get("ZZAIMY_PLATFORM_HELPER", "1") != "0" and getattr(request.state, "role", "") != "student":
+        if use_helper:
             _chat_progress[session_id] = {"started_at": time.time(), "steps": ["요청 확인 중"], "at": [time.time()]}
             _chat_running.add(session_id)
             background.add_task(_helper_task, session_id, asked, _chat_pages.get(session_id, ""))

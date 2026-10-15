@@ -296,3 +296,18 @@ def test_vllm_call_without_extra_gets_thinking_off(monkeypatch):
             pass
     assert seen[0]["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
     assert seen[1]["extra_body"] == {"chat_template_kwargs": {"enable_thinking": True}}
+
+
+def test_helper_chats_stay_out_of_sidebar(tmp_path, monkeypatch):
+    """떠 있는 창의 업무 도우미 대화는 「업무 상담」 — 왼쪽 사이드바·대화 검색에는 안 나오고 창의 기록(channel=helper)에만."""
+    monkeypatch.setenv("ZZAIMY_PLATFORM_HELPER", "1")
+    c = _client(tmp_path)
+    helper = c.post("/chat/ask", data={"question": "학생 RAG 등록 어떻게 해?", "page": "/dev/rag"}).json()["session_id"]
+    monkeypatch.setenv("ZZAIMY_PLATFORM_HELPER", "0")
+    work = c.post("/chat/ask", data={"question": "휴학 처리 기준을 알려주세요."}).json()["session_id"]
+    side = {s["id"] for s in c.get("/api/chat/sessions").json()["sessions"]}
+    mine = {s["id"] for s in c.get("/api/chat/sessions?channel=helper").json()["sessions"]}
+    assert work in side and helper not in side
+    assert helper in mine and work not in mine
+    page = c.get("/chat").text
+    assert f'/chat/{helper}"' not in page                         # 사이드바 최근 대화에 없다

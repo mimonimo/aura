@@ -906,11 +906,19 @@ document.addEventListener('submit', function(event) {
             background: transparent; font: inherit; font-size: 13px; color: var(--ink);
             padding: 9px 10px; border-radius: 8px; cursor: pointer; text-align: left; }
   .ag-menu button:hover { background: var(--panel); }
-  /* 넓은 화면에서는 위젯이 표의 오른쪽 칸·단추를 덮지 않게 본문을 밀어낸다. 좁은 화면만 덮개 */
+  /* 기본은 오른쪽 아래 팝업 — 도우미가 설명·동작하는 화면이 그대로 보이게. 「넓히기」를 누르면(ag-wide) 넓은 화면에서
+     오른쪽 옆 창으로 길게 열고 본문을 밀어낸다(길게 대화할 때) */
   @media (min-width: 1200px) {
-    body.ag-open .content-col { padding-right: 420px; transition: padding-right .2s ease; }
-    body.ag-open .ag-panel { top: 76px; bottom: 16px; height: auto; max-height: none; }
+    body.ag-open.ag-wide .content-col { padding-right: 420px; transition: padding-right .2s ease; }
+    body.ag-open.ag-wide .ag-panel { top: 76px; bottom: 16px; height: auto; max-height: none; }
   }
+  .ag-hist { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; }
+  .ag-hist h3 { font-size: 12.5px; color: var(--muted); margin: 2px 2px 6px; font-weight: 600; }
+  .ag-hist button { display: block; width: 100%; text-align: left; border: 1px solid var(--line); background: #fff;
+                    border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; cursor: pointer; color: var(--ink);
+                    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ag-hist button:hover { background: var(--panel); }
+  .ag-hist .muted { font-size: 12.5px; padding: 6px 2px; }
   @media (max-width: 560px) {
     .ag-panel { right: 12px; left: 12px; width: auto; bottom: 14px; }
     .ag-fab { right: 14px; bottom: 14px; }
@@ -924,13 +932,14 @@ document.addEventListener('submit', function(event) {
   <div class="ag-head">
     <iconify-icon icon="solar:chat-round-line-linear" style="color:var(--navy); font-size:18px;"></iconify-icon>
     <b id="agTitle" style="min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">새 대화</b>
-    <button type="button" class="icon-btn" data-chat-history title="대화 기록" aria-label="대화 기록" style="width:28px; height:28px; font-size:14px;"><iconify-icon icon="solar:history-linear"></iconify-icon></button>
+    <button type="button" class="icon-btn" id="agHist" title="업무 상담 기록" aria-label="업무 상담 기록" style="width:28px; height:28px; font-size:14px;"><iconify-icon icon="solar:history-linear"></iconify-icon></button>
     <button type="button" class="icon-btn" id="agNew" title="새 대화" aria-label="새 대화"
             style="width:28px; height:28px; font-size:14px;">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon></button>
-    <a class="icon-btn" id="agFull" href="/chat" title="전체 화면으로 열기" aria-label="전체 화면으로 열기"
+    <button type="button" class="icon-btn" id="agWide" title="넓히기" aria-label="넓히기" aria-pressed="false"
        style="width:28px; height:28px; font-size:14px;">
-      <iconify-icon icon="solar:maximize-square-linear"></iconify-icon></a>
+      <iconify-icon icon="solar:maximize-square-linear"></iconify-icon></button>
+    <a id="agFull" href="/chat" hidden></a>
     <button type="button" class="icon-btn" id="agClose" title="닫기" aria-label="닫기"
             style="width:28px; height:28px; font-size:14px;">
       <iconify-icon icon="solar:close-circle-linear"></iconify-icon></button>
@@ -1174,8 +1183,41 @@ document.addEventListener('submit', function(event) {
     if (panel.classList.contains("open")) close(); else open();
   });
   document.getElementById("agClose").addEventListener("click", function () { close(); });
-  // 대화 기록은 전역 검색 창으로 연다 — 위젯은 접어서 창 위에 겹쳐 남지 않게
-  panel.querySelector("[data-chat-history]").addEventListener("click", function () { close(true); });
+  // 넓히기 — 팝업(기본) ↔ 오른쪽 옆 창. 고른 모양은 이 브라우저에 기억한다
+  var wideBtn = document.getElementById("agWide");
+  function setWide(on) {
+    document.body.classList.toggle("ag-wide", !!on);
+    wideBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    wideBtn.title = on ? "줄이기" : "넓히기"; wideBtn.setAttribute("aria-label", wideBtn.title);
+    try { localStorage.setItem("chatWidgetWide", on ? "1" : ""); } catch (e) {}
+  }
+  try { setWide(localStorage.getItem("chatWidgetWide") === "1"); } catch (e) { setWide(false); }
+  wideBtn.addEventListener("click", function () { setWide(!document.body.classList.contains("ag-wide")); });
+
+  // 업무 상담 기록 — 떠 있는 창에서 나눈 대화만(에이전트 대화는 왼쪽 사이드바). 고르면 그 대화를 이어 간다
+  document.getElementById("agHist").addEventListener("click", function () {
+    if (posting) return;
+    clearTimeout(pollTimer); generation++;
+    body.innerHTML = "";
+    var box = document.createElement("div"); box.className = "ag-hist";
+    var h = document.createElement("h3"); h.textContent = "업무 상담 기록"; box.appendChild(h);
+    var note = document.createElement("p"); note.className = "muted"; note.textContent = "불러오는 중…"; box.appendChild(note);
+    body.appendChild(box);
+    fetch("/api/chat/sessions?channel=helper", { cache: "no-store" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var list = (d && d.sessions) || [];
+        note.textContent = list.length ? "" : "아직 나눈 업무 상담이 없습니다.";
+        if (!list.length) return;
+        note.remove();
+        list.forEach(function (row) {
+          var b = document.createElement("button"); b.type = "button"; b.textContent = row.title || ("대화 " + row.id);
+          b.addEventListener("click", function () { setSid(String(row.id)); chatTitle.textContent = row.title || "이어서 대화"; load(true); input.focus(); });
+          box.appendChild(b);
+        });
+      })
+      .catch(function () { note.textContent = "기록을 불러오지 못했습니다."; });
+  });
   document.getElementById("agNew").addEventListener("click", function () {
     if (posting) return;
     if (input.value.trim() && !confirm("작성 중인 내용을 지우고 새 대화를 시작할까요?")) return;
