@@ -267,3 +267,32 @@ def test_ollama_server_gets_reasoning_effort_none(monkeypatch):
     except RuntimeError:
         pass
     assert seen["extra_body"] == {"reasoning_effort": "none"}
+
+
+def test_vllm_call_without_extra_gets_thinking_off(monkeypatch):
+    """내부 vLLM 호출이 생각 끄기 인자를 빠뜨려도 클라이언트가 붙인다 — 호출부가 정한 값은 그대로."""
+    from zzaimy.generate import client as cl
+
+    seen = []
+
+    class _Comp:
+        def create(self, **kw):
+            seen.append(kw)
+            raise RuntimeError("stop")
+
+    class _Fake:
+        base_url = "http://vllm.example:8000/v1/"
+
+        def __init__(self, **kw):
+            self.chat = type("C", (), {"completions": _Comp()})()
+
+    monkeypatch.setattr(cl, "OpenAI", _Fake)
+    monkeypatch.setattr(cl, "is_ollama", lambda url: False)
+    c = cl.VllmClient(model="m")
+    for extra in (None, {"chat_template_kwargs": {"enable_thinking": True}}):
+        try:
+            c.client.chat.completions.create(model="m", messages=[], **({"extra_body": extra} if extra else {}))
+        except RuntimeError:
+            pass
+    assert seen[0]["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
+    assert seen[1]["extra_body"] == {"chat_template_kwargs": {"enable_thinking": True}}

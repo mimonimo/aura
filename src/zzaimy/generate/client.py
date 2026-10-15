@@ -181,6 +181,7 @@ class VllmClient:
                 return bool(thought) or getattr(choice, "finish_reason", "") == "length"
 
             ollama = self.kind == "vllm" and is_ollama(str(getattr(self.client, "base_url", "") or ""))
+            _no_extra: list = []                                       # 확장 인자를 거절한 서버 — 한 번 겪으면 더 보내지 않는다
 
             def _create(*a, **kw):
                 # Ollama 는 생각 끄기 인자가 다르다 — 호출부가 따로 정하지 않았으면 끈다
@@ -190,6 +191,10 @@ class VllmClient:
                     eb.pop("chat_template_kwargs", None)
                     eb["reasoning_effort"] = "none"
                     kw = dict(kw, extra_body=eb)
+                # 내부 vLLM 은 생각 모드가 기본으로 켜져 있다 — 호출부가 정하지 않았으면 끈다. 빠뜨린 호출이 출력 한도를
+                # 생각에 다 써 느려지지 않게(반입 정체 읽기가 한 건 100초 걸리던 원인). 서버가 거절한 적이 있으면 보내지 않는다
+                elif self.kind == "vllm" and not _no_extra and "chat_template_kwargs" not in (kw.get("extra_body") or {}):
+                    kw = dict(kw, extra_body={**(kw.get("extra_body") or {}), "chat_template_kwargs": {"enable_thinking": False}})
                 try:
                     resp = _orig(*a, **kw)
                 except TypeError:
@@ -198,6 +203,7 @@ class VllmClient:
                     # 서버가 모르는 확장 인자를 거부하면 한 번만 빼고 다시 보낸다
                     if kw.get("extra_body") and _rejects_extra(e):
                         self._extra = {}
+                        _no_extra.append(True)
                         kw = dict(kw, extra_body=None)
                         resp = _orig(*a, **kw)
                     else:

@@ -3406,10 +3406,10 @@ def create_app(
         return r
 
     def _identity_call(prompt: str) -> str:
-        """정체 파악에 쓰는 모델 호출 — 기본 연결을 그대로 쓴다."""
+        """정체 파악에 쓰는 모델 호출 — 반입 뒤 단계라 검토 연결(review)을 쓴다. 답변 연결(answer)은 채팅에 비워 둔다."""
         from zzaimy.generate.client import VllmClient
 
-        c = VllmClient(role="answer")
+        c = VllmClient(role="review")
         r = c.client.chat.completions.create(
             model=c.model, temperature=0.0, max_tokens=1200,
             messages=[{"role": "user", "content": prompt}],
