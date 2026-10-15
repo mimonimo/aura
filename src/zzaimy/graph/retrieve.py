@@ -284,7 +284,9 @@ def _named_docs(conn, question: str, docs: set[int]) -> dict[str, set[int]]:
 
 
 def _is_section_title(conn, phrase: str, docs: set[int]) -> bool:
-    """범위 안 문서에 이 이름(번호·띄어쓰기 무시)을 제목으로 가진 절이 있나 — 그래프 절 노드로."""
+    """범위 안 문서에 이 이름(번호·띄어쓰기 무시)을 제목으로 가진 절이 있나 — 그래프 절 노드로.
+    문서 이름 맞추기(_named_docs)와 같이 전체 공개 문서만 본다 — 부서·개인 문서의 절 제목에 따라 읽는 방식이 달라지면 그런 절이
+    있는지가 검색 단계 글로 새어 나간다."""
     key = _flat(phrase)
     ids = sorted(docs)[:5000]
     if not key or not ids:
@@ -292,7 +294,8 @@ def _is_section_title(conn, phrase: str, docs: set[int]) -> bool:
     like = "%" + re.sub(r"\s+", "", phrase) + "%"
     rows = conn.execute(
         "SELECT label FROM kg_nodes WHERE type = 'section'"
-        f" AND doc_id IN ({','.join('?' * len(ids))}) AND REPLACE(label, ' ', '') LIKE ? LIMIT 50", (*ids, like)).fetchall()
+        f" AND doc_id IN ({','.join('?' * len(ids))}) AND REPLACE(label, ' ', '') LIKE ?"
+        " AND doc_id IN (SELECT id FROM documents WHERE access_level = 'public') LIMIT 50", (*ids, like)).fetchall()
     # 제목이 그 이름이거나 앞에 번호만 붙은 것(「3. 사업 예산집행 계획」) — 긴 제목 속 일부는 아니다
     return any((t := _flat(r[0] or "")).endswith(key) and len(t) - len(key) <= 6 for r in rows)
 

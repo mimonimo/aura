@@ -209,5 +209,10 @@ def test_quoted_document_name_narrows_to_that_document(graph):
         kg_store.put_node(conn, "doc:1:sec:a", "section", "3. 추진 실적", {}, 1)
     sec = gr.scope(graph, "가나 2단계 사업 2024년 계획서의 「추진 실적」 내용을 알려줘")
     assert sec.doc_names == [] and sec.docs == {1}
+    with graph._conn() as conn:                     # 그 절이 공개 아닌 문서에만 있으면 읽는 방식에 쓰지 않는다(절이 있는지 새지 않게)
+        conn.execute("UPDATE documents SET access_level = 'dept' WHERE id = 1")
+    assert gr.scope(graph, "가나 2단계 사업 2024년 계획서의 「추진 실적」 내용을 알려줘").doc_names == ["추진 실적"]
+    with graph._conn() as conn:
+        conn.execute("UPDATE documents SET access_level = 'public' WHERE id = 1")
     from zzaimy.app import grant_search
     assert grant_search.section_phrases("「단위과제(2-3) 2차년도 실적보고서」의 「추진 실적」", sc.doc_names) == ["추진 실적"]
