@@ -574,6 +574,8 @@ def main() -> int:
     if args.limit:
         items = [x for x in items if x["set"] == "section"][: args.limit] + [x for x in items if x["set"] == "relation"][: args.limit]
     ans_ids = {x["id"] for x in pick_answer_items(items, args.answer_sec, args.answer_rel)}
+    if args.think_compare:                                      # 답 생성만 견준다 — 답할 질문만 검색(27B 서버에 헛걸음 없이)
+        items = [x for x in items if x["id"] in ans_ids]
     print(f"시험지: 절 {sum(x['set'] == 'section' for x in items)}문 · 관계 {sum(x['set'] == 'relation' for x in items)}문 · "
           f"답변 {len(ans_ids)}문 × {','.join(amodes)} · 모드 {','.join(modes)}", flush=True)
     if dropped:
