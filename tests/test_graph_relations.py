@@ -195,5 +195,9 @@ def test_quoted_document_name_narrows_to_that_document(graph):
     assert sc.doc_names == ["단위과제(2-3) 2차년도 실적보고서"] and sc.docs == {2} and sc.round is None
     plain = gr.scope(graph, "가나 2단계 사업 2024년 계획서의 「추진 실적」 내용을 알려줘")
     assert plain.doc_names == [] and plain.kinds == ["plan"] and plain.docs == {1}     # 절 이름 속 「실적」 은 갈래가 아니다
+    with graph._conn() as conn:                                          # 공개가 아닌 문서의 이름은 맞춰 보지 않는다(있는지가 새지 않게)
+        conn.execute("UPDATE documents SET access_level = 'owner' WHERE id = 2")
+    hidden = gr.scope(graph, "가나 2단계 사업 2024년 「단위과제(2-3) 2차년도 실적보고서」의 「추진 실적」 내용을 알려줘")
+    assert hidden.doc_names == [] and not any("단위과제" in s_ for s_ in hidden.steps)
     from zzaimy.app import grant_search
     assert grant_search.section_phrases("「단위과제(2-3) 2차년도 실적보고서」의 「추진 실적」", sc.doc_names) == ["추진 실적"]

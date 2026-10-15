@@ -260,7 +260,9 @@ def _doc_pairs(conn, kind: str, doc_ids: set[int]) -> list[tuple[int, int]]:
 
 def _named_docs(conn, question: str, docs: set[int]) -> dict[str, set[int]]:
     """질문에 묶어 적은 이름 가운데 사업 문서의 이름(파일 이름·본문 제목)인 것 → 그 문서들. 걸리는 문서가 없거나 너무 많으면
-    문서 이름이 아니다(절 이름이거나 흔한 낱말). 이름 규칙을 덧대지 않고 그래프·문서함에 있는 이름으로만 가른다."""
+    문서 이름이 아니다(절 이름이거나 흔한 낱말). 이름 규칙을 덧대지 않고 그래프·문서함에 있는 이름으로만 가른다.
+    전체 공개 문서의 이름만 본다 — 이 단계는 묻는 사람을 모르므로, 부서·개인 문서의 이름을 맞춰 보면 그런 문서가 있는지가
+    검색 단계 글로 새어 나간다. 공개가 아닌 문서는 예전처럼 연차·갈래 범위에서 열람 권한대로 찾는다."""
     phrases = [m for m in _QUOTED.findall(question or "") if len(_flat(m)) >= 4]
     if not phrases or not docs:
         return {}
@@ -269,7 +271,8 @@ def _named_docs(conn, question: str, docs: set[int]) -> dict[str, set[int]]:
     for i in range(0, len(ids), 500):
         part = ids[i:i + 500]
         for did, fn in conn.execute(
-                f"SELECT id, filename FROM documents WHERE id IN ({','.join('?' * len(part))})", part).fetchall():
+                f"SELECT id, filename FROM documents WHERE access_level = 'public' AND id IN ({','.join('?' * len(part))})",
+                part).fetchall():
             names[int(did)] = _flat(re.sub(r"\.[A-Za-z0-9]{2,5}$", "", fn or ""))   # 문서 이름 — 반입 때 본문 제목으로 바꿔 둔 것
     out: dict[str, set[int]] = {}
     for ph in phrases:
