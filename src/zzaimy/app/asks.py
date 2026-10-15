@@ -195,14 +195,25 @@ def resolve_from_evidence(db, session_: dict | None, name: str, value: str, sour
 
 
 _DATEISH = re.compile(r"(?:'?\d{2,4}\s*[.년/-]\s*)?\d{1,2}\s*[.월/-]\s*\d{1,2}\s*\.?(?:일)?(?:\s*\([^)]{1,3}\))?"
-                      r"(?:\s*[~∼-]\s*(?:\d{1,2}\s*[.월/-]\s*)?\d{1,2}\s*\.?(?:일)?(?:\s*\([^)]{1,3}\))?)?"
+                      r"(?:\s*[~∼-]\s*(?:'?\d{2,4}\s*[.년/-]\s*(?=\d{1,2}\s*[.월/-]\s*\d))?(?:\d{1,2}\s*[.월/-]\s*)?\d{1,2}\s*\.?(?:일)?(?:\s*\([^)]{1,3}\))?)?"
                       r"(?:\s*,?\s*\d{1,2}:\d{2}(?::\d{2})?)?"
                       r"|\d[\d,.]*\s*(?:억|만|천)?\s*(?:원|명|개|건|%|시간|일|개월|년)")
 
 
+def _mark(line: str) -> str:
+    """목록 줄의 글머리 꼴 — 번호(1. 2))·원 번호·표 줄·글머리 기호 하나."""
+    t = line.lstrip()
+    if re.match(r"\d", t):
+        return "번호"
+    if re.match(r"[①-⑳]", t):
+        return "원번호"
+    return t[:1]
+
+
 def candidate_spans(name: str, hits: list[dict], source_title: str, limit: int = 4) -> list[str]:
     """값이 결과 글에 그대로 없을 때 고쳐 낼 후보 — 그 출처 결과 글에서 그대로 떼어 낸 조각만(바꿔 쓰지 않는다).
-    물은 이름의 낱말(두 글자 앞머리 포함)이 든 줄과, 날짜·기간·수량 꼴 글을 고른다. 모델은 이 가운데 하나를 그대로 다시 낸다."""
+    물은 이름의 낱말(두 글자 앞머리 포함)이 든 줄과, 날짜·기간·수량 꼴 글, 그 줄 뒤에 이어진 목록·표 줄 묶음(여러 줄 값)을 고른다.
+    모델은 이 가운데 하나를 그대로 다시 낸다."""
     title = _squash(source_title).strip("《》「」")
     texts = [str(h.get("text") or "") for h in hits if _squash(h.get("title")).strip("《》「」") == title]
     keys = ask_keys(name)
@@ -214,6 +225,14 @@ def candidate_spans(name: str, hits: list[dict], source_title: str, limit: int =
             if not score:
                 continue
             got = [m.group(0).strip() for m in _DATEISH.finditer(line)]
+            # 이름 줄 뒤에 목록·표 줄이 이어지면 그 묶음(여러 줄 값 — 명단·일정표)도 후보로. 글은 결과에 있던 줄 그대로 잇는다
+            run: list[str] = []
+            for nxt in lines[i + 1:i + 13]:
+                if not _ITEM_LINE.match(nxt) or (run and _mark(nxt) != _mark(run[0])):   # 글머리 꼴이 바뀌면(「4. 다음 절」) 끝
+                    break
+                run.append(nxt)
+            if len(run) >= 2:
+                got.append("\n".join(run)[:VALUE_MAX])
             if len(_squash(line)) < 30 and i + 1 < len(lines):      # 짧은 줄은 제목·항목 이름일 때가 많다 — 값은 다음 줄에
                 got.append(lines[i + 1][:80])
             got.append(line[:80])

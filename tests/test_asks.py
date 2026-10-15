@@ -50,3 +50,10 @@ def test_parse_pairs_takes_multi_line_values_without_swallowing_the_next_sentenc
     got = asks.parse_pairs("추진 일정:\n| 1분기 | 기획 |\n| 2분기 | 운영 |", names)
     assert got == {"추진 일정": "| 1분기 | 기획 |\n| 2분기 | 운영 |"}
     assert len(asks.parse_pairs("참여 기관:\n" + "\n".join(f"- 기관 {i}" for i in range(400)), names)["참여 기관"]) == asks.VALUE_MAX
+
+
+def test_candidate_spans_offer_list_block_and_whole_date_range():
+    hits = [{"title": "계획서", "text": "3. 참여 기관 현황\n- 가나 대학교\n- 다라 산업(주)\n4. 추진 일정\n사업 기간 2027.3.1 ~ 2028.2.28"}]
+    got = asks.candidate_spans("참여 기관", hits, "계획서")
+    assert got[0] == "- 가나 대학교\n- 다라 산업(주)"                  # 글머리 꼴이 바뀐 「4. 추진 일정」 에서 끊는다
+    assert "2027.3.1 ~ 2028.2.28" in asks.candidate_spans("사업 기간", hits, "계획서")   # 끝 날짜의 연도까지 한 기간으로
