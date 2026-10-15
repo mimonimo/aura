@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from tests.test_app import FakeDrafter, FakeProcessor
 from zzaimy.app import access_guard, access_policy, grant_search, library_folders, rag_spaces
-from zzaimy.app.main import create_app
+from zzaimy.app.main import QUALITY_KIND_LABELS, create_app
 from zzaimy.graph import kg_store
 
 ACCOUNTS = {
@@ -282,3 +282,35 @@ def test_view_as_back_is_local_only(world):
         r = dev.post("/view-as/clear", data={"back": bad}, follow_redirects=False)
         assert r.headers["location"] == "/", bad
     assert dev.post("/view-as/clear", data={"back": "/chat"}, follow_redirects=False).headers["location"] == "/chat"
+
+
+def test_only_owner_or_admin_changes_a_document(world):
+    """볼 수 있다고 바꿀 수 있지 않다 — 지우기·판정·초안·다시 읽기·갈래·접수번호·검토 의견은 올린 사람과 관리자만(10-16).
+    품질 신고만 볼 수 있는 누구나. 기관 정보는 관리자만."""
+    app, ids, _ = world
+    db = app.state.db
+    plan = _client(app, "plan")
+    writes = [("delete", {}), ("decision", {"decision": "approved"}), ("draft", {}), ("revise", {"want": "고쳐"}),
+              ("identity", {}), ("route", {}), ("analyze", {}), ("receipt", {"receipt_no": "2026-국고-0099"}),
+              ("review", {"opinion": "x"}), ("read-pages", {})]
+    for path, data in writes:
+        r = plan.post(f"/doc/{ids['g_pub']}/{path}", data=data, follow_redirects=False)
+        assert r.status_code == 403, path
+    assert db.get_document(ids["g_pub"]) is not None                    # 공통 문서가 지워지지 않았다
+    r = plan.post(f"/doc/{ids['g_pub']}/quality-report", data={"kind": next(iter(QUALITY_KIND_LABELS))}, follow_redirects=False)
+    assert r.status_code == 303
+    san = _client(app, "sanhak")                                          # 자기가 올린 문서는 바꾼다
+    assert san.post(f"/doc/{ids['o_san']}/review", data={"opinion": "보완"}, follow_redirects=False).status_code == 303
+    assert plan.post("/institution", data={"대학명": "x"}, follow_redirects=False).status_code == 403
+    assert _client(app, "zzdev").post("/institution", data={"대학명": ""}, follow_redirects=False).status_code == 303
+
+
+def test_helper_question_never_changes_a_guessed_document(world):
+    """떠 있는 창 질문의 낱말로 짐작한 문서에는 아무 일도 저절로 하지 않는다 — 지금 보는 문서이고 바꿀 수 있을 때만."""
+    app, ids, _ = world
+    plan = _client(app, "plan")
+    before = app.state.db.get_document(ids["g_pub"])
+    body = plan.post("/chat/ask", data={"question": f"{_stem('g_pub')} 사업 정체 파악해서 초안 작성해 줘", "page": "/dev"}).json()
+    assert body["done"] == [] and not any(a.get("changes") for a in body["actions"])
+    after = app.state.db.get_document(ids["g_pub"])
+    assert (after.get("identity"), after.get("draft")) == (before.get("identity"), before.get("draft"))

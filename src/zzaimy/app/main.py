@@ -329,6 +329,8 @@ def create_app(
     _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view(?:/status)?|original(?:/status|/download)?|page/\d+\.png))?$|logout$)")
     _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|logout)$")
 
+    _DOC_ANYONE_POST = re.compile(r"^/doc/\d+/quality-report$")      # 문서를 볼 수 있는 누구나 하는 POST
+
     def _student_allowed(method: str, path: str) -> bool:
         return bool((_STUDENT_POST if method == "POST" else _STUDENT_GET).match(path))
     from zzaimy.app import access_policy as _ap
@@ -344,6 +346,15 @@ def create_app(
         user = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
         return _ap.viewer(getattr(request.state, "role", ""), getattr(request.state, "dept", "") or None,
                           user, Path(db_path).parent)
+
+    def _may_edit_doc(request: Request, doc: dict | None) -> bool:
+        """문서를 바꿀 수 있는가 — 관리자, 또는 그 문서를 올린 사람. 「테스트 보기」 중에는 고른 계정처럼(개발자가 올린 문서도 남의 문서)."""
+        if not doc:
+            return False
+        if getattr(request.state, "role", "") == "dev":
+            return True
+        user = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+        return bool(user) and doc.get("owner") == user
 
     if password is not None:
         basic = HTTPBasic(auto_error=False)
@@ -391,6 +402,15 @@ def create_app(
                 doc = db.get_document(int(m.group(1)))
                 if doc is not None and not _visible(doc, **_req_viewer(request)):
                     raise HTTPException(404, "문서를 찾을 수 없습니다")
+                # 문서를 바꾸는 일(지우기·판정·초안·다시 읽기·갈래·접수번호·검토 의견…)은 올린 사람과 관리자만 — 볼 수 있다고
+                # 바꿀 수 있는 것은 아니다. 볼 수 있는 사람 누구나 하는 일은 품질 신고뿐. 여기서 한 번에 막아 앞으로 생기는 경로도 따른다
+                if (doc is not None and request.method == "POST" and request.url.path.startswith("/doc/")
+                        and not _DOC_ANYONE_POST.match(request.url.path)
+                        and not _may_edit_doc(request, doc)):
+                    raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+            # 기관 정보(대학명·총장 등)는 모든 사용자 문서에 함께 쓰인다 — 관리자만 바꾼다
+            if request.url.path == "/institution" and request.method == "POST" and request.state.role != "dev":
+                raise HTTPException(403, "기관 정보는 관리자만 바꿀 수 있습니다")
 
         dependencies = [Depends(check_auth)]
     else:
@@ -3374,7 +3394,7 @@ def create_app(
                     ident = r.get("identity") or {}
                 name = (ident.get("program") or doc["filename"]).strip()[:60]
                 sector = doc.get("sector") if doc.get("sector") in INBOX_TYPES else "grant"
-                pid = db.create_project(sector, name, owner="zzaimy")
+                pid = db.create_project(sector, name, owner=str(ctx.get("owner") or "zzaimy"))
                 db.set_document_project(doc_id, pid)
                 steps = [f"프로젝트 「{name}」를 만들고 공고를 붙였습니다"]
                 if ident.get("organizer") or ident.get("period"):
@@ -3482,9 +3502,23 @@ def create_app(
         else:
             _chat_pages.pop(session_id, None)
         found = _page_actions(page, q, _ap.request_viewer(request))
+        # 문서를 바꾸는 일은 지금 보고 있는 문서(화면 주소)이고 그 문서를 바꿀 수 있는 계정일 때만 — 질문 낱말로 짐작한 문서에는
+        # 하지 않는다(10-16: 「…계획서의 성과지표」 질문에 짐작한 남의 문서의 사업 정보 읽기가 저절로 돌았다). 학생은 어떤 일도 없다
+        page_doc_id = int(doc_match[1]) if doc_match else None
+
+        def _may(a: dict) -> bool:
+            if getattr(request.state, "role", "") == "student":
+                return False
+            if not a.get("changes"):
+                return True
+            did = (a.get("ctx") or {}).get("doc_id")
+            if did is None:
+                return True
+            return did == page_doc_id and _can_edit_doc(request, db.get_document(int(did)))
+        found = [a for a in found if _may(a)]
         done: list[str] = []
         for a in [x for x in found if x.get("auto")][:1]:
-            line = _run_action(a["key"], a.get("ctx") or {})
+            line = _run_action(a["key"], {**(a.get("ctx") or {}), "owner": getattr(request.state, "user", "") or "zzaimy"})
             if line:
                 done.append(line)
                 db.add_chat(session_id, "assistant", line)
@@ -7445,7 +7479,7 @@ def create_app(
         return {"made_folders": made, "doc_folder": f"{lf.MADE}{row[0]}" if row else ""}
 
     def _can_edit_doc(request: Request, doc: dict | None) -> bool:
-        return bool(doc) and (request.state.role == "dev" or doc.get("owner") == request.state.user)
+        return _may_edit_doc(request, doc)
 
     @app.post("/doc/{doc_id}/folder")
     def doc_set_folder(request: Request, doc_id: int, folder: str = Form("")):
