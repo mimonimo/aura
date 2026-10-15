@@ -1141,7 +1141,16 @@ document.addEventListener('submit', function(event) {
       hit.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
       var c = cursor(); c.classList.remove("leaving");
       c.querySelector(".aura-cursor-tag").textContent = label ? "AURA · " + label : "AURA";
-      setTimeout(function () {
+      // 스크롤이 멈춘 뒤 자리를 잰다(부드러운 스크롤 중에 재면 화면 밖을 가리킨다). 그래도 화면 밖이면 바로 옮긴다
+      var last = null, quiet = 0, t0 = Date.now();
+      (function settle() {
+        var y = hit.getBoundingClientRect().top;
+        quiet = last !== null && Math.abs(y - last) < 1 ? quiet + 1 : 0; last = y;
+        if (quiet < 4 && Date.now() - t0 < 1500) { requestAnimationFrame(settle); return; }
+        if (y < 0 || y > innerHeight - 20) hit.scrollIntoView({ block: "center" });
+        arrive();
+      })();
+      function arrive() {
         var r = hit.getBoundingClientRect();
         c.style.left = Math.round(r.left + Math.min(r.width / 2, 40)) + "px";
         c.style.top = Math.round(r.top + Math.min(r.height / 2, 18)) + "px";
@@ -1152,7 +1161,7 @@ document.addEventListener('submit', function(event) {
           setTimeout(function () { c.classList.remove("press"); if (then) then(true); }, 450);
           setTimeout(function () { hit.classList.remove("aura-ring"); c.classList.add("leaving"); }, 2600);
         }, still ? 0 : 700);
-      }, still ? 0 : 350);
+      }
     }
     // 다른 화면 — 옮겨 간 화면이 이어서 가리키게 남긴다(15초 안에 그 주소를 연 경우만)
     function later(t, label) {
