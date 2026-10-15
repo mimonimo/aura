@@ -289,6 +289,22 @@ def test_alias_filter_on_stored_card_shape():
     assert "QRG+" in shown and "QX+" not in shown
 
 
+def test_alias_list_drops_swapped_version_digits_and_ocr_glyph_misreads():
+    """판독 오기 — 판 번호 숫자 뒤바뀜(「KLIN 0.3」), 헷갈리는 글자 모양(「KUN 3.0」 ← KLIN), 붙은 두 글자 뒤바뀜(「KILN」).
+    다른 약칭(기호만 다른 KLIN+, 전혀 다른 MOSS)은 그대로 둔다."""
+    prog = {"id": "program:klin30", "label": "별빛 선도(KLIN 3.0) 육성사업",
+            "props": {"acronyms": ["KLIN 3.0", "KLIN 0.3", "KUN 3.0", "KILN 3.0", "KLIN+", "MOSS"], "names": []}}
+    canon, foreign, allowed = programs.alias_filters(prog, [], {})
+    shown, _m = programs.alias_list([], prog["props"]["acronyms"], foreign=foreign, canonical=canon, allowed=allowed)
+    assert "KLIN 3.0" in shown and "KLIN+" in shown and "MOSS" in shown
+    assert not {"KLIN 0.3", "KUN 3.0", "KILN 3.0"} & set(shown)
+    # 장부가 그 표기를 이 사업 것으로 적었으면 둔다
+    canon, foreign, allowed = programs.alias_filters(prog, [], {"programs": [{"name": "별빛 선도(KLIN 3.0) 육성사업", "terms": ["KUN 3.0"],
+                                                                              "sources": ["https://example.org"]}]})
+    shown, _m = programs.alias_list([], prog["props"]["acronyms"], foreign=foreign, canonical=canon, allowed=allowed)
+    assert "KUN 3.0" in shown and "KLIN 0.3" not in shown
+
+
 def test_search_results_use_display_rules(tmp_path):
     db = Database(tmp_path / "t.db")
     kg_store.ensure(db)

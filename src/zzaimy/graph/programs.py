@@ -126,6 +126,36 @@ def _one_edit(a: str, b: str) -> bool:
     return any(hi[:i] + hi[i + 1:] == lo for i in range(len(hi)))
 
 
+# 판독(OCR)에서 서로 헷갈리는 글자 모양 — 「LINC」 가 「UNC」(LI→U), 「M」 이 「RN」 으로 읽힌다. 대조할 때만 한쪽 꼴로 맞춘다
+_GLYPH = (("LI", "U"), ("IJ", "U"), ("RN", "M"), ("CL", "D"), ("VV", "W"), ("0", "O"), ("1", "I"), ("L", "I"),
+          ("5", "S"), ("8", "B"))
+
+
+def _glyph(a: str) -> str:
+    for x, y in _GLYPH:
+        a = a.replace(x, y)
+    return a
+
+
+def _typo(a: str, b: str) -> bool:
+    """a 가 b 의 오기로 보이는가 — 글자 하나 차이, 붙은 두 글자 뒤바뀜(「LINC03」↔「LINC30」), 판 번호 숫자 순서만 다름,
+    판독에서 헷갈리는 글자 모양(_GLYPH)을 맞추면 같거나 글자 하나 차이. 특정 사업 이름 규칙 없이 글자 꼴만 본다."""
+    if a == b:
+        return False
+    if _one_edit(a, b):
+        return True
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        if len(diff) == 2 and diff[1] == diff[0] + 1 and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]]:
+            return True
+    ha, hb = re.sub(r"\d", "", a), re.sub(r"\d", "", b)
+    da, db = re.sub(r"\D", "", a), re.sub(r"\D", "", b)
+    if ha == hb and len(ha) >= 2 and da and sorted(da) == sorted(db):
+        return True
+    ga, gb = _glyph(a), _glyph(b)
+    return ga == gb or _one_edit(ga, gb)
+
+
 def _id_acr(node_id: str) -> set[str]:
     tail = (node_id or "").split(":", 1)[-1]
     return {_acr(tail)} if re.fullmatch(r"[0-9a-z+.]{2,12}", tail) and re.search(r"[a-z]", tail) else set()
@@ -171,7 +201,8 @@ def alias_list(names, acronyms=(), limit: int = 8, foreign: set[str] | frozenset
     """화면에 보일 다른 이름 — 문장 조각을 거르고, 보일 이름 규칙(program_names.display_name)으로 다듬어 띄어쓰기만 다른 것은
     하나로, 약칭 먼저·짧은 이름 순으로 limit 개.
     - foreign(남의 약칭, alias_filters)이 낱말로 든 이름은 남의 사업이라 뺀다
-    - canonical(정체 약칭)과 한 글자만 다른 약칭(「LNC+」「LING+」)은 오기로 보고 뺀다 — allowed(장부 표기)에 있으면 둔다
+    - canonical(정체 약칭)의 오기로 보이는 약칭(_typo — 한 글자 차이 「LNC+」, 숫자 뒤바뀜 「LINC 0.3」, 판독 글자 모양 「UNC 3.0」)은
+      뺀다 — allowed(장부 표기)에 있으면 둔다
     돌려주는 것: (보일 이름들, 더 있는 수)."""
     from zzaimy.app.program_names import display_name
 
@@ -186,7 +217,7 @@ def alias_list(names, acronyms=(), limit: int = 8, foreign: set[str] | frozenset
         if foreign and toks & set(foreign):
             continue
         if canonical and any(t not in canonical and t not in allowed and not any(_same_acr(t, c) for c in canonical)
-                             and any(_one_edit(t, c) for c in canonical) for t in toks):
+                             and any(_typo(t, c) for c in canonical) for t in toks):
             continue
         seen.add(k)
         out.append(n)
