@@ -1214,7 +1214,7 @@ def create_app(
         if ag.injection_like(q):
             ag.audit(data_dir, owner, "injection", q, dept, role)
         depts = sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()})
-        scope_msg = ag.scope_note(q, dept, role, depts, _extra_depts(owner) if role in ("staff", "head") else ())
+        scope_msg = ag.scope_note(q, dept, role, depts, _extra_depts(owner) if role in ("staff", "professor", "head") else ())
         if scope_msg:
             ag.audit(data_dir, owner, "scope", q, dept, role)
         criteria = ag.allowed_doc_ids(db, criteria, dept, role, owner, data_dir)
@@ -3114,7 +3114,7 @@ def create_app(
         session = _owned_chat(request, session_id)
         rows = db.list_chats(session_id)
         return {
-            "title": session["title"], "project_id": session.get("project_id"),
+            "title": session["title"], "project_id": session.get("project_id"), "channel": session.get("channel") or "chat",
             "waiting": session_id in _chat_running or (bool(rows) and rows[-1]["role"] == "user"),
             "suggestions": _chat_suggestions(session, getattr(request.state, "user", "zzaimy")),
             "proposals": platform_ops.pending(db, session_id),
@@ -3124,13 +3124,13 @@ def create_app(
         }
 
     def _ops_ctx(user: str, role: str, background: BackgroundTasks | None = None) -> "platform_ops.Ctx":
-        """플랫폼 동작의 손잡이 — background 가 있으면(실행 때) 새 에이전트 대화를 열고 첫 요청의 답을 뒤에서 만든다."""
+        """플랫폼 동작에 넘기는 맥락 — background 가 있으면(실행 때) 새 에이전트 대화를 열고 첫 요청의 답을 뒤에서 만든다."""
         def start_chat(project_id: int | None, question: str) -> int:
             sid_ = db.create_chat_session(title=_chat_title(question)[:60], project_id=project_id, owner=user or "zzaimy")
             db.add_chat(sid_, "user", question)
             _schedule_answer(background, sid_, question, None, [])
             return sid_
-        return platform_ops.Ctx(db=db, data_dir=Path(db_path).parent, user=user or "", role=role or "", depts=_all_depts,
+        return platform_ops.Ctx(db=db, data_dir=Path(db_path).parent, user=user or "", role=_ap.role_class(role), depts=_all_depts,
                                 sectors=dict(INBOX_TYPES), start_chat=start_chat if background is not None else None)
 
     def _helper_task(session_id: int, q: str, page: str) -> None:
@@ -3143,7 +3143,7 @@ def create_app(
             sess = db.get_chat_session(session_id) or {}
             project = db.get_project(int(sess["project_id"])) if sess.get("project_id") else None
             before = len(db.list_chats(session_id))
-            env = platform_helper.Env(db=db, data_dir=Path(db_path).parent, session_id=session_id, user=owner, role=role, dept=dept,
+            env = platform_helper.Env(db=db, data_dir=Path(db_path).parent, session_id=session_id, user=owner, role=_ap.role_class(role), dept=dept,
                                       page=page, ctx=_ops_ctx(owner, role), project=project,
                                       say=lambda text: db.add_chat(session_id, "assistant", _scrub_internal(text)),
                                       on_step=lambda label: _chat_step(session_id, label))
@@ -3395,20 +3395,24 @@ def create_app(
             project = db.get_project(page_project)
             if not project or project.get("owner") != request.state.user:
                 raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
+        # 떠 있는 창에 직접 쓴 질문은 플랫폼 업무 도우미가 받는다. 화면 글을 골라 묻는 질문(context)은 문서 내용이라 기존 답변 경로로
+        use_helper = (not quoted and os.environ.get("ZZAIMY_PLATFORM_HELPER", "1") != "0"
+                      and getattr(request.state, "role", "") != "student")
         if session_id is not None:
             session = _owned_chat(request, session_id)
-            if page_project and session.get("project_id") != page_project:
+            # 업무 상담(도우미) 대화는 프로젝트에 묶지 않는다 — 어느 화면에서든 기록에서 골라 이어 간다. 프로젝트 대화만 그 프로젝트에서
+            if (session.get("channel") or "chat") == "helper":
+                use_helper = not quoted and use_helper
+            elif page_project and session.get("project_id") != page_project:
                 raise HTTPException(409, "다른 프로젝트의 대화입니다. 이 프로젝트에서 새 대화를 시작해 주세요.")
             last = db.list_chats(session_id, limit=1)
             if session_id in _chat_running or (last and last[-1]["role"] == "user"):
                 return {"ok": False, "error": "앞선 답변을 기다리는 중입니다", "session_id": session_id}
-        # 떠 있는 창에 직접 쓴 질문은 플랫폼 업무 도우미가 받는다. 화면 글을 골라 묻는 질문(context)은 문서 내용이라 기존 답변 경로로
-        use_helper = (not quoted and os.environ.get("ZZAIMY_PLATFORM_HELPER", "1") != "0"
-                      and getattr(request.state, "role", "") != "student")
         if session_id is None:
-            # 도우미 대화는 「업무 상담」 — 왼쪽 사이드바(문서 작성·업무 대화)에는 싣지 않고 떠 있는 창의 기록에서 다룬다
+            # 도우미 대화는 「업무 상담」 — 왼쪽 사이드바(문서 작성·업무 대화)에는 싣지 않고 떠 있는 창의 기록에서 다룬다. 프로젝트에도 묶지 않는다
             session_id = db.create_chat_session(
-                title=_chat_title(q)[:60], project_id=page_project, owner=getattr(request.state, "user", "zzaimy"),
+                title=_chat_title(q)[:60], project_id=None if use_helper else page_project,
+                owner=getattr(request.state, "user", "zzaimy"),
                 channel="helper" if use_helper else "chat",
             )
         db.add_chat(session_id, "user", asked)
@@ -5676,7 +5680,7 @@ def create_app(
             answer = r_.answer(db, q, **kw)
             # 범위 밖 부서 자료를 가리키는 질문 — 대화 화면과 같은 안내(검색은 원래 범위 안에서만 돈다)
             scope_msg = ag.scope_note(q, dept, role, sorted({*(d.get("dept") or "" for d in db.department_counts()), *_all_depts()}),
-                                      _extra_depts(owner) if role in ("staff", "head") else ())
+                                      _extra_depts(owner) if role in ("staff", "professor", "head") else ())
             if scope_msg:
                 ag.audit(Path(db_path).parent, owner, "scope", q, dept, role)
                 answer = scope_msg + "\n\n" + answer
@@ -8533,7 +8537,7 @@ figure img{{width:100%;display:block}}
     # 구글 드라이브 자동 가져오기(「ZZAIMY 가져오기」 폴더, 10분마다) — 구글 앱이 등록된 운영에서만 돈다
     if password is not None:
         _gimport.ensure_scheduler(db, processor, inbox_dir, dept_of=lambda u: (accounts.get(u, {}) or {}).get("dept", ""),
-                                  rank=lambda u: {"staff": 0, "head": 0, "dev": 1}.get((accounts.get(u, {}) or {}).get("role", ""), 2))
+                                  rank=lambda u: {"staff": 0, "professor": 0, "head": 0, "dev": 1}.get((accounts.get(u, {}) or {}).get("role", ""), 2))
     app.state.page_ctx = ctx
     return app
 

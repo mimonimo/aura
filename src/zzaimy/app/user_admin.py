@@ -30,7 +30,7 @@ from zzaimy.ingest import gdocs, gdrive, gdrive_files
 router = APIRouter()
 
 _UID = re.compile(r"^[a-z0-9][a-z0-9_-]{2,31}$")          # 점은 안 된다 — 세션 토큰이 '만료.아이디.서명' 꼴
-ASSIGNABLE_ROLES = {key: ROLES[key] for key in ("staff", "head", "dev")}
+ASSIGNABLE_ROLES = {key: ROLES[key] for key in ("staff", "professor", "head", "dev")}
 _FOLDER_ID = re.compile(r"(?:/folders/|[?&]id=)([A-Za-z0-9_-]{10,})|^([A-Za-z0-9_-]{10,})$")
 
 

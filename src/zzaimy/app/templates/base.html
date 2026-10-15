@@ -949,9 +949,9 @@ document.addEventListener('submit', function(event) {
   <div class="ag-body" id="agBody">
     <div class="ag-empty" id="agEmpty">
       <iconify-icon icon="solar:chat-round-line-linear"></iconify-icon>
-      <h3>{% if project is defined and project %}프로젝트 업무를 함께 진행하세요{% else %}어떤 업무를 도와드릴까요?{% endif %}</h3>
-      <p>{% if project is defined and project %}{{ project.name }}{% else %}플랫폼 쓰는 법을 묻거나 할 일을 맡기세요. 문서 내용·작성은 에이전트 대화로 이어 줍니다.{% endif %}</p>
-      <p class="ag-empty-hint">이전 대화는 상단의 기록 버튼에서 찾을 수 있습니다.</p>
+      <h3>어떤 업무를 도와드릴까요?</h3>
+      <p>플랫폼 쓰는 법을 묻거나 할 일을 맡기세요. 문서 내용·작성은 에이전트 대화로 이어 줍니다.</p>
+      <p class="ag-empty-hint">지난 업무 상담은 위의 기록 단추에서 이어 갈 수 있습니다.</p>
     </div>
   </div>
   <div class="ag-foot">
@@ -1010,7 +1010,7 @@ document.addEventListener('submit', function(event) {
     sid = v;
     try { if (v) sessionStorage.setItem(KEY, v); else sessionStorage.removeItem(KEY); } catch (e) {}
     if (full) full.href = v ? "/chat/" + v : (pageProject ? "/chat?project=" + pageProject : "/chat");
-    chatTitle.textContent = v ? "이어서 대화" : "새 대화";
+    chatTitle.textContent = v ? "이어서 대화" : "새 업무 상담";
   }
   setSid(sid);
   document.addEventListener('chat-session-deleted', function(event) {
@@ -1146,10 +1146,10 @@ document.addEventListener('submit', function(event) {
       .then(function (r) { if (!r.ok || r.redirected) { var error = new Error(); error.status = r.status; throw error; } return r.json(); })
       .then(function (d) {
         if (token !== generation || requestedSession !== sid) return;
-        if ((d.project_id || null) !== (pageProject || null)) {
+        if (d.channel !== "helper" && (d.project_id || null) !== (pageProject || null)) {
           // 다른 프로젝트(또는 프로젝트 밖) 대화는 이 화면에서 이어 쓰지 않는다 — 새 대화로 시작하고, 이어 쓰기는 대화 기록에서 고른다
           setSid(null); busy = false; lastActions = []; render([]); paintSend();
-          chatTitle.textContent = pageProject ? "이 프로젝트의 새 대화" : "새 대화"; return;
+          chatTitle.textContent = "새 업무 상담"; return;
         }
         if (!Array.isArray(d.messages)) throw new Error();
         render(d.messages);
@@ -1213,7 +1213,10 @@ document.addEventListener('submit', function(event) {
         if (!list.length) return;
         note.remove();
         list.forEach(function (row) {
-          var b = document.createElement("button"); b.type = "button"; b.textContent = row.title || ("대화 " + row.id);
+          var b = document.createElement("button"); b.type = "button";
+          var when = String(row.created_at || "").replace("T", " ").slice(5, 16);
+          b.textContent = (row.title || ("대화 " + row.id)) + (when ? "  ·  " + when : "");
+          if (String(row.id) === String(sid)) { b.style.borderColor = "var(--navy)"; b.setAttribute("aria-current", "true"); }
           b.addEventListener("click", function () { setSid(String(row.id)); chatTitle.textContent = row.title || "이어서 대화"; load(true); input.focus(); });
           box.appendChild(b);
         });

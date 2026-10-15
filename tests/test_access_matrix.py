@@ -225,3 +225,17 @@ def test_rag_space_grants_reach_regulations(world):
     _, ids, data_dir = world
     sc = rag_spaces.search_scope("staff", "산학협력단", "granted", data_dir)
     assert sc["reg_depts"] == ["산학협력단", "기획처"] and "기획처" in sc["grant_depts"]
+
+
+def test_professor_sees_like_staff_of_same_dept():
+    """교수 계정은 교직원과 같은 범위(공통 + 자기 부서 + 자기 문서) — 같은 부서 안의 등급은 나중에(2026-10-15)."""
+    from zzaimy.app import access_policy as ap
+    docs = [{"access_level": "public", "dept": "공통"},
+            {"access_level": "dept", "dept": "기획처"},
+            {"access_level": "dept", "dept": "산학협력단"},
+            {"access_level": "public", "doc_type": "regulation", "audience": "student"}]
+    for d in docs:
+        assert ap.visible(d, dept="기획처", user="p", role="professor") == ap.visible(d, dept="기획처", user="s", role="staff")
+    assert not ap.visible(docs[2], dept="기획처", user="p", role="professor")
+    assert ap.viewer("professor", "기획처", "p")["role"] == "professor" and ap.can_browse("professor")
+    assert ap.role_class("professor") == "staff" and ap.role_class("student") == "student"

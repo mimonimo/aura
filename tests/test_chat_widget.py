@@ -328,3 +328,24 @@ def test_find_document_is_one_query_and_picks_clear_winner(tmp_path):
     finally:
         Database.get_doc_identity = orig
     assert sid and len(calls) < 5
+
+
+def test_helper_chat_continues_on_project_page(tmp_path, monkeypatch):
+    """업무 상담 대화는 프로젝트에 묶지 않는다 — 프로젝트 화면에서 기록을 골라 이어 써도 409 로 막지 않고, 새로 만들어도 프로젝트가 없다."""
+    monkeypatch.setenv("ZZAIMY_PLATFORM_HELPER", "1")
+    c = _client(tmp_path)
+    c.post("/projects", data={"sector": "grant", "name": "시험 프로젝트"}, follow_redirects=False)
+    from zzaimy.app.db import Database
+    proj = Database(tmp_path / "t.db").list_projects("grant")[0]["id"]
+    sid = c.post("/chat/ask", data={"question": "문서 어떻게 올려?", "page": "/"}).json()["session_id"]
+    msgs = c.get(f"/chat/{sid}/messages").json()
+    assert msgs["channel"] == "helper" and msgs["project_id"] is None
+    import time
+    for _ in range(50):
+        if not c.get(f"/chat/{sid}/messages").json()["waiting"]:
+            break
+        time.sleep(0.1)
+    r = c.post("/chat/ask", data={"question": "그럼 폴더는?", "page": f"/project/{proj}", "session_id": str(sid)})
+    assert r.status_code == 200 and r.json().get("session_id") == sid
+    new = c.post("/chat/ask", data={"question": "학생 공개는?", "page": f"/project/{proj}"}).json()["session_id"]
+    assert c.get(f"/chat/{new}/messages").json()["project_id"] is None

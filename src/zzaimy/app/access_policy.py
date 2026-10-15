@@ -37,6 +37,16 @@ def classify(doc_type: str | None, *, owner: str | None = None, dept: str | None
     return DEFAULT_DEPT, "owner" if access_level == "owner" else "public"
 
 
+# 교직원 범위로 보는 역할 — 교직원(staff)·교수(professor)·부서장(head). 지금은 같은 범위(공통 + 자기 부서 + 추가 권한 부서 + 자기 문서),
+# 같은 부서 안의 등급(부서장만 보는 문서 등)은 나중에 정한다(2026-10-15 사용자)
+STAFF_ROLES = ("staff", "professor", "head")
+
+
+def role_class(role: str | None) -> str:
+    """화면·도우미가 쓰는 계정 갈래 — 교직원 범위 역할(교직원·교수·부서장)은 「staff」 하나로 본다."""
+    return "staff" if role in STAFF_ROLES else (role or "")
+
+
 def visible(doc: dict, *, dept: str | None, user: str | None, role: str, also: tuple | list = ()) -> bool:
     """이 문서를 이 사용자가 볼 수 있는가 — 열람 규칙의 원본. 목록 SQL(doc_sql)·검색 조건이 같은 뜻이다(tests/test_access_matrix).
     관리자=전부, 학생=학생 공개 규정만, 교직원=전체 공개 + 공통·자기 부서·추가 권한 부서의 부서 제한 문서 + 자기가 올린 문서.
@@ -69,9 +79,9 @@ def viewer(role: str | None, dept: str | None, user: str | None, data_dir=None) 
     """열람 판정에 넘기는 보는 사람 — visible(doc, **viewer)·doc_sql(viewer) 가 같은 값을 쓴다. 계정의 모르는 역할은 교직원으로 보지 않고
     가장 좁게(학생과 같은 범위). visible 에 역할을 직접 넘기는 내부 호출(역할 빈 값)은 예전처럼 공개·공통만 본다."""
     role = role or ""
-    if role not in ("dev", "staff", "head", "student"):
+    if role not in ("dev", "student", *STAFF_ROLES):
         role = "student"
-    also = tuple(extra_depts(user, data_dir)) if role in ("staff", "head") else ()
+    also = tuple(extra_depts(user, data_dir)) if role in STAFF_ROLES else ()
     return {"role": role, "dept": (dept or "").strip() or None, "user": user or "", "also": also}
 
 
@@ -84,7 +94,7 @@ def request_viewer(request) -> dict:
 
 def can_browse(role: str | None) -> bool:
     """문서함·검색·지식그래프·RAG 공간 같은 문서 둘러보기 화면을 열 수 있는가 — 학생(과 모르는 역할)은 대화만."""
-    return role in ("dev", "staff", "head")
+    return role in ("dev", *STAFF_ROLES)
 
 
 def doc_sql(v: dict, alias: str = "d.") -> tuple[str, list]:
