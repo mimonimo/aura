@@ -123,6 +123,20 @@ def probes(db, n: int, seed: int, strict: bool = False) -> list[dict]:
     return out
 
 
+_names: dict[int, str] = {}
+
+
+def _norm_name(db, doc_id) -> str:
+    """문서 이름을 견줄 꼴로 — 확장자·띄어쓰기·기호를 빼고. 번호가 다른 같은 이름 사본을 알아보려고."""
+    if doc_id is None:
+        return ""
+    did = int(doc_id)
+    if did not in _names:
+        name = ((db.get_document(did) or {}).get("filename") or "")
+        _names[did] = re.sub(r"[^0-9A-Za-z가-힣]", "", re.sub(r"\.[A-Za-z0-9]{2,5}$", "", name)).lower()
+    return _names[did]
+
+
 def named_question(q: str, title: str, doc_name: str) -> str:
     """같은 사업·연도에 같은 제목의 절을 가진 문서가 여럿이면(협약반·단위과제마다 같은 서식) 질문이 문서 하나를 가리키지 못한다 —
     갈래 낱말 자리에 그 문서 이름을 넣은 질문. 정답 문서 하나만 맞게 치는 채점(doc@k·답 채점)을 공정하게 하려는 것."""
@@ -172,7 +186,9 @@ def main() -> int:
         items = probes(db, args.n, args.seed, strict=args.strict)
         if args.strict:
             add_named(db, items)
-            items = [dict(x, q=x["q_named"], v=2) for x in items]          # 모호한 질문은 문서 이름을 넣은 꼴로만
+            # 모호한 질문은 문서 이름을 넣은 꼴로만. 그 이름이 너무 짧으면(「반도체」「수업계획서」) 문서 하나를 가리키지 못해 뺀다
+            items = [dict(x, q=x["q_named"], v=2) for x in items
+                     if x["q_named"] == x["q"] or len(_norm_name(db, x["doc_id"])) >= 6]
         set_path.parent.mkdir(parents=True, exist_ok=True)
         set_path.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "seed": args.seed,
                                         "items": [dict(x, twins=sorted(x["twins"]), prog_docs=sorted(x["prog_docs"])) for x in items]},
@@ -197,8 +213,12 @@ def main() -> int:
             g, err = {"hits": [], "steps": []}, f"{type(e).__name__}: {e}"[:200]
         dt = time.time() - t0
         hit_docs = [h["doc_id"] for h in g["hits"]]
+        # 같은 이름의 다른 사본(같은 파일을 두 번 올려 번호만 다른 문서)도 같은 판으로 친다 — 이름까지 같은 문서는 같은 글이다
+        gold_name = _norm_name(db, p["doc_id"])
+        same_name = bool(gold_name) and any(_norm_name(db, h) == gold_name for h in hit_docs if h != p["doc_id"])
         row = {"q": p["q"], "doc_id": p["doc_id"], "program": p["program"], "hits": hit_docs, "sec": round(dt, 2),
-               "doc_hit": p["doc_id"] in hit_docs, "twin_hit": bool(p["twins"] & set(hit_docs)), "n_twins": len(p["twins"]), "prog_hit": any(h in p["prog_docs"] for h in hit_docs),
+               "doc_hit": p["doc_id"] in hit_docs, "twin_hit": bool(p["twins"] & set(hit_docs)) or same_name, "same_name_hit": same_name,
+               "n_twins": len(p["twins"]), "prog_hit": any(h in p["prog_docs"] for h in hit_docs),
                "steps": g.get("steps", [])[:4], "error": err}
         if i < args.answer:
             from zzaimy.app.responder import AgentResponder
