@@ -470,3 +470,29 @@ def test_private_chat_is_owner_only_even_for_admin(world):
     assert admin.get(f"/chat/{sid}/read").status_code == 404
     db.set_chat_private(sid, False)
     assert admin.get(f"/chat/{sid}/read").status_code == 200
+
+
+def test_drive_share_toggle_is_owner_only_and_colleague_sees_work_docs_when_on(world, monkeypatch):
+    from zzaimy.ingest import drive_share
+    app, ids, tmp = world
+    db = app.state.db
+    accounts = json.loads((tmp / "accounts.json").read_text())
+    accounts["plan5"] = {"pw": "p5", "role": "staff", "dept": "기획처"}
+    (tmp / "accounts.json").write_text(json.dumps(accounts))
+    PW["plan5"] = "p5"
+    app2 = create_app(db_path=tmp / "t.db", inbox_dir=tmp / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
+    calls = []
+    monkeypatch.setattr(drive_share, "sync", lambda db_, p, e, emails, d=None, http=None: calls.append(sorted(emails)) or {"added": [], "removed": [], "shared": len(emails), "folder": "F", "error": ""})
+    pid = db.create_project("grant", "공유토글사업", owner="plan5")
+    sid = db.create_chat_session("공유대화", owner="plan5", project_id=pid)
+    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "DOC1", "account": "plan5@ync.ac.kr"}))
+    db.set_setting("google_account:plan", "plan@ync.ac.kr")
+    plan = _client(app2, "plan")
+    assert plan.post(f"/project/{pid}/drive-share", data={"on": "0"}, follow_redirects=False).status_code == 404   # 동료는 못 바꾼다
+    page = plan.get(f"/project/{pid}").text
+    assert "부서 공유 — 구글에서 보기" in page and "공유대화의 작업 문서" in page                     # 켜져 있으면 동료도 작업 문서 링크
+    owner = _client(app2, "plan5")
+    r = owner.post(f"/project/{pid}/drive-share", data={"on": "0"}, follow_redirects=False)
+    assert r.status_code == 303 and drive_share.enabled(db, pid) is False and calls[-1] == ["plan@ync.ac.kr"]
+    assert "공유대화의 작업 문서" not in plan.get(f"/project/{pid}").text                              # 끄면 동료 화면에서 빠진다
+    assert "부서 공유 끔" in owner.get(f"/project/{pid}").text

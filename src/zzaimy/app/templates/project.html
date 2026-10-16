@@ -127,9 +127,16 @@
     {% else %}<p class="project-empty">{% if project.archived %}대화가 없습니다. 보관 해제 뒤 대화를 시작할 수 있습니다.{% elif not can_edit %}공개된 대화가 없습니다. 대화는 담당자만 시작합니다.{% else %}대화가 없습니다. 위 입력줄에서 첫 대화를 시작합니다.{% endif %}</p>{% endif %}
   </div>
 </div>
-{% if can_edit %}<div class="card project-chat-card">
+{% if can_edit or (drive_share.on and work_docs) %}<div class="card project-chat-card">
   <div class="card-in">
-    <div class="project-history-heading"><h3>작업 문서 <span class="project-doc-count" id="workDocCount">{{ work_docs|length }}</span></h3></div>
+    <div class="project-history-heading"><h3>작업 문서 <span class="project-doc-count" id="workDocCount">{{ work_docs|length }}</span></h3>
+    {% if can_edit and not project.archived %}{# 작업 폴더(구글 드라이브)의 부서 보기 공유 — 담당자가 켜고 끈다 #}
+    <form action="/project/{{ project.id }}/drive-share" method="post" class="project-drive-share">
+      <input type="hidden" name="on" value="{{ '0' if drive_share.on else '1' }}">
+      <span class="muted" title="같은 부서 동료의 학교 구글 계정에 작업 폴더 보기 권한을 줍니다. 끄면 이 기능이 준 권한만 거둡니다.">{% if drive_share.on %}부서 공유 켬 · 동료 {{ drive_share.shared }}명 볼 수 있음{% if drive_share.missing %} · 구글 미연결 {{ drive_share.missing }}명{% endif %}{% else %}부서 공유 끔{% endif %}{% if drive_share.error %} · 확인 필요{% endif %}</span>
+      <button type="submit" class="secondary">{{ '끄기' if drive_share.on else '켜기' }}</button>
+    </form>
+    {% elif not can_edit %}<span class="muted" style="font-size:12px;">부서 공유 — 구글에서 보기</span>{% endif %}</div>
     {# 처음엔 서버 기록으로 그리고, 구글 문서가 연결된 대화마다 문서 패널과 같은 목록(드라이브 폴더)을 불러와 바꾼다 #}
     <div class="project-conversations" id="workDocs" data-sessions="{{ work_sessions|join(',') }}">
       {% for w in work_docs %}

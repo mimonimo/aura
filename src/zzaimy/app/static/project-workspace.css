@@ -151,3 +151,7 @@
 .project-conversation-row .project-conversation{flex:1;min-width:0;border-bottom:0}
 .project-conversation-share{margin:0;flex:none}
 .project-conversation-share button{font-size:12px;padding:4px 10px;min-height:28px}
+
+/* 작업 폴더 부서 공유 — 작업 문서 머리 오른쪽 한 줄 */
+.project-drive-share{display:flex;align-items:center;gap:8px;margin:0 0 0 auto;font-size:12px}
+.project-drive-share button{font-size:12px;padding:4px 10px;min-height:28px}

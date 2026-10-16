@@ -361,6 +361,48 @@ def create_app(
                      if u != me and ((a or {}).get("dept") or "").strip() == dept
                      and (a or {}).get("role", "staff") in _ap.STAFF_ROLES and set(_extra_depts(u)) <= mine)
 
+    def _share_targets(owner: str) -> tuple[list[str], int]:
+        """담당자의 프로젝트 폴더를 보기 공유할 같은 부서 동료의 구글 메일, 그리고 구글을 아직 잇지 않아 받지 못하는 동료 수.
+        동료 기준은 대화 읽기와 같다 — 교직원 계열이고, 담당자가 받은 추가 권한 부서를 그 동료도 볼 수 있을 때."""
+        a = accounts.get(owner, {}) or {}
+        dept = (a.get("dept") or "").strip()
+        if not dept or a.get("role", "staff") not in _ap.STAFF_ROLES:
+            return [], 0
+        need = set(_extra_depts(owner))
+        emails, missing = [], 0
+        for u, b in accounts.items():
+            b = b or {}
+            if u == owner or (b.get("dept") or "").strip() != dept or b.get("role", "staff") not in _ap.STAFF_ROLES:
+                continue
+            if not need <= {dept, *_extra_depts(u)}:
+                continue
+            e = (db.get_setting(f"google_account:{u}", "") or "").strip()
+            if e:
+                emails.append(e)
+            else:
+                missing += 1
+        return emails, missing
+
+    def _share_sync(project: dict | None, wait: bool = False) -> None:
+        """프로젝트 작업 폴더의 부서 보기 공유를 맞춘다(뒤에서). 구글 작업을 화면·문서 작성이 기다리지 않게."""
+        if not project or project.get("archived"):
+            return
+        from zzaimy.ingest import drive_share, gdrive_files as _gf
+        owner = project.get("owner") or ""
+        dept = ((accounts.get(owner, {}) or {}).get("dept") or "").strip() or None
+        email = _gf.account_for(db, owner, dept)
+        emails, missing = _share_targets(owner)
+
+        def work():
+            r = drive_share.sync(db, project, email, emails, dept)
+            st = drive_share.state(db, int(project["id"]))
+            db.set_setting(f"gshare_status:{project['id']}", _aj.dumps({"at": st.get("at"), "error": r.get("error", ""), "missing": missing}, ensure_ascii=False))
+        if wait:
+            work()
+        else:
+            import threading as _th
+            _th.Thread(target=work, name="drive-share", daemon=True).start()
+
     def _may_edit_doc(request: Request, doc: dict | None) -> bool:
         """문서를 바꿀 수 있는가 — 관리자, 또는 그 문서를 올린 사람. 「테스트 보기」 중에는 고른 계정처럼(개발자가 올린 문서도 남의 문서)."""
         if not doc:
@@ -1782,6 +1824,7 @@ def create_app(
             acct_ = accounts.get(owner, {}) if password is not None else {}
             made = gdrive_files.auto_document(db, session_id, owner, title, project_name=(project or {}).get("name"),
                                               dept=acct_.get("dept") or None)
+            _share_sync(project)                               # 새 작업 문서도 프로젝트 폴더의 부서 공유를 따른다
         except PermissionError as e:
             return False, f"{e} 그 뒤 다시 요청하면 문서를 만들어 바로 씁니다."
         except Exception as e:
@@ -5996,6 +6039,7 @@ def create_app(
         try:
             made = gdrive_files.auto_document(db, session_id, owner, name, project_name=(proj or {}).get("name"),
                                               email=account or None)
+            _share_sync(proj)
         except (PermissionError, ValueError) as e:
             raise HTTPException(400, str(e))
         return {"session_id": session_id, **made}
@@ -7383,13 +7427,17 @@ def create_app(
         me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
         can_edit = request.state.role == "dev" or (bool(me) and proj.get("owner") == me)
         # 대화는 만든 사람만 — 담당자가 아닌 사람(같은 부서 동료·지난 사업 묶음 열람)에게는 대화·작업 문서 목록을 보이지 않는다
+        from zzaimy.ingest import drive_share as _ds
+        share_on = _ds.enabled(db, project_id)
+        if can_edit and proj.get("owner") == me and share_on and not proj.get("archived") and _ds.due(db, project_id):
+            _share_sync(proj)                                 # 담당자가 열 때 10분에 한 번 — 부서에 새로 들어온 동료도 받는다
         project_chats = db.list_project_chat_sessions(project_id)
         if not can_edit:                                # 동료는 공개된 대화만 읽기 전용으로(작업 문서는 담당자 드라이브라 빼고)
             project_chats = [cs for cs in project_chats if _can_read_chat(request, cs)]
         work_docs: list[dict] = []
         work_sessions: list[int] = []                 # 구글 문서가 연결된 대화 — 화면이 문서 패널과 같은 목록(드라이브 폴더)을 불러온다
         seen_urls: set[str] = set()
-        for cs in (project_chats if can_edit else []):
+        for cs in (project_chats if (can_edit or share_on) else []):    # 동료는 부서 공유가 켜졌을 때만(구글에서 열 수 있을 때)
             for f in db.list_files(kind="google", session_id=int(cs["id"]), limit=20):
                 url = f.get("path") or ""
                 if url.startswith("https://") and url not in seen_urls:
@@ -7399,7 +7447,8 @@ def create_app(
             # 양식으로 만든 문서는 파일 기록 없이 대화 연결(chat_google_doc)만 있다 — 연결된 문서도 넣는다
             link = _aj.loads(db.get_setting(f"chat_google_doc:{cs['id']}", "") or "{}")
             if re.fullmatch(r"[A-Za-z0-9_-]+", str(link.get("doc") or "")):
-                work_sessions.append(int(cs["id"]))
+                if can_edit:                                  # 문서 패널 목록(/api/chat-documents)은 대화 주인만 — 동료는 서버 기록 그대로
+                    work_sessions.append(int(cs["id"]))
                 url = f"https://docs.google.com/document/d/{link['doc']}/edit"
                 if not any(link["doc"] in u for u in seen_urls):
                     seen_urls.add(url)
@@ -7419,6 +7468,7 @@ def create_app(
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
                 "project_chats": project_chats, "can_edit": can_edit,
+                "drive_share": {**_ds.state(db, project_id), "targets": len(_share_targets(proj.get("owner") or "")[0])},
                 "owner_label": proj.get("owner") or "",
                 "work_docs": work_docs, "work_sessions": work_sessions,
                 "project_notes": db.list_project_notes(project_id),
@@ -7533,6 +7583,21 @@ def create_app(
             raise HTTPException(404)
         db.set_project_archived(project_id, True)
         return RedirectResponse("/projects/archived", status_code=303)
+
+    @app.post("/project/{project_id}/drive-share")
+    def project_drive_share(project_id: int, on: str = Form("1")):
+        """작업 폴더의 부서 보기 공유 켜기·끄기 — 담당자·관리자만(로그인 검사가 프로젝트 POST 를 거른다). 끄면 이 기능이 준 권한만 거둔다."""
+        from zzaimy.ingest import drive_share as _ds
+        proj = db.get_project(project_id)
+        if proj is None:
+            raise HTTPException(404)
+        _ds.set_enabled(db, project_id, on == "1")
+        _share_sync(proj, wait=True)
+        st = _ds.state(db, project_id)
+        msg = (f"부서 공유를 켰습니다 — 동료 {st['shared']}명이 작업 폴더를 볼 수 있습니다" if on == "1" else "부서 공유를 껐습니다")
+        if st.get("error"):
+            msg += f" (구글: {st['error']})"
+        return RedirectResponse(f"/project/{project_id}?" + urlencode({"ok": msg}) + "#projectChatList", status_code=303)
 
     @app.post("/project/{project_id}/meta")
     def project_meta(
