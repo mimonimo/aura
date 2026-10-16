@@ -5758,7 +5758,7 @@ def create_app(
         from zzaimy.ingest import gdrive
 
         try:
-            return RedirectResponse(gdrive.auth_url(_gdrive_redirect_uri(request)), status_code=303)
+            return RedirectResponse(gdrive.auth_url(_gdrive_redirect_uri(request), getattr(request.state, "user", "")), status_code=303)
         except ValueError as e:
             return _nas_redirect(str(e), ok=False)
 
@@ -5769,6 +5769,7 @@ def create_app(
         from urllib.parse import quote as _q
 
         back = request.cookies.get("zz_google_back", "")
+        back = back if _LOCAL_PATH.fullmatch(back or "") else ""          # 쿠키 값도 서비스 안 경로만
         if getattr(request.state, "role", "") != "dev" and not back:
             back = "/settings"
 
@@ -5783,7 +5784,7 @@ def create_app(
         if error or not code:
             return done(f"구글 허용이 취소됐습니다({error or '코드 없음'})", ok=False)
         try:
-            email = gdrive.exchange_code(code, state, _gdrive_redirect_uri(request))
+            email = gdrive.exchange_code(code, state, _gdrive_redirect_uri(request), user=getattr(request.state, "user", ""))
         except ValueError as e:
             return done(str(e), ok=False)
         from zzaimy.ingest import gdrive_files

@@ -170,7 +170,7 @@ def test_unconnected_user_has_no_writing_account_and_domain_setting(tmp_path, mo
 
 def test_callback_is_open_to_staff_and_returns_to_settings(tmp_path, monkeypatch):
     _fake_google(monkeypatch)
-    monkeypatch.setattr(gdrive, "exchange_code", lambda code, state, uri: "kim@ync.ac.kr")
+    monkeypatch.setattr(gdrive, "exchange_code", lambda code, state, uri, user="": "kim@ync.ac.kr")
     c = TestClient(_app(tmp_path))
     assert _login(c, "zzaimy", "boot-pass-1")
     r = c.get("/dev/gdrive/callback?code=x&state=y", follow_redirects=False)
@@ -183,7 +183,7 @@ def test_exchange_code_rejects_other_domain(monkeypatch, tmp_path):
     import httpx
 
     monkeypatch.setattr(gdrive, "client_config", lambda: {"client_id": "a.apps.googleusercontent.com", "client_secret": "s", "domain": "ync.ac.kr"})
-    gdrive._pending_states["st"] = __import__("time").time()
+    gdrive._pending_states["st"] = (__import__("time").time(), "")
     posts = []
 
     def handler(req: httpx.Request) -> httpx.Response:
@@ -266,3 +266,20 @@ field.value = ''; handlers.toggle(); assert.equal(field.value, '');   // 접힌 
 fields.hidden = false; handlers.toggle(); assert.ok(field.value.length >= 8);
 '''
     subprocess.run([node, '-e', harness + script + checks], check=True, capture_output=True, text=True)
+
+
+def test_google_state_only_binds_for_the_user_who_started(monkeypatch):
+    """허용을 시작한 플랫폼 계정이 돌아왔을 때만 — 남이 시작한 허용의 되돌아오는 주소를 내가 열어도 내 계정에 묶이지 않는다."""
+    import httpx
+    import pytest
+
+    monkeypatch.setattr(gdrive, "client_config", lambda: {"client_id": "a.apps.googleusercontent.com", "client_secret": "s", "domain": "ync.ac.kr"})
+    url = gdrive.auth_url("https://x/cb", "attacker")
+    state = url.split("state=", 1)[1].split("&", 1)[0]
+    calls = []
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: calls.append(r) or httpx.Response(500)))
+    with pytest.raises(ValueError, match="허용을 시작한 계정"):
+        gdrive.exchange_code("code", state, "https://x/cb", http=http, user="victim")
+    assert calls == []                                       # 토큰 교환도 하지 않는다
+    with pytest.raises(ValueError, match="만료"):              # 한 번 쓴 state 는 다시 못 쓴다
+        gdrive.exchange_code("code", state, "https://x/cb", http=http, user="attacker")

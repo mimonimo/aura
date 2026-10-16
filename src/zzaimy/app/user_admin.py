@@ -133,12 +133,12 @@ def my_google(request: Request):
 @router.get("/account/google/connect")
 def my_google_connect(request: Request, back: str = "/settings"):
     try:
-        url = gdrive.auth_url(redirect_uri(request))
+        url = gdrive.auth_url(redirect_uri(request), _user(request))
     except ValueError as e:
         return RedirectResponse(f"/settings?err={quote(str(e))}", status_code=303)
     resp = RedirectResponse(url, status_code=303)
     # 허용 뒤 돌아갈 화면 — 개발자가 아닌 사용자는 /dev 화면을 볼 수 없다(main.py 콜백이 읽는다)
-    safe = back if back.startswith("/") and not back.startswith("//") else "/settings"
+    safe = back if re.fullmatch(r"/(?![/\\])[^\s\\]*", back or "") else "/settings"     # 서비스 안 경로만(「/\\…」·공백 금지)
     resp.set_cookie("zz_google_back", safe, max_age=900, httponly=True, samesite="lax")
     return resp
 

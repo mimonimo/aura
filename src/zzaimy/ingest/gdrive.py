@@ -137,17 +137,18 @@ def set_domain(domain: str) -> str:
     return d
 
 
-def auth_url(redirect_uri: str) -> str:
-    """담당자를 구글 허용 화면으로 보낸다. state 는 되돌아올 때 대조한다(10분)."""
+def auth_url(redirect_uri: str, user: str = "") -> str:
+    """담당자를 구글 허용 화면으로 보낸다. state 는 되돌아올 때 대조한다(10분) — 허용을 시작한 플랫폼 계정(user)과 함께 적어,
+    다른 사람이 시작한 허용의 되돌아오는 주소를 내 브라우저가 열어도 내 계정에 남의 구글 계정이 묶이지 않게 한다."""
     c = client_config()
     if not configured():
         raise ValueError("구글 클라이언트 ID·비밀이 아직 없습니다")
     state = secrets.token_urlsafe(24)
     with _lock:
         now = time.time()
-        for k in [k for k, v in _pending_states.items() if now - v > 600]:
+        for k in [k for k, v in _pending_states.items() if now - (v[0] if isinstance(v, tuple) else v) > 600]:
             _pending_states.pop(k, None)
-        _pending_states[state] = now
+        _pending_states[state] = (now, user or "")
     q = {"client_id": c["client_id"], "redirect_uri": redirect_uri, "response_type": "code",
          "scope": " ".join(SCOPES), "access_type": "offline", "prompt": "consent", "state": state,
          "include_granted_scopes": "true"}
@@ -163,12 +164,16 @@ def _http():
     return httpx.Client(timeout=httpx.Timeout(180, connect=30))
 
 
-def exchange_code(code: str, state: str, redirect_uri: str, http=None) -> str:
-    """허용 화면에서 돌아온 코드를 토큰으로 바꾸고 계정(이메일) 아래에 보관한다. 돌려주는 것은 이메일."""
+def exchange_code(code: str, state: str, redirect_uri: str, http=None, user: str = "") -> str:
+    """허용 화면에서 돌아온 코드를 토큰으로 바꾸고 계정(이메일) 아래에 보관한다. 돌려주는 것은 이메일.
+    state 는 허용을 시작한 그 플랫폼 계정(user)이 돌아왔을 때만 받는다."""
     with _lock:
-        if state not in _pending_states:
-            raise ValueError("허용 요청이 만료됐거나 일치하지 않습니다 — 다시 시도해 주세요")
-        _pending_states.pop(state, None)
+        got = _pending_states.pop(state, None)
+    if got is None:
+        raise ValueError("허용 요청이 만료됐거나 일치하지 않습니다 — 다시 시도해 주세요")
+    started_by = got[1] if isinstance(got, tuple) else ""
+    if started_by != (user or ""):
+        raise ValueError("허용을 시작한 계정과 지금 로그인한 계정이 다릅니다 — 본인 계정으로 로그인한 채 다시 연결해 주세요")
     c = client_config()
     http = http or _http()
     r = http.post(TOKEN_URL, data={"code": code, "client_id": c["client_id"], "client_secret": c["client_secret"],
