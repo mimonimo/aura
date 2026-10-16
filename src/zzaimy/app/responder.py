@@ -314,14 +314,13 @@ class AgentResponder:
         else:
             # 현재 등록 문서만 검색한다. 폐기한 공개 코퍼스는 조회하지 않는다.
             from zzaimy.app.access_guard import reg_kwargs
-            hits = find_relevant(db, attachment_text or question, sector=scope.get("sector"), **reg_kwargs(scope))
-            self.last_timing["regulation_sec"] = round(_time.time() - _t0, 2)
+            from concurrent.futures import ThreadPoolExecutor
+            # 규정 검색은 사업 문서 검색(질문 읽기·그래프)과 서로 기대지 않는다 — 함께 돌려 기다리는 시간을 줄인다
+            _pool = ThreadPoolExecutor(max_workers=1)
+            _reg_future = _pool.submit(lambda: (find_relevant(db, attachment_text or question, sector=scope.get("sector"),
+                                                              **reg_kwargs(scope)), _time.time()))
             _t1 = _time.time()
             blocks = []
-            if hits:
-                blocks.append(
-                    "[교내 규정 — 관련 조항을 근거로 인용하라]\n"
-                    + "\n\n".join(_cite(h) for h in hits))
             # 사업 문서 계열(국고 계획서·실적보고서·평가 …) — 규정과 따로 찾고 따로 건넨다(절대 규칙 6, ADR-0049).
             # 그래프로 사업·연차를 먼저 좁힌 뒤 그 문서들에서 찾는다. 문서함·업로드·DGX 원본 어디서 들어왔든 같은 색인
             grant_hits = []
@@ -366,6 +365,11 @@ class AgentResponder:
                 logging.getLogger(__name__).warning("사업 문서 검색 실패: %s: %s", type(e).__name__, str(e)[:200])
                 grant_hits = []
             self.last_timing["grant_sec"] = round(_time.time() - _t1, 2)
+            hits, _reg_done = _reg_future.result()
+            _pool.shutdown(wait=False)
+            self.last_timing["regulation_sec"] = round(_reg_done - _t0, 2)
+            if hits:                                     # 규정 묶음은 사업 문서 묶음 앞에(예전과 같은 순서)
+                blocks.insert(0, "[교내 규정 — 관련 조항을 근거로 인용하라]\n" + "\n\n".join(_cite(h) for h in hits))
             self.last_grant_docs = [h.get("doc_id") for h in grant_hits]
             if grant_hits and hits and all(h.get("weak_evidence") for h in hits) and blocks and blocks[0].startswith("[교내 규정"):
                 # 사업 문서 근거가 있는데 규정 근거는 하한을 못 넘은 것뿐이면 규정 묶음은 빼고 사업 문서만 — 관계없는 규정이
