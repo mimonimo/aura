@@ -24,4 +24,4 @@ fi
     --workers 4 --exclude '지출|증빙|스캔|영수|정산|집행' --doc-timeout 900 2>&1 | grep --line-buffered -E "^대상|PARSE_|상한" >> "$log"
 # 서류 갈래 27B 판정 — 새로 처리된 문서만(이미 판정한 판은 건너뜀), 한 번에 15분까지. 전체 일괄이 도는 동안은 잠금으로 건너뛴다.
 # 모델은 이 장비의 Ollama(qwen3.8:27b) — 닿지 않으면 판정 없이 지나간다(규칙 갈래 유지)
-PYTHONPATH=src .venv-parse/bin/python scripts/191_kind_read_all.py --parsed ~/parsed --max-sec 900 2>&1 | grep --line-buffered -E "^KIND27B|남음" >> "$log"
+PYTHONPATH=src .venv-parse/bin/python scripts/191_kind_read_all.py --parsed ~/parsed --max-sec 900 --redo all 2>&1 | grep --line-buffered -E "^KIND27B|남음" >> "$log"
