@@ -57,3 +57,11 @@ def test_share_failure_is_recorded_not_raised(tmp_path, monkeypatch):
     assert r["added"] == [] and "연결되지 않아" in r["error"]
     assert "연결되지 않아" in drive_share.state(db, proj["id"])["error"]
     assert drive_share.enabled(db, proj["id"]) is True                     # 기본은 켬
+
+
+def test_nothing_to_share_never_touches_drive(tmp_path, monkeypatch):
+    db, proj = _setup(tmp_path, monkeypatch)
+    touched = []
+    monkeypatch.setattr(gdrive_files, "project_folder_for", lambda *a, **k: touched.append(1) or "F")
+    r = drive_share.sync(db, proj, "kim@ync.ac.kr", [], http=FakeHttp())
+    assert touched == [] and r["shared"] == 0 and r["error"] == ""

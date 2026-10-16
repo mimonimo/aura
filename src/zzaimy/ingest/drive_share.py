@@ -50,6 +50,9 @@ def sync(db, project: dict, owner_email: str, peer_emails: list[str], dept: str 
     granted = _granted(db, pid)
     added, removed = [], []
     folder = ""
+    if not want and not granted:                                   # 줄 사람도 거둘 것도 없으면 드라이브를 건드리지 않는다(빈 폴더를 만들지 않게)
+        db.set_setting(f"gshare_status:{pid}", json.dumps({"at": time.time(), "error": "", "missing": 0}))
+        return {"added": [], "removed": [], "shared": 0, "folder": "", "error": ""}
     try:
         if not owner_email or not gdrive_files.has_file_scope(owner_email):
             raise PermissionError("담당자 구글 계정이 연결되지 않아 공유할 수 없습니다")
