@@ -143,3 +143,20 @@ PYTHONPATH=src .venv/bin/python -c 'from zzaimy.generate import llm_connections 
 - app/main.py(에이전트·찾을 것 계획·양식 고르기 기록에 llm), graph/question_read.py·retrieve.py(읽은 모델)
 - scripts/190(--role, 요약 줄 KIND_READ, 줄마다 llm), scripts/191(--role, 줄마다 llm, --redo-model), scripts/195(새)
 - tests/test_model_swap.py
+
+
+## 기준 수치 (10-17, 운영 VM 첫 실행 — Qwen3.8-27B-NVFP4, 토르 02·03)
+
+`scripts/195_model_swap_check.py` 기본 실행(약 61분). 다음 모델은 같은 실행으로 이 표와 견준다.
+
+| 항목 | 값 |
+|---|---|
+| 검색(모델 읽기) 정답 문서@k · 같은 판 · 같은 사업 | 0.60 · 0.85 · 0.988 (80문항) |
+| 검색(이름 넣은 질문) 정답 문서@k · 같은 판 | 0.688 · 0.85 |
+| 검색 시간 중앙값 | 6.9초 · 7.4초 |
+| 답 표본 10 — 오류·빈 답 | 0 · 0 |
+| 근거 밖 수치가 있는 답 · 비율 | 2 · 0.04 |
+| 근거에 정답 문서 | 0.8 |
+| 정답 사실 재현율(평균) | 0.036 — 낮음, 까닭 확인 필요 |
+| 답 전체·생성 시간 중앙값 | 134초 · 105초 |
+| 갈래 판정 50 — 실패·규칙과 같음·규칙 빈칸 채움·시간 | 0 · 0.92 · 0.96 · 4.4초 |
