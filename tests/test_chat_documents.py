@@ -11,6 +11,7 @@ def client(docs_env, tmp_path):
     app = FastAPI()
     app.state.db = Database(tmp_path/'chat.db')
     app.state.owner = 'owner'
+    app.state.db.set_setting('google_account:owner', 'staff@example.ac.kr')   # 본인이 연결한 계정만 쓴다
     @app.middleware('http')
     async def identity(request: Request, next_call):
         request.state.user = app.state.owner

@@ -120,6 +120,21 @@ def account_for(db, user: str | None, dept: str | None = None) -> str:
     return ""
 
 
+def usable_accounts(db, user: str | None, dept: str | None = None, role: str = "") -> set[str]:
+    """이 담당자가 쓸 수 있는 구글 계정 — 본인이 연결한 계정과 부서 공용 계정(허용된 것만). 관리자는 허용된 계정 전부.
+    다른 담당자가 연결한 계정으로 남의 드라이브를 둘러보거나 문서를 고치지 않게, 계정을 받는 경로는 모두 이 목록으로 거른다."""
+    listed = {a["email"] for a in gdrive.list_accounts()}
+    if role == "dev":
+        return listed
+    out: set[str] = set()
+    for key in ((f"google_account:{user}" if user else ""), (f"google_account_dept:{dept}" if dept else "")):
+        if key:
+            email = (db.get_setting(key, "") or "").strip()
+            if email in listed:
+                out.add(email)
+    return out
+
+
 def root_for(db, dept: str | None) -> str:
     """부서 공용 드라이브 자리(폴더 id). 없으면 내 드라이브 최상위."""
     return (db.get_setting(f"google_root:{dept}", "") or "root").strip() if dept else "root"

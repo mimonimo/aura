@@ -314,3 +314,46 @@ def test_helper_question_never_changes_a_guessed_document(world):
     assert body["done"] == [] and not any(a.get("changes") for a in body["actions"])
     after = app.state.db.get_document(ids["g_pub"])
     assert (after.get("identity"), after.get("draft")) == (before.get("identity"), before.get("draft"))
+
+
+def test_other_peoples_projects_stay_closed(world):
+    """진행 중인 남의 프로젝트는 보지도 바꾸지도 못한다(이름·대화 제목·메모·지침이 화면에 있다). 보관된 사업 묶음은 볼 수 있는
+    문서가 있을 때만 읽기와 「불러오기」 — 불러오기로 진행 중인 남의 프로젝트를 가져갈 수 없다(10-16)."""
+    app, ids, _ = world
+    db = app.state.db
+    live = db.create_project("grant", "남의진행프로젝트", owner="zzdev")
+    db.update_project_meta(live, instructions="비밀지침")
+    plan = _client(app, "plan")
+    assert plan.get(f"/project/{live}").status_code == 404
+    for path in ("unarchive", "archive", "meta", "notes", "criteria"):
+        assert plan.post(f"/project/{live}/{path}", data={"content": "x"}, follow_redirects=False).status_code == 404, path
+    assert plan.post(f"/projects/{live}/delete", follow_redirects=False).status_code == 404
+    assert db.get_project(live)["owner"] == "zzdev" and not db.get_project(live).get("archived")
+    # 보관 묶음 — 기획처 문서가 든 묶음은 기획처 직원이 보고 불러오고, 산학협력단 직원은 못 본다
+    bundle = db.create_project("grant", "지난사업묶음", owner="zzdev")
+    db.set_document_project(ids["g_plan"], bundle)
+    db.set_project_archived(bundle, True)
+    assert _client(app, "sanhak").get(f"/project/{bundle}").status_code == 404
+    assert plan.get(f"/project/{bundle}").status_code == 200
+    assert plan.post(f"/project/{bundle}/meta", data={"memo": "x"}, follow_redirects=False).status_code == 404
+    assert plan.post(f"/project/{bundle}/unarchive", follow_redirects=False).status_code == 303
+    assert db.get_project(bundle)["owner"] == "plan"
+
+
+def test_google_account_of_another_user_cannot_be_used(world, monkeypatch):
+    """구글 계정은 본인이 연결한 것과 부서 공용만 — 남이 연결한 계정으로 드라이브를 둘러보거나 문서를 잇지 못한다."""
+    from zzaimy.ingest import gdrive
+    app, ids, _ = world
+    db = app.state.db
+    monkeypatch.setattr(gdrive, "list_accounts", lambda: [{"email": "a@ync.ac.kr"}, {"email": "b@ync.ac.kr"}, {"email": "d@ync.ac.kr"}])
+    db.set_setting("google_account:plan", "a@ync.ac.kr")
+    db.set_setting("google_account:sanhak", "b@ync.ac.kr")
+    db.set_setting("google_account_dept:기획처", "d@ync.ac.kr")
+    plan = _client(app, "plan")
+    got = {a["email"] for a in plan.get("/api/chat-documents/accounts").json()["accounts"]}
+    assert got == {"a@ync.ac.kr", "d@ync.ac.kr"}
+    assert plan.get("/api/chat-documents/browse", params={"account": "b@ync.ac.kr"}).status_code == 400
+    assert plan.post("/api/chat-documents/connect", data={"doc": "x", "account": "b@ync.ac.kr"}).status_code == 400
+    assert plan.post("/gdocs/replace", data={"doc": "x", "account": "b@ync.ac.kr", "old": "a", "new": "b"},
+                     follow_redirects=False).status_code == 403
+    assert plan.get("/gdocs/work", params={"doc": "x", "account": "b@ync.ac.kr"}).status_code == 403

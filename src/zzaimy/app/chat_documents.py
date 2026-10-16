@@ -45,17 +45,23 @@ def read_document(account, doc):
         raise HTTPException(400, '문서를 읽지 못했습니다. 계정 권한과 문서 주소를 확인하세요.') from exc
 
 
+def usable(request: Request) -> set[str]:
+    """이 요청의 담당자가 쓸 수 있는 구글 계정(본인·부서 공용, 관리자는 전부)."""
+    from zzaimy.ingest import gdrive_files
+    db, owner = identity(request)
+    return gdrive_files.usable_accounts(db, owner, getattr(request.state, 'dept', '') or None, getattr(request.state, 'role', ''))
+
+
 @router.get('/api/chat-documents/accounts')
 def accounts(request: Request):
-    identity(request)
+    mine = usable(request)
     return {'accounts': [{'email': a['email'], 'docs_ok': gdocs.has_docs_scope(a['email'])}
-                         for a in gdrive.list_accounts()]}
+                         for a in gdrive.list_accounts() if a['email'] in mine]}
 
 
 @router.get('/api/chat-documents/browse')
 def browse(request: Request, account: str, folder: str = 'root', page: str = ''):
-    identity(request)
-    if account not in {a['email'] for a in gdrive.list_accounts()}:
+    if account not in usable(request):
         raise HTTPException(400, '연결된 계정을 선택하세요.')
     if not re.fullmatch(r'[A-Za-z0-9_-]+', folder):
         raise HTTPException(400, '폴더를 확인하세요.')
@@ -81,7 +87,7 @@ def connect(request: Request, doc: str = Form(...), account: str = Form(...),
         project = db.get_project(project_id)
         if not project or project.get('owner') != owner:
             raise HTTPException(404, '프로젝트를 찾을 수 없습니다.')
-    if account not in {a['email'] for a in gdrive.list_accounts()}:
+    if account not in usable(request):
         raise HTTPException(400, '연결된 계정을 선택하세요.')
     info = read_document(account, doc)
     did = gdocs.doc_id(doc)

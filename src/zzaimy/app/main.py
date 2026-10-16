@@ -329,6 +329,7 @@ def create_app(
     _STUDENT_GET = re.compile(r"^/(?:$|chat(?:/\d+(?:/(?:messages|status))?)?$|chat/peek/\d+$|doc/\d+(?:/(?:view(?:/status)?|original(?:/status|/download)?|page/\d+\.png))?$|logout$)")
     _STUDENT_POST = re.compile(r"^/(?:chat/(?:send|ask)|chat/\d+/(?:retry|delete)|logout)$")
 
+    _PROJECT_PATH = re.compile(r"^/projects?/(\d+)(?:/|$)")
     _DOC_ANYONE_POST = re.compile(r"^/doc/\d+/quality-report$")      # 문서를 볼 수 있는 누구나 하는 POST
 
     def _student_allowed(method: str, path: str) -> bool:
@@ -408,6 +409,22 @@ def create_app(
                         and not _DOC_ANYONE_POST.match(request.url.path)
                         and not _may_edit_doc(request, doc)):
                     raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
+            # 프로젝트를 바꾸는 일(보관·지침·메모·기준 문서·참고 연결·이름·지우기 …)도 그 프로젝트 담당자와 관리자만.
+            # 「불러오기」 는 보관된 과거 사업 묶음(관리자 계정 소유)을 가져오는 길이라 그것만 볼 수 있는 사람 누구나
+            # 보기도 같은 규칙(프로젝트 찾기 project_refs.browse 와 같게) — 진행 중인 남의 프로젝트(이름·대화 제목·메모·지침)는
+            # 보이지 않고, 보관된 사업 묶음은 볼 수 있는 문서가 하나라도 있을 때만 읽기로 연다
+            pm = _PROJECT_PATH.match(request.url.path)
+            if pm and request.state.role != "dev":
+                proj = db.get_project(int(pm.group(1)))
+                me = "" if getattr(request.state, "view_as", None) else request.state.user
+                if proj is not None and (not me or proj.get("owner") != me):
+                    from zzaimy.app import project_refs as _pr
+                    shared = bool(proj.get("archived")) and bool(
+                        _pr._visible_counts(db, [int(proj["id"])], _req_viewer(request)).get(int(proj["id"])))
+                    if request.method == "POST":
+                        shared = shared and proj.get("owner") == "zzdev" and request.url.path.endswith("/unarchive")
+                    if not shared:
+                        raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
             # 기관 정보(대학명·총장 등)는 모든 사용자 문서에 함께 쓰인다 — 관리자만 바꾼다
             if request.url.path == "/institution" and request.method == "POST" and request.state.role != "dev":
                 raise HTTPException(403, "기관 정보는 관리자만 바꿀 수 있습니다")
@@ -5712,16 +5729,28 @@ def create_app(
 
     # ---- 문서 작업 — 구글 독스를 화면 안에 두고 에이전트가 같은 문서를 읽고, 담당자가 누른 자리에만 쓴다(ADR-0029) ----
 
-    def _gdocs_accounts() -> list[dict]:
+    def _usable_google(request: Request) -> set[str]:
+        """이 담당자가 쓸 수 있는 구글 계정(본인·부서 공용, 관리자는 전부) — 남이 연결한 계정은 고를 수 없다."""
+        from zzaimy.ingest import gdrive_files
+        return gdrive_files.usable_accounts(db, getattr(request.state, "user", ""), getattr(request.state, "dept", "") or None,
+                                            getattr(request.state, "role", ""))
+
+    def _gdocs_accounts(request: Request) -> list[dict]:
         from zzaimy.ingest import gdocs, gdrive
 
-        return [{**a, "docs_ok": gdocs.has_docs_scope(a["email"])} for a in gdrive.list_accounts()]
+        mine = _usable_google(request)
+        return [{**a, "docs_ok": gdocs.has_docs_scope(a["email"])} for a in gdrive.list_accounts() if a["email"] in mine]
+
+    def _gdocs_account(request: Request, account: str) -> str:
+        if account and account not in _usable_google(request):
+            raise HTTPException(403, "이 계정으로 쓸 수 있는 구글 계정이 아닙니다 — 설정에서 본인 학교 계정을 연결해 주세요")
+        return account
 
     def _gdocs_page(request: Request, doc: str, account: str, **extra):
         from zzaimy.ingest import gdocs
 
-        accounts_ = _gdocs_accounts()
-        account = account or (accounts_[0]["email"] if accounts_ else "")
+        accounts_ = _gdocs_accounts(request)
+        account = _gdocs_account(request, account) or (accounts_[0]["email"] if accounts_ else "")
         ctx_ = {"doc_id": "", "account": account, "accounts": accounts_, "info": None, "embed_url": "",
                 "question": "", "answer": "", "draft_text": "", "writes": [], "ok": "", "err": ""}
         ctx_.update(extra)
@@ -5746,6 +5775,7 @@ def create_app(
     @app.post("/gdocs/ask", response_class=HTMLResponse)
     def gdocs_ask(request: Request, doc: str = Form(""), account: str = Form(""), question: str = Form("")):
         """문서 본문을 첨부처럼 붙여 에이전트에게 묻는다 — 문서는 저장하지 않는다."""
+        _gdocs_account(request, account)
         from zzaimy.app import access_guard as ag
         from zzaimy.ingest import gdocs
 
@@ -5790,6 +5820,7 @@ def create_app(
         from zzaimy.app import access_guard as ag
         from zzaimy.ingest import gdocs
 
+        _gdocs_account(request, account)
         owner = getattr(request.state, "user", "zzaimy")
         try:
             r = gdocs.insert_into_section(account, doc, section, text, user=owner, data_dir=Path(db_path).parent,
@@ -5805,6 +5836,7 @@ def create_app(
         from zzaimy.app import access_guard as ag
         from zzaimy.ingest import gdocs
 
+        _gdocs_account(request, account)
         owner = getattr(request.state, "user", "zzaimy")
         try:
             r = gdocs.replace_text(account, doc, old, new, user=owner, data_dir=Path(db_path).parent, scrub=_scrub_internal)
@@ -5855,6 +5887,7 @@ def create_app(
         proj = db.get_project(project_id) if project_id else None
         if proj and proj.get("owner") != owner:
             raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
+        _gdocs_account(request, account)
         if session_id:
             chat_documents.owned(db, session_id, owner)
         name = (title or (proj or {}).get("name") or "새 문서").strip()[:60]
