@@ -145,21 +145,24 @@ def model_snapshot(extra_env: dict[str, str]) -> dict:
 # ---------------- 단계 실행 ----------------
 
 def plan_commands(tag: str, label: str, quick: bool, skip: set[str], py: str = sys.executable,
-                  parsed: str = "") -> list[tuple[str, list[str], dict]]:
+                  parsed: str = "", sec_set: str = "", answers: tuple[int, int] | None = None) -> list[tuple[str, list[str], dict]]:
     """(단계 이름, 명령, 결과 위치) 목록 — 실행 없이 무엇을 돌릴지만(시험하기 쉽게)."""
     t = f"swap-{tag}-{label}"
     s = str(ROOT / "scripts")
     out: list[tuple[str, list[str], dict]] = []
     if "search" not in skip:
-        out.append(("search_reader", [py, f"{s}/173_rag_probe.py", "--reader", "--tag", f"{t}-reader"],
+        setarg = ["--set", sec_set] if sec_set else []
+        out.append(("search_reader", [py, f"{s}/173_rag_probe.py", "--reader", "--tag", f"{t}-reader", *setarg],
                     {"json": str(ROOT / "data" / "eval" / f"rag_probe_{t}-reader.json")}))
         if not quick:
-            out.append(("search_named", [py, f"{s}/173_rag_probe.py", "--reader", "--named", "--tag", f"{t}-named"],
+            out.append(("search_named", [py, f"{s}/173_rag_probe.py", "--reader", "--named", "--tag", f"{t}-named", *setarg],
                         {"json": str(ROOT / "data" / "eval" / f"rag_probe_{t}-named.json")}))
     if "answer" not in skip:
-        n_sec, n_rel, limit = (2, 1, 3) if quick else (6, 4, 10)
+        n_sec, n_rel = (2, 1) if quick else (answers or (6, 4))
+        limit = n_sec + n_rel
         out.append(("answer", [py, f"{s}/188_graphrag_vs_fulltext.py", "--modes", "graph_read", "--answer-modes", "graph_read",
-                               "--answer-sec", str(n_sec), "--answer-rel", str(n_rel), "--limit", str(limit), "--tag", t],
+                               "--answer-sec", str(n_sec), "--answer-rel", str(n_rel), "--limit", str(max(limit, n_sec, n_rel)), "--tag", t,
+                               *(["--sec-set", sec_set] if sec_set else [])],
                     {"json": str(ROOT / "data" / "eval" / f"graphrag_vs_fulltext_{t}.json")}))
     if "kind" not in skip:
         kout = ROOT / "data" / "eval" / f"kind_read_{t}.jsonl"
@@ -200,6 +203,7 @@ def metrics_from(step: str, data: dict | None, stdout: str = "") -> dict:
 
 
 def run_steps(tag: str, label: str, extra_env: dict[str, str], quick: bool, skip: set[str], parsed: str = "",
+              sec_set: str = "", answers: tuple[int, int] | None = None,
               runner=None) -> dict:
     """한 묶음(운영 또는 후보)의 단계를 차례로 돌린다. runner(cmd, env) → (종료 코드, 표준 출력) 는 시험용으로 바꿀 수 있다."""
     runner = runner or _subprocess_runner
@@ -207,7 +211,7 @@ def run_steps(tag: str, label: str, extra_env: dict[str, str], quick: bool, skip
     env.update(extra_env)
     env.setdefault("PYTHONPATH", str(ROOT / "src"))
     res: dict = {"metrics": {}, "steps": {}}
-    for step, cmd, where in plan_commands(tag, label, quick, skip, parsed=parsed):
+    for step, cmd, where in plan_commands(tag, label, quick, skip, parsed=parsed, sec_set=sec_set, answers=answers):
         t0 = time.time()
         print(f"[{label}] {step} …", flush=True)
         rc, stdout = runner(cmd, env)
@@ -312,6 +316,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-current", action="store_true", help="후보만 돌리고 기준 파일과만 견준다")
     ap.add_argument("--save-baseline", action="store_true", help="이번 운영 결과를 기준으로 바꿔 저장한다")
     ap.add_argument("--baseline", default=str(BASELINE))
+    ap.add_argument("--sec-set", default="", help="절 질문 시험지(기본은 data/eval/rag_probe_set.json — v2 는 rag_probe_set_v2.json)")
+    ap.add_argument("--answer-sec", type=int, default=0, help="답 표본 절 질문 수(기본 6)")
+    ap.add_argument("--answer-rel", type=int, default=4, help="답 표본 관계 질문 수(기본 4, --answer-sec 를 줄 때만)")
     ap.add_argument("--parsed", default="", help="갈래 표본의 처리 결과 폴더(기본 data/inbox/parsed)")
     ap.add_argument("--env-file", default=str(ROOT / ".env.local"))
     ap.add_argument("--tag", default=time.strftime("%Y%m%d%H%M"))
@@ -335,7 +342,8 @@ def main(argv: list[str] | None = None) -> int:
     for label, extra in runs:
         snap = model_snapshot(extra)
         print(f"[{label}] 답 모델 {model_label({'models': snap})} · 판정 모델 {model_label({'models': snap}, 'review')}", flush=True)
-        r = run_steps(args.tag, "cur" if label == "운영" else "cand", extra, args.quick, skip, parsed=args.parsed)
+        r = run_steps(args.tag, "cur" if label == "운영" else "cand", extra, args.quick, skip, parsed=args.parsed,
+                      sec_set=args.sec_set, answers=(args.answer_sec, args.answer_rel) if args.answer_sec else None)
         results[label] = {"models": snap, "quick": args.quick, "skip": sorted(skip), **r}
     current = results.get("운영")
     baseline, saved = ensure_baseline(Path(args.baseline), current, force=args.save_baseline)

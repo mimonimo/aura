@@ -50,7 +50,7 @@ def _HEADING_OK(t: str) -> bool:
             and not re.fullmatch(r"[가-힣]{2,12}(?:대학교|대학|재단|센터)", re.sub(r"\s+", "", t)))   # 기관 이름뿐인 머리글
 
 
-def probes(db, n: int, seed: int) -> list[dict]:
+def probes(db, n: int, seed: int, strict: bool = False) -> list[dict]:
     nodes = {x["id"]: x for x in kg_store.nodes(db, "program")}
     nodes.update({x["id"]: x for x in kg_store.nodes(db, "year")})
     docs = {x["id"]: x for x in kg_store.nodes(db, "doc")}
@@ -76,6 +76,11 @@ def probes(db, n: int, seed: int) -> list[dict]:
         if per_prog.get(pid, 0) >= cap:
             continue
         did = int(d["doc_id"])
+        if strict:
+            # 시험지 v2 — 정답 문서가 라이브러리에 처리 완료로 있고, 그래프 갈래와 문서의 서류 갈래가 같을 때만(정답 꼬리표 어긋남·지운 정답 빼기)
+            row_ = db.get_document(did) or {}
+            if row_.get("status") != "reviewed" or (row_.get("kind") or "") != d["props"].get("kind"):
+                continue
         with db._conn() as conn:
             secs = [dict(r) for r in conn.execute("SELECT id, label, props FROM kg_nodes WHERE type = 'section' AND doc_id = ?",
                                                   (did,)).fetchall()]
@@ -151,6 +156,8 @@ def main() -> int:
                     help="고정 질문 집합 — 있으면 그대로 쓴다(측정끼리 같은 시험지). 질문을 그래프에서 매번 새로 뽑으면 그래프를 다시 지을 때마다"
                          " 시험지가 바뀌어 측정끼리 견줄 수 없다")
     ap.add_argument("--new-set", action="store_true", help="질문 집합을 새로 뽑아 --set 에 쓴다")
+    ap.add_argument("--strict", action="store_true", help="새로 뽑을 때 시험지 v2 규칙 — 정답 문서가 처리 완료로 있고 갈래가 맞는 것만, "
+                    "같은 제목 절을 가진 문서가 여럿이면 문서 이름을 넣은 질문을 원래 질문으로")
     ap.add_argument("--reader", action="store_true", help="그래프 단계에서 질문을 모델로 읽는다(graph.question_read)")
     ap.add_argument("--named", action="store_true", help="쌍둥이 문서가 있는 질문은 문서 이름을 넣은 질문(q_named)으로")
     args = ap.parse_args()
@@ -162,7 +169,10 @@ def main() -> int:
     if set_path.is_file() and not args.new_set:
         items = [dict(x, twins=set(x["twins"]), prog_docs=set(x["prog_docs"])) for x in json.loads(set_path.read_text(encoding="utf-8"))["items"]]
     else:
-        items = probes(db, args.n, args.seed)
+        items = probes(db, args.n, args.seed, strict=args.strict)
+        if args.strict:
+            add_named(db, items)
+            items = [dict(x, q=x["q_named"], v=2) for x in items]          # 모호한 질문은 문서 이름을 넣은 꼴로만
         set_path.parent.mkdir(parents=True, exist_ok=True)
         set_path.write_text(json.dumps({"made": time.strftime("%Y-%m-%d %H:%M"), "seed": args.seed,
                                         "items": [dict(x, twins=sorted(x["twins"]), prog_docs=sorted(x["prog_docs"])) for x in items]},
