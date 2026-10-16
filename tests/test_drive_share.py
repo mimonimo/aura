@@ -59,3 +59,26 @@ def test_nothing_to_share_never_touches_drive(tmp_path, monkeypatch):
     monkeypatch.setattr(gdrive_files, "has_file_scope", lambda e: (_ for _ in ()).throw(AssertionError("드라이브를 건드림")))
     r = drive_share.sync(db, pid, "kim@ync.ac.kr", {}, http=FakeHttp())
     assert r["shared"] == 0 and r["error"] == "" and drive_share.enabled(db, pid) is True       # 기본은 켬
+
+
+def test_revocation_uses_the_granting_account_and_disconnect_revokes(tmp_path, monkeypatch):
+    """거둘 때는 권한을 준 구글 계정으로 — 담당자 구글이 바뀌어도 옛 계정이 준 권한을 거둔다. 연결을 끊기 전 revoke_by 로 모두 거둔다."""
+    db, pid = _setup(tmp_path, monkeypatch)
+    used = []
+    monkeypatch.setattr(gdrive_files, "_headers", lambda e, h: used.append(e) or {})
+    drive_share.sync(db, pid, "old@ync.ac.kr", {"D1": {"lee@ync.ac.kr"}}, http=FakeHttp())
+    used.clear()
+    r = drive_share.sync(db, pid, "new@ync.ac.kr", {}, http=FakeHttp())
+    assert r["removed"] == ["D1|lee@ync.ac.kr"] and used == ["old@ync.ac.kr"]
+    drive_share.sync(db, pid, "kim@ync.ac.kr", {"D2": {"lee@ync.ac.kr"}}, http=FakeHttp())
+    assert drive_share.revoke_by(db, pid, "kim@ync.ac.kr", http=FakeHttp()) is True and not drive_share.has_grants(db, pid)
+
+
+def test_plan_function_is_evaluated_inside_the_lock(tmp_path, monkeypatch):
+    db, pid = _setup(tmp_path, monkeypatch)
+    seen = []
+    def plan():
+        seen.append(drive_share._lock(pid).locked())
+        return {"D1": {"lee@ync.ac.kr"}}, 1
+    r = drive_share.sync(db, pid, "kim@ync.ac.kr", plan, http=FakeHttp())
+    assert seen == [True] and r["added"] == ["D1|lee@ync.ac.kr"] and drive_share.state(db, pid)["missing"] == 1

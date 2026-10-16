@@ -35,11 +35,13 @@ def set_enabled(db, project_id: int, on: bool) -> None:
     db.set_setting(f"project_share:{project_id}", "on" if on else "off")
 
 
-def _granted(db, project_id: int) -> dict[str, str]:
+def _granted(db, project_id: int) -> dict[str, dict]:
+    """이 기능이 준 권한 {"파일|메일": {"id": 권한 id, "by": 준 구글 계정}} — 거둘 때는 준 계정으로 거둔다(담당자 구글이 바뀌어도)."""
     try:
-        return dict(json.loads(db.get_setting(f"gshare:{project_id}", "{}") or "{}"))
+        raw = dict(json.loads(db.get_setting(f"gshare:{project_id}", "{}") or "{}"))
     except ValueError:
         return {}
+    return {k: (v if isinstance(v, dict) else {"id": str(v), "by": ""}) for k, v in raw.items()}
 
 
 def has_grants(db, project_id: int) -> bool:
@@ -57,12 +59,39 @@ def state(db, project_id: int) -> dict:
             **last}
 
 
-def sync(db, project_id: int, owner_email: str, want: dict[str, set[str]], http=None, missing: int = 0) -> dict:
-    """목표(want: 파일 id → 메일)와 이 기능이 준 권한을 맞춘다. 꺼져 있으면 목표는 비고 준 것을 모두 거둔다.
-    거두기를 먼저 한다 — 실패해도 남은 권한은 기록에 남아 다음에 다시 거둔다(기록을 먼저 지우지 않는다).
+def _revoke(db, pid: int, granted: dict[str, dict], keys: list[str], fallback_by: str, http) -> tuple[list[str], str]:
+    """keys 의 권한을 준 계정으로 거둔다. 거둔 것은 바로 기록에서 빼고, 못 거둔 것은 남긴다(다음에 다시). (거둔 키, 첫 오류)."""
+    removed, err = [], ""
+    for key in keys:
+        g = granted.get(key) or {}
+        by = g.get("by") or fallback_by
+        fid = key.split("|", 1)[0]
+        try:
+            if not by or not gdrive_files.has_file_scope(by):
+                raise PermissionError("권한을 준 구글 계정의 허용이 없어 거두지 못했습니다 — 그 계정을 다시 연결해 주세요")
+            http = http or gdrive._http()
+            r = http.delete(f"{gdrive.API}/files/{fid}/permissions/{g.get('id')}", headers=gdrive_files._headers(by, http),
+                            params={"supportsAllDrives": "true"})
+            if getattr(r, "status_code", 204) not in (200, 204, 404):
+                raise RuntimeError(f"보기 권한을 거두지 못했습니다({r.status_code})")
+        except Exception as e:
+            err = err or str(e)[:200]
+            continue
+        granted.pop(key, None)
+        removed.append(key)
+        db.set_setting(f"gshare:{pid}", json.dumps(granted))          # 하나씩 바로 적는다 — 도중에 멈춰도 기록이 맞게
+    return removed, err
+
+
+def sync(db, project_id: int, owner_email: str, want, http=None, missing: int = 0) -> dict:
+    """목표와 이 기능이 준 권한을 맞춘다. want 는 {파일 id: {메일}} 또는 (목표, 못 받는 동료 수)를 돌려주는 함수 —
+    함수면 잠금 안에서 불러 그때 상태로 정한다(계획과 맞추기 사이에 비공개로 바뀐 것이 끼지 않게). 꺼져 있으면 목표는 비고 준 것을 모두 거둔다.
+    거두기를 먼저, 준 계정으로 한다 — 못 거둔 권한은 기록에 남아 다음 맞추기·점검에서 다시 거둔다.
     돌려주는 것 {added, removed, shared, error}. 실패는 gshare_status 에 남기고 예외를 올리지 않는다."""
     pid = int(project_id)
     with _lock(pid):
+        if callable(want):
+            want, missing = want()
         owner = (owner_email or "").lower()
         target = set()
         if enabled(db, pid):
@@ -70,36 +99,46 @@ def sync(db, project_id: int, owner_email: str, want: dict[str, set[str]], http=
                       for e in emails if e and e.strip() and e.strip().lower() != owner}
         granted = _granted(db, pid)
         added, removed, err = [], [], ""
-        if target or granted:
+        stale = [k for k in list(granted) if k not in target]
+        if stale:
+            removed, err = _revoke(db, pid, granted, stale, owner_email, http)
+        todo = sorted(target - set(granted))
+        if todo:
             try:
                 if not owner or not gdrive_files.has_file_scope(owner_email):
-                    raise PermissionError("담당자 구글 계정이 연결되지 않아 공유를 맞출 수 없습니다")
+                    raise PermissionError("담당자 구글 계정이 연결되지 않아 공유할 수 없습니다")
                 http = http or gdrive._http()
                 h = gdrive_files._headers(owner_email, http)
-                for key in [k for k in list(granted) if k not in target]:
-                    fid = key.split("|", 1)[0]
-                    r = http.delete(f"{gdrive.API}/files/{fid}/permissions/{granted[key]}", headers=h, params={"supportsAllDrives": "true"})
-                    if getattr(r, "status_code", 204) not in (200, 204, 404):
-                        raise RuntimeError(f"보기 권한을 거두지 못했습니다({r.status_code})")
-                    granted.pop(key, None)
-                    removed.append(key)
-                    db.set_setting(f"gshare:{pid}", json.dumps(granted))      # 하나씩 바로 적는다 — 도중에 멈춰도 기록이 맞게
-                for key in sorted(target - set(granted)):
+                for key in todo:
                     fid, email = key.split("|", 1)
                     r = http.post(f"{gdrive.API}/files/{fid}/permissions", headers=h,
                                   params={"sendNotificationEmail": "false", "supportsAllDrives": "true", "fields": "id"},
                                   json={"role": "reader", "type": "user", "emailAddress": email})
                     if r.status_code != 200:
                         raise RuntimeError(f"보기 권한을 주지 못했습니다({r.status_code})")
-                    granted[key] = r.json()["id"]
+                    granted[key] = {"id": r.json()["id"], "by": owner}
                     added.append(key)
                     db.set_setting(f"gshare:{pid}", json.dumps(granted))
-            except Exception as e:                                         # 공유 실패가 문서 작성·화면을 막지 않는다 — 다음 맞추기에서 다시
-                err = str(e)[:200]
-                log.warning("프로젝트 %s 작업 문서 공유 맞추기 실패: %s", pid, err)
+            except Exception as e:                                     # 주기 실패는 문서 작업을 막지 않는다 — 다음 맞추기에서 다시
+                err = err or str(e)[:200]
+        if err:
+            log.warning("프로젝트 %s 작업 문서 공유 맞추기: %s", pid, err)
         db.set_setting(f"gshare:{pid}", json.dumps(granted))
         db.set_setting(f"gshare_status:{pid}", json.dumps({"at": time.time(), "error": err, "missing": int(missing)}, ensure_ascii=False))
         return {"added": added, "removed": removed, "shared": len({k.split("|", 1)[1] for k in granted}), "error": err}
+
+
+def revoke_by(db, project_id: int, email: str, http=None) -> bool:
+    """이 구글 계정이 준 권한을 모두 거둔다(연결을 끊기 전에). 다 거뒀으면 True."""
+    pid = int(project_id)
+    with _lock(pid):
+        granted = _granted(db, pid)
+        keys = [k for k, g in granted.items() if (g.get("by") or "").lower() == (email or "").lower()]
+        if not keys:
+            return True
+        _removed, err = _revoke(db, pid, granted, keys, email, http)
+        db.set_setting(f"gshare:{pid}", json.dumps(granted))
+        return not err
 
 
 def due(db, project_id: int) -> bool:

@@ -377,6 +377,8 @@ def create_app(
     def _chat_used_docs(session_id: int) -> set[int]:
         """대화가 근거로 쓴 문서와 첨부 — 남이 그 대화(와 작업 문서)를 봐도 되는지 가릴 때."""
         used = set(chat_topics.doc_ids(int(session_id)))
+        # 작업본·열람본(구글로 옮긴 라이브러리 문서의 복제본)의 원본도 — 그 내용이 대화의 작업 문서에 그대로 있다
+        used |= {int(f["doc_id"]) for f in db.list_files(kind="google", session_id=int(session_id), limit=200) if f.get("doc_id")}
         for m in db.list_chats(int(session_id)):
             used |= {int(x) for x in re.findall(r"\[첨부#(\d+)\]", m.get("content") or "")}
         return used
@@ -434,10 +436,12 @@ def create_app(
         owner = project.get("owner") or ""
         dept = ((accounts.get(owner, {}) or {}).get("dept") or "").strip() or None
 
-        def work():
+        def plan():                                     # 잠금 안에서 그때의 상태로 — 계획과 맞추기 사이에 비공개로 바뀐 것이 끼지 않게
             fresh = db.get_project(int(project["id"])) or project
-            want, missing = ({}, 0) if fresh.get("archived") else _share_plan(fresh)
-            drive_share.sync(db, int(fresh["id"]), _gf.account_for(db, owner, dept), want, missing=missing)
+            return ({}, 0) if fresh.get("archived") else _share_plan(fresh)
+
+        def work():
+            drive_share.sync(db, int(project["id"]), _gf.account_for(db, owner, dept), plan)
         if wait:
             work()
         else:
@@ -8922,6 +8926,17 @@ figure img{{width:100%;display:block}}
                         logging.getLogger(__name__).warning("작업 문서 공유 점검 실패: %s", e)
                     time.sleep(600)
             _th_sweep.Thread(target=_sweep_loop, name="drive-share-sweep", daemon=True).start()
+    def _before_google_disconnect(user: str, email: str) -> bool:
+        """구글 연결을 끊기 전에 그 계정이 준 작업 문서 보기 권한을 거둔다 — 토큰이 사라지면 거둘 길이 없다."""
+        from zzaimy.ingest import drive_share as _dsx
+        with db._conn() as _c:
+            pids = [int(r[0]) for r in _c.execute("SELECT id FROM projects").fetchall()]
+        ok = True
+        for pid_ in pids:
+            if _dsx.has_grants(db, pid_):
+                ok = _dsx.revoke_by(db, pid_, email) and ok
+        return ok
+    app.state.before_google_disconnect = _before_google_disconnect
     app.state.page_ctx = ctx
     return app
 

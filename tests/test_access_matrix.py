@@ -486,8 +486,11 @@ def test_drive_share_follows_chat_read_rules_and_is_owner_only(world, monkeypatc
     PW["plan5"] = "p5"
     app2 = create_app(db_path=tmp / "t.db", inbox_dir=tmp / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
     calls = []
-    monkeypatch.setattr(drive_share, "sync", lambda db_, pid_, e, want, http=None, missing=0: calls.append({k: sorted(v) for k, v in want.items()})
-                        or {"added": [], "removed": [], "shared": 0, "error": ""})
+    def fake_sync(db_, pid_, e, want, http=None, missing=0):
+        want = want()[0] if callable(want) else want
+        calls.append({k: sorted(v) for k, v in want.items()})
+        return {"added": [], "removed": [], "shared": 0, "error": ""}
+    monkeypatch.setattr(drive_share, "sync", fake_sync)
     pid = db.create_project("grant", "공유토글사업", owner="plan5")
     pub = db.create_chat_session("공개작업", owner="plan5", project_id=pid)
     db.set_setting(f"chat_google_doc:{pub}", json.dumps({"doc": "DOCPUB0001", "account": "plan5@ync.ac.kr"}))
@@ -498,12 +501,15 @@ def test_drive_share_follows_chat_read_rules_and_is_owner_only(world, monkeypatc
     leak = db.create_chat_session("못보는근거작업", owner="plan5", project_id=pid)
     db.set_setting(f"chat_google_doc:{leak}", json.dumps({"doc": "DOCLEAK001", "account": "plan5@ync.ac.kr"}))
     chat_topics.ChatTopics(tmp / "t.db").record(leak, [{"doc_id": secret, "title": "메모"}])
+    copyc = db.create_chat_session("못보는원본복제작업", owner="plan5", project_id=pid)
+    db.add_file("google", "https://docs.google.com/document/d/DOCCOPY0001/edit", name="복제", session_id=copyc, doc_id=secret)
     db.set_setting("google_account:plan", "plan@ync.ac.kr")
     db.set_setting("google_account:plan6", "plan6@ync.ac.kr")
     plan = _client(app2, "plan")
     assert plan.post(f"/project/{pid}/drive-share", data={"on": "0"}, follow_redirects=False).status_code == 404   # 동료는 못 바꾼다
     page = plan.get(f"/project/{pid}").text
-    assert "공개작업의 작업 문서" in page and "비공개작업" not in page and "못보는근거작업" not in page
+    assert "공개작업의 작업 문서" in page and "비공개작업" not in page and "못보는근거작업" not in page and "못보는원본복제작업" not in page
+    assert plan.get(f"/chat/{copyc}/read").status_code == 404                # 못 보는 문서의 복제본이 든 대화는 읽지도 못한다
     owner = _client(app2, "plan5")
     owner.post(f"/project/{pid}/drive-share", data={"on": "1"}, follow_redirects=False)
     assert calls[-1] == {"DOCPUB0001": ["plan@ync.ac.kr"]}                 # 공개·근거 열람 가능한 대화의 문서만, 첫 비번 계정 제외

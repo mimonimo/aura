@@ -148,8 +148,16 @@ def my_google_disconnect(request: Request):
     db = request.app.state.db
     uid = _user(request)
     email = (db.get_setting(f"google_account:{uid}", "") or "").strip()
+    hook = getattr(request.app.state, "before_google_disconnect", None)
+    revoked = True
+    if hook and email:
+        try:
+            revoked = hook(uid, email) is not False       # 이 계정이 준 작업 문서 보기 권한을 먼저 거둔다
+        except Exception:
+            revoked = False
     db.set_setting(f"google_account:{uid}", "")
-    _drop_token_if_orphan(db, request, email)
+    if revoked:                                         # 못 거둔 권한이 있으면 토큰을 남겨 점검이 나중에 거두게
+        _drop_token_if_orphan(db, request, email)
     return RedirectResponse(f"/settings?ok={quote('구글 계정 연결을 해제했습니다')}", status_code=303)
 
 
