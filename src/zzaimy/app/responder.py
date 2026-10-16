@@ -33,6 +33,9 @@ _SYSTEM = """당신은 영남이공대학교 행정 담당자(교직원)를 돕�
 - 근거가 없는 내용은 추측하지 않습니다. 근거가 없으면 정중하게 그 사실을 알리고,
   어떤 규정·기준 문서를 등록하면 도움이 될지 한 문장으로 안내합니다.
 - 자연스러운 존댓말로, 필요한 만큼만 간결하게 답합니다. 같은 문장을 반복하지 않습니다.
+- 답의 꼴: 첫머리에 물음에 대한 답을 1~3문장으로 먼저 쓰고, 그 아래 근거의 요점을 항목 5개 이내로 씁니다.
+  근거 글의 표·문단을 그대로 옮겨 적지 않습니다 — 물음에 필요한 수치·조항만 골라 쓰고, 나머지는 어느 문서에 있는지
+  밝혀 원문을 보게 합니다. 특별히 길게 써 달라는 요청이 없으면 전체 600자 안팎으로 씁니다.
 - 최종 판단은 담당자의 몫이라는 전제를 지킵니다.
 - 근거 자료는 이 계정의 열람 범위(공통 자료와 소속·권한 받은 부서 자료) 안에서만 찾아 건넵니다. 다른 부서의 자료를 찾거나 참조해 달라는
   요청이면 "그 부서 자료는 열람 권한이 없습니다"라고 밝히고, 그 부서 문서의 제목·건수·있고 없음은 말하지 않습니다."""
@@ -294,6 +297,7 @@ class AgentResponder:
         question = normalize_input(question)
 
         self.last_sources = []
+        self.last_flagged: list[str] = []
         import time as _time
         _t0 = _time.time()
         self.last_grant_docs: list = []
@@ -484,6 +488,12 @@ class AgentResponder:
             except Exception:
                 pass
         out = strip_emoji(fix_foreign_han(text.strip(), user_content, client))
+        # 마지막 점검 — 모델에 건넨 글(질문·첨부·근거)에 없는 수치는 지우지 않고 「(근거 확인 필요)」를 붙인다(절대 규칙 1: 수치는 인출만)
+        from zzaimy.verify.numbers import flag_unsupported
+        out, flagged = flag_unsupported(out, [user_content])
+        self.last_flagged = flagged
+        if flagged:
+            out += f"\n\n※ 근거 문서에서 찾지 못한 수치 {len(flagged)}개에 「(근거 확인 필요)」를 붙였습니다 — 원문에서 확인해 주세요."
         self.last_timing["generate_sec"] = round(_time.time() - _t2, 2)
         toks = [getattr(u, "completion_tokens", None) for u in usages if u is not None]
         if any(isinstance(t, int) for t in toks):

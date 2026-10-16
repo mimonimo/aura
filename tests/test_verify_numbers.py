@@ -25,3 +25,12 @@ def test_mask_unsupported_leaves_phone_and_dates():
     from zzaimy.verify.numbers import mask_unsupported
     text, hit = mask_unsupported("문의 010-9999-8888, 접수 2026.10.15, 비율 3:1", [])
     assert text == "문의 010-9999-8888, 접수 2026.10.15, 비율 3:1" and hit == []
+
+
+def test_flag_unsupported_marks_instead_of_hiding():
+    from zzaimy.verify.numbers import flag_unsupported
+    ev = ["2026년 목표 취업률 72.5%, 참여 학생 300명, 예산 5억 원"]
+    text, flagged = flag_unsupported("취업률 72.5%, 참여 350명, 예산 5억 원, 2027년 3대 전략 80% 목표", ev)
+    assert "350명(근거 확인 필요)" in text and "80%(근거 확인 필요)" in text
+    assert "72.5%(근거" not in text and "5억 원(근거" not in text and "2027년(근거" not in text and "3대(근거" not in text
+    assert flagged == ["350명", "80"] or sorted(flagged) == sorted(["350명", "80"]) or len(flagged) == 2

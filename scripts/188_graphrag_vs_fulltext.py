@@ -65,7 +65,10 @@ def _date(g) -> tuple[int, int, int]:
 
 
 def unsupported_numbers(question: str, answer: str, ctx: str) -> list[str]:
-    """답의 숫자 가운데 질문에도, 모델에 건넨 글에도 없는 것(scripts/173 과 같은 판정)."""
+    """답의 숫자 가운데 질문에도, 모델에 건넨 글에도 없는 것(scripts/173 과 같은 판정).
+    답이 이미 「(근거 확인 필요)」를 붙여 알린 수치와 그 안내 줄은 세지 않는다 — 담당자에게 확인을 맡긴 수치라 몰래 섞인 수치가 아니다."""
+    answer = re.sub(r"\n*※ 근거 문서에서 찾지 못한 수치[^\n]*", "", answer or "")
+    answer = re.sub(r"[0-9][0-9.,]*\s*[%가-힣]?\(근거 확인 필요\)", "", answer)
     qn = set(_NUM.findall(question))
     ctx_digits = re.sub(r"\D", "", ctx)
     ctx_dates = {_date(m) for m in _DATE.findall(ctx)}
@@ -198,7 +201,8 @@ def run_answer(db, it: dict, mode: str, think: bool | None = None) -> dict:
     used = [d for d in (getattr(ar, "last_grant_docs", []) or []) if d is not None]
     row = {"answer": ans[:2500], "error": err, "wall_sec": wall, "timing": dict(getattr(ar, "last_timing", {}) or {}),
            "evidence_docs": used, "empty": len(ans.strip()) < 20, "no_evidence": bool(_NO_EVID.search(ans[:400])),
-           "unsupported_numbers": unsupported_numbers(it["q"], ans, ctx)[:10] if ans else []}
+           "unsupported_numbers": unsupported_numbers(it["q"], ans, ctx)[:10] if ans else [],
+           "flagged_numbers": len(re.findall(r"\(근거 확인 필요\)", ans or ""))}
     if it["set"] == "section":
         gw, aw = set(_WORD.findall(it["gold_text"])), set(_WORD.findall(ans))
         row["gold_overlap"] = round(len(gw & aw) / max(len(aw), 1), 3)

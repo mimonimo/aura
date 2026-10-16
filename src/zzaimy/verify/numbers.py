@@ -146,6 +146,19 @@ _YEAR_LIKE = re.compile(r"^(?:19|20)\d{2}$")
 def mask_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[str]]:
     """근거에 없는 수치를 「○○」로 가린다(단위는 남긴다: 300명 → ○○명) — 절대 규칙 1(수치는 인출만).
     연도(2026)·목록 번호·10 이하의 구조 숫자(「2개년」「3대 전략」, % 가 붙으면 수치)는 그대로. 돌려주는 것은 (새 글, 가린 원래 수치)."""
+    return _rewrite_unsupported(text, evidence_texts, mark=False)
+
+
+FLAG = "(근거 확인 필요)"
+
+
+def flag_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[str]]:
+    """근거에 없는 수치 바로 뒤에 「(근거 확인 필요)」를 붙인다 — 대화 답은 수치를 지우지 않고, 어느 수치를 원문에서 확인해야 하는지
+    보이게 한다(문서 초안은 mask_unsupported 로 가린다). 판정은 mask_unsupported 와 같다. 돌려주는 것은 (새 글, 표시한 수치)."""
+    return _rewrite_unsupported(text, evidence_texts, mark=True)
+
+
+def _rewrite_unsupported(text: str, evidence_texts: list[str], mark: bool) -> tuple[str, list[str]]:
     allowed_surface: set[str] = set()
     allowed_canonical: set[str] = set()
     for ev in evidence_texts:
@@ -176,8 +189,15 @@ def mask_unsupported(text: str, evidence_texts: list[str]) -> tuple[str, list[st
         value = _fmt(Decimal(surface) * _UNIT_VALUE.get(unit or "", 1))
         if surface in allowed_surface or value in allowed_canonical or surface in allowed_canonical:
             continue
-        out.append(src[last:m.start(1)] + "○○")
-        last = m.end(1)
+        if mark:
+            end = m.end()
+            while end < len(src) and src[end] in "%개명원건회배년월일점":
+                end += 1                                   # 단위까지 붙여 「300명(근거 확인 필요)」
+            out.append(src[last:end] + FLAG)
+            last = end
+        else:
+            out.append(src[last:m.start(1)] + "○○")
+            last = m.end(1)
         masked.append(m.group(0).strip())
     out.append(src[last:])
     return "".join(out), masked
