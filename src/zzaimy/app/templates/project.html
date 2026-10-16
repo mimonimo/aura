@@ -107,7 +107,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <p class="project-doc-empty">{{ {'attached': '아직 올리거나 첨부한 문서가 없습니다.', 'reference': '대화에서 에이전트가 근거로 불러온 문서가 여기에 쌓입니다.', 'rules': '연결된 기준 문서가 없습니다. 「작성 원칙·기준 문서」 탭에서 연결합니다.'}[key] }}</p>
+      <p class="project-doc-empty">{{ {'attached': '아직 올리거나 첨부한 문서가 없습니다.', 'reference': '대화에서 에이전트가 근거로 불러온 문서가 여기에 쌓입니다.', 'rules': '연결된 기준 문서가 없습니다.' ~ (' 「작성 원칙·기준 문서」 탭에서 연결합니다.' if can_edit else '')}[key] }}</p>
       {% endif %}
     </section>
     {% endfor %}
@@ -127,7 +127,7 @@
     {% else %}<p class="project-empty">{% if project.archived %}대화가 없습니다. 보관 해제 뒤 대화를 시작할 수 있습니다.{% elif not can_edit %}공개된 대화가 없습니다. 대화는 담당자만 시작합니다.{% else %}대화가 없습니다. 위 입력줄에서 첫 대화를 시작합니다.{% endif %}</p>{% endif %}
   </div>
 </div>
-<div class="card project-chat-card">
+{% if can_edit %}<div class="card project-chat-card">
   <div class="card-in">
     <div class="project-history-heading"><h3>작업 문서 <span class="project-doc-count" id="workDocCount">{{ work_docs|length }}</span></h3></div>
     {# 처음엔 서버 기록으로 그리고, 구글 문서가 연결된 대화마다 문서 패널과 같은 목록(드라이브 폴더)을 불러와 바꾼다 #}
@@ -140,7 +140,7 @@
     </div>
     <p class="project-empty" id="workDocsStatus" role="status" {% if work_docs or work_sessions %}hidden{% endif %}>대화에서 만든 구글 문서가 여기에 모입니다.</p>
   </div>
-</div>
+</div>{% endif %}{# 작업 문서는 담당자 드라이브 — 동료 화면에는 싣지 않는다 #}
 
 </section>
 </div>

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ chat_session.title or '대화' }} · 읽기 전용{% endblock %}
+{% block pagetitle %}대화 읽기{% endblock %}
 {% block content %}
 {# 같은 부서 동료의 프로젝트 대화 — 읽기 전용(입력줄·문서 패널·다시 쓰기 없음). 대화는 만든 사람만 이어 간다 #}
 <link rel="stylesheet" href="/static/chat-workspace.css">

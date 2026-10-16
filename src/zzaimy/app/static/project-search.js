@@ -32,7 +32,7 @@
           const link = document.createElement('a'); link.href = '/project/' + project.id;
           const name = document.createElement('strong'); name.textContent = project.name;
           const meta = document.createElement('span');
-          meta.textContent = (project.readonly ? project.owner + ' · 같은 부서 · 읽기 전용 · ' : '') + project.sector_label + ' · 문서 ' + project.n_docs + ' · 대화 ' + project.n_chats
+          meta.textContent = (project.readonly ? project.owner + ' · 같은 부서 · 읽기 전용 · ' + project.sector_label : project.sector_label + ' · 문서 ' + project.n_docs + ' · 대화 ' + project.n_chats)
             + ({document:' · 문서 제목에서 찾음', chat:' · 대화 제목에서 찾음'}[project.matched] || '');
           const date = document.createElement('small'); date.textContent = '최근 작업 ' + project.last_activity.slice(0,10);
           link.append(name, meta, date); fragment.append(link);
