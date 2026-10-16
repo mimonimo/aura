@@ -457,3 +457,16 @@ def test_colleague_sharing_never_reveals_what_the_reader_cannot_see(world):
         assert all(p["id"] != pid for p in plan.get("/api/projects/search", params={"q": q}).json()["projects"]), q
     got = {p["id"]: p for p in plan.get("/api/projects/search", params={"q": "누리공유"}).json()["projects"]}
     assert got[pid]["n_chats"] == 2                                                   # 비공개 대화는 세지 않는다(공개 2: 근거·인용 대화)
+
+
+def test_private_chat_is_owner_only_even_for_admin(world):
+    app, ids, _ = world
+    db = app.state.db
+    pid = db.create_project("grant", "본인사업", owner="plan")
+    sid = db.create_chat_session("본인비밀대화", owner="plan", project_id=pid)
+    db.add_chat(sid, "user", "x")
+    db.set_chat_private(sid, True)
+    admin = _client(app, "zzdev")
+    assert admin.get(f"/chat/{sid}/read").status_code == 404
+    db.set_chat_private(sid, False)
+    assert admin.get(f"/chat/{sid}/read").status_code == 200

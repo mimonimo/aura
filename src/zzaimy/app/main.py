@@ -1124,16 +1124,17 @@ def create_app(
 
     def _can_read_chat(request, session: dict | None) -> bool:
         """남의 대화를 읽기 전용으로 볼 수 있는가 — 프로젝트 대화(업무 상담 제외)이고 비공개가 아니며, 만든 사람이 같은 부서 동료이고
-        그 프로젝트를 볼 수 있을 때. 관리자는 모두. 쓰기(보내기·다시·지우기·문서 연결)는 여전히 만든 사람만(_owned_chat)."""
+        그 프로젝트를 볼 수 있을 때. 관리자는 비공개가 아닌 것만. 쓰기(보내기·다시·지우기·문서 연결)는 여전히 만든 사람만(_owned_chat)."""
         if not session:
             return False
         me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
         if me and session.get("owner") == me:
             return True
-        if getattr(request.state, "role", "") == "dev":
-            return True
+        # 비공개는 만든 사람만 — 관리자도 읽지 않는다. 업무 상담(떠 있는 창)·프로젝트 밖 대화도 본인만
         if not session.get("project_id") or (session.get("channel") or "chat") != "chat" or session.get("is_private"):
             return False
+        if getattr(request.state, "role", "") == "dev":
+            return True
         proj = db.get_project(int(session["project_id"]))
         if not (bool(proj) and session.get("owner") in _dept_peers(request) and proj.get("owner") in (*_dept_peers(request), me)):
             return False
