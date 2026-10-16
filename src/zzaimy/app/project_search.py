@@ -9,7 +9,8 @@ SECTORS = {"grant": "국고사업", "recruit": "채용", "admission": "입학", 
 
 
 def search(db, owner: str, q: str = "", offset: int = 0, peers: tuple[str, ...] = ()) -> dict:
-    """진행 중인 내 프로젝트와 같은 부서 동료(peers)의 프로젝트(읽기 전용 — readonly)."""
+    """진행 중인 내 프로젝트와 같은 부서 동료(peers)의 프로젝트(읽기 전용 — readonly). 동료 프로젝트는 이름·업무 영역으로만 찾는다 —
+    문서 제목·대화 제목으로 찾으면 볼 수 없는 문서나 비공개 대화가 있는지를 검색으로 떠볼 수 있다."""
     owners = [owner, *[p for p in peers if p and p != owner]]
     term = q.strip()
     pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
@@ -19,7 +20,8 @@ def search(db, owner: str, q: str = "", offset: int = 0, peers: tuple[str, ...] 
         rows = conn.execute(
             f"""SELECT p.id, p.name, p.sector, p.created_at, p.owner,
                 (SELECT COUNT(*) FROM documents d WHERE d.project_id=p.id AND d.owner=p.owner) AS n_docs,
-                (SELECT COUNT(*) FROM chat_sessions c WHERE c.project_id=p.id AND c.owner=p.owner) AS n_chats,
+                (SELECT COUNT(*) FROM chat_sessions c WHERE c.project_id=p.id AND c.owner=p.owner
+                    AND (p.owner=? OR COALESCE(c.is_private, 0)=0)) AS n_chats,
                 {latest}(p.created_at,
                     COALESCE((SELECT MAX(d.created_at) FROM documents d
                               WHERE d.project_id=p.id AND d.owner=p.owner), p.created_at),
@@ -27,18 +29,18 @@ def search(db, owner: str, q: str = "", offset: int = 0, peers: tuple[str, ...] 
                               JOIN chat_sessions c ON c.id=m.session_id
                               WHERE c.project_id=p.id AND c.owner=p.owner), p.created_at)) AS last_activity
                 ,CASE WHEN p.name LIKE ? ESCAPE '\\' OR p.sector=? THEN 'name'
-                      WHEN EXISTS (SELECT 1 FROM documents d WHERE d.project_id=p.id AND d.owner=p.owner
+                      WHEN EXISTS (SELECT 1 FROM documents d WHERE d.project_id=p.id AND d.owner=p.owner AND p.owner=?
                                    AND d.filename LIKE ? ESCAPE '\\') THEN 'document'
                       ELSE 'chat' END AS matched
                 FROM projects p
                 WHERE p.owner IN ({','.join('?' * len(owners))}) AND p.archived = 0 AND (p.name LIKE ? ESCAPE '\\' OR p.sector=?
-                      OR EXISTS (SELECT 1 FROM documents d WHERE d.project_id=p.id AND d.owner=p.owner
-                                 AND d.filename LIKE ? ESCAPE '\\')
-                      OR EXISTS (SELECT 1 FROM chat_sessions c WHERE c.project_id=p.id AND c.owner=p.owner
-                                 AND c.title LIKE ? ESCAPE '\\'))
+                      OR (p.owner=? AND EXISTS (SELECT 1 FROM documents d WHERE d.project_id=p.id AND d.owner=p.owner
+                                 AND d.filename LIKE ? ESCAPE '\\'))
+                      OR (p.owner=? AND EXISTS (SELECT 1 FROM chat_sessions c WHERE c.project_id=p.id AND c.owner=p.owner
+                                 AND c.title LIKE ? ESCAPE '\\')))
                 ORDER BY CASE WHEN p.name LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, last_activity DESC, p.id DESC
                 LIMIT 31 OFFSET ?""",
-            (pattern, sector, pattern, *owners, pattern, sector, pattern, pattern, pattern, offset),
+            (owner, pattern, sector, owner, pattern, *owners, pattern, sector, owner, pattern, owner, pattern, pattern, offset),
         ).fetchall()
     return {"projects": [dict(row, sector_label=SECTORS.get(row["sector"], row["sector"]), readonly=row["owner"] != owner)
                          for row in rows[:30]], "has_more": len(rows) > 30}

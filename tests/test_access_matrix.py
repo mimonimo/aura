@@ -410,3 +410,50 @@ def test_project_search_popup_lists_colleague_projects_read_only(world):
     db.create_project("grant", "누리남부서사업", owner="sanhak")
     got = _client(app2, "plan").get("/api/projects/search", params={"q": "누리"}).json()["projects"]
     assert [(p["name"], p["readonly"]) for p in got] == [("누리동료사업", True)]
+
+
+def test_colleague_sharing_never_reveals_what_the_reader_cannot_see(world):
+    """보안 검토(10-16) — 동료 공유가 읽는 사람의 범위를 넘지 않는다.
+    1) 대화가 근거로 쓴 문서·첨부 가운데 내가 못 보는 것이 있으면 그 대화는 읽을 수 없다.
+    2) 관리자나 다른 부서 RAG 추가 권한을 받은 계정은 동료로 보지 않는다(그 사람 답에는 내가 못 보는 자료가 섞인다).
+    3) 프로젝트 찾기는 동료 프로젝트를 이름으로만 — 문서 제목·비공개 대화 제목으로 떠보지 못한다."""
+    app, ids, tmp = world
+    db = app.state.db
+    accounts = json.loads((tmp / "accounts.json").read_text())
+    accounts["plan4"] = {"pw": "p4", "role": "staff", "dept": "기획처"}
+    accounts["planadmin"] = {"pw": "pa", "role": "dev", "dept": "기획처"}
+    accounts["sanplus"] = {"pw": "sp", "role": "staff", "dept": "산학협력단"}      # granted 와 달리 추가 권한 없음
+    (tmp / "accounts.json").write_text(json.dumps(accounts))
+    PW.update({"plan4": "p4", "planadmin": "pa", "sanplus": "sp"})
+    app2 = create_app(db_path=tmp / "t.db", inbox_dir=tmp / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
+    from zzaimy.app import chat_topics
+    pid = db.create_project("grant", "누리공유사업", owner="plan4")
+    ok = db.create_chat_session("공개대화", owner="plan4", project_id=pid)
+    db.add_chat(ok, "user", "질문")
+    hidden_doc = db.add_document("plan4만보는메모.hwp", str(tmp / "x.txt"), doc_type="grant", owner="plan4", dept="기획처",
+                                 access_level="owner")
+    leaky = db.create_chat_session("못보는근거대화", owner="plan4", project_id=pid)
+    db.add_chat(leaky, "user", f"[첨부#{hidden_doc}] 메모\n정리해 줘")
+    cited = db.create_chat_session("못보는인용대화", owner="plan4", project_id=pid)
+    db.add_chat(cited, "user", "질문")
+    chat_topics.ChatTopics(tmp / "t.db").record(cited, [{"doc_id": hidden_doc, "title": "메모"}])
+    plan = _client(app2, "plan")
+    assert plan.get(f"/chat/{ok}/read").status_code == 200
+    assert plan.get(f"/chat/{leaky}/read").status_code == 404
+    assert plan.get(f"/chat/{cited}/read").status_code == 404
+    page = plan.get(f"/project/{pid}").text
+    assert "공개대화" in page and "못보는근거대화" not in page
+    # 관리자 계정의 프로젝트는 같은 부서여도 동료 공유가 아니다
+    admin_pid = db.create_project("grant", "관리자누리사업", owner="planadmin")
+    assert plan.get(f"/project/{admin_pid}").status_code == 404
+    # 추가 권한(기획처 RAG)을 받은 granted 의 프로젝트는 그 권한이 없는 sanplus 에게 열리지 않는다
+    g_pid = db.create_project("grant", "추가권한누리사업", owner="granted")
+    assert _client(app2, "sanplus").get(f"/project/{g_pid}").status_code == 404
+    assert _client(app2, "granted").get("/api/projects/search", params={"q": "누리"}).status_code == 200
+    # 동료 프로젝트를 문서 제목·대화 제목으로 떠보지 못한다
+    db.set_document_project(hidden_doc, pid)
+    db.set_chat_private(ok, True)
+    for q in ("plan4만보는메모", "공개대화"):
+        assert all(p["id"] != pid for p in plan.get("/api/projects/search", params={"q": q}).json()["projects"]), q
+    got = {p["id"]: p for p in plan.get("/api/projects/search", params={"q": "누리공유"}).json()["projects"]}
+    assert got[pid]["n_chats"] == 2                                                   # 비공개 대화는 세지 않는다(공개 2: 근거·인용 대화)

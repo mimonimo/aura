@@ -354,7 +354,12 @@ def create_app(
         if getattr(request.state, "role", "") not in _ap.STAFF_ROLES or not dept:
             return ()
         me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
-        return tuple(u for u, a in accounts.items() if u != me and ((a or {}).get("dept") or "").strip() == dept)
+        # 동료는 교직원 계열이고 보는 범위가 나보다 넓지 않은 계정만 — 관리자나 다른 부서 RAG 추가 권한을 받은 계정의 대화·답에는
+        # 내가 볼 수 없는 자료가 섞일 수 있다
+        mine = {dept, *_extra_depts(me)} if me else {dept}
+        return tuple(u for u, a in accounts.items()
+                     if u != me and ((a or {}).get("dept") or "").strip() == dept
+                     and (a or {}).get("role", "staff") in _ap.STAFF_ROLES and set(_extra_depts(u)) <= mine)
 
     def _may_edit_doc(request: Request, doc: dict | None) -> bool:
         """문서를 바꿀 수 있는가 — 관리자, 또는 그 문서를 올린 사람. 「테스트 보기」 중에는 고른 계정처럼(개발자가 올린 문서도 남의 문서)."""
@@ -1130,7 +1135,18 @@ def create_app(
         if not session.get("project_id") or (session.get("channel") or "chat") != "chat" or session.get("is_private"):
             return False
         proj = db.get_project(int(session["project_id"]))
-        return bool(proj) and session.get("owner") in _dept_peers(request) and proj.get("owner") in (*_dept_peers(request), me)
+        if not (bool(proj) and session.get("owner") in _dept_peers(request) and proj.get("owner") in (*_dept_peers(request), me)):
+            return False
+        # 대화가 근거로 쓴 문서·첨부가 모두 내가 볼 수 있는 것일 때만 — 만든 사람만 보는 문서(열람 등급 owner 등)의 내용이 답에 섞였을 수 있다
+        used = set(chat_topics.doc_ids(int(session["id"])))
+        for m in db.list_chats(int(session["id"])):
+            used |= {int(x) for x in re.findall(r"\[첨부#(\d+)\]", m.get("content") or "")}
+        viewer_ = _req_viewer(request)
+        for did in used:
+            d = db.get_document(int(did))
+            if d is not None and not _visible(d, **viewer_):
+                return False
+        return True
 
     def _scope_label(request: Request) -> str:
         """대화 화면 상단의 열람 범위 한 줄 — 검색이 실제로 거르는 범위(_doc_access_sql)와 같은 말로. 역할 이름은 사용자 메뉴에 있다."""

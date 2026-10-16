@@ -57,6 +57,13 @@ class ChatTopics:
                   (s.get("heading") or "")[:200], (s.get("snippet") or "")[:300],
                   s.get("origin") or "", int(bool(s.get("weak"))), now) for s in sources])
 
+    def doc_ids(self, session_id: int) -> list[int]:
+        """이 대화의 모든 답이 근거로 쓴 문서 번호 — 남이 읽어도 되는 대화인지 가릴 때."""
+        with closing(self._connect()) as conn:
+            rows = conn.execute("SELECT DISTINCT doc_id FROM chat_sources WHERE session_id = ? AND doc_id IS NOT NULL",
+                                (session_id,)).fetchall()
+        return [int(r[0]) for r in rows]
+
     def latest(self, session_id: int) -> list[dict]:
         """가장 최근 답변의 근거 — 화면의 '연관 자료'."""
         with closing(self._connect()) as conn:
