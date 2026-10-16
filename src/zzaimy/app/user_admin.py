@@ -155,9 +155,13 @@ def my_google_disconnect(request: Request):
             revoked = hook(uid, email) is not False       # 이 계정이 준 작업 문서 보기 권한을 먼저 거둔다
         except Exception:
             revoked = False
+    if not revoked:
+        # 거두지 못한 공유가 남은 채 토큰을 지우면 그 공유를 다시는 거둘 수 없고, 몰래 토큰을 남기면 끊겠다는 뜻을 어긴다 —
+        # 끊지 않고 그대로 알린다(다시 시도하거나 관리자가 드라이브에서 정리)
+        return RedirectResponse("/settings?err=" + quote("작업 문서 공유 권한을 거두지 못해 연결을 끊지 않았습니다 — 잠시 뒤 다시 시도해 주세요. "
+                                                          "계속되면 관리자에게 알려 주세요.") + "#myGoogle", status_code=303)
     db.set_setting(f"google_account:{uid}", "")
-    if revoked:                                         # 못 거둔 권한이 있으면 토큰을 남겨 점검이 나중에 거두게
-        _drop_token_if_orphan(db, request, email)
+    _drop_token_if_orphan(db, request, email)
     return RedirectResponse(f"/settings?ok={quote('구글 계정 연결을 해제했습니다')}", status_code=303)
 
 

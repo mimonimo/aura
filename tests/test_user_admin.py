@@ -283,3 +283,22 @@ def test_google_state_only_binds_for_the_user_who_started(monkeypatch):
     assert calls == []                                       # 토큰 교환도 하지 않는다
     with pytest.raises(ValueError, match="만료"):              # 한 번 쓴 state 는 다시 못 쓴다
         gdrive.exchange_code("code", state, "https://x/cb", http=http, user="attacker")
+
+
+def test_disconnect_refuses_when_share_revocation_fails(tmp_path, monkeypatch):
+    """공유 권한을 거두지 못하면 연결을 끊지 않고 알린다 — 토큰을 몰래 남기지도, 거둘 수 없는 공유를 남기지도 않는다."""
+    from fastapi.testclient import TestClient
+    from tests.test_app import FakeDrafter, FakeProcessor
+    from zzaimy.app.main import create_app
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter())
+    db = app.state.db
+    db.set_setting("google_account:zzaimy", "kim@ync.ac.kr")
+    dropped = []
+    monkeypatch.setattr("zzaimy.app.user_admin._drop_token_if_orphan", lambda db_, r, e: dropped.append(e))
+    app.state.before_google_disconnect = lambda u, e: False
+    r = TestClient(app).post("/account/google/disconnect", follow_redirects=False)
+    assert r.status_code == 303 and "err=" in r.headers["location"]
+    assert db.get_setting("google_account:zzaimy", "") == "kim@ync.ac.kr" and dropped == []
+    app.state.before_google_disconnect = lambda u, e: True
+    TestClient(app).post("/account/google/disconnect", follow_redirects=False)
+    assert db.get_setting("google_account:zzaimy", "") == "" and dropped == ["kim@ync.ac.kr"]
