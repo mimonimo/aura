@@ -358,45 +358,86 @@ def create_app(
         # 내가 볼 수 없는 자료가 섞일 수 있다
         mine = {dept, *_extra_depts(me)} if me else {dept}
         return tuple(u for u, a in accounts.items()
-                     if u != me and ((a or {}).get("dept") or "").strip() == dept
+                     if u != me and ((a or {}).get("dept") or "").strip() == dept and not (a or {}).get("must_change")
                      and (a or {}).get("role", "staff") in _ap.STAFF_ROLES and set(_extra_depts(u)) <= mine)
 
-    def _share_targets(owner: str) -> tuple[list[str], int]:
-        """담당자의 프로젝트 폴더를 보기 공유할 같은 부서 동료의 구글 메일, 그리고 구글을 아직 잇지 않아 받지 못하는 동료 수.
-        동료 기준은 대화 읽기와 같다 — 교직원 계열이고, 담당자가 받은 추가 권한 부서를 그 동료도 볼 수 있을 때."""
-        a = accounts.get(owner, {}) or {}
+    def _peer_of(viewer: str, other: str) -> bool:
+        """other 가 viewer 의 같은 부서 동료인가(대화 읽기·작업 문서 공유 같은 기준) — 둘 다 교직원 계열, 같은 부서, 첫 비밀번호를
+        바꾼(쓰기 시작한) 계정, other 가 받은 추가 권한 부서를 viewer 도 볼 수 있을 때."""
+        a, b = accounts.get(viewer) or {}, accounts.get(other) or {}
         dept = (a.get("dept") or "").strip()
-        if not dept or a.get("role", "staff") not in _ap.STAFF_ROLES:
-            return [], 0
-        need = set(_extra_depts(owner))
-        emails, missing = [], 0
-        for u, b in accounts.items():
-            b = b or {}
-            if u == owner or (b.get("dept") or "").strip() != dept or b.get("role", "staff") not in _ap.STAFF_ROLES:
+        if not viewer or not other or viewer == other or not dept or (b.get("dept") or "").strip() != dept:
+            return False
+        if a.get("role", "staff") not in _ap.STAFF_ROLES or b.get("role", "staff") not in _ap.STAFF_ROLES:
+            return False
+        if a.get("must_change") or b.get("must_change"):
+            return False
+        return set(_extra_depts(other)) <= {dept, *_extra_depts(viewer)}
+
+    def _chat_used_docs(session_id: int) -> set[int]:
+        """대화가 근거로 쓴 문서와 첨부 — 남이 그 대화(와 작업 문서)를 봐도 되는지 가릴 때."""
+        used = set(chat_topics.doc_ids(int(session_id)))
+        for m in db.list_chats(int(session_id)):
+            used |= {int(x) for x in re.findall(r"\[첨부#(\d+)\]", m.get("content") or "")}
+        return used
+
+    def _chat_open_to(session: dict, viewer_: dict) -> bool:
+        """비공개가 아닌 프로젝트 대화이고, 근거·첨부 문서를 모두 이 사람(viewer_)이 볼 수 있는가."""
+        if not session.get("project_id") or (session.get("channel") or "chat") != "chat" or session.get("is_private"):
+            return False
+        for did in _chat_used_docs(int(session["id"])):
+            d = db.get_document(int(did))
+            if d is not None and not _visible(d, **viewer_):
+                return False
+        return True
+
+    def _share_plan(project: dict) -> tuple[dict[str, set[str]], int]:
+        """작업 문서별로 보기 권한을 줄 동료 메일 — 대화 읽기와 같은 규칙(비공개·업무 상담·못 보는 근거를 쓴 대화의 문서는 주지 않는다).
+        돌려주는 것 ({구글 파일 id: {메일}}, 구글을 잇지 않아 못 받는 동료 수)."""
+        owner = project.get("owner") or ""
+        peers = [u for u in accounts if _peer_of(u, owner)]
+        emails = {u: (db.get_setting(f"google_account:{u}", "") or "").strip() for u in peers}
+        missing = sum(1 for e in emails.values() if not e)
+        viewers = {u: _ap.viewer((accounts.get(u) or {}).get("role", "staff"), (accounts.get(u) or {}).get("dept") or None, u,
+                                 Path(db_path).parent) for u, e in emails.items() if e}
+        want: dict[str, set[str]] = {}
+        if not viewers:
+            return want, missing
+        with db._conn() as conn:
+            sessions = [dict(r) for r in conn.execute("SELECT * FROM chat_sessions WHERE project_id = ? AND owner = ?",
+                                                      (int(project["id"]), owner)).fetchall()]
+        for cs in sessions:
+            files = set()
+            try:
+                link = _aj.loads(db.get_setting(f"chat_google_doc:{cs['id']}", "") or "{}")
+            except ValueError:
+                link = {}
+            if link.get("doc"):
+                files.add(str(link["doc"]))
+            for f in db.list_files(kind="google", session_id=int(cs["id"]), limit=50):
+                m = re.search(r"/d/([A-Za-z0-9_-]{10,})", f.get("url") or "")
+                if m:
+                    files.add(m.group(1))
+            if not files:
                 continue
-            if not need <= {dept, *_extra_depts(u)}:
-                continue
-            e = (db.get_setting(f"google_account:{u}", "") or "").strip()
-            if e:
-                emails.append(e)
-            else:
-                missing += 1
-        return emails, missing
+            for u, v in viewers.items():
+                if _chat_open_to(cs, v):
+                    for fid in files:
+                        want.setdefault(fid, set()).add(emails[u])
+        return want, missing
 
     def _share_sync(project: dict | None, wait: bool = False) -> None:
-        """프로젝트 작업 폴더의 부서 보기 공유를 맞춘다(뒤에서). 구글 작업을 화면·문서 작성이 기다리지 않게."""
-        if not project or project.get("archived"):
+        """프로젝트 작업 문서의 부서 보기 공유를 맞춘다. 거두는 일(끄기·비공개)은 기다리고(wait), 주는 일은 뒤에서."""
+        if not project:
             return
         from zzaimy.ingest import drive_share, gdrive_files as _gf
         owner = project.get("owner") or ""
         dept = ((accounts.get(owner, {}) or {}).get("dept") or "").strip() or None
-        email = _gf.account_for(db, owner, dept)
-        emails, missing = _share_targets(owner)
 
         def work():
-            r = drive_share.sync(db, project, email, emails, dept)
-            st = drive_share.state(db, int(project["id"]))
-            db.set_setting(f"gshare_status:{project['id']}", _aj.dumps({"at": st.get("at"), "error": r.get("error", ""), "missing": missing}, ensure_ascii=False))
+            fresh = db.get_project(int(project["id"])) or project
+            want, missing = ({}, 0) if fresh.get("archived") else _share_plan(fresh)
+            drive_share.sync(db, int(fresh["id"]), _gf.account_for(db, owner, dept), want, missing=missing)
         if wait:
             work()
         else:
@@ -1200,15 +1241,7 @@ def create_app(
         if not (bool(proj) and session.get("owner") in _dept_peers(request) and proj.get("owner") in (*_dept_peers(request), me)):
             return False
         # 대화가 근거로 쓴 문서·첨부가 모두 내가 볼 수 있는 것일 때만 — 만든 사람만 보는 문서(열람 등급 owner 등)의 내용이 답에 섞였을 수 있다
-        used = set(chat_topics.doc_ids(int(session["id"])))
-        for m in db.list_chats(int(session["id"])):
-            used |= {int(x) for x in re.findall(r"\[첨부#(\d+)\]", m.get("content") or "")}
-        viewer_ = _req_viewer(request)
-        for did in used:
-            d = db.get_document(int(did))
-            if d is not None and not _visible(d, **viewer_):
-                return False
-        return True
+        return _chat_open_to(session, _req_viewer(request))
 
     def _scope_label(request: Request) -> str:
         """대화 화면 상단의 열람 범위 한 줄 — 검색이 실제로 거르는 범위(_doc_access_sql)와 같은 말로. 역할 이름은 사용자 메뉴에 있다."""
@@ -1281,8 +1314,10 @@ def create_app(
     @app.post("/chat/{session_id}/private")
     def chat_set_private(request: Request, session_id: int, private: str = Form("1"), back: str = Form("")):
         """대화 비공개 켜고 끄기 — 만든 사람만. 비공개면 같은 부서 동료도 읽지 못한다."""
-        _owned_chat(request, session_id)
+        sess = _owned_chat(request, session_id)
         db.set_chat_private(session_id, private == "1")
+        if sess.get("project_id"):                       # 비공개로 돌리면 그 대화의 작업 문서 보기 권한도 바로 거둔다
+            _share_sync(db.get_project(int(sess["project_id"])), wait=True)
         return RedirectResponse(_local_back(back, f"/chat/{session_id}"), status_code=303)
 
     @app.get("/chat/{session_id}", response_class=HTMLResponse)
@@ -4328,7 +4363,10 @@ def create_app(
         _owned_chat(request, session_id)
         if session_id in _chat_running:
             raise HTTPException(409, "답변이 끝난 뒤 지워 주세요.")
+        sess_ = db.get_chat_session(session_id) or {}
         db.delete_chat_session(session_id)
+        if sess_.get("project_id"):                      # 지운 대화의 작업 문서에 준 보기 권한도 거둔다
+            _share_sync(db.get_project(int(sess_["project_id"])), wait=True)
         return RedirectResponse("/chat", status_code=303)
 
     @app.post("/api/chat/{session_id}/work-on/{doc_id}")
@@ -7468,7 +7506,7 @@ def create_app(
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
                 "project_chats": project_chats, "can_edit": can_edit,
-                "drive_share": {**_ds.state(db, project_id), "targets": len(_share_targets(proj.get("owner") or "")[0])},
+                "drive_share": {**_ds.state(db, project_id)},
                 "owner_label": proj.get("owner") or "",
                 "work_docs": work_docs, "work_sessions": work_sessions,
                 "project_notes": db.list_project_notes(project_id),
@@ -8862,6 +8900,28 @@ figure img{{width:100%;display:block}}
     if password is not None:
         _gimport.ensure_scheduler(db, processor, inbox_dir, dept_of=lambda u: (accounts.get(u, {}) or {}).get("dept", ""),
                                   rank=lambda u: {"staff": 0, "professor": 0, "head": 0, "dev": 1}.get((accounts.get(u, {}) or {}).get("role", ""), 2))
+    # 작업 문서 공유 점검 — 10분마다 공유가 켜졌거나 준 권한이 남은 프로젝트를 다시 맞춘다. 동료의 부서·역할이 바뀌거나 계정이 지워지고,
+    # 근거 문서의 열람 등급이 바뀐 것도 여기서 거둔다(담당자가 화면을 열기만 기다리지 않게). 구글 앱이 등록된 운영에서만
+    if password is not None:
+        from zzaimy.ingest import drive_share as _ds_sweep, gdrive as _gd_sweep
+        if _gd_sweep.configured() and os.environ.get("ZZAIMY_SHARE_SWEEP", "1") != "0":
+            import threading as _th_sweep
+
+            def _sweep_loop():
+                time.sleep(120)
+                while True:
+                    try:
+                        with db._conn() as _c:
+                            _all = [dict(r) for r in _c.execute("SELECT * FROM projects ORDER BY id").fetchall()]
+                        for pj in _all:
+                            if pj.get("archived") and not _ds_sweep.has_grants(db, int(pj["id"])):
+                                continue
+                            if _ds_sweep.enabled(db, int(pj["id"])) or _ds_sweep.has_grants(db, int(pj["id"])):
+                                _share_sync(pj, wait=True)
+                    except Exception as e:
+                        logging.getLogger(__name__).warning("작업 문서 공유 점검 실패: %s", e)
+                    time.sleep(600)
+            _th_sweep.Thread(target=_sweep_loop, name="drive-share-sweep", daemon=True).start()
     app.state.page_ctx = ctx
     return app
 

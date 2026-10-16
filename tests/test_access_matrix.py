@@ -472,27 +472,43 @@ def test_private_chat_is_owner_only_even_for_admin(world):
     assert admin.get(f"/chat/{sid}/read").status_code == 200
 
 
-def test_drive_share_toggle_is_owner_only_and_colleague_sees_work_docs_when_on(world, monkeypatch):
+def test_drive_share_follows_chat_read_rules_and_is_owner_only(world, monkeypatch):
+    """작업 문서 공유는 대화 읽기와 같은 규칙 — 비공개 대화·못 보는 근거를 쓴 대화의 문서는 동료에게 주지 않는다.
+    비공개로 돌리거나 공유를 끄면 바로 거둔다. 켜고 끄는 것은 담당자만, 첫 비밀번호를 안 바꾼 계정은 받지 않는다(보안 검토 10-17)."""
     from zzaimy.ingest import drive_share
+    from zzaimy.app import chat_topics
     app, ids, tmp = world
     db = app.state.db
     accounts = json.loads((tmp / "accounts.json").read_text())
     accounts["plan5"] = {"pw": "p5", "role": "staff", "dept": "기획처"}
+    accounts["plan6"] = {"pw": "p6", "role": "staff", "dept": "기획처", "must_change": True}
     (tmp / "accounts.json").write_text(json.dumps(accounts))
     PW["plan5"] = "p5"
     app2 = create_app(db_path=tmp / "t.db", inbox_dir=tmp / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
     calls = []
-    monkeypatch.setattr(drive_share, "sync", lambda db_, p, e, emails, d=None, http=None: calls.append(sorted(emails)) or {"added": [], "removed": [], "shared": len(emails), "folder": "F", "error": ""})
+    monkeypatch.setattr(drive_share, "sync", lambda db_, pid_, e, want, http=None, missing=0: calls.append({k: sorted(v) for k, v in want.items()})
+                        or {"added": [], "removed": [], "shared": 0, "error": ""})
     pid = db.create_project("grant", "공유토글사업", owner="plan5")
-    sid = db.create_chat_session("공유대화", owner="plan5", project_id=pid)
-    db.set_setting(f"chat_google_doc:{sid}", json.dumps({"doc": "DOC1", "account": "plan5@ync.ac.kr"}))
+    pub = db.create_chat_session("공개작업", owner="plan5", project_id=pid)
+    db.set_setting(f"chat_google_doc:{pub}", json.dumps({"doc": "DOCPUB0001", "account": "plan5@ync.ac.kr"}))
+    priv = db.create_chat_session("비공개작업", owner="plan5", project_id=pid)
+    db.set_setting(f"chat_google_doc:{priv}", json.dumps({"doc": "DOCPRIV001", "account": "plan5@ync.ac.kr"}))
+    db.set_chat_private(priv, True)
+    secret = db.add_document("plan5만메모.hwp", str(tmp / "x.txt"), doc_type="grant", owner="plan5", dept="기획처", access_level="owner")
+    leak = db.create_chat_session("못보는근거작업", owner="plan5", project_id=pid)
+    db.set_setting(f"chat_google_doc:{leak}", json.dumps({"doc": "DOCLEAK001", "account": "plan5@ync.ac.kr"}))
+    chat_topics.ChatTopics(tmp / "t.db").record(leak, [{"doc_id": secret, "title": "메모"}])
     db.set_setting("google_account:plan", "plan@ync.ac.kr")
+    db.set_setting("google_account:plan6", "plan6@ync.ac.kr")
     plan = _client(app2, "plan")
     assert plan.post(f"/project/{pid}/drive-share", data={"on": "0"}, follow_redirects=False).status_code == 404   # 동료는 못 바꾼다
     page = plan.get(f"/project/{pid}").text
-    assert "부서 공유 — 구글에서 보기" in page and "공유대화의 작업 문서" in page                     # 켜져 있으면 동료도 작업 문서 링크
+    assert "공개작업의 작업 문서" in page and "비공개작업" not in page and "못보는근거작업" not in page
     owner = _client(app2, "plan5")
+    owner.post(f"/project/{pid}/drive-share", data={"on": "1"}, follow_redirects=False)
+    assert calls[-1] == {"DOCPUB0001": ["plan@ync.ac.kr"]}                 # 공개·근거 열람 가능한 대화의 문서만, 첫 비번 계정 제외
+    owner.post(f"/chat/{pub}/private", data={"private": "1"}, follow_redirects=False)
+    assert calls[-1] == {}                                                # 비공개로 돌리면 바로 다시 맞춘다(목표가 비어 거둔다)
     r = owner.post(f"/project/{pid}/drive-share", data={"on": "0"}, follow_redirects=False)
-    assert r.status_code == 303 and drive_share.enabled(db, pid) is False and calls[-1] == ["plan@ync.ac.kr"]
-    assert "공유대화의 작업 문서" not in plan.get(f"/project/{pid}").text                              # 끄면 동료 화면에서 빠진다
+    assert r.status_code == 303 and drive_share.enabled(db, pid) is False
     assert "부서 공유 끔" in owner.get(f"/project/{pid}").text
