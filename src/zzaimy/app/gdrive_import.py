@@ -19,7 +19,9 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 FOLDER_NAME = "ZZAIMY 가져오기"
-INTERVAL = int(os.environ.get("ZZAIMY_GIMPORT_INTERVAL", "600") or 600)   # 가져오기 주기(초) — 기본 10분
+INTERVAL = int(os.environ.get("ZZAIMY_GIMPORT_INTERVAL", "60") or 60)   # 가져오기 주기(초) — 기본 1분(폴더 목록 한 번이라 가볍다)
+CHECK_GAP = 20                       # 화면을 열 때 확인하는 최소 간격(초) — 같은 사람이 화면을 옮겨 다녀도 몰아치지 않게
+RECENT_KEEP = 20                     # 알림에 쓸 최근 가져온 문서 수
 STALE_FACTOR = 3                     # 마지막 확인이 주기의 이 배수보다 오래되면 멈춘 것으로 본다
 MAX_BYTES = 100_000_000
 SUFFIXES = {".pdf", ".hwp", ".hwpx", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".md", ".png", ".jpg", ".jpeg", ".csv"}
@@ -81,7 +83,8 @@ def stalled(st: dict, now: datetime | None = None) -> bool:
         last = datetime.strptime(at[:16], "%Y-%m-%d %H:%M")
     except ValueError:
         return False
-    return ((now or datetime.now()) - last).total_seconds() > INTERVAL * STALE_FACTOR
+    # 주기가 짧아도(1분) 큰 파일 판독 중에는 다음 확인이 늦을 수 있다 — 15분보다 짧게는 「멈춤」 으로 보지 않는다
+    return ((now or datetime.now()) - last).total_seconds() > max(INTERVAL * STALE_FACTOR, 900)
 
 
 def _list(email: str, folder_id: str, http) -> list[dict]:
@@ -163,11 +166,44 @@ def run_for_user(db, processor, inbox_dir: Path, user: str, email: str, dept: st
         db.set_setting(key, f"{f.get('modifiedTime')}|{doc_id}")
         imported.append({"doc_id": doc_id, "name": name})
     st = _own_status(db, user)
-    st.update({"at": datetime.now().strftime("%Y-%m-%d %H:%M"), "folder_id": folder_id, "email": email,
+    st.update({"at": datetime.now().strftime("%Y-%m-%d %H:%M"), "checked": time.time(), "folder_id": folder_id, "email": email,
                "imported_total": int(st.get("imported_total") or 0) + len(imported),
-               "last_imported": [x["name"] for x in imported][:5] or st.get("last_imported", []), "errors": errors[:5]})
+               "last_imported": [x["name"] for x in imported][:5] or st.get("last_imported", []), "errors": errors[:5],
+               # 최근 가져온 문서(알림·화면 안내) — 새것이 앞
+               "recent": ([{"doc_id": x["doc_id"], "name": x["name"], "at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+                           for x in reversed(imported)] + list(st.get("recent") or []))[:RECENT_KEEP]})
     db.set_setting(f"gimport_status:{user}", json.dumps(st, ensure_ascii=False))
     return {"imported": imported, "skipped": skipped, "errors": errors, "folder_id": folder_id}
+
+
+def owner_for(db, email: str, rank=None) -> str:
+    """이 구글 메일로 가져온 문서의 주인 — 같은 메일에 여러 계정이 이어져 있으면 rank 가 작은 계정(담당자 먼저). run_all 과 같은 규칙."""
+    users = [u for u, e in bound_users(db) if e == email]
+    return sorted(users, key=lambda u: (rank(u) if rank else 0, u))[0] if users else ""
+
+
+def check_now(db, processor, inbox_dir: Path, user: str, dept_of=None, rank=None) -> str:
+    """화면을 열 때 이 사람의 가져오기 폴더를 곧바로 한 번 — 주기를 기다리지 않게. 뒤에서 돌고 곧바로 돌아온다.
+    돌려주는 것: started · recent(방금 확인함) · busy(다른 가져오기가 도는 중) · none(연결 없음·권한 없음)."""
+    from zzaimy.ingest import gdrive_files
+    email = next((e for u, e in bound_users(db) if u == user), "")
+    if not email or not gdrive_files.has_file_scope(email):
+        return "none"
+    owner = owner_for(db, email, rank) or user
+    if time.time() - float(_own_status(db, owner).get("checked") or 0) < CHECK_GAP:
+        return "recent"
+    if not _lock.acquire(blocking=False):
+        return "busy"
+
+    def work():
+        try:
+            run_for_user(db, processor, inbox_dir, owner, email, dept=(dept_of(owner) if dept_of else ""))
+        except Exception as e:
+            log.warning("화면 열 때 드라이브 가져오기 실패 %s: %s", owner, e)
+        finally:
+            _lock.release()
+    threading.Thread(target=work, name="gdrive-import-now", daemon=True).start()
+    return "started"
 
 
 def run_all(db, processor, inbox_dir: Path, dept_of=None, rank=None) -> dict:
@@ -181,7 +217,7 @@ def run_all(db, processor, inbox_dir: Path, dept_of=None, rank=None) -> dict:
         for user, email in bound_users(db):
             by_email.setdefault(email, []).append(user)
         for email, users in by_email.items():
-            user = sorted(users, key=lambda u: (rank(u) if rank else 0, u))[0]
+            user = owner_for(db, email, rank)
             if not gdrive_files.has_file_scope(email):
                 continue
             try:
@@ -198,11 +234,13 @@ def run_all(db, processor, inbox_dir: Path, dept_of=None, rank=None) -> dict:
 
 
 _started = False
+_ctx: dict = {}                       # 주기와 같은 dept_of·rank — 화면 열 때 확인(check_now)이 같은 규칙을 쓴다
 
 
 def ensure_scheduler(db, processor, inbox_dir: Path, dept_of=None, rank=None) -> None:
     """앱이 뜰 때 한 번 — 구글 앱이 등록돼 있을 때만 INTERVAL 마다 돈다."""
-    global _started
+    global _started, _ctx
+    _ctx = {"dept_of": dept_of, "rank": rank}
     from zzaimy.ingest import gdrive
     if _started or not gdrive.configured():
         return

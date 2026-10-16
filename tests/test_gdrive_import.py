@@ -74,3 +74,26 @@ def test_same_google_account_imports_once(tmp_path, monkeypatch):
     out = gdrive_import.run_all(db, FakeProcessor(), tmp_path / "inbox", rank=lambda u: 1 if u == "zzdev" else 0)
     assert out == {"kim": 1}                                     # 담당자 계정이 주인, 한 번만
     assert gdrive_import.run_all(db, FakeProcessor(), tmp_path / "inbox") == {"kim": 0}
+
+
+def test_check_now_runs_once_in_background_and_throttles(tmp_path, monkeypatch):
+    """화면을 열 때 곧바로 한 번(뒤에서) — 20초 안에 다시 열면 건너뛰고, 연결이 없으면 하지 않는다. 주기는 기본 1분."""
+    import time as _t
+    db = Database(tmp_path / "t.db")
+    monkeypatch.setattr(gdrive_files, "ensure_folder", lambda email, parts, http=None, root="root": "F1")
+    monkeypatch.setattr(gdrive_files, "_headers", lambda email, http: {})
+    monkeypatch.setattr(gdrive_files, "has_file_scope", lambda email: True)
+    monkeypatch.setattr("zzaimy.app.storage.adopt_original", lambda db, did, p: p)
+    http = FakeHttp([{"id": "a", "name": "새공고.pdf", "mimeType": "application/pdf", "modifiedTime": "t1", "size": "10"}])
+    monkeypatch.setattr("zzaimy.ingest.gdrive._http", lambda: http)
+    assert gdrive_import.INTERVAL == 60 or "ZZAIMY_GIMPORT_INTERVAL" in __import__("os").environ
+    assert gdrive_import.check_now(db, FakeProcessor(), tmp_path / "inbox", "nobody") == "none"
+    db.set_setting("google_account:kim", "kim@example.ac.kr")
+    assert gdrive_import.check_now(db, FakeProcessor(), tmp_path / "inbox", "kim") == "started"
+    for _ in range(50):
+        if gdrive_import.status(db, "kim").get("recent"):
+            break
+        _t.sleep(0.05)
+    recent = gdrive_import.status(db, "kim")["recent"]
+    assert [r["name"] for r in recent] == ["새공고.pdf"]
+    assert gdrive_import.check_now(db, FakeProcessor(), tmp_path / "inbox", "kim") == "recent"     # 20초 안에는 다시 안 함

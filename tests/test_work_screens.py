@@ -333,3 +333,25 @@ def test_gimport_status_uses_the_account_that_actually_runs(tmp_path):
     assert st["at"] == "2026-01-05 09:00" and st["runs_as"] == "나"
     assert "나만 볼 문서" not in _json.dumps(st, ensure_ascii=False) and not st.get("imported_total")   # 남의 문서 이름은 싣지 않는다
     assert "runs_as" not in g.status(db, "나")
+
+
+def test_drive_imports_show_in_bell_until_acknowledged(tmp_path):
+    """드라이브에서 가져온 문서는 알림의 「드라이브에서 가져옴」 에 뜨고, 확인하면 처리 상태가 바뀌어도 다시 뜨지 않는다."""
+    import json
+    from fastapi.testclient import TestClient
+    from tests.test_app import FakeDrafter, FakeProcessor
+    from zzaimy.app.main import create_app
+    app = create_app(db_path=tmp_path / "t.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(), drafter=FakeDrafter())
+    db = app.state.db
+    src = tmp_path / "x.pdf"; src.write_bytes(b"x")
+    did = db.add_document("드라이브공고.pdf", str(src), doc_type="auto", owner="zzaimy")
+    db.set_setting("gimport_status:zzaimy", json.dumps({"recent": [{"doc_id": did, "name": "드라이브공고.pdf"}]}))
+    c = TestClient(app)
+    page = c.get("/?type=all").text
+    assert "드라이브에서 가져옴" in page and "드라이브공고" in page
+    assert [i["id"] for i in c.get("/api/gimport/recent").json()["items"]] == [did]
+    assert c.post("/api/notifications/read", data={"doc_id": str(did)}).status_code == 200
+    db.update_document(did, status="reviewed")                     # 처리 상태가 바뀌어도
+    assert c.get("/api/gimport/recent").json()["items"] == []
+    assert "드라이브에서 가져옴" not in c.get("/?type=all").text
+    assert c.post("/api/gimport/check").json()["state"] == "none"     # 구글 연결이 없으면 확인하지 않는다

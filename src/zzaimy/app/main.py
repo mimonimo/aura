@@ -747,6 +747,23 @@ def create_app(
 
     templates.env.filters["md_lite"] = md_lite
 
+    def _drive_new(owner: str) -> list[dict]:
+        """드라이브 「ZZAIMY 가져오기」 에서 새로 가져온 내 문서 가운데 아직 알림에서 확인하지 않은 것(새것이 앞)."""
+        from zzaimy.app import gdrive_import as _gi
+        try:
+            seen_imp = set(_aj.loads(db.get_setting(f"gimport_seen:{owner}", "[]") or "[]"))
+        except ValueError:
+            seen_imp = set()
+        out = []
+        for r in (_gi.status(db, owner).get("recent") or [])[:_gi.RECENT_KEEP]:
+            try:
+                d = db.get_document(int(r.get("doc_id") or 0))
+            except (TypeError, ValueError):
+                d = None
+            if d and d.get("owner") == owner and int(d["id"]) not in seen_imp:
+                out.append(d)
+        return out
+
     def ctx(request: Request, extra: dict) -> dict:
         from zzaimy.app.model_tracks import TRACKS, UPDATED
         # 작업물(문서함·프로젝트·채팅)은 계정별 분리 — 기준·OCR 저장소는 공용
@@ -761,6 +778,7 @@ def create_app(
         actionable = unread(db, owner, actionable)
         failed = unread(db, owner, failed)
         recent_reviewed = unread(db, owner, db.reviewed_documents(owner))
+        drive_new = _drive_new(owner)
         if getattr(request.state, "view_as", None):
             # 테스트 보기 — 알림도 고른 계정이 볼 수 있는 문서만(개발자가 올린 문서라도 범위 밖이면 빼고)
             _v = _req_viewer(request)
@@ -782,7 +800,8 @@ def create_app(
             "pending_count": len(pending),
             "pending_by_type": by_type,
             "failed_docs": failed,
-            "alert_count": len(actionable) + len(failed),
+            "drive_new": drive_new,
+            "alert_count": len(actionable) + len(failed) + len(drive_new),
             "side_projects": db.list_all_projects(owner=owner),
             "profile_name": db.profile_for(getattr(request.state, "user", None)).get("name", ""),
             "profile_dept": (accounts.get(getattr(request.state, "user", "") or "", {}) or {}).get("dept", ""),
@@ -5940,6 +5959,22 @@ def create_app(
         hits = _ps(db, owner, want).get("projects", [])
         exact = [p for p in hits if p["name"].strip() == want]
         return (exact or hits or [None])[0]
+
+    @app.post("/api/gimport/check")
+    def gimport_check(request: Request):
+        """화면을 열 때 내 드라이브 가져오기 폴더를 곧바로 한 번 확인한다(뒤에서). 주기(1분)를 기다리지 않게."""
+        from zzaimy.app import gdrive_import as _gi
+        if getattr(request.state, "role", "") == "student" or getattr(request.state, "view_as", None):
+            return {"state": "none"}
+        return {"state": _gi.check_now(db, processor, inbox_dir, getattr(request.state, "user", ""), **_gi._ctx)}
+
+    @app.get("/api/gimport/recent")
+    def gimport_recent(request: Request):
+        """새로 가져와 아직 확인하지 않은 내 문서 — 화면 아래 알림이 쓴다."""
+        if getattr(request.state, "view_as", None):
+            return {"items": []}
+        return {"items": [{"id": d["id"], "name": storage.title_of(d.get("filename") or "")}
+                          for d in _drive_new(getattr(request.state, "user", ""))]}
 
     @app.post("/api/chat-documents/create")
     def chat_doc_create(request: Request, session_id: int | None = Form(None), title: str = Form(""),

@@ -641,6 +641,13 @@ document.addEventListener('submit', function(event) {
         {% if alert_count %}<p class="notification-help">열어 본 알림은 정리됩니다. 문서의 업무 상태는 바뀌지 않습니다.</p>
         <button type="button" class="btn-ghost" id="notificationReadAll">모두 확인</button>
         {% else %}<div class="pop-empty">새로 확인할 문서가 없습니다.</div>{% endif %}
+        {% if drive_new %}<h6 class="notification-section">드라이브에서 가져옴</h6>{% endif %}
+        {% for d in drive_new %}
+        <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
+          <iconify-icon icon="solar:cloud-download-linear" aria-hidden="true"></iconify-icon>
+          <span class="notification-copy"><strong>{{ doc_name(d) }}</strong><small>「ZZAIMY 가져오기」 폴더에서 · {{ status_labels.get(d.status, d.status) }}</small></span>
+        </a>
+        {% endfor %}
         {% if notification_pending %}<h6 class="notification-section">판정 필요</h6>{% endif %}
         {% for d in notification_pending %}
         <a class="pop-item" href="/doc/{{ d.id }}" data-force-navigation>
@@ -801,6 +808,36 @@ document.addEventListener('submit', function(event) {
       if (!response.ok) throw Error('확인 상태를 저장하지 못했습니다');
     }
     links().forEach(a => a.addEventListener('click', () => { acknowledge([a]).catch(() => {}); }));
+    // 드라이브 가져오기 — 라이브러리·설정 화면을 열면 내 「ZZAIMY 가져오기」 폴더를 곧바로 한 번 확인하고(주기 1분을 기다리지 않게),
+    // 새로 들어온 문서가 있으면 화면 아래에 알린다. 확인 전 목록을 먼저 적어 두고 그 뒤에 생긴 것만 「새로」 로 본다
+    if (location.pathname === '/' || location.pathname === '/settings') {
+      const recent = () => fetch('/api/gimport/recent', {cache:'no-store'}).then(r => r.ok ? r.json() : {items: []}).then(x => x.items || []);
+      recent().then(before0 => {
+        const before = new Set(before0.map(i => i.id));
+        return fetch('/api/gimport/check', {method:'POST'}).then(r => r.ok ? r.json() : {}).then(d => {
+          if (d.state !== 'started' && d.state !== 'busy') return;
+          let tries = 0;
+          const tick = () => recent().then(items => {
+            const fresh = items.filter(i => !before.has(i.id));
+            if (fresh.length) { driveToast(fresh); return; }
+            if (++tries < 20) setTimeout(tick, 4000);           // 판독까지 끝나야 들어오는 일이 있어 1분 남짓 기다린다
+          }).catch(() => {});
+          setTimeout(tick, 3000);
+        });
+      }).catch(() => {});
+    }
+    function driveToast(items) {
+      const box = document.createElement('div');
+      box.className = 'drive-toast'; box.setAttribute('role', 'status');
+      const text = document.createElement('span');
+      text.textContent = '드라이브에서 ' + items.length + '건을 가져왔습니다 — ' + items.slice(0, 2).map(i => '「' + i.name + '」').join(', ') + (items.length > 2 ? ' 외' : '');
+      const go = document.createElement('a');
+      go.href = items.length === 1 ? '/doc/' + items[0].id : '/?type=all'; go.textContent = '보기';
+      const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', '알림 닫기');
+      close.onclick = () => box.remove();
+      box.append(text, go, close); document.body.appendChild(box);
+      setTimeout(() => box.remove(), 15000);
+    }
     document.getElementById('notificationReadAll')?.addEventListener('click', async function() {
       this.disabled = true;
       try {
@@ -936,6 +973,12 @@ document.addEventListener('submit', function(event) {
   .aura-ring { outline: 2px solid var(--navy, #1f3b63) !important; outline-offset: 3px; border-radius: 6px;
     box-shadow: 0 0 0 6px rgba(31,59,99,.14) !important; transition: box-shadow .3s ease; }
   @media (prefers-reduced-motion: reduce) { .aura-cursor { transition: opacity .2s ease; } }
+  .drive-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 1000; display: flex; align-items: center; gap: 12px;
+    max-width: min(560px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 10px; background: var(--navy, #1f3b63); color: #fff;
+    font-size: 13px; box-shadow: 0 8px 24px rgba(15,30,60,.22); }
+  .drive-toast span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drive-toast a { color: #fff; font-weight: 600; text-decoration: underline; flex: none; }
+  .drive-toast button { border: 0; background: none; color: #fff; font-size: 16px; cursor: pointer; padding: 0 2px; flex: none; }
   .ag-acts { display: flex; flex-wrap: wrap; gap: 6px; align-self: flex-start;
             max-width: 92%; }
   .ag-acts button, .ag-acts a { border: 1px solid var(--line); background: #fff;

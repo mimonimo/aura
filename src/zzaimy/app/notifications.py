@@ -44,4 +44,11 @@ async def acknowledge(request: Request):
         seen = json.loads(db.get_setting(key, "{}"))
         seen.update({str(d["id"]): version(d) for d in docs})
         db.set_setting(key, json.dumps(seen))
+        # 드라이브에서 가져온 문서 알림 — 한 번 확인하면 처리 상태가 바뀌어도 다시 「가져옴」 으로 뜨지 않게 번호로 기억한다
+        ikey = "gimport_seen:" + owner
+        try:
+            got = set(json.loads(db.get_setting(ikey, "[]") or "[]"))
+        except (ValueError, TypeError):
+            got = set()
+        db.set_setting(ikey, json.dumps(sorted(got | {int(d["id"]) for d in docs})[-500:]))
     return {"ok": True}
