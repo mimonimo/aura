@@ -269,6 +269,8 @@ class Database:
         "ALTER TABLE documents ADD COLUMN audience TEXT NOT NULL DEFAULT 'staff'",
         # 대화 갈래 — chat(에이전트 대화: 문서 작성·업무) · helper(떠 있는 창의 플랫폼 업무 도우미). 사이드바는 chat 만
         "ALTER TABLE chat_sessions ADD COLUMN channel TEXT NOT NULL DEFAULT 'chat'",
+        # 비공개 — 프로젝트 대화는 같은 부서 동료가 읽기 전용으로 본다. 만든 사람이 비공개로 고르면 본인만
+        "ALTER TABLE chat_sessions ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0",
     ]
 
     def __init__(self, path: Path | str) -> None:
@@ -583,6 +585,10 @@ class Database:
                 "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
             ).fetchone()
             return dict(row) if row else None
+
+    def set_chat_private(self, session_id: int, private: bool) -> None:
+        with self._conn() as conn:
+            conn.execute("UPDATE chat_sessions SET is_private = ? WHERE id = ?", (1 if private else 0, session_id))
 
     def list_project_chat_sessions(self, project_id: int) -> list[dict]:
         with self._conn() as conn:

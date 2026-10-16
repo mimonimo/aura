@@ -32,16 +32,20 @@
     {% set gid = (project.program or '').split('|')[0] %}
     {% if gid.startswith('program:') %}<a class="btn secondary" href="/graph/explore?id={{ gid|urlencode }}" title="이 사업과 이어진 사업·문서를 그래프로">
       <iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>사업 그래프</a>{% endif %}
-    {% if project.archived %}
+    {% if project.archived and (can_edit or project.owner == 'zzdev') %}
     <form action="/project/{{ project.id }}/unarchive" method="post" style="margin:0;">
       <button type="submit" class="secondary">보관 해제</button></form>
     {% endif %}
+    {% if can_edit %}
     <button type="button" class="secondary" data-modal-open="#manageModal"
             style="font-family:inherit; cursor:pointer;">
       <iconify-icon icon="solar:settings-linear"></iconify-icon>관리</button>
+    {% endif %}
   </div>
 </div>
-{% if project.archived %}
+{% if not can_edit and not project.archived %}
+<p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:eye-linear"></iconify-icon><span>읽기 전용 — 같은 부서 {{ owner_label }} 님의 프로젝트입니다. 공개된 대화는 읽을 수 있고, 대화와 고치기는 담당자만 합니다.</span></p>
+{% elif project.archived %}
 <p class="notice" style="margin:-8px 2px 16px;"><iconify-icon icon="solar:archive-linear"></iconify-icon><span>지난 사업 자료입니다. 다른 프로젝트에서 참조로 연결해 근거로 쓸 수 있고, 다시 진행하려면 「보관 해제」를 누릅니다.</span></p>
 {% elif flow_hints.get(project.sector) %}
 <p class="muted" style="font-size:12.5px; margin:-8px 2px 16px; line-height:1.6;">{{ flow_hints.get(project.sector) }}</p>
@@ -65,7 +69,7 @@
 <p class="muted" id="intakeStatus" role="status" hidden>문서를 등록하는 중입니다…</p>
 {% if request.query_params.get('bundle') %}{% set received = request.query_params.get('bundle').replace(' ', '+').split('+') %}<p class="notice"><iconify-icon icon="solar:check-circle-linear"></iconify-icon><span>문서를 추가했습니다 — 기준 문서 {{ received[0] }}건, 첨부 문서 {{ received[-1] }}건. 본문을 읽고 열람 화면을 준비하는 중이며, 끝나면 상태가 「처리 완료」로 바뀝니다.</span></p>{% endif %}
 <section id="projectConversations" class="project-panel" role="tabpanel" aria-labelledby="projectTabChat">
-{% if not project.archived %}
+{% if can_edit and not project.archived %}
 <div class="project-chat-row project-start">
   <form action="/chat/send" method="post">
     <input type="hidden" name="project_id" value="{{ project.id }}">
@@ -81,9 +85,9 @@
 <div class="card">
   <div class="card-in">
     <div class="project-doc-head"><h2><iconify-icon icon="solar:documents-linear"></iconify-icon>프로젝트 문서</h2>
-      {% if not project.archived %}<button type="button" data-intake-pick><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 추가</button>{% endif %}
+      {% if can_edit and not project.archived %}<button type="button" data-intake-pick><iconify-icon icon="solar:upload-linear"></iconify-icon>문서 추가</button>{% endif %}
     </div>
-    {% if not project.archived %}<p class="project-intake-help">파일을 한 개 또는 여러 개 고를 수 있습니다. 공고·지침·평가 기준으로 분류된 문서는 기준 문서로 연결됩니다.</p>{% endif %}
+    {% if can_edit and not project.archived %}<p class="project-intake-help">파일을 한 개 또는 여러 개 고를 수 있습니다. 공고·지침·평가 기준으로 분류된 문서는 기준 문서로 연결됩니다.</p>{% endif %}
     {% for key, label in [('attached', '첨부 문서'), ('reference', '참고 문서'), ('rules', '기준 문서')] %}
     {% set items = doc_groups[key] %}
     <section class="project-doc-group" data-doc-group="{{ key }}" aria-label="{{ label }}">
@@ -113,14 +117,14 @@
 <section id="projectChatList" aria-label="프로젝트 대화">
 <div class="card project-chat-card">
   <div class="card-in">
-    <div class="project-history-heading"><h3>이어서 대화하기</h3><button type="button" class="history-link" data-chat-history data-chat-history-q="{{ project.name }}">이 프로젝트 대화 검색</button></div>
+    <div class="project-history-heading"><h3>이어서 대화하기</h3>{% if can_edit %}<button type="button" class="history-link" data-chat-history data-chat-history-q="{{ project.name }}">이 프로젝트 대화 검색</button>{% endif %}</div>
     {% if project_chats %}
     <div class="project-conversations">
       {% for cs in project_chats %}
-      {% set cs_title = cs.title | chat_title(project.name) %}<a class="project-conversation" href="/chat/{{ cs.id }}" title="{{ cs_title }}"><iconify-icon icon="solar:chat-line-linear"></iconify-icon><span>{{ cs_title }}</span><iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>
+      {% set cs_title = cs.title | chat_title(project.name) %}{% set own_chat = cs.owner == request.state.user %}<div class="project-conversation-row"><a class="project-conversation" href="/chat/{{ cs.id }}{{ '' if own_chat else '/read' }}" title="{{ cs_title }}"><iconify-icon icon="solar:{{ 'lock-keyhole' if cs.is_private else 'chat-line' }}-linear"{% if cs.is_private %} title="비공개 — 본인만 봅니다"{% endif %}></iconify-icon><span>{{ cs_title }}</span>{% if not own_chat %}<span class="muted" style="font-size:12px; flex:none;">{{ cs.owner }} · 읽기 전용</span>{% endif %}<iconify-icon icon="solar:arrow-right-linear"></iconify-icon></a>{% if own_chat %}<form action="/chat/{{ cs.id }}/private" method="post" class="project-conversation-share"><input type="hidden" name="private" value="{{ '0' if cs.is_private else '1' }}"><input type="hidden" name="back" value="/project/{{ project.id }}"><button type="submit" class="secondary" title="{{ '같은 부서 동료도 읽을 수 있게 합니다' if cs.is_private else '본인만 보게 합니다' }}">{{ '공개로' if cs.is_private else '비공개로' }}</button></form>{% endif %}</div>
       {% endfor %}
     </div>
-    {% else %}<p class="project-empty">{{ "대화가 없습니다. 보관 해제 뒤 대화를 시작할 수 있습니다." if project.archived else "대화가 없습니다. 위 입력줄에서 첫 대화를 시작합니다." }}</p>{% endif %}
+    {% else %}<p class="project-empty">{% if project.archived %}대화가 없습니다. 보관 해제 뒤 대화를 시작할 수 있습니다.{% elif not can_edit %}공개된 대화가 없습니다. 대화는 담당자만 시작합니다.{% else %}대화가 없습니다. 위 입력줄에서 첫 대화를 시작합니다.{% endif %}</p>{% endif %}
   </div>
 </div>
 <div class="card project-chat-card">
@@ -147,21 +151,21 @@
     <div class="project-context-grid">
     <section id="paneGuide" class="project-context-section" aria-labelledby="projectGuideHeading">
     <div class="project-context-intro"><h2 id="projectGuideHeading">작성 원칙 <span class="pill">{{ project_notes|length }}</span></h2><p>이 프로젝트의 검토·작성·대화에 늘 적용할 원칙과 업무 조건입니다.</p></div>
-    <form action="/project/{{ project.id }}/notes" method="post" class="project-note-compose">
+    {% if can_edit %}<form action="/project/{{ project.id }}/notes" method="post" class="project-note-compose">
       <label for="noteInput">원칙 추가</label>
       <textarea name="content" required rows="2" id="noteInput" aria-describedby="noteHelp"
                 placeholder="예: 검토 의견에는 근거 조항을 함께 적고, 확인되지 않은 내용은 구분해 주세요."></textarea>
       <div class="project-context-footer"><span id="noteHelp">개인 메모가 아니라 이 프로젝트 공통 원칙입니다.</span><button type="submit" id="noteSave" disabled>원칙 저장</button></div>
-    </form>
+    </form>{% endif %}
     <div id="noteList" class="project-note-list">
       {% for n in project_notes %}
       <article class="project-note-item">
         <p>{{ n.content }}</p>
         <div class="project-note-meta"><time>{{ n.created_at[:16] }}</time>
-        <form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post"
+{% if can_edit %}        <form action="/project/{{ project.id }}/notes/{{ n.id }}/delete" method="post"
               class="project-note-delete" data-confirm="이 작성 원칙을 삭제할까요? 삭제 후에는 복구할 수 없습니다.">
           <button type="submit" class="secondary">삭제</button>
-        </form>
+        </form>{% endif %}
         </div>
       </article>
       {% else %}
@@ -178,7 +182,7 @@
       <article class="project-criterion-item">
         <iconify-icon icon="solar:document-text-linear" style="color:var(--navy); flex:none;"></iconify-icon>
         <div class="project-criterion-title"><a href="/doc/{{ c.id }}">{{ doc_title(c) }}</a><span>{{ kind_labels.get(c.kind or '', '분류 전') }} · {{ c.via }}{% if c.receipt_no %} · {{ receipt_label(c.receipt_no) }}{% endif %}{% if c.status != 'reviewed' %} · {{ status_labels.get(c.status, c.status) }}{% endif %}</span></div>
-        {% if c.id in linked_criteria %}
+        {% if c.id in linked_criteria and can_edit %}
         <form action="/project/{{ project.id }}/criteria/unlink" method="post" data-confirm="이 기준 문서의 연결을 해제할까요? 원본 문서는 유지됩니다.">
           <input type="hidden" name="criteria_doc_id" value="{{ c.id }}">
           <button type="submit" class="secondary">연결 해제</button>
@@ -194,7 +198,7 @@
         공고문·심사 기준을 연결하면<br>검토와 초안이 그 기준을 근거로 씁니다.</p>
     </div>
     {% endif %}
-    {% if not project.archived %}
+    {% if can_edit and not project.archived %}
     <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
       <button type="button" class="secondary" data-modal-open="#linkModal"
               style="flex:1 1 auto; padding:9px 12px; font-size:13px; white-space:nowrap;">
@@ -210,10 +214,10 @@
     <article class="project-criterion-item">
       <iconify-icon icon="solar:archive-linear" style="color:var(--navy); flex:none;"></iconify-icon>
       <div class="project-criterion-title"><a href="/project/{{ r.ref_project_id }}">{{ r.name }}</a><span>문서 {{ r.n_docs or 0 }}{% if r.reason %} · {{ r.reason }}{% endif %}</span></div>
-      <form action="/project/{{ project.id }}/refs/{{ r.ref_project_id }}/delete" method="post" data-confirm="「{{ r.name }}」 참조 연결을 해제할까요? 지난 사업 자료는 그대로 남습니다."><button type="submit" class="secondary">연결 해제</button></form>
+      {% if can_edit %}<form action="/project/{{ project.id }}/refs/{{ r.ref_project_id }}/delete" method="post" data-confirm="「{{ r.name }}」 참조 연결을 해제할까요? 지난 사업 자료는 그대로 남습니다."><button type="submit" class="secondary">연결 해제</button></form>{% endif %}
     </article>
     {% endfor %}
-    {% if not project.archived %}
+    {% if can_edit and not project.archived %}
     <a class="btn secondary" href="/projects/archived?for_project={{ project.id }}">지난 사업 찾아 연결</a>
     {% if ref_candidates %}<h3 class="project-context-list-title">추천 <span>{{ ref_candidates|length }}</span></h3>{% endif %}
     {% for c in ref_candidates %}
@@ -314,7 +318,7 @@
         {% if business_units and not project.archived %}
         <label class="form-row"><span class="muted">사업단</span><select name="unit"><option value="">선택 안 함</option>{% for u in business_units %}<option value="{{ u }}" {{ 'selected' if project.unit == u else '' }}>{{ u }}</option>{% endfor %}</select></label>
         {% endif %}
-        {% if not project.archived %}
+        {% if can_edit and not project.archived %}
         <label class="form-row"><span class="muted">사업 — 고르면 이 프로젝트 문서가 라이브러리 사업 목록·사업 그래프에 함께 보입니다</span>
           <select name="program" id="projProg"><option value="none">정하지 않음</option><option value="_new">＋ 새 사업 등록…</option>
             {% for g in program_options %}<optgroup label="{{ g.label }}">{% for it in g["items"] %}<option value="{{ it.key }}" {{ 'selected' if it.key == project_program }}>{{ it.label }}</option>{% endfor %}</optgroup>{% endfor %}

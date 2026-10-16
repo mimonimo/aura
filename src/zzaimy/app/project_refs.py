@@ -278,12 +278,14 @@ def ongoing(period: tuple[int, int | None] | None, years: set[int], this_year: i
 
 
 def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: str = "", unit: str = "",
-           for_project: int | None = None, limit: int = 200, sort: str = "", names: list[str] | None = None) -> dict:
+           for_project: int | None = None, limit: int = 200, sort: str = "", names: list[str] | None = None,
+           peers: tuple[str, ...] = ()) -> dict:
     """통합 프로젝트 찾기 — 진행 중(본인 것)·보관(문서 열람 권한 기준)을 사업명·수행 연도·사업단·상태로.
 
     돌려주는 것 {"items": [{id, name, status, year, round, when, group, group_name, program, units, n_docs, why, linked}],
     "units": [...], "years": [연도만, 최근 순], "rounds": [연도를 모르는 연차], "has_unknown": bool, "total", "sort"}.
-    - status: archived · active · all. 진행 중은 보는 사람의 것만, 보관은 볼 수 있는 문서가 하나라도 있는 묶음만(문서 수도 그 범위)
+    - status: archived · active · all. 진행 중은 보는 사람의 것과 같은 부서 동료(peers)의 것(읽기 전용, readonly), 보관은 볼 수 있는
+      문서가 하나라도 있는 묶음만(문서 수도 그 범위)
     - year: 「2024」(연도) · 「r2」(연도를 모르는 2차년도) · 「none」(연도 미상). 연차만 아는 묶음은 같은 사업의 다른 묶음이
       연도·연차를 함께 말해 시작 연도가 하나로 정해질 때만 연도로 환산한다
     - 연도·사업단 목록은 그 필터를 걸기 전 범위에서 뽑는다(하나를 고르면 나머지 선택지가 사라지지 않게)
@@ -330,8 +332,9 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
         st = "archived" if r["archived"] else "active"
         if status in ("archived", "active") and st != status:
             continue
-        if st == "active" and not dev and r["owner"] != user:
+        if st == "active" and not dev and r["owner"] != user and r["owner"] not in peers:
             continue
+        r["readonly"] = st == "active" and not dev and r["owner"] != user
         flat = ((r["name"] or "") + " " + aliases.get((r.get("program") or "").split("|", 1)[0], "")).replace(" ", "").lower()
         if words and not all(w.lower().replace(" ", "") in flat for w in words):     # 낱말마다 들어 있으면(순서·띄어쓰기 무관)
             continue
@@ -375,7 +378,7 @@ def browse(db, scope: dict | None, q: str = "", status: str = "archived", year: 
                      "group": base if base and r["status"] == "archived" else f"project:{r['id']}",
                      "group_name": _group_name(r["name"] or "") if r["status"] == "archived" else (r["name"] or ""),
                      "units": us, "n_docs": n, "why": hit[1] if hit else "",
-                     "linked": r["id"] in linked, "score": hit[0] if hit else 0.0})
+                     "linked": r["id"] in linked, "readonly": bool(r.get("readonly")), "score": hit[0] if hit else 0.0})
 
     def year_ok(it):
         if want_none:                                  # 「연도 미상」 하나 — 연차만 아는 묶음도 연도는 모른다

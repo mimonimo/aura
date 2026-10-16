@@ -97,7 +97,7 @@ def test_sidebar_has_one_entry_per_resource_function(tmp_path, monkeypatch):
     client = candidate_client(tmp_path, monkeypatch)
     page = client.get('/?type=all').text
     sidebar = page.split('id="workspaceSidebar"', 1)[1].split('</aside>', 1)[0]
-    assert sidebar.count('data-chat-history') == 1
+    assert sidebar.count('data-chat-history') == 0                         # 대화 찾기는 맨 위 「문서·대화 검색」 하나로(사이드바 검색 단추 뺌)
     assert 'href="/criteria"' not in sidebar
     assert 'href="/criteria"' not in page and 'href="/archive"' in page   # 라이브러리 탭(문서·원본 보관소) — 기준은 목록의 칩
     assert 'work-nav' not in sidebar

@@ -154,6 +154,10 @@
     {% if scope_label %}<p class="chat-scope">{{ scope_label }}</p>{% endif %}
   </div>
   <div class="chat-head-actions">
+    {% if chat_project and chat_session and chat_session.owner == request.state.user and (chat_session.channel or 'chat') == 'chat' %}{# 프로젝트 대화는 같은 부서 동료가 읽는다 — 비공개면 본인만 #}
+    <form action="/chat/{{ chat_session.id }}/private" method="post" class="chat-share-toggle" style="margin:0;"><input type="hidden" name="private" value="{{ '0' if chat_session.is_private else '1' }}"><input type="hidden" name="back" value="/chat/{{ chat_session.id }}">
+      <button type="submit" class="act-btn" title="{{ '비공개 — 본인만 봅니다. 누르면 같은 부서 동료도 읽기 전용으로 봅니다' if chat_session.is_private else '같은 부서 동료가 읽기 전용으로 봅니다. 누르면 본인만 봅니다' }}" aria-label="{{ '공개로 바꾸기' if chat_session.is_private else '비공개로 바꾸기' }}"><iconify-icon icon="solar:{{ 'lock-keyhole' if chat_session.is_private else 'users-group-rounded' }}-linear"></iconify-icon><span style="font-size:12px;">{{ '비공개' if chat_session.is_private else '부서 공개' }}</span></button></form>
+    {% endif %}
     <button type="button" class="act-btn chat-document-toggle" id="chatDocumentOpen"{% if is_student %} hidden{% endif %} title="문서 패널 열기" aria-label="문서 패널 열기" aria-expanded="false" data-connections="{{ '/dev/nas#googleConnection' if request.state.role == 'dev' else '/settings#myGoogle' }}"><iconify-icon icon="solar:document-text-linear"></iconify-icon></button>
   </div>
 </header>

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ chat_session.title or '대화' }} · 읽기 전용{% endblock %}
+{% block content %}
+{# 같은 부서 동료의 프로젝트 대화 — 읽기 전용(입력줄·문서 패널·다시 쓰기 없음). 대화는 만든 사람만 이어 간다 #}
+<link rel="stylesheet" href="/static/chat-workspace.css">
+<div class="chat-read">
+  <header class="chat-workspace-head">
+    <div class="chat-heading">
+      <span class="chat-eyebrow">{% if chat_project %}<a href="/project/{{ chat_project.id }}">{{ chat_project.name }}</a> · {% endif %}읽기 전용</span>
+      <h1>{{ chat_session.title or '대화' }}</h1>
+      <p class="chat-scope">{{ chat_session.owner }} 님의 대화입니다. 대화를 이어 가거나 고치는 것은 만든 사람만 할 수 있습니다.</p>
+    </div>
+  </header>
+  <div class="chat-read-list">
+  {% for m in messages %}
+    <div class="turn {{ m.role }}">
+      <div class="chat-speaker">{{ chat_session.owner if m.role == 'user' else 'AURA' }}</div>
+      {% if m.role == 'assistant' %}<div class="msg assistant">{{ m.content | tidy_reply | particles | md_view | cite_links(sources) }}</div>
+      {% else %}<div class="msg user">{{ m.content | attach_view }}</div>{% endif %}
+    </div>
+  {% else %}
+    <p class="muted">아직 주고받은 글이 없습니다.</p>
+  {% endfor %}
+  </div>
+</div>
+<style>
+  .chat-read { max-width: 860px; margin: 0 auto; padding: 0 16px 40px; }
+  .chat-read-list { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; }
+  .chat-read .turn.user { align-self: flex-end; max-width: 80%; }
+  .chat-read .turn.assistant { align-self: stretch; }
+</style>
+{% endblock %}

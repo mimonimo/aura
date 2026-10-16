@@ -536,15 +536,14 @@ document.addEventListener('submit', function(event) {
     <a href="/chat" class="{{ 'active' if request.url.path == '/chat' else '' }}">
       <iconify-icon icon="solar:pen-new-square-linear"></iconify-icon>새 채팅</a>
     {% if request.state.role != 'student' %}
-    <button type="button" class="side-search" data-project-search><iconify-icon icon="solar:magnifer-linear"></iconify-icon>진행 중 프로젝트 찾기</button>
+    <button type="button" class="side-search" data-project-search title="진행 중·같은 부서·보관된 사업까지 이름·문서·대화 제목으로"><iconify-icon icon="solar:magnifer-linear"></iconify-icon>프로젝트 찾기</button>
     <a href="/?type=all" class="{{ 'active' if request.url.path in ('/', '/inbox', '/criteria') or request.url.path.startswith('/archive') else '' }}">
       <iconify-icon icon="solar:library-linear"></iconify-icon>라이브러리</a>
     {% endif %}
   </nav>
   {% if request.state.role != 'student' %}{# 학생은 대화만(ADR-0052) #}
   <div class="side-label side-label-row">프로젝트
-    <button type="button" class="side-label-add" data-modal-open="#projectModal" aria-label="프로젝트 추가" title="프로젝트 추가"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon></button>
-    <a href="/projects/archived?status=archived" class="side-label-action{{ ' active' if request.url.path == '/projects/archived' else '' }}"><iconify-icon icon="solar:archive-linear" aria-hidden="true"></iconify-icon>보관된 사업</a></div>
+    <button type="button" class="side-label-add" data-modal-open="#projectModal" aria-label="프로젝트 추가" title="프로젝트 추가"><iconify-icon icon="solar:add-circle-linear" aria-hidden="true"></iconify-icon></button></div>
   {% if side_projects %}
   <nav class="side-nav" style="max-height:180px; overflow-y:auto;">
     {% for pj in side_projects %}
@@ -557,7 +556,7 @@ document.addEventListener('submit', function(event) {
   </nav>
   {% endif %}
   {% endif %}
-  <div class="side-label side-history-heading"><span>최근 대화</span><button type="button" data-chat-history aria-label="대화 검색">검색</button></div>
+  <div class="side-label side-history-heading"><span>최근 대화</span></div>
   <div class="side-section" id="chatSessionList">
     {% for cs in chat_sessions %}
       <div class="side-session-row">
@@ -575,14 +574,9 @@ document.addEventListener('submit', function(event) {
     {% if developer_space %}
     <a href="/chat"><iconify-icon icon="solar:arrow-left-linear"></iconify-icon>업무 화면으로</a>
     {% else %}
-    {% if request.state.role == 'dev' %}
-    <a href="/dev" class="{{ 'active' if request.url.path.startswith('/dev') else '' }}"
-       style="opacity:.7; font-size:12.5px;">
-      <iconify-icon icon="solar:code-square-linear"></iconify-icon>{{ dev_page_name('/dev') }} ({{ role_labels.get('dev') }})</a>
-    {% endif %}
     {% if request.state.real_role is defined and request.state.real_role == 'dev' and not request.state.view_as %}{# 개발자만 — 다른 계정 범위로 시험(한 줄 + 작은 창) #}
-    <button type="button" class="side-viewas" onclick="document.getElementById('viewAsDialog').showModal()"
-            style="opacity:.7; font-size:12.5px;"><iconify-icon icon="solar:user-id-linear"></iconify-icon>테스트 보기</button>
+    <button type="button" class="side-search side-viewas" onclick="document.getElementById('viewAsDialog').showModal()"
+            style="opacity:.7; font-size:12.5px; justify-content:flex-start; text-align:left;"><iconify-icon icon="solar:user-id-linear"></iconify-icon>테스트 보기</button>
     <dialog id="viewAsDialog" class="view-as-dialog" aria-labelledby="viewAsTitle">
       <form method="post" action="/view-as">
         <h2 id="viewAsTitle">테스트 보기</h2>
@@ -593,6 +587,11 @@ document.addEventListener('submit', function(event) {
         <footer><button type="button" class="secondary" onclick="this.closest('dialog').close()">취소</button><button type="submit">적용</button></footer>
       </form>
     </dialog>
+    {% endif %}
+    {% if request.state.role == 'dev' %}
+    <a href="/dev" class="{{ 'active' if request.url.path.startswith('/dev') else '' }}"
+       style="opacity:.7; font-size:12.5px;">
+      <iconify-icon icon="solar:code-square-linear"></iconify-icon>{{ dev_page_name('/dev') }} ({{ role_labels.get('dev') }})</a>
     {% endif %}
     {% endif %}
     {% if llm_status is defined %}

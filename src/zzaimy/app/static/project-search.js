@@ -5,7 +5,7 @@
     const dialog = document.createElement('dialog');
     dialog.className = 'project-search-dialog';
     dialog.setAttribute('aria-labelledby', 'projectSearchTitle');
-    dialog.innerHTML = '<header><h2 id="projectSearchTitle">진행 중 프로젝트 찾기</h2><button type="button" class="dialog-close" data-close aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></header><form role="search"><input type="search" maxlength="200" aria-label="프로젝트 이름 또는 업무" placeholder="프로젝트 이름 또는 업무" autofocus><button class="secondary" type="submit">찾기</button></form><p role="status" aria-live="polite"></p><div class="project-search-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button><a class="project-search-past" href="/projects/archived">지난 사업에서 찾기</a>';
+    dialog.innerHTML = '<header><h2 id="projectSearchTitle">프로젝트 찾기</h2><button type="button" class="dialog-close" data-close aria-label="닫기" title="닫기"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></header><form role="search"><input type="search" maxlength="200" aria-label="프로젝트 이름 또는 업무" placeholder="프로젝트 이름 또는 업무" autofocus><button class="secondary" type="submit">찾기</button></form><p role="status" aria-live="polite"></p><div class="project-search-results"></div><button type="button" class="secondary" data-more hidden>더 보기</button><a class="project-search-past" href="/projects/archived">지난 사업에서 찾기</a>';
     const form = dialog.querySelector('form'), input = dialog.querySelector('input');
     const results = dialog.querySelector('.project-search-results'), status = dialog.querySelector('[role=status]');
     const more = dialog.querySelector('[data-more]'), past = dialog.querySelector('.project-search-past');
@@ -32,7 +32,7 @@
           const link = document.createElement('a'); link.href = '/project/' + project.id;
           const name = document.createElement('strong'); name.textContent = project.name;
           const meta = document.createElement('span');
-          meta.textContent = project.sector_label + ' · 문서 ' + project.n_docs + ' · 대화 ' + project.n_chats
+          meta.textContent = (project.readonly ? project.owner + ' · 같은 부서 · 읽기 전용 · ' : '') + project.sector_label + ' · 문서 ' + project.n_docs + ' · 대화 ' + project.n_chats
             + ({document:' · 문서 제목에서 찾음', chat:' · 대화 제목에서 찾음'}[project.matched] || '');
           const date = document.createElement('small'); date.textContent = '최근 작업 ' + project.last_activity.slice(0,10);
           link.append(name, meta, date); fragment.append(link);

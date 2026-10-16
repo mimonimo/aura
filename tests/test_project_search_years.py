@@ -134,7 +134,7 @@ def test_archived_page_filters_chips_and_groups(tmp_path):
     assert 'href="/projects/archived?q=%EB%82%98&amp;sort=docs"' in page.text   # 연도 칩을 지우는 링크(스크립트 없이도)
     assert '<option value="docs" selected>' in page.text
     assert "관련도순" not in page.text                                           # 참조 연결 화면에서만
-    assert 'class="side-label-action active"' in page.text                       # 사이드바 「보관된 사업」 버튼
+    assert "보관된 사업</a>" not in page.text                                   # 사이드바 「보관된 사업」 은 「프로젝트 찾기」 하나로 합쳤다
 
 
 def test_body_year_is_not_overridden_by_folder_year():

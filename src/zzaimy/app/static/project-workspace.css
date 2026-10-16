@@ -146,3 +146,8 @@
   #projectWorkspace .project-context-section .project-criterion-item .project-criterion-title { flex:1 1 auto; min-width:0; }
 }
 #projectWorkspace .project-context-section .project-criterion-item + .project-criterion-item { margin-top:8px; }
+/* 대화 줄 — 본인 대화는 오른쪽에 공개·비공개 단추, 동료 대화는 「이름 · 읽기 전용」 */
+.project-conversation-row{display:flex;align-items:center;gap:8px;border-bottom:1px solid #f0f1f3}
+.project-conversation-row .project-conversation{flex:1;min-width:0;border-bottom:0}
+.project-conversation-share{margin:0;flex:none}
+.project-conversation-share button{font-size:12px;padding:4px 10px;min-height:28px}

@@ -8,14 +8,16 @@ router = APIRouter()
 SECTORS = {"grant": "국고사업", "recruit": "채용", "admission": "입학", "auto": "일반 행정", "common": "공통"}
 
 
-def search(db, owner: str, q: str = "", offset: int = 0) -> dict:
+def search(db, owner: str, q: str = "", offset: int = 0, peers: tuple[str, ...] = ()) -> dict:
+    """진행 중인 내 프로젝트와 같은 부서 동료(peers)의 프로젝트(읽기 전용 — readonly)."""
+    owners = [owner, *[p for p in peers if p and p != owner]]
     term = q.strip()
     pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
     sector = next((key for key, label in SECTORS.items() if label == term), "")
     with db._conn() as conn:
         latest = 'GREATEST' if getattr(conn, 'dialect', '') == 'postgres' else 'MAX'
         rows = conn.execute(
-            f"""SELECT p.id, p.name, p.sector, p.created_at,
+            f"""SELECT p.id, p.name, p.sector, p.created_at, p.owner,
                 (SELECT COUNT(*) FROM documents d WHERE d.project_id=p.id AND d.owner=p.owner) AS n_docs,
                 (SELECT COUNT(*) FROM chat_sessions c WHERE c.project_id=p.id AND c.owner=p.owner) AS n_chats,
                 {latest}(p.created_at,
@@ -29,16 +31,16 @@ def search(db, owner: str, q: str = "", offset: int = 0) -> dict:
                                    AND d.filename LIKE ? ESCAPE '\\') THEN 'document'
                       ELSE 'chat' END AS matched
                 FROM projects p
-                WHERE p.owner=? AND p.archived = 0 AND (p.name LIKE ? ESCAPE '\\' OR p.sector=?
+                WHERE p.owner IN ({','.join('?' * len(owners))}) AND p.archived = 0 AND (p.name LIKE ? ESCAPE '\\' OR p.sector=?
                       OR EXISTS (SELECT 1 FROM documents d WHERE d.project_id=p.id AND d.owner=p.owner
                                  AND d.filename LIKE ? ESCAPE '\\')
                       OR EXISTS (SELECT 1 FROM chat_sessions c WHERE c.project_id=p.id AND c.owner=p.owner
                                  AND c.title LIKE ? ESCAPE '\\'))
                 ORDER BY CASE WHEN p.name LIKE ? ESCAPE '\\' THEN 0 ELSE 1 END, last_activity DESC, p.id DESC
                 LIMIT 31 OFFSET ?""",
-            (pattern, sector, pattern, owner, pattern, sector, pattern, pattern, pattern, offset),
+            (pattern, sector, pattern, *owners, pattern, sector, pattern, pattern, pattern, offset),
         ).fetchall()
-    return {"projects": [dict(row, sector_label=SECTORS.get(row["sector"], row["sector"]))
+    return {"projects": [dict(row, sector_label=SECTORS.get(row["sector"], row["sector"]), readonly=row["owner"] != owner)
                          for row in rows[:30]], "has_more": len(rows) > 30}
 
 
@@ -49,4 +51,5 @@ def project_search(request: Request, response: Response,
     if not owner:
         raise HTTPException(401, "로그인이 필요합니다.")
     response.headers["Cache-Control"] = "no-store"
-    return search(request.app.state.db, owner, q, offset)
+    peers = getattr(request.app.state, "dept_peers", None)
+    return search(request.app.state.db, owner, q, offset, peers(request) if peers else ())

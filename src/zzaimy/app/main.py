@@ -348,6 +348,14 @@ def create_app(
         return _ap.viewer(getattr(request.state, "role", ""), getattr(request.state, "dept", "") or None,
                           user, Path(db_path).parent)
 
+    def _dept_peers(request: Request) -> tuple[str, ...]:
+        """같은 부서 동료 계정 — 진행 중인 프로젝트를 읽기 전용으로 서로 본다(대화와 고치기는 담당자만). 교직원 계열·부서가 있을 때만."""
+        dept = (getattr(request.state, "dept", "") or "").strip()
+        if getattr(request.state, "role", "") not in _ap.STAFF_ROLES or not dept:
+            return ()
+        me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+        return tuple(u for u, a in accounts.items() if u != me and ((a or {}).get("dept") or "").strip() == dept)
+
     def _may_edit_doc(request: Request, doc: dict | None) -> bool:
         """문서를 바꿀 수 있는가 — 관리자, 또는 그 문서를 올린 사람. 「테스트 보기」 중에는 고른 계정처럼(개발자가 올린 문서도 남의 문서)."""
         if not doc:
@@ -411,8 +419,8 @@ def create_app(
                     raise HTTPException(403, "문서를 올린 담당자나 관리자만 바꿀 수 있습니다")
             # 프로젝트를 바꾸는 일(보관·지침·메모·기준 문서·참고 연결·이름·지우기 …)도 그 프로젝트 담당자와 관리자만.
             # 「불러오기」 는 보관된 과거 사업 묶음(관리자 계정 소유)을 가져오는 길이라 그것만 볼 수 있는 사람 누구나
-            # 보기도 같은 규칙(프로젝트 찾기 project_refs.browse 와 같게) — 진행 중인 남의 프로젝트(이름·대화 제목·메모·지침)는
-            # 보이지 않고, 보관된 사업 묶음은 볼 수 있는 문서가 하나라도 있을 때만 읽기로 연다
+            # 보기도 같은 규칙(프로젝트 찾기 project_refs.browse 와 같게) — 다른 부서의 진행 중 프로젝트는 보이지 않고, 같은 부서
+            # 동료의 것은 읽기 전용, 보관된 사업 묶음은 볼 수 있는 문서가 하나라도 있을 때만 읽기로 연다
             pm = _PROJECT_PATH.match(request.url.path)
             if pm and request.state.role != "dev":
                 proj = db.get_project(int(pm.group(1)))
@@ -423,6 +431,8 @@ def create_app(
                         _pr._visible_counts(db, [int(proj["id"])], _req_viewer(request)).get(int(proj["id"])))
                     if request.method == "POST":
                         shared = shared and proj.get("owner") == "zzdev" and request.url.path.endswith("/unarchive")
+                    elif proj.get("owner") in _dept_peers(request):
+                        shared = True                     # 같은 부서 동료의 프로젝트 — 읽기 전용(POST 는 위에서 막힌다)
                     if not shared:
                         raise HTTPException(404, "프로젝트를 찾을 수 없습니다")
             # 기관 정보(대학명·총장 등)는 모든 사용자 문서에 함께 쓰인다 — 관리자만 바꾼다
@@ -442,6 +452,7 @@ def create_app(
         dependencies = [Depends(open_auth)]
 
     app = FastAPI(title="AURA", dependencies=dependencies)
+    app.state.dept_peers = _dept_peers           # 같은 부서 동료 — 프로젝트 찾기(project_search)가 읽기 전용으로 함께 보인다
 
     from fastapi import status as _status
     from fastapi.responses import JSONResponse
@@ -1106,6 +1117,21 @@ def create_app(
             raise HTTPException(404, "대화를 찾을 수 없습니다.")
         return session
 
+    def _can_read_chat(request, session: dict | None) -> bool:
+        """남의 대화를 읽기 전용으로 볼 수 있는가 — 프로젝트 대화(업무 상담 제외)이고 비공개가 아니며, 만든 사람이 같은 부서 동료이고
+        그 프로젝트를 볼 수 있을 때. 관리자는 모두. 쓰기(보내기·다시·지우기·문서 연결)는 여전히 만든 사람만(_owned_chat)."""
+        if not session:
+            return False
+        me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+        if me and session.get("owner") == me:
+            return True
+        if getattr(request.state, "role", "") == "dev":
+            return True
+        if not session.get("project_id") or (session.get("channel") or "chat") != "chat" or session.get("is_private"):
+            return False
+        proj = db.get_project(int(session["project_id"]))
+        return bool(proj) and session.get("owner") in _dept_peers(request) and proj.get("owner") in (*_dept_peers(request), me)
+
     def _scope_label(request: Request) -> str:
         """대화 화면 상단의 열람 범위 한 줄 — 검색이 실제로 거르는 범위(_doc_access_sql)와 같은 말로. 역할 이름은 사용자 메뉴에 있다."""
         role = getattr(request.state, "role", "")
@@ -1163,8 +1189,29 @@ def create_app(
         scored.sort(reverse=True)
         return [i for _, i in scored[:6]]
 
+    @app.get("/chat/{session_id}/read", response_class=HTMLResponse)
+    def chat_read(request: Request, session_id: int):
+        """같은 부서 동료의 프로젝트 대화를 읽기 전용으로 — 입력줄·문서 패널·다시 쓰기 없이 주고받은 글만."""
+        session = db.get_chat_session(session_id)
+        if not _can_read_chat(request, session):
+            raise HTTPException(404, "대화를 찾을 수 없습니다.")
+        project = db.get_project(int(session["project_id"])) if session.get("project_id") else None
+        return templates.TemplateResponse(request, "chat_read.html", ctx(request, {
+            "chat_session": session, "chat_project": project, "messages": db.list_chats(session_id),
+            "sources": chat_topics.latest(session_id), "mine": session.get("owner") == getattr(request.state, "user", "")}))
+
+    @app.post("/chat/{session_id}/private")
+    def chat_set_private(request: Request, session_id: int, private: str = Form("1"), back: str = Form("")):
+        """대화 비공개 켜고 끄기 — 만든 사람만. 비공개면 같은 부서 동료도 읽지 못한다."""
+        _owned_chat(request, session_id)
+        db.set_chat_private(session_id, private == "1")
+        return RedirectResponse(_local_back(back, f"/chat/{session_id}"), status_code=303)
+
     @app.get("/chat/{session_id}", response_class=HTMLResponse)
     def chat_session(request: Request, session_id: int):
+        sess0 = db.get_chat_session(session_id)
+        if sess0 and sess0.get("owner") != request.state.user and _can_read_chat(request, sess0):
+            return RedirectResponse(f"/chat/{session_id}/read", status_code=303)     # 동료의 대화는 읽기 전용 화면으로
         _owned_chat(request, session_id)
         messages = db.list_chats(session_id)
         waiting = session_id in _chat_running or (bool(messages) and messages[-1]["role"] == "user")
@@ -7280,11 +7327,16 @@ def create_app(
             db.update_project_meta(project_id, instructions="", memo="")
             proj = db.get_project(project_id) or proj
         # 작업 문서 — 이 프로젝트 대화들이 만든 구글 문서(작업본). 고치는 곳은 그 대화의 문서 패널이다
+        me = "" if getattr(request.state, "view_as", None) else getattr(request.state, "user", "")
+        can_edit = request.state.role == "dev" or (bool(me) and proj.get("owner") == me)
+        # 대화는 만든 사람만 — 담당자가 아닌 사람(같은 부서 동료·지난 사업 묶음 열람)에게는 대화·작업 문서 목록을 보이지 않는다
         project_chats = db.list_project_chat_sessions(project_id)
+        if not can_edit:                                # 동료는 공개된 대화만 읽기 전용으로(작업 문서는 담당자 드라이브라 빼고)
+            project_chats = [cs for cs in project_chats if _can_read_chat(request, cs)]
         work_docs: list[dict] = []
         work_sessions: list[int] = []                 # 구글 문서가 연결된 대화 — 화면이 문서 패널과 같은 목록(드라이브 폴더)을 불러온다
         seen_urls: set[str] = set()
-        for cs in project_chats:
+        for cs in (project_chats if can_edit else []):
             for f in db.list_files(kind="google", session_id=int(cs["id"]), limit=20):
                 url = f.get("path") or ""
                 if url.startswith("https://") and url not in seen_urls:
@@ -7313,7 +7365,8 @@ def create_app(
                 "suggestions": _project_suggestions(proj),
                 "linked_criteria": linked, "sector_criteria": sector_criteria,
                 "criteria_kinds": criteria_kinds, "kind_labels": KINDS,
-                "project_chats": project_chats,
+                "project_chats": project_chats, "can_edit": can_edit,
+                "owner_label": proj.get("owner") or "",
                 "work_docs": work_docs, "work_sessions": work_sessions,
                 "project_notes": db.list_project_notes(project_id),
                 **_project_ref_ctx(request, proj, refq, _ref_names(doc_groups)),
@@ -7383,7 +7436,8 @@ def create_app(
         status = status if status in ("archived", "active", "all") else "all"
         q = (q or "").strip()[:200]
         names = _ref_names(_doc_groups(request, fp)) if for_project is not None else None
-        data = project_refs.browse(db, _ref_scope(request), q, status, year, unit, for_project, sort=sort, names=names)
+        data = project_refs.browse(db, _ref_scope(request), q, status, year, unit, for_project, sort=sort, names=names,
+                                   peers=_dept_peers(request))
         y, r, none = project_refs.year_option(year)
         year = "none" if none else (f"r{r}" if r is not None else y)
         year_label = "연도 미상" if none else (f"{r}차년도" if r is not None else y)
@@ -7404,7 +7458,7 @@ def create_app(
             if fp is None or (fp.get("owner") != request.state.user and request.state.role != "dev"):
                 raise HTTPException(404)
         return project_refs.browse(db, _ref_scope(request), q, status if status in ("archived", "active", "all") else "archived",
-                                   year, unit, for_project, sort=sort)
+                                   year, unit, for_project, sort=sort, peers=_dept_peers(request))
 
     @app.post("/project/{project_id}/unarchive")
     def project_unarchive(request: Request, project_id: int):

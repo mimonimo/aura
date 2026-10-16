@@ -357,3 +357,56 @@ def test_google_account_of_another_user_cannot_be_used(world, monkeypatch):
     assert plan.post("/gdocs/replace", data={"doc": "x", "account": "b@ync.ac.kr", "old": "a", "new": "b"},
                      follow_redirects=False).status_code == 403
     assert plan.get("/gdocs/work", params={"doc": "x", "account": "b@ync.ac.kr"}).status_code == 403
+
+
+def test_same_department_colleague_reads_project_and_shared_chats_read_only(world):
+    """같은 부서 동료의 진행 중 프로젝트는 읽기 전용 — 화면·지침·기준 문서와 공개된 대화를 읽는다. 대화를 이어 가거나 고치는 것,
+    대화 시작·관리 단추는 담당자만. 만든 사람이 비공개로 고른 대화는 본인만. 다른 부서는 보이지 않는다(10-16)."""
+    app, ids, tmp = world
+    db = app.state.db
+    accounts = json.loads((tmp / "accounts.json").read_text())
+    accounts["plan2"] = {"pw": "plan2-pass", "role": "staff", "dept": "기획처"}
+    (tmp / "accounts.json").write_text(json.dumps(accounts))
+    PW["plan2"] = "plan2-pass"
+    app2 = create_app(db_path=tmp / "t.db", inbox_dir=tmp / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
+    pid = db.create_project("grant", "동료의기획프로젝트", owner="plan2")
+    shared = db.create_chat_session("동료공개대화", owner="plan2", project_id=pid)
+    db.add_chat(shared, "user", "동료질문")
+    db.add_chat(shared, "assistant", "동료답")
+    secret = db.create_chat_session("동료비밀대화", owner="plan2", project_id=pid)
+    db.add_chat(secret, "user", "비밀질문")
+    owner = _client(app2, "plan2")
+    assert owner.post(f"/chat/{secret}/private", data={"private": "1"}, follow_redirects=False).status_code == 303
+    plan = _client(app2, "plan")
+    page = plan.get(f"/project/{pid}")
+    assert page.status_code == 200 and "읽기 전용" in page.text and "동료공개대화" in page.text and "동료비밀대화" not in page.text
+    assert 'action="/chat/send"' not in page.text and 'data-modal-open="#manageModal"' not in page.text
+    r = plan.get(f"/chat/{shared}", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].endswith(f"/chat/{shared}/read")
+    read = plan.get(f"/chat/{shared}/read")
+    assert read.status_code == 200 and "동료질문" in read.text and "동료답" in read.text and 'id="chatForm"' not in read.text
+    assert plan.get(f"/chat/{secret}/read").status_code == 404
+    assert plan.get(f"/chat/{shared}/messages").status_code == 404                   # 이어 쓰기용 경로는 만든 사람만
+    assert plan.post("/chat/send", data={"question": "끼어들기", "session_id": str(shared)}, follow_redirects=False).status_code == 404
+    assert plan.post(f"/chat/{shared}/private", data={"private": "1"}, follow_redirects=False).status_code == 404
+    assert plan.post(f"/project/{pid}/notes", data={"content": "x"}, follow_redirects=False).status_code == 404
+    found = plan.get("/api/projects/browse", params={"status": "active"}).json()["items"]
+    assert any(it["id"] == pid and it["readonly"] for it in found)
+    san = _client(app2, "sanhak")
+    assert san.get(f"/project/{pid}").status_code == 404 and san.get(f"/chat/{shared}/read").status_code == 404
+    assert not any(it["id"] == pid for it in san.get("/api/projects/browse", params={"status": "active"}).json()["items"])
+    mine = owner.get(f"/project/{pid}").text
+    assert "동료비밀대화" in mine and "공개로" in mine and "비공개로" in mine          # 본인은 둘 다 보고 공개·비공개를 바꾼다
+
+
+def test_project_search_popup_lists_colleague_projects_read_only(world):
+    app, ids, tmp = world
+    db = app.state.db
+    accounts = json.loads((tmp / "accounts.json").read_text())
+    accounts["plan3"] = {"pw": "plan3-pass", "role": "staff", "dept": "기획처"}
+    (tmp / "accounts.json").write_text(json.dumps(accounts))
+    app2 = create_app(db_path=tmp / "t.db", inbox_dir=tmp / "inbox", processor=FakeProcessor(), drafter=FakeDrafter(), password="boot-pass-1")
+    db.create_project("grant", "누리동료사업", owner="plan3")
+    db.create_project("grant", "누리남부서사업", owner="sanhak")
+    got = _client(app2, "plan").get("/api/projects/search", params={"q": "누리"}).json()["projects"]
+    assert [(p["name"], p["readonly"]) for p in got] == [("누리동료사업", True)]
