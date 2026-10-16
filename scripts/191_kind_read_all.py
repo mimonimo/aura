@@ -41,7 +41,7 @@ def main() -> int:
     ap.add_argument("--parsed", default=str(Path.home() / "parsed"))
     ap.add_argument("--url", default="http://localhost:11434")
     ap.add_argument("--model", default="qwen3.8:27b")
-    ap.add_argument("--redo", default="", help="이 갈래(쉼표)로 판정된 문서 가운데 지금 지시(kind_read.PROMPT_VER)가 아닌 판정을 먼저 다시 본다")
+    ap.add_argument("--redo", default="", help="이 갈래(쉼표)로 판정된 문서 가운데 지금 지시(kind_read.PROMPT_VER)가 아닌 판정을 먼저 다시 본다 — all 이면 갈래와 무관하게 옛 지시 판정 전부")
     ap.add_argument("--redo-model", action="store_true",
                     help="지금 판정 모델과 다른 모델(또는 모델 정보가 없는 예전 줄)이 내린 판정을 먼저 다시 본다")
     ap.add_argument("--role", default="", help="이 용도의 연결(VllmClient)로 판정한다 — 기본은 --url 의 Ollama")
@@ -71,7 +71,7 @@ def main() -> int:
     if redo_kinds:                                                      # 옛 지시로 그 갈래가 된 판정 — 맨 앞에서 다시
         pending = set(todo)
         redo = sorted(r for r, j in last.items() if r in docs and r not in pending
-                      and j.get("kind") in redo_kinds and j.get("pv") != kind_read.PROMPT_VER)
+                      and ("all" in redo_kinds or j.get("kind") in redo_kinds) and j.get("pv") != kind_read.PROMPT_VER)
         todo = redo + todo
         print(f"다시 볼 판정({','.join(sorted(redo_kinds))}) {len(redo)}", flush=True)
     complete, llm = s190.make_complete(args.url, args.model, args.role)
