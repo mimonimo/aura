@@ -118,6 +118,7 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--dry", action="store_true", help="후보와 판정만 보이고 장부에 적지 않는다")
     ap.add_argument("--redo", action="store_true", help="이미 파일 단위로 판정한 원본도 다시 본다")
+    ap.add_argument("--workers", type=int, default=4, help="동시에 묻는 수(서빙이 묶어 처리한다)")
     args = ap.parse_args()
 
     ledger = load_ledger()
@@ -141,40 +142,48 @@ def main() -> int:
     if not todo:
         return 0
     complete, llm = s190.make_complete(args.url, args.model, args.role)
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
     from zzaimy.generate import model_info
     stamp = time.strftime("%Y-%m-%d")
-    lines, tally = [], {"바뀜": 0, "그대로": 0, "버림": 0}
-    for i, c in enumerate(todo, 1):
+    tally = {"바뀜": 0, "그대로": 0, "버림": 0, "실패": 0}
+    lock = threading.Lock()
+    if not args.dry and REVIEW.is_file():
+        shutil.copy2(REVIEW, REVIEW.with_name(f"class_review.jsonl.bak-{time.strftime('%Y%m%d%H%M%S')}"))
+
+    def one(ic):
+        i, c = ic
         try:
             got = ask(complete, c, entries)
         except Exception as e:
-            print(f"[{i}] 판정 실패 {type(e).__name__} {c['rel'][:60]}", flush=True)
-            continue
+            with lock:
+                tally["실패"] += 1
+                print(f"[{i}] 판정 실패 {type(e).__name__} {c['title'][:60]}", flush=True)
+            return
         label = str((got or {}).get("label") or "").strip()
         conf = str((got or {}).get("confidence") or "").strip()
         if label != NOT_PROGRAM:
             e = lg.find(label) if label and label != "모름" else None
             label = (e or {}).get("name") or ""
-        if not label or conf not in ("high", "medium"):
-            tally["버림"] += 1
-            print(f"[{i}] 버림({(got or {}).get('label')}·{conf}) {c['title'][:60]}", flush=True)
-            continue
-        same = (label == NOT_PROGRAM and c["why"] == "nonprogram")
-        tally["그대로" if same else "바뀜"] += 1
-        print(f"[{i}] {'그대로' if same else '→ ' + label} ({conf}) {c['title'][:60]} — {str(got.get('reason') or '')[:60]}", flush=True)
-        if not same:
-            lines.append({"file": c["rel"], "label": label, "raw": str(got.get("label") or ""), "confidence": conf,
-                          "reason": str(got.get("reason") or "")[:200], "reviewer": model_info.label(llm),
-                          model_info.FIELD: llm, "at": stamp, "was": c.get("program_name") or NOT_PROGRAM})
-    print(f"판정 {tally}", flush=True)
-    if args.dry or not lines:
-        return 0
-    if REVIEW.is_file():
-        shutil.copy2(REVIEW, REVIEW.with_name(f"class_review.jsonl.bak-{time.strftime('%Y%m%d%H%M%S')}"))
-    with REVIEW.open("a", encoding="utf-8") as fh:
-        for r in lines:
-            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
-    print(f"검토 장부에 파일 판정 {len(lines)}줄 — 다음 원본 장부 맞추기(170)에서 사업 묶음이 바뀐다", flush=True)
+        with lock:
+            if not label or conf not in ("high", "medium"):
+                tally["버림"] += 1
+                print(f"[{i}] 버림({(got or {}).get('label')}·{conf}) {c['title'][:60]}", flush=True)
+                return
+            same = (label == NOT_PROGRAM and c["why"] == "nonprogram")
+            tally["그대로" if same else "바뀜"] += 1
+            print(f"[{i}] {'그대로' if same else '→ ' + label} ({conf}) {c['title'][:60]} — {str(got.get('reason') or '')[:60]}", flush=True)
+            if args.dry:
+                return
+            row = {"file": c["rel"], "label": label, "raw": str(got.get("label") or ""), "confidence": conf,
+                   "reason": str(got.get("reason") or "")[:200], "reviewer": model_info.label(llm),
+                   model_info.FIELD: llm, "at": stamp, "was": c.get("program_name") or NOT_PROGRAM}
+            with REVIEW.open("a", encoding="utf-8") as fh:         # 하나씩 바로 적는다 — 멈춰도 한 만큼은 남는다
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        list(pool.map(one, enumerate(todo, 1)))
+    print(f"판정 {tally} — 바뀐 판정은 다음 원본 장부 맞추기(170)에서 사업 묶음에 반영된다", flush=True)
     return 0
 
 
