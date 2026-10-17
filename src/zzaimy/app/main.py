@@ -3432,6 +3432,30 @@ def create_app(
         return platform_ops.Ctx(db=db, data_dir=Path(db_path).parent, user=user or "", role=_ap.role_class(role), depts=_all_depts,
                                 sectors=dict(INBOX_TYPES), start_chat=start_chat if background is not None else None)
 
+    def _helper_search(owner: str, role: str, dept: str | None):
+        """도우미의 문서 찾기 — 에이전트 대화와 같은 열람 범위(search_scope): 사업 문서(grant_search)와 규정(find_relevant)."""
+        from zzaimy.app import access_guard as ag, grant_search
+        from zzaimy.app.regulations import find_relevant
+
+        scope = ag.search_scope(dept, role, "" if _view_as(owner) else owner, Path(db_path).parent)
+
+        def search(query: str) -> list[dict]:
+            out: list[dict] = []
+            try:
+                for h in find_relevant(db, query, top_k=2, **ag.reg_kwargs(scope)):
+                    out.append({"title": " · ".join(x for x in (h.get("reg_title") or "규정", h.get("heading") or "") if x),
+                                "text": h.get("content") or "", "doc_id": h.get("doc_id")})
+            except Exception:
+                logging.getLogger("zzaimy.app.helper").warning("도우미 규정 찾기 실패", exc_info=True)
+            if role != "student" and scope.get("grant") is not False:
+                try:
+                    for h in grant_search.search(db, query, k=3, user=scope.get("user"), depts=scope.get("grant_depts"))["hits"]:
+                        out.append({"title": h.get("filename") or "문서", "text": h.get("content") or "", "doc_id": h.get("doc_id")})
+                except Exception:
+                    logging.getLogger("zzaimy.app.helper").warning("도우미 문서 찾기 실패", exc_info=True)
+            return out[:4]
+        return search
+
     def _helper_task(session_id: int, q: str, page: str) -> None:
         """플랫폼 업무 도우미(app/platform_helper) — 떠 있는 창의 질문. 모델에 닿지 못하면 안내 자료에서 찾은 화면을 그대로 보인다."""
         from zzaimy.app import platform_helper
@@ -3445,7 +3469,8 @@ def create_app(
             env = platform_helper.Env(db=db, data_dir=Path(db_path).parent, session_id=session_id, user=owner, role=_ap.role_class(role), dept=dept,
                                       page=page, ctx=_ops_ctx(owner, role), project=project,
                                       say=lambda text: db.add_chat(session_id, "assistant", _scrub_internal(text)),
-                                      on_step=lambda label: _chat_step(session_id, label))
+                                      on_step=lambda label: _chat_step(session_id, label),
+                                      search=_helper_search(owner, role, dept))
             ep = None
             try:
                 ep = platform_helper.run(env, VllmClient(role=platform_helper.model_role()), q)
@@ -3966,15 +3991,25 @@ def create_app(
         )
 
     @app.get("/chat/peek/{doc_id}")
-    def chat_doc_peek(doc_id: int):
-        """문서를 화면 안에서 바로 훑어본다 — 다른 페이지로 옮겨가지 않게 한다."""
+    def chat_doc_peek(doc_id: int, q: str = ""):
+        """문서를 화면 안에서 바로 훑어본다 — 다른 페이지로 옮겨가지 않게 한다.
+        q(근거 대목·소제목)가 오면 그 대목이 든 조각부터 보여 준다 — 출처를 누르면 그 자리가 보이게."""
         doc = db.get_document(doc_id)
         if doc is None:
             raise HTTPException(404)
         chunks = db.list_doc_chunks(doc_id)
+        start = 0
+        squash = lambda t: re.sub(r"\s+", "", t or "")
+        for probe in (squash(q)[:40], squash(q)[:16]):
+            if len(probe) < 6:
+                break
+            hit = next((i for i, c in enumerate(chunks) if probe in squash(c.get("content"))), None)
+            if hit is not None:
+                start = hit
+                break
         parts: list[str] = []
         total = 0
-        for c in chunks:
+        for c in chunks[start:]:
             text = (c.get("content") or "").strip()
             if not text:
                 continue
@@ -3989,7 +4024,8 @@ def create_app(
             "doc_type": doc.get("doc_type", ""),
             "status": doc.get("status", ""),
             "n_chunks": len(chunks),
-            "text": "\n\n".join(parts),
+            "from_start": start == 0,
+            "text": ("… " if start else "") + "\n\n".join(parts),
         }
 
     def _doc_access_sql(request: Request) -> tuple[str, list]:

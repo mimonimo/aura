@@ -38,7 +38,7 @@
 .doc-manage-row button { white-space:nowrap; }
 .doc-manage-actions { padding-top:12px; border-top:1px solid var(--line); }
 .doc-manage-danger { margin:0 0 0 auto; }
-.doc-manage-danger button { color:var(--red); }
+.doc-manage-row button { min-width:64px; }
 .document-opinion { padding:12px 0; border-bottom:1px solid var(--line); }
 .document-opinion p { white-space:pre-wrap; overflow-wrap:anywhere; margin:0 0 5px; }
 .document-opinion time { font-size:12px; }
@@ -160,3 +160,5 @@
 #documentWorkspace .doc-actions .btn.secondary:hover { background:#F3F6FA; border-color:#AEBBCD; }
 table.extract tr.extract-fold td { padding:2px 8px; font-size:11px; color:#8A96A6; text-align:center; background:repeating-linear-gradient(135deg,#F7F9FC 0 6px,#EFF3F8 6px 12px); }
 .img-ref { color: var(--muted, #6b7789); font-size: 0.92em; background: #f3f5f8; border-radius: 4px; padding: 0 4px; }
+#documentWorkspace .doc-manage-danger button.btn-ghost { color:var(--red); border-color:#E8C4C3; }
+#documentWorkspace .doc-manage-danger button.btn-ghost:hover { background:#FBF1F1; }

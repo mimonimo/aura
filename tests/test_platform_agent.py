@@ -265,6 +265,26 @@ def test_document_question_is_handed_to_agent_chat(tmp_path, monkeypatch):
         assert len(db.list_chat_sessions()) == n_sessions + 1
 
 
+def test_simple_document_question_is_answered_in_helper(tmp_path, monkeypatch):
+    """간단한 문서 질문은 도우미가 열람 범위 안에서 찾아 바로 답한다 — 넘기기 제안 없이."""
+    from zzaimy.app.regulations import split_regulation
+
+    app, c, db = _helper_app(tmp_path, monkeypatch)
+    reg = db.add_document("합성 학사 규정.hwp", "x", doc_type="regulation")
+    db.update_document(reg, status="reviewed")
+    db.add_regulation_chunks(reg, "합성 학사 규정", split_regulation("제1조(목적) 합성. 제7조(휴학 기간) 휴학은 통산 3년을 넘지 못한다."))
+    fake = _use_agent(monkeypatch, [
+        _step("doc_search", query="휴학 기간"),
+        _step("finish", message="휴학은 통산 3년을 넘지 못합니다(「합성 학사 규정」 제7조)."),
+    ])
+    sid = c.post("/chat/ask", data={"question": "휴학은 최대 몇 년까지야?", "page": "/"}).json()["session_id"]
+    got = c.get(f"/chat/{sid}/messages").json()
+    assert "통산 3년" in got["messages"][-1]["content"] and not got["proposals"]
+    observed = "\n".join(str(m.get("content")) for m in fake.seen[-1])
+    assert "합성 학사 규정" in observed and "통산 3년" in observed       # 도구 결과에 규정 글이 왔다
+    assert "doc_search" in str(fake.seen[0][0]["content"])               # 도구 목록에 있다
+
+
 def test_writing_request_starts_project_and_sends_first_request(tmp_path, monkeypatch):
     app, c, db = _helper_app(tmp_path, monkeypatch)
     _use_agent(monkeypatch, [

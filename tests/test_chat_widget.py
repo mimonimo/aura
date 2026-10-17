@@ -80,6 +80,20 @@ def test_peek_returns_document_text(tmp_path):
     assert r.json()["title"] == "합성규정.pdf"
 
 
+def test_peek_starts_at_cited_passage(tmp_path):
+    """출처를 누르면 그 대목이 든 조각부터 보인다 — 띄어쓰기가 달라도 찾는다."""
+    from zzaimy.app.db import Database
+    c = _client(tmp_path)
+    c.post("/upload", files={"file": ("합성계획서.pdf", b"%PDF fake", "application/pdf")})
+    Database(tmp_path / "t.db").replace_doc_chunks(1, [{"content": f"앞부분 문단 {i} " + "가" * 600} for i in range(6)]
+                                                   + [{"content": "3. 추진 체계 — 사업단장 아래 운영위원회를 둔다."}])
+    whole = c.get("/chat/peek/1").json()
+    assert whole["from_start"] and "운영위원회" not in whole["text"]
+    got = c.get("/chat/peek/1", params={"q": "추진체계 — 사업단장 아래 운영위원회"}).json()
+    assert not got["from_start"] and got["text"].startswith("… 3. 추진 체계")
+    assert c.get("/chat/peek/1", params={"q": "없는 대목입니다 정말로"}).json()["from_start"]
+
+
 def test_peek_missing_document(tmp_path):
     assert _client(tmp_path).get("/chat/peek/9999").status_code == 404
 

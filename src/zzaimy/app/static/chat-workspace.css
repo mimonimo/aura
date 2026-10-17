@@ -329,3 +329,5 @@ body #chatForm { max-width:1040px; }
 .feedback-reasons label { display: inline-flex; align-items: center; gap: 4px; }
 .feedback-form input[type=text] { width: 100%; box-sizing: border-box; font-size: 12.5px; }
 .feedback-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.msg a.cite { color:#254b85; font-weight:600; background:#F1F5FB; border-radius:4px; padding:0 3px; text-decoration:none; cursor:pointer; }
+.msg a.cite:hover { background:#E1EAF7; }

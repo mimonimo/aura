@@ -169,7 +169,9 @@
   td { font-variant-numeric: tabular-nums; }
   tr { transition: background .3s var(--ease); }
   tr:hover td { background: var(--panel); }
-  a { color: var(--navy); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  /* 링크는 밑줄 없이 색으로만 — 글 속 링크(클래스 없는 a)만 올렸을 때 밑줄. 단추 모양 링크는 밑줄을 긋지 않는다 */
+  a { color: var(--navy); text-decoration: none; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:not([class]):hover { text-decoration: underline; }
 
   .pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 20px;
           padding: 3px 11px; font-size: 12px; font-weight: 600;
