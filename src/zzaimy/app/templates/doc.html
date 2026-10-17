@@ -158,22 +158,27 @@
     <div class="modal-head"><h2 id="documentManageTitle">문서 관리</h2><button type="button" class="icon-btn" data-modal-close title="닫기" aria-label="닫기"
         style="width:32px; height:32px; font-size:15px;"><iconify-icon icon="solar:close-circle-linear"></iconify-icon></button></div>
     <p class="muted">{{ doc_title(doc) }}</p>
-    <dl class="muted" style="font-size:12px; margin:0 0 14px; display:grid; grid-template-columns:auto 1fr; gap:4px 12px;">
-      <dt>원본 파일</dt><dd style="margin:0; overflow-wrap:anywhere;">{{ doc.filename }}{{ original_ext if original_ext and not doc.filename.lower().endswith(original_ext) else '' }}</dd>
-      <dt>공개 범위</dt><dd style="margin:0;">{{ '전체 공개 — 모든 교직원이 찾고 봄' if (doc.dept or '공통') == '공통' else doc.dept ~ '만 — 그 부서 사람과 관리자만' }}</dd>
-    </dl>
-    {% if (request.state.role == 'dev' or doc.owner == request.state.user) and made_folders %}
-    <form action="/doc/{{ doc.id }}/folder" method="post" class="control-row" style="display:flex; gap:8px; align-items:center; margin:0 0 10px; font-size:12.5px;">
-      <select name="folder" aria-label="폴더"><option value="">폴더 없음</option>{% for f in made_folders %}<option value="{{ f.key }}" {{ 'selected' if f.key == doc_folder }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept ~ '만' }}</option>{% endfor %}</select>
-      <button type="submit" class="secondary">폴더에 담기</button>
-    </form>{% endif %}
-    {% if (request.state.role == 'dev' or doc.owner == request.state.user) and (scope_choices | length > 1 or (doc.dept or '공통') != '공통') %}
-    <form action="/doc/{{ doc.id }}/scope" method="post" class="control-row" style="display:flex; gap:8px; align-items:center; margin:0 0 14px; font-size:12.5px;">
-      <input type="hidden" name="back" value="/doc/{{ doc.id }}">
-      <select name="dept" aria-label="공개 범위">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == (doc.dept or '공통') }}>{{ '전체 공개' if d == '공통' else d ~ '만' }}</option>{% endfor %}</select>
-      <button type="submit" class="secondary">공개 범위 바꾸기</button>
-    </form>{% endif %}
-    <div class="document-form-actions">
+    {% set can_edit = request.state.role == 'dev' or doc.owner == request.state.user %}
+    <div class="doc-manage-rows">
+      <div class="doc-manage-row"><span class="doc-manage-k">원본 파일</span>
+        <span class="doc-manage-v">{{ doc.filename }}{{ original_ext if original_ext and not doc.filename.lower().endswith(original_ext) else '' }}</span></div>
+      {% if can_edit and made_folders %}
+      <form action="/doc/{{ doc.id }}/folder" method="post" class="doc-manage-row"><label class="doc-manage-k" for="dmFolder">폴더</label>
+        <select id="dmFolder" name="folder"><option value="">폴더 없음</option>{% for f in made_folders %}<option value="{{ f.key }}" {{ 'selected' if f.key == doc_folder }}>{{ f.name }} — {{ '전체 공개' if f.dept == '공통' else f.dept ~ '만' }}</option>{% endfor %}</select>
+        <button type="submit" class="secondary">담기</button>
+      </form>{% endif %}
+      {% if can_edit and (scope_choices | length > 1 or (doc.dept or '공통') != '공통') %}
+      <form action="/doc/{{ doc.id }}/scope" method="post" class="doc-manage-row"><label class="doc-manage-k" for="dmScope">공개 범위</label>
+        <input type="hidden" name="back" value="/doc/{{ doc.id }}">
+        <select id="dmScope" name="dept">{% for d in scope_choices %}<option value="{{ d }}" {{ 'selected' if d == (doc.dept or '공통') }}>{{ '전체 공개' if d == '공통' else d ~ '만' }}</option>{% endfor %}</select>
+        <button type="submit" class="secondary">바꾸기</button>
+      </form>
+      {% else %}
+      <div class="doc-manage-row"><span class="doc-manage-k">공개 범위</span>
+        <span class="doc-manage-v">{{ '전체 공개 — 모든 교직원이 찾고 봄' if (doc.dept or '공통') == '공통' else doc.dept ~ '만 — 그 부서 사람과 관리자만' }}</span></div>
+      {% endif %}
+    </div>
+    <div class="document-form-actions doc-manage-actions">
       {% if doc.masked_text and doc.doc_type not in ('regulation', 'ocr') %}
       <form action="/doc/{{ doc.id }}/identity" method="post" style="margin:0;">
         <button type="submit" class="secondary" data-busy="찾는 중…" title="본문에서 사업·주체·근거를 다시 찾습니다">사업 정보 다시 찾기</button>
@@ -181,10 +186,10 @@
       {% endif %}
       {% if request.state.role == 'dev' %}
       <button type="button" class="secondary" data-modal-close data-modal-open="#receiptEditModal">접수번호 수정</button>
-      {% endif %}
-      <form action="/doc/{{ doc.id }}/delete" method="post" data-confirm="이 문서와 관련 기록을 삭제할까요? 삭제는 되돌릴 수 없습니다.">
-        <button type="submit" class="btn-ghost" style="color:var(--red);">문서 삭제</button>
+      <form action="/doc/{{ doc.id }}/delete" method="post" class="doc-manage-danger" data-confirm="이 문서와 조각·검색 색인·그래프·원본 파일을 함께 지웁니다. 되돌릴 수 없습니다.">
+        <button type="submit" class="btn-ghost">문서 삭제</button>
       </form>
+      {% endif %}
     </div>
   </div></div>
 </div>

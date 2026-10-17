@@ -196,6 +196,10 @@
       <div class="turn-acts {{ 'always' if loop.last and not waiting else '' }}">
         <button type="button" class="act-btn" data-copy title="답변 복사" aria-label="답변 복사">
           <iconify-icon icon="solar:copy-linear"></iconify-icon></button>
+        {% if session_id and m.id %}{% set fb = (answer_feedback or {}).get(m.id) %}{# 답 평가(베타 수집) — 도움됨·아쉬움, 아쉬움은 까닭·한 줄 의견 #}
+        <button type="button" class="act-btn{{ ' on' if fb and fb.verdict == 'good' else '' }}" data-feedback="good" data-mid="{{ m.id }}" title="도움이 됐습니다" aria-pressed="{{ 'true' if fb and fb.verdict == 'good' else 'false' }}"><iconify-icon icon="solar:like-linear"></iconify-icon>도움됨</button>
+        <button type="button" class="act-btn{{ ' on' if fb and fb.verdict == 'bad' else '' }}" data-feedback="bad" data-mid="{{ m.id }}" title="아쉬운 점 알려 주기" aria-pressed="{{ 'true' if fb and fb.verdict == 'bad' else 'false' }}"><iconify-icon icon="solar:dislike-linear"></iconify-icon>아쉬움</button>
+        {% endif %}
         {% if loop.last and session_id and not waiting %}
         {% set user_turns = messages | selectattr('role', 'equalto', 'user') | list %}
         {% if user_turns %}<button type="button" class="act-btn" data-resend-question="{{ user_turns[-1].content }}" data-resend-id="{{ user_turns[-1].id }}" title="이 질문부터 답변 다시 생성 · 이후 대화는 이력에 보관" aria-label="답변 다시 생성"><iconify-icon icon="solar:refresh-linear"></iconify-icon></button>{% endif %}
@@ -247,6 +251,10 @@
   {% endif %}
 </div>
 
+<template id="feedbackFormTpl"><form class="feedback-form"><p>무엇이 아쉬웠나요? (여럿 고를 수 있음)</p>
+  <div class="feedback-reasons">{% for r in feedback_reasons %}<label><input type="checkbox" name="reasons" value="{{ r }}">{{ r }}</label>{% endfor %}</div>
+  <input type="text" name="note" maxlength="500" placeholder="한 줄 의견(선택) — 무엇이 맞는 답인지 적어 주시면 개선에 씁니다">
+  <div class="feedback-actions"><button type="button" class="secondary" data-feedback-cancel>취소</button><button type="submit">보내기</button></div></form></template>
 <form class="chat-dock" id="chatForm" action="/chat/send" method="post" enctype="multipart/form-data" data-async-submit>
   <div class="chat-edit-note" id="chatEditNote" hidden><span id="chatEditText"></span><button type="button" id="chatEditCancel" class="act-btn">취소</button></div>
   {% if session_id %}<input type="hidden" name="session_id" value="{{ session_id }}">{% endif %}

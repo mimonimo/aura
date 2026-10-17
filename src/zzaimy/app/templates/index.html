@@ -293,7 +293,7 @@
     {% set show_business = business_tabs and active_tab == 'all' %}
     {# 여러 문서 선택 — 폴더에 담기·검색 범위 바꾸기(관리자). 올린 사람은 자기 문서만 담긴다(서버가 거른다) #}
     {% set made_folders = folders | selectattr("kind", "equalto", "만든") | list %}
-    {% if made_folders or (request.state.role == 'dev' and scope_choices | length > 1) %}
+    {% if made_folders or request.state.role == 'dev' %}
     <div class="lib-bulk" id="libBulk">
       <label class="lib-bulk-all"><input type="checkbox" id="libPickAll"> 이 쪽 모두</label>
       <span class="lib-bulk-n" id="libPickN">문서를 선택하면 폴더에 담거나 공개 범위를 바꿀 수 있습니다</span>
@@ -302,6 +302,7 @@
           <option value="" selected disabled>할 일 선택…</option>
           {% if made_folders %}<optgroup label="폴더">{% for f in made_folders %}<option value="folder:{{ f.key }}">「{{ f.name }}」 폴더에 담기</option>{% endfor %}<option value="folder:">폴더에서 빼기</option></optgroup>{% endif %}
           {% if request.state.role == 'dev' and scope_choices | length > 1 %}<optgroup label="공개 범위">{% for d in scope_choices %}<option value="scope:{{ d }}">{{ '전체 공개로' if d == '공통' else d ~ '만 공개로' }}</option>{% endfor %}</optgroup>{% endif %}
+          {% if request.state.role == 'dev' %}<optgroup label="관리"><option value="delete:">선택한 문서 삭제</option></optgroup>{% endif %}
         </select>
         <button type="button" class="secondary" id="libBulkGo" disabled>적용</button>
       </span>
@@ -310,7 +311,7 @@
     <ul class="lib-rows" data-doc-list>
       {% for d in documents %}
       <li class="lib-row">
-        {% if made_folders or (request.state.role == 'dev' and scope_choices | length > 1) %}<input type="checkbox" class="lib-pick" value="{{ d.id }}" aria-label="{{ doc_title(d) }} 선택">{% endif %}
+        {% if made_folders or request.state.role == 'dev' %}<input type="checkbox" class="lib-pick" value="{{ d.id }}" aria-label="{{ doc_title(d) }} 선택">{% endif %}
         <div class="lib-row-main">
           <a class="lib-row-title" href="/doc/{{ d.id }}">{{ doc_title(d) }}</a>
           <div class="lib-row-meta">
@@ -486,7 +487,7 @@
   // 여러 문서 선택 — 고르면 할 일 하나를 골라 적용(폴더에 담기·빼기·공개 범위)
   var bar = document.getElementById("libBulk");
   if (!bar) return;
-  var picks = function () { return Array.prototype.slice.call(document.querySelectorAll(".lib-pick")); };
+  var picks = function () { return Array.prototype.slice.call(document.querySelectorAll("input.lib-pick")); };
   var chosen = function () { return picks().filter(function (c) { return c.checked; }).map(function (c) { return Number(c.value); }); };
   var acts = document.getElementById("libBulkActs");
   var paint = function () {
@@ -498,14 +499,16 @@
   document.addEventListener("change", function (e) { if (e.target.classList && e.target.classList.contains("lib-pick")) paint(); });
   document.getElementById("libPickAll").addEventListener("change", function (e) { picks().forEach(function (c) { c.checked = e.target.checked; }); paint(); });
   document.getElementById("libBulkAct").addEventListener("change", function (e) { document.getElementById("libBulkGo").disabled = !e.target.value; });
-  document.getElementById("libBulkGo").addEventListener("click", function () {
+  document.getElementById("libBulkGo").addEventListener("click", async function () {
     var b = this, v = document.getElementById("libBulkAct").value, ids = chosen();
-    var folder = v.indexOf("folder:") === 0, arg = v.slice(v.indexOf(":") + 1);
-    var body = folder ? { ids: ids, folder: arg } : { ids: ids, dept: arg };
+    var kind = v.slice(0, v.indexOf(":")), arg = v.slice(v.indexOf(":") + 1);
+    if (kind === "delete" && !(await window.platformConfirm("선택한 문서 " + ids.length + "건과 조각·색인·그래프·원본 파일을 함께 지웁니다. 되돌릴 수 없습니다.",
+        { title: "문서 삭제", ok: "삭제", danger: true }))) return;
+    var body = kind === "folder" ? { ids: ids, folder: arg } : kind === "scope" ? { ids: ids, dept: arg } : { ids: ids };
     b.disabled = true;
-    fetch(folder ? "/docs/folder" : "/docs/scope", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    fetch("/docs/" + kind, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-      .then(function (d) { document.getElementById("libBulkMsg").textContent = d.moved + "건 적용 — 새로 고칩니다"; setTimeout(function () { location.reload(); }, 800); })
+      .then(function (d) { document.getElementById("libBulkMsg").textContent = d.moved + "건 " + (kind === "delete" ? "삭제" : "적용") + " — 새로 고칩니다"; setTimeout(function () { location.reload(); }, 800); })
       .catch(function (e) { document.getElementById("libBulkMsg").textContent = "적용하지 못했습니다(" + e.message + ")"; b.disabled = false; });
   });
   paint();

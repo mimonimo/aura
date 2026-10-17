@@ -62,6 +62,35 @@
       return l;
     }).join('\n');
   }
+  // 답 평가(베타 수집) — 도움됨은 바로, 아쉬움은 까닭·한 줄 의견을 받아 보낸다. 같은 단추를 다시 누르면 평가를 거둔다
+  root.addEventListener('click', async event => {
+    const btn = event.target.closest('[data-feedback]');
+    if (!btn) return;
+    const acts = btn.closest('.turn-acts'), mid = btn.dataset.mid, verdict = btn.dataset.feedback;
+    const session = root.dataset.session;
+    if (!session || !mid) return;
+    const send = async (v, reasons = [], note = '') => {
+      const body = new FormData(); body.append('verdict', v); reasons.forEach(r => body.append('reasons', r)); body.append('note', note);
+      const r = await fetch(`/chat/${session}/messages/${mid}/feedback`, {method:'POST', body});
+      if (!r.ok) throw new Error('평가를 저장하지 못했습니다');
+      acts.querySelectorAll('[data-feedback]').forEach(b => { const on = b.dataset.feedback === v; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+      acts.parentElement.querySelector('.feedback-form')?.remove();
+      status.textContent = v ? '평가를 남겼습니다 — 개선에 씁니다.' : '평가를 거뒀습니다.';
+    };
+    try {
+      if (btn.classList.contains('on')) { await send(''); return; }
+      if (verdict === 'good') { await send('good'); return; }
+      if (acts.parentElement.querySelector('.feedback-form')) return;
+      const form = document.getElementById('feedbackFormTpl').content.firstElementChild.cloneNode(true);
+      acts.after(form);
+      form.querySelector('[data-feedback-cancel]').onclick = () => form.remove();
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        await send('bad', [...form.querySelectorAll('[name=reasons]:checked')].map(x => x.value), form.querySelector('[name=note]').value.trim());
+      });
+      form.querySelector('input[type=checkbox]')?.focus();
+    } catch (e) { status.textContent = e.message; }
+  });
   function showProgress(progress) {
     const panel = document.getElementById('chatProgress');
     if (!panel || !progress || !Array.isArray(progress.steps) || !progress.steps.length) return;

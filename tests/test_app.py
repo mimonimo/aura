@@ -478,7 +478,8 @@ def test_settings_save_and_profile_in_topbar(client):
     assert r.status_code == 303
     assert "홍길동" in client.get("/").text            # 탑바 사용자 칩
     page = client.get("/settings").text
-    assert "검토 의견은 개조식으로 작성한다." in page   # 저장값 재표시
+    assert "홍길동" in page and 'name="instructions"' not in page and 'name="call_me"' not in page   # 성명만(호칭·개인 지침은 뺐다)
+    assert 'id="pwDialog"' in page or "pwDialog" not in page
 
 
 def test_responder_system_prompt_reflects_profile():
@@ -488,8 +489,8 @@ def test_responder_system_prompt_reflects_profile():
         "call_me": "선생님", "dept": "산학협력단",
         "instructions": "반려 사유에는 근거 조항을 명시한다.",
     })
-    assert "선생님" in s and "산학협력단" in s
-    assert "반려 사유에는 근거 조항을 명시한다." in s
+    assert "산학협력단" in s
+    assert "선생님" not in s and "반려 사유에는 근거 조항을 명시한다." not in s     # 화면에서 뺀 옛 호칭·지침은 쓰지 않는다
     assert compose_system({}) .startswith("당신은")      # 프로필 없으면 기본 프롬프트
 
 

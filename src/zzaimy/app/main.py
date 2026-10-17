@@ -799,6 +799,7 @@ def create_app(
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.state.templates = templates
     templates.env.globals["status_labels"] = STATUS_LABELS
+    templates.env.globals["feedback_reasons"] = ("근거 문서가 틀림", "숫자·사실이 틀림", "질문과 다른 답", "너무 길거나 짧음", "느림", "기타")
     # 정적 파일 판 — 배포(재시작)마다 바뀌어 브라우저가 옛 CSS·JS 를 붙들지 않는다
     templates.env.globals["asset_v"] = _asset_version()
     templates.env.globals["doc_type_labels"] = DOC_TYPE_LABELS
@@ -1315,6 +1316,21 @@ def create_app(
             "chat_session": session, "chat_project": project, "messages": db.list_chats(session_id),
             "sources": chat_topics.latest(session_id), "mine": session.get("owner") == getattr(request.state, "user", "")}))
 
+    FEEDBACK_REASONS = ("근거 문서가 틀림", "숫자·사실이 틀림", "질문과 다른 답", "너무 길거나 짧음", "느림", "기타")
+
+    @app.post("/chat/{session_id}/messages/{message_id}/feedback")
+    def answer_feedback(request: Request, session_id: int, message_id: int, verdict: str = Form(""),
+                        reasons: list[str] = Form([]), note: str = Form("")):
+        """답 평가(베타 수집) — 도움됨·아쉬움과 아쉬운 까닭·한 줄 의견. 대화 주인만, 그 대화의 답에만."""
+        _owned_chat(request, session_id)
+        if verdict not in ("", "good", "bad"):
+            raise HTTPException(400, "평가 값을 확인해 주세요")
+        if not any(int(m["id"]) == int(message_id) and m["role"] == "assistant" for m in db.list_chats(session_id, limit=1000)):
+            raise HTTPException(404, "답을 찾을 수 없습니다")
+        db.set_answer_feedback(message_id, session_id, getattr(request.state, "user", "") or "", verdict,
+                               [x for x in reasons if x in FEEDBACK_REASONS] if verdict == "bad" else [], note.strip()[:500])
+        return {"ok": True, "verdict": verdict}
+
     @app.post("/chat/{session_id}/private")
     def chat_set_private(request: Request, session_id: int, private: str = Form("1"), back: str = Form("")):
         """대화 비공개 켜고 끄기 — 만든 사람만. 비공개면 같은 부서 동료도 읽지 못한다."""
@@ -1352,6 +1368,7 @@ def create_app(
                 "sources": _chat_sources.get(session_id) or chat_topics.latest(session_id),
                 "recommended_criteria": _recommended_criteria(session_id, messages),
                 "chat_session": session, "chat_project": project, "chat_topic": topic,
+                "answer_feedback": db.answer_feedback_for(session_id, getattr(request.state, "user", "") or ""),
                 "scope_label": _scope_label(request),
             }),
         )
@@ -1390,6 +1407,21 @@ def create_app(
     # 떠 있는 창이 보낸 「지금 보는 화면」 경로 — 에이전트 상태에 넣는다(platform_guide.where_line)
     _chat_pages: dict[int, str] = {}
 
+    def _record_run(session_id: int, message_id: int, kind: str, r=None, extra: dict | None = None) -> None:
+        """답 실행 기록(answer_runs) — 어느 모델이, 얼마나 걸려, 어떤 근거·검색 단계로, 근거 확인 표시를 몇 개 붙여 썼나.
+        베타 수집·모델 비교·느린 답 찾기에 쓴다. 기록이 실패해도 답은 남는다."""
+        try:
+            sess = db.get_chat_session(session_id) or {}
+            timing = dict(getattr(r, "last_timing", None) or {})
+            timing.update(extra or {})
+            db.add_answer_run(message_id, session_id, sess.get("owner") or "", kind,
+                              model=getattr(r, "last_model", None) or {}, timing=timing,
+                              sources=[x.get("doc_id") for x in (getattr(r, "last_sources", None) or []) if isinstance(x, dict) and x.get("doc_id")]
+                              + [d for d in (getattr(r, "last_grant_docs", None) or []) if d],
+                              steps=list(getattr(r, "last_steps", None) or []), flagged=len(getattr(r, "last_flagged", None) or []))
+        except Exception:
+            pass
+
     def _answer_task_impl(
         session_id: int, q: str, stored: Path | None, criteria: list[int],
         web: str = "",
@@ -1405,7 +1437,9 @@ def create_app(
             from zzaimy.app import web_search
 
             try:
-                db.add_chat(session_id, "assistant", web_search.render_model(web_search.answer_from_model(q)))
+                _t_m = time.time()
+                _mid = db.add_chat(session_id, "assistant", web_search.render_model(web_search.answer_from_model(q)))
+                _record_run(session_id, _mid, "model", extra={"total_sec": round(time.time() - _t_m, 2)})
             except Exception as e:
                 logging.getLogger("zzaimy.app.web").warning("모델 지식 답변 실패 (대화 %s): %s", session_id, type(e).__name__)
                 db.add_chat(session_id, "assistant", f"모델 지식 답변을 만들지 못했습니다({_ko.reason(e)}). 잠시 뒤 다시 해 주세요.")
@@ -1417,7 +1451,8 @@ def create_app(
 
             try:
                 res = web_search.answer_with_web(q)
-                db.add_chat(session_id, "assistant", web_search.render(res))
+                _mid = db.add_chat(session_id, "assistant", web_search.render(res))
+                _record_run(session_id, _mid, "web")
             except web_search.Blocked as e:
                 db.add_chat(session_id, "assistant", str(e))
             except Exception as e:
@@ -1603,7 +1638,8 @@ def create_app(
             chat_topics.record(session_id, _chat_sources[session_id])
         except Exception:
             pass                    # 근거 기록이 실패해도 답변은 남긴다
-        db.add_chat(session_id, "assistant", answer)
+        mid = db.add_chat(session_id, "assistant", answer)
+        _record_run(session_id, mid, "rag", r)
 
     _DRAFT_EXPLICIT = re.compile(r"초안|보고서로|문서로\s*(?:만들|정리|작성|써)|공문으로")
     _DRAFT_NOUN = re.compile(r"계획서|보고서|공문|제안서|신청서|요청서|의견서|안내문|양식|보도자료|회의록|문서|초안")
@@ -5305,6 +5341,22 @@ def create_app(
                                     + "#dept-rags", status_code=303)
         return RedirectResponse("/dev/rag?" + urlencode({"err": "알 수 없는 요청"}) + "#dept-rags", status_code=303)
 
+    @app.post("/docs/delete")
+    async def docs_delete(request: Request):
+        """여러 문서 삭제(JSON {ids}) — 라이브러리 목록에서 고른 문서를 한 번에. 관리자만."""
+        if request.state.role != "dev":
+            raise HTTPException(403, "문서 삭제는 관리자만 할 수 있습니다")
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(400, "잘못된 요청")
+        n = 0
+        for i in [int(x) for x in (body.get("ids") or []) if str(x).isdigit()][:500]:
+            doc = db.get_document(i)
+            if doc is not None:
+                _drop_doc(doc)
+                n += 1
+        return {"moved": n}
+
     @app.post("/docs/scope")
     async def docs_set_scope(request: Request):
         """여러 문서의 검색 범위 — 공통 RAG 또는 부서 RAG(JSON {ids, dept}). 관리자만."""
@@ -7418,15 +7470,14 @@ def create_app(
     def settings_save(
         request: Request,
         name: str = Form(""),
-        call_me: str = Form(""),
-        instructions: str = Form(""),
     ):
+        """설정 저장 — 성명만(호칭·개인 응답 지침은 뺐다, 지침은 프로젝트 「작성 원칙」)."""
         uid = getattr(request.state, "user", "") or ""
         if uid:
-            db.set_profile(uid, name=name, call_me=call_me, instructions=instructions)
+            prof = db.profile_for(uid) or {}
+            db.set_profile(uid, name=name, call_me=prof.get("call_me", ""), instructions=prof.get("instructions", ""))
         else:                                               # 인증 없는 로컬 모드 — 계정이 없으니 설정 하나에
-            for key, val in (("name", name), ("call_me", call_me), ("instructions", instructions)):
-                db.set_setting(key, val.strip()[:4000])
+            db.set_setting("name", name.strip()[:4000])
         return RedirectResponse("/settings?ok=" + _q("저장했습니다"), status_code=303)
 
     @app.get("/project/{project_id}", response_class=HTMLResponse)
@@ -8853,13 +8904,19 @@ figure img{{width:100%;display:block}}
             background.add_task(fn, db, doc_id)
         return RedirectResponse(f"/doc/{doc_id}?reading=1", status_code=303)
 
+    def _drop_doc(doc: dict) -> None:
+        db.delete_document(doc["id"])
+        storage.remove_intake_dir(db, doc)          # 원본·추출 그림이 든 문서 폴더째 지운다
+
     @app.post("/doc/{doc_id}/delete")
-    def delete_doc(doc_id: int):
+    def delete_doc(request: Request, doc_id: int):
+        # 라이브러리 문서는 여럿이 같이 쓰는 자료라 지우기는 관리자만(사용자 요청 10-17)
+        if request.state.role != "dev":
+            raise HTTPException(403, "문서 삭제는 관리자만 할 수 있습니다")
         doc = db.get_document(doc_id)
         if doc is None:
             raise HTTPException(404)
-        db.delete_document(doc_id)
-        storage.remove_intake_dir(db, doc)          # 원본·추출 그림이 든 문서 폴더째 지운다
+        _drop_doc(doc)
         dest = CRITERIA_LIST if doc["doc_type"] == "regulation" else "/?type=all"
         return RedirectResponse(dest, status_code=303)
 

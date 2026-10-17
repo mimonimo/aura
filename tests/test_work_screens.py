@@ -199,7 +199,7 @@ def test_settings_warns_when_import_stalled_and_account_google_redirects(tmp_pat
     old = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d %H:%M")
     db.set_setting("gimport_status:zzaimy", json.dumps({"at": old}))
     page = c.get("/settings").text
-    assert "자동 가져오기가 멈췄습니다" in page and "지금 가져오기" in page
+    assert "자동 가져오기가 멈췄습니다" in page and "지금 가져오기" not in page and "연결 해제" in page
     assert "RAG" not in page
     r = c.get("/account/google", headers={"accept": "text/html,application/xhtml+xml"}, follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/settings#myGoogle"

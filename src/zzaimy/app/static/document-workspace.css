@@ -29,6 +29,16 @@
 .spreadsheet-help p{font-size:12px;line-height:1.6;color:var(--muted);margin:0}
 .document-form-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:10px; }
 .document-form-actions .muted { font-size:12px; }
+.document-form-actions button { white-space:nowrap; }
+.doc-manage-rows { display:grid; gap:8px; margin:4px 0 16px; padding:12px 14px; border:1px solid var(--line); border-radius:10px; font-size:13px; }
+.doc-manage-row { display:grid; grid-template-columns:72px minmax(0,1fr) auto; align-items:center; gap:10px; margin:0; }
+.doc-manage-row > .doc-manage-v { grid-column:2 / 4; overflow-wrap:anywhere; color:var(--muted); }
+.doc-manage-k { color:var(--muted); font-size:12.5px; }
+.doc-manage-row select { width:100%; min-width:0; }
+.doc-manage-row button { white-space:nowrap; }
+.doc-manage-actions { padding-top:12px; border-top:1px solid var(--line); }
+.doc-manage-danger { margin:0 0 0 auto; }
+.doc-manage-danger button { color:var(--red); }
 .document-opinion { padding:12px 0; border-bottom:1px solid var(--line); }
 .document-opinion p { white-space:pre-wrap; overflow-wrap:anywhere; margin:0 0 5px; }
 .document-opinion time { font-size:12px; }

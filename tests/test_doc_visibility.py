@@ -53,3 +53,33 @@ def test_department_restricted_document_is_invisible_to_other_departments(tmp_pa
     (tmp_path / "accounts.json").write_text(json.dumps(park_accounts))
     park = _client(tmp_path, "park", "park-pass")
     assert park.get(f"/doc/{own}").status_code == 404 and kim.get(f"/doc/{own}").status_code == 200
+
+
+def test_only_dev_deletes_library_documents(tmp_path):
+    """라이브러리 문서 삭제는 관리자만 — 하나씩(/doc/{id}/delete)이든 목록에서 여럿(/docs/delete)이든. 지우면 색인·폴더 이음도 함께 지운다."""
+    (tmp_path / "accounts.json").write_text(json.dumps({
+        "kim": {"pw": "kim-pass", "role": "staff", "dept": "학생처"},
+        "zzdev": {"pw": "dev-pass", "role": "dev"},
+    }))
+    db = Database(tmp_path / "t.db")
+    src = tmp_path / "x.txt"; src.write_text("서류")
+    mine = db.add_document("내 서류.txt", str(src), doc_type="auto", owner="kim", dept="학생처")
+    db.update_document(mine, status="reviewed", masked_text="서류")
+    others = [db.add_document(f"공고{i}.txt", str(src), doc_type="auto") for i in range(2)]
+
+    kim = _client(tmp_path, "kim", "kim-pass")
+    assert kim.post(f"/doc/{mine}/delete", follow_redirects=False).status_code == 403    # 올린 사람이라도
+    assert kim.post("/docs/delete", json={"ids": [mine]}).status_code == 403
+    assert "문서 삭제</button>" not in kim.get(f"/doc/{mine}").text
+    assert db.get_document(mine) is not None
+
+    with db._conn() as conn:
+        conn.execute("INSERT INTO doc_folders (doc_id, folder_id) VALUES (?, ?)", (others[0], 1))
+    dev = _client(tmp_path, "zzdev", "dev-pass")
+    assert "문서 삭제</button>" in dev.get(f"/doc/{mine}").text
+    assert 'value="delete:"' in dev.get("/?type=all").text
+    assert dev.post("/docs/delete", json={"ids": [*others, 99999]}).json() == {"moved": 2}
+    assert all(db.get_document(i) is None for i in others)
+    with db._conn() as conn:
+        assert conn.execute("SELECT count(*) FROM doc_folders WHERE doc_id = ?", (others[0],)).fetchone()[0] == 0
+    assert dev.post(f"/doc/{mine}/delete", follow_redirects=False).status_code == 303

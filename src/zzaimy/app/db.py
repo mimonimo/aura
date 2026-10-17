@@ -197,6 +197,29 @@ CREATE TABLE IF NOT EXISTS draft_history (
 -- 개인정보 마스킹 기록 (절대 규칙 3 감사) — 마스킹이 돌 때마다 문서별·유형별
 -- 건수를 남긴다. 원문 값은 절대 담지 않는다. context는 마스킹이 끝난 본문에서
 -- 뜬 짧은 문맥(치환 토큰 주변). entity_type 'NONE'·n 0은 '돌았지만 0건'.
+CREATE TABLE IF NOT EXISTS answer_feedback (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id  INTEGER NOT NULL,
+  session_id  INTEGER NOT NULL,
+  owner       TEXT NOT NULL,
+  verdict     TEXT NOT NULL,
+  reasons     TEXT NOT NULL DEFAULT '[]',
+  note        TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS answer_runs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id  INTEGER NOT NULL,
+  session_id  INTEGER NOT NULL,
+  owner       TEXT NOT NULL DEFAULT '',
+  kind        TEXT NOT NULL DEFAULT '',
+  model       TEXT NOT NULL DEFAULT '{}',
+  timing      TEXT NOT NULL DEFAULT '{}',
+  sources     TEXT NOT NULL DEFAULT '[]',
+  steps       TEXT NOT NULL DEFAULT '[]',
+  flagged     INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS mask_events (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   doc_id      INTEGER NOT NULL REFERENCES documents(id),
@@ -586,6 +609,36 @@ class Database:
             ).fetchone()
             return dict(row) if row else None
 
+    # ---- 베타 수집 — 답 평가·답 실행 기록(docs/notes/2026-10-17-beta-collection.md) ----
+    def add_answer_run(self, message_id: int, session_id: int, user: str, kind: str, model: dict | None = None,
+                       timing: dict | None = None, sources: list | None = None, steps: list | None = None, flagged: int = 0) -> None:
+        import json as _j
+        with self._conn() as conn:
+            conn.execute("INSERT INTO answer_runs (message_id, session_id, owner, kind, model, timing, sources, steps, flagged, created_at)"
+                         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                         (int(message_id), int(session_id), user or "", kind or "", _j.dumps(model or {}, ensure_ascii=False),
+                          _j.dumps(timing or {}, ensure_ascii=False), _j.dumps(sources or [], ensure_ascii=False),
+                          _j.dumps(steps or [], ensure_ascii=False), int(flagged or 0), _now()))
+
+    def set_answer_feedback(self, message_id: int, session_id: int, user: str, verdict: str, reasons: list[str] | None = None,
+                            note: str = "") -> None:
+        """답 평가 — 같은 사람이 같은 답을 다시 누르면 바꾼다(한 사람 한 답에 하나). verdict 가 빈 값이면 지운다."""
+        import json as _j
+        with self._conn() as conn:
+            conn.execute("DELETE FROM answer_feedback WHERE message_id = ? AND owner = ?", (int(message_id), user))
+            if verdict:
+                conn.execute("INSERT INTO answer_feedback (message_id, session_id, owner, verdict, reasons, note, created_at)"
+                             " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                             (int(message_id), int(session_id), user, verdict, _j.dumps(reasons or [], ensure_ascii=False),
+                              (note or "")[:500], _now()))
+
+    def answer_feedback_for(self, session_id: int, user: str) -> dict[int, dict]:
+        import json as _j
+        with self._conn() as conn:
+            rows = conn.execute("SELECT message_id, verdict, reasons, note FROM answer_feedback WHERE session_id = ? AND owner = ?",
+                                (int(session_id), user)).fetchall()
+        return {int(r[0]): {"verdict": r[1], "reasons": _j.loads(r[2] or "[]"), "note": r[3] or ""} for r in rows}
+
     def set_chat_private(self, session_id: int, private: bool) -> None:
         with self._conn() as conn:
             conn.execute("UPDATE chat_sessions SET is_private = ? WHERE id = ?", (1 if private else 0, session_id))
@@ -609,7 +662,7 @@ class Database:
         with self._conn() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-    def add_chat(self, session_id: int, role: str, content: str, mode: str | None = None) -> None:
+    def add_chat(self, session_id: int, role: str, content: str, mode: str | None = None) -> int:
         if mode not in (None, 'document', 'model', 'web'):
             raise ValueError('Invalid chat mode')
         if role == 'assistant':          # 답 글 — 예외 이름을 빼고 되풀이된 문장을 한 번만(korean_text.tidy_reply)
@@ -617,11 +670,12 @@ class Database:
             content = tidy_reply(content)
         with self._conn() as conn:
             lock_session(conn, session_id)
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO chat_messages (session_id, role, content, created_at, mode)"
                 " VALUES (?, ?, ?, ?, ?)",
                 (session_id, role, content, _now(), mode),
             )
+            return int(getattr(cur, "lastrowid", 0) or 0)
 
     def delete_chat_message(self, message_id: int) -> None:
         """대화 한 줄 삭제 — 답변 다시 받기에서 직전 답변을 지울 때 쓴다."""
@@ -1101,6 +1155,12 @@ class Database:
             for table in ('doc_entities', 'mask_events', 'quality_reports', 'draft_history'):
                 conn.execute(f"DELETE FROM {table} WHERE doc_id = ?", (doc_id,))
             conn.execute("DELETE FROM project_criteria WHERE criteria_doc_id = ?", (doc_id,))
+            conn.execute("DELETE FROM doc_folders WHERE doc_id = ?", (doc_id,))
+            # 검색 색인(뜻·낱말) — 남겨 두면 지운 문서 조각이 후보 자리를 차지한다
+            names = table_names(conn)
+            for table in ('grant_vec', 'grant_lex'):
+                if table in names:
+                    conn.execute(f"DELETE FROM {table} WHERE doc_id = ?", (doc_id,))
             # Keep file registry and historical chat citations, but detach deleted IDs.
             conn.execute("UPDATE files SET doc_id = NULL WHERE doc_id = ?", (doc_id,))
             if 'archive_files' in table_names(conn):        # 원본 장부의 이음도 — 지운 문서를 「문서 연결됨」으로 세지 않게

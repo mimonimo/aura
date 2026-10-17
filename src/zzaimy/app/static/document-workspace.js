@@ -82,7 +82,9 @@
     }
     if (submitting) { event.preventDefault(); return; }
     submitting = true;
-    queueMicrotask(() => { if (event.defaultPrevented) submitting = false; });
+    // 뒤따르는 처리기(공용 확인창 — workspace-navigation.js)가 이 제출을 잡아 두면 거듭 누름 막기를 푼다. 마이크로태스크는 이 처리기 직후
+    // (다른 처리기가 막기 전)에 돌아 놓친다 — 사건 처리가 다 끝난 뒤(setTimeout) 본다. 안 그러면 확인 뒤 다시 제출이 막힌다(문서 삭제 안 됨)
+    setTimeout(() => { if (event.defaultPrevented) submitting = false; }, 0);
   }, true);
   window.addEventListener('pageshow', () => { submitting = false; });
   const refresh = document.getElementById('documentRefresh');

@@ -218,18 +218,10 @@ def compose_system(profile: dict, audience: str = "staff") -> str:
     if audience == "student":
         return _SYSTEM_STUDENT
     parts = [_SYSTEM]
-    call_me = (profile.get("call_me") or "").strip()
+    # 호칭·개인 응답 지침은 설정 화면에서 뺐다(10-17) — 화면에 없는 옛 값이 답을 바꾸지 않게 쓰지 않는다. 지침은 프로젝트 「작성 원칙」
     dept = (profile.get("dept") or "").strip()
-    if call_me or dept:
-        who = []
-        if call_me:
-            who.append(f'담당자를 "{call_me}"(으)로 부릅니다')
-        if dept:
-            who.append(f"담당자는 {dept} 소속입니다 — 그 부서 업무 맥락을 우선 고려합니다")
-        parts.append("담당자 정보:\n- " + "\n- ".join(who))
-    instructions = (profile.get("instructions") or "").strip()
-    if instructions:
-        parts.append(f"담당자가 등록한 지침 — 답변과 검토 의견 작성 시 따릅니다:\n{instructions}")
+    if dept:
+        parts.append(f"담당자 정보:\n- 담당자는 {dept} 소속입니다 — 그 부서 업무 맥락을 우선 고려합니다")
     return "\n\n".join(parts)
 
 
@@ -298,6 +290,8 @@ class AgentResponder:
 
         self.last_sources = []
         self.last_flagged: list[str] = []
+        self.last_model: dict = {}
+        self.last_steps: list[str] = []
         import time as _time
         _t0 = _time.time()
         self.last_grant_docs: list = []
@@ -349,6 +343,7 @@ class AgentResponder:
                 g = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=prefer,
                                         depts=scope.get("grant_depts"), reader=reader)
                 grant_hits = g["hits"]
+                self.last_steps = [str(x)[:200] for x in (g.get("steps") or [])][:12]
                 if own:
                     mine = grant_search.search(db, attachment_text or question, k=5, user=scope.get("user"), prefer_docs=own,
                                                depts=scope.get("grant_depts"), reader=reader)["hits"]
@@ -492,6 +487,11 @@ class AgentResponder:
             except Exception:
                 pass
         out = strip_emoji(fix_foreign_han(text.strip(), user_content, client))
+        try:
+            from zzaimy.generate import model_info as _mi
+            self.last_model = _mi.stamp(client)              # 답 실행 기록(answer_runs)에 — 어느 모델이 썼나
+        except Exception:
+            self.last_model = {}
         # 마지막 점검 — 모델에 건넨 글(질문·첨부·근거)에 없는 수치는 지우지 않고 「(근거 확인 필요)」를 붙인다(절대 규칙 1: 수치는 인출만)
         from zzaimy.verify.numbers import flag_unsupported
         out, flagged = flag_unsupported(out, [user_content])

@@ -349,3 +349,21 @@ def test_helper_chat_continues_on_project_page(tmp_path, monkeypatch):
     assert r.status_code == 200 and r.json().get("session_id") == sid
     new = c.post("/chat/ask", data={"question": "학생 공개는?", "page": f"/project/{proj}"}).json()["session_id"]
     assert c.get(f"/chat/{new}/messages").json()["project_id"] is None
+
+
+def test_answer_feedback_and_run_are_recorded(tmp_path):
+    """베타 수집 — 답마다 실행 기록(answer_runs)이 남고, 대화 주인이 도움됨·아쉬움(까닭·의견)을 남기고 거둘 수 있다."""
+    from zzaimy.app.db import Database
+    c = _client(tmp_path)
+    db = Database(tmp_path / "t.db")
+    sid = db.create_chat_session("평가 시험", owner="zzaimy")
+    db.add_chat(sid, "user", "질문")
+    mid = db.add_chat(sid, "assistant", "답")
+    r = c.post(f"/chat/{sid}/messages/{mid}/feedback", data={"verdict": "bad", "reasons": ["숫자·사실이 틀림", "아무거나"], "note": "300명이 맞음"})
+    assert r.json()["ok"] and db.answer_feedback_for(sid, "zzaimy")[mid] == {"verdict": "bad", "reasons": ["숫자·사실이 틀림"], "note": "300명이 맞음"}
+    page = c.get(f"/chat/{sid}").text
+    assert 'data-feedback="bad"' in page and 'aria-pressed="true"' in page
+    c.post(f"/chat/{sid}/messages/{mid}/feedback", data={"verdict": ""})
+    assert db.answer_feedback_for(sid, "zzaimy") == {}
+    qmid = [m["id"] for m in db.list_chats(sid) if m["role"] == "user"][0]
+    assert c.post(f"/chat/{sid}/messages/{qmid}/feedback", data={"verdict": "good"}).status_code == 404     # 질문에는 평가 없음

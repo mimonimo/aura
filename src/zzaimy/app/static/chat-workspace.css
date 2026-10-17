@@ -320,3 +320,12 @@ body #chatForm { max-width:1040px; }
 .chat-writing.is-writing .aura-cursor-mark { animation: aura-cursor-type 1.2s ease-in-out infinite; }
 @keyframes aura-cursor-type { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(3px, 2px); } }
 @media (prefers-reduced-motion: reduce) { .chat-writing.is-writing .aura-cursor-mark { animation: none; } }
+
+/* 답 평가(베타 수집) */
+.act-btn.on { color: var(--navy); background: #eef3fa; border-color: #c9d6ea; }
+.feedback-form { margin: 6px 4px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fafbfd; font-size: 12.5px; max-width: 560px; }
+.feedback-form p { margin: 0 0 6px; color: var(--muted); }
+.feedback-reasons { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 8px; }
+.feedback-reasons label { display: inline-flex; align-items: center; gap: 4px; }
+.feedback-form input[type=text] { width: 100%; box-sizing: border-box; font-size: 12.5px; }
+.feedback-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
