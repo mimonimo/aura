@@ -685,7 +685,7 @@
     mark.className = "peek-hit";
     mark.textContent = text.slice(spot.at, spot.end);
     peekBody.append(text.slice(0, spot.at), mark, text.slice(spot.end));
-    mark.scrollIntoView({ block: "center" });
+    peekBody.scrollTop = Math.max(0, mark.offsetTop - peekBody.offsetTop - 48);   // 패널 머리는 그대로 두고 본문 칸만 굴린다
   }
   function openPeek(id, hint) {
     var request = ++peekRequest;
