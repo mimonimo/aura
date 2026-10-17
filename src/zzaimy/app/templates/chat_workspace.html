@@ -121,7 +121,7 @@
                  font-size: 12px; cursor: pointer; padding: 4px 2px; }
 
     /* 패널 안 미리보기 — 페이지를 떠나지 않는다 */
-    .peek { position: absolute; inset: 0; background: #fff; display: flex; flex-direction: column;
+    .peek { position: absolute; inset: 0; z-index: 3; background: #fff; display: flex; flex-direction: column;
                  transform: translateX(100%); transition: transform .22s var(--ease); }
     .peek.open { transform: translateX(0); }
     .peek-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px;

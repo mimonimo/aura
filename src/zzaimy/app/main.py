@@ -3997,7 +3997,8 @@ def create_app(
         doc = db.get_document(doc_id)
         if doc is None:
             raise HTTPException(404)
-        chunks = db.list_doc_chunks(doc_id)
+        from zzaimy.app.grant_search import _text as _chunk_text
+        chunks = [{**c, "content": _chunk_text(c)} for c in db.list_doc_chunks(doc_id)]   # 표 조각은 평문으로(검색이 건넨 글과 같게)
         start = 0
         squash = lambda t: re.sub(r"\s+", "", t or "")
         for probe in (squash(q)[:40], squash(q)[:16]):
