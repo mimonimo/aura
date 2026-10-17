@@ -77,16 +77,63 @@ def test_page_wording_and_labels(client):
     assert "AI(일러스트)" in fmt and "다운로드" not in fmt and 'value="hwp"' in fmt
 
 
+def _tree(html: str) -> str:
+    """왼쪽 사업 목록(대·중·소 분류) 부분."""
+    tree = html[html.index('aria-label="사업별 원본 수"'):]
+    return tree[:tree.index("</nav>")]
+
+
 def test_program_groups_long_tail_and_unclassified(client):
     page = client.get("/archive").text
-    table = page[page.index('aria-label="사업별 원본 수"'):]
-    assert "해양미래부" not in table                                                # 앞 부처명만 다른 이름은 한 사업
-    assert re.search(r'>은하수 개척 사업</a>.*?<td class="num" data-label="원본">5</td>', table, re.S)
+    tree = _tree(page)
+    assert "해양미래부" not in tree                                                 # 앞 부처명만 다른 이름은 한 사업
+    assert ">은하수 개척 사업<span>5</span></a>" in tree
     assert "통합공고 사업" not in page                                              # 사업 아닌 값은 사업 미분류로
-    assert "그 밖의 사업 3개" in page                                               # 상위 12개만 펼침(사업 15개)
-    assert table.index("사업 미분류") > table.index("별빛 부트랩 사업")
-    assert table.count(">파일 보기</a>") == 16                                       # 사업 15 + 미분류 — 모든 줄에 같은 단추
-    assert "/projects/archived?q=" in table                                         # 사업 화면은 프로젝트 검색으로
+    assert tree.count('class="ar-ri l3') == 15                                       # 사업 15개 모두 — 위 12개만 자르지 않는다
+    assert 'class="ar-l1' in tree and 'class="ar-l1-h"' in tree                     # 대분류 머리(접기·펼치기 단추)
+    assert tree.index("사업 미분류") > tree.index("별빛 부트랩 사업")               # 미분류는 맨 아래
+    assert ">전체 사업<span>81</span></a>" in tree
+    assert "/projects/archived?q=" not in page                                      # 사업 동작은 사업을 골랐을 때 머리에
+
+
+def test_tree_follows_the_ledger_classification(client, monkeypatch):
+    """대·중·소 분류는 라이브러리와 같은 나무(app.program_tree, 외부 확인 장부 기준) — 장부에 있는 사업은 대분류·중분류 아래로."""
+    ledger = {"categories": {"일반재정지원": {"label": "일반재정지원"}},
+              "programs": [{"name": "은하수 개척 사업", "ministry": "교육부", "category": "일반재정지원"}]}
+    monkeypatch.setitem(archive_view._LEDGER, "v", ledger)
+    tree = _tree(client.get("/archive").text)
+    edu = tree.index("교육부 재정지원")
+    assert edu < tree.index('<div class="ar-l2" data-l2><span>일반재정지원</span>') < tree.index(">은하수 개척 사업<span>")
+    unknown = tree[tree.index('data-l1="장부에 없는 이름 (확인 필요)"') - 40:]
+    assert 'data-open="0"' in unknown[:200] and ">별빛 부트랩 사업<span>" in unknown   # 장부 밖 이름은 접어 둔다
+    picked = _tree(client.get("/archive?program=program:b").text)                    # 고른 사업이 든 대분류는 펼친다
+    assert 'data-open="1"' in picked[picked.index('data-l1="장부에 없는 이름'):][:120]
+
+
+def test_view_toggle_and_table_columns(client):
+    page = client.get("/archive").text
+    assert 'id="arLayout" data-view="table"' in page                                 # 기본은 「목록」(표)
+    views = page[page.index('aria-label="보기 방식"'):page.index("</div>", page.index('aria-label="보기 방식"'))]
+    assert 'data-view-pick="table" aria-pressed="true">목록</a>' in views and 'data-view-pick="card" aria-pressed="false">카드</a>' in views
+    head = page[page.index('class="ar-row ar-hrow"'):page.index("</li>", page.index('class="ar-row ar-hrow"'))]
+    assert [re.sub(r"<[^>]+>", "", c) for c in re.findall(r"<span(?: class=\"[^\"]*\")?>([^<]*)</span>", head)] == \
+        ["형식", "이름", "사업", "연도", "종류", "상태", "크기", "동작"]
+    assert "localStorage" in page and "aura.archive.view" in page                    # 고른 보기는 브라우저에 남긴다
+    card = client.get("/archive?view=card&q=은하수").text
+    assert 'id="arLayout" data-view="card"' in card and 'data-view-pick="card" aria-pressed="true"' in card
+    assert "view=card" in card[card.index('class="ar-chips"'):]                        # 조건 칩·쪽 주소가 보기를 이어 간다
+    assert _count(card) == _count(client.get("/archive?q=은하수").text)               # 보기는 조건이 아니다
+    assert not any(c["key"] == "view" for c in archive_view.chips(archive_view.parse_filters(view="card"), {}, {}))
+    assert archive_view.parse_filters(view="bogus")["view"] == "table"
+    part = client.get("/archive?view=card&partial=1&q=은하수").text
+    assert 'id="archive-browse"' in part and 'id="archive-list"' in part and 'id="arLayout"' not in part
+
+
+def test_cleanup_card_starts_folded(client):
+    page = client.get("/archive").text
+    card = page[page.index('id="archive-cleanup"'):page.index("</section>", page.index('id="archive-cleanup"'))]
+    assert 'id="acFold" aria-expanded="false" aria-controls="acBody">펼치기</button>' in card
+    assert '<div id="acBody" hidden>' in card and 'id="acRows"' in card and "<details" not in card
 
 
 def test_browse_levels_and_combined_filters(client):
@@ -242,19 +289,26 @@ def test_rare_acronym_typo_joins_frequent_program(client):
     assert _count(client.get("/archive?program=4단계 별빛 선도대학 육성사업").text) == "21건 중 1–21"
 
 
-def test_program_table_actions_wrap_on_narrow_screens(client):
+def test_layout_stacks_on_narrow_screens(client):
     page = client.get("/archive").text
-    assert '<td class="ar-acts-cell"><div class="ar-acts">' in page
-    css = page[page.index("@media(max-width:760px)"):]
-    assert ".ar-acts{display:flex;flex-wrap:wrap" in css and ".ar-grid thead{display:none}" in css
+    assert page.index('class="ar-rail"') < page.index('id="archive-search"') < page.index('id="archive-list"')
+    css = page[page.index("@media(max-width:900px)"):]
+    assert ".ar-layout{grid-template-columns:1fr}" in css and ".ar-rail{position:static" in css
+    assert ".ar-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line);container-type:inline-size}" in page
+
+
+def test_picked_program_header_has_actions(client):
+    page = client.get("/archive?program=program:a").text
+    pick = page[page.index('class="ar-pick"'):page.index('class="ar-resbar"')]
+    assert ">은하수 개척 사업</h2>" in pick and "원본 5건" in pick
+    assert "/projects/archived?q=" in pick and "/graph/explore?id=program%3Aa" in pick and ">전체 사업 보기</a>" in pick
+    assert 'aria-pressed="true"' in _tree(page)[_tree(page).index(">은하수 개척 사업<") - 400:_tree(page).index(">은하수 개척 사업<")]
 
 
 def test_unclassified_row_has_no_project_link(client):
-    table = client.get("/archive").text
-    table = table[table.index('aria-label="사업별 원본 수"'):]
-    row = table[table.rindex("<tr>", 0, table.index(">사업 미분류<")):]
-    row = row[:row.index("</tr>")]
-    assert "프로젝트 검색" not in row and "파일 보기" in row
+    page = client.get("/archive?program=none").text
+    pick = page[page.index('class="ar-pick"'):page.index('class="ar-resbar"')]
+    assert ">사업 미분류</h2>" in pick and "프로젝트 검색" not in pick and "그래프" not in pick and "전체 사업 보기" in pick
 
 
 def _graph_program(db, key, label, acronyms=()):
@@ -273,8 +327,7 @@ def test_renamed_program_keeps_its_files_and_every_way_of_filtering(client):
         conn.execute("UPDATE archive_files SET program_name = '별누리 인재양성체계(구 ZETA)' WHERE program = 'program:b'")
     _graph_program(db, "program:b", "별누리 인재양성체계(구 ZETA)", ["ZETA"])
     page = client.get("/archive").text
-    table = page[page.index('aria-label="사업별 원본 수"'):]
-    assert ">별누리 인재양성체계(구 ZETA)</a>" in table
+    assert ">별누리 인재양성체계(구 ZETA)<span>61</span></a>" in _tree(page)
     for value in ("program:b", "별누리 인재양성체계(구 ZETA)", "별누리인재양성체계(구ZETA)", "ZETA", "별누리"):
         assert _count(client.get(f"/archive?program={value}").text) == "61건 중 1–50", value
     row_tag = client.get("/archive?program=ZETA").text

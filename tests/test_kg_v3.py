@@ -513,6 +513,37 @@ def test_apply_reviews_only_touches_unconfirmed_files():
     assert n == 2
 
 
+def test_file_review_beats_folder_review_and_rule():
+    """파일 단위 판정(27B 가 파일 하나를 보고 정함)은 폴더 「사업 아님」 판정과 규칙 확정보다 앞선다."""
+    from zzaimy.graph import programs
+
+    docs = [{"id": 1, "rel": "산단/일반/2020 합성사업 결과보고서.hwp", "filename": "2020 합성사업 결과보고서.hwp", "path": "산단/일반", "head": ""},
+            {"id": 2, "rel": "산단/일반/회의록.hwp", "filename": "회의록.hwp", "path": "산단/일반", "head": ""},
+            {"id": 3, "rel": "링크/3차년도 합성보조사업 정산.hwp", "filename": "3차년도 합성보조사업 정산.hwp", "path": "링크", "head": ""}]
+    cards = programs.build_cards(docs)
+    res = programs.classify(docs, cards)
+    reviews = [{"folder": "산단/일반", "label": "사업 아님", "confidence": "high", "reason": "일반 업무 폴더"},
+               {"file": "산단/일반/2020 합성사업 결과보고서.hwp", "label": "합성사업", "confidence": "high", "reason": "제목·본문이 그 사업"},
+               {"file": "링크/3차년도 합성보조사업 정산.hwp", "label": "사업 아님", "confidence": "medium", "reason": "회계 일반어"},
+               {"file": "산단/일반/회의록.hwp", "label": "합성사업", "confidence": "low", "reason": "확신 낮음"}]
+    programs.apply_reviews(docs, res, programs_load(reviews), cards)
+    by = {a.doc_id: a for a in res}
+    assert by[1].status == "agent" and by[1].program_name == "합성사업"
+    assert by[2].status == "agent" and by[2].program == ""               # 폴더 판정(낮은 확신 파일 판정은 걸러짐)
+    assert by[3].status == "agent" and by[3].program == ""
+
+
+def programs_load(rows):
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from zzaimy.graph import programs
+    p = Path(tempfile.mkdtemp()) / "class_review.jsonl"
+    p.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+    return programs.load_reviews(p)
+
+
 def test_stage_number_kept_in_program_name():
     from zzaimy.graph import programs
 

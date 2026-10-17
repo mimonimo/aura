@@ -103,8 +103,9 @@ def test_archive_groups_never_share_a_shown_name_after_a_polluted_rebuild(client
     assert progs.label("program:abcd30") == NEW
     assert progs.label("program:기술") == "누리기술사관육성사업"
     page = client.get("/archive").text
-    table = page[page.index('aria-label="사업별 원본 수"'):]
-    assert table.count(f">{OLD}</a>") == 1 and table.count(f">{NEW}</a>") == 1
+    tree = page[page.index('aria-label="사업별 원본 수"'):]
+    tree = tree[:tree.index("</nav>")]
+    assert tree.count(f">{OLD}<span>") == 1 and tree.count(f">{NEW}<span>") == 1
 
 
 def test_graph_match_trusts_node_id_only_when_names_agree(client):

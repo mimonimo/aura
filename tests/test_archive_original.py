@@ -22,7 +22,7 @@ def test_archive_layout_and_zero_denominator(setup):
     app, client = setup
     page = client.get("/archive?q=계획서").text
     assert "<dt>문서 연결됨</dt><dd>0<small>" in page                                   # 분모가 0 이어도 그린다
-    assert page.index('id="archive-search"') < page.index('id="archive-browse"') < page.index('id="archive-list"')
+    assert page.index('id="archive-browse"') < page.index('id="archive-search"') < page.index('id="archive-list"')   # 왼쪽 분류 → 찾기 → 목록
     assert ">원본 열기</a>" in page and ">계획서<" in page and "원본 파일을 엽니다" in page
     with app.state.db._conn() as conn:
         conn.execute("DELETE FROM archive_files")

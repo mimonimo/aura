@@ -432,12 +432,16 @@ def _int(v) -> int | str:
     return int(v) if v.isdigit() and len(v) <= 4 else ""
 
 
-def parse_filters(q="", program="", year="", round="", kind="", ext="", state="", sort="", page="1") -> dict:
+VIEWS = ("table", "card")                 # 원본 목록 보기 — 「목록」(표, 기본)·「카드」. 조건이 아니라 보는 방식이라 칩·조건 지우기에 넣지 않는다
+
+
+def parse_filters(q="", program="", year="", round="", kind="", ext="", state="", sort="", page="1", view="") -> dict:
     y = NONE if year == NONE else _int(year)
     return {"q": (q or "").strip()[:200], "program": (program or "").strip()[:200], "year": y, "round": _int(round),
             "kind": kind if kind == NONE or re.fullmatch(r"[a-z_]{1,24}", kind or "") else "",
             "ext": ext_of(ext), "state": state if state in archive_state.STATES else "",
-            "sort": sort if sort in SORTS else "name", "page": max(1, _int(page) or 1)}
+            "sort": sort if sort in SORTS else "name", "page": max(1, _int(page) or 1),
+            "view": view if view in VIEWS else VIEWS[0]}
 
 
 def _base_where(f: dict, hidden: set[int]) -> tuple[str, list]:
@@ -663,7 +667,8 @@ def list_page(db, f: dict, hidden: set[int], keys: list[str] | None, total: int,
 def page_url(f: dict, **change) -> str:
     """지금 조건에서 일부만 바꾼 주소 — 쪽 넘김·조건 지우기·공유용."""
     params = {k: f[k] for k in FILTER_KEYS}
-    params.update(sort="" if f["sort"] == "name" else f["sort"], page=f["page"])
+    params.update(sort="" if f["sort"] == "name" else f["sort"], page=f["page"],
+                  view="" if f.get("view", VIEWS[0]) == VIEWS[0] else f["view"])
     params.update(change)
     if "page" not in change:
         params["page"] = ""                  # 조건을 바꾸면 첫 쪽부터
@@ -681,6 +686,22 @@ def chips(f: dict, labels: dict[str, str], ext_labels: dict[str, str], progs: "P
              "kind": lambda v: UNSORTED if v == NONE else kind_label(v, labels), "ext": lambda v: ext_labels.get(v, v.upper()),
              "state": lambda v: archive_state.STATES.get(v, v)}
     return [{"key": k, "label": label[k](f[k]), "url": page_url(f, **{k: ""})} for k in FILTER_KEYS if f[k]]
+
+
+def rail_tree(programs: list[dict]) -> list[dict]:
+    """왼쪽 사업 목록의 대·중·소 분류 — 라이브러리 「사업별로 보기」·그래프 탐색과 같은 나무(app.program_tree, 외부 확인 장부 기준).
+    programs 는 browse 의 사업 묶음(사업 미분류 제외). 항목의 value 는 묶음 열쇠라 고르기·거르기는 그대로다."""
+    from zzaimy.app import program_tree
+    items = [{"label": p["name"], "n": p["n"], "value": p["value"], "registered": p["registered"]} for p in programs]
+    return program_tree.build(items, _ledger())
+
+
+def picked_program(f: dict, view: dict, tree: list[dict]) -> dict | None:
+    """고른 사업 — 목록 머리에 이름·건수·동작(프로젝트 검색·그래프)을 보인다. 지금 조건에 원본이 없으면 None."""
+    if f["program"] == NONE:
+        u = view.get("unclassified")
+        return {"value": NONE, "label": NO_PROGRAM, "raw_label": NO_PROGRAM, "n": u["n"], "registered": u["registered"]} if u else None
+    return next((p for t in tree for g in t["groups"] for p in g["progs"] if p["value"] == f["program"]), None)
 
 
 def resolve_program(value: str, prog_of: "Programs") -> str:
@@ -729,13 +750,13 @@ async def archive_cleanup_restore(request: Request):
 
 @router.get("/archive", response_class=HTMLResponse)
 def archive_page(request: Request, program: str = "", kind: str = "", q: str = "", year: str = "", round: str = "",
-                 ext: str = "", state: str = "", sort: str = "name", page: str = "1", partial: str = ""):
+                 ext: str = "", state: str = "", sort: str = "name", page: str = "1", view: str = "", partial: str = ""):
     st = request.app.state
     db = st.db
     from zzaimy.app.access_policy import request_viewer
     scope = request_viewer(request)
     hidden = _hidden_docs(db, scope, getattr(st, "data_dir", None))
-    f = parse_filters(q, program, year, round, kind, ext, state, sort, page)
+    f = parse_filters(q, program, year, round, kind, ext, state, sort, page, view)
     labels = kind_labels()
     rows = facet_rows(db, f, hidden)
     names, prog_of = load_programs(db, hidden)
@@ -753,12 +774,14 @@ def archive_page(request: Request, program: str = "", kind: str = "", q: str = "
             "program_choices": prog_of.choices, "active": any(f[k] for k in FILTER_KEYS), "nokey": NONE,
             "no_program": NO_PROGRAM, "this_year": date.today().year, "prev_url": "", "next_url": "",
             "url": lambda **kw: page_url(f, **kw)}
+    data["rail_tree"] = rail_tree(view["programs"])
+    data["pick"] = picked_program(f, view, data["rail_tree"])
     data.update(list_page(db, f, hidden, keys, view["total"], scope["role"], prog_of, labels, masker(db)))
     if data["page"] > 1:
         data["prev_url"] = page_url(f, page=data["page"] - 1)
     if data["page"] < data["pages"]:
         data["next_url"] = page_url(f, page=data["page"] + 1)
-    if partial:                              # 조건을 바꿀 때마다 아래쪽(훑기·목록)만 다시 그린다
+    if partial:                              # 조건을 바꿀 때마다 왼쪽 분류와 원본 목록만 다시 그린다
         return st.templates.TemplateResponse(request, "_archive_results.html", data)
     overall = view if not data["active"] else browse(rows if not (f["q"] or f["ext"]) else program_years(facet_rows(
         db, parse_filters(), hidden), prog_of), parse_filters(), prog_of, labels)

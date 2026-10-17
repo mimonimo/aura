@@ -1122,7 +1122,7 @@ def load_reviews(path) -> list[dict]:
             r = _json.loads(line)
         except ValueError:
             continue
-        if r.get("folder") and r.get("label") and r.get("confidence") in ("high", "medium"):
+        if (r.get("folder") or r.get("file")) and r.get("label") and r.get("confidence") in ("high", "medium"):
             out.append(r)
     # 교차 검수(다른 검토자의 장부 <이름>_astra.jsonl) — 판정이 엇갈린 폴더는 쓰지 않는다(사람 검토 대기)
     cross = p.with_name(p.stem + "_astra.jsonl")
@@ -1146,7 +1146,10 @@ def apply_reviews(docs: list[dict], assigned: list[Assignment], reviews: list[di
     규칙이 확정(auto)한 파일은 건드리지 않는다. 상태는 'agent'(에이전트 검토)·근거는 판정 이유. 바꾼 수를 돌려준다."""
     if not reviews:
         return 0
-    by_folder = sorted(reviews, key=lambda r: -len(r["folder"]))
+    # 파일 단위 판정(「file」: 원본 경로, scripts/196 — 27B 가 파일 하나를 보고 정한 것)은 폴더 판정·규칙보다 앞선다.
+    # 같은 파일을 여러 번 판정했으면 나중 줄이 이긴다
+    by_file = {r["file"]: r for r in reviews if r.get("file")}
+    by_folder = sorted((r for r in reviews if r.get("folder")), key=lambda r: -len(r["folder"]))
 
     def card_named(name: str) -> ProgramCard:
         key = program_key(name)
@@ -1163,16 +1166,18 @@ def apply_reviews(docs: list[dict], assigned: list[Assignment], reviews: list[di
         return c
     n = 0
     for d, a in zip(docs, assigned):
-        if a.status == "auto":
-            continue
-        rel_dir = (d.get("path") or "").strip("/")
-        hit = next((r for r in by_folder if rel_dir == r["folder"] or rel_dir.startswith(r["folder"] + "/")), None)
+        hit = by_file.get(d.get("rel") or d.get("origin") or "")
+        if hit is None:
+            if a.status == "auto":
+                continue
+            rel_dir = (d.get("path") or "").strip("/")
+            hit = next((r for r in by_folder if rel_dir == r["folder"] or rel_dir.startswith(r["folder"] + "/")), None)
         if hit is None:
             continue
         label = hit["label"].strip()
         # 파일 제 이름에 사업이 적힌 문서는 폴더 판정이 다른 사업으로 덮지 않는다 — 폴더에는 다른 사업 문서가 섞인다
         # (예: 한 사업 폴더 안에 든 다른 사업의 작성 서식)
-        if a.program and any(e.startswith("제목에") for e in a.evidence):
+        if not hit.get("file") and a.program and any(e.startswith("제목에") for e in a.evidence):
             target = "" if label == "사업 아님" else (label.split(":", 1)[1].strip() if label.startswith("새 사업") else label)
             if not target or program_key(target) != program_key(a.program_name) and target not in (
                     next((c for c in cards if c.node_id == a.program), ProgramCard(key="")).names):

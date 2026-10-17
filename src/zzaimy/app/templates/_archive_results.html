@@ -1,77 +1,97 @@
-{# 원본 보관소 아래쪽 — 사업 → 연도 → 문서 종류 훑기와 원본 목록. 화면 전체에도, 조건을 바꿀 때 이 칸만 다시 그릴 때(partial=1)에도 쓴다 #}
-<section class="card" id="archive-browse"><div class="card-in">
-  {% if program_choices %}<div class="ar-choose" role="status"><p class="ar-h">이 사업을 찾으셨나요?</p>
-    <ul class="ar-facets" aria-label="사업 후보">{% for c in program_choices %}
-      <li><a class="ar-facet" href="{{ url(program=c.value) }}" data-set="program={{ c.value|urlencode }}">{{ c.name }}<span>{{ "{:,}".format(c.n) }}</span></a></li>
-    {% endfor %}</ul></div>{% endif %}
-  <nav class="ar-crumb" aria-label="선택한 분류">
-    <a href="{{ url(program='', year='', round='', kind='') }}" data-set="program=&year=&round=&kind=">전체 사업</a>
-    {% if f.program %}<span aria-hidden="true">›</span><a href="{{ url(year='', round='', kind='') }}" data-set="year=&round=&kind=">{{ program_label }}</a>{% endif %}
-    {% if f.year or f.round %}<span aria-hidden="true">›</span><a href="{{ url(kind='') }}" data-set="kind=">{{ '연도 미상' if f.year == nokey else (f.year ~ '년' if f.year else f.round ~ '차년도') }}</a>{% endif %}
-    {% if f.kind %}<span aria-hidden="true">›</span><span>{{ (chips|selectattr('key', 'equalto', 'kind')|first).label }}</span>{% endif %}
+{# 원본 보관소 — 왼쪽 분류(사업 대·중·소 → 사업 연도 → 문서 종류 → 처리 상태)와 오른쪽 원본 목록.
+   화면 전체에서는 archive.html 이 part='rail'·'list' 로 나눠 넣고, 조건을 바꿀 때(partial=1)는 둘 다 한 번에 돌려준다 #}
+{% set _part = part|default('all') %}
+{% if _part != 'list' %}
+<div id="archive-browse" class="ar-browse">
+  {% macro ri(label, n, href, set, on, cls='', name='', title='') -%}
+  <a class="ar-ri{{ ' ' ~ cls if cls }}{{ ' on' if on }}" href="{{ href }}" data-set="{{ set }}" aria-pressed="{{ 'true' if on else 'false' }}"{% if name %} data-name="{{ name|lower }}"{% endif %} title="{{ title or label }}{{ ' — 다시 누르면 풉니다' if on }}">{{ label }}<span>{{ "{:,}".format(n) }}</span></a>
+  {%- endmacro %}
+  {% set all_n = (view.programs|sum(attribute='n')) + (view.unclassified.n if view.unclassified else 0) %}
+  {% set known_any = rail_tree|rejectattr('unknown')|list %}
+  <nav class="ar-tree" id="arTree" aria-label="사업별 원본 수">
+    {{ ri('전체 사업', all_n, url(program='', year='', round=''), 'program=&year=&round=', not f.program, 'top') }}
+    {% for t in rail_tree %}
+    {% set has_on = f.program and (t.groups|map(attribute='progs')|sum(start=[])|selectattr('value', 'equalto', f.program)|list) %}
+    {% set open = (not t.unknown) or has_on or not known_any %}
+    <section class="ar-l1{{ ' unknown' if t.unknown }}" data-l1="{{ t.label }}" data-open="{{ '1' if open else '0' }}">
+      <button type="button" class="ar-l1-h" aria-expanded="{{ 'true' if open else 'false' }}"><b>{{ t.label }}</b><small>{{ "{:,}".format(t.n) }}</small><em class="ar-fold"></em></button>
+      <div class="ar-l1-body">
+        {% for g in t.groups %}
+        {% if g.label %}<div class="ar-l2" data-l2><span>{{ g.label }}</span><small>{{ "{:,}".format(g.n) }}</small></div>{% endif %}
+        {% for p in g.progs %}{% set on = p.value == f.program %}{{ ri(p.label, p.n, url(program='' if on else p.value, year='', round=''), 'program=' ~ ('' if on else p.value|urlencode) ~ '&year=&round=', on, 'l3' ~ (' flat' if not g.label else ''), p.label ~ ((' ' ~ p.raw_label) if p.raw_label and p.raw_label != p.label else ''), p.label ~ ((' (원본 속 이름: ' ~ p.raw_label ~ ')') if p.raw_label and p.raw_label != p.label else '')) }}{% endfor %}
+        {% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+    {% if view.unclassified %}{% set on = f.program == nokey %}{{ ri(no_program, view.unclassified.n, url(program='' if on else nokey, year='', round=''), 'program=' ~ ('' if on else nokey) ~ '&year=&round=', on, 'fixed', no_program, '사업 이름이 없거나 사업으로 볼 수 없는 원본') }}{% endif %}
+    {% if not rail_tree and not view.unclassified %}<p class="ar-muted ar-pad">조건에 맞는 사업이 없습니다.</p>{% endif %}
   </nav>
-  {% if not f.program %}
-  <h2 class="ar-h">사업</h2>
-  {% set top = 12 %}
-  <table class="ar-grid" aria-label="사업별 원본 수">
-    <thead><tr><th scope="col">사업</th><th scope="col" class="num">원본</th><th scope="col" class="num">{{ states.registered }}</th><th scope="col"><span class="sr-only">보기</span></th></tr></thead>
-    <tbody>
-    {% macro prow(p) %}<tr>
-      <td><a href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">{{ p.name }}</a>{% if p.kinds %}<span class="ar-sub">{% for k, n in p.kinds %}{{ k }} {{ "{:,}".format(n) }}{{ ' · ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
-      <td class="num" data-label="원본">{{ "{:,}".format(p.n) }}</td><td class="num" data-label="{{ states.registered }}">{{ "{:,}".format(p.registered) }}</td>
-      <td class="ar-acts-cell"><div class="ar-acts"><a class="btn secondary" href="{{ url(program=p.value) }}" data-set="program={{ p.value|urlencode }}">파일 보기</a>{% if p.value != nokey %}<a class="btn secondary" href="/projects/archived?{{ {'q': p.name, 'status': 'all'}|urlencode }}">프로젝트 검색</a><a class="btn secondary ar-graph" href="/graph/explore?id={{ p.value|urlencode }}" title="이 사업과 이어진 사업·문서를 그래프로" aria-label="{{ p.name }} 그래프"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>그래프</a>{% else %}<span class="ar-slot" aria-hidden="true"></span><span class="ar-slot ar-slot-graph" aria-hidden="true"></span>{% endif %}</div></td>
-    </tr>{% endmacro %}
-    {% for p in view.programs[:top] %}{{ prow(p) }}{% endfor %}
-    {% if view.unclassified %}{{ prow(view.unclassified) }}{% endif %}
-    {% if not view.programs and not view.unclassified %}<tr><td colspan="4">조건에 맞는 원본이 없습니다.</td></tr>{% endif %}
-    </tbody>
-  </table>
-  {% if view.programs|length > top %}
-  <details class="ar-rest"><summary><span class="ar-rest-open">그 밖의 사업 {{ view.programs|length - top }}개 펼치기</span><span class="ar-rest-close">그 밖의 사업 접기</span><span class="ar-rest-n">{{ "{:,}".format(view.programs[top:]|sum(attribute='n')) }}건</span><iconify-icon icon="solar:alt-arrow-down-linear" aria-hidden="true"></iconify-icon></summary>
-    <table class="ar-grid" aria-label="그 밖의 사업"><tbody>{% for p in view.programs[top:] %}{{ prow(p) }}{% endfor %}</tbody></table>
-  </details>
-  {% endif %}
-  {% else %}
-  <h2 class="ar-h">사업 연도</h2>
+  {% if f.program %}
+  <h2 class="ar-rh">사업 연도</h2>
   <ul class="ar-facets" aria-label="사업 연도">{% for y in view.years %}
     {% set on = (y.year and y.year == f.year) or (y.round and y.round == f.round and not f.year) %}
-    <li><a class="ar-facet{{ ' on' if on }}" {% if on %}aria-pressed="true" title="다시 누르면 풉니다" href="{{ url(year='', round='') }}" data-set="year=&round="{% else %}aria-pressed="false" href="{{ url(year=y.year, round=y.round) }}" data-set="year={{ y.year }}&round={{ y.round }}"{% endif %}>{{ y.label }}<span>{{ "{:,}".format(y.n) }}</span></a></li>
-  {% else %}<li class="ar-muted">연도 정보가 없습니다.</li>{% endfor %}</ul>
-  <p class="ar-note">연도는 파일 이름·폴더의 연도이고, 없으면 연차를 사업 기간으로 환산한 연도입니다.</p>
+    <li>{{ ri(y.label, y.n, url(year='', round='') if on else url(year=y.year, round=y.round), 'year=&round=' if on else 'year=' ~ y.year ~ '&round=' ~ y.round, on) }}</li>
+  {% else %}<li class="ar-muted ar-pad">연도 정보가 없습니다.</li>{% endfor %}</ul>
+  <p class="ar-note ar-pad">파일 이름·폴더의 연도이고, 없으면 연차를 사업 기간으로 환산한 연도입니다.</p>
   {% endif %}
-  <h2 class="ar-h">문서 종류</h2>
+  <h2 class="ar-rh">문서 종류</h2>
   <ul class="ar-facets" aria-label="문서 종류">{% for k in view.kinds %}
     {% set on = k.value == f.kind %}
-    <li><a class="ar-facet{{ ' on' if on }}" aria-pressed="{{ 'true' if on else 'false' }}" {% if on %}title="다시 누르면 풉니다" {% endif %}href="{{ url(kind='' if on else k.value) }}" data-set="kind={{ '' if on else k.value }}">{{ k.label }}<span>{{ "{:,}".format(k.n) }}</span></a></li>
+    <li>{{ ri(k.label, k.n, url(kind='' if on else k.value), 'kind=' ~ ('' if on else k.value), on) }}</li>
   {% endfor %}</ul>
-  <h2 class="ar-h">처리 상태</h2>
+  <h2 class="ar-rh">처리 상태</h2>
   <ul class="ar-facets" aria-label="처리 상태">{% for s in view.states %}
     {% set on = s.value == f.state %}
-    <li><a class="ar-facet{{ ' on' if on }}" aria-pressed="{{ 'true' if on else 'false' }}" {% if on %}title="다시 누르면 풉니다" {% endif %}href="{{ url(state='' if on else s.value) }}" data-set="state={{ '' if on else s.value }}">{{ s.label }}<span>{{ "{:,}".format(s.n) }}</span></a></li>
+    <li>{{ ri(s.label, s.n, url(state='' if on else s.value), 'state=' ~ ('' if on else s.value), on) }}</li>
   {% endfor %}</ul>
-</div></section>
-
+</div>
+{% endif %}
+{% if _part != 'rail' %}
 <section class="card" id="archive-list"><div class="card-in">
+  {% if program_choices %}<div class="ar-choose" role="status"><p class="ar-h">이 사업을 찾으셨나요?</p>
+    <ul class="ar-cands" aria-label="사업 후보">{% for c in program_choices %}
+      <li><a class="ar-cand" href="{{ url(program=c.value) }}" data-set="program={{ c.value|urlencode }}">{{ c.name }}<span>{{ "{:,}".format(c.n) }}</span></a></li>
+    {% endfor %}</ul></div>{% endif %}
+  {% if f.program %}
+  <div class="ar-pick">
+    <div class="ar-pick-main">
+      <p class="ar-pick-k">고른 사업</p>
+      <h2 title="{{ (pick.raw_label if pick and pick.raw_label else program_label) }}">{{ pick.label if pick else program_label }}</h2>
+      <p class="ar-muted">{% if pick %}원본 {{ "{:,}".format(pick.n) }}건 · {{ states.registered }} {{ "{:,}".format(pick.registered) }}건{% else %}지금 조건에 맞는 원본이 없습니다{% endif %}</p>
+    </div>
+    <div class="ar-pick-acts">
+      {% if f.program != nokey %}<a class="btn secondary" href="/projects/archived?{{ {'q': program_label, 'status': 'all'}|urlencode }}">프로젝트 검색</a>
+      <a class="btn secondary ar-graph" href="/graph/explore?id={{ f.program|urlencode }}" title="이 사업과 이어진 사업·문서를 그래프로" aria-label="{{ program_label }} 그래프"><iconify-icon icon="solar:structure-linear" aria-hidden="true"></iconify-icon>그래프</a>{% endif %}
+      <a class="btn secondary" href="{{ url(program='', year='', round='') }}" data-set="program=&year=&round=">전체 사업 보기</a>
+    </div>
+  </div>
+  {% endif %}
   <div class="ar-resbar">
     <h2 class="ar-h">원본 목록</h2>
     <p class="ar-count" role="status">{% if hits %}<strong>{{ "{:,}".format(hits) }}</strong>건 중 {{ "{:,}".format(first) }}–{{ "{:,}".format(last) }}{% else %}<strong>0</strong>건{% endif %}</p>
-    {% if chips %}<ul class="ar-chips" aria-label="걸린 조건">{% for c in chips %}<li><a class="ar-chip" href="{{ c.url }}" data-clear="{{ c.key }}" aria-label="{{ c.label }} 조건 지우기">{{ c.label }}<span aria-hidden="true">×</span></a></li>{% endfor %}
-      {% if chips|length > 1 %}<li><a class="ar-chip-all" href="/archive#archive-list" data-clear="all">모두 지우기</a></li>{% endif %}</ul>{% endif %}
+    <div class="ar-views" role="group" aria-label="보기 방식">
+      <a href="{{ url(view='') }}" data-view-pick="table" aria-pressed="{{ 'true' if f.view == 'table' else 'false' }}">목록</a>
+      <a href="{{ url(view='card') }}" data-view-pick="card" aria-pressed="{{ 'true' if f.view == 'card' else 'false' }}">카드</a>
+    </div>
   </div>
+  {% if chips %}<ul class="ar-chips" aria-label="걸린 조건">{% for c in chips %}<li><a class="ar-chip" href="{{ c.url }}" data-clear="{{ c.key }}" aria-label="{{ c.label }} 조건 지우기">{{ c.label }}<span aria-hidden="true">×</span></a></li>{% endfor %}
+    {% if chips|length > 1 %}<li><a class="ar-chip-all" href="/archive#archive-list" data-clear="all">모두 지우기</a></li>{% endif %}</ul>{% endif %}
   {% if found %}
-  <ul class="ar-list" aria-label="원본 목록">{% for it in found %}
+  <ul class="ar-list" aria-label="원본 목록">
+    <li class="ar-row ar-hrow" aria-hidden="true"><span>형식</span><span>이름</span><span class="ar-tags"><span class="ar-c">사업</span><span class="ar-c">연도</span><span class="ar-c">종류</span><span class="ar-c">상태</span></span><span class="ar-size">크기</span><span>동작</span></li>
+    {% for it in found %}
     <li class="ar-row">
       <span class="ar-ext" data-ext="{{ it.ext }}">{{ it.ext_label }}</span>
       <div class="ar-main">
         <span class="ar-name" title="{{ it.title }}">{{ it.title }}</span>
         {% if it.short_path %}<details class="ar-where"><summary>{{ it.short_path }}</summary><code>{{ it.path }}</code></details>{% endif %}
-        <span class="ar-tags">
-          <span class="ar-tag">{{ it.program_label }}</span>{% if it.by_folder %}<span class="ar-tag folder" title="파일 이름에 사업 이름이 없어 폴더 위치로 정한 분류입니다">폴더 기준</span>{% endif %}
-          {% if it.show_round %}<span class="ar-tag">{{ it.round }}차년도</span>{% endif %}{% if it.show_year %}<span class="ar-tag"{% if it.year_from_round %} title="연차를 사업 기간으로 환산한 사업 연도"{% endif %}>{{ it.year }}년{% if it.year_from_round %}(사업 연도){% endif %}</span>{% endif %}
-          <span class="ar-tag">{{ it.kind_label }}</span>
-          <span class="ar-tag state-{{ it.state }}"{% if it.why %} title="{{ it.why }}"{% endif %}>{{ it.state_label }}{% if it.why and it.state == 'excluded' %} · {{ it.why }}{% endif %}</span>
-        </span>
       </div>
+      <span class="ar-tags">
+        <span class="ar-c ar-c-prog"><span class="ar-tag">{{ it.program_label }}</span>{% if it.by_folder %}<span class="ar-tag folder" title="파일 이름에 사업 이름이 없어 폴더 위치로 정한 분류입니다">폴더 기준</span>{% endif %}</span>
+        <span class="ar-c ar-c-year">{% if it.show_year %}<span class="ar-tag"{% if it.year_from_round %} title="연차를 사업 기간으로 환산한 사업 연도"{% endif %}>{{ it.year }}년{% if it.year_from_round %}(사업 연도){% endif %}</span>{% endif %}{% if it.show_round %}<span class="ar-tag">{{ it.round }}차년도</span>{% endif %}{% if not it.show_year and not it.show_round %}<span class="ar-dash" aria-hidden="true">–</span>{% endif %}</span>
+        <span class="ar-c ar-c-kind"><span class="ar-tag">{{ it.kind_label }}</span></span>
+        <span class="ar-c ar-c-state"><span class="ar-tag state-{{ it.state }}"{% if it.why %} title="{{ it.why }}"{% endif %}>{{ it.state_label }}{% if it.why and it.state == 'excluded' %} · {{ it.why }}{% endif %}</span></span>
+      </span>
       <span class="ar-size">{{ it.size_label }}</span>
       <div class="ar-btns" role="group" aria-label="{{ it.title }}">
         {% if it.can_open %}<a class="btn" href="/archive/original?rel={{ it.rel|urlencode }}" target="_blank" rel="noopener">원본 열기</a>{% else %}<span class="ar-locked" title="등록되지 않은 원본은 개발자 확인 뒤 열 수 있습니다">열람 권한 필요</span>{% endif %}
@@ -86,3 +106,4 @@
   </nav>{% endif %}
   {% else %}<p class="ar-empty">조건에 맞는 원본이 없습니다. 조건을 하나씩 지워 보세요.</p>{% endif %}
 </div></section>
+{% endif %}

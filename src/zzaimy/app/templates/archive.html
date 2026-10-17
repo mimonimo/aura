@@ -10,40 +10,71 @@
 .ar-summary dd{margin:6px 0 0;font-size:27px;font-weight:650;font-variant-numeric:tabular-nums}
 .ar-summary small{font-size:14px;font-weight:500;margin-left:2px}
 .ar-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.ar-head h2,.ar-h{margin:0}.ar-h{font-size:15px;margin:18px 0 8px}.ar-note{margin:8px 0 0}.ar-muted{color:var(--muted);font-size:13px}
-.ar-grid{width:100%;border-collapse:collapse;font-size:13px}
-.ar-grid th,.ar-grid td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
-.ar-grid th{font-size:12px;color:var(--muted);font-weight:600}.ar-grid .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;width:90px}
-.ar-grid a{text-decoration:none}.ar-grid td>a:hover{text-decoration:underline}
-.ar-sub{display:block;color:var(--muted);font-size:12px;margin-top:3px}
-.ar-acts-cell{width:300px}.ar-acts{display:grid;grid-template-columns:88px 104px 84px;gap:6px}.ar-acts .btn{width:100%;box-sizing:border-box}.ar-graph{display:inline-flex;align-items:center;justify-content:center;gap:4px}
-.ar-rest{margin-top:8px}.ar-rest summary{list-style:none;display:flex;align-items:center;gap:8px;width:max-content;max-width:100%;cursor:pointer;font-size:13px;font-weight:600;color:var(--navy);padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
-.ar-rest summary::-webkit-details-marker{display:none}.ar-rest summary:hover{background:#F3F6FB}.ar-rest-n{font-weight:400;color:var(--muted)}
-.ar-rest summary iconify-icon{transition:transform .15s ease}.ar-rest[open] summary iconify-icon{transform:rotate(180deg)}
-.ar-rest-close{display:none}.ar-rest[open] .ar-rest-close{display:inline}.ar-rest[open] .ar-rest-open{display:none}
-.ar-rest + .ar-h, #archive-browse .ar-facets + .ar-h, #archive-browse .ar-note + .ar-h{margin-top:24px}
-.ar-crumb{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--muted)}.ar-crumb a{text-decoration:none}
-.ar-crumb a:hover{text-decoration:underline}.ar-crumb>:last-child{color:var(--ink);font-weight:600}
-.ar-facets{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
-.ar-facet{display:inline-flex;align-items:center;gap:8px;min-height:30px;padding:3px 12px;border:1px solid var(--line);border-radius:15px;font-size:12.5px;text-decoration:none;color:inherit;background:#fff}
-.ar-facet span{color:var(--muted);font-variant-numeric:tabular-nums}.ar-facet:hover{background:var(--panel)}
-.ar-facet.on{background:#1B3B75;border-color:#1B3B75;color:#fff;font-weight:600}.ar-facet.on span{color:#D6E2F3}
-.ar-facet.on::after{content:'×';margin-left:2px;font-size:14px;line-height:1;opacity:.85}.ar-facet.on:hover{background:#16305F}
-.ar-facet:focus-visible{outline:2px solid #497BFB;outline-offset:2px}
-.ar-form{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1.6fr) repeat(2,minmax(0,1fr));gap:12px;align-items:end;margin:14px 0 10px}
-.ar-more{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:12px;align-items:end}
+.ar-head h2,.ar-h{margin:0}.ar-h{font-size:15px}.ar-note{margin:8px 0 0}.ar-muted{color:var(--muted);font-size:13px;margin:0}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+/* 두 칸 — 왼쪽 분류(라이브러리 「사업별로 보기」와 같은 꼴), 오른쪽 찾기와 원본 목록 */
+.ar-layout{display:grid;grid-template-columns:270px minmax(0,1fr);gap:16px;align-items:start}
+.ar-rail{position:sticky;top:72px;max-height:calc(100vh - 96px);overflow:auto;box-sizing:border-box;border:1px solid var(--line);border-radius:14px;background:#fff;padding:12px}
+.ar-rail-h{font-size:13px;margin:0 2px 8px;font-weight:700}
+.ar-find{width:100%;box-sizing:border-box;height:32px;padding:5px 9px;border:1px solid var(--line);border-radius:8px;font-size:12.5px;margin-bottom:8px}
+.ar-tree{display:flex;flex-direction:column;gap:1px;max-height:min(52vh,560px);overflow:auto}
+.ar-ri{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:7px 9px;border-radius:8px;color:var(--ink);text-decoration:none;font-size:12.5px;line-height:1.4;overflow-wrap:anywhere}
+.ar-ri span{color:var(--muted);font-size:12px;font-weight:400;font-variant-numeric:tabular-nums}
+.ar-ri:hover{background:#F3F6FB}.ar-ri:focus-visible{outline:2px solid #497BFB;outline-offset:1px}
+.ar-ri.on{background:#EAF0FA;color:var(--navy);font-weight:700}
+.ar-ri.top{font-weight:600}.ar-ri.top.on{font-weight:700}
+.ar-ri.l3{padding-left:20px}.ar-ri.l3.flat{padding-left:14px}
+.ar-ri.fixed{color:#53647B;margin-top:6px}
+.ar-ri[hidden],.ar-l2[hidden],.ar-l1[hidden]{display:none}
+.ar-l1{margin-top:6px}
+.ar-l1-h{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:6px;width:100%;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:12.5px;color:var(--ink);background:#F6F8FB}
+.ar-l1-h b{flex:1;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ar-l1-h small{color:var(--muted);font-variant-numeric:tabular-nums}
+.ar-l1-h:hover{background:#EEF3FA}.ar-l1-h:focus-visible{outline:2px solid #607C9E;outline-offset:1px}
+.ar-fold{font-style:normal;font-size:11px;color:var(--faint)}
+.ar-l1[data-open="1"] .ar-fold::after{content:"접기"}.ar-l1[data-open="0"] .ar-fold::after{content:"펼치기"}
+.ar-l1[data-open="0"] .ar-l1-body{display:none}
+.ar-l1.unknown .ar-l1-h b{font-weight:600;color:#53647B}
+.ar-l2{display:flex;gap:8px;padding:8px 9px 3px 12px;font-size:11.5px;font-weight:600;color:#53647B}
+.ar-l2 span{flex:1;min-width:0;line-height:1.4}.ar-l2 small{color:var(--faint);font-weight:400}
+.ar-rh{font-size:12px;color:var(--muted);font-weight:600;margin:14px 2px 6px;padding-top:12px;border-top:1px solid var(--line)}
+.ar-facets{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:1px}
+.ar-pad{padding:0 9px;font-size:12px}
+.ar-body{min-width:0}
+#archive-browse[aria-busy=true],#archive-list[aria-busy=true]{opacity:.55;transition:opacity .15s}
+/* 찾기 */
+.ar-form{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.4fr);gap:12px;align-items:end;margin:0 0 10px}
+.ar-more{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto auto;gap:12px;align-items:end}
 .ar-form label,.ar-more label{display:grid;gap:6px;font-size:12px;color:var(--muted);min-width:0}
-.ar-form input,.ar-form select,.ar-more select{width:100%;min-width:0;height:36px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:inherit;box-sizing:border-box}
-.ar-head .btn,.ar-more .btn,.ar-grid .btn,.ar-btns .btn,.ar-pager .btn{min-height:32px;padding:6px 12px;font-size:12px;white-space:nowrap;border-radius:8px}
-.ar-resbar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin:0 0 10px}.ar-resbar .ar-h{margin:0}
+.ar-form input,.ar-more select{width:100%;min-width:0;height:36px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:inherit;box-sizing:border-box}
+.ar-head .btn,.ar-more .btn,.ar-btns .btn,.ar-pager .btn,.ar-pick .btn{min-height:32px;padding:6px 12px;font-size:12px;white-space:nowrap;border-radius:8px}
+/* 고른 사업 */
+.ar-choose{margin:0 0 14px}.ar-choose .ar-h{margin:0 0 8px}
+.ar-cands{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.ar-cand{display:inline-flex;align-items:center;gap:8px;min-height:30px;padding:3px 12px;border:1px solid var(--line);border-radius:15px;font-size:12.5px;color:inherit;background:#fff;text-decoration:none}
+.ar-cand span{color:var(--muted);font-variant-numeric:tabular-nums}.ar-cand:hover{background:var(--panel)}
+.ar-pick{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 16px;padding:0 0 14px;border-bottom:1px solid var(--line)}
+.ar-pick-main{min-width:0}.ar-pick-k{margin:0 0 2px;font-size:12px;color:var(--muted)}
+.ar-pick h2{margin:0 0 4px;font-size:17px;overflow-wrap:anywhere}
+.ar-pick-acts{display:flex;gap:6px;flex-wrap:wrap}.ar-graph{display:inline-flex;align-items:center;justify-content:center;gap:4px}
+/* 목록 머리 */
+.ar-resbar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin:0 0 10px}
 .ar-count{margin:0;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}.ar-count strong{color:var(--ink)}
-.ar-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
+.ar-views{display:inline-flex;margin-left:auto;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.ar-views a{display:inline-flex;align-items:center;min-height:30px;padding:0 14px;font-size:12.5px;color:var(--ink);text-decoration:none;background:#fff}
+.ar-views a+a{border-left:1px solid var(--line)}.ar-views a:hover{background:#F3F6FB}
+.ar-views a[aria-pressed=true]{background:#1B3B75;color:#fff;font-weight:600}
+.ar-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;padding:0;list-style:none}
 .ar-chip,.ar-chip-all{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:3px 10px;border-radius:14px;font-size:12px;text-decoration:none}
 .ar-chip{background:#EDF3FA;color:#294B73;border:1px solid #C8D7E8}.ar-chip span{font-size:14px;line-height:1}
 .ar-chip:hover{background:#E1EBF7}.ar-chip-all{color:var(--muted)}.ar-chip-all:hover{text-decoration:underline}
-.ar-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
-.ar-row{display:grid;grid-template-columns:52px minmax(0,1fr) 84px auto;gap:6px 14px;align-items:center;padding:12px 4px;border-bottom:1px solid var(--line)}
-.ar-row:hover{background:#FAFBFD}
+/* 원본 목록 — 같은 줄을 보기 방식에 따라 표(목록)나 카드로 그린다 */
+.ar-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line);container-type:inline-size}
+.ar-row{display:grid;align-items:center;gap:6px 14px;padding:12px 4px;border-bottom:1px solid var(--line);
+  grid-template-columns:52px minmax(0,1fr) 84px auto;grid-template-areas:"ext main size btns" "ext tags size btns"}
+.ar-row:not(.ar-hrow):hover{background:#FAFBFD}
+.ar-row>.ar-ext{grid-area:ext}.ar-row>.ar-main{grid-area:main}.ar-row>.ar-tags{grid-area:tags}.ar-row>.ar-size{grid-area:size}.ar-row>.ar-btns{grid-area:btns}
+.ar-hrow{display:none}
 .ar-ext{display:inline-flex;align-items:center;justify-content:center;height:24px;border-radius:6px;background:#EEF1F5;color:#4A5568;font-size:10.5px;font-weight:700;letter-spacing:.02em}
 .ar-ext[data-ext=pdf]{background:#FDECEC;color:#9B2C2C}.ar-ext[data-ext=hwp],.ar-ext[data-ext=hwpx]{background:#E8EFFC;color:#1B3B75}
 .ar-ext:is([data-ext=xls],[data-ext=xlsx],[data-ext=csv]){background:#E5F3EA;color:#22663F}.ar-ext:is([data-ext=doc],[data-ext=docx]){background:#E6F0FB;color:#2459A6}
@@ -54,7 +85,7 @@
 .ar-where summary{cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;list-style:none}
 .ar-where summary::-webkit-details-marker{display:none}.ar-where summary:hover{color:var(--navy)}
 .ar-where code{display:block;margin:4px 0 2px;padding:6px 8px;border-radius:6px;background:var(--panel);font-size:11.5px;overflow-wrap:anywhere;white-space:normal}
-.ar-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
+.ar-tags{display:flex;flex-wrap:wrap;gap:4px;min-width:0}.ar-c{display:contents}.ar-dash{display:none}
 .ar-tag{display:inline-block;padding:1px 8px;border-radius:10px;background:#F1F3F6;color:#4F5966;font-size:11.5px;line-height:1.6}
 .ar-tag.folder{background:#fff;border:1px dashed #AABFD8;padding:0 7px}
 .ar-tag.state-registered{background:#E5F3EA;color:#22663F}.ar-tag.state-failed{background:#FDECEC;color:#9B2C2C}
@@ -62,19 +93,39 @@
 .ar-size{font-size:12px;color:var(--muted);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ar-btns{display:grid;grid-template-columns:repeat(2,112px);gap:6px;align-items:center}.ar-btns .btn,.ar-btns .ar-locked{width:100%;justify-content:center;text-align:center;box-sizing:border-box}
 .ar-locked{display:inline-flex;align-items:center;justify-content:center;min-height:32px;padding:0 10px;border:1px dashed var(--line);border-radius:8px;font-size:12px;color:var(--muted);white-space:nowrap}
+/* 「목록」 — 형식 | 이름 | 사업 | 연도 | 종류 | 상태 | 크기 | 동작 */
+@container (min-width:720px){
+ .ar-layout[data-view=table] .ar-row{grid-template-areas:none;grid-template-columns:44px minmax(0,1.6fr) minmax(0,1fr) 64px 80px 84px 60px 172px;gap:8px;padding:8px 4px;font-size:12.5px}
+ .ar-layout[data-view=table] .ar-row>*{grid-area:auto}
+ .ar-layout[data-view=table] .ar-hrow{display:grid;padding:6px 4px;font-size:11.5px;font-weight:600;color:var(--muted);background:var(--panel)}
+ .ar-layout[data-view=table] .ar-tags{display:contents}
+ .ar-layout[data-view=table] .ar-c{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0}
+ .ar-layout[data-view=table] .ar-c .ar-tag{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-sizing:border-box}
+ .ar-layout[data-view=table] :is(.ar-c-prog,.ar-c-year,.ar-c-kind) .ar-tag:not(.folder){background:none;padding:0;color:var(--ink);font-size:12.5px}
+ .ar-layout[data-view=table] .ar-c .ar-tag.folder{font-size:11px;color:var(--muted)}
+ .ar-layout[data-view=table] .ar-dash{display:inline;color:var(--faint)}
+ .ar-layout[data-view=table] .ar-hrow .ar-c{display:block}
+ .ar-layout[data-view=table] .ar-name{font-size:13px}
+ .ar-layout[data-view=table] .ar-btns{grid-template-columns:62px 104px;gap:4px}
+ .ar-layout[data-view=table] .ar-btns .btn,.ar-layout[data-view=table] .ar-locked{min-height:28px;padding:3px 6px;font-size:11.5px}
+ .ar-layout[data-view=table] .ar-locked{white-space:normal;line-height:1.2}
+}
+@container (max-width:719px){                /* 좁은 폭의 「목록」은 꼬리표 바탕을 빼 촘촘하게 */
+ .ar-layout[data-view=table] .ar-row{padding:9px 4px;gap:4px 12px}
+ .ar-layout[data-view=table] .ar-tag:not([class*=state-]):not(.folder){background:none;padding:0 6px 0 0;color:var(--muted)}
+}
+@container (max-width:600px){
+ .ar-row{grid-template-columns:44px minmax(0,1fr);grid-template-areas:"ext main" "ext tags" "ext size" "btns btns";align-items:start}
+ .ar-size{text-align:left}
+ .ar-btns{display:flex;justify-content:flex-start;flex-wrap:wrap}.ar-slot{display:none}.ar-btns .btn,.ar-locked{flex:1 1 0;min-height:40px}
+}
 .ar-pager{display:flex;align-items:center;justify-content:center;gap:12px;margin:14px 0 4px;font-size:13px;color:var(--muted)}
-#arResults[aria-busy=true]{opacity:.55;transition:opacity .15s}
 .ar-empty{padding:32px 16px;text-align:center;background:var(--bg,#f7f8fa);border-radius:10px;color:var(--muted)}
-.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
-@media(max-width:960px){.ar-form{grid-template-columns:repeat(2,minmax(0,1fr))}.ar-more{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:760px){.ar-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.ar-summary dd{font-size:23px}.ar-form{grid-template-columns:1fr}
- .ar-grid thead{display:none}.ar-grid,.ar-grid tbody{display:block}
- .ar-grid tr{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:4px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
- .ar-grid td{padding:0;border:0;min-width:0;overflow-wrap:anywhere}.ar-grid .num{width:auto}
- .ar-grid .num::before{content:attr(data-label) " ";color:var(--muted);font-size:11px}
- .ar-acts-cell{grid-column:1/-1;width:auto}.ar-acts{display:flex;flex-wrap:wrap;gap:6px}.ar-acts .btn{width:auto;flex:1 1 120px}
- .ar-row{grid-template-columns:44px minmax(0,1fr);align-items:start}.ar-size{grid-column:2;text-align:left}
- .ar-btns{grid-column:1/-1;display:flex;justify-content:flex-start;flex-wrap:wrap}.ar-slot{display:none}.ar-btns .btn,.ar-locked{flex:1 1 0;min-height:40px}}
+@media(max-width:1100px){.ar-more{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:900px){.ar-layout{grid-template-columns:1fr}.ar-rail{position:static;max-height:none;overflow:visible}.ar-tree{max-height:280px}}
+@media(max-width:760px){.ar-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.ar-summary dd{font-size:23px}.ar-form{grid-template-columns:1fr}.ar-more{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .ar-rail .ar-facets{flex-direction:row;flex-wrap:wrap;gap:4px}.ar-rail .ar-facets .ar-ri{border:1px solid var(--line);padding:4px 10px;border-radius:14px}
+ .ar-views{margin-left:0}}
 </style>
 <section class="card"><div class="card-in">
   <div class="ar-head"><h2>원본 보관소</h2></div>
@@ -86,22 +137,27 @@
   <p class="ar-note">원본 파일 기준 건수입니다. 「문서 연결됨」은 라이브러리 문서와 이어진 원본 파일 수로, 한 문서에 원본이 여럿일 수 있어 라이브러리 문서 수와 다릅니다.</p>
 </div></section>
 {% if request.state.role == 'dev' %}
-{# 정리 — 처리하지 않는 원본(사진·압축·범위 밖·중복·크기 초과). 정리함은 보관소에서만 빼는 표시이고 되돌릴 수 있다. 실제 삭제는 따로 #}
+{# 정리 — 처리하지 않는 원본(사진·압축·범위 밖·중복·크기 초과). 관리 도구라 접어 두고 「펼치기」로 연다. 정리함은 보관소에서만 빼는 표시이고 되돌릴 수 있다. 실제 삭제는 따로 #}
 <section class="card" id="archive-cleanup"><div class="card-in">
-  <div class="ac-head"><h2>정리</h2><span class="ar-note" id="acSum">불러오는 중…</span></div>
+  <div class="ac-head"><h2>정리</h2><span class="ar-note" id="acSum">불러오는 중…</span>
+    <button type="button" class="btn secondary ac-fold" id="acFold" aria-expanded="false" aria-controls="acBody">펼치기</button></div>
+  <div id="acBody" hidden>
   <p class="ar-note" style="margin-top:4px;">검색·답변에 쓰지 않는 원본입니다. 「정리함으로」 옮기면 보관소 목록과 건수에서 빠지고 언제든 되돌릴 수 있습니다. 원본 파일은 원본 저장소에 그대로 있으며, 실제 삭제는 정리함을 확인한 뒤 따로 합니다.</p>
   <table class="ac-table"><thead><tr><th>갈래</th><th class="num">남은 원본</th><th class="num">용량</th><th class="num">정리함</th><th></th></tr></thead><tbody id="acRows"></tbody></table>
   <div class="ac-sample" id="acSample" hidden></div>
   <p class="ar-note" role="status" id="acStatus"></p>
+  </div>
 </div></section>
 <style>
-.ac-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.ac-head h2{margin:0}
+.ac-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.ac-head h2{margin:0}.ac-head .ar-note{margin:0}
+.ac-fold{margin-left:auto;min-height:30px;padding:3px 12px;font-size:12px}
 .ac-table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}.ac-table th{font-size:12px;color:var(--muted);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 .ac-table td{padding:8px;border-bottom:1px solid #EEF1F5;vertical-align:middle}.ac-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .ac-table td small{display:block;color:var(--muted);font-size:11.5px;margin-top:2px}
 .ac-acts{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}.ac-acts .btn{min-height:30px;padding:3px 10px;font-size:12px}
 .ac-sample{margin-top:10px;padding:10px 12px;border-radius:8px;background:#F5F7FB;font-size:12px;max-height:220px;overflow:auto}
 .ac-sample code{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;color:#3B4A5E}
+@media(max-width:760px){.ac-table{display:block;overflow-x:auto}}
 </style>
 <script>
 (() => {
@@ -141,35 +197,106 @@
       paint(d);
     } catch (err) { $('acStatus').textContent = err.message; b.disabled = false; }
   });
+  const fold = $('acFold');
+  if (fold) fold.addEventListener('click', () => {
+    const open = fold.getAttribute('aria-expanded') !== 'true';
+    fold.setAttribute('aria-expanded', open ? 'true' : 'false');
+    fold.textContent = open ? '접기' : '펼치기';
+    $('acBody').hidden = !open;
+  });
   load();
 })();
 </script>
 {% endif %}
-<section class="card" id="archive-search"><div class="card-in">
-  <form id="arForm" method="get" action="/archive#archive-list" role="search" aria-label="원본 찾기">
-    <div class="ar-form">
-      <label>검색<input name="q" value="{{ f.q }}" placeholder="파일 이름이나 폴더, 여러 낱말 가능" type="search" autocomplete="off"></label>
-      <label>사업<input name="program" value="{{ program_label if f.program else '' }}" list="arPrograms" placeholder="사업 이름 일부" type="search" autocomplete="off"></label>
-      <datalist id="arPrograms">{% for name, key, n in program_names %}<option value="{{ name }}" data-key="{{ key }}" label="{{ "{:,}".format(n) }}건"></option>{% endfor %}<option value="{{ no_program }}" data-key="{{ nokey }}"></option></datalist>
-      <label>문서 종류<select name="kind"><option value="">전체</option>{% for k in overall.kinds %}<option value="{{ k.value }}" {{ 'selected' if k.value == f.kind }}>{{ k.label }}</option>{% endfor %}</select></label>
-      <label>처리 상태<select name="state"><option value="">전체</option>{% for k, label in states.items() %}<option value="{{ k }}" {{ 'selected' if k == f.state }}>{{ label }}</option>{% endfor %}</select></label>
-    </div>
-    <div class="ar-more">
-      <label>사업 연도<select name="year"><option value="">전체</option>{% for y in overall.years if y.year and y.year != nokey %}<option value="{{ y.year }}" {{ 'selected' if y.year == f.year }}>{{ y.year }}년</option>{% endfor %}{% if overall.years|selectattr('year', 'equalto', nokey)|list %}<option value="{{ nokey }}" {{ 'selected' if f.year == nokey }}>연도 미상</option>{% endif %}</select></label>
-      <label>형식<select name="ext"><option value="">전체</option>{% for e in exts %}<option value="{{ e.value }}" {{ 'selected' if e.value == f.ext }}>{{ e.label }}</option>{% endfor %}</select></label>
-      <label>정렬<select name="sort">{% for k, s in sorts.items() %}<option value="{{ k }}" {{ 'selected' if k == f.sort }}>{{ s[0] }}</option>{% endfor %}</select></label>
-      <input type="hidden" name="round" value="{{ f.round }}">
-      <span>{% if active %}<a class="btn secondary" href="/archive">조건 지우기</a>{% endif %}</span>
-      <button class="btn" type="submit" data-nojs>찾기</button>
-    </div>
-  </form>
-</div></section>
-<div id="arResults" aria-live="polite">{% include "_archive_results.html" %}</div>
-<p class="ar-note">「원본 열기」는 원본 파일을 엽니다(최대 100 MB). 열어 보는 것만으로 문서 등록이나 분석이 시작되지는 않습니다.</p>
+<div class="ar-layout" id="arLayout" data-view="{{ f.view }}">
+<script>
+(() => {                                        // 보기 방식 — 주소의 view= 가 먼저, 없으면 이 브라우저에 남긴 선택(그리기 전에 정해 깜빡임을 줄인다)
+  const el = document.currentScript.parentElement;
+  let v = new URLSearchParams(location.search).get('view');
+  if (!v) { try { v = localStorage.getItem('aura.archive.view'); } catch (e) { v = null; } }
+  if (v === 'table' || v === 'card') el.dataset.view = v;
+})();
+</script>
+  <aside class="ar-rail" aria-label="분류별로 보기">
+    <p class="ar-rail-h">사업별로 보기</p>
+    <input type="search" class="ar-find" id="arFind" placeholder="사업 이름 거르기" aria-label="사업 이름 거르기" autocomplete="off">
+    {% set part = 'rail' %}{% include "_archive_results.html" %}
+  </aside>
+  <div class="ar-body">
+    <section class="card" id="archive-search"><div class="card-in">
+      <form id="arForm" method="get" action="/archive#archive-list" role="search" aria-label="원본 찾기">
+        <div class="ar-form">
+          <label>검색<input name="q" value="{{ f.q }}" placeholder="파일 이름이나 폴더, 여러 낱말 가능" type="search" autocomplete="off"></label>
+          <label>사업<input name="program" value="{{ program_label if f.program else '' }}" list="arPrograms" placeholder="사업 이름 일부" type="search" autocomplete="off"></label>
+          <datalist id="arPrograms">{% for name, key, n in program_names %}<option value="{{ name }}" data-key="{{ key }}" label="{{ "{:,}".format(n) }}건"></option>{% endfor %}<option value="{{ no_program }}" data-key="{{ nokey }}"></option></datalist>
+        </div>
+        <div class="ar-more">
+          <label>사업 연도<select name="year"><option value="">전체</option>{% for y in overall.years if y.year and y.year != nokey %}<option value="{{ y.year }}" {{ 'selected' if y.year == f.year }}>{{ y.year }}년</option>{% endfor %}{% if overall.years|selectattr('year', 'equalto', nokey)|list %}<option value="{{ nokey }}" {{ 'selected' if f.year == nokey }}>연도 미상</option>{% endif %}</select></label>
+          <label>형식<select name="ext"><option value="">전체</option>{% for e in exts %}<option value="{{ e.value }}" {{ 'selected' if e.value == f.ext }}>{{ e.label }}</option>{% endfor %}</select></label>
+          <label>정렬<select name="sort">{% for k, s in sorts.items() %}<option value="{{ k }}" {{ 'selected' if k == f.sort }}>{{ s[0] }}</option>{% endfor %}</select></label>
+          <input type="hidden" name="kind" value="{{ f.kind }}"><input type="hidden" name="state" value="{{ f.state }}">
+          <input type="hidden" name="round" value="{{ f.round }}"><input type="hidden" name="view" value="{{ '' if f.view == 'table' else f.view }}">
+          <span>{% if active %}<a class="btn secondary" href="/archive">조건 지우기</a>{% endif %}</span>
+          <button class="btn" type="submit" data-nojs>찾기</button>
+        </div>
+      </form>
+    </div></section>
+    <div id="arResults" aria-live="polite">{% set part = 'list' %}{% include "_archive_results.html" %}</div>
+    <p class="ar-note">「원본 열기」는 원본 파일을 엽니다(최대 100 MB). 열어 보는 것만으로 문서 등록이나 분석이 시작되지는 않습니다.</p>
+  </div>
+</div>
 <script>
 (() => {
-  const form = document.getElementById('arForm'), box = document.getElementById('arResults');
-  if (!form || !box || !window.fetch) return;
+  const layout = document.getElementById('arLayout'), form = document.getElementById('arForm'), find = document.getElementById('arFind');
+  if (!layout || !form) return;
+  const KEY = 'aura.archive.view', folds = {};
+  const $ = id => document.getElementById(id);
+  // 보기 방식 — 「목록」(기본)·「카드」. 고른 것은 이 브라우저에 남기고 주소에도 적는다
+  const syncView = () => {
+    layout.querySelectorAll('[data-view-pick]').forEach(b => b.setAttribute('aria-pressed', b.dataset.viewPick === layout.dataset.view ? 'true' : 'false'));
+    form.elements.view.value = layout.dataset.view === 'card' ? 'card' : '';
+  };
+  const setView = v => {
+    layout.dataset.view = v === 'card' ? 'card' : 'table';
+    try { localStorage.setItem(KEY, layout.dataset.view); } catch (e) { /* 저장 못 해도 이번 화면에는 적용 */ }
+    syncView();
+    const u = new URL(location.href);
+    if (layout.dataset.view === 'card') u.searchParams.set('view', 'card'); else u.searchParams.delete('view');
+    history.replaceState(null, '', u);
+  };
+  // 사업 목록 — 이름 거르기(고른 사업과 「전체 사업」은 늘 보인다), 대분류 접기·펼치기(다시 그려도 고른 상태를 지킨다)
+  const paintTree = () => {
+    const tree = $('arTree'); if (!tree) return;
+    const t = (find ? find.value : '').replace(/\s+/g, '').toLowerCase();
+    tree.querySelectorAll('.ar-ri[data-name]').forEach(a => {
+      a.hidden = !!t && a.dataset.name.replace(/\s+/g, '').indexOf(t) < 0 && !a.classList.contains('on');
+    });
+    tree.querySelectorAll('[data-l1]').forEach(sec => {
+      let any = false, l2 = null, l2any = false;
+      sec.querySelectorAll('.ar-l1-body > *').forEach(x => {
+        if (x.hasAttribute('data-l2')) { if (l2) l2.hidden = !l2any; l2 = x; l2any = false; return; }
+        if (!x.hidden) { any = true; l2any = true; }
+      });
+      if (l2) l2.hidden = !l2any;
+      sec.hidden = !any;
+      const open = t ? '1' : (folds[sec.dataset.l1] || sec.dataset.open);
+      sec.dataset.open = open;
+      sec.querySelector('.ar-l1-h').setAttribute('aria-expanded', open === '1' ? 'true' : 'false');
+    });
+  };
+  if (find) find.addEventListener('input', paintTree);
+  syncView(); paintTree();
+  layout.addEventListener('click', e => {
+    const fold = e.target.closest('.ar-l1-h');
+    if (fold) {
+      const sec = fold.closest('[data-l1]'), open = sec.dataset.open === '1' ? '0' : '1';
+      folds[sec.dataset.l1] = open; sec.dataset.open = open; fold.setAttribute('aria-expanded', open === '1' ? 'true' : 'false');
+      return;
+    }
+    const pick = e.target.closest('[data-view-pick]');
+    if (pick && !(e.ctrlKey || e.metaKey || e.shiftKey)) { e.preventDefault(); setView(pick.dataset.viewPick); }
+  });
+  if (!window.fetch) return;
   form.querySelector('[data-nojs]').hidden = true;
   let timer = 0, ctl = null;
   const query = () => {
@@ -181,7 +308,8 @@
     }
     return p;
   };
-  const run = (page) => {
+  const busy = on => ['archive-browse', 'archive-list'].forEach(id => { const el = $(id); if (el) on ? el.setAttribute('aria-busy', 'true') : el.removeAttribute('aria-busy'); });
+  const run = (page, reveal) => {
     clearTimeout(timer);
     const p = query();
     if (page) p.set('page', page);
@@ -189,25 +317,35 @@
     if (ctl) ctl.abort();
     ctl = new AbortController();
     p.set('partial', '1');
-    box.setAttribute('aria-busy', 'true');
+    busy(true);
     fetch('/archive?' + p, {signal: ctl.signal, credentials: 'same-origin'})
       .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-      .then(html => { box.innerHTML = html; history.replaceState(null, '', url); })
+      .then(html => {                           // 왼쪽 분류와 원본 목록을 함께 바꾼다
+        const t = document.createElement('template');
+        t.innerHTML = html;
+        for (const id of ['archive-browse', 'archive-list']) {
+          const fresh = t.content.getElementById(id), old = $(id);
+          if (fresh && old) old.replaceWith(fresh);
+        }
+        syncView(); paintTree();
+        history.replaceState(null, '', url);
+        if (reveal && matchMedia('(max-width: 900px)').matches) $('archive-list').scrollIntoView({block: 'start'});
+      })
       .catch(e => { if (e.name !== 'AbortError') location.href = url; })
-      .finally(() => box.removeAttribute('aria-busy'));
+      .finally(() => busy(false));
   };
   const setField = (k, v) => { const el = form.elements[k]; if (el) el.value = v; };
   form.addEventListener('submit', e => { e.preventDefault(); run(); });
   form.addEventListener('change', e => { if (e.target.matches('select')) run(); });
   form.addEventListener('input', e => {
     if (!e.target.matches('input')) return;
-    if (e.target.name === 'program') setField('round', '');
+    if (e.target.name === 'program') { setField('round', ''); }
     clearTimeout(timer);
     timer = setTimeout(run, e.inputType === 'insertReplacementText' ? 0 : 350);
   });
-  box.addEventListener('click', e => {
+  layout.addEventListener('click', e => {
     const a = e.target.closest('a');
-    if (!a || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (!a || e.ctrlKey || e.metaKey || e.shiftKey || a.dataset.viewPick) return;
     if (a.dataset.set !== undefined) {
       e.preventDefault();
       for (const [k, v] of new URLSearchParams(a.dataset.set)) {
@@ -216,11 +354,11 @@
           setField(k, opt ? opt.value : v);
         } else setField(k, v);
       }
-      run();
+      run(undefined, !!a.closest('.ar-rail'));
     } else if (a.dataset.clear) {
       e.preventDefault();
       const key = a.dataset.clear;
-      for (const el of form.elements) if (el.name && (key === 'all' || el.name === key) && el.name !== 'sort') el.value = '';
+      for (const el of form.elements) if (el.name && (key === 'all' || el.name === key) && el.name !== 'sort' && el.name !== 'view') el.value = '';
       run();
     } else if (a.rel === 'prev' || a.rel === 'next') {
       e.preventDefault();
