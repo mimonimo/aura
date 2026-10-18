@@ -39,6 +39,12 @@ def redo_by_model(last: dict[str, dict], docs: dict[str, dict], todo: list[str],
     return redo + todo
 
 
+def _save_skipped(path: Path, skipped: dict[str, str]) -> None:
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(skipped, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--parsed", default=str(Path.home() / "parsed"))
@@ -110,6 +116,7 @@ def main() -> int:
             elif not got or not got[0]:
                 n_skip += 1
                 skipped[rel] = _key(d)
+                _save_skipped(skip_path, skipped)          # 도중에 끊겨도 같은 판을 다음 회차가 되풀이하지 않게 바로 적는다
                 continue
             fo.write(json.dumps({"rel": rel, "version": str(d.get("version") or ""), "kind": got[0], "why": got[1],
                                  "rule": d.get("doc_kind") or "", "chars": len((d.get("masked_text") or "").strip()), "pv": kind_read.PROMPT_VER,
@@ -118,9 +125,7 @@ def main() -> int:
             n_ok += 1
             if i % 200 == 0:
                 print(f"  {i}/{len(todo)} · 판정 {n_ok} · 모름·실패 {n_skip} · {time.time() - t0:.0f}초", flush=True)
-    tmp = skip_path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(skipped, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(skip_path)
+    _save_skipped(skip_path, skipped)
     print(f"KIND27B 판정 {n_ok} · 모름·실패 {n_skip} · {time.time() - t0:.0f}초", flush=True)
     return 0
 
