@@ -39,6 +39,63 @@ def redo_by_model(last: dict[str, dict], docs: dict[str, dict], todo: list[str],
     return redo + todo
 
 
+def scan_meta(parsed_dir: str) -> dict[str, dict]:
+    """처리 결과(parsed-*.jsonl)의 판정 대상 목록 — 본문은 담지 않고 rel·판·규칙 갈래·파일 이름·(파일, 위치)만.
+
+    처리 결과는 덧붙여 쓰는 파일이라(VM 기준 14GB) 매 회차 전부 읽으면 1분 주기가 메모리 상한에 걸려 판정 전에 죽는다(10-18).
+    파일마다 어디까지 읽었는지(kind27b-meta.json)를 남겨 새 줄만 읽는다. 파일이 줄었으면 처음부터 다시. 같은 rel 은 파일 이름 순·줄 순으로 뒤의 것이 이긴다(s190.latest 와 같은 규칙).
+    """
+    base = Path(parsed_dir)
+    cache_p = base / "kind27b-meta.json"
+    try:
+        cache = json.loads(cache_p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    for f in sorted(base.glob("parsed-*.jsonl")):
+        c = cache.get(f.name) or {"pos": 0, "rows": {}}
+        size = f.stat().st_size
+        if size < c["pos"]:
+            c = {"pos": 0, "rows": {}}
+        if size > c["pos"]:
+            with f.open("rb") as fh:
+                fh.seek(c["pos"])
+                while True:
+                    at = fh.tell()
+                    line = fh.readline()
+                    if not line or not line.endswith(b"\n"):
+                        break                                  # 쓰는 중인 마지막 줄은 다음 회차에
+                    c["pos"] = fh.tell()
+                    try:
+                        d = json.loads(line)
+                    except ValueError:
+                        continue
+                    if d.get("rel") and d.get("state") == "parsed" and (d.get("masked_text") or "").strip():
+                        c["rows"][d["rel"]] = [at, str(d.get("version") or ""), d.get("doc_kind") or "", d.get("filename") or ""]
+                    elif d.get("rel") in c["rows"]:
+                        c["rows"].pop(d["rel"])
+        cache[f.name] = c
+    tmp = cache_p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(cache_p)
+    out: dict[str, dict] = {}
+    for name in sorted(cache):
+        if not (base / name).is_file():
+            continue
+        for rel, (at, ver, kind, fname) in cache[name]["rows"].items():
+            out[rel] = {"rel": rel, "version": ver, "doc_kind": kind, "filename": fname, "_file": name, "_at": at}
+    return out
+
+
+def load_text(parsed_dir: str, meta: dict) -> dict:
+    """목록 줄 하나의 본문 — 그 파일의 그 위치 한 줄만 읽는다."""
+    with (Path(parsed_dir) / meta["_file"]).open("rb") as fh:
+        fh.seek(meta["_at"])
+        try:
+            return json.loads(fh.readline())
+        except ValueError:
+            return {}
+
+
 def _save_skipped(path: Path, skipped: dict[str, str]) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(skipped, ensure_ascii=False), encoding="utf-8")
@@ -80,7 +137,7 @@ def main() -> int:
         skipped: dict[str, str] = json.loads(skip_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         skipped = {}
-    docs = s190.latest(args.parsed)
+    docs = scan_meta(args.parsed)
     def _key(d: dict) -> str:
         return f"{d.get('version') or ''}|{kind_read.PROMPT_VER}"
     todo = [r for r, d in docs.items() if done.get(r) != str(d.get("version") or "") and skipped.get(r) != _key(d)]
@@ -108,7 +165,7 @@ def main() -> int:
         for i, rel in enumerate(todo, 1):
             if args.max_sec and time.time() - t0 > args.max_sec:
                 break
-            d = docs[rel]
+            d = {**docs[rel], **load_text(args.parsed, docs[rel])}
             got = kind_read.judge(complete, Path(d.get("filename") or rel).stem, d.get("masked_text") or "", str(Path(rel).parent))
             prev = last.get(rel, {}).get("kind")
             if got and not got[0] and prev in excluded:                 # 앞 판정이 빠지는 갈래였는데 이제 모름 — 갈래를 비우라고 적는다

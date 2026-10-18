@@ -19,7 +19,7 @@ def _load():
 def test_skips_judged_anywhere_and_remembers_failures(tmp_path, monkeypatch):
     m = _load()
     rows = [{"rel": f"a/{n}.hwp", "state": "parsed", "masked_text": "본문", "version": "v1", "filename": f"{n}.hwp"} for n in ("old", "new", "bad")]
-    (tmp_path / "parsed-0.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), encoding="utf-8")
+    (tmp_path / "parsed-0.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
     # DGX 일괄 판정 파일에 이미 있는 판
     (tmp_path / "kind27b-0.jsonl").write_text(json.dumps({"rel": "a/old.hwp", "version": "v1", "kind": "plan"}) + "\n", encoding="utf-8")
     seen: list[str] = []
@@ -39,3 +39,16 @@ def test_skips_judged_anywhere_and_remembers_failures(tmp_path, monkeypatch):
     seen.clear()
     assert m.main() == 0
     assert seen == []
+
+
+def test_meta_scan_reads_only_new_lines(tmp_path):
+    m = _load()
+    f = tmp_path / "parsed-0.jsonl"
+    f.write_text(json.dumps({"rel": "a", "state": "parsed", "masked_text": "본문 a", "version": "1"}) + "\n", encoding="utf-8")
+    first = m.scan_meta(str(tmp_path))
+    assert set(first) == {"a"} and m.load_text(str(tmp_path), first["a"])["masked_text"] == "본문 a"
+    with f.open("a", encoding="utf-8") as fh:            # 새 줄 + 쓰는 중인 줄(줄바꿈 없음)
+        fh.write(json.dumps({"rel": "b", "state": "parsed", "masked_text": "본문 b", "version": "1"}) + "\n")
+        fh.write('{"rel": "c", "state": "par')
+    again = m.scan_meta(str(tmp_path))
+    assert set(again) == {"a", "b"} and m.load_text(str(tmp_path), again["b"])["masked_text"] == "본문 b"
