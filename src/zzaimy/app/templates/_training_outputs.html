@@ -54,6 +54,7 @@
             <span class="muted">{{ t.summary }}{% if t.tracks %} · {% for k, v in t.tracks.items() %}{{ k }} {{ '{:,}'.format(v) }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
               {% if t.training_started is sameas false %} · 학습 시작 전{% elif t.training_started %} · 학습 진행{% endif %} · {{ t.at }}</span>
             {% if t.required %}<span class="muted trainset-req">학습 전 남은 일: {{ t.required | join(', ') }}</span>{% endif %}
+            {% if t.hold_reason %}<span class="trainset-req" style="color:#9A4A07;">보류 사유: {{ t.hold_reason }}</span>{% endif %}
           </li>{% endfor %}</ul>
           <p class="output-note">DGX 학습 폴더의 목록(설명 정보만)을 {{ g.sets[0].fetched_at }}에 받았습니다. DGX 주기 처리(30분)마다 새로 받습니다.</p>{% endif %}
         {% if g.files %}<div class="training-files">{% for f in g.files %}<a href="/dev/train/export/file?path={{ f.path | urlencode }}" aria-label="{{ f.path.rsplit('/', 1)[-1] }} 다운로드"><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon><span>{{ f.path.rsplit('/', 1)[-1] }}</span></a>{% endfor %}</div>{% endif %}

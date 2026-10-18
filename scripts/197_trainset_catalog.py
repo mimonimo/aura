@@ -15,7 +15,7 @@ import os
 import time
 from pathlib import Path
 
-KEEP = ("status", "scope", "meaning", "model", "measured_at", "seq_len", "required_before_training", "training_started")
+KEEP = ("status", "scope", "meaning", "model", "measured_at", "seq_len", "required_before_training", "training_started", "hold_reason")
 
 
 def _read(p: Path) -> dict:

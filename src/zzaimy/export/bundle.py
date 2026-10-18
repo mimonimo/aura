@@ -43,7 +43,7 @@ def _git_commit() -> str:
 
 TRAINSETS = Path("data/inbox/parsed/trainsets.json")
 _STATUS = {"sft_approved": "SFT 승인", "approved_for_sft": "학습 전 측정 승인", "candidate_not_sft_approved": "후보(승인 전)",
-           "baseline_responses_unjudged": "측정 채점 전"}
+           "baseline_responses_unjudged": "측정 채점 전", "quality_review_pending": "보류 — 품질 검토 대기"}
 _SPLIT = {"train": "학습", "eval": "검증", "test": "시험"}
 
 
@@ -70,7 +70,8 @@ def trainsets(path: Path | str | None = None) -> list[dict]:
                     "status": it.get("status"), "status_label": _STATUS.get(str(it.get("status")), str(it.get("status") or "모름")),
                     "summary": " · ".join(parts), "tracks": tracks, "scope": it.get("scope") or "",
                     "training_started": it.get("training_started"), "limitations": it.get("limitations") or "",
-                    "required": it.get("required_before_training") or [], "fetched_at": data.get("at")})
+                    "required": it.get("required_before_training") or [], "fetched_at": data.get("at"),
+                    "hold_reason": it.get("hold_reason") or ""})
     order = {"release": 0, "staging": 1, "baseline": 2}
     return sorted(out, key=lambda x: (order.get(x["kind"], 3), str(x.get("at") or "")), reverse=False)
 
