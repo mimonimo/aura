@@ -66,7 +66,7 @@
     .doc-go { grid-area: go; align-self: center; }
   }
 </style>
-<p class="muted">현재 설계와 논문 자료를 먼저 확인합니다. 과거 결정·실험은 이력으로 보존하며, 채택 결정이 구현 완료를 뜻하지는 않습니다.</p>
+<p class="muted">지금 구조는 「구현 설명서」 하나에 순서대로 정리돼 있습니다. 9월 설계·계획, 설계 결정, 실험·검토는 이력입니다.</p>
 <nav class="docs-nav" aria-label="문서 분류">
 {% for key, label in [('current','현재 자료'), ('decisions','설계 결정'), ('records','실험·검토 이력')] %}
 <a class="btn-ghost" href="/dev/docs?view={{ key }}" {% if docs_view == key %}aria-current="page"{% endif %}>{{ label }}</a>
@@ -179,7 +179,7 @@
         <span class="doc-cnt">{{ status_docs|length + plan_docs|length }}</span></h2>
       <div class="doc-sub">먼저 볼 것 — 지금 상태</div>
       {{ rows(status_docs) }}
-      <div class="doc-sub">설계·계획</div>
+      <div class="doc-sub">설계·계획 (지금도 정본인 계획 — 9월 설계는 실험·검토 이력)</div>
       {{ rows(plan_docs) }}
     </div></div>
     {% endif %}
@@ -192,6 +192,13 @@
       {{ rows(bench_docs) }}
       <div class="doc-sub">모델 카드 (학습본)</div>
       {{ rows(card_docs) }}
+    </div></div>
+
+    <div class="card"><div class="card-in">
+      <h2><iconify-icon icon="solar:history-linear"></iconify-icon>9월 설계·계획
+        <span class="doc-cnt">{{ old_plan_docs|length }}</span></h2>
+      <p class="muted" style="font-size:12px;">착수 때 세운 설계·계획입니다. 지금 구조는 구현 설명서가 정본입니다.</p>
+      {{ rows(old_plan_docs) }}
     </div></div>
 
     <div class="card"><div class="card-in">

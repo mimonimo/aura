@@ -6,6 +6,7 @@
   .flow-table .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
   .flow-table .flow-total td { font-weight:700; } .flow-table .flow-time td { color:var(--muted); }
 .extract-h{font-size:13.5px;margin:14px 0 6px;}
+.flow-table .flow-diff.good{color:#1E7A46;font-weight:600}.flow-table .flow-diff.bad{color:var(--red);font-weight:600}
 </style>
   <h4 class="extract-h">관계 질문 측정 <span class="muted" style="font-weight:400; font-size:12px;">{% if flow.probe %}{{ flow.probe_at }} · {{ flow.probe_file }} · 그래프에서 자동으로 뽑은 질문, 정답 문서가 근거 상위에 들었나{% endif %}</span></h4>
   {% if flow.probe %}
@@ -20,8 +21,12 @@
   {% if flow.compare %}
   {% if flow.compare.summary %}<ul style="font-size:12.5px; margin:0 0 10px; padding-left:18px; line-height:1.7;">{% for line in flow.compare.summary %}<li>{{ line }}</li>{% endfor %}</ul>{% endif %}
   <div class="table-scroll"><table class="flow-table">
-    <tr><th>지표 <span class="muted" style="font-weight:400;">비율(맞힌 수/질문 수, 오차 범위)</span></th>{% for m in flow.compare.modes %}<th class="num">{{ m }}{% if flow.compare.adopted and flow.compare.adopted[loop.index0] %}<br><span class="pill reviewed" style="font-size:11px;">채택 · 운영 중</span>{% endif %}</th>{% endfor %}</tr>
-    {% for r in flow.compare.rows %}{% if loop.first or r.group != flow.compare.rows[loop.index0 - 1].group %}<tr class="flow-time"><td colspan="{{ flow.compare.modes | length + 1 }}">{{ r.group }}</td></tr>{% endif %}
-    <tr><td>{{ r.label }}</td>{% for v in r.vals %}<td class="num">{{ v }}</td>{% endfor %}</tr>{% endfor %}
+    <tr><th>지표 <span class="muted" style="font-weight:400;">비율(맞힌 수/질문 수, 오차 범위)</span></th>{% for m in flow.compare.modes %}<th class="num">{{ m }}{% if flow.compare.adopted and flow.compare.adopted[loop.index0] %}<br><span class="pill reviewed" style="font-size:11px;">채택 · 운영 중</span>{% endif %}</th>{% endfor %}<th class="num">{{ flow.compare.diff_label }}</th></tr>
+    {% for r in flow.compare.rows %}{% if loop.first or r.group != flow.compare.rows[loop.index0 - 1].group %}<tr class="flow-time"><td colspan="{{ flow.compare.modes | length + 2 }}">{{ r.group }}</td></tr>{% endif %}
+    <tr><td>{{ r.label }}</td>{% for v in r.vals %}<td class="num">{{ v }}</td>{% endfor %}
+      <td class="num flow-diff {{ '' if not r.diff or r.diff.zero else ('good' if r.diff.good else 'bad') }}">{{ r.diff.text if r.diff else '—' }}</td></tr>{% endfor %}
   </table></div>
+  <p class="muted" style="font-size:12px; margin:0 0 8px;">차이는 ① 풀텍스트 RAG 에서 운영 방식으로 바꿨을 때 — 초록은 나아짐, 빨강은 나빠짐(시간·근거 밖 숫자는 낮을수록 좋음).</p>
+  {% if flow.compare.latest %}<p class="muted" style="font-size:12px; margin:0 0 8px;">최근 단독 측정 {{ flow.compare.latest.made }} · {{ flow.compare.latest.mode }} · 시험지 {{ flow.compare.latest.set }} —
+    {% for k, v in flow.compare.latest.vals %}{{ k }} {{ v }}{{ ' · ' if not loop.last }}{% endfor %} (시험지가 달라 위 표와 섞지 않음)</p>{% endif %}
   {% else %}<p class="muted" style="font-size:12.5px;">측정 전 — scripts/188 을 돌리면 여기에 나옵니다.</p>{% endif %}

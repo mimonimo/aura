@@ -109,11 +109,63 @@ def _latest_complete(eval_dir: Path) -> tuple[dict | None, str]:
             continue
         summ = data.get("summary") or {}
         modes = [m for m, _ in COMPARE_MODES if m in summ]
-        if modes and all(((summ[m].get("search") or {}).get("section") or {}).get("n")
+        # 비교 표는 풀텍스트 RAG 와 GraphRAG 를 같은 시험지로 함께 잰 파일만 — 운영 방식 하나만 다시 잰 측정(모델 교체 점검 195 등)은
+        # 아래 「최근 단독 측정」 줄로 따로 보인다(시험지가 다를 수 있어 같은 표에 섞지 않는다)
+        if len(modes) >= 2 and "fulltext" in modes and all(((summ[m].get("search") or {}).get("section") or {}).get("n")
                          and ((summ[m].get("search") or {}).get("relation") or {}).get("n")
                          and (summ[m].get("answer") or {}).get("n") for m in modes):
             return data, f.name
     return None, ""
+
+
+def _raw(v, kind):
+    if v is None:
+        return None
+    if kind == "cnt":
+        return v.get("rate") if isinstance(v, dict) and v.get("n") else None
+    return v if isinstance(v, (int, float)) else None
+
+
+def _diff(a, b, kind: str, lower_better: bool = False) -> dict | None:
+    """첫 방식(풀텍스트) → 마지막 방식(운영 GraphRAG) 차이 — 비율은 %p, 시간은 초. good: 나아졌나."""
+    x, y = _raw(a, kind), _raw(b, kind)
+    if x is None or y is None:
+        return None
+    d = y - x
+    if kind in ("cnt", "ratio"):
+        text = f"{d * 100:+.0f}%p" if kind == "cnt" else f"{d * 100:+.1f}%p"
+    elif kind == "sec":
+        text = f"{d:+.1f}초"
+    else:
+        text = f"{d:+.2f}"
+    return {"text": text, "good": (d < 0) if lower_better else (d > 0), "zero": abs(d) < 1e-9}
+
+
+def _latest_single(eval_dir: Path, compare_file: str) -> dict | None:
+    """비교 표보다 나중에 운영 방식 하나만 잰 측정 — 한 줄 요약(시험지·주요 값)."""
+    files = sorted(eval_dir.glob("graphrag_vs_fulltext_*.json"), key=lambda p: p.stat().st_mtime, reverse=True) \
+        if eval_dir.is_dir() else []
+    for f in files:
+        if f.name == compare_file:
+            return None
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        summ = data.get("summary") or {}
+        m = next((m for m, _ in COMPARE_MODES if m in summ), None)
+        if not m:
+            continue
+        s = summ[m]
+        sec = (((s.get("search") or {}).get("section") or {}).get("counts") or {}).get("doc_hit")
+        ans = s.get("answer") or {}
+        return {"made": data.get("made", ""), "file": f.name, "mode": dict(COMPARE_MODES)[m],
+                "set": ", ".join(str(v) for v in (data.get("sets") or {}).values()),
+                "vals": [("절 질문 정답 문서 상위 5", _cell(sec, "cnt")),
+                         ("답이 정답 문서를 근거로", _cell(ans.get("evidence_has_gold_counts"), "cnt")),
+                         ("답 시간(중앙값)", _cell(ans.get("wall_sec_median"), "sec")),
+                         ("근거 밖 숫자 비율", _cell(ans.get("unsupported_number_ratio"), "ratio"))]}
+    return None
 
 
 def compare_rows(eval_dir: Path) -> dict:
@@ -153,13 +205,16 @@ def compare_rows(eval_dir: Path) -> dict:
         ("답변", "답 채점 — 평균 점수(0~2점, 어느 방식 답인지 가리고 매김)", ("answer", "judge", "correct_mean"), "num"),
     )
     rows = []
+    better_low = ("시간", "근거 문서에 없는 숫자")
     for group, label, path, kind in spec:
         vals = [get(m, *path) for m, _ in modes]
         if all(v is None for v in vals):
             continue
-        rows.append({"group": group, "label": label, "vals": [_cell(v, kind) for v in vals]})
+        rows.append({"group": group, "label": label, "vals": [_cell(v, kind) for v in vals],
+                     "diff": _diff(vals[0], vals[-1], kind, lower_better=group == "시간" or label.startswith(better_low[1]))})
     ans_n = {lab: get(m, "answer", "n") for m, lab in modes}
     return {"file": name, "made": data.get("made", ""), "modes": [lab for _, lab in modes], "rows": rows,
+            "diff_label": f"차이 ({'①→' + '②③'[len(modes) - 2]})", "latest": _latest_single(eval_dir, name),
             "adopted": [m == adopted_mode() for m, _ in modes],
             "n_sec": get(modes[0][0], "search", "section", "n"), "n_rel": get(modes[0][0], "search", "relation", "n"),
             "n_ans": max([v for v in ans_n.values() if v] or [0]) or None, "summary": _why_line(summ)}

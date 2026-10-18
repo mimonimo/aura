@@ -52,8 +52,10 @@ def test_compare_keeps_latest_complete_run(tmp_path):
     from zzaimy.app import answer_flow
     ev = tmp_path / "eval"
     ev.mkdir()
-    full = {"summary": {"fulltext": {"search": {"section": {"n": 73, "counts": {"doc_hit": {"k": 13, "n": 73, "rate": 0.18}}},
-                                                "relation": {"n": 75}}, "answer": {"n": 36}}}}
+    arm = lambda k, rate: {"search": {"section": {"n": 73, "counts": {"doc_hit": {"k": k, "n": 73, "rate": rate}}},  # noqa: E731
+                                      "relation": {"n": 75}}, "answer": {"n": 36, "wall_sec_median": 30 if rate < 0.5 else 17}}
+    full = {"summary": {"fulltext": arm(13, 0.18), "graph_read": arm(51, 0.70)}}
+    single = {"made": "2026-10-17", "summary": {"graph_read": arm(60, 0.82)}}
     part = {"summary": {"fulltext": {"search": {"section": {"n": 0}, "relation": {"n": 75}}}}}
     (ev / "graphrag_vs_fulltext_full.json").write_text(json.dumps(full))
     (ev / "graphrag_vs_fulltext_part.json").write_text(json.dumps(part))
@@ -61,6 +63,16 @@ def test_compare_keeps_latest_complete_run(tmp_path):
     os.utime(ev / "graphrag_vs_fulltext_part.json", (later, later))
     got = answer_flow.compare_rows(ev)
     assert got["file"] == "graphrag_vs_fulltext_full.json" and got["n_sec"] == 73
+    row = next(r for r in got["rows"] if r["label"].startswith("특정 문서"))
+    assert row["diff"]["text"] == "+52%p" and row["diff"]["good"]          # 풀텍스트 → 운영 차이
+    t = next(r for r in got["rows"] if r["label"].startswith("답이 나오기까지"))
+    assert t["diff"]["text"] == "-13.0초" and t["diff"]["good"]            # 시간은 줄면 좋음
+    # 운영 방식 하나만 잰 더 최근 측정은 표에 섞지 않고 한 줄로
+    (ev / "graphrag_vs_fulltext_single.json").write_text(json.dumps(single))
+    later2 = time.time() + 20
+    os.utime(ev / "graphrag_vs_fulltext_single.json", (later2, later2))
+    got = answer_flow.compare_rows(ev)
+    assert got["file"] == "graphrag_vs_fulltext_full.json" and got["latest"]["made"] == "2026-10-17"
 
 
 def test_flow_page_title_is_plain(tmp_path):

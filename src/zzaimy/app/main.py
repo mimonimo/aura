@@ -5063,10 +5063,10 @@ def create_app(
     # 문서 한 줄 설명 — 목록에서 제목 아래에 보인다. 없는 파일은 설명 없이 제목만.
     _DOC_DESC = {
         "paper/프로젝트-기획서.md": "제출용 기획서 — 목표·개발 내용·장비·일정·기대 효과",
-        "paper/논문-원재료.md": "논문 본문의 재료 — 시스템 구성·방법·기여·한계·수치 총람",
+        "paper/논문-원재료.md": "먼저 읽을 문서 — 문서 처리 → 검색·지식(RAG·온톨로지·GraphRAG) → 모델 → 화면 → 학습 → 개인정보 → 수치, 어떻게 구현했는지",
         "paper/실험-로그.md": "실험 시계열 — 무엇을 어떻게 재서 어떤 판정을 했는지",
         "paper/논문-양식-가이드.md": "논문집 형식과 목차 대응",
-        "paper/중간-발표자료.md": "중간 발표 슬라이드 구성안",
+        "paper/중간-발표자료.md": "중간 발표 — 개요·계획·진척도·결과물·변경·남은 일·일정·Q&A",
         "paper/제안발표-내용.md": "제안 발표 슬라이드 원고",
         "HANDOFF.md": "인수인계 — 운영 구성·접속·남은 일",
         "dev-now.md": "지금 하는 일 · 다음 일 · 최근 작업 (진행 현황 탭의 원본)",
@@ -5109,15 +5109,16 @@ def create_app(
 
     _PAPER_LABELS = {
         "프로젝트-기획서.md": "프로젝트 기획서",
-        "중간-발표자료.md": "중간 발표자료 구성안",
-        "논문-원재료.md": "논문 정리 노트",
+        "중간-발표자료.md": "중간 발표자료",
+        "논문-원재료.md": "구현 설명서",
         "실험-로그.md": "실험 기록",
         "논문-양식-가이드.md": "논문 양식 분석",
         "제안발표-내용.md": "제안 발표 내용",
     }
 
-    _PAPER_ORDER = ["프로젝트-기획서.md", "제안발표-내용.md", "중간-발표자료.md", "논문-원재료.md",
-                    "실험-로그.md", "논문-양식-가이드.md"]
+    # 읽는 순서 — 구현 설명서(지금 구조의 정본)·발표·실험 기록이 먼저, 기획 단계 자료는 뒤에
+    _PAPER_ORDER = ["논문-원재료.md", "중간-발표자료.md", "실험-로그.md", "프로젝트-기획서.md",
+                    "제안발표-내용.md", "논문-양식-가이드.md"]
 
     def _dev_papers() -> list[dict]:
         d = _DOCS_DIR / "paper"
@@ -5654,8 +5655,10 @@ def create_app(
             # 현황(먼저 볼 것) · 설계·계획 · 측정 기록 · 모델 카드 — docs/ 바로 아래 파일들
             # dev-now 는 머리 제목 없이 절(## 지금 하는 일)로 시작한다 — 파일 이름 대신 화면 이름으로
             "status_docs": [entry("HANDOFF.md", "/dev/doc/HANDOFF.md"), entry("dev-now.md", "/dev/doc/dev-now.md", "진행 현황")],
-            "plan_docs": [entry(f, f"/dev/doc/{f}") for f in (
-                "architecture.md", "model-plan.md", "eval-plan.md", "capstone-plan.md",
+            # 지금도 정본인 계획은 모델 개발 계획 하나 — 9월 설계·계획 문서는 구현 설명서로 대체돼 이력 쪽으로
+            "plan_docs": [entry("model-plan.md", "/dev/doc/model-plan.md")],
+            "old_plan_docs": [entry(f, f"/dev/doc/{f}") for f in (
+                "architecture.md", "eval-plan.md", "capstone-plan.md",
                 "pilot-plan.md", "risks.md", "quality-system.md", "workflow.md")],
             "bench_docs": [entry(f, f"/dev/doc/{f}") for f in (
                 "llm-rerank-eval.md", "retrieval-baseline-mini.md", "retrieval-weight-sweep.md",

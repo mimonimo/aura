@@ -16,14 +16,14 @@
   <div class="learning-sequence" data-learning-sequence>
     <h3>학습·평가 순서 <span class="muted">진행 기준</span></h3>
     <ol class="learning-flow">
-    {% for name, requirement, output in [
-      ('1. 데이터 검수', '사업·문서·목차에 연결된 문답과 원문 근거 대조', '근거·구조·맥락·개인정보 검수를 통과한 승인 데이터'),
-      ('2. 평가 준비', '학습 데이터와 평가셋 분리, 중복 검사', '학습 전 베이스라인 측정 결과'),
-      ('3. 학습·비교', '승인 데이터와 베이스라인 확보 후 SFT', '같은 평가셋으로 학습 전후 비교 · DPO는 SFT 이후 검토')
+    {% for name, requirement, output, now in [
+      ('1. 데이터 검수', '사업·문서·목차에 연결된 문답과 원문 근거 대조', '근거·구조·맥락·개인정보 검수를 통과한 승인 데이터', 'writer-v1 승인(10-17)'),
+      ('2. 평가 준비', '학습 데이터와 평가셋 분리, 중복 검사', '학습 전 베이스라인 측정 결과', '시험 세트 분리 · 학습 전 측정 30건 중 25 통과'),
+      ('3. 학습·비교', '승인 데이터와 베이스라인 확보 후 SFT', '같은 평가셋으로 학습 전후 비교 · DPO는 SFT 이후 검토', '학습 시작 전')
     ] %}
-    <li><b>{{ name }}</b><p>{{ requirement }}</p><p class="muted">{{ output }}</p></li>
+    <li><b>{{ name }}</b><p>{{ requirement }}</p><p class="muted">{{ output }}</p><p class="learning-now">지금: {{ now }}</p></li>
     {% endfor %}
     </ol>
   </div>
-  <p class="muted model-note">위 순서는 진행 기준입니다. 후보 생성이나 서버 연결만으로 검수·학습이 완료되지는 않습니다.</p>
+  <p class="muted model-note">「지금」은 DGX 학습 폴더 목록(데이터·학습 화면의 학습 데이터 칸)과 같은 기록입니다. 후보 생성이나 서버 연결만으로 검수·학습이 완료되지는 않습니다.</p>
 </div></section>
