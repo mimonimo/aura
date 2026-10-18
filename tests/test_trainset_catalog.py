@@ -70,3 +70,19 @@ def test_catalog_shows_latest_folder_and_links_approval_to_set(tmp_path):
     st = next(g for g in got if g["kind"] == "staging")
     assert rel["status_label"] == "SFT 승인" and rel["training_label"].startswith("학습 멈춤")
     assert st["status_label"] == "SFT 승인본" and st["required"] == []
+
+
+def test_mirror_copies_current_set_files_only(tmp_path):
+    m = _cat()
+    train = tmp_path / "sft-ready-x" / "data" / "train"
+    st = train / "staging" / "set-a"
+    st.mkdir(parents=True)
+    (st / "train.jsonl").write_text("{}\n")
+    (st / "manifest.json").write_text("{}")
+    dest = tmp_path / "parsed" / "trainsets"
+    (dest / "old-set").mkdir(parents=True)
+    items = [{"kind": "staging", "name": "set-a", "current": True}, {"kind": "staging", "name": "old", "current": False}]
+    assert m.mirror_sets(items, [train], dest) == 2
+    assert sorted(p.name for p in (dest / "set-a").iterdir()) == ["manifest.json", "train.jsonl"]
+    assert not (dest / "old-set").exists() and items[0]["mirrored"] == ["manifest.json", "train.jsonl"]
+    assert m.mirror_sets(items, [train], dest) == 0          # 바뀐 게 없으면 다시 복사하지 않는다

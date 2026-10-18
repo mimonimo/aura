@@ -6655,6 +6655,31 @@ def create_app(
         return _Resp(data, media_type="application/octet-stream",
                      headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
+    @app.get("/dev/train/trainset/{name}/{file}")
+    def dev_trainset_file(name: str, file: str):
+        """DGX 학습셋 파일 내려받기(개발자만 — /dev 전역 검사). 문답에는 학교 원문 발췌가 들어 있어 내려받은 기록을 남긴다."""
+        from fastapi.responses import FileResponse
+        from zzaimy.export.bundle import trainset_file
+
+        p = trainset_file(name, file)
+        if p is None:
+            raise HTTPException(404, "목록에 없는 학습셋 파일입니다")
+        logging.getLogger("zzaimy.app").info("학습셋 내려받기 %s/%s", name, file)
+        return FileResponse(p, media_type="application/octet-stream", filename=f"{name}-{file}")
+
+    @app.get("/dev/train/trainset/{name}/{file}/view", response_class=HTMLResponse)
+    def dev_trainset_view(request: Request, name: str, file: str, start: int = 0):
+        """학습셋 표본 보기 — 20건씩 질문·답(역할별)을 읽는다."""
+        from zzaimy.export.bundle import trainset_file, trainset_sample
+
+        p = trainset_file(name, file)
+        if p is None or not file.endswith(".jsonl"):
+            raise HTTPException(404, "목록에 없는 학습셋 파일입니다")
+        start = max(0, start)
+        rows, total = trainset_sample(p, start, 20)
+        return templates.TemplateResponse(request, "dev_trainset_view.html", ctx(request, {
+            "name": name, "file": file, "rows": rows, "start": start, "total": total}))
+
     @app.post("/dev/train/ls-password")
     def dev_train_ls_password(new_pw: str = Form(...), confirm: str = Form("")):
         """Label Studio 계정 비밀번호 재설정 — 값은 환경변수로 헬퍼에만 전달한다."""
@@ -6871,7 +6896,8 @@ def create_app(
         if st.get("ok") and st.get("project_id"):
             return None
         if st.get("ok"):
-            return {"what": f"Label Studio 연결됨 · 「{_GROUNDED_PROJECT}」 프로젝트 없음",
+            return {"what": f"Label Studio 연결됨 · 「{_GROUNDED_PROJECT}」 프로젝트 없음 — 사람 검수를 시작할 때 만든다. "
+                            "지금 SFT 학습셋은 모델 전수 점검·경고 직접 판정으로 승인했다(아래 학습 데이터)",
                     "href": f"{ls_url.rstrip('/')}/projects" if ls_url else "/dev/train?tab=settings",
                     "action": "Label Studio 프로젝트 목록" if ls_url else "도구·모델 연결",
                     "external": bool(ls_url)}

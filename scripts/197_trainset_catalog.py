@@ -3,7 +3,9 @@
 
 왜: 학습셋은 DGX 에서 만들고 승인한다(데이터 원문은 DGX 밖으로 나가지 않는다). VM 의 데이터·학습 화면은 DGX 를 직접 볼 수 없어
 「승인된 학습 데이터 없음」으로 보였다. 이 목록은 이름·상태·건수·갈래별 수·지문(sha256)·승인 범위·한계·학습 시작 여부만 담고,
-VM 이 처리 결과와 같은 길(170 --parsed, ~/parsed)로 5분마다 받아 화면에 보인다. 문답 원문·근거 글은 담지 않는다.
+VM 이 처리 결과와 같은 길(170 --parsed, ~/parsed)로 1분마다 받아 화면에 보인다. 목록에는 문답 원문·근거 글을 담지 않는다.
+최근 준비 폴더의 학습셋 파일(train·eval·test.jsonl 과 색인·manifest)은 ~/parsed/trainsets/<이름>/ 으로 따로 복사해(바뀐 것만)
+VM 이 같은 읽기 전용 길로 받는다 — 개발자 계정만 데이터·학습 화면에서 내려받고 표본을 본다(10-18 사용자 결정).
 DGX 주기 처리(zz_dgx_cycle.sh)가 돌린다. 사용(DGX): python3 scripts/197_trainset_catalog.py [--root DIR ...] [--out ~/parsed/trainsets.json]
 """
 from __future__ import annotations
@@ -115,6 +117,32 @@ def collect(roots: list[Path]) -> list[dict]:
     return items
 
 
+def mirror_sets(items: list[dict], roots: list[Path], dest: Path) -> int:
+    """최근 준비 폴더(current)의 학습셋 파일을 dest/<이름>/ 으로 — 크기·시각이 같으면 건너뛴다. 이전 판 폴더는 지운다(복사본만)."""
+    import shutil
+    keep, n = set(), 0
+    for it in items:
+        if it.get("kind") != "staging" or not it.get("current"):
+            continue
+        src = next((r / "staging" / it["name"] for r in roots if (r / "staging" / it["name"]).is_dir()), None)
+        if src is None:
+            continue
+        out = dest / it["name"]
+        out.mkdir(parents=True, exist_ok=True)
+        keep.add(it["name"])
+        for f in sorted(src.glob("*.jsonl")) + [src / "manifest.json"]:
+            t = out / f.name
+            if f.is_file() and not (t.is_file() and t.stat().st_size == f.stat().st_size and int(t.stat().st_mtime) == int(f.stat().st_mtime)):
+                shutil.copy2(f, t)
+                n += 1
+        it["mirrored"] = sorted(p.name for p in out.iterdir() if p.is_file())
+    if dest.is_dir():
+        for old in dest.iterdir():
+            if old.is_dir() and old.name not in keep:
+                shutil.rmtree(old)
+    return n
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", action="append", default=[], help="data/train 폴더(여럿 가능) — 기본은 ~/sft-ready-*/data/train 과 저장소의 data/train")
@@ -124,12 +152,13 @@ def main() -> int:
                                              + [os.path.expanduser("~/zzaimy-capstone/data/train")] if Path(p).is_dir()]
     items = collect(roots)
     out = Path(args.out)
+    copied = mirror_sets(items, roots, out.parent / "trainsets")
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(".tmp")
     tmp.write_text(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M"), "host": "DGX", "items": items}, ensure_ascii=False, indent=1),
                    encoding="utf-8")
     tmp.replace(out)
-    print(f"TRAINSETS {len(items)}개 → {out}", flush=True)
+    print(f"TRAINSETS {len(items)}개 → {out} · 학습셋 파일 복사 {copied}", flush=True)
     return 0
 
 

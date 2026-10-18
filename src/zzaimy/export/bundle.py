@@ -42,6 +42,33 @@ def _git_commit() -> str:
 
 
 TRAINSETS = Path("data/inbox/parsed/trainsets.json")
+TRAINSET_DIR = Path("data/inbox/parsed/trainsets")      # DGX 197 이 복사한 최근 학습셋 파일(170 --parsed 가 받음)
+
+
+def trainset_file(name: str, file: str) -> Path | None:
+    """학습셋 파일 하나 — 목록(trainsets.json)의 최근 학습셋에 실제로 있는 이름만. 경로 문자는 받지 않는다."""
+    if not name or not file or any(c in name + file for c in "/\\") or name.startswith(".") or file.startswith("."):
+        return None
+    if not any(t["kind"] == "staging" and t["name"] == name and file in t["files"] for t in trainsets()):
+        return None
+    p = TRAINSET_DIR / name / file
+    return p if p.is_file() else None
+
+
+def trainset_sample(path: Path, start: int = 0, n: int = 20) -> tuple[list[dict], int]:
+    """학습 파일의 start 번째부터 n 줄을 읽기 좋게 — (줄들, 전체 줄 수). 줄은 messages(역할·내용) 또는 그대로."""
+    rows, total = [], 0
+    with path.open(encoding="utf-8") as fh:
+        for i, line in enumerate(fh):
+            if not line.strip():
+                continue
+            total += 1
+            if start <= total - 1 < start + n:
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    rows.append({"raw": line[:2000]})
+    return rows, total
 _STATUS = {"sft_approved": "SFT 승인", "approved_for_sft": "비교 기준 채택", "candidate_not_sft_approved": "후보(승인 전)",
            "baseline_responses_unjudged": "측정 채점 전", "quality_review_pending": "보류 — 품질 검토 대기"}
 _TRAINING = {"running": "학습 중", "done": "학습 완료(어댑터 저장)", "stopped": "학습 멈춤 — 중간 저장만 있음", "": "학습 시작 전"}
@@ -81,7 +108,8 @@ def trainsets(path: Path | str | None = None) -> list[dict]:
                     "training_started": it.get("training_started"), "limitations": it.get("limitations") or "",
                     "required": [] if it.get("approved_by") else (it.get("required_before_training") or []),
                     "fetched_at": data.get("at"),
-                    "hold_reason": it.get("hold_reason") or ""})
+                    "hold_reason": it.get("hold_reason") or "",
+                    "files": [f for f in (it.get("mirrored") or []) if (TRAINSET_DIR / str(it.get("name")) / f).is_file()]})
     order = {"release": 0, "staging": 1, "baseline": 2}
     return sorted(out, key=lambda x: (order.get(x["kind"], 3), str(x.get("at") or "")), reverse=False)
 
@@ -128,7 +156,7 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
     if ds_files:
         desc = f"검수 승인 JSONL {len(ds_files)}개"
     elif approved:
-        desc = f"승인된 학습셋 {len(approved)}개 — 문답 원문은 DGX 밖으로 내보내지 않아 여기서 내려받지 않습니다. 학습도 DGX 에서 합니다"
+        desc = f"승인된 학습셋 {len(approved)}개 — 학습은 DGX 에서 하고, 최근 학습셋 파일은 이 서버로 받아 개발자 계정이 내려받거나 표본을 볼 수 있습니다(학교 원문 발췌 포함)"
     elif remote:
         desc = "DGX 에 학습셋 후보만 있음(승인 전) — 아래 목록"
     else:

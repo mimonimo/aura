@@ -47,7 +47,7 @@
       <input type="hidden" name="{{ g.group }}" value="0">
       <div><div class="output-heading">
         {% if g.files %}<label class="output-selection"><input type="checkbox" name="{{ g.group }}" value="1" checked data-output-pick><b>{{ g.label }}</b><span class="output-count">파일 {{ g.files | length }}개</span></label>
-        {% else %}<b>{{ g.label }}</b><span class="output-empty">{{ '원문은 DGX 보관 · 이 서버로 반출하지 않음' if g.sets else '반출할 파일 없음' }}</span>{% endif %}
+        {% else %}<b>{{ g.label }}</b><span class="output-empty">{{ '아래 학습셋 줄에서 파일별로 내려받기 · 표본 보기(개발자만)' if g.sets else '반출할 파일 없음' }}</span>{% endif %}
         </div><p class="muted">{{ g.desc }}</p>{% if g.note %}<p class="output-note">{{ g.note }}</p>{% endif %}
         {% if g.sets %}<p class="muted trainset-legend">학습셋 = 학습에 쓰는 문답 묶음(학습·검증·시험으로 나눔) · 학습 허가 = 이 학습셋으로 학습해도 된다는 기록(파일 지문으로 묶음) · 학습 전 성적 = 학습 뒤와 견줄 기준 점수</p>
         <ul class="trainset-list">{% for t in g.sets %}
@@ -56,6 +56,9 @@
             <span class="muted">{{ t.summary }}{% if t.tracks %} · {% for k, v in t.tracks.items() %}{{ k }} {{ '{:,}'.format(v) }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
               {% if t.training_label %} · <b>{{ t.training_label }}</b>{% elif t.training_started is sameas false %} · 학습 시작 전{% elif t.training_started %} · 학습 진행{% endif %} · {{ t.at }}</span>
             {% if t.required %}<span class="muted trainset-req">학습 전 남은 일: {{ t.required | join(', ') }}</span>{% endif %}
+            {% if t.files %}<span class="trainset-req trainset-files">{% for f in t.files if f.endswith('.jsonl') and not f.endswith('-index.jsonl') %}
+              <a href="/dev/train/trainset/{{ t.name }}/{{ f }}/view">{{ f }} 표본 보기</a> · <a href="/dev/train/trainset/{{ t.name }}/{{ f }}">내려받기</a>{{ ' · ' if not loop.last }}
+            {% endfor %}{% if 'manifest.json' in t.files %} · <a href="/dev/train/trainset/{{ t.name }}/manifest.json">manifest.json</a>{% endif %}</span>{% endif %}
             {% if t.hold_reason %}<span class="trainset-req" style="color:#9A4A07;">보류 사유: {{ t.hold_reason }}</span>{% endif %}
           </li>{% endfor %}</ul>
           <p class="output-note">DGX 학습 폴더 {{ g.sets[0].root }}의 목록(설명 정보만)을 {{ g.sets[0].fetched_at }}에 받았습니다{% if g.sets[0].older %} · 이전 판 {{ g.sets[0].older }}건은 숨김{% endif %}. DGX 주기 처리가 1분마다 새로 받습니다.</p>{% endif %}

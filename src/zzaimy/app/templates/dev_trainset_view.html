@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}학습셋 표본{% endblock %}
+{% block pagetitle %}학습셋 표본{% endblock %}
+{% block content %}
+<style>
+  .ts-head { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:center; justify-content:space-between; }
+  .ts-row { border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:10px 0; }
+  .ts-row .ts-no { font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .ts-msg { margin:6px 0 0; }
+  .ts-role { display:inline-block; min-width:64px; font-size:11.5px; color:var(--muted); }
+  .ts-text { white-space:pre-wrap; word-break:break-word; font-size:13px; line-height:1.55; margin:2px 0 0; max-height:18em; overflow:auto;
+             background:var(--bg-soft, #f7f7f8); border-radius:8px; padding:8px 10px; }
+  .ts-answer .ts-text { background:var(--accent-soft, #eef3ff); }
+  .ts-pager { display:flex; gap:8px; align-items:center; }
+</style>
+<section class="card"><div class="card-in">
+  <div class="ts-head">
+    <h2>{{ name }} · {{ file }}</h2>
+    <div class="ts-pager">
+      <span class="muted">{{ start + 1 if total else 0 }}–{{ [start + rows|length, total]|min }} / {{ "{:,}".format(total) }}건</span>
+      {% if start > 0 %}<a class="btn-ghost" href="?start={{ [start - 20, 0]|max }}">이전</a>{% endif %}
+      {% if start + 20 < total %}<a class="btn-ghost" href="?start={{ start + 20 }}">다음</a>{% endif %}
+      <a class="btn-ghost" href="/dev/train/trainset/{{ name }}/{{ file }}">파일 내려받기</a>
+      <a class="btn-ghost" href="/dev/train#approved-data">데이터·학습으로</a>
+    </div>
+  </div>
+  <p class="muted" style="font-size:12px;">질문(앞 대화·근거 포함)과 학습할 답 · 학교 원문 발췌가 들어 있어 개발자 계정만 볼 수 있습니다</p>
+  {% for r in rows %}
+  <div class="ts-row">
+    <div class="ts-no">{{ start + loop.index }}번</div>
+    {% if r.raw %}<pre class="ts-text">{{ r.raw }}</pre>{% endif %}
+    {% for m in (r.prompt or r.messages or []) %}
+      <div class="ts-msg"><span class="ts-role">{{ {'system': '지시', 'user': '질문', 'assistant': '앞 답'}.get(m.role, m.role) }}</span>
+        <pre class="ts-text">{{ m.content if m.content is string else (m.content | tojson) }}</pre></div>
+    {% endfor %}
+    {% for m in (r.completion or []) %}
+      <div class="ts-msg ts-answer"><span class="ts-role">학습할 답</span>
+        <pre class="ts-text">{{ m.content if m.content is string else (m.content | tojson) }}</pre></div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div></section>
+{% endblock %}
