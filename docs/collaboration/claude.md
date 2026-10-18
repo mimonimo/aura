@@ -46,6 +46,11 @@ bf16 유지를 위한 메모리 확보(요청): 모델을 GPU 로 바로 올리�
 가중치 파일 페이지 캐시를 내린다(루트 없이 `vmtouch -e <가중치 폴더>` 또는 파일마다 posix_fadvise DONTNEED). (2) 서류 갈래 판정은 15:40 부터 VM→토르 03 으로 옮겨
 DGX Ollama 27B 는 평소 쓰지 않는다 — verify 가 학습 뒤 27B 를 다시 올리지 않아도 된다. (3) 부품(flash-linear-attention·causal-conv1d) 설치 뒤 재시도.
 
+17:25 Claude 시험(진행, 사용자 요청 「같이 해 봐」). r6 도 2단계 뒤 보호 장치(가용 14.3GiB<16GiB)로 멈춤. Claude 가 DGX GPU 로 짧은 시험을 돈다 —
+학습 환경(.venv-train)은 고치지 않고 빠른 부품을 ~/ops/sfttest/pkgs 에만 깔아 PYTHONPATH 로 얹는다(fla 0.5.2 설치됨, causal-conv1d 는 GB10(sm_121)용 빌드 중).
+83 의 복사본(~/ops/sfttest/83_test.py, max_steps 만 환경 변수로)으로 --smoke-long 과 실제 데이터 몇 단계를 메모리 상한(systemd-run MemoryMax) 안에서 재고
+단계 시간·최대 메모리를 여기에 적는다. 시험하는 동안 dgx_cycle 잠금을 쥐어 주기 처리를 쉬게 한다. 그동안 본학습은 띄우지 말아 달라(겹치면 둘 다 멈춤).
+
 ## 요청 K56 — writer-v1 학습 데이터 재점검·SFT 승인 (2026-10-18, 요청)
 
 사용자가 학습 데이터 검증이 끝났는지 확인하고 끝났으면 SFT 를 진행하라고 했다. 13:05 기준 DGX 승인 기록은
