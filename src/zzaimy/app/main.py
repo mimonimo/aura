@@ -2505,7 +2505,6 @@ def create_app(
         """담당자가 알려 준 값(물었던 값) — 기억해 두고(프로젝트 값·기관 정보) 남은 질문만 다시 띄운다. 지어내지 않고 물어서 받는 길.
         대화에 남긴 글을 돌려준다."""
         from zzaimy.app import asks as _asks
-        from zzaimy.app import section_context
 
         session_ = db.get_chat_session(session_id) or {}
         pend = _asks.pending(db, session_id)
@@ -2977,7 +2976,7 @@ def create_app(
     def _edit_linked_doc(session_id: int, q: str, owner: str, data_dir: Path, scope: dict, scope_msg: str) -> None:
         """연결된 구글 독스에 대한 명령 — 모델 없이 물러난 대비 경로. 요청 글을 낱말 규칙으로 갈래짓고(값 알려 줌·절 쓰기·한글 내보내기·
         작업본 새로·안내 상자·검토·일반 편집) 에이전트 도구와 같은 함수로 보낸다."""
-        from zzaimy.app import chat_documents, drafting, section_context
+        from zzaimy.app import chat_documents, drafting
 
         link = chat_documents.binding(db, session_id, owner)
         hits, proj_hits = _command_evidence(session_id, q, scope)
@@ -3236,7 +3235,6 @@ def create_app(
             body_hits: list[dict] = []
             try:
                 from zzaimy.app import grant_lex, grant_search
-                from zzaimy.app.regulations import extract_nouns
 
                 # 채팅 검색과 같은 범위(RAG 공간·계정별 추가 권한, ADR-0053) — 검색창이 공간 제한을 우회하지 않게
                 ids = []
@@ -3878,7 +3876,6 @@ def create_app(
     @app.post("/gdocs/insert")
     def gdocs_insert(request: Request, doc: str = Form(""), account: str = Form(""), section: int = Form(0),
                      text: str = Form("")):
-        from zzaimy.app import access_guard as ag
         from zzaimy.ingest import gdocs
 
         _gdocs_account(request, account)
@@ -3894,7 +3891,6 @@ def create_app(
     @app.post("/gdocs/replace")
     def gdocs_replace(request: Request, doc: str = Form(""), account: str = Form(""), old: str = Form(""),
                       new: str = Form("")):
-        from zzaimy.app import access_guard as ag
         from zzaimy.ingest import gdocs
 
         _gdocs_account(request, account)
@@ -3968,7 +3964,6 @@ def create_app(
 
     @app.post("/api/chat-documents/{sid}/apply-pending")
     def chat_doc_apply_pending(request: Request, sid: int):
-        from zzaimy.app import access_guard as ag
         from zzaimy.app import chat_documents, gdocs_agent
 
         owner = getattr(request.state, "user", "zzaimy")
@@ -4173,7 +4168,6 @@ def create_app(
 
     def _scope_choices(request: Request) -> list[str]:
         """이 계정이 고를 수 있는 검색 범위 — 공통 RAG, 관리자는 모든 부서 RAG, 교직원은 자기 부서 RAG."""
-        from zzaimy.app import rag_spaces
         if request.state.role == "dev":
             return ["공통", *_all_depts()]
         mine = (getattr(request.state, "dept", "") or "").strip()
