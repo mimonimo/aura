@@ -250,14 +250,17 @@ def target_scope(target: str, accounts: dict, data_dir: str | Path | None = None
     return None
 
 
-def composition(db, sc: dict, limit: int = 8) -> dict:
-    """공간의 문서 구성 — 사업 문서는 사업별(원본 장부 사업 분류)·갈래별 상위, 규정 색인은 문서별 조각 수 상위."""
+def composition(db, sc: dict, limit: int = 50, reg_limit: int = 2000) -> dict:
+    """공간의 문서 구성 — 사업 문서는 사업별(원본 장부 사업 분류)·갈래별 수 상위 limit 개, 규정 색인은 문서별 조각 수(reg_limit 개까지).
+    합계(사업 수·갈래 수·규정 문서·조각 수)는 자르기 전 값 — 화면은 상위 몇 줄만 보이고 「더 보기」 로 나머지를 편다."""
     from zzaimy.app.doc_routing import KINDS
     from zzaimy.app.program_names import display_name
 
-    out: dict = {"programs": [], "kinds": [], "regulations": [], "grant_docs": 0}
+    out: dict = {"programs": [], "kinds": [], "regulations": [], "grant_docs": 0, "uses_grant": False,
+                 "program_count": 0, "kind_count": 0, "reg_docs": 0, "reg_chunks": 0}
     where = _grant_where(sc)
     if where is not None:
+        out["uses_grant"] = True
         cond, args = where
         dcond = _grant_where(sc, "d.")[0]
         try:
@@ -276,15 +279,27 @@ def composition(db, sc: dict, limit: int = 8) -> dict:
                 progs = [("", out["grant_docs"])]
         merged: dict[str, int] = {}
         for name, n in progs:
+            if not int(n or 0):
+                continue
             label = display_name(str(name or "")) or "사업 미분류"
             merged[label] = merged.get(label, 0) + int(n or 0)
+        out["program_count"] = len(merged)
         out["programs"] = [{"name": k, "n": v} for k, v in sorted(merged.items(), key=lambda kv: -kv[1])[:limit]]
+        kinds = [(k, n) for k, n in kinds if int(n or 0)]
+        out["kind_count"] = len(kinds)
         out["kinds"] = [{"name": KINDS.get(str(k or ""), str(k or "") or "갈래 미정"), "n": int(n or 0)} for k, n in kinds[:limit]]
     reg = db.list_regulation_chunks(**_reg_args(sc))
     per: dict[int, list] = {}
     for r in reg:
         per.setdefault(int(r["doc_id"]), [r.get("reg_title") or "", 0])[1] += 1
-    out["regulations"] = [{"doc_id": d, "name": t, "n": n} for d, (t, n) in sorted(per.items(), key=lambda kv: -kv[1][1])[:limit]]
+    out["reg_docs"], out["reg_chunks"] = len(per), len(reg)
+    blank = [d for d, (t, _) in per.items() if not t]
+    if blank:                                         # 조각에 규정 이름이 없으면 문서 제목으로
+        from zzaimy.app.storage import title_of
+        for d in blank:
+            per[d][0] = title_of((db.get_document(d) or {}).get("filename") or "") or f"문서 {d}"
+    out["regulations"] = [{"doc_id": d, "name": t, "n": n}
+                          for d, (t, n) in sorted(per.items(), key=lambda kv: (-kv[1][1], kv[1][0]))[:reg_limit]]
     return out
 
 

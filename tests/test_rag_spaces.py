@@ -205,6 +205,12 @@ def test_space_composition_and_regulation_kind_column(tmp_path, monkeypatch):
     got = c.get("/dev/rag/space", params={"target": "space:dept:가부서"}).json()
     assert got["grant_docs"] == 1 and got["kinds"] == [{"name": "규정", "n": 1}]
     assert got["programs"] == [{"name": "사업 미분류", "n": 1}]
+    # 화면은 상위 몇 줄만 보이므로 합계는 자르기 전 값으로 따로 준다
+    assert got["uses_grant"] is True and got["program_count"] == 1 and got["kind_count"] == 1
+    assert got["reg_docs"] == 2 and got["reg_chunks"] == 4
+    stu = c.get("/dev/rag/space", params={"target": "space:student"}).json()
+    assert stu["uses_grant"] is False and stu["programs"] == [] and stu["kinds"] == []      # 빈 칸은 화면에서 숨긴다
+    assert [r["doc_id"] for r in stu["regulations"]] == [reg_s] and stu["reg_docs"] == 1 and stu["reg_chunks"] == 2
     rows = {s["id"]: s for s in rag_spaces.stats(db, tmp_path, {"u-ga": {"role": "staff", "dept": "가부서"}})}
     assert rows["staff"]["grant_docs"] == 0                    # 부서 없는 교직원은 공통 RAG 만 — 부서 문서는 보이지 않는다
     assert rows["student"]["reg_docs"] == 1 and rows["student"]["grant"] is False
@@ -216,6 +222,7 @@ def test_student_audience_set_and_unset_from_rag_page(tmp_path, monkeypatch):
     db, ga, na, reg_s, reg_t = _search_fixture(tmp_path, monkeypatch)
     page = c.get("/dev/rag").text
     assert 'id="rrList"' in page and 'data-rr="student"' in page        # 목록은 /dev/rag/regs 에서 불러와 골라 바꾼다
+    assert 'id="rrPager"' in page and "이 쪽 모두" in page                # 20건씩 쪽으로 — 한 번에 다 펼치지 않는다
     regs = {d["id"]: d for d in c.get("/dev/rag/regs").json()["registered"]}
     assert reg_t in regs and ga not in regs
     assert c.post("/dev/rag/regs/audience", json={"ids": [reg_t, ga], "audience": "student"}).json()["changed"] == 1

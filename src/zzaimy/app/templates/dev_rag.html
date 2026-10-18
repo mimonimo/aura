@@ -39,9 +39,21 @@ td.rg-changed{background:#fff4d6;box-shadow:inset 0 0 0 2px #e0b347;}
 .rg-hit .t{font-weight:600;overflow-wrap:anywhere;}
 .rg-hit .w{color:var(--muted);font-size:12px;overflow-wrap:anywhere;}
 .rg-hit .h{margin-top:4px;color:var(--ink);overflow-wrap:anywhere;}
-.rg-comp{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px;padding:6px 0;}
-.rg-comp h4{font-size:12px;margin:0 0 4px;color:var(--muted);font-weight:600;}
-.rg-comp ol{margin:0;padding-left:18px;font-size:12.5px;}
+.rg-comp{position:sticky;left:8px;box-sizing:border-box;max-width:100%;padding:4px 0 6px;}
+.rg-comp-sum{margin:0 0 8px;font-size:12.5px;color:var(--muted);}
+.rg-comp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:12px;}
+.rg-comp-box{display:flex;flex-direction:column;min-width:0;max-height:300px;border:1px solid var(--line);border-radius:10px;background:#fff;}
+.rg-comp-box h4{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;margin:0;padding:8px 10px;border-bottom:1px solid #EEF1F5;font-weight:600;}
+.rg-comp-box h4 span{color:var(--muted);font-weight:400;}
+.rg-comp-body{flex:1;overflow:auto;padding:4px 10px;}
+.rg-comp-foot{padding:6px 10px;border-top:1px solid #EEF1F5;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);}
+.rg-comp-foot button{min-height:28px;padding:3px 10px;font-size:12px;}
+.rg-cnt{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;align-items:center;padding:4px 0;font-size:12.5px;border-bottom:1px solid #F4F6F9;}
+.rg-cnt .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rg-cnt .n{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.rg-cnt .b{grid-column:1 / -1;height:3px;border-radius:2px;background:#EEF1F5;overflow:hidden;}
+.rg-cnt .b i{display:block;height:100%;background:#9DB4D6;}
+.rg-cnt .t a{color:inherit;text-decoration:none;}.rg-cnt .t a:hover{text-decoration:underline;}
 .rg-pill-on{display:inline-block;padding:2px 8px;border-radius:999px;background:#e6f2ea;color:#1d6a3a;font-size:12px;white-space:nowrap;}
 .rg-pill-off{display:inline-block;padding:2px 8px;border-radius:999px;background:#f0f2f5;color:var(--muted);font-size:12px;white-space:nowrap;}
 select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid var(--line);border-radius:7px;background:#fff;max-width:100%;}
@@ -53,7 +65,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 .rr-pane-h{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:13.5px}
 .rr-find{width:100%;box-sizing:border-box;height:34px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;margin-bottom:8px}
 .rr-list{height:340px;overflow:auto;border:1px solid #EEF1F5;border-radius:8px}
-.rr-row{display:grid;grid-template-columns:18px minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F3F7;font-size:12.5px}
+.rr-row{position:relative;display:grid;grid-template-columns:18px minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid #F1F3F7;font-size:12.5px}
 .rr-row .a{display:flex;gap:6px}.rr-row .mini{font-size:11.5px;padding:3px 9px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer;white-space:nowrap}
 .rr-row .mini:hover{background:#F2F5FA}
 .rr-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:12px 0 8px;border-bottom:1px solid var(--line)}
@@ -61,7 +73,15 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 .rr-tab.on{color:var(--ink);font-weight:600;border-bottom-color:#1B3B75}.rr-tab span{color:var(--muted);font-weight:400;margin-left:2px}
 .rr-filter{margin-left:auto;display:flex;gap:4px}.rr-chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer}
 .rr-chip.on{background:#1B3B75;border-color:#1B3B75;color:#fff}
-.rr-one{max-height:420px}.rr-hint{margin:4px 0 8px}
+.rr-one{height:auto;overflow:visible}.rr-hint{margin:0 0 8px}
+.rr-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 8px}.rr-tools .rr-find{flex:1 1 240px;width:auto;margin:0}
+.rr-tools .rr-filter{margin-left:0}
+.rr-pager{display:flex;align-items:center;justify-content:center;gap:10px;margin:8px 0 0;font-size:12.5px;color:var(--muted)}
+.rr-pager button{min-height:30px;padding:4px 12px;font-size:12px}
+.rr-menu{position:absolute;right:8px;top:calc(100% - 2px);z-index:20;display:none;min-width:150px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(27,59,117,.14);padding:4px}
+.rr-menu.open{display:block}
+.rr-menu button{display:block;width:100%;text-align:left;border:0;background:none;border-radius:7px;padding:7px 10px;font-size:12.5px;font-weight:400;color:var(--ink)}
+.rr-menu button:hover{background:#EEF3FB}
 .rr-row:hover{background:#F7F9FC}.rr-row.on{background:#EEF3FB}
 .rr-row input{width:16px;height:16px;margin:0;accent-color:#1B3B75}
 .rr-row .t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rr-row .t a{color:inherit;text-decoration:none}.rr-row .t a:hover{text-decoration:underline}
@@ -84,7 +104,7 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 
 <section class="card" id="dept-rags"><div class="card-in">
   <h2><iconify-icon icon="solar:database-linear"></iconify-icon>RAG 목록</h2>
-  <p class="rg-sub" style="margin:0 0 8px;">답변할 때 찾는 자료 묶음입니다. 문서는 정하지 않으면 공통 RAG 에 들어가고, 부서 계정은 공통 RAG 와 자기 부서 RAG 를 함께 찾습니다. 관리자는 모두 찾습니다.</p>
+  <p class="rg-sub" style="margin:0 0 8px;">답변이 찾는 자료 묶음 · 정하지 않은 문서는 공통 RAG · 부서 계정은 공통과 자기 부서 RAG · 관리자는 전부</p>
   {% set staff = spaces | selectattr("id", "equalto", "staff") | first %}
   {% set stu = spaces | selectattr("id", "equalto", "student") | first %}
   <div class="rg-scroll">
@@ -121,26 +141,28 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
   </div>
   {% set tot_docs = (staff.grant_docs if staff else 0) + (dept_rags | sum(attribute='docs')) %}
   {% set tot_regs = (staff.reg_docs if staff else 0) + (dept_rags | sum(attribute='reg_docs')) %}
-  <p class="rg-note">합계 — 사업 문서 {{ "{:,}".format(tot_docs) }}건 · 기준 문서 {{ "{:,}".format(tot_regs) }}건(공통 RAG + 부서 RAG). 부서 계정은 공통 RAG 행과 자기 부서 행을 함께 찾습니다.<br>
-    부서 RAG 는 <a href="/dev/users#depts">사용자·계정 › 부서</a>에서 만들고, 문서는 라이브러리(「문서 올리기」의 검색 범위·폴더·여러 건 선택)나 문서 화면에서 넣습니다. 원본 폴더째 부서에 두려면 <a href="/?type=all">라이브러리</a> 폴더 목록의 「공개 범위 바꾸기」 — 앞으로 그 폴더로 반입되는 문서도 같은 부서로 갑니다(표의 「반입 폴더」).{% if not dept_rags %} 아직 부서 RAG 가 없습니다.{% endif %}</p>
+  <p class="rg-note">합계 사업 문서 {{ "{:,}".format(tot_docs) }}건 · 기준 문서 {{ "{:,}".format(tot_regs) }}건 · 부서 RAG 추가는 <a href="/dev/users#depts">사용자·계정 › 부서</a> · 문서 배정은 <a href="/?type=all">라이브러리</a>의 「공개 범위 바꾸기」{% if not dept_rags %} · 부서 RAG 없음{% endif %}</p>
 </div></section>
 
 <section class="card" id="student-regs"><div class="card-in">
-  {# 규정·지침 — 한 목록에 두 탭: 검색에 쓰는 규정(학생 공개/교직원만·빼기), 추가할 수 있는 규정(반입 자료 속 규정). 줄마다 단추, 여럿은 체크 뒤 아래 줄 #}
+  {# 규정·지침 — 두 탭(검색에 쓰는 규정 = 기준 문서, 추가할 수 있는 규정 = 반입 자료 속 규정 후보). 20건씩 쪽 나눔, 줄마다 「관리」, 여럿은 체크 뒤 아래 줄 #}
   <div class="rr-head"><h2>규정·지침</h2><span class="rg-sub" id="rrSummary">불러오는 중…</span></div>
-  <p class="rg-note" style="margin-top:0;">답변이 조항 단위로 찾는 학교 규정·지침입니다. 학생에게 보일 규정은 「학생 공개」로 둡니다. 새 파일은 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」으로 올립니다.</p>
+  <p class="rg-sub" style="margin:4px 0 0;">새 규정 파일 올리기는 <a href="/?type=all&amp;use=criteria">라이브러리 › 기준</a>의 「기준 등록」</p>
   <div class="rr-reindex" id="rrReindex" hidden><span>새로 추가한 규정은 몇 분 안에 자동으로 뜻 검색에 들어갑니다(낱말 검색은 바로 됩니다).</span>
     <form method="post" action="/dev/reindex" style="margin:0;"><input type="hidden" name="back" value="/dev/rag"><button class="btn primary" type="submit" id="rrReindexBtn">지금 바로 만들기</button></form></div>
   <div class="rr-tabs" role="tablist">
     <button type="button" role="tab" class="rr-tab on" data-tab="reg" aria-selected="true">검색에 쓰는 규정 <span id="rrRegCount"></span></button>
     <button type="button" role="tab" class="rr-tab" data-tab="cand" aria-selected="false">추가할 수 있는 규정 <span id="rrCandCount"></span></button>
-    <span class="rr-filter" id="rrFilter">
-      <button type="button" class="rr-chip on" data-aud="">전체</button><button type="button" class="rr-chip" data-aud="student">학생 공개</button><button type="button" class="rr-chip" data-aud="staff">교직원만</button></span>
   </div>
-  <input type="search" class="rr-find" id="rrFind" placeholder="규정 이름으로 찾기 — 예: 학칙, 현장실습, 연구비" aria-label="규정 찾기">
   <p class="rg-sub rr-hint" id="rrHint"></p>
+  <div class="rr-tools">
+    <input type="search" class="rr-find" id="rrFind" placeholder="규정 이름으로 찾기 — 예: 학칙, 현장실습, 연구비" aria-label="규정 찾기">
+    <span class="rr-filter" id="rrFilter">
+      <button type="button" class="rr-chip on" data-aud="">전체 <span data-n=""></span></button><button type="button" class="rr-chip" data-aud="student">학생 공개 <span data-n="student"></span></button><button type="button" class="rr-chip" data-aud="staff">교직원만 <span data-n="staff"></span></button></span>
+  </div>
   <div class="rr-list rr-one" id="rrList" aria-live="polite"></div>
-  <div class="rr-bar"><label class="rr-all"><input type="checkbox" id="rrAll"> 보이는 것 모두</label>
+  <nav class="rr-pager" id="rrPager" aria-label="규정 목록 쪽" hidden><button type="button" class="secondary" data-page="-1">이전</button><span id="rrPageInfo"></span><button type="button" class="secondary" data-page="1">다음</button></nav>
+  <div class="rr-bar"><label class="rr-all"><input type="checkbox" id="rrAll"> 이 쪽 모두</label>
     <span class="rr-picked" id="rrPicked"></span>
     <span data-for="reg"><button type="button" class="btn" data-rr="student" disabled>학생 공개</button>
       <button type="button" class="btn" data-rr="staff" disabled>교직원만</button>
@@ -284,25 +306,61 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     });
   }
 
-  // 공간 구성 보기 — 사업별·갈래별 상위와 규정 색인 문서
-  const list = (title, rows, unit) => `<div><h4>${esc(title)}</h4>` + (rows.length
-    ? `<ol>${rows.map(r => `<li>${esc(r.name)} <span class="rg-sub">${num(r.n)}${unit}</span></li>`).join('')}</ol>`
-    : '<p class="rg-sub" style="margin:0;">없음</p>') + '</div>';
+  // 공간 구성 보기 — 든 것만 칸으로(빈 칸은 두지 않음). 칸마다 같은 크기, 상위 몇 줄 + 「더 보기」
+  const FIRST = 6, STEP = 20;
+  const countRows = (rows, unit, link) => {
+    const top = Math.max(1, ...rows.map(r => r.n || 0));
+    return rows.map(r => `<div class="rg-cnt"><span class="t" title="${esc(r.name)}">${link && r.doc_id ? `<a href="/doc/${r.doc_id}" target="_blank" rel="noopener">${esc(r.name)}</a>` : esc(r.name)}</span>`
+      + `<span class="n">${num(r.n)}${unit}</span><span class="b"><i style="width:${Math.max(2, Math.round(100 * (r.n || 0) / top))}%"></i></span></div>`).join('');
+  };
+  const compBox = (title, total, rows, unit, link) => {
+    const el = document.createElement('div');
+    el.className = 'rg-comp-box';
+    el.innerHTML = `<h4>${esc(title)}<span>${esc(total)}</span></h4><div class="rg-comp-body"></div><div class="rg-comp-foot"><span></span><span><button type="button" class="secondary" data-more>더 보기</button> <button type="button" class="secondary" data-less>접기</button></span></div>`;
+    let shown = Math.min(FIRST, rows.length);
+    const body = el.querySelector('.rg-comp-body'), foot = el.querySelector('.rg-comp-foot');
+    const more = el.querySelector('[data-more]'), less = el.querySelector('[data-less]');
+    const draw = () => {
+      body.innerHTML = countRows(rows.slice(0, shown), unit, link);
+      foot.firstElementChild.textContent = `${num(shown)} / ${num(rows.length)}`;
+      more.hidden = shown >= rows.length; less.hidden = shown <= FIRST;
+      foot.hidden = rows.length <= FIRST;
+    };
+    more.addEventListener('click', () => { shown = Math.min(rows.length, shown + STEP); draw(); });
+    less.addEventListener('click', () => { shown = Math.min(FIRST, rows.length); draw(); body.scrollTop = 0; });
+    draw();
+    return el;
+  };
+  // 표가 옆으로 넘쳐도 구성 칸은 보이는 폭에 맞춘다(가로 스크롤 안에서 왼쪽에 붙음)
+  const fitComp = () => {
+    const wrap = document.querySelector('#dept-rags .rg-scroll');
+    document.querySelectorAll('.rg-comp').forEach(c => { c.style.width = (wrap.clientWidth - 16) + 'px'; });
+  };
+  window.addEventListener('resize', fitComp);
   document.querySelectorAll('[data-comp]').forEach(btn => btn.addEventListener('click', async () => {
     const row = document.querySelector(`[data-comp-row="${btn.dataset.comp}"]`);
     const box = row.querySelector('.rg-comp');
     const open = row.hidden;
     row.hidden = !open;
+    fitComp();
     btn.setAttribute('aria-expanded', String(open));
-    btn.textContent = open ? '구성 닫기' : '구성 보기';
+    btn.textContent = open ? '접기' : '구성 보기';
     if (!open || box.dataset.loaded) return;
     box.innerHTML = '<p class="rg-sub" style="margin:0;">불러오는 중…</p>';
     try {
       const r = await fetch('/dev/rag/space?target=' + encodeURIComponent(btn.dataset.comp));
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.status);
       const d = await r.json();
-      box.innerHTML = list('사업별 사업 문서', d.programs, '건') + list('갈래별 사업 문서', d.kinds, '건')
-        + list('규정 색인 문서(조각 수)', d.regulations, '조각');
+      const sum = [d.uses_grant ? `사업 문서 ${num(d.grant_docs)}건` : '사업 문서 안 씀',
+                   `규정 ${num(d.reg_docs)}건 · 조각 ${num(d.reg_chunks)}`];
+      const grid = document.createElement('div');
+      grid.className = 'rg-comp-grid';
+      if (d.programs.length) grid.append(compBox('사업별 문서', `사업 ${num(d.program_count)}개`, d.programs, '건'));
+      if (d.kinds.length) grid.append(compBox('갈래별 문서', `갈래 ${num(d.kind_count)}개`, d.kinds, '건'));
+      if (d.regulations.length) grid.append(compBox('규정(조각 수)', `${num(d.reg_docs)}건`, d.regulations, '조각', true));
+      box.innerHTML = `<p class="rg-comp-sum">${esc(sum.join(' · '))}</p>`;
+      if (grid.childElementCount) box.append(grid);
+      else box.insertAdjacentHTML('beforeend', '<p class="rg-sub" style="margin:0;">든 자료 없음</p>');
       box.dataset.loaded = '1';
     } catch (e) {
       box.innerHTML = `<p class="rg-sub" style="margin:0;">구성을 불러오지 못했습니다(${esc(e.message)})</p>`;
@@ -343,24 +401,37 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
 
 <script>
 (() => {
+  // 규정·지침 목록 — 찾기·공개 대상 거르기 뒤 20건씩 쪽으로. 줄의 「관리」 에 그 줄 조치, 여럿은 체크 뒤 아래 줄
   const $ = id => document.getElementById(id);
-  const state = {tab: 'reg', aud: '', reg: [], cand: [], candTotal: 0, pick: {reg: new Set(), cand: new Set()}};
+  const PER = 20;
+  const state = {tab: 'reg', aud: '', reg: [], cand: [], candTotal: 0, page: {reg: 0, cand: 0}, pick: {reg: new Set(), cand: new Set()}};
   const esc = t => String(t || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const num = n => Number(n || 0).toLocaleString('ko-KR');
   const KIND = {regulation: '규정', guideline: '지침'};
+  const HINT = {reg: '답변이 지금 조항 단위로 찾는 규정(기준 문서) · 학생 공개는 학생 RAG 에도 들어감',
+                cand: '반입 자료 속 규정 가운데 아직 조항 검색에 넣지 않은 것 · 지금은 일반 사업 문서로만 검색됨'};
   const flat = t => String(t || '').replace(/\s+/g, '').toLowerCase();
-  function visibleRows() {
-    const f = flat($('rrFind').value);
+  const aud = d => d.audience === 'student' ? 'student' : 'staff';
+  function filtered() {
     if (state.tab === 'cand') return state.cand;
-    return state.reg.filter(d => (!f || flat(d.filename).includes(f)) && (!state.aud || (d.audience || 'staff') === state.aud));
+    const f = flat($('rrFind').value);
+    return state.reg.filter(d => (!f || flat(d.title || d.filename).includes(f)) && (!state.aud || aud(d) === state.aud));
+  }
+  function pageRows() {
+    const rows = filtered(), pages = Math.max(1, Math.ceil(rows.length / PER));
+    state.page[state.tab] = Math.min(Math.max(0, state.page[state.tab]), pages - 1);
+    const at = state.page[state.tab] * PER;
+    return {rows, pages, at, shown: rows.slice(at, at + PER)};
   }
   function row(d) {
     const picked = state.pick[state.tab].has(d.id), name = esc(d.title || d.filename);
     let meta, acts;
     if (state.tab === 'reg') {
-      const stu = d.audience === 'student';
-      meta = `${d.chunks}조각 <span class="rr-tag${stu ? ' stu' : ''}">${stu ? '학생 공개' : '교직원만'}</span>`;
-      acts = `<button type="button" class="mini" data-one="${stu ? 'staff' : 'student'}" data-id="${d.id}">${stu ? '교직원만으로' : '학생 공개로'}</button>`
-           + `<button type="button" class="mini" data-one="unregister" data-id="${d.id}">빼기</button>`;
+      const stu = aud(d) === 'student';
+      meta = `${num(d.chunks)}조각 <span class="rr-tag${stu ? ' stu' : ''}">${stu ? '학생 공개' : '교직원만'}</span>`;
+      acts = `<button type="button" class="mini" data-menu aria-haspopup="menu" aria-expanded="false">관리</button>`
+           + `<div class="rr-menu" role="menu"><button type="button" role="menuitem" data-one="${stu ? 'staff' : 'student'}" data-id="${d.id}">${stu ? '교직원만으로' : '학생 공개로'}</button>`
+           + `<button type="button" role="menuitem" data-one="unregister" data-id="${d.id}">검색에서 빼기</button></div>`;
     } else {
       meta = `<span class="rr-tag">${KIND[d.kind] || '제목'}</span>${d.versions > 1 ? ' 판 ' + d.versions : ''}`;
       acts = `<button type="button" class="mini" data-one="register" data-id="${d.id}">검색에 추가</button>`;
@@ -369,22 +440,27 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
       + `<span class="t" title="${name}"><a href="/doc/${d.id}" target="_blank" rel="noopener">${name}</a></span><span class="m">${meta}</span><span class="a">${acts}</span></div>`;
   }
   function paint() {
-    const rows = visibleRows(), pick = state.pick[state.tab];
+    const {rows, pages, at, shown} = pageRows(), pick = state.pick[state.tab];
     document.querySelectorAll('.rr-tab').forEach(t => { const on = t.dataset.tab === state.tab; t.classList.toggle('on', on); t.setAttribute('aria-selected', on); });
     $('rrFilter').hidden = state.tab !== 'reg';
     document.querySelectorAll('.rr-chip').forEach(c => c.classList.toggle('on', c.dataset.aud === state.aud));
     document.querySelectorAll('[data-for]').forEach(x => { x.hidden = x.dataset.for !== state.tab; });
-    $('rrHint').textContent = state.tab === 'reg'
-      ? '답변이 지금 찾는 규정입니다. 줄의 단추로 학생 공개 여부를 바꾸거나 검색에서 뺍니다.'
-      : '반입한 자료 속에 들어 있어 아직 일반 문서로만 쓰이는 규정입니다. 「검색에 추가」 하면 조항 단위로 찾게 됩니다(같은 규정의 옛 판은 일반 문서로 남습니다).';
-    $('rrList').innerHTML = rows.map(row).join('') || `<p class="rr-empty">${state.tab === 'reg' ? '맞는 규정이 없습니다.' : '맞는 후보가 없습니다.'}</p>`;
-    const stu = state.reg.filter(d => d.audience === 'student').length;
-    $('rrSummary').textContent = `검색에 쓰는 규정 ${state.reg.length}건 · 학생 공개 ${stu}건 · 조각 ${state.reg.reduce((a, d) => a + (d.chunks || 0), 0).toLocaleString()}`;
-    $('rrRegCount').textContent = state.reg.length;
-    $('rrCandCount').textContent = state.candTotal.toLocaleString();
-    $('rrPicked').textContent = pick.size ? `선택한 ${pick.size}건` : '';
+    $('rrHint').textContent = HINT[state.tab];
+    $('rrList').innerHTML = shown.map(row).join('') || `<p class="rr-empty">${state.tab === 'reg' ? '맞는 규정 없음' : '추가할 수 있는 규정 없음'}</p>`;
+    $('rrPager').hidden = rows.length <= PER;
+    $('rrPageInfo').textContent = rows.length ? `${num(at + 1)}–${num(at + shown.length)} / ${num(rows.length)}건` : '';
+    $('rrPager').querySelector('[data-page="-1"]').disabled = state.page[state.tab] <= 0;
+    $('rrPager').querySelector('[data-page="1"]').disabled = state.page[state.tab] >= pages - 1;
+    const stu = state.reg.filter(d => aud(d) === 'student').length;
+    $('rrSummary').textContent = `${num(state.reg.length)}건 · 학생 공개 ${num(stu)}건 · 조각 ${num(state.reg.reduce((a, d) => a + (d.chunks || 0), 0))}`;
+    document.querySelector('[data-n=""]').textContent = num(state.reg.length);
+    document.querySelector('[data-n="student"]').textContent = num(stu);
+    document.querySelector('[data-n="staff"]').textContent = num(state.reg.length - stu);
+    $('rrRegCount').textContent = num(state.reg.length);
+    $('rrCandCount').textContent = num(state.candTotal);
+    $('rrPicked').textContent = pick.size ? `선택 ${num(pick.size)}건` : '여럿은 체크 뒤 아래 단추';
     document.querySelectorAll('[data-rr]').forEach(b => { b.disabled = !pick.size; });
-    $('rrAll').checked = rows.length > 0 && rows.every(d => pick.has(d.id));
+    $('rrAll').checked = shown.length > 0 && shown.every(d => pick.has(d.id));
   }
   let timer = 0;
   async function load() {
@@ -396,14 +472,24 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
     $('rrReindexBtn').disabled = d.reindex_running; $('rrReindexBtn').textContent = d.reindex_running ? '임베딩 만드는 중…' : '지금 바로 만들기';
     paint();
   }
+  const closeMenus = except => document.querySelectorAll('#rrList .rr-menu.open').forEach(m => {
+    if (m === except) return;
+    m.classList.remove('open'); m.previousElementSibling.setAttribute('aria-expanded', 'false');
+  });
   document.querySelectorAll('.rr-tab').forEach(t => t.addEventListener('click', () => { state.tab = t.dataset.tab; load(); }));
-  document.querySelectorAll('.rr-chip').forEach(c => c.addEventListener('click', () => { state.aud = c.dataset.aud; paint(); }));
-  $('rrFind').addEventListener('input', () => { if (state.tab === 'reg') paint(); else { clearTimeout(timer); timer = setTimeout(load, 250); } });
+  document.querySelectorAll('.rr-chip').forEach(c => c.addEventListener('click', () => { state.aud = c.dataset.aud; state.page.reg = 0; paint(); }));
+  $('rrPager').addEventListener('click', e => { const b = e.target.closest('[data-page]'); if (!b) return; state.page[state.tab] += Number(b.dataset.page); paint(); });
+  $('rrFind').addEventListener('input', () => {
+    state.page[state.tab] = 0;
+    if (state.tab === 'reg') paint(); else { clearTimeout(timer); timer = setTimeout(load, 250); }
+  });
   $('rrList').addEventListener('change', e => {
     const r = e.target.closest('.rr-row'); if (!r || e.target.type !== 'checkbox') return;
     const id = Number(r.dataset.id), pick = state.pick[state.tab]; e.target.checked ? pick.add(id) : pick.delete(id); paint();
   });
-  $('rrAll').addEventListener('change', e => { visibleRows().forEach(d => e.target.checked ? state.pick[state.tab].add(d.id) : state.pick[state.tab].delete(d.id)); paint(); });
+  $('rrAll').addEventListener('change', e => { pageRows().shown.forEach(d => e.target.checked ? state.pick[state.tab].add(d.id) : state.pick[state.tab].delete(d.id)); paint(); });
+  document.addEventListener('click', e => { if (!e.target.closest('#rrList .rr-row .a')) closeMenus(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMenus(); });
   async function post(url, body) {
     const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
     if (!r.ok) throw new Error('요청 실패 ' + r.status);
@@ -419,7 +505,17 @@ select.rg-dept{min-height:34px;padding:4px 8px;font-size:13px;border:1px solid v
       await load();
     } catch (err) { $('rrStatus').textContent = err.message; }
   }
-  $('rrList').addEventListener('click', e => { const b = e.target.closest('[data-one]'); if (!b) return; b.disabled = true; act(b.dataset.one, [Number(b.dataset.id)]); });
+  $('rrList').addEventListener('click', e => {
+    const m = e.target.closest('[data-menu]');
+    if (m) {
+      const menu = m.nextElementSibling, open = !menu.classList.contains('open');
+      closeMenus(menu); menu.classList.toggle('open', open); m.setAttribute('aria-expanded', String(open));
+      if (open) menu.querySelector('button').focus();
+      return;
+    }
+    const b = e.target.closest('[data-one]'); if (!b) return;
+    b.disabled = true; closeMenus(); act(b.dataset.one, [Number(b.dataset.id)]);
+  });
   document.querySelectorAll('[data-rr]').forEach(b => b.addEventListener('click', () => {
     const ids = [...state.pick[b.dataset.rr === 'register' ? 'cand' : 'reg']];
     if (ids.length) { b.disabled = true; act(b.dataset.rr, ids); }
