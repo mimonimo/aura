@@ -446,6 +446,32 @@
      "href": "/dev/doc/notes/2026-10-15-model-swap.md"
     }
    ]
+  },
+  {
+   "name": "처리 주기 실시간화·학습 장비 비우기",
+   "status": "done",
+   "area": "운영",
+   "note": "DGX 는 원본이 바뀐 때만 목록·판독(매분 확인, 한 시간에 한 번 전체), VM 은 DGX 목록이 바뀌면 바로 장부 동기화(아니면 10분), 판독 결과·갈래 판정·색인·학습 기록은 1분. 새 문서 서류 갈래 판정은 DGX Ollama 에서 토르 03(review)으로 옮기고, 판독이 끝난 MinerU 서버는 내린다. 굳은 DGX 에 매달리지 않게 접속 시간 제한(10-18)",
+   "left": "원본 폴더 감시(inotify)로 매분 확인도 없애기",
+   "links": [
+    {
+     "label": "처리 흐름",
+     "href": "/dev/flow"
+    }
+   ]
+  },
+  {
+   "name": "학습 진행 보기 (TensorBoard)",
+   "status": "done",
+   "area": "모델 학습",
+   "note": "DGX 학습 기록기(손실·학습률·GPU·메모리)를 VM /tb/ 로 1분마다 옮긴다. 학습 실행 화면(LLaMA Board)은 쓰지 않아 걷어냈다 — 학습은 DGX 학습 스크립트가 승인 기록·해시를 확인한 뒤 실행(10-18)",
+   "left": "SFT 재시도(1차는 메모리 부족으로 멈춤 — 빠른 연산 부품·GPU 직접 적재 뒤)",
+   "links": [
+    {
+     "label": "TensorBoard",
+     "href": "/tb/"
+    }
+   ]
   }
  ]
 }
