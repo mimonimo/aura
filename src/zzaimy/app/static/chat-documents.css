@@ -128,3 +128,12 @@ body .chat-location-button::before{content:'↗';color:#497bfb}
 .chat-doc-done>.doc-icon-button{width:28px;padding:0;border:0;background:transparent;color:var(--muted);box-shadow:none}
 .chat-doc-loading{transition:opacity .3s ease;cursor:pointer}
 .chat-doc-loading.chat-doc-leaving{opacity:0;pointer-events:none}
+/* 문서 위 AURA 커서 — 채팅 화면에는 도우미 커서 모양(base)이 없을 수 있어 여기서 따로 그린다 */
+.doc-cursor{position:fixed;z-index:60;pointer-events:none;display:flex;align-items:flex-start;gap:2px;left:-100px;top:-100px;
+  transition:left 1.2s cubic-bezier(.3,.7,.2,1),top 1.2s cubic-bezier(.3,.7,.2,1),opacity .4s ease}
+.doc-cursor.leaving{opacity:0}
+.doc-cursor .aura-cursor-arrow{width:20px;height:22px;background:var(--navy,#1f3b63);filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.35));
+  clip-path:polygon(0 0,0 100%,30% 72%,52% 100%,66% 92%,45% 64%,85% 62%)}
+.doc-cursor .aura-cursor-tag{margin-top:16px;padding:3px 10px;border-radius:999px;background:var(--navy,#1f3b63);color:#fff;
+  font-size:12px;font-weight:600;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis;box-shadow:0 2px 8px rgba(15,30,60,.18)}
+@media(prefers-reduced-motion:reduce){.doc-cursor{transition:opacity .2s ease}}
