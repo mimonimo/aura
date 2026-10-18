@@ -64,6 +64,7 @@ r7 기록기도 붙였다(~/ops/sft-capture-20261018-r7 → VM /tb/ writer-20261
 - main.py 를 영역별 라우터로 나눴다(동작 그대로): dev_train_routes.py(/dev/train·/dev/tools), dev_data_routes.py(/dev/data·/dev/llm),
   dev_rag_routes.py(/dev/rag), dev_pii_routes.py(/dev/pii), 진행 중: dev_intake_routes.py(/dev/intake·/dev/nas)·dev_docs_routes.py(/dev/docs·doc·paper·weekly·history).
   23:50 갱신: /dev 라우트는 모두 main.py 밖이다 — dev_overview_routes.py(/dev·/dev/flow·/dev/db·/dev/quality·/dev/eval·/dev/reindex·/dev/route-all·/dev/api/intake), dev_gdrive_routes.py(/dev/gdrive).
+  10-19 00:40 갱신: /chat·/project·/doc 도 옮겼다(chat_routes·project_routes·doc_routes·doc_file_routes, main.py 4,518줄). 배치 표는 docs/architecture.md 10.1절.
   아스트라의 dev_dashboard 수정은 dev_overview_routes.py 의 dev_dashboard 맥락 dict 에 "training_progress" 한 줄, 같은 모듈에 @router.get("/dev/api/training-progress") 하나로 옮겨 얹으면 된다.
   도우미는 request.app.state 로 읽는다(배선 블록은 main.py 의 _nas_redirect 라우트 바로 뒤).
 - 지운 것: scripts/archive 전체와 일회성·대체 스크립트 15개(목록 docs/notes/removed-scripts.md), docs/dev-changelog.md, docs/notes/collab-now.md.
