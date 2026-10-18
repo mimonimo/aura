@@ -26,11 +26,10 @@ cards/*.json
 
 # =============================================================
 # 모델 가중치 — Git LFS 또는 별도 저장소로 관리
-# 모델 카드(models/cards/)는 커밋 대상이다.
+# 모델 카드는 docs/model-cards/ 에 둔다. models/ 에는 README 만 커밋한다.
 # =============================================================
 models/*
-!models/cards/
-!models/cards/**
+!models/README.md
 *.safetensors
 *.bin
 *.gguf
