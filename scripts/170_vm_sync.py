@@ -184,8 +184,12 @@ def _judge_kinds(dest: Path, max_sec: int = 240) -> None:
     ZZAIMY_KIND_READ=0 이면 끈다(규칙 갈래만)."""
     if os.environ.get("ZZAIMY_KIND_READ", "1") == "0":
         return
-    out = subprocess.run([sys.executable, str(ROOT / "scripts" / "191_kind_read_all.py"), "--parsed", str(dest), "--role", "review",
-                          "--out-name", "kind27b-vm.jsonl", "--max-sec", str(max_sec)], cwd=ROOT, capture_output=True)
+    try:      # 모델 호출 하나가 매달려도 1분 주기 받기를 막지 않게 — 문서 사이 시간 제한(--max-sec)에 더해 전체 상한
+        out = subprocess.run([sys.executable, str(ROOT / "scripts" / "191_kind_read_all.py"), "--parsed", str(dest), "--role", "review",
+                              "--out-name", "kind27b-vm.jsonl", "--max-sec", str(max_sec)], cwd=ROOT, capture_output=True, timeout=max_sec + 120)
+    except subprocess.TimeoutExpired:
+        print(f"27B 갈래 판정: {max_sec + 120}초 넘어 끊음 — 다음 회차에 이어 감", flush=True)
+        return
     tail = [l for l in out.stdout.decode("utf-8", "replace").splitlines() if l.startswith(("KIND27B", "문서 ", "다른 판정"))]
     if tail:
         print("27B 갈래 판정:", " · ".join(tail[-2:])[:300], flush=True)
