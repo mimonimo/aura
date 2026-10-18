@@ -5528,7 +5528,8 @@ def create_app(
                [str(root / "scripts" / "zz_run.sh"), "4G", "env", "PYTHONPATH=src", str(root / ".venv" / "bin" / "python"),
                 str(root / "scripts" / script)])
         with log_path.open("w") as log_f:
-            _intake_proc[kind] = subprocess.Popen(["nohup", *cmd], stdout=log_f, stderr=subprocess.STDOUT,
+            from zzaimy.app.detach import detached
+            _intake_proc[kind] = subprocess.Popen(detached(["nohup", *cmd], kind), stdout=log_f, stderr=subprocess.STDOUT,
                                                   cwd=str(root), start_new_session=True)
         return RedirectResponse("/dev/intake?ok=" + ("맞추기를 시작했습니다" if kind == "reconcile" else "점검을 시작했습니다"), status_code=303)
 
@@ -5821,8 +5822,9 @@ def create_app(
 
         script = Path(__file__).resolve().parents[3] / "scripts" / "66_reindex.sh"
         with _REINDEX_LOG.open("w") as log_f:
+            from zzaimy.app.detach import detached
             _reindex_proc["p"] = subprocess.Popen(
-                ["nohup", "bash", str(script)],
+                detached(["nohup", "bash", str(script)], "reindex"),
                 stdout=log_f, stderr=subprocess.STDOUT, start_new_session=True,
             )
 
@@ -5870,9 +5872,10 @@ def create_app(
         if rev.running_state(Path(db_path).parent / "eval"):
             return HTMLResponse("이미 측정 중입니다", status_code=409)
         root = Path(__file__).resolve().parents[3]
+        from zzaimy.app.detach import detached
         proc = subprocess.Popen(
-            ["nohup", sys.executable, str(root / "scripts" / "53_eval_retrieval.py"),
-             "--db", str(Path(db_path).resolve())],
+            detached(["nohup", sys.executable, str(root / "scripts" / "53_eval_retrieval.py"),
+                      "--db", str(Path(db_path).resolve())], "eval"),
             stdout=open(rev.LOG_PATH, "w"),
             stderr=subprocess.STDOUT,
             start_new_session=True,
