@@ -38,3 +38,35 @@ def test_catalog_keeps_metadata_only_and_screen_reads_it(tmp_path):
     assert got[0]["status_label"] == "SFT 승인" and got[0]["training_started"] is False and "학습 1" in got[0]["summary"]
     assert got[1]["status_label"] == "후보(승인 전)" and got[1]["tracks"] == {"policy": 1} and got[1]["required"] == ["baseline"]
     assert trainsets(tmp_path / "없음.json") == []
+
+
+def test_catalog_shows_latest_folder_and_links_approval_to_set(tmp_path):
+    import os
+    m = _cat()
+
+    def folder(name, status, sha, when):
+        train = tmp_path / name / "data" / "train"
+        st = train / "staging" / f"set-{name}"
+        st.mkdir(parents=True)
+        (st / "manifest.json").write_text(json.dumps({"status": "candidate_not_sft_approved", "required_before_training": ["baseline"],
+                                                      "counts": {"train": {"rows": 1, "tracks": {}, "sha256": sha}}}))
+        (train / "releases").mkdir()
+        rel = train / "releases" / "writer-v1-approval.json"
+        rel.write_text(json.dumps({"status": status, "train_sha256": sha, "training_started": False}))
+        for f in (rel, st / "manifest.json"):
+            os.utime(f, (when, when))
+        return train
+
+    old = folder("sft-ready-old", "quality_review_pending", "aa", 1_000)
+    new = folder("sft-ready-new", "sft_approved", "bb", 2_000)
+    (new / "models" / "writer" / "v1-adapter" / "checkpoint-20").mkdir(parents=True)
+    out = tmp_path / "trainsets.json"
+    out.write_text(json.dumps({"at": "2026-10-18 15:00", "items": m.collect([old, new])}, ensure_ascii=False))
+
+    from zzaimy.export.bundle import trainsets
+    got = trainsets(out)
+    assert {g["root"] for g in got} == {"sft-ready-new"} and got[0]["older"] == 2
+    rel = next(g for g in got if g["kind"] == "release")
+    st = next(g for g in got if g["kind"] == "staging")
+    assert rel["status_label"] == "SFT 승인" and rel["training_label"].startswith("학습 멈춤")
+    assert st["status_label"] == "SFT 승인본" and st["required"] == []

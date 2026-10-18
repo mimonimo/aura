@@ -158,7 +158,8 @@ for 절 in 목차:
 
 - 서빙: vLLM. 젯슨 토르 2대에 Writer 27B NVFP4를 올리고(`scripts/126_serve_writer.sh`), 토르 03에 임베딩·리랭커
   서비스를 둔다(ADR-0023). 초기 검증에 쓴 DGX Spark 구성(ADR-0004)은 쓰지 않는다.
-- 학습: LLaMA-Factory와 sentence-transformers를 별도 가상환경(`.venv-train`)에서 쓴다(ADR-0001). Writer 학습은 DGX에서,
+- 학습: TRL·PEFT(LoRA)와 sentence-transformers를 별도 가상환경(`.venv-train`)에서 쓴다(ADR-0001). Writer 학습은 DGX 학습 스크립트
+  (`scripts/83_sft_writer_qlora.py`, 승인 기록·해시 관문)로 하고 진행은 TensorBoard 로 본다. LLaMA Board 는 10-18 걷어냈다.
   검색 모델은 토르 03 GPU에서 학습했다(2에폭 20분).
 - 파싱: 디지털 PDF 글자층 직독, MinerU(스캔 PDF 구조·OCR), Writer 이미지 판독(그림·사진), tesseract(사진의 마지막 대안),
   kordoc(한글·docx·xlsx), python-docx·openpyxl·python-pptx, LibreOffice(옛 오피스 형식 변환)

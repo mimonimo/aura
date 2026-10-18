@@ -93,7 +93,7 @@ Writer는 검토, 초안 작성, 그림 판독, 에이전트 판단을 모두 �
 - 문서 추출: pypdf(디지털 PDF 글자층), MinerU(스캔 PDF), kordoc(한글·docx·xlsx), python-docx·openpyxl·python-pptx, LibreOffice(옛 오피스 형식 변환)
 - 문서 작성: Google Docs·Drive API(작업본), 자체 HWPX 서식 채우기
 - 모델 서빙: vLLM(Writer 27B, NVFP4 양자화), 임베딩·리랭커 서비스
-- 학습: LLaMA-Factory, sentence-transformers, Label Studio(검수)
+- 학습: TRL·PEFT(LoRA, DGX 학습 스크립트), sentence-transformers, Label Studio(검수), TensorBoard(진행 확인)
 
 ## 저장소 구조
 

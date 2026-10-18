@@ -52,11 +52,11 @@
           <li><span class="trainset-kind">{{ {'release': '승인 기록', 'staging': '학습셋', 'baseline': '학습 전 측정'}.get(t.kind, t.kind) }}</span>
             <b>{{ t.name }}</b> <span class="pill {{ 'ok' if t.status and t.status.endswith('approved') else '' }}">{{ t.status_label }}</span>
             <span class="muted">{{ t.summary }}{% if t.tracks %} · {% for k, v in t.tracks.items() %}{{ k }} {{ '{:,}'.format(v) }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
-              {% if t.training_started is sameas false %} · 학습 시작 전{% elif t.training_started %} · 학습 진행{% endif %} · {{ t.at }}</span>
+              {% if t.training_label %} · <b>{{ t.training_label }}</b>{% elif t.training_started is sameas false %} · 학습 시작 전{% elif t.training_started %} · 학습 진행{% endif %} · {{ t.at }}</span>
             {% if t.required %}<span class="muted trainset-req">학습 전 남은 일: {{ t.required | join(', ') }}</span>{% endif %}
             {% if t.hold_reason %}<span class="trainset-req" style="color:#9A4A07;">보류 사유: {{ t.hold_reason }}</span>{% endif %}
           </li>{% endfor %}</ul>
-          <p class="output-note">DGX 학습 폴더의 목록(설명 정보만)을 {{ g.sets[0].fetched_at }}에 받았습니다. DGX 주기 처리(30분)마다 새로 받습니다.</p>{% endif %}
+          <p class="output-note">DGX 학습 폴더 {{ g.sets[0].root }}의 목록(설명 정보만)을 {{ g.sets[0].fetched_at }}에 받았습니다{% if g.sets[0].older %} · 이전 판 {{ g.sets[0].older }}건은 숨김{% endif %}. DGX 주기 처리(30분)마다 새로 받습니다.</p>{% endif %}
         {% if g.files %}<div class="training-files">{% for f in g.files %}<a href="/dev/train/export/file?path={{ f.path | urlencode }}" aria-label="{{ f.path.rsplit('/', 1)[-1] }} 다운로드"><iconify-icon icon="solar:download-linear" aria-hidden="true"></iconify-icon><span>{{ f.path.rsplit('/', 1)[-1] }}</span></a>{% endfor %}</div>{% endif %}
       </div>
     </div>
@@ -68,8 +68,7 @@
   <h2><iconify-icon icon="solar:cpu-linear"></iconify-icon>학습·평가</h2>
   <div class="tool-cards">
   {% for name, url, action, description in [
-    ('LLaMA Board', llamaboard_url, '학습 도구 실행', '내려받은 승인 데이터 선택·학습 실행'),
-    ('TensorBoard', tensorboard_url, '학습 그래프 확인', '실행 중인 학습의 손실·평가 지표 그래프'),
+    ('TensorBoard', tensorboard_url, '학습 그래프 확인', 'DGX 에서 도는 학습의 손실·학습률·GPU 그래프'),
     ('품질·성능 측정', '/dev/quality', '평가 결과·측정 열기', '검색 평가 결과 비교와 재측정')
   ] %}
   <div class="tool-card"><b>{{ name }}</b><p class="muted">{{ description }}</p>
@@ -78,7 +77,7 @@
   </div>
   {% endfor %}
   </div>
-  <p class="muted" style="margin:12px 0 0;font-size:12px;">도구 열기는 학습 시작이 아닙니다. 데이터는 자동 전달되지 않으며 평가셋 분리와 베이스라인 확인 후 실행합니다.</p>
+  <p class="muted" style="margin:12px 0 0;font-size:12px;">학습은 DGX 학습 스크립트가 승인 기록·해시를 확인한 뒤 실행합니다. 데이터는 자동 전달되지 않으며 이 화면은 진행 확인만 합니다.</p>
 </div></section>
 <script>
 (() => {

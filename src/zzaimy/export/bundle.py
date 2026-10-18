@@ -44,6 +44,7 @@ def _git_commit() -> str:
 TRAINSETS = Path("data/inbox/parsed/trainsets.json")
 _STATUS = {"sft_approved": "SFT 승인", "approved_for_sft": "학습 전 측정 승인", "candidate_not_sft_approved": "후보(승인 전)",
            "baseline_responses_unjudged": "측정 채점 전", "quality_review_pending": "보류 — 품질 검토 대기"}
+_TRAINING = {"running": "학습 중", "done": "학습 완료(어댑터 저장)", "stopped": "학습 멈춤 — 중간 저장만 있음", "": "학습 시작 전"}
 _SPLIT = {"train": "학습", "eval": "검증", "test": "시험"}
 
 
@@ -54,10 +55,15 @@ def trainsets(path: Path | str | None = None) -> list[dict]:
         data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return []
+    items = [it for it in data.get("items") or [] if isinstance(it, dict)]
+    # 준비 폴더가 여러 판이면 최근 판만 보이고 이전 판은 수만 적는다(옛 목록은 current 표시가 없다 → 모두 보임)
+    if any("current" in it for it in items):
+        older = sum(1 for it in items if not it.get("current"))
+        items = [it for it in items if it.get("current")]
+    else:
+        older = 0
     out = []
-    for it in data.get("items") or []:
-        if not isinstance(it, dict):
-            continue
+    for it in items:
         counts = it.get("counts") or {k: (v or {}).get("rows") for k, v in (it.get("splits") or {}).items()}
         parts = [f"{_SPLIT.get(k, k)} {int(v):,}" for k, v in counts.items() if isinstance(v, int)]
         if it.get("kind") == "baseline" and it.get("n_eval"):
@@ -66,11 +72,15 @@ def trainsets(path: Path | str | None = None) -> list[dict]:
         for sp in (it.get("splits") or {}).values():
             for k, v in ((sp or {}).get("tracks") or {}).items():
                 tracks[k] = tracks.get(k, 0) + int(v or 0)
-        out.append({"kind": it.get("kind"), "name": it.get("name"), "at": it.get("at"),
-                    "status": it.get("status"), "status_label": _STATUS.get(str(it.get("status")), str(it.get("status") or "모름")),
+        status = "sft_approved" if it.get("approved_by") else it.get("status")
+        label = "SFT 승인본" if it.get("approved_by") else _STATUS.get(str(status), str(status or "모름"))
+        out.append({"kind": it.get("kind"), "name": it.get("name"), "at": it.get("at"), "root": it.get("root") or "",
+                    "status": status, "status_label": label, "older": older,
+                    "training_label": _TRAINING.get(str(it.get("training") or "")) if it.get("kind") == "release" else "",
                     "summary": " · ".join(parts), "tracks": tracks, "scope": it.get("scope") or "",
                     "training_started": it.get("training_started"), "limitations": it.get("limitations") or "",
-                    "required": it.get("required_before_training") or [], "fetched_at": data.get("at"),
+                    "required": [] if it.get("approved_by") else (it.get("required_before_training") or []),
+                    "fetched_at": data.get("at"),
                     "hold_reason": it.get("hold_reason") or ""})
     order = {"release": 0, "staging": 1, "baseline": 2}
     return sorted(out, key=lambda x: (order.get(x["kind"], 3), str(x.get("at") or "")), reverse=False)
@@ -114,7 +124,7 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
             ds_files.append({"path": f"datasets/{jf.name}",
                              "bytes": jf.stat().st_size})
     remote = trainsets()
-    approved = [x for x in remote if x.get("kind") == "release" and str(x.get("status") or "").endswith("approved")]
+    approved = [x for x in remote if x.get("kind") == "release" and x.get("status") == "sft_approved"]
     if ds_files:
         desc = f"검수 승인 JSONL {len(ds_files)}개"
     elif approved:

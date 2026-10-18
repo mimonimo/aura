@@ -12,6 +12,7 @@ import argparse
 import glob
 import json
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -65,16 +66,52 @@ def baseline(p: Path) -> dict:
             "limitations": str(j.get("limitations") or "")[:400]}
 
 
+def _running_roots() -> str:
+    """돌고 있는 학습기(83 … --out) 명령줄 — 어느 준비 폴더의 학습인지 가리는 데만 쓴다."""
+    try:
+        out = subprocess.run(["pgrep", "-af", "83_sft_writer_qlora.py"], capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return "\n".join(l for l in out.splitlines() if "--out" in l and "--check" not in l)
+
+
+def training_state(root: Path, running: str) -> str:
+    """준비 폴더의 학습 상태 — running(학습기 실행 중) · done(어댑터 저장됨) · stopped(중간 저장만 있고 학습기 없음) · ""(시작 전)."""
+    if str(root.parent.parent) + "/" in running:
+        return "running"
+    out = root / "models"
+    if any(out.glob("*/*/adapter_model.safetensors")):
+        return "done"
+    if any(out.glob("*/*/checkpoint-*")):
+        return "stopped"
+    return ""
+
+
+def _newest(root: Path) -> float:
+    files = list((root / "releases").glob("*.json")) + list((root / "staging").glob("*/manifest.json"))
+    return max((f.stat().st_mtime for f in files), default=0.0)
+
+
 def collect(roots: list[Path]) -> list[dict]:
+    """준비 폴더마다 학습셋·승인 기록·학습 전 측정. 가장 최근에 고친 폴더만 current — 화면은 이전 판을 접어 둔다.
+    학습셋은 같은 폴더의 SFT 승인 기록과 학습 파일 지문이 같으면 approved_by 로 잇는다(승인은 releases 에 따로 적히므로)."""
     items: list[dict] = []
+    running = _running_roots()
+    current = max(roots, key=_newest) if roots else None
     for root in roots:
+        tag = {"root": root.parent.parent.name, "current": root == current}
+        rel = [{**release(p), **tag, "training": training_state(root, running)} for p in sorted((root / "releases").glob("*.json"))]
+        ok = {r.get("train_sha256"): r["name"] for r in rel if r.get("status") == "sft_approved" and r.get("train_sha256")}
         for d in sorted((root / "staging").glob("*/")):
             if (d / "manifest.json").is_file():
-                items.append({**staging(d), "root": root.parent.parent.name})
-        for p in sorted((root / "releases").glob("*.json")):
-            items.append({**release(p), "root": root.parent.parent.name})
+                st = {**staging(d), **tag}
+                sha = ((st.get("splits") or {}).get("train") or {}).get("sha256")
+                if sha in ok:
+                    st["approved_by"] = ok[sha]
+                items.append(st)
+        items += rel
         for p in sorted((root / "baselines").glob("*/baseline.json")):
-            items.append({**baseline(p), "root": root.parent.parent.name})
+            items.append({**baseline(p), **tag})
     return items
 
 

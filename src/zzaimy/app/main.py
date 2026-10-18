@@ -6390,11 +6390,8 @@ def create_app(
         {"key": "labelstudio", "name": "Label Studio", "step": "검수",
          "role": "학습 예시 검수",
          "gpu": False, "setting": "labelstudio_url"},
-        {"key": "llamaboard", "name": "LLaMA Board", "step": "학습 실행",
-         "role": "파인튜닝 실행 · 데이터셋과 학습 설정값",
-         "gpu": True, "setting": "llamaboard_url"},
         {"key": "tensorboard", "name": "TensorBoard", "step": "진행 확인",
-         "role": "손실·학습률·평가지표 그래프",
+         "role": "DGX 학습의 손실·학습률·GPU 그래프(학습은 DGX 학습 스크립트로 실행)",
          "gpu": True, "setting": "tensorboard_url"},
     ]
 
@@ -6676,7 +6673,7 @@ def create_app(
     @app.post("/dev/train/url")
     def dev_tool_url(setting: str = Form(...), url: str = Form(""), back: str = Form("/dev/train?tab=settings")):
         # Label Studio 주소는 구축 스크립트(scripts/68_labelstudio_token.sh)가 넣는다 —
-        # 화면에서는 GPU 도구(LLaMA Board·TensorBoard) 주소만 바꾼다
+        # 화면에서는 GPU 도구(TensorBoard) 주소만 바꾼다
         valid = {t["setting"] for t in _TRAIN_TOOLS if t["key"] != "labelstudio"}
         if setting not in valid:
             raise HTTPException(400, "알 수 없는 도구입니다")
@@ -6778,7 +6775,6 @@ def create_app(
             "err": err, "ok": ok,
             "ls": _ls_status() if show_legacy else {"ok": False},
             "labelstudio_url": labelstudio_url,
-            "llamaboard_url": db.get_setting("llamaboard_url"),
         }))
 
     @app.post("/dev/data/build-and-push")
