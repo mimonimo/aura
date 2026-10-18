@@ -8,39 +8,73 @@
   .col-table th { font-size:12px; color:var(--muted); font-weight:600; }
   .col-table .num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
   .col-table .sub { display:block; color:var(--muted); font-size:12px; margin-top:2px; }
+  .col-table .where { display:block; color:#9AA6B6; font-size:11px; margin-top:3px; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .col-table .span { white-space:nowrap; font-variant-numeric:tabular-nums; color:var(--muted); font-size:12.5px; }
   .col-table input[type=checkbox] { width:16px; height:16px; accent-color:#1B3B75; }
-  .col-form { display:flex; flex-wrap:wrap; align-items:end; gap:12px; margin-top:14px; }
-  .col-form label { display:grid; gap:6px; font-size:12px; color:var(--muted); }
-  .col-form input[type=date] { height:36px; padding:6px 9px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
-  .col-note { font-size:12px; color:var(--muted); margin:10px 0 0; line-height:1.7; }
+  .col-table tr.col-empty td { color:var(--muted); background:#FAFBFC; }
+  .col-table tr.col-empty b { font-weight:500; }
+  .col-more td { padding:8px 10px; }
+  .col-period { margin-top:14px; display:grid; gap:10px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:999px;
+          border:1.5px solid var(--line); background:#fff; font-size:12.5px; color:var(--ink); cursor:pointer; }
+  .chip input { position:absolute; opacity:0; pointer-events:none; }
+  .chip:hover { border-color:var(--navy); }
+  .chip:has(input:checked) { border-color:var(--navy); background:#EEF3FA; color:var(--navy); font-weight:600; }
+  .chip:has(input:focus-visible) { outline:2px solid #607C9E; outline-offset:2px; }
+  .col-dates { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12.5px; color:var(--muted); }
+  .col-dates input[type=date] { height:34px; padding:5px 9px; border:1px solid var(--line); border-radius:8px; font-size:13px; }
+  .col-go { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; }
+  .col-sum { font-size:13px; font-variant-numeric:tabular-nums; }
+  .col-sum .muted { font-size:12.5px; }
+  .col-note { font-size:12px; color:var(--muted); margin:10px 0 0; }
   .col-scroll { overflow-x:auto; }
   @media(max-width:760px) { .col-table .hide-sm { display:none; } }
 </style>
 
 {% if request.query_params.get('err') %}<p class="notice">{{ request.query_params.get('err') }}</p>{% endif %}
 
+{% set full = sources | selectattr('n') | list %}
+{% set empty = sources | rejectattr('n') | list %}
 <div class="card reveal"><div class="card-in">
   <h2><iconify-icon icon="solar:database-linear"></iconify-icon>수집 자료</h2>
   <form action="/dev/collect/make" method="post" id="collectForm">
     <div class="col-scroll"><table class="col-table">
-      <thead><tr><th><input type="checkbox" id="colAll" aria-label="모두 선택"></th><th>항목</th><th class="hide-sm">쓰임</th>
-        <th class="num">건수</th><th class="hide-sm">기간</th><th class="hide-sm">있는 곳</th></tr></thead>
-      <tbody>{% for s in sources %}
-        <tr><td><input type="checkbox" name="keys" value="{{ s.key }}" class="col-pick" {{ 'disabled' if not s.n }} aria-label="{{ s.name }}"></td>
-          <td><b>{{ s.name }}</b><span class="sub">{{ s.desc }}</span></td>
+      <thead><tr><th><input type="checkbox" id="colAll" aria-label="자료 있는 항목 모두 선택" {{ 'disabled' if not full }}></th><th>항목</th><th class="hide-sm">쓰임</th>
+        <th class="num">건수</th><th class="hide-sm">기간</th></tr></thead>
+      <tbody>{% for s in full %}
+        <tr><td><input type="checkbox" name="keys" value="{{ s.key }}" class="col-pick" data-n="{{ s.n }}" aria-label="{{ s.name }}"></td>
+          <td><b>{{ s.name }}</b><span class="sub">{{ s.desc }}</span><span class="where" title="있는 곳">{{ s.where }}</span></td>
           <td class="hide-sm">{{ s.use }}</td>
           <td class="num">{{ '{:,}'.format(s.n) }}</td>
-          <td class="hide-sm">{% if s.n %}{{ s.first }} ~ {{ s.last }}{% else %}<span class="muted">아직 없음</span>{% endif %}</td>
-          <td class="hide-sm"><code style="font-size:11.5px;">{{ s.where }}</code></td></tr>
+          <td class="hide-sm span" title="{{ s.first }} ~ {{ s.last }}">{{ s.span }}</td></tr>
+      {% endfor %}
+      {% if empty %}<tr class="col-more"><td colspan="5"><button type="button" class="btn-ghost" id="colEmptyBtn" aria-expanded="false"
+          data-show="비어 있는 항목 {{ empty | length }}개 보기" data-hide="비어 있는 항목 접기">비어 있는 항목 {{ empty | length }}개 보기</button></td></tr>{% endif %}
+      {% for s in empty %}
+        <tr class="col-empty" hidden><td><input type="checkbox" disabled aria-label="{{ s.name }} — 자료 없음"></td>
+          <td><b>{{ s.name }}</b><span class="sub">{{ s.desc }}</span><span class="where" title="있는 곳">{{ s.where }}</span></td>
+          <td class="hide-sm">{{ s.use }}</td>
+          <td class="num">0</td>
+          <td class="hide-sm span">아직 없음</td></tr>
       {% endfor %}</tbody>
     </table></div>
-    <div class="col-form">
-      <label>시작일<input type="date" name="since"></label>
-      <label>끝일<input type="date" name="until"></label>
-      <button type="submit" id="colGo" {{ 'disabled' if running }}>{{ '만드는 중…' if running else '선택 항목 내려받기 묶음 만들기' }}</button>
+
+    <div class="col-period">
+      <div class="chips" role="radiogroup" aria-label="기간">{% for v, label in periods %}
+        <label class="chip"><input type="radio" name="period" value="{{ v }}" {{ 'checked' if v == 'all' }}>{{ label }}</label>{% endfor %}
+      </div>
+      <div class="col-dates" id="colDates" hidden>
+        <input type="date" name="since" value="{{ earliest }}" min="{{ earliest }}" max="{{ today }}" aria-label="시작일">
+        <span>~</span>
+        <input type="date" name="until" value="{{ today }}" min="{{ earliest }}" max="{{ today }}" aria-label="끝일">
+      </div>
+      <div class="col-go">
+        <button type="submit" id="colGo" {{ 'disabled' if running }}>{{ '만드는 중…' if running else '선택 항목 내려받기 묶음 만들기' }}</button>
+        <span class="col-sum" id="colSum" aria-live="polite"><span id="colRange">전체 기간</span> <span class="muted" id="colCount">· 선택 0개</span></span>
+      </div>
     </div>
-    <p class="col-note">묶음은 늘 가린 사본입니다 — 글은 개인정보 검사기로 가리고, 사람은 가명(u_…), 대화는 가린 번호(s_…)로 바꿉니다.
-      줄마다 나눔(train·eval·heldout)이 붙습니다: 대화 단위로 9:1, 평가 세트 질문과 같은 줄은 heldout. 기간을 비우면 전체입니다.</p>
+    <p class="col-note">가린 사본 · 사람은 가명(u_…), 대화는 가린 번호(s_…) · 대화 단위 train·eval 9:1, 평가 세트 질문은 heldout</p>
   </form>
 </div></div>
 
@@ -61,11 +95,52 @@
   {% else %}<p class="muted" style="font-size:13px;">아직 만든 묶음이 없습니다.</p>{% endif %}
 </div></div>
 
+<script type="application/json" id="colDays">{{ days | tojson }}</script>
 <script>
 (function () {
-  var all = document.getElementById('colAll');
-  var picks = function () { return Array.prototype.slice.call(document.querySelectorAll('.col-pick:not(:disabled)')); };
-  all.addEventListener('change', function () { picks().forEach(function (c) { c.checked = all.checked; }); });
+  var form = document.getElementById('collectForm'), all = document.getElementById('colAll');
+  var picks = Array.prototype.slice.call(form.querySelectorAll('.col-pick'));
+  var days = {}; try { days = JSON.parse(document.getElementById('colDays').textContent) || {}; } catch (e) {}
+  var TODAY = '{{ today }}', EARLIEST = '{{ earliest }}', running = {{ 'true' if running else 'false' }};
+  var since = form.elements.since, until = form.elements.until, dates = document.getElementById('colDates');
+  var go = document.getElementById('colGo');
+  function iso(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function back(n) { var d = new Date(TODAY + 'T00:00:00'); d.setDate(d.getDate() - n); return iso(d); }
+  function range() {
+    var p = (form.querySelector('input[name=period]:checked') || {}).value || 'all';
+    if (p === 'today') return [TODAY, TODAY];
+    if (p === '7d') return [back(6), TODAY];
+    if (p === '30d') return [back(29), TODAY];
+    if (p === 'month') return [TODAY.slice(0, 8) + '01', TODAY];
+    if (p === 'custom') { var a = since.value || EARLIEST, b = until.value || TODAY; return a <= b ? [a, b] : [b, a]; }
+    return ['', ''];
+  }
+  function span(a, b) { return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000) + 1; }
+  function count(key, a, b) {
+    var n = 0, d = days[key] || {};
+    for (var k in d) { if ((!a || k >= a) && (!b || k <= b)) n += d[k]; }
+    return n;
+  }
+  function update() {
+    var r = range(), on = picks.filter(function (c) { return c.checked; }), n = 0;
+    dates.hidden = !form.querySelector('input[name=period][value=custom]').checked;
+    on.forEach(function (c) { n += count(c.value, r[0], r[1]); });
+    document.getElementById('colRange').textContent = r[0] ? (r[0] === r[1] ? r[0] : r[0] + ' ~ ' + r[1]) + ' · ' + span(r[0], r[1]) + '일' : '전체 기간';
+    document.getElementById('colCount').textContent = '· 선택 ' + on.length + '개 · ' + n.toLocaleString() + '건';
+    all.checked = picks.length > 0 && on.length === picks.length;
+    all.indeterminate = on.length > 0 && on.length < picks.length;
+    if (!running) go.disabled = on.length === 0;
+  }
+  all.addEventListener('change', function () { picks.forEach(function (c) { c.checked = all.checked; }); update(); });
+  form.addEventListener('change', update);
+  var more = document.getElementById('colEmptyBtn');
+  if (more) more.addEventListener('click', function () {
+    var open = more.getAttribute('aria-expanded') !== 'true';
+    form.querySelectorAll('tr.col-empty').forEach(function (tr) { tr.hidden = !open; });
+    more.setAttribute('aria-expanded', open ? 'true' : 'false');
+    more.textContent = open ? more.dataset.hide : more.dataset.show;
+  });
+  update();
 })();
 </script>
 {% endblock %}

@@ -46,6 +46,8 @@
       {% if t.key == "labelstudio" %}
         {% if t.connected %}<span class="pill reviewed">연결됨</span>
         {% else %}<span class="pill processing">미연결</span>{% endif %}
+      {% elif t.connected %}<span class="pill reviewed">연결됨</span><span class="muted">{{ t.detail }}</span>
+      {% elif t.connected is sameas false %}<span class="pill processing">응답 없음</span><span class="muted">{{ t.detail }}</span>
       {% elif t.url %}<span class="pill">주소 등록됨</span><span class="muted">접속 상태 미확인</span>
       {% else %}<span class="pill processing">주소 미등록</span>{% endif %}
     </div>

@@ -6395,6 +6395,20 @@ def create_app(
          "gpu": True, "setting": "tensorboard_url"},
     ]
 
+    def _tensorboard_status() -> dict:
+        """TensorBoard 가 같은 서버에서 도는지 — 기록 목록(runs) 주소를 짧게 묻는다. 주소는 ZZAIMY_TENSORBOARD_PROBE(기본 VM 의 /tb/)."""
+        import json as _json
+        import urllib.request as _ur
+
+        url = os.environ.get("ZZAIMY_TENSORBOARD_PROBE", "http://127.0.0.1:6006/tb/data/runs")
+        try:
+            opener = _ur.build_opener(_ur.ProxyHandler({}))
+            with opener.open(url, timeout=2) as r:
+                runs = _json.loads(r.read() or b"[]")
+            return {"ok": True, "detail": f"학습 기록 {len(runs)}개" if isinstance(runs, list) else ""}
+        except Exception as e:  # noqa: BLE001 — 상태 표시일 뿐
+            return {"ok": False, "detail": f"응답 없음({type(e).__name__})"}
+
     @app.get("/dev/train", response_class=HTMLResponse)
     def dev_train(request: Request, err: str = "", ok: str = "", tab: str = "data", ds_page: int = 0):
         # 데이터·학습 화면. 도구·모델 연결은 /dev/tools 로 옮겼다 — 옛 주소(tab=settings)는 안내·오류 문구를
@@ -6425,9 +6439,11 @@ def create_app(
         live_by_id = dict(zip([c['id'] for c in public_connections], live_results))
 
         ls = _ls_status()
+        tb = _tensorboard_status()
         tools = [
             {**t, "url": db.get_setting(t["setting"], ""),
-             "connected": ls["ok"] if t["key"] == "labelstudio" else None}
+             "connected": ls["ok"] if t["key"] == "labelstudio" else (tb["ok"] if t["key"] == "tensorboard" else None),
+             "detail": tb.get("detail", "") if t["key"] == "tensorboard" else ""}
             for t in _TRAIN_TOOLS
         ]
         llm = model_config.current()

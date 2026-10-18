@@ -302,3 +302,17 @@ def test_disconnect_refuses_when_share_revocation_fails(tmp_path, monkeypatch):
     app.state.before_google_disconnect = lambda u, e: True
     TestClient(app).post("/account/google/disconnect", follow_redirects=False)
     assert db.get_setting("google_account:zzaimy", "") == "" and dropped == ["kim@ync.ac.kr"]
+
+
+def test_dept_card_has_only_working_buttons(tmp_path, monkeypatch):
+    """부서 카드 — 라이브러리로 옮겨만 가던 「문서 넣기」는 없고, 드라이브 폴더 정하기·지우기·부서 추가만 남는다."""
+    _fake_google(monkeypatch)
+    c = _dev(tmp_path)
+    c.post("/dev/rag/dept", data={"action": "create", "name": "교무처"})
+    page = c.get("/dev/users").text
+    card = page[page.index('id="depts"'):page.index('id="deptCreate"')]
+    assert "문서 넣기" not in card and 'href="/?type=all"' not in card
+    assert "드라이브 폴더 정하기" in card and 'data-modal-open="#deptEdit"' in card
+    assert "/?type=all&amp;scope=%EA%B5%90%EB%AC%B4%EC%B2%98" in card                  # 문서 수 → 그 부서 문서 목록
+    assert "ua-steps" not in card and card.count('class="ua-lead"') == 1               # 설명은 한 줄
+    assert 'name="action" value="delete"' in card and "부서 추가" in card

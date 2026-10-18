@@ -78,3 +78,42 @@ def test_page_is_dev_only_and_makes_bundle(tmp_path):
     got = dev.get(f"/dev/collect/file/{name}")
     assert got.status_code == 200 and got.content[:2] == b"PK"
     assert dev.get("/dev/collect/file/..%2Fplatform.db").status_code == 404
+
+
+def test_resolve_period_quick_ranges():
+    t = "2026-10-18"
+    assert collect.resolve_period("all", "2026-01-01", "2026-02-01", t) == ("", "")
+    assert collect.resolve_period("", "", "", t) == ("", "")                      # 비우면 전체
+    assert collect.resolve_period("today", "", "", t) == (t, t)
+    assert collect.resolve_period("7d", "", "", t) == ("2026-10-12", t)
+    assert collect.resolve_period("30d", "", "", t) == ("2026-09-19", t)
+    assert collect.resolve_period("month", "", "", t) == ("2026-10-01", t)
+    assert collect.resolve_period("custom", "2026-10-15", "2026-10-02", t) == ("2026-10-02", "2026-10-15")   # 거꾸로 적어도
+    assert collect.resolve_period("", "2026-10-02", "", t) == ("2026-10-02", "")
+
+
+def test_page_groups_empty_rows_and_period_chips(tmp_path):
+    _seed(tmp_path)
+    (tmp_path / "platform" / "accounts.json").write_text(json.dumps({"zzdev": {"pw": "dev-pass", "role": "dev"}}))
+    app = create_app(db_path=tmp_path / "platform" / "platform.db", inbox_dir=tmp_path / "inbox", processor=FakeProcessor(),
+                     drafter=FakeDrafter(), responder=FakeResponder(), password="boot-pass-1")
+    c = TestClient(app)
+    c.post("/login", data={"username": "zzdev", "pw": "dev-pass"}, follow_redirects=False)
+    page = c.get("/dev/collect").text
+    for label in ("전체", "오늘", "최근 7일", "최근 30일", "이번 달", "직접 지정"):
+        assert f'>{label}</label>' in page
+    assert 'name="period" value="all" checked' in page
+    assert 'type="date" name="since" value="20' in page and 'type="date" name="until" value="20' in page   # 빈 날짜 칸 없음
+    cat = collect.catalog(app.state.db, tmp_path / "platform")
+    n_empty = sum(1 for x in cat if not x["n"])
+    assert f"비어 있는 항목 {n_empty}개 보기" in page
+    assert page.index("업무 도우미 걸음") < page.index("절 작성 기록")           # 자료 있는 항목이 위
+    assert page.count('class="col-pick"') == len(cat) - n_empty
+    assert "<th class=\"hide-sm\">있는 곳</th>" not in page and "platform_helper_episodes.jsonl" in page
+    # 빠른 기간 — 이번 달(오늘 기준)로도 만들어진다
+    r = c.post("/dev/collect/make", data={"keys": ["helper"], "period": "month"}, follow_redirects=False)
+    assert r.status_code == 303 and "err" not in r.headers["location"]
+    for _ in range(100):
+        if "/dev/collect/file/collect-" in c.get("/dev/collect").text:
+            break
+        time.sleep(0.1)

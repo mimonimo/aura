@@ -211,18 +211,31 @@ def rows(db, data_dir: Path, s: Source, since: str = "", until: str = "9999") ->
     yield from (_db_rows(db, s, since, until) if s.table else _file_rows(data_dir, s, since, until))
 
 
+def _short_span(first: str, last: str, this_year: str) -> str:
+    """기간을 짧게 — 올해면 월-일만(「09-24 ~ 10-18」), 해가 다르면 연도까지."""
+    a, b = first[:10], last[:10]
+    if not a:
+        return ""
+    if a[:4] == b[:4] == this_year:
+        a, b = a[5:], b[5:]
+    return a if a == b else f"{a} ~ {b}"
+
+
 def catalog(db, data_dir: Path) -> list[dict]:
-    """화면 목록 — 항목마다 건수·처음·마지막 시각·크기(기록 파일)."""
+    """화면 목록 — 항목마다 건수·처음·마지막 시각·크기(기록 파일)·날짜별 건수(기간을 고르면 화면이 바로 센다)."""
     from zzaimy.app.database_backend import table_names
+    this_year = time.strftime("%Y")
     out = []
     for s in SOURCES:
-        n, first, last, size = 0, "", "", None
+        n, first, last, size, days = 0, "", "", None, {}
         try:
             if s.table:
                 with db._conn() as conn:
                     if s.table in table_names(conn):
                         n, first, last = conn.execute(
                             f"SELECT COUNT(*), MIN(created_at), MAX(created_at) FROM {s.table}").fetchone()
+                        days = {str(d): int(c) for d, c in conn.execute(
+                            f"SELECT substr(created_at, 1, 10), COUNT(*) FROM {s.table} GROUP BY 1").fetchall() if d}
             else:
                 p = Path(data_dir) / s.file
                 if p.is_file():
@@ -231,11 +244,36 @@ def catalog(db, data_dir: Path) -> list[dict]:
                     times = [t for t in times if t]
                     n = len(times)
                     first, last = (min(times), max(times)) if times else ("", "")
+                    for t in times:
+                        days[t[:10]] = days.get(t[:10], 0) + 1
         except Exception:
             log.exception("수집 자료 세기 실패: %s", s.key)
+        first, last = str(first or ""), str(last or "")
         out.append({"key": s.key, "name": s.name, "desc": s.desc, "use": s.use, "where": s.table or s.file,
-                    "n": int(n or 0), "first": str(first or "")[:10], "last": str(last or "")[:16].replace("T", " "), "bytes": size})
+                    "n": int(n or 0), "first": first[:10], "last": last[:16].replace("T", " "), "bytes": size,
+                    "span": _short_span(first, last, this_year), "days": days})
     return out
+
+
+PERIODS = (("all", "전체"), ("today", "오늘"), ("7d", "최근 7일"), ("30d", "최근 30일"), ("month", "이번 달"), ("custom", "직접 지정"))
+
+
+def resolve_period(period: str, since: str, until: str, today: str) -> tuple[str, str]:
+    """기간 고르기 → (시작일, 끝일). 빈 값은 처음·끝까지(전체). period 가 없으면 since·until 을 그대로 쓴다."""
+    from datetime import date, timedelta
+    t = date.fromisoformat(today)
+    if period == "all":
+        return "", ""
+    if period == "today":
+        return today, today
+    if period in ("7d", "30d"):
+        return (t - timedelta(days=int(period[:-1]) - 1)).isoformat(), today
+    if period == "month":
+        return t.replace(day=1).isoformat(), today
+    since, until = since.strip()[:10], until.strip()[:10]
+    if since and until and since > until:
+        since, until = until, since
+    return since, until
 
 
 def build(db, data_dir: Path, keys: list[str], since: str, until: str, by: str = "") -> Path:
@@ -315,18 +353,24 @@ def collect_page(request: Request):
     with _lock:
         running = [j for j in _jobs.values() if j["state"] == "running"]
         failed = [j for j in _jobs.values() if j["state"] == "failed"][-1:]
+    sources = catalog(st.db, d)
+    sources.sort(key=lambda c: not c["n"])                          # 빈 항목은 아래로(접어 둔다)
+    firsts = [c["first"] for c in sources if c["first"]]
     return st.templates.TemplateResponse(request, "dev_collect.html", st.page_ctx(request, {
-        "request": request, "sources": catalog(st.db, d), "made": made(d), "running": running, "failed": failed}))
+        "request": request, "sources": sources, "made": made(d), "running": running, "failed": failed,
+        "periods": PERIODS, "today": time.strftime("%Y-%m-%d"), "earliest": min(firsts) if firsts else time.strftime("%Y-%m-%d"),
+        "days": {c["key"]: c["days"] for c in sources if c["n"]}}))
 
 
 @router.post("/dev/collect/make")
-def collect_make(request: Request, keys: list[str] = Form([]), since: str = Form(""), until: str = Form("")):
+def collect_make(request: Request, keys: list[str] = Form([]), since: str = Form(""), until: str = Form(""),
+                 period: str = Form("")):
     st = _st(request)
     keys = [k for k in keys if k in BY_KEY]
     if not keys:
         return RedirectResponse("/dev/collect?err=" + "항목을 하나 이상 고르세요", status_code=303)
-    since = since.strip()[:10]
-    until = (until.strip()[:10] + "T99") if until.strip() else ""       # 끝 날짜 그날까지 넣는다
+    since, until = resolve_period(period, since, until, time.strftime("%Y-%m-%d"))
+    until = (until + "T99") if until else ""       # 끝 날짜 그날까지 넣는다
     d, db, by = _data_dir(request), st.db, getattr(request.state, "user", "") or ""
     jid = secrets.token_hex(4)
     with _lock:
