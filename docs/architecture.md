@@ -201,6 +201,28 @@ for 절 in 목차:
 열람 등급)에는 국고사업 전용 가정을 넣지 않는다. 파서 인터페이스, 개인정보 인식기, `AccessLevel`은 문서 도메인과
 무관하게 구현돼 있다. 실적 카드, 배점 검증, 예산 같은 국고사업 고유 로직은 도메인 모듈로 분리한다.
 
+## 10.1 웹 앱 코드 배치 (10-18 정리)
+
+`src/zzaimy/app/main.py` 는 앱을 조립하고(인증·공용 도우미·배경 작업·시작 훅), 화면 경로는 영역별 라우터 모듈에 둔다. 9,181줄이던 main.py 가 4,518줄로 줄었다.
+라우터는 모듈 수준 `router = APIRouter()` 이고, 처리기는 `request.app.state` 에서 db·templates·화면 맥락과 영역 도우미 묶음(앱마다 하나, `make_*_helpers`)을 읽는다.
+옮길 때마다 옮기기 전후 응답(상태·이동 주소·헤더·본문)과 경로 일치 표를 대조했다.
+
+| 영역 | 모듈 | 경로 |
+|---|---|---|
+| 문서 화면·고치기·지우기 | doc_routes.py | /doc/{id}, /docs/* |
+| 문서 파일·미리보기·내려받기 | doc_file_routes.py | /doc/{id}/view·original·export·page … |
+| 프로젝트 | project_routes.py | /project/*, /projects/* |
+| 에이전트 채팅 | chat_routes.py | /chat/* |
+| 개발 현황·처리 흐름·원천 데이터·품질 | dev_overview_routes.py | /dev, /dev/flow, /dev/db, /dev/quality, /dev/eval, /dev/reindex |
+| 데이터·학습·도구 연결·학습 상태 | dev_train_routes.py | /dev/train*, /dev/tools |
+| 데이터 공방·LLM 연결 | dev_data_routes.py | /dev/data*, /dev/llm/* |
+| RAG 공간 · 개인정보 점검 | dev_rag_routes.py · dev_pii_routes.py | /dev/rag*, /dev/pii* |
+| 문서 반입 · 구글 연결 | dev_intake_routes.py · dev_gdrive_routes.py | /dev/intake, /dev/nas*, /dev/gdrive/* |
+| 논문·설계 문서·주간 보고·변경 이력 | dev_docs_routes.py | /dev/docs, /dev/doc/*, /dev/paper/*, /dev/weekly*, /dev/history |
+
+이 밖에 예전부터 따로 있던 라우터: collect.py(/dev/collect), user_admin.py(/dev/users), exports.py, chat_documents.py, chat_history.py, chat_revisions.py, kg_view·kg_explore, project_search, notifications, archive_view.
+앱이 띄우는 긴 배경 작업(재측정·재색인·반입 점검)은 `app/detach.py` 로 systemd scope 에 떼어 서비스 재시작에 끊기지 않는다.
+
 ## 11. 미결 사항
 
 | 항목 | 상태 |
