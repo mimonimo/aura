@@ -250,7 +250,7 @@ def target_scope(target: str, accounts: dict, data_dir: str | Path | None = None
     return None
 
 
-def composition(db, sc: dict, limit: int = 50, reg_limit: int = 2000) -> dict:
+def composition(db, sc: dict, limit: int = 500, reg_limit: int = 2000) -> dict:
     """공간의 문서 구성 — 사업 문서는 사업별(원본 장부 사업 분류)·갈래별 수 상위 limit 개, 규정 색인은 문서별 조각 수(reg_limit 개까지).
     합계(사업 수·갈래 수·규정 문서·조각 수)는 자르기 전 값 — 화면은 상위 몇 줄만 보이고 「더 보기」 로 나머지를 편다."""
     from zzaimy.app.doc_routing import KINDS
