@@ -34,9 +34,11 @@ from zzaimy.graph import programs  # noqa: E402
 from zzaimy import hosts  # noqa: E402
 
 KEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_ro")
+# DGX 가 응답 없이 굳으면(10-18 학습 중 메모리 꽉 참) 접속이 끝없이 매달려 잠금을 쥔 채 다음 회차를 모두 막았다 — 끊긴 연결은 1분 안에 놓는다
+SSH_SAFE = "-o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 REMOTE = hosts.get("ZZAIMY_DGX_SSH") + ":"          # DGX 계정@주소 — .env.local·configs/hosts.env(공개 저장소에 주소를 두지 않는다)
 DGX_PORT = " ".join(hosts.ssh_port_args("ZZAIMY_DGX_SSH_PORT"))
-RSH = f"ssh -i {KEY} {DGX_PORT} -o BatchMode=yes"
+RSH = f"ssh -i {KEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}"
 _LINE = re.compile(r"^-\S+\s+([\d,]+)\s+(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(.+)$")
 PRI = {"evaluation": 0, "plan": 1, "report": 2, "basic_plan": 3, "announcement": 4, "criteria": 5, "guideline": 6}
 
@@ -67,7 +69,7 @@ def listing() -> list[dict]:
 
 
 UPKEY = str(Path.home() / ".ssh" / "id_ed25519_dgx_up")
-UPRSH = f"ssh -i {UPKEY} {DGX_PORT} -o BatchMode=yes"
+UPRSH = f"ssh -i {UPKEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}"
 
 
 def push_uploads(db, origins: dict[str, int], cards=None) -> None:
@@ -153,7 +155,7 @@ def import_parsed() -> None:
         return
     dest = ROOT / "data" / "inbox" / "parsed"
     dest.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes", "-a", "--include=parsed-*.jsonl", "--include=kind27b-*.jsonl", "--include=trainsets.json", "--exclude=*",
+    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}", "-a", "--include=parsed-*.jsonl", "--include=kind27b-*.jsonl", "--include=trainsets.json", "--exclude=*",
                         REMOTE + "./", str(dest) + "/"], capture_output=True)
     if r.returncode != 0:
         print("DGX 처리 결과 받기 실패:", r.stderr.decode("utf-8", "replace")[-160:], flush=True)
@@ -231,7 +233,7 @@ def fetch_facts() -> dict[str, dict]:
     VM 은 원본 목록을 이름·크기·시각으로만 보므로 같은 파일 판정(내용)과 확장자 없는 문서의 실제 형식은 이 장부로 한다.
     받기에 실패하면 지난번 받은 장부로(없으면 이름·크기 기준)."""
     FACTS.parent.mkdir(parents=True, exist_ok=True)
-    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes", "-t", REMOTE + archive_dups.FACTS_NAME,
+    r = subprocess.run(["rsync", "-e", f"ssh -i {PKEY} {DGX_PORT} -o BatchMode=yes {SSH_SAFE}", "-t", REMOTE + archive_dups.FACTS_NAME,
                         str(FACTS)], capture_output=True)
     if r.returncode != 0:
         print("DGX 파일 사실 장부 받기 실패 — 지난 장부로:", r.stderr.decode("utf-8", "replace")[-160:], flush=True)
