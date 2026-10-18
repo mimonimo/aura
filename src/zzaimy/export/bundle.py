@@ -42,7 +42,7 @@ def _git_commit() -> str:
 
 
 TRAINSETS = Path("data/inbox/parsed/trainsets.json")
-_STATUS = {"sft_approved": "SFT 승인", "approved_for_sft": "학습 전 측정 승인", "candidate_not_sft_approved": "후보(승인 전)",
+_STATUS = {"sft_approved": "SFT 승인", "approved_for_sft": "비교 기준 채택", "candidate_not_sft_approved": "후보(승인 전)",
            "baseline_responses_unjudged": "측정 채점 전", "quality_review_pending": "보류 — 품질 검토 대기"}
 _TRAINING = {"running": "학습 중", "done": "학습 완료(어댑터 저장)", "stopped": "학습 멈춤 — 중간 저장만 있음", "": "학습 시작 전"}
 _SPLIT = {"train": "학습", "eval": "검증", "test": "시험"}
@@ -128,7 +128,7 @@ def preview_bundle(db, sft_dir: Path | str = "data/interim/sft",
     if ds_files:
         desc = f"검수 승인 JSONL {len(ds_files)}개"
     elif approved:
-        desc = f"DGX 에 승인 학습셋 {len(approved)}개 — 원문은 DGX 에만 두고 학습도 DGX 에서 합니다(아래 목록)"
+        desc = f"승인된 학습셋 {len(approved)}개 — 문답 원문은 DGX 밖으로 내보내지 않아 여기서 내려받지 않습니다. 학습도 DGX 에서 합니다"
     elif remote:
         desc = "DGX 에 학습셋 후보만 있음(승인 전) — 아래 목록"
     else:

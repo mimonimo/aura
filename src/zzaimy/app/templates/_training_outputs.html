@@ -34,6 +34,7 @@
   .trainset-list li { padding:8px 10px; border:1px solid var(--line); border-radius:8px; display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center; }
   .trainset-kind { font-size:11.5px; color:var(--muted); min-width:72px; }
   .trainset-req { flex-basis:100%; font-size:11.5px; }
+  .trainset-legend { font-size:12px; margin:6px 0 0; }
   .output-footer { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding-top:14px; }
   .output-footer p { margin:0; font-size:12px; }
 </style>
@@ -48,8 +49,9 @@
         {% if g.files %}<label class="output-selection"><input type="checkbox" name="{{ g.group }}" value="1" checked data-output-pick><b>{{ g.label }}</b><span class="output-count">파일 {{ g.files | length }}개</span></label>
         {% else %}<b>{{ g.label }}</b><span class="output-empty">{{ '원문은 DGX 보관 · 이 서버로 반출하지 않음' if g.sets else '반출할 파일 없음' }}</span>{% endif %}
         </div><p class="muted">{{ g.desc }}</p>{% if g.note %}<p class="output-note">{{ g.note }}</p>{% endif %}
-        {% if g.sets %}<ul class="trainset-list">{% for t in g.sets %}
-          <li><span class="trainset-kind">{{ {'release': '승인 기록', 'staging': '학습셋', 'baseline': '학습 전 측정'}.get(t.kind, t.kind) }}</span>
+        {% if g.sets %}<p class="muted trainset-legend">학습셋 = 학습에 쓰는 문답 묶음(학습·검증·시험으로 나눔) · 학습 허가 = 이 학습셋으로 학습해도 된다는 기록(파일 지문으로 묶음) · 학습 전 성적 = 학습 뒤와 견줄 기준 점수</p>
+        <ul class="trainset-list">{% for t in g.sets %}
+          <li><span class="trainset-kind">{{ {'release': '학습 허가', 'staging': '학습셋', 'baseline': '학습 전 성적'}.get(t.kind, t.kind) }}</span>
             <b>{{ t.name }}</b> <span class="pill {{ 'ok' if t.status and t.status.endswith('approved') else '' }}">{{ t.status_label }}</span>
             <span class="muted">{{ t.summary }}{% if t.tracks %} · {% for k, v in t.tracks.items() %}{{ k }} {{ '{:,}'.format(v) }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}
               {% if t.training_label %} · <b>{{ t.training_label }}</b>{% elif t.training_started is sameas false %} · 학습 시작 전{% elif t.training_started %} · 학습 진행{% endif %} · {{ t.at }}</span>
